@@ -198,6 +198,7 @@ struct mal_device
             /*HANDLE*/ mal_handle pNotifyEvents[MAL_MAX_FRAGMENTS_DSOUND];  // One event handle for each fragment.
             /*HANDLE*/ mal_handle hStopEvent;
             mal_uint32 ignoredFragmentCounter;  // <-- This is used for a cheap hack to skip over some initial notifications when the device is first played.
+            mal_uint32 lastProcessedFragment;
 		} dsound;
 	#endif
 		
@@ -1394,18 +1395,41 @@ static mal_result mal_device__main_loop__dsound(mal_device* pDevice)
 
         // Has the device been stopped? If so, need to get out of this loop.
         if (hEvent == pDevice->dsound.hStopEvent) {
+            // If it's a capture device there will be some leftover samples that need to be sent to the client. To
+            // calculate this we just look at the previously processed fragment and compare it to the current read
+            // position
+            if (pDevice->type == mal_device_type_capture) {
+                DWORD dwOffset = (((pDevice->dsound.lastProcessedFragment+1) * pDevice->fragmentSizeInFrames) % (pDevice->fragmentSizeInFrames*pDevice->fragmentCount)) * pDevice->channels * mal_get_sample_size_in_bytes(pDevice->format);
+                DWORD dwBytes = mal_device_get_fragment_size_in_bytes(pDevice);
+            
+                DWORD dwPlayPosition;
+                if (IDirectSoundCaptureBuffer8_GetCurrentPosition((LPDIRECTSOUNDCAPTUREBUFFER8)pDevice->dsound.pCaptureBuffer, &dwPlayPosition, NULL) == DS_OK) {
+                    DWORD sampleCount = (dwPlayPosition - dwOffset) / mal_get_sample_size_in_bytes(pDevice->format);
+                    if (sampleCount > 0) {
+                        void* pLockPtr;
+                        DWORD lockSize;
+                        if (IDirectSoundCaptureBuffer8_Lock((LPDIRECTSOUNDCAPTUREBUFFER8)pDevice->dsound.pCaptureBuffer, dwOffset, dwBytes, &pLockPtr, &lockSize, NULL, NULL, 0) == DS_OK) {
+                            mal_device__send_samples_to_client(pDevice, sampleCount, pLockPtr);
+                            IDirectSoundCaptureBuffer8_Unlock((LPDIRECTSOUNDCAPTUREBUFFER8)pDevice->dsound.pCaptureBuffer, pLockPtr, lockSize, NULL, 0);
+                        }
+                    }
+                }
+            }
+
             break;
         }
+
+        // If we get here it means the event that's been signaled represents a fragment.
+        unsigned int fragmentIndex = eventIndex;    // <-- Just for clarity.
+        mal_assert(fragmentIndex < pDevice->fragmentCount);
+
+        pDevice->dsound.lastProcessedFragment = fragmentIndex;
 
         // Some initial fragments need to be skipped over.
         if (pDevice->dsound.ignoredFragmentCounter > 0) {
             pDevice->dsound.ignoredFragmentCounter -= 1;
             continue;
         }
-
-        // If we get here it means the event that's been signaled represents a fragment.
-        unsigned int fragmentIndex = eventIndex;    // <-- Just for clarity.
-        mal_assert(fragmentIndex < pDevice->fragmentCount);
             
         if (pDevice->type == mal_device_type_playback) {
             mal_device__read_fragment_from_client__dsound(pDevice, (fragmentIndex + 1) % pDevice->fragmentCount);
@@ -2284,7 +2308,6 @@ mal_uint32 mal_get_sample_size_in_bytes(mal_format format)
 // - Make device initialization more robust for ALSA
 //   - Clamp period sizes to their min/max.
 // - Support rewinding. This will enable applications to employ better anti-latency.
-// - [DirectSound] When a device is stopped, none of the samples in the current fragment are sent to the client.
 // - Implement the null device.
 
 
