@@ -1791,10 +1791,7 @@ mal_result mal_device_init__alsa(mal_device* pDevice, mal_device_type type, mal_
 	}
 	
 	snd_pcm_hw_params_t* pHWParams = NULL;
-	if (snd_pcm_hw_params_malloc(&pHWParams) < 0) {
-		mal_device_uninit__alsa(pDevice);
-		return mal_post_error(pDevice, "[ALSA] Failed to allocate snd_pcm_hw_params_t.", MAL_OUT_OF_MEMORY);
-	}
+    snd_pcm_hw_params_alloca(&pHWParams);
 	
 	if (snd_pcm_hw_params_any((snd_pcm_t*)pDevice->alsa.pPCM, pHWParams) < 0) {
 		snd_pcm_hw_params_free(pHWParams);
@@ -1856,15 +1853,10 @@ mal_result mal_device_init__alsa(mal_device* pDevice, mal_device_type type, mal_
 		return mal_post_error(pDevice, "[ALSA] Failed to set hardware parameters. snd_pcm_hw_params() failed.", MAL_ALSA_FAILED_TO_SET_SW_PARAMS);
     }
 
-    snd_pcm_hw_params_free(pHWParams);
-	
-	
+
 	
 	snd_pcm_sw_params_t* pSWParams = NULL;
-	if (snd_pcm_sw_params_malloc(&pSWParams) < 0) {
-		mal_device_uninit__alsa(pDevice);
-		return mal_post_error(pDevice, "[ALSA] Failed to allocate software parameters. snd_pcm_dw_params_malloc() failed.", MAL_OUT_OF_MEMORY);
-	}
+    snd_pcm_sw_params_alloca(&pSWParams);
 	
 	if (snd_pcm_sw_params_current((snd_pcm_t*)pDevice->alsa.pPCM, pSWParams) != 0) {
 		snd_pcm_sw_params_free(pSWParams);
@@ -1891,8 +1883,6 @@ mal_result mal_device_init__alsa(mal_device* pDevice, mal_device_type type, mal_
         mal_device_uninit__alsa(pDevice);
 		return mal_post_error(pDevice, "[ALSA] Failed to set software parameters. snd_pcm_sw_params() failed.", MAL_ALSA_FAILED_TO_SET_SW_PARAMS);
     }
-	
-    snd_pcm_sw_params_free(pSWParams);
 	
 	
 	
