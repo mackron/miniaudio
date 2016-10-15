@@ -45,8 +45,8 @@
 // - DirectSound has _bad_ latency compared to other backends. In my testing, a fragment size of 1024 frames
 //   is too small, but a size of 2048 seems to work.
 
-#ifndef dr_mal_h
-#define dr_mal_h
+#ifndef mini_al_h
+#define mini_al_h
 
 #ifdef __cplusplus
 extern "C" {
@@ -120,23 +120,23 @@ typedef void* mal_ptr;
 #endif
 
 typedef int mal_result;
-#define MAL_SUCCESS				    	    0
-#define MAL_ERROR			                -1
+#define MAL_SUCCESS				    	     0
+#define MAL_ERROR			                -1      // A generic error.
 #define MAL_INVALID_ARGS			        -2
 #define MAL_OUT_OF_MEMORY			        -3
-#define MAL_NO_BACKEND				        -16
-#define MAL_DEVICE_BUSY                     -32     // The device is already in the middle of something.
-#define MAL_DEVICE_NOT_INITIALIZED          -33     // Trying to do something on an uninitialized device.
-#define MAL_DEVICE_ALREADY_STARTED	        -17
-#define MAL_DEVICE_ALREADY_STARTING         -18
-#define MAL_DEVICE_ALREADY_STOPPED          -19
-#define MAL_DEVICE_ALREADY_STOPPING         -20
-#define MAL_FAILED_TO_INIT_BACKEND          -21
-#define MAL_FORMAT_NOT_SUPPORTED	        -22
-#define MAL_FAILED_TO_READ_DATA_FROM_CLIENT -23
-#define MAL_FAILED_TO_START_BACKEND_DEVICE  -24
-#define MAL_FAILED_TO_STOP_BACKEND_DEVICE   -25
-#define MAL_FAILED_TO_MAP_DEVICE_BUFFER     -26
+#define MAL_FORMAT_NOT_SUPPORTED	        -4
+#define MAL_NO_BACKEND				        -5
+#define MAL_DEVICE_BUSY                     -6
+#define MAL_DEVICE_NOT_INITIALIZED          -7
+#define MAL_DEVICE_ALREADY_STARTED	        -8
+#define MAL_DEVICE_ALREADY_STARTING         -9
+#define MAL_DEVICE_ALREADY_STOPPED          -10
+#define MAL_DEVICE_ALREADY_STOPPING         -11
+#define MAL_FAILED_TO_MAP_DEVICE_BUFFER     -12
+#define MAL_FAILED_TO_INIT_BACKEND          -13
+#define MAL_FAILED_TO_READ_DATA_FROM_CLIENT -14
+#define MAL_FAILED_TO_START_BACKEND_DEVICE  -15
+#define MAL_FAILED_TO_STOP_BACKEND_DEVICE   -16
 
 typedef struct mal_device mal_device;
 
@@ -183,7 +183,7 @@ typedef struct
 
 struct mal_device
 {
-	mal_api api;		// DirectSound, ALSA, etc.
+	mal_api api;		    // DirectSound, ALSA, etc.
 	mal_device_type type;
 	mal_format format;
 	mal_uint32 channels;
@@ -193,7 +193,7 @@ struct mal_device
 	mal_uint32 state;
 	mal_recv_proc onRecv;
 	mal_send_proc onSend;
-	void* pUserData;	// Application defined data.
+	void* pUserData;	    // Application defined data.
 	mal_event wakeupEvent;
     mal_event startEvent;
     mal_event stopEvent;
@@ -281,7 +281,7 @@ mal_result mal_enumerate_devices(mal_device_type type, mal_uint32* pCount, mal_d
 //   - MAL_FAILED_TO_INIT_BACKEND
 //       There was a backend-specific error during initialization.
 //
-// Thread Safety: SAFE
+// Thread Safety: ???
 //   This API is thread safe so long as the application does not try to use the device object before
 //   this call has returned.
 //
@@ -302,7 +302,7 @@ mal_result mal_device_init(mal_device* pDevice, mal_device_type type, mal_device
 //   - MAL_DEVICE_NOT_INITIALIZED
 //       The device is not currently or was never initialized.
 //
-// Thread Safety: UNSAFE
+// Thread Safety: ???
 //   This API shouldn't crash in a multi-threaded environment, but results are undefined if an application
 //   attempts to do something with the device at the same time as uninitializing.
 //
@@ -311,7 +311,9 @@ mal_result mal_device_init(mal_device* pDevice, mal_device_type type, mal_device
 //   to destroy internal objects like the backend-specific objects and the background thread.
 void mal_device_uninit(mal_device* pDevice);
 
-// Sets the callback to use when the application has receives data from the device.
+// Sets the callback to use when the application has received data from the device.
+//
+// The fragment size specified at initialization time controls the sample count.
 //
 // Thread Safety: SAFE
 //   This API is implemented as a simple atomic assignment.
@@ -321,6 +323,11 @@ void mal_device_uninit(mal_device* pDevice);
 void mal_device_set_recv_callback(mal_device* pDevice, mal_recv_proc proc);
 
 // Sets the callback to use when the application needs to send data to the device for playback.
+//
+// Note that the implementation of this callback must copy over as many samples as is available. The
+// return value specifies how many samples were written to the output buffer. The backend will fill
+// any leftover samples with silence. The fragment size specified at initialization time controls the
+// number of samples the device will request.
 //
 // Thread Safety: SAFE
 //   This API is implemented as a simple atomic assignment.
@@ -351,6 +358,12 @@ void mal_device_set_send_callback(mal_device* pDevice, mal_send_proc proc);
 //       applications.
 //   - MAL_DEVICE_ALREADY_STARTED
 //       The device is already started.
+//   - MAL_FAILED_TO_READ_DATA_FROM_CLIENT
+//       Failed to read the initial chunk of audio data from the client. This initial chunk of data is
+//       required so that the device has valid audio data as soon as it starts playing. This will never
+//       be returned for capture devices.
+//   - MAL_FAILED_TO_START_BACKEND_DEVICE
+//       There was a backend-specific error starting the device.
 //
 // Thread Safety: SAFE
 //
@@ -375,6 +388,8 @@ mal_result mal_device_start(mal_device* pDevice);
 //       applications.
 //   - MAL_DEVICE_ALREADY_STOPPED
 //       The device is already stopped.
+//   - MAL_FAILED_TO_STOP_BACKEND_DEVICE
+//       There was a backend-specific error stopping the device.
 //
 // Thread Safety: SAFE
 //
@@ -417,7 +432,7 @@ mal_uint32 mal_get_sample_size_in_bytes(mal_format format);
 #ifdef __cplusplus
 }
 #endif
-#endif  //dr_mal_h
+#endif  //mini_al_h
 
 
 ///////////////////////////////////////////////////////////////////////////////
@@ -815,61 +830,6 @@ mal_bool32 mal_event_signal(mal_event* pEvent)
 }
 
 
-#if 0
-mal_bool32 mal_semaphore_create(mal_semaphore* pSemaphore, int initialValue)
-{
-    if (pSemaphore == NULL) return MAL_FALSE;
-
-#ifdef MAL_WIN32
-    return mal_semaphore_create__win32(pSemaphore, initialValue);
-#endif
-
-#ifdef MAL_POSIX
-    return mal_semaphore_create__posix(pSemaphore, initialValue);
-#endif
-}
-
-void mal_semaphore_delete(mal_semaphore* pSemaphore)
-{
-    if (pSemaphore == NULL) return;
-
-#ifdef MAL_WIN32
-    mal_semaphore_delete__win32(pSemaphore);
-#endif
-
-#ifdef MAL_POSIX
-    mal_semaphore_delete__posix(pSemaphore);
-#endif
-}
-
-mal_bool32 mal_semaphore_wait(mal_semaphore* pSemaphore)
-{
-    if (pSemaphore == NULL) return MAL_FALSE;
-
-#ifdef MAL_WIN32
-    return mal_semaphore_wait__win32(pSemaphore);
-#endif
-
-#ifdef MAL_POSIX
-    return mal_semaphore_wait__posix(pSemaphore);
-#endif
-}
-
-mal_bool32 mal_semaphore_release(mal_semaphore* pSemaphore)
-{
-    if (pSemaphore == NULL) return MAL_FALSE;
-
-#ifdef MAL_WIN32
-    return mal_semaphore_release__win32(pSemaphore);
-#endif
-
-#ifdef MAL_POSIX
-    return mal_semaphore_release__posix(pSemaphore);
-#endif
-}
-#endif
-
-
 
 // A helper function for reading sample data from the client. Returns the number of samples read from the client. Remaining samples
 // are filled with silence.
@@ -1041,6 +1001,7 @@ static BOOL CALLBACK mal_enum_devices_callback__dsound(LPGUID lpGuid, LPCSTR lpc
 
     if (pData->pInfo != NULL) {
         if (pData->infoCount > 0) {
+            mal_zero_object(pData->pInfo);
             mal_strncpy_s(pData->pInfo->description, sizeof(pData->pInfo->description), lpcstrDescription, (size_t)-1);
 
             if (lpGuid != NULL) {
@@ -2389,7 +2350,6 @@ mal_uint32 mal_get_sample_size_in_bytes(mal_format format)
 
 // TODO
 // ====
-// - More error codes
 // - Logging
 // - Profiling. Need to measure mal_device_start() and mal_device_stop() in particular. One of the two seems to be taking a bit
 //   longer than it should.
