@@ -13,8 +13,18 @@
 // =====
 // - This library uses an asynchronous API delivering and requesting audio data. Each device will have
 //   it's own worker thread which is managed by the library.
-// - This is not currently thread-safe, but can still be used from multiple threads if you do your own
-//   synchronization.
+// - If mal_device_init() is called with a device that's not aligned to the platform's natural alignment
+//   boundary (4 bytes on 32-bit, 8 bytes on 64-bit), it will _not_ be thread-safe. The reason for this
+//   is that it depends on members of mal_device being correctly aligned for atomic assignments and bit
+//   manipulation.
+//
+//
+// BACKEND NUANCES
+// ===============
+// - For playback devices, the ALSA backend will pre-fill every fragment with sample data. The DirectSound
+//   backend only pre-fills the first fragment.
+// - DirectSound has _bad_ latency compared to other backends. In my testing, a fragment size of 1024 frames
+//   is too small, but a size of 2048 seems to work.
 
 #ifndef dr_mal_h
 #define dr_mal_h
@@ -43,6 +53,7 @@ extern "C" {
 #ifndef MAL_NO_NULL
 	#define MAL_ENABLE_NULL
 #endif
+
 
 #if defined(_MSC_VER) && _MSC_VER < 1600
 typedef   signed char    mal_int8;
@@ -74,10 +85,18 @@ typedef void* mal_ptr;
 
 #ifdef MAL_WIN32
 	typedef mal_handle mal_thread;
-	typedef mal_handle mal_semaphore;
+	typedef mal_handle mal_event;
+    typedef mal_handle mal_semaphore;
 #else
 	typedef pthread_t mal_thread;
 	typedef sem_t mal_semaphore;
+
+    typedef struct
+    {
+        pthread_mutex_t mutex;
+        pthread_cond_t condition; 
+        mal_uint32 value;
+    } mal_event;
 #endif
 
 #ifdef MAL_ENABLE_DSOUND
@@ -85,15 +104,22 @@ typedef void* mal_ptr;
 #endif
 
 typedef int mal_result;
-#define MAL_SUCCESS					0
-#define MAL_UNKNOWN_ERROR			-1
-#define MAL_INVALID_ARGS			-2
-#define MAL_OUT_OF_MEMORY			-3
-#define MAL_NO_BACKEND				-16
-#define MAL_DEVICE_ALREADY_STARTED	-17
-#define MAL_DEVICE_ALREADY_STOPPED  -18
-#define MAL_FAILED_TO_INIT_BACKEND  -19
-#define MAL_FORMAT_NOT_SUPPORTED	-20
+#define MAL_SUCCESS				    	    0
+#define MAL_ERROR			        -1
+#define MAL_INVALID_ARGS			        -2
+#define MAL_OUT_OF_MEMORY			        -3
+#define MAL_NO_BACKEND				        -16
+#define MAL_DEVICE_BUSY                     -32     // The device is already in the middle of something.
+#define MAL_DEVICE_NOT_INITIALIZED          -33     // Trying to do something on an uninitialized device.
+#define MAL_DEVICE_ALREADY_STARTED	        -17
+#define MAL_DEVICE_ALREADY_STARTING         -18
+#define MAL_DEVICE_ALREADY_STOPPED          -19
+#define MAL_DEVICE_ALREADY_STOPPING         -20
+#define MAL_FAILED_TO_INIT_BACKEND          -21
+#define MAL_FORMAT_NOT_SUPPORTED	        -22
+#define MAL_FAILED_TO_READ_DATA_FROM_CLIENT -23
+#define MAL_FAILED_TO_START_BACKEND_DEVICE  -24
+#define MAL_FAILED_TO_STOP_BACKEND_DEVICE   -25
 
 typedef struct mal_device mal_device;
 
@@ -147,11 +173,16 @@ struct mal_device
 	mal_uint32 sampleRate;
 	mal_uint32 fragmentSizeInFrames;
 	mal_uint32 fragmentCount;
-	mal_uint32 flags;
+	mal_uint32 state;
 	mal_recv_proc onRecv;
 	mal_send_proc onSend;
 	void* pUserData;	// Application defined data.
-	
+	mal_event wakeupEvent;
+    mal_event startEvent;
+    mal_event stopEvent;
+    mal_thread thread;
+    mal_result workResult;  // This is set by the worker thread after it's finished doing a job.
+
 	union
 	{
 	#ifdef MAL_ENABLE_DSOUND
@@ -166,8 +197,7 @@ struct mal_device
             /*LPDIRECTSOUNDNOTIFY*/ mal_ptr pNotify;
             /*HANDLE*/ mal_handle pNotifyEvents[MAL_MAX_FRAGMENTS_DSOUND];  // One event handle for each fragment.
             /*HANDLE*/ mal_handle hStopEvent;
-            mal_thread thread;
-            mal_semaphore semaphore;    // <-- This is used to wake up the worker thread.
+            mal_uint32 ignoredFragmentCounter;  // <-- This is used for a cheap hack to skip over some initial notifications when the device is first played.
 		} dsound;
 	#endif
 		
@@ -175,8 +205,8 @@ struct mal_device
 		struct
 		{
 			/*snd_pcm_t**/mal_ptr pPCM;
-			mal_thread thread;
-			mal_semaphore semaphore;	// <-- This is used to wake up the thread.
+			mal_bool32 isUsingMMap;
+			mal_bool32 breakFromMainLoop;
 			void* pIntermediaryBuffer;
 		} alsa;
 	#endif
@@ -196,11 +226,11 @@ struct mal_device
 //   This API uses an application-defined buffer for output. This is thread-safe so long as the
 //   application ensures mutal exclusion to the output buffer at their level.
 //
-// Efficiency: SLOW
+// Efficiency: LOW
 //   This API dynamically links to backend DLLs/SOs (such as dsound.dll).
 mal_result mal_enumerate_devices(mal_device_type type, mal_uint32* pCount, mal_device_info* pInfo);
 
-// Initializes a device.
+// Initializes a device in asynchronous mode.
 //
 // The device ID (pDeviceID) can be null, in which case the default device is used. Otherwise, you
 // can retrieve the ID by calling mal_enumerate_devices() and retrieve the ID from the returned
@@ -214,10 +244,10 @@ mal_result mal_enumerate_devices(mal_device_type type, mal_uint32* pCount, mal_d
 //   This API is thread safe so long as the application does not try to use the device object before
 //   this call has returned.
 //
-// Efficiency: SLOW
+// Efficiency: LOW
 //   This API will dynamically link to backend DLLs/SOs like dsound.dll, and is otherwise just slow
 //   due to the fact that it's an initialization API.
-mal_result mal_device_init(mal_device* pDevice, mal_device_type type, mal_device_id* pDeviceID, mal_format format, mal_uint32 channels, mal_uint32 sampleRate, mal_uint32 fragmentSizeInFrames, mal_uint32 fragmentCount);
+mal_result mal_device_init_async(mal_device* pDevice, mal_device_type type, mal_device_id* pDeviceID, mal_format format, mal_uint32 channels, mal_uint32 sampleRate, mal_uint32 fragmentSizeInFrames, mal_uint32 fragmentCount);
 
 // Uninitializes a device.
 //
@@ -228,7 +258,7 @@ mal_result mal_device_init(mal_device* pDevice, mal_device_type type, mal_device
 //   This API shouldn't crash in a multi-threaded environment, but results are undefined if an application
 //   attempts to do something with the device at the same time as uninitializing.
 //
-// Efficiency: SLOW
+// Efficiency: LOW
 //   This will stop the device with mal_device_stop() which is a slow, synchronized call. It also needs
 //   to destroy internal objects like the backend-specific objects and the background thread.
 void mal_device_uninit(mal_device* pDevice);
@@ -238,7 +268,7 @@ void mal_device_uninit(mal_device* pDevice);
 // Thread Safety: SAFE
 //   This API is implemented as a simple atomic assignment.
 //
-// Efficiency: FAST
+// Efficiency: HIGH
 //   This is just an atomic assignment.
 void mal_device_set_recv_callback(mal_device* pDevice, mal_recv_proc proc);
 
@@ -247,24 +277,43 @@ void mal_device_set_recv_callback(mal_device* pDevice, mal_recv_proc proc);
 // Thread Safety: SAFE
 //   This API is implemented as a simple atomic assignment.
 //
-// Efficiency: FAST
+// Efficiency: HIGH
 //   This is just an atomic assignment.
 void mal_device_set_send_callback(mal_device* pDevice, mal_send_proc proc);
 
 // Activates the device. For playback devices this begins playback. For recording devices it begins
 // recording.
 //
+// For a playback device, this will retrieve an initial chunk of audio data from the client before
+// returning. This reason for this is to ensure there is valid audio data in the buffer, which needs
+// to be done _before_ the device starts playing back audio.
+//
+// Return Value:
+//   MAL_SUCCESS if successful.
+//
+//   MAL_DEVICE_BUSY
+//     The device is in the process of stopping. This will only happen if mal_device_start() and
+//     mal_device_stop() is called simultaneous on separate threads. This will never be returned in
+//     single-threaded applications.
+//
+//   MAL_DEVICE_ALREADY_STARTING
+//     The device is already in the process of starting. This will never be returned in single-threaded
+//     applications.
+//
+//   MAL_DEVICE_ALREADY_STARTED
+//     The device is already started.
+//
 // Thread Safety: SAFE
 //
-// Efficiency: SLOW
-//   This API needs to wait on the worker thread via a semaphore.
+// Efficiency: LOW
+//   This API waits until the backend device has been closed for real by the worker thread.
 mal_result mal_device_start(mal_device* pDevice);
 
 // Puts the device to sleep, but does not uninitialize it. Use mal_device_start() to start it up again.
 //
 // Thread Safety: SAFE
 //
-// Efficiency: SLOW
+// Efficiency: LOW
 //   This API needs to wait on the worker thread to stop the backend device properly before returning.
 mal_result mal_device_stop(mal_device* pDevice);
 
@@ -274,7 +323,7 @@ mal_result mal_device_stop(mal_device* pDevice);
 //   If another thread calls mal_device_start() or mal_device_stop() at this same time as this function
 //   is called, there's a very small chance the return value will out of sync.
 //
-// Efficiency: FAST
+// Efficiency: HIGH
 //   This is implemented with a simple accessor.
 mal_bool32 mal_device_is_started(mal_device* pDevice);
 
@@ -283,7 +332,7 @@ mal_bool32 mal_device_is_started(mal_device* pDevice);
 // Thread Safety: SAFE
 //   This is calculated from constant values which are set at initialization time and never change.
 //
-// Efficiency: FAST
+// Efficiency: HIGH
 //   This is implemented with just a few 32-bit integer multiplications.
 mal_uint32 mal_device_get_fragment_size_in_bytes(mal_device* pDevice);
 
@@ -292,7 +341,7 @@ mal_uint32 mal_device_get_fragment_size_in_bytes(mal_device* pDevice);
 // Thread Safety: SAFE
 //   This is API is pure.
 //
-// Efficiency: FAST
+// Efficiency: HIGH
 //   This is implemented with a lookup table.
 mal_uint32 mal_get_sample_size_in_bytes(mal_format format);
 
@@ -327,6 +376,33 @@ mal_uint32 mal_get_sample_size_in_bytes(mal_format format);
 
 #include <stdio.h>  // For printf() debugging. TODO: Delete this and replace with a proper logging system.
 
+#ifdef _WIN32
+#ifdef _WIN64
+#define MAL_64BIT
+#else
+#define MAL_32BIT
+#endif
+#endif
+
+#ifdef __GNUC__
+#ifdef __LP64__
+#define MAL_64BIT
+#else
+#define MAL_32BIT
+#endif
+#endif
+
+#if !defined(MAL_64BIT) && !defined(MAL_32BIT)
+#include <stdint.h>
+#if INTPTR_MAX == INT64_MAX
+#define MAL_64BIT
+#else
+#define MAL_32BIT
+#endif
+#endif
+
+
+
 #ifdef MAL_WIN32
 	#define MAL_THREADCALL WINAPI
 	typedef mal_uint32 mal_thread_result;
@@ -336,12 +412,11 @@ mal_uint32 mal_get_sample_size_in_bytes(mal_format format);
 #endif
 typedef mal_thread_result (MAL_THREADCALL * mal_thread_entry_proc)(void* pData);
 
-
-#define MAL_FLAG_INITIALIZED	(1 << 0)
-#define MAL_FLAG_AWAKE			(1 << 1)
-#define MAL_FLAG_STARTED		(1 << 2)	// Whether or not the device is currently awake and running.
-#define MAL_FLAG_TERMINATING	(1 << 3)	// Used for thread management.
-
+#define MAL_STATE_UNINITIALIZED     0
+#define MAL_STATE_STOPPED           1   // The device's default state after initialization.
+#define MAL_STATE_STARTED           2   // The worker thread is in it's main loop waiting for the driver to request or deliver audio data.
+#define MAL_STATE_STARTING          3   // Transitioning from a stopped state to started.
+#define MAL_STATE_STOPPING          4   // Transitioning from a started state to stopped.
 
 ///////////////////////////////////////////////////////////////////////////////
 //
@@ -437,12 +512,36 @@ static unsigned int mal_next_power_of_2(unsigned int x)
 }
 
 
+
+///////////////////////////////////////////////////////////////////////////////
+//
+// Atomics
+//
+///////////////////////////////////////////////////////////////////////////////
+#if defined(_WIN32) && defined(_MSC_VER)
+#define mal_memory_barrier()            MemoryBarrier()
+#define mal_atomic_exchange_32(a, b)    InterlockedExchange((LONG*)a, (LONG)b)
+#define mal_atomic_exchange_64(a, b)    InterlockedExchange64((LONGLONG*)a, (LONGLONG)b)
+#else
+#define mal_memory_barrier()            __sync_synchronize()
+#define mal_atomic_exchange_32(a, b)    (void)__sync_lock_test_and_set(a, b); __sync_synchronize()
+#define mal_atomic_exchange_64(a, b)    (void)__sync_lock_test_and_set(a, b); __sync_synchronize()
+#endif
+
+#ifdef MAL_64BIT
+#define mal_atomic_exchange_ptr mal_atomic_exchange_64
+#endif
+#ifdef MAL_32BIT
+#define mal_atomic_exchange_ptr mal_atomic_exchange_32
+#endif
+
+
+
 ///////////////////////////////////////////////////////////////////////////////
 //
 // Threading
 //
 ///////////////////////////////////////////////////////////////////////////////
-
 #ifdef MAL_WIN32
 mal_bool32 mal_thread_create__win32(mal_thread* pThread, mal_thread_entry_proc entryProc, void* pData)
 {
@@ -460,29 +559,29 @@ void mal_thread_wait__win32(mal_thread* pThread)
 }
 
 
-mal_bool32 mal_semaphore_create__win32(mal_semaphore* pSemaphore, int initialValue)
+mal_bool32 mal_event_create__win32(mal_event* pEvent)
 {
-    *pSemaphore = CreateSemaphoreA(NULL, initialValue, LONG_MAX, NULL);
-    if (*pSemaphore == NULL) {
+    *pEvent = CreateEventW(NULL, FALSE, FALSE, NULL);
+    if (*pEvent == NULL) {
         return MAL_FALSE;
     }
 
     return MAL_TRUE;
 }
 
-void mal_semaphore_delete__win32(mal_semaphore* pSemaphore)
+void mal_event_delete__win32(mal_event* pEvent)
 {
-    CloseHandle(*pSemaphore);
+    CloseHandle(*pEvent);
 }
 
-mal_bool32 mal_semaphore_wait__win32(mal_semaphore* pSemaphore)
+mal_bool32 mal_event_wait__win32(mal_event* pEvent)
 {
-    return WaitForSingleObject(*pSemaphore, INFINITE) == WAIT_OBJECT_0;
+    return WaitForSingleObject(*pEvent, INFINITE) == WAIT_OBJECT_0;
 }
 
-mal_bool32 mal_semaphore_release__win32(mal_semaphore* pSemaphore)
+mal_bool32 mal_event_signal__win32(mal_event* pEvent)
 {
-    return ReleaseSemaphore(*pSemaphore, 1, NULL) != 0;
+    return SetEvent(*pEvent);
 }
 #endif
 
@@ -499,24 +598,51 @@ void mal_thread_wait__posix(mal_thread* pThread)
 }
 
 
-mal_bool32 mal_semaphore_create__posix(mal_semaphore* pSemaphore, int initialValue)
+mal_bool32 mal_event_create__posix(mal_event* pEvent)
 {
-    return sem_init(pSemaphore, 0, (unsigned int)initialValue) != -1;
+    if (pthread_mutex_init(&pEvent->mutex, NULL) != 0) {
+        return MAL_FALSE;
+    }
+
+    if (pthread_cond_init(&pEvent->condition, NULL) != 0) {
+        return MAL_FALSE;
+    }
+
+    pEvent->value = 0;
+    return MAL_TRUE;
 }
 
-void mal_semaphore_delete__posix(mal_semaphore* pSemaphore)
+void mal_event_delete__posix(mal_event* pEvent)
 {
-    sem_close(pSemaphore);
+    pthread_cond_destroy(&pEvent->condition);
+    pthread_mutex_destroy(&pEvent->mutex);
 }
 
-mal_bool32 mal_semaphore_wait__posix(mal_semaphore* pSemaphore)
+mal_bool32 mal_event_wait__posix(mal_event* pEvent)
 {
-    return sem_wait(pSemaphore) != -1;
+    pthread_mutex_lock(&pEvent->mutex);
+    {
+        while (pEvent->value == 0) {
+            pthread_cond_wait(&pEvent->condition, &pEvent->mutex);
+        }
+
+        pEvent->value = 0;  // Auto-reset.
+    }
+    pthread_mutex_unlock(&pEvent->mutex);
+
+    return MAL_TRUE;
 }
 
-mal_bool32 mal_semaphore_release__posix(mal_semaphore* pSemaphore)
+mal_bool32 mal_event_signal__posix(mal_event* pEvent)
 {
-    return sem_post(pSemaphore) != -1;
+    pthread_mutex_lock(&pEvent->mutex);
+    {
+        pEvent->value = 1;
+        pthread_cond_signal(&pEvent->condition);
+    }
+    pthread_mutex_unlock(&pEvent->mutex);
+
+    return MAL_TRUE;
 }
 #endif
 
@@ -547,6 +673,60 @@ void mal_thread_wait(mal_thread* pThread)
 }
 
 
+mal_bool32 mal_event_create(mal_event* pEvent)
+{
+    if (pEvent == NULL) return MAL_FALSE;
+
+#ifdef MAL_WIN32
+    return mal_event_create__win32(pEvent);
+#endif
+
+#ifdef MAL_POSIX
+    return mal_event_create__posix(pEvent);
+#endif
+}
+
+void mal_event_delete(mal_event* pEvent)
+{
+    if (pEvent == NULL) return;
+
+#ifdef MAL_WIN32
+    mal_event_delete__win32(pEvent);
+#endif
+
+#ifdef MAL_POSIX
+    mal_event_delete__posix(pEvent);
+#endif
+}
+
+mal_bool32 mal_event_wait(mal_event* pEvent)
+{
+    if (pEvent == NULL) return MAL_FALSE;
+
+#ifdef MAL_WIN32
+    return mal_event_wait__win32(pEvent);
+#endif
+
+#ifdef MAL_POSIX
+    return mal_event_wait__posix(pEvent);
+#endif
+}
+
+mal_bool32 mal_event_signal(mal_event* pEvent)
+{
+    if (pEvent == NULL) return MAL_FALSE;
+
+#ifdef MAL_WIN32
+    return mal_event_signal__win32(pEvent);
+#endif
+
+#ifdef MAL_POSIX
+    return mal_event_signal__posix(pEvent);
+#endif
+}
+
+
+#if 0
 mal_bool32 mal_semaphore_create(mal_semaphore* pSemaphore, int initialValue)
 {
     if (pSemaphore == NULL) return MAL_FALSE;
@@ -598,12 +778,13 @@ mal_bool32 mal_semaphore_release(mal_semaphore* pSemaphore)
     return mal_semaphore_release__posix(pSemaphore);
 #endif
 }
+#endif
 
 
 
 // A helper function for reading sample data from the client. Returns the number of samples read from the client. Remaining samples
 // are filled with silence.
-static inline mal_uint32 mal_device__read_fragment_from_client(mal_device* pDevice, mal_uint32 sampleCount, void* pSamples)
+static inline mal_uint32 mal_device__read_samples_from_client(mal_device* pDevice, mal_uint32 sampleCount, void* pSamples)
 {
     mal_assert(pDevice != NULL);
     mal_assert(sampleCount > 0);
@@ -623,7 +804,7 @@ static inline mal_uint32 mal_device__read_fragment_from_client(mal_device* pDevi
 }
 
 // A helper for sending sample data to the client.
-static inline void mal_device__send_fragment_to_client(mal_device* pDevice, mal_uint32 sampleCount, const void* pSamples)
+static inline void mal_device__send_samples_to_client(mal_device* pDevice, mal_uint32 sampleCount, const void* pSamples)
 {
     mal_assert(pDevice != NULL);
     mal_assert(sampleCount > 0);
@@ -632,6 +813,18 @@ static inline void mal_device__send_fragment_to_client(mal_device* pDevice, mal_
     if (pDevice->onRecv) {
         pDevice->onRecv(pDevice, sampleCount, pSamples);
     }
+}
+
+// A helper for changing the state of the device.
+static inline void mal_device__set_state(mal_device* pDevice, mal_uint32 newState)
+{
+    mal_atomic_exchange_32(&pDevice->state, newState);
+}
+
+// A helper for getting the state of the device.
+static inline mal_uint32 mal_device__get_state(mal_device* pDevice)
+{
+    return pDevice->state;
 }
 
 
@@ -673,18 +866,32 @@ mal_result mal_device_init__null(mal_device* pDevice, mal_device_type type, mal_
 	return MAL_NO_BACKEND;
 }
 
-mal_result mal_device_start__null(mal_device* pDevice)
+static mal_result mal_device__start_backend__null(mal_device* pDevice)
 {
-	mal_assert(pDevice != NULL);
+    mal_assert(pDevice != NULL);
 
-	return MAL_UNKNOWN_ERROR;
+    return MAL_ERROR;
 }
 
-mal_result mal_device_stop__null(mal_device* pDevice)
+static mal_result mal_device__stop_backend__null(mal_device* pDevice)
 {
-	mal_assert(pDevice != NULL);
-	
-	return MAL_UNKNOWN_ERROR;
+    mal_assert(pDevice != NULL);
+
+    return MAL_ERROR;
+}
+
+static mal_result mal_device__break_main_loop__null(mal_device* pDevice)
+{
+    mal_assert(pDevice != NULL);
+
+    return MAL_ERROR;
+}
+
+static mal_result mal_device__main_loop__null(mal_device* pDevice)
+{
+    mal_assert(pDevice != NULL);
+
+    return MAL_ERROR;
 }
 #endif
 
@@ -718,9 +925,6 @@ typedef HRESULT (WINAPI * mal_DirectSoundEnumerateAProc)(LPDSENUMCALLBACKA pDSEn
 typedef HRESULT (WINAPI * mal_DirectSoundCaptureCreate8Proc)(LPCGUID pcGuidDevice, LPDIRECTSOUNDCAPTURE8 *ppDSC8, LPUNKNOWN pUnkOuter);
 typedef HRESULT (WINAPI * mal_DirectSoundCaptureEnumerateAProc)(LPDSENUMCALLBACKA pDSEnumCallback, LPVOID pContext);
 
-#define MAL_FLAG_DSOUND_HAS_SEMAPHORE   (1 << 16)	// Used for cleanup.
-#define MAL_FLAG_DSOUND_HAS_THREAD      (1 << 17)	// Used for cleanup.
-
 static HMODULE mal_open_dsound_dll()
 {
     return LoadLibraryW(L"dsound.dll");
@@ -729,117 +933,6 @@ static HMODULE mal_open_dsound_dll()
 static void mal_close_dsound_dll(HMODULE hModule)
 {
     FreeLibrary(hModule);
-}
-
-static mal_result mal_device__read_fragment_from_client__dsound(mal_device* pDevice, mal_uint32 fragmentIndex)
-{
-    mal_assert(pDevice != NULL);
-
-    DWORD fragmentSizeInBytes = pDevice->fragmentSizeInFrames * pDevice->channels * mal_get_sample_size_in_bytes(pDevice->format);
-    DWORD offset = fragmentIndex * fragmentSizeInBytes;
-
-    void* pLockPtr;
-    DWORD lockSize;
-    if (FAILED(IDirectSoundBuffer_Lock((LPDIRECTSOUNDBUFFER)pDevice->dsound.pPlaybackBuffer, offset, fragmentSizeInBytes, &pLockPtr, &lockSize, NULL, NULL, 0))) {
-        return MAL_UNKNOWN_ERROR;
-    }
-
-    mal_device__read_fragment_from_client(pDevice, pDevice->fragmentSizeInFrames * pDevice->channels, pLockPtr);
-
-    IDirectSoundBuffer_Unlock((LPDIRECTSOUNDBUFFER)pDevice->dsound.pPlaybackBuffer, pLockPtr, lockSize, NULL, 0);
-    return MAL_SUCCESS;
-}
-
-static mal_result mal_device__send_fragment_to_client__dsound(mal_device* pDevice, mal_uint32 fragmentIndex)
-{
-    mal_assert(pDevice != NULL);
-
-    DWORD fragmentSizeInBytes = pDevice->fragmentSizeInFrames * pDevice->channels * mal_get_sample_size_in_bytes(pDevice->format);
-    DWORD offset = fragmentIndex * fragmentSizeInBytes;
-
-    void* pLockPtr;
-    DWORD lockSize;
-    if (FAILED(IDirectSoundCaptureBuffer_Lock((LPDIRECTSOUNDCAPTUREBUFFER8)pDevice->dsound.pCaptureBuffer, offset, fragmentSizeInBytes, &pLockPtr, &lockSize, NULL, NULL, 0))) {
-        return MAL_UNKNOWN_ERROR;
-    }
-
-    mal_device__send_fragment_to_client(pDevice, pDevice->fragmentSizeInFrames * pDevice->channels, pLockPtr);
-
-    IDirectSoundCaptureBuffer_Unlock((LPDIRECTSOUNDCAPTUREBUFFER)pDevice->dsound.pCaptureBuffer, pLockPtr, lockSize, NULL, 0);
-    return MAL_SUCCESS;
-}
-
-mal_thread_result MAL_THREADCALL mal_worker_thread__dsound(void* pData)
-{
-	mal_device* pDevice = (mal_device*)pData;
-	mal_assert(pDevice != NULL);
-
-	for (;;) {
-		mal_semaphore_wait(&pDevice->dsound.semaphore);
-		
-		// Just break if we're terminating.
-		if (pDevice->flags & MAL_FLAG_TERMINATING) {
-			break;
-		}
-		
-		// Continue if the device has been stopped.
-		if (!mal_device_is_started(pDevice)) {
-            if (pDevice->type == mal_device_type_playback) {
-                IDirectSoundBuffer_Stop((LPDIRECTSOUNDBUFFER)pDevice->dsound.pPlaybackBuffer);
-                IDirectSoundBuffer_SetCurrentPosition((LPDIRECTSOUNDBUFFER)pDevice->dsound.pPlaybackBuffer, 0);
-            } else {
-                IDirectSoundCaptureBuffer_Stop((LPDIRECTSOUNDCAPTUREBUFFER)pDevice->dsound.pCaptureBuffer);
-            }
-
-			continue;
-		}
-		
-		// Getting here means we just started the device and we need to wait for the device to
-		// either deliver us data (recording) or request more data (playback).
-		if (pDevice->type == mal_device_type_playback) {
-            // Before playing anything we need to grab an initial fragment of sample data from the client.
-            if (mal_device__read_fragment_from_client__dsound(pDevice, 0) != MAL_SUCCESS) {
-                continue;   // Just cancel playback and go back to the start of the loop.
-            }
-
-            IDirectSoundBuffer_Play((LPDIRECTSOUNDBUFFER)pDevice->dsound.pPlaybackBuffer, 0, 0, DSBPLAY_LOOPING);
-        } else {
-            IDirectSoundCaptureBuffer8_Start((LPDIRECTSOUNDCAPTUREBUFFER8)pDevice->dsound.pCaptureBuffer, DSCBSTART_LOOPING);
-        }
-
-        for (;;) {
-            // Wait for a notification. Notifications are tied to fragments.
-            unsigned int eventCount = pDevice->fragmentCount + 1;
-            HANDLE eventHandles[MAL_MAX_FRAGMENTS_DSOUND + 1];   // +1 for the stop event.
-            mal_copy_memory(eventHandles, pDevice->dsound.pNotifyEvents, sizeof(HANDLE) * pDevice->fragmentCount);
-            eventHandles[eventCount-1] = pDevice->dsound.hStopEvent;
-
-            DWORD rc = WaitForMultipleObjects(eventCount, eventHandles, FALSE, INFINITE);
-            if (rc < WAIT_OBJECT_0 || rc >= WAIT_OBJECT_0 + eventCount) {
-                break;
-            }
-
-            unsigned int eventIndex = rc - WAIT_OBJECT_0;
-            HANDLE hEvent = eventHandles[eventIndex];
-
-            // Has the device been stopped? If so, need to get out of this loop.
-            if (hEvent == pDevice->dsound.hStopEvent) {
-                break;
-            }
-
-            // If we get here it means the event that's been signaled represents a fragment.
-            unsigned int fragmentIndex = eventIndex;    // <-- Just for clarity.
-            mal_assert(fragmentIndex < pDevice->fragmentCount);
-            
-            if (pDevice->type == mal_device_type_playback) {
-                mal_device__read_fragment_from_client__dsound(pDevice, (fragmentIndex + 1) % pDevice->fragmentCount);
-            } else {
-                mal_device__send_fragment_to_client__dsound(pDevice, fragmentIndex);
-            }
-        }
-	}
-
-	return (mal_thread_result)0;
 }
 
 
@@ -915,17 +1008,6 @@ mal_result mal_enumerate_devices__dsound(mal_device_type type, mal_uint32* pCoun
 void mal_device_uninit__dsound(mal_device* pDevice)
 {
 	mal_assert(pDevice != NULL);
-
-    pDevice->flags |= MAL_FLAG_TERMINATING;
-	
-	if (pDevice->flags & MAL_FLAG_DSOUND_HAS_THREAD) {
-		mal_semaphore_release(&pDevice->dsound.semaphore);
-		mal_thread_wait(&pDevice->dsound.thread);
-	}
-	
-	if (pDevice->flags & MAL_FLAG_DSOUND_HAS_SEMAPHORE) {
-		mal_semaphore_delete(&pDevice->dsound.semaphore);
-	}
 
     if (pDevice->dsound.hDSoundDLL != NULL) {
         if (pDevice->dsound.hStopEvent) {
@@ -1186,48 +1268,153 @@ mal_result mal_device_init__dsound(mal_device* pDevice, mal_device_type type, ma
     }
 
 
-    if (!mal_semaphore_create(&pDevice->dsound.semaphore, 0)) {
-		mal_device_uninit__dsound(pDevice);
-		return MAL_FAILED_TO_INIT_BACKEND;
-	}
-	pDevice->flags |= MAL_FLAG_DSOUND_HAS_SEMAPHORE;
-	
-	if (!mal_thread_create(&pDevice->dsound.thread, mal_worker_thread__dsound, pDevice)) {
-		mal_device_uninit__dsound(pDevice);
-		return MAL_FAILED_TO_INIT_BACKEND;
-	}
-	pDevice->flags |= MAL_FLAG_DSOUND_HAS_THREAD;
-
-
 	return MAL_SUCCESS;
 }
 
-mal_result mal_device_start__dsound(mal_device* pDevice)
+
+static mal_result mal_device__read_fragment_from_client__dsound(mal_device* pDevice, mal_uint32 fragmentIndex)
 {
-	mal_assert(pDevice != NULL);
+    mal_assert(pDevice != NULL);
 
-    // We don't actually start the device here. We instead signal the semaphore on the worker thread and
-	// let that thread play the device.
-	pDevice->flags |= MAL_FLAG_STARTED;
-	mal_semaphore_release(&pDevice->dsound.semaphore);
+    DWORD fragmentSizeInBytes = pDevice->fragmentSizeInFrames * pDevice->channels * mal_get_sample_size_in_bytes(pDevice->format);
+    DWORD offset = fragmentIndex * fragmentSizeInBytes;
 
-    // Make sure the signal used to stop the worker thread is no longer signaled.
-    ResetEvent(pDevice->dsound.hStopEvent);
-	return MAL_SUCCESS;
+    void* pLockPtr;
+    DWORD lockSize;
+    if (FAILED(IDirectSoundBuffer_Lock((LPDIRECTSOUNDBUFFER)pDevice->dsound.pPlaybackBuffer, offset, fragmentSizeInBytes, &pLockPtr, &lockSize, NULL, NULL, 0))) {
+        return MAL_ERROR;
+    }
+
+    mal_device__read_samples_from_client(pDevice, pDevice->fragmentSizeInFrames * pDevice->channels, pLockPtr);
+
+    IDirectSoundBuffer_Unlock((LPDIRECTSOUNDBUFFER)pDevice->dsound.pPlaybackBuffer, pLockPtr, lockSize, NULL, 0);
+    return MAL_SUCCESS;
 }
 
-mal_result mal_device_stop__dsound(mal_device* pDevice)
+static mal_result mal_device__send_fragment_to_client__dsound(mal_device* pDevice, mal_uint32 fragmentIndex)
 {
-	mal_assert(pDevice != NULL);
-	
-    // The device is not stopped here. We instead mark the device as stopped and signal the semaphore
-	// on the worker thread.
-	pDevice->flags &= ~MAL_FLAG_STARTED;
-	mal_semaphore_release(&pDevice->dsound.semaphore);
+    mal_assert(pDevice != NULL);
 
-    // The worker thread is likely waiting on 
+    DWORD fragmentSizeInBytes = pDevice->fragmentSizeInFrames * pDevice->channels * mal_get_sample_size_in_bytes(pDevice->format);
+    DWORD offset = fragmentIndex * fragmentSizeInBytes;
+
+    void* pLockPtr;
+    DWORD lockSize;
+    if (FAILED(IDirectSoundCaptureBuffer_Lock((LPDIRECTSOUNDCAPTUREBUFFER8)pDevice->dsound.pCaptureBuffer, offset, fragmentSizeInBytes, &pLockPtr, &lockSize, NULL, NULL, 0))) {
+        return MAL_ERROR;
+    }
+
+    mal_device__send_samples_to_client(pDevice, pDevice->fragmentSizeInFrames * pDevice->channels, pLockPtr);
+
+    IDirectSoundCaptureBuffer_Unlock((LPDIRECTSOUNDCAPTUREBUFFER)pDevice->dsound.pCaptureBuffer, pLockPtr, lockSize, NULL, 0);
+    return MAL_SUCCESS;
+}
+
+
+static mal_result mal_device__start_backend__dsound(mal_device* pDevice)
+{
+    mal_assert(pDevice != NULL);
+    
+    if (pDevice->type == mal_device_type_playback) {
+        // Before playing anything we need to grab an initial fragment of sample data from the client.
+        if (mal_device__read_fragment_from_client__dsound(pDevice, 0) != MAL_SUCCESS) {
+            return MAL_FAILED_TO_READ_DATA_FROM_CLIENT;
+        }
+
+        if (IDirectSoundBuffer_Play((LPDIRECTSOUNDBUFFER)pDevice->dsound.pPlaybackBuffer, 0, 0, DSBPLAY_LOOPING) != DS_OK) {
+            return MAL_FAILED_TO_START_BACKEND_DEVICE;
+        }
+    } else {
+        if (IDirectSoundCaptureBuffer8_Start((LPDIRECTSOUNDCAPTUREBUFFER8)pDevice->dsound.pCaptureBuffer, DSCBSTART_LOOPING) != DS_OK) {
+            return MAL_FAILED_TO_START_BACKEND_DEVICE;
+        }
+    }
+
+    return MAL_SUCCESS;
+}
+
+static mal_result mal_device__stop_backend__dsound(mal_device* pDevice)
+{
+    mal_assert(pDevice != NULL);
+    
+    if (pDevice->type == mal_device_type_playback) {
+        if (IDirectSoundBuffer_Stop((LPDIRECTSOUNDBUFFER)pDevice->dsound.pPlaybackBuffer) != DS_OK) {
+            return MAL_FAILED_TO_STOP_BACKEND_DEVICE;
+        }
+
+        IDirectSoundBuffer_SetCurrentPosition((LPDIRECTSOUNDBUFFER)pDevice->dsound.pPlaybackBuffer, 0);
+    } else {
+        if (IDirectSoundCaptureBuffer_Stop((LPDIRECTSOUNDCAPTUREBUFFER)pDevice->dsound.pCaptureBuffer) != DS_OK) {
+            return MAL_FAILED_TO_STOP_BACKEND_DEVICE;
+        }
+    }
+
+    return MAL_SUCCESS;
+}
+
+static mal_result mal_device__break_main_loop__dsound(mal_device* pDevice)
+{
+    mal_assert(pDevice != NULL);
+
+    // The main loop will be waiting on a bunch of events via the WaitForMultipleObjects() API. One of those events
+    // is a special event we use for forcing that function to return.
     SetEvent(pDevice->dsound.hStopEvent);
-	return MAL_SUCCESS;
+    return MAL_SUCCESS;
+}
+
+static mal_result mal_device__main_loop__dsound(mal_device* pDevice)
+{
+    mal_assert(pDevice != NULL);
+
+    // Make sure the stop event is not signaled to ensure we don't end up immediately returning from WaitForMultipleObjects().
+    ResetEvent(pDevice->dsound.hStopEvent);
+
+    // When the device is first started, there will be a few fragments that we need to skip over due to the way
+    // they're handled by DirectSound. For a recording device it's the first fragment we need to ignore.
+    if (pDevice->type == mal_device_type_playback) {
+        pDevice->dsound.ignoredFragmentCounter = 0;
+    } else {
+        pDevice->dsound.ignoredFragmentCounter = 1;
+    }
+
+    for (;;) {
+        // Wait for a notification. Notifications are tied to fragments.
+        unsigned int eventCount = pDevice->fragmentCount + 1;
+        HANDLE eventHandles[MAL_MAX_FRAGMENTS_DSOUND + 1];   // +1 for the stop event.
+        mal_copy_memory(eventHandles, pDevice->dsound.pNotifyEvents, sizeof(HANDLE) * pDevice->fragmentCount);
+        eventHandles[eventCount-1] = pDevice->dsound.hStopEvent;
+
+        DWORD rc = WaitForMultipleObjects(eventCount, eventHandles, FALSE, INFINITE);
+        if (rc < WAIT_OBJECT_0 || rc >= WAIT_OBJECT_0 + eventCount) {
+            break;
+        }
+
+        unsigned int eventIndex = rc - WAIT_OBJECT_0;
+        HANDLE hEvent = eventHandles[eventIndex];
+
+        // Has the device been stopped? If so, need to get out of this loop.
+        if (hEvent == pDevice->dsound.hStopEvent) {
+            break;
+        }
+
+        // Some initial fragments need to be skipped over.
+        if (pDevice->dsound.ignoredFragmentCounter > 0) {
+            pDevice->dsound.ignoredFragmentCounter -= 1;
+            continue;
+        }
+
+        // If we get here it means the event that's been signaled represents a fragment.
+        unsigned int fragmentIndex = eventIndex;    // <-- Just for clarity.
+        mal_assert(fragmentIndex < pDevice->fragmentCount);
+            
+        if (pDevice->type == mal_device_type_playback) {
+            mal_device__read_fragment_from_client__dsound(pDevice, (fragmentIndex + 1) % pDevice->fragmentCount);
+        } else {
+            mal_device__send_fragment_to_client__dsound(pDevice, fragmentIndex);
+        }
+    }
+
+    return MAL_SUCCESS;
 }
 #endif
 
@@ -1240,14 +1427,58 @@ mal_result mal_device_stop__dsound(mal_device* pDevice)
 #ifdef MAL_ENABLE_ALSA
 #include <alsa/asoundlib.h>
 
-#define MAL_FLAG_ALSA_USING_MMAP	(1 << 15)
-#define MAL_FLAG_ALSA_HAS_SEMAPHORE	(1 << 16)	// Used for cleanup.
-#define MAL_FLAG_ALSA_HAS_THREAD	(1 << 17)	// Used for cleanup.
+// Waits for a number of frames to become available for either capture or playback. The return
+// value is the number of frames available. If this is less than the fragment size it means the
+// main loop has been terminated from another thread. The return value will be clamped to the
+// fragment size.
+//
+// This will return early if the main loop is broken with mal_device__break_main_loop().
+mal_uint32 mal_device__wait_for_frames(mal_device* pDevice)
+{
+	mal_assert(pDevice != NULL);
+	
+	while (!pDevice->alsa.breakFromMainLoop) {
+		snd_pcm_sframes_t framesAvailable = snd_pcm_avail_update(pDevice->alsa.pPCM);
+		if (framesAvailable >= pDevice->fragmentSizeInFrames) {
+			return pDevice->fragmentSizeInFrames;
+		}
+		
+		if (framesAvailable < 0) {
+			if (framesAvailable == -EPIPE) {
+				if (snd_pcm_recover(pDevice->alsa.pPCM, framesAvailable, MAL_TRUE) < 0) {
+					return MAL_FALSE;
+				}
+                
+                framesAvailable = snd_pcm_avail_update(pDevice->alsa.pPCM);
+                if (framesAvailable < 0) {
+                    return MAL_FALSE;
+                }
+			}
+		}
+		
+		const int timeoutInMilliseconds = 20;  // <-- The larger this value, the longer it'll take to stop the device!
+		int waitResult = snd_pcm_wait(pDevice->alsa.pPCM, timeoutInMilliseconds);
+		if (waitResult < 0) {
+			snd_pcm_recover(pDevice->alsa.pPCM, waitResult, MAL_TRUE);
+		}
+	}
+	
+	// We'll get here if the loop was terminated. Just return whatever's available.
+	snd_pcm_sframes_t framesAvailable = snd_pcm_avail(pDevice->alsa.pPCM);
+	if (framesAvailable < 0) {
+		return 0;
+	}
+	
+	return framesAvailable;
+}
 
 mal_bool32 mal_device_write__alsa(mal_device* pDevice)
 {
 	mal_assert(pDevice != NULL);
 	if (!mal_device_is_started(pDevice)) {
+		return MAL_FALSE;
+	}
+	if (pDevice->alsa.breakFromMainLoop) {
 		return MAL_FALSE;
 	}
 	
@@ -1259,27 +1490,20 @@ mal_bool32 mal_device_write__alsa(mal_device* pDevice)
 		// readi/writei.
 		pBuffer = pDevice->alsa.pIntermediaryBuffer;
 	}
-	
-	
-	mal_uint32 desiredSampleCount = pDevice->fragmentSizeInFrames * pDevice->channels;
-	mal_uint32 samplesRead = 0;
-	if (pDevice->onSend) {
-		samplesRead = pDevice->onSend(pDevice, desiredSampleCount, pBuffer);
-		if (samplesRead != desiredSampleCount) {
-			// Not enough samples were read. Fill the remainder with silence.
-			mal_uint32 sampleSize = mal_get_sample_size_in_bytes(pDevice->format);
-			mal_uint32 consumedBytes = samplesRead*sampleSize;
-			mal_uint32 remainingBytes = (desiredSampleCount-samplesRead)*sampleSize;
-			mal_zero_memory((mal_uint8*)pBuffer + consumedBytes, remainingBytes);
-		}
-	}
-	
+    	
 	if (pDevice->alsa.pIntermediaryBuffer == NULL) {
 		// mmap.
 	} else {
 		// readi/writei.
-		for (;;) {
-			snd_pcm_sframes_t framesWritten = snd_pcm_writei(pDevice->alsa.pPCM, pDevice->alsa.pIntermediaryBuffer, pDevice->fragmentSizeInFrames);
+		while (!pDevice->alsa.breakFromMainLoop) {
+            mal_uint32 framesAvailable = mal_device__wait_for_frames(pDevice);
+			if (framesAvailable == 0) {
+				return MAL_FALSE;
+			}
+
+            mal_device__read_samples_from_client(pDevice, framesAvailable * pDevice->channels, pBuffer);
+        
+			snd_pcm_sframes_t framesWritten = snd_pcm_writei(pDevice->alsa.pPCM, pDevice->alsa.pIntermediaryBuffer, framesAvailable);
 			if (framesWritten < 0) {
 				if (framesWritten == -EAGAIN) {
 					continue;	// Just keep trying...
@@ -1289,7 +1513,7 @@ mal_bool32 mal_device_write__alsa(mal_device* pDevice)
 						return MAL_FALSE;
 					}
 					
-					framesWritten = snd_pcm_writei(pDevice->alsa.pPCM, pDevice->alsa.pIntermediaryBuffer, pDevice->fragmentSizeInFrames);
+					framesWritten = snd_pcm_writei(pDevice->alsa.pPCM, pDevice->alsa.pIntermediaryBuffer, framesAvailable);
 					if (framesWritten < 0) {
 						return MAL_FALSE;
 					}
@@ -1313,6 +1537,9 @@ mal_bool32 mal_device_read__alsa(mal_device* pDevice)
 	if (!mal_device_is_started(pDevice)) {
 		return MAL_FALSE;
 	}
+	if (pDevice->alsa.breakFromMainLoop) {
+		return MAL_FALSE;
+	}
 	
 	mal_uint32 samplesToSend = 0;
 	void* pBuffer = NULL;
@@ -1322,8 +1549,13 @@ mal_bool32 mal_device_read__alsa(mal_device* pDevice)
 	} else {
 		// readi/writei.
 		snd_pcm_sframes_t framesRead = 0;
-		for (;;) {
-			framesRead = snd_pcm_readi(pDevice->alsa.pPCM, pDevice->alsa.pIntermediaryBuffer, pDevice->fragmentSizeInFrames);
+		while (!pDevice->alsa.breakFromMainLoop) {
+			mal_uint32 framesAvailable = mal_device__wait_for_frames(pDevice);
+			if (framesAvailable == 0) {
+				return MAL_FALSE;
+			}
+		
+			framesRead = snd_pcm_readi(pDevice->alsa.pPCM, pDevice->alsa.pIntermediaryBuffer, framesAvailable);
 			if (framesRead < 0) {
 				if (framesRead == -EAGAIN) {
 					continue;	// Just keep trying...
@@ -1333,7 +1565,7 @@ mal_bool32 mal_device_read__alsa(mal_device* pDevice)
 						return MAL_FALSE;
 					}
 					
-					snd_pcm_sframes_t framesRead = snd_pcm_readi(pDevice->alsa.pPCM, pDevice->alsa.pIntermediaryBuffer, pDevice->fragmentSizeInFrames);
+					framesRead = snd_pcm_readi(pDevice->alsa.pPCM, pDevice->alsa.pIntermediaryBuffer, pDevice->fragmentSizeInFrames);
 					if (framesRead < 0) {
 						return MAL_FALSE;
 					}
@@ -1367,43 +1599,6 @@ mal_bool32 mal_device_read__alsa(mal_device* pDevice)
 }
 
 
-mal_thread_result MAL_THREADCALL mal_worker_thread__alsa(void* pData)
-{
-	mal_device* pDevice = (mal_device*)pData;
-	mal_assert(pDevice != NULL);
-
-	for (;;) {
-		mal_semaphore_wait(&pDevice->alsa.semaphore);
-		
-		// Just break if we're terminating.
-		if (pDevice->flags & MAL_FLAG_TERMINATING) {
-			break;
-		}
-		
-		// Continue if the device has been stopped.
-		if (!mal_device_is_started(pDevice)) {
-			snd_pcm_drop(pDevice->alsa.pPCM);
-			continue;
-		}
-		
-		// Getting here means we just started the device and we need to wait for the device to
-		// either deliver us data (recording) or request more data (playback).
-		snd_pcm_prepare(pDevice->alsa.pPCM);
-		
-		if (pDevice->type == mal_device_type_playback) {
-			// Playback. Read from client, write to device.
-			while (mal_device_write__alsa(pDevice)) {
-			}
-		} else {
-			// Playback. Read from device, write to client.
-			while (mal_device_read__alsa(pDevice)) {
-			}
-		}
-	}
-
-	return (mal_thread_result)0;
-}
-
 mal_result mal_enumerate_devices__alsa(mal_device_type type, mal_uint32* pCount, mal_device_info* pInfo)
 {
 	mal_uint32 infoSize = *pCount;
@@ -1411,7 +1606,7 @@ mal_result mal_enumerate_devices__alsa(mal_device_type type, mal_uint32* pCount,
 	
 	char** ppDeviceHints;
     if (snd_device_name_hint(-1, "pcm", (void***)&ppDeviceHints) < 0) {
-        return MAL_UNKNOWN_ERROR;
+        return MAL_ERROR;
     }
 	
 	char** ppNextDeviceHint = ppDeviceHints;
@@ -1451,17 +1646,6 @@ mal_result mal_enumerate_devices__alsa(mal_device_type type, mal_uint32* pCount,
 void mal_device_uninit__alsa(mal_device* pDevice)
 {
 	mal_assert(pDevice != NULL);
-	
-	pDevice->flags |= MAL_FLAG_TERMINATING;
-	
-	if (pDevice->flags & MAL_FLAG_ALSA_HAS_THREAD) {
-		mal_semaphore_release(&pDevice->alsa.semaphore);
-		mal_thread_wait(&pDevice->alsa.thread);
-	}
-	
-	if (pDevice->flags & MAL_FLAG_ALSA_HAS_SEMAPHORE) {
-		mal_semaphore_delete(&pDevice->alsa.semaphore);
-	}
 	
 	if (pDevice->alsa.pPCM) {
 		snd_pcm_close((snd_pcm_t*)pDevice->alsa.pPCM);
@@ -1608,7 +1792,7 @@ mal_result mal_device_init__alsa(mal_device* pDevice, mal_device_type type, mal_
 	
 	
 	// If we're _not_ using mmap we need to use an intermediary buffer.
-	if (!(pDevice->flags & MAL_FLAG_ALSA_USING_MMAP)) {
+	if (!pDevice->alsa.isUsingMMap) {
 		pDevice->alsa.pIntermediaryBuffer = mal_malloc(pDevice->fragmentSizeInFrames * pDevice->channels * mal_get_sample_size_in_bytes(pDevice->format));
 		if (pDevice->alsa.pIntermediaryBuffer == NULL) {
 			mal_device_uninit__alsa(pDevice);
@@ -1618,59 +1802,223 @@ mal_result mal_device_init__alsa(mal_device* pDevice, mal_device_type type, mal_
 	
 	
 	
-	if (!mal_semaphore_create(&pDevice->alsa.semaphore, 0)) {
-		mal_device_uninit__alsa(pDevice);
-		return MAL_FAILED_TO_INIT_BACKEND;
-	}
-	pDevice->flags |= MAL_FLAG_ALSA_HAS_SEMAPHORE;
-	
-	if (!mal_thread_create(&pDevice->alsa.thread, mal_worker_thread__alsa, pDevice)) {
-		mal_device_uninit__alsa(pDevice);
-		return MAL_FAILED_TO_INIT_BACKEND;
-	}
-	pDevice->flags |= MAL_FLAG_ALSA_HAS_THREAD;
-	
-	
 	return MAL_SUCCESS;
 }
 
-mal_result mal_device_start__alsa(mal_device* pDevice)
+
+static mal_result mal_device__start_backend__alsa(mal_device* pDevice)
 {
-	mal_assert(pDevice != NULL);
-	
-	// We don't actually start the device here. We instead signal the semaphore on the worker thread and
-	// let that thread do the device preparation.
-	pDevice->flags |= MAL_FLAG_STARTED;
-	mal_semaphore_release(&pDevice->alsa.semaphore);
-	return MAL_SUCCESS;
+    mal_assert(pDevice != NULL);
+
+    // Prepare the device first...
+    snd_pcm_prepare(pDevice->alsa.pPCM);
+
+    // ... and then grab an initial fragment from the client. After this is done, the device should
+    // automatically start playing, since that's how we configured the software parameters.
+    if (pDevice->type == mal_device_type_playback) {
+        mal_device_write__alsa(pDevice);
+    } else {
+		snd_pcm_start(pDevice->alsa.pPCM);
+	}
+
+    return MAL_SUCCESS;
 }
 
-mal_result mal_device_stop__alsa(mal_device* pDevice)
+static mal_result mal_device__stop_backend__alsa(mal_device* pDevice)
 {
-	mal_assert(pDevice != NULL);
-	
-	// The device is not stopped here. We instead mark the device as stopped and signal the semaphore
-	// on the worker thread.
-	pDevice->flags &= ~MAL_FLAG_STARTED;
-	mal_semaphore_release(&pDevice->alsa.semaphore);
-	
-	// If we are in snd_pcm_writei()/snd_pcm_readi() we won't return from it until it's signaled. It
-	// appears from my admittedly limited research and experimentation that we can signal the PCM with
-	// snd_pcm_prepare(). If don't do this the thread will still return, but it'll wait for the next
-	// fragment to be processed which might take some time depending on the size of the fragment.
+    mal_assert(pDevice != NULL);
+
+    snd_pcm_drop(pDevice->alsa.pPCM);
+    return MAL_SUCCESS;
+}
+
+static mal_result mal_device__break_main_loop__alsa(mal_device* pDevice)
+{
+    mal_assert(pDevice != NULL);
+
+    // The main loop will be waiting on snd_pcm_writei()/snd_pcm_readi(). The only way I was able to
+    // figure out how to force these to return is to prepare the device. Not sure if this is the best
+    // way to do this... 
 	//
-	// I'm not sure if this is the proper way to do this so best look into this.
-	snd_pcm_prepare(pDevice->alsa.pPCM);
-	return MAL_SUCCESS;
+	// Update #1: This causes snd_pcm_readi() to return -EIO on it's first fragment, so no good.
+	//snd_pcm_prepare(pDevice->alsa.pPCM);
+	
+	// Fallback. We just set a variable to tell the worker thread to terminate after handling the
+	// next fragment. This is a slow way of handling this.
+	pDevice->alsa.breakFromMainLoop = MAL_TRUE;
+    return MAL_SUCCESS;
+}
+
+static mal_result mal_device__main_loop__alsa(mal_device* pDevice)
+{
+    mal_assert(pDevice != NULL);
+
+	pDevice->alsa.breakFromMainLoop = MAL_FALSE;
+    if (pDevice->type == mal_device_type_playback) {
+		// Playback. Read from client, write to device.
+		while (!pDevice->alsa.breakFromMainLoop && mal_device_write__alsa(pDevice)) {
+		}
+	} else {
+		// Playback. Read from device, write to client.
+		while (!pDevice->alsa.breakFromMainLoop && mal_device_read__alsa(pDevice)) {
+		}
+	}
+
+    return MAL_SUCCESS;
 }
 #endif
+
+static mal_result mal_device__start_backend(mal_device* pDevice)
+{
+    mal_assert(pDevice != NULL);
+    
+    mal_result result = MAL_NO_BACKEND;
+#ifdef MAL_ENABLE_DSOUND
+    if (pDevice->api == mal_api_dsound) {
+        result = mal_device__start_backend__dsound(pDevice);
+    }
+#endif
+#ifdef MAL_ENABLE_ALSA
+    if (pDevice->api == mal_api_alsa) {
+        result = mal_device__start_backend__alsa(pDevice);
+    }
+#endif
+#ifdef MAL_ENABLE_NULL
+    if (pDevice->api == mal_api_null) {
+        result = mal_device__start_backend__null(pDevice);
+    }
+#endif
+
+    return result;
+}
+
+static mal_result mal_device__stop_backend(mal_device* pDevice)
+{
+    mal_assert(pDevice != NULL);
+    
+    mal_result result = MAL_NO_BACKEND;
+#ifdef MAL_ENABLE_DSOUND
+    if (pDevice->api == mal_api_dsound) {
+        result = mal_device__stop_backend__dsound(pDevice);
+    }
+#endif
+#ifdef MAL_ENABLE_ALSA
+    if (pDevice->api == mal_api_alsa) {
+        result = mal_device__stop_backend__alsa(pDevice);
+    }
+#endif
+#ifdef MAL_ENABLE_NULL
+    if (pDevice->api == mal_api_null) {
+        result = mal_device__stop_backend__null(pDevice);
+    }
+#endif
+
+    return result;
+}
+
+static mal_result mal_device__break_main_loop(mal_device* pDevice)
+{
+    mal_assert(pDevice != NULL);
+    
+    mal_result result = MAL_NO_BACKEND;
+#ifdef MAL_ENABLE_DSOUND
+    if (pDevice->api == mal_api_dsound) {
+        result = mal_device__break_main_loop__dsound(pDevice);
+    }
+#endif
+#ifdef MAL_ENABLE_ALSA
+    if (pDevice->api == mal_api_alsa) {
+        result = mal_device__break_main_loop__alsa(pDevice);
+    }
+#endif
+#ifdef MAL_ENABLE_NULL
+    if (pDevice->api == mal_api_null) {
+        result = mal_device__break_main_loop__null(pDevice);
+    }
+#endif
+
+    return result;
+}
+
+static mal_result mal_device__main_loop(mal_device* pDevice)
+{
+    mal_assert(pDevice != NULL);
+
+    mal_result result = MAL_NO_BACKEND;
+#ifdef MAL_ENABLE_DSOUND
+    if (pDevice->api == mal_api_dsound) {
+        result = mal_device__main_loop__dsound(pDevice);
+    }
+#endif
+#ifdef MAL_ENABLE_ALSA
+    if (pDevice->api == mal_api_alsa) {
+        result = mal_device__main_loop__alsa(pDevice);
+    }
+#endif
+#ifdef MAL_ENABLE_NULL
+    if (pDevice->api == mal_api_null) {
+        result = mal_device__main_loop__null(pDevice);
+    }
+#endif
+
+    return result;
+}
+
+mal_thread_result MAL_THREADCALL mal_worker_thread(void* pData)
+{
+	mal_device* pDevice = (mal_device*)pData;
+	mal_assert(pDevice != NULL);
+
+	for (;;) {
+        // At the start of iteration the device is stopped - we must explicitly mark it as such.
+        mal_device__stop_backend(pDevice);
+
+        // Let the other threads know that the device has stopped.
+        mal_device__set_state(pDevice, MAL_STATE_STOPPED);
+        mal_event_signal(&pDevice->stopEvent);
+
+        // We use an event to wait for a request to wake up.
+		mal_event_wait(&pDevice->wakeupEvent);
+
+        // Default result code.
+		pDevice->workResult = MAL_SUCCESS;
+
+		// Just break if we're terminating.
+		if (mal_device__get_state(pDevice) == MAL_STATE_UNINITIALIZED) {
+			break;
+		}
+
+		
+		// Getting here means we just started the device and we need to wait for the device to
+		// either deliver us data (recording) or request more data (playback).
+        mal_assert(mal_device__get_state(pDevice) == MAL_STATE_STARTING);
+
+        pDevice->workResult = mal_device__start_backend(pDevice);
+        if (pDevice->workResult != MAL_SUCCESS) {
+            mal_event_signal(&pDevice->startEvent);
+            continue;
+        }
+
+        // The thread that requested the device to start playing is waiting for this thread to start the
+        // device for real, which is now.
+        mal_device__set_state(pDevice, MAL_STATE_STARTED);
+        mal_event_signal(&pDevice->startEvent);
+
+        // Now we just enter the main loop. The main loop can be broken with mal_device__break_main_loop().
+        mal_device__main_loop(pDevice);
+	}
+
+    // Make sure we aren't continuously waiting on a stop event.
+    mal_event_signal(&pDevice->stopEvent);  // <-- Is this still needed?
+	return (mal_thread_result)0;
+}
 
 
 // Helper for determining whether or not the given device is initialized.
 mal_bool32 mal_device__is_initialized(mal_device* pDevice)
 {
 	if (pDevice == NULL) return MAL_FALSE;
-	return (pDevice->flags & MAL_FLAG_INITIALIZED) != 0;
+	return mal_device__get_state(pDevice) != MAL_STATE_UNINITIALIZED;
 }
 
 
@@ -1704,6 +2052,10 @@ mal_result mal_device_init(mal_device* pDevice, mal_device_type type, mal_device
 {
 	if (pDevice == NULL) return MAL_INVALID_ARGS;
 	mal_zero_object(pDevice);
+
+    if (((mal_uint64)pDevice % sizeof(pDevice)) != 0) {
+        // TODO: Emit a warning that the device is not thread safe.
+    }
 	
 	if (channels == 0 || sampleRate == 0 || fragmentSizeInFrames == 0 || fragmentCount == 0) return MAL_INVALID_ARGS;
 	
@@ -1713,6 +2065,26 @@ mal_result mal_device_init(mal_device* pDevice, mal_device_type type, mal_device
 	pDevice->sampleRate = sampleRate;
 	pDevice->fragmentSizeInFrames = fragmentSizeInFrames;
 	pDevice->fragmentCount = fragmentCount;
+
+
+    // When the device is started, the worker thread is the one that does the actual startup of the backend device. We
+    // use a semaphore to wait for the background thread to finish the work. The same applies for stopping the device.
+    //
+    // Each of these semaphores is released internally by the worker thread when the work is completed. The start
+    // semaphore is also used to wake up the worker thread.
+	if (!mal_event_create(&pDevice->wakeupEvent)) {
+		return MAL_FAILED_TO_INIT_BACKEND;
+	}
+    if (!mal_event_create(&pDevice->startEvent)) {
+		mal_event_delete(&pDevice->wakeupEvent);
+		return MAL_FAILED_TO_INIT_BACKEND;
+    }
+    if (!mal_event_create(&pDevice->stopEvent)) {
+		mal_event_delete(&pDevice->startEvent);
+        mal_event_delete(&pDevice->wakeupEvent);
+		return MAL_FAILED_TO_INIT_BACKEND;
+    }
+
 
 	mal_result result = MAL_NO_BACKEND;
 #ifdef MAL_ENABLE_DSOUND
@@ -1737,7 +2109,18 @@ mal_result mal_device_init(mal_device* pDevice, mal_device_type type, mal_device
 		return MAL_NO_BACKEND;
 	}
 
-	pDevice->flags |= MAL_FLAG_INITIALIZED;
+
+    // The worker thread.
+    if (!mal_thread_create(&pDevice->thread, mal_worker_thread, pDevice)) {
+		mal_device_uninit(pDevice);
+		return MAL_FAILED_TO_INIT_BACKEND;
+	}
+
+
+    // Wait for the worker thread to put the device into it's stopped state for real.
+	mal_event_wait(&pDevice->stopEvent);
+    mal_assert(mal_device__get_state(pDevice) == MAL_STATE_STOPPED);
+
 	return MAL_SUCCESS;
 }
 
@@ -1748,6 +2131,17 @@ void mal_device_uninit(mal_device* pDevice)
 	// Make sure the device is stopped first. The backends will probably handle this naturally,
 	// but I like to do it explicitly for my own sanity.
 	mal_device_stop(pDevice);
+
+    // Putting the device into an uninitialized state will make the worker thread return.
+    mal_device__set_state(pDevice, MAL_STATE_UNINITIALIZED);
+	
+    // Wake up the worker thread and wait for it to properly terminate.
+	mal_event_signal(&pDevice->wakeupEvent);
+	mal_thread_wait(&pDevice->thread);
+	
+    mal_event_delete(&pDevice->stopEvent);
+    mal_event_delete(&pDevice->startEvent);
+	mal_event_delete(&pDevice->wakeupEvent);
 
 #ifdef MAL_ENABLE_DSOUND
 	if (pDevice->api == mal_api_dsound) {
@@ -1773,85 +2167,80 @@ void mal_device_uninit(mal_device* pDevice)
 void mal_device_set_recv_callback(mal_device* pDevice, mal_recv_proc proc)
 {
 	if (pDevice == NULL) return;
-	pDevice->onRecv = proc;
+    mal_atomic_exchange_ptr(&pDevice->onRecv, proc);
 }
 
 void mal_device_set_send_callback(mal_device* pDevice, mal_send_proc proc)
 {
 	if (pDevice == NULL) return;
-	pDevice->onSend = proc;
+	mal_atomic_exchange_ptr(&pDevice->onSend, proc);
 }
 
 mal_result mal_device_start(mal_device* pDevice)
 {
 	if (pDevice == NULL) return MAL_INVALID_ARGS;
-	if (mal_device_is_started(pDevice)) {
-		return MAL_DEVICE_ALREADY_STARTED;
-	}
-	
-	mal_result result = MAL_NO_BACKEND;
-#ifdef MAL_ENABLE_DSOUND
-	if (pDevice->api == mal_api_dsound) {
-		result = mal_device_start__dsound(pDevice);
-	}
-#endif
+    if (mal_device__get_state(pDevice) == MAL_STATE_UNINITIALIZED) return MAL_DEVICE_NOT_INITIALIZED;
 
-#ifdef MAL_ENABLE_ALSA
-	if (pDevice->api == mal_api_alsa) {
-		result = mal_device_start__alsa(pDevice);
-	}
-#endif
+    // Be a bit more descriptive if the device is already started or is already in the process of starting. This is likely
+    // a bug with the application.
+    if (mal_device__get_state(pDevice) == MAL_STATE_STARTING) {
+        return MAL_DEVICE_ALREADY_STARTING;
+    }
+    if (mal_device__get_state(pDevice) == MAL_STATE_STARTED) {
+        return MAL_DEVICE_ALREADY_STARTED;
+    }
 
-#ifdef MAL_ENABLE_NULL
-	if (pDevice->api == mal_api_null) {
-		result = mal_device_start__null(pDevice);
-	}
-#endif
+    // The device needs to be in a stopped state. If it's not, we just let the caller know the device is busy.
+    if (mal_device__get_state(pDevice) != MAL_STATE_STOPPED) {
+        return MAL_DEVICE_BUSY;
+    }
 
-	if (result == MAL_SUCCESS) {
-		pDevice->flags |= MAL_FLAG_STARTED;
-	}
+    mal_device__set_state(pDevice, MAL_STATE_STARTING);
+	mal_event_signal(&pDevice->wakeupEvent);
 
-	return result;
+    // Wait for the worker thread to finish starting the device. Note that the worker thread will be the one
+    // who puts the device into the started state. Don't call mal_device__set_state() here.
+    mal_event_wait(&pDevice->startEvent);
+	return pDevice->workResult;
 }
 
 mal_result mal_device_stop(mal_device* pDevice)
 {
 	if (pDevice == NULL) return MAL_INVALID_ARGS;
-	if (!mal_device_is_started(pDevice)) {
-		return MAL_DEVICE_ALREADY_STOPPED;
-	}
+    if (mal_device__get_state(pDevice) == MAL_STATE_UNINITIALIZED) return MAL_DEVICE_NOT_INITIALIZED;
+
+    // Be a bit more descriptive if the device is already stopped or is already in the process of stopping. This is likely
+    // a bug with the application.
+    if (mal_device__get_state(pDevice) == MAL_STATE_STOPPING) {
+        return MAL_DEVICE_ALREADY_STOPPING;
+    }
+    if (mal_device__get_state(pDevice) == MAL_STATE_STOPPED) {
+        return MAL_DEVICE_ALREADY_STOPPED;
+    }
+
+    // The device needs to be in a started state. If it's not, we just let the caller know the device is busy.
+    if (mal_device__get_state(pDevice) != MAL_STATE_STARTED) {
+        return MAL_DEVICE_BUSY;
+    }
+
+    mal_device__set_state(pDevice, MAL_STATE_STOPPING);
+
+    // There's no need to wake up the thread like we do when starting.
 	
-	mal_result result = MAL_NO_BACKEND;
-#ifdef MAL_ENABLE_DSOUND
-	if (pDevice->api == mal_api_dsound) {
-		result = mal_device_stop__dsound(pDevice);
-	}
-#endif
+    // When we get here the worker thread is likely in a wait state while waiting for the backend device to deliver or request
+    // audio data. We need to force these to return as quickly as possible.
+    mal_device__break_main_loop(pDevice);
 
-#ifdef MAL_ENABLE_ALSA
-	if (pDevice->api == mal_api_alsa) {
-		result = mal_device_stop__alsa(pDevice);
-	}
-#endif
-
-#ifdef MAL_ENABLE_NULL
-	if (pDevice->api == mal_api_null) {
-		result = mal_device_stop__null(pDevice);
-	}
-#endif
-
-	if (result == MAL_SUCCESS) {
-		pDevice->flags &= ~MAL_FLAG_STARTED;
-	}
-	
-	return result;
+    // We need to wait for the worker thread to become available for work before returning. Note that the worker thread will be
+    // the one who puts the device into the stopped state. Don't call mal_device__set_state() here.
+    mal_event_wait(&pDevice->stopEvent);
+	return MAL_SUCCESS;
 }
 
 mal_bool32 mal_device_is_started(mal_device* pDevice)
 {
 	if (pDevice == NULL) return MAL_FALSE;
-	return (pDevice->flags & MAL_FLAG_STARTED) != 0;
+	return mal_device__get_state(pDevice) == MAL_STATE_STARTED;
 }
 
 mal_uint32 mal_device_get_fragment_size_in_bytes(mal_device* pDevice)
@@ -1886,26 +2275,38 @@ mal_uint32 mal_get_sample_size_in_bytes(mal_format format)
 
 // TODO
 // ====
-// - Error handling in worker threads isn't quite right. At the top of the main loop, before the semaphore wait, I think
-//   the device needs to be unmarked as playing.
-// - mal_device_start() and mal_device_stop() need improving:
-//   - Need to wait for a synchronization primitive on the worker thread to signal that the operation is complete.
-//   - Need a more accurate return code.
-// - Make starting and stopping thread-safe
 // - More error codes
 // - Logging
+// - Profiling. Need to measure mal_device_start() and mal_device_stop() in particular. One of the two seems to be taking a bit
+//   longer than it should.
+//   - Initial test for start/stop times show that it's _not_ tied to the fragment size...
 // - Implement mmap mode for ALSA.
 // - Make device initialization more robust for ALSA
 //   - Clamp period sizes to their min/max.
 // - Support rewinding. This will enable applications to employ better anti-latency.
+// - [DirectSound] When a device is stopped, none of the samples in the current fragment are sent to the client.
+// - Implement the null device.
 
 
 // DEVELOPMENT NOTES
 // =================
 //
+// General
+// -------
+// - An "event" is just a binary semaphore and is the only synchronization primitive used by mini_al. An event is
+//   always auto-reset and initially unsignaled.
+//
+//
 // ALSA
 // ----
 // - [DONE] Use snd_pcm_recover() when snd_pcm_writei() or snd_pcm_readi() fails.
+//
+//
+// Synchronization
+// ---------------
+// - Need to use an event (or binary semaphore) instead of a regular semaphore. The reason for this is that we never want
+//   any of the semaphores to get set to a value greater than 1, but this is not directly supported by posix. This becomes
+//   an issue with stopping in particular. See http://stackoverflow.com/questions/7478684/how-to-initialise-a-binary-semaphore-in-c
 
 
 /*

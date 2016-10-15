@@ -36,7 +36,7 @@ int main()
     mal_uint32 fragmentCount = 2;
 
     mal_device playbackDevice;
-    if (mal_device_init(&playbackDevice, mal_device_type_playback, NULL, mal_format_f32, channels, sampleRate, fragmentSizeInFrames, fragmentCount) != MAL_SUCCESS) {
+    if (mal_device_init_async(&playbackDevice, mal_device_type_playback, NULL, mal_format_f32, channels, sampleRate, fragmentSizeInFrames, fragmentCount) != MAL_SUCCESS) {
         return -1;
     }
     
@@ -49,42 +49,4 @@ int main()
     mal_device_uninit(&playbackDevice);
     return 0;
 } 
-```
-
-Synchronous API
----------------
-In synchronous mode, the application submits audio data to the device using APIs which block until
-the device is ready to receive it.
-
-```
-int main()
-{
-    mal_uint32 channels = 2;
-    mal_uint32 sampleRate = 44100;
-    mal_uint32 fragmentSizeInFrames = 512;
-    mal_uint32 fragmentCount = 2;
-
-    mal_device playbackDevice;
-    if (mal_device_init_synchronous(&playbackDevice, mal_device_type_playback, NULL, mal_format_f32, channels, sampleRate, fragmentSizeInFrames, fragmentCount) != MAL_SUCCESS) {
-        return -1;
-    }
-    
-    mal_device_start(&playbackDevice);
-    
-    for (;;) {
-        float pSamples[512];
-        mal_uint32 samplesToWrite = drwav_read_f32(&wav, fragmentSizeInFrames * fragmentCount, pSamples);
-        if (samplesToWrite == 0) {
-            break;
-        }
-        
-        mal_uint32 samplesWritten = mal_device_write(&playbackDevice, samplesToWrite, pSamples);
-        if (samplesWritte != samplesToWrite) {
-            break;
-        }
-    }
-    
-    mal_device_uninit(&playbackDevice);
-    return 0;
-}
 ```
