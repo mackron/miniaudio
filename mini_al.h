@@ -2365,14 +2365,12 @@ mal_uint32 mal_get_sample_size_in_bytes(mal_format format)
 
 // TODO
 // ====
-// - Logging
 // - Profiling. Need to measure mal_device_start() and mal_device_stop() in particular. One of the two seems to be taking a bit
 //   longer than it should.
 //   - Initial test for start/stop times show that it's _not_ tied to the fragment size...
 // - Implement mmap mode for ALSA.
 // - Make device initialization more robust for ALSA
 //   - Clamp period sizes to their min/max.
-// - Look at using snd_pcm_sw/hw_params_calloc() instead of *malloc().
 // - Support rewinding. This will enable applications to employ better anti-latency.
 // - Implement the null device.
 
