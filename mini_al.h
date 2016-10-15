@@ -1930,13 +1930,6 @@ static mal_result mal_device__stop_backend__alsa(mal_device* pDevice)
 static mal_result mal_device__break_main_loop__alsa(mal_device* pDevice)
 {
     mal_assert(pDevice != NULL);
-
-    // The main loop will be waiting on snd_pcm_writei()/snd_pcm_readi(). The only way I was able to
-    // figure out how to force these to return is to prepare the device. Not sure if this is the best
-    // way to do this... 
-	//
-	// Update #1: This causes snd_pcm_readi() to return -EIO on it's first fragment, so no good.
-	//snd_pcm_prepare(pDevice->alsa.pPCM);
 	
 	// Fallback. We just set a variable to tell the worker thread to terminate after handling the
 	// next fragment. This is a slow way of handling this.
