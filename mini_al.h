@@ -465,7 +465,7 @@ mal_uint32 mal_get_sample_size_in_bytes(mal_format format);
 
 #ifdef MAL_POSIX
 #include <pthread.h>
-#include <semaphore.h>
+#include <unistd.h>
 #endif
 
 #include <assert.h>
@@ -1773,12 +1773,15 @@ mal_result mal_device_init__alsa(mal_device* pDevice, mal_device_type type, mal_
 	snd_pcm_format_t formatALSA;
 	switch (format)
 	{
-		case mal_format_u8:    formatALSA = SND_PCM_FORMAT_U8;       break;
-		case mal_format_s16:   formatALSA = SND_PCM_FORMAT_S16_LE;   break;
-		case mal_format_s32:   formatALSA = SND_PCM_FORMAT_S32_LE;   break;
-		case mal_format_f32:   formatALSA = SND_PCM_FORMAT_FLOAT_LE; break;
-		case mal_format_alaw:  formatALSA = SND_PCM_FORMAT_A_LAW;    break;
-		case mal_format_mulaw: formatALSA = SND_PCM_FORMAT_MU_LAW;   break;
+		case mal_format_u8:    formatALSA = SND_PCM_FORMAT_U8;         break;
+		case mal_format_s16:   formatALSA = SND_PCM_FORMAT_S16_LE;     break;
+		case mal_format_s32:   formatALSA = SND_PCM_FORMAT_S32_LE;     break;
+		case mal_format_f32:   formatALSA = SND_PCM_FORMAT_FLOAT_LE;   break;
+        case mal_format_f64:   formatALSA = SND_PCM_FORMAT_FLOAT64_LE; break;
+		case mal_format_alaw:  formatALSA = SND_PCM_FORMAT_A_LAW;      break;
+		case mal_format_mulaw: formatALSA = SND_PCM_FORMAT_MU_LAW;     break;
+        
+        case mal_format_s24:
 		return mal_post_error(pDevice, "[ALSA] Format not supported.", MAL_FORMAT_NOT_SUPPORTED);
 	}
 	
