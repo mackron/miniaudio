@@ -3,10 +3,27 @@
 //
 // David Reid - mackron@gmail.com
 
+// ABOUT
+// =====
+// mini_al is a small library for making it easy to do audio playback and recording. It's focused on
+// simplicity and being light-weight so don't expect all the bells and whistles.
+//
+// mini_al's uses an asynchronous API. Every device is created with it's own thread, with audio data
+// being either delivered to the application from the device (in the case of recording/capture) or
+// delivered from the application to the device in the case of playback. Synchronous APIs are not
+// supported in the interest of keeping the library as small and lightweight as possible.
+//
+// Supported backends:
+//   - DirectSound (Windows Only)
+//   - ALSA (Linux Only)
+//   - ... and many more in the future.
+//
+//
 // USAGE
 // =====
-//
-// (WRITE ME)
+// mini_al is a single-file library. To use it, do something like the following in one .c file.
+//   #define MAL_IMPLEMENTATION
+//   #include "mini_al.h"
 //
 //
 // NOTES
@@ -17,6 +34,8 @@
 //   boundary (4 bytes on 32-bit, 8 bytes on 64-bit), it will _not_ be thread-safe. The reason for this
 //   is that it depends on members of mal_device being correctly aligned for atomic assignments and bit
 //   manipulation.
+// - Sample data is always little-endian and interleaved. For example, mal_format_s16 means signed 16-bit
+//   integer samples, interleaved. Let me know if you need non-interleaved and I'll look into it.
 //
 //
 // BACKEND NUANCES
@@ -86,11 +105,8 @@ typedef void* mal_ptr;
 #ifdef MAL_WIN32
 	typedef mal_handle mal_thread;
 	typedef mal_handle mal_event;
-    typedef mal_handle mal_semaphore;
 #else
 	typedef pthread_t mal_thread;
-	typedef sem_t mal_semaphore;
-
     typedef struct
     {
         pthread_mutex_t mutex;
@@ -105,7 +121,7 @@ typedef void* mal_ptr;
 
 typedef int mal_result;
 #define MAL_SUCCESS				    	    0
-#define MAL_ERROR			        -1
+#define MAL_ERROR			                -1
 #define MAL_INVALID_ARGS			        -2
 #define MAL_OUT_OF_MEMORY			        -3
 #define MAL_NO_BACKEND				        -16
@@ -120,6 +136,7 @@ typedef int mal_result;
 #define MAL_FAILED_TO_READ_DATA_FROM_CLIENT -23
 #define MAL_FAILED_TO_START_BACKEND_DEVICE  -24
 #define MAL_FAILED_TO_STOP_BACKEND_DEVICE   -25
+#define MAL_FAILED_TO_MAP_DEVICE_BUFFER     -26
 
 typedef struct mal_device mal_device;
 
@@ -223,6 +240,13 @@ struct mal_device
 
 // Enumerates over each device of the given type (playback or capture).
 //
+// Return Value:
+//   - MAL_SUCCESS if successful.
+//   - MAL_INVALID_ARGS
+//       One or more of the input arguments is invalid.
+//   - MAL_NO_BACKEND
+//       There is no supported backend, or there was an error loading it (such as a missing dll/so).
+//
 // Thread Safety: SAFE, SEE NOTES.
 //   This API uses an application-defined buffer for output. This is thread-safe so long as the
 //   application ensures mutal exclusion to the output buffer at their level.
@@ -238,8 +262,24 @@ mal_result mal_enumerate_devices(mal_device_type type, mal_uint32* pCount, mal_d
 // information.
 //
 // This will try it's hardest to create a valid device, even if it means adjusting input arguments.
-// Use pDevice->channels, pDevice->sampleRate, etc. to determine the actual properties after
+// Look at pDevice->channels, pDevice->sampleRate, etc. to determine the actual properties after
 // initialization.
+//
+// Return Value:
+//   - MAL_SUCCESS if successful.
+//   - MAL_INVALID_ARGS
+//       One or more of the input arguments is invalid.
+//   - MAL_NO_BACKEND
+//       There is no supported backend, or there was an error loading it (such as a missing dll/so).
+//   - MAL_OUT_OF_MEMORY
+//       A necessary memory allocation failed, likely due to running out of memory. The only backend
+//       that performs a memory allocation is ALSA when mmap mode is not supported.
+//   - MAL_FORMAT_NOT_SUPPORTED
+//       The specified format is not supported by the backend. mini_al does not currently do any
+//       software format conversions which means initialization must fail if the backend device does
+//       not natively support it.
+//   - MAL_FAILED_TO_INIT_BACKEND
+//       There was a backend-specific error during initialization.
 //
 // Thread Safety: SAFE
 //   This API is thread safe so long as the application does not try to use the device object before
@@ -247,13 +287,20 @@ mal_result mal_enumerate_devices(mal_device_type type, mal_uint32* pCount, mal_d
 //
 // Efficiency: LOW
 //   This API will dynamically link to backend DLLs/SOs like dsound.dll, and is otherwise just slow
-//   due to the fact that it's an initialization API.
-mal_result mal_device_init_async(mal_device* pDevice, mal_device_type type, mal_device_id* pDeviceID, mal_format format, mal_uint32 channels, mal_uint32 sampleRate, mal_uint32 fragmentSizeInFrames, mal_uint32 fragmentCount);
+//   due to the nature of it being an initialization API.
+mal_result mal_device_init(mal_device* pDevice, mal_device_type type, mal_device_id* pDeviceID, mal_format format, mal_uint32 channels, mal_uint32 sampleRate, mal_uint32 fragmentSizeInFrames, mal_uint32 fragmentCount);
 
 // Uninitializes a device.
 //
 // This will explicitly stop the device. You do not need to call mal_device_stop() beforehand, but it's
 // harmless if you do.
+//
+// Return Value:
+//   - MAL_SUCCESS if successful.
+//   - MAL_INVALID_ARGS
+//       pDevice is NULL.
+//   - MAL_DEVICE_NOT_INITIALIZED
+//       The device is not currently or was never initialized.
 //
 // Thread Safety: UNSAFE
 //   This API shouldn't crash in a multi-threaded environment, but results are undefined if an application
@@ -290,19 +337,20 @@ void mal_device_set_send_callback(mal_device* pDevice, mal_send_proc proc);
 // to be done _before_ the device starts playing back audio.
 //
 // Return Value:
-//   MAL_SUCCESS if successful.
-//
-//   MAL_DEVICE_BUSY
-//     The device is in the process of stopping. This will only happen if mal_device_start() and
-//     mal_device_stop() is called simultaneous on separate threads. This will never be returned in
-//     single-threaded applications.
-//
-//   MAL_DEVICE_ALREADY_STARTING
-//     The device is already in the process of starting. This will never be returned in single-threaded
-//     applications.
-//
-//   MAL_DEVICE_ALREADY_STARTED
-//     The device is already started.
+//   - MAL_SUCCESS if successful.
+//   - MAL_INVALID_ARGS
+//       One or more of the input arguments is invalid.
+//   - MAL_DEVICE_NOT_INITIALIZED
+//       The device is not currently or was never initialized.
+//   - MAL_DEVICE_BUSY
+//       The device is in the process of stopping. This will only happen if mal_device_start() and
+//       mal_device_stop() is called simultaneous on separate threads. This will never be returned in
+//       single-threaded applications.
+//   - MAL_DEVICE_ALREADY_STARTING
+//       The device is already in the process of starting. This will never be returned in single-threaded
+//       applications.
+//   - MAL_DEVICE_ALREADY_STARTED
+//       The device is already started.
 //
 // Thread Safety: SAFE
 //
@@ -312,6 +360,22 @@ mal_result mal_device_start(mal_device* pDevice);
 
 // Puts the device to sleep, but does not uninitialize it. Use mal_device_start() to start it up again.
 //
+// Return Value:
+//   - MAL_SUCCESS if successful.
+//   - MAL_INVALID_ARGS
+//       One or more of the input arguments is invalid.
+//   - MAL_DEVICE_NOT_INITIALIZED
+//       The device is not currently or was never initialized.
+//   - MAL_DEVICE_BUSY
+//       The device is in the process of starting. This will only happen if mal_device_start() and
+//       mal_device_stop() is called simultaneous on separate threads. This will never be returned in
+//       single-threaded applications.
+//   - MAL_DEVICE_ALREADY_STOPPING
+//       The device is already in the process of stopping. This will never be returned in single-threaded
+//       applications.
+//   - MAL_DEVICE_ALREADY_STOPPED
+//       The device is already stopped.
+//
 // Thread Safety: SAFE
 //
 // Efficiency: LOW
@@ -319,6 +383,9 @@ mal_result mal_device_start(mal_device* pDevice);
 mal_result mal_device_stop(mal_device* pDevice);
 
 // Determines whether or not the device is started.
+//
+// Return Value:
+//   True if the device is started, false otherwise.
 //
 // Thread Safety: SAFE
 //   If another thread calls mal_device_start() or mal_device_stop() at this same time as this function
@@ -559,6 +626,11 @@ void mal_thread_wait__win32(mal_thread* pThread)
     WaitForSingleObject(*pThread, INFINITE);
 }
 
+void mal_sleep__win32(mal_uint32 milliseconds)
+{
+    Sleep((DWORD)milliseconds);
+}
+
 
 mal_bool32 mal_event_create__win32(mal_event* pEvent)
 {
@@ -596,6 +668,11 @@ mal_bool32 mal_thread_create__posix(mal_thread* pThread, mal_thread_entry_proc e
 void mal_thread_wait__posix(mal_thread* pThread)
 {
     pthread_join(*pThread, NULL);
+}
+
+void mal_sleep__posix(mal_uint32 milliseconds)
+{
+    usleep(milliseconds * 1000);    // <-- usleep is in microseconds.
 }
 
 
@@ -670,6 +747,17 @@ void mal_thread_wait(mal_thread* pThread)
 
 #ifdef MAL_POSIX
     mal_thread_wait__posix(pThread);
+#endif
+}
+
+void mal_sleep(mal_uint32 milliseconds)
+{
+#ifdef MAL_WIN32
+    mal_sleep__win32(milliseconds);
+#endif
+
+#ifdef MAL_POSIX
+    mal_sleep__posix(milliseconds);
 #endif
 }
 
@@ -1283,7 +1371,7 @@ static mal_result mal_device__read_fragment_from_client__dsound(mal_device* pDev
     void* pLockPtr;
     DWORD lockSize;
     if (FAILED(IDirectSoundBuffer_Lock((LPDIRECTSOUNDBUFFER)pDevice->dsound.pPlaybackBuffer, offset, fragmentSizeInBytes, &pLockPtr, &lockSize, NULL, NULL, 0))) {
-        return MAL_ERROR;
+        return MAL_FAILED_TO_MAP_DEVICE_BUFFER;
     }
 
     mal_device__read_samples_from_client(pDevice, pDevice->fragmentSizeInFrames * pDevice->channels, pLockPtr);
@@ -1302,7 +1390,7 @@ static mal_result mal_device__send_fragment_to_client__dsound(mal_device* pDevic
     void* pLockPtr;
     DWORD lockSize;
     if (FAILED(IDirectSoundCaptureBuffer_Lock((LPDIRECTSOUNDCAPTUREBUFFER8)pDevice->dsound.pCaptureBuffer, offset, fragmentSizeInBytes, &pLockPtr, &lockSize, NULL, NULL, 0))) {
-        return MAL_ERROR;
+        return MAL_FAILED_TO_MAP_DEVICE_BUFFER;
     }
 
     mal_device__send_samples_to_client(pDevice, pDevice->fragmentSizeInFrames * pDevice->channels, pLockPtr);
@@ -1630,7 +1718,7 @@ mal_result mal_enumerate_devices__alsa(mal_device_type type, mal_uint32* pCount,
 	
 	char** ppDeviceHints;
     if (snd_device_name_hint(-1, "pcm", (void***)&ppDeviceHints) < 0) {
-        return MAL_ERROR;
+        return MAL_SUCCESS; // <-- This is unintuitive, but it just emulates the case where there are no devices.
     }
 	
 	char** ppNextDeviceHint = ppDeviceHints;
@@ -1730,7 +1818,7 @@ mal_result mal_device_init__alsa(mal_device* pDevice, mal_device_type type, mal_
 	if (snd_pcm_hw_params_set_format((snd_pcm_t*)pDevice->alsa.pPCM, pHWParams, formatALSA) < 0) {
 		snd_pcm_hw_params_free(pHWParams);
 		mal_device_uninit__alsa(pDevice);
-		return MAL_FAILED_TO_INIT_BACKEND;
+		return MAL_FORMAT_NOT_SUPPORTED;
 	}
 	
 	if (snd_pcm_hw_params_set_rate_near((snd_pcm_t*)pDevice->alsa.pPCM, pHWParams, &sampleRate, 0) < 0) {
@@ -2154,7 +2242,9 @@ void mal_device_uninit(mal_device* pDevice)
 	
 	// Make sure the device is stopped first. The backends will probably handle this naturally,
 	// but I like to do it explicitly for my own sanity.
-	mal_device_stop(pDevice);
+	while (mal_device_stop(pDevice) == MAL_DEVICE_BUSY) {
+        mal_sleep(10);
+    }
 
     // Putting the device into an uninitialized state will make the worker thread return.
     mal_device__set_state(pDevice, MAL_STATE_UNINITIALIZED);

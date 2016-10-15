@@ -10,8 +10,10 @@ C/C++, single file, public domain.
 
 Features
 ========
-- A very simple API.
-- Both synchronous and asynchronous APIs.
+- Public domain
+- Single file
+- A very simple API
+
 
 
 
@@ -36,7 +38,7 @@ int main()
     mal_uint32 fragmentCount = 2;
 
     mal_device playbackDevice;
-    if (mal_device_init_async(&playbackDevice, mal_device_type_playback, NULL, mal_format_f32, channels, sampleRate, fragmentSizeInFrames, fragmentCount) != MAL_SUCCESS) {
+    if (mal_device_init(&playbackDevice, mal_device_type_playback, NULL, mal_format_f32, channels, sampleRate, fragmentSizeInFrames, fragmentCount) != MAL_SUCCESS) {
         return -1;
     }
     
