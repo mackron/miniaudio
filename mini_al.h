@@ -1602,6 +1602,11 @@ mal_bool32 mal_device_write__alsa(mal_device* pDevice)
 			if (framesAvailable == 0) {
 				return MAL_FALSE;
 			}
+            
+            // Don't bother asking the client for more audio data if we're just stopping the device anyway.
+            if (pDevice->alsa.breakFromMainLoop) {
+                return MAL_FALSE;
+            }
 
             mal_device__read_samples_from_client(pDevice, framesAvailable * pDevice->channels, pBuffer);
         
