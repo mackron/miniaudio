@@ -526,7 +526,7 @@ typedef mal_thread_result (MAL_THREADCALL * mal_thread_entry_proc)(void* pData);
 #define mal_zero_object(p) mal_zero_memory((p), sizeof(*(p)))
 
 #ifndef mal_copy_memory
-#ifdef _WIN32
+#ifdef MAL_WIN32
 #define mal_copy_memory(dst, src, sz) CopyMemory((dst), (src), (sz))
 #else
 #define mal_copy_memory(dst, src, sz) memcpy((dst), (src), (sz))
