@@ -63,10 +63,7 @@ extern "C" {
 	#if !defined(MAL_NO_ALSA) && defined(__linux__)
 		#define MAL_ENABLE_ALSA
 	#endif
-	
-	// Unfortunate #includes, but needed for pthread_t and sem_t types.
-	#include <pthread.h>
-	#include <semaphore.h>
+	#include <pthread.h>    // Unfortunate #include, but needed for pthread_t, pthread_mutex_t and pthread_cond_t types.
 #endif
 
 #ifndef MAL_NO_NULL
