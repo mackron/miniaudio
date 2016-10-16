@@ -920,7 +920,7 @@ mal_result mal_enumerate_devices__null(mal_device_type type, mal_uint32* pCount,
 	*pCount = 1;	// There's only one "device" each for playback and recording for the null backend.
 	
 	if (pInfo != NULL && infoSize > 0) {
-		mal_zero_memory(&pInfo->id, sizeof(pInfo->id));
+        mal_zero_object(pInfo);
 		
 		if (type == mal_device_type_playback) {
 			mal_strncpy_s(pInfo->description, sizeof(pInfo->description), "NULL Playback Device", (size_t)-1);
@@ -1731,6 +1731,7 @@ mal_result mal_enumerate_devices__alsa(mal_device_type type, mal_uint32* pCount,
 		{
             if (pInfo != NULL) {
                 if (infoSize > 0) {
+                    mal_zero_object(pInfo);
                     mal_strncpy_s(pInfo->id.name,     sizeof(pInfo->id.name),     NAME ? NAME : "", (size_t)-1);
 				    mal_strncpy_s(pInfo->description, sizeof(pInfo->description), DESC ? DESC : "", (size_t)-1);
 				
