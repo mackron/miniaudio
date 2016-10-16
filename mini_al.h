@@ -2387,18 +2387,6 @@ mal_uint32 mal_get_sample_size_in_bytes(mal_format format)
 // -------
 // - An "event" is just a binary semaphore and is the only synchronization primitive used by mini_al. An event is
 //   always auto-reset and initially unsignaled.
-//
-//
-// ALSA
-// ----
-// - [DONE] Use snd_pcm_recover() when snd_pcm_writei() or snd_pcm_readi() fails.
-//
-//
-// Synchronization
-// ---------------
-// - Need to use an event (or binary semaphore) instead of a regular semaphore. The reason for this is that we never want
-//   any of the semaphores to get set to a value greater than 1, but this is not directly supported by posix. This becomes
-//   an issue with stopping in particular. See http://stackoverflow.com/questions/7478684/how-to-initialise-a-binary-semaphore-in-c
 
 
 /*
