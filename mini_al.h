@@ -40,10 +40,6 @@
 //
 // BACKEND NUANCES
 // ===============
-// - For playback devices, the ALSA backend will pre-fill every fragment with sample data. The DirectSound
-//   backend only pre-fills the first fragment.
-// - DirectSound has _bad_ latency compared to other backends. In my testing, a fragment size of 1024 frames
-//   is too small, but a size of 2048 seems to work.
 
 #ifndef mini_al_h
 #define mini_al_h
@@ -225,8 +221,9 @@ struct mal_device
             /*LPDIRECTSOUNDNOTIFY*/ mal_ptr pNotify;
             /*HANDLE*/ mal_handle pNotifyEvents[MAL_MAX_FRAGMENTS_DSOUND];  // One event handle for each fragment.
             /*HANDLE*/ mal_handle hStopEvent;
-            mal_uint32 ignoredFragmentCounter;  // <-- This is used for a cheap hack to skip over some initial notifications when the device is first played.
-            mal_uint32 lastProcessedFragment;
+            mal_uint32 ignoredFragmentCounter;  // This is used for a cheap hack to skip over some initial notifications when the device is first played.
+            mal_uint32 lastProcessedFrame;      // This is circular.
+            mal_bool32 breakFromMainLoop;
 		} dsound;
 	#endif
 		
@@ -1403,6 +1400,8 @@ static mal_result mal_device__start_backend__dsound(mal_device* pDevice)
             return result;  // The error will have already been posted.
         }
 
+        pDevice->dsound.lastProcessedFrame = pDevice->fragmentSizeInFrames;
+
         if (IDirectSoundBuffer_Play((LPDIRECTSOUNDBUFFER)pDevice->dsound.pPlaybackBuffer, 0, 0, DSBPLAY_LOOPING) != DS_OK) {
             return mal_post_error(pDevice, "[DirectSound] IDirectSoundBuffer_Play() failed.", MAL_FAILED_TO_START_BACKEND_DEVICE);
         }
@@ -1440,8 +1439,103 @@ static mal_result mal_device__break_main_loop__dsound(mal_device* pDevice)
 
     // The main loop will be waiting on a bunch of events via the WaitForMultipleObjects() API. One of those events
     // is a special event we use for forcing that function to return.
+    pDevice->dsound.breakFromMainLoop = MAL_TRUE;
     SetEvent(pDevice->dsound.hStopEvent);
     return MAL_SUCCESS;
+}
+
+static mal_bool32 mal_device__get_current_frame__dsound(mal_device* pDevice, mal_uint32* pCurrentPos)
+{
+    mal_assert(pDevice != NULL);
+    mal_assert(pCurrentPos != NULL);
+    *pCurrentPos = 0;
+
+    DWORD dwCurrentPosition;
+    if (pDevice->type == mal_device_type_playback) {
+        if (IDirectSoundBuffer_GetCurrentPosition((LPDIRECTSOUNDBUFFER)pDevice->dsound.pPlaybackBuffer, NULL, &dwCurrentPosition) != DS_OK) {
+            return MAL_FALSE;
+        }
+    } else {
+        if (IDirectSoundCaptureBuffer8_GetCurrentPosition((LPDIRECTSOUNDCAPTUREBUFFER8)pDevice->dsound.pCaptureBuffer, &dwCurrentPosition, NULL) != DS_OK) {
+            return MAL_FALSE;
+        }
+    }
+
+    *pCurrentPos = (mal_uint32)dwCurrentPosition / mal_get_sample_size_in_bytes(pDevice->format) / pDevice->channels;
+    return MAL_TRUE;
+}
+
+static mal_bool32 mal_device__get_available_frames__dsound(mal_device* pDevice)
+{
+    mal_assert(pDevice != NULL);
+
+    mal_uint32 currentFrame;
+    if (!mal_device__get_current_frame__dsound(pDevice, &currentFrame)) {
+        return 0;
+    }
+
+    // In a playback device the last processed frame should always be ahead of the current frame. The space between
+    // the last processed and current frame (moving forward, starting from the last processed frame) is the amount
+    // of space available to write.
+    //
+    // For a recording device it's the other way around - the last processed frame is always _behind_ the current
+    // frame and the space between is the available space.
+    mal_uint32 totalFrameCount = pDevice->fragmentSizeInFrames*pDevice->fragmentCount;
+    if (pDevice->type == mal_device_type_playback) {
+        mal_uint32 committedBeg = currentFrame;
+        mal_uint32 committedEnd = pDevice->dsound.lastProcessedFrame;
+        if (committedEnd <= committedBeg) {
+            committedEnd += totalFrameCount;    // Wrap around.
+        }
+
+        mal_uint32 committedSize = (committedEnd - committedBeg);
+        mal_assert(committedSize <= totalFrameCount);
+
+        return totalFrameCount - committedSize;
+    } else {
+        mal_uint32 validBeg = pDevice->dsound.lastProcessedFrame;
+        mal_uint32 validEnd = currentFrame;
+        if (validEnd < validBeg) {
+            validEnd += totalFrameCount;        // Wrap around.
+        }
+
+        mal_uint32 validSize = (validEnd - validBeg);
+        mal_assert(validSize <= totalFrameCount);
+
+        return validSize;
+    }
+}
+
+static mal_uint32 mal_device__wait_for_frames__dsound(mal_device* pDevice)
+{
+    mal_assert(pDevice != NULL);
+
+    unsigned int eventCount = pDevice->fragmentCount + 1;
+    HANDLE eventHandles[MAL_MAX_FRAGMENTS_DSOUND + 1];   // +1 for the stop event.
+    mal_copy_memory(eventHandles, pDevice->dsound.pNotifyEvents, sizeof(HANDLE) * pDevice->fragmentCount);
+    eventHandles[eventCount-1] = pDevice->dsound.hStopEvent;
+
+    while (!pDevice->dsound.breakFromMainLoop) {
+        mal_uint32 framesAvailable = mal_device__get_available_frames__dsound(pDevice);
+        if (framesAvailable == 0) {
+            return 0;
+        }
+
+        // Never return more frames that will fit in a fragment.
+        if (framesAvailable >= pDevice->fragmentSizeInFrames) {
+            return pDevice->fragmentSizeInFrames;
+        }
+
+        // If we get here it means we weren't able to find a full fragment. We'll just wait here for a bit.
+        const DWORD timeoutInMilliseconds = 5;  // <-- This affects latency with the DirectSound backend. Should this be a property?
+        DWORD rc = WaitForMultipleObjects(eventCount, eventHandles, FALSE, timeoutInMilliseconds);
+        if (rc < WAIT_OBJECT_0 || rc >= WAIT_OBJECT_0 + eventCount) {
+            return 0;
+        }
+    }
+
+    // We'll get here if the loop was terminated. Just return whatever's available.
+    return mal_device__get_available_frames__dsound(pDevice);
 }
 
 static mal_result mal_device__main_loop__dsound(mal_device* pDevice)
@@ -1459,63 +1553,49 @@ static mal_result mal_device__main_loop__dsound(mal_device* pDevice)
         pDevice->dsound.ignoredFragmentCounter = 1;
     }
 
-    for (;;) {
-        // Wait for a notification. Notifications are tied to fragments.
-        unsigned int eventCount = pDevice->fragmentCount + 1;
-        HANDLE eventHandles[MAL_MAX_FRAGMENTS_DSOUND + 1];   // +1 for the stop event.
-        mal_copy_memory(eventHandles, pDevice->dsound.pNotifyEvents, sizeof(HANDLE) * pDevice->fragmentCount);
-        eventHandles[eventCount-1] = pDevice->dsound.hStopEvent;
-
-        DWORD rc = WaitForMultipleObjects(eventCount, eventHandles, FALSE, INFINITE);
-        if (rc < WAIT_OBJECT_0 || rc >= WAIT_OBJECT_0 + eventCount) {
-            break;
-        }
-
-        unsigned int eventIndex = rc - WAIT_OBJECT_0;
-        HANDLE hEvent = eventHandles[eventIndex];
-
-        // Has the device been stopped? If so, need to get out of this loop.
-        if (hEvent == pDevice->dsound.hStopEvent) {
-            // If it's a capture device there will be some leftover samples that need to be sent to the client. To
-            // calculate this we just look at the previously processed fragment and compare it to the current read
-            // position
-            if (pDevice->type == mal_device_type_capture) {
-                DWORD dwOffset = (((pDevice->dsound.lastProcessedFragment+1) * pDevice->fragmentSizeInFrames) % (pDevice->fragmentSizeInFrames*pDevice->fragmentCount)) * pDevice->channels * mal_get_sample_size_in_bytes(pDevice->format);
-                DWORD dwBytes = mal_device_get_fragment_size_in_bytes(pDevice);
-            
-                DWORD dwPlayPosition;
-                if (IDirectSoundCaptureBuffer8_GetCurrentPosition((LPDIRECTSOUNDCAPTUREBUFFER8)pDevice->dsound.pCaptureBuffer, &dwPlayPosition, NULL) == DS_OK) {
-                    DWORD sampleCount = (dwPlayPosition - dwOffset) / mal_get_sample_size_in_bytes(pDevice->format);
-                    if (sampleCount > 0) {
-                        void* pLockPtr;
-                        DWORD lockSize;
-                        if (IDirectSoundCaptureBuffer8_Lock((LPDIRECTSOUNDCAPTUREBUFFER8)pDevice->dsound.pCaptureBuffer, dwOffset, dwBytes, &pLockPtr, &lockSize, NULL, NULL, 0) == DS_OK) {
-                            mal_device__send_samples_to_client(pDevice, sampleCount, pLockPtr);
-                            IDirectSoundCaptureBuffer8_Unlock((LPDIRECTSOUNDCAPTUREBUFFER8)pDevice->dsound.pCaptureBuffer, pLockPtr, lockSize, NULL, 0);
-                        }
-                    }
-                }
-            }
-
-            break;
-        }
-
-        // If we get here it means the event that's been signaled represents a fragment.
-        unsigned int fragmentIndex = eventIndex;    // <-- Just for clarity.
-        mal_assert(fragmentIndex < pDevice->fragmentCount);
-
-        pDevice->dsound.lastProcessedFragment = fragmentIndex;
-
-        // Some initial fragments need to be skipped over.
-        if (pDevice->dsound.ignoredFragmentCounter > 0) {
-            pDevice->dsound.ignoredFragmentCounter -= 1;
+    pDevice->dsound.breakFromMainLoop = MAL_FALSE;
+    while (!pDevice->dsound.breakFromMainLoop) {
+        mal_uint32 framesAvailable = mal_device__wait_for_frames__dsound(pDevice);
+        if (framesAvailable == 0) {
             continue;
         }
-            
+
+        // If it's a playback device, don't bother grabbing more data if the device is being stopped.
+        if (pDevice->dsound.breakFromMainLoop && pDevice->type == mal_device_type_playback) {
+            return MAL_FALSE;
+        }
+
+        DWORD lockOffset = pDevice->dsound.lastProcessedFrame * pDevice->channels * mal_get_sample_size_in_bytes(pDevice->format);
+        DWORD lockSize   = framesAvailable * pDevice->channels * mal_get_sample_size_in_bytes(pDevice->format);
+
         if (pDevice->type == mal_device_type_playback) {
-            mal_device__read_fragment_from_client__dsound(pDevice, (fragmentIndex + 1) % pDevice->fragmentCount);
+            if (pDevice->dsound.breakFromMainLoop) {
+                return MAL_FALSE;
+            }
+
+            void* pLockPtr;
+            DWORD actualLockSize;
+            if (FAILED(IDirectSoundBuffer_Lock((LPDIRECTSOUNDBUFFER)pDevice->dsound.pPlaybackBuffer, lockOffset, lockSize, &pLockPtr, &actualLockSize, NULL, NULL, 0))) {
+                return mal_post_error(pDevice, "[DirectSound] IDirectSoundBuffer_Lock() failed.", MAL_FAILED_TO_MAP_DEVICE_BUFFER);
+            }
+
+            mal_uint32 sampleCount = actualLockSize / mal_get_sample_size_in_bytes(pDevice->format);
+            mal_device__read_samples_from_client(pDevice, sampleCount, pLockPtr);
+            pDevice->dsound.lastProcessedFrame = (pDevice->dsound.lastProcessedFrame + (sampleCount/pDevice->channels)) % (pDevice->fragmentSizeInFrames*pDevice->fragmentCount);
+
+            IDirectSoundBuffer_Unlock((LPDIRECTSOUNDBUFFER)pDevice->dsound.pPlaybackBuffer, pLockPtr, actualLockSize, NULL, 0);
         } else {
-            mal_device__send_fragment_to_client__dsound(pDevice, fragmentIndex);
+            void* pLockPtr;
+            DWORD actualLockSize;
+            if (FAILED(IDirectSoundCaptureBuffer_Lock((LPDIRECTSOUNDCAPTUREBUFFER)pDevice->dsound.pCaptureBuffer, lockOffset, lockSize, &pLockPtr, &actualLockSize, NULL, NULL, 0))) {
+                return mal_post_error(pDevice, "[DirectSound] IDirectSoundCaptureBuffer_Lock() failed.", MAL_FAILED_TO_MAP_DEVICE_BUFFER);
+            }
+
+            mal_uint32 sampleCount = actualLockSize / mal_get_sample_size_in_bytes(pDevice->format);
+            mal_device__send_samples_to_client(pDevice, sampleCount, pLockPtr);
+            pDevice->dsound.lastProcessedFrame = (pDevice->dsound.lastProcessedFrame + (sampleCount/pDevice->channels)) % (pDevice->fragmentSizeInFrames*pDevice->fragmentCount);
+
+            IDirectSoundCaptureBuffer_Unlock((LPDIRECTSOUNDCAPTUREBUFFER)pDevice->dsound.pCaptureBuffer, pLockPtr, actualLockSize, NULL, 0);
         }
     }
 
@@ -1538,7 +1618,7 @@ static mal_result mal_device__main_loop__dsound(mal_device* pDevice)
 // fragment size.
 //
 // This will return early if the main loop is broken with mal_device__break_main_loop().
-mal_uint32 mal_device__wait_for_frames(mal_device* pDevice)
+mal_uint32 mal_device__wait_for_frames__alsa(mal_device* pDevice)
 {
 	mal_assert(pDevice != NULL);
 	
@@ -1601,7 +1681,7 @@ mal_bool32 mal_device_write__alsa(mal_device* pDevice)
 	} else {
 		// readi/writei.
 		while (!pDevice->alsa.breakFromMainLoop) {
-            mal_uint32 framesAvailable = mal_device__wait_for_frames(pDevice);
+            mal_uint32 framesAvailable = mal_device__wait_for_frames__alsa(pDevice);
 			if (framesAvailable == 0) {
 				return MAL_FALSE;
 			}
@@ -1660,7 +1740,7 @@ mal_bool32 mal_device_read__alsa(mal_device* pDevice)
 		// readi/writei.
 		snd_pcm_sframes_t framesRead = 0;
 		while (!pDevice->alsa.breakFromMainLoop) {
-			mal_uint32 framesAvailable = mal_device__wait_for_frames(pDevice);
+			mal_uint32 framesAvailable = mal_device__wait_for_frames__alsa(pDevice);
 			if (framesAvailable == 0) {
 				return MAL_FALSE;
 			}
@@ -2227,8 +2307,10 @@ void mal_device_uninit(mal_device* pDevice)
 	
 	// Make sure the device is stopped first. The backends will probably handle this naturally,
 	// but I like to do it explicitly for my own sanity.
-	while (mal_device_stop(pDevice) == MAL_DEVICE_BUSY) {
-        mal_sleep(10);
+    if (mal_device_is_started(pDevice)) {
+	    while (mal_device_stop(pDevice) == MAL_DEVICE_BUSY) {
+            mal_sleep(10);
+        }
     }
 
     // Putting the device into an uninitialized state will make the worker thread return.
