@@ -461,12 +461,12 @@ mal_uint32 mal_get_sample_size_in_bytes(mal_format format);
 #endif
 
 #ifdef MAL_POSIX
-#include <pthread.h>
 #include <unistd.h>
 #endif
 
+#if !defined(NDEBUG)
 #include <assert.h>
-#include <errno.h>
+#endif
 
 #ifdef _WIN32
 #ifdef _WIN64
@@ -557,17 +557,23 @@ typedef mal_thread_result (MAL_THREADCALL * mal_thread_entry_proc)(void* pData);
 #endif
 #endif
 
+// Return Values:
+//   0:  Success
+//   22: EINVAL
+//   34: ERANGE
+//
+// Not using symbolic constants for errors because I want to avoid #including errno.h
 static int mal_strncpy_s(char* dst, size_t dstSizeInBytes, const char* src, size_t count)
 {
     if (dst == 0) {
-        return EINVAL;
+        return 22;
     }
     if (dstSizeInBytes == 0) {
-        return EINVAL;
+        return 22;
     }
     if (src == 0) {
         dst[0] = '\0';
-        return EINVAL;
+        return 22;
     }
 
     size_t maxcount = count;
@@ -586,7 +592,7 @@ static int mal_strncpy_s(char* dst, size_t dstSizeInBytes, const char* src, size
     }
 
     dst[0] = '\0';
-    return ERANGE;
+    return 34;
 }
 
 // Thanks to good old Bit Twiddling Hacks for this one: http://graphics.stanford.edu/~seander/bithacks.html#RoundUpPowerOf2
