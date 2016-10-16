@@ -28,7 +28,7 @@
 //
 // NOTES
 // =====
-// - This library uses an asynchronous API delivering and requesting audio data. Each device will have
+// - This library uses an asynchronous API for delivering and requesting audio data. Each device will have
 //   it's own worker thread which is managed by the library.
 // - If mal_device_init() is called with a device that's not aligned to the platform's natural alignment
 //   boundary (4 bytes on 32-bit, 8 bytes on 64-bit), it will _not_ be thread-safe. The reason for this
@@ -1623,7 +1623,7 @@ mal_uint32 mal_device__wait_for_frames__alsa(mal_device* pDevice)
 	mal_assert(pDevice != NULL);
 	
 	while (!pDevice->alsa.breakFromMainLoop) {
-		snd_pcm_sframes_t framesAvailable = snd_pcm_avail_update(pDevice->alsa.pPCM);
+		snd_pcm_sframes_t framesAvailable = snd_pcm_avail(pDevice->alsa.pPCM);
 		if (framesAvailable >= pDevice->fragmentSizeInFrames) {
 			return pDevice->fragmentSizeInFrames;
 		}
@@ -1631,30 +1631,33 @@ mal_uint32 mal_device__wait_for_frames__alsa(mal_device* pDevice)
 		if (framesAvailable < 0) {
 			if (framesAvailable == -EPIPE) {
 				if (snd_pcm_recover(pDevice->alsa.pPCM, framesAvailable, MAL_TRUE) < 0) {
-					return MAL_FALSE;
+					return 0;
 				}
                 
-                framesAvailable = snd_pcm_avail_update(pDevice->alsa.pPCM);
+                framesAvailable = snd_pcm_avail(pDevice->alsa.pPCM);
                 if (framesAvailable < 0) {
-                    return MAL_FALSE;
+                    return 0;
                 }
 			}
 		}
-		
+        
 		const int timeoutInMilliseconds = 20;  // <-- The larger this value, the longer it'll take to stop the device!
 		int waitResult = snd_pcm_wait(pDevice->alsa.pPCM, timeoutInMilliseconds);
 		if (waitResult < 0) {
 			snd_pcm_recover(pDevice->alsa.pPCM, waitResult, MAL_TRUE);
 		}
 	}
-	
-	// We'll get here if the loop was terminated. Just return whatever's available.
+    
+	// We'll get here if the loop was terminated. Just return whatever's available, making sure it's never
+    // more than the size of a fragment.
 	snd_pcm_sframes_t framesAvailable = snd_pcm_avail(pDevice->alsa.pPCM);
 	if (framesAvailable < 0) {
 		return 0;
 	}
 	
-	return framesAvailable;
+    // There's a small chance we'll have more frames available than the size of a fragment. These frames
+    // will be lost to cyberspace :(
+	return (framesAvailable < pDevice->fragmentSizeInFrames) ? framesAvailable : pDevice->fragmentSizeInFrames;
 }
 
 mal_bool32 mal_device_write__alsa(mal_device* pDevice)
@@ -1667,17 +1670,39 @@ mal_bool32 mal_device_write__alsa(mal_device* pDevice)
 		return MAL_FALSE;
 	}
 	
-	void* pBuffer = NULL;
+
 	if (pDevice->alsa.pIntermediaryBuffer == NULL) {
 		// mmap.
-		return MAL_FALSE;
-	} else {
-		// readi/writei.
-		pBuffer = pDevice->alsa.pIntermediaryBuffer;
-	}
-    	
-	if (pDevice->alsa.pIntermediaryBuffer == NULL) {
-		// mmap.
+        mal_uint32 framesAvailable = mal_device__wait_for_frames__alsa(pDevice);
+        if (framesAvailable == 0) {
+            return MAL_FALSE;
+        }
+        
+        // Don't bother asking the client for more audio data if we're just stopping the device anyway.
+        if (pDevice->alsa.breakFromMainLoop) {
+            return MAL_FALSE;
+        }
+        
+        const snd_pcm_channel_area_t* pAreas;
+        snd_pcm_uframes_t mappedOffset;
+        snd_pcm_uframes_t mappedFrames = framesAvailable;
+        while (framesAvailable > 0) {
+            int result = snd_pcm_mmap_begin(pDevice->alsa.pPCM, &pAreas, &mappedOffset, &mappedFrames);
+            if (result < 0) {
+                return MAL_FALSE;
+            }
+            
+            void* pBuffer = (mal_uint8*)pAreas[0].addr + ((pAreas[0].first + (mappedOffset * pAreas[0].step)) / 8);
+            mal_device__read_samples_from_client(pDevice, mappedFrames * pDevice->channels, pBuffer);
+            
+            result = snd_pcm_mmap_commit(pDevice->alsa.pPCM, mappedOffset, mappedFrames);
+            if (result < 0 || result != mappedFrames) {
+                snd_pcm_recover(pDevice->alsa.pPCM, result, MAL_TRUE);
+                return MAL_FALSE;
+            }
+            
+            framesAvailable -= mappedFrames;
+        }
 	} else {
 		// readi/writei.
 		while (!pDevice->alsa.breakFromMainLoop) {
@@ -1691,7 +1716,7 @@ mal_bool32 mal_device_write__alsa(mal_device* pDevice)
                 return MAL_FALSE;
             }
 
-            mal_device__read_samples_from_client(pDevice, framesAvailable * pDevice->channels, pBuffer);
+            mal_device__read_samples_from_client(pDevice, framesAvailable * pDevice->channels, pDevice->alsa.pIntermediaryBuffer);
         
 			snd_pcm_sframes_t framesWritten = snd_pcm_writei(pDevice->alsa.pPCM, pDevice->alsa.pIntermediaryBuffer, framesAvailable);
 			if (framesWritten < 0) {
@@ -1735,7 +1760,31 @@ mal_bool32 mal_device_read__alsa(mal_device* pDevice)
 	void* pBuffer = NULL;
 	if (pDevice->alsa.pIntermediaryBuffer == NULL) {
 		// mmap.
-		return MAL_FALSE;
+        mal_uint32 framesAvailable = mal_device__wait_for_frames__alsa(pDevice);
+        if (framesAvailable == 0) {
+            return MAL_FALSE;
+        }
+        
+        const snd_pcm_channel_area_t* pAreas;
+        snd_pcm_uframes_t mappedOffset;
+        snd_pcm_uframes_t mappedFrames = framesAvailable;
+        while (framesAvailable > 0) {
+            int result = snd_pcm_mmap_begin(pDevice->alsa.pPCM, &pAreas, &mappedOffset, &mappedFrames);
+            if (result < 0) {
+                return MAL_FALSE;
+            }
+            
+            void* pBuffer = (mal_uint8*)pAreas[0].addr + ((pAreas[0].first + (mappedOffset * pAreas[0].step)) / 8);
+            mal_device__send_samples_to_client(pDevice, mappedFrames * pDevice->channels, pBuffer);
+            
+            result = snd_pcm_mmap_commit(pDevice->alsa.pPCM, mappedOffset, mappedFrames);
+            if (result < 0 || result != mappedFrames) {
+                snd_pcm_recover(pDevice->alsa.pPCM, result, MAL_TRUE);
+                return MAL_FALSE;
+            }
+            
+            framesAvailable -= mappedFrames;
+        }
 	} else {
 		// readi/writei.
 		snd_pcm_sframes_t framesRead = 0;
@@ -1744,7 +1793,7 @@ mal_bool32 mal_device_read__alsa(mal_device* pDevice)
 			if (framesAvailable == 0) {
 				return MAL_FALSE;
 			}
-		
+
 			framesRead = snd_pcm_readi(pDevice->alsa.pPCM, pDevice->alsa.pIntermediaryBuffer, framesAvailable);
 			if (framesRead < 0) {
 				if (framesRead == -EAGAIN) {
@@ -1841,7 +1890,7 @@ void mal_device_uninit__alsa(mal_device* pDevice)
 	if (pDevice->alsa.pPCM) {
 		snd_pcm_close((snd_pcm_t*)pDevice->alsa.pPCM);
 		
-		if (pDevice->alsa.pIntermediaryBuffer == NULL) {
+		if (pDevice->alsa.pIntermediaryBuffer != NULL) {
 			mal_free(pDevice->alsa.pIntermediaryBuffer);
 		}
 	}
@@ -1883,38 +1932,44 @@ mal_result mal_device_init__alsa(mal_device* pDevice, mal_device_type type, mal_
     snd_pcm_hw_params_alloca(&pHWParams);
 	
 	if (snd_pcm_hw_params_any((snd_pcm_t*)pDevice->alsa.pPCM, pHWParams) < 0) {
-		snd_pcm_hw_params_free(pHWParams);
 		mal_device_uninit__alsa(pDevice);
 		return mal_post_error(pDevice, "[ALSA] Failed to initialize hardware parameters. snd_pcm_hw_params_any() failed.", MAL_ALSA_FAILED_TO_SET_HW_PARAMS);
 	}
-	
-	if (snd_pcm_hw_params_set_access((snd_pcm_t*)pDevice->alsa.pPCM, pHWParams, SND_PCM_ACCESS_RW_INTERLEAVED) < 0) {
-		snd_pcm_hw_params_free(pHWParams);
-		mal_device_uninit__alsa(pDevice);
-		return mal_post_error(pDevice, "[ALSA] Failed to set access mode to SND_PCM_ACCESS_RW_INTERLEAVED. snd_pcm_hw_params_set_access() failed.", MAL_FORMAT_NOT_SUPPORTED);
-	}
-	
+    
+    // Try using interleaved MMAP access. If this fails, fall back to standard readi/writei.
+    pDevice->alsa.isUsingMMap = MAL_FALSE;
+#ifdef MAL_ENABLE_EXPERIMENTAL_ALSA_MMAP
+    if (snd_pcm_hw_params_set_access((snd_pcm_t*)pDevice->alsa.pPCM, pHWParams, SND_PCM_ACCESS_MMAP_INTERLEAVED) == 0) {
+        pDevice->alsa.isUsingMMap = MAL_TRUE;
+        mal_log(pDevice, "USING MMAP\n");
+    }
+#endif
+    
+    if (!pDevice->alsa.isUsingMMap) {
+        if (snd_pcm_hw_params_set_access((snd_pcm_t*)pDevice->alsa.pPCM, pHWParams, SND_PCM_ACCESS_RW_INTERLEAVED) < 0) {;
+    		mal_device_uninit__alsa(pDevice);
+    		return mal_post_error(pDevice, "[ALSA] Failed to set access mode to neither SND_PCM_ACCESS_MMAP_INTERLEAVED nor SND_PCM_ACCESS_RW_INTERLEAVED. snd_pcm_hw_params_set_access() failed.", MAL_FORMAT_NOT_SUPPORTED);
+    	}
+    }
+    
 	if (snd_pcm_hw_params_set_format((snd_pcm_t*)pDevice->alsa.pPCM, pHWParams, formatALSA) < 0) {
-		snd_pcm_hw_params_free(pHWParams);
 		mal_device_uninit__alsa(pDevice);
 		return mal_post_error(pDevice, "[ALSA] Format not supported. snd_pcm_hw_params_set_format() failed.", MAL_FORMAT_NOT_SUPPORTED);
 	}
+    
 	
 	if (snd_pcm_hw_params_set_rate_near((snd_pcm_t*)pDevice->alsa.pPCM, pHWParams, &sampleRate, 0) < 0) {
-        snd_pcm_hw_params_free(pHWParams);
 		mal_device_uninit__alsa(pDevice);
 		return mal_post_error(pDevice, "[ALSA] Sample rate not supported. snd_pcm_hw_params_set_rate_near() failed.", MAL_FORMAT_NOT_SUPPORTED);
     }
 
     if (snd_pcm_hw_params_set_channels_near((snd_pcm_t*)pDevice->alsa.pPCM, pHWParams, &channels) < 0) {
-        snd_pcm_hw_params_free(pHWParams);
 		mal_device_uninit__alsa(pDevice);
 		return mal_post_error(pDevice, "[ALSA] Failed to set channel count. snd_pcm_hw_params_set_channels_near() failed.", MAL_FORMAT_NOT_SUPPORTED);
     }
 	
-	int dir = 0;
+	int dir = 1;
 	if (snd_pcm_hw_params_set_periods_near((snd_pcm_t*)pDevice->alsa.pPCM, pHWParams, &fragmentCount, &dir) < 0) {
-        snd_pcm_hw_params_free(pHWParams);
 		mal_device_uninit__alsa(pDevice);
 		return mal_post_error(pDevice, "[ALSA] Failed to set fragment count. snd_pcm_hw_params_set_periods_near() failed.", MAL_FORMAT_NOT_SUPPORTED);
     }
@@ -1931,13 +1986,11 @@ mal_result mal_device_init__alsa(mal_device* pDevice, mal_device_type type, mal_
 	pDevice->fragmentSizeInFrames = mal_next_power_of_2(fragmentSizeInFrames);
 	
 	if (snd_pcm_hw_params_set_buffer_size((snd_pcm_t*)pDevice->alsa.pPCM, pHWParams, pDevice->fragmentSizeInFrames * pDevice->fragmentCount) < 0) {
-        snd_pcm_hw_params_free(pHWParams);
 		mal_device_uninit__alsa(pDevice);
 		return mal_post_error(pDevice, "[ALSA] Failed to set buffer size for device. snd_pcm_hw_params_set_buffer_size() failed.", MAL_FORMAT_NOT_SUPPORTED);
     }
-
+    
     if (snd_pcm_hw_params((snd_pcm_t*)pDevice->alsa.pPCM, pHWParams) < 0) {
-        snd_pcm_hw_params_free(pHWParams);
 		mal_device_uninit__alsa(pDevice);
 		return mal_post_error(pDevice, "[ALSA] Failed to set hardware parameters. snd_pcm_hw_params() failed.", MAL_ALSA_FAILED_TO_SET_SW_PARAMS);
     }
@@ -1948,32 +2001,29 @@ mal_result mal_device_init__alsa(mal_device* pDevice, mal_device_type type, mal_
     snd_pcm_sw_params_alloca(&pSWParams);
 	
 	if (snd_pcm_sw_params_current((snd_pcm_t*)pDevice->alsa.pPCM, pSWParams) != 0) {
-		snd_pcm_sw_params_free(pSWParams);
         mal_device_uninit__alsa(pDevice);
 		return mal_post_error(pDevice, "[ALSA] Failed to initialize software parameters. snd_pcm_sw_params_current() failed.", MAL_ALSA_FAILED_TO_SET_SW_PARAMS);
     }
 
     if (snd_pcm_sw_params_set_avail_min((snd_pcm_t*)pDevice->alsa.pPCM, pSWParams, pDevice->fragmentSizeInFrames) != 0) {
-        snd_pcm_sw_params_free(pSWParams);
         mal_device_uninit__alsa(pDevice);
 		return mal_post_error(pDevice, "[ALSA] Failed to set fragment size. snd_pcm_sw_params_set_avail_min() failed.", MAL_FORMAT_NOT_SUPPORTED);
     }
 	
 	if (type == mal_device_type_playback) {
 	    if (snd_pcm_sw_params_set_start_threshold((snd_pcm_t*)pDevice->alsa.pPCM, pSWParams, pDevice->fragmentSizeInFrames) != 0) {
-	        snd_pcm_sw_params_free(pSWParams);
 	        mal_device_uninit__alsa(pDevice);
 			return mal_post_error(pDevice, "[ALSA] Failed to set start threshold for playback device. snd_pcm_sw_params_set_start_threshold() failed.", MAL_ALSA_FAILED_TO_SET_SW_PARAMS);
 	    }
 	}
 
     if (snd_pcm_sw_params((snd_pcm_t*)pDevice->alsa.pPCM, pSWParams) != 0) {
-        snd_pcm_sw_params_free(pSWParams);
         mal_device_uninit__alsa(pDevice);
 		return mal_post_error(pDevice, "[ALSA] Failed to set software parameters. snd_pcm_sw_params() failed.", MAL_ALSA_FAILED_TO_SET_SW_PARAMS);
     }
 	
 	
+    
 	
 	// If we're _not_ using mmap we need to use an intermediary buffer.
 	if (!pDevice->alsa.isUsingMMap) {
@@ -2456,14 +2506,20 @@ mal_uint32 mal_get_sample_size_in_bytes(mal_format format)
 
 // TODO
 // ====
-// - Profiling. Need to measure mal_device_start() and mal_device_stop() in particular. One of the two seems to be taking a bit
-//   longer than it should.
-//   - Initial test for start/stop times show that it's _not_ tied to the fragment size...
-// - Implement mmap mode for ALSA.
-// - Make device initialization more robust for ALSA
-//   - Clamp period sizes to their min/max.
 // - Support rewinding. This will enable applications to employ better anti-latency.
 // - Implement the null device.
+// - Pass the log callback to mal_device_init().
+// - Consider having some core formats which are guaranteed to work. Perhaps u8, s16 and
+//   f32 to cover the 8-, 16 and 32-bit ranges.
+//   - The rationale for this is to make it easier for 
+//
+//
+// ALSA
+// ----
+// - Fix device iteration.
+// - Make device initialization more robust.
+//   - Need to have my test hardware working with plughw at a minimum.
+// - Finish mmap mode for ALSA.
 
 
 // DEVELOPMENT NOTES
