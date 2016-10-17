@@ -1615,9 +1615,12 @@ static mal_result mal_device__main_loop__dsound(mal_device* pDevice)
 // Waits for a number of frames to become available for either capture or playback. The return
 // value is the number of frames available. If this is less than the fragment size it means the
 // main loop has been terminated from another thread. The return value will be clamped to the
-// fragment size.
+// fragment size if the main loop is still running, but could be larger if it returns due to the
+// main loop being terminated.
 //
-// This will return early if the main loop is broken with mal_device__break_main_loop().
+// This will return early if the main loop is broken with mal_device__break_main_loop(), in
+// which case it is possible for the returned number of frames will be greater than the size of
+// a fragment (but smaller than the total buffer size).
 mal_uint32 mal_device__wait_for_frames__alsa(mal_device* pDevice)
 {
 	mal_assert(pDevice != NULL);
@@ -1655,9 +1658,8 @@ mal_uint32 mal_device__wait_for_frames__alsa(mal_device* pDevice)
 		return 0;
 	}
 	
-    // There's a small chance we'll have more frames available than the size of a fragment. These frames
-    // will be lost to cyberspace :(
-	return (framesAvailable < pDevice->fragmentSizeInFrames) ? framesAvailable : pDevice->fragmentSizeInFrames;
+    // There's a small chance we'll have more frames available than the size of a fragment.
+	return framesAvailable;
 }
 
 mal_bool32 mal_device_write__alsa(mal_device* pDevice)
@@ -2027,7 +2029,7 @@ mal_result mal_device_init__alsa(mal_device* pDevice, mal_device_type type, mal_
 	
 	// If we're _not_ using mmap we need to use an intermediary buffer.
 	if (!pDevice->alsa.isUsingMMap) {
-		pDevice->alsa.pIntermediaryBuffer = mal_malloc(pDevice->fragmentSizeInFrames * pDevice->channels * mal_get_sample_size_in_bytes(pDevice->format));
+		pDevice->alsa.pIntermediaryBuffer = mal_malloc(pDevice->fragmentSizeInFrames*pDevice->fragmentCount * pDevice->channels * mal_get_sample_size_in_bytes(pDevice->format));
 		if (pDevice->alsa.pIntermediaryBuffer == NULL) {
 			mal_device_uninit__alsa(pDevice);
 			return mal_post_error(pDevice, "[ALSA] Failed to set software parameters. snd_pcm_sw_params() failed.", MAL_OUT_OF_MEMORY);
@@ -2511,10 +2513,10 @@ mal_uint32 mal_get_sample_size_in_bytes(mal_format format)
 // ====
 // - Support rewinding. This will enable applications to employ better anti-latency.
 // - Implement the null device.
-// - Pass the log callback to mal_device_init().
 // - Consider having some core formats which are guaranteed to work. Perhaps u8, s16 and
 //   f32 to cover the 8-, 16 and 32-bit ranges.
-//   - The rationale for this is to make it easier for 
+//   - The rationale for this is to make it easier for applications to get audio working
+//     without any fuss.
 //
 //
 // ALSA
