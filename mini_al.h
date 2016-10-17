@@ -167,7 +167,7 @@ typedef enum
     // added to this, make sure there are no gaps and that they're added to the lookup table in mal_get_sample_size_in_bytes().
 	mal_format_u8    = 0,
 	mal_format_s16   = 1,
-	mal_format_s24   = 2,   // Aligned to 32-bit.
+	mal_format_s24   = 2,   // Tightly packed. 3 bytes per sample.
 	mal_format_s32   = 3,
 	mal_format_f32   = 4,
 	mal_format_f64   = 5,
@@ -1919,13 +1919,12 @@ mal_result mal_device_init__alsa(mal_device* pDevice, mal_device_type type, mal_
 	{
 		case mal_format_u8:    formatALSA = SND_PCM_FORMAT_U8;         break;
 		case mal_format_s16:   formatALSA = SND_PCM_FORMAT_S16_LE;     break;
+        case mal_format_s24:   formatALSA = SND_PCM_FORMAT_S24_3LE;    break;
 		case mal_format_s32:   formatALSA = SND_PCM_FORMAT_S32_LE;     break;
 		case mal_format_f32:   formatALSA = SND_PCM_FORMAT_FLOAT_LE;   break;
         case mal_format_f64:   formatALSA = SND_PCM_FORMAT_FLOAT64_LE; break;
 		case mal_format_alaw:  formatALSA = SND_PCM_FORMAT_A_LAW;      break;
 		case mal_format_mulaw: formatALSA = SND_PCM_FORMAT_MU_LAW;     break;
-        
-        case mal_format_s24:
 		return mal_post_error(pDevice, "[ALSA] Format not supported.", MAL_FORMAT_NOT_SUPPORTED);
 	}
 	
@@ -2522,7 +2521,6 @@ mal_uint32 mal_get_sample_size_in_bytes(mal_format format)
 //   - The rationale for this is to make it easier for applications to get audio working
 //     without any fuss.
 // - Test s24 format on ALSA. Needs to be 32-bit aligned, but use only 24-bits.
-// - Fix C++ build.
 //
 //
 // ALSA
