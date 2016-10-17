@@ -1630,18 +1630,18 @@ mal_uint32 mal_device__wait_for_frames__alsa(mal_device* pDevice)
 	mal_assert(pDevice != NULL);
 	
 	while (!pDevice->alsa.breakFromMainLoop) {
-		snd_pcm_sframes_t framesAvailable = snd_pcm_avail(pDevice->alsa.pPCM);
+		snd_pcm_sframes_t framesAvailable = snd_pcm_avail((snd_pcm_t*)pDevice->alsa.pPCM);
 		if (framesAvailable >= pDevice->fragmentSizeInFrames) {
 			return pDevice->fragmentSizeInFrames;
 		}
 		
 		if (framesAvailable < 0) {
 			if (framesAvailable == -EPIPE) {
-				if (snd_pcm_recover(pDevice->alsa.pPCM, framesAvailable, MAL_TRUE) < 0) {
+				if (snd_pcm_recover((snd_pcm_t*)pDevice->alsa.pPCM, framesAvailable, MAL_TRUE) < 0) {
 					return 0;
 				}
                 
-                framesAvailable = snd_pcm_avail(pDevice->alsa.pPCM);
+                framesAvailable = snd_pcm_avail((snd_pcm_t*)pDevice->alsa.pPCM);
                 if (framesAvailable < 0) {
                     return 0;
                 }
@@ -1649,15 +1649,15 @@ mal_uint32 mal_device__wait_for_frames__alsa(mal_device* pDevice)
 		}
         
 		const int timeoutInMilliseconds = 20;  // <-- The larger this value, the longer it'll take to stop the device!
-		int waitResult = snd_pcm_wait(pDevice->alsa.pPCM, timeoutInMilliseconds);
+		int waitResult = snd_pcm_wait((snd_pcm_t*)pDevice->alsa.pPCM, timeoutInMilliseconds);
 		if (waitResult < 0) {
-			snd_pcm_recover(pDevice->alsa.pPCM, waitResult, MAL_TRUE);
+			snd_pcm_recover((snd_pcm_t*)pDevice->alsa.pPCM, waitResult, MAL_TRUE);
 		}
 	}
     
 	// We'll get here if the loop was terminated. Just return whatever's available, making sure it's never
     // more than the size of a fragment.
-	snd_pcm_sframes_t framesAvailable = snd_pcm_avail(pDevice->alsa.pPCM);
+	snd_pcm_sframes_t framesAvailable = snd_pcm_avail((snd_pcm_t*)pDevice->alsa.pPCM);
 	if (framesAvailable < 0) {
 		return 0;
 	}
@@ -1693,7 +1693,7 @@ mal_bool32 mal_device_write__alsa(mal_device* pDevice)
         snd_pcm_uframes_t mappedOffset;
         snd_pcm_uframes_t mappedFrames = framesAvailable;
         while (framesAvailable > 0) {
-            int result = snd_pcm_mmap_begin(pDevice->alsa.pPCM, &pAreas, &mappedOffset, &mappedFrames);
+            int result = snd_pcm_mmap_begin((snd_pcm_t*)pDevice->alsa.pPCM, &pAreas, &mappedOffset, &mappedFrames);
             if (result < 0) {
                 return MAL_FALSE;
             }
@@ -1701,9 +1701,9 @@ mal_bool32 mal_device_write__alsa(mal_device* pDevice)
             void* pBuffer = (mal_uint8*)pAreas[0].addr + ((pAreas[0].first + (mappedOffset * pAreas[0].step)) / 8);
             mal_device__read_samples_from_client(pDevice, mappedFrames * pDevice->channels, pBuffer);
             
-            result = snd_pcm_mmap_commit(pDevice->alsa.pPCM, mappedOffset, mappedFrames);
-            if (result < 0 || result != mappedFrames) {
-                snd_pcm_recover(pDevice->alsa.pPCM, result, MAL_TRUE);
+            result = snd_pcm_mmap_commit((snd_pcm_t*)pDevice->alsa.pPCM, mappedOffset, mappedFrames);
+            if (result < 0 || (snd_pcm_uframes_t)result != mappedFrames) {
+                snd_pcm_recover((snd_pcm_t*)pDevice->alsa.pPCM, result, MAL_TRUE);
                 return MAL_FALSE;
             }
             
@@ -1724,17 +1724,17 @@ mal_bool32 mal_device_write__alsa(mal_device* pDevice)
 
             mal_device__read_samples_from_client(pDevice, framesAvailable * pDevice->channels, pDevice->alsa.pIntermediaryBuffer);
         
-			snd_pcm_sframes_t framesWritten = snd_pcm_writei(pDevice->alsa.pPCM, pDevice->alsa.pIntermediaryBuffer, framesAvailable);
+			snd_pcm_sframes_t framesWritten = snd_pcm_writei((snd_pcm_t*)pDevice->alsa.pPCM, pDevice->alsa.pIntermediaryBuffer, framesAvailable);
 			if (framesWritten < 0) {
 				if (framesWritten == -EAGAIN) {
 					continue;	// Just keep trying...
 				} else if (framesWritten == -EPIPE) {
 					// Underrun. Just recover and try writing again.
-					if (snd_pcm_recover(pDevice->alsa.pPCM, framesWritten, MAL_TRUE) < 0) {
+					if (snd_pcm_recover((snd_pcm_t*)pDevice->alsa.pPCM, framesWritten, MAL_TRUE) < 0) {
 						return MAL_FALSE;
 					}
 					
-					framesWritten = snd_pcm_writei(pDevice->alsa.pPCM, pDevice->alsa.pIntermediaryBuffer, framesAvailable);
+					framesWritten = snd_pcm_writei((snd_pcm_t*)pDevice->alsa.pPCM, pDevice->alsa.pIntermediaryBuffer, framesAvailable);
 					if (framesWritten < 0) {
 						return MAL_FALSE;
 					}
@@ -1775,7 +1775,7 @@ mal_bool32 mal_device_read__alsa(mal_device* pDevice)
         snd_pcm_uframes_t mappedOffset;
         snd_pcm_uframes_t mappedFrames = framesAvailable;
         while (framesAvailable > 0) {
-            int result = snd_pcm_mmap_begin(pDevice->alsa.pPCM, &pAreas, &mappedOffset, &mappedFrames);
+            int result = snd_pcm_mmap_begin((snd_pcm_t*)pDevice->alsa.pPCM, &pAreas, &mappedOffset, &mappedFrames);
             if (result < 0) {
                 return MAL_FALSE;
             }
@@ -1783,9 +1783,9 @@ mal_bool32 mal_device_read__alsa(mal_device* pDevice)
             void* pBuffer = (mal_uint8*)pAreas[0].addr + ((pAreas[0].first + (mappedOffset * pAreas[0].step)) / 8);
             mal_device__send_samples_to_client(pDevice, mappedFrames * pDevice->channels, pBuffer);
             
-            result = snd_pcm_mmap_commit(pDevice->alsa.pPCM, mappedOffset, mappedFrames);
-            if (result < 0 || result != mappedFrames) {
-                snd_pcm_recover(pDevice->alsa.pPCM, result, MAL_TRUE);
+            result = snd_pcm_mmap_commit((snd_pcm_t*)pDevice->alsa.pPCM, mappedOffset, mappedFrames);
+            if (result < 0 || (snd_pcm_uframes_t)result != mappedFrames) {
+                snd_pcm_recover((snd_pcm_t*)pDevice->alsa.pPCM, result, MAL_TRUE);
                 return MAL_FALSE;
             }
             
@@ -1800,17 +1800,17 @@ mal_bool32 mal_device_read__alsa(mal_device* pDevice)
 				return MAL_FALSE;
 			}
 
-			framesRead = snd_pcm_readi(pDevice->alsa.pPCM, pDevice->alsa.pIntermediaryBuffer, framesAvailable);
+			framesRead = snd_pcm_readi((snd_pcm_t*)pDevice->alsa.pPCM, pDevice->alsa.pIntermediaryBuffer, framesAvailable);
 			if (framesRead < 0) {
 				if (framesRead == -EAGAIN) {
 					continue;	// Just keep trying...
 				} else if (framesRead == -EPIPE) {
 					// Overrun. Just recover and try reading again.
-					if (snd_pcm_recover(pDevice->alsa.pPCM, framesRead, MAL_TRUE) < 0) {
+					if (snd_pcm_recover((snd_pcm_t*)pDevice->alsa.pPCM, framesRead, MAL_TRUE) < 0) {
 						return MAL_FALSE;
 					}
 					
-					framesRead = snd_pcm_readi(pDevice->alsa.pPCM, pDevice->alsa.pIntermediaryBuffer, pDevice->fragmentSizeInFrames);
+					framesRead = snd_pcm_readi((snd_pcm_t*)pDevice->alsa.pPCM, pDevice->alsa.pIntermediaryBuffer, pDevice->fragmentSizeInFrames);
 					if (framesRead < 0) {
 						return MAL_FALSE;
 					}
@@ -1893,7 +1893,7 @@ void mal_device_uninit__alsa(mal_device* pDevice)
 {
 	mal_assert(pDevice != NULL);
 	
-	if (pDevice->alsa.pPCM) {
+	if ((snd_pcm_t*)pDevice->alsa.pPCM) {
 		snd_pcm_close((snd_pcm_t*)pDevice->alsa.pPCM);
 		
 		if (pDevice->alsa.pIntermediaryBuffer != NULL) {
@@ -2051,14 +2051,14 @@ static mal_result mal_device__start_backend__alsa(mal_device* pDevice)
     mal_assert(pDevice != NULL);
 
     // Prepare the device first...
-    snd_pcm_prepare(pDevice->alsa.pPCM);
+    snd_pcm_prepare((snd_pcm_t*)pDevice->alsa.pPCM);
 
     // ... and then grab an initial fragment from the client. After this is done, the device should
     // automatically start playing, since that's how we configured the software parameters.
     if (pDevice->type == mal_device_type_playback) {
         mal_device_write__alsa(pDevice);
     } else {
-		snd_pcm_start(pDevice->alsa.pPCM);
+		snd_pcm_start((snd_pcm_t*)pDevice->alsa.pPCM);
 	}
 
     return MAL_SUCCESS;
@@ -2068,7 +2068,7 @@ static mal_result mal_device__stop_backend__alsa(mal_device* pDevice)
 {
     mal_assert(pDevice != NULL);
 
-    snd_pcm_drop(pDevice->alsa.pPCM);
+    snd_pcm_drop((snd_pcm_t*)pDevice->alsa.pPCM);
     return MAL_SUCCESS;
 }
 
