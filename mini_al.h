@@ -494,7 +494,7 @@ mal_uint32 mal_get_sample_size_in_bytes(mal_format format);
 
 #ifdef MAL_WIN32
 	#define MAL_THREADCALL WINAPI
-	typedef mal_uint32 mal_thread_result;
+	typedef unsigned long mal_thread_result;
 #else
 	#define MAL_THREADCALL
 	typedef void* mal_thread_result;
@@ -1182,7 +1182,7 @@ mal_result mal_device_init__dsound(mal_device* pDevice, mal_device_type type, ma
     
     // Unfortunately DirectSound uses different APIs and data structures for playback and catpure devices :(
     if (type == mal_device_type_playback) {
-        mal_DirectSoundCreate8Proc pDirectSoundCreate8 = (mal_DirectSoundCreate8Proc)GetProcAddress(pDevice->dsound.hDSoundDLL, "DirectSoundCreate8");
+        mal_DirectSoundCreate8Proc pDirectSoundCreate8 = (mal_DirectSoundCreate8Proc)GetProcAddress((HMODULE)pDevice->dsound.hDSoundDLL, "DirectSoundCreate8");
         if (pDirectSoundCreate8 == NULL) {
             mal_device_uninit__dsound(pDevice);
             return mal_post_error(pDevice, "[DirectSound] Could not find DirectSoundCreate8().", MAL_API_NOT_FOUND);
@@ -1269,7 +1269,7 @@ mal_result mal_device_init__dsound(mal_device* pDevice, mal_device_type type, ma
             return mal_post_error(pDevice, "[DirectSound] IDirectSoundBuffer8_QueryInterface() failed for playback device's IDirectSoundNotify object.", MAL_DSOUND_FAILED_TO_QUERY_INTERFACE);
         }
     } else {
-        mal_DirectSoundCaptureCreate8Proc pDirectSoundCaptureCreate8 = (mal_DirectSoundCaptureCreate8Proc)GetProcAddress(pDevice->dsound.hDSoundDLL, "DirectSoundCaptureCreate8");
+        mal_DirectSoundCaptureCreate8Proc pDirectSoundCaptureCreate8 = (mal_DirectSoundCaptureCreate8Proc)GetProcAddress((HMODULE)pDevice->dsound.hDSoundDLL, "DirectSoundCaptureCreate8");
         if (pDirectSoundCaptureCreate8 == NULL) {
             mal_device_uninit__dsound(pDevice);
             return mal_post_error(pDevice, "[DirectSound] Could not find DirectSoundCreate8().", MAL_API_NOT_FOUND);
