@@ -465,6 +465,7 @@ mal_uint32 mal_get_sample_size_in_bytes(mal_format format);
 #include <assert.h>
 #endif
 
+#if !defined(MAL_64BIT) && !defined(MAL_32BIT)
 #ifdef _WIN32
 #ifdef _WIN64
 #define MAL_64BIT
@@ -472,12 +473,15 @@ mal_uint32 mal_get_sample_size_in_bytes(mal_format format);
 #define MAL_32BIT
 #endif
 #endif
+#endif
 
+#if !defined(MAL_64BIT) && !defined(MAL_32BIT)
 #ifdef __GNUC__
 #ifdef __LP64__
 #define MAL_64BIT
 #else
 #define MAL_32BIT
+#endif
 #endif
 #endif
 
@@ -2519,7 +2523,6 @@ mal_uint32 mal_get_sample_size_in_bytes(mal_format format)
 //     without any fuss.
 // - Test s24 format on ALSA. Needs to be 32-bit aligned, but use only 24-bits.
 // - Fix C++ build.
-// - Test MinGW and TDM-GCC
 //
 //
 // ALSA
