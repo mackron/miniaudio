@@ -2424,15 +2424,15 @@ mal_result mal_device_start(mal_device* pDevice)
     // Be a bit more descriptive if the device is already started or is already in the process of starting. This is likely
     // a bug with the application.
     if (mal_device__get_state(pDevice) == MAL_STATE_STARTING) {
-        return mal_post_error(pDevice, "mal_device_init() called while another thread is already starting it.", MAL_DEVICE_ALREADY_STARTING);
+        return mal_post_error(pDevice, "mal_device_start() called while another thread is already starting it.", MAL_DEVICE_ALREADY_STARTING);
     }
     if (mal_device__get_state(pDevice) == MAL_STATE_STARTED) {
-        return mal_post_error(pDevice, "mal_device_init() called for a device that's already started.", MAL_DEVICE_ALREADY_STARTED);
+        return mal_post_error(pDevice, "mal_device_start() called for a device that's already started.", MAL_DEVICE_ALREADY_STARTED);
     }
 
     // The device needs to be in a stopped state. If it's not, we just let the caller know the device is busy.
     if (mal_device__get_state(pDevice) != MAL_STATE_STOPPED) {
-        return mal_post_error(pDevice, "mal_device_init() called while another thread is in the process of stopping it.", MAL_DEVICE_BUSY);
+        return mal_post_error(pDevice, "mal_device_start() called while another thread is in the process of stopping it.", MAL_DEVICE_BUSY);
     }
 
     mal_device__set_state(pDevice, MAL_STATE_STARTING);
