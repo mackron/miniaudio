@@ -167,7 +167,7 @@ typedef enum
     // added to this, make sure there are no gaps and that they're added to the lookup table in mal_get_sample_size_in_bytes().
 	mal_format_u8    = 0,
 	mal_format_s16   = 1,
-	mal_format_s24   = 2,
+	mal_format_s24   = 2,   // Aligned to 32-bit.
 	mal_format_s32   = 3,
 	mal_format_f32   = 4,
 	mal_format_f64   = 5,
@@ -1135,6 +1135,7 @@ mal_result mal_device_init__dsound(mal_device* pDevice, mal_device_type type, ma
     {
         case mal_format_u8:
         case mal_format_s16:
+        case mal_format_s24:
         case mal_format_s32:
         {
             subformat = _g_mal_GUID_KSDATAFORMAT_SUBTYPE_PCM;
@@ -1156,7 +1157,6 @@ mal_result mal_device_init__dsound(mal_device* pDevice, mal_device_type type, ma
             subformat = _g_mal_GUID_KSDATAFORMAT_SUBTYPE_MULAW;
         } break;
 
-        case mal_format_s24:    // <-- Untested. Not quite sure on alignment.
         default:
         return MAL_FORMAT_NOT_SUPPORTED;
     }
@@ -2517,6 +2517,9 @@ mal_uint32 mal_get_sample_size_in_bytes(mal_format format)
 //   f32 to cover the 8-, 16 and 32-bit ranges.
 //   - The rationale for this is to make it easier for applications to get audio working
 //     without any fuss.
+// - Test s24 format on ALSA. Needs to be 32-bit aligned, but use only 24-bits.
+// - Fix C++ build.
+// - Test MinGW and TDM-GCC
 //
 //
 // ALSA
