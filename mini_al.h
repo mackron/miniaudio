@@ -296,7 +296,7 @@ mal_result mal_enumerate_devices(mal_device_type type, mal_uint32* pCount, mal_d
 // Efficiency: LOW
 //   This API will dynamically link to backend DLLs/SOs like dsound.dll, and is otherwise just slow
 //   due to the nature of it being an initialization API.
-mal_result mal_device_init(mal_device* pDevice, mal_device_type type, mal_device_id* pDeviceID, mal_format format, mal_uint32 channels, mal_uint32 sampleRate, mal_uint32 fragmentSizeInFrames, mal_uint32 fragmentCount);
+mal_result mal_device_init(mal_device* pDevice, mal_device_type type, mal_device_id* pDeviceID, mal_format format, mal_uint32 channels, mal_uint32 sampleRate, mal_uint32 fragmentSizeInFrames, mal_uint32 fragmentCount, mal_log_proc onLog);
 
 // Uninitializes a device.
 //
@@ -2275,13 +2275,16 @@ mal_result mal_enumerate_devices(mal_device_type type, mal_uint32* pCount, mal_d
 	return result;
 }
 
-mal_result mal_device_init(mal_device* pDevice, mal_device_type type, mal_device_id* pDeviceID, mal_format format, mal_uint32 channels, mal_uint32 sampleRate, mal_uint32 fragmentSizeInFrames, mal_uint32 fragmentCount)
+mal_result mal_device_init(mal_device* pDevice, mal_device_type type, mal_device_id* pDeviceID, mal_format format, mal_uint32 channels, mal_uint32 sampleRate, mal_uint32 fragmentSizeInFrames, mal_uint32 fragmentCount, mal_log_proc onLog)
 {
 	if (pDevice == NULL) return mal_post_error(pDevice, "mal_device_init() called with invalid arguments.", MAL_INVALID_ARGS);
 	mal_zero_object(pDevice);
+    pDevice->onLog = onLog;     // <-- Set this ASAP to ensure as many log messages are captured as possible during initialization.
 
     if (((mal_uint64)pDevice % sizeof(pDevice)) != 0) {
-        // TODO: Emit a warning that the device is not thread safe.
+        if (pDevice->onLog) {
+            pDevice->onLog(pDevice, "WARNING: mal_device_init() called for a device that is not properly aligned. Thread safety is not supported.");
+        }
     }
 	
 	if (channels == 0 || sampleRate == 0 || fragmentSizeInFrames == 0 || fragmentCount == 0) return mal_post_error(pDevice, "mal_device_init() called with invalid arguments.", MAL_INVALID_ARGS);
