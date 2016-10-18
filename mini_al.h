@@ -1039,7 +1039,7 @@ static BOOL CALLBACK mal_enum_devices_callback__dsound(LPGUID lpGuid, LPCSTR lpc
     if (pData->pInfo != NULL) {
         if (pData->infoCount > 0) {
             mal_zero_object(pData->pInfo);
-            mal_strncpy_s(pData->pInfo->description, sizeof(pData->pInfo->description), lpcstrDescription, (size_t)-1);
+            mal_strncpy_s(pData->pInfo->name, sizeof(pData->pInfo->name), lpcstrDescription, (size_t)-1);
 
             if (lpGuid != NULL) {
                 mal_copy_memory(pData->pInfo->id.guid, lpGuid, 16);
@@ -2082,6 +2082,25 @@ mal_result mal_device_init__alsa(mal_device* pDevice, mal_device_type type, mal_
 		mal_device_uninit__alsa(pDevice);
 		return mal_post_error(pDevice, "[ALSA] Failed to initialize hardware parameters. snd_pcm_hw_params_any() failed.", MAL_ALSA_FAILED_TO_SET_HW_PARAMS);
 	}
+
+
+    // Most important properties first.    
+
+    if (snd_pcm_hw_params_set_rate_near((snd_pcm_t*)pDevice->alsa.pPCM, pHWParams, &sampleRate, 0) < 0) {
+		mal_device_uninit__alsa(pDevice);
+		return mal_post_error(pDevice, "[ALSA] Sample rate not supported. snd_pcm_hw_params_set_rate_near() failed.", MAL_FORMAT_NOT_SUPPORTED);
+    }
+    
+    if (snd_pcm_hw_params_set_channels_near((snd_pcm_t*)pDevice->alsa.pPCM, pHWParams, &channels) < 0) {
+		mal_device_uninit__alsa(pDevice);
+		return mal_post_error(pDevice, "[ALSA] Failed to set channel count. snd_pcm_hw_params_set_channels_near() failed.", MAL_FORMAT_NOT_SUPPORTED);
+    }
+    
+    if (snd_pcm_hw_params_set_format((snd_pcm_t*)pDevice->alsa.pPCM, pHWParams, formatALSA) < 0) {
+		mal_device_uninit__alsa(pDevice);
+		return mal_post_error(pDevice, "[ALSA] Format not supported. snd_pcm_hw_params_set_format() failed.", MAL_FORMAT_NOT_SUPPORTED);
+	}
+    
     
     // Try using interleaved MMAP access. If this fails, fall back to standard readi/writei.
     pDevice->alsa.isUsingMMap = MAL_FALSE;
@@ -2099,22 +2118,9 @@ mal_result mal_device_init__alsa(mal_device* pDevice, mal_device_type type, mal_
     	}
     }
     
-	if (snd_pcm_hw_params_set_format((snd_pcm_t*)pDevice->alsa.pPCM, pHWParams, formatALSA) < 0) {
-		mal_device_uninit__alsa(pDevice);
-		return mal_post_error(pDevice, "[ALSA] Format not supported. snd_pcm_hw_params_set_format() failed.", MAL_FORMAT_NOT_SUPPORTED);
-	}
+	
     
-	
-	if (snd_pcm_hw_params_set_rate_near((snd_pcm_t*)pDevice->alsa.pPCM, pHWParams, &sampleRate, 0) < 0) {
-		mal_device_uninit__alsa(pDevice);
-		return mal_post_error(pDevice, "[ALSA] Sample rate not supported. snd_pcm_hw_params_set_rate_near() failed.", MAL_FORMAT_NOT_SUPPORTED);
-    }
 
-    if (snd_pcm_hw_params_set_channels_near((snd_pcm_t*)pDevice->alsa.pPCM, pHWParams, &channels) < 0) {
-		mal_device_uninit__alsa(pDevice);
-		return mal_post_error(pDevice, "[ALSA] Failed to set channel count. snd_pcm_hw_params_set_channels_near() failed.", MAL_FORMAT_NOT_SUPPORTED);
-    }
-	
 	int dir = 1;
 	if (snd_pcm_hw_params_set_periods_near((snd_pcm_t*)pDevice->alsa.pPCM, pHWParams, &fragmentCount, &dir) < 0) {
 		mal_device_uninit__alsa(pDevice);
