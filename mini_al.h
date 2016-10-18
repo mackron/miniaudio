@@ -119,20 +119,21 @@ typedef int mal_result;
 #define MAL_OUT_OF_MEMORY                       -3
 #define MAL_FORMAT_NOT_SUPPORTED                -4
 #define MAL_NO_BACKEND                          -5
-#define MAL_API_NOT_FOUND                       -6
-#define MAL_DEVICE_BUSY                         -7
-#define MAL_DEVICE_NOT_INITIALIZED              -8
-#define MAL_DEVICE_ALREADY_STARTED              -9
-#define MAL_DEVICE_ALREADY_STARTING             -10
-#define MAL_DEVICE_ALREADY_STOPPED              -11
-#define MAL_DEVICE_ALREADY_STOPPING             -12
-#define MAL_FAILED_TO_MAP_DEVICE_BUFFER         -13
-#define MAL_FAILED_TO_INIT_BACKEND              -14
-#define MAL_FAILED_TO_READ_DATA_FROM_CLIENT     -15
-#define MAL_FAILED_TO_START_BACKEND_DEVICE      -16
-#define MAL_FAILED_TO_STOP_BACKEND_DEVICE       -17
-#define MAL_FAILED_TO_CREATE_EVENT              -18
-#define MAL_FAILED_TO_CREATE_THREAD             -19
+#define MAL_NO_DEVICE                           -6
+#define MAL_API_NOT_FOUND                       -7
+#define MAL_DEVICE_BUSY                         -8
+#define MAL_DEVICE_NOT_INITIALIZED              -9
+#define MAL_DEVICE_ALREADY_STARTED              -10
+#define MAL_DEVICE_ALREADY_STARTING             -11
+#define MAL_DEVICE_ALREADY_STOPPED              -12
+#define MAL_DEVICE_ALREADY_STOPPING             -13
+#define MAL_FAILED_TO_MAP_DEVICE_BUFFER         -14
+#define MAL_FAILED_TO_INIT_BACKEND              -15
+#define MAL_FAILED_TO_READ_DATA_FROM_CLIENT     -16
+#define MAL_FAILED_TO_START_BACKEND_DEVICE      -17
+#define MAL_FAILED_TO_STOP_BACKEND_DEVICE       -18
+#define MAL_FAILED_TO_CREATE_EVENT              -19
+#define MAL_FAILED_TO_CREATE_THREAD             -20
 #define MAL_DSOUND_FAILED_TO_CREATE_DEVICE      -1024
 #define MAL_DSOUND_FAILED_TO_SET_COOP_LEVEL     -1025
 #define MAL_DSOUND_FAILED_TO_CREATE_BUFFER      -1026
@@ -177,14 +178,14 @@ typedef enum
 
 typedef union
 {
-	char name[256];		// ALSA uses a name string for identification.
+	char str[32];		// ALSA uses a name string for identification.
 	mal_uint8 guid[16];	// DirectSound uses a GUID to identify a device.
 } mal_device_id;
 
 typedef struct
 {
 	mal_device_id id;
-	char description[256];
+    char name[256];
 } mal_device_info;
 
 struct mal_device
@@ -463,6 +464,10 @@ mal_uint32 mal_get_sample_size_in_bytes(mal_format format);
 
 #if !defined(NDEBUG)
 #include <assert.h>
+#endif
+
+#ifdef MAL_ENABLE_ALSA
+#include <stdio.h>  // Needed for printf() which is used for "hw:%d,%d" formatting. TODO: Remove this later.
 #endif
 
 #if !defined(MAL_64BIT) && !defined(MAL_32BIT)
@@ -924,9 +929,9 @@ mal_result mal_enumerate_devices__null(mal_device_type type, mal_uint32* pCount,
         mal_zero_object(pInfo);
 		
 		if (type == mal_device_type_playback) {
-			mal_strncpy_s(pInfo->description, sizeof(pInfo->description), "NULL Playback Device", (size_t)-1);
+			mal_strncpy_s(pInfo->name, sizeof(pInfo->name), "NULL Playback Device", (size_t)-1);
 		} else {
-			mal_strncpy_s(pInfo->description, sizeof(pInfo->description), "NULL Capture Device", (size_t)-1);
+			mal_strncpy_s(pInfo->name, sizeof(pInfo->name), "NULL Capture Device", (size_t)-1);
 		}
 	}
 	
@@ -1616,6 +1621,29 @@ static mal_result mal_device__main_loop__dsound(mal_device* pDevice)
 #ifdef MAL_ENABLE_ALSA
 #include <alsa/asoundlib.h>
 
+const char* mal_find_char(const char* str, char c, int* index)
+{
+    int i = 0;
+    for (;;) {
+        if (str[i] == '\0') {
+            if (index) *index = -1;
+            return NULL;
+        }
+    
+        if (str[i] == c) {
+            if (index) *index = i;
+            return str + i;
+        }
+        
+        i += 1;
+    }
+    
+    // Should never get here, but treat it as though the character was not found to make me feel
+    // better inside.
+    if (index) *index = -1;
+    return NULL;
+}
+
 // Waits for a number of frames to become available for either capture or playback. The return
 // value is the number of frames available. If this is less than the fragment size it means the
 // main loop has been terminated from another thread. The return value will be clamped to the
@@ -1848,7 +1876,99 @@ mal_result mal_enumerate_devices__alsa(mal_device_type type, mal_uint32* pCount,
 {
 	mal_uint32 infoSize = *pCount;
 	*pCount = 0;
+    
+    // What I've learned about device iteration with ALSA
+    // ==================================================
+    //
+    // The preferred method for enumerating devices is to use snd_device_name_hint() and family. The
+    // reason this is preferred is because it includes user-space devices like the "default" device
+    // which goes through PulseAudio. The problem, however, is that it is extremely un-user-friendly
+    // because it enumerates a _lot_ of devices. On my test machine I have only a typical output device
+    // for speakers/headerphones and a microphone - this results 52 devices getting enumerated!
+    //
+    // One way to pull this back a bit is to ignore all but "hw" devices. At initialization time we
+    // can simply append "plug" to the ID string to enable software conversions.
+    //
+    // An alternative enumeration technique is to use snd_card_next() and family. The problem with this
+    // one, which is significant, is that it does _not_ include user-space devices.
+    
+#if 0
+    // Devices are in card/device pairs and formatted as "hw:{card},{device}". Note that we actually use
+    // "plughw:{card},{device}"
+    
+    int card = -1;
+    if (snd_card_next(&card) < 0 || card < 0) {
+        return MAL_NO_DEVICE;
+    }
+    
+    snd_ctl_card_info_t *pCardInfo;
+    snd_ctl_card_info_alloca(&pCardInfo);
+    
+    snd_pcm_info_t* pPCMInfo;
+    snd_pcm_info_alloca(&pPCMInfo);
+
+    do
+    {
+        char cardName[32];
+        snprintf(cardName, sizeof(cardName), "hw:%d", card);
+    
+        snd_ctl_t* pCTL;
+        int result = snd_ctl_open(&pCTL, cardName, 0);
+        if (result < 0) {
+            snd_ctl_close(pCTL);
+            continue;
+        }
+        
+        result = snd_ctl_card_info(pCTL, pCardInfo);
+        if (result < 0) {
+            snd_ctl_close(pCTL);
+            continue;
+        }
+        
+        int device = -1;
+        if (snd_ctl_pcm_next_device(pCTL, &device) < 0) {
+            snd_ctl_close(pCTL);
+            continue;
+        }
+        
+        do
+        {
+            snd_pcm_info_set_device(pPCMInfo, device);
+            snd_pcm_info_set_stream(pPCMInfo, (type == mal_device_type_playback) ? SND_PCM_STREAM_PLAYBACK : SND_PCM_STREAM_CAPTURE);
+            snd_pcm_info_set_subdevice(pPCMInfo, 0);
+            result = snd_ctl_pcm_info(pCTL, pPCMInfo);
+            if (result < 0) {
+                if (result != -ENOENT) {
+                    goto next_card;
+                }
+                
+                goto next_device;
+            }
+            
+            if (pInfo != NULL) {
+                if (infoSize > 0) {
+                    mal_zero_object(pInfo);
+                    snprintf(pInfo->id.str, sizeof(pInfo->id.str), "plughw:%d,%d", card, device);
+                    snprintf(pInfo->name, sizeof(pInfo->name), "%s, %s", snd_ctl_card_info_get_name(pCardInfo), snd_pcm_info_get_name(pPCMInfo));
+                    mal_strncpy_s(pInfo->description, sizeof(pInfo->description), snd_ctl_card_info_get_longname(pCardInfo), (size_t)-1);
+                    
+                    pInfo += 1;
+				    infoSize -= 1;
+				    *pCount += 1;
+                }
+            } else {
+                *pCount += 1;
+            }
+            
+            next_device:;
+        } while (snd_ctl_pcm_next_device(pCTL, &device) >= 0 && device >= 0);
+        
+        next_card:;
+    } while (snd_card_next(&card) >= 0 && card >= 0);
+    
+    return MAL_SUCCESS;
 	
+#else
 	char** ppDeviceHints;
     if (snd_device_name_hint(-1, "pcm", (void***)&ppDeviceHints) < 0) {
         return MAL_NO_BACKEND;
@@ -1864,18 +1984,31 @@ mal_result mal_enumerate_devices__alsa(mal_device_type type, mal_uint32* pCount,
 			(type == mal_device_type_playback && strcmp(IOID, "Output") == 0) ||
 			(type == mal_device_type_capture  && strcmp(IOID, "Input" ) == 0))
 		{
-            if (pInfo != NULL) {
-                if (infoSize > 0) {
-                    mal_zero_object(pInfo);
-                    mal_strncpy_s(pInfo->id.name,     sizeof(pInfo->id.name),     NAME ? NAME : "", (size_t)-1);
-				    mal_strncpy_s(pInfo->description, sizeof(pInfo->description), DESC ? DESC : "", (size_t)-1);
-				
-				    pInfo += 1;
-				    infoSize -= 1;
-				    *pCount += 1;
+            // Experiment. Skip over any non "hw" devices to try and pull back on the number
+            // of enumerated devices.
+            int colonPos;
+            mal_find_char(NAME, ':', &colonPos);
+            if (colonPos == -1 || (colonPos == 2 && (NAME[0]=='h' && NAME[1]=='w'))) {
+                if (pInfo != NULL) {
+                    if (infoSize > 0) {
+                        mal_zero_object(pInfo);
+                        
+                        // NAME is the ID.
+                        mal_strncpy_s(pInfo->id.str, sizeof(pInfo->id.str), NAME ? NAME : "", (size_t)-1);
+    				    
+                        // DESC is the name, followed by the description on a new line.
+                        int lfPos = 0;
+                        mal_find_char(DESC, '\n', &lfPos);
+                        
+                        mal_strncpy_s(pInfo->name, sizeof(pInfo->name), DESC ? DESC : "", (lfPos != -1) ? (size_t)lfPos : (size_t)-1);
+    
+    				    pInfo += 1;
+    				    infoSize -= 1;
+    				    *pCount += 1;
+                    }
+                } else {
+                    *pCount += 1;
                 }
-            } else {
-                *pCount += 1;
             }
 		}
 		
@@ -1887,6 +2020,7 @@ mal_result mal_enumerate_devices__alsa(mal_device_type type, mal_uint32* pCount,
 	
 	snd_device_name_free_hint((void**)ppDeviceHints);
 	return MAL_SUCCESS;
+#endif
 }
 
 void mal_device_uninit__alsa(mal_device* pDevice)
@@ -1907,11 +2041,19 @@ mal_result mal_device_init__alsa(mal_device* pDevice, mal_device_type type, mal_
 	mal_assert(pDevice != NULL);
 	pDevice->api = mal_api_alsa;
 	
-	char deviceName[256];
+	char deviceName[32];
 	if (pDeviceID == NULL) {
-		strcpy(deviceName, "default");
+		strcpy(deviceName, "default");  // TODO: What if PulseAudio is not installed? Use "plughw:0,0" instead?
 	} else {
-		strcpy(deviceName, pDeviceID->name);
+        // For now, convert "hw" devices to "plughw". The reason for this is that mini_al is still a
+        // a quite unstable with non "plughw" devices.
+        if (pDeviceID->str[0] == 'h' && pDeviceID->str[1] == 'w' && pDeviceID->str[2] == ':') {
+            deviceName[0] = 'p'; deviceName[1] = 'l'; deviceName[2] = 'u'; deviceName[3] = 'g';
+            strcpy(deviceName+4, pDeviceID->str);
+        } else {
+            strcpy(deviceName, pDeviceID->str);
+        }
+		
 	}
 	
 	snd_pcm_format_t formatALSA;
@@ -2520,12 +2662,10 @@ mal_uint32 mal_get_sample_size_in_bytes(mal_format format)
 //   f32 to cover the 8-, 16 and 32-bit ranges.
 //   - The rationale for this is to make it easier for applications to get audio working
 //     without any fuss.
-// - Test s24 format on ALSA. Needs to be 32-bit aligned, but use only 24-bits.
 //
 //
 // ALSA
 // ----
-// - Fix device iteration.
 // - Make device initialization more robust.
 //   - Need to have my test hardware working with plughw at a minimum.
 // - Finish mmap mode for ALSA.
