@@ -419,6 +419,14 @@ mal_result mal_device_stop(mal_device* pDevice);
 //   This is implemented with a simple accessor.
 mal_bool32 mal_device_is_started(mal_device* pDevice);
 
+// Retrieves the number of frames available for rewinding.
+mal_uint32 mal_device_get_available_rewind_amount(mal_device* pDevice);
+
+// Rewinds by a number of frames.
+//
+// The return value is the number of frames rewound.
+mal_uint32 mal_device_rewind(mal_device* pDevice, mal_uint32 frames);
+
 // Retrieves the size of a fragment in bytes for the given device.
 //
 // Thread Safety: SAFE
@@ -767,7 +775,6 @@ mal_bool32 mal_thread_create(mal_thread* pThread, mal_thread_entry_proc entryPro
 #ifdef MAL_WIN32
     return mal_thread_create__win32(pThread, entryProc, pData);
 #endif
-
 #ifdef MAL_POSIX
     return mal_thread_create__posix(pThread, entryProc, pData);
 #endif
@@ -780,7 +787,6 @@ void mal_thread_wait(mal_thread* pThread)
 #ifdef MAL_WIN32
     mal_thread_wait__win32(pThread);
 #endif
-
 #ifdef MAL_POSIX
     mal_thread_wait__posix(pThread);
 #endif
@@ -791,7 +797,6 @@ void mal_sleep(mal_uint32 milliseconds)
 #ifdef MAL_WIN32
     mal_sleep__win32(milliseconds);
 #endif
-
 #ifdef MAL_POSIX
     mal_sleep__posix(milliseconds);
 #endif
@@ -805,7 +810,6 @@ mal_bool32 mal_event_create(mal_event* pEvent)
 #ifdef MAL_WIN32
     return mal_event_create__win32(pEvent);
 #endif
-
 #ifdef MAL_POSIX
     return mal_event_create__posix(pEvent);
 #endif
@@ -818,7 +822,6 @@ void mal_event_delete(mal_event* pEvent)
 #ifdef MAL_WIN32
     mal_event_delete__win32(pEvent);
 #endif
-
 #ifdef MAL_POSIX
     mal_event_delete__posix(pEvent);
 #endif
@@ -831,7 +834,6 @@ mal_bool32 mal_event_wait(mal_event* pEvent)
 #ifdef MAL_WIN32
     return mal_event_wait__win32(pEvent);
 #endif
-
 #ifdef MAL_POSIX
     return mal_event_wait__posix(pEvent);
 #endif
@@ -844,7 +846,6 @@ mal_bool32 mal_event_signal(mal_event* pEvent)
 #ifdef MAL_WIN32
     return mal_event_signal__win32(pEvent);
 #endif
-
 #ifdef MAL_POSIX
     return mal_event_signal__posix(pEvent);
 #endif
@@ -920,7 +921,7 @@ static inline mal_uint32 mal_device__get_state(mal_device* pDevice)
 //
 ///////////////////////////////////////////////////////////////////////////////
 #ifdef MAL_ENABLE_NULL
-mal_result mal_enumerate_devices__null(mal_device_type type, mal_uint32* pCount, mal_device_info* pInfo)
+static mal_result mal_enumerate_devices__null(mal_device_type type, mal_uint32* pCount, mal_device_info* pInfo)
 {
 	mal_uint32 infoSize = *pCount;
 	*pCount = 1;	// There's only one "device" each for playback and recording for the null backend.
@@ -938,12 +939,12 @@ mal_result mal_enumerate_devices__null(mal_device_type type, mal_uint32* pCount,
 	return MAL_SUCCESS;
 }
 
-void mal_device_uninit__null(mal_device* pDevice)
+static void mal_device_uninit__null(mal_device* pDevice)
 {
 	mal_assert(pDevice != NULL);
 }
 
-mal_result mal_device_init__null(mal_device* pDevice, mal_device_type type, mal_device_id* pDeviceID, mal_format format, mal_uint32 channels, mal_uint32 sampleRate, mal_uint32 fragmentSizeInFrames, mal_uint32 fragmentCount)
+static mal_result mal_device_init__null(mal_device* pDevice, mal_device_type type, mal_device_id* pDeviceID, mal_format format, mal_uint32 channels, mal_uint32 sampleRate, mal_uint32 fragmentSizeInFrames, mal_uint32 fragmentCount)
 {
 	mal_assert(pDevice != NULL);
 	pDevice->api = mal_api_null;
@@ -978,6 +979,26 @@ static mal_result mal_device__main_loop__null(mal_device* pDevice)
     mal_assert(pDevice != NULL);
 
     return mal_post_error(pDevice, "Not yet implemented.", MAL_ERROR);
+}
+
+static mal_uint32 mal_device_get_available_rewind_amount__null(mal_device* pDevice)
+{
+    mal_assert(pDevice != NULL);
+
+    // Rewinding on the null device is unimportant. Not willing to add maintenance costs for this.
+    (void)pDevice;
+    return 0;
+}
+
+static mal_uint32 mal_device_rewind__null(mal_device* pDevice, mal_uint32 frames)
+{
+    mal_assert(pDevice != NULL);
+    mal_assert(frames > 0);
+
+    // Rewinding on the null device is unimportant. Not willing to add maintenance costs for this.
+    (void)pDevice;
+    (void)frames;
+    return 0;
 }
 #endif
 
@@ -1058,7 +1079,7 @@ static BOOL CALLBACK mal_enum_devices_callback__dsound(LPGUID lpGuid, LPCSTR lpc
     return TRUE;
 }
 
-mal_result mal_enumerate_devices__dsound(mal_device_type type, mal_uint32* pCount, mal_device_info* pInfo)
+static mal_result mal_enumerate_devices__dsound(mal_device_type type, mal_uint32* pCount, mal_device_info* pInfo)
 {
     mal_uint32 infoSize = *pCount;
 	*pCount = 0;
@@ -1092,7 +1113,7 @@ mal_result mal_enumerate_devices__dsound(mal_device_type type, mal_uint32* pCoun
     return MAL_SUCCESS;
 }
 
-void mal_device_uninit__dsound(mal_device* pDevice)
+static void mal_device_uninit__dsound(mal_device* pDevice)
 {
 	mal_assert(pDevice != NULL);
 
@@ -1128,7 +1149,7 @@ void mal_device_uninit__dsound(mal_device* pDevice)
     }
 }
 
-mal_result mal_device_init__dsound(mal_device* pDevice, mal_device_type type, mal_device_id* pDeviceID, mal_format format, mal_uint32 channels, mal_uint32 sampleRate, mal_uint32 fragmentSizeInFrames, mal_uint32 fragmentCount)
+static mal_result mal_device_init__dsound(mal_device* pDevice, mal_device_type type, mal_device_id* pDeviceID, mal_format format, mal_uint32 channels, mal_uint32 sampleRate, mal_uint32 fragmentSizeInFrames, mal_uint32 fragmentCount)
 {
 	mal_assert(pDevice != NULL);
 	pDevice->api = mal_api_dsound;
@@ -1610,6 +1631,19 @@ static mal_result mal_device__main_loop__dsound(mal_device* pDevice)
 
     return MAL_SUCCESS;
 }
+
+static mal_uint32 mal_device_get_available_rewind_amount__dsound(mal_device* pDevice)
+{
+    mal_assert(pDevice != NULL);
+    return 0;
+}
+
+static mal_uint32 mal_device_rewind__dsound(mal_device* pDevice, mal_uint32 frames)
+{
+    mal_assert(pDevice != NULL);
+    mal_assert(frames > 0);
+    return 0;
+}
 #endif
 
 
@@ -1621,7 +1655,7 @@ static mal_result mal_device__main_loop__dsound(mal_device* pDevice)
 #ifdef MAL_ENABLE_ALSA
 #include <alsa/asoundlib.h>
 
-const char* mal_find_char(const char* str, char c, int* index)
+static const char* mal_find_char(const char* str, char c, int* index)
 {
     int i = 0;
     for (;;) {
@@ -1653,7 +1687,7 @@ const char* mal_find_char(const char* str, char c, int* index)
 // This will return early if the main loop is broken with mal_device__break_main_loop(), in
 // which case it is possible for the returned number of frames will be greater than the size of
 // a fragment (but smaller than the total buffer size).
-mal_uint32 mal_device__wait_for_frames__alsa(mal_device* pDevice)
+static mal_uint32 mal_device__wait_for_frames__alsa(mal_device* pDevice)
 {
 	mal_assert(pDevice != NULL);
 	
@@ -1694,7 +1728,7 @@ mal_uint32 mal_device__wait_for_frames__alsa(mal_device* pDevice)
 	return framesAvailable;
 }
 
-mal_bool32 mal_device_write__alsa(mal_device* pDevice)
+static mal_bool32 mal_device_write__alsa(mal_device* pDevice)
 {
 	mal_assert(pDevice != NULL);
 	if (!mal_device_is_started(pDevice)) {
@@ -1780,7 +1814,7 @@ mal_bool32 mal_device_write__alsa(mal_device* pDevice)
 	return MAL_TRUE;
 }
 
-mal_bool32 mal_device_read__alsa(mal_device* pDevice)
+static mal_bool32 mal_device_read__alsa(mal_device* pDevice)
 {
 	mal_assert(pDevice != NULL);
 	if (!mal_device_is_started(pDevice)) {
@@ -1872,7 +1906,7 @@ mal_bool32 mal_device_read__alsa(mal_device* pDevice)
 }
 
 
-mal_result mal_enumerate_devices__alsa(mal_device_type type, mal_uint32* pCount, mal_device_info* pInfo)
+static mal_result mal_enumerate_devices__alsa(mal_device_type type, mal_uint32* pCount, mal_device_info* pInfo)
 {
 	mal_uint32 infoSize = *pCount;
 	*pCount = 0;
@@ -2023,7 +2057,7 @@ mal_result mal_enumerate_devices__alsa(mal_device_type type, mal_uint32* pCount,
 #endif
 }
 
-void mal_device_uninit__alsa(mal_device* pDevice)
+static void mal_device_uninit__alsa(mal_device* pDevice)
 {
 	mal_assert(pDevice != NULL);
 	
@@ -2036,7 +2070,7 @@ void mal_device_uninit__alsa(mal_device* pDevice)
 	}
 }
 
-mal_result mal_device_init__alsa(mal_device* pDevice, mal_device_type type, mal_device_id* pDeviceID, mal_format format, mal_uint32 channels, mal_uint32 sampleRate, mal_uint32 fragmentSizeInFrames, mal_uint32 fragmentCount)
+static mal_result mal_device_init__alsa(mal_device* pDevice, mal_device_type type, mal_device_id* pDeviceID, mal_format format, mal_uint32 channels, mal_uint32 sampleRate, mal_uint32 fragmentSizeInFrames, mal_uint32 fragmentCount)
 {
 	mal_assert(pDevice != NULL);
 	pDevice->api = mal_api_alsa;
@@ -2246,6 +2280,20 @@ static mal_result mal_device__main_loop__alsa(mal_device* pDevice)
 
     return MAL_SUCCESS;
 }
+
+
+static mal_uint32 mal_device_get_available_rewind_amount__alsa(mal_device* pDevice)
+{
+    mal_assert(pDevice != NULL);
+    return 0;   // Not supporting rewinding with ALSA for the moment.
+}
+
+static mal_uint32 mal_device_rewind__alsa(mal_device* pDevice, mal_uint32 frames)
+{
+    mal_assert(pDevice != NULL);
+    mal_assert(frames > 0);
+    return 0;
+}
 #endif
 
 static mal_result mal_device__start_backend(mal_device* pDevice)
@@ -2412,13 +2460,11 @@ mal_result mal_enumerate_devices(mal_device_type type, mal_uint32* pCount, mal_d
 		result = mal_enumerate_devices__dsound(type, pCount, pInfo);
 	}
 #endif
-
 #ifdef MAL_ENABLE_ALSA
 	if (result != MAL_SUCCESS) {
 		result = mal_enumerate_devices__alsa(type, pCount, pInfo);
 	}
 #endif
-
 #ifdef MAL_ENABLE_NULL
 	if (result != MAL_SUCCESS) {
 		result = mal_enumerate_devices__null(type, pCount, pInfo);
@@ -2475,13 +2521,11 @@ mal_result mal_device_init(mal_device* pDevice, mal_device_type type, mal_device
 		result = mal_device_init__dsound(pDevice, type, pDeviceID, format, channels, sampleRate, fragmentSizeInFrames, fragmentCount);
 	}
 #endif
-
 #ifdef MAL_ENABLE_ALSA
 	if (result != MAL_SUCCESS) {
 		result = mal_device_init__alsa(pDevice, type, pDeviceID, format, channels, sampleRate, fragmentSizeInFrames, fragmentCount);
 	}
 #endif
-
 #ifdef MAL_ENABLE_NULL
 	if (result != MAL_SUCCESS) {
 		result = mal_device_init__null(pDevice, type, pDeviceID, format, channels, sampleRate, fragmentSizeInFrames, fragmentCount);
@@ -2515,7 +2559,7 @@ void mal_device_uninit(mal_device* pDevice)
 	// but I like to do it explicitly for my own sanity.
     if (mal_device_is_started(pDevice)) {
 	    while (mal_device_stop(pDevice) == MAL_DEVICE_BUSY) {
-            mal_sleep(10);
+            mal_sleep(1);
         }
     }
 
@@ -2535,13 +2579,11 @@ void mal_device_uninit(mal_device* pDevice)
 		mal_device_uninit__dsound(pDevice);
 	}
 #endif
-
 #ifdef MAL_ENABLE_ALSA
 	if (pDevice->api == mal_api_alsa) {
 		mal_device_uninit__alsa(pDevice);
 	}
 #endif
-
 #ifdef MAL_ENABLE_NULL
 	if (pDevice->api == mal_api_null) {
 		mal_device_uninit__null(pDevice);
@@ -2630,6 +2672,51 @@ mal_bool32 mal_device_is_started(mal_device* pDevice)
 	return mal_device__get_state(pDevice) == MAL_STATE_STARTED;
 }
 
+mal_uint32 mal_device_get_available_rewind_amount(mal_device* pDevice)
+{
+    if (pDevice == NULL) return 0;
+    
+#ifdef MAL_ENABLE_DSOUND
+	if (pDevice->api == mal_api_dsound) {
+		return mal_device_get_available_rewind_amount__dsound(pDevice);
+	}
+#endif
+#ifdef MAL_ENABLE_ALSA
+	if (pDevice->api == mal_api_alsa) {
+		return mal_device_get_available_rewind_amount__alsa(pDevice);
+	}
+#endif
+#ifdef MAL_ENABLE_NULL
+	if (pDevice->api == mal_api_null) {
+		return mal_device_get_available_rewind_amount__null(pDevice);
+	}
+#endif
+
+    return 0;
+}
+
+mal_uint32 mal_device_rewind(mal_device* pDevice, mal_uint32 frames)
+{
+    if (pDevice == NULL || frames == 0) return 0;
+#ifdef MAL_ENABLE_DSOUND
+	if (pDevice->api == mal_api_dsound) {
+		return mal_device_rewind__dsound(pDevice, frames);
+	}
+#endif
+#ifdef MAL_ENABLE_ALSA
+	if (pDevice->api == mal_api_alsa) {
+		return mal_device_rewind__alsa(pDevice, frames);
+	}
+#endif
+#ifdef MAL_ENABLE_NULL
+	if (pDevice->api == mal_api_null) {
+		return mal_device_rewind__null(pDevice, frames);
+	}
+#endif
+
+    return 0;
+}
+
 mal_uint32 mal_device_get_fragment_size_in_bytes(mal_device* pDevice)
 {
     if (pDevice == NULL) return 0;
@@ -2664,10 +2751,7 @@ mal_uint32 mal_get_sample_size_in_bytes(mal_format format)
 // ====
 // - Support rewinding. This will enable applications to employ better anti-latency.
 // - Implement the null device.
-// - Consider having some core formats which are guaranteed to work. Perhaps u8, s16 and
-//   f32 to cover the 8-, 16 and 32-bit ranges.
-//   - The rationale for this is to make it easier for applications to get audio working
-//     without any fuss.
+// - Thread safety for start, stop and rewind.
 //
 //
 // ALSA
@@ -2675,15 +2759,6 @@ mal_uint32 mal_get_sample_size_in_bytes(mal_format format)
 // - Make device initialization more robust.
 //   - Need to have my test hardware working with plughw at a minimum.
 // - Finish mmap mode for ALSA.
-
-
-// DEVELOPMENT NOTES
-// =================
-//
-// General
-// -------
-// - An "event" is just a binary semaphore and is the only synchronization primitive used by mini_al. An event is
-//   always auto-reset and initially unsignaled.
 
 
 /*
