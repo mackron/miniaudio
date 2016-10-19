@@ -620,7 +620,7 @@ static int mal_strncpy_s(char* dst, size_t dstSizeInBytes, const char* src, size
 }
 
 // Thanks to good old Bit Twiddling Hacks for this one: http://graphics.stanford.edu/~seander/bithacks.html#RoundUpPowerOf2
-static unsigned int mal_next_power_of_2(unsigned int x)
+static inline unsigned int mal_next_power_of_2(unsigned int x)
 {
     x--;
     x |= x >> 1;
@@ -633,7 +633,7 @@ static unsigned int mal_next_power_of_2(unsigned int x)
     return x;
 }
 
-static unsigned int mal_prev_power_of_2(unsigned int x)
+static inline unsigned int mal_prev_power_of_2(unsigned int x)
 {
     return mal_next_power_of_2(x) >> 1;
 }
@@ -693,7 +693,7 @@ double mal_timer_get_time_in_seconds(mal_timer* pTimer)
 void mal_timer_init(mal_timer* pTimer)
 {
     struct timespec newTime;
-    clock_gettime(CLOCK_PROCESS_CPUTIME_ID, &newTime);
+    clock_gettime(CLOCK_MONOTONIC, &newTime);
 
     pTimer->counter = (newTime.tv_sec * 1000000000LL) + newTime.tv_nsec;
 }
@@ -701,7 +701,7 @@ void mal_timer_init(mal_timer* pTimer)
 double mal_timer_get_time_in_seconds(mal_timer* pTimer)
 {
     struct timespec newTime;
-    clock_gettime(CLOCK_PROCESS_CPUTIME_ID, &newTime);
+    clock_gettime(CLOCK_MONOTONIC, &newTime);
 
     uint64_t newTimeCounter = (newTime.tv_sec * 1000000000LL) + newTime.tv_nsec;
     uint64_t oldTimeCounter = pTimer->counter;
@@ -2220,7 +2220,6 @@ static mal_result mal_device_init__alsa(mal_device* pDevice, mal_device_type typ
     }
     pDevice->sampleRate = sampleRate;
     
-    
     // Channels.
     if (snd_pcm_hw_params_set_channels_near((snd_pcm_t*)pDevice->alsa.pPCM, pHWParams, &channels) < 0) {
 		mal_device_uninit__alsa(pDevice);
@@ -2245,7 +2244,7 @@ static mal_result mal_device_init__alsa(mal_device* pDevice, mal_device_type typ
     
     
     // Periods.
-    int dir = 1;
+    int dir = 0;
 	if (snd_pcm_hw_params_set_periods_near((snd_pcm_t*)pDevice->alsa.pPCM, pHWParams, &fragmentCount, &dir) < 0) {
 		mal_device_uninit__alsa(pDevice);
 		return mal_post_error(pDevice, "[ALSA] Failed to set fragment count. snd_pcm_hw_params_set_periods_near() failed.", MAL_FORMAT_NOT_SUPPORTED);
