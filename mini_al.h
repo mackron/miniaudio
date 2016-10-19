@@ -633,6 +633,10 @@ static unsigned int mal_next_power_of_2(unsigned int x)
     return x;
 }
 
+static unsigned int mal_prev_power_of_2(unsigned int x)
+{
+    return mal_next_power_of_2(x) >> 1;
+}
 
 
 ///////////////////////////////////////////////////////////////////////////////
@@ -2209,22 +2213,49 @@ static mal_result mal_device_init__alsa(mal_device* pDevice, mal_device_type typ
 
     // Most important properties first.    
 
+    // Sample Rate
     if (snd_pcm_hw_params_set_rate_near((snd_pcm_t*)pDevice->alsa.pPCM, pHWParams, &sampleRate, 0) < 0) {
 		mal_device_uninit__alsa(pDevice);
 		return mal_post_error(pDevice, "[ALSA] Sample rate not supported. snd_pcm_hw_params_set_rate_near() failed.", MAL_FORMAT_NOT_SUPPORTED);
     }
+    pDevice->sampleRate = sampleRate;
     
+    
+    // Channels.
     if (snd_pcm_hw_params_set_channels_near((snd_pcm_t*)pDevice->alsa.pPCM, pHWParams, &channels) < 0) {
 		mal_device_uninit__alsa(pDevice);
 		return mal_post_error(pDevice, "[ALSA] Failed to set channel count. snd_pcm_hw_params_set_channels_near() failed.", MAL_FORMAT_NOT_SUPPORTED);
     }
+    pDevice->channels = channels;
     
+    
+    // Format.
     if (snd_pcm_hw_params_set_format((snd_pcm_t*)pDevice->alsa.pPCM, pHWParams, formatALSA) < 0) {
 		mal_device_uninit__alsa(pDevice);
 		return mal_post_error(pDevice, "[ALSA] Format not supported. snd_pcm_hw_params_set_format() failed.", MAL_FORMAT_NOT_SUPPORTED);
 	}
     
     
+    // Buffer Size
+    snd_pcm_uframes_t bufferSize = fragmentSizeInFrames * pDevice->fragmentCount;
+	if (snd_pcm_hw_params_set_buffer_size_near((snd_pcm_t*)pDevice->alsa.pPCM, pHWParams, &bufferSize) < 0) {
+		mal_device_uninit__alsa(pDevice);
+		return mal_post_error(pDevice, "[ALSA] Failed to set buffer size for device. snd_pcm_hw_params_set_buffer_size() failed.", MAL_FORMAT_NOT_SUPPORTED);
+    }
+    
+    
+    // Periods.
+    int dir = 1;
+	if (snd_pcm_hw_params_set_periods_near((snd_pcm_t*)pDevice->alsa.pPCM, pHWParams, &fragmentCount, &dir) < 0) {
+		mal_device_uninit__alsa(pDevice);
+		return mal_post_error(pDevice, "[ALSA] Failed to set fragment count. snd_pcm_hw_params_set_periods_near() failed.", MAL_FORMAT_NOT_SUPPORTED);
+    }
+	pDevice->fragmentCount = fragmentCount;
+    pDevice->fragmentSizeInFrames = bufferSize / pDevice->fragmentCount;
+    
+    
+    // MMAP Mode
+    //
     // Try using interleaved MMAP access. If this fails, fall back to standard readi/writei.
     pDevice->alsa.isUsingMMap = MAL_FALSE;
 #ifdef MAL_ENABLE_EXPERIMENTAL_ALSA_MMAP
@@ -2241,31 +2272,8 @@ static mal_result mal_device_init__alsa(mal_device* pDevice, mal_device_type typ
     	}
     }
     
-	
     
-
-	int dir = 1;
-	if (snd_pcm_hw_params_set_periods_near((snd_pcm_t*)pDevice->alsa.pPCM, pHWParams, &fragmentCount, &dir) < 0) {
-		mal_device_uninit__alsa(pDevice);
-		return mal_post_error(pDevice, "[ALSA] Failed to set fragment count. snd_pcm_hw_params_set_periods_near() failed.", MAL_FORMAT_NOT_SUPPORTED);
-    }
-	
-	// A few properties may have been adjusted so we need to make sure the device object is aware.
-	pDevice->channels = channels;
-	pDevice->sampleRate = sampleRate;
-	pDevice->fragmentCount = fragmentCount;
-	
-	// According to the ALSA documentation, the value passed to snd_pcm_sw_params_set_avail_min() must be a power
-    // of 2 on some hardware. The value passed to this function is the size in frames of a fragment. Thus, to be
-    // as robust as possible the size of the hardware buffer should be sized based on the size of the next power-
-    // of-two frame count.
-	pDevice->fragmentSizeInFrames = mal_next_power_of_2(fragmentSizeInFrames);
-	
-	if (snd_pcm_hw_params_set_buffer_size((snd_pcm_t*)pDevice->alsa.pPCM, pHWParams, pDevice->fragmentSizeInFrames * pDevice->fragmentCount) < 0) {
-		mal_device_uninit__alsa(pDevice);
-		return mal_post_error(pDevice, "[ALSA] Failed to set buffer size for device. snd_pcm_hw_params_set_buffer_size() failed.", MAL_FORMAT_NOT_SUPPORTED);
-    }
-    
+    // Apply hardware parameters.
     if (snd_pcm_hw_params((snd_pcm_t*)pDevice->alsa.pPCM, pHWParams) < 0) {
 		mal_device_uninit__alsa(pDevice);
 		return mal_post_error(pDevice, "[ALSA] Failed to set hardware parameters. snd_pcm_hw_params() failed.", MAL_ALSA_FAILED_TO_SET_SW_PARAMS);
@@ -2281,13 +2289,13 @@ static mal_result mal_device_init__alsa(mal_device* pDevice, mal_device_type typ
 		return mal_post_error(pDevice, "[ALSA] Failed to initialize software parameters. snd_pcm_sw_params_current() failed.", MAL_ALSA_FAILED_TO_SET_SW_PARAMS);
     }
 
-    if (snd_pcm_sw_params_set_avail_min((snd_pcm_t*)pDevice->alsa.pPCM, pSWParams, pDevice->fragmentSizeInFrames) != 0) {
+    if (snd_pcm_sw_params_set_avail_min((snd_pcm_t*)pDevice->alsa.pPCM, pSWParams, mal_prev_power_of_2(pDevice->fragmentSizeInFrames)) != 0) {
         mal_device_uninit__alsa(pDevice);
 		return mal_post_error(pDevice, "[ALSA] Failed to set fragment size. snd_pcm_sw_params_set_avail_min() failed.", MAL_FORMAT_NOT_SUPPORTED);
     }
 	
 	if (type == mal_device_type_playback) {
-	    if (snd_pcm_sw_params_set_start_threshold((snd_pcm_t*)pDevice->alsa.pPCM, pSWParams, pDevice->fragmentSizeInFrames) != 0) {
+	    if (snd_pcm_sw_params_set_start_threshold((snd_pcm_t*)pDevice->alsa.pPCM, pSWParams, mal_prev_power_of_2(pDevice->fragmentSizeInFrames)) != 0) {
 	        mal_device_uninit__alsa(pDevice);
 			return mal_post_error(pDevice, "[ALSA] Failed to set start threshold for playback device. snd_pcm_sw_params_set_start_threshold() failed.", MAL_ALSA_FAILED_TO_SET_SW_PARAMS);
 	    }
