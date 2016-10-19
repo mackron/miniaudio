@@ -619,6 +619,31 @@ static int mal_strncpy_s(char* dst, size_t dstSizeInBytes, const char* src, size
     return 34;
 }
 
+int mal_strcmp(const char* str1, const char* str2)
+{
+    if (str1 == str2) return  0;
+    
+    // These checks differ from the standard implementation. It's not important, but I prefer
+    // it just for sanity.
+    if (str1 == NULL) return -1;
+    if (str2 == NULL) return  1;
+    
+    for (;;) {
+        if (str1[0] == '\0') {
+            break;
+        }
+        if (str1[0] != str2[0]) {
+            break;
+        }
+        
+        str1 += 1;
+        str2 += 1;
+    }
+    
+    return ((unsigned char*)str1)[0] - ((unsigned char*)str2)[0];
+}
+
+
 // Thanks to good old Bit Twiddling Hacks for this one: http://graphics.stanford.edu/~seander/bithacks.html#RoundUpPowerOf2
 static inline unsigned int mal_next_power_of_2(unsigned int x)
 {
@@ -2167,23 +2192,8 @@ static mal_result mal_device_init__alsa(mal_device* pDevice, mal_device_type typ
 {
 	mal_assert(pDevice != NULL);
 	pDevice->api = mal_api_alsa;
-	
-	char deviceName[32];
-	if (pDeviceID == NULL) {
-		strcpy(deviceName, "default");  // TODO: What if PulseAudio is not installed? Use "plughw:0,0" instead?
-	} else {
-        // For now, convert "hw" devices to "plughw". The reason for this is that mini_al is still a
-        // a quite unstable with non "plughw" devices.
-        if (pDeviceID->str[0] == 'h' && pDeviceID->str[1] == 'w' && pDeviceID->str[2] == ':') {
-            deviceName[0] = 'p'; deviceName[1] = 'l'; deviceName[2] = 'u'; deviceName[3] = 'g';
-            strcpy(deviceName+4, pDeviceID->str);
-        } else {
-            strcpy(deviceName, pDeviceID->str);
-        }
-		
-	}
-	
-	snd_pcm_format_t formatALSA;
+    
+    snd_pcm_format_t formatALSA;
 	switch (format)
 	{
 		case mal_format_u8:    formatALSA = SND_PCM_FORMAT_U8;         break;
@@ -2197,9 +2207,33 @@ static mal_result mal_device_init__alsa(mal_device* pDevice, mal_device_type typ
 		return mal_post_error(pDevice, "[ALSA] Format not supported.", MAL_FORMAT_NOT_SUPPORTED);
 	}
 	
+	char deviceName[32];
+	if (pDeviceID == NULL) {
+		mal_strncpy_s(deviceName, sizeof(deviceName), "default", (size_t)-1);
+	} else {
+        // For now, convert "hw" devices to "plughw". The reason for this is that mini_al is still a
+        // a quite unstable with non "plughw" devices.
+        if (pDeviceID->str[0] == 'h' && pDeviceID->str[1] == 'w' && pDeviceID->str[2] == ':') {
+            deviceName[0] = 'p'; deviceName[1] = 'l'; deviceName[2] = 'u'; deviceName[3] = 'g';
+            mal_strncpy_s(deviceName+4, sizeof(deviceName-4), pDeviceID->str, (size_t)-1);
+        } else {
+            mal_strncpy_s(deviceName, sizeof(deviceName), pDeviceID->str, (size_t)-1);
+        }
+		
+	}
+	
 	if (snd_pcm_open((snd_pcm_t**)&pDevice->alsa.pPCM, deviceName, (type == mal_device_type_playback) ? SND_PCM_STREAM_PLAYBACK : SND_PCM_STREAM_CAPTURE, 0) < 0) {
-		mal_device_uninit__alsa(pDevice);
-		return mal_post_error(pDevice, "[ALSA] snd_pcm_open() failed.", MAL_ALSA_FAILED_TO_OPEN_DEVICE);
+        if (mal_strcmp(deviceName, "default") == 0 || mal_strcmp(deviceName, "pulse") == 0) {
+            // We may have failed to open the "default" or "pulse" device, in which case try falling back to "plughw:0,0".
+            mal_strncpy_s(deviceName, "plughw:0,0");
+            if (snd_pcm_open((snd_pcm_t**)&pDevice->alsa.pPCM, deviceName, (type == mal_device_type_playback) ? SND_PCM_STREAM_PLAYBACK : SND_PCM_STREAM_CAPTURE, 0) < 0) {
+                mal_device_uninit__alsa(pDevice);
+    		    return mal_post_error(pDevice, "[ALSA] snd_pcm_open() failed.", MAL_ALSA_FAILED_TO_OPEN_DEVICE);
+            }
+        } else {
+    		mal_device_uninit__alsa(pDevice);
+    		return mal_post_error(pDevice, "[ALSA] snd_pcm_open() failed.", MAL_ALSA_FAILED_TO_OPEN_DEVICE);
+        }
 	}
 	
 	snd_pcm_hw_params_t* pHWParams = NULL;
