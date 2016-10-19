@@ -2093,83 +2093,6 @@ static mal_result mal_enumerate_devices__alsa(mal_device_type type, mal_uint32* 
     // An alternative enumeration technique is to use snd_card_next() and family. The problem with this
     // one, which is significant, is that it does _not_ include user-space devices.
     
-#if 0
-    // Devices are in card/device pairs and formatted as "hw:{card},{device}". Note that we actually use
-    // "plughw:{card},{device}"
-    
-    int card = -1;
-    if (snd_card_next(&card) < 0 || card < 0) {
-        return MAL_NO_DEVICE;
-    }
-    
-    snd_ctl_card_info_t *pCardInfo;
-    snd_ctl_card_info_alloca(&pCardInfo);
-    
-    snd_pcm_info_t* pPCMInfo;
-    snd_pcm_info_alloca(&pPCMInfo);
-
-    do
-    {
-        char cardName[32];
-        snprintf(cardName, sizeof(cardName), "hw:%d", card);
-    
-        snd_ctl_t* pCTL;
-        int result = snd_ctl_open(&pCTL, cardName, 0);
-        if (result < 0) {
-            snd_ctl_close(pCTL);
-            continue;
-        }
-        
-        result = snd_ctl_card_info(pCTL, pCardInfo);
-        if (result < 0) {
-            snd_ctl_close(pCTL);
-            continue;
-        }
-        
-        int device = -1;
-        if (snd_ctl_pcm_next_device(pCTL, &device) < 0) {
-            snd_ctl_close(pCTL);
-            continue;
-        }
-        
-        do
-        {
-            snd_pcm_info_set_device(pPCMInfo, device);
-            snd_pcm_info_set_stream(pPCMInfo, (type == mal_device_type_playback) ? SND_PCM_STREAM_PLAYBACK : SND_PCM_STREAM_CAPTURE);
-            snd_pcm_info_set_subdevice(pPCMInfo, 0);
-            result = snd_ctl_pcm_info(pCTL, pPCMInfo);
-            if (result < 0) {
-                if (result != -ENOENT) {
-                    goto next_card;
-                }
-                
-                goto next_device;
-            }
-            
-            if (pInfo != NULL) {
-                if (infoSize > 0) {
-                    mal_zero_object(pInfo);
-                    snprintf(pInfo->id.str, sizeof(pInfo->id.str), "plughw:%d,%d", card, device);
-                    snprintf(pInfo->name, sizeof(pInfo->name), "%s, %s", snd_ctl_card_info_get_name(pCardInfo), snd_pcm_info_get_name(pPCMInfo));
-                    mal_strncpy_s(pInfo->description, sizeof(pInfo->description), snd_ctl_card_info_get_longname(pCardInfo), (size_t)-1);
-                    
-                    pInfo += 1;
-				    infoSize -= 1;
-				    *pCount += 1;
-                }
-            } else {
-                *pCount += 1;
-            }
-            
-            next_device:;
-        } while (snd_ctl_pcm_next_device(pCTL, &device) >= 0 && device >= 0);
-        
-        next_card:;
-    } while (snd_card_next(&card) >= 0 && card >= 0);
-    
-    return MAL_SUCCESS;
-	
-#else
 	char** ppDeviceHints;
     if (snd_device_name_hint(-1, "pcm", (void***)&ppDeviceHints) < 0) {
         return MAL_NO_BACKEND;
@@ -2221,7 +2144,6 @@ static mal_result mal_enumerate_devices__alsa(mal_device_type type, mal_uint32* 
 	
 	snd_device_name_free_hint((void**)ppDeviceHints);
 	return MAL_SUCCESS;
-#endif
 }
 
 static void mal_device_uninit__alsa(mal_device* pDevice)
