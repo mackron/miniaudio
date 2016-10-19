@@ -98,9 +98,11 @@ typedef void* mal_ptr;
 
 #ifdef MAL_WIN32
 	typedef mal_handle mal_thread;
+    typedef mal_handle mal_mutex;
 	typedef mal_handle mal_event;
 #else
 	typedef pthread_t mal_thread;
+    typedef pthread_mutex_t mal_mutex;
     typedef struct
     {
         pthread_mutex_t mutex;
@@ -209,6 +211,7 @@ struct mal_device
 	mal_send_proc onSend;
     mal_log_proc onLog;
 	void* pUserData;	    // Application defined data.
+    mal_mutex lock;
 	mal_event wakeupEvent;
     mal_event startEvent;
     mal_event stopEvent;
@@ -763,6 +766,32 @@ void mal_sleep__win32(mal_uint32 milliseconds)
 }
 
 
+mal_bool32 mal_mutex_create__win32(mal_mutex* pMutex)
+{
+    *pMutex = CreateEventA(NULL, FALSE, TRUE, NULL);
+    if (*pMutex == NULL) {
+        return DR_FALSE;
+    }
+
+    return DR_TRUE;
+}
+
+void mal_mutex_delete__win32(mal_mutex* pMutex)
+{
+    CloseHandle(*pMutex);
+}
+
+void mal_mutex_lock__win32(mal_mutex* pMutex)
+{
+    WaitForSingleObject(*pMutex, INFINITE);
+}
+
+void mal_mutex_unlock__win32(mal_mutex* pMutex)
+{
+    SetEvent(*pMutex);
+}
+
+
 mal_bool32 mal_event_create__win32(mal_event* pEvent)
 {
     *pEvent = CreateEventW(NULL, FALSE, FALSE, NULL);
@@ -804,6 +833,27 @@ void mal_thread_wait__posix(mal_thread* pThread)
 void mal_sleep__posix(mal_uint32 milliseconds)
 {
     usleep(milliseconds * 1000);    // <-- usleep is in microseconds.
+}
+
+
+mal_bool32 mal_mutex_create__posix(mal_mutex* pMutex)
+{
+    return pthread_mutex_init(pMutex, NULL) == 0;
+}
+
+void mal_mutex_delete__posix(mal_mutex* pMutex)
+{
+    pthread_mutex_destroy(pMutex);
+}
+
+void mal_mutex_lock__posix(mal_mutex* pMutex)
+{
+    pthread_mutex_lock(pMutex);
+}
+
+void mal_mutex_unlock__posix(mal_mutex* pMutex)
+{
+    pthread_mutex_unlock(pMutex);
 }
 
 
@@ -886,6 +936,55 @@ void mal_sleep(mal_uint32 milliseconds)
 #endif
 #ifdef MAL_POSIX
     mal_sleep__posix(milliseconds);
+#endif
+}
+
+
+mal_bool32 mal_mutex_create(mal_mutex* pMutex)
+{
+    if (pMutex == NULL) return MAL_FALSE;
+    
+#ifdef MAL_WIN32
+    return mal_mutex_create__win32(pMutex);
+#endif
+#ifdef MAL_POSIX
+    return mal_mutex_create__posix(pMutex);
+#endif
+}
+
+void mal_mutex_delete(mal_mutex* pMutex)
+{
+    if (pMutex == NULL) return;
+    
+#ifdef MAL_WIN32
+    mal_mutex_delete__win32(pMutex);
+#endif
+#ifdef MAL_POSIX
+    mal_mutex_delete__posix(pMutex);
+#endif
+}
+
+void mal_mutex_lock(mal_mutex* pMutex)
+{
+    if (pMutex == NULL) return;
+    
+#ifdef MAL_WIN32
+    mal_mutex_lock__win32(pMutex);
+#endif
+#ifdef MAL_POSIX
+    mal_mutex_lock__posix(pMutex);
+#endif
+}
+
+void mal_mutex_unlock(mal_mutex* pMutex)
+{
+    if (pMutex == NULL) return;
+    
+#ifdef MAL_WIN32
+    mal_mutex_unlock__win32(pMutex);
+#endif
+#ifdef MAL_POSIX
+    mal_mutex_unlock__posix(pMutex);
 #endif
 }
 
