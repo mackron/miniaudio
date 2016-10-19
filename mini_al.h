@@ -485,7 +485,7 @@ mal_uint32 mal_get_sample_size_in_bytes(mal_format format);
 #endif
 
 #ifdef MAL_ENABLE_ALSA
-#include <stdio.h>  // Needed for printf() which is used for "hw:%d,%d" formatting. TODO: Remove this later.
+#include <stdio.h>  // Needed for sprintf() which is used for "hw:%d,%d" formatting. TODO: Remove this later.
 #endif
 
 #if !defined(MAL_64BIT) && !defined(MAL_32BIT)
@@ -2121,6 +2121,12 @@ static mal_result mal_enumerate_devices__alsa(mal_device_type type, mal_uint32* 
     //
     // An alternative enumeration technique is to use snd_card_next() and family. The problem with this
     // one, which is significant, is that it does _not_ include user-space devices.
+    //
+    // ---
+    //
+    // During my testing I have discovered that snd_pcm_open() can fail on names returned by the "NAME"
+    // hint returned by snd_device_name_get_hint(). To resolve this I have needed to parse the NAME
+    // string and convert it to "hw:%d,%d" format.
     
 	char** ppDeviceHints;
     if (snd_device_name_hint(-1, "pcm", (void***)&ppDeviceHints) < 0) {
@@ -2148,11 +2154,56 @@ static mal_result mal_enumerate_devices__alsa(mal_device_type type, mal_uint32* 
                         
                         // NAME is the ID.
                         mal_strncpy_s(pInfo->id.str, sizeof(pInfo->id.str), NAME ? NAME : "", (size_t)-1);
+                        
+                        // NAME -> "hw:%d,%d"
+                        if (colonPos != -1 && NAME != NULL) {
+                            // We need to convert the NAME string to "hw:%d,%d" format.
+                            char* cardStr = NAME + 3;
+                            for (;;) {
+                                if (cardStr[0] == '\0') {
+                                    cardStr = NULL;
+                                    break;
+                                }
+                                if (cardStr[0] == 'C' && cardStr[1] == 'A' && cardStr[2] == 'R' && cardStr[3] == 'D' && cardStr[4] == '=') {
+                                    cardStr = cardStr + 5;
+                                    break;
+                                }
+                                
+                                cardStr += 1;
+                            }
+                            
+                            if (cardStr != NULL) {
+                                char* deviceStr = cardStr + 1;
+                                for (;;) {
+                                    if (deviceStr[0] == '\0') {
+                                        deviceStr = NULL;
+                                        break;
+                                    }
+                                    if (deviceStr[0] == ',') {
+                                        deviceStr[0] = '\0';    // This is the comma after the "CARD=###" part.
+                                    } else {
+                                        if (deviceStr[0] == 'D' && deviceStr[1] == 'E' && deviceStr[2] == 'V' && deviceStr[3] == '=') {
+                                            deviceStr = deviceStr + 4;
+                                            break;
+                                        }
+                                    }
+                                    
+                                    deviceStr += 1;
+                                }
+
+                                if (deviceStr != NULL) {
+                                    int cardIndex = snd_card_get_index(cardStr);
+                                    if (cardIndex >= 0) {
+                                        sprintf(pInfo->id.str, "hw:%d,%s", cardIndex, deviceStr);
+                                    }
+                                }
+                            }
+                        }
+                        
     				    
                         // DESC is the name, followed by the description on a new line.
                         int lfPos = 0;
                         mal_find_char(DESC, '\n', &lfPos);
-                        
                         mal_strncpy_s(pInfo->name, sizeof(pInfo->name), DESC ? DESC : "", (lfPos != -1) ? (size_t)lfPos : (size_t)-1);
     
     				    pInfo += 1;
@@ -2225,7 +2276,7 @@ static mal_result mal_device_init__alsa(mal_device* pDevice, mal_device_type typ
 	if (snd_pcm_open((snd_pcm_t**)&pDevice->alsa.pPCM, deviceName, (type == mal_device_type_playback) ? SND_PCM_STREAM_PLAYBACK : SND_PCM_STREAM_CAPTURE, 0) < 0) {
         if (mal_strcmp(deviceName, "default") == 0 || mal_strcmp(deviceName, "pulse") == 0) {
             // We may have failed to open the "default" or "pulse" device, in which case try falling back to "plughw:0,0".
-            mal_strncpy_s(deviceName, "plughw:0,0");
+            mal_strncpy_s(deviceName, sizeof(deviceName), "plughw:0,0", (size_t)-1);
             if (snd_pcm_open((snd_pcm_t**)&pDevice->alsa.pPCM, deviceName, (type == mal_device_type_playback) ? SND_PCM_STREAM_PLAYBACK : SND_PCM_STREAM_CAPTURE, 0) < 0) {
                 mal_device_uninit__alsa(pDevice);
     		    return mal_post_error(pDevice, "[ALSA] snd_pcm_open() failed.", MAL_ALSA_FAILED_TO_OPEN_DEVICE);
