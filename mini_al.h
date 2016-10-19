@@ -8,7 +8,7 @@
 // mini_al is a small library for making it easy to do audio playback and recording. It's focused on
 // simplicity and being light-weight so don't expect all the bells and whistles.
 //
-// mini_al's uses an asynchronous API. Every device is created with it's own thread, with audio data
+// mini_al uses an asynchronous API. Every device is created with it's own thread, with audio data
 // being either delivered to the application from the device (in the case of recording/capture) or
 // delivered from the application to the device in the case of playback. Synchronous APIs are not
 // supported in the interest of keeping the library as small and lightweight as possible.
@@ -16,6 +16,7 @@
 // Supported backends:
 //   - DirectSound (Windows Only)
 //   - ALSA (Linux Only)
+//   - null
 //   - ... and many more in the future.
 //
 //
@@ -188,6 +189,12 @@ typedef struct
     char name[256];
 } mal_device_info;
 
+typedef struct
+{
+    int64_t counter;
+} mal_timer;
+
+
 struct mal_device
 {
 	mal_api api;		    // DirectSound, ALSA, etc.
@@ -222,7 +229,6 @@ struct mal_device
             /*LPDIRECTSOUNDNOTIFY*/ mal_ptr pNotify;
             /*HANDLE*/ mal_handle pNotifyEvents[MAL_MAX_FRAGMENTS_DSOUND];  // One event handle for each fragment.
             /*HANDLE*/ mal_handle hStopEvent;
-            mal_uint32 ignoredFragmentCounter;  // This is used for a cheap hack to skip over some initial notifications when the device is first played.
             mal_uint32 lastProcessedFrame;      // This is circular.
             mal_bool32 breakFromMainLoop;
 		} dsound;
@@ -241,7 +247,10 @@ struct mal_device
 	#ifdef MAL_ENABLE_NULL
 		struct
 		{
-			int unused;
+            mal_timer timer;
+            mal_uint32 lastProcessedFrame;      // This is circular.
+			mal_bool32 breakFromMainLoop;
+            mal_uint8* pBuffer;                 // This is malloc()'d and is used as the destination for reading from the client. Typed as mal_uint8 for easy offsetting.
 		} null_device;
 	#endif
 	};
@@ -463,6 +472,7 @@ mal_uint32 mal_get_sample_size_in_bytes(mal_format format);
 #ifdef MAL_WIN32
 #include <windows.h>
 #else
+#include <stdlib.h> // For malloc()/free()
 #include <string.h>	// For memset()
 #endif
 
@@ -647,6 +657,54 @@ static unsigned int mal_next_power_of_2(unsigned int x)
 #define mal_atomic_exchange_ptr mal_atomic_exchange_32
 #endif
 
+
+///////////////////////////////////////////////////////////////////////////////
+//
+// Timing
+//
+///////////////////////////////////////////////////////////////////////////////
+#ifdef MAL_WIN32
+static LARGE_INTEGER g_mal_TimerFrequency = {{0}};
+void mal_timer_init(mal_timer* pTimer)
+{
+    if (g_mal_TimerFrequency.QuadPart == 0) {
+        QueryPerformanceFrequency(&g_mal_TimerFrequency);
+    }
+
+    LARGE_INTEGER counter;
+    QueryPerformanceCounter(&counter);
+    pTimer->counter = (uint64_t)counter.QuadPart;
+}
+
+double mal_timer_get_time_in_seconds(mal_timer* pTimer)
+{
+    LARGE_INTEGER counter;
+    if (!QueryPerformanceCounter(&counter)) {
+        return 0;
+    }
+
+    return (counter.QuadPart - pTimer->counter) / (double)g_mal_TimerFrequency.QuadPart;
+}
+#else
+void mal_timer_init(mal_timer* pTimer)
+{
+    struct timespec newTime;
+    clock_gettime(CLOCK_PROCESS_CPUTIME_ID, &newTime);
+
+    pTimer->counter = (newTime.tv_sec * 1000000000LL) + newTime.tv_nsec;
+}
+
+double mal_timer_get_time_in_seconds(mal_timer* pTimer)
+{
+    struct timespec newTime;
+    clock_gettime(CLOCK_PROCESS_CPUTIME_ID, &newTime);
+
+    uint64_t newTimeCounter = (newTime.tv_sec * 1000000000LL) + newTime.tv_nsec;
+    uint64_t oldTimeCounter = pTimer->counter;
+
+    return (newTimeCounter - oldTimeCounter) / 1000000000.0;
+}
+#endif
 
 
 ///////////////////////////////////////////////////////////////////////////////
@@ -942,43 +1000,160 @@ static mal_result mal_enumerate_devices__null(mal_device_type type, mal_uint32* 
 static void mal_device_uninit__null(mal_device* pDevice)
 {
 	mal_assert(pDevice != NULL);
+    mal_free(pDevice->null_device.pBuffer);
 }
 
 static mal_result mal_device_init__null(mal_device* pDevice, mal_device_type type, mal_device_id* pDeviceID, mal_format format, mal_uint32 channels, mal_uint32 sampleRate, mal_uint32 fragmentSizeInFrames, mal_uint32 fragmentCount)
 {
 	mal_assert(pDevice != NULL);
 	pDevice->api = mal_api_null;
-	
-	// TODO: Implement me.
-	return mal_post_error(pDevice, "Not yet implemented.", MAL_ERROR);
+    mal_timer_init(&pDevice->null_device.timer);
+
+    pDevice->null_device.pBuffer = (mal_uint8*)mal_malloc(mal_device_get_fragment_size_in_bytes(pDevice) * pDevice->fragmentCount);
+    if (pDevice->null_device.pBuffer == NULL) {
+        return MAL_OUT_OF_MEMORY;
+    }
+
+    mal_zero_memory(pDevice->null_device.pBuffer, mal_device_get_fragment_size_in_bytes(pDevice) * pDevice->fragmentCount);
+
+	return MAL_SUCCESS;
 }
 
 static mal_result mal_device__start_backend__null(mal_device* pDevice)
 {
     mal_assert(pDevice != NULL);
 
-    return mal_post_error(pDevice, "Not yet implemented.", MAL_ERROR);
+    mal_timer_init(&pDevice->null_device.timer);
+    pDevice->null_device.lastProcessedFrame = 0;
+
+    return MAL_SUCCESS;
 }
 
 static mal_result mal_device__stop_backend__null(mal_device* pDevice)
 {
     mal_assert(pDevice != NULL);
 
-    return mal_post_error(pDevice, "Not yet implemented.", MAL_ERROR);
+    return MAL_SUCCESS;
 }
 
 static mal_result mal_device__break_main_loop__null(mal_device* pDevice)
 {
     mal_assert(pDevice != NULL);
 
-    return mal_post_error(pDevice, "Not yet implemented.", MAL_ERROR);
+    pDevice->null_device.breakFromMainLoop = MAL_TRUE;
+    return MAL_SUCCESS;
+}
+
+static mal_bool32 mal_device__get_current_frame__null(mal_device* pDevice, mal_uint32* pCurrentPos)
+{
+    mal_assert(pDevice != NULL);
+    mal_assert(pCurrentPos != NULL);
+    *pCurrentPos = 0;
+
+    mal_uint64 currentFrameAbs = (mal_uint64)(mal_timer_get_time_in_seconds(&pDevice->null_device.timer) * pDevice->sampleRate) / pDevice->channels;
+
+    *pCurrentPos = currentFrameAbs % (pDevice->fragmentSizeInFrames * pDevice->fragmentCount);
+    return MAL_TRUE;
+}
+
+static mal_bool32 mal_device__get_available_frames__null(mal_device* pDevice)
+{
+    mal_assert(pDevice != NULL);
+
+    mal_uint32 currentFrame;
+    if (!mal_device__get_current_frame__null(pDevice, &currentFrame)) {
+        return 0;
+    }
+
+    // In a playback device the last processed frame should always be ahead of the current frame. The space between
+    // the last processed and current frame (moving forward, starting from the last processed frame) is the amount
+    // of space available to write.
+    //
+    // For a recording device it's the other way around - the last processed frame is always _behind_ the current
+    // frame and the space between is the available space.
+    mal_uint32 totalFrameCount = pDevice->fragmentSizeInFrames*pDevice->fragmentCount;
+    if (pDevice->type == mal_device_type_playback) {
+        mal_uint32 committedBeg = currentFrame;
+        mal_uint32 committedEnd = pDevice->null_device.lastProcessedFrame;
+        if (committedEnd <= committedBeg) {
+            committedEnd += totalFrameCount;    // Wrap around.
+        }
+
+        mal_uint32 committedSize = (committedEnd - committedBeg);
+        mal_assert(committedSize <= totalFrameCount);
+
+        return totalFrameCount - committedSize;
+    } else {
+        mal_uint32 validBeg = pDevice->null_device.lastProcessedFrame;
+        mal_uint32 validEnd = currentFrame;
+        if (validEnd < validBeg) {
+            validEnd += totalFrameCount;        // Wrap around.
+        }
+
+        mal_uint32 validSize = (validEnd - validBeg);
+        mal_assert(validSize <= totalFrameCount);
+
+        return validSize;
+    }
+}
+
+static mal_uint32 mal_device__wait_for_frames__null(mal_device* pDevice)
+{
+    mal_assert(pDevice != NULL);
+
+    while (!pDevice->null_device.breakFromMainLoop) {
+        mal_uint32 framesAvailable = mal_device__get_available_frames__null(pDevice);
+        if (framesAvailable == 0) {
+            return 0;
+        }
+
+        // Never return more frames that will fit in a fragment.
+        if (framesAvailable >= pDevice->fragmentSizeInFrames) {
+            return pDevice->fragmentSizeInFrames;
+        }
+
+        mal_sleep(16);
+    }
+
+    // We'll get here if the loop was terminated. Just return whatever's available.
+    return mal_device__get_available_frames__null(pDevice);
 }
 
 static mal_result mal_device__main_loop__null(mal_device* pDevice)
 {
     mal_assert(pDevice != NULL);
 
-    return mal_post_error(pDevice, "Not yet implemented.", MAL_ERROR);
+    pDevice->null_device.breakFromMainLoop = MAL_FALSE;
+    while (!pDevice->null_device.breakFromMainLoop) {
+        mal_uint32 framesAvailable = mal_device__wait_for_frames__null(pDevice);
+        if (framesAvailable == 0) {
+            continue;
+        }
+
+        // If it's a playback device, don't bother grabbing more data if the device is being stopped.
+        if (pDevice->null_device.breakFromMainLoop && pDevice->type == mal_device_type_playback) {
+            return MAL_FALSE;
+        }
+
+        mal_uint32 sampleCount = framesAvailable * pDevice->channels;
+        mal_uint32 lockOffset  = pDevice->null_device.lastProcessedFrame * pDevice->channels * mal_get_sample_size_in_bytes(pDevice->format);
+        mal_uint32 lockSize    = sampleCount * mal_get_sample_size_in_bytes(pDevice->format);
+
+        if (pDevice->type == mal_device_type_playback) {
+            if (pDevice->null_device.breakFromMainLoop) {
+                return MAL_FALSE;
+            }
+
+            mal_device__read_samples_from_client(pDevice, sampleCount, pDevice->null_device.pBuffer + lockOffset);
+        } else {
+            mal_zero_memory(pDevice->null_device.pBuffer + lockOffset, lockSize);
+            mal_device__send_samples_to_client(pDevice, sampleCount, pDevice->null_device.pBuffer + lockOffset);
+        }
+
+        pDevice->null_device.lastProcessedFrame = (pDevice->null_device.lastProcessedFrame + (sampleCount/pDevice->channels)) % (pDevice->fragmentSizeInFrames*pDevice->fragmentCount);
+    }
+
+    return MAL_SUCCESS;
 }
 
 static mal_uint32 mal_device_get_available_rewind_amount__null(mal_device* pDevice)
@@ -1574,14 +1749,6 @@ static mal_result mal_device__main_loop__dsound(mal_device* pDevice)
 
     // Make sure the stop event is not signaled to ensure we don't end up immediately returning from WaitForMultipleObjects().
     ResetEvent(pDevice->dsound.hStopEvent);
-
-    // When the device is first started, there will be a few fragments that we need to skip over due to the way
-    // they're handled by DirectSound. For a recording device it's the first fragment we need to ignore.
-    if (pDevice->type == mal_device_type_playback) {
-        pDevice->dsound.ignoredFragmentCounter = 0;
-    } else {
-        pDevice->dsound.ignoredFragmentCounter = 1;
-    }
 
     pDevice->dsound.breakFromMainLoop = MAL_FALSE;
     while (!pDevice->dsound.breakFromMainLoop) {
@@ -2750,7 +2917,6 @@ mal_uint32 mal_get_sample_size_in_bytes(mal_format format)
 // TODO
 // ====
 // - Support rewinding. This will enable applications to employ better anti-latency.
-// - Implement the null device.
 // - Thread safety for start, stop and rewind.
 //
 //
