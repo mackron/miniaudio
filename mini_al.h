@@ -1789,6 +1789,12 @@ static mal_uint32 mal_device__wait_for_frames__dsound(mal_device* pDevice)
 {
     mal_assert(pDevice != NULL);
 
+    // The timeout to use for putting the thread to sleep is based on the size of the buffer and the period count.
+    DWORD timeoutInMilliseconds = (pDevice->bufferSizeInFrames / (pDevice->sampleRate/1000)) / pDevice->periods;
+    if (timeoutInMilliseconds < 1) {
+        timeoutInMilliseconds = 1;
+    }
+
     while (!pDevice->dsound.breakFromMainLoop) {
         mal_uint32 framesAvailable = mal_device__get_available_frames__dsound(pDevice);
         if (framesAvailable > 0) {
@@ -1796,7 +1802,6 @@ static mal_uint32 mal_device__wait_for_frames__dsound(mal_device* pDevice)
         }
 
         // If we get here it means we weren't able to find any frames. We'll just wait here for a bit.
-        const DWORD timeoutInMilliseconds = 4;  // <-- This affects latency. Should this be a property? Tie this to the period count?
         DWORD rc = WaitForMultipleObjects(1, &pDevice->dsound.hStopEvent, FALSE, timeoutInMilliseconds);
         if (rc == WAIT_OBJECT_0) {
             return 0;
