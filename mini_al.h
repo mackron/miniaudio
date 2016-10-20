@@ -231,6 +231,7 @@ struct mal_device
             /*LPDIRECTSOUNDCAPTURE8*/ mal_ptr pCapture;
             /*LPDIRECTSOUNDCAPTUREBUFFER8*/ mal_ptr pCaptureBuffer;
             /*HANDLE*/ mal_handle hStopEvent;
+            /*HANDLE*/ mal_handle hRewindEvent;
             mal_uint32 lastProcessedFrame;      // This is circular.
             mal_uint32 rewindTarget;            // Where we want to rewind to. Set to ~0UL when it is not being rewound.
             mal_bool32 breakFromMainLoop;
@@ -1436,6 +1437,9 @@ static void mal_device_uninit__dsound(mal_device* pDevice)
 	mal_assert(pDevice != NULL);
 
     if (pDevice->dsound.hDSoundDLL != NULL) {
+        if (pDevice->dsound.hRewindEvent) {
+            CloseHandle(pDevice->dsound.hRewindEvent);
+        }
         if (pDevice->dsound.hStopEvent) {
             CloseHandle(pDevice->dsound.hStopEvent);
         }
@@ -1641,6 +1645,12 @@ static mal_result mal_device_init__dsound(mal_device* pDevice, mal_device_type t
 		return mal_post_error(pDevice, "[DirectSound] Failed to create event for main loop break notification.", MAL_FAILED_TO_CREATE_EVENT);
     }
 
+    // When the device is rewound we need to signal an event to ensure the main loop can handle it ASAP.
+    pDevice->dsound.hRewindEvent = CreateEventA(NULL, FALSE, FALSE, NULL);
+    if (pDevice->dsound.hRewindEvent == NULL) {
+        mal_device_uninit__dsound(pDevice);
+		return mal_post_error(pDevice, "[DirectSound] Failed to create event for main loop rewind notification.", MAL_FAILED_TO_CREATE_EVENT);
+    }
 
 	return MAL_SUCCESS;
 }
@@ -1802,10 +1812,10 @@ static mal_uint32 mal_device__wait_for_frames__dsound(mal_device* pDevice)
         }
 
         // If we get here it means we weren't able to find any frames. We'll just wait here for a bit.
-        DWORD rc = WaitForMultipleObjects(1, &pDevice->dsound.hStopEvent, FALSE, timeoutInMilliseconds);
-        if (rc == WAIT_OBJECT_0) {
-            return 0;
-        }
+        HANDLE pEvents[2];
+        pEvents[0] = pDevice->dsound.hStopEvent;
+        pEvents[1] = pDevice->dsound.hRewindEvent;
+        WaitForMultipleObjects(sizeof(pEvents) / sizeof(pEvents[0]), pEvents, FALSE, timeoutInMilliseconds);
     }
 
     // We'll get here if the loop was terminated. Just return whatever's available.
@@ -1911,6 +1921,7 @@ static mal_uint32 mal_device_rewind__dsound(mal_device* pDevice, mal_uint32 fram
     mal_uint32 desiredPosition = (pDevice->dsound.lastProcessedFrame + pDevice->bufferSizeInFrames - framesToRewind) % pDevice->bufferSizeInFrames;    // Wrap around.
     mal_atomic_exchange_32(&pDevice->dsound.rewindTarget, desiredPosition);
 
+    SetEvent(pDevice->dsound.hRewindEvent); // Make sure the main loop is woken up so it can handle the rewind ASAP.
     return framesToRewind;
 }
 #endif
