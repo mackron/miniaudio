@@ -2143,11 +2143,11 @@ static mal_bool32 mal_device_read__alsa(mal_device* pDevice)
 			}
 		}
 		
-		framesToSend = framesRead * pDevice->channels;
+		framesToSend = framesRead;
 		pBuffer = pDevice->alsa.pIntermediaryBuffer;
 	}
 	
-    if (samplesToSend > 0) {
+    if (framesToSend > 0) {
         mal_device__send_frames_to_client(pDevice, framesToSend, pBuffer);
     }
 	
