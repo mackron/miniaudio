@@ -1058,8 +1058,11 @@ mal_bool32 mal_event_signal(mal_event* pEvent)
 // Posts a log message.
 static void mal_log(mal_device* pDevice, const char* message)
 {
-    if (pDevice && pDevice->onLog) {
-        pDevice->onLog(pDevice, message);
+    if (pDevice == NULL) return;
+    
+    mal_log_proc onLog = pDevice->onLog;
+    if (onLog) {
+        onLog(pDevice, message);
     }
 }
 
@@ -1081,7 +1084,9 @@ static inline mal_uint32 mal_device__read_frames_from_client(mal_device* pDevice
     mal_assert(pSamples != NULL);
 
     mal_uint32 samplesRead = 0;
-    if (pDevice->onSend) {
+
+    mal_send_proc onSend = pDevice->onSend;
+    if (onSend) {
         samplesRead = pDevice->onSend(pDevice, frameCount * pDevice->channels, pSamples);
     }
 
@@ -1100,8 +1105,9 @@ static inline void mal_device__send_frames_to_client(mal_device* pDevice, mal_ui
     mal_assert(frameCount > 0);
     mal_assert(pSamples != NULL);
 
-    if (pDevice->onRecv) {
-        pDevice->onRecv(pDevice, frameCount * pDevice->channels, pSamples);
+    mal_recv_proc onRecv = pDevice->onRecv;
+    if (onRecv) {
+        onRecv(pDevice, frameCount * pDevice->channels, pSamples);
     }
 }
 
@@ -2138,7 +2144,7 @@ static mal_bool32 mal_device_read__alsa(mal_device* pDevice)
 		return MAL_FALSE;
 	}
 	
-	mal_uint32 samplesToSend = 0;
+	mal_uint32 framesToSend = 0;
 	void* pBuffer = NULL;
 	if (pDevice->alsa.pIntermediaryBuffer == NULL) {
 		// mmap.
@@ -2200,14 +2206,13 @@ static mal_bool32 mal_device_read__alsa(mal_device* pDevice)
 			}
 		}
 		
-		samplesToSend = framesRead * pDevice->channels;
+		framesToSend = framesRead * pDevice->channels;
 		pBuffer = pDevice->alsa.pIntermediaryBuffer;
 	}
 	
-	
-	if (pDevice->onRecv && samplesToSend > 0) {
-		pDevice->onRecv(pDevice, samplesToSend, pBuffer);
-	}
+    if (samplesToSend > 0) {
+        mal_device__send_frames_to_client(pDevice, framesToSend, pBuffer);
+    }
 	
 	
 	if (pDevice->alsa.pIntermediaryBuffer == NULL) {
@@ -3130,13 +3135,12 @@ mal_uint32 mal_get_sample_size_in_bytes(mal_format format)
 // ================
 //
 // v0.1 - TBD
-//   - Initial versioned release
+//   - Initial versioned release.
 
 
 // TODO
 // ====
 // - DirectSound: Remove notification events.
-// - onSend and onRecv usage isn't thread-safe.
 //
 //
 // ALSA
