@@ -230,8 +230,6 @@ struct mal_device
             /*LPDIRECTSOUNDBUFFER*/ mal_ptr pPlaybackBuffer;
             /*LPDIRECTSOUNDCAPTURE8*/ mal_ptr pCapture;
             /*LPDIRECTSOUNDCAPTUREBUFFER8*/ mal_ptr pCaptureBuffer;
-            /*LPDIRECTSOUNDNOTIFY*/ mal_ptr pNotify;
-            /*HANDLE*/ mal_handle pNotifyEvents[MAL_MAX_PERIODS_DSOUND];  // One event handle for each period.
             /*HANDLE*/ mal_handle hStopEvent;
             mal_uint32 lastProcessedFrame;      // This is circular.
             mal_uint32 rewindTarget;            // Where we want to rewind to. Set to ~0UL when it is not being rewound.
@@ -489,6 +487,8 @@ mal_uint32 mal_get_sample_size_in_bytes(mal_format format);
 ///////////////////////////////////////////////////////////////////////////////
 ///////////////////////////////////////////////////////////////////////////////
 #ifdef MAL_IMPLEMENTATION
+#include <assert.h>
+
 #ifdef MAL_WIN32
 #include <windows.h>
 #else
@@ -498,10 +498,6 @@ mal_uint32 mal_get_sample_size_in_bytes(mal_format format);
 
 #ifdef MAL_POSIX
 #include <unistd.h>
-#endif
-
-#if !defined(NDEBUG)
-#include <assert.h>
 #endif
 
 #ifdef MAL_ENABLE_ALSA
@@ -1444,17 +1440,11 @@ static void mal_device_uninit__dsound(mal_device* pDevice)
             CloseHandle(pDevice->dsound.hStopEvent);
         }
 
-        for (mal_uint32 i = 0; i < pDevice->periods; ++i) {
-            if (pDevice->dsound.pNotifyEvents[i]) {
-                CloseHandle(pDevice->dsound.pNotifyEvents[i]);
-            }
-        }
-
         if (pDevice->dsound.pCaptureBuffer) {
             IDirectSoundCaptureBuffer8_Release((LPDIRECTSOUNDBUFFER8)pDevice->dsound.pCaptureBuffer);
         }
         if (pDevice->dsound.pCapture) {
-            IDirectSoundCapture_Release((LPDIRECTSOUNDCAPTURE8)pDevice->dsound.pCaptureBuffer);
+            IDirectSoundCapture_Release((LPDIRECTSOUNDCAPTURE8)pDevice->dsound.pCapture);
         }
 
         if (pDevice->dsound.pPlaybackBuffer) {
@@ -1591,9 +1581,6 @@ static mal_result mal_device_init__dsound(mal_device* pDevice, mal_device_type t
 
         // Meaning of dwFlags (from MSDN):
         //
-        // DSBCAPS_CTRLPOSITIONNOTIFY
-        //   The buffer has position notification capability.
-        //
         // DSBCAPS_GLOBALFOCUS
         //   With this flag set, an application using DirectSound can continue to play its buffers if the user switches focus to
         //   another application, even if the new application uses DirectSound.
@@ -1605,19 +1592,12 @@ static mal_result mal_device_init__dsound(mal_device* pDevice, mal_device_type t
         DSBUFFERDESC descDS;
         memset(&descDS, 0, sizeof(DSBUFFERDESC));
         descDS.dwSize = sizeof(DSBUFFERDESC);
-        descDS.dwFlags = DSBCAPS_CTRLPOSITIONNOTIFY | DSBCAPS_GLOBALFOCUS | DSBCAPS_GETCURRENTPOSITION2;
+        descDS.dwFlags = DSBCAPS_GLOBALFOCUS | DSBCAPS_GETCURRENTPOSITION2;
         descDS.dwBufferBytes = bufferSizeInBytes;
         descDS.lpwfxFormat = (WAVEFORMATEX*)&wf;
         if (FAILED(IDirectSound_CreateSoundBuffer((LPDIRECTSOUND8)pDevice->dsound.pPlayback, &descDS, (LPDIRECTSOUNDBUFFER*)&pDevice->dsound.pPlaybackBuffer, NULL))) {
             mal_device_uninit__dsound(pDevice);
             return mal_post_error(pDevice, "[DirectSound] IDirectSound_CreateSoundBuffer() failed for playback device's secondary buffer.", MAL_DSOUND_FAILED_TO_CREATE_BUFFER);
-        }
-
-        
-        // Notifications are set up via a DIRECTSOUNDNOTIFY object which is retrieved from the buffer.
-        if (FAILED(IDirectSoundBuffer8_QueryInterface((LPDIRECTSOUNDBUFFER)pDevice->dsound.pPlaybackBuffer, g_mal_GUID_IID_DirectSoundNotify, (void**)&pDevice->dsound.pNotify))) {
-            mal_device_uninit__dsound(pDevice);
-            return mal_post_error(pDevice, "[DirectSound] IDirectSoundBuffer8_QueryInterface() failed for playback device's IDirectSoundNotify object.", MAL_DSOUND_FAILED_TO_QUERY_INTERFACE);
         }
     } else {
         mal_DirectSoundCaptureCreate8Proc pDirectSoundCaptureCreate8 = (mal_DirectSoundCaptureCreate8Proc)GetProcAddress((HMODULE)pDevice->dsound.hDSoundDLL, "DirectSoundCaptureCreate8");
@@ -1651,45 +1631,7 @@ static mal_result mal_device_init__dsound(mal_device* pDevice, mal_device_type t
             mal_device_uninit__dsound(pDevice);
             return mal_post_error(pDevice, "[DirectSound] IDirectSoundCapture_QueryInterface() failed for capture device's IDirectSoundCaptureBuffer8 object.", MAL_DSOUND_FAILED_TO_QUERY_INTERFACE);
         }
-
-        // Notifications are set up via a DIRECTSOUNDNOTIFY object which is retrieved from the buffer.
-        if (FAILED(IDirectSoundCaptureBuffer8_QueryInterface((LPDIRECTSOUNDCAPTUREBUFFER)pDevice->dsound.pCaptureBuffer, g_mal_GUID_IID_DirectSoundNotify, (void**)&pDevice->dsound.pNotify))) {
-            mal_device_uninit__dsound(pDevice);
-            return mal_post_error(pDevice, "[DirectSound] IDirectSoundCaptureBuffer8_QueryInterface() failed for capture device's IDirectSoundNotify object.", MAL_DSOUND_FAILED_TO_QUERY_INTERFACE);
-        }
     }
-
-
-    // We need a notification for each period. The notification offset is slightly different depending on whether or not the
-    // device is a playback or capture device. For a playback device we want to be notified when a period just starts playing,
-    // whereas for a capture device we want to be notified when a period has just _finished_ capturing.
-    mal_uint32 periodSizeInBytes = pDevice->bufferSizeInFrames / pDevice->periods;
-    DSBPOSITIONNOTIFY notifyPoints[MAL_MAX_PERIODS_DSOUND];  // One notification event for each period.
-    for (mal_uint32 i = 0; i < pDevice->periods; ++i) {
-        pDevice->dsound.pNotifyEvents[i] = CreateEventA(NULL, FALSE, FALSE, NULL);
-        if (pDevice->dsound.pNotifyEvents[i] == NULL) {
-            mal_device_uninit__dsound(pDevice);
-            return mal_post_error(pDevice, "[DirectSound] Failed to create event for buffer notifications.", MAL_FAILED_TO_CREATE_EVENT);
-        }
-
-        // The notification offset is in bytes.
-        DWORD dwOffset;
-        if (type == mal_device_type_playback) {
-            dwOffset = i * periodSizeInBytes;
-        } else {
-            dwOffset = ((i+1)*periodSizeInBytes) % (bufferSizeInBytes);
-        }
-
-        notifyPoints[i].dwOffset = dwOffset;
-        notifyPoints[i].hEventNotify = pDevice->dsound.pNotifyEvents[i];
-    }
-
-    if (FAILED(IDirectSoundNotify_SetNotificationPositions((LPDIRECTSOUNDNOTIFY)pDevice->dsound.pNotify, pDevice->periods, notifyPoints))) {
-        mal_device_uninit__dsound(pDevice);
-        return mal_post_error(pDevice, "[DirectSound] IDirectSoundNotify_SetNotificationPositions() failed.", MAL_DSOUND_FAILED_TO_SET_NOTIFICATIONS);
-    }
-
-
 
     // When the device is playing the worker thread will be waiting on a bunch of notification events. To return from
     // this wait state we need to signal a special event.
@@ -1847,11 +1789,6 @@ static mal_uint32 mal_device__wait_for_frames__dsound(mal_device* pDevice)
 {
     mal_assert(pDevice != NULL);
 
-    unsigned int eventCount = pDevice->periods + 1;
-    HANDLE eventHandles[MAL_MAX_PERIODS_DSOUND + 1];   // +1 for the stop event.
-    mal_copy_memory(eventHandles, pDevice->dsound.pNotifyEvents, sizeof(HANDLE) * pDevice->periods);
-    eventHandles[eventCount-1] = pDevice->dsound.hStopEvent;
-
     while (!pDevice->dsound.breakFromMainLoop) {
         mal_uint32 framesAvailable = mal_device__get_available_frames__dsound(pDevice);
         if (framesAvailable > 0) {
@@ -1859,9 +1796,9 @@ static mal_uint32 mal_device__wait_for_frames__dsound(mal_device* pDevice)
         }
 
         // If we get here it means we weren't able to find any frames. We'll just wait here for a bit.
-        const DWORD timeoutInMilliseconds = 8;  // <-- This affects latency. Should this be a property? Tie this to the period count?
-        DWORD rc = WaitForMultipleObjects(eventCount, eventHandles, FALSE, timeoutInMilliseconds);
-        if (rc < WAIT_OBJECT_0 || rc >= WAIT_OBJECT_0 + eventCount) {
+        const DWORD timeoutInMilliseconds = 4;  // <-- This affects latency. Should this be a property? Tie this to the period count?
+        DWORD rc = WaitForMultipleObjects(1, &pDevice->dsound.hStopEvent, FALSE, timeoutInMilliseconds);
+        if (rc == WAIT_OBJECT_0) {
             return 0;
         }
     }
@@ -3140,7 +3077,6 @@ mal_uint32 mal_get_sample_size_in_bytes(mal_format format)
 
 // TODO
 // ====
-// - DirectSound: Remove notification events.
 //
 //
 // ALSA
