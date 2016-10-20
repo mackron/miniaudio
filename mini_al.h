@@ -112,7 +112,7 @@ typedef void* mal_ptr;
 #endif
 
 #ifdef MAL_ENABLE_DSOUND
-    #define MAL_MAX_FRAGMENTS_DSOUND    16
+    #define MAL_MAX_PERIODS_DSOUND    16
 #endif
 
 typedef int mal_result;
@@ -205,8 +205,8 @@ struct mal_device
 	mal_format format;
 	mal_uint32 channels;
 	mal_uint32 sampleRate;
-	mal_uint32 fragmentSizeInFrames;
-	mal_uint32 fragmentCount;
+    mal_uint32 bufferSizeInFrames;
+    mal_uint32 periods;
 	mal_uint32 state;
 	mal_recv_proc onRecv;
 	mal_send_proc onSend;
@@ -231,7 +231,7 @@ struct mal_device
             /*LPDIRECTSOUNDCAPTURE8*/ mal_ptr pCapture;
             /*LPDIRECTSOUNDCAPTUREBUFFER8*/ mal_ptr pCaptureBuffer;
             /*LPDIRECTSOUNDNOTIFY*/ mal_ptr pNotify;
-            /*HANDLE*/ mal_handle pNotifyEvents[MAL_MAX_FRAGMENTS_DSOUND];  // One event handle for each fragment.
+            /*HANDLE*/ mal_handle pNotifyEvents[MAL_MAX_PERIODS_DSOUND];  // One event handle for each period.
             /*HANDLE*/ mal_handle hStopEvent;
             mal_uint32 lastProcessedFrame;      // This is circular.
             mal_uint32 rewindTarget;            // Where we want to rewind to. Set to ~0UL when it is not being rewound.
@@ -312,7 +312,7 @@ mal_result mal_enumerate_devices(mal_device_type type, mal_uint32* pCount, mal_d
 // Efficiency: LOW
 //   This API will dynamically link to backend DLLs/SOs like dsound.dll, and is otherwise just slow
 //   due to the nature of it being an initialization API.
-mal_result mal_device_init(mal_device* pDevice, mal_device_type type, mal_device_id* pDeviceID, mal_format format, mal_uint32 channels, mal_uint32 sampleRate, mal_uint32 fragmentSizeInFrames, mal_uint32 fragmentCount, mal_log_proc onLog);
+mal_result mal_device_init(mal_device* pDevice, mal_device_type type, mal_device_id* pDeviceID, mal_format format, mal_uint32 channels, mal_uint32 sampleRate, mal_uint32 bufferSizeInFrames, mal_uint32 periods, mal_log_proc onLog);
 
 // Uninitializes a device.
 //
@@ -337,8 +337,6 @@ void mal_device_uninit(mal_device* pDevice);
 
 // Sets the callback to use when the application has received data from the device.
 //
-// The fragment size specified at initialization time controls the sample count.
-//
 // Thread Safety: SAFE
 //   This API is implemented as a simple atomic assignment.
 //
@@ -350,8 +348,7 @@ void mal_device_set_recv_callback(mal_device* pDevice, mal_recv_proc proc);
 //
 // Note that the implementation of this callback must copy over as many samples as is available. The
 // return value specifies how many samples were written to the output buffer. The backend will fill
-// any leftover samples with silence. The fragment size specified at initialization time controls the
-// number of samples the device will request.
+// any leftover samples with silence.
 //
 // Thread Safety: SAFE
 //   This API is implemented as a simple atomic assignment.
@@ -459,14 +456,14 @@ mal_uint32 mal_device_get_available_rewind_amount(mal_device* pDevice);
 //   This currently waits on a mutex for thread-safety, but should otherwise be fairly efficient.
 mal_uint32 mal_device_rewind(mal_device* pDevice, mal_uint32 framesToRewind);
 
-// Retrieves the size of a fragment in bytes for the given device.
+// Retrieves the size of the in bytes for the given device.
 //
 // Thread Safety: SAFE
 //   This is calculated from constant values which are set at initialization time and never change.
 //
 // Efficiency: HIGH
 //   This is implemented with just a few 32-bit integer multiplications.
-mal_uint32 mal_device_get_fragment_size_in_bytes(mal_device* pDevice);
+mal_uint32 mal_device_get_buffer_size_in_bytes(mal_device* pDevice);
 
 // Retrieves the size of a sample in bytes for the given format.
 //
@@ -743,7 +740,7 @@ void mal_timer_init(mal_timer* pTimer)
     struct timespec newTime;
     clock_gettime(CLOCK_MONOTONIC, &newTime);
 
-    pTimer->counter = (newTime.tv_sec * 1000000000LL) + newTime.tv_nsec;
+    pTimer->counter = (newTime.tv_sec * 1000000000) + newTime.tv_nsec;
 }
 
 double mal_timer_get_time_in_seconds(mal_timer* pTimer)
@@ -751,7 +748,7 @@ double mal_timer_get_time_in_seconds(mal_timer* pTimer)
     struct timespec newTime;
     clock_gettime(CLOCK_MONOTONIC, &newTime);
 
-    uint64_t newTimeCounter = (newTime.tv_sec * 1000000000LL) + newTime.tv_nsec;
+    uint64_t newTimeCounter = (newTime.tv_sec * 1000000000) + newTime.tv_nsec;
     uint64_t oldTimeCounter = pTimer->counter;
 
     return (newTimeCounter - oldTimeCounter) / 1000000000.0;
@@ -1151,17 +1148,19 @@ static void mal_device_uninit__null(mal_device* pDevice)
     mal_free(pDevice->null_device.pBuffer);
 }
 
-static mal_result mal_device_init__null(mal_device* pDevice, mal_device_type type, mal_device_id* pDeviceID, mal_format format, mal_uint32 channels, mal_uint32 sampleRate, mal_uint32 fragmentSizeInFrames, mal_uint32 fragmentCount)
+static mal_result mal_device_init__null(mal_device* pDevice, mal_device_type type, mal_device_id* pDeviceID, mal_format format, mal_uint32 channels, mal_uint32 sampleRate, mal_uint32 bufferSizeInFrames, mal_uint32 periods)
 {
 	mal_assert(pDevice != NULL);
 	pDevice->api = mal_api_null;
+    pDevice->bufferSizeInFrames = bufferSizeInFrames;
+    pDevice->periods = periods;
 
-    pDevice->null_device.pBuffer = (mal_uint8*)mal_malloc(mal_device_get_fragment_size_in_bytes(pDevice) * pDevice->fragmentCount);
+    pDevice->null_device.pBuffer = (mal_uint8*)mal_malloc(pDevice->bufferSizeInFrames * pDevice->channels * mal_get_sample_size_in_bytes(pDevice->format));
     if (pDevice->null_device.pBuffer == NULL) {
         return MAL_OUT_OF_MEMORY;
     }
 
-    mal_zero_memory(pDevice->null_device.pBuffer, mal_device_get_fragment_size_in_bytes(pDevice) * pDevice->fragmentCount);
+    mal_zero_memory(pDevice->null_device.pBuffer, mal_device_get_buffer_size_in_bytes(pDevice));
 
 	return MAL_SUCCESS;
 }
@@ -1199,7 +1198,7 @@ static mal_bool32 mal_device__get_current_frame__null(mal_device* pDevice, mal_u
 
     mal_uint64 currentFrameAbs = (mal_uint64)(mal_timer_get_time_in_seconds(&pDevice->null_device.timer) * pDevice->sampleRate) / pDevice->channels;
 
-    *pCurrentPos = currentFrameAbs % (pDevice->fragmentSizeInFrames * pDevice->fragmentCount);
+    *pCurrentPos = currentFrameAbs % pDevice->bufferSizeInFrames;
     return MAL_TRUE;
 }
 
@@ -1218,7 +1217,7 @@ static mal_bool32 mal_device__get_available_frames__null(mal_device* pDevice)
     //
     // For a recording device it's the other way around - the last processed frame is always _behind_ the current
     // frame and the space between is the available space.
-    mal_uint32 totalFrameCount = pDevice->fragmentSizeInFrames*pDevice->fragmentCount;
+    mal_uint32 totalFrameCount = pDevice->bufferSizeInFrames;
     if (pDevice->type == mal_device_type_playback) {
         mal_uint32 committedBeg = currentFrame;
         mal_uint32 committedEnd = pDevice->null_device.lastProcessedFrame;
@@ -1250,15 +1249,10 @@ static mal_uint32 mal_device__wait_for_frames__null(mal_device* pDevice)
 
     while (!pDevice->null_device.breakFromMainLoop) {
         mal_uint32 framesAvailable = mal_device__get_available_frames__null(pDevice);
-        if (framesAvailable == 0) {
-            return 0;
+        if (framesAvailable > 0) {
+            return framesAvailable;
         }
-
-        // Never return more frames that will fit in a fragment.
-        if (framesAvailable >= pDevice->fragmentSizeInFrames) {
-            return pDevice->fragmentSizeInFrames;
-        }
-
+        
         mal_sleep(16);
     }
 
@@ -1297,7 +1291,7 @@ static mal_result mal_device__main_loop__null(mal_device* pDevice)
             mal_device__send_frames_to_client(pDevice, framesAvailable, pDevice->null_device.pBuffer + lockOffset);
         }
 
-        pDevice->null_device.lastProcessedFrame = (pDevice->null_device.lastProcessedFrame + framesAvailable) % (pDevice->fragmentSizeInFrames*pDevice->fragmentCount);
+        pDevice->null_device.lastProcessedFrame = (pDevice->null_device.lastProcessedFrame + framesAvailable) % pDevice->bufferSizeInFrames;
     }
 
     return MAL_SUCCESS;
@@ -1444,7 +1438,7 @@ static void mal_device_uninit__dsound(mal_device* pDevice)
             CloseHandle(pDevice->dsound.hStopEvent);
         }
 
-        for (mal_uint32 i = 0; i < pDevice->fragmentCount; ++i) {
+        for (mal_uint32 i = 0; i < pDevice->periods; ++i) {
             if (pDevice->dsound.pNotifyEvents[i]) {
                 CloseHandle(pDevice->dsound.pNotifyEvents[i]);
             }
@@ -1471,7 +1465,7 @@ static void mal_device_uninit__dsound(mal_device* pDevice)
     }
 }
 
-static mal_result mal_device_init__dsound(mal_device* pDevice, mal_device_type type, mal_device_id* pDeviceID, mal_format format, mal_uint32 channels, mal_uint32 sampleRate, mal_uint32 fragmentSizeInFrames, mal_uint32 fragmentCount)
+static mal_result mal_device_init__dsound(mal_device* pDevice, mal_device_type type, mal_device_id* pDeviceID, mal_format format, mal_uint32 channels, mal_uint32 sampleRate, mal_uint32 bufferSizeInFrames, mal_uint32 periods)
 {
 	mal_assert(pDevice != NULL);
 	pDevice->api = mal_api_dsound;
@@ -1514,8 +1508,8 @@ static mal_result mal_device_init__dsound(mal_device* pDevice, mal_device_type t
         return MAL_FORMAT_NOT_SUPPORTED;
     }
 
-    if (fragmentCount > MAL_MAX_FRAGMENTS_DSOUND) {
-        fragmentCount = MAL_MAX_FRAGMENTS_DSOUND;
+    if (periods > MAL_MAX_PERIODS_DSOUND) {
+        periods = MAL_MAX_PERIODS_DSOUND;
     }
 
     WAVEFORMATEXTENSIBLE wf;
@@ -1531,7 +1525,7 @@ static mal_result mal_device_init__dsound(mal_device* pDevice, mal_device_type t
     wf.dwChannelMask               = (channels <= 2) ? 0 : ~(((DWORD)-1) << channels);
     wf.SubFormat                   = subformat;
 
-    DWORD fragmentSizeInBytes = 0;
+    DWORD bufferSizeInBytes = 0;
     
     // Unfortunately DirectSound uses different APIs and data structures for playback and catpure devices :(
     if (type == mal_device_type_playback) {
@@ -1587,9 +1581,7 @@ static mal_result mal_device_init__dsound(mal_device* pDevice, mal_device_type t
 
         pDevice->channels = pActualFormat->Format.nChannels;
         pDevice->sampleRate = pActualFormat->Format.nSamplesPerSec;
-        pDevice->fragmentCount = fragmentCount;
-        pDevice->fragmentSizeInFrames = mal_next_power_of_2(fragmentSizeInFrames);  // Keeping the fragment size a multiple of 2 just for consistency with ALSA.
-        fragmentSizeInBytes = mal_device_get_fragment_size_in_bytes(pDevice);
+        bufferSizeInBytes = pDevice->bufferSizeInFrames * pDevice->channels * mal_get_sample_size_in_bytes(pDevice->format);
 
         // Meaning of dwFlags (from MSDN):
         //
@@ -1608,7 +1600,7 @@ static mal_result mal_device_init__dsound(mal_device* pDevice, mal_device_type t
         memset(&descDS, 0, sizeof(DSBUFFERDESC));
         descDS.dwSize = sizeof(DSBUFFERDESC);
         descDS.dwFlags = DSBCAPS_CTRLPOSITIONNOTIFY | DSBCAPS_GLOBALFOCUS | DSBCAPS_GETCURRENTPOSITION2;
-        descDS.dwBufferBytes = fragmentSizeInBytes * pDevice->fragmentCount;
+        descDS.dwBufferBytes = bufferSizeInBytes;
         descDS.lpwfxFormat = (WAVEFORMATEX*)&wf;
         if (FAILED(IDirectSound_CreateSoundBuffer((LPDIRECTSOUND8)pDevice->dsound.pPlayback, &descDS, (LPDIRECTSOUNDBUFFER*)&pDevice->dsound.pPlaybackBuffer, NULL))) {
             mal_device_uninit__dsound(pDevice);
@@ -1633,14 +1625,13 @@ static mal_result mal_device_init__dsound(mal_device* pDevice, mal_device_type t
             return mal_post_error(pDevice, "[DirectSound] DirectSoundCaptureCreate8() failed for capture device.", MAL_DSOUND_FAILED_TO_CREATE_DEVICE);
         }
 
-        pDevice->fragmentSizeInFrames = mal_next_power_of_2(fragmentSizeInFrames);  // Keeping the fragment size a multiple of 2 just for consistency with ALSA.
-        fragmentSizeInBytes = mal_device_get_fragment_size_in_bytes(pDevice);
+        bufferSizeInBytes = pDevice->bufferSizeInFrames * pDevice->channels * mal_get_sample_size_in_bytes(pDevice->format);
 
         DSCBUFFERDESC descDS;
         mal_zero_object(&descDS);
         descDS.dwSize = sizeof(descDS);
         descDS.dwFlags = 0;
-        descDS.dwBufferBytes = fragmentSizeInBytes * pDevice->fragmentCount;
+        descDS.dwBufferBytes = bufferSizeInBytes;
         descDS.lpwfxFormat = (WAVEFORMATEX*)&wf;
         LPDIRECTSOUNDCAPTUREBUFFER pDSCB_Temp;
         if (FAILED(IDirectSoundCapture_CreateCaptureBuffer((LPDIRECTSOUNDCAPTURE8)pDevice->dsound.pCapture, &descDS, &pDSCB_Temp, NULL))) {
@@ -1663,11 +1654,12 @@ static mal_result mal_device_init__dsound(mal_device* pDevice, mal_device_type t
     }
 
 
-    // We need a notification for each fragment. The notification offset is slightly different depending on whether or not the
-    // device is a playback or capture device. For a playback device we want to be notified when a fragment just starts playing,
-    // whereas for a capture device we want to be notified when a fragment has just _finished_ capturing.
-    DSBPOSITIONNOTIFY notifyPoints[MAL_MAX_FRAGMENTS_DSOUND];  // One notification event for each fragment.
-    for (mal_uint32 i = 0; i < pDevice->fragmentCount; ++i) {
+    // We need a notification for each period. The notification offset is slightly different depending on whether or not the
+    // device is a playback or capture device. For a playback device we want to be notified when a period just starts playing,
+    // whereas for a capture device we want to be notified when a period has just _finished_ capturing.
+    mal_uint32 periodSizeInBytes = pDevice->bufferSizeInFrames / pDevice->periods;
+    DSBPOSITIONNOTIFY notifyPoints[MAL_MAX_PERIODS_DSOUND];  // One notification event for each period.
+    for (mal_uint32 i = 0; i < pDevice->periods; ++i) {
         pDevice->dsound.pNotifyEvents[i] = CreateEventA(NULL, FALSE, FALSE, NULL);
         if (pDevice->dsound.pNotifyEvents[i] == NULL) {
             mal_device_uninit__dsound(pDevice);
@@ -1677,16 +1669,16 @@ static mal_result mal_device_init__dsound(mal_device* pDevice, mal_device_type t
         // The notification offset is in bytes.
         DWORD dwOffset;
         if (type == mal_device_type_playback) {
-            dwOffset = i * fragmentSizeInBytes;
+            dwOffset = i * periodSizeInBytes;
         } else {
-            dwOffset = ((i+1)*fragmentSizeInBytes) % (fragmentSizeInBytes*pDevice->fragmentCount);
+            dwOffset = ((i+1)*periodSizeInBytes) % (bufferSizeInBytes);
         }
 
         notifyPoints[i].dwOffset = dwOffset;
         notifyPoints[i].hEventNotify = pDevice->dsound.pNotifyEvents[i];
     }
 
-    if (FAILED(IDirectSoundNotify_SetNotificationPositions((LPDIRECTSOUNDNOTIFY)pDevice->dsound.pNotify, pDevice->fragmentCount, notifyPoints))) {
+    if (FAILED(IDirectSoundNotify_SetNotificationPositions((LPDIRECTSOUNDNOTIFY)pDevice->dsound.pNotify, pDevice->periods, notifyPoints))) {
         mal_device_uninit__dsound(pDevice);
         return mal_post_error(pDevice, "[DirectSound] IDirectSoundNotify_SetNotificationPositions() failed.", MAL_DSOUND_FAILED_TO_SET_NOTIFICATIONS);
     }
@@ -1712,7 +1704,7 @@ static mal_result mal_device__start_backend__dsound(mal_device* pDevice)
     
     if (pDevice->type == mal_device_type_playback) {
         // Before playing anything we need to grab an initial group of samples from the client.
-        mal_uint32 framesToRead = pDevice->fragmentSizeInFrames;
+        mal_uint32 framesToRead = pDevice->bufferSizeInFrames / pDevice->periods;
         mal_uint32 desiredLockSize = framesToRead * pDevice->channels * mal_get_sample_size_in_bytes(pDevice->format);
 
         void* pLockPtr;
@@ -1806,7 +1798,7 @@ static mal_bool32 mal_device__get_available_frames__dsound(mal_device* pDevice)
     //
     // For a recording device it's the other way around - the last processed frame is always _behind_ the current
     // frame and the space between is the available space.
-    mal_uint32 totalFrameCount = pDevice->fragmentSizeInFrames*pDevice->fragmentCount;
+    mal_uint32 totalFrameCount = pDevice->bufferSizeInFrames;
     if (pDevice->type == mal_device_type_playback) {
         mal_uint32 committedBeg = currentFrame;
         mal_uint32 committedEnd;
@@ -1849,26 +1841,19 @@ static mal_uint32 mal_device__wait_for_frames__dsound(mal_device* pDevice)
 {
     mal_assert(pDevice != NULL);
 
-    unsigned int eventCount = pDevice->fragmentCount + 1;
-    HANDLE eventHandles[MAL_MAX_FRAGMENTS_DSOUND + 1];   // +1 for the stop event.
-    mal_copy_memory(eventHandles, pDevice->dsound.pNotifyEvents, sizeof(HANDLE) * pDevice->fragmentCount);
+    unsigned int eventCount = pDevice->periods + 1;
+    HANDLE eventHandles[MAL_MAX_PERIODS_DSOUND + 1];   // +1 for the stop event.
+    mal_copy_memory(eventHandles, pDevice->dsound.pNotifyEvents, sizeof(HANDLE) * pDevice->periods);
     eventHandles[eventCount-1] = pDevice->dsound.hStopEvent;
 
     while (!pDevice->dsound.breakFromMainLoop) {
         mal_uint32 framesAvailable = mal_device__get_available_frames__dsound(pDevice);
-#if 0
-        // Never return more frames that will fit in a fragment.
-        if (framesAvailable >= pDevice->fragmentSizeInFrames) {
-            return pDevice->fragmentSizeInFrames;
-        }
-#else
         if (framesAvailable > 0) {
             return framesAvailable;
         }
-#endif
 
-        // If we get here it means we weren't able to find a full fragment. We'll just wait here for a bit.
-        const DWORD timeoutInMilliseconds = 8;  // <-- This affects latency. Should this be a property?
+        // If we get here it means we weren't able to find any frames. We'll just wait here for a bit.
+        const DWORD timeoutInMilliseconds = 8;  // <-- This affects latency. Should this be a property? Tie this to the period count?
         DWORD rc = WaitForMultipleObjects(eventCount, eventHandles, FALSE, timeoutInMilliseconds);
         if (rc < WAIT_OBJECT_0 || rc >= WAIT_OBJECT_0 + eventCount) {
             return 0;
@@ -1916,7 +1901,7 @@ static mal_result mal_device__main_loop__dsound(mal_device* pDevice)
 
             mal_uint32 frameCount = actualLockSize / mal_get_sample_size_in_bytes(pDevice->format) / pDevice->channels;
             mal_device__read_frames_from_client(pDevice, frameCount, pLockPtr);
-            pDevice->dsound.lastProcessedFrame = (pDevice->dsound.lastProcessedFrame + frameCount) % (pDevice->fragmentSizeInFrames*pDevice->fragmentCount);
+            pDevice->dsound.lastProcessedFrame = (pDevice->dsound.lastProcessedFrame + frameCount) % pDevice->bufferSizeInFrames;
 
             IDirectSoundBuffer_Unlock((LPDIRECTSOUNDBUFFER)pDevice->dsound.pPlaybackBuffer, pLockPtr, actualLockSize, pLockPtr2, actualLockSize2);
         } else {
@@ -1930,7 +1915,7 @@ static mal_result mal_device__main_loop__dsound(mal_device* pDevice)
 
             mal_uint32 frameCount = actualLockSize / mal_get_sample_size_in_bytes(pDevice->format) / pDevice->channels;
             mal_device__send_frames_to_client(pDevice, frameCount, pLockPtr);
-            pDevice->dsound.lastProcessedFrame = (pDevice->dsound.lastProcessedFrame + frameCount) % (pDevice->fragmentSizeInFrames*pDevice->fragmentCount);
+            pDevice->dsound.lastProcessedFrame = (pDevice->dsound.lastProcessedFrame + frameCount) % pDevice->bufferSizeInFrames;
 
             IDirectSoundCaptureBuffer_Unlock((LPDIRECTSOUNDCAPTUREBUFFER)pDevice->dsound.pCaptureBuffer, pLockPtr, actualLockSize, pLockPtr2, actualLockSize2);
         }
@@ -1952,7 +1937,7 @@ static mal_uint32 mal_device_get_available_rewind_amount__dsound(mal_device* pDe
     mal_uint32 committedBeg = currentFrame;
     mal_uint32 committedEnd = pDevice->dsound.lastProcessedFrame;
     if (committedEnd <= committedBeg) {
-        committedEnd += pDevice->fragmentSizeInFrames*pDevice->fragmentCount;    // Wrap around.
+        committedEnd += pDevice->bufferSizeInFrames;    // Wrap around.
     }
 
     mal_uint32 padding = (pDevice->sampleRate/1000) * 1; // <-- This is used to prevent the rewind position getting too close to the playback position.
@@ -1975,9 +1960,7 @@ static mal_uint32 mal_device_rewind__dsound(mal_device* pDevice, mal_uint32 fram
         framesToRewind = maxRewind;
     }
 
-
-    mal_uint32 totalFrameCount = pDevice->fragmentSizeInFrames*pDevice->fragmentCount;
-    mal_uint32 desiredPosition = (pDevice->dsound.lastProcessedFrame + totalFrameCount - framesToRewind) % totalFrameCount;    // Wrap around.
+    mal_uint32 desiredPosition = (pDevice->dsound.lastProcessedFrame + pDevice->bufferSizeInFrames - framesToRewind) % pDevice->bufferSizeInFrames;    // Wrap around.
     mal_atomic_exchange_32(&pDevice->dsound.rewindTarget, desiredPosition);
 
     return framesToRewind;
@@ -2017,24 +2000,19 @@ static const char* mal_find_char(const char* str, char c, int* index)
 }
 
 // Waits for a number of frames to become available for either capture or playback. The return
-// value is the number of frames available. If this is less than the fragment size it means the
-// main loop has been terminated from another thread. The return value will be clamped to the
-// fragment size if the main loop is still running, but could be larger if it returns due to the
-// main loop being terminated.
+// value is the number of frames available.
 //
-// This will return early if the main loop is broken with mal_device__break_main_loop(), in
-// which case it is possible for the returned number of frames will be greater than the size of
-// a fragment (but smaller than the total buffer size).
+// This will return early if the main loop is broken with mal_device__break_main_loop().
 static mal_uint32 mal_device__wait_for_frames__alsa(mal_device* pDevice)
 {
 	mal_assert(pDevice != NULL);
 	
 	while (!pDevice->alsa.breakFromMainLoop) {
 		snd_pcm_sframes_t framesAvailable = snd_pcm_avail((snd_pcm_t*)pDevice->alsa.pPCM);
-		if (framesAvailable >= pDevice->fragmentSizeInFrames) {
-			return pDevice->fragmentSizeInFrames;
-		}
-		
+        if (framesAvailable > 0) {
+            return framesAvailable;
+        }
+        
 		if (framesAvailable < 0) {
 			if (framesAvailable == -EPIPE) {
 				if (snd_pcm_recover((snd_pcm_t*)pDevice->alsa.pPCM, framesAvailable, MAL_TRUE) < 0) {
@@ -2055,14 +2033,12 @@ static mal_uint32 mal_device__wait_for_frames__alsa(mal_device* pDevice)
 		}
 	}
     
-	// We'll get here if the loop was terminated. Just return whatever's available, making sure it's never
-    // more than the size of a fragment.
+	// We'll get here if the loop was terminated. Just return whatever's available.
 	snd_pcm_sframes_t framesAvailable = snd_pcm_avail((snd_pcm_t*)pDevice->alsa.pPCM);
 	if (framesAvailable < 0) {
 		return 0;
 	}
-	
-    // There's a small chance we'll have more frames available than the size of a fragment.
+
 	return framesAvailable;
 }
 
@@ -2114,7 +2090,7 @@ static mal_bool32 mal_device_write__alsa(mal_device* pDevice)
 		while (!pDevice->alsa.breakFromMainLoop) {
             mal_uint32 framesAvailable = mal_device__wait_for_frames__alsa(pDevice);
 			if (framesAvailable == 0) {
-				return MAL_FALSE;
+				continue;
 			}
             
             // Don't bother asking the client for more audio data if we're just stopping the device anyway.
@@ -2197,7 +2173,7 @@ static mal_bool32 mal_device_read__alsa(mal_device* pDevice)
 		while (!pDevice->alsa.breakFromMainLoop) {
 			mal_uint32 framesAvailable = mal_device__wait_for_frames__alsa(pDevice);
 			if (framesAvailable == 0) {
-				return MAL_FALSE;
+				continue;
 			}
 
 			framesRead = snd_pcm_readi((snd_pcm_t*)pDevice->alsa.pPCM, pDevice->alsa.pIntermediaryBuffer, framesAvailable);
@@ -2210,7 +2186,7 @@ static mal_bool32 mal_device_read__alsa(mal_device* pDevice)
 						return MAL_FALSE;
 					}
 					
-					framesRead = snd_pcm_readi((snd_pcm_t*)pDevice->alsa.pPCM, pDevice->alsa.pIntermediaryBuffer, pDevice->fragmentSizeInFrames);
+					framesRead = snd_pcm_readi((snd_pcm_t*)pDevice->alsa.pPCM, pDevice->alsa.pIntermediaryBuffer, framesAvailable);
 					if (framesRead < 0) {
 						return MAL_FALSE;
 					}
@@ -2381,7 +2357,7 @@ static void mal_device_uninit__alsa(mal_device* pDevice)
 	}
 }
 
-static mal_result mal_device_init__alsa(mal_device* pDevice, mal_device_type type, mal_device_id* pDeviceID, mal_format format, mal_uint32 channels, mal_uint32 sampleRate, mal_uint32 fragmentSizeInFrames, mal_uint32 fragmentCount)
+static mal_result mal_device_init__alsa(mal_device* pDevice, mal_device_type type, mal_device_id* pDeviceID, mal_format format, mal_uint32 channels, mal_uint32 sampleRate, mal_uint32 bufferSizeInFrames, mal_uint32 periods)
 {
 	mal_assert(pDevice != NULL);
 	pDevice->api = mal_api_alsa;
@@ -2428,7 +2404,8 @@ static mal_result mal_device_init__alsa(mal_device* pDevice, mal_device_type typ
     		return mal_post_error(pDevice, "[ALSA] snd_pcm_open() failed.", MAL_ALSA_FAILED_TO_OPEN_DEVICE);
         }
 	}
-	
+    
+
 	snd_pcm_hw_params_t* pHWParams = NULL;
     snd_pcm_hw_params_alloca(&pHWParams);
 	
@@ -2463,8 +2440,8 @@ static mal_result mal_device_init__alsa(mal_device* pDevice, mal_device_type typ
     
     
     // Buffer Size
-    snd_pcm_uframes_t bufferSize = fragmentSizeInFrames * pDevice->fragmentCount;
-	if (snd_pcm_hw_params_set_buffer_size_near((snd_pcm_t*)pDevice->alsa.pPCM, pHWParams, &bufferSize) < 0) {
+    snd_pcm_uframes_t actualBufferSize = bufferSizeInFrames;
+	if (snd_pcm_hw_params_set_buffer_size_near((snd_pcm_t*)pDevice->alsa.pPCM, pHWParams, &actualBufferSize) < 0) {
 		mal_device_uninit__alsa(pDevice);
 		return mal_post_error(pDevice, "[ALSA] Failed to set buffer size for device. snd_pcm_hw_params_set_buffer_size() failed.", MAL_FORMAT_NOT_SUPPORTED);
     }
@@ -2472,13 +2449,15 @@ static mal_result mal_device_init__alsa(mal_device* pDevice, mal_device_type typ
     
     // Periods.
     int dir = 0;
-	if (snd_pcm_hw_params_set_periods_near((snd_pcm_t*)pDevice->alsa.pPCM, pHWParams, &fragmentCount, &dir) < 0) {
+	if (snd_pcm_hw_params_set_periods_near((snd_pcm_t*)pDevice->alsa.pPCM, pHWParams, &periods, &dir) < 0) {
 		mal_device_uninit__alsa(pDevice);
-		return mal_post_error(pDevice, "[ALSA] Failed to set fragment count. snd_pcm_hw_params_set_periods_near() failed.", MAL_FORMAT_NOT_SUPPORTED);
+		return mal_post_error(pDevice, "[ALSA] Failed to set period count. snd_pcm_hw_params_set_periods_near() failed.", MAL_FORMAT_NOT_SUPPORTED);
     }
-	pDevice->fragmentCount = fragmentCount;
-    pDevice->fragmentSizeInFrames = bufferSize / pDevice->fragmentCount;
     
+    pDevice->bufferSizeInFrames = actualBufferSize;
+    pDevice->periods = periods;
+    
+
     
     // MMAP Mode
     //
@@ -2515,13 +2494,13 @@ static mal_result mal_device_init__alsa(mal_device* pDevice, mal_device_type typ
 		return mal_post_error(pDevice, "[ALSA] Failed to initialize software parameters. snd_pcm_sw_params_current() failed.", MAL_ALSA_FAILED_TO_SET_SW_PARAMS);
     }
 
-    if (snd_pcm_sw_params_set_avail_min((snd_pcm_t*)pDevice->alsa.pPCM, pSWParams, mal_prev_power_of_2(pDevice->fragmentSizeInFrames)) != 0) {
+    if (snd_pcm_sw_params_set_avail_min((snd_pcm_t*)pDevice->alsa.pPCM, pSWParams, (pDevice->sampleRate/1000) * 1) != 0) {
         mal_device_uninit__alsa(pDevice);
-		return mal_post_error(pDevice, "[ALSA] Failed to set fragment size. snd_pcm_sw_params_set_avail_min() failed.", MAL_FORMAT_NOT_SUPPORTED);
+		return mal_post_error(pDevice, "[ALSA] snd_pcm_sw_params_set_avail_min() failed.", MAL_FORMAT_NOT_SUPPORTED);
     }
 	
 	if (type == mal_device_type_playback) {
-	    if (snd_pcm_sw_params_set_start_threshold((snd_pcm_t*)pDevice->alsa.pPCM, pSWParams, mal_prev_power_of_2(pDevice->fragmentSizeInFrames)) != 0) {
+	    if (snd_pcm_sw_params_set_start_threshold((snd_pcm_t*)pDevice->alsa.pPCM, pSWParams, (pDevice->sampleRate/1000) * 1) != 0) { //mal_prev_power_of_2(pDevice->bufferSizeInFrames/pDevice->periods)
 	        mal_device_uninit__alsa(pDevice);
 			return mal_post_error(pDevice, "[ALSA] Failed to set start threshold for playback device. snd_pcm_sw_params_set_start_threshold() failed.", MAL_ALSA_FAILED_TO_SET_SW_PARAMS);
 	    }
@@ -2537,14 +2516,12 @@ static mal_result mal_device_init__alsa(mal_device* pDevice, mal_device_type typ
 	
 	// If we're _not_ using mmap we need to use an intermediary buffer.
 	if (!pDevice->alsa.isUsingMMap) {
-		pDevice->alsa.pIntermediaryBuffer = mal_malloc(pDevice->fragmentSizeInFrames*pDevice->fragmentCount * pDevice->channels * mal_get_sample_size_in_bytes(pDevice->format));
+		pDevice->alsa.pIntermediaryBuffer = mal_malloc(pDevice->bufferSizeInFrames * pDevice->channels * mal_get_sample_size_in_bytes(pDevice->format));
 		if (pDevice->alsa.pIntermediaryBuffer == NULL) {
 			mal_device_uninit__alsa(pDevice);
 			return mal_post_error(pDevice, "[ALSA] Failed to set software parameters. snd_pcm_sw_params() failed.", MAL_OUT_OF_MEMORY);
 		}
 	}
-	
-	
 	
 	return MAL_SUCCESS;
 }
@@ -2557,7 +2534,7 @@ static mal_result mal_device__start_backend__alsa(mal_device* pDevice)
     // Prepare the device first...
     snd_pcm_prepare((snd_pcm_t*)pDevice->alsa.pPCM);
 
-    // ... and then grab an initial fragment from the client. After this is done, the device should
+    // ... and then grab an initial chunk from the client. After this is done, the device should
     // automatically start playing, since that's how we configured the software parameters.
     if (pDevice->type == mal_device_type_playback) {
         mal_device_write__alsa(pDevice);
@@ -2581,7 +2558,7 @@ static mal_result mal_device__break_main_loop__alsa(mal_device* pDevice)
     mal_assert(pDevice != NULL);
 	
 	// Fallback. We just set a variable to tell the worker thread to terminate after handling the
-	// next fragment. This is a slow way of handling this.
+	// next bunch of frames. This is a slow way of handling this.
 	pDevice->alsa.breakFromMainLoop = MAL_TRUE;
     return MAL_SUCCESS;
 }
@@ -2608,14 +2585,44 @@ static mal_result mal_device__main_loop__alsa(mal_device* pDevice)
 static mal_uint32 mal_device_get_available_rewind_amount__alsa(mal_device* pDevice)
 {
     mal_assert(pDevice != NULL);
-    return 0;   // Not supporting rewinding with ALSA for the moment.
+    
+    // Haven't figured out reliable rewinding with ALSA yet...
+#if 0
+    mal_uint32 padding = (pDevice->sampleRate/1000) * 1; // <-- This is used to prevent the rewind position getting too close to the playback position.
+    
+    snd_pcm_sframes_t result = snd_pcm_rewindable((snd_pcm_t*)pDevice->alsa.pPCM);
+    if (result < padding) {
+        return 0;
+    }
+    
+    return (mal_uint32)result - padding;
+#else
+    return 0;
+#endif
 }
 
 static mal_uint32 mal_device_rewind__alsa(mal_device* pDevice, mal_uint32 framesToRewind)
 {
     mal_assert(pDevice != NULL);
-    mal_assert(frames > 0);
+    mal_assert(framesToRewind > 0);
+    
+    // Haven't figured out reliable rewinding with ALSA yet...
+#if 0
+    // Clamp the the maximum allowable rewind amount.
+    mal_uint32 maxRewind = mal_device_get_available_rewind_amount__alsa(pDevice);
+    if (framesToRewind > maxRewind) {
+        framesToRewind = maxRewind;
+    }
+    
+    snd_pcm_sframes_t result = snd_pcm_rewind((snd_pcm_t*)pDevice->alsa.pPCM, (snd_pcm_uframes_t)framesToRewind);
+    if (result < 0) {
+        return 0;
+    }
+    
+    return (mal_uint32)result;
+#else
     return 0;
+#endif
 }
 #endif
 
@@ -2797,7 +2804,7 @@ mal_result mal_enumerate_devices(mal_device_type type, mal_uint32* pCount, mal_d
 	return result;
 }
 
-mal_result mal_device_init(mal_device* pDevice, mal_device_type type, mal_device_id* pDeviceID, mal_format format, mal_uint32 channels, mal_uint32 sampleRate, mal_uint32 fragmentSizeInFrames, mal_uint32 fragmentCount, mal_log_proc onLog)
+mal_result mal_device_init(mal_device* pDevice, mal_device_type type, mal_device_id* pDeviceID, mal_format format, mal_uint32 channels, mal_uint32 sampleRate, mal_uint32 bufferSizeInFrames, mal_uint32 periods, mal_log_proc onLog)
 {
 	if (pDevice == NULL) return mal_post_error(pDevice, "mal_device_init() called with invalid arguments.", MAL_INVALID_ARGS);
 	mal_zero_object(pDevice);
@@ -2809,14 +2816,14 @@ mal_result mal_device_init(mal_device* pDevice, mal_device_type type, mal_device
         }
     }
 	
-	if (channels == 0 || sampleRate == 0 || fragmentSizeInFrames == 0 || fragmentCount == 0) return mal_post_error(pDevice, "mal_device_init() called with invalid arguments.", MAL_INVALID_ARGS);
+	if (channels == 0 || sampleRate == 0 || bufferSizeInFrames == 0 || periods == 0) return mal_post_error(pDevice, "mal_device_init() called with invalid arguments.", MAL_INVALID_ARGS);
 	
 	pDevice->type = type;
 	pDevice->format = format;
 	pDevice->channels = channels;
 	pDevice->sampleRate = sampleRate;
-	pDevice->fragmentSizeInFrames = fragmentSizeInFrames;
-	pDevice->fragmentCount = fragmentCount;
+    pDevice->bufferSizeInFrames = bufferSizeInFrames;
+    pDevice->periods = periods;
 
     if (!mal_mutex_create(&pDevice->lock)) {
         return mal_post_error(pDevice, "Failed to create mutex.", MAL_FAILED_TO_CREATE_MUTEX);
@@ -2847,17 +2854,17 @@ mal_result mal_device_init(mal_device* pDevice, mal_device_type type, mal_device
 	mal_result result = MAL_NO_BACKEND;
 #ifdef MAL_ENABLE_DSOUND
 	if (result != MAL_SUCCESS) {
-		result = mal_device_init__dsound(pDevice, type, pDeviceID, format, channels, sampleRate, fragmentSizeInFrames, fragmentCount);
+		result = mal_device_init__dsound(pDevice, type, pDeviceID, format, channels, sampleRate, bufferSizeInFrames, periods);
 	}
 #endif
 #ifdef MAL_ENABLE_ALSA
 	if (result != MAL_SUCCESS) {
-		result = mal_device_init__alsa(pDevice, type, pDeviceID, format, channels, sampleRate, fragmentSizeInFrames, fragmentCount);
+		result = mal_device_init__alsa(pDevice, type, pDeviceID, format, channels, sampleRate, bufferSizeInFrames, periods);
 	}
 #endif
 #ifdef MAL_ENABLE_NULL
 	if (result != MAL_SUCCESS) {
-		result = mal_device_init__null(pDevice, type, pDeviceID, format, channels, sampleRate, fragmentSizeInFrames, fragmentCount);
+		result = mal_device_init__null(pDevice, type, pDeviceID, format, channels, sampleRate, bufferSizeInFrames, periods);
 	}
 #endif
 
@@ -3096,10 +3103,10 @@ mal_uint32 mal_device_rewind(mal_device* pDevice, mal_uint32 framesToRewind)
     return 0;
 }
 
-mal_uint32 mal_device_get_fragment_size_in_bytes(mal_device* pDevice)
+mal_uint32 mal_device_get_buffer_size_in_bytes(mal_device* pDevice)
 {
     if (pDevice == NULL) return 0;
-    return pDevice->fragmentSizeInFrames * pDevice->channels * mal_get_sample_size_in_bytes(pDevice->format);
+    return pDevice->bufferSizeInFrames * pDevice->channels * mal_get_sample_size_in_bytes(pDevice->format);
 }
 
 mal_uint32 mal_get_sample_size_in_bytes(mal_format format)
@@ -3128,10 +3135,8 @@ mal_uint32 mal_get_sample_size_in_bytes(mal_format format)
 
 // TODO
 // ====
-// - Support rewinding. This will enable applications to employ better anti-latency.
-// - Remove the notion of fragments. Replace it with a buffer size.
-// - Consider having properties passed to mal_device_init() via a structure and have
-//   some properties support defaults when set to 0.
+// - DirectSound: Remove notification events.
+// - onSend and onRecv usage isn't thread-safe.
 //
 //
 // ALSA
