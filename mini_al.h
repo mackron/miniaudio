@@ -1077,34 +1077,34 @@ static mal_result mal_post_error(mal_device* pDevice, const char* message, mal_r
 
 // A helper function for reading sample data from the client. Returns the number of samples read from the client. Remaining samples
 // are filled with silence.
-static inline mal_uint32 mal_device__read_samples_from_client(mal_device* pDevice, mal_uint32 sampleCount, void* pSamples)
+static inline mal_uint32 mal_device__read_frames_from_client(mal_device* pDevice, mal_uint32 frameCount, void* pSamples)
 {
     mal_assert(pDevice != NULL);
-    mal_assert(sampleCount > 0);
+    mal_assert(frameCount > 0);
     mal_assert(pSamples != NULL);
 
     mal_uint32 samplesRead = 0;
     if (pDevice->onSend) {
-        samplesRead = pDevice->onSend(pDevice, sampleCount, pSamples);
+        samplesRead = pDevice->onSend(pDevice, frameCount * pDevice->channels, pSamples);
     }
 
     mal_uint32 sampleSize = mal_get_sample_size_in_bytes(pDevice->format);
 	mal_uint32 consumedBytes = samplesRead*sampleSize;
-	mal_uint32 remainingBytes = (sampleCount - samplesRead)*sampleSize;
+	mal_uint32 remainingBytes = ((frameCount * pDevice->channels) - samplesRead)*sampleSize;
 	mal_zero_memory((mal_uint8*)pSamples + consumedBytes, remainingBytes);
 
     return samplesRead;
 }
 
 // A helper for sending sample data to the client.
-static inline void mal_device__send_samples_to_client(mal_device* pDevice, mal_uint32 sampleCount, const void* pSamples)
+static inline void mal_device__send_frames_to_client(mal_device* pDevice, mal_uint32 frameCount, const void* pSamples)
 {
     mal_assert(pDevice != NULL);
-    mal_assert(sampleCount > 0);
+    mal_assert(frameCount > 0);
     mal_assert(pSamples != NULL);
 
     if (pDevice->onRecv) {
-        pDevice->onRecv(pDevice, sampleCount, pSamples);
+        pDevice->onRecv(pDevice, frameCount * pDevice->channels, pSamples);
     }
 }
 
@@ -1291,13 +1291,13 @@ static mal_result mal_device__main_loop__null(mal_device* pDevice)
                 return MAL_FALSE;
             }
 
-            mal_device__read_samples_from_client(pDevice, sampleCount, pDevice->null_device.pBuffer + lockOffset);
+            mal_device__read_frames_from_client(pDevice, framesAvailable, pDevice->null_device.pBuffer + lockOffset);
         } else {
             mal_zero_memory(pDevice->null_device.pBuffer + lockOffset, lockSize);
-            mal_device__send_samples_to_client(pDevice, sampleCount, pDevice->null_device.pBuffer + lockOffset);
+            mal_device__send_frames_to_client(pDevice, framesAvailable, pDevice->null_device.pBuffer + lockOffset);
         }
 
-        pDevice->null_device.lastProcessedFrame = (pDevice->null_device.lastProcessedFrame + (sampleCount/pDevice->channels)) % (pDevice->fragmentSizeInFrames*pDevice->fragmentCount);
+        pDevice->null_device.lastProcessedFrame = (pDevice->null_device.lastProcessedFrame + framesAvailable) % (pDevice->fragmentSizeInFrames*pDevice->fragmentCount);
     }
 
     return MAL_SUCCESS;
@@ -1716,14 +1716,15 @@ static mal_result mal_device__start_backend__dsound(mal_device* pDevice)
         mal_uint32 desiredLockSize = framesToRead * pDevice->channels * mal_get_sample_size_in_bytes(pDevice->format);
 
         void* pLockPtr;
-        DWORD lockSize;
+        DWORD actualLockSize;
         void* pLockPtr2;
         DWORD actualLockSize2;
-        if (SUCCEEDED(IDirectSoundBuffer_Lock((LPDIRECTSOUNDBUFFER)pDevice->dsound.pPlaybackBuffer, 0, desiredLockSize, &pLockPtr, &lockSize, &pLockPtr2, &actualLockSize2, 0))) {
-            mal_device__read_samples_from_client(pDevice, pDevice->fragmentSizeInFrames * pDevice->channels, pLockPtr);
-            IDirectSoundBuffer_Unlock((LPDIRECTSOUNDBUFFER)pDevice->dsound.pPlaybackBuffer, pLockPtr, lockSize, pLockPtr2, actualLockSize2);
+        if (SUCCEEDED(IDirectSoundBuffer_Lock((LPDIRECTSOUNDBUFFER)pDevice->dsound.pPlaybackBuffer, 0, desiredLockSize, &pLockPtr, &actualLockSize, &pLockPtr2, &actualLockSize2, 0))) {
+            framesToRead = actualLockSize / mal_get_sample_size_in_bytes(pDevice->format) / pDevice->channels;
+            mal_device__read_frames_from_client(pDevice, framesToRead, pLockPtr);
+            IDirectSoundBuffer_Unlock((LPDIRECTSOUNDBUFFER)pDevice->dsound.pPlaybackBuffer, pLockPtr, actualLockSize, pLockPtr2, actualLockSize2);
 
-            pDevice->dsound.lastProcessedFrame = pDevice->fragmentSizeInFrames;
+            pDevice->dsound.lastProcessedFrame = framesToRead;
             if (FAILED(IDirectSoundBuffer_Play((LPDIRECTSOUNDBUFFER)pDevice->dsound.pPlaybackBuffer, 0, 0, DSBPLAY_LOOPING))) {
                 return mal_post_error(pDevice, "[DirectSound] IDirectSoundBuffer_Play() failed.", MAL_FAILED_TO_START_BACKEND_DEVICE);
             }
@@ -1913,9 +1914,9 @@ static mal_result mal_device__main_loop__dsound(mal_device* pDevice)
                 return mal_post_error(pDevice, "[DirectSound] IDirectSoundBuffer_Lock() failed.", MAL_FAILED_TO_MAP_DEVICE_BUFFER);
             }
 
-            mal_uint32 sampleCount = actualLockSize / mal_get_sample_size_in_bytes(pDevice->format);
-            mal_device__read_samples_from_client(pDevice, sampleCount, pLockPtr);
-            pDevice->dsound.lastProcessedFrame = (pDevice->dsound.lastProcessedFrame + (sampleCount/pDevice->channels)) % (pDevice->fragmentSizeInFrames*pDevice->fragmentCount);
+            mal_uint32 frameCount = actualLockSize / mal_get_sample_size_in_bytes(pDevice->format) / pDevice->channels;
+            mal_device__read_frames_from_client(pDevice, frameCount, pLockPtr);
+            pDevice->dsound.lastProcessedFrame = (pDevice->dsound.lastProcessedFrame + frameCount) % (pDevice->fragmentSizeInFrames*pDevice->fragmentCount);
 
             IDirectSoundBuffer_Unlock((LPDIRECTSOUNDBUFFER)pDevice->dsound.pPlaybackBuffer, pLockPtr, actualLockSize, pLockPtr2, actualLockSize2);
         } else {
@@ -1927,9 +1928,9 @@ static mal_result mal_device__main_loop__dsound(mal_device* pDevice)
                 return mal_post_error(pDevice, "[DirectSound] IDirectSoundCaptureBuffer_Lock() failed.", MAL_FAILED_TO_MAP_DEVICE_BUFFER);
             }
 
-            mal_uint32 sampleCount = actualLockSize / mal_get_sample_size_in_bytes(pDevice->format);
-            mal_device__send_samples_to_client(pDevice, sampleCount, pLockPtr);
-            pDevice->dsound.lastProcessedFrame = (pDevice->dsound.lastProcessedFrame + (sampleCount/pDevice->channels)) % (pDevice->fragmentSizeInFrames*pDevice->fragmentCount);
+            mal_uint32 frameCount = actualLockSize / mal_get_sample_size_in_bytes(pDevice->format) / pDevice->channels;
+            mal_device__send_frames_to_client(pDevice, frameCount, pLockPtr);
+            pDevice->dsound.lastProcessedFrame = (pDevice->dsound.lastProcessedFrame + frameCount) % (pDevice->fragmentSizeInFrames*pDevice->fragmentCount);
 
             IDirectSoundCaptureBuffer_Unlock((LPDIRECTSOUNDCAPTUREBUFFER)pDevice->dsound.pCaptureBuffer, pLockPtr, actualLockSize, pLockPtr2, actualLockSize2);
         }
@@ -2098,7 +2099,7 @@ static mal_bool32 mal_device_write__alsa(mal_device* pDevice)
             }
             
             void* pBuffer = (mal_uint8*)pAreas[0].addr + ((pAreas[0].first + (mappedOffset * pAreas[0].step)) / 8);
-            mal_device__read_samples_from_client(pDevice, mappedFrames * pDevice->channels, pBuffer);
+            mal_device__read_frames_from_client(pDevice, mappedFrames, pBuffer);
             
             result = snd_pcm_mmap_commit((snd_pcm_t*)pDevice->alsa.pPCM, mappedOffset, mappedFrames);
             if (result < 0 || (snd_pcm_uframes_t)result != mappedFrames) {
@@ -2121,7 +2122,7 @@ static mal_bool32 mal_device_write__alsa(mal_device* pDevice)
                 return MAL_FALSE;
             }
 
-            mal_device__read_samples_from_client(pDevice, framesAvailable * pDevice->channels, pDevice->alsa.pIntermediaryBuffer);
+            mal_device__read_frames_from_client(pDevice, framesAvailable, pDevice->alsa.pIntermediaryBuffer);
         
 			snd_pcm_sframes_t framesWritten = snd_pcm_writei((snd_pcm_t*)pDevice->alsa.pPCM, pDevice->alsa.pIntermediaryBuffer, framesAvailable);
 			if (framesWritten < 0) {
@@ -2180,7 +2181,7 @@ static mal_bool32 mal_device_read__alsa(mal_device* pDevice)
             }
             
             void* pBuffer = (mal_uint8*)pAreas[0].addr + ((pAreas[0].first + (mappedOffset * pAreas[0].step)) / 8);
-            mal_device__send_samples_to_client(pDevice, mappedFrames * pDevice->channels, pBuffer);
+            mal_device__send_frames_to_client(pDevice, mappedFrames, pBuffer);
             
             result = snd_pcm_mmap_commit((snd_pcm_t*)pDevice->alsa.pPCM, mappedOffset, mappedFrames);
             if (result < 0 || (snd_pcm_uframes_t)result != mappedFrames) {
@@ -3131,8 +3132,6 @@ mal_uint32 mal_get_sample_size_in_bytes(mal_format format)
 // - Remove the notion of fragments. Replace it with a buffer size.
 // - Consider having properties passed to mal_device_init() via a structure and have
 //   some properties support defaults when set to 0.
-// - Have the send/recv callbacks take a frame count rather than sample count. Rationale is consistency.
-//   - mal_device__read_samples_from_client() -> mal_device__read_frames_from_client()
 //
 //
 // ALSA
