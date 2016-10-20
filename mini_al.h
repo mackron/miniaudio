@@ -135,8 +135,9 @@ typedef int mal_result;
 #define MAL_FAILED_TO_READ_DATA_FROM_CLIENT     -16
 #define MAL_FAILED_TO_START_BACKEND_DEVICE      -17
 #define MAL_FAILED_TO_STOP_BACKEND_DEVICE       -18
-#define MAL_FAILED_TO_CREATE_EVENT              -19
-#define MAL_FAILED_TO_CREATE_THREAD             -20
+#define MAL_FAILED_TO_CREATE_MUTEX              -19
+#define MAL_FAILED_TO_CREATE_EVENT              -20
+#define MAL_FAILED_TO_CREATE_THREAD             -21
 #define MAL_DSOUND_FAILED_TO_CREATE_DEVICE      -1024
 #define MAL_DSOUND_FAILED_TO_SET_COOP_LEVEL     -1025
 #define MAL_DSOUND_FAILED_TO_CREATE_BUFFER      -1026
@@ -233,7 +234,9 @@ struct mal_device
             /*HANDLE*/ mal_handle pNotifyEvents[MAL_MAX_FRAGMENTS_DSOUND];  // One event handle for each fragment.
             /*HANDLE*/ mal_handle hStopEvent;
             mal_uint32 lastProcessedFrame;      // This is circular.
+            mal_uint32 rewindTarget;            // Where we want to rewind to. Set to ~0UL when it is not being rewound.
             mal_bool32 breakFromMainLoop;
+            
 		} dsound;
 	#endif
 		
@@ -323,9 +326,9 @@ mal_result mal_device_init(mal_device* pDevice, mal_device_type type, mal_device
 //   - MAL_DEVICE_NOT_INITIALIZED
 //       The device is not currently or was never initialized.
 //
-// Thread Safety: ???
-//   This API shouldn't crash in a multi-threaded environment, but results are undefined if an application
-//   attempts to do something with the device at the same time as uninitializing.
+// Thread Safety: UNSAFE
+//   As soon as this API is called the device should be considered undefined. All bets are off if you
+//   try using the device at the same time as uninitializing it.
 //
 // Efficiency: LOW
 //   This will stop the device with mal_device_stop() which is a slow, synchronized call. It also needs
@@ -389,7 +392,8 @@ void mal_device_set_send_callback(mal_device* pDevice, mal_send_proc proc);
 // Thread Safety: SAFE
 //
 // Efficiency: LOW
-//   This API waits until the backend device has been closed for real by the worker thread.
+//   This API waits until the backend device has been started for real by the worker thread. It also
+//   waits on a mutex for thread-safety.
 mal_result mal_device_start(mal_device* pDevice);
 
 // Puts the device to sleep, but does not uninitialize it. Use mal_device_start() to start it up again.
@@ -415,7 +419,8 @@ mal_result mal_device_start(mal_device* pDevice);
 // Thread Safety: SAFE
 //
 // Efficiency: LOW
-//   This API needs to wait on the worker thread to stop the backend device properly before returning.
+//   This API needs to wait on the worker thread to stop the backend device properly before returning. It
+//   also waits on a mutex for thread-safety.
 mal_result mal_device_stop(mal_device* pDevice);
 
 // Determines whether or not the device is started.
@@ -432,12 +437,27 @@ mal_result mal_device_stop(mal_device* pDevice);
 mal_bool32 mal_device_is_started(mal_device* pDevice);
 
 // Retrieves the number of frames available for rewinding.
+//
+// Return Value:
+//   The number of frames that can be rewound. Returns 0 if the device cannot be rewound.
+//
+// Thread Safety: SAFE
+//
+// Efficiency: MEDIUM
+//   This currently waits on a mutex for thread-safety, but should otherwise be fairly efficient.
 mal_uint32 mal_device_get_available_rewind_amount(mal_device* pDevice);
 
 // Rewinds by a number of frames.
 //
-// The return value is the number of frames rewound.
-mal_uint32 mal_device_rewind(mal_device* pDevice, mal_uint32 frames);
+// Return Value:
+//   The number of frames rewound. This can differ from the result of a previous call to
+//   mal_device_get_available_rewind_amount().
+//
+// Thread Safety: SAFE
+//
+// Efficiency: MEDIUM
+//   This currently waits on a mutex for thread-safety, but should otherwise be fairly efficient.
+mal_uint32 mal_device_rewind(mal_device* pDevice, mal_uint32 framesToRewind);
 
 // Retrieves the size of a fragment in bytes for the given device.
 //
@@ -770,10 +790,10 @@ mal_bool32 mal_mutex_create__win32(mal_mutex* pMutex)
 {
     *pMutex = CreateEventA(NULL, FALSE, TRUE, NULL);
     if (*pMutex == NULL) {
-        return DR_FALSE;
+        return MAL_FALSE;
     }
 
-    return DR_TRUE;
+    return MAL_TRUE;
 }
 
 void mal_mutex_delete__win32(mal_mutex* pMutex)
@@ -1135,7 +1155,6 @@ static mal_result mal_device_init__null(mal_device* pDevice, mal_device_type typ
 {
 	mal_assert(pDevice != NULL);
 	pDevice->api = mal_api_null;
-    mal_timer_init(&pDevice->null_device.timer);
 
     pDevice->null_device.pBuffer = (mal_uint8*)mal_malloc(mal_device_get_fragment_size_in_bytes(pDevice) * pDevice->fragmentCount);
     if (pDevice->null_device.pBuffer == NULL) {
@@ -1293,14 +1312,14 @@ static mal_uint32 mal_device_get_available_rewind_amount__null(mal_device* pDevi
     return 0;
 }
 
-static mal_uint32 mal_device_rewind__null(mal_device* pDevice, mal_uint32 frames)
+static mal_uint32 mal_device_rewind__null(mal_device* pDevice, mal_uint32 framesToRewind)
 {
     mal_assert(pDevice != NULL);
-    mal_assert(frames > 0);
+    mal_assert(framesToRewind > 0);
 
     // Rewinding on the null device is unimportant. Not willing to add maintenance costs for this.
     (void)pDevice;
-    (void)frames;
+    (void)framesToRewind;
     return 0;
 }
 #endif
@@ -1456,6 +1475,7 @@ static mal_result mal_device_init__dsound(mal_device* pDevice, mal_device_type t
 {
 	mal_assert(pDevice != NULL);
 	pDevice->api = mal_api_dsound;
+    pDevice->dsound.rewindTarget = ~0UL;
 
     pDevice->dsound.hDSoundDLL = (mal_handle)mal_open_dsound_dll();
     if (pDevice->dsound.hDSoundDLL == NULL) {
@@ -1511,7 +1531,7 @@ static mal_result mal_device_init__dsound(mal_device* pDevice, mal_device_type t
     wf.dwChannelMask               = (channels <= 2) ? 0 : ~(((DWORD)-1) << channels);
     wf.SubFormat                   = subformat;
 
-    DWORD fragmentSizeInBytes = mal_device_get_fragment_size_in_bytes(pDevice);
+    DWORD fragmentSizeInBytes = 0;
     
     // Unfortunately DirectSound uses different APIs and data structures for playback and catpure devices :(
     if (type == mal_device_type_playback) {
@@ -1569,7 +1589,7 @@ static mal_result mal_device_init__dsound(mal_device* pDevice, mal_device_type t
         pDevice->sampleRate = pActualFormat->Format.nSamplesPerSec;
         pDevice->fragmentCount = fragmentCount;
         pDevice->fragmentSizeInFrames = mal_next_power_of_2(fragmentSizeInFrames);  // Keeping the fragment size a multiple of 2 just for consistency with ALSA.
-
+        fragmentSizeInBytes = mal_device_get_fragment_size_in_bytes(pDevice);
 
         // Meaning of dwFlags (from MSDN):
         //
@@ -1612,6 +1632,9 @@ static mal_result mal_device_init__dsound(mal_device* pDevice, mal_device_type t
             mal_device_uninit__dsound(pDevice);
             return mal_post_error(pDevice, "[DirectSound] DirectSoundCaptureCreate8() failed for capture device.", MAL_DSOUND_FAILED_TO_CREATE_DEVICE);
         }
+
+        pDevice->fragmentSizeInFrames = mal_next_power_of_2(fragmentSizeInFrames);  // Keeping the fragment size a multiple of 2 just for consistency with ALSA.
+        fragmentSizeInBytes = mal_device_get_fragment_size_in_bytes(pDevice);
 
         DSCBUFFERDESC descDS;
         mal_zero_object(&descDS);
@@ -1683,63 +1706,32 @@ static mal_result mal_device_init__dsound(mal_device* pDevice, mal_device_type t
 }
 
 
-static mal_result mal_device__read_fragment_from_client__dsound(mal_device* pDevice, mal_uint32 fragmentIndex)
-{
-    mal_assert(pDevice != NULL);
-
-    DWORD fragmentSizeInBytes = pDevice->fragmentSizeInFrames * pDevice->channels * mal_get_sample_size_in_bytes(pDevice->format);
-    DWORD offset = fragmentIndex * fragmentSizeInBytes;
-
-    void* pLockPtr;
-    DWORD lockSize;
-    if (FAILED(IDirectSoundBuffer_Lock((LPDIRECTSOUNDBUFFER)pDevice->dsound.pPlaybackBuffer, offset, fragmentSizeInBytes, &pLockPtr, &lockSize, NULL, NULL, 0))) {
-        return mal_post_error(pDevice, "[DirectSound] IDirectSoundBuffer_Lock() failed.", MAL_FAILED_TO_MAP_DEVICE_BUFFER);
-    }
-
-    mal_device__read_samples_from_client(pDevice, pDevice->fragmentSizeInFrames * pDevice->channels, pLockPtr);
-
-    IDirectSoundBuffer_Unlock((LPDIRECTSOUNDBUFFER)pDevice->dsound.pPlaybackBuffer, pLockPtr, lockSize, NULL, 0);
-    return MAL_SUCCESS;
-}
-
-static mal_result mal_device__send_fragment_to_client__dsound(mal_device* pDevice, mal_uint32 fragmentIndex)
-{
-    mal_assert(pDevice != NULL);
-
-    DWORD fragmentSizeInBytes = pDevice->fragmentSizeInFrames * pDevice->channels * mal_get_sample_size_in_bytes(pDevice->format);
-    DWORD offset = fragmentIndex * fragmentSizeInBytes;
-
-    void* pLockPtr;
-    DWORD lockSize;
-    if (FAILED(IDirectSoundCaptureBuffer_Lock((LPDIRECTSOUNDCAPTUREBUFFER8)pDevice->dsound.pCaptureBuffer, offset, fragmentSizeInBytes, &pLockPtr, &lockSize, NULL, NULL, 0))) {
-        return mal_post_error(pDevice, "[DirectSound] IDirectSoundCaptureBuffer_Lock() failed.", MAL_FAILED_TO_MAP_DEVICE_BUFFER);
-    }
-
-    mal_device__send_samples_to_client(pDevice, pDevice->fragmentSizeInFrames * pDevice->channels, pLockPtr);
-
-    IDirectSoundCaptureBuffer_Unlock((LPDIRECTSOUNDCAPTUREBUFFER)pDevice->dsound.pCaptureBuffer, pLockPtr, lockSize, NULL, 0);
-    return MAL_SUCCESS;
-}
-
-
 static mal_result mal_device__start_backend__dsound(mal_device* pDevice)
 {
     mal_assert(pDevice != NULL);
     
     if (pDevice->type == mal_device_type_playback) {
-        // Before playing anything we need to grab an initial fragment of sample data from the client.
-        mal_result result = mal_device__read_fragment_from_client__dsound(pDevice, 0);
-        if (result != MAL_SUCCESS) {
-            return result;  // The error will have already been posted.
-        }
+        // Before playing anything we need to grab an initial group of samples from the client.
+        mal_uint32 framesToRead = pDevice->fragmentSizeInFrames;
+        mal_uint32 desiredLockSize = framesToRead * pDevice->channels * mal_get_sample_size_in_bytes(pDevice->format);
 
-        pDevice->dsound.lastProcessedFrame = pDevice->fragmentSizeInFrames;
+        void* pLockPtr;
+        DWORD lockSize;
+        void* pLockPtr2;
+        DWORD actualLockSize2;
+        if (SUCCEEDED(IDirectSoundBuffer_Lock((LPDIRECTSOUNDBUFFER)pDevice->dsound.pPlaybackBuffer, 0, desiredLockSize, &pLockPtr, &lockSize, &pLockPtr2, &actualLockSize2, 0))) {
+            mal_device__read_samples_from_client(pDevice, pDevice->fragmentSizeInFrames * pDevice->channels, pLockPtr);
+            IDirectSoundBuffer_Unlock((LPDIRECTSOUNDBUFFER)pDevice->dsound.pPlaybackBuffer, pLockPtr, lockSize, pLockPtr2, actualLockSize2);
 
-        if (IDirectSoundBuffer_Play((LPDIRECTSOUNDBUFFER)pDevice->dsound.pPlaybackBuffer, 0, 0, DSBPLAY_LOOPING) != DS_OK) {
-            return mal_post_error(pDevice, "[DirectSound] IDirectSoundBuffer_Play() failed.", MAL_FAILED_TO_START_BACKEND_DEVICE);
+            pDevice->dsound.lastProcessedFrame = pDevice->fragmentSizeInFrames;
+            if (FAILED(IDirectSoundBuffer_Play((LPDIRECTSOUNDBUFFER)pDevice->dsound.pPlaybackBuffer, 0, 0, DSBPLAY_LOOPING))) {
+                return mal_post_error(pDevice, "[DirectSound] IDirectSoundBuffer_Play() failed.", MAL_FAILED_TO_START_BACKEND_DEVICE);
+            }
+        } else {
+            return mal_post_error(pDevice, "[DirectSound] IDirectSoundBuffer_Lock() failed.", MAL_FAILED_TO_MAP_DEVICE_BUFFER);
         }
     } else {
-        if (IDirectSoundCaptureBuffer8_Start((LPDIRECTSOUNDCAPTUREBUFFER8)pDevice->dsound.pCaptureBuffer, DSCBSTART_LOOPING) != DS_OK) {
+        if (FAILED(IDirectSoundCaptureBuffer8_Start((LPDIRECTSOUNDCAPTUREBUFFER8)pDevice->dsound.pCaptureBuffer, DSCBSTART_LOOPING))) {
             return mal_post_error(pDevice, "[DirectSound] IDirectSoundCaptureBuffer8_Start() failed.", MAL_FAILED_TO_START_BACKEND_DEVICE);
         }
     }
@@ -1752,13 +1744,13 @@ static mal_result mal_device__stop_backend__dsound(mal_device* pDevice)
     mal_assert(pDevice != NULL);
     
     if (pDevice->type == mal_device_type_playback) {
-        if (IDirectSoundBuffer_Stop((LPDIRECTSOUNDBUFFER)pDevice->dsound.pPlaybackBuffer) != DS_OK) {
+        if (FAILED(IDirectSoundBuffer_Stop((LPDIRECTSOUNDBUFFER)pDevice->dsound.pPlaybackBuffer))) {
             return mal_post_error(pDevice, "[DirectSound] IDirectSoundBuffer_Stop() failed.", MAL_FAILED_TO_STOP_BACKEND_DEVICE);
         }
 
         IDirectSoundBuffer_SetCurrentPosition((LPDIRECTSOUNDBUFFER)pDevice->dsound.pPlaybackBuffer, 0);
     } else {
-        if (IDirectSoundCaptureBuffer_Stop((LPDIRECTSOUNDCAPTUREBUFFER)pDevice->dsound.pCaptureBuffer) != DS_OK) {
+        if (FAILED(IDirectSoundCaptureBuffer_Stop((LPDIRECTSOUNDCAPTUREBUFFER)pDevice->dsound.pCaptureBuffer))) {
             return mal_post_error(pDevice, "[DirectSound] IDirectSoundCaptureBuffer_Stop() failed.", MAL_FAILED_TO_STOP_BACKEND_DEVICE);
         }
     }
@@ -1785,11 +1777,11 @@ static mal_bool32 mal_device__get_current_frame__dsound(mal_device* pDevice, mal
 
     DWORD dwCurrentPosition;
     if (pDevice->type == mal_device_type_playback) {
-        if (IDirectSoundBuffer_GetCurrentPosition((LPDIRECTSOUNDBUFFER)pDevice->dsound.pPlaybackBuffer, NULL, &dwCurrentPosition) != DS_OK) {
+        if (FAILED(IDirectSoundBuffer_GetCurrentPosition((LPDIRECTSOUNDBUFFER)pDevice->dsound.pPlaybackBuffer, NULL, &dwCurrentPosition))) {
             return MAL_FALSE;
         }
     } else {
-        if (IDirectSoundCaptureBuffer8_GetCurrentPosition((LPDIRECTSOUNDCAPTUREBUFFER8)pDevice->dsound.pCaptureBuffer, &dwCurrentPosition, NULL) != DS_OK) {
+        if (FAILED(IDirectSoundCaptureBuffer8_GetCurrentPosition((LPDIRECTSOUNDCAPTUREBUFFER8)pDevice->dsound.pCaptureBuffer, &dwCurrentPosition, NULL))) {
             return MAL_FALSE;
         }
     }
@@ -1816,9 +1808,22 @@ static mal_bool32 mal_device__get_available_frames__dsound(mal_device* pDevice)
     mal_uint32 totalFrameCount = pDevice->fragmentSizeInFrames*pDevice->fragmentCount;
     if (pDevice->type == mal_device_type_playback) {
         mal_uint32 committedBeg = currentFrame;
-        mal_uint32 committedEnd = pDevice->dsound.lastProcessedFrame;
-        if (committedEnd <= committedBeg) {
-            committedEnd += totalFrameCount;    // Wrap around.
+        mal_uint32 committedEnd;
+        if (pDevice->dsound.rewindTarget != ~0UL) {
+            // The device was just rewound.
+            committedEnd = pDevice->dsound.rewindTarget;
+            if (committedEnd < committedBeg) {
+                //printf("REWOUND TOO FAR: %d\n", committedBeg - committedEnd);
+                committedEnd = committedBeg;
+            }
+
+            pDevice->dsound.lastProcessedFrame = committedEnd;
+            pDevice->dsound.rewindTarget = ~0UL;
+        } else {
+            committedEnd = pDevice->dsound.lastProcessedFrame;
+            if (committedEnd <= committedBeg) {
+                committedEnd += totalFrameCount;
+            }
         }
 
         mal_uint32 committedSize = (committedEnd - committedBeg);
@@ -1850,17 +1855,19 @@ static mal_uint32 mal_device__wait_for_frames__dsound(mal_device* pDevice)
 
     while (!pDevice->dsound.breakFromMainLoop) {
         mal_uint32 framesAvailable = mal_device__get_available_frames__dsound(pDevice);
-        if (framesAvailable == 0) {
-            return 0;
-        }
-
+#if 0
         // Never return more frames that will fit in a fragment.
         if (framesAvailable >= pDevice->fragmentSizeInFrames) {
             return pDevice->fragmentSizeInFrames;
         }
+#else
+        if (framesAvailable > 0) {
+            return framesAvailable;
+        }
+#endif
 
         // If we get here it means we weren't able to find a full fragment. We'll just wait here for a bit.
-        const DWORD timeoutInMilliseconds = 5;  // <-- This affects latency with the DirectSound backend. Should this be a property?
+        const DWORD timeoutInMilliseconds = 8;  // <-- This affects latency. Should this be a property?
         DWORD rc = WaitForMultipleObjects(eventCount, eventHandles, FALSE, timeoutInMilliseconds);
         if (rc < WAIT_OBJECT_0 || rc >= WAIT_OBJECT_0 + eventCount) {
             return 0;
@@ -1900,7 +1907,9 @@ static mal_result mal_device__main_loop__dsound(mal_device* pDevice)
 
             void* pLockPtr;
             DWORD actualLockSize;
-            if (FAILED(IDirectSoundBuffer_Lock((LPDIRECTSOUNDBUFFER)pDevice->dsound.pPlaybackBuffer, lockOffset, lockSize, &pLockPtr, &actualLockSize, NULL, NULL, 0))) {
+            void* pLockPtr2;
+            DWORD actualLockSize2;
+            if (FAILED(IDirectSoundBuffer_Lock((LPDIRECTSOUNDBUFFER)pDevice->dsound.pPlaybackBuffer, lockOffset, lockSize, &pLockPtr, &actualLockSize, &pLockPtr2, &actualLockSize2, 0))) {
                 return mal_post_error(pDevice, "[DirectSound] IDirectSoundBuffer_Lock() failed.", MAL_FAILED_TO_MAP_DEVICE_BUFFER);
             }
 
@@ -1908,11 +1917,13 @@ static mal_result mal_device__main_loop__dsound(mal_device* pDevice)
             mal_device__read_samples_from_client(pDevice, sampleCount, pLockPtr);
             pDevice->dsound.lastProcessedFrame = (pDevice->dsound.lastProcessedFrame + (sampleCount/pDevice->channels)) % (pDevice->fragmentSizeInFrames*pDevice->fragmentCount);
 
-            IDirectSoundBuffer_Unlock((LPDIRECTSOUNDBUFFER)pDevice->dsound.pPlaybackBuffer, pLockPtr, actualLockSize, NULL, 0);
+            IDirectSoundBuffer_Unlock((LPDIRECTSOUNDBUFFER)pDevice->dsound.pPlaybackBuffer, pLockPtr, actualLockSize, pLockPtr2, actualLockSize2);
         } else {
             void* pLockPtr;
             DWORD actualLockSize;
-            if (FAILED(IDirectSoundCaptureBuffer_Lock((LPDIRECTSOUNDCAPTUREBUFFER)pDevice->dsound.pCaptureBuffer, lockOffset, lockSize, &pLockPtr, &actualLockSize, NULL, NULL, 0))) {
+            void* pLockPtr2;
+            DWORD actualLockSize2;
+            if (FAILED(IDirectSoundCaptureBuffer_Lock((LPDIRECTSOUNDCAPTUREBUFFER)pDevice->dsound.pCaptureBuffer, lockOffset, lockSize, &pLockPtr, &actualLockSize, &pLockPtr2, &actualLockSize2, 0))) {
                 return mal_post_error(pDevice, "[DirectSound] IDirectSoundCaptureBuffer_Lock() failed.", MAL_FAILED_TO_MAP_DEVICE_BUFFER);
             }
 
@@ -1920,7 +1931,7 @@ static mal_result mal_device__main_loop__dsound(mal_device* pDevice)
             mal_device__send_samples_to_client(pDevice, sampleCount, pLockPtr);
             pDevice->dsound.lastProcessedFrame = (pDevice->dsound.lastProcessedFrame + (sampleCount/pDevice->channels)) % (pDevice->fragmentSizeInFrames*pDevice->fragmentCount);
 
-            IDirectSoundCaptureBuffer_Unlock((LPDIRECTSOUNDCAPTUREBUFFER)pDevice->dsound.pCaptureBuffer, pLockPtr, actualLockSize, NULL, 0);
+            IDirectSoundCaptureBuffer_Unlock((LPDIRECTSOUNDCAPTUREBUFFER)pDevice->dsound.pCaptureBuffer, pLockPtr, actualLockSize, pLockPtr2, actualLockSize2);
         }
     }
 
@@ -1930,14 +1941,45 @@ static mal_result mal_device__main_loop__dsound(mal_device* pDevice)
 static mal_uint32 mal_device_get_available_rewind_amount__dsound(mal_device* pDevice)
 {
     mal_assert(pDevice != NULL);
-    return 0;
+    mal_assert(pDevice->type == mal_device_type_playback);
+
+    mal_uint32 currentFrame;
+    if (!mal_device__get_current_frame__dsound(pDevice, &currentFrame)) {
+        return 0;   // Failed to get the current frame.
+    }
+
+    mal_uint32 committedBeg = currentFrame;
+    mal_uint32 committedEnd = pDevice->dsound.lastProcessedFrame;
+    if (committedEnd <= committedBeg) {
+        committedEnd += pDevice->fragmentSizeInFrames*pDevice->fragmentCount;    // Wrap around.
+    }
+
+    mal_uint32 padding = (pDevice->sampleRate/1000) * 1; // <-- This is used to prevent the rewind position getting too close to the playback position.
+    mal_uint32 committedSize = (committedEnd - committedBeg);
+    if (committedSize < padding) {
+        return 0;
+    }
+
+    return committedSize - padding;
 }
 
-static mal_uint32 mal_device_rewind__dsound(mal_device* pDevice, mal_uint32 frames)
+static mal_uint32 mal_device_rewind__dsound(mal_device* pDevice, mal_uint32 framesToRewind)
 {
     mal_assert(pDevice != NULL);
-    mal_assert(frames > 0);
-    return 0;
+    mal_assert(framesToRewind > 0);
+    
+    // Clamp the the maximum allowable rewind amount.
+    mal_uint32 maxRewind = mal_device_get_available_rewind_amount__dsound(pDevice);
+    if (framesToRewind > maxRewind) {
+        framesToRewind = maxRewind;
+    }
+
+
+    mal_uint32 totalFrameCount = pDevice->fragmentSizeInFrames*pDevice->fragmentCount;
+    mal_uint32 desiredPosition = (pDevice->dsound.lastProcessedFrame + totalFrameCount - framesToRewind) % totalFrameCount;    // Wrap around.
+    mal_atomic_exchange_32(&pDevice->dsound.rewindTarget, desiredPosition);
+
+    return framesToRewind;
 }
 #endif
 
@@ -2568,7 +2610,7 @@ static mal_uint32 mal_device_get_available_rewind_amount__alsa(mal_device* pDevi
     return 0;   // Not supporting rewinding with ALSA for the moment.
 }
 
-static mal_uint32 mal_device_rewind__alsa(mal_device* pDevice, mal_uint32 frames)
+static mal_uint32 mal_device_rewind__alsa(mal_device* pDevice, mal_uint32 framesToRewind)
 {
     mal_assert(pDevice != NULL);
     mal_assert(frames > 0);
@@ -2775,6 +2817,9 @@ mal_result mal_device_init(mal_device* pDevice, mal_device_type type, mal_device
 	pDevice->fragmentSizeInFrames = fragmentSizeInFrames;
 	pDevice->fragmentCount = fragmentCount;
 
+    if (!mal_mutex_create(&pDevice->lock)) {
+        return mal_post_error(pDevice, "Failed to create mutex.", MAL_FAILED_TO_CREATE_MUTEX);
+    }
 
     // When the device is started, the worker thread is the one that does the actual startup of the backend device. We
     // use a semaphore to wait for the background thread to finish the work. The same applies for stopping the device.
@@ -2782,15 +2827,18 @@ mal_result mal_device_init(mal_device* pDevice, mal_device_type type, mal_device
     // Each of these semaphores is released internally by the worker thread when the work is completed. The start
     // semaphore is also used to wake up the worker thread.
 	if (!mal_event_create(&pDevice->wakeupEvent)) {
+        mal_mutex_delete(&pDevice->lock);
 		return mal_post_error(pDevice, "Failed to create worker thread wakeup event.", MAL_FAILED_TO_CREATE_EVENT);
 	}
     if (!mal_event_create(&pDevice->startEvent)) {
 		mal_event_delete(&pDevice->wakeupEvent);
+        mal_mutex_delete(&pDevice->lock);
 		return mal_post_error(pDevice, "Failed to create worker thread start event.", MAL_FAILED_TO_CREATE_EVENT);
     }
     if (!mal_event_create(&pDevice->stopEvent)) {
 		mal_event_delete(&pDevice->startEvent);
         mal_event_delete(&pDevice->wakeupEvent);
+        mal_mutex_delete(&pDevice->lock);
 		return mal_post_error(pDevice, "Failed to create worker thread stop event.", MAL_FAILED_TO_CREATE_EVENT);
     }
 
@@ -2853,6 +2901,7 @@ void mal_device_uninit(mal_device* pDevice)
     mal_event_delete(&pDevice->stopEvent);
     mal_event_delete(&pDevice->startEvent);
 	mal_event_delete(&pDevice->wakeupEvent);
+    mal_mutex_delete(&pDevice->lock);
 
 #ifdef MAL_ENABLE_DSOUND
 	if (pDevice->api == mal_api_dsound) {
@@ -2890,27 +2939,37 @@ mal_result mal_device_start(mal_device* pDevice)
 	if (pDevice == NULL) return mal_post_error(pDevice, "mal_device_start() called with invalid arguments.", MAL_INVALID_ARGS);
     if (mal_device__get_state(pDevice) == MAL_STATE_UNINITIALIZED) return mal_post_error(pDevice, "mal_device_start() called for an uninitialized device.", MAL_DEVICE_NOT_INITIALIZED);
 
-    // Be a bit more descriptive if the device is already started or is already in the process of starting. This is likely
-    // a bug with the application.
-    if (mal_device__get_state(pDevice) == MAL_STATE_STARTING) {
-        return mal_post_error(pDevice, "mal_device_start() called while another thread is already starting it.", MAL_DEVICE_ALREADY_STARTING);
+    mal_result result = MAL_ERROR;
+    mal_mutex_lock(&pDevice->lock);
+    {
+        // Be a bit more descriptive if the device is already started or is already in the process of starting. This is likely
+        // a bug with the application.
+        if (mal_device__get_state(pDevice) == MAL_STATE_STARTING) {
+            mal_mutex_unlock(&pDevice->lock);
+            return mal_post_error(pDevice, "mal_device_start() called while another thread is already starting it.", MAL_DEVICE_ALREADY_STARTING);
+        }
+        if (mal_device__get_state(pDevice) == MAL_STATE_STARTED) {
+            mal_mutex_unlock(&pDevice->lock);
+            return mal_post_error(pDevice, "mal_device_start() called for a device that's already started.", MAL_DEVICE_ALREADY_STARTED);
+        }
+    
+        // The device needs to be in a stopped state. If it's not, we just let the caller know the device is busy.
+        if (mal_device__get_state(pDevice) != MAL_STATE_STOPPED) {
+            mal_mutex_unlock(&pDevice->lock);
+            return mal_post_error(pDevice, "mal_device_start() called while another thread is in the process of stopping it.", MAL_DEVICE_BUSY);
+        }
+    
+        mal_device__set_state(pDevice, MAL_STATE_STARTING);
+    	mal_event_signal(&pDevice->wakeupEvent);
+    
+        // Wait for the worker thread to finish starting the device. Note that the worker thread will be the one
+        // who puts the device into the started state. Don't call mal_device__set_state() here.
+        mal_event_wait(&pDevice->startEvent);
+        result = pDevice->workResult;
     }
-    if (mal_device__get_state(pDevice) == MAL_STATE_STARTED) {
-        return mal_post_error(pDevice, "mal_device_start() called for a device that's already started.", MAL_DEVICE_ALREADY_STARTED);
-    }
-
-    // The device needs to be in a stopped state. If it's not, we just let the caller know the device is busy.
-    if (mal_device__get_state(pDevice) != MAL_STATE_STOPPED) {
-        return mal_post_error(pDevice, "mal_device_start() called while another thread is in the process of stopping it.", MAL_DEVICE_BUSY);
-    }
-
-    mal_device__set_state(pDevice, MAL_STATE_STARTING);
-	mal_event_signal(&pDevice->wakeupEvent);
-
-    // Wait for the worker thread to finish starting the device. Note that the worker thread will be the one
-    // who puts the device into the started state. Don't call mal_device__set_state() here.
-    mal_event_wait(&pDevice->startEvent);
-	return pDevice->workResult;
+    mal_mutex_unlock(&pDevice->lock);
+    
+	return result;
 }
 
 mal_result mal_device_stop(mal_device* pDevice)
@@ -2918,32 +2977,42 @@ mal_result mal_device_stop(mal_device* pDevice)
 	if (pDevice == NULL) return mal_post_error(pDevice, "mal_device_stop() called with invalid arguments.", MAL_INVALID_ARGS);
     if (mal_device__get_state(pDevice) == MAL_STATE_UNINITIALIZED) return mal_post_error(pDevice, "mal_device_stop() called for an uninitialized device.", MAL_DEVICE_NOT_INITIALIZED);
 
-    // Be a bit more descriptive if the device is already stopped or is already in the process of stopping. This is likely
-    // a bug with the application.
-    if (mal_device__get_state(pDevice) == MAL_STATE_STOPPING) {
-        return mal_post_error(pDevice, "mal_device_stop() called while another thread is already stopping it.", MAL_DEVICE_ALREADY_STOPPING);
+    mal_result result = MAL_ERROR;
+    mal_mutex_lock(&pDevice->lock);
+    {
+        // Be a bit more descriptive if the device is already stopped or is already in the process of stopping. This is likely
+        // a bug with the application.
+        if (mal_device__get_state(pDevice) == MAL_STATE_STOPPING) {
+            mal_mutex_unlock(&pDevice->lock);
+            return mal_post_error(pDevice, "mal_device_stop() called while another thread is already stopping it.", MAL_DEVICE_ALREADY_STOPPING);
+        }
+        if (mal_device__get_state(pDevice) == MAL_STATE_STOPPED) {
+            mal_mutex_unlock(&pDevice->lock);
+            return mal_post_error(pDevice, "mal_device_stop() called for a device that's already stopped.", MAL_DEVICE_ALREADY_STOPPED);
+        }
+    
+        // The device needs to be in a started state. If it's not, we just let the caller know the device is busy.
+        if (mal_device__get_state(pDevice) != MAL_STATE_STARTED) {
+            mal_mutex_unlock(&pDevice->lock);
+            return mal_post_error(pDevice, "mal_device_stop() called while another thread is in the process of starting it.", MAL_DEVICE_BUSY);
+        }
+    
+        mal_device__set_state(pDevice, MAL_STATE_STOPPING);
+    
+        // There's no need to wake up the thread like we do when starting.
+    	
+        // When we get here the worker thread is likely in a wait state while waiting for the backend device to deliver or request
+        // audio data. We need to force these to return as quickly as possible.
+        mal_device__break_main_loop(pDevice);
+    
+        // We need to wait for the worker thread to become available for work before returning. Note that the worker thread will be
+        // the one who puts the device into the stopped state. Don't call mal_device__set_state() here.
+        mal_event_wait(&pDevice->stopEvent);
+        result = MAL_SUCCESS;
     }
-    if (mal_device__get_state(pDevice) == MAL_STATE_STOPPED) {
-        return mal_post_error(pDevice, "mal_device_stop() called for a device that's already stopped.", MAL_DEVICE_ALREADY_STOPPED);
-    }
-
-    // The device needs to be in a started state. If it's not, we just let the caller know the device is busy.
-    if (mal_device__get_state(pDevice) != MAL_STATE_STARTED) {
-        return mal_post_error(pDevice, "mal_device_stop() called while another thread is in the process of starting it.", MAL_DEVICE_BUSY);
-    }
-
-    mal_device__set_state(pDevice, MAL_STATE_STOPPING);
-
-    // There's no need to wake up the thread like we do when starting.
-	
-    // When we get here the worker thread is likely in a wait state while waiting for the backend device to deliver or request
-    // audio data. We need to force these to return as quickly as possible.
-    mal_device__break_main_loop(pDevice);
-
-    // We need to wait for the worker thread to become available for work before returning. Note that the worker thread will be
-    // the one who puts the device into the stopped state. Don't call mal_device__set_state() here.
-    mal_event_wait(&pDevice->stopEvent);
-	return MAL_SUCCESS;
+    mal_mutex_unlock(&pDevice->lock);
+    
+	return result;
 }
 
 mal_bool32 mal_device_is_started(mal_device* pDevice)
@@ -2955,42 +3024,71 @@ mal_bool32 mal_device_is_started(mal_device* pDevice)
 mal_uint32 mal_device_get_available_rewind_amount(mal_device* pDevice)
 {
     if (pDevice == NULL) return 0;
+
+    // Only playback devices can be rewound.
+    if (pDevice->type != mal_device_type_playback) {
+        return 0;
+    }
     
 #ifdef MAL_ENABLE_DSOUND
 	if (pDevice->api == mal_api_dsound) {
-		return mal_device_get_available_rewind_amount__dsound(pDevice);
+        mal_mutex_lock(&pDevice->lock);
+		mal_uint32 result = mal_device_get_available_rewind_amount__dsound(pDevice);
+        mal_mutex_unlock(&pDevice->lock);
+        return result;
 	}
 #endif
 #ifdef MAL_ENABLE_ALSA
 	if (pDevice->api == mal_api_alsa) {
-		return mal_device_get_available_rewind_amount__alsa(pDevice);
+        mal_mutex_lock(&pDevice->lock);
+		mal_uint32 result = mal_device_get_available_rewind_amount__alsa(pDevice);
+        mal_mutex_unlock(&pDevice->lock);
+        return result;
 	}
 #endif
 #ifdef MAL_ENABLE_NULL
 	if (pDevice->api == mal_api_null) {
-		return mal_device_get_available_rewind_amount__null(pDevice);
+        mal_mutex_lock(&pDevice->lock);
+		mal_uint32 result = mal_device_get_available_rewind_amount__null(pDevice);
+        mal_mutex_unlock(&pDevice->lock);
+        return result;
 	}
 #endif
 
     return 0;
 }
 
-mal_uint32 mal_device_rewind(mal_device* pDevice, mal_uint32 frames)
+mal_uint32 mal_device_rewind(mal_device* pDevice, mal_uint32 framesToRewind)
 {
-    if (pDevice == NULL || frames == 0) return 0;
+    if (pDevice == NULL || framesToRewind == 0) return 0;
+
+    // Only playback devices can be rewound.
+    if (pDevice->type != mal_device_type_playback) {
+        return 0;
+    }
+    
 #ifdef MAL_ENABLE_DSOUND
 	if (pDevice->api == mal_api_dsound) {
-		return mal_device_rewind__dsound(pDevice, frames);
+        mal_mutex_lock(&pDevice->lock);
+		mal_uint32 result = mal_device_rewind__dsound(pDevice, framesToRewind);
+        mal_mutex_unlock(&pDevice->lock);
+        return result;
 	}
 #endif
 #ifdef MAL_ENABLE_ALSA
 	if (pDevice->api == mal_api_alsa) {
-		return mal_device_rewind__alsa(pDevice, frames);
+        mal_mutex_lock(&pDevice->lock);
+		mal_uint32 result = mal_device_rewind__alsa(pDevice, framesToRewind);
+        mal_mutex_unlock(&pDevice->lock);
+        return result;
 	}
 #endif
 #ifdef MAL_ENABLE_NULL
 	if (pDevice->api == mal_api_null) {
-		return mal_device_rewind__null(pDevice, frames);
+        mal_mutex_lock(&pDevice->lock);
+		mal_uint32 result = mal_device_rewind__null(pDevice, framesToRewind);
+        mal_mutex_unlock(&pDevice->lock);
+        return result;
 	}
 #endif
 
@@ -3030,13 +3128,15 @@ mal_uint32 mal_get_sample_size_in_bytes(mal_format format)
 // TODO
 // ====
 // - Support rewinding. This will enable applications to employ better anti-latency.
-// - Thread safety for start, stop and rewind.
+// - Remove the notion of fragments. Replace it with a buffer size.
+// - Consider having properties passed to mal_device_init() via a structure and have
+//   some properties support defaults when set to 0.
+// - Have the send/recv callbacks take a frame count rather than sample count. Rationale is consistency.
+//   - mal_device__read_samples_from_client() -> mal_device__read_frames_from_client()
 //
 //
 // ALSA
 // ----
-// - Make device initialization more robust.
-//   - Need to have my test hardware working with plughw at a minimum.
 // - Finish mmap mode for ALSA.
 
 
