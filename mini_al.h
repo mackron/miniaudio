@@ -149,8 +149,8 @@ typedef int mal_result;
 
 typedef struct mal_device mal_device;
 
-typedef void       (* mal_recv_proc)(mal_device* pDevice, mal_uint32 sampleCount, const void* pSamples);
-typedef mal_uint32 (* mal_send_proc)(mal_device* pDevice, mal_uint32 sampleCount, void* pSamples);
+typedef void       (* mal_recv_proc)(mal_device* pDevice, mal_uint32 frameCount, const void* pSamples);
+typedef mal_uint32 (* mal_send_proc)(mal_device* pDevice, mal_uint32 frameCount, void* pSamples);
 typedef void       (* mal_log_proc) (mal_device* pDevice, const char* message);
 
 typedef enum
@@ -1080,13 +1080,13 @@ static inline mal_uint32 mal_device__read_frames_from_client(mal_device* pDevice
     mal_assert(frameCount > 0);
     mal_assert(pSamples != NULL);
 
-    mal_uint32 samplesRead = 0;
-
+    mal_uint32 framesRead = 0;
     mal_send_proc onSend = pDevice->onSend;
     if (onSend) {
-        samplesRead = pDevice->onSend(pDevice, frameCount * pDevice->channels, pSamples);
+        framesRead = onSend(pDevice, frameCount, pSamples);
     }
 
+    mal_uint32 samplesRead = framesRead * pDevice->channels;
     mal_uint32 sampleSize = mal_get_sample_size_in_bytes(pDevice->format);
 	mal_uint32 consumedBytes = samplesRead*sampleSize;
 	mal_uint32 remainingBytes = ((frameCount * pDevice->channels) - samplesRead)*sampleSize;
@@ -1104,7 +1104,7 @@ static inline void mal_device__send_frames_to_client(mal_device* pDevice, mal_ui
 
     mal_recv_proc onRecv = pDevice->onRecv;
     if (onRecv) {
-        onRecv(pDevice, frameCount * pDevice->channels, pSamples);
+        onRecv(pDevice, frameCount, pSamples);
     }
 }
 
@@ -3093,10 +3093,11 @@ mal_uint32 mal_get_sample_size_in_bytes(mal_format format)
 
 // TODO
 // ====
-//
+// - Examples.
 //
 // ALSA
 // ----
+// - Use runtime linking for asound.
 // - Finish mmap mode for ALSA.
 
 
