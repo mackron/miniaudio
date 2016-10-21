@@ -149,8 +149,11 @@ extern "C" {
     #endif
 #else
     #define MAL_POSIX
-    #if !defined(MAL_NO_ALSA) && defined(__linux__)
+    #if !defined(MAL_NO_ALSA) && defined(__linux__) && !defined(__ANDROID__)
         #define MAL_ENABLE_ALSA
+    #endif
+    #ifdef __ANDROID__
+        #define MAL_ENABLE_OPENSLES
     #endif
     #include <pthread.h>    // Unfortunate #include, but needed for pthread_t, pthread_mutex_t and pthread_cond_t types.
 #endif
@@ -469,7 +472,7 @@ void mal_device_set_stop_callback(mal_device* pDevice, mal_stop_proc proc);
 // recording.
 //
 // For a playback device, this will retrieve an initial chunk of audio data from the client before
-// returning. This reason for this is to ensure there is valid audio data in the buffer, which needs
+// returning. The reason for this is to ensure there is valid audio data in the buffer, which needs
 // to be done _before_ the device starts playing back audio.
 //
 // Return Value:
@@ -564,7 +567,7 @@ mal_uint32 mal_device_get_available_rewind_amount(mal_device* pDevice);
 //   This currently waits on a mutex for thread-safety, but should otherwise be fairly efficient.
 mal_uint32 mal_device_rewind(mal_device* pDevice, mal_uint32 framesToRewind);
 
-// Retrieves the size of the in bytes for the given device.
+// Retrieves the size of the buffer in bytes for the given device.
 //
 // Thread Safety: SAFE
 //   This is calculated from constant values which are set at initialization time and never change.
