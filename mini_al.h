@@ -244,6 +244,7 @@ typedef struct mal_device mal_device;
 
 typedef void       (* mal_recv_proc)(mal_device* pDevice, mal_uint32 frameCount, const void* pSamples);
 typedef mal_uint32 (* mal_send_proc)(mal_device* pDevice, mal_uint32 frameCount, void* pSamples);
+typedef void       (* mal_stop_proc)(mal_device* pDevice);
 typedef void       (* mal_log_proc) (mal_device* pDevice, const char* message);
 
 typedef enum
@@ -303,6 +304,7 @@ struct mal_device
 	mal_uint32 state;
 	mal_recv_proc onRecv;
 	mal_send_proc onSend;
+    mal_stop_proc onStop;
     mal_log_proc onLog;
 	void* pUserData;	    // Application defined data.
     mal_mutex lock;
@@ -442,6 +444,15 @@ void mal_device_uninit(mal_device* pDevice);
 // Efficiency: HIGH
 //   This is just an atomic assignment.
 void mal_device_set_recv_callback(mal_device* pDevice, mal_recv_proc proc);
+
+// Sets the callback to use when the device has stopped, either explicitly or as a result of an error.
+//
+// Thread Safety: SAFE
+//   This API is implemented as a simple atomic assignment.
+//
+// Efficiency: HIGH
+//   This is just an atomic assignment.
+void mal_device_set_stop_callback(mal_device* pDevice, mal_stop_proc proc);
 
 // Sets the callback to use when the application needs to send data to the device for playback.
 //
@@ -2831,10 +2842,23 @@ mal_thread_result MAL_THREADCALL mal_worker_thread(void* pData)
 {
 	mal_device* pDevice = (mal_device*)pData;
 	mal_assert(pDevice != NULL);
+    
+    // This is only used to prevent posting onStop() when the device is first initialized.
+    mal_bool32 skipNextStopEvent = MAL_TRUE;
 
 	for (;;) {
         // At the start of iteration the device is stopped - we must explicitly mark it as such.
         mal_device__stop_backend(pDevice);
+
+        if (!skipNextStopEvent) {
+            mal_stop_proc onStop = pDevice->onStop;
+            if (onStop) {
+                onStop(pDevice);
+            }
+        } else {
+            skipNextStopEvent = MAL_FALSE;
+        }
+        
 
         // Let the other threads know that the device has stopped.
         mal_device__set_state(pDevice, MAL_STATE_STOPPED);
@@ -3051,6 +3075,12 @@ void mal_device_set_send_callback(mal_device* pDevice, mal_send_proc proc)
 	mal_atomic_exchange_ptr(&pDevice->onSend, proc);
 }
 
+void mal_device_set_stop_callback(mal_device* pDevice, mal_stop_proc proc)
+{
+    if (pDevice == NULL) return;
+    mal_atomic_exchange_ptr(&pDevice->onStop, proc);
+}
+
 mal_result mal_device_start(mal_device* pDevice)
 {
 	if (pDevice == NULL) return mal_post_error(pDevice, "mal_device_start() called with invalid arguments.", MAL_INVALID_ARGS);
@@ -3244,7 +3274,6 @@ mal_uint32 mal_get_sample_size_in_bytes(mal_format format)
 
 // TODO
 // ====
-// - Examples.
 //
 // ALSA
 // ----
