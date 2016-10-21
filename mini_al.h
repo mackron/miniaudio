@@ -444,15 +444,6 @@ void mal_device_uninit(mal_device* pDevice);
 //   This is just an atomic assignment.
 void mal_device_set_recv_callback(mal_device* pDevice, mal_recv_proc proc);
 
-// Sets the callback to use when the device has stopped, either explicitly or as a result of an error.
-//
-// Thread Safety: SAFE
-//   This API is implemented as a simple atomic assignment.
-//
-// Efficiency: HIGH
-//   This is just an atomic assignment.
-void mal_device_set_stop_callback(mal_device* pDevice, mal_stop_proc proc);
-
 // Sets the callback to use when the application needs to send data to the device for playback.
 //
 // Note that the implementation of this callback must copy over as many samples as is available. The
@@ -465,6 +456,15 @@ void mal_device_set_stop_callback(mal_device* pDevice, mal_stop_proc proc);
 // Efficiency: HIGH
 //   This is just an atomic assignment.
 void mal_device_set_send_callback(mal_device* pDevice, mal_send_proc proc);
+
+// Sets the callback to use when the device has stopped, either explicitly or as a result of an error.
+//
+// Thread Safety: SAFE
+//   This API is implemented as a simple atomic assignment.
+//
+// Efficiency: HIGH
+//   This is just an atomic assignment.
+void mal_device_set_stop_callback(mal_device* pDevice, mal_stop_proc proc);
 
 // Activates the device. For playback devices this begins playback. For recording devices it begins
 // recording.
