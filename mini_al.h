@@ -1,23 +1,28 @@
 // Mini audio library. Public domain. See "unlicense" statement at the end of this file.
-// mini_al - v0.0 - UNRELEASED
+// mini_al - v0.1 - 2016-10-21
 //
 // David Reid - mackron@gmail.com
 
 // ABOUT
 // =====
-// mini_al is a small library for making it easy to do audio playback and recording. It's focused on
-// simplicity and being light-weight so don't expect all the bells and whistles.
+// mini_al is a small library for making it easy to connect to a playback or capture device and send
+// or receive data from said device. It's focused on being simple and light-weight so don't expect
+// all the bells and whistles. Indeed, this is not a full packaged audio library - it's just for
+// connecting to a device and handling data transmission.
 //
 // mini_al uses an asynchronous API. Every device is created with it's own thread, with audio data
 // being either delivered to the application from the device (in the case of recording/capture) or
 // delivered from the application to the device in the case of playback. Synchronous APIs are not
-// supported in the interest of keeping the library as small and lightweight as possible.
+// supported in the interest of keeping the library as small and light-weight as possible.
 //
 // Supported backends:
 //   - DirectSound (Windows Only)
 //   - ALSA (Linux Only)
 //   - null
-//   - ... and many more in the future.
+//   - ... and more in the future.
+//     - Core Audio (OSX, iOS)
+//     - Something for Android
+//     - Maybe OSS
 //
 //
 // USAGE
@@ -25,6 +30,51 @@
 // mini_al is a single-file library. To use it, do something like the following in one .c file.
 //   #define MAL_IMPLEMENTATION
 //   #include "mini_al.h"
+//
+// You can then #include this file in other parts of the program as you would with any other header file.
+//
+//
+// Building (Windows)
+// ------------------
+// You do not need to link to anything for the Windows build, but you will need dsound.h in your include paths.
+//
+//
+// Building (Linux)
+// ----------------
+// The Linux build uses ALSA for it's backend so you will need to install the relevant ALSA development pacakges
+// for your preferred distro. It also uses pthreads.
+//
+// Linking: -lasound -lpthread
+//
+//
+// Playback Example
+// ----------------
+//   mal_uint32 on_send_samples(mal_device* pDevice, mal_uint32 frameCount, void* pSamples)
+//   {
+//       // This callback is set with mal_device_set_send_callback() after initializing and will be
+//       // called when a playback device needs more data. You need to write as many frames as you can
+//       // to pSamples (but no more than frameCount) and then return the number of frames you wrote.
+//       //
+//       // You can pass in user data by setting pDevice->pUserData after initialization.
+//       return (mal_uint32)drwav_read_f32(&wav, frameCount * pDevice->channels, (float*)pSamples) / pDevice->channels;
+//   }
+//
+//   ...
+//
+//   mal_device device;
+//   mal_result result = mal_device_init(&device, mal_device_type_playback, &id, mal_format_f32, wav.channels, wav.sampleRate, 16384, 2, NULL);
+//   if (result != MAL_SUCCESS) {
+//       return -1;
+//   }
+//
+//   device.pUserData = pMyData;    // pUserData is reserved for you. Use it to pass data to callbacks.
+//   mal_device_set_send_callback(&device, on_send_samples);
+//   mal_device_start(&device);     // The device is sleeping by default so you'll need to start it manually.
+//
+//   ...
+//
+//   mal_device_uninit(&device);    // This will stop the device so no need to do that manually.
+//
 //
 //
 // NOTES
@@ -39,8 +89,34 @@
 //   integer samples, interleaved. Let me know if you need non-interleaved and I'll look into it.
 //
 //
+//
 // BACKEND NUANCES
 // ===============
+// - The absolute best latency I am able to get on DirectSound is about 10 milliseconds. This seems very
+//   consistent so I'm suspecting there's some kind of hard coded limit there or something.
+// - The ALSA backend does not support rewinding.
+//
+//
+//
+// OPTIONS
+// =======
+// #define these options before including this file.
+//
+// #define MAL_NO_DSOUND
+//   Disables the DirectSound backend. Note that this is the only backend for the Windows platform.
+//
+// #define MAL_NO_ALSA
+//   Disables the ALSA backend. Note that this is the only backend for the Linux platform.
+//
+// #define MAL_NO_NULL
+//   Disables the null backend.
+//
+// #define MAL_DEFAULT_BUFFER_SIZE_IN_MILLISECONDS (Default = 15)
+//   When a buffer size of 0 is specified when a device is initialized, it will default to a size with
+//   this number of milliseconds worth of data.
+//
+// #define MAL_DEFAULT_PERIODS (Default = 2)
+//   When a period count of 0 is specified when a device is initialized, it will default to this.
 
 #ifndef mini_al_h
 #define mini_al_h
@@ -48,6 +124,24 @@
 #ifdef __cplusplus
 extern "C" {
 #endif
+
+// Config.
+
+// The default size of the device's buffer in milliseconds. In my testing, if this is a multiple of the
+// periods it can result in audio glitching on the DirectSound backend, so make sure it's not a clean
+// multiple of the period.
+//
+// If this is too small you may get underruns and overruns in which case you'll need to either increase
+// this value or use an explicit buffer size.
+#ifndef MAL_DEFAULT_BUFFER_SIZE_IN_MILLISECONDS
+#define MAL_DEFAULT_BUFFER_SIZE_IN_MILLISECONDS     15
+#endif
+
+// Default periods when none is specified in mal_device_init(). More periods means more work on the CPU.
+#ifndef MAL_DEFAULT_PERIODS
+#define MAL_DEFAULT_PERIODS                         2
+#endif
+
 
 // Platform/backend detection.
 #ifdef _WIN32
@@ -109,10 +203,6 @@ typedef void* mal_ptr;
         pthread_cond_t condition; 
         mal_uint32 value;
     } mal_event;
-#endif
-
-#ifdef MAL_ENABLE_DSOUND
-    #define MAL_MAX_PERIODS_DSOUND    16
 #endif
 
 typedef int mal_result;
@@ -278,15 +368,21 @@ struct mal_device
 //   This API dynamically links to backend DLLs/SOs (such as dsound.dll).
 mal_result mal_enumerate_devices(mal_device_type type, mal_uint32* pCount, mal_device_info* pInfo);
 
-// Initializes a device in asynchronous mode.
+// Initializes a device.
 //
 // The device ID (pDeviceID) can be null, in which case the default device is used. Otherwise, you
-// can retrieve the ID by calling mal_enumerate_devices() and retrieve the ID from the returned
-// information.
+// can retrieve the ID by calling mal_enumerate_devices() and using the ID from the returned data.
 //
 // This will try it's hardest to create a valid device, even if it means adjusting input arguments.
 // Look at pDevice->channels, pDevice->sampleRate, etc. to determine the actual properties after
 // initialization.
+//
+// If <bufferSizeInFrames> is 0, it will default to MAL_DEFAULT_BUFFER_SIZE_IN_MILLISECONDS. If
+// <periods> is set to 0 it will default to MAL_DEFAULT_PERIODS.
+//
+// The <periods> property controls how frequently the background thread is woken to check for more
+// data. It's tied to the buffer size, so as an example, if your buffer size is equivalent to 10
+// milliseconds and you have 2 periods, the CPU will wake up approximately every 5 milliseconds.
 //
 // Return Value:
 //   - MAL_SUCCESS if successful.
@@ -299,14 +395,13 @@ mal_result mal_enumerate_devices(mal_device_type type, mal_uint32* pCount, mal_d
 //       that performs a memory allocation is ALSA when mmap mode is not supported.
 //   - MAL_FORMAT_NOT_SUPPORTED
 //       The specified format is not supported by the backend. mini_al does not currently do any
-//       software format conversions which means initialization must fail if the backend device does
-//       not natively support it.
+//       software format conversions which means initialization must fail if the backend does not
+//       natively support it.
 //   - MAL_FAILED_TO_INIT_BACKEND
 //       There was a backend-specific error during initialization.
 //
-// Thread Safety: ???
-//   This API is thread safe so long as the application does not try to use the device object before
-//   this call has returned.
+// Thread Safety: UNSAFE
+//   Results are undefined if you try using a device before this function as returned.
 //
 // Efficiency: LOW
 //   This API will dynamically link to backend DLLs/SOs like dsound.dll, and is otherwise just slow
@@ -1508,9 +1603,6 @@ static mal_result mal_device_init__dsound(mal_device* pDevice, mal_device_type t
         return MAL_FORMAT_NOT_SUPPORTED;
     }
 
-    if (periods > MAL_MAX_PERIODS_DSOUND) {
-        periods = MAL_MAX_PERIODS_DSOUND;
-    }
 
     WAVEFORMATEXTENSIBLE wf;
     mal_zero_object(&wf);
@@ -1582,6 +1674,7 @@ static mal_result mal_device_init__dsound(mal_device* pDevice, mal_device_type t
         pDevice->channels = pActualFormat->Format.nChannels;
         pDevice->sampleRate = pActualFormat->Format.nSamplesPerSec;
         bufferSizeInBytes = pDevice->bufferSizeInFrames * pDevice->channels * mal_get_sample_size_in_bytes(pDevice->format);
+
 
         // Meaning of dwFlags (from MSDN):
         //
@@ -2774,7 +2867,11 @@ mal_result mal_device_init(mal_device* pDevice, mal_device_type type, mal_device
         }
     }
 	
-	if (channels == 0 || sampleRate == 0 || bufferSizeInFrames == 0 || periods == 0) return mal_post_error(pDevice, "mal_device_init() called with invalid arguments.", MAL_INVALID_ARGS);
+	if (channels == 0 || sampleRate == 0) return mal_post_error(pDevice, "mal_device_init() called with invalid arguments.", MAL_INVALID_ARGS);
+
+    // Default buffer size and periods.
+    if (bufferSizeInFrames == 0) bufferSizeInFrames = (sampleRate/1000) * MAL_DEFAULT_BUFFER_SIZE_IN_MILLISECONDS;
+    if (periods == 0) periods = MAL_DEFAULT_PERIODS;
 	
 	pDevice->type = type;
 	pDevice->format = format;
@@ -3087,7 +3184,7 @@ mal_uint32 mal_get_sample_size_in_bytes(mal_format format)
 // REVISION HISTORY
 // ================
 //
-// v0.1 - TBD
+// v0.1 - 2016-10-21
 //   - Initial versioned release.
 
 
