@@ -21,23 +21,10 @@ Example
 =======
 mini_al will request and deliver audio data through callbacks.
 
-```
-#define MAL_IMPLEMENTATION
-#include "../mini_al.h"
-
-#define DR_WAV_IMPLEMENTATION
-#include "dr_wav.h"
-
-#include <stdio.h>
-
-// This is the function that's used for sending more data to the device for playback.
+```c
 mal_uint32 on_send_frames_to_device(mal_device* pDevice, mal_uint32 frameCount, void* pSamples)
 {
-    drwav* pWav = (drwav*)pDevice->pUserData;
-    if (pWav == NULL) {
-        return 0;
-    }
-    
+    drwav* pWav = (drwav*)pDevice->pUserData; 
     return (mal_uint32)drwav_read_f32(pWav, frameCount * pDevice->channels, (float*)pSamples) / pDevice->channels;
 }
 
