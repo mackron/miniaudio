@@ -83,8 +83,7 @@
 //   it's own worker thread which is managed by the library.
 // - If mal_device_init() is called with a device that's not aligned to the platform's natural alignment
 //   boundary (4 bytes on 32-bit, 8 bytes on 64-bit), it will _not_ be thread-safe. The reason for this
-//   is that it depends on members of mal_device being correctly aligned for atomic assignments and bit
-//   manipulation.
+//   is that it depends on members of mal_device being correctly aligned for atomic assignments.
 // - Sample data is always little-endian and interleaved. For example, mal_format_s16 means signed 16-bit
 //   integer samples, interleaved. Let me know if you need non-interleaved and I'll look into it.
 //
@@ -144,20 +143,20 @@ extern "C" {
 
 // Platform/backend detection.
 #ifdef _WIN32
-	#define MAL_WIN32
-	#ifndef MAL_NO_DSOUND
-		#define MAL_ENABLE_DSOUND
-	#endif
+    #define MAL_WIN32
+    #ifndef MAL_NO_DSOUND
+        #define MAL_ENABLE_DSOUND
+    #endif
 #else
-	#define MAL_POSIX
-	#if !defined(MAL_NO_ALSA) && defined(__linux__)
-		#define MAL_ENABLE_ALSA
-	#endif
-	#include <pthread.h>    // Unfortunate #include, but needed for pthread_t, pthread_mutex_t and pthread_cond_t types.
+    #define MAL_POSIX
+    #if !defined(MAL_NO_ALSA) && defined(__linux__)
+        #define MAL_ENABLE_ALSA
+    #endif
+    #include <pthread.h>    // Unfortunate #include, but needed for pthread_t, pthread_mutex_t and pthread_cond_t types.
 #endif
 
 #ifndef MAL_NO_NULL
-	#define MAL_ENABLE_NULL
+    #define MAL_ENABLE_NULL
 #endif
 
 
@@ -190,16 +189,16 @@ typedef void* mal_handle;
 typedef void* mal_ptr;
 
 #ifdef MAL_WIN32
-	typedef mal_handle mal_thread;
+    typedef mal_handle mal_thread;
     typedef mal_handle mal_mutex;
-	typedef mal_handle mal_event;
+    typedef mal_handle mal_event;
 #else
-	typedef pthread_t mal_thread;
+    typedef pthread_t mal_thread;
     typedef pthread_mutex_t mal_mutex;
     typedef struct
     {
         pthread_mutex_t mutex;
-        pthread_cond_t condition; 
+        pthread_cond_t condition;
         mal_uint32 value;
     } mal_event;
 #endif
@@ -249,40 +248,40 @@ typedef void       (* mal_log_proc) (mal_device* pDevice, const char* message);
 
 typedef enum
 {
-	mal_api_null,
-	mal_api_dsound,
-	mal_api_alsa
+    mal_api_null,
+    mal_api_dsound,
+    mal_api_alsa
 } mal_api;
 
 typedef enum
 {
-	mal_device_type_playback,
-	mal_device_type_capture
+    mal_device_type_playback,
+    mal_device_type_capture
 } mal_device_type;
 
 typedef enum
 {
-	// I like to keep these explicitly defined because they're used as a key into a lookup table. When items are
+    // I like to keep these explicitly defined because they're used as a key into a lookup table. When items are
     // added to this, make sure there are no gaps and that they're added to the lookup table in mal_get_sample_size_in_bytes().
-	mal_format_u8    = 0,
-	mal_format_s16   = 1,
-	mal_format_s24   = 2,   // Tightly packed. 3 bytes per sample.
-	mal_format_s32   = 3,
-	mal_format_f32   = 4,
-	mal_format_f64   = 5,
-	mal_format_alaw  = 6,
-	mal_format_mulaw = 7
+    mal_format_u8    = 0,
+    mal_format_s16   = 1,
+    mal_format_s24   = 2,   // Tightly packed. 3 bytes per sample.
+    mal_format_s32   = 3,
+    mal_format_f32   = 4,
+    mal_format_f64   = 5,
+    mal_format_alaw  = 6,
+    mal_format_mulaw = 7
 } mal_format;
 
 typedef union
 {
-	char str[32];		// ALSA uses a name string for identification.
-	mal_uint8 guid[16];	// DirectSound uses a GUID to identify a device.
+    char str[32];       // ALSA uses a name string for identification.
+    mal_uint8 guid[16]; // DirectSound uses a GUID to identify a device.
 } mal_device_id;
 
 typedef struct
 {
-	mal_device_id id;
+    mal_device_id id;
     char name[256];
 } mal_device_info;
 
@@ -294,32 +293,32 @@ typedef struct
 
 struct mal_device
 {
-	mal_api api;		    // DirectSound, ALSA, etc.
-	mal_device_type type;
-	mal_format format;
-	mal_uint32 channels;
-	mal_uint32 sampleRate;
+    mal_api api;            // DirectSound, ALSA, etc.
+    mal_device_type type;
+    mal_format format;
+    mal_uint32 channels;
+    mal_uint32 sampleRate;
     mal_uint32 bufferSizeInFrames;
     mal_uint32 periods;
-	mal_uint32 state;
-	mal_recv_proc onRecv;
-	mal_send_proc onSend;
+    mal_uint32 state;
+    mal_recv_proc onRecv;
+    mal_send_proc onSend;
     mal_stop_proc onStop;
     mal_log_proc onLog;
-	void* pUserData;	    // Application defined data.
+    void* pUserData;        // Application defined data.
     mal_mutex lock;
-	mal_event wakeupEvent;
+    mal_event wakeupEvent;
     mal_event startEvent;
     mal_event stopEvent;
     mal_thread thread;
     mal_result workResult;  // This is set by the worker thread after it's finished doing a job.
 
-	union
-	{
-	#ifdef MAL_ENABLE_DSOUND
-		struct
-		{
-			/*HMODULE*/ mal_handle hDSoundDLL;
+    union
+    {
+    #ifdef MAL_ENABLE_DSOUND
+        struct
+        {
+            /*HMODULE*/ mal_handle hDSoundDLL;
             /*LPDIRECTSOUND8*/ mal_ptr pPlayback;
             /*LPDIRECTSOUNDBUFFER*/ mal_ptr pPlaybackPrimaryBuffer;
             /*LPDIRECTSOUNDBUFFER*/ mal_ptr pPlaybackBuffer;
@@ -332,30 +331,30 @@ struct mal_device
             mal_uint32 lastProcessedFrame;      // This is circular.
             mal_uint32 rewindTarget;            // Where we want to rewind to. Set to ~0UL when it is not being rewound.
             mal_bool32 breakFromMainLoop;
-            
-		} dsound;
-	#endif
-		
-	#ifdef MAL_ENABLE_ALSA
-		struct
-		{
-			/*snd_pcm_t**/mal_ptr pPCM;
-			mal_bool32 isUsingMMap;
-			mal_bool32 breakFromMainLoop;
-			void* pIntermediaryBuffer;
-		} alsa;
-	#endif
-		
-	#ifdef MAL_ENABLE_NULL
-		struct
-		{
+
+        } dsound;
+    #endif
+
+    #ifdef MAL_ENABLE_ALSA
+        struct
+        {
+            /*snd_pcm_t**/mal_ptr pPCM;
+            mal_bool32 isUsingMMap;
+            mal_bool32 breakFromMainLoop;
+            void* pIntermediaryBuffer;
+        } alsa;
+    #endif
+
+    #ifdef MAL_ENABLE_NULL
+        struct
+        {
             mal_timer timer;
             mal_uint32 lastProcessedFrame;      // This is circular.
-			mal_bool32 breakFromMainLoop;
+            mal_bool32 breakFromMainLoop;
             mal_uint8* pBuffer;                 // This is malloc()'d and is used as the destination for reading from the client. Typed as mal_uint8 for easy offsetting.
-		} null_device;
-	#endif
-	};
+        } null_device;
+    #endif
+    };
 };
 
 // Enumerates over each device of the given type (playback or capture).
@@ -605,7 +604,7 @@ mal_uint32 mal_get_sample_size_in_bytes(mal_format format);
 #include <windows.h>
 #else
 #include <stdlib.h> // For malloc()/free()
-#include <string.h>	// For memset()
+#include <string.h> // For memset()
 #endif
 
 #ifdef MAL_POSIX
@@ -648,11 +647,11 @@ mal_uint32 mal_get_sample_size_in_bytes(mal_format format);
 
 
 #ifdef MAL_WIN32
-	#define MAL_THREADCALL WINAPI
-	typedef unsigned long mal_thread_result;
+    #define MAL_THREADCALL WINAPI
+    typedef unsigned long mal_thread_result;
 #else
-	#define MAL_THREADCALL
-	typedef void* mal_thread_result;
+    #define MAL_THREADCALL
+    typedef void* mal_thread_result;
 #endif
 typedef mal_thread_result (MAL_THREADCALL * mal_thread_entry_proc)(void* pData);
 
@@ -750,12 +749,12 @@ static int mal_strncpy_s(char* dst, size_t dstSizeInBytes, const char* src, size
 int mal_strcmp(const char* str1, const char* str2)
 {
     if (str1 == str2) return  0;
-    
+
     // These checks differ from the standard implementation. It's not important, but I prefer
     // it just for sanity.
     if (str1 == NULL) return -1;
     if (str2 == NULL) return  1;
-    
+
     for (;;) {
         if (str1[0] == '\0') {
             break;
@@ -763,11 +762,11 @@ int mal_strcmp(const char* str1, const char* str2)
         if (str1[0] != str2[0]) {
             break;
         }
-        
+
         str1 += 1;
         str2 += 1;
     }
-    
+
     return ((unsigned char*)str1)[0] - ((unsigned char*)str2)[0];
 }
 
@@ -1068,7 +1067,7 @@ void mal_sleep(mal_uint32 milliseconds)
 mal_bool32 mal_mutex_create(mal_mutex* pMutex)
 {
     if (pMutex == NULL) return MAL_FALSE;
-    
+
 #ifdef MAL_WIN32
     return mal_mutex_create__win32(pMutex);
 #endif
@@ -1080,7 +1079,7 @@ mal_bool32 mal_mutex_create(mal_mutex* pMutex)
 void mal_mutex_delete(mal_mutex* pMutex)
 {
     if (pMutex == NULL) return;
-    
+
 #ifdef MAL_WIN32
     mal_mutex_delete__win32(pMutex);
 #endif
@@ -1092,7 +1091,7 @@ void mal_mutex_delete(mal_mutex* pMutex)
 void mal_mutex_lock(mal_mutex* pMutex)
 {
     if (pMutex == NULL) return;
-    
+
 #ifdef MAL_WIN32
     mal_mutex_lock__win32(pMutex);
 #endif
@@ -1104,7 +1103,7 @@ void mal_mutex_lock(mal_mutex* pMutex)
 void mal_mutex_unlock(mal_mutex* pMutex)
 {
     if (pMutex == NULL) return;
-    
+
 #ifdef MAL_WIN32
     mal_mutex_unlock__win32(pMutex);
 #endif
@@ -1167,7 +1166,7 @@ mal_bool32 mal_event_signal(mal_event* pEvent)
 static void mal_log(mal_device* pDevice, const char* message)
 {
     if (pDevice == NULL) return;
-    
+
     mal_log_proc onLog = pDevice->onLog;
     if (onLog) {
         onLog(pDevice, message);
@@ -1199,9 +1198,9 @@ static inline mal_uint32 mal_device__read_frames_from_client(mal_device* pDevice
 
     mal_uint32 samplesRead = framesRead * pDevice->channels;
     mal_uint32 sampleSize = mal_get_sample_size_in_bytes(pDevice->format);
-	mal_uint32 consumedBytes = samplesRead*sampleSize;
-	mal_uint32 remainingBytes = ((frameCount * pDevice->channels) - samplesRead)*sampleSize;
-	mal_zero_memory((mal_uint8*)pSamples + consumedBytes, remainingBytes);
+    mal_uint32 consumedBytes = samplesRead*sampleSize;
+    mal_uint32 remainingBytes = ((frameCount * pDevice->channels) - samplesRead)*sampleSize;
+    mal_zero_memory((mal_uint8*)pSamples + consumedBytes, remainingBytes);
 
     return samplesRead;
 }
@@ -1240,32 +1239,32 @@ static inline mal_uint32 mal_device__get_state(mal_device* pDevice)
 #ifdef MAL_ENABLE_NULL
 static mal_result mal_enumerate_devices__null(mal_device_type type, mal_uint32* pCount, mal_device_info* pInfo)
 {
-	mal_uint32 infoSize = *pCount;
-	*pCount = 1;	// There's only one "device" each for playback and recording for the null backend.
-	
-	if (pInfo != NULL && infoSize > 0) {
+    mal_uint32 infoSize = *pCount;
+    *pCount = 1;    // There's only one "device" each for playback and recording for the null backend.
+
+    if (pInfo != NULL && infoSize > 0) {
         mal_zero_object(pInfo);
-		
-		if (type == mal_device_type_playback) {
-			mal_strncpy_s(pInfo->name, sizeof(pInfo->name), "NULL Playback Device", (size_t)-1);
-		} else {
-			mal_strncpy_s(pInfo->name, sizeof(pInfo->name), "NULL Capture Device", (size_t)-1);
-		}
-	}
-	
-	return MAL_SUCCESS;
+
+        if (type == mal_device_type_playback) {
+            mal_strncpy_s(pInfo->name, sizeof(pInfo->name), "NULL Playback Device", (size_t)-1);
+        } else {
+            mal_strncpy_s(pInfo->name, sizeof(pInfo->name), "NULL Capture Device", (size_t)-1);
+        }
+    }
+
+    return MAL_SUCCESS;
 }
 
 static void mal_device_uninit__null(mal_device* pDevice)
 {
-	mal_assert(pDevice != NULL);
+    mal_assert(pDevice != NULL);
     mal_free(pDevice->null_device.pBuffer);
 }
 
 static mal_result mal_device_init__null(mal_device* pDevice, mal_device_type type, mal_device_id* pDeviceID, mal_format format, mal_uint32 channels, mal_uint32 sampleRate, mal_uint32 bufferSizeInFrames, mal_uint32 periods)
 {
-	mal_assert(pDevice != NULL);
-	pDevice->api = mal_api_null;
+    mal_assert(pDevice != NULL);
+    pDevice->api = mal_api_null;
     pDevice->bufferSizeInFrames = bufferSizeInFrames;
     pDevice->periods = periods;
 
@@ -1276,7 +1275,7 @@ static mal_result mal_device_init__null(mal_device* pDevice, mal_device_type typ
 
     mal_zero_memory(pDevice->null_device.pBuffer, mal_device_get_buffer_size_in_bytes(pDevice));
 
-	return MAL_SUCCESS;
+    return MAL_SUCCESS;
 }
 
 static mal_result mal_device__start_backend__null(mal_device* pDevice)
@@ -1366,7 +1365,7 @@ static mal_uint32 mal_device__wait_for_frames__null(mal_device* pDevice)
         if (framesAvailable > 0) {
             return framesAvailable;
         }
-        
+
         mal_sleep(16);
     }
 
@@ -1497,7 +1496,7 @@ static BOOL CALLBACK mal_enum_devices_callback__dsound(LPGUID lpGuid, LPCSTR lpc
             } else {
                 mal_zero_memory(pData->pInfo->id.guid, 16);
             }
-            
+
             pData->pInfo += 1;
             pData->infoCount -= 1;
             pData->deviceCount += 1;
@@ -1512,7 +1511,7 @@ static BOOL CALLBACK mal_enum_devices_callback__dsound(LPGUID lpGuid, LPCSTR lpc
 static mal_result mal_enumerate_devices__dsound(mal_device_type type, mal_uint32* pCount, mal_device_info* pInfo)
 {
     mal_uint32 infoSize = *pCount;
-	*pCount = 0;
+    *pCount = 0;
 
     mal_device_enum_data__dsound enumData;
     enumData.deviceCount = 0;
@@ -1545,7 +1544,7 @@ static mal_result mal_enumerate_devices__dsound(mal_device_type type, mal_uint32
 
 static void mal_device_uninit__dsound(mal_device* pDevice)
 {
-	mal_assert(pDevice != NULL);
+    mal_assert(pDevice != NULL);
 
     if (pDevice->dsound.hDSoundDLL != NULL) {
         if (pDevice->dsound.pNotify) {
@@ -1587,8 +1586,8 @@ static void mal_device_uninit__dsound(mal_device* pDevice)
 
 static mal_result mal_device_init__dsound(mal_device* pDevice, mal_device_type type, mal_device_id* pDeviceID, mal_format format, mal_uint32 channels, mal_uint32 sampleRate, mal_uint32 bufferSizeInFrames, mal_uint32 periods)
 {
-	mal_assert(pDevice != NULL);
-	pDevice->api = mal_api_dsound;
+    mal_assert(pDevice != NULL);
+    pDevice->api = mal_api_dsound;
     pDevice->dsound.rewindTarget = ~0UL;
 
     pDevice->dsound.hDSoundDLL = (mal_handle)mal_open_dsound_dll();
@@ -1643,7 +1642,7 @@ static mal_result mal_device_init__dsound(mal_device* pDevice, mal_device_type t
     wf.SubFormat                   = subformat;
 
     DWORD bufferSizeInBytes = 0;
-    
+
     // Unfortunately DirectSound uses different APIs and data structures for playback and catpure devices :(
     if (type == mal_device_type_playback) {
         mal_DirectSoundCreate8Proc pDirectSoundCreate8 = (mal_DirectSoundCreate8Proc)GetProcAddress((HMODULE)pDevice->dsound.hDSoundDLL, "DirectSoundCreate8");
@@ -1797,24 +1796,24 @@ static mal_result mal_device_init__dsound(mal_device* pDevice, mal_device_type t
     pDevice->dsound.hStopEvent = CreateEventA(NULL, FALSE, FALSE, NULL);
     if (pDevice->dsound.hStopEvent == NULL) {
         mal_device_uninit__dsound(pDevice);
-		return mal_post_error(pDevice, "[DirectSound] Failed to create event for main loop break notification.", MAL_FAILED_TO_CREATE_EVENT);
+        return mal_post_error(pDevice, "[DirectSound] Failed to create event for main loop break notification.", MAL_FAILED_TO_CREATE_EVENT);
     }
 
     // When the device is rewound we need to signal an event to ensure the main loop can handle it ASAP.
     pDevice->dsound.hRewindEvent = CreateEventA(NULL, FALSE, FALSE, NULL);
     if (pDevice->dsound.hRewindEvent == NULL) {
         mal_device_uninit__dsound(pDevice);
-		return mal_post_error(pDevice, "[DirectSound] Failed to create event for main loop rewind notification.", MAL_FAILED_TO_CREATE_EVENT);
+        return mal_post_error(pDevice, "[DirectSound] Failed to create event for main loop rewind notification.", MAL_FAILED_TO_CREATE_EVENT);
     }
 
-	return MAL_SUCCESS;
+    return MAL_SUCCESS;
 }
 
 
 static mal_result mal_device__start_backend__dsound(mal_device* pDevice)
 {
     mal_assert(pDevice != NULL);
-    
+
     if (pDevice->type == mal_device_type_playback) {
         // Before playing anything we need to grab an initial group of samples from the client.
         mal_uint32 framesToRead = pDevice->bufferSizeInFrames / pDevice->periods;
@@ -1848,7 +1847,7 @@ static mal_result mal_device__start_backend__dsound(mal_device* pDevice)
 static mal_result mal_device__stop_backend__dsound(mal_device* pDevice)
 {
     mal_assert(pDevice != NULL);
-    
+
     if (pDevice->type == mal_device_type_playback) {
         if (FAILED(IDirectSoundBuffer_Stop((LPDIRECTSOUNDBUFFER)pDevice->dsound.pPlaybackBuffer))) {
             return mal_post_error(pDevice, "[DirectSound] IDirectSoundBuffer_Stop() failed.", MAL_FAILED_TO_STOP_BACKEND_DEVICE);
@@ -2069,7 +2068,7 @@ static mal_uint32 mal_device_rewind__dsound(mal_device* pDevice, mal_uint32 fram
 {
     mal_assert(pDevice != NULL);
     mal_assert(framesToRewind > 0);
-    
+
     // Clamp the the maximum allowable rewind amount.
     mal_uint32 maxRewind = mal_device_get_available_rewind_amount__dsound(pDevice);
     if (framesToRewind > maxRewind) {
@@ -2101,15 +2100,15 @@ static const char* mal_find_char(const char* str, char c, int* index)
             if (index) *index = -1;
             return NULL;
         }
-    
+
         if (str[i] == c) {
             if (index) *index = i;
             return str + i;
         }
-        
+
         i += 1;
     }
-    
+
     // Should never get here, but treat it as though the character was not found to make me feel
     // better inside.
     if (index) *index = -1;
@@ -2122,66 +2121,66 @@ static const char* mal_find_char(const char* str, char c, int* index)
 // This will return early if the main loop is broken with mal_device__break_main_loop().
 static mal_uint32 mal_device__wait_for_frames__alsa(mal_device* pDevice)
 {
-	mal_assert(pDevice != NULL);
-	
-	while (!pDevice->alsa.breakFromMainLoop) {
-		snd_pcm_sframes_t framesAvailable = snd_pcm_avail((snd_pcm_t*)pDevice->alsa.pPCM);
+    mal_assert(pDevice != NULL);
+
+    while (!pDevice->alsa.breakFromMainLoop) {
+        snd_pcm_sframes_t framesAvailable = snd_pcm_avail((snd_pcm_t*)pDevice->alsa.pPCM);
         if (framesAvailable > 0) {
             return framesAvailable;
         }
-        
-		if (framesAvailable < 0) {
-			if (framesAvailable == -EPIPE) {
-				if (snd_pcm_recover((snd_pcm_t*)pDevice->alsa.pPCM, framesAvailable, MAL_TRUE) < 0) {
-					return 0;
-				}
-                
+
+        if (framesAvailable < 0) {
+            if (framesAvailable == -EPIPE) {
+                if (snd_pcm_recover((snd_pcm_t*)pDevice->alsa.pPCM, framesAvailable, MAL_TRUE) < 0) {
+                    return 0;
+                }
+
                 framesAvailable = snd_pcm_avail((snd_pcm_t*)pDevice->alsa.pPCM);
                 if (framesAvailable < 0) {
                     return 0;
                 }
-			}
-		}
-        
-		const int timeoutInMilliseconds = 20;  // <-- The larger this value, the longer it'll take to stop the device!
-		int waitResult = snd_pcm_wait((snd_pcm_t*)pDevice->alsa.pPCM, timeoutInMilliseconds);
-		if (waitResult < 0) {
-			snd_pcm_recover((snd_pcm_t*)pDevice->alsa.pPCM, waitResult, MAL_TRUE);
-		}
-	}
-    
-	// We'll get here if the loop was terminated. Just return whatever's available.
-	snd_pcm_sframes_t framesAvailable = snd_pcm_avail((snd_pcm_t*)pDevice->alsa.pPCM);
-	if (framesAvailable < 0) {
-		return 0;
-	}
+            }
+        }
 
-	return framesAvailable;
+        const int timeoutInMilliseconds = 20;  // <-- The larger this value, the longer it'll take to stop the device!
+        int waitResult = snd_pcm_wait((snd_pcm_t*)pDevice->alsa.pPCM, timeoutInMilliseconds);
+        if (waitResult < 0) {
+            snd_pcm_recover((snd_pcm_t*)pDevice->alsa.pPCM, waitResult, MAL_TRUE);
+        }
+    }
+
+    // We'll get here if the loop was terminated. Just return whatever's available.
+    snd_pcm_sframes_t framesAvailable = snd_pcm_avail((snd_pcm_t*)pDevice->alsa.pPCM);
+    if (framesAvailable < 0) {
+        return 0;
+    }
+
+    return framesAvailable;
 }
 
 static mal_bool32 mal_device_write__alsa(mal_device* pDevice)
 {
-	mal_assert(pDevice != NULL);
-	if (!mal_device_is_started(pDevice)) {
-		return MAL_FALSE;
-	}
-	if (pDevice->alsa.breakFromMainLoop) {
-		return MAL_FALSE;
-	}
-	
+    mal_assert(pDevice != NULL);
+    if (!mal_device_is_started(pDevice)) {
+        return MAL_FALSE;
+    }
+    if (pDevice->alsa.breakFromMainLoop) {
+        return MAL_FALSE;
+    }
 
-	if (pDevice->alsa.pIntermediaryBuffer == NULL) {
-		// mmap.
+
+    if (pDevice->alsa.pIntermediaryBuffer == NULL) {
+        // mmap.
         mal_uint32 framesAvailable = mal_device__wait_for_frames__alsa(pDevice);
         if (framesAvailable == 0) {
             return MAL_FALSE;
         }
-        
+
         // Don't bother asking the client for more audio data if we're just stopping the device anyway.
         if (pDevice->alsa.breakFromMainLoop) {
             return MAL_FALSE;
         }
-        
+
         const snd_pcm_channel_area_t* pAreas;
         snd_pcm_uframes_t mappedOffset;
         snd_pcm_uframes_t mappedFrames = framesAvailable;
@@ -2190,80 +2189,80 @@ static mal_bool32 mal_device_write__alsa(mal_device* pDevice)
             if (result < 0) {
                 return MAL_FALSE;
             }
-            
+
             void* pBuffer = (mal_uint8*)pAreas[0].addr + ((pAreas[0].first + (mappedOffset * pAreas[0].step)) / 8);
             mal_device__read_frames_from_client(pDevice, mappedFrames, pBuffer);
-            
+
             result = snd_pcm_mmap_commit((snd_pcm_t*)pDevice->alsa.pPCM, mappedOffset, mappedFrames);
             if (result < 0 || (snd_pcm_uframes_t)result != mappedFrames) {
                 snd_pcm_recover((snd_pcm_t*)pDevice->alsa.pPCM, result, MAL_TRUE);
                 return MAL_FALSE;
             }
-            
+
             framesAvailable -= mappedFrames;
         }
-	} else {
-		// readi/writei.
-		while (!pDevice->alsa.breakFromMainLoop) {
+    } else {
+        // readi/writei.
+        while (!pDevice->alsa.breakFromMainLoop) {
             mal_uint32 framesAvailable = mal_device__wait_for_frames__alsa(pDevice);
-			if (framesAvailable == 0) {
-				continue;
-			}
-            
+            if (framesAvailable == 0) {
+                continue;
+            }
+
             // Don't bother asking the client for more audio data if we're just stopping the device anyway.
             if (pDevice->alsa.breakFromMainLoop) {
                 return MAL_FALSE;
             }
 
             mal_device__read_frames_from_client(pDevice, framesAvailable, pDevice->alsa.pIntermediaryBuffer);
-        
-			snd_pcm_sframes_t framesWritten = snd_pcm_writei((snd_pcm_t*)pDevice->alsa.pPCM, pDevice->alsa.pIntermediaryBuffer, framesAvailable);
-			if (framesWritten < 0) {
-				if (framesWritten == -EAGAIN) {
-					continue;	// Just keep trying...
-				} else if (framesWritten == -EPIPE) {
-					// Underrun. Just recover and try writing again.
-					if (snd_pcm_recover((snd_pcm_t*)pDevice->alsa.pPCM, framesWritten, MAL_TRUE) < 0) {
-						return MAL_FALSE;
-					}
-					
-					framesWritten = snd_pcm_writei((snd_pcm_t*)pDevice->alsa.pPCM, pDevice->alsa.pIntermediaryBuffer, framesAvailable);
-					if (framesWritten < 0) {
-						return MAL_FALSE;
-					}
-					
-					break;	// Success.
-				} else {
-					return MAL_FALSE;
-				}
-			} else {
-				break;	// Success.
-			}
-		}
-	}
-	
-	return MAL_TRUE;
+
+            snd_pcm_sframes_t framesWritten = snd_pcm_writei((snd_pcm_t*)pDevice->alsa.pPCM, pDevice->alsa.pIntermediaryBuffer, framesAvailable);
+            if (framesWritten < 0) {
+                if (framesWritten == -EAGAIN) {
+                    continue;   // Just keep trying...
+                } else if (framesWritten == -EPIPE) {
+                    // Underrun. Just recover and try writing again.
+                    if (snd_pcm_recover((snd_pcm_t*)pDevice->alsa.pPCM, framesWritten, MAL_TRUE) < 0) {
+                        return MAL_FALSE;
+                    }
+
+                    framesWritten = snd_pcm_writei((snd_pcm_t*)pDevice->alsa.pPCM, pDevice->alsa.pIntermediaryBuffer, framesAvailable);
+                    if (framesWritten < 0) {
+                        return MAL_FALSE;
+                    }
+
+                    break;  // Success.
+                } else {
+                    return MAL_FALSE;
+                }
+            } else {
+                break;  // Success.
+            }
+        }
+    }
+
+    return MAL_TRUE;
 }
 
 static mal_bool32 mal_device_read__alsa(mal_device* pDevice)
 {
-	mal_assert(pDevice != NULL);
-	if (!mal_device_is_started(pDevice)) {
-		return MAL_FALSE;
-	}
-	if (pDevice->alsa.breakFromMainLoop) {
-		return MAL_FALSE;
-	}
-	
-	mal_uint32 framesToSend = 0;
-	void* pBuffer = NULL;
-	if (pDevice->alsa.pIntermediaryBuffer == NULL) {
-		// mmap.
+    mal_assert(pDevice != NULL);
+    if (!mal_device_is_started(pDevice)) {
+        return MAL_FALSE;
+    }
+    if (pDevice->alsa.breakFromMainLoop) {
+        return MAL_FALSE;
+    }
+
+    mal_uint32 framesToSend = 0;
+    void* pBuffer = NULL;
+    if (pDevice->alsa.pIntermediaryBuffer == NULL) {
+        // mmap.
         mal_uint32 framesAvailable = mal_device__wait_for_frames__alsa(pDevice);
         if (framesAvailable == 0) {
             return MAL_FALSE;
         }
-        
+
         const snd_pcm_channel_area_t* pAreas;
         snd_pcm_uframes_t mappedOffset;
         snd_pcm_uframes_t mappedFrames = framesAvailable;
@@ -2272,75 +2271,75 @@ static mal_bool32 mal_device_read__alsa(mal_device* pDevice)
             if (result < 0) {
                 return MAL_FALSE;
             }
-            
+
             void* pBuffer = (mal_uint8*)pAreas[0].addr + ((pAreas[0].first + (mappedOffset * pAreas[0].step)) / 8);
             mal_device__send_frames_to_client(pDevice, mappedFrames, pBuffer);
-            
+
             result = snd_pcm_mmap_commit((snd_pcm_t*)pDevice->alsa.pPCM, mappedOffset, mappedFrames);
             if (result < 0 || (snd_pcm_uframes_t)result != mappedFrames) {
                 snd_pcm_recover((snd_pcm_t*)pDevice->alsa.pPCM, result, MAL_TRUE);
                 return MAL_FALSE;
             }
-            
+
             framesAvailable -= mappedFrames;
         }
-	} else {
-		// readi/writei.
-		snd_pcm_sframes_t framesRead = 0;
-		while (!pDevice->alsa.breakFromMainLoop) {
-			mal_uint32 framesAvailable = mal_device__wait_for_frames__alsa(pDevice);
-			if (framesAvailable == 0) {
-				continue;
-			}
+    } else {
+        // readi/writei.
+        snd_pcm_sframes_t framesRead = 0;
+        while (!pDevice->alsa.breakFromMainLoop) {
+            mal_uint32 framesAvailable = mal_device__wait_for_frames__alsa(pDevice);
+            if (framesAvailable == 0) {
+                continue;
+            }
 
-			framesRead = snd_pcm_readi((snd_pcm_t*)pDevice->alsa.pPCM, pDevice->alsa.pIntermediaryBuffer, framesAvailable);
-			if (framesRead < 0) {
-				if (framesRead == -EAGAIN) {
-					continue;	// Just keep trying...
-				} else if (framesRead == -EPIPE) {
-					// Overrun. Just recover and try reading again.
-					if (snd_pcm_recover((snd_pcm_t*)pDevice->alsa.pPCM, framesRead, MAL_TRUE) < 0) {
-						return MAL_FALSE;
-					}
-					
-					framesRead = snd_pcm_readi((snd_pcm_t*)pDevice->alsa.pPCM, pDevice->alsa.pIntermediaryBuffer, framesAvailable);
-					if (framesRead < 0) {
-						return MAL_FALSE;
-					}
-					
-					break;	// Success.
-				} else {
-					return MAL_FALSE;
-				}
-			} else {
-				break;	// Success.
-			}
-		}
-		
-		framesToSend = framesRead;
-		pBuffer = pDevice->alsa.pIntermediaryBuffer;
-	}
-	
+            framesRead = snd_pcm_readi((snd_pcm_t*)pDevice->alsa.pPCM, pDevice->alsa.pIntermediaryBuffer, framesAvailable);
+            if (framesRead < 0) {
+                if (framesRead == -EAGAIN) {
+                    continue;   // Just keep trying...
+                } else if (framesRead == -EPIPE) {
+                    // Overrun. Just recover and try reading again.
+                    if (snd_pcm_recover((snd_pcm_t*)pDevice->alsa.pPCM, framesRead, MAL_TRUE) < 0) {
+                        return MAL_FALSE;
+                    }
+
+                    framesRead = snd_pcm_readi((snd_pcm_t*)pDevice->alsa.pPCM, pDevice->alsa.pIntermediaryBuffer, framesAvailable);
+                    if (framesRead < 0) {
+                        return MAL_FALSE;
+                    }
+
+                    break;  // Success.
+                } else {
+                    return MAL_FALSE;
+                }
+            } else {
+                break;  // Success.
+            }
+        }
+
+        framesToSend = framesRead;
+        pBuffer = pDevice->alsa.pIntermediaryBuffer;
+    }
+
     if (framesToSend > 0) {
         mal_device__send_frames_to_client(pDevice, framesToSend, pBuffer);
     }
-	
-	
-	if (pDevice->alsa.pIntermediaryBuffer == NULL) {
-		// mmap.
-	} else {
-		// readi/writei.
-	}
-	
-	return MAL_TRUE;
+
+
+    if (pDevice->alsa.pIntermediaryBuffer == NULL) {
+        // mmap.
+    } else {
+        // readi/writei.
+    }
+
+    return MAL_TRUE;
 }
 
 
 static mal_result mal_enumerate_devices__alsa(mal_device_type type, mal_uint32* pCount, mal_device_info* pInfo)
 {
-	mal_uint32 infoSize = *pCount;
-	*pCount = 0;
-    
+    mal_uint32 infoSize = *pCount;
+    *pCount = 0;
+
     // What I've learned about device iteration with ALSA
     // ==================================================
     //
@@ -2361,22 +2360,22 @@ static mal_result mal_enumerate_devices__alsa(mal_device_type type, mal_uint32* 
     // During my testing I have discovered that snd_pcm_open() can fail on names returned by the "NAME"
     // hint returned by snd_device_name_get_hint(). To resolve this I have needed to parse the NAME
     // string and convert it to "hw:%d,%d" format.
-    
-	char** ppDeviceHints;
+
+    char** ppDeviceHints;
     if (snd_device_name_hint(-1, "pcm", (void***)&ppDeviceHints) < 0) {
         return MAL_NO_BACKEND;
     }
-	
-	char** ppNextDeviceHint = ppDeviceHints;
-	while (*ppNextDeviceHint != NULL) {
-		char* NAME = snd_device_name_get_hint(*ppNextDeviceHint, "NAME");
-		char* DESC = snd_device_name_get_hint(*ppNextDeviceHint, "DESC");
-		char* IOID = snd_device_name_get_hint(*ppNextDeviceHint, "IOID");
-		
-		if (IOID == NULL ||
-			(type == mal_device_type_playback && strcmp(IOID, "Output") == 0) ||
-			(type == mal_device_type_capture  && strcmp(IOID, "Input" ) == 0))
-		{
+
+    char** ppNextDeviceHint = ppDeviceHints;
+    while (*ppNextDeviceHint != NULL) {
+        char* NAME = snd_device_name_get_hint(*ppNextDeviceHint, "NAME");
+        char* DESC = snd_device_name_get_hint(*ppNextDeviceHint, "DESC");
+        char* IOID = snd_device_name_get_hint(*ppNextDeviceHint, "IOID");
+
+        if (IOID == NULL ||
+            (type == mal_device_type_playback && strcmp(IOID, "Output") == 0) ||
+            (type == mal_device_type_capture  && strcmp(IOID, "Input" ) == 0))
+        {
             // Experiment. Skip over any non "hw" devices to try and pull back on the number
             // of enumerated devices.
             int colonPos;
@@ -2385,10 +2384,10 @@ static mal_result mal_enumerate_devices__alsa(mal_device_type type, mal_uint32* 
                 if (pInfo != NULL) {
                     if (infoSize > 0) {
                         mal_zero_object(pInfo);
-                        
+
                         // NAME is the ID.
                         mal_strncpy_s(pInfo->id.str, sizeof(pInfo->id.str), NAME ? NAME : "", (size_t)-1);
-                        
+
                         // NAME -> "hw:%d,%d"
                         if (colonPos != -1 && NAME != NULL) {
                             // We need to convert the NAME string to "hw:%d,%d" format.
@@ -2402,10 +2401,10 @@ static mal_result mal_enumerate_devices__alsa(mal_device_type type, mal_uint32* 
                                     cardStr = cardStr + 5;
                                     break;
                                 }
-                                
+
                                 cardStr += 1;
                             }
-                            
+
                             if (cardStr != NULL) {
                                 char* deviceStr = cardStr + 1;
                                 for (;;) {
@@ -2421,7 +2420,7 @@ static mal_result mal_enumerate_devices__alsa(mal_device_type type, mal_uint32* 
                                             break;
                                         }
                                     }
-                                    
+
                                     deviceStr += 1;
                                 }
 
@@ -2433,69 +2432,69 @@ static mal_result mal_enumerate_devices__alsa(mal_device_type type, mal_uint32* 
                                 }
                             }
                         }
-                        
-    				    
+
+
                         // DESC is the name, followed by the description on a new line.
                         int lfPos = 0;
                         mal_find_char(DESC, '\n', &lfPos);
                         mal_strncpy_s(pInfo->name, sizeof(pInfo->name), DESC ? DESC : "", (lfPos != -1) ? (size_t)lfPos : (size_t)-1);
-    
-    				    pInfo += 1;
-    				    infoSize -= 1;
-    				    *pCount += 1;
+
+                        pInfo += 1;
+                        infoSize -= 1;
+                        *pCount += 1;
                     }
                 } else {
                     *pCount += 1;
                 }
             }
-		}
-		
-		free(NAME);
-		free(DESC);
-		free(IOID);
-		ppNextDeviceHint += 1;
-	}
-	
-	snd_device_name_free_hint((void**)ppDeviceHints);
-	return MAL_SUCCESS;
+        }
+
+        free(NAME);
+        free(DESC);
+        free(IOID);
+        ppNextDeviceHint += 1;
+    }
+
+    snd_device_name_free_hint((void**)ppDeviceHints);
+    return MAL_SUCCESS;
 }
 
 static void mal_device_uninit__alsa(mal_device* pDevice)
 {
-	mal_assert(pDevice != NULL);
-	
-	if ((snd_pcm_t*)pDevice->alsa.pPCM) {
-		snd_pcm_close((snd_pcm_t*)pDevice->alsa.pPCM);
-		
-		if (pDevice->alsa.pIntermediaryBuffer != NULL) {
-			mal_free(pDevice->alsa.pIntermediaryBuffer);
-		}
-	}
+    mal_assert(pDevice != NULL);
+
+    if ((snd_pcm_t*)pDevice->alsa.pPCM) {
+        snd_pcm_close((snd_pcm_t*)pDevice->alsa.pPCM);
+
+        if (pDevice->alsa.pIntermediaryBuffer != NULL) {
+            mal_free(pDevice->alsa.pIntermediaryBuffer);
+        }
+    }
 }
 
 static mal_result mal_device_init__alsa(mal_device* pDevice, mal_device_type type, mal_device_id* pDeviceID, mal_format format, mal_uint32 channels, mal_uint32 sampleRate, mal_uint32 bufferSizeInFrames, mal_uint32 periods)
 {
-	mal_assert(pDevice != NULL);
-	pDevice->api = mal_api_alsa;
-    
+    mal_assert(pDevice != NULL);
+    pDevice->api = mal_api_alsa;
+
     snd_pcm_format_t formatALSA;
-	switch (format)
-	{
-		case mal_format_u8:    formatALSA = SND_PCM_FORMAT_U8;         break;
-		case mal_format_s16:   formatALSA = SND_PCM_FORMAT_S16_LE;     break;
+    switch (format)
+    {
+        case mal_format_u8:    formatALSA = SND_PCM_FORMAT_U8;         break;
+        case mal_format_s16:   formatALSA = SND_PCM_FORMAT_S16_LE;     break;
         case mal_format_s24:   formatALSA = SND_PCM_FORMAT_S24_3LE;    break;
-		case mal_format_s32:   formatALSA = SND_PCM_FORMAT_S32_LE;     break;
-		case mal_format_f32:   formatALSA = SND_PCM_FORMAT_FLOAT_LE;   break;
+        case mal_format_s32:   formatALSA = SND_PCM_FORMAT_S32_LE;     break;
+        case mal_format_f32:   formatALSA = SND_PCM_FORMAT_FLOAT_LE;   break;
         case mal_format_f64:   formatALSA = SND_PCM_FORMAT_FLOAT64_LE; break;
-		case mal_format_alaw:  formatALSA = SND_PCM_FORMAT_A_LAW;      break;
-		case mal_format_mulaw: formatALSA = SND_PCM_FORMAT_MU_LAW;     break;
-		return mal_post_error(pDevice, "[ALSA] Format not supported.", MAL_FORMAT_NOT_SUPPORTED);
-	}
-	
-	char deviceName[32];
-	if (pDeviceID == NULL) {
-		mal_strncpy_s(deviceName, sizeof(deviceName), "default", (size_t)-1);
-	} else {
+        case mal_format_alaw:  formatALSA = SND_PCM_FORMAT_A_LAW;      break;
+        case mal_format_mulaw: formatALSA = SND_PCM_FORMAT_MU_LAW;     break;
+        return mal_post_error(pDevice, "[ALSA] Format not supported.", MAL_FORMAT_NOT_SUPPORTED);
+    }
+
+    char deviceName[32];
+    if (pDeviceID == NULL) {
+        mal_strncpy_s(deviceName, sizeof(deviceName), "default", (size_t)-1);
+    } else {
         // For now, convert "hw" devices to "plughw". The reason for this is that mini_al is still a
         // a quite unstable with non "plughw" devices.
         if (pDeviceID->str[0] == 'h' && pDeviceID->str[1] == 'w' && pDeviceID->str[2] == ':') {
@@ -2504,77 +2503,77 @@ static mal_result mal_device_init__alsa(mal_device* pDevice, mal_device_type typ
         } else {
             mal_strncpy_s(deviceName, sizeof(deviceName), pDeviceID->str, (size_t)-1);
         }
-		
-	}
-	
-	if (snd_pcm_open((snd_pcm_t**)&pDevice->alsa.pPCM, deviceName, (type == mal_device_type_playback) ? SND_PCM_STREAM_PLAYBACK : SND_PCM_STREAM_CAPTURE, 0) < 0) {
+
+    }
+
+    if (snd_pcm_open((snd_pcm_t**)&pDevice->alsa.pPCM, deviceName, (type == mal_device_type_playback) ? SND_PCM_STREAM_PLAYBACK : SND_PCM_STREAM_CAPTURE, 0) < 0) {
         if (mal_strcmp(deviceName, "default") == 0 || mal_strcmp(deviceName, "pulse") == 0) {
             // We may have failed to open the "default" or "pulse" device, in which case try falling back to "plughw:0,0".
             mal_strncpy_s(deviceName, sizeof(deviceName), "plughw:0,0", (size_t)-1);
             if (snd_pcm_open((snd_pcm_t**)&pDevice->alsa.pPCM, deviceName, (type == mal_device_type_playback) ? SND_PCM_STREAM_PLAYBACK : SND_PCM_STREAM_CAPTURE, 0) < 0) {
                 mal_device_uninit__alsa(pDevice);
-    		    return mal_post_error(pDevice, "[ALSA] snd_pcm_open() failed.", MAL_ALSA_FAILED_TO_OPEN_DEVICE);
+                return mal_post_error(pDevice, "[ALSA] snd_pcm_open() failed.", MAL_ALSA_FAILED_TO_OPEN_DEVICE);
             }
         } else {
-    		mal_device_uninit__alsa(pDevice);
-    		return mal_post_error(pDevice, "[ALSA] snd_pcm_open() failed.", MAL_ALSA_FAILED_TO_OPEN_DEVICE);
+            mal_device_uninit__alsa(pDevice);
+            return mal_post_error(pDevice, "[ALSA] snd_pcm_open() failed.", MAL_ALSA_FAILED_TO_OPEN_DEVICE);
         }
-	}
-    
+    }
 
-	snd_pcm_hw_params_t* pHWParams = NULL;
+
+    snd_pcm_hw_params_t* pHWParams = NULL;
     snd_pcm_hw_params_alloca(&pHWParams);
-	
-	if (snd_pcm_hw_params_any((snd_pcm_t*)pDevice->alsa.pPCM, pHWParams) < 0) {
-		mal_device_uninit__alsa(pDevice);
-		return mal_post_error(pDevice, "[ALSA] Failed to initialize hardware parameters. snd_pcm_hw_params_any() failed.", MAL_ALSA_FAILED_TO_SET_HW_PARAMS);
-	}
+
+    if (snd_pcm_hw_params_any((snd_pcm_t*)pDevice->alsa.pPCM, pHWParams) < 0) {
+        mal_device_uninit__alsa(pDevice);
+        return mal_post_error(pDevice, "[ALSA] Failed to initialize hardware parameters. snd_pcm_hw_params_any() failed.", MAL_ALSA_FAILED_TO_SET_HW_PARAMS);
+    }
 
 
-    // Most important properties first.    
+    // Most important properties first.
 
     // Sample Rate
     if (snd_pcm_hw_params_set_rate_near((snd_pcm_t*)pDevice->alsa.pPCM, pHWParams, &sampleRate, 0) < 0) {
-		mal_device_uninit__alsa(pDevice);
-		return mal_post_error(pDevice, "[ALSA] Sample rate not supported. snd_pcm_hw_params_set_rate_near() failed.", MAL_FORMAT_NOT_SUPPORTED);
+        mal_device_uninit__alsa(pDevice);
+        return mal_post_error(pDevice, "[ALSA] Sample rate not supported. snd_pcm_hw_params_set_rate_near() failed.", MAL_FORMAT_NOT_SUPPORTED);
     }
     pDevice->sampleRate = sampleRate;
-    
+
     // Channels.
     if (snd_pcm_hw_params_set_channels_near((snd_pcm_t*)pDevice->alsa.pPCM, pHWParams, &channels) < 0) {
-		mal_device_uninit__alsa(pDevice);
-		return mal_post_error(pDevice, "[ALSA] Failed to set channel count. snd_pcm_hw_params_set_channels_near() failed.", MAL_FORMAT_NOT_SUPPORTED);
+        mal_device_uninit__alsa(pDevice);
+        return mal_post_error(pDevice, "[ALSA] Failed to set channel count. snd_pcm_hw_params_set_channels_near() failed.", MAL_FORMAT_NOT_SUPPORTED);
     }
     pDevice->channels = channels;
-    
-    
+
+
     // Format.
     if (snd_pcm_hw_params_set_format((snd_pcm_t*)pDevice->alsa.pPCM, pHWParams, formatALSA) < 0) {
-		mal_device_uninit__alsa(pDevice);
-		return mal_post_error(pDevice, "[ALSA] Format not supported. snd_pcm_hw_params_set_format() failed.", MAL_FORMAT_NOT_SUPPORTED);
-	}
-    
-    
+        mal_device_uninit__alsa(pDevice);
+        return mal_post_error(pDevice, "[ALSA] Format not supported. snd_pcm_hw_params_set_format() failed.", MAL_FORMAT_NOT_SUPPORTED);
+    }
+
+
     // Buffer Size
     snd_pcm_uframes_t actualBufferSize = bufferSizeInFrames;
-	if (snd_pcm_hw_params_set_buffer_size_near((snd_pcm_t*)pDevice->alsa.pPCM, pHWParams, &actualBufferSize) < 0) {
-		mal_device_uninit__alsa(pDevice);
-		return mal_post_error(pDevice, "[ALSA] Failed to set buffer size for device. snd_pcm_hw_params_set_buffer_size() failed.", MAL_FORMAT_NOT_SUPPORTED);
+    if (snd_pcm_hw_params_set_buffer_size_near((snd_pcm_t*)pDevice->alsa.pPCM, pHWParams, &actualBufferSize) < 0) {
+        mal_device_uninit__alsa(pDevice);
+        return mal_post_error(pDevice, "[ALSA] Failed to set buffer size for device. snd_pcm_hw_params_set_buffer_size() failed.", MAL_FORMAT_NOT_SUPPORTED);
     }
-    
-    
+
+
     // Periods.
     int dir = 0;
-	if (snd_pcm_hw_params_set_periods_near((snd_pcm_t*)pDevice->alsa.pPCM, pHWParams, &periods, &dir) < 0) {
-		mal_device_uninit__alsa(pDevice);
-		return mal_post_error(pDevice, "[ALSA] Failed to set period count. snd_pcm_hw_params_set_periods_near() failed.", MAL_FORMAT_NOT_SUPPORTED);
+    if (snd_pcm_hw_params_set_periods_near((snd_pcm_t*)pDevice->alsa.pPCM, pHWParams, &periods, &dir) < 0) {
+        mal_device_uninit__alsa(pDevice);
+        return mal_post_error(pDevice, "[ALSA] Failed to set period count. snd_pcm_hw_params_set_periods_near() failed.", MAL_FORMAT_NOT_SUPPORTED);
     }
-    
+
     pDevice->bufferSizeInFrames = actualBufferSize;
     pDevice->periods = periods;
-    
 
-    
+
+
     // MMAP Mode
     //
     // Try using interleaved MMAP access. If this fails, fall back to standard readi/writei.
@@ -2585,61 +2584,61 @@ static mal_result mal_device_init__alsa(mal_device* pDevice, mal_device_type typ
         mal_log(pDevice, "USING MMAP\n");
     }
 #endif
-    
+
     if (!pDevice->alsa.isUsingMMap) {
         if (snd_pcm_hw_params_set_access((snd_pcm_t*)pDevice->alsa.pPCM, pHWParams, SND_PCM_ACCESS_RW_INTERLEAVED) < 0) {;
-    		mal_device_uninit__alsa(pDevice);
-    		return mal_post_error(pDevice, "[ALSA] Failed to set access mode to neither SND_PCM_ACCESS_MMAP_INTERLEAVED nor SND_PCM_ACCESS_RW_INTERLEAVED. snd_pcm_hw_params_set_access() failed.", MAL_FORMAT_NOT_SUPPORTED);
-    	}
+            mal_device_uninit__alsa(pDevice);
+            return mal_post_error(pDevice, "[ALSA] Failed to set access mode to neither SND_PCM_ACCESS_MMAP_INTERLEAVED nor SND_PCM_ACCESS_RW_INTERLEAVED. snd_pcm_hw_params_set_access() failed.", MAL_FORMAT_NOT_SUPPORTED);
+        }
     }
-    
-    
+
+
     // Apply hardware parameters.
     if (snd_pcm_hw_params((snd_pcm_t*)pDevice->alsa.pPCM, pHWParams) < 0) {
-		mal_device_uninit__alsa(pDevice);
-		return mal_post_error(pDevice, "[ALSA] Failed to set hardware parameters. snd_pcm_hw_params() failed.", MAL_ALSA_FAILED_TO_SET_SW_PARAMS);
+        mal_device_uninit__alsa(pDevice);
+        return mal_post_error(pDevice, "[ALSA] Failed to set hardware parameters. snd_pcm_hw_params() failed.", MAL_ALSA_FAILED_TO_SET_SW_PARAMS);
     }
 
 
-	
-	snd_pcm_sw_params_t* pSWParams = NULL;
+
+    snd_pcm_sw_params_t* pSWParams = NULL;
     snd_pcm_sw_params_alloca(&pSWParams);
-	
-	if (snd_pcm_sw_params_current((snd_pcm_t*)pDevice->alsa.pPCM, pSWParams) != 0) {
+
+    if (snd_pcm_sw_params_current((snd_pcm_t*)pDevice->alsa.pPCM, pSWParams) != 0) {
         mal_device_uninit__alsa(pDevice);
-		return mal_post_error(pDevice, "[ALSA] Failed to initialize software parameters. snd_pcm_sw_params_current() failed.", MAL_ALSA_FAILED_TO_SET_SW_PARAMS);
+        return mal_post_error(pDevice, "[ALSA] Failed to initialize software parameters. snd_pcm_sw_params_current() failed.", MAL_ALSA_FAILED_TO_SET_SW_PARAMS);
     }
 
     if (snd_pcm_sw_params_set_avail_min((snd_pcm_t*)pDevice->alsa.pPCM, pSWParams, (pDevice->sampleRate/1000) * 1) != 0) {
         mal_device_uninit__alsa(pDevice);
-		return mal_post_error(pDevice, "[ALSA] snd_pcm_sw_params_set_avail_min() failed.", MAL_FORMAT_NOT_SUPPORTED);
+        return mal_post_error(pDevice, "[ALSA] snd_pcm_sw_params_set_avail_min() failed.", MAL_FORMAT_NOT_SUPPORTED);
     }
-	
-	if (type == mal_device_type_playback) {
-	    if (snd_pcm_sw_params_set_start_threshold((snd_pcm_t*)pDevice->alsa.pPCM, pSWParams, (pDevice->sampleRate/1000) * 1) != 0) { //mal_prev_power_of_2(pDevice->bufferSizeInFrames/pDevice->periods)
-	        mal_device_uninit__alsa(pDevice);
-			return mal_post_error(pDevice, "[ALSA] Failed to set start threshold for playback device. snd_pcm_sw_params_set_start_threshold() failed.", MAL_ALSA_FAILED_TO_SET_SW_PARAMS);
-	    }
-	}
+
+    if (type == mal_device_type_playback) {
+        if (snd_pcm_sw_params_set_start_threshold((snd_pcm_t*)pDevice->alsa.pPCM, pSWParams, (pDevice->sampleRate/1000) * 1) != 0) { //mal_prev_power_of_2(pDevice->bufferSizeInFrames/pDevice->periods)
+            mal_device_uninit__alsa(pDevice);
+            return mal_post_error(pDevice, "[ALSA] Failed to set start threshold for playback device. snd_pcm_sw_params_set_start_threshold() failed.", MAL_ALSA_FAILED_TO_SET_SW_PARAMS);
+        }
+    }
 
     if (snd_pcm_sw_params((snd_pcm_t*)pDevice->alsa.pPCM, pSWParams) != 0) {
         mal_device_uninit__alsa(pDevice);
-		return mal_post_error(pDevice, "[ALSA] Failed to set software parameters. snd_pcm_sw_params() failed.", MAL_ALSA_FAILED_TO_SET_SW_PARAMS);
+        return mal_post_error(pDevice, "[ALSA] Failed to set software parameters. snd_pcm_sw_params() failed.", MAL_ALSA_FAILED_TO_SET_SW_PARAMS);
     }
-	
-	
-    
-	
-	// If we're _not_ using mmap we need to use an intermediary buffer.
-	if (!pDevice->alsa.isUsingMMap) {
-		pDevice->alsa.pIntermediaryBuffer = mal_malloc(pDevice->bufferSizeInFrames * pDevice->channels * mal_get_sample_size_in_bytes(pDevice->format));
-		if (pDevice->alsa.pIntermediaryBuffer == NULL) {
-			mal_device_uninit__alsa(pDevice);
-			return mal_post_error(pDevice, "[ALSA] Failed to set software parameters. snd_pcm_sw_params() failed.", MAL_OUT_OF_MEMORY);
-		}
-	}
-	
-	return MAL_SUCCESS;
+
+
+
+
+    // If we're _not_ using mmap we need to use an intermediary buffer.
+    if (!pDevice->alsa.isUsingMMap) {
+        pDevice->alsa.pIntermediaryBuffer = mal_malloc(pDevice->bufferSizeInFrames * pDevice->channels * mal_get_sample_size_in_bytes(pDevice->format));
+        if (pDevice->alsa.pIntermediaryBuffer == NULL) {
+            mal_device_uninit__alsa(pDevice);
+            return mal_post_error(pDevice, "[ALSA] Failed to set software parameters. snd_pcm_sw_params() failed.", MAL_OUT_OF_MEMORY);
+        }
+    }
+
+    return MAL_SUCCESS;
 }
 
 
@@ -2655,8 +2654,8 @@ static mal_result mal_device__start_backend__alsa(mal_device* pDevice)
     if (pDevice->type == mal_device_type_playback) {
         mal_device_write__alsa(pDevice);
     } else {
-		snd_pcm_start((snd_pcm_t*)pDevice->alsa.pPCM);
-	}
+        snd_pcm_start((snd_pcm_t*)pDevice->alsa.pPCM);
+    }
 
     return MAL_SUCCESS;
 }
@@ -2672,10 +2671,10 @@ static mal_result mal_device__stop_backend__alsa(mal_device* pDevice)
 static mal_result mal_device__break_main_loop__alsa(mal_device* pDevice)
 {
     mal_assert(pDevice != NULL);
-	
-	// Fallback. We just set a variable to tell the worker thread to terminate after handling the
-	// next bunch of frames. This is a slow way of handling this.
-	pDevice->alsa.breakFromMainLoop = MAL_TRUE;
+
+    // Fallback. We just set a variable to tell the worker thread to terminate after handling the
+    // next bunch of frames. This is a slow way of handling this.
+    pDevice->alsa.breakFromMainLoop = MAL_TRUE;
     return MAL_SUCCESS;
 }
 
@@ -2683,16 +2682,16 @@ static mal_result mal_device__main_loop__alsa(mal_device* pDevice)
 {
     mal_assert(pDevice != NULL);
 
-	pDevice->alsa.breakFromMainLoop = MAL_FALSE;
+    pDevice->alsa.breakFromMainLoop = MAL_FALSE;
     if (pDevice->type == mal_device_type_playback) {
-		// Playback. Read from client, write to device.
-		while (!pDevice->alsa.breakFromMainLoop && mal_device_write__alsa(pDevice)) {
-		}
-	} else {
-		// Playback. Read from device, write to client.
-		while (!pDevice->alsa.breakFromMainLoop && mal_device_read__alsa(pDevice)) {
-		}
-	}
+        // Playback. Read from client, write to device.
+        while (!pDevice->alsa.breakFromMainLoop && mal_device_write__alsa(pDevice)) {
+        }
+    } else {
+        // Playback. Read from device, write to client.
+        while (!pDevice->alsa.breakFromMainLoop && mal_device_read__alsa(pDevice)) {
+        }
+    }
 
     return MAL_SUCCESS;
 }
@@ -2701,16 +2700,16 @@ static mal_result mal_device__main_loop__alsa(mal_device* pDevice)
 static mal_uint32 mal_device_get_available_rewind_amount__alsa(mal_device* pDevice)
 {
     mal_assert(pDevice != NULL);
-    
+
     // Haven't figured out reliable rewinding with ALSA yet...
 #if 0
     mal_uint32 padding = (pDevice->sampleRate/1000) * 1; // <-- This is used to prevent the rewind position getting too close to the playback position.
-    
+
     snd_pcm_sframes_t result = snd_pcm_rewindable((snd_pcm_t*)pDevice->alsa.pPCM);
     if (result < padding) {
         return 0;
     }
-    
+
     return (mal_uint32)result - padding;
 #else
     return 0;
@@ -2721,7 +2720,7 @@ static mal_uint32 mal_device_rewind__alsa(mal_device* pDevice, mal_uint32 frames
 {
     mal_assert(pDevice != NULL);
     mal_assert(framesToRewind > 0);
-    
+
     // Haven't figured out reliable rewinding with ALSA yet...
 #if 0
     // Clamp the the maximum allowable rewind amount.
@@ -2729,12 +2728,12 @@ static mal_uint32 mal_device_rewind__alsa(mal_device* pDevice, mal_uint32 frames
     if (framesToRewind > maxRewind) {
         framesToRewind = maxRewind;
     }
-    
+
     snd_pcm_sframes_t result = snd_pcm_rewind((snd_pcm_t*)pDevice->alsa.pPCM, (snd_pcm_uframes_t)framesToRewind);
     if (result < 0) {
         return 0;
     }
-    
+
     return (mal_uint32)result;
 #else
     return 0;
@@ -2745,7 +2744,7 @@ static mal_uint32 mal_device_rewind__alsa(mal_device* pDevice, mal_uint32 frames
 static mal_result mal_device__start_backend(mal_device* pDevice)
 {
     mal_assert(pDevice != NULL);
-    
+
     mal_result result = MAL_NO_BACKEND;
 #ifdef MAL_ENABLE_DSOUND
     if (pDevice->api == mal_api_dsound) {
@@ -2769,7 +2768,7 @@ static mal_result mal_device__start_backend(mal_device* pDevice)
 static mal_result mal_device__stop_backend(mal_device* pDevice)
 {
     mal_assert(pDevice != NULL);
-    
+
     mal_result result = MAL_NO_BACKEND;
 #ifdef MAL_ENABLE_DSOUND
     if (pDevice->api == mal_api_dsound) {
@@ -2793,7 +2792,7 @@ static mal_result mal_device__stop_backend(mal_device* pDevice)
 static mal_result mal_device__break_main_loop(mal_device* pDevice)
 {
     mal_assert(pDevice != NULL);
-    
+
     mal_result result = MAL_NO_BACKEND;
 #ifdef MAL_ENABLE_DSOUND
     if (pDevice->api == mal_api_dsound) {
@@ -2840,13 +2839,13 @@ static mal_result mal_device__main_loop(mal_device* pDevice)
 
 mal_thread_result MAL_THREADCALL mal_worker_thread(void* pData)
 {
-	mal_device* pDevice = (mal_device*)pData;
-	mal_assert(pDevice != NULL);
-    
+    mal_device* pDevice = (mal_device*)pData;
+    mal_assert(pDevice != NULL);
+
     // This is only used to prevent posting onStop() when the device is first initialized.
     mal_bool32 skipNextStopEvent = MAL_TRUE;
 
-	for (;;) {
+    for (;;) {
         // At the start of iteration the device is stopped - we must explicitly mark it as such.
         mal_device__stop_backend(pDevice);
 
@@ -2858,26 +2857,26 @@ mal_thread_result MAL_THREADCALL mal_worker_thread(void* pData)
         } else {
             skipNextStopEvent = MAL_FALSE;
         }
-        
+
 
         // Let the other threads know that the device has stopped.
         mal_device__set_state(pDevice, MAL_STATE_STOPPED);
         mal_event_signal(&pDevice->stopEvent);
 
         // We use an event to wait for a request to wake up.
-		mal_event_wait(&pDevice->wakeupEvent);
+        mal_event_wait(&pDevice->wakeupEvent);
 
         // Default result code.
-		pDevice->workResult = MAL_SUCCESS;
+        pDevice->workResult = MAL_SUCCESS;
 
-		// Just break if we're terminating.
-		if (mal_device__get_state(pDevice) == MAL_STATE_UNINITIALIZED) {
-			break;
-		}
+        // Just break if we're terminating.
+        if (mal_device__get_state(pDevice) == MAL_STATE_UNINITIALIZED) {
+            break;
+        }
 
-		
-		// Getting here means we just started the device and we need to wait for the device to
-		// either deliver us data (recording) or request more data (playback).
+
+        // Getting here means we just started the device and we need to wait for the device to
+        // either deliver us data (recording) or request more data (playback).
         mal_assert(mal_device__get_state(pDevice) == MAL_STATE_STARTING);
 
         pDevice->workResult = mal_device__start_backend(pDevice);
@@ -2893,50 +2892,50 @@ mal_thread_result MAL_THREADCALL mal_worker_thread(void* pData)
 
         // Now we just enter the main loop. The main loop can be broken with mal_device__break_main_loop().
         mal_device__main_loop(pDevice);
-	}
+    }
 
     // Make sure we aren't continuously waiting on a stop event.
     mal_event_signal(&pDevice->stopEvent);  // <-- Is this still needed?
-	return (mal_thread_result)0;
+    return (mal_thread_result)0;
 }
 
 
 // Helper for determining whether or not the given device is initialized.
 mal_bool32 mal_device__is_initialized(mal_device* pDevice)
 {
-	if (pDevice == NULL) return MAL_FALSE;
-	return mal_device__get_state(pDevice) != MAL_STATE_UNINITIALIZED;
+    if (pDevice == NULL) return MAL_FALSE;
+    return mal_device__get_state(pDevice) != MAL_STATE_UNINITIALIZED;
 }
 
 
 mal_result mal_enumerate_devices(mal_device_type type, mal_uint32* pCount, mal_device_info* pInfo)
 {
-	if (pCount == NULL) return mal_post_error(NULL, "mal_enumerate_devices() called with invalid arguments.", MAL_INVALID_ARGS);
-	
-	mal_result result = MAL_NO_BACKEND;
+    if (pCount == NULL) return mal_post_error(NULL, "mal_enumerate_devices() called with invalid arguments.", MAL_INVALID_ARGS);
+
+    mal_result result = MAL_NO_BACKEND;
 #ifdef MAL_ENABLE_DSOUND
-	if (result != MAL_SUCCESS) {
-		result = mal_enumerate_devices__dsound(type, pCount, pInfo);
-	}
+    if (result != MAL_SUCCESS) {
+        result = mal_enumerate_devices__dsound(type, pCount, pInfo);
+    }
 #endif
 #ifdef MAL_ENABLE_ALSA
-	if (result != MAL_SUCCESS) {
-		result = mal_enumerate_devices__alsa(type, pCount, pInfo);
-	}
+    if (result != MAL_SUCCESS) {
+        result = mal_enumerate_devices__alsa(type, pCount, pInfo);
+    }
 #endif
 #ifdef MAL_ENABLE_NULL
-	if (result != MAL_SUCCESS) {
-		result = mal_enumerate_devices__null(type, pCount, pInfo);
-	}
+    if (result != MAL_SUCCESS) {
+        result = mal_enumerate_devices__null(type, pCount, pInfo);
+    }
 #endif
 
-	return result;
+    return result;
 }
 
 mal_result mal_device_init(mal_device* pDevice, mal_device_type type, mal_device_id* pDeviceID, mal_format format, mal_uint32 channels, mal_uint32 sampleRate, mal_uint32 bufferSizeInFrames, mal_uint32 periods, mal_log_proc onLog)
 {
-	if (pDevice == NULL) return mal_post_error(pDevice, "mal_device_init() called with invalid arguments.", MAL_INVALID_ARGS);
-	mal_zero_object(pDevice);
+    if (pDevice == NULL) return mal_post_error(pDevice, "mal_device_init() called with invalid arguments.", MAL_INVALID_ARGS);
+    mal_zero_object(pDevice);
     pDevice->onLog = onLog;     // <-- Set this ASAP to ensure as many log messages are captured as possible during initialization.
 
     if (((mal_uint64)pDevice % sizeof(pDevice)) != 0) {
@@ -2944,17 +2943,17 @@ mal_result mal_device_init(mal_device* pDevice, mal_device_type type, mal_device
             pDevice->onLog(pDevice, "WARNING: mal_device_init() called for a device that is not properly aligned. Thread safety is not supported.");
         }
     }
-	
-	if (channels == 0 || sampleRate == 0) return mal_post_error(pDevice, "mal_device_init() called with invalid arguments.", MAL_INVALID_ARGS);
+
+    if (channels == 0 || sampleRate == 0) return mal_post_error(pDevice, "mal_device_init() called with invalid arguments.", MAL_INVALID_ARGS);
 
     // Default buffer size and periods.
     if (bufferSizeInFrames == 0) bufferSizeInFrames = (sampleRate/1000) * MAL_DEFAULT_BUFFER_SIZE_IN_MILLISECONDS;
     if (periods == 0) periods = MAL_DEFAULT_PERIODS;
-	
-	pDevice->type = type;
-	pDevice->format = format;
-	pDevice->channels = channels;
-	pDevice->sampleRate = sampleRate;
+
+    pDevice->type = type;
+    pDevice->format = format;
+    pDevice->channels = channels;
+    pDevice->sampleRate = sampleRate;
     pDevice->bufferSizeInFrames = bufferSizeInFrames;
     pDevice->periods = periods;
 
@@ -2967,112 +2966,112 @@ mal_result mal_device_init(mal_device* pDevice, mal_device_type type, mal_device
     //
     // Each of these semaphores is released internally by the worker thread when the work is completed. The start
     // semaphore is also used to wake up the worker thread.
-	if (!mal_event_create(&pDevice->wakeupEvent)) {
+    if (!mal_event_create(&pDevice->wakeupEvent)) {
         mal_mutex_delete(&pDevice->lock);
-		return mal_post_error(pDevice, "Failed to create worker thread wakeup event.", MAL_FAILED_TO_CREATE_EVENT);
-	}
-    if (!mal_event_create(&pDevice->startEvent)) {
-		mal_event_delete(&pDevice->wakeupEvent);
-        mal_mutex_delete(&pDevice->lock);
-		return mal_post_error(pDevice, "Failed to create worker thread start event.", MAL_FAILED_TO_CREATE_EVENT);
+        return mal_post_error(pDevice, "Failed to create worker thread wakeup event.", MAL_FAILED_TO_CREATE_EVENT);
     }
-    if (!mal_event_create(&pDevice->stopEvent)) {
-		mal_event_delete(&pDevice->startEvent);
+    if (!mal_event_create(&pDevice->startEvent)) {
         mal_event_delete(&pDevice->wakeupEvent);
         mal_mutex_delete(&pDevice->lock);
-		return mal_post_error(pDevice, "Failed to create worker thread stop event.", MAL_FAILED_TO_CREATE_EVENT);
+        return mal_post_error(pDevice, "Failed to create worker thread start event.", MAL_FAILED_TO_CREATE_EVENT);
+    }
+    if (!mal_event_create(&pDevice->stopEvent)) {
+        mal_event_delete(&pDevice->startEvent);
+        mal_event_delete(&pDevice->wakeupEvent);
+        mal_mutex_delete(&pDevice->lock);
+        return mal_post_error(pDevice, "Failed to create worker thread stop event.", MAL_FAILED_TO_CREATE_EVENT);
     }
 
 
-	mal_result result = MAL_NO_BACKEND;
+    mal_result result = MAL_NO_BACKEND;
 #ifdef MAL_ENABLE_DSOUND
-	if (result != MAL_SUCCESS) {
-		result = mal_device_init__dsound(pDevice, type, pDeviceID, format, channels, sampleRate, bufferSizeInFrames, periods);
-	}
+    if (result != MAL_SUCCESS) {
+        result = mal_device_init__dsound(pDevice, type, pDeviceID, format, channels, sampleRate, bufferSizeInFrames, periods);
+    }
 #endif
 #ifdef MAL_ENABLE_ALSA
-	if (result != MAL_SUCCESS) {
-		result = mal_device_init__alsa(pDevice, type, pDeviceID, format, channels, sampleRate, bufferSizeInFrames, periods);
-	}
+    if (result != MAL_SUCCESS) {
+        result = mal_device_init__alsa(pDevice, type, pDeviceID, format, channels, sampleRate, bufferSizeInFrames, periods);
+    }
 #endif
 #ifdef MAL_ENABLE_NULL
-	if (result != MAL_SUCCESS) {
-		result = mal_device_init__null(pDevice, type, pDeviceID, format, channels, sampleRate, bufferSizeInFrames, periods);
-	}
+    if (result != MAL_SUCCESS) {
+        result = mal_device_init__null(pDevice, type, pDeviceID, format, channels, sampleRate, bufferSizeInFrames, periods);
+    }
 #endif
 
-	if (result != MAL_SUCCESS) {
-		return MAL_NO_BACKEND;  // The error message will have been posted by the source of the error.
-	}
+    if (result != MAL_SUCCESS) {
+        return MAL_NO_BACKEND;  // The error message will have been posted by the source of the error.
+    }
 
 
     // The worker thread.
     if (!mal_thread_create(&pDevice->thread, mal_worker_thread, pDevice)) {
-		mal_device_uninit(pDevice);
-		return mal_post_error(pDevice, "Failed to create worker thread.", MAL_FAILED_TO_CREATE_THREAD);
-	}
+        mal_device_uninit(pDevice);
+        return mal_post_error(pDevice, "Failed to create worker thread.", MAL_FAILED_TO_CREATE_THREAD);
+    }
 
 
     // Wait for the worker thread to put the device into it's stopped state for real.
-	mal_event_wait(&pDevice->stopEvent);
+    mal_event_wait(&pDevice->stopEvent);
     mal_assert(mal_device__get_state(pDevice) == MAL_STATE_STOPPED);
 
-	return MAL_SUCCESS;
+    return MAL_SUCCESS;
 }
 
 void mal_device_uninit(mal_device* pDevice)
 {
-	if (!mal_device__is_initialized(pDevice)) return;
-	
-	// Make sure the device is stopped first. The backends will probably handle this naturally,
-	// but I like to do it explicitly for my own sanity.
+    if (!mal_device__is_initialized(pDevice)) return;
+
+    // Make sure the device is stopped first. The backends will probably handle this naturally,
+    // but I like to do it explicitly for my own sanity.
     if (mal_device_is_started(pDevice)) {
-	    while (mal_device_stop(pDevice) == MAL_DEVICE_BUSY) {
+        while (mal_device_stop(pDevice) == MAL_DEVICE_BUSY) {
             mal_sleep(1);
         }
     }
 
     // Putting the device into an uninitialized state will make the worker thread return.
     mal_device__set_state(pDevice, MAL_STATE_UNINITIALIZED);
-	
+
     // Wake up the worker thread and wait for it to properly terminate.
-	mal_event_signal(&pDevice->wakeupEvent);
-	mal_thread_wait(&pDevice->thread);
-	
+    mal_event_signal(&pDevice->wakeupEvent);
+    mal_thread_wait(&pDevice->thread);
+
     mal_event_delete(&pDevice->stopEvent);
     mal_event_delete(&pDevice->startEvent);
-	mal_event_delete(&pDevice->wakeupEvent);
+    mal_event_delete(&pDevice->wakeupEvent);
     mal_mutex_delete(&pDevice->lock);
 
 #ifdef MAL_ENABLE_DSOUND
-	if (pDevice->api == mal_api_dsound) {
-		mal_device_uninit__dsound(pDevice);
-	}
+    if (pDevice->api == mal_api_dsound) {
+        mal_device_uninit__dsound(pDevice);
+    }
 #endif
 #ifdef MAL_ENABLE_ALSA
-	if (pDevice->api == mal_api_alsa) {
-		mal_device_uninit__alsa(pDevice);
-	}
+    if (pDevice->api == mal_api_alsa) {
+        mal_device_uninit__alsa(pDevice);
+    }
 #endif
 #ifdef MAL_ENABLE_NULL
-	if (pDevice->api == mal_api_null) {
-		mal_device_uninit__null(pDevice);
-	}
+    if (pDevice->api == mal_api_null) {
+        mal_device_uninit__null(pDevice);
+    }
 #endif
 
-	mal_zero_object(pDevice);
+    mal_zero_object(pDevice);
 }
 
 void mal_device_set_recv_callback(mal_device* pDevice, mal_recv_proc proc)
 {
-	if (pDevice == NULL) return;
+    if (pDevice == NULL) return;
     mal_atomic_exchange_ptr(&pDevice->onRecv, proc);
 }
 
 void mal_device_set_send_callback(mal_device* pDevice, mal_send_proc proc)
 {
-	if (pDevice == NULL) return;
-	mal_atomic_exchange_ptr(&pDevice->onSend, proc);
+    if (pDevice == NULL) return;
+    mal_atomic_exchange_ptr(&pDevice->onSend, proc);
 }
 
 void mal_device_set_stop_callback(mal_device* pDevice, mal_stop_proc proc)
@@ -3083,7 +3082,7 @@ void mal_device_set_stop_callback(mal_device* pDevice, mal_stop_proc proc)
 
 mal_result mal_device_start(mal_device* pDevice)
 {
-	if (pDevice == NULL) return mal_post_error(pDevice, "mal_device_start() called with invalid arguments.", MAL_INVALID_ARGS);
+    if (pDevice == NULL) return mal_post_error(pDevice, "mal_device_start() called with invalid arguments.", MAL_INVALID_ARGS);
     if (mal_device__get_state(pDevice) == MAL_STATE_UNINITIALIZED) return mal_post_error(pDevice, "mal_device_start() called for an uninitialized device.", MAL_DEVICE_NOT_INITIALIZED);
 
     mal_result result = MAL_ERROR;
@@ -3099,29 +3098,29 @@ mal_result mal_device_start(mal_device* pDevice)
             mal_mutex_unlock(&pDevice->lock);
             return mal_post_error(pDevice, "mal_device_start() called for a device that's already started.", MAL_DEVICE_ALREADY_STARTED);
         }
-    
+
         // The device needs to be in a stopped state. If it's not, we just let the caller know the device is busy.
         if (mal_device__get_state(pDevice) != MAL_STATE_STOPPED) {
             mal_mutex_unlock(&pDevice->lock);
             return mal_post_error(pDevice, "mal_device_start() called while another thread is in the process of stopping it.", MAL_DEVICE_BUSY);
         }
-    
+
         mal_device__set_state(pDevice, MAL_STATE_STARTING);
-    	mal_event_signal(&pDevice->wakeupEvent);
-    
+        mal_event_signal(&pDevice->wakeupEvent);
+
         // Wait for the worker thread to finish starting the device. Note that the worker thread will be the one
         // who puts the device into the started state. Don't call mal_device__set_state() here.
         mal_event_wait(&pDevice->startEvent);
         result = pDevice->workResult;
     }
     mal_mutex_unlock(&pDevice->lock);
-    
-	return result;
+
+    return result;
 }
 
 mal_result mal_device_stop(mal_device* pDevice)
 {
-	if (pDevice == NULL) return mal_post_error(pDevice, "mal_device_stop() called with invalid arguments.", MAL_INVALID_ARGS);
+    if (pDevice == NULL) return mal_post_error(pDevice, "mal_device_stop() called with invalid arguments.", MAL_INVALID_ARGS);
     if (mal_device__get_state(pDevice) == MAL_STATE_UNINITIALIZED) return mal_post_error(pDevice, "mal_device_stop() called for an uninitialized device.", MAL_DEVICE_NOT_INITIALIZED);
 
     mal_result result = MAL_ERROR;
@@ -3137,35 +3136,35 @@ mal_result mal_device_stop(mal_device* pDevice)
             mal_mutex_unlock(&pDevice->lock);
             return mal_post_error(pDevice, "mal_device_stop() called for a device that's already stopped.", MAL_DEVICE_ALREADY_STOPPED);
         }
-    
+
         // The device needs to be in a started state. If it's not, we just let the caller know the device is busy.
         if (mal_device__get_state(pDevice) != MAL_STATE_STARTED) {
             mal_mutex_unlock(&pDevice->lock);
             return mal_post_error(pDevice, "mal_device_stop() called while another thread is in the process of starting it.", MAL_DEVICE_BUSY);
         }
-    
+
         mal_device__set_state(pDevice, MAL_STATE_STOPPING);
-    
+
         // There's no need to wake up the thread like we do when starting.
-    	
+
         // When we get here the worker thread is likely in a wait state while waiting for the backend device to deliver or request
         // audio data. We need to force these to return as quickly as possible.
         mal_device__break_main_loop(pDevice);
-    
+
         // We need to wait for the worker thread to become available for work before returning. Note that the worker thread will be
         // the one who puts the device into the stopped state. Don't call mal_device__set_state() here.
         mal_event_wait(&pDevice->stopEvent);
         result = MAL_SUCCESS;
     }
     mal_mutex_unlock(&pDevice->lock);
-    
-	return result;
+
+    return result;
 }
 
 mal_bool32 mal_device_is_started(mal_device* pDevice)
 {
-	if (pDevice == NULL) return MAL_FALSE;
-	return mal_device__get_state(pDevice) == MAL_STATE_STARTED;
+    if (pDevice == NULL) return MAL_FALSE;
+    return mal_device__get_state(pDevice) == MAL_STATE_STARTED;
 }
 
 mal_uint32 mal_device_get_available_rewind_amount(mal_device* pDevice)
@@ -3176,30 +3175,30 @@ mal_uint32 mal_device_get_available_rewind_amount(mal_device* pDevice)
     if (pDevice->type != mal_device_type_playback) {
         return 0;
     }
-    
+
 #ifdef MAL_ENABLE_DSOUND
-	if (pDevice->api == mal_api_dsound) {
+    if (pDevice->api == mal_api_dsound) {
         mal_mutex_lock(&pDevice->lock);
-		mal_uint32 result = mal_device_get_available_rewind_amount__dsound(pDevice);
+        mal_uint32 result = mal_device_get_available_rewind_amount__dsound(pDevice);
         mal_mutex_unlock(&pDevice->lock);
         return result;
-	}
+    }
 #endif
 #ifdef MAL_ENABLE_ALSA
-	if (pDevice->api == mal_api_alsa) {
+    if (pDevice->api == mal_api_alsa) {
         mal_mutex_lock(&pDevice->lock);
-		mal_uint32 result = mal_device_get_available_rewind_amount__alsa(pDevice);
+        mal_uint32 result = mal_device_get_available_rewind_amount__alsa(pDevice);
         mal_mutex_unlock(&pDevice->lock);
         return result;
-	}
+    }
 #endif
 #ifdef MAL_ENABLE_NULL
-	if (pDevice->api == mal_api_null) {
+    if (pDevice->api == mal_api_null) {
         mal_mutex_lock(&pDevice->lock);
-		mal_uint32 result = mal_device_get_available_rewind_amount__null(pDevice);
+        mal_uint32 result = mal_device_get_available_rewind_amount__null(pDevice);
         mal_mutex_unlock(&pDevice->lock);
         return result;
-	}
+    }
 #endif
 
     return 0;
@@ -3213,30 +3212,30 @@ mal_uint32 mal_device_rewind(mal_device* pDevice, mal_uint32 framesToRewind)
     if (pDevice->type != mal_device_type_playback) {
         return 0;
     }
-    
+
 #ifdef MAL_ENABLE_DSOUND
-	if (pDevice->api == mal_api_dsound) {
+    if (pDevice->api == mal_api_dsound) {
         mal_mutex_lock(&pDevice->lock);
-		mal_uint32 result = mal_device_rewind__dsound(pDevice, framesToRewind);
+        mal_uint32 result = mal_device_rewind__dsound(pDevice, framesToRewind);
         mal_mutex_unlock(&pDevice->lock);
         return result;
-	}
+    }
 #endif
 #ifdef MAL_ENABLE_ALSA
-	if (pDevice->api == mal_api_alsa) {
+    if (pDevice->api == mal_api_alsa) {
         mal_mutex_lock(&pDevice->lock);
-		mal_uint32 result = mal_device_rewind__alsa(pDevice, framesToRewind);
+        mal_uint32 result = mal_device_rewind__alsa(pDevice, framesToRewind);
         mal_mutex_unlock(&pDevice->lock);
         return result;
-	}
+    }
 #endif
 #ifdef MAL_ENABLE_NULL
-	if (pDevice->api == mal_api_null) {
+    if (pDevice->api == mal_api_null) {
         mal_mutex_lock(&pDevice->lock);
-		mal_uint32 result = mal_device_rewind__null(pDevice, framesToRewind);
+        mal_uint32 result = mal_device_rewind__null(pDevice, framesToRewind);
         mal_mutex_unlock(&pDevice->lock);
         return result;
-	}
+    }
 #endif
 
     return 0;
@@ -3250,17 +3249,17 @@ mal_uint32 mal_device_get_buffer_size_in_bytes(mal_device* pDevice)
 
 mal_uint32 mal_get_sample_size_in_bytes(mal_format format)
 {
-	mal_uint32 sizes[] = {
-		1,	// u8
-		2,	// s16
-		3,	// s24
-		4,	// s32
-		4,	// f32
-		8,	// f64
-		1,	// alaw
-		1	// mulaw
-	};
-	return sizes[format];
+    mal_uint32 sizes[] = {
+        1,  // u8
+        2,  // s16
+        3,  // s24
+        4,  // s32
+        4,  // f32
+        8,  // f64
+        1,  // alaw
+        1   // mulaw
+    };
+    return sizes[format];
 }
 #endif
 
