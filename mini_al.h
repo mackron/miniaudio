@@ -331,7 +331,6 @@ struct mal_device
             mal_uint32 lastProcessedFrame;      // This is circular.
             mal_uint32 rewindTarget;            // Where we want to rewind to. Set to ~0UL when it is not being rewound.
             mal_bool32 breakFromMainLoop;
-
         } dsound;
     #endif
 
