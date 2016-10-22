@@ -2690,7 +2690,7 @@ static mal_result mal_device__main_loop__alsa(mal_device* pDevice)
         while (!pDevice->alsa.breakFromMainLoop && mal_device_write__alsa(pDevice)) {
         }
     } else {
-        // Playback. Read from device, write to client.
+        // Capture. Read from device, write to client.
         while (!pDevice->alsa.breakFromMainLoop && mal_device_read__alsa(pDevice)) {
         }
     }
