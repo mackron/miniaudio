@@ -20,9 +20,10 @@
 //   - ALSA (Linux Only)
 //   - null
 //   - ... and more in the future.
+//     - OpenSL|ES / Android
 //     - Core Audio (OSX, iOS)
-//     - Something for Android
 //     - Maybe OSS
+//     - Maybe OpenAL
 //
 //
 // USAGE
@@ -108,6 +109,9 @@
 // #define MAL_NO_ALSA
 //   Disables the ALSA backend. Note that this is the only backend for the Linux platform.
 //
+// #define MAL_NO_OPENSLES
+//   Disables the OpenSL ES backend. Note that this is the only backend for Android.
+//
 // #define MAL_NO_NULL
 //   Disables the null backend.
 //
@@ -144,21 +148,28 @@ extern "C" {
 // Platform/backend detection.
 #ifdef _WIN32
     #define MAL_WIN32
-    #ifndef MAL_NO_DSOUND
-        #define MAL_ENABLE_DSOUND
-    #endif
 #else
     #define MAL_POSIX
-    #if !defined(MAL_NO_ALSA) && defined(__linux__) && !defined(__ANDROID__)
-        #define MAL_ENABLE_ALSA
+    #include <pthread.h>    // Unfortunate #include, but needed for pthread_t, pthread_mutex_t and pthread_cond_t types.
+
+    #ifdef __linux__
+        #define MAL_LINUX
     #endif
     #ifdef __ANDROID__
-        #define MAL_ENABLE_OPENSLES
+        #define MAL_ANDROID
     #endif
-    #include <pthread.h>    // Unfortunate #include, but needed for pthread_t, pthread_mutex_t and pthread_cond_t types.
 #endif
 
-#ifndef MAL_NO_NULL
+#if !defined(MAL_NO_DSOUND) && defined(MAL_WIN32)
+    #define MAL_ENABLE_DSOUND
+#endif
+#if !defined(MAL_NO_ALSA) && defined(MAL_LINUX) && !defined(MAL_ANDROID)
+    #define MAL_ENABLE_ALSA
+#endif
+#if !defined(MAL_NO_OPENSLES) && defined(MAL_ANDROID)
+    #define MAL_ENABLE_OPENSLES
+#endif
+#if !defined(MAL_NO_NULL)
     #define MAL_ENABLE_NULL
 #endif
 
@@ -253,7 +264,8 @@ typedef enum
 {
     mal_api_null,
     mal_api_dsound,
-    mal_api_alsa
+    mal_api_alsa,
+    mal_api_slse
 } mal_api;
 
 typedef enum
@@ -278,8 +290,9 @@ typedef enum
 
 typedef union
 {
+    mal_uint32 id32;    // OpenSL|ES uses a 32-bit unsigned integer for identification.
     char str[32];       // ALSA uses a name string for identification.
-    mal_uint8 guid[16]; // DirectSound uses a GUID to identify a device.
+    mal_uint8 guid[16]; // DirectSound uses a GUID for identification.
 } mal_device_id;
 
 typedef struct
@@ -340,11 +353,27 @@ struct mal_device
     #ifdef MAL_ENABLE_ALSA
         struct
         {
-            /*snd_pcm_t**/mal_ptr pPCM;
+            /*snd_pcm_t**/ mal_ptr pPCM;
             mal_bool32 isUsingMMap;
             mal_bool32 breakFromMainLoop;
             void* pIntermediaryBuffer;
         } alsa;
+    #endif
+
+    #ifdef MAL_ENABLE_OPENSLES
+        struct
+        {
+            /*SLObjectItf*/ mal_ptr pOutputMixObj;
+            /*SLOutputMixItf*/ mal_ptr pOutputMix;
+            /*SLObjectItf*/ mal_ptr pAudioPlayerObj;
+            /*SLPlayItf*/ mal_ptr pAudioPlayer;
+            /*SLObjectItf*/ mal_ptr pAudioRecorderObj;
+            /*SLRecordItf*/ mal_ptr pAudioRecorder;
+            /*SLAndroidSimpleBufferQueueItf*/ mal_ptr pBufferQueue;
+            mal_uint32 periodSizeInFrames;
+            mal_uint32 currentBufferIndex;
+            mal_uint8* pBuffer;                 // This is malloc()'d and is used for storing audio data. Typed as mal_uint8 for easy offsetting.
+        } sles;
     #endif
 
     #ifdef MAL_ENABLE_NULL
@@ -399,8 +428,7 @@ mal_result mal_enumerate_devices(mal_device_type type, mal_uint32* pCount, mal_d
 //   - MAL_NO_BACKEND
 //       There is no supported backend, or there was an error loading it (such as a missing dll/so).
 //   - MAL_OUT_OF_MEMORY
-//       A necessary memory allocation failed, likely due to running out of memory. The only backend
-//       that performs a memory allocation is ALSA when mmap mode is not supported.
+//       A necessary memory allocation failed, likely due to running out of memory.
 //   - MAL_FORMAT_NOT_SUPPORTED
 //       The specified format is not supported by the backend. mini_al does not currently do any
 //       software format conversions which means initialization must fail if the backend does not
@@ -409,6 +437,10 @@ mal_result mal_enumerate_devices(mal_device_type type, mal_uint32* pCount, mal_d
 //       There was a backend-specific error during initialization.
 //
 // Thread Safety: UNSAFE
+//   It is not safe to call this function simultaneously for different devices because some backends
+//   depend on and mutate global state (such as OpenSL|ES). The same applies to calling this as the
+//   same time as mal_device_uninit().
+//
 //   Results are undefined if you try using a device before this function as returned.
 //
 // Efficiency: LOW
@@ -617,6 +649,13 @@ mal_uint32 mal_get_sample_size_in_bytes(mal_format format);
 #include <stdio.h>  // Needed for sprintf() which is used for "hw:%d,%d" formatting. TODO: Remove this later.
 #endif
 
+#ifdef MAL_ENABLE_OPENSLES
+#include <SLES/OpenSLES.h>
+#ifdef MAL_ANDROID
+#include <SLES/OpenSLES_Android.h>
+#endif
+#endif
+
 #if !defined(MAL_64BIT) && !defined(MAL_32BIT)
 #ifdef _WIN32
 #ifdef _WIN64
@@ -802,10 +841,14 @@ static inline unsigned int mal_prev_power_of_2(unsigned int x)
 #define mal_memory_barrier()            MemoryBarrier()
 #define mal_atomic_exchange_32(a, b)    InterlockedExchange((LONG*)a, (LONG)b)
 #define mal_atomic_exchange_64(a, b)    InterlockedExchange64((LONGLONG*)a, (LONGLONG)b)
+#define mal_atomic_increment_32(a)      InterlockedIncrement((LONG*)a)
+#define mal_atomic_decrement_32(a)      InterlockedDecrement((LONG*)a)
 #else
 #define mal_memory_barrier()            __sync_synchronize()
 #define mal_atomic_exchange_32(a, b)    (void)__sync_lock_test_and_set(a, b); __sync_synchronize()
 #define mal_atomic_exchange_64(a, b)    (void)__sync_lock_test_and_set(a, b); __sync_synchronize()
+#define mal_atomic_increment_32(a)      __sync_add_and_fetch(a, 1)
+#define mal_atomic_decrement_32(a)      __sync_sub_and_fetch(a, 1)
 #endif
 
 #ifdef MAL_64BIT
@@ -891,6 +934,11 @@ void mal_sleep__win32(mal_uint32 milliseconds)
     Sleep((DWORD)milliseconds);
 }
 
+void mal_yield__win32()
+{
+    SwitchToThread();
+}
+
 
 mal_bool32 mal_mutex_create__win32(mal_mutex* pMutex)
 {
@@ -959,6 +1007,11 @@ void mal_thread_wait__posix(mal_thread* pThread)
 void mal_sleep__posix(mal_uint32 milliseconds)
 {
     usleep(milliseconds * 1000);    // <-- usleep is in microseconds.
+}
+
+void mal_yield__posix()
+{
+    sched_yield();
 }
 
 
@@ -2743,6 +2796,389 @@ static mal_uint32 mal_device_rewind__alsa(mal_device* pDevice, mal_uint32 frames
 }
 #endif
 
+
+///////////////////////////////////////////////////////////////////////////////
+//
+// OpenSL|ES Backend
+//
+///////////////////////////////////////////////////////////////////////////////
+#ifdef MAL_ENABLE_OPENSLES
+mal_result mal_enumerate_devices__sles(mal_device_type type, mal_uint32* pCount, mal_device_info* pInfo)
+{
+    mal_uint32 infoSize = *pCount;
+    *pCount = 0;
+
+    SLObjectItf engineObj;
+    SLresult resultSL = slCreateEngine(&engineObj, 0, NULL, 0, NULL, NULL);
+    if (resultSL != SL_RESULT_SUCCESS) {
+        return MAL_NO_BACKEND;
+    }
+
+    (*engineObj)->Realize(engineObj, SL_BOOLEAN_FALSE);
+
+    // TODO: Test Me.
+    //
+    // This is currently untested, so for now we are just returning default devices.
+#if 0
+    SLuint32 pDeviceIDs[128];
+    SLint32 deviceCount = sizeof(pDeviceIDs) / sizeof(pDeviceIDs[0]);
+
+    SLAudioIODeviceCapabilitiesItf deviceCaps;
+    resultSL = (*engineObj)->GetInterface(engineObj, SL_IID_AUDIOIODEVICECAPABILITIES, &deviceCaps);
+    if (resultSL != SL_RESULT_SUCCESS) {
+        // The interface may not be supported so just report a default device.
+        (*engineObj)->Destroy(engineObj);
+        goto return_default_device;
+    }
+
+    if (type == mal_device_type_playback) {
+        resultSL = (*deviceCaps)->GetAvailableAudioOutputs(deviceCaps, &deviceCount, pDeviceIDs);
+        if (resultSL != SL_RESULT_SUCCESS) {
+            (*engineObj)->Destroy(engineObj);
+            return MAL_NO_DEVICE;
+        }
+    } else {
+        resultSL = (*deviceCaps)->GetAvailableAudioInputs(deviceCaps, &deviceCount, pDeviceIDs);
+        if (resultSL != SL_RESULT_SUCCESS) {
+            (*engineObj)->Destroy(engineObj);
+            return MAL_NO_DEVICE;
+        }
+    }
+
+    for (SLint32 iDevice = 0; iDevice < deviceCount; ++iDevice) {
+        if (pInfo != NULL) {
+            if (infoSize > 0) {
+                mal_zero_object(pInfo);
+                pInfo->id.id32 = pDeviceIDs[iDevice];
+
+                mal_bool32 isValidDevice = MAL_TRUE;
+                if (type == mal_device_type_playback) {
+                    SLAudioOutputDescriptor desc;
+                    resultSL = (*deviceCaps)->QueryAudioOutputCapabilities(deviceCaps, pInfo->id.id32, &desc);
+                    if (resultSL != SL_RESULT_SUCCESS) {
+                        isValidDevice = MAL_FALSE;
+                    }
+
+                    mal_strncpy_s(pInfo->name, sizeof(pInfo->name), (const char*)desc.pDeviceName, (size_t)-1);
+                } else {
+                    SLAudioInputDescriptor desc;
+                    resultSL = (*deviceCaps)->QueryAudioInputCapabilities(deviceCaps, pInfo->id.id32, &desc);
+                    if (resultSL != SL_RESULT_SUCCESS) {
+                        isValidDevice = MAL_FALSE;
+                    }
+
+                    mal_strncpy_s(pInfo->name, sizeof(pInfo->name), (const char*)desc.deviceName, (size_t)-1);
+                }
+
+                if (isValidDevice) {
+                    pInfo += 1;
+                    infoSize -= 1;
+                    *pCount += 1;
+                }
+            }
+        } else {
+            *pCount += 1;
+        }
+    }
+
+    (*engineObj)->Destroy(engineObj);
+    return MAL_SUCCESS;
+#else
+    (*engineObj)->Destroy(engineObj);
+    goto return_default_device;
+#endif
+
+return_default_device:
+    *pCount = 1;
+    if (pInfo != NULL) {
+        if (infoSize > 0) {
+            if (type == mal_device_type_playback) {
+                pInfo->id.id32 = SL_DEFAULTDEVICEID_AUDIOOUTPUT;
+                mal_strncpy_s(pInfo->name, sizeof(pInfo->name), "Default Playback Device", (size_t)-1);
+            } else {
+                pInfo->id.id32 = SL_DEFAULTDEVICEID_AUDIOINPUT;
+                mal_strncpy_s(pInfo->name, sizeof(pInfo->name), "Default Capture Device", (size_t)-1);
+            }
+        }
+    }
+
+    return MAL_SUCCESS;
+}
+
+
+// OpenSL|ES has one-per-application objects :(
+static SLObjectItf g_malEngineObjectSL = NULL;
+static SLEngineItf g_malEngineSL = NULL;
+static mal_uint32 g_malSLESInitCounter = 0;
+
+#define MAL_SLES_OBJ(p)         (*((SLObjectItf)(p)))
+#define MAL_SLES_OUTPUTMIX(p)   (*((SLOutputMixItf)(p)))
+#define MAL_SLES_PLAY(p)        (*((SLPlayItf)(p)))
+#define MAL_SLES_RECORD(p)      (*((SLRecordItf)(p)))
+
+#ifdef MAL_ANDROID
+#define MAL_SLES_BUFFERQUEUE(p) (*((SLAndroidSimpleBufferQueueItf)(p)))
+#else
+#define MAL_SLES_BUFFERQUEUE(p) (*((SLBufferQueueItf)(p)))
+#endif
+
+#ifdef MAL_ANDROID
+//static void mal_buffer_queue_callback__sles_android(SLAndroidSimpleBufferQueueItf pBufferQueue, SLuint32 eventFlags, const void* pBuffer, SLuint32 bufferSize, SLuint32 dataUsed, void* pContext)
+static void mal_buffer_queue_callback__sles_android(SLAndroidSimpleBufferQueueItf pBufferQueue, void* pUserData)
+{
+    // For now, only supporting Android implementations of OpenSL|ES since that's the only one I've
+    // been able to test with and I currently depend on Android-specific extensions (simple buffer
+    // queues).
+#ifndef MAL_ANDROID
+    return MAL_NO_BACKEND;
+#endif
+
+    mal_device* pDevice = (mal_device*)pUserData;
+    mal_assert(pDevice != NULL);
+
+    // For now, don't do anything unless the buffer was fully processed. From what I can tell, it looks like
+    // OpenSL|ES 1.1 improves on buffer queues to the point that we could much more intelligently handle this,
+    // but unfortunately it looks like Android is only supporting OpenSL|ES 1.0.1 for now :(
+    if (pDevice->state != MAL_STATE_STARTED) {
+        return;
+    }
+
+    size_t periodSizeInBytes = pDevice->sles.periodSizeInFrames * pDevice->channels * mal_get_sample_size_in_bytes(pDevice->format);
+    mal_uint8* pBuffer = pDevice->sles.pBuffer + (pDevice->sles.currentBufferIndex * periodSizeInBytes);
+
+    if (pDevice->type == mal_device_type_playback) {
+        if (pDevice->state != MAL_STATE_STARTED) {
+            return;
+        }
+
+        mal_device__read_frames_from_client(pDevice, pDevice->sles.periodSizeInFrames, pBuffer);
+
+        SLresult resultSL = MAL_SLES_BUFFERQUEUE(pDevice->sles.pBufferQueue)->Enqueue((SLAndroidSimpleBufferQueueItf)pDevice->sles.pBufferQueue, pBuffer, periodSizeInBytes);
+        if (resultSL != SL_RESULT_SUCCESS) {
+            return;
+        }
+    } else {
+        mal_device__send_frames_to_client(pDevice, pDevice->sles.periodSizeInFrames, pBuffer);
+
+        SLresult resultSL = MAL_SLES_BUFFERQUEUE(pDevice->sles.pBufferQueue)->Enqueue((SLAndroidSimpleBufferQueueItf)pDevice->sles.pBufferQueue, pBuffer, periodSizeInBytes);
+        if (resultSL != SL_RESULT_SUCCESS) {
+            return;
+        }
+    }
+
+    pDevice->sles.currentBufferIndex = (pDevice->sles.currentBufferIndex + 1) % pDevice->periods;
+}
+#endif
+
+static void mal_device_uninit__slse(mal_device* pDevice)
+{
+    mal_assert(pDevice != NULL);
+
+    // Uninit device.
+    if (pDevice->type == mal_device_type_playback) {
+        if (pDevice->sles.pAudioPlayerObj) MAL_SLES_OBJ(pDevice->sles.pAudioPlayerObj)->Destroy((SLObjectItf)pDevice->sles.pAudioPlayerObj);
+        if (pDevice->sles.pOutputMixObj) MAL_SLES_OBJ(pDevice->sles.pOutputMixObj)->Destroy((SLObjectItf)pDevice->sles.pOutputMixObj);
+    } else {
+        if (pDevice->sles.pAudioRecorderObj) MAL_SLES_OBJ(pDevice->sles.pAudioRecorderObj)->Destroy((SLObjectItf)pDevice->sles.pAudioRecorderObj);
+    }
+
+    mal_free(pDevice->sles.pBuffer);
+    
+
+    // Uninit global data.
+    if (g_malSLESInitCounter > 0) {
+        if (mal_atomic_decrement_32(&g_malSLESInitCounter) == 0) {
+            (*g_malEngineObjectSL)->Destroy(g_malEngineObjectSL);
+        }
+    }
+}
+
+static mal_result mal_device_init__slse(mal_device* pDevice, mal_device_type type, mal_device_id* pDeviceID, mal_format format, mal_uint32 channels, mal_uint32 sampleRate, mal_uint32 bufferSizeInFrames, mal_uint32 periods)
+{
+    // For now, only supporting Android implementations of OpenSL|ES since that's the only one I've
+    // been able to test with and I currently depend on Android-specific extensions (simple buffer
+    // queues).
+#ifndef MAL_ANDROID
+    return MAL_NO_BACKEND;
+#endif
+
+    // Initialize global data first if applicable.
+    if (mal_atomic_increment_32(&g_malSLESInitCounter) == 1) {
+        SLresult resultSL = slCreateEngine(&g_malEngineObjectSL, 0, NULL, 0, NULL, NULL);
+        if (resultSL != SL_RESULT_SUCCESS) {
+            mal_atomic_decrement_32(&g_malSLESInitCounter);
+            return mal_post_error(pDevice, "slCreateEngine() failed.", MAL_NO_BACKEND);
+        }
+
+        (*g_malEngineObjectSL)->Realize(g_malEngineObjectSL, SL_BOOLEAN_FALSE);
+
+        resultSL = (*g_malEngineObjectSL)->GetInterface(g_malEngineObjectSL, SL_IID_ENGINE, &g_malEngineSL);
+        if (resultSL != SL_RESULT_SUCCESS) {
+            (*g_malEngineObjectSL)->Destroy(g_malEngineObjectSL);
+            mal_atomic_decrement_32(&g_malSLESInitCounter);
+            return mal_post_error(pDevice, "Failed to retrieve SL_IID_ENGINE interface.", MAL_NO_BACKEND);
+        }
+    }
+
+
+    // Now we can start initializing the device properly.
+    mal_assert(pDevice != NULL);
+    pDevice->api = mal_api_slse;
+    pDevice->sles.currentBufferIndex = 0;
+    pDevice->sles.periodSizeInFrames = bufferSizeInFrames / periods;
+    pDevice->bufferSizeInFrames = pDevice->sles.periodSizeInFrames * periods;
+
+    SLDataLocator_BufferQueue queue;
+    queue.locatorType = SL_DATALOCATOR_BUFFERQUEUE;
+    queue.numBuffers = periods;
+
+    SLDataFormat_PCM pcm;
+    pcm.formatType = SL_DATAFORMAT_PCM;
+    pcm.numChannels = channels;
+    pcm.samplesPerSec = sampleRate * 1000;  // In millihertz because, you know, the people who wrote the OpenSL|ES spec thought it would be funny to be the _only_ API to do this...
+    pcm.bitsPerSample = mal_get_sample_size_in_bytes(format) * 8;
+    pcm.containerSize = pcm.bitsPerSample;  // Always tightly packed for now.
+    pcm.channelMask = ~((~0UL) << channels);
+    pcm.endianness = SL_BYTEORDER_LITTLEENDIAN;
+
+    SLDataSource source;
+    source.pLocator = &queue;
+    source.pFormat = &pcm;
+
+    if (type == mal_device_type_playback) {
+        if ((*g_malEngineSL)->CreateOutputMix(g_malEngineSL, (SLObjectItf*)&pDevice->sles.pOutputMixObj, 0, NULL, NULL) != SL_RESULT_SUCCESS) {
+            mal_device_uninit__slse(pDevice);
+            return mal_post_error(pDevice, "Failed to create output mix.", MAL_NO_BACKEND);
+        }
+
+        if (MAL_SLES_OBJ(pDevice->sles.pOutputMixObj)->Realize((SLObjectItf)pDevice->sles.pOutputMixObj, SL_BOOLEAN_FALSE)) {
+            mal_device_uninit__slse(pDevice);
+            return mal_post_error(pDevice, "Failed to realize output mix object.", MAL_NO_BACKEND);
+        }
+
+        if (MAL_SLES_OBJ(pDevice->sles.pOutputMixObj)->GetInterface((SLObjectItf)pDevice->sles.pOutputMixObj, SL_IID_OUTPUTMIX, &pDevice->sles.pOutputMix) != SL_RESULT_SUCCESS) {
+            mal_device_uninit__slse(pDevice);
+            return mal_post_error(pDevice, "Failed to retrieve SL_IID_OUTPUTMIX interface.", MAL_NO_BACKEND);
+        }
+
+        // Set the output device.
+        if (pDeviceID != NULL) {
+            MAL_SLES_OUTPUTMIX(pDevice->sles.pOutputMix)->ReRoute((SLOutputMixItf)pDevice->sles.pOutputMix, 1, &pDeviceID->id32);
+        }
+
+
+        SLDataLocator_OutputMix outmixLocator;
+        outmixLocator.locatorType = SL_DATALOCATOR_OUTPUTMIX;
+        outmixLocator.outputMix = (SLObjectItf)pDevice->sles.pOutputMixObj;
+
+        SLDataSink sink;
+        sink.pLocator = &outmixLocator;
+        sink.pFormat = NULL;
+
+        const SLInterfaceID itfIDs1[] = {SL_IID_BUFFERQUEUE};
+        const SLboolean itfIDsRequired1[] = {SL_BOOLEAN_TRUE};
+        if ((*g_malEngineSL)->CreateAudioPlayer(g_malEngineSL, (SLObjectItf*)&pDevice->sles.pAudioPlayerObj, &source, &sink, 1, itfIDs1, itfIDsRequired1) != SL_RESULT_SUCCESS) {
+            mal_device_uninit__slse(pDevice);
+            return mal_post_error(pDevice, "Failed to create audio player.", MAL_NO_BACKEND);
+        }
+
+        if (MAL_SLES_OBJ(pDevice->sles.pAudioPlayerObj)->Realize((SLObjectItf)pDevice->sles.pAudioPlayerObj, SL_BOOLEAN_FALSE) != SL_RESULT_SUCCESS) {
+            mal_device_uninit__slse(pDevice);
+            return mal_post_error(pDevice, "Failed to realize audio player.", MAL_NO_BACKEND);
+        }
+
+        if (MAL_SLES_OBJ(pDevice->sles.pAudioPlayerObj)->GetInterface((SLObjectItf)pDevice->sles.pAudioPlayerObj, SL_IID_PLAY, &pDevice->sles.pAudioPlayer) != SL_RESULT_SUCCESS) {
+            mal_device_uninit__slse(pDevice);
+            return mal_post_error(pDevice, "Failed to retrieve SL_IID_PLAY interface.", MAL_NO_BACKEND);
+        }
+
+        if (MAL_SLES_OBJ(pDevice->sles.pAudioPlayerObj)->GetInterface((SLObjectItf)pDevice->sles.pAudioPlayerObj, SL_IID_ANDROIDSIMPLEBUFFERQUEUE, &pDevice->sles.pBufferQueue) != SL_RESULT_SUCCESS) {
+            mal_device_uninit__slse(pDevice);
+            return mal_post_error(pDevice, "Failed to retrieve SL_IID_ANDROIDSIMPLEBUFFERQUEUE interface.", MAL_NO_BACKEND);
+        }
+
+        if (MAL_SLES_BUFFERQUEUE(pDevice->sles.pBufferQueue)->RegisterCallback((SLAndroidSimpleBufferQueueItf)pDevice->sles.pBufferQueue, mal_buffer_queue_callback__sles_android, pDevice) != SL_RESULT_SUCCESS) {
+            mal_device_uninit__slse(pDevice);
+            return mal_post_error(pDevice, "Failed to register buffer queue callback.", MAL_NO_BACKEND);
+        }
+    } else {
+        // Implement me.
+        return MAL_NO_BACKEND;
+    }
+
+    size_t bufferSizeInBytes = pDevice->bufferSizeInFrames * pDevice->channels * mal_get_sample_size_in_bytes(pDevice->format);
+    pDevice->sles.pBuffer = (mal_uint8*)mal_malloc(bufferSizeInBytes);
+    if (pDevice->sles.pBuffer == NULL) {
+        mal_device_uninit__slse(pDevice);
+        return mal_post_error(pDevice, "Failed to allocate memory for data buffer.", MAL_OUT_OF_MEMORY);
+    }
+
+    mal_zero_memory(pDevice->sles.pBuffer, bufferSizeInBytes);
+
+    return MAL_SUCCESS;
+}
+
+static mal_uint32 mal_device_get_available_rewind_amount__slse(mal_device* pDevice)
+{
+    mal_assert(pDevice != NULL);
+
+    // Not supporting rewinding in OpenSL|ES.
+    (void)pDevice;
+    return 0;
+}
+
+static mal_uint32 mal_device_rewind__alsa(mal_device* pDevice, mal_uint32 framesToRewind)
+{
+    mal_assert(pDevice != NULL);
+    mal_assert(framesToRewind > 0);
+
+    // Not supporting rewinding in OpenSL|ES.
+    (void)pDevice;
+    (void)framesToRewind;
+    return 0;
+}
+
+static mal_result mal_device__start_backend__slse(mal_device* pDevice)
+{
+    mal_assert(pDevice != NULL);
+
+    SLresult resultSL = MAL_SLES_PLAY(pDevice->sles.pAudioPlayer)->SetPlayState((SLPlayItf)pDevice->sles.pAudioPlayer, SL_PLAYSTATE_PLAYING);
+    if (resultSL != SL_RESULT_SUCCESS) {
+        return MAL_FAILED_TO_START_BACKEND_DEVICE;
+    }
+
+    // We need to enqueue a buffer for each period.
+    mal_device__read_frames_from_client(pDevice, pDevice->bufferSizeInFrames, pDevice->sles.pBuffer);
+
+    size_t periodSizeInBytes = pDevice->sles.periodSizeInFrames * pDevice->channels * mal_get_sample_size_in_bytes(pDevice->format);
+    for (mal_uint32 iPeriod = 0; iPeriod < pDevice->periods; ++iPeriod) {
+        resultSL = MAL_SLES_BUFFERQUEUE(pDevice->sles.pBufferQueue)->Enqueue((SLAndroidSimpleBufferQueueItf)pDevice->sles.pBufferQueue, pDevice->sles.pBuffer + (periodSizeInBytes*iPeriod), periodSizeInBytes);
+        if (resultSL != SL_RESULT_SUCCESS) {
+            SLresult resultSL = MAL_SLES_PLAY(pDevice->sles.pAudioPlayer)->SetPlayState((SLPlayItf)pDevice->sles.pAudioPlayer, SL_PLAYSTATE_STOPPED);
+            return MAL_FAILED_TO_START_BACKEND_DEVICE;
+        }
+    }
+
+    return MAL_SUCCESS;
+}
+
+static mal_result mal_device__stop_backend__slse(mal_device* pDevice)
+{
+    mal_assert(pDevice != NULL);
+
+    SLresult resultSL = MAL_SLES_PLAY(pDevice->sles.pAudioPlayer)->SetPlayState((SLPlayItf)pDevice->sles.pAudioPlayer, SL_PLAYSTATE_STOPPED);
+    if (resultSL != SL_RESULT_SUCCESS) {
+        return MAL_FAILED_TO_STOP_BACKEND_DEVICE;
+    }
+
+    // Make sure any queued buffers are cleared.
+    MAL_SLES_BUFFERQUEUE(pDevice->sles.pBufferQueue)->Clear((SLAndroidSimpleBufferQueueItf)pDevice->sles.pBufferQueue);
+
+    return MAL_SUCCESS;
+}
+#endif
+
+
 static mal_result mal_device__start_backend(mal_device* pDevice)
 {
     mal_assert(pDevice != NULL);
@@ -2925,6 +3361,11 @@ mal_result mal_enumerate_devices(mal_device_type type, mal_uint32* pCount, mal_d
         result = mal_enumerate_devices__alsa(type, pCount, pInfo);
     }
 #endif
+#ifdef MAL_ENABLE_OPENSLES
+    if (result != MAL_SUCCESS) {
+        result = mal_enumerate_devices__sles(type, pCount, pInfo);
+    }
+#endif
 #ifdef MAL_ENABLE_NULL
     if (result != MAL_SUCCESS) {
         result = mal_enumerate_devices__null(type, pCount, pInfo);
@@ -2996,6 +3437,11 @@ mal_result mal_device_init(mal_device* pDevice, mal_device_type type, mal_device
         result = mal_device_init__alsa(pDevice, type, pDeviceID, format, channels, sampleRate, bufferSizeInFrames, periods);
     }
 #endif
+#ifdef MAL_ENABLE_OPENSLES
+    if (result != MAL_SUCCESS) {
+        result = mal_device_init__slse(pDevice, type, pDeviceID, format, channels, sampleRate, bufferSizeInFrames, periods);
+    }
+#endif
 #ifdef MAL_ENABLE_NULL
     if (result != MAL_SUCCESS) {
         result = mal_device_init__null(pDevice, type, pDeviceID, format, channels, sampleRate, bufferSizeInFrames, periods);
@@ -3007,17 +3453,21 @@ mal_result mal_device_init(mal_device* pDevice, mal_device_type type, mal_device
     }
 
 
-    // The worker thread.
-    if (!mal_thread_create(&pDevice->thread, mal_worker_thread, pDevice)) {
-        mal_device_uninit(pDevice);
-        return mal_post_error(pDevice, "Failed to create worker thread.", MAL_FAILED_TO_CREATE_THREAD);
+    // Some backends don't require the worker thread.
+    if (pDevice->api != mal_api_slse) {
+        // The worker thread.
+        if (!mal_thread_create(&pDevice->thread, mal_worker_thread, pDevice)) {
+            mal_device_uninit(pDevice);
+            return mal_post_error(pDevice, "Failed to create worker thread.", MAL_FAILED_TO_CREATE_THREAD);
+        }
+
+        // Wait for the worker thread to put the device into it's stopped state for real.
+        mal_event_wait(&pDevice->stopEvent);
+    } else {
+        mal_device__set_state(pDevice, MAL_STATE_STOPPED);
     }
 
-
-    // Wait for the worker thread to put the device into it's stopped state for real.
-    mal_event_wait(&pDevice->stopEvent);
     mal_assert(mal_device__get_state(pDevice) == MAL_STATE_STOPPED);
-
     return MAL_SUCCESS;
 }
 
@@ -3037,8 +3487,10 @@ void mal_device_uninit(mal_device* pDevice)
     mal_device__set_state(pDevice, MAL_STATE_UNINITIALIZED);
 
     // Wake up the worker thread and wait for it to properly terminate.
-    mal_event_signal(&pDevice->wakeupEvent);
-    mal_thread_wait(&pDevice->thread);
+    if (pDevice->api != mal_api_slse) {
+        mal_event_signal(&pDevice->wakeupEvent);
+        mal_thread_wait(&pDevice->thread);
+    }
 
     mal_event_delete(&pDevice->stopEvent);
     mal_event_delete(&pDevice->startEvent);
@@ -3053,6 +3505,11 @@ void mal_device_uninit(mal_device* pDevice)
 #ifdef MAL_ENABLE_ALSA
     if (pDevice->api == mal_api_alsa) {
         mal_device_uninit__alsa(pDevice);
+    }
+#endif
+#ifdef MAL_ENABLE_OPENSLES
+    if (pDevice->api == mal_api_slse) {
+        mal_device_uninit__slse(pDevice);
     }
 #endif
 #ifdef MAL_ENABLE_NULL
@@ -3108,12 +3565,23 @@ mal_result mal_device_start(mal_device* pDevice)
         }
 
         mal_device__set_state(pDevice, MAL_STATE_STARTING);
-        mal_event_signal(&pDevice->wakeupEvent);
 
-        // Wait for the worker thread to finish starting the device. Note that the worker thread will be the one
-        // who puts the device into the started state. Don't call mal_device__set_state() here.
-        mal_event_wait(&pDevice->startEvent);
-        result = pDevice->workResult;
+        // Asynchronous backends need to be handled differently.
+#ifdef MAL_ENABLE_OPENSLES
+        if (pDevice->api == mal_api_slse) {
+            mal_device__start_backend__slse(pDevice);
+            mal_device__set_state(pDevice, MAL_STATE_STARTED);
+        } else
+#endif
+        // Synchronous backends.
+        {
+            mal_event_signal(&pDevice->wakeupEvent);
+
+            // Wait for the worker thread to finish starting the device. Note that the worker thread will be the one
+            // who puts the device into the started state. Don't call mal_device__set_state() here.
+            mal_event_wait(&pDevice->startEvent);
+            result = pDevice->workResult;
+        }
     }
     mal_mutex_unlock(&pDevice->lock);
 
@@ -3149,14 +3617,24 @@ mal_result mal_device_stop(mal_device* pDevice)
 
         // There's no need to wake up the thread like we do when starting.
 
-        // When we get here the worker thread is likely in a wait state while waiting for the backend device to deliver or request
-        // audio data. We need to force these to return as quickly as possible.
-        mal_device__break_main_loop(pDevice);
+        // Asynchronous backends need to be handled differently.
+#ifdef MAL_ENABLE_OPENSLES
+        if (pDevice->api == mal_api_slse) {
+            mal_device__stop_backend__slse(pDevice);
+            mal_device__set_state(pDevice, MAL_STATE_STOPPED);
+        } else
+#endif
+        // Synchronous backends.
+        {
+            // When we get here the worker thread is likely in a wait state while waiting for the backend device to deliver or request
+            // audio data. We need to force these to return as quickly as possible.
+            mal_device__break_main_loop(pDevice);
 
-        // We need to wait for the worker thread to become available for work before returning. Note that the worker thread will be
-        // the one who puts the device into the stopped state. Don't call mal_device__set_state() here.
-        mal_event_wait(&pDevice->stopEvent);
-        result = MAL_SUCCESS;
+            // We need to wait for the worker thread to become available for work before returning. Note that the worker thread will be
+            // the one who puts the device into the stopped state. Don't call mal_device__set_state() here.
+            mal_event_wait(&pDevice->stopEvent);
+            result = MAL_SUCCESS;
+        }
     }
     mal_mutex_unlock(&pDevice->lock);
 
