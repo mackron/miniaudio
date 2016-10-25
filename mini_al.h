@@ -3102,8 +3102,46 @@ static mal_result mal_device_init__sles(mal_device* pDevice, mal_device_type typ
             return mal_post_error(pDevice, "Failed to register buffer queue callback.", MAL_NO_BACKEND);
         }
     } else {
-        // Implement me.
-        return MAL_NO_BACKEND;
+        SLDataLocator_IODevice locatorDevice;
+        locatorDevice.locatorType = SL_DATALOCATOR_IODEVICE;
+        locatorDevice.deviceType = SL_IODEVICE_AUDIOINPUT;
+        locatorDevice.deviceID = (pDeviceID == NULL) ? SL_DEFAULTDEVICEID_AUDIOINPUT : pDeviceID->id32;
+        locatorDevice.device = NULL;
+
+        SLDataSource source;
+        source.pLocator = &locatorDevice;
+        source.pFormat = NULL;
+
+        SLDataSink sink;
+        sink.pLocator = &queue;
+        sink.pFormat = &pcm;
+
+        const SLInterfaceID itfIDs1[] = {SL_IID_ANDROIDSIMPLEBUFFERQUEUE};
+        const SLboolean itfIDsRequired1[] = {SL_BOOLEAN_TRUE};
+        if ((*g_malEngineSL)->CreateAudioRecorder(g_malEngineSL, (SLObjectItf*)&pDevice->sles.pAudioRecorderObj, &source, &sink, 1, itfIDs1, itfIDsRequired1) != SL_RESULT_SUCCESS) {
+            mal_device_uninit__sles(pDevice);
+            return mal_post_error(pDevice, "Failed to create audio recorder.", MAL_NO_BACKEND);
+        }
+
+        if (MAL_SLES_OBJ(pDevice->sles.pAudioRecorderObj)->Realize((SLObjectItf)pDevice->sles.pAudioRecorderObj, SL_BOOLEAN_FALSE) != SL_RESULT_SUCCESS) {
+            mal_device_uninit__sles(pDevice);
+            return mal_post_error(pDevice, "Failed to realize audio recorder.", MAL_NO_BACKEND);
+        }
+
+        if (MAL_SLES_OBJ(pDevice->sles.pAudioRecorderObj)->GetInterface((SLObjectItf)pDevice->sles.pAudioRecorderObj, SL_IID_RECORD, &pDevice->sles.pAudioRecorder) != SL_RESULT_SUCCESS) {
+            mal_device_uninit__sles(pDevice);
+            return mal_post_error(pDevice, "Failed to retrieve SL_IID_RECORD interface.", MAL_NO_BACKEND);
+        }
+
+        if (MAL_SLES_OBJ(pDevice->sles.pAudioRecorderObj)->GetInterface((SLObjectItf)pDevice->sles.pAudioRecorderObj, SL_IID_ANDROIDSIMPLEBUFFERQUEUE, &pDevice->sles.pBufferQueue) != SL_RESULT_SUCCESS) {
+            mal_device_uninit__sles(pDevice);
+            return mal_post_error(pDevice, "Failed to retrieve SL_IID_ANDROIDSIMPLEBUFFERQUEUE interface.", MAL_NO_BACKEND);
+        }
+
+        if (MAL_SLES_BUFFERQUEUE(pDevice->sles.pBufferQueue)->RegisterCallback((SLAndroidSimpleBufferQueueItf)pDevice->sles.pBufferQueue, mal_buffer_queue_callback__sles_android, pDevice) != SL_RESULT_SUCCESS) {
+            mal_device_uninit__sles(pDevice);
+            return mal_post_error(pDevice, "Failed to register buffer queue callback.", MAL_NO_BACKEND);
+        }
     }
 
     size_t bufferSizeInBytes = pDevice->bufferSizeInFrames * pDevice->channels * mal_get_sample_size_in_bytes(pDevice->format);
@@ -3160,7 +3198,19 @@ static mal_result mal_device__start_backend__sles(mal_device* pDevice)
             }
         }
     } else {
-        // TODO: Implement me.
+        SLresult resultSL = MAL_SLES_RECORD(pDevice->sles.pAudioRecorder)->SetRecordState((SLRecordItf)pDevice->sles.pAudioRecorder, SL_RECORDSTATE_RECORDING);
+        if (resultSL != SL_RESULT_SUCCESS) {
+            return MAL_FAILED_TO_START_BACKEND_DEVICE;
+        }
+
+        size_t periodSizeInBytes = pDevice->sles.periodSizeInFrames * pDevice->channels * mal_get_sample_size_in_bytes(pDevice->format);
+        for (mal_uint32 iPeriod = 0; iPeriod < pDevice->periods; ++iPeriod) {
+            resultSL = MAL_SLES_BUFFERQUEUE(pDevice->sles.pBufferQueue)->Enqueue((SLAndroidSimpleBufferQueueItf)pDevice->sles.pBufferQueue, pDevice->sles.pBuffer + (periodSizeInBytes * iPeriod), periodSizeInBytes);
+            if (resultSL != SL_RESULT_SUCCESS) {
+                SLresult resultSL = MAL_SLES_RECORD(pDevice->sles.pAudioRecorder)->SetRecordState((SLRecordItf)pDevice->sles.pAudioRecorder, SL_RECORDSTATE_STOPPED);
+                return MAL_FAILED_TO_START_BACKEND_DEVICE;
+            }
+        }
     }
 
     return MAL_SUCCESS;
@@ -3176,7 +3226,10 @@ static mal_result mal_device__stop_backend__sles(mal_device* pDevice)
             return MAL_FAILED_TO_STOP_BACKEND_DEVICE;
         }
     } else {
-        // TODO: Implement me.
+        SLresult resultSL = MAL_SLES_RECORD(pDevice->sles.pAudioRecorder)->SetRecordState((SLRecordItf)pDevice->sles.pAudioRecorder, SL_RECORDSTATE_STOPPED);
+        if (resultSL != SL_RESULT_SUCCESS) {
+            return MAL_FAILED_TO_STOP_BACKEND_DEVICE;
+        }
     }
 
     // Make sure any queued buffers are cleared.
