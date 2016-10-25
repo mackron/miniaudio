@@ -96,6 +96,8 @@
 //   consistent so I'm suspecting there's some kind of hard coded limit there or something.
 // - DirectSound currently supports a maximum of 4 periods.
 // - The ALSA backend does not support rewinding.
+// - To capture audio on Android, remember to add the RECORD_AUDIO permission to your manifest:
+//     <uses-permission android:name="android.permission.RECORD_AUDIO" />
 //
 //
 //
@@ -3028,7 +3030,7 @@ static mal_result mal_device_init__sles(mal_device* pDevice, mal_device_type typ
     pDevice->sles.periodSizeInFrames = bufferSizeInFrames / periods;
     pDevice->bufferSizeInFrames = pDevice->sles.periodSizeInFrames * periods;
 
-    SLDataLocator_BufferQueue queue;
+    SLDataLocator_AndroidSimpleBufferQueue queue;
     queue.locatorType = SL_DATALOCATOR_ANDROIDSIMPLEBUFFERQUEUE;
     queue.numBuffers = periods;
 
@@ -3040,10 +3042,6 @@ static mal_result mal_device_init__sles(mal_device* pDevice, mal_device_type typ
     pcm.containerSize = pcm.bitsPerSample;  // Always tightly packed for now.
     pcm.channelMask = ~((~0UL) << channels);
     pcm.endianness = SL_BYTEORDER_LITTLEENDIAN;
-
-    SLDataSource source;
-    source.pLocator = &queue;
-    source.pFormat = &pcm;
 
     if (type == mal_device_type_playback) {
         if ((*g_malEngineSL)->CreateOutputMix(g_malEngineSL, (SLObjectItf*)&pDevice->sles.pOutputMixObj, 0, NULL, NULL) != SL_RESULT_SUCCESS) {
@@ -3066,6 +3064,9 @@ static mal_result mal_device_init__sles(mal_device* pDevice, mal_device_type typ
             MAL_SLES_OUTPUTMIX(pDevice->sles.pOutputMix)->ReRoute((SLOutputMixItf)pDevice->sles.pOutputMix, 1, &pDeviceID->id32);
         }
 
+        SLDataSource source;
+        source.pLocator = &queue;
+        source.pFormat = &pcm;
 
         SLDataLocator_OutputMix outmixLocator;
         outmixLocator.locatorType = SL_DATALOCATOR_OUTPUTMIX;
