@@ -3029,7 +3029,7 @@ static mal_result mal_device_init__slse(mal_device* pDevice, mal_device_type typ
     pDevice->bufferSizeInFrames = pDevice->sles.periodSizeInFrames * periods;
 
     SLDataLocator_BufferQueue queue;
-    queue.locatorType = SL_DATALOCATOR_BUFFERQUEUE;
+    queue.locatorType = SL_DATALOCATOR_ANDROIDSIMPLEBUFFERQUEUE;
     queue.numBuffers = periods;
 
     SLDataFormat_PCM pcm;
@@ -3075,7 +3075,7 @@ static mal_result mal_device_init__slse(mal_device* pDevice, mal_device_type typ
         sink.pLocator = &outmixLocator;
         sink.pFormat = NULL;
 
-        const SLInterfaceID itfIDs1[] = {SL_IID_BUFFERQUEUE};
+        const SLInterfaceID itfIDs1[] = {SL_IID_ANDROIDSIMPLEBUFFERQUEUE};
         const SLboolean itfIDsRequired1[] = {SL_BOOLEAN_TRUE};
         if ((*g_malEngineSL)->CreateAudioPlayer(g_malEngineSL, (SLObjectItf*)&pDevice->sles.pAudioPlayerObj, &source, &sink, 1, itfIDs1, itfIDsRequired1) != SL_RESULT_SUCCESS) {
             mal_device_uninit__slse(pDevice);
@@ -3142,21 +3142,25 @@ static mal_result mal_device__start_backend__slse(mal_device* pDevice)
 {
     mal_assert(pDevice != NULL);
 
-    SLresult resultSL = MAL_SLES_PLAY(pDevice->sles.pAudioPlayer)->SetPlayState((SLPlayItf)pDevice->sles.pAudioPlayer, SL_PLAYSTATE_PLAYING);
-    if (resultSL != SL_RESULT_SUCCESS) {
-        return MAL_FAILED_TO_START_BACKEND_DEVICE;
-    }
-
-    // We need to enqueue a buffer for each period.
-    mal_device__read_frames_from_client(pDevice, pDevice->bufferSizeInFrames, pDevice->sles.pBuffer);
-
-    size_t periodSizeInBytes = pDevice->sles.periodSizeInFrames * pDevice->channels * mal_get_sample_size_in_bytes(pDevice->format);
-    for (mal_uint32 iPeriod = 0; iPeriod < pDevice->periods; ++iPeriod) {
-        resultSL = MAL_SLES_BUFFERQUEUE(pDevice->sles.pBufferQueue)->Enqueue((SLAndroidSimpleBufferQueueItf)pDevice->sles.pBufferQueue, pDevice->sles.pBuffer + (periodSizeInBytes*iPeriod), periodSizeInBytes);
+    if (pDevice->type == mal_device_type_playback) {
+        SLresult resultSL = MAL_SLES_PLAY(pDevice->sles.pAudioPlayer)->SetPlayState((SLPlayItf)pDevice->sles.pAudioPlayer, SL_PLAYSTATE_PLAYING);
         if (resultSL != SL_RESULT_SUCCESS) {
-            SLresult resultSL = MAL_SLES_PLAY(pDevice->sles.pAudioPlayer)->SetPlayState((SLPlayItf)pDevice->sles.pAudioPlayer, SL_PLAYSTATE_STOPPED);
             return MAL_FAILED_TO_START_BACKEND_DEVICE;
         }
+
+        // We need to enqueue a buffer for each period.
+        mal_device__read_frames_from_client(pDevice, pDevice->bufferSizeInFrames, pDevice->sles.pBuffer);
+
+        size_t periodSizeInBytes = pDevice->sles.periodSizeInFrames * pDevice->channels * mal_get_sample_size_in_bytes(pDevice->format);
+        for (mal_uint32 iPeriod = 0; iPeriod < pDevice->periods; ++iPeriod) {
+            resultSL = MAL_SLES_BUFFERQUEUE(pDevice->sles.pBufferQueue)->Enqueue((SLAndroidSimpleBufferQueueItf)pDevice->sles.pBufferQueue, pDevice->sles.pBuffer + (periodSizeInBytes * iPeriod), periodSizeInBytes);
+            if (resultSL != SL_RESULT_SUCCESS) {
+                SLresult resultSL = MAL_SLES_PLAY(pDevice->sles.pAudioPlayer)->SetPlayState((SLPlayItf)pDevice->sles.pAudioPlayer, SL_PLAYSTATE_STOPPED);
+                return MAL_FAILED_TO_START_BACKEND_DEVICE;
+            }
+        }
+    } else {
+        // TODO: Implement me.
     }
 
     return MAL_SUCCESS;
@@ -3166,9 +3170,13 @@ static mal_result mal_device__stop_backend__slse(mal_device* pDevice)
 {
     mal_assert(pDevice != NULL);
 
-    SLresult resultSL = MAL_SLES_PLAY(pDevice->sles.pAudioPlayer)->SetPlayState((SLPlayItf)pDevice->sles.pAudioPlayer, SL_PLAYSTATE_STOPPED);
-    if (resultSL != SL_RESULT_SUCCESS) {
-        return MAL_FAILED_TO_STOP_BACKEND_DEVICE;
+    if (pDevice->type == mal_device_type_playback) {
+        SLresult resultSL = MAL_SLES_PLAY(pDevice->sles.pAudioPlayer)->SetPlayState((SLPlayItf)pDevice->sles.pAudioPlayer, SL_PLAYSTATE_STOPPED);
+        if (resultSL != SL_RESULT_SUCCESS) {
+            return MAL_FAILED_TO_STOP_BACKEND_DEVICE;
+        }
+    } else {
+        // TODO: Implement me.
     }
 
     // Make sure any queued buffers are cleared.
