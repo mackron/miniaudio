@@ -1,5 +1,5 @@
 // Mini audio library. Public domain. See "unlicense" statement at the end of this file.
-// mini_al - v0.1 - 2016-10-21
+// mini_al - v0.2 - TBD
 //
 // David Reid - mackron@gmail.com
 
@@ -3809,6 +3809,9 @@ mal_uint32 mal_get_sample_size_in_bytes(mal_format format)
 // REVISION HISTORY
 // ================
 //
+// v0.2 - TBD
+//   - Added initial implementation of the OpenSL|ES backend. This is unstable.
+//
 // v0.1 - 2016-10-21
 //   - Initial versioned release.
 
@@ -3819,7 +3822,14 @@ mal_uint32 mal_get_sample_size_in_bytes(mal_format format)
 // ALSA
 // ----
 // - Use runtime linking for asound.
-// - Finish mmap mode for ALSA.
+// - Finish mmap mode.
+//
+//
+// OpenSL|ES / Android
+// -------------------
+// - Test!
+// - Add software f32 conversion
+//   - 32-bit floating point formats are only supported from API Level 21.
 
 
 /*
