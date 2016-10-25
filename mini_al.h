@@ -20,7 +20,7 @@
 //   - ALSA (Linux Only)
 //   - null
 //   - ... and more in the future.
-//     - OpenSL|ES / Android
+//     - OpenSL|ES / Android (Unstable)
 //     - Core Audio (OSX, iOS)
 //     - Maybe OSS
 //     - Maybe OpenAL
