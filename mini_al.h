@@ -448,7 +448,7 @@ mal_result mal_enumerate_devices(mal_device_type type, mal_uint32* pCount, mal_d
 // Efficiency: LOW
 //   This API will dynamically link to backend DLLs/SOs like dsound.dll, and is otherwise just slow
 //   due to the nature of it being an initialization API.
-mal_result mal_device_init(mal_device* pDevice, mal_device_type type, mal_device_id* pDeviceID, mal_format format, mal_uint32 channels, mal_uint32 sampleRate, mal_uint32 bufferSizeInFrames, mal_uint32 periods, mal_log_proc onLog);
+mal_result mal_device_init(mal_device* pDevice, mal_device_type type, mal_device_id* pDeviceID, mal_format format, mal_uint32 channels, mal_uint32 sampleRate, mal_uint32 bufferSizeInFrames, mal_uint32 periods, mal_log_proc onLog, void* pUserData);
 
 // Uninitializes a device.
 //
@@ -3437,11 +3437,14 @@ mal_result mal_enumerate_devices(mal_device_type type, mal_uint32* pCount, mal_d
     return result;
 }
 
-mal_result mal_device_init(mal_device* pDevice, mal_device_type type, mal_device_id* pDeviceID, mal_format format, mal_uint32 channels, mal_uint32 sampleRate, mal_uint32 bufferSizeInFrames, mal_uint32 periods, mal_log_proc onLog)
+mal_result mal_device_init(mal_device* pDevice, mal_device_type type, mal_device_id* pDeviceID, mal_format format, mal_uint32 channels, mal_uint32 sampleRate, mal_uint32 bufferSizeInFrames, mal_uint32 periods, mal_log_proc onLog, void* pUserData)
 {
     if (pDevice == NULL) return mal_post_error(pDevice, "mal_device_init() called with invalid arguments.", MAL_INVALID_ARGS);
     mal_zero_object(pDevice);
-    pDevice->onLog = onLog;     // <-- Set this ASAP to ensure as many log messages are captured as possible during initialization.
+
+    // Set the user data and log callback ASAP to ensure it is available for the entire initialization process.
+    pDevice->pUserData = pUserData;
+    pDevice->onLog = onLog;
 
     if (((mal_uint64)pDevice % sizeof(pDevice)) != 0) {
         if (pDevice->onLog) {
