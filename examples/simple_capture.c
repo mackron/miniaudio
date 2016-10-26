@@ -47,9 +47,16 @@ mal_uint32 on_send_frames(mal_device* pDevice, mal_uint32 frameCount, void* pSam
 
 int main()
 {
+	mal_device_config config;
+	config.format = mal_format_f32;
+	config.channels = 2;
+	config.sampleRate = 48000;
+	config.bufferSizeInFrames = 0;	// Use default.
+	config.periods = 0;				// Use default.
+
     printf("Recording...\n");
     mal_device captureDevice;
-    if (mal_device_init(&captureDevice, mal_device_type_capture, NULL, mal_format_f32, 2, 48000, 0, 0, NULL)) {
+    if (mal_device_init(&captureDevice, mal_device_type_capture, NULL, &config, NULL, NULL)) {
         printf("Failed to initialize capture device.\n");
         return -2;
     }
@@ -64,7 +71,7 @@ int main()
 
     printf("Playing...\n");
     mal_device playbackDevice;
-    if (mal_device_init(&playbackDevice, mal_device_type_playback, NULL, mal_format_f32, 2, 48000, 0, 0, NULL)) {
+    if (mal_device_init(&playbackDevice, mal_device_type_playback, NULL, &config, NULL, NULL)) {
         printf("Failed to initialize playback device.\n");
         return -3;
     }

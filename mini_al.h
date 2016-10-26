@@ -62,13 +62,19 @@
 //
 //   ...
 //
+//   mal_device_config config;
+//   config.format = mal_format_f32;
+//   config.channels = wav.channels;
+//   config.sampleRate = wav.sampleRate;
+//   config.bufferSizeInFrames = 0; // Use default.
+//   config.periods = 0;            // Use default.
+//
 //   mal_device device;
-//   mal_result result = mal_device_init(&device, mal_device_type_playback, &id, mal_format_f32, wav.channels, wav.sampleRate, 16384, 2, NULL);
+//   mal_result result = mal_device_init(&device, mal_device_type_playback, NULL, &config, NULL, pMyData);
 //   if (result != MAL_SUCCESS) {
 //       return -1;
 //   }
 //
-//   device.pUserData = pMyData;    // pUserData is reserved for you. Use it to pass data to callbacks.
 //   mal_device_set_send_callback(&device, on_send_samples);
 //   mal_device_start(&device);     // The device is sleeping by default so you'll need to start it manually.
 //
@@ -308,6 +314,14 @@ typedef struct
     int64_t counter;
 } mal_timer;
 
+typedef struct
+{
+    mal_format format;
+    mal_uint32 channels;
+    mal_uint32 sampleRate;
+    mal_uint32 bufferSizeInFrames;
+    mal_uint32 periods;
+} mal_device_config;
 
 struct mal_device
 {
@@ -448,7 +462,7 @@ mal_result mal_enumerate_devices(mal_device_type type, mal_uint32* pCount, mal_d
 // Efficiency: LOW
 //   This API will dynamically link to backend DLLs/SOs like dsound.dll, and is otherwise just slow
 //   due to the nature of it being an initialization API.
-mal_result mal_device_init(mal_device* pDevice, mal_device_type type, mal_device_id* pDeviceID, mal_format format, mal_uint32 channels, mal_uint32 sampleRate, mal_uint32 bufferSizeInFrames, mal_uint32 periods, mal_log_proc onLog, void* pUserData);
+mal_result mal_device_init(mal_device* pDevice, mal_device_type type, mal_device_id* pDeviceID, mal_device_config* pConfig, mal_log_proc onLog, void* pUserData);
 
 // Uninitializes a device.
 //
@@ -1318,12 +1332,15 @@ static void mal_device_uninit__null(mal_device* pDevice)
     mal_free(pDevice->null_device.pBuffer);
 }
 
-static mal_result mal_device_init__null(mal_device* pDevice, mal_device_type type, mal_device_id* pDeviceID, mal_format format, mal_uint32 channels, mal_uint32 sampleRate, mal_uint32 bufferSizeInFrames, mal_uint32 periods)
+static mal_result mal_device_init__null(mal_device* pDevice, mal_device_type type, mal_device_id* pDeviceID, mal_device_config* pConfig)
 {
+    (void)type;
+    (void)pDeviceID;
+
     mal_assert(pDevice != NULL);
     pDevice->api = mal_api_null;
-    pDevice->bufferSizeInFrames = bufferSizeInFrames;
-    pDevice->periods = periods;
+    pDevice->bufferSizeInFrames = pConfig->bufferSizeInFrames;
+    pDevice->periods = pConfig->periods;
 
     pDevice->null_device.pBuffer = (mal_uint8*)mal_malloc(pDevice->bufferSizeInFrames * pDevice->channels * mal_get_sample_size_in_bytes(pDevice->format));
     if (pDevice->null_device.pBuffer == NULL) {
@@ -1641,7 +1658,7 @@ static void mal_device_uninit__dsound(mal_device* pDevice)
     }
 }
 
-static mal_result mal_device_init__dsound(mal_device* pDevice, mal_device_type type, mal_device_id* pDeviceID, mal_format format, mal_uint32 channels, mal_uint32 sampleRate, mal_uint32 bufferSizeInFrames, mal_uint32 periods)
+static mal_result mal_device_init__dsound(mal_device* pDevice, mal_device_type type, mal_device_id* pDeviceID, mal_device_config* pConfig)
 {
     mal_assert(pDevice != NULL);
     pDevice->api = mal_api_dsound;
@@ -1654,7 +1671,7 @@ static mal_result mal_device_init__dsound(mal_device* pDevice, mal_device_type t
 
     // Check that we have a valid format.
     GUID subformat;
-    switch (format)
+    switch (pConfig->format)
     {
         case mal_format_u8:
         case mal_format_s16:
@@ -1689,13 +1706,13 @@ static mal_result mal_device_init__dsound(mal_device* pDevice, mal_device_type t
     mal_zero_object(&wf);
     wf.Format.cbSize               = sizeof(wf);
     wf.Format.wFormatTag           = WAVE_FORMAT_EXTENSIBLE;
-    wf.Format.nChannels            = (WORD)channels;
-    wf.Format.nSamplesPerSec       = (DWORD)sampleRate;
-    wf.Format.wBitsPerSample       = mal_get_sample_size_in_bytes(format)*8;
+    wf.Format.nChannels            = (WORD)pConfig->channels;
+    wf.Format.nSamplesPerSec       = (DWORD)pConfig->sampleRate;
+    wf.Format.wBitsPerSample       = mal_get_sample_size_in_bytes(pConfig->format)*8;
     wf.Format.nBlockAlign          = (wf.Format.nChannels * wf.Format.wBitsPerSample) / 8;
     wf.Format.nAvgBytesPerSec      = wf.Format.nBlockAlign * wf.Format.nSamplesPerSec;
     wf.Samples.wValidBitsPerSample = wf.Format.wBitsPerSample;
-    wf.dwChannelMask               = (channels <= 2) ? 0 : ~(((DWORD)-1) << channels);
+    wf.dwChannelMask               = (pConfig->channels <= 2) ? 0 : ~(((DWORD)-1) << pConfig->channels);
     wf.SubFormat                   = subformat;
 
     DWORD bufferSizeInBytes = 0;
@@ -2529,13 +2546,13 @@ static void mal_device_uninit__alsa(mal_device* pDevice)
     }
 }
 
-static mal_result mal_device_init__alsa(mal_device* pDevice, mal_device_type type, mal_device_id* pDeviceID, mal_format format, mal_uint32 channels, mal_uint32 sampleRate, mal_uint32 bufferSizeInFrames, mal_uint32 periods)
+static mal_result mal_device_init__alsa(mal_device* pDevice, mal_device_type type, mal_device_id* pDeviceID, mal_device_config* pConfig)
 {
     mal_assert(pDevice != NULL);
     pDevice->api = mal_api_alsa;
 
     snd_pcm_format_t formatALSA;
-    switch (format)
+    switch (pConfig->format)
     {
         case mal_format_u8:    formatALSA = SND_PCM_FORMAT_U8;         break;
         case mal_format_s16:   formatALSA = SND_PCM_FORMAT_S16_LE;     break;
@@ -2590,18 +2607,18 @@ static mal_result mal_device_init__alsa(mal_device* pDevice, mal_device_type typ
     // Most important properties first.
 
     // Sample Rate
-    if (snd_pcm_hw_params_set_rate_near((snd_pcm_t*)pDevice->alsa.pPCM, pHWParams, &sampleRate, 0) < 0) {
+    if (snd_pcm_hw_params_set_rate_near((snd_pcm_t*)pDevice->alsa.pPCM, pHWParams, &pConfig->sampleRate, 0) < 0) {
         mal_device_uninit__alsa(pDevice);
         return mal_post_error(pDevice, "[ALSA] Sample rate not supported. snd_pcm_hw_params_set_rate_near() failed.", MAL_FORMAT_NOT_SUPPORTED);
     }
-    pDevice->sampleRate = sampleRate;
+    pDevice->sampleRate = pConfig->sampleRate;
 
     // Channels.
-    if (snd_pcm_hw_params_set_channels_near((snd_pcm_t*)pDevice->alsa.pPCM, pHWParams, &channels) < 0) {
+    if (snd_pcm_hw_params_set_channels_near((snd_pcm_t*)pDevice->alsa.pPCM, pHWParams, &pConfig->channels) < 0) {
         mal_device_uninit__alsa(pDevice);
         return mal_post_error(pDevice, "[ALSA] Failed to set channel count. snd_pcm_hw_params_set_channels_near() failed.", MAL_FORMAT_NOT_SUPPORTED);
     }
-    pDevice->channels = channels;
+    pDevice->channels = pConfig->channels;
 
 
     // Format.
@@ -2612,7 +2629,7 @@ static mal_result mal_device_init__alsa(mal_device* pDevice, mal_device_type typ
 
 
     // Buffer Size
-    snd_pcm_uframes_t actualBufferSize = bufferSizeInFrames;
+    snd_pcm_uframes_t actualBufferSize = pConfig->bufferSizeInFrames;
     if (snd_pcm_hw_params_set_buffer_size_near((snd_pcm_t*)pDevice->alsa.pPCM, pHWParams, &actualBufferSize) < 0) {
         mal_device_uninit__alsa(pDevice);
         return mal_post_error(pDevice, "[ALSA] Failed to set buffer size for device. snd_pcm_hw_params_set_buffer_size() failed.", MAL_FORMAT_NOT_SUPPORTED);
@@ -2621,13 +2638,13 @@ static mal_result mal_device_init__alsa(mal_device* pDevice, mal_device_type typ
 
     // Periods.
     int dir = 0;
-    if (snd_pcm_hw_params_set_periods_near((snd_pcm_t*)pDevice->alsa.pPCM, pHWParams, &periods, &dir) < 0) {
+    if (snd_pcm_hw_params_set_periods_near((snd_pcm_t*)pDevice->alsa.pPCM, pHWParams, &pConfig->periods, &dir) < 0) {
         mal_device_uninit__alsa(pDevice);
         return mal_post_error(pDevice, "[ALSA] Failed to set period count. snd_pcm_hw_params_set_periods_near() failed.", MAL_FORMAT_NOT_SUPPORTED);
     }
 
     pDevice->bufferSizeInFrames = actualBufferSize;
-    pDevice->periods = periods;
+    pDevice->periods = pConfig->periods;
 
 
 
@@ -2928,6 +2945,8 @@ static mal_uint32 g_malSLESInitCounter = 0;
 //static void mal_buffer_queue_callback__sles_android(SLAndroidSimpleBufferQueueItf pBufferQueue, SLuint32 eventFlags, const void* pBuffer, SLuint32 bufferSize, SLuint32 dataUsed, void* pContext)
 static void mal_buffer_queue_callback__sles_android(SLAndroidSimpleBufferQueueItf pBufferQueue, void* pUserData)
 {
+    (void)pBufferQueue;
+
     // For now, only supporting Android implementations of OpenSL|ES since that's the only one I've
     // been able to test with and I currently depend on Android-specific extensions (simple buffer
     // queues).
@@ -2995,7 +3014,7 @@ static void mal_device_uninit__sles(mal_device* pDevice)
     }
 }
 
-static mal_result mal_device_init__sles(mal_device* pDevice, mal_device_type type, mal_device_id* pDeviceID, mal_format format, mal_uint32 channels, mal_uint32 sampleRate, mal_uint32 bufferSizeInFrames, mal_uint32 periods)
+static mal_result mal_device_init__sles(mal_device* pDevice, mal_device_type type, mal_device_id* pDeviceID, mal_device_config* pConfig)
 {
     // For now, only supporting Android implementations of OpenSL|ES since that's the only one I've
     // been able to test with and I currently depend on Android-specific extensions (simple buffer
@@ -3027,20 +3046,20 @@ static mal_result mal_device_init__sles(mal_device* pDevice, mal_device_type typ
     mal_assert(pDevice != NULL);
     pDevice->api = mal_api_sles;
     pDevice->sles.currentBufferIndex = 0;
-    pDevice->sles.periodSizeInFrames = bufferSizeInFrames / periods;
-    pDevice->bufferSizeInFrames = pDevice->sles.periodSizeInFrames * periods;
+    pDevice->sles.periodSizeInFrames = pConfig->bufferSizeInFrames / pConfig->periods;
+    pDevice->bufferSizeInFrames = pDevice->sles.periodSizeInFrames * pConfig->periods;
 
     SLDataLocator_AndroidSimpleBufferQueue queue;
     queue.locatorType = SL_DATALOCATOR_ANDROIDSIMPLEBUFFERQUEUE;
-    queue.numBuffers = periods;
+    queue.numBuffers = pConfig->periods;
 
     SLDataFormat_PCM pcm;
     pcm.formatType = SL_DATAFORMAT_PCM;
-    pcm.numChannels = channels;
-    pcm.samplesPerSec = sampleRate * 1000;  // In millihertz because, you know, the people who wrote the OpenSL|ES spec thought it would be funny to be the _only_ API to do this...
-    pcm.bitsPerSample = mal_get_sample_size_in_bytes(format) * 8;
+    pcm.numChannels = pConfig->channels;
+    pcm.samplesPerSec = pConfig->sampleRate * 1000;  // In millihertz because, you know, the people who wrote the OpenSL|ES spec thought it would be funny to be the _only_ API to do this...
+    pcm.bitsPerSample = mal_get_sample_size_in_bytes(pConfig->format) * 8;
     pcm.containerSize = pcm.bitsPerSample;  // Always tightly packed for now.
-    pcm.channelMask = ~((~0UL) << channels);
+    pcm.channelMask = ~((~0UL) << pConfig->channels);
     pcm.endianness = SL_BYTEORDER_LITTLEENDIAN;
 
     if (type == mal_device_type_playback) {
@@ -3194,7 +3213,7 @@ static mal_result mal_device__start_backend__sles(mal_device* pDevice)
         for (mal_uint32 iPeriod = 0; iPeriod < pDevice->periods; ++iPeriod) {
             resultSL = MAL_SLES_BUFFERQUEUE(pDevice->sles.pBufferQueue)->Enqueue((SLAndroidSimpleBufferQueueItf)pDevice->sles.pBufferQueue, pDevice->sles.pBuffer + (periodSizeInBytes * iPeriod), periodSizeInBytes);
             if (resultSL != SL_RESULT_SUCCESS) {
-                SLresult resultSL = MAL_SLES_PLAY(pDevice->sles.pAudioPlayer)->SetPlayState((SLPlayItf)pDevice->sles.pAudioPlayer, SL_PLAYSTATE_STOPPED);
+                MAL_SLES_PLAY(pDevice->sles.pAudioPlayer)->SetPlayState((SLPlayItf)pDevice->sles.pAudioPlayer, SL_PLAYSTATE_STOPPED);
                 return MAL_FAILED_TO_START_BACKEND_DEVICE;
             }
         }
@@ -3208,7 +3227,7 @@ static mal_result mal_device__start_backend__sles(mal_device* pDevice)
         for (mal_uint32 iPeriod = 0; iPeriod < pDevice->periods; ++iPeriod) {
             resultSL = MAL_SLES_BUFFERQUEUE(pDevice->sles.pBufferQueue)->Enqueue((SLAndroidSimpleBufferQueueItf)pDevice->sles.pBufferQueue, pDevice->sles.pBuffer + (periodSizeInBytes * iPeriod), periodSizeInBytes);
             if (resultSL != SL_RESULT_SUCCESS) {
-                SLresult resultSL = MAL_SLES_RECORD(pDevice->sles.pAudioRecorder)->SetRecordState((SLRecordItf)pDevice->sles.pAudioRecorder, SL_RECORDSTATE_STOPPED);
+                MAL_SLES_RECORD(pDevice->sles.pAudioRecorder)->SetRecordState((SLRecordItf)pDevice->sles.pAudioRecorder, SL_RECORDSTATE_STOPPED);
                 return MAL_FAILED_TO_START_BACKEND_DEVICE;
             }
         }
@@ -3437,7 +3456,7 @@ mal_result mal_enumerate_devices(mal_device_type type, mal_uint32* pCount, mal_d
     return result;
 }
 
-mal_result mal_device_init(mal_device* pDevice, mal_device_type type, mal_device_id* pDeviceID, mal_format format, mal_uint32 channels, mal_uint32 sampleRate, mal_uint32 bufferSizeInFrames, mal_uint32 periods, mal_log_proc onLog, void* pUserData)
+mal_result mal_device_init(mal_device* pDevice, mal_device_type type, mal_device_id* pDeviceID, mal_device_config* pConfig, mal_log_proc onLog, void* pUserData)
 {
     if (pDevice == NULL) return mal_post_error(pDevice, "mal_device_init() called with invalid arguments.", MAL_INVALID_ARGS);
     mal_zero_object(pDevice);
@@ -3452,18 +3471,18 @@ mal_result mal_device_init(mal_device* pDevice, mal_device_type type, mal_device
         }
     }
 
-    if (channels == 0 || sampleRate == 0) return mal_post_error(pDevice, "mal_device_init() called with invalid arguments.", MAL_INVALID_ARGS);
+    if (pConfig == NULL || pConfig->channels == 0 || pConfig->sampleRate == 0) return mal_post_error(pDevice, "mal_device_init() called with invalid arguments.", MAL_INVALID_ARGS);
 
     // Default buffer size and periods.
-    if (bufferSizeInFrames == 0) bufferSizeInFrames = (sampleRate/1000) * MAL_DEFAULT_BUFFER_SIZE_IN_MILLISECONDS;
-    if (periods == 0) periods = MAL_DEFAULT_PERIODS;
+    if (pConfig->bufferSizeInFrames == 0) pConfig->bufferSizeInFrames = (pConfig->sampleRate/1000) * MAL_DEFAULT_BUFFER_SIZE_IN_MILLISECONDS;
+    if (pConfig->periods == 0) pConfig->periods = MAL_DEFAULT_PERIODS;
 
     pDevice->type = type;
-    pDevice->format = format;
-    pDevice->channels = channels;
-    pDevice->sampleRate = sampleRate;
-    pDevice->bufferSizeInFrames = bufferSizeInFrames;
-    pDevice->periods = periods;
+    pDevice->format = pConfig->format;
+    pDevice->channels = pConfig->channels;
+    pDevice->sampleRate = pConfig->sampleRate;
+    pDevice->bufferSizeInFrames = pConfig->bufferSizeInFrames;
+    pDevice->periods = pConfig->periods;
 
     if (!mal_mutex_create(&pDevice->lock)) {
         return mal_post_error(pDevice, "Failed to create mutex.", MAL_FAILED_TO_CREATE_MUTEX);
@@ -3494,22 +3513,22 @@ mal_result mal_device_init(mal_device* pDevice, mal_device_type type, mal_device
     mal_result result = MAL_NO_BACKEND;
 #ifdef MAL_ENABLE_DSOUND
     if (result != MAL_SUCCESS) {
-        result = mal_device_init__dsound(pDevice, type, pDeviceID, format, channels, sampleRate, bufferSizeInFrames, periods);
+        result = mal_device_init__dsound(pDevice, type, pDeviceID, pConfig);
     }
 #endif
 #ifdef MAL_ENABLE_ALSA
     if (result != MAL_SUCCESS) {
-        result = mal_device_init__alsa(pDevice, type, pDeviceID, format, channels, sampleRate, bufferSizeInFrames, periods);
+        result = mal_device_init__alsa(pDevice, type, pDeviceID, pConfig);
     }
 #endif
 #ifdef MAL_ENABLE_OPENSLES
     if (result != MAL_SUCCESS) {
-        result = mal_device_init__sles(pDevice, type, pDeviceID, format, channels, sampleRate, bufferSizeInFrames, periods);
+        result = mal_device_init__sles(pDevice, type, pDeviceID, pConfig);
     }
 #endif
 #ifdef MAL_ENABLE_NULL
     if (result != MAL_SUCCESS) {
-        result = mal_device_init__null(pDevice, type, pDeviceID, format, channels, sampleRate, bufferSizeInFrames, periods);
+        result = mal_device_init__null(pDevice, type, pDeviceID, pConfig);
     }
 #endif
 
@@ -3813,6 +3832,12 @@ mal_uint32 mal_get_sample_size_in_bytes(mal_format format)
 // ================
 //
 // v0.2 - TBD
+//   - API CHANGE: Add user data pointer as the last parameter to mal_device_init(). The rationale for this
+//     change is to ensure the logging callback has access to the user data during initialization.
+//   - API CHANGE: Have device configuration properties be passed to mal_device_init() via a structure. Rationale:
+//     1) The number of parameters is just getting too much.
+//     2) It makes it a bit easier to add new configuration properties in the future. In particular, there's a
+//        chance there will be support added for backend-specific properties.
 //   - Added initial implementation of the OpenSL|ES backend. This is unstable.
 //
 // v0.1 - 2016-10-21

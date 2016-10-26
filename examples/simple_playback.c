@@ -31,8 +31,15 @@ int main(int argc, char** argv)
     }
     
     // In this example we use the default playback device with a default buffer size and period count.
+	mal_device_config config;
+	config.format = mal_format_f32;
+	config.channels = wav.channels;
+	config.sampleRate = wav.sampleRate;
+	config.bufferSizeInFrames = 0;	// Use default.
+	config.periods = 0;				// Use default.
+	
     mal_device device;
-    if (mal_device_init(&device, mal_device_type_playback, NULL, mal_format_f32, wav.channels, wav.sampleRate, 0, 0, NULL) != MAL_SUCCESS) {
+    if (mal_device_init(&device, mal_device_type_playback, NULL, &config, NULL, NULL) != MAL_SUCCESS) {
         printf("Failed to open playback device.");
         drwav_uninit(&wav);
         return -3;
