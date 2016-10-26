@@ -333,6 +333,7 @@ struct mal_device
     mal_uint32 bufferSizeInFrames;
     mal_uint32 periods;
     mal_uint32 state;
+    mal_uint32 flags;       // MAL_DEVICE_FLAG_*
     mal_recv_proc onRecv;
     mal_send_proc onSend;
     mal_stop_proc onStop;
@@ -717,6 +718,9 @@ typedef mal_thread_result (MAL_THREADCALL * mal_thread_entry_proc)(void* pData);
 #define MAL_STATE_STARTED           2   // The worker thread is in it's main loop waiting for the driver to request or deliver audio data.
 #define MAL_STATE_STARTING          3   // Transitioning from a stopped state to started.
 #define MAL_STATE_STOPPING          4   // Transitioning from a started state to stopped.
+
+#define MAL_DEVICE_FLAG_USING_DEFAULT_BUFFER_SIZE   (1 << 0)
+#define MAL_DEVICE_FLAG_USING_DEFAULT_PERIODS       (1 << 1)
 
 ///////////////////////////////////////////////////////////////////////////////
 //
@@ -1804,6 +1808,12 @@ static mal_result mal_device_init__dsound(mal_device* pDevice, mal_device_type t
             return mal_post_error(pDevice, "[DirectSound] IDirectSoundBuffer8_QueryInterface() failed for playback device's IDirectSoundNotify object.", MAL_DSOUND_FAILED_TO_QUERY_INTERFACE);
         }
     } else {
+        // The default buffer size is treated slightly differently for DirectSound which, for some reason, seems to
+        // have worse latency with capture than playback (sometimes _much_ worse).
+        if (pDevice->flags & MAL_DEVICE_FLAG_USING_DEFAULT_BUFFER_SIZE) {
+            pDevice->bufferSizeInFrames *= 2; // <-- Might need to fiddle with this to find a more ideal value. May even be able to just add a fixed amount rather than scaling.
+        }
+
         mal_DirectSoundCaptureCreate8Proc pDirectSoundCaptureCreate8 = (mal_DirectSoundCaptureCreate8Proc)GetProcAddress((HMODULE)pDevice->dsound.hDSoundDLL, "DirectSoundCaptureCreate8");
         if (pDirectSoundCaptureCreate8 == NULL) {
             mal_device_uninit__dsound(pDevice);
@@ -3474,8 +3484,14 @@ mal_result mal_device_init(mal_device* pDevice, mal_device_type type, mal_device
     if (pConfig == NULL || pConfig->channels == 0 || pConfig->sampleRate == 0) return mal_post_error(pDevice, "mal_device_init() called with invalid arguments.", MAL_INVALID_ARGS);
 
     // Default buffer size and periods.
-    if (pConfig->bufferSizeInFrames == 0) pConfig->bufferSizeInFrames = (pConfig->sampleRate/1000) * MAL_DEFAULT_BUFFER_SIZE_IN_MILLISECONDS;
-    if (pConfig->periods == 0) pConfig->periods = MAL_DEFAULT_PERIODS;
+    if (pConfig->bufferSizeInFrames == 0) {
+        pConfig->bufferSizeInFrames = (pConfig->sampleRate/1000) * MAL_DEFAULT_BUFFER_SIZE_IN_MILLISECONDS;
+        pDevice->flags |= MAL_DEVICE_FLAG_USING_DEFAULT_BUFFER_SIZE;
+    }
+    if (pConfig->periods == 0) {
+        pConfig->periods = MAL_DEFAULT_PERIODS;
+        pDevice->flags |= MAL_DEVICE_FLAG_USING_DEFAULT_PERIODS;
+    }
 
     pDevice->type = type;
     pDevice->format = pConfig->format;
@@ -3838,6 +3854,7 @@ mal_uint32 mal_get_sample_size_in_bytes(mal_format format)
 //     1) The number of parameters is just getting too much.
 //     2) It makes it a bit easier to add new configuration properties in the future. In particular, there's a
 //        chance there will be support added for backend-specific properties.
+//   - DirectSound: Increased the default buffer size for capture devices.
 //   - Added initial implementation of the OpenSL|ES backend. This is unstable.
 //
 // v0.1 - 2016-10-21
@@ -3851,6 +3868,8 @@ mal_uint32 mal_get_sample_size_in_bytes(mal_format format)
 // ----
 // - Use runtime linking for asound.
 // - Finish mmap mode.
+// - Tweak the default buffer size and period counts. Pretty sure the ALSA backend can support a much smaller
+//   default buffer size.
 //
 //
 // OpenSL|ES / Android
