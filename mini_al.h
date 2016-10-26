@@ -15,7 +15,7 @@
 // delivered from the application to the device in the case of playback. Synchronous APIs are not
 // supported in the interest of keeping the library as small and light-weight as possible.
 //
-// Supported backends:
+// Supported Backends:
 //   - DirectSound (Windows Only)
 //   - ALSA (Linux Only)
 //   - null
@@ -24,6 +24,13 @@
 //     - Core Audio (OSX, iOS)
 //     - Maybe OSS
 //     - Maybe OpenAL
+//
+// Supported Formats (Not all backends support all formats):
+//   - Unsigned 8-bit PCM
+//   - Signed 16-bit PCM
+//   - Signed 24-bit PCM (tightly packed)
+//   - Signed 32-bit PCM
+//   - IEEE 32-bit floating point PCM
 //
 //
 // USAGE
@@ -287,13 +294,10 @@ typedef enum
     // I like to keep these explicitly defined because they're used as a key into a lookup table. When items are
     // added to this, make sure there are no gaps and that they're added to the lookup table in mal_get_sample_size_in_bytes().
     mal_format_u8    = 0,
-    mal_format_s16   = 1,
+    mal_format_s16   = 1,   // Seems to be the most widely supported format.
     mal_format_s24   = 2,   // Tightly packed. 3 bytes per sample.
     mal_format_s32   = 3,
     mal_format_f32   = 4,
-    mal_format_f64   = 5,
-    mal_format_alaw  = 6,
-    mal_format_mulaw = 7
 } mal_format;
 
 typedef union
@@ -1524,8 +1528,8 @@ static GUID _g_mal_GUID_IID_DirectSoundNotify           = {0xb0210783, 0x89cd, 0
 static GUID _g_mal_GUID_IID_IDirectSoundCaptureBuffer8  = {0x00990df4, 0x0dbb, 0x4872, {0x83, 0x3e, 0x6d, 0x30, 0x3e, 0x80, 0xae, 0xb6}};
 static GUID _g_mal_GUID_KSDATAFORMAT_SUBTYPE_PCM        = {0x00000001, 0x0000, 0x0010, {0x80, 0x00, 0x00, 0xaa, 0x00, 0x38, 0x9b, 0x71}};
 static GUID _g_mal_GUID_KSDATAFORMAT_SUBTYPE_IEEE_FLOAT = {0x00000003, 0x0000, 0x0010, {0x80, 0x00, 0x00, 0xaa, 0x00, 0x38, 0x9b, 0x71}};
-static GUID _g_mal_GUID_KSDATAFORMAT_SUBTYPE_ALAW       = {0x00000006, 0x0000, 0x0010, {0x80, 0x00, 0x00, 0xaa, 0x00, 0x38, 0x9b, 0x71}};
-static GUID _g_mal_GUID_KSDATAFORMAT_SUBTYPE_MULAW      = {0x00000007, 0x0000, 0x0010, {0x80, 0x00, 0x00, 0xaa, 0x00, 0x38, 0x9b, 0x71}};
+//static GUID _g_mal_GUID_KSDATAFORMAT_SUBTYPE_ALAW       = {0x00000006, 0x0000, 0x0010, {0x80, 0x00, 0x00, 0xaa, 0x00, 0x38, 0x9b, 0x71}};
+//static GUID _g_mal_GUID_KSDATAFORMAT_SUBTYPE_MULAW      = {0x00000007, 0x0000, 0x0010, {0x80, 0x00, 0x00, 0xaa, 0x00, 0x38, 0x9b, 0x71}};
 #ifdef __cplusplus
 static GUID g_mal_GUID_IID_DirectSoundNotify            = _g_mal_GUID_IID_DirectSoundNotify;
 static GUID g_mal_GUID_IID_IDirectSoundCaptureBuffer8   = _g_mal_GUID_IID_IDirectSoundCaptureBuffer8;
@@ -1686,19 +1690,8 @@ static mal_result mal_device_init__dsound(mal_device* pDevice, mal_device_type t
         } break;
 
         case mal_format_f32:
-        case mal_format_f64:
         {
             subformat = _g_mal_GUID_KSDATAFORMAT_SUBTYPE_IEEE_FLOAT;
-        } break;
-
-        case mal_format_alaw:
-        {
-            subformat = _g_mal_GUID_KSDATAFORMAT_SUBTYPE_ALAW;
-        } break;
-
-        case mal_format_mulaw:
-        {
-            subformat = _g_mal_GUID_KSDATAFORMAT_SUBTYPE_MULAW;
         } break;
 
         default:
@@ -2564,14 +2557,11 @@ static mal_result mal_device_init__alsa(mal_device* pDevice, mal_device_type typ
     snd_pcm_format_t formatALSA;
     switch (pConfig->format)
     {
-        case mal_format_u8:    formatALSA = SND_PCM_FORMAT_U8;         break;
-        case mal_format_s16:   formatALSA = SND_PCM_FORMAT_S16_LE;     break;
-        case mal_format_s24:   formatALSA = SND_PCM_FORMAT_S24_3LE;    break;
-        case mal_format_s32:   formatALSA = SND_PCM_FORMAT_S32_LE;     break;
-        case mal_format_f32:   formatALSA = SND_PCM_FORMAT_FLOAT_LE;   break;
-        case mal_format_f64:   formatALSA = SND_PCM_FORMAT_FLOAT64_LE; break;
-        case mal_format_alaw:  formatALSA = SND_PCM_FORMAT_A_LAW;      break;
-        case mal_format_mulaw: formatALSA = SND_PCM_FORMAT_MU_LAW;     break;
+        case mal_format_u8:    formatALSA = SND_PCM_FORMAT_U8;       break;
+        case mal_format_s16:   formatALSA = SND_PCM_FORMAT_S16_LE;   break;
+        case mal_format_s24:   formatALSA = SND_PCM_FORMAT_S24_3LE;  break;
+        case mal_format_s32:   formatALSA = SND_PCM_FORMAT_S32_LE;   break;
+        case mal_format_f32:   formatALSA = SND_PCM_FORMAT_FLOAT_LE; break;
         return mal_post_error(pDevice, "[ALSA] Format not supported.", MAL_FORMAT_NOT_SUPPORTED);
     }
 
@@ -3033,10 +3023,9 @@ static mal_result mal_device_init__sles(mal_device* pDevice, mal_device_type typ
     return MAL_NO_BACKEND;
 #endif
 
-    // Currently only supporting simple PCM formats. Floating-point and A-law/Mu-law are not
-    // currently supported, but may be emulated later on.
-    if (pConfig->format == mal_format_f32  || pConfig->format == mal_format_f64 ||
-        pConfig->format == mal_format_alaw || pConfig->format == mal_format_mulaw) {
+    // Currently only supporting simple PCM formats. 32-bit floating point is not currently supported,
+    // but may be emulated later on.
+    if (pConfig->format == mal_format_f32) {
         return MAL_FORMAT_NOT_SUPPORTED;
     }
 
@@ -3847,9 +3836,6 @@ mal_uint32 mal_get_sample_size_in_bytes(mal_format format)
         3,  // s24
         4,  // s32
         4,  // f32
-        8,  // f64
-        1,  // alaw
-        1   // mulaw
     };
     return sizes[format];
 }
@@ -3866,6 +3852,8 @@ mal_uint32 mal_get_sample_size_in_bytes(mal_format format)
 //     1) The number of parameters is just getting too much.
 //     2) It makes it a bit easier to add new configuration properties in the future. In particular, there's a
 //        chance there will be support added for backend-specific properties.
+//   - Dropped support for f64, A-law and Mu-law formats since they just aren't common enough to justify the
+//     added maintenance cost.
 //   - DirectSound: Increased the default buffer size for capture devices.
 //   - Added initial implementation of the OpenSL|ES backend. This is unstable.
 //
@@ -3887,8 +3875,8 @@ mal_uint32 mal_get_sample_size_in_bytes(mal_format format)
 // OpenSL|ES / Android
 // -------------------
 // - Test!
-// - Add software f32, f64, A-law and Mu-law conversion
-//   - 32-bit floating point formats are only supported from API Level 21.
+// - Add software f32 conversion
+//   - 32-bit floating point is only supported from Android API Level 21.
 
 
 /*
