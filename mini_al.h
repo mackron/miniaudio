@@ -147,22 +147,6 @@
 extern "C" {
 #endif
 
-// Config.
-
-// The default size of the device's buffer in milliseconds.
-//
-// If this is too small you may get underruns and overruns in which case you'll need to either increase
-// this value or use an explicit buffer size.
-#ifndef MAL_DEFAULT_BUFFER_SIZE_IN_MILLISECONDS
-#define MAL_DEFAULT_BUFFER_SIZE_IN_MILLISECONDS     25
-#endif
-
-// Default periods when none is specified in mal_device_init(). More periods means more work on the CPU.
-#ifndef MAL_DEFAULT_PERIODS
-#define MAL_DEFAULT_PERIODS                         2
-#endif
-
-
 // Platform/backend detection.
 #ifdef _WIN32
     #define MAL_WIN32
@@ -714,7 +698,6 @@ mal_uint32 mal_get_sample_size_in_bytes(mal_format format);
 #endif
 
 
-
 #ifdef MAL_WIN32
     #define MAL_THREADCALL WINAPI
     typedef unsigned long mal_thread_result;
@@ -732,6 +715,21 @@ typedef mal_thread_result (MAL_THREADCALL * mal_thread_entry_proc)(void* pData);
 
 #define MAL_DEVICE_FLAG_USING_DEFAULT_BUFFER_SIZE   (1 << 0)
 #define MAL_DEVICE_FLAG_USING_DEFAULT_PERIODS       (1 << 1)
+
+
+// The default size of the device's buffer in milliseconds.
+//
+// If this is too small you may get underruns and overruns in which case you'll need to either increase
+// this value or use an explicit buffer size.
+#ifndef MAL_DEFAULT_BUFFER_SIZE_IN_MILLISECONDS
+#define MAL_DEFAULT_BUFFER_SIZE_IN_MILLISECONDS     25
+#endif
+
+// Default periods when none is specified in mal_device_init(). More periods means more work on the CPU.
+#ifndef MAL_DEFAULT_PERIODS
+#define MAL_DEFAULT_PERIODS                         2
+#endif
+
 
 ///////////////////////////////////////////////////////////////////////////////
 //
