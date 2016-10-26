@@ -3265,6 +3265,12 @@ static mal_result mal_device__stop_backend__sles(mal_device* pDevice)
     // Make sure any queued buffers are cleared.
     MAL_SLES_BUFFERQUEUE(pDevice->sles.pBufferQueue)->Clear((SLAndroidSimpleBufferQueueItf)pDevice->sles.pBufferQueue);
 
+    // Make sure the client is aware that the device has stopped. There may be an OpenSL|ES callback for this, but I haven't found it.
+    mal_device__set_state(pDevice, MAL_STATE_STOPPED);
+    if (pDevice->onStop) {
+        pDevice->onStop(pDevice);
+    }
+
     return MAL_SUCCESS;
 }
 #endif
@@ -3721,7 +3727,6 @@ mal_result mal_device_stop(mal_device* pDevice)
 #ifdef MAL_ENABLE_OPENSLES
         if (pDevice->api == mal_api_sles) {
             mal_device__stop_backend__sles(pDevice);
-            mal_device__set_state(pDevice, MAL_STATE_STOPPED);
         } else
 #endif
         // Synchronous backends.
