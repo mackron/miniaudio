@@ -75,14 +75,17 @@
 //   config.sampleRate = wav.sampleRate;
 //   config.bufferSizeInFrames = 0; // Use default.
 //   config.periods = 0;            // Use default.
+//   config.onSendCallback = on_send_samples;
+//   config.onRecvCallback = NULL;  // Not used for playback devices.
+//   config.onStopCallback = NULL;  // We don't care about knowing when the device has stopped...
+//   config.onLogCallback = NULL;   // ... nor do we care about logging (but you really should in a real-world application).
 //
 //   mal_device device;
-//   mal_result result = mal_device_init(&device, mal_device_type_playback, NULL, &config, NULL, pMyData);
+//   mal_result result = mal_device_init(&device, mal_device_type_playback, NULL, &config, pMyData);
 //   if (result != MAL_SUCCESS) {
 //       return -1;
 //   }
 //
-//   mal_device_set_send_callback(&device, on_send_samples);
 //   mal_device_start(&device);     // The device is sleeping by default so you'll need to start it manually.
 //
 //   ...
@@ -293,11 +296,11 @@ typedef enum
 {
     // I like to keep these explicitly defined because they're used as a key into a lookup table. When items are
     // added to this, make sure there are no gaps and that they're added to the lookup table in mal_get_sample_size_in_bytes().
-    mal_format_u8    = 0,
-    mal_format_s16   = 1,   // Seems to be the most widely supported format.
-    mal_format_s24   = 2,   // Tightly packed. 3 bytes per sample.
-    mal_format_s32   = 3,
-    mal_format_f32   = 4,
+    mal_format_u8  = 0,
+    mal_format_s16 = 1,   // Seems to be the most widely supported format.
+    mal_format_s24 = 2,   // Tightly packed. 3 bytes per sample.
+    mal_format_s32 = 3,
+    mal_format_f32 = 4,
 } mal_format;
 
 typedef union
@@ -325,6 +328,10 @@ typedef struct
     mal_uint32 sampleRate;
     mal_uint32 bufferSizeInFrames;
     mal_uint32 periods;
+    mal_recv_proc onRecvCallback;
+    mal_send_proc onSendCallback;
+    mal_stop_proc onStopCallback;
+    mal_log_proc  onLogCallback;
 } mal_device_config;
 
 struct mal_device
@@ -337,7 +344,6 @@ struct mal_device
     mal_uint32 bufferSizeInFrames;
     mal_uint32 periods;
     mal_uint32 state;
-    mal_uint32 flags;       // MAL_DEVICE_FLAG_*
     mal_recv_proc onRecv;
     mal_send_proc onSend;
     mal_stop_proc onStop;
@@ -349,6 +355,7 @@ struct mal_device
     mal_event stopEvent;
     mal_thread thread;
     mal_result workResult;  // This is set by the worker thread after it's finished doing a job.
+    mal_uint32 flags;       // MAL_DEVICE_FLAG_*
 
     union
     {
@@ -467,7 +474,7 @@ mal_result mal_enumerate_devices(mal_device_type type, mal_uint32* pCount, mal_d
 // Efficiency: LOW
 //   This API will dynamically link to backend DLLs/SOs like dsound.dll, and is otherwise just slow
 //   due to the nature of it being an initialization API.
-mal_result mal_device_init(mal_device* pDevice, mal_device_type type, mal_device_id* pDeviceID, mal_device_config* pConfig, mal_log_proc onLog, void* pUserData);
+mal_result mal_device_init(mal_device* pDevice, mal_device_type type, mal_device_id* pDeviceID, mal_device_config* pConfig, void* pUserData);
 
 // Uninitializes a device.
 //
@@ -3468,14 +3475,17 @@ mal_result mal_enumerate_devices(mal_device_type type, mal_uint32* pCount, mal_d
     return result;
 }
 
-mal_result mal_device_init(mal_device* pDevice, mal_device_type type, mal_device_id* pDeviceID, mal_device_config* pConfig, mal_log_proc onLog, void* pUserData)
+mal_result mal_device_init(mal_device* pDevice, mal_device_type type, mal_device_id* pDeviceID, mal_device_config* pConfig, void* pUserData)
 {
     if (pDevice == NULL) return mal_post_error(pDevice, "mal_device_init() called with invalid arguments.", MAL_INVALID_ARGS);
     mal_zero_object(pDevice);
 
     // Set the user data and log callback ASAP to ensure it is available for the entire initialization process.
     pDevice->pUserData = pUserData;
-    pDevice->onLog = onLog;
+    pDevice->onLog  = pConfig->onLogCallback;
+    pDevice->onStop = pConfig->onStopCallback;
+    pDevice->onSend = pConfig->onSendCallback;
+    pDevice->onRecv = pConfig->onRecvCallback;
 
     if (((mal_uint64)pDevice % sizeof(pDevice)) != 0) {
         if (pDevice->onLog) {

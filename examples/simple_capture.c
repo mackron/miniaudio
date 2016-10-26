@@ -53,14 +53,17 @@ int main()
 	config.sampleRate = 48000;
 	config.bufferSizeInFrames = 0;	// Use default.
 	config.periods = 0;				// Use default.
+	config.onRecvCallback = on_recv_frames;
+	config.onSendCallback = on_send_frames;
+	config.onStopCallback = NULL;
+    config.onLogCallback  = NULL;
 
     printf("Recording...\n");
     mal_device captureDevice;
-    if (mal_device_init(&captureDevice, mal_device_type_capture, NULL, &config, NULL, NULL)) {
+    if (mal_device_init(&captureDevice, mal_device_type_capture, NULL, &config, NULL)) {
         printf("Failed to initialize capture device.\n");
         return -2;
     }
-    mal_device_set_recv_callback(&captureDevice, on_recv_frames);
     mal_device_start(&captureDevice);
 
     printf("Press Enter to stop recording...\n");
@@ -71,11 +74,10 @@ int main()
 
     printf("Playing...\n");
     mal_device playbackDevice;
-    if (mal_device_init(&playbackDevice, mal_device_type_playback, NULL, &config, NULL, NULL)) {
+    if (mal_device_init(&playbackDevice, mal_device_type_playback, NULL, &config, NULL)) {
         printf("Failed to initialize playback device.\n");
         return -3;
     }
-    mal_device_set_send_callback(&playbackDevice, on_send_frames);
     mal_device_start(&playbackDevice);
 
     printf("Press Enter to quit...\n");

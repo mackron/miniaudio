@@ -17,14 +17,17 @@ Features
 
 
 
-Example
-=======
-mini_al will request and deliver audio data through callbacks.
+Simple Playback Example
+=======================
 
 ```c
 mal_uint32 on_send_frames_to_device(mal_device* pDevice, mal_uint32 frameCount, void* pSamples)
 {
-    drwav* pWav = (drwav*)pDevice->pUserData; 
+    drwav* pWav = (drwav*)pDevice->pUserData;
+    if (pWav == NULL) {
+        return 0;
+    }
+    
     return (mal_uint32)drwav_read_f32(pWav, frameCount * pDevice->channels, (float*)pSamples) / pDevice->channels;
 }
 
@@ -42,20 +45,23 @@ int main(int argc, char** argv)
     }
     
     // In this example we use the default playback device with a default buffer size and period count.
+	mal_device_config config;
+	config.format = mal_format_f32;
+	config.channels = wav.channels;
+	config.sampleRate = wav.sampleRate;
+	config.bufferSizeInFrames = 0;	// Use default.
+	config.periods = 0;				// Use default.
+	config.onRecvCallback = NULL;	// Not used for playback.
+	config.onSendCallback = on_send_frames_to_device;
+	config.onStopCallback = NULL;
+    config.onLogCallback  = NULL;
+	
     mal_device device;
-    if (mal_device_init(&device, mal_device_type_playback, NULL, mal_format_f32, wav.channels, wav.sampleRate, 0, 0, NULL) != MAL_SUCCESS) {
+    if (mal_device_init(&device, mal_device_type_playback, NULL, &config, &wav) != MAL_SUCCESS) {
         printf("Failed to open playback device.");
         drwav_uninit(&wav);
         return -3;
     }
-    
-    // The pUserData member of mal_device is reserved for you.
-    device.pUserData = &wav;
-    
-    // This is the callback for sending data to a playback device when it needs more. Make sure
-    // it's set before playing the device otherwise you'll end up with silence for the first
-    // bunch of frames.
-    mal_device_set_send_callback(&device, on_send_frames_to_device);
     mal_device_start(&device);
     
     printf("Press Enter to quit...");
