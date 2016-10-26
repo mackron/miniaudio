@@ -1371,6 +1371,7 @@ static mal_result mal_device__start_backend__null(mal_device* pDevice)
 static mal_result mal_device__stop_backend__null(mal_device* pDevice)
 {
     mal_assert(pDevice != NULL);
+    (void)pDevice;
 
     return MAL_SUCCESS;
 }
