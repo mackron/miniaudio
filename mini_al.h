@@ -3033,6 +3033,13 @@ static mal_result mal_device_init__sles(mal_device* pDevice, mal_device_type typ
     return MAL_NO_BACKEND;
 #endif
 
+    // Currently only supporting simple PCM formats. Floating-point and A-law/Mu-law are not
+    // currently supported, but may be emulated later on.
+    if (pConfig->format == mal_format_f32  || pConfig->format == mal_format_f64 ||
+        pConfig->format == mal_format_alaw || pConfig->format == mal_format_mulaw) {
+        return MAL_FORMAT_NOT_SUPPORTED;
+    }
+
     // Initialize global data first if applicable.
     if (mal_atomic_increment_32(&g_malSLESInitCounter) == 1) {
         SLresult resultSL = slCreateEngine(&g_malEngineObjectSL, 0, NULL, 0, NULL, NULL);
@@ -3880,7 +3887,7 @@ mal_uint32 mal_get_sample_size_in_bytes(mal_format format)
 // OpenSL|ES / Android
 // -------------------
 // - Test!
-// - Add software f32 conversion
+// - Add software f32, f64, A-law and Mu-law conversion
 //   - 32-bit floating point formats are only supported from API Level 21.
 
 
