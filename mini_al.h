@@ -1705,7 +1705,7 @@ static mal_result mal_device_init__dsound(mal_device* pDevice, mal_device_type t
     wf.Format.wFormatTag           = WAVE_FORMAT_EXTENSIBLE;
     wf.Format.nChannels            = (WORD)pConfig->channels;
     wf.Format.nSamplesPerSec       = (DWORD)pConfig->sampleRate;
-    wf.Format.wBitsPerSample       = mal_get_sample_size_in_bytes(pConfig->format)*8;
+    wf.Format.wBitsPerSample       = (WORD)mal_get_sample_size_in_bytes(pConfig->format)*8;
     wf.Format.nBlockAlign          = (wf.Format.nChannels * wf.Format.wBitsPerSample) / 8;
     wf.Format.nAvgBytesPerSec      = wf.Format.nBlockAlign * wf.Format.nSamplesPerSec;
     wf.Samples.wValidBitsPerSample = wf.Format.wBitsPerSample;
