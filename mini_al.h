@@ -661,13 +661,6 @@ mal_uint32 mal_get_sample_size_in_bytes(mal_format format);
 #include <stdio.h>  // Needed for sprintf() which is used for "hw:%d,%d" formatting. TODO: Remove this later.
 #endif
 
-#ifdef MAL_ENABLE_OPENSLES
-#include <SLES/OpenSLES.h>
-#ifdef MAL_ANDROID
-#include <SLES/OpenSLES_Android.h>
-#endif
-#endif
-
 #if !defined(MAL_64BIT) && !defined(MAL_32BIT)
 #ifdef _WIN32
 #ifdef _WIN64
@@ -2827,6 +2820,11 @@ static mal_uint32 mal_device_rewind__alsa(mal_device* pDevice, mal_uint32 frames
 //
 ///////////////////////////////////////////////////////////////////////////////
 #ifdef MAL_ENABLE_OPENSLES
+#include <SLES/OpenSLES.h>
+#ifdef MAL_ANDROID
+#include <SLES/OpenSLES_Android.h>
+#endif
+
 mal_result mal_enumerate_devices__sles(mal_device_type type, mal_uint32* pCount, mal_device_info* pInfo)
 {
     mal_uint32 infoSize = *pCount;
