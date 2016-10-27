@@ -3870,6 +3870,7 @@ mal_uint32 mal_get_sample_size_in_bytes(mal_format format)
 
 // TODO
 // ====
+// - Add support for channel mapping.
 //
 // ALSA
 // ----
