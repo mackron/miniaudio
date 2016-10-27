@@ -1,5 +1,5 @@
 // Mini audio library. Public domain. See "unlicense" statement at the end of this file.
-// mini_al - v0.2 - TBD
+// mini_al - v0.2 - 2016-10-28
 //
 // David Reid - mackron@gmail.com
 
@@ -3852,7 +3852,7 @@ mal_uint32 mal_get_sample_size_in_bytes(mal_format format)
 // REVISION HISTORY
 // ================
 //
-// v0.2 - TBD
+// v0.2 - 2016-10-28
 //   - API CHANGE: Add user data pointer as the last parameter to mal_device_init(). The rationale for this
 //     change is to ensure the logging callback has access to the user data during initialization.
 //   - API CHANGE: Have device configuration properties be passed to mal_device_init() via a structure. Rationale:
