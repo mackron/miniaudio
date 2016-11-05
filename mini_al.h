@@ -2556,11 +2556,11 @@ static mal_result mal_device_init__alsa(mal_device* pDevice, mal_device_type typ
     snd_pcm_format_t formatALSA;
     switch (pConfig->format)
     {
-        case mal_format_u8:    formatALSA = SND_PCM_FORMAT_U8;       break;
-        case mal_format_s16:   formatALSA = SND_PCM_FORMAT_S16_LE;   break;
-        case mal_format_s24:   formatALSA = SND_PCM_FORMAT_S24_3LE;  break;
-        case mal_format_s32:   formatALSA = SND_PCM_FORMAT_S32_LE;   break;
-        case mal_format_f32:   formatALSA = SND_PCM_FORMAT_FLOAT_LE; break;
+        case mal_format_u8:  formatALSA = SND_PCM_FORMAT_U8;       break;
+        case mal_format_s16: formatALSA = SND_PCM_FORMAT_S16_LE;   break;
+        case mal_format_s24: formatALSA = SND_PCM_FORMAT_S24_3LE;  break;
+        case mal_format_s32: formatALSA = SND_PCM_FORMAT_S32_LE;   break;
+        case mal_format_f32: formatALSA = SND_PCM_FORMAT_FLOAT_LE; break;
         return mal_post_error(pDevice, "[ALSA] Format not supported.", MAL_FORMAT_NOT_SUPPORTED);
     }
 
