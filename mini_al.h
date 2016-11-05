@@ -1565,7 +1565,7 @@ static BOOL CALLBACK mal_enum_devices_callback__dsound(LPGUID lpGuid, LPCSTR lpc
     (void)lpcstrModule;
 
     mal_device_enum_data__dsound* pData = (mal_device_enum_data__dsound*)lpContext;
-    assert(pData != NULL);
+    mal_assert(pData != NULL);
 
     if (pData->pInfo != NULL) {
         if (pData->infoCount > 0) {
@@ -1784,7 +1784,7 @@ static mal_result mal_device_init__dsound(mal_device* pDevice, mal_device_type t
         //   sound cards; it was directly behind the write cursor. Now, if the DSBCAPS_GETCURRENTPOSITION2 flag is specified, the
         //   application can get a more accurate play cursor.
         DSBUFFERDESC descDS;
-        memset(&descDS, 0, sizeof(DSBUFFERDESC));
+        mal_zero_object(&descDS);
         descDS.dwSize = sizeof(DSBUFFERDESC);
         descDS.dwFlags = DSBCAPS_CTRLPOSITIONNOTIFY | DSBCAPS_GLOBALFOCUS | DSBCAPS_GETCURRENTPOSITION2;
         descDS.dwBufferBytes = bufferSizeInBytes;
