@@ -296,8 +296,10 @@ typedef enum
 
 typedef union
 {
+    // Just look at this shit...
     mal_uint32 id32;    // OpenSL|ES uses a 32-bit unsigned integer for identification.
     char str[32];       // ALSA uses a name string for identification.
+    wchar_t wstr[64];   // WASAPI uses a wchar_t string for identification which is also annoyingly long...
     mal_uint8 guid[16]; // DirectSound uses a GUID for identification.
 } mal_device_id;
 
@@ -350,6 +352,13 @@ struct mal_device
 
     union
     {
+    #ifdef MAL_ENABLE_WASAPI
+        struct
+        {
+            mal_bool32 needCoUninit;    // Whether or not COM needs to be uninitialized.
+        } wasapi;
+    #endif
+
     #ifdef MAL_ENABLE_DSOUND
         struct
         {
@@ -1519,6 +1528,115 @@ static mal_uint32 mal_device_rewind__null(mal_device* pDevice, mal_uint32 frames
 }
 #endif
 
+
+///////////////////////////////////////////////////////////////////////////////
+//
+// WASAPI Backend
+//
+///////////////////////////////////////////////////////////////////////////////
+#ifdef MAL_ENABLE_WASAPI
+#include <audioclient.h>
+#include <audiopolicy.h>
+#include <mmdeviceapi.h>
+//#include <functiondiscoverykeys_devpkey.h>
+
+const PROPERTYKEY g_malPKEY_Device_FriendlyName = {{0xa45c254e, 0xdf1c, 0x4efd, {0x80, 0x20, 0x67, 0xd1, 0x46, 0xa8, 0x50, 0xe0}}, 14};
+
+const IID g_malCLSID_MMDeviceEnumerator_Instance = {0xBCDE0395, 0xE52F, 0x467C, {0x8E, 0x3D, 0xC4, 0x57, 0x92, 0x91, 0x69, 0x2E}}; // BCDE0395-E52F-467C-8E3D-C4579291692E = __uuidof(MMDeviceEnumerator)
+const IID g_malIID_IMMDeviceEnumerator_Instance  = {0xA95664D2, 0x9614, 0x4F35, {0xA7, 0x46, 0xDE, 0x8D, 0xB6, 0x36, 0x17, 0xE6}}; // A95664D2-9614-4F35-A746-DE8DB63617E6 = __uuidof(IMMDeviceEnumerator)
+
+#ifdef __cplusplus
+#define g_malCLSID_MMDeviceEnumerator g_malCLSID_MMDeviceEnumerator_Instance
+#define g_malIID_IMMDeviceEnumerator  g_malIID_IMMDeviceEnumerator_Instance
+#else
+#define g_malCLSID_MMDeviceEnumerator &g_malCLSID_MMDeviceEnumerator_Instance
+#define g_malIID_IMMDeviceEnumerator  &g_malIID_IMMDeviceEnumerator_Instance
+#endif
+
+static mal_result mal_enumerate_devices__wasapi(mal_device_type type, mal_uint32* pCount, mal_device_info* pInfo)
+{
+    mal_uint32 infoSize = *pCount;
+    *pCount = 0;
+
+    mal_bool32 needCoUninit = MAL_FALSE;
+    HRESULT hResult = CoInitializeEx(NULL, COINIT_APARTMENTTHREADED);
+    if (hResult == S_OK || hResult == S_FALSE) {
+        needCoUninit = MAL_TRUE;
+    }
+
+    IMMDeviceEnumerator* pDeviceEnumerator;
+    hResult = CoCreateInstance(g_malCLSID_MMDeviceEnumerator, NULL, CLSCTX_ALL, g_malIID_IMMDeviceEnumerator, (void**)&pDeviceEnumerator);
+    if (FAILED(hResult)) {
+        if (needCoUninit) CoUninitialize();
+        return MAL_NO_BACKEND;
+    }
+
+    IMMDeviceCollection* pDeviceCollection;
+    hResult = pDeviceEnumerator->lpVtbl->EnumAudioEndpoints(pDeviceEnumerator, (type == mal_device_type_playback) ? eRender : eCapture, DEVICE_STATE_ACTIVE, &pDeviceCollection);
+    if (FAILED(hResult)) {
+        pDeviceEnumerator->lpVtbl->Release(pDeviceEnumerator);
+        if (needCoUninit) CoUninitialize();
+        return MAL_NO_DEVICE;
+    }
+
+    UINT count;
+    hResult = pDeviceCollection->lpVtbl->GetCount(pDeviceCollection, &count);
+    if (FAILED(hResult)) {
+        pDeviceCollection->lpVtbl->Release(pDeviceCollection);
+        pDeviceEnumerator->lpVtbl->Release(pDeviceEnumerator);
+        if (needCoUninit) CoUninitialize();
+        return MAL_NO_DEVICE;
+    }
+
+    for (mal_uint32 iDevice = 0; iDevice < infoSize && iDevice < count; ++iDevice) {
+        mal_zero_object(pInfo);
+
+        IMMDevice* pDevice;
+        hResult = pDeviceCollection->lpVtbl->Item(pDeviceCollection, iDevice, &pDevice);
+        if (SUCCEEDED(hResult)) {
+            // ID.
+            LPWSTR id;
+            hResult = pDevice->lpVtbl->GetId(pDevice, &id);
+            if (SUCCEEDED(hResult)) {
+                size_t idlen = wcslen(id);
+                if (idlen+sizeof(wchar_t) > sizeof(pInfo->id.wstr)) {
+                    CoTaskMemFree(id);
+                    mal_assert(MAL_FALSE);  // NOTE: If this is triggered, please report it. It means the format of the ID must haved change and is too long to fit in our fixed sized buffer.
+                    continue;
+                }
+
+                memcpy(pInfo->id.wstr, id, idlen * sizeof(wchar_t));
+                pInfo->id.wstr[idlen] = '\0';
+
+                CoTaskMemFree(id);
+            }
+
+            // Description / Friendly Name.
+            IPropertyStore *pProperties;
+            hResult = pDevice->lpVtbl->OpenPropertyStore(pDevice, STGM_READ, &pProperties);
+            if (SUCCEEDED(hResult)) {
+                PROPVARIANT varName;
+                PropVariantInit(&varName);
+                hResult = pProperties->lpVtbl->GetValue(pProperties, &g_malPKEY_Device_FriendlyName, &varName);
+                if (SUCCEEDED(hResult)) {
+                    WideCharToMultiByte(CP_UTF8, 0, varName.pwszVal, -1, pInfo->name, sizeof(pInfo->name), 0, FALSE);
+                    PropVariantClear(&varName);
+                }
+
+                pProperties->lpVtbl->Release(pProperties);
+            }
+        }
+
+        pInfo += 1;
+        *pCount += 1;
+    }
+
+    pDeviceCollection->lpVtbl->Release(pDeviceCollection);
+    pDeviceEnumerator->lpVtbl->Release(pDeviceEnumerator);
+    if (needCoUninit) CoUninitialize();
+    return MAL_SUCCESS;
+}
+#endif
 
 ///////////////////////////////////////////////////////////////////////////////
 //
@@ -3455,6 +3573,11 @@ mal_result mal_enumerate_devices(mal_device_type type, mal_uint32* pCount, mal_d
     if (pCount == NULL) return mal_post_error(NULL, "mal_enumerate_devices() called with invalid arguments.", MAL_INVALID_ARGS);
 
     mal_result result = MAL_NO_BACKEND;
+#ifdef MAL_ENABLE_WASAPI
+    if (result != MAL_SUCCESS) {
+        result = mal_enumerate_devices__wasapi(type, pCount, pInfo);
+    }
+#endif
 #ifdef MAL_ENABLE_DSOUND
     if (result != MAL_SUCCESS) {
         result = mal_enumerate_devices__dsound(type, pCount, pInfo);
