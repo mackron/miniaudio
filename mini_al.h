@@ -165,6 +165,9 @@ extern "C" {
     #endif
 #endif
 
+#if !defined(MAL_NO_WASAPI) && defined(MAL_WIN32)
+    #define MAL_ENABLE_WASAPI
+#endif
 #if !defined(MAL_NO_DSOUND) && defined(MAL_WIN32) && defined(MAL_WIN32_DESKTOP)
     #define MAL_ENABLE_DSOUND
 #endif
@@ -268,6 +271,7 @@ typedef void       (* mal_log_proc) (mal_device* pDevice, const char* message);
 typedef enum
 {
     mal_api_null,
+    mal_api_wasapi,
     mal_api_dsound,
     mal_api_alsa,
     mal_api_sles
