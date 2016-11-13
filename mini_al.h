@@ -1508,6 +1508,10 @@ static mal_result mal_device__main_loop__null(mal_device* pDevice)
             return MAL_FALSE;
         }
 
+        if (framesAvailable + pDevice->null_device.lastProcessedFrame > pDevice->bufferSizeInFrames) {
+            framesAvailable = pDevice->bufferSizeInFrames - pDevice->null_device.lastProcessedFrame;
+        }
+
         mal_uint32 sampleCount = framesAvailable * pDevice->channels;
         mal_uint32 lockOffset  = pDevice->null_device.lastProcessedFrame * pDevice->channels * mal_get_sample_size_in_bytes(pDevice->format);
         mal_uint32 lockSize    = sampleCount * mal_get_sample_size_in_bytes(pDevice->format);
@@ -1864,13 +1868,23 @@ static mal_uint32 mal_device__get_available_frames__wasapi(mal_device* pDevice)
 {
     mal_assert(pDevice != NULL);
 
-    UINT32 paddingFramesCount;
-    HRESULT hr = ((IAudioClient*)pDevice->wasapi.pAudioClient)->lpVtbl->GetCurrentPadding((IAudioClient*)pDevice->wasapi.pAudioClient, &paddingFramesCount);
-    if (FAILED(hr)) {
-        return 0;
-    }
+    if (pDevice->type == mal_device_type_playback) {
+        UINT32 paddingFramesCount;
+        HRESULT hr = ((IAudioClient*)pDevice->wasapi.pAudioClient)->lpVtbl->GetCurrentPadding((IAudioClient*)pDevice->wasapi.pAudioClient, &paddingFramesCount);
+        if (FAILED(hr)) {
+            return 0;
+        }
 
-    return pDevice->bufferSizeInFrames - paddingFramesCount;
+        return pDevice->bufferSizeInFrames - paddingFramesCount;
+    } else {
+        UINT32 framesAvailable;
+        HRESULT hr = ((IAudioCaptureClient*)pDevice->wasapi.pCaptureClient)->lpVtbl->GetNextPacketSize((IAudioCaptureClient*)pDevice->wasapi.pCaptureClient, &framesAvailable);
+        if (FAILED(hr)) {
+            return 0;
+        }
+
+        return framesAvailable;
+    }
 }
 
 static mal_uint32 mal_device__wait_for_frames__wasapi(mal_device* pDevice)
@@ -1924,7 +1938,26 @@ static mal_result mal_device__main_loop__wasapi(mal_device* pDevice)
                 return MAL_FAILED_TO_READ_DATA_FROM_CLIENT;
             }
         } else {
-            // TODO: Implement me.
+            UINT32 framesRemaining = framesAvailable;
+            while (framesRemaining > 0) {
+                BYTE* pData;
+                UINT32 framesToSend;
+                DWORD flags;
+                HRESULT hr = ((IAudioCaptureClient*)pDevice->wasapi.pCaptureClient)->lpVtbl->GetBuffer((IAudioCaptureClient*)pDevice->wasapi.pCaptureClient, &pData, &framesToSend, &flags, NULL, NULL);
+                if (FAILED(hr)) {
+                    break;
+                }
+
+                // NOTE: Do we need to handle the case when the AUDCLNT_BUFFERFLAGS_SILENT bit is set in <flags>?
+                mal_device__send_frames_to_client(pDevice, framesToSend, pData);
+
+                hr = ((IAudioCaptureClient*)pDevice->wasapi.pCaptureClient)->lpVtbl->ReleaseBuffer((IAudioCaptureClient*)pDevice->wasapi.pCaptureClient, framesToSend);
+                if (FAILED(hr)) {
+                    break;
+                }
+
+                framesRemaining -= framesToSend;
+            }
         }
     }
 
@@ -3816,9 +3849,9 @@ mal_thread_result MAL_THREADCALL mal_worker_thread(void* pData)
 {
     mal_device* pDevice = (mal_device*)pData;
     mal_assert(pDevice != NULL);
-
+    
 #ifdef MAL_WIN32
-    CoInitializeEx(NULL, COINIT_MULTITHREADED);
+    HRESULT hr = CoInitializeEx(NULL, COINIT_MULTITHREADED);
 #endif
 
     // This is only used to prevent posting onStop() when the device is first initialized.
@@ -4348,6 +4381,7 @@ mal_uint32 mal_get_sample_size_in_bytes(mal_format format)
 // - Add support for exclusive mode?
 //   - GetMixFormat() instead of IsFormatSupported().
 //   - Requires a large suite of conversion routines including channel shuffling, SRC and format conversion.
+// - Look into event callbacks: AUDCLNT_STREAMFLAGS_EVENTCALLBACK
 //
 //
 // ALSA
