@@ -3930,14 +3930,14 @@ mal_result mal_enumerate_devices(mal_device_type type, mal_uint32* pCount, mal_d
     if (pCount == NULL) return mal_post_error(NULL, "mal_enumerate_devices() called with invalid arguments.", MAL_INVALID_ARGS);
 
     mal_result result = MAL_NO_BACKEND;
-#ifdef MAL_ENABLE_DSOUND
-    if (result != MAL_SUCCESS) {
-        result = mal_enumerate_devices__dsound(type, pCount, pInfo);
-    }
-#endif
 #ifdef MAL_ENABLE_WASAPI
     if (result != MAL_SUCCESS) {
         result = mal_enumerate_devices__wasapi(type, pCount, pInfo);
+    }
+#endif
+#ifdef MAL_ENABLE_DSOUND
+    if (result != MAL_SUCCESS) {
+        result = mal_enumerate_devices__dsound(type, pCount, pInfo);
     }
 #endif
 #ifdef MAL_ENABLE_ALSA
@@ -4023,14 +4023,14 @@ mal_result mal_device_init(mal_device* pDevice, mal_device_type type, mal_device
 
 
     mal_result result = MAL_NO_BACKEND;
-#ifdef MAL_ENABLE_DSOUND
-    if (result != MAL_SUCCESS) {
-        result = mal_device_init__dsound(pDevice, type, pDeviceID, pConfig);
-    }
-#endif
 #ifdef MAL_ENABLE_WASAPI
     if (result != MAL_SUCCESS) {
         result = mal_device_init__wasapi(pDevice, type, pDeviceID, pConfig);
+    }
+#endif
+#ifdef MAL_ENABLE_DSOUND
+    if (result != MAL_SUCCESS) {
+        result = mal_device_init__dsound(pDevice, type, pDeviceID, pConfig);
     }
 #endif
 #ifdef MAL_ENABLE_ALSA
@@ -4351,6 +4351,8 @@ mal_uint32 mal_get_sample_size_in_bytes(mal_format format)
 //
 // v0.3 - TBD
 //   - Fixed build for UWP.
+//   - Null Backend: Fixed a crash when recording.
+//   - Added initial implementation of the WASAPI backend. This is still work in progress.
 //
 // v0.2 - 2016-10-28
 //   - API CHANGE: Add user data pointer as the last parameter to mal_device_init(). The rationale for this
