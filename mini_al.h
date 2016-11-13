@@ -162,7 +162,7 @@ extern "C" {
     #endif
 #endif
 
-#if !defined(MAL_NO_DSOUND) && defined(MAL_WIN32)
+#if !defined(MAL_NO_DSOUND) && defined(MAL_WIN32) && (!defined(WINAPI_FAMILY) || WINAPI_FAMILY == WINAPI_FAMILY_DESKTOP_APP)
     #define MAL_ENABLE_DSOUND
 #endif
 #if !defined(MAL_NO_ALSA) && defined(MAL_LINUX) && !defined(MAL_ANDROID)
