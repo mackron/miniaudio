@@ -1,5 +1,5 @@
 // Mini audio library. Public domain. See "unlicense" statement at the end of this file.
-// mini_al - v0.2 - 2016-10-28
+// mini_al - v0.3 - TBD
 //
 // David Reid - mackron@gmail.com
 
@@ -150,6 +150,9 @@ extern "C" {
 // Platform/backend detection.
 #ifdef _WIN32
     #define MAL_WIN32
+    #if (!defined(WINAPI_FAMILY) || WINAPI_FAMILY == WINAPI_FAMILY_DESKTOP_APP)
+        #define MAL_WIN32_DESKTOP
+    #endif
 #else
     #define MAL_POSIX
     #include <pthread.h>    // Unfortunate #include, but needed for pthread_t, pthread_mutex_t and pthread_cond_t types.
@@ -162,7 +165,7 @@ extern "C" {
     #endif
 #endif
 
-#if !defined(MAL_NO_DSOUND) && defined(MAL_WIN32) && (!defined(WINAPI_FAMILY) || WINAPI_FAMILY == WINAPI_FAMILY_DESKTOP_APP)
+#if !defined(MAL_NO_DSOUND) && defined(MAL_WIN32) && defined(MAL_WIN32_DESKTOP)
     #define MAL_ENABLE_DSOUND
 #endif
 #if !defined(MAL_NO_ALSA) && defined(MAL_LINUX) && !defined(MAL_ANDROID)
@@ -3851,6 +3854,9 @@ mal_uint32 mal_get_sample_size_in_bytes(mal_format format)
 
 // REVISION HISTORY
 // ================
+//
+// v0.3 - TBD
+//   - Fixed build for UWP.
 //
 // v0.2 - 2016-10-28
 //   - API CHANGE: Add user data pointer as the last parameter to mal_device_init(). The rationale for this
