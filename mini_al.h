@@ -561,7 +561,7 @@ mal_result mal_enumerate_devices(mal_context* pContext, mal_device_type type, ma
 // Efficiency: LOW
 //   This API will dynamically link to backend DLLs/SOs like dsound.dll, and is otherwise just slow
 //   due to the nature of it being an initialization API.
-mal_result mal_device_init(mal_device* pDevice, mal_device_type type, mal_device_id* pDeviceID, mal_device_config* pConfig, void* pUserData);
+mal_result mal_device_init(mal_context* pContext, mal_device_type type, mal_device_id* pDeviceID, mal_device_config* pConfig, void* pUserData, mal_device* pDevice);
 
 // Uninitializes a device.
 //
@@ -1470,8 +1470,9 @@ static void mal_device_uninit__null(mal_device* pDevice)
     mal_free(pDevice->null_device.pBuffer);
 }
 
-static mal_result mal_device_init__null(mal_device* pDevice, mal_device_type type, mal_device_id* pDeviceID, mal_device_config* pConfig)
+static mal_result mal_device_init__null(mal_context* pContext, mal_device_type type, mal_device_id* pDeviceID, mal_device_config* pConfig, mal_device* pDevice)
 {
+    (void)pContext;
     (void)type;
     (void)pDeviceID;
 
@@ -1812,8 +1813,10 @@ static void mal_device_uninit__wasapi(mal_device* pDevice)
     }
 }
 
-static mal_result mal_device_init__wasapi(mal_device* pDevice, mal_device_type type, mal_device_id* pDeviceID, mal_device_config* pConfig)
+static mal_result mal_device_init__wasapi(mal_context* pContext, mal_device_type type, mal_device_id* pDeviceID, mal_device_config* pConfig, mal_device* pDevice)
 {
+    (void)pContext;
+
     mal_assert(pDevice != NULL);
     pDevice->api = mal_backend_wasapi;
     mal_zero_object(&pDevice->wasapi);
@@ -2251,8 +2254,10 @@ static void mal_device_uninit__dsound(mal_device* pDevice)
     }
 }
 
-static mal_result mal_device_init__dsound(mal_device* pDevice, mal_device_type type, mal_device_id* pDeviceID, mal_device_config* pConfig)
+static mal_result mal_device_init__dsound(mal_context* pContext, mal_device_type type, mal_device_id* pDeviceID, mal_device_config* pConfig, mal_device* pDevice)
 {
+    (void)pContext;
+
     mal_assert(pDevice != NULL);
     pDevice->api = mal_backend_dsound;
     mal_zero_object(&pDevice->dsound);
@@ -3151,8 +3156,10 @@ static void mal_device_uninit__alsa(mal_device* pDevice)
     }
 }
 
-static mal_result mal_device_init__alsa(mal_device* pDevice, mal_device_type type, mal_device_id* pDeviceID, mal_device_config* pConfig)
+static mal_result mal_device_init__alsa(mal_context* pContext, mal_device_type type, mal_device_id* pDeviceID, mal_device_config* pConfig, mal_device* pDevice)
 {
+    (void)pContext;
+
     mal_assert(pDevice != NULL);
     pDevice->api = mal_backend_alsa;
     mal_zero_object(&pDevice->alsa);
@@ -3641,8 +3648,10 @@ static void mal_device_uninit__sles(mal_device* pDevice)
     }
 }
 
-static mal_result mal_device_init__sles(mal_device* pDevice, mal_device_type type, mal_device_id* pDeviceID, mal_device_config* pConfig)
+static mal_result mal_device_init__sles(mal_context* pContext, mal_device_type type, mal_device_id* pDeviceID, mal_device_config* pConfig, mal_device* pDevice)
 {
+    (void)pContext;
+
     // For now, only supporting Android implementations of OpenSL|ES since that's the only one I've
     // been able to test with and I currently depend on Android-specific extensions (simple buffer
     // queues).
@@ -4257,10 +4266,11 @@ mal_result mal_enumerate_devices(mal_context* pContext, mal_device_type type, ma
     return result;
 }
 
-mal_result mal_device_init(mal_device* pDevice, mal_device_type type, mal_device_id* pDeviceID, mal_device_config* pConfig, void* pUserData)
+mal_result mal_device_init(mal_context* pContext, mal_device_type type, mal_device_id* pDeviceID, mal_device_config* pConfig, void* pUserData, mal_device* pDevice)
 {
     if (pDevice == NULL) return mal_post_error(pDevice, "mal_device_init() called with invalid arguments.", MAL_INVALID_ARGS);
     mal_zero_object(pDevice);
+    pDevice->pContext = pContext;
 
     // Set the user data and log callback ASAP to ensure it is available for the entire initialization process.
     pDevice->pUserData = pUserData;
@@ -4323,27 +4333,27 @@ mal_result mal_device_init(mal_device* pDevice, mal_device_type type, mal_device
     mal_result result = MAL_NO_BACKEND;
 #ifdef MAL_ENABLE_WASAPI
     if (result != MAL_SUCCESS) {
-        result = mal_device_init__wasapi(pDevice, type, pDeviceID, pConfig);
+        result = mal_device_init__wasapi(pContext, type, pDeviceID, pConfig, pDevice);
     }
 #endif
 #ifdef MAL_ENABLE_DSOUND
     if (result != MAL_SUCCESS) {
-        result = mal_device_init__dsound(pDevice, type, pDeviceID, pConfig);
+        result = mal_device_init__dsound(pContext, type, pDeviceID, pConfig, pDevice);
     }
 #endif
 #ifdef MAL_ENABLE_ALSA
     if (result != MAL_SUCCESS) {
-        result = mal_device_init__alsa(pDevice, type, pDeviceID, pConfig);
+        result = mal_device_init__alsa(pContext, type, pDeviceID, pConfig, pDevice);
     }
 #endif
 #ifdef MAL_ENABLE_OPENSLES
     if (result != MAL_SUCCESS) {
-        result = mal_device_init__sles(pDevice, type, pDeviceID, pConfig);
+        result = mal_device_init__sles(pContext, type, pDeviceID, pConfig, pDevice);
     }
 #endif
 #ifdef MAL_ENABLE_NULL
     if (result != MAL_SUCCESS) {
-        result = mal_device_init__null(pDevice, type, pDeviceID, pConfig);
+        result = mal_device_init__null(pContext, type, pDeviceID, pConfig, pDevice);
     }
 #endif
 
@@ -4353,7 +4363,7 @@ mal_result mal_device_init(mal_device* pDevice, mal_device_type type, mal_device
 
 
     // Some backends don't require the worker thread.
-    if (pDevice->api != mal_backend_sles) {
+    if (pContext->backend != mal_backend_sles) {
         // The worker thread.
         if (!mal_thread_create(&pDevice->thread, mal_worker_thread, pDevice)) {
             mal_device_uninit(pDevice);
