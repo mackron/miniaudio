@@ -4686,6 +4686,7 @@ mal_uint32 mal_get_sample_size_in_bytes(mal_format format)
 //   - GetMixFormat() instead of IsFormatSupported().
 //   - Requires a large suite of conversion routines including channel shuffling, SRC and format conversion.
 // - Look into event callbacks: AUDCLNT_STREAMFLAGS_EVENTCALLBACK
+// - Link to ole32.lib at run time.
 //
 //
 // ALSA
