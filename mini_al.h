@@ -341,6 +341,7 @@ typedef struct
     #ifdef MAL_ENABLE_WASAPI
         struct
         {
+            /*IMMDeviceEnumerator**/ mal_ptr pDeviceEnumerator;
             mal_bool32 needCoUninit;    // Whether or not COM needs to be uninitialized.
         } wasapi;
     #endif
@@ -490,7 +491,7 @@ struct mal_device
 //
 // Effeciency: LOW
 //   This will dynamically load backends DLLs/SOs (such as dsound.dll).
-mal_result mal_context_init(mal_context* pContext, mal_backend backends[], mal_uint32 backendCount);
+mal_result mal_context_init(mal_backend backends[], mal_uint32 backendCount, mal_context* pContext);
 
 // Uninitializes a context.
 //
@@ -517,7 +518,7 @@ mal_result mal_context_uninit(mal_context* pContext);
 //
 // Efficiency: LOW
 //   This API dynamically links to backend DLLs/SOs (such as dsound.dll).
-mal_result mal_enumerate_devices(mal_device_type type, mal_uint32* pCount, mal_device_info* pInfo);
+mal_result mal_enumerate_devices(mal_context* pContext, mal_device_type type, mal_uint32* pCount, mal_device_info* pInfo);
 
 // Initializes a device.
 //
@@ -1443,8 +1444,10 @@ mal_result mal_context_uninit__null(mal_context* pContext)
     return MAL_SUCCESS;
 }
 
-static mal_result mal_enumerate_devices__null(mal_device_type type, mal_uint32* pCount, mal_device_info* pInfo)
+static mal_result mal_enumerate_devices__null(mal_context* pContext, mal_device_type type, mal_uint32* pCount, mal_device_info* pInfo)
 {
+    (void)pContext;
+
     mal_uint32 infoSize = *pCount;
     *pCount = 1;    // There's only one "device" each for playback and recording for the null backend.
 
@@ -1684,8 +1687,20 @@ const IID g_malIID_IAudioCaptureClient_Instance  = {0xC8ADBD64, 0xE71E, 0x48A0, 
 mal_result mal_context_init__wasapi(mal_context* pContext)
 {
     mal_assert(pContext != NULL);
+    pContext->wasapi.needCoUninit = MAL_FALSE;
 
-    (void)pContext;
+    HRESULT hr = CoInitializeEx(NULL, COINIT_APARTMENTTHREADED);
+    if (hr == S_OK || hr == S_FALSE) {
+        pContext->wasapi.needCoUninit = MAL_TRUE;
+    }
+
+    // Validate the WASAPI is available by grabbing an MMDeviceEnumerator object.
+    hr = CoCreateInstance(g_malCLSID_MMDeviceEnumerator, NULL, CLSCTX_ALL, g_malIID_IMMDeviceEnumerator, (void**)&pContext->wasapi.pDeviceEnumerator);
+    if (FAILED(hr)) {
+        if (pContext->wasapi.needCoUninit) CoUninitialize();
+        return MAL_NO_BACKEND;
+    }
+
     return MAL_SUCCESS;
 }
 
@@ -1694,42 +1709,35 @@ mal_result mal_context_uninit__wasapi(mal_context* pContext)
     mal_assert(pContext != NULL);
     mal_assert(pContext->backend == mal_backend_wasapi);
 
-    (void)pContext;
+    if (pContext->wasapi.pDeviceEnumerator) {
+        ((IMMDeviceEnumerator*)pContext->wasapi.pDeviceEnumerator)->lpVtbl->Release((IMMDeviceEnumerator*)pContext->wasapi.pDeviceEnumerator);
+    }
+
+    if (pContext->wasapi.needCoUninit) {
+        CoUninitialize();
+    }
+    
     return MAL_SUCCESS;
 }
 
-static mal_result mal_enumerate_devices__wasapi(mal_device_type type, mal_uint32* pCount, mal_device_info* pInfo)
+static mal_result mal_enumerate_devices__wasapi(mal_context* pContext, mal_device_type type, mal_uint32* pCount, mal_device_info* pInfo)
 {
     mal_uint32 infoSize = *pCount;
     *pCount = 0;
 
-    mal_bool32 needCoUninit = MAL_FALSE;
-    HRESULT hResult = CoInitializeEx(NULL, COINIT_APARTMENTTHREADED);
-    if (hResult == S_OK || hResult == S_FALSE) {
-        needCoUninit = MAL_TRUE;
-    }
-
-    IMMDeviceEnumerator* pDeviceEnumerator;
-    hResult = CoCreateInstance(g_malCLSID_MMDeviceEnumerator, NULL, CLSCTX_ALL, g_malIID_IMMDeviceEnumerator, (void**)&pDeviceEnumerator);
-    if (FAILED(hResult)) {
-        if (needCoUninit) CoUninitialize();
-        return MAL_NO_BACKEND;
-    }
+    IMMDeviceEnumerator* pDeviceEnumerator = (IMMDeviceEnumerator*)pContext->wasapi.pDeviceEnumerator;
+    mal_assert(pDeviceEnumerator != NULL);
 
     IMMDeviceCollection* pDeviceCollection;
-    hResult = pDeviceEnumerator->lpVtbl->EnumAudioEndpoints(pDeviceEnumerator, (type == mal_device_type_playback) ? eRender : eCapture, DEVICE_STATE_ACTIVE, &pDeviceCollection);
-    if (FAILED(hResult)) {
-        pDeviceEnumerator->lpVtbl->Release(pDeviceEnumerator);
-        if (needCoUninit) CoUninitialize();
+    HRESULT hr = pDeviceEnumerator->lpVtbl->EnumAudioEndpoints(pDeviceEnumerator, (type == mal_device_type_playback) ? eRender : eCapture, DEVICE_STATE_ACTIVE, &pDeviceCollection);
+    if (FAILED(hr)) {
         return MAL_NO_DEVICE;
     }
 
     UINT count;
-    hResult = pDeviceCollection->lpVtbl->GetCount(pDeviceCollection, &count);
-    if (FAILED(hResult)) {
+    hr = pDeviceCollection->lpVtbl->GetCount(pDeviceCollection, &count);
+    if (FAILED(hr)) {
         pDeviceCollection->lpVtbl->Release(pDeviceCollection);
-        pDeviceEnumerator->lpVtbl->Release(pDeviceEnumerator);
-        if (needCoUninit) CoUninitialize();
         return MAL_NO_DEVICE;
     }
 
@@ -1737,12 +1745,12 @@ static mal_result mal_enumerate_devices__wasapi(mal_device_type type, mal_uint32
         mal_zero_object(pInfo);
 
         IMMDevice* pDevice;
-        hResult = pDeviceCollection->lpVtbl->Item(pDeviceCollection, iDevice, &pDevice);
-        if (SUCCEEDED(hResult)) {
+        hr = pDeviceCollection->lpVtbl->Item(pDeviceCollection, iDevice, &pDevice);
+        if (SUCCEEDED(hr)) {
             // ID.
             LPWSTR id;
-            hResult = pDevice->lpVtbl->GetId(pDevice, &id);
-            if (SUCCEEDED(hResult)) {
+            hr = pDevice->lpVtbl->GetId(pDevice, &id);
+            if (SUCCEEDED(hr)) {
                 size_t idlen = wcslen(id);
                 if (idlen+sizeof(wchar_t) > sizeof(pInfo->id.wstr)) {
                     CoTaskMemFree(id);
@@ -1758,12 +1766,12 @@ static mal_result mal_enumerate_devices__wasapi(mal_device_type type, mal_uint32
 
             // Description / Friendly Name.
             IPropertyStore *pProperties;
-            hResult = pDevice->lpVtbl->OpenPropertyStore(pDevice, STGM_READ, &pProperties);
-            if (SUCCEEDED(hResult)) {
+            hr = pDevice->lpVtbl->OpenPropertyStore(pDevice, STGM_READ, &pProperties);
+            if (SUCCEEDED(hr)) {
                 PROPVARIANT varName;
                 PropVariantInit(&varName);
-                hResult = pProperties->lpVtbl->GetValue(pProperties, &g_malPKEY_Device_FriendlyName, &varName);
-                if (SUCCEEDED(hResult)) {
+                hr = pProperties->lpVtbl->GetValue(pProperties, &g_malPKEY_Device_FriendlyName, &varName);
+                if (SUCCEEDED(hr)) {
                     WideCharToMultiByte(CP_UTF8, 0, varName.pwszVal, -1, pInfo->name, sizeof(pInfo->name), 0, FALSE);
                     PropVariantClear(&varName);
                 }
@@ -1777,8 +1785,6 @@ static mal_result mal_enumerate_devices__wasapi(mal_device_type type, mal_uint32
     }
 
     pDeviceCollection->lpVtbl->Release(pDeviceCollection);
-    pDeviceEnumerator->lpVtbl->Release(pDeviceEnumerator);
-    if (needCoUninit) CoUninitialize();
     return MAL_SUCCESS;
 }
 
@@ -1803,10 +1809,6 @@ static void mal_device_uninit__wasapi(mal_device* pDevice)
 
     if (pDevice->wasapi.hStopEvent) {
         CloseHandle(pDevice->wasapi.hStopEvent);
-    }
-
-    if (pDevice->wasapi.needCoUninit) {
-        CoUninitialize();
     }
 }
 
@@ -2171,8 +2173,10 @@ static BOOL CALLBACK mal_enum_devices_callback__dsound(LPGUID lpGuid, LPCSTR lpc
     return TRUE;
 }
 
-static mal_result mal_enumerate_devices__dsound(mal_device_type type, mal_uint32* pCount, mal_device_info* pInfo)
+static mal_result mal_enumerate_devices__dsound(mal_context* pContext, mal_device_type type, mal_uint32* pCount, mal_device_info* pInfo)
 {
+    (void)pContext;
+
     mal_uint32 infoSize = *pCount;
     *pCount = 0;
 
@@ -3008,8 +3012,10 @@ static mal_bool32 mal_device_read__alsa(mal_device* pDevice)
 }
 
 
-static mal_result mal_enumerate_devices__alsa(mal_device_type type, mal_uint32* pCount, mal_device_info* pInfo)
+static mal_result mal_enumerate_devices__alsa(mal_context* pContext, mal_device_type type, mal_uint32* pCount, mal_device_info* pInfo)
 {
+    (void)pContext;
+
     mal_uint32 infoSize = *pCount;
     *pCount = 0;
 
@@ -3441,8 +3447,10 @@ mal_result mal_context_uninit__sles(mal_context* pContext)
     return MAL_SUCCESS;
 }
 
-mal_result mal_enumerate_devices__sles(mal_device_type type, mal_uint32* pCount, mal_device_info* pInfo)
+mal_result mal_enumerate_devices__sles(mal_context* pContext, mal_device_type type, mal_uint32* pCount, mal_device_info* pInfo)
 {
+    (void)pContext;
+
     mal_uint32 infoSize = *pCount;
     *pCount = 0;
 
@@ -4089,7 +4097,7 @@ mal_bool32 mal_device__is_initialized(mal_device* pDevice)
 }
 
 
-mal_result mal_context_init(mal_context* pContext, mal_backend backends[], mal_uint32 backendCount)
+mal_result mal_context_init(mal_backend backends[], mal_uint32 backendCount, mal_context* pContext)
 {
     if (pContext == NULL) return MAL_INVALID_ARGS;
     mal_zero_object(pContext);
@@ -4215,34 +4223,34 @@ mal_result mal_context_uninit(mal_context* pContext)
 }
 
 
-mal_result mal_enumerate_devices(mal_device_type type, mal_uint32* pCount, mal_device_info* pInfo)
+mal_result mal_enumerate_devices(mal_context* pContext, mal_device_type type, mal_uint32* pCount, mal_device_info* pInfo)
 {
     if (pCount == NULL) return mal_post_error(NULL, "mal_enumerate_devices() called with invalid arguments.", MAL_INVALID_ARGS);
 
     mal_result result = MAL_NO_BACKEND;
 #ifdef MAL_ENABLE_WASAPI
     if (result != MAL_SUCCESS) {
-        result = mal_enumerate_devices__wasapi(type, pCount, pInfo);
+        result = mal_enumerate_devices__wasapi(pContext, type, pCount, pInfo);
     }
 #endif
 #ifdef MAL_ENABLE_DSOUND
     if (result != MAL_SUCCESS) {
-        result = mal_enumerate_devices__dsound(type, pCount, pInfo);
+        result = mal_enumerate_devices__dsound(pContext, type, pCount, pInfo);
     }
 #endif
 #ifdef MAL_ENABLE_ALSA
     if (result != MAL_SUCCESS) {
-        result = mal_enumerate_devices__alsa(type, pCount, pInfo);
+        result = mal_enumerate_devices__alsa(pContext, type, pCount, pInfo);
     }
 #endif
 #ifdef MAL_ENABLE_OPENSLES
     if (result != MAL_SUCCESS) {
-        result = mal_enumerate_devices__sles(type, pCount, pInfo);
+        result = mal_enumerate_devices__sles(pContext, type, pCount, pInfo);
     }
 #endif
 #ifdef MAL_ENABLE_NULL
     if (result != MAL_SUCCESS) {
-        result = mal_enumerate_devices__null(type, pCount, pInfo);
+        result = mal_enumerate_devices__null(pContext, type, pCount, pInfo);
     }
 #endif
 
