@@ -4674,8 +4674,6 @@ mal_uint32 mal_get_sample_size_in_bytes(mal_format format)
 
 // TODO
 // ====
-// - Implement the notion of a context.
-//   - Needed to ensure device enumeration and initialization use the same backend.
 // - Add support for channel mapping.
 //
 //
