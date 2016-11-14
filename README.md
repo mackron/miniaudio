@@ -21,6 +21,15 @@ Simple Playback Example
 =======================
 
 ```c
+#define MAL_IMPLEMENTATION
+#include "../mini_al.h"
+
+#define DR_WAV_IMPLEMENTATION
+#include "dr_wav.h"
+
+#include <stdio.h>
+
+// This is the function that's used for sending more data to the device for playback.
 mal_uint32 on_send_frames_to_device(mal_device* pDevice, mal_uint32 frameCount, void* pSamples)
 {
     drwav* pWav = (drwav*)pDevice->pUserData;
@@ -43,6 +52,12 @@ int main(int argc, char** argv)
         printf("Not a valid WAV file.");
         return -2;
     }
+
+    mal_context context;
+    if (mal_context_init(NULL, 0, &context) != MAL_SUCCESS) {
+        printf("Failed to initialize context.");
+        return -3;
+    }
     
     // In this example we use the default playback device with a default buffer size and period count.
 	mal_device_config config;
@@ -57,10 +72,11 @@ int main(int argc, char** argv)
     config.onLogCallback  = NULL;
 	
     mal_device device;
-    if (mal_device_init(&device, mal_device_type_playback, NULL, &config, &wav) != MAL_SUCCESS) {
+    if (mal_device_init(&context, mal_device_type_playback, NULL, &config, &wav, &device) != MAL_SUCCESS) {
         printf("Failed to open playback device.");
+        mal_context_uninit(&context);
         drwav_uninit(&wav);
-        return -3;
+        return -4;
     }
     mal_device_start(&device);
     
@@ -68,6 +84,7 @@ int main(int argc, char** argv)
     getchar();
     
     mal_device_uninit(&device);
+    mal_context_uninit(&context);
     drwav_uninit(&wav);
     
     return 0;
