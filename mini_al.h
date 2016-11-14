@@ -381,7 +381,6 @@ typedef struct
 struct mal_device
 {
     mal_context* pContext;
-    mal_backend api;            // DirectSound, ALSA, etc.
     mal_device_type type;
     mal_format format;
     mal_uint32 channels;
@@ -1477,7 +1476,6 @@ static mal_result mal_device_init__null(mal_context* pContext, mal_device_type t
     (void)pDeviceID;
 
     mal_assert(pDevice != NULL);
-    pDevice->api = mal_backend_null;
     mal_zero_object(&pDevice->null_device);
 
     pDevice->bufferSizeInFrames = pConfig->bufferSizeInFrames;
@@ -1818,7 +1816,6 @@ static mal_result mal_device_init__wasapi(mal_context* pContext, mal_device_type
     (void)pContext;
 
     mal_assert(pDevice != NULL);
-    pDevice->api = mal_backend_wasapi;
     mal_zero_object(&pDevice->wasapi);
 
     HRESULT hr = CoInitializeEx(NULL, COINIT_APARTMENTTHREADED);
@@ -2259,7 +2256,6 @@ static mal_result mal_device_init__dsound(mal_context* pContext, mal_device_type
     (void)pContext;
 
     mal_assert(pDevice != NULL);
-    pDevice->api = mal_backend_dsound;
     mal_zero_object(&pDevice->dsound);
 
     pDevice->dsound.rewindTarget = ~0UL;
@@ -3161,7 +3157,6 @@ static mal_result mal_device_init__alsa(mal_context* pContext, mal_device_type t
     (void)pContext;
 
     mal_assert(pDevice != NULL);
-    pDevice->api = mal_backend_alsa;
     mal_zero_object(&pDevice->alsa);
 
     snd_pcm_format_t formatALSA;
@@ -3686,7 +3681,6 @@ static mal_result mal_device_init__sles(mal_context* pContext, mal_device_type t
 
     // Now we can start initializing the device properly.
     mal_assert(pDevice != NULL);
-    pDevice->api = mal_backend_sles;
     mal_zero_object(&pDevice->sles);
 
     pDevice->sles.currentBufferIndex = 0;
@@ -3916,22 +3910,22 @@ static mal_result mal_device__start_backend(mal_device* pDevice)
 
     mal_result result = MAL_NO_BACKEND;
 #ifdef MAL_ENABLE_WASAPI
-    if (pDevice->api == mal_backend_wasapi) {
+    if (pDevice->pContext->backend == mal_backend_wasapi) {
         result = mal_device__start_backend__wasapi(pDevice);
     }
 #endif
 #ifdef MAL_ENABLE_DSOUND
-    if (pDevice->api == mal_backend_dsound) {
+    if (pDevice->pContext->backend == mal_backend_dsound) {
         result = mal_device__start_backend__dsound(pDevice);
     }
 #endif
 #ifdef MAL_ENABLE_ALSA
-    if (pDevice->api == mal_backend_alsa) {
+    if (pDevice->pContext->backend == mal_backend_alsa) {
         result = mal_device__start_backend__alsa(pDevice);
     }
 #endif
 #ifdef MAL_ENABLE_NULL
-    if (pDevice->api == mal_backend_null) {
+    if (pDevice->pContext->backend == mal_backend_null) {
         result = mal_device__start_backend__null(pDevice);
     }
 #endif
@@ -3945,22 +3939,22 @@ static mal_result mal_device__stop_backend(mal_device* pDevice)
 
     mal_result result = MAL_NO_BACKEND;
 #ifdef MAL_ENABLE_WASAPI
-    if (pDevice->api == mal_backend_wasapi) {
+    if (pDevice->pContext->backend == mal_backend_wasapi) {
         result = mal_device__stop_backend__wasapi(pDevice);
     }
 #endif
 #ifdef MAL_ENABLE_DSOUND
-    if (pDevice->api == mal_backend_dsound) {
+    if (pDevice->pContext->backend == mal_backend_dsound) {
         result = mal_device__stop_backend__dsound(pDevice);
     }
 #endif
 #ifdef MAL_ENABLE_ALSA
-    if (pDevice->api == mal_backend_alsa) {
+    if (pDevice->pContext->backend == mal_backend_alsa) {
         result = mal_device__stop_backend__alsa(pDevice);
     }
 #endif
 #ifdef MAL_ENABLE_NULL
-    if (pDevice->api == mal_backend_null) {
+    if (pDevice->pContext->backend == mal_backend_null) {
         result = mal_device__stop_backend__null(pDevice);
     }
 #endif
@@ -3974,22 +3968,22 @@ static mal_result mal_device__break_main_loop(mal_device* pDevice)
 
     mal_result result = MAL_NO_BACKEND;
 #ifdef MAL_ENABLE_WASAPI
-    if (pDevice->api == mal_backend_wasapi) {
+    if (pDevice->pContext->backend == mal_backend_wasapi) {
         result = mal_device__break_main_loop__wasapi(pDevice);
     }
 #endif
 #ifdef MAL_ENABLE_DSOUND
-    if (pDevice->api == mal_backend_dsound) {
+    if (pDevice->pContext->backend == mal_backend_dsound) {
         result = mal_device__break_main_loop__dsound(pDevice);
     }
 #endif
 #ifdef MAL_ENABLE_ALSA
-    if (pDevice->api == mal_backend_alsa) {
+    if (pDevice->pContext->backend == mal_backend_alsa) {
         result = mal_device__break_main_loop__alsa(pDevice);
     }
 #endif
 #ifdef MAL_ENABLE_NULL
-    if (pDevice->api == mal_backend_null) {
+    if (pDevice->pContext->backend == mal_backend_null) {
         result = mal_device__break_main_loop__null(pDevice);
     }
 #endif
@@ -4003,22 +3997,22 @@ static mal_result mal_device__main_loop(mal_device* pDevice)
 
     mal_result result = MAL_NO_BACKEND;
 #ifdef MAL_ENABLE_WASAPI
-    if (pDevice->api == mal_backend_wasapi) {
+    if (pDevice->pContext->backend == mal_backend_wasapi) {
         result = mal_device__main_loop__wasapi(pDevice);
     }
 #endif
 #ifdef MAL_ENABLE_DSOUND
-    if (pDevice->api == mal_backend_dsound) {
+    if (pDevice->pContext->backend == mal_backend_dsound) {
         result = mal_device__main_loop__dsound(pDevice);
     }
 #endif
 #ifdef MAL_ENABLE_ALSA
-    if (pDevice->api == mal_backend_alsa) {
+    if (pDevice->pContext->backend == mal_backend_alsa) {
         result = mal_device__main_loop__alsa(pDevice);
     }
 #endif
 #ifdef MAL_ENABLE_NULL
-    if (pDevice->api == mal_backend_null) {
+    if (pDevice->pContext->backend == mal_backend_null) {
         result = mal_device__main_loop__null(pDevice);
     }
 #endif
@@ -4396,7 +4390,7 @@ void mal_device_uninit(mal_device* pDevice)
     mal_device__set_state(pDevice, MAL_STATE_UNINITIALIZED);
 
     // Wake up the worker thread and wait for it to properly terminate.
-    if (pDevice->api != mal_backend_sles) {
+    if (pDevice->pContext->backend != mal_backend_sles) {
         mal_event_signal(&pDevice->wakeupEvent);
         mal_thread_wait(&pDevice->thread);
     }
@@ -4407,27 +4401,27 @@ void mal_device_uninit(mal_device* pDevice)
     mal_mutex_delete(&pDevice->lock);
 
 #ifdef MAL_ENABLE_WASAPI
-    if (pDevice->api == mal_backend_wasapi) {
+    if (pDevice->pContext->backend == mal_backend_wasapi) {
         mal_device_uninit__wasapi(pDevice);
     }
 #endif
 #ifdef MAL_ENABLE_DSOUND
-    if (pDevice->api == mal_backend_dsound) {
+    if (pDevice->pContext->backend == mal_backend_dsound) {
         mal_device_uninit__dsound(pDevice);
     }
 #endif
 #ifdef MAL_ENABLE_ALSA
-    if (pDevice->api == mal_backend_alsa) {
+    if (pDevice->pContext->backend == mal_backend_alsa) {
         mal_device_uninit__alsa(pDevice);
     }
 #endif
 #ifdef MAL_ENABLE_OPENSLES
-    if (pDevice->api == mal_backend_sles) {
+    if (pDevice->pContext->backend == mal_backend_sles) {
         mal_device_uninit__sles(pDevice);
     }
 #endif
 #ifdef MAL_ENABLE_NULL
-    if (pDevice->api == mal_backend_null) {
+    if (pDevice->pContext->backend == mal_backend_null) {
         mal_device_uninit__null(pDevice);
     }
 #endif
@@ -4482,7 +4476,7 @@ mal_result mal_device_start(mal_device* pDevice)
 
         // Asynchronous backends need to be handled differently.
 #ifdef MAL_ENABLE_OPENSLES
-        if (pDevice->api == mal_backend_sles) {
+        if (pDevice->pContext->backend == mal_backend_sles) {
             mal_device__start_backend__sles(pDevice);
             mal_device__set_state(pDevice, MAL_STATE_STARTED);
         } else
@@ -4533,7 +4527,7 @@ mal_result mal_device_stop(mal_device* pDevice)
 
         // Asynchronous backends need to be handled differently.
 #ifdef MAL_ENABLE_OPENSLES
-        if (pDevice->api == mal_backend_sles) {
+        if (pDevice->pContext->backend == mal_backend_sles) {
             mal_device__stop_backend__sles(pDevice);
         } else
 #endif
@@ -4570,7 +4564,7 @@ mal_uint32 mal_device_get_available_rewind_amount(mal_device* pDevice)
     }
 
 #ifdef MAL_ENABLE_DSOUND
-    if (pDevice->api == mal_backend_dsound) {
+    if (pDevice->pContext->backend == mal_backend_dsound) {
         mal_mutex_lock(&pDevice->lock);
         mal_uint32 result = mal_device_get_available_rewind_amount__dsound(pDevice);
         mal_mutex_unlock(&pDevice->lock);
@@ -4578,7 +4572,7 @@ mal_uint32 mal_device_get_available_rewind_amount(mal_device* pDevice)
     }
 #endif
 #ifdef MAL_ENABLE_ALSA
-    if (pDevice->api == mal_backend_alsa) {
+    if (pDevice->pContext->backend == mal_backend_alsa) {
         mal_mutex_lock(&pDevice->lock);
         mal_uint32 result = mal_device_get_available_rewind_amount__alsa(pDevice);
         mal_mutex_unlock(&pDevice->lock);
@@ -4586,7 +4580,7 @@ mal_uint32 mal_device_get_available_rewind_amount(mal_device* pDevice)
     }
 #endif
 #ifdef MAL_ENABLE_NULL
-    if (pDevice->api == mal_backend_null) {
+    if (pDevice->pContext->backend == mal_backend_null) {
         mal_mutex_lock(&pDevice->lock);
         mal_uint32 result = mal_device_get_available_rewind_amount__null(pDevice);
         mal_mutex_unlock(&pDevice->lock);
@@ -4607,7 +4601,7 @@ mal_uint32 mal_device_rewind(mal_device* pDevice, mal_uint32 framesToRewind)
     }
 
 #ifdef MAL_ENABLE_DSOUND
-    if (pDevice->api == mal_backend_dsound) {
+    if (pDevice->pContext->backend == mal_backend_dsound) {
         mal_mutex_lock(&pDevice->lock);
         mal_uint32 result = mal_device_rewind__dsound(pDevice, framesToRewind);
         mal_mutex_unlock(&pDevice->lock);
@@ -4615,7 +4609,7 @@ mal_uint32 mal_device_rewind(mal_device* pDevice, mal_uint32 framesToRewind)
     }
 #endif
 #ifdef MAL_ENABLE_ALSA
-    if (pDevice->api == mal_backend_alsa) {
+    if (pDevice->pContext->backend == mal_backend_alsa) {
         mal_mutex_lock(&pDevice->lock);
         mal_uint32 result = mal_device_rewind__alsa(pDevice, framesToRewind);
         mal_mutex_unlock(&pDevice->lock);
@@ -4623,7 +4617,7 @@ mal_uint32 mal_device_rewind(mal_device* pDevice, mal_uint32 framesToRewind)
     }
 #endif
 #ifdef MAL_ENABLE_NULL
-    if (pDevice->api == mal_backend_null) {
+    if (pDevice->pContext->backend == mal_backend_null) {
         mal_mutex_lock(&pDevice->lock);
         mal_uint32 result = mal_device_rewind__null(pDevice, framesToRewind);
         mal_mutex_unlock(&pDevice->lock);
