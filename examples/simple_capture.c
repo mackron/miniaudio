@@ -47,6 +47,12 @@ mal_uint32 on_send_frames(mal_device* pDevice, mal_uint32 frameCount, void* pSam
 
 int main()
 {
+    mal_context context;
+    if (mal_context_init(NULL, 0, &context) != MAL_SUCCESS) {
+        printf("Failed to initialize context.");
+        return -1;
+    }
+
 	mal_device_config config;
 	config.format = mal_format_f32;
 	config.channels = 2;
@@ -60,7 +66,8 @@ int main()
 
     printf("Recording...\n");
     mal_device captureDevice;
-    if (mal_device_init(&captureDevice, mal_device_type_capture, NULL, &config, NULL)) {
+    if (mal_device_init(&context, mal_device_type_capture, NULL, &config, NULL, &captureDevice) != MAL_SUCCESS) {
+        mal_context_uninit(&context);
         printf("Failed to initialize capture device.\n");
         return -2;
     }
@@ -74,7 +81,8 @@ int main()
 
     printf("Playing...\n");
     mal_device playbackDevice;
-    if (mal_device_init(&playbackDevice, mal_device_type_playback, NULL, &config, NULL)) {
+    if (mal_device_init(&context, mal_device_type_playback, NULL, &config, NULL, &playbackDevice) != MAL_SUCCESS) {
+        mal_context_uninit(&context);
         printf("Failed to initialize playback device.\n");
         return -3;
     }
@@ -84,5 +92,6 @@ int main()
 	getchar();
     mal_device_uninit(&playbackDevice);
 
+    mal_context_uninit(&context);
 	return 0;
 }
