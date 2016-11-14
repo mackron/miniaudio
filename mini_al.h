@@ -4247,7 +4247,7 @@ mal_result mal_context_uninit(mal_context* pContext)
         default: break;
     }
 
-    mal_assert(false);
+    mal_assert(MAL_FALSE);
     return MAL_NO_BACKEND;
 }
 
