@@ -4165,7 +4165,7 @@ mal_result mal_context_init(mal_backend backends[], mal_uint32 backendCount, mal
             } break;
         #endif
         #ifdef MAL_ENABLE_NULL
-            case mal_backend_dsound:
+            case mal_backend_null:
             {
                 mal_result result = mal_context_init__null(pContext);
                 if (result == MAL_SUCCESS) {
@@ -4213,7 +4213,7 @@ mal_result mal_context_uninit(mal_context* pContext)
         } break;
     #endif
     #ifdef MAL_ENABLE_NULL
-        case mal_backend_dsound:
+        case mal_backend_null:
         {
             return mal_context_uninit__null(pContext);
         } break;
