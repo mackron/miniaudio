@@ -70,6 +70,12 @@
 //
 //   ...
 //
+//   mal_context context;
+//   if (mal_context_init(NULL, 0, &context) != MAL_SUCCESS) {
+//       printf("Failed to initialize context.");
+//       return -3;
+//   }
+//
 //   mal_device_config config;
 //   config.format = mal_format_f32;
 //   config.channels = wav.channels;
@@ -82,7 +88,7 @@
 //   config.onLogCallback = NULL;   // ... nor do we care about logging (but you really should in a real-world application).
 //
 //   mal_device device;
-//   mal_result result = mal_device_init(&device, mal_device_type_playback, NULL, &config, pMyData);
+//   mal_result result = mal_device_init(&context, mal_device_type_playback, NULL, &config, pMyData, &device);
 //   if (result != MAL_SUCCESS) {
 //       return -1;
 //   }
