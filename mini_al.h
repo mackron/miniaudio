@@ -491,8 +491,8 @@ struct mal_device
 //
 // <backends> is used to allow the application to prioritize backends depending on it's specific
 // requirements. This can be null in which case it uses the default priority, which is as follows:
-//   - WASAPI
 //   - DirectSound
+//   - WASAPI
 //   - ALSA
 //   - OpenSL|ES
 //   - Null
@@ -4131,8 +4131,8 @@ mal_result mal_context_init(mal_backend backends[], mal_uint32 backendCount, mal
     mal_zero_object(pContext);
 
     static mal_backend defaultBackends[] = {
-        mal_backend_wasapi,
         mal_backend_dsound,
+        mal_backend_wasapi,
         mal_backend_alsa,
         mal_backend_sles,
         mal_backend_null
