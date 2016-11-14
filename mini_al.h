@@ -237,36 +237,36 @@ typedef void* mal_ptr;
 #endif
 
 typedef int mal_result;
-#define MAL_SUCCESS                              0
-#define MAL_ERROR                               -1      // A generic error.
-#define MAL_INVALID_ARGS                        -2
-#define MAL_OUT_OF_MEMORY                       -3
-#define MAL_FORMAT_NOT_SUPPORTED                -4
-#define MAL_NO_BACKEND                          -5
-#define MAL_NO_DEVICE                           -6
-#define MAL_API_NOT_FOUND                       -7
-#define MAL_DEVICE_BUSY                         -8
-#define MAL_DEVICE_NOT_INITIALIZED              -9
-#define MAL_DEVICE_ALREADY_STARTED              -10
-#define MAL_DEVICE_ALREADY_STARTING             -11
-#define MAL_DEVICE_ALREADY_STOPPED              -12
-#define MAL_DEVICE_ALREADY_STOPPING             -13
-#define MAL_FAILED_TO_MAP_DEVICE_BUFFER         -14
-#define MAL_FAILED_TO_INIT_BACKEND              -15
-#define MAL_FAILED_TO_READ_DATA_FROM_CLIENT     -16
-#define MAL_FAILED_TO_START_BACKEND_DEVICE      -17
-#define MAL_FAILED_TO_STOP_BACKEND_DEVICE       -18
-#define MAL_FAILED_TO_CREATE_MUTEX              -19
-#define MAL_FAILED_TO_CREATE_EVENT              -20
-#define MAL_FAILED_TO_CREATE_THREAD             -21
-#define MAL_DSOUND_FAILED_TO_CREATE_DEVICE      -1024
-#define MAL_DSOUND_FAILED_TO_SET_COOP_LEVEL     -1025
-#define MAL_DSOUND_FAILED_TO_CREATE_BUFFER      -1026
-#define MAL_DSOUND_FAILED_TO_QUERY_INTERFACE    -1027
-#define MAL_DSOUND_FAILED_TO_SET_NOTIFICATIONS  -1028
-#define MAL_ALSA_FAILED_TO_OPEN_DEVICE          -2048
-#define MAL_ALSA_FAILED_TO_SET_HW_PARAMS        -2049
-#define MAL_ALSA_FAILED_TO_SET_SW_PARAMS        -2050
+#define MAL_SUCCESS                                      0
+#define MAL_ERROR                                       -1      // A generic error.
+#define MAL_INVALID_ARGS                                -2
+#define MAL_OUT_OF_MEMORY                               -3
+#define MAL_FORMAT_NOT_SUPPORTED                        -4
+#define MAL_NO_BACKEND                                  -5
+#define MAL_NO_DEVICE                                   -6
+#define MAL_API_NOT_FOUND                               -7
+#define MAL_DEVICE_BUSY                                 -8
+#define MAL_DEVICE_NOT_INITIALIZED                      -9
+#define MAL_DEVICE_ALREADY_STARTED                      -10
+#define MAL_DEVICE_ALREADY_STARTING                     -11
+#define MAL_DEVICE_ALREADY_STOPPED                      -12
+#define MAL_DEVICE_ALREADY_STOPPING                     -13
+#define MAL_FAILED_TO_MAP_DEVICE_BUFFER                 -14
+#define MAL_FAILED_TO_INIT_BACKEND                      -15
+#define MAL_FAILED_TO_READ_DATA_FROM_CLIENT             -16
+#define MAL_FAILED_TO_START_BACKEND_DEVICE              -17
+#define MAL_FAILED_TO_STOP_BACKEND_DEVICE               -18
+#define MAL_FAILED_TO_CREATE_MUTEX                      -19
+#define MAL_FAILED_TO_CREATE_EVENT                      -20
+#define MAL_FAILED_TO_CREATE_THREAD                     -21
+#define MAL_DSOUND_FAILED_TO_CREATE_DEVICE              -1024
+#define MAL_DSOUND_FAILED_TO_SET_COOP_LEVEL             -1025
+#define MAL_DSOUND_FAILED_TO_CREATE_BUFFER              -1026
+#define MAL_DSOUND_FAILED_TO_QUERY_INTERFACE            -1027
+#define MAL_DSOUND_FAILED_TO_SET_NOTIFICATIONS          -1028
+#define MAL_ALSA_FAILED_TO_OPEN_DEVICE                  -2048
+#define MAL_ALSA_FAILED_TO_SET_HW_PARAMS                -2049
+#define MAL_ALSA_FAILED_TO_SET_SW_PARAMS                -2050
 #define MAL_WASAPI_FAILED_TO_CREATE_DEVICE_ENUMERATOR   -3072
 #define MAL_WASAPI_FAILED_TO_CREATE_DEVICE              -3073
 #define MAL_WASAPI_FAILED_TO_ACTIVATE_DEVICE            -3074
@@ -490,7 +490,19 @@ struct mal_device
 // is stored in the mal_device structure.
 //
 // <backends> is used to allow the application to prioritize backends depending on it's specific
-// requirements. This can be null in which case it uses the default priority.
+// requirements. This can be null in which case it uses the default priority, which is as follows:
+//   - WASAPI
+//   - DirectSound
+//   - ALSA
+//   - OpenSL|ES
+//   - Null
+//
+// Return Value:
+//   - MAL_SUCCESS if successful.
+//   - MAL_INVALID_ARGS
+//       One or more of the input arguments is invalid.
+//   - MAL_NO_BACKEND
+//       There is no supported backend, or there was an error loading it (such as a missing dll/so).
 //
 // Thread Safety: UNSAFE
 //
@@ -501,6 +513,13 @@ mal_result mal_context_init(mal_backend backends[], mal_uint32 backendCount, mal
 // Uninitializes a context.
 //
 // Results are undefined if you call this while a related is still active.
+//
+// Return Value:
+//   - MAL_SUCCESS if successful.
+//   - MAL_INVALID_ARGS
+//       One or more of the input arguments is invalid.
+//   - MAL_NO_BACKEND
+//       The device has an unknown backend. This probably means the context of <pContext> has been trashed.
 //
 // Thread Safety: UNSAFE
 //
@@ -4228,6 +4247,7 @@ mal_result mal_context_uninit(mal_context* pContext)
         default: break;
     }
 
+    mal_assert(false);
     return MAL_NO_BACKEND;
 }
 
