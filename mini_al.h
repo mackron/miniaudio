@@ -4407,34 +4407,44 @@ mal_result mal_enumerate_devices(mal_context* pContext, mal_device_type type, ma
 {
     if (pCount == NULL) return mal_post_error(NULL, "mal_enumerate_devices() called with invalid arguments.", MAL_INVALID_ARGS);
 
-    mal_result result = MAL_NO_BACKEND;
-#ifdef MAL_ENABLE_WASAPI
-    if (result != MAL_SUCCESS) {
-        result = mal_enumerate_devices__wasapi(pContext, type, pCount, pInfo);
-    }
-#endif
-#ifdef MAL_ENABLE_DSOUND
-    if (result != MAL_SUCCESS) {
-        result = mal_enumerate_devices__dsound(pContext, type, pCount, pInfo);
-    }
-#endif
-#ifdef MAL_ENABLE_ALSA
-    if (result != MAL_SUCCESS) {
-        result = mal_enumerate_devices__alsa(pContext, type, pCount, pInfo);
-    }
-#endif
-#ifdef MAL_ENABLE_OPENSLES
-    if (result != MAL_SUCCESS) {
-        result = mal_enumerate_devices__sles(pContext, type, pCount, pInfo);
-    }
-#endif
-#ifdef MAL_ENABLE_NULL
-    if (result != MAL_SUCCESS) {
-        result = mal_enumerate_devices__null(pContext, type, pCount, pInfo);
-    }
-#endif
+    switch (pContext->backend)
+    {
+    #ifdef MAL_ENABLE_WASAPI
+        case mal_backend_wasapi:
+        {
+            return mal_enumerate_devices__wasapi(pContext, type, pCount, pInfo);
+        } break;
+    #endif
+    #ifdef MAL_ENABLE_DSOUND
+        case mal_backend_dsound:
+        {
+            return mal_enumerate_devices__dsound(pContext, type, pCount, pInfo);
+        } break;
+    #endif
+    #ifdef MAL_ENABLE_ALSA
+        case mal_backend_alsa:
+        {
+            return mal_enumerate_devices__alsa(pContext, type, pCount, pInfo);
+        } break;
+    #endif
+    #ifdef MAL_ENABLE_OPENSLES
+        case mal_backend_sles:
+        {
+            return mal_enumerate_devices__sles(pContext, type, pCount, pInfo);
+        } break;
+    #endif
+    #ifdef MAL_ENABLE_NULL
+        case mal_backend_null:
+        {
+            return mal_enumerate_devices__null(pContext, type, pCount, pInfo);
+        } break;
+    #endif
 
-    return result;
+        default: break;
+    }
+
+    mal_assert(MAL_FALSE);
+    return MAL_NO_BACKEND;
 }
 
 mal_result mal_device_init(mal_context* pContext, mal_device_type type, mal_device_id* pDeviceID, mal_device_config* pConfig, void* pUserData, mal_device* pDevice)
@@ -4502,31 +4512,41 @@ mal_result mal_device_init(mal_context* pContext, mal_device_type type, mal_devi
 
 
     mal_result result = MAL_NO_BACKEND;
-#ifdef MAL_ENABLE_WASAPI
-    if (result != MAL_SUCCESS) {
-        result = mal_device_init__wasapi(pContext, type, pDeviceID, pConfig, pDevice);
+    switch (pContext->backend)
+    {
+    #ifdef MAL_ENABLE_WASAPI
+        case mal_backend_wasapi:
+        {
+            result = mal_device_init__wasapi(pContext, type, pDeviceID, pConfig, pDevice);
+        } break;
+    #endif
+    #ifdef MAL_ENABLE_DSOUND
+        case mal_backend_dsound:
+        {
+            result = mal_device_init__dsound(pContext, type, pDeviceID, pConfig, pDevice);
+        } break;
+    #endif
+    #ifdef MAL_ENABLE_ALSA
+        case mal_backend_alsa:
+        {
+            result = mal_device_init__alsa(pContext, type, pDeviceID, pConfig, pDevice);
+        } break;
+    #endif
+    #ifdef MAL_ENABLE_OPENSLES
+        case mal_backend_sles:
+        {
+            result = mal_device_init__sles(pContext, type, pDeviceID, pConfig, pDevice);
+        } break;
+    #endif
+    #ifdef MAL_ENABLE_NULL
+        case mal_backend_null:
+        {
+            result = mal_device_init__null(pContext, type, pDeviceID, pConfig, pDevice);
+        } break;
+    #endif
+
+        default: break;
     }
-#endif
-#ifdef MAL_ENABLE_DSOUND
-    if (result != MAL_SUCCESS) {
-        result = mal_device_init__dsound(pContext, type, pDeviceID, pConfig, pDevice);
-    }
-#endif
-#ifdef MAL_ENABLE_ALSA
-    if (result != MAL_SUCCESS) {
-        result = mal_device_init__alsa(pContext, type, pDeviceID, pConfig, pDevice);
-    }
-#endif
-#ifdef MAL_ENABLE_OPENSLES
-    if (result != MAL_SUCCESS) {
-        result = mal_device_init__sles(pContext, type, pDeviceID, pConfig, pDevice);
-    }
-#endif
-#ifdef MAL_ENABLE_NULL
-    if (result != MAL_SUCCESS) {
-        result = mal_device_init__null(pContext, type, pDeviceID, pConfig, pDevice);
-    }
-#endif
 
     if (result != MAL_SUCCESS) {
         return MAL_NO_BACKEND;  // The error message will have been posted by the source of the error.
