@@ -118,7 +118,6 @@
 // - The absolute best latency I am able to get on DirectSound is about 10 milliseconds. This seems very
 //   consistent so I'm suspecting there's some kind of hard coded limit there or something.
 // - DirectSound currently supports a maximum of 4 periods.
-// - The ALSA backend does not support rewinding.
 // - To capture audio on Android, remember to add the RECORD_AUDIO permission to your manifest:
 //     <uses-permission android:name="android.permission.RECORD_AUDIO" />
 //
@@ -434,9 +433,7 @@ struct mal_device
             /*LPDIRECTSOUNDNOTIFY*/ mal_ptr pNotify;
             /*HANDLE*/ mal_handle pNotifyEvents[MAL_MAX_PERIODS_DSOUND];  // One event handle for each period.
             /*HANDLE*/ mal_handle hStopEvent;
-            /*HANDLE*/ mal_handle hRewindEvent;
             mal_uint32 lastProcessedFrame;      // This is circular.
-            mal_uint32 rewindTarget;            // Where we want to rewind to. Set to ~0UL when it is not being rewound.
             mal_bool32 breakFromMainLoop;
         } dsound;
     #endif
@@ -714,29 +711,6 @@ mal_result mal_device_stop(mal_device* pDevice);
 // Efficiency: HIGH
 //   This is implemented with a simple accessor.
 mal_bool32 mal_device_is_started(mal_device* pDevice);
-
-// Retrieves the number of frames available for rewinding.
-//
-// Return Value:
-//   The number of frames that can be rewound. Returns 0 if the device cannot be rewound.
-//
-// Thread Safety: SAFE
-//
-// Efficiency: MEDIUM
-//   This currently waits on a mutex for thread-safety, but should otherwise be fairly efficient.
-mal_uint32 mal_device_get_available_rewind_amount(mal_device* pDevice);
-
-// Rewinds by a number of frames.
-//
-// Return Value:
-//   The number of frames rewound. This can differ from the result of a previous call to
-//   mal_device_get_available_rewind_amount().
-//
-// Thread Safety: SAFE
-//
-// Efficiency: MEDIUM
-//   This currently waits on a mutex for thread-safety, but should otherwise be fairly efficient.
-mal_uint32 mal_device_rewind(mal_device* pDevice, mal_uint32 framesToRewind);
 
 // Retrieves the size of the buffer in bytes for the given device.
 //
@@ -1652,26 +1626,6 @@ static mal_result mal_device__main_loop__null(mal_device* pDevice)
 
     return MAL_SUCCESS;
 }
-
-static mal_uint32 mal_device_get_available_rewind_amount__null(mal_device* pDevice)
-{
-    mal_assert(pDevice != NULL);
-
-    // Rewinding on the null device is unimportant. Not willing to add maintenance costs for this.
-    (void)pDevice;
-    return 0;
-}
-
-static mal_uint32 mal_device_rewind__null(mal_device* pDevice, mal_uint32 framesToRewind)
-{
-    mal_assert(pDevice != NULL);
-    mal_assert(framesToRewind > 0);
-
-    // Rewinding on the null device is unimportant. Not willing to add maintenance costs for this.
-    (void)pDevice;
-    (void)framesToRewind;
-    return 0;
-}
 #endif
 
 
@@ -2394,9 +2348,6 @@ static void mal_device_uninit__dsound(mal_device* pDevice)
             IDirectSoundNotify_Release((LPDIRECTSOUNDNOTIFY)pDevice->dsound.pNotify);
         }
 
-        if (pDevice->dsound.hRewindEvent) {
-            CloseHandle(pDevice->dsound.hRewindEvent);
-        }
         if (pDevice->dsound.hStopEvent) {
             CloseHandle(pDevice->dsound.hStopEvent);
         }
@@ -2433,8 +2384,6 @@ static mal_result mal_device_init__dsound(mal_context* pContext, mal_device_type
 
     mal_assert(pDevice != NULL);
     mal_zero_object(&pDevice->dsound);
-
-    pDevice->dsound.rewindTarget = ~0UL;
 
     pDevice->dsound.hDSoundDLL = (mal_handle)mal_open_dsound_dll();
     if (pDevice->dsound.hDSoundDLL == NULL) {
@@ -2640,13 +2589,6 @@ static mal_result mal_device_init__dsound(mal_context* pContext, mal_device_type
         return mal_post_error(pDevice, "[DirectSound] Failed to create event for main loop break notification.", MAL_FAILED_TO_CREATE_EVENT);
     }
 
-    // When the device is rewound we need to signal an event to ensure the main loop can handle it ASAP.
-    pDevice->dsound.hRewindEvent = CreateEventA(NULL, FALSE, FALSE, NULL);
-    if (pDevice->dsound.hRewindEvent == NULL) {
-        mal_device_uninit__dsound(pDevice);
-        return mal_post_error(pDevice, "[DirectSound] Failed to create event for main loop rewind notification.", MAL_FAILED_TO_CREATE_EVENT);
-    }
-
     return MAL_SUCCESS;
 }
 
@@ -2755,21 +2697,9 @@ static mal_uint32 mal_device__get_available_frames__dsound(mal_device* pDevice)
     if (pDevice->type == mal_device_type_playback) {
         mal_uint32 committedBeg = currentFrame;
         mal_uint32 committedEnd;
-        if (pDevice->dsound.rewindTarget != ~0UL) {
-            // The device was just rewound.
-            committedEnd = pDevice->dsound.rewindTarget;
-            if (committedEnd < committedBeg) {
-                //printf("REWOUND TOO FAR: %d\n", committedBeg - committedEnd);
-                committedEnd = committedBeg;
-            }
-
-            pDevice->dsound.lastProcessedFrame = committedEnd;
-            pDevice->dsound.rewindTarget = ~0UL;
-        } else {
-            committedEnd = pDevice->dsound.lastProcessedFrame;
-            if (committedEnd <= committedBeg) {
-                committedEnd += totalFrameCount;
-            }
+        committedEnd = pDevice->dsound.lastProcessedFrame;
+        if (committedEnd <= committedBeg) {
+            committedEnd += totalFrameCount;
         }
 
         mal_uint32 committedSize = (committedEnd - committedBeg);
@@ -2800,11 +2730,10 @@ static mal_uint32 mal_device__wait_for_frames__dsound(mal_device* pDevice)
         timeoutInMilliseconds = 1;
     }
 
-    unsigned int eventCount = pDevice->periods + 2;
-    HANDLE pEvents[MAL_MAX_PERIODS_DSOUND + 2];   // +2 for the stop and rewind event.
+    unsigned int eventCount = pDevice->periods + 1;
+    HANDLE pEvents[MAL_MAX_PERIODS_DSOUND + 1];   // +1 for the stop event.
     mal_copy_memory(pEvents, pDevice->dsound.pNotifyEvents, sizeof(HANDLE) * pDevice->periods);
-    pEvents[eventCount-2] = pDevice->dsound.hStopEvent;
-    pEvents[eventCount-1] = pDevice->dsound.hRewindEvent;
+    pEvents[eventCount-1] = pDevice->dsound.hStopEvent;
 
     while (!pDevice->dsound.breakFromMainLoop) {
         mal_uint32 framesAvailable = mal_device__get_available_frames__dsound(pDevice);
@@ -2874,49 +2803,6 @@ static mal_result mal_device__main_loop__dsound(mal_device* pDevice)
     }
 
     return MAL_SUCCESS;
-}
-
-static mal_uint32 mal_device_get_available_rewind_amount__dsound(mal_device* pDevice)
-{
-    mal_assert(pDevice != NULL);
-    mal_assert(pDevice->type == mal_device_type_playback);
-
-    mal_uint32 currentFrame;
-    if (!mal_device__get_current_frame__dsound(pDevice, &currentFrame)) {
-        return 0;   // Failed to get the current frame.
-    }
-
-    mal_uint32 committedBeg = currentFrame;
-    mal_uint32 committedEnd = pDevice->dsound.lastProcessedFrame;
-    if (committedEnd <= committedBeg) {
-        committedEnd += pDevice->bufferSizeInFrames;    // Wrap around.
-    }
-
-    mal_uint32 padding = (pDevice->sampleRate/1000) * 1; // <-- This is used to prevent the rewind position getting too close to the playback position.
-    mal_uint32 committedSize = (committedEnd - committedBeg);
-    if (committedSize < padding) {
-        return 0;
-    }
-
-    return committedSize - padding;
-}
-
-static mal_uint32 mal_device_rewind__dsound(mal_device* pDevice, mal_uint32 framesToRewind)
-{
-    mal_assert(pDevice != NULL);
-    mal_assert(framesToRewind > 0);
-
-    // Clamp the the maximum allowable rewind amount.
-    mal_uint32 maxRewind = mal_device_get_available_rewind_amount__dsound(pDevice);
-    if (framesToRewind > maxRewind) {
-        framesToRewind = maxRewind;
-    }
-
-    mal_uint32 desiredPosition = (pDevice->dsound.lastProcessedFrame + pDevice->bufferSizeInFrames - framesToRewind) % pDevice->bufferSizeInFrames;    // Wrap around.
-    mal_atomic_exchange_32(&pDevice->dsound.rewindTarget, desiredPosition);
-
-    SetEvent(pDevice->dsound.hRewindEvent); // Make sure the main loop is woken up so it can handle the rewind ASAP.
-    return framesToRewind;
 }
 #endif
 
@@ -3550,50 +3436,6 @@ static mal_result mal_device__main_loop__alsa(mal_device* pDevice)
 
     return MAL_SUCCESS;
 }
-
-
-static mal_uint32 mal_device_get_available_rewind_amount__alsa(mal_device* pDevice)
-{
-    mal_assert(pDevice != NULL);
-
-    // Haven't figured out reliable rewinding with ALSA yet...
-#if 0
-    mal_uint32 padding = (pDevice->sampleRate/1000) * 1; // <-- This is used to prevent the rewind position getting too close to the playback position.
-
-    snd_pcm_sframes_t result = snd_pcm_rewindable((snd_pcm_t*)pDevice->alsa.pPCM);
-    if (result < padding) {
-        return 0;
-    }
-
-    return (mal_uint32)result - padding;
-#else
-    return 0;
-#endif
-}
-
-static mal_uint32 mal_device_rewind__alsa(mal_device* pDevice, mal_uint32 framesToRewind)
-{
-    mal_assert(pDevice != NULL);
-    mal_assert(framesToRewind > 0);
-
-    // Haven't figured out reliable rewinding with ALSA yet...
-#if 0
-    // Clamp the the maximum allowable rewind amount.
-    mal_uint32 maxRewind = mal_device_get_available_rewind_amount__alsa(pDevice);
-    if (framesToRewind > maxRewind) {
-        framesToRewind = maxRewind;
-    }
-
-    snd_pcm_sframes_t result = snd_pcm_rewind((snd_pcm_t*)pDevice->alsa.pPCM, (snd_pcm_uframes_t)framesToRewind);
-    if (result < 0) {
-        return 0;
-    }
-
-    return (mal_uint32)result;
-#else
-    return 0;
-#endif
-}
 #endif
 
 
@@ -3988,26 +3830,6 @@ static mal_result mal_device_init__sles(mal_context* pContext, mal_device_type t
     mal_zero_memory(pDevice->sles.pBuffer, bufferSizeInBytes);
 
     return MAL_SUCCESS;
-}
-
-static mal_uint32 mal_device_get_available_rewind_amount__sles(mal_device* pDevice)
-{
-    mal_assert(pDevice != NULL);
-
-    // Not supporting rewinding in OpenSL|ES.
-    (void)pDevice;
-    return 0;
-}
-
-static mal_uint32 mal_device_rewind__alsa(mal_device* pDevice, mal_uint32 framesToRewind)
-{
-    mal_assert(pDevice != NULL);
-    mal_assert(framesToRewind > 0);
-
-    // Not supporting rewinding in OpenSL|ES.
-    (void)pDevice;
-    (void)framesToRewind;
-    return 0;
 }
 
 static mal_result mal_device__start_backend__sles(mal_device* pDevice)
@@ -4751,80 +4573,6 @@ mal_bool32 mal_device_is_started(mal_device* pDevice)
     return mal_device__get_state(pDevice) == MAL_STATE_STARTED;
 }
 
-mal_uint32 mal_device_get_available_rewind_amount(mal_device* pDevice)
-{
-    if (pDevice == NULL) return 0;
-
-    // Only playback devices can be rewound.
-    if (pDevice->type != mal_device_type_playback) {
-        return 0;
-    }
-
-#ifdef MAL_ENABLE_DSOUND
-    if (pDevice->pContext->backend == mal_backend_dsound) {
-        mal_mutex_lock(&pDevice->lock);
-        mal_uint32 result = mal_device_get_available_rewind_amount__dsound(pDevice);
-        mal_mutex_unlock(&pDevice->lock);
-        return result;
-    }
-#endif
-#ifdef MAL_ENABLE_ALSA
-    if (pDevice->pContext->backend == mal_backend_alsa) {
-        mal_mutex_lock(&pDevice->lock);
-        mal_uint32 result = mal_device_get_available_rewind_amount__alsa(pDevice);
-        mal_mutex_unlock(&pDevice->lock);
-        return result;
-    }
-#endif
-#ifdef MAL_ENABLE_NULL
-    if (pDevice->pContext->backend == mal_backend_null) {
-        mal_mutex_lock(&pDevice->lock);
-        mal_uint32 result = mal_device_get_available_rewind_amount__null(pDevice);
-        mal_mutex_unlock(&pDevice->lock);
-        return result;
-    }
-#endif
-
-    return 0;
-}
-
-mal_uint32 mal_device_rewind(mal_device* pDevice, mal_uint32 framesToRewind)
-{
-    if (pDevice == NULL || framesToRewind == 0) return 0;
-
-    // Only playback devices can be rewound.
-    if (pDevice->type != mal_device_type_playback) {
-        return 0;
-    }
-
-#ifdef MAL_ENABLE_DSOUND
-    if (pDevice->pContext->backend == mal_backend_dsound) {
-        mal_mutex_lock(&pDevice->lock);
-        mal_uint32 result = mal_device_rewind__dsound(pDevice, framesToRewind);
-        mal_mutex_unlock(&pDevice->lock);
-        return result;
-    }
-#endif
-#ifdef MAL_ENABLE_ALSA
-    if (pDevice->pContext->backend == mal_backend_alsa) {
-        mal_mutex_lock(&pDevice->lock);
-        mal_uint32 result = mal_device_rewind__alsa(pDevice, framesToRewind);
-        mal_mutex_unlock(&pDevice->lock);
-        return result;
-    }
-#endif
-#ifdef MAL_ENABLE_NULL
-    if (pDevice->pContext->backend == mal_backend_null) {
-        mal_mutex_lock(&pDevice->lock);
-        mal_uint32 result = mal_device_rewind__null(pDevice, framesToRewind);
-        mal_mutex_unlock(&pDevice->lock);
-        return result;
-    }
-#endif
-
-    return 0;
-}
-
 mal_uint32 mal_device_get_buffer_size_in_bytes(mal_device* pDevice)
 {
     if (pDevice == NULL) return 0;
@@ -4853,6 +4601,8 @@ mal_uint32 mal_get_sample_size_in_bytes(mal_format format)
 //     enumerating and creating devices. Now, applications must first create a context, and then use that to
 //     enumerate and create devices. The reason for this change is to ensure device enumeration and creation is
 //     tied to the same backend. In addition, some backends are bettered suited to this design.
+//   - API CHANGE: Removed the rewinding APIs because they're too inconsistent across the different backends, hard
+//     to test and maintain, and just generally unreliable.
 //   - Null Backend: Fixed a crash when recording.
 //   - Fixed build for UWP.
 //   - Added initial implementation of the WASAPI backend. This is still work in progress.
