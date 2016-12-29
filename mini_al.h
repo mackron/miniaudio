@@ -369,7 +369,6 @@ typedef struct
         struct
         {
             /*IMMDeviceEnumerator**/ mal_ptr pDeviceEnumerator;
-            mal_bool32 needCoUninit;    // Whether or not COM needs to be uninitialized.
         } wasapi;
 
         struct
@@ -513,7 +512,6 @@ struct mal_device
             /*IAudioRenderClient */ mal_ptr pRenderClient;
             /*IAudioCaptureClient */ mal_ptr pCaptureClient;
             /*HANDLE*/ mal_handle hStopEvent;
-            mal_bool32 needCoUninit;    // Whether or not COM needs to be uninitialized.
             mal_bool32 breakFromMainLoop;
         } wasapi;
 
@@ -1805,17 +1803,10 @@ const IID g_malIID_IAudioCaptureClient_Instance  = {0xC8ADBD64, 0xE71E, 0x48A0, 
 mal_result mal_context_init__wasapi(mal_context* pContext)
 {
     mal_assert(pContext != NULL);
-    pContext->wasapi.needCoUninit = MAL_FALSE;
-
-    HRESULT hr = CoInitializeEx(NULL, COINIT_APARTMENTTHREADED);
-    if (hr == S_OK || hr == S_FALSE) {
-        pContext->wasapi.needCoUninit = MAL_TRUE;
-    }
 
     // Validate the WASAPI is available by grabbing an MMDeviceEnumerator object.
-    hr = CoCreateInstance(g_malCLSID_MMDeviceEnumerator, NULL, CLSCTX_ALL, g_malIID_IMMDeviceEnumerator, (void**)&pContext->wasapi.pDeviceEnumerator);
+    HRESULT hr = CoCreateInstance(g_malCLSID_MMDeviceEnumerator, NULL, CLSCTX_ALL, g_malIID_IMMDeviceEnumerator, (void**)&pContext->wasapi.pDeviceEnumerator);
     if (FAILED(hr)) {
-        if (pContext->wasapi.needCoUninit) CoUninitialize();
         return MAL_NO_BACKEND;
     }
 
@@ -1835,10 +1826,6 @@ mal_result mal_context_uninit__wasapi(mal_context* pContext)
 #endif
     }
 
-    if (pContext->wasapi.needCoUninit) {
-        CoUninitialize();
-    }
-    
     return MAL_SUCCESS;
 }
 
@@ -1993,13 +1980,8 @@ static mal_result mal_device_init__wasapi(mal_context* pContext, mal_device_type
     mal_assert(pDevice != NULL);
     mal_zero_object(&pDevice->wasapi);
 
-    HRESULT hr = CoInitializeEx(NULL, COINIT_APARTMENTTHREADED);
-    if (hr == S_OK || hr == S_FALSE) {
-        pDevice->wasapi.needCoUninit = MAL_TRUE;
-    }
-
     IMMDeviceEnumerator* pDeviceEnumerator;
-    hr = CoCreateInstance(g_malCLSID_MMDeviceEnumerator, NULL, CLSCTX_ALL, g_malIID_IMMDeviceEnumerator, (void**)&pDeviceEnumerator);
+    HRESULT hr = CoCreateInstance(g_malCLSID_MMDeviceEnumerator, NULL, CLSCTX_ALL, g_malIID_IMMDeviceEnumerator, (void**)&pDeviceEnumerator);
     if (FAILED(hr)) {
         mal_device_uninit__wasapi(pDevice);
         return mal_post_error(pDevice, "[WASAPI] Failed to create IMMDeviceEnumerator.", MAL_WASAPI_FAILED_TO_CREATE_DEVICE_ENUMERATOR);
@@ -4837,12 +4819,17 @@ mal_result mal_context_init(mal_backend backends[], mal_uint32 backendCount, mal
     if (pContext == NULL) return MAL_INVALID_ARGS;
     mal_zero_object(pContext);
 
+    // Keep it simple and always initialize COM.
+#ifdef MAL_WIN32
+    CoInitializeEx(NULL, COINIT_MULTITHREADED);
+#endif
+
     static mal_backend defaultBackends[] = {
-        mal_backend_openal, // TODO: Move this below all platform-specific backends.
         mal_backend_dsound,
         mal_backend_wasapi,
         mal_backend_alsa,
         mal_backend_sles,
+        mal_backend_openal,
         mal_backend_null
     };
 
@@ -4970,6 +4957,10 @@ mal_result mal_context_uninit(mal_context* pContext)
 
         default: break;
     }
+
+#ifdef MAL_WIN32
+    CoUninitialize();
+#endif
 
     mal_assert(MAL_FALSE);
     return MAL_NO_BACKEND;
