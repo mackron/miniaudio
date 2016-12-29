@@ -42,9 +42,9 @@
 //
 // You can then #include this file in other parts of the program as you would with any other header file.
 //
-// The implementation of this library will try #including necessary headers for each backend. If you do not have
+// The implementation of this library will try #include-ing necessary headers for each backend. If you do not have
 // the development packages for any particular backend you can disable it by #define-ing the appropriate MAL_NO_*
-// option.
+// option before #include-ing the implementation.
 //
 //
 // Building (Windows)
@@ -329,22 +329,11 @@ typedef enum
 typedef union
 {
     // Just look at this shit...
-#if defined(MAL_ENABLE_OPENSLES)
     mal_uint32 id32;    // OpenSL|ES uses a 32-bit unsigned integer for identification.
-#endif
-#if defined(MAL_ENABLE_ALSA)
     char str[32];       // ALSA uses a name string for identification.
-#endif
-#if defined(MAL_ENABLE_DSOUND)
     mal_uint8 guid[16]; // DirectSound uses a GUID for identification.
-#endif
-#if defined(MAL_ENABLE_WASAPI)
     wchar_t wstr[64];   // WASAPI uses a wchar_t string for identification which is also annoyingly long...
-#endif
-#if defined(MAL_ENABLE_OPENAL)
     char openal[256];   // OpenAL uses human-readable device names as the ID which is so flippin' stupid...
-#endif
-    int null; // <-- Just to ensure compilation works when no backends are enabled.
 } mal_device_id;
 
 typedef struct
@@ -377,36 +366,27 @@ typedef struct
 
     union
     {
-    #ifdef MAL_ENABLE_WASAPI
         struct
         {
             /*IMMDeviceEnumerator**/ mal_ptr pDeviceEnumerator;
             mal_bool32 needCoUninit;    // Whether or not COM needs to be uninitialized.
         } wasapi;
-    #endif
 
-    #ifdef MAL_ENABLE_DSOUND
         struct
         {
             /*HMODULE*/ mal_handle hDSoundDLL;
         } dsound;
-    #endif
 
-    #ifdef MAL_ENABLE_ALSA
         struct
         {
             int _unused;
         } alsa;
-    #endif
 
-    #ifdef MAL_ENABLE_OPENSLES
         struct
         {
             int _unused;
         } sles;
-    #endif
 
-    #ifdef MAL_ENABLE_OPENAL
         struct
         {
             /*HMODULE*/ mal_handle hOpenAL;     // OpenAL32.dll, etc.
@@ -491,16 +471,11 @@ typedef struct
 
             mal_uint32 isFloat32Supported;
         } openal;
-    #endif
 
-    #ifdef MAL_ENABLE_NULL
         struct
         {
             int _unused;
         } null_device;
-    #endif
-
-        int _unused; // Only used to ensure mini_al compiles when all backends have been disabled.
     };
 } mal_context;
 
@@ -531,7 +506,6 @@ struct mal_device
 
     union
     {
-    #ifdef MAL_ENABLE_WASAPI
         struct
         {
             /*IMMDevice**/ mal_ptr pDevice;
@@ -542,9 +516,7 @@ struct mal_device
             mal_bool32 needCoUninit;    // Whether or not COM needs to be uninitialized.
             mal_bool32 breakFromMainLoop;
         } wasapi;
-    #endif
 
-    #ifdef MAL_ENABLE_DSOUND
         struct
         {
             /*HMODULE*/ mal_handle hDSoundDLL;
@@ -559,9 +531,7 @@ struct mal_device
             mal_uint32 lastProcessedFrame;      // This is circular.
             mal_bool32 breakFromMainLoop;
         } dsound;
-    #endif
 
-    #ifdef MAL_ENABLE_ALSA
         struct
         {
             /*snd_pcm_t**/ mal_ptr pPCM;
@@ -569,9 +539,7 @@ struct mal_device
             mal_bool32 breakFromMainLoop;
             void* pIntermediaryBuffer;
         } alsa;
-    #endif
 
-    #ifdef MAL_ENABLE_OPENSLES
         struct
         {
             /*SLObjectItf*/ mal_ptr pOutputMixObj;
@@ -585,9 +553,7 @@ struct mal_device
             mal_uint32 currentBufferIndex;
             mal_uint8* pBuffer;                 // This is malloc()'d and is used for storing audio data. Typed as mal_uint8 for easy offsetting.
         } sles;
-    #endif
 
-    #ifdef MAL_ENABLE_OPENAL
         struct
         {
             /*ALCcontext**/ mal_ptr pContextALC;
@@ -600,9 +566,7 @@ struct mal_device
             mal_uint32 iNextBuffer;             // The next buffer to unenqueue and then re-enqueue as new data is read.
             mal_bool32 breakFromMainLoop;
         } openal;
-    #endif
 
-    #ifdef MAL_ENABLE_NULL
         struct
         {
             mal_timer timer;
@@ -610,9 +574,6 @@ struct mal_device
             mal_bool32 breakFromMainLoop;
             mal_uint8* pBuffer;                 // This is malloc()'d and is used as the destination for reading from the client. Typed as mal_uint8 for easy offsetting.
         } null_device;
-    #endif
-
-        int _unused; // Only used to ensure mini_al compiles when all backends have been disabled.
     };
 };
 
