@@ -166,6 +166,9 @@ extern "C" {
     #ifdef __linux__
         #define MAL_LINUX
     #endif
+    #ifdef __APPLE__
+        #define MAL_APPLE
+    #endif
     #ifdef __ANDROID__
         #define MAL_ANDROID
     #endif
