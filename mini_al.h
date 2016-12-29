@@ -4372,6 +4372,7 @@ static void mal_device_uninit__openal(mal_device* pDevice)
 {
     mal_assert(pDevice != NULL);
 
+    ((MAL_LPALCMAKECONTEXTCURRENT)pDevice->pContext->openal.alcMakeContextCurrent)(NULL);
     ((MAL_LPALCDESTROYCONTEXT)pDevice->pContext->openal.alcDestroyContext)(pDevice->openal.pContextALC);
 
     if (pDevice->type == mal_device_type_playback) {
@@ -4454,33 +4455,33 @@ static mal_result mal_device_init__openal(mal_context* pContext, mal_device_type
         return MAL_FAILED_TO_INIT_BACKEND;
     }
 
-
-    ALCcontext* pContextALC = ((MAL_LPALCCREATECONTEXT)pContext->openal.alcCreateContext)(pDeviceALC, NULL);
-    if (pContextALC == NULL) {
-        if (pDevice->type == mal_device_type_playback) {
+    // A context is only required for playback.
+    ALCcontext* pContextALC = NULL;
+    if (pDevice->type == mal_device_type_playback) {
+        pContextALC = ((MAL_LPALCCREATECONTEXT)pContext->openal.alcCreateContext)(pDeviceALC, NULL);
+        if (pContextALC == NULL) {
             ((MAL_LPALCCLOSEDEVICE)pDevice->pContext->openal.alcCloseDevice)(pDeviceALC);
-        } else {
-            ((MAL_LPALCCAPTURECLOSEDEVICE)pDevice->pContext->openal.alcCaptureCloseDevice)(pDeviceALC);
+            return MAL_FAILED_TO_INIT_BACKEND;
         }
 
-        return MAL_FAILED_TO_INIT_BACKEND;
-    }
+        ((MAL_LPALCMAKECONTEXTCURRENT)pDevice->pContext->openal.alcMakeContextCurrent)(pContextALC);
 
-    ((MAL_LPALCMAKECONTEXTCURRENT)pDevice->pContext->openal.alcMakeContextCurrent)(pContextALC);
+        ALuint sourceAL;
+        ((MAL_LPALGENSOURCES)pDevice->pContext->openal.alGenSources)(1, &sourceAL);
+        pDevice->openal.sourceAL = sourceAL;
 
-    ALuint sourceAL;
-    ((MAL_LPALGENSOURCES)pDevice->pContext->openal.alGenSources)(1, &sourceAL);
-    pDevice->openal.sourceAL = sourceAL;
-
-    // We create the buffers, but only fill and queue them when the device is started.
-    ALuint buffersAL[MAL_MAX_PERIODS_OPENAL];
-    ((MAL_LPALGENBUFFERS)pDevice->pContext->openal.alGenBuffers)(pDevice->periods, buffersAL);
-    for (mal_uint32 i = 0; i < pDevice->periods; ++i) {
-        pDevice->openal.buffersAL[i] = buffersAL[i];
+        // We create the buffers, but only fill and queue them when the device is started.
+        ALuint buffersAL[MAL_MAX_PERIODS_OPENAL];
+        ((MAL_LPALGENBUFFERS)pDevice->pContext->openal.alGenBuffers)(pDevice->periods, buffersAL);
+        for (mal_uint32 i = 0; i < pDevice->periods; ++i) {
+            pDevice->openal.buffersAL[i] = buffersAL[i];
+        }
     }
 
     pDevice->internalChannels = channelsAL;
 
+    pDevice->openal.pDeviceALC = pDeviceALC;
+    pDevice->openal.pContextALC = pContextALC;
     pDevice->openal.formatAL = formatAL;
     pDevice->openal.subBufferSizeInFrames = pDevice->bufferSizeInFrames / pDevice->periods;
     pDevice->openal.pIntermediaryBuffer = (mal_uint8*)mal_malloc(pDevice->openal.subBufferSizeInFrames * channelsAL * mal_get_sample_size_in_bytes(pDevice->format));
@@ -4501,6 +4502,8 @@ static mal_result mal_device__start_backend__openal(mal_device* pDevice)
         //
         // When starting playback we want to ensure each buffer is filled and queued before playing the source.
         pDevice->openal.iNextBuffer = 0;
+
+        ((MAL_LPALCMAKECONTEXTCURRENT)pDevice->pContext->openal.alcMakeContextCurrent)(pDevice->openal.pContextALC);
 
         for (mal_uint32 i = 0; i < pDevice->periods; ++i) {
             mal_device__read_frames_from_client(pDevice, pDevice->openal.subBufferSizeInFrames, pDevice->openal.pIntermediaryBuffer);
@@ -4525,6 +4528,7 @@ static mal_result mal_device__stop_backend__openal(mal_device* pDevice)
     mal_assert(pDevice != NULL);
 
     if (pDevice->type == mal_device_type_playback) {
+        ((MAL_LPALCMAKECONTEXTCURRENT)pDevice->pContext->openal.alcMakeContextCurrent)(pDevice->openal.pContextALC);
         ((MAL_LPALSOURCESTOP)pDevice->pContext->openal.alSourceStop)(pDevice->openal.sourceAL);
     } else {
         ((MAL_LPALCCAPTURESTOP)pDevice->pContext->openal.alcCaptureStop)(pDevice->openal.pDeviceALC);
@@ -4546,13 +4550,15 @@ static mal_uint32 mal_device__get_available_frames__openal(mal_device* pDevice)
     mal_assert(pDevice != NULL);
 
     if (pDevice->type == mal_device_type_playback) {
+        ((MAL_LPALCMAKECONTEXTCURRENT)pDevice->pContext->openal.alcMakeContextCurrent)(pDevice->openal.pContextALC);
+
         ALint processedBufferCount = 0;
         ((MAL_LPALGETSOURCEI)pDevice->pContext->openal.alGetSourcei)(pDevice->openal.sourceAL, AL_BUFFERS_PROCESSED, &processedBufferCount);
 
         return processedBufferCount * pDevice->openal.subBufferSizeInFrames;
     } else {
         ALint samplesAvailable = 0;
-        ((MAL_LPALCGETINTEGERV)pDevice->pContext->openal.alcGetIntegerv)(pDevice->openal.pDeviceALC, ALC_CAPTURE_SAMPLES, (ALCsizei)sizeof(ALint), &samplesAvailable);
+        ((MAL_LPALCGETINTEGERV)pDevice->pContext->openal.alcGetIntegerv)(pDevice->openal.pDeviceALC, ALC_CAPTURE_SAMPLES, 1, &samplesAvailable);
 
         return samplesAvailable / pDevice->channels;
     }
@@ -4604,6 +4610,7 @@ static mal_result mal_device__main_loop__openal(mal_device* pDevice)
 
                 mal_device__read_frames_from_client(pDevice, framesToRead, pDevice->openal.pIntermediaryBuffer);
 
+                ((MAL_LPALCMAKECONTEXTCURRENT)pDevice->pContext->openal.alcMakeContextCurrent)(pDevice->openal.pContextALC);
                 ((MAL_LPALSOURCEUNQUEUEBUFFERS)pDevice->pContext->openal.alSourceUnqueueBuffers)(pDevice->openal.sourceAL, 1, &bufferAL);
                 ((MAL_LPALBUFFERDATA)pDevice->pContext->openal.alBufferData)(bufferAL, pDevice->openal.formatAL, pDevice->openal.pIntermediaryBuffer, pDevice->openal.subBufferSizeInFrames * pDevice->internalChannels * mal_get_sample_size_in_bytes(pDevice->format), pDevice->sampleRate);
                 ((MAL_LPALSOURCEQUEUEBUFFERS)pDevice->pContext->openal.alSourceQueueBuffers)(pDevice->openal.sourceAL, 1, &bufferAL);
