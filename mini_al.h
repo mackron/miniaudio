@@ -4121,6 +4121,11 @@ typedef mal_ALCvoid                  mal_ALvoid;
 #define MAL_ALC_CAPTURE_DEVICE_SPECIFIER    0x310
 #define MAL_ALC_CAPTURE_SAMPLES             0x312
 
+#define MAL_AL_SOURCE_STATE                 0x1010
+#define MAL_AL_INITIAL                      0x1011
+#define MAL_AL_PLAYING                      0x1012
+#define MAL_AL_PAUSED                       0x1013
+#define MAL_AL_STOPPED                      0x1014
 #define MAL_AL_FORMAT_MONO8                 0x1100
 #define MAL_AL_FORMAT_MONO16                0x1101
 #define MAL_AL_FORMAT_STEREO8               0x1102
@@ -4220,7 +4225,7 @@ mal_result mal_context_init__openal(mal_context* pContext)
         "libopenal.so";
 #endif
 #ifdef MAL_APPLE
-        // I don't own a Mac so a contribution here would be much appreciated!
+        // I don't own a Mac so a contribution here would be much appreciated! Just don't know what the library is called...
 #endif
 
     pContext->openal.hOpenAL = mal_dlopen(libName);
@@ -4393,6 +4398,11 @@ static mal_result mal_device_init__openal(mal_context* pContext, mal_device_type
 {
     if (pDevice->periods > MAL_MAX_PERIODS_OPENAL) {
         pDevice->periods = MAL_MAX_PERIODS_OPENAL;
+    }
+
+    // OpenAL has bad latency in my testing :(
+    if (pDevice->flags & MAL_DEVICE_FLAG_USING_DEFAULT_BUFFER_SIZE) {
+        pDevice->bufferSizeInFrames *= 4;
     }
 
     mal_ALCsizei bufferSizeInSamplesAL = pConfig->bufferSizeInFrames;
@@ -4621,6 +4631,15 @@ static mal_result mal_device__main_loop__openal(mal_device* pDevice)
                 ((MAL_LPALSOURCEQUEUEBUFFERS)pDevice->pContext->openal.alSourceQueueBuffers)(pDevice->openal.sourceAL, 1, &bufferAL);
 
                 framesAvailable -= framesToRead;
+            }
+
+
+            // There's a chance the source has stopped playing due to there not being any buffer's queue. Make sure it's restarted.
+            mal_ALenum state;
+            ((MAL_LPALGETSOURCEI)pDevice->pContext->openal.alGetSourcei)(pDevice->openal.sourceAL, MAL_AL_SOURCE_STATE, &state);
+
+            if (state != MAL_AL_PLAYING) {
+                ((MAL_LPALSOURCEPLAY)pDevice->pContext->openal.alSourcePlay)(pDevice->openal.sourceAL);
             }
         } else {
             while (framesAvailable > 0) {
@@ -5222,6 +5241,11 @@ void mal_device_uninit(mal_device* pDevice)
 #ifdef MAL_ENABLE_OPENSLES
     if (pDevice->pContext->backend == mal_backend_sles) {
         mal_device_uninit__sles(pDevice);
+    }
+#endif
+#ifdef MAL_ENABLE_OPENAL
+    if (pDevice->pContext->backend == mal_backend_openal) {
+        mal_device_uninit__openal(pDevice);
     }
 #endif
 #ifdef MAL_ENABLE_NULL
