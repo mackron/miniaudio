@@ -14,7 +14,7 @@ mal_uint32 on_send_frames_to_device(mal_device* pDevice, mal_uint32 frameCount, 
         return 0;
     }
     
-    return (mal_uint32)drwav_read_f32(pWav, frameCount * pDevice->channels, (float*)pSamples) / pDevice->channels;
+    return (mal_uint32)drwav_read_s16(pWav, frameCount * pDevice->channels, (mal_int16*)pSamples) / pDevice->channels;
 }
 
 int main(int argc, char** argv)
@@ -38,7 +38,7 @@ int main(int argc, char** argv)
     
     // In this example we use the default playback device with a default buffer size and period count.
 	mal_device_config config;
-	config.format = mal_format_f32;
+	config.format = mal_format_s16;
 	config.channels = wav.channels;
 	config.sampleRate = wav.sampleRate;
 	config.bufferSizeInFrames = 0;	// Use default.

@@ -9,7 +9,7 @@
 
 
 mal_uint32 capturedSampleCount = 0;
-float* pCapturedSamples = NULL;
+mal_int16* pCapturedSamples = NULL;
 mal_uint32 playbackSample = 0;
 
 void on_recv_frames(mal_device* pDevice, mal_uint32 frameCount, const void* pSamples)
@@ -17,12 +17,12 @@ void on_recv_frames(mal_device* pDevice, mal_uint32 frameCount, const void* pSam
     mal_uint32 sampleCount = frameCount * pDevice->channels;
 	
     mal_uint32 newCapturedSampleCount = capturedSampleCount + sampleCount;
-    float* pNewCapturedSamples = (float*)realloc(pCapturedSamples, newCapturedSampleCount * sizeof(float));
+    mal_int16* pNewCapturedSamples = (mal_int16*)realloc(pCapturedSamples, newCapturedSampleCount * sizeof(mal_int16));
     if (pNewCapturedSamples == NULL) {
         return;
     }
 
-    memcpy(pNewCapturedSamples + capturedSampleCount, pSamples, sampleCount * sizeof(float));
+    memcpy(pNewCapturedSamples + capturedSampleCount, pSamples, sampleCount * sizeof(mal_int16));
 
     pCapturedSamples = pNewCapturedSamples;
     capturedSampleCount = newCapturedSampleCount;
@@ -39,7 +39,7 @@ mal_uint32 on_send_frames(mal_device* pDevice, mal_uint32 frameCount, void* pSam
         return 0;
     }
 
-    memcpy(pSamples, pCapturedSamples + playbackSample, samplesToRead * sizeof(float));
+    memcpy(pSamples, pCapturedSamples + playbackSample, samplesToRead * sizeof(mal_int16));
     playbackSample += samplesToRead;
 
     return samplesToRead / pDevice->channels;
@@ -54,7 +54,7 @@ int main()
     }
 
 	mal_device_config config;
-	config.format = mal_format_f32;
+	config.format = mal_format_s16;
 	config.channels = 2;
 	config.sampleRate = 48000;
 	config.bufferSizeInFrames = 0;	// Use default.
