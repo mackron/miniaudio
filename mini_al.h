@@ -16,15 +16,15 @@
 // supported in the interest of keeping the library as small and light-weight as possible.
 //
 // Supported Backends:
-//   - DirectSound (Windows Only)
-//   - ALSA (Linux Only)
+//   - DirectSound
+//   - WASAPI (Unstable)
+//   - ALSA
+//   - OpenSL|ES / Android (Unstable)
+//   - OpenAL (Unstable)
 //   - null
 //   - ... and more in the future.
-//     - OpenSL|ES / Android (Unstable)
-//     - WASAPI (Unstable)
 //     - Core Audio (OSX, iOS)
 //     - Maybe OSS
-//     - Maybe OpenAL
 //
 // Supported Formats (Not all backends support all formats):
 //   - Unsigned 8-bit PCM
@@ -42,6 +42,10 @@
 //
 // You can then #include this file in other parts of the program as you would with any other header file.
 //
+// The implementation of this library will try #including necessary headers for each backend. If you do not have
+// the development packages for any particular backend you can disable it by #define-ing the appropriate MAL_NO_*
+// option.
+//
 //
 // Building (Windows)
 // ------------------
@@ -53,7 +57,7 @@
 // The Linux build uses ALSA for it's backend so you will need to install the relevant ALSA development pacakges
 // for your preferred distro. It also uses pthreads.
 //
-// Linking: -lasound -lpthread
+// Linking: -lasound -lpthread -ldl
 //
 //
 // Playback Example
@@ -128,20 +132,27 @@
 // #define these options before including this file.
 //
 // #define MAL_NO_DSOUND
-//   Disables the DirectSound backend. Note that this is the only backend for the Windows platform.
+//   Disables the DirectSound backend.
+//
+// #define MAL_NO_WASAPI
+//   Disables the WASAPI backend.
 //
 // #define MAL_NO_ALSA
-//   Disables the ALSA backend. Note that this is the only backend for the Linux platform.
+//   Disables the ALSA backend.
 //
 // #define MAL_NO_OPENSLES
-//   Disables the OpenSL ES backend. Note that this is the only backend for Android.
+//   Disables the OpenSL ES backend.
+//
+// #define MAL_NO_OPENAL
+//   Disables the OpenAL backend.
 //
 // #define MAL_NO_NULL
 //   Disables the null backend.
 //
 // #define MAL_DEFAULT_BUFFER_SIZE_IN_MILLISECONDS
 //   When a buffer size of 0 is specified when a device is initialized, it will default to a size with
-//   this number of milliseconds worth of data.
+//   this number of milliseconds worth of data. Note that some backends may adjust this setting if that
+//   particular backend has unusual latency characteristics.
 //
 // #define MAL_DEFAULT_PERIODS
 //   When a period count of 0 is specified when a device is initialized, it will default to this.
@@ -436,18 +447,6 @@ typedef struct
             mal_proc alIsExtensionPresent;
             mal_proc alGetProcAddress;
             mal_proc alGetEnumValue;
-            mal_proc alListenerf;
-            mal_proc alListener3f;
-            mal_proc alListenerfv;
-            mal_proc alListeneri;
-            mal_proc alListener3i;
-            mal_proc alListeneriv;
-            mal_proc alGetListenerf;
-            mal_proc alGetListener3f;
-            mal_proc alGetListenerfv;
-            mal_proc alGetListeneri;
-            mal_proc alGetListener3i;
-            mal_proc alGetListeneriv;
             mal_proc alGenSources;
             mal_proc alDeleteSources;
             mal_proc alIsSource;
@@ -717,11 +716,10 @@ mal_result mal_enumerate_devices(mal_context* pContext, mal_device_type type, ma
 //   depend on and mutate global state (such as OpenSL|ES). The same applies to calling this as the
 //   same time as mal_device_uninit().
 //
-//   Results are undefined if you try using a device before this function as returned.
+//   Results are undefined if you try using a device before this function has returned.
 //
 // Efficiency: LOW
-//   This API will dynamically link to backend DLLs/SOs like dsound.dll, and is otherwise just slow
-//   due to the nature of it being an initialization API.
+//   This is just slow due to the nature of it being an initialization API.
 mal_result mal_device_init(mal_context* pContext, mal_device_type type, mal_device_id* pDeviceID, mal_device_config* pConfig, void* pUserData, mal_device* pDevice);
 
 // Uninitializes a device.
@@ -776,12 +774,12 @@ void mal_device_set_send_callback(mal_device* pDevice, mal_send_proc proc);
 //   This is just an atomic assignment.
 void mal_device_set_stop_callback(mal_device* pDevice, mal_stop_proc proc);
 
-// Activates the device. For playback devices this begins playback. For recording devices it begins
+// Activates the device. For playback devices this begins playback. For capture devices it begins
 // recording.
 //
 // For a playback device, this will retrieve an initial chunk of audio data from the client before
 // returning. The reason for this is to ensure there is valid audio data in the buffer, which needs
-// to be done _before_ the device starts playing back audio.
+// to be done _before_ the device begins playback.
 //
 // Return Value:
 //   - MAL_SUCCESS if successful.
@@ -846,7 +844,7 @@ mal_result mal_device_stop(mal_device* pDevice);
 //
 // Thread Safety: SAFE
 //   If another thread calls mal_device_start() or mal_device_stop() at this same time as this function
-//   is called, there's a very small chance the return value will out of sync.
+//   is called, there's a very small chance the return value will be out of sync.
 //
 // Efficiency: HIGH
 //   This is implemented with a simple accessor.
@@ -4231,7 +4229,7 @@ mal_result mal_context_init__openal(mal_context* pContext)
     pContext->openal.hOpenAL = mal_dlopen(libName);
 
 #ifdef MAL_WIN32
-    // Special case for Win32 - try "soft_oal.dll" for OpenAL Soft drop-ins.
+    // Special case for Win32 - try "soft_oal.dll" for OpenAL-Soft drop-ins.
     if (pContext->openal.hOpenAL == NULL) {
         pContext->openal.hOpenAL = mal_dlopen("soft_oal.dll");
     }
