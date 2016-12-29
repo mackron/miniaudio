@@ -249,12 +249,8 @@ typedef void (* mal_proc)();
     } mal_event;
 #endif
 
-#ifdef MAL_ENABLE_DSOUND
-    #define MAL_MAX_PERIODS_DSOUND    4
-#endif
-#ifdef MAL_ENABLE_OPENAL
-    #define MAL_MAX_PERIODS_OPENAL    4
-#endif
+#define MAL_MAX_PERIODS_DSOUND    4
+#define MAL_MAX_PERIODS_OPENAL    4
 
 typedef int mal_result;
 #define MAL_SUCCESS                                      0
@@ -4324,12 +4320,12 @@ static void mal_device_uninit__openal(mal_device* pDevice)
     mal_assert(pDevice != NULL);
 
     ((MAL_LPALCMAKECONTEXTCURRENT)pDevice->pContext->openal.alcMakeContextCurrent)(NULL);
-    ((MAL_LPALCDESTROYCONTEXT)pDevice->pContext->openal.alcDestroyContext)(pDevice->openal.pContextALC);
+    ((MAL_LPALCDESTROYCONTEXT)pDevice->pContext->openal.alcDestroyContext)((mal_ALCcontext*)pDevice->openal.pContextALC);
 
     if (pDevice->type == mal_device_type_playback) {
-        ((MAL_LPALCCLOSEDEVICE)pDevice->pContext->openal.alcCloseDevice)(pDevice->openal.pDeviceALC);
+        ((MAL_LPALCCLOSEDEVICE)pDevice->pContext->openal.alcCloseDevice)((mal_ALCdevice*)pDevice->openal.pDeviceALC);
     } else {
-        ((MAL_LPALCCAPTURECLOSEDEVICE)pDevice->pContext->openal.alcCaptureCloseDevice)(pDevice->openal.pDeviceALC);
+        ((MAL_LPALCCAPTURECLOSEDEVICE)pDevice->pContext->openal.alcCaptureCloseDevice)((mal_ALCdevice*)pDevice->openal.pDeviceALC);
     }
 
     mal_free(pDevice->openal.pIntermediaryBuffer);
@@ -4459,7 +4455,7 @@ static mal_result mal_device__start_backend__openal(mal_device* pDevice)
         // When starting playback we want to ensure each buffer is filled and queued before playing the source.
         pDevice->openal.iNextBuffer = 0;
 
-        ((MAL_LPALCMAKECONTEXTCURRENT)pDevice->pContext->openal.alcMakeContextCurrent)(pDevice->openal.pContextALC);
+        ((MAL_LPALCMAKECONTEXTCURRENT)pDevice->pContext->openal.alcMakeContextCurrent)((mal_ALCcontext*)pDevice->openal.pContextALC);
 
         for (mal_uint32 i = 0; i < pDevice->periods; ++i) {
             mal_device__read_frames_from_client(pDevice, pDevice->openal.subBufferSizeInFrames, pDevice->openal.pIntermediaryBuffer);
@@ -4473,7 +4469,7 @@ static mal_result mal_device__start_backend__openal(mal_device* pDevice)
         ((MAL_LPALSOURCEPLAY)pDevice->pContext->openal.alSourcePlay)(pDevice->openal.sourceAL);
     } else {
         // Capture.
-        ((MAL_LPALCCAPTURESTART)pDevice->pContext->openal.alcCaptureStart)(pDevice->openal.pDeviceALC);
+        ((MAL_LPALCCAPTURESTART)pDevice->pContext->openal.alcCaptureStart)((mal_ALCdevice*)pDevice->openal.pDeviceALC);
     }
 
     return MAL_SUCCESS;
@@ -4484,10 +4480,10 @@ static mal_result mal_device__stop_backend__openal(mal_device* pDevice)
     mal_assert(pDevice != NULL);
 
     if (pDevice->type == mal_device_type_playback) {
-        ((MAL_LPALCMAKECONTEXTCURRENT)pDevice->pContext->openal.alcMakeContextCurrent)(pDevice->openal.pContextALC);
+        ((MAL_LPALCMAKECONTEXTCURRENT)pDevice->pContext->openal.alcMakeContextCurrent)((mal_ALCcontext*)pDevice->openal.pContextALC);
         ((MAL_LPALSOURCESTOP)pDevice->pContext->openal.alSourceStop)(pDevice->openal.sourceAL);
     } else {
-        ((MAL_LPALCCAPTURESTOP)pDevice->pContext->openal.alcCaptureStop)(pDevice->openal.pDeviceALC);
+        ((MAL_LPALCCAPTURESTOP)pDevice->pContext->openal.alcCaptureStop)((mal_ALCdevice*)pDevice->openal.pDeviceALC);
     }
 
     return MAL_SUCCESS;
@@ -4506,7 +4502,7 @@ static mal_uint32 mal_device__get_available_frames__openal(mal_device* pDevice)
     mal_assert(pDevice != NULL);
 
     if (pDevice->type == mal_device_type_playback) {
-        ((MAL_LPALCMAKECONTEXTCURRENT)pDevice->pContext->openal.alcMakeContextCurrent)(pDevice->openal.pContextALC);
+        ((MAL_LPALCMAKECONTEXTCURRENT)pDevice->pContext->openal.alcMakeContextCurrent)((mal_ALCcontext*)pDevice->openal.pContextALC);
 
         mal_ALint processedBufferCount = 0;
         ((MAL_LPALGETSOURCEI)pDevice->pContext->openal.alGetSourcei)(pDevice->openal.sourceAL, MAL_AL_BUFFERS_PROCESSED, &processedBufferCount);
@@ -4514,7 +4510,7 @@ static mal_uint32 mal_device__get_available_frames__openal(mal_device* pDevice)
         return processedBufferCount * pDevice->openal.subBufferSizeInFrames;
     } else {
         mal_ALint samplesAvailable = 0;
-        ((MAL_LPALCGETINTEGERV)pDevice->pContext->openal.alcGetIntegerv)(pDevice->openal.pDeviceALC, MAL_ALC_CAPTURE_SAMPLES, 1, &samplesAvailable);
+        ((MAL_LPALCGETINTEGERV)pDevice->pContext->openal.alcGetIntegerv)((mal_ALCdevice*)pDevice->openal.pDeviceALC, MAL_ALC_CAPTURE_SAMPLES, 1, &samplesAvailable);
 
         return samplesAvailable / pDevice->channels;
     }
@@ -4566,7 +4562,7 @@ static mal_result mal_device__main_loop__openal(mal_device* pDevice)
 
                 mal_device__read_frames_from_client(pDevice, framesToRead, pDevice->openal.pIntermediaryBuffer);
 
-                ((MAL_LPALCMAKECONTEXTCURRENT)pDevice->pContext->openal.alcMakeContextCurrent)(pDevice->openal.pContextALC);
+                ((MAL_LPALCMAKECONTEXTCURRENT)pDevice->pContext->openal.alcMakeContextCurrent)((mal_ALCcontext*)pDevice->openal.pContextALC);
                 ((MAL_LPALSOURCEUNQUEUEBUFFERS)pDevice->pContext->openal.alSourceUnqueueBuffers)(pDevice->openal.sourceAL, 1, &bufferAL);
                 ((MAL_LPALBUFFERDATA)pDevice->pContext->openal.alBufferData)(bufferAL, pDevice->openal.formatAL, pDevice->openal.pIntermediaryBuffer, pDevice->openal.subBufferSizeInFrames * pDevice->internalChannels * mal_get_sample_size_in_bytes(pDevice->format), pDevice->sampleRate);
                 ((MAL_LPALSOURCEQUEUEBUFFERS)pDevice->pContext->openal.alSourceQueueBuffers)(pDevice->openal.sourceAL, 1, &bufferAL);
@@ -4585,7 +4581,7 @@ static mal_result mal_device__main_loop__openal(mal_device* pDevice)
         } else {
             while (framesAvailable > 0) {
                 mal_uint32 framesToSend = (framesAvailable > pDevice->openal.subBufferSizeInFrames) ? pDevice->openal.subBufferSizeInFrames : framesAvailable;
-                ((MAL_LPALCCAPTURESAMPLES)pDevice->pContext->openal.alcCaptureSamples)(pDevice->openal.pDeviceALC, pDevice->openal.pIntermediaryBuffer, framesToSend);
+                ((MAL_LPALCCAPTURESAMPLES)pDevice->pContext->openal.alcCaptureSamples)((mal_ALCdevice*)pDevice->openal.pDeviceALC, pDevice->openal.pIntermediaryBuffer, framesToSend);
 
                 mal_device__send_frames_to_client(pDevice, framesToSend, pDevice->openal.pIntermediaryBuffer);
                 framesAvailable -= framesToSend;
