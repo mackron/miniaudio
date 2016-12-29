@@ -525,6 +525,8 @@ struct mal_device
     mal_result workResult;  // This is set by the worker thread after it's finished doing a job.
     mal_uint32 flags;       // MAL_DEVICE_FLAG_*
 
+    mal_uint32 internalChannels;
+
     union
     {
     #ifdef MAL_ENABLE_WASAPI
@@ -590,6 +592,11 @@ struct mal_device
             /*ALCdevice**/ mal_ptr pDeviceALC;
             /*ALuint*/ mal_uint32 sourceAL;
             /*ALuint*/ mal_uint32 buffersAL[MAL_MAX_PERIODS_OPENAL];
+            /*ALenum*/ mal_uint32 formatAL;
+            mal_uint32 subBufferSizeInFrames;   // This is the size of each of the OpenAL buffers (buffersAL).
+            mal_uint8* pIntermediaryBuffer;     // This is malloc()'d and is used as the destination for reading from the client. Typed as mal_uint8 for easy offsetting.
+            mal_uint32 iNextBuffer;             // The next buffer to unenqueue and then re-enqueue as new data is read.
+            mal_bool32 breakFromMainLoop;
         } openal;
     #endif
 
@@ -4089,100 +4096,100 @@ static mal_result mal_device__stop_backend__sles(mal_device* pDevice)
 #define MAL_AL_FORMAT_STEREO_FLOAT32        0x10011
 
 // TODO: Remove unused APIs.
-typedef ALCcontext*    (MAL_AL_APIENTRY * MAL_LPALCCREATECONTEXT)     (ALCdevice *device, const ALCint *attrlist);
-typedef ALCboolean     (MAL_AL_APIENTRY * MAL_LPALCMAKECONTEXTCURRENT)(ALCcontext *context);
-typedef void           (MAL_AL_APIENTRY * MAL_LPALCPROCESSCONTEXT)    (ALCcontext *context);
-typedef void           (MAL_AL_APIENTRY * MAL_LPALCSUSPENDCONTEXT)    (ALCcontext *context);
-typedef void           (MAL_AL_APIENTRY * MAL_LPALCDESTROYCONTEXT)    (ALCcontext *context);
-typedef ALCcontext*    (MAL_AL_APIENTRY * MAL_LPALCGETCURRENTCONTEXT) (void);
-typedef ALCdevice*     (MAL_AL_APIENTRY * MAL_LPALCGETCONTEXTSDEVICE) (ALCcontext *context);
-typedef ALCdevice*     (MAL_AL_APIENTRY * MAL_LPALCOPENDEVICE)        (const ALCchar *devicename);
-typedef ALCboolean     (MAL_AL_APIENTRY * MAL_LPALCCLOSEDEVICE)       (ALCdevice *device);
-typedef ALCenum        (MAL_AL_APIENTRY * MAL_LPALCGETERROR)          (ALCdevice *device);
-typedef ALCboolean     (MAL_AL_APIENTRY * MAL_LPALCISEXTENSIONPRESENT)(ALCdevice *device, const ALCchar *extname);
-typedef void*          (MAL_AL_APIENTRY * MAL_LPALCGETPROCADDRESS)    (ALCdevice *device, const ALCchar *funcname);
-typedef ALCenum        (MAL_AL_APIENTRY * MAL_LPALCGETENUMVALUE)      (ALCdevice *device, const ALCchar *enumname);
-typedef const ALCchar* (MAL_AL_APIENTRY * MAL_LPALCGETSTRING)         (ALCdevice *device, ALCenum param);
-typedef void           (MAL_AL_APIENTRY * MAL_LPALCGETINTEGERV)       (ALCdevice *device, ALCenum param, ALCsizei size, ALCint *values);
-typedef ALCdevice*     (MAL_AL_APIENTRY * MAL_LPALCCAPTUREOPENDEVICE) (const ALCchar *devicename, ALCuint frequency, ALCenum format, ALCsizei buffersize);
-typedef ALCboolean     (MAL_AL_APIENTRY * MAL_LPALCCAPTURECLOSEDEVICE)(ALCdevice *device);
-typedef void           (MAL_AL_APIENTRY * MAL_LPALCCAPTURESTART)      (ALCdevice *device);
-typedef void           (MAL_AL_APIENTRY * MAL_LPALCCAPTURESTOP)       (ALCdevice *device);
-typedef void           (MAL_AL_APIENTRY * MAL_LPALCCAPTURESAMPLES)    (ALCdevice *device, ALCvoid *buffer, ALCsizei samples);
+typedef ALCcontext*    (MAL_AL_APIENTRY * MAL_LPALCCREATECONTEXT)      (ALCdevice *device, const ALCint *attrlist);
+typedef ALCboolean     (MAL_AL_APIENTRY * MAL_LPALCMAKECONTEXTCURRENT) (ALCcontext *context);
+typedef void           (MAL_AL_APIENTRY * MAL_LPALCPROCESSCONTEXT)     (ALCcontext *context);
+typedef void           (MAL_AL_APIENTRY * MAL_LPALCSUSPENDCONTEXT)     (ALCcontext *context);
+typedef void           (MAL_AL_APIENTRY * MAL_LPALCDESTROYCONTEXT)     (ALCcontext *context);
+typedef ALCcontext*    (MAL_AL_APIENTRY * MAL_LPALCGETCURRENTCONTEXT)  (void);
+typedef ALCdevice*     (MAL_AL_APIENTRY * MAL_LPALCGETCONTEXTSDEVICE)  (ALCcontext *context);
+typedef ALCdevice*     (MAL_AL_APIENTRY * MAL_LPALCOPENDEVICE)         (const ALCchar *devicename);
+typedef ALCboolean     (MAL_AL_APIENTRY * MAL_LPALCCLOSEDEVICE)        (ALCdevice *device);
+typedef ALCenum        (MAL_AL_APIENTRY * MAL_LPALCGETERROR)           (ALCdevice *device);
+typedef ALCboolean     (MAL_AL_APIENTRY * MAL_LPALCISEXTENSIONPRESENT) (ALCdevice *device, const ALCchar *extname);
+typedef void*          (MAL_AL_APIENTRY * MAL_LPALCGETPROCADDRESS)     (ALCdevice *device, const ALCchar *funcname);
+typedef ALCenum        (MAL_AL_APIENTRY * MAL_LPALCGETENUMVALUE)       (ALCdevice *device, const ALCchar *enumname);
+typedef const ALCchar* (MAL_AL_APIENTRY * MAL_LPALCGETSTRING)          (ALCdevice *device, ALCenum param);
+typedef void           (MAL_AL_APIENTRY * MAL_LPALCGETINTEGERV)        (ALCdevice *device, ALCenum param, ALCsizei size, ALCint *values);
+typedef ALCdevice*     (MAL_AL_APIENTRY * MAL_LPALCCAPTUREOPENDEVICE)  (const ALCchar *devicename, ALCuint frequency, ALCenum format, ALCsizei buffersize);
+typedef ALCboolean     (MAL_AL_APIENTRY * MAL_LPALCCAPTURECLOSEDEVICE) (ALCdevice *device);
+typedef void           (MAL_AL_APIENTRY * MAL_LPALCCAPTURESTART)       (ALCdevice *device);
+typedef void           (MAL_AL_APIENTRY * MAL_LPALCCAPTURESTOP)        (ALCdevice *device);
+typedef void           (MAL_AL_APIENTRY * MAL_LPALCCAPTURESAMPLES)     (ALCdevice *device, ALCvoid *buffer, ALCsizei samples);
 
-typedef void          (MAL_AL_APIENTRY * MAL_LPALENABLE)              (ALenum capability);
-typedef void          (MAL_AL_APIENTRY * MAL_LPALDISABLE)             (ALenum capability);
-typedef ALboolean     (MAL_AL_APIENTRY * MAL_LPALISENABLED)           (ALenum capability);
-typedef const ALchar* (MAL_AL_APIENTRY * MAL_LPALGETSTRING)           (ALenum param);
-typedef void          (MAL_AL_APIENTRY * MAL_LPALGETBOOLEANV)         (ALenum param, ALboolean *values);
-typedef void          (MAL_AL_APIENTRY * MAL_LPALGETINTEGERV)         (ALenum param, ALint *values);
-typedef void          (MAL_AL_APIENTRY * MAL_LPALGETFLOATV)           (ALenum param, ALfloat *values);
-typedef void          (MAL_AL_APIENTRY * MAL_LPALGETDOUBLEV)          (ALenum param, ALdouble *values);
-typedef ALboolean     (MAL_AL_APIENTRY * MAL_LPALGETBOOLEAN)          (ALenum param);
-typedef ALint         (MAL_AL_APIENTRY * MAL_LPALGETINTEGER)          (ALenum param);
-typedef ALfloat       (MAL_AL_APIENTRY * MAL_LPALGETFLOAT)            (ALenum param);
-typedef ALdouble      (MAL_AL_APIENTRY * MAL_LPALGETDOUBLE)           (ALenum param);
-typedef ALenum        (MAL_AL_APIENTRY * MAL_LPALGETERROR)            (void);
-typedef ALboolean     (MAL_AL_APIENTRY * MAL_LPALISEXTENSIONPRESENT)  (const ALchar *extname);
-typedef void*         (MAL_AL_APIENTRY * MAL_LPALGETPROCADDRESS)      (const ALchar *fname);
-typedef ALenum        (MAL_AL_APIENTRY * MAL_LPALGETENUMVALUE)        (const ALchar *ename);
-typedef void          (MAL_AL_APIENTRY * MAL_LPALLISTENERF)           (ALenum param, ALfloat value);
-typedef void          (MAL_AL_APIENTRY * MAL_LPALLISTENER3F)          (ALenum param, ALfloat value1, ALfloat value2, ALfloat value3);
-typedef void          (MAL_AL_APIENTRY * MAL_LPALLISTENERFV)          (ALenum param, const ALfloat *values);
-typedef void          (MAL_AL_APIENTRY * MAL_LPALLISTENERI)           (ALenum param, ALint value);
-typedef void          (MAL_AL_APIENTRY * MAL_LPALLISTENER3I)          (ALenum param, ALint value1, ALint value2, ALint value3);
-typedef void          (MAL_AL_APIENTRY * MAL_LPALLISTENERIV)          (ALenum param, const ALint *values);
-typedef void          (MAL_AL_APIENTRY * MAL_LPALGETLISTENERF)        (ALenum param, ALfloat *value);
-typedef void          (MAL_AL_APIENTRY * MAL_LPALGETLISTENER3F)       (ALenum param, ALfloat *value1, ALfloat *value2, ALfloat *value3);
-typedef void          (MAL_AL_APIENTRY * MAL_LPALGETLISTENERFV)       (ALenum param, ALfloat *values);
-typedef void          (MAL_AL_APIENTRY * MAL_LPALGETLISTENERI)        (ALenum param, ALint *value);
-typedef void          (MAL_AL_APIENTRY * MAL_LPALGETLISTENER3I)       (ALenum param, ALint *value1, ALint *value2, ALint *value3);
-typedef void          (MAL_AL_APIENTRY * MAL_LPALGETLISTENERIV)       (ALenum param, ALint *values);
-typedef void          (MAL_AL_APIENTRY * MAL_LPALGENSOURCES)          (ALsizei n, ALuint *sources);
-typedef void          (MAL_AL_APIENTRY * MAL_LPALDELETESOURCES)       (ALsizei n, const ALuint *sources);
-typedef ALboolean     (MAL_AL_APIENTRY * MAL_LPALISSOURCE)            (ALuint source);
-typedef void          (MAL_AL_APIENTRY * MAL_LPALSOURCEF)             (ALuint source, ALenum param, ALfloat value);
-typedef void          (MAL_AL_APIENTRY * MAL_LPALSOURCE3F)            (ALuint source, ALenum param, ALfloat value1, ALfloat value2, ALfloat value3);
-typedef void          (MAL_AL_APIENTRY * MAL_LPALSOURCEFV)            (ALuint source, ALenum param, const ALfloat *values);
-typedef void          (MAL_AL_APIENTRY * MAL_LPALSOURCEI)             (ALuint source, ALenum param, ALint value);
-typedef void          (MAL_AL_APIENTRY * MAL_LPALSOURCE3I)            (ALuint source, ALenum param, ALint value1, ALint value2, ALint value3);
-typedef void          (MAL_AL_APIENTRY * MAL_LPALSOURCEIV)            (ALuint source, ALenum param, const ALint *values);
-typedef void          (MAL_AL_APIENTRY * MAL_LPALGETSOURCEF)          (ALuint source, ALenum param, ALfloat *value);
-typedef void          (MAL_AL_APIENTRY * MAL_LPALGETSOURCE3F)         (ALuint source, ALenum param, ALfloat *value1, ALfloat *value2, ALfloat *value3);
-typedef void          (MAL_AL_APIENTRY * MAL_LPALGETSOURCEFV)         (ALuint source, ALenum param, ALfloat *values);
-typedef void          (MAL_AL_APIENTRY * MAL_LPALGETSOURCEI)          (ALuint source, ALenum param, ALint *value);
-typedef void          (MAL_AL_APIENTRY * MAL_LPALGETSOURCE3I)         (ALuint source, ALenum param, ALint *value1, ALint *value2, ALint *value3);
-typedef void          (MAL_AL_APIENTRY * MAL_LPALGETSOURCEIV)         (ALuint source, ALenum param, ALint *values);
-typedef void          (MAL_AL_APIENTRY * MAL_LPALSOURCEPLAYV)         (ALsizei n, const ALuint *sources);
-typedef void          (MAL_AL_APIENTRY * MAL_LPALSOURCESTOPV)         (ALsizei n, const ALuint *sources);
-typedef void          (MAL_AL_APIENTRY * MAL_LPALSOURCEREWINDV)       (ALsizei n, const ALuint *sources);
-typedef void          (MAL_AL_APIENTRY * MAL_LPALSOURCEPAUSEV)        (ALsizei n, const ALuint *sources);
-typedef void          (MAL_AL_APIENTRY * MAL_LPALSOURCEPLAY)          (ALuint source);
-typedef void          (MAL_AL_APIENTRY * MAL_LPALSOURCESTOP)          (ALuint source);
-typedef void          (MAL_AL_APIENTRY * MAL_LPALSOURCEREWIND)        (ALuint source);
-typedef void          (MAL_AL_APIENTRY * MAL_LPALSOURCEPAUSE)         (ALuint source);
-typedef void          (MAL_AL_APIENTRY * MAL_LPALSOURCEQUEUEBUFFERS)  (ALuint source, ALsizei nb, const ALuint *buffers);
-typedef void          (MAL_AL_APIENTRY * MAL_LPALSOURCEUNQUEUEBUFFERS)(ALuint source, ALsizei nb, ALuint *buffers);
-typedef void          (MAL_AL_APIENTRY * MAL_LPALGENBUFFERS)          (ALsizei n, ALuint *buffers);
-typedef void          (MAL_AL_APIENTRY * MAL_LPALDELETEBUFFERS)       (ALsizei n, const ALuint *buffers);
-typedef ALboolean     (MAL_AL_APIENTRY * MAL_LPALISBUFFER)            (ALuint buffer);
-typedef void          (MAL_AL_APIENTRY * MAL_LPALBUFFERDATA)          (ALuint buffer, ALenum format, const ALvoid *data, ALsizei size, ALsizei freq);
-typedef void          (MAL_AL_APIENTRY * MAL_LPALBUFFERF)             (ALuint buffer, ALenum param, ALfloat value);
-typedef void          (MAL_AL_APIENTRY * MAL_LPALBUFFER3F)            (ALuint buffer, ALenum param, ALfloat value1, ALfloat value2, ALfloat value3);
-typedef void          (MAL_AL_APIENTRY * MAL_LPALBUFFERFV)            (ALuint buffer, ALenum param, const ALfloat *values);
-typedef void          (MAL_AL_APIENTRY * MAL_LPALBUFFERI)             (ALuint buffer, ALenum param, ALint value);
-typedef void          (MAL_AL_APIENTRY * MAL_LPALBUFFER3I)            (ALuint buffer, ALenum param, ALint value1, ALint value2, ALint value3);
-typedef void          (MAL_AL_APIENTRY * MAL_LPALBUFFERIV)            (ALuint buffer, ALenum param, const ALint *values);
-typedef void          (MAL_AL_APIENTRY * MAL_LPALGETBUFFERF)          (ALuint buffer, ALenum param, ALfloat *value);
-typedef void          (MAL_AL_APIENTRY * MAL_LPALGETBUFFER3F)         (ALuint buffer, ALenum param, ALfloat *value1, ALfloat *value2, ALfloat *value3);
-typedef void          (MAL_AL_APIENTRY * MAL_LPALGETBUFFERFV)         (ALuint buffer, ALenum param, ALfloat *values);
-typedef void          (MAL_AL_APIENTRY * MAL_LPALGETBUFFERI)          (ALuint buffer, ALenum param, ALint *value);
-typedef void          (MAL_AL_APIENTRY * MAL_LPALGETBUFFER3I)         (ALuint buffer, ALenum param, ALint *value1, ALint *value2, ALint *value3);
-typedef void          (MAL_AL_APIENTRY * MAL_LPALGETBUFFERIV)         (ALuint buffer, ALenum param, ALint *values);
-typedef void          (MAL_AL_APIENTRY * MAL_LPALDOPPLERFACTOR)       (ALfloat value);
-typedef void          (MAL_AL_APIENTRY * MAL_LPALDOPPLERVELOCITY)     (ALfloat value);
-typedef void          (MAL_AL_APIENTRY * MAL_LPALSPEEDOFSOUND)        (ALfloat value);
-typedef void          (MAL_AL_APIENTRY * MAL_LPALDISTANCEMODEL)       (ALenum distanceModel);
+typedef void           (MAL_AL_APIENTRY * MAL_LPALENABLE)              (ALenum capability);
+typedef void           (MAL_AL_APIENTRY * MAL_LPALDISABLE)             (ALenum capability);
+typedef ALboolean      (MAL_AL_APIENTRY * MAL_LPALISENABLED)           (ALenum capability);
+typedef const ALchar*  (MAL_AL_APIENTRY * MAL_LPALGETSTRING)           (ALenum param);
+typedef void           (MAL_AL_APIENTRY * MAL_LPALGETBOOLEANV)         (ALenum param, ALboolean *values);
+typedef void           (MAL_AL_APIENTRY * MAL_LPALGETINTEGERV)         (ALenum param, ALint *values);
+typedef void           (MAL_AL_APIENTRY * MAL_LPALGETFLOATV)           (ALenum param, ALfloat *values);
+typedef void           (MAL_AL_APIENTRY * MAL_LPALGETDOUBLEV)          (ALenum param, ALdouble *values);
+typedef ALboolean      (MAL_AL_APIENTRY * MAL_LPALGETBOOLEAN)          (ALenum param);
+typedef ALint          (MAL_AL_APIENTRY * MAL_LPALGETINTEGER)          (ALenum param);
+typedef ALfloat        (MAL_AL_APIENTRY * MAL_LPALGETFLOAT)            (ALenum param);
+typedef ALdouble       (MAL_AL_APIENTRY * MAL_LPALGETDOUBLE)           (ALenum param);
+typedef ALenum         (MAL_AL_APIENTRY * MAL_LPALGETERROR)            (void);
+typedef ALboolean      (MAL_AL_APIENTRY * MAL_LPALISEXTENSIONPRESENT)  (const ALchar *extname);
+typedef void*          (MAL_AL_APIENTRY * MAL_LPALGETPROCADDRESS)      (const ALchar *fname);
+typedef ALenum         (MAL_AL_APIENTRY * MAL_LPALGETENUMVALUE)        (const ALchar *ename);
+typedef void           (MAL_AL_APIENTRY * MAL_LPALLISTENERF)           (ALenum param, ALfloat value);
+typedef void           (MAL_AL_APIENTRY * MAL_LPALLISTENER3F)          (ALenum param, ALfloat value1, ALfloat value2, ALfloat value3);
+typedef void           (MAL_AL_APIENTRY * MAL_LPALLISTENERFV)          (ALenum param, const ALfloat *values);
+typedef void           (MAL_AL_APIENTRY * MAL_LPALLISTENERI)           (ALenum param, ALint value);
+typedef void           (MAL_AL_APIENTRY * MAL_LPALLISTENER3I)          (ALenum param, ALint value1, ALint value2, ALint value3);
+typedef void           (MAL_AL_APIENTRY * MAL_LPALLISTENERIV)          (ALenum param, const ALint *values);
+typedef void           (MAL_AL_APIENTRY * MAL_LPALGETLISTENERF)        (ALenum param, ALfloat *value);
+typedef void           (MAL_AL_APIENTRY * MAL_LPALGETLISTENER3F)       (ALenum param, ALfloat *value1, ALfloat *value2, ALfloat *value3);
+typedef void           (MAL_AL_APIENTRY * MAL_LPALGETLISTENERFV)       (ALenum param, ALfloat *values);
+typedef void           (MAL_AL_APIENTRY * MAL_LPALGETLISTENERI)        (ALenum param, ALint *value);
+typedef void           (MAL_AL_APIENTRY * MAL_LPALGETLISTENER3I)       (ALenum param, ALint *value1, ALint *value2, ALint *value3);
+typedef void           (MAL_AL_APIENTRY * MAL_LPALGETLISTENERIV)       (ALenum param, ALint *values);
+typedef void           (MAL_AL_APIENTRY * MAL_LPALGENSOURCES)          (ALsizei n, ALuint *sources);
+typedef void           (MAL_AL_APIENTRY * MAL_LPALDELETESOURCES)       (ALsizei n, const ALuint *sources);
+typedef ALboolean      (MAL_AL_APIENTRY * MAL_LPALISSOURCE)            (ALuint source);
+typedef void           (MAL_AL_APIENTRY * MAL_LPALSOURCEF)             (ALuint source, ALenum param, ALfloat value);
+typedef void           (MAL_AL_APIENTRY * MAL_LPALSOURCE3F)            (ALuint source, ALenum param, ALfloat value1, ALfloat value2, ALfloat value3);
+typedef void           (MAL_AL_APIENTRY * MAL_LPALSOURCEFV)            (ALuint source, ALenum param, const ALfloat *values);
+typedef void           (MAL_AL_APIENTRY * MAL_LPALSOURCEI)             (ALuint source, ALenum param, ALint value);
+typedef void           (MAL_AL_APIENTRY * MAL_LPALSOURCE3I)            (ALuint source, ALenum param, ALint value1, ALint value2, ALint value3);
+typedef void           (MAL_AL_APIENTRY * MAL_LPALSOURCEIV)            (ALuint source, ALenum param, const ALint *values);
+typedef void           (MAL_AL_APIENTRY * MAL_LPALGETSOURCEF)          (ALuint source, ALenum param, ALfloat *value);
+typedef void           (MAL_AL_APIENTRY * MAL_LPALGETSOURCE3F)         (ALuint source, ALenum param, ALfloat *value1, ALfloat *value2, ALfloat *value3);
+typedef void           (MAL_AL_APIENTRY * MAL_LPALGETSOURCEFV)         (ALuint source, ALenum param, ALfloat *values);
+typedef void           (MAL_AL_APIENTRY * MAL_LPALGETSOURCEI)          (ALuint source, ALenum param, ALint *value);
+typedef void           (MAL_AL_APIENTRY * MAL_LPALGETSOURCE3I)         (ALuint source, ALenum param, ALint *value1, ALint *value2, ALint *value3);
+typedef void           (MAL_AL_APIENTRY * MAL_LPALGETSOURCEIV)         (ALuint source, ALenum param, ALint *values);
+typedef void           (MAL_AL_APIENTRY * MAL_LPALSOURCEPLAYV)         (ALsizei n, const ALuint *sources);
+typedef void           (MAL_AL_APIENTRY * MAL_LPALSOURCESTOPV)         (ALsizei n, const ALuint *sources);
+typedef void           (MAL_AL_APIENTRY * MAL_LPALSOURCEREWINDV)       (ALsizei n, const ALuint *sources);
+typedef void           (MAL_AL_APIENTRY * MAL_LPALSOURCEPAUSEV)        (ALsizei n, const ALuint *sources);
+typedef void           (MAL_AL_APIENTRY * MAL_LPALSOURCEPLAY)          (ALuint source);
+typedef void           (MAL_AL_APIENTRY * MAL_LPALSOURCESTOP)          (ALuint source);
+typedef void           (MAL_AL_APIENTRY * MAL_LPALSOURCEREWIND)        (ALuint source);
+typedef void           (MAL_AL_APIENTRY * MAL_LPALSOURCEPAUSE)         (ALuint source);
+typedef void           (MAL_AL_APIENTRY * MAL_LPALSOURCEQUEUEBUFFERS)  (ALuint source, ALsizei nb, const ALuint *buffers);
+typedef void           (MAL_AL_APIENTRY * MAL_LPALSOURCEUNQUEUEBUFFERS)(ALuint source, ALsizei nb, ALuint *buffers);
+typedef void           (MAL_AL_APIENTRY * MAL_LPALGENBUFFERS)          (ALsizei n, ALuint *buffers);
+typedef void           (MAL_AL_APIENTRY * MAL_LPALDELETEBUFFERS)       (ALsizei n, const ALuint *buffers);
+typedef ALboolean      (MAL_AL_APIENTRY * MAL_LPALISBUFFER)            (ALuint buffer);
+typedef void           (MAL_AL_APIENTRY * MAL_LPALBUFFERDATA)          (ALuint buffer, ALenum format, const ALvoid *data, ALsizei size, ALsizei freq);
+typedef void           (MAL_AL_APIENTRY * MAL_LPALBUFFERF)             (ALuint buffer, ALenum param, ALfloat value);
+typedef void           (MAL_AL_APIENTRY * MAL_LPALBUFFER3F)            (ALuint buffer, ALenum param, ALfloat value1, ALfloat value2, ALfloat value3);
+typedef void           (MAL_AL_APIENTRY * MAL_LPALBUFFERFV)            (ALuint buffer, ALenum param, const ALfloat *values);
+typedef void           (MAL_AL_APIENTRY * MAL_LPALBUFFERI)             (ALuint buffer, ALenum param, ALint value);
+typedef void           (MAL_AL_APIENTRY * MAL_LPALBUFFER3I)            (ALuint buffer, ALenum param, ALint value1, ALint value2, ALint value3);
+typedef void           (MAL_AL_APIENTRY * MAL_LPALBUFFERIV)            (ALuint buffer, ALenum param, const ALint *values);
+typedef void           (MAL_AL_APIENTRY * MAL_LPALGETBUFFERF)          (ALuint buffer, ALenum param, ALfloat *value);
+typedef void           (MAL_AL_APIENTRY * MAL_LPALGETBUFFER3F)         (ALuint buffer, ALenum param, ALfloat *value1, ALfloat *value2, ALfloat *value3);
+typedef void           (MAL_AL_APIENTRY * MAL_LPALGETBUFFERFV)         (ALuint buffer, ALenum param, ALfloat *values);
+typedef void           (MAL_AL_APIENTRY * MAL_LPALGETBUFFERI)          (ALuint buffer, ALenum param, ALint *value);
+typedef void           (MAL_AL_APIENTRY * MAL_LPALGETBUFFER3I)         (ALuint buffer, ALenum param, ALint *value1, ALint *value2, ALint *value3);
+typedef void           (MAL_AL_APIENTRY * MAL_LPALGETBUFFERIV)         (ALuint buffer, ALenum param, ALint *values);
+typedef void           (MAL_AL_APIENTRY * MAL_LPALDOPPLERFACTOR)       (ALfloat value);
+typedef void           (MAL_AL_APIENTRY * MAL_LPALDOPPLERVELOCITY)     (ALfloat value);
+typedef void           (MAL_AL_APIENTRY * MAL_LPALSPEEDOFSOUND)        (ALfloat value);
+typedef void           (MAL_AL_APIENTRY * MAL_LPALDISTANCEMODEL)       (ALenum distanceModel);
 
 mal_result mal_context_init__openal(mal_context* pContext)
 {
@@ -4372,6 +4379,8 @@ static void mal_device_uninit__openal(mal_device* pDevice)
     } else {
         ((MAL_LPALCCAPTURECLOSEDEVICE)pDevice->pContext->openal.alcCaptureCloseDevice)(pDevice->openal.pDeviceALC);
     }
+
+    mal_free(pDevice->openal.pIntermediaryBuffer);
 }
 
 static mal_result mal_device_init__openal(mal_context* pContext, mal_device_type type, mal_device_id* pDeviceID, mal_device_config* pConfig, mal_device* pDevice)
@@ -4383,10 +4392,13 @@ static mal_result mal_device_init__openal(mal_context* pContext, mal_device_type
     ALCsizei bufferSizeInSamplesAL = pConfig->bufferSizeInFrames;
     ALCuint frequencyAL = pConfig->sampleRate;
 
+    mal_uint32 channelsAL = 0;
+
     // OpenAL supports only mono and stereo.
     ALCenum formatAL = 0;
     if (pConfig->channels == 1) {
         // Mono.
+        channelsAL = 1;
         if (pConfig->format == mal_format_f32) {
             if (pContext->openal.isFloat32Supported) {
                 formatAL = MAL_AL_FORMAT_MONO_FLOAT32;
@@ -4404,7 +4416,7 @@ static mal_result mal_device_init__openal(mal_context* pContext, mal_device_type
         }
     } else {
         // Stereo.
-        bufferSizeInSamplesAL *= 2;
+        channelsAL = 2;
         if (pConfig->format == mal_format_f32) {
             if (pContext->openal.isFloat32Supported) {
                 formatAL = MAL_AL_FORMAT_STEREO_FLOAT32;
@@ -4425,6 +4437,8 @@ static mal_result mal_device_init__openal(mal_context* pContext, mal_device_type
     if (formatAL == 0) {
         return MAL_FORMAT_NOT_SUPPORTED;
     }
+
+    bufferSizeInSamplesAL *= channelsAL;
 
 
     // OpenAL feels a bit unintuitive to me... The global object is a device, and it would appear that each device can have
@@ -4465,22 +4479,150 @@ static mal_result mal_device_init__openal(mal_context* pContext, mal_device_type
         pDevice->openal.buffersAL[i] = buffersAL[i];
     }
 
+    pDevice->internalChannels = channelsAL;
+
+    pDevice->openal.formatAL = formatAL;
+    pDevice->openal.subBufferSizeInFrames = pDevice->bufferSizeInFrames / pDevice->periods;
+    pDevice->openal.pIntermediaryBuffer = (mal_uint8*)mal_malloc(pDevice->openal.subBufferSizeInFrames * channelsAL * mal_get_sample_size_in_bytes(pDevice->format));
+    if (pDevice->openal.pIntermediaryBuffer == NULL) {
+        mal_device_uninit__openal(pDevice);
+        return MAL_OUT_OF_MEMORY;
+    }
+
     return MAL_SUCCESS;
 }
 
-#if 0
 static mal_result mal_device__start_backend__openal(mal_device* pDevice)
 {
     mal_assert(pDevice != NULL);
+
+    if (pDevice->type == mal_device_type_playback) {
+        // Playback.
+        //
+        // When starting playback we want to ensure each buffer is filled and queued before playing the source.
+        pDevice->openal.iNextBuffer = 0;
+
+        for (mal_uint32 i = 0; i < pDevice->periods; ++i) {
+            mal_device__read_frames_from_client(pDevice, pDevice->openal.subBufferSizeInFrames, pDevice->openal.pIntermediaryBuffer);
+
+            ALuint bufferAL = pDevice->openal.buffersAL[i];
+            ((MAL_LPALBUFFERDATA)pDevice->pContext->openal.alBufferData)(bufferAL, pDevice->openal.formatAL, pDevice->openal.pIntermediaryBuffer, pDevice->openal.subBufferSizeInFrames * pDevice->internalChannels * mal_get_sample_size_in_bytes(pDevice->format), pDevice->sampleRate);
+            ((MAL_LPALSOURCEQUEUEBUFFERS)pDevice->pContext->openal.alSourceQueueBuffers)(pDevice->openal.sourceAL, 1, &bufferAL);
+        }
+
+        // Start the source only after filling and queueing each buffer.
+        ((MAL_LPALSOURCEPLAY)pDevice->pContext->openal.alSourcePlay)(pDevice->openal.sourceAL);
+    } else {
+        // Capture.
+        ((MAL_LPALCCAPTURESTART)pDevice->pContext->openal.alcCaptureStart)(pDevice->openal.pDeviceALC);
+    }
+
     return MAL_SUCCESS;
 }
 
 static mal_result mal_device__stop_backend__openal(mal_device* pDevice)
 {
     mal_assert(pDevice != NULL);
+
+    if (pDevice->type == mal_device_type_playback) {
+        ((MAL_LPALSOURCESTOP)pDevice->pContext->openal.alSourceStop)(pDevice->openal.sourceAL);
+    } else {
+        ((MAL_LPALCCAPTURESTOP)pDevice->pContext->openal.alcCaptureStop)(pDevice->openal.pDeviceALC);
+    }
+
     return MAL_SUCCESS;
 }
-#endif
+
+static mal_result mal_device__break_main_loop__openal(mal_device* pDevice)
+{
+    mal_assert(pDevice != NULL);
+
+    pDevice->openal.breakFromMainLoop = MAL_TRUE;
+    return MAL_SUCCESS;
+}
+
+static mal_uint32 mal_device__get_available_frames__openal(mal_device* pDevice)
+{
+    mal_assert(pDevice != NULL);
+
+    if (pDevice->type == mal_device_type_playback) {
+        ALint processedBufferCount = 0;
+        ((MAL_LPALGETSOURCEI)pDevice->pContext->openal.alGetSourcei)(pDevice->openal.sourceAL, AL_BUFFERS_PROCESSED, &processedBufferCount);
+
+        return processedBufferCount * pDevice->openal.subBufferSizeInFrames;
+    } else {
+        ALint samplesAvailable = 0;
+        ((MAL_LPALCGETINTEGERV)pDevice->pContext->openal.alcGetIntegerv)(pDevice->openal.pDeviceALC, ALC_CAPTURE_SAMPLES, (ALCsizei)sizeof(ALint), &samplesAvailable);
+
+        return samplesAvailable / pDevice->channels;
+    }
+}
+
+static mal_uint32 mal_device__wait_for_frames__openal(mal_device* pDevice)
+{
+    mal_assert(pDevice != NULL);
+
+    while (!pDevice->openal.breakFromMainLoop) {
+        mal_uint32 framesAvailable = mal_device__get_available_frames__openal(pDevice);
+        if (framesAvailable > 0) {
+            return framesAvailable;
+        }
+
+        mal_sleep(1);
+    }
+
+    // We'll get here if the loop was terminated. When capturing we want to return whatever is available. For playback we just drop it.
+    if (pDevice->type == mal_device_type_playback) {
+        return 0;
+    } else {
+        return mal_device__get_available_frames__openal(pDevice);
+    }
+}
+
+static mal_result mal_device__main_loop__openal(mal_device* pDevice)
+{
+    mal_assert(pDevice != NULL);
+
+    pDevice->openal.breakFromMainLoop = MAL_FALSE;
+    while (!pDevice->openal.breakFromMainLoop) {
+        mal_uint32 framesAvailable = mal_device__wait_for_frames__openal(pDevice);
+        if (framesAvailable == 0) {
+            continue;
+        }
+
+        // If it's a playback device, don't bother grabbing more data if the device is being stopped.
+        if (pDevice->openal.breakFromMainLoop && pDevice->type == mal_device_type_playback) {
+            return MAL_FALSE;
+        }
+
+        if (pDevice->type == mal_device_type_playback) {
+            while (framesAvailable > 0) {
+                mal_uint32 framesToRead = (framesAvailable > pDevice->openal.subBufferSizeInFrames) ? pDevice->openal.subBufferSizeInFrames : framesAvailable;
+
+                ALuint bufferAL = pDevice->openal.buffersAL[pDevice->openal.iNextBuffer];
+                pDevice->openal.iNextBuffer = (pDevice->openal.iNextBuffer + 1) % pDevice->periods;
+
+                mal_device__read_frames_from_client(pDevice, framesToRead, pDevice->openal.pIntermediaryBuffer);
+
+                ((MAL_LPALSOURCEUNQUEUEBUFFERS)pDevice->pContext->openal.alSourceUnqueueBuffers)(pDevice->openal.sourceAL, 1, &bufferAL);
+                ((MAL_LPALBUFFERDATA)pDevice->pContext->openal.alBufferData)(bufferAL, pDevice->openal.formatAL, pDevice->openal.pIntermediaryBuffer, pDevice->openal.subBufferSizeInFrames * pDevice->internalChannels * mal_get_sample_size_in_bytes(pDevice->format), pDevice->sampleRate);
+                ((MAL_LPALSOURCEQUEUEBUFFERS)pDevice->pContext->openal.alSourceQueueBuffers)(pDevice->openal.sourceAL, 1, &bufferAL);
+
+                framesAvailable -= framesToRead;
+            }
+        } else {
+            while (framesAvailable > 0) {
+                mal_uint32 framesToSend = (framesAvailable > pDevice->openal.subBufferSizeInFrames) ? pDevice->openal.subBufferSizeInFrames : framesAvailable;
+                ((MAL_LPALCCAPTURESAMPLES)pDevice->pContext->openal.alcCaptureSamples)(pDevice->openal.pDeviceALC, pDevice->openal.pIntermediaryBuffer, framesToSend);
+
+                mal_device__send_frames_to_client(pDevice, framesToSend, pDevice->openal.pIntermediaryBuffer);
+                framesAvailable -= framesToSend;
+            }
+        }
+    }
+
+    return MAL_SUCCESS;
+}
 #endif  // OpenAL
 
 
@@ -4502,6 +4644,11 @@ static mal_result mal_device__start_backend(mal_device* pDevice)
 #ifdef MAL_ENABLE_ALSA
     if (pDevice->pContext->backend == mal_backend_alsa) {
         result = mal_device__start_backend__alsa(pDevice);
+    }
+#endif
+#ifdef MAL_ENABLE_OPENAL
+    if (pDevice->pContext->backend == mal_backend_openal) {
+        result = mal_device__start_backend__openal(pDevice);
     }
 #endif
 #ifdef MAL_ENABLE_NULL
@@ -4533,6 +4680,11 @@ static mal_result mal_device__stop_backend(mal_device* pDevice)
         result = mal_device__stop_backend__alsa(pDevice);
     }
 #endif
+#ifdef MAL_ENABLE_OPENAL
+    if (pDevice->pContext->backend == mal_backend_openal) {
+        result = mal_device__stop_backend__openal(pDevice);
+    }
+#endif
 #ifdef MAL_ENABLE_NULL
     if (pDevice->pContext->backend == mal_backend_null) {
         result = mal_device__stop_backend__null(pDevice);
@@ -4562,6 +4714,11 @@ static mal_result mal_device__break_main_loop(mal_device* pDevice)
         result = mal_device__break_main_loop__alsa(pDevice);
     }
 #endif
+#ifdef MAL_ENABLE_OPENAL
+    if (pDevice->pContext->backend == mal_backend_openal) {
+        result = mal_device__break_main_loop__openal(pDevice);
+    }
+#endif
 #ifdef MAL_ENABLE_NULL
     if (pDevice->pContext->backend == mal_backend_null) {
         result = mal_device__break_main_loop__null(pDevice);
@@ -4589,6 +4746,11 @@ static mal_result mal_device__main_loop(mal_device* pDevice)
 #ifdef MAL_ENABLE_ALSA
     if (pDevice->pContext->backend == mal_backend_alsa) {
         result = mal_device__main_loop__alsa(pDevice);
+    }
+#endif
+#ifdef MAL_ENABLE_OPENAL
+    if (pDevice->pContext->backend == mal_backend_openal) {
+        result = mal_device__main_loop__openal(pDevice);
     }
 #endif
 #ifdef MAL_ENABLE_NULL
