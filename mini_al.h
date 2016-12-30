@@ -496,8 +496,9 @@ struct mal_device
     mal_thread thread;
     mal_result workResult;  // This is set by the worker thread after it's finished doing a job.
     mal_uint32 flags;       // MAL_DEVICE_FLAG_*
-
+    mal_format internalFormat;
     mal_uint32 internalChannels;
+    mal_uint32 internalSampleRate;
 
     union
     {
@@ -903,6 +904,9 @@ typedef mal_thread_result (MAL_THREADCALL * mal_thread_entry_proc)(void* pData);
 
 #define MAL_DEVICE_FLAG_USING_DEFAULT_BUFFER_SIZE   (1 << 0)
 #define MAL_DEVICE_FLAG_USING_DEFAULT_PERIODS       (1 << 1)
+#define MAL_DEVICE_FLAG_USING_FOREIGN_FORMAT        (1 << 2)    // The backend's native format is different to the format requested by the client.
+#define MAL_DEVICE_FLAG_USING_FOREIGN_CHANNELS      (1 << 3)    // The backend's native channel count is different to the count requested by the client.
+#define MAL_DEVICE_FLAG_USING_FOREIGN_SAMPLE_RATE   (1 << 4)    // The backend's native sample rate is different to the rate requested by the client.
 
 
 // The default size of the device's buffer in milliseconds.
@@ -1048,6 +1052,14 @@ static inline unsigned int mal_prev_power_of_2(unsigned int x)
     return mal_next_power_of_2(x) >> 1;
 }
 
+
+// Clamps an f32 sample to -1..1
+static inline float mal_clip_f32(float x)
+{
+    if (x < -1) return -1;
+    if (x > +1) return +1;
+    return x;
+}
 
 ///////////////////////////////////////////////////////////////////////////////
 //
@@ -1486,6 +1498,87 @@ static mal_result mal_post_error(mal_device* pDevice, const char* message, mal_r
 }
 
 
+#if 0
+// Converts sample data from one format to f32.
+static void mal_samples_to_f32(float* pSamplesOut, const void* pSamplesIn, mal_uint32 sampleCount, mal_format formatIn)
+{
+    mal_assert(pSamplesOut != NULL);
+    mal_assert(pSamplesIn  != NULL);
+    mal_assert(sampleCount > 0);
+
+    // TODO: Optimize me.
+    switch (formatIn)
+    {
+        case mal_format_f32:
+        {
+            memcpy(pSamplesOut, pSamplesIn, sampleCount * sizeof(float));
+        } break;
+
+        case mal_format_s16:
+        {
+            mal_int16* pSamplesInS16 = (mal_int16*)pSamplesIn;
+            for (size_t i = 0; i < sampleCount; ++i) {
+                pSamplesOut[i] = (pSamplesInS16[i] / 32767.0f);
+            }
+        } break;
+
+        default: break;
+    }
+}
+#endif
+
+// Converts sample data from f32 to another format.
+static void mal_samples_from_f32(void* pSamplesOut, const float* pSamplesIn, mal_uint32 sampleCount, mal_format formatOut)
+{
+    mal_assert(pSamplesOut != NULL);
+    mal_assert(pSamplesIn  != NULL);
+    mal_assert(sampleCount > 0);
+
+    // TODO: Optimize me.
+    switch (formatOut)
+    {
+        case mal_format_f32:
+        {
+            memcpy(pSamplesOut, pSamplesIn, sampleCount * sizeof(float));
+        } break;
+
+        case mal_format_s16:
+        {
+            mal_int16* pSamplesOutS16 = (mal_int16*)pSamplesOut;
+            
+            // This unroll is just me trying something... I realize it's a bit out of place.
+            mal_uint32 i = 0;
+            for (; i+3 < sampleCount; i += 4) {
+                float samplesIn[4];
+                samplesIn[0] = mal_clip_f32(pSamplesIn[i+0]);
+                samplesIn[1] = mal_clip_f32(pSamplesIn[i+1]);
+                samplesIn[2] = mal_clip_f32(pSamplesIn[i+2]);
+                samplesIn[3] = mal_clip_f32(pSamplesIn[i+3]);
+
+                mal_uint32 signs[4];
+                signs[0] = ((*((mal_uint32*)&pSamplesIn[i+0])) & 0x80000000) >> 31;
+                signs[1] = ((*((mal_uint32*)&pSamplesIn[i+1])) & 0x80000000) >> 31;
+                signs[2] = ((*((mal_uint32*)&pSamplesIn[i+2])) & 0x80000000) >> 31;
+                signs[3] = ((*((mal_uint32*)&pSamplesIn[i+3])) & 0x80000000) >> 31;
+
+                pSamplesOutS16[i+0] = (mal_int16)(samplesIn[0] * (32767 + signs[0]));
+                pSamplesOutS16[i+1] = (mal_int16)(samplesIn[1] * (32767 + signs[1]));
+                pSamplesOutS16[i+2] = (mal_int16)(samplesIn[2] * (32767 + signs[2]));
+                pSamplesOutS16[i+3] = (mal_int16)(samplesIn[3] * (32767 + signs[3]));
+            }
+
+            for (i ; i < sampleCount; i += 1) {
+                float sampleIn = mal_clip_f32(pSamplesIn[i]);
+
+                mal_uint32 sign = ((*((mal_uint32*)&pSamplesIn[i])) & 0x80000000) >> 31;
+                pSamplesOutS16[i] = (mal_int16)(sampleIn * (32767 + sign));
+            }
+
+        } break;
+
+        default: break;
+    }
+}
 
 // A helper function for reading sample data from the client. Returns the number of samples read from the client. Remaining samples
 // are filled with silence.
@@ -1495,16 +1588,60 @@ static inline mal_uint32 mal_device__read_frames_from_client(mal_device* pDevice
     mal_assert(frameCount > 0);
     mal_assert(pSamples != NULL);
 
+    // Some format conversions are not currently supported.
+    if (pDevice->flags & (MAL_DEVICE_FLAG_USING_FOREIGN_CHANNELS | MAL_DEVICE_FLAG_USING_FOREIGN_SAMPLE_RATE)) {
+        return 0;
+    }
+
+    if (pDevice->flags & MAL_DEVICE_FLAG_USING_FOREIGN_FORMAT) {
+        if (pDevice->format == mal_format_u8 ||
+            pDevice->format == mal_format_s16 ||
+            pDevice->format == mal_format_s24 ||
+            pDevice->format == mal_format_s32) {
+            return 0;
+        }
+    }
+
+
     mal_uint32 framesRead = 0;
     mal_send_proc onSend = pDevice->onSend;
     if (onSend) {
-        framesRead = onSend(pDevice, frameCount, pSamples);
+        if ((pDevice->flags & (MAL_DEVICE_FLAG_USING_FOREIGN_FORMAT | MAL_DEVICE_FLAG_USING_FOREIGN_CHANNELS | MAL_DEVICE_FLAG_USING_FOREIGN_SAMPLE_RATE)) == 0) {
+            // Fast path.
+            framesRead = onSend(pDevice, frameCount, pSamples);
+        } else {
+            // Slow(er) path. Need to convert before writing into the final output buffer.
+            mal_uint8 scratchBuffer[4096];
+            mal_uint32 chunkSampleCount = sizeof(scratchBuffer) / mal_get_sample_size_in_bytes(pDevice->format);
+            mal_uint32 chunkFrameCount = chunkSampleCount / pDevice->channels;
+
+            mal_uint32 framesRemaining = frameCount;
+            while (framesRemaining > 0) {
+                mal_uint32 framesJustRead = onSend(pDevice, (chunkFrameCount < framesRemaining) ? chunkFrameCount : framesRemaining, scratchBuffer);
+                if (framesJustRead == 0) {
+                    break;
+                }
+
+                mal_uint32 samplesJustRead = framesJustRead * pDevice->channels;
+
+                if (pDevice->flags & MAL_DEVICE_FLAG_USING_FOREIGN_FORMAT) {
+                    if (pDevice->format == mal_format_f32) {
+                        mal_samples_from_f32((mal_uint8*)pSamples + (framesRead * pDevice->internalChannels * mal_get_sample_size_in_bytes(pDevice->internalFormat)), (float*)scratchBuffer, samplesJustRead, pDevice->internalFormat);
+                    } else {
+                        // TODO: Implement the rest.
+                    }
+                }
+
+                framesRemaining -= framesJustRead;
+                framesRead += framesJustRead;
+            }
+        }
     }
 
-    mal_uint32 samplesRead = framesRead * pDevice->channels;
-    mal_uint32 sampleSize = mal_get_sample_size_in_bytes(pDevice->format);
+    mal_uint32 samplesRead = framesRead * pDevice->internalChannels;
+    mal_uint32 sampleSize = mal_get_sample_size_in_bytes(pDevice->internalFormat);
     mal_uint32 consumedBytes = samplesRead*sampleSize;
-    mal_uint32 remainingBytes = ((frameCount * pDevice->channels) - samplesRead)*sampleSize;
+    mal_uint32 remainingBytes = ((frameCount * pDevice->internalChannels) - samplesRead)*sampleSize;
     mal_zero_memory((mal_uint8*)pSamples + consumedBytes, remainingBytes);
 
     return samplesRead;
@@ -4346,6 +4483,7 @@ static mal_result mal_device_init__openal(mal_context* pContext, mal_device_type
     mal_ALCuint frequencyAL = pConfig->sampleRate;
 
     mal_uint32 channelsAL = 0;
+    mal_format internalFormat = pConfig->format;
 
     // OpenAL supports only mono and stereo.
     mal_ALCenum formatAL = 0;
@@ -4356,7 +4494,7 @@ static mal_result mal_device_init__openal(mal_context* pContext, mal_device_type
             if (pContext->openal.isFloat32Supported) {
                 formatAL = MAL_AL_FORMAT_MONO_FLOAT32;
             } else {
-                return MAL_FORMAT_NOT_SUPPORTED;
+                formatAL = MAL_AL_FORMAT_MONO16;
             }
         } else if (pConfig->format == mal_format_s32) {
             return MAL_FORMAT_NOT_SUPPORTED;
@@ -4374,7 +4512,7 @@ static mal_result mal_device_init__openal(mal_context* pContext, mal_device_type
             if (pContext->openal.isFloat32Supported) {
                 formatAL = MAL_AL_FORMAT_STEREO_FLOAT32;
             } else {
-                return MAL_FORMAT_NOT_SUPPORTED;
+                formatAL = MAL_AL_FORMAT_STEREO16;
             }
         } else if (pConfig->format == mal_format_s32) {
             return MAL_FORMAT_NOT_SUPPORTED;
@@ -4432,6 +4570,13 @@ static mal_result mal_device_init__openal(mal_context* pContext, mal_device_type
 
     pDevice->internalChannels = channelsAL;
 
+    if (formatAL == MAL_AL_FORMAT_MONO8 || formatAL == MAL_AL_FORMAT_STEREO8) {
+        pDevice->internalFormat = mal_format_u8;
+    }
+    if (formatAL == MAL_AL_FORMAT_MONO16 || formatAL == MAL_AL_FORMAT_STEREO16) {
+        pDevice->internalFormat = mal_format_s16;
+    }
+
     pDevice->openal.pDeviceALC = pDeviceALC;
     pDevice->openal.pContextALC = pContextALC;
     pDevice->openal.formatAL = formatAL;
@@ -4461,7 +4606,7 @@ static mal_result mal_device__start_backend__openal(mal_device* pDevice)
             mal_device__read_frames_from_client(pDevice, pDevice->openal.subBufferSizeInFrames, pDevice->openal.pIntermediaryBuffer);
 
             mal_ALuint bufferAL = pDevice->openal.buffersAL[i];
-            ((MAL_LPALBUFFERDATA)pDevice->pContext->openal.alBufferData)(bufferAL, pDevice->openal.formatAL, pDevice->openal.pIntermediaryBuffer, pDevice->openal.subBufferSizeInFrames * pDevice->internalChannels * mal_get_sample_size_in_bytes(pDevice->format), pDevice->sampleRate);
+            ((MAL_LPALBUFFERDATA)pDevice->pContext->openal.alBufferData)(bufferAL, pDevice->openal.formatAL, pDevice->openal.pIntermediaryBuffer, pDevice->openal.subBufferSizeInFrames * pDevice->internalChannels * mal_get_sample_size_in_bytes(pDevice->internalFormat), pDevice->internalSampleRate);
             ((MAL_LPALSOURCEQUEUEBUFFERS)pDevice->pContext->openal.alSourceQueueBuffers)(pDevice->openal.sourceAL, 1, &bufferAL);
         }
 
@@ -4564,7 +4709,7 @@ static mal_result mal_device__main_loop__openal(mal_device* pDevice)
 
                 ((MAL_LPALCMAKECONTEXTCURRENT)pDevice->pContext->openal.alcMakeContextCurrent)((mal_ALCcontext*)pDevice->openal.pContextALC);
                 ((MAL_LPALSOURCEUNQUEUEBUFFERS)pDevice->pContext->openal.alSourceUnqueueBuffers)(pDevice->openal.sourceAL, 1, &bufferAL);
-                ((MAL_LPALBUFFERDATA)pDevice->pContext->openal.alBufferData)(bufferAL, pDevice->openal.formatAL, pDevice->openal.pIntermediaryBuffer, pDevice->openal.subBufferSizeInFrames * pDevice->internalChannels * mal_get_sample_size_in_bytes(pDevice->format), pDevice->sampleRate);
+                ((MAL_LPALBUFFERDATA)pDevice->pContext->openal.alBufferData)(bufferAL, pDevice->openal.formatAL, pDevice->openal.pIntermediaryBuffer, pDevice->openal.subBufferSizeInFrames * pDevice->internalChannels * mal_get_sample_size_in_bytes(pDevice->internalFormat), pDevice->internalSampleRate);
                 ((MAL_LPALSOURCEQUEUEBUFFERS)pDevice->pContext->openal.alSourceQueueBuffers)(pDevice->openal.sourceAL, 1, &bufferAL);
 
                 framesAvailable -= framesToRead;
@@ -5051,6 +5196,11 @@ mal_result mal_device_init(mal_context* pContext, mal_device_type type, mal_devi
     pDevice->bufferSizeInFrames = pConfig->bufferSizeInFrames;
     pDevice->periods = pConfig->periods;
 
+    // The internal format, channel count and sample rate can be modified by the backend.
+    pDevice->internalFormat = pDevice->format;
+    pDevice->internalChannels = pDevice->channels;
+    pDevice->internalSampleRate = pDevice->sampleRate;
+
     if (!mal_mutex_create(&pDevice->lock)) {
         return mal_post_error(pDevice, "Failed to create mutex.", MAL_FAILED_TO_CREATE_MUTEX);
     }
@@ -5122,6 +5272,18 @@ mal_result mal_device_init(mal_context* pContext, mal_device_type type, mal_devi
 
     if (result != MAL_SUCCESS) {
         return MAL_NO_BACKEND;  // The error message will have been posted by the source of the error.
+    }
+
+
+    // Some flags need to be set if the backend is using a different internal format, channel count or sample rate.
+    if (pDevice->format != pDevice->internalFormat) {
+        pDevice->flags |= MAL_DEVICE_FLAG_USING_FOREIGN_FORMAT;
+    }
+    if (pDevice->channels != pDevice->internalChannels) {
+        pDevice->flags |= MAL_DEVICE_FLAG_USING_FOREIGN_CHANNELS;
+    }
+    if (pDevice->sampleRate != pDevice->internalSampleRate) {
+        pDevice->flags |= MAL_DEVICE_FLAG_USING_FOREIGN_SAMPLE_RATE;
     }
 
 
@@ -5360,7 +5522,8 @@ mal_uint32 mal_get_sample_size_in_bytes(mal_format format)
 //     to test and maintain, and just generally unreliable.
 //   - Null Backend: Fixed a crash when recording.
 //   - Fixed build for UWP.
-//   - Added initial implementation of the WASAPI backend. This is still work in progress.
+//   - Added initial implementation of the WASAPI backend.
+//   - Added initial implementation of the OpenAL backend.
 //
 // v0.2 - 2016-10-28
 //   - API CHANGE: Add user data pointer as the last parameter to mal_device_init(). The rationale for this
