@@ -1498,7 +1498,6 @@ static mal_result mal_post_error(mal_device* pDevice, const char* message, mal_r
 }
 
 
-#if 0
 // Converts sample data from one format to f32.
 static void mal_samples_to_f32(float* pSamplesOut, const void* pSamplesIn, mal_uint32 sampleCount, mal_format formatIn)
 {
@@ -1517,15 +1516,15 @@ static void mal_samples_to_f32(float* pSamplesOut, const void* pSamplesIn, mal_u
         case mal_format_s16:
         {
             mal_int16* pSamplesInS16 = (mal_int16*)pSamplesIn;
-            for (size_t i = 0; i < sampleCount; ++i) {
-                pSamplesOut[i] = (pSamplesInS16[i] / 32767.0f);
+            for (mal_uint32 i = 0; i < sampleCount; ++i) {
+                mal_uint32 sign = (pSamplesInS16[i] & 0x8000) >> 15;
+                pSamplesOut[i] = (pSamplesInS16[i] / (float)(32767 + sign));
             }
         } break;
 
         default: break;
     }
 }
-#endif
 
 // Converts sample data from f32 to another format.
 static void mal_samples_from_f32(void* pSamplesOut, const float* pSamplesIn, mal_uint32 sampleCount, mal_format formatOut)
@@ -1654,9 +1653,51 @@ static inline void mal_device__send_frames_to_client(mal_device* pDevice, mal_ui
     mal_assert(frameCount > 0);
     mal_assert(pSamples != NULL);
 
+    // Some format conversions are not currently supported.
+    if (pDevice->flags & (MAL_DEVICE_FLAG_USING_FOREIGN_CHANNELS | MAL_DEVICE_FLAG_USING_FOREIGN_SAMPLE_RATE)) {
+        return;
+    }
+
+    if (pDevice->flags & MAL_DEVICE_FLAG_USING_FOREIGN_FORMAT) {
+        if (pDevice->format == mal_format_u8 ||
+            pDevice->format == mal_format_s16 ||
+            pDevice->format == mal_format_s24 ||
+            pDevice->format == mal_format_s32) {
+            return;
+        }
+    }
+
     mal_recv_proc onRecv = pDevice->onRecv;
     if (onRecv) {
-        onRecv(pDevice, frameCount, pSamples);
+        if ((pDevice->flags & (MAL_DEVICE_FLAG_USING_FOREIGN_FORMAT | MAL_DEVICE_FLAG_USING_FOREIGN_CHANNELS | MAL_DEVICE_FLAG_USING_FOREIGN_SAMPLE_RATE)) == 0) {
+            // Fast path.
+            onRecv(pDevice, frameCount, pSamples);
+        } else {
+            // Slow(er) path. Need to convert before sending to the client.
+            mal_uint8 scratchBuffer[4096];
+            mal_uint32 chunkSampleCount = sizeof(scratchBuffer) / mal_get_sample_size_in_bytes(pDevice->format);
+            mal_uint32 chunkFrameCount = chunkSampleCount / pDevice->channels;
+
+            mal_uint32 framesSent = 0;
+            mal_uint32 framesRemaining = frameCount;
+            while (framesRemaining > 0) {
+                mal_uint32 framesToSend = (chunkFrameCount < framesRemaining) ? chunkFrameCount : framesRemaining;
+                mal_uint32 samplesToSend = framesToSend * pDevice->channels;
+
+                if (pDevice->flags & MAL_DEVICE_FLAG_USING_FOREIGN_FORMAT) {
+                    if (pDevice->format == mal_format_f32) {
+                        mal_samples_to_f32((float*)scratchBuffer, (mal_uint8*)pSamples + (framesSent * pDevice->internalChannels * mal_get_sample_size_in_bytes(pDevice->internalFormat)), samplesToSend, pDevice->internalFormat);
+                    } else {
+                        // TODO: Implement the rest.
+                    }
+                }
+
+                onRecv(pDevice, framesToSend, scratchBuffer);
+
+                framesRemaining -= framesToSend;
+                framesSent += framesToSend;
+            }
+        }
     }
 }
 
@@ -4581,7 +4622,7 @@ static mal_result mal_device_init__openal(mal_context* pContext, mal_device_type
     pDevice->openal.pContextALC = pContextALC;
     pDevice->openal.formatAL = formatAL;
     pDevice->openal.subBufferSizeInFrames = pDevice->bufferSizeInFrames / pDevice->periods;
-    pDevice->openal.pIntermediaryBuffer = (mal_uint8*)mal_malloc(pDevice->openal.subBufferSizeInFrames * channelsAL * mal_get_sample_size_in_bytes(pDevice->format));
+    pDevice->openal.pIntermediaryBuffer = (mal_uint8*)mal_malloc(pDevice->openal.subBufferSizeInFrames * channelsAL * mal_get_sample_size_in_bytes(pDevice->internalFormat));
     if (pDevice->openal.pIntermediaryBuffer == NULL) {
         mal_device_uninit__openal(pDevice);
         return MAL_OUT_OF_MEMORY;
