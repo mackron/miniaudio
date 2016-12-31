@@ -1,0 +1,51 @@
+# The worlds worst programming language!
+#
+# The final result needs to be moved to the "r" variable. The input sample is "x".
+#
+# Instructions
+# ============
+# add [output] [a] [b] -> output = a + b
+# sub [output] [a] [b] -> output = a - b
+# mul [output] [a] [b] -> output = a * b
+# div [output] [a] [b] -> output = a / b
+# shl [output] [a] [b] -> output = a << b
+# shr [output] [a] [b] -> output = a >> b
+# sig [output] [b]     -> output = (sign bit in "a" is set) ? 1 : 0
+# mov [output] [a]     -> output = a;
+#
+# int [name] -> Declare an uninitialized 32-bit integer
+# flt [name] -> Declare an uninitialized 32-bit float
+
+# r = (x - 128) << 8
+u8->s16 {
+    sub r x 128;
+    shl r r 8;
+}
+
+# r = (x - 128) << 16
+u8->s24 {
+    sub r x 128;
+    shl r r 16;
+}
+
+# r = (x - 128) << 24
+u8->s32 {
+    sub r x 128;
+    shl r r 24;
+}
+
+# r = (x / 255) * 2 - 1
+u8->f32 {
+    div r x 255.0;
+    mul r r 2;
+    sub r r 1;
+}
+
+
+# r = x / (2147483647 + sign(x))
+u32->f32 {
+    int s;
+    sig s x;
+    add s s 2147483647;
+    div r x (flt)s;
+}
