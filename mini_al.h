@@ -472,6 +472,21 @@ typedef struct
             int _unused;
         } null_device;
     };
+
+    union
+    {
+        struct
+        {
+            /*HMODULE*/ mal_handle hOle32DLL;
+            mal_proc CoInitializeEx;
+            mal_proc CoUninitialize;
+            mal_proc CoCreateInstance;
+            mal_proc CoTaskMemFree;
+            mal_proc PropVariantClear;
+        } win32;
+
+        int _unused;
+    };
 } mal_context;
 
 struct mal_device
@@ -895,6 +910,16 @@ mal_uint32 mal_get_sample_size_in_bytes(mal_format format);
     typedef void* mal_thread_result;
 #endif
 typedef mal_thread_result (MAL_THREADCALL * mal_thread_entry_proc)(void* pData);
+
+#ifdef MAL_WIN32
+typedef HRESULT (WINAPI * MAL_PFN_CoInitializeEx)(LPVOID pvReserved, DWORD  dwCoInit);
+typedef void    (WINAPI * MAL_PFN_CoUninitialize)();
+typedef HRESULT (WINAPI * MAL_PFN_CoCreateInstance)(REFCLSID rclsid, LPUNKNOWN pUnkOuter, DWORD dwClsContext, REFIID riid, LPVOID *ppv);
+typedef void    (WINAPI * MAL_PFN_CoTaskMemFree)(_In_opt_ LPVOID pv);
+typedef HRESULT (WINAPI * MAL_PFN_PropVariantClear)(PROPVARIANT *pvar);
+
+#endif
+
 
 #define MAL_STATE_UNINITIALIZED     0
 #define MAL_STATE_STOPPED           1   // The device's default state after initialization.
@@ -1998,7 +2023,7 @@ mal_result mal_context_init__wasapi(mal_context* pContext)
     mal_assert(pContext != NULL);
 
     // Validate the WASAPI is available by grabbing an MMDeviceEnumerator object.
-    HRESULT hr = CoCreateInstance(g_malCLSID_MMDeviceEnumerator, NULL, CLSCTX_ALL, g_malIID_IMMDeviceEnumerator, (void**)&pContext->wasapi.pDeviceEnumerator);
+    HRESULT hr = ((MAL_PFN_CoCreateInstance)pContext->win32.CoCreateInstance)(g_malCLSID_MMDeviceEnumerator, NULL, CLSCTX_ALL, g_malIID_IMMDeviceEnumerator, (void**)&pContext->wasapi.pDeviceEnumerator);
     if (FAILED(hr)) {
         return MAL_NO_BACKEND;
     }
@@ -2075,7 +2100,7 @@ static mal_result mal_enumerate_devices__wasapi(mal_context* pContext, mal_devic
             if (SUCCEEDED(hr)) {
                 size_t idlen = wcslen(id);
                 if (idlen+sizeof(wchar_t) > sizeof(pInfo->id.wstr)) {
-                    CoTaskMemFree(id);
+                    ((MAL_PFN_CoTaskMemFree)pContext->win32.CoTaskMemFree)(id);
                     mal_assert(MAL_FALSE);  // NOTE: If this is triggered, please report it. It means the format of the ID must haved change and is too long to fit in our fixed sized buffer.
                     continue;
                 }
@@ -2083,7 +2108,7 @@ static mal_result mal_enumerate_devices__wasapi(mal_context* pContext, mal_devic
                 memcpy(pInfo->id.wstr, id, idlen * sizeof(wchar_t));
                 pInfo->id.wstr[idlen] = '\0';
 
-                CoTaskMemFree(id);
+                ((MAL_PFN_CoTaskMemFree)pContext->win32.CoTaskMemFree)(id);
             }
 
             // Description / Friendly Name.
@@ -2103,7 +2128,7 @@ static mal_result mal_enumerate_devices__wasapi(mal_context* pContext, mal_devic
 #endif
                 if (SUCCEEDED(hr)) {
                     WideCharToMultiByte(CP_UTF8, 0, varName.pwszVal, -1, pInfo->name, sizeof(pInfo->name), 0, FALSE);
-                    PropVariantClear(&varName);
+                    ((MAL_PFN_PropVariantClear)pContext->win32.PropVariantClear)(&varName);
                 }
 
 #ifdef __cplusplus
@@ -2174,7 +2199,7 @@ static mal_result mal_device_init__wasapi(mal_context* pContext, mal_device_type
     mal_zero_object(&pDevice->wasapi);
 
     IMMDeviceEnumerator* pDeviceEnumerator;
-    HRESULT hr = CoCreateInstance(g_malCLSID_MMDeviceEnumerator, NULL, CLSCTX_ALL, g_malIID_IMMDeviceEnumerator, (void**)&pDeviceEnumerator);
+    HRESULT hr = ((MAL_PFN_CoCreateInstance)pContext->win32.CoCreateInstance)(g_malCLSID_MMDeviceEnumerator, NULL, CLSCTX_ALL, g_malIID_IMMDeviceEnumerator, (void**)&pDeviceEnumerator);
     if (FAILED(hr)) {
         mal_device_uninit__wasapi(pDevice);
         return mal_post_error(pDevice, "[WASAPI] Failed to create IMMDeviceEnumerator.", MAL_WASAPI_FAILED_TO_CREATE_DEVICE_ENUMERATOR);
@@ -2276,12 +2301,12 @@ static mal_result mal_device_init__wasapi(mal_context* pContext, mal_device_type
     hr = ((IAudioClient*)pDevice->wasapi.pAudioClient)->lpVtbl->Initialize((IAudioClient*)pDevice->wasapi.pAudioClient, AUDCLNT_SHAREMODE_SHARED, 0, bufferDurationInMicroseconds*10, 0, (WAVEFORMATEX*)&wf, NULL);
 #endif
     if (FAILED(hr)) {
-        CoTaskMemFree(pClosestWF);
+        ((MAL_PFN_CoTaskMemFree)pContext->win32.CoTaskMemFree)(pClosestWF);
         mal_device_uninit__wasapi(pDevice);
         return mal_post_error(pDevice, "[WASAPI] Failed to activate device.", MAL_WASAPI_FAILED_TO_INITIALIZE_DEVICE);
     }
 
-    CoTaskMemFree(pClosestWF);
+    ((MAL_PFN_CoTaskMemFree)pContext->win32.CoTaskMemFree)(pClosestWF);
 
 #ifdef __cplusplus
     hr = ((IAudioClient*)pDevice->wasapi.pAudioClient)->GetBufferSize(&pDevice->bufferSizeInFrames);
@@ -4940,7 +4965,7 @@ mal_thread_result MAL_THREADCALL mal_worker_thread(void* pData)
     mal_assert(pDevice != NULL);
     
 #ifdef MAL_WIN32
-    CoInitializeEx(NULL, COINIT_MULTITHREADED);
+    ((MAL_PFN_CoInitializeEx)pDevice->pContext->win32.CoInitializeEx)(NULL, COINIT_MULTITHREADED);
 #endif
 
     // This is only used to prevent posting onStop() when the device is first initialized.
@@ -4999,7 +5024,7 @@ mal_thread_result MAL_THREADCALL mal_worker_thread(void* pData)
     mal_event_signal(&pDevice->stopEvent);  // <-- Is this still needed?
 
 #ifdef MAL_WIN32
-    CoUninitialize();
+    ((MAL_PFN_CoUninitialize)pDevice->pContext->win32.CoUninitialize)();
 #endif
 
     return (mal_thread_result)0;
@@ -5014,15 +5039,66 @@ mal_bool32 mal_device__is_initialized(mal_device* pDevice)
 }
 
 
+#ifdef MAL_WIN32
+mal_result mal_context_uninit_backend_apis__win32(mal_context* pContext)
+{
+    ((MAL_PFN_CoUninitialize)pContext->win32.CoUninitialize)();
+    mal_dlclose(pContext->win32.hOle32DLL);
+
+    return MAL_SUCCESS;
+}
+
+mal_result mal_context_init_backend_apis__win32(mal_context* pContext)
+{
+    // Ole32.dll
+    pContext->win32.hOle32DLL = mal_dlopen("ole32.dll");
+    if (pContext->win32.hOle32DLL == NULL) {
+        return MAL_FAILED_TO_INIT_BACKEND;
+    }
+
+    pContext->win32.CoInitializeEx   = (mal_proc)mal_dlsym(pContext->win32.hOle32DLL, "CoInitializeEx");
+    pContext->win32.CoUninitialize   = (mal_proc)mal_dlsym(pContext->win32.hOle32DLL, "CoUninitialize");
+    pContext->win32.CoCreateInstance = (mal_proc)mal_dlsym(pContext->win32.hOle32DLL, "CoCreateInstance");
+    pContext->win32.CoTaskMemFree    = (mal_proc)mal_dlsym(pContext->win32.hOle32DLL, "CoTaskMemFree");
+    pContext->win32.PropVariantClear = (mal_proc)mal_dlsym(pContext->win32.hOle32DLL, "PropVariantClear");
+
+
+    ((MAL_PFN_CoInitializeEx)pContext->win32.CoInitializeEx)(NULL, COINIT_MULTITHREADED);
+
+    return MAL_SUCCESS;
+}
+#endif
+
+mal_result mal_context_init_backend_apis(mal_context* pContext)
+{
+    mal_result result = MAL_NO_BACKEND;
+#ifdef MAL_WIN32
+    result = mal_context_init_backend_apis__win32(pContext);
+#endif
+
+    return result;
+}
+
+mal_result mal_context_uninit_backend_apis(mal_context* pContext)
+{
+    mal_result result = MAL_NO_BACKEND;
+#ifdef MAL_WIN32
+    result = mal_context_uninit_backend_apis__win32(pContext);
+#endif
+
+    return result;
+}
+
 mal_result mal_context_init(mal_backend backends[], mal_uint32 backendCount, mal_context* pContext)
 {
     if (pContext == NULL) return MAL_INVALID_ARGS;
     mal_zero_object(pContext);
 
-    // Keep it simple and always initialize COM.
-#ifdef MAL_WIN32
-    CoInitializeEx(NULL, COINIT_MULTITHREADED);
-#endif
+    // Backend APIs need to be initialized first. This is where external libraries will be loaded and linked.
+    mal_result result = mal_context_init_backend_apis(pContext);
+    if (result != MAL_SUCCESS) {
+        return result;
+    }
 
     static mal_backend defaultBackends[] = {
         mal_backend_dsound,
@@ -5158,9 +5234,7 @@ mal_result mal_context_uninit(mal_context* pContext)
         default: break;
     }
 
-#ifdef MAL_WIN32
-    CoUninitialize();
-#endif
+    mal_context_uninit_backend_apis(pContext);
 
     mal_assert(MAL_FALSE);
     return MAL_NO_BACKEND;
@@ -5595,7 +5669,7 @@ mal_uint32 mal_get_sample_size_in_bytes(mal_format format)
 //   - Dropped support for f64, A-law and Mu-law formats since they just aren't common enough to justify the
 //     added maintenance cost.
 //   - DirectSound: Increased the default buffer size for capture devices.
-//   - Added initial implementation of the OpenSL|ES backend. This is unstable.
+//   - Added initial implementation of the OpenSL|ES backend.
 //
 // v0.1 - 2016-10-21
 //   - Initial versioned release.
@@ -5613,7 +5687,6 @@ mal_uint32 mal_get_sample_size_in_bytes(mal_format format)
 //   - GetMixFormat() instead of IsFormatSupported().
 //   - Requires a large suite of conversion routines including channel shuffling, SRC and format conversion.
 // - Look into event callbacks: AUDCLNT_STREAMFLAGS_EVENTCALLBACK
-// - Link to ole32.lib at run time.
 // - Clean up that terrible "__cplusplus" mess by implementing wrapper functions.
 //
 //
