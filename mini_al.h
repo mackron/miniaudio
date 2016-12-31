@@ -5576,7 +5576,7 @@ mal_uint32 mal_get_sample_size_in_bytes(mal_format format)
 //   - API CHANGE: Introduced the notion of a context. The context is the highest level object and is required for
 //     enumerating and creating devices. Now, applications must first create a context, and then use that to
 //     enumerate and create devices. The reason for this change is to ensure device enumeration and creation is
-//     tied to the same backend. In addition, some backends are bettered suited to this design.
+//     tied to the same backend. In addition, some backends are better suited to this design.
 //   - API CHANGE: Removed the rewinding APIs because they're too inconsistent across the different backends, hard
 //     to test and maintain, and just generally unreliable.
 //   - Null Backend: Fixed a crash when recording.
