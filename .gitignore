@@ -1,2 +1,4 @@
 examples/out/
 docs/
+tools/malgen/build/
+tools/malgen/bin/
