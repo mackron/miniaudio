@@ -1518,7 +1518,16 @@ static void mal_samples_to_f32(float* pSamplesOut, const void* pSamplesIn, mal_u
             mal_int16* pSamplesInS16 = (mal_int16*)pSamplesIn;
             for (mal_uint32 i = 0; i < sampleCount; ++i) {
                 mal_uint32 sign = (pSamplesInS16[i] & 0x8000) >> 15;
-                pSamplesOut[i] = (pSamplesInS16[i] / (float)(32767 + sign));
+                pSamplesOut[i] = (pSamplesInS16[i] / (float)(0x7FFF + sign));
+            }
+        } break;
+
+        case mal_format_s32:
+        {
+            mal_int32* pSamplesInS32 = (mal_int32*)pSamplesIn;
+            for (mal_uint32 i = 0; i < sampleCount; ++i) {
+                mal_uint32 sign = (pSamplesInS32[i] & 0x80000000) >> 31;
+                pSamplesOut[i] = (pSamplesInS32[i] / (float)(0x7FFFFFFF + sign));
             }
         } break;
 
@@ -1570,9 +1579,19 @@ static void mal_samples_from_f32(void* pSamplesOut, const float* pSamplesIn, mal
                 float sampleIn = mal_clip_f32(pSamplesIn[i]);
 
                 mal_uint32 sign = ((*((mal_uint32*)&pSamplesIn[i])) & 0x80000000) >> 31;
-                pSamplesOutS16[i] = (mal_int16)(sampleIn * (32767 + sign));
+                pSamplesOutS16[i] = (mal_int16)(sampleIn * (0x7FFF + sign));
             }
+        } break;
 
+        case mal_format_s32:
+        {
+            mal_int32* pSamplesOutS32 = (mal_int32*)pSamplesOut;
+            for (mal_uint32 i = 0; i < sampleCount; ++i) {
+                float sampleIn = mal_clip_f32(pSamplesIn[i]);
+
+                mal_uint32 sign = ((*((mal_uint32*)&pSamplesIn[i])) & 0x80000000) >> 31;
+                pSamplesOutS32[i] = (mal_int32)(sampleIn * (0x7FFFFFFF + sign));
+            }
         } break;
 
         default: break;
@@ -3900,7 +3919,7 @@ static void mal_buffer_queue_callback__opensl_android(SLAndroidSimpleBufferQueue
         return;
     }
 
-    size_t periodSizeInBytes = pDevice->opensl.periodSizeInFrames * pDevice->channels * mal_get_sample_size_in_bytes(pDevice->format);
+    size_t periodSizeInBytes = pDevice->opensl.periodSizeInFrames * pDevice->internalChannels * mal_get_sample_size_in_bytes(pDevice->internalFormat);
     mal_uint8* pBuffer = pDevice->opensl.pBuffer + (pDevice->opensl.currentBufferIndex * periodSizeInBytes);
 
     if (pDevice->type == mal_device_type_playback) {
@@ -3961,10 +3980,9 @@ static mal_result mal_device_init__opensl(mal_context* pContext, mal_device_type
     return MAL_NO_BACKEND;
 #endif
 
-    // Currently only supporting simple PCM formats. 32-bit floating point is not currently supported,
-    // but may be emulated later on.
+    // Use s32 as the internal format for when floating point is specified.
     if (pConfig->format == mal_format_f32) {
-        return MAL_FORMAT_NOT_SUPPORTED;
+        pDevice->internalFormat = mal_format_s32;
     }
 
     // Initialize global data first if applicable.
@@ -4000,11 +4018,11 @@ static mal_result mal_device_init__opensl(mal_context* pContext, mal_device_type
 
     SLDataFormat_PCM pcm;
     pcm.formatType = SL_DATAFORMAT_PCM;
-    pcm.numChannels = pConfig->channels;
-    pcm.samplesPerSec = pConfig->sampleRate * 1000;  // In millihertz because, you know, the people who wrote the OpenSL|ES spec thought it would be funny to be the _only_ API to do this...
-    pcm.bitsPerSample = mal_get_sample_size_in_bytes(pConfig->format) * 8;
+    pcm.numChannels = pDevice->internalChannels;
+    pcm.samplesPerSec = pDevice->internalSampleRate * 1000;  // In millihertz because, you know, the people who wrote the OpenSL|ES spec thought it would be funny to be the _only_ API to do this...
+    pcm.bitsPerSample = mal_get_sample_size_in_bytes(pDevice->internalFormat)*8;
     pcm.containerSize = pcm.bitsPerSample;  // Always tightly packed for now.
-    pcm.channelMask = ~((~0UL) << pConfig->channels);
+    pcm.channelMask = ~((~0UL) << pDevice->internalChannels);
     pcm.endianness = SL_BYTEORDER_LITTLEENDIAN;
 
     if (type == mal_device_type_playback) {
@@ -4109,7 +4127,7 @@ static mal_result mal_device_init__opensl(mal_context* pContext, mal_device_type
         }
     }
 
-    size_t bufferSizeInBytes = pDevice->bufferSizeInFrames * pDevice->channels * mal_get_sample_size_in_bytes(pDevice->format);
+    size_t bufferSizeInBytes = pDevice->bufferSizeInFrames * pDevice->internalChannels * mal_get_sample_size_in_bytes(pDevice->internalFormat);
     pDevice->opensl.pBuffer = (mal_uint8*)mal_malloc(bufferSizeInBytes);
     if (pDevice->opensl.pBuffer == NULL) {
         mal_device_uninit__opensl(pDevice);
@@ -4134,7 +4152,7 @@ static mal_result mal_device__start_backend__opensl(mal_device* pDevice)
         // We need to enqueue a buffer for each period.
         mal_device__read_frames_from_client(pDevice, pDevice->bufferSizeInFrames, pDevice->opensl.pBuffer);
 
-        size_t periodSizeInBytes = pDevice->opensl.periodSizeInFrames * pDevice->channels * mal_get_sample_size_in_bytes(pDevice->format);
+        size_t periodSizeInBytes = pDevice->opensl.periodSizeInFrames * pDevice->internalChannels * mal_get_sample_size_in_bytes(pDevice->internalFormat);
         for (mal_uint32 iPeriod = 0; iPeriod < pDevice->periods; ++iPeriod) {
             resultSL = MAL_OPENSL_BUFFERQUEUE(pDevice->opensl.pBufferQueue)->Enqueue((SLAndroidSimpleBufferQueueItf)pDevice->opensl.pBufferQueue, pDevice->opensl.pBuffer + (periodSizeInBytes * iPeriod), periodSizeInBytes);
             if (resultSL != SL_RESULT_SUCCESS) {
@@ -4148,7 +4166,7 @@ static mal_result mal_device__start_backend__opensl(mal_device* pDevice)
             return MAL_FAILED_TO_START_BACKEND_DEVICE;
         }
 
-        size_t periodSizeInBytes = pDevice->opensl.periodSizeInFrames * pDevice->channels * mal_get_sample_size_in_bytes(pDevice->format);
+        size_t periodSizeInBytes = pDevice->opensl.periodSizeInFrames * pDevice->internalChannels * mal_get_sample_size_in_bytes(pDevice->internalFormat);
         for (mal_uint32 iPeriod = 0; iPeriod < pDevice->periods; ++iPeriod) {
             resultSL = MAL_OPENSL_BUFFERQUEUE(pDevice->opensl.pBufferQueue)->Enqueue((SLAndroidSimpleBufferQueueItf)pDevice->opensl.pBufferQueue, pDevice->opensl.pBuffer + (periodSizeInBytes * iPeriod), periodSizeInBytes);
             if (resultSL != SL_RESULT_SUCCESS) {
@@ -5563,6 +5581,7 @@ mal_uint32 mal_get_sample_size_in_bytes(mal_format format)
 //     to test and maintain, and just generally unreliable.
 //   - Null Backend: Fixed a crash when recording.
 //   - Fixed build for UWP.
+//   - Added support for f32 formats to the OpenSL|ES backend.
 //   - Added initial implementation of the WASAPI backend.
 //   - Added initial implementation of the OpenAL backend.
 //
@@ -5609,8 +5628,6 @@ mal_uint32 mal_get_sample_size_in_bytes(mal_format format)
 // OpenSL|ES / Android
 // -------------------
 // - Test!
-// - Add software f32 conversion
-//   - 32-bit floating point is only supported from Android API Level 21.
 
 
 /*
