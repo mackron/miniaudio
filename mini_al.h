@@ -356,6 +356,10 @@ typedef struct
     mal_log_proc  onLogCallback;
 } mal_device_config;
 
+#if defined(_MSC_VER)
+    #pragma warning(push)
+    #pragma warning(disable:4201)   // nonstandard extension used: nameless struct/union
+#endif
 typedef struct
 {
     mal_backend backend;    // DirectSound, ALSA, etc.
@@ -586,6 +590,9 @@ struct mal_device
         } null_device;
     };
 };
+#if defined(_MSC_VER)
+    #pragma warning(pop)
+#endif
 
 // Initializes a context.
 //
@@ -1523,99 +1530,93 @@ static mal_result mal_post_error(mal_device* pDevice, const char* message, mal_r
 }
 
 
-// Converts sample data from one format to f32.
-static void mal_samples_to_f32(float* pSamplesOut, const void* pSamplesIn, mal_uint32 sampleCount, mal_format formatIn)
-{
-    mal_assert(pSamplesOut != NULL);
-    mal_assert(pSamplesIn  != NULL);
-    mal_assert(sampleCount > 0);
+// Conversion functions.
+void mal_pcm_u8_to_s16(short* pOut, const unsigned char* pIn, unsigned int count);
+void mal_pcm_u8_to_s24(void* pOut, const unsigned char* pIn, unsigned int count);
+void mal_pcm_u8_to_s32(int* pOut, const unsigned char* pIn, unsigned int count);
+void mal_pcm_u8_to_f32(float* pOut, const unsigned char* pIn, unsigned int count);
+void mal_pcm_s16_to_u8(unsigned char* pOut, const short* pIn, unsigned int count);
+void mal_pcm_s16_to_s24(void* pOut, const short* pIn, unsigned int count);
+void mal_pcm_s16_to_s32(int* pOut, const short* pIn, unsigned int count);
+void mal_pcm_s16_to_f32(float* pOut, const short* pIn, unsigned int count);
+void mal_pcm_s24_to_u8(unsigned char* pOut, const void* pIn, unsigned int count);
+void mal_pcm_s24_to_s16(short* pOut, const void* pIn, unsigned int count);
+void mal_pcm_s24_to_s32(int* pOut, const void* pIn, unsigned int count);
+void mal_pcm_s24_to_f32(float* pOut, const void* pIn, unsigned int count);
+void mal_pcm_s32_to_u8(unsigned char* pOut, const int* pIn, unsigned int count);
+void mal_pcm_s32_to_s16(short* pOut, const int* pIn, unsigned int count);
+void mal_pcm_s32_to_s24(void* pOut, const int* pIn, unsigned int count);
+void mal_pcm_s32_to_f32(float* pOut, const int* pIn, unsigned int count);
+void mal_pcm_f32_to_u8(unsigned char* pOut, const float* pIn, unsigned int count);
+void mal_pcm_f32_to_s16(short* pOut, const float* pIn, unsigned int count);
+void mal_pcm_f32_to_s24(void* pOut, const float* pIn, unsigned int count);
+void mal_pcm_f32_to_s32(int* pOut, const float* pIn, unsigned int count);
 
-    // TODO: Optimize me.
+static void mal_pcm_convert(void* pOut, mal_format formatOut, const void* pIn, mal_format formatIn, unsigned int count)
+{
+    if (formatOut == formatIn) {
+        memcpy(pOut, pIn, count * mal_get_sample_size_in_bytes(formatOut));
+    }
+
     switch (formatIn)
     {
-        case mal_format_f32:
+        case mal_format_u8:
         {
-            memcpy(pSamplesOut, pSamplesIn, sampleCount * sizeof(float));
+            switch (formatOut)
+            {
+                case mal_format_s16: mal_pcm_u8_to_s16(pOut, pIn, count); return;
+                case mal_format_s24: mal_pcm_u8_to_s24(pOut, pIn, count); return;
+                case mal_format_s32: mal_pcm_u8_to_s32(pOut, pIn, count); return;
+                case mal_format_f32: mal_pcm_u8_to_f32(pOut, pIn, count); return;
+                default: break;
+            }
         } break;
 
         case mal_format_s16:
         {
-            mal_int16* pSamplesInS16 = (mal_int16*)pSamplesIn;
-            for (mal_uint32 i = 0; i < sampleCount; ++i) {
-                mal_uint32 sign = (pSamplesInS16[i] & 0x8000) >> 15;
-                pSamplesOut[i] = (pSamplesInS16[i] / (float)(0x7FFF + sign));
+            switch (formatOut)
+            {
+                case mal_format_u8:  mal_pcm_s16_to_u8( pOut, pIn, count); return;
+                case mal_format_s24: mal_pcm_s16_to_s24(pOut, pIn, count); return;
+                case mal_format_s32: mal_pcm_s16_to_s32(pOut, pIn, count); return;
+                case mal_format_f32: mal_pcm_s16_to_f32(pOut, pIn, count); return;
+                default: break;
+            }
+        } break;
+
+        case mal_format_s24:
+        {
+            switch (formatOut)
+            {
+                case mal_format_u8:  mal_pcm_s24_to_u8( pOut, pIn, count); return;
+                case mal_format_s16: mal_pcm_s24_to_s16(pOut, pIn, count); return;
+                case mal_format_s32: mal_pcm_s24_to_s32(pOut, pIn, count); return;
+                case mal_format_f32: mal_pcm_s24_to_f32(pOut, pIn, count); return;
+                default: break;
             }
         } break;
 
         case mal_format_s32:
         {
-            mal_int32* pSamplesInS32 = (mal_int32*)pSamplesIn;
-            for (mal_uint32 i = 0; i < sampleCount; ++i) {
-                mal_uint32 sign = (pSamplesInS32[i] & 0x80000000) >> 31;
-                pSamplesOut[i] = (pSamplesInS32[i] / (float)(0x7FFFFFFF + sign));
+            switch (formatOut)
+            {
+                case mal_format_u8:  mal_pcm_s32_to_u8( pOut, pIn, count); return;
+                case mal_format_s16: mal_pcm_s32_to_s16(pOut, pIn, count); return;
+                case mal_format_s24: mal_pcm_s32_to_s24(pOut, pIn, count); return;
+                case mal_format_f32: mal_pcm_s32_to_f32(pOut, pIn, count); return;
+                default: break;
             }
         } break;
 
-        default: break;
-    }
-}
-
-// Converts sample data from f32 to another format.
-static void mal_samples_from_f32(void* pSamplesOut, const float* pSamplesIn, mal_uint32 sampleCount, mal_format formatOut)
-{
-    mal_assert(pSamplesOut != NULL);
-    mal_assert(pSamplesIn  != NULL);
-    mal_assert(sampleCount > 0);
-
-    // TODO: Optimize me.
-    switch (formatOut)
-    {
         case mal_format_f32:
         {
-            memcpy(pSamplesOut, pSamplesIn, sampleCount * sizeof(float));
-        } break;
-
-        case mal_format_s16:
-        {
-            mal_int16* pSamplesOutS16 = (mal_int16*)pSamplesOut;
-            
-            // This unroll is just me trying something... I realize it's a bit out of place.
-            mal_uint32 i = 0;
-            for (; i+3 < sampleCount; i += 4) {
-                float samplesIn[4];
-                samplesIn[0] = mal_clip_f32(pSamplesIn[i+0]);
-                samplesIn[1] = mal_clip_f32(pSamplesIn[i+1]);
-                samplesIn[2] = mal_clip_f32(pSamplesIn[i+2]);
-                samplesIn[3] = mal_clip_f32(pSamplesIn[i+3]);
-
-                mal_uint32 signs[4];
-                signs[0] = ((*((mal_uint32*)&pSamplesIn[i+0])) & 0x80000000) >> 31;
-                signs[1] = ((*((mal_uint32*)&pSamplesIn[i+1])) & 0x80000000) >> 31;
-                signs[2] = ((*((mal_uint32*)&pSamplesIn[i+2])) & 0x80000000) >> 31;
-                signs[3] = ((*((mal_uint32*)&pSamplesIn[i+3])) & 0x80000000) >> 31;
-
-                pSamplesOutS16[i+0] = (mal_int16)(samplesIn[0] * (32767 + signs[0]));
-                pSamplesOutS16[i+1] = (mal_int16)(samplesIn[1] * (32767 + signs[1]));
-                pSamplesOutS16[i+2] = (mal_int16)(samplesIn[2] * (32767 + signs[2]));
-                pSamplesOutS16[i+3] = (mal_int16)(samplesIn[3] * (32767 + signs[3]));
-            }
-
-            for (i ; i < sampleCount; i += 1) {
-                float sampleIn = mal_clip_f32(pSamplesIn[i]);
-
-                mal_uint32 sign = ((*((mal_uint32*)&pSamplesIn[i])) & 0x80000000) >> 31;
-                pSamplesOutS16[i] = (mal_int16)(sampleIn * (0x7FFF + sign));
-            }
-        } break;
-
-        case mal_format_s32:
-        {
-            mal_int32* pSamplesOutS32 = (mal_int32*)pSamplesOut;
-            for (mal_uint32 i = 0; i < sampleCount; ++i) {
-                float sampleIn = mal_clip_f32(pSamplesIn[i]);
-
-                mal_uint32 sign = ((*((mal_uint32*)&pSamplesIn[i])) & 0x80000000) >> 31;
-                pSamplesOutS32[i] = (mal_int32)(sampleIn * (0x7FFFFFFF + sign));
+            switch (formatOut)
+            {
+                case mal_format_u8:  mal_pcm_f32_to_u8( pOut, pIn, count); return;
+                case mal_format_s16: mal_pcm_f32_to_s16(pOut, pIn, count); return;
+                case mal_format_s24: mal_pcm_f32_to_s24(pOut, pIn, count); return;
+                case mal_format_s32: mal_pcm_f32_to_s32(pOut, pIn, count); return;
+                default: break;
             }
         } break;
 
@@ -1635,16 +1636,6 @@ static inline mal_uint32 mal_device__read_frames_from_client(mal_device* pDevice
     if (pDevice->flags & (MAL_DEVICE_FLAG_USING_FOREIGN_CHANNELS | MAL_DEVICE_FLAG_USING_FOREIGN_SAMPLE_RATE)) {
         return 0;
     }
-
-    if (pDevice->flags & MAL_DEVICE_FLAG_USING_FOREIGN_FORMAT) {
-        if (pDevice->format == mal_format_u8 ||
-            pDevice->format == mal_format_s16 ||
-            pDevice->format == mal_format_s24 ||
-            pDevice->format == mal_format_s32) {
-            return 0;
-        }
-    }
-
 
     mal_uint32 framesRead = 0;
     mal_send_proc onSend = pDevice->onSend;
@@ -1668,11 +1659,7 @@ static inline mal_uint32 mal_device__read_frames_from_client(mal_device* pDevice
                 mal_uint32 samplesJustRead = framesJustRead * pDevice->channels;
 
                 if (pDevice->flags & MAL_DEVICE_FLAG_USING_FOREIGN_FORMAT) {
-                    if (pDevice->format == mal_format_f32) {
-                        mal_samples_from_f32((mal_uint8*)pSamples + (framesRead * pDevice->internalChannels * mal_get_sample_size_in_bytes(pDevice->internalFormat)), (float*)scratchBuffer, samplesJustRead, pDevice->internalFormat);
-                    } else {
-                        // TODO: Implement the rest.
-                    }
+                    mal_pcm_convert((mal_uint8*)pSamples + (framesRead * pDevice->internalChannels * mal_get_sample_size_in_bytes(pDevice->internalFormat)), pDevice->internalFormat, scratchBuffer, pDevice->format, samplesJustRead);
                 }
 
                 framesRemaining -= framesJustRead;
@@ -1702,15 +1689,6 @@ static inline void mal_device__send_frames_to_client(mal_device* pDevice, mal_ui
         return;
     }
 
-    if (pDevice->flags & MAL_DEVICE_FLAG_USING_FOREIGN_FORMAT) {
-        if (pDevice->format == mal_format_u8 ||
-            pDevice->format == mal_format_s16 ||
-            pDevice->format == mal_format_s24 ||
-            pDevice->format == mal_format_s32) {
-            return;
-        }
-    }
-
     mal_recv_proc onRecv = pDevice->onRecv;
     if (onRecv) {
         if ((pDevice->flags & (MAL_DEVICE_FLAG_USING_FOREIGN_FORMAT | MAL_DEVICE_FLAG_USING_FOREIGN_CHANNELS | MAL_DEVICE_FLAG_USING_FOREIGN_SAMPLE_RATE)) == 0) {
@@ -1729,11 +1707,7 @@ static inline void mal_device__send_frames_to_client(mal_device* pDevice, mal_ui
                 mal_uint32 samplesToSend = framesToSend * pDevice->channels;
 
                 if (pDevice->flags & MAL_DEVICE_FLAG_USING_FOREIGN_FORMAT) {
-                    if (pDevice->format == mal_format_f32) {
-                        mal_samples_to_f32((float*)scratchBuffer, (mal_uint8*)pSamples + (framesSent * pDevice->internalChannels * mal_get_sample_size_in_bytes(pDevice->internalFormat)), samplesToSend, pDevice->internalFormat);
-                    } else {
-                        // TODO: Implement the rest.
-                    }
+                    mal_pcm_convert(scratchBuffer, pDevice->format, (mal_uint8*)pSamples + (framesSent * pDevice->internalChannels * mal_get_sample_size_in_bytes(pDevice->internalFormat)), pDevice->internalFormat, samplesToSend);
                 }
 
                 onRecv(pDevice, framesToSend, scratchBuffer);
@@ -4567,7 +4541,6 @@ static mal_result mal_device_init__openal(mal_context* pContext, mal_device_type
     mal_ALCuint frequencyAL = pConfig->sampleRate;
 
     mal_uint32 channelsAL = 0;
-    mal_format internalFormat = pConfig->format;
 
     // OpenAL supports only mono and stereo.
     mal_ALCenum formatAL = 0;
@@ -4581,9 +4554,9 @@ static mal_result mal_device_init__openal(mal_context* pContext, mal_device_type
                 formatAL = MAL_AL_FORMAT_MONO16;
             }
         } else if (pConfig->format == mal_format_s32) {
-            return MAL_FORMAT_NOT_SUPPORTED;
+            formatAL = MAL_AL_FORMAT_MONO16;
         } else if (pConfig->format == mal_format_s24) {
-            return MAL_FORMAT_NOT_SUPPORTED;
+            formatAL = MAL_AL_FORMAT_MONO16;
         } else if (pConfig->format == mal_format_s16) {
             formatAL = MAL_AL_FORMAT_MONO16;
         } else if (pConfig->format == mal_format_u8) {
@@ -4599,9 +4572,9 @@ static mal_result mal_device_init__openal(mal_context* pContext, mal_device_type
                 formatAL = MAL_AL_FORMAT_STEREO16;
             }
         } else if (pConfig->format == mal_format_s32) {
-            return MAL_FORMAT_NOT_SUPPORTED;
+            formatAL = MAL_AL_FORMAT_STEREO16;
         } else if (pConfig->format == mal_format_s24) {
-            return MAL_FORMAT_NOT_SUPPORTED;
+            formatAL = MAL_AL_FORMAT_STEREO16;
         } else if (pConfig->format == mal_format_s16) {
             formatAL = MAL_AL_FORMAT_STEREO16;
         } else if (pConfig->format == mal_format_u8) {
@@ -4659,6 +4632,9 @@ static mal_result mal_device_init__openal(mal_context* pContext, mal_device_type
     }
     if (formatAL == MAL_AL_FORMAT_MONO16 || formatAL == MAL_AL_FORMAT_STEREO16) {
         pDevice->internalFormat = mal_format_s16;
+    }
+    if (formatAL == MAL_AL_FORMAT_MONO_FLOAT32 || formatAL == MAL_AL_FORMAT_STEREO_FLOAT32) {
+        pDevice->internalFormat = mal_format_f32;
     }
 
     pDevice->openal.pDeviceALC = pDeviceALC;
@@ -5123,7 +5099,7 @@ mal_result mal_context_init(mal_backend backends[], mal_uint32 backendCount, mal
         #ifdef MAL_ENABLE_WASAPI
             case mal_backend_wasapi:
             {
-                mal_result result = mal_context_init__wasapi(pContext);
+                result = mal_context_init__wasapi(pContext);
                 if (result == MAL_SUCCESS) {
                     pContext->backend = mal_backend_wasapi;
                     return result;
@@ -5133,7 +5109,7 @@ mal_result mal_context_init(mal_backend backends[], mal_uint32 backendCount, mal
         #ifdef MAL_ENABLE_DSOUND
             case mal_backend_dsound:
             {
-                mal_result result = mal_context_init__dsound(pContext);
+                result = mal_context_init__dsound(pContext);
                 if (result == MAL_SUCCESS) {
                     pContext->backend = mal_backend_dsound;
                     return result;
@@ -5143,7 +5119,7 @@ mal_result mal_context_init(mal_backend backends[], mal_uint32 backendCount, mal
         #ifdef MAL_ENABLE_ALSA
             case mal_backend_alsa:
             {
-                mal_result result = mal_context_init__alsa(pContext);
+                result = mal_context_init__alsa(pContext);
                 if (result == MAL_SUCCESS) {
                     pContext->backend = mal_backend_alsa;
                     return result;
@@ -5153,7 +5129,7 @@ mal_result mal_context_init(mal_backend backends[], mal_uint32 backendCount, mal
         #ifdef MAL_ENABLE_OPENSLES
             case mal_backend_opensl:
             {
-                mal_result result = mal_context_init__opensl(pContext);
+                result = mal_context_init__opensl(pContext);
                 if (result == MAL_SUCCESS) {
                     pContext->backend = mal_backend_opensl;
                     return result;
@@ -5163,7 +5139,7 @@ mal_result mal_context_init(mal_backend backends[], mal_uint32 backendCount, mal
         #ifdef MAL_ENABLE_OPENAL
             case mal_backend_openal:
             {
-                mal_result result = mal_context_init__openal(pContext);
+                result = mal_context_init__openal(pContext);
                 if (result == MAL_SUCCESS) {
                     pContext->backend = mal_backend_openal;
                     return result;
@@ -5173,7 +5149,7 @@ mal_result mal_context_init(mal_backend backends[], mal_uint32 backendCount, mal
         #ifdef MAL_ENABLE_NULL
             case mal_backend_null:
             {
-                mal_result result = mal_context_init__null(pContext);
+                result = mal_context_init__null(pContext);
                 if (result == MAL_SUCCESS) {
                     pContext->backend = mal_backend_null;
                     return result;
@@ -5640,6 +5616,258 @@ mal_uint32 mal_get_sample_size_in_bytes(mal_format format)
     };
     return sizes[format];
 }
+
+
+
+//////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+//////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+//
+// FORMAT CONVERSION
+//
+//////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+//////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+#if 0
+#include "tools/malgen/bin/malgen_test0.c"
+#else
+void mal_pcm_u8_to_s16(short* pOut, const unsigned char* pIn, unsigned int count)
+{
+    int r;
+    for (unsigned int i = 0; i < count; ++i) {
+        int x = pIn[i];
+        r = x - 128;
+        r = r << 8;
+        pOut[i] = (short)r;
+    }
+}
+
+void mal_pcm_u8_to_s24(void* pOut, const unsigned char* pIn, unsigned int count)
+{
+    int r;
+    for (unsigned int i = 0; i < count; ++i) {
+        int x = pIn[i];
+        r = x - 128;
+        r = r << 16;
+        ((unsigned char*)pOut)[(i*3)+0] = (unsigned char)(r & 0xFF); ((unsigned char*)pOut)[(i*3)+1] = (unsigned char)((r & 0xFF00) >> 8); ((unsigned char*)pOut)[(i*3)+2] = (unsigned char)((r & 0xFF0000) >> 16);
+    }
+}
+
+void mal_pcm_u8_to_s32(int* pOut, const unsigned char* pIn, unsigned int count)
+{
+    int r;
+    for (unsigned int i = 0; i < count; ++i) {
+        int x = pIn[i];
+        r = x - 128;
+        r = r << 24;
+        pOut[i] = (int)r;
+    }
+}
+
+void mal_pcm_u8_to_f32(float* pOut, const unsigned char* pIn, unsigned int count)
+{
+    float r;
+    for (unsigned int i = 0; i < count; ++i) {
+        int x = pIn[i];
+        r = x / 255.0f;
+        r = r * 2;
+        r = r - 1;
+        pOut[i] = (float)r;
+    }
+}
+
+void mal_pcm_s16_to_u8(unsigned char* pOut, const short* pIn, unsigned int count)
+{
+    int r;
+    for (unsigned int i = 0; i < count; ++i) {
+        int x = pIn[i];
+        r = x >> 8;
+        r = r + 128;
+        pOut[i] = (unsigned char)r;
+    }
+}
+
+void mal_pcm_s16_to_s24(void* pOut, const short* pIn, unsigned int count)
+{
+    int r;
+    for (unsigned int i = 0; i < count; ++i) {
+        int x = pIn[i];
+        r = x << 8;
+        ((unsigned char*)pOut)[(i*3)+0] = (unsigned char)(r & 0xFF); ((unsigned char*)pOut)[(i*3)+1] = (unsigned char)((r & 0xFF00) >> 8); ((unsigned char*)pOut)[(i*3)+2] = (unsigned char)((r & 0xFF0000) >> 16);
+    }
+}
+
+void mal_pcm_s16_to_s32(int* pOut, const short* pIn, unsigned int count)
+{
+    int r;
+    for (unsigned int i = 0; i < count; ++i) {
+        int x = pIn[i];
+        r = x << 16;
+        pOut[i] = (int)r;
+    }
+}
+
+void mal_pcm_s16_to_f32(float* pOut, const short* pIn, unsigned int count)
+{
+    float r;
+    for (unsigned int i = 0; i < count; ++i) {
+        int x = pIn[i];
+        r = x + 32768.0f;
+        r = r / 65536.0f;
+        r = r * 2;
+        r = r - 1;
+        pOut[i] = (float)r;
+    }
+}
+
+void mal_pcm_s24_to_u8(unsigned char* pOut, const void* pIn, unsigned int count)
+{
+    int r;
+    for (unsigned int i = 0; i < count; ++i) {
+        int x = ((int)(((unsigned int)(((unsigned char*)pIn)[i*3+0]) << 8) | ((unsigned int)(((unsigned char*)pIn)[i*3+1]) << 16) | ((unsigned int)(((unsigned char*)pIn)[i*3+2])) << 24)) >> 8;
+        r = x >> 16;
+        r = r + 128;
+        pOut[i] = (unsigned char)r;
+    }
+}
+
+void mal_pcm_s24_to_s16(short* pOut, const void* pIn, unsigned int count)
+{
+    int r;
+    for (unsigned int i = 0; i < count; ++i) {
+        int x = ((int)(((unsigned int)(((unsigned char*)pIn)[i*3+0]) << 8) | ((unsigned int)(((unsigned char*)pIn)[i*3+1]) << 16) | ((unsigned int)(((unsigned char*)pIn)[i*3+2])) << 24)) >> 8;
+        r = x >> 8;
+        pOut[i] = (short)r;
+    }
+}
+
+void mal_pcm_s24_to_s32(int* pOut, const void* pIn, unsigned int count)
+{
+    int r;
+    for (unsigned int i = 0; i < count; ++i) {
+        int x = ((int)(((unsigned int)(((unsigned char*)pIn)[i*3+0]) << 8) | ((unsigned int)(((unsigned char*)pIn)[i*3+1]) << 16) | ((unsigned int)(((unsigned char*)pIn)[i*3+2])) << 24)) >> 8;
+        r = x << 8;
+        pOut[i] = (int)r;
+    }
+}
+
+void mal_pcm_s24_to_f32(float* pOut, const void* pIn, unsigned int count)
+{
+    float r;
+    for (unsigned int i = 0; i < count; ++i) {
+        int x = ((int)(((unsigned int)(((unsigned char*)pIn)[i*3+0]) << 8) | ((unsigned int)(((unsigned char*)pIn)[i*3+1]) << 16) | ((unsigned int)(((unsigned char*)pIn)[i*3+2])) << 24)) >> 8;
+        r = x + 8388608.0f;
+        r = r / 16777215.0f;
+        r = r * 2;
+        r = r - 1;
+        pOut[i] = (float)r;
+    }
+}
+
+void mal_pcm_s32_to_u8(unsigned char* pOut, const int* pIn, unsigned int count)
+{
+    int r;
+    for (unsigned int i = 0; i < count; ++i) {
+        int x = pIn[i];
+        r = x >> 24;
+        r = r + 128;
+        pOut[i] = (unsigned char)r;
+    }
+}
+
+void mal_pcm_s32_to_s16(short* pOut, const int* pIn, unsigned int count)
+{
+    int r;
+    for (unsigned int i = 0; i < count; ++i) {
+        int x = pIn[i];
+        r = x >> 16;
+        pOut[i] = (short)r;
+    }
+}
+
+void mal_pcm_s32_to_s24(void* pOut, const int* pIn, unsigned int count)
+{
+    int r;
+    for (unsigned int i = 0; i < count; ++i) {
+        int x = pIn[i];
+        r = x >> 8;
+        ((unsigned char*)pOut)[(i*3)+0] = (unsigned char)(r & 0xFF); ((unsigned char*)pOut)[(i*3)+1] = (unsigned char)((r & 0xFF00) >> 8); ((unsigned char*)pOut)[(i*3)+2] = (unsigned char)((r & 0xFF0000) >> 16);
+    }
+}
+
+void mal_pcm_s32_to_f32(float* pOut, const int* pIn, unsigned int count)
+{
+    float r;
+    for (unsigned int i = 0; i < count; ++i) {
+        int x = pIn[i];
+        int s;
+        s = ((*((int*)&x)) & 0x80000000) >> 31;
+        s = s + 2147483647;
+        r = x / (float)(unsigned int)s;
+        pOut[i] = (float)r;
+    }
+}
+
+void mal_pcm_f32_to_u8(unsigned char* pOut, const float* pIn, unsigned int count)
+{
+    int r;
+    for (unsigned int i = 0; i < count; ++i) {
+        float x = pIn[i];
+        float c;
+        int s;
+        c = ((x < -1) ? -1 : ((x > 1) ? 1 : x));
+        s = ((*((int*)&x)) & 0x80000000) >> 31;
+        s = s + 127;
+        r = (int)(c * s);
+        r = r + 128;
+        pOut[i] = (unsigned char)r;
+    }
+}
+
+void mal_pcm_f32_to_s16(short* pOut, const float* pIn, unsigned int count)
+{
+    int r;
+    for (unsigned int i = 0; i < count; ++i) {
+        float x = pIn[i];
+        float c;
+        int s;
+        c = ((x < -1) ? -1 : ((x > 1) ? 1 : x));
+        s = ((*((int*)&x)) & 0x80000000) >> 31;
+        s = s + 32767;
+        r = (int)(c * s);
+        pOut[i] = (short)r;
+    }
+}
+
+void mal_pcm_f32_to_s24(void* pOut, const float* pIn, unsigned int count)
+{
+    int r;
+    for (unsigned int i = 0; i < count; ++i) {
+        float x = pIn[i];
+        float c;
+        int s;
+        c = ((x < -1) ? -1 : ((x > 1) ? 1 : x));
+        s = ((*((int*)&x)) & 0x80000000) >> 31;
+        s = s + 8388607;
+        r = (int)(c * s);
+        ((unsigned char*)pOut)[(i*3)+0] = (unsigned char)(r & 0xFF); ((unsigned char*)pOut)[(i*3)+1] = (unsigned char)((r & 0xFF00) >> 8); ((unsigned char*)pOut)[(i*3)+2] = (unsigned char)((r & 0xFF0000) >> 16);
+    }
+}
+
+void mal_pcm_f32_to_s32(int* pOut, const float* pIn, unsigned int count)
+{
+    int r;
+    for (unsigned int i = 0; i < count; ++i) {
+        float x = pIn[i];
+        float c;
+        int s;
+        c = ((x < -1) ? -1 : ((x > 1) ? 1 : x));
+        s = ((*((int*)&x)) & 0x80000000) >> 31;
+        s = s + 2147483647;
+        r = (int)(c * s);
+        pOut[i] = (int)r;
+    }
+}
+#endif
+
 #endif
 
 

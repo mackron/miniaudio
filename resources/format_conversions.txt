@@ -4,14 +4,15 @@
 #
 # Instructions
 # ============
-# add [output] [a] [b] -> output = a + b
-# sub [output] [a] [b] -> output = a - b
-# mul [output] [a] [b] -> output = a * b
-# div [output] [a] [b] -> output = a / b
-# shl [output] [a] [b] -> output = a << b
-# shr [output] [a] [b] -> output = a >> b
-# sig [output] [b]     -> output = (sign bit in "a" is set) ? 1 : 0
-# mov [output] [a]     -> output = a;
+# add  [output] [a] [b] -> output = a + b
+# sub  [output] [a] [b] -> output = a - b
+# mul  [output] [a] [b] -> output = a * b
+# div  [output] [a] [b] -> output = a / b
+# shl  [output] [a] [b] -> output = a << b
+# shr  [output] [a] [b] -> output = a >> b
+# sig  [output] [b]     -> output = (sign bit in "a" is set) ? 1 : 0
+# mov  [output] [a]     -> output = a;
+# clip [output] [a]     -> output = clamp(a, -1, 1)
 #
 # int [name] -> Declare an uninitialized 32-bit integer
 # flt [name] -> Declare an uninitialized 32-bit float
@@ -36,16 +37,128 @@ u8->s32 {
 
 # r = (x / 255) * 2 - 1
 u8->f32 {
-    div r x 255.0;
+    div r x 255.0f;
     mul r r 2;
     sub r r 1;
 }
 
 
+
+# r = (x >> 8) + 128
+s16->u8 {
+    shr r x 8;
+    add r r 128;
+}
+
+# r = x << 8
+s16->s24 {
+    shl r x 8;
+}
+
+# r = x << 16
+s16->s32 {
+    shl r x 16;
+}
+
+# r = ((x + 32768) / 65536) * 2 - 1
+s16->f32 {
+    add r x 32768.0f;
+    div r r 65536.0f;
+    mul r r 2;
+    sub r r 1;
+}
+
+
+
+# r = (x >> 16) + 128
+s24->u8 {
+    shr r x 16;
+    add r r 128;
+}
+
+# r = x >> 8
+s24->s16 {
+    shr r x 8;
+}
+
+# r = x << 8
+s24->s32 {
+    shl r x 8;
+}
+
+# r = ((x + 8388608) / 16777215) * 2 - 1
+s24->f32 {
+    add r x 8388608.0f;
+    div r r 16777215.0f;
+    mul r r 2;
+    sub r r 1;
+}
+
+
+
+# r = (x >> 24) + 128
+s32->u8 {
+    shr r x 24;
+    add r r 128;
+}
+
+# r = x >> 16
+s32->s16 {
+    shr r x 16;
+}
+
+# r = x >> 8
+s32->s24 {
+    shr r x 8;
+}
+
 # r = x / (2147483647 + sign(x))
-u32->f32 {
+s32->f32 {
     int s;
     sig s x;
     add s s 2147483647;
-    div r x (flt)s;
+    div r x (flt)(uint)s;
+}
+
+
+
+# r = (clip(x) * (0x7F + sign(x))) + 128
+f32->u8 {
+    flt c;
+    int s;
+    clip c x;
+    sig s x;
+    add s s 127;
+    mul (int)r c s;
+    add r r 128;
+}
+
+# r = clip(x) * (0x7FFF + sign(x))
+f32->s16 {
+    flt c;
+    int s;
+    clip c x;
+    sig s x;
+    add s s 32767;
+    mul (int)r c s;
+}
+
+# r = clip(x) * (0x7FFFFF + sign(x))
+f32->s24 {
+    flt c;
+    int s;
+    clip c x;
+    sig s x;
+    add s s 8388607;
+    mul (int)r c s;
+}
+
+# r = clip(x) * (0x7FFFFFFF + sign(x))
+f32->s32 {
+    flt c;
+    int s;
+    clip c x;
+    sig s x;
+    add s s 2147483647;
+    mul (int)r c s;
 }

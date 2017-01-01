@@ -21,6 +21,7 @@ typedef struct
 typedef struct
 {
     char* pFormatsFileData;
+    const char* userNamespace;
     std::vector<malgen_conversion_desc> conversions;
 } malgen_context;
 
@@ -66,7 +67,7 @@ void u8_to_f32(const unsigned char* pIn, float* pOut, unsigned int count)
     int   x;
     unsigned int i = 0;
     
-    switch ((uintptr_t)pIn & 0x3)
+    switch (((unsigned long long)pIn & 0x15) / sizeof(float))
     {
     case 3:
         x = pIn[i];
@@ -319,6 +320,242 @@ int malgen_compile(malgen_context* pContext)
     return 0;
 }
 
+
+std::string malgen_get_format_c_type_string(const char* formatStr)
+{
+    if (strcmp(formatStr, "u8") == 0) {
+        return "unsigned char";
+    }
+    if (strcmp(formatStr, "s16") == 0) {
+        return "short";
+    }
+    if (strcmp(formatStr, "s24") == 0) {
+        return "void";
+    }
+    if (strcmp(formatStr, "s32") == 0) {
+        return "int";
+    }
+    if (strcmp(formatStr, "f32") == 0) {
+        return "float";
+    }
+
+    return "";
+}
+
+std::string malgen_get_format_impl_c_type_string(const char* formatStr)
+{
+    if (strcmp(formatStr, "f32") == 0) {
+        return "float";
+    }
+
+    return "int";
+}
+
+std::string malgen_generate_code__conversion_func_params(malgen_context* pContext, malgen_conversion_desc* pFuncDesc)
+{
+    std::string code;
+    code += malgen_get_format_c_type_string(pFuncDesc->formatOutStr); code += "* pOut, ";
+    code += "const "; code += malgen_get_format_c_type_string(pFuncDesc->formatInStr); code += "* pIn, ";
+    code += "unsigned int count";
+
+    return code;
+}
+
+std::string malgen_get_format_input_conversion_code(const char* formatStr)
+{
+    if (strcmp(formatStr, "s24") == 0) {
+        return "((int)(((unsigned int)(((unsigned char*)pIn)[i*3+0]) << 8) | ((unsigned int)(((unsigned char*)pIn)[i*3+1]) << 16) | ((unsigned int)(((unsigned char*)pIn)[i*3+2])) << 24)) >> 8";
+    }
+
+    return "pIn[i]";
+}
+
+std::string malgen_get_format_output_conversion_code(const char* formatStr)
+{
+    if (strcmp(formatStr, "s24") == 0) {
+        return "((unsigned char*)pOut)[(i*3)+0] = (unsigned char)(r & 0xFF); ((unsigned char*)pOut)[(i*3)+1] = (unsigned char)((r & 0xFF00) >> 8); ((unsigned char*)pOut)[(i*3)+2] = (unsigned char)((r & 0xFF0000) >> 16)";
+    }
+
+    std::string code;
+    code = "pOut[i] = ("; code += malgen_get_format_c_type_string(formatStr); code += ")r";
+
+    return code;
+}
+
+std::string malgen_format_op_param(const char* param)
+{
+    std::string s(param);
+
+    // (flt) -> (float)
+    {
+        const char* src = "(flt)"; const char* dst = "(float)";
+        size_t loc = s.find(src);
+        if (loc != std::string::npos) {
+            s = s.replace(loc, strlen(src), dst);
+        }
+    }
+
+    // (dbl) -> (double)
+    {
+        const char* src = "(dbl)"; const char* dst = "(double)";
+        size_t loc = s.find(src);
+        if (loc != std::string::npos) {
+            s = s.replace(loc, strlen(src), dst);
+        }
+    }
+
+    // (uint) -> (unsigned int)
+    {
+        const char* src = "(uint)"; const char* dst = "(unsigned int)";
+        size_t loc = s.find(src);
+        if (loc != std::string::npos) {
+            s = s.replace(loc, strlen(src), dst);
+        }
+    }
+
+    return s;
+}
+
+std::string malgen_generate_code__conversion_func_inst_binary_op(const char* result, const char* param1, const char* param2, const char* op)
+{
+    bool requiresCast = false;
+    const char* resultVar = result;
+    if (resultVar[0] == '(') {
+        for (;;) {
+            if (resultVar[0] == '\0' || resultVar[0] == ')') {
+                resultVar += 1;
+                break;
+            }
+            resultVar += 1;
+        }
+
+        requiresCast = true;
+    }
+
+    std::string assignmentStr = malgen_format_op_param(param1) + " " + op + " " + malgen_format_op_param(param2);
+    
+    std::string code;
+    code += resultVar; code += " = ";
+    
+    if (requiresCast) {
+        char typeStr[64];
+        strncpy_s(typeStr, result, resultVar - result);
+        
+        code += typeStr; code += "("; code += assignmentStr; code += ")";
+        return code;
+    } else {
+        code += assignmentStr;
+        return code;
+    }
+}
+
+std::string malgen_generate_code__conversion_func_inst(malgen_context* pContext, malgen_instruction* pInst)
+{
+    std::string code;
+    if (strcmp(pInst->name, "int") == 0) {
+        code += "int "; code += pInst->params[0];
+    }
+    if (strcmp(pInst->name, "flt") == 0) {
+        code += "float "; code += pInst->params[0];
+    }
+
+    if (strcmp(pInst->name, "add") == 0) {
+        code += malgen_generate_code__conversion_func_inst_binary_op(pInst->params[0], pInst->params[1], pInst->params[2], "+");
+    }
+    if (strcmp(pInst->name, "sub") == 0) {
+        code += malgen_generate_code__conversion_func_inst_binary_op(pInst->params[0], pInst->params[1], pInst->params[2], "-");
+    }
+    if (strcmp(pInst->name, "mul") == 0) {
+        code += malgen_generate_code__conversion_func_inst_binary_op(pInst->params[0], pInst->params[1], pInst->params[2], "*");
+    }
+    if (strcmp(pInst->name, "div") == 0) {
+        code += malgen_generate_code__conversion_func_inst_binary_op(pInst->params[0], pInst->params[1], pInst->params[2], "/");
+    }
+
+    if (strcmp(pInst->name, "shl") == 0) {
+        code += malgen_generate_code__conversion_func_inst_binary_op(pInst->params[0], pInst->params[1], pInst->params[2], "<<");
+    }
+    if (strcmp(pInst->name, "shr") == 0) {
+        code += malgen_generate_code__conversion_func_inst_binary_op(pInst->params[0], pInst->params[1], pInst->params[2], ">>");
+    }
+
+    if (strcmp(pInst->name, "mov") == 0) {
+        code += pInst->params[0]; code += " = "; code += pInst->params[1];
+    }
+
+    if (strcmp(pInst->name, "sig") == 0) {  // <-- This gets the sign of the first input parameter and moves it to the result.
+        code += pInst->params[0]; code += " = "; code += "((*((int*)&"; code += pInst->params[1]; code += ")) & 0x80000000) >> 31";
+    }
+
+    if (strcmp(pInst->name, "clip") == 0) {  // clamp(a, -1, 1) -> r = ((a < -1) ? -1 : ((a > 1) ? 1 : a))
+        code += pInst->params[0]; code += " = "; code += "(("; code += pInst->params[1]; code += " < -1) ? -1 : (("; code += pInst->params[1]; code += " > 1) ? 1 : "; code += pInst->params[1]; code += "))";
+    }
+
+    return code;
+}
+
+std::string malgen_generate_code__conversion_func_decl(malgen_context* pContext, malgen_conversion_desc* pFuncDesc)
+{
+    std::string code = "void ";
+    code += pContext->userNamespace;
+    code += pFuncDesc->formatInStr;
+    code += "_to_";
+    code += pFuncDesc->formatOutStr;
+    code += "(";
+    code += malgen_generate_code__conversion_func_params(pContext, pFuncDesc);
+    code += ")";
+
+    return code;
+}
+
+std::string malgen_generate_code__conversion_func_impl(malgen_context* pContext, malgen_conversion_desc* pFuncDesc)
+{
+    std::string code;
+
+    code += "    "; code += malgen_get_format_impl_c_type_string(pFuncDesc->formatOutStr); code += " r;\n";
+    code += "    for (unsigned int i = 0; i < count; ++i) {\n";
+    code += "        "; code += malgen_get_format_impl_c_type_string(pFuncDesc->formatInStr); code += " x = "; code += malgen_get_format_input_conversion_code(pFuncDesc->formatInStr); code += ";\n";
+    for (size_t i = 0; i < pFuncDesc->instructions.size(); ++i) {
+        code += "        "; code += malgen_generate_code__conversion_func_inst(pContext, &pFuncDesc->instructions[i]); code += ";\n";
+    }
+    code += "        "; code += malgen_get_format_output_conversion_code(pFuncDesc->formatOutStr); code += ";\n";
+    code += "    }";
+
+    return code;
+}
+
+std::string malgen_generate_code__conversion_func(malgen_context* pContext, malgen_conversion_desc* pFuncDesc)
+{
+    std::string code = malgen_generate_code__conversion_func_decl(pContext, pFuncDesc);
+    code += "\n{\n";
+    code += malgen_generate_code__conversion_func_impl(pContext, pFuncDesc);
+    code += "\n}\n";
+
+    return code;
+}
+
+int malgen_generate_code(malgen_context* pContext, std::string* pCodeOut)
+{
+    std::string code;
+
+    // Conversion functions.
+    // Declarations.
+    for (size_t i = 0; i < pContext->conversions.size(); ++i) {
+        code += malgen_generate_code__conversion_func_decl(pContext, &pContext->conversions[i]);
+        code += ";\n";
+    }
+    code += "\n";
+
+    // Definitions.
+    for (size_t i = 0; i < pContext->conversions.size(); ++i) {
+        code += malgen_generate_code__conversion_func(pContext, &pContext->conversions[i]);
+        code += "\n";
+    }
+
+    *pCodeOut = code;
+    return 0;
+}
+
 int main(int argc, char** argv)
 {
     (void)argc;
@@ -330,15 +567,26 @@ int main(int argc, char** argv)
         return result;
     }
 
+    context.userNamespace = "mal_pcm_"; // TODO: Implement the "--namespace" command line argument.
+
     FILE* pOutputFile = dr_fopen("malgen_test0.c", "w");
     if (pOutputFile == NULL) {
         printf("Failed to open output file.\n");
         return -2;
     }
 
+    std::string code;
+    result = malgen_generate_code(&context, &code);
+    if (result != 0) {
+        printf("Code generation failed.\n");
+        return result;
+    }
+
+    fprintf(pOutputFile, "%s", code.c_str());
+
 
     // We need conversion routines for each different combination of formats.
-
+    
 
 
     // TESTING
