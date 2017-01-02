@@ -249,8 +249,9 @@ typedef void (* mal_proc)();
     } mal_event;
 #endif
 
-#define MAL_MAX_PERIODS_DSOUND    4
-#define MAL_MAX_PERIODS_OPENAL    4
+#define MAL_MAX_CHANNELS            16
+#define MAL_MAX_PERIODS_DSOUND      4
+#define MAL_MAX_PERIODS_OPENAL      4
 
 typedef int mal_result;
 #define MAL_SUCCESS                                      0
@@ -2120,21 +2121,29 @@ static mal_result mal_device__find_best_format__wasapi(mal_device* pDevice, WAVE
     wf.Format.nBlockAlign          = (wf.Format.nChannels * wf.Format.wBitsPerSample) / 8;
     wf.Format.nAvgBytesPerSec      = wf.Format.nBlockAlign * wf.Format.nSamplesPerSec;
     wf.Samples.wValidBitsPerSample = wf.Format.wBitsPerSample;
-    wf.dwChannelMask               = ~(((DWORD)-1) << pDevice->channels);
+    wf.dwChannelMask               = 0xFFFFFFFF;    // Always use every channel.
     if (pDevice->format == mal_format_f32) {
         wf.SubFormat = MAL_GUID_KSDATAFORMAT_SUBTYPE_IEEE_FLOAT;
     } else {
         wf.SubFormat = MAL_GUID_KSDATAFORMAT_SUBTYPE_PCM;
     }
 
+    HRESULT hr = AUDCLNT_E_UNSUPPORTED_FORMAT;
     WAVEFORMATEXTENSIBLE* pBestFormatTemp;
 #ifdef __cplusplus
-    HRESULT hr = ((IAudioClient*)pDevice->wasapi.pAudioClient)->IsFormatSupported(AUDCLNT_SHAREMODE_SHARED, (WAVEFORMATEX*)&wf, (WAVEFORMATEX**)&pBestFormatTemp);
+    hr = ((IAudioClient*)pDevice->wasapi.pAudioClient)->IsFormatSupported(AUDCLNT_SHAREMODE_SHARED, (WAVEFORMATEX*)&wf, (WAVEFORMATEX**)&pBestFormatTemp);
 #else
-    HRESULT hr = ((IAudioClient*)pDevice->wasapi.pAudioClient)->lpVtbl->IsFormatSupported((IAudioClient*)pDevice->wasapi.pAudioClient, AUDCLNT_SHAREMODE_SHARED, (WAVEFORMATEX*)&wf, (WAVEFORMATEX**)&pBestFormatTemp);
+    hr = ((IAudioClient*)pDevice->wasapi.pAudioClient)->lpVtbl->IsFormatSupported((IAudioClient*)pDevice->wasapi.pAudioClient, AUDCLNT_SHAREMODE_SHARED, (WAVEFORMATEX*)&wf, (WAVEFORMATEX**)&pBestFormatTemp);
 #endif
-    if (hr != S_OK && hr != S_FALSE && hr != AUDCLNT_E_UNSUPPORTED_FORMAT) {
-        return MAL_WASAPI_FAILED_TO_FIND_BEST_FORMAT;
+    if (hr != S_OK && hr != S_FALSE) {
+    #ifdef __cplusplus
+        hr = ((IAudioClient*)pDevice->wasapi.pAudioClient)->GetMixFormat((WAVEFORMATEX**)&pBestFormatTemp);
+    #else
+        hr = ((IAudioClient*)pDevice->wasapi.pAudioClient)->lpVtbl->GetMixFormat((IAudioClient*)pDevice->wasapi.pAudioClient, (WAVEFORMATEX**)&pBestFormatTemp);
+    #endif
+        if (hr != S_OK) {
+            return MAL_WASAPI_FAILED_TO_FIND_BEST_FORMAT;
+        }
     }
 
     if (pBestFormatTemp != NULL) {
@@ -2245,7 +2254,7 @@ static mal_result mal_device_init__wasapi(mal_context* pContext, mal_device_type
 #endif
     if (FAILED(hr)) {
         mal_device_uninit__wasapi(pDevice);
-        return mal_post_error(pDevice, "[WASAPI] Failed to activate device.", MAL_WASAPI_FAILED_TO_INITIALIZE_DEVICE);
+        return mal_post_error(pDevice, "[WASAPI] Failed to initialize device.", MAL_WASAPI_FAILED_TO_INITIALIZE_DEVICE);
     }
 
 #ifdef __cplusplus
@@ -5254,6 +5263,10 @@ mal_result mal_device_init(mal_context* pContext, mal_device_type type, mal_devi
 
     if (pConfig == NULL || pConfig->channels == 0 || pConfig->sampleRate == 0) return mal_post_error(pDevice, "mal_device_init() called with invalid arguments.", MAL_INVALID_ARGS);
 
+    if (pConfig->channels > MAL_MAX_CHANNELS) {
+        return MAL_FORMAT_NOT_SUPPORTED;
+    }
+
     // Default buffer size and periods.
     if (pConfig->bufferSizeInFrames == 0) {
         pConfig->bufferSizeInFrames = (pConfig->sampleRate/1000) * MAL_DEFAULT_BUFFER_SIZE_IN_MILLISECONDS;
@@ -5638,7 +5651,7 @@ void mal_pcm_f32_to_s32(int* pOut, const float* pIn, unsigned int count);
 static void mal_pcm_convert(void* pOut, mal_format formatOut, const void* pIn, mal_format formatIn, unsigned int sampleCount)
 {
     if (formatOut == formatIn) {
-        memcpy(pOut, pIn, sampleCount * mal_get_sample_size_in_bytes(formatOut));
+        mal_copy_memory(pOut, pIn, sampleCount * mal_get_sample_size_in_bytes(formatOut));
     }
 
     switch (formatIn)
@@ -5707,6 +5720,105 @@ static void mal_pcm_convert(void* pOut, mal_format formatOut, const void* pIn, m
     }
 }
 
+static void mal_rearrange_channels(float* pFrame, mal_uint32 channels, mal_uint32 channelMap[16])
+{
+    float temp;
+    switch (channels) {
+        case 16: temp = pFrame[15]; pFrame[15] = pFrame[channelMap[15]]; pFrame[channelMap[15]] = temp;
+        case 15: temp = pFrame[14]; pFrame[14] = pFrame[channelMap[14]]; pFrame[channelMap[14]] = temp;
+        case 14: temp = pFrame[13]; pFrame[13] = pFrame[channelMap[13]]; pFrame[channelMap[13]] = temp;
+        case 13: temp = pFrame[12]; pFrame[12] = pFrame[channelMap[12]]; pFrame[channelMap[12]] = temp;
+        case 12: temp = pFrame[11]; pFrame[11] = pFrame[channelMap[11]]; pFrame[channelMap[11]] = temp;
+        case 11: temp = pFrame[10]; pFrame[10] = pFrame[channelMap[10]]; pFrame[channelMap[10]] = temp;
+        case 10: temp = pFrame[ 9]; pFrame[ 9] = pFrame[channelMap[ 9]]; pFrame[channelMap[ 9]] = temp;
+        case  9: temp = pFrame[ 8]; pFrame[ 8] = pFrame[channelMap[ 8]]; pFrame[channelMap[ 8]] = temp;
+        case  8: temp = pFrame[ 7]; pFrame[ 7] = pFrame[channelMap[ 7]]; pFrame[channelMap[ 7]] = temp;
+        case  7: temp = pFrame[ 6]; pFrame[ 6] = pFrame[channelMap[ 6]]; pFrame[channelMap[ 6]] = temp;
+        case  6: temp = pFrame[ 5]; pFrame[ 5] = pFrame[channelMap[ 5]]; pFrame[channelMap[ 5]] = temp;
+        case  5: temp = pFrame[ 4]; pFrame[ 4] = pFrame[channelMap[ 4]]; pFrame[channelMap[ 4]] = temp;
+        case  4: temp = pFrame[ 3]; pFrame[ 3] = pFrame[channelMap[ 3]]; pFrame[channelMap[ 3]] = temp;
+        case  3: temp = pFrame[ 2]; pFrame[ 2] = pFrame[channelMap[ 2]]; pFrame[channelMap[ 2]] = temp;
+        case  2: temp = pFrame[ 1]; pFrame[ 1] = pFrame[channelMap[ 1]]; pFrame[channelMap[ 1]] = temp;
+        case  1: temp = pFrame[ 0]; pFrame[ 0] = pFrame[channelMap[ 0]]; pFrame[channelMap[ 0]] = temp;
+    }
+}
+
+static void mal_convert_channels_to_mono(float* pFrame, mal_uint32 channels)
+{
+    // Mono is just an averaging of each channel.
+    float total = 0;
+    switch (channels) {
+        case 16: total += pFrame[15];
+        case 15: total += pFrame[14];
+        case 14: total += pFrame[13];
+        case 13: total += pFrame[12];
+        case 12: total += pFrame[11];
+        case 11: total += pFrame[10];
+        case 10: total += pFrame[ 9];
+        case  9: total += pFrame[ 8];
+        case  8: total += pFrame[ 7];
+        case  7: total += pFrame[ 6];
+        case  6: total += pFrame[ 5];
+        case  5: total += pFrame[ 4];
+        case  4: total += pFrame[ 3];
+        case  3: total += pFrame[ 2];
+        case  2: total += pFrame[ 1];
+        case  1: total += pFrame[ 0];
+    }
+
+    pFrame[0] = total / channels;
+}
+
+static void mal_convert_channels_from_mono(float* pFrame, mal_uint32 channels)
+{
+    // Just copy the mono channel to each other channel.
+    switch (channels) {
+        case 16: pFrame[15] = pFrame[0];
+        case 15: pFrame[14] = pFrame[0];
+        case 14: pFrame[13] = pFrame[0];
+        case 13: pFrame[12] = pFrame[0];
+        case 12: pFrame[11] = pFrame[0];
+        case 11: pFrame[10] = pFrame[0];
+        case 10: pFrame[ 9] = pFrame[0];
+        case  9: pFrame[ 8] = pFrame[0];
+        case  8: pFrame[ 7] = pFrame[0];
+        case  7: pFrame[ 6] = pFrame[0];
+        case  6: pFrame[ 5] = pFrame[0];
+        case  5: pFrame[ 4] = pFrame[0];
+        case  4: pFrame[ 3] = pFrame[0];
+        case  3: pFrame[ 2] = pFrame[0];
+        case  2: pFrame[ 1] = pFrame[0];
+        case  1: pFrame[ 0] = pFrame[0];
+    }
+}
+
+static void mal_convert_channels__dec(float* pFrameIn, mal_uint32 channelsIn, mal_uint32 channelsOut)
+{
+    if (channelsOut == 1) {
+        mal_convert_channels_to_mono(pFrameIn, channelsIn);
+        return;
+    }
+
+    // For now we are just dropping excess channels.
+}
+
+static void mal_convert_channels__inc(float* pFrameIn, mal_uint32 channelsIn, mal_uint32 channelsOut)
+{
+    // For now we are just dropping excess channels.
+    (void)pFrameIn;
+    (void)channelsIn;
+    (void)channelsOut;
+}
+
+static void mal_convert_channels(float* pFrameIn, mal_uint32 channelsIn, mal_uint32 channelsOut)
+{
+    if (channelsIn > channelsOut) {
+        mal_convert_channels__dec(pFrameIn, channelsIn, channelsOut);
+    } else if (channelsIn < channelsOut) {
+        mal_convert_channels__inc(pFrameIn, channelsIn, channelsOut);
+    }
+}
+
 mal_result mal_dsp_init(mal_dsp_config* pConfig, mal_dsp* pDSP)
 {
     if (pDSP == NULL) return MAL_INVALID_ARGS;
@@ -5748,11 +5860,21 @@ mal_uint32 mal_dsp_process_no_src(mal_dsp* pDSP, mal_dsp_read_proc onRead, void*
             // No SRC and no channel conversion.
             mal_pcm_convert(pFramesOut8, pDSP->formatOut, chunkBuffer, pDSP->formatIn, framesJustRead * pDSP->channelsIn);
         } else {
-            // Channel convert and perhaps format conversion.
-
-
-            // TODO: Implement me.
-            framesJustRead = 0;
+            // Channel conversion + format conversion.
+            if (pDSP->formatIn == mal_format_f32) {
+                for (mal_uint32 iFrame = 0; iFrame < framesJustRead; ++iFrame) {
+                    float* pTempFrameF32 = (float*)(chunkBuffer + (iFrame * pDSP->channelsOut * mal_get_sample_size_in_bytes(pDSP->formatOut)));
+                    mal_convert_channels(pTempFrameF32, pDSP->channelsIn, pDSP->channelsOut);
+                    mal_pcm_convert(pFramesOut8 + (iFrame * pDSP->channelsOut * mal_get_sample_size_in_bytes(pDSP->formatOut)), pDSP->formatOut, pTempFrameF32, mal_format_f32, pDSP->channelsOut);    // <-- Evaluates to a memcpy().
+                }
+            } else {
+                float tempFrame[MAL_MAX_CHANNELS];
+                for (mal_uint32 iFrame = 0; iFrame < framesJustRead; ++iFrame) {
+                    mal_pcm_convert(tempFrame, mal_format_f32, chunkBuffer + (iFrame * pDSP->channelsIn * mal_get_sample_size_in_bytes(pDSP->formatIn)), pDSP->formatIn, pDSP->channelsIn);
+                    mal_convert_channels(tempFrame, pDSP->channelsIn, pDSP->channelsOut);
+                    mal_pcm_convert(pFramesOut8 + (iFrame * pDSP->channelsOut * mal_get_sample_size_in_bytes(pDSP->formatOut)), pDSP->formatOut, tempFrame, mal_format_f32, pDSP->channelsOut);
+                }
+            }
         }
 
         framesRemaining -= framesJustRead;
