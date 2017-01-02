@@ -26,7 +26,7 @@
 //     - Core Audio (OSX, iOS)
 //     - Maybe OSS
 //
-// Supported Formats (Not all backends support all formats):
+// Supported Formats:
 //   - Unsigned 8-bit PCM
 //   - Signed 16-bit PCM
 //   - Signed 24-bit PCM (tightly packed)
@@ -141,7 +141,7 @@
 //   Disables the ALSA backend.
 //
 // #define MAL_NO_OPENSLES
-//   Disables the OpenSL ES backend.
+//   Disables the OpenSL|ES backend.
 //
 // #define MAL_NO_OPENAL
 //   Disables the OpenAL backend.
@@ -5721,48 +5721,100 @@ mal_result mal_dsp_init(mal_dsp_config* pConfig, mal_dsp* pDSP)
     return MAL_SUCCESS;
 }
 
-mal_uint32 mal_dsp_process_chunk(mal_dsp* pDSP, void* pFramesOut, const void* pFramesIn, mal_uint32 frameCount)
+
+mal_uint32 mal_dsp_process_passthrough(mal_dsp* pDSP, mal_dsp_read_proc onRead, void* pUserData, void* pFramesOut, mal_uint32 frameCount)
 {
-    if (pDSP->sampleRateIn == pDSP->sampleRateOut) {
-        // Fast-ish path. No SRC.
-        if (pDSP->channelsIn == pDSP->channelsIn) {
-            // Faster path. No SRC and no channel conversion.
-            mal_pcm_convert(pFramesOut, pDSP->formatOut, pFramesIn, pDSP->formatIn, frameCount * pDSP->channelsIn);
-            return frameCount;
-        } else {
-            // Channel conversion + format conversion.
-            return 0;
-        }
-    } else {
-        // Slowest path. This is the SRC path which requires an extra conversion step to f32 before processing.
-        return 0;   // TODO: Implement SRC.
-    }
+    (void)pDSP;
+    return onRead(frameCount, pFramesOut, pUserData);
 }
+
+
+mal_uint32 mal_dsp_process_no_src(mal_dsp* pDSP, mal_dsp_read_proc onRead, void* pUserData, void* pFramesOut, mal_uint32 frameCount)
+{
+    mal_uint32 totalFramesRead = 0;
+
+    mal_uint8 chunkBuffer[4096];
+    mal_uint32 chunkFrameCount = sizeof(chunkBuffer) / mal_get_sample_size_in_bytes(pDSP->formatIn) / pDSP->channelsIn;
+
+    mal_uint32 framesRemaining = frameCount;
+    while (framesRemaining > 0) {
+        mal_uint32 framesJustRead  = onRead((chunkFrameCount < framesRemaining) ? chunkFrameCount : framesRemaining, chunkBuffer, pUserData);
+        if (framesJustRead == 0) {
+            break;
+        }
+
+        mal_uint8* pFramesOut8 = (mal_uint8*)pFramesOut + (totalFramesRead * pDSP->channelsOut * mal_get_sample_size_in_bytes(pDSP->formatOut));
+        if (pDSP->channelsIn == pDSP->channelsOut) {
+            // No SRC and no channel conversion.
+            mal_pcm_convert(pFramesOut8, pDSP->formatOut, chunkBuffer, pDSP->formatIn, framesJustRead * pDSP->channelsIn);
+        } else {
+            // Channel convert and perhaps format conversion.
+
+
+            // TODO: Implement me.
+            framesJustRead = 0;
+        }
+
+        framesRemaining -= framesJustRead;
+        totalFramesRead += framesJustRead;
+    }
+
+    return totalFramesRead;
+}
+
+
+mal_uint32 mal_dsp_process_src__linear(mal_dsp* pDSP, mal_dsp_read_proc onRead, void* pUserData, void* pFramesOut, mal_uint32 frameCount)
+{
+    float ratioSRC = (float)pDSP->sampleRateOut / pDSP->sampleRateIn;
+    if (ratioSRC > 0) {
+        // The number of frames needing to be read is the 
+    } else {
+        
+    }
+
+    return 0;
+}
+
+mal_uint32 mal_dsp_process_src__44100_to_48000(mal_dsp* pDSP, mal_dsp_read_proc onRead, void* pUserData, void* pFramesOut, mal_uint32 frameCount)
+{
+    // TODO: Implement an optimized 44100 -> 48000 converter.
+    return mal_dsp_process_src__linear(pDSP, onRead, pUserData, pFramesOut, frameCount);
+}
+
+mal_uint32 mal_dsp_process_src__48000_to_44100(mal_dsp* pDSP, mal_dsp_read_proc onRead, void* pUserData, void* pFramesOut, mal_uint32 frameCount)
+{
+    // TODO: Implement an optimized 48000 -> 44100 converter.
+    return mal_dsp_process_src__linear(pDSP, onRead, pUserData, pFramesOut, frameCount);
+}
+
+mal_uint32 mal_dsp_process_src(mal_dsp* pDSP, mal_dsp_read_proc onRead, void* pUserData, void* pFramesOut, mal_uint32 frameCount)
+{
+    // TODO: This can be optimized by moving the branching logic to mal_dsp_init() and using function pointers.
+    if (pDSP->sampleRateIn == 44100 && pDSP->sampleRateOut == 48000) {
+        return mal_dsp_process_src__44100_to_48000(pDSP, onRead, pUserData, pFramesOut, frameCount);
+    }
+    if (pDSP->sampleRateIn == 48000 && pDSP->sampleRateOut == 44100) {
+        return mal_dsp_process_src__48000_to_44100(pDSP, onRead, pUserData, pFramesOut, frameCount);
+    }
+
+    // Fallback.
+    return mal_dsp_process_src__linear(pDSP, onRead, pUserData, pFramesOut, frameCount);
+}
+
 
 mal_uint32 mal_dsp_process(mal_dsp* pDSP, mal_dsp_read_proc onRead, void* pUserData, void* pFramesOut, mal_uint32 frameCount)
 {
     if (pDSP == NULL || pFramesOut == NULL || onRead == NULL) return 0;
 
-    mal_uint32 framesRead = 0;
     if (pDSP->formatIn == pDSP->formatOut && pDSP->channelsIn == pDSP->channelsOut && pDSP->sampleRateIn == pDSP->sampleRateOut) {
-        framesRead = onRead(frameCount, pFramesOut, pUserData);
+        return mal_dsp_process_passthrough(pDSP, onRead, pUserData, pFramesOut, frameCount);
     } else {
-        mal_uint8 chunkBuffer[4096];
-        mal_uint32 chunkFrameCount = sizeof(chunkBuffer) / mal_get_sample_size_in_bytes(pDSP->formatIn) / pDSP->channelsIn;
-
-        mal_uint32 framesRemaining = frameCount;
-        while (framesRemaining > 0) {
-            mal_uint32 framesJustRead  = onRead((chunkFrameCount < framesRemaining) ? chunkFrameCount : framesRemaining, chunkBuffer, pUserData);
-            if (framesJustRead == 0) {
-                break;
-            }
-
-            framesRemaining -= framesJustRead;
-            framesRead += mal_dsp_process_chunk(pDSP, (mal_uint8*)pFramesOut + (framesRead * pDSP->channelsOut * mal_get_sample_size_in_bytes(pDSP->formatOut)), chunkBuffer, framesJustRead);
+        if (pDSP->sampleRateIn == pDSP->sampleRateOut) {
+            return mal_dsp_process_no_src(pDSP, onRead, pUserData, pFramesOut, frameCount);
+        } else {
+            return mal_dsp_process_src(pDSP, onRead, pUserData, pFramesOut, frameCount);
         }
     }
-
-    return framesRead;
 }
 
 
