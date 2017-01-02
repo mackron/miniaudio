@@ -287,6 +287,7 @@ typedef int mal_result;
 #define MAL_WASAPI_FAILED_TO_CREATE_DEVICE              -3073
 #define MAL_WASAPI_FAILED_TO_ACTIVATE_DEVICE            -3074
 #define MAL_WASAPI_FAILED_TO_INITIALIZE_DEVICE          -3075
+#define MAL_WASAPI_FAILED_TO_FIND_BEST_FORMAT           -3076
 
 typedef struct mal_device mal_device;
 
@@ -2104,6 +2105,48 @@ static void mal_device_uninit__wasapi(mal_device* pDevice)
     }
 }
 
+static mal_result mal_device__find_best_format__wasapi(mal_device* pDevice, WAVEFORMATEXTENSIBLE* pBestFormat)
+{
+    mal_assert(pDevice != NULL);
+    mal_assert(pBestFormat != NULL);
+
+    WAVEFORMATEXTENSIBLE wf;
+    mal_zero_object(&wf);
+    wf.Format.cbSize               = sizeof(wf);
+    wf.Format.wFormatTag           = WAVE_FORMAT_EXTENSIBLE;
+    wf.Format.nChannels            = (WORD)pDevice->channels;
+    wf.Format.nSamplesPerSec       = (DWORD)pDevice->sampleRate;
+    wf.Format.wBitsPerSample       = (WORD)mal_get_sample_size_in_bytes(pDevice->format)*8;
+    wf.Format.nBlockAlign          = (wf.Format.nChannels * wf.Format.wBitsPerSample) / 8;
+    wf.Format.nAvgBytesPerSec      = wf.Format.nBlockAlign * wf.Format.nSamplesPerSec;
+    wf.Samples.wValidBitsPerSample = wf.Format.wBitsPerSample;
+    wf.dwChannelMask               = ~(((DWORD)-1) << pDevice->channels);
+    if (pDevice->format == mal_format_f32) {
+        wf.SubFormat = MAL_GUID_KSDATAFORMAT_SUBTYPE_IEEE_FLOAT;
+    } else {
+        wf.SubFormat = MAL_GUID_KSDATAFORMAT_SUBTYPE_PCM;
+    }
+
+    WAVEFORMATEXTENSIBLE* pBestFormatTemp;
+#ifdef __cplusplus
+    HRESULT hr = ((IAudioClient*)pDevice->wasapi.pAudioClient)->IsFormatSupported(AUDCLNT_SHAREMODE_SHARED, (WAVEFORMATEX*)&wf, (WAVEFORMATEX**)&pBestFormatTemp);
+#else
+    HRESULT hr = ((IAudioClient*)pDevice->wasapi.pAudioClient)->lpVtbl->IsFormatSupported((IAudioClient*)pDevice->wasapi.pAudioClient, AUDCLNT_SHAREMODE_SHARED, (WAVEFORMATEX*)&wf, (WAVEFORMATEX**)&pBestFormatTemp);
+#endif
+    if (hr != S_OK && hr != S_FALSE && hr != AUDCLNT_E_UNSUPPORTED_FORMAT) {
+        return MAL_WASAPI_FAILED_TO_FIND_BEST_FORMAT;
+    }
+
+    if (pBestFormatTemp != NULL) {
+        mal_copy_memory(pBestFormat, pBestFormatTemp, sizeof(*pBestFormat));
+        ((MAL_PFN_CoTaskMemFree)pDevice->pContext->win32.CoTaskMemFree)(pBestFormatTemp);
+    } else {
+        mal_copy_memory(pBestFormat, &wf, sizeof(*pBestFormat));
+    }
+
+    return MAL_SUCCESS;
+}
+
 static mal_result mal_device_init__wasapi(mal_context* pContext, mal_device_type type, mal_device_id* pDeviceID, mal_device_config* pConfig, mal_device* pDevice)
 {
     (void)pContext;
@@ -2169,44 +2212,31 @@ static mal_result mal_device_init__wasapi(mal_context* pContext, mal_device_type
     REFERENCE_TIME bufferDurationInMicroseconds = ((mal_uint64)pConfig->bufferSizeInFrames * 1000 * 1000) / pConfig->sampleRate;
 
     WAVEFORMATEXTENSIBLE wf;
-    mal_zero_object(&wf);
-    wf.Format.cbSize               = sizeof(wf);
-    wf.Format.wFormatTag           = WAVE_FORMAT_EXTENSIBLE;
-    wf.Format.nChannels            = (WORD)pConfig->channels;
-    wf.Format.nSamplesPerSec       = (DWORD)pConfig->sampleRate;
-    wf.Format.wBitsPerSample       = (WORD)mal_get_sample_size_in_bytes(pConfig->format)*8;
-    wf.Format.nBlockAlign          = (wf.Format.nChannels * wf.Format.wBitsPerSample) / 8;
-    wf.Format.nAvgBytesPerSec      = wf.Format.nBlockAlign * wf.Format.nSamplesPerSec;
-    wf.Samples.wValidBitsPerSample = wf.Format.wBitsPerSample;
-    wf.dwChannelMask               = (pConfig->channels <= 2) ? 0 : ~(((DWORD)-1) << pConfig->channels);
-    wf.SubFormat                   = MAL_GUID_KSDATAFORMAT_SUBTYPE_IEEE_FLOAT;
-
-    WAVEFORMATEXTENSIBLE* pClosestWF;
-#if 0
-#ifdef __cplusplus
-    hr = ((IAudioClient*)pDevice->wasapi.pAudioClient)->IsFormatSupported(AUDCLNT_SHAREMODE_SHARED, (WAVEFORMATEX*)&wf, (WAVEFORMATEX**)&pClosestWF);
-#else
-    hr = ((IAudioClient*)pDevice->wasapi.pAudioClient)->lpVtbl->IsFormatSupported((IAudioClient*)pDevice->wasapi.pAudioClient, AUDCLNT_SHAREMODE_SHARED, (WAVEFORMATEX*)&wf, (WAVEFORMATEX**)&pClosestWF);
-#endif
-    if (hr != S_OK && hr != S_FALSE) {
+    mal_result result = mal_device__find_best_format__wasapi(pDevice, &wf);
+    if (result != MAL_SUCCESS) {
         mal_device_uninit__wasapi(pDevice);
-        return mal_post_error(pDevice, "[WASAPI] Failed to get device mix format.", MAL_WASAPI_FAILED_TO_ACTIVATE_DEVICE);
+        return mal_post_error(pDevice, "[WASAPI] Failed to find best device mix format.", MAL_WASAPI_FAILED_TO_ACTIVATE_DEVICE);
     }
-#else
-#ifdef __cplusplus
-    hr = ((IAudioClient*)pDevice->wasapi.pAudioClient)->GetMixFormat((WAVEFORMATEX**)&pClosestWF);
-#else
-    hr = ((IAudioClient*)pDevice->wasapi.pAudioClient)->lpVtbl->GetMixFormat((IAudioClient*)pDevice->wasapi.pAudioClient, (WAVEFORMATEX**)&pClosestWF);
-#endif
-    if (hr != S_OK && hr != S_FALSE) {
-        mal_device_uninit__wasapi(pDevice);
-        return mal_post_error(pDevice, "[WASAPI] Failed to get device mix format.", MAL_WASAPI_FAILED_TO_ACTIVATE_DEVICE);
-    }
-#endif
 
-    //if (hr != S_OK) {
-        mal_copy_memory(&wf, pClosestWF, sizeof(wf));
-    //}
+    if (IsEqualGUID(&wf.SubFormat, &MAL_GUID_KSDATAFORMAT_SUBTYPE_IEEE_FLOAT)) {
+        pDevice->internalFormat = mal_format_f32;
+    } else {
+        if (wf.Format.wBitsPerSample == 32) {
+            pDevice->internalFormat = mal_format_s32;
+        } else if (wf.Format.wBitsPerSample == 24) {
+            pDevice->internalFormat = mal_format_s24;
+        } else if (wf.Format.wBitsPerSample == 16) {
+            pDevice->internalFormat = mal_format_s16;
+        } else if (wf.Format.wBitsPerSample == 8) {
+            pDevice->internalFormat = mal_format_u8;
+        } else {
+            mal_device_uninit__wasapi(pDevice);
+            return mal_post_error(pDevice, "[WASAPI] Device's native format is not supported.", MAL_FORMAT_NOT_SUPPORTED);
+        }
+    }
+
+    pDevice->internalChannels = wf.Format.nChannels;
+    //pDevice->internalSampleRate = wf.Format.nSamplesPerSec;       // TODO: Uncomment this when SRC is implemented.
 
 #ifdef __cplusplus
     hr = ((IAudioClient*)pDevice->wasapi.pAudioClient)->Initialize(AUDCLNT_SHAREMODE_SHARED, 0, bufferDurationInMicroseconds*10, 0, (WAVEFORMATEX*)&wf, NULL);
@@ -2214,12 +2244,9 @@ static mal_result mal_device_init__wasapi(mal_context* pContext, mal_device_type
     hr = ((IAudioClient*)pDevice->wasapi.pAudioClient)->lpVtbl->Initialize((IAudioClient*)pDevice->wasapi.pAudioClient, AUDCLNT_SHAREMODE_SHARED, 0, bufferDurationInMicroseconds*10, 0, (WAVEFORMATEX*)&wf, NULL);
 #endif
     if (FAILED(hr)) {
-        ((MAL_PFN_CoTaskMemFree)pContext->win32.CoTaskMemFree)(pClosestWF);
         mal_device_uninit__wasapi(pDevice);
         return mal_post_error(pDevice, "[WASAPI] Failed to activate device.", MAL_WASAPI_FAILED_TO_INITIALIZE_DEVICE);
     }
-
-    ((MAL_PFN_CoTaskMemFree)pContext->win32.CoTaskMemFree)(pClosestWF);
 
 #ifdef __cplusplus
     hr = ((IAudioClient*)pDevice->wasapi.pAudioClient)->GetBufferSize(&pDevice->bufferSizeInFrames);
@@ -6031,10 +6058,7 @@ void mal_pcm_f32_to_s32(int* pOut, const float* pIn, unsigned int count)
 //
 // WASAPI
 // ------
-// - Add support for non-f32 formats.
 // - Add support for exclusive mode?
-//   - GetMixFormat() instead of IsFormatSupported().
-//   - Requires a large suite of conversion routines including channel shuffling, SRC and format conversion.
 // - Look into event callbacks: AUDCLNT_STREAMFLAGS_EVENTCALLBACK
 // - Clean up that terrible "__cplusplus" mess by implementing wrapper functions.
 //
