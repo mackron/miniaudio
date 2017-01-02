@@ -249,9 +249,31 @@ typedef void (* mal_proc)();
     } mal_event;
 #endif
 
-#define MAL_MAX_CHANNELS            16
-#define MAL_MAX_PERIODS_DSOUND      4
-#define MAL_MAX_PERIODS_OPENAL      4
+#define MAL_MAX_PERIODS_DSOUND                          4
+#define MAL_MAX_PERIODS_OPENAL                          4
+
+#define MAL_CHANNEL_FRONT_LEFT                          1
+#define MAL_CHANNEL_FRONT_RIGHT                         2
+#define MAL_CHANNEL_FRONT_CENTER                        3
+#define MAL_CHANNEL_LFE                                 4
+#define MAL_CHANNEL_BACK_LEFT                           5
+#define MAL_CHANNEL_BACK_RIGHT                          6
+#define MAL_CHANNEL_FRONT_LEFT_CENTER                   7
+#define MAL_CHANNEL_FRONT_RIGHT_CENTER                  8
+#define MAL_CHANNEL_BACK_CENTER                         9
+#define MAL_CHANNEL_SIDE_LEFT                           10
+#define MAL_CHANNEL_SIDE_RIGHT                          11
+#define MAL_CHANNEL_TOP_CENTER                          12
+#define MAL_CHANNEL_TOP_FRONT_LEFT                      13
+#define MAL_CHANNEL_TOP_FRONT_CENTER                    14
+#define MAL_CHANNEL_TOP_FRONT_RIGHT                     15
+#define MAL_CHANNEL_TOP_BACK_LEFT                       16
+#define MAL_CHANNEL_TOP_BACK_CENTER                     17
+#define MAL_CHANNEL_TOP_BACK_RIGHT                      18
+#define MAL_MAX_CHANNELS                                18
+extern mal_uint8 MAL_CHANNEL_MAP_MONO[MAL_MAX_CHANNELS];
+extern mal_uint8 MAL_CHANNEL_MAP_STEREO[MAL_MAX_CHANNELS];
+extern mal_uint8 MAL_CHANNEL_MAP_5POINT1[MAL_MAX_CHANNELS];
 
 typedef int mal_result;
 #define MAL_SUCCESS                                      0
@@ -362,6 +384,7 @@ typedef struct
     mal_format format;
     mal_uint32 channels;
     mal_uint32 sampleRate;
+    mal_uint8  channelMap[MAL_MAX_CHANNELS];
     mal_uint32 bufferSizeInFrames;
     mal_uint32 periods;
     mal_recv_proc onRecvCallback;
@@ -514,6 +537,7 @@ struct mal_device
     mal_format format;
     mal_uint32 channels;
     mal_uint32 sampleRate;
+    mal_uint8  channelMap[MAL_MAX_CHANNELS];
     mal_uint32 bufferSizeInFrames;
     mal_uint32 periods;
     mal_uint32 state;
@@ -532,6 +556,8 @@ struct mal_device
     mal_format internalFormat;
     mal_uint32 internalChannels;
     mal_uint32 internalSampleRate;
+    mal_uint8  internalChannelMap[MAL_MAX_CHANNELS];
+    mal_uint8  channelShuffleTable[MAL_MAX_CHANNELS];
     mal_dsp dsp;            // Samples run through this to convert samples to a format suitable for use by the backend.
 
     union
@@ -962,7 +988,6 @@ typedef void    (WINAPI * MAL_PFN_CoUninitialize)();
 typedef HRESULT (WINAPI * MAL_PFN_CoCreateInstance)(REFCLSID rclsid, LPUNKNOWN pUnkOuter, DWORD dwClsContext, REFIID riid, LPVOID *ppv);
 typedef void    (WINAPI * MAL_PFN_CoTaskMemFree)(_In_opt_ LPVOID pv);
 typedef HRESULT (WINAPI * MAL_PFN_PropVariantClear)(PROPVARIANT *pvar);
-
 #endif
 
 
@@ -977,6 +1002,7 @@ typedef HRESULT (WINAPI * MAL_PFN_PropVariantClear)(PROPVARIANT *pvar);
 #define MAL_DEVICE_FLAG_USING_FOREIGN_FORMAT        (1 << 2)    // The backend's native format is different to the format requested by the client.
 #define MAL_DEVICE_FLAG_USING_FOREIGN_CHANNELS      (1 << 3)    // The backend's native channel count is different to the count requested by the client.
 #define MAL_DEVICE_FLAG_USING_FOREIGN_SAMPLE_RATE   (1 << 4)    // The backend's native sample rate is different to the rate requested by the client.
+#define MAL_DEVICE_FLAG_USING_FOREIGN_CHANNEL_MAP   (1 << 5)
 
 
 // The default size of the device's buffer in milliseconds.
@@ -991,6 +1017,17 @@ typedef HRESULT (WINAPI * MAL_PFN_PropVariantClear)(PROPVARIANT *pvar);
 #ifndef MAL_DEFAULT_PERIODS
 #define MAL_DEFAULT_PERIODS                         2
 #endif
+
+
+mal_uint8 MAL_CHANNEL_MAP_MONO[MAL_MAX_CHANNELS] = {
+    MAL_CHANNEL_FRONT_CENTER
+};
+mal_uint8 MAL_CHANNEL_MAP_STEREO[MAL_MAX_CHANNELS] = {
+    MAL_CHANNEL_FRONT_LEFT, MAL_CHANNEL_FRONT_RIGHT
+};
+mal_uint8 MAL_CHANNEL_MAP_5POINT1[MAL_MAX_CHANNELS] = {
+    MAL_CHANNEL_FRONT_LEFT, MAL_CHANNEL_FRONT_RIGHT, MAL_CHANNEL_FRONT_CENTER, MAL_CHANNEL_LFE, MAL_CHANNEL_BACK_LEFT, MAL_CHANNEL_BACK_RIGHT
+};
 
 
 ///////////////////////////////////////////////////////////////////////////////
@@ -5280,14 +5317,16 @@ mal_result mal_device_init(mal_context* pContext, mal_device_type type, mal_devi
     pDevice->type = type;
     pDevice->format = pConfig->format;
     pDevice->channels = pConfig->channels;
+    mal_copy_memory(pDevice->channelMap, pConfig->channelMap, sizeof(pConfig->channelMap[0]) * pConfig->channels);
     pDevice->sampleRate = pConfig->sampleRate;
     pDevice->bufferSizeInFrames = pConfig->bufferSizeInFrames;
     pDevice->periods = pConfig->periods;
-
+    
     // The internal format, channel count and sample rate can be modified by the backend.
     pDevice->internalFormat = pDevice->format;
     pDevice->internalChannels = pDevice->channels;
     pDevice->internalSampleRate = pDevice->sampleRate;
+    mal_copy_memory(pDevice->internalChannelMap, pDevice->channelMap, sizeof(pDevice->channelMap));
 
     if (!mal_mutex_create(&pDevice->lock)) {
         return mal_post_error(pDevice, "Failed to create mutex.", MAL_FAILED_TO_CREATE_MUTEX);
@@ -5372,6 +5411,26 @@ mal_result mal_device_init(mal_context* pContext, mal_device_type type, mal_devi
     }
     if (pDevice->sampleRate != pDevice->internalSampleRate) {
         pDevice->flags |= MAL_DEVICE_FLAG_USING_FOREIGN_SAMPLE_RATE;
+    }
+    for (mal_uint32 i = 0; i < pDevice->channels && i < pDevice->internalChannels; ++i) {
+        if (pDevice->channelMap[i] != pDevice->internalChannelMap[i]) {
+            pDevice->flags |= MAL_DEVICE_FLAG_USING_FOREIGN_CHANNEL_MAP;
+            break;
+        }
+    }
+
+
+    // When we do channel shuffling we will need to know how each channel index maps between the client and the device.
+    if (pDevice->flags & MAL_DEVICE_FLAG_USING_FOREIGN_CHANNEL_MAP) {
+        if (type == mal_device_type_playback) {
+            for (mal_uint32 i = 0; i < pDevice->channels; ++i) {
+
+            }
+        } else {
+            for (mal_uint32 i = 0; i < pDevice->internalChannels; ++i) {
+
+            }
+        }
     }
 
 
