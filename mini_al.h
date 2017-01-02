@@ -343,6 +343,18 @@ typedef struct
     int64_t counter;
 } mal_timer;
 
+typedef mal_uint32 (* mal_dsp_read_proc)(mal_uint32 frameCount, void* pSamplesOut, void* pUserData);
+typedef struct
+{
+    mal_format formatIn;
+    mal_uint32 channelsIn;
+    mal_uint32 sampleRateIn;
+    mal_format formatOut;
+    mal_uint32 channelsOut;
+    mal_uint32 sampleRateOut;
+    float bin[256]; // Only used with SRC.
+} mal_dsp;
+
 typedef struct
 {
     mal_format format;
@@ -518,6 +530,7 @@ struct mal_device
     mal_format internalFormat;
     mal_uint32 internalChannels;
     mal_uint32 internalSampleRate;
+    mal_dsp dsp;            // Samples run through this to convert samples to a format suitable for use by the backend.
 
     union
     {
@@ -845,6 +858,29 @@ mal_uint32 mal_device_get_buffer_size_in_bytes(mal_device* pDevice);
 // Efficiency: HIGH
 //   This is implemented with a lookup table.
 mal_uint32 mal_get_sample_size_in_bytes(mal_format format);
+
+
+
+///////////////////////////////////////////////////////////////////////////////
+//
+// DSP
+//
+///////////////////////////////////////////////////////////////////////////////
+typedef struct
+{
+    mal_format formatIn;
+    mal_uint32 channelsIn;
+    mal_uint32 sampleRateIn;
+    mal_format formatOut;
+    mal_uint32 channelsOut;
+    mal_uint32 sampleRateOut;
+} mal_dsp_config;
+
+// Initializes a DSP object.
+mal_result mal_dsp_init(mal_dsp_config* pConfig, mal_dsp* pDSP);
+
+// Reads a number of samples and runs them through the DSP processor.
+mal_uint32 mal_dsp_process(mal_dsp* pDSP, mal_dsp_read_proc onRead, void* pUserData, void* pSamplesOut, mal_uint32 sampleCount);
 
 
 #ifdef __cplusplus
@@ -1530,98 +1566,50 @@ static mal_result mal_post_error(mal_device* pDevice, const char* message, mal_r
 }
 
 
-// Conversion functions.
-void mal_pcm_u8_to_s16(short* pOut, const unsigned char* pIn, unsigned int count);
-void mal_pcm_u8_to_s24(void* pOut, const unsigned char* pIn, unsigned int count);
-void mal_pcm_u8_to_s32(int* pOut, const unsigned char* pIn, unsigned int count);
-void mal_pcm_u8_to_f32(float* pOut, const unsigned char* pIn, unsigned int count);
-void mal_pcm_s16_to_u8(unsigned char* pOut, const short* pIn, unsigned int count);
-void mal_pcm_s16_to_s24(void* pOut, const short* pIn, unsigned int count);
-void mal_pcm_s16_to_s32(int* pOut, const short* pIn, unsigned int count);
-void mal_pcm_s16_to_f32(float* pOut, const short* pIn, unsigned int count);
-void mal_pcm_s24_to_u8(unsigned char* pOut, const void* pIn, unsigned int count);
-void mal_pcm_s24_to_s16(short* pOut, const void* pIn, unsigned int count);
-void mal_pcm_s24_to_s32(int* pOut, const void* pIn, unsigned int count);
-void mal_pcm_s24_to_f32(float* pOut, const void* pIn, unsigned int count);
-void mal_pcm_s32_to_u8(unsigned char* pOut, const int* pIn, unsigned int count);
-void mal_pcm_s32_to_s16(short* pOut, const int* pIn, unsigned int count);
-void mal_pcm_s32_to_s24(void* pOut, const int* pIn, unsigned int count);
-void mal_pcm_s32_to_f32(float* pOut, const int* pIn, unsigned int count);
-void mal_pcm_f32_to_u8(unsigned char* pOut, const float* pIn, unsigned int count);
-void mal_pcm_f32_to_s16(short* pOut, const float* pIn, unsigned int count);
-void mal_pcm_f32_to_s24(void* pOut, const float* pIn, unsigned int count);
-void mal_pcm_f32_to_s32(int* pOut, const float* pIn, unsigned int count);
 
-static void mal_pcm_convert(void* pOut, mal_format formatOut, const void* pIn, mal_format formatIn, unsigned int count)
+// The callback for reading from the client -> DSP -> device.
+static inline mal_uint32 mal_device__on_read_from_client(mal_uint32 frameCount, void* pFramesOut, void* pUserData)
 {
-    if (formatOut == formatIn) {
-        memcpy(pOut, pIn, count * mal_get_sample_size_in_bytes(formatOut));
+    mal_device* pDevice = (mal_device*)pUserData;
+    mal_assert(pDevice != NULL);
+
+    mal_send_proc onSend = pDevice->onSend;
+    if (onSend) {
+        return onSend(pDevice, frameCount, pFramesOut);
     }
 
-    switch (formatIn)
-    {
-        case mal_format_u8:
-        {
-            switch (formatOut)
-            {
-                case mal_format_s16: mal_pcm_u8_to_s16(pOut, pIn, count); return;
-                case mal_format_s24: mal_pcm_u8_to_s24(pOut, pIn, count); return;
-                case mal_format_s32: mal_pcm_u8_to_s32(pOut, pIn, count); return;
-                case mal_format_f32: mal_pcm_u8_to_f32(pOut, pIn, count); return;
-                default: break;
-            }
-        } break;
+    return 0;
+}
 
-        case mal_format_s16:
-        {
-            switch (formatOut)
-            {
-                case mal_format_u8:  mal_pcm_s16_to_u8( pOut, pIn, count); return;
-                case mal_format_s24: mal_pcm_s16_to_s24(pOut, pIn, count); return;
-                case mal_format_s32: mal_pcm_s16_to_s32(pOut, pIn, count); return;
-                case mal_format_f32: mal_pcm_s16_to_f32(pOut, pIn, count); return;
-                default: break;
-            }
-        } break;
+// The callback for reading from the device -> DSP -> client.
+typedef struct
+{
+    mal_device* pDevice;
+    mal_uint32 frameCount;
+    const mal_uint8* pFrames;
+} mal_device__on_read_from_device__data;
 
-        case mal_format_s24:
-        {
-            switch (formatOut)
-            {
-                case mal_format_u8:  mal_pcm_s24_to_u8( pOut, pIn, count); return;
-                case mal_format_s16: mal_pcm_s24_to_s16(pOut, pIn, count); return;
-                case mal_format_s32: mal_pcm_s24_to_s32(pOut, pIn, count); return;
-                case mal_format_f32: mal_pcm_s24_to_f32(pOut, pIn, count); return;
-                default: break;
-            }
-        } break;
+static inline mal_uint32 mal_device__on_read_from_device(mal_uint32 frameCount, void* pFramesOut, void* pUserData)
+{
+    mal_device__on_read_from_device__data* pData = (mal_device__on_read_from_device__data*)pUserData;
+    mal_assert(pData != NULL);
+    mal_assert(pData->pDevice != NULL);
 
-        case mal_format_s32:
-        {
-            switch (formatOut)
-            {
-                case mal_format_u8:  mal_pcm_s32_to_u8( pOut, pIn, count); return;
-                case mal_format_s16: mal_pcm_s32_to_s16(pOut, pIn, count); return;
-                case mal_format_s24: mal_pcm_s32_to_s24(pOut, pIn, count); return;
-                case mal_format_f32: mal_pcm_s32_to_f32(pOut, pIn, count); return;
-                default: break;
-            }
-        } break;
-
-        case mal_format_f32:
-        {
-            switch (formatOut)
-            {
-                case mal_format_u8:  mal_pcm_f32_to_u8( pOut, pIn, count); return;
-                case mal_format_s16: mal_pcm_f32_to_s16(pOut, pIn, count); return;
-                case mal_format_s24: mal_pcm_f32_to_s24(pOut, pIn, count); return;
-                case mal_format_s32: mal_pcm_f32_to_s32(pOut, pIn, count); return;
-                default: break;
-            }
-        } break;
-
-        default: break;
+    if (pData->frameCount == 0) {
+        return 0;   // Nothing left.
     }
+
+    mal_uint32 framesToRead = frameCount;
+    if (framesToRead > pData->frameCount) {
+        framesToRead = pData->frameCount;
+    }
+
+    mal_uint32 bytesToRead = framesToRead * pData->pDevice->internalChannels * mal_get_sample_size_in_bytes(pData->pDevice->internalFormat);
+    mal_copy_memory(pFramesOut, pData->pFrames, bytesToRead);
+    pData->frameCount -= framesToRead;
+    pData->pFrames += bytesToRead;
+
+    return framesToRead;
 }
 
 // A helper function for reading sample data from the client. Returns the number of samples read from the client. Remaining samples
@@ -1632,42 +1620,7 @@ static inline mal_uint32 mal_device__read_frames_from_client(mal_device* pDevice
     mal_assert(frameCount > 0);
     mal_assert(pSamples != NULL);
 
-    // Some format conversions are not currently supported.
-    if (pDevice->flags & (MAL_DEVICE_FLAG_USING_FOREIGN_CHANNELS | MAL_DEVICE_FLAG_USING_FOREIGN_SAMPLE_RATE)) {
-        return 0;
-    }
-
-    mal_uint32 framesRead = 0;
-    mal_send_proc onSend = pDevice->onSend;
-    if (onSend) {
-        if ((pDevice->flags & (MAL_DEVICE_FLAG_USING_FOREIGN_FORMAT | MAL_DEVICE_FLAG_USING_FOREIGN_CHANNELS | MAL_DEVICE_FLAG_USING_FOREIGN_SAMPLE_RATE)) == 0) {
-            // Fast path.
-            framesRead = onSend(pDevice, frameCount, pSamples);
-        } else {
-            // Slow(er) path. Need to convert before writing into the final output buffer.
-            mal_uint8 scratchBuffer[4096];
-            mal_uint32 chunkSampleCount = sizeof(scratchBuffer) / mal_get_sample_size_in_bytes(pDevice->format);
-            mal_uint32 chunkFrameCount = chunkSampleCount / pDevice->channels;
-
-            mal_uint32 framesRemaining = frameCount;
-            while (framesRemaining > 0) {
-                mal_uint32 framesJustRead = onSend(pDevice, (chunkFrameCount < framesRemaining) ? chunkFrameCount : framesRemaining, scratchBuffer);
-                if (framesJustRead == 0) {
-                    break;
-                }
-
-                mal_uint32 samplesJustRead = framesJustRead * pDevice->channels;
-
-                if (pDevice->flags & MAL_DEVICE_FLAG_USING_FOREIGN_FORMAT) {
-                    mal_pcm_convert((mal_uint8*)pSamples + (framesRead * pDevice->internalChannels * mal_get_sample_size_in_bytes(pDevice->internalFormat)), pDevice->internalFormat, scratchBuffer, pDevice->format, samplesJustRead);
-                }
-
-                framesRemaining -= framesJustRead;
-                framesRead += framesJustRead;
-            }
-        }
-    }
-
+    mal_uint32 framesRead = mal_dsp_process(&pDevice->dsp, mal_device__on_read_from_client, pDevice, pSamples, frameCount);
     mal_uint32 samplesRead = framesRead * pDevice->internalChannels;
     mal_uint32 sampleSize = mal_get_sample_size_in_bytes(pDevice->internalFormat);
     mal_uint32 consumedBytes = samplesRead*sampleSize;
@@ -1684,37 +1637,23 @@ static inline void mal_device__send_frames_to_client(mal_device* pDevice, mal_ui
     mal_assert(frameCount > 0);
     mal_assert(pSamples != NULL);
 
-    // Some format conversions are not currently supported.
-    if (pDevice->flags & (MAL_DEVICE_FLAG_USING_FOREIGN_CHANNELS | MAL_DEVICE_FLAG_USING_FOREIGN_SAMPLE_RATE)) {
-        return;
-    }
-
     mal_recv_proc onRecv = pDevice->onRecv;
     if (onRecv) {
-        if ((pDevice->flags & (MAL_DEVICE_FLAG_USING_FOREIGN_FORMAT | MAL_DEVICE_FLAG_USING_FOREIGN_CHANNELS | MAL_DEVICE_FLAG_USING_FOREIGN_SAMPLE_RATE)) == 0) {
-            // Fast path.
-            onRecv(pDevice, frameCount, pSamples);
-        } else {
-            // Slow(er) path. Need to convert before sending to the client.
-            mal_uint8 scratchBuffer[4096];
-            mal_uint32 chunkSampleCount = sizeof(scratchBuffer) / mal_get_sample_size_in_bytes(pDevice->format);
-            mal_uint32 chunkFrameCount = chunkSampleCount / pDevice->channels;
+        mal_device__on_read_from_device__data data;
+        data.pDevice = pDevice;
+        data.frameCount = frameCount;
+        data.pFrames = pSamples;
 
-            mal_uint32 framesSent = 0;
-            mal_uint32 framesRemaining = frameCount;
-            while (framesRemaining > 0) {
-                mal_uint32 framesToSend = (chunkFrameCount < framesRemaining) ? chunkFrameCount : framesRemaining;
-                mal_uint32 samplesToSend = framesToSend * pDevice->channels;
+        mal_uint8 chunkBuffer[4096];
+        mal_uint32 chunkFrameCount = sizeof(chunkBuffer) / mal_get_sample_size_in_bytes(pDevice->format) / pDevice->channels;
 
-                if (pDevice->flags & MAL_DEVICE_FLAG_USING_FOREIGN_FORMAT) {
-                    mal_pcm_convert(scratchBuffer, pDevice->format, (mal_uint8*)pSamples + (framesSent * pDevice->internalChannels * mal_get_sample_size_in_bytes(pDevice->internalFormat)), pDevice->internalFormat, samplesToSend);
-                }
-
-                onRecv(pDevice, framesToSend, scratchBuffer);
-
-                framesRemaining -= framesToSend;
-                framesSent += framesToSend;
+        for (;;) {
+            mal_uint32 framesJustRead = mal_dsp_process(&pDevice->dsp, mal_device__on_read_from_device, &data, chunkBuffer, chunkFrameCount);
+            if (framesJustRead == 0) {
+                break;
             }
+
+            onRecv(pDevice, framesJustRead, chunkBuffer);
         }
     }
 }
@@ -5396,6 +5335,28 @@ mal_result mal_device_init(mal_context* pContext, mal_device_type type, mal_devi
     }
 
 
+    // We need a DSP object which is where samples are moved through in order to convert them to the
+    // format required by the backend.
+    mal_dsp_config dspConfig;
+    if (type == mal_device_type_playback) {
+        dspConfig.formatIn      = pDevice->format;
+        dspConfig.channelsIn    = pDevice->channels;
+        dspConfig.sampleRateIn  = pDevice->sampleRate;
+        dspConfig.formatOut     = pDevice->internalFormat;
+        dspConfig.channelsOut   = pDevice->internalChannels;
+        dspConfig.sampleRateOut = pDevice->internalSampleRate;
+    } else {
+        dspConfig.formatIn      = pDevice->internalFormat;
+        dspConfig.channelsIn    = pDevice->internalChannels;
+        dspConfig.sampleRateIn  = pDevice->internalSampleRate;
+        dspConfig.formatOut     = pDevice->format;
+        dspConfig.channelsOut   = pDevice->channels;
+        dspConfig.sampleRateOut = pDevice->sampleRate;
+    }
+
+    mal_dsp_init(&dspConfig, &pDevice->dsp);
+
+
     // Some backends don't require the worker thread.
     if (pContext->backend != mal_backend_opensl) {
         // The worker thread.
@@ -5615,6 +5576,166 @@ mal_uint32 mal_get_sample_size_in_bytes(mal_format format)
         4,  // f32
     };
     return sizes[format];
+}
+
+
+
+//////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+//////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+//
+// FORMAT CONVERSION
+//
+//////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+//////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+void mal_pcm_u8_to_s16(short* pOut, const unsigned char* pIn, unsigned int count);
+void mal_pcm_u8_to_s24(void* pOut, const unsigned char* pIn, unsigned int count);
+void mal_pcm_u8_to_s32(int* pOut, const unsigned char* pIn, unsigned int count);
+void mal_pcm_u8_to_f32(float* pOut, const unsigned char* pIn, unsigned int count);
+void mal_pcm_s16_to_u8(unsigned char* pOut, const short* pIn, unsigned int count);
+void mal_pcm_s16_to_s24(void* pOut, const short* pIn, unsigned int count);
+void mal_pcm_s16_to_s32(int* pOut, const short* pIn, unsigned int count);
+void mal_pcm_s16_to_f32(float* pOut, const short* pIn, unsigned int count);
+void mal_pcm_s24_to_u8(unsigned char* pOut, const void* pIn, unsigned int count);
+void mal_pcm_s24_to_s16(short* pOut, const void* pIn, unsigned int count);
+void mal_pcm_s24_to_s32(int* pOut, const void* pIn, unsigned int count);
+void mal_pcm_s24_to_f32(float* pOut, const void* pIn, unsigned int count);
+void mal_pcm_s32_to_u8(unsigned char* pOut, const int* pIn, unsigned int count);
+void mal_pcm_s32_to_s16(short* pOut, const int* pIn, unsigned int count);
+void mal_pcm_s32_to_s24(void* pOut, const int* pIn, unsigned int count);
+void mal_pcm_s32_to_f32(float* pOut, const int* pIn, unsigned int count);
+void mal_pcm_f32_to_u8(unsigned char* pOut, const float* pIn, unsigned int count);
+void mal_pcm_f32_to_s16(short* pOut, const float* pIn, unsigned int count);
+void mal_pcm_f32_to_s24(void* pOut, const float* pIn, unsigned int count);
+void mal_pcm_f32_to_s32(int* pOut, const float* pIn, unsigned int count);
+
+static void mal_pcm_convert(void* pOut, mal_format formatOut, const void* pIn, mal_format formatIn, unsigned int sampleCount)
+{
+    if (formatOut == formatIn) {
+        memcpy(pOut, pIn, sampleCount * mal_get_sample_size_in_bytes(formatOut));
+    }
+
+    switch (formatIn)
+    {
+        case mal_format_u8:
+        {
+            switch (formatOut)
+            {
+                case mal_format_s16: mal_pcm_u8_to_s16(pOut, pIn, sampleCount); return;
+                case mal_format_s24: mal_pcm_u8_to_s24(pOut, pIn, sampleCount); return;
+                case mal_format_s32: mal_pcm_u8_to_s32(pOut, pIn, sampleCount); return;
+                case mal_format_f32: mal_pcm_u8_to_f32(pOut, pIn, sampleCount); return;
+                default: break;
+            }
+        } break;
+
+        case mal_format_s16:
+        {
+            switch (formatOut)
+            {
+                case mal_format_u8:  mal_pcm_s16_to_u8( pOut, pIn, sampleCount); return;
+                case mal_format_s24: mal_pcm_s16_to_s24(pOut, pIn, sampleCount); return;
+                case mal_format_s32: mal_pcm_s16_to_s32(pOut, pIn, sampleCount); return;
+                case mal_format_f32: mal_pcm_s16_to_f32(pOut, pIn, sampleCount); return;
+                default: break;
+            }
+        } break;
+
+        case mal_format_s24:
+        {
+            switch (formatOut)
+            {
+                case mal_format_u8:  mal_pcm_s24_to_u8( pOut, pIn, sampleCount); return;
+                case mal_format_s16: mal_pcm_s24_to_s16(pOut, pIn, sampleCount); return;
+                case mal_format_s32: mal_pcm_s24_to_s32(pOut, pIn, sampleCount); return;
+                case mal_format_f32: mal_pcm_s24_to_f32(pOut, pIn, sampleCount); return;
+                default: break;
+            }
+        } break;
+
+        case mal_format_s32:
+        {
+            switch (formatOut)
+            {
+                case mal_format_u8:  mal_pcm_s32_to_u8( pOut, pIn, sampleCount); return;
+                case mal_format_s16: mal_pcm_s32_to_s16(pOut, pIn, sampleCount); return;
+                case mal_format_s24: mal_pcm_s32_to_s24(pOut, pIn, sampleCount); return;
+                case mal_format_f32: mal_pcm_s32_to_f32(pOut, pIn, sampleCount); return;
+                default: break;
+            }
+        } break;
+
+        case mal_format_f32:
+        {
+            switch (formatOut)
+            {
+                case mal_format_u8:  mal_pcm_f32_to_u8( pOut, pIn, sampleCount); return;
+                case mal_format_s16: mal_pcm_f32_to_s16(pOut, pIn, sampleCount); return;
+                case mal_format_s24: mal_pcm_f32_to_s24(pOut, pIn, sampleCount); return;
+                case mal_format_s32: mal_pcm_f32_to_s32(pOut, pIn, sampleCount); return;
+                default: break;
+            }
+        } break;
+
+        default: break;
+    }
+}
+
+mal_result mal_dsp_init(mal_dsp_config* pConfig, mal_dsp* pDSP)
+{
+    if (pDSP == NULL) return MAL_INVALID_ARGS;
+    pDSP->formatIn      = pConfig->formatIn;
+    pDSP->channelsIn    = pConfig->channelsIn;
+    pDSP->sampleRateIn  = pConfig->sampleRateIn;
+    pDSP->formatOut     = pConfig->formatOut;
+    pDSP->channelsOut   = pConfig->channelsOut;
+    pDSP->sampleRateOut = pConfig->sampleRateOut;
+    mal_zero_memory(pDSP->bin, sizeof(pDSP->bin));
+
+    return MAL_SUCCESS;
+}
+
+mal_uint32 mal_dsp_process_chunk(mal_dsp* pDSP, void* pFramesOut, const void* pFramesIn, mal_uint32 frameCount)
+{
+    if (pDSP->sampleRateIn == pDSP->sampleRateOut) {
+        // Fast-ish path. No SRC.
+        if (pDSP->channelsIn == pDSP->channelsIn) {
+            // Faster path. No SRC and no channel conversion.
+            mal_pcm_convert(pFramesOut, pDSP->formatOut, pFramesIn, pDSP->formatIn, frameCount * pDSP->channelsIn);
+            return frameCount;
+        } else {
+            // Channel conversion + format conversion.
+            return 0;
+        }
+    } else {
+        // Slowest path. This is the SRC path which requires an extra conversion step to f32 before processing.
+        return 0;   // TODO: Implement SRC.
+    }
+}
+
+mal_uint32 mal_dsp_process(mal_dsp* pDSP, mal_dsp_read_proc onRead, void* pUserData, void* pFramesOut, mal_uint32 frameCount)
+{
+    if (pDSP == NULL || pFramesOut == NULL || onRead == NULL) return 0;
+
+    mal_uint32 framesRead = 0;
+    if (pDSP->formatIn == pDSP->formatOut && pDSP->channelsIn == pDSP->channelsOut && pDSP->sampleRateIn == pDSP->sampleRateOut) {
+        framesRead = onRead(frameCount, pFramesOut, pUserData);
+    } else {
+        mal_uint8 chunkBuffer[4096];
+        mal_uint32 chunkFrameCount = sizeof(chunkBuffer) / mal_get_sample_size_in_bytes(pDSP->formatIn) / pDSP->channelsIn;
+
+        mal_uint32 framesRemaining = frameCount;
+        while (framesRemaining > 0) {
+            mal_uint32 framesJustRead  = onRead((chunkFrameCount < framesRemaining) ? chunkFrameCount : framesRemaining, chunkBuffer, pUserData);
+            if (framesJustRead == 0) {
+                break;
+            }
+
+            framesRemaining -= framesJustRead;
+            framesRead += mal_dsp_process_chunk(pDSP, (mal_uint8*)pFramesOut + (framesRead * pDSP->channelsOut * mal_get_sample_size_in_bytes(pDSP->formatOut)), chunkBuffer, framesJustRead);
+        }
+    }
+
+    return framesRead;
 }
 
 
