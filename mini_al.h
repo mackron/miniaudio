@@ -1303,11 +1303,6 @@ void mal_sleep__win32(mal_uint32 milliseconds)
     Sleep((DWORD)milliseconds);
 }
 
-void mal_yield__win32()
-{
-    SwitchToThread();
-}
-
 
 mal_bool32 mal_mutex_create__win32(mal_mutex* pMutex)
 {
@@ -1376,11 +1371,6 @@ void mal_thread_wait__posix(mal_thread* pThread)
 void mal_sleep__posix(mal_uint32 milliseconds)
 {
     usleep(milliseconds * 1000);    // <-- usleep is in microseconds.
-}
-
-void mal_yield__posix()
-{
-    sched_yield();
 }
 
 
