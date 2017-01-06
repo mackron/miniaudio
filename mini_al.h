@@ -346,6 +346,12 @@ typedef enum
     mal_format_f32 = 4,
 } mal_format;
 
+typedef enum
+{
+    mal_channel_mix_mode_basic,     // Drop excess channels; zeroed out extra channels.
+    mal_channel_mix_mode_blend,     // Blend channels based on locality.
+} mal_channel_mix_mode;
+
 typedef union
 {
     // Just look at this shit...
@@ -367,17 +373,36 @@ typedef struct
     int64_t counter;
 } mal_timer;
 
-typedef mal_uint32 (* mal_dsp_read_proc)(mal_uint32 frameCount, void* pSamplesOut, void* pUserData);
+
+
+typedef struct mal_dsp mal_dsp;
+typedef mal_uint32 (* mal_dsp_read_proc)   (mal_uint32 frameCount, void* pSamplesOut, void* pUserData);
+typedef mal_uint32 (* mal_dsp_process_proc)(mal_dsp* pDSP, mal_dsp_read_proc onRead, void* pUserData, void* pFramesOut, mal_uint32 frameCount);
+
 typedef struct
 {
     mal_format formatIn;
     mal_uint32 channelsIn;
     mal_uint32 sampleRateIn;
+    mal_uint8  channelMapIn[MAL_MAX_CHANNELS];
     mal_format formatOut;
     mal_uint32 channelsOut;
     mal_uint32 sampleRateOut;
-    float bin[256]; // Only used with SRC.
-} mal_dsp;
+    mal_uint8  channelMapOut[MAL_MAX_CHANNELS];
+} mal_dsp_config;
+
+struct mal_dsp
+{
+    mal_dsp_config config;
+    mal_dsp_process_proc onProcess;
+    mal_bool32 isUsingForeignChannelMap : 1;
+    struct
+    {
+        float ratio;
+        float bin[256]; // Will hold previous samples for handling interpolation and whatnot.
+    } src;
+};
+
 
 typedef struct
 {
@@ -894,15 +919,6 @@ mal_uint32 mal_get_sample_size_in_bytes(mal_format format);
 // DSP
 //
 ///////////////////////////////////////////////////////////////////////////////
-typedef struct
-{
-    mal_format formatIn;
-    mal_uint32 channelsIn;
-    mal_uint32 sampleRateIn;
-    mal_format formatOut;
-    mal_uint32 channelsOut;
-    mal_uint32 sampleRateOut;
-} mal_dsp_config;
 
 // Initializes a DSP object.
 mal_result mal_dsp_init(mal_dsp_config* pConfig, mal_dsp* pDSP);
@@ -5393,6 +5409,7 @@ mal_result mal_device_init(mal_context* pContext, mal_device_type type, mal_devi
 
 
     // Some flags need to be set if the backend is using a different internal format, channel count or sample rate.
+    // TODO: Verify that these flags are still being used.
     if (pDevice->format != pDevice->internalFormat) {
         pDevice->flags |= MAL_DEVICE_FLAG_USING_FOREIGN_FORMAT;
     }
@@ -5413,12 +5430,12 @@ mal_result mal_device_init(mal_context* pContext, mal_device_type type, mal_devi
     // When we do channel shuffling we will need to know how each channel index maps between the client and the device.
     if (pDevice->flags & MAL_DEVICE_FLAG_USING_FOREIGN_CHANNEL_MAP) {
         if (type == mal_device_type_playback) {
-            for (mal_uint32 i = 0; i < pDevice->channels; ++i) {
-
+            for (mal_uint32 i = 0; i < pDevice->channels && i < pDevice->internalChannels; ++i) {
+                pDevice->channelShuffleTable[i] = (mal_uint8)i;
             }
         } else {
-            for (mal_uint32 i = 0; i < pDevice->internalChannels; ++i) {
-
+            for (mal_uint32 i = 0; i < pDevice->channels && i < pDevice->internalChannels; ++i) {
+                pDevice->channelShuffleTable[i] = (mal_uint8)i;
             }
         }
     }
@@ -5431,16 +5448,20 @@ mal_result mal_device_init(mal_context* pContext, mal_device_type type, mal_devi
         dspConfig.formatIn      = pDevice->format;
         dspConfig.channelsIn    = pDevice->channels;
         dspConfig.sampleRateIn  = pDevice->sampleRate;
+        mal_copy_memory(dspConfig.channelMapIn, pDevice->channelMap, sizeof(dspConfig.channelMapIn));
         dspConfig.formatOut     = pDevice->internalFormat;
         dspConfig.channelsOut   = pDevice->internalChannels;
         dspConfig.sampleRateOut = pDevice->internalSampleRate;
+        mal_copy_memory(dspConfig.channelMapOut, pDevice->internalChannelMap, sizeof(dspConfig.channelMapOut));
     } else {
         dspConfig.formatIn      = pDevice->internalFormat;
         dspConfig.channelsIn    = pDevice->internalChannels;
         dspConfig.sampleRateIn  = pDevice->internalSampleRate;
+        mal_copy_memory(dspConfig.channelMapIn, pDevice->internalChannelMap, sizeof(dspConfig.channelMapIn));
         dspConfig.formatOut     = pDevice->format;
         dspConfig.channelsOut   = pDevice->channels;
         dspConfig.sampleRateOut = pDevice->sampleRate;
+        mal_copy_memory(dspConfig.channelMapOut, pDevice->channelMap, sizeof(dspConfig.channelMapOut));
     }
 
     mal_dsp_init(&dspConfig, &pDevice->dsp);
@@ -5546,7 +5567,7 @@ mal_result mal_device_start(mal_device* pDevice)
 {
     if (pDevice == NULL) return mal_post_error(pDevice, "mal_device_start() called with invalid arguments.", MAL_INVALID_ARGS);
     if (mal_device__get_state(pDevice) == MAL_STATE_UNINITIALIZED) return mal_post_error(pDevice, "mal_device_start() called for an uninitialized device.", MAL_DEVICE_NOT_INITIALIZED);
-
+    
     mal_result result = MAL_ERROR;
     mal_mutex_lock(&pDevice->lock);
     {
@@ -5769,10 +5790,12 @@ static void mal_pcm_convert(void* pOut, mal_format formatOut, const void* pIn, m
     }
 }
 
-static void mal_rearrange_channels(float* pFrame, mal_uint32 channels, mal_uint32 channelMap[16])
+static void mal_rearrange_channels(float* pFrame, mal_uint32 channels, mal_uint32 channelMap[18])
 {
     float temp;
     switch (channels) {
+        case 18: temp = pFrame[17]; pFrame[17] = pFrame[channelMap[17]]; pFrame[channelMap[17]] = temp;
+        case 17: temp = pFrame[16]; pFrame[16] = pFrame[channelMap[16]]; pFrame[channelMap[16]] = temp;
         case 16: temp = pFrame[15]; pFrame[15] = pFrame[channelMap[15]]; pFrame[channelMap[15]] = temp;
         case 15: temp = pFrame[14]; pFrame[14] = pFrame[channelMap[14]]; pFrame[channelMap[14]] = temp;
         case 14: temp = pFrame[13]; pFrame[13] = pFrame[channelMap[13]]; pFrame[channelMap[13]] = temp;
@@ -5792,92 +5815,284 @@ static void mal_rearrange_channels(float* pFrame, mal_uint32 channels, mal_uint3
     }
 }
 
-static void mal_convert_channels_to_mono(float* pFrame, mal_uint32 channels)
+static void mal_dsp_mix_channels__dec(float* pFramesOut, mal_uint32 channelsOut, const float* pFramesIn, mal_uint32 channelsIn, mal_uint32 frameCount, mal_channel_mix_mode mode)
 {
-    // Mono is just an averaging of each channel.
-    float total = 0;
-    switch (channels) {
-        case 16: total += pFrame[15];
-        case 15: total += pFrame[14];
-        case 14: total += pFrame[13];
-        case 13: total += pFrame[12];
-        case 12: total += pFrame[11];
-        case 11: total += pFrame[10];
-        case 10: total += pFrame[ 9];
-        case  9: total += pFrame[ 8];
-        case  8: total += pFrame[ 7];
-        case  7: total += pFrame[ 6];
-        case  6: total += pFrame[ 5];
-        case  5: total += pFrame[ 4];
-        case  4: total += pFrame[ 3];
-        case  3: total += pFrame[ 2];
-        case  2: total += pFrame[ 1];
-        case  1: total += pFrame[ 0];
-    }
+    mal_assert(pFramesOut != NULL);
+    mal_assert(channelsOut > 0);
+    mal_assert(pFramesIn != NULL);
+    mal_assert(channelsIn > 0);
+    mal_assert(channelsOut < channelsIn);
 
-    pFrame[0] = total / channels;
+    if (mode == mal_channel_mix_mode_basic) {
+        // Basic mode is where we just drop excess channels.
+        for (mal_uint32 iFrame = 0; iFrame < frameCount; ++iFrame) {
+            switch (channelsOut) {
+                case 17: pFramesOut[iFrame*channelsOut+16] = pFramesIn[iFrame*channelsIn+16];
+                case 16: pFramesOut[iFrame*channelsOut+15] = pFramesIn[iFrame*channelsIn+15];
+                case 15: pFramesOut[iFrame*channelsOut+14] = pFramesIn[iFrame*channelsIn+14];
+                case 14: pFramesOut[iFrame*channelsOut+13] = pFramesIn[iFrame*channelsIn+13];
+                case 13: pFramesOut[iFrame*channelsOut+12] = pFramesIn[iFrame*channelsIn+12];
+                case 12: pFramesOut[iFrame*channelsOut+11] = pFramesIn[iFrame*channelsIn+11];
+                case 11: pFramesOut[iFrame*channelsOut+10] = pFramesIn[iFrame*channelsIn+10];
+                case 10: pFramesOut[iFrame*channelsOut+ 9] = pFramesIn[iFrame*channelsIn+ 9];
+                case  9: pFramesOut[iFrame*channelsOut+ 8] = pFramesIn[iFrame*channelsIn+ 8];
+                case  8: pFramesOut[iFrame*channelsOut+ 7] = pFramesIn[iFrame*channelsIn+ 7];
+                case  7: pFramesOut[iFrame*channelsOut+ 6] = pFramesIn[iFrame*channelsIn+ 6];
+                case  6: pFramesOut[iFrame*channelsOut+ 5] = pFramesIn[iFrame*channelsIn+ 5];
+                case  5: pFramesOut[iFrame*channelsOut+ 4] = pFramesIn[iFrame*channelsIn+ 4];
+                case  4: pFramesOut[iFrame*channelsOut+ 3] = pFramesIn[iFrame*channelsIn+ 3];
+                case  3: pFramesOut[iFrame*channelsOut+ 2] = pFramesIn[iFrame*channelsIn+ 2];
+                case  2: pFramesOut[iFrame*channelsOut+ 1] = pFramesIn[iFrame*channelsIn+ 1];
+                case  1: pFramesOut[iFrame*channelsOut+ 0] = pFramesIn[iFrame*channelsIn+ 0];
+            }
+        }
+    } else {
+        // Blend mode is where we just use simple averaging to blend based on spacial locality. 
+        if (channelsOut == 1) {
+            for (mal_uint32 iFrame = 0; iFrame < frameCount; ++iFrame) {
+                float total = 0;
+                switch (channelsIn) {
+                    case 18: total += pFramesIn[iFrame*channelsIn+17];
+                    case 17: total += pFramesIn[iFrame*channelsIn+16];
+                    case 16: total += pFramesIn[iFrame*channelsIn+15];
+                    case 15: total += pFramesIn[iFrame*channelsIn+14];
+                    case 14: total += pFramesIn[iFrame*channelsIn+13];
+                    case 13: total += pFramesIn[iFrame*channelsIn+12];
+                    case 12: total += pFramesIn[iFrame*channelsIn+11];
+                    case 11: total += pFramesIn[iFrame*channelsIn+10];
+                    case 10: total += pFramesIn[iFrame*channelsIn+ 9];
+                    case  9: total += pFramesIn[iFrame*channelsIn+ 8];
+                    case  8: total += pFramesIn[iFrame*channelsIn+ 7];
+                    case  7: total += pFramesIn[iFrame*channelsIn+ 6];
+                    case  6: total += pFramesIn[iFrame*channelsIn+ 5];
+                    case  5: total += pFramesIn[iFrame*channelsIn+ 4];
+                    case  4: total += pFramesIn[iFrame*channelsIn+ 3];
+                    case  3: total += pFramesIn[iFrame*channelsIn+ 2];
+                    case  2: total += pFramesIn[iFrame*channelsIn+ 1];
+                    case  1: total += pFramesIn[iFrame*channelsIn+ 0];
+                }
+
+                pFramesOut[iFrame+0] = total / channelsIn;
+            }
+        } else if (channelsOut == 2) {
+            // TODO: Implement proper stereo blending.
+            mal_dsp_mix_channels__dec(pFramesOut, channelsOut, pFramesIn, channelsIn, frameCount, mal_channel_mix_mode_basic);
+        } else {
+            // Fall back to basic mode.
+            mal_dsp_mix_channels__dec(pFramesOut, channelsOut, pFramesIn, channelsIn, frameCount, mal_channel_mix_mode_basic);
+        }
+    }
 }
 
-static void mal_convert_channels_from_mono(float* pFrame, mal_uint32 channels)
+static void mal_dsp_mix_channels__inc(float* pFramesOut, mal_uint32 channelsOut, const float* pFramesIn, mal_uint32 channelsIn, mal_uint32 frameCount, mal_channel_mix_mode mode)
 {
-    // Just copy the mono channel to each other channel.
-    switch (channels) {
-        case 16: pFrame[15] = pFrame[0];
-        case 15: pFrame[14] = pFrame[0];
-        case 14: pFrame[13] = pFrame[0];
-        case 13: pFrame[12] = pFrame[0];
-        case 12: pFrame[11] = pFrame[0];
-        case 11: pFrame[10] = pFrame[0];
-        case 10: pFrame[ 9] = pFrame[0];
-        case  9: pFrame[ 8] = pFrame[0];
-        case  8: pFrame[ 7] = pFrame[0];
-        case  7: pFrame[ 6] = pFrame[0];
-        case  6: pFrame[ 5] = pFrame[0];
-        case  5: pFrame[ 4] = pFrame[0];
-        case  4: pFrame[ 3] = pFrame[0];
-        case  3: pFrame[ 2] = pFrame[0];
-        case  2: pFrame[ 1] = pFrame[0];
-        case  1: pFrame[ 0] = pFrame[0];
+    mal_assert(pFramesOut != NULL);
+    mal_assert(channelsOut > 0);
+    mal_assert(pFramesIn != NULL);
+    mal_assert(channelsIn > 0);
+    mal_assert(channelsOut > channelsIn);
+
+    if (mode == mal_channel_mix_mode_basic) {\
+        // Basic mode is where we just zero out extra channels.
+        for (mal_uint32 iFrame = 0; iFrame < frameCount; ++iFrame) {
+            switch (channelsIn) {
+                case 17: pFramesOut[iFrame*channelsOut+16] = pFramesIn[iFrame*channelsIn+16];
+                case 16: pFramesOut[iFrame*channelsOut+15] = pFramesIn[iFrame*channelsIn+15];
+                case 15: pFramesOut[iFrame*channelsOut+14] = pFramesIn[iFrame*channelsIn+14];
+                case 14: pFramesOut[iFrame*channelsOut+13] = pFramesIn[iFrame*channelsIn+13];
+                case 13: pFramesOut[iFrame*channelsOut+12] = pFramesIn[iFrame*channelsIn+12];
+                case 12: pFramesOut[iFrame*channelsOut+11] = pFramesIn[iFrame*channelsIn+11];
+                case 11: pFramesOut[iFrame*channelsOut+10] = pFramesIn[iFrame*channelsIn+10];
+                case 10: pFramesOut[iFrame*channelsOut+ 9] = pFramesIn[iFrame*channelsIn+ 9];
+                case  9: pFramesOut[iFrame*channelsOut+ 8] = pFramesIn[iFrame*channelsIn+ 8];
+                case  8: pFramesOut[iFrame*channelsOut+ 7] = pFramesIn[iFrame*channelsIn+ 7];
+                case  7: pFramesOut[iFrame*channelsOut+ 6] = pFramesIn[iFrame*channelsIn+ 6];
+                case  6: pFramesOut[iFrame*channelsOut+ 5] = pFramesIn[iFrame*channelsIn+ 5];
+                case  5: pFramesOut[iFrame*channelsOut+ 4] = pFramesIn[iFrame*channelsIn+ 4];
+                case  4: pFramesOut[iFrame*channelsOut+ 3] = pFramesIn[iFrame*channelsIn+ 3];
+                case  3: pFramesOut[iFrame*channelsOut+ 2] = pFramesIn[iFrame*channelsIn+ 2];
+                case  2: pFramesOut[iFrame*channelsOut+ 1] = pFramesIn[iFrame*channelsIn+ 1];
+                case  1: pFramesOut[iFrame*channelsOut+ 0] = pFramesIn[iFrame*channelsIn+ 0];
+            }
+
+            // Zero out extra channels.
+            switch (channelsOut - channelsIn) {
+                case 17: pFramesOut[iFrame*channelsOut+16] = 0;
+                case 16: pFramesOut[iFrame*channelsOut+15] = 0;
+                case 15: pFramesOut[iFrame*channelsOut+14] = 0;
+                case 14: pFramesOut[iFrame*channelsOut+13] = 0;
+                case 13: pFramesOut[iFrame*channelsOut+12] = 0;
+                case 12: pFramesOut[iFrame*channelsOut+11] = 0;
+                case 11: pFramesOut[iFrame*channelsOut+10] = 0;
+                case 10: pFramesOut[iFrame*channelsOut+ 9] = 0;
+                case  9: pFramesOut[iFrame*channelsOut+ 8] = 0;
+                case  8: pFramesOut[iFrame*channelsOut+ 7] = 0;
+                case  7: pFramesOut[iFrame*channelsOut+ 6] = 0;
+                case  6: pFramesOut[iFrame*channelsOut+ 5] = 0;
+                case  5: pFramesOut[iFrame*channelsOut+ 4] = 0;
+                case  4: pFramesOut[iFrame*channelsOut+ 3] = 0;
+                case  3: pFramesOut[iFrame*channelsOut+ 2] = 0;
+                case  2: pFramesOut[iFrame*channelsOut+ 1] = 0;
+                case  1: pFramesOut[iFrame*channelsOut+ 0] = 0;
+            }
+        }
+    } else {
+        // Using blended mixing mode. Basically this is just the mode where audio is distributed across all channels
+        // based on spacial locality.
+        if (channelsIn == 1) {
+            for (mal_uint32 iFrame = 0; iFrame < frameCount; ++iFrame) {
+                switch (channelsOut) {
+                    case 18: pFramesOut[iFrame*channelsOut+17] = pFramesIn[iFrame*channelsIn+0];
+                    case 17: pFramesOut[iFrame*channelsOut+16] = pFramesIn[iFrame*channelsIn+0];
+                    case 16: pFramesOut[iFrame*channelsOut+15] = pFramesIn[iFrame*channelsIn+0];
+                    case 15: pFramesOut[iFrame*channelsOut+14] = pFramesIn[iFrame*channelsIn+0];
+                    case 14: pFramesOut[iFrame*channelsOut+13] = pFramesIn[iFrame*channelsIn+0];
+                    case 13: pFramesOut[iFrame*channelsOut+12] = pFramesIn[iFrame*channelsIn+0];
+                    case 12: pFramesOut[iFrame*channelsOut+11] = pFramesIn[iFrame*channelsIn+0];
+                    case 11: pFramesOut[iFrame*channelsOut+10] = pFramesIn[iFrame*channelsIn+0];
+                    case 10: pFramesOut[iFrame*channelsOut+ 9] = pFramesIn[iFrame*channelsIn+0];
+                    case  9: pFramesOut[iFrame*channelsOut+ 8] = pFramesIn[iFrame*channelsIn+0];
+                    case  8: pFramesOut[iFrame*channelsOut+ 7] = pFramesIn[iFrame*channelsIn+0];
+                    case  7: pFramesOut[iFrame*channelsOut+ 6] = pFramesIn[iFrame*channelsIn+0];
+                    case  6: pFramesOut[iFrame*channelsOut+ 5] = pFramesIn[iFrame*channelsIn+0];
+                    case  5: pFramesOut[iFrame*channelsOut+ 4] = pFramesIn[iFrame*channelsIn+0];
+                    case  4: pFramesOut[iFrame*channelsOut+ 3] = pFramesIn[iFrame*channelsIn+0];
+                    case  3: pFramesOut[iFrame*channelsOut+ 2] = pFramesIn[iFrame*channelsIn+0];
+                    case  2: pFramesOut[iFrame*channelsOut+ 1] = pFramesIn[iFrame*channelsIn+0];
+                    case  1: pFramesOut[iFrame*channelsOut+ 0] = pFramesIn[iFrame*channelsIn+0];
+                }
+            }
+        } else if (channelsIn == 2) {
+            // TODO: Implement an optimized stereo conversion.
+            mal_dsp_mix_channels__dec(pFramesOut, channelsOut, pFramesIn, channelsIn, frameCount, mal_channel_mix_mode_basic);
+        } else {
+            // Fall back to basic mixing mode.
+            mal_dsp_mix_channels__dec(pFramesOut, channelsOut, pFramesIn, channelsIn, frameCount, mal_channel_mix_mode_basic);
+        }
     }
 }
 
-static void mal_convert_channels__dec(float* pFrameIn, mal_uint32 channelsIn, mal_uint32 channelsOut)
+static void mal_dsp_mix_channels(float* pFramesOut, mal_uint32 channelsOut, const float* pFramesIn, mal_uint32 channelsIn, mal_uint32 frameCount, mal_channel_mix_mode mode)
 {
-    if (channelsOut == 1) {
-        mal_convert_channels_to_mono(pFrameIn, channelsIn);
-        return;
+    if (channelsIn < channelsOut) {
+        // Increasing the channel count.
+        mal_dsp_mix_channels__inc(pFramesOut, channelsOut, pFramesIn, channelsIn, frameCount, mode);
+    } else {
+        // Decreasing the channel count.
+        mal_dsp_mix_channels__dec(pFramesOut, channelsOut, pFramesIn, channelsIn, frameCount, mode);
     }
-
-    // For now we are just dropping excess channels.
 }
 
-static void mal_convert_channels__inc(float* pFrameIn, mal_uint32 channelsIn, mal_uint32 channelsOut)
-{
-    // For now we are just dropping excess channels.
-    (void)pFrameIn;
-    (void)channelsIn;
-    (void)channelsOut;
-}
+mal_uint32 mal_dsp_process_passthrough(mal_dsp* pDSP, mal_dsp_read_proc onRead, void* pUserData, void* pFramesOut, mal_uint32 frameCount);
+mal_uint32 mal_dsp_process_generic(mal_dsp* pDSP, mal_dsp_read_proc onRead, void* pUserData, void* pFramesOut, mal_uint32 frameCount);
 
-static void mal_convert_channels(float* pFrameIn, mal_uint32 channelsIn, mal_uint32 channelsOut)
+typedef enum
 {
-    if (channelsIn > channelsOut) {
-        mal_convert_channels__dec(pFrameIn, channelsIn, channelsOut);
-    } else if (channelsIn < channelsOut) {
-        mal_convert_channels__inc(pFrameIn, channelsIn, channelsOut);
+    mal_dsp_opcode_pcm_convert,
+    mal_dsp_opcode_channel_mix,
+    mal_dsp_opcode_channel_shuffle,
+    mal_dsp_opcode_src,
+} mal_dsp_opcode;
+
+#if defined(_MSC_VER)
+    #pragma warning(push)
+    #pragma warning(disable:4201)   // nonstandard extension used: nameless struct/union
+#endif
+typedef struct
+{
+    mal_dsp_opcode opcode;
+    mal_uint8* pInputData;
+    mal_format inputFormat;
+    mal_uint32 inputChannels;
+    mal_uint32 inputFrameCount;
+    mal_uint8* pOutputData;
+    mal_format outputFormat;
+    mal_uint32 outputChannels;
+    mal_uint32 outputFrameCount;
+    union
+    {
+        struct
+        {
+            mal_channel_mix_mode mode;
+        } channel_mix;
+
+        struct
+        {
+            mal_uint8 shuffleTable;
+        } channel_shuffle;
+
+        struct
+        {
+            mal_uint32 inputSampleRate;
+            mal_uint32 outputSampleRate;
+        } src;
+    };
+} mal_dsp_op;
+#if defined(_MSC_VER)
+    #pragma warning(pop)
+#endif
+
+void mal_dsp_process_do_next_op(mal_dsp* pDSP, mal_dsp_op* pOP)
+{
+    (void)pDSP;
+
+    switch (pOP->opcode)
+    {
+        case mal_dsp_opcode_pcm_convert:    // Conversion from pOP->inputFormat to pOP->outputFormat
+        {
+            mal_pcm_convert(pOP->pOutputData, pOP->outputFormat, pOP->pInputData, pOP->inputFormat, pOP->inputFrameCount * pOP->inputChannels);
+            pOP->outputFrameCount = pOP->inputFrameCount;
+        } break;
+
+        case mal_dsp_opcode_channel_mix:
+        {
+            mal_assert(pOP->inputFormat == mal_format_f32);
+            mal_dsp_mix_channels((float*)pOP->pOutputData, pOP->outputChannels, (float*)pOP->pInputData, pOP->inputChannels, pOP->inputFrameCount, mal_channel_mix_mode_blend);
+            pOP->outputFrameCount = pOP->inputFrameCount;
+        } break;
+
+        case mal_dsp_opcode_channel_shuffle:
+        {
+            // TODO: Implement me.
+            mal_copy_memory(pOP->pOutputData, pOP->pInputData, pOP->inputFrameCount * pOP->inputChannels * mal_get_sample_size_in_bytes(pOP->inputFormat));
+            pOP->outputFrameCount = pOP->inputFrameCount;
+        } break;
+
+        case mal_dsp_opcode_src:
+        {
+            // TODO: Implement me.
+            mal_copy_memory(pOP->pOutputData, pOP->pInputData, pOP->inputFrameCount * pOP->inputChannels * mal_get_sample_size_in_bytes(pOP->inputFormat));
+            pOP->outputFrameCount = pOP->inputFrameCount;
+        } break;
     }
+
+    // The outpus from this operation become the inputs of the next.
+    pOP->pInputData = pOP->pOutputData;
+    pOP->inputFormat = pOP->outputFormat;
+    pOP->inputChannels = pOP->outputChannels;
 }
 
 mal_result mal_dsp_init(mal_dsp_config* pConfig, mal_dsp* pDSP)
 {
     if (pDSP == NULL) return MAL_INVALID_ARGS;
-    pDSP->formatIn      = pConfig->formatIn;
-    pDSP->channelsIn    = pConfig->channelsIn;
-    pDSP->sampleRateIn  = pConfig->sampleRateIn;
-    pDSP->formatOut     = pConfig->formatOut;
-    pDSP->channelsOut   = pConfig->channelsOut;
-    pDSP->sampleRateOut = pConfig->sampleRateOut;
-    mal_zero_memory(pDSP->bin, sizeof(pDSP->bin));
+    pDSP->config = *pConfig;
+    pDSP->onProcess = NULL;
+    pDSP->src.ratio = pDSP->config.sampleRateIn / (float)pDSP->config.sampleRateOut;
+    mal_zero_memory(pDSP->src.bin, sizeof(pDSP->src.bin));
+
+    pDSP->isUsingForeignChannelMap = MAL_FALSE;
+    for (mal_uint32 i = 0; i < MAL_MAX_CHANNELS; ++i) {
+        if (pConfig->channelMapIn[i] != pConfig->channelMapOut[i]) {
+            pDSP->isUsingForeignChannelMap = MAL_TRUE;
+            break;
+        }
+    }
+
+    if (pConfig->formatIn == pConfig->formatOut && pConfig->channelsIn == pConfig->channelsOut && pConfig->sampleRateIn == pConfig->sampleRateOut && !pDSP->isUsingForeignChannelMap) {
+        pDSP->onProcess = mal_dsp_process_passthrough;
+    } else {
+        pDSP->onProcess = mal_dsp_process_generic;
+    }
 
     return MAL_SUCCESS;
 }
@@ -5889,103 +6104,117 @@ mal_uint32 mal_dsp_process_passthrough(mal_dsp* pDSP, mal_dsp_read_proc onRead, 
     return onRead(frameCount, pFramesOut, pUserData);
 }
 
-
-mal_uint32 mal_dsp_process_no_src(mal_dsp* pDSP, mal_dsp_read_proc onRead, void* pUserData, void* pFramesOut, mal_uint32 frameCount)
+mal_uint32 mal_dsp_process_generic(mal_dsp* pDSP, mal_dsp_read_proc onRead, void* pUserData, void* pFramesOut, mal_uint32 frameCount)
 {
-    mal_uint32 totalFramesRead = 0;
+    // The DSP pipline is made up of stages where the output data from one stage becomes the input data of the next.
+    mal_uint8 pSampleData[2][256*MAL_MAX_CHANNELS*4];
+    mal_uint32 totalFramesProcessed = 0;
 
-    mal_uint8 chunkBuffer[4096];
-    mal_uint32 chunkFrameCount = sizeof(chunkBuffer) / mal_get_sample_size_in_bytes(pDSP->formatIn) / pDSP->channelsIn;
+    mal_bool32 requiresF32Conversion = MAL_FALSE;
+    if (pDSP->config.formatIn != mal_format_f32 && (pDSP->config.channelsIn != pDSP->config.channelsOut || pDSP->config.sampleRateIn != pDSP->config.sampleRateOut)) {
+        requiresF32Conversion = MAL_TRUE;
+    }
 
-    mal_uint32 framesRemaining = frameCount;
-    while (framesRemaining > 0) {
-        mal_uint32 framesJustRead  = onRead((chunkFrameCount < framesRemaining) ? chunkFrameCount : framesRemaining, chunkBuffer, pUserData);
-        if (framesJustRead == 0) {
+    mal_uint32 framesToRead = (mal_uint32)(frameCount * (1 / pDSP->src.ratio));
+    while (framesToRead > 0) {
+        mal_dsp_op op;
+        op.pInputData = pSampleData[0];
+        op.inputFormat = pDSP->config.formatIn;
+        op.inputChannels = pDSP->config.channelsIn;
+        op.pOutputData = pSampleData[1];
+
+        mal_uint32 inputFrameCount = sizeof(pSampleData[0]) / mal_get_sample_size_in_bytes(pDSP->config.formatIn) / pDSP->config.channelsIn;
+        if (inputFrameCount > framesToRead) {
+            inputFrameCount = framesToRead;
+        }
+
+        inputFrameCount = onRead(inputFrameCount, op.pInputData, pUserData);
+        if (inputFrameCount == 0) {
             break;
         }
 
-        mal_uint8* pFramesOut8 = (mal_uint8*)pFramesOut + (totalFramesRead * pDSP->channelsOut * mal_get_sample_size_in_bytes(pDSP->formatOut));
-        if (pDSP->channelsIn == pDSP->channelsOut) {
-            // No SRC and no channel conversion.
-            mal_pcm_convert(pFramesOut8, pDSP->formatOut, chunkBuffer, pDSP->formatIn, framesJustRead * pDSP->channelsIn);
+        op.inputFrameCount = inputFrameCount;
+
+        if (requiresF32Conversion) {
+            op.opcode = mal_dsp_opcode_pcm_convert;
+            op.outputChannels = op.inputChannels;
+            op.outputFormat = mal_format_f32;
+            mal_dsp_process_do_next_op(pDSP, &op);
+        }
+
+        if (pDSP->config.sampleRateIn == pDSP->config.sampleRateOut) {
+            // No SRC.
+            if (pDSP->config.channelsIn != pDSP->config.channelsOut) {
+                op.opcode = mal_dsp_opcode_channel_mix;
+                op.outputChannels = pDSP->config.channelsOut;
+                mal_dsp_process_do_next_op(pDSP, &op);
+            }
+
+            if (pDSP->isUsingForeignChannelMap) {
+                op.opcode = mal_dsp_opcode_channel_shuffle;
+                mal_dsp_process_do_next_op(pDSP, &op);
+            }
         } else {
-            // Channel conversion + format conversion.
-            if (pDSP->formatIn == mal_format_f32) {
-                for (mal_uint32 iFrame = 0; iFrame < framesJustRead; ++iFrame) {
-                    float* pTempFrameF32 = (float*)(chunkBuffer + (iFrame * pDSP->channelsOut * mal_get_sample_size_in_bytes(pDSP->formatOut)));
-                    mal_convert_channels(pTempFrameF32, pDSP->channelsIn, pDSP->channelsOut);
-                    mal_pcm_convert(pFramesOut8 + (iFrame * pDSP->channelsOut * mal_get_sample_size_in_bytes(pDSP->formatOut)), pDSP->formatOut, pTempFrameF32, mal_format_f32, pDSP->channelsOut);    // <-- Evaluates to a memcpy().
+            // SRC.
+            if (pDSP->config.sampleRateIn > pDSP->config.sampleRateOut) {
+                // Decimation. Do SRC first.
+                op.opcode = mal_dsp_opcode_src;
+                op.src.inputSampleRate = pDSP->config.sampleRateIn;
+                op.src.outputSampleRate = pDSP->config.sampleRateOut;
+                mal_dsp_process_do_next_op(pDSP, &op);
+
+                if (pDSP->config.channelsIn != pDSP->config.channelsOut) {
+                    op.opcode = mal_dsp_opcode_channel_mix;
+                    op.outputChannels = pDSP->config.channelsOut;
+                    mal_dsp_process_do_next_op(pDSP, &op);
+                }
+
+                if (pDSP->isUsingForeignChannelMap) {
+                    op.opcode = mal_dsp_opcode_channel_shuffle;
+                    mal_dsp_process_do_next_op(pDSP, &op);
                 }
             } else {
-                float tempFrame[MAL_MAX_CHANNELS];
-                for (mal_uint32 iFrame = 0; iFrame < framesJustRead; ++iFrame) {
-                    mal_pcm_convert(tempFrame, mal_format_f32, chunkBuffer + (iFrame * pDSP->channelsIn * mal_get_sample_size_in_bytes(pDSP->formatIn)), pDSP->formatIn, pDSP->channelsIn);
-                    mal_convert_channels(tempFrame, pDSP->channelsIn, pDSP->channelsOut);
-                    mal_pcm_convert(pFramesOut8 + (iFrame * pDSP->channelsOut * mal_get_sample_size_in_bytes(pDSP->formatOut)), pDSP->formatOut, tempFrame, mal_format_f32, pDSP->channelsOut);
+                // Upsampling. Do SRC last.
+                if (pDSP->config.channelsIn != pDSP->config.channelsOut) {
+                    op.opcode = mal_dsp_opcode_channel_mix;
+                    op.outputChannels = pDSP->config.channelsOut;
+                    mal_dsp_process_do_next_op(pDSP, &op);
                 }
+
+                if (pDSP->isUsingForeignChannelMap) {
+                    op.opcode = mal_dsp_opcode_channel_shuffle;
+                    mal_dsp_process_do_next_op(pDSP, &op);
+                }
+
+                op.opcode = mal_dsp_opcode_src;
+                op.src.inputSampleRate = pDSP->config.sampleRateIn;
+                op.src.outputSampleRate = pDSP->config.sampleRateOut;
+                mal_dsp_process_do_next_op(pDSP, &op);
             }
         }
 
-        framesRemaining -= framesJustRead;
-        totalFramesRead += framesJustRead;
+        // Format conversion comes last.
+        if (op.inputFormat != pDSP->config.formatOut) {
+            op.opcode = mal_dsp_opcode_pcm_convert;
+            op.outputFormat = pDSP->config.formatOut;
+            mal_dsp_process_do_next_op(pDSP, &op);
+        }
+
+        mal_uint32 frameSizeInBytes = pDSP->config.channelsOut * mal_get_sample_size_in_bytes(pDSP->config.formatOut);
+        mal_copy_memory((mal_uint8*)pFramesOut + (totalFramesProcessed * frameSizeInBytes), op.pOutputData, op.outputFrameCount * frameSizeInBytes);
+
+        totalFramesProcessed += op.outputFrameCount;
+        framesToRead -= op.outputFrameCount;
     }
 
-    return totalFramesRead;
-}
-
-
-mal_uint32 mal_dsp_process_src__linear(mal_dsp* pDSP, mal_dsp_read_proc onRead, void* pUserData, void* pFramesOut, mal_uint32 frameCount)
-{
-    float ratioSRC = (float)pDSP->sampleRateOut / pDSP->sampleRateIn;
-    if (ratioSRC > 0) {
-        // The number of frames needing to be read is the 
-    } else {
-        
-    }
-
-    return 0;
-}
-
-mal_uint32 mal_dsp_process_src__44100_to_48000(mal_dsp* pDSP, mal_dsp_read_proc onRead, void* pUserData, void* pFramesOut, mal_uint32 frameCount)
-{
-    // TODO: Implement an optimized 44100 -> 48000 converter.
-    return mal_dsp_process_src__linear(pDSP, onRead, pUserData, pFramesOut, frameCount);
-}
-
-mal_uint32 mal_dsp_process_src__48000_to_44100(mal_dsp* pDSP, mal_dsp_read_proc onRead, void* pUserData, void* pFramesOut, mal_uint32 frameCount)
-{
-    // TODO: Implement an optimized 48000 -> 44100 converter.
-    return mal_dsp_process_src__linear(pDSP, onRead, pUserData, pFramesOut, frameCount);
-}
-
-mal_uint32 mal_dsp_process_src(mal_dsp* pDSP, mal_dsp_read_proc onRead, void* pUserData, void* pFramesOut, mal_uint32 frameCount)
-{
-    // TODO: This can be optimized by moving the branching logic to mal_dsp_init() and using function pointers.
-    if (pDSP->sampleRateIn == 44100 && pDSP->sampleRateOut == 48000) {
-        return mal_dsp_process_src__44100_to_48000(pDSP, onRead, pUserData, pFramesOut, frameCount);
-    }
-    if (pDSP->sampleRateIn == 48000 && pDSP->sampleRateOut == 44100) {
-        return mal_dsp_process_src__48000_to_44100(pDSP, onRead, pUserData, pFramesOut, frameCount);
-    }
-
-    // Fallback.
-    return mal_dsp_process_src__linear(pDSP, onRead, pUserData, pFramesOut, frameCount);
+    return totalFramesProcessed;
 }
 
 
 mal_uint32 mal_dsp_process(mal_dsp* pDSP, mal_dsp_read_proc onRead, void* pUserData, void* pFramesOut, mal_uint32 frameCount)
 {
-    if (pDSP == NULL || pFramesOut == NULL || onRead == NULL) return 0;
-
-    if (pDSP->formatIn == pDSP->formatOut && pDSP->channelsIn == pDSP->channelsOut && pDSP->sampleRateIn == pDSP->sampleRateOut) {
-        return mal_dsp_process_passthrough(pDSP, onRead, pUserData, pFramesOut, frameCount);
-    } else {
-        if (pDSP->sampleRateIn == pDSP->sampleRateOut) {
-            return mal_dsp_process_no_src(pDSP, onRead, pUserData, pFramesOut, frameCount);
-        } else {
-            return mal_dsp_process_src(pDSP, onRead, pUserData, pFramesOut, frameCount);
-        }
-    }
+    if (pDSP == NULL || pFramesOut == NULL || onRead == NULL || pDSP->onProcess == NULL) return 0;
+    return pDSP->onProcess(pDSP, onRead, pUserData, pFramesOut, frameCount);
 }
 
 
