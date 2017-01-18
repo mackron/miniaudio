@@ -225,8 +225,8 @@ typedef uint32_t         mal_uint32;
 typedef int64_t          mal_int64;
 typedef uint64_t         mal_uint64;
 #endif
-typedef mal_int8         mal_bool8;
-typedef mal_int32        mal_bool32;
+typedef mal_uint8        mal_bool8;
+typedef mal_uint32       mal_bool32;
 #define MAL_TRUE         1
 #define MAL_FALSE        0
 
@@ -919,13 +919,15 @@ mal_uint32 mal_get_sample_size_in_bytes(mal_format format);
 // DSP
 //
 ///////////////////////////////////////////////////////////////////////////////
-
+#if 0
+#include "tools/mal_build/bin/mini_al_dsp.h"
+#else
 // Initializes a DSP object.
 mal_result mal_dsp_init(mal_dsp_config* pConfig, mal_dsp* pDSP);
 
 // Reads a number of samples and runs them through the DSP processor.
-mal_uint32 mal_dsp_process(mal_dsp* pDSP, mal_dsp_read_proc onRead, void* pUserData, void* pSamplesOut, mal_uint32 sampleCount);
-
+mal_uint32 mal_dsp_process(mal_dsp* pDSP, mal_dsp_read_proc onRead, void* pUserData, void* pFramesOut, mal_uint32 frameCount);
+#endif
 
 #ifdef __cplusplus
 }
@@ -1687,7 +1689,7 @@ static inline void mal_device__send_frames_to_client(mal_device* pDevice, mal_ui
         mal_device__on_read_from_device__data data;
         data.pDevice = pDevice;
         data.frameCount = frameCount;
-        data.pFrames = pSamples;
+        data.pFrames = (const mal_uint8*)pSamples;
 
         mal_uint8 chunkBuffer[4096];
         mal_uint32 chunkFrameCount = sizeof(chunkBuffer) / mal_get_sample_size_in_bytes(pDevice->format) / pDevice->channels;
@@ -1974,6 +1976,12 @@ const IID g_malIID_IAudioCaptureClient_Instance  = {0xC8ADBD64, 0xE71E, 0x48A0, 
 #define g_malIID_IAudioClient         &g_malIID_IAudioClient_Instance
 #define g_malIID_IAudioRenderClient   &g_malIID_IAudioRenderClient_Instance
 #define g_malIID_IAudioCaptureClient  &g_malIID_IAudioCaptureClient_Instance
+#endif
+
+#ifdef __cplusplus
+#define mal_is_guid_equal(a, b) IsEqualGUID(a, b)
+#else
+#define mal_is_guid_equal(a, b) IsEqualGUID(&a, &b)
 #endif
 
 mal_result mal_context_init__wasapi(mal_context* pContext)
@@ -2270,7 +2278,7 @@ static mal_result mal_device_init__wasapi(mal_context* pContext, mal_device_type
         return mal_post_error(pDevice, "[WASAPI] Failed to find best device mix format.", MAL_WASAPI_FAILED_TO_ACTIVATE_DEVICE);
     }
 
-    if (IsEqualGUID(&wf.SubFormat, &MAL_GUID_KSDATAFORMAT_SUBTYPE_IEEE_FLOAT)) {
+    if (mal_is_guid_equal(wf.SubFormat, MAL_GUID_KSDATAFORMAT_SUBTYPE_IEEE_FLOAT)) {
         pDevice->internalFormat = mal_format_f32;
     } else {
         if (wf.Format.wBitsPerSample == 32) {
@@ -5692,6 +5700,27 @@ mal_uint32 mal_get_sample_size_in_bytes(mal_format format)
 
 //////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 //////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+//////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+//////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+//
+//
+//
+// AUTO-GENERATED
+//
+//
+//
+//////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+//////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+//////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+//////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+#if 1
+#include "tools/mal_build/bin/mini_al_dsp.c"
+#else
+#endif
+
+
+//////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+//////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 //
 // FORMAT CONVERSION
 //
@@ -5730,10 +5759,10 @@ static void mal_pcm_convert(void* pOut, mal_format formatOut, const void* pIn, m
         {
             switch (formatOut)
             {
-                case mal_format_s16: mal_pcm_u8_to_s16(pOut, pIn, sampleCount); return;
-                case mal_format_s24: mal_pcm_u8_to_s24(pOut, pIn, sampleCount); return;
-                case mal_format_s32: mal_pcm_u8_to_s32(pOut, pIn, sampleCount); return;
-                case mal_format_f32: mal_pcm_u8_to_f32(pOut, pIn, sampleCount); return;
+                case mal_format_s16: mal_pcm_u8_to_s16((short*)pOut, (const unsigned char*)pIn, sampleCount); return;
+                case mal_format_s24: mal_pcm_u8_to_s24(        pOut, (const unsigned char*)pIn, sampleCount); return;
+                case mal_format_s32: mal_pcm_u8_to_s32(  (int*)pOut, (const unsigned char*)pIn, sampleCount); return;
+                case mal_format_f32: mal_pcm_u8_to_f32((float*)pOut, (const unsigned char*)pIn, sampleCount); return;
                 default: break;
             }
         } break;
@@ -5742,10 +5771,10 @@ static void mal_pcm_convert(void* pOut, mal_format formatOut, const void* pIn, m
         {
             switch (formatOut)
             {
-                case mal_format_u8:  mal_pcm_s16_to_u8( pOut, pIn, sampleCount); return;
-                case mal_format_s24: mal_pcm_s16_to_s24(pOut, pIn, sampleCount); return;
-                case mal_format_s32: mal_pcm_s16_to_s32(pOut, pIn, sampleCount); return;
-                case mal_format_f32: mal_pcm_s16_to_f32(pOut, pIn, sampleCount); return;
+                case mal_format_u8:  mal_pcm_s16_to_u8( (unsigned char*)pOut, (const short*)pIn, sampleCount); return;
+                case mal_format_s24: mal_pcm_s16_to_s24(                pOut, (const short*)pIn, sampleCount); return;
+                case mal_format_s32: mal_pcm_s16_to_s32(          (int*)pOut, (const short*)pIn, sampleCount); return;
+                case mal_format_f32: mal_pcm_s16_to_f32(        (float*)pOut, (const short*)pIn, sampleCount); return;
                 default: break;
             }
         } break;
@@ -5754,10 +5783,10 @@ static void mal_pcm_convert(void* pOut, mal_format formatOut, const void* pIn, m
         {
             switch (formatOut)
             {
-                case mal_format_u8:  mal_pcm_s24_to_u8( pOut, pIn, sampleCount); return;
-                case mal_format_s16: mal_pcm_s24_to_s16(pOut, pIn, sampleCount); return;
-                case mal_format_s32: mal_pcm_s24_to_s32(pOut, pIn, sampleCount); return;
-                case mal_format_f32: mal_pcm_s24_to_f32(pOut, pIn, sampleCount); return;
+                case mal_format_u8:  mal_pcm_s24_to_u8( (unsigned char*)pOut, pIn, sampleCount); return;
+                case mal_format_s16: mal_pcm_s24_to_s16(        (short*)pOut, pIn, sampleCount); return;
+                case mal_format_s32: mal_pcm_s24_to_s32(          (int*)pOut, pIn, sampleCount); return;
+                case mal_format_f32: mal_pcm_s24_to_f32(        (float*)pOut, pIn, sampleCount); return;
                 default: break;
             }
         } break;
@@ -5766,10 +5795,10 @@ static void mal_pcm_convert(void* pOut, mal_format formatOut, const void* pIn, m
         {
             switch (formatOut)
             {
-                case mal_format_u8:  mal_pcm_s32_to_u8( pOut, pIn, sampleCount); return;
-                case mal_format_s16: mal_pcm_s32_to_s16(pOut, pIn, sampleCount); return;
-                case mal_format_s24: mal_pcm_s32_to_s24(pOut, pIn, sampleCount); return;
-                case mal_format_f32: mal_pcm_s32_to_f32(pOut, pIn, sampleCount); return;
+                case mal_format_u8:  mal_pcm_s32_to_u8( (unsigned char*)pOut, (const int*)pIn, sampleCount); return;
+                case mal_format_s16: mal_pcm_s32_to_s16(        (short*)pOut, (const int*)pIn, sampleCount); return;
+                case mal_format_s24: mal_pcm_s32_to_s24(                pOut, (const int*)pIn, sampleCount); return;
+                case mal_format_f32: mal_pcm_s32_to_f32(        (float*)pOut, (const int*)pIn, sampleCount); return;
                 default: break;
             }
         } break;
@@ -5778,10 +5807,10 @@ static void mal_pcm_convert(void* pOut, mal_format formatOut, const void* pIn, m
         {
             switch (formatOut)
             {
-                case mal_format_u8:  mal_pcm_f32_to_u8( pOut, pIn, sampleCount); return;
-                case mal_format_s16: mal_pcm_f32_to_s16(pOut, pIn, sampleCount); return;
-                case mal_format_s24: mal_pcm_f32_to_s24(pOut, pIn, sampleCount); return;
-                case mal_format_s32: mal_pcm_f32_to_s32(pOut, pIn, sampleCount); return;
+                case mal_format_u8:  mal_pcm_f32_to_u8( (unsigned char*)pOut, (const float*)pIn, sampleCount); return;
+                case mal_format_s16: mal_pcm_f32_to_s16(        (short*)pOut, (const float*)pIn, sampleCount); return;
+                case mal_format_s24: mal_pcm_f32_to_s24(                pOut, (const float*)pIn, sampleCount); return;
+                case mal_format_s32: mal_pcm_f32_to_s32(          (int*)pOut, (const float*)pIn, sampleCount); return;
                 default: break;
             }
         } break;
@@ -5790,6 +5819,7 @@ static void mal_pcm_convert(void* pOut, mal_format formatOut, const void* pIn, m
     }
 }
 
+#if 0
 static void mal_rearrange_channels(float* pFrame, mal_uint32 channels, mal_uint32 channelMap[18])
 {
     float temp;
@@ -5814,6 +5844,7 @@ static void mal_rearrange_channels(float* pFrame, mal_uint32 channels, mal_uint3
         case  1: temp = pFrame[ 0]; pFrame[ 0] = pFrame[channelMap[ 0]]; pFrame[channelMap[ 0]] = temp;
     }
 }
+#endif
 
 static void mal_dsp_mix_channels__dec(float* pFramesOut, mal_uint32 channelsOut, const float* pFramesIn, mal_uint32 channelsIn, mal_uint32 frameCount, mal_channel_mix_mode mode)
 {
@@ -6066,7 +6097,7 @@ void mal_dsp_process_do_next_op(mal_dsp* pDSP, mal_dsp_op* pOP)
         } break;
     }
 
-    // The outpus from this operation become the inputs of the next.
+    // The outputs from this operation become the inputs of the next.
     pOP->pInputData = pOP->pOutputData;
     pOP->inputFormat = pOP->outputFormat;
     pOP->inputChannels = pOP->outputChannels;
@@ -6116,7 +6147,7 @@ mal_uint32 mal_dsp_process_generic(mal_dsp* pDSP, mal_dsp_read_proc onRead, void
     }
 
     mal_uint32 framesToRead = (mal_uint32)(frameCount * (1 / pDSP->src.ratio));
-    while (framesToRead > 0) {
+    while (totalFramesProcessed < frameCount) {
         mal_dsp_op op;
         op.pInputData = pSampleData[0];
         op.inputFormat = pDSP->config.formatIn;
