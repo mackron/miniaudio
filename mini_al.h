@@ -374,10 +374,36 @@ typedef struct
 } mal_timer;
 
 
+typedef struct mal_src mal_src;
+typedef mal_uint32 (* mal_src_read_proc)(mal_uint32 frameCount, void* pFramesOut, void* pUserData); // Returns the number of frames that were read.
+
+typedef enum
+{
+    mal_src_algorithm_none,
+    mal_src_algorithm_linear
+} mal_src_algorithm;
+
+typedef struct
+{
+    mal_uint32 sampleRateIn;
+    mal_uint32 sampleRateOut;
+    mal_format formatIn;
+    mal_format formatOut;
+    mal_uint32 channels;
+    mal_src_algorithm algorithm;
+} mal_src_config;
+
+struct mal_src
+{
+    mal_src_config config;
+    mal_src_read_proc onRead;
+    void* pUserData;
+    float ratio;
+    float bin[256];
+};
 
 typedef struct mal_dsp mal_dsp;
-typedef mal_uint32 (* mal_dsp_read_proc)   (mal_uint32 frameCount, void* pSamplesOut, void* pUserData);
-typedef mal_uint32 (* mal_dsp_process_proc)(mal_dsp* pDSP, mal_dsp_read_proc onRead, void* pUserData, void* pFramesOut, mal_uint32 frameCount);
+typedef mal_uint32 (* mal_dsp_read_proc)       (mal_uint32 frameCount, void* pSamplesOut, void* pUserData);
 
 typedef struct
 {
@@ -394,13 +420,12 @@ typedef struct
 struct mal_dsp
 {
     mal_dsp_config config;
-    mal_dsp_process_proc onProcess;
+    mal_dsp_read_proc onRead;
+    void* pUserDataForOnRead;
+    mal_src src;    // For sample rate conversion.
     mal_bool32 isUsingForeignChannelMap : 1;
-    struct
-    {
-        float ratio;
-        float bin[256]; // Will hold previous samples for handling interpolation and whatnot.
-    } src;
+    mal_bool32 isSRCRequired : 1;
+    mal_bool32 isPassthrough : 1;       // <-- Will be set to true when the DSP pipeline is an optimized passthrough.
 };
 
 
@@ -584,6 +609,9 @@ struct mal_device
     mal_uint8  internalChannelMap[MAL_MAX_CHANNELS];
     mal_uint8  channelShuffleTable[MAL_MAX_CHANNELS];
     mal_dsp dsp;            // Samples run through this to convert samples to a format suitable for use by the backend.
+    mal_uint32 _dspFrameCount;      // Internal use only. Used when running the device -> DSP -> client pipeline. See mal_device__on_read_from_device().
+    const mal_uint8* _dspFrames;    // ^^^ AS ABOVE ^^^
+
 
     union
     {
@@ -916,6 +944,22 @@ mal_uint32 mal_get_sample_size_in_bytes(mal_format format);
 
 ///////////////////////////////////////////////////////////////////////////////
 //
+// SRC
+//
+///////////////////////////////////////////////////////////////////////////////
+
+// Initializes a sample rate conversion object.
+mal_result mal_src_init(mal_src_config* pConfig, mal_src_read_proc onRead, void* pUserData, mal_src* pSRC);
+
+// Reads a number of frames.
+//
+// Returns the number of frames actually read.
+mal_uint32 mal_src_read_frames(mal_src* pSRC, mal_uint32 frameCount, void* pFramesOut);
+
+
+
+///////////////////////////////////////////////////////////////////////////////
+//
 // DSP
 //
 ///////////////////////////////////////////////////////////////////////////////
@@ -923,10 +967,40 @@ mal_uint32 mal_get_sample_size_in_bytes(mal_format format);
 #include "tools/mal_build/bin/mini_al_dsp.h"
 #else
 // Initializes a DSP object.
-mal_result mal_dsp_init(mal_dsp_config* pConfig, mal_dsp* pDSP);
+mal_result mal_dsp_init(mal_dsp_config* pConfig, mal_dsp_read_proc onRead, void* pUserData, mal_dsp* pDSP);
 
-// Reads a number of samples and runs them through the DSP processor.
-mal_uint32 mal_dsp_process(mal_dsp* pDSP, mal_dsp_read_proc onRead, void* pUserData, void* pFramesOut, mal_uint32 frameCount);
+// Reads a number of frames and runs them through the DSP processor.
+mal_uint32 mal_dsp_read_frames(mal_dsp* pDSP, mal_uint32 frameCount, void* pFramesOut);
+
+
+
+///////////////////////////////////////////////////////////////////////////////
+//
+// Format Conversion
+//
+///////////////////////////////////////////////////////////////////////////////
+void mal_pcm_u8_to_s16(short* pOut, const unsigned char* pIn, unsigned int count);
+void mal_pcm_u8_to_s24(void* pOut, const unsigned char* pIn, unsigned int count);
+void mal_pcm_u8_to_s32(int* pOut, const unsigned char* pIn, unsigned int count);
+void mal_pcm_u8_to_f32(float* pOut, const unsigned char* pIn, unsigned int count);
+void mal_pcm_s16_to_u8(unsigned char* pOut, const short* pIn, unsigned int count);
+void mal_pcm_s16_to_s24(void* pOut, const short* pIn, unsigned int count);
+void mal_pcm_s16_to_s32(int* pOut, const short* pIn, unsigned int count);
+void mal_pcm_s16_to_f32(float* pOut, const short* pIn, unsigned int count);
+void mal_pcm_s24_to_u8(unsigned char* pOut, const void* pIn, unsigned int count);
+void mal_pcm_s24_to_s16(short* pOut, const void* pIn, unsigned int count);
+void mal_pcm_s24_to_s32(int* pOut, const void* pIn, unsigned int count);
+void mal_pcm_s24_to_f32(float* pOut, const void* pIn, unsigned int count);
+void mal_pcm_s32_to_u8(unsigned char* pOut, const int* pIn, unsigned int count);
+void mal_pcm_s32_to_s16(short* pOut, const int* pIn, unsigned int count);
+void mal_pcm_s32_to_s24(void* pOut, const int* pIn, unsigned int count);
+void mal_pcm_s32_to_f32(float* pOut, const int* pIn, unsigned int count);
+void mal_pcm_f32_to_u8(unsigned char* pOut, const float* pIn, unsigned int count);
+void mal_pcm_f32_to_s16(short* pOut, const float* pIn, unsigned int count);
+void mal_pcm_f32_to_s24(void* pOut, const float* pIn, unsigned int count);
+void mal_pcm_f32_to_s32(int* pOut, const float* pIn, unsigned int count);
+void mal_pcm_convert(void* pOut, mal_format formatOut, const void* pIn, mal_format formatIn, unsigned int sampleCount);
+
 #endif
 
 #ifdef __cplusplus
@@ -1094,6 +1168,10 @@ mal_uint8 MAL_CHANNEL_MAP_5POINT1[MAL_MAX_CHANNELS] = {
 #define mal_assert(condition) assert(condition)
 #endif
 #endif
+
+#define mal_countof(x)  (sizeof(x) / sizeof(x[0]))
+#define mal_max(x, y)   (((x) > (y)) ? (x) : (y))
+#define mal_min(x, y)   (((x) < (y)) ? (x) : (y))
 
 // Return Values:
 //   0:  Success
@@ -1629,32 +1707,24 @@ static inline mal_uint32 mal_device__on_read_from_client(mal_uint32 frameCount, 
 }
 
 // The callback for reading from the device -> DSP -> client.
-typedef struct
-{
-    mal_device* pDevice;
-    mal_uint32 frameCount;
-    const mal_uint8* pFrames;
-} mal_device__on_read_from_device__data;
-
 static inline mal_uint32 mal_device__on_read_from_device(mal_uint32 frameCount, void* pFramesOut, void* pUserData)
 {
-    mal_device__on_read_from_device__data* pData = (mal_device__on_read_from_device__data*)pUserData;
-    mal_assert(pData != NULL);
-    mal_assert(pData->pDevice != NULL);
+    mal_device* pDevice = (mal_device*)pUserData;
+    mal_assert(pDevice != NULL);
 
-    if (pData->frameCount == 0) {
+    if (pDevice->_dspFrameCount == 0) {
         return 0;   // Nothing left.
     }
 
     mal_uint32 framesToRead = frameCount;
-    if (framesToRead > pData->frameCount) {
-        framesToRead = pData->frameCount;
+    if (framesToRead > pDevice->_dspFrameCount) {
+        framesToRead = pDevice->_dspFrameCount;
     }
 
-    mal_uint32 bytesToRead = framesToRead * pData->pDevice->internalChannels * mal_get_sample_size_in_bytes(pData->pDevice->internalFormat);
-    mal_copy_memory(pFramesOut, pData->pFrames, bytesToRead);
-    pData->frameCount -= framesToRead;
-    pData->pFrames += bytesToRead;
+    mal_uint32 bytesToRead = framesToRead * pDevice->internalChannels * mal_get_sample_size_in_bytes(pDevice->internalFormat);
+    mal_copy_memory(pFramesOut, pDevice->_dspFrames, bytesToRead);
+    pDevice->_dspFrameCount -= framesToRead;
+    pDevice->_dspFrames += bytesToRead;
 
     return framesToRead;
 }
@@ -1667,7 +1737,7 @@ static inline mal_uint32 mal_device__read_frames_from_client(mal_device* pDevice
     mal_assert(frameCount > 0);
     mal_assert(pSamples != NULL);
 
-    mal_uint32 framesRead = mal_dsp_process(&pDevice->dsp, mal_device__on_read_from_client, pDevice, pSamples, frameCount);
+    mal_uint32 framesRead = mal_dsp_read_frames(&pDevice->dsp, frameCount, pSamples);
     mal_uint32 samplesRead = framesRead * pDevice->internalChannels;
     mal_uint32 sampleSize = mal_get_sample_size_in_bytes(pDevice->internalFormat);
     mal_uint32 consumedBytes = samplesRead*sampleSize;
@@ -1686,16 +1756,14 @@ static inline void mal_device__send_frames_to_client(mal_device* pDevice, mal_ui
 
     mal_recv_proc onRecv = pDevice->onRecv;
     if (onRecv) {
-        mal_device__on_read_from_device__data data;
-        data.pDevice = pDevice;
-        data.frameCount = frameCount;
-        data.pFrames = (const mal_uint8*)pSamples;
+        pDevice->_dspFrameCount = frameCount;
+        pDevice->_dspFrames = (const mal_uint8*)pSamples;
 
         mal_uint8 chunkBuffer[4096];
         mal_uint32 chunkFrameCount = sizeof(chunkBuffer) / mal_get_sample_size_in_bytes(pDevice->format) / pDevice->channels;
 
         for (;;) {
-            mal_uint32 framesJustRead = mal_dsp_process(&pDevice->dsp, mal_device__on_read_from_device, &data, chunkBuffer, chunkFrameCount);
+            mal_uint32 framesJustRead = mal_dsp_read_frames(&pDevice->dsp, chunkFrameCount, chunkBuffer);
             if (framesJustRead == 0) {
                 break;
             }
@@ -2296,7 +2364,7 @@ static mal_result mal_device_init__wasapi(mal_context* pContext, mal_device_type
     }
 
     pDevice->internalChannels = wf.Format.nChannels;
-    //pDevice->internalSampleRate = wf.Format.nSamplesPerSec;       // TODO: Uncomment this when SRC is implemented.
+    pDevice->internalSampleRate = wf.Format.nSamplesPerSec;
 
 #ifdef __cplusplus
     hr = ((IAudioClient*)pDevice->wasapi.pAudioClient)->Initialize(AUDCLNT_SHAREMODE_SHARED, 0, bufferDurationInMicroseconds*10, 0, (WAVEFORMATEX*)&wf, NULL);
@@ -5412,7 +5480,7 @@ mal_result mal_device_init(mal_context* pContext, mal_device_type type, mal_devi
     }
 
     if (result != MAL_SUCCESS) {
-        return MAL_NO_BACKEND;  // The error message will have been posted by the source of the error.
+        return MAL_NO_BACKEND;  // The error message will have been posted with mal_post_error() by the source of the error so don't bother calling it here.
     }
 
 
@@ -5461,6 +5529,7 @@ mal_result mal_device_init(mal_context* pContext, mal_device_type type, mal_devi
         dspConfig.channelsOut   = pDevice->internalChannels;
         dspConfig.sampleRateOut = pDevice->internalSampleRate;
         mal_copy_memory(dspConfig.channelMapOut, pDevice->internalChannelMap, sizeof(dspConfig.channelMapOut));
+        mal_dsp_init(&dspConfig, mal_device__on_read_from_client, pDevice, &pDevice->dsp);
     } else {
         dspConfig.formatIn      = pDevice->internalFormat;
         dspConfig.channelsIn    = pDevice->internalChannels;
@@ -5470,9 +5539,10 @@ mal_result mal_device_init(mal_context* pContext, mal_device_type type, mal_devi
         dspConfig.channelsOut   = pDevice->channels;
         dspConfig.sampleRateOut = pDevice->sampleRate;
         mal_copy_memory(dspConfig.channelMapOut, pDevice->channelMap, sizeof(dspConfig.channelMapOut));
+        mal_dsp_init(&dspConfig, mal_device__on_read_from_device, pDevice, &pDevice->dsp);
     }
 
-    mal_dsp_init(&dspConfig, &pDevice->dsp);
+    
 
 
     // Some backends don't require the worker thread.
@@ -5697,6 +5767,97 @@ mal_uint32 mal_get_sample_size_in_bytes(mal_format format)
 }
 
 
+//////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+//
+// SRC
+//
+//////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+
+mal_uint32 mal_src_read_frames_passthrough(mal_src* pSRC, mal_uint32 frameCount, void* pFramesOut);
+mal_uint32 mal_src_read_frames_linear(mal_src* pSRC, mal_uint32 frameCount, void* pFramesOut);
+
+mal_result mal_src_init(mal_src_config* pConfig, mal_src_read_proc onRead, void* pUserData, mal_src* pSRC)
+{
+    if (pSRC == NULL) return MAL_INVALID_ARGS;
+    mal_zero_object(pSRC);
+
+    if (pConfig == NULL || onRead == NULL) return MAL_INVALID_ARGS;
+    if (pConfig->channels == 0 || pConfig->channels > MAL_MAX_CHANNELS) return MAL_INVALID_ARGS;
+
+    pSRC->config = *pConfig;
+    pSRC->onRead = onRead;
+    pSRC->pUserData = pUserData;
+
+    // If the in and out sample rates are the same, fall back to the passthrough algorithm.
+    if (pSRC->config.sampleRateIn == pSRC->config.sampleRateOut) {
+        pSRC->config.algorithm = mal_src_algorithm_none;
+    }
+
+    pSRC->ratio = (float)pSRC->config.sampleRateIn / pSRC->config.sampleRateOut;
+
+    return MAL_SUCCESS;
+}
+
+mal_uint32 mal_src_read_frames(mal_src* pSRC, mal_uint32 frameCount, void* pFramesOut)
+{
+    if (pSRC == NULL || frameCount == 0 || pFramesOut == NULL) return 0;
+
+    // Could just use a function pointer instead of a switch for this...
+    switch (pSRC->config.algorithm)
+    {
+        case mal_src_algorithm_none:   return mal_src_read_frames_passthrough(pSRC, frameCount, pFramesOut);
+        case mal_src_algorithm_linear: return mal_src_read_frames_linear(pSRC, frameCount, pFramesOut);
+        default: return 0;
+    }
+}
+
+mal_uint32 mal_src_read_frames_passthrough(mal_src* pSRC, mal_uint32 frameCount, void* pFramesOut)
+{
+    mal_assert(pSRC != NULL);
+    mal_assert(frameCount > 0);
+    mal_assert(pFramesOut != NULL);
+
+    // Fast path. No need for data conversion - just pass right through.
+    if (pSRC->config.formatIn == pSRC->config.formatOut) {
+        return pSRC->onRead(frameCount, pFramesOut, pSRC->pUserData);
+    }
+
+    // Slower path. Need to do a format conversion.
+    mal_uint32 totalFramesRead = 0;
+    while (frameCount > 0) {
+        mal_uint8 pStagingBuffer[MAL_MAX_CHANNELS * 2048];
+        mal_uint32 stagingBufferSizeInFrames = sizeof(pStagingBuffer) / mal_get_sample_size_in_bytes(pSRC->config.formatIn) / pSRC->config.channels;
+        mal_uint32 framesToRead = stagingBufferSizeInFrames;
+        if (framesToRead > frameCount) {
+            framesToRead = frameCount;
+        }
+
+        mal_uint32 framesRead = pSRC->onRead(framesToRead, pStagingBuffer, pSRC->pUserData);
+        if (framesRead == 0) {
+            break;
+        }
+
+        mal_pcm_convert(pFramesOut, pSRC->config.formatOut, pStagingBuffer, pSRC->config.formatIn, framesRead * pSRC->config.channels);
+
+        pFramesOut  = (mal_uint8*)pFramesOut + (framesRead * pSRC->config.channels * mal_get_sample_size_in_bytes(pSRC->config.formatOut));
+        frameCount -= framesRead;
+        totalFramesRead += framesRead;
+    }
+
+    return totalFramesRead;
+}
+
+mal_uint32 mal_src_read_frames_linear(mal_src* pSRC, mal_uint32 frameCount, void* pFramesOut)
+{
+    mal_assert(pSRC != NULL);
+    mal_assert(frameCount > 0);
+    mal_assert(pFramesOut != NULL);
+
+    // TODO: Implement me properly.
+    return mal_src_read_frames_passthrough(pSRC, frameCount, pFramesOut);
+}
+
+
 
 //////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 //////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -5747,10 +5908,11 @@ void mal_pcm_f32_to_s16(short* pOut, const float* pIn, unsigned int count);
 void mal_pcm_f32_to_s24(void* pOut, const float* pIn, unsigned int count);
 void mal_pcm_f32_to_s32(int* pOut, const float* pIn, unsigned int count);
 
-static void mal_pcm_convert(void* pOut, mal_format formatOut, const void* pIn, mal_format formatIn, unsigned int sampleCount)
+void mal_pcm_convert(void* pOut, mal_format formatOut, const void* pIn, mal_format formatIn, unsigned int sampleCount)
 {
     if (formatOut == formatIn) {
         mal_copy_memory(pOut, pIn, sampleCount * mal_get_sample_size_in_bytes(formatOut));
+        return;
     }
 
     switch (formatIn)
@@ -6014,102 +6176,37 @@ static void mal_dsp_mix_channels(float* pFramesOut, mal_uint32 channelsOut, cons
     }
 }
 
-mal_uint32 mal_dsp_process_passthrough(mal_dsp* pDSP, mal_dsp_read_proc onRead, void* pUserData, void* pFramesOut, mal_uint32 frameCount);
-mal_uint32 mal_dsp_process_generic(mal_dsp* pDSP, mal_dsp_read_proc onRead, void* pUserData, void* pFramesOut, mal_uint32 frameCount);
 
-typedef enum
+mal_uint32 mal_dsp__src_on_read(mal_uint32 frameCount, void* pFramesOut, void* pUserData)
 {
-    mal_dsp_opcode_pcm_convert,
-    mal_dsp_opcode_channel_mix,
-    mal_dsp_opcode_channel_shuffle,
-    mal_dsp_opcode_src,
-} mal_dsp_opcode;
+    mal_dsp* pDSP = (mal_dsp*)pUserData;
+    mal_assert(pDSP != NULL);
 
-#if defined(_MSC_VER)
-    #pragma warning(push)
-    #pragma warning(disable:4201)   // nonstandard extension used: nameless struct/union
-#endif
-typedef struct
-{
-    mal_dsp_opcode opcode;
-    mal_uint8* pInputData;
-    mal_format inputFormat;
-    mal_uint32 inputChannels;
-    mal_uint32 inputFrameCount;
-    mal_uint8* pOutputData;
-    mal_format outputFormat;
-    mal_uint32 outputChannels;
-    mal_uint32 outputFrameCount;
-    union
-    {
-        struct
-        {
-            mal_channel_mix_mode mode;
-        } channel_mix;
-
-        struct
-        {
-            mal_uint8 shuffleTable;
-        } channel_shuffle;
-
-        struct
-        {
-            mal_uint32 inputSampleRate;
-            mal_uint32 outputSampleRate;
-        } src;
-    };
-} mal_dsp_op;
-#if defined(_MSC_VER)
-    #pragma warning(pop)
-#endif
-
-void mal_dsp_process_do_next_op(mal_dsp* pDSP, mal_dsp_op* pOP)
-{
-    (void)pDSP;
-
-    switch (pOP->opcode)
-    {
-        case mal_dsp_opcode_pcm_convert:    // Conversion from pOP->inputFormat to pOP->outputFormat
-        {
-            mal_pcm_convert(pOP->pOutputData, pOP->outputFormat, pOP->pInputData, pOP->inputFormat, pOP->inputFrameCount * pOP->inputChannels);
-            pOP->outputFrameCount = pOP->inputFrameCount;
-        } break;
-
-        case mal_dsp_opcode_channel_mix:
-        {
-            mal_assert(pOP->inputFormat == mal_format_f32);
-            mal_dsp_mix_channels((float*)pOP->pOutputData, pOP->outputChannels, (float*)pOP->pInputData, pOP->inputChannels, pOP->inputFrameCount, mal_channel_mix_mode_blend);
-            pOP->outputFrameCount = pOP->inputFrameCount;
-        } break;
-
-        case mal_dsp_opcode_channel_shuffle:
-        {
-            // TODO: Implement me.
-            mal_copy_memory(pOP->pOutputData, pOP->pInputData, pOP->inputFrameCount * pOP->inputChannels * mal_get_sample_size_in_bytes(pOP->inputFormat));
-            pOP->outputFrameCount = pOP->inputFrameCount;
-        } break;
-
-        case mal_dsp_opcode_src:
-        {
-            // TODO: Implement me.
-            mal_copy_memory(pOP->pOutputData, pOP->pInputData, pOP->inputFrameCount * pOP->inputChannels * mal_get_sample_size_in_bytes(pOP->inputFormat));
-            pOP->outputFrameCount = pOP->inputFrameCount;
-        } break;
-    }
-
-    // The outputs from this operation become the inputs of the next.
-    pOP->pInputData = pOP->pOutputData;
-    pOP->inputFormat = pOP->outputFormat;
-    pOP->inputChannels = pOP->outputChannels;
+    return pDSP->onRead(frameCount, pFramesOut, pDSP->pUserDataForOnRead);
 }
 
-mal_result mal_dsp_init(mal_dsp_config* pConfig, mal_dsp* pDSP)
+mal_result mal_dsp_init(mal_dsp_config* pConfig, mal_dsp_read_proc onRead, void* pUserData, mal_dsp* pDSP)
 {
     if (pDSP == NULL) return MAL_INVALID_ARGS;
     pDSP->config = *pConfig;
-    pDSP->onProcess = NULL;
-    pDSP->src.ratio = pDSP->config.sampleRateIn / (float)pDSP->config.sampleRateOut;
-    mal_zero_memory(pDSP->src.bin, sizeof(pDSP->src.bin));
+    pDSP->onRead = onRead;
+    pDSP->pUserDataForOnRead = pUserData;
+
+    if (pConfig->sampleRateIn != pConfig->sampleRateOut) {
+        pDSP->isSRCRequired = MAL_TRUE;
+
+        mal_src_config srcConfig;
+        srcConfig.sampleRateIn = pConfig->sampleRateIn;
+        srcConfig.sampleRateOut = pConfig->sampleRateOut;
+        srcConfig.formatIn = pConfig->formatIn;
+        srcConfig.formatOut = mal_format_f32;
+        srcConfig.channels = pConfig->channelsIn;
+        srcConfig.algorithm = mal_src_algorithm_linear;
+        mal_result result = mal_src_init(&srcConfig, mal_dsp__src_on_read, pDSP, &pDSP->src);
+        if (result != MAL_SUCCESS) {
+            return result;
+        }
+    }
 
     pDSP->isUsingForeignChannelMap = MAL_FALSE;
     for (mal_uint32 i = 0; i < MAL_MAX_CHANNELS; ++i) {
@@ -6120,132 +6217,79 @@ mal_result mal_dsp_init(mal_dsp_config* pConfig, mal_dsp* pDSP)
     }
 
     if (pConfig->formatIn == pConfig->formatOut && pConfig->channelsIn == pConfig->channelsOut && pConfig->sampleRateIn == pConfig->sampleRateOut && !pDSP->isUsingForeignChannelMap) {
-        pDSP->onProcess = mal_dsp_process_passthrough;
+        pDSP->isPassthrough = MAL_TRUE;
     } else {
-        pDSP->onProcess = mal_dsp_process_generic;
+        pDSP->isPassthrough = MAL_FALSE;
     }
 
     return MAL_SUCCESS;
 }
 
-
-mal_uint32 mal_dsp_process_passthrough(mal_dsp* pDSP, mal_dsp_read_proc onRead, void* pUserData, void* pFramesOut, mal_uint32 frameCount)
+mal_uint32 mal_dsp_read_frames(mal_dsp* pDSP, mal_uint32 frameCount, void* pFramesOut)
 {
-    (void)pDSP;
-    return onRead(frameCount, pFramesOut, pUserData);
-}
+    if (pDSP == NULL || pFramesOut == NULL) return 0;
 
-mal_uint32 mal_dsp_process_generic(mal_dsp* pDSP, mal_dsp_read_proc onRead, void* pUserData, void* pFramesOut, mal_uint32 frameCount)
-{
-    // The DSP pipline is made up of stages where the output data from one stage becomes the input data of the next.
-    mal_uint8 pSampleData[2][256*MAL_MAX_CHANNELS*4];
-    mal_uint32 totalFramesProcessed = 0;
-
-    mal_bool32 requiresF32Conversion = MAL_FALSE;
-    if (pDSP->config.formatIn != mal_format_f32 && (pDSP->config.channelsIn != pDSP->config.channelsOut || pDSP->config.sampleRateIn != pDSP->config.sampleRateOut)) {
-        requiresF32Conversion = MAL_TRUE;
+    // Fast path.
+    if (pDSP->isPassthrough) {
+        return pDSP->onRead(frameCount, pFramesOut, pDSP->pUserDataForOnRead);
     }
 
-    mal_uint32 framesToRead = (mal_uint32)(frameCount * (1 / pDSP->src.ratio));
-    while (totalFramesProcessed < frameCount) {
-        mal_dsp_op op;
-        op.pInputData = pSampleData[0];
-        op.inputFormat = pDSP->config.formatIn;
-        op.inputChannels = pDSP->config.channelsIn;
-        op.pOutputData = pSampleData[1];
+    // Slower path - where the real work is done.
 
-        mal_uint32 inputFrameCount = sizeof(pSampleData[0]) / mal_get_sample_size_in_bytes(pDSP->config.formatIn) / pDSP->config.channelsIn;
-        if (inputFrameCount > framesToRead) {
-            inputFrameCount = framesToRead;
+#define MAL_DSP_SAMPLE_CHUNK_SIZE   512
+
+    float pFrames[2][MAL_MAX_CHANNELS * MAL_DSP_SAMPLE_CHUNK_SIZE];
+    mal_format pFramesFormat[2];
+    mal_uint32 iFrames = 0; // <-- Used as an index into pFrames and cycles between 0 and 1.
+
+    mal_uint32 totalFramesRead = 0;
+    while (frameCount > 0) {
+        mal_uint32 framesToRead = mal_countof(pFrames[0]) / mal_max(pDSP->config.channelsIn, pDSP->config.channelsOut);
+        if (framesToRead > frameCount) {
+            framesToRead = frameCount;
         }
 
-        inputFrameCount = onRead(inputFrameCount, op.pInputData, pUserData);
-        if (inputFrameCount == 0) {
+        // The initial filling of sample data depends on whether or not we are using SRC.
+        mal_uint32 framesRead = 0;
+        if (pDSP->isSRCRequired) {
+            framesRead = mal_src_read_frames(&pDSP->src, framesToRead, pFrames[iFrames]);
+            pFramesFormat[iFrames] = pDSP->src.config.formatOut;  // Should always be f32.
+        } else {
+            framesRead = pDSP->onRead(framesToRead, pFrames[iFrames], pDSP->pUserDataForOnRead);
+            pFramesFormat[iFrames] = pDSP->config.formatIn;
+        }
+
+        if (framesRead == 0) {
             break;
         }
+        
 
-        op.inputFrameCount = inputFrameCount;
-
-        if (requiresF32Conversion) {
-            op.opcode = mal_dsp_opcode_pcm_convert;
-            op.outputChannels = op.inputChannels;
-            op.outputFormat = mal_format_f32;
-            mal_dsp_process_do_next_op(pDSP, &op);
-        }
-
-        if (pDSP->config.sampleRateIn == pDSP->config.sampleRateOut) {
-            // No SRC.
-            if (pDSP->config.channelsIn != pDSP->config.channelsOut) {
-                op.opcode = mal_dsp_opcode_channel_mix;
-                op.outputChannels = pDSP->config.channelsOut;
-                mal_dsp_process_do_next_op(pDSP, &op);
+        // Channel mixing. The input format must be in f32 which may require a conversion.
+        if (pDSP->config.channelsIn != pDSP->config.channelsOut) {
+            if (pFramesFormat[iFrames] != mal_format_f32) {
+                mal_pcm_convert(pFrames[(iFrames + 1) % 2], mal_format_f32, pFrames[iFrames], pDSP->config.formatIn, framesRead * pDSP->config.channelsIn);
+                iFrames = (iFrames + 1) % 2;
+                pFramesFormat[iFrames] = mal_format_f32;
             }
 
-            if (pDSP->isUsingForeignChannelMap) {
-                op.opcode = mal_dsp_opcode_channel_shuffle;
-                mal_dsp_process_do_next_op(pDSP, &op);
-            }
-        } else {
-            // SRC.
-            if (pDSP->config.sampleRateIn > pDSP->config.sampleRateOut) {
-                // Decimation. Do SRC first.
-                op.opcode = mal_dsp_opcode_src;
-                op.src.inputSampleRate = pDSP->config.sampleRateIn;
-                op.src.outputSampleRate = pDSP->config.sampleRateOut;
-                mal_dsp_process_do_next_op(pDSP, &op);
-
-                if (pDSP->config.channelsIn != pDSP->config.channelsOut) {
-                    op.opcode = mal_dsp_opcode_channel_mix;
-                    op.outputChannels = pDSP->config.channelsOut;
-                    mal_dsp_process_do_next_op(pDSP, &op);
-                }
-
-                if (pDSP->isUsingForeignChannelMap) {
-                    op.opcode = mal_dsp_opcode_channel_shuffle;
-                    mal_dsp_process_do_next_op(pDSP, &op);
-                }
-            } else {
-                // Upsampling. Do SRC last.
-                if (pDSP->config.channelsIn != pDSP->config.channelsOut) {
-                    op.opcode = mal_dsp_opcode_channel_mix;
-                    op.outputChannels = pDSP->config.channelsOut;
-                    mal_dsp_process_do_next_op(pDSP, &op);
-                }
-
-                if (pDSP->isUsingForeignChannelMap) {
-                    op.opcode = mal_dsp_opcode_channel_shuffle;
-                    mal_dsp_process_do_next_op(pDSP, &op);
-                }
-
-                op.opcode = mal_dsp_opcode_src;
-                op.src.inputSampleRate = pDSP->config.sampleRateIn;
-                op.src.outputSampleRate = pDSP->config.sampleRateOut;
-                mal_dsp_process_do_next_op(pDSP, &op);
-            }
+            mal_dsp_mix_channels(pFrames[(iFrames + 1) % 2], pDSP->config.channelsOut, pFrames[iFrames], pDSP->config.channelsIn, framesRead, mal_channel_mix_mode_blend);
+            iFrames = (iFrames + 1) % 2;
+            pFramesFormat[iFrames] = mal_format_f32;
         }
 
-        // Format conversion comes last.
-        if (op.inputFormat != pDSP->config.formatOut) {
-            op.opcode = mal_dsp_opcode_pcm_convert;
-            op.outputFormat = pDSP->config.formatOut;
-            mal_dsp_process_do_next_op(pDSP, &op);
-        }
 
-        mal_uint32 frameSizeInBytes = pDSP->config.channelsOut * mal_get_sample_size_in_bytes(pDSP->config.formatOut);
-        mal_copy_memory((mal_uint8*)pFramesOut + (totalFramesProcessed * frameSizeInBytes), op.pOutputData, op.outputFrameCount * frameSizeInBytes);
+        // TODO: Channel mapping.
+        
 
-        totalFramesProcessed += op.outputFrameCount;
-        framesToRead -= op.outputFrameCount;
+        // Final conversion to output format.
+        mal_pcm_convert(pFramesOut, pDSP->config.formatOut, pFrames[iFrames], pFramesFormat[iFrames], framesRead * pDSP->config.channelsOut);
+
+        pFramesOut  = (mal_uint8*)pFramesOut + (framesRead * pDSP->config.channelsOut * mal_get_sample_size_in_bytes(pDSP->config.formatOut));
+        frameCount -= framesRead;
+        totalFramesRead += framesRead;
     }
 
-    return totalFramesProcessed;
-}
-
-
-mal_uint32 mal_dsp_process(mal_dsp* pDSP, mal_dsp_read_proc onRead, void* pUserData, void* pFramesOut, mal_uint32 frameCount)
-{
-    if (pDSP == NULL || pFramesOut == NULL || onRead == NULL || pDSP->onProcess == NULL) return 0;
-    return pDSP->onProcess(pDSP, onRead, pUserData, pFramesOut, frameCount);
+    return totalFramesRead;
 }
 
 
