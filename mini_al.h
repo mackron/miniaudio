@@ -6234,11 +6234,9 @@ mal_uint32 mal_dsp_read_frames(mal_dsp* pDSP, mal_uint32 frameCount, void* pFram
         return pDSP->onRead(frameCount, pFramesOut, pDSP->pUserDataForOnRead);
     }
 
+
     // Slower path - where the real work is done.
-
-#define MAL_DSP_SAMPLE_CHUNK_SIZE   512
-
-    float pFrames[2][MAL_MAX_CHANNELS * MAL_DSP_SAMPLE_CHUNK_SIZE];
+    float pFrames[2][MAL_MAX_CHANNELS * 512];
     mal_format pFramesFormat[2];
     mal_uint32 iFrames = 0; // <-- Used as an index into pFrames and cycles between 0 and 1.
 
