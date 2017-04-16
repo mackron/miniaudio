@@ -164,6 +164,11 @@
 extern "C" {
 #endif
 
+#if defined(_MSC_VER)
+    #pragma warning(push)
+    #pragma warning(disable:4201)   // nonstandard extension used: nameless struct/union
+#endif
+
 // Platform/backend detection.
 #ifdef _WIN32
     #define MAL_WIN32
@@ -383,6 +388,15 @@ typedef enum
     mal_src_algorithm_linear
 } mal_src_algorithm;
 
+#define MAL_SRC_CACHE_SIZE_IN_FRAMES    512
+typedef struct
+{
+    mal_src* pSRC;
+    float pCachedFrames[MAL_MAX_CHANNELS * MAL_SRC_CACHE_SIZE_IN_FRAMES];
+    mal_uint32 cachedFrameCount;
+    mal_uint32 iNextFrame;
+} mal_src_cache;
+
 typedef struct
 {
     mal_uint32 sampleRateIn;
@@ -400,6 +414,16 @@ struct mal_src
     void* pUserData;
     float ratio;
     float bin[256];
+    mal_src_cache cache;    // <-- For simplifying and optimizing client -> memory reading.
+
+    union
+    {
+        struct
+        {
+            float alpha;
+            mal_bool32 isBinLoaded : 1;
+        } linear;
+    };
 };
 
 typedef struct mal_dsp mal_dsp;
@@ -443,10 +467,6 @@ typedef struct
     mal_log_proc  onLogCallback;
 } mal_device_config;
 
-#if defined(_MSC_VER)
-    #pragma warning(push)
-    #pragma warning(disable:4201)   // nonstandard extension used: nameless struct/union
-#endif
 typedef struct
 {
     mal_backend backend;    // DirectSound, ALSA, etc.
@@ -976,6 +996,17 @@ mal_uint32 mal_dsp_read_frames(mal_dsp* pDSP, mal_uint32 frameCount, void* pFram
 
 ///////////////////////////////////////////////////////////////////////////////
 //
+// Miscellaneous Helpers
+//
+///////////////////////////////////////////////////////////////////////////////
+
+// Blends two frames in floating point format.
+void mal_blend_f32(float* pOut, float* pInA, float* pInB, float factor, mal_uint32 channels);
+
+
+
+///////////////////////////////////////////////////////////////////////////////
+//
 // Format Conversion
 //
 ///////////////////////////////////////////////////////////////////////////////
@@ -1000,6 +1031,7 @@ void mal_pcm_f32_to_s16(short* pOut, const float* pIn, unsigned int count);
 void mal_pcm_f32_to_s24(void* pOut, const float* pIn, unsigned int count);
 void mal_pcm_f32_to_s32(int* pOut, const float* pIn, unsigned int count);
 void mal_pcm_convert(void* pOut, mal_format formatOut, const void* pIn, mal_format formatIn, unsigned int sampleCount);
+
 
 #endif
 
@@ -1173,6 +1205,9 @@ mal_uint8 MAL_CHANNEL_MAP_5POINT1[MAL_MAX_CHANNELS] = {
 #define mal_max(x, y)   (((x) > (y)) ? (x) : (y))
 #define mal_min(x, y)   (((x) < (y)) ? (x) : (y))
 
+#define mal_buffer_frame_capacity(buffer, channels, format) (sizeof(buffer) / mal_get_sample_size_in_bytes(format) / (channels))
+
+
 // Return Values:
 //   0:  Success
 //   22: EINVAL
@@ -1263,6 +1298,12 @@ static inline float mal_clip_f32(float x)
     if (x > +1) return +1;
     return x;
 }
+
+static inline float mal_mix_f32(float x, float y, float a)
+{
+    return x*(1-a) + y*a;
+}
+
 
 ///////////////////////////////////////////////////////////////////////////////
 //
@@ -5773,6 +5814,81 @@ mal_uint32 mal_get_sample_size_in_bytes(mal_format format)
 //
 //////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
+void mal_src_cache_init(mal_src* pSRC, mal_src_cache* pCache)
+{
+    mal_assert(pSRC != NULL);
+    mal_assert(pCache != NULL);
+
+    pCache->pSRC = pSRC;
+    pCache->cachedFrameCount = 0;
+    pCache->iNextFrame = 0;
+}
+
+mal_uint32 mal_src_cache_read_frames(mal_src_cache* pCache, mal_uint32 frameCount, float* pFramesOut)
+{
+    mal_assert(pCache != NULL);
+    mal_assert(pCache->pSRC != NULL);
+    mal_assert(pCache->pSRC->onRead != NULL);
+    mal_assert(frameCount > 0);
+    mal_assert(pFramesOut != NULL);
+
+    mal_uint32 channels = pCache->pSRC->config.channels;
+
+    mal_uint32 totalFramesRead = 0;
+    while (frameCount > 0) {
+        // If there's anything in memory go ahead and copy that over first.
+        mal_uint32 framesRemainingInMemory = pCache->cachedFrameCount - pCache->iNextFrame;
+        mal_uint32 framesToReadFromMemory = frameCount;
+        if (framesToReadFromMemory > framesRemainingInMemory) {
+            framesToReadFromMemory = framesRemainingInMemory;
+        }
+
+        mal_copy_memory(pFramesOut, pCache->pCachedFrames + pCache->iNextFrame*channels, framesToReadFromMemory * channels * sizeof(float));
+        pCache->iNextFrame += framesToReadFromMemory;
+
+        totalFramesRead += framesToReadFromMemory;
+        frameCount -= framesToReadFromMemory;
+        if (frameCount == 0) {
+            break;
+        }
+
+
+        // At this point there are still more frames to read from the client, so we'll need to reload the cache with fresh data.
+        mal_assert(frameCount > 0);
+        pFramesOut += framesToReadFromMemory * channels;
+
+        pCache->iNextFrame = 0;
+        pCache->cachedFrameCount = 0;
+        if (pCache->pSRC->config.formatIn == mal_format_f32) {
+            // No need for a conversion - read straight into the cache.
+            mal_uint32 framesToReadFromClient = mal_countof(pCache->pCachedFrames) / pCache->pSRC->config.channels;
+            if (framesToReadFromClient > frameCount) {
+                framesToReadFromClient = frameCount;
+            }
+
+            pCache->cachedFrameCount = pCache->pSRC->onRead(framesToReadFromClient, pCache->pCachedFrames, pCache->pSRC->pUserData);
+        } else {
+            // A format conversion is required which means we need to use an intermediary buffer.
+            mal_uint8 pIntermediaryBuffer[sizeof(pCache->pCachedFrames)];
+            mal_uint32 framesToReadFromClient = mal_min(mal_buffer_frame_capacity(pIntermediaryBuffer, channels, pCache->pSRC->config.formatIn), mal_buffer_frame_capacity(pCache->pCachedFrames, channels, mal_format_f32));
+
+            pCache->cachedFrameCount = pCache->pSRC->onRead(framesToReadFromClient, pIntermediaryBuffer, pCache->pSRC->pUserData);
+
+            // Convert to f32.
+            mal_pcm_convert(pCache->pCachedFrames, mal_format_f32, pIntermediaryBuffer, pCache->pSRC->config.formatIn, pCache->cachedFrameCount * channels);
+        }
+
+
+        // Get out of this loop if nothing was able to be retrieved.
+        if (pCache->cachedFrameCount == 0) {
+            break;
+        }
+    }
+
+    return totalFramesRead;
+}
+
+
 mal_uint32 mal_src_read_frames_passthrough(mal_src* pSRC, mal_uint32 frameCount, void* pFramesOut);
 mal_uint32 mal_src_read_frames_linear(mal_src* pSRC, mal_uint32 frameCount, void* pFramesOut);
 
@@ -5795,6 +5911,7 @@ mal_result mal_src_init(mal_src_config* pConfig, mal_src_read_proc onRead, void*
 
     pSRC->ratio = (float)pSRC->config.sampleRateIn / pSRC->config.sampleRateOut;
 
+    mal_src_cache_init(pSRC, &pSRC->cache);
     return MAL_SUCCESS;
 }
 
@@ -5853,8 +5970,62 @@ mal_uint32 mal_src_read_frames_linear(mal_src* pSRC, mal_uint32 frameCount, void
     mal_assert(frameCount > 0);
     mal_assert(pFramesOut != NULL);
 
-    // TODO: Implement me properly.
-    return mal_src_read_frames_passthrough(pSRC, frameCount, pFramesOut);
+    // Load the bin if it's not been loaded yet.
+    if (!pSRC->linear.isBinLoaded) {
+        mal_uint32 framesRead = mal_src_cache_read_frames(&pSRC->cache, 2, pSRC->bin);
+        if (framesRead == 0) {
+            return 0;
+        }
+
+        if (framesRead == 1) {
+            mal_pcm_convert(pFramesOut, pSRC->config.formatOut, pSRC->bin, mal_format_f32, framesRead * pSRC->config.channels);
+            return framesRead;
+        }
+
+        pSRC->linear.isBinLoaded = MAL_TRUE;
+    }
+
+
+    float factor = pSRC->ratio;
+
+    mal_uint32 totalFramesRead = 0;
+    while (frameCount > 0) {
+        // The bin is where the previous and next frames are located.
+        float* pPrevFrame = pSRC->bin;
+        float* pNextFrame = pSRC->bin + pSRC->config.channels;
+
+        float pFrame[MAL_MAX_CHANNELS];
+        mal_blend_f32(pFrame, pPrevFrame, pNextFrame, pSRC->linear.alpha, pSRC->config.channels);
+
+        pSRC->linear.alpha += factor;
+
+        // The new alpha value is how we determine whether or not we need to read fresh frames.
+        mal_uint32 framesToReadFromClient = (mal_uint32)pSRC->linear.alpha;
+        pSRC->linear.alpha = pSRC->linear.alpha - framesToReadFromClient;
+
+        for (mal_uint32 i = 0; i < framesToReadFromClient; ++i) {
+            for (mal_uint32 j = 0; j < pSRC->config.channels; ++j) {
+                pPrevFrame[j] = pNextFrame[j];
+            }
+
+            mal_uint32 framesRead = mal_src_cache_read_frames(&pSRC->cache, 1, pNextFrame);
+            if (framesRead == 0) {
+                for (mal_uint32 j = 0; j < pSRC->config.channels; ++j) {
+                    pNextFrame[j] = 0;
+                }
+
+                pSRC->linear.isBinLoaded = MAL_FALSE;
+            }
+        }
+        
+        mal_pcm_convert(pFramesOut, pSRC->config.formatOut, pFrame, mal_format_f32, 1 * pSRC->config.channels);
+
+        pFramesOut  = (mal_uint8*)pFramesOut + (1 * pSRC->config.channels * mal_get_sample_size_in_bytes(pSRC->config.formatOut));
+        frameCount -= 1;
+        totalFramesRead += 1;
+    }
+
+    return totalFramesRead;
 }
 
 
@@ -5874,7 +6045,7 @@ mal_uint32 mal_src_read_frames_linear(mal_src* pSRC, mal_uint32 frameCount, void
 //////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 //////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 //////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-#if 1
+#if 0
 #include "tools/mal_build/bin/mini_al_dsp.c"
 #else
 #endif
@@ -6288,6 +6459,24 @@ mal_uint32 mal_dsp_read_frames(mal_dsp* pDSP, mal_uint32 frameCount, void* pFram
     }
 
     return totalFramesRead;
+}
+
+
+
+
+//////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+//////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+//
+// Miscellaneous Helpers
+//
+//////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+//////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+
+void mal_blend_f32(float* pOut, float* pInA, float* pInB, float factor, mal_uint32 channels)
+{
+    for (mal_uint32 i = 0; i < channels; ++i) {
+        pOut[i] = mal_mix_f32(pInA[i], pInB[i], factor);
+    }
 }
 
 
