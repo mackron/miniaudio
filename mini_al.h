@@ -405,6 +405,7 @@ typedef struct
     mal_format formatOut;
     mal_uint32 channels;
     mal_src_algorithm algorithm;
+    mal_uint32 cacheSizeInFrames;  //< The number of frames to read from the client at a time.
 } mal_src_config;
 
 struct mal_src
@@ -439,6 +440,7 @@ typedef struct
     mal_uint32 channelsOut;
     mal_uint32 sampleRateOut;
     mal_uint8  channelMapOut[MAL_MAX_CHANNELS];
+    mal_uint32 cacheSizeInFrames;
 } mal_dsp_config;
 
 struct mal_dsp
@@ -5561,6 +5563,7 @@ mal_result mal_device_init(mal_context* pContext, mal_device_type type, mal_devi
     // We need a DSP object which is where samples are moved through in order to convert them to the
     // format required by the backend.
     mal_dsp_config dspConfig;
+    dspConfig.cacheSizeInFrames = pDevice->bufferSizeInFrames;
     if (type == mal_device_type_playback) {
         dspConfig.formatIn      = pDevice->format;
         dspConfig.channelsIn    = pDevice->channels;
@@ -5862,8 +5865,8 @@ mal_uint32 mal_src_cache_read_frames(mal_src_cache* pCache, mal_uint32 frameCoun
         if (pCache->pSRC->config.formatIn == mal_format_f32) {
             // No need for a conversion - read straight into the cache.
             mal_uint32 framesToReadFromClient = mal_countof(pCache->pCachedFrames) / pCache->pSRC->config.channels;
-            if (framesToReadFromClient > frameCount) {
-                framesToReadFromClient = frameCount;
+            if (framesToReadFromClient > pCache->pSRC->config.cacheSizeInFrames) {
+                framesToReadFromClient = pCache->pSRC->config.cacheSizeInFrames;
             }
 
             pCache->cachedFrameCount = pCache->pSRC->onRead(framesToReadFromClient, pCache->pCachedFrames, pCache->pSRC->pUserData);
@@ -5871,6 +5874,9 @@ mal_uint32 mal_src_cache_read_frames(mal_src_cache* pCache, mal_uint32 frameCoun
             // A format conversion is required which means we need to use an intermediary buffer.
             mal_uint8 pIntermediaryBuffer[sizeof(pCache->pCachedFrames)];
             mal_uint32 framesToReadFromClient = mal_min(mal_buffer_frame_capacity(pIntermediaryBuffer, channels, pCache->pSRC->config.formatIn), mal_buffer_frame_capacity(pCache->pCachedFrames, channels, mal_format_f32));
+            if (framesToReadFromClient > pCache->pSRC->config.cacheSizeInFrames) {
+                framesToReadFromClient = pCache->pSRC->config.cacheSizeInFrames;
+            }
 
             pCache->cachedFrameCount = pCache->pSRC->onRead(framesToReadFromClient, pIntermediaryBuffer, pCache->pSRC->pUserData);
 
@@ -5907,6 +5913,10 @@ mal_result mal_src_init(mal_src_config* pConfig, mal_src_read_proc onRead, void*
     // If the in and out sample rates are the same, fall back to the passthrough algorithm.
     if (pSRC->config.sampleRateIn == pSRC->config.sampleRateOut) {
         pSRC->config.algorithm = mal_src_algorithm_none;
+    }
+
+    if (pSRC->config.cacheSizeInFrames > MAL_SRC_CACHE_SIZE_IN_FRAMES || pSRC->config.cacheSizeInFrames == 0) {
+        pSRC->config.cacheSizeInFrames = MAL_SRC_CACHE_SIZE_IN_FRAMES;
     }
 
     pSRC->ratio = (float)pSRC->config.sampleRateIn / pSRC->config.sampleRateOut;
@@ -6363,6 +6373,10 @@ mal_result mal_dsp_init(mal_dsp_config* pConfig, mal_dsp_read_proc onRead, void*
     pDSP->onRead = onRead;
     pDSP->pUserDataForOnRead = pUserData;
 
+    if (pDSP->config.cacheSizeInFrames > MAL_SRC_CACHE_SIZE_IN_FRAMES || pDSP->config.cacheSizeInFrames == 0) {
+        pDSP->config.cacheSizeInFrames = MAL_SRC_CACHE_SIZE_IN_FRAMES;
+    }
+
     if (pConfig->sampleRateIn != pConfig->sampleRateOut) {
         pDSP->isSRCRequired = MAL_TRUE;
 
@@ -6373,6 +6387,7 @@ mal_result mal_dsp_init(mal_dsp_config* pConfig, mal_dsp_read_proc onRead, void*
         srcConfig.formatOut = mal_format_f32;
         srcConfig.channels = pConfig->channelsIn;
         srcConfig.algorithm = mal_src_algorithm_linear;
+        srcConfig.cacheSizeInFrames = pConfig->cacheSizeInFrames;
         mal_result result = mal_src_init(&srcConfig, mal_dsp__src_on_read, pDSP, &pDSP->src);
         if (result != MAL_SUCCESS) {
             return result;
@@ -6748,6 +6763,7 @@ void mal_pcm_f32_to_s32(int* pOut, const float* pIn, unsigned int count)
 //   - Added support for f32 formats to the OpenSL|ES backend.
 //   - Added initial implementation of the WASAPI backend.
 //   - Added initial implementation of the OpenAL backend.
+//   - Added support for low quality linear sample rate conversion.
 //
 // v0.2 - 2016-10-28
 //   - API CHANGE: Add user data pointer as the last parameter to mal_device_init(). The rationale for this
@@ -6768,6 +6784,14 @@ void mal_pcm_f32_to_s32(int* pOut, const float* pIn, unsigned int count)
 // TODO
 // ====
 // - Add support for channel mapping.
+// - Higher quality sample rate conversion.
+//
+//
+// Optimizations
+// -------------
+// - SSE-ify format conversions
+// - SSE-ify SRC
+// - Optimize the DSP pipeline generally
 //
 //
 // WASAPI
