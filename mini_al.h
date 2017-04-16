@@ -257,6 +257,7 @@ typedef void (* mal_proc)();
 #define MAL_MAX_PERIODS_DSOUND                          4
 #define MAL_MAX_PERIODS_OPENAL                          4
 
+#define MAL_CHANNEL_NONE                                0
 #define MAL_CHANNEL_FRONT_LEFT                          1
 #define MAL_CHANNEL_FRONT_RIGHT                         2
 #define MAL_CHANNEL_FRONT_CENTER                        3
@@ -449,6 +450,7 @@ struct mal_dsp
     mal_dsp_read_proc onRead;
     void* pUserDataForOnRead;
     mal_src src;    // For sample rate conversion.
+    mal_uint8 channelShuffleTable[MAL_MAX_CHANNELS];
     mal_bool32 isUsingForeignChannelMap : 1;
     mal_bool32 isSRCRequired : 1;
     mal_bool32 isPassthrough : 1;       // <-- Will be set to true when the DSP pipeline is an optimized passthrough.
@@ -629,8 +631,7 @@ struct mal_device
     mal_uint32 internalChannels;
     mal_uint32 internalSampleRate;
     mal_uint8  internalChannelMap[MAL_MAX_CHANNELS];
-    mal_uint8  channelShuffleTable[MAL_MAX_CHANNELS];
-    mal_dsp dsp;            // Samples run through this to convert samples to a format suitable for use by the backend.
+    mal_dsp dsp;                    // Samples run through this to convert samples to a format suitable for use by the backend.
     mal_uint32 _dspFrameCount;      // Internal use only. Used when running the device -> DSP -> client pipeline. See mal_device__on_read_from_device().
     const mal_uint8* _dspFrames;    // ^^^ AS ABOVE ^^^
 
@@ -1125,10 +1126,6 @@ typedef HRESULT (WINAPI * MAL_PFN_PropVariantClear)(PROPVARIANT *pvar);
 
 #define MAL_DEVICE_FLAG_USING_DEFAULT_BUFFER_SIZE   (1 << 0)
 #define MAL_DEVICE_FLAG_USING_DEFAULT_PERIODS       (1 << 1)
-#define MAL_DEVICE_FLAG_USING_FOREIGN_FORMAT        (1 << 2)    // The backend's native format is different to the format requested by the client.
-#define MAL_DEVICE_FLAG_USING_FOREIGN_CHANNELS      (1 << 3)    // The backend's native channel count is different to the count requested by the client.
-#define MAL_DEVICE_FLAG_USING_FOREIGN_SAMPLE_RATE   (1 << 4)    // The backend's native sample rate is different to the rate requested by the client.
-#define MAL_DEVICE_FLAG_USING_FOREIGN_CHANNEL_MAP   (1 << 5)
 
 
 // The default size of the device's buffer in milliseconds.
@@ -5524,39 +5521,6 @@ mal_result mal_device_init(mal_context* pContext, mal_device_type type, mal_devi
 
     if (result != MAL_SUCCESS) {
         return MAL_NO_BACKEND;  // The error message will have been posted with mal_post_error() by the source of the error so don't bother calling it here.
-    }
-
-
-    // Some flags need to be set if the backend is using a different internal format, channel count or sample rate.
-    // TODO: Verify that these flags are still being used.
-    if (pDevice->format != pDevice->internalFormat) {
-        pDevice->flags |= MAL_DEVICE_FLAG_USING_FOREIGN_FORMAT;
-    }
-    if (pDevice->channels != pDevice->internalChannels) {
-        pDevice->flags |= MAL_DEVICE_FLAG_USING_FOREIGN_CHANNELS;
-    }
-    if (pDevice->sampleRate != pDevice->internalSampleRate) {
-        pDevice->flags |= MAL_DEVICE_FLAG_USING_FOREIGN_SAMPLE_RATE;
-    }
-    for (mal_uint32 i = 0; i < pDevice->channels && i < pDevice->internalChannels; ++i) {
-        if (pDevice->channelMap[i] != pDevice->internalChannelMap[i]) {
-            pDevice->flags |= MAL_DEVICE_FLAG_USING_FOREIGN_CHANNEL_MAP;
-            break;
-        }
-    }
-
-
-    // When we do channel shuffling we will need to know how each channel index maps between the client and the device.
-    if (pDevice->flags & MAL_DEVICE_FLAG_USING_FOREIGN_CHANNEL_MAP) {
-        if (type == mal_device_type_playback) {
-            for (mal_uint32 i = 0; i < pDevice->channels && i < pDevice->internalChannels; ++i) {
-                pDevice->channelShuffleTable[i] = (mal_uint8)i;
-            }
-        } else {
-            for (mal_uint32 i = 0; i < pDevice->channels && i < pDevice->internalChannels; ++i) {
-                pDevice->channelShuffleTable[i] = (mal_uint8)i;
-            }
-        }
     }
 
 
