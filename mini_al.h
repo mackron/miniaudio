@@ -450,8 +450,9 @@ struct mal_dsp
     mal_dsp_read_proc onRead;
     void* pUserDataForOnRead;
     mal_src src;    // For sample rate conversion.
+    mal_uint8 channelMapInPostMix[MAL_MAX_CHANNELS];   // <-- When mixing, new channels may need to be created. This represents the channel map after mixing.
     mal_uint8 channelShuffleTable[MAL_MAX_CHANNELS];
-    mal_bool32 isUsingForeignChannelMap : 1;
+    mal_bool32 isChannelMappingRequired : 1;
     mal_bool32 isSRCRequired : 1;
     mal_bool32 isPassthrough : 1;       // <-- Will be set to true when the DSP pipeline is an optimized passthrough.
 };
@@ -3677,8 +3678,8 @@ static mal_result mal_device_init__alsa(mal_context* pContext, mal_device_type t
     if (pDeviceID == NULL) {
         mal_strncpy_s(deviceName, sizeof(deviceName), "default", (size_t)-1);
     } else {
-        // For now, convert "hw" devices to "plughw". The reason for this is that mini_al is still a
-        // a quite unstable with non "plughw" devices.
+        // For now, convert "hw" devices to "plughw". The reason for this is that mini_al has not been thoroughly tested
+        // with non "plughw" devices.
         if (pDeviceID->str[0] == 'h' && pDeviceID->str[1] == 'w' && pDeviceID->str[2] == ':') {
             deviceName[0] = 'p'; deviceName[1] = 'l'; deviceName[2] = 'u'; deviceName[3] = 'g';
             mal_strncpy_s(deviceName+4, sizeof(deviceName-4), pDeviceID->str, (size_t)-1);
@@ -6126,8 +6127,7 @@ void mal_pcm_convert(void* pOut, mal_format formatOut, const void* pIn, mal_form
     }
 }
 
-#if 0
-static void mal_rearrange_channels(float* pFrame, mal_uint32 channels, mal_uint32 channelMap[18])
+static void mal_rearrange_channels(float* pFrame, mal_uint32 channels, mal_uint8 channelMap[18])
 {
     float temp;
     switch (channels) {
@@ -6151,7 +6151,6 @@ static void mal_rearrange_channels(float* pFrame, mal_uint32 channels, mal_uint3
         case  1: temp = pFrame[ 0]; pFrame[ 0] = pFrame[channelMap[ 0]]; pFrame[channelMap[ 0]] = temp;
     }
 }
-#endif
 
 static void mal_dsp_mix_channels__dec(float* pFramesOut, mal_uint32 channelsOut, const float* pFramesIn, mal_uint32 channelsIn, mal_uint32 frameCount, mal_channel_mix_mode mode)
 {
@@ -6333,6 +6332,7 @@ mal_uint32 mal_dsp__src_on_read(mal_uint32 frameCount, void* pFramesOut, void* p
 mal_result mal_dsp_init(mal_dsp_config* pConfig, mal_dsp_read_proc onRead, void* pUserData, mal_dsp* pDSP)
 {
     if (pDSP == NULL) return MAL_INVALID_ARGS;
+    mal_zero_object(pDSP);
     pDSP->config = *pConfig;
     pDSP->onRead = onRead;
     pDSP->pUserDataForOnRead = pUserData;
@@ -6358,15 +6358,62 @@ mal_result mal_dsp_init(mal_dsp_config* pConfig, mal_dsp_read_proc onRead, void*
         }
     }
 
-    pDSP->isUsingForeignChannelMap = MAL_FALSE;
-    for (mal_uint32 i = 0; i < MAL_MAX_CHANNELS; ++i) {
-        if (pConfig->channelMapIn[i] != pConfig->channelMapOut[i]) {
-            pDSP->isUsingForeignChannelMap = MAL_TRUE;
-            break;
+
+
+    pDSP->isChannelMappingRequired = MAL_FALSE;
+    if (pConfig->channelMapIn[0] != MAL_CHANNEL_NONE && pConfig->channelMapOut[0] != MAL_CHANNEL_NONE) {    // <-- Channel mapping will be ignored if the first channel map is MAL_CHANNEL_NONE.
+        // When using channel mapping we need to figure out a shuffling table. The first thing to do is convert the input channel map
+        // so that it contains the same number of channels as the output channel count.
+        mal_uint32 channelsMin = mal_min(pConfig->channelsIn, pConfig->channelsOut);
+        for (mal_uint32 iChannel = 0; iChannel < channelsMin; ++iChannel) {
+            pDSP->channelMapInPostMix[iChannel] = pConfig->channelMapIn[iChannel];
+        }
+
+        // Any excess channels need to be filled with the relevant channels from the output channel map. Currently we're justing filling it with
+        // the first channels that are not present in the input channel map.
+        if (pConfig->channelsOut > pConfig->channelsIn) {
+            for (mal_uint32 iChannel = pConfig->channelsIn; iChannel < pConfig->channelsOut; ++iChannel) {
+                mal_uint8 newChannel = MAL_CHANNEL_NONE;
+                for (mal_uint32 iChannelOut = 0; iChannelOut < pConfig->channelsOut; ++iChannelOut) {
+                    mal_bool32 exists = MAL_FALSE;
+                    for (mal_uint32 iChannelIn = 0; iChannelIn < pConfig->channelsIn; ++iChannelIn) {
+                        if (pConfig->channelMapOut[iChannelOut] == pConfig->channelMapIn[iChannelIn]) {
+                            exists = MAL_TRUE;
+                            break;
+                        }
+                    }
+
+                    if (!exists) {
+                        newChannel = pConfig->channelMapOut[iChannelOut];
+                        break;
+                    }
+                }
+
+                pDSP->channelMapInPostMix[iChannel] = newChannel;
+            }
+        }
+
+        // We only need to do a channel mapping if the map after mixing is different to the final output map.
+        for (mal_uint32 iChannel = 0; iChannel < pConfig->channelsOut; ++iChannel) {
+            if (pDSP->channelMapInPostMix[iChannel] != pConfig->channelMapOut[iChannel]) {
+                pDSP->isChannelMappingRequired = MAL_TRUE;
+                break;
+            }
+        }
+
+        // Now we need to create the shuffling table.
+        if (pDSP->isChannelMappingRequired) {
+            for (mal_uint32 iChannelIn = 0; iChannelIn < pConfig->channelsOut; ++iChannelIn) {
+                for (mal_uint32 iChannelOut = 0; iChannelOut < pConfig->channelsOut; ++iChannelOut) {
+                    if (pDSP->channelMapInPostMix[iChannelOut] == pConfig->channelMapOut[iChannelIn]) {
+                        pDSP->channelShuffleTable[iChannelOut] = (mal_uint8)iChannelOut;
+                    }
+                }
+            }
         }
     }
 
-    if (pConfig->formatIn == pConfig->formatOut && pConfig->channelsIn == pConfig->channelsOut && pConfig->sampleRateIn == pConfig->sampleRateOut && !pDSP->isUsingForeignChannelMap) {
+    if (pConfig->formatIn == pConfig->formatOut && pConfig->channelsIn == pConfig->channelsOut && pConfig->sampleRateIn == pConfig->sampleRateOut && !pDSP->isChannelMappingRequired) {
         pDSP->isPassthrough = MAL_TRUE;
     } else {
         pDSP->isPassthrough = MAL_FALSE;
@@ -6427,6 +6474,11 @@ mal_uint32 mal_dsp_read_frames(mal_dsp* pDSP, mal_uint32 frameCount, void* pFram
 
 
         // TODO: Channel mapping.
+        if (pDSP->isChannelMappingRequired) {
+            for (mal_uint32 i = 0; i < framesRead; ++i) {
+                mal_rearrange_channels(pFrames[iFrames] + (i * pDSP->config.channelsOut), pDSP->config.channelsOut, pDSP->channelShuffleTable);
+            }
+        }
         
 
         // Final conversion to output format.
