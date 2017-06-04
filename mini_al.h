@@ -21,7 +21,7 @@
 //   - ALSA
 //   - OpenSL|ES / Android (Unstable)
 //   - OpenAL (Unstable)
-//   - null
+//   - Null (Silence)
 //   - ... and more in the future.
 //     - Core Audio (OSX, iOS)
 //     - Maybe OSS
