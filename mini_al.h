@@ -360,12 +360,11 @@ typedef enum
 
 typedef union
 {
-    // Just look at this shit...
-    mal_uint32 id32;    // OpenSL|ES uses a 32-bit unsigned integer for identification.
-    char str[32];       // ALSA uses a name string for identification.
-    mal_uint8 guid[16]; // DirectSound uses a GUID for identification.
-    wchar_t wstr[64];   // WASAPI uses a wchar_t string for identification which is also annoyingly long...
-    char openal[256];   // OpenAL uses human-readable device names as the ID which is so flippin' stupid...
+    mal_uint32 opensl;      // OpenSL|ES uses a 32-bit unsigned integer for identification.
+    char alsa[32];          // ALSA uses a name string for identification.
+    mal_uint8 dsound[16];   // DirectSound uses a GUID for identification.
+    wchar_t wasapi[64];     // WASAPI uses a wchar_t string for identification which is also annoyingly long...
+    char openal[256];       // OpenAL seems to use human-readable device names as the ID.
 } mal_device_id;
 
 typedef struct
@@ -429,7 +428,7 @@ struct mal_src
 };
 
 typedef struct mal_dsp mal_dsp;
-typedef mal_uint32 (* mal_dsp_read_proc)       (mal_uint32 frameCount, void* pSamplesOut, void* pUserData);
+typedef mal_uint32 (* mal_dsp_read_proc)(mal_uint32 frameCount, void* pSamplesOut, void* pUserData);
 
 typedef struct
 {
@@ -2174,14 +2173,14 @@ static mal_result mal_enumerate_devices__wasapi(mal_context* pContext, mal_devic
 #endif
             if (SUCCEEDED(hr)) {
                 size_t idlen = wcslen(id);
-                if (idlen+sizeof(wchar_t) > sizeof(pInfo->id.wstr)) {
+                if (idlen+sizeof(wchar_t) > sizeof(pInfo->id.wasapi)) {
                     ((MAL_PFN_CoTaskMemFree)pContext->win32.CoTaskMemFree)(id);
                     mal_assert(MAL_FALSE);  // NOTE: If this is triggered, please report it. It means the format of the ID must haved change and is too long to fit in our fixed sized buffer.
                     continue;
                 }
 
-                memcpy(pInfo->id.wstr, id, idlen * sizeof(wchar_t));
-                pInfo->id.wstr[idlen] = '\0';
+                memcpy(pInfo->id.wasapi, id, idlen * sizeof(wchar_t));
+                pInfo->id.wasapi[idlen] = '\0';
 
                 ((MAL_PFN_CoTaskMemFree)pContext->win32.CoTaskMemFree)(id);
             }
@@ -2347,9 +2346,9 @@ static mal_result mal_device_init__wasapi(mal_context* pContext, mal_device_type
         }
     } else {
 #ifdef __cplusplus
-        hr = pDeviceEnumerator->GetDevice(pDeviceID->wstr, (IMMDevice**)&pDevice->wasapi.pDevice);
+        hr = pDeviceEnumerator->GetDevice(pDeviceID->wasapi, (IMMDevice**)&pDevice->wasapi.pDevice);
 #else
-        hr = pDeviceEnumerator->lpVtbl->GetDevice(pDeviceEnumerator, pDeviceID->wstr, (IMMDevice**)&pDevice->wasapi.pDevice);
+        hr = pDeviceEnumerator->lpVtbl->GetDevice(pDeviceEnumerator, pDeviceID->wasapi, (IMMDevice**)&pDevice->wasapi.pDevice);
 #endif
         if (FAILED(hr)) {
 #ifdef __cplusplus
@@ -2729,9 +2728,9 @@ static BOOL CALLBACK mal_enum_devices_callback__dsound(LPGUID lpGuid, LPCSTR lpc
             mal_strncpy_s(pData->pInfo->name, sizeof(pData->pInfo->name), lpcstrDescription, (size_t)-1);
 
             if (lpGuid != NULL) {
-                mal_copy_memory(pData->pInfo->id.guid, lpGuid, 16);
+                mal_copy_memory(pData->pInfo->id.dsound, lpGuid, 16);
             } else {
-                mal_zero_memory(pData->pInfo->id.guid, 16);
+                mal_zero_memory(pData->pInfo->id.dsound, 16);
             }
 
             pData->pInfo += 1;
@@ -2877,7 +2876,7 @@ static mal_result mal_device_init__dsound(mal_context* pContext, mal_device_type
             return mal_post_error(pDevice, "[DirectSound] Could not find DirectSoundCreate8().", MAL_API_NOT_FOUND);
         }
 
-        if (FAILED(pDirectSoundCreate8((pDeviceID == NULL) ? NULL : (LPCGUID)pDeviceID->guid, (LPDIRECTSOUND8*)&pDevice->dsound.pPlayback, NULL))) {
+        if (FAILED(pDirectSoundCreate8((pDeviceID == NULL) ? NULL : (LPCGUID)pDeviceID->dsound, (LPDIRECTSOUND8*)&pDevice->dsound.pPlayback, NULL))) {
             mal_device_uninit__dsound(pDevice);
             return mal_post_error(pDevice, "[DirectSound] DirectSoundCreate8() failed for playback device.", MAL_DSOUND_FAILED_TO_CREATE_DEVICE);
         }
@@ -2968,7 +2967,7 @@ static mal_result mal_device_init__dsound(mal_context* pContext, mal_device_type
             return mal_post_error(pDevice, "[DirectSound] Could not find DirectSoundCreate8().", MAL_API_NOT_FOUND);
         }
 
-        if (FAILED(pDirectSoundCaptureCreate8((pDeviceID == NULL) ? NULL : (LPCGUID)pDeviceID->guid, (LPDIRECTSOUNDCAPTURE8*)&pDevice->dsound.pCapture, NULL))) {
+        if (FAILED(pDirectSoundCaptureCreate8((pDeviceID == NULL) ? NULL : (LPCGUID)pDeviceID->dsound, (LPDIRECTSOUNDCAPTURE8*)&pDevice->dsound.pCapture, NULL))) {
             mal_device_uninit__dsound(pDevice);
             return mal_post_error(pDevice, "[DirectSound] DirectSoundCaptureCreate8() failed for capture device.", MAL_DSOUND_FAILED_TO_CREATE_DEVICE);
         }
@@ -3570,7 +3569,7 @@ static mal_result mal_enumerate_devices__alsa(mal_context* pContext, mal_device_
                         mal_zero_object(pInfo);
 
                         // NAME is the ID.
-                        mal_strncpy_s(pInfo->id.str, sizeof(pInfo->id.str), NAME ? NAME : "", (size_t)-1);
+                        mal_strncpy_s(pInfo->id.alsa, sizeof(pInfo->id.alsa), NAME ? NAME : "", (size_t)-1);
 
                         // NAME -> "hw:%d,%d"
                         if (colonPos != -1 && NAME != NULL) {
@@ -3611,7 +3610,7 @@ static mal_result mal_enumerate_devices__alsa(mal_context* pContext, mal_device_
                                 if (deviceStr != NULL) {
                                     int cardIndex = snd_card_get_index(cardStr);
                                     if (cardIndex >= 0) {
-                                        sprintf(pInfo->id.str, "hw:%d,%s", cardIndex, deviceStr);
+                                        sprintf(pInfo->id.alsa, "hw:%d,%s", cardIndex, deviceStr);
                                     }
                                 }
                             }
@@ -3680,11 +3679,11 @@ static mal_result mal_device_init__alsa(mal_context* pContext, mal_device_type t
     } else {
         // For now, convert "hw" devices to "plughw". The reason for this is that mini_al has not been thoroughly tested
         // with non "plughw" devices.
-        if (pDeviceID->str[0] == 'h' && pDeviceID->str[1] == 'w' && pDeviceID->str[2] == ':') {
+        if (pDeviceID->alsa[0] == 'h' && pDeviceID->alsa[1] == 'w' && pDeviceID->alsa[2] == ':') {
             deviceName[0] = 'p'; deviceName[1] = 'l'; deviceName[2] = 'u'; deviceName[3] = 'g';
-            mal_strncpy_s(deviceName+4, sizeof(deviceName-4), pDeviceID->str, (size_t)-1);
+            mal_strncpy_s(deviceName+4, sizeof(deviceName-4), pDeviceID->alsa, (size_t)-1);
         } else {
-            mal_strncpy_s(deviceName, sizeof(deviceName), pDeviceID->str, (size_t)-1);
+            mal_strncpy_s(deviceName, sizeof(deviceName), pDeviceID->alsa, (size_t)-1);
         }
 
     }
@@ -3957,12 +3956,12 @@ mal_result mal_enumerate_devices__opensl(mal_context* pContext, mal_device_type 
         if (pInfo != NULL) {
             if (infoSize > 0) {
                 mal_zero_object(pInfo);
-                pInfo->id.id32 = pDeviceIDs[iDevice];
+                pInfo->id.opensl = pDeviceIDs[iDevice];
 
                 mal_bool32 isValidDevice = MAL_TRUE;
                 if (type == mal_device_type_playback) {
                     SLAudioOutputDescriptor desc;
-                    resultSL = (*deviceCaps)->QueryAudioOutputCapabilities(deviceCaps, pInfo->id.id32, &desc);
+                    resultSL = (*deviceCaps)->QueryAudioOutputCapabilities(deviceCaps, pInfo->id.opensl, &desc);
                     if (resultSL != SL_RESULT_SUCCESS) {
                         isValidDevice = MAL_FALSE;
                     }
@@ -3970,7 +3969,7 @@ mal_result mal_enumerate_devices__opensl(mal_context* pContext, mal_device_type 
                     mal_strncpy_s(pInfo->name, sizeof(pInfo->name), (const char*)desc.pDeviceName, (size_t)-1);
                 } else {
                     SLAudioInputDescriptor desc;
-                    resultSL = (*deviceCaps)->QueryAudioInputCapabilities(deviceCaps, pInfo->id.id32, &desc);
+                    resultSL = (*deviceCaps)->QueryAudioInputCapabilities(deviceCaps, pInfo->id.opensl, &desc);
                     if (resultSL != SL_RESULT_SUCCESS) {
                         isValidDevice = MAL_FALSE;
                     }
@@ -4001,10 +4000,10 @@ return_default_device:
     if (pInfo != NULL) {
         if (infoSize > 0) {
             if (type == mal_device_type_playback) {
-                pInfo->id.id32 = SL_DEFAULTDEVICEID_AUDIOOUTPUT;
+                pInfo->id.opensl = SL_DEFAULTDEVICEID_AUDIOOUTPUT;
                 mal_strncpy_s(pInfo->name, sizeof(pInfo->name), "Default Playback Device", (size_t)-1);
             } else {
-                pInfo->id.id32 = SL_DEFAULTDEVICEID_AUDIOINPUT;
+                pInfo->id.opensl = SL_DEFAULTDEVICEID_AUDIOINPUT;
                 mal_strncpy_s(pInfo->name, sizeof(pInfo->name), "Default Capture Device", (size_t)-1);
             }
         }
@@ -4177,7 +4176,7 @@ static mal_result mal_device_init__opensl(mal_context* pContext, mal_device_type
 
         // Set the output device.
         if (pDeviceID != NULL) {
-            MAL_OPENSL_OUTPUTMIX(pDevice->opensl.pOutputMix)->ReRoute((SLOutputMixItf)pDevice->opensl.pOutputMix, 1, &pDeviceID->id32);
+            MAL_OPENSL_OUTPUTMIX(pDevice->opensl.pOutputMix)->ReRoute((SLOutputMixItf)pDevice->opensl.pOutputMix, 1, &pDeviceID->opensl);
         }
 
         SLDataSource source;
@@ -4222,7 +4221,7 @@ static mal_result mal_device_init__opensl(mal_context* pContext, mal_device_type
         SLDataLocator_IODevice locatorDevice;
         locatorDevice.locatorType = SL_DATALOCATOR_IODEVICE;
         locatorDevice.deviceType = SL_IODEVICE_AUDIOINPUT;
-        locatorDevice.deviceID = (pDeviceID == NULL) ? SL_DEFAULTDEVICEID_AUDIOINPUT : pDeviceID->id32;
+        locatorDevice.deviceID = (pDeviceID == NULL) ? SL_DEFAULTDEVICEID_AUDIOINPUT : pDeviceID->opensl;
         locatorDevice.device = NULL;
 
         SLDataSource source;
