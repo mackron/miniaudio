@@ -2375,7 +2375,7 @@ static mal_result mal_device__find_best_format__wasapi(mal_device* pDevice, WAVE
     wf.Format.nBlockAlign          = (wf.Format.nChannels * wf.Format.wBitsPerSample) / 8;
     wf.Format.nAvgBytesPerSec      = wf.Format.nBlockAlign * wf.Format.nSamplesPerSec;
     wf.Samples.wValidBitsPerSample = wf.Format.wBitsPerSample;
-    wf.dwChannelMask               = 0xFFFFFFFF;    // Always use every channel.
+    wf.dwChannelMask               = mal_channel_map_to_channel_mask__win32(pDevice->channelMap, pDevice->channels);
     if (pDevice->format == mal_format_f32) {
         wf.SubFormat = MAL_GUID_KSDATAFORMAT_SUBTYPE_IEEE_FLOAT;
     } else {
@@ -2500,6 +2500,9 @@ static mal_result mal_device_init__wasapi(mal_context* pContext, mal_device_type
 
     pDevice->internalChannels = wf.Format.nChannels;
     pDevice->internalSampleRate = wf.Format.nSamplesPerSec;
+
+    // Get the internal channel map based on the channel mask.
+    mal_channel_mask_to_channel_map__win32(wf.dwChannelMask, pDevice->internalChannels, pDevice->internalChannelMap);
 
 #ifdef __cplusplus
     hr = ((IAudioClient*)pDevice->wasapi.pAudioClient)->Initialize(AUDCLNT_SHAREMODE_SHARED, 0, bufferDurationInMicroseconds*10, 0, (WAVEFORMATEX*)&wf, NULL);
