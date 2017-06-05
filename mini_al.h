@@ -2048,6 +2048,101 @@ static mal_result mal_device__main_loop__null(mal_device* pDevice)
 
 ///////////////////////////////////////////////////////////////////////////////
 //
+// WIN32 COMMON
+//
+///////////////////////////////////////////////////////////////////////////////
+#if defined(MAL_ENABLE_WASAPI) || defined(MAL_ENABLE_DSOUND)
+#include <mmreg.h>
+
+// Converts an individual Win32-style channel identifier (SPEAKER_FRONT_LEFT, etc.) to mini_al.
+static mal_uint8 mal_channel_id_to_mal__win32(DWORD id)
+{
+    switch (id)
+    {
+        case SPEAKER_FRONT_LEFT:            return MAL_CHANNEL_FRONT_LEFT;
+        case SPEAKER_FRONT_RIGHT:           return MAL_CHANNEL_FRONT_RIGHT;
+        case SPEAKER_FRONT_CENTER:          return MAL_CHANNEL_FRONT_CENTER;
+        case SPEAKER_LOW_FREQUENCY:         return MAL_CHANNEL_LFE;
+        case SPEAKER_BACK_LEFT:             return MAL_CHANNEL_BACK_LEFT;
+        case SPEAKER_BACK_RIGHT:            return MAL_CHANNEL_BACK_RIGHT;
+        case SPEAKER_FRONT_LEFT_OF_CENTER:  return MAL_CHANNEL_FRONT_LEFT_CENTER;
+        case SPEAKER_FRONT_RIGHT_OF_CENTER: return MAL_CHANNEL_FRONT_RIGHT_CENTER;
+        case SPEAKER_BACK_CENTER:           return MAL_CHANNEL_BACK_CENTER;
+        case SPEAKER_SIDE_LEFT:             return MAL_CHANNEL_SIDE_LEFT;
+        case SPEAKER_SIDE_RIGHT:            return MAL_CHANNEL_SIDE_RIGHT;
+        case SPEAKER_TOP_CENTER:            return MAL_CHANNEL_TOP_CENTER;
+        case SPEAKER_TOP_FRONT_LEFT:        return MAL_CHANNEL_TOP_FRONT_LEFT;
+        case SPEAKER_TOP_FRONT_CENTER:      return MAL_CHANNEL_TOP_FRONT_CENTER;
+        case SPEAKER_TOP_FRONT_RIGHT:       return MAL_CHANNEL_TOP_FRONT_RIGHT;
+        case SPEAKER_TOP_BACK_LEFT:         return MAL_CHANNEL_TOP_BACK_LEFT;
+        case SPEAKER_TOP_BACK_CENTER:       return MAL_CHANNEL_TOP_BACK_CENTER;
+        case SPEAKER_TOP_BACK_RIGHT:        return MAL_CHANNEL_TOP_BACK_RIGHT;
+        default: return 0;
+    }
+}
+
+// Converts an individual mini_al channel identifier (MAL_CHANNEL_FRONT_LEFT, etc.) to Win32-style.
+static DWORD mal_channel_id_to_win32(DWORD id)
+{
+    switch (id)
+    {
+        case MAL_CHANNEL_FRONT_LEFT:         return SPEAKER_FRONT_LEFT;           
+        case MAL_CHANNEL_FRONT_RIGHT:        return SPEAKER_FRONT_RIGHT;          
+        case MAL_CHANNEL_FRONT_CENTER:       return SPEAKER_FRONT_CENTER;         
+        case MAL_CHANNEL_LFE:                return SPEAKER_LOW_FREQUENCY;        
+        case MAL_CHANNEL_BACK_LEFT:          return SPEAKER_BACK_LEFT;            
+        case MAL_CHANNEL_BACK_RIGHT:         return SPEAKER_BACK_RIGHT;           
+        case MAL_CHANNEL_FRONT_LEFT_CENTER:  return SPEAKER_FRONT_LEFT_OF_CENTER; 
+        case MAL_CHANNEL_FRONT_RIGHT_CENTER: return SPEAKER_FRONT_RIGHT_OF_CENTER;
+        case MAL_CHANNEL_BACK_CENTER:        return SPEAKER_BACK_CENTER;          
+        case MAL_CHANNEL_SIDE_LEFT:          return SPEAKER_SIDE_LEFT;            
+        case MAL_CHANNEL_SIDE_RIGHT:         return SPEAKER_SIDE_RIGHT;           
+        case MAL_CHANNEL_TOP_CENTER:         return SPEAKER_TOP_CENTER;           
+        case MAL_CHANNEL_TOP_FRONT_LEFT:     return SPEAKER_TOP_FRONT_LEFT;       
+        case MAL_CHANNEL_TOP_FRONT_CENTER:   return SPEAKER_TOP_FRONT_CENTER;     
+        case MAL_CHANNEL_TOP_FRONT_RIGHT:    return SPEAKER_TOP_FRONT_RIGHT;      
+        case MAL_CHANNEL_TOP_BACK_LEFT:      return SPEAKER_TOP_BACK_LEFT;        
+        case MAL_CHANNEL_TOP_BACK_CENTER:    return SPEAKER_TOP_BACK_CENTER;      
+        case MAL_CHANNEL_TOP_BACK_RIGHT:     return SPEAKER_TOP_BACK_RIGHT;       
+        default: return 0;
+    }
+}
+
+// Converts a channel mapping to a Win32-style channel mask.
+static DWORD mal_channel_map_to_channel_mask__win32(mal_uint8 channelMap[MAL_MAX_CHANNELS], mal_uint32 channels)
+{
+    DWORD dwChannelMask = 0;
+    for (mal_uint32 iChannel = 0; iChannel < channels; ++iChannel) {
+        dwChannelMask |= mal_channel_id_to_win32(channelMap[iChannel]);
+    }
+
+    return dwChannelMask;
+}
+
+// Converts a Win32-style channel mask to a mini_al channel map.
+static void mal_channel_mask_to_channel_map__win32(DWORD dwChannelMask, mal_uint32 channels, mal_uint8 channelMap[MAL_MAX_CHANNELS])
+{
+    if (channels == 2 && dwChannelMask == 0) {
+        channelMap[0] = MAL_CHANNEL_FRONT_LEFT;
+        channelMap[1] = MAL_CHANNEL_FRONT_RIGHT;
+    } else {
+        // Just iterate over each bit.
+        mal_uint32 iChannel = 0;
+        for (mal_uint32 iBit = 0; iBit < 32; ++iBit) {
+            DWORD bitValue = (dwChannelMask & (1 << iBit));
+            if (bitValue != 0) {
+                // The bit is set.
+                channelMap[iChannel] = mal_channel_id_to_mal__win32(bitValue);
+                iChannel += 1;
+            }
+        }
+    }
+}
+#endif
+
+
+///////////////////////////////////////////////////////////////////////////////
+//
 // WASAPI Backend
 //
 ///////////////////////////////////////////////////////////////////////////////
@@ -2655,7 +2750,6 @@ static mal_result mal_device__main_loop__wasapi(mal_device* pDevice)
 ///////////////////////////////////////////////////////////////////////////////
 #ifdef MAL_ENABLE_DSOUND
 #include <dsound.h>
-#include <mmreg.h>  // WAVEFORMATEX
 
 static GUID MAL_GUID_NULL                               = {0x00000000, 0x0000, 0x0000, {0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00}};
 static GUID _g_mal_GUID_IID_DirectSoundNotify           = {0xb0210783, 0x89cd, 0x11d0, {0xaf, 0x08, 0x00, 0xa0, 0xc9, 0x25, 0xcd, 0x16}};
@@ -2863,7 +2957,7 @@ static mal_result mal_device_init__dsound(mal_context* pContext, mal_device_type
     wf.Format.nBlockAlign          = (wf.Format.nChannels * wf.Format.wBitsPerSample) / 8;
     wf.Format.nAvgBytesPerSec      = wf.Format.nBlockAlign * wf.Format.nSamplesPerSec;
     wf.Samples.wValidBitsPerSample = wf.Format.wBitsPerSample;
-    wf.dwChannelMask               = (pConfig->channels <= 2) ? 0 : ~(((DWORD)-1) << pConfig->channels);
+    wf.dwChannelMask               = mal_channel_map_to_channel_mask__win32(pConfig->channelMap, pConfig->channels); //(pConfig->channels <= 2) ? 0 : ~(((DWORD)-1) << pConfig->channels);
     wf.SubFormat                   = subformat;
 
     DWORD bufferSizeInBytes = 0;
@@ -2920,9 +3014,12 @@ static mal_result mal_device_init__dsound(mal_context* pContext, mal_device_type
             return mal_post_error(pDevice, "[DirectSound] Failed to retrieve the actual format of the playback device's primary buffer.", MAL_FORMAT_NOT_SUPPORTED);
         }
 
-        pDevice->channels = pActualFormat->Format.nChannels;
-        pDevice->sampleRate = pActualFormat->Format.nSamplesPerSec;
-        bufferSizeInBytes = pDevice->bufferSizeInFrames * pDevice->channels * mal_get_sample_size_in_bytes(pDevice->format);
+        pDevice->internalChannels = pActualFormat->Format.nChannels;
+        pDevice->internalSampleRate = pActualFormat->Format.nSamplesPerSec;
+        bufferSizeInBytes = pDevice->bufferSizeInFrames * pDevice->internalChannels * mal_get_sample_size_in_bytes(pDevice->format);
+
+        // Get the internal channel map based on the channel mask.
+        mal_channel_mask_to_channel_map__win32(pActualFormat->dwChannelMask, pDevice->internalChannels, pDevice->internalChannelMap);
 
 
         // Meaning of dwFlags (from MSDN):
@@ -6128,26 +6225,28 @@ void mal_pcm_convert(void* pOut, mal_format formatOut, const void* pIn, mal_form
 
 static void mal_rearrange_channels(float* pFrame, mal_uint32 channels, mal_uint8 channelMap[18])
 {
-    float temp;
+    float temp[MAL_MAX_CHANNELS];
+    mal_copy_memory(temp, pFrame, sizeof(float) * channels);
+
     switch (channels) {
-        case 18: temp = pFrame[17]; pFrame[17] = pFrame[channelMap[17]]; pFrame[channelMap[17]] = temp;
-        case 17: temp = pFrame[16]; pFrame[16] = pFrame[channelMap[16]]; pFrame[channelMap[16]] = temp;
-        case 16: temp = pFrame[15]; pFrame[15] = pFrame[channelMap[15]]; pFrame[channelMap[15]] = temp;
-        case 15: temp = pFrame[14]; pFrame[14] = pFrame[channelMap[14]]; pFrame[channelMap[14]] = temp;
-        case 14: temp = pFrame[13]; pFrame[13] = pFrame[channelMap[13]]; pFrame[channelMap[13]] = temp;
-        case 13: temp = pFrame[12]; pFrame[12] = pFrame[channelMap[12]]; pFrame[channelMap[12]] = temp;
-        case 12: temp = pFrame[11]; pFrame[11] = pFrame[channelMap[11]]; pFrame[channelMap[11]] = temp;
-        case 11: temp = pFrame[10]; pFrame[10] = pFrame[channelMap[10]]; pFrame[channelMap[10]] = temp;
-        case 10: temp = pFrame[ 9]; pFrame[ 9] = pFrame[channelMap[ 9]]; pFrame[channelMap[ 9]] = temp;
-        case  9: temp = pFrame[ 8]; pFrame[ 8] = pFrame[channelMap[ 8]]; pFrame[channelMap[ 8]] = temp;
-        case  8: temp = pFrame[ 7]; pFrame[ 7] = pFrame[channelMap[ 7]]; pFrame[channelMap[ 7]] = temp;
-        case  7: temp = pFrame[ 6]; pFrame[ 6] = pFrame[channelMap[ 6]]; pFrame[channelMap[ 6]] = temp;
-        case  6: temp = pFrame[ 5]; pFrame[ 5] = pFrame[channelMap[ 5]]; pFrame[channelMap[ 5]] = temp;
-        case  5: temp = pFrame[ 4]; pFrame[ 4] = pFrame[channelMap[ 4]]; pFrame[channelMap[ 4]] = temp;
-        case  4: temp = pFrame[ 3]; pFrame[ 3] = pFrame[channelMap[ 3]]; pFrame[channelMap[ 3]] = temp;
-        case  3: temp = pFrame[ 2]; pFrame[ 2] = pFrame[channelMap[ 2]]; pFrame[channelMap[ 2]] = temp;
-        case  2: temp = pFrame[ 1]; pFrame[ 1] = pFrame[channelMap[ 1]]; pFrame[channelMap[ 1]] = temp;
-        case  1: temp = pFrame[ 0]; pFrame[ 0] = pFrame[channelMap[ 0]]; pFrame[channelMap[ 0]] = temp;
+        case 18: pFrame[17] = temp[channelMap[17]];
+        case 17: pFrame[16] = temp[channelMap[16]];
+        case 16: pFrame[15] = temp[channelMap[15]];
+        case 15: pFrame[14] = temp[channelMap[14]];
+        case 14: pFrame[13] = temp[channelMap[13]];
+        case 13: pFrame[12] = temp[channelMap[12]];
+        case 12: pFrame[11] = temp[channelMap[11]];
+        case 11: pFrame[10] = temp[channelMap[10]];
+        case 10: pFrame[ 9] = temp[channelMap[ 9]];
+        case  9: pFrame[ 8] = temp[channelMap[ 8]];
+        case  8: pFrame[ 7] = temp[channelMap[ 7]];
+        case  7: pFrame[ 6] = temp[channelMap[ 6]];
+        case  6: pFrame[ 5] = temp[channelMap[ 5]];
+        case  5: pFrame[ 4] = temp[channelMap[ 4]];
+        case  4: pFrame[ 3] = temp[channelMap[ 3]];
+        case  3: pFrame[ 2] = temp[channelMap[ 2]];
+        case  2: pFrame[ 1] = temp[channelMap[ 1]];
+        case  1: pFrame[ 0] = temp[channelMap[ 0]];
     }
 }
 
@@ -6405,7 +6504,7 @@ mal_result mal_dsp_init(mal_dsp_config* pConfig, mal_dsp_read_proc onRead, void*
             for (mal_uint32 iChannelIn = 0; iChannelIn < pConfig->channelsOut; ++iChannelIn) {
                 for (mal_uint32 iChannelOut = 0; iChannelOut < pConfig->channelsOut; ++iChannelOut) {
                     if (pDSP->channelMapInPostMix[iChannelOut] == pConfig->channelMapOut[iChannelIn]) {
-                        pDSP->channelShuffleTable[iChannelOut] = (mal_uint8)iChannelOut;
+                        pDSP->channelShuffleTable[iChannelOut] = (mal_uint8)iChannelIn;
                     }
                 }
             }
