@@ -258,6 +258,7 @@ typedef void (* mal_proc)();
 #define MAL_MAX_PERIODS_DSOUND                          4
 #define MAL_MAX_PERIODS_OPENAL                          4
 
+typedef mal_uint8 mal_channel;
 #define MAL_CHANNEL_NONE                                0
 #define MAL_CHANNEL_FRONT_LEFT                          1
 #define MAL_CHANNEL_FRONT_RIGHT                         2
@@ -3358,6 +3359,41 @@ static mal_result mal_device__main_loop__dsound(mal_device* pDevice)
 #ifdef MAL_ENABLE_ALSA
 #include <alsa/asoundlib.h>
 
+mal_channel mal_convert_alsa_channel_position_to_mal_channel(unsigned int alsaChannelPos)
+{
+    switch (alsaChannelPos)
+    {
+        case SND_CHMAP_FL:  return MAL_CHANNEL_FRONT_LEFT;
+        case SND_CHMAP_FR:  return MAL_CHANNEL_FRONT_RIGHT;
+        case SND_CHMAP_RL:  return MAL_CHANNEL_BACK_LEFT;         /* rear left */
+        case SND_CHMAP_RR:  return MAL_CHANNEL_BACK_RIGHT;         /* rear right */
+        case SND_CHMAP_FC:  return MAL_CHANNEL_FRONT_CENTER;         /* front center */
+        case SND_CHMAP_LFE: return MAL_CHANNEL_LFE;           /* LFE */
+        case SND_CHMAP_SL:  return MAL_CHANNEL_SIDE_LEFT;         /* side left */
+        case SND_CHMAP_SR:  return MAL_CHANNEL_SIDE_RIGHT;         /* side right */
+        case SND_CHMAP_RC:  return MAL_CHANNEL_BACK_CENTER;         /* rear center */
+        case SND_CHMAP_FLC: return MAL_CHANNEL_FRONT_LEFT_CENTER;        /* front left center */
+        case SND_CHMAP_FRC: return MAL_CHANNEL_FRONT_RIGHT_CENTER;        /* front right center */
+        case SND_CHMAP_RLC: return 0;        /* rear left center */
+        case SND_CHMAP_RRC: return 0;        /* rear right center */
+        case SND_CHMAP_FLW: return 0;        /* front left wide */
+        case SND_CHMAP_FRW: return 0;        /* front right wide */
+        case SND_CHMAP_FLH: return 0;        /* front left high */
+        case SND_CHMAP_FCH: return 0;        /* front center high */
+        case SND_CHMAP_FRH: return 0;        /* front right high */
+        case SND_CHMAP_TC:  return MAL_CHANNEL_TOP_CENTER;         /* top center */
+        case SND_CHMAP_TFL: return MAL_CHANNEL_TOP_FRONT_LEFT;        /* top front left */
+        case SND_CHMAP_TFR: return MAL_CHANNEL_TOP_FRONT_RIGHT;        /* top front right */
+        case SND_CHMAP_TFC: return MAL_CHANNEL_TOP_FRONT_CENTER;        /* top front center */
+        case SND_CHMAP_TRL: return MAL_CHANNEL_TOP_BACK_LEFT;        /* top rear left */
+        case SND_CHMAP_TRR: return MAL_CHANNEL_TOP_BACK_RIGHT;        /* top rear right */
+        case SND_CHMAP_TRC: return MAL_CHANNEL_TOP_BACK_CENTER;        /* top rear center */
+        default: break;
+    }
+    
+    return 0;
+}
+
 mal_result mal_context_init__alsa(mal_context* pContext)
 {
     mal_assert(pContext != NULL);
@@ -3821,14 +3857,14 @@ static mal_result mal_device_init__alsa(mal_context* pContext, mal_device_type t
         mal_device_uninit__alsa(pDevice);
         return mal_post_error(pDevice, "[ALSA] Sample rate not supported. snd_pcm_hw_params_set_rate_near() failed.", MAL_FORMAT_NOT_SUPPORTED);
     }
-    pDevice->sampleRate = pConfig->sampleRate;
+    pDevice->internalSampleRate = pConfig->sampleRate;
 
     // Channels.
     if (snd_pcm_hw_params_set_channels_near((snd_pcm_t*)pDevice->alsa.pPCM, pHWParams, &pConfig->channels) < 0) {
         mal_device_uninit__alsa(pDevice);
         return mal_post_error(pDevice, "[ALSA] Failed to set channel count. snd_pcm_hw_params_set_channels_near() failed.", MAL_FORMAT_NOT_SUPPORTED);
     }
-    pDevice->channels = pConfig->channels;
+    pDevice->internalChannels = pConfig->channels;
 
 
     // Format.
@@ -3912,7 +3948,6 @@ static mal_result mal_device_init__alsa(mal_context* pContext, mal_device_type t
 
 
 
-
     // If we're _not_ using mmap we need to use an intermediary buffer.
     if (!pDevice->alsa.isUsingMMap) {
         pDevice->alsa.pIntermediaryBuffer = mal_malloc(pDevice->bufferSizeInFrames * pDevice->channels * mal_get_sample_size_in_bytes(pDevice->format));
@@ -3921,6 +3956,19 @@ static mal_result mal_device_init__alsa(mal_context* pContext, mal_device_type t
             return mal_post_error(pDevice, "[ALSA] Failed to set software parameters. snd_pcm_sw_params() failed.", MAL_OUT_OF_MEMORY);
         }
     }
+    
+    
+    
+    // Grab the internal channel map. For now we're not going to bother trying to change the channel map and
+    // instead just do it ourselves.
+    snd_pcm_chmap_t* pChmap = snd_pcm_get_chmap((snd_pcm_t*)pDevice->alsa.pPCM);
+    if (pChmap != NULL) {
+        mal_assert(pChmap->channels == pDevice->internalChannels);
+        for (mal_uint32 iChannel = 0; iChannel < pDevice->internalChannels; ++iChannel) {
+            pDevice->internalChannelMap[iChannel] = mal_convert_alsa_channel_position_to_mal_channel(pChmap->pos[iChannel]);
+        }
+    }
+
 
     return MAL_SUCCESS;
 }
