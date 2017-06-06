@@ -579,7 +579,8 @@ typedef struct
             mal_proc alGetBuffer3i;
             mal_proc alGetBufferiv;
 
-            mal_uint32 isFloat32Supported;
+            mal_uint32 isFloat32Supported   : 1;
+            mal_uint32 isMCFormatsSupported : 1;
         } openal;
 
         struct
@@ -4492,13 +4493,29 @@ typedef mal_ALCvoid                  mal_ALvoid;
 #define MAL_AL_PLAYING                      0x1012
 #define MAL_AL_PAUSED                       0x1013
 #define MAL_AL_STOPPED                      0x1014
+#define MAL_AL_BUFFERS_PROCESSED            0x1016
+
 #define MAL_AL_FORMAT_MONO8                 0x1100
 #define MAL_AL_FORMAT_MONO16                0x1101
 #define MAL_AL_FORMAT_STEREO8               0x1102
 #define MAL_AL_FORMAT_STEREO16              0x1103
 #define MAL_AL_FORMAT_MONO_FLOAT32          0x10010
 #define MAL_AL_FORMAT_STEREO_FLOAT32        0x10011
-#define MAL_AL_BUFFERS_PROCESSED            0x1016
+#define MAL_AL_FORMAT_51CHN16               0x120B
+#define MAL_AL_FORMAT_51CHN32               0x120C
+#define MAL_AL_FORMAT_51CHN8                0x120A
+#define MAL_AL_FORMAT_61CHN16               0x120E
+#define MAL_AL_FORMAT_61CHN32               0x120F
+#define MAL_AL_FORMAT_61CHN8                0x120D
+#define MAL_AL_FORMAT_71CHN16               0x1211
+#define MAL_AL_FORMAT_71CHN32               0x1212
+#define MAL_AL_FORMAT_71CHN8                0x1210
+#define MAL_AL_FORMAT_QUAD16                0x1205
+#define MAL_AL_FORMAT_QUAD32                0x1206
+#define MAL_AL_FORMAT_QUAD8                 0x1204
+#define MAL_AL_FORMAT_REAR16                0x1208
+#define MAL_AL_FORMAT_REAR32                0x1209
+#define MAL_AL_FORMAT_REAR8                 0x1207
 
 typedef mal_ALCcontext*    (MAL_AL_APIENTRY * MAL_LPALCCREATECONTEXT)      (mal_ALCdevice *device, const mal_ALCint *attrlist);
 typedef mal_ALCboolean     (MAL_AL_APIENTRY * MAL_LPALCMAKECONTEXTCURRENT) (mal_ALCcontext *context);
@@ -4693,6 +4710,7 @@ mal_result mal_context_init__openal(mal_context* pContext)
     }
 
     pContext->openal.isFloat32Supported = ((MAL_LPALISEXTENSIONPRESENT)pContext->openal.alIsExtensionPresent)("AL_EXT_float32");
+    pContext->openal.isMCFormatsSupported = ((MAL_LPALISEXTENSIONPRESENT)pContext->openal.alIsExtensionPresent)("AL_EXT_MCFORMATS");
     
     return MAL_SUCCESS;
 }
@@ -4776,7 +4794,7 @@ static mal_result mal_device_init__openal(mal_context* pContext, mal_device_type
 
     mal_uint32 channelsAL = 0;
 
-    // OpenAL supports only mono and stereo.
+    // OpenAL currently only supports only mono and stereo. TODO: Check for the AL_EXT_MCFORMATS extension and use one of those formats for quad, 5.1, etc.
     mal_ALCenum formatAL = 0;
     if (pConfig->channels == 1) {
         // Mono.
@@ -4861,14 +4879,123 @@ static mal_result mal_device_init__openal(mal_context* pContext, mal_device_type
 
     pDevice->internalChannels = channelsAL;
 
-    if (formatAL == MAL_AL_FORMAT_MONO8 || formatAL == MAL_AL_FORMAT_STEREO8) {
-        pDevice->internalFormat = mal_format_u8;
+    // The internal format is a little bit straight with OpenAL.
+    switch (formatAL)
+    {
+        case MAL_AL_FORMAT_MONO8:
+        case MAL_AL_FORMAT_STEREO8:
+        case MAL_AL_FORMAT_REAR8:
+        case MAL_AL_FORMAT_QUAD8:
+        case MAL_AL_FORMAT_51CHN8:
+        case MAL_AL_FORMAT_61CHN8:
+        case MAL_AL_FORMAT_71CHN8:
+        {
+            pDevice->internalFormat = mal_format_u8;
+        } break;
+
+        case MAL_AL_FORMAT_MONO16:
+        case MAL_AL_FORMAT_STEREO16:
+        case MAL_AL_FORMAT_REAR16:
+        case MAL_AL_FORMAT_QUAD16:
+        case MAL_AL_FORMAT_51CHN16:
+        case MAL_AL_FORMAT_61CHN16:
+        case MAL_AL_FORMAT_71CHN16:
+        {
+            pDevice->internalFormat = mal_format_s16;
+        } break;
+
+        case MAL_AL_FORMAT_REAR32:
+        case MAL_AL_FORMAT_QUAD32:
+        case MAL_AL_FORMAT_51CHN32:
+        case MAL_AL_FORMAT_61CHN32:
+        case MAL_AL_FORMAT_71CHN32:
+        {
+            pDevice->internalFormat = mal_format_s32;
+        } break;
+
+        case MAL_AL_FORMAT_MONO_FLOAT32:
+        case MAL_AL_FORMAT_STEREO_FLOAT32:
+        {
+            pDevice->internalFormat = mal_format_f32;
+        } break;
     }
-    if (formatAL == MAL_AL_FORMAT_MONO16 || formatAL == MAL_AL_FORMAT_STEREO16) {
-        pDevice->internalFormat = mal_format_s16;
-    }
-    if (formatAL == MAL_AL_FORMAT_MONO_FLOAT32 || formatAL == MAL_AL_FORMAT_STEREO_FLOAT32) {
-        pDevice->internalFormat = mal_format_f32;
+
+    // From what I can tell, the ordering of channels is fixed for OpenAL.
+    switch (formatAL)
+    {
+        case MAL_AL_FORMAT_MONO8:
+        case MAL_AL_FORMAT_MONO16:
+        case MAL_AL_FORMAT_MONO_FLOAT32:
+        {
+            pDevice->internalChannelMap[0] = MAL_CHANNEL_FRONT_CENTER;
+        } break;
+
+        case MAL_AL_FORMAT_STEREO8:
+        case MAL_AL_FORMAT_STEREO16:
+        case MAL_AL_FORMAT_STEREO_FLOAT32:
+        {
+            pDevice->internalChannelMap[0] = MAL_CHANNEL_FRONT_LEFT;
+            pDevice->internalChannelMap[1] = MAL_CHANNEL_FRONT_RIGHT;
+        } break;
+
+        case MAL_AL_FORMAT_REAR8:
+        case MAL_AL_FORMAT_REAR16:
+        case MAL_AL_FORMAT_REAR32:
+        {
+            pDevice->internalChannelMap[0] = MAL_CHANNEL_BACK_LEFT;
+            pDevice->internalChannelMap[1] = MAL_CHANNEL_BACK_RIGHT;
+        } break;
+
+        case MAL_AL_FORMAT_QUAD8:
+        case MAL_AL_FORMAT_QUAD16:
+        case MAL_AL_FORMAT_QUAD32:
+        {
+            pDevice->internalChannelMap[0] = MAL_CHANNEL_FRONT_LEFT;
+            pDevice->internalChannelMap[1] = MAL_CHANNEL_FRONT_RIGHT;
+            pDevice->internalChannelMap[2] = MAL_CHANNEL_BACK_LEFT;
+            pDevice->internalChannelMap[3] = MAL_CHANNEL_BACK_RIGHT;
+        } break;
+
+        case MAL_AL_FORMAT_51CHN8:
+        case MAL_AL_FORMAT_51CHN16:
+        case MAL_AL_FORMAT_51CHN32:
+        {
+            pDevice->internalChannelMap[0] = MAL_CHANNEL_FRONT_LEFT;
+            pDevice->internalChannelMap[1] = MAL_CHANNEL_FRONT_RIGHT;
+            pDevice->internalChannelMap[2] = MAL_CHANNEL_FRONT_CENTER;
+            pDevice->internalChannelMap[3] = MAL_CHANNEL_LFE;
+            pDevice->internalChannelMap[4] = MAL_CHANNEL_BACK_LEFT;
+            pDevice->internalChannelMap[5] = MAL_CHANNEL_BACK_RIGHT;
+        } break;
+
+        case MAL_AL_FORMAT_61CHN8:
+        case MAL_AL_FORMAT_61CHN16:
+        case MAL_AL_FORMAT_61CHN32:
+        {
+            pDevice->internalChannelMap[0] = MAL_CHANNEL_FRONT_LEFT;
+            pDevice->internalChannelMap[1] = MAL_CHANNEL_FRONT_RIGHT;
+            pDevice->internalChannelMap[2] = MAL_CHANNEL_FRONT_CENTER;
+            pDevice->internalChannelMap[3] = MAL_CHANNEL_LFE;
+            pDevice->internalChannelMap[4] = MAL_CHANNEL_BACK_CENTER;
+            pDevice->internalChannelMap[5] = MAL_CHANNEL_SIDE_LEFT;
+            pDevice->internalChannelMap[6] = MAL_CHANNEL_SIDE_RIGHT;
+        } break;
+
+        case MAL_AL_FORMAT_71CHN8:
+        case MAL_AL_FORMAT_71CHN16:
+        case MAL_AL_FORMAT_71CHN32:
+        {
+            pDevice->internalChannelMap[0] = MAL_CHANNEL_FRONT_LEFT;
+            pDevice->internalChannelMap[1] = MAL_CHANNEL_FRONT_RIGHT;
+            pDevice->internalChannelMap[2] = MAL_CHANNEL_FRONT_CENTER;
+            pDevice->internalChannelMap[3] = MAL_CHANNEL_LFE;
+            pDevice->internalChannelMap[4] = MAL_CHANNEL_BACK_LEFT;
+            pDevice->internalChannelMap[5] = MAL_CHANNEL_BACK_RIGHT;
+            pDevice->internalChannelMap[6] = MAL_CHANNEL_SIDE_LEFT;
+            pDevice->internalChannelMap[7] = MAL_CHANNEL_SIDE_RIGHT;
+        } break;
+
+        default: break;
     }
 
     pDevice->openal.pDeviceALC = pDeviceALC;
