@@ -178,6 +178,7 @@ extern "C" {
 #else
     #define MAL_POSIX
     #include <pthread.h>    // Unfortunate #include, but needed for pthread_t, pthread_mutex_t and pthread_cond_t types.
+    #include <wchar.h>      // For the wchar_t type in mal_device_id.
 
     #ifdef __linux__
         #define MAL_LINUX
@@ -5404,6 +5405,18 @@ mal_result mal_context_init_backend_apis__win32(mal_context* pContext)
 
     return MAL_SUCCESS;
 }
+#else
+mal_result mal_context_uninit_backend_apis__nix(mal_context* pContext)
+{
+    (void)pContext;
+    return MAL_SUCCESS;
+}
+
+mal_result mal_context_init_backend_apis__nix(mal_context* pContext)
+{
+    (void)pContext;
+    return MAL_SUCCESS;
+}
 #endif
 
 mal_result mal_context_init_backend_apis(mal_context* pContext)
@@ -5411,7 +5424,10 @@ mal_result mal_context_init_backend_apis(mal_context* pContext)
     mal_result result = MAL_NO_BACKEND;
 #ifdef MAL_WIN32
     result = mal_context_init_backend_apis__win32(pContext);
+#else
+    result = mal_context_init_backend_apis__nix(pContext);
 #endif
+
 
     return result;
 }
@@ -5421,6 +5437,8 @@ mal_result mal_context_uninit_backend_apis(mal_context* pContext)
     mal_result result = MAL_NO_BACKEND;
 #ifdef MAL_WIN32
     result = mal_context_uninit_backend_apis__win32(pContext);
+#else
+    result = mal_context_uninit_backend_apis__nix(pContext);
 #endif
 
     return result;
