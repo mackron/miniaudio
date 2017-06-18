@@ -36,8 +36,8 @@ mal_uint32 on_send_frames_to_device(mal_device* pDevice, mal_uint32 frameCount, 
     if (pWav == NULL) {
         return 0;
     }
-
-    return (mal_uint32)drwav_read_f32(pWav, frameCount * pDevice->channels, (float*)pSamples) / pDevice->channels;
+    
+    return (mal_uint32)drwav_read_s16(pWav, frameCount * pDevice->channels, (mal_int16*)pSamples) / pDevice->channels;
 }
 
 int main(int argc, char** argv)
@@ -58,19 +58,9 @@ int main(int argc, char** argv)
         printf("Failed to initialize context.");
         return -3;
     }
-
-    // In this example we use the default playback device with a default buffer size and period count.
-    mal_device_config config;
-    config.format = mal_format_f32;
-    config.channels = wav.channels;
-    config.sampleRate = wav.sampleRate;
-    config.bufferSizeInFrames = 0;  // Use default.
-    config.periods = 0;             // Use default.
-    config.onRecvCallback = NULL;   // Not used for playback.
-    config.onSendCallback = on_send_frames_to_device;
-    config.onStopCallback = NULL;
-    config.onLogCallback  = NULL;
-
+    
+    mal_device_config config = mal_device_config_init_playback(mal_format_s16, wav.channels, wav.sampleRate, on_send_frames_to_device);
+    
     mal_device device;
     if (mal_device_init(&context, mal_device_type_playback, NULL, &config, &wav, &device) != MAL_SUCCESS) {
         printf("Failed to open playback device.");
@@ -79,14 +69,14 @@ int main(int argc, char** argv)
         return -4;
     }
     mal_device_start(&device);
-
+    
     printf("Press Enter to quit...");
     getchar();
-
+    
     mal_device_uninit(&device);
     mal_context_uninit(&context);
     drwav_uninit(&wav);
-
+    
     return 0;
 }
 ```

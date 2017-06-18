@@ -64,11 +64,11 @@
 // ----------------
 //   mal_uint32 on_send_samples(mal_device* pDevice, mal_uint32 frameCount, void* pSamples)
 //   {
-//       // This callback is set with mal_device_set_send_callback() after initializing and will be
-//       // called when a playback device needs more data. You need to write as many frames as you can
-//       // to pSamples (but no more than frameCount) and then return the number of frames you wrote.
+//       // This callback is set at initialization time and will be called when a playback device needs more 
+//       // data. You need to write as many frames as you can to pSamples (but no more than frameCount) and
+//       // then return the number of frames you wrote.
 //       //
-//       // You can pass in user data by setting pDevice->pUserData after initialization.
+//       // The user data (pDevice->pUserData) is set by mal_device_init().
 //       return (mal_uint32)drwav_read_f32((drwav*)pDevice->pUserData, frameCount * pDevice->channels, (float*)pSamples) / pDevice->channels;
 //   }
 //
@@ -80,16 +80,7 @@
 //       return -3;
 //   }
 //
-//   mal_device_config config;
-//   config.format = mal_format_f32;
-//   config.channels = wav.channels;
-//   config.sampleRate = wav.sampleRate;
-//   config.bufferSizeInFrames = 0; // Use default.
-//   config.periods = 0;            // Use default.
-//   config.onSendCallback = on_send_samples;
-//   config.onRecvCallback = NULL;  // Not used for playback devices.
-//   config.onStopCallback = NULL;  // We don't care about knowing when the device has stopped...
-//   config.onLogCallback = NULL;   // ... nor do we care about logging (but you really should in a real-world application).
+//   mal_device_config config = mal_device_config_init_playback(mal_format_s16, wav.channels, wav.sampleRate, on_send_frames_to_device);
 //
 //   mal_device device;
 //   mal_result result = mal_device_init(&context, mal_device_type_playback, NULL, &config, pMyData, &device);
@@ -280,9 +271,6 @@ typedef mal_uint8 mal_channel;
 #define MAL_CHANNEL_TOP_BACK_RIGHT                      18
 #define MAL_CHANNEL_MONO                                MAL_CHANNEL_FRONT_CENTER
 #define MAL_MAX_CHANNELS                                18
-extern mal_channel MAL_CHANNEL_MAP_MONO[MAL_MAX_CHANNELS];
-extern mal_channel MAL_CHANNEL_MAP_STEREO[MAL_MAX_CHANNELS];
-extern mal_channel MAL_CHANNEL_MAP_5POINT1[MAL_MAX_CHANNELS];
 
 #define MAL_MAX_SAMPLE_SIZE_IN_BYTES                    8
 
@@ -766,6 +754,8 @@ mal_result mal_context_uninit(mal_context* pContext);
 
 // Enumerates over each device of the given type (playback or capture).
 //
+// It is _not_ safe to assume the first enumerated device is the default device.
+//
 // Return Value:
 //   - MAL_SUCCESS if successful.
 //   - MAL_INVALID_ARGS
@@ -785,10 +775,12 @@ mal_result mal_enumerate_devices(mal_context* pContext, mal_device_type type, ma
 //
 // The device ID (pDeviceID) can be null, in which case the default device is used. Otherwise, you
 // can retrieve the ID by calling mal_enumerate_devices() and using the ID from the returned data.
+// Set pDeviceID to NULL to use the default device. Do _not_ rely on the first device ID returned
+// by mal_enumerate_devices() to be the default device.
 //
 // This will try it's hardest to create a valid device, even if it means adjusting input arguments.
-// Look at pDevice->channels, pDevice->sampleRate, etc. to determine the actual properties after
-// initialization.
+// Look at pDevice->internalChannels, pDevice->internalSampleRate, etc. to determine the actual
+// properties after initialization.
 //
 // If <bufferSizeInFrames> is 0, it will default to MAL_DEFAULT_BUFFER_SIZE_IN_MILLISECONDS. If
 // <periods> is set to 0 it will default to MAL_DEFAULT_PERIODS.
@@ -796,6 +788,9 @@ mal_result mal_enumerate_devices(mal_context* pContext, mal_device_type type, ma
 // The <periods> property controls how frequently the background thread is woken to check for more
 // data. It's tied to the buffer size, so as an example, if your buffer size is equivalent to 10
 // milliseconds and you have 2 periods, the CPU will wake up approximately every 5 milliseconds.
+//
+// Consider using mal_device_config_init(), mal_device_config_init_playback(), etc. to make it easier
+// to initialize a mal_device_config object.
 //
 // Return Value:
 //   - MAL_SUCCESS if successful.
@@ -968,6 +963,69 @@ mal_uint32 mal_device_get_buffer_size_in_bytes(mal_device* pDevice);
 // Efficiency: HIGH
 //   This is implemented with a lookup table.
 mal_uint32 mal_get_sample_size_in_bytes(mal_format format);
+
+// Helper function for initializing a mal_device_config object.
+//
+// This is just a helper API, and as such the returned object can be safely modified as needed.
+//
+// The default channel mapping is based on the channel count, as per the table below. Note that these
+// can be freely changed after this function returns if you are needing something in particular.
+//
+// | Channel Count | Mapping                      |
+// |---------------|------------------------------|
+// | 1 (Mono)      | 0: MAL_CHANNEL_FRONT_CENTER  |
+// |---------------|------------------------------|
+// | 2 (Stereo)    | 0: MAL_CHANNEL_FRONT_LEFT    |
+// |               | 1: MAL_CHANNEL_FRONT_RIGHT   |
+// |---------------|------------------------------|
+// | 3 (2.1)       | 0: MAL_CHANNEL_FRONT_LEFT    |
+// |               | 1: MAL_CHANNEL_FRONT_RIGHT   |
+// |               | 2: MAL_CHANNEL_LFE           |
+// |---------------|------------------------------|
+// | 4 (Quad)      | 0: MAL_CHANNEL_FRONT_LEFT    |
+// |               | 1: MAL_CHANNEL_FRONT_RIGHT   |
+// |               | 2: MAL_CHANNEL_BACK_LEFT     |
+// |               | 3: MAL_CHANNEL_BACK_RIGHT    |
+// |---------------|------------------------------|
+// | 5 (4.1)       | 0: MAL_CHANNEL_FRONT_LEFT    |
+// |               | 1: MAL_CHANNEL_FRONT_RIGHT   |
+// |               | 2: MAL_CHANNEL_BACK_LEFT     |
+// |               | 3: MAL_CHANNEL_BACK_RIGHT    |
+// |               | 4: MAL_CHANNEL_LFE           |
+// |---------------|------------------------------|
+// | 6 (5.1)       | 0: MAL_CHANNEL_FRONT_LEFT    |
+// |               | 1: MAL_CHANNEL_FRONT_RIGHT   |
+// |               | 2: MAL_CHANNEL_FRONT_CENTER  |
+// |               | 3: MAL_CHANNEL_LFE           |
+// |               | 4: MAL_CHANNEL_BACK_LEFT     |
+// |               | 5: MAL_CHANNEL_BACK_RIGHT    |
+// |---------------|------------------------------|
+// | 8 (7.1)       | 0: MAL_CHANNEL_FRONT_LEFT    |
+// |               | 1: MAL_CHANNEL_FRONT_RIGHT   |
+// |               | 2: MAL_CHANNEL_FRONT_CENTER  |
+// |               | 3: MAL_CHANNEL_LFE           |
+// |               | 4: MAL_CHANNEL_BACK_LEFT     |
+// |               | 5: MAL_CHANNEL_BACK_RIGHT    |
+// |               | 6: MAL_CHANNEL_SIDE_LEFT     |
+// |               | 7: MAL_CHANNEL_SIDE_RIGHT    |
+// |---------------|------------------------------|
+// | Other         | All channels set to 0. This  |
+// |               | is equivalent to the same    |
+// |               | mapping as the device.       |
+// |---------------|------------------------------|
+//
+// Thread Safety: SAFE
+//
+// Efficiency: HIGH
+//   This just returns a stack allocated object and consists of just a few assignments.
+mal_device_config mal_device_config_init(mal_format format, mal_uint32 channels, mal_uint32 sampleRate, mal_recv_proc onRecvCallback, mal_send_proc onSendCallback);
+
+// A simplified version of mal_device_config_init() for capture devices.
+static inline mal_device_config mal_device_config_init_capture(mal_format format, mal_uint32 channels, mal_uint32 sampleRate, mal_recv_proc onRecvCallback) { return mal_device_config_init(format, channels, sampleRate, onRecvCallback, NULL); }
+
+// A simplified version of mal_device_config_init() for playback devices.
+static inline mal_device_config mal_device_config_init_playback(mal_format format, mal_uint32 channels, mal_uint32 sampleRate, mal_send_proc onSendCallback) { return mal_device_config_init(format, channels, sampleRate, NULL, onSendCallback); }
+
 
 
 
@@ -1146,17 +1204,6 @@ typedef HRESULT (WINAPI * MAL_PFN_PropVariantClear)(PROPVARIANT *pvar);
 #ifndef MAL_DEFAULT_PERIODS
 #define MAL_DEFAULT_PERIODS                         2
 #endif
-
-
-mal_channel MAL_CHANNEL_MAP_MONO[MAL_MAX_CHANNELS] = {
-    MAL_CHANNEL_FRONT_CENTER
-};
-mal_channel MAL_CHANNEL_MAP_STEREO[MAL_MAX_CHANNELS] = {
-    MAL_CHANNEL_FRONT_LEFT, MAL_CHANNEL_FRONT_RIGHT
-};
-mal_channel MAL_CHANNEL_MAP_5POINT1[MAL_MAX_CHANNELS] = {
-    MAL_CHANNEL_FRONT_LEFT, MAL_CHANNEL_FRONT_RIGHT, MAL_CHANNEL_FRONT_CENTER, MAL_CHANNEL_LFE, MAL_CHANNEL_BACK_LEFT, MAL_CHANNEL_BACK_RIGHT
-};
 
 
 ///////////////////////////////////////////////////////////////////////////////
@@ -6381,6 +6428,85 @@ mal_uint32 mal_get_sample_size_in_bytes(mal_format format)
         4,  // f32
     };
     return sizes[format];
+}
+
+mal_device_config mal_device_config_init(mal_format format, mal_uint32 channels, mal_uint32 sampleRate, mal_recv_proc onRecvCallback, mal_send_proc onSendCallback)
+{
+    mal_device_config config;
+    mal_zero_object(&config);
+
+    config.format = format;
+    config.channels = channels;
+    config.sampleRate = sampleRate;
+    config.onRecvCallback = onRecvCallback;
+    config.onSendCallback = onSendCallback;
+
+    switch (channels)
+    {
+        case 1:
+        {
+            config.channelMap[0] = MAL_CHANNEL_FRONT_CENTER;
+        } break;
+
+        case 2:
+        {
+            config.channelMap[0] = MAL_CHANNEL_FRONT_LEFT;
+            config.channelMap[1] = MAL_CHANNEL_FRONT_RIGHT;
+        } break;
+
+        case 3:
+        {
+            config.channelMap[0] = MAL_CHANNEL_FRONT_LEFT;
+            config.channelMap[1] = MAL_CHANNEL_FRONT_RIGHT;
+            config.channelMap[2] = MAL_CHANNEL_LFE;
+        } break;
+
+        case 4:
+        {
+            config.channelMap[0] = MAL_CHANNEL_FRONT_LEFT;
+            config.channelMap[1] = MAL_CHANNEL_FRONT_RIGHT;
+            config.channelMap[2] = MAL_CHANNEL_BACK_LEFT;
+            config.channelMap[3] = MAL_CHANNEL_BACK_RIGHT;
+        } break;
+
+        case 5:
+        {
+            config.channelMap[0] = MAL_CHANNEL_FRONT_LEFT;
+            config.channelMap[1] = MAL_CHANNEL_FRONT_RIGHT;
+            config.channelMap[2] = MAL_CHANNEL_BACK_LEFT;
+            config.channelMap[3] = MAL_CHANNEL_BACK_RIGHT;
+            config.channelMap[4] = MAL_CHANNEL_LFE;
+        } break;
+
+        case 6:
+        {
+            config.channelMap[0] = MAL_CHANNEL_FRONT_LEFT;
+            config.channelMap[1] = MAL_CHANNEL_FRONT_RIGHT;
+            config.channelMap[2] = MAL_CHANNEL_FRONT_CENTER;
+            config.channelMap[3] = MAL_CHANNEL_LFE;
+            config.channelMap[4] = MAL_CHANNEL_BACK_LEFT;
+            config.channelMap[5] = MAL_CHANNEL_BACK_RIGHT;
+        } break;
+
+        case 8:
+        {
+            config.channelMap[0] = MAL_CHANNEL_FRONT_LEFT;
+            config.channelMap[1] = MAL_CHANNEL_FRONT_RIGHT;
+            config.channelMap[2] = MAL_CHANNEL_FRONT_CENTER;
+            config.channelMap[3] = MAL_CHANNEL_LFE;
+            config.channelMap[4] = MAL_CHANNEL_BACK_LEFT;
+            config.channelMap[5] = MAL_CHANNEL_BACK_RIGHT;
+            config.channelMap[6] = MAL_CHANNEL_SIDE_LEFT;
+            config.channelMap[7] = MAL_CHANNEL_SIDE_RIGHT;
+        } break;
+
+        default:
+        {
+            // Just leave it all blank in this case. This will use the same mapping as the device's native mapping.
+        } break;
+    }
+
+    return config;
 }
 
 

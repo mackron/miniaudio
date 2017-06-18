@@ -53,18 +53,7 @@ int main()
         return -1;
     }
 
-    mal_device_config config;
-    config.format = mal_format_s16;
-    config.channels = 2;
-    config.sampleRate = 48000;
-	config.channelMap[0] = MAL_CHANNEL_FRONT_LEFT;
-    config.channelMap[1] = MAL_CHANNEL_FRONT_RIGHT;
-    config.bufferSizeInFrames = 0;  // Use default.
-    config.periods = 0;             // Use default.
-    config.onRecvCallback = on_recv_frames;
-    config.onSendCallback = on_send_frames;
-    config.onStopCallback = NULL;
-    config.onLogCallback  = NULL;
+    mal_device_config config = mal_device_config_init(mal_format_s16, 2, 48000, on_recv_frames, on_send_frames);
 
     printf("Recording...\n");
     mal_device captureDevice;
