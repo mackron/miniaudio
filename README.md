@@ -13,7 +13,23 @@ Features
 - Public domain
 - Single file
 - A very simple API
+- Supports both playback and capture on _all_ backends
+- Automatic sample rate conversion, channel conversion, format conversion and channel mapping
+  - Sample rate conversion is currently low quality, but a higher quality implementation is planned
 
+
+Supported Platforms
+===================
+- Windows
+  - WASAPI
+  - DirectSound
+- Linux
+  - ALSA
+- Android
+  - OpenSL|ES
+- Other
+  - OpenAL
+  - Null (silence)
 
 
 

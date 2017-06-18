@@ -7631,6 +7631,7 @@ void mal_pcm_f32_to_s32(int* pOut, const float* pIn, unsigned int count)
 //     tied to the same backend. In addition, some backends are better suited to this design.
 //   - API CHANGE: Removed the rewinding APIs because they're too inconsistent across the different backends, hard
 //     to test and maintain, and just generally unreliable.
+//   - Added helper APIs for initializing mal_device_config objects.
 //   - Null Backend: Fixed a crash when recording.
 //   - Fixed build for UWP.
 //   - Added support for f32 formats to the OpenSL|ES backend.
