@@ -278,10 +278,13 @@ typedef mal_uint8 mal_channel;
 #define MAL_CHANNEL_TOP_BACK_LEFT                       16
 #define MAL_CHANNEL_TOP_BACK_CENTER                     17
 #define MAL_CHANNEL_TOP_BACK_RIGHT                      18
+#define MAL_CHANNEL_MONO                                MAL_CHANNEL_FRONT_CENTER
 #define MAL_MAX_CHANNELS                                18
 extern mal_channel MAL_CHANNEL_MAP_MONO[MAL_MAX_CHANNELS];
 extern mal_channel MAL_CHANNEL_MAP_STEREO[MAL_MAX_CHANNELS];
 extern mal_channel MAL_CHANNEL_MAP_5POINT1[MAL_MAX_CHANNELS];
+
+#define MAL_MAX_SAMPLE_SIZE_IN_BYTES                    8
 
 typedef int mal_result;
 #define MAL_SUCCESS                                      0
@@ -2125,7 +2128,9 @@ static DWORD mal_channel_map_to_channel_mask__win32(mal_uint8 channelMap[MAL_MAX
 // Converts a Win32-style channel mask to a mini_al channel map.
 static void mal_channel_mask_to_channel_map__win32(DWORD dwChannelMask, mal_uint32 channels, mal_uint8 channelMap[MAL_MAX_CHANNELS])
 {
-    if (channels == 2 && dwChannelMask == 0) {
+    if (channels == 1 && dwChannelMask == 0) {
+        channelMap[0] = MAL_CHANNEL_FRONT_CENTER;
+    } else if (channels == 2 && dwChannelMask == 0) {
         channelMap[0] = MAL_CHANNEL_FRONT_LEFT;
         channelMap[1] = MAL_CHANNEL_FRONT_RIGHT;
     } else {
@@ -2963,7 +2968,7 @@ static mal_result mal_device_init__dsound(mal_context* pContext, mal_device_type
     wf.Format.nBlockAlign          = (wf.Format.nChannels * wf.Format.wBitsPerSample) / 8;
     wf.Format.nAvgBytesPerSec      = wf.Format.nBlockAlign * wf.Format.nSamplesPerSec;
     wf.Samples.wValidBitsPerSample = wf.Format.wBitsPerSample;
-    wf.dwChannelMask               = mal_channel_map_to_channel_mask__win32(pConfig->channelMap, pConfig->channels); //(pConfig->channels <= 2) ? 0 : ~(((DWORD)-1) << pConfig->channels);
+    wf.dwChannelMask               = mal_channel_map_to_channel_mask__win32(pConfig->channelMap, pConfig->channels);
     wf.SubFormat                   = subformat;
 
     DWORD bufferSizeInBytes = 0;
@@ -3968,75 +3973,75 @@ static mal_result mal_device_init__alsa(mal_context* pContext, mal_device_type t
             pDevice->internalChannelMap[iChannel] = mal_convert_alsa_channel_position_to_mal_channel(pChmap->pos[iChannel]);
         }
 
-		free(pChmap);
-		pChmap = NULL;
-	} else {
-		// Could not retrieve the channel map. Fall back to a hard-coded assumption.
-		if (pDevice->internalChannels == 1) {			// Mono
-			pDevice->internalChannelMap[0] = MAL_CHANNEL_FRONT_CENTER;
-		} else if (pDevice->internalChannels == 2) {	// Stereo
-			pDevice->internalChannelMap[0] = MAL_CHANNEL_FRONT_LEFT;
-			pDevice->internalChannelMap[1] = MAL_CHANNEL_FRONT_RIGHT;
-		} else if (pDevice->internalChannels == 3) {	// 2.1
-			pDevice->internalChannelMap[0] = MAL_CHANNEL_FRONT_LEFT;
-			pDevice->internalChannelMap[1] = MAL_CHANNEL_FRONT_RIGHT;
-			pDevice->internalChannelMap[2] = MAL_CHANNEL_LFE;
-		} else if (pDevice->internalChannels == 4) {	// 4.0
-			pDevice->internalChannelMap[0] = MAL_CHANNEL_FRONT_LEFT;
-			pDevice->internalChannelMap[1] = MAL_CHANNEL_FRONT_RIGHT;
-			pDevice->internalChannelMap[2] = MAL_CHANNEL_SIDE_LEFT;
-			pDevice->internalChannelMap[3] = MAL_CHANNEL_SIDE_RIGHT;
-		} else if (pDevice->internalChannels == 5) {	// Not sure about this one. 4.1?
-			pDevice->internalChannelMap[0] = MAL_CHANNEL_FRONT_LEFT;
-			pDevice->internalChannelMap[1] = MAL_CHANNEL_FRONT_RIGHT;
-			pDevice->internalChannelMap[2] = MAL_CHANNEL_SIDE_LEFT;
-			pDevice->internalChannelMap[3] = MAL_CHANNEL_SIDE_RIGHT;
-			pDevice->internalChannelMap[4] = MAL_CHANNEL_LFE;
-		} else if (pDevice->internalChannels == 6) {	// 5.1
-			pDevice->internalChannelMap[0] = MAL_CHANNEL_FRONT_LEFT;
-			pDevice->internalChannelMap[1] = MAL_CHANNEL_FRONT_RIGHT;
-			pDevice->internalChannelMap[2] = MAL_CHANNEL_SIDE_LEFT;
-			pDevice->internalChannelMap[3] = MAL_CHANNEL_SIDE_RIGHT;
-			pDevice->internalChannelMap[4] = MAL_CHANNEL_FRONT_CENTER;
-			pDevice->internalChannelMap[5] = MAL_CHANNEL_LFE;
-		} else if (pDevice->internalChannels == 7) {	// Not sure about this one.
-			pDevice->internalChannelMap[0] = MAL_CHANNEL_FRONT_LEFT;
-			pDevice->internalChannelMap[1] = MAL_CHANNEL_FRONT_RIGHT;
-			pDevice->internalChannelMap[2] = MAL_CHANNEL_SIDE_LEFT;
-			pDevice->internalChannelMap[3] = MAL_CHANNEL_SIDE_RIGHT;
-			pDevice->internalChannelMap[4] = MAL_CHANNEL_FRONT_CENTER;
-			pDevice->internalChannelMap[5] = MAL_CHANNEL_LFE;
-			pDevice->internalChannelMap[6] = MAL_CHANNEL_BACK_CENTER;
-		} else {
-			// I don't know what mapping to use in this case, but I'm making it upwards compatible with 7.1. Good luck!
-			mal_assert(pDevice->internalChannels >= 8);
-			pDevice->internalChannelMap[0] = MAL_CHANNEL_FRONT_LEFT;
-			pDevice->internalChannelMap[1] = MAL_CHANNEL_FRONT_RIGHT;
-			pDevice->internalChannelMap[2] = MAL_CHANNEL_SIDE_LEFT;
-			pDevice->internalChannelMap[3] = MAL_CHANNEL_SIDE_RIGHT;
-			pDevice->internalChannelMap[4] = MAL_CHANNEL_FRONT_CENTER;
-			pDevice->internalChannelMap[5] = MAL_CHANNEL_LFE;
-			pDevice->internalChannelMap[6] = MAL_CHANNEL_BACK_LEFT;
-			pDevice->internalChannelMap[7] = MAL_CHANNEL_BACK_RIGHT;
+        free(pChmap);
+        pChmap = NULL;
+    } else {
+        // Could not retrieve the channel map. Fall back to a hard-coded assumption.
+        if (pDevice->internalChannels == 1) {           // Mono
+            pDevice->internalChannelMap[0] = MAL_CHANNEL_FRONT_CENTER;
+        } else if (pDevice->internalChannels == 2) {    // Stereo
+            pDevice->internalChannelMap[0] = MAL_CHANNEL_FRONT_LEFT;
+            pDevice->internalChannelMap[1] = MAL_CHANNEL_FRONT_RIGHT;
+        } else if (pDevice->internalChannels == 3) {    // 2.1
+            pDevice->internalChannelMap[0] = MAL_CHANNEL_FRONT_LEFT;
+            pDevice->internalChannelMap[1] = MAL_CHANNEL_FRONT_RIGHT;
+            pDevice->internalChannelMap[2] = MAL_CHANNEL_LFE;
+        } else if (pDevice->internalChannels == 4) {    // 4.0
+            pDevice->internalChannelMap[0] = MAL_CHANNEL_FRONT_LEFT;
+            pDevice->internalChannelMap[1] = MAL_CHANNEL_FRONT_RIGHT;
+            pDevice->internalChannelMap[2] = MAL_CHANNEL_SIDE_LEFT;
+            pDevice->internalChannelMap[3] = MAL_CHANNEL_SIDE_RIGHT;
+        } else if (pDevice->internalChannels == 5) {    // Not sure about this one. 4.1?
+            pDevice->internalChannelMap[0] = MAL_CHANNEL_FRONT_LEFT;
+            pDevice->internalChannelMap[1] = MAL_CHANNEL_FRONT_RIGHT;
+            pDevice->internalChannelMap[2] = MAL_CHANNEL_SIDE_LEFT;
+            pDevice->internalChannelMap[3] = MAL_CHANNEL_SIDE_RIGHT;
+            pDevice->internalChannelMap[4] = MAL_CHANNEL_LFE;
+        } else if (pDevice->internalChannels == 6) {    // 5.1
+            pDevice->internalChannelMap[0] = MAL_CHANNEL_FRONT_LEFT;
+            pDevice->internalChannelMap[1] = MAL_CHANNEL_FRONT_RIGHT;
+            pDevice->internalChannelMap[2] = MAL_CHANNEL_SIDE_LEFT;
+            pDevice->internalChannelMap[3] = MAL_CHANNEL_SIDE_RIGHT;
+            pDevice->internalChannelMap[4] = MAL_CHANNEL_FRONT_CENTER;
+            pDevice->internalChannelMap[5] = MAL_CHANNEL_LFE;
+        } else if (pDevice->internalChannels == 7) {    // Not sure about this one.
+            pDevice->internalChannelMap[0] = MAL_CHANNEL_FRONT_LEFT;
+            pDevice->internalChannelMap[1] = MAL_CHANNEL_FRONT_RIGHT;
+            pDevice->internalChannelMap[2] = MAL_CHANNEL_SIDE_LEFT;
+            pDevice->internalChannelMap[3] = MAL_CHANNEL_SIDE_RIGHT;
+            pDevice->internalChannelMap[4] = MAL_CHANNEL_FRONT_CENTER;
+            pDevice->internalChannelMap[5] = MAL_CHANNEL_LFE;
+            pDevice->internalChannelMap[6] = MAL_CHANNEL_BACK_CENTER;
+        } else {
+            // I don't know what mapping to use in this case, but I'm making it upwards compatible with 7.1. Good luck!
+            mal_assert(pDevice->internalChannels >= 8);
+            pDevice->internalChannelMap[0] = MAL_CHANNEL_FRONT_LEFT;
+            pDevice->internalChannelMap[1] = MAL_CHANNEL_FRONT_RIGHT;
+            pDevice->internalChannelMap[2] = MAL_CHANNEL_SIDE_LEFT;
+            pDevice->internalChannelMap[3] = MAL_CHANNEL_SIDE_RIGHT;
+            pDevice->internalChannelMap[4] = MAL_CHANNEL_FRONT_CENTER;
+            pDevice->internalChannelMap[5] = MAL_CHANNEL_LFE;
+            pDevice->internalChannelMap[6] = MAL_CHANNEL_BACK_LEFT;
+            pDevice->internalChannelMap[7] = MAL_CHANNEL_BACK_RIGHT;
 
-			// Beyond 7.1 I'm just guessing...
-			if (pDevice->internalChannels == 9) {
-				pDevice->internalChannelMap[8] = MAL_CHANNEL_BACK_CENTER;
-			} else if (pDevice->internalChannels == 10) {
-				pDevice->internalChannelMap[8] = MAL_CHANNEL_FRONT_LEFT_CENTER;
-				pDevice->internalChannelMap[9] = MAL_CHANNEL_FRONT_RIGHT_CENTER;
-			} else if (pDevice->internalChannels == 11) {
-				pDevice->internalChannelMap[ 8] = MAL_CHANNEL_FRONT_LEFT_CENTER;
-				pDevice->internalChannelMap[ 9] = MAL_CHANNEL_FRONT_RIGHT_CENTER;
-				pDevice->internalChannelMap[10] = MAL_CHANNEL_BACK_CENTER;
-			} else {
-				mal_assert(pDevice->internalChannels >= 12);
-				for (mal_uint8 iChannel = 11; iChannel < pDevice->internalChannels; ++iChannel) {
-					pDevice->internalChannelMap[iChannel] = iChannel + 1;
-				}
-			}
-		}
-	}
+            // Beyond 7.1 I'm just guessing...
+            if (pDevice->internalChannels == 9) {
+                pDevice->internalChannelMap[8] = MAL_CHANNEL_BACK_CENTER;
+            } else if (pDevice->internalChannels == 10) {
+                pDevice->internalChannelMap[8] = MAL_CHANNEL_FRONT_LEFT_CENTER;
+                pDevice->internalChannelMap[9] = MAL_CHANNEL_FRONT_RIGHT_CENTER;
+            } else if (pDevice->internalChannels == 11) {
+                pDevice->internalChannelMap[ 8] = MAL_CHANNEL_FRONT_LEFT_CENTER;
+                pDevice->internalChannelMap[ 9] = MAL_CHANNEL_FRONT_RIGHT_CENTER;
+                pDevice->internalChannelMap[10] = MAL_CHANNEL_BACK_CENTER;
+            } else {
+                mal_assert(pDevice->internalChannels >= 12);
+                for (mal_uint8 iChannel = 11; iChannel < pDevice->internalChannels; ++iChannel) {
+                    pDevice->internalChannelMap[iChannel] = iChannel + 1;
+                }
+            }
+        }
+    }
 
     return MAL_SUCCESS;
 }
@@ -4108,6 +4113,140 @@ static mal_result mal_device__main_loop__alsa(mal_device* pDevice)
 #ifdef MAL_ANDROID
 #include <SLES/OpenSLES_Android.h>
 #endif
+
+// Converts an individual OpenSL-style channel identifier (SPEAKER_FRONT_LEFT, etc.) to mini_al.
+static mal_uint8 mal_channel_id_to_mal__opensl(SLuint32 id)
+{
+    switch (id)
+    {
+        case SL_SPEAKER_FRONT_LEFT:            return MAL_CHANNEL_FRONT_LEFT;
+        case SL_SPEAKER_FRONT_RIGHT:           return MAL_CHANNEL_FRONT_RIGHT;
+        case SL_SPEAKER_FRONT_CENTER:          return MAL_CHANNEL_FRONT_CENTER;
+        case SL_SPEAKER_LOW_FREQUENCY:         return MAL_CHANNEL_LFE;
+        case SL_SPEAKER_BACK_LEFT:             return MAL_CHANNEL_BACK_LEFT;
+        case SL_SPEAKER_BACK_RIGHT:            return MAL_CHANNEL_BACK_RIGHT;
+        case SL_SPEAKER_FRONT_LEFT_OF_CENTER:  return MAL_CHANNEL_FRONT_LEFT_CENTER;
+        case SL_SPEAKER_FRONT_RIGHT_OF_CENTER: return MAL_CHANNEL_FRONT_RIGHT_CENTER;
+        case SL_SPEAKER_BACK_CENTER:           return MAL_CHANNEL_BACK_CENTER;
+        case SL_SPEAKER_SIDE_LEFT:             return MAL_CHANNEL_SIDE_LEFT;
+        case SL_SPEAKER_SIDE_RIGHT:            return MAL_CHANNEL_SIDE_RIGHT;
+        case SL_SPEAKER_TOP_CENTER:            return MAL_CHANNEL_TOP_CENTER;
+        case SL_SPEAKER_TOP_FRONT_LEFT:        return MAL_CHANNEL_TOP_FRONT_LEFT;
+        case SL_SPEAKER_TOP_FRONT_CENTER:      return MAL_CHANNEL_TOP_FRONT_CENTER;
+        case SL_SPEAKER_TOP_FRONT_RIGHT:       return MAL_CHANNEL_TOP_FRONT_RIGHT;
+        case SL_SPEAKER_TOP_BACK_LEFT:         return MAL_CHANNEL_TOP_BACK_LEFT;
+        case SL_SPEAKER_TOP_BACK_CENTER:       return MAL_CHANNEL_TOP_BACK_CENTER;
+        case SL_SPEAKER_TOP_BACK_RIGHT:        return MAL_CHANNEL_TOP_BACK_RIGHT;
+        default: return 0;
+    }
+}
+
+// Converts an individual mini_al channel identifier (MAL_CHANNEL_FRONT_LEFT, etc.) to OpenSL-style.
+static SLuint32 mal_channel_id_to_opensl(mal_uint8 id)
+{
+    switch (id)
+    {
+        case MAL_CHANNEL_FRONT_LEFT:         return SL_SPEAKER_FRONT_LEFT;           
+        case MAL_CHANNEL_FRONT_RIGHT:        return SL_SPEAKER_FRONT_RIGHT;          
+        case MAL_CHANNEL_FRONT_CENTER:       return SL_SPEAKER_FRONT_CENTER;         
+        case MAL_CHANNEL_LFE:                return SL_SPEAKER_LOW_FREQUENCY;        
+        case MAL_CHANNEL_BACK_LEFT:          return SL_SPEAKER_BACK_LEFT;            
+        case MAL_CHANNEL_BACK_RIGHT:         return SL_SPEAKER_BACK_RIGHT;           
+        case MAL_CHANNEL_FRONT_LEFT_CENTER:  return SL_SPEAKER_FRONT_LEFT_OF_CENTER; 
+        case MAL_CHANNEL_FRONT_RIGHT_CENTER: return SL_SPEAKER_FRONT_RIGHT_OF_CENTER;
+        case MAL_CHANNEL_BACK_CENTER:        return SL_SPEAKER_BACK_CENTER;          
+        case MAL_CHANNEL_SIDE_LEFT:          return SL_SPEAKER_SIDE_LEFT;            
+        case MAL_CHANNEL_SIDE_RIGHT:         return SL_SPEAKER_SIDE_RIGHT;           
+        case MAL_CHANNEL_TOP_CENTER:         return SL_SPEAKER_TOP_CENTER;           
+        case MAL_CHANNEL_TOP_FRONT_LEFT:     return SL_SPEAKER_TOP_FRONT_LEFT;       
+        case MAL_CHANNEL_TOP_FRONT_CENTER:   return SL_SPEAKER_TOP_FRONT_CENTER;     
+        case MAL_CHANNEL_TOP_FRONT_RIGHT:    return SL_SPEAKER_TOP_FRONT_RIGHT;      
+        case MAL_CHANNEL_TOP_BACK_LEFT:      return SL_SPEAKER_TOP_BACK_LEFT;        
+        case MAL_CHANNEL_TOP_BACK_CENTER:    return SL_SPEAKER_TOP_BACK_CENTER;      
+        case MAL_CHANNEL_TOP_BACK_RIGHT:     return SL_SPEAKER_TOP_BACK_RIGHT;       
+        default: return 0;
+    }
+}
+
+// Converts a channel mapping to an OpenSL-style channel mask.
+static SLuint32 mal_channel_map_to_channel_mask__opensl(mal_uint8 channelMap[MAL_MAX_CHANNELS], mal_uint32 channels)
+{
+    SLuint32 channelMask = 0;
+    for (mal_uint32 iChannel = 0; iChannel < channels; ++iChannel) {
+        channelMask |= mal_channel_id_to_opensl(channelMap[iChannel]);
+    }
+
+    return channelMask;
+}
+
+// Converts an OpenSL-style channel mask to a mini_al channel map.
+static void mal_channel_mask_to_channel_map__opensl(SLuint32 channelMask, mal_uint32 channels, mal_uint8 channelMap[MAL_MAX_CHANNELS])
+{
+    if (channels == 2 && channelMask == 0) {
+        channelMap[0] = MAL_CHANNEL_FRONT_LEFT;
+        channelMap[1] = MAL_CHANNEL_FRONT_RIGHT;
+    } else {
+        // Just iterate over each bit.
+        mal_uint32 iChannel = 0;
+        for (mal_uint32 iBit = 0; iBit < 32; ++iBit) {
+            SLuint32 bitValue = (channelMask & (1 << iBit));
+            if (bitValue != 0) {
+                // The bit is set.
+                channelMap[iChannel] = mal_channel_id_to_mal__opensl(bitValue);
+                iChannel += 1;
+            }
+        }
+    }
+}
+
+SLuint32 mal_round_to_standard_sample_rate__opensl(SLuint32 samplesPerSec)
+{
+    if (samplesPerSec <= SL_SAMPLINGRATE_8) {
+        return SL_SAMPLINGRATE_8;
+    }
+    if (samplesPerSec <= SL_SAMPLINGRATE_11_025) {
+        return SL_SAMPLINGRATE_11_025;
+    }
+    if (samplesPerSec <= SL_SAMPLINGRATE_12) {
+        return SL_SAMPLINGRATE_12;
+    }
+    if (samplesPerSec <= SL_SAMPLINGRATE_16) {
+        return SL_SAMPLINGRATE_16;
+    }
+    if (samplesPerSec <= SL_SAMPLINGRATE_22_05) {
+        return SL_SAMPLINGRATE_22_05;
+    }
+    if (samplesPerSec <= SL_SAMPLINGRATE_24) {
+        return SL_SAMPLINGRATE_24;
+    }
+    if (samplesPerSec <= SL_SAMPLINGRATE_32) {
+        return SL_SAMPLINGRATE_32;
+    }
+    if (samplesPerSec <= SL_SAMPLINGRATE_44_1) {
+        return SL_SAMPLINGRATE_44_1;
+    }
+    if (samplesPerSec <= SL_SAMPLINGRATE_48) {
+        return SL_SAMPLINGRATE_48;
+    }
+
+    // Android doesn't support more than 48000.
+#ifndef MAL_ANDROID
+    if (samplesPerSec <= SL_SAMPLINGRATE_64) {
+        return SL_SAMPLINGRATE_64;
+    }
+    if (samplesPerSec <= SL_SAMPLINGRATE_88_2) {
+        return SL_SAMPLINGRATE_88_2;
+    }
+    if (samplesPerSec <= SL_SAMPLINGRATE_96) {
+        return SL_SAMPLINGRATE_96;
+    }
+    if (samplesPerSec <= SL_SAMPLINGRATE_192) {
+        return SL_SAMPLINGRATE_192;
+    }
+#endif
+
+    return SL_SAMPLINGRATE_16;
+}
 
 mal_result mal_context_init__opensl(mal_context* pContext)
 {
@@ -4367,17 +4506,65 @@ static mal_result mal_device_init__opensl(mal_context* pContext, mal_device_type
     queue.locatorType = SL_DATALOCATOR_ANDROIDSIMPLEBUFFERQUEUE;
     queue.numBuffers = pConfig->periods;
 
+    SLDataFormat_PCM* pFormat = NULL;
+
+#if defined(MAL_ANDROID) && __ANDROID_API__ >= 21
+    SLAndroidDataFormat_PCM_EX pcmEx;
+    if (pDevice->format == mal_format_f32 /*|| pDevice->format == mal_format_f64*/) {
+        pcmEx.formatType = SL_ANDROID_DATAFORMAT_PCM_EX;
+        pcmEx.representation = SL_ANDROID_PCM_REPRESENTATION_FLOAT;
+    } else {
+        pcmEx.formatType = SL_DATAFORMAT_PCM;
+    }
+    pFormat = (SLDataFormat_PCM*)&pcmEx;
+#else
     SLDataFormat_PCM pcm;
     pcm.formatType = SL_DATAFORMAT_PCM;
-    pcm.numChannels = pDevice->internalChannels;
-    pcm.samplesPerSec = pDevice->internalSampleRate * 1000;  // In millihertz because, you know, the people who wrote the OpenSL|ES spec thought it would be funny to be the _only_ API to do this...
-    pcm.bitsPerSample = mal_get_sample_size_in_bytes(pDevice->internalFormat)*8;
-    pcm.containerSize = pcm.bitsPerSample;  // Always tightly packed for now.
-    pcm.channelMask = ~((~0UL) << pDevice->internalChannels);
-    pcm.endianness = SL_BYTEORDER_LITTLEENDIAN;
+    pFormat = &pcm;
+#endif
+
+    pFormat->numChannels   = pDevice->channels;
+    pFormat->samplesPerSec = mal_round_to_standard_sample_rate__opensl(pDevice->sampleRate * 1000);  // In millihertz.
+    pFormat->bitsPerSample = mal_get_sample_size_in_bytes(pDevice->format)*8;
+    pFormat->containerSize = pFormat->bitsPerSample;  // Always tightly packed for now.
+    pFormat->channelMask   = mal_channel_map_to_channel_mask__opensl(pConfig->channelMap, pFormat->numChannels);
+    pFormat->endianness    = SL_BYTEORDER_LITTLEENDIAN;
+
+    // Android has a few restrictions on the format as documented here: https://developer.android.com/ndk/guides/audio/opensl-for-android.html
+    //  - Only mono and stereo is supported.
+    //  - Only u8 and s16 formats are supported.
+    //  - Limited to a sample rate of 48000.
+#ifdef MAL_ANDROID
+    if (pFormat->numChannels > 2) {
+        pFormat->numChannels = 2;
+    }
+#if __ANDROID_API__ >= 21
+    if (pFormat->formatType == SL_ANDROID_DATAFORMAT_PCM_EX) {
+        // It's floating point.
+        mal_assert(pcmEx.representation == SL_ANDROID_PCM_REPRESENTATION_FLOAT);
+        if (pFormat->bitsPerSample > 32) {
+            pFormat->bitsPerSample = 32;
+        }
+    } else {
+        if (pFormat->bitsPerSample > 16) {
+            pFormat->bitsPerSample = 16;
+        }
+    }
+#else
+    if (pFormat->bitsPerSample > 16) {
+        pFormat->bitsPerSample = 16;
+    }
+#endif
+    pFormat->containerSize = pFormat->bitsPerSample;  // Always tightly packed for now.
+
+    if (pFormat->samplesPerSec > SL_SAMPLINGRATE_48) {
+        pFormat->samplesPerSec = SL_SAMPLINGRATE_48;
+    }
+#endif
 
     if (type == mal_device_type_playback) {
-        if ((*g_malEngineSL)->CreateOutputMix(g_malEngineSL, (SLObjectItf*)&pDevice->opensl.pOutputMixObj, 0, NULL, NULL) != SL_RESULT_SUCCESS) {
+        SLresult resultSL = (*g_malEngineSL)->CreateOutputMix(g_malEngineSL, (SLObjectItf*)&pDevice->opensl.pOutputMixObj, 0, NULL, NULL);
+        if (resultSL != SL_RESULT_SUCCESS) {
             mal_device_uninit__opensl(pDevice);
             return mal_post_error(pDevice, "Failed to create output mix.", MAL_NO_BACKEND);
         }
@@ -4399,7 +4586,7 @@ static mal_result mal_device_init__opensl(mal_context* pContext, mal_device_type
 
         SLDataSource source;
         source.pLocator = &queue;
-        source.pFormat = &pcm;
+        source.pFormat = pFormat;
 
         SLDataLocator_OutputMix outmixLocator;
         outmixLocator.locatorType = SL_DATALOCATOR_OUTPUTMIX;
@@ -4411,10 +4598,23 @@ static mal_result mal_device_init__opensl(mal_context* pContext, mal_device_type
 
         const SLInterfaceID itfIDs1[] = {SL_IID_ANDROIDSIMPLEBUFFERQUEUE};
         const SLboolean itfIDsRequired1[] = {SL_BOOLEAN_TRUE};
-        if ((*g_malEngineSL)->CreateAudioPlayer(g_malEngineSL, (SLObjectItf*)&pDevice->opensl.pAudioPlayerObj, &source, &sink, 1, itfIDs1, itfIDsRequired1) != SL_RESULT_SUCCESS) {
+        resultSL = (*g_malEngineSL)->CreateAudioPlayer(g_malEngineSL, (SLObjectItf*)&pDevice->opensl.pAudioPlayerObj, &source, &sink, 1, itfIDs1, itfIDsRequired1);
+        if (resultSL == SL_RESULT_CONTENT_UNSUPPORTED) {
+            // Unsupported format. Fall back to something safer and try again. If this fails, just abort.
+            pFormat->formatType = SL_DATAFORMAT_PCM;
+            pFormat->numChannels = 2;
+            pFormat->samplesPerSec = SL_SAMPLINGRATE_16;
+            pFormat->bitsPerSample = 16;
+            pFormat->containerSize = pFormat->bitsPerSample;  // Always tightly packed for now.
+            pFormat->channelMask = SL_SPEAKER_FRONT_LEFT | SL_SPEAKER_FRONT_RIGHT;
+            resultSL = (*g_malEngineSL)->CreateAudioPlayer(g_malEngineSL, (SLObjectItf*)&pDevice->opensl.pAudioPlayerObj, &source, &sink, 1, itfIDs1, itfIDsRequired1);
+        }
+
+        if (resultSL != SL_RESULT_SUCCESS) {
             mal_device_uninit__opensl(pDevice);
             return mal_post_error(pDevice, "Failed to create audio player.", MAL_NO_BACKEND);
         }
+
 
         if (MAL_OPENSL_OBJ(pDevice->opensl.pAudioPlayerObj)->Realize((SLObjectItf)pDevice->opensl.pAudioPlayerObj, SL_BOOLEAN_FALSE) != SL_RESULT_SUCCESS) {
             mal_device_uninit__opensl(pDevice);
@@ -4448,11 +4648,23 @@ static mal_result mal_device_init__opensl(mal_context* pContext, mal_device_type
 
         SLDataSink sink;
         sink.pLocator = &queue;
-        sink.pFormat = &pcm;
+        sink.pFormat = pFormat;
 
         const SLInterfaceID itfIDs1[] = {SL_IID_ANDROIDSIMPLEBUFFERQUEUE};
         const SLboolean itfIDsRequired1[] = {SL_BOOLEAN_TRUE};
-        if ((*g_malEngineSL)->CreateAudioRecorder(g_malEngineSL, (SLObjectItf*)&pDevice->opensl.pAudioRecorderObj, &source, &sink, 1, itfIDs1, itfIDsRequired1) != SL_RESULT_SUCCESS) {
+        SLresult resultSL = (*g_malEngineSL)->CreateAudioRecorder(g_malEngineSL, (SLObjectItf*)&pDevice->opensl.pAudioRecorderObj, &source, &sink, 1, itfIDs1, itfIDsRequired1);
+        if (resultSL == SL_RESULT_CONTENT_UNSUPPORTED) {
+            // Unsupported format. Fall back to something safer and try again. If this fails, just abort.
+            pFormat->formatType = SL_DATAFORMAT_PCM;
+            pFormat->numChannels = 1;
+            pFormat->samplesPerSec = SL_SAMPLINGRATE_16;
+            pFormat->bitsPerSample = 16;
+            pFormat->containerSize = pFormat->bitsPerSample;  // Always tightly packed for now.
+            pFormat->channelMask = SL_SPEAKER_FRONT_LEFT | SL_SPEAKER_FRONT_RIGHT;
+            resultSL = (*g_malEngineSL)->CreateAudioRecorder(g_malEngineSL, (SLObjectItf*)&pDevice->opensl.pAudioRecorderObj, &source, &sink, 1, itfIDs1, itfIDsRequired1);
+        }
+
+        if (resultSL != SL_RESULT_SUCCESS) {
             mal_device_uninit__opensl(pDevice);
             return mal_post_error(pDevice, "Failed to create audio recorder.", MAL_NO_BACKEND);
         }
@@ -4477,6 +4689,41 @@ static mal_result mal_device_init__opensl(mal_context* pContext, mal_device_type
             return mal_post_error(pDevice, "Failed to register buffer queue callback.", MAL_NO_BACKEND);
         }
     }
+
+
+    // The internal format is determined by the pFormat object.
+    mal_bool32 isFloatingPoint = MAL_FALSE;
+#if defined(MAL_ANDROID) && __ANDROID_API__ >= 21
+    if (pFormat->formatType == SL_ANDROID_DATAFORMAT_PCM_EX) {
+        mal_assert(pcmEx.representation == SL_ANDROID_PCM_REPRESENTATION_FLOAT);
+        isFloatingPoint = MAL_TRUE;
+    }
+#endif
+    if (isFloatingPoint) {
+        if (pFormat->bitsPerSample == 32) {
+            pDevice->internalFormat = mal_format_f32;
+        }
+#if 0
+        if (pFormat->bitsPerSample == 64) {
+            pDevice->internalFormat = mal_format_f64;
+        }
+#endif
+    } else {
+        if (pFormat->bitsPerSample == 8) {
+            pDevice->internalFormat = mal_format_u8;
+        } else if (pFormat->bitsPerSample == 16) {
+            pDevice->internalFormat = mal_format_s16;
+        } else if (pFormat->bitsPerSample == 24) {
+            pDevice->internalFormat = mal_format_s24;
+        } else if (pFormat->bitsPerSample == 32) {
+            pDevice->internalFormat = mal_format_s32;
+        }
+    }
+
+    pDevice->internalChannels = pFormat->numChannels;
+    pDevice->internalSampleRate = pFormat->samplesPerSec / 1000;
+    mal_channel_mask_to_channel_map__opensl(pFormat->channelMask, pDevice->internalChannels, pDevice->internalChannelMap);
+
 
     size_t bufferSizeInBytes = pDevice->bufferSizeInFrames * pDevice->internalChannels * mal_get_sample_size_in_bytes(pDevice->internalFormat);
     pDevice->opensl.pBuffer = (mal_uint8*)mal_malloc(bufferSizeInBytes);
@@ -4995,6 +5242,7 @@ static mal_result mal_device_init__openal(mal_context* pContext, mal_device_type
     }
 
     pDevice->internalChannels = channelsAL;
+    pDevice->internalSampleRate = frequencyAL;
 
     // The internal format is a little bit straight with OpenAL.
     switch (formatAL)
@@ -6350,6 +6598,7 @@ mal_uint32 mal_src_read_frames_linear(mal_src* pSRC, mal_uint32 frameCount, void
                 }
 
                 pSRC->linear.isBinLoaded = MAL_FALSE;
+                return totalFramesRead; // We've exhausted the client data.
             }
         }
         
@@ -6363,27 +6612,6 @@ mal_uint32 mal_src_read_frames_linear(mal_src* pSRC, mal_uint32 frameCount, void
     return totalFramesRead;
 }
 
-
-
-//////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-//////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-//////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-//////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-//
-//
-//
-// AUTO-GENERATED
-//
-//
-//
-//////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-//////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-//////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-//////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-#if 0
-#include "tools/mal_build/bin/mini_al_dsp.c"
-#else
-#endif
 
 
 //////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -6490,83 +6718,83 @@ void mal_pcm_convert(void* pOut, mal_format formatOut, const void* pIn, mal_form
 
 static void mal_rearrange_channels_u8(mal_uint8* pFrame, mal_uint32 channels, mal_uint8 channelMap[MAL_MAX_CHANNELS])
 {
-	mal_uint8 temp[MAL_MAX_CHANNELS];
-	mal_copy_memory(temp, pFrame, sizeof(temp[0]) * channels);
+    mal_uint8 temp[MAL_MAX_CHANNELS];
+    mal_copy_memory(temp, pFrame, sizeof(temp[0]) * channels);
 
-	switch (channels) {
-		case 18: pFrame[17] = temp[channelMap[17]];
-		case 17: pFrame[16] = temp[channelMap[16]];
-		case 16: pFrame[15] = temp[channelMap[15]];
-		case 15: pFrame[14] = temp[channelMap[14]];
-		case 14: pFrame[13] = temp[channelMap[13]];
-		case 13: pFrame[12] = temp[channelMap[12]];
-		case 12: pFrame[11] = temp[channelMap[11]];
-		case 11: pFrame[10] = temp[channelMap[10]];
-		case 10: pFrame[ 9] = temp[channelMap[ 9]];
-		case  9: pFrame[ 8] = temp[channelMap[ 8]];
-		case  8: pFrame[ 7] = temp[channelMap[ 7]];
-		case  7: pFrame[ 6] = temp[channelMap[ 6]];
-		case  6: pFrame[ 5] = temp[channelMap[ 5]];
-		case  5: pFrame[ 4] = temp[channelMap[ 4]];
-		case  4: pFrame[ 3] = temp[channelMap[ 3]];
-		case  3: pFrame[ 2] = temp[channelMap[ 2]];
-		case  2: pFrame[ 1] = temp[channelMap[ 1]];
-		case  1: pFrame[ 0] = temp[channelMap[ 0]];
-	}
+    switch (channels) {
+        case 18: pFrame[17] = temp[channelMap[17]];
+        case 17: pFrame[16] = temp[channelMap[16]];
+        case 16: pFrame[15] = temp[channelMap[15]];
+        case 15: pFrame[14] = temp[channelMap[14]];
+        case 14: pFrame[13] = temp[channelMap[13]];
+        case 13: pFrame[12] = temp[channelMap[12]];
+        case 12: pFrame[11] = temp[channelMap[11]];
+        case 11: pFrame[10] = temp[channelMap[10]];
+        case 10: pFrame[ 9] = temp[channelMap[ 9]];
+        case  9: pFrame[ 8] = temp[channelMap[ 8]];
+        case  8: pFrame[ 7] = temp[channelMap[ 7]];
+        case  7: pFrame[ 6] = temp[channelMap[ 6]];
+        case  6: pFrame[ 5] = temp[channelMap[ 5]];
+        case  5: pFrame[ 4] = temp[channelMap[ 4]];
+        case  4: pFrame[ 3] = temp[channelMap[ 3]];
+        case  3: pFrame[ 2] = temp[channelMap[ 2]];
+        case  2: pFrame[ 1] = temp[channelMap[ 1]];
+        case  1: pFrame[ 0] = temp[channelMap[ 0]];
+    }
 }
 
 static void mal_rearrange_channels_s16(mal_int16* pFrame, mal_uint32 channels, mal_uint8 channelMap[MAL_MAX_CHANNELS])
 {
-	mal_int16 temp[MAL_MAX_CHANNELS];
-	mal_copy_memory(temp, pFrame, sizeof(temp[0]) * channels);
+    mal_int16 temp[MAL_MAX_CHANNELS];
+    mal_copy_memory(temp, pFrame, sizeof(temp[0]) * channels);
 
-	switch (channels) {
-		case 18: pFrame[17] = temp[channelMap[17]];
-		case 17: pFrame[16] = temp[channelMap[16]];
-		case 16: pFrame[15] = temp[channelMap[15]];
-		case 15: pFrame[14] = temp[channelMap[14]];
-		case 14: pFrame[13] = temp[channelMap[13]];
-		case 13: pFrame[12] = temp[channelMap[12]];
-		case 12: pFrame[11] = temp[channelMap[11]];
-		case 11: pFrame[10] = temp[channelMap[10]];
-		case 10: pFrame[ 9] = temp[channelMap[ 9]];
-		case  9: pFrame[ 8] = temp[channelMap[ 8]];
-		case  8: pFrame[ 7] = temp[channelMap[ 7]];
-		case  7: pFrame[ 6] = temp[channelMap[ 6]];
-		case  6: pFrame[ 5] = temp[channelMap[ 5]];
-		case  5: pFrame[ 4] = temp[channelMap[ 4]];
-		case  4: pFrame[ 3] = temp[channelMap[ 3]];
-		case  3: pFrame[ 2] = temp[channelMap[ 2]];
-		case  2: pFrame[ 1] = temp[channelMap[ 1]];
-		case  1: pFrame[ 0] = temp[channelMap[ 0]];
-	}
+    switch (channels) {
+        case 18: pFrame[17] = temp[channelMap[17]];
+        case 17: pFrame[16] = temp[channelMap[16]];
+        case 16: pFrame[15] = temp[channelMap[15]];
+        case 15: pFrame[14] = temp[channelMap[14]];
+        case 14: pFrame[13] = temp[channelMap[13]];
+        case 13: pFrame[12] = temp[channelMap[12]];
+        case 12: pFrame[11] = temp[channelMap[11]];
+        case 11: pFrame[10] = temp[channelMap[10]];
+        case 10: pFrame[ 9] = temp[channelMap[ 9]];
+        case  9: pFrame[ 8] = temp[channelMap[ 8]];
+        case  8: pFrame[ 7] = temp[channelMap[ 7]];
+        case  7: pFrame[ 6] = temp[channelMap[ 6]];
+        case  6: pFrame[ 5] = temp[channelMap[ 5]];
+        case  5: pFrame[ 4] = temp[channelMap[ 4]];
+        case  4: pFrame[ 3] = temp[channelMap[ 3]];
+        case  3: pFrame[ 2] = temp[channelMap[ 2]];
+        case  2: pFrame[ 1] = temp[channelMap[ 1]];
+        case  1: pFrame[ 0] = temp[channelMap[ 0]];
+    }
 }
 
 static void mal_rearrange_channels_s32(mal_int32* pFrame, mal_uint32 channels, mal_uint8 channelMap[MAL_MAX_CHANNELS])
 {
-	mal_int32 temp[MAL_MAX_CHANNELS];
-	mal_copy_memory(temp, pFrame, sizeof(temp[0]) * channels);
+    mal_int32 temp[MAL_MAX_CHANNELS];
+    mal_copy_memory(temp, pFrame, sizeof(temp[0]) * channels);
 
-	switch (channels) {
-		case 18: pFrame[17] = temp[channelMap[17]];
-		case 17: pFrame[16] = temp[channelMap[16]];
-		case 16: pFrame[15] = temp[channelMap[15]];
-		case 15: pFrame[14] = temp[channelMap[14]];
-		case 14: pFrame[13] = temp[channelMap[13]];
-		case 13: pFrame[12] = temp[channelMap[12]];
-		case 12: pFrame[11] = temp[channelMap[11]];
-		case 11: pFrame[10] = temp[channelMap[10]];
-		case 10: pFrame[ 9] = temp[channelMap[ 9]];
-		case  9: pFrame[ 8] = temp[channelMap[ 8]];
-		case  8: pFrame[ 7] = temp[channelMap[ 7]];
-		case  7: pFrame[ 6] = temp[channelMap[ 6]];
-		case  6: pFrame[ 5] = temp[channelMap[ 5]];
-		case  5: pFrame[ 4] = temp[channelMap[ 4]];
-		case  4: pFrame[ 3] = temp[channelMap[ 3]];
-		case  3: pFrame[ 2] = temp[channelMap[ 2]];
-		case  2: pFrame[ 1] = temp[channelMap[ 1]];
-		case  1: pFrame[ 0] = temp[channelMap[ 0]];
-	}
+    switch (channels) {
+        case 18: pFrame[17] = temp[channelMap[17]];
+        case 17: pFrame[16] = temp[channelMap[16]];
+        case 16: pFrame[15] = temp[channelMap[15]];
+        case 15: pFrame[14] = temp[channelMap[14]];
+        case 14: pFrame[13] = temp[channelMap[13]];
+        case 13: pFrame[12] = temp[channelMap[12]];
+        case 12: pFrame[11] = temp[channelMap[11]];
+        case 11: pFrame[10] = temp[channelMap[10]];
+        case 10: pFrame[ 9] = temp[channelMap[ 9]];
+        case  9: pFrame[ 8] = temp[channelMap[ 8]];
+        case  8: pFrame[ 7] = temp[channelMap[ 7]];
+        case  7: pFrame[ 6] = temp[channelMap[ 6]];
+        case  6: pFrame[ 5] = temp[channelMap[ 5]];
+        case  5: pFrame[ 4] = temp[channelMap[ 4]];
+        case  4: pFrame[ 3] = temp[channelMap[ 3]];
+        case  3: pFrame[ 2] = temp[channelMap[ 2]];
+        case  2: pFrame[ 1] = temp[channelMap[ 1]];
+        case  1: pFrame[ 0] = temp[channelMap[ 0]];
+    }
 }
 
 static void mal_rearrange_channels_f32(float* pFrame, mal_uint32 channels, mal_uint8 channelMap[MAL_MAX_CHANNELS])
@@ -6598,43 +6826,43 @@ static void mal_rearrange_channels_f32(float* pFrame, mal_uint32 channels, mal_u
 
 static void mal_rearrange_channels_generic(void* pFrame, mal_uint32 channels, mal_uint8 channelMap[MAL_MAX_CHANNELS], mal_format format)
 {
-	mal_uint32 sampleSizeInBytes = mal_get_sample_size_in_bytes(format);
+    mal_uint32 sampleSizeInBytes = mal_get_sample_size_in_bytes(format);
 
-	mal_uint8 temp[MAL_MAX_CHANNELS * 8];	// x8 to ensure it's large enough for all formats.
-	mal_copy_memory(temp, pFrame, sampleSizeInBytes * channels);
+    mal_uint8 temp[MAL_MAX_CHANNELS * 8];   // x8 to ensure it's large enough for all formats.
+    mal_copy_memory(temp, pFrame, sampleSizeInBytes * channels);
 
-	switch (channels) {
-		case 18: mal_copy_memory((mal_uint8*)pFrame + (17 * sampleSizeInBytes), &temp[channelMap[17] * sampleSizeInBytes], sampleSizeInBytes);
-		case 17: mal_copy_memory((mal_uint8*)pFrame + (16 * sampleSizeInBytes), &temp[channelMap[16] * sampleSizeInBytes], sampleSizeInBytes);
-		case 16: mal_copy_memory((mal_uint8*)pFrame + (15 * sampleSizeInBytes), &temp[channelMap[15] * sampleSizeInBytes], sampleSizeInBytes);
-		case 15: mal_copy_memory((mal_uint8*)pFrame + (14 * sampleSizeInBytes), &temp[channelMap[14] * sampleSizeInBytes], sampleSizeInBytes);
-		case 14: mal_copy_memory((mal_uint8*)pFrame + (13 * sampleSizeInBytes), &temp[channelMap[13] * sampleSizeInBytes], sampleSizeInBytes);
-		case 13: mal_copy_memory((mal_uint8*)pFrame + (12 * sampleSizeInBytes), &temp[channelMap[12] * sampleSizeInBytes], sampleSizeInBytes);
-		case 12: mal_copy_memory((mal_uint8*)pFrame + (11 * sampleSizeInBytes), &temp[channelMap[11] * sampleSizeInBytes], sampleSizeInBytes);
-		case 11: mal_copy_memory((mal_uint8*)pFrame + (10 * sampleSizeInBytes), &temp[channelMap[10] * sampleSizeInBytes], sampleSizeInBytes);
-		case 10: mal_copy_memory((mal_uint8*)pFrame + ( 9 * sampleSizeInBytes), &temp[channelMap[ 9] * sampleSizeInBytes], sampleSizeInBytes);
-		case  9: mal_copy_memory((mal_uint8*)pFrame + ( 8 * sampleSizeInBytes), &temp[channelMap[ 8] * sampleSizeInBytes], sampleSizeInBytes);
-		case  8: mal_copy_memory((mal_uint8*)pFrame + ( 7 * sampleSizeInBytes), &temp[channelMap[ 7] * sampleSizeInBytes], sampleSizeInBytes);
-		case  7: mal_copy_memory((mal_uint8*)pFrame + ( 6 * sampleSizeInBytes), &temp[channelMap[ 6] * sampleSizeInBytes], sampleSizeInBytes);
-		case  6: mal_copy_memory((mal_uint8*)pFrame + ( 5 * sampleSizeInBytes), &temp[channelMap[ 5] * sampleSizeInBytes], sampleSizeInBytes);
-		case  5: mal_copy_memory((mal_uint8*)pFrame + ( 4 * sampleSizeInBytes), &temp[channelMap[ 4] * sampleSizeInBytes], sampleSizeInBytes);
-		case  4: mal_copy_memory((mal_uint8*)pFrame + ( 3 * sampleSizeInBytes), &temp[channelMap[ 3] * sampleSizeInBytes], sampleSizeInBytes);
-		case  3: mal_copy_memory((mal_uint8*)pFrame + ( 2 * sampleSizeInBytes), &temp[channelMap[ 2] * sampleSizeInBytes], sampleSizeInBytes);
-		case  2: mal_copy_memory((mal_uint8*)pFrame + ( 1 * sampleSizeInBytes), &temp[channelMap[ 1] * sampleSizeInBytes], sampleSizeInBytes);
-		case  1: mal_copy_memory((mal_uint8*)pFrame + ( 0 * sampleSizeInBytes), &temp[channelMap[ 0] * sampleSizeInBytes], sampleSizeInBytes);
-	}
+    switch (channels) {
+        case 18: mal_copy_memory((mal_uint8*)pFrame + (17 * sampleSizeInBytes), &temp[channelMap[17] * sampleSizeInBytes], sampleSizeInBytes);
+        case 17: mal_copy_memory((mal_uint8*)pFrame + (16 * sampleSizeInBytes), &temp[channelMap[16] * sampleSizeInBytes], sampleSizeInBytes);
+        case 16: mal_copy_memory((mal_uint8*)pFrame + (15 * sampleSizeInBytes), &temp[channelMap[15] * sampleSizeInBytes], sampleSizeInBytes);
+        case 15: mal_copy_memory((mal_uint8*)pFrame + (14 * sampleSizeInBytes), &temp[channelMap[14] * sampleSizeInBytes], sampleSizeInBytes);
+        case 14: mal_copy_memory((mal_uint8*)pFrame + (13 * sampleSizeInBytes), &temp[channelMap[13] * sampleSizeInBytes], sampleSizeInBytes);
+        case 13: mal_copy_memory((mal_uint8*)pFrame + (12 * sampleSizeInBytes), &temp[channelMap[12] * sampleSizeInBytes], sampleSizeInBytes);
+        case 12: mal_copy_memory((mal_uint8*)pFrame + (11 * sampleSizeInBytes), &temp[channelMap[11] * sampleSizeInBytes], sampleSizeInBytes);
+        case 11: mal_copy_memory((mal_uint8*)pFrame + (10 * sampleSizeInBytes), &temp[channelMap[10] * sampleSizeInBytes], sampleSizeInBytes);
+        case 10: mal_copy_memory((mal_uint8*)pFrame + ( 9 * sampleSizeInBytes), &temp[channelMap[ 9] * sampleSizeInBytes], sampleSizeInBytes);
+        case  9: mal_copy_memory((mal_uint8*)pFrame + ( 8 * sampleSizeInBytes), &temp[channelMap[ 8] * sampleSizeInBytes], sampleSizeInBytes);
+        case  8: mal_copy_memory((mal_uint8*)pFrame + ( 7 * sampleSizeInBytes), &temp[channelMap[ 7] * sampleSizeInBytes], sampleSizeInBytes);
+        case  7: mal_copy_memory((mal_uint8*)pFrame + ( 6 * sampleSizeInBytes), &temp[channelMap[ 6] * sampleSizeInBytes], sampleSizeInBytes);
+        case  6: mal_copy_memory((mal_uint8*)pFrame + ( 5 * sampleSizeInBytes), &temp[channelMap[ 5] * sampleSizeInBytes], sampleSizeInBytes);
+        case  5: mal_copy_memory((mal_uint8*)pFrame + ( 4 * sampleSizeInBytes), &temp[channelMap[ 4] * sampleSizeInBytes], sampleSizeInBytes);
+        case  4: mal_copy_memory((mal_uint8*)pFrame + ( 3 * sampleSizeInBytes), &temp[channelMap[ 3] * sampleSizeInBytes], sampleSizeInBytes);
+        case  3: mal_copy_memory((mal_uint8*)pFrame + ( 2 * sampleSizeInBytes), &temp[channelMap[ 2] * sampleSizeInBytes], sampleSizeInBytes);
+        case  2: mal_copy_memory((mal_uint8*)pFrame + ( 1 * sampleSizeInBytes), &temp[channelMap[ 1] * sampleSizeInBytes], sampleSizeInBytes);
+        case  1: mal_copy_memory((mal_uint8*)pFrame + ( 0 * sampleSizeInBytes), &temp[channelMap[ 0] * sampleSizeInBytes], sampleSizeInBytes);
+    }
 }
 
 static void mal_rearrange_channels(void* pFrame, mal_uint32 channels, mal_uint8 channelMap[MAL_MAX_CHANNELS], mal_format format)
 {
-	switch (format)
-	{
-	case mal_format_u8:  mal_rearrange_channels_u8( (mal_uint8*)pFrame, channels, channelMap); break;
-	case mal_format_s16: mal_rearrange_channels_s16((mal_int16*)pFrame, channels, channelMap); break;
-	case mal_format_s32: mal_rearrange_channels_s32((mal_int32*)pFrame, channels, channelMap); break;
-	case mal_format_f32: mal_rearrange_channels_f32(    (float*)pFrame, channels, channelMap); break;
-	default:             mal_rearrange_channels_generic(pFrame, channels, channelMap, format); break;
-	}
+    switch (format)
+    {
+    case mal_format_u8:  mal_rearrange_channels_u8( (mal_uint8*)pFrame, channels, channelMap); break;
+    case mal_format_s16: mal_rearrange_channels_s16((mal_int16*)pFrame, channels, channelMap); break;
+    case mal_format_s32: mal_rearrange_channels_s32((mal_int32*)pFrame, channels, channelMap); break;
+    case mal_format_f32: mal_rearrange_channels_f32(    (float*)pFrame, channels, channelMap); break;
+    default:             mal_rearrange_channels_generic(pFrame, channels, channelMap, format); break;
+    }
 }
 
 static void mal_dsp_mix_channels__dec(float* pFramesOut, mal_uint32 channelsOut, const float* pFramesIn, mal_uint32 channelsIn, mal_uint32 frameCount, mal_channel_mix_mode mode)
@@ -6918,15 +7146,15 @@ mal_uint32 mal_dsp_read_frames(mal_dsp* pDSP, mal_uint32 frameCount, void* pFram
 
 
     // Slower path - where the real work is done.
-    mal_uint8 pFrames[2][MAL_MAX_CHANNELS * 512 * 4];
+    mal_uint8 pFrames[2][MAL_MAX_CHANNELS * 512 * MAL_MAX_SAMPLE_SIZE_IN_BYTES];
     mal_format pFramesFormat[2];
     mal_uint32 iFrames = 0; // <-- Used as an index into pFrames and cycles between 0 and 1.
 
     mal_uint32 totalFramesRead = 0;
     while (frameCount > 0) {
-		iFrames = 0;
+        iFrames = 0;
 
-        mal_uint32 framesToRead = mal_countof(pFrames[0]) / mal_max(pDSP->config.channelsIn, pDSP->config.channelsOut);
+        mal_uint32 framesToRead = mal_countof(pFrames[0]) / (mal_max(pDSP->config.channelsIn, pDSP->config.channelsOut) * MAL_MAX_SAMPLE_SIZE_IN_BYTES);
         if (framesToRead > frameCount) {
             framesToRead = frameCount;
         }
@@ -6963,7 +7191,7 @@ mal_uint32 mal_dsp_read_frames(mal_dsp* pDSP, mal_uint32 frameCount, void* pFram
         // Channel mapping.
         if (pDSP->isChannelMappingRequired) {
             for (mal_uint32 i = 0; i < framesRead; ++i) {
-				mal_rearrange_channels(pFrames[iFrames] + (i * pDSP->config.channelsOut * mal_get_sample_size_in_bytes(pDSP->config.formatOut)), pDSP->config.channelsOut, pDSP->channelShuffleTable, pFramesFormat[iFrames]);
+                mal_rearrange_channels(pFrames[iFrames] + (i * pDSP->config.channelsOut * mal_get_sample_size_in_bytes(pFramesFormat[iFrames])), pDSP->config.channelsOut, pDSP->channelShuffleTable, pFramesFormat[iFrames]);
             }
         }
         
@@ -6998,6 +7226,22 @@ void mal_blend_f32(float* pOut, float* pInA, float* pInB, float factor, mal_uint
 }
 
 
+
+//////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+//////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+//////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+//////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+//
+//
+//
+// AUTO-GENERATED
+//
+//
+//
+//////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+//////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+//////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+//////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
 //////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 //////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -7267,6 +7511,7 @@ void mal_pcm_f32_to_s32(int* pOut, const float* pIn, unsigned int count)
 //   - Added initial implementation of the WASAPI backend.
 //   - Added initial implementation of the OpenAL backend.
 //   - Added support for low quality linear sample rate conversion.
+//   - Added early support for basic channel mapping.
 //
 // v0.2 - 2016-10-28
 //   - API CHANGE: Add user data pointer as the last parameter to mal_device_init(). The rationale for this
@@ -7286,7 +7531,6 @@ void mal_pcm_f32_to_s32(int* pOut, const float* pIn, unsigned int count)
 
 // TODO
 // ====
-// - Add support for channel mapping.
 // - Higher quality sample rate conversion.
 //
 //
