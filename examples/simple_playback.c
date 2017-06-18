@@ -37,17 +37,19 @@ int main(int argc, char** argv)
     }
     
     // In this example we use the default playback device with a default buffer size and period count.
-	mal_device_config config;
-	config.format = mal_format_s16;
-	config.channels = wav.channels;
-	config.sampleRate = wav.sampleRate;
-	config.bufferSizeInFrames = 0;	// Use default.
-	config.periods = 0;				// Use default.
-	config.onRecvCallback = NULL;	// Not used for playback.
-	config.onSendCallback = on_send_frames_to_device;
-	config.onStopCallback = NULL;
+    mal_device_config config;
+    config.format = mal_format_s16;
+    config.channels = wav.channels;
+    config.sampleRate = wav.sampleRate;
+    config.channelMap[0] = MAL_CHANNEL_FRONT_LEFT;
+    config.channelMap[1] = MAL_CHANNEL_FRONT_RIGHT;
+    config.bufferSizeInFrames = 0;  // Use default.
+    config.periods = 0;             // Use default.
+    config.onRecvCallback = NULL;   // Not used for playback.
+    config.onSendCallback = on_send_frames_to_device;
+    config.onStopCallback = NULL;
     config.onLogCallback  = NULL;
-	
+    
     mal_device device;
     if (mal_device_init(&context, mal_device_type_playback, NULL, &config, &wav, &device) != MAL_SUCCESS) {
         printf("Failed to open playback device.");

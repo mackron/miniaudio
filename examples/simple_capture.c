@@ -15,7 +15,7 @@ mal_uint32 playbackSample = 0;
 void on_recv_frames(mal_device* pDevice, mal_uint32 frameCount, const void* pSamples)
 {
     mal_uint32 sampleCount = frameCount * pDevice->channels;
-	
+    
     mal_uint32 newCapturedSampleCount = capturedSampleCount + sampleCount;
     mal_int16* pNewCapturedSamples = (mal_int16*)realloc(pCapturedSamples, newCapturedSampleCount * sizeof(mal_int16));
     if (pNewCapturedSamples == NULL) {
@@ -53,15 +53,17 @@ int main()
         return -1;
     }
 
-	mal_device_config config;
-	config.format = mal_format_s16;
-	config.channels = 2;
-	config.sampleRate = 48000;
-	config.bufferSizeInFrames = 0;	// Use default.
-	config.periods = 0;				// Use default.
-	config.onRecvCallback = on_recv_frames;
-	config.onSendCallback = on_send_frames;
-	config.onStopCallback = NULL;
+    mal_device_config config;
+    config.format = mal_format_s16;
+    config.channels = 2;
+    config.sampleRate = 48000;
+	config.channelMap[0] = MAL_CHANNEL_FRONT_LEFT;
+    config.channelMap[1] = MAL_CHANNEL_FRONT_RIGHT;
+    config.bufferSizeInFrames = 0;  // Use default.
+    config.periods = 0;             // Use default.
+    config.onRecvCallback = on_recv_frames;
+    config.onSendCallback = on_send_frames;
+    config.onStopCallback = NULL;
     config.onLogCallback  = NULL;
 
     printf("Recording...\n");
@@ -89,9 +91,9 @@ int main()
     mal_device_start(&playbackDevice);
 
     printf("Press Enter to quit...\n");
-	getchar();
+    getchar();
     mal_device_uninit(&playbackDevice);
 
     mal_context_uninit(&context);
-	return 0;
+    return 0;
 }
