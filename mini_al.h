@@ -1,7 +1,7 @@
 // Mini audio library. Public domain. See "unlicense" statement at the end of this file.
-// mini_al - v0.3 - TBD
+// mini_al - v0.3 - 2017-06-19
 //
-// David Reid - mackron@gmail.com
+// David Reid - davidreidsoftware@gmail.com
 
 // ABOUT
 // =====
@@ -17,10 +17,10 @@
 //
 // Supported Backends:
 //   - DirectSound
-//   - WASAPI (Unstable)
+//   - WASAPI
 //   - ALSA
-//   - OpenSL|ES / Android (Unstable)
-//   - OpenAL (Unstable)
+//   - OpenSL|ES / Android
+//   - OpenAL
 //   - Null (Silence)
 //   - ... and more in the future.
 //     - Core Audio (OSX, iOS)
@@ -169,7 +169,6 @@ extern "C" {
 #else
     #define MAL_POSIX
     #include <pthread.h>    // Unfortunate #include, but needed for pthread_t, pthread_mutex_t and pthread_cond_t types.
-    #include <wchar.h>      // For the wchar_t type in mal_device_id.
 
     #ifdef __linux__
         #define MAL_LINUX
@@ -354,10 +353,16 @@ typedef enum
 
 typedef union
 {
+#ifdef MAL_ANDROIND
     mal_uint32 opensl;      // OpenSL|ES uses a 32-bit unsigned integer for identification.
+#endif
+#ifdef MAL_LINUX
     char alsa[32];          // ALSA uses a name string for identification.
+#endif
+#ifdef MAL_WIN32
     mal_uint8 dsound[16];   // DirectSound uses a GUID for identification.
     wchar_t wasapi[64];     // WASAPI uses a wchar_t string for identification which is also annoyingly long...
+#endif
     char openal[256];       // OpenAL seems to use human-readable device names as the ID.
 } mal_device_id;
 
@@ -399,7 +404,7 @@ typedef struct
     mal_format formatOut;
     mal_uint32 channels;
     mal_src_algorithm algorithm;
-    mal_uint32 cacheSizeInFrames;  //< The number of frames to read from the client at a time.
+    mal_uint32 cacheSizeInFrames;  // The number of frames to read from the client at a time.
 } mal_src_config;
 
 struct mal_src
@@ -7664,7 +7669,7 @@ void mal_pcm_f32_to_s32(int* pOut, const float* pIn, unsigned int count)
 // REVISION HISTORY
 // ================
 //
-// v0.3 - TBD
+// v0.3 - 2017-06-19
 //   - API CHANGE: Introduced the notion of a context. The context is the highest level object and is required for
 //     enumerating and creating devices. Now, applications must first create a context, and then use that to
 //     enumerate and create devices. The reason for this change is to ensure device enumeration and creation is
