@@ -297,6 +297,7 @@ typedef int mal_result;
 #define MAL_FAILED_TO_CREATE_MUTEX                      -19
 #define MAL_FAILED_TO_CREATE_EVENT                      -20
 #define MAL_FAILED_TO_CREATE_THREAD                     -21
+#define MAL_INVALID_DEVICE_CONFIG                       -22
 #define MAL_DSOUND_FAILED_TO_CREATE_DEVICE              -1024
 #define MAL_DSOUND_FAILED_TO_SET_COOP_LEVEL             -1025
 #define MAL_DSOUND_FAILED_TO_CREATE_BUFFER              -1026
@@ -5572,6 +5573,23 @@ static mal_result mal_device__main_loop__openal(mal_device* pDevice)
 #endif  // OpenAL
 
 
+mal_bool32 mal__is_channel_map_valid(mal_channel* channelMap, mal_uint32 channels)
+{
+    mal_assert(channels > 0);
+
+    // A channel cannot be present in the channel map more than once.
+    for (mal_uint32 iChannel = 0; iChannel < channels; ++iChannel) {
+        for (mal_uint32 jChannel = iChannel + 1; jChannel < channels; ++jChannel) {
+            if (channelMap[iChannel] == channelMap[jChannel]) {
+                return MAL_FALSE;
+            }
+        }
+    }
+
+    return MAL_TRUE;
+}
+
+
 static mal_result mal_device__start_backend(mal_device* pDevice)
 {
     mal_assert(pDevice != NULL);
@@ -6009,7 +6027,7 @@ mal_result mal_context_uninit(mal_context* pContext)
 
 mal_result mal_enumerate_devices(mal_context* pContext, mal_device_type type, mal_uint32* pCount, mal_device_info* pInfo)
 {
-    if (pCount == NULL) return mal_post_error(NULL, "mal_enumerate_devices() called with invalid arguments.", MAL_INVALID_ARGS);
+    if (pCount == NULL) return mal_post_error(NULL, "mal_enumerate_devices() called with invalid arguments (pCount == 0).", MAL_INVALID_ARGS);
 
     switch (pContext->backend)
     {
@@ -6059,7 +6077,8 @@ mal_result mal_enumerate_devices(mal_context* pContext, mal_device_type type, ma
 
 mal_result mal_device_init(mal_context* pContext, mal_device_type type, mal_device_id* pDeviceID, mal_device_config* pConfig, void* pUserData, mal_device* pDevice)
 {
-    if (pDevice == NULL) return mal_post_error(pDevice, "mal_device_init() called with invalid arguments.", MAL_INVALID_ARGS);
+    if (pDevice  == NULL) return mal_post_error(pDevice, "mal_device_init() called with invalid arguments (pDevice == NULL).",  MAL_INVALID_ARGS);
+
     mal_zero_object(pDevice);
     pDevice->pContext = pContext;
 
@@ -6076,11 +6095,32 @@ mal_result mal_device_init(mal_context* pContext, mal_device_type type, mal_devi
         }
     }
 
-    if (pConfig == NULL || pConfig->channels == 0 || pConfig->sampleRate == 0) return mal_post_error(pDevice, "mal_device_init() called with invalid arguments.", MAL_INVALID_ARGS);
 
-    if (pConfig->channels > MAL_MAX_CHANNELS) {
-        return MAL_FORMAT_NOT_SUPPORTED;
+    if (pContext == NULL) {
+        return mal_post_error(pDevice, "mal_device_init() called with invalid arguments (pContext == NULL).", MAL_INVALID_ARGS);
     }
+
+
+    // Basic config validation.
+    if (pConfig  == NULL) {
+        return mal_post_error(pDevice, "mal_device_init() called with invalid arguments (pConfig == NULL).",  MAL_INVALID_ARGS);
+    }
+
+    if (pConfig->channels == 0) {
+        return mal_post_error(pDevice, "mal_device_init() called with an invalid config. Channel count must be greater than 0.", MAL_INVALID_DEVICE_CONFIG);
+    }
+    if (pConfig->channels > MAL_MAX_CHANNELS) {
+        return mal_post_error(pDevice, "mal_device_init() called with an invalid config. Channel count cannot exceed 18.", MAL_INVALID_DEVICE_CONFIG);
+    }
+
+    if (pConfig->sampleRate == 0) {
+        return mal_post_error(pDevice, "mal_device_init() called with an invalid config. Sample rate must be greater than 0.", MAL_INVALID_DEVICE_CONFIG);
+    }
+
+    if (!mal__is_channel_map_valid(pConfig->channelMap, pConfig->channels)) {
+        return mal_post_error(pDevice, "mal_device_init() called with invalid arguments. Channel map is invalid.", MAL_INVALID_DEVICE_CONFIG);
+    }
+
 
     // Default buffer size and periods.
     if (pConfig->bufferSizeInFrames == 0) {
@@ -6307,7 +6347,7 @@ void mal_device_set_stop_callback(mal_device* pDevice, mal_stop_proc proc)
 
 mal_result mal_device_start(mal_device* pDevice)
 {
-    if (pDevice == NULL) return mal_post_error(pDevice, "mal_device_start() called with invalid arguments.", MAL_INVALID_ARGS);
+    if (pDevice == NULL) return mal_post_error(pDevice, "mal_device_start() called with invalid arguments (pDevice == NULL).", MAL_INVALID_ARGS);
     if (mal_device__get_state(pDevice) == MAL_STATE_UNINITIALIZED) return mal_post_error(pDevice, "mal_device_start() called for an uninitialized device.", MAL_DEVICE_NOT_INITIALIZED);
     
     mal_result result = MAL_ERROR;
@@ -6356,7 +6396,7 @@ mal_result mal_device_start(mal_device* pDevice)
 
 mal_result mal_device_stop(mal_device* pDevice)
 {
-    if (pDevice == NULL) return mal_post_error(pDevice, "mal_device_stop() called with invalid arguments.", MAL_INVALID_ARGS);
+    if (pDevice == NULL) return mal_post_error(pDevice, "mal_device_stop() called with invalid arguments (pDevice == NULL).", MAL_INVALID_ARGS);
     if (mal_device__get_state(pDevice) == MAL_STATE_UNINITIALIZED) return mal_post_error(pDevice, "mal_device_stop() called for an uninitialized device.", MAL_DEVICE_NOT_INITIALIZED);
 
     mal_result result = MAL_ERROR;
