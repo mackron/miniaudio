@@ -134,7 +134,7 @@
 // #define MAL_NO_OSS
 //   Disables the OSS backend.
 //
-// #define MAL_NO_OPENSLES
+// #define MAL_NO_OPENSL
 //   Disables the OpenSL|ES backend.
 //
 // #define MAL_NO_OPENAL
@@ -170,10 +170,10 @@ extern "C" {
         #define MAL_WIN32_DESKTOP
     #endif
 #else
-    #define MAL_UNIX
     #define MAL_POSIX
     #include <pthread.h>    // Unfortunate #include, but needed for pthread_t, pthread_mutex_t and pthread_cond_t types.
 
+    #define MAL_UNIX
     #ifdef __linux__
         #define MAL_LINUX
     #endif
@@ -185,25 +185,60 @@ extern "C" {
     #endif
 #endif
 
-#if !defined(MAL_NO_WASAPI) && defined(MAL_WIN32)
+// Some backends are only supported on certain platforms.
+#if defined(MAL_WIN32)
+	#define MAL_SUPPORT_WASAPI
+	#if defined(MAL_WIN32_DESKTOP)	// DirectSound and WinMM backends are only supported on desktop's.
+		#define MAL_SUPPORT_DSOUND
+		#define MAL_SUPPORT_WINMM
+	#endif
+	
+#endif
+#if defined(MAL_UNIX)
+	#if defined(MAL_LINUX)
+		#if !defined(MAL_ANDROID)	// ALSA is not supported on Android.
+			#define MAL_SUPPORT_ALSA
+		#endif
+	#endif
+	#if defined(MAL_APPLE)
+		#define MAL_SUPPORT_COREAUDIO
+	#endif
+	#if defined(MAL_ANDROID)
+		#define MAL_SUPPORT_OPENSL
+	#endif
+	#if !defined(MAL_LINUX) && !defined(MAL_APPLE) && !defined(MAL_ANDROID)
+		#define MAL_SUPPORT_OSS
+	#endif
+#endif
+#define MAL_SUPPORT_OPENAL	// All platforms support OpenAL (at least for now).
+#define MAL_SUPPORT_NULL	// All platforms support the null device.
+
+
+#if !defined(MAL_NO_WASAPI) && defined(MAL_SUPPORT_WASAPI)
     #define MAL_ENABLE_WASAPI
 #endif
-#if !defined(MAL_NO_DSOUND) && defined(MAL_WIN32) && defined(MAL_WIN32_DESKTOP)
+#if !defined(MAL_NO_DSOUND) && defined(MAL_SUPPORT_DSOUND)
     #define MAL_ENABLE_DSOUND
 #endif
-#if !defined(MAL_NO_ALSA) && defined(MAL_LINUX) && !defined(MAL_ANDROID)
+#if !defined(MAL_NO_WINMM) && defined(MAL_SUPPORT_WINMM)
+	#define MAL_ENABLE_WINMM
+#endif
+#if !defined(MAL_NO_ALSA) && defined(MAL_SUPPORT_ALSA)
     #define MAL_ENABLE_ALSA
 #endif
-#if !defined(MAL_NO_OSS) && defined(MAL_UNIX) && !defined(MAL_ANDROID)
+#if !defined(MAL_NO_COREAUDIO) && defined(MAL_SUPPORT_COREAUDIO)
+	#define MAL_ENABLE_COREAUDIO
+#endif
+#if !defined(MAL_NO_OSS) && defined(MAL_SUPPORT_OSS)
     #define MAL_ENABLE_OSS
 #endif
-#if !defined(MAL_NO_OPENSLES) && defined(MAL_ANDROID)
-    #define MAL_ENABLE_OPENSLES
+#if !defined(MAL_NO_OPENSL) && defined(MAL_SUPPORT_OPENSL)
+    #define MAL_ENABLE_OPENSL
 #endif
-#if !defined(MAL_NO_OPENAL)
+#if !defined(MAL_NO_OPENAL) && defined(MAL_SUPPORT_OPENAL)
     #define MAL_ENABLE_OPENAL
 #endif
-#if !defined(MAL_NO_NULL)
+#if !defined(MAL_NO_NULL) && defined(MAL_SUPPORT_NULL)
     #define MAL_ENABLE_NULL
 #endif
 
@@ -361,20 +396,33 @@ typedef enum
 
 typedef union
 {
-#ifdef MAL_ANDROIND
-    mal_uint32 opensl;      // OpenSL|ES uses a 32-bit unsigned integer for identification.
-#endif
-#ifdef MAL_LINUX
-    char alsa[32];          // ALSA uses a name string for identification.
-#endif
-#ifdef MAL_POSIX
-    mal_uint32 oss;
-#endif
-#ifdef MAL_WIN32
-    mal_uint8 dsound[16];   // DirectSound uses a GUID for identification.
+#ifdef MAL_SUPPORT_WASAPI
     wchar_t wasapi[64];     // WASAPI uses a wchar_t string for identification which is also annoyingly long...
 #endif
+#ifdef MAL_SUPPORT_DSOUND
+    mal_uint8 dsound[16];   // DirectSound uses a GUID for identification.
+#endif
+#ifdef MAL_SUPPORT_WINMM
+	// TODO: Implement me.
+#endif
+#ifdef MAL_SUPPORT_ALSA
+    char alsa[32];          // ALSA uses a name string for identification.
+#endif
+#ifdef MAL_SUPPORT_COREAUDIO
+	// TODO: Implement me.
+#endif
+#ifdef MAL_SUPPORT_OSS
+    char oss[64];			// "dev/dsp0", etc. "dev/dsp" for the default device.
+#endif
+#ifdef MAL_SUPPORT_OPENSL
+    mal_uint32 opensl;      // OpenSL|ES uses a 32-bit unsigned integer for identification.
+#endif
+#ifdef MAL_SUPPORT_OPENAL
     char openal[256];       // OpenAL seems to use human-readable device names as the ID.
+#endif
+#ifdef MAL_SUPPORT_NULL
+	int nullbackend;		// Always 0. TODO: Check that this is indeed always set to 0 or just undefined. If undefined, change this to always be 0.
+#endif
 } mal_device_id;
 
 typedef struct
@@ -487,26 +535,49 @@ typedef struct
 
     union
     {
+#ifdef MAL_SUPPORT_WASAPI
         struct
         {
             /*IMMDeviceEnumerator**/ mal_ptr pDeviceEnumerator;
         } wasapi;
-
+#endif
+#ifdef MAL_SUPPORT_DSOUND
         struct
         {
             /*HMODULE*/ mal_handle hDSoundDLL;
         } dsound;
-
+#endif
+#ifdef MAL_SUPPORT_WINMM
+		struct
+		{
+			int _unused;
+		} winmm;
+#endif
+#ifdef MAL_SUPPORT_ALSA
         struct
         {
             int _unused;
         } alsa;
-
+#endif
+#ifdef MAL_SUPPORT_COREAUDIO
+		struct
+		{
+			int _unused;
+		} coreaudio;
+#endif
+#ifdef MAL_SUPPORT_OSS
+		struct
+		{
+			int _unused;
+		} oss;
+#endif
+#ifdef MAL_SUPPORT_OPENSL
         struct
         {
             int _unused;
         } opensl;
-
+#endif
+#ifdef MAL_SUPPORT_OPENAL
         struct
         {
             /*HMODULE*/ mal_handle hOpenAL;     // OpenAL32.dll, etc.
@@ -592,15 +663,18 @@ typedef struct
             mal_uint32 isFloat32Supported   : 1;
             mal_uint32 isMCFormatsSupported : 1;
         } openal;
-
+#endif
+#ifdef MAL_SUPPORT_NULL
         struct
         {
             int _unused;
         } null_device;
+#endif
     };
 
     union
     {
+#ifdef MAL_WIN32
         struct
         {
             /*HMODULE*/ mal_handle hOle32DLL;
@@ -610,7 +684,7 @@ typedef struct
             mal_proc CoTaskMemFree;
             mal_proc PropVariantClear;
         } win32;
-
+#endif
         int _unused;
     };
 } mal_context;
@@ -649,6 +723,7 @@ struct mal_device
 
     union
     {
+#ifdef MAL_SUPPORT_WASAPI
         struct
         {
             /*IMMDevice**/ mal_ptr pDevice;
@@ -658,7 +733,8 @@ struct mal_device
             /*HANDLE*/ mal_handle hStopEvent;
             mal_bool32 breakFromMainLoop;
         } wasapi;
-
+#endif
+#ifdef MAL_SUPPORT_DSOUND
         struct
         {
             /*HMODULE*/ mal_handle hDSoundDLL;
@@ -673,7 +749,14 @@ struct mal_device
             mal_uint32 lastProcessedFrame;      // This is circular.
             mal_bool32 breakFromMainLoop;
         } dsound;
-
+#endif
+#ifdef MAL_SUPPORT_WINMM
+		struct
+		{
+			int _unused;
+		} winmm;
+#endif
+#ifdef MAL_SUPPORT_ALSA
         struct
         {
             /*snd_pcm_t**/ mal_ptr pPCM;
@@ -681,7 +764,20 @@ struct mal_device
             mal_bool32 breakFromMainLoop;
             void* pIntermediaryBuffer;
         } alsa;
-
+#endif
+#ifdef MAL_SUPPORT_COREAUDIO
+		struct
+		{
+			int _unused;
+		} coreaudio;
+#endif
+#ifdef MAL_SUPPORT_OSS
+		struct
+		{
+			int fd;
+		} oss;
+#endif
+#ifdef MAL_SUPPORT_OPENSL
         struct
         {
             /*SLObjectItf*/ mal_ptr pOutputMixObj;
@@ -695,7 +791,8 @@ struct mal_device
             mal_uint32 currentBufferIndex;
             mal_uint8* pBuffer;                 // This is malloc()'d and is used for storing audio data. Typed as mal_uint8 for easy offsetting.
         } opensl;
-
+#endif
+#ifdef MAL_SUPPORT_OPENAL
         struct
         {
             /*ALCcontext**/ mal_ptr pContextALC;
@@ -708,7 +805,8 @@ struct mal_device
             mal_uint32 iNextBuffer;             // The next buffer to unenqueue and then re-enqueue as new data is read.
             mal_bool32 breakFromMainLoop;
         } openal;
-
+#endif
+#ifdef MAL_SUPPORT_NULL
         struct
         {
             mal_timer timer;
@@ -716,6 +814,7 @@ struct mal_device
             mal_bool32 breakFromMainLoop;
             mal_uint8* pBuffer;                 // This is malloc()'d and is used as the destination for reading from the client. Typed as mal_uint8 for easy offsetting.
         } null_device;
+#endif
     };
 };
 #if defined(_MSC_VER)
@@ -4179,9 +4278,13 @@ static mal_result mal_device__main_loop__alsa(mal_device* pDevice)
 #include <fcntl.h>
 #include <sys/soundcard.h>
 
+#include <stdio.h>	// TODO: Delete this. Used for testing.
+
 mal_result mal_context_init__oss(mal_context* pContext)
 {
     mal_assert(pContext != NULL);
+
+	// TODO: Check that OSS is installed and supported. Check the version, too...
 
     (void)pContext;
     return MAL_SUCCESS;
@@ -4190,7 +4293,7 @@ mal_result mal_context_init__oss(mal_context* pContext)
 mal_result mal_context_uninit__oss(mal_context* pContext)
 {
     mal_assert(pContext != NULL);
-    mal_assert(pContext->backend == mal_backend_alsa);
+    mal_assert(pContext->backend == mal_backend_oss);
 
     (void)pContext;
     return MAL_SUCCESS;
@@ -4211,7 +4314,7 @@ static void mal_device_uninit__oss(mal_device* pDevice)
 {
     mal_assert(pDevice != NULL);
 
-    // TODO: Implement me.
+	close(pDevice->oss.fd);
 }
 
 static mal_result mal_device_init__oss(mal_context* pContext, mal_device_type type, mal_device_id* pDeviceID, mal_device_config* pConfig, mal_device* pDevice)
@@ -4219,9 +4322,80 @@ static mal_result mal_device_init__oss(mal_context* pContext, mal_device_type ty
     (void)pContext;
 
     mal_assert(pDevice != NULL);
-    mal_zero_object(&pDevice->alsa);
+    mal_zero_object(&pDevice->oss);
 
-    // TODO: Implement me.
+	char deviceName[64];
+	if (pDeviceID != NULL) {
+		mal_strncpy_s(deviceName, sizeof(deviceName), pDeviceID->oss, (size_t)-1);
+	} else {
+		mal_strncpy_s(deviceName, sizeof(deviceName), "/dev/dsp", (size_t)-1);
+	}
+
+	pDevice->oss.fd = open(deviceName, (type == mal_device_type_playback) ? O_RDONLY : O_WRONLY, 0);
+	if (pDevice->oss.fd == -1) {
+        return mal_post_error(pDevice, "OSS: Failed to open device.", MAL_NO_DEVICE);
+	}
+
+	// The OSS documantation is very clear about the order we should be initializing the device's properties:
+	//   1) Format
+	//   2) Channels
+	//   3) Sample rate.
+	
+	// Format.
+	int ossFormat = AFMT_U8;
+	switch (pConfig->format) {
+		case mal_format_s16: ossFormat = AFMT_S16_LE;
+		case mal_format_s24: ossFormat = AFMT_S16_LE;	// The OSS3 documentation says that they use 32-bits for 24-bit formats. We defined 24-bits as tightly packed, so we're just going to fall back to s16.
+		case mal_format_f32: ossFormat = AFMT_S16_LE;	// As above, because OSS3 does not support f32.
+		case mal_format_u8:
+		default: ossFormat = AFMT_U8;
+	}
+	int result = ioctl(pDevice->oss.fd, SNDCTL_DSP_SETFMT, &ossFormat);
+	if (result == -1) {
+        return mal_post_error(pDevice, "OSS: Failed to set format.", MAL_FORMAT_NOT_SUPPORTED);
+	}
+	
+	switch (ossFormat) {
+		case AFMT_U8:     pDevice->internalFormat = mal_format_u8;
+		case AFMT_S16_LE: pDevice->internalFormat = mal_format_s16;
+		default: mal_post_error(pDevice, "OSS: The device's internal format is not supported by mini_al.", MAL_FORMAT_NOT_SUPPORTED);
+	}
+
+
+	// Channels.
+	int ossChannels = (int)pConfig->channels;
+	result = ioctl(pDevice->oss.fd, SNDCTL_DSP_CHANNELS, &ossChannels);
+	if (result == -1) {
+        return mal_post_error(pDevice, "OSS: Failed to set channel count.", MAL_FORMAT_NOT_SUPPORTED);
+	}
+
+	pDevice->internalChannels = ossChannels;
+
+
+	// Sample rate.
+	int ossSampleRate = (int)pConfig->sampleRate;
+	result = ioctl(pDevice->oss.fd, SNDCTL_DSP_SPEED, &ossSampleRate);
+	if (result == -1) {
+		return mal_post_error(pDevice, "OSS: Failed to set sample rate.", MAL_FORMAT_NOT_SUPPORTED); 
+	}
+
+	pDevice->sampleRate = ossSampleRate;
+
+	
+	// TODO: Set the internal channel map. Not sure if this can be queried. If not, make a logical guess (use the same as ALSA).
+	if (pDevice->internalChannels == 1) {
+		pDevice->internalChannelMap[0] = MAL_CHANNEL_MONO;
+	} else if (pDevice->internalChannels == 2) {
+		pDevice->internalChannelMap[0] = MAL_CHANNEL_FRONT_LEFT;
+		pDevice->internalChannelMap[1] = MAL_CHANNEL_FRONT_RIGHT;
+	}
+
+#if 1
+	printf("CREATED OSS DEVICE:\n");
+	printf("    Format: %d\n", ossFormat);
+	printf("    Channels: %d\n", ossChannels);
+	printf("    Sample Rate: %d\n", ossSampleRate);
+#endif
     return MAL_SUCCESS;
 }
 
@@ -4238,7 +4412,12 @@ static mal_result mal_device__stop_backend__oss(mal_device* pDevice)
 {
     mal_assert(pDevice != NULL);
 
-    // TODO: Implement me.
+	int result = ioctl(pDevice->oss.fd, SNDCTL_DSP_POST, 0);
+	if (result == -1) {
+		return mal_post_error(pDevice, "OSS: Failed to stop device. SNDCTL_DSP_POST failed.", MAL_ERROR);
+	}
+
+    // TODO: Implement me properly.
     return MAL_SUCCESS;
 }
 
@@ -4265,7 +4444,7 @@ static mal_result mal_device__main_loop__oss(mal_device* pDevice)
 // OpenSL|ES Backend
 //
 ///////////////////////////////////////////////////////////////////////////////
-#ifdef MAL_ENABLE_OPENSLES
+#ifdef MAL_ENABLE_OPENSL
 #include <SLES/OpenSLES.h>
 #ifdef MAL_ANDROID
 #include <SLES/OpenSLES_Android.h>
@@ -5719,6 +5898,11 @@ static mal_result mal_device__start_backend(mal_device* pDevice)
         result = mal_device__start_backend__alsa(pDevice);
     }
 #endif
+#ifdef MAL_ENABLE_OSS
+	if (pDevice->pContext->backend == mal_backend_oss) {
+		result = mal_device__start_backend__oss(pDevice);
+	}
+#endif
 #ifdef MAL_ENABLE_OPENAL
     if (pDevice->pContext->backend == mal_backend_openal) {
         result = mal_device__start_backend__openal(pDevice);
@@ -5752,6 +5936,11 @@ static mal_result mal_device__stop_backend(mal_device* pDevice)
     if (pDevice->pContext->backend == mal_backend_alsa) {
         result = mal_device__stop_backend__alsa(pDevice);
     }
+#endif
+#ifdef MAL_ENABLE_OSS
+	if (pDevice->pContext->backend == mal_backend_oss) {
+		result = mal_device__stop_backend__oss(pDevice);
+	}
 #endif
 #ifdef MAL_ENABLE_OPENAL
     if (pDevice->pContext->backend == mal_backend_openal) {
@@ -5787,6 +5976,11 @@ static mal_result mal_device__break_main_loop(mal_device* pDevice)
         result = mal_device__break_main_loop__alsa(pDevice);
     }
 #endif
+#ifdef MAL_ENABLE_OSS
+	if (pDevice->pContext->backend == mal_backend_oss) {
+		result = mal_device__break_main_loop__oss(pDevice);
+	}
+#endif
 #ifdef MAL_ENABLE_OPENAL
     if (pDevice->pContext->backend == mal_backend_openal) {
         result = mal_device__break_main_loop__openal(pDevice);
@@ -5820,6 +6014,11 @@ static mal_result mal_device__main_loop(mal_device* pDevice)
     if (pDevice->pContext->backend == mal_backend_alsa) {
         result = mal_device__main_loop__alsa(pDevice);
     }
+#endif
+#ifdef MAL_ENABLE_OSS
+	if (pDevice->pContext->backend == mal_backend_oss) {
+		result = mal_device__main_loop__oss(pDevice);
+	}
 #endif
 #ifdef MAL_ENABLE_OPENAL
     if (pDevice->pContext->backend == mal_backend_openal) {
@@ -5997,6 +6196,7 @@ mal_result mal_context_init(mal_backend backends[], mal_uint32 backendCount, mal
         mal_backend_dsound,
         mal_backend_wasapi,
         mal_backend_alsa,
+		mal_backend_oss,
         mal_backend_opensl,
         mal_backend_openal,
         mal_backend_null
@@ -6043,7 +6243,17 @@ mal_result mal_context_init(mal_backend backends[], mal_uint32 backendCount, mal
                 }
             } break;
         #endif
-        #ifdef MAL_ENABLE_OPENSLES
+		#ifdef MAL_ENABLE_OSS
+			case mal_backend_oss:
+			{
+				result = mal_context_init__oss(pContext);
+				if (result == MAL_SUCCESS) {
+					pContext->backend = mal_backend_oss;
+					return result;
+				}
+			} break;
+		#endif
+        #ifdef MAL_ENABLE_OPENSL
             case mal_backend_opensl:
             {
                 result = mal_context_init__opensl(pContext);
@@ -6105,7 +6315,13 @@ mal_result mal_context_uninit(mal_context* pContext)
             return mal_context_uninit__alsa(pContext);
         } break;
     #endif
-    #ifdef MAL_ENABLE_OPENSLES
+	#ifdef MAL_ENABLE_OSS
+		case mal_backend_oss:
+		{
+			return mal_context_uninit__oss(pContext);
+		} break;
+	#endif
+    #ifdef MAL_ENABLE_OPENSL
         case mal_backend_opensl:
         {
             return mal_context_uninit__opensl(pContext);
@@ -6158,7 +6374,13 @@ mal_result mal_enumerate_devices(mal_context* pContext, mal_device_type type, ma
             return mal_enumerate_devices__alsa(pContext, type, pCount, pInfo);
         } break;
     #endif
-    #ifdef MAL_ENABLE_OPENSLES
+	#ifdef MAL_ENABLE_OSS
+		case mal_backend_oss:
+		{
+			return mal_enumerate_devices__oss(pContext, type, pCount, pInfo);
+		} break;
+	#endif
+    #ifdef MAL_ENABLE_OPENSL
         case mal_backend_opensl:
         {
             return mal_enumerate_devices__opensl(pContext, type, pCount, pInfo);
@@ -6302,7 +6524,13 @@ mal_result mal_device_init(mal_context* pContext, mal_device_type type, mal_devi
             result = mal_device_init__alsa(pContext, type, pDeviceID, pConfig, pDevice);
         } break;
     #endif
-    #ifdef MAL_ENABLE_OPENSLES
+	#ifdef MAL_ENABLE_OSS
+		case mal_backend_oss:
+		{
+			result = mal_device_init__oss(pContext, type, pDeviceID, pConfig, pDevice);
+		} break;
+	#endif
+    #ifdef MAL_ENABLE_OPENSL
         case mal_backend_opensl:
         {
             result = mal_device_init__opensl(pContext, type, pDeviceID, pConfig, pDevice);
@@ -6417,7 +6645,12 @@ void mal_device_uninit(mal_device* pDevice)
         mal_device_uninit__alsa(pDevice);
     }
 #endif
-#ifdef MAL_ENABLE_OPENSLES
+#ifdef MAL_ENABLE_OSS
+	if (pDevice->pContext->backend == mal_backend_oss) {
+		mal_device_uninit__oss(pDevice);
+	}
+#endif
+#ifdef MAL_ENABLE_OPENSL
     if (pDevice->pContext->backend == mal_backend_opensl) {
         mal_device_uninit__opensl(pDevice);
     }
@@ -6482,7 +6715,7 @@ mal_result mal_device_start(mal_device* pDevice)
         mal_device__set_state(pDevice, MAL_STATE_STARTING);
 
         // Asynchronous backends need to be handled differently.
-#ifdef MAL_ENABLE_OPENSLES
+#ifdef MAL_ENABLE_OPENSL
         if (pDevice->pContext->backend == mal_backend_opensl) {
             mal_device__start_backend__opensl(pDevice);
             mal_device__set_state(pDevice, MAL_STATE_STARTED);
@@ -6533,7 +6766,7 @@ mal_result mal_device_stop(mal_device* pDevice)
         // There's no need to wake up the thread like we do when starting.
 
         // Asynchronous backends need to be handled differently.
-#ifdef MAL_ENABLE_OPENSLES
+#ifdef MAL_ENABLE_OPENSL
         if (pDevice->pContext->backend == mal_backend_opensl) {
             mal_device__stop_backend__opensl(pDevice);
         } else
