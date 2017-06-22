@@ -1,5 +1,5 @@
 // Mini audio library. Public domain. See "unlicense" statement at the end of this file.
-// mini_al - v0.3 - 2017-06-19
+// mini_al - v0.4 - TBD
 //
 // David Reid - davidreidsoftware@gmail.com
 
@@ -131,6 +131,9 @@
 // #define MAL_NO_ALSA
 //   Disables the ALSA backend.
 //
+// #define MAL_NO_OSS
+//   Disables the OSS backend.
+//
 // #define MAL_NO_OPENSLES
 //   Disables the OpenSL|ES backend.
 //
@@ -167,6 +170,7 @@ extern "C" {
         #define MAL_WIN32_DESKTOP
     #endif
 #else
+    #define MAL_UNIX
     #define MAL_POSIX
     #include <pthread.h>    // Unfortunate #include, but needed for pthread_t, pthread_mutex_t and pthread_cond_t types.
 
@@ -189,6 +193,9 @@ extern "C" {
 #endif
 #if !defined(MAL_NO_ALSA) && defined(MAL_LINUX) && !defined(MAL_ANDROID)
     #define MAL_ENABLE_ALSA
+#endif
+#if !defined(MAL_NO_OSS) && defined(MAL_UNIX) && !defined(MAL_ANDROID)
+    #define MAL_ENABLE_OSS
 #endif
 #if !defined(MAL_NO_OPENSLES) && defined(MAL_ANDROID)
     #define MAL_ENABLE_OPENSLES
@@ -324,6 +331,7 @@ typedef enum
     mal_backend_wasapi,
     mal_backend_dsound,
     mal_backend_alsa,
+    mal_backend_oss,
     mal_backend_opensl,
     mal_backend_openal
 } mal_backend;
@@ -358,6 +366,9 @@ typedef union
 #endif
 #ifdef MAL_LINUX
     char alsa[32];          // ALSA uses a name string for identification.
+#endif
+#ifdef MAL_POSIX
+    mal_uint32 oss;
 #endif
 #ifdef MAL_WIN32
     mal_uint8 dsound[16];   // DirectSound uses a GUID for identification.
@@ -3908,14 +3919,14 @@ static mal_result mal_device_init__alsa(mal_context* pContext, mal_device_type t
     }
 
 
-    // Most important properties first.
+    // Most important properties first. The documentation for OSS (yes, I know this is ALSA!) recommends format, channels, then sample rate. I can't
+    // find any documentation for ALSA specifically, so I'm going to copy the recommendation for OSS.
 
-    // Sample Rate
-    if (snd_pcm_hw_params_set_rate_near((snd_pcm_t*)pDevice->alsa.pPCM, pHWParams, &pConfig->sampleRate, 0) < 0) {
+    // Format.
+    if (snd_pcm_hw_params_set_format((snd_pcm_t*)pDevice->alsa.pPCM, pHWParams, formatALSA) < 0) {
         mal_device_uninit__alsa(pDevice);
-        return mal_post_error(pDevice, "[ALSA] Sample rate not supported. snd_pcm_hw_params_set_rate_near() failed.", MAL_FORMAT_NOT_SUPPORTED);
+        return mal_post_error(pDevice, "[ALSA] Format not supported. snd_pcm_hw_params_set_format() failed.", MAL_FORMAT_NOT_SUPPORTED);
     }
-    pDevice->internalSampleRate = pConfig->sampleRate;
 
     // Channels.
     if (snd_pcm_hw_params_set_channels_near((snd_pcm_t*)pDevice->alsa.pPCM, pHWParams, &pConfig->channels) < 0) {
@@ -3924,13 +3935,14 @@ static mal_result mal_device_init__alsa(mal_context* pContext, mal_device_type t
     }
     pDevice->internalChannels = pConfig->channels;
 
-
-    // Format.
-    if (snd_pcm_hw_params_set_format((snd_pcm_t*)pDevice->alsa.pPCM, pHWParams, formatALSA) < 0) {
+    // Sample Rate
+    if (snd_pcm_hw_params_set_rate_near((snd_pcm_t*)pDevice->alsa.pPCM, pHWParams, &pConfig->sampleRate, 0) < 0) {
         mal_device_uninit__alsa(pDevice);
-        return mal_post_error(pDevice, "[ALSA] Format not supported. snd_pcm_hw_params_set_format() failed.", MAL_FORMAT_NOT_SUPPORTED);
+        return mal_post_error(pDevice, "[ALSA] Sample rate not supported. snd_pcm_hw_params_set_rate_near() failed.", MAL_FORMAT_NOT_SUPPORTED);
     }
+    pDevice->internalSampleRate = pConfig->sampleRate;
 
+    
 
     // Buffer Size
     snd_pcm_uframes_t actualBufferSize = pConfig->bufferSizeInFrames;
@@ -4153,7 +4165,99 @@ static mal_result mal_device__main_loop__alsa(mal_device* pDevice)
 
     return MAL_SUCCESS;
 }
-#endif
+#endif  // ALSA
+
+
+///////////////////////////////////////////////////////////////////////////////
+//
+// OSS Backend
+//
+///////////////////////////////////////////////////////////////////////////////
+#ifdef MAL_ENABLE_OSS
+#include <sys/ioctl.h>
+#include <unistd.h>
+#include <fcntl.h>
+#include <sys/soundcard.h>
+
+mal_result mal_context_init__oss(mal_context* pContext)
+{
+    mal_assert(pContext != NULL);
+
+    (void)pContext;
+    return MAL_SUCCESS;
+}
+
+mal_result mal_context_uninit__oss(mal_context* pContext)
+{
+    mal_assert(pContext != NULL);
+    mal_assert(pContext->backend == mal_backend_alsa);
+
+    (void)pContext;
+    return MAL_SUCCESS;
+}
+
+static mal_result mal_enumerate_devices__oss(mal_context* pContext, mal_device_type type, mal_uint32* pCount, mal_device_info* pInfo)
+{
+    (void)pContext;
+
+    mal_uint32 infoSize = *pCount;
+    *pCount = 0;
+
+    // TODO: Implement me.
+    return MAL_SUCCESS;
+}
+
+static void mal_device_uninit__oss(mal_device* pDevice)
+{
+    mal_assert(pDevice != NULL);
+
+    // TODO: Implement me.
+}
+
+static mal_result mal_device_init__oss(mal_context* pContext, mal_device_type type, mal_device_id* pDeviceID, mal_device_config* pConfig, mal_device* pDevice)
+{
+    (void)pContext;
+
+    mal_assert(pDevice != NULL);
+    mal_zero_object(&pDevice->alsa);
+
+    // TODO: Implement me.
+    return MAL_SUCCESS;
+}
+
+
+static mal_result mal_device__start_backend__oss(mal_device* pDevice)
+{
+    mal_assert(pDevice != NULL);
+
+    // TODO: Implement me.
+    return MAL_SUCCESS;
+}
+
+static mal_result mal_device__stop_backend__oss(mal_device* pDevice)
+{
+    mal_assert(pDevice != NULL);
+
+    // TODO: Implement me.
+    return MAL_SUCCESS;
+}
+
+static mal_result mal_device__break_main_loop__oss(mal_device* pDevice)
+{
+    mal_assert(pDevice != NULL);
+
+    // TODO: Implement me.
+    return MAL_SUCCESS;
+}
+
+static mal_result mal_device__main_loop__oss(mal_device* pDevice)
+{
+    mal_assert(pDevice != NULL);
+
+    // TODO: Implement me.
+    return MAL_SUCCESS;
+}
+#endif  // OSS
 
 
 ///////////////////////////////////////////////////////////////////////////////
@@ -7668,6 +7772,9 @@ void mal_pcm_f32_to_s32(int* pOut, const float* pIn, unsigned int count)
 
 // REVISION HISTORY
 // ================
+//
+// v0.4 - TBD
+//   - 
 //
 // v0.3 - 2017-06-19
 //   - API CHANGE: Introduced the notion of a context. The context is the highest level object and is required for
