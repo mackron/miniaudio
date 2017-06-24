@@ -4227,70 +4227,7 @@ static mal_result mal_device_init__alsa(mal_context* pContext, mal_device_type t
         pChmap = NULL;
     } else {
         // Could not retrieve the channel map. Fall back to a hard-coded assumption.
-        if (pDevice->internalChannels == 1) {           // Mono
-            pDevice->internalChannelMap[0] = MAL_CHANNEL_FRONT_CENTER;
-        } else if (pDevice->internalChannels == 2) {    // Stereo
-            pDevice->internalChannelMap[0] = MAL_CHANNEL_FRONT_LEFT;
-            pDevice->internalChannelMap[1] = MAL_CHANNEL_FRONT_RIGHT;
-        } else if (pDevice->internalChannels == 3) {    // 2.1
-            pDevice->internalChannelMap[0] = MAL_CHANNEL_FRONT_LEFT;
-            pDevice->internalChannelMap[1] = MAL_CHANNEL_FRONT_RIGHT;
-            pDevice->internalChannelMap[2] = MAL_CHANNEL_LFE;
-        } else if (pDevice->internalChannels == 4) {    // 4.0
-            pDevice->internalChannelMap[0] = MAL_CHANNEL_FRONT_LEFT;
-            pDevice->internalChannelMap[1] = MAL_CHANNEL_FRONT_RIGHT;
-            pDevice->internalChannelMap[2] = MAL_CHANNEL_SIDE_LEFT;
-            pDevice->internalChannelMap[3] = MAL_CHANNEL_SIDE_RIGHT;
-        } else if (pDevice->internalChannels == 5) {    // Not sure about this one. 4.1?
-            pDevice->internalChannelMap[0] = MAL_CHANNEL_FRONT_LEFT;
-            pDevice->internalChannelMap[1] = MAL_CHANNEL_FRONT_RIGHT;
-            pDevice->internalChannelMap[2] = MAL_CHANNEL_SIDE_LEFT;
-            pDevice->internalChannelMap[3] = MAL_CHANNEL_SIDE_RIGHT;
-            pDevice->internalChannelMap[4] = MAL_CHANNEL_LFE;
-        } else if (pDevice->internalChannels == 6) {    // 5.1
-            pDevice->internalChannelMap[0] = MAL_CHANNEL_FRONT_LEFT;
-            pDevice->internalChannelMap[1] = MAL_CHANNEL_FRONT_RIGHT;
-            pDevice->internalChannelMap[2] = MAL_CHANNEL_SIDE_LEFT;
-            pDevice->internalChannelMap[3] = MAL_CHANNEL_SIDE_RIGHT;
-            pDevice->internalChannelMap[4] = MAL_CHANNEL_FRONT_CENTER;
-            pDevice->internalChannelMap[5] = MAL_CHANNEL_LFE;
-        } else if (pDevice->internalChannels == 7) {    // Not sure about this one.
-            pDevice->internalChannelMap[0] = MAL_CHANNEL_FRONT_LEFT;
-            pDevice->internalChannelMap[1] = MAL_CHANNEL_FRONT_RIGHT;
-            pDevice->internalChannelMap[2] = MAL_CHANNEL_SIDE_LEFT;
-            pDevice->internalChannelMap[3] = MAL_CHANNEL_SIDE_RIGHT;
-            pDevice->internalChannelMap[4] = MAL_CHANNEL_FRONT_CENTER;
-            pDevice->internalChannelMap[5] = MAL_CHANNEL_LFE;
-            pDevice->internalChannelMap[6] = MAL_CHANNEL_BACK_CENTER;
-        } else {
-            // I don't know what mapping to use in this case, but I'm making it upwards compatible with 7.1. Good luck!
-            mal_assert(pDevice->internalChannels >= 8);
-            pDevice->internalChannelMap[0] = MAL_CHANNEL_FRONT_LEFT;
-            pDevice->internalChannelMap[1] = MAL_CHANNEL_FRONT_RIGHT;
-            pDevice->internalChannelMap[2] = MAL_CHANNEL_SIDE_LEFT;
-            pDevice->internalChannelMap[3] = MAL_CHANNEL_SIDE_RIGHT;
-            pDevice->internalChannelMap[4] = MAL_CHANNEL_FRONT_CENTER;
-            pDevice->internalChannelMap[5] = MAL_CHANNEL_LFE;
-            pDevice->internalChannelMap[6] = MAL_CHANNEL_BACK_LEFT;
-            pDevice->internalChannelMap[7] = MAL_CHANNEL_BACK_RIGHT;
-
-            // Beyond 7.1 I'm just guessing...
-            if (pDevice->internalChannels == 9) {
-                pDevice->internalChannelMap[8] = MAL_CHANNEL_BACK_CENTER;
-            } else if (pDevice->internalChannels == 10) {
-                pDevice->internalChannelMap[8] = MAL_CHANNEL_FRONT_LEFT_CENTER;
-                pDevice->internalChannelMap[9] = MAL_CHANNEL_FRONT_RIGHT_CENTER;
-            } else if (pDevice->internalChannels == 11) {
-                pDevice->internalChannelMap[ 8] = MAL_CHANNEL_FRONT_LEFT_CENTER;
-                pDevice->internalChannelMap[ 9] = MAL_CHANNEL_FRONT_RIGHT_CENTER;
-                pDevice->internalChannelMap[10] = MAL_CHANNEL_BACK_CENTER;
-            } else {
-                mal_assert(pDevice->internalChannels >= 12);
-                for (mal_uint8 iChannel = 11; iChannel < pDevice->internalChannels; ++iChannel) {
-                    pDevice->internalChannelMap[iChannel] = iChannel + 1;
-                }
-            }
-        }
+        mal_get_default_channel_mapping(pDevice->pContext->backend, pDevice->internalChannels, pDevice->internalChannelMap);
     }
 
     return MAL_SUCCESS;
