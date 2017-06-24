@@ -333,12 +333,15 @@ typedef int mal_result;
 #define MAL_FAILED_TO_MAP_DEVICE_BUFFER                 -14
 #define MAL_FAILED_TO_INIT_BACKEND                      -15
 #define MAL_FAILED_TO_READ_DATA_FROM_CLIENT             -16
-#define MAL_FAILED_TO_START_BACKEND_DEVICE              -17
-#define MAL_FAILED_TO_STOP_BACKEND_DEVICE               -18
-#define MAL_FAILED_TO_CREATE_MUTEX                      -19
-#define MAL_FAILED_TO_CREATE_EVENT                      -20
-#define MAL_FAILED_TO_CREATE_THREAD                     -21
-#define MAL_INVALID_DEVICE_CONFIG                       -22
+#define MAL_FAILED_TO_READ_DATA_FROM_DEVICE             -17
+#define MAL_FAILED_TO_SEND_DATA_TO_CLIENT				-18
+#define MAL_FAILED_TO_SEND_DATA_TO_DEVICE				-19
+#define MAL_FAILED_TO_START_BACKEND_DEVICE              -20
+#define MAL_FAILED_TO_STOP_BACKEND_DEVICE               -21
+#define MAL_FAILED_TO_CREATE_MUTEX                      -22
+#define MAL_FAILED_TO_CREATE_EVENT                      -23
+#define MAL_FAILED_TO_CREATE_THREAD                     -24
+#define MAL_INVALID_DEVICE_CONFIG                       -25
 #define MAL_DSOUND_FAILED_TO_CREATE_DEVICE              -1024
 #define MAL_DSOUND_FAILED_TO_SET_COOP_LEVEL             -1025
 #define MAL_DSOUND_FAILED_TO_CREATE_BUFFER              -1026
@@ -568,7 +571,8 @@ typedef struct
 #ifdef MAL_SUPPORT_OSS
 		struct
 		{
-			int _unused;
+			int versionMajor;
+			int versionMinor;
 		} oss;
 #endif
 #ifdef MAL_SUPPORT_OPENSL
@@ -775,6 +779,9 @@ struct mal_device
 		struct
 		{
 			int fd;
+			mal_uint32 fragmentSizeInFrames;
+			mal_bool32 breakFromMainLoop;
+			void* pIntermediaryBuffer;
 		} oss;
 #endif
 #ifdef MAL_SUPPORT_OPENSL
@@ -1458,6 +1465,18 @@ static inline unsigned int mal_prev_power_of_2(unsigned int x)
     return mal_next_power_of_2(x) >> 1;
 }
 
+static inline unsigned int mal_round_to_power_of_2(unsigned int x)
+{
+    unsigned int prev = mal_prev_power_of_2(x);
+    unsigned int next = mal_next_power_of_2(x);
+    if ((next - x) > (x - prev)) {
+        return prev;
+    } else {
+        return next;
+    }
+}
+
+
 
 // Clamps an f32 sample to -1..1
 static inline float mal_clip_f32(float x)
@@ -1899,6 +1918,74 @@ static mal_result mal_post_error(mal_device* pDevice, const char* message, mal_r
     return resultCode;
 }
 
+
+static void mal_get_default_channel_mapping(mal_backend backend, mal_uint32 channels, mal_channel channelMap[MAL_MAX_CHANNELS])
+{
+	if (channels == 1) {           // Mono
+        channelMap[0] = MAL_CHANNEL_FRONT_CENTER;
+    } else if (channels == 2) {    // Stereo
+        channelMap[0] = MAL_CHANNEL_FRONT_LEFT;
+        channelMap[1] = MAL_CHANNEL_FRONT_RIGHT;
+    } else if (channels == 3) {    // 2.1
+        channelMap[0] = MAL_CHANNEL_FRONT_LEFT;
+        channelMap[1] = MAL_CHANNEL_FRONT_RIGHT;
+        channelMap[2] = MAL_CHANNEL_LFE;
+    } else if (channels == 4) {    // 4.0
+        channelMap[0] = MAL_CHANNEL_FRONT_LEFT;
+        channelMap[1] = MAL_CHANNEL_FRONT_RIGHT;
+        channelMap[2] = MAL_CHANNEL_SIDE_LEFT;
+        channelMap[3] = MAL_CHANNEL_SIDE_RIGHT;
+    } else if (channels == 5) {    // Not sure about this one. 4.1?
+        channelMap[0] = MAL_CHANNEL_FRONT_LEFT;
+        channelMap[1] = MAL_CHANNEL_FRONT_RIGHT;
+        channelMap[2] = MAL_CHANNEL_SIDE_LEFT;
+        channelMap[3] = MAL_CHANNEL_SIDE_RIGHT;
+        channelMap[4] = MAL_CHANNEL_LFE;
+    } else if (channels >= 6) {    // 5.1
+		// Some backends use different default layouts.
+		if (backend == mal_backend_wasapi || backend == mal_backend_dsound/* || backend == mal_backend_winmm*/ || backend == mal_backend_oss) {
+			channelMap[0] = MAL_CHANNEL_FRONT_LEFT;
+		    channelMap[1] = MAL_CHANNEL_FRONT_RIGHT;
+			channelMap[2] = MAL_CHANNEL_FRONT_CENTER;
+		    channelMap[3] = MAL_CHANNEL_LFE;
+		    channelMap[4] = MAL_CHANNEL_SIDE_LEFT;
+		    channelMap[5] = MAL_CHANNEL_SIDE_RIGHT;
+		} else {
+		    channelMap[0] = MAL_CHANNEL_FRONT_LEFT;
+		    channelMap[1] = MAL_CHANNEL_FRONT_RIGHT;
+		    channelMap[2] = MAL_CHANNEL_SIDE_LEFT;
+		    channelMap[3] = MAL_CHANNEL_SIDE_RIGHT;
+		    channelMap[4] = MAL_CHANNEL_FRONT_CENTER;
+		    channelMap[5] = MAL_CHANNEL_LFE;
+		}
+		
+		if (channels == 7) {    // Not sure about this one.
+		    channelMap[6] = MAL_CHANNEL_BACK_CENTER;
+		} else {
+		    // I don't know what mapping to use in this case, but I'm making it upwards compatible with 7.1. Good luck!
+		    mal_assert(channels >= 8);
+		    channelMap[6] = MAL_CHANNEL_BACK_LEFT;
+		    channelMap[7] = MAL_CHANNEL_BACK_RIGHT;
+
+		    // Beyond 7.1 I'm just guessing...
+		    if (channels == 9) {
+		        channelMap[8] = MAL_CHANNEL_BACK_CENTER;
+		    } else if (channels == 10) {
+		        channelMap[8] = MAL_CHANNEL_FRONT_LEFT_CENTER;
+		        channelMap[9] = MAL_CHANNEL_FRONT_RIGHT_CENTER;
+		    } else if (channels == 11) {
+		        channelMap[ 8] = MAL_CHANNEL_FRONT_LEFT_CENTER;
+		        channelMap[ 9] = MAL_CHANNEL_FRONT_RIGHT_CENTER;
+		        channelMap[10] = MAL_CHANNEL_BACK_CENTER;
+		    } else {
+		        mal_assert(channels >= 12);
+		        for (mal_uint8 iChannel = 11; iChannel < channels && iChannel < MAL_MAX_CHANNELS; ++iChannel) {
+		            channelMap[iChannel] = iChannel + 1;
+		        }
+		    }
+		}
+    }
+}
 
 
 // The callback for reading from the client -> DSP -> device.
@@ -4280,13 +4367,39 @@ static mal_result mal_device__main_loop__alsa(mal_device* pDevice)
 
 #include <stdio.h>	// TODO: Delete this. Used for testing.
 
+int mal_open_temp_device__oss()
+{
+	// The OSS sample code uses "/dev/mixer" as the device for getting system properties so I'm going to do the same.
+	int fd = open("/dev/mixer", O_RDONLY, 0);
+	if (fd >= 0) {
+		return fd;
+	}
+
+	return -1;
+}
+
 mal_result mal_context_init__oss(mal_context* pContext)
 {
     mal_assert(pContext != NULL);
 
-	// TODO: Check that OSS is installed and supported. Check the version, too...
+	// Try opening a temporary device first so we can get version information. This is closed at the end.
+	int fd = mal_open_temp_device__oss();
+	if (fd == -1) {
+		return MAL_NO_BACKEND;	// Looks liks OSS isn't installed, or there are no available devices.
+	}
 
-    (void)pContext;
+	// Grab the OSS version.
+	int ossVersion = 0;
+	int result = ioctl(fd, OSS_GETVERSION, &ossVersion);
+	if (result == -1) {
+		close(fd);
+		return MAL_ERROR;	// Looks like OSS isn't installed.
+	}
+
+	pContext->oss.versionMajor = ((ossVersion & 0xFF0000) >> 16);
+	pContext->oss.versionMinor = ((ossVersion & 0x00FF00) >> 8);
+
+	close(fd);
     return MAL_SUCCESS;
 }
 
@@ -4306,7 +4419,63 @@ static mal_result mal_enumerate_devices__oss(mal_context* pContext, mal_device_t
     mal_uint32 infoSize = *pCount;
     *pCount = 0;
 
-    // TODO: Implement me.
+	// The object returned by SNDCTL_SYSINFO will have the information we're after.
+	int fd = mal_open_temp_device__oss();
+	if (fd == -1) {
+		return MAL_ERROR;	// Failed to open a temporary device for retrieving the system info.
+	}
+
+	oss_sysinfo si;
+	int result = ioctl(fd, SNDCTL_SYSINFO, &si);
+	if (result != -1) {
+		for (int iAudioDevice = 0; iAudioDevice < si.numaudios; ++iAudioDevice) {
+			oss_audioinfo ai;
+			ai.dev = iAudioDevice;
+			result = ioctl(fd, SNDCTL_AUDIOINFO, &ai);
+			if (result != -1) {
+				mal_bool32 includeThisDevice = MAL_FALSE;
+				if (type == mal_device_type_playback && (ai.caps & PCM_CAP_OUTPUT) != 0) {
+					includeThisDevice = MAL_TRUE;
+				} else if (type == mal_device_type_capture && (ai.caps & PCM_CAP_INPUT) != 0) {
+					includeThisDevice = MAL_TRUE;
+				}
+
+				if (includeThisDevice) {
+					if (ai.devnode[0] != '\0') {	// <-- Can be blank, according to documentation.
+						if (pInfo != NULL && *pCount < infoSize) {
+							mal_uint32 iInfo = *pCount;
+							mal_strncpy_s(pInfo[iInfo].id.oss, sizeof(pInfo[iInfo].id.oss), ai.devnode, (size_t)-1);
+							
+							// The human readable device name should be in the "ai.handle" variable, but it can
+							// sometimes be empty in which case we just fall back to "ai.name" which is less user
+							// friendly, but usually has a value.
+							if (ai.handle[0] != '\0') {
+								mal_strncpy_s(pInfo[iInfo].name, sizeof(pInfo[iInfo].name), ai.handle, (size_t)-1);
+							} else {
+								mal_strncpy_s(pInfo[iInfo].name, sizeof(pInfo[iInfo].name), ai.name, (size_t)-1);
+							}
+						}
+
+						*pCount += 1;
+					}
+				}
+			}
+		}
+	} else {
+		// Failed to retrieve the system information. Just return a default device for both playback and capture.
+		if (pInfo != NULL && infoSize >= 1) {
+			mal_strncpy_s(pInfo[0].id.oss, sizeof(pInfo[0].id.oss), "/dev/dsp", (size_t)-1);
+			if (type == mal_device_type_playback) {
+				mal_strncpy_s(pInfo[0].name, sizeof(pInfo[0].name), "Default Playback Device", (size_t)-1);
+			} else {
+				mal_strncpy_s(pInfo[0].name, sizeof(pInfo[0].name), "Default Capture Device", (size_t)-1);
+			}
+		}
+
+		*pCount = 1;
+	}
+
+	close(fd);
     return MAL_SUCCESS;
 }
 
@@ -4331,7 +4500,7 @@ static mal_result mal_device_init__oss(mal_context* pContext, mal_device_type ty
 		mal_strncpy_s(deviceName, sizeof(deviceName), "/dev/dsp", (size_t)-1);
 	}
 
-	pDevice->oss.fd = open(deviceName, (type == mal_device_type_playback) ? O_RDONLY : O_WRONLY, 0);
+	pDevice->oss.fd = open(deviceName, (type == mal_device_type_playback) ? O_WRONLY : O_RDONLY, 0);
 	if (pDevice->oss.fd == -1) {
         return mal_post_error(pDevice, "OSS: Failed to open device.", MAL_NO_DEVICE);
 	}
@@ -4343,21 +4512,24 @@ static mal_result mal_device_init__oss(mal_context* pContext, mal_device_type ty
 	
 	// Format.
 	int ossFormat = AFMT_U8;
-	switch (pConfig->format) {
-		case mal_format_s16: ossFormat = AFMT_S16_LE;
-		case mal_format_s24: ossFormat = AFMT_S16_LE;	// The OSS3 documentation says that they use 32-bits for 24-bit formats. We defined 24-bits as tightly packed, so we're just going to fall back to s16.
-		case mal_format_f32: ossFormat = AFMT_S16_LE;	// As above, because OSS3 does not support f32.
+	switch (pDevice->format) {
+		case mal_format_s16: ossFormat = AFMT_S16_LE; break;
+		case mal_format_s24: ossFormat = AFMT_S32_LE; break;
+		case mal_format_s32: ossFormat = AFMT_S32_LE; break;
+		case mal_format_f32: ossFormat = AFMT_S32_LE; break;
 		case mal_format_u8:
-		default: ossFormat = AFMT_U8;
+		default: ossFormat = AFMT_U8; break;
 	}
 	int result = ioctl(pDevice->oss.fd, SNDCTL_DSP_SETFMT, &ossFormat);
 	if (result == -1) {
+		close(pDevice->oss.fd);
         return mal_post_error(pDevice, "OSS: Failed to set format.", MAL_FORMAT_NOT_SUPPORTED);
 	}
 	
 	switch (ossFormat) {
-		case AFMT_U8:     pDevice->internalFormat = mal_format_u8;
-		case AFMT_S16_LE: pDevice->internalFormat = mal_format_s16;
+		case AFMT_U8:     pDevice->internalFormat = mal_format_u8;  break;
+		case AFMT_S16_LE: pDevice->internalFormat = mal_format_s16; break;
+		case AFMT_S32_LE: pDevice->internalFormat = mal_format_s32; break;
 		default: mal_post_error(pDevice, "OSS: The device's internal format is not supported by mini_al.", MAL_FORMAT_NOT_SUPPORTED);
 	}
 
@@ -4366,6 +4538,7 @@ static mal_result mal_device_init__oss(mal_context* pContext, mal_device_type ty
 	int ossChannels = (int)pConfig->channels;
 	result = ioctl(pDevice->oss.fd, SNDCTL_DSP_CHANNELS, &ossChannels);
 	if (result == -1) {
+		close(pDevice->oss.fd);
         return mal_post_error(pDevice, "OSS: Failed to set channel count.", MAL_FORMAT_NOT_SUPPORTED);
 	}
 
@@ -4376,25 +4549,67 @@ static mal_result mal_device_init__oss(mal_context* pContext, mal_device_type ty
 	int ossSampleRate = (int)pConfig->sampleRate;
 	result = ioctl(pDevice->oss.fd, SNDCTL_DSP_SPEED, &ossSampleRate);
 	if (result == -1) {
+		close(pDevice->oss.fd);
 		return mal_post_error(pDevice, "OSS: Failed to set sample rate.", MAL_FORMAT_NOT_SUPPORTED); 
 	}
 
 	pDevice->sampleRate = ossSampleRate;
 
-	
-	// TODO: Set the internal channel map. Not sure if this can be queried. If not, make a logical guess (use the same as ALSA).
-	if (pDevice->internalChannels == 1) {
-		pDevice->internalChannelMap[0] = MAL_CHANNEL_MONO;
-	} else if (pDevice->internalChannels == 2) {
-		pDevice->internalChannelMap[0] = MAL_CHANNEL_FRONT_LEFT;
-		pDevice->internalChannelMap[1] = MAL_CHANNEL_FRONT_RIGHT;
+
+
+	// The documentation says that the fragment settings should be set as soon as possible, but I'm not sure if
+	// it should be done before or after format/channels/rate.
+	//
+	// OSS wants the fragment size in bytes and a power of 2. When setting, we specify the power, not the actual
+	// value.
+	mal_uint32 fragmentSizeInBytes = mal_round_to_power_of_2(pDevice->bufferSizeInFrames * pDevice->internalChannels * mal_get_sample_size_in_bytes(pDevice->internalFormat));
+	if (fragmentSizeInBytes < 16) {
+		fragmentSizeInBytes = 16;
 	}
 
-#if 1
+	mal_uint32 ossFragmentSizePower = 4;
+	fragmentSizeInBytes >>= 4;
+	while (fragmentSizeInBytes >>= 1) {
+		ossFragmentSizePower += 1;
+	}
+
+	int ossFragment = (int)((pDevice->periods << 16) | ossFragmentSizePower);
+	result = ioctl(pDevice->oss.fd, SNDCTL_DSP_SETFRAGMENT, &ossFragment);
+	if (result == -1) {
+		close(pDevice->oss.fd);
+		return mal_post_error(pDevice, "OSS: Failed to set fragment size and period count.", MAL_FORMAT_NOT_SUPPORTED);		
+	}
+
+	int actualFragmentSizeInBytes = 1 << (ossFragment & 0xFFFF);
+	pDevice->oss.fragmentSizeInFrames = actualFragmentSizeInBytes / mal_get_sample_size_in_bytes(pDevice->internalFormat) / pDevice->internalChannels;
+
+	pDevice->periods = (mal_uint32)(ossFragment >> 16);
+	pDevice->bufferSizeInFrames = (mal_uint32)(pDevice->oss.fragmentSizeInFrames * pDevice->periods);
+
+	
+	// Set the internal channel map. Not sure if this can be queried. For now just using our default assumptions.
+	mal_get_default_channel_mapping(pDevice->pContext->backend, pDevice->internalChannels, pDevice->internalChannelMap);	
+
+
+	// When not using MMAP mode, we need to use an intermediary buffer for the client <-> device transfer. We do
+	// everything by the size of a fragment.
+	pDevice->oss.pIntermediaryBuffer = mal_malloc(fragmentSizeInBytes);
+	if (pDevice->oss.pIntermediaryBuffer == NULL) {
+		close(pDevice->oss.fd);
+		return mal_post_error(pDevice, "OSS: Failed to allocate memory for intermediary buffer.", MAL_OUT_OF_MEMORY);
+	}
+
+
+#if 0
+	int periods = ossFragment >> 16;
+	int fragmentSize = 1 << (ossFragment & 0xFFFF);
+
 	printf("CREATED OSS DEVICE:\n");
 	printf("    Format: %d\n", ossFormat);
 	printf("    Channels: %d\n", ossChannels);
 	printf("    Sample Rate: %d\n", ossSampleRate);
+	printf("    Fragment Size: %d\n", fragmentSize);
+	printf("    Periods: %d\n", periods);
 #endif
     return MAL_SUCCESS;
 }
@@ -4404,7 +4619,25 @@ static mal_result mal_device__start_backend__oss(mal_device* pDevice)
 {
     mal_assert(pDevice != NULL);
 
-    // TODO: Implement me.
+	// The device is started by the next calls to read() and write(). For playback it's simple - just read
+	// data from the client, then write it to the device with write() which will in turn start the device.
+	// For capture it's a bit less intuitive - we do nothing (it'll be started automatically by the first
+	// call to read().
+	if (pDevice->type == mal_device_type_playback) {
+		// Playback.
+		mal_uint32 samplesRead = mal_device__read_frames_from_client(pDevice, pDevice->oss.fragmentSizeInFrames, pDevice->oss.pIntermediaryBuffer);
+		if (samplesRead == 0) {
+			return MAL_FAILED_TO_READ_DATA_FROM_CLIENT;
+		}
+
+		int bytesWritten = write(pDevice->oss.fd, pDevice->oss.pIntermediaryBuffer, samplesRead * mal_get_sample_size_in_bytes(pDevice->internalFormat));
+		if (bytesWritten == -1) {
+			return MAL_FAILED_TO_START_BACKEND_DEVICE;
+		}
+	} else {
+		// Capture. Do nothing.
+	}
+
     return MAL_SUCCESS;
 }
 
@@ -4412,12 +4645,22 @@ static mal_result mal_device__stop_backend__oss(mal_device* pDevice)
 {
     mal_assert(pDevice != NULL);
 
-	int result = ioctl(pDevice->oss.fd, SNDCTL_DSP_POST, 0);
+	// We want to use SNDCTL_DSP_HALT. From the documentation:
+    //
+	//   In multithreaded applications SNDCTL_DSP_HALT (SNDCTL_DSP_RESET) must only be called by the thread
+    //   that actually reads/writes the audio device. It must not be called by some master thread to kill the
+    //   audio thread. The audio thread will not stop or get any kind of notification that the device was
+    //   stopped by the master thread. The device gets stopped but the next read or write call will silently
+    //   restart the device.
+    //
+    // This is actually safe in our case, because this function is only ever called from within our worker
+	// thread anyway. Just keep this in mind, though...
+
+	int result = ioctl(pDevice->oss.fd, SNDCTL_DSP_HALT, 0);
 	if (result == -1) {
-		return mal_post_error(pDevice, "OSS: Failed to stop device. SNDCTL_DSP_POST failed.", MAL_ERROR);
+		return mal_post_error(pDevice, "OSS: Failed to stop device. SNDCTL_DSP_HALT failed.", MAL_ERROR);
 	}
 
-    // TODO: Implement me properly.
     return MAL_SUCCESS;
 }
 
@@ -4425,7 +4668,7 @@ static mal_result mal_device__break_main_loop__oss(mal_device* pDevice)
 {
     mal_assert(pDevice != NULL);
 
-    // TODO: Implement me.
+	pDevice->oss.breakFromMainLoop = MAL_TRUE;
     return MAL_SUCCESS;
 }
 
@@ -4433,7 +4676,34 @@ static mal_result mal_device__main_loop__oss(mal_device* pDevice)
 {
     mal_assert(pDevice != NULL);
 
-    // TODO: Implement me.
+	pDevice->oss.breakFromMainLoop = MAL_FALSE;
+	while (!pDevice->oss.breakFromMainLoop) {
+		// Break from the main loop if the device isn't started anymore. Likely what's happened is the application
+		// has requested that the device be stopped.
+		if (!mal_device_is_started(pDevice)) {
+			break;
+		}
+
+		if (pDevice->type == mal_device_type_playback) {
+			// Playback.
+			mal_device__read_frames_from_client(pDevice, pDevice->oss.fragmentSizeInFrames, pDevice->oss.pIntermediaryBuffer);
+
+			int bytesWritten = write(pDevice->oss.fd, pDevice->oss.pIntermediaryBuffer, pDevice->oss.fragmentSizeInFrames * pDevice->internalChannels * mal_get_sample_size_in_bytes(pDevice->internalFormat));
+			if (bytesWritten < 0) {
+				return MAL_FAILED_TO_SEND_DATA_TO_DEVICE;
+			}
+		} else {
+			// Capture.
+			int bytesRead = read(pDevice->oss.fd, pDevice->oss.pIntermediaryBuffer, pDevice->oss.fragmentSizeInFrames * mal_get_sample_size_in_bytes(pDevice->internalFormat));
+			if (bytesRead < 0) {
+				return MAL_FAILED_TO_READ_DATA_FROM_DEVICE;
+			}
+
+			mal_uint32 framesRead = (mal_uint32)bytesRead / pDevice->internalChannels / mal_get_sample_size_in_bytes(pDevice->internalFormat);
+			mal_device__send_frames_to_client(pDevice, framesRead, pDevice->oss.pIntermediaryBuffer);
+		}
+	}
+
     return MAL_SUCCESS;
 }
 #endif  // OSS
@@ -4450,7 +4720,7 @@ static mal_result mal_device__main_loop__oss(mal_device* pDevice)
 #include <SLES/OpenSLES_Android.h>
 #endif
 
-// Converts an individual OpenSL-style channel identifier (SPEAKER_FRONT_LEFT, etc.) to mini_al.
+// Converts an individual OpenSL-style channel identifier (SL_SPEAKER_FRONT_LEFT, etc.) to mini_al.
 static mal_uint8 mal_channel_id_to_mal__opensl(SLuint32 id)
 {
     switch (id)
@@ -5300,16 +5570,20 @@ mal_result mal_context_init__openal(mal_context* pContext)
 {
     mal_assert(pContext != NULL);
 
-    const char* libName =
+    const char* libName = NULL;
 #ifdef MAL_WIN32
-        "OpenAL32.dll";
+    libName = "OpenAL32.dll";
 #endif
-#ifdef MAL_LINUX
-        "libopenal.so";
+#if defined(MAL_UNIX) && !defined(MAL_APPLE)
+    libName = "libopenal.so";
 #endif
 #ifdef MAL_APPLE
-        // I don't own a Mac so a contribution here would be much appreciated! Just don't know what the library is called...
+    // I don't own a Mac so a contribution here would be much appreciated! Just don't know what the library is called...
 #endif
+	if (libName == NULL) {
+		return MAL_NO_BACKEND;	// Don't know what the library name is called.
+	}
+	
 
     pContext->openal.hOpenAL = mal_dlopen(libName);
 
