@@ -19,12 +19,12 @@
 //   - DirectSound
 //   - WASAPI
 //   - ALSA
+//   - OSS
 //   - OpenSL|ES / Android
 //   - OpenAL
 //   - Null (Silence)
 //   - ... and more in the future.
 //     - Core Audio (OSX, iOS)
-//     - Maybe OSS
 //
 // Supported Formats:
 //   - Unsigned 8-bit PCM
@@ -192,7 +192,6 @@ extern "C" {
 		#define MAL_SUPPORT_DSOUND
 		#define MAL_SUPPORT_WINMM
 	#endif
-	
 #endif
 #if defined(MAL_UNIX)
 	#if defined(MAL_LINUX)
@@ -833,14 +832,15 @@ struct mal_device
 // The context is used for selecting and initializing the relevant backends.
 //
 // Note that the location of the device cannot change throughout it's lifetime. Consider allocating
-// the mal_context object with malloc() if this is an issue. The reason for this is that the pointer
-// is stored in the mal_device structure.
+// the mal_context object with malloc() if this is an issue. The reason for this is that a pointer
+// to the context is stored in the mal_device structure.
 //
 // <backends> is used to allow the application to prioritize backends depending on it's specific
 // requirements. This can be null in which case it uses the default priority, which is as follows:
 //   - DirectSound
 //   - WASAPI
 //   - ALSA
+//   - OSS
 //   - OpenSL|ES
 //   - OpenAL
 //   - Null
@@ -1054,6 +1054,10 @@ mal_result mal_device_start(mal_device* pDevice);
 // Efficiency: LOW
 //   This API needs to wait on the worker thread to stop the backend device properly before returning. It
 //   also waits on a mutex for thread-safety.
+//
+//   In addition, some backends need to wait for the device to finish playback/recording of the current
+//   fragment which can take some time (usually proportionate to the buffer size used when initializing
+//   the device).
 mal_result mal_device_stop(mal_device* pDevice);
 
 // Determines whether or not the device is started.
@@ -1173,9 +1177,7 @@ mal_uint32 mal_src_read_frames(mal_src* pSRC, mal_uint32 frameCount, void* pFram
 // DSP
 //
 ///////////////////////////////////////////////////////////////////////////////
-#if 0
-#include "tools/mal_build/bin/mini_al_dsp.h"
-#else
+
 // Initializes a DSP object.
 mal_result mal_dsp_init(mal_dsp_config* pConfig, mal_dsp_read_proc onRead, void* pUserData, mal_dsp* pDSP);
 
@@ -1221,9 +1223,6 @@ void mal_pcm_f32_to_s16(short* pOut, const float* pIn, unsigned int count);
 void mal_pcm_f32_to_s24(void* pOut, const float* pIn, unsigned int count);
 void mal_pcm_f32_to_s32(int* pOut, const float* pIn, unsigned int count);
 void mal_pcm_convert(void* pOut, mal_format formatOut, const void* pIn, mal_format formatIn, unsigned int sampleCount);
-
-
-#endif
 
 #ifdef __cplusplus
 }
@@ -4365,8 +4364,6 @@ static mal_result mal_device__main_loop__alsa(mal_device* pDevice)
 #include <fcntl.h>
 #include <sys/soundcard.h>
 
-#include <stdio.h>	// TODO: Delete this. Used for testing.
-
 int mal_open_temp_device__oss()
 {
 	// The OSS sample code uses "/dev/mixer" as the device for getting system properties so I'm going to do the same.
@@ -4599,18 +4596,6 @@ static mal_result mal_device_init__oss(mal_context* pContext, mal_device_type ty
 		return mal_post_error(pDevice, "OSS: Failed to allocate memory for intermediary buffer.", MAL_OUT_OF_MEMORY);
 	}
 
-
-#if 0
-	int periods = ossFragment >> 16;
-	int fragmentSize = 1 << (ossFragment & 0xFFFF);
-
-	printf("CREATED OSS DEVICE:\n");
-	printf("    Format: %d\n", ossFormat);
-	printf("    Channels: %d\n", ossChannels);
-	printf("    Sample Rate: %d\n", ossSampleRate);
-	printf("    Fragment Size: %d\n", fragmentSize);
-	printf("    Periods: %d\n", periods);
-#endif
     return MAL_SUCCESS;
 }
 
@@ -8281,7 +8266,7 @@ void mal_pcm_f32_to_s32(int* pOut, const float* pIn, unsigned int count)
 // ================
 //
 // v0.4 - TBD
-//   - 
+//   - Added support for OSS which enables support on BSD platforms.
 //
 // v0.3 - 2017-06-19
 //   - API CHANGE: Introduced the notion of a context. The context is the highest level object and is required for
