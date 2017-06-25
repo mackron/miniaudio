@@ -4072,6 +4072,11 @@ static mal_result mal_device_init__winmm(mal_context* pContext, mal_device_type 
     mal_get_default_channel_mapping(pDevice->pContext->backend, pDevice->internalChannels, pDevice->internalChannelMap);
 
 
+    // Latency with WinMM seems pretty bad from my testing... Need to increase the default buffer size.
+    if (pDevice->flags & MAL_DEVICE_FLAG_USING_DEFAULT_BUFFER_SIZE) {
+        pDevice->bufferSizeInFrames *= 6; // <-- Might need to fiddle with this to find a more ideal value. May even be able to just add a fixed amount rather than scaling.
+    }
+
     // The size of the intermediary buffer needs to be able to fit every fragment.
     pDevice->winmm.fragmentSizeInFrames = pDevice->bufferSizeInFrames / pDevice->periods;
     pDevice->winmm.fragmentSizeInBytes = pDevice->winmm.fragmentSizeInFrames * pDevice->internalChannels * mal_get_sample_size_in_bytes(pDevice->internalFormat);
