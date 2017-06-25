@@ -21,15 +21,23 @@ Features
 Supported Platforms
 ===================
 - Windows
-  - WASAPI
-  - DirectSound
 - Linux
-  - ALSA
+- BSD (via OSS)
 - Android
-  - OpenSL|ES
-- Other
-  - OpenAL
-  - Null (silence)
+
+macOS and iOS support is coming soon(ish) via Core Audio.
+
+
+Backends
+========
+- WASAPI
+- DirectSound
+- WinMM
+- ALSA
+- OSS
+- OpenSL|ES (Android only)
+- OpenAL
+- Null (Silence)
 
 
 
