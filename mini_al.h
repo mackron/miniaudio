@@ -5090,6 +5090,7 @@ static void mal_device_uninit__oss(mal_device* pDevice)
     mal_assert(pDevice != NULL);
 
 	close(pDevice->oss.fd);
+	mal_free(pDevice->oss.pIntermediaryBuffer);
 }
 
 static mal_result mal_device_init__oss(mal_context* pContext, mal_device_type type, mal_device_id* pDeviceID, mal_device_config* pConfig, mal_device* pDevice)
