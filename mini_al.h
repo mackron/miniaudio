@@ -5090,6 +5090,7 @@ static void mal_device_uninit__oss(mal_device* pDevice)
     mal_assert(pDevice != NULL);
 
 	close(pDevice->oss.fd);
+	mal_free(pDevice->oss.pIntermediaryBuffer);
 }
 
 static mal_result mal_device_init__oss(mal_context* pContext, mal_device_type type, mal_device_id* pDeviceID, mal_device_config* pConfig, mal_device* pDevice)
@@ -5108,7 +5109,7 @@ static mal_result mal_device_init__oss(mal_context* pContext, mal_device_type ty
 
 	pDevice->oss.fd = open(deviceName, (type == mal_device_type_playback) ? O_WRONLY : O_RDONLY, 0);
 	if (pDevice->oss.fd == -1) {
-        return mal_post_error(pDevice, "OSS: Failed to open device.", MAL_NO_DEVICE);
+        return mal_post_error(pDevice, "[OSS] Failed to open device.", MAL_NO_DEVICE);
 	}
 
 	// The OSS documantation is very clear about the order we should be initializing the device's properties:
@@ -5129,14 +5130,14 @@ static mal_result mal_device_init__oss(mal_context* pContext, mal_device_type ty
 	int result = ioctl(pDevice->oss.fd, SNDCTL_DSP_SETFMT, &ossFormat);
 	if (result == -1) {
 		close(pDevice->oss.fd);
-        return mal_post_error(pDevice, "OSS: Failed to set format.", MAL_FORMAT_NOT_SUPPORTED);
+        return mal_post_error(pDevice, "[OSS] Failed to set format.", MAL_FORMAT_NOT_SUPPORTED);
 	}
 	
 	switch (ossFormat) {
 		case AFMT_U8:     pDevice->internalFormat = mal_format_u8;  break;
 		case AFMT_S16_LE: pDevice->internalFormat = mal_format_s16; break;
 		case AFMT_S32_LE: pDevice->internalFormat = mal_format_s32; break;
-		default: mal_post_error(pDevice, "OSS: The device's internal format is not supported by mini_al.", MAL_FORMAT_NOT_SUPPORTED);
+		default: mal_post_error(pDevice, "[OSS] The device's internal format is not supported by mini_al.", MAL_FORMAT_NOT_SUPPORTED);
 	}
 
 
@@ -5145,7 +5146,7 @@ static mal_result mal_device_init__oss(mal_context* pContext, mal_device_type ty
 	result = ioctl(pDevice->oss.fd, SNDCTL_DSP_CHANNELS, &ossChannels);
 	if (result == -1) {
 		close(pDevice->oss.fd);
-        return mal_post_error(pDevice, "OSS: Failed to set channel count.", MAL_FORMAT_NOT_SUPPORTED);
+        return mal_post_error(pDevice, "[OSS] Failed to set channel count.", MAL_FORMAT_NOT_SUPPORTED);
 	}
 
 	pDevice->internalChannels = ossChannels;
@@ -5156,7 +5157,7 @@ static mal_result mal_device_init__oss(mal_context* pContext, mal_device_type ty
 	result = ioctl(pDevice->oss.fd, SNDCTL_DSP_SPEED, &ossSampleRate);
 	if (result == -1) {
 		close(pDevice->oss.fd);
-		return mal_post_error(pDevice, "OSS: Failed to set sample rate.", MAL_FORMAT_NOT_SUPPORTED); 
+		return mal_post_error(pDevice, "[OSS] Failed to set sample rate.", MAL_FORMAT_NOT_SUPPORTED); 
 	}
 
 	pDevice->sampleRate = ossSampleRate;
@@ -5183,7 +5184,7 @@ static mal_result mal_device_init__oss(mal_context* pContext, mal_device_type ty
 	result = ioctl(pDevice->oss.fd, SNDCTL_DSP_SETFRAGMENT, &ossFragment);
 	if (result == -1) {
 		close(pDevice->oss.fd);
-		return mal_post_error(pDevice, "OSS: Failed to set fragment size and period count.", MAL_FORMAT_NOT_SUPPORTED);		
+		return mal_post_error(pDevice, "[OSS] Failed to set fragment size and period count.", MAL_FORMAT_NOT_SUPPORTED);		
 	}
 
 	int actualFragmentSizeInBytes = 1 << (ossFragment & 0xFFFF);
@@ -5202,7 +5203,7 @@ static mal_result mal_device_init__oss(mal_context* pContext, mal_device_type ty
 	pDevice->oss.pIntermediaryBuffer = mal_malloc(fragmentSizeInBytes);
 	if (pDevice->oss.pIntermediaryBuffer == NULL) {
 		close(pDevice->oss.fd);
-		return mal_post_error(pDevice, "OSS: Failed to allocate memory for intermediary buffer.", MAL_OUT_OF_MEMORY);
+		return mal_post_error(pDevice, "[OSS] Failed to allocate memory for intermediary buffer.", MAL_OUT_OF_MEMORY);
 	}
 
     return MAL_SUCCESS;
@@ -5252,7 +5253,7 @@ static mal_result mal_device__stop_backend__oss(mal_device* pDevice)
 
 	int result = ioctl(pDevice->oss.fd, SNDCTL_DSP_HALT, 0);
 	if (result == -1) {
-		return mal_post_error(pDevice, "OSS: Failed to stop device. SNDCTL_DSP_HALT failed.", MAL_ERROR);
+		return mal_post_error(pDevice, "[OSS] Failed to stop device. SNDCTL_DSP_HALT failed.", MAL_ERROR);
 	}
 
     return MAL_SUCCESS;
