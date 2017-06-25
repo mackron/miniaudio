@@ -4291,29 +4291,29 @@ mal_channel mal_convert_alsa_channel_position_to_mal_channel(unsigned int alsaCh
     {
         case SND_CHMAP_FL:  return MAL_CHANNEL_FRONT_LEFT;
         case SND_CHMAP_FR:  return MAL_CHANNEL_FRONT_RIGHT;
-        case SND_CHMAP_RL:  return MAL_CHANNEL_BACK_LEFT;         /* rear left */
-        case SND_CHMAP_RR:  return MAL_CHANNEL_BACK_RIGHT;         /* rear right */
-        case SND_CHMAP_FC:  return MAL_CHANNEL_FRONT_CENTER;         /* front center */
-        case SND_CHMAP_LFE: return MAL_CHANNEL_LFE;           /* LFE */
-        case SND_CHMAP_SL:  return MAL_CHANNEL_SIDE_LEFT;         /* side left */
-        case SND_CHMAP_SR:  return MAL_CHANNEL_SIDE_RIGHT;         /* side right */
-        case SND_CHMAP_RC:  return MAL_CHANNEL_BACK_CENTER;         /* rear center */
-        case SND_CHMAP_FLC: return MAL_CHANNEL_FRONT_LEFT_CENTER;        /* front left center */
-        case SND_CHMAP_FRC: return MAL_CHANNEL_FRONT_RIGHT_CENTER;        /* front right center */
-        case SND_CHMAP_RLC: return 0;        /* rear left center */
-        case SND_CHMAP_RRC: return 0;        /* rear right center */
-        case SND_CHMAP_FLW: return 0;        /* front left wide */
-        case SND_CHMAP_FRW: return 0;        /* front right wide */
-        case SND_CHMAP_FLH: return 0;        /* front left high */
-        case SND_CHMAP_FCH: return 0;        /* front center high */
-        case SND_CHMAP_FRH: return 0;        /* front right high */
-        case SND_CHMAP_TC:  return MAL_CHANNEL_TOP_CENTER;         /* top center */
-        case SND_CHMAP_TFL: return MAL_CHANNEL_TOP_FRONT_LEFT;        /* top front left */
-        case SND_CHMAP_TFR: return MAL_CHANNEL_TOP_FRONT_RIGHT;        /* top front right */
-        case SND_CHMAP_TFC: return MAL_CHANNEL_TOP_FRONT_CENTER;        /* top front center */
-        case SND_CHMAP_TRL: return MAL_CHANNEL_TOP_BACK_LEFT;        /* top rear left */
-        case SND_CHMAP_TRR: return MAL_CHANNEL_TOP_BACK_RIGHT;        /* top rear right */
-        case SND_CHMAP_TRC: return MAL_CHANNEL_TOP_BACK_CENTER;        /* top rear center */
+        case SND_CHMAP_RL:  return MAL_CHANNEL_BACK_LEFT;
+        case SND_CHMAP_RR:  return MAL_CHANNEL_BACK_RIGHT;
+        case SND_CHMAP_FC:  return MAL_CHANNEL_FRONT_CENTER;
+        case SND_CHMAP_LFE: return MAL_CHANNEL_LFE;
+        case SND_CHMAP_SL:  return MAL_CHANNEL_SIDE_LEFT;
+        case SND_CHMAP_SR:  return MAL_CHANNEL_SIDE_RIGHT;
+        case SND_CHMAP_RC:  return MAL_CHANNEL_BACK_CENTER;
+        case SND_CHMAP_FLC: return MAL_CHANNEL_FRONT_LEFT_CENTER;
+        case SND_CHMAP_FRC: return MAL_CHANNEL_FRONT_RIGHT_CENTER;
+        case SND_CHMAP_RLC: return 0;
+        case SND_CHMAP_RRC: return 0;
+        case SND_CHMAP_FLW: return 0;
+        case SND_CHMAP_FRW: return 0;
+        case SND_CHMAP_FLH: return 0;
+        case SND_CHMAP_FCH: return 0;
+        case SND_CHMAP_FRH: return 0;
+        case SND_CHMAP_TC:  return MAL_CHANNEL_TOP_CENTER;
+        case SND_CHMAP_TFL: return MAL_CHANNEL_TOP_FRONT_LEFT;
+        case SND_CHMAP_TFR: return MAL_CHANNEL_TOP_FRONT_RIGHT;
+        case SND_CHMAP_TFC: return MAL_CHANNEL_TOP_FRONT_CENTER;
+        case SND_CHMAP_TRL: return MAL_CHANNEL_TOP_BACK_LEFT;
+        case SND_CHMAP_TRR: return MAL_CHANNEL_TOP_BACK_RIGHT;
+        case SND_CHMAP_TRC: return MAL_CHANNEL_TOP_BACK_CENTER;
         default: break;
     }
     
