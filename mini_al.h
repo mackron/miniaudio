@@ -18,6 +18,7 @@
 // Supported Backends:
 //   - DirectSound
 //   - WASAPI
+//   - WinMM
 //   - ALSA
 //   - OSS
 //   - OpenSL|ES / Android
@@ -44,7 +45,7 @@
 //
 // The implementation of this library will try #include-ing necessary headers for each backend. If you do not have
 // the development packages for any particular backend you can disable it by #define-ing the appropriate MAL_NO_*
-// option before #include-ing the implementation.
+// option before the implementation.
 //
 //
 // Building (Windows)
@@ -127,6 +128,9 @@
 //
 // #define MAL_NO_WASAPI
 //   Disables the WASAPI backend.
+//
+// #define MAL_NO_WINMM
+//   Disables the WinMM backend.
 //
 // #define MAL_NO_ALSA
 //   Disables the ALSA backend.
@@ -335,12 +339,13 @@ typedef int mal_result;
 #define MAL_FAILED_TO_READ_DATA_FROM_DEVICE             -17
 #define MAL_FAILED_TO_SEND_DATA_TO_CLIENT				-18
 #define MAL_FAILED_TO_SEND_DATA_TO_DEVICE				-19
-#define MAL_FAILED_TO_START_BACKEND_DEVICE              -20
-#define MAL_FAILED_TO_STOP_BACKEND_DEVICE               -21
-#define MAL_FAILED_TO_CREATE_MUTEX                      -22
-#define MAL_FAILED_TO_CREATE_EVENT                      -23
-#define MAL_FAILED_TO_CREATE_THREAD                     -24
-#define MAL_INVALID_DEVICE_CONFIG                       -25
+#define MAL_FAILED_TO_OPEN_BACKEND_DEVICE               -20
+#define MAL_FAILED_TO_START_BACKEND_DEVICE              -21
+#define MAL_FAILED_TO_STOP_BACKEND_DEVICE               -22
+#define MAL_FAILED_TO_CREATE_MUTEX                      -23
+#define MAL_FAILED_TO_CREATE_EVENT                      -24
+#define MAL_FAILED_TO_CREATE_THREAD                     -25
+#define MAL_INVALID_DEVICE_CONFIG                       -26
 #define MAL_DSOUND_FAILED_TO_CREATE_DEVICE              -1024
 #define MAL_DSOUND_FAILED_TO_SET_COOP_LEVEL             -1025
 #define MAL_DSOUND_FAILED_TO_CREATE_BUFFER              -1026
@@ -367,6 +372,7 @@ typedef enum
     mal_backend_null,
     mal_backend_wasapi,
     mal_backend_dsound,
+    mal_backend_winmm,
     mal_backend_alsa,
     mal_backend_oss,
     mal_backend_opensl,
@@ -399,31 +405,31 @@ typedef enum
 typedef union
 {
 #ifdef MAL_SUPPORT_WASAPI
-    wchar_t wasapi[64];     // WASAPI uses a wchar_t string for identification which is also annoyingly long...
+    wchar_t wasapi[64];             // WASAPI uses a wchar_t string for identification which is also annoyingly long...
 #endif
 #ifdef MAL_SUPPORT_DSOUND
-    mal_uint8 dsound[16];   // DirectSound uses a GUID for identification.
+    mal_uint8 dsound[16];           // DirectSound uses a GUID for identification.
 #endif
 #ifdef MAL_SUPPORT_WINMM
-	// TODO: Implement me.
+	/*UINT_PTR*/ mal_uint32 winmm;  // When creating a device, WinMM expects a Win32 UINT_PTR for device identification. In practice it's actually just a UINT.
 #endif
 #ifdef MAL_SUPPORT_ALSA
-    char alsa[32];          // ALSA uses a name string for identification.
+    char alsa[32];                  // ALSA uses a name string for identification.
 #endif
 #ifdef MAL_SUPPORT_COREAUDIO
 	// TODO: Implement me.
 #endif
 #ifdef MAL_SUPPORT_OSS
-    char oss[64];			// "dev/dsp0", etc. "dev/dsp" for the default device.
+    char oss[64];			        // "dev/dsp0", etc. "dev/dsp" for the default device.
 #endif
 #ifdef MAL_SUPPORT_OPENSL
-    mal_uint32 opensl;      // OpenSL|ES uses a 32-bit unsigned integer for identification.
+    mal_uint32 opensl;              // OpenSL|ES uses a 32-bit unsigned integer for identification.
 #endif
 #ifdef MAL_SUPPORT_OPENAL
-    char openal[256];       // OpenAL seems to use human-readable device names as the ID.
+    char openal[256];               // OpenAL seems to use human-readable device names as the ID.
 #endif
 #ifdef MAL_SUPPORT_NULL
-	int nullbackend;		// Always 0. TODO: Check that this is indeed always set to 0 or just undefined. If undefined, change this to always be 0.
+	int nullbackend;		        // Always 0. TODO: Check that this is indeed always set to 0 or just undefined. If undefined, change this to always be 0.
 #endif
 } mal_device_id;
 
@@ -552,7 +558,24 @@ typedef struct
 #ifdef MAL_SUPPORT_WINMM
 		struct
 		{
-			int _unused;
+            /*HMODULE*/ mal_handle hWinMM;
+            mal_proc waveOutGetNumDevs;
+            mal_proc waveOutGetDevCapsA;
+            mal_proc waveOutOpen;
+            mal_proc waveOutClose;
+            mal_proc waveOutPrepareHeader;
+            mal_proc waveOutUnprepareHeader;
+            mal_proc waveOutWrite;
+            mal_proc waveOutReset;
+            mal_proc waveInGetNumDevs;
+            mal_proc waveInGetDevCapsA;
+            mal_proc waveInOpen;
+            mal_proc waveInClose;
+            mal_proc waveInPrepareHeader;
+            mal_proc waveInUnprepareHeader ;
+            mal_proc waveInAddBuffer;
+            mal_proc waveInStart;
+            mal_proc waveInReset;
 		} winmm;
 #endif
 #ifdef MAL_SUPPORT_ALSA
@@ -756,7 +779,15 @@ struct mal_device
 #ifdef MAL_SUPPORT_WINMM
 		struct
 		{
-			int _unused;
+            /*HWAVEOUT, HWAVEIN*/ mal_handle hDevice;
+            /*HANDLE*/ mal_handle hEvent;
+            mal_uint32 fragmentSizeInFrames;
+            mal_uint32 fragmentSizeInBytes;
+            mal_uint32 iNextHeader;             // [0,periods). Used as an index into pWAVEHDR.
+            /*WAVEHDR**/ mal_uint8* pWAVEHDR;   // One instantiation for each period.
+            mal_uint8* pIntermediaryBuffer;
+            mal_uint8* _pHeapData;              // Used internally and is used for the heap allocated data for the intermediary buffer and the WAVEHDR structures.
+            mal_bool32 breakFromMainLoop;
 		} winmm;
 #endif
 #ifdef MAL_SUPPORT_ALSA
@@ -839,6 +870,7 @@ struct mal_device
 // requirements. This can be null in which case it uses the default priority, which is as follows:
 //   - DirectSound
 //   - WASAPI
+//   - WinMM
 //   - ALSA
 //   - OSS
 //   - OpenSL|ES
@@ -1942,7 +1974,7 @@ static void mal_get_default_channel_mapping(mal_backend backend, mal_uint32 chan
         channelMap[4] = MAL_CHANNEL_LFE;
     } else if (channels >= 6) {    // 5.1
 		// Some backends use different default layouts.
-		if (backend == mal_backend_wasapi || backend == mal_backend_dsound/* || backend == mal_backend_winmm*/ || backend == mal_backend_oss) {
+		if (backend == mal_backend_wasapi || backend == mal_backend_dsound || backend == mal_backend_winmm || backend == mal_backend_oss) {
 			channelMap[0] = MAL_CHANNEL_FRONT_LEFT;
 		    channelMap[1] = MAL_CHANNEL_FRONT_RIGHT;
 			channelMap[2] = MAL_CHANNEL_FRONT_CENTER;
@@ -3603,6 +3635,646 @@ static mal_result mal_device__main_loop__dsound(mal_device* pDevice)
     return MAL_SUCCESS;
 }
 #endif
+
+
+
+///////////////////////////////////////////////////////////////////////////////
+//
+// WinMM Backend
+//
+///////////////////////////////////////////////////////////////////////////////
+#ifdef MAL_ENABLE_WINMM
+#include <mmsystem.h>
+
+typedef UINT     (WINAPI * MAL_PFN_waveOutGetNumDevs)(void);
+typedef MMRESULT (WINAPI * MAL_PFN_waveOutGetDevCapsA)(UINT_PTR uDeviceID, LPWAVEOUTCAPSA pwoc, UINT cbwoc);
+typedef MMRESULT (WINAPI * MAL_PFN_waveOutOpen)(LPHWAVEOUT phwo, UINT uDeviceID, LPCWAVEFORMATEX pwfx, DWORD_PTR dwCallback, DWORD_PTR dwInstance, DWORD fdwOpen);
+typedef MMRESULT (WINAPI * MAL_PFN_waveOutClose)(HWAVEOUT hwo);
+typedef MMRESULT (WINAPI * MAL_PFN_waveOutPrepareHeader)(HWAVEOUT hwo, LPWAVEHDR pwh, UINT cbwh);
+typedef MMRESULT (WINAPI * MAL_PFN_waveOutUnprepareHeader)(HWAVEOUT hwo, LPWAVEHDR pwh, UINT cbwh);
+typedef MMRESULT (WINAPI * MAL_PFN_waveOutWrite)(HWAVEOUT hwo, LPWAVEHDR pwh, UINT cbwh);
+typedef MMRESULT (WINAPI * MAL_PFN_waveOutReset)(HWAVEOUT hwo);
+typedef UINT     (WINAPI * MAL_PFN_waveInGetNumDevs)(void);
+typedef MMRESULT (WINAPI * MAL_PFN_waveInGetDevCapsA)(UINT_PTR uDeviceID, LPWAVEINCAPSA pwic, UINT cbwic);
+typedef MMRESULT (WINAPI * MAL_PFN_waveInOpen)(LPHWAVEIN phwi, UINT uDeviceID, LPCWAVEFORMATEX pwfx, DWORD_PTR dwCallback, DWORD_PTR dwInstance, DWORD fdwOpen);
+typedef MMRESULT (WINAPI * MAL_PFN_waveInClose)(HWAVEIN hwi);
+typedef MMRESULT (WINAPI * MAL_PFN_waveInPrepareHeader)(HWAVEIN hwi, LPWAVEHDR pwh, UINT cbwh);
+typedef MMRESULT (WINAPI * MAL_PFN_waveInUnprepareHeader)(HWAVEIN hwi, LPWAVEHDR pwh, UINT cbwh);
+typedef MMRESULT (WINAPI * MAL_PFN_waveInAddBuffer)(HWAVEIN hwi, LPWAVEHDR pwh, UINT cbwh);
+typedef MMRESULT (WINAPI * MAL_PFN_waveInStart)(HWAVEIN hwi);
+typedef MMRESULT (WINAPI * MAL_PFN_waveInReset)(HWAVEIN hwi);
+
+mal_result mal_context_init__winmm(mal_context* pContext)
+{
+    mal_assert(pContext != NULL);
+
+    pContext->winmm.hWinMM = mal_dlopen("winmm.dll");
+    if (pContext->winmm.hWinMM == NULL) {
+        return MAL_NO_BACKEND;
+    }
+
+    pContext->winmm.waveOutGetNumDevs      = mal_dlsym(pContext->winmm.hWinMM, "waveOutGetNumDevs");
+    pContext->winmm.waveOutGetDevCapsA     = mal_dlsym(pContext->winmm.hWinMM, "waveOutGetDevCapsA");
+    pContext->winmm.waveOutOpen            = mal_dlsym(pContext->winmm.hWinMM, "waveOutOpen");
+    pContext->winmm.waveOutClose           = mal_dlsym(pContext->winmm.hWinMM, "waveOutClose");
+    pContext->winmm.waveOutPrepareHeader   = mal_dlsym(pContext->winmm.hWinMM, "waveOutPrepareHeader");
+    pContext->winmm.waveOutUnprepareHeader = mal_dlsym(pContext->winmm.hWinMM, "waveOutUnprepareHeader");
+    pContext->winmm.waveOutWrite           = mal_dlsym(pContext->winmm.hWinMM, "waveOutWrite");
+    pContext->winmm.waveOutReset           = mal_dlsym(pContext->winmm.hWinMM, "waveOutReset");
+    pContext->winmm.waveInGetNumDevs       = mal_dlsym(pContext->winmm.hWinMM, "waveInGetNumDevs");
+    pContext->winmm.waveInGetDevCapsA      = mal_dlsym(pContext->winmm.hWinMM, "waveInGetDevCapsA");
+    pContext->winmm.waveInOpen             = mal_dlsym(pContext->winmm.hWinMM, "waveInOpen");
+    pContext->winmm.waveInClose            = mal_dlsym(pContext->winmm.hWinMM, "waveInClose");
+    pContext->winmm.waveInPrepareHeader    = mal_dlsym(pContext->winmm.hWinMM, "waveInPrepareHeader");
+    pContext->winmm.waveInUnprepareHeader  = mal_dlsym(pContext->winmm.hWinMM, "waveInUnprepareHeader");
+    pContext->winmm.waveInAddBuffer        = mal_dlsym(pContext->winmm.hWinMM, "waveInAddBuffer");
+    pContext->winmm.waveInStart            = mal_dlsym(pContext->winmm.hWinMM, "waveInStart");    
+    pContext->winmm.waveInReset            = mal_dlsym(pContext->winmm.hWinMM, "waveInReset");
+    
+    return MAL_SUCCESS;
+}
+
+mal_result mal_context_uninit__winmm(mal_context* pContext)
+{
+    mal_assert(pContext != NULL);
+    mal_assert(pContext->backend == mal_backend_winmm);
+
+    mal_dlclose(pContext->winmm.hWinMM);
+    return MAL_SUCCESS;
+}
+
+static mal_result mal_enumerate_devices__winmm(mal_context* pContext, mal_device_type type, mal_uint32* pCount, mal_device_info* pInfo)
+{
+    (void)pContext;
+
+    mal_uint32 infoSize = *pCount;
+    *pCount = 0;
+
+    if (type == mal_device_type_playback) {
+        UINT deviceCount = ((MAL_PFN_waveOutGetNumDevs)pContext->winmm.waveOutGetNumDevs)();
+        for (UINT iDevice = 0; iDevice < deviceCount; ++iDevice) {
+            if (pInfo != NULL && *pCount < infoSize) {
+                mal_uint32 iInfo = *pCount;
+
+                WAVEOUTCAPSA caps;
+                MMRESULT result = ((MAL_PFN_waveOutGetDevCapsA)pContext->winmm.waveOutGetDevCapsA)(iDevice, &caps, sizeof(caps));
+                if (result == MMSYSERR_NOERROR) {
+                    pInfo[iInfo].id.winmm = iDevice;
+                    mal_strncpy_s(pInfo[iInfo].name, sizeof(pInfo[iInfo].name), caps.szPname, (size_t)-1);
+                }
+            }
+
+            *pCount += 1;
+        }
+    } else {
+        UINT deviceCount = ((MAL_PFN_waveInGetNumDevs)pContext->winmm.waveInGetNumDevs)();
+        for (UINT iDevice = 0; iDevice < deviceCount; ++iDevice) {
+            if (pInfo != NULL && *pCount < infoSize) {
+                mal_uint32 iInfo = *pCount;
+
+                WAVEINCAPSA caps;
+                MMRESULT result = ((MAL_PFN_waveInGetDevCapsA)pContext->winmm.waveInGetDevCapsA)(iDevice, &caps, sizeof(caps));
+                if (result == MMSYSERR_NOERROR) {
+                    pInfo[iInfo].id.winmm = iDevice;
+                    mal_strncpy_s(pInfo[iInfo].name, sizeof(pInfo[iInfo].name), caps.szPname, (size_t)-1);
+                }
+            }
+
+            *pCount += 1;
+        }
+    }
+    
+    return MAL_SUCCESS;
+}
+
+static void mal_device_uninit__winmm(mal_device* pDevice)
+{
+    mal_assert(pDevice != NULL);
+
+    if (pDevice->type == mal_device_type_playback) {
+        ((MAL_PFN_waveOutClose)pDevice->pContext->winmm.waveOutClose)((HWAVEOUT)pDevice->winmm.hDevice);
+    } else {
+        ((MAL_PFN_waveInClose)pDevice->pContext->winmm.waveInClose)((HWAVEIN)pDevice->winmm.hDevice);
+    }
+
+    mal_free(pDevice->winmm._pHeapData);
+    CloseHandle((HANDLE)pDevice->winmm.hEvent);
+}
+
+static mal_result mal_device_init__winmm(mal_context* pContext, mal_device_type type, mal_device_id* pDeviceID, mal_device_config* pConfig, mal_device* pDevice)
+{
+    (void)pContext;
+
+    mal_assert(pDevice != NULL);
+    mal_zero_object(&pDevice->winmm);
+
+    UINT winMMDeviceID = 0;
+    if (pDeviceID != NULL) {
+        winMMDeviceID = (UINT)pDeviceID->winmm;
+    }
+
+    const char* errorMsg = "";
+    mal_result errorCode = MAL_ERROR;
+
+
+    // WinMM doesn't seem to have a good way to query the format of the device. Therefore, we'll restrict the formats to the
+    // standard formats documented here https://msdn.microsoft.com/en-us/library/windows/desktop/dd743855(v=vs.85).aspx. If
+    // that link goes stale, just look up the documentation for WAVEOUTCAPS or WAVEINCAPS.
+    WAVEFORMATEX wf;
+    mal_zero_object(&wf);
+    wf.cbSize               = sizeof(wf);
+    wf.wFormatTag           = WAVE_FORMAT_PCM;
+    wf.nChannels            = (WORD)pConfig->channels;
+    wf.nSamplesPerSec       = (DWORD)pConfig->sampleRate;
+    wf.wBitsPerSample       = (WORD)mal_get_sample_size_in_bytes(pConfig->format)*8;
+    wf.nBlockAlign          = (wf.nChannels * wf.wBitsPerSample) / 8;
+    wf.nAvgBytesPerSec      = wf.nBlockAlign * wf.nSamplesPerSec;
+
+    if (wf.nChannels > 2) {
+        wf.nChannels = 2;
+    }
+
+    if (wf.wBitsPerSample != 8 && wf.wBitsPerSample != 16) {
+        if (wf.wBitsPerSample <= 8) {
+            wf.wBitsPerSample = 8;
+        } else {
+            wf.wBitsPerSample = 16;
+        }
+    }
+
+    if (wf.nSamplesPerSec <= 11025) {
+        wf.nSamplesPerSec = 11025;
+    } else if (wf.nSamplesPerSec <= 22050) {
+        wf.nSamplesPerSec = 22050;
+    } else if (wf.nSamplesPerSec <= 44100) {
+        wf.nSamplesPerSec = 44100;
+    } else if (wf.nSamplesPerSec <= 48000) {
+        wf.nSamplesPerSec = 48000;
+    } else {
+        wf.nSamplesPerSec = 96000;
+    }
+
+
+    // Change the format based on the closest match of the supported standard formats.
+    DWORD dwFormats = 0;
+    if (type == mal_device_type_playback) {
+        WAVEOUTCAPSA caps;
+        if (((MAL_PFN_waveOutGetDevCapsA)pContext->winmm.waveOutGetDevCapsA)(winMMDeviceID, &caps, sizeof(caps)) == MMSYSERR_NOERROR) {
+            dwFormats = caps.dwFormats;
+        } else {
+            errorMsg = "[WinMM] Failed to retrieve internal device caps.", errorCode = MAL_ERROR;
+            goto on_error;
+        }
+    } else {
+        WAVEINCAPSA caps;
+        if (((MAL_PFN_waveInGetDevCapsA)pContext->winmm.waveInGetDevCapsA)(winMMDeviceID, &caps, sizeof(caps)) == MMSYSERR_NOERROR) {
+            dwFormats = caps.dwFormats;
+        } else {
+            errorMsg = "[WinMM] Failed to retrieve internal device caps.", errorCode = MAL_ERROR;
+            goto on_error;
+        }
+    }
+
+    if (dwFormats == 0) {
+        errorMsg = "[WinMM] Failed to retrieve the supported formats for the internal device.", errorCode = MAL_ERROR;
+        goto on_error;
+    }
+
+
+    WORD closestBitsPerSample = 0;
+    WORD closestChannels = 0;
+    DWORD closestSampleRate = 0;
+    for (mal_uint32 iBit = 0; iBit < 32; ++iBit) {
+        WORD formatBitsPerSample = 0;
+        WORD formatChannels = 0;
+        DWORD formatSampleRate = 0;
+
+        DWORD format = (dwFormats & (1 << iBit));
+        if (format != 0) {
+            switch (format)
+            {
+                case WAVE_FORMAT_1M08:
+                {
+                    formatBitsPerSample = 8;
+                    formatChannels = 1;
+                    formatSampleRate = 110025;
+                } break;
+                case WAVE_FORMAT_1M16:
+                {
+                    formatBitsPerSample = 16;
+                    formatChannels = 1;
+                    formatSampleRate = 110025;
+                } break;
+                case WAVE_FORMAT_1S08:
+                {
+                    formatBitsPerSample = 8;
+                    formatChannels = 2;
+                    formatSampleRate = 110025;
+                } break;
+                case WAVE_FORMAT_1S16:
+                {
+                    formatBitsPerSample = 16;
+                    formatChannels = 2;
+                    formatSampleRate = 110025;
+                } break;
+                case WAVE_FORMAT_2M08:
+                {
+                    formatBitsPerSample = 8;
+                    formatChannels = 1;
+                    formatSampleRate = 22050;
+                } break;
+                case WAVE_FORMAT_2M16:
+                {
+                    formatBitsPerSample = 16;
+                    formatChannels = 1;
+                    formatSampleRate = 22050;
+                } break;
+                case WAVE_FORMAT_2S08:
+                {
+                    formatBitsPerSample = 8;
+                    formatChannels = 2;
+                    formatSampleRate = 22050;
+                } break;
+                case WAVE_FORMAT_2S16:
+                {
+                    formatBitsPerSample = 16;
+                    formatChannels = 2;
+                    formatSampleRate = 22050;
+                } break;
+                case WAVE_FORMAT_44M08:
+                {
+                    formatBitsPerSample = 8;
+                    formatChannels = 1;
+                    formatSampleRate = 44100;
+                } break;
+                case WAVE_FORMAT_44M16:
+                {
+                    formatBitsPerSample = 16;
+                    formatChannels = 1;
+                    formatSampleRate = 44100;
+                } break;
+                case WAVE_FORMAT_44S08:
+                {
+                    formatBitsPerSample = 8;
+                    formatChannels = 2;
+                    formatSampleRate = 44100;
+                } break;
+                case WAVE_FORMAT_44S16:
+                {
+                    formatBitsPerSample = 16;
+                    formatChannels = 2;
+                    formatSampleRate = 44100;
+                } break;
+                case WAVE_FORMAT_48M08:
+                {
+                    formatBitsPerSample = 8;
+                    formatChannels = 1;
+                    formatSampleRate = 48000;
+                } break;
+                case WAVE_FORMAT_48M16:
+                {
+                    formatBitsPerSample = 16;
+                    formatChannels = 1;
+                    formatSampleRate = 48000;
+                } break;
+                case WAVE_FORMAT_48S08:
+                {
+                    formatBitsPerSample = 8;
+                    formatChannels = 2;
+                    formatSampleRate = 48000;
+                } break;
+                case WAVE_FORMAT_48S16:
+                {
+                    formatBitsPerSample = 16;
+                    formatChannels = 2;
+                    formatSampleRate = 48000;
+                } break;
+                case WAVE_FORMAT_96M08:
+                {
+                    formatBitsPerSample = 8;
+                    formatChannels = 1;
+                    formatSampleRate = 96000;
+                } break;
+                case WAVE_FORMAT_96M16:
+                {
+                    formatBitsPerSample = 16;
+                    formatChannels = 1;
+                    formatSampleRate = 96000;
+                } break;
+                case WAVE_FORMAT_96S08:
+                {
+                    formatBitsPerSample = 8;
+                    formatChannels = 2;
+                    formatSampleRate = 96000;
+                } break;
+                case WAVE_FORMAT_96S16:
+                {
+                    formatBitsPerSample = 16;
+                    formatChannels = 2;
+                    formatSampleRate = 96000;
+                } break;
+                default: 
+                {
+                    errorMsg =  "[WinMM] The internal device does not support any of the standard formats.", errorCode = MAL_ERROR;    // <-- Should never hit this.
+                    goto on_error;
+                } break;
+            }
+
+            if (formatBitsPerSample == wf.wBitsPerSample && formatChannels == wf.nChannels && formatSampleRate == wf.nSamplesPerSec) {
+                break;  // It's an exact match.
+            } else {
+                // It's not an exact match. Compare it with the closest match.
+                if (closestBitsPerSample == 0) {
+                    // This is the first format, so nothing to compare against.
+                    closestBitsPerSample = formatBitsPerSample;
+                    closestChannels = formatChannels;
+                    closestSampleRate = formatSampleRate;
+                } else {
+                    // Prefer the channel count be the same over the others.
+                    if (formatChannels != closestChannels) {
+                        // Channels aren't equal. Favour the one equal to our desired channel count.
+                        if (formatChannels == wf.nChannels) {
+                            closestBitsPerSample = formatBitsPerSample;
+                            closestChannels = formatChannels;
+                            closestSampleRate = formatSampleRate;
+                        }
+                    } else {
+                        // The channels are equal. Look at the format now.
+                        if (formatBitsPerSample != closestBitsPerSample) {
+                            if (formatBitsPerSample == wf.wBitsPerSample) {
+                                closestBitsPerSample = formatBitsPerSample;
+                                closestChannels = formatChannels;
+                                closestSampleRate = formatSampleRate;
+                            }
+                        } else {
+                            // Both the channels and formats are the same, so now just favour whichever's sample rate is closest to the requested rate.
+                            mal_uint32 closestRateDiff = (closestSampleRate > wf.nSamplesPerSec) ? (closestSampleRate - wf.nSamplesPerSec) : (wf.nSamplesPerSec - closestSampleRate);
+                            mal_uint32 formatRateDiff  = (formatSampleRate  > wf.nSamplesPerSec) ? (formatSampleRate  - wf.nSamplesPerSec) : (wf.nSamplesPerSec - formatSampleRate);
+                            if (formatRateDiff < closestRateDiff) {
+                                closestBitsPerSample = formatBitsPerSample;
+                                closestChannels = formatChannels;
+                                closestSampleRate = formatSampleRate;
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    wf.wBitsPerSample = closestBitsPerSample;
+    wf.nChannels = closestChannels;
+    wf.nSamplesPerSec = closestSampleRate;
+
+
+    // We use an event to know when a new fragment needs to be enqueued.
+    pDevice->winmm.hEvent = (mal_handle)CreateEvent(NULL, TRUE, TRUE, NULL);
+    if (pDevice->winmm.hEvent == NULL) {
+        errorMsg = "[WinMM] Failed to create event.", errorCode = MAL_ERROR;
+        goto on_error;
+    }
+
+
+    if (type == mal_device_type_playback) {
+        MMRESULT result = ((MAL_PFN_waveOutOpen)pContext->winmm.waveOutOpen)((LPHWAVEOUT)&pDevice->winmm.hDevice, winMMDeviceID, &wf, (DWORD_PTR)pDevice->winmm.hEvent, (DWORD_PTR)pDevice, CALLBACK_EVENT | WAVE_ALLOWSYNC);
+        if (result != MMSYSERR_NOERROR) {
+            errorMsg = "[WinMM] Failed to open playback device.", errorCode = MAL_FAILED_TO_OPEN_BACKEND_DEVICE;
+            goto on_error;
+        }
+    } else {
+        MMRESULT result = ((MAL_PFN_waveInOpen)pDevice->pContext->winmm.waveInOpen)((LPHWAVEIN)&pDevice->winmm.hDevice, winMMDeviceID, &wf, (DWORD_PTR)pDevice->winmm.hEvent, (DWORD_PTR)pDevice, CALLBACK_EVENT | WAVE_ALLOWSYNC);
+        if (result != MMSYSERR_NOERROR) {
+            errorMsg = "[WinMM] Failed to open capture device.", errorCode = MAL_FAILED_TO_OPEN_BACKEND_DEVICE;
+            goto on_error;
+        }
+    }
+
+
+    // The internal formats need to be set based on the wf object.
+    if (wf.wFormatTag == WAVE_FORMAT_PCM) {
+        switch (wf.wBitsPerSample) {
+            case 8:  pDevice->internalFormat = mal_format_u8;  break;
+            case 16: pDevice->internalFormat = mal_format_s16; break;
+            case 24: pDevice->internalFormat = mal_format_s24; break;
+            case 32: pDevice->internalFormat = mal_format_s32; break;
+            default: mal_post_error(pDevice, "[WinMM] The device's internal format is not supported by mini_al.", MAL_FORMAT_NOT_SUPPORTED);
+        }
+    } else {
+        errorMsg = "[WinMM] The device's internal format is not supported by mini_al.", errorCode = MAL_FORMAT_NOT_SUPPORTED;
+        goto on_error;
+    }
+
+    pDevice->internalChannels = wf.nChannels;
+    pDevice->internalSampleRate = wf.nSamplesPerSec;
+
+
+    // Just use the default channel mapping. WinMM only supportes mono or stereo anyway so it reliably be left/right order for stereo.
+    mal_get_default_channel_mapping(pDevice->pContext->backend, pDevice->internalChannels, pDevice->internalChannelMap);
+
+
+    // The size of the intermediary buffer needs to be able to fit every fragment.
+    pDevice->winmm.fragmentSizeInFrames = pDevice->bufferSizeInFrames / pDevice->periods;
+    pDevice->winmm.fragmentSizeInBytes = pDevice->winmm.fragmentSizeInFrames * pDevice->internalChannels * mal_get_sample_size_in_bytes(pDevice->internalFormat);
+
+    mal_uint32 heapSize = (sizeof(WAVEHDR) * pDevice->periods) + (pDevice->winmm.fragmentSizeInBytes * pDevice->periods);
+    pDevice->winmm._pHeapData = mal_malloc(heapSize);
+    if (pDevice->winmm._pHeapData == NULL) {
+        errorMsg = "[WinMM] Failed to allocate memory for the intermediary buffer.", errorCode = MAL_OUT_OF_MEMORY;
+        goto on_error;
+    }
+
+    mal_zero_memory(pDevice->winmm._pHeapData, pDevice->winmm.fragmentSizeInBytes * pDevice->periods);
+
+    pDevice->winmm.pWAVEHDR = pDevice->winmm._pHeapData;
+    pDevice->winmm.pIntermediaryBuffer = pDevice->winmm._pHeapData + (sizeof(WAVEHDR) * pDevice->periods);
+
+
+    return MAL_SUCCESS;
+
+on_error:
+    if (pDevice->type == mal_device_type_playback) {
+        ((MAL_PFN_waveOutClose)pContext->winmm.waveOutClose)((HWAVEOUT)pDevice->winmm.hDevice);
+    } else {
+        ((MAL_PFN_waveInClose)pContext->winmm.waveInClose)((HWAVEIN)pDevice->winmm.hDevice);
+    }
+
+    mal_free(pDevice->winmm._pHeapData);
+    return mal_post_error(pDevice, errorMsg, errorCode);
+}
+
+
+static mal_result mal_device__start_backend__winmm(mal_device* pDevice)
+{
+    mal_assert(pDevice != NULL);
+
+    if (pDevice->type == mal_device_type_playback) {
+        // Playback. The device is started when we call waveOutWrite() with a block of data. From MSDN:
+        //
+        //     Unless the device is paused by calling the waveOutPause function, playback begins when the first data block is sent to the device.
+        //
+        // When starting the device we commit every fragment. We signal the event before calling waveOutWrite().
+        for (mal_uint32 i = 0; i < pDevice->periods; ++i) {
+            mal_zero_object(&((LPWAVEHDR)pDevice->winmm.pWAVEHDR)[i]);
+            ((LPWAVEHDR)pDevice->winmm.pWAVEHDR)[i].lpData = (LPSTR)(pDevice->winmm.pIntermediaryBuffer + (pDevice->winmm.fragmentSizeInBytes * i));
+            ((LPWAVEHDR)pDevice->winmm.pWAVEHDR)[i].dwBufferLength = pDevice->winmm.fragmentSizeInBytes;
+            ((LPWAVEHDR)pDevice->winmm.pWAVEHDR)[i].dwFlags = 0L;
+            ((LPWAVEHDR)pDevice->winmm.pWAVEHDR)[i].dwLoops = 0L;
+            mal_device__read_frames_from_client(pDevice, pDevice->winmm.fragmentSizeInFrames, ((LPWAVEHDR)pDevice->winmm.pWAVEHDR)[i].lpData);
+
+            if (((MAL_PFN_waveOutPrepareHeader)pDevice->pContext->winmm.waveOutPrepareHeader)((HWAVEOUT)pDevice->winmm.hDevice, &((LPWAVEHDR)pDevice->winmm.pWAVEHDR)[i], sizeof(WAVEHDR)) != MMSYSERR_NOERROR) {
+                return MAL_FAILED_TO_START_BACKEND_DEVICE;
+            }
+        }
+
+        ResetEvent(pDevice->winmm.hEvent);
+
+        for (mal_uint32 i = 0; i < pDevice->periods; ++i) {
+            if (((MAL_PFN_waveOutWrite)pDevice->pContext->winmm.waveOutWrite)((HWAVEOUT)pDevice->winmm.hDevice, &((LPWAVEHDR)pDevice->winmm.pWAVEHDR)[i], sizeof(WAVEHDR)) != MMSYSERR_NOERROR) {
+                return MAL_FAILED_TO_START_BACKEND_DEVICE;
+            }
+        }
+    } else {
+        // Capture.
+        ((MAL_PFN_waveInStart)pDevice->pContext->winmm.waveInStart)((HWAVEIN)pDevice->winmm.hDevice);
+    }
+
+    pDevice->winmm.iNextHeader = 0;
+    return MAL_SUCCESS;
+}
+
+static mal_result mal_device__stop_backend__winmm(mal_device* pDevice)
+{
+    mal_assert(pDevice != NULL);
+
+    if (pDevice->type == mal_device_type_playback) {
+        ((MAL_PFN_waveOutReset)pDevice->pContext->winmm.waveOutReset)((HWAVEOUT)pDevice->winmm.hDevice);
+
+        // Unprepare all WAVEHDR structures.
+        for (mal_uint32 i = 0; i < pDevice->periods; ++i) {
+            ((MAL_PFN_waveOutUnprepareHeader)pDevice->pContext->winmm.waveOutUnprepareHeader)((HWAVEOUT)pDevice->winmm.hDevice, &((LPWAVEHDR)pDevice->winmm.pWAVEHDR)[i], sizeof(WAVEHDR));
+        }
+    } else {
+        ((MAL_PFN_waveInReset)pDevice->pContext->winmm.waveInReset)((HWAVEIN)pDevice->winmm.hDevice);
+        
+        // Unprepare all WAVEHDR structures.
+        for (mal_uint32 i = 0; i < pDevice->periods; ++i) {
+            ((MAL_PFN_waveInUnprepareHeader)pDevice->pContext->winmm.waveInUnprepareHeader)((HWAVEIN)pDevice->winmm.hDevice, &((LPWAVEHDR)pDevice->winmm.pWAVEHDR)[i], sizeof(WAVEHDR));
+        }
+    }
+
+    return MAL_SUCCESS;
+}
+
+static mal_result mal_device__break_main_loop__winmm(mal_device* pDevice)
+{
+    mal_assert(pDevice != NULL);
+
+    pDevice->winmm.breakFromMainLoop = MAL_TRUE;
+    return MAL_SUCCESS;
+}
+
+static mal_result mal_device__main_loop__winmm(mal_device* pDevice)
+{
+    mal_assert(pDevice != NULL);
+
+    pDevice->winmm.breakFromMainLoop = MAL_FALSE;
+    while (!pDevice->winmm.breakFromMainLoop) {
+        // Wait for a block of data to finish processing...
+        if (WaitForSingleObject((HANDLE)pDevice->winmm.hEvent, INFINITE) != WAIT_OBJECT_0) {
+            break;
+        }
+
+        // Break from the main loop if the device isn't started anymore. Likely what's happened is the application
+		// has requested that the device be stopped.
+		if (!mal_device_is_started(pDevice)) {
+			break;
+		}
+
+        // Any headers that are marked as done need to be handled. We start by processing the completed blocks. Then we reset the event
+        // and then write or add replacement buffers to the device.
+        mal_uint32 iFirstHeader = pDevice->winmm.iNextHeader;
+        for (mal_uint32 counter = 0; counter < pDevice->periods; ++counter) {
+            mal_uint32 i = pDevice->winmm.iNextHeader;
+            if ((((LPWAVEHDR)pDevice->winmm.pWAVEHDR)[i].dwFlags & WHDR_DONE) == 0) {
+                break;
+            }
+
+            if (pDevice->type == mal_device_type_playback) {
+			    // Playback.
+                MMRESULT winmmResult = ((MAL_PFN_waveOutUnprepareHeader)pDevice->pContext->winmm.waveOutUnprepareHeader)((HWAVEOUT)pDevice->winmm.hDevice, &((LPWAVEHDR)pDevice->winmm.pWAVEHDR)[i], sizeof(WAVEHDR));
+                if (winmmResult != MMSYSERR_NOERROR) {
+                    break;
+                }
+
+                mal_zero_object(&((LPWAVEHDR)pDevice->winmm.pWAVEHDR)[i]);
+                ((LPWAVEHDR)pDevice->winmm.pWAVEHDR)[i].lpData = (LPSTR)(pDevice->winmm.pIntermediaryBuffer + (pDevice->winmm.fragmentSizeInBytes * i));
+                ((LPWAVEHDR)pDevice->winmm.pWAVEHDR)[i].dwBufferLength = pDevice->winmm.fragmentSizeInBytes;
+                ((LPWAVEHDR)pDevice->winmm.pWAVEHDR)[i].dwFlags = 0L;
+                ((LPWAVEHDR)pDevice->winmm.pWAVEHDR)[i].dwLoops = 0L;
+                ((LPWAVEHDR)pDevice->winmm.pWAVEHDR)[i].dwUser = 1;     // <-- Used in the next section to identify the buffers that needs to be re-written to the device.
+			    mal_device__read_frames_from_client(pDevice, pDevice->winmm.fragmentSizeInFrames, ((LPWAVEHDR)pDevice->winmm.pWAVEHDR)[i].lpData);
+
+                winmmResult = ((MAL_PFN_waveOutPrepareHeader)pDevice->pContext->winmm.waveOutPrepareHeader)((HWAVEOUT)pDevice->winmm.hDevice, &((LPWAVEHDR)pDevice->winmm.pWAVEHDR)[i], sizeof(WAVEHDR));
+                if (winmmResult != MMSYSERR_NOERROR) {
+                    break;
+                }
+		    } else {
+			    // Capture.
+			    mal_uint32 framesCaptured = (mal_uint32)(((LPWAVEHDR)pDevice->winmm.pWAVEHDR)[i].dwBytesRecorded) / pDevice->internalChannels / mal_get_sample_size_in_bytes(pDevice->internalFormat);
+                if (framesCaptured > 0) {
+                    mal_device__send_frames_to_client(pDevice, framesCaptured, ((LPWAVEHDR)pDevice->winmm.pWAVEHDR)[i].lpData);
+                }
+			    
+                MMRESULT winmmResult = ((MAL_PFN_waveInUnprepareHeader)pDevice->pContext->winmm.waveInUnprepareHeader)((HWAVEIN)pDevice->winmm.hDevice, &((LPWAVEHDR)pDevice->winmm.pWAVEHDR)[i], sizeof(WAVEHDR));
+                if (winmmResult != MMSYSERR_NOERROR) {
+                    break;
+                }
+
+                mal_zero_object(&((LPWAVEHDR)pDevice->winmm.pWAVEHDR)[i]);
+                ((LPWAVEHDR)pDevice->winmm.pWAVEHDR)[i].lpData = (LPSTR)(pDevice->winmm.pIntermediaryBuffer + (pDevice->winmm.fragmentSizeInBytes * i));
+                ((LPWAVEHDR)pDevice->winmm.pWAVEHDR)[i].dwBufferLength = pDevice->winmm.fragmentSizeInBytes;
+                ((LPWAVEHDR)pDevice->winmm.pWAVEHDR)[i].dwFlags = 0L;
+                ((LPWAVEHDR)pDevice->winmm.pWAVEHDR)[i].dwLoops = 0L;
+                ((LPWAVEHDR)pDevice->winmm.pWAVEHDR)[i].dwUser = 1;     // <-- Used in the next section to identify the buffers that needs to be re-added to the device.
+
+                winmmResult = ((MAL_PFN_waveInPrepareHeader)pDevice->pContext->winmm.waveInPrepareHeader)((HWAVEIN)pDevice->winmm.hDevice, &((LPWAVEHDR)pDevice->winmm.pWAVEHDR)[i], sizeof(WAVEHDR));
+                if (winmmResult != MMSYSERR_NOERROR) {
+                    break;
+                }
+		    }
+
+            pDevice->winmm.iNextHeader = (pDevice->winmm.iNextHeader + 1) % pDevice->periods;
+        }
+
+        ResetEvent((HANDLE)pDevice->winmm.hEvent);
+
+        for (mal_uint32 counter = 0; counter < pDevice->periods; ++counter) {
+            mal_uint32 i = (iFirstHeader + counter) % pDevice->periods;
+
+            if (((LPWAVEHDR)pDevice->winmm.pWAVEHDR)[i].dwUser == 1) {
+                ((LPWAVEHDR)pDevice->winmm.pWAVEHDR)[i].dwUser = 0;
+
+                if (pDevice->type == mal_device_type_playback) {
+			        // Playback.
+                    MMRESULT winmmResult = ((MAL_PFN_waveOutWrite)pDevice->pContext->winmm.waveOutWrite)((HWAVEOUT)pDevice->winmm.hDevice, &((LPWAVEHDR)pDevice->winmm.pWAVEHDR)[i], sizeof(WAVEHDR));
+                    if (winmmResult != MMSYSERR_NOERROR) {
+                        break;
+                    }
+		        } else {
+			        // Capture.
+                    MMRESULT winmmResult = ((MAL_PFN_waveInAddBuffer)pDevice->pContext->winmm.waveInAddBuffer)((HWAVEIN)pDevice->winmm.hDevice, &((LPWAVEHDR)pDevice->winmm.pWAVEHDR)[i], sizeof(WAVEHDR));
+                    if (winmmResult != MMSYSERR_NOERROR) {
+                        break;
+                    }
+		        }
+            }
+        }
+	}
+
+    return MAL_SUCCESS;
+}
+#endif
+
 
 
 ///////////////////////////////////////////////////////////////////////////////
@@ -6089,6 +6761,11 @@ static mal_result mal_device__start_backend(mal_device* pDevice)
         result = mal_device__start_backend__dsound(pDevice);
     }
 #endif
+#ifdef MAL_ENABLE_WINMM
+    if (pDevice->pContext->backend == mal_backend_winmm) {
+        result = mal_device__start_backend__winmm(pDevice);
+    }
+#endif
 #ifdef MAL_ENABLE_ALSA
     if (pDevice->pContext->backend == mal_backend_alsa) {
         result = mal_device__start_backend__alsa(pDevice);
@@ -6126,6 +6803,11 @@ static mal_result mal_device__stop_backend(mal_device* pDevice)
 #ifdef MAL_ENABLE_DSOUND
     if (pDevice->pContext->backend == mal_backend_dsound) {
         result = mal_device__stop_backend__dsound(pDevice);
+    }
+#endif
+#ifdef MAL_ENABLE_WINMM
+    if (pDevice->pContext->backend == mal_backend_winmm) {
+        result = mal_device__stop_backend__winmm(pDevice);
     }
 #endif
 #ifdef MAL_ENABLE_ALSA
@@ -6167,6 +6849,11 @@ static mal_result mal_device__break_main_loop(mal_device* pDevice)
         result = mal_device__break_main_loop__dsound(pDevice);
     }
 #endif
+#ifdef MAL_ENABLE_WINMM
+    if (pDevice->pContext->backend == mal_backend_winmm) {
+        result = mal_device__break_main_loop__winmm(pDevice);
+    }
+#endif
 #ifdef MAL_ENABLE_ALSA
     if (pDevice->pContext->backend == mal_backend_alsa) {
         result = mal_device__break_main_loop__alsa(pDevice);
@@ -6204,6 +6891,11 @@ static mal_result mal_device__main_loop(mal_device* pDevice)
 #ifdef MAL_ENABLE_DSOUND
     if (pDevice->pContext->backend == mal_backend_dsound) {
         result = mal_device__main_loop__dsound(pDevice);
+    }
+#endif
+#ifdef MAL_ENABLE_DSOUND
+    if (pDevice->pContext->backend == mal_backend_winmm) {
+        result = mal_device__main_loop__winmm(pDevice);
     }
 #endif
 #ifdef MAL_ENABLE_ALSA
@@ -6389,6 +7081,7 @@ mal_result mal_context_init(mal_backend backends[], mal_uint32 backendCount, mal
     }
 
     static mal_backend defaultBackends[] = {
+        mal_backend_winmm,
         mal_backend_dsound,
         mal_backend_wasapi,
         mal_backend_alsa,
@@ -6425,6 +7118,16 @@ mal_result mal_context_init(mal_backend backends[], mal_uint32 backendCount, mal
                 result = mal_context_init__dsound(pContext);
                 if (result == MAL_SUCCESS) {
                     pContext->backend = mal_backend_dsound;
+                    return result;
+                }
+            } break;
+        #endif
+        #ifdef MAL_ENABLE_WINMM
+            case mal_backend_winmm:
+            {
+                result = mal_context_init__winmm(pContext);
+                if (result == MAL_SUCCESS) {
+                    pContext->backend = mal_backend_winmm;
                     return result;
                 }
             } break;
@@ -6505,6 +7208,12 @@ mal_result mal_context_uninit(mal_context* pContext)
             return mal_context_uninit__dsound(pContext);
         } break;
     #endif
+    #ifdef MAL_ENABLE_WINMM
+        case mal_backend_winmm:
+        {
+            return mal_context_uninit__winmm(pContext);
+        } break;
+    #endif
     #ifdef MAL_ENABLE_ALSA
         case mal_backend_alsa:
         {
@@ -6562,6 +7271,12 @@ mal_result mal_enumerate_devices(mal_context* pContext, mal_device_type type, ma
         case mal_backend_dsound:
         {
             return mal_enumerate_devices__dsound(pContext, type, pCount, pInfo);
+        } break;
+    #endif
+    #ifdef MAL_ENABLE_WINMM
+        case mal_backend_winmm:
+        {
+            return mal_enumerate_devices__winmm(pContext, type, pCount, pInfo);
         } break;
     #endif
     #ifdef MAL_ENABLE_ALSA
@@ -6714,6 +7429,12 @@ mal_result mal_device_init(mal_context* pContext, mal_device_type type, mal_devi
             result = mal_device_init__dsound(pContext, type, pDeviceID, pConfig, pDevice);
         } break;
     #endif
+    #ifdef MAL_ENABLE_WINMM
+        case mal_backend_winmm:
+        {
+            result = mal_device_init__winmm(pContext, type, pDeviceID, pConfig, pDevice);
+        } break;
+    #endif
     #ifdef MAL_ENABLE_ALSA
         case mal_backend_alsa:
         {
@@ -6834,6 +7555,11 @@ void mal_device_uninit(mal_device* pDevice)
 #ifdef MAL_ENABLE_DSOUND
     if (pDevice->pContext->backend == mal_backend_dsound) {
         mal_device_uninit__dsound(pDevice);
+    }
+#endif
+#ifdef MAL_ENABLE_WINMM
+    if (pDevice->pContext->backend == mal_backend_winmm) {
+        mal_device_uninit__winmm(pDevice);
     }
 #endif
 #ifdef MAL_ENABLE_ALSA
@@ -8204,6 +8930,7 @@ void mal_pcm_f32_to_s32(int* pOut, const float* pIn, unsigned int count)
 //
 // v0.4 - TBD
 //   - Added support for OSS which enables support on BSD platforms.
+//   - Added support for WinMM (waveOut/waveIn).
 //
 // v0.3 - 2017-06-19
 //   - API CHANGE: Introduced the notion of a context. The context is the highest level object and is required for

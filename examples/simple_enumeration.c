@@ -8,10 +8,8 @@
 
 int main(int argc, char** argv)
 {
-    if (argc < 2) {
-        printf("No input file.");
-        return -1;
-    }
+    (void)argc;
+    (void)argv;
 
     mal_context context;
     if (mal_context_init(NULL, 0, &context) != MAL_SUCCESS) {
