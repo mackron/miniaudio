@@ -1,9 +1,7 @@
 ![mini_al](http://dred.io/img/minial_wide.png)
 
 mini_al is a simple library for playing and recording audio. It's focused on simplicity and has
-a very small number of APIs. This is not a full-featured audio library - it is intended to be
-used as a quick and easy way to connect to an audio device and deliver and capture audio data
-from speakers and microphones.
+a very small number of APIs.
 
 C/C++, single file, public domain.
 
