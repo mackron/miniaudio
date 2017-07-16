@@ -4082,7 +4082,7 @@ static mal_result mal_device_init__winmm(mal_context* pContext, mal_device_type 
     pDevice->winmm.fragmentSizeInBytes = pDevice->winmm.fragmentSizeInFrames * pDevice->internalChannels * mal_get_sample_size_in_bytes(pDevice->internalFormat);
 
     mal_uint32 heapSize = (sizeof(WAVEHDR) * pDevice->periods) + (pDevice->winmm.fragmentSizeInBytes * pDevice->periods);
-    pDevice->winmm._pHeapData = mal_malloc(heapSize);
+    pDevice->winmm._pHeapData = (mal_uint8*)mal_malloc(heapSize);
     if (pDevice->winmm._pHeapData == NULL) {
         errorMsg = "[WinMM] Failed to allocate memory for the intermediary buffer.", errorCode = MAL_OUT_OF_MEMORY;
         goto on_error;
