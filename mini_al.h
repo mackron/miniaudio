@@ -3782,13 +3782,11 @@ static mal_result mal_device_init__winmm(mal_context* pContext, mal_device_type 
     // that link goes stale, just look up the documentation for WAVEOUTCAPS or WAVEINCAPS.
     WAVEFORMATEX wf;
     mal_zero_object(&wf);
-    wf.cbSize               = sizeof(wf);
-    wf.wFormatTag           = WAVE_FORMAT_PCM;
-    wf.nChannels            = (WORD)pConfig->channels;
-    wf.nSamplesPerSec       = (DWORD)pConfig->sampleRate;
-    wf.wBitsPerSample       = (WORD)mal_get_sample_size_in_bytes(pConfig->format)*8;
-    wf.nBlockAlign          = (wf.nChannels * wf.wBitsPerSample) / 8;
-    wf.nAvgBytesPerSec      = wf.nBlockAlign * wf.nSamplesPerSec;
+    wf.cbSize          = sizeof(wf);
+    wf.wFormatTag      = WAVE_FORMAT_PCM;
+    wf.nChannels       = (WORD)pConfig->channels;
+    wf.nSamplesPerSec  = (DWORD)pConfig->sampleRate;
+    wf.wBitsPerSample  = (WORD)mal_get_sample_size_in_bytes(pConfig->format)*8;
 
     if (wf.nChannels > 2) {
         wf.nChannels = 2;
@@ -4022,9 +4020,11 @@ static mal_result mal_device_init__winmm(mal_context* pContext, mal_device_type 
         }
     }
 
-    wf.wBitsPerSample = closestBitsPerSample;
-    wf.nChannels = closestChannels;
-    wf.nSamplesPerSec = closestSampleRate;
+    wf.wBitsPerSample  = closestBitsPerSample;
+    wf.nChannels       = closestChannels;
+    wf.nSamplesPerSec  = closestSampleRate;
+    wf.nBlockAlign     = (wf.nChannels * wf.wBitsPerSample) / 8;
+    wf.nAvgBytesPerSec = wf.nBlockAlign * wf.nSamplesPerSec;
 
 
     // We use an event to know when a new fragment needs to be enqueued.
