@@ -1616,7 +1616,7 @@ mal_handle mal_dlopen(const char* filename)
 void mal_dlclose(mal_handle handle)
 {
 #ifdef _WIN32
-    CloseHandle((HANDLE)handle);
+    FreeLibrary((HMODULE)handle);
 #else
     dlclose((void*)handle);
 #endif
