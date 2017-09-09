@@ -2443,7 +2443,6 @@ static void mal_channel_mask_to_channel_map__win32(DWORD dwChannelMask, mal_uint
 #include <audioclient.h>
 #include <audiopolicy.h>
 #include <mmdeviceapi.h>
-//#include <functiondiscoverykeys_devpkey.h>
 #if defined(_MSC_VER)
     #pragma warning(pop)
 #endif
@@ -8727,8 +8726,7 @@ void mal_pcm_u8_to_f32(float* pOut, const unsigned char* pIn, unsigned int count
     float r;
     for (unsigned int i = 0; i < count; ++i) {
         int x = pIn[i];
-        r = x / 255.0f;
-        r = r * 2;
+        r = x * 0.00784313725490196078f;
         r = r - 1;
         pOut[i] = (float)r;
     }
@@ -8770,9 +8768,8 @@ void mal_pcm_s16_to_f32(float* pOut, const short* pIn, unsigned int count)
     float r;
     for (unsigned int i = 0; i < count; ++i) {
         int x = pIn[i];
-        r = x + 32768.0f;
-        r = r / 65536.0f;
-        r = r * 2;
+        r = (float)(x + 32768);
+        r = r * 0.00003051804379339284f;
         r = r - 1;
         pOut[i] = (float)r;
     }
@@ -8814,9 +8811,8 @@ void mal_pcm_s24_to_f32(float* pOut, const void* pIn, unsigned int count)
     float r;
     for (unsigned int i = 0; i < count; ++i) {
         int x = ((int)(((unsigned int)(((unsigned char*)pIn)[i*3+0]) << 8) | ((unsigned int)(((unsigned char*)pIn)[i*3+1]) << 16) | ((unsigned int)(((unsigned char*)pIn)[i*3+2])) << 24)) >> 8;
-        r = x + 8388608.0f;
-        r = r / 16777215.0f;
-        r = r * 2;
+        r = (float)(x + 8388608);
+        r = r * 0.00000011920929665621f;
         r = r - 1;
         pOut[i] = (float)r;
     }

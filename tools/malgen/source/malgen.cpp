@@ -441,7 +441,7 @@ std::string malgen_generate_code__conversion_func_inst_binary_op(const char* res
         char typeStr[64];
         strncpy_s(typeStr, result, resultVar - result);
         
-        code += typeStr; code += "("; code += assignmentStr; code += ")";
+        code += malgen_format_op_param(typeStr); code += "("; code += assignmentStr; code += ")";
         return code;
     } else {
         code += assignmentStr;
