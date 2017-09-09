@@ -531,6 +531,7 @@ typedef struct
     mal_channel channelMap[MAL_MAX_CHANNELS];
     mal_uint32 bufferSizeInFrames;
     mal_uint32 periods;
+    mal_bool32 preferExclusiveMode;
     mal_recv_proc onRecvCallback;
     mal_send_proc onSendCallback;
     mal_stop_proc onStopCallback;
@@ -738,6 +739,7 @@ struct mal_device
     mal_thread thread;
     mal_result workResult;  // This is set by the worker thread after it's finished doing a job.
     mal_uint32 flags;       // MAL_DEVICE_FLAG_*
+    mal_bool32 exclusiveMode : 1;
     mal_format internalFormat;
     mal_uint32 internalChannels;
     mal_uint32 internalSampleRate;
