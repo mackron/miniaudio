@@ -2466,6 +2466,11 @@ const IID g_malIID_IAudioClient_Instance         = {0x1CB9AD4C, 0xDBFA, 0x4C32, 
 const IID g_malIID_IAudioRenderClient_Instance   = {0xF294ACFC, 0x3146, 0x4483, {0xA7, 0xBF, 0xAD, 0xDC, 0xA7, 0xC2, 0x60, 0xE2}}; // F294ACFC-3146-4483-A7BF-ADDCA7C260E2 = __uuidof(IAudioRenderClient)
 const IID g_malIID_IAudioCaptureClient_Instance  = {0xC8ADBD64, 0xE71E, 0x48A0, {0xA4, 0xDE, 0x18, 0x5C, 0x39, 0x5C, 0xD3, 0x17}}; // C8ADBD64-E71E-48A0-A4DE-185C395CD317 = __uuidof(IAudioCaptureClient)
 
+#ifndef MAL_WIN32_DESKTOP
+const IID g_malIID_DEVINTERFACE_AUDIO_RENDER  = {0xE6327CAD, 0xDCEC, 0x4949, {0xAE, 0x8A, 0x99, 0x1E, 0x97, 0x6A, 0x79, 0xD2}}; // E6327CAD-DCEC-4949-AE8A-991E976A79D2
+const IID g_malIID_DEVINTERFACE_AUDIO_CAPTURE = {0x2EEF81BE, 0x33FA, 0x4800, {0x96, 0x70, 0x1C, 0xD4, 0x74, 0x97, 0x2C, 0x3F}}; // 2EEF81BE-33FA-4800-9670-1CD474972C3F
+#endif
+
 #ifdef __cplusplus
 #define g_malCLSID_MMDeviceEnumerator g_malCLSID_MMDeviceEnumerator_Instance
 #define g_malIID_IMMDeviceEnumerator  g_malIID_IMMDeviceEnumerator_Instance
@@ -2546,6 +2551,18 @@ const IID g_malIID_IAudioCaptureClient_Instance  = {0xC8ADBD64, 0xE71E, 0x48A0, 
         #define IMMDevice_Activate(p, a, b, c, d) ((IMMDevice*)p)->Activate(a, b, c, d)
     #else
         #define IMMDevice_Activate(p, a, b, c, d) ((IMMDevice*)p)->lpVtbl->Activate((IMMDevice*)p, a, b, c, d)
+    #endif
+#else
+    // IActivateAudioInterfaceAsyncOperation
+    #ifdef __cplusplus
+        #define IActivateAudioInterfaceAsyncOperation_Release(p) ((IActivateAudioInterfaceAsyncOperation*)p)->Release()
+    #else
+        #define IActivateAudioInterfaceAsyncOperation_Release(p) ((IActivateAudioInterfaceAsyncOperation*)p)->lpVtbl->Release((IActivateAudioInterfaceAsyncOperation*)p)
+    #endif
+    #ifdef __cplusplus
+        #define IActivateAudioInterfaceAsyncOperation_GetActivateResult(p, a, b) ((IActivateAudioInterfaceAsyncOperation*)p)->GetActivateResult(a, b)
+    #else
+        #define IActivateAudioInterfaceAsyncOperation_GetActivateResult(p, a, b) ((IActivateAudioInterfaceAsyncOperation*)p)->lpVtbl->GetActivateResult((IActivateAudioInterfaceAsyncOperation*)p, a, b)
     #endif
 #endif
 
@@ -2647,6 +2664,19 @@ const IID g_malIID_IAudioCaptureClient_Instance  = {0xC8ADBD64, 0xE71E, 0x48A0, 
     #define IAudioCaptureClient_ReleaseBuffer(p, a) ((IAudioCaptureClient*)p)->lpVtbl->ReleaseBuffer((IAudioCaptureClient*)p, a)
 #endif
 
+#ifdef MAL_WIN32_DESKTOP
+#define mal_CoInitializeEx(pContext, pvReserved, dwCoInit)                          ((MAL_PFN_CoInitializeEx)pContext->win32.CoInitializeEx)(pvReserved, dwCoInit)
+#define mal_CoUninitialize(pContext)                                                ((MAL_PFN_CoUninitialize)pContext->win32.CoUninitialize)()
+#define mal_CoCreateInstance(pContext, rclsid, pUnkOuter, dwClsContext, riid, ppv)  ((MAL_PFN_CoCreateInstance)pContext->win32.CoCreateInstance)(rclsid, pUnkOuter, dwClsContext, riid, ppv)
+#define mal_CoTaskMemFree(pContext, pv)                                             ((MAL_PFN_CoTaskMemFree)pContext->win32.CoTaskMemFree)(pv)
+#define mal_PropVariantClear(pContext, pvar)                                        ((MAL_PFN_PropVariantClear)pContext->win32.PropVariantClear)(pvar)
+#else
+#define mal_CoInitializeEx(pContext, pvReserved, dwCoInit)                          CoInitializeEx(pvReserved, dwCoInit)
+#define mal_CoUninitialize(pContext)                                                CoUninitialize()
+#define mal_CoCreateInstance(pContext, rclsid, pUnkOuter, dwClsContext, riid, ppv)  CoCreateInstance(rclsid, pUnkOuter, dwClsContext, riid, ppv)
+#define mal_CoTaskMemFree(pContext, pv)                                             CoTaskMemFree(pv)
+#define mal_PropVariantClear(pContext, pvar)                                        PropVariantClear(pvar)
+#endif
 
 mal_result mal_context_init__wasapi(mal_context* pContext)
 {
@@ -2685,8 +2715,9 @@ static mal_result mal_enumerate_devices__wasapi(mal_context* pContext, mal_devic
     mal_uint32 infoSize = *pCount;
     *pCount = 0;
 
+#ifdef MAL_WIN32_DESKTOP
     IMMDeviceEnumerator* pDeviceEnumerator;
-    HRESULT hr = ((MAL_PFN_CoCreateInstance)pContext->win32.CoCreateInstance)(g_malCLSID_MMDeviceEnumerator, NULL, CLSCTX_ALL, g_malIID_IMMDeviceEnumerator, (void**)&pDeviceEnumerator);
+    HRESULT hr = mal_CoCreateInstance(pContext, g_malCLSID_MMDeviceEnumerator, NULL, CLSCTX_ALL, g_malIID_IMMDeviceEnumerator, (void**)&pDeviceEnumerator);
     if (FAILED(hr)) {
         return MAL_WASAPI_FAILED_TO_CREATE_DEVICE_ENUMERATOR;
     }
@@ -2719,7 +2750,7 @@ static mal_result mal_enumerate_devices__wasapi(mal_context* pContext, mal_devic
             if (SUCCEEDED(hr)) {
                 size_t idlen = wcslen(id);
                 if (idlen+sizeof(wchar_t) > sizeof(pInfo->id.wasapi)) {
-                    ((MAL_PFN_CoTaskMemFree)pContext->win32.CoTaskMemFree)(id);
+                    mal_CoTaskMemFree(pContext, id);
                     mal_assert(MAL_FALSE);  // NOTE: If this is triggered, please report it. It means the format of the ID must haved change and is too long to fit in our fixed sized buffer.
                     continue;
                 }
@@ -2727,7 +2758,7 @@ static mal_result mal_enumerate_devices__wasapi(mal_context* pContext, mal_devic
                 memcpy(pInfo->id.wasapi, id, idlen * sizeof(wchar_t));
                 pInfo->id.wasapi[idlen] = '\0';
 
-                ((MAL_PFN_CoTaskMemFree)pContext->win32.CoTaskMemFree)(id);
+                mal_CoTaskMemFree(pContext, id);
             }
 
             // Description / Friendly Name.
@@ -2739,7 +2770,7 @@ static mal_result mal_enumerate_devices__wasapi(mal_context* pContext, mal_devic
                 hr = IPropertyStore_GetValue(pProperties, g_malPKEY_Device_FriendlyName, &varName);
                 if (SUCCEEDED(hr)) {
                     WideCharToMultiByte(CP_UTF8, 0, varName.pwszVal, -1, pInfo->name, sizeof(pInfo->name), 0, FALSE);
-                    ((MAL_PFN_PropVariantClear)pContext->win32.PropVariantClear)(&varName);
+                    mal_PropVariantClear(pContext, &varName);
                 }
 
                 IPropertyStore_Release(pProperties);
@@ -2751,6 +2782,23 @@ static mal_result mal_enumerate_devices__wasapi(mal_context* pContext, mal_devic
     }
 
     IMMDeviceCollection_Release(pDeviceCollection);
+#else
+    // The MMDevice API is only supported on desktop applications. For now, while I'm still figuring out how to properly enumerate
+    // over devices without using MMDevice, I'm restricting devices to defaults.
+    if (infoSize > 0) {
+        if (type == mal_device_type_playback) {
+            mal_copy_memory(pInfo->id.wasapi, &g_malIID_DEVINTERFACE_AUDIO_RENDER, sizeof(g_malIID_DEVINTERFACE_AUDIO_RENDER));
+            mal_strncpy_s(pInfo->name, sizeof(pInfo->name), "Default Playback Device", (size_t)-1);
+        } else {
+            mal_copy_memory(pInfo->id.wasapi, &g_malIID_DEVINTERFACE_AUDIO_CAPTURE, sizeof(g_malIID_DEVINTERFACE_AUDIO_CAPTURE));
+            mal_strncpy_s(pInfo->name, sizeof(pInfo->name), "Default Capture Device", (size_t)-1);
+        }
+    }
+
+    pInfo += 1;
+    *pCount += 1;
+#endif
+
     return MAL_SUCCESS;
 }
 
@@ -2761,11 +2809,9 @@ static void mal_device_uninit__wasapi(mal_device* pDevice)
     if (pDevice->wasapi.pRenderClient) {
         IAudioRenderClient_Release(pDevice->wasapi.pRenderClient);
     }
-
     if (pDevice->wasapi.pCaptureClient) {
         IAudioCaptureClient_Release(pDevice->wasapi.pCaptureClient);
     }
-
     if (pDevice->wasapi.pAudioClient) {
         IAudioClient_Release(pDevice->wasapi.pAudioClient);
     }
@@ -2809,13 +2855,62 @@ static mal_result mal_device__find_best_format__wasapi(mal_device* pDevice, WAVE
 
     if (pBestFormatTemp != NULL) {
         mal_copy_memory(pBestFormat, pBestFormatTemp, sizeof(*pBestFormat));
-        ((MAL_PFN_CoTaskMemFree)pDevice->pContext->win32.CoTaskMemFree)(pBestFormatTemp);
+        mal_CoTaskMemFree(pDevice->pContext, pBestFormatTemp);
     } else {
         mal_copy_memory(pBestFormat, &wf, sizeof(*pBestFormat));
     }
 
     return MAL_SUCCESS;
 }
+
+#ifndef MAL_WIN32_DESKTOP
+    #ifdef __cplusplus
+    #include <wrl\implements.h>
+    class malCompletionHandler : public Microsoft::WRL::RuntimeClass< Microsoft::WRL::RuntimeClassFlags< Microsoft::WRL::ClassicCom >, Microsoft::WRL::FtmBase, IActivateAudioInterfaceCompletionHandler >
+    {
+    public:
+
+        malCompletionHandler()
+            : m_hEvent(NULL)
+        {
+        }
+
+        mal_result Init()
+        {
+            m_hEvent = CreateEventA(NULL, FALSE, FALSE, NULL);
+            if (m_hEvent == NULL) {
+                return MAL_ERROR;
+            }
+
+            return MAL_SUCCESS;
+        }
+
+        void Uninit()
+        {
+            if (m_hEvent != NULL) {
+                CloseHandle(m_hEvent);
+            }
+        }
+
+        void Wait()
+        {
+            WaitForSingleObject(m_hEvent, INFINITE);
+        }
+
+        HRESULT STDMETHODCALLTYPE ActivateCompleted(IActivateAudioInterfaceAsyncOperation *activateOperation)
+        {
+            (void)activateOperation;
+            SetEvent(m_hEvent);
+            return S_OK;
+        }
+
+    private:
+        HANDLE m_hEvent;  // This is created in Init(), deleted in Uninit(), waited on in Wait() and signaled in ActivateCompleted().
+    };
+    #else
+    #error "The UWP build is currently only supported in C++."
+    #endif
+#endif  // !MAL_WIN32_DESKTOP
 
 static mal_result mal_device_init__wasapi(mal_context* pContext, mal_device_type type, mal_device_id* pDeviceID, mal_device_config* pConfig, mal_device* pDevice)
 {
@@ -2824,8 +2919,12 @@ static mal_result mal_device_init__wasapi(mal_context* pContext, mal_device_type
     mal_assert(pDevice != NULL);
     mal_zero_object(&pDevice->wasapi);
 
+    HRESULT hr;
+    mal_result result = MAL_SUCCESS;
+
+#ifdef MAL_WIN32_DESKTOP
     IMMDeviceEnumerator* pDeviceEnumerator;
-    HRESULT hr = ((MAL_PFN_CoCreateInstance)pContext->win32.CoCreateInstance)(g_malCLSID_MMDeviceEnumerator, NULL, CLSCTX_ALL, g_malIID_IMMDeviceEnumerator, (void**)&pDeviceEnumerator);
+    hr = mal_CoCreateInstance(pContext, g_malCLSID_MMDeviceEnumerator, NULL, CLSCTX_ALL, g_malIID_IMMDeviceEnumerator, (void**)&pDeviceEnumerator);
     if (FAILED(hr)) {
         mal_device_uninit__wasapi(pDevice);
         return mal_post_error(pDevice, "[WASAPI] Failed to create IMMDeviceEnumerator.", MAL_WASAPI_FAILED_TO_CREATE_DEVICE_ENUMERATOR);
@@ -2856,11 +2955,72 @@ static mal_result mal_device_init__wasapi(mal_context* pContext, mal_device_type
         return mal_post_error(pDevice, "[WASAPI] Failed to activate device.", MAL_WASAPI_FAILED_TO_ACTIVATE_DEVICE);
     }
     IMMDevice_Release(pMMDevice);
+#else
+    IID iid;
+    if (pDeviceID != NULL) {
+        mal_copy_memory(&iid, pDeviceID->wasapi, sizeof(iid));
+    } else {
+        if (type == mal_device_type_playback) {
+            iid = g_malIID_DEVINTERFACE_AUDIO_RENDER;
+        } else {
+            iid = g_malIID_DEVINTERFACE_AUDIO_CAPTURE;
+        }
+    }
+    
+    LPOLESTR iidStr;
+    hr = StringFromIID(iid, &iidStr);
+    if (FAILED(hr)) {
+        mal_device_uninit__wasapi(pDevice);
+        return mal_post_error(pDevice, "[WASAPI] Failed to convert device IID to string for ActivateAudioInterfaceAsync(). Out of memory.", MAL_OUT_OF_MEMORY);
+    }
+
+    malCompletionHandler completionHandler;
+    result = completionHandler.Init();
+    if (result != MAL_SUCCESS) {
+        mal_CoTaskMemFree(pContext, iidStr);
+        mal_device_uninit__wasapi(pDevice);
+        return mal_post_error(pDevice, "[WASAPI] Failed to create event for waiting for ActivateAudioInterfaceAsync().", MAL_WASAPI_FAILED_TO_ACTIVATE_DEVICE);
+    }
+
+    IActivateAudioInterfaceAsyncOperation *pAsyncOp;
+    hr = ActivateAudioInterfaceAsync(iidStr, g_malIID_IAudioClient, NULL, &completionHandler, &pAsyncOp);
+    if (FAILED(hr)) {
+        completionHandler.Uninit();
+        mal_CoTaskMemFree(pContext, iidStr);
+        mal_device_uninit__wasapi(pDevice);
+        return mal_post_error(pDevice, "[WASAPI] ActivateAudioInterfaceAsync() failed.", MAL_WASAPI_FAILED_TO_ACTIVATE_DEVICE);
+    }
+
+    mal_CoTaskMemFree(pContext, iidStr);
+
+    // Wait for the async operation for finish.
+    completionHandler.Wait();
+    completionHandler.Uninit();
+
+    HRESULT activateResult;
+    IUnknown* pActivatedInterface;
+    hr = IActivateAudioInterfaceAsyncOperation_GetActivateResult(pAsyncOp, &activateResult, &pActivatedInterface);
+    if (FAILED(hr) || FAILED(activateResult)) {
+        IActivateAudioInterfaceAsyncOperation_Release(pAsyncOp);
+        mal_device_uninit__wasapi(pDevice);
+        return mal_post_error(pDevice, "[WASAPI] Failed to activate device.", MAL_WASAPI_FAILED_TO_ACTIVATE_DEVICE);
+    }
+
+    // Here is where we grab the IAudioClient interface.
+    hr = pActivatedInterface->QueryInterface(g_malIID_IAudioClient, &pDevice->wasapi.pAudioClient);
+    if (FAILED(hr)) {
+        IActivateAudioInterfaceAsyncOperation_Release(pAsyncOp);
+        mal_device_uninit__wasapi(pDevice);
+        return mal_post_error(pDevice, "[WASAPI] Failed to query IAudioClient interface.", MAL_WASAPI_FAILED_TO_ACTIVATE_DEVICE);
+    }
+
+    IActivateAudioInterfaceAsyncOperation_Release(pAsyncOp);
+#endif
 
     REFERENCE_TIME bufferDurationInMicroseconds = ((mal_uint64)pConfig->bufferSizeInFrames * 1000 * 1000) / pConfig->sampleRate;
 
     WAVEFORMATEXTENSIBLE wf;
-    mal_result result = mal_device__find_best_format__wasapi(pDevice, &wf);
+    result = mal_device__find_best_format__wasapi(pDevice, &wf);
     if (result != MAL_SUCCESS) {
         mal_device_uninit__wasapi(pDevice);
         return mal_post_error(pDevice, "[WASAPI] Failed to find best device mix format.", MAL_WASAPI_FAILED_TO_ACTIVATE_DEVICE);
@@ -6975,7 +7135,7 @@ mal_thread_result MAL_THREADCALL mal_worker_thread(void* pData)
     mal_assert(pDevice != NULL);
     
 #ifdef MAL_WIN32
-    ((MAL_PFN_CoInitializeEx)pDevice->pContext->win32.CoInitializeEx)(NULL, COINIT_MULTITHREADED);
+    mal_CoInitializeEx(pDevice->pContext, NULL, COINIT_MULTITHREADED);
 #endif
 
     // This is only used to prevent posting onStop() when the device is first initialized.
@@ -7034,7 +7194,7 @@ mal_thread_result MAL_THREADCALL mal_worker_thread(void* pData)
     mal_event_signal(&pDevice->stopEvent);  // <-- Is this still needed?
 
 #ifdef MAL_WIN32
-    ((MAL_PFN_CoUninitialize)pDevice->pContext->win32.CoUninitialize)();
+    mal_CoUninitialize(pDevice->pContext);
 #endif
 
     return (mal_thread_result)0;
@@ -7052,7 +7212,7 @@ mal_bool32 mal_device__is_initialized(mal_device* pDevice)
 #ifdef MAL_WIN32
 mal_result mal_context_uninit_backend_apis__win32(mal_context* pContext)
 {
-    ((MAL_PFN_CoUninitialize)pContext->win32.CoUninitialize)();
+    mal_CoUninitialize(pContext);
     mal_dlclose(pContext->win32.hOle32DLL);
 
     return MAL_SUCCESS;
@@ -7060,6 +7220,7 @@ mal_result mal_context_uninit_backend_apis__win32(mal_context* pContext)
 
 mal_result mal_context_init_backend_apis__win32(mal_context* pContext)
 {
+#ifdef MAL_WIN32_DESKTOP
     // Ole32.dll
     pContext->win32.hOle32DLL = mal_dlopen("ole32.dll");
     if (pContext->win32.hOle32DLL == NULL) {
@@ -7071,10 +7232,9 @@ mal_result mal_context_init_backend_apis__win32(mal_context* pContext)
     pContext->win32.CoCreateInstance = (mal_proc)mal_dlsym(pContext->win32.hOle32DLL, "CoCreateInstance");
     pContext->win32.CoTaskMemFree    = (mal_proc)mal_dlsym(pContext->win32.hOle32DLL, "CoTaskMemFree");
     pContext->win32.PropVariantClear = (mal_proc)mal_dlsym(pContext->win32.hOle32DLL, "PropVariantClear");
+#endif
 
-
-    ((MAL_PFN_CoInitializeEx)pContext->win32.CoInitializeEx)(NULL, COINIT_MULTITHREADED);
-
+    mal_CoInitializeEx(pContext, NULL, COINIT_MULTITHREADED);
     return MAL_SUCCESS;
 }
 #else
@@ -7128,9 +7288,9 @@ mal_result mal_context_init(mal_backend backends[], mal_uint32 backendCount, mal
     }
 
     static mal_backend defaultBackends[] = {
+        mal_backend_wasapi,
         mal_backend_winmm,
         mal_backend_dsound,
-        mal_backend_wasapi,
         mal_backend_alsa,
 		mal_backend_oss,
         mal_backend_opensl,
