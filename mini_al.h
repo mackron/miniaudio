@@ -7297,8 +7297,8 @@ mal_result mal_context_init(mal_backend backends[], mal_uint32 backendCount, mal
 
     static mal_backend defaultBackends[] = {
         mal_backend_wasapi,
-        mal_backend_winmm,
         mal_backend_dsound,
+        mal_backend_winmm,
         mal_backend_alsa,
 		mal_backend_oss,
         mal_backend_opensl,
