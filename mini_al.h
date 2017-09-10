@@ -116,6 +116,8 @@
 // - DirectSound currently supports a maximum of 4 periods.
 // - To capture audio on Android, remember to add the RECORD_AUDIO permission to your manifest:
 //     <uses-permission android:name="android.permission.RECORD_AUDIO" />
+// - UWP is only supported when compiling as C++.
+// - UWP only supports default playback and capture devices.
 //
 //
 //
@@ -912,6 +914,8 @@ mal_result mal_context_uninit(mal_context* pContext);
 //
 // It is _not_ safe to assume the first enumerated device is the default device.
 //
+// Some backends and platforms may only support default playback and capture devices.
+//
 // Return Value:
 //   - MAL_SUCCESS if successful.
 //   - MAL_INVALID_ARGS
@@ -947,6 +951,10 @@ mal_result mal_enumerate_devices(mal_context* pContext, mal_device_type type, ma
 //
 // Consider using mal_device_config_init(), mal_device_config_init_playback(), etc. to make it easier
 // to initialize a mal_device_config object.
+//
+// When compiling for UWP you must ensure you call this function on the main UI thread because the
+// operating system may need to present the user with a message asking for permissions. Please refer
+// to the official documentation for ActivateAudioInterfaceAsync() for more information.
 //
 // Return Value:
 //   - MAL_SUCCESS if successful.
@@ -9135,6 +9143,7 @@ void mal_pcm_f32_to_s32(int* pOut, const float* pIn, unsigned int count)
 // v0.4 - TBD
 //   - Added support for OSS which enables support on BSD platforms.
 //   - Added support for WinMM (waveOut/waveIn).
+//   - Added support for UWP (Universal Windows Platform) applications. Currently C++ only.
 //
 // v0.3 - 2017-06-19
 //   - API CHANGE: Introduced the notion of a context. The context is the highest level object and is required for
@@ -9184,7 +9193,6 @@ void mal_pcm_f32_to_s32(int* pOut, const float* pIn, unsigned int count)
 // ------
 // - Add support for exclusive mode?
 // - Look into event callbacks: AUDCLNT_STREAMFLAGS_EVENTCALLBACK
-// - Clean up that terrible "__cplusplus" mess by implementing wrapper functions.
 //
 //
 // ALSA
