@@ -740,8 +740,9 @@ struct mal_device
     mal_event stopEvent;
     mal_thread thread;
     mal_result workResult;  // This is set by the worker thread after it's finished doing a job.
-    mal_uint32 flags;       // MAL_DEVICE_FLAG_*
-    mal_bool32 exclusiveMode : 1;
+    mal_bool32 usingDefaultBufferSize : 1;
+    mal_bool32 usingDefaultPeriods    : 1;
+    mal_bool32 exclusiveMode          : 1;
     mal_format internalFormat;
     mal_uint32 internalChannels;
     mal_uint32 internalSampleRate;
@@ -871,8 +872,8 @@ struct mal_device
 //
 // <backends> is used to allow the application to prioritize backends depending on it's specific
 // requirements. This can be null in which case it uses the default priority, which is as follows:
-//   - DirectSound
 //   - WASAPI
+//   - DirectSound
 //   - WinMM
 //   - ALSA
 //   - OSS
@@ -1350,9 +1351,6 @@ typedef HRESULT (WINAPI * MAL_PFN_PropVariantClear)(PROPVARIANT *pvar);
 #define MAL_STATE_STARTED           2   // The worker thread is in it's main loop waiting for the driver to request or deliver audio data.
 #define MAL_STATE_STARTING          3   // Transitioning from a stopped state to started.
 #define MAL_STATE_STOPPING          4   // Transitioning from a started state to stopped.
-
-#define MAL_DEVICE_FLAG_USING_DEFAULT_BUFFER_SIZE   (1 << 0)
-#define MAL_DEVICE_FLAG_USING_DEFAULT_PERIODS       (1 << 1)
 
 
 // The default size of the device's buffer in milliseconds.
@@ -3555,7 +3553,7 @@ static mal_result mal_device_init__dsound(mal_context* pContext, mal_device_type
     } else {
         // The default buffer size is treated slightly differently for DirectSound which, for some reason, seems to
         // have worse latency with capture than playback (sometimes _much_ worse).
-        if (pDevice->flags & MAL_DEVICE_FLAG_USING_DEFAULT_BUFFER_SIZE) {
+        if (pDevice->usingDefaultBufferSize) {
             pDevice->bufferSizeInFrames *= 2; // <-- Might need to fiddle with this to find a more ideal value. May even be able to just add a fixed amount rather than scaling.
         }
 
@@ -4282,7 +4280,7 @@ static mal_result mal_device_init__winmm(mal_context* pContext, mal_device_type 
 
 
     // Latency with WinMM seems pretty bad from my testing... Need to increase the default buffer size.
-    if (pDevice->flags & MAL_DEVICE_FLAG_USING_DEFAULT_BUFFER_SIZE) {
+    if (pDevice->usingDefaultBufferSize) {
         pDevice->bufferSizeInFrames *= 6; // <-- Might need to fiddle with this to find a more ideal value. May even be able to just add a fixed amount rather than scaling.
     }
 
@@ -6568,7 +6566,7 @@ static mal_result mal_device_init__openal(mal_context* pContext, mal_device_type
     }
 
     // OpenAL has bad latency in my testing :(
-    if (pDevice->flags & MAL_DEVICE_FLAG_USING_DEFAULT_BUFFER_SIZE) {
+    if (pDevice->usingDefaultBufferSize) {
         pDevice->bufferSizeInFrames *= 4;
     }
 
@@ -7582,11 +7580,11 @@ mal_result mal_device_init(mal_context* pContext, mal_device_type type, mal_devi
     // Default buffer size and periods.
     if (pConfig->bufferSizeInFrames == 0) {
         pConfig->bufferSizeInFrames = (pConfig->sampleRate/1000) * MAL_DEFAULT_BUFFER_SIZE_IN_MILLISECONDS;
-        pDevice->flags |= MAL_DEVICE_FLAG_USING_DEFAULT_BUFFER_SIZE;
+        pDevice->usingDefaultBufferSize = MAL_TRUE;
     }
     if (pConfig->periods == 0) {
         pConfig->periods = MAL_DEFAULT_PERIODS;
-        pDevice->flags |= MAL_DEVICE_FLAG_USING_DEFAULT_PERIODS;
+        pDevice->usingDefaultPeriods = MAL_TRUE;
     }
 
     pDevice->type = type;
@@ -9144,6 +9142,7 @@ void mal_pcm_f32_to_s32(int* pOut, const float* pIn, unsigned int count)
 //   - Added support for OSS which enables support on BSD platforms.
 //   - Added support for WinMM (waveOut/waveIn).
 //   - Added support for UWP (Universal Windows Platform) applications. Currently C++ only.
+//   - WASAPI is now the highest priority backend on Windows platforms.
 //
 // v0.3 - 2017-06-19
 //   - API CHANGE: Introduced the notion of a context. The context is the highest level object and is required for
