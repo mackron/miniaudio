@@ -751,15 +751,14 @@ struct mal_device
     mal_uint32 _dspFrameCount;      // Internal use only. Used when running the device -> DSP -> client pipeline. See mal_device__on_read_from_device().
     const mal_uint8* _dspFrames;    // ^^^ AS ABOVE ^^^
 
-
     union
     {
 #ifdef MAL_SUPPORT_WASAPI
         struct
         {
-            /*IAudioClient*/ mal_ptr pAudioClient;
-            /*IAudioRenderClient */ mal_ptr pRenderClient;
-            /*IAudioCaptureClient */ mal_ptr pCaptureClient;
+            /*IAudioClient**/ mal_ptr pAudioClient;
+            /*IAudioRenderClient**/ mal_ptr pRenderClient;
+            /*IAudioCaptureClient**/ mal_ptr pCaptureClient;
             /*HANDLE*/ mal_handle hStopEvent;
             mal_bool32 breakFromMainLoop;
         } wasapi;
@@ -798,8 +797,8 @@ struct mal_device
         struct
         {
             /*snd_pcm_t**/ mal_ptr pPCM;
-            mal_bool32 isUsingMMap;
-            mal_bool32 breakFromMainLoop;
+            mal_bool32 isUsingMMap       : 1;
+            mal_bool32 breakFromMainLoop : 1;
             void* pIntermediaryBuffer;
         } alsa;
 #endif
@@ -896,7 +895,7 @@ mal_result mal_context_init(mal_backend backends[], mal_uint32 backendCount, mal
 
 // Uninitializes a context.
 //
-// Results are undefined if you call this while a related is still active.
+// Results are undefined if you call this while any device created by this context is still active.
 //
 // Return Value:
 //   - MAL_SUCCESS if successful.
@@ -1140,6 +1139,7 @@ mal_uint32 mal_get_sample_size_in_bytes(mal_format format);
 // The default channel mapping is based on the channel count, as per the table below. Note that these
 // can be freely changed after this function returns if you are needing something in particular.
 //
+// |---------------|------------------------------|
 // | Channel Count | Mapping                      |
 // |---------------|------------------------------|
 // | 1 (Mono)      | 0: MAL_CHANNEL_FRONT_CENTER  |
