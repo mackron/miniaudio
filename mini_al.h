@@ -3246,14 +3246,6 @@ static GUID MAL_GUID_NULL                            = {0x00000000, 0x0000, 0x00
 static GUID MAL_GUID_IID_DirectSoundNotify           = {0xb0210783, 0x89cd, 0x11d0, {0xaf, 0x08, 0x00, 0xa0, 0xc9, 0x25, 0xcd, 0x16}};
 static GUID MAL_GUID_IID_IDirectSoundCaptureBuffer8  = {0x00990df4, 0x0dbb, 0x4872, {0x83, 0x3e, 0x6d, 0x30, 0x3e, 0x80, 0xae, 0xb6}};
 
-#ifdef __cplusplus
-static GUID g_mal_GUID_IID_DirectSoundNotify            = MAL_GUID_IID_DirectSoundNotify;
-static GUID g_mal_GUID_IID_IDirectSoundCaptureBuffer8   = MAL_GUID_IID_IDirectSoundCaptureBuffer8;
-#else
-static GUID* g_mal_GUID_IID_DirectSoundNotify           = &MAL_GUID_IID_DirectSoundNotify;
-static GUID* g_mal_GUID_IID_IDirectSoundCaptureBuffer8  = &MAL_GUID_IID_IDirectSoundCaptureBuffer8;
-#endif
-
 typedef HRESULT (WINAPI * mal_DirectSoundCreate8Proc)(LPCGUID pcGuidDevice, LPDIRECTSOUND8 *ppDS8, LPUNKNOWN pUnkOuter);
 typedef HRESULT (WINAPI * mal_DirectSoundEnumerateAProc)(LPDSENUMCALLBACKA pDSEnumCallback, LPVOID pContext);
 typedef HRESULT (WINAPI * mal_DirectSoundCaptureCreate8Proc)(LPCGUID pcGuidDevice, LPDIRECTSOUNDCAPTURE8 *ppDSC8, LPUNKNOWN pUnkOuter);
@@ -3403,6 +3395,14 @@ static mal_result mal_device_init__dsound(mal_context* pContext, mal_device_type
 {
     (void)pContext;
 
+#ifdef __cplusplus
+    GUID _MAL_GUID_IID_DirectSoundNotify            = MAL_GUID_IID_DirectSoundNotify;
+    GUID _MAL_GUID_IID_IDirectSoundCaptureBuffer8   = MAL_GUID_IID_IDirectSoundCaptureBuffer8;
+#else
+    GUID* _MAL_GUID_IID_DirectSoundNotify           = &MAL_GUID_IID_DirectSoundNotify;
+    GUID* _MAL_GUID_IID_IDirectSoundCaptureBuffer8  = &MAL_GUID_IID_IDirectSoundCaptureBuffer8;
+#endif
+
     mal_assert(pDevice != NULL);
     mal_zero_object(&pDevice->dsound);
 
@@ -3533,7 +3533,7 @@ static mal_result mal_device_init__dsound(mal_context* pContext, mal_device_type
         }
 
         // Notifications are set up via a DIRECTSOUNDNOTIFY object which is retrieved from the buffer.
-        if (FAILED(IDirectSoundBuffer8_QueryInterface((LPDIRECTSOUNDBUFFER)pDevice->dsound.pPlaybackBuffer, g_mal_GUID_IID_DirectSoundNotify, (void**)&pDevice->dsound.pNotify))) {
+        if (FAILED(IDirectSoundBuffer8_QueryInterface((LPDIRECTSOUNDBUFFER)pDevice->dsound.pPlaybackBuffer, _MAL_GUID_IID_DirectSoundNotify, (void**)&pDevice->dsound.pNotify))) {
             mal_device_uninit__dsound(pDevice);
             return mal_post_error(pDevice, "[DirectSound] IDirectSoundBuffer8_QueryInterface() failed for playback device's IDirectSoundNotify object.", MAL_DSOUND_FAILED_TO_QUERY_INTERFACE);
         }
@@ -3569,7 +3569,7 @@ static mal_result mal_device_init__dsound(mal_context* pContext, mal_device_type
             return mal_post_error(pDevice, "[DirectSound] IDirectSoundCapture_CreateCaptureBuffer() failed for capture device.", MAL_DSOUND_FAILED_TO_CREATE_BUFFER);
         }
 
-        HRESULT hr = IDirectSoundCapture_QueryInterface(pDSCB_Temp, g_mal_GUID_IID_IDirectSoundCaptureBuffer8, (LPVOID*)&pDevice->dsound.pCaptureBuffer);
+        HRESULT hr = IDirectSoundCapture_QueryInterface(pDSCB_Temp, _MAL_GUID_IID_IDirectSoundCaptureBuffer8, (LPVOID*)&pDevice->dsound.pCaptureBuffer);
         IDirectSoundCaptureBuffer_Release(pDSCB_Temp);
         if (FAILED(hr)) {
             mal_device_uninit__dsound(pDevice);
@@ -3577,7 +3577,7 @@ static mal_result mal_device_init__dsound(mal_context* pContext, mal_device_type
         }
 
         // Notifications are set up via a DIRECTSOUNDNOTIFY object which is retrieved from the buffer.
-        if (FAILED(IDirectSoundCaptureBuffer8_QueryInterface((LPDIRECTSOUNDCAPTUREBUFFER)pDevice->dsound.pCaptureBuffer, g_mal_GUID_IID_DirectSoundNotify, (void**)&pDevice->dsound.pNotify))) {
+        if (FAILED(IDirectSoundCaptureBuffer8_QueryInterface((LPDIRECTSOUNDCAPTUREBUFFER)pDevice->dsound.pCaptureBuffer, _MAL_GUID_IID_DirectSoundNotify, (void**)&pDevice->dsound.pNotify))) {
             mal_device_uninit__dsound(pDevice);
             return mal_post_error(pDevice, "[DirectSound] IDirectSoundCaptureBuffer8_QueryInterface() failed for capture device's IDirectSoundNotify object.", MAL_DSOUND_FAILED_TO_QUERY_INTERFACE);
         }
