@@ -5927,7 +5927,7 @@ static mal_result mal_device_init__opensl(mal_context* pContext, mal_device_type
         SLresult resultSL = slCreateEngine(&g_malEngineObjectSL, 0, NULL, 0, NULL, NULL);
         if (resultSL != SL_RESULT_SUCCESS) {
             mal_atomic_decrement_32(&g_malOpenSLInitCounter);
-            return mal_post_error(pDevice, "slCreateEngine() failed.", MAL_NO_BACKEND);
+            return mal_post_error(pDevice, "[OpenSL] slCreateEngine() failed.", MAL_NO_BACKEND);
         }
 
         (*g_malEngineObjectSL)->Realize(g_malEngineObjectSL, SL_BOOLEAN_FALSE);
@@ -5936,7 +5936,7 @@ static mal_result mal_device_init__opensl(mal_context* pContext, mal_device_type
         if (resultSL != SL_RESULT_SUCCESS) {
             (*g_malEngineObjectSL)->Destroy(g_malEngineObjectSL);
             mal_atomic_decrement_32(&g_malOpenSLInitCounter);
-            return mal_post_error(pDevice, "Failed to retrieve SL_IID_ENGINE interface.", MAL_NO_BACKEND);
+            return mal_post_error(pDevice, "[OpenSL] Failed to retrieve SL_IID_ENGINE interface.", MAL_NO_BACKEND);
         }
     }
 
@@ -6013,17 +6013,17 @@ static mal_result mal_device_init__opensl(mal_context* pContext, mal_device_type
         SLresult resultSL = (*g_malEngineSL)->CreateOutputMix(g_malEngineSL, (SLObjectItf*)&pDevice->opensl.pOutputMixObj, 0, NULL, NULL);
         if (resultSL != SL_RESULT_SUCCESS) {
             mal_device_uninit__opensl(pDevice);
-            return mal_post_error(pDevice, "Failed to create output mix.", MAL_NO_BACKEND);
+            return mal_post_error(pDevice, "[OpenSL] Failed to create output mix.", MAL_FAILED_TO_OPEN_BACKEND_DEVICE);
         }
 
         if (MAL_OPENSL_OBJ(pDevice->opensl.pOutputMixObj)->Realize((SLObjectItf)pDevice->opensl.pOutputMixObj, SL_BOOLEAN_FALSE)) {
             mal_device_uninit__opensl(pDevice);
-            return mal_post_error(pDevice, "Failed to realize output mix object.", MAL_NO_BACKEND);
+            return mal_post_error(pDevice, "[OpenSL] Failed to realize output mix object.", MAL_FAILED_TO_OPEN_BACKEND_DEVICE);
         }
 
         if (MAL_OPENSL_OBJ(pDevice->opensl.pOutputMixObj)->GetInterface((SLObjectItf)pDevice->opensl.pOutputMixObj, SL_IID_OUTPUTMIX, &pDevice->opensl.pOutputMix) != SL_RESULT_SUCCESS) {
             mal_device_uninit__opensl(pDevice);
-            return mal_post_error(pDevice, "Failed to retrieve SL_IID_OUTPUTMIX interface.", MAL_NO_BACKEND);
+            return mal_post_error(pDevice, "[OpenSL] Failed to retrieve SL_IID_OUTPUTMIX interface.", MAL_FAILED_TO_OPEN_BACKEND_DEVICE);
         }
 
         // Set the output device.
@@ -6059,28 +6059,28 @@ static mal_result mal_device_init__opensl(mal_context* pContext, mal_device_type
 
         if (resultSL != SL_RESULT_SUCCESS) {
             mal_device_uninit__opensl(pDevice);
-            return mal_post_error(pDevice, "Failed to create audio player.", MAL_NO_BACKEND);
+            return mal_post_error(pDevice, "[OpenSL] Failed to create audio player.", MAL_FAILED_TO_OPEN_BACKEND_DEVICE);
         }
 
 
         if (MAL_OPENSL_OBJ(pDevice->opensl.pAudioPlayerObj)->Realize((SLObjectItf)pDevice->opensl.pAudioPlayerObj, SL_BOOLEAN_FALSE) != SL_RESULT_SUCCESS) {
             mal_device_uninit__opensl(pDevice);
-            return mal_post_error(pDevice, "Failed to realize audio player.", MAL_NO_BACKEND);
+            return mal_post_error(pDevice, "[OpenSL] Failed to realize audio player.", MAL_FAILED_TO_OPEN_BACKEND_DEVICE);
         }
 
         if (MAL_OPENSL_OBJ(pDevice->opensl.pAudioPlayerObj)->GetInterface((SLObjectItf)pDevice->opensl.pAudioPlayerObj, SL_IID_PLAY, &pDevice->opensl.pAudioPlayer) != SL_RESULT_SUCCESS) {
             mal_device_uninit__opensl(pDevice);
-            return mal_post_error(pDevice, "Failed to retrieve SL_IID_PLAY interface.", MAL_NO_BACKEND);
+            return mal_post_error(pDevice, "[OpenSL] Failed to retrieve SL_IID_PLAY interface.", MAL_FAILED_TO_OPEN_BACKEND_DEVICE);
         }
 
         if (MAL_OPENSL_OBJ(pDevice->opensl.pAudioPlayerObj)->GetInterface((SLObjectItf)pDevice->opensl.pAudioPlayerObj, SL_IID_ANDROIDSIMPLEBUFFERQUEUE, &pDevice->opensl.pBufferQueue) != SL_RESULT_SUCCESS) {
             mal_device_uninit__opensl(pDevice);
-            return mal_post_error(pDevice, "Failed to retrieve SL_IID_ANDROIDSIMPLEBUFFERQUEUE interface.", MAL_NO_BACKEND);
+            return mal_post_error(pDevice, "[OpenSL] Failed to retrieve SL_IID_ANDROIDSIMPLEBUFFERQUEUE interface.", MAL_FAILED_TO_OPEN_BACKEND_DEVICE);
         }
 
         if (MAL_OPENSL_BUFFERQUEUE(pDevice->opensl.pBufferQueue)->RegisterCallback((SLAndroidSimpleBufferQueueItf)pDevice->opensl.pBufferQueue, mal_buffer_queue_callback__opensl_android, pDevice) != SL_RESULT_SUCCESS) {
             mal_device_uninit__opensl(pDevice);
-            return mal_post_error(pDevice, "Failed to register buffer queue callback.", MAL_NO_BACKEND);
+            return mal_post_error(pDevice, "[OpenSL] Failed to register buffer queue callback.", MAL_FAILED_TO_OPEN_BACKEND_DEVICE);
         }
     } else {
         SLDataLocator_IODevice locatorDevice;
@@ -6113,27 +6113,27 @@ static mal_result mal_device_init__opensl(mal_context* pContext, mal_device_type
 
         if (resultSL != SL_RESULT_SUCCESS) {
             mal_device_uninit__opensl(pDevice);
-            return mal_post_error(pDevice, "Failed to create audio recorder.", MAL_NO_BACKEND);
+            return mal_post_error(pDevice, "[OpenSL] Failed to create audio recorder.", MAL_FAILED_TO_OPEN_BACKEND_DEVICE);
         }
 
         if (MAL_OPENSL_OBJ(pDevice->opensl.pAudioRecorderObj)->Realize((SLObjectItf)pDevice->opensl.pAudioRecorderObj, SL_BOOLEAN_FALSE) != SL_RESULT_SUCCESS) {
             mal_device_uninit__opensl(pDevice);
-            return mal_post_error(pDevice, "Failed to realize audio recorder.", MAL_NO_BACKEND);
+            return mal_post_error(pDevice, "[OpenSL] Failed to realize audio recorder.", MAL_FAILED_TO_OPEN_BACKEND_DEVICE);
         }
 
         if (MAL_OPENSL_OBJ(pDevice->opensl.pAudioRecorderObj)->GetInterface((SLObjectItf)pDevice->opensl.pAudioRecorderObj, SL_IID_RECORD, &pDevice->opensl.pAudioRecorder) != SL_RESULT_SUCCESS) {
             mal_device_uninit__opensl(pDevice);
-            return mal_post_error(pDevice, "Failed to retrieve SL_IID_RECORD interface.", MAL_NO_BACKEND);
+            return mal_post_error(pDevice, "[OpenSL] Failed to retrieve SL_IID_RECORD interface.", MAL_FAILED_TO_OPEN_BACKEND_DEVICE);
         }
 
         if (MAL_OPENSL_OBJ(pDevice->opensl.pAudioRecorderObj)->GetInterface((SLObjectItf)pDevice->opensl.pAudioRecorderObj, SL_IID_ANDROIDSIMPLEBUFFERQUEUE, &pDevice->opensl.pBufferQueue) != SL_RESULT_SUCCESS) {
             mal_device_uninit__opensl(pDevice);
-            return mal_post_error(pDevice, "Failed to retrieve SL_IID_ANDROIDSIMPLEBUFFERQUEUE interface.", MAL_NO_BACKEND);
+            return mal_post_error(pDevice, "[OpenSL] Failed to retrieve SL_IID_ANDROIDSIMPLEBUFFERQUEUE interface.", MAL_FAILED_TO_OPEN_BACKEND_DEVICE);
         }
 
         if (MAL_OPENSL_BUFFERQUEUE(pDevice->opensl.pBufferQueue)->RegisterCallback((SLAndroidSimpleBufferQueueItf)pDevice->opensl.pBufferQueue, mal_buffer_queue_callback__opensl_android, pDevice) != SL_RESULT_SUCCESS) {
             mal_device_uninit__opensl(pDevice);
-            return mal_post_error(pDevice, "Failed to register buffer queue callback.", MAL_NO_BACKEND);
+            return mal_post_error(pDevice, "[OpenSL] Failed to register buffer queue callback.", MAL_FAILED_TO_OPEN_BACKEND_DEVICE);
         }
     }
 
@@ -6176,7 +6176,7 @@ static mal_result mal_device_init__opensl(mal_context* pContext, mal_device_type
     pDevice->opensl.pBuffer = (mal_uint8*)mal_malloc(bufferSizeInBytes);
     if (pDevice->opensl.pBuffer == NULL) {
         mal_device_uninit__opensl(pDevice);
-        return mal_post_error(pDevice, "Failed to allocate memory for data buffer.", MAL_OUT_OF_MEMORY);
+        return mal_post_error(pDevice, "[OpenSL] Failed to allocate memory for data buffer.", MAL_OUT_OF_MEMORY);
     }
 
     mal_zero_memory(pDevice->opensl.pBuffer, bufferSizeInBytes);
@@ -6191,7 +6191,7 @@ static mal_result mal_device__start_backend__opensl(mal_device* pDevice)
     if (pDevice->type == mal_device_type_playback) {
         SLresult resultSL = MAL_OPENSL_PLAY(pDevice->opensl.pAudioPlayer)->SetPlayState((SLPlayItf)pDevice->opensl.pAudioPlayer, SL_PLAYSTATE_PLAYING);
         if (resultSL != SL_RESULT_SUCCESS) {
-            return MAL_FAILED_TO_START_BACKEND_DEVICE;
+            return mal_post_error(pDevice, "[OpenSL] Failed to start internal playback device.", MAL_FAILED_TO_START_BACKEND_DEVICE);
         }
 
         // We need to enqueue a buffer for each period.
@@ -6202,13 +6202,13 @@ static mal_result mal_device__start_backend__opensl(mal_device* pDevice)
             resultSL = MAL_OPENSL_BUFFERQUEUE(pDevice->opensl.pBufferQueue)->Enqueue((SLAndroidSimpleBufferQueueItf)pDevice->opensl.pBufferQueue, pDevice->opensl.pBuffer + (periodSizeInBytes * iPeriod), periodSizeInBytes);
             if (resultSL != SL_RESULT_SUCCESS) {
                 MAL_OPENSL_PLAY(pDevice->opensl.pAudioPlayer)->SetPlayState((SLPlayItf)pDevice->opensl.pAudioPlayer, SL_PLAYSTATE_STOPPED);
-                return MAL_FAILED_TO_START_BACKEND_DEVICE;
+                return mal_post_error(pDevice, "[OpenSL] Failed to enqueue buffer for playback device.", MAL_FAILED_TO_START_BACKEND_DEVICE);
             }
         }
     } else {
         SLresult resultSL = MAL_OPENSL_RECORD(pDevice->opensl.pAudioRecorder)->SetRecordState((SLRecordItf)pDevice->opensl.pAudioRecorder, SL_RECORDSTATE_RECORDING);
         if (resultSL != SL_RESULT_SUCCESS) {
-            return MAL_FAILED_TO_START_BACKEND_DEVICE;
+            return mal_post_error(pDevice, "[OpenSL] Failed to start internal capture device.", MAL_FAILED_TO_START_BACKEND_DEVICE);
         }
 
         size_t periodSizeInBytes = pDevice->opensl.periodSizeInFrames * pDevice->internalChannels * mal_get_sample_size_in_bytes(pDevice->internalFormat);
@@ -6216,7 +6216,7 @@ static mal_result mal_device__start_backend__opensl(mal_device* pDevice)
             resultSL = MAL_OPENSL_BUFFERQUEUE(pDevice->opensl.pBufferQueue)->Enqueue((SLAndroidSimpleBufferQueueItf)pDevice->opensl.pBufferQueue, pDevice->opensl.pBuffer + (periodSizeInBytes * iPeriod), periodSizeInBytes);
             if (resultSL != SL_RESULT_SUCCESS) {
                 MAL_OPENSL_RECORD(pDevice->opensl.pAudioRecorder)->SetRecordState((SLRecordItf)pDevice->opensl.pAudioRecorder, SL_RECORDSTATE_STOPPED);
-                return MAL_FAILED_TO_START_BACKEND_DEVICE;
+                return mal_post_error(pDevice, "[OpenSL] Failed to enqueue buffer for capture device.", MAL_FAILED_TO_START_BACKEND_DEVICE);
             }
         }
     }
@@ -6231,12 +6231,12 @@ static mal_result mal_device__stop_backend__opensl(mal_device* pDevice)
     if (pDevice->type == mal_device_type_playback) {
         SLresult resultSL = MAL_OPENSL_PLAY(pDevice->opensl.pAudioPlayer)->SetPlayState((SLPlayItf)pDevice->opensl.pAudioPlayer, SL_PLAYSTATE_STOPPED);
         if (resultSL != SL_RESULT_SUCCESS) {
-            return MAL_FAILED_TO_STOP_BACKEND_DEVICE;
+            return mal_post_error(pDevice, "[OpenSL] Failed to stop internal playback device.", MAL_FAILED_TO_STOP_BACKEND_DEVICE);
         }
     } else {
         SLresult resultSL = MAL_OPENSL_RECORD(pDevice->opensl.pAudioRecorder)->SetRecordState((SLRecordItf)pDevice->opensl.pAudioRecorder, SL_RECORDSTATE_STOPPED);
         if (resultSL != SL_RESULT_SUCCESS) {
-            return MAL_FAILED_TO_STOP_BACKEND_DEVICE;
+            return mal_post_error(pDevice, "[OpenSL] Failed to stop internal capture device.", MAL_FAILED_TO_STOP_BACKEND_DEVICE);
         }
     }
 
