@@ -1960,6 +1960,7 @@ static mal_result mal_post_error(mal_device* pDevice, const char* message, mal_r
 }
 
 
+#if !defined(MAL_ANDROID)
 static void mal_get_default_channel_mapping(mal_backend backend, mal_uint32 channels, mal_channel channelMap[MAL_MAX_CHANNELS])
 {
 	if (channels == 1) {           // Mono
@@ -2027,6 +2028,7 @@ static void mal_get_default_channel_mapping(mal_backend backend, mal_uint32 chan
 		}
     }
 }
+#endif
 
 
 // The callback for reading from the client -> DSP -> device.
