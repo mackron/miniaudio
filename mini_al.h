@@ -76,7 +76,7 @@
 //   ...
 //
 //   mal_context context;
-//   if (mal_context_init(NULL, 0, &context) != MAL_SUCCESS) {
+//   if (mal_context_init(NULL, 0, NULL, &context) != MAL_SUCCESS) {
 //       printf("Failed to initialize context.");
 //       return -3;
 //   }
@@ -364,12 +364,13 @@ typedef int mal_result;
 #define MAL_WINMM_FAILED_TO_GET_DEVICE_CAPS             -4096
 #define MAL_WINMM_FAILED_TO_GET_SUPPORTED_FORMATS       -4097
 
+typedef struct mal_context mal_context;
 typedef struct mal_device mal_device;
 
+typedef void       (* mal_log_proc) (mal_context* pContext, mal_device* pDevice, const char* message);
 typedef void       (* mal_recv_proc)(mal_device* pDevice, mal_uint32 frameCount, const void* pSamples);
 typedef mal_uint32 (* mal_send_proc)(mal_device* pDevice, mal_uint32 frameCount, void* pSamples);
 typedef void       (* mal_stop_proc)(mal_device* pDevice);
-typedef void       (* mal_log_proc) (mal_device* pDevice, const char* message);
 
 typedef enum
 {
@@ -539,12 +540,12 @@ typedef struct
     mal_recv_proc onRecvCallback;
     mal_send_proc onSendCallback;
     mal_stop_proc onStopCallback;
-    mal_log_proc  onLogCallback;
 } mal_device_config;
 
-typedef struct
+struct mal_context
 {
     mal_backend backend;    // DirectSound, ALSA, etc.
+    mal_log_proc onLog;
 
     union
     {
@@ -718,7 +719,7 @@ typedef struct
 #endif
         int _unused;
     };
-} mal_context;
+};
 
 struct mal_device
 {
@@ -734,7 +735,6 @@ struct mal_device
     mal_recv_proc onRecv;
     mal_send_proc onSend;
     mal_stop_proc onStop;
-    mal_log_proc onLog;
     void* pUserData;        // Application defined data.
     mal_mutex lock;
     mal_event wakeupEvent;
@@ -882,29 +882,24 @@ struct mal_device
 //   - OpenAL
 //   - Null
 //
+// The onLog callback is used for posting log messages back to the client for diagnostics, debugging,
+// etc. You can pass NULL for this if you do not need it.
+//
 // Return Value:
-//   - MAL_SUCCESS if successful.
-//   - MAL_INVALID_ARGS
-//       One or more of the input arguments is invalid.
-//   - MAL_NO_BACKEND
-//       There is no supported backend, or there was an error loading it (such as a missing dll/so).
+//   MAL_SUCCESS if successful; any other error code otherwise.
 //
 // Thread Safety: UNSAFE
 //
 // Effeciency: LOW
 //   This will dynamically load backends DLLs/SOs (such as dsound.dll).
-mal_result mal_context_init(mal_backend backends[], mal_uint32 backendCount, mal_context* pContext);
+mal_result mal_context_init(mal_backend backends[], mal_uint32 backendCount, mal_log_proc onLog, mal_context* pContext);
 
 // Uninitializes a context.
 //
 // Results are undefined if you call this while any device created by this context is still active.
 //
 // Return Value:
-//   - MAL_SUCCESS if successful.
-//   - MAL_INVALID_ARGS
-//       One or more of the input arguments is invalid.
-//   - MAL_NO_BACKEND
-//       The device has an unknown backend. This probably means the context of <pContext> has been trashed.
+//   MAL_SUCCESS if successful; any other error code otherwise.
 //
 // Thread Safety: UNSAFE
 //
@@ -1951,21 +1946,33 @@ mal_bool32 mal_event_signal(mal_event* pEvent)
 
 
 // Posts a log message.
-static void mal_log(mal_device* pDevice, const char* message)
+static void mal_log(mal_context* pContext, mal_device* pDevice, const char* message)
 {
-    if (pDevice == NULL) return;
+    if (pContext == NULL) return;
 
-    mal_log_proc onLog = pDevice->onLog;
+    mal_log_proc onLog = pContext->onLog;
     if (onLog) {
-        onLog(pDevice, message);
+        onLog(pContext, pDevice, message);
     }
 }
 
 // Posts an error. Throw a breakpoint in here if you're needing to debug. The return value is always "resultCode".
+static mal_result mal_context_post_error(mal_context* pContext, mal_device* pDevice, const char* message, mal_result resultCode)
+{
+    // Derive the context from the device if necessary.
+    if (pContext == NULL) {
+        if (pDevice != NULL) {
+            pContext = pDevice->pContext;
+        }
+    }
+
+    mal_log(pContext, pDevice, message);
+    return resultCode;
+}
+
 static mal_result mal_post_error(mal_device* pDevice, const char* message, mal_result resultCode)
 {
-    mal_log(pDevice, message);
-    return resultCode;
+    return mal_context_post_error(NULL, pDevice, message, resultCode);
 }
 
 
@@ -7319,10 +7326,11 @@ mal_result mal_context_uninit_backend_apis(mal_context* pContext)
     return result;
 }
 
-mal_result mal_context_init(mal_backend backends[], mal_uint32 backendCount, mal_context* pContext)
+mal_result mal_context_init(mal_backend backends[], mal_uint32 backendCount, mal_log_proc onLog, mal_context* pContext)
 {
     if (pContext == NULL) return MAL_INVALID_ARGS;
     mal_zero_object(pContext);
+    pContext->onLog = onLog;    // <-- Set this at the top to ensure the application has access to every log message.
 
     // Backend APIs need to be initialized first. This is where external libraries will be loaded and linked.
     mal_result result = mal_context_init_backend_apis(pContext);
@@ -7576,14 +7584,13 @@ mal_result mal_device_init(mal_context* pContext, mal_device_type type, mal_devi
 
     // Set the user data and log callback ASAP to ensure it is available for the entire initialization process.
     pDevice->pUserData = pUserData;
-    pDevice->onLog  = pConfig->onLogCallback;
     pDevice->onStop = pConfig->onStopCallback;
     pDevice->onSend = pConfig->onSendCallback;
     pDevice->onRecv = pConfig->onRecvCallback;
 
     if (((mal_uint64)pDevice % sizeof(pDevice)) != 0) {
-        if (pDevice->onLog) {
-            pDevice->onLog(pDevice, "WARNING: mal_device_init() called for a device that is not properly aligned. Thread safety is not supported.");
+        if (pContext->onLog) {
+            pContext->onLog(pContext, pDevice, "WARNING: mal_device_init() called for a device that is not properly aligned. Thread safety is not supported.");
         }
     }
 
@@ -9176,6 +9183,9 @@ void mal_pcm_f32_to_s32(int* pOut, const float* pIn, unsigned int count)
 // ================
 //
 // v0.4 - TBD
+//   - API CHANGE: The log callback is now per-context rather than per-device and as is thus now passed to
+//     mal_context_init(). The rationale for this change is that it allows applications to capture diagnostic
+//     messages at the context level. Previously this was only available at the device level.
 //   - Added support for OSS which enables support on BSD platforms.
 //   - Added support for WinMM (waveOut/waveIn).
 //   - Added support for UWP (Universal Windows Platform) applications. Currently C++ only.
