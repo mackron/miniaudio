@@ -6668,7 +6668,7 @@ static mal_result mal_device_init__openal(mal_context* pContext, mal_device_type
     }
 
     if (pDeviceALC == NULL) {
-        return MAL_FAILED_TO_INIT_BACKEND;
+        return mal_context_post_error(pContext, NULL, "[OpenAL] Failed to open device.", MAL_FAILED_TO_INIT_BACKEND);
     }
 
     // A context is only required for playback.
@@ -6677,7 +6677,7 @@ static mal_result mal_device_init__openal(mal_context* pContext, mal_device_type
         pContextALC = ((MAL_LPALCCREATECONTEXT)pContext->openal.alcCreateContext)(pDeviceALC, NULL);
         if (pContextALC == NULL) {
             ((MAL_LPALCCLOSEDEVICE)pDevice->pContext->openal.alcCloseDevice)(pDeviceALC);
-            return MAL_FAILED_TO_INIT_BACKEND;
+            return mal_context_post_error(pContext, NULL, "[OpenAL] Failed to open OpenAL context.", MAL_FAILED_TO_INIT_BACKEND);
         }
 
         ((MAL_LPALCMAKECONTEXTCURRENT)pDevice->pContext->openal.alcMakeContextCurrent)(pContextALC);
@@ -6823,7 +6823,7 @@ static mal_result mal_device_init__openal(mal_context* pContext, mal_device_type
     pDevice->openal.pIntermediaryBuffer = (mal_uint8*)mal_malloc(pDevice->openal.subBufferSizeInFrames * channelsAL * mal_get_sample_size_in_bytes(pDevice->internalFormat));
     if (pDevice->openal.pIntermediaryBuffer == NULL) {
         mal_device_uninit__openal(pDevice);
-        return MAL_OUT_OF_MEMORY;
+        return mal_context_post_error(pContext, NULL, "[OpenAL] Failed to allocate memory for intermediary buffer.", MAL_OUT_OF_MEMORY);
     }
 
     return MAL_SUCCESS;
