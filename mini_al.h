@@ -4644,7 +4644,7 @@ static mal_uint32 mal_device__wait_for_frames__alsa(mal_device* pDevice)
 static mal_bool32 mal_device_write__alsa(mal_device* pDevice)
 {
     mal_assert(pDevice != NULL);
-    if (!mal_device_is_started(pDevice)) {
+    if (!mal_device_is_started(pDevice) && mal_device__get_state(pDevice) != MAL_STATE_STARTING) {
         return MAL_FALSE;
     }
     if (pDevice->alsa.breakFromMainLoop) {
