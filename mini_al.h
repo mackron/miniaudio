@@ -55,10 +55,10 @@
 //
 // Building (Linux)
 // ----------------
-// The Linux build uses ALSA for it's backend so you will need to install the relevant ALSA development pacakges
-// for your preferred distro. It also uses pthreads.
+// The Linux build uses ALSA for it's backend so you will need to install the relevant ALSA development packages
+// for your preferred distro. It also uses pthreads, but you should not need to explicitly link to -lpthread.
 //
-// Linking: -lasound -lpthread -ldl
+// Linking: -lasound -ldl
 //
 //
 // Playback Example
@@ -9256,6 +9256,7 @@ void mal_pcm_f32_to_s32(int* pOut, const float* pIn, unsigned int count)
 //   - Added support for OSS which enables support on BSD platforms.
 //   - Added support for WinMM (waveOut/waveIn).
 //   - Added support for UWP (Universal Windows Platform) applications. Currently C++ only.
+//   - POSIX builds should no longer require explicit linking to libpthread (-lpthread).
 //   - WASAPI is now the highest priority backend on Windows platforms.
 //   - Improved error handling.
 //
