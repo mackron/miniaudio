@@ -356,6 +356,8 @@ typedef int mal_result;
 #define MAL_ALSA_FAILED_TO_OPEN_DEVICE                  -2048
 #define MAL_ALSA_FAILED_TO_SET_HW_PARAMS                -2049
 #define MAL_ALSA_FAILED_TO_SET_SW_PARAMS                -2050
+#define MAL_ALSA_FAILED_TO_PREPARE_DEVICE               -2051
+#define MAL_ALSA_FAILED_TO_RECOVER_DEVICE               -2052
 #define MAL_WASAPI_FAILED_TO_CREATE_DEVICE_ENUMERATOR   -3072
 #define MAL_WASAPI_FAILED_TO_CREATE_DEVICE              -3073
 #define MAL_WASAPI_FAILED_TO_ACTIVATE_DEVICE            -3074
@@ -4702,11 +4704,13 @@ static mal_bool32 mal_device_write__alsa(mal_device* pDevice)
                 } else if (framesWritten == -EPIPE) {
                     // Underrun. Just recover and try writing again.
                     if (snd_pcm_recover((snd_pcm_t*)pDevice->alsa.pPCM, framesWritten, MAL_TRUE) < 0) {
+                        mal_post_error(pDevice, "[ALSA] Failed to recover device after underrun.", MAL_ALSA_FAILED_TO_RECOVER_DEVICE);
                         return MAL_FALSE;
                     }
 
                     framesWritten = snd_pcm_writei((snd_pcm_t*)pDevice->alsa.pPCM, pDevice->alsa.pIntermediaryBuffer, framesAvailable);
                     if (framesWritten < 0) {
+                        mal_post_error(pDevice, "[ALSA] Failed to write data to the internal device.", MAL_FAILED_TO_SEND_DATA_TO_DEVICE);
                         return MAL_FALSE;
                     }
 
@@ -4778,11 +4782,13 @@ static mal_bool32 mal_device_read__alsa(mal_device* pDevice)
                 } else if (framesRead == -EPIPE) {
                     // Overrun. Just recover and try reading again.
                     if (snd_pcm_recover((snd_pcm_t*)pDevice->alsa.pPCM, framesRead, MAL_TRUE) < 0) {
+                        mal_post_error(pDevice, "[ALSA] Failed to recover device after overrun.", MAL_ALSA_FAILED_TO_RECOVER_DEVICE);
                         return MAL_FALSE;
                     }
 
                     framesRead = snd_pcm_readi((snd_pcm_t*)pDevice->alsa.pPCM, pDevice->alsa.pIntermediaryBuffer, framesAvailable);
                     if (framesRead < 0) {
+                        mal_post_error(pDevice, "[ALSA] Failed to read data from the internal device.", MAL_FAILED_TO_READ_DATA_FROM_DEVICE);
                         return MAL_FALSE;
                     }
 
@@ -5145,14 +5151,20 @@ static mal_result mal_device__start_backend__alsa(mal_device* pDevice)
     mal_assert(pDevice != NULL);
 
     // Prepare the device first...
-    snd_pcm_prepare((snd_pcm_t*)pDevice->alsa.pPCM);
+    if (snd_pcm_prepare((snd_pcm_t*)pDevice->alsa.pPCM) < 0) {
+        return mal_post_error(pDevice, "[ALSA] Failed to prepare device.", MAL_ALSA_FAILED_TO_PREPARE_DEVICE);
+    }
 
     // ... and then grab an initial chunk from the client. After this is done, the device should
     // automatically start playing, since that's how we configured the software parameters.
     if (pDevice->type == mal_device_type_playback) {
-        mal_device_write__alsa(pDevice);
+        if (!mal_device_write__alsa(pDevice)) {
+            return mal_post_error(pDevice, "[ALSA] Failed to write initial chunk of data to the playback device.", MAL_FAILED_TO_SEND_DATA_TO_DEVICE);
+        }
     } else {
-        snd_pcm_start((snd_pcm_t*)pDevice->alsa.pPCM);
+        if (snd_pcm_start((snd_pcm_t*)pDevice->alsa.pPCM) < 0) {
+            return mal_post_error(pDevice, "[ALSA] Failed to start capture device.", MAL_FAILED_TO_START_BACKEND_DEVICE);
+        }
     }
 
     return MAL_SUCCESS;
@@ -5225,7 +5237,7 @@ mal_result mal_context_init__oss(mal_context* pContext)
 	// Try opening a temporary device first so we can get version information. This is closed at the end.
 	int fd = mal_open_temp_device__oss();
 	if (fd == -1) {
-		return MAL_NO_BACKEND;	// Looks liks OSS isn't installed, or there are no available devices.
+        return mal_context_post_error(pContext, NULL, "[OSS] Failed to open temporary device for retrieving system properties.", MAL_NO_BACKEND);   // Looks liks OSS isn't installed, or there are no available devices.
 	}
 
 	// Grab the OSS version.
@@ -5233,7 +5245,7 @@ mal_result mal_context_init__oss(mal_context* pContext)
 	int result = ioctl(fd, OSS_GETVERSION, &ossVersion);
 	if (result == -1) {
 		close(fd);
-		return MAL_ERROR;	// Looks like OSS isn't installed.
+        return mal_context_post_error(pContext, NULL, "[OSS] Failed to retrieve OSS version.", MAL_NO_BACKEND);
 	}
 
 	pContext->oss.versionMajor = ((ossVersion & 0xFF0000) >> 16);
@@ -5262,7 +5274,7 @@ static mal_result mal_enumerate_devices__oss(mal_context* pContext, mal_device_t
 	// The object returned by SNDCTL_SYSINFO will have the information we're after.
 	int fd = mal_open_temp_device__oss();
 	if (fd == -1) {
-		return MAL_ERROR;	// Failed to open a temporary device for retrieving the system info.
+        return mal_context_post_error(pContext, NULL, "[OSS] Failed to open a temporary device for retrieving system information used for device enumeration.", MAL_NO_BACKEND);
 	}
 
 	oss_sysinfo si;
@@ -5343,7 +5355,7 @@ static mal_result mal_device_init__oss(mal_context* pContext, mal_device_type ty
 
 	pDevice->oss.fd = open(deviceName, (type == mal_device_type_playback) ? O_WRONLY : O_RDONLY, 0);
 	if (pDevice->oss.fd == -1) {
-        return mal_post_error(pDevice, "[OSS] Failed to open device.", MAL_NO_DEVICE);
+        return mal_post_error(pDevice, "[OSS] Failed to open device.", MAL_FAILED_TO_OPEN_BACKEND_DEVICE);
 	}
 
 	// The OSS documantation is very clear about the order we should be initializing the device's properties:
@@ -5456,12 +5468,12 @@ static mal_result mal_device__start_backend__oss(mal_device* pDevice)
 		// Playback.
 		mal_uint32 samplesRead = mal_device__read_frames_from_client(pDevice, pDevice->oss.fragmentSizeInFrames, pDevice->oss.pIntermediaryBuffer);
 		if (samplesRead == 0) {
-			return MAL_FAILED_TO_READ_DATA_FROM_CLIENT;
+            return mal_post_error(pDevice, "[OSS] Failed to read initial chunk of data from the client.", MAL_FAILED_TO_READ_DATA_FROM_CLIENT);
 		}
 
 		int bytesWritten = write(pDevice->oss.fd, pDevice->oss.pIntermediaryBuffer, samplesRead * mal_get_sample_size_in_bytes(pDevice->internalFormat));
 		if (bytesWritten == -1) {
-			return MAL_FAILED_TO_START_BACKEND_DEVICE;
+            return mal_post_error(pDevice, "[OSS] Failed to send initial chunk of data to the device.", MAL_FAILED_TO_SEND_DATA_TO_DEVICE);
 		}
 	} else {
 		// Capture. Do nothing.
@@ -5487,7 +5499,7 @@ static mal_result mal_device__stop_backend__oss(mal_device* pDevice)
 
 	int result = ioctl(pDevice->oss.fd, SNDCTL_DSP_HALT, 0);
 	if (result == -1) {
-		return mal_post_error(pDevice, "[OSS] Failed to stop device. SNDCTL_DSP_HALT failed.", MAL_ERROR);
+		return mal_post_error(pDevice, "[OSS] Failed to stop device. SNDCTL_DSP_HALT failed.", MAL_FAILED_TO_STOP_BACKEND_DEVICE);
 	}
 
     return MAL_SUCCESS;
@@ -5519,13 +5531,13 @@ static mal_result mal_device__main_loop__oss(mal_device* pDevice)
 
 			int bytesWritten = write(pDevice->oss.fd, pDevice->oss.pIntermediaryBuffer, pDevice->oss.fragmentSizeInFrames * pDevice->internalChannels * mal_get_sample_size_in_bytes(pDevice->internalFormat));
 			if (bytesWritten < 0) {
-				return MAL_FAILED_TO_SEND_DATA_TO_DEVICE;
+                return mal_post_error(pDevice, "[OSS] Failed to send data from the client to the device.", MAL_FAILED_TO_SEND_DATA_TO_DEVICE);
 			}
 		} else {
 			// Capture.
 			int bytesRead = read(pDevice->oss.fd, pDevice->oss.pIntermediaryBuffer, pDevice->oss.fragmentSizeInFrames * mal_get_sample_size_in_bytes(pDevice->internalFormat));
 			if (bytesRead < 0) {
-				return MAL_FAILED_TO_READ_DATA_FROM_DEVICE;
+                return mal_post_error(pDevice, "[OSS] Failed to read data from the device to be sent to the client.", MAL_FAILED_TO_READ_DATA_FROM_DEVICE);
 			}
 
 			mal_uint32 framesRead = (mal_uint32)bytesRead / pDevice->internalChannels / mal_get_sample_size_in_bytes(pDevice->internalFormat);
