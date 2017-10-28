@@ -361,6 +361,8 @@ typedef int mal_result;
 #define MAL_WASAPI_FAILED_TO_ACTIVATE_DEVICE            -3074
 #define MAL_WASAPI_FAILED_TO_INITIALIZE_DEVICE          -3075
 #define MAL_WASAPI_FAILED_TO_FIND_BEST_FORMAT           -3076
+#define MAL_WINMM_FAILED_TO_GET_DEVICE_CAPS             -4096
+#define MAL_WINMM_FAILED_TO_GET_SUPPORTED_FORMATS       -4097
 
 typedef struct mal_device mal_device;
 
@@ -3871,6 +3873,21 @@ typedef MMRESULT (WINAPI * MAL_PFN_waveInAddBuffer)(HWAVEIN hwi, LPWAVEHDR pwh, 
 typedef MMRESULT (WINAPI * MAL_PFN_waveInStart)(HWAVEIN hwi);
 typedef MMRESULT (WINAPI * MAL_PFN_waveInReset)(HWAVEIN hwi);
 
+mal_result mal_result_from_MMRESULT(MMRESULT resultMM)
+{
+    switch (resultMM) {
+        case MMSYSERR_NOERROR:      return MAL_SUCCESS;
+        case MMSYSERR_BADDEVICEID:  return MAL_INVALID_ARGS;
+        case MMSYSERR_INVALHANDLE:  return MAL_INVALID_ARGS;
+        case MMSYSERR_NOMEM:        return MAL_OUT_OF_MEMORY;
+        case MMSYSERR_INVALFLAG:    return MAL_INVALID_ARGS;
+        case MMSYSERR_INVALPARAM:   return MAL_INVALID_ARGS;
+        case MMSYSERR_HANDLEBUSY:   return MAL_DEVICE_BUSY;
+        case MMSYSERR_ERROR:        return MAL_ERROR;
+        default:                    return MAL_ERROR;
+    }
+}
+
 mal_result mal_context_init__winmm(mal_context* pContext)
 {
     mal_assert(pContext != NULL);
@@ -4027,7 +4044,7 @@ static mal_result mal_device_init__winmm(mal_context* pContext, mal_device_type 
         if (((MAL_PFN_waveOutGetDevCapsA)pContext->winmm.waveOutGetDevCapsA)(winMMDeviceID, &caps, sizeof(caps)) == MMSYSERR_NOERROR) {
             dwFormats = caps.dwFormats;
         } else {
-            errorMsg = "[WinMM] Failed to retrieve internal device caps.", errorCode = MAL_ERROR;
+            errorMsg = "[WinMM] Failed to retrieve internal device caps.", errorCode = MAL_WINMM_FAILED_TO_GET_DEVICE_CAPS;
             goto on_error;
         }
     } else {
@@ -4035,13 +4052,13 @@ static mal_result mal_device_init__winmm(mal_context* pContext, mal_device_type 
         if (((MAL_PFN_waveInGetDevCapsA)pContext->winmm.waveInGetDevCapsA)(winMMDeviceID, &caps, sizeof(caps)) == MMSYSERR_NOERROR) {
             dwFormats = caps.dwFormats;
         } else {
-            errorMsg = "[WinMM] Failed to retrieve internal device caps.", errorCode = MAL_ERROR;
+            errorMsg = "[WinMM] Failed to retrieve internal device caps.", errorCode = MAL_WINMM_FAILED_TO_GET_DEVICE_CAPS;
             goto on_error;
         }
     }
 
     if (dwFormats == 0) {
-        errorMsg = "[WinMM] Failed to retrieve the supported formats for the internal device.", errorCode = MAL_ERROR;
+        errorMsg = "[WinMM] Failed to retrieve the supported formats for the internal device.", errorCode = MAL_WINMM_FAILED_TO_GET_SUPPORTED_FORMATS;
         goto on_error;
     }
 
@@ -4237,7 +4254,7 @@ static mal_result mal_device_init__winmm(mal_context* pContext, mal_device_type 
     // We use an event to know when a new fragment needs to be enqueued.
     pDevice->winmm.hEvent = (mal_handle)CreateEvent(NULL, TRUE, TRUE, NULL);
     if (pDevice->winmm.hEvent == NULL) {
-        errorMsg = "[WinMM] Failed to create event.", errorCode = MAL_ERROR;
+        errorMsg = "[WinMM] Failed to create event for fragment enqueing.", errorCode = MAL_FAILED_TO_CREATE_EVENT;
         goto on_error;
     }
 
@@ -4334,7 +4351,7 @@ static mal_result mal_device__start_backend__winmm(mal_device* pDevice)
             mal_device__read_frames_from_client(pDevice, pDevice->winmm.fragmentSizeInFrames, ((LPWAVEHDR)pDevice->winmm.pWAVEHDR)[i].lpData);
 
             if (((MAL_PFN_waveOutPrepareHeader)pDevice->pContext->winmm.waveOutPrepareHeader)((HWAVEOUT)pDevice->winmm.hDevice, &((LPWAVEHDR)pDevice->winmm.pWAVEHDR)[i], sizeof(WAVEHDR)) != MMSYSERR_NOERROR) {
-                return MAL_FAILED_TO_START_BACKEND_DEVICE;
+                return mal_post_error(pDevice, "[WinMM] Failed to start backend device. Failed to prepare header.", MAL_FAILED_TO_START_BACKEND_DEVICE);
             }
         }
 
@@ -4342,12 +4359,14 @@ static mal_result mal_device__start_backend__winmm(mal_device* pDevice)
 
         for (mal_uint32 i = 0; i < pDevice->periods; ++i) {
             if (((MAL_PFN_waveOutWrite)pDevice->pContext->winmm.waveOutWrite)((HWAVEOUT)pDevice->winmm.hDevice, &((LPWAVEHDR)pDevice->winmm.pWAVEHDR)[i], sizeof(WAVEHDR)) != MMSYSERR_NOERROR) {
-                return MAL_FAILED_TO_START_BACKEND_DEVICE;
+                return mal_post_error(pDevice, "[WinMM] Failed to start backend device. Failed to send data to the backend device.", MAL_FAILED_TO_START_BACKEND_DEVICE);
             }
         }
     } else {
         // Capture.
-        ((MAL_PFN_waveInStart)pDevice->pContext->winmm.waveInStart)((HWAVEIN)pDevice->winmm.hDevice);
+        if (((MAL_PFN_waveInStart)pDevice->pContext->winmm.waveInStart)((HWAVEIN)pDevice->winmm.hDevice) != MMSYSERR_NOERROR) {
+            return mal_post_error(pDevice, "[WinMM] Failed to start backend device.", MAL_FAILED_TO_START_BACKEND_DEVICE);
+        }
     }
 
     pDevice->winmm.iNextHeader = 0;
@@ -4359,18 +4378,30 @@ static mal_result mal_device__stop_backend__winmm(mal_device* pDevice)
     mal_assert(pDevice != NULL);
 
     if (pDevice->type == mal_device_type_playback) {
-        ((MAL_PFN_waveOutReset)pDevice->pContext->winmm.waveOutReset)((HWAVEOUT)pDevice->winmm.hDevice);
+        MMRESULT resultMM = ((MAL_PFN_waveOutReset)pDevice->pContext->winmm.waveOutReset)((HWAVEOUT)pDevice->winmm.hDevice);
+        if (resultMM != MMSYSERR_NOERROR) {
+            mal_post_error(pDevice, "[WinMM] WARNING: Failed to reset playback device.", mal_result_from_MMRESULT(resultMM));
+        }
 
         // Unprepare all WAVEHDR structures.
         for (mal_uint32 i = 0; i < pDevice->periods; ++i) {
-            ((MAL_PFN_waveOutUnprepareHeader)pDevice->pContext->winmm.waveOutUnprepareHeader)((HWAVEOUT)pDevice->winmm.hDevice, &((LPWAVEHDR)pDevice->winmm.pWAVEHDR)[i], sizeof(WAVEHDR));
+            resultMM = ((MAL_PFN_waveOutUnprepareHeader)pDevice->pContext->winmm.waveOutUnprepareHeader)((HWAVEOUT)pDevice->winmm.hDevice, &((LPWAVEHDR)pDevice->winmm.pWAVEHDR)[i], sizeof(WAVEHDR));
+            if (resultMM != MMSYSERR_NOERROR) {
+                mal_post_error(pDevice, "[WinMM] WARNING: Failed to unprepare header for playback device.", mal_result_from_MMRESULT(resultMM));
+            }
         }
     } else {
-        ((MAL_PFN_waveInReset)pDevice->pContext->winmm.waveInReset)((HWAVEIN)pDevice->winmm.hDevice);
+        MMRESULT resultMM = ((MAL_PFN_waveInReset)pDevice->pContext->winmm.waveInReset)((HWAVEIN)pDevice->winmm.hDevice);
+        if (resultMM != MMSYSERR_NOERROR) {
+            mal_post_error(pDevice, "[WinMM] WARNING: Failed to reset capture device.", mal_result_from_MMRESULT(resultMM));
+        }
         
         // Unprepare all WAVEHDR structures.
         for (mal_uint32 i = 0; i < pDevice->periods; ++i) {
-            ((MAL_PFN_waveInUnprepareHeader)pDevice->pContext->winmm.waveInUnprepareHeader)((HWAVEIN)pDevice->winmm.hDevice, &((LPWAVEHDR)pDevice->winmm.pWAVEHDR)[i], sizeof(WAVEHDR));
+            resultMM = ((MAL_PFN_waveInUnprepareHeader)pDevice->pContext->winmm.waveInUnprepareHeader)((HWAVEIN)pDevice->winmm.hDevice, &((LPWAVEHDR)pDevice->winmm.pWAVEHDR)[i], sizeof(WAVEHDR));
+            if (resultMM != MMSYSERR_NOERROR) {
+                mal_post_error(pDevice, "[WinMM] WARNING: Failed to unprepare header for playback device.", mal_result_from_MMRESULT(resultMM));
+            }
         }
     }
 
@@ -4413,8 +4444,9 @@ static mal_result mal_device__main_loop__winmm(mal_device* pDevice)
 
             if (pDevice->type == mal_device_type_playback) {
 			    // Playback.
-                MMRESULT winmmResult = ((MAL_PFN_waveOutUnprepareHeader)pDevice->pContext->winmm.waveOutUnprepareHeader)((HWAVEOUT)pDevice->winmm.hDevice, &((LPWAVEHDR)pDevice->winmm.pWAVEHDR)[i], sizeof(WAVEHDR));
-                if (winmmResult != MMSYSERR_NOERROR) {
+                MMRESULT resultMM = ((MAL_PFN_waveOutUnprepareHeader)pDevice->pContext->winmm.waveOutUnprepareHeader)((HWAVEOUT)pDevice->winmm.hDevice, &((LPWAVEHDR)pDevice->winmm.pWAVEHDR)[i], sizeof(WAVEHDR));
+                if (resultMM != MMSYSERR_NOERROR) {
+                    mal_post_error(pDevice, "[WinMM] Failed to unprepare header for playback device in preparation for sending a new block of data to the device for playback.", mal_result_from_MMRESULT(resultMM));
                     break;
                 }
 
@@ -4426,8 +4458,9 @@ static mal_result mal_device__main_loop__winmm(mal_device* pDevice)
                 ((LPWAVEHDR)pDevice->winmm.pWAVEHDR)[i].dwUser = 1;     // <-- Used in the next section to identify the buffers that needs to be re-written to the device.
 			    mal_device__read_frames_from_client(pDevice, pDevice->winmm.fragmentSizeInFrames, ((LPWAVEHDR)pDevice->winmm.pWAVEHDR)[i].lpData);
 
-                winmmResult = ((MAL_PFN_waveOutPrepareHeader)pDevice->pContext->winmm.waveOutPrepareHeader)((HWAVEOUT)pDevice->winmm.hDevice, &((LPWAVEHDR)pDevice->winmm.pWAVEHDR)[i], sizeof(WAVEHDR));
-                if (winmmResult != MMSYSERR_NOERROR) {
+                resultMM = ((MAL_PFN_waveOutPrepareHeader)pDevice->pContext->winmm.waveOutPrepareHeader)((HWAVEOUT)pDevice->winmm.hDevice, &((LPWAVEHDR)pDevice->winmm.pWAVEHDR)[i], sizeof(WAVEHDR));
+                if (resultMM != MMSYSERR_NOERROR) {
+                    mal_post_error(pDevice, "[WinMM] Failed to prepare header for playback device in preparation for sending a new block of data to the device for playback.", mal_result_from_MMRESULT(resultMM));
                     break;
                 }
 		    } else {
@@ -4437,8 +4470,9 @@ static mal_result mal_device__main_loop__winmm(mal_device* pDevice)
                     mal_device__send_frames_to_client(pDevice, framesCaptured, ((LPWAVEHDR)pDevice->winmm.pWAVEHDR)[i].lpData);
                 }
 			    
-                MMRESULT winmmResult = ((MAL_PFN_waveInUnprepareHeader)pDevice->pContext->winmm.waveInUnprepareHeader)((HWAVEIN)pDevice->winmm.hDevice, &((LPWAVEHDR)pDevice->winmm.pWAVEHDR)[i], sizeof(WAVEHDR));
-                if (winmmResult != MMSYSERR_NOERROR) {
+                MMRESULT resultMM = ((MAL_PFN_waveInUnprepareHeader)pDevice->pContext->winmm.waveInUnprepareHeader)((HWAVEIN)pDevice->winmm.hDevice, &((LPWAVEHDR)pDevice->winmm.pWAVEHDR)[i], sizeof(WAVEHDR));
+                if (resultMM != MMSYSERR_NOERROR) {
+                    mal_post_error(pDevice, "[WinMM] Failed to unprepare header for capture device in preparation for adding a new capture buffer for the device.", mal_result_from_MMRESULT(resultMM));
                     break;
                 }
 
@@ -4449,8 +4483,9 @@ static mal_result mal_device__main_loop__winmm(mal_device* pDevice)
                 ((LPWAVEHDR)pDevice->winmm.pWAVEHDR)[i].dwLoops = 0L;
                 ((LPWAVEHDR)pDevice->winmm.pWAVEHDR)[i].dwUser = 1;     // <-- Used in the next section to identify the buffers that needs to be re-added to the device.
 
-                winmmResult = ((MAL_PFN_waveInPrepareHeader)pDevice->pContext->winmm.waveInPrepareHeader)((HWAVEIN)pDevice->winmm.hDevice, &((LPWAVEHDR)pDevice->winmm.pWAVEHDR)[i], sizeof(WAVEHDR));
-                if (winmmResult != MMSYSERR_NOERROR) {
+                resultMM = ((MAL_PFN_waveInPrepareHeader)pDevice->pContext->winmm.waveInPrepareHeader)((HWAVEIN)pDevice->winmm.hDevice, &((LPWAVEHDR)pDevice->winmm.pWAVEHDR)[i], sizeof(WAVEHDR));
+                if (resultMM != MMSYSERR_NOERROR) {
+                    mal_post_error(pDevice, "[WinMM] Failed to prepare header for capture device in preparation for addin a new capture buffer for the device.", mal_result_from_MMRESULT(resultMM));
                     break;
                 }
 		    }
@@ -4468,14 +4503,16 @@ static mal_result mal_device__main_loop__winmm(mal_device* pDevice)
 
                 if (pDevice->type == mal_device_type_playback) {
 			        // Playback.
-                    MMRESULT winmmResult = ((MAL_PFN_waveOutWrite)pDevice->pContext->winmm.waveOutWrite)((HWAVEOUT)pDevice->winmm.hDevice, &((LPWAVEHDR)pDevice->winmm.pWAVEHDR)[i], sizeof(WAVEHDR));
-                    if (winmmResult != MMSYSERR_NOERROR) {
+                    MMRESULT resultMM = ((MAL_PFN_waveOutWrite)pDevice->pContext->winmm.waveOutWrite)((HWAVEOUT)pDevice->winmm.hDevice, &((LPWAVEHDR)pDevice->winmm.pWAVEHDR)[i], sizeof(WAVEHDR));
+                    if (resultMM != MMSYSERR_NOERROR) {
+                        mal_post_error(pDevice, "[WinMM] Failed to write data to the internal playback device.", mal_result_from_MMRESULT(resultMM));
                         break;
                     }
 		        } else {
 			        // Capture.
-                    MMRESULT winmmResult = ((MAL_PFN_waveInAddBuffer)pDevice->pContext->winmm.waveInAddBuffer)((HWAVEIN)pDevice->winmm.hDevice, &((LPWAVEHDR)pDevice->winmm.pWAVEHDR)[i], sizeof(WAVEHDR));
-                    if (winmmResult != MMSYSERR_NOERROR) {
+                    MMRESULT resultMM = ((MAL_PFN_waveInAddBuffer)pDevice->pContext->winmm.waveInAddBuffer)((HWAVEIN)pDevice->winmm.hDevice, &((LPWAVEHDR)pDevice->winmm.pWAVEHDR)[i], sizeof(WAVEHDR));
+                    if (resultMM != MMSYSERR_NOERROR) {
+                        mal_post_error(pDevice, "[WinMM] Failed to add new capture buffer to the internal capture device.", mal_result_from_MMRESULT(resultMM));
                         break;
                     }
 		        }
