@@ -361,6 +361,8 @@ typedef int mal_result;
 #define MAL_WASAPI_FAILED_TO_ACTIVATE_DEVICE            -3074
 #define MAL_WASAPI_FAILED_TO_INITIALIZE_DEVICE          -3075
 #define MAL_WASAPI_FAILED_TO_FIND_BEST_FORMAT           -3076
+#define MAL_WASAPI_FAILED_TO_GET_INTERNAL_BUFFER        -3077
+#define MAL_WASAPI_FAILED_TO_RELEASE_INTERNAL_BUFFER    -3078
 #define MAL_WINMM_FAILED_TO_GET_DEVICE_CAPS             -4096
 #define MAL_WINMM_FAILED_TO_GET_SUPPORTED_FORMATS       -4097
 
@@ -2714,14 +2716,14 @@ static mal_result mal_enumerate_devices__wasapi(mal_context* pContext, mal_devic
     IMMDeviceEnumerator* pDeviceEnumerator;
     HRESULT hr = mal_CoCreateInstance(pContext, g_malCLSID_MMDeviceEnumerator, NULL, CLSCTX_ALL, g_malIID_IMMDeviceEnumerator, (void**)&pDeviceEnumerator);
     if (FAILED(hr)) {
-        return MAL_WASAPI_FAILED_TO_CREATE_DEVICE_ENUMERATOR;
+        return mal_context_post_error(pContext, NULL, "[WASAPI] Failed to create device enumerator.", MAL_WASAPI_FAILED_TO_CREATE_DEVICE_ENUMERATOR);
     }
 
     IMMDeviceCollection* pDeviceCollection;
     hr = IMMDeviceEnumerator_EnumAudioEndpoints(pDeviceEnumerator, (type == mal_device_type_playback) ? eRender : eCapture, DEVICE_STATE_ACTIVE, &pDeviceCollection);
     if (FAILED(hr)) {
         IMMDeviceEnumerator_Release(pDeviceEnumerator);
-        return MAL_NO_DEVICE;
+        return mal_context_post_error(pContext, NULL, "[WASAPI] Failed to enumerate audio endpoints.", MAL_NO_DEVICE);
     }
 
     IMMDeviceEnumerator_Release(pDeviceEnumerator);
@@ -2730,7 +2732,7 @@ static mal_result mal_enumerate_devices__wasapi(mal_context* pContext, mal_devic
     hr = IMMDeviceCollection_GetCount(pDeviceCollection, &count);
     if (FAILED(hr)) {
         IMMDeviceCollection_Release(pDeviceCollection);
-        return MAL_NO_DEVICE;
+        return mal_context_post_error(pContext, NULL, "[WASAPI] Failed to get device count.", MAL_NO_DEVICE);
     }
 
     for (mal_uint32 iDevice = 0; iDevice < infoSize && iDevice < count; ++iDevice) {
@@ -3088,20 +3090,20 @@ static mal_result mal_device__start_backend__wasapi(mal_device* pDevice)
         BYTE* pData;
         HRESULT hr = IAudioRenderClient_GetBuffer(pDevice->wasapi.pRenderClient, pDevice->bufferSizeInFrames, &pData);
         if (FAILED(hr)) {
-            return MAL_FAILED_TO_READ_DATA_FROM_CLIENT;
+            return mal_post_error(pDevice, "[WASAPI] Failed to retrieve buffer from internal playback device.", MAL_WASAPI_FAILED_TO_GET_INTERNAL_BUFFER);
         }
 
         mal_device__read_frames_from_client(pDevice, pDevice->bufferSizeInFrames, pData);
 
         hr = IAudioRenderClient_ReleaseBuffer(pDevice->wasapi.pRenderClient, pDevice->bufferSizeInFrames, 0);
         if (FAILED(hr)) {
-            return MAL_FAILED_TO_READ_DATA_FROM_CLIENT;
+            return mal_post_error(pDevice, "[WASAPI] Failed to release internal buffer for playback device.", MAL_WASAPI_FAILED_TO_RELEASE_INTERNAL_BUFFER);
         }
     }
 
     HRESULT hr = IAudioClient_Start(pDevice->wasapi.pAudioClient);
     if (FAILED(hr)) {
-        return MAL_FAILED_TO_START_BACKEND_DEVICE;
+        return mal_post_error(pDevice, "[WASAPI] Failed to start internal device.", MAL_FAILED_TO_START_BACKEND_DEVICE);
     }
 
     return MAL_SUCCESS;
@@ -3113,7 +3115,7 @@ static mal_result mal_device__stop_backend__wasapi(mal_device* pDevice)
 
     HRESULT hr = IAudioClient_Stop(pDevice->wasapi.pAudioClient);
     if (FAILED(hr)) {
-        return MAL_FAILED_TO_STOP_BACKEND_DEVICE;
+        return mal_post_error(pDevice, "[WASAPI] Failed to stop internal device.", MAL_FAILED_TO_STOP_BACKEND_DEVICE);
     }
 
     return MAL_SUCCESS;
@@ -3194,14 +3196,14 @@ static mal_result mal_device__main_loop__wasapi(mal_device* pDevice)
             BYTE* pData;
             HRESULT hr = IAudioRenderClient_GetBuffer(pDevice->wasapi.pRenderClient, framesAvailable, &pData);
             if (FAILED(hr)) {
-                return MAL_FAILED_TO_READ_DATA_FROM_CLIENT;
+                return mal_post_error(pDevice, "[WASAPI] Failed to retrieve internal buffer from playback device in preparation for sending new data to the device.", MAL_WASAPI_FAILED_TO_GET_INTERNAL_BUFFER);
             }
 
             mal_device__read_frames_from_client(pDevice, framesAvailable, pData);
 
             hr = IAudioRenderClient_ReleaseBuffer(pDevice->wasapi.pRenderClient, framesAvailable, 0);
             if (FAILED(hr)) {
-                return MAL_FAILED_TO_READ_DATA_FROM_CLIENT;
+                return mal_post_error(pDevice, "[WASAPI] Failed to release internal buffer from playback device in preparation for sending new data to the device.", MAL_WASAPI_FAILED_TO_RELEASE_INTERNAL_BUFFER);
             }
         } else {
             UINT32 framesRemaining = framesAvailable;
@@ -3211,14 +3213,15 @@ static mal_result mal_device__main_loop__wasapi(mal_device* pDevice)
                 DWORD flags;
                 HRESULT hr = IAudioCaptureClient_GetBuffer(pDevice->wasapi.pCaptureClient, &pData, &framesToSend, &flags, NULL, NULL);
                 if (FAILED(hr)) {
+                    mal_post_error(pDevice, "[WASAPI] WARNING: Failed to retrieve internal buffer from capture device in preparation for sending new data to the client.", MAL_WASAPI_FAILED_TO_GET_INTERNAL_BUFFER);
                     break;
                 }
 
-                // NOTE: Do we need to handle the case when the AUDCLNT_BUFFERFLAGS_SILENT bit is set in <flags>?
                 mal_device__send_frames_to_client(pDevice, framesToSend, pData);
 
                 hr = IAudioCaptureClient_ReleaseBuffer(pDevice->wasapi.pCaptureClient, framesToSend);
                 if (FAILED(hr)) {
+                    mal_post_error(pDevice, "[WASAPI] WARNING: Failed to release internal buffer from capture device in preparation for sending new data to the client.", MAL_WASAPI_FAILED_TO_RELEASE_INTERNAL_BUFFER);
                     break;
                 }
 
