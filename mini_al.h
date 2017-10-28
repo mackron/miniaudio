@@ -399,11 +399,12 @@ typedef enum
 {
     // I like to keep these explicitly defined because they're used as a key into a lookup table. When items are
     // added to this, make sure there are no gaps and that they're added to the lookup table in mal_get_sample_size_in_bytes().
-    mal_format_u8  = 0,
-    mal_format_s16 = 1,   // Seems to be the most widely supported format.
-    mal_format_s24 = 2,   // Tightly packed. 3 bytes per sample.
-    mal_format_s32 = 3,
-    mal_format_f32 = 4,
+    mal_format_unknown = 0,     // Mainly used for indicating an error.
+    mal_format_u8      = 1,
+    mal_format_s16     = 2,     // Seems to be the most widely supported format.
+    mal_format_s24     = 3,     // Tightly packed. 3 bytes per sample.
+    mal_format_s32     = 4,
+    mal_format_f32     = 5,
 } mal_format;
 
 typedef enum
@@ -598,6 +599,8 @@ struct mal_context
             mal_proc snd_pcm_hw_params_sizeof;
             mal_proc snd_pcm_hw_params_any;
             mal_proc snd_pcm_hw_params_set_format;
+            mal_proc snd_pcm_hw_params_set_format_first;
+            mal_proc snd_pcm_hw_params_get_format_mask;
             mal_proc snd_pcm_hw_params_set_channels_near;
             mal_proc snd_pcm_hw_params_set_rate_near;
             mal_proc snd_pcm_hw_params_set_buffer_size_near;
@@ -609,6 +612,8 @@ struct mal_context
             mal_proc snd_pcm_sw_params_set_avail_min;
             mal_proc snd_pcm_sw_params_set_start_threshold;
             mal_proc snd_pcm_sw_params;
+            mal_proc snd_pcm_format_mask_sizeof;
+            mal_proc snd_pcm_format_mask_test;
             mal_proc snd_pcm_get_chmap;
             mal_proc snd_pcm_prepare;
             mal_proc snd_pcm_start;
@@ -4607,6 +4612,8 @@ typedef int               (* mal_snd_pcm_close_proc)                         (sn
 typedef size_t            (* mal_snd_pcm_hw_params_sizeof_proc)              (void);
 typedef int               (* mal_snd_pcm_hw_params_any_proc)                 (snd_pcm_t *pcm, snd_pcm_hw_params_t *params);
 typedef int               (* mal_snd_pcm_hw_params_set_format_proc)          (snd_pcm_t *pcm, snd_pcm_hw_params_t *params, snd_pcm_format_t val);
+typedef int               (* mal_snd_pcm_hw_params_set_format_first_proc)    (snd_pcm_t *pcm, snd_pcm_hw_params_t *params, snd_pcm_format_t *format);
+typedef void              (* mal_snd_pcm_hw_params_get_format_mask_proc)     (snd_pcm_hw_params_t *params, snd_pcm_format_mask_t *mask);
 typedef int               (* mal_snd_pcm_hw_params_set_channels_near_proc)   (snd_pcm_t *pcm, snd_pcm_hw_params_t *params, unsigned int *val);
 typedef int               (* mal_snd_pcm_hw_params_set_rate_near_proc)       (snd_pcm_t *pcm, snd_pcm_hw_params_t *params, unsigned int *val, int *dir);
 typedef int               (* mal_snd_pcm_hw_params_set_buffer_size_near_proc)(snd_pcm_t *pcm, snd_pcm_hw_params_t *params, snd_pcm_uframes_t *val);
@@ -4618,6 +4625,8 @@ typedef int               (* mal_snd_pcm_sw_params_current_proc)             (sn
 typedef int               (* mal_snd_pcm_sw_params_set_avail_min_proc)       (snd_pcm_t *pcm, snd_pcm_sw_params_t *params, snd_pcm_uframes_t val);
 typedef int               (* mal_snd_pcm_sw_params_set_start_threshold_proc) (snd_pcm_t *pcm, snd_pcm_sw_params_t *params, snd_pcm_uframes_t val);
 typedef int               (* mal_snd_pcm_sw_params_proc)                     (snd_pcm_t *pcm, snd_pcm_sw_params_t *params);
+typedef size_t            (* mal_snd_pcm_format_mask_sizeof_proc)            (void);
+typedef int               (* mal_snd_pcm_format_mask_test_proc)              (const snd_pcm_format_mask_t *mask, snd_pcm_format_t val);
 typedef snd_pcm_chmap_t * (* mal_snd_pcm_get_chmap_proc)                     (snd_pcm_t *pcm);
 typedef int               (* mal_snd_pcm_prepare_proc)                       (snd_pcm_t *pcm);
 typedef int               (* mal_snd_pcm_start_proc)                         (snd_pcm_t *pcm);
@@ -4634,6 +4643,32 @@ typedef snd_pcm_sframes_t (* mal_snd_pcm_writei_proc)                        (sn
 typedef snd_pcm_sframes_t (* mal_snd_pcm_avail_proc)                         (snd_pcm_t *pcm);
 typedef int               (* mal_snd_pcm_wait_proc)                          (snd_pcm_t *pcm, int timeout);
 
+static snd_pcm_format_t g_mal_ALSAFormats[] = {
+    SND_PCM_FORMAT_UNKNOWN,     // mal_format_unknown
+    SND_PCM_FORMAT_U8,          // mal_format_u8
+    SND_PCM_FORMAT_S16_LE,      // mal_format_s16
+    SND_PCM_FORMAT_S24_3LE,     // mal_format_s24
+    SND_PCM_FORMAT_S32_LE,      // mal_format_s32
+    SND_PCM_FORMAT_FLOAT_LE     // mal_format_f32
+};
+
+snd_pcm_format_t mal_convert_mal_format_to_alsa_format(mal_format format)
+{
+    return g_mal_ALSAFormats[format];
+}
+
+mal_format mal_convert_alsa_format_to_mal_format(snd_pcm_format_t formatALSA)
+{
+    switch (formatALSA)
+    {
+        case SND_PCM_FORMAT_U8:       return mal_format_u8;
+        case SND_PCM_FORMAT_S16_LE:   return mal_format_s16;
+        case SND_PCM_FORMAT_S24_3LE:  return mal_format_s24;
+        case SND_PCM_FORMAT_S32_LE:   return mal_format_s32;
+        case SND_PCM_FORMAT_FLOAT_LE: return mal_format_f32;
+        default:                      return mal_format_unknown;
+    }
+}
 
 mal_channel mal_convert_alsa_channel_position_to_mal_channel(unsigned int alsaChannelPos)
 {
@@ -4684,6 +4719,8 @@ mal_result mal_context_init__alsa(mal_context* pContext)
     pContext->alsa.snd_pcm_hw_params_sizeof               = (mal_proc)mal_dlsym(pContext->alsa.asoundSO, "snd_pcm_hw_params_sizeof");
     pContext->alsa.snd_pcm_hw_params_any                  = (mal_proc)mal_dlsym(pContext->alsa.asoundSO, "snd_pcm_hw_params_any");
     pContext->alsa.snd_pcm_hw_params_set_format           = (mal_proc)mal_dlsym(pContext->alsa.asoundSO, "snd_pcm_hw_params_set_format");
+    pContext->alsa.snd_pcm_hw_params_set_format_first     = (mal_proc)mal_dlsym(pContext->alsa.asoundSO, "snd_pcm_hw_params_set_format_first");
+    pContext->alsa.snd_pcm_hw_params_get_format_mask      = (mal_proc)mal_dlsym(pContext->alsa.asoundSO, "snd_pcm_hw_params_get_format_mask");
     pContext->alsa.snd_pcm_hw_params_set_channels_near    = (mal_proc)mal_dlsym(pContext->alsa.asoundSO, "snd_pcm_hw_params_set_channels_near");
     pContext->alsa.snd_pcm_hw_params_set_rate_near        = (mal_proc)mal_dlsym(pContext->alsa.asoundSO, "snd_pcm_hw_params_set_rate_near");
     pContext->alsa.snd_pcm_hw_params_set_buffer_size_near = (mal_proc)mal_dlsym(pContext->alsa.asoundSO, "snd_pcm_hw_params_set_buffer_size_near");
@@ -4695,6 +4732,8 @@ mal_result mal_context_init__alsa(mal_context* pContext)
     pContext->alsa.snd_pcm_sw_params_set_avail_min        = (mal_proc)mal_dlsym(pContext->alsa.asoundSO, "snd_pcm_sw_params_set_avail_min");
     pContext->alsa.snd_pcm_sw_params_set_start_threshold  = (mal_proc)mal_dlsym(pContext->alsa.asoundSO, "snd_pcm_sw_params_set_start_threshold");
     pContext->alsa.snd_pcm_sw_params                      = (mal_proc)mal_dlsym(pContext->alsa.asoundSO, "snd_pcm_sw_params");
+    pContext->alsa.snd_pcm_format_mask_sizeof             = (mal_proc)mal_dlsym(pContext->alsa.asoundSO, "snd_pcm_format_mask_sizeof");
+    pContext->alsa.snd_pcm_format_mask_test               = (mal_proc)mal_dlsym(pContext->alsa.asoundSO, "snd_pcm_format_mask_test");
     pContext->alsa.snd_pcm_get_chmap                      = (mal_proc)mal_dlsym(pContext->alsa.asoundSO, "snd_pcm_get_chmap");
     pContext->alsa.snd_pcm_prepare                        = (mal_proc)mal_dlsym(pContext->alsa.asoundSO, "snd_pcm_prepare");
     pContext->alsa.snd_pcm_start                          = (mal_proc)mal_dlsym(pContext->alsa.asoundSO, "snd_pcm_start");
@@ -5117,16 +5156,8 @@ static mal_result mal_device_init__alsa(mal_context* pContext, mal_device_type t
     mal_assert(pDevice != NULL);
     mal_zero_object(&pDevice->alsa);
 
-    snd_pcm_format_t formatALSA;
-    switch (pConfig->format)
-    {
-        case mal_format_u8:  formatALSA = SND_PCM_FORMAT_U8;       break;
-        case mal_format_s16: formatALSA = SND_PCM_FORMAT_S16_LE;   break;
-        case mal_format_s24: formatALSA = SND_PCM_FORMAT_S24_3LE;  break;
-        case mal_format_s32: formatALSA = SND_PCM_FORMAT_S32_LE;   break;
-        case mal_format_f32: formatALSA = SND_PCM_FORMAT_FLOAT_LE; break;
-        return mal_post_error(pDevice, "[ALSA] Format not supported.", MAL_FORMAT_NOT_SUPPORTED);
-    }
+    snd_pcm_format_t formatALSA = mal_convert_mal_format_to_alsa_format(pConfig->format);
+
 
     char deviceName[32];
     if (pDeviceID == NULL) {
@@ -5171,9 +5202,47 @@ static mal_result mal_device_init__alsa(mal_context* pContext, mal_device_type t
     // find any documentation for ALSA specifically, so I'm going to copy the recommendation for OSS.
 
     // Format.
+    // Try getting every supported format.
+    snd_pcm_format_mask_t* pFormatMask = (snd_pcm_format_mask_t*)alloca(((mal_snd_pcm_format_mask_sizeof_proc)pContext->alsa.snd_pcm_format_mask_sizeof)());
+    mal_zero_memory(pFormatMask, ((mal_snd_pcm_format_mask_sizeof_proc)pContext->alsa.snd_pcm_format_mask_sizeof)());
+
+    ((mal_snd_pcm_hw_params_get_format_mask_proc)pContext->alsa.snd_pcm_hw_params_get_format_mask)(pHWParams, pFormatMask);
+
+    // At this point we should have a list of supported formats, so now we need to find the best one. We first check if the requested format is
+    // supported, and if so, use that one. If it's not supported, we just run though a list of formats and try to find the best one.
+    if (!((mal_snd_pcm_format_mask_test_proc)pContext->alsa.snd_pcm_format_mask_test)(pFormatMask, formatALSA)) {
+        // The requested format is not supported so now try running through the list of formats and return the best one.
+        snd_pcm_format_t preferredFormatsALSA[] = {
+            SND_PCM_FORMAT_FLOAT_LE,    // mal_format_f32
+            SND_PCM_FORMAT_S32_LE,      // mal_format_s32
+            SND_PCM_FORMAT_S24_3LE,     // mal_format_s24
+            SND_PCM_FORMAT_S16_LE,      // mal_format_s16
+            SND_PCM_FORMAT_U8           // mal_format_u8
+        };
+
+        formatALSA = SND_PCM_FORMAT_UNKNOWN;
+        for (size_t i = 0; i < (sizeof(preferredFormatsALSA) / sizeof(preferredFormatsALSA[0])); ++i) {
+            if (((mal_snd_pcm_format_mask_test_proc)pContext->alsa.snd_pcm_format_mask_test)(pFormatMask, preferredFormatsALSA[i])) {
+                formatALSA = preferredFormatsALSA[i];
+                break;
+            }
+        }
+
+        if (formatALSA == SND_PCM_FORMAT_UNKNOWN) {
+            mal_device_uninit__alsa(pDevice);
+            return mal_post_error(pDevice, "[ALSA] Format not supported. The device does not support any mini_al formats.", MAL_FORMAT_NOT_SUPPORTED);
+        }
+    }
+
     if (((mal_snd_pcm_hw_params_set_format_proc)pContext->alsa.snd_pcm_hw_params_set_format)((snd_pcm_t*)pDevice->alsa.pPCM, pHWParams, formatALSA) < 0) {
         mal_device_uninit__alsa(pDevice);
         return mal_post_error(pDevice, "[ALSA] Format not supported. snd_pcm_hw_params_set_format() failed.", MAL_FORMAT_NOT_SUPPORTED);
+    }
+
+    pDevice->internalFormat = mal_convert_alsa_format_to_mal_format(formatALSA);
+    if (pDevice->internalFormat == mal_format_unknown) {
+        mal_device_uninit__alsa(pDevice);
+        return mal_post_error(pDevice, "[ALSA] The chosen format is not supported by mini_al.", MAL_FORMAT_NOT_SUPPORTED);
     }
 
     // Channels.
@@ -8150,6 +8219,7 @@ mal_uint32 mal_device_get_buffer_size_in_bytes(mal_device* pDevice)
 mal_uint32 mal_get_sample_size_in_bytes(mal_format format)
 {
     mal_uint32 sizes[] = {
+        0,  // unknown
         1,  // u8
         2,  // s16
         3,  // s24
