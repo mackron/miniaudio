@@ -914,11 +914,7 @@ mal_result mal_context_uninit(mal_context* pContext);
 // Some backends and platforms may only support default playback and capture devices.
 //
 // Return Value:
-//   - MAL_SUCCESS if successful.
-//   - MAL_INVALID_ARGS
-//       One or more of the input arguments is invalid.
-//   - MAL_NO_BACKEND
-//       There is no supported backend, or there was an error loading it (such as a missing dll/so).
+//   MAL_SUCCESS if successful; any other error code otherwise.
 //
 // Thread Safety: SAFE, SEE NOTES.
 //   This API uses an application-defined buffer for output. This is thread-safe so long as the
@@ -954,19 +950,7 @@ mal_result mal_enumerate_devices(mal_context* pContext, mal_device_type type, ma
 // to the official documentation for ActivateAudioInterfaceAsync() for more information.
 //
 // Return Value:
-//   - MAL_SUCCESS if successful.
-//   - MAL_INVALID_ARGS
-//       One or more of the input arguments is invalid.
-//   - MAL_NO_BACKEND
-//       There is no supported backend, or there was an error loading it (such as a missing dll/so).
-//   - MAL_OUT_OF_MEMORY
-//       A necessary memory allocation failed, likely due to running out of memory.
-//   - MAL_FORMAT_NOT_SUPPORTED
-//       The specified format is not supported by the backend. mini_al does not currently do any
-//       software format conversions which means initialization must fail if the backend does not
-//       natively support it.
-//   - MAL_FAILED_TO_INIT_BACKEND
-//       There was a backend-specific error during initialization.
+//   MAL_SUCCESS if successful; any other error code otherwise.
 //
 // Thread Safety: UNSAFE
 //   It is not safe to call this function simultaneously for different devices because some backends
@@ -985,11 +969,7 @@ mal_result mal_device_init(mal_context* pContext, mal_device_type type, mal_devi
 // harmless if you do.
 //
 // Return Value:
-//   - MAL_SUCCESS if successful.
-//   - MAL_INVALID_ARGS
-//       pDevice is NULL.
-//   - MAL_DEVICE_NOT_INITIALIZED
-//       The device is not currently or was never initialized.
+//   MAL_SUCCESS if successful; any other error code otherwise.
 //
 // Thread Safety: UNSAFE
 //   As soon as this API is called the device should be considered undefined. All bets are off if you
@@ -1039,7 +1019,7 @@ void mal_device_set_stop_callback(mal_device* pDevice, mal_stop_proc proc);
 // to be done _before_ the device begins playback.
 //
 // Return Value:
-//   - MAL_SUCCESS if successful.
+//   - MAL_SUCCESS if successful; any other error code otherwise.
 //   - MAL_INVALID_ARGS
 //       One or more of the input arguments is invalid.
 //   - MAL_DEVICE_NOT_INITIALIZED
@@ -1070,7 +1050,7 @@ mal_result mal_device_start(mal_device* pDevice);
 // Puts the device to sleep, but does not uninitialize it. Use mal_device_start() to start it up again.
 //
 // Return Value:
-//   - MAL_SUCCESS if successful.
+//   - MAL_SUCCESS if successful; any other error code otherwise.
 //   - MAL_INVALID_ARGS
 //       One or more of the input arguments is invalid.
 //   - MAL_DEVICE_NOT_INITIALIZED
