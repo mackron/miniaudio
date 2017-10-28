@@ -12,7 +12,7 @@ int main(int argc, char** argv)
     (void)argv;
 
     mal_context context;
-    if (mal_context_init(NULL, 0, &context) != MAL_SUCCESS) {
+    if (mal_context_init(NULL, 0, NULL, &context) != MAL_SUCCESS) {
         printf("Failed to initialize context.");
         return -2;
     }
