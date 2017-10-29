@@ -3030,6 +3030,7 @@ static mal_result mal_device_init__wasapi(mal_context* pContext, mal_device_type
     }
 #else
     IActivateAudioInterfaceAsyncOperation *pAsyncOp = NULL;
+    malCompletionHandler completionHandler;
 
     IID iid;
     if (pDeviceID != NULL) {
@@ -3049,7 +3050,6 @@ static mal_result mal_device_init__wasapi(mal_context* pContext, mal_device_type
         goto done;
     }
 
-    malCompletionHandler completionHandler;
     result = completionHandler.Init();
     if (result != MAL_SUCCESS) {
         mal_CoTaskMemFree(pContext, iidStr);
