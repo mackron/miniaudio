@@ -7761,6 +7761,7 @@ mal_result mal_context_init(mal_backend backends[], mal_uint32 backendCount, mal
         mal_backend_wasapi,
         mal_backend_dsound,
         mal_backend_winmm,
+
         mal_backend_alsa,
 		mal_backend_oss,
         mal_backend_opensl,
@@ -8049,10 +8050,8 @@ mal_result mal_device_init(mal_context* pContext, mal_device_type type, mal_devi
         config.bufferSizeInFrames = (config.sampleRate/1000) * MAL_DEFAULT_BUFFER_SIZE_IN_MILLISECONDS;
         pDevice->usingDefaultBufferSize = MAL_TRUE;
     }
-
-    mal_uint32 periods = config.periods;
-    if (periods == 0) {
-        periods = MAL_DEFAULT_PERIODS;
+    if (config.periods == 0) {
+        config.periods = MAL_DEFAULT_PERIODS;
         pDevice->usingDefaultPeriods = MAL_TRUE;
     }
 
