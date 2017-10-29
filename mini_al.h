@@ -818,6 +818,7 @@ struct mal_device
             /*IAudioClient**/ mal_ptr pAudioClient;
             /*IAudioRenderClient**/ mal_ptr pRenderClient;
             /*IAudioCaptureClient**/ mal_ptr pCaptureClient;
+            /*HANDLE*/ mal_handle hEvent;
             /*HANDLE*/ mal_handle hStopEvent;
             mal_bool32 breakFromMainLoop;
         } wasapi;
@@ -1018,7 +1019,7 @@ mal_result mal_enumerate_devices(mal_context* pContext, mal_device_type type, ma
 //
 // Efficiency: LOW
 //   This is just slow due to the nature of it being an initialization API.
-mal_result mal_device_init(mal_context* pContext, mal_device_type type, mal_device_id* pDeviceID, mal_device_config* pConfig, void* pUserData, mal_device* pDevice);
+mal_result mal_device_init(mal_context* pContext, mal_device_type type, mal_device_id* pDeviceID, const mal_device_config* pConfig, void* pUserData, mal_device* pDevice);
 
 // Uninitializes a device.
 //
@@ -2268,7 +2269,7 @@ static void mal_device_uninit__null(mal_device* pDevice)
     mal_free(pDevice->null_device.pBuffer);
 }
 
-static mal_result mal_device_init__null(mal_context* pContext, mal_device_type type, mal_device_id* pDeviceID, mal_device_config* pConfig, mal_device* pDevice)
+static mal_result mal_device_init__null(mal_context* pContext, mal_device_type type, mal_device_id* pDeviceID, const mal_device_config* pConfig, mal_device* pDevice)
 {
     (void)pContext;
     (void)type;
@@ -2492,7 +2493,7 @@ static DWORD mal_channel_id_to_win32(DWORD id)
 }
 
 // Converts a channel mapping to a Win32-style channel mask.
-static DWORD mal_channel_map_to_channel_mask__win32(mal_uint8 channelMap[MAL_MAX_CHANNELS], mal_uint32 channels)
+static DWORD mal_channel_map_to_channel_mask__win32(const mal_uint8 channelMap[MAL_MAX_CHANNELS], mal_uint32 channels)
 {
     DWORD dwChannelMask = 0;
     for (mal_uint32 iChannel = 0; iChannel < channels; ++iChannel) {
@@ -2710,6 +2711,11 @@ const IID g_malIID_DEVINTERFACE_AUDIO_CAPTURE = {0x2EEF81BE, 0x33FA, 0x4800, {0x
 #else
     #define IAudioClient_GetCurrentPadding(p, a) ((IAudioClient*)p)->lpVtbl->GetCurrentPadding((IAudioClient*)p, a)
 #endif
+#ifdef __cplusplus
+    #define IAudioClient_SetEventHandle(p, a) ((IAudioClient*)p)->SetEventHandle(a)
+#else
+    #define IAudioClient_SetEventHandle(p, a) ((IAudioClient*)p)->lpVtbl->SetEventHandle((IAudioClient*)p, a)
+#endif
 
 // IAudioRenderClient
 #ifdef __cplusplus
@@ -2903,6 +2909,9 @@ static void mal_device_uninit__wasapi(mal_device* pDevice)
         IAudioClient_Release(pDevice->wasapi.pAudioClient);
     }
 
+    if (pDevice->wasapi.hEvent) {
+        CloseHandle(pDevice->wasapi.hEvent);
+    }
     if (pDevice->wasapi.hStopEvent) {
         CloseHandle(pDevice->wasapi.hStopEvent);
     }
@@ -2957,7 +2966,7 @@ static void mal_device_uninit__wasapi(mal_device* pDevice)
     #endif
 #endif  // !MAL_WIN32_DESKTOP
 
-static mal_result mal_device_init__wasapi(mal_context* pContext, mal_device_type type, mal_device_id* pDeviceID, mal_device_config* pConfig, mal_device* pDevice)
+static mal_result mal_device_init__wasapi(mal_context* pContext, mal_device_type type, mal_device_id* pDeviceID, const mal_device_config* pConfig, mal_device* pDevice)
 {
     (void)pContext;
 
@@ -2966,6 +2975,7 @@ static mal_result mal_device_init__wasapi(mal_context* pContext, mal_device_type
 
     HRESULT hr;
     mal_result result = MAL_SUCCESS;
+    const char* errorMsg = "";
     AUDCLNT_SHAREMODE shareMode = AUDCLNT_SHAREMODE_SHARED;
 
     WAVEFORMATEXTENSIBLE wf;
@@ -2986,27 +2996,28 @@ static mal_result mal_device_init__wasapi(mal_context* pContext, mal_device_type
     }
 
 #ifdef MAL_WIN32_DESKTOP
+    IMMDevice* pMMDevice = NULL;
+
     IMMDeviceEnumerator* pDeviceEnumerator;
     hr = mal_CoCreateInstance(pContext, g_malCLSID_MMDeviceEnumerator, NULL, CLSCTX_ALL, g_malIID_IMMDeviceEnumerator, (void**)&pDeviceEnumerator);
     if (FAILED(hr)) {
-        mal_device_uninit__wasapi(pDevice);
-        return mal_post_error(pDevice, "[WASAPI] Failed to create IMMDeviceEnumerator.", MAL_WASAPI_FAILED_TO_CREATE_DEVICE_ENUMERATOR);
+        errorMsg = "[WASAPI] Failed to create IMMDeviceEnumerator.", result = MAL_WASAPI_FAILED_TO_CREATE_DEVICE_ENUMERATOR;
+        goto done;
     }
 
-    IMMDevice* pMMDevice;
     if (pDeviceID == NULL) {
         hr = IMMDeviceEnumerator_GetDefaultAudioEndpoint(pDeviceEnumerator, (type == mal_device_type_playback) ? eRender : eCapture, eConsole, &pMMDevice);
         if (FAILED(hr)) {
             IMMDeviceEnumerator_Release(pDeviceEnumerator);
-            mal_device_uninit__wasapi(pDevice);
-            return mal_post_error(pDevice, "[WASAPI] Failed to create default backend device.", MAL_WASAPI_FAILED_TO_CREATE_DEVICE);
+            errorMsg = "[WASAPI] Failed to create default backend device.", result = MAL_WASAPI_FAILED_TO_CREATE_DEVICE;
+            goto done;
         }
     } else {
         hr = IMMDeviceEnumerator_GetDevice(pDeviceEnumerator, pDeviceID->wasapi, &pMMDevice);
         if (FAILED(hr)) {
             IMMDeviceEnumerator_Release(pDeviceEnumerator);
-            mal_device_uninit__wasapi(pDevice);
-            return mal_post_error(pDevice, "[WASAPI] Failed to create backend device.", MAL_WASAPI_FAILED_TO_CREATE_DEVICE);
+            errorMsg = "[WASAPI] Failed to create backend device.", result = MAL_WASAPI_FAILED_TO_CREATE_DEVICE;
+            goto done;
         }
     }
 
@@ -3014,10 +3025,12 @@ static mal_result mal_device_init__wasapi(mal_context* pContext, mal_device_type
 
     hr = IMMDevice_Activate(pMMDevice, g_malIID_IAudioClient, CLSCTX_ALL, NULL, &pDevice->wasapi.pAudioClient);
     if (FAILED(hr)) {
-        mal_device_uninit__wasapi(pDevice);
-        return mal_post_error(pDevice, "[WASAPI] Failed to activate device.", MAL_WASAPI_FAILED_TO_ACTIVATE_DEVICE);
+        errorMsg = "[WASAPI] Failed to activate device.", result = MAL_WASAPI_FAILED_TO_ACTIVATE_DEVICE;
+        goto done;
     }
 #else
+    IActivateAudioInterfaceAsyncOperation *pAsyncOp = NULL;
+
     IID iid;
     if (pDeviceID != NULL) {
         mal_copy_memory(&iid, pDeviceID->wasapi, sizeof(iid));
@@ -3032,25 +3045,26 @@ static mal_result mal_device_init__wasapi(mal_context* pContext, mal_device_type
     LPOLESTR iidStr;
     hr = StringFromIID(iid, &iidStr);
     if (FAILED(hr)) {
-        mal_device_uninit__wasapi(pDevice);
-        return mal_post_error(pDevice, "[WASAPI] Failed to convert device IID to string for ActivateAudioInterfaceAsync(). Out of memory.", MAL_OUT_OF_MEMORY);
+        errorMsg = "[WASAPI] Failed to convert device IID to string for ActivateAudioInterfaceAsync(). Out of memory.", result = MAL_OUT_OF_MEMORY;
+        goto done;
     }
 
     malCompletionHandler completionHandler;
     result = completionHandler.Init();
     if (result != MAL_SUCCESS) {
         mal_CoTaskMemFree(pContext, iidStr);
-        mal_device_uninit__wasapi(pDevice);
-        return mal_post_error(pDevice, "[WASAPI] Failed to create event for waiting for ActivateAudioInterfaceAsync().", MAL_WASAPI_FAILED_TO_ACTIVATE_DEVICE);
+
+        errorMsg = "[WASAPI] Failed to create event for waiting for ActivateAudioInterfaceAsync().", result = MAL_WASAPI_FAILED_TO_ACTIVATE_DEVICE;
+        goto done;
     }
 
-    IActivateAudioInterfaceAsyncOperation *pAsyncOp;
     hr = ActivateAudioInterfaceAsync(iidStr, g_malIID_IAudioClient, NULL, &completionHandler, &pAsyncOp);
     if (FAILED(hr)) {
         completionHandler.Uninit();
         mal_CoTaskMemFree(pContext, iidStr);
-        mal_device_uninit__wasapi(pDevice);
-        return mal_post_error(pDevice, "[WASAPI] ActivateAudioInterfaceAsync() failed.", MAL_WASAPI_FAILED_TO_ACTIVATE_DEVICE);
+
+        errorMsg = "[WASAPI] ActivateAudioInterfaceAsync() failed.", result = MAL_WASAPI_FAILED_TO_ACTIVATE_DEVICE;
+        goto done;
     }
 
     mal_CoTaskMemFree(pContext, iidStr);
@@ -3063,20 +3077,16 @@ static mal_result mal_device_init__wasapi(mal_context* pContext, mal_device_type
     IUnknown* pActivatedInterface;
     hr = IActivateAudioInterfaceAsyncOperation_GetActivateResult(pAsyncOp, &activateResult, &pActivatedInterface);
     if (FAILED(hr) || FAILED(activateResult)) {
-        IActivateAudioInterfaceAsyncOperation_Release(pAsyncOp);
-        mal_device_uninit__wasapi(pDevice);
-        return mal_post_error(pDevice, "[WASAPI] Failed to activate device.", MAL_WASAPI_FAILED_TO_ACTIVATE_DEVICE);
+        errorMsg = "[WASAPI] Failed to activate device.", result = MAL_WASAPI_FAILED_TO_ACTIVATE_DEVICE;
+        goto done;
     }
 
     // Here is where we grab the IAudioClient interface.
     hr = pActivatedInterface->QueryInterface(g_malIID_IAudioClient, &pDevice->wasapi.pAudioClient);
     if (FAILED(hr)) {
-        IActivateAudioInterfaceAsyncOperation_Release(pAsyncOp);
-        mal_device_uninit__wasapi(pDevice);
-        return mal_post_error(pDevice, "[WASAPI] Failed to query IAudioClient interface.", MAL_WASAPI_FAILED_TO_ACTIVATE_DEVICE);
+        errorMsg = "[WASAPI] Failed to query IAudioClient interface.", result = MAL_WASAPI_FAILED_TO_ACTIVATE_DEVICE;
+        goto done;
     }
-
-    IActivateAudioInterfaceAsyncOperation_Release(pAsyncOp);
 #endif
 
     // Here is where we try to determine the best format to use with the device. If the client if wanting exclusive mode, first try finding the best format for that. If this fails, fall back to shared mode.
@@ -3084,9 +3094,9 @@ static mal_result mal_device_init__wasapi(mal_context* pContext, mal_device_type
     result = MAL_FORMAT_NOT_SUPPORTED;
     if (pConfig->preferExclusiveMode) {
         hr = IAudioClient_IsFormatSupported(pDevice->wasapi.pAudioClient, AUDCLNT_SHAREMODE_EXCLUSIVE, (WAVEFORMATEX*)&wf, NULL);
+    #ifdef MAL_WIN32_DESKTOP
         if (hr == AUDCLNT_E_UNSUPPORTED_FORMAT) {
             // The format isn't supported, so retrieve the actual format from the property store and try that.
-        #ifdef MAL_WIN32_DESKTOP
             IPropertyStore* pStore = NULL;
             hr = IMMDevice_OpenPropertyStore(pMMDevice, STGM_READ, &pStore);
             if (SUCCEEDED(hr)) {
@@ -3097,7 +3107,7 @@ static mal_result mal_device_init__wasapi(mal_context* pContext, mal_device_type
                     WAVEFORMATEX* pActualFormat = (WAVEFORMATEX*)prop.blob.pBlobData;
                     hr = IAudioClient_IsFormatSupported(pDevice->wasapi.pAudioClient, AUDCLNT_SHAREMODE_EXCLUSIVE, pActualFormat, NULL);
                     if (SUCCEEDED(hr)) {
-                        mal_copy_memory(&wf, pActualFormat, pActualFormat->cbSize);
+                        mal_copy_memory(&wf, pActualFormat, sizeof(WAVEFORMATEXTENSIBLE));
                     }
 
                     mal_PropVariantClear(pDevice->pContext, &prop);
@@ -3105,18 +3115,14 @@ static mal_result mal_device_init__wasapi(mal_context* pContext, mal_device_type
 
                 IPropertyStore_Release(pStore);
             }
-        #endif
         }
+    #endif
 
         if (hr == S_OK) {
             shareMode = AUDCLNT_SHAREMODE_EXCLUSIVE;
             result = MAL_SUCCESS;
         }
     }
-
-#ifdef MAL_WIN32_DESKTOP
-    IMMDevice_Release(pMMDevice);
-#endif
 
     // Fall back to shared mode if necessary.
     if (result != MAL_SUCCESS) {
@@ -3137,8 +3143,8 @@ static mal_result mal_device_init__wasapi(mal_context* pContext, mal_device_type
 
     // Return an error if we still haven't found a format.
     if (result != MAL_SUCCESS) {
-        mal_device_uninit__wasapi(pDevice);
-        return mal_post_error(pDevice, "[WASAPI] Failed to find best device mix format.", MAL_WASAPI_FAILED_TO_ACTIVATE_DEVICE);
+        errorMsg = "[WASAPI] Failed to find best device mix format.", result = MAL_WASAPI_FAILED_TO_ACTIVATE_DEVICE;
+        goto done;
     }
 
     if (pBestFormatTemp != NULL) {
@@ -3147,7 +3153,7 @@ static mal_result mal_device_init__wasapi(mal_context* pContext, mal_device_type
     }
 
 
-    REFERENCE_TIME bufferDurationInMicroseconds = ((mal_uint64)pConfig->bufferSizeInFrames * 1000 * 1000) / pConfig->sampleRate;
+    REFERENCE_TIME bufferDurationInMicroseconds = ((mal_uint64)pDevice->bufferSizeInFrames * 1000 * 1000) / pConfig->sampleRate;
 
     if (mal_is_guid_equal(wf.SubFormat, MAL_GUID_KSDATAFORMAT_SUBTYPE_IEEE_FLOAT)) {
         pDevice->internalFormat = mal_format_f32;
@@ -3161,8 +3167,8 @@ static mal_result mal_device_init__wasapi(mal_context* pContext, mal_device_type
         } else if (wf.Format.wBitsPerSample == 8) {
             pDevice->internalFormat = mal_format_u8;
         } else {
-            mal_device_uninit__wasapi(pDevice);
-            return mal_post_error(pDevice, "[WASAPI] Device's native format is not supported.", MAL_FORMAT_NOT_SUPPORTED);
+            errorMsg = "[WASAPI] Device's native format is not supported.", result = MAL_FORMAT_NOT_SUPPORTED;
+            goto done;
         }
     }
 
@@ -3172,16 +3178,50 @@ static mal_result mal_device_init__wasapi(mal_context* pContext, mal_device_type
     // Get the internal channel map based on the channel mask.
     mal_channel_mask_to_channel_map__win32(wf.dwChannelMask, pDevice->internalChannels, pDevice->internalChannelMap);
 
-    hr = IAudioClient_Initialize(pDevice->wasapi.pAudioClient, shareMode, 0, bufferDurationInMicroseconds*10, 0, (WAVEFORMATEX*)&wf, NULL);
-    if (FAILED(hr)) {
-        mal_device_uninit__wasapi(pDevice);
-        return mal_post_error(pDevice, "[WASAPI] Failed to initialize device.", MAL_WASAPI_FAILED_TO_INITIALIZE_DEVICE);
+    // Slightly different initialization for shared and exclusive modes.
+    if (shareMode == AUDCLNT_SHAREMODE_SHARED) {
+        // Shared.
+        REFERENCE_TIME bufferDuration = bufferDurationInMicroseconds*10;
+        hr = IAudioClient_Initialize(pDevice->wasapi.pAudioClient, shareMode, AUDCLNT_STREAMFLAGS_EVENTCALLBACK, bufferDuration, 0, (WAVEFORMATEX*)&wf, NULL);
+        if (FAILED(hr)) {
+            errorMsg = "[WASAPI] Failed to initialize device.", result = MAL_WASAPI_FAILED_TO_INITIALIZE_DEVICE;
+            goto done;
+        }
+    } else {
+        // Exclusive.
+        REFERENCE_TIME bufferDuration = bufferDurationInMicroseconds*10;
+        hr = IAudioClient_Initialize(pDevice->wasapi.pAudioClient, shareMode, AUDCLNT_STREAMFLAGS_EVENTCALLBACK, bufferDuration, bufferDuration, (WAVEFORMATEX*)&wf, NULL);
+        if (hr == AUDCLNT_E_BUFFER_SIZE_NOT_ALIGNED) {
+            UINT bufferSizeInFrames;
+            hr = IAudioClient_GetBufferSize(pDevice->wasapi.pAudioClient, &bufferSizeInFrames);
+            if (SUCCEEDED(hr)) {
+                bufferDuration = (REFERENCE_TIME)((10000.0 * 1000 / wf.Format.nSamplesPerSec * bufferSizeInFrames) + 0.5);
+
+                // Unfortunately we need to release and re-acquire the audio client according to MSDN. Seems silly - why not just call IAudioClient_Initialize() again?!
+                IAudioClient_Release(pDevice->wasapi.pAudioClient);
+
+            #ifdef MAL_WIN32_DESKTOP
+                hr = IMMDevice_Activate(pMMDevice, g_malIID_IAudioClient, CLSCTX_ALL, NULL, &pDevice->wasapi.pAudioClient);
+            #else
+                hr = pActivatedInterface->QueryInterface(g_malIID_IAudioClient, &pDevice->wasapi.pAudioClient);
+            #endif
+
+                if (SUCCEEDED(hr)) {
+                    hr = IAudioClient_Initialize(pDevice->wasapi.pAudioClient, shareMode, AUDCLNT_STREAMFLAGS_EVENTCALLBACK, bufferDuration, bufferDuration, (WAVEFORMATEX*)&wf, NULL);
+                }
+            }
+        }
+
+        if (FAILED(hr)) {
+            errorMsg = "[WASAPI] Failed to initialize device.", result = MAL_WASAPI_FAILED_TO_INITIALIZE_DEVICE;
+            goto done;
+        }
     }
 
     hr = IAudioClient_GetBufferSize(pDevice->wasapi.pAudioClient, &pDevice->bufferSizeInFrames);
     if (FAILED(hr)) {
-        mal_device_uninit__wasapi(pDevice);
-        return mal_post_error(pDevice, "[WASAPI] Failed to get audio client's actual buffer size.", MAL_WASAPI_FAILED_TO_INITIALIZE_DEVICE);
+        errorMsg = "[WASAPI] Failed to get audio client's actual buffer size.", result = MAL_WASAPI_FAILED_TO_INITIALIZE_DEVICE;
+        goto done;
     }
 
     if (type == mal_device_type_playback) {
@@ -3191,8 +3231,8 @@ static mal_result mal_device_init__wasapi(mal_context* pContext, mal_device_type
     }
 
     if (FAILED(hr)) {
-        mal_device_uninit__wasapi(pDevice);
-        return mal_post_error(pDevice, "[WASAPI] Failed to get audio client service.", MAL_WASAPI_FAILED_TO_INITIALIZE_DEVICE);
+        errorMsg = "[WASAPI] Failed to get audio client service.", result = MAL_WASAPI_FAILED_TO_INITIALIZE_DEVICE;
+        goto done;
     }
 
     
@@ -3203,15 +3243,45 @@ static mal_result mal_device_init__wasapi(mal_context* pContext, mal_device_type
     }
 
 
+    // We need to create and set the event for event-driven mode. This event is signalled whenever a new chunk of audio
+    // data needs to be written or read from the device.
+    pDevice->wasapi.hEvent = CreateEventA(NULL, FALSE, FALSE, NULL);
+    if (pDevice->wasapi.hEvent == NULL) {
+        errorMsg = "[WASAPI] Failed to create main event for main loop.", result = MAL_FAILED_TO_CREATE_EVENT;
+        goto done;
+    }
+
+    IAudioClient_SetEventHandle(pDevice->wasapi.pAudioClient, pDevice->wasapi.hEvent);
+
+
     // When the device is playing the worker thread will be waiting on a bunch of notification events. To return from
     // this wait state we need to signal a special event.
     pDevice->wasapi.hStopEvent = CreateEventA(NULL, FALSE, FALSE, NULL);
     if (pDevice->wasapi.hStopEvent == NULL) {
-        mal_device_uninit__wasapi(pDevice);
-        return mal_post_error(pDevice, "[WASAPI] Failed to create event for main loop break notification.", MAL_FAILED_TO_CREATE_EVENT);
+        errorMsg = "[WASAPI] Failed to create stop event for main loop break notification.", result = MAL_FAILED_TO_CREATE_EVENT;
+        goto done;
     }
     
-    return MAL_SUCCESS;
+    result = MAL_SUCCESS;
+
+done:
+    // Clean up.
+#ifdef MAL_WIN32_DESKTOP
+    if (pMMDevice != NULL) {
+        IMMDevice_Release(pMMDevice);
+    }
+#else
+    if (pAsyncOp != NULL) {
+        IActivateAudioInterfaceAsyncOperation_Release(pAsyncOp);
+    }
+#endif
+
+    if (result != MAL_SUCCESS) {
+        mal_device_uninit__wasapi(pDevice);
+        return mal_post_error(pDevice, errorMsg, result);
+    } else {
+        return MAL_SUCCESS;
+    }
 }
 
 static mal_result mal_device__start_backend__wasapi(mal_device* pDevice)
@@ -3269,6 +3339,7 @@ static mal_uint32 mal_device__get_available_frames__wasapi(mal_device* pDevice)
 {
     mal_assert(pDevice != NULL);
 
+#if 1
     if (pDevice->type == mal_device_type_playback) {
         UINT32 paddingFramesCount;
         HRESULT hr = IAudioClient_GetCurrentPadding(pDevice->wasapi.pAudioClient, &paddingFramesCount);
@@ -3276,7 +3347,11 @@ static mal_uint32 mal_device__get_available_frames__wasapi(mal_device* pDevice)
             return 0;
         }
 
-        return pDevice->bufferSizeInFrames - paddingFramesCount;
+        if (pDevice->exclusiveMode) {
+            return paddingFramesCount;
+        } else {
+            return pDevice->bufferSizeInFrames - paddingFramesCount;
+        }
     } else {
         UINT32 framesAvailable;
         HRESULT hr = IAudioCaptureClient_GetNextPacketSize(pDevice->wasapi.pCaptureClient, &framesAvailable);
@@ -3286,6 +3361,19 @@ static mal_uint32 mal_device__get_available_frames__wasapi(mal_device* pDevice)
 
         return framesAvailable;
     }
+#else
+    UINT32 paddingFramesCount;
+    HRESULT hr = IAudioClient_GetCurrentPadding(pDevice->wasapi.pAudioClient, &paddingFramesCount);
+    if (FAILED(hr)) {
+        return 0;
+    }
+
+    if (pDevice->exclusiveMode) {
+        return paddingFramesCount;
+    } else {
+        return pDevice->bufferSizeInFrames - paddingFramesCount;
+    }
+#endif
 }
 
 static mal_uint32 mal_device__wait_for_frames__wasapi(mal_device* pDevice)
@@ -3293,13 +3381,24 @@ static mal_uint32 mal_device__wait_for_frames__wasapi(mal_device* pDevice)
     mal_assert(pDevice != NULL);
 
     while (!pDevice->wasapi.breakFromMainLoop) {
+        // Wait for a buffer to become available or for the stop event to be signalled.
+        HANDLE hEvents[2];
+        hEvents[0] = (HANDLE)pDevice->wasapi.hEvent;
+        hEvents[1] = (HANDLE)pDevice->wasapi.hStopEvent;
+        if (WaitForMultipleObjects(mal_countof(hEvents), hEvents, FALSE, INFINITE) == WAIT_FAILED) {
+            break;
+        }
+
+        // Break from the main loop if the device isn't started anymore. Likely what's happened is the application
+		// has requested that the device be stopped.
+		if (!mal_device_is_started(pDevice)) {
+			break;
+		}
+
         mal_uint32 framesAvailable = mal_device__get_available_frames__wasapi(pDevice);
         if (framesAvailable > 0) {
             return framesAvailable;
         }
-
-        DWORD timeoutInMilliseconds = 1;
-        WaitForSingleObject(pDevice->wasapi.hStopEvent, timeoutInMilliseconds);
     }
 
     // We'll get here if the loop was terminated. Just return whatever's available.
@@ -3350,15 +3449,21 @@ static mal_result mal_device__main_loop__wasapi(mal_device* pDevice)
                     break;
                 }
 
-                mal_device__send_frames_to_client(pDevice, framesToSend, pData);
+                if (hr != AUDCLNT_S_BUFFER_EMPTY) {
+                    mal_device__send_frames_to_client(pDevice, framesToSend, pData);
 
-                hr = IAudioCaptureClient_ReleaseBuffer(pDevice->wasapi.pCaptureClient, framesToSend);
-                if (FAILED(hr)) {
-                    mal_post_error(pDevice, "[WASAPI] WARNING: Failed to release internal buffer from capture device in preparation for sending new data to the client.", MAL_WASAPI_FAILED_TO_RELEASE_INTERNAL_BUFFER);
-                    break;
+                    hr = IAudioCaptureClient_ReleaseBuffer(pDevice->wasapi.pCaptureClient, framesToSend);
+                    if (FAILED(hr)) {
+                        mal_post_error(pDevice, "[WASAPI] WARNING: Failed to release internal buffer from capture device in preparation for sending new data to the client.", MAL_WASAPI_FAILED_TO_RELEASE_INTERNAL_BUFFER);
+                        break;
+                    }
+
+                    if (framesRemaining >= framesToSend) {
+                        framesRemaining -= framesToSend;
+                    } else {
+                        framesRemaining = 0;
+                    }
                 }
-
-                framesRemaining -= framesToSend;
             }
         }
     }
@@ -3524,7 +3629,7 @@ static void mal_device_uninit__dsound(mal_device* pDevice)
     }
 }
 
-static mal_result mal_device_init__dsound(mal_context* pContext, mal_device_type type, mal_device_id* pDeviceID, mal_device_config* pConfig, mal_device* pDevice)
+static mal_result mal_device_init__dsound(mal_context* pContext, mal_device_type type, mal_device_id* pDeviceID, const mal_device_config* pConfig, mal_device* pDevice)
 {
     (void)pContext;
 
@@ -4107,7 +4212,7 @@ static void mal_device_uninit__winmm(mal_device* pDevice)
     CloseHandle((HANDLE)pDevice->winmm.hEvent);
 }
 
-static mal_result mal_device_init__winmm(mal_context* pContext, mal_device_type type, mal_device_id* pDeviceID, mal_device_config* pConfig, mal_device* pDevice)
+static mal_result mal_device_init__winmm(mal_context* pContext, mal_device_type type, mal_device_id* pDeviceID, const mal_device_config* pConfig, mal_device* pDevice)
 {
     (void)pContext;
 
@@ -4420,7 +4525,11 @@ static mal_result mal_device_init__winmm(mal_context* pContext, mal_device_type 
 
     // Latency with WinMM seems pretty bad from my testing... Need to increase the default buffer size.
     if (pDevice->usingDefaultBufferSize) {
-        pDevice->bufferSizeInFrames *= 6; // <-- Might need to fiddle with this to find a more ideal value. May even be able to just add a fixed amount rather than scaling.
+        if (pDevice->type == mal_device_type_playback) {
+            pDevice->bufferSizeInFrames *= 4; // <-- Might need to fiddle with this to find a more ideal value. May even be able to just add a fixed amount rather than scaling.
+        } else {
+            pDevice->bufferSizeInFrames *= 2;
+        }
     }
 
     // The size of the intermediary buffer needs to be able to fit every fragment.
@@ -4486,6 +4595,28 @@ static mal_result mal_device__start_backend__winmm(mal_device* pDevice)
         }
     } else {
         // Capture.
+        for (mal_uint32 i = 0; i < pDevice->periods; ++i) {
+            mal_zero_object(&((LPWAVEHDR)pDevice->winmm.pWAVEHDR)[i]);
+            ((LPWAVEHDR)pDevice->winmm.pWAVEHDR)[i].lpData = (LPSTR)(pDevice->winmm.pIntermediaryBuffer + (pDevice->winmm.fragmentSizeInBytes * i));
+            ((LPWAVEHDR)pDevice->winmm.pWAVEHDR)[i].dwBufferLength = pDevice->winmm.fragmentSizeInBytes;
+            ((LPWAVEHDR)pDevice->winmm.pWAVEHDR)[i].dwFlags = 0L;
+            ((LPWAVEHDR)pDevice->winmm.pWAVEHDR)[i].dwLoops = 0L;
+
+            MMRESULT resultMM = ((MAL_PFN_waveInPrepareHeader)pDevice->pContext->winmm.waveInPrepareHeader)((HWAVEIN)pDevice->winmm.hDevice, &((LPWAVEHDR)pDevice->winmm.pWAVEHDR)[i], sizeof(WAVEHDR));
+            if (resultMM != MMSYSERR_NOERROR) {
+                mal_post_error(pDevice, "[WinMM] Failed to prepare header for capture device in preparation for adding a new capture buffer for the device.", mal_result_from_MMRESULT(resultMM));
+                break;
+            }
+
+            resultMM = ((MAL_PFN_waveInAddBuffer)pDevice->pContext->winmm.waveInAddBuffer)((HWAVEIN)pDevice->winmm.hDevice, &((LPWAVEHDR)pDevice->winmm.pWAVEHDR)[i], sizeof(WAVEHDR));
+            if (resultMM != MMSYSERR_NOERROR) {
+                mal_post_error(pDevice, "[WinMM] Failed to add new capture buffer to the internal capture device.", mal_result_from_MMRESULT(resultMM));
+                break;
+            }
+        }
+
+        ResetEvent(pDevice->winmm.hEvent);
+
         if (((MAL_PFN_waveInStart)pDevice->pContext->winmm.waveInStart)((HWAVEIN)pDevice->winmm.hDevice) != MMSYSERR_NOERROR) {
             return mal_post_error(pDevice, "[WinMM] Failed to start backend device.", MAL_FAILED_TO_START_BACKEND_DEVICE);
         }
@@ -4535,6 +4666,8 @@ static mal_result mal_device__break_main_loop__winmm(mal_device* pDevice)
     mal_assert(pDevice != NULL);
 
     pDevice->winmm.breakFromMainLoop = MAL_TRUE;
+    SetEvent((HANDLE)pDevice->winmm.hEvent);
+
     return MAL_SUCCESS;
 }
 
@@ -4591,7 +4724,7 @@ static mal_result mal_device__main_loop__winmm(mal_device* pDevice)
                 if (framesCaptured > 0) {
                     mal_device__send_frames_to_client(pDevice, framesCaptured, ((LPWAVEHDR)pDevice->winmm.pWAVEHDR)[i].lpData);
                 }
-			    
+
                 MMRESULT resultMM = ((MAL_PFN_waveInUnprepareHeader)pDevice->pContext->winmm.waveInUnprepareHeader)((HWAVEIN)pDevice->winmm.hDevice, &((LPWAVEHDR)pDevice->winmm.pWAVEHDR)[i], sizeof(WAVEHDR));
                 if (resultMM != MMSYSERR_NOERROR) {
                     mal_post_error(pDevice, "[WinMM] Failed to unprepare header for capture device in preparation for adding a new capture buffer for the device.", mal_result_from_MMRESULT(resultMM));
@@ -4607,7 +4740,7 @@ static mal_result mal_device__main_loop__winmm(mal_device* pDevice)
 
                 resultMM = ((MAL_PFN_waveInPrepareHeader)pDevice->pContext->winmm.waveInPrepareHeader)((HWAVEIN)pDevice->winmm.hDevice, &((LPWAVEHDR)pDevice->winmm.pWAVEHDR)[i], sizeof(WAVEHDR));
                 if (resultMM != MMSYSERR_NOERROR) {
-                    mal_post_error(pDevice, "[WinMM] Failed to prepare header for capture device in preparation for addin a new capture buffer for the device.", mal_result_from_MMRESULT(resultMM));
+                    mal_post_error(pDevice, "[WinMM] Failed to prepare header for capture device in preparation for adding a new capture buffer for the device.", mal_result_from_MMRESULT(resultMM));
                     break;
                 }
 		    }
@@ -5198,7 +5331,7 @@ static void mal_device_uninit__alsa(mal_device* pDevice)
     }
 }
 
-static mal_result mal_device_init__alsa(mal_context* pContext, mal_device_type type, mal_device_id* pDeviceID, mal_device_config* pConfig, mal_device* pDevice)
+static mal_result mal_device_init__alsa(mal_context* pContext, mal_device_type type, mal_device_id* pDeviceID, const mal_device_config* pConfig, mal_device* pDevice)
 {
     (void)pContext;
 
@@ -5311,7 +5444,7 @@ static mal_result mal_device_init__alsa(mal_context* pContext, mal_device_type t
     
 
     // Buffer Size
-    snd_pcm_uframes_t actualBufferSize = pConfig->bufferSizeInFrames;
+    snd_pcm_uframes_t actualBufferSize = pDevice->bufferSizeInFrames;
     if (((mal_snd_pcm_hw_params_set_buffer_size_near_proc)pContext->alsa.snd_pcm_hw_params_set_buffer_size_near)((snd_pcm_t*)pDevice->alsa.pPCM, pHWParams, &actualBufferSize) < 0) {
         mal_device_uninit__alsa(pDevice);
         return mal_post_error(pDevice, "[ALSA] Failed to set buffer size for device. snd_pcm_hw_params_set_buffer_size() failed.", MAL_FORMAT_NOT_SUPPORTED);
@@ -5608,7 +5741,7 @@ static void mal_device_uninit__oss(mal_device* pDevice)
 	mal_free(pDevice->oss.pIntermediaryBuffer);
 }
 
-static mal_result mal_device_init__oss(mal_context* pContext, mal_device_type type, mal_device_id* pDeviceID, mal_device_config* pConfig, mal_device* pDevice)
+static mal_result mal_device_init__oss(mal_context* pContext, mal_device_type type, mal_device_id* pDeviceID, const mal_device_config* pConfig, mal_device* pDevice)
 {
     (void)pContext;
 
@@ -6175,7 +6308,7 @@ static void mal_device_uninit__opensl(mal_device* pDevice)
     }
 }
 
-static mal_result mal_device_init__opensl(mal_context* pContext, mal_device_type type, mal_device_id* pDeviceID, mal_device_config* pConfig, mal_device* pDevice)
+static mal_result mal_device_init__opensl(mal_context* pContext, mal_device_type type, mal_device_id* pDeviceID, const mal_device_config* pConfig, mal_device* pDevice)
 {
     (void)pContext;
 
@@ -6215,7 +6348,7 @@ static mal_result mal_device_init__opensl(mal_context* pContext, mal_device_type
     mal_zero_object(&pDevice->opensl);
 
     pDevice->opensl.currentBufferIndex = 0;
-    pDevice->opensl.periodSizeInFrames = pConfig->bufferSizeInFrames / pConfig->periods;
+    pDevice->opensl.periodSizeInFrames = pDevice->bufferSizeInFrames / pConfig->periods;
     pDevice->bufferSizeInFrames = pDevice->opensl.periodSizeInFrames * pConfig->periods;
 
     SLDataLocator_AndroidSimpleBufferQueue queue;
@@ -6862,7 +6995,7 @@ static void mal_device_uninit__openal(mal_device* pDevice)
     mal_free(pDevice->openal.pIntermediaryBuffer);
 }
 
-static mal_result mal_device_init__openal(mal_context* pContext, mal_device_type type, mal_device_id* pDeviceID, mal_device_config* pConfig, mal_device* pDevice)
+static mal_result mal_device_init__openal(mal_context* pContext, mal_device_type type, mal_device_id* pDeviceID, const mal_device_config* pConfig, mal_device* pDevice)
 {
     if (pDevice->periods > MAL_MAX_PERIODS_OPENAL) {
         pDevice->periods = MAL_MAX_PERIODS_OPENAL;
@@ -6873,7 +7006,7 @@ static mal_result mal_device_init__openal(mal_context* pContext, mal_device_type
         pDevice->bufferSizeInFrames *= 4;
     }
 
-    mal_ALCsizei bufferSizeInSamplesAL = pConfig->bufferSizeInFrames;
+    mal_ALCsizei bufferSizeInSamplesAL = pDevice->bufferSizeInFrames;
     mal_ALCuint frequencyAL = pConfig->sampleRate;
 
     mal_uint32 channelsAL = 0;
@@ -7245,7 +7378,7 @@ static mal_result mal_device__main_loop__openal(mal_device* pDevice)
 #endif  // OpenAL
 
 
-mal_bool32 mal__is_channel_map_valid(mal_channel* channelMap, mal_uint32 channels)
+mal_bool32 mal__is_channel_map_valid(const mal_channel* channelMap, mal_uint32 channels)
 {
     mal_assert(channels > 0);
 
@@ -7861,18 +7994,26 @@ mal_result mal_enumerate_devices(mal_context* pContext, mal_device_type type, ma
     return MAL_NO_BACKEND;
 }
 
-mal_result mal_device_init(mal_context* pContext, mal_device_type type, mal_device_id* pDeviceID, mal_device_config* pConfig, void* pUserData, mal_device* pDevice)
+mal_result mal_device_init(mal_context* pContext, mal_device_type type, mal_device_id* pDeviceID, const mal_device_config* pConfig, void* pUserData, mal_device* pDevice)
 {
-    if (pDevice  == NULL) return mal_post_error(pDevice, "mal_device_init() called with invalid arguments (pDevice == NULL).",  MAL_INVALID_ARGS);
+    if (pDevice == NULL) {
+        return mal_post_error(pDevice, "mal_device_init() called with invalid arguments (pDevice == NULL).",  MAL_INVALID_ARGS);
+    }
+    if (pConfig == NULL) {
+        return mal_post_error(pDevice, "mal_device_init() called with invalid arguments (pConfig == NULL).",  MAL_INVALID_ARGS);
+    }
+
+    // Make a copy of the config to ensure we don't override the caller's object.
+    mal_device_config config = *pConfig;
 
     mal_zero_object(pDevice);
     pDevice->pContext = pContext;
 
     // Set the user data and log callback ASAP to ensure it is available for the entire initialization process.
     pDevice->pUserData = pUserData;
-    pDevice->onStop = pConfig->onStopCallback;
-    pDevice->onSend = pConfig->onSendCallback;
-    pDevice->onRecv = pConfig->onRecvCallback;
+    pDevice->onStop = config.onStopCallback;
+    pDevice->onSend = config.onSendCallback;
+    pDevice->onRecv = config.onRecvCallback;
 
     if (((mal_uint64)pDevice % sizeof(pDevice)) != 0) {
         if (pContext->onLog) {
@@ -7887,18 +8028,14 @@ mal_result mal_device_init(mal_context* pContext, mal_device_type type, mal_devi
 
 
     // Basic config validation.
-    if (pConfig  == NULL) {
-        return mal_post_error(pDevice, "mal_device_init() called with invalid arguments (pConfig == NULL).",  MAL_INVALID_ARGS);
-    }
-
-    if (pConfig->channels == 0) {
+    if (config.channels == 0) {
         return mal_post_error(pDevice, "mal_device_init() called with an invalid config. Channel count must be greater than 0.", MAL_INVALID_DEVICE_CONFIG);
     }
-    if (pConfig->channels > MAL_MAX_CHANNELS) {
+    if (config.channels > MAL_MAX_CHANNELS) {
         return mal_post_error(pDevice, "mal_device_init() called with an invalid config. Channel count cannot exceed 18.", MAL_INVALID_DEVICE_CONFIG);
     }
 
-    if (pConfig->sampleRate == 0) {
+    if (config.sampleRate == 0) {
         return mal_post_error(pDevice, "mal_device_init() called with an invalid config. Sample rate must be greater than 0.", MAL_INVALID_DEVICE_CONFIG);
     }
 
@@ -7908,22 +8045,24 @@ mal_result mal_device_init(mal_context* pContext, mal_device_type type, mal_devi
 
 
     // Default buffer size and periods.
-    if (pConfig->bufferSizeInFrames == 0) {
-        pConfig->bufferSizeInFrames = (pConfig->sampleRate/1000) * MAL_DEFAULT_BUFFER_SIZE_IN_MILLISECONDS;
+    if (config.bufferSizeInFrames == 0) {
+        config.bufferSizeInFrames = (config.sampleRate/1000) * MAL_DEFAULT_BUFFER_SIZE_IN_MILLISECONDS;
         pDevice->usingDefaultBufferSize = MAL_TRUE;
     }
-    if (pConfig->periods == 0) {
-        pConfig->periods = MAL_DEFAULT_PERIODS;
+
+    mal_uint32 periods = config.periods;
+    if (periods == 0) {
+        periods = MAL_DEFAULT_PERIODS;
         pDevice->usingDefaultPeriods = MAL_TRUE;
     }
 
     pDevice->type = type;
-    pDevice->format = pConfig->format;
-    pDevice->channels = pConfig->channels;
-    mal_copy_memory(pDevice->channelMap, pConfig->channelMap, sizeof(pConfig->channelMap[0]) * pConfig->channels);
-    pDevice->sampleRate = pConfig->sampleRate;
-    pDevice->bufferSizeInFrames = pConfig->bufferSizeInFrames;
-    pDevice->periods = pConfig->periods;
+    pDevice->format = config.format;
+    pDevice->channels = config.channels;
+    mal_copy_memory(config.channelMap, config.channelMap, sizeof(config.channelMap[0]) * config.channels);
+    pDevice->sampleRate = config.sampleRate;
+    pDevice->bufferSizeInFrames = config.bufferSizeInFrames;
+    pDevice->periods = config.periods;
     
     // The internal format, channel count and sample rate can be modified by the backend.
     pDevice->internalFormat = pDevice->format;
@@ -7963,49 +8102,49 @@ mal_result mal_device_init(mal_context* pContext, mal_device_type type, mal_devi
     #ifdef MAL_ENABLE_WASAPI
         case mal_backend_wasapi:
         {
-            result = mal_device_init__wasapi(pContext, type, pDeviceID, pConfig, pDevice);
+            result = mal_device_init__wasapi(pContext, type, pDeviceID, &config, pDevice);
         } break;
     #endif
     #ifdef MAL_ENABLE_DSOUND
         case mal_backend_dsound:
         {
-            result = mal_device_init__dsound(pContext, type, pDeviceID, pConfig, pDevice);
+            result = mal_device_init__dsound(pContext, type, pDeviceID, &config, pDevice);
         } break;
     #endif
     #ifdef MAL_ENABLE_WINMM
         case mal_backend_winmm:
         {
-            result = mal_device_init__winmm(pContext, type, pDeviceID, pConfig, pDevice);
+            result = mal_device_init__winmm(pContext, type, pDeviceID, &config, pDevice);
         } break;
     #endif
     #ifdef MAL_ENABLE_ALSA
         case mal_backend_alsa:
         {
-            result = mal_device_init__alsa(pContext, type, pDeviceID, pConfig, pDevice);
+            result = mal_device_init__alsa(pContext, type, pDeviceID, &config, pDevice);
         } break;
     #endif
 	#ifdef MAL_ENABLE_OSS
 		case mal_backend_oss:
 		{
-			result = mal_device_init__oss(pContext, type, pDeviceID, pConfig, pDevice);
+			result = mal_device_init__oss(pContext, type, pDeviceID, &config, pDevice);
 		} break;
 	#endif
     #ifdef MAL_ENABLE_OPENSL
         case mal_backend_opensl:
         {
-            result = mal_device_init__opensl(pContext, type, pDeviceID, pConfig, pDevice);
+            result = mal_device_init__opensl(pContext, type, pDeviceID, &config, pDevice);
         } break;
     #endif
     #ifdef MAL_ENABLE_OPENAL
         case mal_backend_openal:
         {
-            result = mal_device_init__openal(pContext, type, pDeviceID, pConfig, pDevice);
+            result = mal_device_init__openal(pContext, type, pDeviceID, &config, pDevice);
         } break;
     #endif
     #ifdef MAL_ENABLE_NULL
         case mal_backend_null:
         {
-            result = mal_device_init__null(pContext, type, pDeviceID, pConfig, pDevice);
+            result = mal_device_init__null(pContext, type, pDeviceID, &config, pDevice);
         } break;
     #endif
 
@@ -9473,9 +9612,11 @@ void mal_pcm_f32_to_s32(int* pOut, const float* pIn, unsigned int count)
 //   - API CHANGE: The log callback is now per-context rather than per-device and as is thus now passed to
 //     mal_context_init(). The rationale for this change is that it allows applications to capture diagnostic
 //     messages at the context level. Previously this was only available at the device level.
+//   - API CHANGE: The device config passed to mal_device_init() is now const.
 //   - Added support for OSS which enables support on BSD platforms.
 //   - Added support for WinMM (waveOut/waveIn).
 //   - Added support for UWP (Universal Windows Platform) applications. Currently C++ only.
+//   - Added support for exclusive mode for selected backends. Currently supported on WASAPI.
 //   - POSIX builds no longer require explicit linking to libpthread (-lpthread).
 //   - The ALSA backend no longer requires explicit linking to libasound (-lasound).
 //   - WASAPI is now the highest priority backend on Windows platforms.
@@ -9523,11 +9664,6 @@ void mal_pcm_f32_to_s32(int* pOut, const float* pIn, unsigned int count)
 // - SSE-ify format conversions
 // - SSE-ify SRC
 // - Optimize the DSP pipeline generally
-//
-//
-// WASAPI
-// ------
-// - Look into event callbacks: AUDCLNT_STREAMFLAGS_EVENTCALLBACK
 //
 //
 // ALSA
