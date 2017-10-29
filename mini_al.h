@@ -2543,7 +2543,8 @@ static void mal_channel_mask_to_channel_map__win32(DWORD dwChannelMask, mal_uint
     #pragma warning(pop)
 #endif
 
-const PROPERTYKEY g_malPKEY_Device_FriendlyName = {{0xa45c254e, 0xdf1c, 0x4efd, {0x80, 0x20, 0x67, 0xd1, 0x46, 0xa8, 0x50, 0xe0}}, 14};
+const PROPERTYKEY g_malPKEY_Device_FriendlyName      = {{0xa45c254e, 0xdf1c, 0x4efd, {0x80, 0x20, 0x67, 0xd1, 0x46, 0xa8, 0x50, 0xe0}}, 14};
+const PROPERTYKEY g_malPKEY_AudioEngine_DeviceFormat = {{0xf19f064d, 0x82c,  0x4e27, {0xbc, 0x73, 0x68, 0x82, 0xa1, 0xbb, 0x8e, 0x4c}},  0};
 
 const IID g_malCLSID_MMDeviceEnumerator_Instance = {0xBCDE0395, 0xE52F, 0x467C, {0x8E, 0x3D, 0xC4, 0x57, 0x92, 0x91, 0x69, 0x2E}}; // BCDE0395-E52F-467C-8E3D-C4579291692E = __uuidof(MMDeviceEnumerator)
 const IID g_malIID_IMMDeviceEnumerator_Instance  = {0xA95664D2, 0x9614, 0x4F35, {0xA7, 0x46, 0xDE, 0x8D, 0xB6, 0x36, 0x17, 0xE6}}; // A95664D2-9614-4F35-A746-DE8DB63617E6 = __uuidof(IMMDeviceEnumerator)
@@ -2906,48 +2907,6 @@ static void mal_device_uninit__wasapi(mal_device* pDevice)
     }
 }
 
-static mal_result mal_device__find_best_format__wasapi(mal_device* pDevice, WAVEFORMATEXTENSIBLE* pBestFormat)
-{
-    mal_assert(pDevice != NULL);
-    mal_assert(pBestFormat != NULL);
-
-    WAVEFORMATEXTENSIBLE wf;
-    mal_zero_object(&wf);
-    wf.Format.cbSize               = sizeof(wf);
-    wf.Format.wFormatTag           = WAVE_FORMAT_EXTENSIBLE;
-    wf.Format.nChannels            = (WORD)pDevice->channels;
-    wf.Format.nSamplesPerSec       = (DWORD)pDevice->sampleRate;
-    wf.Format.wBitsPerSample       = (WORD)mal_get_sample_size_in_bytes(pDevice->format)*8;
-    wf.Format.nBlockAlign          = (wf.Format.nChannels * wf.Format.wBitsPerSample) / 8;
-    wf.Format.nAvgBytesPerSec      = wf.Format.nBlockAlign * wf.Format.nSamplesPerSec;
-    wf.Samples.wValidBitsPerSample = wf.Format.wBitsPerSample;
-    wf.dwChannelMask               = mal_channel_map_to_channel_mask__win32(pDevice->channelMap, pDevice->channels);
-    if (pDevice->format == mal_format_f32) {
-        wf.SubFormat = MAL_GUID_KSDATAFORMAT_SUBTYPE_IEEE_FLOAT;
-    } else {
-        wf.SubFormat = MAL_GUID_KSDATAFORMAT_SUBTYPE_PCM;
-    }
-
-    HRESULT hr = AUDCLNT_E_UNSUPPORTED_FORMAT;
-    WAVEFORMATEXTENSIBLE* pBestFormatTemp;
-    hr = IAudioClient_IsFormatSupported(pDevice->wasapi.pAudioClient, AUDCLNT_SHAREMODE_SHARED, (WAVEFORMATEX*)&wf, (WAVEFORMATEX**)&pBestFormatTemp);
-    if (hr != S_OK && hr != S_FALSE) {
-        hr = IAudioClient_GetMixFormat(pDevice->wasapi.pAudioClient, (WAVEFORMATEX**)&pBestFormatTemp);
-        if (hr != S_OK) {
-            return MAL_WASAPI_FAILED_TO_FIND_BEST_FORMAT;
-        }
-    }
-
-    if (pBestFormatTemp != NULL) {
-        mal_copy_memory(pBestFormat, pBestFormatTemp, sizeof(*pBestFormat));
-        mal_CoTaskMemFree(pDevice->pContext, pBestFormatTemp);
-    } else {
-        mal_copy_memory(pBestFormat, &wf, sizeof(*pBestFormat));
-    }
-
-    return MAL_SUCCESS;
-}
-
 #ifndef MAL_WIN32_DESKTOP
     #ifdef __cplusplus
     #include <wrl\implements.h>
@@ -3006,6 +2965,24 @@ static mal_result mal_device_init__wasapi(mal_context* pContext, mal_device_type
 
     HRESULT hr;
     mal_result result = MAL_SUCCESS;
+    AUDCLNT_SHAREMODE shareMode = AUDCLNT_SHAREMODE_SHARED;
+
+    WAVEFORMATEXTENSIBLE wf;
+    mal_zero_object(&wf);
+    wf.Format.cbSize               = sizeof(wf);
+    wf.Format.wFormatTag           = WAVE_FORMAT_EXTENSIBLE;
+    wf.Format.nChannels            = (WORD)pDevice->channels;
+    wf.Format.nSamplesPerSec       = (DWORD)pDevice->sampleRate;
+    wf.Format.wBitsPerSample       = (WORD)mal_get_sample_size_in_bytes(pDevice->format)*8;
+    wf.Format.nBlockAlign          = (wf.Format.nChannels * wf.Format.wBitsPerSample) / 8;
+    wf.Format.nAvgBytesPerSec      = wf.Format.nBlockAlign * wf.Format.nSamplesPerSec;
+    wf.Samples.wValidBitsPerSample = wf.Format.wBitsPerSample;
+    wf.dwChannelMask               = mal_channel_map_to_channel_mask__win32(pDevice->channelMap, pDevice->channels);
+    if (pDevice->format == mal_format_f32) {
+        wf.SubFormat = MAL_GUID_KSDATAFORMAT_SUBTYPE_IEEE_FLOAT;
+    } else {
+        wf.SubFormat = MAL_GUID_KSDATAFORMAT_SUBTYPE_PCM;
+    }
 
 #ifdef MAL_WIN32_DESKTOP
     IMMDeviceEnumerator* pDeviceEnumerator;
@@ -3039,7 +3016,6 @@ static mal_result mal_device_init__wasapi(mal_context* pContext, mal_device_type
         mal_device_uninit__wasapi(pDevice);
         return mal_post_error(pDevice, "[WASAPI] Failed to activate device.", MAL_WASAPI_FAILED_TO_ACTIVATE_DEVICE);
     }
-    IMMDevice_Release(pMMDevice);
 #else
     IID iid;
     if (pDeviceID != NULL) {
@@ -3102,14 +3078,75 @@ static mal_result mal_device_init__wasapi(mal_context* pContext, mal_device_type
     IActivateAudioInterfaceAsyncOperation_Release(pAsyncOp);
 #endif
 
-    REFERENCE_TIME bufferDurationInMicroseconds = ((mal_uint64)pConfig->bufferSizeInFrames * 1000 * 1000) / pConfig->sampleRate;
+    // Here is where we try to determine the best format to use with the device. If the client if wanting exclusive mode, first try finding the best format for that. If this fails, fall back to shared mode.
+    WAVEFORMATEXTENSIBLE* pBestFormatTemp = NULL;
+    result = MAL_FORMAT_NOT_SUPPORTED;
+    if (pConfig->preferExclusiveMode) {
+        hr = IAudioClient_IsFormatSupported(pDevice->wasapi.pAudioClient, AUDCLNT_SHAREMODE_EXCLUSIVE, (WAVEFORMATEX*)&wf, NULL);
+        if (hr == AUDCLNT_E_UNSUPPORTED_FORMAT) {
+            // The format isn't supported, so retrieve the actual format from the property store and try that.
+        #ifdef MAL_WIN32_DESKTOP
+            IPropertyStore* pStore = NULL;
+            hr = IMMDevice_OpenPropertyStore(pMMDevice, STGM_READ, &pStore);
+            if (SUCCEEDED(hr)) {
+                PROPVARIANT prop;
+                PropVariantInit(&prop);
+                hr = IPropertyStore_GetValue(pStore, g_malPKEY_AudioEngine_DeviceFormat, &prop);
+                if (SUCCEEDED(hr)) {
+                    WAVEFORMATEX* pActualFormat = (WAVEFORMATEX*)prop.blob.pBlobData;
+                    hr = IAudioClient_IsFormatSupported(pDevice->wasapi.pAudioClient, AUDCLNT_SHAREMODE_EXCLUSIVE, pActualFormat, NULL);
+                    if (SUCCEEDED(hr)) {
+                        mal_copy_memory(&wf, pActualFormat, pActualFormat->cbSize);
+                    }
 
-    WAVEFORMATEXTENSIBLE wf;
-    result = mal_device__find_best_format__wasapi(pDevice, &wf);
+                    mal_PropVariantClear(pDevice->pContext, &prop);
+                }
+
+                IPropertyStore_Release(pStore);
+            }
+        #endif
+        }
+
+        if (hr == S_OK) {
+            shareMode = AUDCLNT_SHAREMODE_EXCLUSIVE;
+            result = MAL_SUCCESS;
+        }
+    }
+
+#ifdef MAL_WIN32_DESKTOP
+    IMMDevice_Release(pMMDevice);
+#endif
+
+    // Fall back to shared mode if necessary.
+    if (result != MAL_SUCCESS) {
+        hr = IAudioClient_IsFormatSupported(pDevice->wasapi.pAudioClient, AUDCLNT_SHAREMODE_SHARED, (WAVEFORMATEX*)&wf, (WAVEFORMATEX**)&pBestFormatTemp);
+        if (hr != S_OK && hr != S_FALSE) {
+            hr = IAudioClient_GetMixFormat(pDevice->wasapi.pAudioClient, (WAVEFORMATEX**)&pBestFormatTemp);
+            if (hr != S_OK) {
+                result = MAL_WASAPI_FAILED_TO_FIND_BEST_FORMAT;
+            } else {
+                result = MAL_SUCCESS;
+            }
+        } else {
+            result = MAL_SUCCESS;
+        }
+
+        shareMode = AUDCLNT_SHAREMODE_SHARED;
+    }
+
+    // Return an error if we still haven't found a format.
     if (result != MAL_SUCCESS) {
         mal_device_uninit__wasapi(pDevice);
         return mal_post_error(pDevice, "[WASAPI] Failed to find best device mix format.", MAL_WASAPI_FAILED_TO_ACTIVATE_DEVICE);
     }
+
+    if (pBestFormatTemp != NULL) {
+        mal_copy_memory(&wf, pBestFormatTemp, sizeof(wf));
+        mal_CoTaskMemFree(pDevice->pContext, pBestFormatTemp);
+    }
+
+
+    REFERENCE_TIME bufferDurationInMicroseconds = ((mal_uint64)pConfig->bufferSizeInFrames * 1000 * 1000) / pConfig->sampleRate;
 
     if (mal_is_guid_equal(wf.SubFormat, MAL_GUID_KSDATAFORMAT_SUBTYPE_IEEE_FLOAT)) {
         pDevice->internalFormat = mal_format_f32;
@@ -3134,7 +3171,7 @@ static mal_result mal_device_init__wasapi(mal_context* pContext, mal_device_type
     // Get the internal channel map based on the channel mask.
     mal_channel_mask_to_channel_map__win32(wf.dwChannelMask, pDevice->internalChannels, pDevice->internalChannelMap);
 
-    hr = IAudioClient_Initialize(pDevice->wasapi.pAudioClient, AUDCLNT_SHAREMODE_SHARED, 0, bufferDurationInMicroseconds*10, 0, (WAVEFORMATEX*)&wf, NULL);
+    hr = IAudioClient_Initialize(pDevice->wasapi.pAudioClient, shareMode, 0, bufferDurationInMicroseconds*10, 0, (WAVEFORMATEX*)&wf, NULL);
     if (FAILED(hr)) {
         mal_device_uninit__wasapi(pDevice);
         return mal_post_error(pDevice, "[WASAPI] Failed to initialize device.", MAL_WASAPI_FAILED_TO_INITIALIZE_DEVICE);
@@ -3155,6 +3192,13 @@ static mal_result mal_device_init__wasapi(mal_context* pContext, mal_device_type
     if (FAILED(hr)) {
         mal_device_uninit__wasapi(pDevice);
         return mal_post_error(pDevice, "[WASAPI] Failed to get audio client service.", MAL_WASAPI_FAILED_TO_INITIALIZE_DEVICE);
+    }
+
+    
+    if (shareMode == AUDCLNT_SHAREMODE_SHARED) {
+        pDevice->exclusiveMode = MAL_FALSE;
+    } else /*if (shareMode == AUDCLNT_SHAREMODE_EXCLUSIVE)*/ {
+        pDevice->exclusiveMode = MAL_TRUE;
     }
 
 
