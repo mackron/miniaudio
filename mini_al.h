@@ -2770,13 +2770,14 @@ mal_result mal_context_init__wasapi(mal_context* pContext)
     (void)pContext;
 
 #ifdef MAL_WIN32_DESKTOP
-    // WASAPI is only supported in Vista and newer.
+    // WASAPI is only supported in Vista SP1 and newer. The reason for SP1 and not the base version of Vista is that event-driven
+    // exclusive mode does not work until SP1.
     OSVERSIONINFOEXW osvi;
     mal_zero_object(&osvi);
     osvi.dwOSVersionInfoSize = sizeof(osvi);
     osvi.dwMajorVersion = HIBYTE(_WIN32_WINNT_VISTA);
     osvi.dwMinorVersion = LOBYTE(_WIN32_WINNT_VISTA);
-    osvi.wServicePackMajor = 0;
+    osvi.wServicePackMajor = 1;
     if (VerifyVersionInfoW(&osvi, VER_MAJORVERSION | VER_MINORVERSION | VER_SERVICEPACKMAJOR, VerSetConditionMask(VerSetConditionMask(VerSetConditionMask(0, VER_MAJORVERSION, VER_GREATER_EQUAL), VER_MINORVERSION, VER_GREATER_EQUAL), VER_SERVICEPACKMAJOR, VER_GREATER_EQUAL))) {
         return MAL_SUCCESS;
     } else {
@@ -3594,7 +3595,11 @@ static mal_result mal_device_init__dsound(mal_context* pContext, mal_device_type
         }
 
         // The cooperative level must be set before doing anything else.
-        if (FAILED(IDirectSound_SetCooperativeLevel((LPDIRECTSOUND8)pDevice->dsound.pPlayback, GetForegroundWindow(), DSSCL_PRIORITY))) {
+        HWND hWnd = GetForegroundWindow();
+        if (hWnd == NULL) {
+            hWnd = GetDesktopWindow();
+        }
+        if (FAILED(IDirectSound_SetCooperativeLevel((LPDIRECTSOUND8)pDevice->dsound.pPlayback, hWnd, (pConfig->preferExclusiveMode) ? DSSCL_EXCLUSIVE : DSSCL_PRIORITY))) {
             mal_device_uninit__dsound(pDevice);
             return mal_post_error(pDevice, "[DirectSound] IDirectSound_SetCooperateiveLevel() failed for playback device.", MAL_DSOUND_FAILED_TO_SET_COOP_LEVEL);
         }
@@ -9522,7 +9527,6 @@ void mal_pcm_f32_to_s32(int* pOut, const float* pIn, unsigned int count)
 //
 // WASAPI
 // ------
-// - Add support for exclusive mode?
 // - Look into event callbacks: AUDCLNT_STREAMFLAGS_EVENTCALLBACK
 //
 //
