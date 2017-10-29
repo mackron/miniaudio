@@ -5428,18 +5428,20 @@ static mal_result mal_device_init__alsa(mal_context* pContext, mal_device_type t
     }
 
     // Channels.
-    if (((mal_snd_pcm_hw_params_set_channels_near_proc)pContext->alsa.snd_pcm_hw_params_set_channels_near)((snd_pcm_t*)pDevice->alsa.pPCM, pHWParams, &pConfig->channels) < 0) {
+    mal_uint32 channels = pConfig->channels;
+    if (((mal_snd_pcm_hw_params_set_channels_near_proc)pContext->alsa.snd_pcm_hw_params_set_channels_near)((snd_pcm_t*)pDevice->alsa.pPCM, pHWParams, &channels) < 0) {
         mal_device_uninit__alsa(pDevice);
         return mal_post_error(pDevice, "[ALSA] Failed to set channel count. snd_pcm_hw_params_set_channels_near() failed.", MAL_FORMAT_NOT_SUPPORTED);
     }
-    pDevice->internalChannels = pConfig->channels;
+    pDevice->internalChannels = channels;
 
     // Sample Rate
-    if (((mal_snd_pcm_hw_params_set_rate_near_proc)pContext->alsa.snd_pcm_hw_params_set_rate_near)((snd_pcm_t*)pDevice->alsa.pPCM, pHWParams, &pConfig->sampleRate, 0) < 0) {
+    mal_uint32 sampleRate = pConfig->sampleRate;
+    if (((mal_snd_pcm_hw_params_set_rate_near_proc)pContext->alsa.snd_pcm_hw_params_set_rate_near)((snd_pcm_t*)pDevice->alsa.pPCM, pHWParams, &sampleRate, 0) < 0) {
         mal_device_uninit__alsa(pDevice);
         return mal_post_error(pDevice, "[ALSA] Sample rate not supported. snd_pcm_hw_params_set_rate_near() failed.", MAL_FORMAT_NOT_SUPPORTED);
     }
-    pDevice->internalSampleRate = pConfig->sampleRate;
+    pDevice->internalSampleRate = sampleRate;
 
     
 
@@ -5452,14 +5454,15 @@ static mal_result mal_device_init__alsa(mal_context* pContext, mal_device_type t
 
 
     // Periods.
+    mal_uint32 periods = pConfig->periods;
     int dir = 0;
-    if (((mal_snd_pcm_hw_params_set_periods_near_proc)pContext->alsa.snd_pcm_hw_params_set_periods_near)((snd_pcm_t*)pDevice->alsa.pPCM, pHWParams, &pConfig->periods, &dir) < 0) {
+    if (((mal_snd_pcm_hw_params_set_periods_near_proc)pContext->alsa.snd_pcm_hw_params_set_periods_near)((snd_pcm_t*)pDevice->alsa.pPCM, pHWParams, &periods, &dir) < 0) {
         mal_device_uninit__alsa(pDevice);
         return mal_post_error(pDevice, "[ALSA] Failed to set period count. snd_pcm_hw_params_set_periods_near() failed.", MAL_FORMAT_NOT_SUPPORTED);
     }
 
     pDevice->bufferSizeInFrames = actualBufferSize;
-    pDevice->periods = pConfig->periods;
+    pDevice->periods = periods;
 
 
 
