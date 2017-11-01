@@ -2,7 +2,7 @@
 #include "../mini_al.h"
 
 #define DR_WAV_IMPLEMENTATION
-#include "dr_wav.h"
+#include "../extras/dr_wav.h"
 
 #include <stdio.h>
 
