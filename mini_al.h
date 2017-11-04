@@ -16,8 +16,8 @@
 // supported in the interest of keeping the library as small and light-weight as possible.
 //
 // Supported Backends:
-//   - DirectSound
 //   - WASAPI
+//   - DirectSound
 //   - WinMM
 //   - ALSA
 //   - OSS
