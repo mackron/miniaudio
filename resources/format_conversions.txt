@@ -15,6 +15,7 @@
 # clip [output] [a]     -> output = clamp(a, -1, 1)
 #
 # int [name] -> Declare an uninitialized 32-bit integer
+# lng [name] -> Declare an uninitialized 64-bit integer
 # flt [name] -> Declare an uninitialized 32-bit float
 
 # r = (x - 128) << 8
@@ -159,7 +160,7 @@ f32->s24 {
 # r = clip(x) * (0x7FFFFFFF + sign(x))
 f32->s32 {
     flt c;
-    int s;
+    lng s;
     clip c x;
     sig s x;
     add s s 2147483647;

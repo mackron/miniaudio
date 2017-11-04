@@ -455,6 +455,9 @@ std::string malgen_generate_code__conversion_func_inst(malgen_context* pContext,
     if (strcmp(pInst->name, "int") == 0) {
         code += "int "; code += pInst->params[0];
     }
+    if (strcmp(pInst->name, "lng") == 0) {
+        code += "long long "; code += pInst->params[0];
+    }
     if (strcmp(pInst->name, "flt") == 0) {
         code += "float "; code += pInst->params[0];
     }
