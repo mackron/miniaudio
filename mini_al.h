@@ -547,6 +547,12 @@ typedef struct
     mal_recv_proc onRecvCallback;
     mal_send_proc onSendCallback;
     mal_stop_proc onStopCallback;
+
+    struct
+    {
+        mal_bool32 preferPlugHW;
+        mal_bool32 noMMap;  // Disables MMap mode.
+    } alsa;
 } mal_device_config;
 
 struct mal_context
@@ -629,6 +635,7 @@ struct mal_context
             mal_proc snd_pcm_readi;
             mal_proc snd_pcm_writei;
             mal_proc snd_pcm_avail;
+            mal_proc snd_pcm_avail_update;
             mal_proc snd_pcm_wait;
         } alsa;
 #endif
@@ -4828,6 +4835,7 @@ typedef int               (* mal_snd_pcm_recover_proc)                       (sn
 typedef snd_pcm_sframes_t (* mal_snd_pcm_readi_proc)                         (snd_pcm_t *pcm, void *buffer, snd_pcm_uframes_t size);
 typedef snd_pcm_sframes_t (* mal_snd_pcm_writei_proc)                        (snd_pcm_t *pcm, const void *buffer, snd_pcm_uframes_t size);
 typedef snd_pcm_sframes_t (* mal_snd_pcm_avail_proc)                         (snd_pcm_t *pcm);
+typedef snd_pcm_sframes_t (* mal_snd_pcm_avail_update_proc)                  (snd_pcm_t *pcm);
 typedef int               (* mal_snd_pcm_wait_proc)                          (snd_pcm_t *pcm, int timeout);
 
 static snd_pcm_format_t g_mal_ALSAFormats[] = {
@@ -4935,6 +4943,7 @@ mal_result mal_context_init__alsa(mal_context* pContext)
     pContext->alsa.snd_pcm_readi                          = (mal_proc)mal_dlsym(pContext->alsa.asoundSO, "snd_pcm_readi");
     pContext->alsa.snd_pcm_writei                         = (mal_proc)mal_dlsym(pContext->alsa.asoundSO, "snd_pcm_writei");
     pContext->alsa.snd_pcm_avail                          = (mal_proc)mal_dlsym(pContext->alsa.asoundSO, "snd_pcm_avail");
+    pContext->alsa.snd_pcm_avail_update                   = (mal_proc)mal_dlsym(pContext->alsa.asoundSO, "snd_pcm_avail_update");
     pContext->alsa.snd_pcm_wait                           = (mal_proc)mal_dlsym(pContext->alsa.asoundSO, "snd_pcm_wait");
 
     return MAL_SUCCESS;
@@ -4976,14 +4985,20 @@ static const char* mal_find_char(const char* str, char c, int* index)
 // value is the number of frames available.
 //
 // This will return early if the main loop is broken with mal_device__break_main_loop().
-static mal_uint32 mal_device__wait_for_frames__alsa(mal_device* pDevice)
+static mal_uint32 mal_device__wait_for_frames__alsa(mal_device* pDevice, mal_bool32* pRequiresRestart)
 {
     mal_assert(pDevice != NULL);
 
+    if (pRequiresRestart) *pRequiresRestart = MAL_FALSE;
+
+    mal_uint32 periodSizeInFrames = pDevice->bufferSizeInFrames / pDevice->periods;
+
     while (!pDevice->alsa.breakFromMainLoop) {
-        snd_pcm_sframes_t framesAvailable = ((mal_snd_pcm_avail_proc)pDevice->pContext->alsa.snd_pcm_avail)((snd_pcm_t*)pDevice->alsa.pPCM);
-        if (framesAvailable > 0) {
-            return framesAvailable;
+        snd_pcm_sframes_t framesAvailable = ((mal_snd_pcm_avail_update_proc)pDevice->pContext->alsa.snd_pcm_avail_update)((snd_pcm_t*)pDevice->alsa.pPCM);
+
+        // Keep the returned number of samples consistent and based on the period size.
+        if (framesAvailable >= periodSizeInFrames) {
+            return periodSizeInFrames;
         }
 
         if (framesAvailable < 0) {
@@ -4992,22 +5007,34 @@ static mal_uint32 mal_device__wait_for_frames__alsa(mal_device* pDevice)
                     return 0;
                 }
 
-                framesAvailable = ((mal_snd_pcm_avail_proc)pDevice->pContext->alsa.snd_pcm_avail)((snd_pcm_t*)pDevice->alsa.pPCM);
+                framesAvailable = ((mal_snd_pcm_avail_update_proc)pDevice->pContext->alsa.snd_pcm_avail_update)((snd_pcm_t*)pDevice->alsa.pPCM);
                 if (framesAvailable < 0) {
                     return 0;
                 }
             }
         }
 
-        const int timeoutInMilliseconds = 20;  // <-- The larger this value, the longer it'll take to stop the device!
+        const int timeoutInMilliseconds = 1;  // <-- The larger this value, the longer it'll take to stop the device!
         int waitResult = ((mal_snd_pcm_wait_proc)pDevice->pContext->alsa.snd_pcm_wait)((snd_pcm_t*)pDevice->alsa.pPCM, timeoutInMilliseconds);
         if (waitResult < 0) {
-            ((mal_snd_pcm_recover_proc)pDevice->pContext->alsa.snd_pcm_recover)((snd_pcm_t*)pDevice->alsa.pPCM, waitResult, MAL_TRUE);
+            if (waitResult == -EPIPE) {
+                if (((mal_snd_pcm_recover_proc)pDevice->pContext->alsa.snd_pcm_recover)((snd_pcm_t*)pDevice->alsa.pPCM, waitResult, MAL_TRUE) < 0) {
+                    return 0;
+                }
+
+                if (pRequiresRestart) {
+                    *pRequiresRestart = MAL_TRUE;
+                }
+
+                return pDevice->bufferSizeInFrames;
+            } else {
+                return 0;
+            }
         }
     }
 
     // We'll get here if the loop was terminated. Just return whatever's available.
-    snd_pcm_sframes_t framesAvailable = ((mal_snd_pcm_avail_proc)pDevice->pContext->alsa.snd_pcm_avail)((snd_pcm_t*)pDevice->alsa.pPCM);
+    snd_pcm_sframes_t framesAvailable = ((mal_snd_pcm_avail_update_proc)pDevice->pContext->alsa.snd_pcm_avail_update)((snd_pcm_t*)pDevice->alsa.pPCM);
     if (framesAvailable < 0) {
         return 0;
     }
@@ -5028,7 +5055,8 @@ static mal_bool32 mal_device_write__alsa(mal_device* pDevice)
 
     if (pDevice->alsa.pIntermediaryBuffer == NULL) {
         // mmap.
-        mal_uint32 framesAvailable = mal_device__wait_for_frames__alsa(pDevice);
+        mal_bool32 requiresRestart;
+        mal_uint32 framesAvailable = mal_device__wait_for_frames__alsa(pDevice, &requiresRestart);
         if (framesAvailable == 0) {
             return MAL_FALSE;
         }
@@ -5056,12 +5084,18 @@ static mal_bool32 mal_device_write__alsa(mal_device* pDevice)
                 return MAL_FALSE;
             }
 
+            if (requiresRestart) {
+                if (((mal_snd_pcm_start_proc)pDevice->pContext->alsa.snd_pcm_start)((snd_pcm_t*)pDevice->alsa.pPCM) < 0) {
+                    return MAL_FALSE;
+                }
+            }
+
             framesAvailable -= mappedFrames;
         }
     } else {
         // readi/writei.
         while (!pDevice->alsa.breakFromMainLoop) {
-            mal_uint32 framesAvailable = mal_device__wait_for_frames__alsa(pDevice);
+            mal_uint32 framesAvailable = mal_device__wait_for_frames__alsa(pDevice, NULL);
             if (framesAvailable == 0) {
                 continue;
             }
@@ -5118,7 +5152,8 @@ static mal_bool32 mal_device_read__alsa(mal_device* pDevice)
     void* pBuffer = NULL;
     if (pDevice->alsa.pIntermediaryBuffer == NULL) {
         // mmap.
-        mal_uint32 framesAvailable = mal_device__wait_for_frames__alsa(pDevice);
+        mal_bool32 requiresRestart;
+        mal_uint32 framesAvailable = mal_device__wait_for_frames__alsa(pDevice, &requiresRestart);
         if (framesAvailable == 0) {
             return MAL_FALSE;
         }
@@ -5141,13 +5176,19 @@ static mal_bool32 mal_device_read__alsa(mal_device* pDevice)
                 return MAL_FALSE;
             }
 
+            if (requiresRestart) {
+                if (((mal_snd_pcm_start_proc)pDevice->pContext->alsa.snd_pcm_start)((snd_pcm_t*)pDevice->alsa.pPCM) < 0) {
+                    return MAL_FALSE;
+                }
+            }
+
             framesAvailable -= mappedFrames;
         }
     } else {
         // readi/writei.
         snd_pcm_sframes_t framesRead = 0;
         while (!pDevice->alsa.breakFromMainLoop) {
-            mal_uint32 framesAvailable = mal_device__wait_for_frames__alsa(pDevice);
+            mal_uint32 framesAvailable = mal_device__wait_for_frames__alsa(pDevice, NULL);
             if (framesAvailable == 0) {
                 continue;
             }
@@ -5184,13 +5225,6 @@ static mal_bool32 mal_device_read__alsa(mal_device* pDevice)
 
     if (framesToSend > 0) {
         mal_device__send_frames_to_client(pDevice, framesToSend, pBuffer);
-    }
-
-
-    if (pDevice->alsa.pIntermediaryBuffer == NULL) {
-        // mmap.
-    } else {
-        // readi/writei.
     }
 
     return MAL_TRUE;
@@ -5350,21 +5384,24 @@ static mal_result mal_device_init__alsa(mal_context* pContext, mal_device_type t
     if (pDeviceID == NULL) {
         mal_strncpy_s(deviceName, sizeof(deviceName), "default", (size_t)-1);
     } else {
-        // For now, convert "hw" devices to "plughw". The reason for this is that mini_al has not been thoroughly tested
-        // with non "plughw" devices.
-        if (pDeviceID->alsa[0] == 'h' && pDeviceID->alsa[1] == 'w' && pDeviceID->alsa[2] == ':') {
-            deviceName[0] = 'p'; deviceName[1] = 'l'; deviceName[2] = 'u'; deviceName[3] = 'g';
+        // Is preferred, convert "hw" devices to "plughw".
+        if (pConfig->alsa.preferPlugHW && pDeviceID->alsa[0] == 'h' && pDeviceID->alsa[1] == 'w' && pDeviceID->alsa[2] == ':') {
+        	deviceName[0] = 'p'; deviceName[1] = 'l'; deviceName[2] = 'u'; deviceName[3] = 'g';
             mal_strncpy_s(deviceName+4, sizeof(deviceName-4), pDeviceID->alsa, (size_t)-1);
         } else {
             mal_strncpy_s(deviceName, sizeof(deviceName), pDeviceID->alsa, (size_t)-1);
         }
-
     }
 
     if (((mal_snd_pcm_open_proc)pContext->alsa.snd_pcm_open)((snd_pcm_t**)&pDevice->alsa.pPCM, deviceName, (type == mal_device_type_playback) ? SND_PCM_STREAM_PLAYBACK : SND_PCM_STREAM_CAPTURE, 0) < 0) {
         if (mal_strcmp(deviceName, "default") == 0 || mal_strcmp(deviceName, "pulse") == 0) {
-            // We may have failed to open the "default" or "pulse" device, in which case try falling back to "plughw:0,0".
-            mal_strncpy_s(deviceName, sizeof(deviceName), "plughw:0,0", (size_t)-1);
+            // We may have failed to open the "default" or "pulse" device, in which case try falling back to "hw:0,0".
+            if (pConfig->alsa.preferPlugHW) {
+                mal_strncpy_s(deviceName, sizeof(deviceName), "plughw:0,0", (size_t)-1);
+            } else {
+                mal_strncpy_s(deviceName, sizeof(deviceName), "hw:0,0", (size_t)-1);
+            }
+
             if (((mal_snd_pcm_open_proc)pContext->alsa.snd_pcm_open)((snd_pcm_t**)&pDevice->alsa.pPCM, deviceName, (type == mal_device_type_playback) ? SND_PCM_STREAM_PLAYBACK : SND_PCM_STREAM_CAPTURE, 0) < 0) {
                 mal_device_uninit__alsa(pDevice);
                 return mal_post_error(pDevice, "[ALSA] snd_pcm_open() failed.", MAL_ALSA_FAILED_TO_OPEN_DEVICE);
@@ -5470,17 +5507,15 @@ static mal_result mal_device_init__alsa(mal_context* pContext, mal_device_type t
     pDevice->periods = periods;
 
 
-
     // MMAP Mode
     //
     // Try using interleaved MMAP access. If this fails, fall back to standard readi/writei.
     pDevice->alsa.isUsingMMap = MAL_FALSE;
-#ifdef MAL_ENABLE_EXPERIMENTAL_ALSA_MMAP
-    if (((mal_snd_pcm_hw_params_set_access_proc)pContext->alsa.snd_pcm_hw_params_set_access)((snd_pcm_t*)pDevice->alsa.pPCM, pHWParams, SND_PCM_ACCESS_MMAP_INTERLEAVED) == 0) {
-        pDevice->alsa.isUsingMMap = MAL_TRUE;
-        mal_log(pDevice, "USING MMAP\n");
+    if (!pConfig->alsa.noMMap && pDevice->type != mal_device_type_capture) {    // <-- Disabling MMAP mode for capture devices because I apparently do not have a device that supports it so I can test it... Contributions welcome.
+        if (((mal_snd_pcm_hw_params_set_access_proc)pContext->alsa.snd_pcm_hw_params_set_access)((snd_pcm_t*)pDevice->alsa.pPCM, pHWParams, SND_PCM_ACCESS_MMAP_INTERLEAVED) == 0) {
+            pDevice->alsa.isUsingMMap = MAL_TRUE;
+        }
     }
-#endif
 
     if (!pDevice->alsa.isUsingMMap) {
         if (((mal_snd_pcm_hw_params_set_access_proc)pContext->alsa.snd_pcm_hw_params_set_access)((snd_pcm_t*)pDevice->alsa.pPCM, pHWParams, SND_PCM_ACCESS_RW_INTERLEAVED) < 0) {;
@@ -5570,6 +5605,13 @@ static mal_result mal_device__start_backend__alsa(mal_device* pDevice)
     if (pDevice->type == mal_device_type_playback) {
         if (!mal_device_write__alsa(pDevice)) {
             return mal_post_error(pDevice, "[ALSA] Failed to write initial chunk of data to the playback device.", MAL_FAILED_TO_SEND_DATA_TO_DEVICE);
+        }
+
+        // mmap mode requires an explicit start.
+        if (pDevice->alsa.isUsingMMap) {
+            if (((mal_snd_pcm_start_proc)pDevice->pContext->alsa.snd_pcm_start)((snd_pcm_t*)pDevice->alsa.pPCM) < 0) {
+                return mal_post_error(pDevice, "[ALSA] Failed to start capture device.", MAL_FAILED_TO_START_BACKEND_DEVICE);
+            }
         }
     } else {
         if (((mal_snd_pcm_start_proc)pDevice->pContext->alsa.snd_pcm_start)((snd_pcm_t*)pDevice->alsa.pPCM) < 0) {
@@ -9605,7 +9647,7 @@ void mal_pcm_f32_to_s32(int* pOut, const float* pIn, unsigned int count)
     for (unsigned int i = 0; i < count; ++i) {
         float x = pIn[i];
         float c;
-        int s;
+        long long s;
         c = ((x < -1) ? -1 : ((x > 1) ? 1 : x));
         s = ((*((int*)&x)) & 0x80000000) >> 31;
         s = s + 2147483647;
@@ -9631,8 +9673,13 @@ void mal_pcm_f32_to_s32(int* pOut, const float* pIn, unsigned int count)
 //   - Added support for UWP (Universal Windows Platform) applications. Currently C++ only.
 //   - Added support for exclusive mode for selected backends. Currently supported on WASAPI.
 //   - POSIX builds no longer require explicit linking to libpthread (-lpthread).
-//   - The ALSA backend no longer requires explicit linking to libasound (-lasound).
+//   - ALSA: Explicit linking to libasound (-lasound) is no longer required.
+//   - ALSA: Latency improvements.
+//   - ALSA: Use MMAP mode where available. This can be disabled with the alsa.noMMap config.
+//   - ALSA: Use "hw" devices instead of "plughw" devices by default. This can be disabled with the
+//     alsa.preferPlugHW config.
 //   - WASAPI is now the highest priority backend on Windows platforms.
+//   - Fixed an error with sample rate conversion which was causing crackling when capturing.
 //   - Improved error handling.
 //
 // v0.3 - 2017-06-19
