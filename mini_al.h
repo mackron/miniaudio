@@ -9726,12 +9726,6 @@ void mal_pcm_f32_to_s32(int* pOut, const float* pIn, unsigned int count)
 // - Optimize the DSP pipeline generally
 //
 //
-// ALSA
-// ----
-// - Finish mmap mode.
-// - Tweak the default buffer size and period counts. Pretty sure the ALSA backend can support a much smaller default buffer size.
-//
-//
 // OpenSL|ES / Android
 // -------------------
 // - Test!
