@@ -499,7 +499,8 @@ struct mal_src
         struct
         {
             float alpha;
-            mal_bool32 isBinLoaded : 1;
+            mal_bool32 isPrevFramesLoaded : 1;
+            mal_bool32 isNextFramesLoaded : 1;
         } linear;
     };
 };
@@ -2192,7 +2193,12 @@ static inline void mal_device__send_frames_to_client(mal_device* pDevice, mal_ui
                 break;
             }
 
+            //printf("SENDING TO CLIENT: %d %d\n", chunkFrameCount, framesJustRead);
             onRecv(pDevice, framesJustRead, chunkBuffer);
+
+            if (framesJustRead < chunkFrameCount) {
+                break;
+            }
         }
     }
 }
@@ -8668,21 +8674,23 @@ mal_uint32 mal_src_read_frames_linear(mal_src* pSRC, mal_uint32 frameCount, void
     mal_assert(frameCount > 0);
     mal_assert(pFramesOut != NULL);
 
-    // Load the bin if it's not been loaded yet.
-    if (!pSRC->linear.isBinLoaded) {
-        mal_uint32 framesRead = mal_src_cache_read_frames(&pSRC->cache, 2, pSRC->bin);
+    // For linear SRC, the bin is only 2 frames: 1 prior, 1 future.
+
+    // Load the bin if necessary.
+    if (!pSRC->linear.isPrevFramesLoaded) {
+        mal_uint32 framesRead = mal_src_cache_read_frames(&pSRC->cache, 1, pSRC->bin);
         if (framesRead == 0) {
             return 0;
         }
-
-        if (framesRead == 1) {
-            mal_pcm_convert(pFramesOut, pSRC->config.formatOut, pSRC->bin, mal_format_f32, framesRead * pSRC->config.channels);
-            return framesRead;
-        }
-
-        pSRC->linear.isBinLoaded = MAL_TRUE;
+        pSRC->linear.isPrevFramesLoaded = MAL_TRUE;
     }
-
+    if (!pSRC->linear.isNextFramesLoaded) {
+        mal_uint32 framesRead = mal_src_cache_read_frames(&pSRC->cache, 1, pSRC->bin + pSRC->config.channels);
+        if (framesRead == 0) {
+            return 0;
+        }
+        pSRC->linear.isNextFramesLoaded = MAL_TRUE;
+    }
 
     float factor = pSRC->ratio;
 
@@ -8712,8 +8720,8 @@ mal_uint32 mal_src_read_frames_linear(mal_src* pSRC, mal_uint32 frameCount, void
                     pNextFrame[j] = 0;
                 }
 
-                pSRC->linear.isBinLoaded = MAL_FALSE;
-                return totalFramesRead; // We've exhausted the client data.
+                pSRC->linear.isNextFramesLoaded = MAL_FALSE;
+                break;
             }
         }
         
@@ -8722,6 +8730,11 @@ mal_uint32 mal_src_read_frames_linear(mal_src* pSRC, mal_uint32 frameCount, void
         pFramesOut  = (mal_uint8*)pFramesOut + (1 * pSRC->config.channels * mal_get_sample_size_in_bytes(pSRC->config.formatOut));
         frameCount -= 1;
         totalFramesRead += 1;
+
+        // If there's no frames available we need to get out of this loop.
+        if (!pSRC->linear.isNextFramesLoaded) {
+            break;
+        }
     }
 
     return totalFramesRead;
