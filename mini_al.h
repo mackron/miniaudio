@@ -2193,7 +2193,6 @@ static inline void mal_device__send_frames_to_client(mal_device* pDevice, mal_ui
                 break;
             }
 
-            //printf("SENDING TO CLIENT: %d %d\n", chunkFrameCount, framesJustRead);
             onRecv(pDevice, framesJustRead, chunkBuffer);
 
             if (framesJustRead < chunkFrameCount) {
