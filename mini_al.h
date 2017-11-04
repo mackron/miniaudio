@@ -440,7 +440,7 @@ typedef union
     char openal[256];               // OpenAL seems to use human-readable device names as the ID.
 #endif
 #ifdef MAL_SUPPORT_NULL
-	int nullbackend;		        // Always 0. TODO: Check that this is indeed always set to 0 or just undefined. If undefined, change this to always be 0.
+	int nullbackend;		        // Always 0.
 #endif
 } mal_device_id;
 
