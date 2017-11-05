@@ -5484,7 +5484,7 @@ static mal_result mal_device_init__alsa(mal_context* pContext, mal_device_type t
         // Is preferred, convert "hw" devices to "plughw".
         if (pConfig->alsa.preferPlugHW && pDeviceID->alsa[0] == 'h' && pDeviceID->alsa[1] == 'w' && pDeviceID->alsa[2] == ':') {
         	deviceName[0] = 'p'; deviceName[1] = 'l'; deviceName[2] = 'u'; deviceName[3] = 'g';
-            mal_strncpy_s(deviceName+4, sizeof(deviceName-4), pDeviceID->alsa, (size_t)-1);
+            mal_strncpy_s(deviceName+4, sizeof(deviceName)-4, pDeviceID->alsa, (size_t)-1);
         } else {
             mal_strncpy_s(deviceName, sizeof(deviceName), pDeviceID->alsa, (size_t)-1);
         }
