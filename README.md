@@ -8,17 +8,29 @@ C/C++, single file, public domain.
 
 Features
 ========
-- Public domain
-- Single file
-- A very simple API
-- Supports both playback and capture on _all_ backends
-- Automatic sample rate conversion, channel conversion, format conversion and channel mapping
-  - Sample rate conversion is currently low quality, but a higher quality implementation is planned
+- Public domain.
+- Single file.
+- Compilable as both C and C++.
+- Easy to build.
+  - Does not require linking to anything on the Windows build and only -ldl on Linux.
+  - The Windows build compiles clean with the default installations of modern versions of MSVC, GCC
+    and Clang. There is no need to download any dependencies, configure include paths nor link to
+    any libraries. It should Just Work.
+  - The header section does not include any platform specific headers.
+- A very simple API.
+- Transparent data structures with direct access to internal data.
+- Supports both playback and capture on all backends.
+- Automatic format conversion.
+  - Data format conversion.
+  - Sample rate conversion.
+    - Sample rate conversion is currently low quality, but a higher quality implementation is planned.
+  - Channel mapping/layout.
+  - Channel mixing (converting mono to 5.1, etc.)
 
 
 Supported Platforms
 ===================
-- Windows
+- Windows (XP+)
 - Linux
 - BSD (via OSS)
 - Android
@@ -91,6 +103,7 @@ int main(int argc, char** argv)
         drwav_uninit(&wav);
         return -4;
     }
+    
     mal_device_start(&device);
     
     printf("Press Enter to quit...");
