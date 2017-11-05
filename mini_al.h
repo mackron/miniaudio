@@ -1,19 +1,16 @@
 // Mini audio library. Public domain. See "unlicense" statement at the end of this file.
-// mini_al - v0.4 - TBD
+// mini_al - v0.4 - 2017-11-05
 //
 // David Reid - davidreidsoftware@gmail.com
 
 // ABOUT
 // =====
 // mini_al is a small library for making it easy to connect to a playback or capture device and send
-// or receive data from said device. It's focused on being simple and light-weight so don't expect
-// all the bells and whistles. Indeed, this is not a full packaged audio library - it's just for
-// connecting to a device and handling data transmission.
+// or receive data from that device.
 //
 // mini_al uses an asynchronous API. Every device is created with it's own thread, with audio data
-// being either delivered to the application from the device (in the case of recording/capture) or
-// delivered from the application to the device in the case of playback. Synchronous APIs are not
-// supported in the interest of keeping the library as small and light-weight as possible.
+// being delivered to or from the device via a callback. Synchronous APIs are not supported in the
+// interest of keeping the library as simple and light-weight as possible.
 //
 // Supported Backends:
 //   - WASAPI
@@ -50,16 +47,18 @@
 //
 // Building (Windows)
 // ------------------
-// You do not need to link to anything for the Windows build, but you will need dsound.h in your include paths.
-//
+// The Windows build should compile clean on all modern versions of MSVC without the need to configure any include
+// paths nor link to any libraries. The same applies to MinGW/GCC and Clang.
 //
 // Building (Linux)
 // ----------------
 // The Linux build uses ALSA for it's backend so you will need to install the relevant ALSA development packages
 // for your preferred distro. It also uses pthreads. Dependencies are dynamically linked at runtime so you do not
-// need to link to -lasound nor -lpthread.
+// need to link to -lasound nor -lpthread. You will need to link to -ldl.
 //
-// Linking: -ldl
+// Building (BSD)
+// --------------
+// The BSD build uses OSS and should Just Work without any linking nor include path configuration.
 //
 //
 // Playback Example
@@ -119,18 +118,24 @@
 //     <uses-permission android:name="android.permission.RECORD_AUDIO" />
 // - UWP is only supported when compiling as C++.
 // - UWP only supports default playback and capture devices.
-//
+// - UWP requires the Microphone capability to be enabled in the application's manifest (Package.appxmanifest):
+//       <Package ...>
+//           ...
+//           <Capabilities>
+//               <DeviceCapability Name="microphone" />
+//           </Capabilities>
+//       </Package>
 //
 //
 // OPTIONS
 // =======
 // #define these options before including this file.
 //
-// #define MAL_NO_DSOUND
-//   Disables the DirectSound backend.
-//
 // #define MAL_NO_WASAPI
 //   Disables the WASAPI backend.
+//
+// #define MAL_NO_DSOUND
+//   Disables the DirectSound backend.
 //
 // #define MAL_NO_WINMM
 //   Disables the WinMM backend.
@@ -367,6 +372,7 @@ typedef int mal_result;
 #define MAL_FAILED_TO_CREATE_EVENT                      -24
 #define MAL_FAILED_TO_CREATE_THREAD                     -25
 #define MAL_INVALID_DEVICE_CONFIG                       -26
+#define MAL_ACCESS_DENIED                               -27
 #define MAL_DSOUND_FAILED_TO_CREATE_DEVICE              -1024
 #define MAL_DSOUND_FAILED_TO_SET_COOP_LEVEL             -1025
 #define MAL_DSOUND_FAILED_TO_CREATE_BUFFER              -1026
@@ -3266,7 +3272,12 @@ static mal_result mal_device_init__wasapi(mal_context* pContext, mal_device_type
         REFERENCE_TIME bufferDuration = bufferDurationInMicroseconds*10;
         hr = IAudioClient_Initialize(pDevice->wasapi.pAudioClient, shareMode, AUDCLNT_STREAMFLAGS_EVENTCALLBACK, bufferDuration, 0, (WAVEFORMATEX*)&wf, NULL);
         if (FAILED(hr)) {
-            errorMsg = "[WASAPI] Failed to initialize device.", result = MAL_WASAPI_FAILED_TO_INITIALIZE_DEVICE;
+            if (hr == E_ACCESSDENIED) {
+                errorMsg = "[WASAPI] Failed to initialize device. Access denied.", result = MAL_ACCESS_DENIED;
+            } else {
+                errorMsg = "[WASAPI] Failed to initialize device.", result = MAL_WASAPI_FAILED_TO_INITIALIZE_DEVICE;
+            }
+
             goto done;
         }
     } else {
@@ -9778,7 +9789,7 @@ void mal_pcm_f32_to_s32(int* pOut, const float* pIn, unsigned int count)
 // REVISION HISTORY
 // ================
 //
-// v0.4 - TBD
+// v0.4 - 2017-11-05
 //   - API CHANGE: The log callback is now per-context rather than per-device and as is thus now passed to
 //     mal_context_init(). The rationale for this change is that it allows applications to capture diagnostic
 //     messages at the context level. Previously this was only available at the device level.
@@ -9796,6 +9807,8 @@ void mal_pcm_f32_to_s32(int* pOut, const float* pIn, unsigned int count)
 //   - WASAPI is now the highest priority backend on Windows platforms.
 //   - Fixed an error with sample rate conversion which was causing crackling when capturing.
 //   - Improved error handling.
+//   - Improved compiler support.
+//   - Miscellaneous bug fixes.
 //
 // v0.3 - 2017-06-19
 //   - API CHANGE: Introduced the notion of a context. The context is the highest level object and is required for
@@ -9827,23 +9840,6 @@ void mal_pcm_f32_to_s32(int* pOut, const float* pIn, unsigned int count)
 //
 // v0.1 - 2016-10-21
 //   - Initial versioned release.
-
-
-// TODO
-// ====
-// - Higher quality sample rate conversion.
-//
-//
-// Optimizations
-// -------------
-// - SSE-ify format conversions
-// - SSE-ify SRC
-// - Optimize the DSP pipeline generally
-//
-//
-// OpenSL|ES / Android
-// -------------------
-// - Test!
 
 
 /*
