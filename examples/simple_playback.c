@@ -53,6 +53,7 @@ int main(int argc, char** argv)
         drwav_uninit(&wav);
         return -4;
     }
+
     mal_device_start(&device);
     
     printf("Press Enter to quit...");

@@ -62,6 +62,7 @@ int main()
         printf("Failed to initialize capture device.\n");
         return -2;
     }
+
     mal_device_start(&captureDevice);
 
     printf("Press Enter to stop recording...\n");
