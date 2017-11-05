@@ -199,6 +199,12 @@ extern "C" {
 		#define MAL_SUPPORT_DSOUND
 		#define MAL_SUPPORT_WINMM
 	#endif
+
+    // Don't support WASAPI nor DirectSound on older versions of MSVC for now.
+    #if defined(_MSC_VER) && _MSC_VER < 1400
+        #undef MAL_SUPPORT_WASAPI
+        #undef MAL_SUPPORT_DSOUND
+    #endif
 #endif
 #if defined(MAL_UNIX)
 	#if defined(MAL_LINUX)
@@ -291,6 +297,15 @@ typedef void (* mal_proc)();
         pthread_cond_t condition;
         mal_uint32 value;
     } mal_event;
+#endif
+
+#if defined(_MSC_VER) && !defined(_WCHAR_T_DEFINED)
+typedef mal_uint16 wchar_t;
+#endif
+
+// Define NULL for some compilers.
+#ifndef NULL
+#define NULL 0
 #endif
 
 #define MAL_MAX_PERIODS_DSOUND                          4
@@ -452,7 +467,7 @@ typedef struct
 
 typedef struct
 {
-    int64_t counter;
+    mal_int64 counter;
 } mal_timer;
 
 
@@ -764,6 +779,10 @@ struct mal_context
             mal_proc CoCreateInstance;
             mal_proc CoTaskMemFree;
             mal_proc PropVariantClear;
+
+            /*HMODULE*/ mal_handle hUser32DLL;
+            mal_proc GetForegroundWindow;
+            mal_proc GetDesktopWindow;
         } win32;
 #endif
 #ifdef MAL_POSIX
@@ -1384,8 +1403,11 @@ typedef mal_thread_result (MAL_THREADCALL * mal_thread_entry_proc)(void* pData);
 typedef HRESULT (WINAPI * MAL_PFN_CoInitializeEx)(LPVOID pvReserved, DWORD  dwCoInit);
 typedef void    (WINAPI * MAL_PFN_CoUninitialize)();
 typedef HRESULT (WINAPI * MAL_PFN_CoCreateInstance)(REFCLSID rclsid, LPUNKNOWN pUnkOuter, DWORD dwClsContext, REFIID riid, LPVOID *ppv);
-typedef void    (WINAPI * MAL_PFN_CoTaskMemFree)(_In_opt_ LPVOID pv);
+typedef void    (WINAPI * MAL_PFN_CoTaskMemFree)(LPVOID pv);
 typedef HRESULT (WINAPI * MAL_PFN_PropVariantClear)(PROPVARIANT *pvar);
+
+typedef HWND (WINAPI * MAL_PFN_GetForegroundWindow)();
+typedef HWND (WINAPI * MAL_PFN_GetDesktopWindow)();
 #endif
 
 
@@ -1615,7 +1637,7 @@ void mal_timer_init(mal_timer* pTimer)
 
     LARGE_INTEGER counter;
     QueryPerformanceCounter(&counter);
-    pTimer->counter = (uint64_t)counter.QuadPart;
+    pTimer->counter = (mal_uint64)counter.QuadPart;
 }
 
 double mal_timer_get_time_in_seconds(mal_timer* pTimer)
@@ -2337,7 +2359,7 @@ static mal_bool32 mal_device__get_current_frame__null(mal_device* pDevice, mal_u
 
     mal_uint64 currentFrameAbs = (mal_uint64)(mal_timer_get_time_in_seconds(&pDevice->null_device.timer) * pDevice->sampleRate) / pDevice->channels;
 
-    *pCurrentPos = currentFrameAbs % pDevice->bufferSizeInFrames;
+    *pCurrentPos = (mal_uint32)(currentFrameAbs % pDevice->bufferSizeInFrames);
     return MAL_TRUE;
 }
 
@@ -2447,8 +2469,46 @@ static mal_result mal_device__main_loop__null(mal_device* pDevice)
 // WIN32 COMMON
 //
 ///////////////////////////////////////////////////////////////////////////////
+#if defined(MAL_WIN32)
+#include "objbase.h"
+#if defined(MAL_WIN32_DESKTOP)
+    #define mal_CoInitializeEx(pContext, pvReserved, dwCoInit)                          ((MAL_PFN_CoInitializeEx)pContext->win32.CoInitializeEx)(pvReserved, dwCoInit)
+    #define mal_CoUninitialize(pContext)                                                ((MAL_PFN_CoUninitialize)pContext->win32.CoUninitialize)()
+    #define mal_CoCreateInstance(pContext, rclsid, pUnkOuter, dwClsContext, riid, ppv)  ((MAL_PFN_CoCreateInstance)pContext->win32.CoCreateInstance)(rclsid, pUnkOuter, dwClsContext, riid, ppv)
+    #define mal_CoTaskMemFree(pContext, pv)                                             ((MAL_PFN_CoTaskMemFree)pContext->win32.CoTaskMemFree)(pv)
+    #define mal_PropVariantClear(pContext, pvar)                                        ((MAL_PFN_PropVariantClear)pContext->win32.PropVariantClear)(pvar)
+#else
+    #define mal_CoInitializeEx(pContext, pvReserved, dwCoInit)                          CoInitializeEx(pvReserved, dwCoInit)
+    #define mal_CoUninitialize(pContext)                                                CoUninitialize()
+    #define mal_CoCreateInstance(pContext, rclsid, pUnkOuter, dwClsContext, riid, ppv)  CoCreateInstance(rclsid, pUnkOuter, dwClsContext, riid, ppv)
+    #define mal_CoTaskMemFree(pContext, pv)                                             CoTaskMemFree(pv)
+    #define mal_PropVariantClear(pContext, pvar)                                        PropVariantClear(pvar)
+#endif
+#endif
+
 #if defined(MAL_ENABLE_WASAPI) || defined(MAL_ENABLE_DSOUND)
 #include <mmreg.h>
+
+#ifndef SPEAKER_FRONT_LEFT
+#define SPEAKER_FRONT_LEFT            0x1
+#define SPEAKER_FRONT_RIGHT           0x2
+#define SPEAKER_FRONT_CENTER          0x4
+#define SPEAKER_LOW_FREQUENCY         0x8
+#define SPEAKER_BACK_LEFT             0x10
+#define SPEAKER_BACK_RIGHT            0x20
+#define SPEAKER_FRONT_LEFT_OF_CENTER  0x40
+#define SPEAKER_FRONT_RIGHT_OF_CENTER 0x80
+#define SPEAKER_BACK_CENTER           0x100
+#define SPEAKER_SIDE_LEFT             0x200
+#define SPEAKER_SIDE_RIGHT            0x400
+#define SPEAKER_TOP_CENTER            0x800
+#define SPEAKER_TOP_FRONT_LEFT        0x1000
+#define SPEAKER_TOP_FRONT_CENTER      0x2000
+#define SPEAKER_TOP_FRONT_RIGHT       0x4000
+#define SPEAKER_TOP_BACK_LEFT         0x8000
+#define SPEAKER_TOP_BACK_CENTER       0x10000
+#define SPEAKER_TOP_BACK_RIGHT        0x20000
+#endif
 
 // Converts an individual Win32-style channel identifier (SPEAKER_FRONT_LEFT, etc.) to mini_al.
 static mal_uint8 mal_channel_id_to_mal__win32(DWORD id)
@@ -2766,20 +2826,6 @@ const IID g_malIID_DEVINTERFACE_AUDIO_CAPTURE = {0x2EEF81BE, 0x33FA, 0x4800, {0x
     #define IAudioCaptureClient_ReleaseBuffer(p, a) ((IAudioCaptureClient*)p)->ReleaseBuffer(a)
 #else
     #define IAudioCaptureClient_ReleaseBuffer(p, a) ((IAudioCaptureClient*)p)->lpVtbl->ReleaseBuffer((IAudioCaptureClient*)p, a)
-#endif
-
-#ifdef MAL_WIN32_DESKTOP
-#define mal_CoInitializeEx(pContext, pvReserved, dwCoInit)                          ((MAL_PFN_CoInitializeEx)pContext->win32.CoInitializeEx)(pvReserved, dwCoInit)
-#define mal_CoUninitialize(pContext)                                                ((MAL_PFN_CoUninitialize)pContext->win32.CoUninitialize)()
-#define mal_CoCreateInstance(pContext, rclsid, pUnkOuter, dwClsContext, riid, ppv)  ((MAL_PFN_CoCreateInstance)pContext->win32.CoCreateInstance)(rclsid, pUnkOuter, dwClsContext, riid, ppv)
-#define mal_CoTaskMemFree(pContext, pv)                                             ((MAL_PFN_CoTaskMemFree)pContext->win32.CoTaskMemFree)(pv)
-#define mal_PropVariantClear(pContext, pvar)                                        ((MAL_PFN_PropVariantClear)pContext->win32.PropVariantClear)(pvar)
-#else
-#define mal_CoInitializeEx(pContext, pvReserved, dwCoInit)                          CoInitializeEx(pvReserved, dwCoInit)
-#define mal_CoUninitialize(pContext)                                                CoUninitialize()
-#define mal_CoCreateInstance(pContext, rclsid, pUnkOuter, dwClsContext, riid, ppv)  CoCreateInstance(rclsid, pUnkOuter, dwClsContext, riid, ppv)
-#define mal_CoTaskMemFree(pContext, pv)                                             CoTaskMemFree(pv)
-#define mal_PropVariantClear(pContext, pvar)                                        PropVariantClear(pvar)
 #endif
 
 mal_result mal_context_init__wasapi(mal_context* pContext)
@@ -3492,13 +3538,15 @@ static mal_result mal_device__main_loop__wasapi(mal_device* pDevice)
 #ifdef MAL_ENABLE_DSOUND
 #include <dsound.h>
 
+#if 0   // MAL_GUID_NULL is not currently used, but leaving it here in case I need to add it back again. 
 static GUID MAL_GUID_NULL                            = {0x00000000, 0x0000, 0x0000, {0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00}};
+#endif
 static GUID MAL_GUID_IID_DirectSoundNotify           = {0xb0210783, 0x89cd, 0x11d0, {0xaf, 0x08, 0x00, 0xa0, 0xc9, 0x25, 0xcd, 0x16}};
 static GUID MAL_GUID_IID_IDirectSoundCaptureBuffer8  = {0x00990df4, 0x0dbb, 0x4872, {0x83, 0x3e, 0x6d, 0x30, 0x3e, 0x80, 0xae, 0xb6}};
 
-typedef HRESULT (WINAPI * mal_DirectSoundCreate8Proc)(LPCGUID pcGuidDevice, LPDIRECTSOUND8 *ppDS8, LPUNKNOWN pUnkOuter);
+typedef HRESULT (WINAPI * mal_DirectSoundCreate8Proc)(const GUID* pcGuidDevice, LPDIRECTSOUND8 *ppDS8, LPUNKNOWN pUnkOuter);
 typedef HRESULT (WINAPI * mal_DirectSoundEnumerateAProc)(LPDSENUMCALLBACKA pDSEnumCallback, LPVOID pContext);
-typedef HRESULT (WINAPI * mal_DirectSoundCaptureCreate8Proc)(LPCGUID pcGuidDevice, LPDIRECTSOUNDCAPTURE8 *ppDSC8, LPUNKNOWN pUnkOuter);
+typedef HRESULT (WINAPI * mal_DirectSoundCaptureCreate8Proc)(const GUID* pcGuidDevice, LPDIRECTSOUNDCAPTURE8 *ppDSC8, LPUNKNOWN pUnkOuter);
 typedef HRESULT (WINAPI * mal_DirectSoundCaptureEnumerateAProc)(LPDSENUMCALLBACKA pDSEnumCallback, LPVOID pContext);
 
 static HMODULE mal_open_dsound_dll()
@@ -3706,15 +3754,15 @@ static mal_result mal_device_init__dsound(mal_context* pContext, mal_device_type
             return mal_post_error(pDevice, "[DirectSound] Could not find DirectSoundCreate8().", MAL_API_NOT_FOUND);
         }
 
-        if (FAILED(pDirectSoundCreate8((pDeviceID == NULL) ? NULL : (LPCGUID)pDeviceID->dsound, (LPDIRECTSOUND8*)&pDevice->dsound.pPlayback, NULL))) {
+        if (FAILED(pDirectSoundCreate8((pDeviceID == NULL) ? NULL : (const GUID*)pDeviceID->dsound, (LPDIRECTSOUND8*)&pDevice->dsound.pPlayback, NULL))) {
             mal_device_uninit__dsound(pDevice);
             return mal_post_error(pDevice, "[DirectSound] DirectSoundCreate8() failed for playback device.", MAL_DSOUND_FAILED_TO_CREATE_DEVICE);
         }
 
         // The cooperative level must be set before doing anything else.
-        HWND hWnd = GetForegroundWindow();
+        HWND hWnd = ((MAL_PFN_GetForegroundWindow)pContext->win32.GetForegroundWindow)();
         if (hWnd == NULL) {
-            hWnd = GetDesktopWindow();
+            hWnd = ((MAL_PFN_GetDesktopWindow)pContext->win32.GetDesktopWindow)();
         }
         if (FAILED(IDirectSound_SetCooperativeLevel((LPDIRECTSOUND8)pDevice->dsound.pPlayback, hWnd, (pConfig->preferExclusiveMode) ? DSSCL_EXCLUSIVE : DSSCL_PRIORITY))) {
             mal_device_uninit__dsound(pDevice);
@@ -4094,6 +4142,25 @@ static mal_result mal_device__main_loop__dsound(mal_device* pDevice)
 #ifdef MAL_ENABLE_WINMM
 #include <mmsystem.h>
 
+#if !defined(MAXULONG_PTR)
+typedef size_t DWORD_PTR;
+#endif
+
+#if !defined(WAVE_FORMAT_44M08)
+#define WAVE_FORMAT_44M08 0x00000100
+#define WAVE_FORMAT_44S08 0x00000200
+#define WAVE_FORMAT_44M16 0x00000400
+#define WAVE_FORMAT_44S16 0x00000800
+#define WAVE_FORMAT_48M08 0x00001000
+#define WAVE_FORMAT_48S08 0x00002000
+#define WAVE_FORMAT_48M16 0x00004000
+#define WAVE_FORMAT_48S16 0x00008000
+#define WAVE_FORMAT_96M08 0x00010000
+#define WAVE_FORMAT_96S08 0x00020000
+#define WAVE_FORMAT_96M16 0x00040000
+#define WAVE_FORMAT_96S16 0x00080000
+#endif
+
 typedef UINT     (WINAPI * MAL_PFN_waveOutGetNumDevs)(void);
 typedef MMRESULT (WINAPI * MAL_PFN_waveOutGetDevCapsA)(UINT_PTR uDeviceID, LPWAVEOUTCAPSA pwoc, UINT cbwoc);
 typedef MMRESULT (WINAPI * MAL_PFN_waveOutOpen)(LPHWAVEOUT phwo, UINT uDeviceID, LPCWAVEFORMATEX pwfx, DWORD_PTR dwCallback, DWORD_PTR dwInstance, DWORD fdwOpen);
@@ -4228,6 +4295,13 @@ static mal_result mal_device_init__winmm(mal_context* pContext, mal_device_type 
 {
     (void)pContext;
 
+    mal_uint32 heapSize;
+    mal_uint32 iBit;
+
+    WORD closestBitsPerSample = 0;
+    WORD closestChannels = 0;
+    DWORD closestSampleRate = 0;
+
     mal_assert(pDevice != NULL);
     mal_zero_object(&pDevice->winmm);
 
@@ -4301,11 +4375,7 @@ static mal_result mal_device_init__winmm(mal_context* pContext, mal_device_type 
         goto on_error;
     }
 
-
-    WORD closestBitsPerSample = 0;
-    WORD closestChannels = 0;
-    DWORD closestSampleRate = 0;
-    for (mal_uint32 iBit = 0; iBit < 32; ++iBit) {
+    for (iBit = 0; iBit < 32; ++iBit) {
         WORD formatBitsPerSample = 0;
         WORD formatChannels = 0;
         DWORD formatSampleRate = 0;
@@ -4531,7 +4601,7 @@ static mal_result mal_device_init__winmm(mal_context* pContext, mal_device_type 
     pDevice->internalSampleRate = wf.nSamplesPerSec;
 
 
-    // Just use the default channel mapping. WinMM only supportes mono or stereo anyway so it reliably be left/right order for stereo.
+    // Just use the default channel mapping. WinMM only supports mono or stereo anyway so it'll reliably be left/right order for stereo.
     mal_get_default_channel_mapping(pDevice->pContext->backend, pDevice->internalChannels, pDevice->internalChannelMap);
 
 
@@ -4548,7 +4618,7 @@ static mal_result mal_device_init__winmm(mal_context* pContext, mal_device_type 
     pDevice->winmm.fragmentSizeInFrames = pDevice->bufferSizeInFrames / pDevice->periods;
     pDevice->winmm.fragmentSizeInBytes = pDevice->winmm.fragmentSizeInFrames * pDevice->internalChannels * mal_get_sample_size_in_bytes(pDevice->internalFormat);
 
-    mal_uint32 heapSize = (sizeof(WAVEHDR) * pDevice->periods) + (pDevice->winmm.fragmentSizeInBytes * pDevice->periods);
+    heapSize = (sizeof(WAVEHDR) * pDevice->periods) + (pDevice->winmm.fragmentSizeInBytes * pDevice->periods);
     pDevice->winmm._pHeapData = (mal_uint8*)mal_malloc(heapSize);
     if (pDevice->winmm._pHeapData == NULL) {
         errorMsg = "[WinMM] Failed to allocate memory for the intermediary buffer.", errorCode = MAL_OUT_OF_MEMORY;
@@ -4585,7 +4655,8 @@ static mal_result mal_device__start_backend__winmm(mal_device* pDevice)
         //     Unless the device is paused by calling the waveOutPause function, playback begins when the first data block is sent to the device.
         //
         // When starting the device we commit every fragment. We signal the event before calling waveOutWrite().
-        for (mal_uint32 i = 0; i < pDevice->periods; ++i) {
+        mal_uint32 i;
+        for (i = 0; i < pDevice->periods; ++i) {
             mal_zero_object(&((LPWAVEHDR)pDevice->winmm.pWAVEHDR)[i]);
             ((LPWAVEHDR)pDevice->winmm.pWAVEHDR)[i].lpData = (LPSTR)(pDevice->winmm.pIntermediaryBuffer + (pDevice->winmm.fragmentSizeInBytes * i));
             ((LPWAVEHDR)pDevice->winmm.pWAVEHDR)[i].dwBufferLength = pDevice->winmm.fragmentSizeInBytes;
@@ -4600,7 +4671,7 @@ static mal_result mal_device__start_backend__winmm(mal_device* pDevice)
 
         ResetEvent(pDevice->winmm.hEvent);
 
-        for (mal_uint32 i = 0; i < pDevice->periods; ++i) {
+        for (i = 0; i < pDevice->periods; ++i) {
             if (((MAL_PFN_waveOutWrite)pDevice->pContext->winmm.waveOutWrite)((HWAVEOUT)pDevice->winmm.hDevice, &((LPWAVEHDR)pDevice->winmm.pWAVEHDR)[i], sizeof(WAVEHDR)) != MMSYSERR_NOERROR) {
                 return mal_post_error(pDevice, "[WinMM] Failed to start backend device. Failed to send data to the backend device.", MAL_FAILED_TO_START_BACKEND_DEVICE);
             }
@@ -4687,6 +4758,8 @@ static mal_result mal_device__main_loop__winmm(mal_device* pDevice)
 {
     mal_assert(pDevice != NULL);
 
+    mal_uint32 counter;
+
     pDevice->winmm.breakFromMainLoop = MAL_FALSE;
     while (!pDevice->winmm.breakFromMainLoop) {
         // Wait for a block of data to finish processing...
@@ -4703,7 +4776,7 @@ static mal_result mal_device__main_loop__winmm(mal_device* pDevice)
         // Any headers that are marked as done need to be handled. We start by processing the completed blocks. Then we reset the event
         // and then write or add replacement buffers to the device.
         mal_uint32 iFirstHeader = pDevice->winmm.iNextHeader;
-        for (mal_uint32 counter = 0; counter < pDevice->periods; ++counter) {
+        for (counter = 0; counter < pDevice->periods; ++counter) {
             mal_uint32 i = pDevice->winmm.iNextHeader;
             if ((((LPWAVEHDR)pDevice->winmm.pWAVEHDR)[i].dwFlags & WHDR_DONE) == 0) {
                 break;
@@ -4762,7 +4835,7 @@ static mal_result mal_device__main_loop__winmm(mal_device* pDevice)
 
         ResetEvent((HANDLE)pDevice->winmm.hEvent);
 
-        for (mal_uint32 counter = 0; counter < pDevice->periods; ++counter) {
+        for (counter = 0; counter < pDevice->periods; ++counter) {
             mal_uint32 i = (iFirstHeader + counter) % pDevice->periods;
 
             if (((LPWAVEHDR)pDevice->winmm.pWAVEHDR)[i].dwUser == 1) {
@@ -7592,7 +7665,7 @@ static mal_result mal_device__main_loop(mal_device* pDevice)
         result = mal_device__main_loop__dsound(pDevice);
     }
 #endif
-#ifdef MAL_ENABLE_DSOUND
+#ifdef MAL_ENABLE_WINMM
     if (pDevice->pContext->backend == mal_backend_winmm) {
         result = mal_device__main_loop__winmm(pDevice);
     }
@@ -7627,7 +7700,7 @@ mal_thread_result MAL_THREADCALL mal_worker_thread(void* pData)
     mal_assert(pDevice != NULL);
     
 #ifdef MAL_WIN32
-    mal_CoInitializeEx(pDevice->pContext, NULL, COINIT_MULTITHREADED);
+    mal_CoInitializeEx(pDevice->pContext, NULL, 0); // 0 = COINIT_MULTITHREADED
 #endif
 
     // This is only used to prevent posting onStop() when the device is first initialized.
@@ -7705,6 +7778,7 @@ mal_bool32 mal_device__is_initialized(mal_device* pDevice)
 mal_result mal_context_uninit_backend_apis__win32(mal_context* pContext)
 {
     mal_CoUninitialize(pContext);
+    mal_dlclose(pContext->win32.hUser32DLL);
     mal_dlclose(pContext->win32.hOle32DLL);
 
     return MAL_SUCCESS;
@@ -7724,9 +7798,19 @@ mal_result mal_context_init_backend_apis__win32(mal_context* pContext)
     pContext->win32.CoCreateInstance = (mal_proc)mal_dlsym(pContext->win32.hOle32DLL, "CoCreateInstance");
     pContext->win32.CoTaskMemFree    = (mal_proc)mal_dlsym(pContext->win32.hOle32DLL, "CoTaskMemFree");
     pContext->win32.PropVariantClear = (mal_proc)mal_dlsym(pContext->win32.hOle32DLL, "PropVariantClear");
+
+
+    // User32.dll
+    pContext->win32.hUser32DLL = mal_dlopen("user32.dll");
+    if (pContext->win32.hUser32DLL == NULL) {
+        return MAL_FAILED_TO_INIT_BACKEND;
+    }
+
+    pContext->win32.GetForegroundWindow = (mal_proc)mal_dlsym(pContext->win32.hUser32DLL, "GetForegroundWindow");
+    pContext->win32.GetDesktopWindow    = (mal_proc)mal_dlsym(pContext->win32.hUser32DLL, "GetDesktopWindow");
 #endif
 
-    mal_CoInitializeEx(pContext, NULL, COINIT_MULTITHREADED);
+    mal_CoInitializeEx(pContext, NULL, 0);  // 0 = COINIT_MULTITHREADED
     return MAL_SUCCESS;
 }
 #else
@@ -9251,15 +9335,16 @@ mal_result mal_dsp_init(mal_dsp_config* pConfig, mal_dsp_read_proc onRead, void*
     if (pConfig->channelMapIn[0] != MAL_CHANNEL_NONE && pConfig->channelMapOut[0] != MAL_CHANNEL_NONE) {    // <-- Channel mapping will be ignored if the first channel map is MAL_CHANNEL_NONE.
         // When using channel mapping we need to figure out a shuffling table. The first thing to do is convert the input channel map
         // so that it contains the same number of channels as the output channel count.
+        mal_uint32 iChannel;
         mal_uint32 channelsMin = mal_min(pConfig->channelsIn, pConfig->channelsOut);
-        for (mal_uint32 iChannel = 0; iChannel < channelsMin; ++iChannel) {
+        for (iChannel = 0; iChannel < channelsMin; ++iChannel) {
             pDSP->channelMapInPostMix[iChannel] = pConfig->channelMapIn[iChannel];
         }
 
         // Any excess channels need to be filled with the relevant channels from the output channel map. Currently we're justing filling it with
         // the first channels that are not present in the input channel map.
         if (pConfig->channelsOut > pConfig->channelsIn) {
-            for (mal_uint32 iChannel = pConfig->channelsIn; iChannel < pConfig->channelsOut; ++iChannel) {
+            for (iChannel = pConfig->channelsIn; iChannel < pConfig->channelsOut; ++iChannel) {
                 mal_uint8 newChannel = MAL_CHANNEL_NONE;
                 for (mal_uint32 iChannelOut = 0; iChannelOut < pConfig->channelsOut; ++iChannelOut) {
                     mal_bool32 exists = MAL_FALSE;
@@ -9281,7 +9366,7 @@ mal_result mal_dsp_init(mal_dsp_config* pConfig, mal_dsp_read_proc onRead, void*
         }
 
         // We only need to do a channel mapping if the map after mixing is different to the final output map.
-        for (mal_uint32 iChannel = 0; iChannel < pConfig->channelsOut; ++iChannel) {
+        for (iChannel = 0; iChannel < pConfig->channelsOut; ++iChannel) {
             if (pDSP->channelMapInPostMix[iChannel] != pConfig->channelMapOut[iChannel]) {
                 pDSP->isChannelMappingRequired = MAL_TRUE;
                 break;
@@ -9653,7 +9738,7 @@ void mal_pcm_f32_to_s32(int* pOut, const float* pIn, unsigned int count)
     for (unsigned int i = 0; i < count; ++i) {
         float x = pIn[i];
         float c;
-        long long s;
+        mal_int64 s;
         c = ((x < -1) ? -1 : ((x > 1) ? 1 : x));
         s = ((*((int*)&x)) & 0x80000000) >> 31;
         s = s + 2147483647;
