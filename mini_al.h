@@ -9033,13 +9033,16 @@ static void mal_rearrange_channels(void* pFrame, mal_uint32 channels, mal_uint8 
     }
 }
 
-static void mal_dsp_mix_channels__dec(float* pFramesOut, mal_uint32 channelsOut, const float* pFramesIn, mal_uint32 channelsIn, mal_uint32 frameCount, mal_channel_mix_mode mode)
+static void mal_dsp_mix_channels__dec(float* pFramesOut, mal_uint32 channelsOut, const mal_uint8 channelMapOut[MAL_MAX_CHANNELS], const float* pFramesIn, mal_uint32 channelsIn, const mal_uint8 channelMapIn[MAL_MAX_CHANNELS], mal_uint32 frameCount, mal_channel_mix_mode mode)
 {
     mal_assert(pFramesOut != NULL);
     mal_assert(channelsOut > 0);
     mal_assert(pFramesIn != NULL);
     mal_assert(channelsIn > 0);
     mal_assert(channelsOut < channelsIn);
+
+    (void)channelMapOut;
+    (void)channelMapIn;
 
     if (mode == mal_channel_mix_mode_basic) {
         // Basic mode is where we just drop excess channels.
@@ -9094,21 +9097,24 @@ static void mal_dsp_mix_channels__dec(float* pFramesOut, mal_uint32 channelsOut,
             }
         } else if (channelsOut == 2) {
             // TODO: Implement proper stereo blending.
-            mal_dsp_mix_channels__dec(pFramesOut, channelsOut, pFramesIn, channelsIn, frameCount, mal_channel_mix_mode_basic);
+            mal_dsp_mix_channels__dec(pFramesOut, channelsOut, channelMapOut, pFramesIn, channelsIn, channelMapIn, frameCount, mal_channel_mix_mode_basic);
         } else {
             // Fall back to basic mode.
-            mal_dsp_mix_channels__dec(pFramesOut, channelsOut, pFramesIn, channelsIn, frameCount, mal_channel_mix_mode_basic);
+            mal_dsp_mix_channels__dec(pFramesOut, channelsOut, channelMapOut, pFramesIn, channelsIn, channelMapIn, frameCount, mal_channel_mix_mode_basic);
         }
     }
 }
 
-static void mal_dsp_mix_channels__inc(float* pFramesOut, mal_uint32 channelsOut, const float* pFramesIn, mal_uint32 channelsIn, mal_uint32 frameCount, mal_channel_mix_mode mode)
+static void mal_dsp_mix_channels__inc(float* pFramesOut, mal_uint32 channelsOut, const mal_uint8 channelMapOut[MAL_MAX_CHANNELS], const float* pFramesIn, mal_uint32 channelsIn, const mal_uint8 channelMapIn[MAL_MAX_CHANNELS], mal_uint32 frameCount, mal_channel_mix_mode mode)
 {
     mal_assert(pFramesOut != NULL);
     mal_assert(channelsOut > 0);
     mal_assert(pFramesIn != NULL);
     mal_assert(channelsIn > 0);
     mal_assert(channelsOut > channelsIn);
+
+    (void)channelMapOut;
+    (void)channelMapIn;
 
     if (mode == mal_channel_mix_mode_basic) {\
         // Basic mode is where we just zero out extra channels.
@@ -9182,22 +9188,22 @@ static void mal_dsp_mix_channels__inc(float* pFramesOut, mal_uint32 channelsOut,
             }
         } else if (channelsIn == 2) {
             // TODO: Implement an optimized stereo conversion.
-            mal_dsp_mix_channels__dec(pFramesOut, channelsOut, pFramesIn, channelsIn, frameCount, mal_channel_mix_mode_basic);
+            mal_dsp_mix_channels__dec(pFramesOut, channelsOut, channelMapOut, pFramesIn, channelsIn, channelMapIn, frameCount, mal_channel_mix_mode_basic);
         } else {
             // Fall back to basic mixing mode.
-            mal_dsp_mix_channels__dec(pFramesOut, channelsOut, pFramesIn, channelsIn, frameCount, mal_channel_mix_mode_basic);
+            mal_dsp_mix_channels__dec(pFramesOut, channelsOut, channelMapOut, pFramesIn, channelsIn, channelMapIn, frameCount, mal_channel_mix_mode_basic);
         }
     }
 }
 
-static void mal_dsp_mix_channels(float* pFramesOut, mal_uint32 channelsOut, const float* pFramesIn, mal_uint32 channelsIn, mal_uint32 frameCount, mal_channel_mix_mode mode)
+static void mal_dsp_mix_channels(float* pFramesOut, mal_uint32 channelsOut, const mal_uint8 channelMapOut[MAL_MAX_CHANNELS], const float* pFramesIn, mal_uint32 channelsIn, const mal_uint8 channelMapIn[MAL_MAX_CHANNELS], mal_uint32 frameCount, mal_channel_mix_mode mode)
 {
     if (channelsIn < channelsOut) {
         // Increasing the channel count.
-        mal_dsp_mix_channels__inc(pFramesOut, channelsOut, pFramesIn, channelsIn, frameCount, mode);
+        mal_dsp_mix_channels__inc(pFramesOut, channelsOut, channelMapOut, pFramesIn, channelsIn, channelMapIn, frameCount, mode);
     } else {
         // Decreasing the channel count.
-        mal_dsp_mix_channels__dec(pFramesOut, channelsOut, pFramesIn, channelsIn, frameCount, mode);
+        mal_dsp_mix_channels__dec(pFramesOut, channelsOut, channelMapOut, pFramesIn, channelsIn, channelMapIn, frameCount, mode);
     }
 }
 
@@ -9350,7 +9356,7 @@ mal_uint32 mal_dsp_read_frames(mal_dsp* pDSP, mal_uint32 frameCount, void* pFram
                 pFramesFormat[iFrames] = mal_format_f32;
             }
 
-            mal_dsp_mix_channels((float*)(pFrames[(iFrames + 1) % 2]), pDSP->config.channelsOut, (const float*)(pFrames[iFrames]), pDSP->config.channelsIn, framesRead, mal_channel_mix_mode_blend);
+            mal_dsp_mix_channels((float*)(pFrames[(iFrames + 1) % 2]), pDSP->config.channelsOut, pDSP->config.channelMapOut, (const float*)(pFrames[iFrames]), pDSP->config.channelsIn, pDSP->config.channelMapIn, framesRead, mal_channel_mix_mode_blend);
             iFrames = (iFrames + 1) % 2;
             pFramesFormat[iFrames] = mal_format_f32;
         }
