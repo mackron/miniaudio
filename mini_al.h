@@ -5183,8 +5183,10 @@ static mal_bool32 mal_device_write__alsa(mal_device* pDevice)
                 return MAL_FALSE;
             }
 
-            void* pBuffer = (mal_uint8*)pAreas[0].addr + ((pAreas[0].first + (mappedOffset * pAreas[0].step)) / 8);
-            mal_device__read_frames_from_client(pDevice, mappedFrames, pBuffer);
+            if (mappedFrames > 0) {
+                void* pBuffer = (mal_uint8*)pAreas[0].addr + ((pAreas[0].first + (mappedOffset * pAreas[0].step)) / 8);
+                mal_device__read_frames_from_client(pDevice, mappedFrames, pBuffer);
+            }
 
             result = ((mal_snd_pcm_mmap_commit_proc)pDevice->pContext->alsa.snd_pcm_mmap_commit)((snd_pcm_t*)pDevice->alsa.pPCM, mappedOffset, mappedFrames);
             if (result < 0 || (snd_pcm_uframes_t)result != mappedFrames) {
@@ -5275,8 +5277,10 @@ static mal_bool32 mal_device_read__alsa(mal_device* pDevice)
                 return MAL_FALSE;
             }
 
-            void* pBuffer = (mal_uint8*)pAreas[0].addr + ((pAreas[0].first + (mappedOffset * pAreas[0].step)) / 8);
-            mal_device__send_frames_to_client(pDevice, mappedFrames, pBuffer);
+            if (mappedFrames > 0) {
+                void* pBuffer = (mal_uint8*)pAreas[0].addr + ((pAreas[0].first + (mappedOffset * pAreas[0].step)) / 8);
+                mal_device__send_frames_to_client(pDevice, mappedFrames, pBuffer);
+            }
 
             result = ((mal_snd_pcm_mmap_commit_proc)pDevice->pContext->alsa.snd_pcm_mmap_commit)((snd_pcm_t*)pDevice->alsa.pPCM, mappedOffset, mappedFrames);
             if (result < 0 || (snd_pcm_uframes_t)result != mappedFrames) {
