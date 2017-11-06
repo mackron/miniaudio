@@ -449,7 +449,7 @@ typedef union
 	/*UINT_PTR*/ mal_uint32 winmm;  // When creating a device, WinMM expects a Win32 UINT_PTR for device identification. In practice it's actually just a UINT.
 #endif
 #ifdef MAL_SUPPORT_ALSA
-    char alsa[32];                  // ALSA uses a name string for identification.
+    char alsa[256];                 // ALSA uses a name string for identification.
 #endif
 #ifdef MAL_SUPPORT_COREAUDIO
 	// TODO: Implement me.
@@ -1507,7 +1507,7 @@ static int mal_strncpy_s(char* dst, size_t dstSizeInBytes, const char* src, size
         return 22;
     }
     if (dstSizeInBytes == 0) {
-        return 22;
+        return 34;
     }
     if (src == 0) {
         dst[0] = '\0';
@@ -1533,7 +1533,113 @@ static int mal_strncpy_s(char* dst, size_t dstSizeInBytes, const char* src, size
     return 34;
 }
 
-int mal_strcmp(const char* str1, const char* str2)
+static int mal_strcat_s(char* dst, size_t dstSizeInBytes, const char* src)
+{
+    if (dst == 0) {
+        return 22;
+    }
+    if (dstSizeInBytes == 0) {
+        return 34;
+    }
+    if (src == 0) {
+        dst[0] = '\0';
+        return 22;
+    }
+
+    char* dstorig = dst;
+
+    while (dstSizeInBytes > 0 && dst[0] != '\0') {
+        dst += 1;
+        dstSizeInBytes -= 1;
+    }
+
+    if (dstSizeInBytes == 0) {
+        return 22;  // Unterminated.
+    }
+
+
+    while (dstSizeInBytes > 0 && src[0] != '\0') {
+        *dst++ = *src++;
+        dstSizeInBytes -= 1;
+    }
+
+    if (dstSizeInBytes > 0) {
+        dst[0] = '\0';
+    } else {
+        dstorig[0] = '\0';
+        return 34;
+    }
+
+    return 0;
+}
+
+static int mal_itoa_s(int value, char* dst, size_t dstSizeInBytes, int radix)
+{
+    if (dst == NULL || dstSizeInBytes == 0) {
+        return 22;
+    }
+    if (radix < 2 || radix > 36) {
+        dst[0] = '\0';
+        return 22;
+    }
+
+    int sign = (value < 0 && radix == 10) ? -1 : 1;     // The negative sign is only used when the base is 10.
+
+    unsigned int valueU;
+    if (value < 0) {
+        valueU = -value;
+    } else {
+        valueU = value;
+    }
+
+    char* dstEnd = dst;
+    do
+    {
+        int remainder = valueU % radix;
+        if (remainder > 9) {
+            *dstEnd = (char)((remainder - 10) + 'a');
+        } else {
+            *dstEnd = (char)(remainder + '0');
+        }
+
+        dstEnd += 1;
+        dstSizeInBytes -= 1;
+        valueU /= radix;
+    } while (dstSizeInBytes > 0 && valueU > 0);
+
+    if (dstSizeInBytes == 0) {
+        dst[0] = '\0';
+        return 22;  // Ran out of room in the output buffer.
+    }
+
+    if (sign < 0) {
+        *dstEnd++ = '-';
+        dstSizeInBytes -= 1;
+    }
+
+    if (dstSizeInBytes == 0) {
+        dst[0] = '\0';
+        return 22;  // Ran out of room in the output buffer.
+    }
+
+    *dstEnd = '\0';
+
+
+    // At this point the string will be reversed.
+    dstEnd -= 1;
+    while (dst < dstEnd) {
+        char temp = *dst;
+        *dst = *dstEnd;
+        *dstEnd = temp;
+
+        dst += 1;
+        dstEnd -= 1;
+    }
+
+    return 0;
+}
+
+static int mal_strcmp(const char* str1, const char* str2)
 {
     if (str1 == str2) return  0;
 
@@ -5339,33 +5445,66 @@ static mal_bool32 mal_device_read__alsa(mal_device* pDevice)
 }
 
 
+
+
+static int mal_convert_device_name_to_hw_format__alsa(mal_context* pContext, char* dst, size_t dstSize, const char* src)  // Returns 0 on success, non-0 on error.
+{
+    // src should look something like this: "hw:CARD=I82801AAICH,DEV=0"
+
+    if (dst == NULL) return -1;
+    if (dstSize < 7) return -1;     // Absolute minimum size of the output buffer is 7 bytes.
+
+    *dst = '\0';    // Safety.
+    if (src == NULL) return -1;
+
+
+    int colonPos;
+    src = mal_find_char(src, ':', &colonPos);
+    if (src == NULL) {
+        return -1;  // Couldn't find a colon
+    }
+
+    char card[256];
+
+    int commaPos;
+    const char* dev = mal_find_char(src, ',', &commaPos);
+    if (dev == NULL) {
+        dev = "0";
+        mal_strncpy_s(card, sizeof(card), src+5, (size_t)-1);
+    } else {
+        dev = dev + 4;
+        mal_strncpy_s(card, sizeof(card), src+5, commaPos-5);
+    }
+
+    int cardIndex = ((mal_snd_card_get_index_proc)pContext->alsa.snd_card_get_index)(card);
+    if (cardIndex < 0) {
+        return -2;  // Failed to retrieve the card index.
+    }
+
+    printf("TESTING: CARD=%s,DEV=%s\n", card, dev);
+
+    
+    // Construction.
+    dst[0] = 'h'; dst[1] = 'w'; dst[2] = ':';
+    if (mal_itoa_s(cardIndex, dst+3, dstSize-3, 10) != 0) {
+        return -3;
+    }
+    if (mal_strcat_s(dst, dstSize, ",") != 0) {
+        return -3;
+    }
+    if (mal_strcat_s(dst, dstSize, dev) != 0) {
+        return -3;
+    }
+
+    return 0;
+}
+
 static mal_result mal_enumerate_devices__alsa(mal_context* pContext, mal_device_type type, mal_uint32* pCount, mal_device_info* pInfo)
 {
     (void)pContext;
 
     mal_uint32 infoSize = *pCount;
     *pCount = 0;
-
-    // What I've learned about device iteration with ALSA
-    // ==================================================
-    //
-    // The preferred method for enumerating devices is to use snd_device_name_hint() and family. The
-    // reason this is preferred is because it includes user-space devices like the "default" device
-    // which goes through PulseAudio. The problem, however, is that it is extremely un-user-friendly
-    // because it enumerates a _lot_ of devices. On my test machine I have only a typical output device
-    // for speakers/headerphones and a microphone - this results 52 devices getting enumerated!
-    //
-    // One way to pull this back a bit is to ignore all but "hw" devices. At initialization time we
-    // can simply append "plug" to the ID string to enable software conversions.
-    //
-    // An alternative enumeration technique is to use snd_card_next() and family. The problem with this
-    // one, which is significant, is that it does _not_ include user-space devices.
-    //
-    // ---
-    //
-    // During my testing I have discovered that snd_pcm_open() can fail on names returned by the "NAME"
-    // hint returned by snd_device_name_get_hint(). To resolve this I have needed to parse the NAME
-    // string and convert it to "hw:%d,%d" format.
 
     char** ppDeviceHints;
     if (((mal_snd_device_name_hint_proc)pContext->alsa.snd_device_name_hint)(-1, "pcm", (void***)&ppDeviceHints) < 0) {
@@ -5378,81 +5517,37 @@ static mal_result mal_enumerate_devices__alsa(mal_context* pContext, mal_device_
         char* DESC = ((mal_snd_device_name_get_hint_proc)pContext->alsa.snd_device_name_get_hint)(*ppNextDeviceHint, "DESC");
         char* IOID = ((mal_snd_device_name_get_hint_proc)pContext->alsa.snd_device_name_get_hint)(*ppNextDeviceHint, "IOID");
 
-        if (IOID == NULL ||
-            (type == mal_device_type_playback && strcmp(IOID, "Output") == 0) ||
-            (type == mal_device_type_capture  && strcmp(IOID, "Input" ) == 0))
-        {
-            // Experiment. Skip over any non "hw" devices to try and pull back on the number
-            // of enumerated devices.
-            int colonPos;
-            mal_find_char(NAME, ':', &colonPos);
-            if (colonPos == -1 || (colonPos == 2 && (NAME[0]=='h' && NAME[1]=='w'))) {
-                if (pInfo != NULL) {
-                    if (infoSize > 0) {
-                        mal_zero_object(pInfo);
+        // Only include devices if they are of the correct type. Special cases for "default", "null" and "pulse" - these are always included.
+        mal_bool32 includeThisDevice = MAL_FALSE;
+        if (strcmp(NAME, "default") == 0 || strcmp(NAME, "null") == 0 || strcmp(NAME, "pulse") == 0) {
+            includeThisDevice = MAL_TRUE;
+        } else {
+            if ((type == mal_device_type_playback && (IOID == NULL || strcmp(IOID, "Output") == 0)) ||
+                (type == mal_device_type_capture  && (IOID != NULL && strcmp(IOID, "Input" ) == 0))) {
+                includeThisDevice = MAL_TRUE;
+            }
+        }
 
-                        // NAME is the ID.
-                        mal_strncpy_s(pInfo->id.alsa, sizeof(pInfo->id.alsa), NAME ? NAME : "", (size_t)-1);
+        if (includeThisDevice) {
+#if 0
+            printf("NAME: %s\n", NAME);
+            printf("DESC: %s\n", DESC);
+            printf("IOID: %s\n", IOID);
+            printf("\n");
+#endif
 
-                        // NAME -> "hw:%d,%d"
-                        if (colonPos != -1 && NAME != NULL) {
-                            // We need to convert the NAME string to "hw:%d,%d" format.
-                            char* cardStr = NAME + 3;
-                            for (;;) {
-                                if (cardStr[0] == '\0') {
-                                    cardStr = NULL;
-                                    break;
-                                }
-                                if (cardStr[0] == 'C' && cardStr[1] == 'A' && cardStr[2] == 'R' && cardStr[3] == 'D' && cardStr[4] == '=') {
-                                    cardStr = cardStr + 5;
-                                    break;
-                                }
+            if (pInfo != NULL) {
+                if (infoSize > 0) {
+                    mal_zero_object(pInfo);
+                    mal_strncpy_s(pInfo->id.alsa, sizeof(pInfo->id.alsa), NAME ? NAME : "", (size_t)-1);    // NAME is the ID.
+                    mal_strncpy_s(pInfo->name,    sizeof(pInfo->name),    DESC ? DESC : "", (size_t)-1);    // DESC is the friendly name.
 
-                                cardStr += 1;
-                            }
-
-                            if (cardStr != NULL) {
-                                char* deviceStr = cardStr + 1;
-                                for (;;) {
-                                    if (deviceStr[0] == '\0') {
-                                        deviceStr = NULL;
-                                        break;
-                                    }
-                                    if (deviceStr[0] == ',') {
-                                        deviceStr[0] = '\0';    // This is the comma after the "CARD=###" part.
-                                    } else {
-                                        if (deviceStr[0] == 'D' && deviceStr[1] == 'E' && deviceStr[2] == 'V' && deviceStr[3] == '=') {
-                                            deviceStr = deviceStr + 4;
-                                            break;
-                                        }
-                                    }
-
-                                    deviceStr += 1;
-                                }
-
-                                if (deviceStr != NULL) {
-                                    int cardIndex = ((mal_snd_card_get_index_proc)pContext->alsa.snd_card_get_index)(cardStr);
-                                    if (cardIndex >= 0) {
-                                        sprintf(pInfo->id.alsa, "hw:%d,%s", cardIndex, deviceStr);
-                                    }
-                                }
-                            }
-                        }
-
-
-                        // DESC is the name, followed by the description on a new line.
-                        int lfPos = 0;
-                        mal_find_char(DESC, '\n', &lfPos);
-                        mal_strncpy_s(pInfo->name, sizeof(pInfo->name), DESC ? DESC : "", (lfPos != -1) ? (size_t)lfPos : (size_t)-1);
-
-                        pInfo += 1;
-                        infoSize -= 1;
-                        *pCount += 1;
-                    }
-                } else {
-                    *pCount += 1;
+                    pInfo += 1;
+                    infoSize -= 1;
                 }
             }
+
+            *pCount += 1;
         }
 
         free(NAME);
@@ -5488,35 +5583,53 @@ static mal_result mal_device_init__alsa(mal_context* pContext, mal_device_type t
     snd_pcm_format_t formatALSA = mal_convert_mal_format_to_alsa_format(pConfig->format);
 
 
-    char deviceName[32];
+    char deviceName[256];
     if (pDeviceID == NULL) {
         mal_strncpy_s(deviceName, sizeof(deviceName), "default", (size_t)-1);
     } else {
-        // Is preferred, convert "hw" devices to "plughw".
-        if (pConfig->alsa.preferPlugHW && pDeviceID->alsa[0] == 'h' && pDeviceID->alsa[1] == 'w' && pDeviceID->alsa[2] == ':') {
-        	deviceName[0] = 'p'; deviceName[1] = 'l'; deviceName[2] = 'u'; deviceName[3] = 'g';
-            mal_strncpy_s(deviceName+4, sizeof(deviceName)-4, pDeviceID->alsa, (size_t)-1);
-        } else {
+        if (!pConfig->alsa.preferPlugHW) {
             mal_strncpy_s(deviceName, sizeof(deviceName), pDeviceID->alsa, (size_t)-1);
+        } else {
+            // The client is preferencing a "plug" device, so we need to convert the device name to "plughw:%d,%d" format.
+            deviceName[0] = 'p';
+            deviceName[1] = 'l';
+            deviceName[2] = 'u';
+            deviceName[3] = 'g';
+            if (mal_convert_device_name_to_hw_format__alsa(pContext, deviceName+4, sizeof(deviceName)-4, pDeviceID->alsa) != 0) {
+                // Failed to convert to "hw:%d,%d" format. It could be set to "default", "pulse", "null", etc. This is not a critical error - just keep using the original name.
+                mal_strncpy_s(deviceName, sizeof(deviceName), pDeviceID->alsa, (size_t)-1);
+            }
         }
     }
 
-    if (((mal_snd_pcm_open_proc)pContext->alsa.snd_pcm_open)((snd_pcm_t**)&pDevice->alsa.pPCM, deviceName, (type == mal_device_type_playback) ? SND_PCM_STREAM_PLAYBACK : SND_PCM_STREAM_CAPTURE, 0) < 0) {
+    // When opening the device, we first try opening it based on the name provided in deviceName. If this fails, fall back to the "hw:%d,%d".
+    snd_pcm_stream_t stream = (type == mal_device_type_playback) ? SND_PCM_STREAM_PLAYBACK : SND_PCM_STREAM_CAPTURE;
+    if (((mal_snd_pcm_open_proc)pContext->alsa.snd_pcm_open)((snd_pcm_t**)&pDevice->alsa.pPCM, deviceName, stream, 0) < 0) {
+        printf("Failed 1\n");
         if (mal_strcmp(deviceName, "default") == 0 || mal_strcmp(deviceName, "pulse") == 0) {
-            // We may have failed to open the "default" or "pulse" device, in which case try falling back to "hw:0,0".
+            // We may have failed to open the default device. Try falling back to the "hw" or "plughw" device, depending on preferences.
             if (pConfig->alsa.preferPlugHW) {
                 mal_strncpy_s(deviceName, sizeof(deviceName), "plughw:0,0", (size_t)-1);
             } else {
                 mal_strncpy_s(deviceName, sizeof(deviceName), "hw:0,0", (size_t)-1);
             }
 
-            if (((mal_snd_pcm_open_proc)pContext->alsa.snd_pcm_open)((snd_pcm_t**)&pDevice->alsa.pPCM, deviceName, (type == mal_device_type_playback) ? SND_PCM_STREAM_PLAYBACK : SND_PCM_STREAM_CAPTURE, 0) < 0) {
+            if (((mal_snd_pcm_open_proc)pContext->alsa.snd_pcm_open)((snd_pcm_t**)&pDevice->alsa.pPCM, deviceName, stream, 0) < 0) {
                 mal_device_uninit__alsa(pDevice);
-                return mal_post_error(pDevice, "[ALSA] snd_pcm_open() failed.", MAL_ALSA_FAILED_TO_OPEN_DEVICE);
+                return mal_post_error(pDevice, "[ALSA] snd_pcm_open() failed when trying to open the default device.", MAL_ALSA_FAILED_TO_OPEN_DEVICE);
             }
         } else {
-            mal_device_uninit__alsa(pDevice);
-            return mal_post_error(pDevice, "[ALSA] snd_pcm_open() failed.", MAL_ALSA_FAILED_TO_OPEN_DEVICE);
+            // Try falling back to "hw:%d,%d" format.
+            char hwid[256];
+            if (mal_convert_device_name_to_hw_format__alsa(pContext, hwid, sizeof(hwid), deviceName) < 0) {
+                mal_device_uninit__alsa(pDevice);
+                return mal_post_error(pDevice, "[ALSA] snd_pcm_open() failed.", MAL_ALSA_FAILED_TO_OPEN_DEVICE);
+            } else {
+                if (((mal_snd_pcm_open_proc)pContext->alsa.snd_pcm_open)((snd_pcm_t**)&pDevice->alsa.pPCM, hwid, stream, 0) < 0) {
+                    mal_device_uninit__alsa(pDevice);
+                    return mal_post_error(pDevice, "[ALSA] snd_pcm_open() failed.", MAL_ALSA_FAILED_TO_OPEN_DEVICE);
+                }
+            }
         }
     }
 
