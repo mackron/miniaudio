@@ -1,5 +1,5 @@
 // Mini audio library. Public domain. See "unlicense" statement at the end of this file.
-// mini_al - v0.4 - 2017-11-05
+// mini_al - v0.5 - 2017-11-xx
 //
 // David Reid - davidreidsoftware@gmail.com
 
@@ -579,10 +579,20 @@ typedef struct
     } alsa;
 } mal_device_config;
 
+typedef struct
+{
+    mal_log_proc onLog;
+
+    struct
+    {
+        mal_bool32 useVerbsoseDeviceEnumeration;
+    } alsa;
+} mal_context_config;
+
 struct mal_context
 {
     mal_backend backend;    // DirectSound, ALSA, etc.
-    mal_log_proc onLog;
+    mal_context_config config;
 
     union
     {
@@ -986,7 +996,7 @@ struct mal_device
 //
 // Effeciency: LOW
 //   This will dynamically load backends DLLs/SOs (such as dsound.dll).
-mal_result mal_context_init(mal_backend backends[], mal_uint32 backendCount, mal_log_proc onLog, mal_context* pContext);
+mal_result mal_context_init(mal_backend backends[], mal_uint32 backendCount, const mal_context_config* pConfig, mal_context* pContext);
 
 // Uninitializes a context.
 //
@@ -1202,6 +1212,9 @@ mal_uint32 mal_device_get_buffer_size_in_bytes(mal_device* pDevice);
 // Efficiency: HIGH
 //   This is implemented with a lookup table.
 mal_uint32 mal_get_sample_size_in_bytes(mal_format format);
+
+// Helper function for initializing a mal_context_config object.
+mal_context_config mal_context_config_init(mal_log_proc onLog);
 
 // Helper function for initializing a mal_device_config object.
 //
@@ -2160,7 +2173,7 @@ static void mal_log(mal_context* pContext, mal_device* pDevice, const char* mess
 {
     if (pContext == NULL) return;
 
-    mal_log_proc onLog = pContext->onLog;
+    mal_log_proc onLog = pContext->config.onLog;
     if (onLog) {
         onLog(pContext, pDevice, message);
     }
@@ -8027,11 +8040,17 @@ mal_result mal_context_uninit_backend_apis(mal_context* pContext)
     return result;
 }
 
-mal_result mal_context_init(mal_backend backends[], mal_uint32 backendCount, mal_log_proc onLog, mal_context* pContext)
+mal_result mal_context_init(mal_backend backends[], mal_uint32 backendCount, const mal_context_config* pConfig, mal_context* pContext)
 {
     if (pContext == NULL) return MAL_INVALID_ARGS;
     mal_zero_object(pContext);
-    pContext->onLog = onLog;    // <-- Set this at the top to ensure the application has access to every log message.
+
+    // Always make sure the config is set first to ensure properties are available as soon as possible.
+    if (pConfig != NULL) {
+        pContext->config = *pConfig;
+    } else {
+        pContext->config = mal_context_config_init(NULL);
+    }
 
     // Backend APIs need to be initialized first. This is where external libraries will be loaded and linked.
     mal_result result = mal_context_init_backend_apis(pContext);
@@ -8298,8 +8317,8 @@ mal_result mal_device_init(mal_context* pContext, mal_device_type type, mal_devi
     pDevice->onRecv = config.onRecvCallback;
 
     if (((mal_uint64)pDevice % sizeof(pDevice)) != 0) {
-        if (pContext->onLog) {
-            pContext->onLog(pContext, pDevice, "WARNING: mal_device_init() called for a device that is not properly aligned. Thread safety is not supported.");
+        if (pContext->config.onLog) {
+            pContext->config.onLog(pContext, pDevice, "WARNING: mal_device_init() called for a device that is not properly aligned. Thread safety is not supported.");
         }
     }
 
@@ -8695,6 +8714,16 @@ mal_uint32 mal_get_sample_size_in_bytes(mal_format format)
         4,  // f32
     };
     return sizes[format];
+}
+
+mal_context_config mal_context_config_init(mal_log_proc onLog)
+{
+    mal_context_config config;
+    mal_zero_object(&config);
+
+    config.onLog = onLog;
+
+    return config;
 }
 
 mal_device_config mal_device_config_init(mal_format format, mal_uint32 channels, mal_uint32 sampleRate, mal_recv_proc onRecvCallback, mal_send_proc onSendCallback)
@@ -9901,6 +9930,12 @@ void mal_pcm_f32_to_s32(int* pOut, const float* pIn, unsigned int count)
 
 // REVISION HISTORY
 // ================
+//
+// v0.5 - 2017-11-xx
+//   - API CHANGE: The mal_context_init() function now takes a pointer to a mal_context_config object for
+//     configuring the context. The works in the same kind of way as the device config. The rationale for this
+//     change is to give applications better control over context-level properties, add support for backend-
+//     specific configurations, and support extensibility without breaking the API.
 //
 // v0.4 - 2017-11-05
 //   - API CHANGE: The log callback is now per-context rather than per-device and as is thus now passed to
