@@ -1365,10 +1365,6 @@ void mal_pcm_convert(void* pOut, mal_format formatOut, const void* pIn, mal_form
 #include <dlfcn.h>
 #endif
 
-#ifdef MAL_ENABLE_ALSA
-#include <stdio.h>  // Needed for sprintf() which is used for "hw:%d,%d" formatting. TODO: Remove this later.
-#endif
-
 #if !defined(MAL_64BIT) && !defined(MAL_32BIT)
 #ifdef _WIN32
 #ifdef _WIN64
@@ -5470,10 +5466,10 @@ static int mal_convert_device_name_to_hw_format__alsa(mal_context* pContext, cha
     const char* dev = mal_find_char(src, ',', &commaPos);
     if (dev == NULL) {
         dev = "0";
-        mal_strncpy_s(card, sizeof(card), src+5, (size_t)-1);
+        mal_strncpy_s(card, sizeof(card), src+6, (size_t)-1);   // +6 = ":CARD="
     } else {
-        dev = dev + 4;
-        mal_strncpy_s(card, sizeof(card), src+5, commaPos-5);
+        dev = dev + 5;  // +5 = ",DEV="
+        mal_strncpy_s(card, sizeof(card), src+6, commaPos-6);   // +6 = ":CARD="
     }
 
     int cardIndex = ((mal_snd_card_get_index_proc)pContext->alsa.snd_card_get_index)(card);
@@ -5481,7 +5477,7 @@ static int mal_convert_device_name_to_hw_format__alsa(mal_context* pContext, cha
         return -2;  // Failed to retrieve the card index.
     }
 
-    printf("TESTING: CARD=%s,DEV=%s\n", card, dev);
+    //printf("TESTING: CARD=%s,DEV=%s\n", card, dev);
 
     
     // Construction.
@@ -5511,6 +5507,7 @@ static mal_result mal_enumerate_devices__alsa(mal_context* pContext, mal_device_
         return MAL_NO_BACKEND;
     }
 
+
     char** ppNextDeviceHint = ppDeviceHints;
     while (*ppNextDeviceHint != NULL) {
         char* NAME = ((mal_snd_device_name_get_hint_proc)pContext->alsa.snd_device_name_get_hint)(*ppNextDeviceHint, "NAME");
@@ -5533,7 +5530,10 @@ static mal_result mal_enumerate_devices__alsa(mal_context* pContext, mal_device_
             printf("NAME: %s\n", NAME);
             printf("DESC: %s\n", DESC);
             printf("IOID: %s\n", IOID);
-            printf("\n");
+
+            char hwid[256];
+            mal_convert_device_name_to_hw_format__alsa(pContext, hwid, sizeof(hwid), NAME);
+            printf("DEVICE ID: %s\n\n", hwid);
 #endif
 
             if (pInfo != NULL) {
@@ -5605,7 +5605,7 @@ static mal_result mal_device_init__alsa(mal_context* pContext, mal_device_type t
     // When opening the device, we first try opening it based on the name provided in deviceName. If this fails, fall back to the "hw:%d,%d".
     snd_pcm_stream_t stream = (type == mal_device_type_playback) ? SND_PCM_STREAM_PLAYBACK : SND_PCM_STREAM_CAPTURE;
     if (((mal_snd_pcm_open_proc)pContext->alsa.snd_pcm_open)((snd_pcm_t**)&pDevice->alsa.pPCM, deviceName, stream, 0) < 0) {
-        printf("Failed 1\n");
+        //printf("Failed first attempt at opening device.\n");
         if (mal_strcmp(deviceName, "default") == 0 || mal_strcmp(deviceName, "pulse") == 0) {
             // We may have failed to open the default device. Try falling back to the "hw" or "plughw" device, depending on preferences.
             if (pConfig->alsa.preferPlugHW) {
