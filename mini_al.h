@@ -5102,27 +5102,9 @@ static mal_uint32 mal_device__wait_for_frames__alsa(mal_device* pDevice, mal_boo
     mal_uint32 periodSizeInFrames = pDevice->bufferSizeInFrames / pDevice->periods;
 
     while (!pDevice->alsa.breakFromMainLoop) {
-        snd_pcm_sframes_t framesAvailable = ((mal_snd_pcm_avail_update_proc)pDevice->pContext->alsa.snd_pcm_avail_update)((snd_pcm_t*)pDevice->alsa.pPCM);
-
-        // Keep the returned number of samples consistent and based on the period size.
-        if (framesAvailable >= periodSizeInFrames) {
-            return periodSizeInFrames;
-        }
-
-        if (framesAvailable < 0) {
-            if (framesAvailable == -EPIPE) {
-                if (((mal_snd_pcm_recover_proc)pDevice->pContext->alsa.snd_pcm_recover)((snd_pcm_t*)pDevice->alsa.pPCM, framesAvailable, MAL_TRUE) < 0) {
-                    return 0;
-                }
-
-                framesAvailable = ((mal_snd_pcm_avail_update_proc)pDevice->pContext->alsa.snd_pcm_avail_update)((snd_pcm_t*)pDevice->alsa.pPCM);
-                if (framesAvailable < 0) {
-                    return 0;
-                }
-            }
-        }
-
-        const int timeoutInMilliseconds = 1;  // <-- The larger this value, the longer it'll take to stop the device!
+        // Wait for something to become available. The timeout should not affect latency - it's only used to break from the wait
+        // so we can check whether or not the device has been stopped.
+        const int timeoutInMilliseconds = 10;
         int waitResult = ((mal_snd_pcm_wait_proc)pDevice->pContext->alsa.snd_pcm_wait)((snd_pcm_t*)pDevice->alsa.pPCM, timeoutInMilliseconds);
         if (waitResult < 0) {
             if (waitResult == -EPIPE) {
@@ -5130,14 +5112,34 @@ static mal_uint32 mal_device__wait_for_frames__alsa(mal_device* pDevice, mal_boo
                     return 0;
                 }
 
-                if (pRequiresRestart) {
-                    *pRequiresRestart = MAL_TRUE;
+                if (pRequiresRestart) *pRequiresRestart = MAL_TRUE; // A device recovery means a restart for mmap mode.
+            }
+        }
+
+        if (pDevice->alsa.breakFromMainLoop) {
+            return 0;
+        }
+
+        snd_pcm_sframes_t framesAvailable = ((mal_snd_pcm_avail_update_proc)pDevice->pContext->alsa.snd_pcm_avail_update)((snd_pcm_t*)pDevice->alsa.pPCM);
+        if (framesAvailable < 0) {
+            if (framesAvailable == -EPIPE) {
+                if (((mal_snd_pcm_recover_proc)pDevice->pContext->alsa.snd_pcm_recover)((snd_pcm_t*)pDevice->alsa.pPCM, framesAvailable, MAL_TRUE) < 0) {
+                    return 0;
                 }
 
-                return pDevice->bufferSizeInFrames;
-            } else {
-                return 0;
+                if (pRequiresRestart) *pRequiresRestart = MAL_TRUE; // A device recovery means a restart for mmap mode.
+
+                // Try again, but if it fails this time just return an error.
+                framesAvailable = ((mal_snd_pcm_avail_update_proc)pDevice->pContext->alsa.snd_pcm_avail_update)((snd_pcm_t*)pDevice->alsa.pPCM);
+                if (framesAvailable < 0) {
+                    return 0;
+                }
             }
+        }
+
+        // Keep the returned number of samples consistent and based on the period size.
+        if (framesAvailable >= periodSizeInFrames) {
+            return periodSizeInFrames;
         }
     }
 
@@ -5161,7 +5163,7 @@ static mal_bool32 mal_device_write__alsa(mal_device* pDevice)
     }
 
 
-    if (pDevice->alsa.pIntermediaryBuffer == NULL) {
+    if (pDevice->alsa.isUsingMMap) {
         // mmap.
         mal_bool32 requiresRestart;
         mal_uint32 framesAvailable = mal_device__wait_for_frames__alsa(pDevice, &requiresRestart);
