@@ -585,7 +585,8 @@ typedef struct
 
     struct
     {
-        mal_bool32 useVerbsoseDeviceEnumeration;
+        mal_bool32 useVerboseDeviceEnumeration;
+        mal_bool32 includeNullDevice;   // The "null" device is explicitly excluded by default. Setting this to true includes it.
     } alsa;
 } mal_context_config;
 
@@ -1481,6 +1482,14 @@ typedef HWND (WINAPI * MAL_PFN_GetDesktopWindow)();
 #endif
 #endif
 
+#ifndef mal_realloc
+#ifdef MAL_WIN32
+#define mal_realloc(p, sz) (((sz) > 0) ? ((p) ? HeapReAlloc(GetProcessHeap(), 0, (p), (sz)) : HeapAlloc(GetProcessHeap(), 0, (sz))) : ((VOID*)(SIZE_T)(HeapFree(GetProcessHeap(), 0, (p)) & 0)))
+#else
+#define mal_realloc(p, sz) realloc((p), (sz))
+#endif
+#endif
+
 #ifndef mal_free
 #ifdef MAL_WIN32
 #define mal_free(p) HeapFree(GetProcessHeap(), 0, (p))
@@ -1510,6 +1519,33 @@ typedef HWND (WINAPI * MAL_PFN_GetDesktopWindow)();
 //   34: ERANGE
 //
 // Not using symbolic constants for errors because I want to avoid #including errno.h
+static int mal_strcpy_s(char* dst, size_t dstSizeInBytes, const char* src)
+{
+    if (dst == 0) {
+        return 22;
+    }
+    if (dstSizeInBytes == 0) {
+        return 34;
+    }
+    if (src == 0) {
+        dst[0] = '\0';
+        return 22;
+    }
+
+    size_t i;
+    for (i = 0; i < dstSizeInBytes && src[i] != '\0'; ++i) {
+        dst[i] = src[i];
+    }
+
+    if (i < dstSizeInBytes) {
+        dst[i] = '\0';
+        return 0;
+    }
+
+    dst[0] = '\0';
+    return 34;
+}
+
 static int mal_strncpy_s(char* dst, size_t dstSizeInBytes, const char* src, size_t count)
 {
     if (dst == 0) {
@@ -5455,6 +5491,46 @@ static mal_bool32 mal_device_read__alsa(mal_device* pDevice)
 
 
 
+static mal_bool32 mal_is_device_name_in_hw_format__alsa(const char* hwid)
+{
+    // This function is just checking whether or not hwid is in "hw:%d,%d" format.
+
+    if (hwid == NULL) {
+        return MAL_FALSE;
+    }
+
+    if (hwid[0] != 'h' || hwid[1] != 'w' || hwid[2] != ':') {
+        return MAL_FALSE;
+    }
+
+    hwid += 3;
+    
+    int commaPos;
+    const char* dev = mal_find_char(hwid, ',', &commaPos);
+    if (dev == NULL) {
+        return MAL_FALSE;
+    } else {
+        dev += 1;   // Skip past the ",".
+    }
+
+    // Check if the part between the ":" and the "," contains only numbers. If not, return false.
+    for (int i = 0; i < commaPos; ++i) {
+        if (hwid[i] < '0' || hwid[i] > '9') {
+            return MAL_FALSE;
+        }
+    }
+
+    // Check if everything after the "," is numeric. If not, return false.
+    int i = 0;
+    while (dev[i] != '\0') {
+        if (dev[i] < '0' || dev[i] > '9') {
+            return MAL_FALSE;
+        }
+        i += 1;
+    }
+
+    return MAL_TRUE;
+}
 
 static int mal_convert_device_name_to_hw_format__alsa(mal_context* pContext, char* dst, size_t dstSize, const char* src)  // Returns 0 on success, non-0 on error.
 {
@@ -5465,6 +5541,11 @@ static int mal_convert_device_name_to_hw_format__alsa(mal_context* pContext, cha
 
     *dst = '\0';    // Safety.
     if (src == NULL) return -1;
+
+    // If the input name is already in "hw:%d,%d" format, just return that verbatim.
+    if (mal_is_device_name_in_hw_format__alsa(src)) {
+        return mal_strcpy_s(dst, dstSize, src);
+    }
 
 
     int colonPos;
@@ -5508,6 +5589,19 @@ static int mal_convert_device_name_to_hw_format__alsa(mal_context* pContext, cha
     return 0;
 }
 
+static mal_bool32 mal_does_id_exist_in_list__alsa(mal_device_id* pUniqueIDs, mal_uint32 count, const char* pHWID)
+{
+    mal_assert(pHWID != NULL);
+
+    for (mal_uint32 i = 0; i < count; ++i) {
+        if (mal_strcmp(pUniqueIDs[i].alsa, pHWID) == 0) {
+            return MAL_TRUE;
+        }
+    }
+
+    return MAL_FALSE;
+}
+
 static mal_result mal_enumerate_devices__alsa(mal_context* pContext, mal_device_type type, mal_uint32* pCount, mal_device_info* pInfo)
 {
     (void)pContext;
@@ -5520,6 +5614,8 @@ static mal_result mal_enumerate_devices__alsa(mal_context* pContext, mal_device_
         return MAL_NO_BACKEND;
     }
 
+    mal_device_id* pUniqueIDs = NULL;
+    mal_uint32 uniqueIDCount = 0;
 
     char** ppNextDeviceHint = ppDeviceHints;
     while (*ppNextDeviceHint != NULL) {
@@ -5527,10 +5623,16 @@ static mal_result mal_enumerate_devices__alsa(mal_context* pContext, mal_device_
         char* DESC = ((mal_snd_device_name_get_hint_proc)pContext->alsa.snd_device_name_get_hint)(*ppNextDeviceHint, "DESC");
         char* IOID = ((mal_snd_device_name_get_hint_proc)pContext->alsa.snd_device_name_get_hint)(*ppNextDeviceHint, "IOID");
 
-        // Only include devices if they are of the correct type. Special cases for "default", "null" and "pulse" - these are always included.
+        // Only include devices if they are of the correct type. Special cases for "default", "null" and "pulse" - these are included for both playback and capture
+        // regardless of the IOID setting.
         mal_bool32 includeThisDevice = MAL_FALSE;
-        if (strcmp(NAME, "default") == 0 || strcmp(NAME, "null") == 0 || strcmp(NAME, "pulse") == 0) {
+        if (strcmp(NAME, "default") == 0 || strcmp(NAME, "pulse") == 0 || strcmp(NAME, "null") == 0) {
             includeThisDevice = MAL_TRUE;
+
+            // Exclude the "null" device if requested.
+            if (strcmp(NAME, "null") == 0 && !pContext->config.alsa.includeNullDevice) {
+                includeThisDevice = MAL_FALSE;
+            }
         } else {
             if ((type == mal_device_type_playback && (IOID == NULL || strcmp(IOID, "Output") == 0)) ||
                 (type == mal_device_type_capture  && (IOID != NULL && strcmp(IOID, "Input" ) == 0))) {
@@ -5538,23 +5640,82 @@ static mal_result mal_enumerate_devices__alsa(mal_context* pContext, mal_device_
             }
         }
 
+        
+
         if (includeThisDevice) {
 #if 0
             printf("NAME: %s\n", NAME);
             printf("DESC: %s\n", DESC);
             printf("IOID: %s\n", IOID);
 
-            char hwid[256];
-            mal_convert_device_name_to_hw_format__alsa(pContext, hwid, sizeof(hwid), NAME);
-            printf("DEVICE ID: %s\n\n", hwid);
+            char hwid2[256];
+            mal_convert_device_name_to_hw_format__alsa(pContext, hwid2, sizeof(hwid2), NAME);
+            printf("DEVICE ID: %s\n\n", hwid2);
 #endif
+
+            char hwid[sizeof(pUniqueIDs->alsa)];
+            if (NAME != NULL) {
+                if (pContext->config.alsa.useVerboseDeviceEnumeration) {
+                    mal_strncpy_s(hwid, sizeof(hwid), NAME, (size_t)-1);
+                } else {
+                    if (mal_convert_device_name_to_hw_format__alsa(pContext, hwid, sizeof(hwid), NAME) != 0) {
+                        mal_strncpy_s(hwid, sizeof(hwid), NAME, (size_t)-1);
+                    }
+
+                    if (mal_does_id_exist_in_list__alsa(pUniqueIDs, uniqueIDCount, hwid)) {
+                        goto next_device;   // The device has already been enumerated. Move on to the next one.
+                    } else {
+                        // The device has not yet been enumerated. Make sure it's added to our list so that it's not enumerated again.
+                        mal_device_id* pNewUniqueIDs = mal_realloc(pUniqueIDs, sizeof(*pUniqueIDs) * (uniqueIDCount + 1));
+                        if (pNewUniqueIDs == NULL) {
+                            goto next_device;   // Failed to allocate memory.
+                        }
+
+                        pUniqueIDs = pNewUniqueIDs;
+                        mal_copy_memory(pUniqueIDs[uniqueIDCount].alsa, hwid, sizeof(hwid));
+                        uniqueIDCount += 1;
+                    }
+                }
+            } else {
+                mal_zero_memory(hwid, sizeof(hwid));
+            }
 
             if (pInfo != NULL) {
                 if (infoSize > 0) {
                     mal_zero_object(pInfo);
-                    mal_strncpy_s(pInfo->id.alsa, sizeof(pInfo->id.alsa), NAME ? NAME : "", (size_t)-1);    // NAME is the ID.
-                    mal_strncpy_s(pInfo->name,    sizeof(pInfo->name),    DESC ? DESC : "", (size_t)-1);    // DESC is the friendly name.
+                    mal_strncpy_s(pInfo->id.alsa, sizeof(pInfo->id.alsa), hwid, (size_t)-1);
 
+                    // DESC is the friendly name. We treat this slightly differently depending on whether or not we are using verbose
+                    // device enumeration. In verbose mode we want to take the entire description so that the end-user can distinguish
+                    // between the subdevices of each card/dev pair. In simplified mode, however, we only want the first part of the
+                    // description.
+                    //
+                    // The value in DESC seems to be split into two lines, with the first line being the name of the device and the
+                    // second line being a description of the device. I don't like having the description be across two lines because
+                    // it makes formatting ugly and annoying. I'm therefore deciding to put it all on a single line with the second line
+                    // being put into parentheses. In simplified mode I'm just stripping the second line entirely.
+                    if (DESC != NULL) {
+                        int lfPos;
+                        const char* line2 = mal_find_char(DESC, '\n', &lfPos);
+                        if (line2 != NULL) {
+                            line2 += 1; // Skip past the new-line character.
+
+                            if (pContext->config.alsa.useVerboseDeviceEnumeration) {
+                                // Verbose mode. Put the second line in brackets.
+                                mal_strncpy_s(pInfo->name, sizeof(pInfo->name), DESC, lfPos);
+                                mal_strcat_s (pInfo->name, sizeof(pInfo->name), " (");
+                                mal_strcat_s (pInfo->name, sizeof(pInfo->name), line2);
+                                mal_strcat_s (pInfo->name, sizeof(pInfo->name), ")");
+                            } else {
+                                // Simplified mode. Strip the second line entirely.
+                                mal_strncpy_s(pInfo->name, sizeof(pInfo->name), DESC, lfPos);
+                            }
+                        } else {
+                            // There's no second line. Just copy the whole description.
+                            mal_strcpy_s(pInfo->name, sizeof(pInfo->name), DESC);
+                        }
+                    }
+                    
                     pInfo += 1;
                     infoSize -= 1;
                 }
@@ -5563,11 +5724,14 @@ static mal_result mal_enumerate_devices__alsa(mal_context* pContext, mal_device_
             *pCount += 1;
         }
 
+    next_device:
         free(NAME);
         free(DESC);
         free(IOID);
         ppNextDeviceHint += 1;
     }
+
+    mal_free(pUniqueIDs);
 
     ((mal_snd_device_name_free_hint_proc)pContext->alsa.snd_device_name_free_hint)((void**)ppDeviceHints);
     return MAL_SUCCESS;
@@ -5634,7 +5798,7 @@ static mal_result mal_device_init__alsa(mal_context* pContext, mal_device_type t
         } else {
             // Try falling back to "hw:%d,%d" format.
             char hwid[256];
-            if (mal_convert_device_name_to_hw_format__alsa(pContext, hwid, sizeof(hwid), deviceName) < 0) {
+            if (mal_convert_device_name_to_hw_format__alsa(pContext, hwid, sizeof(hwid), deviceName) != 0) {
                 mal_device_uninit__alsa(pDevice);
                 return mal_post_error(pDevice, "[ALSA] snd_pcm_open() failed.", MAL_ALSA_FAILED_TO_OPEN_DEVICE);
             } else {
@@ -9936,6 +10100,11 @@ void mal_pcm_f32_to_s32(int* pOut, const float* pIn, unsigned int count)
 //     configuring the context. The works in the same kind of way as the device config. The rationale for this
 //     change is to give applications better control over context-level properties, add support for backend-
 //     specific configurations, and support extensibility without breaking the API.
+//   - ALSA: By default, device enumeration will now only enumerate over unique card/device pairs. Applications
+//     can enable verbose device enumeration by setting the alsa.useVerboseDeviceInteration context config
+//     variable.
+//   - ALSA: By default, the "null" device is excluded from enumeration. This can be changed by setting the
+//     alsa.includeNullDevice context config variable.
 //
 // v0.4 - 2017-11-05
 //   - API CHANGE: The log callback is now per-context rather than per-device and as is thus now passed to
