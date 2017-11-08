@@ -10101,7 +10101,7 @@ void mal_pcm_f32_to_s32(int* pOut, const float* pIn, unsigned int count)
 //     change is to give applications better control over context-level properties, add support for backend-
 //     specific configurations, and support extensibility without breaking the API.
 //   - ALSA: By default, device enumeration will now only enumerate over unique card/device pairs. Applications
-//     can enable verbose device enumeration by setting the alsa.useVerboseDeviceInteration context config
+//     can enable verbose device enumeration by setting the alsa.useVerboseDeviceEnumeration context config
 //     variable.
 //   - ALSA: By default, the "null" device is excluded from enumeration. This can be changed by setting the
 //     alsa.includeNullDevice context config variable.
