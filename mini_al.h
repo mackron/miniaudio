@@ -644,10 +644,17 @@ struct mal_context
             mal_proc snd_pcm_hw_params_set_format_first;
             mal_proc snd_pcm_hw_params_get_format_mask;
             mal_proc snd_pcm_hw_params_set_channels_near;
+            mal_proc snd_pcm_hw_params_set_rate_resample;
             mal_proc snd_pcm_hw_params_set_rate_near;
             mal_proc snd_pcm_hw_params_set_buffer_size_near;
             mal_proc snd_pcm_hw_params_set_periods_near;
             mal_proc snd_pcm_hw_params_set_access;
+            mal_proc snd_pcm_hw_params_get_format;
+            mal_proc snd_pcm_hw_params_get_channels;
+            mal_proc snd_pcm_hw_params_get_rate;
+            mal_proc snd_pcm_hw_params_get_buffer_size;
+            mal_proc snd_pcm_hw_params_get_periods;
+            mal_proc snd_pcm_hw_params_get_access;
             mal_proc snd_pcm_hw_params;
             mal_proc snd_pcm_sw_params_sizeof;
             mal_proc snd_pcm_sw_params_current;
@@ -5068,10 +5075,17 @@ typedef int               (* mal_snd_pcm_hw_params_set_format_proc)          (sn
 typedef int               (* mal_snd_pcm_hw_params_set_format_first_proc)    (snd_pcm_t *pcm, snd_pcm_hw_params_t *params, snd_pcm_format_t *format);
 typedef void              (* mal_snd_pcm_hw_params_get_format_mask_proc)     (snd_pcm_hw_params_t *params, snd_pcm_format_mask_t *mask);
 typedef int               (* mal_snd_pcm_hw_params_set_channels_near_proc)   (snd_pcm_t *pcm, snd_pcm_hw_params_t *params, unsigned int *val);
+typedef int               (* mal_snd_pcm_hw_params_set_rate_resample_proc)   (snd_pcm_t *pcm, snd_pcm_hw_params_t *params, unsigned int val);
 typedef int               (* mal_snd_pcm_hw_params_set_rate_near_proc)       (snd_pcm_t *pcm, snd_pcm_hw_params_t *params, unsigned int *val, int *dir);
 typedef int               (* mal_snd_pcm_hw_params_set_buffer_size_near_proc)(snd_pcm_t *pcm, snd_pcm_hw_params_t *params, snd_pcm_uframes_t *val);
 typedef int               (* mal_snd_pcm_hw_params_set_periods_near_proc)    (snd_pcm_t *pcm, snd_pcm_hw_params_t *params, unsigned int *val, int *dir);
 typedef int               (* mal_snd_pcm_hw_params_set_access_proc)          (snd_pcm_t *pcm, snd_pcm_hw_params_t *params, snd_pcm_access_t _access);
+typedef int               (* mal_snd_pcm_hw_params_get_format_proc)          (snd_pcm_hw_params_t *params, snd_pcm_format_t *format);
+typedef int               (* mal_snd_pcm_hw_params_get_channels_proc)        (snd_pcm_hw_params_t *params, unsigned int *val);
+typedef int               (* mal_snd_pcm_hw_params_get_rate_proc)            (snd_pcm_hw_params_t *params, unsigned int *rate, int *dir);
+typedef int               (* mal_snd_pcm_hw_params_get_buffer_size_proc)     (snd_pcm_hw_params_t *params, snd_pcm_uframes_t *val);
+typedef int               (* mal_snd_pcm_hw_params_get_periods_proc)         (snd_pcm_hw_params_t *params, unsigned int *val, int *dir);
+typedef int               (* mal_snd_pcm_hw_params_get_access_proc)          (snd_pcm_hw_params_t *params, snd_pcm_access_t *_access);
 typedef int               (* mal_snd_pcm_hw_params_proc)                     (snd_pcm_t *pcm, snd_pcm_hw_params_t *params);
 typedef size_t            (* mal_snd_pcm_sw_params_sizeof_proc)              (void);
 typedef int               (* mal_snd_pcm_sw_params_current_proc)             (snd_pcm_t *pcm, snd_pcm_sw_params_t *params);
@@ -5176,10 +5190,17 @@ mal_result mal_context_init__alsa(mal_context* pContext)
     pContext->alsa.snd_pcm_hw_params_set_format_first     = (mal_proc)mal_dlsym(pContext->alsa.asoundSO, "snd_pcm_hw_params_set_format_first");
     pContext->alsa.snd_pcm_hw_params_get_format_mask      = (mal_proc)mal_dlsym(pContext->alsa.asoundSO, "snd_pcm_hw_params_get_format_mask");
     pContext->alsa.snd_pcm_hw_params_set_channels_near    = (mal_proc)mal_dlsym(pContext->alsa.asoundSO, "snd_pcm_hw_params_set_channels_near");
+    pContext->alsa.snd_pcm_hw_params_set_rate_resample    = (mal_proc)mal_dlsym(pContext->alsa.asoundSO, "snd_pcm_hw_params_set_rate_resample");
     pContext->alsa.snd_pcm_hw_params_set_rate_near        = (mal_proc)mal_dlsym(pContext->alsa.asoundSO, "snd_pcm_hw_params_set_rate_near");
     pContext->alsa.snd_pcm_hw_params_set_buffer_size_near = (mal_proc)mal_dlsym(pContext->alsa.asoundSO, "snd_pcm_hw_params_set_buffer_size_near");
     pContext->alsa.snd_pcm_hw_params_set_periods_near     = (mal_proc)mal_dlsym(pContext->alsa.asoundSO, "snd_pcm_hw_params_set_periods_near");
     pContext->alsa.snd_pcm_hw_params_set_access           = (mal_proc)mal_dlsym(pContext->alsa.asoundSO, "snd_pcm_hw_params_set_access");
+    pContext->alsa.snd_pcm_hw_params_get_format           = (mal_proc)mal_dlsym(pContext->alsa.asoundSO, "snd_pcm_hw_params_get_format");
+    pContext->alsa.snd_pcm_hw_params_get_channels         = (mal_proc)mal_dlsym(pContext->alsa.asoundSO, "snd_pcm_hw_params_get_channels");
+    pContext->alsa.snd_pcm_hw_params_get_rate             = (mal_proc)mal_dlsym(pContext->alsa.asoundSO, "snd_pcm_hw_params_get_rate");
+    pContext->alsa.snd_pcm_hw_params_get_buffer_size      = (mal_proc)mal_dlsym(pContext->alsa.asoundSO, "snd_pcm_hw_params_get_buffer_size");
+    pContext->alsa.snd_pcm_hw_params_get_periods          = (mal_proc)mal_dlsym(pContext->alsa.asoundSO, "snd_pcm_hw_params_get_periods");
+    pContext->alsa.snd_pcm_hw_params_get_access           = (mal_proc)mal_dlsym(pContext->alsa.asoundSO, "snd_pcm_hw_params_get_access");
     pContext->alsa.snd_pcm_hw_params                      = (mal_proc)mal_dlsym(pContext->alsa.asoundSO, "snd_pcm_hw_params");
     pContext->alsa.snd_pcm_sw_params_sizeof               = (mal_proc)mal_dlsym(pContext->alsa.asoundSO, "snd_pcm_sw_params_sizeof");
     pContext->alsa.snd_pcm_sw_params_current              = (mal_proc)mal_dlsym(pContext->alsa.asoundSO, "snd_pcm_sw_params_current");
@@ -5253,27 +5274,9 @@ static mal_uint32 mal_device__wait_for_frames__alsa(mal_device* pDevice, mal_boo
     mal_uint32 periodSizeInFrames = pDevice->bufferSizeInFrames / pDevice->periods;
 
     while (!pDevice->alsa.breakFromMainLoop) {
-        snd_pcm_sframes_t framesAvailable = ((mal_snd_pcm_avail_update_proc)pDevice->pContext->alsa.snd_pcm_avail_update)((snd_pcm_t*)pDevice->alsa.pPCM);
-
-        // Keep the returned number of samples consistent and based on the period size.
-        if (framesAvailable >= periodSizeInFrames) {
-            return periodSizeInFrames;
-        }
-
-        if (framesAvailable < 0) {
-            if (framesAvailable == -EPIPE) {
-                if (((mal_snd_pcm_recover_proc)pDevice->pContext->alsa.snd_pcm_recover)((snd_pcm_t*)pDevice->alsa.pPCM, framesAvailable, MAL_TRUE) < 0) {
-                    return 0;
-                }
-
-                framesAvailable = ((mal_snd_pcm_avail_update_proc)pDevice->pContext->alsa.snd_pcm_avail_update)((snd_pcm_t*)pDevice->alsa.pPCM);
-                if (framesAvailable < 0) {
-                    return 0;
-                }
-            }
-        }
-
-        const int timeoutInMilliseconds = 1;  // <-- The larger this value, the longer it'll take to stop the device!
+        // Wait for something to become available. The timeout should not affect latency - it's only used to break from the wait
+        // so we can check whether or not the device has been stopped.
+        const int timeoutInMilliseconds = 10;
         int waitResult = ((mal_snd_pcm_wait_proc)pDevice->pContext->alsa.snd_pcm_wait)((snd_pcm_t*)pDevice->alsa.pPCM, timeoutInMilliseconds);
         if (waitResult < 0) {
             if (waitResult == -EPIPE) {
@@ -5281,14 +5284,34 @@ static mal_uint32 mal_device__wait_for_frames__alsa(mal_device* pDevice, mal_boo
                     return 0;
                 }
 
-                if (pRequiresRestart) {
-                    *pRequiresRestart = MAL_TRUE;
+                if (pRequiresRestart) *pRequiresRestart = MAL_TRUE; // A device recovery means a restart for mmap mode.
+            }
+        }
+
+        if (pDevice->alsa.breakFromMainLoop) {
+            return 0;
+        }
+
+        snd_pcm_sframes_t framesAvailable = ((mal_snd_pcm_avail_update_proc)pDevice->pContext->alsa.snd_pcm_avail_update)((snd_pcm_t*)pDevice->alsa.pPCM);
+        if (framesAvailable < 0) {
+            if (framesAvailable == -EPIPE) {
+                if (((mal_snd_pcm_recover_proc)pDevice->pContext->alsa.snd_pcm_recover)((snd_pcm_t*)pDevice->alsa.pPCM, framesAvailable, MAL_TRUE) < 0) {
+                    return 0;
                 }
 
-                return pDevice->bufferSizeInFrames;
-            } else {
-                return 0;
+                if (pRequiresRestart) *pRequiresRestart = MAL_TRUE; // A device recovery means a restart for mmap mode.
+
+                // Try again, but if it fails this time just return an error.
+                framesAvailable = ((mal_snd_pcm_avail_update_proc)pDevice->pContext->alsa.snd_pcm_avail_update)((snd_pcm_t*)pDevice->alsa.pPCM);
+                if (framesAvailable < 0) {
+                    return 0;
+                }
             }
+        }
+
+        // Keep the returned number of samples consistent and based on the period size.
+        if (framesAvailable >= periodSizeInFrames) {
+            return periodSizeInFrames;
         }
     }
 
@@ -5312,7 +5335,7 @@ static mal_bool32 mal_device_write__alsa(mal_device* pDevice)
     }
 
 
-    if (pDevice->alsa.pIntermediaryBuffer == NULL) {
+    if (pDevice->alsa.isUsingMMap) {
         // mmap.
         mal_bool32 requiresRestart;
         mal_uint32 framesAvailable = mal_device__wait_for_frames__alsa(pDevice, &requiresRestart);
@@ -5334,8 +5357,10 @@ static mal_bool32 mal_device_write__alsa(mal_device* pDevice)
                 return MAL_FALSE;
             }
 
-            void* pBuffer = (mal_uint8*)pAreas[0].addr + ((pAreas[0].first + (mappedOffset * pAreas[0].step)) / 8);
-            mal_device__read_frames_from_client(pDevice, mappedFrames, pBuffer);
+            if (mappedFrames > 0) {
+                void* pBuffer = (mal_uint8*)pAreas[0].addr + ((pAreas[0].first + (mappedOffset * pAreas[0].step)) / 8);
+                mal_device__read_frames_from_client(pDevice, mappedFrames, pBuffer);
+            }
 
             result = ((mal_snd_pcm_mmap_commit_proc)pDevice->pContext->alsa.snd_pcm_mmap_commit)((snd_pcm_t*)pDevice->alsa.pPCM, mappedOffset, mappedFrames);
             if (result < 0 || (snd_pcm_uframes_t)result != mappedFrames) {
@@ -5426,8 +5451,10 @@ static mal_bool32 mal_device_read__alsa(mal_device* pDevice)
                 return MAL_FALSE;
             }
 
-            void* pBuffer = (mal_uint8*)pAreas[0].addr + ((pAreas[0].first + (mappedOffset * pAreas[0].step)) / 8);
-            mal_device__send_frames_to_client(pDevice, mappedFrames, pBuffer);
+            if (mappedFrames > 0) {
+                void* pBuffer = (mal_uint8*)pAreas[0].addr + ((pAreas[0].first + (mappedOffset * pAreas[0].step)) / 8);
+                mal_device__send_frames_to_client(pDevice, mappedFrames, pBuffer);
+            }
 
             result = ((mal_snd_pcm_mmap_commit_proc)pDevice->pContext->alsa.snd_pcm_mmap_commit)((snd_pcm_t*)pDevice->alsa.pPCM, mappedOffset, mappedFrames);
             if (result < 0 || (snd_pcm_uframes_t)result != mappedFrames) {
@@ -5811,12 +5838,32 @@ static mal_result mal_device_init__alsa(mal_context* pContext, mal_device_type t
     }
 
 
+
+    // Hardware parameters.
     snd_pcm_hw_params_t* pHWParams = (snd_pcm_hw_params_t*)alloca(((mal_snd_pcm_hw_params_sizeof_proc)pContext->alsa.snd_pcm_hw_params_sizeof)());
     mal_zero_memory(pHWParams, ((mal_snd_pcm_hw_params_sizeof_proc)pContext->alsa.snd_pcm_hw_params_sizeof)());
 
     if (((mal_snd_pcm_hw_params_any_proc)pContext->alsa.snd_pcm_hw_params_any)((snd_pcm_t*)pDevice->alsa.pPCM, pHWParams) < 0) {
         mal_device_uninit__alsa(pDevice);
         return mal_post_error(pDevice, "[ALSA] Failed to initialize hardware parameters. snd_pcm_hw_params_any() failed.", MAL_ALSA_FAILED_TO_SET_HW_PARAMS);
+    }
+
+
+    // MMAP Mode
+    //
+    // Try using interleaved MMAP access. If this fails, fall back to standard readi/writei.
+    pDevice->alsa.isUsingMMap = MAL_FALSE;
+    if (!pConfig->alsa.noMMap && pDevice->type != mal_device_type_capture) {    // <-- Disabling MMAP mode for capture devices because I apparently do not have a device that supports it so I can test it... Contributions welcome.
+        if (((mal_snd_pcm_hw_params_set_access_proc)pContext->alsa.snd_pcm_hw_params_set_access)((snd_pcm_t*)pDevice->alsa.pPCM, pHWParams, SND_PCM_ACCESS_MMAP_INTERLEAVED) == 0) {
+            pDevice->alsa.isUsingMMap = MAL_TRUE;
+        }
+    }
+
+    if (!pDevice->alsa.isUsingMMap) {
+        if (((mal_snd_pcm_hw_params_set_access_proc)pContext->alsa.snd_pcm_hw_params_set_access)((snd_pcm_t*)pDevice->alsa.pPCM, pHWParams, SND_PCM_ACCESS_RW_INTERLEAVED) < 0) {;
+            mal_device_uninit__alsa(pDevice);
+            return mal_post_error(pDevice, "[ALSA] Failed to set access mode to neither SND_PCM_ACCESS_MMAP_INTERLEAVED nor SND_PCM_ACCESS_RW_INTERLEAVED. snd_pcm_hw_params_set_access() failed.", MAL_FORMAT_NOT_SUPPORTED);
+        }
     }
 
 
@@ -5875,7 +5922,24 @@ static mal_result mal_device_init__alsa(mal_context* pContext, mal_device_type t
     }
     pDevice->internalChannels = channels;
 
-    // Sample Rate
+
+    // Sample Rate. It appears there's either a bug in ALSA, a bug in some drivers, or I'm doing something silly; but having resampling
+    // enabled causes problems with some device configurations when used in conjunction with MMAP access mode. To fix this problem we
+    // need to disable resampling.
+    //
+    // To reproduce this problem, open the "plug:dmix" device, and set the sample rate to 44100. Internally, it looks like dmix uses a
+    // sample rate of 48000. The hardware parameters will get set correctly with no errors, but it looks like the 44100 -> 48000 resampling
+    // doesn't work properly - but only with MMAP access mode. You will notice skipping/crackling in the audio, and it'll run at a slightly
+    // faster rate.
+    //
+    // mini_al has built-in support for sample rate conversion (albeit low quality at the moment), so disabling resampling should be fine
+    // for us. The only problem is that it won't be taking advantage of any kind of hardware-accelerated resampling and it won't be very
+    // good quality until I get a chance to improve the quality of mini_al's software sample rate conversion.
+    //
+    // I don't currently know if the dmix plugin is the only one with this error. Indeed, this is the only one I've been able to reproduce
+    // this error with. In the future, we may want to restrict the disabling of resampling to only known bad plugins.
+    ((mal_snd_pcm_hw_params_set_rate_resample_proc)pContext->alsa.snd_pcm_hw_params_set_rate_resample)((snd_pcm_t*)pDevice->alsa.pPCM, pHWParams, 0);
+
     mal_uint32 sampleRate = pConfig->sampleRate;
     if (((mal_snd_pcm_hw_params_set_rate_near_proc)pContext->alsa.snd_pcm_hw_params_set_rate_near)((snd_pcm_t*)pDevice->alsa.pPCM, pHWParams, &sampleRate, 0) < 0) {
         mal_device_uninit__alsa(pDevice);
@@ -5883,7 +5947,6 @@ static mal_result mal_device_init__alsa(mal_context* pContext, mal_device_type t
     }
     pDevice->internalSampleRate = sampleRate;
 
-    
 
     // Buffer Size
     snd_pcm_uframes_t actualBufferSize = pDevice->bufferSizeInFrames;
@@ -5891,7 +5954,7 @@ static mal_result mal_device_init__alsa(mal_context* pContext, mal_device_type t
         mal_device_uninit__alsa(pDevice);
         return mal_post_error(pDevice, "[ALSA] Failed to set buffer size for device. snd_pcm_hw_params_set_buffer_size() failed.", MAL_FORMAT_NOT_SUPPORTED);
     }
-
+    pDevice->bufferSizeInFrames = actualBufferSize;
 
     // Periods.
     mal_uint32 periods = pConfig->periods;
@@ -5900,37 +5963,19 @@ static mal_result mal_device_init__alsa(mal_context* pContext, mal_device_type t
         mal_device_uninit__alsa(pDevice);
         return mal_post_error(pDevice, "[ALSA] Failed to set period count. snd_pcm_hw_params_set_periods_near() failed.", MAL_FORMAT_NOT_SUPPORTED);
     }
-
-    pDevice->bufferSizeInFrames = actualBufferSize;
     pDevice->periods = periods;
-
-
-    // MMAP Mode
-    //
-    // Try using interleaved MMAP access. If this fails, fall back to standard readi/writei.
-    pDevice->alsa.isUsingMMap = MAL_FALSE;
-    if (!pConfig->alsa.noMMap && pDevice->type != mal_device_type_capture) {    // <-- Disabling MMAP mode for capture devices because I apparently do not have a device that supports it so I can test it... Contributions welcome.
-        if (((mal_snd_pcm_hw_params_set_access_proc)pContext->alsa.snd_pcm_hw_params_set_access)((snd_pcm_t*)pDevice->alsa.pPCM, pHWParams, SND_PCM_ACCESS_MMAP_INTERLEAVED) == 0) {
-            pDevice->alsa.isUsingMMap = MAL_TRUE;
-        }
-    }
-
-    if (!pDevice->alsa.isUsingMMap) {
-        if (((mal_snd_pcm_hw_params_set_access_proc)pContext->alsa.snd_pcm_hw_params_set_access)((snd_pcm_t*)pDevice->alsa.pPCM, pHWParams, SND_PCM_ACCESS_RW_INTERLEAVED) < 0) {;
-            mal_device_uninit__alsa(pDevice);
-            return mal_post_error(pDevice, "[ALSA] Failed to set access mode to neither SND_PCM_ACCESS_MMAP_INTERLEAVED nor SND_PCM_ACCESS_RW_INTERLEAVED. snd_pcm_hw_params_set_access() failed.", MAL_FORMAT_NOT_SUPPORTED);
-        }
-    }
 
 
     // Apply hardware parameters.
     if (((mal_snd_pcm_hw_params_proc)pContext->alsa.snd_pcm_hw_params)((snd_pcm_t*)pDevice->alsa.pPCM, pHWParams) < 0) {
         mal_device_uninit__alsa(pDevice);
-        return mal_post_error(pDevice, "[ALSA] Failed to set hardware parameters. snd_pcm_hw_params() failed.", MAL_ALSA_FAILED_TO_SET_SW_PARAMS);
+        return mal_post_error(pDevice, "[ALSA] Failed to set hardware parameters. snd_pcm_hw_params() failed.", MAL_ALSA_FAILED_TO_SET_HW_PARAMS);
     }
 
+    
+    
 
-
+    // Software parameters.
     snd_pcm_sw_params_t* pSWParams = (snd_pcm_sw_params_t*)alloca(((mal_snd_pcm_sw_params_sizeof_proc)pContext->alsa.snd_pcm_sw_params_sizeof)());
     mal_zero_memory(pSWParams, ((mal_snd_pcm_sw_params_sizeof_proc)pContext->alsa.snd_pcm_sw_params_sizeof)());
 
@@ -5944,7 +5989,7 @@ static mal_result mal_device_init__alsa(mal_context* pContext, mal_device_type t
         return mal_post_error(pDevice, "[ALSA] snd_pcm_sw_params_set_avail_min() failed.", MAL_FORMAT_NOT_SUPPORTED);
     }
 
-    if (type == mal_device_type_playback) {
+    if (type == mal_device_type_playback && !pDevice->alsa.isUsingMMap) {   // Only playback devices in writei/readi mode need a start threshold.
         if (((mal_snd_pcm_sw_params_set_start_threshold_proc)pContext->alsa.snd_pcm_sw_params_set_start_threshold)((snd_pcm_t*)pDevice->alsa.pPCM, pSWParams, (pDevice->sampleRate/1000) * 1) != 0) { //mal_prev_power_of_2(pDevice->bufferSizeInFrames/pDevice->periods)
             mal_device_uninit__alsa(pDevice);
             return mal_post_error(pDevice, "[ALSA] Failed to set start threshold for playback device. snd_pcm_sw_params_set_start_threshold() failed.", MAL_ALSA_FAILED_TO_SET_SW_PARAMS);
