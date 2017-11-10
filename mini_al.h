@@ -10155,6 +10155,7 @@ void mal_pcm_f32_to_s32(int* pOut, const float* pIn, unsigned int count)
 //     variable.
 //   - ALSA: By default, the "null" device is excluded from enumeration. This can be changed by setting the
 //     alsa.includeNullDevice context config variable.
+//   - ALSA: Fix a bug with channel mapping which causes an assertion to fail.
 //
 // v0.4 - 2017-11-05
 //   - API CHANGE: The log callback is now per-context rather than per-device and as is thus now passed to
