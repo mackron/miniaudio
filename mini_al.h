@@ -6008,7 +6008,7 @@ static mal_result mal_device_init__alsa(mal_context* pContext, mal_device_type t
         pDevice->alsa.pIntermediaryBuffer = mal_malloc(pDevice->bufferSizeInFrames * pDevice->channels * mal_get_sample_size_in_bytes(pDevice->format));
         if (pDevice->alsa.pIntermediaryBuffer == NULL) {
             mal_device_uninit__alsa(pDevice);
-            return mal_post_error(pDevice, "[ALSA] Failed to set software parameters. snd_pcm_sw_params() failed.", MAL_OUT_OF_MEMORY);
+            return mal_post_error(pDevice, "[ALSA] Failed to allocate memory for intermediary buffer.", MAL_OUT_OF_MEMORY);
         }
     }
     
@@ -8288,89 +8288,64 @@ mal_result mal_context_init(mal_backend backends[], mal_uint32 backendCount, con
     for (mal_uint32 iBackend = 0; iBackend < backendCount; ++iBackend) {
         mal_backend backend = backends[iBackend];
 
+        result = MAL_NO_BACKEND;
         switch (backend) {
         #ifdef MAL_ENABLE_WASAPI
             case mal_backend_wasapi:
             {
                 result = mal_context_init__wasapi(pContext);
-                if (result == MAL_SUCCESS) {
-                    pContext->backend = mal_backend_wasapi;
-                    return result;
-                }
             } break;
         #endif
         #ifdef MAL_ENABLE_DSOUND
             case mal_backend_dsound:
             {
                 result = mal_context_init__dsound(pContext);
-                if (result == MAL_SUCCESS) {
-                    pContext->backend = mal_backend_dsound;
-                    return result;
-                }
             } break;
         #endif
         #ifdef MAL_ENABLE_WINMM
             case mal_backend_winmm:
             {
                 result = mal_context_init__winmm(pContext);
-                if (result == MAL_SUCCESS) {
-                    pContext->backend = mal_backend_winmm;
-                    return result;
-                }
             } break;
         #endif
         #ifdef MAL_ENABLE_ALSA
             case mal_backend_alsa:
             {
                 result = mal_context_init__alsa(pContext);
-                if (result == MAL_SUCCESS) {
-                    pContext->backend = mal_backend_alsa;
-                    return result;
-                }
             } break;
         #endif
 		#ifdef MAL_ENABLE_OSS
 			case mal_backend_oss:
 			{
 				result = mal_context_init__oss(pContext);
-				if (result == MAL_SUCCESS) {
-					pContext->backend = mal_backend_oss;
-					return result;
-				}
 			} break;
 		#endif
         #ifdef MAL_ENABLE_OPENSL
             case mal_backend_opensl:
             {
                 result = mal_context_init__opensl(pContext);
-                if (result == MAL_SUCCESS) {
-                    pContext->backend = mal_backend_opensl;
-                    return result;
-                }
             } break;
         #endif
         #ifdef MAL_ENABLE_OPENAL
             case mal_backend_openal:
             {
                 result = mal_context_init__openal(pContext);
-                if (result == MAL_SUCCESS) {
-                    pContext->backend = mal_backend_openal;
-                    return result;
-                }
             } break;
         #endif
         #ifdef MAL_ENABLE_NULL
             case mal_backend_null:
             {
                 result = mal_context_init__null(pContext);
-                if (result == MAL_SUCCESS) {
-                    pContext->backend = mal_backend_null;
-                    return result;
-                }
             } break;
         #endif
 
             default: break;
+        }
+
+        // If this iteration was successful, return.
+        if (result == MAL_SUCCESS) {
+            pContext->backend = backend;
+            return result;
         }
     }
 
