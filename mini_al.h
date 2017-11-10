@@ -1,5 +1,5 @@
 // Mini audio library. Public domain. See "unlicense" statement at the end of this file.
-// mini_al - v0.5 - 2017-11-xx
+// mini_al - v0.5 - 2017-11-11
 //
 // David Reid - davidreidsoftware@gmail.com
 
@@ -10233,7 +10233,7 @@ void mal_pcm_f32_to_s32(int* pOut, const float* pIn, unsigned int count)
 // REVISION HISTORY
 // ================
 //
-// v0.5 - 2017-11-xx
+// v0.5 - 2017-11-11
 //   - API CHANGE: The mal_context_init() function now takes a pointer to a mal_context_config object for
 //     configuring the context. The works in the same kind of way as the device config. The rationale for this
 //     change is to give applications better control over context-level properties, add support for backend-
