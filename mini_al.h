@@ -5838,7 +5838,6 @@ static mal_result mal_device_init__alsa(mal_context* pContext, mal_device_type t
     }
 
 
-
     // Hardware parameters.
     snd_pcm_hw_params_t* pHWParams = (snd_pcm_hw_params_t*)alloca(((mal_snd_pcm_hw_params_sizeof_proc)pContext->alsa.snd_pcm_hw_params_sizeof)());
     mal_zero_memory(pHWParams, ((mal_snd_pcm_hw_params_sizeof_proc)pContext->alsa.snd_pcm_hw_params_sizeof)());
@@ -5948,14 +5947,6 @@ static mal_result mal_device_init__alsa(mal_context* pContext, mal_device_type t
     pDevice->internalSampleRate = sampleRate;
 
 
-    // Buffer Size
-    snd_pcm_uframes_t actualBufferSize = pDevice->bufferSizeInFrames;
-    if (((mal_snd_pcm_hw_params_set_buffer_size_near_proc)pContext->alsa.snd_pcm_hw_params_set_buffer_size_near)((snd_pcm_t*)pDevice->alsa.pPCM, pHWParams, &actualBufferSize) < 0) {
-        mal_device_uninit__alsa(pDevice);
-        return mal_post_error(pDevice, "[ALSA] Failed to set buffer size for device. snd_pcm_hw_params_set_buffer_size() failed.", MAL_FORMAT_NOT_SUPPORTED);
-    }
-    pDevice->bufferSizeInFrames = actualBufferSize;
-
     // Periods.
     mal_uint32 periods = pConfig->periods;
     int dir = 0;
@@ -5965,7 +5956,15 @@ static mal_result mal_device_init__alsa(mal_context* pContext, mal_device_type t
     }
     pDevice->periods = periods;
 
+    // Buffer Size
+    snd_pcm_uframes_t actualBufferSize = pDevice->bufferSizeInFrames;
+    if (((mal_snd_pcm_hw_params_set_buffer_size_near_proc)pContext->alsa.snd_pcm_hw_params_set_buffer_size_near)((snd_pcm_t*)pDevice->alsa.pPCM, pHWParams, &actualBufferSize) < 0) {
+        mal_device_uninit__alsa(pDevice);
+        return mal_post_error(pDevice, "[ALSA] Failed to set buffer size for device. snd_pcm_hw_params_set_buffer_size() failed.", MAL_FORMAT_NOT_SUPPORTED);
+    }
+    pDevice->bufferSizeInFrames = actualBufferSize;
 
+    
     // Apply hardware parameters.
     if (((mal_snd_pcm_hw_params_proc)pContext->alsa.snd_pcm_hw_params)((snd_pcm_t*)pDevice->alsa.pPCM, pHWParams) < 0) {
         mal_device_uninit__alsa(pDevice);
@@ -6013,7 +6012,7 @@ static mal_result mal_device_init__alsa(mal_context* pContext, mal_device_type t
     }
     
     
-    
+
     // Grab the internal channel map. For now we're not going to bother trying to change the channel map and
     // instead just do it ourselves.
     snd_pcm_chmap_t* pChmap = ((mal_snd_pcm_get_chmap_proc)pContext->alsa.snd_pcm_get_chmap)((snd_pcm_t*)pDevice->alsa.pPCM);
