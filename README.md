@@ -116,3 +116,12 @@ int main(int argc, char** argv)
     return 0;
 }
 ```
+
+mini_al does not directly support loading of audio files like WAV, FLAC, MP3, etc. You may want to
+consider the following single file libraries for this:
+- [dr_flac](https://github.com/mackron/dr_libs/blob/master/dr_flac.h)
+- [dr_wav](https://github.com/mackron/dr_libs/blob/master/dr_wav.h)
+- [stb_vorbis](https://github.com/nothings/stb/blob/master/stb_vorbis.c)
+
+If you know of any other single file libraries I can add to this list, let me know. Preferably public
+domain or MIT.
