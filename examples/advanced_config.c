@@ -150,7 +150,6 @@ int main(int argc, char** argv)
         // convert it to "hw:0,0". This is how the ALSA backend honors the preferExclusiveMode hint.
         strcpy(customDeviceID.alsa, ":0,0");
     }
-    (void)customDeviceID;   // <-- Silence the unused variable warning.
 #endif
 
     mal_device playbackDevice;
