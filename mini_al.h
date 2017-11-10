@@ -6018,9 +6018,39 @@ static mal_result mal_device_init__alsa(mal_context* pContext, mal_device_type t
     // instead just do it ourselves.
     snd_pcm_chmap_t* pChmap = ((mal_snd_pcm_get_chmap_proc)pContext->alsa.snd_pcm_get_chmap)((snd_pcm_t*)pDevice->alsa.pPCM);
     if (pChmap != NULL) {
-        mal_assert(pChmap->channels == pDevice->internalChannels);
-        for (mal_uint32 iChannel = 0; iChannel < pDevice->internalChannels; ++iChannel) {
-            pDevice->internalChannelMap[iChannel] = mal_convert_alsa_channel_position_to_mal_channel(pChmap->pos[iChannel]);
+        // There are cases where the returned channel map can have a different channel count than was returned by snd_pcm_hw_params_set_channels_near().
+        if (pChmap->channels >= pDevice->internalChannels) {
+            // Drop excess channels.
+            for (mal_uint32 iChannel = 0; iChannel < pDevice->internalChannels; ++iChannel) {
+                pDevice->internalChannelMap[iChannel] = mal_convert_alsa_channel_position_to_mal_channel(pChmap->pos[iChannel]);
+            }
+        } else {
+            // Excess channels use defaults. Do an initial fill with defaults, overwrite the first pChmap->channels, validate to ensure there are no duplicate
+            // channels. If validation fails, fall back to defaults.
+            
+            // Fill with defaults.
+            mal_get_default_channel_mapping(pDevice->pContext->backend, pDevice->internalChannels, pDevice->internalChannelMap);
+
+            // Overwrite first pChmap->channels channels.
+            for (mal_uint32 iChannel = 0; iChannel < pChmap->channels; ++iChannel) {
+                pDevice->internalChannelMap[iChannel] = mal_convert_alsa_channel_position_to_mal_channel(pChmap->pos[iChannel]);
+            }
+
+            // Validate.
+            mal_bool32 isValid = MAL_TRUE;
+            for (mal_uint32 i = 0; i < pDevice->internalChannels && isValid; ++i) {
+                for (mal_uint32 j = i+1; j < pDevice->internalChannels; ++j) {
+                    if (pDevice->internalChannelMap[i] == pDevice->internalChannelMap[j]) {
+                        isValid = MAL_FALSE;
+                        break;
+                    }
+                }
+            }
+
+            // If our channel map is invalid, fall back to defaults.
+            if (!isValid) {
+                mal_get_default_channel_mapping(pDevice->pContext->backend, pDevice->internalChannels, pDevice->internalChannelMap);                
+            }
         }
 
         free(pChmap);
