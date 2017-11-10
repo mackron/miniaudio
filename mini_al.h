@@ -5670,14 +5670,14 @@ static mal_result mal_enumerate_devices__alsa(mal_context* pContext, mal_device_
         
 
         if (includeThisDevice) {
-#if 0
+#if 1
             printf("NAME: %s\n", NAME);
             printf("DESC: %s\n", DESC);
             printf("IOID: %s\n", IOID);
 
             char hwid2[256];
             mal_convert_device_name_to_hw_format__alsa(pContext, hwid2, sizeof(hwid2), NAME);
-            printf("DEVICE ID: %s\n\n", hwid2);
+            printf("DEVICE ID: %s (%d)\n\n", hwid2, *pCount);
 #endif
 
             char hwid[sizeof(pUniqueIDs->alsa)];
@@ -5745,10 +5745,11 @@ static mal_result mal_enumerate_devices__alsa(mal_context* pContext, mal_device_
                     
                     pInfo += 1;
                     infoSize -= 1;
+                    *pCount += 1;
                 }
+            } else {
+                *pCount += 1;
             }
-
-            *pCount += 1;
         }
 
     next_device:
