@@ -440,7 +440,7 @@ typedef enum
 typedef union
 {
 #ifdef MAL_SUPPORT_WASAPI
-    wchar_t wasapi[64];             // WASAPI uses a wchar_t string for identification which is also annoyingly long...
+    wchar_t wasapi[64];             // WASAPI uses a wchar_t string for identification.
 #endif
 #ifdef MAL_SUPPORT_DSOUND
     mal_uint8 dsound[16];           // DirectSound uses a GUID for identification.
@@ -586,7 +586,7 @@ typedef struct
     struct
     {
         mal_bool32 useVerboseDeviceEnumeration;
-        mal_bool32 includeNullDevice;   // The "null" device is explicitly excluded by default. Setting this to true includes it.
+        mal_bool32 excludeNullDevice;
     } alsa;
 } mal_context_config;
 
@@ -5657,7 +5657,7 @@ static mal_result mal_enumerate_devices__alsa(mal_context* pContext, mal_device_
             includeThisDevice = MAL_TRUE;
 
             // Exclude the "null" device if requested.
-            if (strcmp(NAME, "null") == 0 && !pContext->config.alsa.includeNullDevice) {
+            if (strcmp(NAME, "null") == 0 && pContext->config.alsa.excludeNullDevice) {
                 includeThisDevice = MAL_FALSE;
             }
         } else {
@@ -10153,8 +10153,7 @@ void mal_pcm_f32_to_s32(int* pOut, const float* pIn, unsigned int count)
 //   - ALSA: By default, device enumeration will now only enumerate over unique card/device pairs. Applications
 //     can enable verbose device enumeration by setting the alsa.useVerboseDeviceEnumeration context config
 //     variable.
-//   - ALSA: By default, the "null" device is excluded from enumeration. This can be changed by setting the
-//     alsa.includeNullDevice context config variable.
+//   - ALSA: Add support for excluding the "null" device using the alsa.excludeNullDevice context config variable.
 //   - ALSA: Fix a bug with channel mapping which causes an assertion to fail.
 //
 // v0.4 - 2017-11-05
