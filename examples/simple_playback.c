@@ -6,13 +6,6 @@
 
 #include <stdio.h>
 
-void on_log(mal_context* pContext, mal_device* pDevice, const char* message)
-{
-    (void)pContext;
-    (void)pDevice;
-    printf("mini_al: %s\n", message);
-}
-
 // This is the function that's used for sending more data to the device for playback.
 mal_uint32 on_send_frames_to_device(mal_device* pDevice, mal_uint32 frameCount, void* pSamples)
 {
@@ -38,7 +31,7 @@ int main(int argc, char** argv)
     }
 
     mal_context context;
-    if (mal_context_init(NULL, 0, on_log, &context) != MAL_SUCCESS) {
+    if (mal_context_init(NULL, 0, NULL, &context) != MAL_SUCCESS) {
         printf("Failed to initialize context.");
 		drwav_uninit(&wav);
         return -3;
