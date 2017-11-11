@@ -574,7 +574,6 @@ typedef struct
 
     struct
     {
-        mal_bool32 preferPlugHW;
         mal_bool32 noMMap;  // Disables MMap mode.
     } alsa;
 } mal_device_config;
@@ -5670,7 +5669,7 @@ static mal_result mal_enumerate_devices__alsa(mal_context* pContext, mal_device_
         
 
         if (includeThisDevice) {
-#if 1
+#if 0
             printf("NAME: %s\n", NAME);
             printf("DESC: %s\n", DESC);
             printf("IOID: %s\n", IOID);
@@ -5683,9 +5682,20 @@ static mal_result mal_enumerate_devices__alsa(mal_context* pContext, mal_device_
             char hwid[sizeof(pUniqueIDs->alsa)];
             if (NAME != NULL) {
                 if (pContext->config.alsa.useVerboseDeviceEnumeration) {
+                    // Verbose mode. Use the name exactly as-is.
                     mal_strncpy_s(hwid, sizeof(hwid), NAME, (size_t)-1);
                 } else {
-                    if (mal_convert_device_name_to_hw_format__alsa(pContext, hwid, sizeof(hwid), NAME) != 0) {
+                    // Simplified mode. Use ":%d,%d" format.
+                    if (mal_convert_device_name_to_hw_format__alsa(pContext, hwid, sizeof(hwid), NAME) == 0) {
+                        // At this point, hwid looks like "hw:0,0". In simplified enumeration mode, we actually want to strip off the
+                        // plugin name so it looks like ":0,0". The reason for this is that this special format is detected at device
+                        // initialization time and is used as an indicator to try and use the most appropriate plugin depending on the
+                        // device type and sharing mode.
+                        char* dst = hwid;
+                        char* src = hwid+2;
+                        while (*dst++ = *src++);
+                    } else {
+                        // Conversion to "hw:%d,%d" failed. Just use the name as-is.
                         mal_strncpy_s(hwid, sizeof(hwid), NAME, (size_t)-1);
                     }
 
@@ -5786,55 +5796,101 @@ static mal_result mal_device_init__alsa(mal_context* pContext, mal_device_type t
     mal_zero_object(&pDevice->alsa);
 
     snd_pcm_format_t formatALSA = mal_convert_mal_format_to_alsa_format(pConfig->format);
-
-
-    char deviceName[256];
-    if (pDeviceID == NULL) {
-        mal_strncpy_s(deviceName, sizeof(deviceName), "default", (size_t)-1);
-    } else {
-        if (!pConfig->alsa.preferPlugHW) {
-            mal_strncpy_s(deviceName, sizeof(deviceName), pDeviceID->alsa, (size_t)-1);
-        } else {
-            // The client is preferencing a "plug" device, so we need to convert the device name to "plughw:%d,%d" format.
-            deviceName[0] = 'p';
-            deviceName[1] = 'l';
-            deviceName[2] = 'u';
-            deviceName[3] = 'g';
-            if (mal_convert_device_name_to_hw_format__alsa(pContext, deviceName+4, sizeof(deviceName)-4, pDeviceID->alsa) != 0) {
-                // Failed to convert to "hw:%d,%d" format. It could be set to "default", "pulse", "null", etc. This is not a critical error - just keep using the original name.
-                mal_strncpy_s(deviceName, sizeof(deviceName), pDeviceID->alsa, (size_t)-1);
-            }
-        }
-    }
-
-    // When opening the device, we first try opening it based on the name provided in deviceName. If this fails, fall back to the "hw:%d,%d".
     snd_pcm_stream_t stream = (type == mal_device_type_playback) ? SND_PCM_STREAM_PLAYBACK : SND_PCM_STREAM_CAPTURE;
-    if (((mal_snd_pcm_open_proc)pContext->alsa.snd_pcm_open)((snd_pcm_t**)&pDevice->alsa.pPCM, deviceName, stream, 0) < 0) {
-        //printf("Failed first attempt at opening device.\n");
-        if (mal_strcmp(deviceName, "default") == 0 || mal_strcmp(deviceName, "pulse") == 0) {
-            // We may have failed to open the default device. Try falling back to the "hw" or "plughw" device, depending on preferences.
-            if (pConfig->alsa.preferPlugHW) {
-                mal_strncpy_s(deviceName, sizeof(deviceName), "plughw:0,0", (size_t)-1);
-            } else {
-                mal_strncpy_s(deviceName, sizeof(deviceName), "hw:0,0", (size_t)-1);
-            }
 
-            if (((mal_snd_pcm_open_proc)pContext->alsa.snd_pcm_open)((snd_pcm_t**)&pDevice->alsa.pPCM, deviceName, stream, 0) < 0) {
-                mal_device_uninit__alsa(pDevice);
-                return mal_post_error(pDevice, "[ALSA] snd_pcm_open() failed when trying to open the default device.", MAL_ALSA_FAILED_TO_OPEN_DEVICE);
-            }
+    if (pDeviceID == NULL) {
+        // We're opening the default device. I don't know if trying anything other than "default" is necessary, but it makes
+        // me feel better to try as hard as we can get to get _something_ working.
+        const char* defaultDeviceNames[] = {
+            "default",
+            NULL,
+            NULL,
+            NULL,
+            NULL,
+            NULL,
+            NULL
+        };
+
+        if (pConfig->preferExclusiveMode) {
+            defaultDeviceNames[1] = "hw";
+            defaultDeviceNames[2] = "hw:0";
+            defaultDeviceNames[3] = "hw:0,0";
         } else {
-            // Try falling back to "hw:%d,%d" format.
-            char hwid[256];
-            if (mal_convert_device_name_to_hw_format__alsa(pContext, hwid, sizeof(hwid), deviceName) != 0) {
-                mal_device_uninit__alsa(pDevice);
-                return mal_post_error(pDevice, "[ALSA] snd_pcm_open() failed.", MAL_ALSA_FAILED_TO_OPEN_DEVICE);
+            if (type == mal_device_type_playback) {
+                defaultDeviceNames[1] = "dmix";
+                defaultDeviceNames[2] = "dmix:0";
+                defaultDeviceNames[3] = "dmix:0,0";
             } else {
-                if (((mal_snd_pcm_open_proc)pContext->alsa.snd_pcm_open)((snd_pcm_t**)&pDevice->alsa.pPCM, hwid, stream, 0) < 0) {
-                    mal_device_uninit__alsa(pDevice);
-                    return mal_post_error(pDevice, "[ALSA] snd_pcm_open() failed.", MAL_ALSA_FAILED_TO_OPEN_DEVICE);
+                defaultDeviceNames[1] = "dsnoop";
+                defaultDeviceNames[2] = "dsnoop:0";
+                defaultDeviceNames[3] = "dsnoop:0,0";
+            }
+            defaultDeviceNames[4] = "hw";
+            defaultDeviceNames[5] = "hw:0";
+            defaultDeviceNames[6] = "hw:0,0";
+        }
+
+        mal_bool32 isDeviceOpen = MAL_FALSE;
+        for (size_t i = 0; i < mal_countof(defaultDeviceNames); ++i) {
+            if (defaultDeviceNames[i] != NULL && defaultDeviceNames[i][0] != '\0') {
+                if (((mal_snd_pcm_open_proc)pContext->alsa.snd_pcm_open)((snd_pcm_t**)&pDevice->alsa.pPCM, defaultDeviceNames[i], stream, 0) == 0) {
+                    isDeviceOpen = MAL_TRUE;
+                    break;
                 }
             }
+        }
+
+        if (!isDeviceOpen) {
+            mal_device_uninit__alsa(pDevice);
+            return mal_post_error(pDevice, "[ALSA] snd_pcm_open() failed when trying to open an appropriate default device.", MAL_ALSA_FAILED_TO_OPEN_DEVICE);
+        }
+    } else {
+        // We're trying to open a specific device. There's a few things to consider here:
+        //
+        // mini_al recongnizes a special format of device id that excludes the "hw", "dmix", etc. prefix. It looks like this: ":0,0", ":0,1", etc. When
+        // an ID of this format is specified, it indicates to mini_al that it can try different combinations of plugins ("hw", "dmix", etc.) until it
+        // finds an appropriate one that works. This comes in very handy when trying to open a device in shared mode ("dmix"), vs exclusive mode ("hw").
+        mal_bool32 isDeviceOpen = MAL_FALSE;
+        if (pDeviceID->alsa[0] != ':') {
+            // The ID is not in ":0,0" format. Use the ID exactly as-is.
+            if (((mal_snd_pcm_open_proc)pContext->alsa.snd_pcm_open)((snd_pcm_t**)&pDevice->alsa.pPCM, pDeviceID->alsa, stream, 0) == 0) {
+                isDeviceOpen = MAL_TRUE;
+            }
+        } else {
+            // The ID is in ":0,0" format. Try different plugins depending on the shared mode.
+            if (pDeviceID->alsa[1] == '\0') {
+                pDeviceID->alsa[0] = '\0';  // An ID of ":" should be converted to "".
+            }
+
+            char hwid[256];
+            if (!pConfig->preferExclusiveMode) {
+                if (type == mal_device_type_playback) {
+                    mal_strcpy_s(hwid, sizeof(hwid), "dmix");
+                } else {
+                    mal_strcpy_s(hwid, sizeof(hwid), "dsnoop");
+                }
+
+                if (mal_strcat_s(hwid, sizeof(hwid), pDeviceID->alsa) == 0) {
+                    if (((mal_snd_pcm_open_proc)pContext->alsa.snd_pcm_open)((snd_pcm_t**)&pDevice->alsa.pPCM, hwid, stream, 0) == 0) {
+                        isDeviceOpen = MAL_TRUE;
+                    }
+                }
+            }
+
+            // If at this point we still don't have an open device it means we're either preferencing exclusive mode or opening with "dmix"/"dsnoop" failed.
+            if (!isDeviceOpen) {
+                mal_strcpy_s(hwid, sizeof(hwid), "hw");
+                if (mal_strcat_s(hwid, sizeof(hwid), pDeviceID->alsa) == 0) {
+                    if (((mal_snd_pcm_open_proc)pContext->alsa.snd_pcm_open)((snd_pcm_t**)&pDevice->alsa.pPCM, hwid, stream, 0) == 0) {
+                        isDeviceOpen = MAL_TRUE;
+                    }
+                }
+            }
+        }
+
+        if (!isDeviceOpen) {
+            mal_device_uninit__alsa(pDevice);
+            return mal_post_error(pDevice, "[ALSA] snd_pcm_open() failed.", MAL_ALSA_FAILED_TO_OPEN_DEVICE);
         }
     }
 
@@ -10150,9 +10206,15 @@ void mal_pcm_f32_to_s32(int* pOut, const float* pIn, unsigned int count)
 //     configuring the context. The works in the same kind of way as the device config. The rationale for this
 //     change is to give applications better control over context-level properties, add support for backend-
 //     specific configurations, and support extensibility without breaking the API.
+//   - API CHANGE: The alsa.preferPlugHW device config variable has been removed since it's not really useful for
+//     anything anymore.
 //   - ALSA: By default, device enumeration will now only enumerate over unique card/device pairs. Applications
 //     can enable verbose device enumeration by setting the alsa.useVerboseDeviceEnumeration context config
 //     variable.
+//   - ALSA: When opening a device in shared mode (the default), the dmix/dsnoop plugin will be prioritized. If
+//     this fails it will fall back to the hw plugin. With this change the preferExclusiveMode config is now
+//     honored. Note that this does not happen when alsa.useVerboseDeviceEnumeration is set to true (see above)
+//     which is by design.
 //   - ALSA: Add support for excluding the "null" device using the alsa.excludeNullDevice context config variable.
 //   - ALSA: Fix a bug with channel mapping which causes an assertion to fail.
 //
