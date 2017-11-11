@@ -3076,47 +3076,54 @@ static mal_result mal_enumerate_devices__wasapi(mal_context* pContext, mal_devic
         return mal_context_post_error(pContext, NULL, "[WASAPI] Failed to get device count.", MAL_NO_DEVICE);
     }
 
-    for (mal_uint32 iDevice = 0; iDevice < infoSize && iDevice < count; ++iDevice) {
-        mal_zero_object(pInfo);
+    for (mal_uint32 iDevice = 0; iDevice < count; ++iDevice) {
+        if (pInfo != NULL) {
+            if (infoSize > 0) {
+                mal_zero_object(pInfo);
 
-        IMMDevice* pDevice;
-        hr = IMMDeviceCollection_Item(pDeviceCollection, iDevice, &pDevice);
-        if (SUCCEEDED(hr)) {
-            // ID.
-            LPWSTR id;
-            hr = IMMDevice_GetId(pDevice, &id);
-            if (SUCCEEDED(hr)) {
-                size_t idlen = wcslen(id);
-                if (idlen+sizeof(wchar_t) > sizeof(pInfo->id.wasapi)) {
-                    mal_CoTaskMemFree(pContext, id);
-                    mal_assert(MAL_FALSE);  // NOTE: If this is triggered, please report it. It means the format of the ID must haved change and is too long to fit in our fixed sized buffer.
-                    continue;
-                }
-
-                memcpy(pInfo->id.wasapi, id, idlen * sizeof(wchar_t));
-                pInfo->id.wasapi[idlen] = '\0';
-
-                mal_CoTaskMemFree(pContext, id);
-            }
-
-            // Description / Friendly Name.
-            IPropertyStore *pProperties;
-            hr = IMMDevice_OpenPropertyStore(pDevice, STGM_READ, &pProperties);
-            if (SUCCEEDED(hr)) {
-                PROPVARIANT varName;
-                PropVariantInit(&varName);
-                hr = IPropertyStore_GetValue(pProperties, g_malPKEY_Device_FriendlyName, &varName);
+                IMMDevice* pDevice;
+                hr = IMMDeviceCollection_Item(pDeviceCollection, iDevice, &pDevice);
                 if (SUCCEEDED(hr)) {
-                    WideCharToMultiByte(CP_UTF8, 0, varName.pwszVal, -1, pInfo->name, sizeof(pInfo->name), 0, FALSE);
-                    mal_PropVariantClear(pContext, &varName);
+                    // ID.
+                    LPWSTR id;
+                    hr = IMMDevice_GetId(pDevice, &id);
+                    if (SUCCEEDED(hr)) {
+                        size_t idlen = wcslen(id);
+                        if (idlen+sizeof(wchar_t) > sizeof(pInfo->id.wasapi)) {
+                            mal_CoTaskMemFree(pContext, id);
+                            mal_assert(MAL_FALSE);  // NOTE: If this is triggered, please report it. It means the format of the ID must haved change and is too long to fit in our fixed sized buffer.
+                            continue;
+                        }
+
+                        memcpy(pInfo->id.wasapi, id, idlen * sizeof(wchar_t));
+                        pInfo->id.wasapi[idlen] = '\0';
+
+                        mal_CoTaskMemFree(pContext, id);
+                    }
+
+                    // Description / Friendly Name.
+                    IPropertyStore *pProperties;
+                    hr = IMMDevice_OpenPropertyStore(pDevice, STGM_READ, &pProperties);
+                    if (SUCCEEDED(hr)) {
+                        PROPVARIANT varName;
+                        PropVariantInit(&varName);
+                        hr = IPropertyStore_GetValue(pProperties, g_malPKEY_Device_FriendlyName, &varName);
+                        if (SUCCEEDED(hr)) {
+                            WideCharToMultiByte(CP_UTF8, 0, varName.pwszVal, -1, pInfo->name, sizeof(pInfo->name), 0, FALSE);
+                            mal_PropVariantClear(pContext, &varName);
+                        }
+
+                        IPropertyStore_Release(pProperties);
+                    }
                 }
 
-                IPropertyStore_Release(pProperties);
+                pInfo += 1;
+                infoSize -= 1;
+                *pCount += 1;
             }
+        } else {
+            *pCount += 1;
         }
-
-        pInfo += 1;
-        *pCount += 1;
     }
 
     IMMDeviceCollection_Release(pDeviceCollection);
@@ -10217,6 +10224,7 @@ void mal_pcm_f32_to_s32(int* pOut, const float* pIn, unsigned int count)
 //     which is by design.
 //   - ALSA: Add support for excluding the "null" device using the alsa.excludeNullDevice context config variable.
 //   - ALSA: Fix a bug with channel mapping which causes an assertion to fail.
+//   - WASAPI: Fix device enumeration when passing NULL to the pInfo parameter.
 //
 // v0.4 - 2017-11-05
 //   - API CHANGE: The log callback is now per-context rather than per-device and as is thus now passed to
