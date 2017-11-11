@@ -1518,7 +1518,11 @@ typedef HWND (WINAPI * MAL_PFN_GetDesktopWindow)();
 
 #define mal_buffer_frame_capacity(buffer, channels, format) (sizeof(buffer) / mal_get_sample_size_in_bytes(format) / (channels))
 
-
+// Some of these string utility functions are unused on some platforms.
+#if defined(__GNUC__)
+    #pragma GCC diagnostic push
+    #pragma GCC diagnostic ignored "-Wunused-function"
+#endif
 // Return Values:
 //   0:  Success
 //   22: EINVAL
@@ -1713,6 +1717,9 @@ static int mal_strcmp(const char* str1, const char* str2)
 
     return ((unsigned char*)str1)[0] - ((unsigned char*)str2)[0];
 }
+#if defined(__GNUC__)
+    #pragma GCC diagnostic pop
+#endif
 
 
 // Thanks to good old Bit Twiddling Hacks for this one: http://graphics.stanford.edu/~seander/bithacks.html#RoundUpPowerOf2
