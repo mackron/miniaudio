@@ -43,8 +43,22 @@ int main(int argc, char** argv)
     // Typical installations of ALSA include a null device. The config below will exclude it from enumeration.
     contextConfig.alsa.excludeNullDevice = MAL_TRUE;
 
+    // The prioritization of backends can be controlled by the application. You need only specify the backends
+    // you care about. If the context cannot be initialized for any of the specified backends mal_context_init()
+    // will fail.
+    mal_backend backends[] = {
+        mal_backend_wasapi, // Higest priority.
+        mal_backend_dsound,
+        mal_backend_winmm,
+        mal_backend_alsa,
+        mal_backend_oss,
+        mal_backend_opensl,
+        mal_backend_openal,
+        mal_backend_null    // Lowest priority.
+    };
+
     mal_context context;
-    if (mal_context_init(NULL, 0, &contextConfig, &context) != MAL_SUCCESS) {
+    if (mal_context_init(backends, sizeof(backends)/sizeof(backends[0]), &contextConfig, &context) != MAL_SUCCESS) {
         printf("Failed to initialize context.");
         return -2;
     }
