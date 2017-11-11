@@ -6475,12 +6475,9 @@ static mal_result mal_device__start_backend__oss(mal_device* pDevice)
 	// call to read().
 	if (pDevice->type == mal_device_type_playback) {
 		// Playback.
-		mal_uint32 samplesRead = mal_device__read_frames_from_client(pDevice, pDevice->oss.fragmentSizeInFrames, pDevice->oss.pIntermediaryBuffer);
-		if (samplesRead == 0) {
-            return mal_post_error(pDevice, "[OSS] Failed to read initial chunk of data from the client.", MAL_FAILED_TO_READ_DATA_FROM_CLIENT);
-		}
+		mal_device__read_frames_from_client(pDevice, pDevice->oss.fragmentSizeInFrames, pDevice->oss.pIntermediaryBuffer);
 
-		int bytesWritten = write(pDevice->oss.fd, pDevice->oss.pIntermediaryBuffer, samplesRead * mal_get_sample_size_in_bytes(pDevice->internalFormat));
+		int bytesWritten = write(pDevice->oss.fd, pDevice->oss.pIntermediaryBuffer, pDevice->oss.fragmentSizeInFrames * pDevice->internalChannels * mal_get_sample_size_in_bytes(pDevice->internalFormat));
 		if (bytesWritten == -1) {
             return mal_post_error(pDevice, "[OSS] Failed to send initial chunk of data to the device.", MAL_FAILED_TO_SEND_DATA_TO_DEVICE);
 		}
@@ -10246,6 +10243,7 @@ void mal_pcm_f32_to_s32(int* pOut, const float* pIn, unsigned int count)
 //   - ALSA: Add support for excluding the "null" device using the alsa.excludeNullDevice context config variable.
 //   - ALSA: Fix a bug with channel mapping which causes an assertion to fail.
 //   - Fix errors with enumeration when pInfo is set to NULL.
+//   - OSS: Fix a bug when starting a device when the client sends 0 samples for the initial buffer fill.
 //
 // v0.4 - 2017-11-05
 //   - API CHANGE: The log callback is now per-context rather than per-device and as is thus now passed to
