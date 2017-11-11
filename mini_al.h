@@ -3130,18 +3130,22 @@ static mal_result mal_enumerate_devices__wasapi(mal_context* pContext, mal_devic
 #else
     // The MMDevice API is only supported on desktop applications. For now, while I'm still figuring out how to properly enumerate
     // over devices without using MMDevice, I'm restricting devices to defaults.
-    if (infoSize > 0) {
-        if (type == mal_device_type_playback) {
-            mal_copy_memory(pInfo->id.wasapi, &g_malIID_DEVINTERFACE_AUDIO_RENDER, sizeof(g_malIID_DEVINTERFACE_AUDIO_RENDER));
-            mal_strncpy_s(pInfo->name, sizeof(pInfo->name), "Default Playback Device", (size_t)-1);
-        } else {
-            mal_copy_memory(pInfo->id.wasapi, &g_malIID_DEVINTERFACE_AUDIO_CAPTURE, sizeof(g_malIID_DEVINTERFACE_AUDIO_CAPTURE));
-            mal_strncpy_s(pInfo->name, sizeof(pInfo->name), "Default Capture Device", (size_t)-1);
-        }
-    }
+    if (pInfo != NULL) {
+        if (infoSize > 0) {
+            if (type == mal_device_type_playback) {
+                mal_copy_memory(pInfo->id.wasapi, &g_malIID_DEVINTERFACE_AUDIO_RENDER, sizeof(g_malIID_DEVINTERFACE_AUDIO_RENDER));
+                mal_strncpy_s(pInfo->name, sizeof(pInfo->name), "Default Playback Device", (size_t)-1);
+            } else {
+                mal_copy_memory(pInfo->id.wasapi, &g_malIID_DEVINTERFACE_AUDIO_CAPTURE, sizeof(g_malIID_DEVINTERFACE_AUDIO_CAPTURE));
+                mal_strncpy_s(pInfo->name, sizeof(pInfo->name), "Default Capture Device", (size_t)-1);
+            }
 
-    pInfo += 1;
-    *pCount += 1;
+            pInfo += 1;
+            *pCount += 1;
+        }
+    } else {
+        *pCount += 1;
+    }
 #endif
 
     return MAL_SUCCESS;
