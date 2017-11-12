@@ -1,5 +1,5 @@
 // Mini audio library. Public domain. See "unlicense" statement at the end of this file.
-// mini_al - v0.5 - 2017-11-11
+// mini_al - v0.x - 2017-xx-xx
 //
 // David Reid - davidreidsoftware@gmail.com
 
@@ -10003,7 +10003,7 @@ mal_uint32 mal_convert_frames__on_read(mal_uint32 frameCount, void* pFramesOut, 
     }
 
     mal_uint32 frameSizeInBytes = mal_get_sample_size_in_bytes(pData->formatIn) * pData->channelsIn;
-    mal_copy_memory(pFramesOut, (mal_uint8*)pData->pDataIn + (frameSizeInBytes * pData->iNextFrame), frameSizeInBytes * framesToRead);
+    mal_copy_memory(pFramesOut, (const mal_uint8*)pData->pDataIn + (frameSizeInBytes * pData->iNextFrame), frameSizeInBytes * framesToRead);
 
     pData->iNextFrame += framesToRead;
     return framesToRead;
@@ -10331,6 +10331,11 @@ void mal_pcm_f32_to_s32(int* pOut, const float* pIn, unsigned int count)
 
 // REVISION HISTORY
 // ================
+//
+// v0.x - 2017-xx-xx
+//   - Add mal_convert_frames(). This is a high-level helper API for performing a one-time, bulk conversion of
+//     audio data to a different format.
+//   - Expose the mutex APIs.
 //
 // v0.5 - 2017-11-11
 //   - API CHANGE: The mal_context_init() function now takes a pointer to a mal_context_config object for
