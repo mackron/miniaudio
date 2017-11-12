@@ -542,7 +542,7 @@ typedef struct
     mal_uint32  channelsOut;
     mal_uint32  sampleRateOut;
     mal_channel channelMapOut[MAL_MAX_CHANNELS];
-    mal_uint32  cacheSizeInFrames;
+    mal_uint32  cacheSizeInFrames;  // Applications should set this to 0 for now.
 } mal_dsp_config;
 
 struct mal_dsp
@@ -1317,6 +1317,13 @@ mal_result mal_dsp_init(mal_dsp_config* pConfig, mal_dsp_read_proc onRead, void*
 // Reads a number of frames and runs them through the DSP processor.
 mal_uint32 mal_dsp_read_frames(mal_dsp* pDSP, mal_uint32 frameCount, void* pFramesOut);
 
+// High-level helper for doing a full format conversion in one go. Returns the number of output frames. Call this with pOut set to NULL to
+// determine the required size of the output buffer.
+//
+// A return value of 0 indicates an error.
+//
+// This function is useful for one-off bulk conversions, but if you're streaming data you should use the DSP APIs instead.
+mal_uint32 mal_convert_frames(void* pOut, mal_format formatOut, mal_uint32 channelsOut, mal_uint32 sampleRateOut, const void* pIn, mal_format formatIn, mal_uint32 channelsIn, mal_uint32 sampleRateIn, mal_uint32 frameCountIn);
 
 
 ///////////////////////////////////////////////////////////////////////////////
@@ -9943,6 +9950,85 @@ mal_uint32 mal_dsp_read_frames(mal_dsp* pDSP, mal_uint32 frameCount, void* pFram
     }
 
     return totalFramesRead;
+}
+
+
+mal_uint32 mal_calculate_frame_count_after_src(mal_uint32 sampleRateOut, mal_uint32 sampleRateIn, mal_uint32 frameCountIn)
+{
+    double srcRatio = (double)sampleRateOut / sampleRateIn;
+    double frameCountOutF = frameCountIn * srcRatio;
+
+    mal_uint32 frameCountOut = (mal_uint32)frameCountOutF;
+
+    // If the output frame count is fractional, make sure we add an extra frame to ensure there's enough room for that last sample.
+    if ((frameCountOutF - frameCountOut) > 0.0) {
+        frameCountOut += 1;
+    }
+
+    return frameCountOut;
+}
+
+typedef struct
+{
+    const void* pDataIn;
+    mal_format formatIn;
+    mal_uint32 channelsIn;
+    mal_uint32 totalFrameCount;
+    mal_uint32 iNextFrame;
+} mal_convert_frames__data;
+
+mal_uint32 mal_convert_frames__on_read(mal_uint32 frameCount, void* pFramesOut, void* pUserData)
+{
+    mal_convert_frames__data* pData = (mal_convert_frames__data*)pUserData;
+    mal_assert(pData != NULL);
+    mal_assert(pData->totalFrameCount >= pData->iNextFrame);
+
+    mal_uint32 framesToRead = frameCount;
+    mal_uint32 framesRemaining = (pData->totalFrameCount - pData->iNextFrame);
+    if (framesToRead > framesRemaining) {
+        framesToRead = framesRemaining;
+    }
+
+    mal_uint32 frameSizeInBytes = mal_get_sample_size_in_bytes(pData->formatIn) * pData->channelsIn;
+    mal_copy_memory(pFramesOut, (mal_uint8*)pData->pDataIn + (frameSizeInBytes * pData->iNextFrame), frameSizeInBytes * framesToRead);
+
+    pData->iNextFrame += framesToRead;
+    return framesToRead;
+}
+
+mal_uint32 mal_convert_frames(void* pOut, mal_format formatOut, mal_uint32 channelsOut, mal_uint32 sampleRateOut, const void* pIn, mal_format formatIn, mal_uint32 channelsIn, mal_uint32 sampleRateIn, mal_uint32 frameCountIn)
+{
+    if (frameCountIn == 0) {
+        return 0;
+    }
+
+    mal_uint32 frameCountOut = mal_calculate_frame_count_after_src(sampleRateOut, sampleRateIn, frameCountIn);
+    if (pOut == NULL) {
+        return frameCountOut;
+    }
+
+    mal_convert_frames__data data;
+    data.pDataIn = pIn;
+    data.formatIn = formatIn;
+    data.channelsIn = channelsIn;
+    data.totalFrameCount = frameCountIn;
+    data.iNextFrame = 0;
+
+    mal_dsp_config config;
+    mal_zero_object(&config);
+    config.formatIn = formatIn;
+    config.channelsIn = channelsIn;
+    config.sampleRateIn = sampleRateIn;
+    config.formatOut = formatOut;
+    config.channelsOut = channelsOut;
+    config.sampleRateOut = sampleRateOut;
+
+    mal_dsp dsp;
+    if (mal_dsp_init(&config, mal_convert_frames__on_read, &data, &dsp) != MAL_SUCCESS) {
+        return 0;
+    }
+
+    return mal_dsp_read_frames(&dsp, frameCountOut, pOut);
 }
 
 
