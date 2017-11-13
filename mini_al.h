@@ -7452,7 +7452,7 @@ mal_result mal_context_init__openal(mal_context* pContext)
     libName = "libopenal.so";
 #endif
 #ifdef MAL_APPLE
-    // I don't own a Mac so a contribution here would be much appreciated! Just don't know what the library is called...
+    libName = "OpenAL.framework/OpenAL";
 #endif
 	if (libName == NULL) {
 		return MAL_NO_BACKEND;	// Don't know what the library name is called.
@@ -8334,7 +8334,8 @@ mal_result mal_context_init_backend_apis__nix(mal_context* pContext)
     // pthread
     const char* libpthreadFileNames[] = {
         "libpthread.so",
-        "libpthread.so.0"
+        "libpthread.so.0",
+        "libpthread.dylib"
     };
 
     for (size_t i = 0; i < sizeof(libpthreadFileNames) / sizeof(libpthreadFileNames[0]); ++i) {
