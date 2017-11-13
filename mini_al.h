@@ -2775,7 +2775,7 @@ static mal_result mal_device__main_loop__null(mal_device* pDevice)
 
 // The SDK that comes with old versions of MSVC (VC6, for example) does not appear to define WAVEFORMATEXTENSIBLE. We
 // define our own implementation in this case.
-#ifndef _WAVEFORMATEXTENSIBLE_
+#if defined(_MSC_VER) && !defined(_WAVEFORMATEXTENSIBLE_)
 typedef struct
 {
     WAVEFORMATEX Format;
