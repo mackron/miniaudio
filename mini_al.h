@@ -1053,7 +1053,6 @@ mal_result mal_context_uninit(mal_context* pContext);
 //   application ensures mutal exclusion to the output buffer at their level.
 //
 // Efficiency: LOW
-//   This API dynamically links to backend DLLs/SOs (such as dsound.dll).
 mal_result mal_enumerate_devices(mal_context* pContext, mal_device_type type, mal_uint32* pCount, mal_device_info* pInfo);
 
 // Initializes a device.
