@@ -304,6 +304,29 @@ typedef struct
 #ifdef MAL_WIN32
         struct
         {
+            /*HANDLE*/ mal_handle hThread;
+        } win32;
+#endif
+#ifdef MAL_POSIX
+        struct
+        {
+            pthread_t thread;
+        } posix;
+#endif
+
+        int _unused;
+    };
+} mal_thread;
+
+typedef struct
+{
+    mal_context* pContext;
+
+    union
+    {
+#ifdef MAL_WIN32
+        struct
+        {
             /*HANDLE*/ mal_handle hMutex;
         } win32;
 #endif
@@ -318,18 +341,30 @@ typedef struct
     };
 } mal_mutex;
 
-#ifdef MAL_WIN32
-    typedef mal_handle mal_thread;
-    typedef mal_handle mal_event;
-#else
-    typedef pthread_t mal_thread;
-    typedef struct
+typedef struct
+{
+    mal_context* pContext;
+
+    union
     {
-        pthread_mutex_t mutex;
-        pthread_cond_t condition;
-        mal_uint32 value;
-    } mal_event;
+#ifdef MAL_WIN32
+        struct
+        {
+            /*HANDLE*/ mal_handle hEvent;
+        } win32;
 #endif
+#ifdef MAL_POSIX
+        struct
+        {
+            pthread_mutex_t mutex;
+            pthread_cond_t condition;
+            mal_uint32 value;
+        } posix;
+#endif
+
+        int _unused;
+    };
+} mal_event;
 
 #if defined(_MSC_VER) && !defined(_WCHAR_T_DEFINED)
 typedef mal_uint16 wchar_t;
@@ -1942,23 +1977,21 @@ mal_proc mal_dlsym(mal_handle handle, const char* symbol)
 //
 ///////////////////////////////////////////////////////////////////////////////
 #ifdef MAL_WIN32
-mal_bool32 mal_thread_create__win32(mal_context* pContext, mal_thread* pThread, mal_thread_entry_proc entryProc, void* pData)
+mal_result mal_thread_create__win32(mal_context* pContext, mal_thread* pThread, mal_thread_entry_proc entryProc, void* pData)
 {
     (void)pContext;
 
-    *pThread = CreateThread(NULL, 0, entryProc, pData, 0, NULL);
-    if (*pThread == NULL) {
-        return MAL_FALSE;
+    pThread->win32.hThread = CreateThread(NULL, 0, entryProc, pData, 0, NULL);
+    if (pThread->win32.hThread == NULL) {
+        return MAL_FAILED_TO_CREATE_THREAD;
     }
 
-    return MAL_TRUE;
+    return MAL_SUCCESS;
 }
 
-void mal_thread_wait__win32(mal_context* pContext, mal_thread* pThread)
+void mal_thread_wait__win32(mal_thread* pThread)
 {
-    (void)pContext;
-
-    WaitForSingleObject(*pThread, INFINITE);
+    WaitForSingleObject(pThread->win32.hThread, INFINITE);
 }
 
 void mal_sleep__win32(mal_uint32 milliseconds)
@@ -1995,37 +2028,31 @@ void mal_mutex_unlock__win32(mal_mutex* pMutex)
 }
 
 
-mal_bool32 mal_event_create__win32(mal_context* pContext, mal_event* pEvent)
+mal_result mal_event_init__win32(mal_context* pContext, mal_event* pEvent)
 {
     (void)pContext;
 
-    *pEvent = CreateEventW(NULL, FALSE, FALSE, NULL);
-    if (*pEvent == NULL) {
-        return MAL_FALSE;
+    pEvent->win32.hEvent = CreateEventW(NULL, FALSE, FALSE, NULL);
+    if (pEvent->win32.hEvent == NULL) {
+        return MAL_FAILED_TO_CREATE_EVENT;
     }
 
-    return MAL_TRUE;
+    return MAL_SUCCESS;
 }
 
-void mal_event_delete__win32(mal_context* pContext, mal_event* pEvent)
+void mal_event_uninit__win32(mal_event* pEvent)
 {
-    (void)pContext;
-
-    CloseHandle(*pEvent);
+    CloseHandle(pEvent->win32.hEvent);
 }
 
-mal_bool32 mal_event_wait__win32(mal_context* pContext, mal_event* pEvent)
+mal_bool32 mal_event_wait__win32(mal_event* pEvent)
 {
-    (void)pContext;
-
-    return WaitForSingleObject(*pEvent, INFINITE) == WAIT_OBJECT_0;
+    return WaitForSingleObject(pEvent->win32.hEvent, INFINITE) == WAIT_OBJECT_0;
 }
 
-mal_bool32 mal_event_signal__win32(mal_context* pContext, mal_event* pEvent)
+mal_bool32 mal_event_signal__win32(mal_event* pEvent)
 {
-    (void)pContext;
-
-    return SetEvent(*pEvent);
+    return SetEvent(pEvent->win32.hEvent);
 }
 #endif
 
@@ -2044,12 +2071,17 @@ typedef int (* mal_pthread_cond_wait_proc)(pthread_cond_t *__restrict __cond, pt
 
 mal_bool32 mal_thread_create__posix(mal_context* pContext, mal_thread* pThread, mal_thread_entry_proc entryProc, void* pData)
 {
-    return ((mal_pthread_create_proc)pContext->posix.pthread_create)(pThread, NULL, entryProc, pData) == 0;
+    int result = ((mal_pthread_create_proc)pContext->posix.pthread_create)(&pThread->posix.thread, NULL, entryProc, pData);
+    if (result != 0) {
+        return MAL_FAILED_TO_CREATE_THREAD;
+    }
+
+    return MAL_SUCCESS;
 }
 
-void mal_thread_wait__posix(mal_context* pContext, mal_thread* pThread)
+void mal_thread_wait__posix(mal_thread* pThread)
 {
-    ((mal_pthread_join_proc)pContext->posix.pthread_join)(*pThread, NULL);
+    ((mal_pthread_join_proc)pThread->pContext->posix.pthread_join)(pThread->posix.thread, NULL);
 }
 
 void mal_sleep__posix(mal_uint32 milliseconds)
@@ -2084,57 +2116,59 @@ void mal_mutex_unlock__posix(mal_mutex* pMutex)
 }
 
 
-mal_bool32 mal_event_create__posix(mal_context* pContext, mal_event* pEvent)
+mal_result mal_event_init__posix(mal_context* pContext, mal_event* pEvent)
 {
-    if (((mal_pthread_mutex_init_proc)pContext->posix.pthread_mutex_init)(&pEvent->mutex, NULL) != 0) {
-        return MAL_FALSE;
+    if (((mal_pthread_mutex_init_proc)pContext->posix.pthread_mutex_init)(&pEvent->posix.mutex, NULL) != 0) {
+        return MAL_FAILED_TO_CREATE_MUTEX;
     }
 
-    if (((mal_pthread_cond_init_proc)pContext->posix.pthread_cond_init)(&pEvent->condition, NULL) != 0) {
-        return MAL_FALSE;
+    if (((mal_pthread_cond_init_proc)pContext->posix.pthread_cond_init)(&pEvent->posix.condition, NULL) != 0) {
+        return MAL_FAILED_TO_CREATE_EVENT;
     }
 
-    pEvent->value = 0;
-    return MAL_TRUE;
+    pEvent->posix.value = 0;
+    return MAL_SUCCESS;
 }
 
-void mal_event_delete__posix(mal_context* pContext, mal_event* pEvent)
+void mal_event_uninit__posix(mal_event* pEvent)
 {
-    ((mal_pthread_cond_destroy_proc)pContext->posix.pthread_cond_destroy)(&pEvent->condition);
-    ((mal_pthread_mutex_destroy_proc)pContext->posix.pthread_mutex_destroy)(&pEvent->mutex);
+    ((mal_pthread_cond_destroy_proc)pEvent->pContext->posix.pthread_cond_destroy)(&pEvent->posix.condition);
+    ((mal_pthread_mutex_destroy_proc)pEvent->pContext->posix.pthread_mutex_destroy)(&pEvent->posix.mutex);
 }
 
-mal_bool32 mal_event_wait__posix(mal_context* pContext, mal_event* pEvent)
+mal_bool32 mal_event_wait__posix(mal_event* pEvent)
 {
-    ((mal_pthread_mutex_lock_proc)pContext->posix.pthread_mutex_lock)(&pEvent->mutex);
+    ((mal_pthread_mutex_lock_proc)pEvent->pContext->posix.pthread_mutex_lock)(&pEvent->posix.mutex);
     {
-        while (pEvent->value == 0) {
-            ((mal_pthread_cond_wait_proc)pContext->posix.pthread_cond_wait)(&pEvent->condition, &pEvent->mutex);
+        while (pEvent->posix.value == 0) {
+            ((mal_pthread_cond_wait_proc)pEvent->pContext->posix.pthread_cond_wait)(&pEvent->posix.condition, &pEvent->posix.mutex);
         }
 
-        pEvent->value = 0;  // Auto-reset.
+        pEvent->posix.value = 0;  // Auto-reset.
     }
-    ((mal_pthread_mutex_unlock_proc)pContext->posix.pthread_mutex_unlock)(&pEvent->mutex);
+    ((mal_pthread_mutex_unlock_proc)pEvent->pContext->posix.pthread_mutex_unlock)(&pEvent->posix.mutex);
 
     return MAL_TRUE;
 }
 
-mal_bool32 mal_event_signal__posix(mal_context* pContext, mal_event* pEvent)
+mal_bool32 mal_event_signal__posix(mal_event* pEvent)
 {
-    ((mal_pthread_mutex_lock_proc)pContext->posix.pthread_mutex_lock)(&pEvent->mutex);
+    ((mal_pthread_mutex_lock_proc)pEvent->pContext->posix.pthread_mutex_lock)(&pEvent->posix.mutex);
     {
-        pEvent->value = 1;
-        ((mal_pthread_cond_signal_proc)pContext->posix.pthread_cond_signal)(&pEvent->condition);
+        pEvent->posix.value = 1;
+        ((mal_pthread_cond_signal_proc)pEvent->pContext->posix.pthread_cond_signal)(&pEvent->posix.condition);
     }
-    ((mal_pthread_mutex_unlock_proc)pContext->posix.pthread_mutex_unlock)(&pEvent->mutex);
+    ((mal_pthread_mutex_unlock_proc)pEvent->pContext->posix.pthread_mutex_unlock)(&pEvent->posix.mutex);
 
     return MAL_TRUE;
 }
 #endif
 
-mal_bool32 mal_thread_create(mal_context* pContext, mal_thread* pThread, mal_thread_entry_proc entryProc, void* pData)
+mal_result mal_thread_create(mal_context* pContext, mal_thread* pThread, mal_thread_entry_proc entryProc, void* pData)
 {
-    if (pThread == NULL || entryProc == NULL) return MAL_FALSE;
+    if (pContext == NULL || pThread == NULL || entryProc == NULL) return MAL_FALSE;
+
+    pThread->pContext = pContext;
 
 #ifdef MAL_WIN32
     return mal_thread_create__win32(pContext, pThread, entryProc, pData);
@@ -2144,15 +2178,15 @@ mal_bool32 mal_thread_create(mal_context* pContext, mal_thread* pThread, mal_thr
 #endif
 }
 
-void mal_thread_wait(mal_context* pContext, mal_thread* pThread)
+void mal_thread_wait(mal_thread* pThread)
 {
     if (pThread == NULL) return;
 
 #ifdef MAL_WIN32
-    mal_thread_wait__win32(pContext, pThread);
+    mal_thread_wait__win32(pThread);
 #endif
 #ifdef MAL_POSIX
-    mal_thread_wait__posix(pContext, pThread);
+    mal_thread_wait__posix(pThread);
 #endif
 }
 
@@ -2218,51 +2252,53 @@ void mal_mutex_unlock(mal_mutex* pMutex)
 }
 
 
-mal_bool32 mal_event_create(mal_context* pContext, mal_event* pEvent)
+mal_result mal_event_init(mal_context* pContext, mal_event* pEvent)
 {
-    if (pEvent == NULL) return MAL_FALSE;
+    if (pContext == NULL || pEvent == NULL) return MAL_FALSE;
+
+    pEvent->pContext = pContext;
 
 #ifdef MAL_WIN32
-    return mal_event_create__win32(pContext, pEvent);
+    return mal_event_init__win32(pContext, pEvent);
 #endif
 #ifdef MAL_POSIX
-    return mal_event_create__posix(pContext, pEvent);
+    return mal_event_init__posix(pContext, pEvent);
 #endif
 }
 
-void mal_event_delete(mal_context* pContext, mal_event* pEvent)
+void mal_event_uninit(mal_event* pEvent)
 {
-    if (pEvent == NULL) return;
+    if (pEvent == NULL || pEvent->pContext == NULL) return;
 
 #ifdef MAL_WIN32
-    mal_event_delete__win32(pContext, pEvent);
+    mal_event_uninit__win32(pEvent);
 #endif
 #ifdef MAL_POSIX
-    mal_event_delete__posix(pContext, pEvent);
+    mal_event_uninit__posix(pEvent);
 #endif
 }
 
-mal_bool32 mal_event_wait(mal_context* pContext, mal_event* pEvent)
+mal_bool32 mal_event_wait(mal_event* pEvent)
 {
-    if (pEvent == NULL) return MAL_FALSE;
+    if (pEvent == NULL || pEvent->pContext == NULL) return MAL_FALSE;
 
 #ifdef MAL_WIN32
-    return mal_event_wait__win32(pContext, pEvent);
+    return mal_event_wait__win32(pEvent);
 #endif
 #ifdef MAL_POSIX
-    return mal_event_wait__posix(pContext, pEvent);
+    return mal_event_wait__posix(pEvent);
 #endif
 }
 
-mal_bool32 mal_event_signal(mal_context* pContext, mal_event* pEvent)
+mal_bool32 mal_event_signal(mal_event* pEvent)
 {
-    if (pEvent == NULL) return MAL_FALSE;
+    if (pEvent == NULL || pEvent->pContext == NULL) return MAL_FALSE;
 
 #ifdef MAL_WIN32
-    return mal_event_signal__win32(pContext, pEvent);
+    return mal_event_signal__win32(pEvent);
 #endif
 #ifdef MAL_POSIX
-    return mal_event_signal__posix(pContext, pEvent);
+    return mal_event_signal__posix(pEvent);
 #endif
 }
 
@@ -8264,10 +8300,10 @@ mal_thread_result MAL_THREADCALL mal_worker_thread(void* pData)
 
         // Let the other threads know that the device has stopped.
         mal_device__set_state(pDevice, MAL_STATE_STOPPED);
-        mal_event_signal(pDevice->pContext, &pDevice->stopEvent);
+        mal_event_signal(&pDevice->stopEvent);
 
         // We use an event to wait for a request to wake up.
-        mal_event_wait(pDevice->pContext, &pDevice->wakeupEvent);
+        mal_event_wait(&pDevice->wakeupEvent);
 
         // Default result code.
         pDevice->workResult = MAL_SUCCESS;
@@ -8284,21 +8320,21 @@ mal_thread_result MAL_THREADCALL mal_worker_thread(void* pData)
 
         pDevice->workResult = mal_device__start_backend(pDevice);
         if (pDevice->workResult != MAL_SUCCESS) {
-            mal_event_signal(pDevice->pContext, &pDevice->startEvent);
+            mal_event_signal(&pDevice->startEvent);
             continue;
         }
 
         // The thread that requested the device to start playing is waiting for this thread to start the
         // device for real, which is now.
         mal_device__set_state(pDevice, MAL_STATE_STARTED);
-        mal_event_signal(pDevice->pContext, &pDevice->startEvent);
+        mal_event_signal(&pDevice->startEvent);
 
         // Now we just enter the main loop. The main loop can be broken with mal_device__break_main_loop().
         mal_device__main_loop(pDevice);
     }
 
     // Make sure we aren't continuously waiting on a stop event.
-    mal_event_signal(pDevice->pContext, &pDevice->stopEvent);  // <-- Is this still needed?
+    mal_event_signal(&pDevice->stopEvent);  // <-- Is this still needed?
 
 #ifdef MAL_WIN32
     mal_CoUninitialize(pDevice->pContext);
@@ -8735,18 +8771,18 @@ mal_result mal_device_init(mal_context* pContext, mal_device_type type, mal_devi
     //
     // Each of these semaphores is released internally by the worker thread when the work is completed. The start
     // semaphore is also used to wake up the worker thread.
-    if (!mal_event_create(pContext, &pDevice->wakeupEvent)) {
+    if (mal_event_init(pContext, &pDevice->wakeupEvent) != MAL_SUCCESS) {
         mal_mutex_uninit(&pDevice->lock);
         return mal_post_error(pDevice, "Failed to create worker thread wakeup event.", MAL_FAILED_TO_CREATE_EVENT);
     }
-    if (!mal_event_create(pContext, &pDevice->startEvent)) {
-        mal_event_delete(pContext, &pDevice->wakeupEvent);
+    if (mal_event_init(pContext, &pDevice->startEvent) != MAL_SUCCESS) {
+        mal_event_uninit(&pDevice->wakeupEvent);
         mal_mutex_uninit(&pDevice->lock);
         return mal_post_error(pDevice, "Failed to create worker thread start event.", MAL_FAILED_TO_CREATE_EVENT);
     }
-    if (!mal_event_create(pContext, &pDevice->stopEvent)) {
-        mal_event_delete(pContext, &pDevice->startEvent);
-        mal_event_delete(pContext, &pDevice->wakeupEvent);
+    if (mal_event_init(pContext, &pDevice->stopEvent) != MAL_SUCCESS) {
+        mal_event_uninit(&pDevice->startEvent);
+        mal_event_uninit(&pDevice->wakeupEvent);
         mal_mutex_uninit(&pDevice->lock);
         return mal_post_error(pDevice, "Failed to create worker thread stop event.", MAL_FAILED_TO_CREATE_EVENT);
     }
@@ -8844,13 +8880,13 @@ mal_result mal_device_init(mal_context* pContext, mal_device_type type, mal_devi
     // Some backends don't require the worker thread.
     if (pContext->backend != mal_backend_opensl) {
         // The worker thread.
-        if (!mal_thread_create(pContext, &pDevice->thread, mal_worker_thread, pDevice)) {
+        if (mal_thread_create(pContext, &pDevice->thread, mal_worker_thread, pDevice) != MAL_SUCCESS) {
             mal_device_uninit(pDevice);
             return mal_post_error(pDevice, "Failed to create worker thread.", MAL_FAILED_TO_CREATE_THREAD);
         }
 
         // Wait for the worker thread to put the device into it's stopped state for real.
-        mal_event_wait(pContext, &pDevice->stopEvent);
+        mal_event_wait(&pDevice->stopEvent);
     } else {
         mal_device__set_state(pDevice, MAL_STATE_STOPPED);
     }
@@ -8876,13 +8912,13 @@ void mal_device_uninit(mal_device* pDevice)
 
     // Wake up the worker thread and wait for it to properly terminate.
     if (pDevice->pContext->backend != mal_backend_opensl) {
-        mal_event_signal(pDevice->pContext, &pDevice->wakeupEvent);
-        mal_thread_wait(pDevice->pContext, &pDevice->thread);
+        mal_event_signal(&pDevice->wakeupEvent);
+        mal_thread_wait(&pDevice->thread);
     }
 
-    mal_event_delete(pDevice->pContext, &pDevice->stopEvent);
-    mal_event_delete(pDevice->pContext, &pDevice->startEvent);
-    mal_event_delete(pDevice->pContext, &pDevice->wakeupEvent);
+    mal_event_uninit(&pDevice->stopEvent);
+    mal_event_uninit(&pDevice->startEvent);
+    mal_event_uninit(&pDevice->wakeupEvent);
     mal_mutex_uninit(&pDevice->lock);
 
 #ifdef MAL_ENABLE_WASAPI
@@ -8983,11 +9019,11 @@ mal_result mal_device_start(mal_device* pDevice)
 #endif
         // Synchronous backends.
         {
-            mal_event_signal(pDevice->pContext, &pDevice->wakeupEvent);
+            mal_event_signal(&pDevice->wakeupEvent);
 
             // Wait for the worker thread to finish starting the device. Note that the worker thread will be the one
             // who puts the device into the started state. Don't call mal_device__set_state() here.
-            mal_event_wait(pDevice->pContext, &pDevice->startEvent);
+            mal_event_wait(&pDevice->startEvent);
             result = pDevice->workResult;
         }
     }
@@ -9039,7 +9075,7 @@ mal_result mal_device_stop(mal_device* pDevice)
 
             // We need to wait for the worker thread to become available for work before returning. Note that the worker thread will be
             // the one who puts the device into the stopped state. Don't call mal_device__set_state() here.
-            mal_event_wait(pDevice->pContext, &pDevice->stopEvent);
+            mal_event_wait(&pDevice->stopEvent);
             result = MAL_SUCCESS;
         }
     }
@@ -10375,6 +10411,7 @@ void mal_pcm_f32_to_s32(int* pOut, const float* pIn, unsigned int count)
 //   - API CHANGE: Expose and improve mutex APIs. If you were using the mutex APIs before this version you'll
 //     need to update.
 //   - API CHANGE: SRC and DSP callbacks now take a pointer to a mal_src and mal_dsp object respectively.
+//   - API CHANGE: Improvements to event and thread APIs. These changes make these APIs more consistent.
 //   - Add mal_convert_frames(). This is a high-level helper API for performing a one-time, bulk conversion of
 //     audio data to a different format.
 //
