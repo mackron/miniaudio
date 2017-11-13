@@ -502,7 +502,7 @@ typedef struct
 
 
 typedef struct mal_src mal_src;
-typedef mal_uint32 (* mal_src_read_proc)(mal_uint32 frameCount, void* pFramesOut, void* pUserData); // Returns the number of frames that were read.
+typedef mal_uint32 (* mal_src_read_proc)(mal_src* pSRC, mal_uint32 frameCount, void* pFramesOut, void* pUserData); // Returns the number of frames that were read.
 
 typedef enum
 {
@@ -551,7 +551,7 @@ struct mal_src
 };
 
 typedef struct mal_dsp mal_dsp;
-typedef mal_uint32 (* mal_dsp_read_proc)(mal_uint32 frameCount, void* pSamplesOut, void* pUserData);
+typedef mal_uint32 (* mal_dsp_read_proc)(mal_dsp* pDSP, mal_uint32 frameCount, void* pSamplesOut, void* pUserData);
 
 typedef struct
 {
@@ -2370,8 +2370,10 @@ static void mal_get_default_channel_mapping(mal_backend backend, mal_uint32 chan
 
 
 // The callback for reading from the client -> DSP -> device.
-static inline mal_uint32 mal_device__on_read_from_client(mal_uint32 frameCount, void* pFramesOut, void* pUserData)
+static inline mal_uint32 mal_device__on_read_from_client(mal_dsp* pDSP, mal_uint32 frameCount, void* pFramesOut, void* pUserData)
 {
+    (void)pDSP;
+
     mal_device* pDevice = (mal_device*)pUserData;
     mal_assert(pDevice != NULL);
 
@@ -2384,8 +2386,10 @@ static inline mal_uint32 mal_device__on_read_from_client(mal_uint32 frameCount, 
 }
 
 // The callback for reading from the device -> DSP -> client.
-static inline mal_uint32 mal_device__on_read_from_device(mal_uint32 frameCount, void* pFramesOut, void* pUserData)
+static inline mal_uint32 mal_device__on_read_from_device(mal_dsp* pDSP, mal_uint32 frameCount, void* pFramesOut, void* pUserData)
 {
+    (void)pDSP;
+
     mal_device* pDevice = (mal_device*)pUserData;
     mal_assert(pDevice != NULL);
 
@@ -9217,7 +9221,7 @@ mal_uint32 mal_src_cache_read_frames(mal_src_cache* pCache, mal_uint32 frameCoun
                 framesToReadFromClient = pCache->pSRC->config.cacheSizeInFrames;
             }
 
-            pCache->cachedFrameCount = pCache->pSRC->onRead(framesToReadFromClient, pCache->pCachedFrames, pCache->pSRC->pUserData);
+            pCache->cachedFrameCount = pCache->pSRC->onRead(pCache->pSRC, framesToReadFromClient, pCache->pCachedFrames, pCache->pSRC->pUserData);
         } else {
             // A format conversion is required which means we need to use an intermediary buffer.
             mal_uint8 pIntermediaryBuffer[sizeof(pCache->pCachedFrames)];
@@ -9226,7 +9230,7 @@ mal_uint32 mal_src_cache_read_frames(mal_src_cache* pCache, mal_uint32 frameCoun
                 framesToReadFromClient = pCache->pSRC->config.cacheSizeInFrames;
             }
 
-            pCache->cachedFrameCount = pCache->pSRC->onRead(framesToReadFromClient, pIntermediaryBuffer, pCache->pSRC->pUserData);
+            pCache->cachedFrameCount = pCache->pSRC->onRead(pCache->pSRC, framesToReadFromClient, pIntermediaryBuffer, pCache->pSRC->pUserData);
 
             // Convert to f32.
             mal_pcm_convert(pCache->pCachedFrames, mal_format_f32, pIntermediaryBuffer, pCache->pSRC->config.formatIn, pCache->cachedFrameCount * channels);
@@ -9294,7 +9298,7 @@ mal_uint32 mal_src_read_frames_passthrough(mal_src* pSRC, mal_uint32 frameCount,
 
     // Fast path. No need for data conversion - just pass right through.
     if (pSRC->config.formatIn == pSRC->config.formatOut) {
-        return pSRC->onRead(frameCount, pFramesOut, pSRC->pUserData);
+        return pSRC->onRead(pSRC, frameCount, pFramesOut, pSRC->pUserData);
     }
 
     // Slower path. Need to do a format conversion.
@@ -9307,7 +9311,7 @@ mal_uint32 mal_src_read_frames_passthrough(mal_src* pSRC, mal_uint32 frameCount,
             framesToRead = frameCount;
         }
 
-        mal_uint32 framesRead = pSRC->onRead(framesToRead, pStagingBuffer, pSRC->pUserData);
+        mal_uint32 framesRead = pSRC->onRead(pSRC, framesToRead, pStagingBuffer, pSRC->pUserData);
         if (framesRead == 0) {
             break;
         }
@@ -9822,12 +9826,14 @@ static void mal_dsp_mix_channels(float* pFramesOut, mal_uint32 channelsOut, cons
 }
 
 
-mal_uint32 mal_dsp__src_on_read(mal_uint32 frameCount, void* pFramesOut, void* pUserData)
+mal_uint32 mal_dsp__src_on_read(mal_src* pSRC, mal_uint32 frameCount, void* pFramesOut, void* pUserData)
 {
+    (void)pSRC;
+
     mal_dsp* pDSP = (mal_dsp*)pUserData;
     mal_assert(pDSP != NULL);
 
-    return pDSP->onRead(frameCount, pFramesOut, pDSP->pUserDataForOnRead);
+    return pDSP->onRead(pDSP, frameCount, pFramesOut, pDSP->pUserDataForOnRead);
 }
 
 mal_result mal_dsp_init(mal_dsp_config* pConfig, mal_dsp_read_proc onRead, void* pUserData, mal_dsp* pDSP)
@@ -9930,7 +9936,7 @@ mal_uint32 mal_dsp_read_frames(mal_dsp* pDSP, mal_uint32 frameCount, void* pFram
 
     // Fast path.
     if (pDSP->isPassthrough) {
-        return pDSP->onRead(frameCount, pFramesOut, pDSP->pUserDataForOnRead);
+        return pDSP->onRead(pDSP, frameCount, pFramesOut, pDSP->pUserDataForOnRead);
     }
 
 
@@ -9954,7 +9960,7 @@ mal_uint32 mal_dsp_read_frames(mal_dsp* pDSP, mal_uint32 frameCount, void* pFram
             framesRead = mal_src_read_frames(&pDSP->src, framesToRead, pFrames[iFrames]);
             pFramesFormat[iFrames] = pDSP->src.config.formatOut;  // Should always be f32.
         } else {
-            framesRead = pDSP->onRead(framesToRead, pFrames[iFrames], pDSP->pUserDataForOnRead);
+            framesRead = pDSP->onRead(pDSP, framesToRead, pFrames[iFrames], pDSP->pUserDataForOnRead);
             pFramesFormat[iFrames] = pDSP->config.formatIn;
         }
 
@@ -10021,8 +10027,10 @@ typedef struct
     mal_uint32 iNextFrame;
 } mal_convert_frames__data;
 
-mal_uint32 mal_convert_frames__on_read(mal_uint32 frameCount, void* pFramesOut, void* pUserData)
+mal_uint32 mal_convert_frames__on_read(mal_dsp* pDSP, mal_uint32 frameCount, void* pFramesOut, void* pUserData)
 {
+    (void)pDSP;
+
     mal_convert_frames__data* pData = (mal_convert_frames__data*)pUserData;
     mal_assert(pData != NULL);
     mal_assert(pData->totalFrameCount >= pData->iNextFrame);
@@ -10366,6 +10374,7 @@ void mal_pcm_f32_to_s32(int* pOut, const float* pIn, unsigned int count)
 // v0.x - 2017-xx-xx
 //   - API CHANGE: Expose and improve mutex APIs. If you were using the mutex APIs before this version you'll
 //     need to update.
+//   - API CHANGE: SRC and DSP callbacks now take a pointer to a mal_src and mal_dsp object respectively.
 //   - Add mal_convert_frames(). This is a high-level helper API for performing a one-time, bulk conversion of
 //     audio data to a different format.
 //
