@@ -10517,6 +10517,7 @@ void mal_pcm_f32_to_s32(int* pOut, const float* pIn, unsigned int count)
 //   - Add mal_convert_frames(). This is a high-level helper API for performing a one-time, bulk conversion of
 //     audio data to a different format.
 //   - Improvements to f32 -> u8/s16/s24/s32 conversion routines.
+//   - Warning fixes.
 //
 // v0.5 - 2017-11-11
 //   - API CHANGE: The mal_context_init() function now takes a pointer to a mal_context_config object for
