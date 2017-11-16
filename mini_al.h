@@ -10442,10 +10442,19 @@ void mal_pcm_s32_to_f32(float* pOut, const int* pIn, unsigned int count)
     float r;
     for (unsigned int i = 0; i < count; ++i) {
         int x = pIn[i];
+
+#if 1
+        double t;
+        t = (double)(x + 2147483648);
+        t = t * 0.0000000004656612873077392578125;
+        r = (float)(t - 1);
+#else
         int s;
         s = ((*((int*)&x)) & 0x80000000) >> 31;
         s = s + 2147483647;
         r = x / (float)(unsigned int)s;
+#endif
+
         pOut[i] = (float)r;
     }
 }
@@ -10456,12 +10465,19 @@ void mal_pcm_f32_to_u8(unsigned char* pOut, const float* pIn, unsigned int count
     for (unsigned int i = 0; i < count; ++i) {
         float x = pIn[i];
         float c;
-        int s;
         c = ((x < -1) ? -1 : ((x > 1) ? 1 : x));
+
+#if 1
+        c = c + 1;
+        r = (int)(c * 127.5f);
+#else
+        int s;
         s = ((*((int*)&x)) & 0x80000000) >> 31;
         s = s + 127;
         r = (int)(c * s);
         r = r + 128;
+#endif
+
         pOut[i] = (unsigned char)r;
     }
 }
@@ -10472,11 +10488,19 @@ void mal_pcm_f32_to_s16(short* pOut, const float* pIn, unsigned int count)
     for (unsigned int i = 0; i < count; ++i) {
         float x = pIn[i];
         float c;
-        int s;
         c = ((x < -1) ? -1 : ((x > 1) ? 1 : x));
+
+#if 1
+        c = c + 1;
+        r = (int)(c * 32767.5f);
+        r = r - 32768;
+#else
+        int s;
         s = ((*((int*)&x)) & 0x80000000) >> 31;
         s = s + 32767;
         r = (int)(c * s);
+#endif
+
         pOut[i] = (short)r;
     }
 }
@@ -10487,11 +10511,19 @@ void mal_pcm_f32_to_s24(void* pOut, const float* pIn, unsigned int count)
     for (unsigned int i = 0; i < count; ++i) {
         float x = pIn[i];
         float c;
-        int s;
         c = ((x < -1) ? -1 : ((x > 1) ? 1 : x));
+
+#if 1
+        c = c + 1;
+        r = (int)(c * 8388607.5f);
+        r = r - 8388608;
+#else
+        int s;
         s = ((*((int*)&x)) & 0x80000000) >> 31;
         s = s + 8388607;
         r = (int)(c * s);
+#endif
+
         ((unsigned char*)pOut)[(i*3)+0] = (unsigned char)(r & 0xFF); ((unsigned char*)pOut)[(i*3)+1] = (unsigned char)((r & 0xFF00) >> 8); ((unsigned char*)pOut)[(i*3)+2] = (unsigned char)((r & 0xFF0000) >> 16);
     }
 }
@@ -10502,11 +10534,20 @@ void mal_pcm_f32_to_s32(int* pOut, const float* pIn, unsigned int count)
     for (unsigned int i = 0; i < count; ++i) {
         float x = pIn[i];
         float c;
-        mal_int64 s;
         c = ((x < -1) ? -1 : ((x > 1) ? 1 : x));
+
+#if 1
+        mal_int64 t;
+        c = c + 1;
+        t = (mal_int64)(c * 2147483647.5);
+        r = (int)(t - 2147483648);
+#else
+        mal_int64 s;
         s = ((*((int*)&x)) & 0x80000000) >> 31;
         s = s + 2147483647;
         r = (int)(c * s);
+#endif
+
         pOut[i] = (int)r;
     }
 }
@@ -10525,6 +10566,7 @@ void mal_pcm_f32_to_s32(int* pOut, const float* pIn, unsigned int count)
 //   - API CHANGE: Improvements to event and thread APIs. These changes make these APIs more consistent.
 //   - Add mal_convert_frames(). This is a high-level helper API for performing a one-time, bulk conversion of
 //     audio data to a different format.
+//   - Improvements to f32 -> u8/s16/s24/s32 conversion routines.
 //
 // v0.5 - 2017-11-11
 //   - API CHANGE: The mal_context_init() function now takes a pointer to a mal_context_config object for
