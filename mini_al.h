@@ -10273,9 +10273,6 @@ void mal_blend_f32(float* pOut, float* pInA, float* pInB, float factor, mal_uint
 //
 //////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 //////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-#if 0
-#include "tools/malgen/bin/malgen_test0.c"
-#else
 void mal_pcm_u8_to_s16(short* pOut, const unsigned char* pIn, unsigned int count)
 {
     int r;
@@ -10442,19 +10439,10 @@ void mal_pcm_s32_to_f32(float* pOut, const int* pIn, unsigned int count)
     float r;
     for (unsigned int i = 0; i < count; ++i) {
         int x = pIn[i];
-
-#if 1
         double t;
         t = (double)(x + 2147483648);
         t = t * 0.0000000004656612873077392578125;
         r = (float)(t - 1);
-#else
-        int s;
-        s = ((*((int*)&x)) & 0x80000000) >> 31;
-        s = s + 2147483647;
-        r = x / (float)(unsigned int)s;
-#endif
-
         pOut[i] = (float)r;
     }
 }
@@ -10466,18 +10454,8 @@ void mal_pcm_f32_to_u8(unsigned char* pOut, const float* pIn, unsigned int count
         float x = pIn[i];
         float c;
         c = ((x < -1) ? -1 : ((x > 1) ? 1 : x));
-
-#if 1
         c = c + 1;
         r = (int)(c * 127.5f);
-#else
-        int s;
-        s = ((*((int*)&x)) & 0x80000000) >> 31;
-        s = s + 127;
-        r = (int)(c * s);
-        r = r + 128;
-#endif
-
         pOut[i] = (unsigned char)r;
     }
 }
@@ -10489,18 +10467,9 @@ void mal_pcm_f32_to_s16(short* pOut, const float* pIn, unsigned int count)
         float x = pIn[i];
         float c;
         c = ((x < -1) ? -1 : ((x > 1) ? 1 : x));
-
-#if 1
         c = c + 1;
         r = (int)(c * 32767.5f);
         r = r - 32768;
-#else
-        int s;
-        s = ((*((int*)&x)) & 0x80000000) >> 31;
-        s = s + 32767;
-        r = (int)(c * s);
-#endif
-
         pOut[i] = (short)r;
     }
 }
@@ -10512,18 +10481,9 @@ void mal_pcm_f32_to_s24(void* pOut, const float* pIn, unsigned int count)
         float x = pIn[i];
         float c;
         c = ((x < -1) ? -1 : ((x > 1) ? 1 : x));
-
-#if 1
         c = c + 1;
         r = (int)(c * 8388607.5f);
         r = r - 8388608;
-#else
-        int s;
-        s = ((*((int*)&x)) & 0x80000000) >> 31;
-        s = s + 8388607;
-        r = (int)(c * s);
-#endif
-
         ((unsigned char*)pOut)[(i*3)+0] = (unsigned char)(r & 0xFF); ((unsigned char*)pOut)[(i*3)+1] = (unsigned char)((r & 0xFF00) >> 8); ((unsigned char*)pOut)[(i*3)+2] = (unsigned char)((r & 0xFF0000) >> 16);
     }
 }
@@ -10534,24 +10494,14 @@ void mal_pcm_f32_to_s32(int* pOut, const float* pIn, unsigned int count)
     for (unsigned int i = 0; i < count; ++i) {
         float x = pIn[i];
         float c;
-        c = ((x < -1) ? -1 : ((x > 1) ? 1 : x));
-
-#if 1
         mal_int64 t;
+        c = ((x < -1) ? -1 : ((x > 1) ? 1 : x));
         c = c + 1;
         t = (mal_int64)(c * 2147483647.5);
         r = (int)(t - 2147483648);
-#else
-        mal_int64 s;
-        s = ((*((int*)&x)) & 0x80000000) >> 31;
-        s = s + 2147483647;
-        r = (int)(c * s);
-#endif
-
         pOut[i] = (int)r;
     }
 }
-#endif
 
 #endif
 

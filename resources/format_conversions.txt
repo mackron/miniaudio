@@ -116,53 +116,48 @@ s32->s24 {
     shr r x 8;
 }
 
-# r = x / (2147483647 + sign(x))
+# r = ((x + 2147483648) * 0.0000000004656612873077392578125) - 1
 s32->f32 {
-    int s;
-    sig s x;
-    add s s 2147483647;
-    div r x (flt)(uint)s;
+    dbl t;
+    add (dbl)t x 2147483648;
+    mul t t 0.0000000004656612873077392578125;
+    sub (flt)r t 1;
 }
 
 
 
-# r = (clip(x) * (0x7F + sign(x))) + 128
+# r = (clip(x) + 1) * 127.5
 f32->u8 {
     flt c;
-    int s;
     clip c x;
-    sig s x;
-    add s s 127;
-    mul (int)r c s;
-    add r r 128;
+    add c c 1;
+    mul (int)r c 127.5f;
 }
 
-# r = clip(x) * (0x7FFF + sign(x))
+# r = (clip(x) + 1) * 32767.5 - 32768
 f32->s16 {
     flt c;
-    int s;
     clip c x;
-    sig s x;
-    add s s 32767;
-    mul (int)r c s;
+    add c c 1;
+    mul (int)r c 32767.5f;
+    sub r r 32768;
 }
 
-# r = clip(x) * (0x7FFFFF + sign(x))
+# r = (clip(x) + 1) * 8388607.5 - 8388608
 f32->s24 {
     flt c;
-    int s;
     clip c x;
-    sig s x;
-    add s s 8388607;
-    mul (int)r c s;
+    add c c 1;
+    mul (int)r c 8388607.5f;
+    sub r r 8388608;
 }
 
-# r = clip(x) * (0x7FFFFFFF + sign(x))
+# r = (clip(x) + 1) * 2147483647.5 - 2147483648
 f32->s32 {
     flt c;
-    lng s;
+    lng t;
     clip c x;
-    sig s x;
-    add s s 2147483647;
-    mul (int)r c s;
+    add c c 1;
+    mul (lng)t c 2147483647.5;
+    sub (int)r t 2147483648;
 }

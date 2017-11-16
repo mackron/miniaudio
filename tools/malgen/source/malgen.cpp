@@ -413,6 +413,15 @@ std::string malgen_format_op_param(const char* param)
         }
     }
 
+    // (lng) -> (mal_int64)
+    {
+        const char* src = "(lng)"; const char* dst = "(mal_int64)";
+        size_t loc = s.find(src);
+        if (loc != std::string::npos) {
+            s = s.replace(loc, strlen(src), dst);
+        }
+    }
+
     return s;
 }
 
@@ -456,10 +465,13 @@ std::string malgen_generate_code__conversion_func_inst(malgen_context* pContext,
         code += "int "; code += pInst->params[0];
     }
     if (strcmp(pInst->name, "lng") == 0) {
-        code += "long long "; code += pInst->params[0];
+        code += "mal_int64 "; code += pInst->params[0];
     }
     if (strcmp(pInst->name, "flt") == 0) {
         code += "float "; code += pInst->params[0];
+    }
+    if (strcmp(pInst->name, "dbl") == 0) {
+        code += "double "; code += pInst->params[0];
     }
 
     if (strcmp(pInst->name, "add") == 0) {
@@ -487,7 +499,7 @@ std::string malgen_generate_code__conversion_func_inst(malgen_context* pContext,
     }
 
     if (strcmp(pInst->name, "sig") == 0) {  // <-- This gets the sign of the first input parameter and moves it to the result.
-        code += pInst->params[0]; code += " = "; code += "((*((int*)&"; code += pInst->params[1]; code += ")) & 0x80000000) >> 31";
+        code += pInst->params[0]; code += " = "; code += "(("; code += pInst->params[1]; code += " < 0) ? 1 : 0)"; // ((a < 0) ? 1 : 0)
     }
 
     if (strcmp(pInst->name, "clip") == 0) {  // clamp(a, -1, 1) -> r = ((a < -1) ? -1 : ((a > 1) ? 1 : a))
