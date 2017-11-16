@@ -9362,7 +9362,7 @@ mal_uint32 mal_src_read_frames_ex(mal_src* pSRC, mal_uint32 frameCount, void* pF
     }
 
     // Could just use a function pointer instead of a switch for this...
-    switch (pSRC->config.algorithm)
+    switch (algorithm)
     {
         case mal_src_algorithm_none:   return mal_src_read_frames_passthrough(pSRC, frameCount, pFramesOut, flush);
         case mal_src_algorithm_linear: return mal_src_read_frames_linear(pSRC, frameCount, pFramesOut, flush);
