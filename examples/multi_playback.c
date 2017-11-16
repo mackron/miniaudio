@@ -48,7 +48,6 @@ mal_uint32 on_send_xm_frames_to_device(mal_device* pDevice, mal_uint32 frameCoun
 
 int main(int argc, char** argv)
 {
-system("pause");
 	int exitcode = 0;
 
 	if (argc < 2) {
