@@ -138,7 +138,7 @@ int main(int argc, char** argv)
     // This is not used in this example, but mini_al allows you to directly control the device ID that's used
     // for device selection by mal_device_init(). Below is an example for ALSA. In this example it forces
     // mal_device_init() to try opening the "hw:0,0" device. This is useful for debugging in case you have
-    // audio clitches or whatnot with specific devices.
+    // audio glitches or whatnot with specific devices.
 #ifdef MAL_SUPPORT_ALSA
     mal_device_id customDeviceID;
     if (context.backend == mal_backend_alsa) {
