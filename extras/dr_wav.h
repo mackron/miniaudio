@@ -1,5 +1,5 @@
 // WAV audio loader and writer. Public domain. See "unlicense" statement at the end of this file.
-// dr_wav - v0.7 - 2017-11-04
+// dr_wav - v0.7a - 2017-11-17
 //
 // David Reid - mackron@gmail.com
 
@@ -2469,11 +2469,10 @@ void drwav_f32_to_s16(drwav_int16* pOut, const float* pIn, size_t sampleCount)
     for (size_t i = 0; i < sampleCount; ++i) {
         float x = pIn[i];
         float c;
-        int s;
         c = ((x < -1) ? -1 : ((x > 1) ? 1 : x));
-        s = ((*((int*)&x)) & 0x80000000) >> 31;
-        s = s + 32767;
-        r = (int)(c * s);
+        c = c + 1;
+        r = (int)(c * 32767.5f);
+        r = r - 32768;
         pOut[i] = (short)r;
     }
 }
@@ -2484,11 +2483,10 @@ void drwav_f64_to_s16(drwav_int16* pOut, const double* pIn, size_t sampleCount)
     for (size_t i = 0; i < sampleCount; ++i) {
         double x = pIn[i];
         double c;
-        int s;
         c = ((x < -1) ? -1 : ((x > 1) ? 1 : x));
-        s = (int)(((*((drwav_uint64*)&x)) & (drwav_uint64)0x8000000000000000) >> 63);
-        s = s + 32767;
-        r = (int)(c * s);
+        c = c + 1;
+        r = (int)(c * 32767.5);
+        r = r - 32768;
         pOut[i] = (short)r;
     }
 }
@@ -3355,6 +3353,9 @@ void drwav_free(void* pDataReturnedByOpenAndRead)
 
 
 // REVISION HISTORY
+//
+// v0.7a - 2017-11-17
+//   - Fix some GCC warnings.
 //
 // v0.7 - 2017-11-04
 //   - Add writing APIs.
