@@ -1579,6 +1579,11 @@ void mal_pcm_convert(void* pOut, mal_format formatOut, const void* pIn, mal_form
     #define MAL_HAS_NULL    // Everything supports the null backend.
 #endif
 
+// Disable run-time linking on certain backends.
+#if defined(MAL_ANDROID) || defined(MAL_EMSCRIPTED)
+#define MAL_NO_RUNTIME_LINKING
+#endif
+
 
 #ifdef MAL_WIN32
     #define MAL_THREADCALL WINAPI
@@ -8485,6 +8490,7 @@ mal_result mal_context_uninit_backend_apis__nix(mal_context* pContext)
 mal_result mal_context_init_backend_apis__nix(mal_context* pContext)
 {
     // pthread
+#if !defined(MAL_NO_RUNTIME_LINKING)
     const char* libpthreadFileNames[] = {
         "libpthread.so",
         "libpthread.so.0",
@@ -8512,6 +8518,18 @@ mal_result mal_context_init_backend_apis__nix(mal_context* pContext)
     pContext->posix.pthread_cond_destroy  = (mal_proc)mal_dlsym(pContext->posix.pthreadSO, "pthread_cond_destroy");
     pContext->posix.pthread_cond_wait     = (mal_proc)mal_dlsym(pContext->posix.pthreadSO, "pthread_cond_wait");
     pContext->posix.pthread_cond_signal   = (mal_proc)mal_dlsym(pContext->posix.pthreadSO, "pthread_cond_signal");
+#else
+    pContext->posix.pthread_create        = (mal_proc)pthread_create;
+    pContext->posix.pthread_join          = (mal_proc)pthread_join;
+    pContext->posix.pthread_mutex_init    = (mal_proc)pthread_mutex_init;
+    pContext->posix.pthread_mutex_destroy = (mal_proc)pthread_mutex_destroy;
+    pContext->posix.pthread_mutex_lock    = (mal_proc)pthread_mutex_lock;
+    pContext->posix.pthread_mutex_unlock  = (mal_proc)pthread_mutex_unlock;
+    pContext->posix.pthread_cond_init     = (mal_proc)pthread_cond_init;
+    pContext->posix.pthread_cond_destroy  = (mal_proc)pthread_cond_destroy;
+    pContext->posix.pthread_cond_wait     = (mal_proc)pthread_cond_wait;
+    pContext->posix.pthread_cond_signal   = (mal_proc)pthread_cond_signal;
+#endif
 
     return MAL_SUCCESS;
 }
