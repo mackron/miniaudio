@@ -10623,6 +10623,7 @@ void mal_pcm_f32_to_s32(int* pOut, const float* pIn, unsigned int count)
 //   - Simplify the build system further for when development packages for various backends are not installed.
 //     With this change, when the compiler supports __has_include, backends without the relevant development
 //     packages installed will be ignored. This fixes the build for old versions of MinGW.
+//   - Fixes to the Android build.
 //   - Add mal_convert_frames(). This is a high-level helper API for performing a one-time, bulk conversion of
 //     audio data to a different format.
 //   - Improvements to f32 -> u8/s16/s24/s32 conversion routines.
