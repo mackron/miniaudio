@@ -21,7 +21,7 @@ Features
 - Transparent data structures with direct access to internal data.
 - Supports both playback and capture on all backends.
 - Automatic format conversion.
-  - Data format conversion.
+  - Sample format conversion.
   - Sample rate conversion.
     - Sample rate conversion is currently low quality, but a higher quality implementation is planned.
   - Channel mapping/layout.
@@ -122,6 +122,8 @@ consider the following single file libraries for this:
 - [dr_flac](https://github.com/mackron/dr_libs/blob/master/dr_flac.h)
 - [dr_wav](https://github.com/mackron/dr_libs/blob/master/dr_wav.h)
 - [stb_vorbis](https://github.com/nothings/stb/blob/master/stb_vorbis.c)
+- [jar_mod](https://github.com/kd7tck/jar/blob/master/jar_mod.h)
+- [jar_xm](https://github.com/kd7tck/jar/blob/master/jar_xm.h)
 
-If you know of any other single file libraries I can add to this list, let me know. Preferably public
-domain or MIT.
+Copies of these libraries can be found in the "extras" folder. If you know of any other single file
+libraries I can add to this list, let me know. Preferably public domain or MIT.
