@@ -6802,7 +6802,7 @@ static SLuint32 mal_channel_id_to_opensl(mal_uint8 id)
 }
 
 // Converts a channel mapping to an OpenSL-style channel mask.
-static SLuint32 mal_channel_map_to_channel_mask__opensl(mal_uint8 channelMap[MAL_MAX_CHANNELS], mal_uint32 channels)
+static SLuint32 mal_channel_map_to_channel_mask__opensl(const mal_uint8 channelMap[MAL_MAX_CHANNELS], mal_uint32 channels)
 {
     SLuint32 channelMask = 0;
     for (mal_uint32 iChannel = 0; iChannel < channels; ++iChannel) {
@@ -10528,7 +10528,7 @@ void mal_pcm_s32_to_f32(float* pOut, const int* pIn, unsigned int count)
     for (unsigned int i = 0; i < count; ++i) {
         int x = pIn[i];
         double t;
-        t = (double)(x + 2147483648);
+        t = (double)(x + 2147483648LL);
         t = t * 0.0000000004656612873077392578125;
         r = (float)(t - 1);
         pOut[i] = (float)r;
@@ -10586,7 +10586,7 @@ void mal_pcm_f32_to_s32(int* pOut, const float* pIn, unsigned int count)
         c = ((x < -1) ? -1 : ((x > 1) ? 1 : x));
         c = c + 1;
         t = (mal_int64)(c * 2147483647.5);
-        r = (int)(t - 2147483648);
+        r = (int)(t - 2147483648LL);
         pOut[i] = (int)r;
     }
 }
