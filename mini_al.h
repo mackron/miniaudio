@@ -195,6 +195,9 @@ extern "C" {
     #ifdef __ANDROID__
         #define MAL_ANDROID
     #endif
+    #ifdef __EMSCRIPTEN__
+        #define MAL_EMSCRIPTEN
+    #endif
 #endif
 
 // Some backends are only supported on certain platforms.
@@ -226,7 +229,7 @@ extern "C" {
 	#if defined(MAL_ANDROID)
 		#define MAL_SUPPORT_OPENSL
 	#endif
-	#if !defined(MAL_LINUX) && !defined(MAL_APPLE) && !defined(MAL_ANDROID)
+	#if !defined(MAL_LINUX) && !defined(MAL_APPLE) && !defined(MAL_ANDROID) && !defined(MAL_EMSCRIPTEN)
 		#define MAL_SUPPORT_OSS
 	#endif
 #endif
