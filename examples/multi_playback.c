@@ -1,8 +1,12 @@
-#define MAL_IMPLEMENTATION
-#include "../mini_al.h"
+#define _CRT_SECURE_NO_WARNINGS
+
+#define DR_FLAC_IMPLEMENTATION
+#include "../extras/dr_flac.h"
 
 #define DR_WAV_IMPLEMENTATION
 #include "../extras/dr_wav.h"
+
+#include "../extras/stb_vorbis.c"
 
 #define JAR_MOD_IMPLEMENTATION
 #include "../extras/jar_mod.h"
@@ -11,9 +15,21 @@
 #define JAR_XM_IMPLEMENTATION
 #include "../extras/jar_xm.h"
 
+#define MAL_IMPLEMENTATION
+#include "../mini_al.h"
+
 #include <stdio.h>
 
-// This is the function that's used for sending more data to the device for playback.
+mal_uint32 on_send_flac_frames_to_device(mal_device* pDevice, mal_uint32 frameCount, void* pSamples)
+{
+	drflac* pFlac = (drflac*)pDevice->pUserData;
+	if (pFlac == NULL) {
+		return 0;
+	}
+	
+	return (mal_uint32)drflac_read_s16(pFlac, frameCount * pDevice->channels, (mal_int16*)pSamples) / pDevice->channels;
+}
+
 mal_uint32 on_send_wav_frames_to_device(mal_device* pDevice, mal_uint32 frameCount, void* pSamples)
 {
 	drwav* pWav = (drwav*)pDevice->pUserData;
@@ -24,6 +40,16 @@ mal_uint32 on_send_wav_frames_to_device(mal_device* pDevice, mal_uint32 frameCou
 	return (mal_uint32)drwav_read_s16(pWav, frameCount * pDevice->channels, (mal_int16*)pSamples) / pDevice->channels;
 }
 
+mal_uint32 on_send_vorbis_frames_to_device(mal_device* pDevice, mal_uint32 frameCount, void* pSamples)
+{
+	stb_vorbis* pVorbis = (stb_vorbis*)pDevice->pUserData;
+	if (pVorbis == NULL) {
+		return 0;
+	}
+
+    return (mal_uint32)stb_vorbis_get_samples_short_interleaved(pVorbis, pDevice->channels, (short*)pSamples, frameCount * pDevice->channels) / pDevice->channels;
+}
+
 mal_uint32 on_send_mod_frames_to_device(mal_device* pDevice, mal_uint32 frameCount, void* pSamples)
 {
 	jar_mod_context_t* pMod = (jar_mod_context_t*)pDevice->pUserData;
@@ -31,8 +57,8 @@ mal_uint32 on_send_mod_frames_to_device(mal_device* pDevice, mal_uint32 frameCou
 		return 0;
 	}
 	
-	jar_mod_fillbuffer(pMod, (mal_int16*)pSamples, frameCount * pDevice->channels, 0);
-	return (mal_uint32)(frameCount * pDevice->channels);
+	jar_mod_fillbuffer(pMod, (mal_int16*)pSamples, frameCount, 0);
+	return frameCount;
 }
 
 mal_uint32 on_send_xm_frames_to_device(mal_device* pDevice, mal_uint32 frameCount, void* pSamples)
@@ -42,8 +68,8 @@ mal_uint32 on_send_xm_frames_to_device(mal_device* pDevice, mal_uint32 frameCoun
 		return 0;
 	}
 	
-	jar_xm_generate_samples_16bit(pXM, (short*)pSamples, frameCount * pDevice->channels); // (48000 / 60) / 2
-	return (mal_uint32)(frameCount * pDevice->channels);
+	jar_xm_generate_samples_16bit(pXM, (short*)pSamples, frameCount);
+	return frameCount;
 }
 
 int main(int argc, char** argv)
@@ -55,17 +81,21 @@ int main(int argc, char** argv)
 		return -1;
 	}
 
-	enum { UNK, WAV, MOD, XM } type = UNK;
+	enum { UNK, FLAC, WAV, VORBIS, MOD, XM } type = UNK;
 
 	jar_mod_context_t mod;
 	jar_mod_init(&mod);
 
 	jar_xm_context_t *xm = 0;
 
-	drwav wav;
-	if ( type == UNK && drwav_init_file(&wav, argv[1]) ) type = WAV;
-	if ( type == UNK && (jar_xm_create_context_from_file(&xm, 48000, argv[1]) == 0)) type = XM;
-	if ( type == UNK && (jar_mod_load_file(&mod, argv[1]) != 0) ) type = MOD;
+    drflac* flac = NULL;
+	drwav* wav = NULL;
+    stb_vorbis* vorbis = NULL;
+    if ( type == UNK && (flac = drflac_open_file(argv[1])) != NULL)                       type = FLAC;
+	if ( type == UNK && (wav = drwav_open_file(&wav, argv[1])) != NULL)                   type = WAV;
+    if ( type == UNK && (vorbis = stb_vorbis_open_filename(argv[1], NULL, NULL)) != NULL) type = VORBIS;
+	if ( type == UNK && (jar_xm_create_context_from_file(&xm, 48000, argv[1]) == 0))      type = XM;
+	if ( type == UNK && (jar_mod_load_file(&mod, argv[1]) != 0) )                         type = MOD;
 
 	if( type == UNK ) {
 		printf("Not a valid input file.");
@@ -80,13 +110,38 @@ int main(int argc, char** argv)
 		goto end;
 	}
 
+    void* pUserData = NULL;
 	mal_device_config config;
-	if( type == WAV ) config = mal_device_config_init_playback(mal_format_s16, wav.channels, wav.sampleRate, on_send_wav_frames_to_device );
-	if( type == MOD ) config = mal_device_config_init_playback(mal_format_s16, 2, mod.playrate, on_send_mod_frames_to_device );
-	if( type == XM )  config = mal_device_config_init_playback(mal_format_s16, 2, 48000, on_send_xm_frames_to_device );
+    switch (type)
+    {
+        case FLAC:
+            config = mal_device_config_init_playback(mal_format_s16, flac->channels, flac->sampleRate, on_send_flac_frames_to_device);
+            pUserData = flac;
+            break;
+
+        case WAV:
+            config = mal_device_config_init_playback(mal_format_s16, wav->channels, wav->sampleRate, on_send_wav_frames_to_device);
+            pUserData = wav;
+            break;
+
+        case VORBIS:
+            config = mal_device_config_init_playback(mal_format_s16, vorbis->channels, vorbis->sample_rate, on_send_vorbis_frames_to_device);
+            pUserData = vorbis;
+            break;
+
+        case MOD:
+            config = mal_device_config_init_playback(mal_format_s16, 2, mod.playrate, on_send_mod_frames_to_device);
+            pUserData = &mod;
+            break;
+
+        case XM:
+            config = mal_device_config_init_playback(mal_format_s16, 2, 48000, on_send_xm_frames_to_device);
+            pUserData = xm;
+            break;
+    }
 
 	mal_device device;
-	if (mal_device_init(&context, mal_device_type_playback, NULL, &config, type == WAV ? (void*)&wav : type == MOD ? (void*)&mod : (void*)xm, &device) != MAL_SUCCESS) {
+	if (mal_device_init(&context, mal_device_type_playback, NULL, &config, pUserData, &device) != MAL_SUCCESS) {
 		printf("Failed to open playback device.");
 		mal_context_uninit(&context);
 		exitcode = -4;
@@ -101,8 +156,10 @@ int main(int argc, char** argv)
 	mal_device_uninit(&device);
 	mal_context_uninit(&context);
 
-	end:;
-	drwav_uninit(&wav);
+end:;
+    drflac_close(flac);
+	drwav_close(wav);
+    stb_vorbis_close(vorbis);
 	jar_mod_unload(&mod);
 	if(xm) jar_xm_free_context(xm);
 	
