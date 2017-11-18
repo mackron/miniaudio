@@ -1524,7 +1524,12 @@ mulong jar_mod_load_file(jar_mod_context_t * modctx, const char* filename)
         modctx->modfile = 0;
     }
     
-    FILE *f = fopen(filename, "rb");
+    FILE *f = NULL;
+#if defined(_MSC_VER) && _MSC_VER >= 1500
+    fopen_s(&f, filename, "rb");
+#else
+    f = fopen(filename, "rb");
+#endif
     if(f)
     {
         fseek(f,0,SEEK_END);
