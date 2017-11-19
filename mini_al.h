@@ -8493,7 +8493,7 @@ mal_result mal_device_init__sdl(mal_context* pContext, mal_device_type type, mal
     mal_assert(pConfig != NULL);
     mal_assert(pDevice != NULL);
 
-    // SDL wants the buffer size to be a power of 2. The SDL_AudioSpec for this properly is only a Uint16, so we need
+    // SDL wants the buffer size to be a power of 2. The SDL_AudioSpec property for this is only a Uint16, so we need
     // to explicitly clamp this because it will be easy to overflow.
     mal_uint32 bufferSize = pConfig->bufferSizeInFrames * pConfig->periods * pConfig->channels;
     if (bufferSize > 32768) {
