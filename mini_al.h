@@ -63,8 +63,9 @@
 //
 // Building (Emscripten)
 // ---------------------
-// The Emscripten build requires the "-s USE_SDL=2" command line option. SDL is the only supported backend for
-// Emscripten.
+// The Emscripten build currently uses SDL 1.2 for it's backend which means specifying "-s USE_SDL=2" is unecessary
+// as of this version. However, if in the future there is legitimate benefit or enough demand for SDL 2 to be used
+// instead, you will need to specify this when compiling.
 //
 //
 // Playback Example
