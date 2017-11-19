@@ -1,4 +1,4 @@
-// Mini audio library. Public domain. See "unlicense" statement at the end of this file.
+// Audio playback and capture library. Public domain. See "unlicense" statement at the end of this file.
 // mini_al - v0.x - 2017-xx-xx
 //
 // David Reid - davidreidsoftware@gmail.com
