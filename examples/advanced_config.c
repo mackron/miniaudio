@@ -54,6 +54,7 @@ int main(int argc, char** argv)
         mal_backend_oss,
         mal_backend_opensl,
         mal_backend_openal,
+        mal_backend_sdl,
         mal_backend_null    // Lowest priority.
     };
 
