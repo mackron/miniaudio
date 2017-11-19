@@ -1096,6 +1096,7 @@ struct mal_device
 //   - OSS
 //   - OpenSL|ES
 //   - OpenAL
+//   - SDL
 //   - Null
 //
 // The onLog callback is used for posting log messages back to the client for diagnostics, debugging,
@@ -1157,8 +1158,8 @@ mal_result mal_enumerate_devices(mal_context* pContext, mal_device_type type, ma
 // data. It's tied to the buffer size, so as an example, if your buffer size is equivalent to 10
 // milliseconds and you have 2 periods, the CPU will wake up approximately every 5 milliseconds.
 //
-// Consider using mal_device_config_init(), mal_device_config_init_playback(), etc. to make it easier
-// to initialize a mal_device_config object.
+// Use mal_device_config_init(), mal_device_config_init_playback(), etc. to initialize a
+// mal_device_config object.
 //
 // When compiling for UWP you must ensure you call this function on the main UI thread because the
 // operating system may need to present the user with a message asking for permissions. Please refer
@@ -1631,6 +1632,8 @@ void mal_pcm_convert(void* pOut, mal_format formatOut, const void* pIn, mal_form
 #endif
 #ifdef MAL_ENABLE_SDL
     #define MAL_HAS_SDL
+
+    // SDL headers are necessary if using compile-time linking.
     #ifdef MAL_NO_RUNTIME_LINKING
         #ifdef __has_include
             #ifdef MAL_EMSCRIPTEN
