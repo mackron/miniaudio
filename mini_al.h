@@ -10980,6 +10980,7 @@ const char* mal_get_backend_name(mal_backend backend)
         case mal_backend_oss:       return "OSS";
         case mal_backend_opensl:    return "OpenSL|ES";
         case mal_backend_openal:    return "OpenAL";
+        case mal_backend_sdl:       return "SDL";
         default:                    return "Unknown";
     }
 }
