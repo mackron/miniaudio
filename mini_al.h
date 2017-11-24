@@ -8634,7 +8634,7 @@ mal_result mal_device_init__sdl(mal_context* pContext, mal_device_type type, mal
 
     // SDL wants the buffer size to be a power of 2. The SDL_AudioSpec property for this is only a Uint16, so we need
     // to explicitly clamp this because it will be easy to overflow.
-    mal_uint32 bufferSize = pConfig->bufferSizeInFrames * pConfig->periods * pConfig->channels;
+    mal_uint32 bufferSize = pConfig->bufferSizeInFrames;
     if (bufferSize > 32768) {
         bufferSize = 32768;
     } else {
@@ -8696,7 +8696,7 @@ mal_result mal_device_init__sdl(mal_context* pContext, mal_device_type type, mal
     pDevice->internalFormat     = mal_format_from_sdl(obtainedSpec.format);
     pDevice->internalChannels   = obtainedSpec.channels;
     pDevice->internalSampleRate = (mal_uint32)obtainedSpec.freq;
-    pDevice->bufferSizeInFrames = obtainedSpec.samples / obtainedSpec.channels;
+    pDevice->bufferSizeInFrames = obtainedSpec.samples;
     pDevice->periods            = 1;    // SDL doesn't seem to tell us what the period count is. Just set this 1.
 
 #if 0
