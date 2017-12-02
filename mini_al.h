@@ -244,12 +244,13 @@ extern "C" {
 	#endif
 #endif
 
+#define MAL_SUPPORT_SDL     // All platforms support SDL.
+
 // Explicitly disable OpenAL and Null backends for Emscripten because they both use a background thread which is not properly supported right now.
 #if !defined(MAL_EMSCRIPTEN)
 #define MAL_SUPPORT_OPENAL
 #define MAL_SUPPORT_NULL    // All platforms support the null backend.
 #endif
-#define MAL_SUPPORT_SDL     // All platforms support SDL.
 
 
 #if !defined(MAL_NO_WASAPI) && defined(MAL_SUPPORT_WASAPI)
@@ -862,8 +863,9 @@ struct mal_context
             mal_proc alGetBuffer3i;
             mal_proc alGetBufferiv;
 
-            mal_uint32 isFloat32Supported   : 1;
-            mal_uint32 isMCFormatsSupported : 1;
+            mal_bool32 isEnumerationSupported : 1;
+            mal_bool32 isFloat32Supported   : 1;
+            mal_bool32 isMCFormatsSupported : 1;
         } openal;
 #endif
 #ifdef MAL_SUPPORT_SDL
@@ -8002,12 +8004,8 @@ mal_result mal_context_init__openal(mal_context* pContext)
     pContext->openal.alGetBufferiv          = (mal_proc)alGetBufferiv;
 #endif
 
-    // We depend on the ALC_ENUMERATION_EXT extension.
-    if (!((MAL_LPALCISEXTENSIONPRESENT)pContext->openal.alcIsExtensionPresent)(NULL, "ALC_ENUMERATION_EXT")) {
-        mal_dlclose(pContext->openal.hOpenAL);
-        return MAL_FAILED_TO_INIT_BACKEND;
-    }
-
+    // We depend on the ALC_ENUMERATION_EXT extension for enumeration. If this is not supported we fall back to default devices.
+    pContext->openal.isEnumerationSupported = ((MAL_LPALCISEXTENSIONPRESENT)pContext->openal.alcIsExtensionPresent)(NULL, "ALC_ENUMERATION_EXT");
     pContext->openal.isFloat32Supported = ((MAL_LPALISEXTENSIONPRESENT)pContext->openal.alIsExtensionPresent)("AL_EXT_float32");
     pContext->openal.isMCFormatsSupported = ((MAL_LPALISEXTENSIONPRESENT)pContext->openal.alIsExtensionPresent)("AL_EXT_MCFORMATS");
     
@@ -8031,35 +8029,55 @@ mal_result mal_enumerate_devices__openal(mal_context* pContext, mal_device_type 
     mal_uint32 infoSize = *pCount;
     *pCount = 0;
 
-    const mal_ALCchar* pDeviceNames = ((MAL_LPALCGETSTRING)pContext->openal.alcGetString)(NULL, (type == mal_device_type_playback) ? MAL_ALC_DEVICE_SPECIFIER : MAL_ALC_CAPTURE_DEVICE_SPECIFIER);
-    if (pDeviceNames == NULL) {
-        return MAL_NO_DEVICE;
-    }
+    if (pContext->openal.isEnumerationSupported) {
+        const mal_ALCchar* pDeviceNames = ((MAL_LPALCGETSTRING)pContext->openal.alcGetString)(NULL, (type == mal_device_type_playback) ? MAL_ALC_DEVICE_SPECIFIER : MAL_ALC_CAPTURE_DEVICE_SPECIFIER);
+        if (pDeviceNames == NULL) {
+            return MAL_NO_DEVICE;
+        }
     
-    // Each device is stored in pDeviceNames, separated by a null-terminator. The string itself is double-null-terminated.
-    const mal_ALCchar* pNextDeviceName = pDeviceNames;
-    while (pNextDeviceName[0] != '\0') {
+        // Each device is stored in pDeviceNames, separated by a null-terminator. The string itself is double-null-terminated.
+        const mal_ALCchar* pNextDeviceName = pDeviceNames;
+        while (pNextDeviceName[0] != '\0') {
+            if (pInfo != NULL) {
+                if (infoSize > 0) {
+                    mal_strncpy_s(pInfo->id.openal, sizeof(pInfo->id.openal), (const char*)pNextDeviceName, (size_t)-1);
+                    mal_strncpy_s(pInfo->name,      sizeof(pInfo->name),      (const char*)pNextDeviceName, (size_t)-1);
+
+                    pInfo += 1;
+                    infoSize -= 1;
+                    *pCount += 1;
+                }
+            } else {
+                *pCount += 1;
+            }
+
+            // Move to the next device name.
+            while (*pNextDeviceName != '\0') {
+                pNextDeviceName += 1;
+            }
+
+            // Skip past the null terminator.
+            pNextDeviceName += 1;
+        };
+    } else {
+        // Enumeration is not supported. Use default devices.
         if (pInfo != NULL) {
             if (infoSize > 0) {
-                mal_strncpy_s(pInfo->id.openal, sizeof(pInfo->id.openal), (const char*)pNextDeviceName, (size_t)-1);
-                mal_strncpy_s(pInfo->name,      sizeof(pInfo->name),      (const char*)pNextDeviceName, (size_t)-1);
+                if (type == mal_device_type_playback) {
+                    pInfo->id.sdl = 0;
+                    mal_strncpy_s(pInfo->name, sizeof(pInfo->name), "Default Playback Device", (size_t)-1);
+                } else {
+                    pInfo->id.sdl = 0;
+                    mal_strncpy_s(pInfo->name, sizeof(pInfo->name), "Default Capture Device", (size_t)-1);
+                }
 
                 pInfo += 1;
-                infoSize -= 1;
                 *pCount += 1;
             }
         } else {
             *pCount += 1;
         }
-
-        // Move to the next device name.
-        while (*pNextDeviceName != '\0') {
-            pNextDeviceName += 1;
-        }
-
-        // Skip past the null terminator.
-        pNextDeviceName += 1;
-    };
+    }
 
     return MAL_SUCCESS;
 }
@@ -8137,7 +8155,7 @@ mal_result mal_device_init__openal(mal_context* pContext, mal_device_type type, 
     }
 
     if (formatAL == 0) {
-        return MAL_FORMAT_NOT_SUPPORTED;
+        return mal_context_post_error(pContext, NULL, "[OpenAL] Format not supported.", MAL_FORMAT_NOT_SUPPORTED);
     }
 
     bufferSizeInSamplesAL *= channelsAL;
