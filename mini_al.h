@@ -1583,7 +1583,7 @@ void mal_pcm_convert(void* pOut, mal_format formatOut, const void* pIn, mal_form
 
 
 // Disable run-time linking on certain backends.
-#ifndef MAL_NO_RUNTIME_LINLING
+#ifndef MAL_NO_RUNTIME_LINKING
     #if defined(MAL_ANDROID) || defined(MAL_EMSCRIPTEN)
         #define MAL_NO_RUNTIME_LINKING
     #endif
