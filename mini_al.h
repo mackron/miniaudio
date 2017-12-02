@@ -7658,6 +7658,16 @@ static mal_result mal_device__stop_backend__opensl(mal_device* pDevice)
 #define MAL_AL_APIENTRY
 #endif
 
+#ifdef MAL_NO_RUNTIME_LINKING
+    #if defined(MAL_APPLE)
+        #include <OpenAL/al.h>
+        #include <OpenAL/alc.h>
+    #else
+        #include <AL/al.h>
+        #include <AL/alc.h>
+    #endif
+#endif
+
 typedef struct mal_ALCdevice_struct  mal_ALCdevice;
 typedef struct mal_ALCcontext_struct mal_ALCcontext;
 typedef char                         mal_ALCboolean;
@@ -7804,6 +7814,7 @@ mal_result mal_context_init__openal(mal_context* pContext)
 {
     mal_assert(pContext != NULL);
 
+#ifndef MAL_NO_RUNTIME_LINKING
     const char* libName = NULL;
 #ifdef MAL_WIN32
     libName = "OpenAL32.dll";
@@ -7910,6 +7921,86 @@ mal_result mal_context_init__openal(mal_context* pContext)
     pContext->openal.alGetBufferi           = (mal_proc)mal_dlsym(pContext->openal.hOpenAL, "alGetBufferi");
     pContext->openal.alGetBuffer3i          = (mal_proc)mal_dlsym(pContext->openal.hOpenAL, "alGetBuffer3i");
     pContext->openal.alGetBufferiv          = (mal_proc)mal_dlsym(pContext->openal.hOpenAL, "alGetBufferiv");
+#else
+    pContext->openal.alcCreateContext       = (mal_proc)alcCreateContext;
+    pContext->openal.alcMakeContextCurrent  = (mal_proc)alcMakeContextCurrent;
+    pContext->openal.alcProcessContext      = (mal_proc)alcProcessContext;
+    pContext->openal.alcSuspendContext      = (mal_proc)alcSuspendContext;
+    pContext->openal.alcDestroyContext      = (mal_proc)alcDestroyContext;
+    pContext->openal.alcGetCurrentContext   = (mal_proc)alcGetCurrentContext;
+    pContext->openal.alcGetContextsDevice   = (mal_proc)alcGetContextsDevice;
+    pContext->openal.alcOpenDevice          = (mal_proc)alcOpenDevice;
+    pContext->openal.alcCloseDevice         = (mal_proc)alcCloseDevice;
+    pContext->openal.alcGetError            = (mal_proc)alcGetError;
+    pContext->openal.alcIsExtensionPresent  = (mal_proc)alcIsExtensionPresent;
+    pContext->openal.alcGetProcAddress      = (mal_proc)alcGetProcAddress;
+    pContext->openal.alcGetEnumValue        = (mal_proc)alcGetEnumValue;
+    pContext->openal.alcGetString           = (mal_proc)alcGetString;
+    pContext->openal.alcGetIntegerv         = (mal_proc)alcGetIntegerv;
+    pContext->openal.alcCaptureOpenDevice   = (mal_proc)alcCaptureOpenDevice;
+    pContext->openal.alcCaptureCloseDevice  = (mal_proc)alcCaptureCloseDevice;
+    pContext->openal.alcCaptureStart        = (mal_proc)alcCaptureStart;
+    pContext->openal.alcCaptureStop         = (mal_proc)alcCaptureStop;
+    pContext->openal.alcCaptureSamples      = (mal_proc)alcCaptureSamples;
+
+    pContext->openal.alEnable               = (mal_proc)alEnable;
+    pContext->openal.alDisable              = (mal_proc)alDisable;
+    pContext->openal.alIsEnabled            = (mal_proc)alIsEnabled;
+    pContext->openal.alGetString            = (mal_proc)alGetString;
+    pContext->openal.alGetBooleanv          = (mal_proc)alGetBooleanv;
+    pContext->openal.alGetIntegerv          = (mal_proc)alGetIntegerv;
+    pContext->openal.alGetFloatv            = (mal_proc)alGetFloatv;
+    pContext->openal.alGetDoublev           = (mal_proc)alGetDoublev;
+    pContext->openal.alGetBoolean           = (mal_proc)alGetBoolean;
+    pContext->openal.alGetInteger           = (mal_proc)alGetInteger;
+    pContext->openal.alGetFloat             = (mal_proc)alGetFloat;
+    pContext->openal.alGetDouble            = (mal_proc)alGetDouble;
+    pContext->openal.alGetError             = (mal_proc)alGetError;
+    pContext->openal.alIsExtensionPresent   = (mal_proc)alIsExtensionPresent;
+    pContext->openal.alGetProcAddress       = (mal_proc)alGetProcAddress;
+    pContext->openal.alGetEnumValue         = (mal_proc)alGetEnumValue;
+    pContext->openal.alGenSources           = (mal_proc)alGenSources;
+    pContext->openal.alDeleteSources        = (mal_proc)alDeleteSources;
+    pContext->openal.alIsSource             = (mal_proc)alIsSource;
+    pContext->openal.alSourcef              = (mal_proc)alSourcef;
+    pContext->openal.alSource3f             = (mal_proc)alSource3f;
+    pContext->openal.alSourcefv             = (mal_proc)alSourcefv;
+    pContext->openal.alSourcei              = (mal_proc)alSourcei;
+    pContext->openal.alSource3i             = (mal_proc)alSource3i;
+    pContext->openal.alSourceiv             = (mal_proc)alSourceiv;
+    pContext->openal.alGetSourcef           = (mal_proc)alGetSourcef;
+    pContext->openal.alGetSource3f          = (mal_proc)alGetSource3f;
+    pContext->openal.alGetSourcefv          = (mal_proc)alGetSourcefv;
+    pContext->openal.alGetSourcei           = (mal_proc)alGetSourcei;
+    pContext->openal.alGetSource3i          = (mal_proc)alGetSource3i;
+    pContext->openal.alGetSourceiv          = (mal_proc)alGetSourceiv;
+    pContext->openal.alSourcePlayv          = (mal_proc)alSourcePlayv;
+    pContext->openal.alSourceStopv          = (mal_proc)alSourceStopv;
+    pContext->openal.alSourceRewindv        = (mal_proc)alSourceRewindv;
+    pContext->openal.alSourcePausev         = (mal_proc)alSourcePausev;
+    pContext->openal.alSourcePlay           = (mal_proc)alSourcePlay;
+    pContext->openal.alSourceStop           = (mal_proc)alSourceStop;
+    pContext->openal.alSourceRewind         = (mal_proc)alSourceRewind;
+    pContext->openal.alSourcePause          = (mal_proc)alSourcePause;
+    pContext->openal.alSourceQueueBuffers   = (mal_proc)alSourceQueueBuffers;
+    pContext->openal.alSourceUnqueueBuffers = (mal_proc)alSourceUnqueueBuffers;
+    pContext->openal.alGenBuffers           = (mal_proc)alGenBuffers;
+    pContext->openal.alDeleteBuffers        = (mal_proc)alDeleteBuffers;
+    pContext->openal.alIsBuffer             = (mal_proc)alIsBuffer;
+    pContext->openal.alBufferData           = (mal_proc)alBufferData;
+    pContext->openal.alBufferf              = (mal_proc)alBufferf;
+    pContext->openal.alBuffer3f             = (mal_proc)alBuffer3f;
+    pContext->openal.alBufferfv             = (mal_proc)alBufferfv;
+    pContext->openal.alBufferi              = (mal_proc)alBufferi;
+    pContext->openal.alBuffer3i             = (mal_proc)alBuffer3i;
+    pContext->openal.alBufferiv             = (mal_proc)alBufferiv;
+    pContext->openal.alGetBufferf           = (mal_proc)alGetBufferf;
+    pContext->openal.alGetBuffer3f          = (mal_proc)alGetBuffer3f;
+    pContext->openal.alGetBufferfv          = (mal_proc)alGetBufferfv;
+    pContext->openal.alGetBufferi           = (mal_proc)alGetBufferi;
+    pContext->openal.alGetBuffer3i          = (mal_proc)alGetBuffer3i;
+    pContext->openal.alGetBufferiv          = (mal_proc)alGetBufferiv;
+#endif
 
     // We depend on the ALC_ENUMERATION_EXT extension.
     if (!((MAL_LPALCISEXTENSIONPRESENT)pContext->openal.alcIsExtensionPresent)(NULL, "ALC_ENUMERATION_EXT")) {
@@ -7928,7 +8019,10 @@ mal_result mal_context_uninit__openal(mal_context* pContext)
     mal_assert(pContext != NULL);
     mal_assert(pContext->backend == mal_backend_openal);
 
+#ifndef MAL_NO_RUNTIME_LINKING
     mal_dlclose(pContext->openal.hOpenAL);
+#endif
+
     return MAL_SUCCESS;
 }
 
