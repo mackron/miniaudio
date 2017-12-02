@@ -1459,6 +1459,8 @@ mal_uint32 mal_dsp_read_frames_ex(mal_dsp* pDSP, mal_uint32 frameCount, void* pF
 // This function is useful for one-off bulk conversions, but if you're streaming data you should use the DSP APIs instead.
 mal_uint32 mal_convert_frames(void* pOut, mal_format formatOut, mal_uint32 channelsOut, mal_uint32 sampleRateOut, const void* pIn, mal_format formatIn, mal_uint32 channelsIn, mal_uint32 sampleRateIn, mal_uint32 frameCountIn);
 
+// Helper for initializing a mal_dsp_config object.
+mal_dsp_config mal_dsp_config_init(mal_format formatIn, mal_uint32 channelsIn, mal_uint32 sampleRateIn, mal_format formatOut, mal_uint32 channelsOut, mal_uint32 sampleRateOut);
 
 ///////////////////////////////////////////////////////////////////////////////
 //
@@ -11064,6 +11066,20 @@ mal_uint32 mal_convert_frames(void* pOut, mal_format formatOut, mal_uint32 chann
     }
 
     return mal_dsp_read_frames_ex(&dsp, frameCountOut, pOut, MAL_TRUE);
+}
+
+mal_dsp_config mal_dsp_config_init(mal_format formatIn, mal_uint32 channelsIn, mal_uint32 sampleRateIn, mal_format formatOut, mal_uint32 channelsOut, mal_uint32 sampleRateOut)
+{
+    mal_dsp_config config;
+    mal_zero_object(&config);
+    config.formatIn = formatIn;
+    config.channelsIn = channelsIn;
+    config.sampleRateIn = sampleRateIn;
+    config.formatOut = formatOut;
+    config.channelsOut = channelsOut;
+    config.sampleRateOut = sampleRateOut;
+
+    return config;
 }
 
 
