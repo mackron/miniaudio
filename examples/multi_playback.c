@@ -92,7 +92,7 @@ int main(int argc, char** argv)
 	drwav* wav = NULL;
     stb_vorbis* vorbis = NULL;
     if ( type == UNK && (flac = drflac_open_file(argv[1])) != NULL)                       type = FLAC;
-	if ( type == UNK && (wav = drwav_open_file(&wav, argv[1])) != NULL)                   type = WAV;
+	if ( type == UNK && (wav = drwav_open_file(argv[1])) != NULL)                         type = WAV;
     if ( type == UNK && (vorbis = stb_vorbis_open_filename(argv[1], NULL, NULL)) != NULL) type = VORBIS;
 	if ( type == UNK && (jar_xm_create_context_from_file(&xm, 48000, argv[1]) == 0))      type = XM;
 	if ( type == UNK && (jar_mod_load_file(&mod, argv[1]) != 0) )                         type = MOD;
@@ -148,7 +148,13 @@ int main(int argc, char** argv)
 		goto end;
 	}
 
-	mal_device_start(&device);
+	if (mal_device_start(&device) != MAL_SUCCESS) {
+        printf("Failed to start playback device.\n");
+        mal_device_uninit(&device);
+        mal_context_uninit(&context);
+		exitcode = -4;
+		goto end;
+    }
 	
 	printf("Press Enter to quit...");
 	getchar();

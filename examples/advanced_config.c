@@ -155,12 +155,17 @@ int main(int argc, char** argv)
 
     mal_device playbackDevice;
     if (mal_device_init(&context, mal_device_type_playback, NULL, &deviceConfig, NULL, &playbackDevice) != MAL_SUCCESS) {
-        printf("Failed to initialize playback device.");
+        printf("Failed to initialize playback device.\n");
         mal_context_uninit(&context);
         return -7;
     }
 
-    mal_device_start(&playbackDevice);
+    if (mal_device_start(&playbackDevice) != MAL_SUCCESS) {
+        printf("Failed to start playback device.\n");
+        mal_device_uninit(&playbackDevice);
+        mal_context_uninit(&context);
+        return -8;
+    }
 
     printf("Press Enter to quit...");
     getchar();

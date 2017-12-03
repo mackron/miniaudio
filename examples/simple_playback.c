@@ -20,19 +20,19 @@ mal_uint32 on_send_frames_to_device(mal_device* pDevice, mal_uint32 frameCount, 
 int main(int argc, char** argv)
 {
     if (argc < 2) {
-        printf("No input file.");
+        printf("No input file.\n");
         return -1;
     }
 
     drwav wav;
     if (!drwav_init_file(&wav, argv[1])) {
-        printf("Not a valid WAV file.");
+        printf("Not a valid WAV file.\n");
         return -2;
     }
 
     mal_context context;
     if (mal_context_init(NULL, 0, NULL, &context) != MAL_SUCCESS) {
-        printf("Failed to initialize context.");
+        printf("Failed to initialize context.\n");
 		drwav_uninit(&wav);
         return -3;
     }
@@ -41,13 +41,19 @@ int main(int argc, char** argv)
     
     mal_device device;
     if (mal_device_init(&context, mal_device_type_playback, NULL, &config, &wav, &device) != MAL_SUCCESS) {
-        printf("Failed to open playback device.");
+        printf("Failed to open playback device.\n");
         mal_context_uninit(&context);
         drwav_uninit(&wav);
         return -4;
     }
 
-    mal_device_start(&device);
+    if (mal_device_start(&device) != MAL_SUCCESS) {
+        printf("Failed to start playback device.\n");
+        mal_device_uninit(&device);
+        mal_context_uninit(&context);
+        drwav_uninit(&wav);
+        return -5;
+    }
     
     printf("Press Enter to quit...");
     getchar();
