@@ -759,6 +759,9 @@ struct mal_context
             mal_proc snd_pcm_avail;
             mal_proc snd_pcm_avail_update;
             mal_proc snd_pcm_wait;
+            mal_proc snd_pcm_info;
+            mal_proc snd_pcm_info_sizeof;
+            mal_proc snd_pcm_info_get_name;
         } alsa;
 #endif
 #ifdef MAL_SUPPORT_COREAUDIO
@@ -5546,6 +5549,9 @@ typedef snd_pcm_sframes_t (* mal_snd_pcm_writei_proc)                        (sn
 typedef snd_pcm_sframes_t (* mal_snd_pcm_avail_proc)                         (snd_pcm_t *pcm);
 typedef snd_pcm_sframes_t (* mal_snd_pcm_avail_update_proc)                  (snd_pcm_t *pcm);
 typedef int               (* mal_snd_pcm_wait_proc)                          (snd_pcm_t *pcm, int timeout);
+typedef int               (* mal_snd_pcm_info)                               (snd_pcm_t *pcm, snd_pcm_info_t* info);
+typedef size_t            (* mal_snd_pcm_info_sizeof)                        ();
+typedef const char*       (* mal_snd_pcm_info_get_name)                      (const snd_pcm_info_t* info);
 
 static snd_pcm_format_t g_mal_ALSAFormats[] = {
     SND_PCM_FORMAT_UNKNOWN,     // mal_format_unknown
@@ -5661,6 +5667,9 @@ mal_result mal_context_init__alsa(mal_context* pContext)
     pContext->alsa.snd_pcm_avail                          = (mal_proc)mal_dlsym(pContext->alsa.asoundSO, "snd_pcm_avail");
     pContext->alsa.snd_pcm_avail_update                   = (mal_proc)mal_dlsym(pContext->alsa.asoundSO, "snd_pcm_avail_update");
     pContext->alsa.snd_pcm_wait                           = (mal_proc)mal_dlsym(pContext->alsa.asoundSO, "snd_pcm_wait");
+    pContext->alsa.snd_pcm_info                           = (mal_proc)mal_dlsym(pContext->alsa.asoundSO, "snd_pcm_info");
+    pContext->alsa.snd_pcm_info_sizeof                    = (mal_proc)mal_dlsym(pContext->alsa.asoundSO, "snd_pcm_info_sizeof");
+    pContext->alsa.snd_pcm_info_get_name                  = (mal_proc)mal_dlsym(pContext->alsa.asoundSO, "snd_pcm_info_get_name");
 
     return MAL_SUCCESS;
 }
@@ -6335,12 +6344,11 @@ static mal_result mal_device_init__alsa(mal_context* pContext, mal_device_type t
     if (pDevice->usingDefaultBufferSize) {
         float bufferSizeScale = 1;
         
-        snd_pcm_info_t* pInfo = (snd_pcm_info_t*)alloca(snd_pcm_info_sizeof());
-        mal_zero_memory(pInfo, snd_pcm_info_sizeof());
+        snd_pcm_info_t* pInfo = (snd_pcm_info_t*)alloca(((mal_snd_pcm_info_sizeof)pContext->alsa.snd_pcm_info_sizeof)());
+        mal_zero_memory(pInfo, ((mal_snd_pcm_info_sizeof)pContext->alsa.snd_pcm_info_sizeof)());
 
-        int result = 0;
-        if ((result = snd_pcm_info((snd_pcm_t*)pDevice->alsa.pPCM, pInfo)) == 0) {
-            const char* deviceName = snd_pcm_info_get_name(pInfo);
+        if (((mal_snd_pcm_info)pContext->alsa.snd_pcm_info)((snd_pcm_t*)pDevice->alsa.pPCM, pInfo) == 0) {
+            const char* deviceName = ((mal_snd_pcm_info_get_name)pContext->alsa.snd_pcm_info_get_name)(pInfo);
             if (deviceName != NULL) {
                 if (strcmp(deviceName, "default") == 0) {
                     // It's the default device. We need to use DESC from snd_device_name_hint().
@@ -6380,12 +6388,6 @@ static mal_result mal_device_init__alsa(mal_context* pContext, mal_device_type t
             }
 
             pDevice->bufferSizeInFrames = (mal_uint32)(pDevice->bufferSizeInFrames * bufferSizeScale);
-#if 0
-            printf("DEVICE ID:   %s\n", snd_pcm_info_get_id(pInfo));
-            printf("DEVICE NAME: %s\n", snd_pcm_info_get_name(pInfo));
-#endif
-        } else {
-            //printf("WARNING: snd_pcm_info() failed: %d\n", result);
         }
     }
 
