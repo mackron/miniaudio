@@ -11498,6 +11498,7 @@ void mal_pcm_f32_to_s32(int* pOut, const float* pIn, unsigned int count)
 //     audio data to a different format.
 //   - Improvements to f32 -> u8/s16/s24/s32 conversion routines.
 //   - Fix a bug where the wrong value is returned from mal_device_start() for the OpenSL and SDL backends.
+//   - Fixes and improvements for Raspberry Pi.
 //   - Warning fixes.
 //
 // v0.5 - 2017-11-11
