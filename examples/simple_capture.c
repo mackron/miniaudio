@@ -15,7 +15,7 @@ mal_uint32 playbackSample = 0;
 void on_recv_frames(mal_device* pDevice, mal_uint32 frameCount, const void* pSamples)
 {
     mal_uint32 sampleCount = frameCount * pDevice->channels;
-    
+
     mal_uint32 newCapturedSampleCount = capturedSampleCount + sampleCount;
     mal_int16* pNewCapturedSamples = (mal_int16*)realloc(pCapturedSamples, newCapturedSampleCount * sizeof(mal_int16));
     if (pNewCapturedSamples == NULL) {
@@ -74,8 +74,8 @@ int main()
     getchar();
 
     mal_device_uninit(&captureDevice);
-    
-    
+
+
 
     printf("Playing...\n");
     mal_device playbackDevice;

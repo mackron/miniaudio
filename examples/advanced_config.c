@@ -81,9 +81,9 @@ int main(int argc, char** argv)
     }
 
     printf("Playback Devices (%d)\n", playbackDeviceCount);
-	for (mal_uint32 iDevice = 0; iDevice < playbackDeviceCount; ++iDevice) {
-		printf("    %u: %s\n", iDevice, pPlaybackDeviceInfos[iDevice].name);
-	}
+    for (mal_uint32 iDevice = 0; iDevice < playbackDeviceCount; ++iDevice) {
+        printf("    %u: %s\n", iDevice, pPlaybackDeviceInfos[iDevice].name);
+    }
 
     printf("\n");
 
@@ -103,9 +103,9 @@ int main(int argc, char** argv)
     }
 
     printf("Capture Devices (%d)\n", captureDeviceCount);
-	for (mal_uint32 iDevice = 0; iDevice < captureDeviceCount; ++iDevice) {
-		printf("    %u: %s\n", iDevice, pCaptureDeviceInfos[iDevice].name);
-	}
+    for (mal_uint32 iDevice = 0; iDevice < captureDeviceCount; ++iDevice) {
+        printf("    %u: %s\n", iDevice, pCaptureDeviceInfos[iDevice].name);
+    }
 
 
     // Open the device.
@@ -169,10 +169,10 @@ int main(int argc, char** argv)
 
     printf("Press Enter to quit...");
     getchar();
-    
+
     mal_device_uninit(&playbackDevice);
 
-    
+
     mal_context_uninit(&context);
     return 0;
 }
