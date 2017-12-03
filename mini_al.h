@@ -5476,6 +5476,33 @@ static mal_result mal_device__main_loop__winmm(mal_device* pDevice)
 #ifdef MAL_HAS_ALSA
 #include <alsa/asoundlib.h>
 
+// This array allows mini_al to control device-specific default buffer sizes. This uses a scaling factor. Order is important. If
+// any part of the string is present in the device's name, the associated scale will be used.
+struct
+{
+    const char* name;
+    float scale;
+} g_malDefaultBufferSizeScalesALSA[] = {
+    {"bcm2835 IEC958/HDMI", 32},
+    {"bcm2835 ALSA",        32}
+};
+
+static float mal_find_default_buffer_size_scale__alsa(const char* deviceName)
+{
+    if (deviceName == NULL) {
+        return 1;
+    }
+
+    for (size_t i = 0; i < mal_countof(g_malDefaultBufferSizeScalesALSA); ++i) {
+        if (strstr(g_malDefaultBufferSizeScalesALSA[i].name, deviceName) != NULL) {
+            return g_malDefaultBufferSizeScalesALSA[i].scale;
+        }
+    }
+
+    return 1;
+}
+
+
 typedef int               (* mal_snd_pcm_open_proc)                          (snd_pcm_t **pcm, const char *name, snd_pcm_stream_t stream, int mode);
 typedef int               (* mal_snd_pcm_close_proc)                         (snd_pcm_t *pcm);
 typedef size_t            (* mal_snd_pcm_hw_params_sizeof_proc)              (void);
@@ -6301,6 +6328,64 @@ static mal_result mal_device_init__alsa(mal_context* pContext, mal_device_type t
         if (!isDeviceOpen) {
             mal_device_uninit__alsa(pDevice);
             return mal_post_error(pDevice, "[ALSA] snd_pcm_open() failed.", MAL_ALSA_FAILED_TO_OPEN_DEVICE);
+        }
+    }
+
+    // We may need to scale the size of the buffer depending on the device.
+    if (pDevice->usingDefaultBufferSize) {
+        float bufferSizeScale = 1;
+        
+        snd_pcm_info_t* pInfo = (snd_pcm_info_t*)alloca(snd_pcm_info_sizeof());
+        mal_zero_memory(pInfo, snd_pcm_info_sizeof());
+
+        int result = 0;
+        if ((result = snd_pcm_info((snd_pcm_t*)pDevice->alsa.pPCM, pInfo)) == 0) {
+            const char* deviceName = snd_pcm_info_get_name(pInfo);
+            if (deviceName != NULL) {
+                if (strcmp(deviceName, "default") == 0) {
+                    // It's the default device. We need to use DESC from snd_device_name_hint().
+                    char** ppDeviceHints;
+                    if (((mal_snd_device_name_hint_proc)pContext->alsa.snd_device_name_hint)(-1, "pcm", (void***)&ppDeviceHints) < 0) {
+                        return MAL_NO_BACKEND;
+                    }
+
+                    char** ppNextDeviceHint = ppDeviceHints;
+                    while (*ppNextDeviceHint != NULL) {
+                        char* NAME = ((mal_snd_device_name_get_hint_proc)pContext->alsa.snd_device_name_get_hint)(*ppNextDeviceHint, "NAME");
+                        char* DESC = ((mal_snd_device_name_get_hint_proc)pContext->alsa.snd_device_name_get_hint)(*ppNextDeviceHint, "DESC");
+                        char* IOID = ((mal_snd_device_name_get_hint_proc)pContext->alsa.snd_device_name_get_hint)(*ppNextDeviceHint, "IOID");
+
+                        mal_bool32 foundDevice = MAL_FALSE;
+                        if ((type == mal_device_type_playback && (IOID == NULL || strcmp(IOID, "Output") == 0)) ||
+                            (type == mal_device_type_capture  && (IOID != NULL && strcmp(IOID, "Input" ) == 0))) {
+                            if (strcmp(NAME, deviceName) == 0) {
+                                bufferSizeScale = mal_find_default_buffer_size_scale__alsa(DESC);
+                                foundDevice = MAL_TRUE;
+                            }
+                        }
+
+                        free(NAME);
+                        free(DESC);
+                        free(IOID);
+
+                        if (foundDevice) {
+                            break;
+                        }
+                    }
+
+                    ((mal_snd_device_name_free_hint_proc)pContext->alsa.snd_device_name_free_hint)((void**)ppDeviceHints);
+                } else {
+                    bufferSizeScale = mal_find_default_buffer_size_scale__alsa(deviceName);
+                }
+            }
+
+            pDevice->bufferSizeInFrames = (mal_uint32)(pDevice->bufferSizeInFrames * bufferSizeScale);
+#if 0
+            printf("DEVICE ID:   %s\n", snd_pcm_info_get_id(pInfo));
+            printf("DEVICE NAME: %s\n", snd_pcm_info_get_name(pInfo));
+#endif
+        } else {
+            //printf("WARNING: snd_pcm_info() failed: %d\n", result);
         }
     }
 
