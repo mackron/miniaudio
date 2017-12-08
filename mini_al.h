@@ -1,5 +1,5 @@
 // Audio playback and capture library. Public domain. See "unlicense" statement at the end of this file.
-// mini_al - v0.x - 2017-xx-xx
+// mini_al - v0.6 - 2017-12-08
 //
 // David Reid - davidreidsoftware@gmail.com
 
@@ -11484,7 +11484,7 @@ void mal_pcm_f32_to_s32(int* pOut, const float* pIn, unsigned int count)
 // REVISION HISTORY
 // ================
 //
-// v0.x - 2017-xx-xx
+// v0.6 - 2017-12-08
 //   - API CHANGE: Expose and improve mutex APIs. If you were using the mutex APIs before this version you'll
 //     need to update.
 //   - API CHANGE: SRC and DSP callbacks now take a pointer to a mal_src and mal_dsp object respectively.
@@ -11497,7 +11497,7 @@ void mal_pcm_f32_to_s32(int* pOut, const float* pIn, unsigned int count)
 //   - Add mal_convert_frames(). This is a high-level helper API for performing a one-time, bulk conversion of
 //     audio data to a different format.
 //   - Improvements to f32 -> u8/s16/s24/s32 conversion routines.
-//   - Fix a bug where the wrong value is returned from mal_device_start() for the OpenSL and SDL backends.
+//   - Fix a bug where the wrong value is returned from mal_device_start() for the OpenSL backend.
 //   - Fixes and improvements for Raspberry Pi.
 //   - Warning fixes.
 //
