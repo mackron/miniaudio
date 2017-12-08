@@ -5486,8 +5486,8 @@ struct
     const char* name;
     float scale;
 } g_malDefaultBufferSizeScalesALSA[] = {
-    {"bcm2835 IEC958/HDMI", 32},
-    {"bcm2835 ALSA",        32}
+    {"bcm2835 IEC958/HDMI", 20},
+    {"bcm2835 ALSA",        20}
 };
 
 static float mal_find_default_buffer_size_scale__alsa(const char* deviceName)
