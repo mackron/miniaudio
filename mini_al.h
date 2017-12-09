@@ -1,5 +1,5 @@
 // Audio playback and capture library. Public domain. See "unlicense" statement at the end of this file.
-// mini_al - v0.6 - 2017-12-08
+// mini_al - v0.x - xxxx-xx-xx
 //
 // David Reid - davidreidsoftware@gmail.com
 
@@ -1422,10 +1422,11 @@ mal_uint32 mal_src_read_frames(mal_src* pSRC, mal_uint32 frameCount, void* pFram
 // The same mal_src_read_frames() with extra control over whether or not the internal buffers should be flushed at the end.
 //
 // Internally there exists a buffer that keeps track of the previous and next samples for sample rate conversion. The simple
-// version of this function does _not_ flush this buffer because otherwise it causes clitches for streaming based conversion
+// version of this function does _not_ flush this buffer because otherwise it causes glitches for streaming based conversion
 // pipelines. The problem, however, is that sometimes you need those last few samples (such as if you're doing a bulk conversion
 // of a static file). Enabling flushing will fix this for you.
 mal_uint32 mal_src_read_frames_ex(mal_src* pSRC, mal_uint32 frameCount, void* pFramesOut, mal_bool32 flush);
+
 
 
 ///////////////////////////////////////////////////////////////////////////////
@@ -1464,6 +1465,8 @@ mal_uint32 mal_convert_frames(void* pOut, mal_format formatOut, mal_uint32 chann
 
 // Helper for initializing a mal_dsp_config object.
 mal_dsp_config mal_dsp_config_init(mal_format formatIn, mal_uint32 channelsIn, mal_uint32 sampleRateIn, mal_format formatOut, mal_uint32 channelsOut, mal_uint32 sampleRateOut);
+
+
 
 ///////////////////////////////////////////////////////////////////////////////
 //
@@ -11483,6 +11486,9 @@ void mal_pcm_f32_to_s32(int* pOut, const float* pIn, unsigned int count)
 
 // REVISION HISTORY
 // ================
+//
+// v0.x - xxxx-xx-xx
+//   - Documentation fixes.
 //
 // v0.6 - 2017-12-08
 //   - API CHANGE: Expose and improve mutex APIs. If you were using the mutex APIs before this version you'll
