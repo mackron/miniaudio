@@ -1638,7 +1638,14 @@ void mal_pcm_convert(void* pOut, mal_format formatOut, const void* pIn, mal_form
     #define MAL_HAS_OPENSL  // Like OSS, OpenSL is the only supported backend for Android. It must be present.
 #endif
 #ifdef MAL_ENABLE_OPENAL
-    #define MAL_HAS_OPENAL  // mini_al inlines the necessary OpenAL stuff.
+    #define MAL_HAS_OPENAL
+    #ifdef MAL_NO_RUNTIME_LINKING
+        #ifdef __has_include
+            #if !__has_include(<AL/al.h>)
+                #undef MAL_HAS_OPENAL
+            #endif
+        #endif
+    #endif
 #endif
 #ifdef MAL_ENABLE_SDL
     #define MAL_HAS_SDL
@@ -11488,6 +11495,7 @@ void mal_pcm_f32_to_s32(int* pOut, const float* pIn, unsigned int count)
 // ================
 //
 // v0.x - xxxx-xx-xx
+//   - Improvements to the build system for the OpenAL backend.
 //   - Documentation fixes.
 //
 // v0.6 - 2017-12-08
