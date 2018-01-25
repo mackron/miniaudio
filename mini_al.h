@@ -10760,7 +10760,7 @@ static void mal_dsp_mix_channels__inc(float* pFramesOut, mal_uint32 channelsOut,
     (void)channelMapOut;
     (void)channelMapIn;
 
-    if (mode == mal_channel_mix_mode_basic) {\
+    if (mode == mal_channel_mix_mode_basic) {
         // Basic mode is where we just zero out extra channels.
         for (mal_uint32 iFrame = 0; iFrame < frameCount; ++iFrame) {
             switch (channelsIn) {
@@ -10785,23 +10785,23 @@ static void mal_dsp_mix_channels__inc(float* pFramesOut, mal_uint32 channelsOut,
 
             // Zero out extra channels.
             switch (channelsOut - channelsIn) {
-                case 17: pFramesOut[iFrame*channelsOut+16] = 0;
-                case 16: pFramesOut[iFrame*channelsOut+15] = 0;
-                case 15: pFramesOut[iFrame*channelsOut+14] = 0;
-                case 14: pFramesOut[iFrame*channelsOut+13] = 0;
-                case 13: pFramesOut[iFrame*channelsOut+12] = 0;
-                case 12: pFramesOut[iFrame*channelsOut+11] = 0;
-                case 11: pFramesOut[iFrame*channelsOut+10] = 0;
-                case 10: pFramesOut[iFrame*channelsOut+ 9] = 0;
-                case  9: pFramesOut[iFrame*channelsOut+ 8] = 0;
-                case  8: pFramesOut[iFrame*channelsOut+ 7] = 0;
-                case  7: pFramesOut[iFrame*channelsOut+ 6] = 0;
-                case  6: pFramesOut[iFrame*channelsOut+ 5] = 0;
-                case  5: pFramesOut[iFrame*channelsOut+ 4] = 0;
-                case  4: pFramesOut[iFrame*channelsOut+ 3] = 0;
-                case  3: pFramesOut[iFrame*channelsOut+ 2] = 0;
-                case  2: pFramesOut[iFrame*channelsOut+ 1] = 0;
-                case  1: pFramesOut[iFrame*channelsOut+ 0] = 0;
+                case 17: pFramesOut[iFrame*channelsOut+16 + channelsIn] = 0;
+                case 16: pFramesOut[iFrame*channelsOut+15 + channelsIn] = 0;
+                case 15: pFramesOut[iFrame*channelsOut+14 + channelsIn] = 0;
+                case 14: pFramesOut[iFrame*channelsOut+13 + channelsIn] = 0;
+                case 13: pFramesOut[iFrame*channelsOut+12 + channelsIn] = 0;
+                case 12: pFramesOut[iFrame*channelsOut+11 + channelsIn] = 0;
+                case 11: pFramesOut[iFrame*channelsOut+10 + channelsIn] = 0;
+                case 10: pFramesOut[iFrame*channelsOut+ 9 + channelsIn] = 0;
+                case  9: pFramesOut[iFrame*channelsOut+ 8 + channelsIn] = 0;
+                case  8: pFramesOut[iFrame*channelsOut+ 7 + channelsIn] = 0;
+                case  7: pFramesOut[iFrame*channelsOut+ 6 + channelsIn] = 0;
+                case  6: pFramesOut[iFrame*channelsOut+ 5 + channelsIn] = 0;
+                case  5: pFramesOut[iFrame*channelsOut+ 4 + channelsIn] = 0;
+                case  4: pFramesOut[iFrame*channelsOut+ 3 + channelsIn] = 0;
+                case  3: pFramesOut[iFrame*channelsOut+ 2 + channelsIn] = 0;
+                case  2: pFramesOut[iFrame*channelsOut+ 1 + channelsIn] = 0;
+                case  1: pFramesOut[iFrame*channelsOut+ 0 + channelsIn] = 0;
             }
         }
     } else {
@@ -10832,10 +10832,10 @@ static void mal_dsp_mix_channels__inc(float* pFramesOut, mal_uint32 channelsOut,
             }
         } else if (channelsIn == 2) {
             // TODO: Implement an optimized stereo conversion.
-            mal_dsp_mix_channels__dec(pFramesOut, channelsOut, channelMapOut, pFramesIn, channelsIn, channelMapIn, frameCount, mal_channel_mix_mode_basic);
+            mal_dsp_mix_channels__inc(pFramesOut, channelsOut, channelMapOut, pFramesIn, channelsIn, channelMapIn, frameCount, mal_channel_mix_mode_basic);
         } else {
             // Fall back to basic mixing mode.
-            mal_dsp_mix_channels__dec(pFramesOut, channelsOut, channelMapOut, pFramesIn, channelsIn, channelMapIn, frameCount, mal_channel_mix_mode_basic);
+            mal_dsp_mix_channels__inc(pFramesOut, channelsOut, channelMapOut, pFramesIn, channelsIn, channelMapIn, frameCount, mal_channel_mix_mode_basic);
         }
     }
 }
