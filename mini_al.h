@@ -1,5 +1,5 @@
 // Audio playback and capture library. Public domain. See "unlicense" statement at the end of this file.
-// mini_al - v0.x - xxxx-xx-xx
+// mini_al - v0.6a - 2018-01-26
 //
 // David Reid - davidreidsoftware@gmail.com
 
@@ -11494,7 +11494,8 @@ void mal_pcm_f32_to_s32(int* pOut, const float* pIn, unsigned int count)
 // REVISION HISTORY
 // ================
 //
-// v0.x - xxxx-xx-xx
+// v0.6a - 2018-01-26
+//   - Fix errors with channel mixing when increasing the channel count.
 //   - Improvements to the build system for the OpenAL backend.
 //   - Documentation fixes.
 //
