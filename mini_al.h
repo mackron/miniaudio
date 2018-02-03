@@ -1,5 +1,5 @@
 // Audio playback and capture library. Public domain. See "unlicense" statement at the end of this file.
-// mini_al - v0.6a - 2018-01-26
+// mini_al - v0.6b - 2018-02-03
 //
 // David Reid - davidreidsoftware@gmail.com
 
@@ -1774,7 +1774,10 @@ typedef HWND (WINAPI * MAL_PFN_GetDesktopWindow)();
 #define mal_buffer_frame_capacity(buffer, channels, format) (sizeof(buffer) / mal_get_sample_size_in_bytes(format) / (channels))
 
 // Some of these string utility functions are unused on some platforms.
-#if defined(__GNUC__)
+#if defined(_MSC_VER)
+    #pragma warning(push)
+    #pragma warning(disable:4505)
+#elif defined(__GNUC__)
     #pragma GCC diagnostic push
     #pragma GCC diagnostic ignored "-Wunused-function"
 #endif
@@ -1972,7 +1975,9 @@ static int mal_strcmp(const char* str1, const char* str2)
 
     return ((unsigned char*)str1)[0] - ((unsigned char*)str2)[0];
 }
-#if defined(__GNUC__)
+#if defined(_MSC_VER)
+    #pragma warning(pop)
+#elif defined(__GNUC__)
     #pragma GCC diagnostic pop
 #endif
 
@@ -11495,6 +11500,9 @@ void mal_pcm_f32_to_s32(int* pOut, const float* pIn, unsigned int count)
 
 // REVISION HISTORY
 // ================
+//
+// v0.6b - 2018-02-03
+//   - Fix some warnings when compiling with Visual C++.
 //
 // v0.6a - 2018-01-26
 //   - Fix errors with channel mixing when increasing the channel count.
