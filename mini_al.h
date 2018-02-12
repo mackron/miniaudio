@@ -1,5 +1,5 @@
 // Audio playback and capture library. Public domain. See "unlicense" statement at the end of this file.
-// mini_al - v0.6b - 2018-02-03
+// mini_al - v0.6c - 2018-02-12
 //
 // David Reid - davidreidsoftware@gmail.com
 
@@ -11504,6 +11504,9 @@ void mal_pcm_f32_to_s32(int* pOut, const float* pIn, unsigned int count)
 
 // REVISION HISTORY
 // ================
+//
+// v0.6c - 2018-02-12
+//   - Fix build errors with BSD/OSS.
 //
 // v0.6b - 2018-02-03
 //   - Fix some warnings when compiling with Visual C++.
