@@ -1,5 +1,5 @@
 // Audio playback and capture library. Public domain. See "unlicense" statement at the end of this file.
-// mini_al - v0.6c - 2018-02-12
+// mini_al - v0.xx - 2018-xx-xx
 //
 // David Reid - davidreidsoftware@gmail.com
 
@@ -172,6 +172,12 @@
 //
 // #define MAL_DEFAULT_PERIODS
 //   When a period count of 0 is specified when a device is initialized, it will default to this.
+//
+// #define MAL_NO_DECODING
+//   Disables the decoder APIs.
+//
+// #define MAL_NO_STDIO
+//   Disables file IO APIs
 
 #ifndef mini_al_h
 #define mini_al_h
@@ -502,7 +508,7 @@ typedef enum
 {
     // I like to keep these explicitly defined because they're used as a key into a lookup table. When items are
     // added to this, make sure there are no gaps and that they're added to the lookup table in mal_get_sample_size_in_bytes().
-    mal_format_unknown = 0,     // Mainly used for indicating an error.
+    mal_format_unknown = 0,     // Mainly used for indicating an error, but also used as the default for the output format for decoders.
     mal_format_u8      = 1,
     mal_format_s16     = 2,     // Seems to be the most widely supported format.
     mal_format_s24     = 3,     // Tightly packed. 3 bytes per sample.
@@ -1533,6 +1539,62 @@ void mal_pcm_f32_to_s16(short* pOut, const float* pIn, unsigned int count);
 void mal_pcm_f32_to_s24(void* pOut, const float* pIn, unsigned int count);
 void mal_pcm_f32_to_s32(int* pOut, const float* pIn, unsigned int count);
 void mal_pcm_convert(void* pOut, mal_format formatOut, const void* pIn, mal_format formatIn, unsigned int sampleCount);
+
+
+
+///////////////////////////////////////////////////////////////////////////////
+//
+// Decoding
+//
+///////////////////////////////////////////////////////////////////////////////
+#ifndef MAL_NO_DECODING
+
+typedef struct mal_decoder mal_decoder;
+
+typedef enum
+{
+    mal_seek_origin_start,
+    mal_seek_origin_current
+} mal_seek_origin;
+
+typedef size_t     (* mal_decoder_read_proc)(mal_decoder* pDecoder, void* pBufferOut, size_t bytesToRead); // Returns the number of bytes read.
+typedef mal_bool32 (* mal_decoder_seek_proc)(mal_decoder* pDecoder, int byteOffset, mal_seek_origin origin);
+
+typedef struct
+{
+    mal_format  outputFormat;       // Set to 0 or mal_format_unknown to use the stream's internal format.
+    mal_uint32  outputChannels;     // Set to 0 to use the stream's internal channels.
+    mal_uint32  outputSampleRate;   // Set to 0 to use the stream's internal channels.
+    mal_channel outputChannelMap[MAL_MAX_CHANNELS];
+} mal_decoder_config;
+
+struct mal_decoder
+{
+    mal_decoder_read_proc onRead;
+    mal_decoder_seek_proc onSeek;
+    void* pUserData;
+    mal_format  internalFormat;
+    mal_uint32  internalChannels;
+    mal_uint32  internalSampleRate;
+    mal_channel internalChannelMap[MAL_MAX_CHANNELS];
+    mal_format  outputFormat;
+    mal_uint32  outputChannels;
+    mal_uint32  outputSampleRate;
+    mal_channel outputChannelMap[MAL_MAX_CHANNELS];
+};
+
+mal_result mal_decoder_init(mal_decoder_read_proc onRead, mal_decoder_seek_proc onSeek, const mal_decoder_config* pConfig, void* pUserData, mal_decoder* pDecoder);
+mal_result mal_decoder_init_memory(const void* pData, size_t dataSize, const mal_decoder_config* pConfig, void* pUserData, mal_decoder* pDecoder);
+
+#ifndef MAL_NO_STDIO
+mal_result mal_decoder_init_file(const char* pFilePath, const mal_decoder_config* pConfig, void* pUserData, mal_decoder* pDecoder);
+#endif
+
+mal_uint32 mal_decoder_read(mal_decoder* pDecoder, mal_uint32 frameCount, void* pFramesOut); 
+mal_result mal_decoder_seek_to_frame(mal_decoder* pDecoder, mal_uint32 frameIndex);
+
+#endif
+
 
 #ifdef __cplusplus
 }
@@ -11246,6 +11308,83 @@ void mal_blend_f32(float* pOut, float* pInA, float* pInB, float factor, mal_uint
 
 //////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 //////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+//
+// DECODING
+//
+//////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+//////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+#ifndef MAL_NO_DECODING
+mal_result mal_decoder_init(mal_decoder_read_proc onRead, mal_decoder_seek_proc onSeek, const mal_decoder_config* pConfig, void* pUserData, mal_decoder* pDecoder)
+{
+    if (pDecoder == NULL) return MAL_INVALID_ARGS;
+    mal_zero_object(pDecoder);
+
+    if (onRead == NULL || onSeek == NULL) {
+        return MAL_INVALID_ARGS;
+    }
+
+    pDecoder->onRead = onRead;
+    pDecoder->onSeek = onSeek;
+    pDecoder->pUserData = pUserData;
+
+    (void)onRead;
+    (void)onSeek;
+    (void)pConfig;
+    (void)pUserData;
+    (void)pDecoder;
+    return MAL_ERROR;
+}
+
+mal_result mal_decoder_init_memory(const void* pData, size_t dataSize, const mal_decoder_config* pConfig, void* pUserData, mal_decoder* pDecoder)
+{
+    if (pData == NULL || dataSize == 0) return MAL_INVALID_ARGS;
+
+    (void)pData;
+    (void)dataSize;
+    (void)pConfig;
+    (void)pUserData;
+    (void)pDecoder;
+    return MAL_ERROR;
+}
+
+#ifndef MAL_NO_STDIO
+mal_result mal_decoder_init_file(const char* pFilePath, const mal_decoder_config* pConfig, void* pUserData, mal_decoder* pDecoder)
+{
+    if (pFilePath == NULL || pFilePath[0] == '\0') return MAL_INVALID_ARGS;
+
+    (void)pFilePath;
+    (void)pConfig;
+    (void)pUserData;
+    (void)pDecoder;
+    return MAL_ERROR;
+}
+#endif
+
+mal_uint32 mal_decoder_read(mal_decoder* pDecoder, mal_uint32 frameCount, void* pFramesOut)
+{
+    if (pDecoder == NULL) return 0;
+
+    (void)pDecoder;
+    (void)frameCount;
+    (void)pFramesOut;
+    return 0;
+}
+
+mal_result mal_decoder_seek_to_frame(mal_decoder* pDecoder, mal_uint32 frameIndex)
+{
+    if (pDecoder == NULL) return 0;
+
+    (void)pDecoder;
+    (void)frameIndex;
+    return MAL_ERROR;
+}
+#endif
+
+
+
+
+//////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+//////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 //////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 //////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 //
@@ -11504,6 +11643,9 @@ void mal_pcm_f32_to_s32(int* pOut, const float* pIn, unsigned int count)
 
 // REVISION HISTORY
 // ================
+//
+// v0.xx - 2018-xx-xx
+//   - 
 //
 // v0.6c - 2018-02-12
 //   - Fix build errors with BSD/OSS.
