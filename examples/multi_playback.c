@@ -6,14 +6,54 @@
 #define DR_WAV_IMPLEMENTATION
 #include "../extras/dr_wav.h"
 
+#if defined(_MSC_VER)
+    #pragma warning(push)
+    #pragma warning(disable:4456)
+    #pragma warning(disable:4457)
+    #pragma warning(disable:4100)
+    #pragma warning(disable:4244)
+    #pragma warning(disable:4701)
+    #pragma warning(disable:4245)
+#endif
+#if defined(__GNUC__)
+    #pragma GCC diagnostic push
+    #pragma GCC diagnostic ignored "-Wunused-value"
+    #pragma GCC diagnostic ignored "-Wunused-parameter"
+    #ifndef __clang__
+    #pragma GCC diagnostic ignored "-Wmaybe-uninitialized"
+    #endif
+#endif
+#undef STB_VORBIS_HEADER_ONLY
 #include "../extras/stb_vorbis.c"
+#if defined(_MSC_VER)
+    #pragma warning(pop)
+#endif
+#if defined(__GNUC__)
+    #pragma GCC diagnostic pop
+#endif
 
+
+#if defined(_MSC_VER)
+    #pragma warning(push)
+    #pragma warning(disable:4100)
+    #pragma warning(disable:4244)
+    #pragma warning(disable:4018)
+    #pragma warning(disable:4456)
+    #pragma warning(disable:4701)
+    #pragma warning(disable:4702)
+    #pragma warning(disable:4706)
+    #pragma warning(disable:4127)
+#endif
 #define JAR_MOD_IMPLEMENTATION
 #include "../extras/jar_mod.h"
 #undef DEBUG
 
 #define JAR_XM_IMPLEMENTATION
 #include "../extras/jar_xm.h"
+#if defined(_MSC_VER)
+    #pragma warning(pop)
+#endif
+
 
 #define MAL_IMPLEMENTATION
 #include "../mini_al.h"
