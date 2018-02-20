@@ -426,6 +426,8 @@ typedef mal_uint8 mal_channel;
 #define MAL_CHANNEL_TOP_BACK_LEFT                       16
 #define MAL_CHANNEL_TOP_BACK_CENTER                     17
 #define MAL_CHANNEL_TOP_BACK_RIGHT                      18
+#define MAL_CHANNEL_LEFT                                MAL_CHANNEL_FRONT_LEFT
+#define MAL_CHANNEL_RIGHT                               MAL_CHANNEL_FRONT_RIGHT
 #define MAL_CHANNEL_MONO                                MAL_CHANNEL_FRONT_CENTER
 #define MAL_MAX_CHANNELS                                18
 
@@ -1583,11 +1585,10 @@ struct mal_decoder
     mal_uint32  outputChannels;
     mal_uint32  outputSampleRate;
     mal_channel outputChannelMap[MAL_MAX_CHANNELS];
-    mal_dsp dsp;    // <-- Format conversion is achieved by running samples through this.
-    mal_dsp_read_proc onReadFrames;
+    mal_dsp dsp;                // <-- Format conversion is achieved by running frames through this.
     mal_decoder_seek_to_frame_proc onSeekToFrame;
     mal_decoder_uninit_proc onUninit;
-
+    void* pInternalDecoder;     // <-- The drwav/drflac/stb_vorbis/etc. objects.
     struct
     {
         const mal_uint8* pData;
@@ -1595,6 +1596,8 @@ struct mal_decoder
         size_t currentReadPos;
     } memory;   // Only used for decoders that were opened against a block of memory.
 };
+
+mal_decoder_config mal_decoder_config_init(mal_format outputFormat, mal_uint32 outputChannels, mal_uint32 outputSampleRate);
 
 mal_result mal_decoder_init(mal_decoder_read_proc onRead, mal_decoder_seek_proc onSeek, void* pUserData, const mal_decoder_config* pConfig, mal_decoder* pDecoder);
 mal_result mal_decoder_init_wav(mal_decoder_read_proc onRead, mal_decoder_seek_proc onSeek, void* pUserData, const mal_decoder_config* pConfig, mal_decoder* pDecoder);
@@ -9058,11 +9061,14 @@ mal_bool32 mal__is_channel_map_valid(const mal_channel* channelMap, mal_uint32 c
 {
     mal_assert(channels > 0);
 
-    // A channel cannot be present in the channel map more than once.
-    for (mal_uint32 iChannel = 0; iChannel < channels; ++iChannel) {
-        for (mal_uint32 jChannel = iChannel + 1; jChannel < channels; ++jChannel) {
-            if (channelMap[iChannel] == channelMap[jChannel]) {
-                return MAL_FALSE;
+    // A blank channel map should be allowed, in which case it should use an appropriate default which will depend on context.
+    if (channelMap[0] != MAL_CHANNEL_NONE) {
+        // A channel cannot be present in the channel map more than once.
+        for (mal_uint32 iChannel = 0; iChannel < channels; ++iChannel) {
+            for (mal_uint32 jChannel = iChannel + 1; jChannel < channels; ++jChannel) {
+                if (channelMap[iChannel] == channelMap[jChannel]) {
+                    return MAL_FALSE;
+                }
             }
         }
     }
@@ -10178,6 +10184,74 @@ mal_context_config mal_context_config_init(mal_log_proc onLog)
     return config;
 }
 
+static void mal_get_default_device_config_channel_map(mal_uint32 channels, mal_uint8 channelMap[MAL_MAX_CHANNELS])
+{
+    switch (channels)
+    {
+        case 1:
+        {
+            channelMap[0] = MAL_CHANNEL_FRONT_CENTER;
+        } break;
+
+        case 2:
+        {
+            channelMap[0] = MAL_CHANNEL_FRONT_LEFT;
+            channelMap[1] = MAL_CHANNEL_FRONT_RIGHT;
+        } break;
+
+        case 3:
+        {
+            channelMap[0] = MAL_CHANNEL_FRONT_LEFT;
+            channelMap[1] = MAL_CHANNEL_FRONT_RIGHT;
+            channelMap[2] = MAL_CHANNEL_LFE;
+        } break;
+
+        case 4:
+        {
+            channelMap[0] = MAL_CHANNEL_FRONT_LEFT;
+            channelMap[1] = MAL_CHANNEL_FRONT_RIGHT;
+            channelMap[2] = MAL_CHANNEL_BACK_LEFT;
+            channelMap[3] = MAL_CHANNEL_BACK_RIGHT;
+        } break;
+
+        case 5:
+        {
+            channelMap[0] = MAL_CHANNEL_FRONT_LEFT;
+            channelMap[1] = MAL_CHANNEL_FRONT_RIGHT;
+            channelMap[2] = MAL_CHANNEL_BACK_LEFT;
+            channelMap[3] = MAL_CHANNEL_BACK_RIGHT;
+            channelMap[4] = MAL_CHANNEL_LFE;
+        } break;
+
+        case 6:
+        {
+            channelMap[0] = MAL_CHANNEL_FRONT_LEFT;
+            channelMap[1] = MAL_CHANNEL_FRONT_RIGHT;
+            channelMap[2] = MAL_CHANNEL_FRONT_CENTER;
+            channelMap[3] = MAL_CHANNEL_LFE;
+            channelMap[4] = MAL_CHANNEL_BACK_LEFT;
+            channelMap[5] = MAL_CHANNEL_BACK_RIGHT;
+        } break;
+
+        case 8:
+        {
+            channelMap[0] = MAL_CHANNEL_FRONT_LEFT;
+            channelMap[1] = MAL_CHANNEL_FRONT_RIGHT;
+            channelMap[2] = MAL_CHANNEL_FRONT_CENTER;
+            channelMap[3] = MAL_CHANNEL_LFE;
+            channelMap[4] = MAL_CHANNEL_BACK_LEFT;
+            channelMap[5] = MAL_CHANNEL_BACK_RIGHT;
+            channelMap[6] = MAL_CHANNEL_SIDE_LEFT;
+            channelMap[7] = MAL_CHANNEL_SIDE_RIGHT;
+        } break;
+
+        default:
+        {
+            // Just leave it all blank in this case. This will use the same mapping as the device's native mapping.
+        } break;
+    }
+}
+
 mal_device_config mal_device_config_init(mal_format format, mal_uint32 channels, mal_uint32 sampleRate, mal_recv_proc onRecvCallback, mal_send_proc onSendCallback)
 {
     mal_device_config config;
@@ -10188,71 +10262,7 @@ mal_device_config mal_device_config_init(mal_format format, mal_uint32 channels,
     config.sampleRate = sampleRate;
     config.onRecvCallback = onRecvCallback;
     config.onSendCallback = onSendCallback;
-
-    switch (channels)
-    {
-        case 1:
-        {
-            config.channelMap[0] = MAL_CHANNEL_FRONT_CENTER;
-        } break;
-
-        case 2:
-        {
-            config.channelMap[0] = MAL_CHANNEL_FRONT_LEFT;
-            config.channelMap[1] = MAL_CHANNEL_FRONT_RIGHT;
-        } break;
-
-        case 3:
-        {
-            config.channelMap[0] = MAL_CHANNEL_FRONT_LEFT;
-            config.channelMap[1] = MAL_CHANNEL_FRONT_RIGHT;
-            config.channelMap[2] = MAL_CHANNEL_LFE;
-        } break;
-
-        case 4:
-        {
-            config.channelMap[0] = MAL_CHANNEL_FRONT_LEFT;
-            config.channelMap[1] = MAL_CHANNEL_FRONT_RIGHT;
-            config.channelMap[2] = MAL_CHANNEL_BACK_LEFT;
-            config.channelMap[3] = MAL_CHANNEL_BACK_RIGHT;
-        } break;
-
-        case 5:
-        {
-            config.channelMap[0] = MAL_CHANNEL_FRONT_LEFT;
-            config.channelMap[1] = MAL_CHANNEL_FRONT_RIGHT;
-            config.channelMap[2] = MAL_CHANNEL_BACK_LEFT;
-            config.channelMap[3] = MAL_CHANNEL_BACK_RIGHT;
-            config.channelMap[4] = MAL_CHANNEL_LFE;
-        } break;
-
-        case 6:
-        {
-            config.channelMap[0] = MAL_CHANNEL_FRONT_LEFT;
-            config.channelMap[1] = MAL_CHANNEL_FRONT_RIGHT;
-            config.channelMap[2] = MAL_CHANNEL_FRONT_CENTER;
-            config.channelMap[3] = MAL_CHANNEL_LFE;
-            config.channelMap[4] = MAL_CHANNEL_BACK_LEFT;
-            config.channelMap[5] = MAL_CHANNEL_BACK_RIGHT;
-        } break;
-
-        case 8:
-        {
-            config.channelMap[0] = MAL_CHANNEL_FRONT_LEFT;
-            config.channelMap[1] = MAL_CHANNEL_FRONT_RIGHT;
-            config.channelMap[2] = MAL_CHANNEL_FRONT_CENTER;
-            config.channelMap[3] = MAL_CHANNEL_LFE;
-            config.channelMap[4] = MAL_CHANNEL_BACK_LEFT;
-            config.channelMap[5] = MAL_CHANNEL_BACK_RIGHT;
-            config.channelMap[6] = MAL_CHANNEL_SIDE_LEFT;
-            config.channelMap[7] = MAL_CHANNEL_SIDE_RIGHT;
-        } break;
-
-        default:
-        {
-            // Just leave it all blank in this case. This will use the same mapping as the device's native mapping.
-        } break;
-    }
+    mal_get_default_device_config_channel_map(channels, config.channelMap);
 
     return config;
 }
@@ -11338,17 +11348,179 @@ void mal_blend_f32(float* pOut, float* pInA, float* pInB, float factor, mal_uint
 //////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 #ifndef MAL_NO_DECODING
 
+mal_decoder_config mal_decoder_config_init(mal_format outputFormat, mal_uint32 outputChannels, mal_uint32 outputSampleRate)
+{
+    mal_decoder_config config;
+    mal_zero_object(&config);
+    config.outputFormat = outputFormat;
+    config.outputChannels = outputChannels;
+    config.outputSampleRate = outputSampleRate;
+
+    return config;
+}
+
+mal_decoder_config mal_decoder_config_init_copy(const mal_decoder_config* pConfig)
+{
+    mal_decoder_config config;
+    if (pConfig != NULL) {
+        config = *pConfig;
+    } else {
+        mal_zero_object(&config);
+    }
+
+    return config;
+}
+
 // WAV
 #ifdef dr_wav_h
 #define MAL_HAS_WAV
 
-mal_result mal_decoder_init_wav__internal(const mal_decoder_config* pConfig, mal_decoder* pDecoder)
+static size_t mal_decoder_internal_on_read__wav(void* pUserData, void* pBufferOut, size_t bytesToRead)
 {
+    mal_decoder* pDecoder = (mal_decoder*)pUserData;
+    mal_assert(pDecoder != NULL);
+    mal_assert(pDecoder->onRead != NULL);
+
+    return pDecoder->onRead(pDecoder, pBufferOut, bytesToRead);
+}
+
+static drwav_bool32 mal_decoder_internal_on_seek__wav(void* pUserData, int offset, drwav_seek_origin origin)
+{
+    mal_decoder* pDecoder = (mal_decoder*)pUserData;
+    mal_assert(pDecoder != NULL);
+    mal_assert(pDecoder->onSeek != NULL);
+    
+    return pDecoder->onSeek(pDecoder, offset, (origin == drwav_seek_origin_start) ? mal_seek_origin_start : mal_seek_origin_current);
+}
+
+static mal_result mal_decoder_internal_on_seek_to_frame__wav(mal_decoder* pDecoder, mal_uint64 frameIndex)
+{
+    drwav* pWav = (drwav*)pDecoder->pInternalDecoder;
+    mal_assert(pWav != NULL);
+
+    drwav_bool32 result = drwav_seek_to_sample(pWav, frameIndex*pWav->channels);
+    if (result) {
+        return MAL_SUCCESS;
+    } else {
+        return MAL_ERROR;
+    }
+}
+
+static mal_result mal_decoder_internal_on_uninit__wav(mal_decoder* pDecoder)
+{
+    drwav_close((drwav*)pDecoder->pInternalDecoder);
+    return MAL_SUCCESS;
+}
+
+static mal_uint32 mal_decoder_internal_on_read_frames__wav(mal_dsp* pDSP, mal_uint32 frameCount, void* pSamplesOut, void* pUserData)
+{
+    (void)pDSP;
+
+    mal_decoder* pDecoder = (mal_decoder*)pUserData;
     mal_assert(pDecoder != NULL);
 
-    (void)pConfig;
-    (void)pDecoder;
-    return MAL_ERROR;
+    drwav* pWav = (drwav*)pDecoder->pInternalDecoder;
+    mal_assert(pWav != NULL);
+
+    switch (pDecoder->internalFormat) {
+        case mal_format_s16: return (mal_uint32)drwav_read_s16(pWav, frameCount*pDecoder->internalChannels, (drwav_int16*)pSamplesOut) / pDecoder->internalChannels;
+        case mal_format_s32: return (mal_uint32)drwav_read_s32(pWav, frameCount*pDecoder->internalChannels, (drwav_int32*)pSamplesOut) / pDecoder->internalChannels;
+        case mal_format_f32: return (mal_uint32)drwav_read_f32(pWav, frameCount*pDecoder->internalChannels,       (float*)pSamplesOut) / pDecoder->internalChannels;
+    }
+
+    // Should never get here. If we do, it means the internal format was not set correctly at initialization time.
+    mal_assert(MAL_FALSE);
+    return 0;
+}
+
+mal_result mal_decoder_init_wav__internal(const mal_decoder_config* pConfig, mal_decoder* pDecoder)
+{
+    mal_assert(pConfig != NULL);
+    mal_assert(pDecoder != NULL);
+
+    // Try opening the decoder first.
+    drwav* pWav = drwav_open(mal_decoder_internal_on_read__wav, mal_decoder_internal_on_seek__wav, pDecoder);
+    if (pWav == NULL) {
+        return MAL_ERROR;
+    }
+
+    // If we get here it means we successfully initialized the WAV decoder. We can now initialize the rest of the mal_decoder.
+    pDecoder->onSeekToFrame = mal_decoder_internal_on_seek_to_frame__wav;
+    pDecoder->onUninit = mal_decoder_internal_on_uninit__wav;
+    pDecoder->pInternalDecoder = pWav;
+
+    // Try to be as optimal as possible for the internal format. If mini_al does not support a format we will fall back to f32.
+    pDecoder->internalFormat = mal_format_unknown;
+    switch (pWav->translatedFormatTag) {
+        case DR_WAVE_FORMAT_PCM:
+        {
+            if (pWav->bitsPerSample == 8) {
+                pDecoder->internalFormat = mal_format_s16;
+            } else if (pWav->bitsPerSample == 16) {
+                pDecoder->internalFormat = mal_format_s16;
+            } else if (pWav->bitsPerSample == 32) {
+                pDecoder->internalFormat = mal_format_s32;
+            }
+        } break;
+
+        case DR_WAVE_FORMAT_IEEE_FLOAT:
+        {
+            if (pWav->bitsPerSample == 32) {
+                pDecoder->internalFormat = mal_format_f32;
+            }
+        } break;
+
+        case DR_WAVE_FORMAT_ALAW:
+        case DR_WAVE_FORMAT_MULAW:
+        case DR_WAVE_FORMAT_ADPCM:
+        case DR_WAVE_FORMAT_DVI_ADPCM:
+        {
+            pDecoder->internalFormat = mal_format_s16;
+        } break;
+    }
+
+    if (pDecoder->internalFormat == mal_format_unknown) {
+        pDecoder->internalFormat = mal_format_f32;
+    }
+
+    pDecoder->internalChannels = pWav->channels;
+    pDecoder->internalSampleRate = pWav->sampleRate;
+    mal_get_default_device_config_channel_map(pDecoder->internalChannels, pDecoder->internalChannelMap);    // For WAV files we are currently making an assumption on the channel map.
+
+
+    // Output format.
+    if (pConfig->outputFormat == mal_format_unknown) {
+        pDecoder->outputFormat = pDecoder->internalFormat;
+    } else {
+        pDecoder->outputFormat = pConfig->outputFormat;
+    }
+
+    if (pConfig->outputChannels == 0) {
+        pDecoder->outputChannels = pDecoder->internalChannels;
+    } else {
+        pDecoder->outputChannels = pConfig->outputChannels;
+    }
+
+    if (pConfig->outputSampleRate == 0) {
+        pDecoder->outputSampleRate = pDecoder->internalSampleRate;
+    } else {
+        pDecoder->outputSampleRate = pConfig->outputSampleRate;
+    }
+    
+    mal_copy_memory(pDecoder->outputChannelMap, pConfig->outputChannelMap, sizeof(pConfig->outputChannelMap));
+
+
+    // DSP.
+    mal_dsp_config dspConfig = mal_dsp_config_init(pDecoder->internalFormat, pDecoder->internalChannels, pDecoder->internalSampleRate, pDecoder->outputFormat, pDecoder->outputChannels, pDecoder->outputSampleRate);
+    mal_copy_memory(dspConfig.channelMapIn,  pDecoder->internalChannelMap, sizeof(pDecoder->internalChannelMap));
+    mal_copy_memory(dspConfig.channelMapOut, pDecoder->outputChannelMap,   sizeof(pDecoder->outputChannelMap));
+    mal_result result = mal_dsp_init(&dspConfig, mal_decoder_internal_on_read_frames__wav, pDecoder, &pDecoder->dsp);
+    if (result != MAL_SUCCESS) {
+        drwav_close(pWav);
+        return result;
+    }
+
+    return MAL_SUCCESS;
 }
 #endif
 
@@ -11358,6 +11530,7 @@ mal_result mal_decoder_init_wav__internal(const mal_decoder_config* pConfig, mal
 
 mal_result mal_decoder_init_flac__internal(const mal_decoder_config* pConfig, mal_decoder* pDecoder)
 {
+    mal_assert(pConfig != NULL);
     mal_assert(pDecoder != NULL);
 
     (void)pConfig;
@@ -11372,6 +11545,7 @@ mal_result mal_decoder_init_flac__internal(const mal_decoder_config* pConfig, ma
 
 mal_result mal_decoder_init_vorbis__internal(const mal_decoder_config* pConfig, mal_decoder* pDecoder)
 {
+    mal_assert(pConfig != NULL);
     mal_assert(pDecoder != NULL);
 
     (void)pConfig;
@@ -11382,6 +11556,8 @@ mal_result mal_decoder_init_vorbis__internal(const mal_decoder_config* pConfig, 
 
 mal_result mal_decoder__preinit(mal_decoder_read_proc onRead, mal_decoder_seek_proc onSeek, void* pUserData, const mal_decoder_config* pConfig, mal_decoder* pDecoder)
 {
+    mal_assert(pConfig != NULL);
+
     if (pDecoder == NULL) return MAL_INVALID_ARGS;
     mal_zero_object(pDecoder);
 
@@ -11399,13 +11575,15 @@ mal_result mal_decoder__preinit(mal_decoder_read_proc onRead, mal_decoder_seek_p
 
 mal_result mal_decoder_init_wav(mal_decoder_read_proc onRead, mal_decoder_seek_proc onSeek, void* pUserData, const mal_decoder_config* pConfig, mal_decoder* pDecoder)
 {
-    mal_result result = mal_decoder__preinit(onRead, onSeek, pUserData, pConfig, pDecoder);
+    mal_decoder_config config = mal_decoder_config_init_copy(pConfig);
+
+    mal_result result = mal_decoder__preinit(onRead, onSeek, pUserData, &config, pDecoder);
     if (result != MAL_SUCCESS) {
         return result;
     }
 
 #ifdef MAL_HAS_WAV
-    return mal_decoder_init_wav__internal(pConfig, pDecoder);
+    return mal_decoder_init_wav__internal(&config, pDecoder);
 #else
     return MAL_NO_BACKEND;
 #endif
@@ -11413,7 +11591,9 @@ mal_result mal_decoder_init_wav(mal_decoder_read_proc onRead, mal_decoder_seek_p
 
 mal_result mal_decoder_init_flac(mal_decoder_read_proc onRead, mal_decoder_seek_proc onSeek, void* pUserData, const mal_decoder_config* pConfig, mal_decoder* pDecoder)
 {
-    mal_result result = mal_decoder__preinit(onRead, onSeek, pUserData, pConfig, pDecoder);
+    mal_decoder_config config = mal_decoder_config_init_copy(pConfig);
+
+    mal_result result = mal_decoder__preinit(onRead, onSeek, pUserData, &config, pDecoder);
     if (result != MAL_SUCCESS) {
         return result;
     }
@@ -11427,13 +11607,15 @@ mal_result mal_decoder_init_flac(mal_decoder_read_proc onRead, mal_decoder_seek_
 
 mal_result mal_decoder_init_vorbis(mal_decoder_read_proc onRead, mal_decoder_seek_proc onSeek, void* pUserData, const mal_decoder_config* pConfig, mal_decoder* pDecoder)
 {
-    mal_result result = mal_decoder__preinit(onRead, onSeek, pUserData, pConfig, pDecoder);
+    mal_decoder_config config = mal_decoder_config_init_copy(pConfig);
+
+    mal_result result = mal_decoder__preinit(onRead, onSeek, pUserData, &config, pDecoder);
     if (result != MAL_SUCCESS) {
         return result;
     }
 
 #ifdef MAL_HAS_VORBIS
-    return mal_decoder_init_vorbis__internal(pConfig, pDecoder);
+    return mal_decoder_init_vorbis__internal(&config, pDecoder);
 #else
     return MAL_NO_BACKEND;
 #endif
@@ -11441,7 +11623,9 @@ mal_result mal_decoder_init_vorbis(mal_decoder_read_proc onRead, mal_decoder_see
 
 mal_result mal_decoder_init(mal_decoder_read_proc onRead, mal_decoder_seek_proc onSeek, void* pUserData, const mal_decoder_config* pConfig, mal_decoder* pDecoder)
 {
-    mal_result result = mal_decoder__preinit(onRead, onSeek, pUserData, pConfig, pDecoder);
+    mal_decoder_config config = mal_decoder_config_init_copy(pConfig);
+
+    mal_result result = mal_decoder__preinit(onRead, onSeek, pUserData, &config, pDecoder);
     if (result != MAL_SUCCESS) {
         return result;
     }
@@ -11451,7 +11635,7 @@ mal_result mal_decoder_init(mal_decoder_read_proc onRead, mal_decoder_seek_proc 
     
 #ifdef MAL_HAS_WAV
     if (result != MAL_SUCCESS) {
-        result = mal_decoder_init_wav__internal(pConfig, pDecoder);
+        result = mal_decoder_init_wav__internal(&config, pDecoder);
         if (result != MAL_SUCCESS) {
             onSeek(pDecoder, 0, mal_seek_origin_start);
         }
@@ -11459,7 +11643,7 @@ mal_result mal_decoder_init(mal_decoder_read_proc onRead, mal_decoder_seek_proc 
 #endif
 #ifdef MAL_HAS_VORBIS
     if (result != MAL_SUCCESS) {
-        result = mal_decoder_init_vorbis__internal(pConfig, pDecoder);
+        result = mal_decoder_init_vorbis__internal(&config, pDecoder);
         if (result != MAL_SUCCESS) {
             onSeek(pDecoder, 0, mal_seek_origin_start);
         }
@@ -11467,7 +11651,7 @@ mal_result mal_decoder_init(mal_decoder_read_proc onRead, mal_decoder_seek_proc 
 #endif
 #ifdef MAL_HAS_FLAC
     if (result != MAL_SUCCESS) {
-        result = mal_decoder_init_flac__internal(pConfig, pDecoder);
+        result = mal_decoder_init_flac__internal(&config, pDecoder);
         if (result != MAL_SUCCESS) {
             onSeek(pDecoder, 0, mal_seek_origin_start);
         }
@@ -12031,7 +12215,7 @@ void mal_pcm_f32_to_s32(int* pOut, const float* pIn, unsigned int count)
 // ================
 //
 // v0.xx - 2018-xx-xx
-//   - 
+//   - Add decoder APIs for loading WAV files.
 //
 // v0.6c - 2018-02-12
 //   - Fix build errors with BSD/OSS.
