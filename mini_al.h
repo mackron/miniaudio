@@ -11550,14 +11550,113 @@ mal_result mal_decoder_init_wav__internal(const mal_decoder_config* pConfig, mal
 #ifdef dr_flac_h
 #define MAL_HAS_FLAC
 
+static size_t mal_decoder_internal_on_read__flac(void* pUserData, void* pBufferOut, size_t bytesToRead)
+{
+    mal_decoder* pDecoder = (mal_decoder*)pUserData;
+    mal_assert(pDecoder != NULL);
+    mal_assert(pDecoder->onRead != NULL);
+
+    return pDecoder->onRead(pDecoder, pBufferOut, bytesToRead);
+}
+
+static drwav_bool32 mal_decoder_internal_on_seek__flac(void* pUserData, int offset, drflac_seek_origin origin)
+{
+    mal_decoder* pDecoder = (mal_decoder*)pUserData;
+    mal_assert(pDecoder != NULL);
+    mal_assert(pDecoder->onSeek != NULL);
+    
+    return pDecoder->onSeek(pDecoder, offset, (origin == drflac_seek_origin_start) ? mal_seek_origin_start : mal_seek_origin_current);
+}
+
+static mal_result mal_decoder_internal_on_seek_to_frame__flac(mal_decoder* pDecoder, mal_uint64 frameIndex)
+{
+    drflac* pFlac = (drflac*)pDecoder->pInternalDecoder;
+    mal_assert(pFlac != NULL);
+
+    drwav_bool32 result = drflac_seek_to_sample(pFlac, frameIndex*pFlac->channels);
+    if (result) {
+        return MAL_SUCCESS;
+    } else {
+        return MAL_ERROR;
+    }
+}
+
+static mal_result mal_decoder_internal_on_uninit__flac(mal_decoder* pDecoder)
+{
+    drflac_close((drflac*)pDecoder->pInternalDecoder);
+    return MAL_SUCCESS;
+}
+
+static mal_uint32 mal_decoder_internal_on_read_frames__flac(mal_dsp* pDSP, mal_uint32 frameCount, void* pSamplesOut, void* pUserData)
+{
+    (void)pDSP;
+
+    mal_decoder* pDecoder = (mal_decoder*)pUserData;
+    mal_assert(pDecoder != NULL);
+    mal_assert(pDecoder->internalFormat == mal_format_s32);
+
+    drflac* pFlac = (drflac*)pDecoder->pInternalDecoder;
+    mal_assert(pFlac != NULL);
+
+    return (mal_uint32)drflac_read_s32(pFlac, frameCount*pDecoder->internalChannels, (drflac_int32*)pSamplesOut) / pDecoder->internalChannels;
+}
+
 mal_result mal_decoder_init_flac__internal(const mal_decoder_config* pConfig, mal_decoder* pDecoder)
 {
     mal_assert(pConfig != NULL);
     mal_assert(pDecoder != NULL);
 
-    (void)pConfig;
-    (void)pDecoder;
-    return MAL_ERROR;
+    // Try opening the decoder first.
+    drflac* pFlac = drflac_open(mal_decoder_internal_on_read__flac, mal_decoder_internal_on_seek__flac, pDecoder);
+    if (pFlac == NULL) {
+        return MAL_ERROR;
+    }
+
+    // If we get here it means we successfully initialized the FLAC decoder. We can now initialize the rest of the mal_decoder.
+    pDecoder->onSeekToFrame = mal_decoder_internal_on_seek_to_frame__flac;
+    pDecoder->onUninit = mal_decoder_internal_on_uninit__flac;
+    pDecoder->pInternalDecoder = pFlac;
+
+    // The internal format is always s32.
+    pDecoder->internalFormat = mal_format_s32;
+    pDecoder->internalChannels = pFlac->channels;
+    pDecoder->internalSampleRate = pFlac->sampleRate;
+    mal_get_default_device_config_channel_map(pDecoder->internalChannels, pDecoder->internalChannelMap);    // TODO: The channel order is well defined by FLAC. Fix this.
+
+
+    // Output format.
+    if (pConfig->outputFormat == mal_format_unknown) {
+        pDecoder->outputFormat = pDecoder->internalFormat;
+    } else {
+        pDecoder->outputFormat = pConfig->outputFormat;
+    }
+
+    if (pConfig->outputChannels == 0) {
+        pDecoder->outputChannels = pDecoder->internalChannels;
+    } else {
+        pDecoder->outputChannels = pConfig->outputChannels;
+    }
+
+    if (pConfig->outputSampleRate == 0) {
+        pDecoder->outputSampleRate = pDecoder->internalSampleRate;
+    } else {
+        pDecoder->outputSampleRate = pConfig->outputSampleRate;
+    }
+    
+    mal_copy_memory(pDecoder->outputChannelMap, pConfig->outputChannelMap, sizeof(pConfig->outputChannelMap));
+
+
+    // DSP.
+    mal_dsp_config dspConfig = mal_dsp_config_init(pDecoder->internalFormat, pDecoder->internalChannels, pDecoder->internalSampleRate, pDecoder->outputFormat, pDecoder->outputChannels, pDecoder->outputSampleRate);
+    mal_copy_memory(dspConfig.channelMapIn,  pDecoder->internalChannelMap, sizeof(pDecoder->internalChannelMap));
+    mal_copy_memory(dspConfig.channelMapOut, pDecoder->outputChannelMap,   sizeof(pDecoder->outputChannelMap));
+    mal_result result = mal_dsp_init(&dspConfig, mal_decoder_internal_on_read_frames__flac, pDecoder, &pDecoder->dsp);
+    if (result != MAL_SUCCESS) {
+        drflac_close(pFlac);
+        return result;
+    }
+
+    return MAL_SUCCESS;
 }
 #endif
 
@@ -11621,7 +11720,7 @@ mal_result mal_decoder_init_flac(mal_decoder_read_proc onRead, mal_decoder_seek_
     }
 
 #ifdef MAL_HAS_FLAC
-    return mal_decoder_init_flac__internal(pConfig, pDecoder);
+    return mal_decoder_init_flac__internal(&config, pDecoder);
 #else
     return MAL_NO_BACKEND;
 #endif
@@ -11881,14 +11980,17 @@ mal_result mal_decoder_init_file(const char* pFilePath, const mal_decoder_config
     FILE* pFile;
 #if defined(_MSC_VER) && _MSC_VER >= 1400
     if (fopen_s(&pFile, pFilePath, "rb") != 0) {
-        return DRWAV_FALSE;
+        return MAL_FALSE;
     }
 #else
     pFile = fopen(pFilePath, "rb");
     if (pFile == NULL) {
-        return DRWAV_FALSE;
+        return MAL_FALSE;
     }
 #endif
+
+    // We need to manually set the user data so the calls to mal_decoder__on_seek_stdio() succeed.
+    pDecoder->pUserData = pFile;
 
     // WAV
     if (mal_path_extension_equal(pFilePath, "wav")) {
@@ -11896,18 +11998,20 @@ mal_result mal_decoder_init_file(const char* pFilePath, const mal_decoder_config
         if (result == MAL_SUCCESS) {
             return MAL_SUCCESS;
         }
+
+        mal_decoder__on_seek_stdio(pDecoder, 0, mal_seek_origin_start);
     }
-    mal_decoder__on_seek_stdio(pDecoder, 0, mal_seek_origin_start);
-
-
+    
     // FLAC
     if (mal_path_extension_equal(pFilePath, "flac")) {
         mal_result result =  mal_decoder_init_flac(mal_decoder__on_read_stdio, mal_decoder__on_seek_stdio, (void*)pFile, pConfig, pDecoder);
         if (result == MAL_SUCCESS) {
             return MAL_SUCCESS;
         }
+
+        mal_decoder__on_seek_stdio(pDecoder, 0, mal_seek_origin_start);
     }
-    mal_decoder__on_seek_stdio(pDecoder, 0, mal_seek_origin_start);
+    
 
 
     // Trial and error.
@@ -12165,7 +12269,7 @@ void mal_pcm_s32_to_f32(float* pOut, const int* pIn, unsigned int count)
     for (unsigned int i = 0; i < count; ++i) {
         int x = pIn[i];
         double t;
-        t = (double)(x + 2147483647);
+        t = (double)(x + 2147483647UL);
         t = t + 1;
         t = t * 0.0000000004656612873077392578125;
         r = (float)(t - 1);
@@ -12237,7 +12341,8 @@ void mal_pcm_f32_to_s32(int* pOut, const float* pIn, unsigned int count)
 // ================
 //
 // v0.xx - 2018-xx-xx
-//   - Add decoder APIs for loading WAV files.
+//   - Add decoder APIs for loading WAV and FLAC files.
+//   - Fix build errors with macOS.
 //
 // v0.6c - 2018-02-12
 //   - Fix build errors with BSD/OSS.
