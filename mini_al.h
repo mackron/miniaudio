@@ -11817,17 +11817,17 @@ mal_result mal_decoder_init(mal_decoder_read_proc onRead, mal_decoder_seek_proc 
         }
     }
 #endif
-#ifdef MAL_HAS_VORBIS
+#ifdef MAL_HAS_FLAC
     if (result != MAL_SUCCESS) {
-        result = mal_decoder_init_vorbis__internal(&config, pDecoder);
+        result = mal_decoder_init_flac__internal(&config, pDecoder);
         if (result != MAL_SUCCESS) {
             onSeek(pDecoder, 0, mal_seek_origin_start);
         }
     }
 #endif
-#ifdef MAL_HAS_FLAC
+#ifdef MAL_HAS_VORBIS
     if (result != MAL_SUCCESS) {
-        result = mal_decoder_init_flac__internal(&config, pDecoder);
+        result = mal_decoder_init_vorbis__internal(&config, pDecoder);
         if (result != MAL_SUCCESS) {
             onSeek(pDecoder, 0, mal_seek_origin_start);
         }
@@ -11837,8 +11837,6 @@ mal_result mal_decoder_init(mal_decoder_read_proc onRead, mal_decoder_seek_proc 
     if (result != MAL_SUCCESS) {
         return result;
     }
-
-
 
     return result;
 }
@@ -12067,8 +12065,6 @@ mal_result mal_decoder_init_file(const char* pFilePath, const mal_decoder_config
         mal_decoder__on_seek_stdio(pDecoder, 0, mal_seek_origin_start);
     }
     
-
-
     // Trial and error.
     return mal_decoder_init(mal_decoder__on_read_stdio, mal_decoder__on_seek_stdio, (void*)pFile, pConfig, pDecoder);
 }
