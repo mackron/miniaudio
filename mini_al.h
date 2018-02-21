@@ -11393,6 +11393,39 @@ mal_decoder_config mal_decoder_config_init_copy(const mal_decoder_config* pConfi
     return config;
 }
 
+mal_result mal_decoder__init_dsp(mal_decoder* pDecoder, const mal_decoder_config* pConfig, mal_dsp_read_proc onRead)
+{
+    mal_assert(pDecoder != NULL);
+
+    // Output format.
+    if (pConfig->outputFormat == mal_format_unknown) {
+        pDecoder->outputFormat = pDecoder->internalFormat;
+    } else {
+        pDecoder->outputFormat = pConfig->outputFormat;
+    }
+
+    if (pConfig->outputChannels == 0) {
+        pDecoder->outputChannels = pDecoder->internalChannels;
+    } else {
+        pDecoder->outputChannels = pConfig->outputChannels;
+    }
+
+    if (pConfig->outputSampleRate == 0) {
+        pDecoder->outputSampleRate = pDecoder->internalSampleRate;
+    } else {
+        pDecoder->outputSampleRate = pConfig->outputSampleRate;
+    }
+    
+    mal_copy_memory(pDecoder->outputChannelMap, pConfig->outputChannelMap, sizeof(pConfig->outputChannelMap));
+
+
+    // DSP.
+    mal_dsp_config dspConfig = mal_dsp_config_init(pDecoder->internalFormat, pDecoder->internalChannels, pDecoder->internalSampleRate, pDecoder->outputFormat, pDecoder->outputChannels, pDecoder->outputSampleRate);
+    mal_copy_memory(dspConfig.channelMapIn,  pDecoder->internalChannelMap, sizeof(pDecoder->internalChannelMap));
+    mal_copy_memory(dspConfig.channelMapOut, pDecoder->outputChannelMap,   sizeof(pDecoder->outputChannelMap));
+    return mal_dsp_init(&dspConfig, onRead, pDecoder, &pDecoder->dsp);
+}
+
 // WAV
 #ifdef dr_wav_h
 #define MAL_HAS_WAV
@@ -11509,34 +11542,7 @@ mal_result mal_decoder_init_wav__internal(const mal_decoder_config* pConfig, mal
     pDecoder->internalSampleRate = pWav->sampleRate;
     mal_get_default_device_config_channel_map(pDecoder->internalChannels, pDecoder->internalChannelMap);    // For WAV files we are currently making an assumption on the channel map.
 
-
-    // Output format.
-    if (pConfig->outputFormat == mal_format_unknown) {
-        pDecoder->outputFormat = pDecoder->internalFormat;
-    } else {
-        pDecoder->outputFormat = pConfig->outputFormat;
-    }
-
-    if (pConfig->outputChannels == 0) {
-        pDecoder->outputChannels = pDecoder->internalChannels;
-    } else {
-        pDecoder->outputChannels = pConfig->outputChannels;
-    }
-
-    if (pConfig->outputSampleRate == 0) {
-        pDecoder->outputSampleRate = pDecoder->internalSampleRate;
-    } else {
-        pDecoder->outputSampleRate = pConfig->outputSampleRate;
-    }
-    
-    mal_copy_memory(pDecoder->outputChannelMap, pConfig->outputChannelMap, sizeof(pConfig->outputChannelMap));
-
-
-    // DSP.
-    mal_dsp_config dspConfig = mal_dsp_config_init(pDecoder->internalFormat, pDecoder->internalChannels, pDecoder->internalSampleRate, pDecoder->outputFormat, pDecoder->outputChannels, pDecoder->outputSampleRate);
-    mal_copy_memory(dspConfig.channelMapIn,  pDecoder->internalChannelMap, sizeof(pDecoder->internalChannelMap));
-    mal_copy_memory(dspConfig.channelMapOut, pDecoder->outputChannelMap,   sizeof(pDecoder->outputChannelMap));
-    mal_result result = mal_dsp_init(&dspConfig, mal_decoder_internal_on_read_frames__wav, pDecoder, &pDecoder->dsp);
+    mal_result result = mal_decoder__init_dsp(pDecoder, pConfig, mal_decoder_internal_on_read_frames__wav);
     if (result != MAL_SUCCESS) {
         drwav_close(pWav);
         return result;
@@ -11549,6 +11555,82 @@ mal_result mal_decoder_init_wav__internal(const mal_decoder_config* pConfig, mal
 // FLAC
 #ifdef dr_flac_h
 #define MAL_HAS_FLAC
+
+static void mal_get_flac_channel_map(mal_uint32 channels, mal_uint8 channelMap[MAL_MAX_CHANNELS])
+{
+    switch (channels) {
+        case 1:
+        {
+            channelMap[0] = MAL_CHANNEL_MONO;
+        } break;
+
+        case 2:
+        {
+            channelMap[0] = MAL_CHANNEL_LEFT;
+            channelMap[1] = MAL_CHANNEL_RIGHT;
+        } break;
+
+        case 3:
+        {
+            channelMap[0] = MAL_CHANNEL_LEFT;
+            channelMap[1] = MAL_CHANNEL_RIGHT;
+            channelMap[2] = MAL_CHANNEL_MONO;
+        } break;
+
+        case 4:
+        {
+            channelMap[0] = MAL_CHANNEL_FRONT_LEFT;
+            channelMap[1] = MAL_CHANNEL_FRONT_RIGHT;
+            channelMap[2] = MAL_CHANNEL_BACK_LEFT;
+            channelMap[3] = MAL_CHANNEL_BACK_RIGHT;
+        } break;
+
+        case 5:
+        {
+            channelMap[0] = MAL_CHANNEL_FRONT_LEFT;
+            channelMap[1] = MAL_CHANNEL_FRONT_RIGHT;
+            channelMap[2] = MAL_CHANNEL_FRONT_CENTER;
+            channelMap[3] = MAL_CHANNEL_BACK_LEFT;
+            channelMap[4] = MAL_CHANNEL_BACK_RIGHT;
+        } break;
+
+        case 6:
+        {
+            channelMap[0] = MAL_CHANNEL_FRONT_LEFT;
+            channelMap[1] = MAL_CHANNEL_FRONT_RIGHT;
+            channelMap[2] = MAL_CHANNEL_FRONT_CENTER;
+            channelMap[3] = MAL_CHANNEL_LFE;
+            channelMap[4] = MAL_CHANNEL_BACK_LEFT;
+            channelMap[5] = MAL_CHANNEL_BACK_RIGHT;
+        } break;
+
+        case 7:
+        {
+            channelMap[0] = MAL_CHANNEL_FRONT_LEFT;
+            channelMap[1] = MAL_CHANNEL_FRONT_RIGHT;
+            channelMap[2] = MAL_CHANNEL_FRONT_CENTER;
+            channelMap[3] = MAL_CHANNEL_LFE;
+            channelMap[4] = MAL_CHANNEL_BACK_CENTER;
+            channelMap[5] = MAL_CHANNEL_SIDE_LEFT;
+            channelMap[6] = MAL_CHANNEL_SIDE_RIGHT;
+        } break;
+
+        case 8:
+        {
+            channelMap[0] = MAL_CHANNEL_FRONT_LEFT;
+            channelMap[1] = MAL_CHANNEL_FRONT_RIGHT;
+            channelMap[2] = MAL_CHANNEL_FRONT_CENTER;
+            channelMap[3] = MAL_CHANNEL_LFE;
+            channelMap[4] = MAL_CHANNEL_BACK_LEFT;
+            channelMap[5] = MAL_CHANNEL_BACK_RIGHT;
+            channelMap[6] = MAL_CHANNEL_SIDE_LEFT;
+            channelMap[7] = MAL_CHANNEL_SIDE_RIGHT;
+        } break;
+    }
+
+    // Should never get here because FLAC has a maximum of 8 channels. In any case, just set the channel map to all zeros.
+    mal_zero_memory(channelMap, sizeof(channelMap));
+}
 
 static size_t mal_decoder_internal_on_read__flac(void* pUserData, void* pBufferOut, size_t bytesToRead)
 {
@@ -11621,36 +11703,9 @@ mal_result mal_decoder_init_flac__internal(const mal_decoder_config* pConfig, ma
     pDecoder->internalFormat = mal_format_s32;
     pDecoder->internalChannels = pFlac->channels;
     pDecoder->internalSampleRate = pFlac->sampleRate;
-    mal_get_default_device_config_channel_map(pDecoder->internalChannels, pDecoder->internalChannelMap);    // TODO: The channel order is well defined by FLAC. Fix this.
+    mal_get_flac_channel_map(pDecoder->internalChannels, pDecoder->internalChannelMap);
 
-
-    // Output format.
-    if (pConfig->outputFormat == mal_format_unknown) {
-        pDecoder->outputFormat = pDecoder->internalFormat;
-    } else {
-        pDecoder->outputFormat = pConfig->outputFormat;
-    }
-
-    if (pConfig->outputChannels == 0) {
-        pDecoder->outputChannels = pDecoder->internalChannels;
-    } else {
-        pDecoder->outputChannels = pConfig->outputChannels;
-    }
-
-    if (pConfig->outputSampleRate == 0) {
-        pDecoder->outputSampleRate = pDecoder->internalSampleRate;
-    } else {
-        pDecoder->outputSampleRate = pConfig->outputSampleRate;
-    }
-    
-    mal_copy_memory(pDecoder->outputChannelMap, pConfig->outputChannelMap, sizeof(pConfig->outputChannelMap));
-
-
-    // DSP.
-    mal_dsp_config dspConfig = mal_dsp_config_init(pDecoder->internalFormat, pDecoder->internalChannels, pDecoder->internalSampleRate, pDecoder->outputFormat, pDecoder->outputChannels, pDecoder->outputSampleRate);
-    mal_copy_memory(dspConfig.channelMapIn,  pDecoder->internalChannelMap, sizeof(pDecoder->internalChannelMap));
-    mal_copy_memory(dspConfig.channelMapOut, pDecoder->outputChannelMap,   sizeof(pDecoder->outputChannelMap));
-    mal_result result = mal_dsp_init(&dspConfig, mal_decoder_internal_on_read_frames__flac, pDecoder, &pDecoder->dsp);
+    mal_result result = mal_decoder__init_dsp(pDecoder, pConfig, mal_decoder_internal_on_read_frames__flac);
     if (result != MAL_SUCCESS) {
         drflac_close(pFlac);
         return result;
