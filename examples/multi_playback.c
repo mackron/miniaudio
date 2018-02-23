@@ -1,27 +1,12 @@
 #define _CRT_SECURE_NO_WARNINGS
 
-#define DR_FLAC_IMPLEMENTATION
-#include "../extras/dr_flac.h"
-
-#define DR_WAV_IMPLEMENTATION
-#include "../extras/dr_wav.h"
-
-
+// These are implemented at the bottom of this file.
 #define STB_VORBIS_HEADER_ONLY
 #include "../extras/stb_vorbis.c"
-
+#include "../extras/dr_flac.h"
+#include "../extras/dr_wav.h"
 #include "../extras/jar_mod.h"
-
-#if defined(_MSC_VER)
-    #pragma warning(push)
-    #pragma warning(disable:4244)
-    #pragma warning(disable:4018)
-#endif
 #include "../extras/jar_xm.h"
-#if defined(_MSC_VER)
-    #pragma warning(pop)
-#endif
-
 
 #define MAL_IMPLEMENTATION
 #include "../mini_al.h"
@@ -244,6 +229,12 @@ end:;
 }
 #endif
 
+
+#define DR_FLAC_IMPLEMENTATION
+#include "../extras/dr_flac.h"
+
+#define DR_WAV_IMPLEMENTATION
+#include "../extras/dr_wav.h"
 
 #if defined(_MSC_VER)
     #pragma warning(push)
