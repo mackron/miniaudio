@@ -11641,7 +11641,7 @@ static size_t mal_decoder_internal_on_read__flac(void* pUserData, void* pBufferO
     return pDecoder->onRead(pDecoder, pBufferOut, bytesToRead);
 }
 
-static drwav_bool32 mal_decoder_internal_on_seek__flac(void* pUserData, int offset, drflac_seek_origin origin)
+static drflac_bool32 mal_decoder_internal_on_seek__flac(void* pUserData, int offset, drflac_seek_origin origin)
 {
     mal_decoder* pDecoder = (mal_decoder*)pUserData;
     mal_assert(pDecoder != NULL);
@@ -11655,7 +11655,7 @@ static mal_result mal_decoder_internal_on_seek_to_frame__flac(mal_decoder* pDeco
     drflac* pFlac = (drflac*)pDecoder->pInternalDecoder;
     mal_assert(pFlac != NULL);
 
-    drwav_bool32 result = drflac_seek_to_sample(pFlac, frameIndex*pFlac->channels);
+    drflac_bool32 result = drflac_seek_to_sample(pFlac, frameIndex*pFlac->channels);
     if (result) {
         return MAL_SUCCESS;
     } else {
@@ -11719,14 +11719,266 @@ mal_result mal_decoder_init_flac__internal(const mal_decoder_config* pConfig, ma
 #ifdef STB_VORBIS_INCLUDE_STB_VORBIS_H
 #define MAL_HAS_VORBIS
 
+// The size in bytes of each chunk of data to read from the Vorbis stream.
+#define MAL_VORBIS_DATA_CHUNK_SIZE  4096
+
+typedef struct
+{
+    stb_vorbis* pInternalVorbis;
+    mal_uint8* pData;
+    size_t dataSize;
+    size_t dataCapacity;
+    mal_uint32 framesConsumed;  // The number of frames consumed in ppPacketData.
+    mal_uint32 framesRemaining; // The number of frames remaining in ppPacketData.
+    float** ppPacketData;
+} mal_vorbis_decoder;
+
+static mal_uint32 mal_vorbis_decoder_read(mal_vorbis_decoder* pVorbis, mal_decoder* pDecoder, mal_uint32 frameCount, void* pSamplesOut)
+{
+    mal_assert(pVorbis != NULL);
+    mal_assert(pDecoder != NULL);
+    mal_assert(pDecoder->onRead != NULL);
+    mal_assert(pDecoder->onSeek != NULL);
+
+    float* pSamplesOutF = (float*)pSamplesOut;
+
+    mal_uint32 totalFramesRead = 0;
+    while (frameCount > 0) {
+        // Read from the in-memory buffer first.
+        while (pVorbis->framesRemaining > 0 && frameCount > 0) {
+            for (mal_uint32 iChannel = 0; iChannel < pDecoder->internalChannels; ++iChannel) {
+                pSamplesOutF[0] = pVorbis->ppPacketData[iChannel][pVorbis->framesConsumed];
+                pSamplesOutF += 1;
+            }
+
+            pVorbis->framesConsumed += 1;
+            pVorbis->framesRemaining -= 1;
+            frameCount -= 1;
+            totalFramesRead += 1;
+        }
+
+        if (frameCount == 0) {
+            break;
+        }
+
+        mal_assert(pVorbis->framesRemaining == 0);
+
+        // We've run out of cached frames, so decode the next packet and continue iteration.
+        do
+        {
+            int samplesRead = 0;
+            int consumedDataSize = stb_vorbis_decode_frame_pushdata(pVorbis->pInternalVorbis, pVorbis->pData, pVorbis->dataSize, NULL, (float***)&pVorbis->ppPacketData, &samplesRead);
+            if (consumedDataSize != 0) {
+                size_t leftoverDataSize = (pVorbis->dataSize - (size_t)consumedDataSize);
+                for (size_t i = 0; i < leftoverDataSize; ++i) {
+                    pVorbis->pData[i] = pVorbis->pData[i + consumedDataSize];
+                }
+                
+                pVorbis->dataSize = leftoverDataSize;
+                pVorbis->framesConsumed = 0;
+                pVorbis->framesRemaining = samplesRead;
+                break;
+            } else {
+                // Need more data. If there's any room in the existing buffer allocation fill that first. Otherwise expand.
+                if (pVorbis->dataCapacity == pVorbis->dataSize) {
+                    // No room. Expand.
+                    pVorbis->dataCapacity += MAL_VORBIS_DATA_CHUNK_SIZE;
+                    mal_uint8* pNewData = (mal_uint8*)mal_realloc(pVorbis->pData, pVorbis->dataCapacity);
+                    if (pNewData == NULL) {
+                        return totalFramesRead; // Out of memory.
+                    }
+                }
+
+                // Fill in a chunk.
+                size_t bytesRead = pDecoder->onRead(pDecoder, pVorbis->pData + pVorbis->dataSize, (pVorbis->dataCapacity - pVorbis->dataSize));
+                if (bytesRead == 0) {
+                    return totalFramesRead; // Error reading more data.
+                }
+
+                pVorbis->dataSize += bytesRead;
+            }
+        } while (MAL_TRUE);
+    }
+
+    return totalFramesRead;
+}
+
+static mal_result mal_vorbis_decoder_seek_to_frame(mal_vorbis_decoder* pVorbis, mal_decoder* pDecoder, mal_uint64 frameIndex)
+{
+    mal_assert(pVorbis != NULL);
+    mal_assert(pDecoder != NULL);
+    mal_assert(pDecoder->onRead != NULL);
+    mal_assert(pDecoder->onSeek != NULL);
+
+    // This is terribly inefficient because stb_vorbis does not have a good seeking solution with it's push API. Currently this just performs
+    // a full decode right from the start of the stream. Later on I'll need to write a layer that goes through all of the Ogg pages until we
+    // find the one containing the sample we need. Then we know exactly where to seek for stb_vorbis.
+    if (!pDecoder->onSeek(pDecoder, 0, mal_seek_origin_start)) {
+        return MAL_ERROR;
+    }
+
+    stb_vorbis_flush_pushdata(pVorbis->pInternalVorbis);
+    pVorbis->framesConsumed = 0;
+    pVorbis->framesRemaining = 0;
+    
+    float buffer[4096];
+    while (frameIndex > 0) {
+        mal_uint32 framesToRead = mal_countof(buffer)/pDecoder->internalChannels;
+        if (framesToRead > frameIndex) {
+            framesToRead = (mal_uint32)frameIndex;
+        }
+
+        mal_uint32 framesRead = mal_vorbis_decoder_read(pVorbis, pDecoder, framesToRead, buffer);
+        if (framesRead == 0) {
+            return MAL_ERROR;
+        }
+
+        frameIndex -= framesRead;
+    }
+
+    return MAL_SUCCESS;
+}
+
+
+static mal_result mal_decoder_internal_on_seek_to_frame__vorbis(mal_decoder* pDecoder, mal_uint64 frameIndex)
+{
+    mal_assert(pDecoder != NULL);
+    mal_assert(pDecoder->onRead != NULL);
+    mal_assert(pDecoder->onSeek != NULL);
+
+    mal_vorbis_decoder* pVorbis = (mal_vorbis_decoder*)pDecoder->pInternalDecoder;
+    mal_assert(pVorbis != NULL);
+    
+    return mal_vorbis_decoder_seek_to_frame(pVorbis, pDecoder, frameIndex);
+}
+
+static mal_result mal_decoder_internal_on_uninit__vorbis(mal_decoder* pDecoder)
+{
+    mal_vorbis_decoder* pVorbis = (mal_vorbis_decoder*)pDecoder->pInternalDecoder;
+    mal_assert(pVorbis != NULL);
+
+    stb_vorbis_close(pVorbis->pInternalVorbis);
+    mal_free(pVorbis->pData);
+    mal_free(pVorbis);
+
+    return MAL_SUCCESS;
+}
+
+static mal_uint32 mal_decoder_internal_on_read_frames__vorbis(mal_dsp* pDSP, mal_uint32 frameCount, void* pSamplesOut, void* pUserData)
+{
+    (void)pDSP;
+
+    mal_decoder* pDecoder = (mal_decoder*)pUserData;
+    mal_assert(pDecoder != NULL);
+    mal_assert(pDecoder->internalFormat == mal_format_f32);
+    mal_assert(pDecoder->onRead != NULL);
+    mal_assert(pDecoder->onSeek != NULL);
+
+    mal_vorbis_decoder* pVorbis = (mal_vorbis_decoder*)pDecoder->pInternalDecoder;
+    mal_assert(pVorbis != NULL);
+
+    return mal_vorbis_decoder_read(pVorbis, pDecoder, frameCount, pSamplesOut);
+}
+
 mal_result mal_decoder_init_vorbis__internal(const mal_decoder_config* pConfig, mal_decoder* pDecoder)
 {
     mal_assert(pConfig != NULL);
     mal_assert(pDecoder != NULL);
+    mal_assert(pDecoder->onRead != NULL);
+    mal_assert(pDecoder->onSeek != NULL);
 
-    (void)pConfig;
-    (void)pDecoder;
-    return MAL_ERROR;
+    stb_vorbis* pInternalVorbis = NULL;
+
+    // We grow the buffer in chunks.
+    size_t dataSize = 0;
+    size_t dataCapacity = 0;
+    mal_uint8* pData = NULL;
+    do
+    {
+        // Allocate memory for a new chunk.
+        dataCapacity += MAL_VORBIS_DATA_CHUNK_SIZE;
+        mal_uint8* pNewData = (mal_uint8*)mal_realloc(pData, dataCapacity);
+        if (pNewData == NULL) {
+            mal_free(pData);
+            return MAL_OUT_OF_MEMORY;
+        }
+
+        pData = pNewData;
+
+        // Fill in a chunk.
+        size_t bytesRead = pDecoder->onRead(pDecoder, pData + dataSize, (dataCapacity - dataSize));
+        if (bytesRead == 0) {
+            return MAL_ERROR;
+        }
+
+        dataSize += bytesRead;
+
+        int vorbisError = 0;
+        int consumedDataSize = 0;
+        pInternalVorbis = stb_vorbis_open_pushdata(pData, dataSize, &consumedDataSize, &vorbisError, NULL);
+        if (pInternalVorbis != NULL) {
+            // If we get here it means we were able to open the stb_vorbis decoder. There may be some leftover bytes in our buffer, so
+            // we need to move those bytes down to the front of the buffer since they'll be needed for future decoding.
+            size_t leftoverDataSize = (dataSize - (size_t)consumedDataSize);
+            for (size_t i = 0; i < leftoverDataSize; ++i) {
+                pData[i] = pData[i + consumedDataSize];
+            }
+
+            dataSize = leftoverDataSize;
+            break;  // Success.
+        } else {
+            if (vorbisError == VORBIS_need_more_data) {
+                continue;
+            } else {
+                return MAL_ERROR;   // Failed to open the stb_vorbis decoder.
+            }
+        }
+    } while (MAL_TRUE);
+
+
+    // If we get here it means we successfully opened the Vorbis decoder.
+    stb_vorbis_info vorbisInfo = stb_vorbis_get_info(pInternalVorbis);
+
+    // Don't allow more than MAL_MAX_CHANNELS channels.
+    if (vorbisInfo.channels > MAL_MAX_CHANNELS) {
+        stb_vorbis_close(pInternalVorbis);
+        mal_free(pData);
+        return MAL_ERROR;   // Too many channels.
+    }
+
+    size_t vorbisDataSize = sizeof(mal_vorbis_decoder) + sizeof(float)*vorbisInfo.max_frame_size;
+    mal_vorbis_decoder* pVorbis = (mal_vorbis_decoder*)mal_malloc(vorbisDataSize);
+    if (pVorbis == NULL) {
+        stb_vorbis_close(pInternalVorbis);
+        mal_free(pData);
+        return MAL_OUT_OF_MEMORY;
+    }
+
+    mal_zero_memory(pVorbis, vorbisDataSize);
+    pVorbis->pInternalVorbis = pInternalVorbis;
+    pVorbis->pData = pData;
+    pVorbis->dataSize = dataSize;
+    pVorbis->dataCapacity = dataCapacity;
+
+    pDecoder->onSeekToFrame = mal_decoder_internal_on_seek_to_frame__vorbis;
+    pDecoder->onUninit = mal_decoder_internal_on_uninit__vorbis;
+    pDecoder->pInternalDecoder = pVorbis;
+
+    // The internal format is always f32.
+    pDecoder->internalFormat = mal_format_f32;
+    pDecoder->internalChannels = vorbisInfo.channels;
+    pDecoder->internalSampleRate = vorbisInfo.sample_rate;
+    mal_get_default_device_config_channel_map(pDecoder->internalChannels, pDecoder->internalChannelMap);
+
+    mal_result result = mal_decoder__init_dsp(pDecoder, pConfig, mal_decoder_internal_on_read_frames__vorbis);
+    if (result != MAL_SUCCESS) {
+        stb_vorbis_close(pVorbis->pInternalVorbis);
+        mal_free(pVorbis->pData);
+        mal_free(pVorbis);
+        return result;
+    }
+
+    return MAL_SUCCESS;
 }
 #endif
 
