@@ -12644,7 +12644,7 @@ void mal_pcm_f32_to_s32(int* pOut, const float* pIn, unsigned int count)
 // ================
 //
 // v0.xx - 2018-xx-xx
-//   - Add decoder APIs for loading WAV and FLAC files.
+//   - Add decoder APIs for loading WAV, FLAC and Vorbis files.
 //   - Fix build errors with macOS.
 //
 // v0.6c - 2018-02-12
