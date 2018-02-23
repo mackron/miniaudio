@@ -300,7 +300,7 @@ uint64_t jar_xm_get_remaining_samples(jar_xm_context_t*);
 }
 #endif
 //-------------------------------------------------------------------------------
-
+#endif//end of INCLUDE_JAR_XM_H
 
 
 
@@ -2669,7 +2669,3 @@ int jar_xm_create_context_from_file(jar_xm_context_t** ctx, uint32_t rate, const
 #endif//end of JAR_XM_IMPLEMENTATION
 //-------------------------------------------------------------------------------
 
-
-
-
-#endif//end of INCLUDE_JAR_XM_H
