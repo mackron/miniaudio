@@ -141,9 +141,9 @@ void jar_xm_generate_samples_16bit(jar_xm_context_t* ctx, short* output, size_t 
     jar_xm_generate_samples(ctx, musicBuffer, numsamples);
 
     if(output){
-        int x;
+        size_t x;
         for(x=0;x<2*numsamples;x++)
-            output[x] = musicBuffer[x] * SHRT_MAX;
+            output[x] = (short)(musicBuffer[x] * SHRT_MAX);
     }
 
     free(musicBuffer);
@@ -160,9 +160,9 @@ void jar_xm_generate_samples_8bit(jar_xm_context_t* ctx, char* output, size_t nu
     jar_xm_generate_samples(ctx, musicBuffer, numsamples);
 
     if(output){
-        int x;
+        size_t x;
         for(x=0;x<2*numsamples;x++)
-            output[x] = musicBuffer[x] * CHAR_MAX;
+            output[x] = (char)(musicBuffer[x] * CHAR_MAX);
     }
 
     free(musicBuffer);
