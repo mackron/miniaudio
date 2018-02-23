@@ -84,6 +84,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <stdbool.h> // comment this line out if you have bool defined somewhere else
+#include <string.h>  // For memset()
 
 
 #ifdef __cplusplus
