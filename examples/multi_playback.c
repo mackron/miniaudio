@@ -1,12 +1,24 @@
 #define _CRT_SECURE_NO_WARNINGS
 
 // These are implemented at the bottom of this file.
-#define STB_VORBIS_HEADER_ONLY
-#include "../extras/stb_vorbis.c"
+//#define STB_VORBIS_HEADER_ONLY
+//#include "../extras/stb_vorbis.c"
 #include "../extras/dr_flac.h"
 #include "../extras/dr_wav.h"
 #include "../extras/jar_mod.h"
 #include "../extras/jar_xm.h"
+
+#if defined(_MSC_VER)
+    #pragma warning(push)
+    #pragma warning(disable:4244)
+#endif
+#define MINIMP3_IMPLEMENTATION
+#include "../extras/minimp3.h"
+#if defined(_MSC_VER)
+    #pragma warning(pop)
+    #pragma warning(disable:4244)
+#endif
+
 
 #define MAL_IMPLEMENTATION
 #include "../mini_al.h"
@@ -254,7 +266,7 @@ end:;
     #endif
 #endif
 #undef STB_VORBIS_HEADER_ONLY
-#include "../extras/stb_vorbis.c"
+//#include "../extras/stb_vorbis.c"
 #if defined(_MSC_VER)
     #pragma warning(pop)
 #endif
