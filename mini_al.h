@@ -11784,8 +11784,12 @@ static mal_uint32 mal_vorbis_decoder_read(mal_vorbis_decoder* pVorbis, mal_decod
         // We've run out of cached frames, so decode the next packet and continue iteration.
         do
         {
+            if (pVorbis->dataSize > INT_MAX) {
+                break;  // Too big.
+            }
+
             int samplesRead = 0;
-            int consumedDataSize = stb_vorbis_decode_frame_pushdata(pVorbis->pInternalVorbis, pVorbis->pData, pVorbis->dataSize, NULL, (float***)&pVorbis->ppPacketData, &samplesRead);
+            int consumedDataSize = stb_vorbis_decode_frame_pushdata(pVorbis->pInternalVorbis, pVorbis->pData, (int)pVorbis->dataSize, NULL, (float***)&pVorbis->ppPacketData, &samplesRead);
             if (consumedDataSize != 0) {
                 size_t leftoverDataSize = (pVorbis->dataSize - (size_t)consumedDataSize);
                 for (size_t i = 0; i < leftoverDataSize; ++i) {
@@ -11933,10 +11937,13 @@ mal_result mal_decoder_init_vorbis__internal(const mal_decoder_config* pConfig, 
         }
 
         dataSize += bytesRead;
+        if (dataSize > INT_MAX) {
+            return MAL_ERROR;   // Too big.
+        }
 
         int vorbisError = 0;
         int consumedDataSize = 0;
-        pInternalVorbis = stb_vorbis_open_pushdata(pData, dataSize, &consumedDataSize, &vorbisError, NULL);
+        pInternalVorbis = stb_vorbis_open_pushdata(pData, (int)dataSize, &consumedDataSize, &vorbisError, NULL);
         if (pInternalVorbis != NULL) {
             // If we get here it means we were able to open the stb_vorbis decoder. There may be some leftover bytes in our buffer, so
             // we need to move those bytes down to the front of the buffer since they'll be needed for future decoding.
