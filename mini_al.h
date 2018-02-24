@@ -12004,192 +12004,44 @@ mal_result mal_decoder_init_vorbis__internal(const mal_decoder_config* pConfig, 
 #endif
 
 // MP3
-#if defined(MINIMP3_MAX_SAMPLES_PER_FRAME) || defined(MINIMP3_IMPLEMENTATION)
+#ifdef dr_mp3_h
 #define MAL_HAS_MP3
 
-// The size in bytes of each chunk of data to read from the MP3 stream. minimp3 recommends 16K.
-#define MAL_MP3_DATA_CHUNK_SIZE  16384
-
-typedef struct
-{
-    mp3dec_t internalMP3;
-    mal_uint8* pData;
-    size_t dataSize;
-    size_t dataCapacity;
-    mal_uint32 framesConsumed;      // The number of frames consumed in pPacketData.
-    mal_uint32 framesRemaining;     // The number of frames remaining in pPacketData.
-    mal_uint32 packetChannels;      // The channel count can technically be different across frames.
-    mal_uint32 packetSampleRate;    // The sample rate can change across frames.
-    mal_int16 pPacketData[MINIMP3_MAX_SAMPLES_PER_FRAME];
-    mal_src src;                    // For handling variable sample rates between frames.
-} mal_mp3_decoder;
-
-static mal_uint32 mal_mp3_decoder_read_src(mal_src* pSRC, mal_uint32 frameCount, void* pFramesOut, void* pUserData)
+static size_t mal_decoder_internal_on_read__mp3(void* pUserData, void* pBufferOut, size_t bytesToRead)
 {
     mal_decoder* pDecoder = (mal_decoder*)pUserData;
     mal_assert(pDecoder != NULL);
     mal_assert(pDecoder->onRead != NULL);
 
-    mal_mp3_decoder* pMP3 = (mal_mp3_decoder*)pDecoder->pInternalDecoder;
-    mal_assert(pMP3 != NULL);
-
-    mal_int16* pFramesOut16 = (mal_int16*)pFramesOut;
-    mal_uint32 totalFramesRead = 0;
-
-    while (frameCount > 0) {
-        // Read from the in-memory buffer first.
-        while (pMP3->framesRemaining > 0 && frameCount > 0) {
-            if (pMP3->packetChannels == 1) {
-                pFramesOut16[0] = pMP3->pPacketData[pMP3->framesConsumed];
-                pFramesOut16[1] = pMP3->pPacketData[pMP3->framesConsumed];
-            } else {
-                mal_assert(pMP3->packetChannels == 2);
-                pFramesOut16[0] = pMP3->pPacketData[(pMP3->framesConsumed*pMP3->packetChannels)+0];
-                pFramesOut16[1] = pMP3->pPacketData[(pMP3->framesConsumed*pMP3->packetChannels)+1];
-            }
-
-            pMP3->framesConsumed += 1;
-            pMP3->framesRemaining -= 1;
-            frameCount -= 1;
-            totalFramesRead += 1;
-            pFramesOut16 += pSRC->config.channels; // Should always be equal to 2.
-        }
-
-        if (frameCount == 0) {
-            break;
-        }
-
-        mal_assert(pMP3->framesRemaining == 0);
-
-        // At this point we have exhausted our in-memory buffer so we need to re-fill. Note that the sample rate may have changed
-        // at this point which means we'll also need to update our sample rate conversion pipeline.
-        do
-        {
-            // minimp3 recommends doing data submission in 16K chunks. If we don't have at least 16K bytes available, get more.
-            if (pMP3->dataSize < MAL_MP3_DATA_CHUNK_SIZE) {
-                if (pMP3->dataCapacity < MAL_MP3_DATA_CHUNK_SIZE) {
-                    pMP3->dataCapacity = MAL_MP3_DATA_CHUNK_SIZE;
-                    mal_uint8* pNewData = (mal_uint8*)mal_realloc(pMP3->pData, pMP3->dataCapacity);
-                    if (pNewData == NULL) {
-                        return totalFramesRead; // Out of memory.
-                    }
-
-                    pMP3->pData = pNewData;
-                }
-
-                size_t bytesRead = pDecoder->onRead(pDecoder, pMP3->pData + pMP3->dataSize, (pMP3->dataCapacity - pMP3->dataSize));
-                pMP3->dataSize += bytesRead;
-            }
-
-            mp3dec_frame_info_t info;
-            mal_uint32 samplesRead = mp3dec_decode_frame(&pMP3->internalMP3, pMP3->pData, pMP3->dataSize, pMP3->pPacketData, &info);
-            if (samplesRead != 0) {
-                size_t leftoverDataSize = (pMP3->dataSize - (size_t)info.frame_bytes);
-                for (size_t i = 0; i < leftoverDataSize; ++i) {
-                    pMP3->pData[i] = pMP3->pData[i + (size_t)info.frame_bytes];
-                }
-                
-                pMP3->dataSize = leftoverDataSize;
-                pMP3->framesConsumed = 0;
-                pMP3->framesRemaining = samplesRead;
-                pMP3->packetChannels = info.channels;
-                pMP3->packetSampleRate = info.hz;
-                mal_src_set_input_sample_rate(&pMP3->src, pMP3->packetSampleRate);
-                break;
-            } else {
-                // Need more data. minimp3 recommends doing data submission in 16K chunks.
-                if (pMP3->dataCapacity == pMP3->dataSize) {
-                    // No room. Expand.
-                    pMP3->dataCapacity += MAL_MP3_DATA_CHUNK_SIZE;
-                    mal_uint8* pNewData = (mal_uint8*)mal_realloc(pMP3->pData, pMP3->dataCapacity);
-                    if (pNewData == NULL) {
-                        return totalFramesRead; // Out of memory.
-                    }
-
-                    pMP3->pData = pNewData;
-                }
-
-                // Fill in a chunk.
-                size_t bytesRead = pDecoder->onRead(pDecoder, pMP3->pData + pMP3->dataSize, (pMP3->dataCapacity - pMP3->dataSize));
-                if (bytesRead == 0) {
-                    return totalFramesRead; // Error reading more data.
-                }
-
-                pMP3->dataSize += bytesRead;
-            }
-        } while (MAL_TRUE);
-    }
-
-    return totalFramesRead;
+    return pDecoder->onRead(pDecoder, pBufferOut, bytesToRead);
 }
 
-static mal_uint32 mal_mp3_decoder_read(mal_mp3_decoder* pMP3, mal_decoder* pDecoder, mal_uint32 frameCount, void* pSamplesOut)
+static drflac_bool32 mal_decoder_internal_on_seek__mp3(void* pUserData, int offset, drmp3_seek_origin origin)
 {
-    (void)pDecoder;
-
-    mal_assert(pMP3 != NULL);
+    mal_decoder* pDecoder = (mal_decoder*)pUserData;
     mal_assert(pDecoder != NULL);
-
-    return mal_src_read_frames_ex(&pMP3->src, frameCount, pSamplesOut, MAL_TRUE);
-}
-
-static mal_result mal_mp3_decoder_seek_to_frame(mal_mp3_decoder* pMP3, mal_decoder* pDecoder, mal_uint64 frameIndex)
-{
-    mal_assert(pMP3 != NULL);
-    mal_assert(pDecoder != NULL);
-    mal_assert(pDecoder->onRead != NULL);
     mal_assert(pDecoder->onSeek != NULL);
-
-    // This is terribly inefficient because stb_vorbis does not have a good seeking solution with it's push API. Currently this just performs
-    // a full decode right from the start of the stream. Later on I'll need to write a layer that goes through all of the Ogg pages until we
-    // find the one containing the sample we need. Then we know exactly where to seek for stb_vorbis.
-    if (!pDecoder->onSeek(pDecoder, 0, mal_seek_origin_start)) {
-        return MAL_ERROR;
-    }
-
-    pMP3->framesConsumed = 0;
-    pMP3->framesRemaining = 0;
-    pMP3->dataSize = 0;
     
-    float buffer[4096];
-    while (frameIndex > 0) {
-        mal_uint32 framesToRead = mal_countof(buffer)/pDecoder->internalChannels;
-        if (framesToRead > frameIndex) {
-            framesToRead = (mal_uint32)frameIndex;
-        }
-
-        mal_uint32 framesRead = mal_mp3_decoder_read(pMP3, pDecoder, framesToRead, buffer);
-        if (framesRead == 0) {
-            return MAL_ERROR;
-        }
-
-        frameIndex -= framesRead;
-    }
-
-    return MAL_SUCCESS;
+    return pDecoder->onSeek(pDecoder, offset, (origin == drmp3_seek_origin_start) ? mal_seek_origin_start : mal_seek_origin_current);
 }
-
 
 static mal_result mal_decoder_internal_on_seek_to_frame__mp3(mal_decoder* pDecoder, mal_uint64 frameIndex)
 {
-    mal_assert(pDecoder != NULL);
-    mal_assert(pDecoder->onRead != NULL);
-    mal_assert(pDecoder->onSeek != NULL);
-
-    mal_mp3_decoder* pMP3 = (mal_mp3_decoder*)pDecoder->pInternalDecoder;
+    drmp3* pMP3 = (drmp3*)pDecoder->pInternalDecoder;
     mal_assert(pMP3 != NULL);
-    
-    return mal_mp3_decoder_seek_to_frame(pMP3, pDecoder, frameIndex);
+
+    drflac_bool32 result = drmp3_seek_to_frame(pMP3, frameIndex);
+    if (result) {
+        return MAL_SUCCESS;
+    } else {
+        return MAL_ERROR;
+    }
 }
 
 static mal_result mal_decoder_internal_on_uninit__mp3(mal_decoder* pDecoder)
 {
-    mal_mp3_decoder* pMP3 = (mal_mp3_decoder*)pDecoder->pInternalDecoder;
-    mal_assert(pMP3 != NULL);
-
-    mal_free(pMP3->pData);
-    mal_free(pMP3);
-
+    drmp3_uninit((drmp3*)pDecoder->pInternalDecoder);
+    mal_free(pDecoder->pInternalDecoder);
     return MAL_SUCCESS;
 }
 
@@ -12200,63 +12052,52 @@ static mal_uint32 mal_decoder_internal_on_read_frames__mp3(mal_dsp* pDSP, mal_ui
     mal_decoder* pDecoder = (mal_decoder*)pUserData;
     mal_assert(pDecoder != NULL);
     mal_assert(pDecoder->internalFormat == mal_format_f32);
-    mal_assert(pDecoder->onRead != NULL);
-    mal_assert(pDecoder->onSeek != NULL);
 
-    mal_mp3_decoder* pMP3 = (mal_mp3_decoder*)pDecoder->pInternalDecoder;
+    drmp3* pMP3 = (drmp3*)pDecoder->pInternalDecoder;
     mal_assert(pMP3 != NULL);
 
-    return mal_mp3_decoder_read(pMP3, pDecoder, frameCount, pSamplesOut);
+    return (mal_uint32)drmp3_read_f32(pMP3, frameCount, (float*)pSamplesOut);
 }
 
 mal_result mal_decoder_init_mp3__internal(const mal_decoder_config* pConfig, mal_decoder* pDecoder)
 {
     mal_assert(pConfig != NULL);
     mal_assert(pDecoder != NULL);
-    mal_assert(pDecoder->onRead != NULL);
-    mal_assert(pDecoder->onSeek != NULL);
 
-    mal_mp3_decoder* pMP3 = (mal_mp3_decoder*)mal_malloc(sizeof(*pMP3));
+    drmp3* pMP3 = (drmp3*)mal_malloc(sizeof(*pMP3));
     if (pMP3 == NULL) {
         return MAL_OUT_OF_MEMORY;
     }
 
-    mal_zero_object(pMP3);
-    mp3dec_init(&pMP3->internalMP3);
-
-    pDecoder->onSeekToFrame = mal_decoder_internal_on_seek_to_frame__mp3;
-    pDecoder->onUninit = mal_decoder_internal_on_uninit__mp3;
-    pDecoder->pInternalDecoder = pMP3;
-
-    // minimp3 doesn't actually define the channel count nor sample rate global - it's instead per frame/packet. We therefore need
-    // to use some smarts to determine the most appropriate internal sample rate. These are the rules we're going to use:
+    // Try opening the decoder first. MP3 can have variable sample rates (it's per frame/packet). We therefore need
+    // to use some smarts to determine the most appropriate internal sample rate. These are the rules we're going
+    // to use:
     //
     // Sample Rates
     // 1) If an output sample rate is specified in pConfig we just use that. Otherwise;
     // 2) Fall back to 44100.
     //
     // The internal channel count is always stereo, and the internal format is always f32.
-    pDecoder->internalFormat = mal_format_f32;
-    pDecoder->internalChannels = 2;
-    pDecoder->internalSampleRate = (pConfig->outputSampleRate != 0) ? pConfig->outputSampleRate : 44100;
-    mal_get_default_device_config_channel_map(pDecoder->internalChannels, pDecoder->internalChannelMap);
-
-    mal_src_config srcConfig;
-    srcConfig.sampleRateIn = 44100;
-    srcConfig.sampleRateOut = pDecoder->internalSampleRate;
-    srcConfig.formatIn = mal_format_s16;
-    srcConfig.formatOut = mal_format_f32;
-    srcConfig.channels = 2;
-    srcConfig.algorithm = mal_src_algorithm_linear;
-    srcConfig.cacheSizeInFrames = 0;
-    mal_result result = mal_src_init(&srcConfig, mal_mp3_decoder_read_src, pDecoder, &pMP3->src);
-    if (result != MAL_SUCCESS) {
-        mal_free(pMP3);
-        return result;
+    drmp3_config mp3Config;
+    mal_zero_object(&mp3Config);
+    mp3Config.outputChannels = 2;
+    mp3Config.outputSampleRate = (pConfig->outputSampleRate != 0) ? pConfig->outputSampleRate : 44100;
+    if (!drmp3_init(pMP3, mal_decoder_internal_on_read__mp3, mal_decoder_internal_on_seek__mp3, pDecoder, &mp3Config)) {
+        return MAL_ERROR;
     }
 
+    // If we get here it means we successfully initialized the MP3 decoder. We can now initialize the rest of the mal_decoder.
+    pDecoder->onSeekToFrame = mal_decoder_internal_on_seek_to_frame__mp3;
+    pDecoder->onUninit = mal_decoder_internal_on_uninit__mp3;
+    pDecoder->pInternalDecoder = pMP3;
 
-    result = mal_decoder__init_dsp(pDecoder, pConfig, mal_decoder_internal_on_read_frames__mp3);
+    // Internal format.
+    pDecoder->internalFormat = mal_format_f32;
+    pDecoder->internalChannels = pMP3->channels;
+    pDecoder->internalSampleRate = pMP3->sampleRate;
+    mal_get_default_device_config_channel_map(pDecoder->internalChannels, pDecoder->internalChannelMap);
+
+    mal_result result = mal_decoder__init_dsp(pDecoder, pConfig, mal_decoder_internal_on_read_frames__mp3);
     if (result != MAL_SUCCESS) {
         mal_free(pMP3);
         return result;
