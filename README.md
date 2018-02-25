@@ -26,6 +26,8 @@ Features
     - Sample rate conversion is currently low quality, but a higher quality implementation is planned.
   - Channel mapping/layout.
   - Channel mixing (converting mono to 5.1, etc.)
+- MP3, Vorbis, FLAC and WAV decoding
+  - This depends on external single file libraries which can be found in the "extras" folder.
 
 
 Supported Platforms
@@ -126,13 +128,30 @@ int main(int argc, char** argv)
 }
 ```
 
-mini_al does not directly support loading of audio files like WAV, FLAC, MP3, etc. You may want to
-consider the following single file libraries for this:
-- [dr_flac](https://github.com/mackron/dr_libs/blob/master/dr_flac.h)
-- [dr_wav](https://github.com/mackron/dr_libs/blob/master/dr_wav.h)
-- [stb_vorbis](https://github.com/nothings/stb/blob/master/stb_vorbis.c)
+
+MP3/Vorbis/FLAC/WAV Decoding
+============================
+mini_al includes a decoding API which supports the following backends:
+- FLAC via [dr_flac](https://github.com/mackron/dr_libs/blob/master/dr_flac.h)
+- MP3 via [dr_mp3](https://github.com/mackron/dr_libs/blob/master/dr_mp3.h)
+- WAV via [dr_wav](https://github.com/mackron/dr_libs/blob/master/dr_wav.h)
+- Vorbis via [stb_vorbis](https://github.com/nothings/stb/blob/master/stb_vorbis.c)
+
+Copies of these libraries can be found in the "extras" folder. You may also want to look at the
+libraries below, but they are not supported by the mini_al decoder API. If you know of any other
+single file libraries I can add to this list, let me know. Preferably public domain or MIT.
+- [minimp3](https://github.com/lieff/minimp3)
 - [jar_mod](https://github.com/kd7tck/jar/blob/master/jar_mod.h)
 - [jar_xm](https://github.com/kd7tck/jar/blob/master/jar_xm.h)
 
-Copies of these libraries can be found in the "extras" folder. If you know of any other single file
-libraries I can add to this list, let me know. Preferably public domain or MIT.
+To enable support for a decoder backend, all you need to do is #include the header section of the
+relevant backend library before the implementation of mini_al, like so:
+
+```
+#include "dr_flac.h"    // Enables FLAC decoding.
+#include "dr_mp3.h"     // Enables MP3 decoding.
+#include "dr_wav.h"     // Enables WAV decoding.
+
+#define MAL_IMPLEMENTATION
+#include "mini_al.h"
+```
