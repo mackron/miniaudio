@@ -1,20 +1,24 @@
+#define DR_FLAC_IMPLEMENTATION
+#include "../extras/dr_flac.h"  // Enables FLAC decoding.
+#define DR_MP3_IMPLEMENTATION
+#include "../extras/dr_mp3.h"   // Enables MP3 decoding.
+#define DR_WAV_IMPLEMENTATION
+#include "../extras/dr_wav.h"   // Enables WAV decoding.
+
 #define MAL_IMPLEMENTATION
 #include "../mini_al.h"
-
-#define DR_WAV_IMPLEMENTATION
-#include "../extras/dr_wav.h"
 
 #include <stdio.h>
 
 // This is the function that's used for sending more data to the device for playback.
 mal_uint32 on_send_frames_to_device(mal_device* pDevice, mal_uint32 frameCount, void* pSamples)
 {
-    drwav* pWav = (drwav*)pDevice->pUserData;
-    if (pWav == NULL) {
+    mal_decoder* pDecoder = (mal_decoder*)pDevice->pUserData;
+    if (pDecoder == NULL) {
         return 0;
     }
 
-    return (mal_uint32)drwav_read_s16(pWav, frameCount * pDevice->channels, (mal_int16*)pSamples) / pDevice->channels;
+    return (mal_uint32)mal_decoder_read(pDecoder, frameCount, pSamples);
 }
 
 int main(int argc, char** argv)
@@ -24,43 +28,33 @@ int main(int argc, char** argv)
         return -1;
     }
 
-    drwav wav;
-    if (!drwav_init_file(&wav, argv[1])) {
-        printf("Not a valid WAV file.\n");
+    mal_decoder decoder;
+    mal_result result = mal_decoder_init_file(argv[1], NULL, &decoder);
+    if (result != MAL_SUCCESS) {
         return -2;
     }
 
-    mal_context context;
-    if (mal_context_init(NULL, 0, NULL, &context) != MAL_SUCCESS) {
-        printf("Failed to initialize context.\n");
-        drwav_uninit(&wav);
-        return -3;
-    }
-
-    mal_device_config config = mal_device_config_init_playback(mal_format_s16, wav.channels, wav.sampleRate, on_send_frames_to_device);
+    mal_device_config config = mal_device_config_init_playback(decoder.outputFormat, decoder.outputChannels, decoder.outputSampleRate, on_send_frames_to_device);
 
     mal_device device;
-    if (mal_device_init(&context, mal_device_type_playback, NULL, &config, &wav, &device) != MAL_SUCCESS) {
+    if (mal_device_init(NULL, mal_device_type_playback, NULL, &config, &decoder, &device) != MAL_SUCCESS) {
         printf("Failed to open playback device.\n");
-        mal_context_uninit(&context);
-        drwav_uninit(&wav);
-        return -4;
+        mal_decoder_uninit(&decoder);
+        return -3;
     }
 
     if (mal_device_start(&device) != MAL_SUCCESS) {
         printf("Failed to start playback device.\n");
         mal_device_uninit(&device);
-        mal_context_uninit(&context);
-        drwav_uninit(&wav);
-        return -5;
+        mal_decoder_uninit(&decoder);
+        return -4;
     }
 
     printf("Press Enter to quit...");
     getchar();
 
     mal_device_uninit(&device);
-    mal_context_uninit(&context);
-    drwav_uninit(&wav);
+    mal_decoder_uninit(&decoder);
 
     return 0;
 }
