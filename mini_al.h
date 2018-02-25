@@ -1418,13 +1418,18 @@ mal_context_config mal_context_config_init(mal_log_proc onLog);
 //
 // Efficiency: HIGH
 //   This just returns a stack allocated object and consists of just a few assignments.
-mal_device_config mal_device_config_init(mal_format format, mal_uint32 channels, mal_uint32 sampleRate, mal_recv_proc onRecvCallback, mal_send_proc onSendCallback);
+mal_device_config mal_device_config_init_ex(mal_format format, mal_uint32 channels, mal_uint32 sampleRate, mal_uint8 channelMap[MAL_MAX_CHANNELS], mal_recv_proc onRecvCallback, mal_send_proc onSendCallback);
+
+// A simplified version of mal_device_config_init_ex().
+static inline mal_device_config mal_device_config_init(mal_format format, mal_uint32 channels, mal_uint32 sampleRate, mal_recv_proc onRecvCallback, mal_send_proc onSendCallback) { return mal_device_config_init_ex(format, channels, sampleRate, NULL, onRecvCallback, onSendCallback); }
 
 // A simplified version of mal_device_config_init() for capture devices.
-static inline mal_device_config mal_device_config_init_capture(mal_format format, mal_uint32 channels, mal_uint32 sampleRate, mal_recv_proc onRecvCallback) { return mal_device_config_init(format, channels, sampleRate, onRecvCallback, NULL); }
+static inline mal_device_config mal_device_config_init_capture_ex(mal_format format, mal_uint32 channels, mal_uint32 sampleRate, mal_uint8 channelMap[MAL_MAX_CHANNELS], mal_recv_proc onRecvCallback) { return mal_device_config_init_ex(format, channels, sampleRate, channelMap, onRecvCallback, NULL); }
+static inline mal_device_config mal_device_config_init_capture(mal_format format, mal_uint32 channels, mal_uint32 sampleRate, mal_recv_proc onRecvCallback) { return mal_device_config_init_capture_ex(format, channels, sampleRate, NULL, onRecvCallback); }
 
 // A simplified version of mal_device_config_init() for playback devices.
-static inline mal_device_config mal_device_config_init_playback(mal_format format, mal_uint32 channels, mal_uint32 sampleRate, mal_send_proc onSendCallback) { return mal_device_config_init(format, channels, sampleRate, NULL, onSendCallback); }
+static inline mal_device_config mal_device_config_init_playback_ex(mal_format format, mal_uint32 channels, mal_uint32 sampleRate, mal_uint8 channelMap[MAL_MAX_CHANNELS], mal_send_proc onSendCallback) { return mal_device_config_init_ex(format, channels, sampleRate, channelMap, NULL, onSendCallback); }
+static inline mal_device_config mal_device_config_init_playback(mal_format format, mal_uint32 channels, mal_uint32 sampleRate, mal_send_proc onSendCallback) { return mal_device_config_init_playback_ex(format, channels, sampleRate, NULL, onSendCallback); }
 
 
 
@@ -10348,7 +10353,7 @@ static void mal_get_default_device_config_channel_map(mal_uint32 channels, mal_u
     }
 }
 
-mal_device_config mal_device_config_init(mal_format format, mal_uint32 channels, mal_uint32 sampleRate, mal_recv_proc onRecvCallback, mal_send_proc onSendCallback)
+mal_device_config mal_device_config_init_ex(mal_format format, mal_uint32 channels, mal_uint32 sampleRate, mal_uint8 channelMap[MAL_MAX_CHANNELS], mal_recv_proc onRecvCallback, mal_send_proc onSendCallback)
 {
     mal_device_config config;
     mal_zero_object(&config);
@@ -10358,7 +10363,13 @@ mal_device_config mal_device_config_init(mal_format format, mal_uint32 channels,
     config.sampleRate = sampleRate;
     config.onRecvCallback = onRecvCallback;
     config.onSendCallback = onSendCallback;
-    mal_get_default_device_config_channel_map(channels, config.channelMap);
+
+    if (channelMap == NULL) {
+        mal_get_default_device_config_channel_map(channels, config.channelMap);
+    } else {
+        mal_copy_memory(config.channelMap, channelMap, sizeof(config.channelMap));
+    }
+    
 
     return config;
 }
