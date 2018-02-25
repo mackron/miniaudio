@@ -1484,6 +1484,7 @@ mal_uint64 mal_convert_frames(void* pOut, mal_format formatOut, mal_uint32 chann
 
 // Helper for initializing a mal_dsp_config object.
 mal_dsp_config mal_dsp_config_init(mal_format formatIn, mal_uint32 channelsIn, mal_uint32 sampleRateIn, mal_format formatOut, mal_uint32 channelsOut, mal_uint32 sampleRateOut);
+mal_dsp_config mal_dsp_config_init_ex(mal_format formatIn, mal_uint32 channelsIn, mal_uint32 sampleRateIn, mal_uint8 channelMapIn[MAL_MAX_CHANNELS], mal_format formatOut, mal_uint32 channelsOut, mal_uint32 sampleRateOut,  mal_uint8 channelMapOut[MAL_MAX_CHANNELS]);
 
 
 
@@ -11394,6 +11395,11 @@ mal_uint64 mal_convert_frames(void* pOut, mal_format formatOut, mal_uint32 chann
 
 mal_dsp_config mal_dsp_config_init(mal_format formatIn, mal_uint32 channelsIn, mal_uint32 sampleRateIn, mal_format formatOut, mal_uint32 channelsOut, mal_uint32 sampleRateOut)
 {
+    return mal_dsp_config_init_ex(formatIn, channelsIn, sampleRateIn, NULL, formatOut, channelsOut, sampleRateOut, NULL);
+}
+
+mal_dsp_config mal_dsp_config_init_ex(mal_format formatIn, mal_uint32 channelsIn, mal_uint32 sampleRateIn, mal_uint8 channelMapIn[MAL_MAX_CHANNELS], mal_format formatOut, mal_uint32 channelsOut, mal_uint32 sampleRateOut,  mal_uint8 channelMapOut[MAL_MAX_CHANNELS])
+{
     mal_dsp_config config;
     mal_zero_object(&config);
     config.formatIn = formatIn;
@@ -11402,6 +11408,12 @@ mal_dsp_config mal_dsp_config_init(mal_format formatIn, mal_uint32 channelsIn, m
     config.formatOut = formatOut;
     config.channelsOut = channelsOut;
     config.sampleRateOut = sampleRateOut;
+    if (channelMapIn != NULL) {
+        mal_copy_memory(config.channelMapIn, channelMapIn, sizeof(config.channelMapIn));
+    }
+    if (channelMapOut != NULL) {
+        mal_copy_memory(config.channelMapIn, channelMapIn, sizeof(config.channelMapIn));
+    }
 
     return config;
 }
@@ -11519,9 +11531,9 @@ mal_result mal_decoder__init_dsp(mal_decoder* pDecoder, const mal_decoder_config
 
 
     // DSP.
-    mal_dsp_config dspConfig = mal_dsp_config_init(pDecoder->internalFormat, pDecoder->internalChannels, pDecoder->internalSampleRate, pDecoder->outputFormat, pDecoder->outputChannels, pDecoder->outputSampleRate);
-    mal_copy_memory(dspConfig.channelMapIn,  pDecoder->internalChannelMap, sizeof(pDecoder->internalChannelMap));
-    mal_copy_memory(dspConfig.channelMapOut, pDecoder->outputChannelMap,   sizeof(pDecoder->outputChannelMap));
+    mal_dsp_config dspConfig = mal_dsp_config_init_ex(
+        pDecoder->internalFormat, pDecoder->internalChannels, pDecoder->internalSampleRate, pDecoder->internalChannelMap,
+        pDecoder->outputFormat,   pDecoder->outputChannels,   pDecoder->outputSampleRate,   pDecoder->outputChannelMap);
     return mal_dsp_init(&dspConfig, onRead, pDecoder, &pDecoder->dsp);
 }
 
@@ -12883,7 +12895,7 @@ void mal_pcm_f32_to_s32(int* pOut, const float* pIn, unsigned int count)
 // v0.xx - 2018-xx-xx
 //   - API CHANGE: Change mal_src_read_frames() and mal_dsp_read_frames() to use 64-bit sample counts.
 //   - Add decoder APIs for loading WAV, FLAC, Vorbis and MP3 files.
-//   - Allow creation of devices without a context.
+//   - Allow opening of devices without a context.
 //     - In this case the context is created and managed internally by the device.
 //   - Fix build errors with macOS.
 //
