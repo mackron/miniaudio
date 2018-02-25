@@ -10257,20 +10257,20 @@ static void mal_get_default_device_config_channel_map(mal_uint32 channels, mal_u
     {
         case 1:
         {
-            channelMap[0] = MAL_CHANNEL_FRONT_CENTER;
+            channelMap[0] = MAL_CHANNEL_MONO;
         } break;
 
         case 2:
         {
-            channelMap[0] = MAL_CHANNEL_FRONT_LEFT;
-            channelMap[1] = MAL_CHANNEL_FRONT_RIGHT;
+            channelMap[0] = MAL_CHANNEL_LEFT;
+            channelMap[1] = MAL_CHANNEL_RIGHT;
         } break;
 
         case 3:
         {
-            channelMap[0] = MAL_CHANNEL_FRONT_LEFT;
-            channelMap[1] = MAL_CHANNEL_FRONT_RIGHT;
-            channelMap[2] = MAL_CHANNEL_LFE;
+            channelMap[0] = MAL_CHANNEL_LEFT;
+            channelMap[1] = MAL_CHANNEL_RIGHT;
+            channelMap[2] = MAL_CHANNEL_MONO;
         } break;
 
         case 4:
@@ -10285,9 +10285,9 @@ static void mal_get_default_device_config_channel_map(mal_uint32 channels, mal_u
         {
             channelMap[0] = MAL_CHANNEL_FRONT_LEFT;
             channelMap[1] = MAL_CHANNEL_FRONT_RIGHT;
-            channelMap[2] = MAL_CHANNEL_BACK_LEFT;
-            channelMap[3] = MAL_CHANNEL_BACK_RIGHT;
-            channelMap[4] = MAL_CHANNEL_LFE;
+            channelMap[2] = MAL_CHANNEL_FRONT_CENTER;
+            channelMap[3] = MAL_CHANNEL_BACK_LEFT;
+            channelMap[4] = MAL_CHANNEL_BACK_RIGHT;
         } break;
 
         case 6:
@@ -10298,6 +10298,17 @@ static void mal_get_default_device_config_channel_map(mal_uint32 channels, mal_u
             channelMap[3] = MAL_CHANNEL_LFE;
             channelMap[4] = MAL_CHANNEL_BACK_LEFT;
             channelMap[5] = MAL_CHANNEL_BACK_RIGHT;
+        } break;
+
+        case 7:
+        {
+            channelMap[0] = MAL_CHANNEL_FRONT_LEFT;
+            channelMap[1] = MAL_CHANNEL_FRONT_RIGHT;
+            channelMap[2] = MAL_CHANNEL_FRONT_CENTER;
+            channelMap[3] = MAL_CHANNEL_LFE;
+            channelMap[4] = MAL_CHANNEL_BACK_CENTER;
+            channelMap[5] = MAL_CHANNEL_SIDE_LEFT;
+            channelMap[6] = MAL_CHANNEL_SIDE_RIGHT;
         } break;
 
         case 8:
@@ -10315,6 +10326,7 @@ static void mal_get_default_device_config_channel_map(mal_uint32 channels, mal_u
         default:
         {
             // Just leave it all blank in this case. This will use the same mapping as the device's native mapping.
+            mal_zero_memory(channelMap, sizeof(channelMap));
         } break;
     }
 }
@@ -12897,6 +12909,7 @@ void mal_pcm_f32_to_s32(int* pOut, const float* pIn, unsigned int count)
 //   - Add decoder APIs for loading WAV, FLAC, Vorbis and MP3 files.
 //   - Allow opening of devices without a context.
 //     - In this case the context is created and managed internally by the device.
+//   - Change the default channel mapping to the same as that used by FLAC.
 //   - Fix build errors with macOS.
 //
 // v0.6c - 2018-02-12
