@@ -1471,6 +1471,9 @@ mal_uint64 mal_src_read_frames_ex(mal_src* pSRC, mal_uint64 frameCount, void* pF
 // Initializes a DSP object.
 mal_result mal_dsp_init(mal_dsp_config* pConfig, mal_dsp_read_proc onRead, void* pUserData, mal_dsp* pDSP);
 
+// Dynamically adjusts the input sample rate.
+mal_result mal_dsp_set_input_sample_rate(mal_dsp* pDSP, mal_uint32 sampleRateOut);
+
 // Dynamically adjusts the output sample rate.
 //
 // This is useful for dynamically adjust pitch. Keep in mind, however, that this will speed up or slow down the sound. If this
@@ -11332,22 +11335,15 @@ mal_result mal_dsp_init(mal_dsp_config* pConfig, mal_dsp_read_proc onRead, void*
     return MAL_SUCCESS;
 }
 
-mal_result mal_dsp_set_output_sample_rate(mal_dsp* pDSP, mal_uint32 sampleRateOut)
+
+mal_result mal_dsp_refresh_sample_rate(mal_dsp* pDSP)
 {
-    if (pDSP == NULL) return MAL_INVALID_ARGS;
-
-    // Must have a sample rate of > 0.
-    if (sampleRateOut == 0) {
-        return MAL_INVALID_ARGS;
-    }
-
-    pDSP->config.sampleRateOut = sampleRateOut;
-
     // If we already have an SRC pipeline initialized we do _not_ want to re-create it. Instead we adjust it. If we didn't previously
     // have an SRC pipeline in place we'll need to initialize it.
     if (pDSP->isSRCRequired) {
         if (pDSP->config.sampleRateIn != pDSP->config.sampleRateOut) {
-            mal_src_set_output_sample_rate(&pDSP->src, sampleRateOut);
+            mal_src_set_input_sample_rate(&pDSP->src, pDSP->config.sampleRateIn);
+            mal_src_set_output_sample_rate(&pDSP->src, pDSP->config.sampleRateOut);
         } else {
             pDSP->isSRCRequired = MAL_FALSE;
         }
@@ -11381,6 +11377,32 @@ mal_result mal_dsp_set_output_sample_rate(mal_dsp* pDSP, mal_uint32 sampleRateOu
     }
 
     return MAL_SUCCESS;
+}
+
+mal_result mal_dsp_set_input_sample_rate(mal_dsp* pDSP, mal_uint32 sampleRateIn)
+{
+    if (pDSP == NULL) return MAL_INVALID_ARGS;
+
+    // Must have a sample rate of > 0.
+    if (sampleRateIn == 0) {
+        return MAL_INVALID_ARGS;
+    }
+
+    pDSP->config.sampleRateIn = sampleRateIn;
+    return mal_dsp_refresh_sample_rate(pDSP);
+}
+
+mal_result mal_dsp_set_output_sample_rate(mal_dsp* pDSP, mal_uint32 sampleRateOut)
+{
+    if (pDSP == NULL) return MAL_INVALID_ARGS;
+
+    // Must have a sample rate of > 0.
+    if (sampleRateOut == 0) {
+        return MAL_INVALID_ARGS;
+    }
+
+    pDSP->config.sampleRateOut = sampleRateOut;
+    return mal_dsp_refresh_sample_rate(pDSP);
 }
 
 mal_uint64 mal_dsp_read_frames(mal_dsp* pDSP, mal_uint64 frameCount, void* pFramesOut)
