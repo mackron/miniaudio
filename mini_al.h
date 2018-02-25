@@ -12023,7 +12023,7 @@ static size_t mal_decoder_internal_on_read__mp3(void* pUserData, void* pBufferOu
     return pDecoder->onRead(pDecoder, pBufferOut, bytesToRead);
 }
 
-static drflac_bool32 mal_decoder_internal_on_seek__mp3(void* pUserData, int offset, drmp3_seek_origin origin)
+static drmp3_bool32 mal_decoder_internal_on_seek__mp3(void* pUserData, int offset, drmp3_seek_origin origin)
 {
     mal_decoder* pDecoder = (mal_decoder*)pUserData;
     mal_assert(pDecoder != NULL);
@@ -12037,7 +12037,7 @@ static mal_result mal_decoder_internal_on_seek_to_frame__mp3(mal_decoder* pDecod
     drmp3* pMP3 = (drmp3*)pDecoder->pInternalDecoder;
     mal_assert(pMP3 != NULL);
 
-    drflac_bool32 result = drmp3_seek_to_frame(pMP3, frameIndex);
+    drmp3_bool32 result = drmp3_seek_to_frame(pMP3, frameIndex);
     if (result) {
         return MAL_SUCCESS;
     } else {
