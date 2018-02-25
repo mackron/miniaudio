@@ -1,5 +1,5 @@
 // Audio playback and capture library. Public domain. See "unlicense" statement at the end of this file.
-// mini_al - v0.xx - 2018-xx-xx
+// mini_al - v0.7 - 2018-02-25
 //
 // David Reid - davidreidsoftware@gmail.com
 
@@ -13097,7 +13097,7 @@ void mal_pcm_f32_to_s32(int* pOut, const float* pIn, unsigned int count)
 // REVISION HISTORY
 // ================
 //
-// v0.xx - 2018-xx-xx
+// v0.7 - 2018-02-25
 //   - API CHANGE: Change mal_src_read_frames() and mal_dsp_read_frames() to use 64-bit sample counts.
 //   - Add decoder APIs for loading WAV, FLAC, Vorbis and MP3 files.
 //   - Allow opening of devices without a context.
