@@ -420,10 +420,24 @@ typedef mal_uint8 mal_channel;
 #define MAL_CHANNEL_TOP_BACK_LEFT                       16
 #define MAL_CHANNEL_TOP_BACK_CENTER                     17
 #define MAL_CHANNEL_TOP_BACK_RIGHT                      18
+#define MAL_CHANNEL_19                                  19
+#define MAL_CHANNEL_20                                  20
+#define MAL_CHANNEL_21                                  21
+#define MAL_CHANNEL_22                                  22
+#define MAL_CHANNEL_23                                  23
+#define MAL_CHANNEL_24                                  24
+#define MAL_CHANNEL_25                                  25
+#define MAL_CHANNEL_26                                  26
+#define MAL_CHANNEL_27                                  27
+#define MAL_CHANNEL_28                                  28
+#define MAL_CHANNEL_29                                  29
+#define MAL_CHANNEL_30                                  30
+#define MAL_CHANNEL_31                                  31
+#define MAL_CHANNEL_32                                  32
 #define MAL_CHANNEL_LEFT                                MAL_CHANNEL_FRONT_LEFT
 #define MAL_CHANNEL_RIGHT                               MAL_CHANNEL_FRONT_RIGHT
 #define MAL_CHANNEL_MONO                                MAL_CHANNEL_FRONT_CENTER
-#define MAL_MAX_CHANNELS                                18
+#define MAL_MAX_CHANNELS                                32
 
 #define MAL_MAX_SAMPLE_SIZE_IN_BYTES                    8
 
@@ -10753,6 +10767,20 @@ static void mal_rearrange_channels_u8(mal_uint8* pFrame, mal_uint32 channels, ma
     mal_copy_memory(temp, pFrame, sizeof(temp[0]) * channels);
 
     switch (channels) {
+        case 32: pFrame[31] = temp[channelMap[31]];
+        case 31: pFrame[30] = temp[channelMap[30]];
+        case 30: pFrame[29] = temp[channelMap[29]];
+        case 29: pFrame[28] = temp[channelMap[28]];
+        case 28: pFrame[27] = temp[channelMap[27]];
+        case 27: pFrame[26] = temp[channelMap[26]];
+        case 26: pFrame[25] = temp[channelMap[25]];
+        case 25: pFrame[24] = temp[channelMap[24]];
+        case 24: pFrame[23] = temp[channelMap[23]];
+        case 23: pFrame[22] = temp[channelMap[22]];
+        case 22: pFrame[21] = temp[channelMap[21]];
+        case 21: pFrame[20] = temp[channelMap[20]];
+        case 20: pFrame[19] = temp[channelMap[19]];
+        case 19: pFrame[18] = temp[channelMap[18]];
         case 18: pFrame[17] = temp[channelMap[17]];
         case 17: pFrame[16] = temp[channelMap[16]];
         case 16: pFrame[15] = temp[channelMap[15]];
@@ -10780,6 +10808,20 @@ static void mal_rearrange_channels_s16(mal_int16* pFrame, mal_uint32 channels, m
     mal_copy_memory(temp, pFrame, sizeof(temp[0]) * channels);
 
     switch (channels) {
+        case 32: pFrame[31] = temp[channelMap[31]];
+        case 31: pFrame[30] = temp[channelMap[30]];
+        case 30: pFrame[29] = temp[channelMap[29]];
+        case 29: pFrame[28] = temp[channelMap[28]];
+        case 28: pFrame[27] = temp[channelMap[27]];
+        case 27: pFrame[26] = temp[channelMap[26]];
+        case 26: pFrame[25] = temp[channelMap[25]];
+        case 25: pFrame[24] = temp[channelMap[24]];
+        case 24: pFrame[23] = temp[channelMap[23]];
+        case 23: pFrame[22] = temp[channelMap[22]];
+        case 22: pFrame[21] = temp[channelMap[21]];
+        case 21: pFrame[20] = temp[channelMap[20]];
+        case 20: pFrame[19] = temp[channelMap[19]];
+        case 19: pFrame[18] = temp[channelMap[18]];
         case 18: pFrame[17] = temp[channelMap[17]];
         case 17: pFrame[16] = temp[channelMap[16]];
         case 16: pFrame[15] = temp[channelMap[15]];
@@ -10807,6 +10849,20 @@ static void mal_rearrange_channels_s32(mal_int32* pFrame, mal_uint32 channels, m
     mal_copy_memory(temp, pFrame, sizeof(temp[0]) * channels);
 
     switch (channels) {
+        case 32: pFrame[31] = temp[channelMap[31]];
+        case 31: pFrame[30] = temp[channelMap[30]];
+        case 30: pFrame[29] = temp[channelMap[29]];
+        case 29: pFrame[28] = temp[channelMap[28]];
+        case 28: pFrame[27] = temp[channelMap[27]];
+        case 27: pFrame[26] = temp[channelMap[26]];
+        case 26: pFrame[25] = temp[channelMap[25]];
+        case 25: pFrame[24] = temp[channelMap[24]];
+        case 24: pFrame[23] = temp[channelMap[23]];
+        case 23: pFrame[22] = temp[channelMap[22]];
+        case 22: pFrame[21] = temp[channelMap[21]];
+        case 21: pFrame[20] = temp[channelMap[20]];
+        case 20: pFrame[19] = temp[channelMap[19]];
+        case 19: pFrame[18] = temp[channelMap[18]];
         case 18: pFrame[17] = temp[channelMap[17]];
         case 17: pFrame[16] = temp[channelMap[16]];
         case 16: pFrame[15] = temp[channelMap[15]];
@@ -10834,6 +10890,20 @@ static void mal_rearrange_channels_f32(float* pFrame, mal_uint32 channels, mal_u
     mal_copy_memory(temp, pFrame, sizeof(temp[0]) * channels);
 
     switch (channels) {
+        case 32: pFrame[31] = temp[channelMap[31]];
+        case 31: pFrame[30] = temp[channelMap[30]];
+        case 30: pFrame[29] = temp[channelMap[29]];
+        case 29: pFrame[28] = temp[channelMap[28]];
+        case 28: pFrame[27] = temp[channelMap[27]];
+        case 27: pFrame[26] = temp[channelMap[26]];
+        case 26: pFrame[25] = temp[channelMap[25]];
+        case 25: pFrame[24] = temp[channelMap[24]];
+        case 24: pFrame[23] = temp[channelMap[23]];
+        case 23: pFrame[22] = temp[channelMap[22]];
+        case 22: pFrame[21] = temp[channelMap[21]];
+        case 21: pFrame[20] = temp[channelMap[20]];
+        case 20: pFrame[19] = temp[channelMap[19]];
+        case 19: pFrame[18] = temp[channelMap[18]];
         case 18: pFrame[17] = temp[channelMap[17]];
         case 17: pFrame[16] = temp[channelMap[16]];
         case 16: pFrame[15] = temp[channelMap[15]];
@@ -10863,6 +10933,20 @@ static void mal_rearrange_channels_generic(void* pFrame, mal_uint32 channels, ma
     mal_copy_memory(temp, pFrame, sampleSizeInBytes * channels);
 
     switch (channels) {
+        case 32: mal_copy_memory((mal_uint8*)pFrame + (31 * sampleSizeInBytes), &temp[channelMap[31] * sampleSizeInBytes], sampleSizeInBytes);
+        case 31: mal_copy_memory((mal_uint8*)pFrame + (30 * sampleSizeInBytes), &temp[channelMap[30] * sampleSizeInBytes], sampleSizeInBytes);
+        case 30: mal_copy_memory((mal_uint8*)pFrame + (29 * sampleSizeInBytes), &temp[channelMap[29] * sampleSizeInBytes], sampleSizeInBytes);
+        case 29: mal_copy_memory((mal_uint8*)pFrame + (28 * sampleSizeInBytes), &temp[channelMap[28] * sampleSizeInBytes], sampleSizeInBytes);
+        case 28: mal_copy_memory((mal_uint8*)pFrame + (27 * sampleSizeInBytes), &temp[channelMap[27] * sampleSizeInBytes], sampleSizeInBytes);
+        case 27: mal_copy_memory((mal_uint8*)pFrame + (26 * sampleSizeInBytes), &temp[channelMap[26] * sampleSizeInBytes], sampleSizeInBytes);
+        case 26: mal_copy_memory((mal_uint8*)pFrame + (25 * sampleSizeInBytes), &temp[channelMap[25] * sampleSizeInBytes], sampleSizeInBytes);
+        case 25: mal_copy_memory((mal_uint8*)pFrame + (24 * sampleSizeInBytes), &temp[channelMap[24] * sampleSizeInBytes], sampleSizeInBytes);
+        case 24: mal_copy_memory((mal_uint8*)pFrame + (23 * sampleSizeInBytes), &temp[channelMap[23] * sampleSizeInBytes], sampleSizeInBytes);
+        case 23: mal_copy_memory((mal_uint8*)pFrame + (22 * sampleSizeInBytes), &temp[channelMap[22] * sampleSizeInBytes], sampleSizeInBytes);
+        case 22: mal_copy_memory((mal_uint8*)pFrame + (21 * sampleSizeInBytes), &temp[channelMap[21] * sampleSizeInBytes], sampleSizeInBytes);
+        case 21: mal_copy_memory((mal_uint8*)pFrame + (20 * sampleSizeInBytes), &temp[channelMap[20] * sampleSizeInBytes], sampleSizeInBytes);
+        case 20: mal_copy_memory((mal_uint8*)pFrame + (19 * sampleSizeInBytes), &temp[channelMap[19] * sampleSizeInBytes], sampleSizeInBytes);
+        case 19: mal_copy_memory((mal_uint8*)pFrame + (18 * sampleSizeInBytes), &temp[channelMap[18] * sampleSizeInBytes], sampleSizeInBytes);
         case 18: mal_copy_memory((mal_uint8*)pFrame + (17 * sampleSizeInBytes), &temp[channelMap[17] * sampleSizeInBytes], sampleSizeInBytes);
         case 17: mal_copy_memory((mal_uint8*)pFrame + (16 * sampleSizeInBytes), &temp[channelMap[16] * sampleSizeInBytes], sampleSizeInBytes);
         case 16: mal_copy_memory((mal_uint8*)pFrame + (15 * sampleSizeInBytes), &temp[channelMap[15] * sampleSizeInBytes], sampleSizeInBytes);
@@ -10911,6 +10995,21 @@ static void mal_dsp_mix_channels__dec(float* pFramesOut, mal_uint32 channelsOut,
         // Basic mode is where we just drop excess channels.
         for (mal_uint32 iFrame = 0; iFrame < frameCount; ++iFrame) {
             switch (channelsOut) {
+                case 32: pFramesOut[iFrame*channelsOut+31] = pFramesIn[iFrame*channelsIn+31];
+                case 31: pFramesOut[iFrame*channelsOut+30] = pFramesIn[iFrame*channelsIn+30];
+                case 30: pFramesOut[iFrame*channelsOut+29] = pFramesIn[iFrame*channelsIn+29];
+                case 29: pFramesOut[iFrame*channelsOut+28] = pFramesIn[iFrame*channelsIn+28];
+                case 28: pFramesOut[iFrame*channelsOut+27] = pFramesIn[iFrame*channelsIn+27];
+                case 27: pFramesOut[iFrame*channelsOut+26] = pFramesIn[iFrame*channelsIn+26];
+                case 26: pFramesOut[iFrame*channelsOut+25] = pFramesIn[iFrame*channelsIn+25];
+                case 25: pFramesOut[iFrame*channelsOut+24] = pFramesIn[iFrame*channelsIn+24];
+                case 24: pFramesOut[iFrame*channelsOut+23] = pFramesIn[iFrame*channelsIn+23];
+                case 23: pFramesOut[iFrame*channelsOut+22] = pFramesIn[iFrame*channelsIn+22];
+                case 22: pFramesOut[iFrame*channelsOut+21] = pFramesIn[iFrame*channelsIn+21];
+                case 21: pFramesOut[iFrame*channelsOut+20] = pFramesIn[iFrame*channelsIn+20];
+                case 20: pFramesOut[iFrame*channelsOut+19] = pFramesIn[iFrame*channelsIn+19];
+                case 19: pFramesOut[iFrame*channelsOut+18] = pFramesIn[iFrame*channelsIn+18];
+                case 18: pFramesOut[iFrame*channelsOut+17] = pFramesIn[iFrame*channelsIn+17];
                 case 17: pFramesOut[iFrame*channelsOut+16] = pFramesIn[iFrame*channelsIn+16];
                 case 16: pFramesOut[iFrame*channelsOut+15] = pFramesIn[iFrame*channelsIn+15];
                 case 15: pFramesOut[iFrame*channelsOut+14] = pFramesIn[iFrame*channelsIn+14];
@@ -10936,6 +11035,20 @@ static void mal_dsp_mix_channels__dec(float* pFramesOut, mal_uint32 channelsOut,
             for (mal_uint32 iFrame = 0; iFrame < frameCount; ++iFrame) {
                 float total = 0;
                 switch (channelsIn) {
+                    case 32: total += pFramesIn[iFrame*channelsIn+31];
+                    case 31: total += pFramesIn[iFrame*channelsIn+30];
+                    case 30: total += pFramesIn[iFrame*channelsIn+29];
+                    case 29: total += pFramesIn[iFrame*channelsIn+28];
+                    case 28: total += pFramesIn[iFrame*channelsIn+27];
+                    case 27: total += pFramesIn[iFrame*channelsIn+26];
+                    case 26: total += pFramesIn[iFrame*channelsIn+25];
+                    case 25: total += pFramesIn[iFrame*channelsIn+24];
+                    case 24: total += pFramesIn[iFrame*channelsIn+23];
+                    case 23: total += pFramesIn[iFrame*channelsIn+22];
+                    case 22: total += pFramesIn[iFrame*channelsIn+21];
+                    case 21: total += pFramesIn[iFrame*channelsIn+20];
+                    case 20: total += pFramesIn[iFrame*channelsIn+19];
+                    case 19: total += pFramesIn[iFrame*channelsIn+18];
                     case 18: total += pFramesIn[iFrame*channelsIn+17];
                     case 17: total += pFramesIn[iFrame*channelsIn+16];
                     case 16: total += pFramesIn[iFrame*channelsIn+15];
@@ -10983,6 +11096,21 @@ static void mal_dsp_mix_channels__inc(float* pFramesOut, mal_uint32 channelsOut,
         // Basic mode is where we just zero out extra channels.
         for (mal_uint32 iFrame = 0; iFrame < frameCount; ++iFrame) {
             switch (channelsIn) {
+                case 32: pFramesOut[iFrame*channelsOut+31] = pFramesIn[iFrame*channelsIn+31];
+                case 31: pFramesOut[iFrame*channelsOut+30] = pFramesIn[iFrame*channelsIn+30];
+                case 30: pFramesOut[iFrame*channelsOut+29] = pFramesIn[iFrame*channelsIn+29];
+                case 29: pFramesOut[iFrame*channelsOut+28] = pFramesIn[iFrame*channelsIn+28];
+                case 28: pFramesOut[iFrame*channelsOut+27] = pFramesIn[iFrame*channelsIn+27];
+                case 27: pFramesOut[iFrame*channelsOut+26] = pFramesIn[iFrame*channelsIn+26];
+                case 26: pFramesOut[iFrame*channelsOut+25] = pFramesIn[iFrame*channelsIn+25];
+                case 25: pFramesOut[iFrame*channelsOut+24] = pFramesIn[iFrame*channelsIn+24];
+                case 24: pFramesOut[iFrame*channelsOut+23] = pFramesIn[iFrame*channelsIn+23];
+                case 23: pFramesOut[iFrame*channelsOut+22] = pFramesIn[iFrame*channelsIn+22];
+                case 22: pFramesOut[iFrame*channelsOut+21] = pFramesIn[iFrame*channelsIn+21];
+                case 21: pFramesOut[iFrame*channelsOut+20] = pFramesIn[iFrame*channelsIn+20];
+                case 20: pFramesOut[iFrame*channelsOut+19] = pFramesIn[iFrame*channelsIn+19];
+                case 19: pFramesOut[iFrame*channelsOut+18] = pFramesIn[iFrame*channelsIn+18];
+                case 18: pFramesOut[iFrame*channelsOut+17] = pFramesIn[iFrame*channelsIn+17];
                 case 17: pFramesOut[iFrame*channelsOut+16] = pFramesIn[iFrame*channelsIn+16];
                 case 16: pFramesOut[iFrame*channelsOut+15] = pFramesIn[iFrame*channelsIn+15];
                 case 15: pFramesOut[iFrame*channelsOut+14] = pFramesIn[iFrame*channelsIn+14];
@@ -11004,6 +11132,21 @@ static void mal_dsp_mix_channels__inc(float* pFramesOut, mal_uint32 channelsOut,
 
             // Zero out extra channels.
             switch (channelsOut - channelsIn) {
+                case 32: pFramesOut[iFrame*channelsOut+31 + channelsIn] = 0;
+                case 31: pFramesOut[iFrame*channelsOut+30 + channelsIn] = 0;
+                case 30: pFramesOut[iFrame*channelsOut+29 + channelsIn] = 0;
+                case 29: pFramesOut[iFrame*channelsOut+28 + channelsIn] = 0;
+                case 28: pFramesOut[iFrame*channelsOut+27 + channelsIn] = 0;
+                case 27: pFramesOut[iFrame*channelsOut+26 + channelsIn] = 0;
+                case 26: pFramesOut[iFrame*channelsOut+25 + channelsIn] = 0;
+                case 25: pFramesOut[iFrame*channelsOut+24 + channelsIn] = 0;
+                case 24: pFramesOut[iFrame*channelsOut+23 + channelsIn] = 0;
+                case 23: pFramesOut[iFrame*channelsOut+22 + channelsIn] = 0;
+                case 22: pFramesOut[iFrame*channelsOut+21 + channelsIn] = 0;
+                case 21: pFramesOut[iFrame*channelsOut+20 + channelsIn] = 0;
+                case 20: pFramesOut[iFrame*channelsOut+19 + channelsIn] = 0;
+                case 19: pFramesOut[iFrame*channelsOut+18 + channelsIn] = 0;
+                case 18: pFramesOut[iFrame*channelsOut+17 + channelsIn] = 0;
                 case 17: pFramesOut[iFrame*channelsOut+16 + channelsIn] = 0;
                 case 16: pFramesOut[iFrame*channelsOut+15 + channelsIn] = 0;
                 case 15: pFramesOut[iFrame*channelsOut+14 + channelsIn] = 0;
@@ -11029,6 +11172,20 @@ static void mal_dsp_mix_channels__inc(float* pFramesOut, mal_uint32 channelsOut,
         if (channelsIn == 1) {
             for (mal_uint32 iFrame = 0; iFrame < frameCount; ++iFrame) {
                 switch (channelsOut) {
+                    case 32: pFramesOut[iFrame*channelsOut+31] = pFramesIn[iFrame*channelsIn+0];
+                    case 31: pFramesOut[iFrame*channelsOut+30] = pFramesIn[iFrame*channelsIn+0];
+                    case 30: pFramesOut[iFrame*channelsOut+29] = pFramesIn[iFrame*channelsIn+0];
+                    case 29: pFramesOut[iFrame*channelsOut+28] = pFramesIn[iFrame*channelsIn+0];
+                    case 28: pFramesOut[iFrame*channelsOut+27] = pFramesIn[iFrame*channelsIn+0];
+                    case 27: pFramesOut[iFrame*channelsOut+26] = pFramesIn[iFrame*channelsIn+0];
+                    case 26: pFramesOut[iFrame*channelsOut+25] = pFramesIn[iFrame*channelsIn+0];
+                    case 25: pFramesOut[iFrame*channelsOut+24] = pFramesIn[iFrame*channelsIn+0];
+                    case 24: pFramesOut[iFrame*channelsOut+23] = pFramesIn[iFrame*channelsIn+0];
+                    case 23: pFramesOut[iFrame*channelsOut+22] = pFramesIn[iFrame*channelsIn+0];
+                    case 22: pFramesOut[iFrame*channelsOut+21] = pFramesIn[iFrame*channelsIn+0];
+                    case 21: pFramesOut[iFrame*channelsOut+20] = pFramesIn[iFrame*channelsIn+0];
+                    case 20: pFramesOut[iFrame*channelsOut+19] = pFramesIn[iFrame*channelsIn+0];
+                    case 19: pFramesOut[iFrame*channelsOut+18] = pFramesIn[iFrame*channelsIn+0];
                     case 18: pFramesOut[iFrame*channelsOut+17] = pFramesIn[iFrame*channelsIn+0];
                     case 17: pFramesOut[iFrame*channelsOut+16] = pFramesIn[iFrame*channelsIn+0];
                     case 16: pFramesOut[iFrame*channelsOut+15] = pFramesIn[iFrame*channelsIn+0];
@@ -11749,10 +11906,13 @@ static void mal_get_flac_channel_map(mal_uint32 channels, mal_uint8 channelMap[M
             channelMap[6] = MAL_CHANNEL_SIDE_LEFT;
             channelMap[7] = MAL_CHANNEL_SIDE_RIGHT;
         } break;
-    }
 
-    // Should never get here because FLAC has a maximum of 8 channels. In any case, just set the channel map to all zeros.
-    mal_zero_memory(channelMap, sizeof(channelMap));
+        default:
+        {
+            // Should never get here because FLAC has a maximum of 8 channels. In any case, just set the channel map to all zeros.
+            mal_zero_memory(channelMap, sizeof(channelMap));
+        } break;
+    }
 }
 
 static size_t mal_decoder_internal_on_read__flac(void* pUserData, void* pBufferOut, size_t bytesToRead)
