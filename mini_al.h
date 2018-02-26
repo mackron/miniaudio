@@ -1,5 +1,5 @@
 // Audio playback and capture library. Public domain. See "unlicense" statement at the end of this file.
-// mini_al - v0.7 - 2018-02-25
+// mini_al - v0.x - 2018-xx-xx
 //
 // David Reid - davidreidsoftware@gmail.com
 
@@ -17,6 +17,7 @@
 //   - DirectSound
 //   - WinMM
 //   - ALSA
+//   - PulseAudio
 //   - OSS
 //   - OpenSL|ES / Android
 //   - OpenAL
@@ -144,6 +145,9 @@
 // #define MAL_NO_ALSA
 //   Disables the ALSA backend.
 //
+// #define MAL_NO_PULSEAUDIO
+//   Disables the PulseAudio backend.
+//
 // #define MAL_NO_OSS
 //   Disables the OSS backend.
 //
@@ -233,6 +237,9 @@ extern "C" {
             #define MAL_SUPPORT_ALSA
         #endif
     #endif
+    #if !defined(MAL_APPLE) && !defined(MAL_ANDROID) && !defined(MAL_EMSCRIPTEN)
+        #define MAL_SUPPORT_PULSEAUDIO
+    #endif
     #if defined(MAL_APPLE)
         #define MAL_SUPPORT_COREAUDIO
     #endif
@@ -264,6 +271,9 @@ extern "C" {
 #endif
 #if !defined(MAL_NO_ALSA) && defined(MAL_SUPPORT_ALSA)
     #define MAL_ENABLE_ALSA
+#endif
+#if !defined(MAL_NO_PULSEAUDIO) && defined(MAL_SUPPORT_PULSEAUDIO)
+    #define MAL_ENABLE_PULSEAUDIO
 #endif
 #if !defined(MAL_NO_COREAUDIO) && defined(MAL_SUPPORT_COREAUDIO)
     #define MAL_ENABLE_COREAUDIO
@@ -502,6 +512,7 @@ typedef enum
     mal_backend_dsound,
     mal_backend_winmm,
     mal_backend_alsa,
+    mal_backend_pulseaudio,
     mal_backend_oss,
     mal_backend_opensl,
     mal_backend_openal,
@@ -545,6 +556,9 @@ typedef union
 #endif
 #ifdef MAL_SUPPORT_ALSA
     char alsa[256];                 // ALSA uses a name string for identification.
+#endif
+#ifdef MAL_SUPPORT_PULSEAUDIO
+    char pulseaudio[256];           // PulseAudio uses a name string for identification.
 #endif
 #ifdef MAL_SUPPORT_COREAUDIO
     // TODO: Implement me.
@@ -780,6 +794,12 @@ struct mal_context
             mal_proc snd_pcm_info_get_name;
         } alsa;
 #endif
+#ifdef MAL_SUPPORT_PULSEAUDIO
+        struct
+        {
+            mal_handle pulseSO;
+        } pulse;
+#endif
 #ifdef MAL_SUPPORT_COREAUDIO
         struct
         {
@@ -883,8 +903,8 @@ struct mal_context
             mal_proc alGetBufferiv;
 
             mal_bool32 isEnumerationSupported : 1;
-            mal_bool32 isFloat32Supported   : 1;
-            mal_bool32 isMCFormatsSupported : 1;
+            mal_bool32 isFloat32Supported     : 1;
+            mal_bool32 isMCFormatsSupported   : 1;
         } openal;
 #endif
 #ifdef MAL_SUPPORT_SDL
@@ -1036,6 +1056,15 @@ struct mal_device
             void* pIntermediaryBuffer;
         } alsa;
 #endif
+#ifdef MAL_SUPPORT_PULSEAUDIO
+        struct
+        {
+            /*pa_simple**/ mal_ptr pPA;
+            mal_uint32 fragmentSizeInFrames;
+            mal_bool32 breakFromMainLoop : 1;
+            void* pIntermediaryBuffer;
+        } pulse;
+#endif
 #ifdef MAL_SUPPORT_COREAUDIO
         struct
         {
@@ -1114,6 +1143,7 @@ struct mal_device
 //   - WASAPI
 //   - DirectSound
 //   - WinMM
+//   - PulseAudio
 //   - ALSA
 //   - OSS
 //   - OpenSL|ES
@@ -1752,6 +1782,14 @@ mal_result mal_decoder_seek_to_frame(mal_decoder* pDecoder, mal_uint64 frameInde
     #ifdef __has_include
         #if !__has_include(<alsa/asoundlib.h>)
             #undef MAL_HAS_ALSA
+        #endif
+    #endif
+#endif
+#ifdef MAL_ENABLE_PULSEAUDIO
+    #define MAL_HAS_PULSEAUDIO
+    #ifdef __has_include
+        #if !__has_include(<pulse/simple.h>)
+            #undef MAL_HAS_PULSEAUDIO
         #endif
     #endif
 #endif
@@ -5632,6 +5670,7 @@ static mal_result mal_device__main_loop__winmm(mal_device* pDevice)
 
 
 
+
 ///////////////////////////////////////////////////////////////////////////////
 //
 // ALSA Backend
@@ -6845,6 +6884,172 @@ static mal_result mal_device__main_loop__alsa(mal_device* pDevice)
     return MAL_SUCCESS;
 }
 #endif  // ALSA
+
+
+
+///////////////////////////////////////////////////////////////////////////////
+//
+// PulseAudio Backend
+//
+///////////////////////////////////////////////////////////////////////////////
+#ifdef MAL_HAS_PULSEAUDIO
+#include <pulse/simple.h>
+#include <pulse/error.h>
+
+static mal_result mal_result_from_pulse(int result)
+{
+    switch (result) {
+        case PA_OK:           return MAL_SUCCESS;
+        case PA_ERR_ACCESS:   return MAL_ACCESS_DENIED;
+        case PA_ERR_INVALID:  return MAL_INVALID_ARGS;
+        case PA_ERR_NOENTITY: return MAL_NO_DEVICE;
+        default:              return MAL_ERROR;
+    }
+}
+
+static mal_result mal_context_init__pulse(mal_context* pContext)
+{
+    mal_assert(pContext != NULL);
+
+    const char* libs[] = {
+        "libpulse.so",
+        "libpulse.so.0"
+    };
+
+    for (size_t i = 0; i < mal_countof(libs); ++i) {
+        pContext->pulse.pulseSO = mal_dlopen(libs[i]);
+        if (pContext->pulse.pulseSO != NULL) {
+            break;
+        }
+    }
+
+    if (pContext->pulse.pulseSO != NULL) {
+        return MAL_NO_BACKEND;
+    }
+
+    // TODO: Retrieve pointers to relevant APIs.
+
+    return MAL_SUCCESS;
+}
+
+static mal_result mal_context_uninit__pulse(mal_context* pContext)
+{
+    mal_assert(pContext != NULL);
+    mal_assert(pContext->backend == mal_backend_pulseaudio);
+
+    mal_dlclose(pContext->pulse.pulseSO);
+    return MAL_SUCCESS;
+}
+
+static mal_result mal_enumerate_devices__pulse(mal_context* pContext, mal_device_type type, mal_uint32* pCount, mal_device_info* pInfo)
+{
+    (void)pContext;
+
+    //mal_uint32 infoSize = *pCount;
+    *pCount = 0;
+
+    return MAL_SUCCESS;
+}
+
+static void mal_device_uninit__pulse(mal_device* pDevice)
+{
+    mal_assert(pDevice != NULL);
+}
+
+static mal_result mal_device_init__pulse(mal_context* pContext, mal_device_type type, mal_device_id* pDeviceID, const mal_device_config* pConfig, mal_device* pDevice)
+{
+    (void)pContext;
+
+    mal_assert(pDevice != NULL);
+    mal_zero_object(&pDevice->pulse);
+
+    
+
+    return MAL_SUCCESS;
+}
+
+static mal_result mal_device__start_backend__pulse(mal_device* pDevice)
+{
+    mal_assert(pDevice != NULL);
+
+#if 0
+    // The device is started by the next calls to read() and write(). For playback it's simple - just read
+    // data from the client, then write it to the device with write() which will in turn start the device.
+    // For capture it's a bit less intuitive - we do nothing (it'll be started automatically by the first
+    // call to read().
+    if (pDevice->type == mal_device_type_playback) {
+        // Playback.
+        mal_device__read_frames_from_client(pDevice, pDevice->pulse.fragmentSizeInFrames, pDevice->pulse.pIntermediaryBuffer);
+
+        //int bytesWritten = write(pDevice->oss.fd, pDevice->oss.pIntermediaryBuffer, pDevice->oss.fragmentSizeInFrames * pDevice->internalChannels * mal_get_sample_size_in_bytes(pDevice->internalFormat));
+        if (bytesWritten == -1) {
+            return mal_post_error(pDevice, "[PulseAudio] Failed to send initial chunk of data to the device.", MAL_FAILED_TO_SEND_DATA_TO_DEVICE);
+        }
+    } else {
+        // Capture. Do nothing.
+    }
+#endif
+
+    return MAL_SUCCESS;
+}
+
+static mal_result mal_device__stop_backend__pulse(mal_device* pDevice)
+{
+    mal_assert(pDevice != NULL);
+
+    // The simple API doesn't seem to have any explicit start/stop APIs, so when stopping we just flush.
+    int error = PA_OK;
+    pa_simple_flush((pa_simple*)pDevice->pulse.pPA, &error);
+
+    return mal_result_from_pulse(error);
+}
+
+static mal_result mal_device__break_main_loop__pulse(mal_device* pDevice)
+{
+    mal_assert(pDevice != NULL);
+
+    pDevice->pulse.breakFromMainLoop = MAL_TRUE;
+    return MAL_SUCCESS;
+}
+
+static mal_result mal_device__main_loop__pulse(mal_device* pDevice)
+{
+    mal_assert(pDevice != NULL);
+
+    pDevice->pulse.breakFromMainLoop = MAL_FALSE;
+    while (!pDevice->pulse.breakFromMainLoop) {
+        // Break from the main loop if the device isn't started anymore. Likely what's happened is the application
+        // has requested that the device be stopped.
+        if (!mal_device_is_started(pDevice)) {
+            break;
+        }
+
+        if (pDevice->type == mal_device_type_playback) {
+            // Playback.
+            mal_device__read_frames_from_client(pDevice, pDevice->pulse.fragmentSizeInFrames, pDevice->pulse.pIntermediaryBuffer);
+
+            //int bytesWritten = write(pDevice->oss.fd, pDevice->oss.pIntermediaryBuffer, pDevice->oss.fragmentSizeInFrames * pDevice->internalChannels * mal_get_sample_size_in_bytes(pDevice->internalFormat));
+            //if (bytesWritten < 0) {
+            //    return mal_post_error(pDevice, "[PulseAudio] Failed to send data from the client to the device.", MAL_FAILED_TO_SEND_DATA_TO_DEVICE);
+            //}
+        } else {
+            // Capture.
+            //int bytesRead = read(pDevice->oss.fd, pDevice->oss.pIntermediaryBuffer, pDevice->oss.fragmentSizeInFrames * mal_get_sample_size_in_bytes(pDevice->internalFormat));
+            //if (bytesRead < 0) {
+            //    return mal_post_error(pDevice, "[PulseAudio] Failed to read data from the device to be sent to the client.", MAL_FAILED_TO_READ_DATA_FROM_DEVICE);
+            //}
+
+            int bytesRead = 0;
+
+            mal_uint32 framesRead = (mal_uint32)bytesRead / pDevice->internalChannels / mal_get_sample_size_in_bytes(pDevice->internalFormat);
+            mal_device__send_frames_to_client(pDevice, framesRead, pDevice->pulse.pIntermediaryBuffer);
+        }
+    }
+
+    return MAL_SUCCESS;
+}
+#endif
+
 
 
 ///////////////////////////////////////////////////////////////////////////////
@@ -9160,6 +9365,11 @@ static mal_result mal_device__start_backend(mal_device* pDevice)
         result = mal_device__start_backend__alsa(pDevice);
     }
 #endif
+#ifdef MAL_HAS_PULSEAUDIO
+    if (pDevice->pContext->backend == mal_backend_pulseaudio) {
+        result = mal_device__start_backend__pulse(pDevice);
+    }
+#endif
 #ifdef MAL_HAS_OSS
     if (pDevice->pContext->backend == mal_backend_oss) {
         result = mal_device__start_backend__oss(pDevice);
@@ -9202,6 +9412,11 @@ static mal_result mal_device__stop_backend(mal_device* pDevice)
 #ifdef MAL_HAS_ALSA
     if (pDevice->pContext->backend == mal_backend_alsa) {
         result = mal_device__stop_backend__alsa(pDevice);
+    }
+#endif
+#ifdef MAL_HAS_PULSEAUDIO
+    if (pDevice->pContext->backend == mal_backend_pulseaudio) {
+        result = mal_device__stop_backend__pulse(pDevice);
     }
 #endif
 #ifdef MAL_HAS_OSS
@@ -9248,6 +9463,11 @@ static mal_result mal_device__break_main_loop(mal_device* pDevice)
         result = mal_device__break_main_loop__alsa(pDevice);
     }
 #endif
+#ifdef MAL_HAS_PULSEAUDIO
+    if (pDevice->pContext->backend == mal_backend_pulseaudio) {
+        result = mal_device__break_main_loop__pulse(pDevice);
+    }
+#endif
 #ifdef MAL_HAS_OSS
     if (pDevice->pContext->backend == mal_backend_oss) {
         result = mal_device__break_main_loop__oss(pDevice);
@@ -9290,6 +9510,11 @@ static mal_result mal_device__main_loop(mal_device* pDevice)
 #ifdef MAL_HAS_ALSA
     if (pDevice->pContext->backend == mal_backend_alsa) {
         result = mal_device__main_loop__alsa(pDevice);
+    }
+#endif
+#ifdef MAL_HAS_PULSEAUDIO
+    if (pDevice->pContext->backend == mal_backend_pulseaudio) {
+        result = mal_device__main_loop__pulse(pDevice);
     }
 #endif
 #ifdef MAL_HAS_OSS
@@ -9532,6 +9757,7 @@ mal_result mal_context_init(mal_backend backends[], mal_uint32 backendCount, con
         mal_backend_wasapi,
         mal_backend_dsound,
         mal_backend_winmm,
+        mal_backend_pulseaudio,
         mal_backend_alsa,
         mal_backend_oss,
         mal_backend_opensl,
@@ -9542,7 +9768,7 @@ mal_result mal_context_init(mal_backend backends[], mal_uint32 backendCount, con
 
     if (backends == NULL) {
         backends = defaultBackends;
-        backendCount = sizeof(defaultBackends) / sizeof(defaultBackends[0]);
+        backendCount = mal_countof(defaultBackends);
     }
 
     mal_assert(backends != NULL);
@@ -9574,6 +9800,12 @@ mal_result mal_context_init(mal_backend backends[], mal_uint32 backendCount, con
             case mal_backend_alsa:
             {
                 result = mal_context_init__alsa(pContext);
+            } break;
+        #endif
+        #ifdef MAL_HAS_PULSEAUDIO
+            case mal_backend_pulseaudio:
+            {
+                result = mal_context_init__pulse(pContext);
             } break;
         #endif
         #ifdef MAL_HAS_OSS
@@ -9650,6 +9882,12 @@ mal_result mal_context_uninit(mal_context* pContext)
             return mal_context_uninit__alsa(pContext);
         } break;
     #endif
+    #ifdef MAL_HAS_PULSEAUDIO
+        case mal_backend_pulseaudio:
+        {
+            return mal_context_uninit__pulse(pContext);
+        } break;
+    #endif
     #ifdef MAL_HAS_OSS
         case mal_backend_oss:
         {
@@ -9724,6 +9962,12 @@ mal_result mal_enumerate_devices(mal_context* pContext, mal_device_type type, ma
         case mal_backend_alsa:
         {
             return mal_enumerate_devices__alsa(pContext, type, pCount, pInfo);
+        } break;
+    #endif
+    #ifdef MAL_HAS_PULSEAUDIO
+        case mal_backend_pulseaudio:
+        {
+            return mal_enumerate_devices__pulse(pContext, type, pCount, pInfo);
         } break;
     #endif
     #ifdef MAL_HAS_OSS
@@ -9890,6 +10134,12 @@ mal_result mal_device_init(mal_context* pContext, mal_device_type type, mal_devi
         case mal_backend_alsa:
         {
             result = mal_device_init__alsa(pContext, type, pDeviceID, &config, pDevice);
+        } break;
+    #endif
+    #ifdef MAL_HAS_PULSEAUDIO
+        case mal_backend_pulseaudio:
+        {
+            result = mal_device_init__pulse(pContext, type, pDeviceID, &config, pDevice);
         } break;
     #endif
     #ifdef MAL_HAS_OSS
@@ -10067,6 +10317,11 @@ void mal_device_uninit(mal_device* pDevice)
 #ifdef MAL_HAS_ALSA
     if (pDevice->pContext->backend == mal_backend_alsa) {
         mal_device_uninit__alsa(pDevice);
+    }
+#endif
+#ifdef MAL_HAS_PULSEAUDIO
+    if (pDevice->pContext->backend == mal_backend_pulseaudio) {
+        mal_device_uninit__pulse(pDevice);
     }
 #endif
 #ifdef MAL_HAS_OSS
@@ -10275,6 +10530,8 @@ mal_context_config mal_context_config_init(mal_log_proc onLog)
 
 static void mal_get_default_device_config_channel_map(mal_uint32 channels, mal_uint8 channelMap[MAL_MAX_CHANNELS])
 {
+    mal_zero_memory(channelMap, sizeof(mal_uint8)*MAL_MAX_CHANNELS);
+
     switch (channels)
     {
         case 1:
@@ -10348,7 +10605,6 @@ static void mal_get_default_device_config_channel_map(mal_uint32 channels, mal_u
         default:
         {
             // Just leave it all blank in this case. This will use the same mapping as the device's native mapping.
-            mal_zero_memory(channelMap, sizeof(channelMap));
         } break;
     }
 }
@@ -11794,6 +12050,7 @@ static mal_uint32 mal_decoder_internal_on_read_frames__wav(mal_dsp* pDSP, mal_ui
         case mal_format_s16: return (mal_uint32)drwav_read_s16(pWav, frameCount*pDecoder->internalChannels, (drwav_int16*)pSamplesOut) / pDecoder->internalChannels;
         case mal_format_s32: return (mal_uint32)drwav_read_s32(pWav, frameCount*pDecoder->internalChannels, (drwav_int32*)pSamplesOut) / pDecoder->internalChannels;
         case mal_format_f32: return (mal_uint32)drwav_read_f32(pWav, frameCount*pDecoder->internalChannels,       (float*)pSamplesOut) / pDecoder->internalChannels;
+        default: break;
     }
 
     // Should never get here. If we do, it means the internal format was not set correctly at initialization time.
@@ -11871,6 +12128,8 @@ mal_result mal_decoder_init_wav__internal(const mal_decoder_config* pConfig, mal
 
 static void mal_get_flac_channel_map(mal_uint32 channels, mal_uint8 channelMap[MAL_MAX_CHANNELS])
 {
+    mal_zero_memory(channelMap, sizeof(mal_uint8)*MAL_MAX_CHANNELS);
+
     switch (channels) {
         case 1:
         {
@@ -11942,8 +12201,7 @@ static void mal_get_flac_channel_map(mal_uint32 channels, mal_uint8 channelMap[M
 
         default:
         {
-            // Should never get here because FLAC has a maximum of 8 channels. In any case, just set the channel map to all zeros.
-            mal_zero_memory(channelMap, sizeof(channelMap));
+            // Should never get here because FLAC has a maximum of 8 channels.
         } break;
     }
 }
@@ -13096,6 +13354,10 @@ void mal_pcm_f32_to_s32(int* pOut, const float* pIn, unsigned int count)
 
 // REVISION HISTORY
 // ================
+//
+// v0.x - 2018-xx-xx
+//   - Add support for PulseAudio.
+//   - Miscellaneous bug fixes.
 //
 // v0.7 - 2018-02-25
 //   - API CHANGE: Change mal_src_read_frames() and mal_dsp_read_frames() to use 64-bit sample counts.
