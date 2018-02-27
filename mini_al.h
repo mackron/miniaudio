@@ -798,6 +798,7 @@ struct mal_context
         struct
         {
             mal_handle pulseSO;
+            mal_handle pulsesimpleSO;
         } pulse;
 #endif
 #ifdef MAL_SUPPORT_COREAUDIO
@@ -1143,8 +1144,8 @@ struct mal_device
 //   - WASAPI
 //   - DirectSound
 //   - WinMM
-//   - PulseAudio
 //   - ALSA
+//   - PulseAudio
 //   - OSS
 //   - OpenSL|ES
 //   - OpenAL
@@ -6907,23 +6908,143 @@ static mal_result mal_result_from_pulse(int result)
     }
 }
 
+static pa_sample_format_t mal_format_to_pulse(mal_format format)
+{
+    switch (format)
+    {
+        case mal_format_u8:       return PA_SAMPLE_U8;
+        case mal_format_s16:      return PA_SAMPLE_S16LE;
+        //case mal_format_s16be:    return PA_SAMPLE_S16BE;
+        case mal_format_s24:      return PA_SAMPLE_S24LE;
+        //case mal_format_s24be:    return PA_SAMPLE_S24BE;
+        //case mal_format_s24_32:   return PA_SAMPLE_S24_32LE;
+        //case mal_format_s24_32be: return PA_SAMPLE_S24_32BE;
+        case mal_format_s32:      return PA_SAMPLE_S32LE;
+        //case mal_format_s32be:    return PA_SAMPLE_S32BE;
+        case mal_format_f32:      return PA_SAMPLE_FLOAT32LE;
+        //case mal_format_f32be:    return PA_SAMPLE_FLOAT32BE;
+
+        default: return PA_SAMPLE_INVALID;
+    }
+}
+
+static mal_format mal_format_from_pulse(pa_sample_format_t format)
+{
+    switch (format)
+    {
+        case PA_SAMPLE_U8:        return mal_format_u8;
+        case PA_SAMPLE_S16LE:     return mal_format_s16;
+        //case PA_SAMPLE_S16BE:     return mal_format_s16be;
+        case PA_SAMPLE_S24LE:     return mal_format_s24;
+        //case PA_SAMPLE_S24BE:     return mal_format_s24be;
+        //case PA_SAMPLE_S24_32LE:  return mal_format_s24_32;
+        //case PA_SAMPLE_S24_32BE:  return mal_format_s24_32be;
+        case PA_SAMPLE_S32LE:     return mal_format_s32;
+        //case PA_SAMPLE_S32BE:     return mal_format_s32be;
+        case PA_SAMPLE_FLOAT32LE: return mal_format_f32;
+        //case PA_SAMPLE_FLOAT32BE: return mal_format_f32be;
+
+        default: return mal_format_unknown;
+    }
+}
+
+static mal_channel mal_channel_position_from_pulse(enum pa_channel_position position)
+{
+    switch (position)
+    {
+        case PA_CHANNEL_POSITION_INVALID:               return MAL_CHANNEL_NONE;
+        case PA_CHANNEL_POSITION_MONO:                  return MAL_CHANNEL_MONO;
+        case PA_CHANNEL_POSITION_FRONT_LEFT:            return MAL_CHANNEL_FRONT_LEFT;
+        case PA_CHANNEL_POSITION_FRONT_RIGHT:           return MAL_CHANNEL_FRONT_RIGHT;
+        case PA_CHANNEL_POSITION_FRONT_CENTER:          return MAL_CHANNEL_FRONT_CENTER;
+        case PA_CHANNEL_POSITION_REAR_CENTER:           return MAL_CHANNEL_BACK_CENTER;
+        case PA_CHANNEL_POSITION_REAR_LEFT:             return MAL_CHANNEL_BACK_LEFT;
+        case PA_CHANNEL_POSITION_REAR_RIGHT:            return MAL_CHANNEL_BACK_RIGHT;
+        case PA_CHANNEL_POSITION_LFE:                   return MAL_CHANNEL_LFE;
+        case PA_CHANNEL_POSITION_FRONT_LEFT_OF_CENTER:  return MAL_CHANNEL_FRONT_LEFT_CENTER;
+        case PA_CHANNEL_POSITION_FRONT_RIGHT_OF_CENTER: return MAL_CHANNEL_FRONT_RIGHT_CENTER;
+        case PA_CHANNEL_POSITION_SIDE_LEFT:             return MAL_CHANNEL_SIDE_LEFT;
+        case PA_CHANNEL_POSITION_SIDE_RIGHT:            return MAL_CHANNEL_SIDE_RIGHT;
+        case PA_CHANNEL_POSITION_AUX0:                  return MAL_CHANNEL_NONE;
+        case PA_CHANNEL_POSITION_AUX1:                  return MAL_CHANNEL_NONE;
+        case PA_CHANNEL_POSITION_AUX2:                  return MAL_CHANNEL_NONE;
+        case PA_CHANNEL_POSITION_AUX3:                  return MAL_CHANNEL_NONE;
+        case PA_CHANNEL_POSITION_AUX4:                  return MAL_CHANNEL_NONE;
+        case PA_CHANNEL_POSITION_AUX5:                  return MAL_CHANNEL_NONE;
+        case PA_CHANNEL_POSITION_AUX6:                  return MAL_CHANNEL_NONE;
+        case PA_CHANNEL_POSITION_AUX7:                  return MAL_CHANNEL_NONE;
+        case PA_CHANNEL_POSITION_AUX8:                  return MAL_CHANNEL_NONE;
+        case PA_CHANNEL_POSITION_AUX9:                  return MAL_CHANNEL_NONE;
+        case PA_CHANNEL_POSITION_AUX10:                 return MAL_CHANNEL_NONE;
+        case PA_CHANNEL_POSITION_AUX11:                 return MAL_CHANNEL_NONE;
+        case PA_CHANNEL_POSITION_AUX12:                 return MAL_CHANNEL_NONE;
+        case PA_CHANNEL_POSITION_AUX13:                 return MAL_CHANNEL_NONE;
+        case PA_CHANNEL_POSITION_AUX14:                 return MAL_CHANNEL_NONE;
+        case PA_CHANNEL_POSITION_AUX15:                 return MAL_CHANNEL_NONE;
+        case PA_CHANNEL_POSITION_AUX16:                 return MAL_CHANNEL_NONE;
+        case PA_CHANNEL_POSITION_AUX17:                 return MAL_CHANNEL_NONE;
+        case PA_CHANNEL_POSITION_AUX18:                 return MAL_CHANNEL_NONE;
+        case PA_CHANNEL_POSITION_AUX19:                 return MAL_CHANNEL_NONE;
+        case PA_CHANNEL_POSITION_AUX20:                 return MAL_CHANNEL_NONE;
+        case PA_CHANNEL_POSITION_AUX21:                 return MAL_CHANNEL_NONE;
+        case PA_CHANNEL_POSITION_AUX22:                 return MAL_CHANNEL_NONE;
+        case PA_CHANNEL_POSITION_AUX23:                 return MAL_CHANNEL_NONE;
+        case PA_CHANNEL_POSITION_AUX24:                 return MAL_CHANNEL_NONE;
+        case PA_CHANNEL_POSITION_AUX25:                 return MAL_CHANNEL_NONE;
+        case PA_CHANNEL_POSITION_AUX26:                 return MAL_CHANNEL_NONE;
+        case PA_CHANNEL_POSITION_AUX27:                 return MAL_CHANNEL_NONE;
+        case PA_CHANNEL_POSITION_AUX28:                 return MAL_CHANNEL_NONE;
+        case PA_CHANNEL_POSITION_AUX29:                 return MAL_CHANNEL_NONE;
+        case PA_CHANNEL_POSITION_AUX30:                 return MAL_CHANNEL_NONE;
+        case PA_CHANNEL_POSITION_AUX31:                 return MAL_CHANNEL_NONE;
+        case PA_CHANNEL_POSITION_TOP_CENTER:            return MAL_CHANNEL_TOP_CENTER;
+        case PA_CHANNEL_POSITION_TOP_FRONT_LEFT:        return MAL_CHANNEL_TOP_FRONT_LEFT;
+        case PA_CHANNEL_POSITION_TOP_FRONT_RIGHT:       return MAL_CHANNEL_TOP_FRONT_RIGHT;
+        case PA_CHANNEL_POSITION_TOP_FRONT_CENTER:      return MAL_CHANNEL_TOP_FRONT_CENTER;
+        case PA_CHANNEL_POSITION_TOP_REAR_LEFT:         return MAL_CHANNEL_TOP_BACK_LEFT;
+        case PA_CHANNEL_POSITION_TOP_REAR_RIGHT:        return MAL_CHANNEL_TOP_BACK_RIGHT;
+        case PA_CHANNEL_POSITION_TOP_REAR_CENTER:       return MAL_CHANNEL_TOP_BACK_CENTER;
+        default: return (mal_uint8)position;
+    }
+}
+
 static mal_result mal_context_init__pulse(mal_context* pContext)
 {
     mal_assert(pContext != NULL);
 
-    const char* libs[] = {
+    // libpulse.so
+    const char* libpulseNames[] = {
         "libpulse.so",
         "libpulse.so.0"
     };
 
-    for (size_t i = 0; i < mal_countof(libs); ++i) {
-        pContext->pulse.pulseSO = mal_dlopen(libs[i]);
+    for (size_t i = 0; i < mal_countof(libpulseNames); ++i) {
+        pContext->pulse.pulseSO = mal_dlopen(libpulseNames[i]);
         if (pContext->pulse.pulseSO != NULL) {
             break;
         }
     }
 
-    if (pContext->pulse.pulseSO != NULL) {
+    if (pContext->pulse.pulseSO == NULL) {
+        return MAL_NO_BACKEND;
+    }
+
+    // libpulse-simple.so
+    const char* libpulsesimpleNames[] = {
+        "libpulse-simple.so",
+        "libpulse-simple.so.0"
+    };
+
+    for (size_t i = 0; i < mal_countof(libpulsesimpleNames); ++i) {
+        pContext->pulse.pulsesimpleSO = mal_dlopen(libpulsesimpleNames[i]);
+        if (pContext->pulse.pulsesimpleSO != NULL) {
+            break;
+        }
+    }
+
+    if (pContext->pulse.pulsesimpleSO == NULL) {
+        printf("Failed to libpulse-simple.\n");
+        mal_dlclose(pContext->pulse.pulseSO);
         return MAL_NO_BACKEND;
     }
 
@@ -6954,6 +7075,8 @@ static mal_result mal_enumerate_devices__pulse(mal_context* pContext, mal_device
 static void mal_device_uninit__pulse(mal_device* pDevice)
 {
     mal_assert(pDevice != NULL);
+    pa_simple_free((pa_simple*)pDevice->pulse.pPA);
+    mal_free(pDevice->pulse.pIntermediaryBuffer);
 }
 
 static mal_result mal_device_init__pulse(mal_context* pContext, mal_device_type type, mal_device_id* pDeviceID, const mal_device_config* pConfig, mal_device* pDevice)
@@ -6963,7 +7086,53 @@ static mal_result mal_device_init__pulse(mal_context* pContext, mal_device_type 
     mal_assert(pDevice != NULL);
     mal_zero_object(&pDevice->pulse);
 
+    enum pa_stream_direction dir;
+    if (type == mal_device_type_playback) {
+        dir = PA_STREAM_PLAYBACK;
+    } else {
+        dir = PA_STREAM_RECORD;
+    }
+
+    pa_sample_spec ss;
+    ss.format = mal_format_to_pulse(pConfig->format);
+    if (ss.format == PA_SAMPLE_INVALID) {
+        ss.format = PA_SAMPLE_S16LE;
+    }
+    ss.channels = pConfig->channels;
+    ss.rate = pConfig->sampleRate;
+
+    pa_channel_map cmap;
+    pa_channel_map_init_extend(&cmap, ss.channels, PA_CHANNEL_MAP_DEFAULT);
+
+    pa_buffer_attr attr;
+    attr.maxlength = pConfig->bufferSizeInFrames * mal_get_sample_size_in_bytes(mal_format_from_pulse(ss.format))*ss.channels;
+    attr.tlength   = attr.maxlength / pConfig->periods;
+    attr.prebuf    = (mal_uint32)-1;
+    attr.minreq    = attr.tlength;
+    attr.fragsize  = attr.tlength;
     
+    int error;
+    pa_simple* pPA = pa_simple_new(NULL, "mini_al", dir, NULL, "mini_al", &ss, &cmap, &attr, &error);
+    if (pPA == NULL) {
+        return mal_post_error(pDevice, "[PulseAudio] Failed to initialize simple API.", mal_result_from_pulse(error));
+    }
+
+    pDevice->pulse.pPA = pPA;
+    
+    pDevice->internalFormat = mal_format_from_pulse(ss.format);
+    pDevice->internalChannels = ss.channels;
+    pDevice->internalSampleRate = ss.rate;
+    for (mal_uint32 iChannel = 0; iChannel < pDevice->internalChannels; ++iChannel) {
+        pDevice->internalChannelMap[iChannel] = mal_channel_position_from_pulse(cmap.map[iChannel]);
+    }
+
+    pDevice->pulse.fragmentSizeInFrames = attr.tlength / (pDevice->internalChannels*mal_get_sample_size_in_bytes(pDevice->internalFormat));
+
+    pDevice->pulse.pIntermediaryBuffer = mal_malloc(attr.tlength);
+    if (pDevice->pulse.pIntermediaryBuffer == NULL) {
+        pa_simple_free((pa_simple*)pDevice->pulse.pPA);
+        return mal_post_error(pDevice, "[PulseAudio] Failed to allocate memory for intermediary buffer.", MAL_OUT_OF_MEMORY);
+    }
 
     return MAL_SUCCESS;
 }
@@ -6972,23 +7141,19 @@ static mal_result mal_device__start_backend__pulse(mal_device* pDevice)
 {
     mal_assert(pDevice != NULL);
 
-#if 0
-    // The device is started by the next calls to read() and write(). For playback it's simple - just read
-    // data from the client, then write it to the device with write() which will in turn start the device.
-    // For capture it's a bit less intuitive - we do nothing (it'll be started automatically by the first
-    // call to read().
+    // A playback device is started by simply writing data to it. For capture we do nothing.
     if (pDevice->type == mal_device_type_playback) {
         // Playback.
         mal_device__read_frames_from_client(pDevice, pDevice->pulse.fragmentSizeInFrames, pDevice->pulse.pIntermediaryBuffer);
 
-        //int bytesWritten = write(pDevice->oss.fd, pDevice->oss.pIntermediaryBuffer, pDevice->oss.fragmentSizeInFrames * pDevice->internalChannels * mal_get_sample_size_in_bytes(pDevice->internalFormat));
-        if (bytesWritten == -1) {
-            return mal_post_error(pDevice, "[PulseAudio] Failed to send initial chunk of data to the device.", MAL_FAILED_TO_SEND_DATA_TO_DEVICE);
+        int error;
+        int bytesWritten = pa_simple_write((pa_simple*)pDevice->pulse.pPA, pDevice->pulse.pIntermediaryBuffer, pDevice->pulse.fragmentSizeInFrames * pDevice->internalChannels*mal_get_sample_size_in_bytes(pDevice->internalFormat), &error);
+        if (bytesWritten < 0) {
+            return mal_post_error(pDevice, "[PulseAudio] Failed to send initial chunk of data to the device.", mal_result_from_pulse(error));
         }
     } else {
         // Capture. Do nothing.
     }
-#endif
 
     return MAL_SUCCESS;
 }
@@ -7028,18 +7193,18 @@ static mal_result mal_device__main_loop__pulse(mal_device* pDevice)
             // Playback.
             mal_device__read_frames_from_client(pDevice, pDevice->pulse.fragmentSizeInFrames, pDevice->pulse.pIntermediaryBuffer);
 
-            //int bytesWritten = write(pDevice->oss.fd, pDevice->oss.pIntermediaryBuffer, pDevice->oss.fragmentSizeInFrames * pDevice->internalChannels * mal_get_sample_size_in_bytes(pDevice->internalFormat));
-            //if (bytesWritten < 0) {
-            //    return mal_post_error(pDevice, "[PulseAudio] Failed to send data from the client to the device.", MAL_FAILED_TO_SEND_DATA_TO_DEVICE);
-            //}
+            int error;
+            int bytesWritten = pa_simple_write((pa_simple*)pDevice->pulse.pPA, pDevice->pulse.pIntermediaryBuffer, pDevice->pulse.fragmentSizeInFrames * pDevice->internalChannels*mal_get_sample_size_in_bytes(pDevice->internalFormat), &error);
+            if (bytesWritten < 0) {
+                return mal_post_error(pDevice, "[PulseAudio] Failed to send data from the client to the device.", MAL_FAILED_TO_SEND_DATA_TO_DEVICE);
+            }
         } else {
             // Capture.
-            //int bytesRead = read(pDevice->oss.fd, pDevice->oss.pIntermediaryBuffer, pDevice->oss.fragmentSizeInFrames * mal_get_sample_size_in_bytes(pDevice->internalFormat));
-            //if (bytesRead < 0) {
-            //    return mal_post_error(pDevice, "[PulseAudio] Failed to read data from the device to be sent to the client.", MAL_FAILED_TO_READ_DATA_FROM_DEVICE);
-            //}
-
-            int bytesRead = 0;
+            int error;
+            int bytesRead = pa_simple_read((pa_simple*)pDevice->pulse.pPA, pDevice->pulse.pIntermediaryBuffer, pDevice->pulse.fragmentSizeInFrames * pDevice->internalChannels*mal_get_sample_size_in_bytes(pDevice->internalFormat), &error);
+            if (bytesRead< 0) {
+                return mal_post_error(pDevice, "[PulseAudio] Failed to read data from the device to be sent to the client.", MAL_FAILED_TO_READ_DATA_FROM_DEVICE);
+            }
 
             mal_uint32 framesRead = (mal_uint32)bytesRead / pDevice->internalChannels / mal_get_sample_size_in_bytes(pDevice->internalFormat);
             mal_device__send_frames_to_client(pDevice, framesRead, pDevice->pulse.pIntermediaryBuffer);
@@ -9757,8 +9922,8 @@ mal_result mal_context_init(mal_backend backends[], mal_uint32 backendCount, con
         mal_backend_wasapi,
         mal_backend_dsound,
         mal_backend_winmm,
-        mal_backend_pulseaudio,
         mal_backend_alsa,
+        mal_backend_pulseaudio,
         mal_backend_oss,
         mal_backend_opensl,
         mal_backend_openal,
