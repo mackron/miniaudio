@@ -2699,7 +2699,7 @@ static mal_result mal_post_error(mal_device* pDevice, const char* message, mal_r
 static void mal_get_default_channel_mapping(mal_backend backend, mal_uint32 channels, mal_channel channelMap[MAL_MAX_CHANNELS])
 {
     if (channels == 1) {           // Mono
-        channelMap[0] = MAL_CHANNEL_FRONT_CENTER;
+        channelMap[0] = MAL_CHANNEL_MONO;
     } else if (channels == 2) {    // Stereo
         channelMap[0] = MAL_CHANNEL_FRONT_LEFT;
         channelMap[1] = MAL_CHANNEL_FRONT_RIGHT;
