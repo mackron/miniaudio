@@ -6921,7 +6921,6 @@ static mal_result mal_device__main_loop__alsa(mal_device* pDevice)
 ///////////////////////////////////////////////////////////////////////////////
 #ifdef MAL_HAS_PULSEAUDIO
 #include <pulse/pulseaudio.h>
-#include <pulse/simple.h>
 #include <pulse/error.h>
 
 typedef struct
@@ -6982,7 +6981,7 @@ static mal_format mal_format_from_pulse(pa_sample_format_t format)
     }
 }
 
-static mal_channel mal_channel_position_from_pulse(enum pa_channel_position position)
+static mal_channel mal_channel_position_from_pulse(pa_channel_position_t position)
 {
     switch (position)
     {
@@ -7017,20 +7016,20 @@ static mal_channel mal_channel_position_from_pulse(enum pa_channel_position posi
         case PA_CHANNEL_POSITION_AUX15:                 return MAL_CHANNEL_NONE;
         case PA_CHANNEL_POSITION_AUX16:                 return MAL_CHANNEL_NONE;
         case PA_CHANNEL_POSITION_AUX17:                 return MAL_CHANNEL_NONE;
-        case PA_CHANNEL_POSITION_AUX18:                 return MAL_CHANNEL_NONE;
-        case PA_CHANNEL_POSITION_AUX19:                 return MAL_CHANNEL_NONE;
-        case PA_CHANNEL_POSITION_AUX20:                 return MAL_CHANNEL_NONE;
-        case PA_CHANNEL_POSITION_AUX21:                 return MAL_CHANNEL_NONE;
-        case PA_CHANNEL_POSITION_AUX22:                 return MAL_CHANNEL_NONE;
-        case PA_CHANNEL_POSITION_AUX23:                 return MAL_CHANNEL_NONE;
-        case PA_CHANNEL_POSITION_AUX24:                 return MAL_CHANNEL_NONE;
-        case PA_CHANNEL_POSITION_AUX25:                 return MAL_CHANNEL_NONE;
-        case PA_CHANNEL_POSITION_AUX26:                 return MAL_CHANNEL_NONE;
-        case PA_CHANNEL_POSITION_AUX27:                 return MAL_CHANNEL_NONE;
-        case PA_CHANNEL_POSITION_AUX28:                 return MAL_CHANNEL_NONE;
-        case PA_CHANNEL_POSITION_AUX29:                 return MAL_CHANNEL_NONE;
-        case PA_CHANNEL_POSITION_AUX30:                 return MAL_CHANNEL_NONE;
-        case PA_CHANNEL_POSITION_AUX31:                 return MAL_CHANNEL_NONE;
+        case PA_CHANNEL_POSITION_AUX18:                 return MAL_CHANNEL_19;
+        case PA_CHANNEL_POSITION_AUX19:                 return MAL_CHANNEL_20;
+        case PA_CHANNEL_POSITION_AUX20:                 return MAL_CHANNEL_21;
+        case PA_CHANNEL_POSITION_AUX21:                 return MAL_CHANNEL_22;
+        case PA_CHANNEL_POSITION_AUX22:                 return MAL_CHANNEL_23;
+        case PA_CHANNEL_POSITION_AUX23:                 return MAL_CHANNEL_24;
+        case PA_CHANNEL_POSITION_AUX24:                 return MAL_CHANNEL_25;
+        case PA_CHANNEL_POSITION_AUX25:                 return MAL_CHANNEL_26;
+        case PA_CHANNEL_POSITION_AUX26:                 return MAL_CHANNEL_27;
+        case PA_CHANNEL_POSITION_AUX27:                 return MAL_CHANNEL_28;
+        case PA_CHANNEL_POSITION_AUX28:                 return MAL_CHANNEL_29;
+        case PA_CHANNEL_POSITION_AUX29:                 return MAL_CHANNEL_30;
+        case PA_CHANNEL_POSITION_AUX30:                 return MAL_CHANNEL_31;
+        case PA_CHANNEL_POSITION_AUX31:                 return MAL_CHANNEL_32;
         case PA_CHANNEL_POSITION_TOP_CENTER:            return MAL_CHANNEL_TOP_CENTER;
         case PA_CHANNEL_POSITION_TOP_FRONT_LEFT:        return MAL_CHANNEL_TOP_FRONT_LEFT;
         case PA_CHANNEL_POSITION_TOP_FRONT_RIGHT:       return MAL_CHANNEL_TOP_FRONT_RIGHT;
@@ -7042,7 +7041,46 @@ static mal_channel mal_channel_position_from_pulse(enum pa_channel_position posi
     }
 }
 
-
+static pa_channel_position_t mal_channel_position_to_pulse(mal_channel position)
+{
+    switch (position)
+    {
+        case MAL_CHANNEL_NONE:               return PA_CHANNEL_POSITION_INVALID;
+        case MAL_CHANNEL_FRONT_LEFT:         return PA_CHANNEL_POSITION_FRONT_LEFT;
+        case MAL_CHANNEL_FRONT_RIGHT:        return PA_CHANNEL_POSITION_FRONT_RIGHT;
+        case MAL_CHANNEL_FRONT_CENTER:       return PA_CHANNEL_POSITION_FRONT_CENTER;
+        case MAL_CHANNEL_LFE:                return PA_CHANNEL_POSITION_LFE;
+        case MAL_CHANNEL_BACK_LEFT:          return PA_CHANNEL_POSITION_REAR_LEFT;
+        case MAL_CHANNEL_BACK_RIGHT:         return PA_CHANNEL_POSITION_REAR_RIGHT;
+        case MAL_CHANNEL_FRONT_LEFT_CENTER:  return PA_CHANNEL_POSITION_FRONT_LEFT_OF_CENTER;
+        case MAL_CHANNEL_FRONT_RIGHT_CENTER: return PA_CHANNEL_POSITION_FRONT_RIGHT_OF_CENTER;
+        case MAL_CHANNEL_BACK_CENTER:        return PA_CHANNEL_POSITION_REAR_CENTER;          
+        case MAL_CHANNEL_SIDE_LEFT:          return PA_CHANNEL_POSITION_SIDE_LEFT;
+        case MAL_CHANNEL_SIDE_RIGHT:         return PA_CHANNEL_POSITION_SIDE_RIGHT;
+        case MAL_CHANNEL_TOP_CENTER:         return PA_CHANNEL_POSITION_TOP_CENTER;
+        case MAL_CHANNEL_TOP_FRONT_LEFT:     return PA_CHANNEL_POSITION_TOP_FRONT_LEFT;
+        case MAL_CHANNEL_TOP_FRONT_CENTER:   return PA_CHANNEL_POSITION_TOP_FRONT_CENTER;
+        case MAL_CHANNEL_TOP_FRONT_RIGHT:    return PA_CHANNEL_POSITION_TOP_FRONT_RIGHT;
+        case MAL_CHANNEL_TOP_BACK_LEFT:      return PA_CHANNEL_POSITION_TOP_REAR_LEFT;
+        case MAL_CHANNEL_TOP_BACK_CENTER:    return PA_CHANNEL_POSITION_TOP_REAR_CENTER;
+        case MAL_CHANNEL_TOP_BACK_RIGHT:     return PA_CHANNEL_POSITION_TOP_REAR_RIGHT;
+        case MAL_CHANNEL_19:                 return PA_CHANNEL_POSITION_AUX18;
+        case MAL_CHANNEL_20:                 return PA_CHANNEL_POSITION_AUX19;
+        case MAL_CHANNEL_21:                 return PA_CHANNEL_POSITION_AUX20;
+        case MAL_CHANNEL_22:                 return PA_CHANNEL_POSITION_AUX21;
+        case MAL_CHANNEL_23:                 return PA_CHANNEL_POSITION_AUX22;
+        case MAL_CHANNEL_24:                 return PA_CHANNEL_POSITION_AUX23;
+        case MAL_CHANNEL_25:                 return PA_CHANNEL_POSITION_AUX24;
+        case MAL_CHANNEL_26:                 return PA_CHANNEL_POSITION_AUX25;
+        case MAL_CHANNEL_27:                 return PA_CHANNEL_POSITION_AUX26;
+        case MAL_CHANNEL_28:                 return PA_CHANNEL_POSITION_AUX27;
+        case MAL_CHANNEL_29:                 return PA_CHANNEL_POSITION_AUX28;
+        case MAL_CHANNEL_30:                 return PA_CHANNEL_POSITION_AUX29;
+        case MAL_CHANNEL_31:                 return PA_CHANNEL_POSITION_AUX30;
+        case MAL_CHANNEL_32:                 return PA_CHANNEL_POSITION_AUX31;
+        default: return (pa_channel_position_t)position;
+    }
+}
 
 
 static mal_result mal_context_uninit__pulse(mal_context* pContext)
@@ -7441,8 +7479,17 @@ static mal_result mal_device_init__pulse(mal_context* pContext, mal_device_type 
     ss.channels = pConfig->channels;
     ss.rate = pConfig->sampleRate;
 
+
     pa_channel_map cmap;
-    pa_channel_map_init_extend(&cmap, ss.channels, PA_CHANNEL_MAP_DEFAULT);
+    cmap.channels = pConfig->channels;
+    for (mal_uint32 iChannel = 0; iChannel < pConfig->channels; ++iChannel) {
+        cmap.map[iChannel] = mal_channel_position_to_pulse(pConfig->channelMap[iChannel]);
+    }
+
+    if (pa_channel_map_valid(&cmap) == 0 ||pa_channel_map_compatible(&cmap, &ss) == 0) {
+        pa_channel_map_init_extend(&cmap, ss.channels, PA_CHANNEL_MAP_DEFAULT);     // The channel map is invalid, so just fall back to the default.
+    }
+    
 
     pa_buffer_attr attr;
     attr.maxlength = pConfig->bufferSizeInFrames * mal_get_sample_size_in_bytes(mal_format_from_pulse(ss.format))*ss.channels;
@@ -7490,7 +7537,6 @@ static mal_result mal_device_init__pulse(mal_context* pContext, mal_device_type 
             goto on_error5;
         }
     }
-
 
 
     // Internal format.
