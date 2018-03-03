@@ -1,5 +1,5 @@
 // MP3 audio decoder. Public domain. See "unlicense" statement at the end of this file.
-// dr_mp3 - v0.1 - 2018-02-25
+// dr_mp3 - v0.1a - 2018-02-28
 //
 // David Reid - mackron@gmail.com
 //
@@ -306,6 +306,7 @@ void drmp3_free(void* p);
 #include <stdlib.h>
 #include <string.h>
 #include <stdint.h>
+#include <limits.h> // For INT_MAX
 
 #define DRMP3_MAX_FREE_FORMAT_FRAME_SIZE  2304    /* more than ISO spec's */
 #define DRMP3_MAX_FRAME_SYNC_MATCHES      10
@@ -351,19 +352,22 @@ void drmp3_free(void* p);
 #endif
 
 #if defined(_MSC_VER) || ((defined(__i386__) || defined(__x86_64__)) && defined(__SSE2__))
-#   include <immintrin.h>
-#   define DRMP3_HAVE_SSE 1
-#   define DRMP3_HAVE_SIMD 1
-#   define DRMP3_VSTORE _mm_storeu_ps
-#   define DRMP3_VLD _mm_loadu_ps
-#   define DRMP3_VSET _mm_set1_ps
-#   define DRMP3_VADD _mm_add_ps
-#   define DRMP3_VSUB _mm_sub_ps
-#   define DRMP3_VMUL _mm_mul_ps
-#   define DRMP3_VMAC(a, x, y) _mm_add_ps(a, _mm_mul_ps(x, y))
-#   define DRMP3_VMSB(a, x, y) _mm_sub_ps(a, _mm_mul_ps(x, y))
-#   define DRMP3_VMUL_S(x, s)  _mm_mul_ps(x, _mm_set1_ps(s))
-#   define DRMP3_VREV(x) _mm_shuffle_ps(x, x, _MM_SHUFFLE(0, 1, 2, 3))
+#if defined(_MSC_VER)
+#include <intrin.h>
+#endif
+#include <immintrin.h>
+#define DRMP3_HAVE_SSE 1
+#define DRMP3_HAVE_SIMD 1
+#define DRMP3_VSTORE _mm_storeu_ps
+#define DRMP3_VLD _mm_loadu_ps
+#define DRMP3_VSET _mm_set1_ps
+#define DRMP3_VADD _mm_add_ps
+#define DRMP3_VSUB _mm_sub_ps
+#define DRMP3_VMUL _mm_mul_ps
+#define DRMP3_VMAC(a, x, y) _mm_add_ps(a, _mm_mul_ps(x, y))
+#define DRMP3_VMSB(a, x, y) _mm_sub_ps(a, _mm_mul_ps(x, y))
+#define DRMP3_VMUL_S(x, s)  _mm_mul_ps(x, _mm_set1_ps(s))
+#define DRMP3_VREV(x) _mm_shuffle_ps(x, x, _MM_SHUFFLE(0, 1, 2, 3))
 typedef __m128 drmp3_f4;
 #if defined(_MSC_VER) || defined(DR_MP3_ONLY_SIMD)
 #define drmp3_cpuid __cpuid
@@ -421,26 +425,25 @@ test_nosimd:
 #endif
 }
 #elif defined(__ARM_NEON) || defined(__aarch64__)
-#   include <arm_neon.h>
-#   define DRMP3_HAVE_SIMD 1
-#   define DRMP3_VSTORE vst1q_f32
-#   define DRMP3_VLD vld1q_f32
-#   define DRMP3_VSET vmovq_n_f32
-#   define DRMP3_VADD vaddq_f32
-#   define DRMP3_VSUB vsubq_f32
-#   define DRMP3_VMUL vmulq_f32
-#   define DRMP3_VMAC(a, x, y) vmlaq_f32(a, x, y)
-#   define DRMP3_VMSB(a, x, y) vmlsq_f32(a, x, y)
-#   define DRMP3_VMUL_S(x, s)  vmulq_f32(x, vmovq_n_f32(s))
-/*#   define DRMP3_VREV(x) vcombine_f32(vrev64_f32(vget_high_f32(x)), vrev64_f32(vget_low_f32(x)))*/
-#   define DRMP3_VREV(x) vcombine_f32(vget_high_f32(vrev64q_f32(x)), vget_low_f32(vrev64q_f32(x)))
+#include <arm_neon.h>
+#define DRMP3_HAVE_SIMD 1
+#define DRMP3_VSTORE vst1q_f32
+#define DRMP3_VLD vld1q_f32
+#define DRMP3_VSET vmovq_n_f32
+#define DRMP3_VADD vaddq_f32
+#define DRMP3_VSUB vsubq_f32
+#define DRMP3_VMUL vmulq_f32
+#define DRMP3_VMAC(a, x, y) vmlaq_f32(a, x, y)
+#define DRMP3_VMSB(a, x, y) vmlsq_f32(a, x, y)
+#define DRMP3_VMUL_S(x, s)  vmulq_f32(x, vmovq_n_f32(s))
+#define DRMP3_VREV(x) vcombine_f32(vget_high_f32(vrev64q_f32(x)), vget_low_f32(vrev64q_f32(x)))
 typedef float32x4_t drmp3_f4;
 static int drmp3_have_simd()
 {   /* TODO: detect neon for !DR_MP3_ONLY_SIMD */
     return 1;
 }
 #else
-#   define DRMP3_HAVE_SIMD 0
+#define DRMP3_HAVE_SIMD 0
 #ifdef DR_MP3_ONLY_SIMD
 #error DR_MP3_ONLY_SIMD used, but SSE/NEON not enabled
 #endif
@@ -558,12 +561,12 @@ static unsigned drmp3_hdr_bitrate_kbps(const drmp3_uint8 *h)
 static unsigned drmp3_hdr_sample_rate_hz(const drmp3_uint8 *h)
 {
     static const unsigned g_hz[3] = { 44100, 48000, 32000 };
-    return g_hz[DRMP3_HDR_GET_SAMPLE_RATE(h)] >> !DRMP3_HDR_TEST_MPEG1(h) >> !DRMP3_HDR_TEST_NOT_MPEG25(h);
+    return g_hz[DRMP3_HDR_GET_SAMPLE_RATE(h)] >> (int)!DRMP3_HDR_TEST_MPEG1(h) >> (int)!DRMP3_HDR_TEST_NOT_MPEG25(h);
 }
 
 static unsigned drmp3_hdr_frame_samples(const drmp3_uint8 *h)
 {
-    return DRMP3_HDR_IS_LAYER_1(h) ? 384 : (1152 >> DRMP3_HDR_IS_FRAME_576(h));
+    return DRMP3_HDR_IS_LAYER_1(h) ? 384 : (1152 >> (int)DRMP3_HDR_IS_FRAME_576(h));
 }
 
 static int drmp3_hdr_frame_bytes(const drmp3_uint8 *h, int free_format_size)
@@ -602,7 +605,7 @@ static const drmp3_L12_subband_alloc *drmp3_L12_subband_alloc_table(const drmp3_
     {
         static const drmp3_L12_subband_alloc g_alloc_L2M1[] = { { 0, 4, 3 }, { 16, 4, 8 }, { 32, 3, 12 }, { 40, 2, 7 } };
         int sample_rate_idx = DRMP3_HDR_GET_SAMPLE_RATE(hdr);
-        unsigned kbps = drmp3_hdr_bitrate_kbps(hdr) >> (mode != DRMP3_MODE_MONO);
+        unsigned kbps = drmp3_hdr_bitrate_kbps(hdr) >> (int)(mode != DRMP3_MODE_MONO);
         if (!kbps) /* free-format */
         {
             kbps = 192;
@@ -1489,7 +1492,7 @@ static void drmp3_L3_decode(drmp3dec *h, drmp3dec_scratch *s, drmp3_L3_gr_info *
     for (ch = 0; ch < nch; ch++, gr_info++)
     {
         int aa_bands = 31;
-        int n_long_bands = (gr_info->mixed_block_flag ? 2 : 0) << (DRMP3_HDR_GET_MY_SAMPLE_RATE(h->header) == 2);
+        int n_long_bands = (gr_info->mixed_block_flag ? 2 : 0) << (int)(DRMP3_HDR_GET_MY_SAMPLE_RATE(h->header) == 2);
 
         if (gr_info->n_short_sfb)
         {
@@ -2738,13 +2741,14 @@ void drmp3_free(void* p)
 // - dr_mp3 is fully namespaced, including the implementation section, which is more suitable when compiling projects
 //   as a single translation unit (aka unity builds). At the time of writing this, a unity build is not possible when
 //   using minimp3 in conjunction with stb_vorbis. dr_mp3 addresses this.
-// - dr_mp3 does not use `#pragma once`, but instead uses `#ifndef/#define/#endif` include guards. This allows projects
-//   to keep the header and implementation sections of dr_mp3 separate, while still allowing the project to be compiled
-//   as a single translation unit.
 
 
 // REVISION HISTORY
 // ===============
+//
+// v0.1a - 2018-02-28
+//   - Fix compilation error on GCC/Clang.
+//   - Fix some warnings.
 //
 // v0.1 - 2018-02-xx
 //   - Initial versioned release.
