@@ -48,6 +48,7 @@ Backends
 - DirectSound
 - WinMM
 - ALSA
+- PulseAudio
 - OSS
 - OpenSL|ES (Android only)
 - OpenAL
