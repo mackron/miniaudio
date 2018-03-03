@@ -7081,6 +7081,21 @@ static mal_result mal_context_init__pulse(mal_context* pContext)
 }
 
 
+static mal_result mal_device__wait_for_operation__pulse(mal_device* pDevice, pa_operation* pOP)
+{
+    mal_assert(pDevice != NULL);
+    mal_assert(pOP != NULL);
+
+    while (pa_operation_get_state(pOP) != PA_OPERATION_DONE) {
+        int error = pa_mainloop_iterate((pa_mainloop*)pDevice->pulse.pMainLoop, 1, NULL);
+        if (error < 0) {
+            return mal_result_from_pulse(error);
+        }
+    }
+
+    return MAL_SUCCESS;
+}
+
 static void mal_pulse_device_enum_state_callback(pa_context* pPulseContext, void* pUserData)
 {
     pa_context_state_t* pPulseContextState = (pa_context_state_t*)pUserData;
@@ -7319,6 +7334,30 @@ static void mal_pulse_device_read_callback(pa_stream* pStream, size_t sizeInByte
     }
 }
 
+static void mal_device_sink_name_callback(pa_context* pPulseContext, const pa_sink_info* pInfo, int endOfList, void* pUserData)
+{
+    if (endOfList > 0) {
+        return;
+    }
+
+    mal_device* pDevice = (mal_device*)pUserData;
+    mal_assert(pDevice != NULL);
+
+    mal_strcpy_s(pDevice->name, sizeof(pDevice->name), pInfo->description);
+}
+
+static void mal_device_source_name_callback(pa_context* pPulseContext, const pa_source_info* pInfo, int endOfList, void* pUserData)
+{
+    if (endOfList > 0) {
+        return;
+    }
+
+    mal_device* pDevice = (mal_device*)pUserData;
+    mal_assert(pDevice != NULL);
+
+    mal_strcpy_s(pDevice->name, sizeof(pDevice->name), pInfo->description);
+}
+
 static void mal_device_uninit__pulse(mal_device* pDevice)
 {
     mal_assert(pDevice != NULL);
@@ -7486,7 +7525,21 @@ static mal_result mal_device_init__pulse(mal_context* pContext, mal_device_type 
     pDevice->periods = attr.maxlength / attr.tlength;
 
 
-    // TODO: Get the name of the device.
+    // Grab the name of the device if we can.
+    dev = pa_stream_get_device_name((pa_stream*)pDevice->pulse.pStream);
+    if (dev != NULL) {
+        pa_operation* pOP = NULL;
+        if (type == mal_device_type_playback) {
+            pOP = pa_context_get_sink_info_by_name((pa_context*)pDevice->pulse.pPulseContext, dev, mal_device_sink_name_callback, pDevice);
+        } else {
+            pOP = pa_context_get_source_info_by_name((pa_context*)pDevice->pulse.pPulseContext, dev, mal_device_source_name_callback, pDevice);
+        }
+
+        if (pOP != NULL) {
+            mal_device__wait_for_operation__pulse(pDevice, pOP);
+            pa_operation_unref(pOP);
+        }
+    }
 
 
     // Set callbacks for reading and writing data to/from the PulseAudio stream.
@@ -7518,21 +7571,6 @@ static void mal_pulse_operation_complete_callback(pa_stream* pStream, int succes
     mal_assert(pIsSuccessful != NULL);
 
     *pIsSuccessful = (mal_bool32)success;
-}
-
-static mal_result mal_device__wait_for_operation__pulse(mal_device* pDevice, pa_operation* pOP)
-{
-    mal_assert(pDevice != NULL);
-    mal_assert(pOP != NULL);
-
-    while (pa_operation_get_state(pOP) != PA_OPERATION_DONE) {
-        int error = pa_mainloop_iterate((pa_mainloop*)pDevice->pulse.pMainLoop, 1, NULL);
-        if (error < 0) {
-            return mal_result_from_pulse(error);
-        }
-    }
-
-    return MAL_SUCCESS;
 }
 
 static mal_result mal_device__cork_stream__pulse(mal_device* pDevice, int cork)
