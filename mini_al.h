@@ -113,11 +113,19 @@
 //
 // BACKEND NUANCES
 // ===============
-// - The absolute best latency I am able to get on DirectSound is about 10 milliseconds. This seems very
-//   consistent so I'm suspecting there's some kind of hard coded limit there or something.
+//
+// DirectSound
+// -----------
 // - DirectSound currently supports a maximum of 4 periods.
+//
+// Android
+// -------
 // - To capture audio on Android, remember to add the RECORD_AUDIO permission to your manifest:
 //     <uses-permission android:name="android.permission.RECORD_AUDIO" />
+// - Only a single mal_context can be active at any given time. This is due to a limitation with OpenSL|ES.
+//
+// UWP
+// ---
 // - UWP is only supported when compiling as C++.
 // - UWP only supports default playback and capture devices.
 // - UWP requires the Microphone capability to be enabled in the application's manifest (Package.appxmanifest):
@@ -127,6 +135,10 @@
 //               <DeviceCapability Name="microphone" />
 //           </Capabilities>
 //       </Package>
+//
+// PulseAudio
+// ----------
+// - Each device has it's own dedicated main loop.
 //
 //
 // OPTIONS
@@ -687,6 +699,11 @@ typedef struct
     {
         mal_bool32 noMMap;  // Disables MMap mode.
     } alsa;
+
+    struct
+    {
+        const char* pStreamName;
+    } pulse;
 } mal_device_config;
 
 typedef struct
@@ -703,6 +720,7 @@ typedef struct
     {
         const char* pApplicationName;
         const char* pServerName;
+        mal_bool32 noAutoSpawn; // Disables autospawning of the PulseAudio daemon.
     } pulse;
 } mal_context_config;
 
@@ -804,7 +822,6 @@ struct mal_context
         struct
         {
             mal_handle pulseSO;
-            mal_handle pulsesimpleSO;
         } pulse;
 #endif
 #ifdef MAL_SUPPORT_COREAUDIO
@@ -1066,10 +1083,13 @@ struct mal_device
 #ifdef MAL_SUPPORT_PULSEAUDIO
         struct
         {
-            /*pa_simple**/ mal_ptr pPA;
-            mal_uint32 fragmentSizeInFrames;
+            /*pa_mainloop**/ mal_ptr pMainLoop;
+            /*pa_mainloop_api**/ mal_ptr pAPI;
+            /*pa_context**/ mal_ptr pPulseContext;
+            /*pa_stream**/ mal_ptr pStream;
+            /*pa_context_state*/ mal_uint32 pulseContextState;
+            mal_uint32 fragmentSizeInBytes;
             mal_bool32 breakFromMainLoop : 1;
-            void* pIntermediaryBuffer;
         } pulse;
 #endif
 #ifdef MAL_SUPPORT_COREAUDIO
@@ -7023,14 +7043,16 @@ static mal_channel mal_channel_position_from_pulse(enum pa_channel_position posi
 }
 
 
-static void mal_pulse_state_callback(pa_context* pPulseContext, void* pUserData)
+
+
+static mal_result mal_context_uninit__pulse(mal_context* pContext)
 {
-    pa_context_state_t* pPulseContextState = (pa_context_state_t*)pUserData;
-    mal_assert(pPulseContextState != NULL);
+    mal_assert(pContext != NULL);
+    mal_assert(pContext->backend == mal_backend_pulseaudio);
 
-    *pPulseContextState = pa_context_get_state(pPulseContext);
+    mal_dlclose(pContext->pulse.pulseSO);
+    return MAL_SUCCESS;
 }
-
 
 static mal_result mal_context_init__pulse(mal_context* pContext)
 {
@@ -7055,40 +7077,17 @@ static mal_result mal_context_init__pulse(mal_context* pContext)
 
     // TODO: Retrieve pointers to relevant APIs.
 
-    // libpulse-simple.so
-    const char* libpulsesimpleNames[] = {
-        "libpulse-simple.so",
-        "libpulse-simple.so.0"
-    };
-
-    for (size_t i = 0; i < mal_countof(libpulsesimpleNames); ++i) {
-        pContext->pulse.pulsesimpleSO = mal_dlopen(libpulsesimpleNames[i]);
-        if (pContext->pulse.pulsesimpleSO != NULL) {
-            break;
-        }
-    }
-
-    if (pContext->pulse.pulsesimpleSO == NULL) {
-        printf("Failed to libpulse-simple.\n");
-        mal_dlclose(pContext->pulse.pulseSO);
-        return MAL_NO_BACKEND;
-    }
-
-    
-
     return MAL_SUCCESS;
 }
 
-static mal_result mal_context_uninit__pulse(mal_context* pContext)
+
+static void mal_pulse_device_enum_state_callback(pa_context* pPulseContext, void* pUserData)
 {
-    mal_assert(pContext != NULL);
-    mal_assert(pContext->backend == mal_backend_pulseaudio);
+    pa_context_state_t* pPulseContextState = (pa_context_state_t*)pUserData;
+    mal_assert(pPulseContextState != NULL);
 
-    mal_dlclose(pContext->pulse.pulsesimpleSO);
-    mal_dlclose(pContext->pulse.pulseSO);
-    return MAL_SUCCESS;
+    *pPulseContextState = pa_context_get_state(pPulseContext);
 }
-
 
 static void mal_pulse_device_info_list_callback(pa_context* pPulseContext, const char* pName, const char* pDescription, void* pUserData)
 {
@@ -7138,8 +7137,6 @@ static void mal_pulse_source_info_list_callback(pa_context* pPulseContext, const
 
 static mal_result mal_enumerate_devices__pulse(mal_context* pContext, mal_device_type type, mal_uint32* pCount, mal_device_info* pInfo)
 {
-    (void)pContext;
-
     mal_result result = MAL_SUCCESS;
 
     mal_uint32 infoSize = *pCount;
@@ -7156,20 +7153,21 @@ static mal_result mal_enumerate_devices__pulse(mal_context* pContext, mal_device
         return MAL_FAILED_TO_INIT_BACKEND;
     }
 
-    pa_context* pPulseContext = pa_context_new(pAPI, "mini_al");    // <-- Can "mini_al" be NULL instead? TODO: Try NULL, and also use mal_context_config.pApplicationName.
+    pa_context* pPulseContext = pa_context_new(pAPI, pContext->config.pulse.pApplicationName);
     if (pPulseContext == NULL) {
         pa_mainloop_free(pMainLoop);
         return MAL_FAILED_TO_INIT_BACKEND;
     }
 
-    int error = pa_context_connect(pPulseContext, NULL, 0, NULL);   // TODO: Use mal_context_config.pServerName.
+    int error = pa_context_connect(pPulseContext, pContext->config.pulse.pServerName, 0, NULL);
     if (error != PA_OK) {
-        result = mal_result_from_pulse(error);
-        goto done;
+        pa_context_unref(pPulseContext);
+        pa_mainloop_free(pMainLoop);
+        return mal_result_from_pulse(error);
     }
 
     pa_context_state_t pulseContextState = PA_CONTEXT_UNCONNECTED;
-    pa_context_set_state_callback(pPulseContext, mal_pulse_state_callback, &pulseContextState);
+    pa_context_set_state_callback(pPulseContext, mal_pulse_device_enum_state_callback, &pulseContextState);
 
     mal_pulse_device_enum_data callbackData;
     callbackData.count = 0;
@@ -7233,11 +7231,103 @@ done:
     return result;
 }
 
+static void mal_pulse_device_state_callback(pa_context* pPulseContext, void* pUserData)
+{
+    mal_device* pDevice = (mal_device*)pUserData;
+    mal_assert(pDevice != NULL);
+
+    pDevice->pulse.pulseContextState = pa_context_get_state(pPulseContext);
+}
+
+static void mal_pulse_device_write_callback(pa_stream* pStream, size_t sizeInBytes, void* pUserData)
+{
+    mal_device* pDevice = (mal_device*)pUserData;
+    mal_assert(pDevice != NULL);
+
+    void* pBuffer = NULL;
+    int error = pa_stream_begin_write((pa_stream*)pDevice->pulse.pStream, &pBuffer, &sizeInBytes);
+    if (error < 0) {
+        mal_post_error(pDevice, "[PulseAudio] Failed to retrieve write buffer for sending data to the device.", mal_result_from_pulse(error));
+        return;
+    }
+
+    if (pBuffer != NULL && sizeInBytes > 0) {
+        mal_uint8* pBuffer8 = (mal_uint8*)pBuffer;
+
+        size_t bytesRemaining = sizeInBytes;
+        while (sizeInBytes > 0) {
+            size_t bytesToReadFromClient = bytesRemaining;
+            if (bytesToReadFromClient > 0xFFFFFFFF) {
+                bytesToReadFromClient = 0xFFFFFFFF;
+            }
+
+            mal_uint32 framesToReadFromClient = (mal_uint32)bytesToReadFromClient / (pDevice->internalChannels*mal_get_sample_size_in_bytes(pDevice->internalFormat));
+            if (framesToReadFromClient > 0) {
+                mal_device__read_frames_from_client(pDevice, framesToReadFromClient, pBuffer8);
+            } else {
+                break;
+            }
+
+            bytesRemaining -= bytesToReadFromClient;
+            pBuffer8 += bytesToReadFromClient;
+        }
+
+        error = pa_stream_write((pa_stream*)pDevice->pulse.pStream, pBuffer, sizeInBytes, NULL, 0, PA_SEEK_RELATIVE);
+        if (error < 0) {
+            mal_post_error(pDevice, "[PulseAudio] Failed to write data to the PulseAudio stream.", mal_result_from_pulse(error));
+        }
+    }
+}
+
+static void mal_pulse_device_read_callback(pa_stream* pStream, size_t sizeInBytes, void* pUserData)
+{
+    mal_device* pDevice = (mal_device*)pUserData;
+    mal_assert(pDevice != NULL);
+
+    const void* pBuffer = NULL;
+    int error = pa_stream_peek((pa_stream*)pDevice->pulse.pStream, &pBuffer, &sizeInBytes);
+    if (error < 0) {
+        mal_post_error(pDevice, "[PulseAudio] Failed to retrieve read buffer for reading data from the device.", mal_result_from_pulse(error));
+        return;
+    }
+
+    if (pBuffer != NULL) {
+        mal_uint8* pBuffer8 = (mal_uint8*)pBuffer;
+
+        size_t bytesRemaining = sizeInBytes;
+        while (sizeInBytes > 0) {
+            size_t bytesToSendToClient = bytesRemaining;
+            if (bytesToSendToClient > 0xFFFFFFFF) {
+                bytesToSendToClient = 0xFFFFFFFF;
+            }
+
+            mal_uint32 framesToSendToClient = (mal_uint32)bytesToSendToClient / (pDevice->internalChannels*mal_get_sample_size_in_bytes(pDevice->internalFormat));
+            if (framesToSendToClient > 0) {
+                mal_device__send_frames_to_client(pDevice, framesToSendToClient, pBuffer8);
+            } else {
+                break;
+            }
+
+            bytesRemaining -= bytesToSendToClient;
+            pBuffer8 += bytesToSendToClient;
+        }
+    }
+
+    error = pa_stream_drop((pa_stream*)pDevice->pulse.pStream);
+    if (error < 0) {
+        mal_post_error(pDevice, "[PulseAudio] Failed to drop fragment from the PulseAudio stream.", mal_result_from_pulse(error));
+    }
+}
+
 static void mal_device_uninit__pulse(mal_device* pDevice)
 {
     mal_assert(pDevice != NULL);
-    pa_simple_free((pa_simple*)pDevice->pulse.pPA);
-    mal_free(pDevice->pulse.pIntermediaryBuffer);
+
+    pa_stream_disconnect((pa_stream*)pDevice->pulse.pStream);
+    pa_stream_unref((pa_stream*)pDevice->pulse.pStream);
+    pa_context_disconnect((pa_context*)pDevice->pulse.pPulseContext);
+    pa_context_unref((pa_context*)pDevice->pulse.pPulseContext);
+    pa_mainloop_free((pa_mainloop*)pDevice->pulse.pMainLoop);
 }
 
 static mal_result mal_device_init__pulse(mal_context* pContext, mal_device_type type, mal_device_id* pDeviceID, const mal_device_config* pConfig, mal_device* pDevice)
@@ -7247,12 +7337,62 @@ static mal_result mal_device_init__pulse(mal_context* pContext, mal_device_type 
     mal_assert(pDevice != NULL);
     mal_zero_object(&pDevice->pulse);
 
-    enum pa_stream_direction dir;
-    if (type == mal_device_type_playback) {
-        dir = PA_STREAM_PLAYBACK;
-    } else {
-        dir = PA_STREAM_RECORD;
+    mal_result result = MAL_SUCCESS;
+
+    pDevice->pulse.pMainLoop = pa_mainloop_new();
+    if (pDevice->pulse.pMainLoop == NULL) {
+        result = mal_post_error(pDevice, "[PulseAudio] Failed to create main loop for device.", MAL_FAILED_TO_INIT_BACKEND);
+        goto on_error0;
     }
+
+    pDevice->pulse.pAPI = pa_mainloop_get_api((pa_mainloop*)pDevice->pulse.pMainLoop);
+    if (pDevice->pulse.pAPI == NULL) {
+        result = mal_post_error(pDevice, "[PulseAudio] Failed to retrieve PulseAudio main loop.", MAL_FAILED_TO_INIT_BACKEND);
+        goto on_error1;
+    }
+
+    pDevice->pulse.pPulseContext = pa_context_new((pa_mainloop_api*)pDevice->pulse.pAPI, pContext->config.pulse.pApplicationName);
+    if (pDevice->pulse.pPulseContext == NULL) {
+        result = mal_post_error(pDevice, "[PulseAudio] Failed to create PulseAudio context for device.", MAL_FAILED_TO_INIT_BACKEND);
+        goto on_error1;
+    }
+
+    int error = pa_context_connect((pa_context*)pDevice->pulse.pPulseContext, pContext->config.pulse.pServerName, (pContext->config.pulse.noAutoSpawn) ? PA_CONTEXT_NOAUTOSPAWN : 0, NULL);
+    if (error != PA_OK) {
+        result = mal_post_error(pDevice, "[PulseAudio] Failed to connect PulseAudio context.", mal_result_from_pulse(error));
+        goto on_error2;
+    }
+
+
+    pDevice->pulse.pulseContextState = (mal_uint32)PA_CONTEXT_UNCONNECTED;
+    pa_context_set_state_callback((pa_context*)pDevice->pulse.pPulseContext, mal_pulse_device_state_callback, pDevice);
+
+    // Wait for PulseAudio to get itself ready before returning.
+    for (;;) {
+        if (pDevice->pulse.pulseContextState == PA_CONTEXT_READY) {
+            break;
+        } else {
+            error = pa_mainloop_iterate((pa_mainloop*)pDevice->pulse.pMainLoop, 1, NULL);    // 1 = block.
+            if (error < 0) {
+                result = mal_post_error(pDevice, "[PulseAudio] The PulseAudio main loop returned an error while connecting the PulseAudio context.", mal_result_from_pulse(error));
+                goto on_error3;
+            }
+            continue;
+        }
+        
+        // An error may have occurred.
+        if (pDevice->pulse.pulseContextState == PA_CONTEXT_FAILED || pDevice->pulse.pulseContextState == PA_CONTEXT_TERMINATED) {
+            result = mal_post_error(pDevice, "[PulseAudio] An error occurred while connecting the PulseAudio context.", MAL_ERROR);
+            goto on_error3;
+        }
+
+        error = pa_mainloop_iterate((pa_mainloop*)pDevice->pulse.pMainLoop, 1, NULL);
+        if (error < 0) {
+            result = mal_post_error(pDevice, "[PulseAudio] The PulseAudio main loop returned an error while connecting the PulseAudio context.", mal_result_from_pulse(error));
+            goto on_error3;
+        }
+    }
+
 
     pa_sample_spec ss;
     ss.format = mal_format_to_pulse(pConfig->format);
@@ -7271,28 +7411,151 @@ static mal_result mal_device_init__pulse(mal_context* pContext, mal_device_type 
     attr.prebuf    = (mal_uint32)-1;
     attr.minreq    = attr.tlength;
     attr.fragsize  = attr.tlength;
-    
-    int error;
-    pa_simple* pPA = pa_simple_new(NULL, "mini_al", dir, NULL, "mini_al", &ss, &cmap, &attr, &error);
-    if (pPA == NULL) {
-        return mal_post_error(pDevice, "[PulseAudio] Failed to initialize simple API.", mal_result_from_pulse(error));
+
+    char streamName[256];
+    if (pConfig->pulse.pStreamName != NULL) {
+        mal_strcpy_s(streamName, sizeof(streamName), pConfig->pulse.pStreamName);
+    } else {
+        static int g_StreamCounter = 0;
+        mal_strcpy_s(streamName, sizeof(streamName), "mini_al:");
+        mal_itoa_s(g_StreamCounter, streamName + 8, sizeof(streamName)-8, 10);  // 8 = strlen("mini_al:")
+        g_StreamCounter += 1;
     }
 
-    pDevice->pulse.pPA = pPA;
-    
+    pDevice->pulse.pStream = pa_stream_new((pa_context*)pDevice->pulse.pPulseContext, streamName, &ss, &cmap);
+    if (pDevice->pulse.pStream == NULL) {
+        result = mal_post_error(pDevice, "[PulseAudio] Failed to create PulseAudio stream.", MAL_FAILED_TO_OPEN_BACKEND_DEVICE);
+        goto on_error3;
+    }
+
+    const char* dev = NULL;
+    if (pDeviceID != NULL) {
+        dev = pDeviceID->pulseaudio;
+    }
+
+    if (type == mal_device_type_playback) {
+        error = pa_stream_connect_playback((pa_stream*)pDevice->pulse.pStream, dev, &attr, PA_STREAM_START_CORKED, NULL, NULL);
+    } else {
+        error = pa_stream_connect_record((pa_stream*)pDevice->pulse.pStream, dev, &attr, PA_STREAM_START_CORKED);
+    }
+
+    if (error != PA_OK) {
+        result = mal_post_error(pDevice, "[PulseAudio] Failed to connect PulseAudio stream.", mal_result_from_pulse(error));
+        goto on_error4;
+    }
+
+    while (pa_stream_get_state((pa_stream*)pDevice->pulse.pStream) != PA_STREAM_READY) {
+        error = pa_mainloop_iterate((pa_mainloop*)pDevice->pulse.pMainLoop, 1, NULL);
+        if (error < 0) {
+            result = mal_post_error(pDevice, "[PulseAudio] The PulseAudio main loop returned an error while connecting the PulseAudio stream.", mal_result_from_pulse(error));
+            goto on_error5;
+        }
+    }
+
+
+
+    // Internal format.
+    const pa_sample_spec* pActualSS = pa_stream_get_sample_spec((pa_stream*)pDevice->pulse.pStream);
+    if (pActualSS != NULL) {
+        ss = *pActualSS;
+    }
+
     pDevice->internalFormat = mal_format_from_pulse(ss.format);
     pDevice->internalChannels = ss.channels;
     pDevice->internalSampleRate = ss.rate;
+    
+
+    // Internal channel map.
+    const pa_channel_map* pActualCMap = pa_stream_get_channel_map((pa_stream*)pDevice->pulse.pStream);
+    if (pActualCMap != NULL) {
+        cmap = *pActualCMap;
+    }
+
     for (mal_uint32 iChannel = 0; iChannel < pDevice->internalChannels; ++iChannel) {
         pDevice->internalChannelMap[iChannel] = mal_channel_position_from_pulse(cmap.map[iChannel]);
     }
 
-    pDevice->pulse.fragmentSizeInFrames = attr.tlength / (pDevice->internalChannels*mal_get_sample_size_in_bytes(pDevice->internalFormat));
 
-    pDevice->pulse.pIntermediaryBuffer = mal_malloc(attr.tlength);
-    if (pDevice->pulse.pIntermediaryBuffer == NULL) {
-        pa_simple_free((pa_simple*)pDevice->pulse.pPA);
-        return mal_post_error(pDevice, "[PulseAudio] Failed to allocate memory for intermediary buffer.", MAL_OUT_OF_MEMORY);
+    // Buffer size.
+    const pa_buffer_attr* pActualAttr = pa_stream_get_buffer_attr((pa_stream*)pDevice->pulse.pStream);
+    if (pActualAttr != NULL) {
+        attr = *pActualAttr;
+    }
+
+    pDevice->bufferSizeInFrames = attr.maxlength / (mal_get_sample_size_in_bytes(pDevice->internalFormat)*pDevice->internalChannels);
+    pDevice->periods = attr.maxlength / attr.tlength;
+
+
+    // TODO: Get the name of the device.
+
+
+    // Set callbacks for reading and writing data to/from the PulseAudio stream.
+    if (type == mal_device_type_playback) {
+        pa_stream_set_write_callback((pa_stream*)pDevice->pulse.pStream, mal_pulse_device_write_callback, pDevice);
+    } else {
+        pa_stream_set_read_callback((pa_stream*)pDevice->pulse.pStream, mal_pulse_device_read_callback, pDevice);
+    }
+
+
+    pDevice->pulse.fragmentSizeInBytes = attr.tlength;
+
+    return MAL_SUCCESS;
+
+
+on_error5: pa_stream_disconnect((pa_stream*)pDevice->pulse.pStream);
+on_error4: pa_stream_unref((pa_stream*)pDevice->pulse.pStream);
+on_error3: pa_context_disconnect((pa_context*)pDevice->pulse.pPulseContext);
+on_error2: pa_context_unref((pa_context*)pDevice->pulse.pPulseContext);
+on_error1: pa_mainloop_free((pa_mainloop*)pDevice->pulse.pMainLoop);
+on_error0:
+    return result;
+}
+
+
+static void mal_pulse_operation_complete_callback(pa_stream* pStream, int success, void* pUserData)
+{
+    mal_bool32* pIsSuccessful = (mal_bool32*)pUserData;
+    mal_assert(pIsSuccessful != NULL);
+
+    *pIsSuccessful = (mal_bool32)success;
+}
+
+static mal_result mal_device__wait_for_operation__pulse(mal_device* pDevice, pa_operation* pOP)
+{
+    mal_assert(pDevice != NULL);
+    mal_assert(pOP != NULL);
+
+    while (pa_operation_get_state(pOP) != PA_OPERATION_DONE) {
+        int error = pa_mainloop_iterate((pa_mainloop*)pDevice->pulse.pMainLoop, 1, NULL);
+        if (error < 0) {
+            return mal_result_from_pulse(error);
+        }
+    }
+
+    return MAL_SUCCESS;
+}
+
+static mal_result mal_device__cork_stream__pulse(mal_device* pDevice, int cork)
+{
+    mal_bool32 wasSuccessful = MAL_FALSE;
+    pa_operation* pOP = pa_stream_cork((pa_stream*)pDevice->pulse.pStream, cork, mal_pulse_operation_complete_callback, &wasSuccessful);
+    if (pOP == NULL) {
+        return mal_post_error(pDevice, "[PulseAudio] Failed to cork PulseAudio stream.", (cork == 0) ? MAL_FAILED_TO_START_BACKEND_DEVICE : MAL_FAILED_TO_STOP_BACKEND_DEVICE);
+    }
+
+    mal_result result = mal_device__wait_for_operation__pulse(pDevice, pOP);
+    pa_operation_unref(pOP);
+
+    if (result != MAL_SUCCESS) {
+        return mal_post_error(pDevice, "[PulseAudio] An error occurred while waiting for the PulseAudio stream to cork.", result);
+    }
+
+    if (!wasSuccessful) {
+        if (cork) {
+            return mal_post_error(pDevice, "[PulseAudio] Failed to stop PulseAudio stream.", MAL_FAILED_TO_STOP_BACKEND_DEVICE);
+        } else {
+            return mal_post_error(pDevice, "[PulseAudio] Failed to start PulseAudio stream.", MAL_FAILED_TO_START_BACKEND_DEVICE);
+        }
     }
 
     return MAL_SUCCESS;
@@ -7302,15 +7565,48 @@ static mal_result mal_device__start_backend__pulse(mal_device* pDevice)
 {
     mal_assert(pDevice != NULL);
 
+    // For both playback and capture we need to uncork the stream. Afterwards, for playback we need to fill in an initial chunk
+    // of data, equal to the trigger length. That should then start actual playback.
+    mal_result result = mal_device__cork_stream__pulse(pDevice, 0);
+    if (result != MAL_SUCCESS) {
+        return result;
+    }
+
     // A playback device is started by simply writing data to it. For capture we do nothing.
     if (pDevice->type == mal_device_type_playback) {
         // Playback.
-        mal_device__read_frames_from_client(pDevice, pDevice->pulse.fragmentSizeInFrames, pDevice->pulse.pIntermediaryBuffer);
+        void* pBuffer = NULL;
+        size_t bufferSizeInBytes = pDevice->pulse.fragmentSizeInBytes;
+        int error = pa_stream_begin_write((pa_stream*)pDevice->pulse.pStream, &pBuffer, &bufferSizeInBytes);
+        if (error < 0) {
+            return mal_post_error(pDevice, "[PulseAudio] Failed to retrieve write buffer for sending the initial chunk of data to the device.", mal_result_from_pulse(error));
+        }
 
-        int error;
-        int bytesWritten = pa_simple_write((pa_simple*)pDevice->pulse.pPA, pDevice->pulse.pIntermediaryBuffer, pDevice->pulse.fragmentSizeInFrames * pDevice->internalChannels*mal_get_sample_size_in_bytes(pDevice->internalFormat), &error);
-        if (bytesWritten < 0) {
-            return mal_post_error(pDevice, "[PulseAudio] Failed to send initial chunk of data to the device.", mal_result_from_pulse(error));
+        if (pBuffer != NULL && bufferSizeInBytes > 0) {
+            mal_uint8* pBuffer8 = (mal_uint8*)pBuffer;
+
+            size_t bytesRemaining = bufferSizeInBytes;
+            while (bytesRemaining > 0) {
+                size_t bytesToReadFromClient = bytesRemaining;
+                if (bytesToReadFromClient > 0xFFFFFFFF) {
+                    bytesToReadFromClient = 0xFFFFFFFF;
+                }
+
+                mal_uint32 framesToReadFromClient = (mal_uint32)bytesToReadFromClient / (pDevice->internalChannels*mal_get_sample_size_in_bytes(pDevice->internalFormat));
+                if (framesToReadFromClient > 0) {
+                    mal_device__read_frames_from_client(pDevice, framesToReadFromClient, pBuffer8);
+                } else {
+                    break;
+                }
+
+                bytesRemaining -= bytesToReadFromClient;
+                pBuffer8 += bytesToReadFromClient;
+            }
+
+            error = pa_stream_write((pa_stream*)pDevice->pulse.pStream, pBuffer, bufferSizeInBytes, NULL, 0, PA_SEEK_RELATIVE);
+            if (error < 0) {
+                return mal_post_error(pDevice, "[PulseAudio] Failed to write initial data to the PulseAudio stream.", mal_result_from_pulse(error));
+            }
         }
     } else {
         // Capture. Do nothing.
@@ -7323,11 +7619,36 @@ static mal_result mal_device__stop_backend__pulse(mal_device* pDevice)
 {
     mal_assert(pDevice != NULL);
 
-    // The simple API doesn't seem to have any explicit start/stop APIs, so when stopping we just flush.
-    int error = PA_OK;
-    pa_simple_flush((pa_simple*)pDevice->pulse.pPA, &error);
+    mal_result result = mal_device__cork_stream__pulse(pDevice, 1);
+    if (result != MAL_SUCCESS) {
+        return result;
+    }
 
-    return mal_result_from_pulse(error);
+    // For playback, buffers need to be flushed. For capture they need to be drained.
+    mal_bool32 wasSuccessful;
+    pa_operation* pOP = NULL;
+    if (pDevice->type == mal_device_type_playback) {
+        pOP = pa_stream_flush((pa_stream*)pDevice->pulse.pStream, mal_pulse_operation_complete_callback, &wasSuccessful);
+    } else {
+        pOP = pa_stream_drain((pa_stream*)pDevice->pulse.pStream, mal_pulse_operation_complete_callback, &wasSuccessful);
+    }
+
+    if (pOP == NULL) {
+        return mal_post_error(pDevice, "[PulseAudio] Failed to flush buffers after stopping PulseAudio stream.", MAL_ERROR);
+    }
+
+    result = mal_device__wait_for_operation__pulse(pDevice, pOP);
+    pa_operation_unref(pOP);
+
+    if (result != MAL_SUCCESS) {
+        return mal_post_error(pDevice, "[PulseAudio] An error occurred while waiting for the PulseAudio stream to flush.", result);
+    }
+
+    if (!wasSuccessful) {
+        return mal_post_error(pDevice, "[PulseAudio] Failed to flush buffers after stopping PulseAudio stream.", MAL_ERROR);
+    }
+
+    return MAL_SUCCESS;
 }
 
 static mal_result mal_device__break_main_loop__pulse(mal_device* pDevice)
@@ -7335,6 +7656,8 @@ static mal_result mal_device__break_main_loop__pulse(mal_device* pDevice)
     mal_assert(pDevice != NULL);
 
     pDevice->pulse.breakFromMainLoop = MAL_TRUE;
+    pa_mainloop_wakeup((pa_mainloop*)pDevice->pulse.pMainLoop);
+
     return MAL_SUCCESS;
 }
 
@@ -7350,25 +7673,9 @@ static mal_result mal_device__main_loop__pulse(mal_device* pDevice)
             break;
         }
 
-        if (pDevice->type == mal_device_type_playback) {
-            // Playback.
-            mal_device__read_frames_from_client(pDevice, pDevice->pulse.fragmentSizeInFrames, pDevice->pulse.pIntermediaryBuffer);
-
-            int error;
-            int bytesWritten = pa_simple_write((pa_simple*)pDevice->pulse.pPA, pDevice->pulse.pIntermediaryBuffer, pDevice->pulse.fragmentSizeInFrames * pDevice->internalChannels*mal_get_sample_size_in_bytes(pDevice->internalFormat), &error);
-            if (bytesWritten < 0) {
-                return mal_post_error(pDevice, "[PulseAudio] Failed to send data from the client to the device.", MAL_FAILED_TO_SEND_DATA_TO_DEVICE);
-            }
-        } else {
-            // Capture.
-            int error;
-            int bytesRead = pa_simple_read((pa_simple*)pDevice->pulse.pPA, pDevice->pulse.pIntermediaryBuffer, pDevice->pulse.fragmentSizeInFrames * pDevice->internalChannels*mal_get_sample_size_in_bytes(pDevice->internalFormat), &error);
-            if (bytesRead< 0) {
-                return mal_post_error(pDevice, "[PulseAudio] Failed to read data from the device to be sent to the client.", MAL_FAILED_TO_READ_DATA_FROM_DEVICE);
-            }
-
-            mal_uint32 framesRead = (mal_uint32)bytesRead / pDevice->internalChannels / mal_get_sample_size_in_bytes(pDevice->internalFormat);
-            mal_device__send_frames_to_client(pDevice, framesRead, pDevice->pulse.pIntermediaryBuffer);
+        int resultPA = pa_mainloop_iterate((pa_mainloop*)pDevice->pulse.pMainLoop, 1, NULL);
+        if (resultPA < 0) {
+            break;  // Some error occurred.
         }
     }
 
