@@ -306,6 +306,7 @@ void drmp3_free(void* p);
 #include <stdlib.h>
 #include <string.h>
 #include <stdint.h>
+#include <limits.h>
 
 #define DRMP3_MAX_FREE_FORMAT_FRAME_SIZE  2304    /* more than ISO spec's */
 #define DRMP3_MAX_FRAME_SYNC_MATCHES      10
