@@ -6960,7 +6960,6 @@ static mal_result mal_device__main_loop__alsa(mal_device* pDevice)
 ///////////////////////////////////////////////////////////////////////////////
 #ifdef MAL_HAS_PULSEAUDIO
 #include <pulse/pulseaudio.h>
-#include <pulse/error.h>
 
 typedef pa_mainloop*          (* mal_pa_mainloop_new_proc)                   ();
 typedef void                  (* mal_pa_mainloop_free_proc)                  (pa_mainloop* m);
