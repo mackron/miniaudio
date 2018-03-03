@@ -15,9 +15,10 @@ int main(int argc, char** argv)
     }
 
     mal_device_info infos[32];
-    mal_uint32 infoCount = sizeof(infos) / sizeof(infos[0]);
+    mal_uint32 infoCount;
 
     // Playback devices.
+    infoCount = sizeof(infos) / sizeof(infos[0]);
     mal_result result = mal_enumerate_devices(&context, mal_device_type_playback, &infoCount, infos);
     if (result != MAL_SUCCESS) {
         printf("Failed to enumerate playback devices.");
@@ -35,6 +36,7 @@ int main(int argc, char** argv)
 
 
     // Capture devices.
+    infoCount = sizeof(infos) / sizeof(infos[0]);
     result = mal_enumerate_devices(&context, mal_device_type_capture, &infoCount, infos);
     if (result != MAL_SUCCESS) {
         printf("Failed to enumerate capture devices.");
