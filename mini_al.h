@@ -6642,6 +6642,7 @@ static mal_result mal_device_init__alsa(mal_context* pContext, mal_device_type t
                         free(NAME);
                         free(DESC);
                         free(IOID);
+                        ppNextDeviceHint += 1;
 
                         if (foundDevice) {
                             break;
@@ -6831,8 +6832,6 @@ static mal_result mal_device_init__alsa(mal_context* pContext, mal_device_type t
             return mal_post_error(pDevice, "[ALSA] Failed to allocate memory for intermediary buffer.", MAL_OUT_OF_MEMORY);
         }
     }
-
-
 
     // Grab the internal channel map. For now we're not going to bother trying to change the channel map and
     // instead just do it ourselves.
