@@ -3755,7 +3755,7 @@ static mal_result mal_enumerate_devices__wasapi(mal_context* pContext, mal_devic
                             continue;
                         }
 
-                        memcpy(pInfo->id.wasapi, id, idlen * sizeof(wchar_t));
+                        mal_copy_memory(pInfo->id.wasapi, id, idlen * sizeof(wchar_t));
                         pInfo->id.wasapi[idlen] = '\0';
 
                         mal_CoTaskMemFree(pContext, id);
