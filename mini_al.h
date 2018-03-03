@@ -7693,10 +7693,6 @@ static mal_result mal_device_init__pulse(mal_context* pContext, mal_device_type 
 
     pDevice->pulse.fragmentSizeInBytes = attr.tlength;
 
-
-    //printf("INIT TEST: %d, %d, %d, %d, %d\n", attr.maxlength, attr.tlength, attr.prebuf, attr.minreq, attr.fragsize);
-
-
     return MAL_SUCCESS;
 
 
