@@ -1842,7 +1842,7 @@ mal_result mal_decoder_seek_to_frame(mal_decoder* pDecoder, mal_uint64 frameInde
     #endif
 #endif
 #ifdef MAL_ENABLE_WINMM
-    #define MAL_HAS_WINMM   // Every compiler I'm aware of supports WinMM.
+    #define MAL_HAS_WINMM       // Every compiler I'm aware of supports WinMM.
 #endif
 #ifdef MAL_ENABLE_ALSA
     #define MAL_HAS_ALSA
@@ -1853,21 +1853,16 @@ mal_result mal_decoder_seek_to_frame(mal_decoder* pDecoder, mal_uint64 frameInde
     #endif
 #endif
 #ifdef MAL_ENABLE_PULSEAUDIO
-    #define MAL_HAS_PULSEAUDIO
-    #ifdef __has_include
-        #if !__has_include(<pulse/simple.h>)
-            #undef MAL_HAS_PULSEAUDIO
-        #endif
-    #endif
+    #define MAL_HAS_PULSEAUDIO  // Development packages are unnecessary for PulseAudio.
 #endif
 #ifdef MAL_ENABLE_COREAUDIO
     #define MAL_HAS_COREAUDIO
 #endif
 #ifdef MAL_ENABLE_OSS
-    #define MAL_HAS_OSS     // OSS is the only supported backend for Unix and BSD, so it must be present else this library is useless.
+    #define MAL_HAS_OSS         // OSS is the only supported backend for Unix and BSD, so it must be present else this library is useless.
 #endif
 #ifdef MAL_ENABLE_OPENSL
-    #define MAL_HAS_OPENSL  // Like OSS, OpenSL is the only supported backend for Android. It must be present.
+    #define MAL_HAS_OPENSL      // Like OSS, OpenSL is the only supported backend for Android. It must be present.
 #endif
 #ifdef MAL_ENABLE_OPENAL
     #define MAL_HAS_OPENAL
@@ -6959,48 +6954,346 @@ static mal_result mal_device__main_loop__alsa(mal_device* pDevice)
 //
 ///////////////////////////////////////////////////////////////////////////////
 #ifdef MAL_HAS_PULSEAUDIO
-#include <pulse/pulseaudio.h>
+// The development packages for PulseAudio are unnecessary, but I'm leaving this #include here just in case
+// I need to quickly add it again for development purposes.
+//#include <pulse/pulseaudio.h>
 
-typedef pa_mainloop*          (* mal_pa_mainloop_new_proc)                   ();
-typedef void                  (* mal_pa_mainloop_free_proc)                  (pa_mainloop* m);
-typedef pa_mainloop_api*      (* mal_pa_mainloop_get_api_proc)               ();
-typedef int                   (* mal_pa_mainloop_iterate_proc)               (pa_mainloop* m, int block, int* retval);
-typedef void                  (* mal_pa_mainloop_wakeup_proc)                (pa_mainloop* m);
-typedef pa_context*           (* mal_pa_context_new_proc)                    (pa_mainloop_api* mainloop, const char* name);
-typedef void                  (* mal_pa_context_unref_proc)                  (pa_context* c);
-typedef int                   (* mal_pa_context_connect_proc)                (pa_context* c, const char* server, pa_context_flags_t flags, const pa_spawn_api* api);
-typedef void                  (* mal_pa_context_disconnect_proc)             (pa_context* c);
-typedef void                  (* mal_pa_context_set_state_callback_proc)     (pa_context* c, pa_context_notify_cb_t cb, void* userdata);
-typedef pa_context_state_t    (* mal_pa_context_get_state_proc)              ();
-typedef pa_operation*         (* mal_pa_context_get_sink_info_list_proc)     (pa_context* c, pa_sink_info_cb_t cb, void* userdata);
-typedef pa_operation*         (* mal_pa_context_get_source_info_list_proc)   (pa_context* c, pa_source_info_cb_t cb, void* userdata);
-typedef pa_operation*         (* mal_pa_context_get_sink_info_by_name_proc)  (pa_context* c, const char* name, pa_sink_info_cb_t cb, void* userdata);
-typedef pa_operation*         (* mal_pa_context_get_source_info_by_name_proc)(pa_context* c, const char* name, pa_source_info_cb_t cb, void* userdata);
-typedef void                  (* mal_pa_operation_unref_proc)                (pa_operation* o);
-typedef pa_operation_state_t  (* mal_pa_operation_get_state_proc)            (pa_operation* o);
-typedef pa_channel_map*       (* mal_pa_channel_map_init_extend_proc)        (pa_channel_map* m, unsigned channels, pa_channel_map_def_t def);
-typedef int                   (* mal_pa_channel_map_valid_proc)              (const pa_channel_map* m);
-typedef int                   (* mal_pa_channel_map_compatible_proc)         (const pa_channel_map* m, const pa_sample_spec* ss);
-typedef pa_stream*            (* mal_pa_stream_new_proc)                     (pa_context* c, const char* name, const pa_sample_spec* ss, const pa_channel_map* map);
-typedef void                  (* mal_pa_stream_unref_proc)                   (pa_stream* s);
-typedef int                   (* mal_pa_stream_connect_playback_proc)        (pa_stream* s, const char* dev, const pa_buffer_attr* attr, pa_stream_flags_t flags, const pa_cvolume* volume, pa_stream* sync_stream);
-typedef int                   (* mal_pa_stream_connect_record_proc)          (pa_stream* s, const char* dev, const pa_buffer_attr* attr, pa_stream_flags_t flags);
-typedef int                   (* mal_pa_stream_disconnect_proc)              (pa_stream* s);
-typedef pa_stream_state_t     (* mal_pa_stream_get_state_proc)               (pa_stream* s);
-typedef const pa_sample_spec* (* mal_pa_stream_get_sample_spec_proc)         (pa_stream* s);
-typedef const pa_channel_map* (* mal_pa_stream_get_channel_map_proc)         (pa_stream* s);
-typedef const pa_buffer_attr* (* mal_pa_stream_get_buffer_attr_proc)         (pa_stream* s);
-typedef const char*           (* mal_pa_stream_get_device_name_proc)         (pa_stream* s);
-typedef void                  (* mal_pa_stream_set_write_callback_proc)      (pa_stream* s, pa_stream_request_cb_t cb, void* userdata);
-typedef void                  (* mal_pa_stream_set_read_callback_proc)       (pa_stream* s, pa_stream_request_cb_t cb, void* userdata);
-typedef pa_operation*         (* mal_pa_stream_flush_proc)                   (pa_stream* s, pa_stream_success_cb_t cb, void* userdata);
-typedef pa_operation*         (* mal_pa_stream_drain_proc)                   (pa_stream* s, pa_stream_success_cb_t cb, void* userdata);
-typedef pa_operation*         (* mal_pa_stream_cork_proc)                    (pa_stream* s, int b, pa_stream_success_cb_t cb, void* userdata);
-typedef pa_operation*         (* mal_pa_stream_trigger_proc)                 (pa_stream* s, pa_stream_success_cb_t cb, void* userdata);
-typedef int                   (* mal_pa_stream_begin_write_proc)             (pa_stream* s, void** data, size_t* nbytes);
-typedef int                   (* mal_pa_stream_write_proc)                   (pa_stream* s, const void* data, size_t nbytes, pa_free_cb_t free_cb, int64_t offset, pa_seek_mode_t seek);
-typedef int                   (* mal_pa_stream_peek_proc)                    (pa_stream* s, const void** data, size_t* nbytes);
-typedef int                   (* mal_pa_stream_drop_proc)                    (pa_stream* s);
+#define MAL_PA_OK                                       0
+#define MAL_PA_ERR_ACCESS                               1
+#define MAL_PA_ERR_INVALID                              2
+#define MAL_PA_ERR_NOENTITY                             5
+
+#define MAL_PA_CHANNELS_MAX                             32
+#define MAL_PA_RATE_MAX                                 384000
+
+typedef int mal_pa_context_flags_t;
+#define MAL_PA_CONTEXT_NOFLAGS                          0x00000000
+#define MAL_PA_CONTEXT_NOAUTOSPAWN                      0x00000001
+#define MAL_PA_CONTEXT_NOFAIL                           0x00000002
+
+typedef int mal_pa_stream_flags_t;
+#define MAL_PA_STREAM_NOFLAGS                           0x00000000
+#define MAL_PA_STREAM_START_CORKED                      0x00000001
+#define MAL_PA_STREAM_INTERPOLATE_TIMING                0x00000002
+#define MAL_PA_STREAM_NOT_MONOTONIC                     0x00000004
+#define MAL_PA_STREAM_AUTO_TIMING_UPDATE                0x00000008
+#define MAL_PA_STREAM_NO_REMAP_CHANNELS                 0x00000010
+#define MAL_PA_STREAM_NO_REMIX_CHANNELS                 0x00000020
+#define MAL_PA_STREAM_FIX_FORMAT                        0x00000040
+#define MAL_PA_STREAM_FIX_RATE                          0x00000080
+#define MAL_PA_STREAM_FIX_CHANNELS                      0x00000100
+#define MAL_PA_STREAM_DONT_MOVE                         0x00000200
+#define MAL_PA_STREAM_VARIABLE_RATE                     0x00000400
+#define MAL_PA_STREAM_PEAK_DETECT                       0x00000800
+#define MAL_PA_STREAM_START_MUTED                       0x00001000
+#define MAL_PA_STREAM_ADJUST_LATENCY                    0x00002000
+#define MAL_PA_STREAM_EARLY_REQUESTS                    0x00004000
+#define MAL_PA_STREAM_DONT_INHIBIT_AUTO_SUSPEND         0x00008000
+#define MAL_PA_STREAM_START_UNMUTED                     0x00010000
+#define MAL_PA_STREAM_FAIL_ON_SUSPEND                   0x00020000
+#define MAL_PA_STREAM_RELATIVE_VOLUME                   0x00040000
+#define MAL_PA_STREAM_PASSTHROUGH                       0x00008000
+
+typedef int mal_pa_sink_flags_t;
+#define MAL_PA_SINK_NOFLAGS                             0x00000000
+#define MAL_PA_SINK_HW_VOLUME_CTRL                      0x00000001
+#define MAL_PA_SINK_LATENCY                             0x00000002
+#define MAL_PA_SINK_HARDWARE                            0x00000004
+#define MAL_PA_SINK_NETWORK                             0x00000008
+#define MAL_PA_SINK_HW_MUTE_CTRL                        0x00000010
+#define MAL_PA_SINK_DECIBEL_VOLUME                      0x00000020
+#define MAL_PA_SINK_FLAT_VOLUME                         0x00000040
+#define MAL_PA_SINK_DYNAMIC_LATENCY                     0x00000080
+#define MAL_PA_SINK_SET_FORMATS                         0x00000100
+
+typedef int mal_pa_source_flags_t;
+#define MAL_PA_SOURCE_NOFLAGS                           0x00000000
+#define MAL_PA_SOURCE_HW_VOLUME_CTRL                    0x00000001
+#define MAL_PA_SOURCE_LATENCY                           0x00000002
+#define MAL_PA_SOURCE_HARDWARE                          0x00000004
+#define MAL_PA_SOURCE_NETWORK                           0x00000008
+#define MAL_PA_SOURCE_HW_MUTE_CTRL                      0x00000010
+#define MAL_PA_SOURCE_DECIBEL_VOLUME                    0x00000020
+#define MAL_PA_SOURCE_DYNAMIC_LATENCY                   0x00000040
+#define MAL_PA_SOURCE_FLAT_VOLUME                       0x00000080
+
+typedef int mal_pa_context_state_t;
+#define MAL_PA_CONTEXT_UNCONNECTED                      0
+#define MAL_PA_CONTEXT_CONNECTING                       1
+#define MAL_PA_CONTEXT_AUTHORIZING                      2
+#define MAL_PA_CONTEXT_SETTING_NAME                     3
+#define MAL_PA_CONTEXT_READY                            4
+#define MAL_PA_CONTEXT_FAILED                           5
+#define MAL_PA_CONTEXT_TERMINATED                       6
+
+typedef int mal_pa_stream_state_t;
+#define MAL_PA_STREAM_UNCONNECTED                       0
+#define MAL_PA_STREAM_CREATING                          1
+#define MAL_PA_STREAM_READY                             2
+#define MAL_PA_STREAM_FAILED                            3
+#define MAL_PA_STREAM_TERMINATED                        4
+
+typedef int mal_pa_operation_state_t;
+#define MAL_PA_OPERATION_RUNNING                        0
+#define MAL_PA_OPERATION_DONE                           1
+#define MAL_PA_OPERATION_CANCELLED                      2
+
+typedef int mal_pa_sink_state_t;
+#define MAL_PA_SINK_INVALID_STATE                       -1
+#define MAL_PA_SINK_RUNNING                             0
+#define MAL_PA_SINK_IDLE                                1
+#define MAL_PA_SINK_SUSPENDED                           2
+
+typedef int mal_pa_source_state_t;
+#define MAL_PA_SOURCE_INVALID_STATE                     -1
+#define MAL_PA_SOURCE_RUNNING                           0
+#define MAL_PA_SOURCE_IDLE                              1
+#define MAL_PA_SOURCE_SUSPENDED                         2
+
+typedef int mal_pa_seek_mode_t;
+#define MAL_PA_SEEK_RELATIVE                            0
+#define MAL_PA_SEEK_ABSOLUTE                            1
+#define MAL_PA_SEEK_RELATIVE_ON_READ                    2
+#define MAL_PA_SEEK_RELATIVE_END                        3
+
+typedef int mal_pa_channel_position_t;
+#define MAL_PA_CHANNEL_POSITION_INVALID                 -1
+#define MAL_PA_CHANNEL_POSITION_MONO                    0
+#define MAL_PA_CHANNEL_POSITION_FRONT_LEFT              1
+#define MAL_PA_CHANNEL_POSITION_FRONT_RIGHT             2
+#define MAL_PA_CHANNEL_POSITION_FRONT_CENTER            3
+#define MAL_PA_CHANNEL_POSITION_REAR_CENTER             4
+#define MAL_PA_CHANNEL_POSITION_REAR_LEFT               5
+#define MAL_PA_CHANNEL_POSITION_REAR_RIGHT              6
+#define MAL_PA_CHANNEL_POSITION_LFE                     7
+#define MAL_PA_CHANNEL_POSITION_FRONT_LEFT_OF_CENTER    8
+#define MAL_PA_CHANNEL_POSITION_FRONT_RIGHT_OF_CENTER   9
+#define MAL_PA_CHANNEL_POSITION_SIDE_LEFT               10
+#define MAL_PA_CHANNEL_POSITION_SIDE_RIGHT              11
+#define MAL_PA_CHANNEL_POSITION_AUX0                    12
+#define MAL_PA_CHANNEL_POSITION_AUX1                    13
+#define MAL_PA_CHANNEL_POSITION_AUX2                    14
+#define MAL_PA_CHANNEL_POSITION_AUX3                    15
+#define MAL_PA_CHANNEL_POSITION_AUX4                    16
+#define MAL_PA_CHANNEL_POSITION_AUX5                    17
+#define MAL_PA_CHANNEL_POSITION_AUX6                    18
+#define MAL_PA_CHANNEL_POSITION_AUX7                    19
+#define MAL_PA_CHANNEL_POSITION_AUX8                    20
+#define MAL_PA_CHANNEL_POSITION_AUX9                    21
+#define MAL_PA_CHANNEL_POSITION_AUX10                   22
+#define MAL_PA_CHANNEL_POSITION_AUX11                   23
+#define MAL_PA_CHANNEL_POSITION_AUX12                   24
+#define MAL_PA_CHANNEL_POSITION_AUX13                   25
+#define MAL_PA_CHANNEL_POSITION_AUX14                   26
+#define MAL_PA_CHANNEL_POSITION_AUX15                   27
+#define MAL_PA_CHANNEL_POSITION_AUX16                   28
+#define MAL_PA_CHANNEL_POSITION_AUX17                   29
+#define MAL_PA_CHANNEL_POSITION_AUX18                   30
+#define MAL_PA_CHANNEL_POSITION_AUX19                   31
+#define MAL_PA_CHANNEL_POSITION_AUX20                   32
+#define MAL_PA_CHANNEL_POSITION_AUX21                   33
+#define MAL_PA_CHANNEL_POSITION_AUX22                   34
+#define MAL_PA_CHANNEL_POSITION_AUX23                   35
+#define MAL_PA_CHANNEL_POSITION_AUX24                   36
+#define MAL_PA_CHANNEL_POSITION_AUX25                   37
+#define MAL_PA_CHANNEL_POSITION_AUX26                   38
+#define MAL_PA_CHANNEL_POSITION_AUX27                   39
+#define MAL_PA_CHANNEL_POSITION_AUX28                   40
+#define MAL_PA_CHANNEL_POSITION_AUX29                   41
+#define MAL_PA_CHANNEL_POSITION_AUX30                   42
+#define MAL_PA_CHANNEL_POSITION_AUX31                   43
+#define MAL_PA_CHANNEL_POSITION_TOP_CENTER              44
+#define MAL_PA_CHANNEL_POSITION_TOP_FRONT_LEFT          45
+#define MAL_PA_CHANNEL_POSITION_TOP_FRONT_RIGHT         46
+#define MAL_PA_CHANNEL_POSITION_TOP_FRONT_CENTER        47
+#define MAL_PA_CHANNEL_POSITION_TOP_REAR_LEFT           48
+#define MAL_PA_CHANNEL_POSITION_TOP_REAR_RIGHT          49
+#define MAL_PA_CHANNEL_POSITION_TOP_REAR_CENTER         50
+#define MAL_PA_CHANNEL_POSITION_LEFT                    MAL_PA_CHANNEL_POSITION_FRONT_LEFT
+#define MAL_PA_CHANNEL_POSITION_RIGHT                   MAL_PA_CHANNEL_POSITION_FRONT_RIGHT
+#define MAL_PA_CHANNEL_POSITION_CENTER                  MAL_PA_CHANNEL_POSITION_FRONT_CENTER
+#define MAL_PA_CHANNEL_POSITION_SUBWOOFER               MAL_PA_CHANNEL_POSITION_LFE
+
+typedef int mal_pa_channel_map_def_t;
+#define MAL_PA_CHANNEL_MAP_AIFF                         0
+#define MAL_PA_CHANNEL_MAP_ALSA                         1
+#define MAL_PA_CHANNEL_MAP_AUX                          2
+#define MAL_PA_CHANNEL_MAP_WAVEEX                       3
+#define MAL_PA_CHANNEL_MAP_OSS                          4
+#define MAL_PA_CHANNEL_MAP_DEFAULT                      MAL_PA_CHANNEL_MAP_AIFF
+
+typedef int mal_pa_sample_format_t;
+#define MAL_PA_SAMPLE_INVALID                           -1
+#define MAL_PA_SAMPLE_U8                                0
+#define MAL_PA_SAMPLE_ALAW                              1
+#define MAL_PA_SAMPLE_ULAW                              2
+#define MAL_PA_SAMPLE_S16LE                             3
+#define MAL_PA_SAMPLE_S16BE                             4
+#define MAL_PA_SAMPLE_FLOAT32LE                         5
+#define MAL_PA_SAMPLE_FLOAT32BE                         6
+#define MAL_PA_SAMPLE_S32LE                             7
+#define MAL_PA_SAMPLE_S32BE                             8
+#define MAL_PA_SAMPLE_S24LE                             9
+#define MAL_PA_SAMPLE_S24BE                             10
+#define MAL_PA_SAMPLE_S24_32LE                          11
+#define MAL_PA_SAMPLE_S24_32BE                          12
+
+typedef struct
+{
+    int __unused;
+} mal_pa_mainloop;
+typedef struct
+{
+    int __unused;
+} mal_pa_mainloop_api;
+typedef struct
+{
+    int __unused;
+} mal_pa_context;
+typedef struct
+{
+    int __unused;
+} mal_pa_operation;
+typedef struct
+{
+    int __unused;
+} mal_pa_stream;
+typedef struct
+{
+    int __unused;
+} mal_pa_spawn_api;
+
+typedef struct
+{
+    mal_uint32 maxlength;
+    mal_uint32 tlength;
+    mal_uint32 prebuf;
+    mal_uint32 minreq;
+    mal_uint32 fragsize;
+} mal_pa_buffer_attr;
+
+typedef struct
+{
+    mal_uint8 channels;
+    mal_pa_channel_position_t map[MAL_PA_CHANNELS_MAX];
+} mal_pa_channel_map;
+
+typedef struct
+{
+    mal_uint8 channels;
+    mal_uint32 values[MAL_PA_CHANNELS_MAX];
+} mal_pa_cvolume;
+
+typedef struct
+{
+    mal_pa_sample_format_t format;
+    mal_uint32 rate;
+    mal_uint8 channels;
+} mal_pa_sample_spec;
+
+typedef struct
+{
+    const char* name;
+    mal_uint32 index;
+    const char* description;
+    mal_pa_sample_spec sample_spec;
+    mal_pa_channel_map channel_map;
+    mal_uint32 owner_module;
+    mal_pa_cvolume volume;
+    int mute;
+    mal_uint32 monitor_source;
+    const char* monitor_source_name;
+    mal_uint64 latency;
+    const char* driver;
+    mal_pa_sink_flags_t flags;
+    void* proplist;
+    mal_uint64 configured_latency;
+    mal_uint32 base_volume;
+    mal_pa_sink_state_t state;
+    mal_uint32 n_volume_steps;
+    mal_uint32 card;
+    mal_uint32 n_ports;
+    void** ports;
+    void* active_port;
+    mal_uint8 n_formats;
+    void** formats;
+} mal_pa_sink_info;
+
+typedef struct
+{
+    const char *name;
+    mal_uint32 index;
+    const char *description;
+    mal_pa_sample_spec sample_spec;
+    mal_pa_channel_map channel_map;
+    mal_uint32 owner_module;
+    mal_pa_cvolume volume;
+    int mute;
+    mal_uint32 monitor_of_sink;
+    const char *monitor_of_sink_name;
+    mal_uint64 latency;
+    const char *driver;
+    mal_pa_source_flags_t flags;
+    void* proplist;
+    mal_uint64 configured_latency;
+    mal_uint32 base_volume;
+    mal_pa_source_state_t state;
+    mal_uint32 n_volume_steps;
+    mal_uint32 card;
+    mal_uint32 n_ports;
+    void** ports;
+    void* active_port;
+    mal_uint8 n_formats;
+    void** formats;
+} mal_pa_source_info;
+
+typedef void (* mal_pa_context_notify_cb_t)(mal_pa_context* c, void* userdata);
+typedef void (* mal_pa_sink_info_cb_t)     (mal_pa_context* c, const mal_pa_sink_info* i, int eol, void* userdata);
+typedef void (* mal_pa_source_info_cb_t)   (mal_pa_context* c, const mal_pa_source_info* i, int eol, void* userdata);
+typedef void (* mal_pa_stream_success_cb_t)(mal_pa_stream* s, int success, void* userdata);
+typedef void (* mal_pa_stream_request_cb_t)(mal_pa_stream* s, size_t nbytes, void* userdata);
+typedef void (* mal_pa_free_cb_t)          (void* p);
+
+typedef mal_pa_mainloop*          (* mal_pa_mainloop_new_proc)                   ();
+typedef void                      (* mal_pa_mainloop_free_proc)                  (mal_pa_mainloop* m);
+typedef mal_pa_mainloop_api*      (* mal_pa_mainloop_get_api_proc)               ();
+typedef int                       (* mal_pa_mainloop_iterate_proc)               (mal_pa_mainloop* m, int block, int* retval);
+typedef void                      (* mal_pa_mainloop_wakeup_proc)                (mal_pa_mainloop* m);
+typedef mal_pa_context*           (* mal_pa_context_new_proc)                    (mal_pa_mainloop_api* mainloop, const char* name);
+typedef void                      (* mal_pa_context_unref_proc)                  (mal_pa_context* c);
+typedef int                       (* mal_pa_context_connect_proc)                (mal_pa_context* c, const char* server, mal_pa_context_flags_t flags, const mal_pa_spawn_api* api);
+typedef void                      (* mal_pa_context_disconnect_proc)             (mal_pa_context* c);
+typedef void                      (* mal_pa_context_set_state_callback_proc)     (mal_pa_context* c, mal_pa_context_notify_cb_t cb, void* userdata);
+typedef mal_pa_context_state_t    (* mal_pa_context_get_state_proc)              ();
+typedef mal_pa_operation*         (* mal_pa_context_get_sink_info_list_proc)     (mal_pa_context* c, mal_pa_sink_info_cb_t cb, void* userdata);
+typedef mal_pa_operation*         (* mal_pa_context_get_source_info_list_proc)   (mal_pa_context* c, mal_pa_source_info_cb_t cb, void* userdata);
+typedef mal_pa_operation*         (* mal_pa_context_get_sink_info_by_name_proc)  (mal_pa_context* c, const char* name, mal_pa_sink_info_cb_t cb, void* userdata);
+typedef mal_pa_operation*         (* mal_pa_context_get_source_info_by_name_proc)(mal_pa_context* c, const char* name, mal_pa_source_info_cb_t cb, void* userdata);
+typedef void                      (* mal_pa_operation_unref_proc)                (mal_pa_operation* o);
+typedef mal_pa_operation_state_t  (* mal_pa_operation_get_state_proc)            (mal_pa_operation* o);
+typedef mal_pa_channel_map*       (* mal_pa_channel_map_init_extend_proc)        (mal_pa_channel_map* m, unsigned channels, mal_pa_channel_map_def_t def);
+typedef int                       (* mal_pa_channel_map_valid_proc)              (const mal_pa_channel_map* m);
+typedef int                       (* mal_pa_channel_map_compatible_proc)         (const mal_pa_channel_map* m, const mal_pa_sample_spec* ss);
+typedef mal_pa_stream*            (* mal_pa_stream_new_proc)                     (mal_pa_context* c, const char* name, const mal_pa_sample_spec* ss, const mal_pa_channel_map* map);
+typedef void                      (* mal_pa_stream_unref_proc)                   (mal_pa_stream* s);
+typedef int                       (* mal_pa_stream_connect_playback_proc)        (mal_pa_stream* s, const char* dev, const mal_pa_buffer_attr* attr, mal_pa_stream_flags_t flags, const mal_pa_cvolume* volume, mal_pa_stream* sync_stream);
+typedef int                       (* mal_pa_stream_connect_record_proc)          (mal_pa_stream* s, const char* dev, const mal_pa_buffer_attr* attr, mal_pa_stream_flags_t flags);
+typedef int                       (* mal_pa_stream_disconnect_proc)              (mal_pa_stream* s);
+typedef mal_pa_stream_state_t     (* mal_pa_stream_get_state_proc)               (mal_pa_stream* s);
+typedef const mal_pa_sample_spec* (* mal_pa_stream_get_sample_spec_proc)         (mal_pa_stream* s);
+typedef const mal_pa_channel_map* (* mal_pa_stream_get_channel_map_proc)         (mal_pa_stream* s);
+typedef const mal_pa_buffer_attr* (* mal_pa_stream_get_buffer_attr_proc)         (mal_pa_stream* s);
+typedef const char*               (* mal_pa_stream_get_device_name_proc)         (mal_pa_stream* s);
+typedef void                      (* mal_pa_stream_set_write_callback_proc)      (mal_pa_stream* s, mal_pa_stream_request_cb_t cb, void* userdata);
+typedef void                      (* mal_pa_stream_set_read_callback_proc)       (mal_pa_stream* s, mal_pa_stream_request_cb_t cb, void* userdata);
+typedef mal_pa_operation*         (* mal_pa_stream_flush_proc)                   (mal_pa_stream* s, mal_pa_stream_success_cb_t cb, void* userdata);
+typedef mal_pa_operation*         (* mal_pa_stream_drain_proc)                   (mal_pa_stream* s, mal_pa_stream_success_cb_t cb, void* userdata);
+typedef mal_pa_operation*         (* mal_pa_stream_cork_proc)                    (mal_pa_stream* s, int b, mal_pa_stream_success_cb_t cb, void* userdata);
+typedef mal_pa_operation*         (* mal_pa_stream_trigger_proc)                 (mal_pa_stream* s, mal_pa_stream_success_cb_t cb, void* userdata);
+typedef int                       (* mal_pa_stream_begin_write_proc)             (mal_pa_stream* s, void** data, size_t* nbytes);
+typedef int                       (* mal_pa_stream_write_proc)                   (mal_pa_stream* s, const void* data, size_t nbytes, mal_pa_free_cb_t free_cb, int64_t offset, mal_pa_seek_mode_t seek);
+typedef int                       (* mal_pa_stream_peek_proc)                    (mal_pa_stream* s, const void** data, size_t* nbytes);
+typedef int                       (* mal_pa_stream_drop_proc)                    (mal_pa_stream* s);
 
 typedef struct
 {
@@ -7012,152 +7305,152 @@ typedef struct
 static mal_result mal_result_from_pulse(int result)
 {
     switch (result) {
-        case PA_OK:           return MAL_SUCCESS;
-        case PA_ERR_ACCESS:   return MAL_ACCESS_DENIED;
-        case PA_ERR_INVALID:  return MAL_INVALID_ARGS;
-        case PA_ERR_NOENTITY: return MAL_NO_DEVICE;
-        default:              return MAL_ERROR;
+        case MAL_PA_OK:           return MAL_SUCCESS;
+        case MAL_PA_ERR_ACCESS:   return MAL_ACCESS_DENIED;
+        case MAL_PA_ERR_INVALID:  return MAL_INVALID_ARGS;
+        case MAL_PA_ERR_NOENTITY: return MAL_NO_DEVICE;
+        default:                  return MAL_ERROR;
     }
 }
 
-static pa_sample_format_t mal_format_to_pulse(mal_format format)
+static mal_pa_sample_format_t mal_format_to_pulse(mal_format format)
 {
     switch (format)
     {
-        case mal_format_u8:       return PA_SAMPLE_U8;
-        case mal_format_s16:      return PA_SAMPLE_S16LE;
-        //case mal_format_s16be:    return PA_SAMPLE_S16BE;
-        case mal_format_s24:      return PA_SAMPLE_S24LE;
-        //case mal_format_s24be:    return PA_SAMPLE_S24BE;
-        //case mal_format_s24_32:   return PA_SAMPLE_S24_32LE;
-        //case mal_format_s24_32be: return PA_SAMPLE_S24_32BE;
-        case mal_format_s32:      return PA_SAMPLE_S32LE;
-        //case mal_format_s32be:    return PA_SAMPLE_S32BE;
-        case mal_format_f32:      return PA_SAMPLE_FLOAT32LE;
+        case mal_format_u8:       return MAL_PA_SAMPLE_U8;
+        case mal_format_s16:      return MAL_PA_SAMPLE_S16LE;
+        //case mal_format_s16be:    return MAL_PA_SAMPLE_S16BE;
+        case mal_format_s24:      return MAL_PA_SAMPLE_S24LE;
+        //case mal_format_s24be:    return MAL_PA_SAMPLE_S24BE;
+        //case mal_format_s24_32:   return MAL_PA_SAMPLE_S24_32LE;
+        //case mal_format_s24_32be: return MAL_PA_SAMPLE_S24_32BE;
+        case mal_format_s32:      return MAL_PA_SAMPLE_S32LE;
+        //case mal_format_s32be:    return MAL_PA_SAMPLE_S32BE;
+        case mal_format_f32:      return MAL_PA_SAMPLE_FLOAT32LE;
         //case mal_format_f32be:    return PA_SAMPLE_FLOAT32BE;
 
-        default: return PA_SAMPLE_INVALID;
+        default: return MAL_PA_SAMPLE_INVALID;
     }
 }
 
-static mal_format mal_format_from_pulse(pa_sample_format_t format)
+static mal_format mal_format_from_pulse(mal_pa_sample_format_t format)
 {
     switch (format)
     {
-        case PA_SAMPLE_U8:        return mal_format_u8;
-        case PA_SAMPLE_S16LE:     return mal_format_s16;
-        //case PA_SAMPLE_S16BE:     return mal_format_s16be;
-        case PA_SAMPLE_S24LE:     return mal_format_s24;
-        //case PA_SAMPLE_S24BE:     return mal_format_s24be;
-        //case PA_SAMPLE_S24_32LE:  return mal_format_s24_32;
-        //case PA_SAMPLE_S24_32BE:  return mal_format_s24_32be;
-        case PA_SAMPLE_S32LE:     return mal_format_s32;
-        //case PA_SAMPLE_S32BE:     return mal_format_s32be;
-        case PA_SAMPLE_FLOAT32LE: return mal_format_f32;
-        //case PA_SAMPLE_FLOAT32BE: return mal_format_f32be;
+        case MAL_PA_SAMPLE_U8:        return mal_format_u8;
+        case MAL_PA_SAMPLE_S16LE:     return mal_format_s16;
+        //case MAL_PA_SAMPLE_S16BE:     return mal_format_s16be;
+        case MAL_PA_SAMPLE_S24LE:     return mal_format_s24;
+        //case MAL_PA_SAMPLE_S24BE:     return mal_format_s24be;
+        //case MAL_PA_SAMPLE_S24_32LE:  return mal_format_s24_32;
+        //case MAL_PA_SAMPLE_S24_32BE:  return mal_format_s24_32be;
+        case MAL_PA_SAMPLE_S32LE:     return mal_format_s32;
+        //case MAL_PA_SAMPLE_S32BE:     return mal_format_s32be;
+        case MAL_PA_SAMPLE_FLOAT32LE: return mal_format_f32;
+        //case MAL_PA_SAMPLE_FLOAT32BE: return mal_format_f32be;
 
         default: return mal_format_unknown;
     }
 }
 
-static mal_channel mal_channel_position_from_pulse(pa_channel_position_t position)
+static mal_channel mal_channel_position_from_pulse(mal_pa_channel_position_t position)
 {
     switch (position)
     {
-        case PA_CHANNEL_POSITION_INVALID:               return MAL_CHANNEL_NONE;
-        case PA_CHANNEL_POSITION_MONO:                  return MAL_CHANNEL_MONO;
-        case PA_CHANNEL_POSITION_FRONT_LEFT:            return MAL_CHANNEL_FRONT_LEFT;
-        case PA_CHANNEL_POSITION_FRONT_RIGHT:           return MAL_CHANNEL_FRONT_RIGHT;
-        case PA_CHANNEL_POSITION_FRONT_CENTER:          return MAL_CHANNEL_FRONT_CENTER;
-        case PA_CHANNEL_POSITION_REAR_CENTER:           return MAL_CHANNEL_BACK_CENTER;
-        case PA_CHANNEL_POSITION_REAR_LEFT:             return MAL_CHANNEL_BACK_LEFT;
-        case PA_CHANNEL_POSITION_REAR_RIGHT:            return MAL_CHANNEL_BACK_RIGHT;
-        case PA_CHANNEL_POSITION_LFE:                   return MAL_CHANNEL_LFE;
-        case PA_CHANNEL_POSITION_FRONT_LEFT_OF_CENTER:  return MAL_CHANNEL_FRONT_LEFT_CENTER;
-        case PA_CHANNEL_POSITION_FRONT_RIGHT_OF_CENTER: return MAL_CHANNEL_FRONT_RIGHT_CENTER;
-        case PA_CHANNEL_POSITION_SIDE_LEFT:             return MAL_CHANNEL_SIDE_LEFT;
-        case PA_CHANNEL_POSITION_SIDE_RIGHT:            return MAL_CHANNEL_SIDE_RIGHT;
-        case PA_CHANNEL_POSITION_AUX0:                  return MAL_CHANNEL_NONE;
-        case PA_CHANNEL_POSITION_AUX1:                  return MAL_CHANNEL_NONE;
-        case PA_CHANNEL_POSITION_AUX2:                  return MAL_CHANNEL_NONE;
-        case PA_CHANNEL_POSITION_AUX3:                  return MAL_CHANNEL_NONE;
-        case PA_CHANNEL_POSITION_AUX4:                  return MAL_CHANNEL_NONE;
-        case PA_CHANNEL_POSITION_AUX5:                  return MAL_CHANNEL_NONE;
-        case PA_CHANNEL_POSITION_AUX6:                  return MAL_CHANNEL_NONE;
-        case PA_CHANNEL_POSITION_AUX7:                  return MAL_CHANNEL_NONE;
-        case PA_CHANNEL_POSITION_AUX8:                  return MAL_CHANNEL_NONE;
-        case PA_CHANNEL_POSITION_AUX9:                  return MAL_CHANNEL_NONE;
-        case PA_CHANNEL_POSITION_AUX10:                 return MAL_CHANNEL_NONE;
-        case PA_CHANNEL_POSITION_AUX11:                 return MAL_CHANNEL_NONE;
-        case PA_CHANNEL_POSITION_AUX12:                 return MAL_CHANNEL_NONE;
-        case PA_CHANNEL_POSITION_AUX13:                 return MAL_CHANNEL_NONE;
-        case PA_CHANNEL_POSITION_AUX14:                 return MAL_CHANNEL_NONE;
-        case PA_CHANNEL_POSITION_AUX15:                 return MAL_CHANNEL_NONE;
-        case PA_CHANNEL_POSITION_AUX16:                 return MAL_CHANNEL_NONE;
-        case PA_CHANNEL_POSITION_AUX17:                 return MAL_CHANNEL_NONE;
-        case PA_CHANNEL_POSITION_AUX18:                 return MAL_CHANNEL_19;
-        case PA_CHANNEL_POSITION_AUX19:                 return MAL_CHANNEL_20;
-        case PA_CHANNEL_POSITION_AUX20:                 return MAL_CHANNEL_21;
-        case PA_CHANNEL_POSITION_AUX21:                 return MAL_CHANNEL_22;
-        case PA_CHANNEL_POSITION_AUX22:                 return MAL_CHANNEL_23;
-        case PA_CHANNEL_POSITION_AUX23:                 return MAL_CHANNEL_24;
-        case PA_CHANNEL_POSITION_AUX24:                 return MAL_CHANNEL_25;
-        case PA_CHANNEL_POSITION_AUX25:                 return MAL_CHANNEL_26;
-        case PA_CHANNEL_POSITION_AUX26:                 return MAL_CHANNEL_27;
-        case PA_CHANNEL_POSITION_AUX27:                 return MAL_CHANNEL_28;
-        case PA_CHANNEL_POSITION_AUX28:                 return MAL_CHANNEL_29;
-        case PA_CHANNEL_POSITION_AUX29:                 return MAL_CHANNEL_30;
-        case PA_CHANNEL_POSITION_AUX30:                 return MAL_CHANNEL_31;
-        case PA_CHANNEL_POSITION_AUX31:                 return MAL_CHANNEL_32;
-        case PA_CHANNEL_POSITION_TOP_CENTER:            return MAL_CHANNEL_TOP_CENTER;
-        case PA_CHANNEL_POSITION_TOP_FRONT_LEFT:        return MAL_CHANNEL_TOP_FRONT_LEFT;
-        case PA_CHANNEL_POSITION_TOP_FRONT_RIGHT:       return MAL_CHANNEL_TOP_FRONT_RIGHT;
-        case PA_CHANNEL_POSITION_TOP_FRONT_CENTER:      return MAL_CHANNEL_TOP_FRONT_CENTER;
-        case PA_CHANNEL_POSITION_TOP_REAR_LEFT:         return MAL_CHANNEL_TOP_BACK_LEFT;
-        case PA_CHANNEL_POSITION_TOP_REAR_RIGHT:        return MAL_CHANNEL_TOP_BACK_RIGHT;
-        case PA_CHANNEL_POSITION_TOP_REAR_CENTER:       return MAL_CHANNEL_TOP_BACK_CENTER;
-        default: return (mal_uint8)position;
+        case MAL_PA_CHANNEL_POSITION_INVALID:               return MAL_CHANNEL_NONE;
+        case MAL_PA_CHANNEL_POSITION_MONO:                  return MAL_CHANNEL_MONO;
+        case MAL_PA_CHANNEL_POSITION_FRONT_LEFT:            return MAL_CHANNEL_FRONT_LEFT;
+        case MAL_PA_CHANNEL_POSITION_FRONT_RIGHT:           return MAL_CHANNEL_FRONT_RIGHT;
+        case MAL_PA_CHANNEL_POSITION_FRONT_CENTER:          return MAL_CHANNEL_FRONT_CENTER;
+        case MAL_PA_CHANNEL_POSITION_REAR_CENTER:           return MAL_CHANNEL_BACK_CENTER;
+        case MAL_PA_CHANNEL_POSITION_REAR_LEFT:             return MAL_CHANNEL_BACK_LEFT;
+        case MAL_PA_CHANNEL_POSITION_REAR_RIGHT:            return MAL_CHANNEL_BACK_RIGHT;
+        case MAL_PA_CHANNEL_POSITION_LFE:                   return MAL_CHANNEL_LFE;
+        case MAL_PA_CHANNEL_POSITION_FRONT_LEFT_OF_CENTER:  return MAL_CHANNEL_FRONT_LEFT_CENTER;
+        case MAL_PA_CHANNEL_POSITION_FRONT_RIGHT_OF_CENTER: return MAL_CHANNEL_FRONT_RIGHT_CENTER;
+        case MAL_PA_CHANNEL_POSITION_SIDE_LEFT:             return MAL_CHANNEL_SIDE_LEFT;
+        case MAL_PA_CHANNEL_POSITION_SIDE_RIGHT:            return MAL_CHANNEL_SIDE_RIGHT;
+        case MAL_PA_CHANNEL_POSITION_AUX0:                  return MAL_CHANNEL_NONE;
+        case MAL_PA_CHANNEL_POSITION_AUX1:                  return MAL_CHANNEL_NONE;
+        case MAL_PA_CHANNEL_POSITION_AUX2:                  return MAL_CHANNEL_NONE;
+        case MAL_PA_CHANNEL_POSITION_AUX3:                  return MAL_CHANNEL_NONE;
+        case MAL_PA_CHANNEL_POSITION_AUX4:                  return MAL_CHANNEL_NONE;
+        case MAL_PA_CHANNEL_POSITION_AUX5:                  return MAL_CHANNEL_NONE;
+        case MAL_PA_CHANNEL_POSITION_AUX6:                  return MAL_CHANNEL_NONE;
+        case MAL_PA_CHANNEL_POSITION_AUX7:                  return MAL_CHANNEL_NONE;
+        case MAL_PA_CHANNEL_POSITION_AUX8:                  return MAL_CHANNEL_NONE;
+        case MAL_PA_CHANNEL_POSITION_AUX9:                  return MAL_CHANNEL_NONE;
+        case MAL_PA_CHANNEL_POSITION_AUX10:                 return MAL_CHANNEL_NONE;
+        case MAL_PA_CHANNEL_POSITION_AUX11:                 return MAL_CHANNEL_NONE;
+        case MAL_PA_CHANNEL_POSITION_AUX12:                 return MAL_CHANNEL_NONE;
+        case MAL_PA_CHANNEL_POSITION_AUX13:                 return MAL_CHANNEL_NONE;
+        case MAL_PA_CHANNEL_POSITION_AUX14:                 return MAL_CHANNEL_NONE;
+        case MAL_PA_CHANNEL_POSITION_AUX15:                 return MAL_CHANNEL_NONE;
+        case MAL_PA_CHANNEL_POSITION_AUX16:                 return MAL_CHANNEL_NONE;
+        case MAL_PA_CHANNEL_POSITION_AUX17:                 return MAL_CHANNEL_NONE;
+        case MAL_PA_CHANNEL_POSITION_AUX18:                 return MAL_CHANNEL_19;
+        case MAL_PA_CHANNEL_POSITION_AUX19:                 return MAL_CHANNEL_20;
+        case MAL_PA_CHANNEL_POSITION_AUX20:                 return MAL_CHANNEL_21;
+        case MAL_PA_CHANNEL_POSITION_AUX21:                 return MAL_CHANNEL_22;
+        case MAL_PA_CHANNEL_POSITION_AUX22:                 return MAL_CHANNEL_23;
+        case MAL_PA_CHANNEL_POSITION_AUX23:                 return MAL_CHANNEL_24;
+        case MAL_PA_CHANNEL_POSITION_AUX24:                 return MAL_CHANNEL_25;
+        case MAL_PA_CHANNEL_POSITION_AUX25:                 return MAL_CHANNEL_26;
+        case MAL_PA_CHANNEL_POSITION_AUX26:                 return MAL_CHANNEL_27;
+        case MAL_PA_CHANNEL_POSITION_AUX27:                 return MAL_CHANNEL_28;
+        case MAL_PA_CHANNEL_POSITION_AUX28:                 return MAL_CHANNEL_29;
+        case MAL_PA_CHANNEL_POSITION_AUX29:                 return MAL_CHANNEL_30;
+        case MAL_PA_CHANNEL_POSITION_AUX30:                 return MAL_CHANNEL_31;
+        case MAL_PA_CHANNEL_POSITION_AUX31:                 return MAL_CHANNEL_32;
+        case MAL_PA_CHANNEL_POSITION_TOP_CENTER:            return MAL_CHANNEL_TOP_CENTER;
+        case MAL_PA_CHANNEL_POSITION_TOP_FRONT_LEFT:        return MAL_CHANNEL_TOP_FRONT_LEFT;
+        case MAL_PA_CHANNEL_POSITION_TOP_FRONT_RIGHT:       return MAL_CHANNEL_TOP_FRONT_RIGHT;
+        case MAL_PA_CHANNEL_POSITION_TOP_FRONT_CENTER:      return MAL_CHANNEL_TOP_FRONT_CENTER;
+        case MAL_PA_CHANNEL_POSITION_TOP_REAR_LEFT:         return MAL_CHANNEL_TOP_BACK_LEFT;
+        case MAL_PA_CHANNEL_POSITION_TOP_REAR_RIGHT:        return MAL_CHANNEL_TOP_BACK_RIGHT;
+        case MAL_PA_CHANNEL_POSITION_TOP_REAR_CENTER:       return MAL_CHANNEL_TOP_BACK_CENTER;
+        default: return MAL_CHANNEL_NONE;
     }
 }
 
-static pa_channel_position_t mal_channel_position_to_pulse(mal_channel position)
+static mal_pa_channel_position_t mal_channel_position_to_pulse(mal_channel position)
 {
     switch (position)
     {
-        case MAL_CHANNEL_NONE:               return PA_CHANNEL_POSITION_INVALID;
-        case MAL_CHANNEL_FRONT_LEFT:         return PA_CHANNEL_POSITION_FRONT_LEFT;
-        case MAL_CHANNEL_FRONT_RIGHT:        return PA_CHANNEL_POSITION_FRONT_RIGHT;
-        case MAL_CHANNEL_FRONT_CENTER:       return PA_CHANNEL_POSITION_FRONT_CENTER;
-        case MAL_CHANNEL_LFE:                return PA_CHANNEL_POSITION_LFE;
-        case MAL_CHANNEL_BACK_LEFT:          return PA_CHANNEL_POSITION_REAR_LEFT;
-        case MAL_CHANNEL_BACK_RIGHT:         return PA_CHANNEL_POSITION_REAR_RIGHT;
-        case MAL_CHANNEL_FRONT_LEFT_CENTER:  return PA_CHANNEL_POSITION_FRONT_LEFT_OF_CENTER;
-        case MAL_CHANNEL_FRONT_RIGHT_CENTER: return PA_CHANNEL_POSITION_FRONT_RIGHT_OF_CENTER;
-        case MAL_CHANNEL_BACK_CENTER:        return PA_CHANNEL_POSITION_REAR_CENTER;          
-        case MAL_CHANNEL_SIDE_LEFT:          return PA_CHANNEL_POSITION_SIDE_LEFT;
-        case MAL_CHANNEL_SIDE_RIGHT:         return PA_CHANNEL_POSITION_SIDE_RIGHT;
-        case MAL_CHANNEL_TOP_CENTER:         return PA_CHANNEL_POSITION_TOP_CENTER;
-        case MAL_CHANNEL_TOP_FRONT_LEFT:     return PA_CHANNEL_POSITION_TOP_FRONT_LEFT;
-        case MAL_CHANNEL_TOP_FRONT_CENTER:   return PA_CHANNEL_POSITION_TOP_FRONT_CENTER;
-        case MAL_CHANNEL_TOP_FRONT_RIGHT:    return PA_CHANNEL_POSITION_TOP_FRONT_RIGHT;
-        case MAL_CHANNEL_TOP_BACK_LEFT:      return PA_CHANNEL_POSITION_TOP_REAR_LEFT;
-        case MAL_CHANNEL_TOP_BACK_CENTER:    return PA_CHANNEL_POSITION_TOP_REAR_CENTER;
-        case MAL_CHANNEL_TOP_BACK_RIGHT:     return PA_CHANNEL_POSITION_TOP_REAR_RIGHT;
-        case MAL_CHANNEL_19:                 return PA_CHANNEL_POSITION_AUX18;
-        case MAL_CHANNEL_20:                 return PA_CHANNEL_POSITION_AUX19;
-        case MAL_CHANNEL_21:                 return PA_CHANNEL_POSITION_AUX20;
-        case MAL_CHANNEL_22:                 return PA_CHANNEL_POSITION_AUX21;
-        case MAL_CHANNEL_23:                 return PA_CHANNEL_POSITION_AUX22;
-        case MAL_CHANNEL_24:                 return PA_CHANNEL_POSITION_AUX23;
-        case MAL_CHANNEL_25:                 return PA_CHANNEL_POSITION_AUX24;
-        case MAL_CHANNEL_26:                 return PA_CHANNEL_POSITION_AUX25;
-        case MAL_CHANNEL_27:                 return PA_CHANNEL_POSITION_AUX26;
-        case MAL_CHANNEL_28:                 return PA_CHANNEL_POSITION_AUX27;
-        case MAL_CHANNEL_29:                 return PA_CHANNEL_POSITION_AUX28;
-        case MAL_CHANNEL_30:                 return PA_CHANNEL_POSITION_AUX29;
-        case MAL_CHANNEL_31:                 return PA_CHANNEL_POSITION_AUX30;
-        case MAL_CHANNEL_32:                 return PA_CHANNEL_POSITION_AUX31;
-        default: return (pa_channel_position_t)position;
+        case MAL_CHANNEL_NONE:               return MAL_PA_CHANNEL_POSITION_INVALID;
+        case MAL_CHANNEL_FRONT_LEFT:         return MAL_PA_CHANNEL_POSITION_FRONT_LEFT;
+        case MAL_CHANNEL_FRONT_RIGHT:        return MAL_PA_CHANNEL_POSITION_FRONT_RIGHT;
+        case MAL_CHANNEL_FRONT_CENTER:       return MAL_PA_CHANNEL_POSITION_FRONT_CENTER;
+        case MAL_CHANNEL_LFE:                return MAL_PA_CHANNEL_POSITION_LFE;
+        case MAL_CHANNEL_BACK_LEFT:          return MAL_PA_CHANNEL_POSITION_REAR_LEFT;
+        case MAL_CHANNEL_BACK_RIGHT:         return MAL_PA_CHANNEL_POSITION_REAR_RIGHT;
+        case MAL_CHANNEL_FRONT_LEFT_CENTER:  return MAL_PA_CHANNEL_POSITION_FRONT_LEFT_OF_CENTER;
+        case MAL_CHANNEL_FRONT_RIGHT_CENTER: return MAL_PA_CHANNEL_POSITION_FRONT_RIGHT_OF_CENTER;
+        case MAL_CHANNEL_BACK_CENTER:        return MAL_PA_CHANNEL_POSITION_REAR_CENTER;          
+        case MAL_CHANNEL_SIDE_LEFT:          return MAL_PA_CHANNEL_POSITION_SIDE_LEFT;
+        case MAL_CHANNEL_SIDE_RIGHT:         return MAL_PA_CHANNEL_POSITION_SIDE_RIGHT;
+        case MAL_CHANNEL_TOP_CENTER:         return MAL_PA_CHANNEL_POSITION_TOP_CENTER;
+        case MAL_CHANNEL_TOP_FRONT_LEFT:     return MAL_PA_CHANNEL_POSITION_TOP_FRONT_LEFT;
+        case MAL_CHANNEL_TOP_FRONT_CENTER:   return MAL_PA_CHANNEL_POSITION_TOP_FRONT_CENTER;
+        case MAL_CHANNEL_TOP_FRONT_RIGHT:    return MAL_PA_CHANNEL_POSITION_TOP_FRONT_RIGHT;
+        case MAL_CHANNEL_TOP_BACK_LEFT:      return MAL_PA_CHANNEL_POSITION_TOP_REAR_LEFT;
+        case MAL_CHANNEL_TOP_BACK_CENTER:    return MAL_PA_CHANNEL_POSITION_TOP_REAR_CENTER;
+        case MAL_CHANNEL_TOP_BACK_RIGHT:     return MAL_PA_CHANNEL_POSITION_TOP_REAR_RIGHT;
+        case MAL_CHANNEL_19:                 return MAL_PA_CHANNEL_POSITION_AUX18;
+        case MAL_CHANNEL_20:                 return MAL_PA_CHANNEL_POSITION_AUX19;
+        case MAL_CHANNEL_21:                 return MAL_PA_CHANNEL_POSITION_AUX20;
+        case MAL_CHANNEL_22:                 return MAL_PA_CHANNEL_POSITION_AUX21;
+        case MAL_CHANNEL_23:                 return MAL_PA_CHANNEL_POSITION_AUX22;
+        case MAL_CHANNEL_24:                 return MAL_PA_CHANNEL_POSITION_AUX23;
+        case MAL_CHANNEL_25:                 return MAL_PA_CHANNEL_POSITION_AUX24;
+        case MAL_CHANNEL_26:                 return MAL_PA_CHANNEL_POSITION_AUX25;
+        case MAL_CHANNEL_27:                 return MAL_PA_CHANNEL_POSITION_AUX26;
+        case MAL_CHANNEL_28:                 return MAL_PA_CHANNEL_POSITION_AUX27;
+        case MAL_CHANNEL_29:                 return MAL_PA_CHANNEL_POSITION_AUX28;
+        case MAL_CHANNEL_30:                 return MAL_PA_CHANNEL_POSITION_AUX29;
+        case MAL_CHANNEL_31:                 return MAL_PA_CHANNEL_POSITION_AUX30;
+        case MAL_CHANNEL_32:                 return MAL_PA_CHANNEL_POSITION_AUX31;
+        default: return (mal_pa_channel_position_t)position;
     }
 }
 
@@ -7237,13 +7530,13 @@ static mal_result mal_context_init__pulse(mal_context* pContext)
 }
 
 
-static mal_result mal_wait_for_operation__pulse(mal_context* pContext, pa_mainloop* pMainLoop, pa_operation* pOP)
+static mal_result mal_wait_for_operation__pulse(mal_context* pContext, mal_pa_mainloop* pMainLoop, mal_pa_operation* pOP)
 {
     mal_assert(pContext != NULL);
     mal_assert(pMainLoop != NULL);
     mal_assert(pOP != NULL);
 
-    while (((mal_pa_operation_get_state_proc)pContext->pulse.pa_operation_get_state)(pOP) != PA_OPERATION_DONE) {
+    while (((mal_pa_operation_get_state_proc)pContext->pulse.pa_operation_get_state)(pOP) != MAL_PA_OPERATION_DONE) {
         int error = ((mal_pa_mainloop_iterate_proc)pContext->pulse.pa_mainloop_iterate)(pMainLoop, 1, NULL);
         if (error < 0) {
             return mal_result_from_pulse(error);
@@ -7253,15 +7546,15 @@ static mal_result mal_wait_for_operation__pulse(mal_context* pContext, pa_mainlo
     return MAL_SUCCESS;
 }
 
-static mal_result mal_device__wait_for_operation__pulse(mal_device* pDevice, pa_operation* pOP)
+static mal_result mal_device__wait_for_operation__pulse(mal_device* pDevice, mal_pa_operation* pOP)
 {
     mal_assert(pDevice != NULL);
     mal_assert(pOP != NULL);
 
-    return mal_wait_for_operation__pulse(pDevice->pContext, (pa_mainloop*)pDevice->pulse.pMainLoop, pOP);
+    return mal_wait_for_operation__pulse(pDevice->pContext, (mal_pa_mainloop*)pDevice->pulse.pMainLoop, pOP);
 }
 
-static void mal_pulse_device_info_list_callback(pa_context* pPulseContext, const char* pName, const char* pDescription, void* pUserData)
+static void mal_pulse_device_info_list_callback(mal_pa_context* pPulseContext, const char* pName, const char* pDescription, void* pUserData)
 {
     mal_pulse_device_enum_data* pData = (mal_pulse_device_enum_data*)pUserData;
     mal_assert(pData != NULL);
@@ -7289,7 +7582,7 @@ static void mal_pulse_device_info_list_callback(pa_context* pPulseContext, const
     }
 }
 
-static void mal_pulse_sink_info_list_callback(pa_context* pPulseContext, const pa_sink_info* pSinkInfo, int endOfList, void* pUserData)
+static void mal_pulse_sink_info_list_callback(mal_pa_context* pPulseContext, const mal_pa_sink_info* pSinkInfo, int endOfList, void* pUserData)
 {
     if (endOfList > 0) {
         return;
@@ -7298,7 +7591,7 @@ static void mal_pulse_sink_info_list_callback(pa_context* pPulseContext, const p
     return mal_pulse_device_info_list_callback(pPulseContext, pSinkInfo->name, pSinkInfo->description, pUserData);
 }
 
-static void mal_pulse_source_info_list_callback(pa_context* pPulseContext, const pa_source_info* pSourceInfo, int endOfList, void* pUserData)
+static void mal_pulse_source_info_list_callback(mal_pa_context* pPulseContext, const mal_pa_source_info* pSourceInfo, int endOfList, void* pUserData)
 {
     if (endOfList > 0) {
         return;
@@ -7314,31 +7607,31 @@ static mal_result mal_enumerate_devices__pulse(mal_context* pContext, mal_device
     mal_uint32 infoSize = *pCount;
     *pCount = 0;
 
-    pa_mainloop* pMainLoop = ((mal_pa_mainloop_new_proc)pContext->pulse.pa_mainloop_new)();
+    mal_pa_mainloop* pMainLoop = ((mal_pa_mainloop_new_proc)pContext->pulse.pa_mainloop_new)();
     if (pMainLoop == NULL) {
         return MAL_FAILED_TO_INIT_BACKEND;
     }
 
-    pa_mainloop_api* pAPI = ((mal_pa_mainloop_get_api_proc)pContext->pulse.pa_mainloop_get_api)(pMainLoop);
+    mal_pa_mainloop_api* pAPI = ((mal_pa_mainloop_get_api_proc)pContext->pulse.pa_mainloop_get_api)(pMainLoop);
     if (pAPI == NULL) {
         ((mal_pa_mainloop_free_proc)pContext->pulse.pa_mainloop_free)(pMainLoop);
         return MAL_FAILED_TO_INIT_BACKEND;
     }
 
-    pa_context* pPulseContext = ((mal_pa_context_new_proc)pContext->pulse.pa_context_new)(pAPI, pContext->config.pulse.pApplicationName);
+    mal_pa_context* pPulseContext = ((mal_pa_context_new_proc)pContext->pulse.pa_context_new)(pAPI, pContext->config.pulse.pApplicationName);
     if (pPulseContext == NULL) {
         ((mal_pa_mainloop_free_proc)pContext->pulse.pa_mainloop_free)(pMainLoop);
         return MAL_FAILED_TO_INIT_BACKEND;
     }
 
     int error = ((mal_pa_context_connect_proc)pContext->pulse.pa_context_connect)(pPulseContext, pContext->config.pulse.pServerName, 0, NULL);
-    if (error != PA_OK) {
+    if (error != MAL_PA_OK) {
         ((mal_pa_context_unref_proc)pContext->pulse.pa_context_unref)(pPulseContext);
         ((mal_pa_mainloop_free_proc)pContext->pulse.pa_mainloop_free)(pMainLoop);
         return mal_result_from_pulse(error);
     }
 
-    while (((mal_pa_context_get_state_proc)pContext->pulse.pa_context_get_state)(pPulseContext) != PA_CONTEXT_READY) {
+    while (((mal_pa_context_get_state_proc)pContext->pulse.pa_context_get_state)(pPulseContext) != MAL_PA_CONTEXT_READY) {
         error = ((mal_pa_mainloop_iterate_proc)pContext->pulse.pa_mainloop_iterate)(pMainLoop, 1, NULL);
         if (error < 0) {
             result = mal_result_from_pulse(error);
@@ -7351,7 +7644,7 @@ static mal_result mal_enumerate_devices__pulse(mal_context* pContext, mal_device
     callbackData.capacity = infoSize;
     callbackData.pInfo = pInfo;
 
-    pa_operation* pOP = NULL;
+    mal_pa_operation* pOP = NULL;
     if (type == mal_device_type_playback) {
         pOP = ((mal_pa_context_get_sink_info_list_proc)pContext->pulse.pa_context_get_sink_info_list)(pPulseContext, mal_pulse_sink_info_list_callback, &callbackData);
     } else {
@@ -7375,7 +7668,7 @@ done:
     return result;
 }
 
-static void mal_pulse_device_state_callback(pa_context* pPulseContext, void* pUserData)
+static void mal_pulse_device_state_callback(mal_pa_context* pPulseContext, void* pUserData)
 {
     mal_device* pDevice = (mal_device*)pUserData;
     mal_assert(pDevice != NULL);
@@ -7386,7 +7679,7 @@ static void mal_pulse_device_state_callback(pa_context* pPulseContext, void* pUs
     pDevice->pulse.pulseContextState = ((mal_pa_context_get_state_proc)pContext->pulse.pa_context_get_state)(pPulseContext);
 }
 
-static void mal_pulse_device_write_callback(pa_stream* pStream, size_t sizeInBytes, void* pUserData)
+static void mal_pulse_device_write_callback(mal_pa_stream* pStream, size_t sizeInBytes, void* pUserData)
 {
     mal_device* pDevice = (mal_device*)pUserData;
     mal_assert(pDevice != NULL);
@@ -7402,7 +7695,7 @@ static void mal_pulse_device_write_callback(pa_stream* pStream, size_t sizeInByt
         }
 
         void* pBuffer = NULL;
-        int error = ((mal_pa_stream_begin_write_proc)pContext->pulse.pa_stream_begin_write)((pa_stream*)pDevice->pulse.pStream, &pBuffer, &bytesToReadFromClient);
+        int error = ((mal_pa_stream_begin_write_proc)pContext->pulse.pa_stream_begin_write)((mal_pa_stream*)pDevice->pulse.pStream, &pBuffer, &bytesToReadFromClient);
         if (error < 0) {
             mal_post_error(pDevice, "[PulseAudio] Failed to retrieve write buffer for sending data to the device.", mal_result_from_pulse(error));
             return;
@@ -7413,7 +7706,7 @@ static void mal_pulse_device_write_callback(pa_stream* pStream, size_t sizeInByt
             if (framesToReadFromClient > 0) {
                 mal_device__read_frames_from_client(pDevice, framesToReadFromClient, pBuffer);
 
-                error = ((mal_pa_stream_write_proc)pContext->pulse.pa_stream_write)((pa_stream*)pDevice->pulse.pStream, pBuffer, bytesToReadFromClient, NULL, 0, PA_SEEK_RELATIVE);
+                error = ((mal_pa_stream_write_proc)pContext->pulse.pa_stream_write)((mal_pa_stream*)pDevice->pulse.pStream, pBuffer, bytesToReadFromClient, NULL, 0, MAL_PA_SEEK_RELATIVE);
                 if (error < 0) {
                     mal_post_error(pDevice, "[PulseAudio] Failed to write data to the PulseAudio stream.", mal_result_from_pulse(error));
                     return;
@@ -7425,7 +7718,7 @@ static void mal_pulse_device_write_callback(pa_stream* pStream, size_t sizeInByt
     }
 }
 
-static void mal_pulse_device_read_callback(pa_stream* pStream, size_t sizeInBytes, void* pUserData)
+static void mal_pulse_device_read_callback(mal_pa_stream* pStream, size_t sizeInBytes, void* pUserData)
 {
     mal_device* pDevice = (mal_device*)pUserData;
     mal_assert(pDevice != NULL);
@@ -7441,7 +7734,7 @@ static void mal_pulse_device_read_callback(pa_stream* pStream, size_t sizeInByte
         }
 
         const void* pBuffer = NULL;
-        int error = ((mal_pa_stream_peek_proc)pContext->pulse.pa_stream_peek)((pa_stream*)pDevice->pulse.pStream, &pBuffer, &sizeInBytes);
+        int error = ((mal_pa_stream_peek_proc)pContext->pulse.pa_stream_peek)((mal_pa_stream*)pDevice->pulse.pStream, &pBuffer, &sizeInBytes);
         if (error < 0) {
             mal_post_error(pDevice, "[PulseAudio] Failed to retrieve read buffer for reading data from the device.", mal_result_from_pulse(error));
             return;
@@ -7454,7 +7747,7 @@ static void mal_pulse_device_read_callback(pa_stream* pStream, size_t sizeInByte
             }
         }
 
-        error = ((mal_pa_stream_drop_proc)pContext->pulse.pa_stream_drop)((pa_stream*)pDevice->pulse.pStream);
+        error = ((mal_pa_stream_drop_proc)pContext->pulse.pa_stream_drop)((mal_pa_stream*)pDevice->pulse.pStream);
         if (error < 0) {
             mal_post_error(pDevice, "[PulseAudio] Failed to drop fragment from the PulseAudio stream.", mal_result_from_pulse(error));
         }
@@ -7463,7 +7756,7 @@ static void mal_pulse_device_read_callback(pa_stream* pStream, size_t sizeInByte
     }
 }
 
-static void mal_device_sink_name_callback(pa_context* pPulseContext, const pa_sink_info* pInfo, int endOfList, void* pUserData)
+static void mal_device_sink_name_callback(mal_pa_context* pPulseContext, const mal_pa_sink_info* pInfo, int endOfList, void* pUserData)
 {
     if (endOfList > 0) {
         return;
@@ -7475,7 +7768,7 @@ static void mal_device_sink_name_callback(pa_context* pPulseContext, const pa_si
     mal_strcpy_s(pDevice->name, sizeof(pDevice->name), pInfo->description);
 }
 
-static void mal_device_source_name_callback(pa_context* pPulseContext, const pa_source_info* pInfo, int endOfList, void* pUserData)
+static void mal_device_source_name_callback(mal_pa_context* pPulseContext, const mal_pa_source_info* pInfo, int endOfList, void* pUserData)
 {
     if (endOfList > 0) {
         return;
@@ -7494,11 +7787,11 @@ static void mal_device_uninit__pulse(mal_device* pDevice)
     mal_context* pContext = pDevice->pContext;
     mal_assert(pContext != NULL);
 
-    ((mal_pa_stream_disconnect_proc)pContext->pulse.pa_stream_disconnect)((pa_stream*)pDevice->pulse.pStream);
-    ((mal_pa_stream_unref_proc)pContext->pulse.pa_stream_unref)((pa_stream*)pDevice->pulse.pStream);
-    ((mal_pa_context_disconnect_proc)pContext->pulse.pa_context_disconnect)((pa_context*)pDevice->pulse.pPulseContext);
-    ((mal_pa_context_unref_proc)pContext->pulse.pa_context_unref)((pa_context*)pDevice->pulse.pPulseContext);
-    ((mal_pa_mainloop_free_proc)pContext->pulse.pa_mainloop_free)((pa_mainloop*)pDevice->pulse.pMainLoop);
+    ((mal_pa_stream_disconnect_proc)pContext->pulse.pa_stream_disconnect)((mal_pa_stream*)pDevice->pulse.pStream);
+    ((mal_pa_stream_unref_proc)pContext->pulse.pa_stream_unref)((mal_pa_stream*)pDevice->pulse.pStream);
+    ((mal_pa_context_disconnect_proc)pContext->pulse.pa_context_disconnect)((mal_pa_context*)pDevice->pulse.pPulseContext);
+    ((mal_pa_context_unref_proc)pContext->pulse.pa_context_unref)((mal_pa_context*)pDevice->pulse.pPulseContext);
+    ((mal_pa_mainloop_free_proc)pContext->pulse.pa_mainloop_free)((mal_pa_mainloop*)pDevice->pulse.pMainLoop);
 }
 
 static mal_result mal_device_init__pulse(mal_context* pContext, mal_device_type type, mal_device_id* pDeviceID, const mal_device_config* pConfig, mal_device* pDevice)
@@ -7516,34 +7809,34 @@ static mal_result mal_device_init__pulse(mal_context* pContext, mal_device_type 
         goto on_error0;
     }
 
-    pDevice->pulse.pAPI = ((mal_pa_mainloop_get_api_proc)pContext->pulse.pa_mainloop_get_api)((pa_mainloop*)pDevice->pulse.pMainLoop);
+    pDevice->pulse.pAPI = ((mal_pa_mainloop_get_api_proc)pContext->pulse.pa_mainloop_get_api)((mal_pa_mainloop*)pDevice->pulse.pMainLoop);
     if (pDevice->pulse.pAPI == NULL) {
         result = mal_post_error(pDevice, "[PulseAudio] Failed to retrieve PulseAudio main loop.", MAL_FAILED_TO_INIT_BACKEND);
         goto on_error1;
     }
 
-    pDevice->pulse.pPulseContext = ((mal_pa_context_new_proc)pContext->pulse.pa_context_new)((pa_mainloop_api*)pDevice->pulse.pAPI, pContext->config.pulse.pApplicationName);
+    pDevice->pulse.pPulseContext = ((mal_pa_context_new_proc)pContext->pulse.pa_context_new)((mal_pa_mainloop_api*)pDevice->pulse.pAPI, pContext->config.pulse.pApplicationName);
     if (pDevice->pulse.pPulseContext == NULL) {
         result = mal_post_error(pDevice, "[PulseAudio] Failed to create PulseAudio context for device.", MAL_FAILED_TO_INIT_BACKEND);
         goto on_error1;
     }
 
-    int error = ((mal_pa_context_connect_proc)pContext->pulse.pa_context_connect)((pa_context*)pDevice->pulse.pPulseContext, pContext->config.pulse.pServerName, (pContext->config.pulse.noAutoSpawn) ? PA_CONTEXT_NOAUTOSPAWN : 0, NULL);
-    if (error != PA_OK) {
+    int error = ((mal_pa_context_connect_proc)pContext->pulse.pa_context_connect)((mal_pa_context*)pDevice->pulse.pPulseContext, pContext->config.pulse.pServerName, (pContext->config.pulse.noAutoSpawn) ? MAL_PA_CONTEXT_NOAUTOSPAWN : 0, NULL);
+    if (error != MAL_PA_OK) {
         result = mal_post_error(pDevice, "[PulseAudio] Failed to connect PulseAudio context.", mal_result_from_pulse(error));
         goto on_error2;
     }
 
 
-    pDevice->pulse.pulseContextState = PA_CONTEXT_UNCONNECTED;
-    ((mal_pa_context_set_state_callback_proc)pContext->pulse.pa_context_set_state_callback)((pa_context*)pDevice->pulse.pPulseContext, mal_pulse_device_state_callback, pDevice);
+    pDevice->pulse.pulseContextState = MAL_PA_CONTEXT_UNCONNECTED;
+    ((mal_pa_context_set_state_callback_proc)pContext->pulse.pa_context_set_state_callback)((mal_pa_context*)pDevice->pulse.pPulseContext, mal_pulse_device_state_callback, pDevice);
 
     // Wait for PulseAudio to get itself ready before returning.
     for (;;) {
-        if (pDevice->pulse.pulseContextState == PA_CONTEXT_READY) {
+        if (pDevice->pulse.pulseContextState == MAL_PA_CONTEXT_READY) {
             break;
         } else {
-            error = ((mal_pa_mainloop_iterate_proc)pContext->pulse.pa_mainloop_iterate)((pa_mainloop*)pDevice->pulse.pMainLoop, 1, NULL);    // 1 = block.
+            error = ((mal_pa_mainloop_iterate_proc)pContext->pulse.pa_mainloop_iterate)((mal_pa_mainloop*)pDevice->pulse.pMainLoop, 1, NULL);    // 1 = block.
             if (error < 0) {
                 result = mal_post_error(pDevice, "[PulseAudio] The PulseAudio main loop returned an error while connecting the PulseAudio context.", mal_result_from_pulse(error));
                 goto on_error3;
@@ -7552,12 +7845,12 @@ static mal_result mal_device_init__pulse(mal_context* pContext, mal_device_type 
         }
         
         // An error may have occurred.
-        if (pDevice->pulse.pulseContextState == PA_CONTEXT_FAILED || pDevice->pulse.pulseContextState == PA_CONTEXT_TERMINATED) {
+        if (pDevice->pulse.pulseContextState == MAL_PA_CONTEXT_FAILED || pDevice->pulse.pulseContextState == MAL_PA_CONTEXT_TERMINATED) {
             result = mal_post_error(pDevice, "[PulseAudio] An error occurred while connecting the PulseAudio context.", MAL_ERROR);
             goto on_error3;
         }
 
-        error = ((mal_pa_mainloop_iterate_proc)pContext->pulse.pa_mainloop_iterate)((pa_mainloop*)pDevice->pulse.pMainLoop, 1, NULL);
+        error = ((mal_pa_mainloop_iterate_proc)pContext->pulse.pa_mainloop_iterate)((mal_pa_mainloop*)pDevice->pulse.pMainLoop, 1, NULL);
         if (error < 0) {
             result = mal_post_error(pDevice, "[PulseAudio] The PulseAudio main loop returned an error while connecting the PulseAudio context.", mal_result_from_pulse(error));
             goto on_error3;
@@ -7565,27 +7858,27 @@ static mal_result mal_device_init__pulse(mal_context* pContext, mal_device_type 
     }
 
 
-    pa_sample_spec ss;
+    mal_pa_sample_spec ss;
     ss.format = mal_format_to_pulse(pConfig->format);
-    if (ss.format == PA_SAMPLE_INVALID) {
-        ss.format = PA_SAMPLE_S16LE;
+    if (ss.format == MAL_PA_SAMPLE_INVALID) {
+        ss.format = MAL_PA_SAMPLE_S16LE;
     }
     ss.channels = pConfig->channels;
     ss.rate = pConfig->sampleRate;
 
 
-    pa_channel_map cmap;
+    mal_pa_channel_map cmap;
     cmap.channels = pConfig->channels;
     for (mal_uint32 iChannel = 0; iChannel < pConfig->channels; ++iChannel) {
         cmap.map[iChannel] = mal_channel_position_to_pulse(pConfig->channelMap[iChannel]);
     }
 
     if (((mal_pa_channel_map_valid_proc)pContext->pulse.pa_channel_map_valid)(&cmap) == 0 || ((mal_pa_channel_map_compatible_proc)pContext->pulse.pa_channel_map_compatible)(&cmap, &ss) == 0) {
-        ((mal_pa_channel_map_init_extend_proc)pContext->pulse.pa_channel_map_init_extend)(&cmap, ss.channels, PA_CHANNEL_MAP_DEFAULT);     // The channel map is invalid, so just fall back to the default.
+        ((mal_pa_channel_map_init_extend_proc)pContext->pulse.pa_channel_map_init_extend)(&cmap, ss.channels, MAL_PA_CHANNEL_MAP_DEFAULT);     // The channel map is invalid, so just fall back to the default.
     }
     
 
-    pa_buffer_attr attr;
+    mal_pa_buffer_attr attr;
     attr.maxlength = pConfig->bufferSizeInFrames * mal_get_sample_size_in_bytes(mal_format_from_pulse(ss.format))*ss.channels;
     attr.tlength   = attr.maxlength / pConfig->periods;
     attr.prebuf    = (mal_uint32)-1;
@@ -7602,7 +7895,7 @@ static mal_result mal_device_init__pulse(mal_context* pContext, mal_device_type 
         g_StreamCounter += 1;
     }
 
-    pDevice->pulse.pStream = ((mal_pa_stream_new_proc)pContext->pulse.pa_stream_new)((pa_context*)pDevice->pulse.pPulseContext, streamName, &ss, &cmap);
+    pDevice->pulse.pStream = ((mal_pa_stream_new_proc)pContext->pulse.pa_stream_new)((mal_pa_context*)pDevice->pulse.pPulseContext, streamName, &ss, &cmap);
     if (pDevice->pulse.pStream == NULL) {
         result = mal_post_error(pDevice, "[PulseAudio] Failed to create PulseAudio stream.", MAL_FAILED_TO_OPEN_BACKEND_DEVICE);
         goto on_error3;
@@ -7614,18 +7907,18 @@ static mal_result mal_device_init__pulse(mal_context* pContext, mal_device_type 
     }
 
     if (type == mal_device_type_playback) {
-        error = ((mal_pa_stream_connect_playback_proc)pContext->pulse.pa_stream_connect_playback)((pa_stream*)pDevice->pulse.pStream, dev, &attr, PA_STREAM_START_CORKED, NULL, NULL);
+        error = ((mal_pa_stream_connect_playback_proc)pContext->pulse.pa_stream_connect_playback)((mal_pa_stream*)pDevice->pulse.pStream, dev, &attr, MAL_PA_STREAM_START_CORKED, NULL, NULL);
     } else {
-        error = ((mal_pa_stream_connect_record_proc)pContext->pulse.pa_stream_connect_record)((pa_stream*)pDevice->pulse.pStream, dev, &attr, PA_STREAM_START_CORKED);
+        error = ((mal_pa_stream_connect_record_proc)pContext->pulse.pa_stream_connect_record)((mal_pa_stream*)pDevice->pulse.pStream, dev, &attr, MAL_PA_STREAM_START_CORKED);
     }
 
-    if (error != PA_OK) {
+    if (error != MAL_PA_OK) {
         result = mal_post_error(pDevice, "[PulseAudio] Failed to connect PulseAudio stream.", mal_result_from_pulse(error));
         goto on_error4;
     }
 
-    while (((mal_pa_stream_get_state_proc)pContext->pulse.pa_stream_get_state)((pa_stream*)pDevice->pulse.pStream) != PA_STREAM_READY) {
-        error = ((mal_pa_mainloop_iterate_proc)pContext->pulse.pa_mainloop_iterate)((pa_mainloop*)pDevice->pulse.pMainLoop, 1, NULL);
+    while (((mal_pa_stream_get_state_proc)pContext->pulse.pa_stream_get_state)((mal_pa_stream*)pDevice->pulse.pStream) != MAL_PA_STREAM_READY) {
+        error = ((mal_pa_mainloop_iterate_proc)pContext->pulse.pa_mainloop_iterate)((mal_pa_mainloop*)pDevice->pulse.pMainLoop, 1, NULL);
         if (error < 0) {
             result = mal_post_error(pDevice, "[PulseAudio] The PulseAudio main loop returned an error while connecting the PulseAudio stream.", mal_result_from_pulse(error));
             goto on_error5;
@@ -7634,7 +7927,7 @@ static mal_result mal_device_init__pulse(mal_context* pContext, mal_device_type 
 
 
     // Internal format.
-    const pa_sample_spec* pActualSS = ((mal_pa_stream_get_sample_spec_proc)pContext->pulse.pa_stream_get_sample_spec)((pa_stream*)pDevice->pulse.pStream);
+    const mal_pa_sample_spec* pActualSS = ((mal_pa_stream_get_sample_spec_proc)pContext->pulse.pa_stream_get_sample_spec)((mal_pa_stream*)pDevice->pulse.pStream);
     if (pActualSS != NULL) {
         ss = *pActualSS;
     }
@@ -7645,7 +7938,7 @@ static mal_result mal_device_init__pulse(mal_context* pContext, mal_device_type 
     
 
     // Internal channel map.
-    const pa_channel_map* pActualCMap = ((mal_pa_stream_get_channel_map_proc)pContext->pulse.pa_stream_get_channel_map)((pa_stream*)pDevice->pulse.pStream);
+    const mal_pa_channel_map* pActualCMap = ((mal_pa_stream_get_channel_map_proc)pContext->pulse.pa_stream_get_channel_map)((mal_pa_stream*)pDevice->pulse.pStream);
     if (pActualCMap != NULL) {
         cmap = *pActualCMap;
     }
@@ -7656,7 +7949,7 @@ static mal_result mal_device_init__pulse(mal_context* pContext, mal_device_type 
 
 
     // Buffer size.
-    const pa_buffer_attr* pActualAttr = ((mal_pa_stream_get_buffer_attr_proc)pContext->pulse.pa_stream_get_buffer_attr)((pa_stream*)pDevice->pulse.pStream);
+    const mal_pa_buffer_attr* pActualAttr = ((mal_pa_stream_get_buffer_attr_proc)pContext->pulse.pa_stream_get_buffer_attr)((mal_pa_stream*)pDevice->pulse.pStream);
     if (pActualAttr != NULL) {
         attr = *pActualAttr;
     }
@@ -7666,13 +7959,13 @@ static mal_result mal_device_init__pulse(mal_context* pContext, mal_device_type 
 
 
     // Grab the name of the device if we can.
-    dev = ((mal_pa_stream_get_device_name_proc)pContext->pulse.pa_stream_get_device_name)((pa_stream*)pDevice->pulse.pStream);
+    dev = ((mal_pa_stream_get_device_name_proc)pContext->pulse.pa_stream_get_device_name)((mal_pa_stream*)pDevice->pulse.pStream);
     if (dev != NULL) {
-        pa_operation* pOP = NULL;
+        mal_pa_operation* pOP = NULL;
         if (type == mal_device_type_playback) {
-            pOP = ((mal_pa_context_get_sink_info_by_name_proc)pContext->pulse.pa_context_get_sink_info_by_name)((pa_context*)pDevice->pulse.pPulseContext, dev, mal_device_sink_name_callback, pDevice);
+            pOP = ((mal_pa_context_get_sink_info_by_name_proc)pContext->pulse.pa_context_get_sink_info_by_name)((mal_pa_context*)pDevice->pulse.pPulseContext, dev, mal_device_sink_name_callback, pDevice);
         } else {
-            pOP = ((mal_pa_context_get_source_info_by_name_proc)pContext->pulse.pa_context_get_source_info_by_name)((pa_context*)pDevice->pulse.pPulseContext, dev, mal_device_source_name_callback, pDevice);
+            pOP = ((mal_pa_context_get_source_info_by_name_proc)pContext->pulse.pa_context_get_source_info_by_name)((mal_pa_context*)pDevice->pulse.pPulseContext, dev, mal_device_source_name_callback, pDevice);
         }
 
         if (pOP != NULL) {
@@ -7684,9 +7977,9 @@ static mal_result mal_device_init__pulse(mal_context* pContext, mal_device_type 
 
     // Set callbacks for reading and writing data to/from the PulseAudio stream.
     if (type == mal_device_type_playback) {
-        ((mal_pa_stream_set_write_callback_proc)pContext->pulse.pa_stream_set_write_callback)((pa_stream*)pDevice->pulse.pStream, mal_pulse_device_write_callback, pDevice);
+        ((mal_pa_stream_set_write_callback_proc)pContext->pulse.pa_stream_set_write_callback)((mal_pa_stream*)pDevice->pulse.pStream, mal_pulse_device_write_callback, pDevice);
     } else {
-        ((mal_pa_stream_set_read_callback_proc)pContext->pulse.pa_stream_set_read_callback)((pa_stream*)pDevice->pulse.pStream, mal_pulse_device_read_callback, pDevice);
+        ((mal_pa_stream_set_read_callback_proc)pContext->pulse.pa_stream_set_read_callback)((mal_pa_stream*)pDevice->pulse.pStream, mal_pulse_device_read_callback, pDevice);
     }
 
 
@@ -7695,17 +7988,17 @@ static mal_result mal_device_init__pulse(mal_context* pContext, mal_device_type 
     return MAL_SUCCESS;
 
 
-on_error5: ((mal_pa_stream_disconnect_proc)pContext->pulse.pa_stream_disconnect)((pa_stream*)pDevice->pulse.pStream);
-on_error4: ((mal_pa_stream_unref_proc)pContext->pulse.pa_stream_unref)((pa_stream*)pDevice->pulse.pStream);
-on_error3: ((mal_pa_context_disconnect_proc)pContext->pulse.pa_context_disconnect)((pa_context*)pDevice->pulse.pPulseContext);
-on_error2: ((mal_pa_context_unref_proc)pContext->pulse.pa_context_unref)((pa_context*)pDevice->pulse.pPulseContext);
-on_error1: ((mal_pa_mainloop_free_proc)pContext->pulse.pa_mainloop_free)((pa_mainloop*)pDevice->pulse.pMainLoop);
+on_error5: ((mal_pa_stream_disconnect_proc)pContext->pulse.pa_stream_disconnect)((mal_pa_stream*)pDevice->pulse.pStream);
+on_error4: ((mal_pa_stream_unref_proc)pContext->pulse.pa_stream_unref)((mal_pa_stream*)pDevice->pulse.pStream);
+on_error3: ((mal_pa_context_disconnect_proc)pContext->pulse.pa_context_disconnect)((mal_pa_context*)pDevice->pulse.pPulseContext);
+on_error2: ((mal_pa_context_unref_proc)pContext->pulse.pa_context_unref)((mal_pa_context*)pDevice->pulse.pPulseContext);
+on_error1: ((mal_pa_mainloop_free_proc)pContext->pulse.pa_mainloop_free)((mal_pa_mainloop*)pDevice->pulse.pMainLoop);
 on_error0:
     return result;
 }
 
 
-static void mal_pulse_operation_complete_callback(pa_stream* pStream, int success, void* pUserData)
+static void mal_pulse_operation_complete_callback(mal_pa_stream* pStream, int success, void* pUserData)
 {
     mal_bool32* pIsSuccessful = (mal_bool32*)pUserData;
     mal_assert(pIsSuccessful != NULL);
@@ -7719,7 +8012,7 @@ static mal_result mal_device__cork_stream__pulse(mal_device* pDevice, int cork)
     mal_assert(pContext != NULL);
 
     mal_bool32 wasSuccessful = MAL_FALSE;
-    pa_operation* pOP = ((mal_pa_stream_cork_proc)pContext->pulse.pa_stream_cork)((pa_stream*)pDevice->pulse.pStream, cork, mal_pulse_operation_complete_callback, &wasSuccessful);
+    mal_pa_operation* pOP = ((mal_pa_stream_cork_proc)pContext->pulse.pa_stream_cork)((mal_pa_stream*)pDevice->pulse.pStream, cork, mal_pulse_operation_complete_callback, &wasSuccessful);
     if (pOP == NULL) {
         return mal_post_error(pDevice, "[PulseAudio] Failed to cork PulseAudio stream.", (cork == 0) ? MAL_FAILED_TO_START_BACKEND_DEVICE : MAL_FAILED_TO_STOP_BACKEND_DEVICE);
     }
@@ -7759,10 +8052,10 @@ static mal_result mal_device__start_backend__pulse(mal_device* pDevice)
     // A playback device is started by simply writing data to it. For capture we do nothing.
     if (pDevice->type == mal_device_type_playback) {
         // Playback.
-        mal_pulse_device_write_callback((pa_stream*)pDevice->pulse.pStream, pDevice->pulse.fragmentSizeInBytes, pDevice);
+        mal_pulse_device_write_callback((mal_pa_stream*)pDevice->pulse.pStream, pDevice->pulse.fragmentSizeInBytes, pDevice);
 
         // Force an immediate start of the device just to be sure.
-        pa_operation* pOP = ((mal_pa_stream_trigger_proc)pContext->pulse.pa_stream_trigger)((pa_stream*)pDevice->pulse.pStream, NULL, NULL);
+        mal_pa_operation* pOP = ((mal_pa_stream_trigger_proc)pContext->pulse.pa_stream_trigger)((mal_pa_stream*)pDevice->pulse.pStream, NULL, NULL);
         if (pOP != NULL) {
              mal_device__wait_for_operation__pulse(pDevice, pOP);
             ((mal_pa_operation_unref_proc)pContext->pulse.pa_operation_unref)(pOP);
@@ -7788,11 +8081,11 @@ static mal_result mal_device__stop_backend__pulse(mal_device* pDevice)
 
     // For playback, buffers need to be flushed. For capture they need to be drained.
     mal_bool32 wasSuccessful;
-    pa_operation* pOP = NULL;
+    mal_pa_operation* pOP = NULL;
     if (pDevice->type == mal_device_type_playback) {
-        pOP = ((mal_pa_stream_flush_proc)pContext->pulse.pa_stream_flush)((pa_stream*)pDevice->pulse.pStream, mal_pulse_operation_complete_callback, &wasSuccessful);
+        pOP = ((mal_pa_stream_flush_proc)pContext->pulse.pa_stream_flush)((mal_pa_stream*)pDevice->pulse.pStream, mal_pulse_operation_complete_callback, &wasSuccessful);
     } else {
-        pOP = ((mal_pa_stream_drain_proc)pContext->pulse.pa_stream_drain)((pa_stream*)pDevice->pulse.pStream, mal_pulse_operation_complete_callback, &wasSuccessful);
+        pOP = ((mal_pa_stream_drain_proc)pContext->pulse.pa_stream_drain)((mal_pa_stream*)pDevice->pulse.pStream, mal_pulse_operation_complete_callback, &wasSuccessful);
     }
 
     if (pOP == NULL) {
@@ -7821,7 +8114,7 @@ static mal_result mal_device__break_main_loop__pulse(mal_device* pDevice)
     mal_assert(pContext != NULL);
 
     pDevice->pulse.breakFromMainLoop = MAL_TRUE;
-    ((mal_pa_mainloop_wakeup_proc)pContext->pulse.pa_mainloop_wakeup)((pa_mainloop*)pDevice->pulse.pMainLoop);
+    ((mal_pa_mainloop_wakeup_proc)pContext->pulse.pa_mainloop_wakeup)((mal_pa_mainloop*)pDevice->pulse.pMainLoop);
 
     return MAL_SUCCESS;
 }
@@ -7841,7 +8134,7 @@ static mal_result mal_device__main_loop__pulse(mal_device* pDevice)
             break;
         }
 
-        int resultPA = ((mal_pa_mainloop_iterate_proc)pContext->pulse.pa_mainloop_iterate)((pa_mainloop*)pDevice->pulse.pMainLoop, 1, NULL);
+        int resultPA = ((mal_pa_mainloop_iterate_proc)pContext->pulse.pa_mainloop_iterate)((mal_pa_mainloop*)pDevice->pulse.pMainLoop, 1, NULL);
         if (resultPA < 0) {
             break;  // Some error occurred.
         }
@@ -12692,19 +12985,19 @@ const char* mal_get_backend_name(mal_backend backend)
 {
     switch (backend)
     {
-        case mal_backend_null:      return "Null";
-        case mal_backend_wasapi:    return "WASAPI";
-        case mal_backend_dsound:    return "DirectSound";
-        case mal_backend_winmm:     return "WinMM";
-        case mal_backend_alsa:      return "ALSA";
-        //case mal_backend_pulse:     return "PulseAudio";
-        //case mal_backend_jack:      return "JACK";
-        //case mal_backend_coreaudio: return "Core Audio";
-        case mal_backend_oss:       return "OSS";
-        case mal_backend_opensl:    return "OpenSL|ES";
-        case mal_backend_openal:    return "OpenAL";
-        case mal_backend_sdl:       return "SDL";
-        default:                    return "Unknown";
+        case mal_backend_null:       return "Null";
+        case mal_backend_wasapi:     return "WASAPI";
+        case mal_backend_dsound:     return "DirectSound";
+        case mal_backend_winmm:      return "WinMM";
+        case mal_backend_alsa:       return "ALSA";
+        case mal_backend_pulseaudio: return "PulseAudio";
+        //case mal_backend_jack:       return "JACK";
+        //case mal_backend_coreaudio:  return "Core Audio";
+        case mal_backend_oss:        return "OSS";
+        case mal_backend_opensl:     return "OpenSL|ES";
+        case mal_backend_openal:     return "OpenAL";
+        case mal_backend_sdl:        return "SDL";
+        default:                     return "Unknown";
     }
 }
 
