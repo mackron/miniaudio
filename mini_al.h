@@ -1515,17 +1515,17 @@ mal_context_config mal_context_config_init(mal_log_proc onLog);
 //
 // Efficiency: HIGH
 //   This just returns a stack allocated object and consists of just a few assignments.
-mal_device_config mal_device_config_init_ex(mal_format format, mal_uint32 channels, mal_uint32 sampleRate, mal_uint8 channelMap[MAL_MAX_CHANNELS], mal_recv_proc onRecvCallback, mal_send_proc onSendCallback);
+mal_device_config mal_device_config_init_ex(mal_format format, mal_uint32 channels, mal_uint32 sampleRate, mal_channel channelMap[MAL_MAX_CHANNELS], mal_recv_proc onRecvCallback, mal_send_proc onSendCallback);
 
 // A simplified version of mal_device_config_init_ex().
 static inline mal_device_config mal_device_config_init(mal_format format, mal_uint32 channels, mal_uint32 sampleRate, mal_recv_proc onRecvCallback, mal_send_proc onSendCallback) { return mal_device_config_init_ex(format, channels, sampleRate, NULL, onRecvCallback, onSendCallback); }
 
 // A simplified version of mal_device_config_init() for capture devices.
-static inline mal_device_config mal_device_config_init_capture_ex(mal_format format, mal_uint32 channels, mal_uint32 sampleRate, mal_uint8 channelMap[MAL_MAX_CHANNELS], mal_recv_proc onRecvCallback) { return mal_device_config_init_ex(format, channels, sampleRate, channelMap, onRecvCallback, NULL); }
+static inline mal_device_config mal_device_config_init_capture_ex(mal_format format, mal_uint32 channels, mal_uint32 sampleRate, mal_channel channelMap[MAL_MAX_CHANNELS], mal_recv_proc onRecvCallback) { return mal_device_config_init_ex(format, channels, sampleRate, channelMap, onRecvCallback, NULL); }
 static inline mal_device_config mal_device_config_init_capture(mal_format format, mal_uint32 channels, mal_uint32 sampleRate, mal_recv_proc onRecvCallback) { return mal_device_config_init_capture_ex(format, channels, sampleRate, NULL, onRecvCallback); }
 
 // A simplified version of mal_device_config_init() for playback devices.
-static inline mal_device_config mal_device_config_init_playback_ex(mal_format format, mal_uint32 channels, mal_uint32 sampleRate, mal_uint8 channelMap[MAL_MAX_CHANNELS], mal_send_proc onSendCallback) { return mal_device_config_init_ex(format, channels, sampleRate, channelMap, NULL, onSendCallback); }
+static inline mal_device_config mal_device_config_init_playback_ex(mal_format format, mal_uint32 channels, mal_uint32 sampleRate, mal_channel channelMap[MAL_MAX_CHANNELS], mal_send_proc onSendCallback) { return mal_device_config_init_ex(format, channels, sampleRate, channelMap, NULL, onSendCallback); }
 static inline mal_device_config mal_device_config_init_playback(mal_format format, mal_uint32 channels, mal_uint32 sampleRate, mal_send_proc onSendCallback) { return mal_device_config_init_playback_ex(format, channels, sampleRate, NULL, onSendCallback); }
 
 
@@ -1603,7 +1603,7 @@ mal_uint64 mal_convert_frames(void* pOut, mal_format formatOut, mal_uint32 chann
 
 // Helper for initializing a mal_dsp_config object.
 mal_dsp_config mal_dsp_config_init(mal_format formatIn, mal_uint32 channelsIn, mal_uint32 sampleRateIn, mal_format formatOut, mal_uint32 channelsOut, mal_uint32 sampleRateOut);
-mal_dsp_config mal_dsp_config_init_ex(mal_format formatIn, mal_uint32 channelsIn, mal_uint32 sampleRateIn, mal_uint8 channelMapIn[MAL_MAX_CHANNELS], mal_format formatOut, mal_uint32 channelsOut, mal_uint32 sampleRateOut,  mal_uint8 channelMapOut[MAL_MAX_CHANNELS]);
+mal_dsp_config mal_dsp_config_init_ex(mal_format formatIn, mal_uint32 channelsIn, mal_uint32 sampleRateIn, mal_channel channelMapIn[MAL_MAX_CHANNELS], mal_format formatOut, mal_uint32 channelsOut, mal_uint32 sampleRateOut,  mal_channel channelMapOut[MAL_MAX_CHANNELS]);
 
 
 
@@ -3412,7 +3412,7 @@ static DWORD mal_channel_id_to_win32(DWORD id)
 }
 
 // Converts a channel mapping to a Win32-style channel mask.
-static DWORD mal_channel_map_to_channel_mask__win32(const mal_uint8 channelMap[MAL_MAX_CHANNELS], mal_uint32 channels)
+static DWORD mal_channel_map_to_channel_mask__win32(const mal_channel channelMap[MAL_MAX_CHANNELS], mal_uint32 channels)
 {
     DWORD dwChannelMask = 0;
     for (mal_uint32 iChannel = 0; iChannel < channels; ++iChannel) {
@@ -3423,7 +3423,7 @@ static DWORD mal_channel_map_to_channel_mask__win32(const mal_uint8 channelMap[M
 }
 
 // Converts a Win32-style channel mask to a mini_al channel map.
-static void mal_channel_mask_to_channel_map__win32(DWORD dwChannelMask, mal_uint32 channels, mal_uint8 channelMap[MAL_MAX_CHANNELS])
+static void mal_channel_mask_to_channel_map__win32(DWORD dwChannelMask, mal_uint32 channels, mal_channel channelMap[MAL_MAX_CHANNELS])
 {
     if (channels == 1 && dwChannelMask == 0) {
         channelMap[0] = MAL_CHANNEL_FRONT_CENTER;
@@ -8277,7 +8277,7 @@ static SLuint32 mal_channel_id_to_opensl(mal_uint8 id)
 }
 
 // Converts a channel mapping to an OpenSL-style channel mask.
-static SLuint32 mal_channel_map_to_channel_mask__opensl(const mal_uint8 channelMap[MAL_MAX_CHANNELS], mal_uint32 channels)
+static SLuint32 mal_channel_map_to_channel_mask__opensl(const mal_channel channelMap[MAL_MAX_CHANNELS], mal_uint32 channels)
 {
     SLuint32 channelMask = 0;
     for (mal_uint32 iChannel = 0; iChannel < channels; ++iChannel) {
@@ -8288,7 +8288,7 @@ static SLuint32 mal_channel_map_to_channel_mask__opensl(const mal_uint8 channelM
 }
 
 // Converts an OpenSL-style channel mask to a mini_al channel map.
-static void mal_channel_mask_to_channel_map__opensl(SLuint32 channelMask, mal_uint32 channels, mal_uint8 channelMap[MAL_MAX_CHANNELS])
+static void mal_channel_mask_to_channel_map__opensl(SLuint32 channelMask, mal_uint32 channels, mal_channel channelMap[MAL_MAX_CHANNELS])
 {
     if (channels == 2 && channelMask == 0) {
         channelMap[0] = MAL_CHANNEL_FRONT_LEFT;
@@ -11335,9 +11335,9 @@ mal_context_config mal_context_config_init(mal_log_proc onLog)
     return config;
 }
 
-static void mal_get_default_device_config_channel_map(mal_uint32 channels, mal_uint8 channelMap[MAL_MAX_CHANNELS])
+static void mal_get_default_device_config_channel_map(mal_uint32 channels, mal_channel channelMap[MAL_MAX_CHANNELS])
 {
-    mal_zero_memory(channelMap, sizeof(mal_uint8)*MAL_MAX_CHANNELS);
+    mal_zero_memory(channelMap, sizeof(mal_channel)*MAL_MAX_CHANNELS);
 
     switch (channels)
     {
@@ -11416,7 +11416,7 @@ static void mal_get_default_device_config_channel_map(mal_uint32 channels, mal_u
     }
 }
 
-mal_device_config mal_device_config_init_ex(mal_format format, mal_uint32 channels, mal_uint32 sampleRate, mal_uint8 channelMap[MAL_MAX_CHANNELS], mal_recv_proc onRecvCallback, mal_send_proc onSendCallback)
+mal_device_config mal_device_config_init_ex(mal_format format, mal_uint32 channels, mal_uint32 sampleRate, mal_channel channelMap[MAL_MAX_CHANNELS], mal_recv_proc onRecvCallback, mal_send_proc onSendCallback)
 {
     mal_device_config config;
     mal_zero_object(&config);
@@ -11838,9 +11838,9 @@ void mal_pcm_convert(void* pOut, mal_format formatOut, const void* pIn, mal_form
 }
 
 
-static void mal_rearrange_channels_u8(mal_uint8* pFrame, mal_uint32 channels, mal_uint8 channelMap[MAL_MAX_CHANNELS])
+static void mal_rearrange_channels_u8(mal_uint8* pFrame, mal_uint32 channels, mal_channel channelMap[MAL_MAX_CHANNELS])
 {
-    mal_uint8 temp[MAL_MAX_CHANNELS];
+    mal_channel temp[MAL_MAX_CHANNELS];
     mal_copy_memory(temp, pFrame, sizeof(temp[0]) * channels);
 
     switch (channels) {
@@ -11879,7 +11879,7 @@ static void mal_rearrange_channels_u8(mal_uint8* pFrame, mal_uint32 channels, ma
     }
 }
 
-static void mal_rearrange_channels_s16(mal_int16* pFrame, mal_uint32 channels, mal_uint8 channelMap[MAL_MAX_CHANNELS])
+static void mal_rearrange_channels_s16(mal_int16* pFrame, mal_uint32 channels, mal_channel channelMap[MAL_MAX_CHANNELS])
 {
     mal_int16 temp[MAL_MAX_CHANNELS];
     mal_copy_memory(temp, pFrame, sizeof(temp[0]) * channels);
@@ -11920,7 +11920,7 @@ static void mal_rearrange_channels_s16(mal_int16* pFrame, mal_uint32 channels, m
     }
 }
 
-static void mal_rearrange_channels_s32(mal_int32* pFrame, mal_uint32 channels, mal_uint8 channelMap[MAL_MAX_CHANNELS])
+static void mal_rearrange_channels_s32(mal_int32* pFrame, mal_uint32 channels, mal_channel channelMap[MAL_MAX_CHANNELS])
 {
     mal_int32 temp[MAL_MAX_CHANNELS];
     mal_copy_memory(temp, pFrame, sizeof(temp[0]) * channels);
@@ -11961,7 +11961,7 @@ static void mal_rearrange_channels_s32(mal_int32* pFrame, mal_uint32 channels, m
     }
 }
 
-static void mal_rearrange_channels_f32(float* pFrame, mal_uint32 channels, mal_uint8 channelMap[MAL_MAX_CHANNELS])
+static void mal_rearrange_channels_f32(float* pFrame, mal_uint32 channels, mal_channel channelMap[MAL_MAX_CHANNELS])
 {
     float temp[MAL_MAX_CHANNELS];
     mal_copy_memory(temp, pFrame, sizeof(temp[0]) * channels);
@@ -12002,11 +12002,11 @@ static void mal_rearrange_channels_f32(float* pFrame, mal_uint32 channels, mal_u
     }
 }
 
-static void mal_rearrange_channels_generic(void* pFrame, mal_uint32 channels, mal_uint8 channelMap[MAL_MAX_CHANNELS], mal_format format)
+static void mal_rearrange_channels_generic(void* pFrame, mal_uint32 channels, mal_channel channelMap[MAL_MAX_CHANNELS], mal_format format)
 {
     mal_uint32 sampleSizeInBytes = mal_get_sample_size_in_bytes(format);
 
-    mal_uint8 temp[MAL_MAX_CHANNELS * 8];   // x8 to ensure it's large enough for all formats.
+    mal_uint8 temp[MAL_MAX_CHANNELS * MAL_MAX_SAMPLE_SIZE_IN_BYTES];   // Product of MAL_MAX_SAMPLE_SIZE_IN_BYTES to ensure it's large enough for all formats.
     mal_copy_memory(temp, pFrame, sampleSizeInBytes * channels);
 
     switch (channels) {
@@ -12045,7 +12045,7 @@ static void mal_rearrange_channels_generic(void* pFrame, mal_uint32 channels, ma
     }
 }
 
-static void mal_rearrange_channels(void* pFrame, mal_uint32 channels, mal_uint8 channelMap[MAL_MAX_CHANNELS], mal_format format)
+static void mal_rearrange_channels(void* pFrame, mal_uint32 channels, mal_channel channelMap[MAL_MAX_CHANNELS], mal_format format)
 {
     switch (format)
     {
@@ -12057,7 +12057,7 @@ static void mal_rearrange_channels(void* pFrame, mal_uint32 channels, mal_uint8 
     }
 }
 
-static void mal_dsp_mix_channels__dec(float* pFramesOut, mal_uint32 channelsOut, const mal_uint8 channelMapOut[MAL_MAX_CHANNELS], const float* pFramesIn, mal_uint32 channelsIn, const mal_uint8 channelMapIn[MAL_MAX_CHANNELS], mal_uint32 frameCount, mal_channel_mix_mode mode)
+static void mal_dsp_mix_channels__dec(float* pFramesOut, mal_uint32 channelsOut, const mal_channel channelMapOut[MAL_MAX_CHANNELS], const float* pFramesIn, mal_uint32 channelsIn, const mal_channel channelMapIn[MAL_MAX_CHANNELS], mal_uint32 frameCount, mal_channel_mix_mode mode)
 {
     mal_assert(pFramesOut != NULL);
     mal_assert(channelsOut > 0);
@@ -12158,7 +12158,7 @@ static void mal_dsp_mix_channels__dec(float* pFramesOut, mal_uint32 channelsOut,
     }
 }
 
-static void mal_dsp_mix_channels__inc(float* pFramesOut, mal_uint32 channelsOut, const mal_uint8 channelMapOut[MAL_MAX_CHANNELS], const float* pFramesIn, mal_uint32 channelsIn, const mal_uint8 channelMapIn[MAL_MAX_CHANNELS], mal_uint32 frameCount, mal_channel_mix_mode mode)
+static void mal_dsp_mix_channels__inc(float* pFramesOut, mal_uint32 channelsOut, const mal_channel channelMapOut[MAL_MAX_CHANNELS], const float* pFramesIn, mal_uint32 channelsIn, const mal_channel channelMapIn[MAL_MAX_CHANNELS], mal_uint32 frameCount, mal_channel_mix_mode mode)
 {
     mal_assert(pFramesOut != NULL);
     mal_assert(channelsOut > 0);
@@ -12293,7 +12293,7 @@ static void mal_dsp_mix_channels__inc(float* pFramesOut, mal_uint32 channelsOut,
     }
 }
 
-static void mal_dsp_mix_channels(float* pFramesOut, mal_uint32 channelsOut, const mal_uint8 channelMapOut[MAL_MAX_CHANNELS], const float* pFramesIn, mal_uint32 channelsIn, const mal_uint8 channelMapIn[MAL_MAX_CHANNELS], mal_uint32 frameCount, mal_channel_mix_mode mode)
+static void mal_dsp_mix_channels(float* pFramesOut, mal_uint32 channelsOut, const mal_channel channelMapOut[MAL_MAX_CHANNELS], const float* pFramesIn, mal_uint32 channelsIn, const mal_channel channelMapIn[MAL_MAX_CHANNELS], mal_uint32 frameCount, mal_channel_mix_mode mode)
 {
     if (channelsIn < channelsOut) {
         // Increasing the channel count.
@@ -12663,7 +12663,7 @@ mal_dsp_config mal_dsp_config_init(mal_format formatIn, mal_uint32 channelsIn, m
     return mal_dsp_config_init_ex(formatIn, channelsIn, sampleRateIn, NULL, formatOut, channelsOut, sampleRateOut, NULL);
 }
 
-mal_dsp_config mal_dsp_config_init_ex(mal_format formatIn, mal_uint32 channelsIn, mal_uint32 sampleRateIn, mal_uint8 channelMapIn[MAL_MAX_CHANNELS], mal_format formatOut, mal_uint32 channelsOut, mal_uint32 sampleRateOut,  mal_uint8 channelMapOut[MAL_MAX_CHANNELS])
+mal_dsp_config mal_dsp_config_init_ex(mal_format formatIn, mal_uint32 channelsIn, mal_uint32 sampleRateIn, mal_channel channelMapIn[MAL_MAX_CHANNELS], mal_format formatOut, mal_uint32 channelsOut, mal_uint32 sampleRateOut,  mal_channel channelMapOut[MAL_MAX_CHANNELS])
 {
     mal_dsp_config config;
     mal_zero_object(&config);
@@ -12933,9 +12933,9 @@ mal_result mal_decoder_init_wav__internal(const mal_decoder_config* pConfig, mal
 #ifdef dr_flac_h
 #define MAL_HAS_FLAC
 
-static void mal_get_flac_channel_map(mal_uint32 channels, mal_uint8 channelMap[MAL_MAX_CHANNELS])
+static void mal_get_flac_channel_map(mal_uint32 channels, mal_channel channelMap[MAL_MAX_CHANNELS])
 {
-    mal_zero_memory(channelMap, sizeof(mal_uint8)*MAL_MAX_CHANNELS);
+    mal_zero_memory(channelMap, sizeof(mal_channel)*MAL_MAX_CHANNELS);
 
     switch (channels) {
         case 1:
