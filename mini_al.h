@@ -570,7 +570,7 @@ typedef union
     char alsa[256];                 // ALSA uses a name string for identification.
 #endif
 #ifdef MAL_SUPPORT_PULSEAUDIO
-    char pulseaudio[256];           // PulseAudio uses a name string for identification.
+    char pulse[256];                // PulseAudio uses a name string for identification.
 #endif
 #ifdef MAL_SUPPORT_COREAUDIO
     // TODO: Implement me.
@@ -7571,7 +7571,7 @@ static void mal_pulse_device_info_list_callback(mal_pa_context* pPulseContext, c
 
             // The name from PulseAudio is the ID for mini_al.
             if (pName != NULL) {
-                mal_strncpy_s(pData->pInfo->id.pulseaudio, sizeof(pData->pInfo->id.pulseaudio), pDescription, (size_t)-1);
+                mal_strncpy_s(pData->pInfo->id.pulse, sizeof(pData->pInfo->id.pulse), pDescription, (size_t)-1);
             }
 
             // The description from PulseAudio is the name for mini_al.
@@ -7909,7 +7909,7 @@ static mal_result mal_device_init__pulse(mal_context* pContext, mal_device_type 
 
     const char* dev = NULL;
     if (pDeviceID != NULL) {
-        dev = pDeviceID->pulseaudio;
+        dev = pDeviceID->pulse;
     }
 
     if (type == mal_device_type_playback) {
