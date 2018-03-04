@@ -18,6 +18,7 @@
 //   - WinMM
 //   - ALSA
 //   - PulseAudio
+//   - JACK
 //   - OSS
 //   - OpenSL|ES / Android
 //   - OpenAL
@@ -140,6 +141,10 @@
 // ----------
 // - Each device has it's own dedicated main loop.
 //
+// JACK
+// ----
+// - It's possible for mal_device.bufferSizeInFrames to change during run time.
+//
 //
 // OPTIONS
 // =======
@@ -159,6 +164,9 @@
 //
 // #define MAL_NO_PULSEAUDIO
 //   Disables the PulseAudio backend.
+//
+// #define MAL_NO_JACK
+//   Disables the JACK backend.
 //
 // #define MAL_NO_OSS
 //   Disables the OSS backend.
@@ -249,8 +257,9 @@ extern "C" {
             #define MAL_SUPPORT_ALSA
         #endif
     #endif
-    #if !defined(MAL_APPLE) && !defined(MAL_ANDROID) && !defined(MAL_EMSCRIPTEN)
+    #if !defined(MAL_ANDROID) && !defined(MAL_EMSCRIPTEN)
         #define MAL_SUPPORT_PULSEAUDIO
+        #define MAL_SUPPORT_JACK
     #endif
     #if defined(MAL_APPLE)
         #define MAL_SUPPORT_COREAUDIO
@@ -286,6 +295,9 @@ extern "C" {
 #endif
 #if !defined(MAL_NO_PULSEAUDIO) && defined(MAL_SUPPORT_PULSEAUDIO)
     #define MAL_ENABLE_PULSEAUDIO
+#endif
+#if !defined(MAL_NO_JACK) && defined(MAL_SUPPORT_JACK)
+    #define MAL_ENABLE_JACK
 #endif
 #if !defined(MAL_NO_COREAUDIO) && defined(MAL_SUPPORT_COREAUDIO)
     #define MAL_ENABLE_COREAUDIO
@@ -422,6 +434,10 @@ typedef mal_uint16 wchar_t;
 #define MAL_MAX_PERIODS_DSOUND                          4
 #define MAL_MAX_PERIODS_OPENAL                          4
 
+#define MAL_MAX_SAMPLE_SIZE_IN_BYTES                    8
+#define MAL_MAX_CHANNELS                                32
+#define MAL_MAX_SAMPLE_RATE                             384000
+
 typedef mal_uint8 mal_channel;
 #define MAL_CHANNEL_NONE                                0
 #define MAL_CHANNEL_FRONT_LEFT                          1
@@ -459,9 +475,6 @@ typedef mal_uint8 mal_channel;
 #define MAL_CHANNEL_LEFT                                MAL_CHANNEL_FRONT_LEFT
 #define MAL_CHANNEL_RIGHT                               MAL_CHANNEL_FRONT_RIGHT
 #define MAL_CHANNEL_MONO                                MAL_CHANNEL_FRONT_CENTER
-#define MAL_MAX_CHANNELS                                32
-
-#define MAL_MAX_SAMPLE_SIZE_IN_BYTES                    8
 
 typedef int mal_result;
 #define MAL_SUCCESS                                      0
@@ -525,6 +538,7 @@ typedef enum
     mal_backend_winmm,
     mal_backend_alsa,
     mal_backend_pulseaudio,
+    mal_backend_jack,
     mal_backend_oss,
     mal_backend_opensl,
     mal_backend_openal,
@@ -571,6 +585,9 @@ typedef union
 #endif
 #ifdef MAL_SUPPORT_PULSEAUDIO
     char pulseaudio[256];           // PulseAudio uses a name string for identification.
+#endif
+#ifdef MAL_SUPPORT_JACK
+    int jack;                       // TODO: Set this to the correct data type.
 #endif
 #ifdef MAL_SUPPORT_COREAUDIO
     // TODO: Implement me.
@@ -722,6 +739,12 @@ typedef struct
         const char* pServerName;
         mal_bool32 noAutoSpawn; // Disables autospawning of the PulseAudio daemon.
     } pulse;
+
+    struct
+    {
+        const char* pClientName;
+        mal_bool32 tryStartServer;
+    } jack;
 } mal_context_config;
 
 struct mal_context
@@ -864,6 +887,12 @@ struct mal_context
             mal_proc pa_stream_peek;
             mal_proc pa_stream_drop;
         } pulse;
+#endif
+#ifdef MAL_SUPPORT_JACK
+        struct
+        {
+            mal_handle jackSO;
+        } jack;
 #endif
 #ifdef MAL_SUPPORT_COREAUDIO
         struct
@@ -1132,6 +1161,14 @@ struct mal_device
             mal_uint32 fragmentSizeInBytes;
             mal_bool32 breakFromMainLoop : 1;
         } pulse;
+#endif
+#ifdef MAL_SUPPORT_JACK
+        struct
+        {
+            /*jack_client_t**/ mal_ptr pJackClient;
+            /*jack_port_t**/ mal_ptr pPorts[MAL_MAX_CHANNELS];
+            float* pIntermediaryBuffer; // Typed as a float because JACK is always floating point.
+        } jack;
 #endif
 #ifdef MAL_SUPPORT_COREAUDIO
         struct
@@ -1856,6 +1893,9 @@ mal_result mal_decoder_seek_to_frame(mal_decoder* pDecoder, mal_uint64 frameInde
 #ifdef MAL_ENABLE_PULSEAUDIO
     #define MAL_HAS_PULSEAUDIO  // Development packages are unnecessary for PulseAudio.
 #endif
+#ifdef MAL_ENABLE_JACK
+    #define MAL_HAS_JACK
+#endif
 #ifdef MAL_ENABLE_COREAUDIO
     #define MAL_HAS_COREAUDIO
 #endif
@@ -1863,7 +1903,7 @@ mal_result mal_decoder_seek_to_frame(mal_decoder* pDecoder, mal_uint64 frameInde
     #define MAL_HAS_OSS         // OSS is the only supported backend for Unix and BSD, so it must be present else this library is useless.
 #endif
 #ifdef MAL_ENABLE_OPENSL
-    #define MAL_HAS_OPENSL      // Like OSS, OpenSL is the only supported backend for Android. It must be present.
+    #define MAL_HAS_OPENSL      // OpenSL is the only supported backend for Android. It must be present.
 #endif
 #ifdef MAL_ENABLE_OPENAL
     #define MAL_HAS_OPENAL
@@ -3003,6 +3043,22 @@ static mal_result mal_context__try_get_device_name_by_id(mal_context* pContext, 
             case mal_backend_alsa:
             {
                 if (mal_strcmp(pInfos[iDevice].id.alsa, pDeviceID->alsa) == 0) {
+                    found = MAL_TRUE;
+                }
+            } break;
+        #endif
+        #ifdef MAL_HAS_PULSEAUDIO
+            case mal_backend_pulseaudio:
+            {
+                if (mal_strcmp(pInfos[iDevice].id.pulseaudio, pDeviceID->pulseaudio) == 0) {
+                    found = MAL_TRUE;
+                }
+            } break;
+        #endif
+        #ifdef MAL_HAS_JACK
+            case mal_backend_jack:
+            {
+                if (pInfos[iDevice].id.jack == pDeviceID->jack) {
                     found = MAL_TRUE;
                 }
             } break;
@@ -8151,6 +8207,310 @@ static mal_result mal_device__main_loop__pulse(mal_device* pDevice)
 #endif
 
 
+///////////////////////////////////////////////////////////////////////////////
+//
+// JACK Backend
+//
+///////////////////////////////////////////////////////////////////////////////
+#ifdef MAL_HAS_JACK
+#include <jack/jack.h>
+
+static mal_result mal_context_uninit__jack(mal_context* pContext)
+{
+    mal_assert(pContext != NULL);
+    mal_assert(pContext->backend == mal_backend_jack);
+
+    mal_dlclose(pContext->jack.jackSO);
+    return MAL_SUCCESS;
+}
+
+static mal_result mal_context_init__jack(mal_context* pContext)
+{
+    mal_assert(pContext != NULL);
+
+    // libjack.so
+    const char* libjackNames[] = {
+        "libjack.so",
+        "libjack.so.0"
+    };
+
+    for (size_t i = 0; i < mal_countof(libjackNames); ++i) {
+        pContext->jack.jackSO = mal_dlopen(libjackNames[i]);
+        if (pContext->jack.jackSO != NULL) {
+            break;
+        }
+    }
+
+    if (pContext->jack.jackSO == NULL) {
+        return MAL_NO_BACKEND;
+    }
+
+    return MAL_SUCCESS;
+}
+
+
+mal_result mal_enumerate_devices__jack(mal_context* pContext, mal_device_type type, mal_uint32* pCount, mal_device_info* pInfo)
+{
+    (void)pContext;
+
+    // Only support a default playback and capture device.
+    mal_uint32 infoSize = *pCount;
+    *pCount = 0;
+
+    if (pInfo != NULL) {
+        if (infoSize > 0) {
+            pInfo[0].id.jack = 0;
+            if (type == mal_device_type_playback) {
+                mal_strncpy_s(pInfo[0].name, sizeof(pInfo[0].name), "Default Playback Device", (size_t)-1);
+            } else {
+                mal_strncpy_s(pInfo[0].name, sizeof(pInfo[0].name), "Default Capture Device", (size_t)-1);
+            }
+
+            *pCount = 1;
+        }
+    } else {
+        *pCount = 1;
+    }
+
+    return MAL_SUCCESS;
+}
+
+
+void mal_device_uninit__jack(mal_device* pDevice)
+{
+    mal_assert(pDevice != NULL);
+
+    if (pDevice->jack.pJackClient != NULL) {
+        jack_client_close((jack_client_t*)pDevice->jack.pJackClient);
+    }
+}
+
+void mal_device__jack_shutdown_callback(void* pUserData)
+{
+    // JACK died. Stop the device.
+    mal_device* pDevice = (mal_device*)pUserData;
+    mal_assert(pDevice != NULL);
+
+    mal_device_stop(pDevice);
+}
+
+int mal_device__jack_buffer_size_callback(jack_nframes_t frameCount, void* pUserData)
+{
+    mal_device* pDevice = (mal_device*)pUserData;
+    mal_assert(pDevice != NULL);
+
+    mal_context* pContext = pDevice->pContext;
+    mal_assert(pContext != NULL);
+
+    float* pNewBuffer = (float*)mal_realloc(pDevice->jack.pIntermediaryBuffer, frameCount * (pDevice->internalChannels*mal_get_sample_size_in_bytes(pDevice->internalFormat)));
+    if (pNewBuffer == NULL) {
+        return MAL_OUT_OF_MEMORY;
+    }
+
+    pDevice->jack.pIntermediaryBuffer = pNewBuffer;
+    pDevice->bufferSizeInFrames = frameCount * pDevice->periods;
+
+    return 0;
+}
+
+int mal_device__jack_process_callback(jack_nframes_t frameCount, void* pUserData)
+{
+    mal_device* pDevice = (mal_device*)pUserData;
+    mal_assert(pDevice != NULL);
+
+    mal_context* pContext = pDevice->pContext;
+    mal_assert(pContext != NULL);
+
+    if (pDevice->type == mal_device_type_playback) {
+        mal_device__read_frames_from_client(pDevice, frameCount, pDevice->jack.pIntermediaryBuffer);
+        
+        // Channels need to be separated.
+        for (mal_uint32 iChannel = 0; iChannel < pDevice->internalChannels; ++iChannel) {
+            float* pDst = (float*)jack_port_get_buffer((jack_port_t*)pDevice->jack.pPorts[iChannel], frameCount);
+            if (pDst != NULL) {
+                const float* pSrc = pDevice->jack.pIntermediaryBuffer + iChannel;
+                for (jack_nframes_t iFrame = 0; iFrame < frameCount; ++iFrame) {
+                    *pDst = *pSrc;
+
+                    pDst += 1;
+                    pSrc += pDevice->internalChannels;
+                }
+            }
+        }
+    } else {
+        // Channels need to be interleaved.
+        for (mal_uint32 iChannel = 0; iChannel < pDevice->internalChannels; ++iChannel) {
+            const float* pSrc = (const float*)jack_port_get_buffer((jack_port_t*)pDevice->jack.pPorts[iChannel], frameCount);
+            if (pSrc != NULL) {
+                float* pDst = pDevice->jack.pIntermediaryBuffer + iChannel;
+                for (jack_nframes_t iFrame = 0; iFrame < frameCount; ++iFrame) {
+                    *pDst = *pSrc;
+
+                    pDst += pDevice->internalChannels;
+                    pSrc += 1;
+                }
+            }
+        }
+
+        mal_device__send_frames_to_client(pDevice, frameCount, pDevice->jack.pIntermediaryBuffer);
+    }
+
+    return 0;
+}
+
+mal_result mal_device_init__jack(mal_context* pContext, mal_device_type type, mal_device_id* pDeviceID, const mal_device_config* pConfig, mal_device* pDevice)
+{
+    mal_assert(pContext != NULL);
+    mal_assert(pConfig != NULL);
+    mal_assert(pDevice != NULL);
+
+    (void)pContext;
+    
+    // Open the client.
+    size_t maxClientNameSize = jack_client_name_size(); // Includes null terminator.
+
+    char clientName[256];
+    mal_strncpy_s(clientName, mal_min(sizeof(clientName), maxClientNameSize), (pContext->config.jack.pClientName != NULL) ? pContext->config.jack.pClientName : "mini_al", (size_t)-1);
+
+    jack_status_t status;
+    pDevice->jack.pJackClient = jack_client_open(clientName, (pContext->config.jack.tryStartServer) ? 0 : JackNoStartServer, &status, NULL);
+    if (pDevice->jack.pJackClient == NULL) {
+        return mal_post_error(pDevice, "[JACK] Failed to open client.", MAL_FAILED_TO_OPEN_BACKEND_DEVICE);
+    }
+
+    // Callbacks.
+    if (jack_set_process_callback((jack_client_t*)pDevice->jack.pJackClient, mal_device__jack_process_callback, pDevice) != 0) {
+        return mal_post_error(pDevice, "[JACK] Failed to set process callback.", MAL_FAILED_TO_OPEN_BACKEND_DEVICE);
+    }
+    if (jack_set_buffer_size_callback((jack_client_t*)pDevice->jack.pJackClient, mal_device__jack_buffer_size_callback, pDevice) != 0) {
+        return mal_post_error(pDevice, "[JACK] Failed to set buffer size callback.", MAL_FAILED_TO_OPEN_BACKEND_DEVICE);
+    }
+
+    jack_on_shutdown((jack_client_t*)pDevice->jack.pJackClient, mal_device__jack_shutdown_callback, pDevice);
+
+
+    // The format is always f32.
+    pDevice->internalFormat = mal_format_f32;
+
+    // A port is a channel.
+    unsigned long serverPortFlags;
+    unsigned long clientPortFlags;
+    if (type == mal_device_type_playback) {
+        serverPortFlags = JackPortIsInput;
+        clientPortFlags = JackPortIsOutput;
+    } else {
+        serverPortFlags = JackPortIsOutput;
+        clientPortFlags = JackPortIsInput;
+    }
+
+    const char** ppPorts = jack_get_ports((jack_client_t*)pDevice->jack.pJackClient, NULL, NULL, JackPortIsPhysical | serverPortFlags);
+    if (ppPorts == NULL) {
+        return mal_post_error(pDevice, "[JACK] Failed to query physical ports.", MAL_FAILED_TO_OPEN_BACKEND_DEVICE);
+    }
+
+    pDevice->internalChannels = 0;
+    while (ppPorts[pDevice->internalChannels] != NULL) {
+        char name[64];
+        if (type == mal_device_type_playback) {
+            mal_strcpy_s(name, sizeof(name), "playback");
+            mal_itoa_s((int)pDevice->internalChannels, name+8, sizeof(name)-8, 10); // 8 = length of "playback"
+        } else {
+            mal_strcpy_s(name, sizeof(name), "capture");
+            mal_itoa_s((int)pDevice->internalChannels, name+7, sizeof(name)-7, 10); // 7 = length of "capture"
+        }
+
+        pDevice->jack.pPorts[pDevice->internalChannels] = jack_port_register((jack_client_t*)pDevice->jack.pJackClient, name, JACK_DEFAULT_AUDIO_TYPE, clientPortFlags, 0);
+        if (pDevice->jack.pPorts[pDevice->internalChannels] == NULL) {
+            jack_free(ppPorts);
+            mal_device_uninit__jack(pDevice);
+            return mal_post_error(pDevice, "[JACK] Failed to register ports.", MAL_FAILED_TO_OPEN_BACKEND_DEVICE);
+        }
+
+        pDevice->internalChannels += 1;
+    }
+
+    jack_free(ppPorts);
+    ppPorts = NULL;
+
+    // We set the sample rate here, but apparently this can change. This is incompatible with mini_al, so changing sample rates will not be supported.
+    pDevice->internalSampleRate = jack_get_sample_rate((jack_client_t*)pDevice->jack.pJackClient);
+
+    // I don't think the channel map can be queried, so just use defaults for now.
+    mal_get_default_channel_mapping(pDevice->pContext->backend, pDevice->internalChannels, pDevice->internalChannelMap);
+
+    // The buffer size in frames can change.
+    pDevice->periods = 2;
+    pDevice->bufferSizeInFrames = jack_get_buffer_size((jack_client_t*)pDevice->jack.pJackClient) * pDevice->periods;
+
+    // Initial allocation for the intermediary buffer.
+    pDevice->jack.pIntermediaryBuffer = (float*)mal_malloc((pDevice->bufferSizeInFrames/pDevice->periods)*(pDevice->internalChannels*mal_get_sample_size_in_bytes(pDevice->internalFormat)));
+    if (pDevice->jack.pIntermediaryBuffer == NULL) {
+        mal_device_uninit__jack(pDevice);
+        return MAL_OUT_OF_MEMORY;
+    }
+
+    return MAL_SUCCESS;
+}
+
+
+static mal_result mal_device__start_backend__jack(mal_device* pDevice)
+{
+    mal_assert(pDevice != NULL);
+
+    int resultJACK = jack_activate((jack_client_t*)pDevice->jack.pJackClient);
+    if (resultJACK != 0) {
+        return mal_post_error(pDevice, "[JACK] Failed to activate the JACK client.", MAL_FAILED_TO_START_BACKEND_DEVICE);
+    }
+
+    const char** ppServerPorts;
+    if (pDevice->type == mal_device_type_playback) {
+        ppServerPorts = jack_get_ports((jack_client_t*)pDevice->jack.pJackClient, NULL, NULL, JackPortIsPhysical | JackPortIsInput);
+    } else {
+        ppServerPorts = jack_get_ports((jack_client_t*)pDevice->jack.pJackClient, NULL, NULL, JackPortIsPhysical | JackPortIsOutput);
+    }
+
+    if (ppServerPorts == NULL) {
+        jack_deactivate((jack_client_t*)pDevice->jack.pJackClient);
+        return mal_post_error(pDevice, "[JACK] Failed to retrieve physical ports.", MAL_ERROR);
+    }
+
+    for (size_t i = 0; ppServerPorts[i] != NULL; ++i) {
+        const char* pServerPort = ppServerPorts[i];
+        mal_assert(pServerPort != NULL);
+
+        const char* pClientPort = jack_port_name((jack_port_t*)pDevice->jack.pPorts[i]);
+        mal_assert(pClientPort != NULL);
+
+        if (pDevice->type == mal_device_type_playback) {
+            resultJACK = jack_connect((jack_client_t*)pDevice->jack.pJackClient, pClientPort, pServerPort);
+        } else {
+            resultJACK = jack_connect((jack_client_t*)pDevice->jack.pJackClient, pServerPort, pClientPort);
+        }
+
+        if (resultJACK != 0) {
+            jack_deactivate((jack_client_t*)pDevice->jack.pJackClient);
+            return mal_post_error(pDevice, "[JACK] Failed to connect ports.", MAL_ERROR);
+        }
+    }
+
+    jack_free(ppServerPorts);
+
+    return MAL_SUCCESS;
+}
+
+static mal_result mal_device__stop_backend__jack(mal_device* pDevice)
+{
+    mal_assert(pDevice != NULL);
+
+    if (jack_deactivate((jack_client_t*)pDevice->jack.pJackClient) != 0) {
+        return mal_post_error(pDevice, "[JACK] An error occurred when deactivating the JACK client.", MAL_ERROR);
+    }
+
+    return MAL_SUCCESS;
+}
+#endif
+
+
 
 ///////////////////////////////////////////////////////////////////////////////
 //
@@ -10859,6 +11219,7 @@ mal_result mal_context_init(mal_backend backends[], mal_uint32 backendCount, con
         mal_backend_winmm,
         mal_backend_alsa,
         mal_backend_pulseaudio,
+        mal_backend_jack,
         mal_backend_oss,
         mal_backend_opensl,
         mal_backend_openal,
@@ -10906,6 +11267,12 @@ mal_result mal_context_init(mal_backend backends[], mal_uint32 backendCount, con
             case mal_backend_pulseaudio:
             {
                 result = mal_context_init__pulse(pContext);
+            } break;
+        #endif
+        #ifdef MAL_HAS_JACK
+            case mal_backend_jack:
+            {
+                result = mal_context_init__jack(pContext);
             } break;
         #endif
         #ifdef MAL_HAS_OSS
@@ -10988,6 +11355,12 @@ mal_result mal_context_uninit(mal_context* pContext)
             return mal_context_uninit__pulse(pContext);
         } break;
     #endif
+    #ifdef MAL_HAS_JACK
+        case mal_backend_jack:
+        {
+            return mal_context_uninit__jack(pContext);
+        } break;
+    #endif
     #ifdef MAL_HAS_OSS
         case mal_backend_oss:
         {
@@ -11068,6 +11441,12 @@ mal_result mal_enumerate_devices(mal_context* pContext, mal_device_type type, ma
         case mal_backend_pulseaudio:
         {
             return mal_enumerate_devices__pulse(pContext, type, pCount, pInfo);
+        } break;
+    #endif
+    #ifdef MAL_HAS_JACK
+        case mal_backend_jack:
+        {
+            return mal_enumerate_devices__jack(pContext, type, pCount, pInfo);
         } break;
     #endif
     #ifdef MAL_HAS_OSS
@@ -11242,6 +11621,12 @@ mal_result mal_device_init(mal_context* pContext, mal_device_type type, mal_devi
             result = mal_device_init__pulse(pContext, type, pDeviceID, &config, pDevice);
         } break;
     #endif
+    #ifdef MAL_HAS_JACK
+        case mal_backend_jack:
+        {
+            result = mal_device_init__jack(pContext, type, pDeviceID, &config, pDevice);
+        } break;
+    #endif
     #ifdef MAL_HAS_OSS
         case mal_backend_oss:
         {
@@ -11332,7 +11717,7 @@ mal_result mal_device_init(mal_context* pContext, mal_device_type type, mal_devi
 
 
     // Some backends don't require the worker thread.
-    if (pContext->backend != mal_backend_opensl && pContext->backend != mal_backend_sdl) {
+    if (pContext->backend != mal_backend_jack && pContext->backend != mal_backend_opensl && pContext->backend != mal_backend_sdl) {
         // The worker thread.
         if (mal_thread_create(pContext, &pDevice->thread, mal_worker_thread, pDevice) != MAL_SUCCESS) {
             mal_device_uninit(pDevice);
@@ -11389,7 +11774,7 @@ void mal_device_uninit(mal_device* pDevice)
     mal_device__set_state(pDevice, MAL_STATE_UNINITIALIZED);
 
     // Wake up the worker thread and wait for it to properly terminate.
-    if (pDevice->pContext->backend != mal_backend_opensl && pDevice->pContext->backend != mal_backend_sdl) {
+    if (pDevice->pContext->backend != mal_backend_jack && pDevice->pContext->backend != mal_backend_opensl && pDevice->pContext->backend != mal_backend_sdl) {
         mal_event_signal(&pDevice->wakeupEvent);
         mal_thread_wait(&pDevice->thread);
     }
@@ -11422,6 +11807,11 @@ void mal_device_uninit(mal_device* pDevice)
 #ifdef MAL_HAS_PULSEAUDIO
     if (pDevice->pContext->backend == mal_backend_pulseaudio) {
         mal_device_uninit__pulse(pDevice);
+    }
+#endif
+#ifdef MAL_HAS_JACK
+    if (pDevice->pContext->backend == mal_backend_jack) {
+        mal_device_uninit__jack(pDevice);
     }
 #endif
 #ifdef MAL_HAS_OSS
@@ -11505,6 +11895,14 @@ mal_result mal_device_start(mal_device* pDevice)
         mal_device__set_state(pDevice, MAL_STATE_STARTING);
 
         // Asynchronous backends need to be handled differently.
+#ifdef MAL_HAS_JACK
+        if (pDevice->pContext->backend == mal_backend_jack) {
+            result = mal_device__start_backend__jack(pDevice);
+            if (result == MAL_SUCCESS) {
+                mal_device__set_state(pDevice, MAL_STATE_STARTED);
+            }
+        } else
+#endif
 #ifdef MAL_HAS_OPENSL
         if (pDevice->pContext->backend == mal_backend_opensl) {
             result = mal_device__start_backend__opensl(pDevice);
@@ -11566,6 +11964,11 @@ mal_result mal_device_stop(mal_device* pDevice)
         // There's no need to wake up the thread like we do when starting.
 
         // Asynchronous backends need to be handled differently.
+#ifdef MAL_HAS_JACK
+        if (pDevice->pContext->backend == mal_backend_jack) {
+            mal_device__stop_backend__jack(pDevice);
+        } else
+#endif
 #ifdef MAL_HAS_OPENSL
         if (pDevice->pContext->backend == mal_backend_opensl) {
             mal_device__stop_backend__opensl(pDevice);
@@ -11797,7 +12200,7 @@ mal_uint32 mal_src_cache_read_frames(mal_src_cache* pCache, mal_uint32 frameCoun
             if (framesToReadFromClient > pCache->pSRC->config.cacheSizeInFrames) {
                 framesToReadFromClient = pCache->pSRC->config.cacheSizeInFrames;
             }
-
+            
             pCache->cachedFrameCount = pCache->pSRC->onRead(pCache->pSRC, framesToReadFromClient, pIntermediaryBuffer, pCache->pSRC->pUserData);
 
             // Convert to f32.
@@ -12997,7 +13400,7 @@ const char* mal_get_backend_name(mal_backend backend)
         case mal_backend_winmm:      return "WinMM";
         case mal_backend_alsa:       return "ALSA";
         case mal_backend_pulseaudio: return "PulseAudio";
-        //case mal_backend_jack:       return "JACK";
+        case mal_backend_jack:       return "JACK";
         //case mal_backend_coreaudio:  return "Core Audio";
         case mal_backend_oss:        return "OSS";
         case mal_backend_opensl:     return "OpenSL|ES";
@@ -14175,6 +14578,7 @@ mal_result mal_decoder_uninit(mal_decoder* pDecoder)
 mal_uint64 mal_decoder_read(mal_decoder* pDecoder, mal_uint64 frameCount, void* pFramesOut)
 {
     if (pDecoder == NULL) return 0;
+
     return mal_dsp_read_frames_ex(&pDecoder->dsp, frameCount, pFramesOut, MAL_TRUE);
 }
 
