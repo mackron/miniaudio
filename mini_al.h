@@ -9376,29 +9376,26 @@ mal_result mal_context_init__openal(mal_context* pContext)
     mal_assert(pContext != NULL);
 
 #ifndef MAL_NO_RUNTIME_LINKING
-    const char* libName = NULL;
-#ifdef MAL_WIN32
-    libName = "OpenAL32.dll";
+    const char* libNames[] = {
+#if defined(MAL_WIN32)
+        "OpenAL32.dll",
+        "soft_oal.dll"
 #endif
 #if defined(MAL_UNIX) && !defined(MAL_APPLE)
-    libName = "libopenal.so";
+        "libopenal.so",
+        "libopenal.so.1"
 #endif
-#ifdef MAL_APPLE
-    libName = "OpenAL.framework/OpenAL";
+#if defined(MAL_APPLE)
+        "OpenAL.framework/OpenAL"
 #endif
-    if (libName == NULL) {
-        return MAL_NO_BACKEND;  // Don't know what the library name is called.
+    };
+
+    for (size_t i = 0; i < mal_countof(libNames); ++i) {
+        pContext->openal.hOpenAL = mal_dlopen(libNames[i]);
+        if (pContext->openal.hOpenAL != NULL) {
+            break;
+        }
     }
-
-
-    pContext->openal.hOpenAL = mal_dlopen(libName);
-
-#ifdef MAL_WIN32
-    // Special case for Win32 - try "soft_oal.dll" for OpenAL-Soft drop-ins.
-    if (pContext->openal.hOpenAL == NULL) {
-        pContext->openal.hOpenAL = mal_dlopen("soft_oal.dll");
-    }
-#endif
 
     if (pContext->openal.hOpenAL == NULL) {
         return MAL_FAILED_TO_INIT_BACKEND;
