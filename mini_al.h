@@ -11166,7 +11166,7 @@ mal_result mal_device_init(mal_context* pContext, mal_device_type type, mal_devi
     pDevice->type = type;
     pDevice->format = config.format;
     pDevice->channels = config.channels;
-    mal_copy_memory(config.channelMap, config.channelMap, sizeof(config.channelMap[0]) * config.channels);
+    mal_copy_memory(pDevice->channelMap, config.channelMap, sizeof(config.channelMap[0]) * config.channels);
     pDevice->sampleRate = config.sampleRate;
     pDevice->bufferSizeInFrames = config.bufferSizeInFrames;
     pDevice->periods = config.periods;
