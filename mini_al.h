@@ -5941,7 +5941,7 @@ mal_result mal_context_uninit__alsa(mal_context* pContext)
     mal_assert(pContext != NULL);
     mal_assert(pContext->backend == mal_backend_alsa);
 
-    (void)pContext;
+    mal_dlclose(pContext->alsa.asoundSO);
     return MAL_SUCCESS;
 }
 
