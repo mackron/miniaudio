@@ -8363,7 +8363,7 @@ static mal_result mal_device_init__oss(mal_context* pContext, mal_device_type ty
         return mal_post_error(pDevice, "[OSS] Failed to set sample rate.", MAL_FORMAT_NOT_SUPPORTED);
     }
 
-    pDevice->sampleRate = ossSampleRate;
+    pDevice->internalSampleRate = ossSampleRate;
 
 
 
