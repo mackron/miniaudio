@@ -76,6 +76,7 @@ int main(int argc, char** argv)
     mal_device_info* pPlaybackDeviceInfos = (mal_device_info*)malloc(playbackDeviceCount * sizeof(*pPlaybackDeviceInfos));
     if (mal_enumerate_devices(&context, mal_device_type_playback, &playbackDeviceCount, pPlaybackDeviceInfos) != MAL_SUCCESS) {
         printf("Failed to enumerate playback devices.");
+        free(pPlaybackDeviceInfos);
         mal_context_uninit(&context);
         return -4;
     }
@@ -84,6 +85,9 @@ int main(int argc, char** argv)
     for (mal_uint32 iDevice = 0; iDevice < playbackDeviceCount; ++iDevice) {
         printf("    %u: %s\n", iDevice, pPlaybackDeviceInfos[iDevice].name);
     }
+
+    free(pPlaybackDeviceInfos);
+    pPlaybackDeviceInfos = NULL;
 
     printf("\n");
 
@@ -98,6 +102,7 @@ int main(int argc, char** argv)
     mal_device_info* pCaptureDeviceInfos = (mal_device_info*)malloc(captureDeviceCount * sizeof(*pCaptureDeviceInfos));
     if (mal_enumerate_devices(&context, mal_device_type_capture, &captureDeviceCount, pCaptureDeviceInfos) != MAL_SUCCESS) {
         printf("Failed to enumerate capture devices.");
+        free(pCaptureDeviceInfos);
         mal_context_uninit(&context);
         return -6;
     }
@@ -106,6 +111,9 @@ int main(int argc, char** argv)
     for (mal_uint32 iDevice = 0; iDevice < captureDeviceCount; ++iDevice) {
         printf("    %u: %s\n", iDevice, pCaptureDeviceInfos[iDevice].name);
     }
+
+    free(pCaptureDeviceInfos);
+    pCaptureDeviceInfos = NULL;
 
 
     // Open the device.
