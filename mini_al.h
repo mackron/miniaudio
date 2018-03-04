@@ -816,6 +816,7 @@ struct mal_context
             mal_proc snd_pcm_info;
             mal_proc snd_pcm_info_sizeof;
             mal_proc snd_pcm_info_get_name;
+            mal_proc snd_config_update_free_global;
         } alsa;
 #endif
 #ifdef MAL_SUPPORT_PULSEAUDIO
@@ -5811,9 +5812,10 @@ typedef snd_pcm_sframes_t (* mal_snd_pcm_writei_proc)                        (sn
 typedef snd_pcm_sframes_t (* mal_snd_pcm_avail_proc)                         (snd_pcm_t *pcm);
 typedef snd_pcm_sframes_t (* mal_snd_pcm_avail_update_proc)                  (snd_pcm_t *pcm);
 typedef int               (* mal_snd_pcm_wait_proc)                          (snd_pcm_t *pcm, int timeout);
-typedef int               (* mal_snd_pcm_info)                               (snd_pcm_t *pcm, snd_pcm_info_t* info);
-typedef size_t            (* mal_snd_pcm_info_sizeof)                        ();
-typedef const char*       (* mal_snd_pcm_info_get_name)                      (const snd_pcm_info_t* info);
+typedef int               (* mal_snd_pcm_info_proc)                          (snd_pcm_t *pcm, snd_pcm_info_t* info);
+typedef size_t            (* mal_snd_pcm_info_sizeof_proc)                   ();
+typedef const char*       (* mal_snd_pcm_info_get_name_proc)                 (const snd_pcm_info_t* info);
+typedef int               (* mal_snd_config_update_free_global_proc)         ();
 
 static snd_pcm_format_t g_mal_ALSAFormats[] = {
     SND_PCM_FORMAT_UNKNOWN,     // mal_format_unknown
@@ -5932,6 +5934,7 @@ mal_result mal_context_init__alsa(mal_context* pContext)
     pContext->alsa.snd_pcm_info                           = (mal_proc)mal_dlsym(pContext->alsa.asoundSO, "snd_pcm_info");
     pContext->alsa.snd_pcm_info_sizeof                    = (mal_proc)mal_dlsym(pContext->alsa.asoundSO, "snd_pcm_info_sizeof");
     pContext->alsa.snd_pcm_info_get_name                  = (mal_proc)mal_dlsym(pContext->alsa.asoundSO, "snd_pcm_info_get_name");
+    pContext->alsa.snd_config_update_free_global          = (mal_proc)mal_dlsym(pContext->alsa.asoundSO, "snd_config_update_free_global");
 
     return MAL_SUCCESS;
 }
@@ -5940,6 +5943,9 @@ mal_result mal_context_uninit__alsa(mal_context* pContext)
 {
     mal_assert(pContext != NULL);
     mal_assert(pContext->backend == mal_backend_alsa);
+
+    // Clean up memory for memory leak checkers.
+    ((mal_snd_config_update_free_global_proc)pContext->alsa.snd_config_update_free_global)();
 
     mal_dlclose(pContext->alsa.asoundSO);
     return MAL_SUCCESS;
@@ -6478,8 +6484,8 @@ static mal_result mal_enumerate_devices__alsa(mal_context* pContext, mal_device_
     }
 
     mal_free(pUniqueIDs);
-
     ((mal_snd_device_name_free_hint_proc)pContext->alsa.snd_device_name_free_hint)((void**)ppDeviceHints);
+
     return MAL_SUCCESS;
 }
 
@@ -6606,11 +6612,11 @@ static mal_result mal_device_init__alsa(mal_context* pContext, mal_device_type t
     if (pDevice->usingDefaultBufferSize) {
         float bufferSizeScale = 1;
 
-        snd_pcm_info_t* pInfo = (snd_pcm_info_t*)alloca(((mal_snd_pcm_info_sizeof)pContext->alsa.snd_pcm_info_sizeof)());
-        mal_zero_memory(pInfo, ((mal_snd_pcm_info_sizeof)pContext->alsa.snd_pcm_info_sizeof)());
+        snd_pcm_info_t* pInfo = (snd_pcm_info_t*)alloca(((mal_snd_pcm_info_sizeof_proc)pContext->alsa.snd_pcm_info_sizeof)());
+        mal_zero_memory(pInfo, ((mal_snd_pcm_info_sizeof_proc)pContext->alsa.snd_pcm_info_sizeof)());
 
-        if (((mal_snd_pcm_info)pContext->alsa.snd_pcm_info)((snd_pcm_t*)pDevice->alsa.pPCM, pInfo) == 0) {
-            const char* deviceName = ((mal_snd_pcm_info_get_name)pContext->alsa.snd_pcm_info_get_name)(pInfo);
+        if (((mal_snd_pcm_info_proc)pContext->alsa.snd_pcm_info)((snd_pcm_t*)pDevice->alsa.pPCM, pInfo) == 0) {
+            const char* deviceName = ((mal_snd_pcm_info_get_name_proc)pContext->alsa.snd_pcm_info_get_name)(pInfo);
             if (deviceName != NULL) {
                 if (strcmp(deviceName, "default") == 0) {
                     // It's the default device. We need to use DESC from snd_device_name_hint().
