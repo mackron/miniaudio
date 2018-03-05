@@ -1266,6 +1266,7 @@ struct mal_device
 //   - WinMM
 //   - ALSA
 //   - PulseAudio
+//   - JACK
 //   - OSS
 //   - OpenSL|ES
 //   - OpenAL
@@ -15003,6 +15004,7 @@ void mal_pcm_f32_to_s32(int* pOut, const float* pIn, unsigned int count)
 //
 // v0.x - 2018-xx-xx
 //   - Add support for PulseAudio.
+//   - Add support for JACK.
 //   - Fix errors with OpenAL detection.
 //   - Fix some memory leaks.
 //   - Miscellaneous bug fixes.
