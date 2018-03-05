@@ -892,6 +892,22 @@ struct mal_context
         struct
         {
             mal_handle jackSO;
+            mal_proc jack_client_open;
+            mal_proc jack_client_close;
+            mal_proc jack_client_name_size;
+            mal_proc jack_set_process_callback;
+            mal_proc jack_set_buffer_size_callback;
+            mal_proc jack_on_shutdown;
+            mal_proc jack_get_sample_rate;
+            mal_proc jack_get_buffer_size;
+            mal_proc jack_get_ports;
+            mal_proc jack_activate;
+            mal_proc jack_deactivate;
+            mal_proc jack_connect;
+            mal_proc jack_port_register;
+            mal_proc jack_port_name;
+            mal_proc jack_port_get_buffer;
+            mal_proc jack_free;
         } jack;
 #endif
 #ifdef MAL_SUPPORT_COREAUDIO
@@ -8215,6 +8231,23 @@ static mal_result mal_device__main_loop__pulse(mal_device* pDevice)
 #ifdef MAL_HAS_JACK
 #include <jack/jack.h>
 
+typedef jack_client_t* (* mal_jack_client_open_proc)             (const char* client_name, jack_options_t options, jack_status_t* status, ...);
+typedef int            (* mal_jack_client_close_proc)            (jack_client_t* client);
+typedef int            (* mal_jack_client_name_size_proc)        ();
+typedef int            (* mal_jack_set_process_callback_proc)    (jack_client_t* client, JackProcessCallback process_callback, void* arg);
+typedef int            (* mal_jack_set_buffer_size_callback_proc)(jack_client_t* client, JackBufferSizeCallback bufsize_callback, void* arg);
+typedef void           (* mal_jack_on_shutdown_proc)             (jack_client_t* client, JackShutdownCallback function, void* arg);
+typedef jack_nframes_t (* mal_jack_get_sample_rate_proc)         (jack_client_t* client);
+typedef jack_nframes_t (* mal_jack_get_buffer_size_proc)         (jack_client_t* client);
+typedef const char**   (* mal_jack_get_ports_proc)               (jack_client_t* client, const char* port_name_pattern, const char* type_name_pattern, unsigned long flags);
+typedef int            (* mal_jack_activate_proc)                (jack_client_t* client);
+typedef int            (* mal_jack_deactivate_proc)              (jack_client_t* client);
+typedef int            (* mal_jack_connect_proc)                 (jack_client_t* client, const char* source_port, const char* destination_port);
+typedef jack_port_t*   (* mal_jack_port_register_proc)           (jack_client_t* client, const char* port_name, const char* port_type, unsigned long flags, unsigned long buffer_size);
+typedef const char*    (* mal_jack_port_name_proc)               (const jack_port_t* port);
+typedef void*          (* mal_jack_port_get_buffer_proc)         (jack_port_t* port, jack_nframes_t nframes);
+typedef void           (* mal_jack_free_proc)                    (void* ptr);
+
 static mal_result mal_context_uninit__jack(mal_context* pContext)
 {
     mal_assert(pContext != NULL);
@@ -8228,6 +8261,7 @@ static mal_result mal_context_init__jack(mal_context* pContext)
 {
     mal_assert(pContext != NULL);
 
+#ifndef MAL_NO_RUNTIME_LINKING
     // libjack.so
     const char* libjackNames[] = {
         "libjack.so",
@@ -8244,6 +8278,60 @@ static mal_result mal_context_init__jack(mal_context* pContext)
     if (pContext->jack.jackSO == NULL) {
         return MAL_NO_BACKEND;
     }
+
+    pContext->jack.jack_client_open              = (mal_proc)mal_dlsym(pContext->jack.jackSO, "jack_client_open");
+    pContext->jack.jack_client_close             = (mal_proc)mal_dlsym(pContext->jack.jackSO, "jack_client_close");
+    pContext->jack.jack_client_name_size         = (mal_proc)mal_dlsym(pContext->jack.jackSO, "jack_client_name_size");
+    pContext->jack.jack_set_process_callback     = (mal_proc)mal_dlsym(pContext->jack.jackSO, "jack_set_process_callback");
+    pContext->jack.jack_set_buffer_size_callback = (mal_proc)mal_dlsym(pContext->jack.jackSO, "jack_set_buffer_size_callback");
+    pContext->jack.jack_on_shutdown              = (mal_proc)mal_dlsym(pContext->jack.jackSO, "jack_on_shutdown");
+    pContext->jack.jack_get_sample_rate          = (mal_proc)mal_dlsym(pContext->jack.jackSO, "jack_get_sample_rate");
+    pContext->jack.jack_get_buffer_size          = (mal_proc)mal_dlsym(pContext->jack.jackSO, "jack_get_buffer_size");
+    pContext->jack.jack_get_ports                = (mal_proc)mal_dlsym(pContext->jack.jackSO, "jack_get_ports");
+    pContext->jack.jack_activate                 = (mal_proc)mal_dlsym(pContext->jack.jackSO, "jack_activate");
+    pContext->jack.jack_deactivate               = (mal_proc)mal_dlsym(pContext->jack.jackSO, "jack_deactivate");
+    pContext->jack.jack_connect                  = (mal_proc)mal_dlsym(pContext->jack.jackSO, "jack_connect");
+    pContext->jack.jack_port_register            = (mal_proc)mal_dlsym(pContext->jack.jackSO, "jack_port_register");
+    pContext->jack.jack_port_name                = (mal_proc)mal_dlsym(pContext->jack.jackSO, "jack_port_name");
+    pContext->jack.jack_port_get_buffer          = (mal_proc)mal_dlsym(pContext->jack.jackSO, "jack_port_get_buffer");
+    pContext->jack.jack_free                     = (mal_proc)mal_dlsym(pContext->jack.jackSO, "jack_free");
+#else
+    // This strange assignment system is here just to ensure type safety of mini_al's function pointer
+    // types. If anything differs slightly the compiler should throw a warning.
+    mal_jack_client_open_proc              _jack_client_open              = jack_client_open;
+    mal_jack_client_close_proc             _jack_client_close             = jack_client_close;
+    mal_jack_client_name_size_proc         _jack_client_name_size         = jack_client_name_size;
+    mal_jack_set_process_callback_proc     _jack_set_process_callback     = jack_set_process_callback;
+    mal_jack_set_buffer_size_callback_proc _jack_set_buffer_size_callback = jack_set_buffer_size_callback;
+    mal_jack_on_shutdown_proc              _jack_on_shutdown              = jack_on_shutdown;
+    mal_jack_get_sample_rate_proc          _jack_get_sample_rate          = jack_get_sample_rate;
+    mal_jack_get_buffer_size_proc          _jack_get_buffer_size          = jack_get_buffer_size;
+    mal_jack_get_ports_proc                _jack_get_ports                = jack_get_ports;
+    mal_jack_activate_proc                 _jack_activate                 = jack_activate;
+    mal_jack_deactivate_proc               _jack_deactivate               = jack_deactivate;
+    mal_jack_connect_proc                  _jack_connect                  = jack_connect;
+    mal_jack_port_register_proc            _jack_port_register            = jack_port_register;
+    mal_jack_port_name_proc                _jack_port_name                = jack_port_name;
+    mal_jack_port_get_buffer_proc          _jack_port_get_buffer          = jack_port_get_buffer;
+    mal_jack_free_proc                     _jack_free                     = jack_free;
+
+    pContext->jack.jack_client_open              = (mal_proc)_jack_client_open;
+    pContext->jack.jack_client_close             = (mal_proc)_jack_client_close;
+    pContext->jack.jack_client_name_size         = (mal_proc)_jack_client_name_size;
+    pContext->jack.jack_set_process_callback     = (mal_proc)_jack_set_process_callback;
+    pContext->jack.jack_set_buffer_size_callback = (mal_proc)_jack_set_buffer_size_callback;
+    pContext->jack.jack_on_shutdown              = (mal_proc)_jack_on_shutdown;
+    pContext->jack.jack_get_sample_rate          = (mal_proc)_jack_get_sample_rate;
+    pContext->jack.jack_get_buffer_size          = (mal_proc)_jack_get_buffer_size;
+    pContext->jack.jack_get_ports                = (mal_proc)_jack_get_ports;
+    pContext->jack.jack_activate                 = (mal_proc)_jack_activate;
+    pContext->jack.jack_deactivate               = (mal_proc)_jack_deactivate;
+    pContext->jack.jack_connect                  = (mal_proc)_jack_connect;
+    pContext->jack.jack_port_register            = (mal_proc)_jack_port_register;
+    pContext->jack.jack_port_name                = (mal_proc)_jack_port_name;
+    pContext->jack.jack_port_get_buffer          = (mal_proc)_jack_port_get_buffer;
+    pContext->jack.jack_free                     = (mal_proc)_jack_free;
+#endif
 
     return MAL_SUCCESS;
 }
@@ -8280,8 +8368,11 @@ void mal_device_uninit__jack(mal_device* pDevice)
 {
     mal_assert(pDevice != NULL);
 
+    mal_context* pContext = pDevice->pContext;
+    mal_assert(pContext != NULL);
+
     if (pDevice->jack.pJackClient != NULL) {
-        jack_client_close((jack_client_t*)pDevice->jack.pJackClient);
+        ((mal_jack_client_close_proc)pContext->jack.jack_client_close)((jack_client_t*)pDevice->jack.pJackClient);
     }
 }
 
@@ -8326,7 +8417,7 @@ int mal_device__jack_process_callback(jack_nframes_t frameCount, void* pUserData
         
         // Channels need to be separated.
         for (mal_uint32 iChannel = 0; iChannel < pDevice->internalChannels; ++iChannel) {
-            float* pDst = (float*)jack_port_get_buffer((jack_port_t*)pDevice->jack.pPorts[iChannel], frameCount);
+            float* pDst = (float*)((mal_jack_port_get_buffer_proc)pContext->jack.jack_port_get_buffer)((jack_port_t*)pDevice->jack.pPorts[iChannel], frameCount);
             if (pDst != NULL) {
                 const float* pSrc = pDevice->jack.pIntermediaryBuffer + iChannel;
                 for (jack_nframes_t iFrame = 0; iFrame < frameCount; ++iFrame) {
@@ -8340,7 +8431,7 @@ int mal_device__jack_process_callback(jack_nframes_t frameCount, void* pUserData
     } else {
         // Channels need to be interleaved.
         for (mal_uint32 iChannel = 0; iChannel < pDevice->internalChannels; ++iChannel) {
-            const float* pSrc = (const float*)jack_port_get_buffer((jack_port_t*)pDevice->jack.pPorts[iChannel], frameCount);
+            const float* pSrc = (const float*)((mal_jack_port_get_buffer_proc)pContext->jack.jack_port_get_buffer)((jack_port_t*)pDevice->jack.pPorts[iChannel], frameCount);
             if (pSrc != NULL) {
                 float* pDst = pDevice->jack.pIntermediaryBuffer + iChannel;
                 for (jack_nframes_t iFrame = 0; iFrame < frameCount; ++iFrame) {
@@ -8367,26 +8458,26 @@ mal_result mal_device_init__jack(mal_context* pContext, mal_device_type type, ma
     (void)pContext;
     
     // Open the client.
-    size_t maxClientNameSize = jack_client_name_size(); // Includes null terminator.
+    size_t maxClientNameSize = ((mal_jack_client_name_size_proc)pContext->jack.jack_client_name_size)(); // Includes null terminator.
 
     char clientName[256];
     mal_strncpy_s(clientName, mal_min(sizeof(clientName), maxClientNameSize), (pContext->config.jack.pClientName != NULL) ? pContext->config.jack.pClientName : "mini_al", (size_t)-1);
 
     jack_status_t status;
-    pDevice->jack.pJackClient = jack_client_open(clientName, (pContext->config.jack.tryStartServer) ? 0 : JackNoStartServer, &status, NULL);
+    pDevice->jack.pJackClient = ((mal_jack_client_open_proc)pContext->jack.jack_client_open)(clientName, (pContext->config.jack.tryStartServer) ? 0 : JackNoStartServer, &status, NULL);
     if (pDevice->jack.pJackClient == NULL) {
         return mal_post_error(pDevice, "[JACK] Failed to open client.", MAL_FAILED_TO_OPEN_BACKEND_DEVICE);
     }
 
     // Callbacks.
-    if (jack_set_process_callback((jack_client_t*)pDevice->jack.pJackClient, mal_device__jack_process_callback, pDevice) != 0) {
+    if (((mal_jack_set_process_callback_proc)pContext->jack.jack_set_process_callback)((jack_client_t*)pDevice->jack.pJackClient, mal_device__jack_process_callback, pDevice) != 0) {
         return mal_post_error(pDevice, "[JACK] Failed to set process callback.", MAL_FAILED_TO_OPEN_BACKEND_DEVICE);
     }
-    if (jack_set_buffer_size_callback((jack_client_t*)pDevice->jack.pJackClient, mal_device__jack_buffer_size_callback, pDevice) != 0) {
+    if (((mal_jack_set_buffer_size_callback_proc)pContext->jack.jack_set_buffer_size_callback)((jack_client_t*)pDevice->jack.pJackClient, mal_device__jack_buffer_size_callback, pDevice) != 0) {
         return mal_post_error(pDevice, "[JACK] Failed to set buffer size callback.", MAL_FAILED_TO_OPEN_BACKEND_DEVICE);
     }
 
-    jack_on_shutdown((jack_client_t*)pDevice->jack.pJackClient, mal_device__jack_shutdown_callback, pDevice);
+    ((mal_jack_on_shutdown_proc)pContext->jack.jack_on_shutdown)((jack_client_t*)pDevice->jack.pJackClient, mal_device__jack_shutdown_callback, pDevice);
 
 
     // The format is always f32.
@@ -8403,7 +8494,7 @@ mal_result mal_device_init__jack(mal_context* pContext, mal_device_type type, ma
         clientPortFlags = JackPortIsInput;
     }
 
-    const char** ppPorts = jack_get_ports((jack_client_t*)pDevice->jack.pJackClient, NULL, NULL, JackPortIsPhysical | serverPortFlags);
+    const char** ppPorts = ((mal_jack_get_ports_proc)pContext->jack.jack_get_ports)((jack_client_t*)pDevice->jack.pJackClient, NULL, NULL, JackPortIsPhysical | serverPortFlags);
     if (ppPorts == NULL) {
         return mal_post_error(pDevice, "[JACK] Failed to query physical ports.", MAL_FAILED_TO_OPEN_BACKEND_DEVICE);
     }
@@ -8419,9 +8510,9 @@ mal_result mal_device_init__jack(mal_context* pContext, mal_device_type type, ma
             mal_itoa_s((int)pDevice->internalChannels, name+7, sizeof(name)-7, 10); // 7 = length of "capture"
         }
 
-        pDevice->jack.pPorts[pDevice->internalChannels] = jack_port_register((jack_client_t*)pDevice->jack.pJackClient, name, JACK_DEFAULT_AUDIO_TYPE, clientPortFlags, 0);
+        pDevice->jack.pPorts[pDevice->internalChannels] = ((mal_jack_port_register_proc)pContext->jack.jack_port_register)((jack_client_t*)pDevice->jack.pJackClient, name, JACK_DEFAULT_AUDIO_TYPE, clientPortFlags, 0);
         if (pDevice->jack.pPorts[pDevice->internalChannels] == NULL) {
-            jack_free(ppPorts);
+            ((mal_jack_free_proc)pContext->jack.jack_free)(ppPorts);
             mal_device_uninit__jack(pDevice);
             return mal_post_error(pDevice, "[JACK] Failed to register ports.", MAL_FAILED_TO_OPEN_BACKEND_DEVICE);
         }
@@ -8429,18 +8520,18 @@ mal_result mal_device_init__jack(mal_context* pContext, mal_device_type type, ma
         pDevice->internalChannels += 1;
     }
 
-    jack_free(ppPorts);
+    ((mal_jack_free_proc)pContext->jack.jack_free)(ppPorts);
     ppPorts = NULL;
 
     // We set the sample rate here, but apparently this can change. This is incompatible with mini_al, so changing sample rates will not be supported.
-    pDevice->internalSampleRate = jack_get_sample_rate((jack_client_t*)pDevice->jack.pJackClient);
+    pDevice->internalSampleRate = ((mal_jack_get_sample_rate_proc)pContext->jack.jack_get_sample_rate)((jack_client_t*)pDevice->jack.pJackClient);
 
     // I don't think the channel map can be queried, so just use defaults for now.
     mal_get_default_channel_mapping(pDevice->pContext->backend, pDevice->internalChannels, pDevice->internalChannelMap);
 
     // The buffer size in frames can change.
     pDevice->periods = 2;
-    pDevice->bufferSizeInFrames = jack_get_buffer_size((jack_client_t*)pDevice->jack.pJackClient) * pDevice->periods;
+    pDevice->bufferSizeInFrames = ((mal_jack_get_buffer_size_proc)pContext->jack.jack_get_buffer_size)((jack_client_t*)pDevice->jack.pJackClient) * pDevice->periods;
 
     // Initial allocation for the intermediary buffer.
     pDevice->jack.pIntermediaryBuffer = (float*)mal_malloc((pDevice->bufferSizeInFrames/pDevice->periods)*(pDevice->internalChannels*mal_get_sample_size_in_bytes(pDevice->internalFormat)));
@@ -8457,20 +8548,23 @@ static mal_result mal_device__start_backend__jack(mal_device* pDevice)
 {
     mal_assert(pDevice != NULL);
 
-    int resultJACK = jack_activate((jack_client_t*)pDevice->jack.pJackClient);
+    mal_context* pContext = pDevice->pContext;
+    mal_assert(pContext != NULL);
+
+    int resultJACK = ((mal_jack_activate_proc)pContext->jack.jack_activate)((jack_client_t*)pDevice->jack.pJackClient);
     if (resultJACK != 0) {
         return mal_post_error(pDevice, "[JACK] Failed to activate the JACK client.", MAL_FAILED_TO_START_BACKEND_DEVICE);
     }
 
     const char** ppServerPorts;
     if (pDevice->type == mal_device_type_playback) {
-        ppServerPorts = jack_get_ports((jack_client_t*)pDevice->jack.pJackClient, NULL, NULL, JackPortIsPhysical | JackPortIsInput);
+        ppServerPorts = ((mal_jack_get_ports_proc)pContext->jack.jack_get_ports)((jack_client_t*)pDevice->jack.pJackClient, NULL, NULL, JackPortIsPhysical | JackPortIsInput);
     } else {
-        ppServerPorts = jack_get_ports((jack_client_t*)pDevice->jack.pJackClient, NULL, NULL, JackPortIsPhysical | JackPortIsOutput);
+        ppServerPorts = ((mal_jack_get_ports_proc)pContext->jack.jack_get_ports)((jack_client_t*)pDevice->jack.pJackClient, NULL, NULL, JackPortIsPhysical | JackPortIsOutput);
     }
 
     if (ppServerPorts == NULL) {
-        jack_deactivate((jack_client_t*)pDevice->jack.pJackClient);
+        ((mal_jack_deactivate_proc)pContext->jack.jack_deactivate)((jack_client_t*)pDevice->jack.pJackClient);
         return mal_post_error(pDevice, "[JACK] Failed to retrieve physical ports.", MAL_ERROR);
     }
 
@@ -8478,22 +8572,23 @@ static mal_result mal_device__start_backend__jack(mal_device* pDevice)
         const char* pServerPort = ppServerPorts[i];
         mal_assert(pServerPort != NULL);
 
-        const char* pClientPort = jack_port_name((jack_port_t*)pDevice->jack.pPorts[i]);
+        const char* pClientPort = ((mal_jack_port_name_proc)pContext->jack.jack_port_name)((jack_port_t*)pDevice->jack.pPorts[i]);
         mal_assert(pClientPort != NULL);
 
         if (pDevice->type == mal_device_type_playback) {
-            resultJACK = jack_connect((jack_client_t*)pDevice->jack.pJackClient, pClientPort, pServerPort);
+            resultJACK = ((mal_jack_connect_proc)pContext->jack.jack_connect)((jack_client_t*)pDevice->jack.pJackClient, pClientPort, pServerPort);
         } else {
-            resultJACK = jack_connect((jack_client_t*)pDevice->jack.pJackClient, pServerPort, pClientPort);
+            resultJACK = ((mal_jack_connect_proc)pContext->jack.jack_connect)((jack_client_t*)pDevice->jack.pJackClient, pServerPort, pClientPort);
         }
 
         if (resultJACK != 0) {
-            jack_deactivate((jack_client_t*)pDevice->jack.pJackClient);
+            ((mal_jack_free_proc)pContext->jack.jack_free)(ppServerPorts);
+            ((mal_jack_deactivate_proc)pContext->jack.jack_deactivate)((jack_client_t*)pDevice->jack.pJackClient);
             return mal_post_error(pDevice, "[JACK] Failed to connect ports.", MAL_ERROR);
         }
     }
 
-    jack_free(ppServerPorts);
+    ((mal_jack_free_proc)pContext->jack.jack_free)(ppServerPorts);
 
     return MAL_SUCCESS;
 }
@@ -8502,7 +8597,10 @@ static mal_result mal_device__stop_backend__jack(mal_device* pDevice)
 {
     mal_assert(pDevice != NULL);
 
-    if (jack_deactivate((jack_client_t*)pDevice->jack.pJackClient) != 0) {
+    mal_context* pContext = pDevice->pContext;
+    mal_assert(pContext != NULL);
+
+    if (((mal_jack_deactivate_proc)pContext->jack.jack_deactivate)((jack_client_t*)pDevice->jack.pJackClient) != 0) {
         return mal_post_error(pDevice, "[JACK] An error occurred when deactivating the JACK client.", MAL_ERROR);
     }
 
