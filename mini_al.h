@@ -3050,7 +3050,7 @@ static mal_result mal_context__try_get_device_name_by_id(mal_context* pContext, 
         #ifdef MAL_HAS_PULSEAUDIO
             case mal_backend_pulseaudio:
             {
-                if (mal_strcmp(pInfos[iDevice].id.pulseaudio, pDeviceID->pulseaudio) == 0) {
+                if (mal_strcmp(pInfos[iDevice].id.pulse, pDeviceID->pulse) == 0) {
                     found = MAL_TRUE;
                 }
             } break;
