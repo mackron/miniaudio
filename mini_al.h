@@ -14454,6 +14454,8 @@ void mal_pcm_f32_to_s32(int* pOut, const float* pIn, unsigned int count)
 //
 // v0.x - 2018-xx-xx
 //   - Add support for PulseAudio.
+//   - Fix errors with OpenAL detection.
+//   - Fix some memory leaks.
 //   - Miscellaneous bug fixes.
 //
 // v0.7 - 2018-02-25
