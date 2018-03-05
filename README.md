@@ -144,7 +144,7 @@ single file libraries I can add to this list, let me know. Preferably public dom
 - [jar_mod](https://github.com/kd7tck/jar/blob/master/jar_mod.h)
 - [jar_xm](https://github.com/kd7tck/jar/blob/master/jar_xm.h)
 
-To enable support for a decoder backend, all you need to do is #include the header section of the
+To enable support for a decoding backend, all you need to do is #include the header section of the
 relevant backend library before the implementation of mini_al, like so:
 
 ```
