@@ -584,7 +584,7 @@ typedef union
     char alsa[256];                 // ALSA uses a name string for identification.
 #endif
 #ifdef MAL_SUPPORT_PULSEAUDIO
-    char pulseaudio[256];           // PulseAudio uses a name string for identification.
+    char pulse[256];                // PulseAudio uses a name string for identification.
 #endif
 #ifdef MAL_SUPPORT_JACK
     int jack;                       // TODO: Set this to the correct data type.
@@ -7627,7 +7627,7 @@ static void mal_pulse_device_info_list_callback(mal_pa_context* pPulseContext, c
 
             // The name from PulseAudio is the ID for mini_al.
             if (pName != NULL) {
-                mal_strncpy_s(pData->pInfo->id.pulseaudio, sizeof(pData->pInfo->id.pulseaudio), pDescription, (size_t)-1);
+                mal_strncpy_s(pData->pInfo->id.pulse, sizeof(pData->pInfo->id.pulse), pDescription, (size_t)-1);
             }
 
             // The description from PulseAudio is the name for mini_al.
@@ -7965,7 +7965,7 @@ static mal_result mal_device_init__pulse(mal_context* pContext, mal_device_type 
 
     const char* dev = NULL;
     if (pDeviceID != NULL) {
-        dev = pDeviceID->pulseaudio;
+        dev = pDeviceID->pulse;
     }
 
     if (type == mal_device_type_playback) {
@@ -8723,7 +8723,7 @@ static mal_result mal_device_init__oss(mal_context* pContext, mal_device_type ty
         return mal_post_error(pDevice, "[OSS] Failed to set sample rate.", MAL_FORMAT_NOT_SUPPORTED);
     }
 
-    pDevice->sampleRate = ossSampleRate;
+    pDevice->internalSampleRate = ossSampleRate;
 
 
 
@@ -9736,29 +9736,26 @@ mal_result mal_context_init__openal(mal_context* pContext)
     mal_assert(pContext != NULL);
 
 #ifndef MAL_NO_RUNTIME_LINKING
-    const char* libName = NULL;
-#ifdef MAL_WIN32
-    libName = "OpenAL32.dll";
+    const char* libNames[] = {
+#if defined(MAL_WIN32)
+        "OpenAL32.dll",
+        "soft_oal.dll"
 #endif
 #if defined(MAL_UNIX) && !defined(MAL_APPLE)
-    libName = "libopenal.so";
+        "libopenal.so",
+        "libopenal.so.1"
 #endif
-#ifdef MAL_APPLE
-    libName = "OpenAL.framework/OpenAL";
+#if defined(MAL_APPLE)
+        "OpenAL.framework/OpenAL"
 #endif
-    if (libName == NULL) {
-        return MAL_NO_BACKEND;  // Don't know what the library name is called.
+    };
+
+    for (size_t i = 0; i < mal_countof(libNames); ++i) {
+        pContext->openal.hOpenAL = mal_dlopen(libNames[i]);
+        if (pContext->openal.hOpenAL != NULL) {
+            break;
+        }
     }
-
-
-    pContext->openal.hOpenAL = mal_dlopen(libName);
-
-#ifdef MAL_WIN32
-    // Special case for Win32 - try "soft_oal.dll" for OpenAL-Soft drop-ins.
-    if (pContext->openal.hOpenAL == NULL) {
-        pContext->openal.hOpenAL = mal_dlopen("soft_oal.dll");
-    }
-#endif
 
     if (pContext->openal.hOpenAL == NULL) {
         return MAL_FAILED_TO_INIT_BACKEND;
@@ -14861,6 +14858,8 @@ void mal_pcm_f32_to_s32(int* pOut, const float* pIn, unsigned int count)
 //
 // v0.x - 2018-xx-xx
 //   - Add support for PulseAudio.
+//   - Fix errors with OpenAL detection.
+//   - Fix some memory leaks.
 //   - Miscellaneous bug fixes.
 //
 // v0.7 - 2018-02-25
