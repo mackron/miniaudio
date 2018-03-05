@@ -240,6 +240,7 @@ extern "C" {
     #if defined(MAL_WIN32_DESKTOP)  // DirectSound and WinMM backends are only supported on desktop's.
         #define MAL_SUPPORT_DSOUND
         #define MAL_SUPPORT_WINMM
+        #define MAL_SUPPORT_JACK    // JACK is technically supported on Windows, but I don't know how many people use it in practice...
     #endif
 
     // Don't support WASAPI on older versions of MSVC for now.
@@ -8504,6 +8505,7 @@ mal_result mal_device_init__jack(mal_context* pContext, mal_device_type type, ma
     mal_assert(pDevice != NULL);
 
     (void)pContext;
+    (void)pDeviceID;    // Only supporting default devices with JACK.
     
     // Open the client.
     size_t maxClientNameSize = ((mal_jack_client_name_size_proc)pContext->jack.jack_client_name_size)(); // Includes null terminator.
@@ -8560,7 +8562,7 @@ mal_result mal_device_init__jack(mal_context* pContext, mal_device_type type, ma
 
         pDevice->jack.pPorts[pDevice->internalChannels] = ((mal_jack_port_register_proc)pContext->jack.jack_port_register)((mal_jack_client_t*)pDevice->jack.pClient, name, MAL_JACK_DEFAULT_AUDIO_TYPE, clientPortFlags, 0);
         if (pDevice->jack.pPorts[pDevice->internalChannels] == NULL) {
-            ((mal_jack_free_proc)pContext->jack.jack_free)(ppPorts);
+            ((mal_jack_free_proc)pContext->jack.jack_free)((void*)ppPorts);
             mal_device_uninit__jack(pDevice);
             return mal_post_error(pDevice, "[JACK] Failed to register ports.", MAL_FAILED_TO_OPEN_BACKEND_DEVICE);
         }
@@ -8568,7 +8570,7 @@ mal_result mal_device_init__jack(mal_context* pContext, mal_device_type type, ma
         pDevice->internalChannels += 1;
     }
 
-    ((mal_jack_free_proc)pContext->jack.jack_free)(ppPorts);
+    ((mal_jack_free_proc)pContext->jack.jack_free)((void*)ppPorts);
     ppPorts = NULL;
 
     // We set the sample rate here, but apparently this can change. This is incompatible with mini_al, so changing sample rates will not be supported.
@@ -8630,13 +8632,13 @@ static mal_result mal_device__start_backend__jack(mal_device* pDevice)
         }
 
         if (resultJACK != 0) {
-            ((mal_jack_free_proc)pContext->jack.jack_free)(ppServerPorts);
+            ((mal_jack_free_proc)pContext->jack.jack_free)((void*)ppServerPorts);
             ((mal_jack_deactivate_proc)pContext->jack.jack_deactivate)((mal_jack_client_t*)pDevice->jack.pClient);
             return mal_post_error(pDevice, "[JACK] Failed to connect ports.", MAL_ERROR);
         }
     }
 
-    ((mal_jack_free_proc)pContext->jack.jack_free)(ppServerPorts);
+    ((mal_jack_free_proc)pContext->jack.jack_free)((void*)ppServerPorts);
 
     return MAL_SUCCESS;
 }
