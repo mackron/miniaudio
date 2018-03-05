@@ -98,7 +98,11 @@ int main(int argc, char** argv)
         return -2;
     }
 
-    mal_device_config config = mal_device_config_init_playback(decoder.outputFormat, decoder.outputChannels, decoder.outputSampleRate, on_send_frames_to_device);
+    mal_device_config config = mal_device_config_init_playback(
+        decoder.outputFormat,
+        decoder.outputChannels,
+        decoder.outputSampleRate,
+        on_send_frames_to_device);
 
     mal_device device;
     if (mal_device_init(NULL, mal_device_type_playback, NULL, &config, &decoder, &device) != MAL_SUCCESS) {
