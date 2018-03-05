@@ -38,8 +38,8 @@ Supported Platforms
 - Android
 - Emscripten / HTML5
 
-macOS and iOS support is coming soon(ish) via Core Audio. Unofficial support is enabled via the OpenAL
-and SDL backends, however I have not tested these personally.
+macOS and iOS support is coming soon(ish) via Core Audio. Unofficial support is enabled via the
+PulseAudio, JACK, OpenAL and SDL backends, however I have not tested these personally.
 
 
 Backends
@@ -49,6 +49,7 @@ Backends
 - WinMM
 - ALSA
 - PulseAudio
+- JACK
 - OSS
 - OpenSL|ES (Android only)
 - OpenAL
