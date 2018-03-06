@@ -5830,33 +5830,6 @@ static mal_result mal_device__main_loop__winmm(mal_device* pDevice)
 #ifdef MAL_HAS_ALSA
 #include <alsa/asoundlib.h>
 
-// This array allows mini_al to control device-specific default buffer sizes. This uses a scaling factor. Order is important. If
-// any part of the string is present in the device's name, the associated scale will be used.
-struct
-{
-    const char* name;
-    float scale;
-} g_malDefaultBufferSizeScalesALSA[] = {
-    {"bcm2835 IEC958/HDMI", 20},
-    {"bcm2835 ALSA",        20}
-};
-
-static float mal_find_default_buffer_size_scale__alsa(const char* deviceName)
-{
-    if (deviceName == NULL) {
-        return 1;
-    }
-
-    for (size_t i = 0; i < mal_countof(g_malDefaultBufferSizeScalesALSA); ++i) {
-        if (strstr(g_malDefaultBufferSizeScalesALSA[i].name, deviceName) != NULL) {
-            return g_malDefaultBufferSizeScalesALSA[i].scale;
-        }
-    }
-
-    return 1;
-}
-
-
 typedef int               (* mal_snd_pcm_open_proc)                          (snd_pcm_t **pcm, const char *name, snd_pcm_stream_t stream, int mode);
 typedef int               (* mal_snd_pcm_close_proc)                         (snd_pcm_t *pcm);
 typedef size_t            (* mal_snd_pcm_hw_params_sizeof_proc)              (void);
@@ -5910,9 +5883,36 @@ static snd_pcm_format_t g_mal_ALSAFormats[] = {
     SND_PCM_FORMAT_U8,          // mal_format_u8
     SND_PCM_FORMAT_S16_LE,      // mal_format_s16
     SND_PCM_FORMAT_S24_3LE,     // mal_format_s24
+    //SND_PCM_FORMAT_S24_LE,      // mal_format_s24_32
     SND_PCM_FORMAT_S32_LE,      // mal_format_s32
     SND_PCM_FORMAT_FLOAT_LE     // mal_format_f32
 };
+
+// This array allows mini_al to control device-specific default buffer sizes. This uses a scaling factor. Order is important. If
+// any part of the string is present in the device's name, the associated scale will be used.
+struct
+{
+    const char* name;
+    float scale;
+} g_malDefaultBufferSizeScalesALSA[] = {
+    {"bcm2835 IEC958/HDMI", 20},
+    {"bcm2835 ALSA",        20}
+};
+
+static float mal_find_default_buffer_size_scale__alsa(const char* deviceName)
+{
+    if (deviceName == NULL) {
+        return 1;
+    }
+
+    for (size_t i = 0; i < mal_countof(g_malDefaultBufferSizeScalesALSA); ++i) {
+        if (strstr(g_malDefaultBufferSizeScalesALSA[i].name, deviceName) != NULL) {
+            return g_malDefaultBufferSizeScalesALSA[i].scale;
+        }
+    }
+
+    return 1;
+}
 
 snd_pcm_format_t mal_convert_mal_format_to_alsa_format(mal_format format)
 {
