@@ -1910,9 +1910,23 @@ mal_result mal_decoder_seek_to_frame(mal_decoder* pDecoder, mal_uint64 frameInde
 #endif
 #ifdef MAL_ENABLE_PULSEAUDIO
     #define MAL_HAS_PULSEAUDIO  // Development packages are unnecessary for PulseAudio.
+    #ifdef MAL_NO_RUNTIME_LINKING
+        #ifdef __has_include
+            #if !__has_include(<pulse/pulseaudio.h>)
+                #undef MAL_HAS_PULSEAUDIO
+            #endif
+        #endif
+    #endif
 #endif
 #ifdef MAL_ENABLE_JACK
     #define MAL_HAS_JACK
+    #ifdef MAL_NO_RUNTIME_LINKING
+        #ifdef __has_include
+            #if !__has_include(<jack/jack.h>)
+                #undef MAL_HAS_JACK
+            #endif
+        #endif
+    #endif
 #endif
 #ifdef MAL_ENABLE_COREAUDIO
     #define MAL_HAS_COREAUDIO
@@ -7034,10 +7048,215 @@ static mal_result mal_device__main_loop__alsa(mal_device* pDevice)
 //
 ///////////////////////////////////////////////////////////////////////////////
 #ifdef MAL_HAS_PULSEAUDIO
-// The development packages for PulseAudio are unnecessary, but I'm leaving this #include here just in case
-// I need to quickly add it again for development purposes.
-//#include <pulse/pulseaudio.h>
 
+// It is assumed pulseaudio.h is available when compile-time linking is being used. We use this for type safety when using
+// compile time linking (we don't have this luxury when using runtime linking without headers).
+//
+// When using compile time linking, each of our mal_* equivalents should use the sames types as defined by the header. The
+// reason for this is that it allow us to take advantage of proper type safety.
+#ifdef MAL_NO_RUNTIME_LINKING
+#include <pulse/pulseaudio.h>
+
+#define MAL_PA_OK                                       PA_OK
+#define MAL_PA_ERR_ACCESS                               PA_ERR_ACCESS
+#define MAL_PA_ERR_INVALID                              PA_ERR_INVALID
+#define MAL_PA_ERR_NOENTITY                             PA_ERR_NOENTITY
+
+#define MAL_PA_CHANNELS_MAX                             PA_CHANNELS_MAX
+#define MAL_PA_RATE_MAX                                 PA_RATE_MAX
+
+typedef pa_context_flags_t mal_pa_context_flags_t;
+#define MAL_PA_CONTEXT_NOFLAGS                          PA_CONTEXT_NOFLAGS
+#define MAL_PA_CONTEXT_NOAUTOSPAWN                      PA_CONTEXT_NOAUTOSPAWN
+#define MAL_PA_CONTEXT_NOFAIL                           PA_CONTEXT_NOFAIL
+
+typedef pa_stream_flags_t mal_pa_stream_flags_t;
+#define MAL_PA_STREAM_NOFLAGS                           PA_STREAM_NOFLAGS
+#define MAL_PA_STREAM_START_CORKED                      PA_STREAM_START_CORKED
+#define MAL_PA_STREAM_INTERPOLATE_TIMING                PA_STREAM_INTERPOLATE_TIMING
+#define MAL_PA_STREAM_NOT_MONOTONIC                     PA_STREAM_NOT_MONOTONIC
+#define MAL_PA_STREAM_AUTO_TIMING_UPDATE                PA_STREAM_AUTO_TIMING_UPDATE
+#define MAL_PA_STREAM_NO_REMAP_CHANNELS                 PA_STREAM_NO_REMAP_CHANNELS
+#define MAL_PA_STREAM_NO_REMIX_CHANNELS                 PA_STREAM_NO_REMIX_CHANNELS        
+#define MAL_PA_STREAM_FIX_FORMAT                        PA_STREAM_FIX_FORMAT               
+#define MAL_PA_STREAM_FIX_RATE                          PA_STREAM_FIX_RATE                 
+#define MAL_PA_STREAM_FIX_CHANNELS                      PA_STREAM_FIX_CHANNELS             
+#define MAL_PA_STREAM_DONT_MOVE                         PA_STREAM_DONT_MOVE                
+#define MAL_PA_STREAM_VARIABLE_RATE                     PA_STREAM_VARIABLE_RATE            
+#define MAL_PA_STREAM_PEAK_DETECT                       PA_STREAM_PEAK_DETECT              
+#define MAL_PA_STREAM_START_MUTED                       PA_STREAM_START_MUTED              
+#define MAL_PA_STREAM_ADJUST_LATENCY                    PA_STREAM_ADJUST_LATENCY           
+#define MAL_PA_STREAM_EARLY_REQUESTS                    PA_STREAM_EARLY_REQUESTS           
+#define MAL_PA_STREAM_DONT_INHIBIT_AUTO_SUSPEND         PA_STREAM_DONT_INHIBIT_AUTO_SUSPEND
+#define MAL_PA_STREAM_START_UNMUTED                     PA_STREAM_START_UNMUTED            
+#define MAL_PA_STREAM_FAIL_ON_SUSPEND                   PA_STREAM_FAIL_ON_SUSPEND          
+#define MAL_PA_STREAM_RELATIVE_VOLUME                   PA_STREAM_RELATIVE_VOLUME          
+#define MAL_PA_STREAM_PASSTHROUGH                       PA_STREAM_PASSTHROUGH              
+
+typedef pa_sink_flags_t mal_pa_sink_flags_t;
+#define MAL_PA_SINK_NOFLAGS                             PA_SINK_NOFLAGS        
+#define MAL_PA_SINK_HW_VOLUME_CTRL                      PA_SINK_HW_VOLUME_CTRL 
+#define MAL_PA_SINK_LATENCY                             PA_SINK_LATENCY        
+#define MAL_PA_SINK_HARDWARE                            PA_SINK_HARDWARE       
+#define MAL_PA_SINK_NETWORK                             PA_SINK_NETWORK        
+#define MAL_PA_SINK_HW_MUTE_CTRL                        PA_SINK_HW_MUTE_CTRL   
+#define MAL_PA_SINK_DECIBEL_VOLUME                      PA_SINK_DECIBEL_VOLUME 
+#define MAL_PA_SINK_FLAT_VOLUME                         PA_SINK_FLAT_VOLUME    
+#define MAL_PA_SINK_DYNAMIC_LATENCY                     PA_SINK_DYNAMIC_LATENCY
+#define MAL_PA_SINK_SET_FORMATS                         PA_SINK_SET_FORMATS    
+
+typedef pa_source_flags_t mal_pa_source_flags_t;
+#define MAL_PA_SOURCE_NOFLAGS                           PA_SOURCE_NOFLAGS        
+#define MAL_PA_SOURCE_HW_VOLUME_CTRL                    PA_SOURCE_HW_VOLUME_CTRL 
+#define MAL_PA_SOURCE_LATENCY                           PA_SOURCE_LATENCY        
+#define MAL_PA_SOURCE_HARDWARE                          PA_SOURCE_HARDWARE       
+#define MAL_PA_SOURCE_NETWORK                           PA_SOURCE_NETWORK        
+#define MAL_PA_SOURCE_HW_MUTE_CTRL                      PA_SOURCE_HW_MUTE_CTRL   
+#define MAL_PA_SOURCE_DECIBEL_VOLUME                    PA_SOURCE_DECIBEL_VOLUME 
+#define MAL_PA_SOURCE_DYNAMIC_LATENCY                   PA_SOURCE_DYNAMIC_LATENCY
+#define MAL_PA_SOURCE_FLAT_VOLUME                       PA_SOURCE_FLAT_VOLUME    
+
+typedef pa_context_state_t mal_pa_context_state_t;
+#define MAL_PA_CONTEXT_UNCONNECTED                      PA_CONTEXT_UNCONNECTED 
+#define MAL_PA_CONTEXT_CONNECTING                       PA_CONTEXT_CONNECTING  
+#define MAL_PA_CONTEXT_AUTHORIZING                      PA_CONTEXT_AUTHORIZING 
+#define MAL_PA_CONTEXT_SETTING_NAME                     PA_CONTEXT_SETTING_NAME
+#define MAL_PA_CONTEXT_READY                            PA_CONTEXT_READY       
+#define MAL_PA_CONTEXT_FAILED                           PA_CONTEXT_FAILED      
+#define MAL_PA_CONTEXT_TERMINATED                       PA_CONTEXT_TERMINATED  
+
+typedef pa_stream_state_t mal_pa_stream_state_t;
+#define MAL_PA_STREAM_UNCONNECTED                       PA_STREAM_UNCONNECTED
+#define MAL_PA_STREAM_CREATING                          PA_STREAM_CREATING   
+#define MAL_PA_STREAM_READY                             PA_STREAM_READY      
+#define MAL_PA_STREAM_FAILED                            PA_STREAM_FAILED     
+#define MAL_PA_STREAM_TERMINATED                        PA_STREAM_TERMINATED 
+
+typedef pa_operation_state_t mal_pa_operation_state_t;
+#define MAL_PA_OPERATION_RUNNING                        PA_OPERATION_RUNNING  
+#define MAL_PA_OPERATION_DONE                           PA_OPERATION_DONE     
+#define MAL_PA_OPERATION_CANCELLED                      PA_OPERATION_CANCELLED
+
+typedef pa_sink_state_t mal_pa_sink_state_t;
+#define MAL_PA_SINK_INVALID_STATE                       PA_SINK_INVALID_STATE
+#define MAL_PA_SINK_RUNNING                             PA_SINK_RUNNING      
+#define MAL_PA_SINK_IDLE                                PA_SINK_IDLE         
+#define MAL_PA_SINK_SUSPENDED                           PA_SINK_SUSPENDED    
+
+typedef pa_source_state_t mal_pa_source_state_t;
+#define MAL_PA_SOURCE_INVALID_STATE                     PA_SOURCE_INVALID_STATE
+#define MAL_PA_SOURCE_RUNNING                           PA_SOURCE_RUNNING      
+#define MAL_PA_SOURCE_IDLE                              PA_SOURCE_IDLE         
+#define MAL_PA_SOURCE_SUSPENDED                         PA_SOURCE_SUSPENDED    
+
+typedef pa_seek_mode_t mal_pa_seek_mode_t;
+#define MAL_PA_SEEK_RELATIVE                            PA_SEEK_RELATIVE        
+#define MAL_PA_SEEK_ABSOLUTE                            PA_SEEK_ABSOLUTE        
+#define MAL_PA_SEEK_RELATIVE_ON_READ                    PA_SEEK_RELATIVE_ON_READ
+#define MAL_PA_SEEK_RELATIVE_END                        PA_SEEK_RELATIVE_END    
+
+typedef pa_channel_position_t mal_pa_channel_position_t;
+#define MAL_PA_CHANNEL_POSITION_INVALID                 PA_CHANNEL_POSITION_INVALID              
+#define MAL_PA_CHANNEL_POSITION_MONO                    PA_CHANNEL_POSITION_MONO                 
+#define MAL_PA_CHANNEL_POSITION_FRONT_LEFT              PA_CHANNEL_POSITION_FRONT_LEFT           
+#define MAL_PA_CHANNEL_POSITION_FRONT_RIGHT             PA_CHANNEL_POSITION_FRONT_RIGHT          
+#define MAL_PA_CHANNEL_POSITION_FRONT_CENTER            PA_CHANNEL_POSITION_FRONT_CENTER         
+#define MAL_PA_CHANNEL_POSITION_REAR_CENTER             PA_CHANNEL_POSITION_REAR_CENTER          
+#define MAL_PA_CHANNEL_POSITION_REAR_LEFT               PA_CHANNEL_POSITION_REAR_LEFT            
+#define MAL_PA_CHANNEL_POSITION_REAR_RIGHT              PA_CHANNEL_POSITION_REAR_RIGHT           
+#define MAL_PA_CHANNEL_POSITION_LFE                     PA_CHANNEL_POSITION_LFE                  
+#define MAL_PA_CHANNEL_POSITION_FRONT_LEFT_OF_CENTER    PA_CHANNEL_POSITION_FRONT_LEFT_OF_CENTER 
+#define MAL_PA_CHANNEL_POSITION_FRONT_RIGHT_OF_CENTER   PA_CHANNEL_POSITION_FRONT_RIGHT_OF_CENTER
+#define MAL_PA_CHANNEL_POSITION_SIDE_LEFT               PA_CHANNEL_POSITION_SIDE_LEFT            
+#define MAL_PA_CHANNEL_POSITION_SIDE_RIGHT              PA_CHANNEL_POSITION_SIDE_RIGHT           
+#define MAL_PA_CHANNEL_POSITION_AUX0                    PA_CHANNEL_POSITION_AUX0                 
+#define MAL_PA_CHANNEL_POSITION_AUX1                    PA_CHANNEL_POSITION_AUX1                 
+#define MAL_PA_CHANNEL_POSITION_AUX2                    PA_CHANNEL_POSITION_AUX2                 
+#define MAL_PA_CHANNEL_POSITION_AUX3                    PA_CHANNEL_POSITION_AUX3                 
+#define MAL_PA_CHANNEL_POSITION_AUX4                    PA_CHANNEL_POSITION_AUX4                 
+#define MAL_PA_CHANNEL_POSITION_AUX5                    PA_CHANNEL_POSITION_AUX5                 
+#define MAL_PA_CHANNEL_POSITION_AUX6                    PA_CHANNEL_POSITION_AUX6                 
+#define MAL_PA_CHANNEL_POSITION_AUX7                    PA_CHANNEL_POSITION_AUX7                 
+#define MAL_PA_CHANNEL_POSITION_AUX8                    PA_CHANNEL_POSITION_AUX8                 
+#define MAL_PA_CHANNEL_POSITION_AUX9                    PA_CHANNEL_POSITION_AUX9                 
+#define MAL_PA_CHANNEL_POSITION_AUX10                   PA_CHANNEL_POSITION_AUX10                
+#define MAL_PA_CHANNEL_POSITION_AUX11                   PA_CHANNEL_POSITION_AUX11                
+#define MAL_PA_CHANNEL_POSITION_AUX12                   PA_CHANNEL_POSITION_AUX12                
+#define MAL_PA_CHANNEL_POSITION_AUX13                   PA_CHANNEL_POSITION_AUX13                
+#define MAL_PA_CHANNEL_POSITION_AUX14                   PA_CHANNEL_POSITION_AUX14                
+#define MAL_PA_CHANNEL_POSITION_AUX15                   PA_CHANNEL_POSITION_AUX15                
+#define MAL_PA_CHANNEL_POSITION_AUX16                   PA_CHANNEL_POSITION_AUX16                
+#define MAL_PA_CHANNEL_POSITION_AUX17                   PA_CHANNEL_POSITION_AUX17                
+#define MAL_PA_CHANNEL_POSITION_AUX18                   PA_CHANNEL_POSITION_AUX18                
+#define MAL_PA_CHANNEL_POSITION_AUX19                   PA_CHANNEL_POSITION_AUX19                
+#define MAL_PA_CHANNEL_POSITION_AUX20                   PA_CHANNEL_POSITION_AUX20                
+#define MAL_PA_CHANNEL_POSITION_AUX21                   PA_CHANNEL_POSITION_AUX21                
+#define MAL_PA_CHANNEL_POSITION_AUX22                   PA_CHANNEL_POSITION_AUX22                
+#define MAL_PA_CHANNEL_POSITION_AUX23                   PA_CHANNEL_POSITION_AUX23                
+#define MAL_PA_CHANNEL_POSITION_AUX24                   PA_CHANNEL_POSITION_AUX24                
+#define MAL_PA_CHANNEL_POSITION_AUX25                   PA_CHANNEL_POSITION_AUX25                
+#define MAL_PA_CHANNEL_POSITION_AUX26                   PA_CHANNEL_POSITION_AUX26                
+#define MAL_PA_CHANNEL_POSITION_AUX27                   PA_CHANNEL_POSITION_AUX27                
+#define MAL_PA_CHANNEL_POSITION_AUX28                   PA_CHANNEL_POSITION_AUX28                
+#define MAL_PA_CHANNEL_POSITION_AUX29                   PA_CHANNEL_POSITION_AUX29                
+#define MAL_PA_CHANNEL_POSITION_AUX30                   PA_CHANNEL_POSITION_AUX30                
+#define MAL_PA_CHANNEL_POSITION_AUX31                   PA_CHANNEL_POSITION_AUX31                
+#define MAL_PA_CHANNEL_POSITION_TOP_CENTER              PA_CHANNEL_POSITION_TOP_CENTER           
+#define MAL_PA_CHANNEL_POSITION_TOP_FRONT_LEFT          PA_CHANNEL_POSITION_TOP_FRONT_LEFT       
+#define MAL_PA_CHANNEL_POSITION_TOP_FRONT_RIGHT         PA_CHANNEL_POSITION_TOP_FRONT_RIGHT      
+#define MAL_PA_CHANNEL_POSITION_TOP_FRONT_CENTER        PA_CHANNEL_POSITION_TOP_FRONT_CENTER     
+#define MAL_PA_CHANNEL_POSITION_TOP_REAR_LEFT           PA_CHANNEL_POSITION_TOP_REAR_LEFT        
+#define MAL_PA_CHANNEL_POSITION_TOP_REAR_RIGHT          PA_CHANNEL_POSITION_TOP_REAR_RIGHT       
+#define MAL_PA_CHANNEL_POSITION_TOP_REAR_CENTER         PA_CHANNEL_POSITION_TOP_REAR_CENTER      
+#define MAL_PA_CHANNEL_POSITION_LEFT                    PA_CHANNEL_POSITION_LEFT                 
+#define MAL_PA_CHANNEL_POSITION_RIGHT                   PA_CHANNEL_POSITION_RIGHT                
+#define MAL_PA_CHANNEL_POSITION_CENTER                  PA_CHANNEL_POSITION_CENTER               
+#define MAL_PA_CHANNEL_POSITION_SUBWOOFER               PA_CHANNEL_POSITION_SUBWOOFER            
+
+typedef pa_channel_map_def_t mal_pa_channel_map_def_t;
+#define MAL_PA_CHANNEL_MAP_AIFF                         PA_CHANNEL_MAP_AIFF   
+#define MAL_PA_CHANNEL_MAP_ALSA                         PA_CHANNEL_MAP_ALSA   
+#define MAL_PA_CHANNEL_MAP_AUX                          PA_CHANNEL_MAP_AUX    
+#define MAL_PA_CHANNEL_MAP_WAVEEX                       PA_CHANNEL_MAP_WAVEEX 
+#define MAL_PA_CHANNEL_MAP_OSS                          PA_CHANNEL_MAP_OSS    
+#define MAL_PA_CHANNEL_MAP_DEFAULT                      PA_CHANNEL_MAP_DEFAULT
+
+typedef pa_sample_format_t mal_pa_sample_format_t;
+#define MAL_PA_SAMPLE_INVALID                           PA_SAMPLE_INVALID  
+#define MAL_PA_SAMPLE_U8                                PA_SAMPLE_U8       
+#define MAL_PA_SAMPLE_ALAW                              PA_SAMPLE_ALAW     
+#define MAL_PA_SAMPLE_ULAW                              PA_SAMPLE_ULAW     
+#define MAL_PA_SAMPLE_S16LE                             PA_SAMPLE_S16LE    
+#define MAL_PA_SAMPLE_S16BE                             PA_SAMPLE_S16BE    
+#define MAL_PA_SAMPLE_FLOAT32LE                         PA_SAMPLE_FLOAT32LE
+#define MAL_PA_SAMPLE_FLOAT32BE                         PA_SAMPLE_FLOAT32BE
+#define MAL_PA_SAMPLE_S32LE                             PA_SAMPLE_S32LE    
+#define MAL_PA_SAMPLE_S32BE                             PA_SAMPLE_S32BE    
+#define MAL_PA_SAMPLE_S24LE                             PA_SAMPLE_S24LE    
+#define MAL_PA_SAMPLE_S24BE                             PA_SAMPLE_S24BE    
+#define MAL_PA_SAMPLE_S24_32LE                          PA_SAMPLE_S24_32LE 
+#define MAL_PA_SAMPLE_S24_32BE                          PA_SAMPLE_S24_32BE
+
+typedef pa_mainloop     mal_pa_mainloop;
+typedef pa_mainloop_api mal_pa_mainloop_api;
+typedef pa_context      mal_pa_context;
+typedef pa_operation    mal_pa_operation;
+typedef pa_stream       mal_pa_stream;
+typedef pa_spawn_api    mal_pa_spawn_api;
+typedef pa_buffer_attr  mal_pa_buffer_attr;
+typedef pa_channel_map  mal_pa_channel_map;
+typedef pa_cvolume      mal_pa_cvolume;
+typedef pa_sample_spec  mal_pa_sample_spec;
+typedef pa_sink_info    mal_pa_sink_info;
+typedef pa_source_info  mal_pa_source_info;
+
+typedef pa_context_notify_cb_t mal_pa_context_notify_cb_t;
+typedef pa_sink_info_cb_t mal_pa_sink_info_cb_t;
+typedef pa_source_info_cb_t mal_pa_source_info_cb_t;
+typedef pa_stream_success_cb_t mal_pa_stream_success_cb_t;
+typedef pa_stream_request_cb_t mal_pa_stream_request_cb_t;
+typedef pa_free_cb_t mal_pa_free_cb_t;
+#else
 #define MAL_PA_OK                                       0
 #define MAL_PA_ERR_ACCESS                               1
 #define MAL_PA_ERR_INVALID                              2
@@ -7072,7 +7291,7 @@ typedef int mal_pa_stream_flags_t;
 #define MAL_PA_STREAM_START_UNMUTED                     0x00010000
 #define MAL_PA_STREAM_FAIL_ON_SUSPEND                   0x00020000
 #define MAL_PA_STREAM_RELATIVE_VOLUME                   0x00040000
-#define MAL_PA_STREAM_PASSTHROUGH                       0x00008000
+#define MAL_PA_STREAM_PASSTHROUGH                       0x00080000
 
 typedef int mal_pa_sink_flags_t;
 #define MAL_PA_SINK_NOFLAGS                             0x00000000
@@ -7333,6 +7552,8 @@ typedef void (* mal_pa_source_info_cb_t)   (mal_pa_context* c, const mal_pa_sour
 typedef void (* mal_pa_stream_success_cb_t)(mal_pa_stream* s, int success, void* userdata);
 typedef void (* mal_pa_stream_request_cb_t)(mal_pa_stream* s, size_t nbytes, void* userdata);
 typedef void (* mal_pa_free_cb_t)          (void* p);
+#endif
+
 
 typedef mal_pa_mainloop*          (* mal_pa_mainloop_new_proc)                   ();
 typedef void                      (* mal_pa_mainloop_free_proc)                  (mal_pa_mainloop* m);
@@ -7540,7 +7761,10 @@ static mal_result mal_context_uninit__pulse(mal_context* pContext)
     mal_assert(pContext != NULL);
     mal_assert(pContext->backend == mal_backend_pulseaudio);
 
+#ifndef MAL_NO_RUNTIME_LINKING
     mal_dlclose(pContext->pulse.pulseSO);
+#endif
+
     return MAL_SUCCESS;
 }
 
@@ -7548,6 +7772,7 @@ static mal_result mal_context_init__pulse(mal_context* pContext)
 {
     mal_assert(pContext != NULL);
 
+#ifndef MAL_NO_RUNTIME_LINKING
     // libpulse.so
     const char* libpulseNames[] = {
         "libpulse.so",
@@ -7605,6 +7830,90 @@ static mal_result mal_context_init__pulse(mal_context* pContext)
     pContext->pulse.pa_stream_write                    = (mal_proc)mal_dlsym(pContext->pulse.pulseSO, "pa_stream_write");
     pContext->pulse.pa_stream_peek                     = (mal_proc)mal_dlsym(pContext->pulse.pulseSO, "pa_stream_peek");
     pContext->pulse.pa_stream_drop                     = (mal_proc)mal_dlsym(pContext->pulse.pulseSO, "pa_stream_drop");
+#else
+    // This strange assignment system is just for type safety.
+    mal_pa_mainloop_new_proc                    _pa_mainloop_new                   = pa_mainloop_new;
+    mal_pa_mainloop_free_proc                   _pa_mainloop_free                  = pa_mainloop_free;
+    mal_pa_mainloop_get_api_proc                _pa_mainloop_get_api               = pa_mainloop_get_api;
+    mal_pa_mainloop_iterate_proc                _pa_mainloop_iterate               = pa_mainloop_iterate;
+    mal_pa_mainloop_wakeup_proc                 _pa_mainloop_wakeup                = pa_mainloop_wakeup;
+    mal_pa_context_new_proc                     _pa_context_new                    = pa_context_new;
+    mal_pa_context_unref_proc                   _pa_context_unref                  = pa_context_unref;
+    mal_pa_context_connect_proc                 _pa_context_connect                = pa_context_connect;
+    mal_pa_context_disconnect_proc              _pa_context_disconnect             = pa_context_disconnect;
+    mal_pa_context_set_state_callback_proc      _pa_context_set_state_callback     = pa_context_set_state_callback;
+    mal_pa_context_get_state_proc               _pa_context_get_state              = pa_context_get_state;
+    mal_pa_context_get_sink_info_list_proc      _pa_context_get_sink_info_list     = pa_context_get_sink_info_list;
+    mal_pa_context_get_source_info_list_proc    _pa_context_get_source_info_list   = pa_context_get_source_info_list;
+    mal_pa_context_get_sink_info_by_name_proc   _pa_context_get_sink_info_by_name  = pa_context_get_sink_info_by_name;
+    mal_pa_context_get_source_info_by_name_proc _pa_context_get_source_info_by_name= pa_context_get_source_info_by_name;
+    mal_pa_operation_unref_proc                 _pa_operation_unref                = pa_operation_unref;
+    mal_pa_operation_get_state_proc             _pa_operation_get_state            = pa_operation_get_state;
+    mal_pa_channel_map_init_extend_proc         _pa_channel_map_init_extend        = pa_channel_map_init_extend;
+    mal_pa_channel_map_valid_proc               _pa_channel_map_valid              = pa_channel_map_valid;
+    mal_pa_channel_map_compatible_proc          _pa_channel_map_compatible         = pa_channel_map_compatible;
+    mal_pa_stream_new_proc                      _pa_stream_new                     = pa_stream_new;
+    mal_pa_stream_unref_proc                    _pa_stream_unref                   = pa_stream_unref;
+    mal_pa_stream_connect_playback_proc         _pa_stream_connect_playback        = pa_stream_connect_playback;
+    mal_pa_stream_connect_record_proc           _pa_stream_connect_record          = pa_stream_connect_record;
+    mal_pa_stream_disconnect_proc               _pa_stream_disconnect              = pa_stream_disconnect;
+    mal_pa_stream_get_state_proc                _pa_stream_get_state               = pa_stream_get_state;
+    mal_pa_stream_get_sample_spec_proc          _pa_stream_get_sample_spec         = pa_stream_get_sample_spec;
+    mal_pa_stream_get_channel_map_proc          _pa_stream_get_channel_map         = pa_stream_get_channel_map;
+    mal_pa_stream_get_buffer_attr_proc          _pa_stream_get_buffer_attr         = pa_stream_get_buffer_attr;
+    mal_pa_stream_get_device_name_proc          _pa_stream_get_device_name         = pa_stream_get_device_name;
+    mal_pa_stream_set_write_callback_proc       _pa_stream_set_write_callback      = pa_stream_set_write_callback;
+    mal_pa_stream_set_read_callback_proc        _pa_stream_set_read_callback       = pa_stream_set_read_callback;
+    mal_pa_stream_flush_proc                    _pa_stream_flush                   = pa_stream_flush;
+    mal_pa_stream_drain_proc                    _pa_stream_drain                   = pa_stream_drain;
+    mal_pa_stream_cork_proc                     _pa_stream_cork                    = pa_stream_cork;
+    mal_pa_stream_trigger_proc                  _pa_stream_trigger                 = pa_stream_trigger;
+    mal_pa_stream_begin_write_proc              _pa_stream_begin_write             = pa_stream_begin_write;
+    mal_pa_stream_write_proc                    _pa_stream_write                   = pa_stream_write;
+    mal_pa_stream_peek_proc                     _pa_stream_peek                    = pa_stream_peek;
+    mal_pa_stream_drop_proc                     _pa_stream_drop                    = pa_stream_drop;
+
+    pContext->pulse.pa_mainloop_new                    = (mal_proc)_pa_mainloop_new;
+    pContext->pulse.pa_mainloop_free                   = (mal_proc)_pa_mainloop_free;
+    pContext->pulse.pa_mainloop_get_api                = (mal_proc)_pa_mainloop_get_api;
+    pContext->pulse.pa_mainloop_iterate                = (mal_proc)_pa_mainloop_iterate;
+    pContext->pulse.pa_mainloop_wakeup                 = (mal_proc)_pa_mainloop_wakeup;
+    pContext->pulse.pa_context_new                     = (mal_proc)_pa_context_new;
+    pContext->pulse.pa_context_unref                   = (mal_proc)_pa_context_unref;
+    pContext->pulse.pa_context_connect                 = (mal_proc)_pa_context_connect;
+    pContext->pulse.pa_context_disconnect              = (mal_proc)_pa_context_disconnect;
+    pContext->pulse.pa_context_set_state_callback      = (mal_proc)_pa_context_set_state_callback;
+    pContext->pulse.pa_context_get_state               = (mal_proc)_pa_context_get_state;
+    pContext->pulse.pa_context_get_sink_info_list      = (mal_proc)_pa_context_get_sink_info_list;
+    pContext->pulse.pa_context_get_source_info_list    = (mal_proc)_pa_context_get_source_info_list;
+    pContext->pulse.pa_context_get_sink_info_by_name   = (mal_proc)_pa_context_get_sink_info_by_name;
+    pContext->pulse.pa_context_get_source_info_by_name = (mal_proc)_pa_context_get_source_info_by_name;
+    pContext->pulse.pa_operation_unref                 = (mal_proc)_pa_operation_unref;
+    pContext->pulse.pa_operation_get_state             = (mal_proc)_pa_operation_get_state;
+    pContext->pulse.pa_channel_map_init_extend         = (mal_proc)_pa_channel_map_init_extend;
+    pContext->pulse.pa_channel_map_valid               = (mal_proc)_pa_channel_map_valid;
+    pContext->pulse.pa_channel_map_compatible          = (mal_proc)_pa_channel_map_compatible;
+    pContext->pulse.pa_stream_new                      = (mal_proc)_pa_stream_new;
+    pContext->pulse.pa_stream_unref                    = (mal_proc)_pa_stream_unref;
+    pContext->pulse.pa_stream_connect_playback         = (mal_proc)_pa_stream_connect_playback;
+    pContext->pulse.pa_stream_connect_record           = (mal_proc)_pa_stream_connect_record;
+    pContext->pulse.pa_stream_disconnect               = (mal_proc)_pa_stream_disconnect;
+    pContext->pulse.pa_stream_get_state                = (mal_proc)_pa_stream_get_state;
+    pContext->pulse.pa_stream_get_sample_spec          = (mal_proc)_pa_stream_get_sample_spec;
+    pContext->pulse.pa_stream_get_channel_map          = (mal_proc)_pa_stream_get_channel_map;
+    pContext->pulse.pa_stream_get_buffer_attr          = (mal_proc)_pa_stream_get_buffer_attr;
+    pContext->pulse.pa_stream_get_device_name          = (mal_proc)_pa_stream_get_device_name;
+    pContext->pulse.pa_stream_set_write_callback       = (mal_proc)_pa_stream_set_write_callback;
+    pContext->pulse.pa_stream_set_read_callback        = (mal_proc)_pa_stream_set_read_callback;
+    pContext->pulse.pa_stream_flush                    = (mal_proc)_pa_stream_flush;
+    pContext->pulse.pa_stream_drain                    = (mal_proc)_pa_stream_drain;
+    pContext->pulse.pa_stream_cork                     = (mal_proc)_pa_stream_cork;
+    pContext->pulse.pa_stream_trigger                  = (mal_proc)_pa_stream_trigger;
+    pContext->pulse.pa_stream_begin_write              = (mal_proc)_pa_stream_begin_write;
+    pContext->pulse.pa_stream_write                    = (mal_proc)_pa_stream_write;
+    pContext->pulse.pa_stream_peek                     = (mal_proc)_pa_stream_peek;
+    pContext->pulse.pa_stream_drop                     = (mal_proc)_pa_stream_drop;
+#endif
 
     return MAL_SUCCESS;
 }
@@ -8235,9 +8544,7 @@ static mal_result mal_device__main_loop__pulse(mal_device* pDevice)
 // It is assumed jack.h is available when compile-time linking is being used.
 #ifdef MAL_NO_RUNTIME_LINKING
 #include <jack/jack.h>
-#endif
 
-#ifdef MAL_NO_RUNTIME_LINKING
 typedef jack_nframes_t              mal_jack_nframes_t;
 typedef jack_options_t              mal_jack_options_t;
 typedef jack_status_t               mal_jack_status_t;
