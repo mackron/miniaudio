@@ -588,7 +588,7 @@ typedef union
     char pulse[256];                // PulseAudio uses a name string for identification.
 #endif
 #ifdef MAL_SUPPORT_JACK
-    int jack;                       // TODO: Set this to the correct data type.
+    int jack;                       // JACK always uses default devices.
 #endif
 #ifdef MAL_SUPPORT_COREAUDIO
     // TODO: Implement me.
