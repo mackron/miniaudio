@@ -1,9 +1,8 @@
 ![mini_al](http://dred.io/img/minial_wide.png)
 
-mini_al is a simple library for playing and recording audio. It's focused on simplicity and has
-a very small number of APIs.
-
-C/C++, single file, public domain.
+mini_al is a single file library for playing and recording audio. It's written in C (compilable as C++)
+and released into the public domain. It has a heavy focus on simplicity, and features a simple API and
+a very simple build system.
 
 
 Features
@@ -13,9 +12,9 @@ Features
 - Compilable as both C and C++.
 - Easy to build.
   - Does not require linking to anything on the Windows build and only -ldl on Linux.
-  - The Windows build compiles clean with the default installations of modern versions of MSVC, GCC
-    and Clang. There is no need to download any dependencies, configure include paths nor link to
-    any libraries. It should Just Work.
+  - It should Just Work out of the box, without the need to download and install any dependencies. (Note
+    that some older versions of MinGW/MinGW-64 don't include WASAPI and DirectSound headers which may
+    require manual installation. Plans are in place to work around this in a future update.)
   - The header section does not include any platform specific headers.
 - A very simple API.
 - Transparent data structures with direct access to internal data.
