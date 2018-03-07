@@ -43,7 +43,7 @@
 //
 // You can then #include this file in other parts of the program as you would with any other header file.
 //
-// The implementation of this library will try #include-ing necessary headers for each backend. If you do not have
+// The implementation of this library will try #include-ing necessary headers for some backends. If you do not have
 // the development packages for any particular backend you can disable it by #define-ing the appropriate MAL_NO_*
 // option before the implementation.
 //
@@ -55,13 +55,12 @@
 //
 // Building (Linux)
 // ----------------
-// The Linux build uses ALSA for it's backend so you will need to install the relevant ALSA development packages
-// for your preferred distro. It also uses pthreads. Dependencies are dynamically linked at runtime so you do not
-// need to link to -lasound nor -lpthread. You will need to link to -ldl.
+// The Linux build only requires linking to -ldl. You do not need any development packages for any backend. It
+// depends on pthreads, but you do not need to link to -lpthread.
 //
 // Building (BSD)
 // --------------
-// BSD build uses OSS. Requires linking to -lossaudio on {Open,Net}BSD, but not FreeBSD.
+// The BSD build uses OSS. Requires linking to -lossaudio on {Open,Net}BSD, but not FreeBSD.
 //
 // Building (Emscripten)
 // ---------------------
@@ -1902,9 +1901,11 @@ mal_result mal_decoder_seek_to_frame(mal_decoder* pDecoder, mal_uint64 frameInde
 #endif
 #ifdef MAL_ENABLE_ALSA
     #define MAL_HAS_ALSA
-    #ifdef __has_include
-        #if !__has_include(<alsa/asoundlib.h>)
-            #undef MAL_HAS_ALSA
+    #ifdef MAL_NO_RUNTIME_LINKING
+        #ifdef __has_include
+            #if !__has_include(<alsa/asoundlib.h>)
+                #undef MAL_HAS_ALSA
+            #endif
         #endif
     #endif
 #endif
@@ -5828,64 +5829,238 @@ static mal_result mal_device__main_loop__winmm(mal_device* pDevice)
 //
 ///////////////////////////////////////////////////////////////////////////////
 #ifdef MAL_HAS_ALSA
+
+#ifdef MAL_NO_RUNTIME_LINKING
 #include <alsa/asoundlib.h>
+typedef snd_pcm_uframes_t                       mal_snd_pcm_uframes_t;
+typedef snd_pcm_sframes_t                       mal_snd_pcm_sframes_t;
+typedef snd_pcm_stream_t                        mal_snd_pcm_stream_t;
+typedef snd_pcm_format_t                        mal_snd_pcm_format_t;
+typedef snd_pcm_access_t                        mal_snd_pcm_access_t;
+typedef snd_pcm_t                               mal_snd_pcm_t;
+typedef snd_pcm_hw_params_t                     mal_snd_pcm_hw_params_t;
+typedef snd_pcm_sw_params_t                     mal_snd_pcm_sw_params_t;
+typedef snd_pcm_format_mask_t                   mal_snd_pcm_format_mask_t;
+typedef snd_pcm_info_t                          mal_snd_pcm_info_t;
+typedef snd_pcm_channel_area_t                  mal_snd_pcm_channel_area_t;
+typedef snd_pcm_chmap_t                         mal_snd_pcm_chmap_t;
 
-typedef int               (* mal_snd_pcm_open_proc)                          (snd_pcm_t **pcm, const char *name, snd_pcm_stream_t stream, int mode);
-typedef int               (* mal_snd_pcm_close_proc)                         (snd_pcm_t *pcm);
-typedef size_t            (* mal_snd_pcm_hw_params_sizeof_proc)              (void);
-typedef int               (* mal_snd_pcm_hw_params_any_proc)                 (snd_pcm_t *pcm, snd_pcm_hw_params_t *params);
-typedef int               (* mal_snd_pcm_hw_params_set_format_proc)          (snd_pcm_t *pcm, snd_pcm_hw_params_t *params, snd_pcm_format_t val);
-typedef int               (* mal_snd_pcm_hw_params_set_format_first_proc)    (snd_pcm_t *pcm, snd_pcm_hw_params_t *params, snd_pcm_format_t *format);
-typedef void              (* mal_snd_pcm_hw_params_get_format_mask_proc)     (snd_pcm_hw_params_t *params, snd_pcm_format_mask_t *mask);
-typedef int               (* mal_snd_pcm_hw_params_set_channels_near_proc)   (snd_pcm_t *pcm, snd_pcm_hw_params_t *params, unsigned int *val);
-typedef int               (* mal_snd_pcm_hw_params_set_rate_resample_proc)   (snd_pcm_t *pcm, snd_pcm_hw_params_t *params, unsigned int val);
-typedef int               (* mal_snd_pcm_hw_params_set_rate_near_proc)       (snd_pcm_t *pcm, snd_pcm_hw_params_t *params, unsigned int *val, int *dir);
-typedef int               (* mal_snd_pcm_hw_params_set_buffer_size_near_proc)(snd_pcm_t *pcm, snd_pcm_hw_params_t *params, snd_pcm_uframes_t *val);
-typedef int               (* mal_snd_pcm_hw_params_set_periods_near_proc)    (snd_pcm_t *pcm, snd_pcm_hw_params_t *params, unsigned int *val, int *dir);
-typedef int               (* mal_snd_pcm_hw_params_set_access_proc)          (snd_pcm_t *pcm, snd_pcm_hw_params_t *params, snd_pcm_access_t _access);
-typedef int               (* mal_snd_pcm_hw_params_get_format_proc)          (snd_pcm_hw_params_t *params, snd_pcm_format_t *format);
-typedef int               (* mal_snd_pcm_hw_params_get_channels_proc)        (snd_pcm_hw_params_t *params, unsigned int *val);
-typedef int               (* mal_snd_pcm_hw_params_get_rate_proc)            (snd_pcm_hw_params_t *params, unsigned int *rate, int *dir);
-typedef int               (* mal_snd_pcm_hw_params_get_buffer_size_proc)     (snd_pcm_hw_params_t *params, snd_pcm_uframes_t *val);
-typedef int               (* mal_snd_pcm_hw_params_get_periods_proc)         (snd_pcm_hw_params_t *params, unsigned int *val, int *dir);
-typedef int               (* mal_snd_pcm_hw_params_get_access_proc)          (snd_pcm_hw_params_t *params, snd_pcm_access_t *_access);
-typedef int               (* mal_snd_pcm_hw_params_proc)                     (snd_pcm_t *pcm, snd_pcm_hw_params_t *params);
-typedef size_t            (* mal_snd_pcm_sw_params_sizeof_proc)              (void);
-typedef int               (* mal_snd_pcm_sw_params_current_proc)             (snd_pcm_t *pcm, snd_pcm_sw_params_t *params);
-typedef int               (* mal_snd_pcm_sw_params_set_avail_min_proc)       (snd_pcm_t *pcm, snd_pcm_sw_params_t *params, snd_pcm_uframes_t val);
-typedef int               (* mal_snd_pcm_sw_params_set_start_threshold_proc) (snd_pcm_t *pcm, snd_pcm_sw_params_t *params, snd_pcm_uframes_t val);
-typedef int               (* mal_snd_pcm_sw_params_proc)                     (snd_pcm_t *pcm, snd_pcm_sw_params_t *params);
-typedef size_t            (* mal_snd_pcm_format_mask_sizeof_proc)            (void);
-typedef int               (* mal_snd_pcm_format_mask_test_proc)              (const snd_pcm_format_mask_t *mask, snd_pcm_format_t val);
-typedef snd_pcm_chmap_t * (* mal_snd_pcm_get_chmap_proc)                     (snd_pcm_t *pcm);
-typedef int               (* mal_snd_pcm_prepare_proc)                       (snd_pcm_t *pcm);
-typedef int               (* mal_snd_pcm_start_proc)                         (snd_pcm_t *pcm);
-typedef int               (* mal_snd_pcm_drop_proc)                          (snd_pcm_t *pcm);
-typedef int               (* mal_snd_device_name_hint_proc)                  (int card, const char *iface, void ***hints);
-typedef char *            (* mal_snd_device_name_get_hint_proc)              (const void *hint, const char *id);
-typedef int               (* mal_snd_card_get_index_proc)                    (const char *name);
-typedef int               (* mal_snd_device_name_free_hint_proc)             (void **hints);
-typedef int               (* mal_snd_pcm_mmap_begin_proc)                    (snd_pcm_t *pcm, const snd_pcm_channel_area_t **areas, snd_pcm_uframes_t *offset, snd_pcm_uframes_t *frames);
-typedef snd_pcm_sframes_t (* mal_snd_pcm_mmap_commit_proc)                   (snd_pcm_t *pcm, snd_pcm_uframes_t offset, snd_pcm_uframes_t frames);
-typedef int               (* mal_snd_pcm_recover_proc)                       (snd_pcm_t *pcm, int err, int silent);
-typedef snd_pcm_sframes_t (* mal_snd_pcm_readi_proc)                         (snd_pcm_t *pcm, void *buffer, snd_pcm_uframes_t size);
-typedef snd_pcm_sframes_t (* mal_snd_pcm_writei_proc)                        (snd_pcm_t *pcm, const void *buffer, snd_pcm_uframes_t size);
-typedef snd_pcm_sframes_t (* mal_snd_pcm_avail_proc)                         (snd_pcm_t *pcm);
-typedef snd_pcm_sframes_t (* mal_snd_pcm_avail_update_proc)                  (snd_pcm_t *pcm);
-typedef int               (* mal_snd_pcm_wait_proc)                          (snd_pcm_t *pcm, int timeout);
-typedef int               (* mal_snd_pcm_info_proc)                          (snd_pcm_t *pcm, snd_pcm_info_t* info);
-typedef size_t            (* mal_snd_pcm_info_sizeof_proc)                   ();
-typedef const char*       (* mal_snd_pcm_info_get_name_proc)                 (const snd_pcm_info_t* info);
-typedef int               (* mal_snd_config_update_free_global_proc)         ();
+// snd_pcm_stream_t
+#define MAL_SND_PCM_STREAM_PLAYBACK             SND_PCM_STREAM_PLAYBACK
+#define MAL_SND_PCM_STREAM_CAPTURE              SND_PCM_STREAM_CAPTURE
 
-static snd_pcm_format_t g_mal_ALSAFormats[] = {
-    SND_PCM_FORMAT_UNKNOWN,     // mal_format_unknown
-    SND_PCM_FORMAT_U8,          // mal_format_u8
-    SND_PCM_FORMAT_S16_LE,      // mal_format_s16
-    SND_PCM_FORMAT_S24_3LE,     // mal_format_s24
-    //SND_PCM_FORMAT_S24_LE,      // mal_format_s24_32
-    SND_PCM_FORMAT_S32_LE,      // mal_format_s32
-    SND_PCM_FORMAT_FLOAT_LE     // mal_format_f32
+// snd_pcm_format_t
+#define MAL_SND_PCM_FORMAT_UNKNOWN              SND_PCM_FORMAT_UNKNOWN
+#define MAL_SND_PCM_FORMAT_U8                   SND_PCM_FORMAT_U8
+#define MAL_SND_PCM_FORMAT_S16_LE               SND_PCM_FORMAT_S16_LE
+#define MAL_SND_PCM_FORMAT_S16_BE               SND_PCM_FORMAT_S16_BE
+#define MAL_SND_PCM_FORMAT_S24_LE               SND_PCM_FORMAT_S24_LE
+#define MAL_SND_PCM_FORMAT_S24_BE               SND_PCM_FORMAT_S24_BE
+#define MAL_SND_PCM_FORMAT_S32_LE               SND_PCM_FORMAT_S32_LE
+#define MAL_SND_PCM_FORMAT_S32_BE               SND_PCM_FORMAT_S32_BE
+#define MAL_SND_PCM_FORMAT_FLOAT_LE             SND_PCM_FORMAT_FLOAT_LE
+#define MAL_SND_PCM_FORMAT_FLOAT_BE             SND_PCM_FORMAT_FLOAT_BE
+#define MAL_SND_PCM_FORMAT_FLOAT64_LE           SND_PCM_FORMAT_FLOAT64_LE
+#define MAL_SND_PCM_FORMAT_FLOAT64_BE           SND_PCM_FORMAT_FLOAT64_BE
+#define MAL_SND_PCM_FORMAT_MU_LAW               SND_PCM_FORMAT_MU_LAW
+#define MAL_SND_PCM_FORMAT_A_LAW                SND_PCM_FORMAT_A_LAW
+#define MAL_SND_PCM_FORMAT_S24_3LE              SND_PCM_FORMAT_S24_3LE
+#define MAL_SND_PCM_FORMAT_S24_3BE              SND_PCM_FORMAT_S24_3BE
+
+// mal_snd_pcm_access_t
+#define MAL_SND_PCM_ACCESS_MMAP_INTERLEAVED     SND_PCM_ACCESS_MMAP_INTERLEAVED
+#define MAL_SND_PCM_ACCESS_MMAP_NONINTERLEAVED  SND_PCM_ACCESS_MMAP_NONINTERLEAVED
+#define MAL_SND_PCM_ACCESS_MMAP_COMPLEX         SND_PCM_ACCESS_MMAP_COMPLEX
+#define MAL_SND_PCM_ACCESS_RW_INTERLEAVED       SND_PCM_ACCESS_RW_INTERLEAVED
+#define MAL_SND_PCM_ACCESS_RW_NONINTERLEAVED    SND_PCM_ACCESS_RW_NONINTERLEAVED
+
+// Channel positions.
+#define MAL_SND_CHMAP_UNKNOWN                   SND_CHMAP_UNKNOWN
+#define MAL_SND_CHMAP_NA                        SND_CHMAP_NA
+#define MAL_SND_CHMAP_MONO                      SND_CHMAP_MONO
+#define MAL_SND_CHMAP_FL                        SND_CHMAP_FL
+#define MAL_SND_CHMAP_FR                        SND_CHMAP_FR
+#define MAL_SND_CHMAP_RL                        SND_CHMAP_RL
+#define MAL_SND_CHMAP_RR                        SND_CHMAP_RR
+#define MAL_SND_CHMAP_FC                        SND_CHMAP_FC
+#define MAL_SND_CHMAP_LFE                       SND_CHMAP_LFE
+#define MAL_SND_CHMAP_SL                        SND_CHMAP_SL
+#define MAL_SND_CHMAP_SR                        SND_CHMAP_SR
+#define MAL_SND_CHMAP_RC                        SND_CHMAP_RC
+#define MAL_SND_CHMAP_FLC                       SND_CHMAP_FLC
+#define MAL_SND_CHMAP_FRC                       SND_CHMAP_FRC
+#define MAL_SND_CHMAP_RLC                       SND_CHMAP_RLC
+#define MAL_SND_CHMAP_RRC                       SND_CHMAP_RRC
+#define MAL_SND_CHMAP_FLW                       SND_CHMAP_FLW
+#define MAL_SND_CHMAP_FRW                       SND_CHMAP_FRW
+#define MAL_SND_CHMAP_FLH                       SND_CHMAP_FLH
+#define MAL_SND_CHMAP_FCH                       SND_CHMAP_FCH
+#define MAL_SND_CHMAP_FRH                       SND_CHMAP_FRH
+#define MAL_SND_CHMAP_TC                        SND_CHMAP_TC
+#define MAL_SND_CHMAP_TFL                       SND_CHMAP_TFL
+#define MAL_SND_CHMAP_TFR                       SND_CHMAP_TFR
+#define MAL_SND_CHMAP_TFC                       SND_CHMAP_TFC
+#define MAL_SND_CHMAP_TRL                       SND_CHMAP_TRL
+#define MAL_SND_CHMAP_TRR                       SND_CHMAP_TRR
+#define MAL_SND_CHMAP_TRC                       SND_CHMAP_TRC
+#define MAL_SND_CHMAP_TFLC                      SND_CHMAP_TFLC
+#define MAL_SND_CHMAP_TFRC                      SND_CHMAP_TFRC
+#define MAL_SND_CHMAP_TSL                       SND_CHMAP_TSL
+#define MAL_SND_CHMAP_TSR                       SND_CHMAP_TSR
+#define MAL_SND_CHMAP_LLFE                      SND_CHMAP_LLFE
+#define MAL_SND_CHMAP_RLFE                      SND_CHMAP_RLFE
+#define MAL_SND_CHMAP_BC                        SND_CHMAP_BC
+#define MAL_SND_CHMAP_BLC                       SND_CHMAP_BLC
+#define MAL_SND_CHMAP_BRC                       SND_CHMAP_BRC
+#else
+#include <errno.h>  // For EPIPE, etc.
+typedef unsigned long                           mal_snd_pcm_uframes_t;
+typedef long                                    mal_snd_pcm_sframes_t;
+typedef int                                     mal_snd_pcm_stream_t;
+typedef int                                     mal_snd_pcm_format_t;
+typedef int                                     mal_snd_pcm_access_t;
+typedef struct mal_snd_pcm_t                    mal_snd_pcm_t;
+typedef struct mal_snd_pcm_hw_params_t          mal_snd_pcm_hw_params_t;
+typedef struct mal_snd_pcm_sw_params_t          mal_snd_pcm_sw_params_t;
+typedef struct mal_snd_pcm_format_mask_t        mal_snd_pcm_format_mask_t;
+typedef struct mal_snd_pcm_info_t               mal_snd_pcm_info_t;
+typedef struct
+{
+    void* addr;
+    unsigned int first;
+    unsigned int step;
+} mal_snd_pcm_channel_area_t;
+typedef struct
+{
+    unsigned int channels;
+    unsigned int pos[0];
+} mal_snd_pcm_chmap_t;
+
+// snd_pcm_stream_t
+#define MAL_SND_PCM_STREAM_PLAYBACK             0
+#define MAL_SND_PCM_STREAM_CAPTURE              1
+
+// snd_pcm_format_t
+#define MAL_SND_PCM_FORMAT_UNKNOWN              -1
+#define MAL_SND_PCM_FORMAT_U8                   1
+#define MAL_SND_PCM_FORMAT_S16_LE               2
+#define MAL_SND_PCM_FORMAT_S16_BE               3
+#define MAL_SND_PCM_FORMAT_S24_LE               6
+#define MAL_SND_PCM_FORMAT_S24_BE               7
+#define MAL_SND_PCM_FORMAT_S32_LE               10
+#define MAL_SND_PCM_FORMAT_S32_BE               11
+#define MAL_SND_PCM_FORMAT_FLOAT_LE             14
+#define MAL_SND_PCM_FORMAT_FLOAT_BE             15
+#define MAL_SND_PCM_FORMAT_FLOAT64_LE           16
+#define MAL_SND_PCM_FORMAT_FLOAT64_BE           17
+#define MAL_SND_PCM_FORMAT_MU_LAW               20
+#define MAL_SND_PCM_FORMAT_A_LAW                21
+#define MAL_SND_PCM_FORMAT_S24_3LE              32
+#define MAL_SND_PCM_FORMAT_S24_3BE              33
+
+// snd_pcm_access_t
+#define MAL_SND_PCM_ACCESS_MMAP_INTERLEAVED     0
+#define MAL_SND_PCM_ACCESS_MMAP_NONINTERLEAVED  1
+#define MAL_SND_PCM_ACCESS_MMAP_COMPLEX         2
+#define MAL_SND_PCM_ACCESS_RW_INTERLEAVED       3
+#define MAL_SND_PCM_ACCESS_RW_NONINTERLEAVED    4
+
+// Channel positions.
+#define MAL_SND_CHMAP_UNKNOWN                   0
+#define MAL_SND_CHMAP_NA                        1
+#define MAL_SND_CHMAP_MONO                      2
+#define MAL_SND_CHMAP_FL                        3
+#define MAL_SND_CHMAP_FR                        4
+#define MAL_SND_CHMAP_RL                        5
+#define MAL_SND_CHMAP_RR                        6
+#define MAL_SND_CHMAP_FC                        7
+#define MAL_SND_CHMAP_LFE                       8
+#define MAL_SND_CHMAP_SL                        9
+#define MAL_SND_CHMAP_SR                        10
+#define MAL_SND_CHMAP_RC                        11
+#define MAL_SND_CHMAP_FLC                       12
+#define MAL_SND_CHMAP_FRC                       13
+#define MAL_SND_CHMAP_RLC                       14
+#define MAL_SND_CHMAP_RRC                       15
+#define MAL_SND_CHMAP_FLW                       16
+#define MAL_SND_CHMAP_FRW                       17
+#define MAL_SND_CHMAP_FLH                       18
+#define MAL_SND_CHMAP_FCH                       19
+#define MAL_SND_CHMAP_FRH                       20
+#define MAL_SND_CHMAP_TC                        21
+#define MAL_SND_CHMAP_TFL                       22
+#define MAL_SND_CHMAP_TFR                       23
+#define MAL_SND_CHMAP_TFC                       24
+#define MAL_SND_CHMAP_TRL                       25
+#define MAL_SND_CHMAP_TRR                       26
+#define MAL_SND_CHMAP_TRC                       27
+#define MAL_SND_CHMAP_TFLC                      28
+#define MAL_SND_CHMAP_TFRC                      29
+#define MAL_SND_CHMAP_TSL                       30
+#define MAL_SND_CHMAP_TSR                       31
+#define MAL_SND_CHMAP_LLFE                      32
+#define MAL_SND_CHMAP_RLFE                      33
+#define MAL_SND_CHMAP_BC                        34
+#define MAL_SND_CHMAP_BLC                       35
+#define MAL_SND_CHMAP_BRC                       36
+#endif
+
+typedef int                   (* mal_snd_pcm_open_proc)                          (mal_snd_pcm_t **pcm, const char *name, mal_snd_pcm_stream_t stream, int mode);
+typedef int                   (* mal_snd_pcm_close_proc)                         (mal_snd_pcm_t *pcm);
+typedef size_t                (* mal_snd_pcm_hw_params_sizeof_proc)              (void);
+typedef int                   (* mal_snd_pcm_hw_params_any_proc)                 (mal_snd_pcm_t *pcm, mal_snd_pcm_hw_params_t *params);
+typedef int                   (* mal_snd_pcm_hw_params_set_format_proc)          (mal_snd_pcm_t *pcm, mal_snd_pcm_hw_params_t *params, mal_snd_pcm_format_t val);
+typedef int                   (* mal_snd_pcm_hw_params_set_format_first_proc)    (mal_snd_pcm_t *pcm, mal_snd_pcm_hw_params_t *params, mal_snd_pcm_format_t *format);
+typedef void                  (* mal_snd_pcm_hw_params_get_format_mask_proc)     (mal_snd_pcm_hw_params_t *params, mal_snd_pcm_format_mask_t *mask);
+typedef int                   (* mal_snd_pcm_hw_params_set_channels_near_proc)   (mal_snd_pcm_t *pcm, mal_snd_pcm_hw_params_t *params, unsigned int *val);
+typedef int                   (* mal_snd_pcm_hw_params_set_rate_resample_proc)   (mal_snd_pcm_t *pcm, mal_snd_pcm_hw_params_t *params, unsigned int val);
+typedef int                   (* mal_snd_pcm_hw_params_set_rate_near_proc)       (mal_snd_pcm_t *pcm, mal_snd_pcm_hw_params_t *params, unsigned int *val, int *dir);
+typedef int                   (* mal_snd_pcm_hw_params_set_buffer_size_near_proc)(mal_snd_pcm_t *pcm, mal_snd_pcm_hw_params_t *params, mal_snd_pcm_uframes_t *val);
+typedef int                   (* mal_snd_pcm_hw_params_set_periods_near_proc)    (mal_snd_pcm_t *pcm, mal_snd_pcm_hw_params_t *params, unsigned int *val, int *dir);
+typedef int                   (* mal_snd_pcm_hw_params_set_access_proc)          (mal_snd_pcm_t *pcm, mal_snd_pcm_hw_params_t *params, mal_snd_pcm_access_t _access);
+typedef int                   (* mal_snd_pcm_hw_params_get_format_proc)          (const mal_snd_pcm_hw_params_t *params, mal_snd_pcm_format_t *format);
+typedef int                   (* mal_snd_pcm_hw_params_get_channels_proc)        (const mal_snd_pcm_hw_params_t *params, unsigned int *val);
+typedef int                   (* mal_snd_pcm_hw_params_get_rate_proc)            (const mal_snd_pcm_hw_params_t *params, unsigned int *rate, int *dir);
+typedef int                   (* mal_snd_pcm_hw_params_get_buffer_size_proc)     (const mal_snd_pcm_hw_params_t *params, mal_snd_pcm_uframes_t *val);
+typedef int                   (* mal_snd_pcm_hw_params_get_periods_proc)         (const mal_snd_pcm_hw_params_t *params, unsigned int *val, int *dir);
+typedef int                   (* mal_snd_pcm_hw_params_get_access_proc)          (const mal_snd_pcm_hw_params_t *params, mal_snd_pcm_access_t *_access);
+typedef int                   (* mal_snd_pcm_hw_params_proc)                     (mal_snd_pcm_t *pcm, mal_snd_pcm_hw_params_t *params);
+typedef size_t                (* mal_snd_pcm_sw_params_sizeof_proc)              (void);
+typedef int                   (* mal_snd_pcm_sw_params_current_proc)             (mal_snd_pcm_t *pcm, mal_snd_pcm_sw_params_t *params);
+typedef int                   (* mal_snd_pcm_sw_params_set_avail_min_proc)       (mal_snd_pcm_t *pcm, mal_snd_pcm_sw_params_t *params, mal_snd_pcm_uframes_t val);
+typedef int                   (* mal_snd_pcm_sw_params_set_start_threshold_proc) (mal_snd_pcm_t *pcm, mal_snd_pcm_sw_params_t *params, mal_snd_pcm_uframes_t val);
+typedef int                   (* mal_snd_pcm_sw_params_proc)                     (mal_snd_pcm_t *pcm, mal_snd_pcm_sw_params_t *params);
+typedef size_t                (* mal_snd_pcm_format_mask_sizeof_proc)            (void);
+typedef int                   (* mal_snd_pcm_format_mask_test_proc)              (const mal_snd_pcm_format_mask_t *mask, mal_snd_pcm_format_t val);
+typedef mal_snd_pcm_chmap_t * (* mal_snd_pcm_get_chmap_proc)                     (mal_snd_pcm_t *pcm);
+typedef int                   (* mal_snd_pcm_prepare_proc)                       (mal_snd_pcm_t *pcm);
+typedef int                   (* mal_snd_pcm_start_proc)                         (mal_snd_pcm_t *pcm);
+typedef int                   (* mal_snd_pcm_drop_proc)                          (mal_snd_pcm_t *pcm);
+typedef int                   (* mal_snd_device_name_hint_proc)                  (int card, const char *iface, void ***hints);
+typedef char *                (* mal_snd_device_name_get_hint_proc)              (const void *hint, const char *id);
+typedef int                   (* mal_snd_card_get_index_proc)                    (const char *name);
+typedef int                   (* mal_snd_device_name_free_hint_proc)             (void **hints);
+typedef int                   (* mal_snd_pcm_mmap_begin_proc)                    (mal_snd_pcm_t *pcm, const mal_snd_pcm_channel_area_t **areas, mal_snd_pcm_uframes_t *offset, mal_snd_pcm_uframes_t *frames);
+typedef mal_snd_pcm_sframes_t (* mal_snd_pcm_mmap_commit_proc)                   (mal_snd_pcm_t *pcm, mal_snd_pcm_uframes_t offset, mal_snd_pcm_uframes_t frames);
+typedef int                   (* mal_snd_pcm_recover_proc)                       (mal_snd_pcm_t *pcm, int err, int silent);
+typedef mal_snd_pcm_sframes_t (* mal_snd_pcm_readi_proc)                         (mal_snd_pcm_t *pcm, void *buffer, mal_snd_pcm_uframes_t size);
+typedef mal_snd_pcm_sframes_t (* mal_snd_pcm_writei_proc)                        (mal_snd_pcm_t *pcm, const void *buffer, mal_snd_pcm_uframes_t size);
+typedef mal_snd_pcm_sframes_t (* mal_snd_pcm_avail_proc)                         (mal_snd_pcm_t *pcm);
+typedef mal_snd_pcm_sframes_t (* mal_snd_pcm_avail_update_proc)                  (mal_snd_pcm_t *pcm);
+typedef int                   (* mal_snd_pcm_wait_proc)                          (mal_snd_pcm_t *pcm, int timeout);
+typedef int                   (* mal_snd_pcm_info_proc)                          (mal_snd_pcm_t *pcm, mal_snd_pcm_info_t* info);
+typedef size_t                (* mal_snd_pcm_info_sizeof_proc)                   ();
+typedef const char*           (* mal_snd_pcm_info_get_name_proc)                 (const mal_snd_pcm_info_t* info);
+typedef int                   (* mal_snd_config_update_free_global_proc)         ();
+
+static mal_snd_pcm_format_t g_mal_ALSAFormats[] = {
+    MAL_SND_PCM_FORMAT_UNKNOWN,     // mal_format_unknown
+    MAL_SND_PCM_FORMAT_U8,          // mal_format_u8
+    MAL_SND_PCM_FORMAT_S16_LE,      // mal_format_s16
+    MAL_SND_PCM_FORMAT_S24_3LE,     // mal_format_s24
+    //MAL_SND_PCM_FORMAT_S24_LE,      // mal_format_s24_32
+    MAL_SND_PCM_FORMAT_S32_LE,      // mal_format_s32
+    MAL_SND_PCM_FORMAT_FLOAT_LE     // mal_format_f32
 };
 
 // This array allows mini_al to control device-specific default buffer sizes. This uses a scaling factor. Order is important. If
@@ -5914,21 +6089,22 @@ static float mal_find_default_buffer_size_scale__alsa(const char* deviceName)
     return 1;
 }
 
-snd_pcm_format_t mal_convert_mal_format_to_alsa_format(mal_format format)
+mal_snd_pcm_format_t mal_convert_mal_format_to_alsa_format(mal_format format)
 {
     return g_mal_ALSAFormats[format];
 }
 
-mal_format mal_convert_alsa_format_to_mal_format(snd_pcm_format_t formatALSA)
+mal_format mal_convert_alsa_format_to_mal_format(mal_snd_pcm_format_t formatALSA)
 {
     switch (formatALSA)
     {
-        case SND_PCM_FORMAT_U8:       return mal_format_u8;
-        case SND_PCM_FORMAT_S16_LE:   return mal_format_s16;
-        case SND_PCM_FORMAT_S24_3LE:  return mal_format_s24;
-        case SND_PCM_FORMAT_S32_LE:   return mal_format_s32;
-        case SND_PCM_FORMAT_FLOAT_LE: return mal_format_f32;
-        default:                      return mal_format_unknown;
+        case MAL_SND_PCM_FORMAT_U8:       return mal_format_u8;
+        case MAL_SND_PCM_FORMAT_S16_LE:   return mal_format_s16;
+        case MAL_SND_PCM_FORMAT_S24_3LE:  return mal_format_s24;
+        //MAL_SND_PCM_FORMAT_S24_LE,        return mal_format_s24_32
+        case MAL_SND_PCM_FORMAT_S32_LE:   return mal_format_s32;
+        case MAL_SND_PCM_FORMAT_FLOAT_LE: return mal_format_f32;
+        default:                          return mal_format_unknown;
     }
 }
 
@@ -5936,31 +6112,32 @@ mal_channel mal_convert_alsa_channel_position_to_mal_channel(unsigned int alsaCh
 {
     switch (alsaChannelPos)
     {
-        case SND_CHMAP_FL:  return MAL_CHANNEL_FRONT_LEFT;
-        case SND_CHMAP_FR:  return MAL_CHANNEL_FRONT_RIGHT;
-        case SND_CHMAP_RL:  return MAL_CHANNEL_BACK_LEFT;
-        case SND_CHMAP_RR:  return MAL_CHANNEL_BACK_RIGHT;
-        case SND_CHMAP_FC:  return MAL_CHANNEL_FRONT_CENTER;
-        case SND_CHMAP_LFE: return MAL_CHANNEL_LFE;
-        case SND_CHMAP_SL:  return MAL_CHANNEL_SIDE_LEFT;
-        case SND_CHMAP_SR:  return MAL_CHANNEL_SIDE_RIGHT;
-        case SND_CHMAP_RC:  return MAL_CHANNEL_BACK_CENTER;
-        case SND_CHMAP_FLC: return MAL_CHANNEL_FRONT_LEFT_CENTER;
-        case SND_CHMAP_FRC: return MAL_CHANNEL_FRONT_RIGHT_CENTER;
-        case SND_CHMAP_RLC: return 0;
-        case SND_CHMAP_RRC: return 0;
-        case SND_CHMAP_FLW: return 0;
-        case SND_CHMAP_FRW: return 0;
-        case SND_CHMAP_FLH: return 0;
-        case SND_CHMAP_FCH: return 0;
-        case SND_CHMAP_FRH: return 0;
-        case SND_CHMAP_TC:  return MAL_CHANNEL_TOP_CENTER;
-        case SND_CHMAP_TFL: return MAL_CHANNEL_TOP_FRONT_LEFT;
-        case SND_CHMAP_TFR: return MAL_CHANNEL_TOP_FRONT_RIGHT;
-        case SND_CHMAP_TFC: return MAL_CHANNEL_TOP_FRONT_CENTER;
-        case SND_CHMAP_TRL: return MAL_CHANNEL_TOP_BACK_LEFT;
-        case SND_CHMAP_TRR: return MAL_CHANNEL_TOP_BACK_RIGHT;
-        case SND_CHMAP_TRC: return MAL_CHANNEL_TOP_BACK_CENTER;
+        case MAL_SND_CHMAP_MONO: return MAL_CHANNEL_MONO;
+        case MAL_SND_CHMAP_FL:   return MAL_CHANNEL_FRONT_LEFT;
+        case MAL_SND_CHMAP_FR:   return MAL_CHANNEL_FRONT_RIGHT;
+        case MAL_SND_CHMAP_RL:   return MAL_CHANNEL_BACK_LEFT;
+        case MAL_SND_CHMAP_RR:   return MAL_CHANNEL_BACK_RIGHT;
+        case MAL_SND_CHMAP_FC:   return MAL_CHANNEL_FRONT_CENTER;
+        case MAL_SND_CHMAP_LFE:  return MAL_CHANNEL_LFE;
+        case MAL_SND_CHMAP_SL:   return MAL_CHANNEL_SIDE_LEFT;
+        case MAL_SND_CHMAP_SR:   return MAL_CHANNEL_SIDE_RIGHT;
+        case MAL_SND_CHMAP_RC:   return MAL_CHANNEL_BACK_CENTER;
+        case MAL_SND_CHMAP_FLC:  return MAL_CHANNEL_FRONT_LEFT_CENTER;
+        case MAL_SND_CHMAP_FRC:  return MAL_CHANNEL_FRONT_RIGHT_CENTER;
+        case MAL_SND_CHMAP_RLC:  return 0;
+        case MAL_SND_CHMAP_RRC:  return 0;
+        case MAL_SND_CHMAP_FLW:  return 0;
+        case MAL_SND_CHMAP_FRW:  return 0;
+        case MAL_SND_CHMAP_FLH:  return 0;
+        case MAL_SND_CHMAP_FCH:  return 0;
+        case MAL_SND_CHMAP_FRH:  return 0;
+        case MAL_SND_CHMAP_TC:   return MAL_CHANNEL_TOP_CENTER;
+        case MAL_SND_CHMAP_TFL:  return MAL_CHANNEL_TOP_FRONT_LEFT;
+        case MAL_SND_CHMAP_TFR:  return MAL_CHANNEL_TOP_FRONT_RIGHT;
+        case MAL_SND_CHMAP_TFC:  return MAL_CHANNEL_TOP_FRONT_CENTER;
+        case MAL_SND_CHMAP_TRL:  return MAL_CHANNEL_TOP_BACK_LEFT;
+        case MAL_SND_CHMAP_TRR:  return MAL_CHANNEL_TOP_BACK_RIGHT;
+        case MAL_SND_CHMAP_TRC:  return MAL_CHANNEL_TOP_BACK_CENTER;
         default: break;
     }
 
@@ -5971,6 +6148,7 @@ mal_result mal_context_init__alsa(mal_context* pContext)
 {
     mal_assert(pContext != NULL);
 
+#ifndef MAL_NO_RUNTIME_LINKING
     pContext->alsa.asoundSO = mal_dlopen("libasound.so");
     if (pContext->alsa.asoundSO == NULL) {
         return MAL_NO_BACKEND;
@@ -6023,6 +6201,104 @@ mal_result mal_context_init__alsa(mal_context* pContext)
     pContext->alsa.snd_pcm_info_sizeof                    = (mal_proc)mal_dlsym(pContext->alsa.asoundSO, "snd_pcm_info_sizeof");
     pContext->alsa.snd_pcm_info_get_name                  = (mal_proc)mal_dlsym(pContext->alsa.asoundSO, "snd_pcm_info_get_name");
     pContext->alsa.snd_config_update_free_global          = (mal_proc)mal_dlsym(pContext->alsa.asoundSO, "snd_config_update_free_global");
+#else
+    // The system below is just for type safety.
+    mal_snd_pcm_open_proc                           _snd_pcm_open                           = snd_pcm_open;                          
+    mal_snd_pcm_close_proc                          _snd_pcm_close                          = snd_pcm_close;                         
+    mal_snd_pcm_hw_params_sizeof_proc               _snd_pcm_hw_params_sizeof               = snd_pcm_hw_params_sizeof;              
+    mal_snd_pcm_hw_params_any_proc                  _snd_pcm_hw_params_any                  = snd_pcm_hw_params_any;                 
+    mal_snd_pcm_hw_params_set_format_proc           _snd_pcm_hw_params_set_format           = snd_pcm_hw_params_set_format;          
+    mal_snd_pcm_hw_params_set_format_first_proc     _snd_pcm_hw_params_set_format_first     = snd_pcm_hw_params_set_format_first;    
+    mal_snd_pcm_hw_params_get_format_mask_proc      _snd_pcm_hw_params_get_format_mask      = snd_pcm_hw_params_get_format_mask;     
+    mal_snd_pcm_hw_params_set_channels_near_proc    _snd_pcm_hw_params_set_channels_near    = snd_pcm_hw_params_set_channels_near;   
+    mal_snd_pcm_hw_params_set_rate_resample_proc    _snd_pcm_hw_params_set_rate_resample    = snd_pcm_hw_params_set_rate_resample;   
+    mal_snd_pcm_hw_params_set_rate_near_proc        _snd_pcm_hw_params_set_rate_near        = snd_pcm_hw_params_set_rate_near;       
+    mal_snd_pcm_hw_params_set_buffer_size_near_proc _snd_pcm_hw_params_set_buffer_size_near = snd_pcm_hw_params_set_buffer_size_near;
+    mal_snd_pcm_hw_params_set_periods_near_proc     _snd_pcm_hw_params_set_periods_near     = snd_pcm_hw_params_set_periods_near;    
+    mal_snd_pcm_hw_params_set_access_proc           _snd_pcm_hw_params_set_access           = snd_pcm_hw_params_set_access;          
+    mal_snd_pcm_hw_params_get_format_proc           _snd_pcm_hw_params_get_format           = snd_pcm_hw_params_get_format;          
+    mal_snd_pcm_hw_params_get_channels_proc         _snd_pcm_hw_params_get_channels         = snd_pcm_hw_params_get_channels;        
+    mal_snd_pcm_hw_params_get_rate_proc             _snd_pcm_hw_params_get_rate             = snd_pcm_hw_params_get_rate;            
+    mal_snd_pcm_hw_params_get_buffer_size_proc      _snd_pcm_hw_params_get_buffer_size      = snd_pcm_hw_params_get_buffer_size;     
+    mal_snd_pcm_hw_params_get_periods_proc          _snd_pcm_hw_params_get_periods          = snd_pcm_hw_params_get_periods;         
+    mal_snd_pcm_hw_params_get_access_proc           _snd_pcm_hw_params_get_access           = snd_pcm_hw_params_get_access;          
+    mal_snd_pcm_hw_params_proc                      _snd_pcm_hw_params                      = snd_pcm_hw_params;                     
+    mal_snd_pcm_sw_params_sizeof_proc               _snd_pcm_sw_params_sizeof               = snd_pcm_sw_params_sizeof;              
+    mal_snd_pcm_sw_params_current_proc              _snd_pcm_sw_params_current              = snd_pcm_sw_params_current;             
+    mal_snd_pcm_sw_params_set_avail_min_proc        _snd_pcm_sw_params_set_avail_min        = snd_pcm_sw_params_set_avail_min;       
+    mal_snd_pcm_sw_params_set_start_threshold_proc  _snd_pcm_sw_params_set_start_threshold  = snd_pcm_sw_params_set_start_threshold; 
+    mal_snd_pcm_sw_params_proc                      _snd_pcm_sw_params                      = snd_pcm_sw_params;                     
+    mal_snd_pcm_format_mask_sizeof_proc             _snd_pcm_format_mask_sizeof             = snd_pcm_format_mask_sizeof;            
+    mal_snd_pcm_format_mask_test_proc               _snd_pcm_format_mask_test               = snd_pcm_format_mask_test;              
+    mal_snd_pcm_get_chmap_proc                      _snd_pcm_get_chmap                      = snd_pcm_get_chmap;                     
+    mal_snd_pcm_prepare_proc                        _snd_pcm_prepare                        = snd_pcm_prepare;                       
+    mal_snd_pcm_start_proc                          _snd_pcm_start                          = snd_pcm_start;                         
+    mal_snd_pcm_drop_proc                           _snd_pcm_drop                           = snd_pcm_drop;                          
+    mal_snd_device_name_hint_proc                   _snd_device_name_hint                   = snd_device_name_hint;                  
+    mal_snd_device_name_get_hint_proc               _snd_device_name_get_hint               = snd_device_name_get_hint;              
+    mal_snd_card_get_index_proc                     _snd_card_get_index                     = snd_card_get_index;                    
+    mal_snd_device_name_free_hint_proc              _snd_device_name_free_hint              = snd_device_name_free_hint;             
+    mal_snd_pcm_mmap_begin_proc                     _snd_pcm_mmap_begin                     = snd_pcm_mmap_begin;                    
+    mal_snd_pcm_mmap_commit_proc                    _snd_pcm_mmap_commit                    = snd_pcm_mmap_commit;                   
+    mal_snd_pcm_recover_proc                        _snd_pcm_recover                        = snd_pcm_recover;                       
+    mal_snd_pcm_readi_proc                          _snd_pcm_readi                          = snd_pcm_readi;                         
+    mal_snd_pcm_writei_proc                         _snd_pcm_writei                         = snd_pcm_writei;                        
+    mal_snd_pcm_avail_proc                          _snd_pcm_avail                          = snd_pcm_avail;                         
+    mal_snd_pcm_avail_update_proc                   _snd_pcm_avail_update                   = snd_pcm_avail_update;                  
+    mal_snd_pcm_wait_proc                           _snd_pcm_wait                           = snd_pcm_wait;                          
+    mal_snd_pcm_info_proc                           _snd_pcm_info                           = snd_pcm_info;                          
+    mal_snd_pcm_info_sizeof_proc                    _snd_pcm_info_sizeof                    = snd_pcm_info_sizeof;                   
+    mal_snd_pcm_info_get_name_proc                  _snd_pcm_info_get_name                  = snd_pcm_info_get_name;                 
+    mal_snd_config_update_free_global_proc          _snd_config_update_free_global          = snd_config_update_free_global;
+
+    pContext->alsa.snd_pcm_open                           = (mal_proc)_snd_pcm_open;                          
+    pContext->alsa.snd_pcm_close                          = (mal_proc)_snd_pcm_close;                         
+    pContext->alsa.snd_pcm_hw_params_sizeof               = (mal_proc)_snd_pcm_hw_params_sizeof;              
+    pContext->alsa.snd_pcm_hw_params_any                  = (mal_proc)_snd_pcm_hw_params_any;                 
+    pContext->alsa.snd_pcm_hw_params_set_format           = (mal_proc)_snd_pcm_hw_params_set_format;          
+    pContext->alsa.snd_pcm_hw_params_set_format_first     = (mal_proc)_snd_pcm_hw_params_set_format_first;    
+    pContext->alsa.snd_pcm_hw_params_get_format_mask      = (mal_proc)_snd_pcm_hw_params_get_format_mask;     
+    pContext->alsa.snd_pcm_hw_params_set_channels_near    = (mal_proc)_snd_pcm_hw_params_set_channels_near;   
+    pContext->alsa.snd_pcm_hw_params_set_rate_resample    = (mal_proc)_snd_pcm_hw_params_set_rate_resample;   
+    pContext->alsa.snd_pcm_hw_params_set_rate_near        = (mal_proc)_snd_pcm_hw_params_set_rate_near;       
+    pContext->alsa.snd_pcm_hw_params_set_buffer_size_near = (mal_proc)_snd_pcm_hw_params_set_buffer_size_near;
+    pContext->alsa.snd_pcm_hw_params_set_periods_near     = (mal_proc)_snd_pcm_hw_params_set_periods_near;    
+    pContext->alsa.snd_pcm_hw_params_set_access           = (mal_proc)_snd_pcm_hw_params_set_access;          
+    pContext->alsa.snd_pcm_hw_params_get_format           = (mal_proc)_snd_pcm_hw_params_get_format;          
+    pContext->alsa.snd_pcm_hw_params_get_channels         = (mal_proc)_snd_pcm_hw_params_get_channels;        
+    pContext->alsa.snd_pcm_hw_params_get_rate             = (mal_proc)_snd_pcm_hw_params_get_rate;            
+    pContext->alsa.snd_pcm_hw_params_get_buffer_size      = (mal_proc)_snd_pcm_hw_params_get_buffer_size;     
+    pContext->alsa.snd_pcm_hw_params_get_periods          = (mal_proc)_snd_pcm_hw_params_get_periods;         
+    pContext->alsa.snd_pcm_hw_params_get_access           = (mal_proc)_snd_pcm_hw_params_get_access;          
+    pContext->alsa.snd_pcm_hw_params                      = (mal_proc)_snd_pcm_hw_params;                     
+    pContext->alsa.snd_pcm_sw_params_sizeof               = (mal_proc)_snd_pcm_sw_params_sizeof;              
+    pContext->alsa.snd_pcm_sw_params_current              = (mal_proc)_snd_pcm_sw_params_current;             
+    pContext->alsa.snd_pcm_sw_params_set_avail_min        = (mal_proc)_snd_pcm_sw_params_set_avail_min;       
+    pContext->alsa.snd_pcm_sw_params_set_start_threshold  = (mal_proc)_snd_pcm_sw_params_set_start_threshold; 
+    pContext->alsa.snd_pcm_sw_params                      = (mal_proc)_snd_pcm_sw_params;                     
+    pContext->alsa.snd_pcm_format_mask_sizeof             = (mal_proc)_snd_pcm_format_mask_sizeof;            
+    pContext->alsa.snd_pcm_format_mask_test               = (mal_proc)_snd_pcm_format_mask_test;              
+    pContext->alsa.snd_pcm_get_chmap                      = (mal_proc)_snd_pcm_get_chmap;                     
+    pContext->alsa.snd_pcm_prepare                        = (mal_proc)_snd_pcm_prepare;                       
+    pContext->alsa.snd_pcm_start                          = (mal_proc)_snd_pcm_start;                         
+    pContext->alsa.snd_pcm_drop                           = (mal_proc)_snd_pcm_drop;                          
+    pContext->alsa.snd_device_name_hint                   = (mal_proc)_snd_device_name_hint;                  
+    pContext->alsa.snd_device_name_get_hint               = (mal_proc)_snd_device_name_get_hint;              
+    pContext->alsa.snd_card_get_index                     = (mal_proc)_snd_card_get_index;                    
+    pContext->alsa.snd_device_name_free_hint              = (mal_proc)_snd_device_name_free_hint;             
+    pContext->alsa.snd_pcm_mmap_begin                     = (mal_proc)_snd_pcm_mmap_begin;                    
+    pContext->alsa.snd_pcm_mmap_commit                    = (mal_proc)_snd_pcm_mmap_commit;                   
+    pContext->alsa.snd_pcm_recover                        = (mal_proc)_snd_pcm_recover;                       
+    pContext->alsa.snd_pcm_readi                          = (mal_proc)_snd_pcm_readi;                         
+    pContext->alsa.snd_pcm_writei                         = (mal_proc)_snd_pcm_writei;                        
+    pContext->alsa.snd_pcm_avail                          = (mal_proc)_snd_pcm_avail;                         
+    pContext->alsa.snd_pcm_avail_update                   = (mal_proc)_snd_pcm_avail_update;                  
+    pContext->alsa.snd_pcm_wait                           = (mal_proc)_snd_pcm_wait;                          
+    pContext->alsa.snd_pcm_info                           = (mal_proc)_snd_pcm_info;                          
+    pContext->alsa.snd_pcm_info_sizeof                    = (mal_proc)_snd_pcm_info_sizeof;                   
+    pContext->alsa.snd_pcm_info_get_name                  = (mal_proc)_snd_pcm_info_get_name;                 
+    pContext->alsa.snd_config_update_free_global          = (mal_proc)_snd_config_update_free_global;
+#endif
 
     return MAL_SUCCESS;
 }
@@ -6035,7 +6311,10 @@ mal_result mal_context_uninit__alsa(mal_context* pContext)
     // Clean up memory for memory leak checkers.
     ((mal_snd_config_update_free_global_proc)pContext->alsa.snd_config_update_free_global)();
 
+#ifndef MAL_NO_RUNTIME_LINKING
     mal_dlclose(pContext->alsa.asoundSO);
+#endif
+
     return MAL_SUCCESS;
 }
 
@@ -6078,10 +6357,10 @@ static mal_uint32 mal_device__wait_for_frames__alsa(mal_device* pDevice, mal_boo
         // Wait for something to become available. The timeout should not affect latency - it's only used to break from the wait
         // so we can check whether or not the device has been stopped.
         const int timeoutInMilliseconds = 10;
-        int waitResult = ((mal_snd_pcm_wait_proc)pDevice->pContext->alsa.snd_pcm_wait)((snd_pcm_t*)pDevice->alsa.pPCM, timeoutInMilliseconds);
+        int waitResult = ((mal_snd_pcm_wait_proc)pDevice->pContext->alsa.snd_pcm_wait)((mal_snd_pcm_t*)pDevice->alsa.pPCM, timeoutInMilliseconds);
         if (waitResult < 0) {
             if (waitResult == -EPIPE) {
-                if (((mal_snd_pcm_recover_proc)pDevice->pContext->alsa.snd_pcm_recover)((snd_pcm_t*)pDevice->alsa.pPCM, waitResult, MAL_TRUE) < 0) {
+                if (((mal_snd_pcm_recover_proc)pDevice->pContext->alsa.snd_pcm_recover)((mal_snd_pcm_t*)pDevice->alsa.pPCM, waitResult, MAL_TRUE) < 0) {
                     return 0;
                 }
 
@@ -6093,17 +6372,17 @@ static mal_uint32 mal_device__wait_for_frames__alsa(mal_device* pDevice, mal_boo
             return 0;
         }
 
-        snd_pcm_sframes_t framesAvailable = ((mal_snd_pcm_avail_update_proc)pDevice->pContext->alsa.snd_pcm_avail_update)((snd_pcm_t*)pDevice->alsa.pPCM);
+        mal_snd_pcm_sframes_t framesAvailable = ((mal_snd_pcm_avail_update_proc)pDevice->pContext->alsa.snd_pcm_avail_update)((mal_snd_pcm_t*)pDevice->alsa.pPCM);
         if (framesAvailable < 0) {
             if (framesAvailable == -EPIPE) {
-                if (((mal_snd_pcm_recover_proc)pDevice->pContext->alsa.snd_pcm_recover)((snd_pcm_t*)pDevice->alsa.pPCM, framesAvailable, MAL_TRUE) < 0) {
+                if (((mal_snd_pcm_recover_proc)pDevice->pContext->alsa.snd_pcm_recover)((mal_snd_pcm_t*)pDevice->alsa.pPCM, framesAvailable, MAL_TRUE) < 0) {
                     return 0;
                 }
 
                 if (pRequiresRestart) *pRequiresRestart = MAL_TRUE; // A device recovery means a restart for mmap mode.
 
                 // Try again, but if it fails this time just return an error.
-                framesAvailable = ((mal_snd_pcm_avail_update_proc)pDevice->pContext->alsa.snd_pcm_avail_update)((snd_pcm_t*)pDevice->alsa.pPCM);
+                framesAvailable = ((mal_snd_pcm_avail_update_proc)pDevice->pContext->alsa.snd_pcm_avail_update)((mal_snd_pcm_t*)pDevice->alsa.pPCM);
                 if (framesAvailable < 0) {
                     return 0;
                 }
@@ -6117,7 +6396,7 @@ static mal_uint32 mal_device__wait_for_frames__alsa(mal_device* pDevice, mal_boo
     }
 
     // We'll get here if the loop was terminated. Just return whatever's available.
-    snd_pcm_sframes_t framesAvailable = ((mal_snd_pcm_avail_update_proc)pDevice->pContext->alsa.snd_pcm_avail_update)((snd_pcm_t*)pDevice->alsa.pPCM);
+    mal_snd_pcm_sframes_t framesAvailable = ((mal_snd_pcm_avail_update_proc)pDevice->pContext->alsa.snd_pcm_avail_update)((mal_snd_pcm_t*)pDevice->alsa.pPCM);
     if (framesAvailable < 0) {
         return 0;
     }
@@ -6149,11 +6428,11 @@ static mal_bool32 mal_device_write__alsa(mal_device* pDevice)
             return MAL_FALSE;
         }
 
-        const snd_pcm_channel_area_t* pAreas;
-        snd_pcm_uframes_t mappedOffset;
-        snd_pcm_uframes_t mappedFrames = framesAvailable;
+        const mal_snd_pcm_channel_area_t* pAreas;
+        mal_snd_pcm_uframes_t mappedOffset;
+        mal_snd_pcm_uframes_t mappedFrames = framesAvailable;
         while (framesAvailable > 0) {
-            int result = ((mal_snd_pcm_mmap_begin_proc)pDevice->pContext->alsa.snd_pcm_mmap_begin)((snd_pcm_t*)pDevice->alsa.pPCM, &pAreas, &mappedOffset, &mappedFrames);
+            int result = ((mal_snd_pcm_mmap_begin_proc)pDevice->pContext->alsa.snd_pcm_mmap_begin)((mal_snd_pcm_t*)pDevice->alsa.pPCM, &pAreas, &mappedOffset, &mappedFrames);
             if (result < 0) {
                 return MAL_FALSE;
             }
@@ -6163,14 +6442,14 @@ static mal_bool32 mal_device_write__alsa(mal_device* pDevice)
                 mal_device__read_frames_from_client(pDevice, mappedFrames, pBuffer);
             }
 
-            result = ((mal_snd_pcm_mmap_commit_proc)pDevice->pContext->alsa.snd_pcm_mmap_commit)((snd_pcm_t*)pDevice->alsa.pPCM, mappedOffset, mappedFrames);
-            if (result < 0 || (snd_pcm_uframes_t)result != mappedFrames) {
-                ((mal_snd_pcm_recover_proc)pDevice->pContext->alsa.snd_pcm_recover)((snd_pcm_t*)pDevice->alsa.pPCM, result, MAL_TRUE);
+            result = ((mal_snd_pcm_mmap_commit_proc)pDevice->pContext->alsa.snd_pcm_mmap_commit)((mal_snd_pcm_t*)pDevice->alsa.pPCM, mappedOffset, mappedFrames);
+            if (result < 0 || (mal_snd_pcm_uframes_t)result != mappedFrames) {
+                ((mal_snd_pcm_recover_proc)pDevice->pContext->alsa.snd_pcm_recover)((mal_snd_pcm_t*)pDevice->alsa.pPCM, result, MAL_TRUE);
                 return MAL_FALSE;
             }
 
             if (requiresRestart) {
-                if (((mal_snd_pcm_start_proc)pDevice->pContext->alsa.snd_pcm_start)((snd_pcm_t*)pDevice->alsa.pPCM) < 0) {
+                if (((mal_snd_pcm_start_proc)pDevice->pContext->alsa.snd_pcm_start)((mal_snd_pcm_t*)pDevice->alsa.pPCM) < 0) {
                     return MAL_FALSE;
                 }
             }
@@ -6192,18 +6471,18 @@ static mal_bool32 mal_device_write__alsa(mal_device* pDevice)
 
             mal_device__read_frames_from_client(pDevice, framesAvailable, pDevice->alsa.pIntermediaryBuffer);
 
-            snd_pcm_sframes_t framesWritten = ((mal_snd_pcm_writei_proc)pDevice->pContext->alsa.snd_pcm_writei)((snd_pcm_t*)pDevice->alsa.pPCM, pDevice->alsa.pIntermediaryBuffer, framesAvailable);
+            mal_snd_pcm_sframes_t framesWritten = ((mal_snd_pcm_writei_proc)pDevice->pContext->alsa.snd_pcm_writei)((mal_snd_pcm_t*)pDevice->alsa.pPCM, pDevice->alsa.pIntermediaryBuffer, framesAvailable);
             if (framesWritten < 0) {
                 if (framesWritten == -EAGAIN) {
                     continue;   // Just keep trying...
                 } else if (framesWritten == -EPIPE) {
                     // Underrun. Just recover and try writing again.
-                    if (((mal_snd_pcm_recover_proc)pDevice->pContext->alsa.snd_pcm_recover)((snd_pcm_t*)pDevice->alsa.pPCM, framesWritten, MAL_TRUE) < 0) {
+                    if (((mal_snd_pcm_recover_proc)pDevice->pContext->alsa.snd_pcm_recover)((mal_snd_pcm_t*)pDevice->alsa.pPCM, framesWritten, MAL_TRUE) < 0) {
                         mal_post_error(pDevice, "[ALSA] Failed to recover device after underrun.", MAL_ALSA_FAILED_TO_RECOVER_DEVICE);
                         return MAL_FALSE;
                     }
 
-                    framesWritten = ((mal_snd_pcm_writei_proc)pDevice->pContext->alsa.snd_pcm_writei)((snd_pcm_t*)pDevice->alsa.pPCM, pDevice->alsa.pIntermediaryBuffer, framesAvailable);
+                    framesWritten = ((mal_snd_pcm_writei_proc)pDevice->pContext->alsa.snd_pcm_writei)((mal_snd_pcm_t*)pDevice->alsa.pPCM, pDevice->alsa.pIntermediaryBuffer, framesAvailable);
                     if (framesWritten < 0) {
                         mal_post_error(pDevice, "[ALSA] Failed to write data to the internal device.", MAL_FAILED_TO_SEND_DATA_TO_DEVICE);
                         return MAL_FALSE;
@@ -6243,11 +6522,11 @@ static mal_bool32 mal_device_read__alsa(mal_device* pDevice)
             return MAL_FALSE;
         }
 
-        const snd_pcm_channel_area_t* pAreas;
-        snd_pcm_uframes_t mappedOffset;
-        snd_pcm_uframes_t mappedFrames = framesAvailable;
+        const mal_snd_pcm_channel_area_t* pAreas;
+        mal_snd_pcm_uframes_t mappedOffset;
+        mal_snd_pcm_uframes_t mappedFrames = framesAvailable;
         while (framesAvailable > 0) {
-            int result = ((mal_snd_pcm_mmap_begin_proc)pDevice->pContext->alsa.snd_pcm_mmap_begin)((snd_pcm_t*)pDevice->alsa.pPCM, &pAreas, &mappedOffset, &mappedFrames);
+            int result = ((mal_snd_pcm_mmap_begin_proc)pDevice->pContext->alsa.snd_pcm_mmap_begin)((mal_snd_pcm_t*)pDevice->alsa.pPCM, &pAreas, &mappedOffset, &mappedFrames);
             if (result < 0) {
                 return MAL_FALSE;
             }
@@ -6257,14 +6536,14 @@ static mal_bool32 mal_device_read__alsa(mal_device* pDevice)
                 mal_device__send_frames_to_client(pDevice, mappedFrames, pBuffer);
             }
 
-            result = ((mal_snd_pcm_mmap_commit_proc)pDevice->pContext->alsa.snd_pcm_mmap_commit)((snd_pcm_t*)pDevice->alsa.pPCM, mappedOffset, mappedFrames);
-            if (result < 0 || (snd_pcm_uframes_t)result != mappedFrames) {
-                ((mal_snd_pcm_recover_proc)pDevice->pContext->alsa.snd_pcm_recover)((snd_pcm_t*)pDevice->alsa.pPCM, result, MAL_TRUE);
+            result = ((mal_snd_pcm_mmap_commit_proc)pDevice->pContext->alsa.snd_pcm_mmap_commit)((mal_snd_pcm_t*)pDevice->alsa.pPCM, mappedOffset, mappedFrames);
+            if (result < 0 || (mal_snd_pcm_uframes_t)result != mappedFrames) {
+                ((mal_snd_pcm_recover_proc)pDevice->pContext->alsa.snd_pcm_recover)((mal_snd_pcm_t*)pDevice->alsa.pPCM, result, MAL_TRUE);
                 return MAL_FALSE;
             }
 
             if (requiresRestart) {
-                if (((mal_snd_pcm_start_proc)pDevice->pContext->alsa.snd_pcm_start)((snd_pcm_t*)pDevice->alsa.pPCM) < 0) {
+                if (((mal_snd_pcm_start_proc)pDevice->pContext->alsa.snd_pcm_start)((mal_snd_pcm_t*)pDevice->alsa.pPCM) < 0) {
                     return MAL_FALSE;
                 }
             }
@@ -6273,25 +6552,25 @@ static mal_bool32 mal_device_read__alsa(mal_device* pDevice)
         }
     } else {
         // readi/writei.
-        snd_pcm_sframes_t framesRead = 0;
+        mal_snd_pcm_sframes_t framesRead = 0;
         while (!pDevice->alsa.breakFromMainLoop) {
             mal_uint32 framesAvailable = mal_device__wait_for_frames__alsa(pDevice, NULL);
             if (framesAvailable == 0) {
                 continue;
             }
 
-            framesRead = ((mal_snd_pcm_readi_proc)pDevice->pContext->alsa.snd_pcm_readi)((snd_pcm_t*)pDevice->alsa.pPCM, pDevice->alsa.pIntermediaryBuffer, framesAvailable);
+            framesRead = ((mal_snd_pcm_readi_proc)pDevice->pContext->alsa.snd_pcm_readi)((mal_snd_pcm_t*)pDevice->alsa.pPCM, pDevice->alsa.pIntermediaryBuffer, framesAvailable);
             if (framesRead < 0) {
                 if (framesRead == -EAGAIN) {
                     continue;   // Just keep trying...
                 } else if (framesRead == -EPIPE) {
                     // Overrun. Just recover and try reading again.
-                    if (((mal_snd_pcm_recover_proc)pDevice->pContext->alsa.snd_pcm_recover)((snd_pcm_t*)pDevice->alsa.pPCM, framesRead, MAL_TRUE) < 0) {
+                    if (((mal_snd_pcm_recover_proc)pDevice->pContext->alsa.snd_pcm_recover)((mal_snd_pcm_t*)pDevice->alsa.pPCM, framesRead, MAL_TRUE) < 0) {
                         mal_post_error(pDevice, "[ALSA] Failed to recover device after overrun.", MAL_ALSA_FAILED_TO_RECOVER_DEVICE);
                         return MAL_FALSE;
                     }
 
-                    framesRead = ((mal_snd_pcm_readi_proc)pDevice->pContext->alsa.snd_pcm_readi)((snd_pcm_t*)pDevice->alsa.pPCM, pDevice->alsa.pIntermediaryBuffer, framesAvailable);
+                    framesRead = ((mal_snd_pcm_readi_proc)pDevice->pContext->alsa.snd_pcm_readi)((mal_snd_pcm_t*)pDevice->alsa.pPCM, pDevice->alsa.pIntermediaryBuffer, framesAvailable);
                     if (framesRead < 0) {
                         mal_post_error(pDevice, "[ALSA] Failed to read data from the internal device.", MAL_FAILED_TO_READ_DATA_FROM_DEVICE);
                         return MAL_FALSE;
@@ -6581,8 +6860,8 @@ static void mal_device_uninit__alsa(mal_device* pDevice)
 {
     mal_assert(pDevice != NULL);
 
-    if ((snd_pcm_t*)pDevice->alsa.pPCM) {
-        ((mal_snd_pcm_close_proc)pDevice->pContext->alsa.snd_pcm_close)((snd_pcm_t*)pDevice->alsa.pPCM);
+    if ((mal_snd_pcm_t*)pDevice->alsa.pPCM) {
+        ((mal_snd_pcm_close_proc)pDevice->pContext->alsa.snd_pcm_close)((mal_snd_pcm_t*)pDevice->alsa.pPCM);
 
         if (pDevice->alsa.pIntermediaryBuffer != NULL) {
             mal_free(pDevice->alsa.pIntermediaryBuffer);
@@ -6597,8 +6876,8 @@ static mal_result mal_device_init__alsa(mal_context* pContext, mal_device_type t
     mal_assert(pDevice != NULL);
     mal_zero_object(&pDevice->alsa);
 
-    snd_pcm_format_t formatALSA = mal_convert_mal_format_to_alsa_format(pConfig->format);
-    snd_pcm_stream_t stream = (type == mal_device_type_playback) ? SND_PCM_STREAM_PLAYBACK : SND_PCM_STREAM_CAPTURE;
+    mal_snd_pcm_format_t formatALSA = mal_convert_mal_format_to_alsa_format(pConfig->format);
+    mal_snd_pcm_stream_t stream = (type == mal_device_type_playback) ? MAL_SND_PCM_STREAM_PLAYBACK : MAL_SND_PCM_STREAM_CAPTURE;
 
     if (pDeviceID == NULL) {
         // We're opening the default device. I don't know if trying anything other than "default" is necessary, but it makes
@@ -6635,7 +6914,7 @@ static mal_result mal_device_init__alsa(mal_context* pContext, mal_device_type t
         mal_bool32 isDeviceOpen = MAL_FALSE;
         for (size_t i = 0; i < mal_countof(defaultDeviceNames); ++i) {
             if (defaultDeviceNames[i] != NULL && defaultDeviceNames[i][0] != '\0') {
-                if (((mal_snd_pcm_open_proc)pContext->alsa.snd_pcm_open)((snd_pcm_t**)&pDevice->alsa.pPCM, defaultDeviceNames[i], stream, 0) == 0) {
+                if (((mal_snd_pcm_open_proc)pContext->alsa.snd_pcm_open)((mal_snd_pcm_t**)&pDevice->alsa.pPCM, defaultDeviceNames[i], stream, 0) == 0) {
                     isDeviceOpen = MAL_TRUE;
                     break;
                 }
@@ -6655,7 +6934,7 @@ static mal_result mal_device_init__alsa(mal_context* pContext, mal_device_type t
         mal_bool32 isDeviceOpen = MAL_FALSE;
         if (pDeviceID->alsa[0] != ':') {
             // The ID is not in ":0,0" format. Use the ID exactly as-is.
-            if (((mal_snd_pcm_open_proc)pContext->alsa.snd_pcm_open)((snd_pcm_t**)&pDevice->alsa.pPCM, pDeviceID->alsa, stream, 0) == 0) {
+            if (((mal_snd_pcm_open_proc)pContext->alsa.snd_pcm_open)((mal_snd_pcm_t**)&pDevice->alsa.pPCM, pDeviceID->alsa, stream, 0) == 0) {
                 isDeviceOpen = MAL_TRUE;
             }
         } else {
@@ -6673,7 +6952,7 @@ static mal_result mal_device_init__alsa(mal_context* pContext, mal_device_type t
                 }
 
                 if (mal_strcat_s(hwid, sizeof(hwid), pDeviceID->alsa) == 0) {
-                    if (((mal_snd_pcm_open_proc)pContext->alsa.snd_pcm_open)((snd_pcm_t**)&pDevice->alsa.pPCM, hwid, stream, 0) == 0) {
+                    if (((mal_snd_pcm_open_proc)pContext->alsa.snd_pcm_open)((mal_snd_pcm_t**)&pDevice->alsa.pPCM, hwid, stream, 0) == 0) {
                         isDeviceOpen = MAL_TRUE;
                     }
                 }
@@ -6683,7 +6962,7 @@ static mal_result mal_device_init__alsa(mal_context* pContext, mal_device_type t
             if (!isDeviceOpen) {
                 mal_strcpy_s(hwid, sizeof(hwid), "hw");
                 if (mal_strcat_s(hwid, sizeof(hwid), pDeviceID->alsa) == 0) {
-                    if (((mal_snd_pcm_open_proc)pContext->alsa.snd_pcm_open)((snd_pcm_t**)&pDevice->alsa.pPCM, hwid, stream, 0) == 0) {
+                    if (((mal_snd_pcm_open_proc)pContext->alsa.snd_pcm_open)((mal_snd_pcm_t**)&pDevice->alsa.pPCM, hwid, stream, 0) == 0) {
                         isDeviceOpen = MAL_TRUE;
                     }
                 }
@@ -6700,10 +6979,10 @@ static mal_result mal_device_init__alsa(mal_context* pContext, mal_device_type t
     if (pDevice->usingDefaultBufferSize) {
         float bufferSizeScale = 1;
 
-        snd_pcm_info_t* pInfo = (snd_pcm_info_t*)alloca(((mal_snd_pcm_info_sizeof_proc)pContext->alsa.snd_pcm_info_sizeof)());
+        mal_snd_pcm_info_t* pInfo = (mal_snd_pcm_info_t*)alloca(((mal_snd_pcm_info_sizeof_proc)pContext->alsa.snd_pcm_info_sizeof)());
         mal_zero_memory(pInfo, ((mal_snd_pcm_info_sizeof_proc)pContext->alsa.snd_pcm_info_sizeof)());
 
-        if (((mal_snd_pcm_info_proc)pContext->alsa.snd_pcm_info)((snd_pcm_t*)pDevice->alsa.pPCM, pInfo) == 0) {
+        if (((mal_snd_pcm_info_proc)pContext->alsa.snd_pcm_info)((mal_snd_pcm_t*)pDevice->alsa.pPCM, pInfo) == 0) {
             const char* deviceName = ((mal_snd_pcm_info_get_name_proc)pContext->alsa.snd_pcm_info_get_name)(pInfo);
             if (deviceName != NULL) {
                 if (strcmp(deviceName, "default") == 0) {
@@ -6750,10 +7029,10 @@ static mal_result mal_device_init__alsa(mal_context* pContext, mal_device_type t
 
 
     // Hardware parameters.
-    snd_pcm_hw_params_t* pHWParams = (snd_pcm_hw_params_t*)alloca(((mal_snd_pcm_hw_params_sizeof_proc)pContext->alsa.snd_pcm_hw_params_sizeof)());
+    mal_snd_pcm_hw_params_t* pHWParams = (mal_snd_pcm_hw_params_t*)alloca(((mal_snd_pcm_hw_params_sizeof_proc)pContext->alsa.snd_pcm_hw_params_sizeof)());
     mal_zero_memory(pHWParams, ((mal_snd_pcm_hw_params_sizeof_proc)pContext->alsa.snd_pcm_hw_params_sizeof)());
 
-    if (((mal_snd_pcm_hw_params_any_proc)pContext->alsa.snd_pcm_hw_params_any)((snd_pcm_t*)pDevice->alsa.pPCM, pHWParams) < 0) {
+    if (((mal_snd_pcm_hw_params_any_proc)pContext->alsa.snd_pcm_hw_params_any)((mal_snd_pcm_t*)pDevice->alsa.pPCM, pHWParams) < 0) {
         mal_device_uninit__alsa(pDevice);
         return mal_post_error(pDevice, "[ALSA] Failed to initialize hardware parameters. snd_pcm_hw_params_any() failed.", MAL_ALSA_FAILED_TO_SET_HW_PARAMS);
     }
@@ -6764,13 +7043,13 @@ static mal_result mal_device_init__alsa(mal_context* pContext, mal_device_type t
     // Try using interleaved MMAP access. If this fails, fall back to standard readi/writei.
     pDevice->alsa.isUsingMMap = MAL_FALSE;
     if (!pConfig->alsa.noMMap && pDevice->type != mal_device_type_capture) {    // <-- Disabling MMAP mode for capture devices because I apparently do not have a device that supports it so I can test it... Contributions welcome.
-        if (((mal_snd_pcm_hw_params_set_access_proc)pContext->alsa.snd_pcm_hw_params_set_access)((snd_pcm_t*)pDevice->alsa.pPCM, pHWParams, SND_PCM_ACCESS_MMAP_INTERLEAVED) == 0) {
+        if (((mal_snd_pcm_hw_params_set_access_proc)pContext->alsa.snd_pcm_hw_params_set_access)((mal_snd_pcm_t*)pDevice->alsa.pPCM, pHWParams, MAL_SND_PCM_ACCESS_MMAP_INTERLEAVED) == 0) {
             pDevice->alsa.isUsingMMap = MAL_TRUE;
         }
     }
 
     if (!pDevice->alsa.isUsingMMap) {
-        if (((mal_snd_pcm_hw_params_set_access_proc)pContext->alsa.snd_pcm_hw_params_set_access)((snd_pcm_t*)pDevice->alsa.pPCM, pHWParams, SND_PCM_ACCESS_RW_INTERLEAVED) < 0) {;
+        if (((mal_snd_pcm_hw_params_set_access_proc)pContext->alsa.snd_pcm_hw_params_set_access)((mal_snd_pcm_t*)pDevice->alsa.pPCM, pHWParams, MAL_SND_PCM_ACCESS_RW_INTERLEAVED) < 0) {;
             mal_device_uninit__alsa(pDevice);
             return mal_post_error(pDevice, "[ALSA] Failed to set access mode to neither SND_PCM_ACCESS_MMAP_INTERLEAVED nor SND_PCM_ACCESS_RW_INTERLEAVED. snd_pcm_hw_params_set_access() failed.", MAL_FORMAT_NOT_SUPPORTED);
         }
@@ -6782,7 +7061,7 @@ static mal_result mal_device_init__alsa(mal_context* pContext, mal_device_type t
 
     // Format.
     // Try getting every supported format.
-    snd_pcm_format_mask_t* pFormatMask = (snd_pcm_format_mask_t*)alloca(((mal_snd_pcm_format_mask_sizeof_proc)pContext->alsa.snd_pcm_format_mask_sizeof)());
+    mal_snd_pcm_format_mask_t* pFormatMask = (mal_snd_pcm_format_mask_t*)alloca(((mal_snd_pcm_format_mask_sizeof_proc)pContext->alsa.snd_pcm_format_mask_sizeof)());
     mal_zero_memory(pFormatMask, ((mal_snd_pcm_format_mask_sizeof_proc)pContext->alsa.snd_pcm_format_mask_sizeof)());
 
     ((mal_snd_pcm_hw_params_get_format_mask_proc)pContext->alsa.snd_pcm_hw_params_get_format_mask)(pHWParams, pFormatMask);
@@ -6791,15 +7070,16 @@ static mal_result mal_device_init__alsa(mal_context* pContext, mal_device_type t
     // supported, and if so, use that one. If it's not supported, we just run though a list of formats and try to find the best one.
     if (!((mal_snd_pcm_format_mask_test_proc)pContext->alsa.snd_pcm_format_mask_test)(pFormatMask, formatALSA)) {
         // The requested format is not supported so now try running through the list of formats and return the best one.
-        snd_pcm_format_t preferredFormatsALSA[] = {
-            SND_PCM_FORMAT_FLOAT_LE,    // mal_format_f32
-            SND_PCM_FORMAT_S32_LE,      // mal_format_s32
-            SND_PCM_FORMAT_S24_3LE,     // mal_format_s24
-            SND_PCM_FORMAT_S16_LE,      // mal_format_s16
-            SND_PCM_FORMAT_U8           // mal_format_u8
+        mal_snd_pcm_format_t preferredFormatsALSA[] = {
+            MAL_SND_PCM_FORMAT_FLOAT_LE,    // mal_format_f32
+            MAL_SND_PCM_FORMAT_S32_LE,      // mal_format_s32
+            MAL_SND_PCM_FORMAT_S24_3LE,     // mal_format_s24
+            //MAL_SND_PCM_FORMAT_S24_LE,      // mal_format_s24_32
+            MAL_SND_PCM_FORMAT_S16_LE,      // mal_format_s16
+            MAL_SND_PCM_FORMAT_U8           // mal_format_u8
         };
 
-        formatALSA = SND_PCM_FORMAT_UNKNOWN;
+        formatALSA = MAL_SND_PCM_FORMAT_UNKNOWN;
         for (size_t i = 0; i < (sizeof(preferredFormatsALSA) / sizeof(preferredFormatsALSA[0])); ++i) {
             if (((mal_snd_pcm_format_mask_test_proc)pContext->alsa.snd_pcm_format_mask_test)(pFormatMask, preferredFormatsALSA[i])) {
                 formatALSA = preferredFormatsALSA[i];
@@ -6807,13 +7087,13 @@ static mal_result mal_device_init__alsa(mal_context* pContext, mal_device_type t
             }
         }
 
-        if (formatALSA == SND_PCM_FORMAT_UNKNOWN) {
+        if (formatALSA == MAL_SND_PCM_FORMAT_UNKNOWN) {
             mal_device_uninit__alsa(pDevice);
             return mal_post_error(pDevice, "[ALSA] Format not supported. The device does not support any mini_al formats.", MAL_FORMAT_NOT_SUPPORTED);
         }
     }
 
-    if (((mal_snd_pcm_hw_params_set_format_proc)pContext->alsa.snd_pcm_hw_params_set_format)((snd_pcm_t*)pDevice->alsa.pPCM, pHWParams, formatALSA) < 0) {
+    if (((mal_snd_pcm_hw_params_set_format_proc)pContext->alsa.snd_pcm_hw_params_set_format)((mal_snd_pcm_t*)pDevice->alsa.pPCM, pHWParams, formatALSA) < 0) {
         mal_device_uninit__alsa(pDevice);
         return mal_post_error(pDevice, "[ALSA] Format not supported. snd_pcm_hw_params_set_format() failed.", MAL_FORMAT_NOT_SUPPORTED);
     }
@@ -6826,7 +7106,7 @@ static mal_result mal_device_init__alsa(mal_context* pContext, mal_device_type t
 
     // Channels.
     mal_uint32 channels = pConfig->channels;
-    if (((mal_snd_pcm_hw_params_set_channels_near_proc)pContext->alsa.snd_pcm_hw_params_set_channels_near)((snd_pcm_t*)pDevice->alsa.pPCM, pHWParams, &channels) < 0) {
+    if (((mal_snd_pcm_hw_params_set_channels_near_proc)pContext->alsa.snd_pcm_hw_params_set_channels_near)((mal_snd_pcm_t*)pDevice->alsa.pPCM, pHWParams, &channels) < 0) {
         mal_device_uninit__alsa(pDevice);
         return mal_post_error(pDevice, "[ALSA] Failed to set channel count. snd_pcm_hw_params_set_channels_near() failed.", MAL_FORMAT_NOT_SUPPORTED);
     }
@@ -6848,10 +7128,10 @@ static mal_result mal_device_init__alsa(mal_context* pContext, mal_device_type t
     //
     // I don't currently know if the dmix plugin is the only one with this error. Indeed, this is the only one I've been able to reproduce
     // this error with. In the future, we may want to restrict the disabling of resampling to only known bad plugins.
-    ((mal_snd_pcm_hw_params_set_rate_resample_proc)pContext->alsa.snd_pcm_hw_params_set_rate_resample)((snd_pcm_t*)pDevice->alsa.pPCM, pHWParams, 0);
+    ((mal_snd_pcm_hw_params_set_rate_resample_proc)pContext->alsa.snd_pcm_hw_params_set_rate_resample)((mal_snd_pcm_t*)pDevice->alsa.pPCM, pHWParams, 0);
 
     mal_uint32 sampleRate = pConfig->sampleRate;
-    if (((mal_snd_pcm_hw_params_set_rate_near_proc)pContext->alsa.snd_pcm_hw_params_set_rate_near)((snd_pcm_t*)pDevice->alsa.pPCM, pHWParams, &sampleRate, 0) < 0) {
+    if (((mal_snd_pcm_hw_params_set_rate_near_proc)pContext->alsa.snd_pcm_hw_params_set_rate_near)((mal_snd_pcm_t*)pDevice->alsa.pPCM, pHWParams, &sampleRate, 0) < 0) {
         mal_device_uninit__alsa(pDevice);
         return mal_post_error(pDevice, "[ALSA] Sample rate not supported. snd_pcm_hw_params_set_rate_near() failed.", MAL_FORMAT_NOT_SUPPORTED);
     }
@@ -6861,15 +7141,15 @@ static mal_result mal_device_init__alsa(mal_context* pContext, mal_device_type t
     // Periods.
     mal_uint32 periods = pConfig->periods;
     int dir = 0;
-    if (((mal_snd_pcm_hw_params_set_periods_near_proc)pContext->alsa.snd_pcm_hw_params_set_periods_near)((snd_pcm_t*)pDevice->alsa.pPCM, pHWParams, &periods, &dir) < 0) {
+    if (((mal_snd_pcm_hw_params_set_periods_near_proc)pContext->alsa.snd_pcm_hw_params_set_periods_near)((mal_snd_pcm_t*)pDevice->alsa.pPCM, pHWParams, &periods, &dir) < 0) {
         mal_device_uninit__alsa(pDevice);
         return mal_post_error(pDevice, "[ALSA] Failed to set period count. snd_pcm_hw_params_set_periods_near() failed.", MAL_FORMAT_NOT_SUPPORTED);
     }
     pDevice->periods = periods;
 
     // Buffer Size
-    snd_pcm_uframes_t actualBufferSize = pDevice->bufferSizeInFrames;
-    if (((mal_snd_pcm_hw_params_set_buffer_size_near_proc)pContext->alsa.snd_pcm_hw_params_set_buffer_size_near)((snd_pcm_t*)pDevice->alsa.pPCM, pHWParams, &actualBufferSize) < 0) {
+    mal_snd_pcm_uframes_t actualBufferSize = pDevice->bufferSizeInFrames;
+    if (((mal_snd_pcm_hw_params_set_buffer_size_near_proc)pContext->alsa.snd_pcm_hw_params_set_buffer_size_near)((mal_snd_pcm_t*)pDevice->alsa.pPCM, pHWParams, &actualBufferSize) < 0) {
         mal_device_uninit__alsa(pDevice);
         return mal_post_error(pDevice, "[ALSA] Failed to set buffer size for device. snd_pcm_hw_params_set_buffer_size() failed.", MAL_FORMAT_NOT_SUPPORTED);
     }
@@ -6877,7 +7157,7 @@ static mal_result mal_device_init__alsa(mal_context* pContext, mal_device_type t
 
 
     // Apply hardware parameters.
-    if (((mal_snd_pcm_hw_params_proc)pContext->alsa.snd_pcm_hw_params)((snd_pcm_t*)pDevice->alsa.pPCM, pHWParams) < 0) {
+    if (((mal_snd_pcm_hw_params_proc)pContext->alsa.snd_pcm_hw_params)((mal_snd_pcm_t*)pDevice->alsa.pPCM, pHWParams) < 0) {
         mal_device_uninit__alsa(pDevice);
         return mal_post_error(pDevice, "[ALSA] Failed to set hardware parameters. snd_pcm_hw_params() failed.", MAL_ALSA_FAILED_TO_SET_HW_PARAMS);
     }
@@ -6886,27 +7166,27 @@ static mal_result mal_device_init__alsa(mal_context* pContext, mal_device_type t
 
 
     // Software parameters.
-    snd_pcm_sw_params_t* pSWParams = (snd_pcm_sw_params_t*)alloca(((mal_snd_pcm_sw_params_sizeof_proc)pContext->alsa.snd_pcm_sw_params_sizeof)());
+    mal_snd_pcm_sw_params_t* pSWParams = (mal_snd_pcm_sw_params_t*)alloca(((mal_snd_pcm_sw_params_sizeof_proc)pContext->alsa.snd_pcm_sw_params_sizeof)());
     mal_zero_memory(pSWParams, ((mal_snd_pcm_sw_params_sizeof_proc)pContext->alsa.snd_pcm_sw_params_sizeof)());
 
-    if (((mal_snd_pcm_sw_params_current_proc)pContext->alsa.snd_pcm_sw_params_current)((snd_pcm_t*)pDevice->alsa.pPCM, pSWParams) != 0) {
+    if (((mal_snd_pcm_sw_params_current_proc)pContext->alsa.snd_pcm_sw_params_current)((mal_snd_pcm_t*)pDevice->alsa.pPCM, pSWParams) != 0) {
         mal_device_uninit__alsa(pDevice);
         return mal_post_error(pDevice, "[ALSA] Failed to initialize software parameters. snd_pcm_sw_params_current() failed.", MAL_ALSA_FAILED_TO_SET_SW_PARAMS);
     }
 
-    if (((mal_snd_pcm_sw_params_set_avail_min_proc)pContext->alsa.snd_pcm_sw_params_set_avail_min)((snd_pcm_t*)pDevice->alsa.pPCM, pSWParams, (pDevice->sampleRate/1000) * 1) != 0) {
+    if (((mal_snd_pcm_sw_params_set_avail_min_proc)pContext->alsa.snd_pcm_sw_params_set_avail_min)((mal_snd_pcm_t*)pDevice->alsa.pPCM, pSWParams, (pDevice->sampleRate/1000) * 1) != 0) {
         mal_device_uninit__alsa(pDevice);
         return mal_post_error(pDevice, "[ALSA] snd_pcm_sw_params_set_avail_min() failed.", MAL_FORMAT_NOT_SUPPORTED);
     }
 
     if (type == mal_device_type_playback && !pDevice->alsa.isUsingMMap) {   // Only playback devices in writei/readi mode need a start threshold.
-        if (((mal_snd_pcm_sw_params_set_start_threshold_proc)pContext->alsa.snd_pcm_sw_params_set_start_threshold)((snd_pcm_t*)pDevice->alsa.pPCM, pSWParams, (pDevice->sampleRate/1000) * 1) != 0) { //mal_prev_power_of_2(pDevice->bufferSizeInFrames/pDevice->periods)
+        if (((mal_snd_pcm_sw_params_set_start_threshold_proc)pContext->alsa.snd_pcm_sw_params_set_start_threshold)((mal_snd_pcm_t*)pDevice->alsa.pPCM, pSWParams, (pDevice->sampleRate/1000) * 1) != 0) { //mal_prev_power_of_2(pDevice->bufferSizeInFrames/pDevice->periods)
             mal_device_uninit__alsa(pDevice);
             return mal_post_error(pDevice, "[ALSA] Failed to set start threshold for playback device. snd_pcm_sw_params_set_start_threshold() failed.", MAL_ALSA_FAILED_TO_SET_SW_PARAMS);
         }
     }
 
-    if (((mal_snd_pcm_sw_params_proc)pContext->alsa.snd_pcm_sw_params)((snd_pcm_t*)pDevice->alsa.pPCM, pSWParams) != 0) {
+    if (((mal_snd_pcm_sw_params_proc)pContext->alsa.snd_pcm_sw_params)((mal_snd_pcm_t*)pDevice->alsa.pPCM, pSWParams) != 0) {
         mal_device_uninit__alsa(pDevice);
         return mal_post_error(pDevice, "[ALSA] Failed to set software parameters. snd_pcm_sw_params() failed.", MAL_ALSA_FAILED_TO_SET_SW_PARAMS);
     }
@@ -6924,7 +7204,7 @@ static mal_result mal_device_init__alsa(mal_context* pContext, mal_device_type t
 
     // Grab the internal channel map. For now we're not going to bother trying to change the channel map and
     // instead just do it ourselves.
-    snd_pcm_chmap_t* pChmap = ((mal_snd_pcm_get_chmap_proc)pContext->alsa.snd_pcm_get_chmap)((snd_pcm_t*)pDevice->alsa.pPCM);
+    mal_snd_pcm_chmap_t* pChmap = ((mal_snd_pcm_get_chmap_proc)pContext->alsa.snd_pcm_get_chmap)((mal_snd_pcm_t*)pDevice->alsa.pPCM);
     if (pChmap != NULL) {
         // There are cases where the returned channel map can have a different channel count than was returned by snd_pcm_hw_params_set_channels_near().
         if (pChmap->channels >= pDevice->internalChannels) {
@@ -6977,7 +7257,7 @@ static mal_result mal_device__start_backend__alsa(mal_device* pDevice)
     mal_assert(pDevice != NULL);
 
     // Prepare the device first...
-    if (((mal_snd_pcm_prepare_proc)pDevice->pContext->alsa.snd_pcm_prepare)((snd_pcm_t*)pDevice->alsa.pPCM) < 0) {
+    if (((mal_snd_pcm_prepare_proc)pDevice->pContext->alsa.snd_pcm_prepare)((mal_snd_pcm_t*)pDevice->alsa.pPCM) < 0) {
         return mal_post_error(pDevice, "[ALSA] Failed to prepare device.", MAL_ALSA_FAILED_TO_PREPARE_DEVICE);
     }
 
@@ -6990,12 +7270,12 @@ static mal_result mal_device__start_backend__alsa(mal_device* pDevice)
 
         // mmap mode requires an explicit start.
         if (pDevice->alsa.isUsingMMap) {
-            if (((mal_snd_pcm_start_proc)pDevice->pContext->alsa.snd_pcm_start)((snd_pcm_t*)pDevice->alsa.pPCM) < 0) {
+            if (((mal_snd_pcm_start_proc)pDevice->pContext->alsa.snd_pcm_start)((mal_snd_pcm_t*)pDevice->alsa.pPCM) < 0) {
                 return mal_post_error(pDevice, "[ALSA] Failed to start capture device.", MAL_FAILED_TO_START_BACKEND_DEVICE);
             }
         }
     } else {
-        if (((mal_snd_pcm_start_proc)pDevice->pContext->alsa.snd_pcm_start)((snd_pcm_t*)pDevice->alsa.pPCM) < 0) {
+        if (((mal_snd_pcm_start_proc)pDevice->pContext->alsa.snd_pcm_start)((mal_snd_pcm_t*)pDevice->alsa.pPCM) < 0) {
             return mal_post_error(pDevice, "[ALSA] Failed to start capture device.", MAL_FAILED_TO_START_BACKEND_DEVICE);
         }
     }
@@ -7007,7 +7287,7 @@ static mal_result mal_device__stop_backend__alsa(mal_device* pDevice)
 {
     mal_assert(pDevice != NULL);
 
-    ((mal_snd_pcm_drop_proc)pDevice->pContext->alsa.snd_pcm_drop)((snd_pcm_t*)pDevice->alsa.pPCM);
+    ((mal_snd_pcm_drop_proc)pDevice->pContext->alsa.snd_pcm_drop)((mal_snd_pcm_t*)pDevice->alsa.pPCM);
     return MAL_SUCCESS;
 }
 
@@ -15314,6 +15594,8 @@ void mal_pcm_f32_to_s32(int* pOut, const float* pIn, unsigned int count)
 // v0.x - 2018-xx-xx
 //   - Add support for PulseAudio.
 //   - Add support for JACK.
+//   - Remove dependency on asound.h for the ALSA backend. This means the ALSA development packages are no
+//     longer required to build mini_al.
 //   - Fix errors with OpenAL detection.
 //   - Fix some memory leaks.
 //   - Miscellaneous bug fixes.
