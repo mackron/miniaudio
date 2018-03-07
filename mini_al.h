@@ -1803,7 +1803,7 @@ mal_result mal_decoder_init_file(const char* pFilePath, const mal_decoder_config
 
 mal_result mal_decoder_uninit(mal_decoder* pDecoder);
 
-mal_uint64 mal_decoder_read(mal_decoder* pDecoder, mal_uint64 frameCount, void* pFramesOut); 
+mal_uint64 mal_decoder_read(mal_decoder* pDecoder, mal_uint64 frameCount, void* pFramesOut);
 mal_result mal_decoder_seek_to_frame(mal_decoder* pDecoder, mal_uint64 frameIndex);
 
 #endif
@@ -2391,7 +2391,7 @@ void mal_timer_init(mal_timer* pTimer)
     mach_timebase_info_data_t baseTime;
     mach_timebase_info(&baseTime);
     g_mal_TimerFrequency = (baseTime.denom * 1e9) / baseTime.numer;
-    
+
     pTimer->counter = mach_absolute_time();
 }
 
@@ -2399,7 +2399,7 @@ double mal_timer_get_time_in_seconds(mal_timer* pTimer)
 {
     uint64_t newTimeCounter = mach_absolute_time();
     uint64_t oldTimeCounter = pTimer->counter;
-    
+
     return (newTimeCounter - oldTimeCounter) / g_mal_TimerFrequency;
 }
 #else
@@ -6203,100 +6203,100 @@ mal_result mal_context_init__alsa(mal_context* pContext)
     pContext->alsa.snd_config_update_free_global          = (mal_proc)mal_dlsym(pContext->alsa.asoundSO, "snd_config_update_free_global");
 #else
     // The system below is just for type safety.
-    mal_snd_pcm_open_proc                           _snd_pcm_open                           = snd_pcm_open;                          
-    mal_snd_pcm_close_proc                          _snd_pcm_close                          = snd_pcm_close;                         
-    mal_snd_pcm_hw_params_sizeof_proc               _snd_pcm_hw_params_sizeof               = snd_pcm_hw_params_sizeof;              
-    mal_snd_pcm_hw_params_any_proc                  _snd_pcm_hw_params_any                  = snd_pcm_hw_params_any;                 
-    mal_snd_pcm_hw_params_set_format_proc           _snd_pcm_hw_params_set_format           = snd_pcm_hw_params_set_format;          
-    mal_snd_pcm_hw_params_set_format_first_proc     _snd_pcm_hw_params_set_format_first     = snd_pcm_hw_params_set_format_first;    
-    mal_snd_pcm_hw_params_get_format_mask_proc      _snd_pcm_hw_params_get_format_mask      = snd_pcm_hw_params_get_format_mask;     
-    mal_snd_pcm_hw_params_set_channels_near_proc    _snd_pcm_hw_params_set_channels_near    = snd_pcm_hw_params_set_channels_near;   
-    mal_snd_pcm_hw_params_set_rate_resample_proc    _snd_pcm_hw_params_set_rate_resample    = snd_pcm_hw_params_set_rate_resample;   
-    mal_snd_pcm_hw_params_set_rate_near_proc        _snd_pcm_hw_params_set_rate_near        = snd_pcm_hw_params_set_rate_near;       
+    mal_snd_pcm_open_proc                           _snd_pcm_open                           = snd_pcm_open;
+    mal_snd_pcm_close_proc                          _snd_pcm_close                          = snd_pcm_close;
+    mal_snd_pcm_hw_params_sizeof_proc               _snd_pcm_hw_params_sizeof               = snd_pcm_hw_params_sizeof;
+    mal_snd_pcm_hw_params_any_proc                  _snd_pcm_hw_params_any                  = snd_pcm_hw_params_any;
+    mal_snd_pcm_hw_params_set_format_proc           _snd_pcm_hw_params_set_format           = snd_pcm_hw_params_set_format;
+    mal_snd_pcm_hw_params_set_format_first_proc     _snd_pcm_hw_params_set_format_first     = snd_pcm_hw_params_set_format_first;
+    mal_snd_pcm_hw_params_get_format_mask_proc      _snd_pcm_hw_params_get_format_mask      = snd_pcm_hw_params_get_format_mask;
+    mal_snd_pcm_hw_params_set_channels_near_proc    _snd_pcm_hw_params_set_channels_near    = snd_pcm_hw_params_set_channels_near;
+    mal_snd_pcm_hw_params_set_rate_resample_proc    _snd_pcm_hw_params_set_rate_resample    = snd_pcm_hw_params_set_rate_resample;
+    mal_snd_pcm_hw_params_set_rate_near_proc        _snd_pcm_hw_params_set_rate_near        = snd_pcm_hw_params_set_rate_near;
     mal_snd_pcm_hw_params_set_buffer_size_near_proc _snd_pcm_hw_params_set_buffer_size_near = snd_pcm_hw_params_set_buffer_size_near;
-    mal_snd_pcm_hw_params_set_periods_near_proc     _snd_pcm_hw_params_set_periods_near     = snd_pcm_hw_params_set_periods_near;    
-    mal_snd_pcm_hw_params_set_access_proc           _snd_pcm_hw_params_set_access           = snd_pcm_hw_params_set_access;          
-    mal_snd_pcm_hw_params_get_format_proc           _snd_pcm_hw_params_get_format           = snd_pcm_hw_params_get_format;          
-    mal_snd_pcm_hw_params_get_channels_proc         _snd_pcm_hw_params_get_channels         = snd_pcm_hw_params_get_channels;        
-    mal_snd_pcm_hw_params_get_rate_proc             _snd_pcm_hw_params_get_rate             = snd_pcm_hw_params_get_rate;            
-    mal_snd_pcm_hw_params_get_buffer_size_proc      _snd_pcm_hw_params_get_buffer_size      = snd_pcm_hw_params_get_buffer_size;     
-    mal_snd_pcm_hw_params_get_periods_proc          _snd_pcm_hw_params_get_periods          = snd_pcm_hw_params_get_periods;         
-    mal_snd_pcm_hw_params_get_access_proc           _snd_pcm_hw_params_get_access           = snd_pcm_hw_params_get_access;          
-    mal_snd_pcm_hw_params_proc                      _snd_pcm_hw_params                      = snd_pcm_hw_params;                     
-    mal_snd_pcm_sw_params_sizeof_proc               _snd_pcm_sw_params_sizeof               = snd_pcm_sw_params_sizeof;              
-    mal_snd_pcm_sw_params_current_proc              _snd_pcm_sw_params_current              = snd_pcm_sw_params_current;             
-    mal_snd_pcm_sw_params_set_avail_min_proc        _snd_pcm_sw_params_set_avail_min        = snd_pcm_sw_params_set_avail_min;       
-    mal_snd_pcm_sw_params_set_start_threshold_proc  _snd_pcm_sw_params_set_start_threshold  = snd_pcm_sw_params_set_start_threshold; 
-    mal_snd_pcm_sw_params_proc                      _snd_pcm_sw_params                      = snd_pcm_sw_params;                     
-    mal_snd_pcm_format_mask_sizeof_proc             _snd_pcm_format_mask_sizeof             = snd_pcm_format_mask_sizeof;            
-    mal_snd_pcm_format_mask_test_proc               _snd_pcm_format_mask_test               = snd_pcm_format_mask_test;              
-    mal_snd_pcm_get_chmap_proc                      _snd_pcm_get_chmap                      = snd_pcm_get_chmap;                     
-    mal_snd_pcm_prepare_proc                        _snd_pcm_prepare                        = snd_pcm_prepare;                       
-    mal_snd_pcm_start_proc                          _snd_pcm_start                          = snd_pcm_start;                         
-    mal_snd_pcm_drop_proc                           _snd_pcm_drop                           = snd_pcm_drop;                          
-    mal_snd_device_name_hint_proc                   _snd_device_name_hint                   = snd_device_name_hint;                  
-    mal_snd_device_name_get_hint_proc               _snd_device_name_get_hint               = snd_device_name_get_hint;              
-    mal_snd_card_get_index_proc                     _snd_card_get_index                     = snd_card_get_index;                    
-    mal_snd_device_name_free_hint_proc              _snd_device_name_free_hint              = snd_device_name_free_hint;             
-    mal_snd_pcm_mmap_begin_proc                     _snd_pcm_mmap_begin                     = snd_pcm_mmap_begin;                    
-    mal_snd_pcm_mmap_commit_proc                    _snd_pcm_mmap_commit                    = snd_pcm_mmap_commit;                   
-    mal_snd_pcm_recover_proc                        _snd_pcm_recover                        = snd_pcm_recover;                       
-    mal_snd_pcm_readi_proc                          _snd_pcm_readi                          = snd_pcm_readi;                         
-    mal_snd_pcm_writei_proc                         _snd_pcm_writei                         = snd_pcm_writei;                        
-    mal_snd_pcm_avail_proc                          _snd_pcm_avail                          = snd_pcm_avail;                         
-    mal_snd_pcm_avail_update_proc                   _snd_pcm_avail_update                   = snd_pcm_avail_update;                  
-    mal_snd_pcm_wait_proc                           _snd_pcm_wait                           = snd_pcm_wait;                          
-    mal_snd_pcm_info_proc                           _snd_pcm_info                           = snd_pcm_info;                          
-    mal_snd_pcm_info_sizeof_proc                    _snd_pcm_info_sizeof                    = snd_pcm_info_sizeof;                   
-    mal_snd_pcm_info_get_name_proc                  _snd_pcm_info_get_name                  = snd_pcm_info_get_name;                 
+    mal_snd_pcm_hw_params_set_periods_near_proc     _snd_pcm_hw_params_set_periods_near     = snd_pcm_hw_params_set_periods_near;
+    mal_snd_pcm_hw_params_set_access_proc           _snd_pcm_hw_params_set_access           = snd_pcm_hw_params_set_access;
+    mal_snd_pcm_hw_params_get_format_proc           _snd_pcm_hw_params_get_format           = snd_pcm_hw_params_get_format;
+    mal_snd_pcm_hw_params_get_channels_proc         _snd_pcm_hw_params_get_channels         = snd_pcm_hw_params_get_channels;
+    mal_snd_pcm_hw_params_get_rate_proc             _snd_pcm_hw_params_get_rate             = snd_pcm_hw_params_get_rate;
+    mal_snd_pcm_hw_params_get_buffer_size_proc      _snd_pcm_hw_params_get_buffer_size      = snd_pcm_hw_params_get_buffer_size;
+    mal_snd_pcm_hw_params_get_periods_proc          _snd_pcm_hw_params_get_periods          = snd_pcm_hw_params_get_periods;
+    mal_snd_pcm_hw_params_get_access_proc           _snd_pcm_hw_params_get_access           = snd_pcm_hw_params_get_access;
+    mal_snd_pcm_hw_params_proc                      _snd_pcm_hw_params                      = snd_pcm_hw_params;
+    mal_snd_pcm_sw_params_sizeof_proc               _snd_pcm_sw_params_sizeof               = snd_pcm_sw_params_sizeof;
+    mal_snd_pcm_sw_params_current_proc              _snd_pcm_sw_params_current              = snd_pcm_sw_params_current;
+    mal_snd_pcm_sw_params_set_avail_min_proc        _snd_pcm_sw_params_set_avail_min        = snd_pcm_sw_params_set_avail_min;
+    mal_snd_pcm_sw_params_set_start_threshold_proc  _snd_pcm_sw_params_set_start_threshold  = snd_pcm_sw_params_set_start_threshold;
+    mal_snd_pcm_sw_params_proc                      _snd_pcm_sw_params                      = snd_pcm_sw_params;
+    mal_snd_pcm_format_mask_sizeof_proc             _snd_pcm_format_mask_sizeof             = snd_pcm_format_mask_sizeof;
+    mal_snd_pcm_format_mask_test_proc               _snd_pcm_format_mask_test               = snd_pcm_format_mask_test;
+    mal_snd_pcm_get_chmap_proc                      _snd_pcm_get_chmap                      = snd_pcm_get_chmap;
+    mal_snd_pcm_prepare_proc                        _snd_pcm_prepare                        = snd_pcm_prepare;
+    mal_snd_pcm_start_proc                          _snd_pcm_start                          = snd_pcm_start;
+    mal_snd_pcm_drop_proc                           _snd_pcm_drop                           = snd_pcm_drop;
+    mal_snd_device_name_hint_proc                   _snd_device_name_hint                   = snd_device_name_hint;
+    mal_snd_device_name_get_hint_proc               _snd_device_name_get_hint               = snd_device_name_get_hint;
+    mal_snd_card_get_index_proc                     _snd_card_get_index                     = snd_card_get_index;
+    mal_snd_device_name_free_hint_proc              _snd_device_name_free_hint              = snd_device_name_free_hint;
+    mal_snd_pcm_mmap_begin_proc                     _snd_pcm_mmap_begin                     = snd_pcm_mmap_begin;
+    mal_snd_pcm_mmap_commit_proc                    _snd_pcm_mmap_commit                    = snd_pcm_mmap_commit;
+    mal_snd_pcm_recover_proc                        _snd_pcm_recover                        = snd_pcm_recover;
+    mal_snd_pcm_readi_proc                          _snd_pcm_readi                          = snd_pcm_readi;
+    mal_snd_pcm_writei_proc                         _snd_pcm_writei                         = snd_pcm_writei;
+    mal_snd_pcm_avail_proc                          _snd_pcm_avail                          = snd_pcm_avail;
+    mal_snd_pcm_avail_update_proc                   _snd_pcm_avail_update                   = snd_pcm_avail_update;
+    mal_snd_pcm_wait_proc                           _snd_pcm_wait                           = snd_pcm_wait;
+    mal_snd_pcm_info_proc                           _snd_pcm_info                           = snd_pcm_info;
+    mal_snd_pcm_info_sizeof_proc                    _snd_pcm_info_sizeof                    = snd_pcm_info_sizeof;
+    mal_snd_pcm_info_get_name_proc                  _snd_pcm_info_get_name                  = snd_pcm_info_get_name;
     mal_snd_config_update_free_global_proc          _snd_config_update_free_global          = snd_config_update_free_global;
 
-    pContext->alsa.snd_pcm_open                           = (mal_proc)_snd_pcm_open;                          
-    pContext->alsa.snd_pcm_close                          = (mal_proc)_snd_pcm_close;                         
-    pContext->alsa.snd_pcm_hw_params_sizeof               = (mal_proc)_snd_pcm_hw_params_sizeof;              
-    pContext->alsa.snd_pcm_hw_params_any                  = (mal_proc)_snd_pcm_hw_params_any;                 
-    pContext->alsa.snd_pcm_hw_params_set_format           = (mal_proc)_snd_pcm_hw_params_set_format;          
-    pContext->alsa.snd_pcm_hw_params_set_format_first     = (mal_proc)_snd_pcm_hw_params_set_format_first;    
-    pContext->alsa.snd_pcm_hw_params_get_format_mask      = (mal_proc)_snd_pcm_hw_params_get_format_mask;     
-    pContext->alsa.snd_pcm_hw_params_set_channels_near    = (mal_proc)_snd_pcm_hw_params_set_channels_near;   
-    pContext->alsa.snd_pcm_hw_params_set_rate_resample    = (mal_proc)_snd_pcm_hw_params_set_rate_resample;   
-    pContext->alsa.snd_pcm_hw_params_set_rate_near        = (mal_proc)_snd_pcm_hw_params_set_rate_near;       
+    pContext->alsa.snd_pcm_open                           = (mal_proc)_snd_pcm_open;
+    pContext->alsa.snd_pcm_close                          = (mal_proc)_snd_pcm_close;
+    pContext->alsa.snd_pcm_hw_params_sizeof               = (mal_proc)_snd_pcm_hw_params_sizeof;
+    pContext->alsa.snd_pcm_hw_params_any                  = (mal_proc)_snd_pcm_hw_params_any;
+    pContext->alsa.snd_pcm_hw_params_set_format           = (mal_proc)_snd_pcm_hw_params_set_format;
+    pContext->alsa.snd_pcm_hw_params_set_format_first     = (mal_proc)_snd_pcm_hw_params_set_format_first;
+    pContext->alsa.snd_pcm_hw_params_get_format_mask      = (mal_proc)_snd_pcm_hw_params_get_format_mask;
+    pContext->alsa.snd_pcm_hw_params_set_channels_near    = (mal_proc)_snd_pcm_hw_params_set_channels_near;
+    pContext->alsa.snd_pcm_hw_params_set_rate_resample    = (mal_proc)_snd_pcm_hw_params_set_rate_resample;
+    pContext->alsa.snd_pcm_hw_params_set_rate_near        = (mal_proc)_snd_pcm_hw_params_set_rate_near;
     pContext->alsa.snd_pcm_hw_params_set_buffer_size_near = (mal_proc)_snd_pcm_hw_params_set_buffer_size_near;
-    pContext->alsa.snd_pcm_hw_params_set_periods_near     = (mal_proc)_snd_pcm_hw_params_set_periods_near;    
-    pContext->alsa.snd_pcm_hw_params_set_access           = (mal_proc)_snd_pcm_hw_params_set_access;          
-    pContext->alsa.snd_pcm_hw_params_get_format           = (mal_proc)_snd_pcm_hw_params_get_format;          
-    pContext->alsa.snd_pcm_hw_params_get_channels         = (mal_proc)_snd_pcm_hw_params_get_channels;        
-    pContext->alsa.snd_pcm_hw_params_get_rate             = (mal_proc)_snd_pcm_hw_params_get_rate;            
-    pContext->alsa.snd_pcm_hw_params_get_buffer_size      = (mal_proc)_snd_pcm_hw_params_get_buffer_size;     
-    pContext->alsa.snd_pcm_hw_params_get_periods          = (mal_proc)_snd_pcm_hw_params_get_periods;         
-    pContext->alsa.snd_pcm_hw_params_get_access           = (mal_proc)_snd_pcm_hw_params_get_access;          
-    pContext->alsa.snd_pcm_hw_params                      = (mal_proc)_snd_pcm_hw_params;                     
-    pContext->alsa.snd_pcm_sw_params_sizeof               = (mal_proc)_snd_pcm_sw_params_sizeof;              
-    pContext->alsa.snd_pcm_sw_params_current              = (mal_proc)_snd_pcm_sw_params_current;             
-    pContext->alsa.snd_pcm_sw_params_set_avail_min        = (mal_proc)_snd_pcm_sw_params_set_avail_min;       
-    pContext->alsa.snd_pcm_sw_params_set_start_threshold  = (mal_proc)_snd_pcm_sw_params_set_start_threshold; 
-    pContext->alsa.snd_pcm_sw_params                      = (mal_proc)_snd_pcm_sw_params;                     
-    pContext->alsa.snd_pcm_format_mask_sizeof             = (mal_proc)_snd_pcm_format_mask_sizeof;            
-    pContext->alsa.snd_pcm_format_mask_test               = (mal_proc)_snd_pcm_format_mask_test;              
-    pContext->alsa.snd_pcm_get_chmap                      = (mal_proc)_snd_pcm_get_chmap;                     
-    pContext->alsa.snd_pcm_prepare                        = (mal_proc)_snd_pcm_prepare;                       
-    pContext->alsa.snd_pcm_start                          = (mal_proc)_snd_pcm_start;                         
-    pContext->alsa.snd_pcm_drop                           = (mal_proc)_snd_pcm_drop;                          
-    pContext->alsa.snd_device_name_hint                   = (mal_proc)_snd_device_name_hint;                  
-    pContext->alsa.snd_device_name_get_hint               = (mal_proc)_snd_device_name_get_hint;              
-    pContext->alsa.snd_card_get_index                     = (mal_proc)_snd_card_get_index;                    
-    pContext->alsa.snd_device_name_free_hint              = (mal_proc)_snd_device_name_free_hint;             
-    pContext->alsa.snd_pcm_mmap_begin                     = (mal_proc)_snd_pcm_mmap_begin;                    
-    pContext->alsa.snd_pcm_mmap_commit                    = (mal_proc)_snd_pcm_mmap_commit;                   
-    pContext->alsa.snd_pcm_recover                        = (mal_proc)_snd_pcm_recover;                       
-    pContext->alsa.snd_pcm_readi                          = (mal_proc)_snd_pcm_readi;                         
-    pContext->alsa.snd_pcm_writei                         = (mal_proc)_snd_pcm_writei;                        
-    pContext->alsa.snd_pcm_avail                          = (mal_proc)_snd_pcm_avail;                         
-    pContext->alsa.snd_pcm_avail_update                   = (mal_proc)_snd_pcm_avail_update;                  
-    pContext->alsa.snd_pcm_wait                           = (mal_proc)_snd_pcm_wait;                          
-    pContext->alsa.snd_pcm_info                           = (mal_proc)_snd_pcm_info;                          
-    pContext->alsa.snd_pcm_info_sizeof                    = (mal_proc)_snd_pcm_info_sizeof;                   
-    pContext->alsa.snd_pcm_info_get_name                  = (mal_proc)_snd_pcm_info_get_name;                 
+    pContext->alsa.snd_pcm_hw_params_set_periods_near     = (mal_proc)_snd_pcm_hw_params_set_periods_near;
+    pContext->alsa.snd_pcm_hw_params_set_access           = (mal_proc)_snd_pcm_hw_params_set_access;
+    pContext->alsa.snd_pcm_hw_params_get_format           = (mal_proc)_snd_pcm_hw_params_get_format;
+    pContext->alsa.snd_pcm_hw_params_get_channels         = (mal_proc)_snd_pcm_hw_params_get_channels;
+    pContext->alsa.snd_pcm_hw_params_get_rate             = (mal_proc)_snd_pcm_hw_params_get_rate;
+    pContext->alsa.snd_pcm_hw_params_get_buffer_size      = (mal_proc)_snd_pcm_hw_params_get_buffer_size;
+    pContext->alsa.snd_pcm_hw_params_get_periods          = (mal_proc)_snd_pcm_hw_params_get_periods;
+    pContext->alsa.snd_pcm_hw_params_get_access           = (mal_proc)_snd_pcm_hw_params_get_access;
+    pContext->alsa.snd_pcm_hw_params                      = (mal_proc)_snd_pcm_hw_params;
+    pContext->alsa.snd_pcm_sw_params_sizeof               = (mal_proc)_snd_pcm_sw_params_sizeof;
+    pContext->alsa.snd_pcm_sw_params_current              = (mal_proc)_snd_pcm_sw_params_current;
+    pContext->alsa.snd_pcm_sw_params_set_avail_min        = (mal_proc)_snd_pcm_sw_params_set_avail_min;
+    pContext->alsa.snd_pcm_sw_params_set_start_threshold  = (mal_proc)_snd_pcm_sw_params_set_start_threshold;
+    pContext->alsa.snd_pcm_sw_params                      = (mal_proc)_snd_pcm_sw_params;
+    pContext->alsa.snd_pcm_format_mask_sizeof             = (mal_proc)_snd_pcm_format_mask_sizeof;
+    pContext->alsa.snd_pcm_format_mask_test               = (mal_proc)_snd_pcm_format_mask_test;
+    pContext->alsa.snd_pcm_get_chmap                      = (mal_proc)_snd_pcm_get_chmap;
+    pContext->alsa.snd_pcm_prepare                        = (mal_proc)_snd_pcm_prepare;
+    pContext->alsa.snd_pcm_start                          = (mal_proc)_snd_pcm_start;
+    pContext->alsa.snd_pcm_drop                           = (mal_proc)_snd_pcm_drop;
+    pContext->alsa.snd_device_name_hint                   = (mal_proc)_snd_device_name_hint;
+    pContext->alsa.snd_device_name_get_hint               = (mal_proc)_snd_device_name_get_hint;
+    pContext->alsa.snd_card_get_index                     = (mal_proc)_snd_card_get_index;
+    pContext->alsa.snd_device_name_free_hint              = (mal_proc)_snd_device_name_free_hint;
+    pContext->alsa.snd_pcm_mmap_begin                     = (mal_proc)_snd_pcm_mmap_begin;
+    pContext->alsa.snd_pcm_mmap_commit                    = (mal_proc)_snd_pcm_mmap_commit;
+    pContext->alsa.snd_pcm_recover                        = (mal_proc)_snd_pcm_recover;
+    pContext->alsa.snd_pcm_readi                          = (mal_proc)_snd_pcm_readi;
+    pContext->alsa.snd_pcm_writei                         = (mal_proc)_snd_pcm_writei;
+    pContext->alsa.snd_pcm_avail                          = (mal_proc)_snd_pcm_avail;
+    pContext->alsa.snd_pcm_avail_update                   = (mal_proc)_snd_pcm_avail_update;
+    pContext->alsa.snd_pcm_wait                           = (mal_proc)_snd_pcm_wait;
+    pContext->alsa.snd_pcm_info                           = (mal_proc)_snd_pcm_info;
+    pContext->alsa.snd_pcm_info_sizeof                    = (mal_proc)_snd_pcm_info_sizeof;
+    pContext->alsa.snd_pcm_info_get_name                  = (mal_proc)_snd_pcm_info_get_name;
     pContext->alsa.snd_config_update_free_global          = (mal_proc)_snd_config_update_free_global;
 #endif
 
@@ -7357,164 +7357,164 @@ typedef pa_stream_flags_t mal_pa_stream_flags_t;
 #define MAL_PA_STREAM_NOT_MONOTONIC                     PA_STREAM_NOT_MONOTONIC
 #define MAL_PA_STREAM_AUTO_TIMING_UPDATE                PA_STREAM_AUTO_TIMING_UPDATE
 #define MAL_PA_STREAM_NO_REMAP_CHANNELS                 PA_STREAM_NO_REMAP_CHANNELS
-#define MAL_PA_STREAM_NO_REMIX_CHANNELS                 PA_STREAM_NO_REMIX_CHANNELS        
-#define MAL_PA_STREAM_FIX_FORMAT                        PA_STREAM_FIX_FORMAT               
-#define MAL_PA_STREAM_FIX_RATE                          PA_STREAM_FIX_RATE                 
-#define MAL_PA_STREAM_FIX_CHANNELS                      PA_STREAM_FIX_CHANNELS             
-#define MAL_PA_STREAM_DONT_MOVE                         PA_STREAM_DONT_MOVE                
-#define MAL_PA_STREAM_VARIABLE_RATE                     PA_STREAM_VARIABLE_RATE            
-#define MAL_PA_STREAM_PEAK_DETECT                       PA_STREAM_PEAK_DETECT              
-#define MAL_PA_STREAM_START_MUTED                       PA_STREAM_START_MUTED              
-#define MAL_PA_STREAM_ADJUST_LATENCY                    PA_STREAM_ADJUST_LATENCY           
-#define MAL_PA_STREAM_EARLY_REQUESTS                    PA_STREAM_EARLY_REQUESTS           
+#define MAL_PA_STREAM_NO_REMIX_CHANNELS                 PA_STREAM_NO_REMIX_CHANNELS
+#define MAL_PA_STREAM_FIX_FORMAT                        PA_STREAM_FIX_FORMAT
+#define MAL_PA_STREAM_FIX_RATE                          PA_STREAM_FIX_RATE
+#define MAL_PA_STREAM_FIX_CHANNELS                      PA_STREAM_FIX_CHANNELS
+#define MAL_PA_STREAM_DONT_MOVE                         PA_STREAM_DONT_MOVE
+#define MAL_PA_STREAM_VARIABLE_RATE                     PA_STREAM_VARIABLE_RATE
+#define MAL_PA_STREAM_PEAK_DETECT                       PA_STREAM_PEAK_DETECT
+#define MAL_PA_STREAM_START_MUTED                       PA_STREAM_START_MUTED
+#define MAL_PA_STREAM_ADJUST_LATENCY                    PA_STREAM_ADJUST_LATENCY
+#define MAL_PA_STREAM_EARLY_REQUESTS                    PA_STREAM_EARLY_REQUESTS
 #define MAL_PA_STREAM_DONT_INHIBIT_AUTO_SUSPEND         PA_STREAM_DONT_INHIBIT_AUTO_SUSPEND
-#define MAL_PA_STREAM_START_UNMUTED                     PA_STREAM_START_UNMUTED            
-#define MAL_PA_STREAM_FAIL_ON_SUSPEND                   PA_STREAM_FAIL_ON_SUSPEND          
-#define MAL_PA_STREAM_RELATIVE_VOLUME                   PA_STREAM_RELATIVE_VOLUME          
-#define MAL_PA_STREAM_PASSTHROUGH                       PA_STREAM_PASSTHROUGH              
+#define MAL_PA_STREAM_START_UNMUTED                     PA_STREAM_START_UNMUTED
+#define MAL_PA_STREAM_FAIL_ON_SUSPEND                   PA_STREAM_FAIL_ON_SUSPEND
+#define MAL_PA_STREAM_RELATIVE_VOLUME                   PA_STREAM_RELATIVE_VOLUME
+#define MAL_PA_STREAM_PASSTHROUGH                       PA_STREAM_PASSTHROUGH
 
 typedef pa_sink_flags_t mal_pa_sink_flags_t;
-#define MAL_PA_SINK_NOFLAGS                             PA_SINK_NOFLAGS        
-#define MAL_PA_SINK_HW_VOLUME_CTRL                      PA_SINK_HW_VOLUME_CTRL 
-#define MAL_PA_SINK_LATENCY                             PA_SINK_LATENCY        
-#define MAL_PA_SINK_HARDWARE                            PA_SINK_HARDWARE       
-#define MAL_PA_SINK_NETWORK                             PA_SINK_NETWORK        
-#define MAL_PA_SINK_HW_MUTE_CTRL                        PA_SINK_HW_MUTE_CTRL   
-#define MAL_PA_SINK_DECIBEL_VOLUME                      PA_SINK_DECIBEL_VOLUME 
-#define MAL_PA_SINK_FLAT_VOLUME                         PA_SINK_FLAT_VOLUME    
+#define MAL_PA_SINK_NOFLAGS                             PA_SINK_NOFLAGS
+#define MAL_PA_SINK_HW_VOLUME_CTRL                      PA_SINK_HW_VOLUME_CTRL
+#define MAL_PA_SINK_LATENCY                             PA_SINK_LATENCY
+#define MAL_PA_SINK_HARDWARE                            PA_SINK_HARDWARE
+#define MAL_PA_SINK_NETWORK                             PA_SINK_NETWORK
+#define MAL_PA_SINK_HW_MUTE_CTRL                        PA_SINK_HW_MUTE_CTRL
+#define MAL_PA_SINK_DECIBEL_VOLUME                      PA_SINK_DECIBEL_VOLUME
+#define MAL_PA_SINK_FLAT_VOLUME                         PA_SINK_FLAT_VOLUME
 #define MAL_PA_SINK_DYNAMIC_LATENCY                     PA_SINK_DYNAMIC_LATENCY
-#define MAL_PA_SINK_SET_FORMATS                         PA_SINK_SET_FORMATS    
+#define MAL_PA_SINK_SET_FORMATS                         PA_SINK_SET_FORMATS
 
 typedef pa_source_flags_t mal_pa_source_flags_t;
-#define MAL_PA_SOURCE_NOFLAGS                           PA_SOURCE_NOFLAGS        
-#define MAL_PA_SOURCE_HW_VOLUME_CTRL                    PA_SOURCE_HW_VOLUME_CTRL 
-#define MAL_PA_SOURCE_LATENCY                           PA_SOURCE_LATENCY        
-#define MAL_PA_SOURCE_HARDWARE                          PA_SOURCE_HARDWARE       
-#define MAL_PA_SOURCE_NETWORK                           PA_SOURCE_NETWORK        
-#define MAL_PA_SOURCE_HW_MUTE_CTRL                      PA_SOURCE_HW_MUTE_CTRL   
-#define MAL_PA_SOURCE_DECIBEL_VOLUME                    PA_SOURCE_DECIBEL_VOLUME 
+#define MAL_PA_SOURCE_NOFLAGS                           PA_SOURCE_NOFLAGS
+#define MAL_PA_SOURCE_HW_VOLUME_CTRL                    PA_SOURCE_HW_VOLUME_CTRL
+#define MAL_PA_SOURCE_LATENCY                           PA_SOURCE_LATENCY
+#define MAL_PA_SOURCE_HARDWARE                          PA_SOURCE_HARDWARE
+#define MAL_PA_SOURCE_NETWORK                           PA_SOURCE_NETWORK
+#define MAL_PA_SOURCE_HW_MUTE_CTRL                      PA_SOURCE_HW_MUTE_CTRL
+#define MAL_PA_SOURCE_DECIBEL_VOLUME                    PA_SOURCE_DECIBEL_VOLUME
 #define MAL_PA_SOURCE_DYNAMIC_LATENCY                   PA_SOURCE_DYNAMIC_LATENCY
-#define MAL_PA_SOURCE_FLAT_VOLUME                       PA_SOURCE_FLAT_VOLUME    
+#define MAL_PA_SOURCE_FLAT_VOLUME                       PA_SOURCE_FLAT_VOLUME
 
 typedef pa_context_state_t mal_pa_context_state_t;
-#define MAL_PA_CONTEXT_UNCONNECTED                      PA_CONTEXT_UNCONNECTED 
-#define MAL_PA_CONTEXT_CONNECTING                       PA_CONTEXT_CONNECTING  
-#define MAL_PA_CONTEXT_AUTHORIZING                      PA_CONTEXT_AUTHORIZING 
+#define MAL_PA_CONTEXT_UNCONNECTED                      PA_CONTEXT_UNCONNECTED
+#define MAL_PA_CONTEXT_CONNECTING                       PA_CONTEXT_CONNECTING
+#define MAL_PA_CONTEXT_AUTHORIZING                      PA_CONTEXT_AUTHORIZING
 #define MAL_PA_CONTEXT_SETTING_NAME                     PA_CONTEXT_SETTING_NAME
-#define MAL_PA_CONTEXT_READY                            PA_CONTEXT_READY       
-#define MAL_PA_CONTEXT_FAILED                           PA_CONTEXT_FAILED      
-#define MAL_PA_CONTEXT_TERMINATED                       PA_CONTEXT_TERMINATED  
+#define MAL_PA_CONTEXT_READY                            PA_CONTEXT_READY
+#define MAL_PA_CONTEXT_FAILED                           PA_CONTEXT_FAILED
+#define MAL_PA_CONTEXT_TERMINATED                       PA_CONTEXT_TERMINATED
 
 typedef pa_stream_state_t mal_pa_stream_state_t;
 #define MAL_PA_STREAM_UNCONNECTED                       PA_STREAM_UNCONNECTED
-#define MAL_PA_STREAM_CREATING                          PA_STREAM_CREATING   
-#define MAL_PA_STREAM_READY                             PA_STREAM_READY      
-#define MAL_PA_STREAM_FAILED                            PA_STREAM_FAILED     
-#define MAL_PA_STREAM_TERMINATED                        PA_STREAM_TERMINATED 
+#define MAL_PA_STREAM_CREATING                          PA_STREAM_CREATING
+#define MAL_PA_STREAM_READY                             PA_STREAM_READY
+#define MAL_PA_STREAM_FAILED                            PA_STREAM_FAILED
+#define MAL_PA_STREAM_TERMINATED                        PA_STREAM_TERMINATED
 
 typedef pa_operation_state_t mal_pa_operation_state_t;
-#define MAL_PA_OPERATION_RUNNING                        PA_OPERATION_RUNNING  
-#define MAL_PA_OPERATION_DONE                           PA_OPERATION_DONE     
+#define MAL_PA_OPERATION_RUNNING                        PA_OPERATION_RUNNING
+#define MAL_PA_OPERATION_DONE                           PA_OPERATION_DONE
 #define MAL_PA_OPERATION_CANCELLED                      PA_OPERATION_CANCELLED
 
 typedef pa_sink_state_t mal_pa_sink_state_t;
 #define MAL_PA_SINK_INVALID_STATE                       PA_SINK_INVALID_STATE
-#define MAL_PA_SINK_RUNNING                             PA_SINK_RUNNING      
-#define MAL_PA_SINK_IDLE                                PA_SINK_IDLE         
-#define MAL_PA_SINK_SUSPENDED                           PA_SINK_SUSPENDED    
+#define MAL_PA_SINK_RUNNING                             PA_SINK_RUNNING
+#define MAL_PA_SINK_IDLE                                PA_SINK_IDLE
+#define MAL_PA_SINK_SUSPENDED                           PA_SINK_SUSPENDED
 
 typedef pa_source_state_t mal_pa_source_state_t;
 #define MAL_PA_SOURCE_INVALID_STATE                     PA_SOURCE_INVALID_STATE
-#define MAL_PA_SOURCE_RUNNING                           PA_SOURCE_RUNNING      
-#define MAL_PA_SOURCE_IDLE                              PA_SOURCE_IDLE         
-#define MAL_PA_SOURCE_SUSPENDED                         PA_SOURCE_SUSPENDED    
+#define MAL_PA_SOURCE_RUNNING                           PA_SOURCE_RUNNING
+#define MAL_PA_SOURCE_IDLE                              PA_SOURCE_IDLE
+#define MAL_PA_SOURCE_SUSPENDED                         PA_SOURCE_SUSPENDED
 
 typedef pa_seek_mode_t mal_pa_seek_mode_t;
-#define MAL_PA_SEEK_RELATIVE                            PA_SEEK_RELATIVE        
-#define MAL_PA_SEEK_ABSOLUTE                            PA_SEEK_ABSOLUTE        
+#define MAL_PA_SEEK_RELATIVE                            PA_SEEK_RELATIVE
+#define MAL_PA_SEEK_ABSOLUTE                            PA_SEEK_ABSOLUTE
 #define MAL_PA_SEEK_RELATIVE_ON_READ                    PA_SEEK_RELATIVE_ON_READ
-#define MAL_PA_SEEK_RELATIVE_END                        PA_SEEK_RELATIVE_END    
+#define MAL_PA_SEEK_RELATIVE_END                        PA_SEEK_RELATIVE_END
 
 typedef pa_channel_position_t mal_pa_channel_position_t;
-#define MAL_PA_CHANNEL_POSITION_INVALID                 PA_CHANNEL_POSITION_INVALID              
-#define MAL_PA_CHANNEL_POSITION_MONO                    PA_CHANNEL_POSITION_MONO                 
-#define MAL_PA_CHANNEL_POSITION_FRONT_LEFT              PA_CHANNEL_POSITION_FRONT_LEFT           
-#define MAL_PA_CHANNEL_POSITION_FRONT_RIGHT             PA_CHANNEL_POSITION_FRONT_RIGHT          
-#define MAL_PA_CHANNEL_POSITION_FRONT_CENTER            PA_CHANNEL_POSITION_FRONT_CENTER         
-#define MAL_PA_CHANNEL_POSITION_REAR_CENTER             PA_CHANNEL_POSITION_REAR_CENTER          
-#define MAL_PA_CHANNEL_POSITION_REAR_LEFT               PA_CHANNEL_POSITION_REAR_LEFT            
-#define MAL_PA_CHANNEL_POSITION_REAR_RIGHT              PA_CHANNEL_POSITION_REAR_RIGHT           
-#define MAL_PA_CHANNEL_POSITION_LFE                     PA_CHANNEL_POSITION_LFE                  
-#define MAL_PA_CHANNEL_POSITION_FRONT_LEFT_OF_CENTER    PA_CHANNEL_POSITION_FRONT_LEFT_OF_CENTER 
+#define MAL_PA_CHANNEL_POSITION_INVALID                 PA_CHANNEL_POSITION_INVALID
+#define MAL_PA_CHANNEL_POSITION_MONO                    PA_CHANNEL_POSITION_MONO
+#define MAL_PA_CHANNEL_POSITION_FRONT_LEFT              PA_CHANNEL_POSITION_FRONT_LEFT
+#define MAL_PA_CHANNEL_POSITION_FRONT_RIGHT             PA_CHANNEL_POSITION_FRONT_RIGHT
+#define MAL_PA_CHANNEL_POSITION_FRONT_CENTER            PA_CHANNEL_POSITION_FRONT_CENTER
+#define MAL_PA_CHANNEL_POSITION_REAR_CENTER             PA_CHANNEL_POSITION_REAR_CENTER
+#define MAL_PA_CHANNEL_POSITION_REAR_LEFT               PA_CHANNEL_POSITION_REAR_LEFT
+#define MAL_PA_CHANNEL_POSITION_REAR_RIGHT              PA_CHANNEL_POSITION_REAR_RIGHT
+#define MAL_PA_CHANNEL_POSITION_LFE                     PA_CHANNEL_POSITION_LFE
+#define MAL_PA_CHANNEL_POSITION_FRONT_LEFT_OF_CENTER    PA_CHANNEL_POSITION_FRONT_LEFT_OF_CENTER
 #define MAL_PA_CHANNEL_POSITION_FRONT_RIGHT_OF_CENTER   PA_CHANNEL_POSITION_FRONT_RIGHT_OF_CENTER
-#define MAL_PA_CHANNEL_POSITION_SIDE_LEFT               PA_CHANNEL_POSITION_SIDE_LEFT            
-#define MAL_PA_CHANNEL_POSITION_SIDE_RIGHT              PA_CHANNEL_POSITION_SIDE_RIGHT           
-#define MAL_PA_CHANNEL_POSITION_AUX0                    PA_CHANNEL_POSITION_AUX0                 
-#define MAL_PA_CHANNEL_POSITION_AUX1                    PA_CHANNEL_POSITION_AUX1                 
-#define MAL_PA_CHANNEL_POSITION_AUX2                    PA_CHANNEL_POSITION_AUX2                 
-#define MAL_PA_CHANNEL_POSITION_AUX3                    PA_CHANNEL_POSITION_AUX3                 
-#define MAL_PA_CHANNEL_POSITION_AUX4                    PA_CHANNEL_POSITION_AUX4                 
-#define MAL_PA_CHANNEL_POSITION_AUX5                    PA_CHANNEL_POSITION_AUX5                 
-#define MAL_PA_CHANNEL_POSITION_AUX6                    PA_CHANNEL_POSITION_AUX6                 
-#define MAL_PA_CHANNEL_POSITION_AUX7                    PA_CHANNEL_POSITION_AUX7                 
-#define MAL_PA_CHANNEL_POSITION_AUX8                    PA_CHANNEL_POSITION_AUX8                 
-#define MAL_PA_CHANNEL_POSITION_AUX9                    PA_CHANNEL_POSITION_AUX9                 
-#define MAL_PA_CHANNEL_POSITION_AUX10                   PA_CHANNEL_POSITION_AUX10                
-#define MAL_PA_CHANNEL_POSITION_AUX11                   PA_CHANNEL_POSITION_AUX11                
-#define MAL_PA_CHANNEL_POSITION_AUX12                   PA_CHANNEL_POSITION_AUX12                
-#define MAL_PA_CHANNEL_POSITION_AUX13                   PA_CHANNEL_POSITION_AUX13                
-#define MAL_PA_CHANNEL_POSITION_AUX14                   PA_CHANNEL_POSITION_AUX14                
-#define MAL_PA_CHANNEL_POSITION_AUX15                   PA_CHANNEL_POSITION_AUX15                
-#define MAL_PA_CHANNEL_POSITION_AUX16                   PA_CHANNEL_POSITION_AUX16                
-#define MAL_PA_CHANNEL_POSITION_AUX17                   PA_CHANNEL_POSITION_AUX17                
-#define MAL_PA_CHANNEL_POSITION_AUX18                   PA_CHANNEL_POSITION_AUX18                
-#define MAL_PA_CHANNEL_POSITION_AUX19                   PA_CHANNEL_POSITION_AUX19                
-#define MAL_PA_CHANNEL_POSITION_AUX20                   PA_CHANNEL_POSITION_AUX20                
-#define MAL_PA_CHANNEL_POSITION_AUX21                   PA_CHANNEL_POSITION_AUX21                
-#define MAL_PA_CHANNEL_POSITION_AUX22                   PA_CHANNEL_POSITION_AUX22                
-#define MAL_PA_CHANNEL_POSITION_AUX23                   PA_CHANNEL_POSITION_AUX23                
-#define MAL_PA_CHANNEL_POSITION_AUX24                   PA_CHANNEL_POSITION_AUX24                
-#define MAL_PA_CHANNEL_POSITION_AUX25                   PA_CHANNEL_POSITION_AUX25                
-#define MAL_PA_CHANNEL_POSITION_AUX26                   PA_CHANNEL_POSITION_AUX26                
-#define MAL_PA_CHANNEL_POSITION_AUX27                   PA_CHANNEL_POSITION_AUX27                
-#define MAL_PA_CHANNEL_POSITION_AUX28                   PA_CHANNEL_POSITION_AUX28                
-#define MAL_PA_CHANNEL_POSITION_AUX29                   PA_CHANNEL_POSITION_AUX29                
-#define MAL_PA_CHANNEL_POSITION_AUX30                   PA_CHANNEL_POSITION_AUX30                
-#define MAL_PA_CHANNEL_POSITION_AUX31                   PA_CHANNEL_POSITION_AUX31                
-#define MAL_PA_CHANNEL_POSITION_TOP_CENTER              PA_CHANNEL_POSITION_TOP_CENTER           
-#define MAL_PA_CHANNEL_POSITION_TOP_FRONT_LEFT          PA_CHANNEL_POSITION_TOP_FRONT_LEFT       
-#define MAL_PA_CHANNEL_POSITION_TOP_FRONT_RIGHT         PA_CHANNEL_POSITION_TOP_FRONT_RIGHT      
-#define MAL_PA_CHANNEL_POSITION_TOP_FRONT_CENTER        PA_CHANNEL_POSITION_TOP_FRONT_CENTER     
-#define MAL_PA_CHANNEL_POSITION_TOP_REAR_LEFT           PA_CHANNEL_POSITION_TOP_REAR_LEFT        
-#define MAL_PA_CHANNEL_POSITION_TOP_REAR_RIGHT          PA_CHANNEL_POSITION_TOP_REAR_RIGHT       
-#define MAL_PA_CHANNEL_POSITION_TOP_REAR_CENTER         PA_CHANNEL_POSITION_TOP_REAR_CENTER      
-#define MAL_PA_CHANNEL_POSITION_LEFT                    PA_CHANNEL_POSITION_LEFT                 
-#define MAL_PA_CHANNEL_POSITION_RIGHT                   PA_CHANNEL_POSITION_RIGHT                
-#define MAL_PA_CHANNEL_POSITION_CENTER                  PA_CHANNEL_POSITION_CENTER               
-#define MAL_PA_CHANNEL_POSITION_SUBWOOFER               PA_CHANNEL_POSITION_SUBWOOFER            
+#define MAL_PA_CHANNEL_POSITION_SIDE_LEFT               PA_CHANNEL_POSITION_SIDE_LEFT
+#define MAL_PA_CHANNEL_POSITION_SIDE_RIGHT              PA_CHANNEL_POSITION_SIDE_RIGHT
+#define MAL_PA_CHANNEL_POSITION_AUX0                    PA_CHANNEL_POSITION_AUX0
+#define MAL_PA_CHANNEL_POSITION_AUX1                    PA_CHANNEL_POSITION_AUX1
+#define MAL_PA_CHANNEL_POSITION_AUX2                    PA_CHANNEL_POSITION_AUX2
+#define MAL_PA_CHANNEL_POSITION_AUX3                    PA_CHANNEL_POSITION_AUX3
+#define MAL_PA_CHANNEL_POSITION_AUX4                    PA_CHANNEL_POSITION_AUX4
+#define MAL_PA_CHANNEL_POSITION_AUX5                    PA_CHANNEL_POSITION_AUX5
+#define MAL_PA_CHANNEL_POSITION_AUX6                    PA_CHANNEL_POSITION_AUX6
+#define MAL_PA_CHANNEL_POSITION_AUX7                    PA_CHANNEL_POSITION_AUX7
+#define MAL_PA_CHANNEL_POSITION_AUX8                    PA_CHANNEL_POSITION_AUX8
+#define MAL_PA_CHANNEL_POSITION_AUX9                    PA_CHANNEL_POSITION_AUX9
+#define MAL_PA_CHANNEL_POSITION_AUX10                   PA_CHANNEL_POSITION_AUX10
+#define MAL_PA_CHANNEL_POSITION_AUX11                   PA_CHANNEL_POSITION_AUX11
+#define MAL_PA_CHANNEL_POSITION_AUX12                   PA_CHANNEL_POSITION_AUX12
+#define MAL_PA_CHANNEL_POSITION_AUX13                   PA_CHANNEL_POSITION_AUX13
+#define MAL_PA_CHANNEL_POSITION_AUX14                   PA_CHANNEL_POSITION_AUX14
+#define MAL_PA_CHANNEL_POSITION_AUX15                   PA_CHANNEL_POSITION_AUX15
+#define MAL_PA_CHANNEL_POSITION_AUX16                   PA_CHANNEL_POSITION_AUX16
+#define MAL_PA_CHANNEL_POSITION_AUX17                   PA_CHANNEL_POSITION_AUX17
+#define MAL_PA_CHANNEL_POSITION_AUX18                   PA_CHANNEL_POSITION_AUX18
+#define MAL_PA_CHANNEL_POSITION_AUX19                   PA_CHANNEL_POSITION_AUX19
+#define MAL_PA_CHANNEL_POSITION_AUX20                   PA_CHANNEL_POSITION_AUX20
+#define MAL_PA_CHANNEL_POSITION_AUX21                   PA_CHANNEL_POSITION_AUX21
+#define MAL_PA_CHANNEL_POSITION_AUX22                   PA_CHANNEL_POSITION_AUX22
+#define MAL_PA_CHANNEL_POSITION_AUX23                   PA_CHANNEL_POSITION_AUX23
+#define MAL_PA_CHANNEL_POSITION_AUX24                   PA_CHANNEL_POSITION_AUX24
+#define MAL_PA_CHANNEL_POSITION_AUX25                   PA_CHANNEL_POSITION_AUX25
+#define MAL_PA_CHANNEL_POSITION_AUX26                   PA_CHANNEL_POSITION_AUX26
+#define MAL_PA_CHANNEL_POSITION_AUX27                   PA_CHANNEL_POSITION_AUX27
+#define MAL_PA_CHANNEL_POSITION_AUX28                   PA_CHANNEL_POSITION_AUX28
+#define MAL_PA_CHANNEL_POSITION_AUX29                   PA_CHANNEL_POSITION_AUX29
+#define MAL_PA_CHANNEL_POSITION_AUX30                   PA_CHANNEL_POSITION_AUX30
+#define MAL_PA_CHANNEL_POSITION_AUX31                   PA_CHANNEL_POSITION_AUX31
+#define MAL_PA_CHANNEL_POSITION_TOP_CENTER              PA_CHANNEL_POSITION_TOP_CENTER
+#define MAL_PA_CHANNEL_POSITION_TOP_FRONT_LEFT          PA_CHANNEL_POSITION_TOP_FRONT_LEFT
+#define MAL_PA_CHANNEL_POSITION_TOP_FRONT_RIGHT         PA_CHANNEL_POSITION_TOP_FRONT_RIGHT
+#define MAL_PA_CHANNEL_POSITION_TOP_FRONT_CENTER        PA_CHANNEL_POSITION_TOP_FRONT_CENTER
+#define MAL_PA_CHANNEL_POSITION_TOP_REAR_LEFT           PA_CHANNEL_POSITION_TOP_REAR_LEFT
+#define MAL_PA_CHANNEL_POSITION_TOP_REAR_RIGHT          PA_CHANNEL_POSITION_TOP_REAR_RIGHT
+#define MAL_PA_CHANNEL_POSITION_TOP_REAR_CENTER         PA_CHANNEL_POSITION_TOP_REAR_CENTER
+#define MAL_PA_CHANNEL_POSITION_LEFT                    PA_CHANNEL_POSITION_LEFT
+#define MAL_PA_CHANNEL_POSITION_RIGHT                   PA_CHANNEL_POSITION_RIGHT
+#define MAL_PA_CHANNEL_POSITION_CENTER                  PA_CHANNEL_POSITION_CENTER
+#define MAL_PA_CHANNEL_POSITION_SUBWOOFER               PA_CHANNEL_POSITION_SUBWOOFER
 
 typedef pa_channel_map_def_t mal_pa_channel_map_def_t;
-#define MAL_PA_CHANNEL_MAP_AIFF                         PA_CHANNEL_MAP_AIFF   
-#define MAL_PA_CHANNEL_MAP_ALSA                         PA_CHANNEL_MAP_ALSA   
-#define MAL_PA_CHANNEL_MAP_AUX                          PA_CHANNEL_MAP_AUX    
-#define MAL_PA_CHANNEL_MAP_WAVEEX                       PA_CHANNEL_MAP_WAVEEX 
-#define MAL_PA_CHANNEL_MAP_OSS                          PA_CHANNEL_MAP_OSS    
+#define MAL_PA_CHANNEL_MAP_AIFF                         PA_CHANNEL_MAP_AIFF
+#define MAL_PA_CHANNEL_MAP_ALSA                         PA_CHANNEL_MAP_ALSA
+#define MAL_PA_CHANNEL_MAP_AUX                          PA_CHANNEL_MAP_AUX
+#define MAL_PA_CHANNEL_MAP_WAVEEX                       PA_CHANNEL_MAP_WAVEEX
+#define MAL_PA_CHANNEL_MAP_OSS                          PA_CHANNEL_MAP_OSS
 #define MAL_PA_CHANNEL_MAP_DEFAULT                      PA_CHANNEL_MAP_DEFAULT
 
 typedef pa_sample_format_t mal_pa_sample_format_t;
-#define MAL_PA_SAMPLE_INVALID                           PA_SAMPLE_INVALID  
-#define MAL_PA_SAMPLE_U8                                PA_SAMPLE_U8       
-#define MAL_PA_SAMPLE_ALAW                              PA_SAMPLE_ALAW     
-#define MAL_PA_SAMPLE_ULAW                              PA_SAMPLE_ULAW     
-#define MAL_PA_SAMPLE_S16LE                             PA_SAMPLE_S16LE    
-#define MAL_PA_SAMPLE_S16BE                             PA_SAMPLE_S16BE    
+#define MAL_PA_SAMPLE_INVALID                           PA_SAMPLE_INVALID
+#define MAL_PA_SAMPLE_U8                                PA_SAMPLE_U8
+#define MAL_PA_SAMPLE_ALAW                              PA_SAMPLE_ALAW
+#define MAL_PA_SAMPLE_ULAW                              PA_SAMPLE_ULAW
+#define MAL_PA_SAMPLE_S16LE                             PA_SAMPLE_S16LE
+#define MAL_PA_SAMPLE_S16BE                             PA_SAMPLE_S16BE
 #define MAL_PA_SAMPLE_FLOAT32LE                         PA_SAMPLE_FLOAT32LE
 #define MAL_PA_SAMPLE_FLOAT32BE                         PA_SAMPLE_FLOAT32BE
-#define MAL_PA_SAMPLE_S32LE                             PA_SAMPLE_S32LE    
-#define MAL_PA_SAMPLE_S32BE                             PA_SAMPLE_S32BE    
-#define MAL_PA_SAMPLE_S24LE                             PA_SAMPLE_S24LE    
-#define MAL_PA_SAMPLE_S24BE                             PA_SAMPLE_S24BE    
-#define MAL_PA_SAMPLE_S24_32LE                          PA_SAMPLE_S24_32LE 
+#define MAL_PA_SAMPLE_S32LE                             PA_SAMPLE_S32LE
+#define MAL_PA_SAMPLE_S32BE                             PA_SAMPLE_S32BE
+#define MAL_PA_SAMPLE_S24LE                             PA_SAMPLE_S24LE
+#define MAL_PA_SAMPLE_S24BE                             PA_SAMPLE_S24BE
+#define MAL_PA_SAMPLE_S24_32LE                          PA_SAMPLE_S24_32LE
 #define MAL_PA_SAMPLE_S24_32BE                          PA_SAMPLE_S24_32BE
 
 typedef pa_mainloop     mal_pa_mainloop;
@@ -8007,7 +8007,7 @@ static mal_pa_channel_position_t mal_channel_position_to_pulse(mal_channel posit
         case MAL_CHANNEL_BACK_RIGHT:         return MAL_PA_CHANNEL_POSITION_REAR_RIGHT;
         case MAL_CHANNEL_FRONT_LEFT_CENTER:  return MAL_PA_CHANNEL_POSITION_FRONT_LEFT_OF_CENTER;
         case MAL_CHANNEL_FRONT_RIGHT_CENTER: return MAL_PA_CHANNEL_POSITION_FRONT_RIGHT_OF_CENTER;
-        case MAL_CHANNEL_BACK_CENTER:        return MAL_PA_CHANNEL_POSITION_REAR_CENTER;          
+        case MAL_CHANNEL_BACK_CENTER:        return MAL_PA_CHANNEL_POSITION_REAR_CENTER;
         case MAL_CHANNEL_SIDE_LEFT:          return MAL_PA_CHANNEL_POSITION_SIDE_LEFT;
         case MAL_CHANNEL_SIDE_RIGHT:         return MAL_PA_CHANNEL_POSITION_SIDE_RIGHT;
         case MAL_CHANNEL_TOP_CENTER:         return MAL_PA_CHANNEL_POSITION_TOP_CENTER;
@@ -8512,7 +8512,7 @@ static mal_result mal_device_init__pulse(mal_context* pContext, mal_device_type 
             }
             continue;
         }
-        
+
         // An error may have occurred.
         if (pDevice->pulse.pulseContextState == MAL_PA_CONTEXT_FAILED || pDevice->pulse.pulseContextState == MAL_PA_CONTEXT_TERMINATED) {
             result = mal_post_error(pDevice, "[PulseAudio] An error occurred while connecting the PulseAudio context.", MAL_ERROR);
@@ -8545,7 +8545,7 @@ static mal_result mal_device_init__pulse(mal_context* pContext, mal_device_type 
     if (((mal_pa_channel_map_valid_proc)pContext->pulse.pa_channel_map_valid)(&cmap) == 0 || ((mal_pa_channel_map_compatible_proc)pContext->pulse.pa_channel_map_compatible)(&cmap, &ss) == 0) {
         ((mal_pa_channel_map_init_extend_proc)pContext->pulse.pa_channel_map_init_extend)(&cmap, ss.channels, MAL_PA_CHANNEL_MAP_DEFAULT);     // The channel map is invalid, so just fall back to the default.
     }
-    
+
 
     mal_pa_buffer_attr attr;
     attr.maxlength = pConfig->bufferSizeInFrames * mal_get_sample_size_in_bytes(mal_format_from_pulse(ss.format))*ss.channels;
@@ -8604,7 +8604,7 @@ static mal_result mal_device_init__pulse(mal_context* pContext, mal_device_type 
     pDevice->internalFormat = mal_format_from_pulse(ss.format);
     pDevice->internalChannels = ss.channels;
     pDevice->internalSampleRate = ss.rate;
-    
+
 
     // Internal channel map.
     const mal_pa_channel_map* pActualCMap = ((mal_pa_stream_get_channel_map_proc)pContext->pulse.pa_stream_get_channel_map)((mal_pa_stream*)pDevice->pulse.pStream);
@@ -9050,7 +9050,7 @@ int mal_device__jack_process_callback(mal_jack_nframes_t frameCount, void* pUser
 
     if (pDevice->type == mal_device_type_playback) {
         mal_device__read_frames_from_client(pDevice, frameCount, pDevice->jack.pIntermediaryBuffer);
-        
+
         // Channels need to be separated.
         for (mal_uint32 iChannel = 0; iChannel < pDevice->internalChannels; ++iChannel) {
             float* pDst = (float*)((mal_jack_port_get_buffer_proc)pContext->jack.jack_port_get_buffer)((mal_jack_port_t*)pDevice->jack.pPorts[iChannel], frameCount);
@@ -9093,7 +9093,7 @@ mal_result mal_device_init__jack(mal_context* pContext, mal_device_type type, ma
 
     (void)pContext;
     (void)pDeviceID;    // Only supporting default devices with JACK.
-    
+
     // Open the client.
     size_t maxClientNameSize = ((mal_jack_client_name_size_proc)pContext->jack.jack_client_name_size)(); // Includes null terminator.
 
@@ -12860,7 +12860,7 @@ mal_device_config mal_device_config_init_ex(mal_format format, mal_uint32 channe
     } else {
         mal_copy_memory(config.channelMap, channelMap, sizeof(config.channelMap));
     }
-    
+
 
     return config;
 }
@@ -12932,7 +12932,7 @@ mal_uint32 mal_src_cache_read_frames(mal_src_cache* pCache, mal_uint32 frameCoun
             if (framesToReadFromClient > pCache->pSRC->config.cacheSizeInFrames) {
                 framesToReadFromClient = pCache->pSRC->config.cacheSizeInFrames;
             }
-            
+
             pCache->cachedFrameCount = pCache->pSRC->onRead(pCache->pSRC, framesToReadFromClient, pIntermediaryBuffer, pCache->pSRC->pUserData);
 
             // Convert to f32.
@@ -14219,7 +14219,7 @@ mal_result mal_decoder__init_dsp(mal_decoder* pDecoder, const mal_decoder_config
     } else {
         pDecoder->outputSampleRate = pConfig->outputSampleRate;
     }
-    
+
     mal_copy_memory(pDecoder->outputChannelMap, pConfig->outputChannelMap, sizeof(pConfig->outputChannelMap));
 
 
@@ -14248,7 +14248,7 @@ static drwav_bool32 mal_decoder_internal_on_seek__wav(void* pUserData, int offse
     mal_decoder* pDecoder = (mal_decoder*)pUserData;
     mal_assert(pDecoder != NULL);
     mal_assert(pDecoder->onSeek != NULL);
-    
+
     return pDecoder->onSeek(pDecoder, offset, (origin == drwav_seek_origin_start) ? mal_seek_origin_start : mal_seek_origin_current);
 }
 
@@ -14455,7 +14455,7 @@ static drflac_bool32 mal_decoder_internal_on_seek__flac(void* pUserData, int off
     mal_decoder* pDecoder = (mal_decoder*)pUserData;
     mal_assert(pDecoder != NULL);
     mal_assert(pDecoder->onSeek != NULL);
-    
+
     return pDecoder->onSeek(pDecoder, offset, (origin == drflac_seek_origin_start) ? mal_seek_origin_start : mal_seek_origin_current);
 }
 
@@ -14586,7 +14586,7 @@ static mal_uint32 mal_vorbis_decoder_read(mal_vorbis_decoder* pVorbis, mal_decod
                 for (size_t i = 0; i < leftoverDataSize; ++i) {
                     pVorbis->pData[i] = pVorbis->pData[i + consumedDataSize];
                 }
-                
+
                 pVorbis->dataSize = leftoverDataSize;
                 pVorbis->framesConsumed = 0;
                 pVorbis->framesRemaining = samplesRead;
@@ -14636,7 +14636,7 @@ static mal_result mal_vorbis_decoder_seek_to_frame(mal_vorbis_decoder* pVorbis, 
     pVorbis->framesConsumed = 0;
     pVorbis->framesRemaining = 0;
     pVorbis->dataSize = 0;
-    
+
     float buffer[4096];
     while (frameIndex > 0) {
         mal_uint32 framesToRead = mal_countof(buffer)/pDecoder->internalChannels;
@@ -14664,7 +14664,7 @@ static mal_result mal_decoder_internal_on_seek_to_frame__vorbis(mal_decoder* pDe
 
     mal_vorbis_decoder* pVorbis = (mal_vorbis_decoder*)pDecoder->pInternalDecoder;
     mal_assert(pVorbis != NULL);
-    
+
     return mal_vorbis_decoder_seek_to_frame(pVorbis, pDecoder, frameIndex);
 }
 
@@ -14819,7 +14819,7 @@ static drmp3_bool32 mal_decoder_internal_on_seek__mp3(void* pUserData, int offse
     mal_decoder* pDecoder = (mal_decoder*)pUserData;
     mal_assert(pDecoder != NULL);
     mal_assert(pDecoder->onSeek != NULL);
-    
+
     return pDecoder->onSeek(pDecoder, offset, (origin == drmp3_seek_origin_start) ? mal_seek_origin_start : mal_seek_origin_current);
 }
 
@@ -14999,7 +14999,7 @@ mal_result mal_decoder_init(mal_decoder_read_proc onRead, mal_decoder_seek_proc 
 
     // We use trial and error to open a decoder.
     result = MAL_NO_BACKEND;
-    
+
 #ifdef MAL_HAS_WAV
     if (result != MAL_SUCCESS) {
         result = mal_decoder_init_wav__internal(&config, pDecoder);
@@ -15032,7 +15032,7 @@ mal_result mal_decoder_init(mal_decoder_read_proc onRead, mal_decoder_seek_proc 
         }
     }
 #endif
-    
+
     if (result != MAL_SUCCESS) {
         return result;
     }
@@ -15080,7 +15080,7 @@ static mal_bool32 mal_decoder__on_seek_memory(mal_decoder* pDecoder, int byteOff
             pDecoder->memory.currentReadPos = pDecoder->memory.dataSize;  // Trying to seek too far forward.
         }
     }
-    
+
     return MAL_TRUE;
 }
 
@@ -15263,7 +15263,7 @@ mal_result mal_decoder_init_file(const char* pFilePath, const mal_decoder_config
 
         mal_decoder__on_seek_stdio(pDecoder, 0, mal_seek_origin_start);
     }
-    
+
     // FLAC
     if (mal_path_extension_equal(pFilePath, "flac")) {
         mal_result result =  mal_decoder_init_flac(mal_decoder__on_read_stdio, mal_decoder__on_seek_stdio, (void*)pFile, pConfig, pDecoder);
@@ -15283,7 +15283,7 @@ mal_result mal_decoder_init_file(const char* pFilePath, const mal_decoder_config
 
         mal_decoder__on_seek_stdio(pDecoder, 0, mal_seek_origin_start);
     }
-    
+
     // Trial and error.
     return mal_decoder_init(mal_decoder__on_read_stdio, mal_decoder__on_seek_stdio, (void*)pFile, pConfig, pDecoder);
 }
