@@ -1552,25 +1552,25 @@ mal_device_config mal_device_config_init_default_playback(mal_send_proc onSendCa
 // |---------------|------------------------------|
 // | Channel Count | Mapping                      |
 // |---------------|------------------------------|
-// | 1 (Mono)      | 0: MAL_CHANNEL_FRONT_CENTER  |
+// | 1 (Mono)      | 0: MAL_CHANNEL_MONO          |
 // |---------------|------------------------------|
 // | 2 (Stereo)    | 0: MAL_CHANNEL_FRONT_LEFT    |
 // |               | 1: MAL_CHANNEL_FRONT_RIGHT   |
 // |---------------|------------------------------|
-// | 3 (2.1)       | 0: MAL_CHANNEL_FRONT_LEFT    |
+// | 3             | 0: MAL_CHANNEL_FRONT_LEFT    |
 // |               | 1: MAL_CHANNEL_FRONT_RIGHT   |
-// |               | 2: MAL_CHANNEL_LFE           |
+// |               | 2: MAL_CHANNEL_FRONT_CENTER  |
 // |---------------|------------------------------|
 // | 4 (Quad)      | 0: MAL_CHANNEL_FRONT_LEFT    |
 // |               | 1: MAL_CHANNEL_FRONT_RIGHT   |
 // |               | 2: MAL_CHANNEL_BACK_LEFT     |
 // |               | 3: MAL_CHANNEL_BACK_RIGHT    |
 // |---------------|------------------------------|
-// | 5 (4.1)       | 0: MAL_CHANNEL_FRONT_LEFT    |
+// | 5             | 0: MAL_CHANNEL_FRONT_LEFT    |
 // |               | 1: MAL_CHANNEL_FRONT_RIGHT   |
-// |               | 2: MAL_CHANNEL_BACK_LEFT     |
-// |               | 3: MAL_CHANNEL_BACK_RIGHT    |
-// |               | 4: MAL_CHANNEL_LFE           |
+// |               | 2: MAL_CHANNEL_FRONT_CENTER  |
+// |               | 3: MAL_CHANNEL_BACK_LEFT     |
+// |               | 4: MAL_CHANNEL_BACK_RIGHT    |
 // |---------------|------------------------------|
 // | 6 (5.1)       | 0: MAL_CHANNEL_FRONT_LEFT    |
 // |               | 1: MAL_CHANNEL_FRONT_RIGHT   |
@@ -1578,6 +1578,14 @@ mal_device_config mal_device_config_init_default_playback(mal_send_proc onSendCa
 // |               | 3: MAL_CHANNEL_LFE           |
 // |               | 4: MAL_CHANNEL_BACK_LEFT     |
 // |               | 5: MAL_CHANNEL_BACK_RIGHT    |
+// |---------------|------------------------------|
+// | 7             | 0: MAL_CHANNEL_FRONT_LEFT    |
+// |               | 1: MAL_CHANNEL_FRONT_RIGHT   |
+// |               | 2: MAL_CHANNEL_FRONT_CENTER  |
+// |               | 3: MAL_CHANNEL_LFE           |
+// |               | 4: MAL_CHANNEL_BACK_CENTER   |
+// |               | 4: MAL_CHANNEL_SIDE_LEFT     |
+// |               | 5: MAL_CHANNEL_SIDE_RIGHT    |
 // |---------------|------------------------------|
 // | 8 (7.1)       | 0: MAL_CHANNEL_FRONT_LEFT    |
 // |               | 1: MAL_CHANNEL_FRONT_RIGHT   |
@@ -12889,15 +12897,15 @@ static void mal_get_default_device_config_channel_map(mal_uint32 channels, mal_c
 
         case 2:
         {
-            channelMap[0] = MAL_CHANNEL_LEFT;
-            channelMap[1] = MAL_CHANNEL_RIGHT;
+            channelMap[0] = MAL_CHANNEL_FRONT_LEFT;
+            channelMap[1] = MAL_CHANNEL_FRONT_RIGHT;
         } break;
 
         case 3:
         {
-            channelMap[0] = MAL_CHANNEL_LEFT;
-            channelMap[1] = MAL_CHANNEL_RIGHT;
-            channelMap[2] = MAL_CHANNEL_MONO;
+            channelMap[0] = MAL_CHANNEL_FRONT_LEFT;
+            channelMap[1] = MAL_CHANNEL_FRONT_RIGHT;
+            channelMap[2] = MAL_CHANNEL_FRONT_CENTER;
         } break;
 
         case 4:
