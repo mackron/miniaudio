@@ -1283,7 +1283,7 @@ struct mal_device
 //
 // Effeciency: LOW
 //   This will dynamically load backends DLLs/SOs (such as dsound.dll).
-mal_result mal_context_init(mal_backend backends[], mal_uint32 backendCount, const mal_context_config* pConfig, mal_context* pContext);
+mal_result mal_context_init(const mal_backend backends[], mal_uint32 backendCount, const mal_context_config* pConfig, mal_context* pContext);
 
 // Uninitializes a context.
 //
@@ -1364,7 +1364,7 @@ mal_result mal_device_init(mal_context* pContext, mal_device_type type, mal_devi
 // of the internal self-managed context.
 //
 // See mal_device_init().
-mal_result mal_device_init_ex(mal_backend backends[], mal_uint32 backendCount, const mal_context_config* pContextConfig, mal_device_type type, mal_device_id* pDeviceID, const mal_device_config* pConfig, void* pUserData, mal_device* pDevice);
+mal_result mal_device_init_ex(const mal_backend backends[], mal_uint32 backendCount, const mal_context_config* pContextConfig, mal_device_type type, mal_device_id* pDeviceID, const mal_device_config* pConfig, void* pUserData, mal_device* pDevice);
 
 // Uninitializes a device.
 //
@@ -11927,7 +11927,21 @@ mal_result mal_context_uninit_backend_apis(mal_context* pContext)
     return result;
 }
 
-mal_result mal_context_init(mal_backend backends[], mal_uint32 backendCount, const mal_context_config* pConfig, mal_context* pContext)
+static const mal_backend g_malDefaultBackends[] = {
+    mal_backend_wasapi,
+    mal_backend_dsound,
+    mal_backend_winmm,
+    mal_backend_alsa,
+    mal_backend_pulseaudio,
+    mal_backend_jack,
+    mal_backend_oss,
+    mal_backend_opensl,
+    mal_backend_openal,
+    mal_backend_sdl,
+    mal_backend_null
+};
+
+mal_result mal_context_init(const mal_backend backends[], mal_uint32 backendCount, const mal_context_config* pConfig, mal_context* pContext)
 {
     if (pContext == NULL) return MAL_INVALID_ARGS;
     mal_zero_object(pContext);
@@ -11945,23 +11959,9 @@ mal_result mal_context_init(mal_backend backends[], mal_uint32 backendCount, con
         return result;
     }
 
-    static mal_backend defaultBackends[] = {
-        mal_backend_wasapi,
-        mal_backend_dsound,
-        mal_backend_winmm,
-        mal_backend_alsa,
-        mal_backend_pulseaudio,
-        mal_backend_jack,
-        mal_backend_oss,
-        mal_backend_opensl,
-        mal_backend_openal,
-        mal_backend_sdl,
-        mal_backend_null
-    };
-
     if (backends == NULL) {
-        backends = defaultBackends;
-        backendCount = mal_countof(defaultBackends);
+        backends = g_malDefaultBackends;
+        backendCount = mal_countof(g_malDefaultBackends);
     }
 
     mal_assert(backends != NULL);
@@ -12466,22 +12466,33 @@ mal_result mal_device_init(mal_context* pContext, mal_device_type type, mal_devi
     return MAL_SUCCESS;
 }
 
-mal_result mal_device_init_ex(mal_backend backends[], mal_uint32 backendCount, const mal_context_config* pContextConfig, mal_device_type type, mal_device_id* pDeviceID, const mal_device_config* pConfig, void* pUserData, mal_device* pDevice)
+mal_result mal_device_init_ex(const mal_backend backends[], mal_uint32 backendCount, const mal_context_config* pContextConfig, mal_device_type type, mal_device_id* pDeviceID, const mal_device_config* pConfig, void* pUserData, mal_device* pDevice)
 {
     mal_context* pContext = (mal_context*)mal_malloc(sizeof(*pContext));
     if (pContext == NULL) {
         return MAL_OUT_OF_MEMORY;
     }
 
-    mal_result result = mal_context_init(backends, backendCount, pContextConfig, pContext);
-    if (result != MAL_SUCCESS) {
-        mal_free(pContext);
-        return result;
+    if (backends == NULL) {
+        backends = g_malDefaultBackends;
+        backendCount = mal_countof(g_malDefaultBackends);
     }
 
-    result = mal_device_init(pContext, type, pDeviceID, pConfig, pUserData, pDevice);
+    mal_result result = MAL_NO_BACKEND;
+
+    for (mal_uint32 iBackend = 0; iBackend < backendCount; ++iBackend) {
+        result = mal_context_init(&backends[iBackend], 1, pContextConfig, pContext);
+        if (result == MAL_SUCCESS) {
+            result = mal_device_init(pContext, type, pDeviceID, pConfig, pUserData, pDevice);
+            if (result == MAL_SUCCESS) {
+                break;  // Success.
+            } else {
+                mal_context_uninit(pContext);   // Failure.
+            }
+        }
+    }
+
     if (result != MAL_SUCCESS) {
-        mal_context_uninit(pContext);
         mal_free(pContext);
         return result;
     }
@@ -15596,6 +15607,8 @@ void mal_pcm_f32_to_s32(int* pOut, const float* pIn, unsigned int count)
 //   - Add support for JACK.
 //   - Remove dependency on asound.h for the ALSA backend. This means the ALSA development packages are no
 //     longer required to build mini_al.
+//   - Make mal_device_init_ex() more robust.
+//   - Make some APIs more const-correct.
 //   - Fix errors with OpenAL detection.
 //   - Fix some memory leaks.
 //   - Miscellaneous bug fixes.
