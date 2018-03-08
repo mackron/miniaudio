@@ -1102,6 +1102,10 @@ struct mal_device
     mal_event stopEvent;
     mal_thread thread;
     mal_result workResult;  // This is set by the worker thread after it's finished doing a job.
+    mal_bool32 usingDefaultFormat     : 1;
+    mal_bool32 usingDefaultChannels   : 1;
+    mal_bool32 usingDefaultSampleRate : 1;
+    mal_bool32 usingDefaultChannelMap : 1;
     mal_bool32 usingDefaultBufferSize : 1;
     mal_bool32 usingDefaultPeriods    : 1;
     mal_bool32 exclusiveMode          : 1;
@@ -1255,7 +1259,7 @@ struct mal_device
 //
 // The context is used for selecting and initializing the relevant backends.
 //
-// Note that the location of the device cannot change throughout it's lifetime. Consider allocating
+// Note that the location of the context cannot change throughout it's lifetime. Consider allocating
 // the mal_context object with malloc() if this is an issue. The reason for this is that a pointer
 // to the context is stored in the mal_device structure.
 //
@@ -1321,26 +1325,36 @@ mal_result mal_enumerate_devices(mal_context* pContext, mal_device_type type, ma
 //
 //     mal_context_init(NULL, 0, NULL, &context);
 //
-// Do not pass in null for the context if you are needing to open multiple devices.
+// Do not pass in null for the context if you are needing to open multiple devices. You can,
+// however, use null when initializing the first device, and then use device.pContext for the
+// initialization of other devices.
 //
 // The device ID (pDeviceID) can be null, in which case the default device is used. Otherwise, you
 // can retrieve the ID by calling mal_enumerate_devices() and using the ID from the returned data.
 // Set pDeviceID to NULL to use the default device. Do _not_ rely on the first device ID returned
 // by mal_enumerate_devices() to be the default device.
 //
-// This will try it's hardest to create a valid device, even if it means adjusting input arguments.
-// Look at pDevice->internalChannels, pDevice->internalSampleRate, etc. to determine the actual
-// properties after initialization.
+// The device's configuration is controlled with pConfig. This allows you to configure the sample
+// format, channel count, sample rate, etc. Before calling mal_device_init(), you will most likely
+// want to initialize a mal_device_config object using mal_device_config_init(),
+// mal_device_config_init_playback(), etc. You can also pass in NULL for the device config in
+// which case it will use defaults, but will require you to call mal_device_set_recv_callback() or
+// mal_device_set_send_callback() before starting the device.
 //
-// If <bufferSizeInFrames> is 0, it will default to MAL_DEFAULT_BUFFER_SIZE_IN_MILLISECONDS. If
-// <periods> is set to 0 it will default to MAL_DEFAULT_PERIODS.
+// Passing in 0 to any property in pConfig will force the use of a default value. In the case of
+// sample format, channel count, sample rate and channel map it will default to the values used by
+// the backend's internal device. If <bufferSizeInFrames> is 0, it will default to
+// MAL_DEFAULT_BUFFER_SIZE_IN_MILLISECONDS. If <periods> is set to 0 it will default to
+// MAL_DEFAULT_PERIODS.
+//
+// When sending or receiving data to/from a device, mini_al will internally perform a format
+// conversion to convert between the format specified by pConfig and the format used internally by
+// the backend. If you pass in NULL for pConfig or 0 for the sample format, channel count,
+// sample rate _and_ channel map, data transmission will run on an optimized pass-through fast path.
 //
 // The <periods> property controls how frequently the background thread is woken to check for more
 // data. It's tied to the buffer size, so as an example, if your buffer size is equivalent to 10
 // milliseconds and you have 2 periods, the CPU will wake up approximately every 5 milliseconds.
-//
-// Use mal_device_config_init(), mal_device_config_init_playback(), etc. to initialize a
-// mal_device_config object.
 //
 // When compiling for UWP you must ensure you call this function on the main UI thread because the
 // operating system may need to present the user with a message asking for permissions. Please refer
@@ -1351,7 +1365,7 @@ mal_result mal_enumerate_devices(mal_context* pContext, mal_device_type type, ma
 //
 // Thread Safety: UNSAFE
 //   It is not safe to call this function simultaneously for different devices because some backends
-//   depend on and mutate global state (such as OpenSL|ES). The same applies to calling this as the
+//   depend on and mutate global state (such as OpenSL|ES). The same applies to calling this at the
 //   same time as mal_device_uninit().
 //
 //   Results are undefined if you try using a device before this function has returned.
@@ -1514,6 +1528,19 @@ mal_uint32 mal_get_sample_size_in_bytes(mal_format format);
 
 // Helper function for initializing a mal_context_config object.
 mal_context_config mal_context_config_init(mal_log_proc onLog);
+
+// Initializes a default device config.
+//
+// A default configuration will configure the device such that the format, channel count, sample rate and channel map are
+// the same as the backend's internal configuration. This means the application loses explicit control of these properties,
+// but in return gets an optimized fast path for data transmission since mini_al will be releived of all format conversion
+// duties. You will not typically want to use default configurations unless you have some specific low-latency requirements.
+//
+// mal_device_config_init(), mal_device_config_init_playback(), etc. will allow you to explicitly set the sample format,
+// channel count, etc.
+mal_device_config mal_device_config_init_default();
+mal_device_config mal_device_config_init_default_capture(mal_recv_proc onRecvCallback);
+mal_device_config mal_device_config_init_default_playback(mal_send_proc onSendCallback);
 
 // Helper function for initializing a mal_device_config object.
 //
@@ -1998,6 +2025,21 @@ typedef HWND (WINAPI * MAL_PFN_GetDesktopWindow)();
 #define MAL_STATE_STARTING          3   // Transitioning from a stopped state to started.
 #define MAL_STATE_STOPPING          4   // Transitioning from a started state to stopped.
 
+
+// The default format when mal_format_unknown (0) is requested when initializing a device.
+#ifndef MAL_DEFAULT_FORMAT
+#define MAL_DEFAULT_FORMAT                          mal_format_f32
+#endif
+
+// The default channel count to use when 0 is used when initializing a device.
+#ifndef MAL_DEFAULT_CHANNELS
+#define MAL_DEFAULT_CHANNELS                        2
+#endif
+
+// The default sample rate to use when 0 is used when initializing a device.
+#ifndef MAL_DEFAULT_SAMPLE_RATE
+#define MAL_DEFAULT_SAMPLE_RATE                     48000
+#endif
 
 // The default size of the device's buffer in milliseconds.
 //
@@ -11514,10 +11556,12 @@ static mal_result mal_device__stop_backend__sdl(mal_device* pDevice)
 
 mal_bool32 mal__is_channel_map_valid(const mal_channel* channelMap, mal_uint32 channels)
 {
-    mal_assert(channels > 0);
-
     // A blank channel map should be allowed, in which case it should use an appropriate default which will depend on context.
     if (channelMap[0] != MAL_CHANNEL_NONE) {
+        if (channels == 0) {
+            return MAL_FALSE;   // No channels.
+        }
+
         // A channel cannot be present in the channel map more than once.
         for (mal_uint32 iChannel = 0; iChannel < channels; ++iChannel) {
             for (mal_uint32 jChannel = iChannel + 1; jChannel < channels; ++jChannel) {
@@ -12229,13 +12273,23 @@ mal_result mal_device_init(mal_context* pContext, mal_device_type type, mal_devi
     if (pDevice == NULL) {
         return mal_post_error(pDevice, "mal_device_init() called with invalid arguments (pDevice == NULL).",  MAL_INVALID_ARGS);
     }
+
+    // The config is allowed to be NULL, in which case we default to mal_device_config_init_default().
+    mal_device_config config;
     if (pConfig == NULL) {
-        return mal_post_error(pDevice, "mal_device_init() called with invalid arguments (pConfig == NULL).",  MAL_INVALID_ARGS);
+        config = mal_device_config_init_default();
+    } else {
+        config = *pConfig;
     }
 
+    // Basic config validation.
+    if (config.channels > MAL_MAX_CHANNELS) {
+        return mal_post_error(pDevice, "mal_device_init() called with an invalid config. Channel count cannot exceed 32.", MAL_INVALID_DEVICE_CONFIG);
+    }
+    if (!mal__is_channel_map_valid(config.channelMap, config.channels)) {
+        return mal_post_error(pDevice, "mal_device_init() called with invalid config. Channel map is invalid.", MAL_INVALID_DEVICE_CONFIG);
+    }
 
-    // Make a copy of the config to ensure we don't override the caller's object.
-    mal_device_config config = *pConfig;
 
     mal_zero_object(pDevice);
     pDevice->pContext = pContext;
@@ -12253,20 +12307,22 @@ mal_result mal_device_init(mal_context* pContext, mal_device_type type, mal_devi
     }
 
 
-    // Basic config validation.
+    // When passing in 0 for the format/channels/rate/chmap it means the device will be using whatever is chosen by the backend. If everything is set
+    // to defaults it means the format conversion pipeline will run on a fast path where data transfer is just passed straight through to the backend.
+    if (config.format == mal_format_unknown) {
+        config.format = MAL_DEFAULT_FORMAT;
+        pDevice->usingDefaultFormat = MAL_TRUE;
+    }
     if (config.channels == 0) {
-        return mal_post_error(pDevice, "mal_device_init() called with an invalid config. Channel count must be greater than 0.", MAL_INVALID_DEVICE_CONFIG);
+        config.channels = MAL_DEFAULT_CHANNELS;
+        pDevice->usingDefaultChannels = MAL_TRUE;
     }
-    if (config.channels > MAL_MAX_CHANNELS) {
-        return mal_post_error(pDevice, "mal_device_init() called with an invalid config. Channel count cannot exceed 18.", MAL_INVALID_DEVICE_CONFIG);
-    }
-
     if (config.sampleRate == 0) {
-        return mal_post_error(pDevice, "mal_device_init() called with an invalid config. Sample rate must be greater than 0.", MAL_INVALID_DEVICE_CONFIG);
+        config.sampleRate = MAL_DEFAULT_SAMPLE_RATE;
+        pDevice->usingDefaultSampleRate = MAL_TRUE;
     }
-
-    if (!mal__is_channel_map_valid(pConfig->channelMap, pConfig->channels)) {
-        return mal_post_error(pDevice, "mal_device_init() called with invalid arguments. Channel map is invalid.", MAL_INVALID_DEVICE_CONFIG);
+    if (config.channelMap[0] == MAL_CHANNEL_NONE) {
+        pDevice->usingDefaultChannelMap = MAL_TRUE;
     }
 
 
@@ -12283,8 +12339,8 @@ mal_result mal_device_init(mal_context* pContext, mal_device_type type, mal_devi
     pDevice->type = type;
     pDevice->format = config.format;
     pDevice->channels = config.channels;
-    mal_copy_memory(pDevice->channelMap, config.channelMap, sizeof(config.channelMap[0]) * config.channels);
     pDevice->sampleRate = config.sampleRate;
+    mal_copy_memory(pDevice->channelMap, config.channelMap, sizeof(config.channelMap[0]) * config.channels);
     pDevice->bufferSizeInFrames = config.bufferSizeInFrames;
     pDevice->periods = config.periods;
 
@@ -12418,6 +12474,20 @@ mal_result mal_device_init(mal_context* pContext, mal_device_type type, mal_devi
         }
     }
 
+    // If the format/channels/rate is using defaults we need to set these to be the same as the internal config.
+    if (pDevice->usingDefaultFormat) {
+        pDevice->format = pDevice->internalFormat;
+    }
+    if (pDevice->usingDefaultChannels) {
+        pDevice->channels = pDevice->internalChannels;
+    }
+    if (pDevice->usingDefaultSampleRate) {
+        pDevice->sampleRate = pDevice->internalSampleRate;
+    }
+    if (pDevice->usingDefaultChannelMap) {
+        mal_copy_memory(pDevice->channelMap, pDevice->internalChannelMap, sizeof(pDevice->channelMap));
+    }
+
 
     // We need a DSP object which is where samples are moved through in order to convert them to the
     // format required by the backend.
@@ -12444,7 +12514,6 @@ mal_result mal_device_init(mal_context* pContext, mal_device_type type, mal_devi
         mal_copy_memory(dspConfig.channelMapOut, pDevice->channelMap, sizeof(dspConfig.channelMapOut));
         mal_dsp_init(&dspConfig, mal_device__on_read_from_device, pDevice, &pDevice->dsp);
     }
-
 
 
 
@@ -12774,6 +12843,31 @@ mal_context_config mal_context_config_init(mal_log_proc onLog)
     return config;
 }
 
+
+mal_device_config mal_device_config_init_default()
+{
+    mal_device_config config;
+    mal_zero_object(&config);
+
+    return config;
+}
+
+mal_device_config mal_device_config_init_default_capture(mal_recv_proc onRecvCallback)
+{
+    mal_device_config config = mal_device_config_init_default();
+    config.onRecvCallback = onRecvCallback;
+
+    return config;
+}
+
+mal_device_config mal_device_config_init_default_playback(mal_send_proc onSendCallback)
+{
+    mal_device_config config = mal_device_config_init_default();
+    config.onSendCallback = onSendCallback;
+
+    return config;
+}
+
 static void mal_get_default_device_config_channel_map(mal_uint32 channels, mal_channel channelMap[MAL_MAX_CHANNELS])
 {
     mal_zero_memory(channelMap, sizeof(mal_channel)*MAL_MAX_CHANNELS);
@@ -12857,8 +12951,7 @@ static void mal_get_default_device_config_channel_map(mal_uint32 channels, mal_c
 
 mal_device_config mal_device_config_init_ex(mal_format format, mal_uint32 channels, mal_uint32 sampleRate, mal_channel channelMap[MAL_MAX_CHANNELS], mal_recv_proc onRecvCallback, mal_send_proc onSendCallback)
 {
-    mal_device_config config;
-    mal_zero_object(&config);
+    mal_device_config config = mal_device_config_init_default();
 
     config.format = format;
     config.channels = channels;
@@ -12872,9 +12965,10 @@ mal_device_config mal_device_config_init_ex(mal_format format, mal_uint32 channe
         mal_copy_memory(config.channelMap, channelMap, sizeof(config.channelMap));
     }
 
-
     return config;
 }
+
+
 
 
 //////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -15607,11 +15701,16 @@ void mal_pcm_f32_to_s32(int* pOut, const float* pIn, unsigned int count)
 //   - Add support for JACK.
 //   - Remove dependency on asound.h for the ALSA backend. This means the ALSA development packages are no
 //     longer required to build mini_al.
+//   - Introduce the notion of default device configurations. A default config uses the same configuration
+//     as the backend's internal device, and as such results in a pass-through data transmission pipeline.
+//   - Add support for passing in NULL for the device config in mal_device_init(), which uses a default
+//     config. This requires manually calling mal_device_set_send/recv_callback().
 //   - Make mal_device_init_ex() more robust.
 //   - Make some APIs more const-correct.
 //   - Fix errors with OpenAL detection.
 //   - Fix some memory leaks.
 //   - Miscellaneous bug fixes.
+//   - Documentation updates.
 //
 // v0.7 - 2018-02-25
 //   - API CHANGE: Change mal_src_read_frames() and mal_dsp_read_frames() to use 64-bit sample counts.
