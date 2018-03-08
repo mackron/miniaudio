@@ -11985,6 +11985,14 @@ static const mal_backend g_malDefaultBackends[] = {
     mal_backend_null
 };
 
+static mal_bool32 mal_is_backend_asynchronous(mal_backend backend)
+{
+    return
+        backend == mal_backend_jack   ||
+        backend == mal_backend_opensl ||
+        backend == mal_backend_sdl;
+}
+
 mal_result mal_context_init(const mal_backend backends[], mal_uint32 backendCount, const mal_context_config* pConfig, mal_context* pContext)
 {
     if (pContext == NULL) return MAL_INVALID_ARGS;
@@ -12518,7 +12526,7 @@ mal_result mal_device_init(mal_context* pContext, mal_device_type type, mal_devi
 
 
     // Some backends don't require the worker thread.
-    if (pContext->backend != mal_backend_jack && pContext->backend != mal_backend_opensl && pContext->backend != mal_backend_sdl) {
+    if (mal_is_backend_asynchronous(pContext->backend)) {
         // The worker thread.
         if (mal_thread_create(pContext, &pDevice->thread, mal_worker_thread, pDevice) != MAL_SUCCESS) {
             mal_device_uninit(pDevice);
@@ -12586,7 +12594,7 @@ void mal_device_uninit(mal_device* pDevice)
     mal_device__set_state(pDevice, MAL_STATE_UNINITIALIZED);
 
     // Wake up the worker thread and wait for it to properly terminate.
-    if (pDevice->pContext->backend != mal_backend_jack && pDevice->pContext->backend != mal_backend_opensl && pDevice->pContext->backend != mal_backend_sdl) {
+    if (mal_is_backend_asynchronous(pDevice->pContext->backend)) {
         mal_event_signal(&pDevice->wakeupEvent);
         mal_thread_wait(&pDevice->thread);
     }
