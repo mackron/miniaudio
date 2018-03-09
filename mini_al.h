@@ -4371,6 +4371,24 @@ static mal_result mal_device_init__wasapi(mal_context* pContext, mal_device_type
     }
 
 
+    // Grab the name of the device.
+#ifdef MAL_WIN32_DESKTOP
+    IPropertyStore *pProperties;
+    hr = IMMDevice_OpenPropertyStore(pMMDevice, STGM_READ, &pProperties);
+    if (SUCCEEDED(hr)) {
+        PROPVARIANT varName;
+        PropVariantInit(&varName);
+        hr = IPropertyStore_GetValue(pProperties, g_malPKEY_Device_FriendlyName, &varName);
+        if (SUCCEEDED(hr)) {
+            WideCharToMultiByte(CP_UTF8, 0, varName.pwszVal, -1, pDevice->name, sizeof(pDevice->name), 0, FALSE);
+            mal_PropVariantClear(pContext, &varName);
+        }
+
+        IPropertyStore_Release(pProperties);
+    }
+#endif
+
+
     // We need to create and set the event for event-driven mode. This event is signalled whenever a new chunk of audio
     // data needs to be written or read from the device.
     pDevice->wasapi.hEvent = CreateEventA(NULL, FALSE, FALSE, NULL);
