@@ -3925,6 +3925,8 @@ static mal_result mal_enumerate_devices__wasapi(mal_context* pContext, mal_devic
 #else
     // The MMDevice API is only supported on desktop applications. For now, while I'm still figuring out how to properly enumerate
     // over devices without using MMDevice, I'm restricting devices to defaults.
+    //
+    // Hint: DeviceInformation::FindAllAsync() with DeviceClass.AudioCapture/AudioRender. https://blogs.windows.com/buildingapps/2014/05/15/real-time-audio-in-windows-store-and-windows-phone-apps/
     if (pInfo != NULL) {
         if (infoSize > 0) {
             if (type == mal_device_type_playback) {
@@ -4017,6 +4019,67 @@ static void mal_device_uninit__wasapi(mal_device* pDevice)
     #endif
 #endif  // !MAL_WIN32_DESKTOP
 
+static mal_format mal_format_from_WAVEFORMATEX(WAVEFORMATEX* pWF)
+{
+    mal_assert(pWF != NULL);
+
+    if (pWF->wFormatTag == WAVE_FORMAT_EXTENSIBLE) {
+        WAVEFORMATEXTENSIBLE* pWFEX = (WAVEFORMATEXTENSIBLE*)pWF;
+        if (mal_is_guid_equal(pWFEX->SubFormat, MAL_GUID_KSDATAFORMAT_SUBTYPE_PCM)) {
+            if (pWFEX->Samples.wValidBitsPerSample == 32) {
+                return mal_format_s32;
+            }
+            if (pWFEX->Samples.wValidBitsPerSample == 24) {
+                if (pWFEX->Format.wBitsPerSample == 32) {
+                    //return mal_format_s24_32;
+                }
+                if (pWFEX->Format.wBitsPerSample == 24) {
+                    return mal_format_s24;
+                }
+            }
+            if (pWFEX->Samples.wValidBitsPerSample == 16) {
+                return mal_format_s16;
+            }
+            if (pWFEX->Samples.wValidBitsPerSample == 8) {
+                return mal_format_u8;
+            }
+        }
+        if (mal_is_guid_equal(pWFEX->SubFormat, MAL_GUID_KSDATAFORMAT_SUBTYPE_IEEE_FLOAT)) {
+            if (pWFEX->Samples.wValidBitsPerSample == 32) {
+                return mal_format_f32;
+            }
+            //if (pWFEX->Samples.wValidBitsPerSample == 64) {
+            //    return mal_format_f64;
+            //}
+        }
+    } else {
+        if (pWF->wFormatTag == WAVE_FORMAT_PCM) {
+            if (pWF->wBitsPerSample == 32) {
+                return mal_format_s32;
+            }
+            if (pWF->wBitsPerSample == 24) {
+                return mal_format_s24;
+            }
+            if (pWF->wBitsPerSample == 16) {
+                return mal_format_s16;
+            }
+            if (pWF->wBitsPerSample == 8) {
+                return mal_format_u8;
+            }
+        }
+        if (pWF->wFormatTag == WAVE_FORMAT_IEEE_FLOAT) {
+            if (pWF->wBitsPerSample == 32) {
+                return mal_format_f32;
+            }
+            if (pWF->wBitsPerSample == 64) {
+                //return mal_format_f64;
+            }
+        }
+    }
+
+    return mal_format_unknown;
+}
+
 static mal_result mal_device_init__wasapi(mal_context* pContext, mal_device_type type, mal_device_id* pDeviceID, const mal_device_config* pConfig, mal_device* pDevice)
 {
     (void)pContext;
@@ -4028,23 +4091,6 @@ static mal_result mal_device_init__wasapi(mal_context* pContext, mal_device_type
     mal_result result = MAL_SUCCESS;
     const char* errorMsg = "";
     AUDCLNT_SHAREMODE shareMode = AUDCLNT_SHAREMODE_SHARED;
-
-    WAVEFORMATEXTENSIBLE wf;
-    mal_zero_object(&wf);
-    wf.Format.cbSize               = sizeof(wf);
-    wf.Format.wFormatTag           = WAVE_FORMAT_EXTENSIBLE;
-    wf.Format.nChannels            = (WORD)pDevice->channels;
-    wf.Format.nSamplesPerSec       = (DWORD)pDevice->sampleRate;
-    wf.Format.wBitsPerSample       = (WORD)mal_get_sample_size_in_bytes(pDevice->format)*8;
-    wf.Format.nBlockAlign          = (wf.Format.nChannels * wf.Format.wBitsPerSample) / 8;
-    wf.Format.nAvgBytesPerSec      = wf.Format.nBlockAlign * wf.Format.nSamplesPerSec;
-    wf.Samples.wValidBitsPerSample = wf.Format.wBitsPerSample;
-    wf.dwChannelMask               = mal_channel_map_to_channel_mask__win32(pDevice->channelMap, pDevice->channels);
-    if (pDevice->format == mal_format_f32) {
-        wf.SubFormat = MAL_GUID_KSDATAFORMAT_SUBTYPE_IEEE_FLOAT;
-    } else {
-        wf.SubFormat = MAL_GUID_KSDATAFORMAT_SUBTYPE_PCM;
-    }
 
 #ifdef MAL_WIN32_DESKTOP
     IMMDevice* pMMDevice = NULL;
@@ -4140,33 +4186,51 @@ static mal_result mal_device_init__wasapi(mal_context* pContext, mal_device_type
     }
 #endif
 
+    WAVEFORMATEXTENSIBLE wf;
+    mal_zero_object(&wf);
+    wf.Format.cbSize               = sizeof(wf);
+    wf.Format.wFormatTag           = WAVE_FORMAT_EXTENSIBLE;
+    wf.Format.nChannels            = (WORD)pDevice->channels;
+    wf.Format.nSamplesPerSec       = (DWORD)pDevice->sampleRate;
+    wf.Format.wBitsPerSample       = (WORD)mal_get_sample_size_in_bytes(pDevice->format)*8;
+    wf.Format.nBlockAlign          = (wf.Format.nChannels * wf.Format.wBitsPerSample) / 8;
+    wf.Format.nAvgBytesPerSec      = wf.Format.nBlockAlign * wf.Format.nSamplesPerSec;
+    wf.Samples.wValidBitsPerSample = /*(pDevice->format == mal_format_s24_32) ? 24 :*/ wf.Format.wBitsPerSample;
+    wf.dwChannelMask               = mal_channel_map_to_channel_mask__win32(pDevice->channelMap, pDevice->channels);
+    if (pDevice->format == mal_format_f32) {
+        wf.SubFormat = MAL_GUID_KSDATAFORMAT_SUBTYPE_IEEE_FLOAT;
+    } else {
+        wf.SubFormat = MAL_GUID_KSDATAFORMAT_SUBTYPE_PCM;
+    }
+
+
     // Here is where we try to determine the best format to use with the device. If the client if wanting exclusive mode, first try finding the best format for that. If this fails, fall back to shared mode.
     WAVEFORMATEXTENSIBLE* pBestFormatTemp = NULL;
     result = MAL_FORMAT_NOT_SUPPORTED;
     if (pConfig->preferExclusiveMode) {
-        hr = IAudioClient_IsFormatSupported(pDevice->wasapi.pAudioClient, AUDCLNT_SHAREMODE_EXCLUSIVE, (WAVEFORMATEX*)&wf, NULL);
     #ifdef MAL_WIN32_DESKTOP
-        if (hr == AUDCLNT_E_UNSUPPORTED_FORMAT) {
-            // The format isn't supported, so retrieve the actual format from the property store and try that.
-            IPropertyStore* pStore = NULL;
-            hr = IMMDevice_OpenPropertyStore(pMMDevice, STGM_READ, &pStore);
+        // In exclusive mode on desktop we always use the backend's native format.
+        IPropertyStore* pStore = NULL;
+        hr = IMMDevice_OpenPropertyStore(pMMDevice, STGM_READ, &pStore);
+        if (SUCCEEDED(hr)) {
+            PROPVARIANT prop;
+            PropVariantInit(&prop);
+            hr = IPropertyStore_GetValue(pStore, g_malPKEY_AudioEngine_DeviceFormat, &prop);
             if (SUCCEEDED(hr)) {
-                PROPVARIANT prop;
-                PropVariantInit(&prop);
-                hr = IPropertyStore_GetValue(pStore, g_malPKEY_AudioEngine_DeviceFormat, &prop);
+                WAVEFORMATEX* pActualFormat = (WAVEFORMATEX*)prop.blob.pBlobData;
+                hr = IAudioClient_IsFormatSupported(pDevice->wasapi.pAudioClient, AUDCLNT_SHAREMODE_EXCLUSIVE, pActualFormat, NULL);
                 if (SUCCEEDED(hr)) {
-                    WAVEFORMATEX* pActualFormat = (WAVEFORMATEX*)prop.blob.pBlobData;
-                    hr = IAudioClient_IsFormatSupported(pDevice->wasapi.pAudioClient, AUDCLNT_SHAREMODE_EXCLUSIVE, pActualFormat, NULL);
-                    if (SUCCEEDED(hr)) {
-                        mal_copy_memory(&wf, pActualFormat, sizeof(WAVEFORMATEXTENSIBLE));
-                    }
-
-                    mal_PropVariantClear(pDevice->pContext, &prop);
+                    mal_copy_memory(&wf, pActualFormat, sizeof(WAVEFORMATEXTENSIBLE));
                 }
 
-                IPropertyStore_Release(pStore);
+                mal_PropVariantClear(pDevice->pContext, &prop);
             }
+
+            IPropertyStore_Release(pStore);
         }
+    #else
+        // With non-Desktop builds we just try using the requested format.
+        hr = IAudioClient_IsFormatSupported(pDevice->wasapi.pAudioClient, AUDCLNT_SHAREMODE_EXCLUSIVE, (WAVEFORMATEX*)&wf, NULL);
     #endif
 
         if (hr == S_OK) {
@@ -4177,6 +4241,30 @@ static mal_result mal_device_init__wasapi(mal_context* pContext, mal_device_type
 
     // Fall back to shared mode if necessary.
     if (result != MAL_SUCCESS) {
+        WAVEFORMATEXTENSIBLE* pNativeFormat = NULL;
+        hr = IAudioClient_GetMixFormat(pDevice->wasapi.pAudioClient, (WAVEFORMATEX**)&pNativeFormat);
+        if (hr == S_OK) {
+            if (pDevice->usingDefaultFormat) {
+                wf.Format.wBitsPerSample       = pNativeFormat->Format.wBitsPerSample;
+                wf.Format.nBlockAlign          = pNativeFormat->Format.nBlockAlign;
+                wf.Format.nAvgBytesPerSec      = pNativeFormat->Format.nAvgBytesPerSec;
+                wf.Samples.wValidBitsPerSample = pNativeFormat->Samples.wValidBitsPerSample;
+                wf.SubFormat                   = pNativeFormat->SubFormat;
+            }
+            if (pDevice->usingDefaultChannels) {
+                wf.Format.nChannels            = pNativeFormat->Format.nChannels;
+            }
+            if (pDevice->usingDefaultSampleRate) {
+                wf.Format.nSamplesPerSec       = pNativeFormat->Format.nSamplesPerSec;
+            }
+            if (pDevice->usingDefaultChannelMap) {
+                wf.dwChannelMask               = pNativeFormat->dwChannelMask;
+            }
+
+            mal_CoTaskMemFree(pDevice->pContext, pNativeFormat);
+            pNativeFormat = NULL;
+        }
+
         hr = IAudioClient_IsFormatSupported(pDevice->wasapi.pAudioClient, AUDCLNT_SHAREMODE_SHARED, (WAVEFORMATEX*)&wf, (WAVEFORMATEX**)&pBestFormatTemp);
         if (hr != S_OK && hr != S_FALSE) {
             hr = IAudioClient_GetMixFormat(pDevice->wasapi.pAudioClient, (WAVEFORMATEX**)&pBestFormatTemp);
@@ -4206,23 +4294,7 @@ static mal_result mal_device_init__wasapi(mal_context* pContext, mal_device_type
 
     REFERENCE_TIME bufferDurationInMicroseconds = ((mal_uint64)pDevice->bufferSizeInFrames * 1000 * 1000) / pConfig->sampleRate;
 
-    if (mal_is_guid_equal(wf.SubFormat, MAL_GUID_KSDATAFORMAT_SUBTYPE_IEEE_FLOAT)) {
-        pDevice->internalFormat = mal_format_f32;
-    } else {
-        if (wf.Format.wBitsPerSample == 32) {
-            pDevice->internalFormat = mal_format_s32;
-        } else if (wf.Format.wBitsPerSample == 24) {
-            pDevice->internalFormat = mal_format_s24;
-        } else if (wf.Format.wBitsPerSample == 16) {
-            pDevice->internalFormat = mal_format_s16;
-        } else if (wf.Format.wBitsPerSample == 8) {
-            pDevice->internalFormat = mal_format_u8;
-        } else {
-            errorMsg = "[WASAPI] Device's native format is not supported.", result = MAL_FORMAT_NOT_SUPPORTED;
-            goto done;
-        }
-    }
-
+    pDevice->internalFormat = mal_format_from_WAVEFORMATEX((WAVEFORMATEX*)&wf);
     pDevice->internalChannels = wf.Format.nChannels;
     pDevice->internalSampleRate = wf.Format.nSamplesPerSec;
 
@@ -12534,7 +12606,7 @@ mal_result mal_device_init(mal_context* pContext, mal_device_type type, mal_devi
 
 
     // Some backends don't require the worker thread.
-    if (mal_is_backend_asynchronous(pContext->backend)) {
+    if (!mal_is_backend_asynchronous(pContext->backend)) {
         // The worker thread.
         if (mal_thread_create(pContext, &pDevice->thread, mal_worker_thread, pDevice) != MAL_SUCCESS) {
             mal_device_uninit(pDevice);
@@ -12602,7 +12674,7 @@ void mal_device_uninit(mal_device* pDevice)
     mal_device__set_state(pDevice, MAL_STATE_UNINITIALIZED);
 
     // Wake up the worker thread and wait for it to properly terminate.
-    if (mal_is_backend_asynchronous(pDevice->pContext->backend)) {
+    if (!mal_is_backend_asynchronous(pDevice->pContext->backend)) {
         mal_event_signal(&pDevice->wakeupEvent);
         mal_thread_wait(&pDevice->thread);
     }
