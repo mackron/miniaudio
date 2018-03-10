@@ -2892,6 +2892,13 @@ mal_bool32 mal_event_signal(mal_event* pEvent)
 }
 
 
+#if defined(_MSC_VER)
+    #pragma warning(push)
+    #pragma warning(disable:4505)
+#elif defined(__GNUC__)
+    #pragma GCC diagnostic push
+    #pragma GCC diagnostic ignored "-Wunused-function"
+#endif
 static mal_uint32 mal_get_best_sample_rate_within_range(mal_uint32 sampleRateMin, mal_uint32 sampleRateMax)
 {
     // Normalize the range in case we were given something stupid.
@@ -2909,7 +2916,7 @@ static mal_uint32 mal_get_best_sample_rate_within_range(mal_uint32 sampleRateMin
         return sampleRateMax;
     } else {
         for (size_t iStandardRate = 0; iStandardRate < mal_countof(g_malStandardSampleRatePriorities); ++iStandardRate) {
-            DWORD standardRate = g_malStandardSampleRatePriorities[iStandardRate];
+            mal_uint32 standardRate = g_malStandardSampleRatePriorities[iStandardRate];
             if (standardRate >= sampleRateMin && standardRate <= sampleRateMax) {
                 return standardRate;
             }
@@ -2920,6 +2927,11 @@ static mal_uint32 mal_get_best_sample_rate_within_range(mal_uint32 sampleRateMin
     mal_assert(MAL_FALSE);
     return 0;
 }
+#if defined(_MSC_VER)
+    #pragma warning(pop)
+#elif defined(__GNUC__)
+    #pragma GCC diagnostic pop
+#endif
 
 
 // Posts a log message.
@@ -3518,7 +3530,6 @@ static mal_result mal_device__main_loop__null(mal_device* pDevice)
     #define mal_CoTaskMemFree(pContext, pv)                                             CoTaskMemFree(pv)
     #define mal_PropVariantClear(pContext, pvar)                                        PropVariantClear(pvar)
 #endif
-#endif
 
 // There's a few common headers for Win32 backends which include here for simplicity. Note that we should never
 // include any files that do not come standard with modern compilers, and we may need to manually define a few
@@ -3741,6 +3752,7 @@ static mal_format mal_format_from_WAVEFORMATEX(WAVEFORMATEX* pWF)
 
     return mal_format_unknown;
 }
+#endif
 
 
 ///////////////////////////////////////////////////////////////////////////////
@@ -7337,6 +7349,7 @@ static mal_result mal_device_init__alsa(mal_context* pContext, mal_device_type t
         mal_device_uninit__alsa(pDevice);
         return mal_post_error(pDevice, "[ALSA] The chosen format is not supported by mini_al.", MAL_FORMAT_NOT_SUPPORTED);
     }
+
 
     // Channels.
     mal_uint32 channels = pConfig->channels;
