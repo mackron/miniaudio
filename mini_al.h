@@ -783,6 +783,10 @@ struct mal_context
         struct
         {
             /*HMODULE*/ mal_handle hDSoundDLL;
+            mal_proc DirectSoundCreate;
+            mal_proc DirectSoundEnumerateA;
+            mal_proc DirectSoundCaptureCreate;
+            mal_proc DirectSoundCaptureEnumerateA;
         } dsound;
 #endif
 #ifdef MAL_SUPPORT_WINMM
@@ -1153,7 +1157,6 @@ struct mal_device
 #ifdef MAL_SUPPORT_DSOUND
         struct
         {
-            /*HMODULE*/ mal_handle hDSoundDLL;
             /*LPDIRECTSOUND*/ mal_ptr pPlayback;
             /*LPDIRECTSOUNDBUFFER*/ mal_ptr pPlaybackPrimaryBuffer;
             /*LPDIRECTSOUNDBUFFER*/ mal_ptr pPlaybackBuffer;
@@ -4724,9 +4727,9 @@ static GUID MAL_GUID_NULL                          = {0x00000000, 0x0000, 0x0000
 static GUID MAL_GUID_IID_DirectSoundNotify         = {0xb0210783, 0x89cd, 0x11d0, {0xaf, 0x08, 0x00, 0xa0, 0xc9, 0x25, 0xcd, 0x16}};
 static GUID MAL_GUID_IID_IDirectSoundCaptureBuffer = {0xb0210782, 0x89cd, 0x11d0, {0xaf, 0x08, 0x00, 0xa0, 0xc9, 0x25, 0xcd, 0x16}};
 
-typedef HRESULT (WINAPI * mal_DirectSoundCreateProc)(const GUID* pcGuidDevice, LPDIRECTSOUND *ppDS8, LPUNKNOWN pUnkOuter);
-typedef HRESULT (WINAPI * mal_DirectSoundEnumerateAProc)(LPDSENUMCALLBACKA pDSEnumCallback, LPVOID pContext);
-typedef HRESULT (WINAPI * mal_DirectSoundCaptureCreateProc)(const GUID* pcGuidDevice, LPDIRECTSOUNDCAPTURE *ppDSC8, LPUNKNOWN pUnkOuter);
+typedef HRESULT (WINAPI * mal_DirectSoundCreateProc)           (const GUID* pcGuidDevice, LPDIRECTSOUND *ppDS8, LPUNKNOWN pUnkOuter);
+typedef HRESULT (WINAPI * mal_DirectSoundEnumerateAProc)       (LPDSENUMCALLBACKA pDSEnumCallback, LPVOID pContext);
+typedef HRESULT (WINAPI * mal_DirectSoundCaptureCreateProc)    (const GUID* pcGuidDevice, LPDIRECTSOUNDCAPTURE *ppDSC8, LPUNKNOWN pUnkOuter);
 typedef HRESULT (WINAPI * mal_DirectSoundCaptureEnumerateAProc)(LPDSENUMCALLBACKA pDSEnumCallback, LPVOID pContext);
 
 
@@ -4767,22 +4770,21 @@ static void mal_get_channels_from_speaker_config__dsound(DWORD speakerConfig, WO
 }
 
 
-static HMODULE mal_open_dsound_dll()
-{
-    return LoadLibraryW(L"dsound.dll");
-}
-
-static void mal_close_dsound_dll(HMODULE hModule)
-{
-    FreeLibrary(hModule);
-}
-
 
 mal_result mal_context_init__dsound(mal_context* pContext)
 {
     mal_assert(pContext != NULL);
 
-    (void)pContext;
+    pContext->dsound.hDSoundDLL = mal_dlopen("dsound.dll");
+    if (pContext->dsound.hDSoundDLL == NULL) {
+        return MAL_API_NOT_FOUND;
+    }
+
+    pContext->dsound.DirectSoundCreate            = mal_dlsym(pContext->dsound.hDSoundDLL, "DirectSoundCreate");
+    pContext->dsound.DirectSoundEnumerateA        = mal_dlsym(pContext->dsound.hDSoundDLL, "DirectSoundEnumerateA");
+    pContext->dsound.DirectSoundCaptureCreate     = mal_dlsym(pContext->dsound.hDSoundDLL, "DirectSoundCaptureCreate");
+    pContext->dsound.DirectSoundCaptureEnumerateA = mal_dlsym(pContext->dsound.hDSoundDLL, "DirectSoundCaptureEnumerateA");
+
     return MAL_SUCCESS;
 }
 
@@ -4791,7 +4793,8 @@ mal_result mal_context_uninit__dsound(mal_context* pContext)
     mal_assert(pContext != NULL);
     mal_assert(pContext->backend == mal_backend_dsound);
 
-    (void)pContext;
+    mal_dlclose(pContext->dsound.hDSoundDLL);
+
     return MAL_SUCCESS;
 }
 
@@ -4844,25 +4847,11 @@ static mal_result mal_enumerate_devices__dsound(mal_context* pContext, mal_devic
     enumData.infoCount = infoSize;
     enumData.pInfo = pInfo;
 
-    HMODULE dsoundDLL = mal_open_dsound_dll();
-    if (dsoundDLL == NULL) {
-        return MAL_NO_BACKEND;
-    }
-
     if (type == mal_device_type_playback) {
-        mal_DirectSoundEnumerateAProc pDirectSoundEnumerateA = (mal_DirectSoundEnumerateAProc)GetProcAddress(dsoundDLL, "DirectSoundEnumerateA");
-        if (pDirectSoundEnumerateA) {
-            pDirectSoundEnumerateA(mal_enum_devices_callback__dsound, &enumData);
-        }
+        ((mal_DirectSoundEnumerateAProc)pContext->dsound.DirectSoundEnumerateA)(mal_enum_devices_callback__dsound, &enumData);
     } else {
-        mal_DirectSoundCaptureEnumerateAProc pDirectSoundCaptureEnumerateA = (mal_DirectSoundCaptureEnumerateAProc)GetProcAddress(dsoundDLL, "DirectSoundCaptureEnumerateA");
-        if (pDirectSoundCaptureEnumerateA) {
-            pDirectSoundCaptureEnumerateA(mal_enum_devices_callback__dsound, &enumData);
-        }
+        ((mal_DirectSoundCaptureEnumerateAProc)pContext->dsound.DirectSoundCaptureEnumerateA)(mal_enum_devices_callback__dsound, &enumData);
     }
-
-
-    mal_close_dsound_dll(dsoundDLL);
 
     *pCount = enumData.deviceCount;
     return MAL_SUCCESS;
@@ -4872,38 +4861,34 @@ static void mal_device_uninit__dsound(mal_device* pDevice)
 {
     mal_assert(pDevice != NULL);
 
-    if (pDevice->dsound.hDSoundDLL != NULL) {
-        if (pDevice->dsound.pNotify) {
-            IDirectSoundNotify_Release((LPDIRECTSOUNDNOTIFY)pDevice->dsound.pNotify);
-        }
+    if (pDevice->dsound.pNotify) {
+        IDirectSoundNotify_Release((LPDIRECTSOUNDNOTIFY)pDevice->dsound.pNotify);
+    }
 
-        if (pDevice->dsound.hStopEvent) {
-            CloseHandle(pDevice->dsound.hStopEvent);
+    if (pDevice->dsound.hStopEvent) {
+        CloseHandle(pDevice->dsound.hStopEvent);
+    }
+    for (mal_uint32 i = 0; i < pDevice->periods; ++i) {
+        if (pDevice->dsound.pNotifyEvents[i]) {
+            CloseHandle(pDevice->dsound.pNotifyEvents[i]);
         }
-        for (mal_uint32 i = 0; i < pDevice->periods; ++i) {
-            if (pDevice->dsound.pNotifyEvents[i]) {
-                CloseHandle(pDevice->dsound.pNotifyEvents[i]);
-            }
-        }
+    }
 
-        if (pDevice->dsound.pCaptureBuffer) {
-            IDirectSoundCaptureBuffer_Release((LPDIRECTSOUNDBUFFER)pDevice->dsound.pCaptureBuffer);
-        }
-        if (pDevice->dsound.pCapture) {
-            IDirectSoundCapture_Release((LPDIRECTSOUNDCAPTURE)pDevice->dsound.pCapture);
-        }
+    if (pDevice->dsound.pCaptureBuffer) {
+        IDirectSoundCaptureBuffer_Release((LPDIRECTSOUNDBUFFER)pDevice->dsound.pCaptureBuffer);
+    }
+    if (pDevice->dsound.pCapture) {
+        IDirectSoundCapture_Release((LPDIRECTSOUNDCAPTURE)pDevice->dsound.pCapture);
+    }
 
-        if (pDevice->dsound.pPlaybackBuffer) {
-            IDirectSoundBuffer_Release((LPDIRECTSOUNDBUFFER)pDevice->dsound.pPlaybackBuffer);
-        }
-        if (pDevice->dsound.pPlaybackPrimaryBuffer) {
-            IDirectSoundBuffer_Release((LPDIRECTSOUNDBUFFER)pDevice->dsound.pPlaybackPrimaryBuffer);
-        }
-        if (pDevice->dsound.pPlayback != NULL) {
-            IDirectSound_Release((LPDIRECTSOUND)pDevice->dsound.pPlayback);
-        }
-
-        mal_close_dsound_dll((HMODULE)pDevice->dsound.hDSoundDLL);
+    if (pDevice->dsound.pPlaybackBuffer) {
+        IDirectSoundBuffer_Release((LPDIRECTSOUNDBUFFER)pDevice->dsound.pPlaybackBuffer);
+    }
+    if (pDevice->dsound.pPlaybackPrimaryBuffer) {
+        IDirectSoundBuffer_Release((LPDIRECTSOUNDBUFFER)pDevice->dsound.pPlaybackPrimaryBuffer);
+    }
+    if (pDevice->dsound.pPlayback != NULL) {
+        IDirectSound_Release((LPDIRECTSOUND)pDevice->dsound.pPlayback);
     }
 }
 
@@ -4921,11 +4906,6 @@ static mal_result mal_device_init__dsound(mal_context* pContext, mal_device_type
 
     mal_assert(pDevice != NULL);
     mal_zero_object(&pDevice->dsound);
-
-    pDevice->dsound.hDSoundDLL = (mal_handle)mal_open_dsound_dll();
-    if (pDevice->dsound.hDSoundDLL == NULL) {
-        return MAL_NO_BACKEND;
-    }
 
     // Check that we have a valid format.
     GUID subformat;
@@ -4967,13 +4947,7 @@ static mal_result mal_device_init__dsound(mal_context* pContext, mal_device_type
 
     // Unfortunately DirectSound uses different APIs and data structures for playback and catpure devices :(
     if (type == mal_device_type_playback) {
-        mal_DirectSoundCreateProc pDirectSoundCreate = (mal_DirectSoundCreateProc)GetProcAddress((HMODULE)pDevice->dsound.hDSoundDLL, "DirectSoundCreate");
-        if (pDirectSoundCreate == NULL) {
-            mal_device_uninit__dsound(pDevice);
-            return mal_post_error(pDevice, "[DirectSound] Could not find DirectSoundCreate().", MAL_API_NOT_FOUND);
-        }
-
-        if (FAILED(pDirectSoundCreate((pDeviceID == NULL) ? NULL : (const GUID*)pDeviceID->dsound, (LPDIRECTSOUND*)&pDevice->dsound.pPlayback, NULL))) {
+        if (FAILED(((mal_DirectSoundCreateProc)pContext->dsound.DirectSoundCreate)((pDeviceID == NULL) ? NULL : (const GUID*)pDeviceID->dsound, (LPDIRECTSOUND*)&pDevice->dsound.pPlayback, NULL))) {
             mal_device_uninit__dsound(pDevice);
             return mal_post_error(pDevice, "[DirectSound] DirectSoundCreate() failed for playback device.", MAL_DSOUND_FAILED_TO_CREATE_DEVICE);
         }
@@ -5104,13 +5078,7 @@ static mal_result mal_device_init__dsound(mal_context* pContext, mal_device_type
             pDevice->bufferSizeInFrames *= 2; // <-- Might need to fiddle with this to find a more ideal value. May even be able to just add a fixed amount rather than scaling.
         }
 
-        mal_DirectSoundCaptureCreateProc pDirectSoundCaptureCreate = (mal_DirectSoundCaptureCreateProc)GetProcAddress((HMODULE)pDevice->dsound.hDSoundDLL, "DirectSoundCaptureCreate");
-        if (pDirectSoundCaptureCreate == NULL) {
-            mal_device_uninit__dsound(pDevice);
-            return mal_post_error(pDevice, "[DirectSound] Could not find DirectSoundCreate().", MAL_API_NOT_FOUND);
-        }
-
-        if (FAILED(pDirectSoundCaptureCreate((pDeviceID == NULL) ? NULL : (const GUID*)pDeviceID->dsound, (LPDIRECTSOUNDCAPTURE*)&pDevice->dsound.pCapture, NULL))) {
+        if (FAILED(((mal_DirectSoundCaptureCreateProc)pContext->dsound.DirectSoundCaptureCreate)((pDeviceID == NULL) ? NULL : (const GUID*)pDeviceID->dsound, (LPDIRECTSOUNDCAPTURE*)&pDevice->dsound.pCapture, NULL))) {
             mal_device_uninit__dsound(pDevice);
             return mal_post_error(pDevice, "[DirectSound] DirectSoundCaptureCreate() failed for capture device.", MAL_FAILED_TO_OPEN_BACKEND_DEVICE);
         }
