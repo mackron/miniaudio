@@ -6158,6 +6158,11 @@ typedef snd_pcm_chmap_t                         mal_snd_pcm_chmap_t;
 #define MAL_SND_CHMAP_BC                        SND_CHMAP_BC
 #define MAL_SND_CHMAP_BLC                       SND_CHMAP_BLC
 #define MAL_SND_CHMAP_BRC                       SND_CHMAP_BRC
+
+// Open mode flags.
+#define MAL_SND_PCM_NO_AUTO_RESAMPLE            SND_PCM_NO_AUTO_RESAMPLE
+#define MAL_SND_PCM_NO_AUTO_CHANNELS            SND_PCM_NO_AUTO_CHANNELS
+#define MAL_SND_PCM_NO_AUTO_FORMAT              SND_PCM_NO_AUTO_FORMAT
 #else
 #include <errno.h>  // For EPIPE, etc.
 typedef unsigned long                           mal_snd_pcm_uframes_t;
@@ -6249,6 +6254,11 @@ typedef struct
 #define MAL_SND_CHMAP_BC                        34
 #define MAL_SND_CHMAP_BLC                       35
 #define MAL_SND_CHMAP_BRC                       36
+
+// Open mode flags.
+#define MAL_SND_PCM_NO_AUTO_RESAMPLE            0x00010000
+#define MAL_SND_PCM_NO_AUTO_CHANNELS            0x00020000
+#define MAL_SND_PCM_NO_AUTO_FORMAT              0x00040000
 #endif
 
 typedef int                   (* mal_snd_pcm_open_proc)                          (mal_snd_pcm_t **pcm, const char *name, mal_snd_pcm_stream_t stream, int mode);
@@ -7125,6 +7135,8 @@ static mal_result mal_device_init__alsa(mal_context* pContext, mal_device_type t
     mal_snd_pcm_format_t formatALSA = mal_convert_mal_format_to_alsa_format(pConfig->format);
     mal_snd_pcm_stream_t stream = (type == mal_device_type_playback) ? MAL_SND_PCM_STREAM_PLAYBACK : MAL_SND_PCM_STREAM_CAPTURE;
 
+    int openMode = MAL_SND_PCM_NO_AUTO_RESAMPLE | MAL_SND_PCM_NO_AUTO_CHANNELS | MAL_SND_PCM_NO_AUTO_FORMAT;
+
     if (pDeviceID == NULL) {
         // We're opening the default device. I don't know if trying anything other than "default" is necessary, but it makes
         // me feel better to try as hard as we can get to get _something_ working.
@@ -7160,7 +7172,7 @@ static mal_result mal_device_init__alsa(mal_context* pContext, mal_device_type t
         mal_bool32 isDeviceOpen = MAL_FALSE;
         for (size_t i = 0; i < mal_countof(defaultDeviceNames); ++i) {
             if (defaultDeviceNames[i] != NULL && defaultDeviceNames[i][0] != '\0') {
-                if (((mal_snd_pcm_open_proc)pContext->alsa.snd_pcm_open)((mal_snd_pcm_t**)&pDevice->alsa.pPCM, defaultDeviceNames[i], stream, 0) == 0) {
+                if (((mal_snd_pcm_open_proc)pContext->alsa.snd_pcm_open)((mal_snd_pcm_t**)&pDevice->alsa.pPCM, defaultDeviceNames[i], stream, openMode) == 0) {
                     isDeviceOpen = MAL_TRUE;
                     break;
                 }
@@ -7180,7 +7192,7 @@ static mal_result mal_device_init__alsa(mal_context* pContext, mal_device_type t
         mal_bool32 isDeviceOpen = MAL_FALSE;
         if (pDeviceID->alsa[0] != ':') {
             // The ID is not in ":0,0" format. Use the ID exactly as-is.
-            if (((mal_snd_pcm_open_proc)pContext->alsa.snd_pcm_open)((mal_snd_pcm_t**)&pDevice->alsa.pPCM, pDeviceID->alsa, stream, 0) == 0) {
+            if (((mal_snd_pcm_open_proc)pContext->alsa.snd_pcm_open)((mal_snd_pcm_t**)&pDevice->alsa.pPCM, pDeviceID->alsa, stream, openMode) == 0) {
                 isDeviceOpen = MAL_TRUE;
             }
         } else {
@@ -7198,7 +7210,7 @@ static mal_result mal_device_init__alsa(mal_context* pContext, mal_device_type t
                 }
 
                 if (mal_strcat_s(hwid, sizeof(hwid), pDeviceID->alsa) == 0) {
-                    if (((mal_snd_pcm_open_proc)pContext->alsa.snd_pcm_open)((mal_snd_pcm_t**)&pDevice->alsa.pPCM, hwid, stream, 0) == 0) {
+                    if (((mal_snd_pcm_open_proc)pContext->alsa.snd_pcm_open)((mal_snd_pcm_t**)&pDevice->alsa.pPCM, hwid, stream, openMode) == 0) {
                         isDeviceOpen = MAL_TRUE;
                     }
                 }
@@ -7208,7 +7220,7 @@ static mal_result mal_device_init__alsa(mal_context* pContext, mal_device_type t
             if (!isDeviceOpen) {
                 mal_strcpy_s(hwid, sizeof(hwid), "hw");
                 if (mal_strcat_s(hwid, sizeof(hwid), pDeviceID->alsa) == 0) {
-                    if (((mal_snd_pcm_open_proc)pContext->alsa.snd_pcm_open)((mal_snd_pcm_t**)&pDevice->alsa.pPCM, hwid, stream, 0) == 0) {
+                    if (((mal_snd_pcm_open_proc)pContext->alsa.snd_pcm_open)((mal_snd_pcm_t**)&pDevice->alsa.pPCM, hwid, stream, openMode) == 0) {
                         isDeviceOpen = MAL_TRUE;
                     }
                 }
