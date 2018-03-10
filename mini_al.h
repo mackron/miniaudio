@@ -191,7 +191,7 @@
 //   When a period count of 0 is specified when a device is initialized, it will default to this.
 //
 // #define MAL_NO_DECODING
-//   Disables the decoder APIs.
+//   Disables the decoding APIs.
 //
 // #define MAL_NO_STDIO
 //   Disables file IO APIs
@@ -1318,16 +1318,16 @@ struct mal_device
 //   - SDL
 //   - Null
 //
-// The onLog callback is used for posting log messages back to the client for diagnostics, debugging,
-// etc. You can pass NULL for this if you do not need it.
+// <pConfig> is used to configure the context. Use the onLog config to set a callback for whenever a
+// log message is posted. The priority of the worker thread can be set with the threadPriority config.
+//
+// It is recommended that only a single context is active at any given time because it's a bulky data
+// structure which performs run-time linking for the relevant backends every time it's initialized.
 //
 // Return Value:
 //   MAL_SUCCESS if successful; any other error code otherwise.
 //
 // Thread Safety: UNSAFE
-//
-// Effeciency: LOW
-//   This will dynamically load backends DLLs/SOs (such as dsound.dll).
 mal_result mal_context_init(const mal_backend backends[], mal_uint32 backendCount, const mal_context_config* pConfig, mal_context* pContext);
 
 // Uninitializes a context.
@@ -1338,9 +1338,6 @@ mal_result mal_context_init(const mal_backend backends[], mal_uint32 backendCoun
 //   MAL_SUCCESS if successful; any other error code otherwise.
 //
 // Thread Safety: UNSAFE
-//
-// Efficiency: LOW
-//   This will unload the backend DLLs/SOs.
 mal_result mal_context_uninit(mal_context* pContext);
 
 // Enumerates over each device of the given type (playback or capture).
@@ -1355,8 +1352,6 @@ mal_result mal_context_uninit(mal_context* pContext);
 // Thread Safety: SAFE, SEE NOTES.
 //   This API uses an application-defined buffer for output. This is thread-safe so long as the
 //   application ensures mutal exclusion to the output buffer at their level.
-//
-// Efficiency: LOW
 mal_result mal_enumerate_devices(mal_context* pContext, mal_device_type type, mal_uint32* pCount, mal_device_info* pInfo);
 
 // Initializes a device.
@@ -1408,11 +1403,6 @@ mal_result mal_enumerate_devices(mal_context* pContext, mal_device_type type, ma
 //   It is not safe to call this function simultaneously for different devices because some backends
 //   depend on and mutate global state (such as OpenSL|ES). The same applies to calling this at the
 //   same time as mal_device_uninit().
-//
-//   Results are undefined if you try using a device before this function has returned.
-//
-// Efficiency: LOW
-//   This is just slow due to the nature of it being an initialization API.
 mal_result mal_device_init(mal_context* pContext, mal_device_type type, mal_device_id* pDeviceID, const mal_device_config* pConfig, void* pUserData, mal_device* pDevice);
 
 // Initializes a device without a context, with extra parameters for controlling the configuration
@@ -1432,19 +1422,12 @@ mal_result mal_device_init_ex(const mal_backend backends[], mal_uint32 backendCo
 // Thread Safety: UNSAFE
 //   As soon as this API is called the device should be considered undefined. All bets are off if you
 //   try using the device at the same time as uninitializing it.
-//
-// Efficiency: LOW
-//   This will stop the device with mal_device_stop() which is a slow, synchronized call. It also needs
-//   to destroy internal objects like the backend-specific objects and the background thread.
 void mal_device_uninit(mal_device* pDevice);
 
 // Sets the callback to use when the application has received data from the device.
 //
 // Thread Safety: SAFE
 //   This API is implemented as a simple atomic assignment.
-//
-// Efficiency: HIGH
-//   This is just an atomic assignment.
 void mal_device_set_recv_callback(mal_device* pDevice, mal_recv_proc proc);
 
 // Sets the callback to use when the application needs to send data to the device for playback.
@@ -1455,18 +1438,12 @@ void mal_device_set_recv_callback(mal_device* pDevice, mal_recv_proc proc);
 //
 // Thread Safety: SAFE
 //   This API is implemented as a simple atomic assignment.
-//
-// Efficiency: HIGH
-//   This is just an atomic assignment.
 void mal_device_set_send_callback(mal_device* pDevice, mal_send_proc proc);
 
 // Sets the callback to use when the device has stopped, either explicitly or as a result of an error.
 //
 // Thread Safety: SAFE
 //   This API is implemented as a simple atomic assignment.
-//
-// Efficiency: HIGH
-//   This is just an atomic assignment.
 void mal_device_set_stop_callback(mal_device* pDevice, mal_stop_proc proc);
 
 // Activates the device. For playback devices this begins playback. For capture devices it begins
@@ -1475,6 +1452,9 @@ void mal_device_set_stop_callback(mal_device* pDevice, mal_stop_proc proc);
 // For a playback device, this will retrieve an initial chunk of audio data from the client before
 // returning. The reason for this is to ensure there is valid audio data in the buffer, which needs
 // to be done _before_ the device begins playback.
+//
+// This API waits until the backend device has been started for real by the worker thread. It also
+// waits on a mutex for thread-safety.
 //
 // Return Value:
 //   - MAL_SUCCESS if successful; any other error code otherwise.
@@ -1499,13 +1479,14 @@ void mal_device_set_stop_callback(mal_device* pDevice, mal_stop_proc proc);
 //       There was a backend-specific error starting the device.
 //
 // Thread Safety: SAFE
-//
-// Efficiency: LOW
-//   This API waits until the backend device has been started for real by the worker thread. It also
-//   waits on a mutex for thread-safety.
 mal_result mal_device_start(mal_device* pDevice);
 
 // Puts the device to sleep, but does not uninitialize it. Use mal_device_start() to start it up again.
+//
+// This API needs to wait on the worker thread to stop the backend device properly before returning. It
+// also waits on a mutex for thread-safety. In addition, some backends need to wait for the device to
+// finish playback/recording of the current fragment which can take some time (usually proportionate to
+// the buffer size that was specified at initialization time).
 //
 // Return Value:
 //   - MAL_SUCCESS if successful; any other error code otherwise.
@@ -1526,17 +1507,11 @@ mal_result mal_device_start(mal_device* pDevice);
 //       There was a backend-specific error stopping the device.
 //
 // Thread Safety: SAFE
-//
-// Efficiency: LOW
-//   This API needs to wait on the worker thread to stop the backend device properly before returning. It
-//   also waits on a mutex for thread-safety.
-//
-//   In addition, some backends need to wait for the device to finish playback/recording of the current
-//   fragment which can take some time (usually proportionate to the buffer size used when initializing
-//   the device).
 mal_result mal_device_stop(mal_device* pDevice);
 
 // Determines whether or not the device is started.
+//
+// This is implemented as a simple accessor.
 //
 // Return Value:
 //   True if the device is started, false otherwise.
@@ -1544,27 +1519,22 @@ mal_result mal_device_stop(mal_device* pDevice);
 // Thread Safety: SAFE
 //   If another thread calls mal_device_start() or mal_device_stop() at this same time as this function
 //   is called, there's a very small chance the return value will be out of sync.
-//
-// Efficiency: HIGH
-//   This is implemented with a simple accessor.
 mal_bool32 mal_device_is_started(mal_device* pDevice);
 
 // Retrieves the size of the buffer in bytes for the given device.
 //
+// This API is efficient and is implemented with just a few 32-bit integer multiplications.
+//
 // Thread Safety: SAFE
 //   This is calculated from constant values which are set at initialization time and never change.
-//
-// Efficiency: HIGH
-//   This is implemented with just a few 32-bit integer multiplications.
 mal_uint32 mal_device_get_buffer_size_in_bytes(mal_device* pDevice);
 
 // Retrieves the size of a sample in bytes for the given format.
 //
+// This API is efficient and is implemented using a lookup table.
+//
 // Thread Safety: SAFE
 //   This is API is pure.
-//
-// Efficiency: HIGH
-//   This is implemented with a lookup table.
 mal_uint32 mal_get_sample_size_in_bytes(mal_format format);
 
 // Helper function for initializing a mal_context_config object.
@@ -10011,6 +9981,22 @@ static mal_result mal_device__main_loop__oss(mal_device* pDevice)
 #include <SLES/OpenSLES_Android.h>
 #endif
 
+// OpenSL|ES has one-per-application objects :(
+static SLObjectItf g_malEngineObjectSL = NULL;
+static SLEngineItf g_malEngineSL = NULL;
+static mal_uint32 g_malOpenSLInitCounter = 0;
+
+#define MAL_OPENSL_OBJ(p)         (*((SLObjectItf)(p)))
+#define MAL_OPENSL_OUTPUTMIX(p)   (*((SLOutputMixItf)(p)))
+#define MAL_OPENSL_PLAY(p)        (*((SLPlayItf)(p)))
+#define MAL_OPENSL_RECORD(p)      (*((SLRecordItf)(p)))
+
+#ifdef MAL_ANDROID
+#define MAL_OPENSL_BUFFERQUEUE(p) (*((SLAndroidSimpleBufferQueueItf)(p)))
+#else
+#define MAL_OPENSL_BUFFERQUEUE(p) (*((SLBufferQueueItf)(p)))
+#endif
+
 // Converts an individual OpenSL-style channel identifier (SL_SPEAKER_FRONT_LEFT, etc.) to mini_al.
 static mal_uint8 mal_channel_id_to_mal__opensl(SLuint32 id)
 {
@@ -10148,8 +10134,26 @@ SLuint32 mal_round_to_standard_sample_rate__opensl(SLuint32 samplesPerSec)
 mal_result mal_context_init__opensl(mal_context* pContext)
 {
     mal_assert(pContext != NULL);
-
     (void)pContext;
+
+    // Initialize global data first if applicable.
+    if (mal_atomic_increment_32(&g_malOpenSLInitCounter) == 1) {
+        SLresult resultSL = slCreateEngine(&g_malEngineObjectSL, 0, NULL, 0, NULL, NULL);
+        if (resultSL != SL_RESULT_SUCCESS) {
+            mal_atomic_decrement_32(&g_malOpenSLInitCounter);
+            return MAL_NO_BACKEND;
+        }
+
+        (*g_malEngineObjectSL)->Realize(g_malEngineObjectSL, SL_BOOLEAN_FALSE);
+
+        resultSL = (*g_malEngineObjectSL)->GetInterface(g_malEngineObjectSL, SL_IID_ENGINE, &g_malEngineSL);
+        if (resultSL != SL_RESULT_SUCCESS) {
+            (*g_malEngineObjectSL)->Destroy(g_malEngineObjectSL);
+            mal_atomic_decrement_32(&g_malOpenSLInitCounter);
+            return MAL_NO_BACKEND;
+        }
+    }
+
     return MAL_SUCCESS;
 }
 
@@ -10157,8 +10161,15 @@ mal_result mal_context_uninit__opensl(mal_context* pContext)
 {
     mal_assert(pContext != NULL);
     mal_assert(pContext->backend == mal_backend_opensl);
-
     (void)pContext;
+
+    // Uninit global data.
+    if (g_malOpenSLInitCounter > 0) {
+        if (mal_atomic_decrement_32(&g_malOpenSLInitCounter) == 0) {
+            (*g_malEngineObjectSL)->Destroy(g_malEngineObjectSL);
+        }
+    }
+
     return MAL_SUCCESS;
 }
 
@@ -10169,14 +10180,6 @@ mal_result mal_enumerate_devices__opensl(mal_context* pContext, mal_device_type 
     mal_uint32 infoSize = *pCount;
     *pCount = 0;
 
-    SLObjectItf engineObj;
-    SLresult resultSL = slCreateEngine(&engineObj, 0, NULL, 0, NULL, NULL);
-    if (resultSL != SL_RESULT_SUCCESS) {
-        return MAL_NO_BACKEND;
-    }
-
-    (*engineObj)->Realize(engineObj, SL_BOOLEAN_FALSE);
-
     // TODO: Test Me.
     //
     // This is currently untested, so for now we are just returning default devices.
@@ -10185,23 +10188,20 @@ mal_result mal_enumerate_devices__opensl(mal_context* pContext, mal_device_type 
     SLint32 deviceCount = sizeof(pDeviceIDs) / sizeof(pDeviceIDs[0]);
 
     SLAudioIODeviceCapabilitiesItf deviceCaps;
-    resultSL = (*engineObj)->GetInterface(engineObj, SL_IID_AUDIOIODEVICECAPABILITIES, &deviceCaps);
+    SLresult resultSL = (*g_malEngineObjectSL)->GetInterface(g_malEngineObjectSL, SL_IID_AUDIOIODEVICECAPABILITIES, &deviceCaps);
     if (resultSL != SL_RESULT_SUCCESS) {
         // The interface may not be supported so just report a default device.
-        (*engineObj)->Destroy(engineObj);
         goto return_default_device;
     }
 
     if (type == mal_device_type_playback) {
         resultSL = (*deviceCaps)->GetAvailableAudioOutputs(deviceCaps, &deviceCount, pDeviceIDs);
         if (resultSL != SL_RESULT_SUCCESS) {
-            (*engineObj)->Destroy(engineObj);
             return MAL_NO_DEVICE;
         }
     } else {
         resultSL = (*deviceCaps)->GetAvailableAudioInputs(deviceCaps, &deviceCount, pDeviceIDs);
         if (resultSL != SL_RESULT_SUCCESS) {
-            (*engineObj)->Destroy(engineObj);
             return MAL_NO_DEVICE;
         }
     }
@@ -10242,10 +10242,8 @@ mal_result mal_enumerate_devices__opensl(mal_context* pContext, mal_device_type 
         }
     }
 
-    (*engineObj)->Destroy(engineObj);
     return MAL_SUCCESS;
 #else
-    (*engineObj)->Destroy(engineObj);
     goto return_default_device;
 #endif
 
@@ -10266,22 +10264,6 @@ return_default_device:
     return MAL_SUCCESS;
 }
 
-
-// OpenSL|ES has one-per-application objects :(
-static SLObjectItf g_malEngineObjectSL = NULL;
-static SLEngineItf g_malEngineSL = NULL;
-static mal_uint32 g_malOpenSLInitCounter = 0;
-
-#define MAL_OPENSL_OBJ(p)         (*((SLObjectItf)(p)))
-#define MAL_OPENSL_OUTPUTMIX(p)   (*((SLOutputMixItf)(p)))
-#define MAL_OPENSL_PLAY(p)        (*((SLPlayItf)(p)))
-#define MAL_OPENSL_RECORD(p)      (*((SLRecordItf)(p)))
-
-#ifdef MAL_ANDROID
-#define MAL_OPENSL_BUFFERQUEUE(p) (*((SLAndroidSimpleBufferQueueItf)(p)))
-#else
-#define MAL_OPENSL_BUFFERQUEUE(p) (*((SLBufferQueueItf)(p)))
-#endif
 
 #ifdef MAL_ANDROID
 //static void mal_buffer_queue_callback__opensl_android(SLAndroidSimpleBufferQueueItf pBufferQueue, SLuint32 eventFlags, const void* pBuffer, SLuint32 bufferSize, SLuint32 dataUsed, void* pContext)
@@ -10346,14 +10328,6 @@ static void mal_device_uninit__opensl(mal_device* pDevice)
     }
 
     mal_free(pDevice->opensl.pBuffer);
-
-
-    // Uninit global data.
-    if (g_malOpenSLInitCounter > 0) {
-        if (mal_atomic_decrement_32(&g_malOpenSLInitCounter) == 0) {
-            (*g_malEngineObjectSL)->Destroy(g_malEngineObjectSL);
-        }
-    }
 }
 
 static mal_result mal_device_init__opensl(mal_context* pContext, mal_device_type type, mal_device_id* pDeviceID, const mal_device_config* pConfig, mal_device* pDevice)
@@ -10371,25 +10345,6 @@ static mal_result mal_device_init__opensl(mal_context* pContext, mal_device_type
     if (pConfig->format == mal_format_f32) {
         pDevice->internalFormat = mal_format_s32;
     }
-
-    // Initialize global data first if applicable.
-    if (mal_atomic_increment_32(&g_malOpenSLInitCounter) == 1) {
-        SLresult resultSL = slCreateEngine(&g_malEngineObjectSL, 0, NULL, 0, NULL, NULL);
-        if (resultSL != SL_RESULT_SUCCESS) {
-            mal_atomic_decrement_32(&g_malOpenSLInitCounter);
-            return mal_post_error(pDevice, "[OpenSL] slCreateEngine() failed.", MAL_NO_BACKEND);
-        }
-
-        (*g_malEngineObjectSL)->Realize(g_malEngineObjectSL, SL_BOOLEAN_FALSE);
-
-        resultSL = (*g_malEngineObjectSL)->GetInterface(g_malEngineObjectSL, SL_IID_ENGINE, &g_malEngineSL);
-        if (resultSL != SL_RESULT_SUCCESS) {
-            (*g_malEngineObjectSL)->Destroy(g_malEngineObjectSL);
-            mal_atomic_decrement_32(&g_malOpenSLInitCounter);
-            return mal_post_error(pDevice, "[OpenSL] Failed to retrieve SL_IID_ENGINE interface.", MAL_NO_BACKEND);
-        }
-    }
-
 
     // Now we can start initializing the device properly.
     mal_assert(pDevice != NULL);
