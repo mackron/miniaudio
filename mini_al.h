@@ -351,6 +351,19 @@ typedef void (* mal_proc)();
 typedef struct mal_context mal_context;
 typedef struct mal_device mal_device;
 
+// Thread priorties should be ordered such that the default priority of the worker thread is 0.
+typedef enum
+{
+    mal_thread_priority_idle     = -5,
+    mal_thread_priority_lowest   = -4,
+    mal_thread_priority_low      = -3,
+    mal_thread_priority_normal   = -2,
+    mal_thread_priority_high     = -1,
+    mal_thread_priority_highest  =  0,
+    mal_thread_priority_realtime =  1,
+    mal_thread_priority_default  =  0
+} mal_thread_priority;
+
 typedef struct
 {
     mal_context* pContext;
@@ -745,6 +758,7 @@ typedef struct
 typedef struct
 {
     mal_log_proc onLog;
+    mal_thread_priority threadPriority;
 
     struct
     {
@@ -1097,6 +1111,11 @@ struct mal_context
             mal_proc pthread_cond_destroy;
             mal_proc pthread_cond_wait;
             mal_proc pthread_cond_signal;
+            mal_proc pthread_attr_init;
+            mal_proc pthread_attr_destroy;
+            mal_proc pthread_attr_setschedpolicy;
+            mal_proc pthread_attr_getschedparam;
+            mal_proc pthread_attr_setschedparam;
         } posix;
 #endif
         int _unused;
@@ -2566,14 +2585,28 @@ mal_proc mal_dlsym(mal_handle handle, const char* symbol)
 //
 ///////////////////////////////////////////////////////////////////////////////
 #ifdef MAL_WIN32
+static int mal_thread_priority_to_win32(mal_thread_priority priority)
+{
+    switch (priority) {
+        case mal_thread_priority_idle:     return THREAD_PRIORITY_IDLE;
+        case mal_thread_priority_lowest:   return THREAD_PRIORITY_LOWEST;
+        case mal_thread_priority_low:      return THREAD_PRIORITY_BELOW_NORMAL;
+        case mal_thread_priority_normal:   return THREAD_PRIORITY_NORMAL;
+        case mal_thread_priority_high:     return THREAD_PRIORITY_ABOVE_NORMAL;
+        case mal_thread_priority_highest:  return THREAD_PRIORITY_HIGHEST;
+        case mal_thread_priority_realtime: return THREAD_PRIORITY_TIME_CRITICAL;
+        default: return mal_thread_priority_normal;
+    }
+}
+
 mal_result mal_thread_create__win32(mal_context* pContext, mal_thread* pThread, mal_thread_entry_proc entryProc, void* pData)
 {
-    (void)pContext;
-
     pThread->win32.hThread = CreateThread(NULL, 0, entryProc, pData, 0, NULL);
     if (pThread->win32.hThread == NULL) {
         return MAL_FAILED_TO_CREATE_THREAD;
     }
+
+    SetThreadPriority((HANDLE)pThread->win32.hThread, mal_thread_priority_to_win32(pContext->config.threadPriority));
 
     return MAL_SUCCESS;
 }
@@ -2647,6 +2680,8 @@ mal_bool32 mal_event_signal__win32(mal_event* pEvent)
 
 
 #ifdef MAL_POSIX
+#include <sched.h>
+
 typedef int (* mal_pthread_create_proc)(pthread_t *thread, const pthread_attr_t *attr, void *(*start_routine) (void *), void *arg);
 typedef int (* mal_pthread_join_proc)(pthread_t thread, void **retval);
 typedef int (* mal_pthread_mutex_init_proc)(pthread_mutex_t *__mutex, const pthread_mutexattr_t *__mutexattr);
@@ -2657,10 +2692,67 @@ typedef int (* mal_pthread_cond_init_proc)(pthread_cond_t *__restrict __cond, co
 typedef int (* mal_pthread_cond_destroy_proc)(pthread_cond_t *__cond);
 typedef int (* mal_pthread_cond_signal_proc)(pthread_cond_t *__cond);
 typedef int (* mal_pthread_cond_wait_proc)(pthread_cond_t *__restrict __cond, pthread_mutex_t *__restrict __mutex);
+typedef int (* mal_pthread_attr_init_proc)(pthread_attr_t *attr);
+typedef int (* mal_pthread_attr_destroy_proc)(pthread_attr_t *attr);
+typedef int (* mal_pthread_attr_setschedpolicy_proc)(pthread_attr_t *attr, int policy);
+typedef int (* mal_pthread_attr_getschedparam_proc)(const pthread_attr_t *attr, struct sched_param *param);
+typedef int (* mal_pthread_attr_setschedparam_proc)(pthread_attr_t *attr, const struct sched_param *param);
 
 mal_bool32 mal_thread_create__posix(mal_context* pContext, mal_thread* pThread, mal_thread_entry_proc entryProc, void* pData)
 {
-    int result = ((mal_pthread_create_proc)pContext->posix.pthread_create)(&pThread->posix.thread, NULL, entryProc, pData);
+    pthread_attr_t* pAttr = NULL;
+
+    // Try setting the thread priority. It's not critical if anything fails here.
+    pthread_attr_t attr;
+    if (((mal_pthread_attr_init_proc)pContext->posix.pthread_attr_init)(&attr) == 0) {
+        int scheduler = -1;
+        if (pContext->config.threadPriority == mal_thread_priority_idle) {
+#ifdef SCHED_IDLE
+            if (((mal_pthread_attr_setschedpolicy_proc)pContext->posix.pthread_attr_setschedpolicy)(&attr, SCHED_IDLE) == 0) {
+                scheduler = SCHED_IDLE;
+            }
+#endif
+        } else if (pContext->config.threadPriority == mal_thread_priority_realtime) {
+#ifdef SCHED_FIFO
+            if (((mal_pthread_attr_setschedpolicy_proc)pContext->posix.pthread_attr_setschedpolicy)(&attr, SCHED_FIFO) == 0) {
+                scheduler = SCHED_FIFO;
+            }
+#endif
+        } else {
+            scheduler = sched_getscheduler(0);
+        }
+
+        if (scheduler != -1) {
+            int priorityMin = sched_get_priority_min(scheduler);
+            int priorityMax = sched_get_priority_max(scheduler);
+            int priorityStep = (priorityMax - priorityMin) / 7;  // 7 = number of priorities supported by mini_al.
+
+            struct sched_param sched;
+            if (((mal_pthread_attr_getschedparam_proc)pContext->posix.pthread_attr_getschedparam)(&attr, &sched) == 0) {
+                if (pContext->config.threadPriority == mal_thread_priority_idle) {
+                    sched.sched_priority = priorityMin;
+                } else if (pContext->config.threadPriority == mal_thread_priority_realtime) {
+                    sched.sched_priority = priorityMax;
+                } else {
+                    sched.sched_priority += ((int)pContext->config.threadPriority + 5) * priorityStep;  // +5 because the lowest priority is -5.
+                    if (sched.sched_priority < priorityMin) {
+                        sched.sched_priority = priorityMin;
+                    }
+                    if (sched.sched_priority > priorityMax) {
+                        sched.sched_priority = priorityMax;
+                    }
+                }
+
+                if (((mal_pthread_attr_setschedparam_proc)pContext->posix.pthread_attr_setschedparam)(&attr, &sched) == 0) {
+                    pAttr = &attr;
+                }
+            }
+        }
+
+        ((mal_pthread_attr_destroy_proc)pContext->posix.pthread_attr_destroy)(&attr);
+    }
+
+    int result = ((mal_pthread_create_proc)pContext->posix.pthread_create)(&pThread->posix.thread, pAttr, entryProc, pData);
     if (result != 0) {
         return MAL_FAILED_TO_CREATE_THREAD;
     }
@@ -2892,14 +2984,7 @@ mal_bool32 mal_event_signal(mal_event* pEvent)
 }
 
 
-#if defined(_MSC_VER)
-    #pragma warning(push)
-    #pragma warning(disable:4505)
-#elif defined(__GNUC__)
-    #pragma GCC diagnostic push
-    #pragma GCC diagnostic ignored "-Wunused-function"
-#endif
-static mal_uint32 mal_get_best_sample_rate_within_range(mal_uint32 sampleRateMin, mal_uint32 sampleRateMax)
+mal_uint32 mal_get_best_sample_rate_within_range(mal_uint32 sampleRateMin, mal_uint32 sampleRateMax)
 {
     // Normalize the range in case we were given something stupid.
     if (sampleRateMin < MAL_MIN_SAMPLE_RATE) {
@@ -2927,11 +3012,6 @@ static mal_uint32 mal_get_best_sample_rate_within_range(mal_uint32 sampleRateMin
     mal_assert(MAL_FALSE);
     return 0;
 }
-#if defined(_MSC_VER)
-    #pragma warning(pop)
-#elif defined(__GNUC__)
-    #pragma GCC diagnostic pop
-#endif
 
 
 // Posts a log message.
@@ -12222,27 +12302,37 @@ mal_result mal_context_init_backend_apis__nix(mal_context* pContext)
         return MAL_FAILED_TO_INIT_BACKEND;
     }
 
-    pContext->posix.pthread_create        = (mal_proc)mal_dlsym(pContext->posix.pthreadSO, "pthread_create");
-    pContext->posix.pthread_join          = (mal_proc)mal_dlsym(pContext->posix.pthreadSO, "pthread_join");
-    pContext->posix.pthread_mutex_init    = (mal_proc)mal_dlsym(pContext->posix.pthreadSO, "pthread_mutex_init");
-    pContext->posix.pthread_mutex_destroy = (mal_proc)mal_dlsym(pContext->posix.pthreadSO, "pthread_mutex_destroy");
-    pContext->posix.pthread_mutex_lock    = (mal_proc)mal_dlsym(pContext->posix.pthreadSO, "pthread_mutex_lock");
-    pContext->posix.pthread_mutex_unlock  = (mal_proc)mal_dlsym(pContext->posix.pthreadSO, "pthread_mutex_unlock");
-    pContext->posix.pthread_cond_init     = (mal_proc)mal_dlsym(pContext->posix.pthreadSO, "pthread_cond_init");
-    pContext->posix.pthread_cond_destroy  = (mal_proc)mal_dlsym(pContext->posix.pthreadSO, "pthread_cond_destroy");
-    pContext->posix.pthread_cond_wait     = (mal_proc)mal_dlsym(pContext->posix.pthreadSO, "pthread_cond_wait");
-    pContext->posix.pthread_cond_signal   = (mal_proc)mal_dlsym(pContext->posix.pthreadSO, "pthread_cond_signal");
+    pContext->posix.pthread_create              = (mal_proc)mal_dlsym(pContext->posix.pthreadSO, "pthread_create");
+    pContext->posix.pthread_join                = (mal_proc)mal_dlsym(pContext->posix.pthreadSO, "pthread_join");
+    pContext->posix.pthread_mutex_init          = (mal_proc)mal_dlsym(pContext->posix.pthreadSO, "pthread_mutex_init");
+    pContext->posix.pthread_mutex_destroy       = (mal_proc)mal_dlsym(pContext->posix.pthreadSO, "pthread_mutex_destroy");
+    pContext->posix.pthread_mutex_lock          = (mal_proc)mal_dlsym(pContext->posix.pthreadSO, "pthread_mutex_lock");
+    pContext->posix.pthread_mutex_unlock        = (mal_proc)mal_dlsym(pContext->posix.pthreadSO, "pthread_mutex_unlock");
+    pContext->posix.pthread_cond_init           = (mal_proc)mal_dlsym(pContext->posix.pthreadSO, "pthread_cond_init");
+    pContext->posix.pthread_cond_destroy        = (mal_proc)mal_dlsym(pContext->posix.pthreadSO, "pthread_cond_destroy");
+    pContext->posix.pthread_cond_wait           = (mal_proc)mal_dlsym(pContext->posix.pthreadSO, "pthread_cond_wait");
+    pContext->posix.pthread_cond_signal         = (mal_proc)mal_dlsym(pContext->posix.pthreadSO, "pthread_cond_signal");
+    pContext->posix.pthread_attr_init           = (mal_proc)mal_dlsym(pContext->posix.pthreadSO, "pthread_attr_init");
+    pContext->posix.pthread_attr_destroy        = (mal_proc)mal_dlsym(pContext->posix.pthreadSO, "pthread_attr_destroy");
+    pContext->posix.pthread_attr_setschedpolicy = (mal_proc)mal_dlsym(pContext->posix.pthreadSO, "pthread_attr_setschedpolicy");
+    pContext->posix.pthread_attr_getschedparam  = (mal_proc)mal_dlsym(pContext->posix.pthreadSO, "pthread_attr_getschedparam");
+    pContext->posix.pthread_attr_setschedparam  = (mal_proc)mal_dlsym(pContext->posix.pthreadSO, "pthread_attr_setschedparam");
 #else
-    pContext->posix.pthread_create        = (mal_proc)pthread_create;
-    pContext->posix.pthread_join          = (mal_proc)pthread_join;
-    pContext->posix.pthread_mutex_init    = (mal_proc)pthread_mutex_init;
-    pContext->posix.pthread_mutex_destroy = (mal_proc)pthread_mutex_destroy;
-    pContext->posix.pthread_mutex_lock    = (mal_proc)pthread_mutex_lock;
-    pContext->posix.pthread_mutex_unlock  = (mal_proc)pthread_mutex_unlock;
-    pContext->posix.pthread_cond_init     = (mal_proc)pthread_cond_init;
-    pContext->posix.pthread_cond_destroy  = (mal_proc)pthread_cond_destroy;
-    pContext->posix.pthread_cond_wait     = (mal_proc)pthread_cond_wait;
-    pContext->posix.pthread_cond_signal   = (mal_proc)pthread_cond_signal;
+    pContext->posix.pthread_create              = (mal_proc)pthread_create;
+    pContext->posix.pthread_join                = (mal_proc)pthread_join;
+    pContext->posix.pthread_mutex_init          = (mal_proc)pthread_mutex_init;
+    pContext->posix.pthread_mutex_destroy       = (mal_proc)pthread_mutex_destroy;
+    pContext->posix.pthread_mutex_lock          = (mal_proc)pthread_mutex_lock;
+    pContext->posix.pthread_mutex_unlock        = (mal_proc)pthread_mutex_unlock;
+    pContext->posix.pthread_cond_init           = (mal_proc)pthread_cond_init;
+    pContext->posix.pthread_cond_destroy        = (mal_proc)pthread_cond_destroy;
+    pContext->posix.pthread_cond_wait           = (mal_proc)pthread_cond_wait;
+    pContext->posix.pthread_cond_signal         = (mal_proc)pthread_cond_signal;
+    pContext->posix.pthread_attr_init           = (mal_proc)pthread_attr_init;
+    pContext->posix.pthread_attr_destroy        = (mal_proc)pthread_attr_destroy;
+    pContext->posix.pthread_attr_setschedpolicy = (mal_proc)pthread_attr_setschedpolicy;
+    pContext->posix.pthread_attr_getschedparam  = (mal_proc)pthread_attr_getschedparam;
+    pContext->posix.pthread_attr_setschedparam  = (mal_proc)pthread_attr_setschedparam;
 #endif
 
     return MAL_SUCCESS;
@@ -16017,6 +16107,7 @@ void mal_pcm_f32_to_s32(int* pOut, const float* pIn, unsigned int count)
 //   - Add support for JACK.
 //   - Remove dependency on asound.h for the ALSA backend. This means the ALSA development packages are no
 //     longer required to build mini_al.
+//   - Add support for configuring the priority of the worker thread.
 //   - Introduce the notion of default device configurations. A default config uses the same configuration
 //     as the backend's internal device, and as such results in a pass-through data transmission pipeline.
 //   - Add support for passing in NULL for the device config in mal_device_init(), which uses a default
