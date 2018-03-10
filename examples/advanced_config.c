@@ -34,6 +34,31 @@ int main(int argc, char** argv)
     // common configuration settings, but you can set other members for more detailed control.
     mal_context_config contextConfig = mal_context_config_init(on_log);
 
+    // The priority of the worker thread can be set with the following. The default priority is
+    // mal_thread_priority_highest.
+    contextConfig.threadPriority = mal_thread_priority_normal;
+
+
+    // PulseAudio
+    // ----------
+    
+    // PulseAudio allows you to set the name of the application. mini_al exposes this through the following
+    // config.
+    contextConfig.pulse.pApplicationName = "My Application";
+
+    // PulseAudio also allows you to control the server you want to connect to, in which case you can specify
+    // it with the config below.
+    contextConfig.pulse.pServerName = "my_server";
+
+    // During initialization, PulseAudio can try to automatically start the PulseAudio daemon. This does not
+    // suit mini_al's trial and error backend initialization architecture so it's disabled by default, but you
+    // can enable it like so:
+    contextConfig.pulse.tryAutoSpawn = MAL_TRUE;
+
+
+    // ALSA
+    // ----
+
     // Typically, ALSA enumerates many devices, which unfortunately is not very friendly for the end user. To
     // combat this, mini_al will include only unique card/device pairs by default. The problem with this is that
     // you lose a bit of flexibility and control. Setting alsa.useVerboseDeviceEnumeration makes it so the ALSA
@@ -43,6 +68,18 @@ int main(int argc, char** argv)
     // Typical installations of ALSA include a null device. The config below will exclude it from enumeration.
     contextConfig.alsa.excludeNullDevice = MAL_TRUE;
 
+
+    // JACK
+    // ----
+
+    // Like PulseAudio, JACK allows you to specify the name of your application, which you can set like so:
+    contextConfig.jack.pClientName = "My Application";
+
+    // Also like PulseAudio, you can have JACK try to automatically start using the following:
+    contextConfig.jack.tryStartServer = MAL_TRUE;
+
+
+
     // The prioritization of backends can be controlled by the application. You need only specify the backends
     // you care about. If the context cannot be initialized for any of the specified backends mal_context_init()
     // will fail.
@@ -50,8 +87,10 @@ int main(int argc, char** argv)
         mal_backend_wasapi, // Higest priority.
         mal_backend_dsound,
         mal_backend_winmm,
+        mal_backend_pulseaudio,
         mal_backend_alsa,
         mal_backend_oss,
+        mal_backend_jack,
         mal_backend_opensl,
         mal_backend_openal,
         mal_backend_sdl,
