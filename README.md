@@ -25,7 +25,7 @@ Features
     - Sample rate conversion is currently low quality, but a higher quality implementation is planned.
   - Channel mapping/layout.
   - Channel mixing (converting mono to 5.1, etc.)
-- MP3, Vorbis, FLAC and WAV decoding
+- MP3, Vorbis, FLAC and WAV decoding.
   - This depends on external single file libraries which can be found in the "extras" folder.
 
 
@@ -154,3 +154,62 @@ relevant backend library before the implementation of mini_al, like so:
 #define MAL_IMPLEMENTATION
 #include "mini_al.h"
 ```
+
+A decoder can be initialized from a file with `mal_decoder_init_file()`, a block of memory with
+`mal_decoder_init_memory()`, or from data delivered via callbacks with `mal_decoder_init()`. Here
+is an example for loading a decoder from a file:
+
+```
+mal_decoder decoder;
+mal_result result = mal_decoder_init_file("MySong.mp3", NULL, &decoder);
+if (result != MAL_SUCCESS) {
+    return false;   // An error occurred.
+}
+
+...
+
+mal_decoder_uninit(&decoder);
+```
+
+When initializing a decoder, you can optionally pass in a pointer to a `mal_decoder_config` object
+(the `NULL` argument in the example above) which allows you to configure the output format, channel
+count, sample rate and channel map:
+
+```
+mal_decoder_config config = mal_decoder_config_init(mal_format_f32, 2, 48000);
+```
+
+When passing in NULL for this parameter, the output format will be the same as that defined by the
+decoding backend.
+
+Data is read from the decoder as PCM frames:
+
+```
+mal_uint64 framesRead = mal_decoder_read(pDecoder, framesToRead, pFrames);
+```
+
+You can also seek to a specific frame like so:
+
+```
+mal_result result = mal_decoder_seek(pDecoder, targetFrame);
+if (result != MAL_SUCCESS) {
+    return false;   // An error occurred.
+}
+```
+
+When loading a decoder, mini_al uses a trial and error technique to find the appropriate decoding
+backend. This can be unnecessarily inefficient if the type is already known. In this case you can
+use the `_wav`, `_mp3`, etc. varients of the aforementioned initialization APIs:
+
+```
+mal_decoder_init_wav()
+mal_decoder_init_mp3()
+mal_decoder_init_memory_wav()
+mal_decoder_init_memory_mp3()
+mal_decoder_init_file_wav()
+mal_decoder_init_file_mp3()
+etc.
+```
+
+The `mal_decoder_init_file()` API will try using the file extension to determine which decoding
+backend to prefer.
