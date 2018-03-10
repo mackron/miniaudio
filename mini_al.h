@@ -7352,12 +7352,12 @@ static mal_result mal_device_init__alsa(mal_context* pContext, mal_device_type t
 
 
     // Channels.
-    mal_uint32 channels = pConfig->channels;
+    unsigned int channels = pConfig->channels;
     if (((mal_snd_pcm_hw_params_set_channels_near_proc)pContext->alsa.snd_pcm_hw_params_set_channels_near)((mal_snd_pcm_t*)pDevice->alsa.pPCM, pHWParams, &channels) < 0) {
         mal_device_uninit__alsa(pDevice);
         return mal_post_error(pDevice, "[ALSA] Failed to set channel count. snd_pcm_hw_params_set_channels_near() failed.", MAL_FORMAT_NOT_SUPPORTED);
     }
-    pDevice->internalChannels = channels;
+    pDevice->internalChannels = (mal_uint32)channels;
 
 
     // Sample Rate. It appears there's either a bug in ALSA, a bug in some drivers, or I'm doing something silly; but having resampling
@@ -7377,12 +7377,12 @@ static mal_result mal_device_init__alsa(mal_context* pContext, mal_device_type t
     // this error with. In the future, we may want to restrict the disabling of resampling to only known bad plugins.
     ((mal_snd_pcm_hw_params_set_rate_resample_proc)pContext->alsa.snd_pcm_hw_params_set_rate_resample)((mal_snd_pcm_t*)pDevice->alsa.pPCM, pHWParams, 0);
 
-    mal_uint32 sampleRate = pConfig->sampleRate;
+    unsigned int sampleRate = pConfig->sampleRate;
     if (((mal_snd_pcm_hw_params_set_rate_near_proc)pContext->alsa.snd_pcm_hw_params_set_rate_near)((mal_snd_pcm_t*)pDevice->alsa.pPCM, pHWParams, &sampleRate, 0) < 0) {
         mal_device_uninit__alsa(pDevice);
         return mal_post_error(pDevice, "[ALSA] Sample rate not supported. snd_pcm_hw_params_set_rate_near() failed.", MAL_FORMAT_NOT_SUPPORTED);
     }
-    pDevice->internalSampleRate = sampleRate;
+    pDevice->internalSampleRate = (mal_uint32)sampleRate;
 
 
     // Periods.
@@ -8141,6 +8141,7 @@ static mal_result mal_result_from_pulse(int result)
     }
 }
 
+#if 0
 static mal_pa_sample_format_t mal_format_to_pulse(mal_format format)
 {
     switch (format)
@@ -8160,6 +8161,7 @@ static mal_pa_sample_format_t mal_format_to_pulse(mal_format format)
         default: return MAL_PA_SAMPLE_INVALID;
     }
 }
+#endif
 
 static mal_format mal_format_from_pulse(mal_pa_sample_format_t format)
 {
@@ -8241,6 +8243,7 @@ static mal_channel mal_channel_position_from_pulse(mal_pa_channel_position_t pos
     }
 }
 
+#if 0
 static mal_pa_channel_position_t mal_channel_position_to_pulse(mal_channel position)
 {
     switch (position)
@@ -8281,6 +8284,7 @@ static mal_pa_channel_position_t mal_channel_position_to_pulse(mal_channel posit
         default: return (mal_pa_channel_position_t)position;
     }
 }
+#endif
 
 
 static mal_result mal_context_uninit__pulse(mal_context* pContext)
@@ -8672,6 +8676,30 @@ static void mal_pulse_device_read_callback(mal_pa_stream* pStream, size_t sizeIn
     }
 }
 
+static void mal_device_sink_info_callback(mal_pa_context* pPulseContext, const mal_pa_sink_info* pInfo, int endOfList, void* pUserData)
+{
+    if (endOfList > 0) {
+        return;
+    }
+
+    mal_pa_sink_info* pInfoOut = (mal_pa_sink_info*)pUserData;
+    mal_assert(pInfoOut != NULL);
+
+    *pInfoOut = *pInfo;
+}
+
+static void mal_device_source_info_callback(mal_pa_context* pPulseContext, const mal_pa_source_info* pInfo, int endOfList, void* pUserData)
+{
+    if (endOfList > 0) {
+        return;
+    }
+
+    mal_pa_source_info* pInfoOut = (mal_pa_source_info*)pUserData;
+    mal_assert(pInfoOut != NULL);
+
+    *pInfoOut = *pInfo;
+}
+
 static void mal_device_sink_name_callback(mal_pa_context* pPulseContext, const mal_pa_sink_info* pInfo, int endOfList, void* pUserData)
 {
     if (endOfList > 0) {
@@ -8773,25 +8801,85 @@ static mal_result mal_device_init__pulse(mal_context* pContext, mal_device_type 
         }
     }
 
+    const char* dev = NULL;
+    if (pDeviceID != NULL) {
+        dev = pDeviceID->pulse;
+    }
+
+
+    mal_pa_sink_info sinkInfo;
+    mal_pa_source_info sourceInfo;
+    mal_pa_operation* pOP = NULL;
+    if (type == mal_device_type_playback) {
+        pOP = ((mal_pa_context_get_sink_info_by_name_proc)pContext->pulse.pa_context_get_sink_info_by_name)((mal_pa_context*)pDevice->pulse.pPulseContext, dev, mal_device_sink_info_callback, &sinkInfo);
+    } else {
+        pOP = ((mal_pa_context_get_source_info_by_name_proc)pContext->pulse.pa_context_get_source_info_by_name)((mal_pa_context*)pDevice->pulse.pPulseContext, dev, mal_device_source_info_callback, &sourceInfo);
+    }
+
+    if (pOP != NULL) {
+        mal_device__wait_for_operation__pulse(pDevice, pOP);
+        ((mal_pa_operation_unref_proc)pContext->pulse.pa_operation_unref)(pOP);
+    }
+
+
+#if 0
+    mal_pa_sample_spec deviceSS;
+    mal_pa_channel_map deviceCMap;
+    if (type == mal_device_type_playback) {
+        deviceSS = sinkInfo.sample_spec;
+        deviceCMap = sinkInfo.channel_map;
+    } else {
+        deviceSS = sourceInfo.sample_spec;
+        deviceCMap = sourceInfo.channel_map;
+    }
 
     mal_pa_sample_spec ss;
-    ss.format = mal_format_to_pulse(pConfig->format);
+    if (pDevice->usingDefaultFormat) {
+        ss.format = deviceSS.format;
+    } else {
+        ss.format = mal_format_to_pulse(pConfig->format);
+    }
     if (ss.format == MAL_PA_SAMPLE_INVALID) {
         ss.format = MAL_PA_SAMPLE_S16LE;
     }
-    ss.channels = pConfig->channels;
-    ss.rate = pConfig->sampleRate;
 
+    if (pDevice->usingDefaultChannels) {
+        ss.channels = deviceSS.channels;
+    } else {
+        ss.channels = pConfig->channels;
+    }
+    
+    if (pDevice->usingDefaultSampleRate) {
+        ss.rate = deviceSS.rate;
+    } else {
+        ss.rate = pConfig->sampleRate;
+    }
+    
 
     mal_pa_channel_map cmap;
-    cmap.channels = pConfig->channels;
-    for (mal_uint32 iChannel = 0; iChannel < pConfig->channels; ++iChannel) {
-        cmap.map[iChannel] = mal_channel_position_to_pulse(pConfig->channelMap[iChannel]);
-    }
+    if (pDevice->usingDefaultChannelMap) {
+        cmap = deviceCMap;
+    } else {
+        cmap.channels = pConfig->channels;
+        for (mal_uint32 iChannel = 0; iChannel < pConfig->channels; ++iChannel) {
+            cmap.map[iChannel] = mal_channel_position_to_pulse(pConfig->channelMap[iChannel]);
+        }
 
-    if (((mal_pa_channel_map_valid_proc)pContext->pulse.pa_channel_map_valid)(&cmap) == 0 || ((mal_pa_channel_map_compatible_proc)pContext->pulse.pa_channel_map_compatible)(&cmap, &ss) == 0) {
-        ((mal_pa_channel_map_init_extend_proc)pContext->pulse.pa_channel_map_init_extend)(&cmap, ss.channels, MAL_PA_CHANNEL_MAP_DEFAULT);     // The channel map is invalid, so just fall back to the default.
+        if (((mal_pa_channel_map_valid_proc)pContext->pulse.pa_channel_map_valid)(&cmap) == 0 || ((mal_pa_channel_map_compatible_proc)pContext->pulse.pa_channel_map_compatible)(&cmap, &ss) == 0) {
+            ((mal_pa_channel_map_init_extend_proc)pContext->pulse.pa_channel_map_init_extend)(&cmap, ss.channels, MAL_PA_CHANNEL_MAP_DEFAULT);     // The channel map is invalid, so just fall back to the default.
+        }
     }
+#else
+    mal_pa_sample_spec ss;
+    mal_pa_channel_map cmap;
+    if (type == mal_device_type_playback) {
+        ss = sinkInfo.sample_spec;
+        cmap = sinkInfo.channel_map;
+    } else {
+        ss = sourceInfo.sample_spec;
+        cmap = sourceInfo.channel_map;
+    }
+#endif
 
 
     mal_pa_buffer_attr attr;
@@ -8817,10 +8905,7 @@ static mal_result mal_device_init__pulse(mal_context* pContext, mal_device_type 
         goto on_error3;
     }
 
-    const char* dev = NULL;
-    if (pDeviceID != NULL) {
-        dev = pDeviceID->pulse;
-    }
+    
 
     if (type == mal_device_type_playback) {
         error = ((mal_pa_stream_connect_playback_proc)pContext->pulse.pa_stream_connect_playback)((mal_pa_stream*)pDevice->pulse.pStream, dev, &attr, MAL_PA_STREAM_START_CORKED, NULL, NULL);
