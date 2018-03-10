@@ -3237,7 +3237,7 @@ static mal_result mal_context__try_get_device_name_by_id(mal_context* pContext, 
         #ifdef MAL_HAS_WASAPI
             case mal_backend_wasapi:
             {
-                if (memcmp(pDeviceID->wasapi, &pInfos[iDevice].id.wasapi, sizeof(pDeviceID->wasapi)) == 0) {
+                if (memcmp(pDeviceID->wasapi, pInfos[iDevice].id.wasapi, sizeof(pDeviceID->wasapi)) == 0) {
                     found = MAL_TRUE;
                 }
             } break;
@@ -3245,7 +3245,7 @@ static mal_result mal_context__try_get_device_name_by_id(mal_context* pContext, 
         #ifdef MAL_HAS_DSOUND
             case mal_backend_dsound:
             {
-                if (memcmp(pDeviceID->dsound, &pInfos[iDevice].id.dsound, sizeof(pDeviceID->dsound)) == 0) {
+                if (memcmp(pDeviceID->dsound, pInfos[iDevice].id.dsound, sizeof(pDeviceID->dsound)) == 0) {
                     found = MAL_TRUE;
                 }
             } break;
@@ -4103,7 +4103,7 @@ static mal_result mal_enumerate_devices__wasapi(mal_context* pContext, mal_devic
                     hr = IMMDevice_GetId(pDevice, &id);
                     if (SUCCEEDED(hr)) {
                         size_t idlen = wcslen(id);
-                        if (idlen+sizeof(wchar_t) > sizeof(pInfo->id.wasapi)) {
+                        if (idlen+1 > mal_countof(pInfo->id.wasapi)) {
                             mal_CoTaskMemFree(pContext, id);
                             mal_assert(MAL_FALSE);  // NOTE: If this is triggered, please report it. It means the format of the ID must haved change and is too long to fit in our fixed sized buffer.
                             continue;
@@ -14542,7 +14542,7 @@ mal_dsp_config mal_dsp_config_init_ex(mal_format formatIn, mal_uint32 channelsIn
         mal_copy_memory(config.channelMapIn, channelMapIn, sizeof(config.channelMapIn));
     }
     if (channelMapOut != NULL) {
-        mal_copy_memory(config.channelMapIn, channelMapIn, sizeof(config.channelMapIn));
+        mal_copy_memory(config.channelMapOut, channelMapOut, sizeof(config.channelMapOut));
     }
 
     return config;
