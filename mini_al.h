@@ -770,7 +770,7 @@ typedef struct
     {
         const char* pApplicationName;
         const char* pServerName;
-        mal_bool32 noAutoSpawn; // Disables autospawning of the PulseAudio daemon.
+        mal_bool32 tryAutoSpawn; // Enables autospawning of the PulseAudio daemon if necessary.
     } pulse;
 
     struct
@@ -8810,7 +8810,7 @@ static mal_result mal_device_init__pulse(mal_context* pContext, mal_device_type 
         goto on_error1;
     }
 
-    int error = ((mal_pa_context_connect_proc)pContext->pulse.pa_context_connect)((mal_pa_context*)pDevice->pulse.pPulseContext, pContext->config.pulse.pServerName, (pContext->config.pulse.noAutoSpawn) ? MAL_PA_CONTEXT_NOAUTOSPAWN : 0, NULL);
+    int error = ((mal_pa_context_connect_proc)pContext->pulse.pa_context_connect)((mal_pa_context*)pDevice->pulse.pPulseContext, pContext->config.pulse.pServerName, (pContext->config.pulse.tryAutoSpawn) ? 0 : MAL_PA_CONTEXT_NOAUTOSPAWN, NULL);
     if (error != MAL_PA_OK) {
         result = mal_post_error(pDevice, "[PulseAudio] Failed to connect PulseAudio context.", mal_result_from_pulse(error));
         goto on_error2;
