@@ -5607,11 +5607,6 @@ static mal_result mal_device_init__winmm(mal_context* pContext, mal_device_type 
     (void)pContext;
 
     mal_uint32 heapSize;
-    mal_uint32 iBit;
-
-    WORD closestBitsPerSample = 0;
-    WORD closestChannels = 0;
-    DWORD closestSampleRate = 0;
 
     mal_assert(pDevice != NULL);
     mal_zero_object(&pDevice->winmm);
@@ -5663,10 +5658,12 @@ static mal_result mal_device_init__winmm(mal_context* pContext, mal_device_type 
 
     // Change the format based on the closest match of the supported standard formats.
     DWORD dwFormats = 0;
+    WORD wChannels = 0;
     if (type == mal_device_type_playback) {
         WAVEOUTCAPSA caps;
         if (((MAL_PFN_waveOutGetDevCapsA)pContext->winmm.waveOutGetDevCapsA)(winMMDeviceID, &caps, sizeof(caps)) == MMSYSERR_NOERROR) {
             dwFormats = caps.dwFormats;
+            wChannels = caps.wChannels;
         } else {
             errorMsg = "[WinMM] Failed to retrieve internal device caps.", errorCode = MAL_WINMM_FAILED_TO_GET_DEVICE_CAPS;
             goto on_error;
@@ -5675,6 +5672,7 @@ static mal_result mal_device_init__winmm(mal_context* pContext, mal_device_type 
         WAVEINCAPSA caps;
         if (((MAL_PFN_waveInGetDevCapsA)pContext->winmm.waveInGetDevCapsA)(winMMDeviceID, &caps, sizeof(caps)) == MMSYSERR_NOERROR) {
             dwFormats = caps.dwFormats;
+            wChannels = caps.wChannels;
         } else {
             errorMsg = "[WinMM] Failed to retrieve internal device caps.", errorCode = MAL_WINMM_FAILED_TO_GET_DEVICE_CAPS;
             goto on_error;
@@ -5686,187 +5684,68 @@ static mal_result mal_device_init__winmm(mal_context* pContext, mal_device_type 
         goto on_error;
     }
 
-    for (iBit = 0; iBit < 32; ++iBit) {
-        WORD formatBitsPerSample = 0;
-        WORD formatChannels = 0;
-        DWORD formatSampleRate = 0;
-
-        DWORD format = (dwFormats & (1 << iBit));
-        if (format != 0) {
-            switch (format)
-            {
-                case WAVE_FORMAT_1M08:
-                {
-                    formatBitsPerSample = 8;
-                    formatChannels = 1;
-                    formatSampleRate = 110025;
-                } break;
-                case WAVE_FORMAT_1M16:
-                {
-                    formatBitsPerSample = 16;
-                    formatChannels = 1;
-                    formatSampleRate = 110025;
-                } break;
-                case WAVE_FORMAT_1S08:
-                {
-                    formatBitsPerSample = 8;
-                    formatChannels = 2;
-                    formatSampleRate = 110025;
-                } break;
-                case WAVE_FORMAT_1S16:
-                {
-                    formatBitsPerSample = 16;
-                    formatChannels = 2;
-                    formatSampleRate = 110025;
-                } break;
-                case WAVE_FORMAT_2M08:
-                {
-                    formatBitsPerSample = 8;
-                    formatChannels = 1;
-                    formatSampleRate = 22050;
-                } break;
-                case WAVE_FORMAT_2M16:
-                {
-                    formatBitsPerSample = 16;
-                    formatChannels = 1;
-                    formatSampleRate = 22050;
-                } break;
-                case WAVE_FORMAT_2S08:
-                {
-                    formatBitsPerSample = 8;
-                    formatChannels = 2;
-                    formatSampleRate = 22050;
-                } break;
-                case WAVE_FORMAT_2S16:
-                {
-                    formatBitsPerSample = 16;
-                    formatChannels = 2;
-                    formatSampleRate = 22050;
-                } break;
-                case WAVE_FORMAT_44M08:
-                {
-                    formatBitsPerSample = 8;
-                    formatChannels = 1;
-                    formatSampleRate = 44100;
-                } break;
-                case WAVE_FORMAT_44M16:
-                {
-                    formatBitsPerSample = 16;
-                    formatChannels = 1;
-                    formatSampleRate = 44100;
-                } break;
-                case WAVE_FORMAT_44S08:
-                {
-                    formatBitsPerSample = 8;
-                    formatChannels = 2;
-                    formatSampleRate = 44100;
-                } break;
-                case WAVE_FORMAT_44S16:
-                {
-                    formatBitsPerSample = 16;
-                    formatChannels = 2;
-                    formatSampleRate = 44100;
-                } break;
-                case WAVE_FORMAT_48M08:
-                {
-                    formatBitsPerSample = 8;
-                    formatChannels = 1;
-                    formatSampleRate = 48000;
-                } break;
-                case WAVE_FORMAT_48M16:
-                {
-                    formatBitsPerSample = 16;
-                    formatChannels = 1;
-                    formatSampleRate = 48000;
-                } break;
-                case WAVE_FORMAT_48S08:
-                {
-                    formatBitsPerSample = 8;
-                    formatChannels = 2;
-                    formatSampleRate = 48000;
-                } break;
-                case WAVE_FORMAT_48S16:
-                {
-                    formatBitsPerSample = 16;
-                    formatChannels = 2;
-                    formatSampleRate = 48000;
-                } break;
-                case WAVE_FORMAT_96M08:
-                {
-                    formatBitsPerSample = 8;
-                    formatChannels = 1;
-                    formatSampleRate = 96000;
-                } break;
-                case WAVE_FORMAT_96M16:
-                {
-                    formatBitsPerSample = 16;
-                    formatChannels = 1;
-                    formatSampleRate = 96000;
-                } break;
-                case WAVE_FORMAT_96S08:
-                {
-                    formatBitsPerSample = 8;
-                    formatChannels = 2;
-                    formatSampleRate = 96000;
-                } break;
-                case WAVE_FORMAT_96S16:
-                {
-                    formatBitsPerSample = 16;
-                    formatChannels = 2;
-                    formatSampleRate = 96000;
-                } break;
-                default:
-                {
-                    errorMsg =  "[WinMM] The internal device does not support any of the standard formats.", errorCode = MAL_ERROR;    // <-- Should never hit this.
-                    goto on_error;
-                } break;
-            }
-
-            if (formatBitsPerSample == wf.wBitsPerSample && formatChannels == wf.nChannels && formatSampleRate == wf.nSamplesPerSec) {
-                break;  // It's an exact match.
+    if (wChannels == 1) {
+        wf.nChannels = 1;
+        wf.wBitsPerSample = 16;
+        if ((dwFormats & WAVE_FORMAT_48M16) != 0) {
+            wf.nSamplesPerSec = 48000;
+        } else if ((dwFormats & WAVE_FORMAT_44M16) != 0) {
+            wf.nSamplesPerSec = 44100;
+        } else if ((dwFormats & WAVE_FORMAT_2M16) != 0) {
+            wf.nSamplesPerSec = 22050;
+        } else if ((dwFormats & WAVE_FORMAT_1M16) != 0) {
+            wf.nSamplesPerSec = 11025;
+        } else if ((dwFormats & WAVE_FORMAT_96M16) != 0) {
+            wf.nSamplesPerSec = 96000;
+        } else {
+            wf.wBitsPerSample = 8;
+            if ((dwFormats & WAVE_FORMAT_48M08) != 0) {
+                wf.nSamplesPerSec = 48000;
+            } else if ((dwFormats & WAVE_FORMAT_44M08) != 0) {
+                wf.nSamplesPerSec = 44100;
+            } else if ((dwFormats & WAVE_FORMAT_2M08) != 0) {
+                wf.nSamplesPerSec = 22050;
+            } else if ((dwFormats & WAVE_FORMAT_1M08) != 0) {
+                wf.nSamplesPerSec = 11025;
+            } else if ((dwFormats & WAVE_FORMAT_96M08) != 0) {
+                wf.nSamplesPerSec = 96000;
             } else {
-                // It's not an exact match. Compare it with the closest match.
-                if (closestBitsPerSample == 0) {
-                    // This is the first format, so nothing to compare against.
-                    closestBitsPerSample = formatBitsPerSample;
-                    closestChannels = formatChannels;
-                    closestSampleRate = formatSampleRate;
-                } else {
-                    // Prefer the channel count be the same over the others.
-                    if (formatChannels != closestChannels) {
-                        // Channels aren't equal. Favour the one equal to our desired channel count.
-                        if (formatChannels == wf.nChannels) {
-                            closestBitsPerSample = formatBitsPerSample;
-                            closestChannels = formatChannels;
-                            closestSampleRate = formatSampleRate;
-                        }
-                    } else {
-                        // The channels are equal. Look at the format now.
-                        if (formatBitsPerSample != closestBitsPerSample) {
-                            if (formatBitsPerSample == wf.wBitsPerSample) {
-                                closestBitsPerSample = formatBitsPerSample;
-                                closestChannels = formatChannels;
-                                closestSampleRate = formatSampleRate;
-                            }
-                        } else {
-                            // Both the channels and formats are the same, so now just favour whichever's sample rate is closest to the requested rate.
-                            mal_uint32 closestRateDiff = (closestSampleRate > wf.nSamplesPerSec) ? (closestSampleRate - wf.nSamplesPerSec) : (wf.nSamplesPerSec - closestSampleRate);
-                            mal_uint32 formatRateDiff  = (formatSampleRate  > wf.nSamplesPerSec) ? (formatSampleRate  - wf.nSamplesPerSec) : (wf.nSamplesPerSec - formatSampleRate);
-                            if (formatRateDiff < closestRateDiff) {
-                                closestBitsPerSample = formatBitsPerSample;
-                                closestChannels = formatChannels;
-                                closestSampleRate = formatSampleRate;
-                            }
-                        }
-                    }
-                }
+                errorMsg = "[WinMM] Could not find appropriate format for internal device.", errorCode = MAL_FORMAT_NOT_SUPPORTED;
+                goto on_error;
+            }
+        }
+    } else {
+        wf.nChannels = 2;
+        wf.wBitsPerSample = 16;
+        if ((dwFormats & WAVE_FORMAT_48S16) != 0) {
+            wf.nSamplesPerSec = 48000;
+        } else if ((dwFormats & WAVE_FORMAT_44S16) != 0) {
+            wf.nSamplesPerSec = 44100;
+        } else if ((dwFormats & WAVE_FORMAT_2S16) != 0) {
+            wf.nSamplesPerSec = 22050;
+        } else if ((dwFormats & WAVE_FORMAT_1S16) != 0) {
+            wf.nSamplesPerSec = 11025;
+        } else if ((dwFormats & WAVE_FORMAT_96S16) != 0) {
+            wf.nSamplesPerSec = 96000;
+        } else {
+            wf.wBitsPerSample = 8;
+            if ((dwFormats & WAVE_FORMAT_48S08) != 0) {
+                wf.nSamplesPerSec = 48000;
+            } else if ((dwFormats & WAVE_FORMAT_44S08) != 0) {
+                wf.nSamplesPerSec = 44100;
+            } else if ((dwFormats & WAVE_FORMAT_2S08) != 0) {
+                wf.nSamplesPerSec = 22050;
+            } else if ((dwFormats & WAVE_FORMAT_1S08) != 0) {
+                wf.nSamplesPerSec = 11025;
+            } else if ((dwFormats & WAVE_FORMAT_96S08) != 0) {
+                wf.nSamplesPerSec = 96000;
+            } else {
+                errorMsg = "[WinMM] Could not find appropriate format for internal device.", errorCode = MAL_FORMAT_NOT_SUPPORTED;
+                goto on_error;
             }
         }
     }
 
-    wf.wBitsPerSample  = closestBitsPerSample;
-    wf.nChannels       = closestChannels;
-    wf.nSamplesPerSec  = closestSampleRate;
     wf.nBlockAlign     = (wf.nChannels * wf.wBitsPerSample) / 8;
     wf.nAvgBytesPerSec = wf.nBlockAlign * wf.nSamplesPerSec;
 
