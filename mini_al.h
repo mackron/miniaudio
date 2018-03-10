@@ -7286,12 +7286,12 @@ static mal_result mal_device_init__alsa(mal_context* pContext, mal_device_type t
 
     // We may need to scale the size of the buffer depending on the device.
     if (pDevice->usingDefaultBufferSize) {
-        float bufferSizeScale = 1;
-
         mal_snd_pcm_info_t* pInfo = (mal_snd_pcm_info_t*)alloca(((mal_snd_pcm_info_sizeof_proc)pContext->alsa.snd_pcm_info_sizeof)());
         mal_zero_memory(pInfo, ((mal_snd_pcm_info_sizeof_proc)pContext->alsa.snd_pcm_info_sizeof)());
 
         if (((mal_snd_pcm_info_proc)pContext->alsa.snd_pcm_info)((mal_snd_pcm_t*)pDevice->alsa.pPCM, pInfo) == 0) {
+			float bufferSizeScale = 1;
+			
             const char* deviceName = ((mal_snd_pcm_info_get_name_proc)pContext->alsa.snd_pcm_info_get_name)(pInfo);
             if (deviceName != NULL) {
                 if (strcmp(deviceName, "default") == 0) {
@@ -12273,7 +12273,7 @@ mal_result mal_context_init_backend_apis__nix(mal_context* pContext)
 
 mal_result mal_context_init_backend_apis(mal_context* pContext)
 {
-    mal_result result = MAL_NO_BACKEND;
+    mal_result result;
 #ifdef MAL_WIN32
     result = mal_context_init_backend_apis__win32(pContext);
 #else
@@ -12285,7 +12285,7 @@ mal_result mal_context_init_backend_apis(mal_context* pContext)
 
 mal_result mal_context_uninit_backend_apis(mal_context* pContext)
 {
-    mal_result result = MAL_NO_BACKEND;
+    mal_result result;
 #ifdef MAL_WIN32
     result = mal_context_uninit_backend_apis__win32(pContext);
 #else
@@ -14383,11 +14383,10 @@ mal_uint64 mal_dsp_read_frames_ex(mal_dsp* pDSP, mal_uint64 frameCount, void* pF
     // Slower path - where the real work is done.
     mal_uint8 pFrames[2][MAL_MAX_CHANNELS * 512 * MAL_MAX_PCM_SAMPLE_SIZE_IN_BYTES];
     mal_format pFramesFormat[2];
-    mal_uint32 iFrames = 0; // <-- Used as an index into pFrames and cycles between 0 and 1.
 
     mal_uint64 totalFramesRead = 0;
     while (frameCount > 0) {
-        iFrames = 0;
+        mal_uint32 iFrames = 0; // <-- Used as an index into pFrames and cycles between 0 and 1.
 
         mal_uint32 framesToRead = mal_countof(pFrames[0]) / (mal_max(pDSP->config.channelsIn, pDSP->config.channelsOut) * MAL_MAX_PCM_SAMPLE_SIZE_IN_BYTES);
         if (framesToRead > frameCount) {
