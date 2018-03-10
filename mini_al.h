@@ -8056,30 +8056,12 @@ typedef int mal_pa_sample_format_t;
 #define MAL_PA_SAMPLE_S24_32LE                          11
 #define MAL_PA_SAMPLE_S24_32BE                          12
 
-typedef struct
-{
-    int __unused;
-} mal_pa_mainloop;
-typedef struct
-{
-    int __unused;
-} mal_pa_mainloop_api;
-typedef struct
-{
-    int __unused;
-} mal_pa_context;
-typedef struct
-{
-    int __unused;
-} mal_pa_operation;
-typedef struct
-{
-    int __unused;
-} mal_pa_stream;
-typedef struct
-{
-    int __unused;
-} mal_pa_spawn_api;
+typedef struct mal_pa_mainloop     mal_pa_mainloop;
+typedef struct mal_pa_mainloop_api mal_pa_mainloop_api;
+typedef struct mal_pa_context      mal_pa_context;
+typedef struct mal_pa_operation    mal_pa_operation;
+typedef struct mal_pa_stream       mal_pa_stream;
+typedef struct mal_pa_spawn_api    mal_pa_spawn_api;
 
 typedef struct
 {
@@ -9263,17 +9245,11 @@ typedef JackShutdownCallback        mal_JackShutdownCallback;
 #define mal_JackPortIsOutput        JackPortIsOutput
 #define mal_JackPortIsPhysical      JackPortIsPhysical
 #else
-typedef mal_uint32  mal_jack_nframes_t;
-typedef int         mal_jack_options_t;
-typedef int         mal_jack_status_t;
-typedef struct
-{
-    int __unused;
-} mal_jack_client_t;
-typedef struct
-{
-    int __unused;
-} mal_jack_port_t;
+typedef mal_uint32               mal_jack_nframes_t;
+typedef int                      mal_jack_options_t;
+typedef int                      mal_jack_status_t;
+typedef struct mal_jack_client_t mal_jack_client_t;
+typedef struct mal_jack_port_t   mal_jack_port_t;
 typedef int  (* mal_JackProcessCallback)   (mal_jack_nframes_t nframes, void* arg);
 typedef int  (* mal_JackBufferSizeCallback)(mal_jack_nframes_t nframes, void* arg);
 typedef void (* mal_JackShutdownCallback)  (void* arg);
