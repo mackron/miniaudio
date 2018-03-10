@@ -434,9 +434,28 @@ typedef mal_uint16 wchar_t;
 #define MAL_MAX_PERIODS_DSOUND                          4
 #define MAL_MAX_PERIODS_OPENAL                          4
 
-#define MAL_MAX_SAMPLE_SIZE_IN_BYTES                    8
+// Standard sample rates.
+#define MAL_SAMPLE_RATE_8000                            8000
+#define MAL_SAMPLE_RATE_11025                           11025
+#define MAL_SAMPLE_RATE_16000                           16000
+#define MAL_SAMPLE_RATE_22050                           22050
+#define MAL_SAMPLE_RATE_24000                           24000
+#define MAL_SAMPLE_RATE_32000                           32000
+#define MAL_SAMPLE_RATE_44100                           44100
+#define MAL_SAMPLE_RATE_48000                           48000
+#define MAL_SAMPLE_RATE_88200                           88200
+#define MAL_SAMPLE_RATE_96000                           96000
+#define MAL_SAMPLE_RATE_176400                          176400
+#define MAL_SAMPLE_RATE_192000                          192000
+#define MAL_SAMPLE_RATE_352800                          352800
+#define MAL_SAMPLE_RATE_384000                          384000
+
+#define MAL_MIN_PCM_SAMPLE_SIZE_IN_BYTES                1   // For simplicity, mini_al does not support PCM samples that are not byte aligned.
+#define MAL_MAX_PCM_SAMPLE_SIZE_IN_BYTES                8
+#define MAL_MIN_CHANNELS                                1
 #define MAL_MAX_CHANNELS                                32
-#define MAL_MAX_SAMPLE_RATE                             384000
+#define MAL_MIN_SAMPLE_RATE                             MAL_SAMPLE_RATE_8000
+#define MAL_MAX_SAMPLE_RATE                             MAL_SAMPLE_RATE_384000
 
 typedef mal_uint8 mal_channel;
 #define MAL_CHANNEL_NONE                                0
@@ -2062,6 +2081,27 @@ typedef HWND (WINAPI * MAL_PFN_GetDesktopWindow)();
 #define MAL_DEFAULT_PERIODS                         2
 #endif
 
+// Standard sample rates, in order of priority.
+static mal_uint32 g_malStandardSampleRatePriorities[] = {
+    MAL_SAMPLE_RATE_48000,  // Most common
+    MAL_SAMPLE_RATE_44100,
+
+    MAL_SAMPLE_RATE_32000,  // Lows
+    MAL_SAMPLE_RATE_24000,
+    MAL_SAMPLE_RATE_22050,
+
+    MAL_SAMPLE_RATE_88200,  // Highs
+    MAL_SAMPLE_RATE_96000,
+    MAL_SAMPLE_RATE_176400,
+    MAL_SAMPLE_RATE_192000,
+    
+    MAL_SAMPLE_RATE_16000,  // Extreme lows
+    MAL_SAMPLE_RATE_11025,
+    MAL_SAMPLE_RATE_8000,
+
+    MAL_SAMPLE_RATE_352800, // Extreme highs
+    MAL_SAMPLE_RATE_384000
+};
 
 ///////////////////////////////////////////////////////////////////////////////
 //
@@ -2849,6 +2889,36 @@ mal_bool32 mal_event_signal(mal_event* pEvent)
 }
 
 
+static mal_uint32 mal_get_best_sample_rate_within_range(mal_uint32 sampleRateMin, mal_uint32 sampleRateMax)
+{
+    // Normalize the range in case we were given something stupid.
+    if (sampleRateMin < MAL_MIN_SAMPLE_RATE) {
+        sampleRateMin = MAL_MIN_SAMPLE_RATE;
+    }
+    if (sampleRateMax > MAL_MAX_SAMPLE_RATE) {
+        sampleRateMax = MAL_MAX_SAMPLE_RATE;
+    }
+    if (sampleRateMin > sampleRateMax) {
+        sampleRateMin = sampleRateMax;
+    }
+
+    if (sampleRateMin == sampleRateMax) {
+        return sampleRateMax;
+    } else {
+        for (size_t iStandardRate = 0; iStandardRate < mal_countof(g_malStandardSampleRatePriorities); ++iStandardRate) {
+            DWORD standardRate = g_malStandardSampleRatePriorities[iStandardRate];
+            if (standardRate >= sampleRateMin && standardRate <= sampleRateMax) {
+                return standardRate;
+            }
+        }
+    }
+
+    // Should never get here.
+    mal_assert(MAL_FALSE);
+    return 0;
+}
+
+
 // Posts a log message.
 static void mal_log(mal_context* pContext, mal_device* pDevice, const char* message)
 {
@@ -3447,8 +3517,30 @@ static mal_result mal_device__main_loop__null(mal_device* pDevice)
 #endif
 #endif
 
-#if defined(MAL_HAS_WASAPI) || defined(MAL_HAS_DSOUND)
+// There's a few common headers for Win32 backends which include here for simplicity. Note that we should never
+// include any files that do not come standard with modern compilers, and we may need to manually define a few
+// symbols.
 #include <mmreg.h>
+#include <mmsystem.h>
+
+#if !defined(MAXULONG_PTR)
+typedef size_t DWORD_PTR;
+#endif
+
+#if !defined(WAVE_FORMAT_44M08)
+#define WAVE_FORMAT_44M08 0x00000100
+#define WAVE_FORMAT_44S08 0x00000200
+#define WAVE_FORMAT_44M16 0x00000400
+#define WAVE_FORMAT_44S16 0x00000800
+#define WAVE_FORMAT_48M08 0x00001000
+#define WAVE_FORMAT_48S08 0x00002000
+#define WAVE_FORMAT_48M16 0x00004000
+#define WAVE_FORMAT_48S16 0x00008000
+#define WAVE_FORMAT_96M08 0x00010000
+#define WAVE_FORMAT_96S08 0x00020000
+#define WAVE_FORMAT_96M16 0x00040000
+#define WAVE_FORMAT_96S16 0x00080000
+#endif
 
 #ifndef SPEAKER_FRONT_LEFT
 #define SPEAKER_FRONT_LEFT            0x1
@@ -3524,6 +3616,7 @@ static DWORD mal_channel_id_to_win32(DWORD id)
 {
     switch (id)
     {
+        //case MAL_CHANNEL_MONO:               return SPEAKER_FRONT_CENTER;
         case MAL_CHANNEL_FRONT_LEFT:         return SPEAKER_FRONT_LEFT;
         case MAL_CHANNEL_FRONT_RIGHT:        return SPEAKER_FRONT_RIGHT;
         case MAL_CHANNEL_FRONT_CENTER:       return SPEAKER_FRONT_CENTER;
@@ -3561,7 +3654,7 @@ static DWORD mal_channel_map_to_channel_mask__win32(const mal_channel channelMap
 static void mal_channel_mask_to_channel_map__win32(DWORD dwChannelMask, mal_uint32 channels, mal_channel channelMap[MAL_MAX_CHANNELS])
 {
     if (channels == 1 && dwChannelMask == 0) {
-        channelMap[0] = MAL_CHANNEL_FRONT_CENTER;
+        channelMap[0] = MAL_CHANNEL_MONO;
     } else if (channels == 2 && dwChannelMask == 0) {
         channelMap[0] = MAL_CHANNEL_FRONT_LEFT;
         channelMap[1] = MAL_CHANNEL_FRONT_RIGHT;
@@ -3578,7 +3671,73 @@ static void mal_channel_mask_to_channel_map__win32(DWORD dwChannelMask, mal_uint
         }
     }
 }
+
+#ifdef __cplusplus
+#define mal_is_guid_equal(a, b) IsEqualGUID(a, b)
+#else
+#define mal_is_guid_equal(a, b) IsEqualGUID(&a, &b)
 #endif
+
+static mal_format mal_format_from_WAVEFORMATEX(WAVEFORMATEX* pWF)
+{
+    mal_assert(pWF != NULL);
+
+    if (pWF->wFormatTag == WAVE_FORMAT_EXTENSIBLE) {
+        WAVEFORMATEXTENSIBLE* pWFEX = (WAVEFORMATEXTENSIBLE*)pWF;
+        if (mal_is_guid_equal(pWFEX->SubFormat, MAL_GUID_KSDATAFORMAT_SUBTYPE_PCM)) {
+            if (pWFEX->Samples.wValidBitsPerSample == 32) {
+                return mal_format_s32;
+            }
+            if (pWFEX->Samples.wValidBitsPerSample == 24) {
+                if (pWFEX->Format.wBitsPerSample == 32) {
+                    //return mal_format_s24_32;
+                }
+                if (pWFEX->Format.wBitsPerSample == 24) {
+                    return mal_format_s24;
+                }
+            }
+            if (pWFEX->Samples.wValidBitsPerSample == 16) {
+                return mal_format_s16;
+            }
+            if (pWFEX->Samples.wValidBitsPerSample == 8) {
+                return mal_format_u8;
+            }
+        }
+        if (mal_is_guid_equal(pWFEX->SubFormat, MAL_GUID_KSDATAFORMAT_SUBTYPE_IEEE_FLOAT)) {
+            if (pWFEX->Samples.wValidBitsPerSample == 32) {
+                return mal_format_f32;
+            }
+            //if (pWFEX->Samples.wValidBitsPerSample == 64) {
+            //    return mal_format_f64;
+            //}
+        }
+    } else {
+        if (pWF->wFormatTag == WAVE_FORMAT_PCM) {
+            if (pWF->wBitsPerSample == 32) {
+                return mal_format_s32;
+            }
+            if (pWF->wBitsPerSample == 24) {
+                return mal_format_s24;
+            }
+            if (pWF->wBitsPerSample == 16) {
+                return mal_format_s16;
+            }
+            if (pWF->wBitsPerSample == 8) {
+                return mal_format_u8;
+            }
+        }
+        if (pWF->wFormatTag == WAVE_FORMAT_IEEE_FLOAT) {
+            if (pWF->wBitsPerSample == 32) {
+                return mal_format_f32;
+            }
+            if (pWF->wBitsPerSample == 64) {
+                //return mal_format_f64;
+            }
+        }
+    }
+
+    return mal_format_unknown;
+}
 
 
 ///////////////////////////////////////////////////////////////////////////////
@@ -3624,12 +3783,6 @@ const IID g_malIID_DEVINTERFACE_AUDIO_CAPTURE = {0x2EEF81BE, 0x33FA, 0x4800, {0x
 #define g_malIID_IAudioClient         &g_malIID_IAudioClient_Instance
 #define g_malIID_IAudioRenderClient   &g_malIID_IAudioRenderClient_Instance
 #define g_malIID_IAudioCaptureClient  &g_malIID_IAudioCaptureClient_Instance
-#endif
-
-#ifdef __cplusplus
-#define mal_is_guid_equal(a, b) IsEqualGUID(a, b)
-#else
-#define mal_is_guid_equal(a, b) IsEqualGUID(&a, &b)
 #endif
 
 #ifdef MAL_WIN32_DESKTOP
@@ -4018,67 +4171,6 @@ static void mal_device_uninit__wasapi(mal_device* pDevice)
     #error "The UWP build is currently only supported in C++."
     #endif
 #endif  // !MAL_WIN32_DESKTOP
-
-static mal_format mal_format_from_WAVEFORMATEX(WAVEFORMATEX* pWF)
-{
-    mal_assert(pWF != NULL);
-
-    if (pWF->wFormatTag == WAVE_FORMAT_EXTENSIBLE) {
-        WAVEFORMATEXTENSIBLE* pWFEX = (WAVEFORMATEXTENSIBLE*)pWF;
-        if (mal_is_guid_equal(pWFEX->SubFormat, MAL_GUID_KSDATAFORMAT_SUBTYPE_PCM)) {
-            if (pWFEX->Samples.wValidBitsPerSample == 32) {
-                return mal_format_s32;
-            }
-            if (pWFEX->Samples.wValidBitsPerSample == 24) {
-                if (pWFEX->Format.wBitsPerSample == 32) {
-                    //return mal_format_s24_32;
-                }
-                if (pWFEX->Format.wBitsPerSample == 24) {
-                    return mal_format_s24;
-                }
-            }
-            if (pWFEX->Samples.wValidBitsPerSample == 16) {
-                return mal_format_s16;
-            }
-            if (pWFEX->Samples.wValidBitsPerSample == 8) {
-                return mal_format_u8;
-            }
-        }
-        if (mal_is_guid_equal(pWFEX->SubFormat, MAL_GUID_KSDATAFORMAT_SUBTYPE_IEEE_FLOAT)) {
-            if (pWFEX->Samples.wValidBitsPerSample == 32) {
-                return mal_format_f32;
-            }
-            //if (pWFEX->Samples.wValidBitsPerSample == 64) {
-            //    return mal_format_f64;
-            //}
-        }
-    } else {
-        if (pWF->wFormatTag == WAVE_FORMAT_PCM) {
-            if (pWF->wBitsPerSample == 32) {
-                return mal_format_s32;
-            }
-            if (pWF->wBitsPerSample == 24) {
-                return mal_format_s24;
-            }
-            if (pWF->wBitsPerSample == 16) {
-                return mal_format_s16;
-            }
-            if (pWF->wBitsPerSample == 8) {
-                return mal_format_u8;
-            }
-        }
-        if (pWF->wFormatTag == WAVE_FORMAT_IEEE_FLOAT) {
-            if (pWF->wBitsPerSample == 32) {
-                return mal_format_f32;
-            }
-            if (pWF->wBitsPerSample == 64) {
-                //return mal_format_f64;
-            }
-        }
-    }
-
-    return mal_format_unknown;
-}
 
 static mal_result mal_device_init__wasapi(mal_context* pContext, mal_device_type type, mal_device_id* pDeviceID, const mal_device_config* pConfig, mal_device* pDevice)
 {
@@ -4637,6 +4729,44 @@ typedef HRESULT (WINAPI * mal_DirectSoundEnumerateAProc)(LPDSENUMCALLBACKA pDSEn
 typedef HRESULT (WINAPI * mal_DirectSoundCaptureCreateProc)(const GUID* pcGuidDevice, LPDIRECTSOUNDCAPTURE *ppDSC8, LPUNKNOWN pUnkOuter);
 typedef HRESULT (WINAPI * mal_DirectSoundCaptureEnumerateAProc)(LPDSENUMCALLBACKA pDSEnumCallback, LPVOID pContext);
 
+
+// Retrieves the channel count and channel map for the given speaker configuration. If the speaker configuration is unknown,
+// the channel count and channel map will be left unmodified.
+static void mal_get_channels_from_speaker_config__dsound(DWORD speakerConfig, WORD* pChannelsOut, DWORD* pChannelMapOut)
+{
+    WORD channels = 0;
+    if (pChannelsOut != NULL) {
+        channels = *pChannelsOut;
+    }
+
+    DWORD channelMap = 0;
+    if (pChannelMapOut != NULL) {
+        channelMap = *pChannelMapOut;
+    }
+
+    switch (DSSPEAKER_CONFIG(speakerConfig)) {
+        case DSSPEAKER_HEADPHONE:                          channels = 2; channelMap = SPEAKER_FRONT_LEFT | SPEAKER_FRONT_RIGHT; break;
+        case DSSPEAKER_MONO:                               channels = 1; channelMap = SPEAKER_FRONT_CENTER; break;
+        case DSSPEAKER_QUAD:                               channels = 4; channelMap = SPEAKER_FRONT_LEFT | SPEAKER_FRONT_RIGHT | SPEAKER_BACK_LEFT | SPEAKER_BACK_RIGHT; break;
+        case DSSPEAKER_STEREO:                             channels = 2; channelMap = SPEAKER_FRONT_LEFT | SPEAKER_FRONT_RIGHT; break;
+        case DSSPEAKER_SURROUND:                           channels = 4; channelMap = SPEAKER_FRONT_LEFT | SPEAKER_FRONT_RIGHT | SPEAKER_FRONT_CENTER | SPEAKER_BACK_CENTER; break;
+        case DSSPEAKER_5POINT1_BACK /*DSSPEAKER_5POINT1*/: channels = 6; channelMap = SPEAKER_FRONT_LEFT | SPEAKER_FRONT_RIGHT | SPEAKER_FRONT_CENTER | SPEAKER_LOW_FREQUENCY | SPEAKER_BACK_LEFT | SPEAKER_BACK_RIGHT; break;
+        case DSSPEAKER_7POINT1_WIDE /*DSSPEAKER_7POINT1*/: channels = 8; channelMap = SPEAKER_FRONT_LEFT | SPEAKER_FRONT_RIGHT | SPEAKER_FRONT_CENTER | SPEAKER_LOW_FREQUENCY | SPEAKER_BACK_LEFT | SPEAKER_BACK_RIGHT | SPEAKER_FRONT_LEFT_OF_CENTER | SPEAKER_FRONT_RIGHT_OF_CENTER; break;
+        case DSSPEAKER_7POINT1_SURROUND:                   channels = 8; channelMap = SPEAKER_FRONT_LEFT | SPEAKER_FRONT_RIGHT | SPEAKER_FRONT_CENTER | SPEAKER_LOW_FREQUENCY | SPEAKER_BACK_LEFT | SPEAKER_BACK_RIGHT | SPEAKER_SIDE_LEFT | SPEAKER_SIDE_RIGHT; break;
+        case DSSPEAKER_5POINT1_SURROUND:                   channels = 6; channelMap = SPEAKER_FRONT_LEFT | SPEAKER_FRONT_RIGHT | SPEAKER_FRONT_CENTER | SPEAKER_LOW_FREQUENCY | SPEAKER_SIDE_LEFT | SPEAKER_SIDE_RIGHT; break;
+        default: break;
+    }
+
+    if (pChannelsOut != NULL) {
+        *pChannelsOut = channels;
+    }
+
+    if (pChannelMapOut != NULL) {
+        *pChannelMapOut = channelMap;
+    }
+}
+
+
 static HMODULE mal_open_dsound_dll()
 {
     return LoadLibraryW(L"dsound.dll");
@@ -4782,11 +4912,11 @@ static mal_result mal_device_init__dsound(mal_context* pContext, mal_device_type
     (void)pContext;
 
 #ifdef __cplusplus
-    GUID _MAL_GUID_IID_DirectSoundNotify           = MAL_GUID_IID_DirectSoundNotify;
-    GUID _MAL_GUID_IID_IDirectSoundCaptureBuffer   = MAL_GUID_IID_IDirectSoundCaptureBuffer;
+    GUID _MAL_GUID_IID_DirectSoundNotify          = MAL_GUID_IID_DirectSoundNotify;
+    GUID _MAL_GUID_IID_IDirectSoundCaptureBuffer  = MAL_GUID_IID_IDirectSoundCaptureBuffer;
 #else
-    GUID* _MAL_GUID_IID_DirectSoundNotify          = &MAL_GUID_IID_DirectSoundNotify;
-    GUID* _MAL_GUID_IID_IDirectSoundCaptureBuffer  = &MAL_GUID_IID_IDirectSoundCaptureBuffer;
+    GUID* _MAL_GUID_IID_DirectSoundNotify         = &MAL_GUID_IID_DirectSoundNotify;
+    GUID* _MAL_GUID_IID_IDirectSoundCaptureBuffer = &MAL_GUID_IID_IDirectSoundCaptureBuffer;
 #endif
 
     mal_assert(pDevice != NULL);
@@ -4804,6 +4934,7 @@ static mal_result mal_device_init__dsound(mal_context* pContext, mal_device_type
         case mal_format_u8:
         case mal_format_s16:
         case mal_format_s24:
+        //case mal_format_s24_32:
         case mal_format_s32:
         {
             subformat = MAL_GUID_KSDATAFORMAT_SUBTYPE_PCM;
@@ -4866,6 +4997,44 @@ static mal_result mal_device_init__dsound(mal_context* pContext, mal_device_type
             return mal_post_error(pDevice, "[DirectSound] IDirectSound_CreateSoundBuffer() failed for playback device's primary buffer.", MAL_DSOUND_FAILED_TO_CREATE_BUFFER);
         }
 
+
+        // We may want to make some adjustments to the format if we are using defaults.
+        DSCAPS caps;
+        mal_zero_object(&caps);
+        caps.dwSize = sizeof(caps);
+        if (FAILED(IDirectSound_GetCaps((LPDIRECTSOUND)pDevice->dsound.pPlayback, &caps))) {
+            mal_device_uninit__dsound(pDevice);
+            return mal_post_error(pDevice, "[DirectSound] IDirectSound_GetCaps() failed for playback device.", MAL_FAILED_TO_OPEN_BACKEND_DEVICE);
+        }
+
+        if (pDevice->usingDefaultChannels) {
+            if ((caps.dwFlags & DSCAPS_PRIMARYSTEREO) != 0) {
+                // It supports at least stereo, but could support more.
+                wf.Format.nChannels = 2;
+
+                // Look at the speaker configuration to get a better idea on the channel count.
+                DWORD speakerConfig;
+                if (SUCCEEDED(IDirectSound_GetSpeakerConfig((LPDIRECTSOUND)pDevice->dsound.pPlayback, &speakerConfig))) {
+                    mal_get_channels_from_speaker_config__dsound(speakerConfig, &wf.Format.nChannels, &wf.dwChannelMask);
+                }
+            } else {
+                // It does not support stereo, which means we are stuck with mono.
+                wf.Format.nChannels = 1;
+            }
+        }
+
+        if (pDevice->usingDefaultSampleRate) {
+            // We base the sample rate on the values returned by GetCaps().
+            if ((caps.dwFlags & DSCAPS_CONTINUOUSRATE) != 0) {
+                wf.Format.nSamplesPerSec = mal_get_best_sample_rate_within_range(caps.dwMinSecondarySampleRate, caps.dwMaxSecondarySampleRate);
+            } else {
+                wf.Format.nSamplesPerSec = caps.dwMaxSecondarySampleRate;
+            }
+        }
+
+        wf.Format.nBlockAlign     = (wf.Format.nChannels * wf.Format.wBitsPerSample) / 8;
+        wf.Format.nAvgBytesPerSec = wf.Format.nBlockAlign * wf.Format.nSamplesPerSec;
+
         // From MSDN:
         //
         // The method succeeds even if the hardware does not support the requested format; DirectSound sets the buffer to the closest
@@ -4876,26 +5045,27 @@ static mal_result mal_device_init__dsound(mal_context* pContext, mal_device_type
             return mal_post_error(pDevice, "[DirectSound] Failed to set format of playback device's primary buffer.", MAL_FORMAT_NOT_SUPPORTED);
         }
 
-        // Get the _actual_ properties of the buffer. This is silly API design...
-        DWORD requiredSize;
-        if (FAILED(IDirectSoundBuffer_GetFormat((LPDIRECTSOUNDBUFFER)pDevice->dsound.pPlaybackPrimaryBuffer, NULL, 0, &requiredSize))) {
-            mal_device_uninit__dsound(pDevice);
-            return mal_post_error(pDevice, "[DirectSound] Failed to retrieve the actual format of the playback device's primary buffer.", MAL_FORMAT_NOT_SUPPORTED);
-        }
-
+        // Get the _actual_ properties of the buffer.
         char rawdata[1024];
         WAVEFORMATEXTENSIBLE* pActualFormat = (WAVEFORMATEXTENSIBLE*)rawdata;
-        if (FAILED(IDirectSoundBuffer_GetFormat((LPDIRECTSOUNDBUFFER)pDevice->dsound.pPlaybackPrimaryBuffer, (WAVEFORMATEX*)pActualFormat, requiredSize, NULL))) {
+        if (FAILED(IDirectSoundBuffer_GetFormat((LPDIRECTSOUNDBUFFER)pDevice->dsound.pPlaybackPrimaryBuffer, (WAVEFORMATEX*)pActualFormat, sizeof(rawdata), NULL))) {
             mal_device_uninit__dsound(pDevice);
             return mal_post_error(pDevice, "[DirectSound] Failed to retrieve the actual format of the playback device's primary buffer.", MAL_FORMAT_NOT_SUPPORTED);
         }
 
+        pDevice->internalFormat = mal_format_from_WAVEFORMATEX((WAVEFORMATEX*)pActualFormat);
         pDevice->internalChannels = pActualFormat->Format.nChannels;
         pDevice->internalSampleRate = pActualFormat->Format.nSamplesPerSec;
-        bufferSizeInBytes = pDevice->bufferSizeInFrames * pDevice->internalChannels * mal_get_sample_size_in_bytes(pDevice->format);
 
         // Get the internal channel map based on the channel mask.
-        mal_channel_mask_to_channel_map__win32(pActualFormat->dwChannelMask, pDevice->internalChannels, pDevice->internalChannelMap);
+        if (pActualFormat->Format.wFormatTag == WAVE_FORMAT_EXTENSIBLE) {
+            mal_channel_mask_to_channel_map__win32(pActualFormat->dwChannelMask, pDevice->internalChannels, pDevice->internalChannelMap);
+        } else {
+            mal_channel_mask_to_channel_map__win32(wf.dwChannelMask, pDevice->internalChannels, pDevice->internalChannelMap);
+        }
+
+        bufferSizeInBytes = pDevice->bufferSizeInFrames * pDevice->internalChannels * mal_get_sample_size_in_bytes(pDevice->internalFormat);
+        
 
 
         // Meaning of dwFlags (from MSDN):
@@ -4942,10 +5112,87 @@ static mal_result mal_device_init__dsound(mal_context* pContext, mal_device_type
 
         if (FAILED(pDirectSoundCaptureCreate((pDeviceID == NULL) ? NULL : (const GUID*)pDeviceID->dsound, (LPDIRECTSOUNDCAPTURE*)&pDevice->dsound.pCapture, NULL))) {
             mal_device_uninit__dsound(pDevice);
-            return mal_post_error(pDevice, "[DirectSound] DirectSoundCaptureCreate() failed for capture device.", MAL_DSOUND_FAILED_TO_CREATE_DEVICE);
+            return mal_post_error(pDevice, "[DirectSound] DirectSoundCaptureCreate() failed for capture device.", MAL_FAILED_TO_OPEN_BACKEND_DEVICE);
         }
 
-        bufferSizeInBytes = pDevice->bufferSizeInFrames * pDevice->channels * mal_get_sample_size_in_bytes(pDevice->format);
+
+        DSCCAPS caps;
+        mal_zero_object(&caps);
+        caps.dwSize = sizeof(caps);
+        if (FAILED(IDirectSoundCapture_GetCaps((LPDIRECTSOUNDCAPTURE)pDevice->dsound.pCapture, &caps))) {
+            mal_device_uninit__dsound(pDevice);
+            return mal_post_error(pDevice, "[DirectSound] IDirectSoundCapture_GetCaps() failed for capture device.", MAL_FAILED_TO_OPEN_BACKEND_DEVICE);
+        }
+
+        wf.Format.nChannels = (WORD)caps.dwChannels;
+
+        // The device can support multiple formats. We just go through the different formats in order of priority and
+        // pick the first one. This the same type of system as the WinMM backend.
+        wf.Format.wBitsPerSample = 16;
+        wf.Format.nSamplesPerSec = 48000;
+        
+        if (caps.dwChannels == 1) {
+            if ((caps.dwFormats & WAVE_FORMAT_48M16) != 0) {
+                wf.Format.nSamplesPerSec = 48000;
+            } else if ((caps.dwFormats & WAVE_FORMAT_44M16) != 0) {
+                wf.Format.nSamplesPerSec = 44100;
+            } else if ((caps.dwFormats & WAVE_FORMAT_2M16) != 0) {
+                wf.Format.nSamplesPerSec = 22050;
+            } else if ((caps.dwFormats & WAVE_FORMAT_1M16) != 0) {
+                wf.Format.nSamplesPerSec = 11025;
+            } else if ((caps.dwFormats & WAVE_FORMAT_96M16) != 0) {
+                wf.Format.nSamplesPerSec = 96000;
+            } else {
+                wf.Format.wBitsPerSample = 8;
+                if ((caps.dwFormats & WAVE_FORMAT_48M08) != 0) {
+                    wf.Format.nSamplesPerSec = 48000;
+                } else if ((caps.dwFormats & WAVE_FORMAT_44M08) != 0) {
+                    wf.Format.nSamplesPerSec = 44100;
+                } else if ((caps.dwFormats & WAVE_FORMAT_2M08) != 0) {
+                    wf.Format.nSamplesPerSec = 22050;
+                } else if ((caps.dwFormats & WAVE_FORMAT_1M08) != 0) {
+                    wf.Format.nSamplesPerSec = 11025;
+                } else if ((caps.dwFormats & WAVE_FORMAT_96M08) != 0) {
+                    wf.Format.nSamplesPerSec = 96000;
+                } else {
+                    wf.Format.wBitsPerSample = 16;  // Didn't find it. Just fall back to 16-bit.
+                }
+            }
+        } else if (caps.dwChannels == 2) {
+            if ((caps.dwFormats & WAVE_FORMAT_48S16) != 0) {
+                wf.Format.nSamplesPerSec = 48000;
+            } else if ((caps.dwFormats & WAVE_FORMAT_44S16) != 0) {
+                wf.Format.nSamplesPerSec = 44100;
+            } else if ((caps.dwFormats & WAVE_FORMAT_2S16) != 0) {
+                wf.Format.nSamplesPerSec = 22050;
+            } else if ((caps.dwFormats & WAVE_FORMAT_1S16) != 0) {
+                wf.Format.nSamplesPerSec = 11025;
+            } else if ((caps.dwFormats & WAVE_FORMAT_96S16) != 0) {
+                wf.Format.nSamplesPerSec = 96000;
+            } else {
+                wf.Format.wBitsPerSample = 8;
+                if ((caps.dwFormats & WAVE_FORMAT_48S08) != 0) {
+                    wf.Format.nSamplesPerSec = 48000;
+                } else if ((caps.dwFormats & WAVE_FORMAT_44S08) != 0) {
+                    wf.Format.nSamplesPerSec = 44100;
+                } else if ((caps.dwFormats & WAVE_FORMAT_2S08) != 0) {
+                    wf.Format.nSamplesPerSec = 22050;
+                } else if ((caps.dwFormats & WAVE_FORMAT_1S08) != 0) {
+                    wf.Format.nSamplesPerSec = 11025;
+                } else if ((caps.dwFormats & WAVE_FORMAT_96S08) != 0) {
+                    wf.Format.nSamplesPerSec = 96000;
+                } else {
+                    wf.Format.wBitsPerSample = 16;  // Didn't find it. Just fall back to 16-bit.
+                }
+            }
+        }
+
+        wf.Format.nBlockAlign          = (wf.Format.nChannels * wf.Format.wBitsPerSample) / 8;
+        wf.Format.nAvgBytesPerSec      = wf.Format.nBlockAlign * wf.Format.nSamplesPerSec;
+        wf.Samples.wValidBitsPerSample = wf.Format.wBitsPerSample;
+        wf.SubFormat                   = MAL_GUID_KSDATAFORMAT_SUBTYPE_PCM;
+
+        bufferSizeInBytes = pDevice->bufferSizeInFrames * wf.Format.nChannels * mal_get_sample_size_in_bytes(pDevice->format);
 
         DSCBUFFERDESC descDS;
         mal_zero_object(&descDS);
@@ -4963,13 +5210,34 @@ static mal_result mal_device_init__dsound(mal_context* pContext, mal_device_type
         IDirectSoundCaptureBuffer_Release(pDSCB_Temp);
         if (FAILED(hr)) {
             mal_device_uninit__dsound(pDevice);
-            return mal_post_error(pDevice, "[DirectSound] IDirectSoundCapture_QueryInterface() failed for capture device's IDirectSoundCaptureBuffer8 object.", MAL_DSOUND_FAILED_TO_QUERY_INTERFACE);
+            return mal_post_error(pDevice, "[DirectSound] IDirectSoundCapture_QueryInterface() failed for capture device's IDirectSoundCaptureBuffer8 object.", MAL_API_NOT_FOUND);
         }
+
+
+        // Get the _actual_ properties of the buffer.
+        char rawdata[1024];
+        WAVEFORMATEXTENSIBLE* pActualFormat = (WAVEFORMATEXTENSIBLE*)rawdata;
+        if (FAILED(IDirectSoundCaptureBuffer_GetFormat((LPDIRECTSOUNDCAPTUREBUFFER)pDevice->dsound.pCaptureBuffer, (WAVEFORMATEX*)pActualFormat, sizeof(rawdata), NULL))) {
+            mal_device_uninit__dsound(pDevice);
+            return mal_post_error(pDevice, "[DirectSound] Failed to retrieve the actual format of the capture device's buffer.", MAL_FORMAT_NOT_SUPPORTED);
+        }
+
+        pDevice->internalFormat = mal_format_from_WAVEFORMATEX((WAVEFORMATEX*)pActualFormat);
+        pDevice->internalChannels = pActualFormat->Format.nChannels;
+        pDevice->internalSampleRate = pActualFormat->Format.nSamplesPerSec;
+
+        // Get the internal channel map based on the channel mask.
+        if (pActualFormat->Format.wFormatTag == WAVE_FORMAT_EXTENSIBLE) {
+            mal_channel_mask_to_channel_map__win32(pActualFormat->dwChannelMask, pDevice->internalChannels, pDevice->internalChannelMap);
+        } else {
+            mal_channel_mask_to_channel_map__win32(wf.dwChannelMask, pDevice->internalChannels, pDevice->internalChannelMap);
+        }
+
 
         // Notifications are set up via a DIRECTSOUNDNOTIFY object which is retrieved from the buffer.
         if (FAILED(IDirectSoundCaptureBuffer_QueryInterface((LPDIRECTSOUNDCAPTUREBUFFER)pDevice->dsound.pCaptureBuffer, _MAL_GUID_IID_DirectSoundNotify, (void**)&pDevice->dsound.pNotify))) {
             mal_device_uninit__dsound(pDevice);
-            return mal_post_error(pDevice, "[DirectSound] IDirectSoundCaptureBuffer_QueryInterface() failed for capture device's IDirectSoundNotify object.", MAL_DSOUND_FAILED_TO_QUERY_INTERFACE);
+            return mal_post_error(pDevice, "[DirectSound] IDirectSoundCaptureBuffer_QueryInterface() failed for capture device's IDirectSoundNotify object.", MAL_API_NOT_FOUND);
         }
     }
 
@@ -5228,27 +5496,6 @@ static mal_result mal_device__main_loop__dsound(mal_device* pDevice)
 //
 ///////////////////////////////////////////////////////////////////////////////
 #ifdef MAL_HAS_WINMM
-#include <mmsystem.h>
-
-#if !defined(MAXULONG_PTR)
-typedef size_t DWORD_PTR;
-#endif
-
-#if !defined(WAVE_FORMAT_44M08)
-#define WAVE_FORMAT_44M08 0x00000100
-#define WAVE_FORMAT_44S08 0x00000200
-#define WAVE_FORMAT_44M16 0x00000400
-#define WAVE_FORMAT_44S16 0x00000800
-#define WAVE_FORMAT_48M08 0x00001000
-#define WAVE_FORMAT_48S08 0x00002000
-#define WAVE_FORMAT_48M16 0x00004000
-#define WAVE_FORMAT_48S16 0x00008000
-#define WAVE_FORMAT_96M08 0x00010000
-#define WAVE_FORMAT_96S08 0x00020000
-#define WAVE_FORMAT_96M16 0x00040000
-#define WAVE_FORMAT_96S16 0x00080000
-#endif
-
 typedef UINT     (WINAPI * MAL_PFN_waveOutGetNumDevs)(void);
 typedef MMRESULT (WINAPI * MAL_PFN_waveOutGetDevCapsA)(UINT_PTR uDeviceID, LPWAVEOUTCAPSA pwoc, UINT cbwoc);
 typedef MMRESULT (WINAPI * MAL_PFN_waveOutOpen)(LPHWAVEOUT phwo, UINT uDeviceID, LPCWAVEFORMATEX pwfx, DWORD_PTR dwCallback, DWORD_PTR dwInstance, DWORD fdwOpen);
@@ -13645,7 +13892,7 @@ static void mal_rearrange_channels_generic(void* pFrame, mal_uint32 channels, ma
 {
     mal_uint32 sampleSizeInBytes = mal_get_sample_size_in_bytes(format);
 
-    mal_uint8 temp[MAL_MAX_CHANNELS * MAL_MAX_SAMPLE_SIZE_IN_BYTES];   // Product of MAL_MAX_SAMPLE_SIZE_IN_BYTES to ensure it's large enough for all formats.
+    mal_uint8 temp[MAL_MAX_CHANNELS * MAL_MAX_PCM_SAMPLE_SIZE_IN_BYTES];   // Product of MAL_MAX_PCM_SAMPLE_SIZE_IN_BYTES to ensure it's large enough for all formats.
     mal_copy_memory(temp, pFrame, sampleSizeInBytes * channels);
 
     switch (channels) {
@@ -14155,7 +14402,7 @@ mal_uint64 mal_dsp_read_frames_ex(mal_dsp* pDSP, mal_uint64 frameCount, void* pF
 
 
     // Slower path - where the real work is done.
-    mal_uint8 pFrames[2][MAL_MAX_CHANNELS * 512 * MAL_MAX_SAMPLE_SIZE_IN_BYTES];
+    mal_uint8 pFrames[2][MAL_MAX_CHANNELS * 512 * MAL_MAX_PCM_SAMPLE_SIZE_IN_BYTES];
     mal_format pFramesFormat[2];
     mal_uint32 iFrames = 0; // <-- Used as an index into pFrames and cycles between 0 and 1.
 
@@ -14163,7 +14410,7 @@ mal_uint64 mal_dsp_read_frames_ex(mal_dsp* pDSP, mal_uint64 frameCount, void* pF
     while (frameCount > 0) {
         iFrames = 0;
 
-        mal_uint32 framesToRead = mal_countof(pFrames[0]) / (mal_max(pDSP->config.channelsIn, pDSP->config.channelsOut) * MAL_MAX_SAMPLE_SIZE_IN_BYTES);
+        mal_uint32 framesToRead = mal_countof(pFrames[0]) / (mal_max(pDSP->config.channelsIn, pDSP->config.channelsOut) * MAL_MAX_PCM_SAMPLE_SIZE_IN_BYTES);
         if (framesToRead > frameCount) {
             framesToRead = (mal_uint32)frameCount;
         }
@@ -15803,6 +16050,7 @@ void mal_pcm_f32_to_s32(int* pOut, const float* pIn, unsigned int count)
 // ================
 //
 // v0.x - 2018-xx-xx
+//   - API CHANGE: Rename MAL_MAX_SAMPLE_SIZE_IN_BYTES to MAL_MAX_PCM_SAMPLE_SIZE_IN_BYTES.
 //   - Add support for PulseAudio.
 //   - Add support for JACK.
 //   - Remove dependency on asound.h for the ALSA backend. This means the ALSA development packages are no
