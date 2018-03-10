@@ -1311,8 +1311,8 @@ struct mal_device
 //   - WinMM
 //   - PulseAudio
 //   - ALSA
-//   - JACK
 //   - OSS
+//   - JACK
 //   - OpenSL|ES
 //   - OpenAL
 //   - SDL
@@ -12345,8 +12345,8 @@ static const mal_backend g_malDefaultBackends[] = {
     mal_backend_winmm,
     mal_backend_pulseaudio,
     mal_backend_alsa,
-    mal_backend_jack,
     mal_backend_oss,
+    mal_backend_jack,
     mal_backend_opensl,
     mal_backend_openal,
     mal_backend_sdl,
