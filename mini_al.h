@@ -1290,8 +1290,8 @@ struct mal_device
 //   - WASAPI
 //   - DirectSound
 //   - WinMM
-//   - ALSA
 //   - PulseAudio
+//   - ALSA
 //   - JACK
 //   - OSS
 //   - OpenSL|ES
@@ -12277,8 +12277,8 @@ static const mal_backend g_malDefaultBackends[] = {
     mal_backend_wasapi,
     mal_backend_dsound,
     mal_backend_winmm,
-    mal_backend_alsa,
     mal_backend_pulseaudio,
+    mal_backend_alsa,
     mal_backend_jack,
     mal_backend_oss,
     mal_backend_opensl,
@@ -16009,6 +16009,11 @@ void mal_pcm_f32_to_s32(int* pOut, const float* pIn, unsigned int count)
 // v0.x - 2018-xx-xx
 //   - API CHANGE: Rename MAL_MAX_SAMPLE_SIZE_IN_BYTES to MAL_MAX_PCM_SAMPLE_SIZE_IN_BYTES.
 //   - Add support for PulseAudio.
+//     - This is the highest priority backend on Linux (higher priority than ALSA) since it is commonly
+//       installed by default on many of the popular distros and offer's more seamless integration on
+//       platforms where PulseAudio is used. In addition, if PulseAudio is installed and running (which
+//       is extremely common), it's better to just use PulseAudio directly rather than going through the
+//       "pulse" ALSA plugin (which is what the "default" ALSA device is likely set to).
 //   - Add support for JACK.
 //   - Remove dependency on asound.h for the ALSA backend. This means the ALSA development packages are no
 //     longer required to build mini_al.
