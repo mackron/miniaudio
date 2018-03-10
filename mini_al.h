@@ -1875,6 +1875,7 @@ mal_result mal_decoder_init_memory_mp3(const void* pData, size_t dataSize, const
 
 #ifndef MAL_NO_STDIO
 mal_result mal_decoder_init_file(const char* pFilePath, const mal_decoder_config* pConfig, mal_decoder* pDecoder);
+mal_result mal_decoder_init_file_wav(const char* pFilePath, const mal_decoder_config* pConfig, mal_decoder* pDecoder);
 #endif
 
 mal_result mal_decoder_uninit(mal_decoder* pDecoder);
@@ -15585,8 +15586,8 @@ mal_result mal_decoder__preinit_memory(const void* pData, size_t dataSize, const
 mal_result mal_decoder_init_memory(const void* pData, size_t dataSize, const mal_decoder_config* pConfig, mal_decoder* pDecoder)
 {
     mal_result result = mal_decoder__preinit_memory(pData, dataSize, pConfig, pDecoder);
-    if (result == MAL_SUCCESS) {
-        return MAL_SUCCESS;
+    if (result != MAL_SUCCESS) {
+        return result;
     }
 
     return mal_decoder_init(mal_decoder__on_read_memory, mal_decoder__on_seek_memory, NULL, pConfig, pDecoder);
@@ -15595,8 +15596,8 @@ mal_result mal_decoder_init_memory(const void* pData, size_t dataSize, const mal
 mal_result mal_decoder_init_memory_wav(const void* pData, size_t dataSize, const mal_decoder_config* pConfig, mal_decoder* pDecoder)
 {
     mal_result result = mal_decoder__preinit_memory(pData, dataSize, pConfig, pDecoder);
-    if (result == MAL_SUCCESS) {
-        return MAL_SUCCESS;
+    if (result != MAL_SUCCESS) {
+        return result;
     }
 
     return mal_decoder_init_wav(mal_decoder__on_read_memory, mal_decoder__on_seek_memory, NULL, pConfig, pDecoder);
@@ -15605,8 +15606,8 @@ mal_result mal_decoder_init_memory_wav(const void* pData, size_t dataSize, const
 mal_result mal_decoder_init_memory_flac(const void* pData, size_t dataSize, const mal_decoder_config* pConfig, mal_decoder* pDecoder)
 {
     mal_result result = mal_decoder__preinit_memory(pData, dataSize, pConfig, pDecoder);
-    if (result == MAL_SUCCESS) {
-        return MAL_SUCCESS;
+    if (result != MAL_SUCCESS) {
+        return result;
     }
 
     return mal_decoder_init_flac(mal_decoder__on_read_memory, mal_decoder__on_seek_memory, NULL, pConfig, pDecoder);
@@ -15615,8 +15616,8 @@ mal_result mal_decoder_init_memory_flac(const void* pData, size_t dataSize, cons
 mal_result mal_decoder_init_memory_vorbis(const void* pData, size_t dataSize, const mal_decoder_config* pConfig, mal_decoder* pDecoder)
 {
     mal_result result = mal_decoder__preinit_memory(pData, dataSize, pConfig, pDecoder);
-    if (result == MAL_SUCCESS) {
-        return MAL_SUCCESS;
+    if (result != MAL_SUCCESS) {
+        return result;
     }
 
     return mal_decoder_init_vorbis(mal_decoder__on_read_memory, mal_decoder__on_seek_memory, NULL, pConfig, pDecoder);
@@ -15625,8 +15626,8 @@ mal_result mal_decoder_init_memory_vorbis(const void* pData, size_t dataSize, co
 mal_result mal_decoder_init_memory_mp3(const void* pData, size_t dataSize, const mal_decoder_config* pConfig, mal_decoder* pDecoder)
 {
     mal_result result = mal_decoder__preinit_memory(pData, dataSize, pConfig, pDecoder);
-    if (result == MAL_SUCCESS) {
-        return MAL_SUCCESS;
+    if (result != MAL_SUCCESS) {
+        return result;
     }
 
     return mal_decoder_init_mp3(mal_decoder__on_read_memory, mal_decoder__on_seek_memory, NULL, pConfig, pDecoder);
@@ -15711,7 +15712,7 @@ static mal_bool32 mal_decoder__on_seek_stdio(mal_decoder* pDecoder, int byteOffs
     return fseek((FILE*)pDecoder->pUserData, byteOffset, (origin == mal_seek_origin_current) ? SEEK_CUR : SEEK_SET) == 0;
 }
 
-mal_result mal_decoder_init_file(const char* pFilePath, const mal_decoder_config* pConfig, mal_decoder* pDecoder)
+mal_result mal_decoder__preinit_file(const char* pFilePath, const mal_decoder_config* pConfig, mal_decoder* pDecoder)
 {
     if (pDecoder == NULL) return MAL_INVALID_ARGS;
     mal_zero_object(pDecoder);
@@ -15735,9 +15736,20 @@ mal_result mal_decoder_init_file(const char* pFilePath, const mal_decoder_config
     // We need to manually set the user data so the calls to mal_decoder__on_seek_stdio() succeed.
     pDecoder->pUserData = pFile;
 
+    (void)pConfig;
+    return MAL_SUCCESS;
+}
+
+mal_result mal_decoder_init_file(const char* pFilePath, const mal_decoder_config* pConfig, mal_decoder* pDecoder)
+{
+    mal_result result = mal_decoder__preinit_file(pFilePath, pConfig, pDecoder);    // This sets pDecoder->pUserData to a FILE*.
+    if (result != MAL_SUCCESS) {
+        return result;
+    }
+
     // WAV
     if (mal_path_extension_equal(pFilePath, "wav")) {
-        mal_result result =  mal_decoder_init_wav(mal_decoder__on_read_stdio, mal_decoder__on_seek_stdio, (void*)pFile, pConfig, pDecoder);
+        result =  mal_decoder_init_wav(mal_decoder__on_read_stdio, mal_decoder__on_seek_stdio, pDecoder->pUserData, pConfig, pDecoder);
         if (result == MAL_SUCCESS) {
             return MAL_SUCCESS;
         }
@@ -15747,7 +15759,7 @@ mal_result mal_decoder_init_file(const char* pFilePath, const mal_decoder_config
 
     // FLAC
     if (mal_path_extension_equal(pFilePath, "flac")) {
-        mal_result result =  mal_decoder_init_flac(mal_decoder__on_read_stdio, mal_decoder__on_seek_stdio, (void*)pFile, pConfig, pDecoder);
+        result =  mal_decoder_init_flac(mal_decoder__on_read_stdio, mal_decoder__on_seek_stdio, pDecoder->pUserData, pConfig, pDecoder);
         if (result == MAL_SUCCESS) {
             return MAL_SUCCESS;
         }
@@ -15757,7 +15769,7 @@ mal_result mal_decoder_init_file(const char* pFilePath, const mal_decoder_config
 
     // MP3
     if (mal_path_extension_equal(pFilePath, "mp3")) {
-        mal_result result =  mal_decoder_init_mp3(mal_decoder__on_read_stdio, mal_decoder__on_seek_stdio, (void*)pFile, pConfig, pDecoder);
+        result =  mal_decoder_init_mp3(mal_decoder__on_read_stdio, mal_decoder__on_seek_stdio, pDecoder->pUserData, pConfig, pDecoder);
         if (result == MAL_SUCCESS) {
             return MAL_SUCCESS;
         }
@@ -15766,7 +15778,47 @@ mal_result mal_decoder_init_file(const char* pFilePath, const mal_decoder_config
     }
 
     // Trial and error.
-    return mal_decoder_init(mal_decoder__on_read_stdio, mal_decoder__on_seek_stdio, (void*)pFile, pConfig, pDecoder);
+    return mal_decoder_init(mal_decoder__on_read_stdio, mal_decoder__on_seek_stdio, pDecoder->pUserData, pConfig, pDecoder);
+}
+
+mal_result mal_decoder_init_file_wav(const char* pFilePath, const mal_decoder_config* pConfig, mal_decoder* pDecoder)
+{
+    mal_result result = mal_decoder__preinit_file(pFilePath, pConfig, pDecoder);
+    if (result != MAL_SUCCESS) {
+        return result;
+    }
+
+    return mal_decoder_init_wav(mal_decoder__on_read_stdio, mal_decoder__on_seek_stdio, pDecoder->pUserData, pConfig, pDecoder);
+}
+
+mal_result mal_decoder_init_file_flac(const char* pFilePath, const mal_decoder_config* pConfig, mal_decoder* pDecoder)
+{
+    mal_result result = mal_decoder__preinit_file(pFilePath, pConfig, pDecoder);
+    if (result != MAL_SUCCESS) {
+        return result;
+    }
+
+    return mal_decoder_init_flac(mal_decoder__on_read_stdio, mal_decoder__on_seek_stdio, pDecoder->pUserData, pConfig, pDecoder);
+}
+
+mal_result mal_decoder_init_file_vorbis(const char* pFilePath, const mal_decoder_config* pConfig, mal_decoder* pDecoder)
+{
+    mal_result result = mal_decoder__preinit_file(pFilePath, pConfig, pDecoder);
+    if (result != MAL_SUCCESS) {
+        return result;
+    }
+
+    return mal_decoder_init_vorbis(mal_decoder__on_read_stdio, mal_decoder__on_seek_stdio, pDecoder->pUserData, pConfig, pDecoder);
+}
+
+mal_result mal_decoder_init_file_mp3(const char* pFilePath, const mal_decoder_config* pConfig, mal_decoder* pDecoder)
+{
+    mal_result result = mal_decoder__preinit_file(pFilePath, pConfig, pDecoder);
+    if (result != MAL_SUCCESS) {
+        return result;
+    }
+
+    return mal_decoder_init_mp3(mal_decoder__on_read_stdio, mal_decoder__on_seek_stdio, pDecoder->pUserData, pConfig, pDecoder);
 }
 #endif
 
