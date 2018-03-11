@@ -542,38 +542,21 @@ typedef int mal_result;
 #define MAL_DEVICE_ALREADY_STOPPED                      -12
 #define MAL_DEVICE_ALREADY_STOPPING                     -13
 #define MAL_FAILED_TO_MAP_DEVICE_BUFFER                 -14
-#define MAL_FAILED_TO_INIT_BACKEND                      -15
-#define MAL_FAILED_TO_READ_DATA_FROM_CLIENT             -16
-#define MAL_FAILED_TO_READ_DATA_FROM_DEVICE             -17
-#define MAL_FAILED_TO_SEND_DATA_TO_CLIENT               -18
-#define MAL_FAILED_TO_SEND_DATA_TO_DEVICE               -19
-#define MAL_FAILED_TO_OPEN_BACKEND_DEVICE               -20
-#define MAL_FAILED_TO_START_BACKEND_DEVICE              -21
-#define MAL_FAILED_TO_STOP_BACKEND_DEVICE               -22
-#define MAL_FAILED_TO_CREATE_MUTEX                      -23
-#define MAL_FAILED_TO_CREATE_EVENT                      -24
-#define MAL_FAILED_TO_CREATE_THREAD                     -25
-#define MAL_INVALID_DEVICE_CONFIG                       -26
-#define MAL_ACCESS_DENIED                               -27
-#define MAL_DSOUND_FAILED_TO_CREATE_DEVICE              -1024
-#define MAL_DSOUND_FAILED_TO_SET_COOP_LEVEL             -1025
-#define MAL_DSOUND_FAILED_TO_CREATE_BUFFER              -1026
-#define MAL_DSOUND_FAILED_TO_QUERY_INTERFACE            -1027
-#define MAL_DSOUND_FAILED_TO_SET_NOTIFICATIONS          -1028
-#define MAL_ALSA_FAILED_TO_OPEN_DEVICE                  -2048
-#define MAL_ALSA_FAILED_TO_SET_HW_PARAMS                -2049
-#define MAL_ALSA_FAILED_TO_SET_SW_PARAMS                -2050
-#define MAL_ALSA_FAILED_TO_PREPARE_DEVICE               -2051
-#define MAL_ALSA_FAILED_TO_RECOVER_DEVICE               -2052
-#define MAL_WASAPI_FAILED_TO_CREATE_DEVICE_ENUMERATOR   -3072
-#define MAL_WASAPI_FAILED_TO_CREATE_DEVICE              -3073
-#define MAL_WASAPI_FAILED_TO_ACTIVATE_DEVICE            -3074
-#define MAL_WASAPI_FAILED_TO_INITIALIZE_DEVICE          -3075
-#define MAL_WASAPI_FAILED_TO_FIND_BEST_FORMAT           -3076
-#define MAL_WASAPI_FAILED_TO_GET_INTERNAL_BUFFER        -3077
-#define MAL_WASAPI_FAILED_TO_RELEASE_INTERNAL_BUFFER    -3078
-#define MAL_WINMM_FAILED_TO_GET_DEVICE_CAPS             -4096
-#define MAL_WINMM_FAILED_TO_GET_SUPPORTED_FORMATS       -4097
+#define MAL_FAILED_TO_UNMAP_DEVICE_BUFFER               -15
+#define MAL_FAILED_TO_INIT_BACKEND                      -16
+#define MAL_FAILED_TO_READ_DATA_FROM_CLIENT             -17
+#define MAL_FAILED_TO_READ_DATA_FROM_DEVICE             -18
+#define MAL_FAILED_TO_SEND_DATA_TO_CLIENT               -19
+#define MAL_FAILED_TO_SEND_DATA_TO_DEVICE               -20
+#define MAL_FAILED_TO_OPEN_BACKEND_DEVICE               -21
+#define MAL_FAILED_TO_START_BACKEND_DEVICE              -22
+#define MAL_FAILED_TO_STOP_BACKEND_DEVICE               -23
+#define MAL_FAILED_TO_CONFIGURE_BACKEND_DEVICE          -24
+#define MAL_FAILED_TO_CREATE_MUTEX                      -25
+#define MAL_FAILED_TO_CREATE_EVENT                      -26
+#define MAL_FAILED_TO_CREATE_THREAD                     -27
+#define MAL_INVALID_DEVICE_CONFIG                       -28
+#define MAL_ACCESS_DENIED                               -29
 
 typedef void       (* mal_log_proc) (mal_context* pContext, mal_device* pDevice, const char* message);
 typedef void       (* mal_recv_proc)(mal_device* pDevice, mal_uint32 frameCount, const void* pSamples);
@@ -4101,7 +4084,7 @@ static mal_result mal_enumerate_devices__wasapi(mal_context* pContext, mal_devic
     IMMDeviceEnumerator* pDeviceEnumerator;
     HRESULT hr = mal_CoCreateInstance(pContext, g_malCLSID_MMDeviceEnumerator, NULL, CLSCTX_ALL, g_malIID_IMMDeviceEnumerator, (void**)&pDeviceEnumerator);
     if (FAILED(hr)) {
-        return mal_context_post_error(pContext, NULL, "[WASAPI] Failed to create device enumerator.", MAL_WASAPI_FAILED_TO_CREATE_DEVICE_ENUMERATOR);
+        return mal_context_post_error(pContext, NULL, "[WASAPI] Failed to create device enumerator.", MAL_FAILED_TO_OPEN_BACKEND_DEVICE);
     }
 
     IMMDeviceCollection* pDeviceCollection;
@@ -4286,7 +4269,7 @@ static mal_result mal_device_init__wasapi(mal_context* pContext, mal_device_type
     IMMDeviceEnumerator* pDeviceEnumerator;
     hr = mal_CoCreateInstance(pContext, g_malCLSID_MMDeviceEnumerator, NULL, CLSCTX_ALL, g_malIID_IMMDeviceEnumerator, (void**)&pDeviceEnumerator);
     if (FAILED(hr)) {
-        errorMsg = "[WASAPI] Failed to create IMMDeviceEnumerator.", result = MAL_WASAPI_FAILED_TO_CREATE_DEVICE_ENUMERATOR;
+        errorMsg = "[WASAPI] Failed to create IMMDeviceEnumerator.", result = MAL_FAILED_TO_OPEN_BACKEND_DEVICE;
         goto done;
     }
 
@@ -4294,14 +4277,14 @@ static mal_result mal_device_init__wasapi(mal_context* pContext, mal_device_type
         hr = IMMDeviceEnumerator_GetDefaultAudioEndpoint(pDeviceEnumerator, (type == mal_device_type_playback) ? eRender : eCapture, eConsole, &pMMDevice);
         if (FAILED(hr)) {
             IMMDeviceEnumerator_Release(pDeviceEnumerator);
-            errorMsg = "[WASAPI] Failed to create default backend device.", result = MAL_WASAPI_FAILED_TO_CREATE_DEVICE;
+            errorMsg = "[WASAPI] Failed to create default backend device.", result = MAL_FAILED_TO_OPEN_BACKEND_DEVICE;
             goto done;
         }
     } else {
         hr = IMMDeviceEnumerator_GetDevice(pDeviceEnumerator, pDeviceID->wasapi, &pMMDevice);
         if (FAILED(hr)) {
             IMMDeviceEnumerator_Release(pDeviceEnumerator);
-            errorMsg = "[WASAPI] Failed to create backend device.", result = MAL_WASAPI_FAILED_TO_CREATE_DEVICE;
+            errorMsg = "[WASAPI] Failed to create backend device.", result = MAL_FAILED_TO_OPEN_BACKEND_DEVICE;
             goto done;
         }
     }
@@ -4310,7 +4293,7 @@ static mal_result mal_device_init__wasapi(mal_context* pContext, mal_device_type
 
     hr = IMMDevice_Activate(pMMDevice, g_malIID_IAudioClient, CLSCTX_ALL, NULL, &pDevice->wasapi.pAudioClient);
     if (FAILED(hr)) {
-        errorMsg = "[WASAPI] Failed to activate device.", result = MAL_WASAPI_FAILED_TO_ACTIVATE_DEVICE;
+        errorMsg = "[WASAPI] Failed to activate device.", result = MAL_FAILED_TO_OPEN_BACKEND_DEVICE;
         goto done;
     }
 #else
@@ -4339,7 +4322,7 @@ static mal_result mal_device_init__wasapi(mal_context* pContext, mal_device_type
     if (result != MAL_SUCCESS) {
         mal_CoTaskMemFree(pContext, iidStr);
 
-        errorMsg = "[WASAPI] Failed to create event for waiting for ActivateAudioInterfaceAsync().", result = MAL_WASAPI_FAILED_TO_ACTIVATE_DEVICE;
+        errorMsg = "[WASAPI] Failed to create event for waiting for ActivateAudioInterfaceAsync().", result = MAL_FAILED_TO_OPEN_BACKEND_DEVICE;
         goto done;
     }
 
@@ -4348,7 +4331,7 @@ static mal_result mal_device_init__wasapi(mal_context* pContext, mal_device_type
         completionHandler.Uninit();
         mal_CoTaskMemFree(pContext, iidStr);
 
-        errorMsg = "[WASAPI] ActivateAudioInterfaceAsync() failed.", result = MAL_WASAPI_FAILED_TO_ACTIVATE_DEVICE;
+        errorMsg = "[WASAPI] ActivateAudioInterfaceAsync() failed.", result = MAL_FAILED_TO_OPEN_BACKEND_DEVICE;
         goto done;
     }
 
@@ -4362,14 +4345,14 @@ static mal_result mal_device_init__wasapi(mal_context* pContext, mal_device_type
     IUnknown* pActivatedInterface;
     hr = IActivateAudioInterfaceAsyncOperation_GetActivateResult(pAsyncOp, &activateResult, &pActivatedInterface);
     if (FAILED(hr) || FAILED(activateResult)) {
-        errorMsg = "[WASAPI] Failed to activate device.", result = MAL_WASAPI_FAILED_TO_ACTIVATE_DEVICE;
+        errorMsg = "[WASAPI] Failed to activate device.", result = MAL_FAILED_TO_OPEN_BACKEND_DEVICE;
         goto done;
     }
 
     // Here is where we grab the IAudioClient interface.
     hr = pActivatedInterface->QueryInterface(g_malIID_IAudioClient, &pDevice->wasapi.pAudioClient);
     if (FAILED(hr)) {
-        errorMsg = "[WASAPI] Failed to query IAudioClient interface.", result = MAL_WASAPI_FAILED_TO_ACTIVATE_DEVICE;
+        errorMsg = "[WASAPI] Failed to query IAudioClient interface.", result = MAL_FAILED_TO_OPEN_BACKEND_DEVICE;
         goto done;
     }
 #endif
@@ -4457,7 +4440,7 @@ static mal_result mal_device_init__wasapi(mal_context* pContext, mal_device_type
         if (hr != S_OK && hr != S_FALSE) {
             hr = IAudioClient_GetMixFormat(pDevice->wasapi.pAudioClient, (WAVEFORMATEX**)&pBestFormatTemp);
             if (hr != S_OK) {
-                result = MAL_WASAPI_FAILED_TO_FIND_BEST_FORMAT;
+                result = MAL_FORMAT_NOT_SUPPORTED;
             } else {
                 result = MAL_SUCCESS;
             }
@@ -4470,7 +4453,7 @@ static mal_result mal_device_init__wasapi(mal_context* pContext, mal_device_type
 
     // Return an error if we still haven't found a format.
     if (result != MAL_SUCCESS) {
-        errorMsg = "[WASAPI] Failed to find best device mix format.", result = MAL_WASAPI_FAILED_TO_ACTIVATE_DEVICE;
+        errorMsg = "[WASAPI] Failed to find best device mix format.", result = MAL_FORMAT_NOT_SUPPORTED;
         goto done;
     }
 
@@ -4498,7 +4481,7 @@ static mal_result mal_device_init__wasapi(mal_context* pContext, mal_device_type
             if (hr == E_ACCESSDENIED) {
                 errorMsg = "[WASAPI] Failed to initialize device. Access denied.", result = MAL_ACCESS_DENIED;
             } else {
-                errorMsg = "[WASAPI] Failed to initialize device.", result = MAL_WASAPI_FAILED_TO_INITIALIZE_DEVICE;
+                errorMsg = "[WASAPI] Failed to initialize device.", result = MAL_FAILED_TO_OPEN_BACKEND_DEVICE;
             }
 
             goto done;
@@ -4529,14 +4512,14 @@ static mal_result mal_device_init__wasapi(mal_context* pContext, mal_device_type
         }
 
         if (FAILED(hr)) {
-            errorMsg = "[WASAPI] Failed to initialize device.", result = MAL_WASAPI_FAILED_TO_INITIALIZE_DEVICE;
+            errorMsg = "[WASAPI] Failed to initialize device.", result = MAL_FAILED_TO_OPEN_BACKEND_DEVICE;
             goto done;
         }
     }
 
     hr = IAudioClient_GetBufferSize(pDevice->wasapi.pAudioClient, &pDevice->bufferSizeInFrames);
     if (FAILED(hr)) {
-        errorMsg = "[WASAPI] Failed to get audio client's actual buffer size.", result = MAL_WASAPI_FAILED_TO_INITIALIZE_DEVICE;
+        errorMsg = "[WASAPI] Failed to get audio client's actual buffer size.", result = MAL_FAILED_TO_OPEN_BACKEND_DEVICE;
         goto done;
     }
 
@@ -4547,7 +4530,7 @@ static mal_result mal_device_init__wasapi(mal_context* pContext, mal_device_type
     }
 
     if (FAILED(hr)) {
-        errorMsg = "[WASAPI] Failed to get audio client service.", result = MAL_WASAPI_FAILED_TO_INITIALIZE_DEVICE;
+        errorMsg = "[WASAPI] Failed to get audio client service.", result = MAL_API_NOT_FOUND;
         goto done;
     }
 
@@ -4627,14 +4610,14 @@ static mal_result mal_device__start_backend__wasapi(mal_device* pDevice)
         BYTE* pData;
         HRESULT hr = IAudioRenderClient_GetBuffer(pDevice->wasapi.pRenderClient, pDevice->bufferSizeInFrames, &pData);
         if (FAILED(hr)) {
-            return mal_post_error(pDevice, "[WASAPI] Failed to retrieve buffer from internal playback device.", MAL_WASAPI_FAILED_TO_GET_INTERNAL_BUFFER);
+            return mal_post_error(pDevice, "[WASAPI] Failed to retrieve buffer from internal playback device.", MAL_FAILED_TO_MAP_DEVICE_BUFFER);
         }
 
         mal_device__read_frames_from_client(pDevice, pDevice->bufferSizeInFrames, pData);
 
         hr = IAudioRenderClient_ReleaseBuffer(pDevice->wasapi.pRenderClient, pDevice->bufferSizeInFrames, 0);
         if (FAILED(hr)) {
-            return mal_post_error(pDevice, "[WASAPI] Failed to release internal buffer for playback device.", MAL_WASAPI_FAILED_TO_RELEASE_INTERNAL_BUFFER);
+            return mal_post_error(pDevice, "[WASAPI] Failed to release internal buffer for playback device.", MAL_FAILED_TO_UNMAP_DEVICE_BUFFER);
         }
     }
 
@@ -4762,14 +4745,14 @@ static mal_result mal_device__main_loop__wasapi(mal_device* pDevice)
             BYTE* pData;
             HRESULT hr = IAudioRenderClient_GetBuffer(pDevice->wasapi.pRenderClient, framesAvailable, &pData);
             if (FAILED(hr)) {
-                return mal_post_error(pDevice, "[WASAPI] Failed to retrieve internal buffer from playback device in preparation for sending new data to the device.", MAL_WASAPI_FAILED_TO_GET_INTERNAL_BUFFER);
+                return mal_post_error(pDevice, "[WASAPI] Failed to retrieve internal buffer from playback device in preparation for sending new data to the device.", MAL_FAILED_TO_MAP_DEVICE_BUFFER);
             }
 
             mal_device__read_frames_from_client(pDevice, framesAvailable, pData);
 
             hr = IAudioRenderClient_ReleaseBuffer(pDevice->wasapi.pRenderClient, framesAvailable, 0);
             if (FAILED(hr)) {
-                return mal_post_error(pDevice, "[WASAPI] Failed to release internal buffer from playback device in preparation for sending new data to the device.", MAL_WASAPI_FAILED_TO_RELEASE_INTERNAL_BUFFER);
+                return mal_post_error(pDevice, "[WASAPI] Failed to release internal buffer from playback device in preparation for sending new data to the device.", MAL_FAILED_TO_UNMAP_DEVICE_BUFFER);
             }
         } else {
             UINT32 framesRemaining = framesAvailable;
@@ -4779,7 +4762,7 @@ static mal_result mal_device__main_loop__wasapi(mal_device* pDevice)
                 DWORD flags;
                 HRESULT hr = IAudioCaptureClient_GetBuffer(pDevice->wasapi.pCaptureClient, &pData, &framesToSend, &flags, NULL, NULL);
                 if (FAILED(hr)) {
-                    mal_post_error(pDevice, "[WASAPI] WARNING: Failed to retrieve internal buffer from capture device in preparation for sending new data to the client.", MAL_WASAPI_FAILED_TO_GET_INTERNAL_BUFFER);
+                    mal_post_error(pDevice, "[WASAPI] WARNING: Failed to retrieve internal buffer from capture device in preparation for sending new data to the client.", MAL_FAILED_TO_MAP_DEVICE_BUFFER);
                     break;
                 }
 
@@ -4788,7 +4771,7 @@ static mal_result mal_device__main_loop__wasapi(mal_device* pDevice)
 
                     hr = IAudioCaptureClient_ReleaseBuffer(pDevice->wasapi.pCaptureClient, framesToSend);
                     if (FAILED(hr)) {
-                        mal_post_error(pDevice, "[WASAPI] WARNING: Failed to release internal buffer from capture device in preparation for sending new data to the client.", MAL_WASAPI_FAILED_TO_RELEASE_INTERNAL_BUFFER);
+                        mal_post_error(pDevice, "[WASAPI] WARNING: Failed to release internal buffer from capture device in preparation for sending new data to the client.", MAL_FAILED_TO_UNMAP_DEVICE_BUFFER);
                         break;
                     }
 
@@ -5042,7 +5025,7 @@ static mal_result mal_device_init__dsound(mal_context* pContext, mal_device_type
     if (type == mal_device_type_playback) {
         if (FAILED(((mal_DirectSoundCreateProc)pContext->dsound.DirectSoundCreate)((pDeviceID == NULL) ? NULL : (const GUID*)pDeviceID->dsound, (LPDIRECTSOUND*)&pDevice->dsound.pPlayback, NULL))) {
             mal_device_uninit__dsound(pDevice);
-            return mal_post_error(pDevice, "[DirectSound] DirectSoundCreate() failed for playback device.", MAL_DSOUND_FAILED_TO_CREATE_DEVICE);
+            return mal_post_error(pDevice, "[DirectSound] DirectSoundCreate() failed for playback device.", MAL_FAILED_TO_OPEN_BACKEND_DEVICE);
         }
 
         // The cooperative level must be set before doing anything else.
@@ -5052,7 +5035,7 @@ static mal_result mal_device_init__dsound(mal_context* pContext, mal_device_type
         }
         if (FAILED(IDirectSound_SetCooperativeLevel((LPDIRECTSOUND)pDevice->dsound.pPlayback, hWnd, (pConfig->preferExclusiveMode) ? DSSCL_EXCLUSIVE : DSSCL_PRIORITY))) {
             mal_device_uninit__dsound(pDevice);
-            return mal_post_error(pDevice, "[DirectSound] IDirectSound_SetCooperateiveLevel() failed for playback device.", MAL_DSOUND_FAILED_TO_SET_COOP_LEVEL);
+            return mal_post_error(pDevice, "[DirectSound] IDirectSound_SetCooperateiveLevel() failed for playback device.", MAL_FAILED_TO_OPEN_BACKEND_DEVICE);
         }
 
         DSBUFFERDESC descDSPrimary;
@@ -5061,7 +5044,7 @@ static mal_result mal_device_init__dsound(mal_context* pContext, mal_device_type
         descDSPrimary.dwFlags = DSBCAPS_PRIMARYBUFFER | DSBCAPS_CTRLVOLUME;
         if (FAILED(IDirectSound_CreateSoundBuffer((LPDIRECTSOUND)pDevice->dsound.pPlayback, &descDSPrimary, (LPDIRECTSOUNDBUFFER*)&pDevice->dsound.pPlaybackPrimaryBuffer, NULL))) {
             mal_device_uninit__dsound(pDevice);
-            return mal_post_error(pDevice, "[DirectSound] IDirectSound_CreateSoundBuffer() failed for playback device's primary buffer.", MAL_DSOUND_FAILED_TO_CREATE_BUFFER);
+            return mal_post_error(pDevice, "[DirectSound] IDirectSound_CreateSoundBuffer() failed for playback device's primary buffer.", MAL_FAILED_TO_OPEN_BACKEND_DEVICE);
         }
 
 
@@ -5156,13 +5139,13 @@ static mal_result mal_device_init__dsound(mal_context* pContext, mal_device_type
         descDS.lpwfxFormat = (WAVEFORMATEX*)&wf;
         if (FAILED(IDirectSound_CreateSoundBuffer((LPDIRECTSOUND)pDevice->dsound.pPlayback, &descDS, (LPDIRECTSOUNDBUFFER*)&pDevice->dsound.pPlaybackBuffer, NULL))) {
             mal_device_uninit__dsound(pDevice);
-            return mal_post_error(pDevice, "[DirectSound] IDirectSound_CreateSoundBuffer() failed for playback device's secondary buffer.", MAL_DSOUND_FAILED_TO_CREATE_BUFFER);
+            return mal_post_error(pDevice, "[DirectSound] IDirectSound_CreateSoundBuffer() failed for playback device's secondary buffer.", MAL_FAILED_TO_OPEN_BACKEND_DEVICE);
         }
 
         // Notifications are set up via a DIRECTSOUNDNOTIFY object which is retrieved from the buffer.
         if (FAILED(IDirectSoundBuffer_QueryInterface((LPDIRECTSOUNDBUFFER)pDevice->dsound.pPlaybackBuffer, _MAL_GUID_IID_DirectSoundNotify, (void**)&pDevice->dsound.pNotify))) {
             mal_device_uninit__dsound(pDevice);
-            return mal_post_error(pDevice, "[DirectSound] IDirectSoundBuffer_QueryInterface() failed for playback device's IDirectSoundNotify object.", MAL_DSOUND_FAILED_TO_QUERY_INTERFACE);
+            return mal_post_error(pDevice, "[DirectSound] IDirectSoundBuffer_QueryInterface() failed for playback device's IDirectSoundNotify object.", MAL_API_NOT_FOUND);
         }
     } else {
         // The default buffer size is treated slightly differently for DirectSound which, for some reason, seems to
@@ -5264,7 +5247,7 @@ static mal_result mal_device_init__dsound(mal_context* pContext, mal_device_type
         LPDIRECTSOUNDCAPTUREBUFFER pDSCB_Temp;
         if (FAILED(IDirectSoundCapture_CreateCaptureBuffer((LPDIRECTSOUNDCAPTURE)pDevice->dsound.pCapture, &descDS, &pDSCB_Temp, NULL))) {
             mal_device_uninit__dsound(pDevice);
-            return mal_post_error(pDevice, "[DirectSound] IDirectSoundCapture_CreateCaptureBuffer() failed for capture device.", MAL_DSOUND_FAILED_TO_CREATE_BUFFER);
+            return mal_post_error(pDevice, "[DirectSound] IDirectSoundCapture_CreateCaptureBuffer() failed for capture device.", MAL_FAILED_TO_OPEN_BACKEND_DEVICE);
         }
 
         HRESULT hr = IDirectSoundCapture_QueryInterface(pDSCB_Temp, _MAL_GUID_IID_IDirectSoundCaptureBuffer, (LPVOID*)&pDevice->dsound.pCaptureBuffer);
@@ -5321,7 +5304,7 @@ static mal_result mal_device_init__dsound(mal_context* pContext, mal_device_type
 
     if (FAILED(IDirectSoundNotify_SetNotificationPositions((LPDIRECTSOUNDNOTIFY)pDevice->dsound.pNotify, pDevice->periods, notifyPoints))) {
         mal_device_uninit__dsound(pDevice);
-        return mal_post_error(pDevice, "[DirectSound] IDirectSoundNotify_SetNotificationPositions() failed.", MAL_DSOUND_FAILED_TO_SET_NOTIFICATIONS);
+        return mal_post_error(pDevice, "[DirectSound] IDirectSoundNotify_SetNotificationPositions() failed.", MAL_FAILED_TO_CREATE_EVENT);
     }
 
     // When the device is playing the worker thread will be waiting on a bunch of notification events. To return from
@@ -5758,7 +5741,7 @@ static mal_result mal_device_init__winmm(mal_context* pContext, mal_device_type 
             dwFormats = caps.dwFormats;
             wChannels = caps.wChannels;
         } else {
-            errorMsg = "[WinMM] Failed to retrieve internal device caps.", errorCode = MAL_WINMM_FAILED_TO_GET_DEVICE_CAPS;
+            errorMsg = "[WinMM] Failed to retrieve internal device caps.", errorCode = MAL_FORMAT_NOT_SUPPORTED;
             goto on_error;
         }
     } else {
@@ -5767,13 +5750,13 @@ static mal_result mal_device_init__winmm(mal_context* pContext, mal_device_type 
             dwFormats = caps.dwFormats;
             wChannels = caps.wChannels;
         } else {
-            errorMsg = "[WinMM] Failed to retrieve internal device caps.", errorCode = MAL_WINMM_FAILED_TO_GET_DEVICE_CAPS;
+            errorMsg = "[WinMM] Failed to retrieve internal device caps.", errorCode = MAL_FORMAT_NOT_SUPPORTED;
             goto on_error;
         }
     }
 
     if (dwFormats == 0) {
-        errorMsg = "[WinMM] Failed to retrieve the supported formats for the internal device.", errorCode = MAL_WINMM_FAILED_TO_GET_SUPPORTED_FORMATS;
+        errorMsg = "[WinMM] Failed to retrieve the supported formats for the internal device.", errorCode = MAL_FORMAT_NOT_SUPPORTED;
         goto on_error;
     }
 
@@ -6815,7 +6798,7 @@ static mal_bool32 mal_device_write__alsa(mal_device* pDevice)
                 } else if (framesWritten == -EPIPE) {
                     // Underrun. Just recover and try writing again.
                     if (((mal_snd_pcm_recover_proc)pDevice->pContext->alsa.snd_pcm_recover)((mal_snd_pcm_t*)pDevice->alsa.pPCM, framesWritten, MAL_TRUE) < 0) {
-                        mal_post_error(pDevice, "[ALSA] Failed to recover device after underrun.", MAL_ALSA_FAILED_TO_RECOVER_DEVICE);
+                        mal_post_error(pDevice, "[ALSA] Failed to recover device after underrun.", MAL_FAILED_TO_START_BACKEND_DEVICE);
                         return MAL_FALSE;
                     }
 
@@ -6903,7 +6886,7 @@ static mal_bool32 mal_device_read__alsa(mal_device* pDevice)
                 } else if (framesRead == -EPIPE) {
                     // Overrun. Just recover and try reading again.
                     if (((mal_snd_pcm_recover_proc)pDevice->pContext->alsa.snd_pcm_recover)((mal_snd_pcm_t*)pDevice->alsa.pPCM, framesRead, MAL_TRUE) < 0) {
-                        mal_post_error(pDevice, "[ALSA] Failed to recover device after overrun.", MAL_ALSA_FAILED_TO_RECOVER_DEVICE);
+                        mal_post_error(pDevice, "[ALSA] Failed to recover device after overrun.", MAL_FAILED_TO_START_BACKEND_DEVICE);
                         return MAL_FALSE;
                     }
 
@@ -7262,7 +7245,7 @@ static mal_result mal_device_init__alsa(mal_context* pContext, mal_device_type t
 
         if (!isDeviceOpen) {
             mal_device_uninit__alsa(pDevice);
-            return mal_post_error(pDevice, "[ALSA] snd_pcm_open() failed when trying to open an appropriate default device.", MAL_ALSA_FAILED_TO_OPEN_DEVICE);
+            return mal_post_error(pDevice, "[ALSA] snd_pcm_open() failed when trying to open an appropriate default device.", MAL_FAILED_TO_OPEN_BACKEND_DEVICE);
         }
     } else {
         // We're trying to open a specific device. There's a few things to consider here:
@@ -7310,7 +7293,7 @@ static mal_result mal_device_init__alsa(mal_context* pContext, mal_device_type t
 
         if (!isDeviceOpen) {
             mal_device_uninit__alsa(pDevice);
-            return mal_post_error(pDevice, "[ALSA] snd_pcm_open() failed.", MAL_ALSA_FAILED_TO_OPEN_DEVICE);
+            return mal_post_error(pDevice, "[ALSA] snd_pcm_open() failed.", MAL_FAILED_TO_OPEN_BACKEND_DEVICE);
         }
     }
 
@@ -7373,7 +7356,7 @@ static mal_result mal_device_init__alsa(mal_context* pContext, mal_device_type t
 
     if (((mal_snd_pcm_hw_params_any_proc)pContext->alsa.snd_pcm_hw_params_any)((mal_snd_pcm_t*)pDevice->alsa.pPCM, pHWParams) < 0) {
         mal_device_uninit__alsa(pDevice);
-        return mal_post_error(pDevice, "[ALSA] Failed to initialize hardware parameters. snd_pcm_hw_params_any() failed.", MAL_ALSA_FAILED_TO_SET_HW_PARAMS);
+        return mal_post_error(pDevice, "[ALSA] Failed to initialize hardware parameters. snd_pcm_hw_params_any() failed.", MAL_FAILED_TO_CONFIGURE_BACKEND_DEVICE);
     }
 
 
@@ -7499,7 +7482,7 @@ static mal_result mal_device_init__alsa(mal_context* pContext, mal_device_type t
     // Apply hardware parameters.
     if (((mal_snd_pcm_hw_params_proc)pContext->alsa.snd_pcm_hw_params)((mal_snd_pcm_t*)pDevice->alsa.pPCM, pHWParams) < 0) {
         mal_device_uninit__alsa(pDevice);
-        return mal_post_error(pDevice, "[ALSA] Failed to set hardware parameters. snd_pcm_hw_params() failed.", MAL_ALSA_FAILED_TO_SET_HW_PARAMS);
+        return mal_post_error(pDevice, "[ALSA] Failed to set hardware parameters. snd_pcm_hw_params() failed.", MAL_FAILED_TO_CONFIGURE_BACKEND_DEVICE);
     }
 
 
@@ -7511,7 +7494,7 @@ static mal_result mal_device_init__alsa(mal_context* pContext, mal_device_type t
 
     if (((mal_snd_pcm_sw_params_current_proc)pContext->alsa.snd_pcm_sw_params_current)((mal_snd_pcm_t*)pDevice->alsa.pPCM, pSWParams) != 0) {
         mal_device_uninit__alsa(pDevice);
-        return mal_post_error(pDevice, "[ALSA] Failed to initialize software parameters. snd_pcm_sw_params_current() failed.", MAL_ALSA_FAILED_TO_SET_SW_PARAMS);
+        return mal_post_error(pDevice, "[ALSA] Failed to initialize software parameters. snd_pcm_sw_params_current() failed.", MAL_FAILED_TO_CONFIGURE_BACKEND_DEVICE);
     }
 
     if (((mal_snd_pcm_sw_params_set_avail_min_proc)pContext->alsa.snd_pcm_sw_params_set_avail_min)((mal_snd_pcm_t*)pDevice->alsa.pPCM, pSWParams, (pDevice->sampleRate/1000) * 1) != 0) {
@@ -7522,13 +7505,13 @@ static mal_result mal_device_init__alsa(mal_context* pContext, mal_device_type t
     if (type == mal_device_type_playback && !pDevice->alsa.isUsingMMap) {   // Only playback devices in writei/readi mode need a start threshold.
         if (((mal_snd_pcm_sw_params_set_start_threshold_proc)pContext->alsa.snd_pcm_sw_params_set_start_threshold)((mal_snd_pcm_t*)pDevice->alsa.pPCM, pSWParams, (pDevice->sampleRate/1000) * 1) != 0) { //mal_prev_power_of_2(pDevice->bufferSizeInFrames/pDevice->periods)
             mal_device_uninit__alsa(pDevice);
-            return mal_post_error(pDevice, "[ALSA] Failed to set start threshold for playback device. snd_pcm_sw_params_set_start_threshold() failed.", MAL_ALSA_FAILED_TO_SET_SW_PARAMS);
+            return mal_post_error(pDevice, "[ALSA] Failed to set start threshold for playback device. snd_pcm_sw_params_set_start_threshold() failed.", MAL_FAILED_TO_CONFIGURE_BACKEND_DEVICE);
         }
     }
 
     if (((mal_snd_pcm_sw_params_proc)pContext->alsa.snd_pcm_sw_params)((mal_snd_pcm_t*)pDevice->alsa.pPCM, pSWParams) != 0) {
         mal_device_uninit__alsa(pDevice);
-        return mal_post_error(pDevice, "[ALSA] Failed to set software parameters. snd_pcm_sw_params() failed.", MAL_ALSA_FAILED_TO_SET_SW_PARAMS);
+        return mal_post_error(pDevice, "[ALSA] Failed to set software parameters. snd_pcm_sw_params() failed.", MAL_FAILED_TO_CONFIGURE_BACKEND_DEVICE);
     }
 
 
@@ -7598,7 +7581,7 @@ static mal_result mal_device__start_backend__alsa(mal_device* pDevice)
 
     // Prepare the device first...
     if (((mal_snd_pcm_prepare_proc)pDevice->pContext->alsa.snd_pcm_prepare)((mal_snd_pcm_t*)pDevice->alsa.pPCM) < 0) {
-        return mal_post_error(pDevice, "[ALSA] Failed to prepare device.", MAL_ALSA_FAILED_TO_PREPARE_DEVICE);
+        return mal_post_error(pDevice, "[ALSA] Failed to prepare device.", MAL_FAILED_TO_START_BACKEND_DEVICE);
     }
 
     // ... and then grab an initial chunk from the client. After this is done, the device should
@@ -13245,7 +13228,7 @@ mal_device_config mal_device_config_init_ex(mal_format format, mal_uint32 channe
         if (channels > 8) {
             mal_zero_memory(channelMap, sizeof(mal_channel)*MAL_MAX_CHANNELS);
         } else {
-            mal_get_standard_channel_map(mal_standard_channel_map_default, channels, channelMap);
+            mal_get_standard_channel_map(mal_standard_channel_map_default, channels, config.channelMap);
         }
     } else {
         mal_copy_memory(config.channelMap, channelMap, sizeof(config.channelMap));
@@ -16385,6 +16368,8 @@ void mal_pcm_f32_to_s32(int* pOut, const float* pIn, unsigned int count)
 //
 // v0.x - 2018-xx-xx
 //   - API CHANGE: Rename MAL_MAX_SAMPLE_SIZE_IN_BYTES to MAL_MAX_PCM_SAMPLE_SIZE_IN_BYTES.
+//   - Change the default channel mapping to the standard Microsoft mapping.
+//   - Remove backend-specific result codes.
 //   - Add support for PulseAudio.
 //     - This is the highest priority backend on Linux (higher priority than ALSA) since it is commonly
 //       installed by default on many of the popular distros and offer's more seamless integration on
