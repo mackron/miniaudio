@@ -1,5 +1,5 @@
 // MP3 audio decoder. Public domain. See "unlicense" statement at the end of this file.
-// dr_mp3 - v0.1a - 2018-02-28
+// dr_mp3 - v0.1b - 2018-03-07
 //
 // David Reid - mackron@gmail.com
 //
@@ -1889,8 +1889,9 @@ static int drmp3d_find_frame(const drmp3_uint8 *mp3, int mp3_bytes, int *free_fo
                 }
             }
 
-            if (frame_bytes && i + frame_and_padding <= mp3_bytes &&
-                drmp3d_match_frame(mp3, mp3_bytes - i, frame_bytes))
+            if ((frame_bytes && i + frame_and_padding <= mp3_bytes &&
+                drmp3d_match_frame(mp3, mp3_bytes - i, frame_bytes)) ||
+                (!i && frame_and_padding == mp3_bytes))
             {
                 *ptr_frame_bytes = frame_and_padding;
                 return i;
@@ -2745,6 +2746,9 @@ void drmp3_free(void* p)
 
 // REVISION HISTORY
 // ===============
+//
+// v0.1b - 2018-03-07
+//   - Bring up to date with minimp3.
 //
 // v0.1a - 2018-02-28
 //   - Fix compilation error on GCC/Clang.
