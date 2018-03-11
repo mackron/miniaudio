@@ -11,8 +11,8 @@ Features
 - Single file.
 - Compilable as both C and C++.
 - Easy to build.
-  - Does not require linking to anything on the Windows build and only -ldl on Linux.
   - It should Just Work out of the box, without the need to download and install any dependencies.
+  - Does not require linking to anything on the Windows build and only -ldl on Linux.
   - The header section does not include any platform specific headers.
 - A very simple API.
 - Transparent data structures with direct access to internal data.
@@ -52,7 +52,6 @@ Backends
 - OpenAL
 - SDL
 - Null (Silence)
-
 
 
 Simple Playback Example
