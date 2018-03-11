@@ -472,59 +472,59 @@ typedef mal_uint16 wchar_t;
 
 typedef mal_uint8 mal_channel;
 #define MAL_CHANNEL_NONE                                0
-#define MAL_CHANNEL_FRONT_LEFT                          1
-#define MAL_CHANNEL_FRONT_RIGHT                         2
-#define MAL_CHANNEL_FRONT_CENTER                        3
-#define MAL_CHANNEL_LFE                                 4
-#define MAL_CHANNEL_BACK_LEFT                           5
-#define MAL_CHANNEL_BACK_RIGHT                          6
-#define MAL_CHANNEL_FRONT_LEFT_CENTER                   7
-#define MAL_CHANNEL_FRONT_RIGHT_CENTER                  8
-#define MAL_CHANNEL_BACK_CENTER                         9
-#define MAL_CHANNEL_SIDE_LEFT                           10
-#define MAL_CHANNEL_SIDE_RIGHT                          11
-#define MAL_CHANNEL_TOP_CENTER                          12
-#define MAL_CHANNEL_TOP_FRONT_LEFT                      13
-#define MAL_CHANNEL_TOP_FRONT_CENTER                    14
-#define MAL_CHANNEL_TOP_FRONT_RIGHT                     15
-#define MAL_CHANNEL_TOP_BACK_LEFT                       16
-#define MAL_CHANNEL_TOP_BACK_CENTER                     17
-#define MAL_CHANNEL_TOP_BACK_RIGHT                      18
-#define MAL_CHANNEL_AUX_0                               19
-#define MAL_CHANNEL_AUX_1                               20
-#define MAL_CHANNEL_AUX_2                               21
-#define MAL_CHANNEL_AUX_3                               22
-#define MAL_CHANNEL_AUX_4                               23
-#define MAL_CHANNEL_AUX_5                               24
-#define MAL_CHANNEL_AUX_6                               25
-#define MAL_CHANNEL_AUX_7                               26
-#define MAL_CHANNEL_AUX_8                               27
-#define MAL_CHANNEL_AUX_9                               28
-#define MAL_CHANNEL_AUX_10                              29
-#define MAL_CHANNEL_AUX_11                              30
-#define MAL_CHANNEL_AUX_12                              31
-#define MAL_CHANNEL_AUX_13                              32
-#define MAL_CHANNEL_AUX_14                              33
-#define MAL_CHANNEL_AUX_15                              34
-#define MAL_CHANNEL_AUX_16                              35
-#define MAL_CHANNEL_AUX_17                              36
-#define MAL_CHANNEL_AUX_18                              37
-#define MAL_CHANNEL_AUX_19                              38
-#define MAL_CHANNEL_AUX_20                              39
-#define MAL_CHANNEL_AUX_21                              40
-#define MAL_CHANNEL_AUX_22                              41
-#define MAL_CHANNEL_AUX_23                              42
-#define MAL_CHANNEL_AUX_24                              43
-#define MAL_CHANNEL_AUX_25                              44
-#define MAL_CHANNEL_AUX_26                              45
-#define MAL_CHANNEL_AUX_27                              46
-#define MAL_CHANNEL_AUX_28                              47
-#define MAL_CHANNEL_AUX_29                              48
-#define MAL_CHANNEL_AUX_30                              49
-#define MAL_CHANNEL_AUX_31                              50
+#define MAL_CHANNEL_MONO                                1
+#define MAL_CHANNEL_FRONT_LEFT                          2
+#define MAL_CHANNEL_FRONT_RIGHT                         3
+#define MAL_CHANNEL_FRONT_CENTER                        4
+#define MAL_CHANNEL_LFE                                 5
+#define MAL_CHANNEL_BACK_LEFT                           6
+#define MAL_CHANNEL_BACK_RIGHT                          7
+#define MAL_CHANNEL_FRONT_LEFT_CENTER                   8
+#define MAL_CHANNEL_FRONT_RIGHT_CENTER                  9
+#define MAL_CHANNEL_BACK_CENTER                         10
+#define MAL_CHANNEL_SIDE_LEFT                           11
+#define MAL_CHANNEL_SIDE_RIGHT                          12
+#define MAL_CHANNEL_TOP_CENTER                          13
+#define MAL_CHANNEL_TOP_FRONT_LEFT                      14
+#define MAL_CHANNEL_TOP_FRONT_CENTER                    15
+#define MAL_CHANNEL_TOP_FRONT_RIGHT                     16
+#define MAL_CHANNEL_TOP_BACK_LEFT                       17
+#define MAL_CHANNEL_TOP_BACK_CENTER                     18
+#define MAL_CHANNEL_TOP_BACK_RIGHT                      19
+#define MAL_CHANNEL_AUX_0                               20
+#define MAL_CHANNEL_AUX_1                               21
+#define MAL_CHANNEL_AUX_2                               22
+#define MAL_CHANNEL_AUX_3                               23
+#define MAL_CHANNEL_AUX_4                               24
+#define MAL_CHANNEL_AUX_5                               25
+#define MAL_CHANNEL_AUX_6                               26
+#define MAL_CHANNEL_AUX_7                               27
+#define MAL_CHANNEL_AUX_8                               28
+#define MAL_CHANNEL_AUX_9                               29
+#define MAL_CHANNEL_AUX_10                              30
+#define MAL_CHANNEL_AUX_11                              31
+#define MAL_CHANNEL_AUX_12                              32
+#define MAL_CHANNEL_AUX_13                              33
+#define MAL_CHANNEL_AUX_14                              34
+#define MAL_CHANNEL_AUX_15                              35
+#define MAL_CHANNEL_AUX_16                              36
+#define MAL_CHANNEL_AUX_17                              37
+#define MAL_CHANNEL_AUX_18                              38
+#define MAL_CHANNEL_AUX_19                              39
+#define MAL_CHANNEL_AUX_20                              40
+#define MAL_CHANNEL_AUX_21                              41
+#define MAL_CHANNEL_AUX_22                              42
+#define MAL_CHANNEL_AUX_23                              43
+#define MAL_CHANNEL_AUX_24                              44
+#define MAL_CHANNEL_AUX_25                              45
+#define MAL_CHANNEL_AUX_26                              46
+#define MAL_CHANNEL_AUX_27                              47
+#define MAL_CHANNEL_AUX_28                              48
+#define MAL_CHANNEL_AUX_29                              49
+#define MAL_CHANNEL_AUX_30                              50
+#define MAL_CHANNEL_AUX_31                              51
 #define MAL_CHANNEL_LEFT                                MAL_CHANNEL_FRONT_LEFT
 #define MAL_CHANNEL_RIGHT                               MAL_CHANNEL_FRONT_RIGHT
-#define MAL_CHANNEL_MONO                                MAL_CHANNEL_FRONT_CENTER
 
 typedef int mal_result;
 #define MAL_SUCCESS                                      0
@@ -3711,7 +3711,7 @@ static DWORD mal_channel_id_to_win32(DWORD id)
 {
     switch (id)
     {
-        //case MAL_CHANNEL_MONO:               return SPEAKER_FRONT_CENTER;
+        case MAL_CHANNEL_MONO:               return SPEAKER_FRONT_CENTER;
         case MAL_CHANNEL_FRONT_LEFT:         return SPEAKER_FRONT_LEFT;
         case MAL_CHANNEL_FRONT_RIGHT:        return SPEAKER_FRONT_RIGHT;
         case MAL_CHANNEL_FRONT_CENTER:       return SPEAKER_FRONT_CENTER;
