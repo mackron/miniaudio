@@ -490,20 +490,38 @@ typedef mal_uint8 mal_channel;
 #define MAL_CHANNEL_TOP_BACK_LEFT                       16
 #define MAL_CHANNEL_TOP_BACK_CENTER                     17
 #define MAL_CHANNEL_TOP_BACK_RIGHT                      18
-#define MAL_CHANNEL_19                                  19
-#define MAL_CHANNEL_20                                  20
-#define MAL_CHANNEL_21                                  21
-#define MAL_CHANNEL_22                                  22
-#define MAL_CHANNEL_23                                  23
-#define MAL_CHANNEL_24                                  24
-#define MAL_CHANNEL_25                                  25
-#define MAL_CHANNEL_26                                  26
-#define MAL_CHANNEL_27                                  27
-#define MAL_CHANNEL_28                                  28
-#define MAL_CHANNEL_29                                  29
-#define MAL_CHANNEL_30                                  30
-#define MAL_CHANNEL_31                                  31
-#define MAL_CHANNEL_32                                  32
+#define MAL_CHANNEL_AUX_0                               19
+#define MAL_CHANNEL_AUX_1                               20
+#define MAL_CHANNEL_AUX_2                               21
+#define MAL_CHANNEL_AUX_3                               22
+#define MAL_CHANNEL_AUX_4                               23
+#define MAL_CHANNEL_AUX_5                               24
+#define MAL_CHANNEL_AUX_6                               25
+#define MAL_CHANNEL_AUX_7                               26
+#define MAL_CHANNEL_AUX_8                               27
+#define MAL_CHANNEL_AUX_9                               28
+#define MAL_CHANNEL_AUX_10                              29
+#define MAL_CHANNEL_AUX_11                              30
+#define MAL_CHANNEL_AUX_12                              31
+#define MAL_CHANNEL_AUX_13                              32
+#define MAL_CHANNEL_AUX_14                              33
+#define MAL_CHANNEL_AUX_15                              34
+#define MAL_CHANNEL_AUX_16                              35
+#define MAL_CHANNEL_AUX_17                              36
+#define MAL_CHANNEL_AUX_18                              37
+#define MAL_CHANNEL_AUX_19                              38
+#define MAL_CHANNEL_AUX_20                              39
+#define MAL_CHANNEL_AUX_21                              40
+#define MAL_CHANNEL_AUX_22                              41
+#define MAL_CHANNEL_AUX_23                              42
+#define MAL_CHANNEL_AUX_24                              43
+#define MAL_CHANNEL_AUX_25                              44
+#define MAL_CHANNEL_AUX_26                              45
+#define MAL_CHANNEL_AUX_27                              46
+#define MAL_CHANNEL_AUX_28                              47
+#define MAL_CHANNEL_AUX_29                              48
+#define MAL_CHANNEL_AUX_30                              49
+#define MAL_CHANNEL_AUX_31                              50
 #define MAL_CHANNEL_LEFT                                MAL_CHANNEL_FRONT_LEFT
 #define MAL_CHANNEL_RIGHT                               MAL_CHANNEL_FRONT_RIGHT
 #define MAL_CHANNEL_MONO                                MAL_CHANNEL_FRONT_CENTER
@@ -600,6 +618,16 @@ typedef enum
     mal_channel_mix_mode_basic,     // Drop excess channels; zeroed out extra channels.
     mal_channel_mix_mode_blend,     // Blend channels based on locality.
 } mal_channel_mix_mode;
+
+typedef enum
+{
+    mal_standard_channel_map_microsoft,
+    mal_standard_channel_map_alsa,
+    mal_standard_channel_map_rfc3551,   // Based off AIFF.
+    mal_standard_channel_map_flac,
+    mal_standard_channel_map_vorbis,
+    mal_standard_channel_map_default = mal_standard_channel_map_flac
+} mal_standard_channel_map;
 
 typedef union
 {
@@ -1630,6 +1658,8 @@ static inline mal_device_config mal_device_config_init_playback_ex(mal_format fo
 static inline mal_device_config mal_device_config_init_playback(mal_format format, mal_uint32 channels, mal_uint32 sampleRate, mal_send_proc onSendCallback) { return mal_device_config_init_playback_ex(format, channels, sampleRate, NULL, onSendCallback); }
 
 
+// Helper for retrieving a standard channel map.
+void mal_get_standard_channel_map(mal_standard_channel_map standardChannelMap, mal_uint32 channels, mal_channel channelMap[MAL_MAX_CHANNELS]);
 
 
 ///////////////////////////////////////////////////////////////////////////////
@@ -8245,38 +8275,38 @@ static mal_channel mal_channel_position_from_pulse(mal_pa_channel_position_t pos
         case MAL_PA_CHANNEL_POSITION_FRONT_RIGHT_OF_CENTER: return MAL_CHANNEL_FRONT_RIGHT_CENTER;
         case MAL_PA_CHANNEL_POSITION_SIDE_LEFT:             return MAL_CHANNEL_SIDE_LEFT;
         case MAL_PA_CHANNEL_POSITION_SIDE_RIGHT:            return MAL_CHANNEL_SIDE_RIGHT;
-        case MAL_PA_CHANNEL_POSITION_AUX0:                  return MAL_CHANNEL_NONE;
-        case MAL_PA_CHANNEL_POSITION_AUX1:                  return MAL_CHANNEL_NONE;
-        case MAL_PA_CHANNEL_POSITION_AUX2:                  return MAL_CHANNEL_NONE;
-        case MAL_PA_CHANNEL_POSITION_AUX3:                  return MAL_CHANNEL_NONE;
-        case MAL_PA_CHANNEL_POSITION_AUX4:                  return MAL_CHANNEL_NONE;
-        case MAL_PA_CHANNEL_POSITION_AUX5:                  return MAL_CHANNEL_NONE;
-        case MAL_PA_CHANNEL_POSITION_AUX6:                  return MAL_CHANNEL_NONE;
-        case MAL_PA_CHANNEL_POSITION_AUX7:                  return MAL_CHANNEL_NONE;
-        case MAL_PA_CHANNEL_POSITION_AUX8:                  return MAL_CHANNEL_NONE;
-        case MAL_PA_CHANNEL_POSITION_AUX9:                  return MAL_CHANNEL_NONE;
-        case MAL_PA_CHANNEL_POSITION_AUX10:                 return MAL_CHANNEL_NONE;
-        case MAL_PA_CHANNEL_POSITION_AUX11:                 return MAL_CHANNEL_NONE;
-        case MAL_PA_CHANNEL_POSITION_AUX12:                 return MAL_CHANNEL_NONE;
-        case MAL_PA_CHANNEL_POSITION_AUX13:                 return MAL_CHANNEL_NONE;
-        case MAL_PA_CHANNEL_POSITION_AUX14:                 return MAL_CHANNEL_NONE;
-        case MAL_PA_CHANNEL_POSITION_AUX15:                 return MAL_CHANNEL_NONE;
-        case MAL_PA_CHANNEL_POSITION_AUX16:                 return MAL_CHANNEL_NONE;
-        case MAL_PA_CHANNEL_POSITION_AUX17:                 return MAL_CHANNEL_NONE;
-        case MAL_PA_CHANNEL_POSITION_AUX18:                 return MAL_CHANNEL_19;
-        case MAL_PA_CHANNEL_POSITION_AUX19:                 return MAL_CHANNEL_20;
-        case MAL_PA_CHANNEL_POSITION_AUX20:                 return MAL_CHANNEL_21;
-        case MAL_PA_CHANNEL_POSITION_AUX21:                 return MAL_CHANNEL_22;
-        case MAL_PA_CHANNEL_POSITION_AUX22:                 return MAL_CHANNEL_23;
-        case MAL_PA_CHANNEL_POSITION_AUX23:                 return MAL_CHANNEL_24;
-        case MAL_PA_CHANNEL_POSITION_AUX24:                 return MAL_CHANNEL_25;
-        case MAL_PA_CHANNEL_POSITION_AUX25:                 return MAL_CHANNEL_26;
-        case MAL_PA_CHANNEL_POSITION_AUX26:                 return MAL_CHANNEL_27;
-        case MAL_PA_CHANNEL_POSITION_AUX27:                 return MAL_CHANNEL_28;
-        case MAL_PA_CHANNEL_POSITION_AUX28:                 return MAL_CHANNEL_29;
-        case MAL_PA_CHANNEL_POSITION_AUX29:                 return MAL_CHANNEL_30;
-        case MAL_PA_CHANNEL_POSITION_AUX30:                 return MAL_CHANNEL_31;
-        case MAL_PA_CHANNEL_POSITION_AUX31:                 return MAL_CHANNEL_32;
+        case MAL_PA_CHANNEL_POSITION_AUX0:                  return MAL_CHANNEL_AUX_0;
+        case MAL_PA_CHANNEL_POSITION_AUX1:                  return MAL_CHANNEL_AUX_1;
+        case MAL_PA_CHANNEL_POSITION_AUX2:                  return MAL_CHANNEL_AUX_2;
+        case MAL_PA_CHANNEL_POSITION_AUX3:                  return MAL_CHANNEL_AUX_3;
+        case MAL_PA_CHANNEL_POSITION_AUX4:                  return MAL_CHANNEL_AUX_4;
+        case MAL_PA_CHANNEL_POSITION_AUX5:                  return MAL_CHANNEL_AUX_5;
+        case MAL_PA_CHANNEL_POSITION_AUX6:                  return MAL_CHANNEL_AUX_6;
+        case MAL_PA_CHANNEL_POSITION_AUX7:                  return MAL_CHANNEL_AUX_7;
+        case MAL_PA_CHANNEL_POSITION_AUX8:                  return MAL_CHANNEL_AUX_8;
+        case MAL_PA_CHANNEL_POSITION_AUX9:                  return MAL_CHANNEL_AUX_9;
+        case MAL_PA_CHANNEL_POSITION_AUX10:                 return MAL_CHANNEL_AUX_10;
+        case MAL_PA_CHANNEL_POSITION_AUX11:                 return MAL_CHANNEL_AUX_11;
+        case MAL_PA_CHANNEL_POSITION_AUX12:                 return MAL_CHANNEL_AUX_12;
+        case MAL_PA_CHANNEL_POSITION_AUX13:                 return MAL_CHANNEL_AUX_13;
+        case MAL_PA_CHANNEL_POSITION_AUX14:                 return MAL_CHANNEL_AUX_14;
+        case MAL_PA_CHANNEL_POSITION_AUX15:                 return MAL_CHANNEL_AUX_15;
+        case MAL_PA_CHANNEL_POSITION_AUX16:                 return MAL_CHANNEL_AUX_16;
+        case MAL_PA_CHANNEL_POSITION_AUX17:                 return MAL_CHANNEL_AUX_17;
+        case MAL_PA_CHANNEL_POSITION_AUX18:                 return MAL_CHANNEL_AUX_18;
+        case MAL_PA_CHANNEL_POSITION_AUX19:                 return MAL_CHANNEL_AUX_19;
+        case MAL_PA_CHANNEL_POSITION_AUX20:                 return MAL_CHANNEL_AUX_20;
+        case MAL_PA_CHANNEL_POSITION_AUX21:                 return MAL_CHANNEL_AUX_21;
+        case MAL_PA_CHANNEL_POSITION_AUX22:                 return MAL_CHANNEL_AUX_22;
+        case MAL_PA_CHANNEL_POSITION_AUX23:                 return MAL_CHANNEL_AUX_23;
+        case MAL_PA_CHANNEL_POSITION_AUX24:                 return MAL_CHANNEL_AUX_24;
+        case MAL_PA_CHANNEL_POSITION_AUX25:                 return MAL_CHANNEL_AUX_25;
+        case MAL_PA_CHANNEL_POSITION_AUX26:                 return MAL_CHANNEL_AUX_26;
+        case MAL_PA_CHANNEL_POSITION_AUX27:                 return MAL_CHANNEL_AUX_27;
+        case MAL_PA_CHANNEL_POSITION_AUX28:                 return MAL_CHANNEL_AUX_28;
+        case MAL_PA_CHANNEL_POSITION_AUX29:                 return MAL_CHANNEL_AUX_29;
+        case MAL_PA_CHANNEL_POSITION_AUX30:                 return MAL_CHANNEL_AUX_30;
+        case MAL_PA_CHANNEL_POSITION_AUX31:                 return MAL_CHANNEL_AUX_31;
         case MAL_PA_CHANNEL_POSITION_TOP_CENTER:            return MAL_CHANNEL_TOP_CENTER;
         case MAL_PA_CHANNEL_POSITION_TOP_FRONT_LEFT:        return MAL_CHANNEL_TOP_FRONT_LEFT;
         case MAL_PA_CHANNEL_POSITION_TOP_FRONT_RIGHT:       return MAL_CHANNEL_TOP_FRONT_RIGHT;
@@ -13200,10 +13230,34 @@ mal_device_config mal_device_config_init_default_playback(mal_send_proc onSendCa
     return config;
 }
 
-static void mal_get_default_device_config_channel_map(mal_uint32 channels, mal_channel channelMap[MAL_MAX_CHANNELS])
-{
-    mal_zero_memory(channelMap, sizeof(mal_channel)*MAL_MAX_CHANNELS);
 
+mal_device_config mal_device_config_init_ex(mal_format format, mal_uint32 channels, mal_uint32 sampleRate, mal_channel channelMap[MAL_MAX_CHANNELS], mal_recv_proc onRecvCallback, mal_send_proc onSendCallback)
+{
+    mal_device_config config = mal_device_config_init_default();
+
+    config.format = format;
+    config.channels = channels;
+    config.sampleRate = sampleRate;
+    config.onRecvCallback = onRecvCallback;
+    config.onSendCallback = onSendCallback;
+
+    if (channelMap == NULL) {
+        if (channels > 8) {
+            mal_zero_memory(channelMap, sizeof(mal_channel)*MAL_MAX_CHANNELS);
+        } else {
+            mal_get_standard_channel_map(mal_standard_channel_map_default, channels, channelMap);
+        }
+    } else {
+        mal_copy_memory(config.channelMap, channelMap, sizeof(config.channelMap));
+    }
+
+    return config;
+}
+
+
+static void mal_get_standard_channel_map_microsoft(mal_uint32 channels, mal_channel channelMap[MAL_MAX_CHANNELS])
+{
+    // Based off the speaker configurations mentioned here: https://docs.microsoft.com/en-us/windows-hardware/drivers/ddi/content/ksmedia/ns-ksmedia-ksaudio_channel_config
     switch (channels)
     {
         case 1:
@@ -13215,6 +13269,238 @@ static void mal_get_default_device_config_channel_map(mal_uint32 channels, mal_c
         {
             channelMap[0] = MAL_CHANNEL_FRONT_LEFT;
             channelMap[1] = MAL_CHANNEL_FRONT_RIGHT;
+        } break;
+
+        case 3: // Not defined, but best guess.
+        {
+            channelMap[0] = MAL_CHANNEL_FRONT_LEFT;
+            channelMap[1] = MAL_CHANNEL_FRONT_RIGHT;
+            channelMap[2] = MAL_CHANNEL_FRONT_CENTER;
+        } break;
+
+        case 4:
+        {
+#ifndef MAL_USE_QUAD_MICROSOFT_CHANNEL_MAP
+            // Surround. Using the Surround profile has the advantage of the 3rd channel (MAL_CHANNEL_FRONT_CENTER) mapping nicely
+            // with higher channel counts.
+            channelMap[0] = MAL_CHANNEL_FRONT_LEFT;
+            channelMap[1] = MAL_CHANNEL_FRONT_RIGHT;
+            channelMap[2] = MAL_CHANNEL_FRONT_CENTER;
+            channelMap[3] = MAL_CHANNEL_BACK_CENTER;
+#else
+            // Quad.
+            channelMap[0] = MAL_CHANNEL_FRONT_LEFT;
+            channelMap[1] = MAL_CHANNEL_FRONT_RIGHT;
+            channelMap[2] = MAL_CHANNEL_BACK_LEFT;
+            channelMap[3] = MAL_CHANNEL_BACK_RIGHT;
+#endif
+        } break;
+
+        case 5: // Not defined, but best guess.
+        {
+            channelMap[0] = MAL_CHANNEL_FRONT_LEFT;
+            channelMap[1] = MAL_CHANNEL_FRONT_RIGHT;
+            channelMap[2] = MAL_CHANNEL_FRONT_CENTER;
+            channelMap[3] = MAL_CHANNEL_BACK_LEFT;
+            channelMap[4] = MAL_CHANNEL_BACK_RIGHT;
+        } break;
+
+        case 6:
+        {
+            channelMap[0] = MAL_CHANNEL_FRONT_LEFT;
+            channelMap[1] = MAL_CHANNEL_FRONT_RIGHT;
+            channelMap[2] = MAL_CHANNEL_FRONT_CENTER;
+            channelMap[3] = MAL_CHANNEL_LFE;
+            channelMap[4] = MAL_CHANNEL_SIDE_LEFT;
+            channelMap[5] = MAL_CHANNEL_SIDE_RIGHT;
+        } break;
+
+        case 7: // Not defined, but best guess.
+        {
+            channelMap[0] = MAL_CHANNEL_FRONT_LEFT;
+            channelMap[1] = MAL_CHANNEL_FRONT_RIGHT;
+            channelMap[2] = MAL_CHANNEL_FRONT_CENTER;
+            channelMap[3] = MAL_CHANNEL_LFE;
+            channelMap[4] = MAL_CHANNEL_BACK_CENTER;
+            channelMap[5] = MAL_CHANNEL_SIDE_LEFT;
+            channelMap[6] = MAL_CHANNEL_SIDE_RIGHT;
+        } break;
+
+        case 8:
+        default:
+        {
+            channelMap[0] = MAL_CHANNEL_FRONT_LEFT;
+            channelMap[1] = MAL_CHANNEL_FRONT_RIGHT;
+            channelMap[2] = MAL_CHANNEL_FRONT_CENTER;
+            channelMap[3] = MAL_CHANNEL_LFE;
+            channelMap[4] = MAL_CHANNEL_BACK_LEFT;
+            channelMap[5] = MAL_CHANNEL_BACK_RIGHT;
+            channelMap[6] = MAL_CHANNEL_SIDE_LEFT;
+            channelMap[7] = MAL_CHANNEL_SIDE_RIGHT;
+        } break;
+    }
+
+    // Remainder.
+    if (channels > 8) {
+        for (mal_uint32 iChannel = 8; iChannel < MAL_MAX_CHANNELS; ++iChannel) {
+            channelMap[iChannel] = (mal_channel)(MAL_CHANNEL_AUX_0 + (iChannel-8));
+        }
+    }
+}
+
+static void mal_get_standard_channel_map_alsa(mal_uint32 channels, mal_channel channelMap[MAL_MAX_CHANNELS])
+{
+    switch (channels)
+    {
+        case 1:
+        {
+            channelMap[0] = MAL_CHANNEL_MONO;
+        } break;
+
+        case 2:
+        {
+            channelMap[0] = MAL_CHANNEL_LEFT;
+            channelMap[1] = MAL_CHANNEL_RIGHT;
+        } break;
+
+        case 3:
+        {
+            channelMap[0] = MAL_CHANNEL_FRONT_LEFT;
+            channelMap[1] = MAL_CHANNEL_FRONT_RIGHT;
+            channelMap[2] = MAL_CHANNEL_FRONT_CENTER;
+        } break;
+
+        case 4:
+        {
+            channelMap[0] = MAL_CHANNEL_FRONT_LEFT;
+            channelMap[1] = MAL_CHANNEL_FRONT_RIGHT;
+            channelMap[2] = MAL_CHANNEL_BACK_LEFT;
+            channelMap[3] = MAL_CHANNEL_BACK_RIGHT;
+        } break;
+
+        case 5:
+        {
+            channelMap[0] = MAL_CHANNEL_FRONT_LEFT;
+            channelMap[1] = MAL_CHANNEL_FRONT_RIGHT;
+            channelMap[2] = MAL_CHANNEL_BACK_LEFT;
+            channelMap[3] = MAL_CHANNEL_BACK_RIGHT;
+            channelMap[4] = MAL_CHANNEL_FRONT_CENTER;
+        } break;
+
+        case 6:
+        {
+            channelMap[0] = MAL_CHANNEL_FRONT_LEFT;
+            channelMap[1] = MAL_CHANNEL_FRONT_RIGHT;
+            channelMap[2] = MAL_CHANNEL_BACK_LEFT;
+            channelMap[3] = MAL_CHANNEL_BACK_RIGHT;
+            channelMap[4] = MAL_CHANNEL_FRONT_CENTER;
+            channelMap[5] = MAL_CHANNEL_LFE;
+        } break;
+
+        case 7:
+        {
+            channelMap[0] = MAL_CHANNEL_FRONT_LEFT;
+            channelMap[1] = MAL_CHANNEL_FRONT_RIGHT;
+            channelMap[2] = MAL_CHANNEL_BACK_LEFT;
+            channelMap[3] = MAL_CHANNEL_BACK_RIGHT;
+            channelMap[4] = MAL_CHANNEL_FRONT_CENTER;
+            channelMap[5] = MAL_CHANNEL_LFE;
+            channelMap[6] = MAL_CHANNEL_BACK_CENTER;
+        } break;
+
+        case 8:
+        default:
+        {
+            channelMap[0] = MAL_CHANNEL_FRONT_LEFT;
+            channelMap[1] = MAL_CHANNEL_FRONT_RIGHT;
+            channelMap[2] = MAL_CHANNEL_BACK_LEFT;
+            channelMap[3] = MAL_CHANNEL_BACK_RIGHT;
+            channelMap[4] = MAL_CHANNEL_FRONT_CENTER;
+            channelMap[5] = MAL_CHANNEL_LFE;
+            channelMap[6] = MAL_CHANNEL_SIDE_LEFT;
+            channelMap[7] = MAL_CHANNEL_SIDE_RIGHT;
+        } break;
+    }
+
+    // Remainder.
+    if (channels > 8) {
+        for (mal_uint32 iChannel = 8; iChannel < MAL_MAX_CHANNELS; ++iChannel) {
+            channelMap[iChannel] = (mal_channel)(MAL_CHANNEL_AUX_0 + (iChannel-8));
+        }
+    }
+}
+
+static void mal_get_standard_channel_map_rfc3551(mal_uint32 channels, mal_channel channelMap[MAL_MAX_CHANNELS])
+{
+    switch (channels)
+    {
+        case 1:
+        {
+            channelMap[0] = MAL_CHANNEL_MONO;
+        } break;
+
+        case 2:
+        {
+            channelMap[0] = MAL_CHANNEL_LEFT;
+            channelMap[1] = MAL_CHANNEL_RIGHT;
+        } break;
+
+        case 3:
+        {
+            channelMap[0] = MAL_CHANNEL_FRONT_LEFT;
+            channelMap[1] = MAL_CHANNEL_FRONT_RIGHT;
+            channelMap[2] = MAL_CHANNEL_FRONT_CENTER;
+        } break;
+
+        case 4:
+        {
+            channelMap[0] = MAL_CHANNEL_FRONT_LEFT;
+            channelMap[1] = MAL_CHANNEL_FRONT_CENTER;
+            channelMap[2] = MAL_CHANNEL_FRONT_RIGHT;
+            channelMap[3] = MAL_CHANNEL_BACK_CENTER;
+        } break;
+
+        case 5:
+        {
+            channelMap[0] = MAL_CHANNEL_FRONT_LEFT;
+            channelMap[1] = MAL_CHANNEL_FRONT_RIGHT;
+            channelMap[2] = MAL_CHANNEL_FRONT_CENTER;
+            channelMap[3] = MAL_CHANNEL_BACK_LEFT;
+            channelMap[4] = MAL_CHANNEL_BACK_RIGHT;
+        } break;
+
+        case 6:
+        {
+            channelMap[0] = MAL_CHANNEL_FRONT_LEFT;
+            channelMap[1] = MAL_CHANNEL_SIDE_LEFT;
+            channelMap[2] = MAL_CHANNEL_FRONT_CENTER;
+            channelMap[3] = MAL_CHANNEL_FRONT_RIGHT;
+            channelMap[4] = MAL_CHANNEL_SIDE_RIGHT;
+            channelMap[5] = MAL_CHANNEL_BACK_CENTER;
+        } break;
+    }
+
+    // Remainder.
+    if (channels > 8) {
+        for (mal_uint32 iChannel = 6; iChannel < MAL_MAX_CHANNELS; ++iChannel) {
+            channelMap[iChannel] = (mal_channel)(MAL_CHANNEL_AUX_0 + (iChannel-6));
+        }
+    }
+}
+
+static void mal_get_standard_channel_map_flac(mal_uint32 channels, mal_channel channelMap[MAL_MAX_CHANNELS])
+{
+    switch (channels)
+    {
+        case 1:
+        {
+            channelMap[0] = MAL_CHANNEL_MONO;
+        } break;
+
+        case 2:
+        {
+            channelMap[0] = MAL_CHANNEL_LEFT;
+            channelMap[1] = MAL_CHANNEL_RIGHT;
         } break;
 
         case 3:
@@ -13263,6 +13549,7 @@ static void mal_get_default_device_config_channel_map(mal_uint32 channels, mal_c
         } break;
 
         case 8:
+        default:
         {
             channelMap[0] = MAL_CHANNEL_FRONT_LEFT;
             channelMap[1] = MAL_CHANNEL_FRONT_RIGHT;
@@ -13273,33 +13560,131 @@ static void mal_get_default_device_config_channel_map(mal_uint32 channels, mal_c
             channelMap[6] = MAL_CHANNEL_SIDE_LEFT;
             channelMap[7] = MAL_CHANNEL_SIDE_RIGHT;
         } break;
+    }
 
+    // Remainder.
+    if (channels > 8) {
+        for (mal_uint32 iChannel = 8; iChannel < MAL_MAX_CHANNELS; ++iChannel) {
+            channelMap[iChannel] = (mal_channel)(MAL_CHANNEL_AUX_0 + (iChannel-8));
+        }
+    }
+}
+
+static void mal_get_standard_channel_map_vorbis(mal_uint32 channels, mal_channel channelMap[MAL_MAX_CHANNELS])
+{
+    // In Vorbis' type 0 channel mapping, the first two channels are not always the standard left/right - it
+    // will have the center speaker where the right usually goes. Why?!
+    switch (channels)
+    {
+        case 1:
+        {
+            channelMap[0] = MAL_CHANNEL_MONO;
+        } break;
+
+        case 2:
+        {
+            channelMap[0] = MAL_CHANNEL_LEFT;
+            channelMap[1] = MAL_CHANNEL_RIGHT;
+        } break;
+
+        case 3:
+        {
+            channelMap[0] = MAL_CHANNEL_FRONT_LEFT;
+            channelMap[1] = MAL_CHANNEL_FRONT_CENTER;
+            channelMap[2] = MAL_CHANNEL_FRONT_RIGHT;
+        } break;
+
+        case 4:
+        {
+            channelMap[0] = MAL_CHANNEL_FRONT_LEFT;
+            channelMap[1] = MAL_CHANNEL_FRONT_RIGHT;
+            channelMap[2] = MAL_CHANNEL_BACK_LEFT;
+            channelMap[3] = MAL_CHANNEL_BACK_RIGHT;
+        } break;
+
+        case 5:
+        {
+            channelMap[0] = MAL_CHANNEL_FRONT_LEFT;
+            channelMap[1] = MAL_CHANNEL_FRONT_CENTER;
+            channelMap[2] = MAL_CHANNEL_FRONT_RIGHT;
+            channelMap[3] = MAL_CHANNEL_BACK_LEFT;
+            channelMap[4] = MAL_CHANNEL_BACK_RIGHT;
+        } break;
+
+        case 6:
+        {
+            channelMap[0] = MAL_CHANNEL_FRONT_LEFT;
+            channelMap[1] = MAL_CHANNEL_FRONT_CENTER;
+            channelMap[2] = MAL_CHANNEL_FRONT_RIGHT;
+            channelMap[3] = MAL_CHANNEL_BACK_LEFT;
+            channelMap[4] = MAL_CHANNEL_BACK_RIGHT;
+            channelMap[5] = MAL_CHANNEL_LFE;
+        } break;
+
+        case 7:
+        {
+            channelMap[0] = MAL_CHANNEL_FRONT_LEFT;
+            channelMap[1] = MAL_CHANNEL_FRONT_CENTER;
+            channelMap[2] = MAL_CHANNEL_FRONT_RIGHT;
+            channelMap[3] = MAL_CHANNEL_SIDE_LEFT;
+            channelMap[4] = MAL_CHANNEL_SIDE_RIGHT;
+            channelMap[5] = MAL_CHANNEL_BACK_CENTER;
+            channelMap[6] = MAL_CHANNEL_LFE;
+        } break;
+
+        case 8:
         default:
         {
-            // Just leave it all blank in this case. This will use the same mapping as the device's native mapping.
+            channelMap[0] = MAL_CHANNEL_FRONT_LEFT;
+            channelMap[1] = MAL_CHANNEL_FRONT_CENTER;
+            channelMap[2] = MAL_CHANNEL_FRONT_RIGHT;
+            channelMap[3] = MAL_CHANNEL_SIDE_LEFT;
+            channelMap[4] = MAL_CHANNEL_SIDE_RIGHT;
+            channelMap[5] = MAL_CHANNEL_BACK_LEFT;
+            channelMap[6] = MAL_CHANNEL_BACK_RIGHT;
+            channelMap[7] = MAL_CHANNEL_LFE;
+        } break;
+    }
+
+    // Remainder.
+    if (channels > 8) {
+        for (mal_uint32 iChannel = 8; iChannel < MAL_MAX_CHANNELS; ++iChannel) {
+            channelMap[iChannel] = (mal_channel)(MAL_CHANNEL_AUX_0 + (iChannel-8));
+        }
+    }
+}
+
+void mal_get_standard_channel_map(mal_standard_channel_map standardChannelMap, mal_uint32 channels, mal_channel channelMap[MAL_MAX_CHANNELS])
+{
+    switch (standardChannelMap)
+    {
+        case mal_standard_channel_map_microsoft:
+        {
+            mal_get_standard_channel_map_microsoft(channels, channelMap);
+        } break;
+
+        case mal_standard_channel_map_alsa:
+        {
+            mal_get_standard_channel_map_alsa(channels, channelMap);
+        } break;
+
+        case mal_standard_channel_map_rfc3551:
+        {
+            mal_get_standard_channel_map_rfc3551(channels, channelMap);
+        } break;
+
+        case mal_standard_channel_map_vorbis:
+        {
+            mal_get_standard_channel_map_vorbis(channels, channelMap);
+        } break;
+
+        case mal_standard_channel_map_flac:
+        default:
+        {
+            mal_get_standard_channel_map_flac(channels, channelMap);
         } break;
     }
 }
-
-mal_device_config mal_device_config_init_ex(mal_format format, mal_uint32 channels, mal_uint32 sampleRate, mal_channel channelMap[MAL_MAX_CHANNELS], mal_recv_proc onRecvCallback, mal_send_proc onSendCallback)
-{
-    mal_device_config config = mal_device_config_init_default();
-
-    config.format = format;
-    config.channels = channels;
-    config.sampleRate = sampleRate;
-    config.onRecvCallback = onRecvCallback;
-    config.onSendCallback = onSendCallback;
-
-    if (channelMap == NULL) {
-        mal_get_default_device_config_channel_map(channels, config.channelMap);
-    } else {
-        mal_copy_memory(config.channelMap, channelMap, sizeof(config.channelMap));
-    }
-
-    return config;
-}
-
 
 
 
@@ -14781,7 +15166,7 @@ mal_result mal_decoder_init_wav__internal(const mal_decoder_config* pConfig, mal
 
     pDecoder->internalChannels = pWav->channels;
     pDecoder->internalSampleRate = pWav->sampleRate;
-    mal_get_default_device_config_channel_map(pDecoder->internalChannels, pDecoder->internalChannelMap);    // For WAV files we are currently making an assumption on the channel map.
+    mal_get_standard_channel_map(mal_standard_channel_map_microsoft, pDecoder->internalChannels, pDecoder->internalChannelMap);
 
     mal_result result = mal_decoder__init_dsp(pDecoder, pConfig, mal_decoder_internal_on_read_frames__wav);
     if (result != MAL_SUCCESS) {
@@ -14796,86 +15181,6 @@ mal_result mal_decoder_init_wav__internal(const mal_decoder_config* pConfig, mal
 // FLAC
 #ifdef dr_flac_h
 #define MAL_HAS_FLAC
-
-static void mal_get_flac_channel_map(mal_uint32 channels, mal_channel channelMap[MAL_MAX_CHANNELS])
-{
-    mal_zero_memory(channelMap, sizeof(mal_channel)*MAL_MAX_CHANNELS);
-
-    switch (channels) {
-        case 1:
-        {
-            channelMap[0] = MAL_CHANNEL_MONO;
-        } break;
-
-        case 2:
-        {
-            channelMap[0] = MAL_CHANNEL_LEFT;
-            channelMap[1] = MAL_CHANNEL_RIGHT;
-        } break;
-
-        case 3:
-        {
-            channelMap[0] = MAL_CHANNEL_LEFT;
-            channelMap[1] = MAL_CHANNEL_RIGHT;
-            channelMap[2] = MAL_CHANNEL_MONO;
-        } break;
-
-        case 4:
-        {
-            channelMap[0] = MAL_CHANNEL_FRONT_LEFT;
-            channelMap[1] = MAL_CHANNEL_FRONT_RIGHT;
-            channelMap[2] = MAL_CHANNEL_BACK_LEFT;
-            channelMap[3] = MAL_CHANNEL_BACK_RIGHT;
-        } break;
-
-        case 5:
-        {
-            channelMap[0] = MAL_CHANNEL_FRONT_LEFT;
-            channelMap[1] = MAL_CHANNEL_FRONT_RIGHT;
-            channelMap[2] = MAL_CHANNEL_FRONT_CENTER;
-            channelMap[3] = MAL_CHANNEL_BACK_LEFT;
-            channelMap[4] = MAL_CHANNEL_BACK_RIGHT;
-        } break;
-
-        case 6:
-        {
-            channelMap[0] = MAL_CHANNEL_FRONT_LEFT;
-            channelMap[1] = MAL_CHANNEL_FRONT_RIGHT;
-            channelMap[2] = MAL_CHANNEL_FRONT_CENTER;
-            channelMap[3] = MAL_CHANNEL_LFE;
-            channelMap[4] = MAL_CHANNEL_BACK_LEFT;
-            channelMap[5] = MAL_CHANNEL_BACK_RIGHT;
-        } break;
-
-        case 7:
-        {
-            channelMap[0] = MAL_CHANNEL_FRONT_LEFT;
-            channelMap[1] = MAL_CHANNEL_FRONT_RIGHT;
-            channelMap[2] = MAL_CHANNEL_FRONT_CENTER;
-            channelMap[3] = MAL_CHANNEL_LFE;
-            channelMap[4] = MAL_CHANNEL_BACK_CENTER;
-            channelMap[5] = MAL_CHANNEL_SIDE_LEFT;
-            channelMap[6] = MAL_CHANNEL_SIDE_RIGHT;
-        } break;
-
-        case 8:
-        {
-            channelMap[0] = MAL_CHANNEL_FRONT_LEFT;
-            channelMap[1] = MAL_CHANNEL_FRONT_RIGHT;
-            channelMap[2] = MAL_CHANNEL_FRONT_CENTER;
-            channelMap[3] = MAL_CHANNEL_LFE;
-            channelMap[4] = MAL_CHANNEL_BACK_LEFT;
-            channelMap[5] = MAL_CHANNEL_BACK_RIGHT;
-            channelMap[6] = MAL_CHANNEL_SIDE_LEFT;
-            channelMap[7] = MAL_CHANNEL_SIDE_RIGHT;
-        } break;
-
-        default:
-        {
-            // Should never get here because FLAC has a maximum of 8 channels.
-        } break;
-    }
-}
 
 static size_t mal_decoder_internal_on_read__flac(void* pUserData, void* pBufferOut, size_t bytesToRead)
 {
@@ -14948,7 +15253,7 @@ mal_result mal_decoder_init_flac__internal(const mal_decoder_config* pConfig, ma
     pDecoder->internalFormat = mal_format_s32;
     pDecoder->internalChannels = pFlac->channels;
     pDecoder->internalSampleRate = pFlac->sampleRate;
-    mal_get_flac_channel_map(pDecoder->internalChannels, pDecoder->internalChannelMap);
+    mal_get_standard_channel_map(mal_standard_channel_map_flac, pDecoder->internalChannels, pDecoder->internalChannelMap);
 
     mal_result result = mal_decoder__init_dsp(pDecoder, pConfig, mal_decoder_internal_on_read_frames__flac);
     if (result != MAL_SUCCESS) {
@@ -15223,7 +15528,7 @@ mal_result mal_decoder_init_vorbis__internal(const mal_decoder_config* pConfig, 
     pDecoder->internalFormat = mal_format_f32;
     pDecoder->internalChannels = vorbisInfo.channels;
     pDecoder->internalSampleRate = vorbisInfo.sample_rate;
-    mal_get_default_device_config_channel_map(pDecoder->internalChannels, pDecoder->internalChannelMap);
+    mal_get_standard_channel_map(mal_standard_channel_map_vorbis, pDecoder->internalChannels, pDecoder->internalChannelMap);
 
     mal_result result = mal_decoder__init_dsp(pDecoder, pConfig, mal_decoder_internal_on_read_frames__vorbis);
     if (result != MAL_SUCCESS) {
@@ -15329,7 +15634,7 @@ mal_result mal_decoder_init_mp3__internal(const mal_decoder_config* pConfig, mal
     pDecoder->internalFormat = mal_format_f32;
     pDecoder->internalChannels = pMP3->channels;
     pDecoder->internalSampleRate = pMP3->sampleRate;
-    mal_get_default_device_config_channel_map(pDecoder->internalChannels, pDecoder->internalChannelMap);
+    mal_get_standard_channel_map(mal_standard_channel_map_default, pDecoder->internalChannels, pDecoder->internalChannelMap);
 
     mal_result result = mal_decoder__init_dsp(pDecoder, pConfig, mal_decoder_internal_on_read_frames__mp3);
     if (result != MAL_SUCCESS) {
@@ -16090,6 +16395,7 @@ void mal_pcm_f32_to_s32(int* pOut, const float* pIn, unsigned int count)
 //   - Remove dependency on asound.h for the ALSA backend. This means the ALSA development packages are no
 //     longer required to build mini_al.
 //   - Add support for configuring the priority of the worker thread.
+//   - Introduce the notion of standard channel maps. Use mal_get_standard_channel_map().
 //   - Introduce the notion of default device configurations. A default config uses the same configuration
 //     as the backend's internal device, and as such results in a pass-through data transmission pipeline.
 //   - Add support for passing in NULL for the device config in mal_device_init(), which uses a default
