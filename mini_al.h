@@ -1949,12 +1949,7 @@ mal_result mal_decoder_seek_to_frame(mal_decoder* pDecoder, mal_uint64 frameInde
     #endif
 #endif
 #ifdef MAL_ENABLE_DSOUND
-    #define MAL_HAS_DSOUND
-    #ifdef __has_include
-        #if !__has_include(<dsound.h>)
-            #undef MAL_HAS_DSOUND
-        #endif
-    #endif
+    #define MAL_HAS_DSOUND      // Every compiler should support DirectSound.
 #endif
 #ifdef MAL_ENABLE_WINMM
     #define MAL_HAS_WINMM       // Every compiler I'm aware of supports WinMM.
@@ -3027,77 +3022,6 @@ static mal_result mal_post_error(mal_device* pDevice, const char* message, mal_r
 {
     return mal_context_post_error(NULL, pDevice, message, resultCode);
 }
-
-
-#if !defined(MAL_ANDROID)
-static void mal_get_default_channel_mapping(mal_backend backend, mal_uint32 channels, mal_channel channelMap[MAL_MAX_CHANNELS])
-{
-    if (channels == 1) {           // Mono
-        channelMap[0] = MAL_CHANNEL_MONO;
-    } else if (channels == 2) {    // Stereo
-        channelMap[0] = MAL_CHANNEL_FRONT_LEFT;
-        channelMap[1] = MAL_CHANNEL_FRONT_RIGHT;
-    } else if (channels == 3) {    // 2.1
-        channelMap[0] = MAL_CHANNEL_FRONT_LEFT;
-        channelMap[1] = MAL_CHANNEL_FRONT_RIGHT;
-        channelMap[2] = MAL_CHANNEL_LFE;
-    } else if (channels == 4) {    // 4.0
-        channelMap[0] = MAL_CHANNEL_FRONT_LEFT;
-        channelMap[1] = MAL_CHANNEL_FRONT_RIGHT;
-        channelMap[2] = MAL_CHANNEL_SIDE_LEFT;
-        channelMap[3] = MAL_CHANNEL_SIDE_RIGHT;
-    } else if (channels == 5) {    // Not sure about this one. 4.1?
-        channelMap[0] = MAL_CHANNEL_FRONT_LEFT;
-        channelMap[1] = MAL_CHANNEL_FRONT_RIGHT;
-        channelMap[2] = MAL_CHANNEL_SIDE_LEFT;
-        channelMap[3] = MAL_CHANNEL_SIDE_RIGHT;
-        channelMap[4] = MAL_CHANNEL_LFE;
-    } else if (channels >= 6) {    // 5.1
-        // Some backends use different default layouts.
-        if (backend == mal_backend_wasapi || backend == mal_backend_dsound || backend == mal_backend_winmm || backend == mal_backend_oss) {
-            channelMap[0] = MAL_CHANNEL_FRONT_LEFT;
-            channelMap[1] = MAL_CHANNEL_FRONT_RIGHT;
-            channelMap[2] = MAL_CHANNEL_FRONT_CENTER;
-            channelMap[3] = MAL_CHANNEL_LFE;
-            channelMap[4] = MAL_CHANNEL_SIDE_LEFT;
-            channelMap[5] = MAL_CHANNEL_SIDE_RIGHT;
-        } else {
-            channelMap[0] = MAL_CHANNEL_FRONT_LEFT;
-            channelMap[1] = MAL_CHANNEL_FRONT_RIGHT;
-            channelMap[2] = MAL_CHANNEL_SIDE_LEFT;
-            channelMap[3] = MAL_CHANNEL_SIDE_RIGHT;
-            channelMap[4] = MAL_CHANNEL_FRONT_CENTER;
-            channelMap[5] = MAL_CHANNEL_LFE;
-        }
-
-        if (channels == 7) {    // Not sure about this one.
-            channelMap[6] = MAL_CHANNEL_BACK_CENTER;
-        } else {
-            // I don't know what mapping to use in this case, but I'm making it upwards compatible with 7.1. Good luck!
-            mal_assert(channels >= 8);
-            channelMap[6] = MAL_CHANNEL_BACK_LEFT;
-            channelMap[7] = MAL_CHANNEL_BACK_RIGHT;
-
-            // Beyond 7.1 I'm just guessing...
-            if (channels == 9) {
-                channelMap[8] = MAL_CHANNEL_BACK_CENTER;
-            } else if (channels == 10) {
-                channelMap[8] = MAL_CHANNEL_FRONT_LEFT_CENTER;
-                channelMap[9] = MAL_CHANNEL_FRONT_RIGHT_CENTER;
-            } else if (channels == 11) {
-                channelMap[ 8] = MAL_CHANNEL_FRONT_LEFT_CENTER;
-                channelMap[ 9] = MAL_CHANNEL_FRONT_RIGHT_CENTER;
-                channelMap[10] = MAL_CHANNEL_BACK_CENTER;
-            } else {
-                mal_assert(channels >= 12);
-                for (mal_uint8 iChannel = 11; iChannel < channels && iChannel < MAL_MAX_CHANNELS; ++iChannel) {
-                    channelMap[iChannel] = iChannel + 1;
-                }
-            }
-        }
-    }
-}
-#endif
 
 
 // The callback for reading from the client -> DSP -> device.
@@ -4793,18 +4717,326 @@ static mal_result mal_device__main_loop__wasapi(mal_device* pDevice)
 //
 ///////////////////////////////////////////////////////////////////////////////
 #ifdef MAL_HAS_DSOUND
-#include <dsound.h>
+//#include <dsound.h>
 
-#if 0   // MAL_GUID_NULL is not currently used, but leaving it here in case I need to add it back again.
-static GUID MAL_GUID_NULL                          = {0x00000000, 0x0000, 0x0000, {0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00}};
-#endif
-static GUID MAL_GUID_IID_DirectSoundNotify         = {0xb0210783, 0x89cd, 0x11d0, {0xaf, 0x08, 0x00, 0xa0, 0xc9, 0x25, 0xcd, 0x16}};
-static GUID MAL_GUID_IID_IDirectSoundCaptureBuffer = {0xb0210782, 0x89cd, 0x11d0, {0xaf, 0x08, 0x00, 0xa0, 0xc9, 0x25, 0xcd, 0x16}};
+// MAL_GUID_NULL is not currently used, but leaving it here in case I need to add it back again.
+//static GUID MAL_GUID_NULL                = {0x00000000, 0x0000, 0x0000, {0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00}};
+static GUID MAL_GUID_IID_DirectSoundNotify = {0xb0210783, 0x89cd, 0x11d0, {0xaf, 0x08, 0x00, 0xa0, 0xc9, 0x25, 0xcd, 0x16}};
 
-typedef HRESULT (WINAPI * mal_DirectSoundCreateProc)           (const GUID* pcGuidDevice, LPDIRECTSOUND *ppDS8, LPUNKNOWN pUnkOuter);
-typedef HRESULT (WINAPI * mal_DirectSoundEnumerateAProc)       (LPDSENUMCALLBACKA pDSEnumCallback, LPVOID pContext);
-typedef HRESULT (WINAPI * mal_DirectSoundCaptureCreateProc)    (const GUID* pcGuidDevice, LPDIRECTSOUNDCAPTURE *ppDSC8, LPUNKNOWN pUnkOuter);
-typedef HRESULT (WINAPI * mal_DirectSoundCaptureEnumerateAProc)(LPDSENUMCALLBACKA pDSEnumCallback, LPVOID pContext);
+// mini_al only uses priority or exclusive modes.
+#define MAL_DSSCL_NORMAL                 1
+#define MAL_DSSCL_PRIORITY               2
+#define MAL_DSSCL_EXCLUSIVE              3
+#define MAL_DSSCL_WRITEPRIMARY           4
+
+#define MAL_DSCAPS_PRIMARYMONO           0x00000001
+#define MAL_DSCAPS_PRIMARYSTEREO         0x00000002
+#define MAL_DSCAPS_PRIMARY8BIT           0x00000004
+#define MAL_DSCAPS_PRIMARY16BIT          0x00000008
+#define MAL_DSCAPS_CONTINUOUSRATE        0x00000010
+#define MAL_DSCAPS_EMULDRIVER            0x00000020
+#define MAL_DSCAPS_CERTIFIED             0x00000040
+#define MAL_DSCAPS_SECONDARYMONO         0x00000100
+#define MAL_DSCAPS_SECONDARYSTEREO       0x00000200
+#define MAL_DSCAPS_SECONDARY8BIT         0x00000400
+#define MAL_DSCAPS_SECONDARY16BIT        0x00000800
+
+#define MAL_DSBCAPS_PRIMARYBUFFER        0x00000001
+#define MAL_DSBCAPS_STATIC               0x00000002
+#define MAL_DSBCAPS_LOCHARDWARE          0x00000004
+#define MAL_DSBCAPS_LOCSOFTWARE          0x00000008
+#define MAL_DSBCAPS_CTRL3D               0x00000010
+#define MAL_DSBCAPS_CTRLFREQUENCY        0x00000020
+#define MAL_DSBCAPS_CTRLPAN              0x00000040
+#define MAL_DSBCAPS_CTRLVOLUME           0x00000080
+#define MAL_DSBCAPS_CTRLPOSITIONNOTIFY   0x00000100
+#define MAL_DSBCAPS_CTRLFX               0x00000200
+#define MAL_DSBCAPS_STICKYFOCUS          0x00004000
+#define MAL_DSBCAPS_GLOBALFOCUS          0x00008000
+#define MAL_DSBCAPS_GETCURRENTPOSITION2  0x00010000
+#define MAL_DSBCAPS_MUTE3DATMAXDISTANCE  0x00020000
+#define MAL_DSBCAPS_LOCDEFER             0x00040000
+#define MAL_DSBCAPS_TRUEPLAYPOSITION     0x00080000
+
+#define MAL_DSBPLAY_LOOPING              0x00000001
+#define MAL_DSBPLAY_LOCHARDWARE          0x00000002
+#define MAL_DSBPLAY_LOCSOFTWARE          0x00000004
+#define MAL_DSBPLAY_TERMINATEBY_TIME     0x00000008
+#define MAL_DSBPLAY_TERMINATEBY_DISTANCE 0x00000010
+#define MAL_DSBPLAY_TERMINATEBY_PRIORITY 0x00000020
+
+#define MAL_DSCBSTART_LOOPING            0x00000001
+
+typedef struct
+{
+    DWORD dwSize;
+    DWORD dwFlags;
+    DWORD dwBufferBytes;
+    DWORD dwReserved;
+    WAVEFORMATEX* lpwfxFormat;
+    GUID guid3DAlgorithm;
+} MAL_DSBUFFERDESC;
+
+typedef struct
+{
+    DWORD dwSize;
+    DWORD dwFlags;
+    DWORD dwBufferBytes;
+    DWORD dwReserved;
+    WAVEFORMATEX* lpwfxFormat;
+    DWORD dwFXCount;
+    void* lpDSCFXDesc;  // <-- mini_al doesn't use this, so set to void*.
+} MAL_DSCBUFFERDESC;
+
+typedef struct
+{
+    DWORD dwSize;
+    DWORD dwFlags;
+    DWORD dwMinSecondarySampleRate;
+    DWORD dwMaxSecondarySampleRate;
+    DWORD dwPrimaryBuffers;
+    DWORD dwMaxHwMixingAllBuffers;
+    DWORD dwMaxHwMixingStaticBuffers;
+    DWORD dwMaxHwMixingStreamingBuffers;
+    DWORD dwFreeHwMixingAllBuffers;
+    DWORD dwFreeHwMixingStaticBuffers;
+    DWORD dwFreeHwMixingStreamingBuffers;
+    DWORD dwMaxHw3DAllBuffers;
+    DWORD dwMaxHw3DStaticBuffers;
+    DWORD dwMaxHw3DStreamingBuffers;
+    DWORD dwFreeHw3DAllBuffers;
+    DWORD dwFreeHw3DStaticBuffers;
+    DWORD dwFreeHw3DStreamingBuffers;
+    DWORD dwTotalHwMemBytes;
+    DWORD dwFreeHwMemBytes;
+    DWORD dwMaxContigFreeHwMemBytes;
+    DWORD dwUnlockTransferRateHwBuffers;
+    DWORD dwPlayCpuOverheadSwBuffers;
+    DWORD dwReserved1;
+    DWORD dwReserved2;
+} MAL_DSCAPS;
+
+typedef struct
+{
+    DWORD dwSize;
+    DWORD dwFlags;
+    DWORD dwBufferBytes;
+    DWORD dwUnlockTransferRate;
+    DWORD dwPlayCpuOverhead;
+} MAL_DSBCAPS;
+
+typedef struct
+{
+    DWORD dwSize;
+    DWORD dwFlags;
+    DWORD dwFormats;
+    DWORD dwChannels;
+} MAL_DSCCAPS;
+
+typedef struct
+{
+    DWORD dwSize;
+    DWORD dwFlags;
+    DWORD dwBufferBytes;
+    DWORD dwReserved;
+} MAL_DSCBCAPS;
+
+typedef struct
+{
+    DWORD  dwOffset;
+    HANDLE hEventNotify;
+} MAL_DSBPOSITIONNOTIFY;
+
+typedef struct mal_IDirectSound              mal_IDirectSound;
+typedef struct mal_IDirectSoundBuffer        mal_IDirectSoundBuffer;
+typedef struct mal_IDirectSoundCapture       mal_IDirectSoundCapture;
+typedef struct mal_IDirectSoundCaptureBuffer mal_IDirectSoundCaptureBuffer;
+typedef struct mal_IDirectSoundNotify        mal_IDirectSoundNotify;
+
+
+// COM objects. The way these work is that you have a vtable (a list of function pointers, kind of
+// like how C++ works internally), and then you have a structure with a single member, which is a
+// pointer to the vtable. The vtable is where the methods of the object are defined. Methods need
+// to be in a specific order, and parent classes need to have their methods declared first.
+
+// IDirectSound
+typedef struct
+{
+    // IUnknown
+    HRESULT (STDMETHODCALLTYPE * QueryInterface)(mal_IDirectSound* pThis, const IID* const riid, void** ppObject);
+    ULONG   (STDMETHODCALLTYPE * AddRef)        (mal_IDirectSound* pThis);
+    ULONG   (STDMETHODCALLTYPE * Release)       (mal_IDirectSound* pThis);
+
+    // IDirectSound
+    HRESULT (STDMETHODCALLTYPE * CreateSoundBuffer)   (mal_IDirectSound* pThis, const MAL_DSBUFFERDESC* pDSBufferDesc, mal_IDirectSoundBuffer** ppDSBuffer, void* pUnkOuter);
+    HRESULT (STDMETHODCALLTYPE * GetCaps)             (mal_IDirectSound* pThis, MAL_DSCAPS* pDSCaps);
+    HRESULT (STDMETHODCALLTYPE * DuplicateSoundBuffer)(mal_IDirectSound* pThis, mal_IDirectSoundBuffer* pDSBufferOriginal, mal_IDirectSoundBuffer** ppDSBufferDuplicate);
+    HRESULT (STDMETHODCALLTYPE * SetCooperativeLevel) (mal_IDirectSound* pThis, HWND hwnd, DWORD dwLevel);
+    HRESULT (STDMETHODCALLTYPE * Compact)             (mal_IDirectSound* pThis);
+    HRESULT (STDMETHODCALLTYPE * GetSpeakerConfig)    (mal_IDirectSound* pThis, DWORD* pSpeakerConfig);
+    HRESULT (STDMETHODCALLTYPE * SetSpeakerConfig)    (mal_IDirectSound* pThis, DWORD dwSpeakerConfig);
+    HRESULT (STDMETHODCALLTYPE * Initialize)          (mal_IDirectSound* pThis, const GUID* pGuidDevice);
+} mal_IDirectSoundVtbl;
+struct mal_IDirectSound
+{
+    mal_IDirectSoundVtbl* lpVtbl;
+};
+HRESULT mal_IDirectSound_QueryInterface(mal_IDirectSound* pThis, const IID* const riid, void** ppObject) { return pThis->lpVtbl->QueryInterface(pThis, riid, ppObject); }
+ULONG   mal_IDirectSound_AddRef(mal_IDirectSound* pThis)                                                 { return pThis->lpVtbl->AddRef(pThis); }
+ULONG   mal_IDirectSound_Release(mal_IDirectSound* pThis)                                                { return pThis->lpVtbl->Release(pThis); }
+HRESULT mal_IDirectSound_CreateSoundBuffer(mal_IDirectSound* pThis, const MAL_DSBUFFERDESC* pDSBufferDesc, mal_IDirectSoundBuffer** ppDSBuffer, void* pUnkOuter) { return pThis->lpVtbl->CreateSoundBuffer(pThis, pDSBufferDesc, ppDSBuffer, pUnkOuter); }
+HRESULT mal_IDirectSound_GetCaps(mal_IDirectSound* pThis, MAL_DSCAPS* pDSCaps)                           { return pThis->lpVtbl->GetCaps(pThis, pDSCaps); }
+HRESULT mal_IDirectSound_DuplicateSoundBuffer(mal_IDirectSound* pThis, mal_IDirectSoundBuffer* pDSBufferOriginal, mal_IDirectSoundBuffer** ppDSBufferDuplicate) { return pThis->lpVtbl->DuplicateSoundBuffer(pThis, pDSBufferOriginal, ppDSBufferDuplicate); }
+HRESULT mal_IDirectSound_SetCooperativeLevel(mal_IDirectSound* pThis, HWND hwnd, DWORD dwLevel)          { return pThis->lpVtbl->SetCooperativeLevel(pThis, hwnd, dwLevel); }
+HRESULT mal_IDirectSound_Compact(mal_IDirectSound* pThis)                                                { return pThis->lpVtbl->Compact(pThis); }
+HRESULT mal_IDirectSound_GetSpeakerConfig(mal_IDirectSound* pThis, DWORD* pSpeakerConfig)                { return pThis->lpVtbl->GetSpeakerConfig(pThis, pSpeakerConfig); }
+HRESULT mal_IDirectSound_SetSpeakerConfig(mal_IDirectSound* pThis, DWORD dwSpeakerConfig)                { return pThis->lpVtbl->SetSpeakerConfig(pThis, dwSpeakerConfig); }
+HRESULT mal_IDirectSound_Initialize(mal_IDirectSound* pThis, const GUID* pGuidDevice)                    { return pThis->lpVtbl->Initialize(pThis, pGuidDevice); }
+
+
+// IDirectSoundBuffer
+typedef struct
+{
+    // IUnknown
+    HRESULT (STDMETHODCALLTYPE * QueryInterface)(mal_IDirectSoundBuffer* pThis, const IID* const riid, void** ppObject);
+    ULONG   (STDMETHODCALLTYPE * AddRef)        (mal_IDirectSoundBuffer* pThis);
+    ULONG   (STDMETHODCALLTYPE * Release)       (mal_IDirectSoundBuffer* pThis);
+
+    // IDirectSoundBuffer
+    HRESULT (STDMETHODCALLTYPE * GetCaps)           (mal_IDirectSoundBuffer* pThis, MAL_DSBCAPS* pDSBufferCaps);
+    HRESULT (STDMETHODCALLTYPE * GetCurrentPosition)(mal_IDirectSoundBuffer* pThis, DWORD* pCurrentPlayCursor, DWORD* pCurrentWriteCursor);
+    HRESULT (STDMETHODCALLTYPE * GetFormat)         (mal_IDirectSoundBuffer* pThis, WAVEFORMATEX* pFormat, DWORD dwSizeAllocated, DWORD* pSizeWritten);
+    HRESULT (STDMETHODCALLTYPE * GetVolume)         (mal_IDirectSoundBuffer* pThis, LONG* pVolume);
+    HRESULT (STDMETHODCALLTYPE * GetPan)            (mal_IDirectSoundBuffer* pThis, LONG* pPan);
+    HRESULT (STDMETHODCALLTYPE * GetFrequency)      (mal_IDirectSoundBuffer* pThis, DWORD* pFrequency);
+    HRESULT (STDMETHODCALLTYPE * GetStatus)         (mal_IDirectSoundBuffer* pThis, DWORD* pStatus);
+    HRESULT (STDMETHODCALLTYPE * Initialize)        (mal_IDirectSoundBuffer* pThis, mal_IDirectSound* pDirectSound, const MAL_DSBUFFERDESC* pDSBufferDesc);
+    HRESULT (STDMETHODCALLTYPE * Lock)              (mal_IDirectSoundBuffer* pThis, DWORD dwOffset, DWORD dwBytes, void** ppAudioPtr1, DWORD* pAudioBytes1, void** ppAudioPtr2, DWORD* pAudioBytes2, DWORD dwFlags);
+    HRESULT (STDMETHODCALLTYPE * Play)              (mal_IDirectSoundBuffer* pThis, DWORD dwReserved1, DWORD dwPriority, DWORD dwFlags);
+    HRESULT (STDMETHODCALLTYPE * SetCurrentPosition)(mal_IDirectSoundBuffer* pThis, DWORD dwNewPosition);
+    HRESULT (STDMETHODCALLTYPE * SetFormat)         (mal_IDirectSoundBuffer* pThis, const WAVEFORMATEX* pFormat);
+    HRESULT (STDMETHODCALLTYPE * SetVolume)         (mal_IDirectSoundBuffer* pThis, LONG volume);
+    HRESULT (STDMETHODCALLTYPE * SetPan)            (mal_IDirectSoundBuffer* pThis, LONG pan);
+    HRESULT (STDMETHODCALLTYPE * SetFrequency)      (mal_IDirectSoundBuffer* pThis, DWORD dwFrequency);
+    HRESULT (STDMETHODCALLTYPE * Stop)              (mal_IDirectSoundBuffer* pThis);
+    HRESULT (STDMETHODCALLTYPE * Unlock)            (mal_IDirectSoundBuffer* pThis, void* pAudioPtr1, DWORD dwAudioBytes1, void* pAudioPtr2, DWORD dwAudioBytes2);
+    HRESULT (STDMETHODCALLTYPE * Restore)           (mal_IDirectSoundBuffer* pThis);
+} mal_IDirectSoundBufferVtbl;
+struct mal_IDirectSoundBuffer
+{
+    mal_IDirectSoundBufferVtbl* lpVtbl;
+};
+HRESULT mal_IDirectSoundBuffer_QueryInterface(mal_IDirectSoundBuffer* pThis, const IID* const riid, void** ppObject) { return pThis->lpVtbl->QueryInterface(pThis, riid, ppObject); }
+ULONG   mal_IDirectSoundBuffer_AddRef(mal_IDirectSoundBuffer* pThis)                                                 { return pThis->lpVtbl->AddRef(pThis); }
+ULONG   mal_IDirectSoundBuffer_Release(mal_IDirectSoundBuffer* pThis)                                                { return pThis->lpVtbl->Release(pThis); }
+HRESULT mal_IDirectSoundBuffer_GetCaps(mal_IDirectSoundBuffer* pThis, MAL_DSBCAPS* pDSBufferCaps)                    { return pThis->lpVtbl->GetCaps(pThis, pDSBufferCaps); }
+HRESULT mal_IDirectSoundBuffer_GetCurrentPosition(mal_IDirectSoundBuffer* pThis, DWORD* pCurrentPlayCursor, DWORD* pCurrentWriteCursor) { return pThis->lpVtbl->GetCurrentPosition(pThis, pCurrentPlayCursor, pCurrentWriteCursor); }
+HRESULT mal_IDirectSoundBuffer_GetFormat(mal_IDirectSoundBuffer* pThis, WAVEFORMATEX* pFormat, DWORD dwSizeAllocated, DWORD* pSizeWritten) { return pThis->lpVtbl->GetFormat(pThis, pFormat, dwSizeAllocated, pSizeWritten); }
+HRESULT mal_IDirectSoundBuffer_GetVolume(mal_IDirectSoundBuffer* pThis, LONG* pVolume)                               { return pThis->lpVtbl->GetVolume(pThis, pVolume); }
+HRESULT mal_IDirectSoundBuffer_GetPan(mal_IDirectSoundBuffer* pThis, LONG* pPan)                                     { return pThis->lpVtbl->GetPan(pThis, pPan); }
+HRESULT mal_IDirectSoundBuffer_GetFrequency(mal_IDirectSoundBuffer* pThis, DWORD* pFrequency)                        { return pThis->lpVtbl->GetFrequency(pThis, pFrequency); }
+HRESULT mal_IDirectSoundBuffer_GetStatus(mal_IDirectSoundBuffer* pThis, DWORD* pStatus)                              { return pThis->lpVtbl->GetStatus(pThis, pStatus); }
+HRESULT mal_IDirectSoundBuffer_Initialize(mal_IDirectSoundBuffer* pThis, mal_IDirectSound* pDirectSound, const MAL_DSBUFFERDESC* pDSBufferDesc) { return pThis->lpVtbl->Initialize(pThis, pDirectSound, pDSBufferDesc); }
+HRESULT mal_IDirectSoundBuffer_Lock(mal_IDirectSoundBuffer* pThis, DWORD dwOffset, DWORD dwBytes, void** ppAudioPtr1, DWORD* pAudioBytes1, void** ppAudioPtr2, DWORD* pAudioBytes2, DWORD dwFlags) { return pThis->lpVtbl->Lock(pThis, dwOffset, dwBytes, ppAudioPtr1, pAudioBytes1, ppAudioPtr2, pAudioBytes2, dwFlags); }
+HRESULT mal_IDirectSoundBuffer_Play(mal_IDirectSoundBuffer* pThis, DWORD dwReserved1, DWORD dwPriority, DWORD dwFlags) { return pThis->lpVtbl->Play(pThis, dwReserved1, dwPriority, dwFlags); }
+HRESULT mal_IDirectSoundBuffer_SetCurrentPosition(mal_IDirectSoundBuffer* pThis, DWORD dwNewPosition)                { return pThis->lpVtbl->SetCurrentPosition(pThis, dwNewPosition); }
+HRESULT mal_IDirectSoundBuffer_SetFormat(mal_IDirectSoundBuffer* pThis, const WAVEFORMATEX* pFormat)                 { return pThis->lpVtbl->SetFormat(pThis, pFormat); }
+HRESULT mal_IDirectSoundBuffer_SetVolume(mal_IDirectSoundBuffer* pThis, LONG volume)                                 { return pThis->lpVtbl->SetVolume(pThis, volume); }
+HRESULT mal_IDirectSoundBuffer_SetPan(mal_IDirectSoundBuffer* pThis, LONG pan)                                       { return pThis->lpVtbl->SetPan(pThis, pan); }
+HRESULT mal_IDirectSoundBuffer_SetFrequency(mal_IDirectSoundBuffer* pThis, DWORD dwFrequency)                        { return pThis->lpVtbl->SetFrequency(pThis, dwFrequency); }
+HRESULT mal_IDirectSoundBuffer_Stop(mal_IDirectSoundBuffer* pThis)                                                   { return pThis->lpVtbl->Stop(pThis); }
+HRESULT mal_IDirectSoundBuffer_Unlock(mal_IDirectSoundBuffer* pThis, void* pAudioPtr1, DWORD dwAudioBytes1, void* pAudioPtr2, DWORD dwAudioBytes2) { return pThis->lpVtbl->Unlock(pThis, pAudioPtr1, dwAudioBytes1, pAudioPtr2, dwAudioBytes2); }
+HRESULT mal_IDirectSoundBuffer_Restore(mal_IDirectSoundBuffer* pThis)                                                { return pThis->lpVtbl->Restore(pThis); }
+
+
+// IDirectSoundCapture
+typedef struct
+{
+    // IUnknown
+    HRESULT (STDMETHODCALLTYPE * QueryInterface)(mal_IDirectSoundCapture* pThis, const IID* const riid, void** ppObject);
+    ULONG   (STDMETHODCALLTYPE * AddRef)        (mal_IDirectSoundCapture* pThis);
+    ULONG   (STDMETHODCALLTYPE * Release)       (mal_IDirectSoundCapture* pThis);
+
+    // IDirectSoundCapture
+    HRESULT (STDMETHODCALLTYPE * CreateCaptureBuffer)(mal_IDirectSoundCapture* pThis, const MAL_DSCBUFFERDESC* pDSCBufferDesc, mal_IDirectSoundCaptureBuffer** ppDSCBuffer, void* pUnkOuter);
+    HRESULT (STDMETHODCALLTYPE * GetCaps)            (mal_IDirectSoundCapture* pThis, MAL_DSCCAPS* pDSCCaps);
+    HRESULT (STDMETHODCALLTYPE * Initialize)         (mal_IDirectSoundCapture* pThis, const GUID* pGuidDevice);
+} mal_IDirectSoundCaptureVtbl;
+struct mal_IDirectSoundCapture
+{
+    mal_IDirectSoundCaptureVtbl* lpVtbl;
+};
+HRESULT mal_IDirectSoundCapture_QueryInterface(mal_IDirectSoundCapture* pThis, const IID* const riid, void** ppObject) { return pThis->lpVtbl->QueryInterface(pThis, riid, ppObject); }
+ULONG   mal_IDirectSoundCapture_AddRef(mal_IDirectSoundCapture* pThis)                                                 { return pThis->lpVtbl->AddRef(pThis); }
+ULONG   mal_IDirectSoundCapture_Release(mal_IDirectSoundCapture* pThis)                                                { return pThis->lpVtbl->Release(pThis); }
+HRESULT mal_IDirectSoundCapture_CreateCaptureBuffer(mal_IDirectSoundCapture* pThis, const MAL_DSCBUFFERDESC* pDSCBufferDesc, mal_IDirectSoundCaptureBuffer** ppDSCBuffer, void* pUnkOuter) { return pThis->lpVtbl->CreateCaptureBuffer(pThis, pDSCBufferDesc, ppDSCBuffer, pUnkOuter); }
+HRESULT mal_IDirectSoundCapture_GetCaps            (mal_IDirectSoundCapture* pThis, MAL_DSCCAPS* pDSCCaps)             { return pThis->lpVtbl->GetCaps(pThis, pDSCCaps); }
+HRESULT mal_IDirectSoundCapture_Initialize         (mal_IDirectSoundCapture* pThis, const GUID* pGuidDevice)           { return pThis->lpVtbl->Initialize(pThis, pGuidDevice); }
+
+
+// IDirectSoundCaptureBuffer
+typedef struct
+{
+    // IUnknown
+    HRESULT (STDMETHODCALLTYPE * QueryInterface)(mal_IDirectSoundCaptureBuffer* pThis, const IID* const riid, void** ppObject);
+    ULONG   (STDMETHODCALLTYPE * AddRef)        (mal_IDirectSoundCaptureBuffer* pThis);
+    ULONG   (STDMETHODCALLTYPE * Release)       (mal_IDirectSoundCaptureBuffer* pThis);
+
+    // IDirectSoundCaptureBuffer
+    HRESULT (STDMETHODCALLTYPE * GetCaps)           (mal_IDirectSoundCaptureBuffer* pThis, MAL_DSCBCAPS* pDSCBCaps);
+    HRESULT (STDMETHODCALLTYPE * GetCurrentPosition)(mal_IDirectSoundCaptureBuffer* pThis, DWORD* pCapturePosition, DWORD* pReadPosition);
+    HRESULT (STDMETHODCALLTYPE * GetFormat)         (mal_IDirectSoundCaptureBuffer* pThis, WAVEFORMATEX* pFormat, DWORD dwSizeAllocated, DWORD* pSizeWritten);
+    HRESULT (STDMETHODCALLTYPE * GetStatus)         (mal_IDirectSoundCaptureBuffer* pThis, DWORD* pStatus);
+    HRESULT (STDMETHODCALLTYPE * Initialize)        (mal_IDirectSoundCaptureBuffer* pThis, mal_IDirectSoundCapture* pDirectSoundCapture, const MAL_DSCBUFFERDESC* pDSCBufferDesc);
+    HRESULT (STDMETHODCALLTYPE * Lock)              (mal_IDirectSoundCaptureBuffer* pThis, DWORD dwOffset, DWORD dwBytes, void** ppAudioPtr1, DWORD* pAudioBytes1, void** ppAudioPtr2, DWORD* pAudioBytes2, DWORD dwFlags);
+    HRESULT (STDMETHODCALLTYPE * Start)             (mal_IDirectSoundCaptureBuffer* pThis, DWORD dwFlags);
+    HRESULT (STDMETHODCALLTYPE * Stop)              (mal_IDirectSoundCaptureBuffer* pThis);
+    HRESULT (STDMETHODCALLTYPE * Unlock)            (mal_IDirectSoundCaptureBuffer* pThis, void* pAudioPtr1, DWORD dwAudioBytes1, void* pAudioPtr2, DWORD dwAudioBytes2);
+} mal_IDirectSoundCaptureBufferVtbl;
+struct mal_IDirectSoundCaptureBuffer
+{
+    mal_IDirectSoundCaptureBufferVtbl* lpVtbl;
+};
+HRESULT mal_IDirectSoundCaptureBuffer_QueryInterface(mal_IDirectSoundCaptureBuffer* pThis, const IID* const riid, void** ppObject) { return pThis->lpVtbl->QueryInterface(pThis, riid, ppObject); }
+ULONG   mal_IDirectSoundCaptureBuffer_AddRef(mal_IDirectSoundCaptureBuffer* pThis)                                                 { return pThis->lpVtbl->AddRef(pThis); }
+ULONG   mal_IDirectSoundCaptureBuffer_Release(mal_IDirectSoundCaptureBuffer* pThis)                                                { return pThis->lpVtbl->Release(pThis); }
+HRESULT mal_IDirectSoundCaptureBuffer_GetCaps(mal_IDirectSoundCaptureBuffer* pThis, MAL_DSCBCAPS* pDSCBCaps)                       { return pThis->lpVtbl->GetCaps(pThis, pDSCBCaps); }
+HRESULT mal_IDirectSoundCaptureBuffer_GetCurrentPosition(mal_IDirectSoundCaptureBuffer* pThis, DWORD* pCapturePosition, DWORD* pReadPosition) { return pThis->lpVtbl->GetCurrentPosition(pThis, pCapturePosition, pReadPosition); }
+HRESULT mal_IDirectSoundCaptureBuffer_GetFormat(mal_IDirectSoundCaptureBuffer* pThis, WAVEFORMATEX* pFormat, DWORD dwSizeAllocated, DWORD* pSizeWritten) { return pThis->lpVtbl->GetFormat(pThis, pFormat, dwSizeAllocated, pSizeWritten); }
+HRESULT mal_IDirectSoundCaptureBuffer_GetStatus(mal_IDirectSoundCaptureBuffer* pThis, DWORD* pStatus)                              { return pThis->lpVtbl->GetStatus(pThis, pStatus); }
+HRESULT mal_IDirectSoundCaptureBuffer_Initialize(mal_IDirectSoundCaptureBuffer* pThis, mal_IDirectSoundCapture* pDirectSoundCapture, const MAL_DSCBUFFERDESC* pDSCBufferDesc) { return pThis->lpVtbl->Initialize(pThis, pDirectSoundCapture, pDSCBufferDesc); }
+HRESULT mal_IDirectSoundCaptureBuffer_Lock(mal_IDirectSoundCaptureBuffer* pThis, DWORD dwOffset, DWORD dwBytes, void** ppAudioPtr1, DWORD* pAudioBytes1, void** ppAudioPtr2, DWORD* pAudioBytes2, DWORD dwFlags) { return pThis->lpVtbl->Lock(pThis, dwOffset, dwBytes, ppAudioPtr1, pAudioBytes1, ppAudioPtr2, pAudioBytes2, dwFlags); }
+HRESULT mal_IDirectSoundCaptureBuffer_Start(mal_IDirectSoundCaptureBuffer* pThis, DWORD dwFlags)                                   { return pThis->lpVtbl->Start(pThis, dwFlags); }
+HRESULT mal_IDirectSoundCaptureBuffer_Stop(mal_IDirectSoundCaptureBuffer* pThis)                                                   { return pThis->lpVtbl->Stop(pThis); }
+HRESULT mal_IDirectSoundCaptureBuffer_Unlock(mal_IDirectSoundCaptureBuffer* pThis, void* pAudioPtr1, DWORD dwAudioBytes1, void* pAudioPtr2, DWORD dwAudioBytes2) { return pThis->lpVtbl->Unlock(pThis, pAudioPtr1, dwAudioBytes1, pAudioPtr2, dwAudioBytes2); }
+
+
+// IDirectSoundNotify
+typedef struct
+{
+    // IUnknown
+    HRESULT (STDMETHODCALLTYPE * QueryInterface)(mal_IDirectSoundNotify* pThis, const IID* const riid, void** ppObject);
+    ULONG   (STDMETHODCALLTYPE * AddRef)        (mal_IDirectSoundNotify* pThis);
+    ULONG   (STDMETHODCALLTYPE * Release)       (mal_IDirectSoundNotify* pThis);
+
+    // IDirectSoundNotify
+    HRESULT (STDMETHODCALLTYPE * SetNotificationPositions)(mal_IDirectSoundNotify* pThis, DWORD dwPositionNotifies, const MAL_DSBPOSITIONNOTIFY* pPositionNotifies);
+} mal_IDirectSoundNotifyVtbl;
+struct mal_IDirectSoundNotify
+{
+    mal_IDirectSoundNotifyVtbl* lpVtbl;
+};
+HRESULT mal_IDirectSoundNotify_QueryInterface(mal_IDirectSoundNotify* pThis, const IID* const riid, void** ppObject) { return pThis->lpVtbl->QueryInterface(pThis, riid, ppObject); }
+ULONG   mal_IDirectSoundNotify_AddRef(mal_IDirectSoundNotify* pThis)                                                 { return pThis->lpVtbl->AddRef(pThis); }
+ULONG   mal_IDirectSoundNotify_Release(mal_IDirectSoundNotify* pThis)                                                { return pThis->lpVtbl->Release(pThis); }
+HRESULT mal_IDirectSoundNotify_SetNotificationPositions(mal_IDirectSoundNotify* pThis, DWORD dwPositionNotifies, const MAL_DSBPOSITIONNOTIFY* pPositionNotifies) { return pThis->lpVtbl->SetNotificationPositions(pThis, dwPositionNotifies, pPositionNotifies); }
+
+
+typedef BOOL    (CALLBACK * mal_DSEnumCallbackAProc)             (LPGUID pDeviceGUID, LPCSTR pDeviceDescription, LPCSTR pModule, LPVOID pContext);
+typedef HRESULT (WINAPI   * mal_DirectSoundCreateProc)           (const GUID* pcGuidDevice, mal_IDirectSound** ppDS8, LPUNKNOWN pUnkOuter);
+typedef HRESULT (WINAPI   * mal_DirectSoundEnumerateAProc)       (mal_DSEnumCallbackAProc pDSEnumCallback, LPVOID pContext);
+typedef HRESULT (WINAPI   * mal_DirectSoundCaptureCreateProc)    (const GUID* pcGuidDevice, mal_IDirectSoundCapture** ppDSC8, LPUNKNOWN pUnkOuter);
+typedef HRESULT (WINAPI   * mal_DirectSoundCaptureEnumerateAProc)(mal_DSEnumCallbackAProc pDSEnumCallback, LPVOID pContext);
 
 
 // Retrieves the channel count and channel map for the given speaker configuration. If the speaker configuration is unknown,
@@ -4821,16 +5053,18 @@ static void mal_get_channels_from_speaker_config__dsound(DWORD speakerConfig, WO
         channelMap = *pChannelMapOut;
     }
 
-    switch (DSSPEAKER_CONFIG(speakerConfig)) {
-        case DSSPEAKER_HEADPHONE:                          channels = 2; channelMap = SPEAKER_FRONT_LEFT | SPEAKER_FRONT_RIGHT; break;
-        case DSSPEAKER_MONO:                               channels = 1; channelMap = SPEAKER_FRONT_CENTER; break;
-        case DSSPEAKER_QUAD:                               channels = 4; channelMap = SPEAKER_FRONT_LEFT | SPEAKER_FRONT_RIGHT | SPEAKER_BACK_LEFT | SPEAKER_BACK_RIGHT; break;
-        case DSSPEAKER_STEREO:                             channels = 2; channelMap = SPEAKER_FRONT_LEFT | SPEAKER_FRONT_RIGHT; break;
-        case DSSPEAKER_SURROUND:                           channels = 4; channelMap = SPEAKER_FRONT_LEFT | SPEAKER_FRONT_RIGHT | SPEAKER_FRONT_CENTER | SPEAKER_BACK_CENTER; break;
-        case DSSPEAKER_5POINT1_BACK /*DSSPEAKER_5POINT1*/: channels = 6; channelMap = SPEAKER_FRONT_LEFT | SPEAKER_FRONT_RIGHT | SPEAKER_FRONT_CENTER | SPEAKER_LOW_FREQUENCY | SPEAKER_BACK_LEFT | SPEAKER_BACK_RIGHT; break;
-        case DSSPEAKER_7POINT1_WIDE /*DSSPEAKER_7POINT1*/: channels = 8; channelMap = SPEAKER_FRONT_LEFT | SPEAKER_FRONT_RIGHT | SPEAKER_FRONT_CENTER | SPEAKER_LOW_FREQUENCY | SPEAKER_BACK_LEFT | SPEAKER_BACK_RIGHT | SPEAKER_FRONT_LEFT_OF_CENTER | SPEAKER_FRONT_RIGHT_OF_CENTER; break;
-        case DSSPEAKER_7POINT1_SURROUND:                   channels = 8; channelMap = SPEAKER_FRONT_LEFT | SPEAKER_FRONT_RIGHT | SPEAKER_FRONT_CENTER | SPEAKER_LOW_FREQUENCY | SPEAKER_BACK_LEFT | SPEAKER_BACK_RIGHT | SPEAKER_SIDE_LEFT | SPEAKER_SIDE_RIGHT; break;
-        case DSSPEAKER_5POINT1_SURROUND:                   channels = 6; channelMap = SPEAKER_FRONT_LEFT | SPEAKER_FRONT_RIGHT | SPEAKER_FRONT_CENTER | SPEAKER_LOW_FREQUENCY | SPEAKER_SIDE_LEFT | SPEAKER_SIDE_RIGHT; break;
+    // The speaker configuration is a combination of speaker config and speaker geometry. The lower 8 bits is what we care about. The upper
+    // 16 bits is for the geometry.
+    switch ((BYTE)(speakerConfig)) {
+        case 1 /*DSSPEAKER_HEADPHONE*/:                          channels = 2; channelMap = SPEAKER_FRONT_LEFT | SPEAKER_FRONT_RIGHT; break;
+        case 2 /*DSSPEAKER_MONO*/:                               channels = 1; channelMap = SPEAKER_FRONT_CENTER; break;
+        case 3 /*DSSPEAKER_QUAD*/:                               channels = 4; channelMap = SPEAKER_FRONT_LEFT | SPEAKER_FRONT_RIGHT | SPEAKER_BACK_LEFT | SPEAKER_BACK_RIGHT; break;
+        case 4 /*DSSPEAKER_STEREO*/:                             channels = 2; channelMap = SPEAKER_FRONT_LEFT | SPEAKER_FRONT_RIGHT; break;
+        case 5 /*DSSPEAKER_SURROUND*/:                           channels = 4; channelMap = SPEAKER_FRONT_LEFT | SPEAKER_FRONT_RIGHT | SPEAKER_FRONT_CENTER | SPEAKER_BACK_CENTER; break;
+        case 6 /*DSSPEAKER_5POINT1_BACK*/ /*DSSPEAKER_5POINT1*/: channels = 6; channelMap = SPEAKER_FRONT_LEFT | SPEAKER_FRONT_RIGHT | SPEAKER_FRONT_CENTER | SPEAKER_LOW_FREQUENCY | SPEAKER_BACK_LEFT | SPEAKER_BACK_RIGHT; break;
+        case 7 /*DSSPEAKER_7POINT1_WIDE*/ /*DSSPEAKER_7POINT1*/: channels = 8; channelMap = SPEAKER_FRONT_LEFT | SPEAKER_FRONT_RIGHT | SPEAKER_FRONT_CENTER | SPEAKER_LOW_FREQUENCY | SPEAKER_BACK_LEFT | SPEAKER_BACK_RIGHT | SPEAKER_FRONT_LEFT_OF_CENTER | SPEAKER_FRONT_RIGHT_OF_CENTER; break;
+        case 8 /*DSSPEAKER_7POINT1_SURROUND*/:                   channels = 8; channelMap = SPEAKER_FRONT_LEFT | SPEAKER_FRONT_RIGHT | SPEAKER_FRONT_CENTER | SPEAKER_LOW_FREQUENCY | SPEAKER_BACK_LEFT | SPEAKER_BACK_RIGHT | SPEAKER_SIDE_LEFT | SPEAKER_SIDE_RIGHT; break;
+        case 9 /*DSSPEAKER_5POINT1_SURROUND*/:                   channels = 6; channelMap = SPEAKER_FRONT_LEFT | SPEAKER_FRONT_RIGHT | SPEAKER_FRONT_CENTER | SPEAKER_LOW_FREQUENCY | SPEAKER_SIDE_LEFT | SPEAKER_SIDE_RIGHT; break;
         default: break;
     }
 
@@ -4935,8 +5169,8 @@ static void mal_device_uninit__dsound(mal_device* pDevice)
 {
     mal_assert(pDevice != NULL);
 
-    if (pDevice->dsound.pNotify) {
-        IDirectSoundNotify_Release((LPDIRECTSOUNDNOTIFY)pDevice->dsound.pNotify);
+    if (pDevice->dsound.pNotify != NULL) {
+        mal_IDirectSoundNotify_Release((mal_IDirectSoundNotify*)pDevice->dsound.pNotify);
     }
 
     if (pDevice->dsound.hStopEvent) {
@@ -4948,35 +5182,27 @@ static void mal_device_uninit__dsound(mal_device* pDevice)
         }
     }
 
-    if (pDevice->dsound.pCaptureBuffer) {
-        IDirectSoundCaptureBuffer_Release((LPDIRECTSOUNDBUFFER)pDevice->dsound.pCaptureBuffer);
+    if (pDevice->dsound.pCaptureBuffer != NULL) {
+        mal_IDirectSoundCaptureBuffer_Release((mal_IDirectSoundCaptureBuffer*)pDevice->dsound.pCaptureBuffer);
     }
-    if (pDevice->dsound.pCapture) {
-        IDirectSoundCapture_Release((LPDIRECTSOUNDCAPTURE)pDevice->dsound.pCapture);
+    if (pDevice->dsound.pCapture != NULL) {
+        mal_IDirectSoundCapture_Release((mal_IDirectSoundCapture*)pDevice->dsound.pCapture);
     }
 
-    if (pDevice->dsound.pPlaybackBuffer) {
-        IDirectSoundBuffer_Release((LPDIRECTSOUNDBUFFER)pDevice->dsound.pPlaybackBuffer);
+    if (pDevice->dsound.pPlaybackBuffer != NULL) {
+        mal_IDirectSoundBuffer_Release((mal_IDirectSoundBuffer*)pDevice->dsound.pPlaybackBuffer);
     }
-    if (pDevice->dsound.pPlaybackPrimaryBuffer) {
-        IDirectSoundBuffer_Release((LPDIRECTSOUNDBUFFER)pDevice->dsound.pPlaybackPrimaryBuffer);
+    if (pDevice->dsound.pPlaybackPrimaryBuffer != NULL) {
+        mal_IDirectSoundBuffer_Release((mal_IDirectSoundBuffer*)pDevice->dsound.pPlaybackPrimaryBuffer);
     }
     if (pDevice->dsound.pPlayback != NULL) {
-        IDirectSound_Release((LPDIRECTSOUND)pDevice->dsound.pPlayback);
+        mal_IDirectSound_Release((mal_IDirectSound*)pDevice->dsound.pPlayback);
     }
 }
 
 static mal_result mal_device_init__dsound(mal_context* pContext, mal_device_type type, mal_device_id* pDeviceID, const mal_device_config* pConfig, mal_device* pDevice)
 {
     (void)pContext;
-
-#ifdef __cplusplus
-    GUID _MAL_GUID_IID_DirectSoundNotify          = MAL_GUID_IID_DirectSoundNotify;
-    GUID _MAL_GUID_IID_IDirectSoundCaptureBuffer  = MAL_GUID_IID_IDirectSoundCaptureBuffer;
-#else
-    GUID* _MAL_GUID_IID_DirectSoundNotify         = &MAL_GUID_IID_DirectSoundNotify;
-    GUID* _MAL_GUID_IID_IDirectSoundCaptureBuffer = &MAL_GUID_IID_IDirectSoundCaptureBuffer;
-#endif
 
     mal_assert(pDevice != NULL);
     mal_zero_object(&pDevice->dsound);
@@ -5021,7 +5247,7 @@ static mal_result mal_device_init__dsound(mal_context* pContext, mal_device_type
 
     // Unfortunately DirectSound uses different APIs and data structures for playback and catpure devices :(
     if (type == mal_device_type_playback) {
-        if (FAILED(((mal_DirectSoundCreateProc)pContext->dsound.DirectSoundCreate)((pDeviceID == NULL) ? NULL : (const GUID*)pDeviceID->dsound, (LPDIRECTSOUND*)&pDevice->dsound.pPlayback, NULL))) {
+        if (FAILED(((mal_DirectSoundCreateProc)pContext->dsound.DirectSoundCreate)((pDeviceID == NULL) ? NULL : (const GUID*)pDeviceID->dsound, (mal_IDirectSound**)&pDevice->dsound.pPlayback, NULL))) {
             mal_device_uninit__dsound(pDevice);
             return mal_post_error(pDevice, "[DirectSound] DirectSoundCreate() failed for playback device.", MAL_FAILED_TO_OPEN_BACKEND_DEVICE);
         }
@@ -5031,38 +5257,38 @@ static mal_result mal_device_init__dsound(mal_context* pContext, mal_device_type
         if (hWnd == NULL) {
             hWnd = ((MAL_PFN_GetDesktopWindow)pContext->win32.GetDesktopWindow)();
         }
-        if (FAILED(IDirectSound_SetCooperativeLevel((LPDIRECTSOUND)pDevice->dsound.pPlayback, hWnd, (pConfig->preferExclusiveMode) ? DSSCL_EXCLUSIVE : DSSCL_PRIORITY))) {
+        if (FAILED(mal_IDirectSound_SetCooperativeLevel((mal_IDirectSound*)pDevice->dsound.pPlayback, hWnd, (pConfig->preferExclusiveMode) ? MAL_DSSCL_EXCLUSIVE : MAL_DSSCL_PRIORITY))) {
             mal_device_uninit__dsound(pDevice);
             return mal_post_error(pDevice, "[DirectSound] IDirectSound_SetCooperateiveLevel() failed for playback device.", MAL_FAILED_TO_OPEN_BACKEND_DEVICE);
         }
 
-        DSBUFFERDESC descDSPrimary;
+        MAL_DSBUFFERDESC descDSPrimary;
         mal_zero_object(&descDSPrimary);
-        descDSPrimary.dwSize  = sizeof(DSBUFFERDESC);
-        descDSPrimary.dwFlags = DSBCAPS_PRIMARYBUFFER | DSBCAPS_CTRLVOLUME;
-        if (FAILED(IDirectSound_CreateSoundBuffer((LPDIRECTSOUND)pDevice->dsound.pPlayback, &descDSPrimary, (LPDIRECTSOUNDBUFFER*)&pDevice->dsound.pPlaybackPrimaryBuffer, NULL))) {
+        descDSPrimary.dwSize  = sizeof(MAL_DSBUFFERDESC);
+        descDSPrimary.dwFlags = MAL_DSBCAPS_PRIMARYBUFFER | MAL_DSBCAPS_CTRLVOLUME;
+        if (FAILED(mal_IDirectSound_CreateSoundBuffer((mal_IDirectSound*)pDevice->dsound.pPlayback, &descDSPrimary, (mal_IDirectSoundBuffer**)&pDevice->dsound.pPlaybackPrimaryBuffer, NULL))) {
             mal_device_uninit__dsound(pDevice);
             return mal_post_error(pDevice, "[DirectSound] IDirectSound_CreateSoundBuffer() failed for playback device's primary buffer.", MAL_FAILED_TO_OPEN_BACKEND_DEVICE);
         }
 
 
         // We may want to make some adjustments to the format if we are using defaults.
-        DSCAPS caps;
+        MAL_DSCAPS caps;
         mal_zero_object(&caps);
         caps.dwSize = sizeof(caps);
-        if (FAILED(IDirectSound_GetCaps((LPDIRECTSOUND)pDevice->dsound.pPlayback, &caps))) {
+        if (FAILED(mal_IDirectSound_GetCaps((mal_IDirectSound*)pDevice->dsound.pPlayback, &caps))) {
             mal_device_uninit__dsound(pDevice);
             return mal_post_error(pDevice, "[DirectSound] IDirectSound_GetCaps() failed for playback device.", MAL_FAILED_TO_OPEN_BACKEND_DEVICE);
         }
 
         if (pDevice->usingDefaultChannels) {
-            if ((caps.dwFlags & DSCAPS_PRIMARYSTEREO) != 0) {
+            if ((caps.dwFlags & MAL_DSCAPS_PRIMARYSTEREO) != 0) {
                 // It supports at least stereo, but could support more.
                 wf.Format.nChannels = 2;
 
                 // Look at the speaker configuration to get a better idea on the channel count.
                 DWORD speakerConfig;
-                if (SUCCEEDED(IDirectSound_GetSpeakerConfig((LPDIRECTSOUND)pDevice->dsound.pPlayback, &speakerConfig))) {
+                if (SUCCEEDED(mal_IDirectSound_GetSpeakerConfig((mal_IDirectSound*)pDevice->dsound.pPlayback, &speakerConfig))) {
                     mal_get_channels_from_speaker_config__dsound(speakerConfig, &wf.Format.nChannels, &wf.dwChannelMask);
                 }
             } else {
@@ -5073,7 +5299,7 @@ static mal_result mal_device_init__dsound(mal_context* pContext, mal_device_type
 
         if (pDevice->usingDefaultSampleRate) {
             // We base the sample rate on the values returned by GetCaps().
-            if ((caps.dwFlags & DSCAPS_CONTINUOUSRATE) != 0) {
+            if ((caps.dwFlags & MAL_DSCAPS_CONTINUOUSRATE) != 0) {
                 wf.Format.nSamplesPerSec = mal_get_best_sample_rate_within_range(caps.dwMinSecondarySampleRate, caps.dwMaxSecondarySampleRate);
             } else {
                 wf.Format.nSamplesPerSec = caps.dwMaxSecondarySampleRate;
@@ -5088,7 +5314,7 @@ static mal_result mal_device_init__dsound(mal_context* pContext, mal_device_type
         // The method succeeds even if the hardware does not support the requested format; DirectSound sets the buffer to the closest
         // supported format. To determine whether this has happened, an application can call the GetFormat method for the primary buffer
         // and compare the result with the format that was requested with the SetFormat method.
-        if (FAILED(IDirectSoundBuffer_SetFormat((LPDIRECTSOUNDBUFFER)pDevice->dsound.pPlaybackPrimaryBuffer, (WAVEFORMATEX*)&wf))) {
+        if (FAILED(mal_IDirectSoundBuffer_SetFormat((mal_IDirectSoundBuffer*)pDevice->dsound.pPlaybackPrimaryBuffer, (WAVEFORMATEX*)&wf))) {
             mal_device_uninit__dsound(pDevice);
             return mal_post_error(pDevice, "[DirectSound] Failed to set format of playback device's primary buffer.", MAL_FORMAT_NOT_SUPPORTED);
         }
@@ -5096,7 +5322,7 @@ static mal_result mal_device_init__dsound(mal_context* pContext, mal_device_type
         // Get the _actual_ properties of the buffer.
         char rawdata[1024];
         WAVEFORMATEXTENSIBLE* pActualFormat = (WAVEFORMATEXTENSIBLE*)rawdata;
-        if (FAILED(IDirectSoundBuffer_GetFormat((LPDIRECTSOUNDBUFFER)pDevice->dsound.pPlaybackPrimaryBuffer, (WAVEFORMATEX*)pActualFormat, sizeof(rawdata), NULL))) {
+        if (FAILED(mal_IDirectSoundBuffer_GetFormat((mal_IDirectSoundBuffer*)pDevice->dsound.pPlaybackPrimaryBuffer, (WAVEFORMATEX*)pActualFormat, sizeof(rawdata), NULL))) {
             mal_device_uninit__dsound(pDevice);
             return mal_post_error(pDevice, "[DirectSound] Failed to retrieve the actual format of the playback device's primary buffer.", MAL_FORMAT_NOT_SUPPORTED);
         }
@@ -5129,19 +5355,19 @@ static mal_result mal_device_init__dsound(mal_context* pContext, mal_device_type
         //   In the first version of DirectSound, the play cursor was significantly ahead of the actual playing sound on emulated
         //   sound cards; it was directly behind the write cursor. Now, if the DSBCAPS_GETCURRENTPOSITION2 flag is specified, the
         //   application can get a more accurate play cursor.
-        DSBUFFERDESC descDS;
+        MAL_DSBUFFERDESC descDS;
         mal_zero_object(&descDS);
-        descDS.dwSize = sizeof(DSBUFFERDESC);
-        descDS.dwFlags = DSBCAPS_CTRLPOSITIONNOTIFY | DSBCAPS_GLOBALFOCUS | DSBCAPS_GETCURRENTPOSITION2;
+        descDS.dwSize = sizeof(descDS);
+        descDS.dwFlags = MAL_DSBCAPS_CTRLPOSITIONNOTIFY | MAL_DSBCAPS_GLOBALFOCUS | MAL_DSBCAPS_GETCURRENTPOSITION2;
         descDS.dwBufferBytes = bufferSizeInBytes;
         descDS.lpwfxFormat = (WAVEFORMATEX*)&wf;
-        if (FAILED(IDirectSound_CreateSoundBuffer((LPDIRECTSOUND)pDevice->dsound.pPlayback, &descDS, (LPDIRECTSOUNDBUFFER*)&pDevice->dsound.pPlaybackBuffer, NULL))) {
+        if (FAILED(mal_IDirectSound_CreateSoundBuffer((mal_IDirectSound*)pDevice->dsound.pPlayback, &descDS, (mal_IDirectSoundBuffer**)&pDevice->dsound.pPlaybackBuffer, NULL))) {
             mal_device_uninit__dsound(pDevice);
             return mal_post_error(pDevice, "[DirectSound] IDirectSound_CreateSoundBuffer() failed for playback device's secondary buffer.", MAL_FAILED_TO_OPEN_BACKEND_DEVICE);
         }
 
         // Notifications are set up via a DIRECTSOUNDNOTIFY object which is retrieved from the buffer.
-        if (FAILED(IDirectSoundBuffer_QueryInterface((LPDIRECTSOUNDBUFFER)pDevice->dsound.pPlaybackBuffer, _MAL_GUID_IID_DirectSoundNotify, (void**)&pDevice->dsound.pNotify))) {
+        if (FAILED(mal_IDirectSoundBuffer_QueryInterface((mal_IDirectSoundBuffer*)pDevice->dsound.pPlaybackBuffer, &MAL_GUID_IID_DirectSoundNotify, (void**)&pDevice->dsound.pNotify))) {
             mal_device_uninit__dsound(pDevice);
             return mal_post_error(pDevice, "[DirectSound] IDirectSoundBuffer_QueryInterface() failed for playback device's IDirectSoundNotify object.", MAL_API_NOT_FOUND);
         }
@@ -5152,16 +5378,16 @@ static mal_result mal_device_init__dsound(mal_context* pContext, mal_device_type
             pDevice->bufferSizeInFrames *= 2; // <-- Might need to fiddle with this to find a more ideal value. May even be able to just add a fixed amount rather than scaling.
         }
 
-        if (FAILED(((mal_DirectSoundCaptureCreateProc)pContext->dsound.DirectSoundCaptureCreate)((pDeviceID == NULL) ? NULL : (const GUID*)pDeviceID->dsound, (LPDIRECTSOUNDCAPTURE*)&pDevice->dsound.pCapture, NULL))) {
+        if (FAILED(((mal_DirectSoundCaptureCreateProc)pContext->dsound.DirectSoundCaptureCreate)((pDeviceID == NULL) ? NULL : (const GUID*)pDeviceID->dsound, (mal_IDirectSoundCapture**)&pDevice->dsound.pCapture, NULL))) {
             mal_device_uninit__dsound(pDevice);
             return mal_post_error(pDevice, "[DirectSound] DirectSoundCaptureCreate() failed for capture device.", MAL_FAILED_TO_OPEN_BACKEND_DEVICE);
         }
 
 
-        DSCCAPS caps;
+        MAL_DSCCAPS caps;
         mal_zero_object(&caps);
         caps.dwSize = sizeof(caps);
-        if (FAILED(IDirectSoundCapture_GetCaps((LPDIRECTSOUNDCAPTURE)pDevice->dsound.pCapture, &caps))) {
+        if (FAILED(mal_IDirectSoundCapture_GetCaps((mal_IDirectSoundCapture*)pDevice->dsound.pCapture, &caps))) {
             mal_device_uninit__dsound(pDevice);
             return mal_post_error(pDevice, "[DirectSound] IDirectSoundCapture_GetCaps() failed for capture device.", MAL_FAILED_TO_OPEN_BACKEND_DEVICE);
         }
@@ -5236,30 +5462,21 @@ static mal_result mal_device_init__dsound(mal_context* pContext, mal_device_type
 
         bufferSizeInBytes = pDevice->bufferSizeInFrames * wf.Format.nChannels * mal_get_sample_size_in_bytes(pDevice->format);
 
-        DSCBUFFERDESC descDS;
+        MAL_DSCBUFFERDESC descDS;
         mal_zero_object(&descDS);
         descDS.dwSize = sizeof(descDS);
         descDS.dwFlags = 0;
         descDS.dwBufferBytes = bufferSizeInBytes;
         descDS.lpwfxFormat = (WAVEFORMATEX*)&wf;
-        LPDIRECTSOUNDCAPTUREBUFFER pDSCB_Temp;
-        if (FAILED(IDirectSoundCapture_CreateCaptureBuffer((LPDIRECTSOUNDCAPTURE)pDevice->dsound.pCapture, &descDS, &pDSCB_Temp, NULL))) {
+        if (FAILED(mal_IDirectSoundCapture_CreateCaptureBuffer((mal_IDirectSoundCapture*)pDevice->dsound.pCapture, &descDS, (mal_IDirectSoundCaptureBuffer**)&pDevice->dsound.pCaptureBuffer, NULL))) {
             mal_device_uninit__dsound(pDevice);
             return mal_post_error(pDevice, "[DirectSound] IDirectSoundCapture_CreateCaptureBuffer() failed for capture device.", MAL_FAILED_TO_OPEN_BACKEND_DEVICE);
         }
 
-        HRESULT hr = IDirectSoundCapture_QueryInterface(pDSCB_Temp, _MAL_GUID_IID_IDirectSoundCaptureBuffer, (LPVOID*)&pDevice->dsound.pCaptureBuffer);
-        IDirectSoundCaptureBuffer_Release(pDSCB_Temp);
-        if (FAILED(hr)) {
-            mal_device_uninit__dsound(pDevice);
-            return mal_post_error(pDevice, "[DirectSound] IDirectSoundCapture_QueryInterface() failed for capture device's IDirectSoundCaptureBuffer8 object.", MAL_API_NOT_FOUND);
-        }
-
-
         // Get the _actual_ properties of the buffer.
         char rawdata[1024];
         WAVEFORMATEXTENSIBLE* pActualFormat = (WAVEFORMATEXTENSIBLE*)rawdata;
-        if (FAILED(IDirectSoundCaptureBuffer_GetFormat((LPDIRECTSOUNDCAPTUREBUFFER)pDevice->dsound.pCaptureBuffer, (WAVEFORMATEX*)pActualFormat, sizeof(rawdata), NULL))) {
+        if (FAILED(mal_IDirectSoundCaptureBuffer_GetFormat((mal_IDirectSoundCaptureBuffer*)pDevice->dsound.pCaptureBuffer, (WAVEFORMATEX*)pActualFormat, sizeof(rawdata), NULL))) {
             mal_device_uninit__dsound(pDevice);
             return mal_post_error(pDevice, "[DirectSound] Failed to retrieve the actual format of the capture device's buffer.", MAL_FORMAT_NOT_SUPPORTED);
         }
@@ -5277,7 +5494,7 @@ static mal_result mal_device_init__dsound(mal_context* pContext, mal_device_type
 
 
         // Notifications are set up via a DIRECTSOUNDNOTIFY object which is retrieved from the buffer.
-        if (FAILED(IDirectSoundCaptureBuffer_QueryInterface((LPDIRECTSOUNDCAPTUREBUFFER)pDevice->dsound.pCaptureBuffer, _MAL_GUID_IID_DirectSoundNotify, (void**)&pDevice->dsound.pNotify))) {
+        if (FAILED(mal_IDirectSoundCaptureBuffer_QueryInterface((mal_IDirectSoundCaptureBuffer*)pDevice->dsound.pCaptureBuffer, &MAL_GUID_IID_DirectSoundNotify, (void**)&pDevice->dsound.pNotify))) {
             mal_device_uninit__dsound(pDevice);
             return mal_post_error(pDevice, "[DirectSound] IDirectSoundCaptureBuffer_QueryInterface() failed for capture device's IDirectSoundNotify object.", MAL_API_NOT_FOUND);
         }
@@ -5287,7 +5504,7 @@ static mal_result mal_device_init__dsound(mal_context* pContext, mal_device_type
     // device is a playback or capture device. For a playback device we want to be notified when a period just starts playing,
     // whereas for a capture device we want to be notified when a period has just _finished_ capturing.
     mal_uint32 periodSizeInBytes = pDevice->bufferSizeInFrames / pDevice->periods;
-    DSBPOSITIONNOTIFY notifyPoints[MAL_MAX_PERIODS_DSOUND];  // One notification event for each period.
+    MAL_DSBPOSITIONNOTIFY notifyPoints[MAL_MAX_PERIODS_DSOUND];  // One notification event for each period.
     for (mal_uint32 i = 0; i < pDevice->periods; ++i) {
         pDevice->dsound.pNotifyEvents[i] = CreateEventA(NULL, FALSE, FALSE, NULL);
         if (pDevice->dsound.pNotifyEvents[i] == NULL) {
@@ -5300,7 +5517,7 @@ static mal_result mal_device_init__dsound(mal_context* pContext, mal_device_type
         notifyPoints[i].hEventNotify = pDevice->dsound.pNotifyEvents[i];
     }
 
-    if (FAILED(IDirectSoundNotify_SetNotificationPositions((LPDIRECTSOUNDNOTIFY)pDevice->dsound.pNotify, pDevice->periods, notifyPoints))) {
+    if (FAILED(mal_IDirectSoundNotify_SetNotificationPositions((mal_IDirectSoundNotify*)pDevice->dsound.pNotify, pDevice->periods, notifyPoints))) {
         mal_device_uninit__dsound(pDevice);
         return mal_post_error(pDevice, "[DirectSound] IDirectSoundNotify_SetNotificationPositions() failed.", MAL_FAILED_TO_CREATE_EVENT);
     }
@@ -5330,20 +5547,20 @@ static mal_result mal_device__start_backend__dsound(mal_device* pDevice)
         DWORD actualLockSize;
         void* pLockPtr2;
         DWORD actualLockSize2;
-        if (SUCCEEDED(IDirectSoundBuffer_Lock((LPDIRECTSOUNDBUFFER)pDevice->dsound.pPlaybackBuffer, 0, desiredLockSize, &pLockPtr, &actualLockSize, &pLockPtr2, &actualLockSize2, 0))) {
+        if (SUCCEEDED(mal_IDirectSoundBuffer_Lock((mal_IDirectSoundBuffer*)pDevice->dsound.pPlaybackBuffer, 0, desiredLockSize, &pLockPtr, &actualLockSize, &pLockPtr2, &actualLockSize2, 0))) {
             framesToRead = actualLockSize / mal_get_sample_size_in_bytes(pDevice->format) / pDevice->channels;
             mal_device__read_frames_from_client(pDevice, framesToRead, pLockPtr);
-            IDirectSoundBuffer_Unlock((LPDIRECTSOUNDBUFFER)pDevice->dsound.pPlaybackBuffer, pLockPtr, actualLockSize, pLockPtr2, actualLockSize2);
+            mal_IDirectSoundBuffer_Unlock((mal_IDirectSoundBuffer*)pDevice->dsound.pPlaybackBuffer, pLockPtr, actualLockSize, pLockPtr2, actualLockSize2);
 
             pDevice->dsound.lastProcessedFrame = framesToRead;
-            if (FAILED(IDirectSoundBuffer_Play((LPDIRECTSOUNDBUFFER)pDevice->dsound.pPlaybackBuffer, 0, 0, DSBPLAY_LOOPING))) {
+            if (FAILED(mal_IDirectSoundBuffer_Play((mal_IDirectSoundBuffer*)pDevice->dsound.pPlaybackBuffer, 0, 0, MAL_DSBPLAY_LOOPING))) {
                 return mal_post_error(pDevice, "[DirectSound] IDirectSoundBuffer_Play() failed.", MAL_FAILED_TO_START_BACKEND_DEVICE);
             }
         } else {
             return mal_post_error(pDevice, "[DirectSound] IDirectSoundBuffer_Lock() failed.", MAL_FAILED_TO_MAP_DEVICE_BUFFER);
         }
     } else {
-        if (FAILED(IDirectSoundCaptureBuffer_Start((LPDIRECTSOUNDCAPTUREBUFFER)pDevice->dsound.pCaptureBuffer, DSCBSTART_LOOPING))) {
+        if (FAILED(mal_IDirectSoundCaptureBuffer_Start((mal_IDirectSoundCaptureBuffer*)pDevice->dsound.pCaptureBuffer, MAL_DSCBSTART_LOOPING))) {
             return mal_post_error(pDevice, "[DirectSound] IDirectSoundCaptureBuffer_Start() failed.", MAL_FAILED_TO_START_BACKEND_DEVICE);
         }
     }
@@ -5356,13 +5573,13 @@ static mal_result mal_device__stop_backend__dsound(mal_device* pDevice)
     mal_assert(pDevice != NULL);
 
     if (pDevice->type == mal_device_type_playback) {
-        if (FAILED(IDirectSoundBuffer_Stop((LPDIRECTSOUNDBUFFER)pDevice->dsound.pPlaybackBuffer))) {
+        if (FAILED(mal_IDirectSoundBuffer_Stop((mal_IDirectSoundBuffer*)pDevice->dsound.pPlaybackBuffer))) {
             return mal_post_error(pDevice, "[DirectSound] IDirectSoundBuffer_Stop() failed.", MAL_FAILED_TO_STOP_BACKEND_DEVICE);
         }
 
-        IDirectSoundBuffer_SetCurrentPosition((LPDIRECTSOUNDBUFFER)pDevice->dsound.pPlaybackBuffer, 0);
+        mal_IDirectSoundBuffer_SetCurrentPosition((mal_IDirectSoundBuffer*)pDevice->dsound.pPlaybackBuffer, 0);
     } else {
-        if (FAILED(IDirectSoundCaptureBuffer_Stop((LPDIRECTSOUNDCAPTUREBUFFER)pDevice->dsound.pCaptureBuffer))) {
+        if (FAILED(mal_IDirectSoundCaptureBuffer_Stop((mal_IDirectSoundCaptureBuffer*)pDevice->dsound.pCaptureBuffer))) {
             return mal_post_error(pDevice, "[DirectSound] IDirectSoundCaptureBuffer_Stop() failed.", MAL_FAILED_TO_STOP_BACKEND_DEVICE);
         }
     }
@@ -5389,11 +5606,11 @@ static mal_bool32 mal_device__get_current_frame__dsound(mal_device* pDevice, mal
 
     DWORD dwCurrentPosition;
     if (pDevice->type == mal_device_type_playback) {
-        if (FAILED(IDirectSoundBuffer_GetCurrentPosition((LPDIRECTSOUNDBUFFER)pDevice->dsound.pPlaybackBuffer, NULL, &dwCurrentPosition))) {
+        if (FAILED(mal_IDirectSoundBuffer_GetCurrentPosition((mal_IDirectSoundBuffer*)pDevice->dsound.pPlaybackBuffer, NULL, &dwCurrentPosition))) {
             return MAL_FALSE;
         }
     } else {
-        if (FAILED(IDirectSoundCaptureBuffer_GetCurrentPosition((LPDIRECTSOUNDCAPTUREBUFFER)pDevice->dsound.pCaptureBuffer, &dwCurrentPosition, NULL))) {
+        if (FAILED(mal_IDirectSoundCaptureBuffer_GetCurrentPosition((mal_IDirectSoundCaptureBuffer*)pDevice->dsound.pCaptureBuffer, &dwCurrentPosition, NULL))) {
             return MAL_FALSE;
         }
     }
@@ -5500,7 +5717,7 @@ static mal_result mal_device__main_loop__dsound(mal_device* pDevice)
             DWORD actualLockSize;
             void* pLockPtr2;
             DWORD actualLockSize2;
-            if (FAILED(IDirectSoundBuffer_Lock((LPDIRECTSOUNDBUFFER)pDevice->dsound.pPlaybackBuffer, lockOffset, lockSize, &pLockPtr, &actualLockSize, &pLockPtr2, &actualLockSize2, 0))) {
+            if (FAILED(mal_IDirectSoundBuffer_Lock((mal_IDirectSoundBuffer*)pDevice->dsound.pPlaybackBuffer, lockOffset, lockSize, &pLockPtr, &actualLockSize, &pLockPtr2, &actualLockSize2, 0))) {
                 return mal_post_error(pDevice, "[DirectSound] IDirectSoundBuffer_Lock() failed.", MAL_FAILED_TO_MAP_DEVICE_BUFFER);
             }
 
@@ -5508,13 +5725,13 @@ static mal_result mal_device__main_loop__dsound(mal_device* pDevice)
             mal_device__read_frames_from_client(pDevice, frameCount, pLockPtr);
             pDevice->dsound.lastProcessedFrame = (pDevice->dsound.lastProcessedFrame + frameCount) % pDevice->bufferSizeInFrames;
 
-            IDirectSoundBuffer_Unlock((LPDIRECTSOUNDBUFFER)pDevice->dsound.pPlaybackBuffer, pLockPtr, actualLockSize, pLockPtr2, actualLockSize2);
+            mal_IDirectSoundBuffer_Unlock((mal_IDirectSoundBuffer*)pDevice->dsound.pPlaybackBuffer, pLockPtr, actualLockSize, pLockPtr2, actualLockSize2);
         } else {
             void* pLockPtr;
             DWORD actualLockSize;
             void* pLockPtr2;
             DWORD actualLockSize2;
-            if (FAILED(IDirectSoundCaptureBuffer_Lock((LPDIRECTSOUNDCAPTUREBUFFER)pDevice->dsound.pCaptureBuffer, lockOffset, lockSize, &pLockPtr, &actualLockSize, &pLockPtr2, &actualLockSize2, 0))) {
+            if (FAILED(mal_IDirectSoundCaptureBuffer_Lock((mal_IDirectSoundCaptureBuffer*)pDevice->dsound.pCaptureBuffer, lockOffset, lockSize, &pLockPtr, &actualLockSize, &pLockPtr2, &actualLockSize2, 0))) {
                 return mal_post_error(pDevice, "[DirectSound] IDirectSoundCaptureBuffer_Lock() failed.", MAL_FAILED_TO_MAP_DEVICE_BUFFER);
             }
 
@@ -5522,7 +5739,7 @@ static mal_result mal_device__main_loop__dsound(mal_device* pDevice)
             mal_device__send_frames_to_client(pDevice, frameCount, pLockPtr);
             pDevice->dsound.lastProcessedFrame = (pDevice->dsound.lastProcessedFrame + frameCount) % pDevice->bufferSizeInFrames;
 
-            IDirectSoundCaptureBuffer_Unlock((LPDIRECTSOUNDCAPTUREBUFFER)pDevice->dsound.pCaptureBuffer, pLockPtr, actualLockSize, pLockPtr2, actualLockSize2);
+            mal_IDirectSoundCaptureBuffer_Unlock((mal_IDirectSoundCaptureBuffer*)pDevice->dsound.pCaptureBuffer, pLockPtr, actualLockSize, pLockPtr2, actualLockSize2);
         }
     }
 
@@ -5866,7 +6083,7 @@ static mal_result mal_device_init__winmm(mal_context* pContext, mal_device_type 
 
 
     // Just use the default channel mapping. WinMM only supports mono or stereo anyway so it'll reliably be left/right order for stereo.
-    mal_get_default_channel_mapping(pDevice->pContext->backend, pDevice->internalChannels, pDevice->internalChannelMap);
+    mal_get_standard_channel_map(mal_standard_channel_map_microsoft, pDevice->internalChannels, pDevice->internalChannelMap);
 
 
     // Latency with WinMM seems pretty bad from my testing... Need to increase the default buffer size.
@@ -7538,7 +7755,7 @@ static mal_result mal_device_init__alsa(mal_context* pContext, mal_device_type t
             // channels. If validation fails, fall back to defaults.
 
             // Fill with defaults.
-            mal_get_default_channel_mapping(pDevice->pContext->backend, pDevice->internalChannels, pDevice->internalChannelMap);
+            mal_get_standard_channel_map(mal_standard_channel_map_alsa, pDevice->internalChannels, pDevice->internalChannelMap);
 
             // Overwrite first pChmap->channels channels.
             for (mal_uint32 iChannel = 0; iChannel < pChmap->channels; ++iChannel) {
@@ -7558,7 +7775,7 @@ static mal_result mal_device_init__alsa(mal_context* pContext, mal_device_type t
 
             // If our channel map is invalid, fall back to defaults.
             if (!isValid) {
-                mal_get_default_channel_mapping(pDevice->pContext->backend, pDevice->internalChannels, pDevice->internalChannelMap);
+                mal_get_standard_channel_map(mal_standard_channel_map_alsa, pDevice->internalChannels, pDevice->internalChannelMap);
             }
         }
 
@@ -7566,7 +7783,7 @@ static mal_result mal_device_init__alsa(mal_context* pContext, mal_device_type t
         pChmap = NULL;
     } else {
         // Could not retrieve the channel map. Fall back to a hard-coded assumption.
-        mal_get_default_channel_mapping(pDevice->pContext->backend, pDevice->internalChannels, pDevice->internalChannelMap);
+        mal_get_standard_channel_map(mal_standard_channel_map_alsa, pDevice->internalChannels, pDevice->internalChannelMap);
     }
 
     return MAL_SUCCESS;
@@ -9546,7 +9763,7 @@ mal_result mal_device_init__jack(mal_context* pContext, mal_device_type type, ma
     pDevice->internalSampleRate = ((mal_jack_get_sample_rate_proc)pContext->jack.jack_get_sample_rate)((mal_jack_client_t*)pDevice->jack.pClient);
 
     // I don't think the channel map can be queried, so just use defaults for now.
-    mal_get_default_channel_mapping(pDevice->pContext->backend, pDevice->internalChannels, pDevice->internalChannelMap);
+    mal_get_standard_channel_map(mal_standard_channel_map_alsa, pDevice->internalChannels, pDevice->internalChannelMap);
 
     // The buffer size in frames can change.
     pDevice->periods = 2;
@@ -9875,7 +10092,7 @@ static mal_result mal_device_init__oss(mal_context* pContext, mal_device_type ty
 
 
     // Set the internal channel map. Not sure if this can be queried. For now just using our default assumptions.
-    mal_get_default_channel_mapping(pDevice->pContext->backend, pDevice->internalChannels, pDevice->internalChannelMap);
+    mal_get_standard_channel_map(mal_standard_channel_map_default, pDevice->internalChannels, pDevice->internalChannelMap);
 
 
     // When not using MMAP mode, we need to use an intermediary buffer for the client <-> device transfer. We do
@@ -16377,6 +16594,8 @@ void mal_pcm_f32_to_s32(int* pOut, const float* pIn, unsigned int count)
 //   - Add support for JACK.
 //   - Remove dependency on asound.h for the ALSA backend. This means the ALSA development packages are no
 //     longer required to build mini_al.
+//   - Remove dependency on dsound.h for the DirectSound backend. This fixes build issues with some
+//     distributions of MinGW.
 //   - Add support for configuring the priority of the worker thread.
 //   - Introduce the notion of standard channel maps. Use mal_get_standard_channel_map().
 //   - Introduce the notion of default device configurations. A default config uses the same configuration
