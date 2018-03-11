@@ -50,8 +50,8 @@
 //
 // Building (Windows)
 // ------------------
-// The Windows build should compile clean on all modern versions of MSVC without the need to configure any include
-// paths nor link to any libraries. The same applies to MinGW/GCC and Clang.
+// The Windows build should compile clean on all popular compilers without the need to configure any include paths
+// nor link to any libraries.
 //
 // Building (Linux)
 // ----------------
@@ -1941,12 +1941,7 @@ mal_result mal_decoder_seek_to_frame(mal_decoder* pDecoder, mal_uint64 frameInde
 // Check if we have the necessary development packages for each backend at the top so we can use this to determine whether or not
 // certain unused functions and variables can be excluded from the build to avoid warnings.
 #ifdef MAL_ENABLE_WASAPI
-    #define MAL_HAS_WASAPI
-    #ifdef __has_include
-        #if !__has_include(<audioclient.h>)
-            #undef MAL_HAS_WASAPI
-        #endif
-    #endif
+    #define MAL_HAS_WASAPI      // Every compiler should support WASAPI
 #endif
 #ifdef MAL_ENABLE_DSOUND
     #define MAL_HAS_DSOUND      // Every compiler should support DirectSound.
@@ -2095,7 +2090,7 @@ static mal_uint32 g_malStandardSampleRatePriorities[] = {
     MAL_SAMPLE_RATE_96000,
     MAL_SAMPLE_RATE_176400,
     MAL_SAMPLE_RATE_192000,
-    
+
     MAL_SAMPLE_RATE_16000,  // Extreme lows
     MAL_SAMPLE_RATE_11025,
     MAL_SAMPLE_RATE_8000,
@@ -3747,222 +3742,327 @@ static mal_format mal_format_from_WAVEFORMATEX(WAVEFORMATEX* pWF)
 //
 ///////////////////////////////////////////////////////////////////////////////
 #ifdef MAL_HAS_WASAPI
-#if defined(_MSC_VER)
-    #pragma warning(push)
-    #pragma warning(disable:4091)   // 'typedef ': ignored on left of '' when no variable is declared
+//#if defined(_MSC_VER)
+//    #pragma warning(push)
+//    #pragma warning(disable:4091)   // 'typedef ': ignored on left of '' when no variable is declared
+//#endif
+//#include <audioclient.h>
+//#include <mmdeviceapi.h>
+//#if defined(_MSC_VER)
+//    #pragma warning(pop)
+//#endif
+
+#ifndef PROPERTYKEY_DEFINED
+#define PROPERTYKEY_DEFINED
+typedef struct
+{
+    GUID fmtid;
+    DWORD pid;
+} PROPERTYKEY;
 #endif
-#include <audioclient.h>
-#include <audiopolicy.h>
-#include <mmdeviceapi.h>
-#if defined(_MSC_VER)
-    #pragma warning(pop)
-#endif
 
-const PROPERTYKEY g_malPKEY_Device_FriendlyName      = {{0xa45c254e, 0xdf1c, 0x4efd, {0x80, 0x20, 0x67, 0xd1, 0x46, 0xa8, 0x50, 0xe0}}, 14};
-const PROPERTYKEY g_malPKEY_AudioEngine_DeviceFormat = {{0xf19f064d, 0x82c,  0x4e27, {0xbc, 0x73, 0x68, 0x82, 0xa1, 0xbb, 0x8e, 0x4c}},  0};
+// Some compilers don't define PropVariantInit(). We just do this ourselves since it's just a memset().
+static void mal_PropVariantInit(PROPVARIANT* pProp)
+{
+    mal_zero_object(pProp);
+}
 
-const IID g_malCLSID_MMDeviceEnumerator_Instance = {0xBCDE0395, 0xE52F, 0x467C, {0x8E, 0x3D, 0xC4, 0x57, 0x92, 0x91, 0x69, 0x2E}}; // BCDE0395-E52F-467C-8E3D-C4579291692E = __uuidof(MMDeviceEnumerator)
-const IID g_malIID_IMMDeviceEnumerator_Instance  = {0xA95664D2, 0x9614, 0x4F35, {0xA7, 0x46, 0xDE, 0x8D, 0xB6, 0x36, 0x17, 0xE6}}; // A95664D2-9614-4F35-A746-DE8DB63617E6 = __uuidof(IMMDeviceEnumerator)
-const IID g_malIID_IAudioClient_Instance         = {0x1CB9AD4C, 0xDBFA, 0x4C32, {0xB1, 0x78, 0xC2, 0xF5, 0x68, 0xA7, 0x03, 0xB2}}; // 1CB9AD4C-DBFA-4C32-B178-C2F568A703B2 = __uuidof(IAudioClient)
-const IID g_malIID_IAudioRenderClient_Instance   = {0xF294ACFC, 0x3146, 0x4483, {0xA7, 0xBF, 0xAD, 0xDC, 0xA7, 0xC2, 0x60, 0xE2}}; // F294ACFC-3146-4483-A7BF-ADDCA7C260E2 = __uuidof(IAudioRenderClient)
-const IID g_malIID_IAudioCaptureClient_Instance  = {0xC8ADBD64, 0xE71E, 0x48A0, {0xA4, 0xDE, 0x18, 0x5C, 0x39, 0x5C, 0xD3, 0x17}}; // C8ADBD64-E71E-48A0-A4DE-185C395CD317 = __uuidof(IAudioCaptureClient)
+const PROPERTYKEY MAL_PKEY_Device_FriendlyName      = {{0xA45C254E, 0xDF1C, 0x4EFD, {0x80, 0x20, 0x67, 0xD1, 0x46, 0xA8, 0x50, 0xE0}}, 14};
+const PROPERTYKEY MAL_PKEY_AudioEngine_DeviceFormat = {{0xF19F064D, 0x82C,  0x4E27, {0xBC, 0x73, 0x68, 0x82, 0xA1, 0xBB, 0x8E, 0x4C}},  0};
 
+const IID MAL_IID_IAudioClient                      = {0x1CB9AD4C, 0xDBFA, 0x4C32, {0xB1, 0x78, 0xC2, 0xF5, 0x68, 0xA7, 0x03, 0xB2}}; // 1CB9AD4C-DBFA-4C32-B178-C2F568A703B2 = __uuidof(IAudioClient)
+const IID MAL_IID_IAudioRenderClient                = {0xF294ACFC, 0x3146, 0x4483, {0xA7, 0xBF, 0xAD, 0xDC, 0xA7, 0xC2, 0x60, 0xE2}}; // F294ACFC-3146-4483-A7BF-ADDCA7C260E2 = __uuidof(IAudioRenderClient)
+const IID MAL_IID_IAudioCaptureClient               = {0xC8ADBD64, 0xE71E, 0x48A0, {0xA4, 0xDE, 0x18, 0x5C, 0x39, 0x5C, 0xD3, 0x17}}; // C8ADBD64-E71E-48A0-A4DE-185C395CD317 = __uuidof(IAudioCaptureClient)
 #ifndef MAL_WIN32_DESKTOP
-const IID g_malIID_DEVINTERFACE_AUDIO_RENDER  = {0xE6327CAD, 0xDCEC, 0x4949, {0xAE, 0x8A, 0x99, 0x1E, 0x97, 0x6A, 0x79, 0xD2}}; // E6327CAD-DCEC-4949-AE8A-991E976A79D2
-const IID g_malIID_DEVINTERFACE_AUDIO_CAPTURE = {0x2EEF81BE, 0x33FA, 0x4800, {0x96, 0x70, 0x1C, 0xD4, 0x74, 0x97, 0x2C, 0x3F}}; // 2EEF81BE-33FA-4800-9670-1CD474972C3F
+const IID MAL_IID_DEVINTERFACE_AUDIO_RENDER         = {0xE6327CAD, 0xDCEC, 0x4949, {0xAE, 0x8A, 0x99, 0x1E, 0x97, 0x6A, 0x79, 0xD2}}; // E6327CAD-DCEC-4949-AE8A-991E976A79D2
+const IID MAL_IID_DEVINTERFACE_AUDIO_CAPTURE        = {0x2EEF81BE, 0x33FA, 0x4800, {0x96, 0x70, 0x1C, 0xD4, 0x74, 0x97, 0x2C, 0x3F}}; // 2EEF81BE-33FA-4800-9670-1CD474972C3F
 #endif
 
+const IID MAL_CLSID_MMDeviceEnumerator_Instance     = {0xBCDE0395, 0xE52F, 0x467C, {0x8E, 0x3D, 0xC4, 0x57, 0x92, 0x91, 0x69, 0x2E}}; // BCDE0395-E52F-467C-8E3D-C4579291692E = __uuidof(MMDeviceEnumerator)
+const IID MAL_IID_IMMDeviceEnumerator_Instance      = {0xA95664D2, 0x9614, 0x4F35, {0xA7, 0x46, 0xDE, 0x8D, 0xB6, 0x36, 0x17, 0xE6}}; // A95664D2-9614-4F35-A746-DE8DB63617E6 = __uuidof(IMMDeviceEnumerator)
 #ifdef __cplusplus
-#define g_malCLSID_MMDeviceEnumerator g_malCLSID_MMDeviceEnumerator_Instance
-#define g_malIID_IMMDeviceEnumerator  g_malIID_IMMDeviceEnumerator_Instance
-#define g_malIID_IAudioClient         g_malIID_IAudioClient_Instance
-#define g_malIID_IAudioRenderClient   g_malIID_IAudioRenderClient_Instance
-#define g_malIID_IAudioCaptureClient  g_malIID_IAudioCaptureClient_Instance
+#define MAL_CLSID_MMDeviceEnumerator MAL_CLSID_MMDeviceEnumerator_Instance
+#define MAL_IID_IMMDeviceEnumerator  MAL_IID_IMMDeviceEnumerator_Instance
 #else
-#define g_malCLSID_MMDeviceEnumerator &g_malCLSID_MMDeviceEnumerator_Instance
-#define g_malIID_IMMDeviceEnumerator  &g_malIID_IMMDeviceEnumerator_Instance
-#define g_malIID_IAudioClient         &g_malIID_IAudioClient_Instance
-#define g_malIID_IAudioRenderClient   &g_malIID_IAudioRenderClient_Instance
-#define g_malIID_IAudioCaptureClient  &g_malIID_IAudioCaptureClient_Instance
+#define MAL_CLSID_MMDeviceEnumerator &MAL_CLSID_MMDeviceEnumerator_Instance
+#define MAL_IID_IMMDeviceEnumerator  &MAL_IID_IMMDeviceEnumerator_Instance
 #endif
 
 #ifdef MAL_WIN32_DESKTOP
+#define MAL_MM_DEVICE_STATE_ACTIVE                          1
+#define MAL_MM_DEVICE_STATE_DISABLED                        2
+#define MAL_MM_DEVICE_STATE_NOTPRESENT                      4
+#define MAL_MM_DEVICE_STATE_UNPLUGGED                       8
+
+typedef struct mal_IMMDeviceEnumerator                      mal_IMMDeviceEnumerator;
+typedef struct mal_IMMDeviceCollection                      mal_IMMDeviceCollection;
+typedef struct mal_IMMDevice                                mal_IMMDevice;
+typedef struct mal_IMMNotificationClient                    mal_IMMNotificationClient;
+#else
+typedef struct mal_IActivateAudioInterfaceAsyncOperation    mal_IActivateAudioInterfaceAsyncOperation;
+#endif
+typedef struct mal_IPropertyStore                           mal_IPropertyStore;
+typedef struct mal_IAudioClient                             mal_IAudioClient;
+typedef struct mal_IAudioRenderClient                       mal_IAudioRenderClient;
+typedef struct mal_IAudioCaptureClient                      mal_IAudioCaptureClient;
+
+typedef mal_int64                                           MAL_REFERENCE_TIME;
+
+#define MAL_AUDCLNT_STREAMFLAGS_CROSSPROCESS                0x00010000
+#define MAL_AUDCLNT_STREAMFLAGS_LOOPBACK                    0x00020000
+#define MAL_AUDCLNT_STREAMFLAGS_EVENTCALLBACK               0x00040000
+#define MAL_AUDCLNT_STREAMFLAGS_NOPERSIST                   0x00080000
+#define MAL_AUDCLNT_STREAMFLAGS_RATEADJUST                  0x00100000
+#define MAL_AUDCLNT_STREAMFLAGS_SRC_DEFAULT_QUALITY         0x08000000
+#define MAL_AUDCLNT_STREAMFLAGS_AUTOCONVERTPCM              0x80000000
+#define MAL_AUDCLNT_SESSIONFLAGS_EXPIREWHENUNOWNED          0x10000000
+#define MAL_AUDCLNT_SESSIONFLAGS_DISPLAY_HIDE               0x20000000
+#define MAL_AUDCLNT_SESSIONFLAGS_DISPLAY_HIDEWHENEXPIRED    0x40000000
+
+// We only care about a few error codes.
+#define MAL_AUDCLNT_E_BUFFER_SIZE_NOT_ALIGNED               (-2004287463)
+#define MAL_AUDCLNT_S_BUFFER_EMPTY                          (143196161)
+
+typedef enum
+{
+    mal_eRender  = 0,
+    mal_eCapture = 1,
+    mal_eAll     = 2
+} mal_EDataFlow;
+
+typedef enum
+{
+    mal_eConsole        = 0,
+    mal_eMultimedia     = 1,
+    mal_eCommunications = 2
+} mal_ERole;
+
+typedef enum
+{
+    MAL_AUDCLNT_SHAREMODE_SHARED,
+    MAL_AUDCLNT_SHAREMODE_EXCLUSIVE
+} MAL_AUDCLNT_SHAREMODE;
+
+#ifdef MAL_WIN32_DESKTOP
     // IMMDeviceEnumerator
-    #ifdef __cplusplus
-        #define IMMDeviceEnumerator_Release(p) ((IMMDeviceEnumerator*)p)->Release()
-    #else
-        #define IMMDeviceEnumerator_Release(p) ((IMMDeviceEnumerator*)p)->lpVtbl->Release((IMMDeviceEnumerator*)p)
-    #endif
-    #ifdef __cplusplus
-        #define IMMDeviceEnumerator_EnumAudioEndpoints(p, a, b, c) ((IMMDeviceEnumerator*)p)->EnumAudioEndpoints(a, b, c)
-    #else
-        #define IMMDeviceEnumerator_EnumAudioEndpoints(p, a, b, c) ((IMMDeviceEnumerator*)p)->lpVtbl->EnumAudioEndpoints(p, a, b, c)
-    #endif
-    #ifdef __cplusplus
-        #define IMMDeviceEnumerator_GetDefaultAudioEndpoint(p, a, b, c) ((IMMDeviceEnumerator*)p)->GetDefaultAudioEndpoint(a, b, c)
-    #else
-        #define IMMDeviceEnumerator_GetDefaultAudioEndpoint(p, a, b, c) ((IMMDeviceEnumerator*)p)->lpVtbl->GetDefaultAudioEndpoint(p, a, b, c)
-    #endif
-    #ifdef __cplusplus
-        #define IMMDeviceEnumerator_GetDevice(p, a, b) ((IMMDeviceEnumerator*)p)->GetDevice(a, b)
-    #else
-        #define IMMDeviceEnumerator_GetDevice(p, a, b) ((IMMDeviceEnumerator*)p)->lpVtbl->GetDevice(p, a, b)
-    #endif
+    typedef struct
+    {
+        // IUnknown
+        HRESULT (STDMETHODCALLTYPE * QueryInterface)(mal_IMMDeviceEnumerator* pThis, const IID* const riid, void** ppObject);
+        ULONG   (STDMETHODCALLTYPE * AddRef)        (mal_IMMDeviceEnumerator* pThis);
+        ULONG   (STDMETHODCALLTYPE * Release)       (mal_IMMDeviceEnumerator* pThis);
+
+        // IMMDeviceEnumerator
+        HRESULT (STDMETHODCALLTYPE * EnumAudioEndpoints)                    (mal_IMMDeviceEnumerator* pThis, mal_EDataFlow dataFlow, DWORD dwStateMask, mal_IMMDeviceCollection** ppDevices);
+        HRESULT (STDMETHODCALLTYPE * GetDefaultAudioEndpoint)               (mal_IMMDeviceEnumerator* pThis, mal_EDataFlow dataFlow, mal_ERole role, mal_IMMDevice** ppEndpoint);
+        HRESULT (STDMETHODCALLTYPE * GetDevice)                             (mal_IMMDeviceEnumerator* pThis, LPCWSTR pID, mal_IMMDevice** ppDevice);
+        HRESULT (STDMETHODCALLTYPE * RegisterEndpointNotificationCallback)  (mal_IMMDeviceEnumerator* pThis, mal_IMMNotificationClient* pClient);
+        HRESULT (STDMETHODCALLTYPE * UnregisterEndpointNotificationCallback)(mal_IMMDeviceEnumerator* pThis, mal_IMMNotificationClient* pClient);
+    } mal_IMMDeviceEnumeratorVtbl;
+    struct mal_IMMDeviceEnumerator
+    {
+        mal_IMMDeviceEnumeratorVtbl* lpVtbl;
+    };
+    HRESULT mal_IMMDeviceEnumerator_QueryInterface(mal_IMMDeviceEnumerator* pThis, const IID* const riid, void** ppObject) { return pThis->lpVtbl->QueryInterface(pThis, riid, ppObject); }
+    ULONG   mal_IMMDeviceEnumerator_AddRef(mal_IMMDeviceEnumerator* pThis)                                                 { return pThis->lpVtbl->AddRef(pThis); }
+    ULONG   mal_IMMDeviceEnumerator_Release(mal_IMMDeviceEnumerator* pThis)                                                { return pThis->lpVtbl->Release(pThis); }
+    HRESULT mal_IMMDeviceEnumerator_EnumAudioEndpoints(mal_IMMDeviceEnumerator* pThis, mal_EDataFlow dataFlow, DWORD dwStateMask, mal_IMMDeviceCollection** ppDevices) { return pThis->lpVtbl->EnumAudioEndpoints(pThis, dataFlow, dwStateMask, ppDevices); }
+    HRESULT mal_IMMDeviceEnumerator_GetDefaultAudioEndpoint(mal_IMMDeviceEnumerator* pThis, mal_EDataFlow dataFlow, mal_ERole role, mal_IMMDevice** ppEndpoint) { return pThis->lpVtbl->GetDefaultAudioEndpoint(pThis, dataFlow, role, ppEndpoint); }
+    HRESULT mal_IMMDeviceEnumerator_GetDevice(mal_IMMDeviceEnumerator* pThis, LPCWSTR pID, mal_IMMDevice** ppDevice)       { return pThis->lpVtbl->GetDevice(pThis, pID, ppDevice); }
+    HRESULT mal_IMMDeviceEnumerator_RegisterEndpointNotificationCallback(mal_IMMDeviceEnumerator* pThis, mal_IMMNotificationClient* pClient) { return pThis->lpVtbl->RegisterEndpointNotificationCallback(pThis, pClient); }
+    HRESULT mal_IMMDeviceEnumerator_UnregisterEndpointNotificationCallback(mal_IMMDeviceEnumerator* pThis, mal_IMMNotificationClient* pClient) { return pThis->lpVtbl->UnregisterEndpointNotificationCallback(pThis, pClient); }
+
 
     // IMMDeviceCollection
-    #ifdef __cplusplus
-        #define IMMDeviceCollection_Release(p) ((IMMDeviceCollection*)p)->Release()
-    #else
-        #define IMMDeviceCollection_Release(p) ((IMMDeviceCollection*)p)->lpVtbl->Release((IMMDeviceCollection*)p)
-    #endif
-    #ifdef __cplusplus
-        #define IMMDeviceCollection_GetCount(p, a) ((IMMDeviceCollection*)p)->GetCount(a)
-    #else
-        #define IMMDeviceCollection_GetCount(p, a) ((IMMDeviceCollection*)p)->lpVtbl->GetCount((IMMDeviceCollection*)p, a)
-    #endif
-    #ifdef __cplusplus
-        #define IMMDeviceCollection_Item(p, a, b) ((IMMDeviceCollection*)p)->Item(a, b)
-    #else
-        #define IMMDeviceCollection_Item(p, a, b) ((IMMDeviceCollection*)p)->lpVtbl->Item((IMMDeviceCollection*)p, a, b)
-    #endif
+    typedef struct
+    {
+        // IUnknown
+        HRESULT (STDMETHODCALLTYPE * QueryInterface)(mal_IMMDeviceCollection* pThis, const IID* const riid, void** ppObject);
+        ULONG   (STDMETHODCALLTYPE * AddRef)        (mal_IMMDeviceCollection* pThis);
+        ULONG   (STDMETHODCALLTYPE * Release)       (mal_IMMDeviceCollection* pThis);
+
+        // IMMDeviceCollection
+        HRESULT (STDMETHODCALLTYPE * GetCount)(mal_IMMDeviceCollection* pThis, UINT* pDevices);
+        HRESULT (STDMETHODCALLTYPE * Item)    (mal_IMMDeviceCollection* pThis, UINT nDevice, mal_IMMDevice** ppDevice);
+    } mal_IMMDeviceCollectionVtbl;
+    struct mal_IMMDeviceCollection
+    {
+        mal_IMMDeviceCollectionVtbl* lpVtbl;
+    };
+    HRESULT mal_IMMDeviceCollection_QueryInterface(mal_IMMDeviceCollection* pThis, const IID* const riid, void** ppObject) { return pThis->lpVtbl->QueryInterface(pThis, riid, ppObject); }
+    ULONG   mal_IMMDeviceCollection_AddRef(mal_IMMDeviceCollection* pThis)                                                 { return pThis->lpVtbl->AddRef(pThis); }
+    ULONG   mal_IMMDeviceCollection_Release(mal_IMMDeviceCollection* pThis)                                                { return pThis->lpVtbl->Release(pThis); }
+    HRESULT mal_IMMDeviceCollection_GetCount(mal_IMMDeviceCollection* pThis, UINT* pDevices)                               { return pThis->lpVtbl->GetCount(pThis, pDevices); }
+    HRESULT mal_IMMDeviceCollection_Item(mal_IMMDeviceCollection* pThis, UINT nDevice, mal_IMMDevice** ppDevice)           { return pThis->lpVtbl->Item(pThis, nDevice, ppDevice); }
+
 
     // IMMDevice
-    #ifdef __cplusplus
-        #define IMMDevice_Release(p) ((IMMDevice*)p)->Release()
-    #else
-        #define IMMDevice_Release(p) ((IMMDevice*)p)->lpVtbl->Release((IMMDevice*)p)
-    #endif
-    #ifdef __cplusplus
-        #define IMMDevice_GetId(p, a) ((IMMDevice*)p)->GetId(a)
-    #else
-        #define IMMDevice_GetId(p, a) ((IMMDevice*)p)->lpVtbl->GetId((IMMDevice*)p, a)
-    #endif
-    #ifdef __cplusplus
-        #define IMMDevice_OpenPropertyStore(p, a, b) ((IMMDevice*)p)->OpenPropertyStore(a, b)
-    #else
-        #define IMMDevice_OpenPropertyStore(p, a, b) ((IMMDevice*)p)->lpVtbl->OpenPropertyStore((IMMDevice*)p, a, b)
-    #endif
-    #ifdef __cplusplus
-        #define IMMDevice_Activate(p, a, b, c, d) ((IMMDevice*)p)->Activate(a, b, c, d)
-    #else
-        #define IMMDevice_Activate(p, a, b, c, d) ((IMMDevice*)p)->lpVtbl->Activate((IMMDevice*)p, a, b, c, d)
-    #endif
+    typedef struct
+    {
+        // IUnknown
+        HRESULT (STDMETHODCALLTYPE * QueryInterface)(mal_IMMDevice* pThis, const IID* const riid, void** ppObject);
+        ULONG   (STDMETHODCALLTYPE * AddRef)        (mal_IMMDevice* pThis);
+        ULONG   (STDMETHODCALLTYPE * Release)       (mal_IMMDevice* pThis);
+
+        // IMMDevice
+        HRESULT (STDMETHODCALLTYPE * Activate)         (mal_IMMDevice* pThis, const IID* const iid, DWORD dwClsCtx, PROPVARIANT* pActivationParams, void** ppInterface);
+        HRESULT (STDMETHODCALLTYPE * OpenPropertyStore)(mal_IMMDevice* pThis, DWORD stgmAccess, mal_IPropertyStore** ppProperties);
+        HRESULT (STDMETHODCALLTYPE * GetId)            (mal_IMMDevice* pThis, LPWSTR *pID);
+        HRESULT (STDMETHODCALLTYPE * GetState)         (mal_IMMDevice* pThis, DWORD *pState);
+    } mal_IMMDeviceVtbl;
+    struct mal_IMMDevice
+    {
+        mal_IMMDeviceVtbl* lpVtbl;
+    };
+    HRESULT mal_IMMDevice_QueryInterface(mal_IMMDevice* pThis, const IID* const riid, void** ppObject) { return pThis->lpVtbl->QueryInterface(pThis, riid, ppObject); }
+    ULONG   mal_IMMDevice_AddRef(mal_IMMDevice* pThis)                                                 { return pThis->lpVtbl->AddRef(pThis); }
+    ULONG   mal_IMMDevice_Release(mal_IMMDevice* pThis)                                                { return pThis->lpVtbl->Release(pThis); }
+    HRESULT mal_IMMDevice_Activate(mal_IMMDevice* pThis, const IID* const iid, DWORD dwClsCtx, PROPVARIANT* pActivationParams, void** ppInterface) { return pThis->lpVtbl->Activate(pThis, iid, dwClsCtx, pActivationParams, ppInterface); }
+    HRESULT mal_IMMDevice_OpenPropertyStore(mal_IMMDevice* pThis, DWORD stgmAccess, mal_IPropertyStore** ppProperties) { return pThis->lpVtbl->OpenPropertyStore(pThis, stgmAccess, ppProperties); }
+    HRESULT mal_IMMDevice_GetId(mal_IMMDevice* pThis, LPWSTR *pID)                                     { return pThis->lpVtbl->GetId(pThis, pID); }
+    HRESULT mal_IMMDevice_GetState(mal_IMMDevice* pThis, DWORD *pState)                                { return pThis->lpVtbl->GetState(pThis, pState); }
 #else
+
     // IActivateAudioInterfaceAsyncOperation
-    #ifdef __cplusplus
-        #define IActivateAudioInterfaceAsyncOperation_Release(p) ((IActivateAudioInterfaceAsyncOperation*)p)->Release()
-    #else
-        #define IActivateAudioInterfaceAsyncOperation_Release(p) ((IActivateAudioInterfaceAsyncOperation*)p)->lpVtbl->Release((IActivateAudioInterfaceAsyncOperation*)p)
-    #endif
-    #ifdef __cplusplus
-        #define IActivateAudioInterfaceAsyncOperation_GetActivateResult(p, a, b) ((IActivateAudioInterfaceAsyncOperation*)p)->GetActivateResult(a, b)
-    #else
-        #define IActivateAudioInterfaceAsyncOperation_GetActivateResult(p, a, b) ((IActivateAudioInterfaceAsyncOperation*)p)->lpVtbl->GetActivateResult((IActivateAudioInterfaceAsyncOperation*)p, a, b)
-    #endif
+    typedef struct
+    {
+        // IUnknown
+        HRESULT (STDMETHODCALLTYPE * QueryInterface)(mal_IActivateAudioInterfaceAsyncOperation* pThis, const IID* const riid, void** ppObject);
+        ULONG   (STDMETHODCALLTYPE * AddRef)        (mal_IActivateAudioInterfaceAsyncOperation* pThis);
+        ULONG   (STDMETHODCALLTYPE * Release)       (mal_IActivateAudioInterfaceAsyncOperation* pThis);
+
+        // IActivateAudioInterfaceAsyncOperation
+        HRESULT (STDMETHODCALLTYPE * GetActivateResult)(mal_IActivateAudioInterfaceAsyncOperation* pThis, HRESULT *pActivateResult, IUnknown** ppActivatedInterface);
+    } mal_IActivateAudioInterfaceAsyncOperationVtbl;
+    struct mal_IActivateAudioInterfaceAsyncOperation
+    {
+        mal_IActivateAudioInterfaceAsyncOperationVtbl* lpVtbl;
+    };
+    HRESULT mal_IActivateAudioInterfaceAsyncOperation_QueryInterface(mal_IActivateAudioInterfaceAsyncOperation* pThis, const IID* const riid, void** ppObject) { return pThis->lpVtbl->QueryInterface(pThis, riid, ppObject); }
+    ULONG   mal_IActivateAudioInterfaceAsyncOperation_AddRef(mal_IActivateAudioInterfaceAsyncOperation* pThis)                                                 { return pThis->lpVtbl->AddRef(pThis); }
+    ULONG   mal_IActivateAudioInterfaceAsyncOperation_Release(mal_IActivateAudioInterfaceAsyncOperation* pThis)                                                { return pThis->lpVtbl->Release(pThis); }
+    HRESULT mal_IActivateAudioInterfaceAsyncOperation_GetActivateResult(mal_IActivateAudioInterfaceAsyncOperation* pThis, HRESULT *pActivateResult, IUnknown** ppActivatedInterface) { return pThis->lpVtbl->GetActivateResult(pThis, pActivateResult, ppActivatedInterface); }
 #endif
 
 // IPropertyStore
-#ifdef __cplusplus
-    #define IPropertyStore_Release(p) ((IPropertyStore*)p)->Release()
-#else
-    #define IPropertyStore_Release(p) ((IPropertyStore*)p)->lpVtbl->Release((IPropertyStore*)p)
-#endif
-#ifdef __cplusplus
-    #define IPropertyStore_GetValue(p, a, b) ((IPropertyStore*)p)->GetValue(a, b)
-#else
-    #define IPropertyStore_GetValue(p, a, b) ((IPropertyStore*)p)->lpVtbl->GetValue((IPropertyStore*)p, &a, b)
-#endif
+typedef struct
+{
+    // IUnknown
+    HRESULT (STDMETHODCALLTYPE * QueryInterface)(mal_IPropertyStore* pThis, const IID* const riid, void** ppObject);
+    ULONG   (STDMETHODCALLTYPE * AddRef)        (mal_IPropertyStore* pThis);
+    ULONG   (STDMETHODCALLTYPE * Release)       (mal_IPropertyStore* pThis);
+
+    // IPropertyStore
+    HRESULT (STDMETHODCALLTYPE * GetCount)(mal_IPropertyStore* pThis, DWORD* pPropCount);
+    HRESULT (STDMETHODCALLTYPE * GetAt)   (mal_IPropertyStore* pThis, DWORD propIndex, PROPERTYKEY* pPropKey);
+    HRESULT (STDMETHODCALLTYPE * GetValue)(mal_IPropertyStore* pThis, const PROPERTYKEY* const pKey, PROPVARIANT* pPropVar);
+    HRESULT (STDMETHODCALLTYPE * SetValue)(mal_IPropertyStore* pThis, const PROPERTYKEY* const pKey, const PROPVARIANT* const pPropVar);
+    HRESULT (STDMETHODCALLTYPE * Commit)  (mal_IPropertyStore* pThis);
+} mal_IPropertyStoreVtbl;
+struct mal_IPropertyStore
+{
+    mal_IPropertyStoreVtbl* lpVtbl;
+};
+HRESULT mal_IPropertyStore_QueryInterface(mal_IPropertyStore* pThis, const IID* const riid, void** ppObject) { return pThis->lpVtbl->QueryInterface(pThis, riid, ppObject); }
+ULONG   mal_IPropertyStore_AddRef(mal_IPropertyStore* pThis)                                                 { return pThis->lpVtbl->AddRef(pThis); }
+ULONG   mal_IPropertyStore_Release(mal_IPropertyStore* pThis)                                                { return pThis->lpVtbl->Release(pThis); }
+HRESULT mal_IPropertyStore_GetCount(mal_IPropertyStore* pThis, DWORD* pPropCount)                            { return pThis->lpVtbl->GetCount(pThis, pPropCount); }
+HRESULT mal_IPropertyStore_GetAt(mal_IPropertyStore* pThis, DWORD propIndex, PROPERTYKEY* pPropKey)          { return pThis->lpVtbl->GetAt(pThis, propIndex, pPropKey); }
+HRESULT mal_IPropertyStore_GetValue(mal_IPropertyStore* pThis, const PROPERTYKEY* const pKey, PROPVARIANT* pPropVar) { return pThis->lpVtbl->GetValue(pThis, pKey, pPropVar); }
+HRESULT mal_IPropertyStore_SetValue(mal_IPropertyStore* pThis, const PROPERTYKEY* const pKey, const PROPVARIANT* const pPropVar) { return pThis->lpVtbl->SetValue(pThis, pKey, pPropVar); }
+HRESULT mal_IPropertyStore_Commit(mal_IPropertyStore* pThis)                                                 { return pThis->lpVtbl->Commit(pThis); }
+
 
 // IAudioClient
-#ifdef __cplusplus
-    #define IAudioClient_Release(p) ((IAudioClient*)p)->Release()
-#else
-    #define IAudioClient_Release(p) ((IAudioClient*)p)->lpVtbl->Release((IAudioClient*)p)
-#endif
-#ifdef __cplusplus
-    #define IAudioClient_IsFormatSupported(p, a, b, c) ((IAudioClient*)p)->IsFormatSupported(a, b, c)
-#else
-    #define IAudioClient_IsFormatSupported(p, a, b, c) ((IAudioClient*)p)->lpVtbl->IsFormatSupported((IAudioClient*)p, a, b, c)
-#endif
-#ifdef __cplusplus
-    #define IAudioClient_GetMixFormat(p, a) ((IAudioClient*)p)->GetMixFormat(a)
-#else
-    #define IAudioClient_GetMixFormat(p, a) ((IAudioClient*)p)->lpVtbl->GetMixFormat((IAudioClient*)p, a)
-#endif
-#ifdef __cplusplus
-    #define IAudioClient_Initialize(p, a, b, c, d, e, f) ((IAudioClient*)p)->Initialize(a, b, c, d, e, f)
-#else
-    #define IAudioClient_Initialize(p, a, b, c, d, e, f) ((IAudioClient*)p)->lpVtbl->Initialize((IAudioClient*)p, a, b, c, d, e, f)
-#endif
-#ifdef __cplusplus
-    #define IAudioClient_GetBufferSize(p, a) ((IAudioClient*)p)->GetBufferSize(a)
-#else
-    #define IAudioClient_GetBufferSize(p, a) ((IAudioClient*)p)->lpVtbl->GetBufferSize((IAudioClient*)p, a)
-#endif
-#ifdef __cplusplus
-    #define IAudioClient_GetService(p, a, b) ((IAudioClient*)p)->GetService(a, b)
-#else
-    #define IAudioClient_GetService(p, a, b) ((IAudioClient*)p)->lpVtbl->GetService((IAudioClient*)p, a, b)
-#endif
-#ifdef __cplusplus
-    #define IAudioClient_Start(p) ((IAudioClient*)p)->Start()
-#else
-    #define IAudioClient_Start(p) ((IAudioClient*)p)->lpVtbl->Start((IAudioClient*)p)
-#endif
-#ifdef __cplusplus
-    #define IAudioClient_Stop(p) ((IAudioClient*)p)->Stop()
-#else
-    #define IAudioClient_Stop(p) ((IAudioClient*)p)->lpVtbl->Stop((IAudioClient*)p)
-#endif
-#ifdef __cplusplus
-    #define IAudioClient_GetCurrentPadding(p, a) ((IAudioClient*)p)->GetCurrentPadding(a)
-#else
-    #define IAudioClient_GetCurrentPadding(p, a) ((IAudioClient*)p)->lpVtbl->GetCurrentPadding((IAudioClient*)p, a)
-#endif
-#ifdef __cplusplus
-    #define IAudioClient_SetEventHandle(p, a) ((IAudioClient*)p)->SetEventHandle(a)
-#else
-    #define IAudioClient_SetEventHandle(p, a) ((IAudioClient*)p)->lpVtbl->SetEventHandle((IAudioClient*)p, a)
-#endif
+typedef struct
+{
+    // IUnknown
+    HRESULT (STDMETHODCALLTYPE * QueryInterface)(mal_IAudioClient* pThis, const IID* const riid, void** ppObject);
+    ULONG   (STDMETHODCALLTYPE * AddRef)        (mal_IAudioClient* pThis);
+    ULONG   (STDMETHODCALLTYPE * Release)       (mal_IAudioClient* pThis);
+
+    // IAudioClient
+    HRESULT (STDMETHODCALLTYPE * Initialize)       (mal_IAudioClient* pThis, MAL_AUDCLNT_SHAREMODE shareMode, DWORD streamFlags, MAL_REFERENCE_TIME bufferDuration, MAL_REFERENCE_TIME periodicity, const WAVEFORMATEX* pFormat, const GUID* pAudioSessionGuid);
+    HRESULT (STDMETHODCALLTYPE * GetBufferSize)    (mal_IAudioClient* pThis, UINT32* pNumBufferFrames);
+    HRESULT (STDMETHODCALLTYPE * GetStreamLatency) (mal_IAudioClient* pThis, MAL_REFERENCE_TIME* pLatency);
+    HRESULT (STDMETHODCALLTYPE * GetCurrentPadding)(mal_IAudioClient* pThis, UINT32* pNumPaddingFrames);
+    HRESULT (STDMETHODCALLTYPE * IsFormatSupported)(mal_IAudioClient* pThis, MAL_AUDCLNT_SHAREMODE shareMode, const WAVEFORMATEX* pFormat, WAVEFORMATEX** ppClosestMatch);
+    HRESULT (STDMETHODCALLTYPE * GetMixFormat)     (mal_IAudioClient* pThis, WAVEFORMATEX** ppDeviceFormat);
+    HRESULT (STDMETHODCALLTYPE * GetDevicePeriod)  (mal_IAudioClient* pThis, MAL_REFERENCE_TIME* pDefaultDevicePeriod, MAL_REFERENCE_TIME* pMinimumDevicePeriod);
+    HRESULT (STDMETHODCALLTYPE * Start)            (mal_IAudioClient* pThis);
+    HRESULT (STDMETHODCALLTYPE * Stop)             (mal_IAudioClient* pThis);
+    HRESULT (STDMETHODCALLTYPE * Reset)            (mal_IAudioClient* pThis);
+    HRESULT (STDMETHODCALLTYPE * SetEventHandle)   (mal_IAudioClient* pThis, HANDLE eventHandle);
+    HRESULT (STDMETHODCALLTYPE * GetService)       (mal_IAudioClient* pThis, const IID* const riid, void** pp);
+} mal_IAudioClientVtbl;
+struct mal_IAudioClient
+{
+    mal_IAudioClientVtbl* lpVtbl;
+};
+HRESULT mal_IAudioClient_QueryInterface(mal_IAudioClient* pThis, const IID* const riid, void** ppObject) { return pThis->lpVtbl->QueryInterface(pThis, riid, ppObject); }
+ULONG   mal_IAudioClient_AddRef(mal_IAudioClient* pThis)                                                 { return pThis->lpVtbl->AddRef(pThis); }
+ULONG   mal_IAudioClient_Release(mal_IAudioClient* pThis)                                                { return pThis->lpVtbl->Release(pThis); }
+HRESULT mal_IAudioClient_Initialize(mal_IAudioClient* pThis, MAL_AUDCLNT_SHAREMODE shareMode, DWORD streamFlags, MAL_REFERENCE_TIME bufferDuration, MAL_REFERENCE_TIME periodicity, const WAVEFORMATEX* pFormat, const GUID* pAudioSessionGuid) { return pThis->lpVtbl->Initialize(pThis, shareMode, streamFlags, bufferDuration, periodicity, pFormat, pAudioSessionGuid); }
+HRESULT mal_IAudioClient_GetBufferSize(mal_IAudioClient* pThis, UINT32* pNumBufferFrames)                { return pThis->lpVtbl->GetBufferSize(pThis, pNumBufferFrames); }
+HRESULT mal_IAudioClient_GetStreamLatency(mal_IAudioClient* pThis, MAL_REFERENCE_TIME* pLatency)             { return pThis->lpVtbl->GetStreamLatency(pThis, pLatency); }
+HRESULT mal_IAudioClient_GetCurrentPadding(mal_IAudioClient* pThis, UINT32* pNumPaddingFrames)           { return pThis->lpVtbl->GetCurrentPadding(pThis, pNumPaddingFrames); }
+HRESULT mal_IAudioClient_IsFormatSupported(mal_IAudioClient* pThis, MAL_AUDCLNT_SHAREMODE shareMode, const WAVEFORMATEX* pFormat, WAVEFORMATEX** ppClosestMatch) { return pThis->lpVtbl->IsFormatSupported(pThis, shareMode, pFormat, ppClosestMatch); }
+HRESULT mal_IAudioClient_GetMixFormat(mal_IAudioClient* pThis, WAVEFORMATEX** ppDeviceFormat)            { return pThis->lpVtbl->GetMixFormat(pThis, ppDeviceFormat); }
+HRESULT mal_IAudioClient_GetDevicePeriod(mal_IAudioClient* pThis, MAL_REFERENCE_TIME* pDefaultDevicePeriod, MAL_REFERENCE_TIME* pMinimumDevicePeriod) { return pThis->lpVtbl->GetDevicePeriod(pThis, pDefaultDevicePeriod, pMinimumDevicePeriod); }
+HRESULT mal_IAudioClient_Start(mal_IAudioClient* pThis)                                                  { return pThis->lpVtbl->Start(pThis); }
+HRESULT mal_IAudioClient_Stop(mal_IAudioClient* pThis)                                                   { return pThis->lpVtbl->Stop(pThis); }
+HRESULT mal_IAudioClient_Reset(mal_IAudioClient* pThis)                                                  { return pThis->lpVtbl->Reset(pThis); }
+HRESULT mal_IAudioClient_SetEventHandle(mal_IAudioClient* pThis, HANDLE eventHandle)                     { return pThis->lpVtbl->SetEventHandle(pThis, eventHandle); }
+HRESULT mal_IAudioClient_GetService(mal_IAudioClient* pThis, const IID* const riid, void** pp)           { return pThis->lpVtbl->GetService(pThis, riid, pp); }
+
 
 // IAudioRenderClient
-#ifdef __cplusplus
-    #define IAudioRenderClient_Release(p) ((IAudioRenderClient*)p)->Release()
-#else
-    #define IAudioRenderClient_Release(p) ((IAudioRenderClient*)p)->lpVtbl->Release((IAudioRenderClient*)p)
-#endif
-#ifdef __cplusplus
-    #define IAudioRenderClient_GetBuffer(p, a, b) ((IAudioRenderClient*)p)->GetBuffer(a, b)
-#else
-    #define IAudioRenderClient_GetBuffer(p, a, b) ((IAudioRenderClient*)p)->lpVtbl->GetBuffer((IAudioRenderClient*)p, a, b)
-#endif
-#ifdef __cplusplus
-    #define IAudioRenderClient_ReleaseBuffer(p, a, b) ((IAudioRenderClient*)p)->ReleaseBuffer(a, b)
-#else
-    #define IAudioRenderClient_ReleaseBuffer(p, a, b) ((IAudioRenderClient*)p)->lpVtbl->ReleaseBuffer((IAudioRenderClient*)p, a, b)
-#endif
+typedef struct
+{
+    // IUnknown
+    HRESULT (STDMETHODCALLTYPE * QueryInterface)(mal_IAudioRenderClient* pThis, const IID* const riid, void** ppObject);
+    ULONG   (STDMETHODCALLTYPE * AddRef)        (mal_IAudioRenderClient* pThis);
+    ULONG   (STDMETHODCALLTYPE * Release)       (mal_IAudioRenderClient* pThis);
+
+    // IAudioRenderClient
+    HRESULT (STDMETHODCALLTYPE * GetBuffer)    (mal_IAudioRenderClient* pThis, UINT32 numFramesRequested, BYTE** ppData);
+    HRESULT (STDMETHODCALLTYPE * ReleaseBuffer)(mal_IAudioRenderClient* pThis, UINT32 numFramesWritten, DWORD dwFlags);
+} mal_IAudioRenderClientVtbl;
+struct mal_IAudioRenderClient
+{
+    mal_IAudioRenderClientVtbl* lpVtbl;
+};
+HRESULT mal_IAudioRenderClient_QueryInterface(mal_IAudioRenderClient* pThis, const IID* const riid, void** ppObject) { return pThis->lpVtbl->QueryInterface(pThis, riid, ppObject); }
+ULONG   mal_IAudioRenderClient_AddRef(mal_IAudioRenderClient* pThis)                                                 { return pThis->lpVtbl->AddRef(pThis); }
+ULONG   mal_IAudioRenderClient_Release(mal_IAudioRenderClient* pThis)                                                { return pThis->lpVtbl->Release(pThis); }
+HRESULT mal_IAudioRenderClient_GetBuffer(mal_IAudioRenderClient* pThis, UINT32 numFramesRequested, BYTE** ppData)    { return pThis->lpVtbl->GetBuffer(pThis, numFramesRequested, ppData); }
+HRESULT mal_IAudioRenderClient_ReleaseBuffer(mal_IAudioRenderClient* pThis, UINT32 numFramesWritten, DWORD dwFlags)  { return pThis->lpVtbl->ReleaseBuffer(pThis, numFramesWritten, dwFlags); }
+
 
 // IAudioCaptureClient
-#ifdef __cplusplus
-    #define IAudioCaptureClient_Release(p) ((IAudioCaptureClient*)p)->Release()
-#else
-    #define IAudioCaptureClient_Release(p) ((IAudioCaptureClient*)p)->lpVtbl->Release((IAudioCaptureClient*)p)
-#endif
-#ifdef __cplusplus
-    #define IAudioCaptureClient_GetNextPacketSize(p, a) ((IAudioCaptureClient*)p)->GetNextPacketSize(a)
-#else
-    #define IAudioCaptureClient_GetNextPacketSize(p, a) ((IAudioCaptureClient*)p)->lpVtbl->GetNextPacketSize((IAudioCaptureClient*)p, a)
-#endif
-#ifdef __cplusplus
-    #define IAudioCaptureClient_GetBuffer(p, a, b, c, d, e) ((IAudioCaptureClient*)p)->GetBuffer(a, b, c, d, e)
-#else
-    #define IAudioCaptureClient_GetBuffer(p, a, b, c, d, e) ((IAudioCaptureClient*)p)->lpVtbl->GetBuffer((IAudioCaptureClient*)p, a, b, c, d, e)
-#endif
-#ifdef __cplusplus
-    #define IAudioCaptureClient_ReleaseBuffer(p, a) ((IAudioCaptureClient*)p)->ReleaseBuffer(a)
-#else
-    #define IAudioCaptureClient_ReleaseBuffer(p, a) ((IAudioCaptureClient*)p)->lpVtbl->ReleaseBuffer((IAudioCaptureClient*)p, a)
-#endif
+typedef struct
+{
+    // IUnknown
+    HRESULT (STDMETHODCALLTYPE * QueryInterface)(mal_IAudioCaptureClient* pThis, const IID* const riid, void** ppObject);
+    ULONG   (STDMETHODCALLTYPE * AddRef)        (mal_IAudioCaptureClient* pThis);
+    ULONG   (STDMETHODCALLTYPE * Release)       (mal_IAudioCaptureClient* pThis);
+
+    // IAudioRenderClient
+    HRESULT (STDMETHODCALLTYPE * GetBuffer)        (mal_IAudioCaptureClient* pThis, BYTE** ppData, UINT32* pNumFramesToRead, DWORD* pFlags, UINT64* pDevicePosition, UINT64* pQPCPosition);
+    HRESULT (STDMETHODCALLTYPE * ReleaseBuffer)    (mal_IAudioCaptureClient* pThis, UINT32 numFramesRead);
+    HRESULT (STDMETHODCALLTYPE * GetNextPacketSize)(mal_IAudioCaptureClient* pThis, UINT32* pNumFramesInNextPacket);
+} mal_IAudioCaptureClientVtbl;
+struct mal_IAudioCaptureClient
+{
+    mal_IAudioCaptureClientVtbl* lpVtbl;
+};
+HRESULT mal_IAudioCaptureClient_QueryInterface(mal_IAudioCaptureClient* pThis, const IID* const riid, void** ppObject) { return pThis->lpVtbl->QueryInterface(pThis, riid, ppObject); }
+ULONG   mal_IAudioCaptureClient_AddRef(mal_IAudioCaptureClient* pThis)                                                 { return pThis->lpVtbl->AddRef(pThis); }
+ULONG   mal_IAudioCaptureClient_Release(mal_IAudioCaptureClient* pThis)                                                { return pThis->lpVtbl->Release(pThis); }
+HRESULT mal_IAudioCaptureClient_GetBuffer(mal_IAudioCaptureClient* pThis, BYTE** ppData, UINT32* pNumFramesToRead, DWORD* pFlags, UINT64* pDevicePosition, UINT64* pQPCPosition) { return pThis->lpVtbl->GetBuffer(pThis, ppData, pNumFramesToRead, pFlags, pDevicePosition, pQPCPosition); }
+HRESULT mal_IAudioCaptureClient_ReleaseBuffer(mal_IAudioCaptureClient* pThis, UINT32 numFramesRead)                    { return pThis->lpVtbl->ReleaseBuffer(pThis, numFramesRead); }
+HRESULT mal_IAudioCaptureClient_GetNextPacketSize(mal_IAudioCaptureClient* pThis, UINT32* pNumFramesInNextPacket)      { return pThis->lpVtbl->GetNextPacketSize(pThis, pNumFramesInNextPacket); }
+
 
 mal_result mal_context_init__wasapi(mal_context* pContext)
 {
@@ -4003,25 +4103,25 @@ static mal_result mal_enumerate_devices__wasapi(mal_context* pContext, mal_devic
     *pCount = 0;
 
 #ifdef MAL_WIN32_DESKTOP
-    IMMDeviceEnumerator* pDeviceEnumerator;
-    HRESULT hr = mal_CoCreateInstance(pContext, g_malCLSID_MMDeviceEnumerator, NULL, CLSCTX_ALL, g_malIID_IMMDeviceEnumerator, (void**)&pDeviceEnumerator);
+    mal_IMMDeviceEnumerator* pDeviceEnumerator;
+    HRESULT hr = mal_CoCreateInstance(pContext, MAL_CLSID_MMDeviceEnumerator, NULL, CLSCTX_ALL, MAL_IID_IMMDeviceEnumerator, (void**)&pDeviceEnumerator);
     if (FAILED(hr)) {
         return mal_context_post_error(pContext, NULL, "[WASAPI] Failed to create device enumerator.", MAL_FAILED_TO_OPEN_BACKEND_DEVICE);
     }
 
-    IMMDeviceCollection* pDeviceCollection;
-    hr = IMMDeviceEnumerator_EnumAudioEndpoints(pDeviceEnumerator, (type == mal_device_type_playback) ? eRender : eCapture, DEVICE_STATE_ACTIVE, &pDeviceCollection);
+    mal_IMMDeviceCollection* pDeviceCollection;
+    hr = mal_IMMDeviceEnumerator_EnumAudioEndpoints(pDeviceEnumerator, (type == mal_device_type_playback) ? mal_eRender : mal_eCapture, MAL_MM_DEVICE_STATE_ACTIVE, &pDeviceCollection);
     if (FAILED(hr)) {
-        IMMDeviceEnumerator_Release(pDeviceEnumerator);
+        mal_IMMDeviceEnumerator_Release(pDeviceEnumerator);
         return mal_context_post_error(pContext, NULL, "[WASAPI] Failed to enumerate audio endpoints.", MAL_NO_DEVICE);
     }
 
-    IMMDeviceEnumerator_Release(pDeviceEnumerator);
+    mal_IMMDeviceEnumerator_Release(pDeviceEnumerator);
 
     UINT count;
-    hr = IMMDeviceCollection_GetCount(pDeviceCollection, &count);
+    hr = mal_IMMDeviceCollection_GetCount(pDeviceCollection, &count);
     if (FAILED(hr)) {
-        IMMDeviceCollection_Release(pDeviceCollection);
+        mal_IMMDeviceCollection_Release(pDeviceCollection);
         return mal_context_post_error(pContext, NULL, "[WASAPI] Failed to get device count.", MAL_NO_DEVICE);
     }
 
@@ -4030,12 +4130,12 @@ static mal_result mal_enumerate_devices__wasapi(mal_context* pContext, mal_devic
             if (infoSize > 0) {
                 mal_zero_object(pInfo);
 
-                IMMDevice* pDevice;
-                hr = IMMDeviceCollection_Item(pDeviceCollection, iDevice, &pDevice);
+                mal_IMMDevice* pDevice;
+                hr = mal_IMMDeviceCollection_Item(pDeviceCollection, iDevice, &pDevice);
                 if (SUCCEEDED(hr)) {
                     // ID.
                     LPWSTR id;
-                    hr = IMMDevice_GetId(pDevice, &id);
+                    hr = mal_IMMDevice_GetId(pDevice, &id);
                     if (SUCCEEDED(hr)) {
                         size_t idlen = wcslen(id);
                         if (idlen+1 > mal_countof(pInfo->id.wasapi)) {
@@ -4051,18 +4151,18 @@ static mal_result mal_enumerate_devices__wasapi(mal_context* pContext, mal_devic
                     }
 
                     // Description / Friendly Name.
-                    IPropertyStore *pProperties;
-                    hr = IMMDevice_OpenPropertyStore(pDevice, STGM_READ, &pProperties);
+                    mal_IPropertyStore *pProperties;
+                    hr = mal_IMMDevice_OpenPropertyStore(pDevice, STGM_READ, &pProperties);
                     if (SUCCEEDED(hr)) {
                         PROPVARIANT varName;
-                        PropVariantInit(&varName);
-                        hr = IPropertyStore_GetValue(pProperties, g_malPKEY_Device_FriendlyName, &varName);
+                        mal_PropVariantInit(&varName);
+                        hr = mal_IPropertyStore_GetValue(pProperties, &MAL_PKEY_Device_FriendlyName, &varName);
                         if (SUCCEEDED(hr)) {
                             WideCharToMultiByte(CP_UTF8, 0, varName.pwszVal, -1, pInfo->name, sizeof(pInfo->name), 0, FALSE);
                             mal_PropVariantClear(pContext, &varName);
                         }
 
-                        IPropertyStore_Release(pProperties);
+                        mal_IPropertyStore_Release(pProperties);
                     }
                 }
 
@@ -4075,7 +4175,7 @@ static mal_result mal_enumerate_devices__wasapi(mal_context* pContext, mal_devic
         }
     }
 
-    IMMDeviceCollection_Release(pDeviceCollection);
+    mal_IMMDeviceCollection_Release(pDeviceCollection);
 #else
     // The MMDevice API is only supported on desktop applications. For now, while I'm still figuring out how to properly enumerate
     // over devices without using MMDevice, I'm restricting devices to defaults.
@@ -4084,10 +4184,10 @@ static mal_result mal_enumerate_devices__wasapi(mal_context* pContext, mal_devic
     if (pInfo != NULL) {
         if (infoSize > 0) {
             if (type == mal_device_type_playback) {
-                mal_copy_memory(pInfo->id.wasapi, &g_malIID_DEVINTERFACE_AUDIO_RENDER, sizeof(g_malIID_DEVINTERFACE_AUDIO_RENDER));
+                mal_copy_memory(pInfo->id.wasapi, &MAL_IID_DEVINTERFACE_AUDIO_RENDER, sizeof(MAL_IID_DEVINTERFACE_AUDIO_RENDER));
                 mal_strncpy_s(pInfo->name, sizeof(pInfo->name), "Default Playback Device", (size_t)-1);
             } else {
-                mal_copy_memory(pInfo->id.wasapi, &g_malIID_DEVINTERFACE_AUDIO_CAPTURE, sizeof(g_malIID_DEVINTERFACE_AUDIO_CAPTURE));
+                mal_copy_memory(pInfo->id.wasapi, &MAL_IID_DEVINTERFACE_AUDIO_CAPTURE, sizeof(MAL_IID_DEVINTERFACE_AUDIO_CAPTURE));
                 mal_strncpy_s(pInfo->name, sizeof(pInfo->name), "Default Capture Device", (size_t)-1);
             }
 
@@ -4107,13 +4207,13 @@ static void mal_device_uninit__wasapi(mal_device* pDevice)
     mal_assert(pDevice != NULL);
 
     if (pDevice->wasapi.pRenderClient) {
-        IAudioRenderClient_Release(pDevice->wasapi.pRenderClient);
+        mal_IAudioRenderClient_Release((mal_IAudioRenderClient*)pDevice->wasapi.pRenderClient);
     }
     if (pDevice->wasapi.pCaptureClient) {
-        IAudioCaptureClient_Release(pDevice->wasapi.pCaptureClient);
+        mal_IAudioCaptureClient_Release((mal_IAudioCaptureClient*)pDevice->wasapi.pCaptureClient);
     }
     if (pDevice->wasapi.pAudioClient) {
-        IAudioClient_Release(pDevice->wasapi.pAudioClient);
+        mal_IAudioClient_Release((mal_IAudioClient*)pDevice->wasapi.pAudioClient);
     }
 
     if (pDevice->wasapi.hEvent) {
@@ -4124,9 +4224,13 @@ static void mal_device_uninit__wasapi(mal_device* pDevice)
     }
 }
 
+// This is the part that's preventing mini_al from being compiled as C with UWP. We need to implemented IActivateAudioInterfaceCompletionHandler
+// in C which is quite annoying.
 #ifndef MAL_WIN32_DESKTOP
     #ifdef __cplusplus
+    #include <mmdeviceapi.h>
     #include <wrl\implements.h>
+
     class malCompletionHandler : public Microsoft::WRL::RuntimeClass< Microsoft::WRL::RuntimeClassFlags< Microsoft::WRL::ClassicCom >, Microsoft::WRL::FtmBase, IActivateAudioInterfaceCompletionHandler >
     {
     public:
@@ -4183,43 +4287,45 @@ static mal_result mal_device_init__wasapi(mal_context* pContext, mal_device_type
     HRESULT hr;
     mal_result result = MAL_SUCCESS;
     const char* errorMsg = "";
-    AUDCLNT_SHAREMODE shareMode = AUDCLNT_SHAREMODE_SHARED;
+    MAL_AUDCLNT_SHAREMODE shareMode = MAL_AUDCLNT_SHAREMODE_SHARED;
+    MAL_REFERENCE_TIME bufferDurationInMicroseconds = ((mal_uint64)pDevice->bufferSizeInFrames * 1000 * 1000) / pConfig->sampleRate;
+    WAVEFORMATEXTENSIBLE* pBestFormatTemp = NULL;
 
 #ifdef MAL_WIN32_DESKTOP
-    IMMDevice* pMMDevice = NULL;
+    mal_IMMDevice* pMMDevice = NULL;
 
-    IMMDeviceEnumerator* pDeviceEnumerator;
-    hr = mal_CoCreateInstance(pContext, g_malCLSID_MMDeviceEnumerator, NULL, CLSCTX_ALL, g_malIID_IMMDeviceEnumerator, (void**)&pDeviceEnumerator);
+    mal_IMMDeviceEnumerator* pDeviceEnumerator;
+    hr = mal_CoCreateInstance(pContext, MAL_CLSID_MMDeviceEnumerator, NULL, CLSCTX_ALL, MAL_IID_IMMDeviceEnumerator, (void**)&pDeviceEnumerator);
     if (FAILED(hr)) {
         errorMsg = "[WASAPI] Failed to create IMMDeviceEnumerator.", result = MAL_FAILED_TO_OPEN_BACKEND_DEVICE;
         goto done;
     }
 
     if (pDeviceID == NULL) {
-        hr = IMMDeviceEnumerator_GetDefaultAudioEndpoint(pDeviceEnumerator, (type == mal_device_type_playback) ? eRender : eCapture, eConsole, &pMMDevice);
+        hr = mal_IMMDeviceEnumerator_GetDefaultAudioEndpoint(pDeviceEnumerator, (type == mal_device_type_playback) ? mal_eRender : mal_eCapture, mal_eConsole, &pMMDevice);
         if (FAILED(hr)) {
-            IMMDeviceEnumerator_Release(pDeviceEnumerator);
+            mal_IMMDeviceEnumerator_Release(pDeviceEnumerator);
             errorMsg = "[WASAPI] Failed to create default backend device.", result = MAL_FAILED_TO_OPEN_BACKEND_DEVICE;
             goto done;
         }
     } else {
-        hr = IMMDeviceEnumerator_GetDevice(pDeviceEnumerator, pDeviceID->wasapi, &pMMDevice);
+        hr = mal_IMMDeviceEnumerator_GetDevice(pDeviceEnumerator, pDeviceID->wasapi, &pMMDevice);
         if (FAILED(hr)) {
-            IMMDeviceEnumerator_Release(pDeviceEnumerator);
+            mal_IMMDeviceEnumerator_Release(pDeviceEnumerator);
             errorMsg = "[WASAPI] Failed to create backend device.", result = MAL_FAILED_TO_OPEN_BACKEND_DEVICE;
             goto done;
         }
     }
 
-    IMMDeviceEnumerator_Release(pDeviceEnumerator);
+    mal_IMMDeviceEnumerator_Release(pDeviceEnumerator);
 
-    hr = IMMDevice_Activate(pMMDevice, g_malIID_IAudioClient, CLSCTX_ALL, NULL, &pDevice->wasapi.pAudioClient);
+    hr = mal_IMMDevice_Activate(pMMDevice, &MAL_IID_IAudioClient, CLSCTX_ALL, NULL, &pDevice->wasapi.pAudioClient);
     if (FAILED(hr)) {
         errorMsg = "[WASAPI] Failed to activate device.", result = MAL_FAILED_TO_OPEN_BACKEND_DEVICE;
         goto done;
     }
 #else
-    IActivateAudioInterfaceAsyncOperation *pAsyncOp = NULL;
+    mal_IActivateAudioInterfaceAsyncOperation *pAsyncOp = NULL;
     malCompletionHandler completionHandler;
 
     IID iid;
@@ -4227,9 +4333,9 @@ static mal_result mal_device_init__wasapi(mal_context* pContext, mal_device_type
         mal_copy_memory(&iid, pDeviceID->wasapi, sizeof(iid));
     } else {
         if (type == mal_device_type_playback) {
-            iid = g_malIID_DEVINTERFACE_AUDIO_RENDER;
+            iid = MAL_IID_DEVINTERFACE_AUDIO_RENDER;
         } else {
-            iid = g_malIID_DEVINTERFACE_AUDIO_CAPTURE;
+            iid = MAL_IID_DEVINTERFACE_AUDIO_CAPTURE;
         }
     }
 
@@ -4248,7 +4354,7 @@ static mal_result mal_device_init__wasapi(mal_context* pContext, mal_device_type
         goto done;
     }
 
-    hr = ActivateAudioInterfaceAsync(iidStr, g_malIID_IAudioClient, NULL, &completionHandler, &pAsyncOp);
+    hr = ActivateAudioInterfaceAsync(iidStr, MAL_IID_IAudioClient, NULL, (IActivateAudioInterfaceCompletionHandler*)&completionHandler, (IActivateAudioInterfaceAsyncOperation**)&pAsyncOp);
     if (FAILED(hr)) {
         completionHandler.Uninit();
         mal_CoTaskMemFree(pContext, iidStr);
@@ -4265,14 +4371,14 @@ static mal_result mal_device_init__wasapi(mal_context* pContext, mal_device_type
 
     HRESULT activateResult;
     IUnknown* pActivatedInterface;
-    hr = IActivateAudioInterfaceAsyncOperation_GetActivateResult(pAsyncOp, &activateResult, &pActivatedInterface);
+    hr = mal_IActivateAudioInterfaceAsyncOperation_GetActivateResult(pAsyncOp, &activateResult, &pActivatedInterface);
     if (FAILED(hr) || FAILED(activateResult)) {
         errorMsg = "[WASAPI] Failed to activate device.", result = MAL_FAILED_TO_OPEN_BACKEND_DEVICE;
         goto done;
     }
 
     // Here is where we grab the IAudioClient interface.
-    hr = pActivatedInterface->QueryInterface(g_malIID_IAudioClient, &pDevice->wasapi.pAudioClient);
+    hr = pActivatedInterface->QueryInterface(MAL_IID_IAudioClient, &pDevice->wasapi.pAudioClient);
     if (FAILED(hr)) {
         errorMsg = "[WASAPI] Failed to query IAudioClient interface.", result = MAL_FAILED_TO_OPEN_BACKEND_DEVICE;
         goto done;
@@ -4298,20 +4404,19 @@ static mal_result mal_device_init__wasapi(mal_context* pContext, mal_device_type
 
 
     // Here is where we try to determine the best format to use with the device. If the client if wanting exclusive mode, first try finding the best format for that. If this fails, fall back to shared mode.
-    WAVEFORMATEXTENSIBLE* pBestFormatTemp = NULL;
     result = MAL_FORMAT_NOT_SUPPORTED;
     if (pConfig->preferExclusiveMode) {
     #ifdef MAL_WIN32_DESKTOP
         // In exclusive mode on desktop we always use the backend's native format.
-        IPropertyStore* pStore = NULL;
-        hr = IMMDevice_OpenPropertyStore(pMMDevice, STGM_READ, &pStore);
+        mal_IPropertyStore* pStore = NULL;
+        hr = mal_IMMDevice_OpenPropertyStore(pMMDevice, STGM_READ, &pStore);
         if (SUCCEEDED(hr)) {
             PROPVARIANT prop;
-            PropVariantInit(&prop);
-            hr = IPropertyStore_GetValue(pStore, g_malPKEY_AudioEngine_DeviceFormat, &prop);
+            mal_PropVariantInit(&prop);
+            hr = mal_IPropertyStore_GetValue(pStore, &MAL_PKEY_AudioEngine_DeviceFormat, &prop);
             if (SUCCEEDED(hr)) {
                 WAVEFORMATEX* pActualFormat = (WAVEFORMATEX*)prop.blob.pBlobData;
-                hr = IAudioClient_IsFormatSupported(pDevice->wasapi.pAudioClient, AUDCLNT_SHAREMODE_EXCLUSIVE, pActualFormat, NULL);
+                hr = mal_IAudioClient_IsFormatSupported((mal_IAudioClient*)pDevice->wasapi.pAudioClient, MAL_AUDCLNT_SHAREMODE_EXCLUSIVE, pActualFormat, NULL);
                 if (SUCCEEDED(hr)) {
                     mal_copy_memory(&wf, pActualFormat, sizeof(WAVEFORMATEXTENSIBLE));
                 }
@@ -4319,15 +4424,15 @@ static mal_result mal_device_init__wasapi(mal_context* pContext, mal_device_type
                 mal_PropVariantClear(pDevice->pContext, &prop);
             }
 
-            IPropertyStore_Release(pStore);
+            mal_IPropertyStore_Release(pStore);
         }
     #else
         // With non-Desktop builds we just try using the requested format.
-        hr = IAudioClient_IsFormatSupported(pDevice->wasapi.pAudioClient, AUDCLNT_SHAREMODE_EXCLUSIVE, (WAVEFORMATEX*)&wf, NULL);
+        hr = mal_IAudioClient_IsFormatSupported((mal_IAudioClient*)pDevice->wasapi.pAudioClient, MAL_AUDCLNT_SHAREMODE_EXCLUSIVE, (WAVEFORMATEX*)&wf, NULL);
     #endif
 
         if (hr == S_OK) {
-            shareMode = AUDCLNT_SHAREMODE_EXCLUSIVE;
+            shareMode = MAL_AUDCLNT_SHAREMODE_EXCLUSIVE;
             result = MAL_SUCCESS;
         }
     }
@@ -4335,7 +4440,7 @@ static mal_result mal_device_init__wasapi(mal_context* pContext, mal_device_type
     // Fall back to shared mode if necessary.
     if (result != MAL_SUCCESS) {
         WAVEFORMATEXTENSIBLE* pNativeFormat = NULL;
-        hr = IAudioClient_GetMixFormat(pDevice->wasapi.pAudioClient, (WAVEFORMATEX**)&pNativeFormat);
+        hr = mal_IAudioClient_GetMixFormat((mal_IAudioClient*)pDevice->wasapi.pAudioClient, (WAVEFORMATEX**)&pNativeFormat);
         if (hr == S_OK) {
             if (pDevice->usingDefaultFormat) {
                 wf.Format.wBitsPerSample       = pNativeFormat->Format.wBitsPerSample;
@@ -4358,9 +4463,9 @@ static mal_result mal_device_init__wasapi(mal_context* pContext, mal_device_type
             pNativeFormat = NULL;
         }
 
-        hr = IAudioClient_IsFormatSupported(pDevice->wasapi.pAudioClient, AUDCLNT_SHAREMODE_SHARED, (WAVEFORMATEX*)&wf, (WAVEFORMATEX**)&pBestFormatTemp);
+        hr = mal_IAudioClient_IsFormatSupported((mal_IAudioClient*)pDevice->wasapi.pAudioClient, MAL_AUDCLNT_SHAREMODE_SHARED, (WAVEFORMATEX*)&wf, (WAVEFORMATEX**)&pBestFormatTemp);
         if (hr != S_OK && hr != S_FALSE) {
-            hr = IAudioClient_GetMixFormat(pDevice->wasapi.pAudioClient, (WAVEFORMATEX**)&pBestFormatTemp);
+            hr = mal_IAudioClient_GetMixFormat((mal_IAudioClient*)pDevice->wasapi.pAudioClient, (WAVEFORMATEX**)&pBestFormatTemp);
             if (hr != S_OK) {
                 result = MAL_FORMAT_NOT_SUPPORTED;
             } else {
@@ -4370,7 +4475,7 @@ static mal_result mal_device_init__wasapi(mal_context* pContext, mal_device_type
             result = MAL_SUCCESS;
         }
 
-        shareMode = AUDCLNT_SHAREMODE_SHARED;
+        shareMode = MAL_AUDCLNT_SHAREMODE_SHARED;
     }
 
     // Return an error if we still haven't found a format.
@@ -4385,8 +4490,6 @@ static mal_result mal_device_init__wasapi(mal_context* pContext, mal_device_type
     }
 
 
-    REFERENCE_TIME bufferDurationInMicroseconds = ((mal_uint64)pDevice->bufferSizeInFrames * 1000 * 1000) / pConfig->sampleRate;
-
     pDevice->internalFormat = mal_format_from_WAVEFORMATEX((WAVEFORMATEX*)&wf);
     pDevice->internalChannels = wf.Format.nChannels;
     pDevice->internalSampleRate = wf.Format.nSamplesPerSec;
@@ -4395,10 +4498,10 @@ static mal_result mal_device_init__wasapi(mal_context* pContext, mal_device_type
     mal_channel_mask_to_channel_map__win32(wf.dwChannelMask, pDevice->internalChannels, pDevice->internalChannelMap);
 
     // Slightly different initialization for shared and exclusive modes.
-    if (shareMode == AUDCLNT_SHAREMODE_SHARED) {
+    if (shareMode == MAL_AUDCLNT_SHAREMODE_SHARED) {
         // Shared.
-        REFERENCE_TIME bufferDuration = bufferDurationInMicroseconds*10;
-        hr = IAudioClient_Initialize(pDevice->wasapi.pAudioClient, shareMode, AUDCLNT_STREAMFLAGS_EVENTCALLBACK, bufferDuration, 0, (WAVEFORMATEX*)&wf, NULL);
+        MAL_REFERENCE_TIME bufferDuration = bufferDurationInMicroseconds*10;
+        hr = mal_IAudioClient_Initialize((mal_IAudioClient*)pDevice->wasapi.pAudioClient, shareMode, MAL_AUDCLNT_STREAMFLAGS_EVENTCALLBACK, bufferDuration, 0, (WAVEFORMATEX*)&wf, NULL);
         if (FAILED(hr)) {
             if (hr == E_ACCESSDENIED) {
                 errorMsg = "[WASAPI] Failed to initialize device. Access denied.", result = MAL_ACCESS_DENIED;
@@ -4410,25 +4513,25 @@ static mal_result mal_device_init__wasapi(mal_context* pContext, mal_device_type
         }
     } else {
         // Exclusive.
-        REFERENCE_TIME bufferDuration = bufferDurationInMicroseconds*10;
-        hr = IAudioClient_Initialize(pDevice->wasapi.pAudioClient, shareMode, AUDCLNT_STREAMFLAGS_EVENTCALLBACK, bufferDuration, bufferDuration, (WAVEFORMATEX*)&wf, NULL);
-        if (hr == AUDCLNT_E_BUFFER_SIZE_NOT_ALIGNED) {
+        MAL_REFERENCE_TIME bufferDuration = bufferDurationInMicroseconds*10;
+        hr = mal_IAudioClient_Initialize((mal_IAudioClient*)pDevice->wasapi.pAudioClient, shareMode, MAL_AUDCLNT_STREAMFLAGS_EVENTCALLBACK, bufferDuration, bufferDuration, (WAVEFORMATEX*)&wf, NULL);
+        if (hr == MAL_AUDCLNT_E_BUFFER_SIZE_NOT_ALIGNED) {
             UINT bufferSizeInFrames;
-            hr = IAudioClient_GetBufferSize(pDevice->wasapi.pAudioClient, &bufferSizeInFrames);
+            hr = mal_IAudioClient_GetBufferSize((mal_IAudioClient*)pDevice->wasapi.pAudioClient, &bufferSizeInFrames);
             if (SUCCEEDED(hr)) {
-                bufferDuration = (REFERENCE_TIME)((10000.0 * 1000 / wf.Format.nSamplesPerSec * bufferSizeInFrames) + 0.5);
+                bufferDuration = (MAL_REFERENCE_TIME)((10000.0 * 1000 / wf.Format.nSamplesPerSec * bufferSizeInFrames) + 0.5);
 
                 // Unfortunately we need to release and re-acquire the audio client according to MSDN. Seems silly - why not just call IAudioClient_Initialize() again?!
-                IAudioClient_Release(pDevice->wasapi.pAudioClient);
+                mal_IAudioClient_Release((mal_IAudioClient*)pDevice->wasapi.pAudioClient);
 
             #ifdef MAL_WIN32_DESKTOP
-                hr = IMMDevice_Activate(pMMDevice, g_malIID_IAudioClient, CLSCTX_ALL, NULL, &pDevice->wasapi.pAudioClient);
+                hr = mal_IMMDevice_Activate(pMMDevice, &MAL_IID_IAudioClient, CLSCTX_ALL, NULL, &pDevice->wasapi.pAudioClient);
             #else
-                hr = pActivatedInterface->QueryInterface(g_malIID_IAudioClient, &pDevice->wasapi.pAudioClient);
+                hr = pActivatedInterface->QueryInterface(MAL_IID_IAudioClient, &pDevice->wasapi.pAudioClient);
             #endif
 
                 if (SUCCEEDED(hr)) {
-                    hr = IAudioClient_Initialize(pDevice->wasapi.pAudioClient, shareMode, AUDCLNT_STREAMFLAGS_EVENTCALLBACK, bufferDuration, bufferDuration, (WAVEFORMATEX*)&wf, NULL);
+                    hr = mal_IAudioClient_Initialize((mal_IAudioClient*)pDevice->wasapi.pAudioClient, shareMode, MAL_AUDCLNT_STREAMFLAGS_EVENTCALLBACK, bufferDuration, bufferDuration, (WAVEFORMATEX*)&wf, NULL);
                 }
             }
         }
@@ -4439,16 +4542,16 @@ static mal_result mal_device_init__wasapi(mal_context* pContext, mal_device_type
         }
     }
 
-    hr = IAudioClient_GetBufferSize(pDevice->wasapi.pAudioClient, &pDevice->bufferSizeInFrames);
+    hr = mal_IAudioClient_GetBufferSize((mal_IAudioClient*)pDevice->wasapi.pAudioClient, &pDevice->bufferSizeInFrames);
     if (FAILED(hr)) {
         errorMsg = "[WASAPI] Failed to get audio client's actual buffer size.", result = MAL_FAILED_TO_OPEN_BACKEND_DEVICE;
         goto done;
     }
 
     if (type == mal_device_type_playback) {
-        hr = IAudioClient_GetService((IAudioClient*)pDevice->wasapi.pAudioClient, g_malIID_IAudioRenderClient, &pDevice->wasapi.pRenderClient);
+        hr = mal_IAudioClient_GetService((mal_IAudioClient*)pDevice->wasapi.pAudioClient, &MAL_IID_IAudioRenderClient, &pDevice->wasapi.pRenderClient);
     } else {
-        hr = IAudioClient_GetService((IAudioClient*)pDevice->wasapi.pAudioClient, g_malIID_IAudioCaptureClient, &pDevice->wasapi.pCaptureClient);
+        hr = mal_IAudioClient_GetService((mal_IAudioClient*)pDevice->wasapi.pAudioClient, &MAL_IID_IAudioCaptureClient, &pDevice->wasapi.pCaptureClient);
     }
 
     if (FAILED(hr)) {
@@ -4457,27 +4560,27 @@ static mal_result mal_device_init__wasapi(mal_context* pContext, mal_device_type
     }
 
 
-    if (shareMode == AUDCLNT_SHAREMODE_SHARED) {
+    if (shareMode == MAL_AUDCLNT_SHAREMODE_SHARED) {
         pDevice->exclusiveMode = MAL_FALSE;
-    } else /*if (shareMode == AUDCLNT_SHAREMODE_EXCLUSIVE)*/ {
+    } else /*if (shareMode == MAL_AUDCLNT_SHAREMODE_EXCLUSIVE)*/ {
         pDevice->exclusiveMode = MAL_TRUE;
     }
 
 
     // Grab the name of the device.
 #ifdef MAL_WIN32_DESKTOP
-    IPropertyStore *pProperties;
-    hr = IMMDevice_OpenPropertyStore(pMMDevice, STGM_READ, &pProperties);
+    mal_IPropertyStore *pProperties;
+    hr = mal_IMMDevice_OpenPropertyStore(pMMDevice, STGM_READ, &pProperties);
     if (SUCCEEDED(hr)) {
         PROPVARIANT varName;
-        PropVariantInit(&varName);
-        hr = IPropertyStore_GetValue(pProperties, g_malPKEY_Device_FriendlyName, &varName);
+        mal_PropVariantInit(&varName);
+        hr = mal_IPropertyStore_GetValue(pProperties, &MAL_PKEY_Device_FriendlyName, &varName);
         if (SUCCEEDED(hr)) {
             WideCharToMultiByte(CP_UTF8, 0, varName.pwszVal, -1, pDevice->name, sizeof(pDevice->name), 0, FALSE);
             mal_PropVariantClear(pContext, &varName);
         }
 
-        IPropertyStore_Release(pProperties);
+        mal_IPropertyStore_Release(pProperties);
     }
 #endif
 
@@ -4490,7 +4593,7 @@ static mal_result mal_device_init__wasapi(mal_context* pContext, mal_device_type
         goto done;
     }
 
-    IAudioClient_SetEventHandle(pDevice->wasapi.pAudioClient, pDevice->wasapi.hEvent);
+    mal_IAudioClient_SetEventHandle((mal_IAudioClient*)pDevice->wasapi.pAudioClient, pDevice->wasapi.hEvent);
 
 
     // When the device is playing the worker thread will be waiting on a bunch of notification events. To return from
@@ -4507,11 +4610,11 @@ done:
     // Clean up.
 #ifdef MAL_WIN32_DESKTOP
     if (pMMDevice != NULL) {
-        IMMDevice_Release(pMMDevice);
+        mal_IMMDevice_Release(pMMDevice);
     }
 #else
     if (pAsyncOp != NULL) {
-        IActivateAudioInterfaceAsyncOperation_Release(pAsyncOp);
+        mal_IActivateAudioInterfaceAsyncOperation_Release(pAsyncOp);
     }
 #endif
 
@@ -4530,20 +4633,20 @@ static mal_result mal_device__start_backend__wasapi(mal_device* pDevice)
     // Playback devices need to have an initial chunk of data loaded.
     if (pDevice->type == mal_device_type_playback) {
         BYTE* pData;
-        HRESULT hr = IAudioRenderClient_GetBuffer(pDevice->wasapi.pRenderClient, pDevice->bufferSizeInFrames, &pData);
+        HRESULT hr = mal_IAudioRenderClient_GetBuffer((mal_IAudioRenderClient*)pDevice->wasapi.pRenderClient, pDevice->bufferSizeInFrames, &pData);
         if (FAILED(hr)) {
             return mal_post_error(pDevice, "[WASAPI] Failed to retrieve buffer from internal playback device.", MAL_FAILED_TO_MAP_DEVICE_BUFFER);
         }
 
         mal_device__read_frames_from_client(pDevice, pDevice->bufferSizeInFrames, pData);
 
-        hr = IAudioRenderClient_ReleaseBuffer(pDevice->wasapi.pRenderClient, pDevice->bufferSizeInFrames, 0);
+        hr = mal_IAudioRenderClient_ReleaseBuffer((mal_IAudioRenderClient*)pDevice->wasapi.pRenderClient, pDevice->bufferSizeInFrames, 0);
         if (FAILED(hr)) {
             return mal_post_error(pDevice, "[WASAPI] Failed to release internal buffer for playback device.", MAL_FAILED_TO_UNMAP_DEVICE_BUFFER);
         }
     }
 
-    HRESULT hr = IAudioClient_Start(pDevice->wasapi.pAudioClient);
+    HRESULT hr = mal_IAudioClient_Start((mal_IAudioClient*)pDevice->wasapi.pAudioClient);
     if (FAILED(hr)) {
         return mal_post_error(pDevice, "[WASAPI] Failed to start internal device.", MAL_FAILED_TO_START_BACKEND_DEVICE);
     }
@@ -4555,7 +4658,7 @@ static mal_result mal_device__stop_backend__wasapi(mal_device* pDevice)
 {
     mal_assert(pDevice != NULL);
 
-    HRESULT hr = IAudioClient_Stop(pDevice->wasapi.pAudioClient);
+    HRESULT hr = mal_IAudioClient_Stop((mal_IAudioClient*)pDevice->wasapi.pAudioClient);
     if (FAILED(hr)) {
         return mal_post_error(pDevice, "[WASAPI] Failed to stop internal device.", MAL_FAILED_TO_STOP_BACKEND_DEVICE);
     }
@@ -4581,7 +4684,7 @@ static mal_uint32 mal_device__get_available_frames__wasapi(mal_device* pDevice)
 #if 1
     if (pDevice->type == mal_device_type_playback) {
         UINT32 paddingFramesCount;
-        HRESULT hr = IAudioClient_GetCurrentPadding(pDevice->wasapi.pAudioClient, &paddingFramesCount);
+        HRESULT hr = mal_IAudioClient_GetCurrentPadding((mal_IAudioClient*)pDevice->wasapi.pAudioClient, &paddingFramesCount);
         if (FAILED(hr)) {
             return 0;
         }
@@ -4593,7 +4696,7 @@ static mal_uint32 mal_device__get_available_frames__wasapi(mal_device* pDevice)
         }
     } else {
         UINT32 framesAvailable;
-        HRESULT hr = IAudioCaptureClient_GetNextPacketSize(pDevice->wasapi.pCaptureClient, &framesAvailable);
+        HRESULT hr = mal_IAudioCaptureClient_GetNextPacketSize((mal_IAudioCaptureClient*)pDevice->wasapi.pCaptureClient, &framesAvailable);
         if (FAILED(hr)) {
             return 0;
         }
@@ -4602,7 +4705,7 @@ static mal_uint32 mal_device__get_available_frames__wasapi(mal_device* pDevice)
     }
 #else
     UINT32 paddingFramesCount;
-    HRESULT hr = IAudioClient_GetCurrentPadding(pDevice->wasapi.pAudioClient, &paddingFramesCount);
+    HRESULT hr = mal_IAudioClient_GetCurrentPadding(pDevice->wasapi.pAudioClient, &paddingFramesCount);
     if (FAILED(hr)) {
         return 0;
     }
@@ -4665,14 +4768,14 @@ static mal_result mal_device__main_loop__wasapi(mal_device* pDevice)
 
         if (pDevice->type == mal_device_type_playback) {
             BYTE* pData;
-            HRESULT hr = IAudioRenderClient_GetBuffer(pDevice->wasapi.pRenderClient, framesAvailable, &pData);
+            HRESULT hr = mal_IAudioRenderClient_GetBuffer((mal_IAudioRenderClient*)pDevice->wasapi.pRenderClient, framesAvailable, &pData);
             if (FAILED(hr)) {
                 return mal_post_error(pDevice, "[WASAPI] Failed to retrieve internal buffer from playback device in preparation for sending new data to the device.", MAL_FAILED_TO_MAP_DEVICE_BUFFER);
             }
 
             mal_device__read_frames_from_client(pDevice, framesAvailable, pData);
 
-            hr = IAudioRenderClient_ReleaseBuffer(pDevice->wasapi.pRenderClient, framesAvailable, 0);
+            hr = mal_IAudioRenderClient_ReleaseBuffer((mal_IAudioRenderClient*)pDevice->wasapi.pRenderClient, framesAvailable, 0);
             if (FAILED(hr)) {
                 return mal_post_error(pDevice, "[WASAPI] Failed to release internal buffer from playback device in preparation for sending new data to the device.", MAL_FAILED_TO_UNMAP_DEVICE_BUFFER);
             }
@@ -4682,16 +4785,16 @@ static mal_result mal_device__main_loop__wasapi(mal_device* pDevice)
                 BYTE* pData;
                 UINT32 framesToSend;
                 DWORD flags;
-                HRESULT hr = IAudioCaptureClient_GetBuffer(pDevice->wasapi.pCaptureClient, &pData, &framesToSend, &flags, NULL, NULL);
+                HRESULT hr = mal_IAudioCaptureClient_GetBuffer((mal_IAudioCaptureClient*)pDevice->wasapi.pCaptureClient, &pData, &framesToSend, &flags, NULL, NULL);
                 if (FAILED(hr)) {
                     mal_post_error(pDevice, "[WASAPI] WARNING: Failed to retrieve internal buffer from capture device in preparation for sending new data to the client.", MAL_FAILED_TO_MAP_DEVICE_BUFFER);
                     break;
                 }
 
-                if (hr != AUDCLNT_S_BUFFER_EMPTY) {
+                if (hr != MAL_AUDCLNT_S_BUFFER_EMPTY) {
                     mal_device__send_frames_to_client(pDevice, framesToSend, pData);
 
-                    hr = IAudioCaptureClient_ReleaseBuffer(pDevice->wasapi.pCaptureClient, framesToSend);
+                    hr = mal_IAudioCaptureClient_ReleaseBuffer((mal_IAudioCaptureClient*)pDevice->wasapi.pCaptureClient, framesToSend);
                     if (FAILED(hr)) {
                         mal_post_error(pDevice, "[WASAPI] WARNING: Failed to release internal buffer from capture device in preparation for sending new data to the client.", MAL_FAILED_TO_UNMAP_DEVICE_BUFFER);
                         break;
@@ -5339,7 +5442,7 @@ static mal_result mal_device_init__dsound(mal_context* pContext, mal_device_type
         }
 
         bufferSizeInBytes = pDevice->bufferSizeInFrames * pDevice->internalChannels * mal_get_sample_size_in_bytes(pDevice->internalFormat);
-        
+
 
 
         // Meaning of dwFlags (from MSDN):
@@ -5398,7 +5501,7 @@ static mal_result mal_device_init__dsound(mal_context* pContext, mal_device_type
         // pick the first one. This the same type of system as the WinMM backend.
         wf.Format.wBitsPerSample = 16;
         wf.Format.nSamplesPerSec = 48000;
-        
+
         if (caps.dwChannels == 1) {
             if ((caps.dwFormats & WAVE_FORMAT_48M16) != 0) {
                 wf.Format.nSamplesPerSec = 48000;
@@ -7518,8 +7621,8 @@ static mal_result mal_device_init__alsa(mal_context* pContext, mal_device_type t
         mal_zero_memory(pInfo, ((mal_snd_pcm_info_sizeof_proc)pContext->alsa.snd_pcm_info_sizeof)());
 
         if (((mal_snd_pcm_info_proc)pContext->alsa.snd_pcm_info)((mal_snd_pcm_t*)pDevice->alsa.pPCM, pInfo) == 0) {
-			float bufferSizeScale = 1;
-			
+            float bufferSizeScale = 1;
+
             const char* deviceName = ((mal_snd_pcm_info_get_name_proc)pContext->alsa.snd_pcm_info_get_name)(pInfo);
             if (deviceName != NULL) {
                 if (strcmp(deviceName, "default") == 0) {
@@ -9121,13 +9224,13 @@ static mal_result mal_device_init__pulse(mal_context* pContext, mal_device_type 
     } else {
         ss.channels = pConfig->channels;
     }
-    
+
     if (pDevice->usingDefaultSampleRate) {
         ss.rate = deviceSS.rate;
     } else {
         ss.rate = pConfig->sampleRate;
     }
-    
+
 
     mal_pa_channel_map cmap;
     if (pDevice->usingDefaultChannelMap) {
@@ -9178,7 +9281,7 @@ static mal_result mal_device_init__pulse(mal_context* pContext, mal_device_type 
         goto on_error3;
     }
 
-    
+
 
     if (type == mal_device_type_playback) {
         error = ((mal_pa_stream_connect_playback_proc)pContext->pulse.pa_stream_connect_playback)((mal_pa_stream*)pDevice->pulse.pStream, dev, &attr, MAL_PA_STREAM_START_CORKED, NULL, NULL);
@@ -16595,6 +16698,8 @@ void mal_pcm_f32_to_s32(int* pOut, const float* pIn, unsigned int count)
 //   - Remove dependency on asound.h for the ALSA backend. This means the ALSA development packages are no
 //     longer required to build mini_al.
 //   - Remove dependency on dsound.h for the DirectSound backend. This fixes build issues with some
+//     distributions of MinGW.
+//   - Remove dependency on audioclient.h for the WASAPI backend. This fixes build issues with some
 //     distributions of MinGW.
 //   - Add support for configuring the priority of the worker thread.
 //   - Introduce the notion of standard channel maps. Use mal_get_standard_channel_map().
