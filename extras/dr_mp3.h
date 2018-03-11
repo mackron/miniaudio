@@ -1,5 +1,5 @@
 // MP3 audio decoder. Public domain. See "unlicense" statement at the end of this file.
-// dr_mp3 - v0.1b - 2018-03-07
+// dr_mp3 - v0.1c - 2018-03-11
 //
 // David Reid - mackron@gmail.com
 //
@@ -2242,7 +2242,7 @@ drmp3_uint64 drmp3_src_read_frames_linear(drmp3_src* pSRC, drmp3_uint64 frameCou
         float* pPrevFrame = pSRC->bin;
         float* pNextFrame = pSRC->bin + pSRC->config.channels;
 
-        drmp3_blend_f32(pFramesOut, pPrevFrame, pNextFrame, pSRC->algo.linear.alpha, pSRC->config.channels);
+        drmp3_blend_f32((float*)pFramesOut, pPrevFrame, pNextFrame, pSRC->algo.linear.alpha, pSRC->config.channels);
 
         pSRC->algo.linear.alpha += factor;
 
@@ -2746,6 +2746,9 @@ void drmp3_free(void* p)
 
 // REVISION HISTORY
 // ===============
+//
+// v0.1c - 2018-03-11
+//   - Fix C++ build error.
 //
 // v0.1b - 2018-03-07
 //   - Bring up to date with minimp3.
