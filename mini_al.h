@@ -626,7 +626,7 @@ typedef enum
     mal_standard_channel_map_rfc3551,   // Based off AIFF.
     mal_standard_channel_map_flac,
     mal_standard_channel_map_vorbis,
-    mal_standard_channel_map_default = mal_standard_channel_map_flac
+    mal_standard_channel_map_default = mal_standard_channel_map_microsoft
 } mal_standard_channel_map;
 
 typedef union
@@ -1600,10 +1600,10 @@ mal_device_config mal_device_config_init_default_playback(mal_send_proc onSendCa
 // |               | 1: MAL_CHANNEL_FRONT_RIGHT   |
 // |               | 2: MAL_CHANNEL_FRONT_CENTER  |
 // |---------------|------------------------------|
-// | 4 (Quad)      | 0: MAL_CHANNEL_FRONT_LEFT    |
+// | 4 (Surround)  | 0: MAL_CHANNEL_FRONT_LEFT    |
 // |               | 1: MAL_CHANNEL_FRONT_RIGHT   |
-// |               | 2: MAL_CHANNEL_BACK_LEFT     |
-// |               | 3: MAL_CHANNEL_BACK_RIGHT    |
+// |               | 2: MAL_CHANNEL_FRONT_CENTER  |
+// |               | 3: MAL_CHANNEL_BACK_CENTER   |
 // |---------------|------------------------------|
 // | 5             | 0: MAL_CHANNEL_FRONT_LEFT    |
 // |               | 1: MAL_CHANNEL_FRONT_RIGHT   |
@@ -1615,8 +1615,8 @@ mal_device_config mal_device_config_init_default_playback(mal_send_proc onSendCa
 // |               | 1: MAL_CHANNEL_FRONT_RIGHT   |
 // |               | 2: MAL_CHANNEL_FRONT_CENTER  |
 // |               | 3: MAL_CHANNEL_LFE           |
-// |               | 4: MAL_CHANNEL_BACK_LEFT     |
-// |               | 5: MAL_CHANNEL_BACK_RIGHT    |
+// |               | 4: MAL_CHANNEL_SIDE_LEFT     |
+// |               | 5: MAL_CHANNEL_SIDE_RIGHT    |
 // |---------------|------------------------------|
 // | 7             | 0: MAL_CHANNEL_FRONT_LEFT    |
 // |               | 1: MAL_CHANNEL_FRONT_RIGHT   |
@@ -13658,11 +13658,6 @@ void mal_get_standard_channel_map(mal_standard_channel_map standardChannelMap, m
 {
     switch (standardChannelMap)
     {
-        case mal_standard_channel_map_microsoft:
-        {
-            mal_get_standard_channel_map_microsoft(channels, channelMap);
-        } break;
-
         case mal_standard_channel_map_alsa:
         {
             mal_get_standard_channel_map_alsa(channels, channelMap);
@@ -13673,15 +13668,20 @@ void mal_get_standard_channel_map(mal_standard_channel_map standardChannelMap, m
             mal_get_standard_channel_map_rfc3551(channels, channelMap);
         } break;
 
+        case mal_standard_channel_map_flac:
+        {
+            mal_get_standard_channel_map_flac(channels, channelMap);
+        } break;
+
         case mal_standard_channel_map_vorbis:
         {
             mal_get_standard_channel_map_vorbis(channels, channelMap);
         } break;
 
-        case mal_standard_channel_map_flac:
+        case mal_standard_channel_map_microsoft:
         default:
         {
-            mal_get_standard_channel_map_flac(channels, channelMap);
+            mal_get_standard_channel_map_microsoft(channels, channelMap);
         } break;
     }
 }
