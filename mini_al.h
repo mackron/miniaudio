@@ -16583,8 +16583,8 @@ void mal_pcm_f32_to_s32(int* pOut, const float* pIn, unsigned int count)
 //
 // v0.x - 2018-xx-xx
 //   - API CHANGE: Rename MAL_MAX_SAMPLE_SIZE_IN_BYTES to MAL_MAX_PCM_SAMPLE_SIZE_IN_BYTES.
-//   - Change the default channel mapping to the standard Microsoft mapping.
-//   - Remove backend-specific result codes.
+//   - API CHANGE: Change the default channel mapping to the standard Microsoft mapping.
+//   - API CHANGE: Remove backend-specific result codes.
 //   - Add support for PulseAudio.
 //     - This is the highest priority backend on Linux (higher priority than ALSA) since it is commonly
 //       installed by default on many of the popular distros and offer's more seamless integration on
