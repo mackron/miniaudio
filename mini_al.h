@@ -1366,23 +1366,25 @@ mal_result mal_context_uninit(mal_context* pContext);
 // Enumerates over every device (both playback and capture).
 //
 // This is a lower-level enumeration function to the easier to use mal_context_get_devices(). Use
-// this if you would rather not incur an internal heap allocation, or it simply suits you program
-// better.
+// mal_context_enumerate_devices() if you would rather not incur an internal heap allocation, or
+// it simply suits your code better.
 //
-// Do _not_ assume the first device in the returned lists are the default devices.
+// Do _not_ assume the first enumerated device or a given type is the default device.
 //
 // Some backends and platforms may only support default playback and capture devices.
 //
 // Note that this only retrieves the ID and name/description of the device. The reason for only
 // retrieving basic information is that it would otherwise require opening the backend device in
 // order to probe it for more detailed information which can be inefficient. Consider using
-// mal_context_get_device_info() for this, but do _not_ call it in the enumeration callback or
-// else you can end up in a deadlock. In general, you should not do anything complicated from
-// within the callback.
+// mal_context_get_device_info() for this, but do _not_ call it from within the enumeration callback
+// or else you can end up in a deadlock.
+//
+// Do not try initializing a device from within the callback. In general, you should not do anything
+// complicated from within the callback.
 //
 // Consider using mal_context_get_devices() for a simpler and safer API.
 //
-// Returning false from the callback will stop enumeration.
+// Returning false from the callback will stop enumeration. Returning true will continue enumeration.
 //
 // Return Value:
 //   MAL_SUCCESS if successful; any other error code otherwise.
@@ -1395,6 +1397,8 @@ mal_result mal_context_enumerate_devices(mal_context* pContext, mal_enum_devices
 // Retrieves basic information about every active playback and/or capture device.
 //
 // You can pass in NULL for the playback or capture lists in which case they'll be ignored.
+//
+// It is _not_ safe to assume the first device in the list is the default device.
 //
 // The returned pointers will become invalid upon the next call this this function, or when the
 // context is uninitialized. Do not free the returned pointers.
