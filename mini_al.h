@@ -648,7 +648,7 @@ typedef union
     int sdl;                        // SDL devices are identified with an index.
 #endif
 #ifdef MAL_SUPPORT_NULL
-    int nullbackend;                // Always 0.
+    int nullbackend;                // The null backend uses an integer for device IDs.
 #endif
 } mal_device_id;
 
@@ -791,10 +791,22 @@ typedef struct
     } jack;
 } mal_context_config;
 
+typedef mal_bool32 (* mal_enum_devices_callback_proc)(mal_context* pContext, mal_device_type type, const mal_device_info* pInfo, void* pUserData);
+
 struct mal_context
 {
-    mal_backend backend;    // DirectSound, ALSA, etc.
+    mal_backend backend;                    // DirectSound, ALSA, etc.
     mal_context_config config;
+    mal_mutex deviceEnumLock;               // Used to make mal_context_get_devices() thread safe.
+    mal_mutex deviceInfoLock;               // Used to make mal_context_get_device_info() thread safe.
+    mal_uint32 deviceInfoCapacity;          // Total capacity of pDeviceInfos.
+    mal_uint32 playbackDeviceInfoCount;
+    mal_uint32 captureDeviceInfoCount;
+    mal_device_info* pDeviceInfos;          // Playback devices first, then capture.
+
+    mal_result (* onEnumDevices  )(mal_context* pContext, mal_enum_devices_callback_proc callback, void* pUserData);    // Return false from the callback to stop enumeration.
+    mal_result (* onGetDeviceInfo)(mal_context* pContext, mal_device_type type, const mal_device_id* pDeviceID, mal_device_info* pDeviceInfo);
+    mal_bool32 (* onDeviceIDEqual)(mal_context* pContext, const mal_device_id* pID0, const mal_device_id* pID1);
 
     union
     {
@@ -1140,7 +1152,7 @@ struct mal_device
     mal_format format;
     mal_uint32 channels;
     mal_uint32 sampleRate;
-    mal_uint8  channelMap[MAL_MAX_CHANNELS];
+    mal_channel channelMap[MAL_MAX_CHANNELS];
     mal_uint32 bufferSizeInFrames;
     mal_uint32 periods;
     mal_uint32 state;
@@ -1166,7 +1178,7 @@ struct mal_device
     mal_format internalFormat;
     mal_uint32 internalChannels;
     mal_uint32 internalSampleRate;
-    mal_uint8  internalChannelMap[MAL_MAX_CHANNELS];
+    mal_channel internalChannelMap[MAL_MAX_CHANNELS];
     mal_dsp dsp;                    // Samples run through this to convert samples to a format suitable for use by the backend.
     mal_uint32 _dspFrameCount;      // Internal use only. Used when running the device -> DSP -> client pipeline. See mal_device__on_read_from_device().
     const mal_uint8* _dspFrames;    // ^^^ AS ABOVE ^^^
@@ -1350,6 +1362,65 @@ mal_result mal_context_init(const mal_backend backends[], mal_uint32 backendCoun
 //
 // Thread Safety: UNSAFE
 mal_result mal_context_uninit(mal_context* pContext);
+
+// Enumerates over every device (both playback and capture).
+//
+// This is a lower-level enumeration function to the easier to use mal_context_get_devices(). Use
+// this if you would rather not incur an internal heap allocation, or it simply suits you program
+// better.
+//
+// Do _not_ assume the first device in the returned lists are the default devices.
+//
+// Some backends and platforms may only support default playback and capture devices.
+//
+// Note that this only retrieves the ID and name/description of the device. The reason for only
+// retrieving basic information is that it would otherwise require opening the backend device in
+// order to probe it for more detailed information which can be inefficient. Consider using
+// mal_context_get_device_info() for this, but do _not_ call it in the enumeration callback or
+// else you can end up in a deadlock. In general, you should not do anything complicated from
+// within the callback.
+//
+// Consider using mal_context_get_devices() for a simpler and safer API.
+//
+// Returning false from the callback will stop enumeration.
+//
+// Return Value:
+//   MAL_SUCCESS if successful; any other error code otherwise.
+//
+// Thread Safety: SAFE
+//   This is guarded using a simple mutex lock. You cannot call mal_context_get_device_info() from
+//   within the callback because otherwise you can end up in a deadlock.
+mal_result mal_context_enumerate_devices(mal_context* pContext, mal_enum_devices_callback_proc callback, void* pUserData);
+
+// Retrieves basic information about every active playback and/or capture device.
+//
+// You can pass in NULL for the playback or capture lists in which case they'll be ignored.
+//
+// The returned pointers will become invalid upon the next call this this function, or when the
+// context is uninitialized. Do not free the returned pointers.
+//
+// This function follows the same enumeration rules as mal_context_enumerate_devices(). See
+// documentation for mal_context_enumerate_devices() for more information.
+//
+// Return Value:
+//   MAL_SUCCESS if successful; any other error code otherwise.
+//
+// Thread Safety: SAFE
+//   Since each call to this function invalidates the pointers from the previous call, you
+//   should not be calling this simultaneously across multiple threads. Instead, you need to
+//   make a copy of the returned data with your own higher level synchronization.
+mal_result mal_context_get_devices(mal_context* pContext, mal_device_info** ppPlaybackDeviceInfos, mal_uint32* pPlaybackDeviceCount, mal_device_info** ppCaptureDeviceInfos, mal_uint32* pCaptureDeviceCount);
+
+// Retrieves information about a device with the given ID.
+//
+// Do _not_ call this from within the mal_context_enumerate_devices_callback().
+//
+// Return Value:
+//   MAL_SUCCESS if successful; any other error code otherwise.
+//
+// Thread Safety: SAFE
+//   This is guarded using a simple mutex lock.
+mal_result mal_context_get_device_info(mal_context* pContext, mal_device_type type, const mal_device_id* pDeviceID, mal_device_info* pDeviceInfo);
 
 // Enumerates over each device of the given type (playback or capture).
 //
@@ -2098,6 +2169,9 @@ static mal_uint32 g_malStandardSampleRatePriorities[] = {
     MAL_SAMPLE_RATE_352800, // Extreme highs
     MAL_SAMPLE_RATE_384000
 };
+
+#define MAL_DEFAULT_PLAYBACK_DEVICE_NAME    "Default Playback Device"
+#define MAL_DEFAULT_CAPTURE_DEVICE_NAME     "Default Capture Device"
 
 ///////////////////////////////////////////////////////////////////////////////
 //
@@ -3128,6 +3202,19 @@ static inline mal_uint32 mal_device__get_state(mal_device* pDevice)
     //static GUID MAL_GUID_KSDATAFORMAT_SUBTYPE_MULAW      = {0x00000007, 0x0000, 0x0010, {0x80, 0x00, 0x00, 0xaa, 0x00, 0x38, 0x9b, 0x71}};
 #endif
 
+
+static mal_bool32 mal_context__device_id_equal(mal_context* pContext, const mal_device_id* pID0, const mal_device_id* pID1)
+{
+    mal_assert(pContext != NULL);
+
+    if (pID0 == pID1) return MAL_TRUE;
+
+    if (pContext->onDeviceIDEqual) {
+        return pContext->onDeviceIDEqual(pContext, pID0, pID1);
+    }
+
+    return MAL_FALSE;
+}
 
 // Generic function for retrieving the name of a device by it's ID.
 //
@@ -4185,10 +4272,10 @@ static mal_result mal_enumerate_devices__wasapi(mal_context* pContext, mal_devic
         if (infoSize > 0) {
             if (type == mal_device_type_playback) {
                 mal_copy_memory(pInfo->id.wasapi, &MAL_IID_DEVINTERFACE_AUDIO_RENDER, sizeof(MAL_IID_DEVINTERFACE_AUDIO_RENDER));
-                mal_strncpy_s(pInfo->name, sizeof(pInfo->name), "Default Playback Device", (size_t)-1);
+                mal_strncpy_s(pInfo->name, sizeof(pInfo->name), MAL_DEFAULT_PLAYBACK_DEVICE_NAME, (size_t)-1);
             } else {
                 mal_copy_memory(pInfo->id.wasapi, &MAL_IID_DEVINTERFACE_AUDIO_CAPTURE, sizeof(MAL_IID_DEVINTERFACE_AUDIO_CAPTURE));
-                mal_strncpy_s(pInfo->name, sizeof(pInfo->name), "Default Capture Device", (size_t)-1);
+                mal_strncpy_s(pInfo->name, sizeof(pInfo->name), MAL_DEFAULT_CAPTURE_DEVICE_NAME, (size_t)-1);
             }
 
             pInfo += 1;
@@ -9687,9 +9774,9 @@ mal_result mal_enumerate_devices__jack(mal_context* pContext, mal_device_type ty
         if (infoSize > 0) {
             pInfo[0].id.jack = 0;
             if (type == mal_device_type_playback) {
-                mal_strncpy_s(pInfo[0].name, sizeof(pInfo[0].name), "Default Playback Device", (size_t)-1);
+                mal_strncpy_s(pInfo[0].name, sizeof(pInfo[0].name), MAL_DEFAULT_PLAYBACK_DEVICE_NAME, (size_t)-1);
             } else {
-                mal_strncpy_s(pInfo[0].name, sizeof(pInfo[0].name), "Default Capture Device", (size_t)-1);
+                mal_strncpy_s(pInfo[0].name, sizeof(pInfo[0].name), MAL_DEFAULT_CAPTURE_DEVICE_NAME, (size_t)-1);
             }
 
             *pCount = 1;
@@ -10069,9 +10156,9 @@ static mal_result mal_enumerate_devices__oss(mal_context* pContext, mal_device_t
             if (infoSize > 0) {
                 mal_strncpy_s(pInfo[0].id.oss, sizeof(pInfo[0].id.oss), "/dev/dsp", (size_t)-1);
                 if (type == mal_device_type_playback) {
-                    mal_strncpy_s(pInfo[0].name, sizeof(pInfo[0].name), "Default Playback Device", (size_t)-1);
+                    mal_strncpy_s(pInfo[0].name, sizeof(pInfo[0].name), MAL_DEFAULT_PLAYBACK_DEVICE_NAME, (size_t)-1);
                 } else {
-                    mal_strncpy_s(pInfo[0].name, sizeof(pInfo[0].name), "Default Capture Device", (size_t)-1);
+                    mal_strncpy_s(pInfo[0].name, sizeof(pInfo[0].name), MAL_DEFAULT_CAPTURE_DEVICE_NAME, (size_t)-1);
                 }
 
                 *pCount = 1;
@@ -10584,10 +10671,10 @@ return_default_device:
         if (infoSize > 0) {
             if (type == mal_device_type_playback) {
                 pInfo->id.opensl = SL_DEFAULTDEVICEID_AUDIOOUTPUT;
-                mal_strncpy_s(pInfo->name, sizeof(pInfo->name), "Default Playback Device", (size_t)-1);
+                mal_strncpy_s(pInfo->name, sizeof(pInfo->name), MAL_DEFAULT_PLAYBACK_DEVICE_NAME, (size_t)-1);
             } else {
                 pInfo->id.opensl = SL_DEFAULTDEVICEID_AUDIOINPUT;
-                mal_strncpy_s(pInfo->name, sizeof(pInfo->name), "Default Capture Device", (size_t)-1);
+                mal_strncpy_s(pInfo->name, sizeof(pInfo->name), MAL_DEFAULT_CAPTURE_DEVICE_NAME, (size_t)-1);
             }
         }
     }
@@ -11403,10 +11490,10 @@ mal_result mal_enumerate_devices__openal(mal_context* pContext, mal_device_type 
             if (infoSize > 0) {
                 if (type == mal_device_type_playback) {
                     pInfo->id.sdl = 0;
-                    mal_strncpy_s(pInfo->name, sizeof(pInfo->name), "Default Playback Device", (size_t)-1);
+                    mal_strncpy_s(pInfo->name, sizeof(pInfo->name), MAL_DEFAULT_PLAYBACK_DEVICE_NAME, (size_t)-1);
                 } else {
                     pInfo->id.sdl = 0;
-                    mal_strncpy_s(pInfo->name, sizeof(pInfo->name), "Default Capture Device", (size_t)-1);
+                    mal_strncpy_s(pInfo->name, sizeof(pInfo->name), MAL_DEFAULT_CAPTURE_DEVICE_NAME, (size_t)-1);
                 }
 
                 pInfo += 1;
@@ -12030,10 +12117,10 @@ mal_result mal_enumerate_devices__sdl(mal_context* pContext, mal_device_type typ
                 // SDL1 uses default devices.
                 if (type == mal_device_type_playback) {
                     pInfo->id.sdl = 0;
-                    mal_strncpy_s(pInfo->name, sizeof(pInfo->name), "Default Playback Device", (size_t)-1);
+                    mal_strncpy_s(pInfo->name, sizeof(pInfo->name), MAL_DEFAULT_PLAYBACK_DEVICE_NAME, (size_t)-1);
                 } else {
                     pInfo->id.sdl = 0;
-                    mal_strncpy_s(pInfo->name, sizeof(pInfo->name), "Default Capture Device", (size_t)-1);
+                    mal_strncpy_s(pInfo->name, sizeof(pInfo->name), MAL_DEFAULT_CAPTURE_DEVICE_NAME, (size_t)-1);
                 }
 
                 pInfo += 1;
@@ -12750,11 +12837,21 @@ mal_result mal_context_init(const mal_backend backends[], mal_uint32 backendCoun
 
         // If this iteration was successful, return.
         if (result == MAL_SUCCESS) {
+            result = mal_mutex_init(pContext, &pContext->deviceEnumLock);
+            if (result != MAL_SUCCESS) {
+                mal_context_post_error(pContext, NULL, "WARNING: Failed to initialize mutex for device enumeration. mal_context_get_devices() is not thread safe.", MAL_FAILED_TO_CREATE_MUTEX);
+            }
+            result = mal_mutex_init(pContext, &pContext->deviceInfoLock);
+            if (result != MAL_SUCCESS) {
+                mal_context_post_error(pContext, NULL, "WARNING: Failed to initialize mutex for device info retrieval. mal_context_get_device_info() is not thread safe.", MAL_FAILED_TO_CREATE_MUTEX);
+            }
+
             pContext->backend = backend;
             return result;
         }
     }
 
+    // If we get here it means an error occurred.
     mal_zero_object(pContext);  // Safety.
     return MAL_NO_BACKEND;
 }
@@ -12835,9 +12932,193 @@ mal_result mal_context_uninit(mal_context* pContext)
     }
 
     mal_context_uninit_backend_apis(pContext);
+    mal_mutex_uninit(&pContext->deviceEnumLock);
 
     mal_assert(MAL_FALSE);
     return MAL_NO_BACKEND;
+}
+
+
+mal_result mal_context_enumerate_devices(mal_context* pContext, mal_enum_devices_callback_proc callback, void* pUserData)
+{
+    if (pContext == NULL || pContext->onEnumDevices == NULL || callback == NULL) return MAL_INVALID_ARGS;
+
+    mal_result result;
+    mal_mutex_lock(&pContext->deviceEnumLock);
+    {
+        result = pContext->onEnumDevices(pContext, callback, pUserData);
+    }
+    mal_mutex_unlock(&pContext->deviceEnumLock);
+
+    return result;
+}
+
+
+mal_bool32 mal_context_get_devices__enum_callback(mal_context* pContext, mal_device_type type, const mal_device_info* pInfo, void* pUserData)
+{
+    (void)pUserData;
+
+    // We need to insert the device info into our main internal buffer. Where it goes depends on the device type. If it's a capture device
+    // it's just appended to the end. If it's a playback device it's inserted just before the first capture device.
+
+    // First make sure we have room. Since the number of devices we add to the list is usually relatively small I've decided to use a
+    // simple fixed size increment for buffer expansion.
+    const mal_uint32 bufferExpansionCount = 2;
+    const mal_uint32 totalDeviceInfoCount = pContext->playbackDeviceInfoCount + pContext->captureDeviceInfoCount;
+
+    if (pContext->deviceInfoCapacity >= totalDeviceInfoCount) {
+        mal_uint32 newCapacity = totalDeviceInfoCount + bufferExpansionCount;
+        mal_device_info* pNewInfos = (mal_device_info*)mal_realloc(pContext->pDeviceInfos, sizeof(*pContext->pDeviceInfos)*newCapacity);
+        if (pNewInfos == NULL) {
+            return MAL_FALSE;   // Out of memory.
+        }
+
+        pContext->pDeviceInfos = pNewInfos;
+        pContext->deviceInfoCapacity = newCapacity;
+    }
+
+    if (type == mal_device_type_playback) {
+        // Playback. Insert just before the first capture device.
+
+        // The first thing to do is move all of the capture devices down a slot.
+        mal_uint32 iFirstCaptureDevice = pContext->playbackDeviceInfoCount;
+        for (size_t iCaptureDevice = totalDeviceInfoCount; iCaptureDevice > iFirstCaptureDevice; --iCaptureDevice) {
+            pContext->pDeviceInfos[iCaptureDevice] = pContext->pDeviceInfos[iCaptureDevice-1];
+        }
+
+        // Now just insert where the first capture device was before moving it down a slot.
+        pContext->pDeviceInfos[iFirstCaptureDevice] = *pInfo;
+        pContext->playbackDeviceInfoCount += 1;
+    } else {
+        // Capture. Insert at the end.
+        pContext->pDeviceInfos[totalDeviceInfoCount] = *pInfo;
+        pContext->captureDeviceInfoCount += 1;
+    }
+
+    return MAL_TRUE;
+}
+
+mal_result mal_context_get_devices(mal_context* pContext, mal_device_info** ppPlaybackDeviceInfos, mal_uint32* pPlaybackDeviceCount, mal_device_info** ppCaptureDeviceInfos, mal_uint32* pCaptureDeviceCount)
+{
+    // Safety.
+    if (ppPlaybackDeviceInfos != NULL) *ppPlaybackDeviceInfos = NULL;
+    if (pPlaybackDeviceCount  != NULL) *pPlaybackDeviceCount  = 0;
+    if (ppCaptureDeviceInfos  != NULL) *ppCaptureDeviceInfos  = NULL;
+    if (pCaptureDeviceCount   != NULL) *pCaptureDeviceCount   = 0;
+
+    if (pContext == NULL || pContext->onEnumDevices == NULL) return MAL_INVALID_ARGS;
+
+    // Note that we don't use mal_context_enumerate_devices() here because we want to do locking at a higher level.
+    mal_result result;
+    mal_mutex_lock(&pContext->deviceEnumLock);
+    {
+        // Reset everything first.
+        pContext->playbackDeviceInfoCount = 0;
+        pContext->captureDeviceInfoCount = 0;
+
+        // Now enumerate over available devices.
+        result = pContext->onEnumDevices(pContext, mal_context_get_devices__enum_callback, NULL);
+        if (result == MAL_SUCCESS) {
+            // Playback devices.
+            if (ppPlaybackDeviceInfos != NULL) {
+                *ppPlaybackDeviceInfos = pContext->pDeviceInfos;
+            }
+            if (pPlaybackDeviceCount != NULL) {
+                *pPlaybackDeviceCount = pContext->playbackDeviceInfoCount;
+            }
+
+            // Capture devices.
+            if (ppCaptureDeviceInfos != NULL) {
+                *ppCaptureDeviceInfos = pContext->pDeviceInfos + pContext->playbackDeviceInfoCount; // Capture devices come after playback devices.
+            }
+            if (pCaptureDeviceCount != NULL) {
+                *pCaptureDeviceCount = pContext->captureDeviceInfoCount;
+            }
+        }
+    }
+    mal_mutex_unlock(&pContext->deviceEnumLock);
+
+    return result;
+}
+
+
+typedef struct
+{
+    mal_device_type type;
+    const mal_device_id* pDeviceID;
+    mal_device_info* pDeviceInfo;
+} mal_context_get_device_info__enum_callback_data;
+
+static mal_bool32 mal_context_get_device_info__enum_callback(mal_context* pContext, mal_device_type type, const mal_device_info* pInfoIn, void* pUserData)
+{
+    mal_context_get_device_info__enum_callback_data* pData = (mal_context_get_device_info__enum_callback_data*)pUserData;
+    mal_assert(pData != NULL);
+
+    if (type == pData->type && mal_context__device_id_equal(pContext, &pInfoIn->id, pData->pDeviceID)) {
+        // Found it. Copy the info and stop iteration.
+        if (pData->pDeviceInfo != NULL) {
+            *pData->pDeviceInfo = *pInfoIn;
+        }
+        
+        return MAL_FALSE;   // Stop iteration.
+    } else {
+        // Didn't find it. Continue.
+        return MAL_TRUE;
+    }
+}
+
+mal_result mal_context_get_device_info(mal_context* pContext, mal_device_type type, const mal_device_id* pDeviceID, mal_device_info* pDeviceInfo)
+{
+    // Safety.
+    if (pDeviceInfo != NULL) {
+        mal_zero_object(pDeviceInfo);
+    }
+
+    if (pContext == NULL) return MAL_INVALID_ARGS;
+
+    // The backend may have an optimized device info retrieval function. If so, try that first.
+    if (pContext->onGetDeviceInfo != NULL) {
+        mal_result result;
+        mal_mutex_lock(&pContext->deviceInfoLock);
+        {
+            result = pContext->onGetDeviceInfo(pContext, type, pDeviceID, pDeviceInfo);
+        }
+        mal_mutex_unlock(&pContext->deviceInfoLock);
+
+        if (result == MAL_SUCCESS) {
+            return MAL_SUCCESS;
+        }
+    }
+
+    // If we get here it means the backend does not have a method for retrieving detailed information about the
+    // device. In this case we fall back to retrieving just basic information. To do this we enumerate over the
+    // devices. If the device ID is null we just use a simple default name. This is where the potential for a
+    // deadlock comes into play.
+    if (pDeviceID != NULL) {
+        mal_result result = MAL_NO_DEVICE;
+
+        if (pContext->onEnumDevices == NULL) {
+            return MAL_NO_DEVICE;
+        }
+
+        mal_context_get_device_info__enum_callback_data data;
+        data.type = type;
+        data.pDeviceID = pDeviceID;
+        data.pDeviceInfo = pDeviceInfo;
+        return mal_context_enumerate_devices(pContext, mal_context_get_device_info__enum_callback, &data);
+    } else {
+        // It's asking for the default device. We don't have a way to retrieve advanced info so we just stick
+        // with the name.
+        if (pDeviceInfo != NULL) {
+            if (type == mal_device_type_playback) {
+                mal_strcpy_s(pDeviceInfo->name, sizeof(pDeviceInfo->name), MAL_DEFAULT_PLAYBACK_DEVICE_NAME);
+            } else {
+                mal_strcpy_s(pDeviceInfo->name, sizeof(pDeviceInfo->name), MAL_DEFAULT_CAPTURE_DEVICE_NAME);
+            }
+        }
+
+        return MAL_SUCCESS;
+    }
 }
 
 
@@ -13123,9 +13404,9 @@ mal_result mal_device_init(mal_context* pContext, mal_device_type type, mal_devi
             // We failed to get the device name, so fall back to some generic names.
             if (pDeviceID == NULL) {
                 if (type == mal_device_type_playback) {
-                    mal_strncpy_s(pDevice->name, sizeof(pDevice->name), "Default Playback Device", (size_t)-1);
+                    mal_strncpy_s(pDevice->name, sizeof(pDevice->name), MAL_DEFAULT_PLAYBACK_DEVICE_NAME, (size_t)-1);
                 } else {
-                    mal_strncpy_s(pDevice->name, sizeof(pDevice->name), "Default Capture Device", (size_t)-1);
+                    mal_strncpy_s(pDevice->name, sizeof(pDevice->name), MAL_DEFAULT_CAPTURE_DEVICE_NAME, (size_t)-1);
                 }
             } else {
                 if (type == mal_device_type_playback) {
