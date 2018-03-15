@@ -765,7 +765,7 @@ typedef struct
     mal_channel channelMap[MAL_MAX_CHANNELS];
     mal_uint32 bufferSizeInFrames;
     mal_uint32 periods;
-    mal_bool32 preferExclusiveMode;
+    mal_share_mode shareMode;
     mal_recv_proc onRecvCallback;
     mal_send_proc onSendCallback;
     mal_stop_proc onStopCallback;
@@ -1438,9 +1438,7 @@ mal_result mal_context_get_devices(mal_context* pContext, mal_device_info** ppPl
 // not it's opened in shared or exclusive mode. For example, in shared mode, WASAPI always uses
 // floating point samples for mixing, but in exclusive mode it can be anything. Therefore, this
 // function allows you to specify which share mode you want information for. Note that not all
-// backends and devices support exclusive mode, in which case it will be demoted to shared mode. If
-// shared mode is not supported by the device, it will be promoted to exclusive mode. You can know
-// which share mode the returned information is relevant for by inspecting pDeviceInfo->shareMode.
+// backends and devices support shared or exclusive mode, in which case this function will fail.
 //
 // Return Value:
 //   MAL_SUCCESS if successful; any other error code otherwise.
@@ -4537,7 +4535,7 @@ static void mal_device_uninit__wasapi(mal_device* pDevice)
     }
 }
 
-// This is the part that's preventing mini_al from being compiled as C with UWP. We need to implemented IActivateAudioInterfaceCompletionHandler
+// This is the part that's preventing mini_al from being compiled as C with UWP. We need to implement IActivateAudioInterfaceCompletionHandler
 // in C which is quite annoying.
 #ifndef MAL_WIN32_DESKTOP
     #ifdef __cplusplus
@@ -4714,7 +4712,7 @@ static mal_result mal_device_init__wasapi(mal_context* pContext, mal_device_type
 
     // Here is where we try to determine the best format to use with the device. If the client if wanting exclusive mode, first try finding the best format for that. If this fails, fall back to shared mode.
     result = MAL_FORMAT_NOT_SUPPORTED;
-    if (pConfig->preferExclusiveMode) {
+    if (pConfig->shareMode == mal_share_mode_exclusive) {
     #ifdef MAL_WIN32_DESKTOP
         // In exclusive mode on desktop we always use the backend's native format.
         mal_IPropertyStore* pStore = NULL;
@@ -5669,7 +5667,7 @@ static mal_result mal_device_init__dsound(mal_context* pContext, mal_device_type
         if (hWnd == NULL) {
             hWnd = ((MAL_PFN_GetDesktopWindow)pContext->win32.GetDesktopWindow)();
         }
-        if (FAILED(mal_IDirectSound_SetCooperativeLevel((mal_IDirectSound*)pDevice->dsound.pPlayback, hWnd, (pConfig->preferExclusiveMode) ? MAL_DSSCL_EXCLUSIVE : MAL_DSSCL_PRIORITY))) {
+        if (FAILED(mal_IDirectSound_SetCooperativeLevel((mal_IDirectSound*)pDevice->dsound.pPlayback, hWnd, (pConfig->shareMode == mal_share_mode_exclusive) ? MAL_DSSCL_EXCLUSIVE : MAL_DSSCL_PRIORITY))) {
             mal_device_uninit__dsound(pDevice);
             return mal_post_error(pDevice, "[DirectSound] IDirectSound_SetCooperateiveLevel() failed for playback device.", MAL_FAILED_TO_OPEN_BACKEND_DEVICE);
         }
@@ -7841,7 +7839,7 @@ static mal_result mal_device_init__alsa(mal_context* pContext, mal_device_type t
             NULL
         };
 
-        if (pConfig->preferExclusiveMode) {
+        if (pConfig->shareMode == mal_share_mode_exclusive) {
             defaultDeviceNames[1] = "hw";
             defaultDeviceNames[2] = "hw:0";
             defaultDeviceNames[3] = "hw:0,0";
@@ -7893,7 +7891,7 @@ static mal_result mal_device_init__alsa(mal_context* pContext, mal_device_type t
             }
 
             char hwid[256];
-            if (!pConfig->preferExclusiveMode) {
+            if (pConfig->shareMode == mal_share_mode_shared) {
                 if (type == mal_device_type_playback) {
                     mal_strcpy_s(hwid, sizeof(hwid), "dmix");
                 } else {
@@ -17186,6 +17184,8 @@ void mal_pcm_f32_to_s32(int* pOut, const float* pIn, unsigned int count)
 // ================
 //
 // v0.x - 2018-xx-xx
+//   - API CHANGE: Replace mal_device_config.preferExclusiveMode with mal_device_config.shareMode.
+//     - This new config can be set to mal_share_mode_shared (default) or mal_share_mode_exclusive.
 //   - API CHANGE: Rename MAL_MAX_SAMPLE_SIZE_IN_BYTES to MAL_MAX_PCM_SAMPLE_SIZE_IN_BYTES.
 //   - API CHANGE: Change the default channel mapping to the standard Microsoft mapping.
 //   - API CHANGE: Remove backend-specific result codes.
