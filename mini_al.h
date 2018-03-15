@@ -586,6 +586,17 @@ typedef enum
 
 typedef enum
 {
+    mal_share_mode_shared = 0,
+    mal_share_mode_exclusive,
+} mal_share_mode;
+
+typedef enum
+{
+    mal_stream_format_pcm = 0,
+} mal_stream_format;
+
+typedef enum
+{
     // I like to keep these explicitly defined because they're used as a key into a lookup table. When items are
     // added to this, make sure there are no gaps and that they're added to the lookup table in mal_get_sample_size_in_bytes().
     mal_format_unknown = 0,     // Mainly used for indicating an error, but also used as the default for the output format for decoders.
@@ -654,8 +665,12 @@ typedef union
 
 typedef struct
 {
+    // Basic info. This is the only information guaranteed to be filled in during device enumeration.
     mal_device_id id;
     char name[256];
+
+    // Detailed info. As much of this is filled as possible with mal_context_get_device_info().
+    mal_share_mode shareMode;   // Controls which share mode the data in this object is relevant for.
 } mal_device_info;
 
 typedef struct
@@ -804,9 +819,9 @@ struct mal_context
     mal_uint32 captureDeviceInfoCount;
     mal_device_info* pDeviceInfos;          // Playback devices first, then capture.
 
-    mal_result (* onEnumDevices  )(mal_context* pContext, mal_enum_devices_callback_proc callback, void* pUserData);    // Return false from the callback to stop enumeration.
-    mal_result (* onGetDeviceInfo)(mal_context* pContext, mal_device_type type, const mal_device_id* pDeviceID, mal_device_info* pDeviceInfo);
     mal_bool32 (* onDeviceIDEqual)(mal_context* pContext, const mal_device_id* pID0, const mal_device_id* pID1);
+    mal_result (* onEnumDevices  )(mal_context* pContext, mal_enum_devices_callback_proc callback, void* pUserData);    // Return false from the callback to stop enumeration.
+    mal_result (* onGetDeviceInfo)(mal_context* pContext, mal_device_type type, const mal_device_id* pDeviceID, mal_share_mode shareMode, mal_device_info* pDeviceInfo);
 
     union
     {
@@ -1419,12 +1434,20 @@ mal_result mal_context_get_devices(mal_context* pContext, mal_device_info** ppPl
 //
 // Do _not_ call this from within the mal_context_enumerate_devices_callback().
 //
+// It's possible for a device to have different information and capabilities depending on wether or
+// not it's opened in shared or exclusive mode. For example, in shared mode, WASAPI always uses
+// floating point samples for mixing, but in exclusive mode it can be anything. Therefore, this
+// function allows you to specify which share mode you want information for. Note that not all
+// backends and devices support exclusive mode, in which case it will be demoted to shared mode. If
+// shared mode is not supported by the device, it will be promoted to exclusive mode. You can know
+// which share mode the returned information is relevant for by inspecting pDeviceInfo->shareMode.
+//
 // Return Value:
 //   MAL_SUCCESS if successful; any other error code otherwise.
 //
 // Thread Safety: SAFE
 //   This is guarded using a simple mutex lock.
-mal_result mal_context_get_device_info(mal_context* pContext, mal_device_type type, const mal_device_id* pDeviceID, mal_device_info* pDeviceInfo);
+mal_result mal_context_get_device_info(mal_context* pContext, mal_device_type type, const mal_device_id* pDeviceID, mal_share_mode shareMode, mal_device_info* pDeviceInfo);
 
 // Enumerates over each device of the given type (playback or capture).
 //
@@ -3213,6 +3236,11 @@ static mal_bool32 mal_context__device_id_equal(mal_context* pContext, const mal_
 
     if (pID0 == pID1) return MAL_TRUE;
 
+    if ((pID0 == NULL && pID1 != NULL) ||
+        (pID0 != NULL && pID1 == NULL)) {
+        return MAL_FALSE;
+    }
+
     if (pContext->onDeviceIDEqual) {
         return pContext->onDeviceIDEqual(pContext, pID0, pID1);
     }
@@ -4154,11 +4182,197 @@ HRESULT mal_IAudioCaptureClient_GetBuffer(mal_IAudioCaptureClient* pThis, BYTE**
 HRESULT mal_IAudioCaptureClient_ReleaseBuffer(mal_IAudioCaptureClient* pThis, UINT32 numFramesRead)                    { return pThis->lpVtbl->ReleaseBuffer(pThis, numFramesRead); }
 HRESULT mal_IAudioCaptureClient_GetNextPacketSize(mal_IAudioCaptureClient* pThis, UINT32* pNumFramesInNextPacket)      { return pThis->lpVtbl->GetNextPacketSize(pThis, pNumFramesInNextPacket); }
 
+mal_bool32 mal_context_is_device_id_equal__wasapi(mal_context* pContext, const mal_device_id* pID0, const mal_device_id* pID1)
+{
+    mal_assert(pContext != NULL);
+    mal_assert(pID0 != NULL);
+    mal_assert(pID1 != NULL);
+    (void)pContext;
+
+    return memcmp(pID0->wasapi, pID1->wasapi, sizeof(pID0->wasapi)) == 0;
+}
+
+mal_result mal_context_get_device_info_from_MMDevice__wasapi(mal_context* pContext, mal_IMMDevice* pMMDevice, mal_share_mode shareMode, mal_bool32 onlySimpleInfo, mal_device_info* pInfo)
+{
+    mal_assert(pContext != NULL);
+    mal_assert(pMMDevice != NULL);
+    mal_assert(pInfo != NULL);
+
+    // ID.
+    LPWSTR id;
+    HRESULT hr = mal_IMMDevice_GetId(pMMDevice, &id);
+    if (SUCCEEDED(hr)) {
+        size_t idlen = wcslen(id);
+        if (idlen+1 > mal_countof(pInfo->id.wasapi)) {
+            mal_CoTaskMemFree(pContext, id);
+            mal_assert(MAL_FALSE);  // NOTE: If this is triggered, please report it. It means the format of the ID must haved change and is too long to fit in our fixed sized buffer.
+            return MAL_ERROR;
+        }
+
+        mal_copy_memory(pInfo->id.wasapi, id, idlen * sizeof(wchar_t));
+        pInfo->id.wasapi[idlen] = '\0';
+
+        mal_CoTaskMemFree(pContext, id);
+    }
+
+    mal_IPropertyStore *pProperties;
+    hr = mal_IMMDevice_OpenPropertyStore(pMMDevice, STGM_READ, &pProperties);
+    if (SUCCEEDED(hr)) {
+        PROPVARIANT var;
+
+        // Description / Friendly Name
+        mal_PropVariantInit(&var);
+        hr = mal_IPropertyStore_GetValue(pProperties, &MAL_PKEY_Device_FriendlyName, &var);
+        if (SUCCEEDED(hr)) {
+            WideCharToMultiByte(CP_UTF8, 0, var.pwszVal, -1, pInfo->name, sizeof(pInfo->name), 0, FALSE);
+            mal_PropVariantClear(pContext, &var);
+        }
+
+        // Format
+        if (!onlySimpleInfo) {
+            // TODO:
+            // - Get MAL_PKEY_AudioEngine_DeviceFormat for the channel count
+            // - Open the device
+            // - If shared mode, call GetMixFormat()
+            // - If exclusive mode, loop over most common formats (s16, s24, f32), then each of the standard sample rates.
+            //   - If anything fails, don't allow exclusive mode for this device.
+            (void)shareMode;
+        }
+
+        mal_IPropertyStore_Release(pProperties);
+    }
+
+    return MAL_SUCCESS;
+}
+
+mal_result mal_context_enumerate_device_collection__wasapi(mal_context* pContext, mal_IMMDeviceCollection* pDeviceCollection, mal_device_type deviceType, mal_enum_devices_callback_proc callback, void* pUserData)
+{
+    mal_assert(pContext != NULL);
+    mal_assert(callback != NULL);
+
+    UINT deviceCount;
+    HRESULT hr = mal_IMMDeviceCollection_GetCount(pDeviceCollection, &deviceCount);
+    if (FAILED(hr)) {
+        return mal_context_post_error(pContext, NULL, "[WASAPI] Failed to get playback device count.", MAL_NO_DEVICE);
+    }
+
+    for (mal_uint32 iDevice = 0; iDevice < deviceCount; ++iDevice) {
+        mal_device_info deviceInfo;
+        mal_zero_object(&deviceInfo);
+
+        mal_IMMDevice* pMMDevice;
+        hr = mal_IMMDeviceCollection_Item(pDeviceCollection, iDevice, &pMMDevice);
+        if (SUCCEEDED(hr)) {
+            mal_result result = mal_context_get_device_info_from_MMDevice__wasapi(pContext, pMMDevice, mal_share_mode_shared, MAL_TRUE, &deviceInfo);   // MAL_TRUE = onlySimpleInfo.
+
+            mal_IMMDevice_Release(pMMDevice);
+            if (result == MAL_SUCCESS) {
+                mal_bool32 cbResult = callback(pContext, deviceType, &deviceInfo, pUserData);
+                if (cbResult == MAL_FALSE) {
+                    break;
+                }
+            }
+        }
+    }
+
+    return MAL_SUCCESS;
+}
+
+mal_result mal_context_enumerate_devices__wasapi(mal_context* pContext, mal_enum_devices_callback_proc callback, void* pUserData)
+{
+    mal_assert(pContext != NULL);
+    mal_assert(callback != NULL);
+
+    // Different enumeration for desktop and UWP.
+#ifdef MAL_WIN32_DESKTOP
+    // Desktop
+    mal_IMMDeviceEnumerator* pDeviceEnumerator;
+    HRESULT hr = mal_CoCreateInstance(pContext, MAL_CLSID_MMDeviceEnumerator, NULL, CLSCTX_ALL, MAL_IID_IMMDeviceEnumerator, (void**)&pDeviceEnumerator);
+    if (FAILED(hr)) {
+        return mal_context_post_error(pContext, NULL, "[WASAPI] Failed to create device enumerator.", MAL_FAILED_TO_OPEN_BACKEND_DEVICE);
+    }
+
+    mal_IMMDeviceCollection* pDeviceCollection;
+
+    // Playback.
+    hr = mal_IMMDeviceEnumerator_EnumAudioEndpoints(pDeviceEnumerator, mal_eRender, MAL_MM_DEVICE_STATE_ACTIVE, &pDeviceCollection);
+    if (SUCCEEDED(hr)) {
+        mal_context_enumerate_device_collection__wasapi(pContext, pDeviceCollection, mal_device_type_playback, callback, pUserData);
+        mal_IMMDeviceCollection_Release(pDeviceCollection);
+    }
+
+    // Capture.
+    hr = mal_IMMDeviceEnumerator_EnumAudioEndpoints(pDeviceEnumerator, mal_eCapture, MAL_MM_DEVICE_STATE_ACTIVE, &pDeviceCollection);
+    if (SUCCEEDED(hr)) {
+        mal_context_enumerate_device_collection__wasapi(pContext, pDeviceCollection, mal_device_type_capture, callback, pUserData);
+        mal_IMMDeviceCollection_Release(pDeviceCollection);
+    }
+
+    mal_IMMDeviceEnumerator_Release(pDeviceEnumerator);
+#else
+    // UWP
+    //
+    // The MMDevice API is only supported on desktop applications. For now, while I'm still figuring out how to properly enumerate
+    // over devices without using MMDevice, I'm restricting devices to defaults.
+    //
+    // Hint: DeviceInformation::FindAllAsync() with DeviceClass.AudioCapture/AudioRender. https://blogs.windows.com/buildingapps/2014/05/15/real-time-audio-in-windows-store-and-windows-phone-apps/
+    if (callback) {
+        mal_bool32 cbResult = MAL_TRUE;
+
+        // Playback.
+        if (cbResult) {
+            mal_device_info deviceInfo;
+            mal_zero_object(&deviceInfo);
+            mal_strcpy_s(deviceInfo.name, sizeof(deviceInfo.name), MAL_DEFAULT_PLAYBACK_DEVICE_NAME);
+            cbResult = callback(pContext, mal_device_type_playback, &deviceInfo, pUserData);
+        }
+        
+        // Capture.
+        if (cbResult) {
+            mal_device_info deviceInfo;
+            mal_zero_object(&deviceInfo);
+            mal_strcpy_s(deviceInfo.name, sizeof(deviceInfo.name), MAL_DEFAULT_CAPTURE_DEVICE_NAME);
+            cbResult = callback(pContext, mal_device_type_capture, &deviceInfo, pUserData);
+        }
+    }
+#endif
+
+    return MAL_SUCCESS;
+}
+
+mal_result mal_context_get_device_info__wasapi(mal_context* pContext, mal_device_type deviceType, const mal_device_id* pDeviceID, mal_share_mode shareMode, mal_device_info* pDeviceInfo)
+{
+    mal_IMMDeviceEnumerator* pDeviceEnumerator;
+    HRESULT hr = mal_CoCreateInstance(pContext, MAL_CLSID_MMDeviceEnumerator, NULL, CLSCTX_ALL, MAL_IID_IMMDeviceEnumerator, (void**)&pDeviceEnumerator);
+    if (FAILED(hr)) {
+        return mal_context_post_error(pContext, NULL, "[WASAPI] Failed to create IMMDeviceEnumerator.", MAL_FAILED_TO_INIT_BACKEND);
+    }
+
+    mal_IMMDevice* pMMDevice = NULL;
+    if (pDeviceID == NULL) {
+        hr = mal_IMMDeviceEnumerator_GetDefaultAudioEndpoint(pDeviceEnumerator, (deviceType == mal_device_type_playback) ? mal_eRender : mal_eCapture, mal_eConsole, &pMMDevice);
+    } else {
+        hr = mal_IMMDeviceEnumerator_GetDevice(pDeviceEnumerator, pDeviceID->wasapi, &pMMDevice);
+    }
+
+    mal_IMMDeviceEnumerator_Release(pDeviceEnumerator);
+    if (FAILED(hr)) {
+        return mal_context_post_error(pContext, NULL, "[WASAPI] Failed to retrieve IMMDevice.", MAL_FAILED_TO_OPEN_BACKEND_DEVICE);
+    }
+
+    mal_result result = mal_context_get_device_info_from_MMDevice__wasapi(pContext, pMMDevice, shareMode, MAL_FALSE, pDeviceInfo);   // MAL_FALSE = !onlySimpleInfo.
+
+    mal_IMMDevice_Release(pMMDevice);
+    return result;
+}
+
 
 mal_result mal_context_init__wasapi(mal_context* pContext)
 {
     mal_assert(pContext != NULL);
     (void)pContext;
+
+    mal_result result = MAL_SUCCESS;
 
 #ifdef MAL_WIN32_DESKTOP
     // WASAPI is only supported in Vista SP1 and newer. The reason for SP1 and not the base version of Vista is that event-driven
@@ -4170,13 +4384,21 @@ mal_result mal_context_init__wasapi(mal_context* pContext)
     osvi.dwMinorVersion = LOBYTE(_WIN32_WINNT_VISTA);
     osvi.wServicePackMajor = 1;
     if (VerifyVersionInfoW(&osvi, VER_MAJORVERSION | VER_MINORVERSION | VER_SERVICEPACKMAJOR, VerSetConditionMask(VerSetConditionMask(VerSetConditionMask(0, VER_MAJORVERSION, VER_GREATER_EQUAL), VER_MINORVERSION, VER_GREATER_EQUAL), VER_SERVICEPACKMAJOR, VER_GREATER_EQUAL))) {
-        return MAL_SUCCESS;
+        result = MAL_SUCCESS;
     } else {
-        return MAL_NO_BACKEND;
+        result = MAL_NO_BACKEND;
     }
-#else
-    return MAL_SUCCESS;
 #endif
+
+    if (result != MAL_SUCCESS) {
+        return result;
+    }
+
+    pContext->onDeviceIDEqual = mal_context_is_device_id_equal__wasapi;
+    pContext->onEnumDevices   = mal_context_enumerate_devices__wasapi;
+    pContext->onGetDeviceInfo = mal_context_get_device_info__wasapi;
+
+    return result;
 }
 
 mal_result mal_context_uninit__wasapi(mal_context* pContext)
@@ -4394,18 +4616,14 @@ static mal_result mal_device_init__wasapi(mal_context* pContext, mal_device_type
 
     if (pDeviceID == NULL) {
         hr = mal_IMMDeviceEnumerator_GetDefaultAudioEndpoint(pDeviceEnumerator, (type == mal_device_type_playback) ? mal_eRender : mal_eCapture, mal_eConsole, &pMMDevice);
-        if (FAILED(hr)) {
-            mal_IMMDeviceEnumerator_Release(pDeviceEnumerator);
-            errorMsg = "[WASAPI] Failed to create default backend device.", result = MAL_FAILED_TO_OPEN_BACKEND_DEVICE;
-            goto done;
-        }
     } else {
         hr = mal_IMMDeviceEnumerator_GetDevice(pDeviceEnumerator, pDeviceID->wasapi, &pMMDevice);
-        if (FAILED(hr)) {
-            mal_IMMDeviceEnumerator_Release(pDeviceEnumerator);
-            errorMsg = "[WASAPI] Failed to create backend device.", result = MAL_FAILED_TO_OPEN_BACKEND_DEVICE;
-            goto done;
-        }
+    }
+
+    if (FAILED(hr)) {
+        mal_IMMDeviceEnumerator_Release(pDeviceEnumerator);
+        errorMsg = "[WASAPI] Failed to create backend device.", result = MAL_FAILED_TO_OPEN_BACKEND_DEVICE;
+        goto done;
     }
 
     mal_IMMDeviceEnumerator_Release(pDeviceEnumerator);
@@ -13071,7 +13289,7 @@ static mal_bool32 mal_context_get_device_info__enum_callback(mal_context* pConte
     }
 }
 
-mal_result mal_context_get_device_info(mal_context* pContext, mal_device_type type, const mal_device_id* pDeviceID, mal_device_info* pDeviceInfo)
+mal_result mal_context_get_device_info(mal_context* pContext, mal_device_type type, const mal_device_id* pDeviceID, mal_share_mode shareMode, mal_device_info* pDeviceInfo)
 {
     // Safety.
     if (pDeviceInfo != NULL) {
@@ -13085,7 +13303,7 @@ mal_result mal_context_get_device_info(mal_context* pContext, mal_device_type ty
         mal_result result;
         mal_mutex_lock(&pContext->deviceInfoLock);
         {
-            result = pContext->onGetDeviceInfo(pContext, type, pDeviceID, pDeviceInfo);
+            result = pContext->onGetDeviceInfo(pContext, type, pDeviceID, shareMode, pDeviceInfo);
         }
         mal_mutex_unlock(&pContext->deviceInfoLock);
 
@@ -13099,8 +13317,6 @@ mal_result mal_context_get_device_info(mal_context* pContext, mal_device_type ty
     // devices. If the device ID is null we just use a simple default name. This is where the potential for a
     // deadlock comes into play.
     if (pDeviceID != NULL) {
-        mal_result result = MAL_NO_DEVICE;
-
         if (pContext->onEnumDevices == NULL) {
             return MAL_NO_DEVICE;
         }
