@@ -1129,6 +1129,7 @@ struct mal_context
             mal_proc CoCreateInstance;
             mal_proc CoTaskMemFree;
             mal_proc PropVariantClear;
+            mal_proc StringFromGUID2;
 
             /*HMODULE*/ mal_handle hUser32DLL;
             mal_proc GetForegroundWindow;
@@ -2132,6 +2133,7 @@ typedef void    (WINAPI * MAL_PFN_CoUninitialize)();
 typedef HRESULT (WINAPI * MAL_PFN_CoCreateInstance)(REFCLSID rclsid, LPUNKNOWN pUnkOuter, DWORD dwClsContext, REFIID riid, LPVOID *ppv);
 typedef void    (WINAPI * MAL_PFN_CoTaskMemFree)(LPVOID pv);
 typedef HRESULT (WINAPI * MAL_PFN_PropVariantClear)(PROPVARIANT *pvar);
+typedef int     (WINAPI * MAL_PFN_StringFromGUID2)(const GUID* const rguid, LPOLESTR lpsz, int cchMax);
 
 typedef HWND (WINAPI * MAL_PFN_GetForegroundWindow)();
 typedef HWND (WINAPI * MAL_PFN_GetDesktopWindow)();
@@ -3696,6 +3698,8 @@ typedef struct
 #define WAVE_FORMAT_EXTENSIBLE 0xFFFE
 #endif
 
+GUID MAL_GUID_NULL = {0x00000000, 0x0000, 0x0000, {0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00}};
+
 // Converts an individual Win32-style channel identifier (SPEAKER_FRONT_LEFT, etc.) to mini_al.
 static mal_uint8 mal_channel_id_to_mal__win32(DWORD id)
 {
@@ -5129,8 +5133,6 @@ static mal_result mal_device__main_loop__wasapi(mal_device* pDevice)
 #ifdef MAL_HAS_DSOUND
 //#include <dsound.h>
 
-// MAL_GUID_NULL is not currently used, but leaving it here in case I need to add it back again.
-//static GUID MAL_GUID_NULL                = {0x00000000, 0x0000, 0x0000, {0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00}};
 static GUID MAL_GUID_IID_DirectSoundNotify = {0xb0210783, 0x89cd, 0x11d0, {0xaf, 0x08, 0x00, 0xa0, 0xc9, 0x25, 0xcd, 0x16}};
 
 // mini_al only uses priority or exclusive modes.
@@ -5505,6 +5507,7 @@ typedef struct
     mal_device_type deviceType;
     mal_enum_devices_callback_proc callback;
     void* pUserData;
+    mal_bool32 terminated;
 } mal_context_enumerate_devices_callback_data__dsound;
 
 static BOOL CALLBACK mal_context_enumerate_devices_callback__dsound(LPGUID lpGuid, LPCSTR lpcstrDescription, LPCSTR lpcstrModule, LPVOID lpContext)
@@ -5527,8 +5530,14 @@ static BOOL CALLBACK mal_context_enumerate_devices_callback__dsound(LPGUID lpGui
     // Name / Description
     mal_strncpy_s(deviceInfo.name, sizeof(deviceInfo.name), lpcstrDescription, (size_t)-1);
 
-    pData->callback(pData->pContext, pData->deviceType, &deviceInfo, pData->pUserData);
-    return TRUE;    // Return true to continue enumeration.
+
+    // Call the callback function, but make sure we stop enumerating if the callee requested so.
+    pData->terminated = !pData->callback(pData->pContext, pData->deviceType, &deviceInfo, pData->pUserData);
+    if (pData->terminated) {
+        return FALSE;   // Stop enumeration.
+    } else {
+        return TRUE;    // Continue enumeration.
+    }
 }
 
 mal_result mal_context_enumerate_devices__dsound(mal_context* pContext, mal_enum_devices_callback_proc callback, void* pUserData)
@@ -5540,14 +5549,19 @@ mal_result mal_context_enumerate_devices__dsound(mal_context* pContext, mal_enum
     data.pContext = pContext;
     data.callback = callback;
     data.pUserData = pUserData;
+    data.terminated = MAL_FALSE;
 
     // Playback.
-    data.deviceType = mal_device_type_playback;
-    ((mal_DirectSoundEnumerateAProc)pContext->dsound.DirectSoundEnumerateA)(mal_context_enumerate_devices_callback__dsound, &data);
+    if (!data.terminated) {
+        data.deviceType = mal_device_type_playback;
+        ((mal_DirectSoundEnumerateAProc)pContext->dsound.DirectSoundEnumerateA)(mal_context_enumerate_devices_callback__dsound, &data);
+    }
 
     // Capture.
-    data.deviceType = mal_device_type_capture;
-    ((mal_DirectSoundCaptureEnumerateAProc)pContext->dsound.DirectSoundCaptureEnumerateA)(mal_context_enumerate_devices_callback__dsound, &data);
+    if (!data.terminated) {
+        data.deviceType = mal_device_type_capture;
+        ((mal_DirectSoundCaptureEnumerateAProc)pContext->dsound.DirectSoundCaptureEnumerateA)(mal_context_enumerate_devices_callback__dsound, &data);
+    }
 
     return MAL_SUCCESS;
 }
@@ -6330,6 +6344,220 @@ mal_result mal_result_from_MMRESULT(MMRESULT resultMM)
     }
 }
 
+char* mal_find_last_character(char* str, char ch)
+{
+    if (str == NULL) {
+        return NULL;
+    }
+
+    char* last = NULL;
+    while (*str != '\0') {
+        if (*str == ch) {
+            last = str;
+        }
+
+        str += 1;
+    }
+
+    return last;
+}
+
+
+// Our own "WAVECAPS" structure that contains generic information shared between WAVEOUTCAPS2 and WAVEINCAPS2 so
+// we can do things generically and typesafely. Names are being kept the same for consistency.
+typedef struct
+{
+    CHAR szPname[MAXPNAMELEN];
+    DWORD dwFormats;
+    WORD wChannels;
+    GUID NameGuid;
+} MAL_WAVECAPSA;
+
+mal_result mal_context_get_device_info_from_WAVECAPS(mal_context* pContext, MAL_WAVECAPSA* pCaps, mal_device_info* pDeviceInfo)
+{
+    mal_assert(pContext != NULL);
+    mal_assert(pCaps != NULL);
+    mal_assert(pDeviceInfo != NULL);
+
+    // Name / Description
+    //
+    // Unfortunately the name specified in WAVE(OUT/IN)CAPS2 is limited to 31 characters. This results in an unprofessional looking
+    // situation where the names of the devices are truncated. To help work around this, we need to look at the name GUID and try
+    // looking in the registry for the full name. If we can't find it there, we need to just fall back to the default name.
+
+    // Set the default to begin with.
+    mal_strcpy_s(pDeviceInfo->name, sizeof(pDeviceInfo->name), pCaps->szPname);
+
+    // Now try the registry. There's a few things to consider here:
+    // - The name GUID can be null, in which we case we just need to stick to the original 31 characters.
+    // - If the name GUID is not present in the registry we'll also need to stick to the original 31 characters.
+    // - I like consistency, so I want the returned device names to be consistent with those returned by WASAPI and DirectSound. The
+    //   problem, however is that WASAPI and DirectSound use "<component> (<name>)" format (such as "Speakers (High Definition Audio)"),
+    //   but WinMM does not specificy the component name. From my admittedly limited testing, I've notice the component name seems to
+    //   usually fit within the 31 characters of the fixed sized buffer, so what I'm going to do is parse that string for the component
+    //   name, and then concatenate the name from the registry.
+    if (!mal_is_guid_equal(pCaps->NameGuid, MAL_GUID_NULL)) {
+        wchar_t guidStrW[256];
+        if (((MAL_PFN_StringFromGUID2)pContext->win32.StringFromGUID2)(&pCaps->NameGuid, guidStrW, mal_countof(guidStrW)) > 0) {
+            char guidStr[256];
+            WideCharToMultiByte(CP_UTF8, 0, guidStrW, -1, guidStr, sizeof(guidStr), 0, FALSE);
+
+            char keyStr[1024];
+            mal_strcpy_s(keyStr, sizeof(keyStr), "SYSTEM\\CurrentControlSet\\Control\\MediaCategories\\");
+            mal_strcat_s(keyStr, sizeof(keyStr), guidStr);
+
+            HKEY hKey;
+            LONG result = RegOpenKeyExA(HKEY_LOCAL_MACHINE, keyStr, 0, KEY_READ, &hKey);
+            if (result == ERROR_SUCCESS) {
+                BYTE nameFromReg[512];
+                DWORD nameFromRegSize = sizeof(nameFromReg);
+                result = RegQueryValueExA(hKey, "Name", 0, NULL, (LPBYTE)nameFromReg, (LPDWORD)&nameFromRegSize);
+                RegCloseKey(hKey);
+
+                if (result == ERROR_SUCCESS) {
+                    // We have the value from the registry, so now we need to construct the name string.
+                    char name[1024];
+                    if (mal_strcpy_s(name, sizeof(name), pDeviceInfo->name) == 0) {
+                        char* nameBeg = mal_find_last_character(name, '(');
+                        if (nameBeg != NULL) {
+                            size_t leadingLen = (nameBeg - name);
+                            mal_strncpy_s(nameBeg + 1, sizeof(name) - leadingLen, (const char*)nameFromReg, (size_t)-1);
+
+                            // The closing ")", if it can fit.
+                            if (leadingLen + nameFromRegSize < sizeof(name)-1) {
+                                mal_strcat_s(name, sizeof(name), ")");
+                            }
+
+                            mal_strncpy_s(pDeviceInfo->name, sizeof(pDeviceInfo->name), name, (size_t)-1);
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    return MAL_SUCCESS;
+}
+
+mal_result mal_context_get_device_info_from_WAVEOUTCAPS2(mal_context* pContext, WAVEOUTCAPS2A* pCaps, mal_device_info* pDeviceInfo)
+{
+    mal_assert(pContext != NULL);
+    mal_assert(pCaps != NULL);
+    mal_assert(pDeviceInfo != NULL);
+
+    MAL_WAVECAPSA caps;
+    mal_copy_memory(caps.szPname, pCaps->szPname, sizeof(caps.szPname));
+    caps.dwFormats = pCaps->dwFormats;
+    caps.wChannels = pCaps->wChannels;
+    caps.NameGuid = pCaps->NameGuid;
+    return mal_context_get_device_info_from_WAVECAPS(pContext, &caps, pDeviceInfo);
+}
+
+mal_result mal_context_get_device_info_from_WAVEINCAPS2(mal_context* pContext, WAVEINCAPS2A* pCaps, mal_device_info* pDeviceInfo)
+{
+    mal_assert(pContext != NULL);
+    mal_assert(pCaps != NULL);
+    mal_assert(pDeviceInfo != NULL);
+
+    MAL_WAVECAPSA caps;
+    mal_copy_memory(caps.szPname, pCaps->szPname, sizeof(caps.szPname));
+    caps.dwFormats = pCaps->dwFormats;
+    caps.wChannels = pCaps->wChannels;
+    caps.NameGuid = pCaps->NameGuid;
+    return mal_context_get_device_info_from_WAVECAPS(pContext, &caps, pDeviceInfo);
+}
+
+
+mal_bool32 mal_context_is_device_id_equal__winmm(mal_context* pContext, const mal_device_id* pID0, const mal_device_id* pID1)
+{
+    mal_assert(pContext != NULL);
+    mal_assert(pID0 != NULL);
+    mal_assert(pID1 != NULL);
+    (void)pContext;
+
+    return pID0->winmm == pID1->winmm;
+}
+
+mal_result mal_context_enumerate_devices__winmm(mal_context* pContext, mal_enum_devices_callback_proc callback, void* pUserData)
+{
+    mal_assert(pContext != NULL);
+    mal_assert(callback != NULL);
+
+    // Playback.
+    UINT playbackDeviceCount = ((MAL_PFN_waveOutGetNumDevs)pContext->winmm.waveOutGetNumDevs)();
+    for (UINT iPlaybackDevice = 0; iPlaybackDevice < playbackDeviceCount; ++iPlaybackDevice) {
+        WAVEOUTCAPS2A caps;
+        mal_zero_object(&caps);
+        MMRESULT result = ((MAL_PFN_waveOutGetDevCapsA)pContext->winmm.waveOutGetDevCapsA)(iPlaybackDevice, (WAVEOUTCAPSA*)&caps, sizeof(caps));
+        if (result == MMSYSERR_NOERROR) {
+            mal_device_info deviceInfo;
+            mal_zero_object(&deviceInfo);
+            deviceInfo.id.winmm = iPlaybackDevice;
+
+            if (mal_context_get_device_info_from_WAVEOUTCAPS2(pContext, &caps, &deviceInfo) == MAL_SUCCESS) {
+                mal_bool32 cbResult = callback(pContext, mal_device_type_playback, &deviceInfo, pUserData);
+                if (cbResult == MAL_FALSE) {
+                    return MAL_SUCCESS; // Enumeration was stopped.
+                }
+            }
+        }
+    }
+
+    // Capture.
+    UINT captureDeviceCount = ((MAL_PFN_waveInGetNumDevs)pContext->winmm.waveInGetNumDevs)();
+    for (UINT iCaptureDevice = 0; iCaptureDevice < captureDeviceCount; ++iCaptureDevice) {
+        WAVEINCAPS2A caps;
+        mal_zero_object(&caps);
+        MMRESULT result = ((MAL_PFN_waveInGetDevCapsA)pContext->winmm.waveInGetDevCapsA)(iCaptureDevice, (WAVEINCAPSA*)&caps, sizeof(caps));
+        if (result == MMSYSERR_NOERROR) {
+            mal_device_info deviceInfo;
+            mal_zero_object(&deviceInfo);
+            deviceInfo.id.winmm = iCaptureDevice;
+
+            if (mal_context_get_device_info_from_WAVEINCAPS2(pContext, &caps, &deviceInfo) == MAL_SUCCESS) {
+                mal_bool32 cbResult = callback(pContext, mal_device_type_capture, &deviceInfo, pUserData);
+                if (cbResult == MAL_FALSE) {
+                    return MAL_SUCCESS; // Enumeration was stopped.
+                }
+            }
+        }
+    }
+
+    return MAL_SUCCESS;
+}
+
+mal_result mal_context_get_device_info__winmm(mal_context* pContext, mal_device_type deviceType, const mal_device_id* pDeviceID, mal_share_mode shareMode, mal_device_info* pDeviceInfo)
+{
+    mal_assert(pContext != NULL);
+    (void)shareMode;
+
+    UINT winMMDeviceID = 0;
+    if (pDeviceID != NULL) {
+        winMMDeviceID = (UINT)pDeviceID->winmm;
+    }
+
+    pDeviceInfo->id.winmm = winMMDeviceID;
+
+    if (deviceType == mal_device_type_playback) {
+        WAVEOUTCAPS2A caps;
+        mal_zero_object(&caps);
+        MMRESULT result = ((MAL_PFN_waveOutGetDevCapsA)pContext->winmm.waveOutGetDevCapsA)(winMMDeviceID, (WAVEOUTCAPSA*)&caps, sizeof(caps));
+        if (result == MMSYSERR_NOERROR) {
+            return mal_context_get_device_info_from_WAVEOUTCAPS2(pContext, &caps, pDeviceInfo);
+        }
+    } else {
+        WAVEINCAPS2A caps;
+        mal_zero_object(&caps);
+        MMRESULT result = ((MAL_PFN_waveInGetDevCapsA)pContext->winmm.waveInGetDevCapsA)(winMMDeviceID, (WAVEINCAPSA*)&caps, sizeof(caps));
+        if (result == MMSYSERR_NOERROR) {
+            return mal_context_get_device_info_from_WAVEINCAPS2(pContext, &caps, pDeviceInfo);
+        }
+    }
+
+    return MAL_ERROR;
+}
+
+
 mal_result mal_context_init__winmm(mal_context* pContext)
 {
     mal_assert(pContext != NULL);
@@ -6356,6 +6584,10 @@ mal_result mal_context_init__winmm(mal_context* pContext)
     pContext->winmm.waveInAddBuffer        = mal_dlsym(pContext->winmm.hWinMM, "waveInAddBuffer");
     pContext->winmm.waveInStart            = mal_dlsym(pContext->winmm.hWinMM, "waveInStart");
     pContext->winmm.waveInReset            = mal_dlsym(pContext->winmm.hWinMM, "waveInReset");
+
+    pContext->onDeviceIDEqual = mal_context_is_device_id_equal__winmm;
+    pContext->onEnumDevices   = mal_context_enumerate_devices__winmm;
+    pContext->onGetDeviceInfo = mal_context_get_device_info__winmm;
 
     return MAL_SUCCESS;
 }
@@ -12960,6 +13192,7 @@ mal_result mal_context_init_backend_apis__win32(mal_context* pContext)
     pContext->win32.CoCreateInstance = (mal_proc)mal_dlsym(pContext->win32.hOle32DLL, "CoCreateInstance");
     pContext->win32.CoTaskMemFree    = (mal_proc)mal_dlsym(pContext->win32.hOle32DLL, "CoTaskMemFree");
     pContext->win32.PropVariantClear = (mal_proc)mal_dlsym(pContext->win32.hOle32DLL, "PropVariantClear");
+    pContext->win32.StringFromGUID2  = (mal_proc)mal_dlsym(pContext->win32.hOle32DLL, "StringFromGUID2");
 
 
     // User32.dll
