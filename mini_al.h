@@ -670,7 +670,7 @@ typedef struct
     char name[256];
 
     // Detailed info. As much of this is filled as possible with mal_context_get_device_info().
-    mal_share_mode shareMode;   // Controls which share mode the data in this object is relevant for.
+    // TODO: Implement me.
 } mal_device_info;
 
 typedef struct
@@ -5488,6 +5488,134 @@ static void mal_get_channels_from_speaker_config__dsound(DWORD speakerConfig, WO
 }
 
 
+mal_bool32 mal_context_is_device_id_equal__dsound(mal_context* pContext, const mal_device_id* pID0, const mal_device_id* pID1)
+{
+    mal_assert(pContext != NULL);
+    mal_assert(pID0 != NULL);
+    mal_assert(pID1 != NULL);
+    (void)pContext;
+
+    return memcmp(pID0->dsound, pID1->dsound, sizeof(pID0->dsound)) == 0;
+}
+
+
+typedef struct
+{
+    mal_context* pContext;
+    mal_device_type deviceType;
+    mal_enum_devices_callback_proc callback;
+    void* pUserData;
+} mal_context_enumerate_devices_callback_data__dsound;
+
+static BOOL CALLBACK mal_context_enumerate_devices_callback__dsound(LPGUID lpGuid, LPCSTR lpcstrDescription, LPCSTR lpcstrModule, LPVOID lpContext)
+{
+    (void)lpcstrModule;
+
+    mal_context_enumerate_devices_callback_data__dsound* pData = (mal_context_enumerate_devices_callback_data__dsound*)lpContext;
+    mal_assert(pData != NULL);
+
+    mal_device_info deviceInfo;
+    mal_zero_object(&deviceInfo);
+
+    // ID.
+    if (lpGuid != NULL) {
+        mal_copy_memory(deviceInfo.id.dsound, lpGuid, 16);
+    } else {
+        mal_zero_memory(deviceInfo.id.dsound, 16);
+    }
+
+    // Name / Description
+    mal_strncpy_s(deviceInfo.name, sizeof(deviceInfo.name), lpcstrDescription, (size_t)-1);
+
+    pData->callback(pData->pContext, pData->deviceType, &deviceInfo, pData->pUserData);
+    return TRUE;    // Return true to continue enumeration.
+}
+
+mal_result mal_context_enumerate_devices__dsound(mal_context* pContext, mal_enum_devices_callback_proc callback, void* pUserData)
+{
+    mal_assert(pContext != NULL);
+    mal_assert(callback != NULL);
+
+    mal_context_enumerate_devices_callback_data__dsound data;
+    data.pContext = pContext;
+    data.callback = callback;
+    data.pUserData = pUserData;
+
+    // Playback.
+    data.deviceType = mal_device_type_playback;
+    ((mal_DirectSoundEnumerateAProc)pContext->dsound.DirectSoundEnumerateA)(mal_context_enumerate_devices_callback__dsound, &data);
+
+    // Capture.
+    data.deviceType = mal_device_type_capture;
+    ((mal_DirectSoundCaptureEnumerateAProc)pContext->dsound.DirectSoundCaptureEnumerateA)(mal_context_enumerate_devices_callback__dsound, &data);
+
+    return MAL_SUCCESS;
+}
+
+
+typedef struct
+{
+    const mal_device_id* pDeviceID;
+    mal_device_info* pDeviceInfo;
+    mal_bool32 found;
+} mal_context_get_device_info_callback_data__dsound;
+
+static BOOL CALLBACK mal_context_get_device_info_callback__dsound(LPGUID lpGuid, LPCSTR lpcstrDescription, LPCSTR lpcstrModule, LPVOID lpContext)
+{
+    (void)lpcstrModule;
+
+    mal_context_get_device_info_callback_data__dsound* pData = (mal_context_get_device_info_callback_data__dsound*)lpContext;
+    mal_assert(pData != NULL);
+
+    if (memcmp(pData->pDeviceID->dsound, lpGuid, sizeof(pData->pDeviceID->dsound)) == 0) {
+        mal_strncpy_s(pData->pDeviceInfo->name, sizeof(pData->pDeviceInfo->name), lpcstrDescription, (size_t)-1);
+        pData->found = MAL_TRUE;
+        return FALSE;   // Stop enumeration.
+    }
+
+    return TRUE;
+}
+
+mal_result mal_context_get_device_info__dsound(mal_context* pContext, mal_device_type deviceType, const mal_device_id* pDeviceID, mal_share_mode shareMode, mal_device_info* pDeviceInfo)
+{
+    (void)shareMode;
+
+    if (pDeviceID != NULL) {
+        // ID.
+        mal_copy_memory(pDeviceInfo->id.dsound, pDeviceID->dsound, 16);
+
+        // Name / Description. This is retrieved by enumerating over each device until we find that one that matches the input ID.
+        mal_context_get_device_info_callback_data__dsound data;
+        data.pDeviceID = pDeviceID;
+        data.pDeviceInfo = pDeviceInfo;
+        data.found = MAL_FALSE;
+        if (deviceType == mal_device_type_playback) {
+            ((mal_DirectSoundEnumerateAProc)pContext->dsound.DirectSoundEnumerateA)(mal_context_get_device_info_callback__dsound, &data);
+        } else {
+            ((mal_DirectSoundCaptureEnumerateAProc)pContext->dsound.DirectSoundCaptureEnumerateA)(mal_context_enumerate_devices_callback__dsound, &data);
+        }
+
+        if (data.found) {
+            return MAL_SUCCESS;
+        } else {
+            return MAL_NO_DEVICE;
+        }
+    } else {
+        // I don't think there's a way to get the name of the default device with DirectSound. In this case we just need to use defaults.
+        
+        // ID
+        mal_zero_memory(pDeviceInfo->id.dsound, 16);
+
+        // Name / Description/
+        if (deviceType == mal_device_type_playback) {
+            mal_strcpy_s(pDeviceInfo->name, sizeof(pDeviceInfo->name), MAL_DEFAULT_PLAYBACK_DEVICE_NAME);
+        } else {
+            mal_strcpy_s(pDeviceInfo->name, sizeof(pDeviceInfo->name), MAL_DEFAULT_CAPTURE_DEVICE_NAME);
+        }
+    }
+
+    return MAL_SUCCESS;
+}
 
 mal_result mal_context_init__dsound(mal_context* pContext)
 {
@@ -5502,6 +5630,10 @@ mal_result mal_context_init__dsound(mal_context* pContext)
     pContext->dsound.DirectSoundEnumerateA        = mal_dlsym(pContext->dsound.hDSoundDLL, "DirectSoundEnumerateA");
     pContext->dsound.DirectSoundCaptureCreate     = mal_dlsym(pContext->dsound.hDSoundDLL, "DirectSoundCaptureCreate");
     pContext->dsound.DirectSoundCaptureEnumerateA = mal_dlsym(pContext->dsound.hDSoundDLL, "DirectSoundCaptureEnumerateA");
+
+    pContext->onDeviceIDEqual = mal_context_is_device_id_equal__dsound;
+    pContext->onEnumDevices   = mal_context_enumerate_devices__dsound;
+    pContext->onGetDeviceInfo = mal_context_get_device_info__dsound;
 
     return MAL_SUCCESS;
 }
@@ -13289,10 +13421,8 @@ static mal_bool32 mal_context_get_device_info__enum_callback(mal_context* pConte
 
 mal_result mal_context_get_device_info(mal_context* pContext, mal_device_type type, const mal_device_id* pDeviceID, mal_share_mode shareMode, mal_device_info* pDeviceInfo)
 {
-    // Safety.
-    if (pDeviceInfo != NULL) {
-        mal_zero_object(pDeviceInfo);
-    }
+    if (pDeviceInfo == NULL) return MAL_INVALID_ARGS;
+    mal_zero_object(pDeviceInfo);
 
     if (pContext == NULL) return MAL_INVALID_ARGS;
 
@@ -13327,12 +13457,10 @@ mal_result mal_context_get_device_info(mal_context* pContext, mal_device_type ty
     } else {
         // It's asking for the default device. We don't have a way to retrieve advanced info so we just stick
         // with the name.
-        if (pDeviceInfo != NULL) {
-            if (type == mal_device_type_playback) {
-                mal_strcpy_s(pDeviceInfo->name, sizeof(pDeviceInfo->name), MAL_DEFAULT_PLAYBACK_DEVICE_NAME);
-            } else {
-                mal_strcpy_s(pDeviceInfo->name, sizeof(pDeviceInfo->name), MAL_DEFAULT_CAPTURE_DEVICE_NAME);
-            }
+        if (type == mal_device_type_playback) {
+            mal_strcpy_s(pDeviceInfo->name, sizeof(pDeviceInfo->name), MAL_DEFAULT_PLAYBACK_DEVICE_NAME);
+        } else {
+            mal_strcpy_s(pDeviceInfo->name, sizeof(pDeviceInfo->name), MAL_DEFAULT_CAPTURE_DEVICE_NAME);
         }
 
         return MAL_SUCCESS;
