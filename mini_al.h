@@ -3405,12 +3405,73 @@ static mal_result mal_context__try_get_device_name_by_id(mal_context* pContext, 
 //
 ///////////////////////////////////////////////////////////////////////////////
 #ifdef MAL_HAS_NULL
+
+mal_bool32 mal_context_is_device_id_equal__null(mal_context* pContext, const mal_device_id* pID0, const mal_device_id* pID1)
+{
+    mal_assert(pContext != NULL);
+    mal_assert(pID0 != NULL);
+    mal_assert(pID1 != NULL);
+    (void)pContext;
+
+    return pID0->nullbackend == pID1->nullbackend;
+}
+
+mal_result mal_context_enumerate_devices__null(mal_context* pContext, mal_enum_devices_callback_proc callback, void* pUserData)
+{
+    mal_assert(pContext != NULL);
+    mal_assert(callback != NULL);
+
+    if (callback) {
+        mal_bool32 cbResult = MAL_TRUE;
+
+        // Playback.
+        if (cbResult) {
+            mal_device_info deviceInfo;
+            mal_zero_object(&deviceInfo);
+            mal_strcpy_s(deviceInfo.name, sizeof(deviceInfo.name), "NULL Playback Device");
+            cbResult = callback(pContext, mal_device_type_playback, &deviceInfo, pUserData);
+        }
+        
+        // Capture.
+        if (cbResult) {
+            mal_device_info deviceInfo;
+            mal_zero_object(&deviceInfo);
+            mal_strcpy_s(deviceInfo.name, sizeof(deviceInfo.name), "NULL Capture Device");
+            cbResult = callback(pContext, mal_device_type_capture, &deviceInfo, pUserData);
+        }
+    }
+
+    return MAL_SUCCESS;
+}
+
+mal_result mal_context_get_device_info__null(mal_context* pContext, mal_device_type deviceType, const mal_device_id* pDeviceID, mal_share_mode shareMode, mal_device_info* pDeviceInfo)
+{
+    mal_assert(pContext != NULL);
+    (void)shareMode;
+
+    if (pDeviceID != NULL && pDeviceID->nullbackend != 0) {
+        return MAL_NO_DEVICE;   // Don't know the device.
+    }
+
+    // Name / Description
+    if (deviceType == mal_device_type_playback) {
+        mal_strcpy_s(pDeviceInfo->name, sizeof(pDeviceInfo->name), "NULL Playback Device");
+    } else {
+        mal_strcpy_s(pDeviceInfo->name, sizeof(pDeviceInfo->name), "NULL Capture Device");
+    }
+
+    return MAL_SUCCESS;
+}
+
 mal_result mal_context_init__null(mal_context* pContext)
 {
     mal_assert(pContext != NULL);
 
+    pContext->onDeviceIDEqual = mal_context_is_device_id_equal__null;
+    pContext->onEnumDevices   = mal_context_enumerate_devices__null;
+    pContext->onGetDeviceInfo = mal_context_get_device_info__null;
+
     // The null backend always works.
-    (void)pContext;
     return MAL_SUCCESS;
 }
 
@@ -3460,6 +3521,12 @@ static mal_result mal_device_init__null(mal_context* pContext, mal_device_type t
 
     pDevice->bufferSizeInFrames = pConfig->bufferSizeInFrames;
     pDevice->periods = pConfig->periods;
+
+    if (type == mal_device_type_playback) {
+        mal_strncpy_s(pDevice->name, sizeof(pDevice->name), "NULL Playback Device", (size_t)-1);
+    } else {
+        mal_strncpy_s(pDevice->name, sizeof(pDevice->name), "NULL Capture Device", (size_t)-1);
+    }
 
     pDevice->null_device.pBuffer = (mal_uint8*)mal_malloc(pDevice->bufferSizeInFrames * pDevice->channels * mal_get_sample_size_in_bytes(pDevice->format));
     if (pDevice->null_device.pBuffer == NULL) {
@@ -6554,7 +6621,7 @@ mal_result mal_context_get_device_info__winmm(mal_context* pContext, mal_device_
         }
     }
 
-    return MAL_ERROR;
+    return MAL_NO_DEVICE;
 }
 
 
