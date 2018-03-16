@@ -3778,7 +3778,7 @@ static void mal_channel_mask_to_channel_map__win32(DWORD dwChannelMask, mal_uint
         // Just iterate over each bit.
         mal_uint32 iChannel = 0;
         for (mal_uint32 iBit = 0; iBit < 32; ++iBit) {
-            DWORD bitValue = (dwChannelMask & (1 << iBit));
+            DWORD bitValue = (dwChannelMask & (1UL << iBit));
             if (bitValue != 0) {
                 // The bit is set.
                 channelMap[iChannel] = mal_channel_id_to_mal__win32(bitValue);
@@ -11074,7 +11074,7 @@ static void mal_channel_mask_to_channel_map__opensl(SLuint32 channelMask, mal_ui
         // Just iterate over each bit.
         mal_uint32 iChannel = 0;
         for (mal_uint32 iBit = 0; iBit < 32; ++iBit) {
-            SLuint32 bitValue = (channelMask & (1 << iBit));
+            SLuint32 bitValue = (channelMask & (1UL << iBit));
             if (bitValue != 0) {
                 // The bit is set.
                 channelMap[iChannel] = mal_channel_id_to_mal__opensl(bitValue);
