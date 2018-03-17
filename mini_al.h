@@ -14068,67 +14068,67 @@ mal_result mal_context_uninit(mal_context* pContext)
     #ifdef MAL_HAS_WASAPI
         case mal_backend_wasapi:
         {
-            return mal_context_uninit__wasapi(pContext);
+            mal_context_uninit__wasapi(pContext);
         } break;
     #endif
     #ifdef MAL_HAS_DSOUND
         case mal_backend_dsound:
         {
-            return mal_context_uninit__dsound(pContext);
+            mal_context_uninit__dsound(pContext);
         } break;
     #endif
     #ifdef MAL_HAS_WINMM
         case mal_backend_winmm:
         {
-            return mal_context_uninit__winmm(pContext);
+            mal_context_uninit__winmm(pContext);
         } break;
     #endif
     #ifdef MAL_HAS_ALSA
         case mal_backend_alsa:
         {
-            return mal_context_uninit__alsa(pContext);
+            mal_context_uninit__alsa(pContext);
         } break;
     #endif
     #ifdef MAL_HAS_PULSEAUDIO
         case mal_backend_pulseaudio:
         {
-            return mal_context_uninit__pulse(pContext);
+            mal_context_uninit__pulse(pContext);
         } break;
     #endif
     #ifdef MAL_HAS_JACK
         case mal_backend_jack:
         {
-            return mal_context_uninit__jack(pContext);
+            mal_context_uninit__jack(pContext);
         } break;
     #endif
     #ifdef MAL_HAS_OSS
         case mal_backend_oss:
         {
-            return mal_context_uninit__oss(pContext);
+            mal_context_uninit__oss(pContext);
         } break;
     #endif
     #ifdef MAL_HAS_OPENSL
         case mal_backend_opensl:
         {
-            return mal_context_uninit__opensl(pContext);
+            mal_context_uninit__opensl(pContext);
         } break;
     #endif
     #ifdef MAL_HAS_OPENAL
         case mal_backend_openal:
         {
-            return mal_context_uninit__openal(pContext);
+            mal_context_uninit__openal(pContext);
         } break;
     #endif
     #ifdef MAL_HAS_SDL
         case mal_backend_sdl:
         {
-            return mal_context_uninit__sdl(pContext);
+            mal_context_uninit__sdl(pContext);
         } break;
     #endif
     #ifdef MAL_HAS_NULL
         case mal_backend_null:
         {
-            return mal_context_uninit__null(pContext);
+            mal_context_uninit__null(pContext);
         } break;
     #endif
 
@@ -14137,9 +14137,10 @@ mal_result mal_context_uninit(mal_context* pContext)
 
     mal_context_uninit_backend_apis(pContext);
     mal_mutex_uninit(&pContext->deviceEnumLock);
+    mal_mutex_uninit(&pContext->deviceInfoLock);
+    mal_free(pContext->pDeviceInfos);
 
-    mal_assert(MAL_FALSE);
-    return MAL_NO_BACKEND;
+    return MAL_SUCCESS;
 }
 
 
