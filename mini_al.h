@@ -10869,14 +10869,57 @@ typedef const char*        (* mal_jack_port_name_proc)               (const mal_
 typedef void*              (* mal_jack_port_get_buffer_proc)         (mal_jack_port_t* port, mal_jack_nframes_t nframes);
 typedef void               (* mal_jack_free_proc)                    (void* ptr);
 
-static mal_result mal_context_uninit__jack(mal_context* pContext)
+mal_bool32 mal_context_is_device_id_equal__jack(mal_context* pContext, const mal_device_id* pID0, const mal_device_id* pID1)
 {
     mal_assert(pContext != NULL);
-    mal_assert(pContext->backend == mal_backend_jack);
+    mal_assert(pID0 != NULL);
+    mal_assert(pID1 != NULL);
+    (void)pContext;
 
-#ifndef MAL_NO_RUNTIME_LINKING
-    mal_dlclose(pContext->jack.jackSO);
-#endif
+    return pID0->jack == pID1->jack;
+}
+
+mal_result mal_context_enumerate_devices__jack(mal_context* pContext, mal_enum_devices_callback_proc callback, void* pUserData)
+{
+    mal_assert(pContext != NULL);
+    mal_assert(callback != NULL);
+
+    mal_bool32 cbResult = MAL_TRUE;
+
+    // Playback.
+    if (cbResult) {
+        mal_device_info deviceInfo;
+        mal_zero_object(&deviceInfo);
+        mal_strcpy_s(deviceInfo.name, sizeof(deviceInfo.name), MAL_DEFAULT_PLAYBACK_DEVICE_NAME);
+        cbResult = callback(pContext, mal_device_type_playback, &deviceInfo, pUserData);
+    }
+        
+    // Capture.
+    if (cbResult) {
+        mal_device_info deviceInfo;
+        mal_zero_object(&deviceInfo);
+        mal_strcpy_s(deviceInfo.name, sizeof(deviceInfo.name), MAL_DEFAULT_CAPTURE_DEVICE_NAME);
+        cbResult = callback(pContext, mal_device_type_capture, &deviceInfo, pUserData);
+    }
+
+    return MAL_SUCCESS;
+}
+
+mal_result mal_context_get_device_info__jack(mal_context* pContext, mal_device_type deviceType, const mal_device_id* pDeviceID, mal_share_mode shareMode, mal_device_info* pDeviceInfo)
+{
+    mal_assert(pContext != NULL);
+    (void)shareMode;
+
+    if (pDeviceID != NULL && pDeviceID->jack != 0) {
+        return MAL_NO_DEVICE;   // Don't know the device.
+    }
+
+    // Name / Description
+    if (deviceType == mal_device_type_playback) {
+        mal_strcpy_s(pDeviceInfo->name, sizeof(pDeviceInfo->name), MAL_DEFAULT_PLAYBACK_DEVICE_NAME);
+    } else {
+        mal_strcpy_s(pDeviceInfo->name, sizeof(pDeviceInfo->name), MAL_DEFAULT_CAPTURE_DEVICE_NAME);
+    }
 
     return MAL_SUCCESS;
 }
@@ -10959,6 +11002,22 @@ static mal_result mal_context_init__jack(mal_context* pContext)
     pContext->jack.jack_port_name                = (mal_proc)_jack_port_name;
     pContext->jack.jack_port_get_buffer          = (mal_proc)_jack_port_get_buffer;
     pContext->jack.jack_free                     = (mal_proc)_jack_free;
+#endif
+
+    pContext->onDeviceIDEqual = mal_context_is_device_id_equal__jack;
+    pContext->onEnumDevices   = mal_context_enumerate_devices__jack;
+    pContext->onGetDeviceInfo = mal_context_get_device_info__jack;
+
+    return MAL_SUCCESS;
+}
+
+static mal_result mal_context_uninit__jack(mal_context* pContext)
+{
+    mal_assert(pContext != NULL);
+    mal_assert(pContext->backend == mal_backend_jack);
+
+#ifndef MAL_NO_RUNTIME_LINKING
+    mal_dlclose(pContext->jack.jackSO);
 #endif
 
     return MAL_SUCCESS;
@@ -11084,7 +11143,12 @@ mal_result mal_device_init__jack(mal_context* pContext, mal_device_type type, ma
     mal_assert(pDevice != NULL);
 
     (void)pContext;
-    (void)pDeviceID;    // Only supporting default devices with JACK.
+    
+    // Only supporting default devices with JACK.
+    if (pDeviceID != NULL && pDeviceID->jack != 0) {
+        return MAL_NO_DEVICE;
+    }
+
 
     // Open the client.
     size_t maxClientNameSize = ((mal_jack_client_name_size_proc)pContext->jack.jack_client_name_size)(); // Includes null terminator.
