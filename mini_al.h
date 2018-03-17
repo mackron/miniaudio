@@ -11816,6 +11816,172 @@ SLuint32 mal_round_to_standard_sample_rate__opensl(SLuint32 samplesPerSec)
     return SL_SAMPLINGRATE_16;
 }
 
+
+mal_bool32 mal_context_is_device_id_equal__opensl(mal_context* pContext, const mal_device_id* pID0, const mal_device_id* pID1)
+{
+    mal_assert(pContext != NULL);
+    mal_assert(pID0 != NULL);
+    mal_assert(pID1 != NULL);
+    (void)pContext;
+
+    return pID0->opensl == pID1->opensl;
+}
+
+mal_result mal_context_enumerate_devices__opensl(mal_context* pContext, mal_enum_devices_callback_proc callback, void* pUserData)
+{
+    mal_assert(pContext != NULL);
+    mal_assert(callback != NULL);
+
+    // TODO: Test Me.
+    //
+    // This is currently untested, so for now we are just returning default devices.
+#if 0 && !defined(MAL_ANDROID)
+    mal_bool32 isTerminated = MAL_FALSE;
+
+    SLuint32 pDeviceIDs[128];
+    SLint32 deviceCount = sizeof(pDeviceIDs) / sizeof(pDeviceIDs[0]);
+
+    SLAudioIODeviceCapabilitiesItf deviceCaps;
+    SLresult resultSL = (*g_malEngineObjectSL)->GetInterface(g_malEngineObjectSL, SL_IID_AUDIOIODEVICECAPABILITIES, &deviceCaps);
+    if (resultSL != SL_RESULT_SUCCESS) {
+        // The interface may not be supported so just report a default device.
+        goto return_default_device;
+    }
+
+    // Playback
+    if (!isTerminated) {
+        resultSL = (*deviceCaps)->GetAvailableAudioOutputs(deviceCaps, &deviceCount, pDeviceIDs);
+        if (resultSL != SL_RESULT_SUCCESS) {
+            return MAL_NO_DEVICE;
+        }
+
+        for (SLint32 iDevice = 0; iDevice < deviceCount; ++iDevice) {
+            mal_device_info deviceInfo;
+            mal_zero_object(&deviceInfo);
+            deviceInfo.id.opensl = pDeviceIDs[iDevice];
+
+            SLAudioOutputDescriptor desc;
+            resultSL = (*deviceCaps)->QueryAudioOutputCapabilities(deviceCaps, deviceInfo.id.opensl, &desc);
+            if (resultSL == SL_RESULT_SUCCESS) {
+                mal_strncpy_s(deviceInfo.name, sizeof(deviceInfo.name), (const char*)desc.pDeviceName, (size_t)-1);
+
+                mal_bool32 cbResult = callback(pContext, mal_device_type_playback, &deviceInfo, pUserData);
+                if (cbResult == MAL_FALSE) {
+                    isTerminated = MAL_TRUE;
+                    break;
+                }
+            }
+        }
+    }
+
+    // Capture
+    if (!isTerminated) {
+        resultSL = (*deviceCaps)->GetAvailableAudioInputs(deviceCaps, &deviceCount, pDeviceIDs);
+        if (resultSL != SL_RESULT_SUCCESS) {
+            return MAL_NO_DEVICE;
+        }
+
+        for (SLint32 iDevice = 0; iDevice < deviceCount; ++iDevice) {
+            mal_device_info deviceInfo;
+            mal_zero_object(&deviceInfo);
+            deviceInfo.id.opensl = pDeviceIDs[iDevice];
+
+            SLAudioInputDescriptor desc;
+            resultSL = (*deviceCaps)->QueryAudioInputCapabilities(deviceCaps, deviceInfo.id.opensl, &desc);
+            if (resultSL == SL_RESULT_SUCCESS) {
+                mal_strncpy_s(deviceInfo.name, sizeof(deviceInfo.name), (const char*)desc.deviceName, (size_t)-1);
+
+                mal_bool32 cbResult = callback(pContext, mal_device_type_capture, &deviceInfo, pUserData);
+                if (cbResult == MAL_FALSE) {
+                    isTerminated = MAL_TRUE;
+                    break;
+                }
+            }
+        }
+    }
+
+    return MAL_SUCCESS;
+#else
+    goto return_default_device;
+#endif
+
+return_default_device:
+    mal_bool32 cbResult = MAL_TRUE;
+
+    // Playback.
+    if (cbResult) {
+        mal_device_info deviceInfo;
+        mal_zero_object(&deviceInfo);
+        mal_strncpy_s(deviceInfo.name, sizeof(deviceInfo.name), MAL_DEFAULT_PLAYBACK_DEVICE_NAME, (size_t)-1);
+        cbResult = callback(pContext, mal_device_type_playback, &deviceInfo, pUserData);
+    }
+        
+    // Capture.
+    if (cbResult) {
+        mal_device_info deviceInfo;
+        mal_zero_object(&deviceInfo);
+        mal_strncpy_s(deviceInfo.name, sizeof(deviceInfo.name), MAL_DEFAULT_CAPTURE_DEVICE_NAME, (size_t)-1);
+        cbResult = callback(pContext, mal_device_type_capture, &deviceInfo, pUserData);
+    }
+
+    return MAL_SUCCESS;
+}
+
+mal_result mal_context_get_device_info__opensl(mal_context* pContext, mal_device_type deviceType, const mal_device_id* pDeviceID, mal_share_mode shareMode, mal_device_info* pDeviceInfo)
+{
+    mal_assert(pContext != NULL);
+    (void)shareMode;
+
+    // TODO: Test Me.
+    //
+    // This is currently untested, so for now we are just returning default devices.
+#if 0 && !defined(MAL_ANDROID)
+    SLAudioIODeviceCapabilitiesItf deviceCaps;
+    SLresult resultSL = (*g_malEngineObjectSL)->GetInterface(g_malEngineObjectSL, SL_IID_AUDIOIODEVICECAPABILITIES, &deviceCaps);
+    if (resultSL != SL_RESULT_SUCCESS) {
+        // The interface may not be supported so just report a default device.
+        goto return_default_device;
+    }
+
+    if (deviceType == mal_device_type_playback) {
+        SLAudioOutputDescriptor desc;
+        resultSL = (*deviceCaps)->QueryAudioOutputCapabilities(deviceCaps, pDeviceID->opensl, &desc);
+        if (resultSL != SL_RESULT_SUCCESS) {
+            return MAL_NO_DEVICE;
+        }
+
+        mal_strncpy_s(pDeviceInfo->name, sizeof(pDeviceInfo->name), (const char*)desc.pDeviceName, (size_t)-1);
+    } else {
+        SLAudioInputDescriptor desc;
+        resultSL = (*deviceCaps)->QueryAudioInputCapabilities(deviceCaps, pDeviceID->opensl, &desc);
+        if (resultSL != SL_RESULT_SUCCESS) {
+            return MAL_NO_DEVICE;
+        }
+
+        mal_strncpy_s(pDeviceInfo->name, sizeof(pDeviceInfo->name), (const char*)desc.deviceName, (size_t)-1);
+    }
+#else
+    goto return_default_device;
+#endif
+
+return_default_device:
+    if (pDeviceID != NULL) {
+        if ((deviceType == mal_device_type_playback && pDeviceID->opensl != SL_DEFAULTDEVICEID_AUDIOOUTPUT) ||
+            (deviceType == mal_device_type_capture  && pDeviceID->opensl != SL_DEFAULTDEVICEID_AUDIOINPUT)) {
+            return MAL_NO_DEVICE;   // Don't know the device.
+        }
+    }
+
+    // Name / Description
+    if (deviceType == mal_device_type_playback) {
+        mal_strncpy_s(pDeviceInfo->name, sizeof(pDeviceInfo->name), MAL_DEFAULT_PLAYBACK_DEVICE_NAME, (size_t)-1);
+    } else {
+        mal_strncpy_s(pDeviceInfo->name, sizeof(pDeviceInfo->name), MAL_DEFAULT_CAPTURE_DEVICE_NAME, (size_t)-1);
+    }
+
+    return MAL_SUCCESS;
+}
+
 mal_result mal_context_init__opensl(mal_context* pContext)
 {
     mal_assert(pContext != NULL);
@@ -11838,6 +12004,10 @@ mal_result mal_context_init__opensl(mal_context* pContext)
             return MAL_NO_BACKEND;
         }
     }
+
+    pContext->onDeviceIDEqual = mal_context_is_device_id_equal__opensl;
+    pContext->onEnumDevices   = mal_context_enumerate_devices__opensl;
+    pContext->onGetDeviceInfo = mal_context_get_device_info__opensl;
 
     return MAL_SUCCESS;
 }
@@ -12070,7 +12240,7 @@ static mal_result mal_device_init__opensl(mal_context* pContext, mal_device_type
     // Android has a few restrictions on the format as documented here: https://developer.android.com/ndk/guides/audio/opensl-for-android.html
     //  - Only mono and stereo is supported.
     //  - Only u8 and s16 formats are supported.
-    //  - Limited to a sample rate of 48000.
+    //  - Maximum sample rate of 48000.
 #ifdef MAL_ANDROID
     if (pFormat->numChannels > 2) {
         pFormat->numChannels = 2;
