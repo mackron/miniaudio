@@ -9677,17 +9677,301 @@ static mal_pa_channel_position_t mal_channel_position_to_pulse(mal_channel posit
 #endif
 
 
-static mal_result mal_context_uninit__pulse(mal_context* pContext)
+static mal_result mal_wait_for_operation__pulse(mal_context* pContext, mal_pa_mainloop* pMainLoop, mal_pa_operation* pOP)
 {
     mal_assert(pContext != NULL);
-    mal_assert(pContext->backend == mal_backend_pulseaudio);
+    mal_assert(pMainLoop != NULL);
+    mal_assert(pOP != NULL);
 
-#ifndef MAL_NO_RUNTIME_LINKING
-    mal_dlclose(pContext->pulse.pulseSO);
-#endif
+    while (((mal_pa_operation_get_state_proc)pContext->pulse.pa_operation_get_state)(pOP) != MAL_PA_OPERATION_DONE) {
+        int error = ((mal_pa_mainloop_iterate_proc)pContext->pulse.pa_mainloop_iterate)(pMainLoop, 1, NULL);
+        if (error < 0) {
+            return mal_result_from_pulse(error);
+        }
+    }
 
     return MAL_SUCCESS;
 }
+
+static mal_result mal_device__wait_for_operation__pulse(mal_device* pDevice, mal_pa_operation* pOP)
+{
+    mal_assert(pDevice != NULL);
+    mal_assert(pOP != NULL);
+
+    return mal_wait_for_operation__pulse(pDevice->pContext, (mal_pa_mainloop*)pDevice->pulse.pMainLoop, pOP);
+}
+
+
+mal_bool32 mal_context_is_device_id_equal__pulse(mal_context* pContext, const mal_device_id* pID0, const mal_device_id* pID1)
+{
+    mal_assert(pContext != NULL);
+    mal_assert(pID0 != NULL);
+    mal_assert(pID1 != NULL);
+    (void)pContext;
+
+    return strcmp(pID0->pulse, pID1->pulse) == 0;
+}
+
+
+typedef struct
+{
+    mal_context* pContext;
+    mal_enum_devices_callback_proc callback;
+    void* pUserData;
+    mal_bool32 isTerminated;
+} mal_context_enumerate_devices_callback_data__pulse;
+
+static void mal_context_enumerate_devices_sink_callback__pulse(mal_pa_context* pPulseContext, const mal_pa_sink_info* pSinkInfo, int endOfList, void* pUserData)
+{
+    mal_context_enumerate_devices_callback_data__pulse* pData = (mal_context_enumerate_devices_callback_data__pulse*)pUserData;
+    mal_assert(pData != NULL);
+
+    if (endOfList || pData->isTerminated) {
+        return;
+    }
+
+    mal_device_info deviceInfo;
+    mal_zero_object(&deviceInfo);
+
+    // The name from PulseAudio is the ID for mini_al.
+    if (pSinkInfo->name != NULL) {
+        mal_strncpy_s(deviceInfo.id.pulse, sizeof(deviceInfo.id.pulse), pSinkInfo->name, (size_t)-1);
+    }
+
+    // The description from PulseAudio is the name for mini_al.
+    if (pSinkInfo->description != NULL) {
+        mal_strncpy_s(deviceInfo.name, sizeof(deviceInfo.name), pSinkInfo->description, (size_t)-1);
+    }
+
+    pData->isTerminated = !pData->callback(pData->pContext, mal_device_type_playback, &deviceInfo, pData->pUserData);
+}
+
+static void mal_context_enumerate_devices_source_callback__pulse(mal_pa_context* pPulseContext, const mal_pa_source_info* pSinkInfo, int endOfList, void* pUserData)
+{
+    mal_context_enumerate_devices_callback_data__pulse* pData = (mal_context_enumerate_devices_callback_data__pulse*)pUserData;
+    mal_assert(pData != NULL);
+
+    if (endOfList || pData->isTerminated) {
+        return;
+    }
+
+    mal_device_info deviceInfo;
+    mal_zero_object(&deviceInfo);
+
+    // The name from PulseAudio is the ID for mini_al.
+    if (pSinkInfo->name != NULL) {
+        mal_strncpy_s(deviceInfo.id.pulse, sizeof(deviceInfo.id.pulse), pSinkInfo->name, (size_t)-1);
+    }
+
+    // The description from PulseAudio is the name for mini_al.
+    if (pSinkInfo->description != NULL) {
+        mal_strncpy_s(deviceInfo.name, sizeof(deviceInfo.name), pSinkInfo->description, (size_t)-1);
+    }
+
+    pData->isTerminated = !pData->callback(pData->pContext, mal_device_type_capture, &deviceInfo, pData->pUserData);
+}
+
+mal_result mal_context_enumerate_devices__pulse(mal_context* pContext, mal_enum_devices_callback_proc callback, void* pUserData)
+{
+    mal_assert(pContext != NULL);
+    mal_assert(callback != NULL);
+
+    mal_result result = MAL_SUCCESS;
+
+    mal_pa_mainloop* pMainLoop = ((mal_pa_mainloop_new_proc)pContext->pulse.pa_mainloop_new)();
+    if (pMainLoop == NULL) {
+        return MAL_FAILED_TO_INIT_BACKEND;
+    }
+
+    mal_pa_mainloop_api* pAPI = ((mal_pa_mainloop_get_api_proc)pContext->pulse.pa_mainloop_get_api)(pMainLoop);
+    if (pAPI == NULL) {
+        ((mal_pa_mainloop_free_proc)pContext->pulse.pa_mainloop_free)(pMainLoop);
+        return MAL_FAILED_TO_INIT_BACKEND;
+    }
+
+    mal_pa_context* pPulseContext = ((mal_pa_context_new_proc)pContext->pulse.pa_context_new)(pAPI, pContext->config.pulse.pApplicationName);
+    if (pPulseContext == NULL) {
+        ((mal_pa_mainloop_free_proc)pContext->pulse.pa_mainloop_free)(pMainLoop);
+        return MAL_FAILED_TO_INIT_BACKEND;
+    }
+
+    int error = ((mal_pa_context_connect_proc)pContext->pulse.pa_context_connect)(pPulseContext, pContext->config.pulse.pServerName, 0, NULL);
+    if (error != MAL_PA_OK) {
+        ((mal_pa_context_unref_proc)pContext->pulse.pa_context_unref)(pPulseContext);
+        ((mal_pa_mainloop_free_proc)pContext->pulse.pa_mainloop_free)(pMainLoop);
+        return mal_result_from_pulse(error);
+    }
+
+    while (((mal_pa_context_get_state_proc)pContext->pulse.pa_context_get_state)(pPulseContext) != MAL_PA_CONTEXT_READY) {
+        error = ((mal_pa_mainloop_iterate_proc)pContext->pulse.pa_mainloop_iterate)(pMainLoop, 1, NULL);
+        if (error < 0) {
+            result = mal_result_from_pulse(error);
+            goto done;
+        }
+    }
+
+    mal_context_enumerate_devices_callback_data__pulse callbackData;
+    callbackData.pContext = pContext;
+    callbackData.callback = callback;
+    callbackData.pUserData = pUserData;
+    callbackData.isTerminated = MAL_FALSE;
+
+    mal_pa_operation* pOP = NULL;
+
+    // Playback.
+    if (!callbackData.isTerminated) {
+        pOP = ((mal_pa_context_get_sink_info_list_proc)pContext->pulse.pa_context_get_sink_info_list)(pPulseContext, mal_context_enumerate_devices_sink_callback__pulse, &callbackData);
+        if (pOP == NULL) {
+            result = MAL_ERROR;
+            goto done;
+        }
+
+        result = mal_wait_for_operation__pulse(pContext, pMainLoop, pOP);
+        ((mal_pa_operation_unref_proc)pContext->pulse.pa_operation_unref)(pOP);
+        if (result != MAL_SUCCESS) {
+            goto done;
+        }
+    }
+
+
+    // Capture.
+    if (!callbackData.isTerminated) {
+        pOP = ((mal_pa_context_get_source_info_list_proc)pContext->pulse.pa_context_get_source_info_list)(pPulseContext, mal_context_enumerate_devices_source_callback__pulse, &callbackData);
+        if (pOP == NULL) {
+            result = MAL_ERROR;
+            goto done;
+        }
+
+        result = mal_wait_for_operation__pulse(pContext, pMainLoop, pOP);
+        ((mal_pa_operation_unref_proc)pContext->pulse.pa_operation_unref)(pOP);
+        if (result != MAL_SUCCESS) {
+            goto done;
+        }
+    }
+
+done:
+    ((mal_pa_context_disconnect_proc)pContext->pulse.pa_context_disconnect)(pPulseContext);
+    ((mal_pa_context_unref_proc)pContext->pulse.pa_context_unref)(pPulseContext);
+    ((mal_pa_mainloop_free_proc)pContext->pulse.pa_mainloop_free)(pMainLoop);
+    return result;
+}
+
+
+typedef struct
+{
+    mal_device_info* pDeviceInfo;
+    mal_bool32 foundDevice;
+} mal_context_get_device_info_callback_data__pulse;
+
+static void mal_context_get_device_info_sink_callback__pulse(mal_pa_context* pPulseContext, const mal_pa_sink_info* pInfo, int endOfList, void* pUserData)
+{
+    if (endOfList > 0) {
+        return;
+    }
+
+    mal_context_get_device_info_callback_data__pulse* pData = (mal_context_get_device_info_callback_data__pulse*)pUserData;
+    mal_assert(pData != NULL);
+    pData->foundDevice = MAL_TRUE;
+
+    if (pInfo->name != NULL) {
+        mal_strcpy_s(pData->pDeviceInfo->id.pulse, sizeof(pData->pDeviceInfo->id.pulse), pInfo->name);
+    }
+
+    if (pInfo->description != NULL) {
+        mal_strcpy_s(pData->pDeviceInfo->name, sizeof(pData->pDeviceInfo->name), pInfo->description);
+    }
+}
+
+static void mal_context_get_device_info_source_callback__pulse(mal_pa_context* pPulseContext, const mal_pa_source_info* pInfo, int endOfList, void* pUserData)
+{
+    if (endOfList > 0) {
+        return;
+    }
+
+    mal_context_get_device_info_callback_data__pulse* pData = (mal_context_get_device_info_callback_data__pulse*)pUserData;
+    mal_assert(pData != NULL);
+    pData->foundDevice = MAL_TRUE;
+
+    if (pInfo->name != NULL) {
+        mal_strcpy_s(pData->pDeviceInfo->id.pulse, sizeof(pData->pDeviceInfo->id.pulse), pInfo->name);
+    }
+
+    if (pInfo->description != NULL) {
+        mal_strcpy_s(pData->pDeviceInfo->name, sizeof(pData->pDeviceInfo->name), pInfo->description);
+    }
+}
+
+mal_result mal_context_get_device_info__pulse(mal_context* pContext, mal_device_type deviceType, const mal_device_id* pDeviceID, mal_share_mode shareMode, mal_device_info* pDeviceInfo)
+{
+    mal_assert(pContext != NULL);
+    (void)shareMode;
+
+    mal_result result = MAL_SUCCESS;
+
+    mal_pa_mainloop* pMainLoop = ((mal_pa_mainloop_new_proc)pContext->pulse.pa_mainloop_new)();
+    if (pMainLoop == NULL) {
+        return MAL_FAILED_TO_INIT_BACKEND;
+    }
+
+    mal_pa_mainloop_api* pAPI = ((mal_pa_mainloop_get_api_proc)pContext->pulse.pa_mainloop_get_api)(pMainLoop);
+    if (pAPI == NULL) {
+        ((mal_pa_mainloop_free_proc)pContext->pulse.pa_mainloop_free)(pMainLoop);
+        return MAL_FAILED_TO_INIT_BACKEND;
+    }
+
+    mal_pa_context* pPulseContext = ((mal_pa_context_new_proc)pContext->pulse.pa_context_new)(pAPI, pContext->config.pulse.pApplicationName);
+    if (pPulseContext == NULL) {
+        ((mal_pa_mainloop_free_proc)pContext->pulse.pa_mainloop_free)(pMainLoop);
+        return MAL_FAILED_TO_INIT_BACKEND;
+    }
+
+    int error = ((mal_pa_context_connect_proc)pContext->pulse.pa_context_connect)(pPulseContext, pContext->config.pulse.pServerName, 0, NULL);
+    if (error != MAL_PA_OK) {
+        ((mal_pa_context_unref_proc)pContext->pulse.pa_context_unref)(pPulseContext);
+        ((mal_pa_mainloop_free_proc)pContext->pulse.pa_mainloop_free)(pMainLoop);
+        return mal_result_from_pulse(error);
+    }
+
+    while (((mal_pa_context_get_state_proc)pContext->pulse.pa_context_get_state)(pPulseContext) != MAL_PA_CONTEXT_READY) {
+        error = ((mal_pa_mainloop_iterate_proc)pContext->pulse.pa_mainloop_iterate)(pMainLoop, 1, NULL);
+        if (error < 0) {
+            result = mal_result_from_pulse(error);
+            goto done;
+        }
+    }
+
+    mal_context_get_device_info_callback_data__pulse callbackData;
+    callbackData.pDeviceInfo = pDeviceInfo;
+    callbackData.foundDevice = MAL_FALSE;
+
+    mal_pa_operation* pOP = NULL;
+    if (deviceType == mal_device_type_playback) {
+        pOP = ((mal_pa_context_get_sink_info_by_name_proc)pContext->pulse.pa_context_get_sink_info_by_name)(pPulseContext, pDeviceID->pulse, mal_context_get_device_info_sink_callback__pulse, &callbackData);
+    } else {
+        pOP = ((mal_pa_context_get_source_info_by_name_proc)pContext->pulse.pa_context_get_source_info_by_name)(pPulseContext, pDeviceID->pulse, mal_context_get_device_info_source_callback__pulse, &callbackData);
+    }
+
+    if (pOP != NULL) {
+        mal_wait_for_operation__pulse(pContext, pMainLoop, pOP);
+        ((mal_pa_operation_unref_proc)pContext->pulse.pa_operation_unref)(pOP);
+    } else {
+        result = MAL_ERROR;
+        goto done;
+    }
+
+    if (!callbackData.foundDevice) {
+        result = MAL_NO_DEVICE;
+        goto done;
+    }
+
+
+done:
+    ((mal_pa_context_disconnect_proc)pContext->pulse.pa_context_disconnect)(pPulseContext);
+    ((mal_pa_context_unref_proc)pContext->pulse.pa_context_unref)(pPulseContext);
+    ((mal_pa_mainloop_free_proc)pContext->pulse.pa_mainloop_free)(pMainLoop);
+    return result;
+}
+
 
 static mal_result mal_context_init__pulse(mal_context* pContext)
 {
@@ -9836,33 +10120,25 @@ static mal_result mal_context_init__pulse(mal_context* pContext)
     pContext->pulse.pa_stream_drop                     = (mal_proc)_pa_stream_drop;
 #endif
 
+    pContext->onDeviceIDEqual = mal_context_is_device_id_equal__pulse;
+    pContext->onEnumDevices   = mal_context_enumerate_devices__pulse;
+    pContext->onGetDeviceInfo = mal_context_get_device_info__pulse;
+
     return MAL_SUCCESS;
 }
 
-
-static mal_result mal_wait_for_operation__pulse(mal_context* pContext, mal_pa_mainloop* pMainLoop, mal_pa_operation* pOP)
+static mal_result mal_context_uninit__pulse(mal_context* pContext)
 {
     mal_assert(pContext != NULL);
-    mal_assert(pMainLoop != NULL);
-    mal_assert(pOP != NULL);
+    mal_assert(pContext->backend == mal_backend_pulseaudio);
 
-    while (((mal_pa_operation_get_state_proc)pContext->pulse.pa_operation_get_state)(pOP) != MAL_PA_OPERATION_DONE) {
-        int error = ((mal_pa_mainloop_iterate_proc)pContext->pulse.pa_mainloop_iterate)(pMainLoop, 1, NULL);
-        if (error < 0) {
-            return mal_result_from_pulse(error);
-        }
-    }
+#ifndef MAL_NO_RUNTIME_LINKING
+    mal_dlclose(pContext->pulse.pulseSO);
+#endif
 
     return MAL_SUCCESS;
 }
 
-static mal_result mal_device__wait_for_operation__pulse(mal_device* pDevice, mal_pa_operation* pOP)
-{
-    mal_assert(pDevice != NULL);
-    mal_assert(pOP != NULL);
-
-    return mal_wait_for_operation__pulse(pDevice->pContext, (mal_pa_mainloop*)pDevice->pulse.pMainLoop, pOP);
-}
 
 static void mal_pulse_device_info_list_callback(mal_pa_context* pPulseContext, const char* pName, const char* pDescription, void* pUserData)
 {
@@ -9898,7 +10174,7 @@ static void mal_pulse_sink_info_list_callback(mal_pa_context* pPulseContext, con
         return;
     }
 
-    return mal_pulse_device_info_list_callback(pPulseContext, pSinkInfo->name, pSinkInfo->description, pUserData);
+    mal_pulse_device_info_list_callback(pPulseContext, pSinkInfo->name, pSinkInfo->description, pUserData);
 }
 
 static void mal_pulse_source_info_list_callback(mal_pa_context* pPulseContext, const mal_pa_source_info* pSourceInfo, int endOfList, void* pUserData)
@@ -9907,7 +10183,7 @@ static void mal_pulse_source_info_list_callback(mal_pa_context* pPulseContext, c
         return;
     }
 
-    return mal_pulse_device_info_list_callback(pPulseContext, pSourceInfo->name, pSourceInfo->description, pUserData);
+    mal_pulse_device_info_list_callback(pPulseContext, pSourceInfo->name, pSourceInfo->description, pUserData);
 }
 
 static mal_result mal_enumerate_devices__pulse(mal_context* pContext, mal_device_type type, mal_uint32* pCount, mal_device_info* pInfo)
