@@ -4380,7 +4380,7 @@ mal_result mal_context_enumerate_devices__wasapi(mal_context* pContext, mal_enum
         if (cbResult) {
             mal_device_info deviceInfo;
             mal_zero_object(&deviceInfo);
-            mal_strcpy_s(deviceInfo.name, sizeof(deviceInfo.name), MAL_DEFAULT_PLAYBACK_DEVICE_NAME);
+            mal_strncpy_s(deviceInfo.name, sizeof(deviceInfo.name), MAL_DEFAULT_PLAYBACK_DEVICE_NAME, (size_t)-1);
             cbResult = callback(pContext, mal_device_type_playback, &deviceInfo, pUserData);
         }
         
@@ -4388,7 +4388,7 @@ mal_result mal_context_enumerate_devices__wasapi(mal_context* pContext, mal_enum
         if (cbResult) {
             mal_device_info deviceInfo;
             mal_zero_object(&deviceInfo);
-            mal_strcpy_s(deviceInfo.name, sizeof(deviceInfo.name), MAL_DEFAULT_CAPTURE_DEVICE_NAME);
+            mal_strncpy_s(deviceInfo.name, sizeof(deviceInfo.name), MAL_DEFAULT_CAPTURE_DEVICE_NAME, (size_t)-1);
             cbResult = callback(pContext, mal_device_type_capture, &deviceInfo, pUserData);
         }
     }
@@ -5677,9 +5677,9 @@ mal_result mal_context_get_device_info__dsound(mal_context* pContext, mal_device
 
         // Name / Description/
         if (deviceType == mal_device_type_playback) {
-            mal_strcpy_s(pDeviceInfo->name, sizeof(pDeviceInfo->name), MAL_DEFAULT_PLAYBACK_DEVICE_NAME);
+            mal_strncpy_s(pDeviceInfo->name, sizeof(pDeviceInfo->name), MAL_DEFAULT_PLAYBACK_DEVICE_NAME, (size_t)-1);
         } else {
-            mal_strcpy_s(pDeviceInfo->name, sizeof(pDeviceInfo->name), MAL_DEFAULT_CAPTURE_DEVICE_NAME);
+            mal_strncpy_s(pDeviceInfo->name, sizeof(pDeviceInfo->name), MAL_DEFAULT_CAPTURE_DEVICE_NAME, (size_t)-1);
         }
     }
 
@@ -10890,7 +10890,7 @@ mal_result mal_context_enumerate_devices__jack(mal_context* pContext, mal_enum_d
     if (cbResult) {
         mal_device_info deviceInfo;
         mal_zero_object(&deviceInfo);
-        mal_strcpy_s(deviceInfo.name, sizeof(deviceInfo.name), MAL_DEFAULT_PLAYBACK_DEVICE_NAME);
+        mal_strncpy_s(deviceInfo.name, sizeof(deviceInfo.name), MAL_DEFAULT_PLAYBACK_DEVICE_NAME, (size_t)-1);
         cbResult = callback(pContext, mal_device_type_playback, &deviceInfo, pUserData);
     }
         
@@ -10898,7 +10898,7 @@ mal_result mal_context_enumerate_devices__jack(mal_context* pContext, mal_enum_d
     if (cbResult) {
         mal_device_info deviceInfo;
         mal_zero_object(&deviceInfo);
-        mal_strcpy_s(deviceInfo.name, sizeof(deviceInfo.name), MAL_DEFAULT_CAPTURE_DEVICE_NAME);
+        mal_strncpy_s(deviceInfo.name, sizeof(deviceInfo.name), MAL_DEFAULT_CAPTURE_DEVICE_NAME, (size_t)-1);
         cbResult = callback(pContext, mal_device_type_capture, &deviceInfo, pUserData);
     }
 
@@ -10916,9 +10916,9 @@ mal_result mal_context_get_device_info__jack(mal_context* pContext, mal_device_t
 
     // Name / Description
     if (deviceType == mal_device_type_playback) {
-        mal_strcpy_s(pDeviceInfo->name, sizeof(pDeviceInfo->name), MAL_DEFAULT_PLAYBACK_DEVICE_NAME);
+        mal_strncpy_s(pDeviceInfo->name, sizeof(pDeviceInfo->name), MAL_DEFAULT_PLAYBACK_DEVICE_NAME, (size_t)-1);
     } else {
-        mal_strcpy_s(pDeviceInfo->name, sizeof(pDeviceInfo->name), MAL_DEFAULT_CAPTURE_DEVICE_NAME);
+        mal_strncpy_s(pDeviceInfo->name, sizeof(pDeviceInfo->name), MAL_DEFAULT_CAPTURE_DEVICE_NAME, (size_t)-1);
     }
 
     return MAL_SUCCESS;
@@ -14548,9 +14548,9 @@ mal_result mal_context_get_device_info(mal_context* pContext, mal_device_type ty
         // It's asking for the default device. We don't have a way to retrieve advanced info so we just stick
         // with the name.
         if (type == mal_device_type_playback) {
-            mal_strcpy_s(pDeviceInfo->name, sizeof(pDeviceInfo->name), MAL_DEFAULT_PLAYBACK_DEVICE_NAME);
+            mal_strncpy_s(pDeviceInfo->name, sizeof(pDeviceInfo->name), MAL_DEFAULT_PLAYBACK_DEVICE_NAME, (size_t)-1);
         } else {
-            mal_strcpy_s(pDeviceInfo->name, sizeof(pDeviceInfo->name), MAL_DEFAULT_CAPTURE_DEVICE_NAME);
+            mal_strncpy_s(pDeviceInfo->name, sizeof(pDeviceInfo->name), MAL_DEFAULT_CAPTURE_DEVICE_NAME, (size_t)-1);
         }
 
         return MAL_SUCCESS;
