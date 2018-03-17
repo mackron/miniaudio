@@ -241,15 +241,6 @@ extern "C" {
         #define MAL_SUPPORT_WINMM
         #define MAL_SUPPORT_JACK    // JACK is technically supported on Windows, but I don't know how many people use it in practice...
     #endif
-
-    // Don't support WASAPI on older versions of MSVC for now.
-    #if defined(_MSC_VER)
-        #if _MSC_VER < 1600
-            #if !defined(__audioclient_h__)
-                #undef MAL_SUPPORT_WASAPI
-            #endif
-        #endif
-    #endif
 #endif
 #if defined(MAL_UNIX)
     #if defined(MAL_LINUX)
