@@ -1026,7 +1026,6 @@ struct mal_context
             mal_proc alcCaptureStart;
             mal_proc alcCaptureStop;
             mal_proc alcCaptureSamples;
-
             mal_proc alEnable;
             mal_proc alDisable;
             mal_proc alIsEnabled;
@@ -1446,20 +1445,6 @@ mal_result mal_context_get_devices(mal_context* pContext, mal_device_info** ppPl
 //   This is guarded using a simple mutex lock.
 mal_result mal_context_get_device_info(mal_context* pContext, mal_device_type type, const mal_device_id* pDeviceID, mal_share_mode shareMode, mal_device_info* pDeviceInfo);
 
-// Enumerates over each device of the given type (playback or capture).
-//
-// It is _not_ safe to assume the first enumerated device is the default device.
-//
-// Some backends and platforms may only support default playback and capture devices.
-//
-// Return Value:
-//   MAL_SUCCESS if successful; any other error code otherwise.
-//
-// Thread Safety: SAFE, SEE NOTES.
-//   This API uses an application-defined buffer for output. This is thread-safe so long as the
-//   application ensures mutal exclusion to the output buffer at their level.
-mal_result mal_enumerate_devices(mal_context* pContext, mal_device_type type, mal_uint32* pCount, mal_device_info* pInfo);
-
 // Initializes a device.
 //
 // The context can be null in which case it uses the default. This is equivalent to passing in a
@@ -1472,7 +1457,7 @@ mal_result mal_enumerate_devices(mal_context* pContext, mal_device_type type, ma
 // initialization of other devices.
 //
 // The device ID (pDeviceID) can be null, in which case the default device is used. Otherwise, you
-// can retrieve the ID by calling mal_enumerate_devices() and using the ID from the returned data.
+// can retrieve the ID by calling mal_context_get_devices() and using the ID from the returned data.
 // Set pDeviceID to NULL to use the default device. Do _not_ rely on the first device ID returned
 // by mal_context_enumerate_devices() or mal_context_get_devices() to be the default device.
 //
@@ -3240,6 +3225,31 @@ mal_bool32 mal_context__device_id_equal(mal_context* pContext, const mal_device_
     return MAL_FALSE;
 }
 
+
+typedef struct
+{
+    mal_device_type deviceType;
+    const mal_device_id* pDeviceID;
+    char* pName;
+    size_t nameBufferSize;
+    mal_bool32 foundDevice;
+} mal_context__try_get_device_name_by_id__enum_callback_data;
+
+mal_bool32 mal_context__try_get_device_name_by_id__enum_callback(mal_context* pContext, mal_device_type deviceType, const mal_device_info* pDeviceInfo, void* pUserData)
+{
+    mal_context__try_get_device_name_by_id__enum_callback_data* pData = (mal_context__try_get_device_name_by_id__enum_callback_data*)pUserData;
+    mal_assert(pData != NULL);
+
+    if (pData->deviceType == deviceType) {
+        if (pContext->onDeviceIDEqual(pContext, pData->pDeviceID, &pDeviceInfo->id)) {
+            mal_strncpy_s(pData->pName, pData->nameBufferSize, pDeviceInfo->name, (size_t)-1);
+            pData->foundDevice = MAL_TRUE;
+        }
+    }
+
+    return !pData->foundDevice;
+}
+
 // Generic function for retrieving the name of a device by it's ID.
 //
 // This function simply enumerates every device and then retrieves the name of the first device that has the same ID.
@@ -3252,142 +3262,22 @@ mal_result mal_context__try_get_device_name_by_id(mal_context* pContext, mal_dev
         return MAL_NO_DEVICE;
     }
 
-    mal_uint32 deviceCount;
-    mal_result result = mal_enumerate_devices(pContext, type, &deviceCount, NULL);
+    mal_context__try_get_device_name_by_id__enum_callback_data data;
+    data.deviceType = type;
+    data.pDeviceID = pDeviceID;
+    data.pName = pName;
+    data.nameBufferSize = nameBufferSize;
+    data.foundDevice = MAL_FALSE;
+    mal_result result = mal_context_enumerate_devices(pContext, mal_context__try_get_device_name_by_id__enum_callback, &data);
     if (result != MAL_SUCCESS) {
         return result;
     }
 
-    mal_device_info* pInfos = (mal_device_info*)mal_malloc(sizeof(*pInfos) * deviceCount);
-    if (pInfos == NULL) {
-        return MAL_OUT_OF_MEMORY;
+    if (!data.foundDevice) {
+        return MAL_NO_DEVICE;
+    } else {
+        return MAL_SUCCESS;
     }
-
-    result = mal_enumerate_devices(pContext, type, &deviceCount, pInfos);
-    if (result != MAL_SUCCESS) {
-        mal_free(pInfos);
-        return result;
-    }
-
-    mal_bool32 found = MAL_FALSE;
-    for (mal_uint32 iDevice = 0; iDevice < deviceCount; ++iDevice) {
-        // Prefer backend specific comparisons for efficiency and accuracy, but fall back to a generic method if a backend-specific comparison
-        // is not implemented.
-        switch (pContext->backend)
-        {
-        #ifdef MAL_HAS_WASAPI
-            case mal_backend_wasapi:
-            {
-                if (memcmp(pDeviceID->wasapi, pInfos[iDevice].id.wasapi, sizeof(pDeviceID->wasapi)) == 0) {
-                    found = MAL_TRUE;
-                }
-            } break;
-        #endif
-        #ifdef MAL_HAS_DSOUND
-            case mal_backend_dsound:
-            {
-                if (memcmp(pDeviceID->dsound, pInfos[iDevice].id.dsound, sizeof(pDeviceID->dsound)) == 0) {
-                    found = MAL_TRUE;
-                }
-            } break;
-        #endif
-        #ifdef MAL_HAS_WINMM
-            case mal_backend_winmm:
-            {
-                if (pInfos[iDevice].id.winmm == pDeviceID->winmm) {
-                    found = MAL_TRUE;
-                }
-            } break;
-        #endif
-        #ifdef MAL_HAS_ALSA
-            case mal_backend_alsa:
-            {
-                if (mal_strcmp(pInfos[iDevice].id.alsa, pDeviceID->alsa) == 0) {
-                    found = MAL_TRUE;
-                }
-            } break;
-        #endif
-        #ifdef MAL_HAS_PULSEAUDIO
-            case mal_backend_pulseaudio:
-            {
-                if (mal_strcmp(pInfos[iDevice].id.pulse, pDeviceID->pulse) == 0) {
-                    found = MAL_TRUE;
-                }
-            } break;
-        #endif
-        #ifdef MAL_HAS_JACK
-            case mal_backend_jack:
-            {
-                if (pInfos[iDevice].id.jack == pDeviceID->jack) {
-                    found = MAL_TRUE;
-                }
-            } break;
-        #endif
-        #ifdef MAL_HAS_COREAUDIO
-            //case mal_backend_coreaudio:
-            //{
-            //    // TODO: Implement me.
-            //} break;
-        #endif
-        #ifdef MAL_HAS_OSS
-            case mal_backend_oss:
-            {
-                if (mal_strcmp(pInfos[iDevice].id.oss, pDeviceID->oss) == 0) {
-                    found = MAL_TRUE;
-                }
-            } break;
-        #endif
-        #ifdef MAL_HAS_OPENSL
-            case mal_backend_opensl:
-            {
-                if (pInfos[iDevice].id.opensl == pDeviceID->opensl) {
-                    found = MAL_TRUE;
-                }
-            } break;
-        #endif
-        #ifdef MAL_HAS_OPENAL
-            case mal_backend_openal:
-            {
-                if (mal_strcmp(pInfos[iDevice].id.openal, pDeviceID->openal) == 0) {
-                    found = MAL_TRUE;
-                }
-            } break;
-        #endif
-        #ifdef MAL_HAS_SDL
-            case mal_backend_sdl:
-            {
-                if (pInfos[iDevice].id.sdl == pDeviceID->sdl) {
-                    found = MAL_TRUE;
-                }
-            } break;
-        #endif
-        #ifdef MAL_HAS_NULL
-            case mal_backend_null:
-            {
-                if (pInfos[iDevice].id.nullbackend == pDeviceID->nullbackend) {
-                    found = MAL_TRUE;
-                }
-            } break;
-        #endif
-
-            // Fall back to a generic memory comparison.
-            default:
-            {
-                if (memcmp(pDeviceID, &pInfos[iDevice].id, sizeof(*pDeviceID)) == 0) {
-                    found = MAL_TRUE;
-                }
-            } break;
-        }
-
-        if (found) {
-            mal_strncpy_s(pName, nameBufferSize, pInfos[iDevice].name, (size_t)-1);
-            result = MAL_SUCCESS;
-            break;
-        }
-    }
-
-    mal_free(pInfos);
-    return result;
 }
 
 
@@ -3471,26 +3361,6 @@ mal_result mal_context_uninit__null(mal_context* pContext)
     mal_assert(pContext->backend == mal_backend_null);
 
     (void)pContext;
-    return MAL_SUCCESS;
-}
-
-mal_result mal_enumerate_devices__null(mal_context* pContext, mal_device_type type, mal_uint32* pCount, mal_device_info* pInfo)
-{
-    (void)pContext;
-
-    mal_uint32 infoSize = *pCount;
-    *pCount = 1;    // There's only one "device" each for playback and recording for the null backend.
-
-    if (pInfo != NULL && infoSize > 0) {
-        mal_zero_object(pInfo);
-
-        if (type == mal_device_type_playback) {
-            mal_strncpy_s(pInfo->name, sizeof(pInfo->name), "NULL Playback Device", (size_t)-1);
-        } else {
-            mal_strncpy_s(pInfo->name, sizeof(pInfo->name), "NULL Capture Device", (size_t)-1);
-        }
-    }
-
     return MAL_SUCCESS;
 }
 
@@ -4465,111 +4335,6 @@ mal_result mal_context_uninit__wasapi(mal_context* pContext)
     mal_assert(pContext != NULL);
     mal_assert(pContext->backend == mal_backend_wasapi);
     (void)pContext;
-
-    return MAL_SUCCESS;
-}
-
-mal_result mal_enumerate_devices__wasapi(mal_context* pContext, mal_device_type type, mal_uint32* pCount, mal_device_info* pInfo)
-{
-    mal_uint32 infoSize = *pCount;
-    *pCount = 0;
-
-#ifdef MAL_WIN32_DESKTOP
-    mal_IMMDeviceEnumerator* pDeviceEnumerator;
-    HRESULT hr = mal_CoCreateInstance(pContext, MAL_CLSID_MMDeviceEnumerator, NULL, CLSCTX_ALL, MAL_IID_IMMDeviceEnumerator, (void**)&pDeviceEnumerator);
-    if (FAILED(hr)) {
-        return mal_context_post_error(pContext, NULL, "[WASAPI] Failed to create device enumerator.", MAL_FAILED_TO_OPEN_BACKEND_DEVICE);
-    }
-
-    mal_IMMDeviceCollection* pDeviceCollection;
-    hr = mal_IMMDeviceEnumerator_EnumAudioEndpoints(pDeviceEnumerator, (type == mal_device_type_playback) ? mal_eRender : mal_eCapture, MAL_MM_DEVICE_STATE_ACTIVE, &pDeviceCollection);
-    if (FAILED(hr)) {
-        mal_IMMDeviceEnumerator_Release(pDeviceEnumerator);
-        return mal_context_post_error(pContext, NULL, "[WASAPI] Failed to enumerate audio endpoints.", MAL_NO_DEVICE);
-    }
-
-    mal_IMMDeviceEnumerator_Release(pDeviceEnumerator);
-
-    UINT count;
-    hr = mal_IMMDeviceCollection_GetCount(pDeviceCollection, &count);
-    if (FAILED(hr)) {
-        mal_IMMDeviceCollection_Release(pDeviceCollection);
-        return mal_context_post_error(pContext, NULL, "[WASAPI] Failed to get device count.", MAL_NO_DEVICE);
-    }
-
-    for (mal_uint32 iDevice = 0; iDevice < count; ++iDevice) {
-        if (pInfo != NULL) {
-            if (infoSize > 0) {
-                mal_zero_object(pInfo);
-
-                mal_IMMDevice* pDevice;
-                hr = mal_IMMDeviceCollection_Item(pDeviceCollection, iDevice, &pDevice);
-                if (SUCCEEDED(hr)) {
-                    // ID.
-                    LPWSTR id;
-                    hr = mal_IMMDevice_GetId(pDevice, &id);
-                    if (SUCCEEDED(hr)) {
-                        size_t idlen = wcslen(id);
-                        if (idlen+1 > mal_countof(pInfo->id.wasapi)) {
-                            mal_CoTaskMemFree(pContext, id);
-                            mal_assert(MAL_FALSE);  // NOTE: If this is triggered, please report it. It means the format of the ID must haved change and is too long to fit in our fixed sized buffer.
-                            continue;
-                        }
-
-                        mal_copy_memory(pInfo->id.wasapi, id, idlen * sizeof(wchar_t));
-                        pInfo->id.wasapi[idlen] = '\0';
-
-                        mal_CoTaskMemFree(pContext, id);
-                    }
-
-                    // Description / Friendly Name.
-                    mal_IPropertyStore *pProperties;
-                    hr = mal_IMMDevice_OpenPropertyStore(pDevice, STGM_READ, &pProperties);
-                    if (SUCCEEDED(hr)) {
-                        PROPVARIANT varName;
-                        mal_PropVariantInit(&varName);
-                        hr = mal_IPropertyStore_GetValue(pProperties, &MAL_PKEY_Device_FriendlyName, &varName);
-                        if (SUCCEEDED(hr)) {
-                            WideCharToMultiByte(CP_UTF8, 0, varName.pwszVal, -1, pInfo->name, sizeof(pInfo->name), 0, FALSE);
-                            mal_PropVariantClear(pContext, &varName);
-                        }
-
-                        mal_IPropertyStore_Release(pProperties);
-                    }
-                }
-
-                pInfo += 1;
-                infoSize -= 1;
-                *pCount += 1;
-            }
-        } else {
-            *pCount += 1;
-        }
-    }
-
-    mal_IMMDeviceCollection_Release(pDeviceCollection);
-#else
-    // The MMDevice API is only supported on desktop applications. For now, while I'm still figuring out how to properly enumerate
-    // over devices without using MMDevice, I'm restricting devices to defaults.
-    //
-    // Hint: DeviceInformation::FindAllAsync() with DeviceClass.AudioCapture/AudioRender. https://blogs.windows.com/buildingapps/2014/05/15/real-time-audio-in-windows-store-and-windows-phone-apps/
-    if (pInfo != NULL) {
-        if (infoSize > 0) {
-            if (type == mal_device_type_playback) {
-                mal_copy_memory(pInfo->id.wasapi, &MAL_IID_DEVINTERFACE_AUDIO_RENDER, sizeof(MAL_IID_DEVINTERFACE_AUDIO_RENDER));
-                mal_strncpy_s(pInfo->name, sizeof(pInfo->name), MAL_DEFAULT_PLAYBACK_DEVICE_NAME, (size_t)-1);
-            } else {
-                mal_copy_memory(pInfo->id.wasapi, &MAL_IID_DEVINTERFACE_AUDIO_CAPTURE, sizeof(MAL_IID_DEVINTERFACE_AUDIO_CAPTURE));
-                mal_strncpy_s(pInfo->name, sizeof(pInfo->name), MAL_DEFAULT_CAPTURE_DEVICE_NAME, (size_t)-1);
-            }
-
-            pInfo += 1;
-            *pCount += 1;
-        }
-    } else {
-        *pCount += 1;
-    }
-#endif
 
     return MAL_SUCCESS;
 }
@@ -5756,28 +5521,6 @@ BOOL CALLBACK mal_enum_devices_callback__dsound(LPGUID lpGuid, LPCSTR lpcstrDesc
     return TRUE;
 }
 
-mal_result mal_enumerate_devices__dsound(mal_context* pContext, mal_device_type type, mal_uint32* pCount, mal_device_info* pInfo)
-{
-    (void)pContext;
-
-    mal_uint32 infoSize = *pCount;
-    *pCount = 0;
-
-    mal_device_enum_data__dsound enumData;
-    enumData.deviceCount = 0;
-    enumData.infoCount = infoSize;
-    enumData.pInfo = pInfo;
-
-    if (type == mal_device_type_playback) {
-        ((mal_DirectSoundEnumerateAProc)pContext->dsound.DirectSoundEnumerateA)(mal_enum_devices_callback__dsound, &enumData);
-    } else {
-        ((mal_DirectSoundCaptureEnumerateAProc)pContext->dsound.DirectSoundCaptureEnumerateA)(mal_enum_devices_callback__dsound, &enumData);
-    }
-
-    *pCount = enumData.deviceCount;
-    return MAL_SUCCESS;
-}
-
 void mal_device_uninit__dsound(mal_device* pDevice)
 {
     mal_assert(pDevice != NULL);
@@ -6655,58 +6398,6 @@ mal_result mal_context_uninit__winmm(mal_context* pContext)
     mal_assert(pContext->backend == mal_backend_winmm);
 
     mal_dlclose(pContext->winmm.hWinMM);
-    return MAL_SUCCESS;
-}
-
-mal_result mal_enumerate_devices__winmm(mal_context* pContext, mal_device_type type, mal_uint32* pCount, mal_device_info* pInfo)
-{
-    (void)pContext;
-
-    mal_uint32 infoSize = *pCount;
-    *pCount = 0;
-
-    if (type == mal_device_type_playback) {
-        UINT deviceCount = ((MAL_PFN_waveOutGetNumDevs)pContext->winmm.waveOutGetNumDevs)();
-        for (UINT iDevice = 0; iDevice < deviceCount; ++iDevice) {
-            if (pInfo != NULL) {
-                if (infoSize > 0) {
-                    WAVEOUTCAPSA caps;
-                    MMRESULT result = ((MAL_PFN_waveOutGetDevCapsA)pContext->winmm.waveOutGetDevCapsA)(iDevice, &caps, sizeof(caps));
-                    if (result == MMSYSERR_NOERROR) {
-                        pInfo->id.winmm = iDevice;
-                        mal_strncpy_s(pInfo->name, sizeof(pInfo->name), caps.szPname, (size_t)-1);
-                    }
-
-                    pInfo += 1;
-                    infoSize -= 1;
-                    *pCount += 1;
-                }
-            } else {
-                *pCount += 1;
-            }
-        }
-    } else {
-        UINT deviceCount = ((MAL_PFN_waveInGetNumDevs)pContext->winmm.waveInGetNumDevs)();
-        for (UINT iDevice = 0; iDevice < deviceCount; ++iDevice) {
-            if (pInfo != NULL) {
-                if (infoSize > 0) {
-                    WAVEINCAPSA caps;
-                    MMRESULT result = ((MAL_PFN_waveInGetDevCapsA)pContext->winmm.waveInGetDevCapsA)(iDevice, &caps, sizeof(caps));
-                    if (result == MMSYSERR_NOERROR) {
-                        pInfo->id.winmm = iDevice;
-                        mal_strncpy_s(pInfo->name, sizeof(pInfo->name), caps.szPname, (size_t)-1);
-                    }
-
-                    pInfo += 1;
-                    infoSize -= 1;
-                    *pCount += 1;
-                }
-            } else {
-                *pCount += 1;
-            }
-        }
-    }
-
     return MAL_SUCCESS;
 }
 
@@ -8376,149 +8067,6 @@ mal_bool32 mal_device_read__alsa(mal_device* pDevice)
     return MAL_TRUE;
 }
 
-
-mal_result mal_enumerate_devices__alsa(mal_context* pContext, mal_device_type type, mal_uint32* pCount, mal_device_info* pInfo)
-{
-    (void)pContext;
-
-    mal_uint32 infoSize = *pCount;
-    *pCount = 0;
-
-    char** ppDeviceHints;
-    if (((mal_snd_device_name_hint_proc)pContext->alsa.snd_device_name_hint)(-1, "pcm", (void***)&ppDeviceHints) < 0) {
-        return MAL_NO_BACKEND;
-    }
-
-    mal_device_id* pUniqueIDs = NULL;
-    mal_uint32 uniqueIDCount = 0;
-
-    char** ppNextDeviceHint = ppDeviceHints;
-    while (*ppNextDeviceHint != NULL) {
-        char* NAME = ((mal_snd_device_name_get_hint_proc)pContext->alsa.snd_device_name_get_hint)(*ppNextDeviceHint, "NAME");
-        char* DESC = ((mal_snd_device_name_get_hint_proc)pContext->alsa.snd_device_name_get_hint)(*ppNextDeviceHint, "DESC");
-        char* IOID = ((mal_snd_device_name_get_hint_proc)pContext->alsa.snd_device_name_get_hint)(*ppNextDeviceHint, "IOID");
-
-        // Only include devices if they are of the correct type. Special cases for "default", "null" and "pulse" - these are included for both playback and capture
-        // regardless of the IOID setting.
-        mal_bool32 includeThisDevice = MAL_FALSE;
-        if (strcmp(NAME, "default") == 0 || strcmp(NAME, "pulse") == 0 || strcmp(NAME, "null") == 0) {
-            includeThisDevice = MAL_TRUE;
-        } else {
-            if ((type == mal_device_type_playback && (IOID == NULL || strcmp(IOID, "Output") == 0)) ||
-                (type == mal_device_type_capture  && (IOID != NULL && strcmp(IOID, "Input" ) == 0))) {
-                includeThisDevice = MAL_TRUE;
-            }
-        }
-
-
-
-        if (includeThisDevice) {
-#if 0
-            printf("NAME: %s\n", NAME);
-            printf("DESC: %s\n", DESC);
-            printf("IOID: %s\n", IOID);
-
-            char hwid2[256];
-            mal_convert_device_name_to_hw_format__alsa(pContext, hwid2, sizeof(hwid2), NAME);
-            printf("DEVICE ID: %s (%d)\n\n", hwid2, *pCount);
-#endif
-
-            char hwid[sizeof(pUniqueIDs->alsa)];
-            if (NAME != NULL) {
-                if (pContext->config.alsa.useVerboseDeviceEnumeration) {
-                    // Verbose mode. Use the name exactly as-is.
-                    mal_strncpy_s(hwid, sizeof(hwid), NAME, (size_t)-1);
-                } else {
-                    // Simplified mode. Use ":%d,%d" format.
-                    if (mal_convert_device_name_to_hw_format__alsa(pContext, hwid, sizeof(hwid), NAME) == 0) {
-                        // At this point, hwid looks like "hw:0,0". In simplified enumeration mode, we actually want to strip off the
-                        // plugin name so it looks like ":0,0". The reason for this is that this special format is detected at device
-                        // initialization time and is used as an indicator to try and use the most appropriate plugin depending on the
-                        // device type and sharing mode.
-                        char* dst = hwid;
-                        char* src = hwid+2;
-                        while ((*dst++ = *src++));
-                    } else {
-                        // Conversion to "hw:%d,%d" failed. Just use the name as-is.
-                        mal_strncpy_s(hwid, sizeof(hwid), NAME, (size_t)-1);
-                    }
-
-                    if (mal_does_id_exist_in_list__alsa(pUniqueIDs, uniqueIDCount, hwid)) {
-                        goto next_device;   // The device has already been enumerated. Move on to the next one.
-                    } else {
-                        // The device has not yet been enumerated. Make sure it's added to our list so that it's not enumerated again.
-                        mal_device_id* pNewUniqueIDs = mal_realloc(pUniqueIDs, sizeof(*pUniqueIDs) * (uniqueIDCount + 1));
-                        if (pNewUniqueIDs == NULL) {
-                            goto next_device;   // Failed to allocate memory.
-                        }
-
-                        pUniqueIDs = pNewUniqueIDs;
-                        mal_copy_memory(pUniqueIDs[uniqueIDCount].alsa, hwid, sizeof(hwid));
-                        uniqueIDCount += 1;
-                    }
-                }
-            } else {
-                mal_zero_memory(hwid, sizeof(hwid));
-            }
-
-            if (pInfo != NULL) {
-                if (infoSize > 0) {
-                    mal_zero_object(pInfo);
-                    mal_strncpy_s(pInfo->id.alsa, sizeof(pInfo->id.alsa), hwid, (size_t)-1);
-
-                    // DESC is the friendly name. We treat this slightly differently depending on whether or not we are using verbose
-                    // device enumeration. In verbose mode we want to take the entire description so that the end-user can distinguish
-                    // between the subdevices of each card/dev pair. In simplified mode, however, we only want the first part of the
-                    // description.
-                    //
-                    // The value in DESC seems to be split into two lines, with the first line being the name of the device and the
-                    // second line being a description of the device. I don't like having the description be across two lines because
-                    // it makes formatting ugly and annoying. I'm therefore deciding to put it all on a single line with the second line
-                    // being put into parentheses. In simplified mode I'm just stripping the second line entirely.
-                    if (DESC != NULL) {
-                        int lfPos;
-                        const char* line2 = mal_find_char(DESC, '\n', &lfPos);
-                        if (line2 != NULL) {
-                            line2 += 1; // Skip past the new-line character.
-
-                            if (pContext->config.alsa.useVerboseDeviceEnumeration) {
-                                // Verbose mode. Put the second line in brackets.
-                                mal_strncpy_s(pInfo->name, sizeof(pInfo->name), DESC, lfPos);
-                                mal_strcat_s (pInfo->name, sizeof(pInfo->name), " (");
-                                mal_strcat_s (pInfo->name, sizeof(pInfo->name), line2);
-                                mal_strcat_s (pInfo->name, sizeof(pInfo->name), ")");
-                            } else {
-                                // Simplified mode. Strip the second line entirely.
-                                mal_strncpy_s(pInfo->name, sizeof(pInfo->name), DESC, lfPos);
-                            }
-                        } else {
-                            // There's no second line. Just copy the whole description.
-                            mal_strncpy_s(pInfo->name, sizeof(pInfo->name), DESC, (size_t)-1);
-                        }
-                    }
-
-                    pInfo += 1;
-                    infoSize -= 1;
-                    *pCount += 1;
-                }
-            } else {
-                *pCount += 1;
-            }
-        }
-
-    next_device:
-        free(NAME);
-        free(DESC);
-        free(IOID);
-        ppNextDeviceHint += 1;
-    }
-
-    mal_free(pUniqueIDs);
-    ((mal_snd_device_name_free_hint_proc)pContext->alsa.snd_device_name_free_hint)((void**)ppDeviceHints);
-
-    return MAL_SUCCESS;
-}
-
 void mal_device_uninit__alsa(mal_device* pDevice)
 {
     mal_assert(pDevice != NULL);
@@ -10153,120 +9701,6 @@ mal_result mal_context_uninit__pulse(mal_context* pContext)
 }
 
 
-void mal_pulse_device_info_list_callback(mal_pa_context* pPulseContext, const char* pName, const char* pDescription, void* pUserData)
-{
-    mal_pulse_device_enum_data* pData = (mal_pulse_device_enum_data*)pUserData;
-    mal_assert(pData != NULL);
-
-    if (pData->pInfo != NULL) {
-        if (pData->capacity > 0) {
-            mal_zero_object(pData->pInfo);
-
-            // The name from PulseAudio is the ID for mini_al.
-            if (pName != NULL) {
-                mal_strncpy_s(pData->pInfo->id.pulse, sizeof(pData->pInfo->id.pulse), pDescription, (size_t)-1);
-            }
-
-            // The description from PulseAudio is the name for mini_al.
-            if (pDescription != NULL) {
-                mal_strncpy_s(pData->pInfo->name, sizeof(pData->pInfo->name), pDescription, (size_t)-1);
-            }
-
-            pData->pInfo += 1;
-            pData->capacity -= 1;
-            pData->count += 1;
-        }
-    } else {
-        pData->count += 1;
-    }
-}
-
-void mal_pulse_sink_info_list_callback(mal_pa_context* pPulseContext, const mal_pa_sink_info* pSinkInfo, int endOfList, void* pUserData)
-{
-    if (endOfList > 0) {
-        return;
-    }
-
-    mal_pulse_device_info_list_callback(pPulseContext, pSinkInfo->name, pSinkInfo->description, pUserData);
-}
-
-void mal_pulse_source_info_list_callback(mal_pa_context* pPulseContext, const mal_pa_source_info* pSourceInfo, int endOfList, void* pUserData)
-{
-    if (endOfList > 0) {
-        return;
-    }
-
-    mal_pulse_device_info_list_callback(pPulseContext, pSourceInfo->name, pSourceInfo->description, pUserData);
-}
-
-mal_result mal_enumerate_devices__pulse(mal_context* pContext, mal_device_type type, mal_uint32* pCount, mal_device_info* pInfo)
-{
-    mal_result result = MAL_SUCCESS;
-
-    mal_uint32 infoSize = *pCount;
-    *pCount = 0;
-
-    mal_pa_mainloop* pMainLoop = ((mal_pa_mainloop_new_proc)pContext->pulse.pa_mainloop_new)();
-    if (pMainLoop == NULL) {
-        return MAL_FAILED_TO_INIT_BACKEND;
-    }
-
-    mal_pa_mainloop_api* pAPI = ((mal_pa_mainloop_get_api_proc)pContext->pulse.pa_mainloop_get_api)(pMainLoop);
-    if (pAPI == NULL) {
-        ((mal_pa_mainloop_free_proc)pContext->pulse.pa_mainloop_free)(pMainLoop);
-        return MAL_FAILED_TO_INIT_BACKEND;
-    }
-
-    mal_pa_context* pPulseContext = ((mal_pa_context_new_proc)pContext->pulse.pa_context_new)(pAPI, pContext->config.pulse.pApplicationName);
-    if (pPulseContext == NULL) {
-        ((mal_pa_mainloop_free_proc)pContext->pulse.pa_mainloop_free)(pMainLoop);
-        return MAL_FAILED_TO_INIT_BACKEND;
-    }
-
-    int error = ((mal_pa_context_connect_proc)pContext->pulse.pa_context_connect)(pPulseContext, pContext->config.pulse.pServerName, 0, NULL);
-    if (error != MAL_PA_OK) {
-        ((mal_pa_context_unref_proc)pContext->pulse.pa_context_unref)(pPulseContext);
-        ((mal_pa_mainloop_free_proc)pContext->pulse.pa_mainloop_free)(pMainLoop);
-        return mal_result_from_pulse(error);
-    }
-
-    while (((mal_pa_context_get_state_proc)pContext->pulse.pa_context_get_state)(pPulseContext) != MAL_PA_CONTEXT_READY) {
-        error = ((mal_pa_mainloop_iterate_proc)pContext->pulse.pa_mainloop_iterate)(pMainLoop, 1, NULL);
-        if (error < 0) {
-            result = mal_result_from_pulse(error);
-            goto done;
-        }
-    }
-
-    mal_pulse_device_enum_data callbackData;
-    callbackData.count = 0;
-    callbackData.capacity = infoSize;
-    callbackData.pInfo = pInfo;
-
-    mal_pa_operation* pOP = NULL;
-    if (type == mal_device_type_playback) {
-        pOP = ((mal_pa_context_get_sink_info_list_proc)pContext->pulse.pa_context_get_sink_info_list)(pPulseContext, mal_pulse_sink_info_list_callback, &callbackData);
-    } else {
-        pOP = ((mal_pa_context_get_source_info_list_proc)pContext->pulse.pa_context_get_source_info_list)(pPulseContext, mal_pulse_source_info_list_callback, &callbackData);
-    }
-
-    if (pOP == NULL) {
-        result = MAL_ERROR;
-        goto done;
-    }
-
-    result = mal_wait_for_operation__pulse(pContext, pMainLoop, pOP);
-    ((mal_pa_operation_unref_proc)pContext->pulse.pa_operation_unref)(pOP);
-
-    *pCount = callbackData.count;
-
-done:
-    ((mal_pa_context_disconnect_proc)pContext->pulse.pa_context_disconnect)(pPulseContext);
-    ((mal_pa_context_unref_proc)pContext->pulse.pa_context_unref)(pPulseContext);
-    ((mal_pa_mainloop_free_proc)pContext->pulse.pa_mainloop_free)(pMainLoop);
-    return result;
-}
-
 void mal_pulse_device_state_callback(mal_pa_context* pPulseContext, void* pUserData)
 {
     mal_device* pDevice = (mal_device*)pUserData;
@@ -11036,34 +10470,6 @@ mal_result mal_context_uninit__jack(mal_context* pContext)
     return MAL_SUCCESS;
 }
 
-
-mal_result mal_enumerate_devices__jack(mal_context* pContext, mal_device_type type, mal_uint32* pCount, mal_device_info* pInfo)
-{
-    (void)pContext;
-
-    // Only support a default playback and capture device.
-    mal_uint32 infoSize = *pCount;
-    *pCount = 0;
-
-    if (pInfo != NULL) {
-        if (infoSize > 0) {
-            pInfo[0].id.jack = 0;
-            if (type == mal_device_type_playback) {
-                mal_strncpy_s(pInfo[0].name, sizeof(pInfo[0].name), MAL_DEFAULT_PLAYBACK_DEVICE_NAME, (size_t)-1);
-            } else {
-                mal_strncpy_s(pInfo[0].name, sizeof(pInfo[0].name), MAL_DEFAULT_CAPTURE_DEVICE_NAME, (size_t)-1);
-            }
-
-            *pCount = 1;
-        }
-    } else {
-        *pCount = 1;
-    }
-
-    return MAL_SUCCESS;
-}
-
-
 void mal_device_uninit__jack(mal_device* pDevice)
 {
     mal_assert(pDevice != NULL);
@@ -11515,82 +10921,6 @@ mal_result mal_context_uninit__oss(mal_context* pContext)
     mal_assert(pContext->backend == mal_backend_oss);
 
     (void)pContext;
-    return MAL_SUCCESS;
-}
-
-mal_result mal_enumerate_devices__oss(mal_context* pContext, mal_device_type type, mal_uint32* pCount, mal_device_info* pInfo)
-{
-    (void)pContext;
-
-    mal_uint32 infoSize = *pCount;
-    *pCount = 0;
-
-    // The object returned by SNDCTL_SYSINFO will have the information we're after.
-    int fd = mal_open_temp_device__oss();
-    if (fd == -1) {
-        return mal_context_post_error(pContext, NULL, "[OSS] Failed to open a temporary device for retrieving system information used for device enumeration.", MAL_NO_BACKEND);
-    }
-
-    oss_sysinfo si;
-    int result = ioctl(fd, SNDCTL_SYSINFO, &si);
-    if (result != -1) {
-        for (int iAudioDevice = 0; iAudioDevice < si.numaudios; ++iAudioDevice) {
-            oss_audioinfo ai;
-            ai.dev = iAudioDevice;
-            result = ioctl(fd, SNDCTL_AUDIOINFO, &ai);
-            if (result != -1) {
-                mal_bool32 includeThisDevice = MAL_FALSE;
-                if (type == mal_device_type_playback && (ai.caps & PCM_CAP_OUTPUT) != 0) {
-                    includeThisDevice = MAL_TRUE;
-                } else if (type == mal_device_type_capture && (ai.caps & PCM_CAP_INPUT) != 0) {
-                    includeThisDevice = MAL_TRUE;
-                }
-
-                if (includeThisDevice) {
-                    if (ai.devnode[0] != '\0') {    // <-- Can be blank, according to documentation.
-                        if (pInfo != NULL) {
-                            if (infoSize > 0) {
-                                mal_strncpy_s(pInfo->id.oss, sizeof(pInfo->id.oss), ai.devnode, (size_t)-1);
-
-                                // The human readable device name should be in the "ai.handle" variable, but it can
-                                // sometimes be empty in which case we just fall back to "ai.name" which is less user
-                                // friendly, but usually has a value.
-                                if (ai.handle[0] != '\0') {
-                                    mal_strncpy_s(pInfo->name, sizeof(pInfo->name), ai.handle, (size_t)-1);
-                                } else {
-                                    mal_strncpy_s(pInfo->name, sizeof(pInfo->name), ai.name, (size_t)-1);
-                                }
-
-                                pInfo += 1;
-                                infoSize -= 1;
-                                *pCount += 1;
-                            }
-                        } else {
-                            *pCount += 1;
-                        }
-                    }
-                }
-            }
-        }
-    } else {
-        // Failed to retrieve the system information. Just return a default device for both playback and capture.
-        if (pInfo != NULL) {
-            if (infoSize > 0) {
-                mal_strncpy_s(pInfo[0].id.oss, sizeof(pInfo[0].id.oss), "/dev/dsp", (size_t)-1);
-                if (type == mal_device_type_playback) {
-                    mal_strncpy_s(pInfo[0].name, sizeof(pInfo[0].name), MAL_DEFAULT_PLAYBACK_DEVICE_NAME, (size_t)-1);
-                } else {
-                    mal_strncpy_s(pInfo[0].name, sizeof(pInfo[0].name), MAL_DEFAULT_CAPTURE_DEVICE_NAME, (size_t)-1);
-                }
-
-                *pCount = 1;
-            }
-        } else {
-            *pCount = 1;
-        }
-    }
-
-    close(fd);
     return MAL_SUCCESS;
 }
 
@@ -12176,97 +11506,6 @@ mal_result mal_context_uninit__opensl(mal_context* pContext)
     if (g_malOpenSLInitCounter > 0) {
         if (mal_atomic_decrement_32(&g_malOpenSLInitCounter) == 0) {
             (*g_malEngineObjectSL)->Destroy(g_malEngineObjectSL);
-        }
-    }
-
-    return MAL_SUCCESS;
-}
-
-mal_result mal_enumerate_devices__opensl(mal_context* pContext, mal_device_type type, mal_uint32* pCount, mal_device_info* pInfo)
-{
-    (void)pContext;
-
-    mal_uint32 infoSize = *pCount;
-    *pCount = 0;
-
-    // TODO: Test Me.
-    //
-    // This is currently untested, so for now we are just returning default devices.
-#if 0
-    SLuint32 pDeviceIDs[128];
-    SLint32 deviceCount = sizeof(pDeviceIDs) / sizeof(pDeviceIDs[0]);
-
-    SLAudioIODeviceCapabilitiesItf deviceCaps;
-    SLresult resultSL = (*g_malEngineObjectSL)->GetInterface(g_malEngineObjectSL, SL_IID_AUDIOIODEVICECAPABILITIES, &deviceCaps);
-    if (resultSL != SL_RESULT_SUCCESS) {
-        // The interface may not be supported so just report a default device.
-        goto return_default_device;
-    }
-
-    if (type == mal_device_type_playback) {
-        resultSL = (*deviceCaps)->GetAvailableAudioOutputs(deviceCaps, &deviceCount, pDeviceIDs);
-        if (resultSL != SL_RESULT_SUCCESS) {
-            return MAL_NO_DEVICE;
-        }
-    } else {
-        resultSL = (*deviceCaps)->GetAvailableAudioInputs(deviceCaps, &deviceCount, pDeviceIDs);
-        if (resultSL != SL_RESULT_SUCCESS) {
-            return MAL_NO_DEVICE;
-        }
-    }
-
-    for (SLint32 iDevice = 0; iDevice < deviceCount; ++iDevice) {
-        if (pInfo != NULL) {
-            if (infoSize > 0) {
-                mal_zero_object(pInfo);
-                pInfo->id.opensl = pDeviceIDs[iDevice];
-
-                mal_bool32 isValidDevice = MAL_TRUE;
-                if (type == mal_device_type_playback) {
-                    SLAudioOutputDescriptor desc;
-                    resultSL = (*deviceCaps)->QueryAudioOutputCapabilities(deviceCaps, pInfo->id.opensl, &desc);
-                    if (resultSL != SL_RESULT_SUCCESS) {
-                        isValidDevice = MAL_FALSE;
-                    }
-
-                    mal_strncpy_s(pInfo->name, sizeof(pInfo->name), (const char*)desc.pDeviceName, (size_t)-1);
-                } else {
-                    SLAudioInputDescriptor desc;
-                    resultSL = (*deviceCaps)->QueryAudioInputCapabilities(deviceCaps, pInfo->id.opensl, &desc);
-                    if (resultSL != SL_RESULT_SUCCESS) {
-                        isValidDevice = MAL_FALSE;
-                    }
-
-                    mal_strncpy_s(pInfo->name, sizeof(pInfo->name), (const char*)desc.deviceName, (size_t)-1);
-                }
-
-                if (isValidDevice) {
-                    pInfo += 1;
-                    infoSize -= 1;
-                    *pCount += 1;
-                }
-            }
-        } else {
-            *pCount += 1;
-        }
-    }
-
-    return MAL_SUCCESS;
-#else
-    goto return_default_device;
-#endif
-
-return_default_device:
-    *pCount = 1;
-    if (pInfo != NULL) {
-        if (infoSize > 0) {
-            if (type == mal_device_type_playback) {
-                pInfo->id.opensl = SL_DEFAULTDEVICEID_AUDIOOUTPUT;
-                mal_strncpy_s(pInfo->name, sizeof(pInfo->name), MAL_DEFAULT_PLAYBACK_DEVICE_NAME, (size_t)-1);
-            } else {
-                pInfo->id.opensl = SL_DEFAULTDEVICEID_AUDIOINPUT;
-                mal_strncpy_s(pInfo->name, sizeof(pInfo->name), MAL_DEFAULT_CAPTURE_DEVICE_NAME, (size_t)-1);
-            }
         }
     }
 
@@ -13204,64 +12443,6 @@ mal_result mal_context_uninit__openal(mal_context* pContext)
     return MAL_SUCCESS;
 }
 
-mal_result mal_enumerate_devices__openal(mal_context* pContext, mal_device_type type, mal_uint32* pCount, mal_device_info* pInfo)
-{
-    mal_uint32 infoSize = *pCount;
-    *pCount = 0;
-
-    if (pContext->openal.isEnumerationSupported) {
-        const mal_ALCchar* pDeviceNames = ((MAL_LPALCGETSTRING)pContext->openal.alcGetString)(NULL, (type == mal_device_type_playback) ? MAL_ALC_DEVICE_SPECIFIER : MAL_ALC_CAPTURE_DEVICE_SPECIFIER);
-        if (pDeviceNames == NULL) {
-            return MAL_NO_DEVICE;
-        }
-
-        // Each device is stored in pDeviceNames, separated by a null-terminator. The string itself is double-null-terminated.
-        const mal_ALCchar* pNextDeviceName = pDeviceNames;
-        while (pNextDeviceName[0] != '\0') {
-            if (pInfo != NULL) {
-                if (infoSize > 0) {
-                    mal_strncpy_s(pInfo->id.openal, sizeof(pInfo->id.openal), (const char*)pNextDeviceName, (size_t)-1);
-                    mal_strncpy_s(pInfo->name,      sizeof(pInfo->name),      (const char*)pNextDeviceName, (size_t)-1);
-
-                    pInfo += 1;
-                    infoSize -= 1;
-                    *pCount += 1;
-                }
-            } else {
-                *pCount += 1;
-            }
-
-            // Move to the next device name.
-            while (*pNextDeviceName != '\0') {
-                pNextDeviceName += 1;
-            }
-
-            // Skip past the null terminator.
-            pNextDeviceName += 1;
-        };
-    } else {
-        // Enumeration is not supported. Use default devices.
-        if (pInfo != NULL) {
-            if (infoSize > 0) {
-                if (type == mal_device_type_playback) {
-                    pInfo->id.sdl = 0;
-                    mal_strncpy_s(pInfo->name, sizeof(pInfo->name), MAL_DEFAULT_PLAYBACK_DEVICE_NAME, (size_t)-1);
-                } else {
-                    pInfo->id.sdl = 0;
-                    mal_strncpy_s(pInfo->name, sizeof(pInfo->name), MAL_DEFAULT_CAPTURE_DEVICE_NAME, (size_t)-1);
-                }
-
-                pInfo += 1;
-                *pCount += 1;
-            }
-        } else {
-            *pCount += 1;
-        }
-    }
-
-    return MAL_SUCCESS;
-}
-
 void mal_device_uninit__openal(mal_device* pDevice)
 {
     mal_assert(pDevice != NULL);
@@ -13956,54 +13137,6 @@ mal_result mal_context_uninit__sdl(mal_context* pContext)
     mal_assert(pContext->backend == mal_backend_sdl);
 
     ((MAL_PFN_SDL_QuitSubSystem)pContext->sdl.SDL_QuitSubSystem)(MAL_SDL_INIT_AUDIO);
-    return MAL_SUCCESS;
-}
-
-mal_result mal_enumerate_devices__sdl(mal_context* pContext, mal_device_type type, mal_uint32* pCount, mal_device_info* pInfo)
-{
-    (void)pContext;
-
-    mal_uint32 infoSize = *pCount;
-    *pCount = 0;
-
-#ifndef MAL_USE_SDL_1
-    if (!pContext->sdl.usingSDL1) {
-        int deviceCount = ((MAL_PFN_SDL_GetNumAudioDevices)pContext->sdl.SDL_GetNumAudioDevices)((type == mal_device_type_playback) ? 0 : 1);
-        for (int i = 0; i < deviceCount; ++i) {
-            if (pInfo != NULL) {
-                if (infoSize > 0) {
-                    pInfo->id.sdl = i;
-                    mal_strncpy_s(pInfo->name, sizeof(pInfo->name), ((MAL_PFN_SDL_GetAudioDeviceName)pContext->sdl.SDL_GetAudioDeviceName)(i, (type == mal_device_type_playback) ? 0 : 1), (size_t)-1);
-
-                    pInfo += 1;
-                    *pCount += 1;
-                }
-            } else {
-                *pCount += 1;
-            }
-        }
-    } else
-#endif
-    {
-        if (pInfo != NULL) {
-            if (infoSize > 0) {
-                // SDL1 uses default devices.
-                if (type == mal_device_type_playback) {
-                    pInfo->id.sdl = 0;
-                    mal_strncpy_s(pInfo->name, sizeof(pInfo->name), MAL_DEFAULT_PLAYBACK_DEVICE_NAME, (size_t)-1);
-                } else {
-                    pInfo->id.sdl = 0;
-                    mal_strncpy_s(pInfo->name, sizeof(pInfo->name), MAL_DEFAULT_CAPTURE_DEVICE_NAME, (size_t)-1);
-                }
-
-                pInfo += 1;
-                *pCount += 1;
-            }
-        } else {
-            *pCount += 1;
-        }
-    }
-
     return MAL_SUCCESS;
 }
 
@@ -14918,7 +14051,6 @@ mal_result mal_context_get_devices(mal_context* pContext, mal_device_info** ppPl
     return result;
 }
 
-
 mal_result mal_context_get_device_info(mal_context* pContext, mal_device_type type, const mal_device_id* pDeviceID, mal_share_mode shareMode, mal_device_info* pDeviceInfo)
 {
     if (pDeviceInfo == NULL) return MAL_INVALID_ARGS;
@@ -14947,91 +14079,6 @@ mal_result mal_context_get_device_info(mal_context* pContext, mal_device_type ty
     return MAL_ERROR;
 }
 
-
-mal_result mal_enumerate_devices(mal_context* pContext, mal_device_type type, mal_uint32* pCount, mal_device_info* pInfo)
-{
-    if (pCount == NULL) return mal_post_error(NULL, "mal_enumerate_devices() called with invalid arguments (pCount == 0).", MAL_INVALID_ARGS);
-
-    // The output buffer needs to be initialized to zero.
-    if (pInfo != NULL) {
-        mal_zero_memory(pInfo, (*pCount) * sizeof(*pInfo));
-    }
-
-    switch (pContext->backend)
-    {
-    #ifdef MAL_HAS_WASAPI
-        case mal_backend_wasapi:
-        {
-            return mal_enumerate_devices__wasapi(pContext, type, pCount, pInfo);
-        } break;
-    #endif
-    #ifdef MAL_HAS_DSOUND
-        case mal_backend_dsound:
-        {
-            return mal_enumerate_devices__dsound(pContext, type, pCount, pInfo);
-        } break;
-    #endif
-    #ifdef MAL_HAS_WINMM
-        case mal_backend_winmm:
-        {
-            return mal_enumerate_devices__winmm(pContext, type, pCount, pInfo);
-        } break;
-    #endif
-    #ifdef MAL_HAS_ALSA
-        case mal_backend_alsa:
-        {
-            return mal_enumerate_devices__alsa(pContext, type, pCount, pInfo);
-        } break;
-    #endif
-    #ifdef MAL_HAS_PULSEAUDIO
-        case mal_backend_pulseaudio:
-        {
-            return mal_enumerate_devices__pulse(pContext, type, pCount, pInfo);
-        } break;
-    #endif
-    #ifdef MAL_HAS_JACK
-        case mal_backend_jack:
-        {
-            return mal_enumerate_devices__jack(pContext, type, pCount, pInfo);
-        } break;
-    #endif
-    #ifdef MAL_HAS_OSS
-        case mal_backend_oss:
-        {
-            return mal_enumerate_devices__oss(pContext, type, pCount, pInfo);
-        } break;
-    #endif
-    #ifdef MAL_HAS_OPENSL
-        case mal_backend_opensl:
-        {
-            return mal_enumerate_devices__opensl(pContext, type, pCount, pInfo);
-        } break;
-    #endif
-    #ifdef MAL_HAS_OPENAL
-        case mal_backend_openal:
-        {
-            return mal_enumerate_devices__openal(pContext, type, pCount, pInfo);
-        } break;
-    #endif
-    #ifdef MAL_HAS_SDL
-        case mal_backend_sdl:
-        {
-            return mal_enumerate_devices__sdl(pContext, type, pCount, pInfo);
-        } break;
-    #endif
-    #ifdef MAL_HAS_NULL
-        case mal_backend_null:
-        {
-            return mal_enumerate_devices__null(pContext, type, pCount, pInfo);
-        } break;
-    #endif
-
-        default: break;
-    }
-
-    mal_assert(MAL_FALSE);
-    return MAL_NO_BACKEND;
-}
 
 mal_result mal_device_init(mal_context* pContext, mal_device_type type, mal_device_id* pDeviceID, const mal_device_config* pConfig, void* pUserData, mal_device* pDevice)
 {
@@ -18792,6 +17839,9 @@ void mal_pcm_f32_to_s32(int* pOut, const float* pIn, unsigned int count)
 // ================
 //
 // v0.x - 2018-xx-xx
+//   - API CHANGE: Replace device enumeration APIs. mal_enumerate_devices() has been replaced with
+//     mal_context_get_devices(). An additional low-level device enumration API has been introduced called
+//     mal_context_enumerate_devices() which uses a callback to report devices.
 //   - API CHANGE: Replace mal_device_config.preferExclusiveMode with mal_device_config.shareMode.
 //     - This new config can be set to mal_share_mode_shared (default) or mal_share_mode_exclusive.
 //   - API CHANGE: Remove excludeNullDevice from mal_context_config.alsa.
