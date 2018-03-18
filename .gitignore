@@ -3,3 +3,9 @@ docs/
 tools/malgen/build/
 tools/malgen/bin/
 debugging
+tests/x64/
+tests/Debug/
+tests/Release/
+tests/bin/
+!./tests/DO_NOT_DELETE
+*.vcxproj.user
