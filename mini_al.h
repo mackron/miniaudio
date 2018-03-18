@@ -2168,7 +2168,7 @@ typedef HWND (WINAPI * MAL_PFN_GetDesktopWindow)();
 #endif
 
 // Standard sample rates, in order of priority.
-static mal_uint32 g_malStandardSampleRatePriorities[] = {
+mal_uint32 g_malStandardSampleRatePriorities[] = {
     MAL_SAMPLE_RATE_48000,  // Most common
     MAL_SAMPLE_RATE_44100,
 
@@ -2254,21 +2254,14 @@ static mal_uint32 g_malStandardSampleRatePriorities[] = {
 
 #define mal_buffer_frame_capacity(buffer, channels, format) (sizeof(buffer) / mal_get_sample_size_in_bytes(format) / (channels))
 
-// Some of these string utility functions are unused on some platforms.
-#if defined(_MSC_VER)
-    #pragma warning(push)
-    #pragma warning(disable:4505)
-#elif defined(__GNUC__)
-    #pragma GCC diagnostic push
-    #pragma GCC diagnostic ignored "-Wunused-function"
-#endif
+
 // Return Values:
 //   0:  Success
 //   22: EINVAL
 //   34: ERANGE
 //
 // Not using symbolic constants for errors because I want to avoid #including errno.h
-static int mal_strcpy_s(char* dst, size_t dstSizeInBytes, const char* src)
+int mal_strcpy_s(char* dst, size_t dstSizeInBytes, const char* src)
 {
     if (dst == 0) {
         return 22;
@@ -2295,7 +2288,7 @@ static int mal_strcpy_s(char* dst, size_t dstSizeInBytes, const char* src)
     return 34;
 }
 
-static int mal_strncpy_s(char* dst, size_t dstSizeInBytes, const char* src, size_t count)
+int mal_strncpy_s(char* dst, size_t dstSizeInBytes, const char* src, size_t count)
 {
     if (dst == 0) {
         return 22;
@@ -2327,7 +2320,7 @@ static int mal_strncpy_s(char* dst, size_t dstSizeInBytes, const char* src, size
     return 34;
 }
 
-static int mal_strcat_s(char* dst, size_t dstSizeInBytes, const char* src)
+int mal_strcat_s(char* dst, size_t dstSizeInBytes, const char* src)
 {
     if (dst == 0) {
         return 22;
@@ -2367,7 +2360,7 @@ static int mal_strcat_s(char* dst, size_t dstSizeInBytes, const char* src)
     return 0;
 }
 
-static int mal_itoa_s(int value, char* dst, size_t dstSizeInBytes, int radix)
+int mal_itoa_s(int value, char* dst, size_t dstSizeInBytes, int radix)
 {
     if (dst == NULL || dstSizeInBytes == 0) {
         return 22;
@@ -2433,7 +2426,7 @@ static int mal_itoa_s(int value, char* dst, size_t dstSizeInBytes, int radix)
     return 0;
 }
 
-static int mal_strcmp(const char* str1, const char* str2)
+int mal_strcmp(const char* str1, const char* str2)
 {
     if (str1 == str2) return  0;
 
@@ -2456,11 +2449,6 @@ static int mal_strcmp(const char* str1, const char* str2)
 
     return ((unsigned char*)str1)[0] - ((unsigned char*)str2)[0];
 }
-#if defined(_MSC_VER)
-    #pragma warning(pop)
-#elif defined(__GNUC__)
-    #pragma GCC diagnostic pop
-#endif
 
 
 // Thanks to good old Bit Twiddling Hacks for this one: http://graphics.stanford.edu/~seander/bithacks.html#RoundUpPowerOf2
@@ -2542,7 +2530,7 @@ static inline float mal_mix_f32(float x, float y, float a)
 //
 ///////////////////////////////////////////////////////////////////////////////
 #ifdef MAL_WIN32
-static LARGE_INTEGER g_mal_TimerFrequency = {{0}};
+LARGE_INTEGER g_mal_TimerFrequency = {{0}};
 void mal_timer_init(mal_timer* pTimer)
 {
     if (g_mal_TimerFrequency.QuadPart == 0) {
@@ -2564,7 +2552,7 @@ double mal_timer_get_time_in_seconds(mal_timer* pTimer)
     return (counter.QuadPart - pTimer->counter) / (double)g_mal_TimerFrequency.QuadPart;
 }
 #elif defined(MAL_APPLE) && (__MAC_OS_X_VERSION_MIN_REQUIRED < 101200)
-static uint64_t g_mal_TimerFrequency = 0;
+uint64_t g_mal_TimerFrequency = 0;
 void mal_timer_init(mal_timer* pTimer)
 {
     mach_timebase_info_data_t baseTime;
@@ -2652,7 +2640,7 @@ mal_proc mal_dlsym(mal_handle handle, const char* symbol)
 //
 ///////////////////////////////////////////////////////////////////////////////
 #ifdef MAL_WIN32
-static int mal_thread_priority_to_win32(mal_thread_priority priority)
+int mal_thread_priority_to_win32(mal_thread_priority priority)
 {
     switch (priority) {
         case mal_thread_priority_idle:     return THREAD_PRIORITY_IDLE;
@@ -3082,7 +3070,7 @@ mal_uint32 mal_get_best_sample_rate_within_range(mal_uint32 sampleRateMin, mal_u
 
 
 // Posts a log message.
-static void mal_log(mal_context* pContext, mal_device* pDevice, const char* message)
+void mal_log(mal_context* pContext, mal_device* pDevice, const char* message)
 {
     if (pContext == NULL) return;
 
@@ -3093,7 +3081,7 @@ static void mal_log(mal_context* pContext, mal_device* pDevice, const char* mess
 }
 
 // Posts an error. Throw a breakpoint in here if you're needing to debug. The return value is always "resultCode".
-static mal_result mal_context_post_error(mal_context* pContext, mal_device* pDevice, const char* message, mal_result resultCode)
+mal_result mal_context_post_error(mal_context* pContext, mal_device* pDevice, const char* message, mal_result resultCode)
 {
     // Derive the context from the device if necessary.
     if (pContext == NULL) {
@@ -3106,7 +3094,7 @@ static mal_result mal_context_post_error(mal_context* pContext, mal_device* pDev
     return resultCode;
 }
 
-static mal_result mal_post_error(mal_device* pDevice, const char* message, mal_result resultCode)
+mal_result mal_post_error(mal_device* pDevice, const char* message, mal_result resultCode)
 {
     return mal_context_post_error(NULL, pDevice, message, resultCode);
 }
@@ -3215,14 +3203,14 @@ static inline mal_uint32 mal_device__get_state(mal_device* pDevice)
 
 
 #ifdef MAL_WIN32
-    static GUID MAL_GUID_KSDATAFORMAT_SUBTYPE_PCM        = {0x00000001, 0x0000, 0x0010, {0x80, 0x00, 0x00, 0xaa, 0x00, 0x38, 0x9b, 0x71}};
-    static GUID MAL_GUID_KSDATAFORMAT_SUBTYPE_IEEE_FLOAT = {0x00000003, 0x0000, 0x0010, {0x80, 0x00, 0x00, 0xaa, 0x00, 0x38, 0x9b, 0x71}};
-    //static GUID MAL_GUID_KSDATAFORMAT_SUBTYPE_ALAW       = {0x00000006, 0x0000, 0x0010, {0x80, 0x00, 0x00, 0xaa, 0x00, 0x38, 0x9b, 0x71}};
-    //static GUID MAL_GUID_KSDATAFORMAT_SUBTYPE_MULAW      = {0x00000007, 0x0000, 0x0010, {0x80, 0x00, 0x00, 0xaa, 0x00, 0x38, 0x9b, 0x71}};
+    GUID MAL_GUID_KSDATAFORMAT_SUBTYPE_PCM        = {0x00000001, 0x0000, 0x0010, {0x80, 0x00, 0x00, 0xaa, 0x00, 0x38, 0x9b, 0x71}};
+    GUID MAL_GUID_KSDATAFORMAT_SUBTYPE_IEEE_FLOAT = {0x00000003, 0x0000, 0x0010, {0x80, 0x00, 0x00, 0xaa, 0x00, 0x38, 0x9b, 0x71}};
+    //GUID MAL_GUID_KSDATAFORMAT_SUBTYPE_ALAW       = {0x00000006, 0x0000, 0x0010, {0x80, 0x00, 0x00, 0xaa, 0x00, 0x38, 0x9b, 0x71}};
+    //GUID MAL_GUID_KSDATAFORMAT_SUBTYPE_MULAW      = {0x00000007, 0x0000, 0x0010, {0x80, 0x00, 0x00, 0xaa, 0x00, 0x38, 0x9b, 0x71}};
 #endif
 
 
-static mal_bool32 mal_context__device_id_equal(mal_context* pContext, const mal_device_id* pID0, const mal_device_id* pID1)
+mal_bool32 mal_context__device_id_equal(mal_context* pContext, const mal_device_id* pID0, const mal_device_id* pID1)
 {
     mal_assert(pContext != NULL);
 
@@ -3243,7 +3231,7 @@ static mal_bool32 mal_context__device_id_equal(mal_context* pContext, const mal_
 // Generic function for retrieving the name of a device by it's ID.
 //
 // This function simply enumerates every device and then retrieves the name of the first device that has the same ID.
-static mal_result mal_context__try_get_device_name_by_id(mal_context* pContext, mal_device_type type, const mal_device_id* pDeviceID, char* pName, size_t nameBufferSize)
+mal_result mal_context__try_get_device_name_by_id(mal_context* pContext, mal_device_type type, const mal_device_id* pDeviceID, char* pName, size_t nameBufferSize)
 {
     mal_assert(pContext != NULL);
     mal_assert(pName != NULL);
@@ -3474,7 +3462,7 @@ mal_result mal_context_uninit__null(mal_context* pContext)
     return MAL_SUCCESS;
 }
 
-static mal_result mal_enumerate_devices__null(mal_context* pContext, mal_device_type type, mal_uint32* pCount, mal_device_info* pInfo)
+mal_result mal_enumerate_devices__null(mal_context* pContext, mal_device_type type, mal_uint32* pCount, mal_device_info* pInfo)
 {
     (void)pContext;
 
@@ -3494,13 +3482,13 @@ static mal_result mal_enumerate_devices__null(mal_context* pContext, mal_device_
     return MAL_SUCCESS;
 }
 
-static void mal_device_uninit__null(mal_device* pDevice)
+void mal_device_uninit__null(mal_device* pDevice)
 {
     mal_assert(pDevice != NULL);
     mal_free(pDevice->null_device.pBuffer);
 }
 
-static mal_result mal_device_init__null(mal_context* pContext, mal_device_type type, mal_device_id* pDeviceID, const mal_device_config* pConfig, mal_device* pDevice)
+mal_result mal_device_init__null(mal_context* pContext, mal_device_type type, mal_device_id* pDeviceID, const mal_device_config* pConfig, mal_device* pDevice)
 {
     (void)pContext;
     (void)type;
@@ -3528,7 +3516,7 @@ static mal_result mal_device_init__null(mal_context* pContext, mal_device_type t
     return MAL_SUCCESS;
 }
 
-static mal_result mal_device__start_backend__null(mal_device* pDevice)
+mal_result mal_device__start_backend__null(mal_device* pDevice)
 {
     mal_assert(pDevice != NULL);
 
@@ -3538,7 +3526,7 @@ static mal_result mal_device__start_backend__null(mal_device* pDevice)
     return MAL_SUCCESS;
 }
 
-static mal_result mal_device__stop_backend__null(mal_device* pDevice)
+mal_result mal_device__stop_backend__null(mal_device* pDevice)
 {
     mal_assert(pDevice != NULL);
     (void)pDevice;
@@ -3546,7 +3534,7 @@ static mal_result mal_device__stop_backend__null(mal_device* pDevice)
     return MAL_SUCCESS;
 }
 
-static mal_result mal_device__break_main_loop__null(mal_device* pDevice)
+mal_result mal_device__break_main_loop__null(mal_device* pDevice)
 {
     mal_assert(pDevice != NULL);
 
@@ -3554,7 +3542,7 @@ static mal_result mal_device__break_main_loop__null(mal_device* pDevice)
     return MAL_SUCCESS;
 }
 
-static mal_bool32 mal_device__get_current_frame__null(mal_device* pDevice, mal_uint32* pCurrentPos)
+mal_bool32 mal_device__get_current_frame__null(mal_device* pDevice, mal_uint32* pCurrentPos)
 {
     mal_assert(pDevice != NULL);
     mal_assert(pCurrentPos != NULL);
@@ -3566,7 +3554,7 @@ static mal_bool32 mal_device__get_current_frame__null(mal_device* pDevice, mal_u
     return MAL_TRUE;
 }
 
-static mal_uint32 mal_device__get_available_frames__null(mal_device* pDevice)
+mal_uint32 mal_device__get_available_frames__null(mal_device* pDevice)
 {
     mal_assert(pDevice != NULL);
 
@@ -3607,7 +3595,7 @@ static mal_uint32 mal_device__get_available_frames__null(mal_device* pDevice)
     }
 }
 
-static mal_uint32 mal_device__wait_for_frames__null(mal_device* pDevice)
+mal_uint32 mal_device__wait_for_frames__null(mal_device* pDevice)
 {
     mal_assert(pDevice != NULL);
 
@@ -3624,7 +3612,7 @@ static mal_uint32 mal_device__wait_for_frames__null(mal_device* pDevice)
     return mal_device__get_available_frames__null(pDevice);
 }
 
-static mal_result mal_device__main_loop__null(mal_device* pDevice)
+mal_result mal_device__main_loop__null(mal_device* pDevice)
 {
     mal_assert(pDevice != NULL);
 
@@ -3758,7 +3746,7 @@ typedef struct
 GUID MAL_GUID_NULL = {0x00000000, 0x0000, 0x0000, {0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00}};
 
 // Converts an individual Win32-style channel identifier (SPEAKER_FRONT_LEFT, etc.) to mini_al.
-static mal_uint8 mal_channel_id_to_mal__win32(DWORD id)
+mal_uint8 mal_channel_id_to_mal__win32(DWORD id)
 {
     switch (id)
     {
@@ -3785,7 +3773,7 @@ static mal_uint8 mal_channel_id_to_mal__win32(DWORD id)
 }
 
 // Converts an individual mini_al channel identifier (MAL_CHANNEL_FRONT_LEFT, etc.) to Win32-style.
-static DWORD mal_channel_id_to_win32(DWORD id)
+DWORD mal_channel_id_to_win32(DWORD id)
 {
     switch (id)
     {
@@ -3813,7 +3801,7 @@ static DWORD mal_channel_id_to_win32(DWORD id)
 }
 
 // Converts a channel mapping to a Win32-style channel mask.
-static DWORD mal_channel_map_to_channel_mask__win32(const mal_channel channelMap[MAL_MAX_CHANNELS], mal_uint32 channels)
+DWORD mal_channel_map_to_channel_mask__win32(const mal_channel channelMap[MAL_MAX_CHANNELS], mal_uint32 channels)
 {
     DWORD dwChannelMask = 0;
     for (mal_uint32 iChannel = 0; iChannel < channels; ++iChannel) {
@@ -3824,7 +3812,7 @@ static DWORD mal_channel_map_to_channel_mask__win32(const mal_channel channelMap
 }
 
 // Converts a Win32-style channel mask to a mini_al channel map.
-static void mal_channel_mask_to_channel_map__win32(DWORD dwChannelMask, mal_uint32 channels, mal_channel channelMap[MAL_MAX_CHANNELS])
+void mal_channel_mask_to_channel_map__win32(DWORD dwChannelMask, mal_uint32 channels, mal_channel channelMap[MAL_MAX_CHANNELS])
 {
     if (channels == 1 && dwChannelMask == 0) {
         channelMap[0] = MAL_CHANNEL_MONO;
@@ -3851,7 +3839,7 @@ static void mal_channel_mask_to_channel_map__win32(DWORD dwChannelMask, mal_uint
 #define mal_is_guid_equal(a, b) IsEqualGUID(&a, &b)
 #endif
 
-static mal_format mal_format_from_WAVEFORMATEX(WAVEFORMATEX* pWF)
+mal_format mal_format_from_WAVEFORMATEX(WAVEFORMATEX* pWF)
 {
     mal_assert(pWF != NULL);
 
@@ -3940,7 +3928,7 @@ typedef struct
 #endif
 
 // Some compilers don't define PropVariantInit(). We just do this ourselves since it's just a memset().
-static void mal_PropVariantInit(PROPVARIANT* pProp)
+static inline void mal_PropVariantInit(PROPVARIANT* pProp)
 {
     mal_zero_object(pProp);
 }
@@ -4469,7 +4457,7 @@ mal_result mal_context_uninit__wasapi(mal_context* pContext)
     return MAL_SUCCESS;
 }
 
-static mal_result mal_enumerate_devices__wasapi(mal_context* pContext, mal_device_type type, mal_uint32* pCount, mal_device_info* pInfo)
+mal_result mal_enumerate_devices__wasapi(mal_context* pContext, mal_device_type type, mal_uint32* pCount, mal_device_info* pInfo)
 {
     mal_uint32 infoSize = *pCount;
     *pCount = 0;
@@ -4574,7 +4562,7 @@ static mal_result mal_enumerate_devices__wasapi(mal_context* pContext, mal_devic
     return MAL_SUCCESS;
 }
 
-static void mal_device_uninit__wasapi(mal_device* pDevice)
+void mal_device_uninit__wasapi(mal_device* pDevice)
 {
     mal_assert(pDevice != NULL);
 
@@ -4649,7 +4637,7 @@ static void mal_device_uninit__wasapi(mal_device* pDevice)
     #endif
 #endif  // !MAL_WIN32_DESKTOP
 
-static mal_result mal_device_init__wasapi(mal_context* pContext, mal_device_type type, mal_device_id* pDeviceID, const mal_device_config* pConfig, mal_device* pDevice)
+mal_result mal_device_init__wasapi(mal_context* pContext, mal_device_type type, mal_device_id* pDeviceID, const mal_device_config* pConfig, mal_device* pDevice)
 {
     (void)pContext;
 
@@ -4994,7 +4982,7 @@ done:
     }
 }
 
-static mal_result mal_device__start_backend__wasapi(mal_device* pDevice)
+mal_result mal_device__start_backend__wasapi(mal_device* pDevice)
 {
     mal_assert(pDevice != NULL);
 
@@ -5022,7 +5010,7 @@ static mal_result mal_device__start_backend__wasapi(mal_device* pDevice)
     return MAL_SUCCESS;
 }
 
-static mal_result mal_device__stop_backend__wasapi(mal_device* pDevice)
+mal_result mal_device__stop_backend__wasapi(mal_device* pDevice)
 {
     mal_assert(pDevice != NULL);
 
@@ -5034,7 +5022,7 @@ static mal_result mal_device__stop_backend__wasapi(mal_device* pDevice)
     return MAL_SUCCESS;
 }
 
-static mal_result mal_device__break_main_loop__wasapi(mal_device* pDevice)
+mal_result mal_device__break_main_loop__wasapi(mal_device* pDevice)
 {
     mal_assert(pDevice != NULL);
 
@@ -5045,7 +5033,7 @@ static mal_result mal_device__break_main_loop__wasapi(mal_device* pDevice)
     return MAL_SUCCESS;
 }
 
-static mal_uint32 mal_device__get_available_frames__wasapi(mal_device* pDevice)
+mal_uint32 mal_device__get_available_frames__wasapi(mal_device* pDevice)
 {
     mal_assert(pDevice != NULL);
 
@@ -5086,7 +5074,7 @@ static mal_uint32 mal_device__get_available_frames__wasapi(mal_device* pDevice)
 #endif
 }
 
-static mal_uint32 mal_device__wait_for_frames__wasapi(mal_device* pDevice)
+mal_uint32 mal_device__wait_for_frames__wasapi(mal_device* pDevice)
 {
     mal_assert(pDevice != NULL);
 
@@ -5115,7 +5103,7 @@ static mal_uint32 mal_device__wait_for_frames__wasapi(mal_device* pDevice)
     return mal_device__get_available_frames__wasapi(pDevice);
 }
 
-static mal_result mal_device__main_loop__wasapi(mal_device* pDevice)
+mal_result mal_device__main_loop__wasapi(mal_device* pDevice)
 {
     mal_assert(pDevice != NULL);
 
@@ -5190,7 +5178,7 @@ static mal_result mal_device__main_loop__wasapi(mal_device* pDevice)
 #ifdef MAL_HAS_DSOUND
 //#include <dsound.h>
 
-static GUID MAL_GUID_IID_DirectSoundNotify = {0xb0210783, 0x89cd, 0x11d0, {0xaf, 0x08, 0x00, 0xa0, 0xc9, 0x25, 0xcd, 0x16}};
+GUID MAL_GUID_IID_DirectSoundNotify = {0xb0210783, 0x89cd, 0x11d0, {0xaf, 0x08, 0x00, 0xa0, 0xc9, 0x25, 0xcd, 0x16}};
 
 // mini_al only uses priority or exclusive modes.
 #define MAL_DSSCL_NORMAL                 1
@@ -5510,7 +5498,7 @@ typedef HRESULT (WINAPI   * mal_DirectSoundCaptureEnumerateAProc)(mal_DSEnumCall
 
 // Retrieves the channel count and channel map for the given speaker configuration. If the speaker configuration is unknown,
 // the channel count and channel map will be left unmodified.
-static void mal_get_channels_from_speaker_config__dsound(DWORD speakerConfig, WORD* pChannelsOut, DWORD* pChannelMapOut)
+void mal_get_channels_from_speaker_config__dsound(DWORD speakerConfig, WORD* pChannelsOut, DWORD* pChannelMapOut)
 {
     WORD channels = 0;
     if (pChannelsOut != NULL) {
@@ -5567,7 +5555,7 @@ typedef struct
     mal_bool32 terminated;
 } mal_context_enumerate_devices_callback_data__dsound;
 
-static BOOL CALLBACK mal_context_enumerate_devices_callback__dsound(LPGUID lpGuid, LPCSTR lpcstrDescription, LPCSTR lpcstrModule, LPVOID lpContext)
+BOOL CALLBACK mal_context_enumerate_devices_callback__dsound(LPGUID lpGuid, LPCSTR lpcstrDescription, LPCSTR lpcstrModule, LPVOID lpContext)
 {
     (void)lpcstrModule;
 
@@ -5631,7 +5619,7 @@ typedef struct
     mal_bool32 found;
 } mal_context_get_device_info_callback_data__dsound;
 
-static BOOL CALLBACK mal_context_get_device_info_callback__dsound(LPGUID lpGuid, LPCSTR lpcstrDescription, LPCSTR lpcstrModule, LPVOID lpContext)
+BOOL CALLBACK mal_context_get_device_info_callback__dsound(LPGUID lpGuid, LPCSTR lpcstrDescription, LPCSTR lpcstrModule, LPVOID lpContext)
 {
     (void)lpcstrModule;
 
@@ -5727,7 +5715,7 @@ typedef struct
     mal_device_info* pInfo;
 } mal_device_enum_data__dsound;
 
-static BOOL CALLBACK mal_enum_devices_callback__dsound(LPGUID lpGuid, LPCSTR lpcstrDescription, LPCSTR lpcstrModule, LPVOID lpContext)
+BOOL CALLBACK mal_enum_devices_callback__dsound(LPGUID lpGuid, LPCSTR lpcstrDescription, LPCSTR lpcstrModule, LPVOID lpContext)
 {
     (void)lpcstrModule;
 
@@ -5756,7 +5744,7 @@ static BOOL CALLBACK mal_enum_devices_callback__dsound(LPGUID lpGuid, LPCSTR lpc
     return TRUE;
 }
 
-static mal_result mal_enumerate_devices__dsound(mal_context* pContext, mal_device_type type, mal_uint32* pCount, mal_device_info* pInfo)
+mal_result mal_enumerate_devices__dsound(mal_context* pContext, mal_device_type type, mal_uint32* pCount, mal_device_info* pInfo)
 {
     (void)pContext;
 
@@ -5778,7 +5766,7 @@ static mal_result mal_enumerate_devices__dsound(mal_context* pContext, mal_devic
     return MAL_SUCCESS;
 }
 
-static void mal_device_uninit__dsound(mal_device* pDevice)
+void mal_device_uninit__dsound(mal_device* pDevice)
 {
     mal_assert(pDevice != NULL);
 
@@ -5813,7 +5801,7 @@ static void mal_device_uninit__dsound(mal_device* pDevice)
     }
 }
 
-static mal_result mal_device_init__dsound(mal_context* pContext, mal_device_type type, mal_device_id* pDeviceID, const mal_device_config* pConfig, mal_device* pDevice)
+mal_result mal_device_init__dsound(mal_context* pContext, mal_device_type type, mal_device_id* pDeviceID, const mal_device_config* pConfig, mal_device* pDevice)
 {
     (void)pContext;
 
@@ -6147,7 +6135,7 @@ static mal_result mal_device_init__dsound(mal_context* pContext, mal_device_type
 }
 
 
-static mal_result mal_device__start_backend__dsound(mal_device* pDevice)
+mal_result mal_device__start_backend__dsound(mal_device* pDevice)
 {
     mal_assert(pDevice != NULL);
 
@@ -6181,7 +6169,7 @@ static mal_result mal_device__start_backend__dsound(mal_device* pDevice)
     return MAL_SUCCESS;
 }
 
-static mal_result mal_device__stop_backend__dsound(mal_device* pDevice)
+mal_result mal_device__stop_backend__dsound(mal_device* pDevice)
 {
     mal_assert(pDevice != NULL);
 
@@ -6200,7 +6188,7 @@ static mal_result mal_device__stop_backend__dsound(mal_device* pDevice)
     return MAL_SUCCESS;
 }
 
-static mal_result mal_device__break_main_loop__dsound(mal_device* pDevice)
+mal_result mal_device__break_main_loop__dsound(mal_device* pDevice)
 {
     mal_assert(pDevice != NULL);
 
@@ -6211,7 +6199,7 @@ static mal_result mal_device__break_main_loop__dsound(mal_device* pDevice)
     return MAL_SUCCESS;
 }
 
-static mal_bool32 mal_device__get_current_frame__dsound(mal_device* pDevice, mal_uint32* pCurrentPos)
+mal_bool32 mal_device__get_current_frame__dsound(mal_device* pDevice, mal_uint32* pCurrentPos)
 {
     mal_assert(pDevice != NULL);
     mal_assert(pCurrentPos != NULL);
@@ -6232,7 +6220,7 @@ static mal_bool32 mal_device__get_current_frame__dsound(mal_device* pDevice, mal
     return MAL_TRUE;
 }
 
-static mal_uint32 mal_device__get_available_frames__dsound(mal_device* pDevice)
+mal_uint32 mal_device__get_available_frames__dsound(mal_device* pDevice)
 {
     mal_assert(pDevice != NULL);
 
@@ -6274,7 +6262,7 @@ static mal_uint32 mal_device__get_available_frames__dsound(mal_device* pDevice)
     }
 }
 
-static mal_uint32 mal_device__wait_for_frames__dsound(mal_device* pDevice)
+mal_uint32 mal_device__wait_for_frames__dsound(mal_device* pDevice)
 {
     mal_assert(pDevice != NULL);
 
@@ -6303,7 +6291,7 @@ static mal_uint32 mal_device__wait_for_frames__dsound(mal_device* pDevice)
     return mal_device__get_available_frames__dsound(pDevice);
 }
 
-static mal_result mal_device__main_loop__dsound(mal_device* pDevice)
+mal_result mal_device__main_loop__dsound(mal_device* pDevice)
 {
     mal_assert(pDevice != NULL);
 
@@ -6658,7 +6646,7 @@ mal_result mal_context_uninit__winmm(mal_context* pContext)
     return MAL_SUCCESS;
 }
 
-static mal_result mal_enumerate_devices__winmm(mal_context* pContext, mal_device_type type, mal_uint32* pCount, mal_device_info* pInfo)
+mal_result mal_enumerate_devices__winmm(mal_context* pContext, mal_device_type type, mal_uint32* pCount, mal_device_info* pInfo)
 {
     (void)pContext;
 
@@ -6710,7 +6698,7 @@ static mal_result mal_enumerate_devices__winmm(mal_context* pContext, mal_device
     return MAL_SUCCESS;
 }
 
-static void mal_device_uninit__winmm(mal_device* pDevice)
+void mal_device_uninit__winmm(mal_device* pDevice)
 {
     mal_assert(pDevice != NULL);
 
@@ -6724,7 +6712,7 @@ static void mal_device_uninit__winmm(mal_device* pDevice)
     CloseHandle((HANDLE)pDevice->winmm.hEvent);
 }
 
-static mal_result mal_device_init__winmm(mal_context* pContext, mal_device_type type, mal_device_id* pDeviceID, const mal_device_config* pConfig, mal_device* pDevice)
+mal_result mal_device_init__winmm(mal_context* pContext, mal_device_type type, mal_device_id* pDeviceID, const mal_device_config* pConfig, mal_device* pDevice)
 {
     (void)pContext;
 
@@ -6957,7 +6945,7 @@ on_error:
 }
 
 
-static mal_result mal_device__start_backend__winmm(mal_device* pDevice)
+mal_result mal_device__start_backend__winmm(mal_device* pDevice)
 {
     mal_assert(pDevice != NULL);
 
@@ -7021,7 +7009,7 @@ static mal_result mal_device__start_backend__winmm(mal_device* pDevice)
     return MAL_SUCCESS;
 }
 
-static mal_result mal_device__stop_backend__winmm(mal_device* pDevice)
+mal_result mal_device__stop_backend__winmm(mal_device* pDevice)
 {
     mal_assert(pDevice != NULL);
 
@@ -7056,7 +7044,7 @@ static mal_result mal_device__stop_backend__winmm(mal_device* pDevice)
     return MAL_SUCCESS;
 }
 
-static mal_result mal_device__break_main_loop__winmm(mal_device* pDevice)
+mal_result mal_device__break_main_loop__winmm(mal_device* pDevice)
 {
     mal_assert(pDevice != NULL);
 
@@ -7066,7 +7054,7 @@ static mal_result mal_device__break_main_loop__winmm(mal_device* pDevice)
     return MAL_SUCCESS;
 }
 
-static mal_result mal_device__main_loop__winmm(mal_device* pDevice)
+mal_result mal_device__main_loop__winmm(mal_device* pDevice)
 {
     mal_assert(pDevice != NULL);
 
@@ -7419,7 +7407,7 @@ typedef size_t                (* mal_snd_pcm_info_sizeof_proc)                  
 typedef const char*           (* mal_snd_pcm_info_get_name_proc)                 (const mal_snd_pcm_info_t* info);
 typedef int                   (* mal_snd_config_update_free_global_proc)         ();
 
-static mal_snd_pcm_format_t g_mal_ALSAFormats[] = {
+mal_snd_pcm_format_t g_mal_ALSAFormats[] = {
     MAL_SND_PCM_FORMAT_UNKNOWN,     // mal_format_unknown
     MAL_SND_PCM_FORMAT_U8,          // mal_format_u8
     MAL_SND_PCM_FORMAT_S16_LE,      // mal_format_s16
@@ -7459,7 +7447,7 @@ struct
     {"bcm2835 ALSA",        20}
 };
 
-static float mal_find_default_buffer_size_scale__alsa(const char* deviceName)
+float mal_find_default_buffer_size_scale__alsa(const char* deviceName)
 {
     if (deviceName == NULL) {
         return 1;
@@ -7573,7 +7561,7 @@ mal_bool32 mal_is_device_blacklisted__alsa(mal_device_type deviceType, const cha
 }
 
 
-static const char* mal_find_char(const char* str, char c, int* index)
+const char* mal_find_char(const char* str, char c, int* index)
 {
     int i = 0;
     for (;;) {
@@ -7596,7 +7584,7 @@ static const char* mal_find_char(const char* str, char c, int* index)
     return NULL;
 }
 
-static mal_bool32 mal_is_device_name_in_hw_format__alsa(const char* hwid)
+mal_bool32 mal_is_device_name_in_hw_format__alsa(const char* hwid)
 {
     // This function is just checking whether or not hwid is in "hw:%d,%d" format.
 
@@ -7637,7 +7625,7 @@ static mal_bool32 mal_is_device_name_in_hw_format__alsa(const char* hwid)
     return MAL_TRUE;
 }
 
-static int mal_convert_device_name_to_hw_format__alsa(mal_context* pContext, char* dst, size_t dstSize, const char* src)  // Returns 0 on success, non-0 on error.
+int mal_convert_device_name_to_hw_format__alsa(mal_context* pContext, char* dst, size_t dstSize, const char* src)  // Returns 0 on success, non-0 on error.
 {
     // src should look something like this: "hw:CARD=I82801AAICH,DEV=0"
 
@@ -7694,7 +7682,7 @@ static int mal_convert_device_name_to_hw_format__alsa(mal_context* pContext, cha
     return 0;
 }
 
-static mal_bool32 mal_does_id_exist_in_list__alsa(mal_device_id* pUniqueIDs, mal_uint32 count, const char* pHWID)
+mal_bool32 mal_does_id_exist_in_list__alsa(mal_device_id* pUniqueIDs, mal_uint32 count, const char* pHWID)
 {
     mal_assert(pHWID != NULL);
 
@@ -8119,7 +8107,7 @@ mal_result mal_context_uninit__alsa(mal_context* pContext)
 // value is the number of frames available.
 //
 // This will return early if the main loop is broken with mal_device__break_main_loop().
-static mal_uint32 mal_device__wait_for_frames__alsa(mal_device* pDevice, mal_bool32* pRequiresRestart)
+mal_uint32 mal_device__wait_for_frames__alsa(mal_device* pDevice, mal_bool32* pRequiresRestart)
 {
     mal_assert(pDevice != NULL);
 
@@ -8184,7 +8172,7 @@ static mal_uint32 mal_device__wait_for_frames__alsa(mal_device* pDevice, mal_boo
     return framesAvailable;
 }
 
-static mal_bool32 mal_device_write__alsa(mal_device* pDevice)
+mal_bool32 mal_device_write__alsa(mal_device* pDevice)
 {
     mal_assert(pDevice != NULL);
     if (!mal_device_is_started(pDevice) && mal_device__get_state(pDevice) != MAL_STATE_STARTING) {
@@ -8282,7 +8270,7 @@ static mal_bool32 mal_device_write__alsa(mal_device* pDevice)
     return MAL_TRUE;
 }
 
-static mal_bool32 mal_device_read__alsa(mal_device* pDevice)
+mal_bool32 mal_device_read__alsa(mal_device* pDevice)
 {
     mal_assert(pDevice != NULL);
     if (!mal_device_is_started(pDevice)) {
@@ -8377,7 +8365,7 @@ static mal_bool32 mal_device_read__alsa(mal_device* pDevice)
 }
 
 
-static mal_result mal_enumerate_devices__alsa(mal_context* pContext, mal_device_type type, mal_uint32* pCount, mal_device_info* pInfo)
+mal_result mal_enumerate_devices__alsa(mal_context* pContext, mal_device_type type, mal_uint32* pCount, mal_device_info* pInfo)
 {
     (void)pContext;
 
@@ -8519,7 +8507,7 @@ static mal_result mal_enumerate_devices__alsa(mal_context* pContext, mal_device_
     return MAL_SUCCESS;
 }
 
-static void mal_device_uninit__alsa(mal_device* pDevice)
+void mal_device_uninit__alsa(mal_device* pDevice)
 {
     mal_assert(pDevice != NULL);
 
@@ -8532,7 +8520,7 @@ static void mal_device_uninit__alsa(mal_device* pDevice)
     }
 }
 
-static mal_result mal_device_init__alsa(mal_context* pContext, mal_device_type type, mal_device_id* pDeviceID, const mal_device_config* pConfig, mal_device* pDevice)
+mal_result mal_device_init__alsa(mal_context* pContext, mal_device_type type, mal_device_id* pDeviceID, const mal_device_config* pConfig, mal_device* pDevice)
 {
     (void)pContext;
 
@@ -8917,7 +8905,7 @@ static mal_result mal_device_init__alsa(mal_context* pContext, mal_device_type t
 }
 
 
-static mal_result mal_device__start_backend__alsa(mal_device* pDevice)
+mal_result mal_device__start_backend__alsa(mal_device* pDevice)
 {
     mal_assert(pDevice != NULL);
 
@@ -8948,7 +8936,7 @@ static mal_result mal_device__start_backend__alsa(mal_device* pDevice)
     return MAL_SUCCESS;
 }
 
-static mal_result mal_device__stop_backend__alsa(mal_device* pDevice)
+mal_result mal_device__stop_backend__alsa(mal_device* pDevice)
 {
     mal_assert(pDevice != NULL);
 
@@ -8956,7 +8944,7 @@ static mal_result mal_device__stop_backend__alsa(mal_device* pDevice)
     return MAL_SUCCESS;
 }
 
-static mal_result mal_device__break_main_loop__alsa(mal_device* pDevice)
+mal_result mal_device__break_main_loop__alsa(mal_device* pDevice)
 {
     mal_assert(pDevice != NULL);
 
@@ -8969,7 +8957,7 @@ static mal_result mal_device__break_main_loop__alsa(mal_device* pDevice)
     return MAL_SUCCESS;
 }
 
-static mal_result mal_device__main_loop__alsa(mal_device* pDevice)
+mal_result mal_device__main_loop__alsa(mal_device* pDevice)
 {
     mal_assert(pDevice != NULL);
 
@@ -9533,7 +9521,7 @@ typedef struct
     mal_device_info* pInfo;
 } mal_pulse_device_enum_data;
 
-static mal_result mal_result_from_pulse(int result)
+mal_result mal_result_from_pulse(int result)
 {
     switch (result) {
         case MAL_PA_OK:           return MAL_SUCCESS;
@@ -9545,7 +9533,7 @@ static mal_result mal_result_from_pulse(int result)
 }
 
 #if 0
-static mal_pa_sample_format_t mal_format_to_pulse(mal_format format)
+mal_pa_sample_format_t mal_format_to_pulse(mal_format format)
 {
     switch (format)
     {
@@ -9566,7 +9554,7 @@ static mal_pa_sample_format_t mal_format_to_pulse(mal_format format)
 }
 #endif
 
-static mal_format mal_format_from_pulse(mal_pa_sample_format_t format)
+mal_format mal_format_from_pulse(mal_pa_sample_format_t format)
 {
     switch (format)
     {
@@ -9586,7 +9574,7 @@ static mal_format mal_format_from_pulse(mal_pa_sample_format_t format)
     }
 }
 
-static mal_channel mal_channel_position_from_pulse(mal_pa_channel_position_t position)
+mal_channel mal_channel_position_from_pulse(mal_pa_channel_position_t position)
 {
     switch (position)
     {
@@ -9647,7 +9635,7 @@ static mal_channel mal_channel_position_from_pulse(mal_pa_channel_position_t pos
 }
 
 #if 0
-static mal_pa_channel_position_t mal_channel_position_to_pulse(mal_channel position)
+mal_pa_channel_position_t mal_channel_position_to_pulse(mal_channel position)
 {
     switch (position)
     {
@@ -9690,7 +9678,7 @@ static mal_pa_channel_position_t mal_channel_position_to_pulse(mal_channel posit
 #endif
 
 
-static mal_result mal_wait_for_operation__pulse(mal_context* pContext, mal_pa_mainloop* pMainLoop, mal_pa_operation* pOP)
+mal_result mal_wait_for_operation__pulse(mal_context* pContext, mal_pa_mainloop* pMainLoop, mal_pa_operation* pOP)
 {
     mal_assert(pContext != NULL);
     mal_assert(pMainLoop != NULL);
@@ -9706,7 +9694,7 @@ static mal_result mal_wait_for_operation__pulse(mal_context* pContext, mal_pa_ma
     return MAL_SUCCESS;
 }
 
-static mal_result mal_device__wait_for_operation__pulse(mal_device* pDevice, mal_pa_operation* pOP)
+mal_result mal_device__wait_for_operation__pulse(mal_device* pDevice, mal_pa_operation* pOP)
 {
     mal_assert(pDevice != NULL);
     mal_assert(pOP != NULL);
@@ -9734,7 +9722,7 @@ typedef struct
     mal_bool32 isTerminated;
 } mal_context_enumerate_devices_callback_data__pulse;
 
-static void mal_context_enumerate_devices_sink_callback__pulse(mal_pa_context* pPulseContext, const mal_pa_sink_info* pSinkInfo, int endOfList, void* pUserData)
+void mal_context_enumerate_devices_sink_callback__pulse(mal_pa_context* pPulseContext, const mal_pa_sink_info* pSinkInfo, int endOfList, void* pUserData)
 {
     mal_context_enumerate_devices_callback_data__pulse* pData = (mal_context_enumerate_devices_callback_data__pulse*)pUserData;
     mal_assert(pData != NULL);
@@ -9759,7 +9747,7 @@ static void mal_context_enumerate_devices_sink_callback__pulse(mal_pa_context* p
     pData->isTerminated = !pData->callback(pData->pContext, mal_device_type_playback, &deviceInfo, pData->pUserData);
 }
 
-static void mal_context_enumerate_devices_source_callback__pulse(mal_pa_context* pPulseContext, const mal_pa_source_info* pSinkInfo, int endOfList, void* pUserData)
+void mal_context_enumerate_devices_source_callback__pulse(mal_pa_context* pPulseContext, const mal_pa_source_info* pSinkInfo, int endOfList, void* pUserData)
 {
     mal_context_enumerate_devices_callback_data__pulse* pData = (mal_context_enumerate_devices_callback_data__pulse*)pUserData;
     mal_assert(pData != NULL);
@@ -9876,7 +9864,7 @@ typedef struct
     mal_bool32 foundDevice;
 } mal_context_get_device_info_callback_data__pulse;
 
-static void mal_context_get_device_info_sink_callback__pulse(mal_pa_context* pPulseContext, const mal_pa_sink_info* pInfo, int endOfList, void* pUserData)
+void mal_context_get_device_info_sink_callback__pulse(mal_pa_context* pPulseContext, const mal_pa_sink_info* pInfo, int endOfList, void* pUserData)
 {
     if (endOfList > 0) {
         return;
@@ -9895,7 +9883,7 @@ static void mal_context_get_device_info_sink_callback__pulse(mal_pa_context* pPu
     }
 }
 
-static void mal_context_get_device_info_source_callback__pulse(mal_pa_context* pPulseContext, const mal_pa_source_info* pInfo, int endOfList, void* pUserData)
+void mal_context_get_device_info_source_callback__pulse(mal_pa_context* pPulseContext, const mal_pa_source_info* pInfo, int endOfList, void* pUserData)
 {
     if (endOfList > 0) {
         return;
@@ -9986,7 +9974,7 @@ done:
 }
 
 
-static mal_result mal_context_init__pulse(mal_context* pContext)
+mal_result mal_context_init__pulse(mal_context* pContext)
 {
     mal_assert(pContext != NULL);
 
@@ -10140,7 +10128,7 @@ static mal_result mal_context_init__pulse(mal_context* pContext)
     return MAL_SUCCESS;
 }
 
-static mal_result mal_context_uninit__pulse(mal_context* pContext)
+mal_result mal_context_uninit__pulse(mal_context* pContext)
 {
     mal_assert(pContext != NULL);
     mal_assert(pContext->backend == mal_backend_pulseaudio);
@@ -10153,7 +10141,7 @@ static mal_result mal_context_uninit__pulse(mal_context* pContext)
 }
 
 
-static void mal_pulse_device_info_list_callback(mal_pa_context* pPulseContext, const char* pName, const char* pDescription, void* pUserData)
+void mal_pulse_device_info_list_callback(mal_pa_context* pPulseContext, const char* pName, const char* pDescription, void* pUserData)
 {
     mal_pulse_device_enum_data* pData = (mal_pulse_device_enum_data*)pUserData;
     mal_assert(pData != NULL);
@@ -10181,7 +10169,7 @@ static void mal_pulse_device_info_list_callback(mal_pa_context* pPulseContext, c
     }
 }
 
-static void mal_pulse_sink_info_list_callback(mal_pa_context* pPulseContext, const mal_pa_sink_info* pSinkInfo, int endOfList, void* pUserData)
+void mal_pulse_sink_info_list_callback(mal_pa_context* pPulseContext, const mal_pa_sink_info* pSinkInfo, int endOfList, void* pUserData)
 {
     if (endOfList > 0) {
         return;
@@ -10190,7 +10178,7 @@ static void mal_pulse_sink_info_list_callback(mal_pa_context* pPulseContext, con
     mal_pulse_device_info_list_callback(pPulseContext, pSinkInfo->name, pSinkInfo->description, pUserData);
 }
 
-static void mal_pulse_source_info_list_callback(mal_pa_context* pPulseContext, const mal_pa_source_info* pSourceInfo, int endOfList, void* pUserData)
+void mal_pulse_source_info_list_callback(mal_pa_context* pPulseContext, const mal_pa_source_info* pSourceInfo, int endOfList, void* pUserData)
 {
     if (endOfList > 0) {
         return;
@@ -10199,7 +10187,7 @@ static void mal_pulse_source_info_list_callback(mal_pa_context* pPulseContext, c
     mal_pulse_device_info_list_callback(pPulseContext, pSourceInfo->name, pSourceInfo->description, pUserData);
 }
 
-static mal_result mal_enumerate_devices__pulse(mal_context* pContext, mal_device_type type, mal_uint32* pCount, mal_device_info* pInfo)
+mal_result mal_enumerate_devices__pulse(mal_context* pContext, mal_device_type type, mal_uint32* pCount, mal_device_info* pInfo)
 {
     mal_result result = MAL_SUCCESS;
 
@@ -10267,7 +10255,7 @@ done:
     return result;
 }
 
-static void mal_pulse_device_state_callback(mal_pa_context* pPulseContext, void* pUserData)
+void mal_pulse_device_state_callback(mal_pa_context* pPulseContext, void* pUserData)
 {
     mal_device* pDevice = (mal_device*)pUserData;
     mal_assert(pDevice != NULL);
@@ -10278,7 +10266,7 @@ static void mal_pulse_device_state_callback(mal_pa_context* pPulseContext, void*
     pDevice->pulse.pulseContextState = ((mal_pa_context_get_state_proc)pContext->pulse.pa_context_get_state)(pPulseContext);
 }
 
-static void mal_pulse_device_write_callback(mal_pa_stream* pStream, size_t sizeInBytes, void* pUserData)
+void mal_pulse_device_write_callback(mal_pa_stream* pStream, size_t sizeInBytes, void* pUserData)
 {
     mal_device* pDevice = (mal_device*)pUserData;
     mal_assert(pDevice != NULL);
@@ -10317,7 +10305,7 @@ static void mal_pulse_device_write_callback(mal_pa_stream* pStream, size_t sizeI
     }
 }
 
-static void mal_pulse_device_read_callback(mal_pa_stream* pStream, size_t sizeInBytes, void* pUserData)
+void mal_pulse_device_read_callback(mal_pa_stream* pStream, size_t sizeInBytes, void* pUserData)
 {
     mal_device* pDevice = (mal_device*)pUserData;
     mal_assert(pDevice != NULL);
@@ -10355,7 +10343,7 @@ static void mal_pulse_device_read_callback(mal_pa_stream* pStream, size_t sizeIn
     }
 }
 
-static void mal_device_sink_info_callback(mal_pa_context* pPulseContext, const mal_pa_sink_info* pInfo, int endOfList, void* pUserData)
+void mal_device_sink_info_callback(mal_pa_context* pPulseContext, const mal_pa_sink_info* pInfo, int endOfList, void* pUserData)
 {
     if (endOfList > 0) {
         return;
@@ -10367,7 +10355,7 @@ static void mal_device_sink_info_callback(mal_pa_context* pPulseContext, const m
     *pInfoOut = *pInfo;
 }
 
-static void mal_device_source_info_callback(mal_pa_context* pPulseContext, const mal_pa_source_info* pInfo, int endOfList, void* pUserData)
+void mal_device_source_info_callback(mal_pa_context* pPulseContext, const mal_pa_source_info* pInfo, int endOfList, void* pUserData)
 {
     if (endOfList > 0) {
         return;
@@ -10379,7 +10367,7 @@ static void mal_device_source_info_callback(mal_pa_context* pPulseContext, const
     *pInfoOut = *pInfo;
 }
 
-static void mal_device_sink_name_callback(mal_pa_context* pPulseContext, const mal_pa_sink_info* pInfo, int endOfList, void* pUserData)
+void mal_device_sink_name_callback(mal_pa_context* pPulseContext, const mal_pa_sink_info* pInfo, int endOfList, void* pUserData)
 {
     if (endOfList > 0) {
         return;
@@ -10391,7 +10379,7 @@ static void mal_device_sink_name_callback(mal_pa_context* pPulseContext, const m
     mal_strncpy_s(pDevice->name, sizeof(pDevice->name), pInfo->description, (size_t)-1);
 }
 
-static void mal_device_source_name_callback(mal_pa_context* pPulseContext, const mal_pa_source_info* pInfo, int endOfList, void* pUserData)
+void mal_device_source_name_callback(mal_pa_context* pPulseContext, const mal_pa_source_info* pInfo, int endOfList, void* pUserData)
 {
     if (endOfList > 0) {
         return;
@@ -10403,7 +10391,7 @@ static void mal_device_source_name_callback(mal_pa_context* pPulseContext, const
     mal_strncpy_s(pDevice->name, sizeof(pDevice->name), pInfo->description, (size_t)-1);
 }
 
-static void mal_device_uninit__pulse(mal_device* pDevice)
+void mal_device_uninit__pulse(mal_device* pDevice)
 {
     mal_assert(pDevice != NULL);
 
@@ -10417,7 +10405,7 @@ static void mal_device_uninit__pulse(mal_device* pDevice)
     ((mal_pa_mainloop_free_proc)pContext->pulse.pa_mainloop_free)((mal_pa_mainloop*)pDevice->pulse.pMainLoop);
 }
 
-static mal_result mal_device_init__pulse(mal_context* pContext, mal_device_type type, mal_device_id* pDeviceID, const mal_device_config* pConfig, mal_device* pDevice)
+mal_result mal_device_init__pulse(mal_context* pContext, mal_device_type type, mal_device_id* pDeviceID, const mal_device_config* pConfig, mal_device* pDevice)
 {
     (void)pContext;
 
@@ -10678,7 +10666,7 @@ on_error0:
 }
 
 
-static void mal_pulse_operation_complete_callback(mal_pa_stream* pStream, int success, void* pUserData)
+void mal_pulse_operation_complete_callback(mal_pa_stream* pStream, int success, void* pUserData)
 {
     mal_bool32* pIsSuccessful = (mal_bool32*)pUserData;
     mal_assert(pIsSuccessful != NULL);
@@ -10686,7 +10674,7 @@ static void mal_pulse_operation_complete_callback(mal_pa_stream* pStream, int su
     *pIsSuccessful = (mal_bool32)success;
 }
 
-static mal_result mal_device__cork_stream__pulse(mal_device* pDevice, int cork)
+mal_result mal_device__cork_stream__pulse(mal_device* pDevice, int cork)
 {
     mal_context* pContext = pDevice->pContext;
     mal_assert(pContext != NULL);
@@ -10715,7 +10703,7 @@ static mal_result mal_device__cork_stream__pulse(mal_device* pDevice, int cork)
     return MAL_SUCCESS;
 }
 
-static mal_result mal_device__start_backend__pulse(mal_device* pDevice)
+mal_result mal_device__start_backend__pulse(mal_device* pDevice)
 {
     mal_assert(pDevice != NULL);
 
@@ -10747,7 +10735,7 @@ static mal_result mal_device__start_backend__pulse(mal_device* pDevice)
     return MAL_SUCCESS;
 }
 
-static mal_result mal_device__stop_backend__pulse(mal_device* pDevice)
+mal_result mal_device__stop_backend__pulse(mal_device* pDevice)
 {
     mal_assert(pDevice != NULL);
 
@@ -10786,7 +10774,7 @@ static mal_result mal_device__stop_backend__pulse(mal_device* pDevice)
     return MAL_SUCCESS;
 }
 
-static mal_result mal_device__break_main_loop__pulse(mal_device* pDevice)
+mal_result mal_device__break_main_loop__pulse(mal_device* pDevice)
 {
     mal_assert(pDevice != NULL);
 
@@ -10799,7 +10787,7 @@ static mal_result mal_device__break_main_loop__pulse(mal_device* pDevice)
     return MAL_SUCCESS;
 }
 
-static mal_result mal_device__main_loop__pulse(mal_device* pDevice)
+mal_result mal_device__main_loop__pulse(mal_device* pDevice)
 {
     mal_assert(pDevice != NULL);
 
@@ -10937,7 +10925,7 @@ mal_result mal_context_get_device_info__jack(mal_context* pContext, mal_device_t
     return MAL_SUCCESS;
 }
 
-static mal_result mal_context_init__jack(mal_context* pContext)
+mal_result mal_context_init__jack(mal_context* pContext)
 {
     mal_assert(pContext != NULL);
 
@@ -11024,7 +11012,7 @@ static mal_result mal_context_init__jack(mal_context* pContext)
     return MAL_SUCCESS;
 }
 
-static mal_result mal_context_uninit__jack(mal_context* pContext)
+mal_result mal_context_uninit__jack(mal_context* pContext)
 {
     mal_assert(pContext != NULL);
     mal_assert(pContext->backend == mal_backend_jack);
@@ -11250,7 +11238,7 @@ mal_result mal_device_init__jack(mal_context* pContext, mal_device_type type, ma
 }
 
 
-static mal_result mal_device__start_backend__jack(mal_device* pDevice)
+mal_result mal_device__start_backend__jack(mal_device* pDevice)
 {
     mal_assert(pDevice != NULL);
 
@@ -11299,7 +11287,7 @@ static mal_result mal_device__start_backend__jack(mal_device* pDevice)
     return MAL_SUCCESS;
 }
 
-static mal_result mal_device__stop_backend__jack(mal_device* pDevice)
+mal_result mal_device__stop_backend__jack(mal_device* pDevice)
 {
     mal_assert(pDevice != NULL);
 
@@ -11376,7 +11364,7 @@ mal_result mal_context_uninit__oss(mal_context* pContext)
     return MAL_SUCCESS;
 }
 
-static mal_result mal_enumerate_devices__oss(mal_context* pContext, mal_device_type type, mal_uint32* pCount, mal_device_info* pInfo)
+mal_result mal_enumerate_devices__oss(mal_context* pContext, mal_device_type type, mal_uint32* pCount, mal_device_info* pInfo)
 {
     (void)pContext;
 
@@ -11452,7 +11440,7 @@ static mal_result mal_enumerate_devices__oss(mal_context* pContext, mal_device_t
     return MAL_SUCCESS;
 }
 
-static void mal_device_uninit__oss(mal_device* pDevice)
+void mal_device_uninit__oss(mal_device* pDevice)
 {
     mal_assert(pDevice != NULL);
 
@@ -11460,7 +11448,7 @@ static void mal_device_uninit__oss(mal_device* pDevice)
     mal_free(pDevice->oss.pIntermediaryBuffer);
 }
 
-static mal_result mal_device_init__oss(mal_context* pContext, mal_device_type type, mal_device_id* pDeviceID, const mal_device_config* pConfig, mal_device* pDevice)
+mal_result mal_device_init__oss(mal_context* pContext, mal_device_type type, mal_device_id* pDeviceID, const mal_device_config* pConfig, mal_device* pDevice)
 {
     (void)pContext;
 
@@ -11577,7 +11565,7 @@ static mal_result mal_device_init__oss(mal_context* pContext, mal_device_type ty
 }
 
 
-static mal_result mal_device__start_backend__oss(mal_device* pDevice)
+mal_result mal_device__start_backend__oss(mal_device* pDevice)
 {
     mal_assert(pDevice != NULL);
 
@@ -11600,7 +11588,7 @@ static mal_result mal_device__start_backend__oss(mal_device* pDevice)
     return MAL_SUCCESS;
 }
 
-static mal_result mal_device__stop_backend__oss(mal_device* pDevice)
+mal_result mal_device__stop_backend__oss(mal_device* pDevice)
 {
     mal_assert(pDevice != NULL);
 
@@ -11623,7 +11611,7 @@ static mal_result mal_device__stop_backend__oss(mal_device* pDevice)
     return MAL_SUCCESS;
 }
 
-static mal_result mal_device__break_main_loop__oss(mal_device* pDevice)
+mal_result mal_device__break_main_loop__oss(mal_device* pDevice)
 {
     mal_assert(pDevice != NULL);
 
@@ -11631,7 +11619,7 @@ static mal_result mal_device__break_main_loop__oss(mal_device* pDevice)
     return MAL_SUCCESS;
 }
 
-static mal_result mal_device__main_loop__oss(mal_device* pDevice)
+mal_result mal_device__main_loop__oss(mal_device* pDevice)
 {
     mal_assert(pDevice != NULL);
 
@@ -11680,9 +11668,9 @@ static mal_result mal_device__main_loop__oss(mal_device* pDevice)
 #endif
 
 // OpenSL|ES has one-per-application objects :(
-static SLObjectItf g_malEngineObjectSL = NULL;
-static SLEngineItf g_malEngineSL = NULL;
-static mal_uint32 g_malOpenSLInitCounter = 0;
+SLObjectItf g_malEngineObjectSL = NULL;
+SLEngineItf g_malEngineSL = NULL;
+mal_uint32 g_malOpenSLInitCounter = 0;
 
 #define MAL_OPENSL_OBJ(p)         (*((SLObjectItf)(p)))
 #define MAL_OPENSL_OUTPUTMIX(p)   (*((SLOutputMixItf)(p)))
@@ -11696,7 +11684,7 @@ static mal_uint32 g_malOpenSLInitCounter = 0;
 #endif
 
 // Converts an individual OpenSL-style channel identifier (SL_SPEAKER_FRONT_LEFT, etc.) to mini_al.
-static mal_uint8 mal_channel_id_to_mal__opensl(SLuint32 id)
+mal_uint8 mal_channel_id_to_mal__opensl(SLuint32 id)
 {
     switch (id)
     {
@@ -11723,7 +11711,7 @@ static mal_uint8 mal_channel_id_to_mal__opensl(SLuint32 id)
 }
 
 // Converts an individual mini_al channel identifier (MAL_CHANNEL_FRONT_LEFT, etc.) to OpenSL-style.
-static SLuint32 mal_channel_id_to_opensl(mal_uint8 id)
+SLuint32 mal_channel_id_to_opensl(mal_uint8 id)
 {
     switch (id)
     {
@@ -11750,7 +11738,7 @@ static SLuint32 mal_channel_id_to_opensl(mal_uint8 id)
 }
 
 // Converts a channel mapping to an OpenSL-style channel mask.
-static SLuint32 mal_channel_map_to_channel_mask__opensl(const mal_channel channelMap[MAL_MAX_CHANNELS], mal_uint32 channels)
+SLuint32 mal_channel_map_to_channel_mask__opensl(const mal_channel channelMap[MAL_MAX_CHANNELS], mal_uint32 channels)
 {
     SLuint32 channelMask = 0;
     for (mal_uint32 iChannel = 0; iChannel < channels; ++iChannel) {
@@ -11761,7 +11749,7 @@ static SLuint32 mal_channel_map_to_channel_mask__opensl(const mal_channel channe
 }
 
 // Converts an OpenSL-style channel mask to a mini_al channel map.
-static void mal_channel_mask_to_channel_map__opensl(SLuint32 channelMask, mal_uint32 channels, mal_channel channelMap[MAL_MAX_CHANNELS])
+void mal_channel_mask_to_channel_map__opensl(SLuint32 channelMask, mal_uint32 channels, mal_channel channelMap[MAL_MAX_CHANNELS])
 {
     if (channels == 2 && channelMask == 0) {
         channelMap[0] = MAL_CHANNEL_FRONT_LEFT;
@@ -12134,8 +12122,8 @@ return_default_device:
 
 
 #ifdef MAL_ANDROID
-//static void mal_buffer_queue_callback__opensl_android(SLAndroidSimpleBufferQueueItf pBufferQueue, SLuint32 eventFlags, const void* pBuffer, SLuint32 bufferSize, SLuint32 dataUsed, void* pContext)
-static void mal_buffer_queue_callback__opensl_android(SLAndroidSimpleBufferQueueItf pBufferQueue, void* pUserData)
+//void mal_buffer_queue_callback__opensl_android(SLAndroidSimpleBufferQueueItf pBufferQueue, SLuint32 eventFlags, const void* pBuffer, SLuint32 bufferSize, SLuint32 dataUsed, void* pContext)
+void mal_buffer_queue_callback__opensl_android(SLAndroidSimpleBufferQueueItf pBufferQueue, void* pUserData)
 {
     (void)pBufferQueue;
 
@@ -12183,7 +12171,7 @@ static void mal_buffer_queue_callback__opensl_android(SLAndroidSimpleBufferQueue
 }
 #endif
 
-static void mal_device_uninit__opensl(mal_device* pDevice)
+void mal_device_uninit__opensl(mal_device* pDevice)
 {
     mal_assert(pDevice != NULL);
 
@@ -12198,7 +12186,7 @@ static void mal_device_uninit__opensl(mal_device* pDevice)
     mal_free(pDevice->opensl.pBuffer);
 }
 
-static mal_result mal_device_init__opensl(mal_context* pContext, mal_device_type type, mal_device_id* pDeviceID, const mal_device_config* pConfig, mal_device* pDevice)
+mal_result mal_device_init__opensl(mal_context* pContext, mal_device_type type, mal_device_id* pDeviceID, const mal_device_config* pConfig, mal_device* pDevice)
 {
     (void)pContext;
 
@@ -12457,7 +12445,7 @@ static mal_result mal_device_init__opensl(mal_context* pContext, mal_device_type
     return MAL_SUCCESS;
 }
 
-static mal_result mal_device__start_backend__opensl(mal_device* pDevice)
+mal_result mal_device__start_backend__opensl(mal_device* pDevice)
 {
     mal_assert(pDevice != NULL);
 
@@ -12497,7 +12485,7 @@ static mal_result mal_device__start_backend__opensl(mal_device* pDevice)
     return MAL_SUCCESS;
 }
 
-static mal_result mal_device__stop_backend__opensl(mal_device* pDevice)
+mal_result mal_device__stop_backend__opensl(mal_device* pDevice)
 {
     mal_assert(pDevice != NULL);
 
@@ -13371,7 +13359,7 @@ mal_result mal_device_init__openal(mal_context* pContext, mal_device_type type, 
     return MAL_SUCCESS;
 }
 
-static mal_result mal_device__start_backend__openal(mal_device* pDevice)
+mal_result mal_device__start_backend__openal(mal_device* pDevice)
 {
     mal_assert(pDevice != NULL);
 
@@ -13401,7 +13389,7 @@ static mal_result mal_device__start_backend__openal(mal_device* pDevice)
     return MAL_SUCCESS;
 }
 
-static mal_result mal_device__stop_backend__openal(mal_device* pDevice)
+mal_result mal_device__stop_backend__openal(mal_device* pDevice)
 {
     mal_assert(pDevice != NULL);
 
@@ -13415,7 +13403,7 @@ static mal_result mal_device__stop_backend__openal(mal_device* pDevice)
     return MAL_SUCCESS;
 }
 
-static mal_result mal_device__break_main_loop__openal(mal_device* pDevice)
+mal_result mal_device__break_main_loop__openal(mal_device* pDevice)
 {
     mal_assert(pDevice != NULL);
 
@@ -13423,7 +13411,7 @@ static mal_result mal_device__break_main_loop__openal(mal_device* pDevice)
     return MAL_SUCCESS;
 }
 
-static mal_uint32 mal_device__get_available_frames__openal(mal_device* pDevice)
+mal_uint32 mal_device__get_available_frames__openal(mal_device* pDevice)
 {
     mal_assert(pDevice != NULL);
 
@@ -13442,7 +13430,7 @@ static mal_uint32 mal_device__get_available_frames__openal(mal_device* pDevice)
     }
 }
 
-static mal_uint32 mal_device__wait_for_frames__openal(mal_device* pDevice)
+mal_uint32 mal_device__wait_for_frames__openal(mal_device* pDevice)
 {
     mal_assert(pDevice != NULL);
 
@@ -13463,7 +13451,7 @@ static mal_uint32 mal_device__wait_for_frames__openal(mal_device* pDevice)
     }
 }
 
-static mal_result mal_device__main_loop__openal(mal_device* pDevice)
+mal_result mal_device__main_loop__openal(mal_device* pDevice)
 {
     mal_assert(pDevice != NULL);
 
@@ -13881,7 +13869,7 @@ void mal_device_uninit__sdl(mal_device* pDevice)
 }
 
 
-static void mal_audio_callback__sdl(void* pUserData, mal_uint8* pBuffer, int bufferSizeInBytes)
+void mal_audio_callback__sdl(void* pUserData, mal_uint8* pBuffer, int bufferSizeInBytes)
 {
     mal_device* pDevice = (mal_device*)pUserData;
     mal_assert(pDevice != NULL);
@@ -13982,7 +13970,7 @@ mal_result mal_device_init__sdl(mal_context* pContext, mal_device_type type, mal
     return MAL_SUCCESS;
 }
 
-static mal_result mal_device__start_backend__sdl(mal_device* pDevice)
+mal_result mal_device__start_backend__sdl(mal_device* pDevice)
 {
     mal_assert(pDevice != NULL);
 
@@ -13998,7 +13986,7 @@ static mal_result mal_device__start_backend__sdl(mal_device* pDevice)
     return MAL_SUCCESS;
 }
 
-static mal_result mal_device__stop_backend__sdl(mal_device* pDevice)
+mal_result mal_device__stop_backend__sdl(mal_device* pDevice)
 {
     mal_assert(pDevice != NULL);
 
@@ -14040,7 +14028,7 @@ mal_bool32 mal__is_channel_map_valid(const mal_channel* channelMap, mal_uint32 c
 }
 
 
-static mal_result mal_device__start_backend(mal_device* pDevice)
+mal_result mal_device__start_backend(mal_device* pDevice)
 {
     mal_assert(pDevice != NULL);
 
@@ -14089,7 +14077,7 @@ static mal_result mal_device__start_backend(mal_device* pDevice)
     return result;
 }
 
-static mal_result mal_device__stop_backend(mal_device* pDevice)
+mal_result mal_device__stop_backend(mal_device* pDevice)
 {
     mal_assert(pDevice != NULL);
 
@@ -14138,7 +14126,7 @@ static mal_result mal_device__stop_backend(mal_device* pDevice)
     return result;
 }
 
-static mal_result mal_device__break_main_loop(mal_device* pDevice)
+mal_result mal_device__break_main_loop(mal_device* pDevice)
 {
     mal_assert(pDevice != NULL);
 
@@ -14187,7 +14175,7 @@ static mal_result mal_device__break_main_loop(mal_device* pDevice)
     return result;
 }
 
-static mal_result mal_device__main_loop(mal_device* pDevice)
+mal_result mal_device__main_loop(mal_device* pDevice)
 {
     mal_assert(pDevice != NULL);
 
@@ -14446,7 +14434,7 @@ mal_result mal_context_uninit_backend_apis(mal_context* pContext)
     return result;
 }
 
-static const mal_backend g_malDefaultBackends[] = {
+const mal_backend g_malDefaultBackends[] = {
     mal_backend_wasapi,
     mal_backend_dsound,
     mal_backend_winmm,
@@ -14460,7 +14448,7 @@ static const mal_backend g_malDefaultBackends[] = {
     mal_backend_null
 };
 
-static mal_bool32 mal_is_backend_asynchronous(mal_backend backend)
+mal_bool32 mal_is_backend_asynchronous(mal_backend backend)
 {
     return
         backend == mal_backend_jack   ||
@@ -15520,7 +15508,7 @@ mal_device_config mal_device_config_init_ex(mal_format format, mal_uint32 channe
 }
 
 
-static void mal_get_standard_channel_map_microsoft(mal_uint32 channels, mal_channel channelMap[MAL_MAX_CHANNELS])
+void mal_get_standard_channel_map_microsoft(mal_uint32 channels, mal_channel channelMap[MAL_MAX_CHANNELS])
 {
     // Based off the speaker configurations mentioned here: https://docs.microsoft.com/en-us/windows-hardware/drivers/ddi/content/ksmedia/ns-ksmedia-ksaudio_channel_config
     switch (channels)
@@ -15613,7 +15601,7 @@ static void mal_get_standard_channel_map_microsoft(mal_uint32 channels, mal_chan
     }
 }
 
-static void mal_get_standard_channel_map_alsa(mal_uint32 channels, mal_channel channelMap[MAL_MAX_CHANNELS])
+void mal_get_standard_channel_map_alsa(mal_uint32 channels, mal_channel channelMap[MAL_MAX_CHANNELS])
 {
     switch (channels)
     {
@@ -15695,7 +15683,7 @@ static void mal_get_standard_channel_map_alsa(mal_uint32 channels, mal_channel c
     }
 }
 
-static void mal_get_standard_channel_map_rfc3551(mal_uint32 channels, mal_channel channelMap[MAL_MAX_CHANNELS])
+void mal_get_standard_channel_map_rfc3551(mal_uint32 channels, mal_channel channelMap[MAL_MAX_CHANNELS])
 {
     switch (channels)
     {
@@ -15753,7 +15741,7 @@ static void mal_get_standard_channel_map_rfc3551(mal_uint32 channels, mal_channe
     }
 }
 
-static void mal_get_standard_channel_map_flac(mal_uint32 channels, mal_channel channelMap[MAL_MAX_CHANNELS])
+void mal_get_standard_channel_map_flac(mal_uint32 channels, mal_channel channelMap[MAL_MAX_CHANNELS])
 {
     switch (channels)
     {
@@ -15835,7 +15823,7 @@ static void mal_get_standard_channel_map_flac(mal_uint32 channels, mal_channel c
     }
 }
 
-static void mal_get_standard_channel_map_vorbis(mal_uint32 channels, mal_channel channelMap[MAL_MAX_CHANNELS])
+void mal_get_standard_channel_map_vorbis(mal_uint32 channels, mal_channel channelMap[MAL_MAX_CHANNELS])
 {
     // In Vorbis' type 0 channel mapping, the first two channels are not always the standard left/right - it
     // will have the center speaker where the right usually goes. Why?!
@@ -16353,7 +16341,7 @@ void mal_pcm_convert(void* pOut, mal_format formatOut, const void* pIn, mal_form
 }
 
 
-static void mal_rearrange_channels_u8(mal_uint8* pFrame, mal_uint32 channels, mal_channel channelMap[MAL_MAX_CHANNELS])
+void mal_rearrange_channels_u8(mal_uint8* pFrame, mal_uint32 channels, mal_channel channelMap[MAL_MAX_CHANNELS])
 {
     mal_channel temp[MAL_MAX_CHANNELS];
     mal_copy_memory(temp, pFrame, sizeof(temp[0]) * channels);
@@ -16394,7 +16382,7 @@ static void mal_rearrange_channels_u8(mal_uint8* pFrame, mal_uint32 channels, ma
     }
 }
 
-static void mal_rearrange_channels_s16(mal_int16* pFrame, mal_uint32 channels, mal_channel channelMap[MAL_MAX_CHANNELS])
+void mal_rearrange_channels_s16(mal_int16* pFrame, mal_uint32 channels, mal_channel channelMap[MAL_MAX_CHANNELS])
 {
     mal_int16 temp[MAL_MAX_CHANNELS];
     mal_copy_memory(temp, pFrame, sizeof(temp[0]) * channels);
@@ -16435,7 +16423,7 @@ static void mal_rearrange_channels_s16(mal_int16* pFrame, mal_uint32 channels, m
     }
 }
 
-static void mal_rearrange_channels_s32(mal_int32* pFrame, mal_uint32 channels, mal_channel channelMap[MAL_MAX_CHANNELS])
+void mal_rearrange_channels_s32(mal_int32* pFrame, mal_uint32 channels, mal_channel channelMap[MAL_MAX_CHANNELS])
 {
     mal_int32 temp[MAL_MAX_CHANNELS];
     mal_copy_memory(temp, pFrame, sizeof(temp[0]) * channels);
@@ -16476,7 +16464,7 @@ static void mal_rearrange_channels_s32(mal_int32* pFrame, mal_uint32 channels, m
     }
 }
 
-static void mal_rearrange_channels_f32(float* pFrame, mal_uint32 channels, mal_channel channelMap[MAL_MAX_CHANNELS])
+void mal_rearrange_channels_f32(float* pFrame, mal_uint32 channels, mal_channel channelMap[MAL_MAX_CHANNELS])
 {
     float temp[MAL_MAX_CHANNELS];
     mal_copy_memory(temp, pFrame, sizeof(temp[0]) * channels);
@@ -16517,7 +16505,7 @@ static void mal_rearrange_channels_f32(float* pFrame, mal_uint32 channels, mal_c
     }
 }
 
-static void mal_rearrange_channels_generic(void* pFrame, mal_uint32 channels, mal_channel channelMap[MAL_MAX_CHANNELS], mal_format format)
+void mal_rearrange_channels_generic(void* pFrame, mal_uint32 channels, mal_channel channelMap[MAL_MAX_CHANNELS], mal_format format)
 {
     mal_uint32 sampleSizeInBytes = mal_get_sample_size_in_bytes(format);
 
@@ -16560,7 +16548,7 @@ static void mal_rearrange_channels_generic(void* pFrame, mal_uint32 channels, ma
     }
 }
 
-static void mal_rearrange_channels(void* pFrame, mal_uint32 channels, mal_channel channelMap[MAL_MAX_CHANNELS], mal_format format)
+void mal_rearrange_channels(void* pFrame, mal_uint32 channels, mal_channel channelMap[MAL_MAX_CHANNELS], mal_format format)
 {
     switch (format)
     {
@@ -16572,7 +16560,7 @@ static void mal_rearrange_channels(void* pFrame, mal_uint32 channels, mal_channe
     }
 }
 
-static void mal_dsp_mix_channels__dec(float* pFramesOut, mal_uint32 channelsOut, const mal_channel channelMapOut[MAL_MAX_CHANNELS], const float* pFramesIn, mal_uint32 channelsIn, const mal_channel channelMapIn[MAL_MAX_CHANNELS], mal_uint32 frameCount, mal_channel_mix_mode mode)
+void mal_dsp_mix_channels__dec(float* pFramesOut, mal_uint32 channelsOut, const mal_channel channelMapOut[MAL_MAX_CHANNELS], const float* pFramesIn, mal_uint32 channelsIn, const mal_channel channelMapIn[MAL_MAX_CHANNELS], mal_uint32 frameCount, mal_channel_mix_mode mode)
 {
     mal_assert(pFramesOut != NULL);
     mal_assert(channelsOut > 0);
@@ -16673,7 +16661,7 @@ static void mal_dsp_mix_channels__dec(float* pFramesOut, mal_uint32 channelsOut,
     }
 }
 
-static void mal_dsp_mix_channels__inc(float* pFramesOut, mal_uint32 channelsOut, const mal_channel channelMapOut[MAL_MAX_CHANNELS], const float* pFramesIn, mal_uint32 channelsIn, const mal_channel channelMapIn[MAL_MAX_CHANNELS], mal_uint32 frameCount, mal_channel_mix_mode mode)
+void mal_dsp_mix_channels__inc(float* pFramesOut, mal_uint32 channelsOut, const mal_channel channelMapOut[MAL_MAX_CHANNELS], const float* pFramesIn, mal_uint32 channelsIn, const mal_channel channelMapIn[MAL_MAX_CHANNELS], mal_uint32 frameCount, mal_channel_mix_mode mode)
 {
     mal_assert(pFramesOut != NULL);
     mal_assert(channelsOut > 0);
@@ -16808,7 +16796,7 @@ static void mal_dsp_mix_channels__inc(float* pFramesOut, mal_uint32 channelsOut,
     }
 }
 
-static void mal_dsp_mix_channels(float* pFramesOut, mal_uint32 channelsOut, const mal_channel channelMapOut[MAL_MAX_CHANNELS], const float* pFramesIn, mal_uint32 channelsIn, const mal_channel channelMapIn[MAL_MAX_CHANNELS], mal_uint32 frameCount, mal_channel_mix_mode mode)
+void mal_dsp_mix_channels(float* pFramesOut, mal_uint32 channelsOut, const mal_channel channelMapOut[MAL_MAX_CHANNELS], const float* pFramesIn, mal_uint32 channelsIn, const mal_channel channelMapIn[MAL_MAX_CHANNELS], mal_uint32 frameCount, mal_channel_mix_mode mode)
 {
     if (channelsIn < channelsOut) {
         // Increasing the channel count.
@@ -17320,7 +17308,7 @@ mal_result mal_decoder__init_dsp(mal_decoder* pDecoder, const mal_decoder_config
 #ifdef dr_wav_h
 #define MAL_HAS_WAV
 
-static size_t mal_decoder_internal_on_read__wav(void* pUserData, void* pBufferOut, size_t bytesToRead)
+size_t mal_decoder_internal_on_read__wav(void* pUserData, void* pBufferOut, size_t bytesToRead)
 {
     mal_decoder* pDecoder = (mal_decoder*)pUserData;
     mal_assert(pDecoder != NULL);
@@ -17329,7 +17317,7 @@ static size_t mal_decoder_internal_on_read__wav(void* pUserData, void* pBufferOu
     return pDecoder->onRead(pDecoder, pBufferOut, bytesToRead);
 }
 
-static drwav_bool32 mal_decoder_internal_on_seek__wav(void* pUserData, int offset, drwav_seek_origin origin)
+drwav_bool32 mal_decoder_internal_on_seek__wav(void* pUserData, int offset, drwav_seek_origin origin)
 {
     mal_decoder* pDecoder = (mal_decoder*)pUserData;
     mal_assert(pDecoder != NULL);
@@ -17338,7 +17326,7 @@ static drwav_bool32 mal_decoder_internal_on_seek__wav(void* pUserData, int offse
     return pDecoder->onSeek(pDecoder, offset, (origin == drwav_seek_origin_start) ? mal_seek_origin_start : mal_seek_origin_current);
 }
 
-static mal_result mal_decoder_internal_on_seek_to_frame__wav(mal_decoder* pDecoder, mal_uint64 frameIndex)
+mal_result mal_decoder_internal_on_seek_to_frame__wav(mal_decoder* pDecoder, mal_uint64 frameIndex)
 {
     drwav* pWav = (drwav*)pDecoder->pInternalDecoder;
     mal_assert(pWav != NULL);
@@ -17351,13 +17339,13 @@ static mal_result mal_decoder_internal_on_seek_to_frame__wav(mal_decoder* pDecod
     }
 }
 
-static mal_result mal_decoder_internal_on_uninit__wav(mal_decoder* pDecoder)
+mal_result mal_decoder_internal_on_uninit__wav(mal_decoder* pDecoder)
 {
     drwav_close((drwav*)pDecoder->pInternalDecoder);
     return MAL_SUCCESS;
 }
 
-static mal_uint32 mal_decoder_internal_on_read_frames__wav(mal_dsp* pDSP, mal_uint32 frameCount, void* pSamplesOut, void* pUserData)
+mal_uint32 mal_decoder_internal_on_read_frames__wav(mal_dsp* pDSP, mal_uint32 frameCount, void* pSamplesOut, void* pUserData)
 {
     (void)pDSP;
 
@@ -17447,7 +17435,7 @@ mal_result mal_decoder_init_wav__internal(const mal_decoder_config* pConfig, mal
 #ifdef dr_flac_h
 #define MAL_HAS_FLAC
 
-static size_t mal_decoder_internal_on_read__flac(void* pUserData, void* pBufferOut, size_t bytesToRead)
+size_t mal_decoder_internal_on_read__flac(void* pUserData, void* pBufferOut, size_t bytesToRead)
 {
     mal_decoder* pDecoder = (mal_decoder*)pUserData;
     mal_assert(pDecoder != NULL);
@@ -17456,7 +17444,7 @@ static size_t mal_decoder_internal_on_read__flac(void* pUserData, void* pBufferO
     return pDecoder->onRead(pDecoder, pBufferOut, bytesToRead);
 }
 
-static drflac_bool32 mal_decoder_internal_on_seek__flac(void* pUserData, int offset, drflac_seek_origin origin)
+drflac_bool32 mal_decoder_internal_on_seek__flac(void* pUserData, int offset, drflac_seek_origin origin)
 {
     mal_decoder* pDecoder = (mal_decoder*)pUserData;
     mal_assert(pDecoder != NULL);
@@ -17465,7 +17453,7 @@ static drflac_bool32 mal_decoder_internal_on_seek__flac(void* pUserData, int off
     return pDecoder->onSeek(pDecoder, offset, (origin == drflac_seek_origin_start) ? mal_seek_origin_start : mal_seek_origin_current);
 }
 
-static mal_result mal_decoder_internal_on_seek_to_frame__flac(mal_decoder* pDecoder, mal_uint64 frameIndex)
+mal_result mal_decoder_internal_on_seek_to_frame__flac(mal_decoder* pDecoder, mal_uint64 frameIndex)
 {
     drflac* pFlac = (drflac*)pDecoder->pInternalDecoder;
     mal_assert(pFlac != NULL);
@@ -17478,13 +17466,13 @@ static mal_result mal_decoder_internal_on_seek_to_frame__flac(mal_decoder* pDeco
     }
 }
 
-static mal_result mal_decoder_internal_on_uninit__flac(mal_decoder* pDecoder)
+mal_result mal_decoder_internal_on_uninit__flac(mal_decoder* pDecoder)
 {
     drflac_close((drflac*)pDecoder->pInternalDecoder);
     return MAL_SUCCESS;
 }
 
-static mal_uint32 mal_decoder_internal_on_read_frames__flac(mal_dsp* pDSP, mal_uint32 frameCount, void* pSamplesOut, void* pUserData)
+mal_uint32 mal_decoder_internal_on_read_frames__flac(mal_dsp* pDSP, mal_uint32 frameCount, void* pSamplesOut, void* pUserData)
 {
     (void)pDSP;
 
@@ -17548,7 +17536,7 @@ typedef struct
     float** ppPacketData;
 } mal_vorbis_decoder;
 
-static mal_uint32 mal_vorbis_decoder_read(mal_vorbis_decoder* pVorbis, mal_decoder* pDecoder, mal_uint32 frameCount, void* pSamplesOut)
+mal_uint32 mal_vorbis_decoder_read(mal_vorbis_decoder* pVorbis, mal_decoder* pDecoder, mal_uint32 frameCount, void* pSamplesOut)
 {
     mal_assert(pVorbis != NULL);
     mal_assert(pDecoder != NULL);
@@ -17624,7 +17612,7 @@ static mal_uint32 mal_vorbis_decoder_read(mal_vorbis_decoder* pVorbis, mal_decod
     return totalFramesRead;
 }
 
-static mal_result mal_vorbis_decoder_seek_to_frame(mal_vorbis_decoder* pVorbis, mal_decoder* pDecoder, mal_uint64 frameIndex)
+mal_result mal_vorbis_decoder_seek_to_frame(mal_vorbis_decoder* pVorbis, mal_decoder* pDecoder, mal_uint64 frameIndex)
 {
     mal_assert(pVorbis != NULL);
     mal_assert(pDecoder != NULL);
@@ -17662,7 +17650,7 @@ static mal_result mal_vorbis_decoder_seek_to_frame(mal_vorbis_decoder* pVorbis, 
 }
 
 
-static mal_result mal_decoder_internal_on_seek_to_frame__vorbis(mal_decoder* pDecoder, mal_uint64 frameIndex)
+mal_result mal_decoder_internal_on_seek_to_frame__vorbis(mal_decoder* pDecoder, mal_uint64 frameIndex)
 {
     mal_assert(pDecoder != NULL);
     mal_assert(pDecoder->onRead != NULL);
@@ -17674,7 +17662,7 @@ static mal_result mal_decoder_internal_on_seek_to_frame__vorbis(mal_decoder* pDe
     return mal_vorbis_decoder_seek_to_frame(pVorbis, pDecoder, frameIndex);
 }
 
-static mal_result mal_decoder_internal_on_uninit__vorbis(mal_decoder* pDecoder)
+mal_result mal_decoder_internal_on_uninit__vorbis(mal_decoder* pDecoder)
 {
     mal_vorbis_decoder* pVorbis = (mal_vorbis_decoder*)pDecoder->pInternalDecoder;
     mal_assert(pVorbis != NULL);
@@ -17686,7 +17674,7 @@ static mal_result mal_decoder_internal_on_uninit__vorbis(mal_decoder* pDecoder)
     return MAL_SUCCESS;
 }
 
-static mal_uint32 mal_decoder_internal_on_read_frames__vorbis(mal_dsp* pDSP, mal_uint32 frameCount, void* pSamplesOut, void* pUserData)
+mal_uint32 mal_decoder_internal_on_read_frames__vorbis(mal_dsp* pDSP, mal_uint32 frameCount, void* pSamplesOut, void* pUserData)
 {
     (void)pDSP;
 
@@ -17811,7 +17799,7 @@ mal_result mal_decoder_init_vorbis__internal(const mal_decoder_config* pConfig, 
 #ifdef dr_mp3_h
 #define MAL_HAS_MP3
 
-static size_t mal_decoder_internal_on_read__mp3(void* pUserData, void* pBufferOut, size_t bytesToRead)
+size_t mal_decoder_internal_on_read__mp3(void* pUserData, void* pBufferOut, size_t bytesToRead)
 {
     mal_decoder* pDecoder = (mal_decoder*)pUserData;
     mal_assert(pDecoder != NULL);
@@ -17820,7 +17808,7 @@ static size_t mal_decoder_internal_on_read__mp3(void* pUserData, void* pBufferOu
     return pDecoder->onRead(pDecoder, pBufferOut, bytesToRead);
 }
 
-static drmp3_bool32 mal_decoder_internal_on_seek__mp3(void* pUserData, int offset, drmp3_seek_origin origin)
+drmp3_bool32 mal_decoder_internal_on_seek__mp3(void* pUserData, int offset, drmp3_seek_origin origin)
 {
     mal_decoder* pDecoder = (mal_decoder*)pUserData;
     mal_assert(pDecoder != NULL);
@@ -17829,7 +17817,7 @@ static drmp3_bool32 mal_decoder_internal_on_seek__mp3(void* pUserData, int offse
     return pDecoder->onSeek(pDecoder, offset, (origin == drmp3_seek_origin_start) ? mal_seek_origin_start : mal_seek_origin_current);
 }
 
-static mal_result mal_decoder_internal_on_seek_to_frame__mp3(mal_decoder* pDecoder, mal_uint64 frameIndex)
+mal_result mal_decoder_internal_on_seek_to_frame__mp3(mal_decoder* pDecoder, mal_uint64 frameIndex)
 {
     drmp3* pMP3 = (drmp3*)pDecoder->pInternalDecoder;
     mal_assert(pMP3 != NULL);
@@ -17842,14 +17830,14 @@ static mal_result mal_decoder_internal_on_seek_to_frame__mp3(mal_decoder* pDecod
     }
 }
 
-static mal_result mal_decoder_internal_on_uninit__mp3(mal_decoder* pDecoder)
+mal_result mal_decoder_internal_on_uninit__mp3(mal_decoder* pDecoder)
 {
     drmp3_uninit((drmp3*)pDecoder->pInternalDecoder);
     mal_free(pDecoder->pInternalDecoder);
     return MAL_SUCCESS;
 }
 
-static mal_uint32 mal_decoder_internal_on_read_frames__mp3(mal_dsp* pDSP, mal_uint32 frameCount, void* pSamplesOut, void* pUserData)
+mal_uint32 mal_decoder_internal_on_read_frames__mp3(mal_dsp* pDSP, mal_uint32 frameCount, void* pSamplesOut, void* pUserData)
 {
     (void)pDSP;
 
@@ -18047,7 +18035,7 @@ mal_result mal_decoder_init(mal_decoder_read_proc onRead, mal_decoder_seek_proc 
 }
 
 
-static size_t mal_decoder__on_read_memory(mal_decoder* pDecoder, void* pBufferOut, size_t bytesToRead)
+size_t mal_decoder__on_read_memory(mal_decoder* pDecoder, void* pBufferOut, size_t bytesToRead)
 {
     mal_assert(pDecoder->memory.dataSize >= pDecoder->memory.currentReadPos);
 
@@ -18064,7 +18052,7 @@ static size_t mal_decoder__on_read_memory(mal_decoder* pDecoder, void* pBufferOu
     return bytesToRead;
 }
 
-static mal_bool32 mal_decoder__on_seek_memory(mal_decoder* pDecoder, int byteOffset, mal_seek_origin origin)
+mal_bool32 mal_decoder__on_seek_memory(mal_decoder* pDecoder, int byteOffset, mal_seek_origin origin)
 {
     if (origin == mal_seek_origin_current) {
         if (byteOffset > 0) {
@@ -18163,7 +18151,7 @@ mal_result mal_decoder_init_memory_mp3(const void* pData, size_t dataSize, const
 #include <strings.h>    // For strcasecmp().
 #endif
 
-static const char* mal_path_file_name(const char* path)
+const char* mal_path_file_name(const char* path)
 {
     if (path == NULL) {
         return NULL;
@@ -18188,7 +18176,7 @@ static const char* mal_path_file_name(const char* path)
     return fileName;
 }
 
-static const char* mal_path_extension(const char* path)
+const char* mal_path_extension(const char* path)
 {
     if (path == NULL) {
         path = "";
@@ -18210,7 +18198,7 @@ static const char* mal_path_extension(const char* path)
     return (lastOccurance != NULL) ? lastOccurance : extension;
 }
 
-static mal_bool32 mal_path_extension_equal(const char* path, const char* extension)
+mal_bool32 mal_path_extension_equal(const char* path, const char* extension)
 {
     if (path == NULL || extension == NULL) {
         return MAL_FALSE;
@@ -18226,12 +18214,12 @@ static mal_bool32 mal_path_extension_equal(const char* path, const char* extensi
 #endif
 }
 
-static size_t mal_decoder__on_read_stdio(mal_decoder* pDecoder, void* pBufferOut, size_t bytesToRead)
+size_t mal_decoder__on_read_stdio(mal_decoder* pDecoder, void* pBufferOut, size_t bytesToRead)
 {
     return fread(pBufferOut, 1, bytesToRead, (FILE*)pDecoder->pUserData);
 }
 
-static mal_bool32 mal_decoder__on_seek_stdio(mal_decoder* pDecoder, int byteOffset, mal_seek_origin origin)
+mal_bool32 mal_decoder__on_seek_stdio(mal_decoder* pDecoder, int byteOffset, mal_seek_origin origin)
 {
     return fseek((FILE*)pDecoder->pUserData, byteOffset, (origin == mal_seek_origin_current) ? SEEK_CUR : SEEK_SET) == 0;
 }
