@@ -1345,9 +1345,9 @@ struct mal_device
 //   - WASAPI
 //   - DirectSound
 //   - WinMM
+//   - OSS
 //   - PulseAudio
 //   - ALSA
-//   - OSS
 //   - JACK
 //   - OpenSL|ES
 //   - OpenAL
@@ -13728,9 +13728,9 @@ const mal_backend g_malDefaultBackends[] = {
     mal_backend_wasapi,
     mal_backend_dsound,
     mal_backend_winmm,
+    mal_backend_oss,
     mal_backend_pulseaudio,
     mal_backend_alsa,
-    mal_backend_oss,
     mal_backend_jack,
     mal_backend_opensl,
     mal_backend_openal,
