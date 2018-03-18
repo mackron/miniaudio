@@ -3718,9 +3718,9 @@ void mal_channel_mask_to_channel_map__win32(DWORD dwChannelMask, mal_uint32 chan
 }
 
 #ifdef __cplusplus
-#define mal_is_guid_equal(a, b) IsEqualGUID(a, b)
+#define mal_is_guid_equal(a, b) IsEqualGUID(*((const GUID*)a), *((const GUID*)b))
 #else
-#define mal_is_guid_equal(a, b) IsEqualGUID(&a, &b)
+#define mal_is_guid_equal(a, b) IsEqualGUID((const GUID*)a, (const GUID*)b)
 #endif
 
 mal_format mal_format_from_WAVEFORMATEX(WAVEFORMATEX* pWF)
@@ -3729,7 +3729,7 @@ mal_format mal_format_from_WAVEFORMATEX(WAVEFORMATEX* pWF)
 
     if (pWF->wFormatTag == WAVE_FORMAT_EXTENSIBLE) {
         WAVEFORMATEXTENSIBLE* pWFEX = (WAVEFORMATEXTENSIBLE*)pWF;
-        if (mal_is_guid_equal(pWFEX->SubFormat, MAL_GUID_KSDATAFORMAT_SUBTYPE_PCM)) {
+        if (mal_is_guid_equal(&pWFEX->SubFormat, &MAL_GUID_KSDATAFORMAT_SUBTYPE_PCM)) {
             if (pWFEX->Samples.wValidBitsPerSample == 32) {
                 return mal_format_s32;
             }
@@ -3748,7 +3748,7 @@ mal_format mal_format_from_WAVEFORMATEX(WAVEFORMATEX* pWF)
                 return mal_format_u8;
             }
         }
-        if (mal_is_guid_equal(pWFEX->SubFormat, MAL_GUID_KSDATAFORMAT_SUBTYPE_IEEE_FLOAT)) {
+        if (mal_is_guid_equal(&pWFEX->SubFormat, &MAL_GUID_KSDATAFORMAT_SUBTYPE_IEEE_FLOAT)) {
             if (pWFEX->Samples.wValidBitsPerSample == 32) {
                 return mal_format_f32;
             }
@@ -5405,11 +5405,19 @@ BOOL CALLBACK mal_context_get_device_info_callback__dsound(LPGUID lpGuid, LPCSTR
     mal_context_get_device_info_callback_data__dsound* pData = (mal_context_get_device_info_callback_data__dsound*)lpContext;
     mal_assert(pData != NULL);
 
-    if (memcmp(pData->pDeviceID->dsound, lpGuid, sizeof(pData->pDeviceID->dsound)) == 0) {
+    if ((pData->pDeviceID == NULL || mal_is_guid_equal(pData->pDeviceID->dsound, &MAL_GUID_NULL)) && (lpGuid == NULL || mal_is_guid_equal(lpGuid, &MAL_GUID_NULL))) {
         mal_strncpy_s(pData->pDeviceInfo->name, sizeof(pData->pDeviceInfo->name), lpcstrDescription, (size_t)-1);
         pData->found = MAL_TRUE;
         return FALSE;   // Stop enumeration.
+    } else {
+        if (memcmp(pData->pDeviceID->dsound, lpGuid, sizeof(pData->pDeviceID->dsound)) == 0) {
+            mal_strncpy_s(pData->pDeviceInfo->name, sizeof(pData->pDeviceInfo->name), lpcstrDescription, (size_t)-1);
+            pData->found = MAL_TRUE;
+            return FALSE;   // Stop enumeration.
+        }
     }
+
+    
 
     return TRUE;
 }
@@ -6230,7 +6238,7 @@ mal_result mal_context_get_device_info_from_WAVECAPS(mal_context* pContext, MAL_
     //   but WinMM does not specificy the component name. From my admittedly limited testing, I've notice the component name seems to
     //   usually fit within the 31 characters of the fixed sized buffer, so what I'm going to do is parse that string for the component
     //   name, and then concatenate the name from the registry.
-    if (!mal_is_guid_equal(pCaps->NameGuid, MAL_GUID_NULL)) {
+    if (!mal_is_guid_equal(&pCaps->NameGuid, &MAL_GUID_NULL)) {
         wchar_t guidStrW[256];
         if (((MAL_PFN_StringFromGUID2)pContext->win32.StringFromGUID2)(&pCaps->NameGuid, guidStrW, mal_countof(guidStrW)) > 0) {
             char guidStr[256];
