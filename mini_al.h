@@ -1382,13 +1382,13 @@ mal_result mal_context_uninit(mal_context* pContext);
 // Note that this only retrieves the ID and name/description of the device. The reason for only
 // retrieving basic information is that it would otherwise require opening the backend device in
 // order to probe it for more detailed information which can be inefficient. Consider using
-// mal_context_get_device_info() for this, but do _not_ call it from within the enumeration callback
-// or else you can end up in a deadlock.
+// mal_context_get_device_info() for this, but don't call it from within the enumeration callback.
 //
-// Do not try initializing a device from within the callback. In general, you should not do anything
-// complicated from within the callback.
+// In general, you should not do anything complicated from within the callback. In particular, do
+// not try initializing a device from within the callback.
 //
-// Consider using mal_context_get_devices() for a simpler and safer API.
+// Consider using mal_context_get_devices() for a simpler and safer API, albeit at the expense of
+// an internal heap allocation.
 //
 // Returning false from the callback will stop enumeration. Returning true will continue enumeration.
 //
@@ -1396,8 +1396,7 @@ mal_result mal_context_uninit(mal_context* pContext);
 //   MAL_SUCCESS if successful; any other error code otherwise.
 //
 // Thread Safety: SAFE
-//   This is guarded using a simple mutex lock. You cannot call mal_context_get_device_info() from
-//   within the callback because otherwise you can end up in a deadlock.
+//   This is guarded using a simple mutex lock.
 mal_result mal_context_enumerate_devices(mal_context* pContext, mal_enum_devices_callback_proc callback, void* pUserData);
 
 // Retrieves basic information about every active playback and/or capture device.
@@ -1429,7 +1428,8 @@ mal_result mal_context_get_devices(mal_context* pContext, mal_device_info** ppPl
 // not it's opened in shared or exclusive mode. For example, in shared mode, WASAPI always uses
 // floating point samples for mixing, but in exclusive mode it can be anything. Therefore, this
 // function allows you to specify which share mode you want information for. Note that not all
-// backends and devices support shared or exclusive mode, in which case this function will fail.
+// backends and devices support shared or exclusive mode, in which case this function will fail
+// if the requested share mode is unsupported.
 //
 // Return Value:
 //   MAL_SUCCESS if successful; any other error code otherwise.
@@ -1466,7 +1466,7 @@ mal_result mal_enumerate_devices(mal_context* pContext, mal_device_type type, ma
 // The device ID (pDeviceID) can be null, in which case the default device is used. Otherwise, you
 // can retrieve the ID by calling mal_enumerate_devices() and using the ID from the returned data.
 // Set pDeviceID to NULL to use the default device. Do _not_ rely on the first device ID returned
-// by mal_enumerate_devices() to be the default device.
+// by mal_context_enumerate_devices() or mal_context_get_devices() to be the default device.
 //
 // The device's configuration is controlled with pConfig. This allows you to configure the sample
 // format, channel count, sample rate, etc. Before calling mal_device_init(), you will most likely
@@ -1506,7 +1506,7 @@ mal_result mal_device_init(mal_context* pContext, mal_device_type type, mal_devi
 // Initializes a device without a context, with extra parameters for controlling the configuration
 // of the internal self-managed context.
 //
-// See mal_device_init().
+// See mal_device_init() and mal_context_init().
 mal_result mal_device_init_ex(const mal_backend backends[], mal_uint32 backendCount, const mal_context_config* pContextConfig, mal_device_type type, mal_device_id* pDeviceID, const mal_device_config* pConfig, void* pUserData, mal_device* pDevice);
 
 // Uninitializes a device.
@@ -14812,31 +14812,8 @@ mal_result mal_context_get_device_info(mal_context* pContext, mal_device_type ty
         return result;
     }
 
-    // If we get here it means the backend does not have a method for retrieving detailed information about the
-    // device. In this case we fall back to retrieving just basic information. To do this we enumerate over the
-    // devices. If the device ID is null we just use a simple default name. This is where the potential for a
-    // deadlock comes into play.
-    if (pDeviceID != NULL) {
-        if (pContext->onEnumDevices == NULL) {
-            return MAL_NO_DEVICE;
-        }
-
-        mal_context_get_device_info__enum_callback_data data;
-        data.type = type;
-        data.pDeviceID = pDeviceID;
-        data.pDeviceInfo = pDeviceInfo;
-        return mal_context_enumerate_devices(pContext, mal_context_get_device_info__enum_callback, &data);
-    } else {
-        // It's asking for the default device. We don't have a way to retrieve advanced info so we just stick
-        // with the name.
-        if (type == mal_device_type_playback) {
-            mal_strncpy_s(pDeviceInfo->name, sizeof(pDeviceInfo->name), MAL_DEFAULT_PLAYBACK_DEVICE_NAME, (size_t)-1);
-        } else {
-            mal_strncpy_s(pDeviceInfo->name, sizeof(pDeviceInfo->name), MAL_DEFAULT_CAPTURE_DEVICE_NAME, (size_t)-1);
-        }
-
-        return MAL_SUCCESS;
-    }
+    // Getting here means onGetDeviceInfo has not been set.
+    return MAL_ERROR;
 }
 
 
