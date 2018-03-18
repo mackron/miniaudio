@@ -13601,6 +13601,120 @@ mal_format mal_format_from_sdl(MAL_SDL_AudioFormat format)
     }
 }
 
+mal_bool32 mal_context_is_device_id_equal__sdl(mal_context* pContext, const mal_device_id* pID0, const mal_device_id* pID1)
+{
+    mal_assert(pContext != NULL);
+    mal_assert(pID0 != NULL);
+    mal_assert(pID1 != NULL);
+    (void)pContext;
+
+    return pID0->sdl == pID1->sdl;
+}
+
+mal_result mal_context_enumerate_devices__sdl(mal_context* pContext, mal_enum_devices_callback_proc callback, void* pUserData)
+{
+    mal_assert(pContext != NULL);
+    mal_assert(callback != NULL);
+
+#ifndef MAL_USE_SDL_1
+    if (!pContext->sdl.usingSDL1) {
+        mal_bool32 isTerminated = MAL_FALSE;
+
+        // Playback
+        if (!isTerminated) {
+            int deviceCount = ((MAL_PFN_SDL_GetNumAudioDevices)pContext->sdl.SDL_GetNumAudioDevices)(0);
+            for (int i = 0; i < deviceCount; ++i) {
+                mal_device_info deviceInfo;
+                mal_zero_object(&deviceInfo);
+
+                deviceInfo.id.sdl = i;
+                mal_strncpy_s(deviceInfo.name, sizeof(deviceInfo.name), ((MAL_PFN_SDL_GetAudioDeviceName)pContext->sdl.SDL_GetAudioDeviceName)(i, 0), (size_t)-1);
+
+                mal_bool32 cbResult = callback(pContext, mal_device_type_playback, &deviceInfo, pUserData);
+                if (cbResult == MAL_FALSE) {
+                    isTerminated = MAL_TRUE;
+                    break;
+                }
+            }
+        }
+
+        // Capture
+        if (!isTerminated) {
+            int deviceCount = ((MAL_PFN_SDL_GetNumAudioDevices)pContext->sdl.SDL_GetNumAudioDevices)(1);
+            for (int i = 0; i < deviceCount; ++i) {
+                mal_device_info deviceInfo;
+                mal_zero_object(&deviceInfo);
+
+                deviceInfo.id.sdl = i;
+                mal_strncpy_s(deviceInfo.name, sizeof(deviceInfo.name), ((MAL_PFN_SDL_GetAudioDeviceName)pContext->sdl.SDL_GetAudioDeviceName)(i, 1), (size_t)-1);
+
+                mal_bool32 cbResult = callback(pContext, mal_device_type_capture, &deviceInfo, pUserData);
+                if (cbResult == MAL_FALSE) {
+                    isTerminated = MAL_TRUE;
+                    break;
+                }
+            }
+        }
+    } else
+#endif
+    {
+        // SDL1 only uses default devices.
+        mal_bool32 cbResult = MAL_TRUE;
+
+        // Playback.
+        if (cbResult) {
+            mal_device_info deviceInfo;
+            mal_zero_object(&deviceInfo);
+            mal_strncpy_s(deviceInfo.name, sizeof(deviceInfo.name), MAL_DEFAULT_PLAYBACK_DEVICE_NAME, (size_t)-1);
+            cbResult = callback(pContext, mal_device_type_playback, &deviceInfo, pUserData);
+        }
+        
+        // Capture.
+        if (cbResult) {
+            mal_device_info deviceInfo;
+            mal_zero_object(&deviceInfo);
+            mal_strncpy_s(deviceInfo.name, sizeof(deviceInfo.name), MAL_DEFAULT_CAPTURE_DEVICE_NAME, (size_t)-1);
+            cbResult = callback(pContext, mal_device_type_capture, &deviceInfo, pUserData);
+        }
+    }
+
+    return MAL_SUCCESS;
+}
+
+mal_result mal_context_get_device_info__sdl(mal_context* pContext, mal_device_type deviceType, const mal_device_id* pDeviceID, mal_share_mode shareMode, mal_device_info* pDeviceInfo)
+{
+    mal_assert(pContext != NULL);
+    (void)shareMode;
+
+#ifndef MAL_USE_SDL_1
+    if (!pContext->sdl.usingSDL1) {
+        if (pDeviceID == NULL) {
+            if (deviceType == mal_device_type_playback) {
+                pDeviceInfo->id.sdl = 0;
+                mal_strncpy_s(pDeviceInfo->name, sizeof(pDeviceInfo->name), MAL_DEFAULT_PLAYBACK_DEVICE_NAME, (size_t)-1);
+            } else {
+                pDeviceInfo->id.sdl = 0;
+                mal_strncpy_s(pDeviceInfo->name, sizeof(pDeviceInfo->name), MAL_DEFAULT_CAPTURE_DEVICE_NAME, (size_t)-1);
+            }
+        } else {
+            pDeviceInfo->id.sdl = pDeviceID->sdl;
+            mal_strncpy_s(pDeviceInfo->name, sizeof(pDeviceInfo->name), ((MAL_PFN_SDL_GetAudioDeviceName)pContext->sdl.SDL_GetAudioDeviceName)(pDeviceID->sdl, (deviceType == mal_device_type_playback) ? 0 : 1), (size_t)-1);
+        }
+    } else
+#endif
+    {
+        // SDL1 uses default devices.
+        if (deviceType == mal_device_type_playback) {
+            pDeviceInfo->id.sdl = 0;
+            mal_strncpy_s(pDeviceInfo->name, sizeof(pDeviceInfo->name), MAL_DEFAULT_PLAYBACK_DEVICE_NAME, (size_t)-1);
+        } else {
+            pDeviceInfo->id.sdl = 0;
+            mal_strncpy_s(pDeviceInfo->name, sizeof(pDeviceInfo->name), MAL_DEFAULT_CAPTURE_DEVICE_NAME, (size_t)-1);
+        }
+    }
+
+    return MAL_SUCCESS;
+}
 
 mal_result mal_context_init__sdl(mal_context* pContext)
 {
@@ -13674,6 +13788,10 @@ mal_result mal_context_init__sdl(mal_context* pContext)
     if (resultSDL != 0) {
         return MAL_ERROR;
     }
+
+    pContext->onDeviceIDEqual = mal_context_is_device_id_equal__sdl;
+    pContext->onEnumDevices   = mal_context_enumerate_devices__sdl;
+    pContext->onGetDeviceInfo = mal_context_get_device_info__sdl;
 
     return MAL_SUCCESS;
 }
