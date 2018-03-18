@@ -12677,6 +12677,166 @@ typedef void               (MAL_AL_APIENTRY * MAL_LPALGETBUFFERI)          (mal_
 typedef void               (MAL_AL_APIENTRY * MAL_LPALGETBUFFER3I)         (mal_ALuint buffer, mal_ALenum param, mal_ALint *value1, mal_ALint *value2, mal_ALint *value3);
 typedef void               (MAL_AL_APIENTRY * MAL_LPALGETBUFFERIV)         (mal_ALuint buffer, mal_ALenum param, mal_ALint *values);
 
+mal_bool32 mal_context_is_device_id_equal__openal(mal_context* pContext, const mal_device_id* pID0, const mal_device_id* pID1)
+{
+    mal_assert(pContext != NULL);
+    mal_assert(pID0 != NULL);
+    mal_assert(pID1 != NULL);
+    (void)pContext;
+
+    return strcmp(pID0->openal, pID1->openal) == 0;
+}
+
+mal_result mal_context_enumerate_devices__openal(mal_context* pContext, mal_enum_devices_callback_proc callback, void* pUserData)
+{
+    mal_assert(pContext != NULL);
+    mal_assert(callback != NULL);
+
+    if (pContext->openal.isEnumerationSupported) {
+        mal_bool32 isTerminated = MAL_FALSE;
+
+        // Playback
+        if (!isTerminated) {
+            const mal_ALCchar* pPlaybackDeviceNames = ((MAL_LPALCGETSTRING)pContext->openal.alcGetString)(NULL, MAL_ALC_DEVICE_SPECIFIER);
+            if (pPlaybackDeviceNames == NULL) {
+                return MAL_NO_DEVICE;
+            }
+
+            // Each device is stored in pDeviceNames, separated by a null-terminator. The string itself is double-null-terminated.
+            const mal_ALCchar* pNextPlaybackDeviceName = pPlaybackDeviceNames;
+            while (pNextPlaybackDeviceName[0] != '\0') {
+                mal_device_info deviceInfo;
+                mal_zero_object(&deviceInfo);
+                mal_strncpy_s(deviceInfo.id.openal, sizeof(deviceInfo.id.openal), (const char*)pNextPlaybackDeviceName, (size_t)-1);
+                mal_strncpy_s(deviceInfo.name,      sizeof(deviceInfo.name),      (const char*)pNextPlaybackDeviceName, (size_t)-1);
+
+                mal_bool32 cbResult = callback(pContext, mal_device_type_playback, &deviceInfo, pUserData);
+                if (cbResult == MAL_FALSE) {
+                    isTerminated = MAL_TRUE;
+                    break;
+                }
+
+                // Move to the next device name.
+                while (*pNextPlaybackDeviceName != '\0') {
+                    pNextPlaybackDeviceName += 1;
+                }
+
+                // Skip past the null terminator.
+                pNextPlaybackDeviceName += 1;
+            };
+        }
+
+        // Capture
+        if (!isTerminated) {
+            const mal_ALCchar* pCaptureDeviceNames = ((MAL_LPALCGETSTRING)pContext->openal.alcGetString)(NULL, MAL_ALC_CAPTURE_DEVICE_SPECIFIER);
+            if (pCaptureDeviceNames == NULL) {
+                return MAL_NO_DEVICE;
+            }
+
+            const mal_ALCchar* pNextCaptureDeviceName = pCaptureDeviceNames;
+            while (pNextCaptureDeviceName[0] != '\0') {
+                mal_device_info deviceInfo;
+                mal_zero_object(&deviceInfo);
+                mal_strncpy_s(deviceInfo.id.openal, sizeof(deviceInfo.id.openal), (const char*)pNextCaptureDeviceName, (size_t)-1);
+                mal_strncpy_s(deviceInfo.name,      sizeof(deviceInfo.name),      (const char*)pNextCaptureDeviceName, (size_t)-1);
+
+                mal_bool32 cbResult = callback(pContext, mal_device_type_capture, &deviceInfo, pUserData);
+                if (cbResult == MAL_FALSE) {
+                    isTerminated = MAL_TRUE;
+                    break;
+                }
+
+                // Move to the next device name.
+                while (*pNextCaptureDeviceName != '\0') {
+                    pNextCaptureDeviceName += 1;
+                }
+
+                // Skip past the null terminator.
+                pNextCaptureDeviceName += 1;
+            };
+        }
+    } else {
+        // Enumeration is not supported. Use default devices.
+        mal_bool32 cbResult = MAL_TRUE;
+
+        // Playback.
+        if (cbResult) {
+            mal_device_info deviceInfo;
+            mal_zero_object(&deviceInfo);
+            mal_strncpy_s(deviceInfo.name, sizeof(deviceInfo.name), MAL_DEFAULT_PLAYBACK_DEVICE_NAME, (size_t)-1);
+            cbResult = callback(pContext, mal_device_type_playback, &deviceInfo, pUserData);
+        }
+        
+        // Capture.
+        if (cbResult) {
+            mal_device_info deviceInfo;
+            mal_zero_object(&deviceInfo);
+            mal_strncpy_s(deviceInfo.name, sizeof(deviceInfo.name), MAL_DEFAULT_CAPTURE_DEVICE_NAME, (size_t)-1);
+            cbResult = callback(pContext, mal_device_type_capture, &deviceInfo, pUserData);
+        }
+    }
+
+    return MAL_SUCCESS;
+}
+
+
+typedef struct
+{
+    mal_device_type deviceType;
+    const mal_device_id* pDeviceID;
+    mal_share_mode shareMode;
+    mal_device_info* pDeviceInfo;
+    mal_bool32 foundDevice;
+} mal_context_get_device_info_enum_callback_data__openal;
+
+mal_bool32 mal_context_get_device_info_enum_callback__openal(mal_context* pContext, mal_device_type deviceType, const mal_device_info* pDeviceInfo, void* pUserData)
+{
+    mal_context_get_device_info_enum_callback_data__openal* pData = (mal_context_get_device_info_enum_callback_data__openal*)pUserData;
+    mal_assert(pData != NULL);
+
+    if (pData->deviceType == deviceType && mal_context_is_device_id_equal__openal(pContext, pData->pDeviceID, &pDeviceInfo->id)) {
+        mal_strcpy_s(pData->pDeviceInfo->name, sizeof(pData->pDeviceInfo->name), pDeviceInfo->name);
+        pData->foundDevice = MAL_TRUE;
+    }
+
+    // Keep enumerating until we have found the device.
+    return !pData->foundDevice;
+}
+
+mal_result mal_context_get_device_info__openal(mal_context* pContext, mal_device_type deviceType, const mal_device_id* pDeviceID, mal_share_mode shareMode, mal_device_info* pDeviceInfo)
+{
+    mal_assert(pContext != NULL);
+    (void)shareMode;
+
+    // Name / Description
+    if (pDeviceID == NULL) {
+        if (deviceType == mal_device_type_playback) {
+            mal_strncpy_s(pDeviceInfo->name, sizeof(pDeviceInfo->name), MAL_DEFAULT_PLAYBACK_DEVICE_NAME, (size_t)-1);
+        } else {
+            mal_strncpy_s(pDeviceInfo->name, sizeof(pDeviceInfo->name), MAL_DEFAULT_CAPTURE_DEVICE_NAME, (size_t)-1);
+        }
+
+        return MAL_SUCCESS;
+    } else {
+        mal_context_get_device_info_enum_callback_data__openal data;
+        data.deviceType = deviceType;
+        data.pDeviceID = pDeviceID;
+        data.shareMode = shareMode;
+        data.pDeviceInfo = pDeviceInfo;
+        data.foundDevice = MAL_FALSE;
+        mal_result result = mal_context_enumerate_devices__openal(pContext, mal_context_get_device_info_enum_callback__openal, &data);
+        if (result != MAL_SUCCESS) {
+            return result;
+        }
+
+        if (data.foundDevice) {
+            return MAL_SUCCESS;
+        } else {
+            return MAL_NO_DEVICE;
+        }
+    }
+}
+
 mal_result mal_context_init__openal(mal_context* pContext)
 {
     mal_assert(pContext != NULL);
@@ -12868,8 +13028,12 @@ mal_result mal_context_init__openal(mal_context* pContext)
 
     // We depend on the ALC_ENUMERATION_EXT extension for enumeration. If this is not supported we fall back to default devices.
     pContext->openal.isEnumerationSupported = ((MAL_LPALCISEXTENSIONPRESENT)pContext->openal.alcIsExtensionPresent)(NULL, "ALC_ENUMERATION_EXT");
-    pContext->openal.isFloat32Supported = ((MAL_LPALISEXTENSIONPRESENT)pContext->openal.alIsExtensionPresent)("AL_EXT_float32");
-    pContext->openal.isMCFormatsSupported = ((MAL_LPALISEXTENSIONPRESENT)pContext->openal.alIsExtensionPresent)("AL_EXT_MCFORMATS");
+    pContext->openal.isFloat32Supported     = ((MAL_LPALISEXTENSIONPRESENT)pContext->openal.alIsExtensionPresent)("AL_EXT_float32");
+    pContext->openal.isMCFormatsSupported   = ((MAL_LPALISEXTENSIONPRESENT)pContext->openal.alIsExtensionPresent)("AL_EXT_MCFORMATS");
+
+    pContext->onDeviceIDEqual = mal_context_is_device_id_equal__openal;
+    pContext->onEnumDevices   = mal_context_enumerate_devices__openal;
+    pContext->onGetDeviceInfo = mal_context_get_device_info__openal;
 
     return MAL_SUCCESS;
 }
