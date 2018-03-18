@@ -1439,6 +1439,8 @@ mal_result mal_context_get_devices(mal_context* pContext, mal_device_info** ppPl
 // backends and devices support shared or exclusive mode, in which case this function will fail
 // if the requested share mode is unsupported.
 //
+// This leaves pDeviceInfo unmodified in the result of an error.
+//
 // Return Value:
 //   MAL_SUCCESS if successful; any other error code otherwise.
 //
@@ -5406,18 +5408,20 @@ BOOL CALLBACK mal_context_get_device_info_callback__dsound(LPGUID lpGuid, LPCSTR
     mal_assert(pData != NULL);
 
     if ((pData->pDeviceID == NULL || mal_is_guid_equal(pData->pDeviceID->dsound, &MAL_GUID_NULL)) && (lpGuid == NULL || mal_is_guid_equal(lpGuid, &MAL_GUID_NULL))) {
+        // Default device.
         mal_strncpy_s(pData->pDeviceInfo->name, sizeof(pData->pDeviceInfo->name), lpcstrDescription, (size_t)-1);
         pData->found = MAL_TRUE;
         return FALSE;   // Stop enumeration.
     } else {
-        if (memcmp(pData->pDeviceID->dsound, lpGuid, sizeof(pData->pDeviceID->dsound)) == 0) {
-            mal_strncpy_s(pData->pDeviceInfo->name, sizeof(pData->pDeviceInfo->name), lpcstrDescription, (size_t)-1);
-            pData->found = MAL_TRUE;
-            return FALSE;   // Stop enumeration.
+        // Not the default device.
+        if (lpGuid != NULL) {
+            if (memcmp(pData->pDeviceID->dsound, lpGuid, sizeof(pData->pDeviceID->dsound)) == 0) {
+                mal_strncpy_s(pData->pDeviceInfo->name, sizeof(pData->pDeviceInfo->name), lpcstrDescription, (size_t)-1);
+                pData->found = MAL_TRUE;
+                return FALSE;   // Stop enumeration.
+            }
         }
     }
-
-    
 
     return TRUE;
 }
@@ -14097,14 +14101,17 @@ mal_result mal_context_get_devices(mal_context* pContext, mal_device_info** ppPl
 
 mal_result mal_context_get_device_info(mal_context* pContext, mal_device_type type, const mal_device_id* pDeviceID, mal_share_mode shareMode, mal_device_info* pDeviceInfo)
 {
-    if (pDeviceInfo == NULL) return MAL_INVALID_ARGS;
-    mal_zero_object(pDeviceInfo);
+    // NOTE: Do not clear pDeviceInfo on entry. The reason is the pDeviceID may actually point to pDeviceInfo->id which will break things.
+    if (pContext == NULL || pDeviceInfo == NULL) {
+        return MAL_INVALID_ARGS;
+    }
 
-    if (pContext == NULL) return MAL_INVALID_ARGS;
+    mal_device_info deviceInfo;
+    mal_zero_object(&deviceInfo);
 
     // Help the backend out by copying over the device ID if we have one.
     if (pDeviceID != NULL) {
-        memcpy(&pDeviceInfo->id, pDeviceID, sizeof(*pDeviceID));
+        mal_copy_memory(&deviceInfo.id, pDeviceID, sizeof(*pDeviceID));
     }
 
     // The backend may have an optimized device info retrieval function. If so, try that first.
@@ -14112,10 +14119,11 @@ mal_result mal_context_get_device_info(mal_context* pContext, mal_device_type ty
         mal_result result;
         mal_mutex_lock(&pContext->deviceInfoLock);
         {
-            result = pContext->onGetDeviceInfo(pContext, type, pDeviceID, shareMode, pDeviceInfo);
+            result = pContext->onGetDeviceInfo(pContext, type, pDeviceID, shareMode, &deviceInfo);
         }
         mal_mutex_unlock(&pContext->deviceInfoLock);
 
+        *pDeviceInfo = deviceInfo;
         return result;
     }
 
