@@ -7223,7 +7223,7 @@ mal_channel mal_convert_alsa_channel_position_to_mal_channel(unsigned int alsaCh
 mal_bool32 mal_is_common_device_name__alsa(const char* name)
 {
     for (size_t iName = 0; iName < mal_countof(g_malCommonDeviceNamesALSA); ++iName) {
-        if (strcmp(name, g_malCommonDeviceNamesALSA[iName]) == 0) {
+        if (mal_strcmp(name, g_malCommonDeviceNamesALSA[iName]) == 0) {
             return MAL_TRUE;
         }
     }
@@ -7235,7 +7235,7 @@ mal_bool32 mal_is_common_device_name__alsa(const char* name)
 mal_bool32 mal_is_playback_device_blacklisted__alsa(const char* name)
 {
     for (size_t iName = 0; iName < mal_countof(g_malBlacklistedPlaybackDeviceNamesALSA); ++iName) {
-        if (strcmp(name, g_malBlacklistedPlaybackDeviceNamesALSA[iName]) == 0) {
+        if (mal_strcmp(name, g_malBlacklistedPlaybackDeviceNamesALSA[iName]) == 0) {
             return MAL_TRUE;
         }
     }
@@ -7246,7 +7246,7 @@ mal_bool32 mal_is_playback_device_blacklisted__alsa(const char* name)
 mal_bool32 mal_is_capture_device_blacklisted__alsa(const char* name)
 {
     for (size_t iName = 0; iName < mal_countof(g_malBlacklistedCaptureDeviceNamesALSA); ++iName) {
-        if (strcmp(name, g_malBlacklistedCaptureDeviceNamesALSA[iName]) == 0) {
+        if (mal_strcmp(name, g_malBlacklistedCaptureDeviceNamesALSA[iName]) == 0) {
             return MAL_TRUE;
         }
     }
@@ -7433,10 +7433,10 @@ mal_result mal_context_enumerate_devices__alsa(mal_context* pContext, mal_enum_d
         char* IOID = ((mal_snd_device_name_get_hint_proc)pContext->alsa.snd_device_name_get_hint)(*ppNextDeviceHint, "IOID");
 
         mal_device_type deviceType = mal_device_type_playback;
-        if ((IOID == NULL || strcmp(IOID, "Output") == 0)) {
+        if ((IOID == NULL || mal_strcmp(IOID, "Output") == 0)) {
             deviceType = mal_device_type_playback;
         }
-        if ((IOID != NULL && strcmp(IOID, "Input" ) == 0)) {
+        if ((IOID != NULL && mal_strcmp(IOID, "Input" ) == 0)) {
             deviceType = mal_device_type_capture;
         }
 
@@ -7584,7 +7584,7 @@ mal_bool32 mal_context_get_device_info_enum_callback__alsa(mal_context* pContext
     mal_context_get_device_info_enum_callback_data__alsa* pData = (mal_context_get_device_info_enum_callback_data__alsa*)pUserData;
     mal_assert(pData != NULL);
 
-    if (pData->pDeviceID == NULL && strcmp(pDeviceInfo->id.alsa, "default") == 0) {
+    if (pData->pDeviceID == NULL && mal_strcmp(pDeviceInfo->id.alsa, "default") == 0) {
         mal_strncpy_s(pData->pDeviceInfo->name, sizeof(pData->pDeviceInfo->name), pDeviceInfo->name, (size_t)-1);
         pData->foundDevice = MAL_TRUE;
     } else {
@@ -8198,7 +8198,7 @@ mal_result mal_device_init__alsa(mal_context* pContext, mal_device_type type, ma
 
             const char* deviceName = ((mal_snd_pcm_info_get_name_proc)pContext->alsa.snd_pcm_info_get_name)(pInfo);
             if (deviceName != NULL) {
-                if (strcmp(deviceName, "default") == 0) {
+                if (mal_strcmp(deviceName, "default") == 0) {
                     // It's the default device. We need to use DESC from snd_device_name_hint().
                     char** ppDeviceHints;
                     if (((mal_snd_device_name_hint_proc)pContext->alsa.snd_device_name_hint)(-1, "pcm", (void***)&ppDeviceHints) < 0) {
@@ -8212,9 +8212,9 @@ mal_result mal_device_init__alsa(mal_context* pContext, mal_device_type type, ma
                         char* IOID = ((mal_snd_device_name_get_hint_proc)pContext->alsa.snd_device_name_get_hint)(*ppNextDeviceHint, "IOID");
 
                         mal_bool32 foundDevice = MAL_FALSE;
-                        if ((type == mal_device_type_playback && (IOID == NULL || strcmp(IOID, "Output") == 0)) ||
-                            (type == mal_device_type_capture  && (IOID != NULL && strcmp(IOID, "Input" ) == 0))) {
-                            if (strcmp(NAME, deviceName) == 0) {
+                        if ((type == mal_device_type_playback && (IOID == NULL || mal_strcmp(IOID, "Output") == 0)) ||
+                            (type == mal_device_type_capture  && (IOID != NULL && mal_strcmp(IOID, "Input" ) == 0))) {
+                            if (mal_strcmp(NAME, deviceName) == 0) {
                                 bufferSizeScale = mal_find_default_buffer_size_scale__alsa(DESC);
                                 foundDevice = MAL_TRUE;
                             }
@@ -9270,7 +9270,7 @@ mal_bool32 mal_context_is_device_id_equal__pulse(mal_context* pContext, const ma
     mal_assert(pID1 != NULL);
     (void)pContext;
 
-    return strcmp(pID0->pulse, pID1->pulse) == 0;
+    return mal_strcmp(pID0->pulse, pID1->pulse) == 0;
 }
 
 
@@ -10755,7 +10755,7 @@ mal_bool32 mal_context_is_device_id_equal__oss(mal_context* pContext, const mal_
     mal_assert(pID1 != NULL);
     (void)pContext;
 
-    return strcmp(pID0->oss, pID1->oss) == 0;
+    return mal_strcmp(pID0->oss, pID1->oss) == 0;
 }
 
 mal_result mal_context_enumerate_devices__oss(mal_context* pContext, mal_enum_devices_callback_proc callback, void* pUserData)
@@ -10849,7 +10849,7 @@ mal_result mal_context_get_device_info__oss(mal_context* pContext, mal_device_ty
             ai.dev = iAudioDevice;
             result = ioctl(fd, SNDCTL_AUDIOINFO, &ai);
             if (result != -1) {
-                if (strcmp(ai.devnode, pDeviceID->oss) == 0) {
+                if (mal_strcmp(ai.devnode, pDeviceID->oss) == 0) {
                     // It has the same name, so now just confirm the type.
                     if ((deviceType == mal_device_type_playback && ((ai.caps & PCM_CAP_OUTPUT) != 0)) ||
                         (deviceType == mal_device_type_capture  && ((ai.caps & PCM_CAP_INPUT)  != 0))) {
@@ -12077,7 +12077,7 @@ mal_bool32 mal_context_is_device_id_equal__openal(mal_context* pContext, const m
     mal_assert(pID1 != NULL);
     (void)pContext;
 
-    return strcmp(pID0->openal, pID1->openal) == 0;
+    return mal_strcmp(pID0->openal, pID1->openal) == 0;
 }
 
 mal_result mal_context_enumerate_devices__openal(mal_context* pContext, mal_enum_devices_callback_proc callback, void* pUserData)
