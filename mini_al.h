@@ -315,6 +315,7 @@ extern "C" {
     #define MAL_ENABLE_NULL
 #endif
 
+#include <stddef.h> // For size_t.
 
 #if defined(_MSC_VER) && _MSC_VER < 1600
 typedef   signed char    mal_int8;
@@ -6111,6 +6112,38 @@ mal_result mal_device__main_loop__dsound(mal_device* pDevice)
 //
 ///////////////////////////////////////////////////////////////////////////////
 #ifdef MAL_HAS_WINMM
+
+// Some older compilers don't have WAVEOUTCAPS2A and WAVEINCAPS2A, so we'll need to write this ourselves. These structures
+// are exactly the same as the older ones but they have a few GUIDs for manufacturer/product/name identification. I'm keeping
+// the names the same as the Win32 library for consistency, but namespaced to avoid naming conflicts with the Win32 version.
+typedef struct
+{
+    WORD wMid;
+    WORD wPid;
+    MMVERSION vDriverVersion;
+    CHAR szPname[MAXPNAMELEN];
+    DWORD dwFormats;
+    WORD wChannels;
+    WORD wReserved1;
+    DWORD dwSupport;
+    GUID ManufacturerGuid;
+    GUID ProductGuid;
+    GUID NameGuid;
+} MAL_WAVEOUTCAPS2A;
+typedef struct
+{
+    WORD wMid;
+    WORD wPid;
+    MMVERSION vDriverVersion;
+    CHAR szPname[MAXPNAMELEN];
+    DWORD dwFormats;
+    WORD wChannels;
+    WORD wReserved1;
+    GUID ManufacturerGuid;
+    GUID ProductGuid;
+    GUID NameGuid;
+} MAL_WAVEINCAPS2A;
+
 typedef UINT     (WINAPI * MAL_PFN_waveOutGetNumDevs)(void);
 typedef MMRESULT (WINAPI * MAL_PFN_waveOutGetDevCapsA)(UINT_PTR uDeviceID, LPWAVEOUTCAPSA pwoc, UINT cbwoc);
 typedef MMRESULT (WINAPI * MAL_PFN_waveOutOpen)(LPHWAVEOUT phwo, UINT uDeviceID, LPCWAVEFORMATEX pwfx, DWORD_PTR dwCallback, DWORD_PTR dwInstance, DWORD fdwOpen);
@@ -6239,7 +6272,7 @@ mal_result mal_context_get_device_info_from_WAVECAPS(mal_context* pContext, MAL_
     return MAL_SUCCESS;
 }
 
-mal_result mal_context_get_device_info_from_WAVEOUTCAPS2(mal_context* pContext, WAVEOUTCAPS2A* pCaps, mal_device_info* pDeviceInfo)
+mal_result mal_context_get_device_info_from_WAVEOUTCAPS2(mal_context* pContext, MAL_WAVEOUTCAPS2A* pCaps, mal_device_info* pDeviceInfo)
 {
     mal_assert(pContext != NULL);
     mal_assert(pCaps != NULL);
@@ -6253,7 +6286,7 @@ mal_result mal_context_get_device_info_from_WAVEOUTCAPS2(mal_context* pContext, 
     return mal_context_get_device_info_from_WAVECAPS(pContext, &caps, pDeviceInfo);
 }
 
-mal_result mal_context_get_device_info_from_WAVEINCAPS2(mal_context* pContext, WAVEINCAPS2A* pCaps, mal_device_info* pDeviceInfo)
+mal_result mal_context_get_device_info_from_WAVEINCAPS2(mal_context* pContext, MAL_WAVEINCAPS2A* pCaps, mal_device_info* pDeviceInfo)
 {
     mal_assert(pContext != NULL);
     mal_assert(pCaps != NULL);
@@ -6286,7 +6319,7 @@ mal_result mal_context_enumerate_devices__winmm(mal_context* pContext, mal_enum_
     // Playback.
     UINT playbackDeviceCount = ((MAL_PFN_waveOutGetNumDevs)pContext->winmm.waveOutGetNumDevs)();
     for (UINT iPlaybackDevice = 0; iPlaybackDevice < playbackDeviceCount; ++iPlaybackDevice) {
-        WAVEOUTCAPS2A caps;
+        MAL_WAVEOUTCAPS2A caps;
         mal_zero_object(&caps);
         MMRESULT result = ((MAL_PFN_waveOutGetDevCapsA)pContext->winmm.waveOutGetDevCapsA)(iPlaybackDevice, (WAVEOUTCAPSA*)&caps, sizeof(caps));
         if (result == MMSYSERR_NOERROR) {
@@ -6306,7 +6339,7 @@ mal_result mal_context_enumerate_devices__winmm(mal_context* pContext, mal_enum_
     // Capture.
     UINT captureDeviceCount = ((MAL_PFN_waveInGetNumDevs)pContext->winmm.waveInGetNumDevs)();
     for (UINT iCaptureDevice = 0; iCaptureDevice < captureDeviceCount; ++iCaptureDevice) {
-        WAVEINCAPS2A caps;
+        MAL_WAVEINCAPS2A caps;
         mal_zero_object(&caps);
         MMRESULT result = ((MAL_PFN_waveInGetDevCapsA)pContext->winmm.waveInGetDevCapsA)(iCaptureDevice, (WAVEINCAPSA*)&caps, sizeof(caps));
         if (result == MMSYSERR_NOERROR) {
@@ -6339,14 +6372,14 @@ mal_result mal_context_get_device_info__winmm(mal_context* pContext, mal_device_
     pDeviceInfo->id.winmm = winMMDeviceID;
 
     if (deviceType == mal_device_type_playback) {
-        WAVEOUTCAPS2A caps;
+        MAL_WAVEOUTCAPS2A caps;
         mal_zero_object(&caps);
         MMRESULT result = ((MAL_PFN_waveOutGetDevCapsA)pContext->winmm.waveOutGetDevCapsA)(winMMDeviceID, (WAVEOUTCAPSA*)&caps, sizeof(caps));
         if (result == MMSYSERR_NOERROR) {
             return mal_context_get_device_info_from_WAVEOUTCAPS2(pContext, &caps, pDeviceInfo);
         }
     } else {
-        WAVEINCAPS2A caps;
+        MAL_WAVEINCAPS2A caps;
         mal_zero_object(&caps);
         MMRESULT result = ((MAL_PFN_waveInGetDevCapsA)pContext->winmm.waveInGetDevCapsA)(winMMDeviceID, (WAVEINCAPSA*)&caps, sizeof(caps));
         if (result == MMSYSERR_NOERROR) {
