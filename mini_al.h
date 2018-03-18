@@ -11149,7 +11149,7 @@ mal_result mal_device_init__jack(mal_context* pContext, mal_device_type type, ma
     mal_assert(pDevice != NULL);
 
     (void)pContext;
-    
+
     // Only supporting default devices with JACK.
     if (pDeviceID != NULL && pDeviceID->jack != 0) {
         return MAL_NO_DEVICE;
@@ -11335,6 +11335,144 @@ int mal_open_temp_device__oss()
     return -1;
 }
 
+mal_bool32 mal_context_is_device_id_equal__oss(mal_context* pContext, const mal_device_id* pID0, const mal_device_id* pID1)
+{
+    mal_assert(pContext != NULL);
+    mal_assert(pID0 != NULL);
+    mal_assert(pID1 != NULL);
+    (void)pContext;
+
+    return strcmp(pID0->oss, pID1->oss) == 0;
+}
+
+mal_result mal_context_enumerate_devices__oss(mal_context* pContext, mal_enum_devices_callback_proc callback, void* pUserData)
+{
+    mal_assert(pContext != NULL);
+    mal_assert(callback != NULL);
+
+    int fd = mal_open_temp_device__oss();
+    if (fd == -1) {
+        return mal_context_post_error(pContext, NULL, "[OSS] Failed to open a temporary device for retrieving system information used for device enumeration.", MAL_NO_BACKEND);
+    }
+
+    oss_sysinfo si;
+    int result = ioctl(fd, SNDCTL_SYSINFO, &si);
+    if (result != -1) {
+        for (int iAudioDevice = 0; iAudioDevice < si.numaudios; ++iAudioDevice) {
+            oss_audioinfo ai;
+            ai.dev = iAudioDevice;
+            result = ioctl(fd, SNDCTL_AUDIOINFO, &ai);
+            if (result != -1) {
+                if (ai.devnode[0] != '\0') {    // <-- Can be blank, according to documentation.
+                    mal_device_info deviceInfo;
+                    mal_zero_object(&deviceInfo);
+
+                    // ID
+                    mal_strncpy_s(deviceInfo.id.oss, sizeof(deviceInfo.id.oss), ai.devnode, (size_t)-1);
+
+                    // The human readable device name should be in the "ai.handle" variable, but it can
+                    // sometimes be empty in which case we just fall back to "ai.name" which is less user
+                    // friendly, but usually has a value.
+                    if (ai.handle[0] != '\0') {
+                        mal_strncpy_s(deviceInfo.name, sizeof(deviceInfo.name), ai.handle, (size_t)-1);
+                    } else {
+                        mal_strncpy_s(deviceInfo.name, sizeof(deviceInfo.name), ai.name, (size_t)-1);
+                    }
+
+                    // The device can be both playback and capture.
+                    mal_bool32 isTerminating = MAL_FALSE;
+                    if (!isTerminating && (ai.caps & PCM_CAP_OUTPUT) != 0) {
+                        isTerminating = !callback(pContext, mal_device_type_playback, &deviceInfo, pUserData);
+                    }
+                    if (!isTerminating && (ai.caps & PCM_CAP_INPUT) != 0) {
+                        isTerminating = !callback(pContext, mal_device_type_capture, &deviceInfo, pUserData);
+                    }
+
+                    if (isTerminating) {
+                        break;
+                    }
+                }
+            }
+        }
+    } else {
+        close(fd);
+        return mal_context_post_error(pContext, NULL, "[OSS] Failed to retrieve system information for device enumeration.", MAL_NO_BACKEND);
+    }
+
+    close(fd);
+    return MAL_SUCCESS;
+}
+
+mal_result mal_context_get_device_info__oss(mal_context* pContext, mal_device_type deviceType, const mal_device_id* pDeviceID, mal_share_mode shareMode, mal_device_info* pDeviceInfo)
+{
+    mal_assert(pContext != NULL);
+    (void)shareMode;
+
+    // Handle the default device a little differently.
+    if (pDeviceID == NULL) {
+        if (deviceType == mal_device_type_playback) {
+            mal_strncpy_s(pDeviceInfo->name, sizeof(pDeviceInfo->name), MAL_DEFAULT_PLAYBACK_DEVICE_NAME, (size_t)-1);
+        } else {
+            mal_strncpy_s(pDeviceInfo->name, sizeof(pDeviceInfo->name), MAL_DEFAULT_CAPTURE_DEVICE_NAME, (size_t)-1);
+        }
+
+        return MAL_SUCCESS;
+    }
+
+
+    // If we get here it means we are _not_ using the default device.
+    mal_bool32 foundDevice = MAL_FALSE;
+
+    int fd = mal_open_temp_device__oss();
+    if (fd == -1) {
+        return mal_context_post_error(pContext, NULL, "[OSS] Failed to open a temporary device for retrieving system information used for device enumeration.", MAL_NO_BACKEND);
+    }
+
+    oss_sysinfo si;
+    int result = ioctl(fd, SNDCTL_SYSINFO, &si);
+    if (result != -1) {
+        for (int iAudioDevice = 0; iAudioDevice < si.numaudios; ++iAudioDevice) {
+            oss_audioinfo ai;
+            ai.dev = iAudioDevice;
+            result = ioctl(fd, SNDCTL_AUDIOINFO, &ai);
+            if (result != -1) {
+                if (strcmp(ai.devnode, pDeviceID->oss) == 0) {
+                    // It has the same name, so now just confirm the type.
+                    if ((deviceType == mal_device_type_playback && ((ai.caps & PCM_CAP_OUTPUT) != 0)) ||
+                        (deviceType == mal_device_type_capture  && ((ai.caps & PCM_CAP_INPUT)  != 0))) {
+                        // ID
+                        mal_strncpy_s(pDeviceInfo->id.oss, sizeof(pDeviceInfo->id.oss), ai.devnode, (size_t)-1);
+
+                        // The human readable device name should be in the "ai.handle" variable, but it can
+                        // sometimes be empty in which case we just fall back to "ai.name" which is less user
+                        // friendly, but usually has a value.
+                        if (ai.handle[0] != '\0') {
+                            mal_strncpy_s(pDeviceInfo->name, sizeof(pDeviceInfo->name), ai.handle, (size_t)-1);
+                        } else {
+                            mal_strncpy_s(pDeviceInfo->name, sizeof(pDeviceInfo->name), ai.name, (size_t)-1);
+                        }
+
+                        foundDevice = MAL_TRUE;
+                        break;
+                    }
+                }
+            }
+        }
+    } else {
+        close(fd);
+        return mal_context_post_error(pContext, NULL, "[OSS] Failed to retrieve system information for device enumeration.", MAL_NO_BACKEND);
+    }
+
+
+    close(fd);
+
+    if (foundDevice) {
+        return MAL_SUCCESS;
+    } else {
+        return MAL_NO_DEVICE;
+    }
+}
+
 mal_result mal_context_init__oss(mal_context* pContext)
 {
     mal_assert(pContext != NULL);
@@ -11355,6 +11493,10 @@ mal_result mal_context_init__oss(mal_context* pContext)
 
     pContext->oss.versionMajor = ((ossVersion & 0xFF0000) >> 16);
     pContext->oss.versionMinor = ((ossVersion & 0x00FF00) >> 8);
+
+    pContext->onDeviceIDEqual = mal_context_is_device_id_equal__oss;
+    pContext->onEnumDevices   = mal_context_enumerate_devices__oss;
+    pContext->onGetDeviceInfo = mal_context_get_device_info__oss;
 
     close(fd);
     return MAL_SUCCESS;
@@ -11553,14 +11695,13 @@ mal_result mal_device_init__oss(mal_context* pContext, mal_device_type type, mal
     pDevice->periods = (mal_uint32)(ossFragment >> 16);
     pDevice->bufferSizeInFrames = (mal_uint32)(pDevice->oss.fragmentSizeInFrames * pDevice->periods);
 
-
     // Set the internal channel map. Not sure if this can be queried. For now just using our default assumptions.
     mal_get_standard_channel_map(mal_standard_channel_map_default, pDevice->internalChannels, pDevice->internalChannelMap);
 
 
     // When not using MMAP mode, we need to use an intermediary buffer for the client <-> device transfer. We do
     // everything by the size of a fragment.
-    pDevice->oss.pIntermediaryBuffer = mal_malloc(fragmentSizeInBytes);
+    pDevice->oss.pIntermediaryBuffer = mal_malloc(actualFragmentSizeInBytes);
     if (pDevice->oss.pIntermediaryBuffer == NULL) {
         close(pDevice->oss.fd);
         return mal_post_error(pDevice, "[OSS] Failed to allocate memory for intermediary buffer.", MAL_OUT_OF_MEMORY);
