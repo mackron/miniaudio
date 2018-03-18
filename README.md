@@ -12,7 +12,7 @@ Features
 - Compilable as both C and C++.
 - Easy to build.
   - It should Just Work out of the box, without the need to download and install any dependencies.
-  - Does not require linking to anything on the Windows build and only -ldl on Linux.
+  - Does not require linking to anything on the Windows build and only -ldl and -lpthread on Linux.
   - The header section does not include any platform specific headers.
 - A very simple API.
 - Transparent data structures with direct access to internal data.
