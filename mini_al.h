@@ -13635,6 +13635,8 @@ mal_result mal_context_uninit_backend_apis__nix(mal_context* pContext)
 {
 #if defined(MAL_USE_RUNTIME_LINKING_FOR_PTHREAD) && !defined(MAL_NO_RUNTIME_LINKING)
     mal_dlclose(pContext->posix.pthreadSO);
+#else
+    (void)pContext;
 #endif
 
     return MAL_SUCCESS;
