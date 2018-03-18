@@ -3312,7 +3312,7 @@ mal_result mal_context_enumerate_devices__null(mal_context* pContext, mal_enum_d
         mal_strncpy_s(deviceInfo.name, sizeof(deviceInfo.name), "NULL Playback Device", (size_t)-1);
         cbResult = callback(pContext, mal_device_type_playback, &deviceInfo, pUserData);
     }
-        
+
     // Capture.
     if (cbResult) {
         mal_device_info deviceInfo;
@@ -4255,7 +4255,7 @@ mal_result mal_context_enumerate_devices__wasapi(mal_context* pContext, mal_enum
             mal_strncpy_s(deviceInfo.name, sizeof(deviceInfo.name), MAL_DEFAULT_PLAYBACK_DEVICE_NAME, (size_t)-1);
             cbResult = callback(pContext, mal_device_type_playback, &deviceInfo, pUserData);
         }
-        
+
         // Capture.
         if (cbResult) {
             mal_device_info deviceInfo;
@@ -5438,7 +5438,7 @@ mal_result mal_context_get_device_info__dsound(mal_context* pContext, mal_device
         }
     } else {
         // I don't think there's a way to get the name of the default device with DirectSound. In this case we just need to use defaults.
-        
+
         // ID
         mal_zero_memory(pDeviceInfo->id.dsound, 16);
 
@@ -10340,7 +10340,7 @@ mal_result mal_context_enumerate_devices__jack(mal_context* pContext, mal_enum_d
         mal_strncpy_s(deviceInfo.name, sizeof(deviceInfo.name), MAL_DEFAULT_PLAYBACK_DEVICE_NAME, (size_t)-1);
         cbResult = callback(pContext, mal_device_type_playback, &deviceInfo, pUserData);
     }
-        
+
     // Capture.
     if (cbResult) {
         mal_device_info deviceInfo;
@@ -11399,7 +11399,7 @@ return_default_device:
         mal_strncpy_s(deviceInfo.name, sizeof(deviceInfo.name), MAL_DEFAULT_PLAYBACK_DEVICE_NAME, (size_t)-1);
         cbResult = callback(pContext, mal_device_type_playback, &deviceInfo, pUserData);
     }
-        
+
     // Capture.
     if (cbResult) {
         mal_device_info deviceInfo;
@@ -12159,7 +12159,7 @@ mal_result mal_context_enumerate_devices__openal(mal_context* pContext, mal_enum
             mal_strncpy_s(deviceInfo.name, sizeof(deviceInfo.name), MAL_DEFAULT_PLAYBACK_DEVICE_NAME, (size_t)-1);
             cbResult = callback(pContext, mal_device_type_playback, &deviceInfo, pUserData);
         }
-        
+
         // Capture.
         if (cbResult) {
             mal_device_info deviceInfo;
@@ -13003,7 +13003,7 @@ mal_result mal_context_enumerate_devices__sdl(mal_context* pContext, mal_enum_de
             mal_strncpy_s(deviceInfo.name, sizeof(deviceInfo.name), MAL_DEFAULT_PLAYBACK_DEVICE_NAME, (size_t)-1);
             cbResult = callback(pContext, mal_device_type_playback, &deviceInfo, pUserData);
         }
-        
+
         // Capture.
         if (cbResult) {
             mal_device_info deviceInfo;
