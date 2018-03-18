@@ -17490,12 +17490,12 @@ mal_result mal_decoder__preinit_file(const char* pFilePath, const mal_decoder_co
     FILE* pFile;
 #if defined(_MSC_VER) && _MSC_VER >= 1400
     if (fopen_s(&pFile, pFilePath, "rb") != 0) {
-        return MAL_FALSE;
+        return MAL_ERROR;
     }
 #else
     pFile = fopen(pFilePath, "rb");
     if (pFile == NULL) {
-        return MAL_FALSE;
+        return MAL_ERROR;
     }
 #endif
 
