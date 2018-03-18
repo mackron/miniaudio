@@ -3417,7 +3417,7 @@ mal_result mal_context_enumerate_devices__null(mal_context* pContext, mal_enum_d
     if (cbResult) {
         mal_device_info deviceInfo;
         mal_zero_object(&deviceInfo);
-        mal_strcpy_s(deviceInfo.name, sizeof(deviceInfo.name), "NULL Playback Device");
+        mal_strncpy_s(deviceInfo.name, sizeof(deviceInfo.name), "NULL Playback Device", (size_t)-1);
         cbResult = callback(pContext, mal_device_type_playback, &deviceInfo, pUserData);
     }
         
@@ -3425,7 +3425,7 @@ mal_result mal_context_enumerate_devices__null(mal_context* pContext, mal_enum_d
     if (cbResult) {
         mal_device_info deviceInfo;
         mal_zero_object(&deviceInfo);
-        mal_strcpy_s(deviceInfo.name, sizeof(deviceInfo.name), "NULL Capture Device");
+        mal_strncpy_s(deviceInfo.name, sizeof(deviceInfo.name), "NULL Capture Device", (size_t)-1);
         cbResult = callback(pContext, mal_device_type_capture, &deviceInfo, pUserData);
     }
 
@@ -3443,9 +3443,9 @@ mal_result mal_context_get_device_info__null(mal_context* pContext, mal_device_t
 
     // Name / Description
     if (deviceType == mal_device_type_playback) {
-        mal_strcpy_s(pDeviceInfo->name, sizeof(pDeviceInfo->name), "NULL Playback Device");
+        mal_strncpy_s(pDeviceInfo->name, sizeof(pDeviceInfo->name), "NULL Playback Device", (size_t)-1);
     } else {
-        mal_strcpy_s(pDeviceInfo->name, sizeof(pDeviceInfo->name), "NULL Capture Device");
+        mal_strncpy_s(pDeviceInfo->name, sizeof(pDeviceInfo->name), "NULL Capture Device", (size_t)-1);
     }
 
     return MAL_SUCCESS;
@@ -6441,7 +6441,7 @@ mal_result mal_context_get_device_info_from_WAVECAPS(mal_context* pContext, MAL_
     // looking in the registry for the full name. If we can't find it there, we need to just fall back to the default name.
 
     // Set the default to begin with.
-    mal_strcpy_s(pDeviceInfo->name, sizeof(pDeviceInfo->name), pCaps->szPname);
+    mal_strncpy_s(pDeviceInfo->name, sizeof(pDeviceInfo->name), pCaps->szPname, (size_t)-1);
 
     // Now try the registry. There's a few things to consider here:
     // - The name GUID can be null, in which we case we just need to stick to the original 31 characters.
@@ -7824,7 +7824,7 @@ mal_result mal_context_enumerate_devices__alsa(mal_context* pContext, mal_enum_d
                 }
             } else {
                 // There's no second line. Just copy the whole description.
-                mal_strcpy_s(deviceInfo.name, sizeof(deviceInfo.name), DESC);
+                mal_strncpy_s(deviceInfo.name, sizeof(deviceInfo.name), DESC, (size_t)-1);
             }
         }
 
@@ -7887,11 +7887,11 @@ mal_bool32 mal_context_get_device_info_enum_callback__alsa(mal_context* pContext
     mal_assert(pData != NULL);
 
     if (pData->pDeviceID == NULL && strcmp(pDeviceInfo->id.alsa, "default") == 0) {
-        mal_strcpy_s(pData->pDeviceInfo->name, sizeof(pData->pDeviceInfo->name), pDeviceInfo->name);
+        mal_strncpy_s(pData->pDeviceInfo->name, sizeof(pData->pDeviceInfo->name), pDeviceInfo->name, (size_t)-1);
         pData->foundDevice = MAL_TRUE;
     } else {
         if (pData->deviceType == deviceType && mal_context_is_device_id_equal__alsa(pContext, pData->pDeviceID, &pDeviceInfo->id)) {
-            mal_strcpy_s(pData->pDeviceInfo->name, sizeof(pData->pDeviceInfo->name), pDeviceInfo->name);
+            mal_strncpy_s(pData->pDeviceInfo->name, sizeof(pData->pDeviceInfo->name), pDeviceInfo->name, (size_t)-1);
             pData->foundDevice = MAL_TRUE;
         }
     }
@@ -8480,7 +8480,7 @@ static mal_result mal_enumerate_devices__alsa(mal_context* pContext, mal_device_
                             }
                         } else {
                             // There's no second line. Just copy the whole description.
-                            mal_strcpy_s(pInfo->name, sizeof(pInfo->name), DESC);
+                            mal_strncpy_s(pInfo->name, sizeof(pInfo->name), DESC, (size_t)-1);
                         }
                     }
 
@@ -9874,11 +9874,11 @@ static void mal_context_get_device_info_sink_callback__pulse(mal_pa_context* pPu
     pData->foundDevice = MAL_TRUE;
 
     if (pInfo->name != NULL) {
-        mal_strcpy_s(pData->pDeviceInfo->id.pulse, sizeof(pData->pDeviceInfo->id.pulse), pInfo->name);
+        mal_strncpy_s(pData->pDeviceInfo->id.pulse, sizeof(pData->pDeviceInfo->id.pulse), pInfo->name, (size_t)-1);
     }
 
     if (pInfo->description != NULL) {
-        mal_strcpy_s(pData->pDeviceInfo->name, sizeof(pData->pDeviceInfo->name), pInfo->description);
+        mal_strncpy_s(pData->pDeviceInfo->name, sizeof(pData->pDeviceInfo->name), pInfo->description, (size_t)-1);
     }
 }
 
@@ -9893,11 +9893,11 @@ static void mal_context_get_device_info_source_callback__pulse(mal_pa_context* p
     pData->foundDevice = MAL_TRUE;
 
     if (pInfo->name != NULL) {
-        mal_strcpy_s(pData->pDeviceInfo->id.pulse, sizeof(pData->pDeviceInfo->id.pulse), pInfo->name);
+        mal_strncpy_s(pData->pDeviceInfo->id.pulse, sizeof(pData->pDeviceInfo->id.pulse), pInfo->name, (size_t)-1);
     }
 
     if (pInfo->description != NULL) {
-        mal_strcpy_s(pData->pDeviceInfo->name, sizeof(pData->pDeviceInfo->name), pInfo->description);
+        mal_strncpy_s(pData->pDeviceInfo->name, sizeof(pData->pDeviceInfo->name), pInfo->description, (size_t)-1);
     }
 }
 
@@ -10375,7 +10375,7 @@ static void mal_device_sink_name_callback(mal_pa_context* pPulseContext, const m
     mal_device* pDevice = (mal_device*)pUserData;
     mal_assert(pDevice != NULL);
 
-    mal_strcpy_s(pDevice->name, sizeof(pDevice->name), pInfo->description);
+    mal_strncpy_s(pDevice->name, sizeof(pDevice->name), pInfo->description, (size_t)-1);
 }
 
 static void mal_device_source_name_callback(mal_pa_context* pPulseContext, const mal_pa_source_info* pInfo, int endOfList, void* pUserData)
@@ -10387,7 +10387,7 @@ static void mal_device_source_name_callback(mal_pa_context* pPulseContext, const
     mal_device* pDevice = (mal_device*)pUserData;
     mal_assert(pDevice != NULL);
 
-    mal_strcpy_s(pDevice->name, sizeof(pDevice->name), pInfo->description);
+    mal_strncpy_s(pDevice->name, sizeof(pDevice->name), pInfo->description, (size_t)-1);
 }
 
 static void mal_device_uninit__pulse(mal_device* pDevice)
@@ -10557,7 +10557,7 @@ static mal_result mal_device_init__pulse(mal_context* pContext, mal_device_type 
 
     char streamName[256];
     if (pConfig->pulse.pStreamName != NULL) {
-        mal_strcpy_s(streamName, sizeof(streamName), pConfig->pulse.pStreamName);
+        mal_strncpy_s(streamName, sizeof(streamName), pConfig->pulse.pStreamName, (size_t)-1);
     } else {
         static int g_StreamCounter = 0;
         mal_strcpy_s(streamName, sizeof(streamName), "mini_al:");
@@ -12795,7 +12795,7 @@ mal_bool32 mal_context_get_device_info_enum_callback__openal(mal_context* pConte
     mal_assert(pData != NULL);
 
     if (pData->deviceType == deviceType && mal_context_is_device_id_equal__openal(pContext, pData->pDeviceID, &pDeviceInfo->id)) {
-        mal_strcpy_s(pData->pDeviceInfo->name, sizeof(pData->pDeviceInfo->name), pDeviceInfo->name);
+        mal_strncpy_s(pData->pDeviceInfo->name, sizeof(pData->pDeviceInfo->name), pDeviceInfo->name, (size_t)-1);
         pData->foundDevice = MAL_TRUE;
     }
 
