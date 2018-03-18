@@ -5442,7 +5442,7 @@ mal_result mal_context_get_device_info__dsound(mal_context* pContext, mal_device
         if (deviceType == mal_device_type_playback) {
             ((mal_DirectSoundEnumerateAProc)pContext->dsound.DirectSoundEnumerateA)(mal_context_get_device_info_callback__dsound, &data);
         } else {
-            ((mal_DirectSoundCaptureEnumerateAProc)pContext->dsound.DirectSoundCaptureEnumerateA)(mal_context_enumerate_devices_callback__dsound, &data);
+            ((mal_DirectSoundCaptureEnumerateAProc)pContext->dsound.DirectSoundCaptureEnumerateA)(mal_context_get_device_info_callback__dsound, &data);
         }
 
         if (data.found) {
