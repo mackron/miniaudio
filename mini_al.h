@@ -55,12 +55,13 @@
 //
 // Building for Linux
 // ------------------
-// The Linux build only requires linking to -ldl. You do not need any development packages for any backend. It
-// depends on pthreads, but you do not need to link to -lpthread.
+// The Linux build only requires linking to -ldl and -lpthread. You do not need any development packages for any
+// of the supported backends.
 //
 // Building for BSD
 // ----------------
-// The BSD build uses OSS. Requires linking to -lossaudio on {Open,Net}BSD, but not FreeBSD.
+// The BSD build uses OSS. Requires linking to -lpthread. Also requires linking to -lossaudio on {Open,Net}BSD, but
+// not FreeBSD.
 //
 // Building for Android
 // --------------------
@@ -2024,6 +2025,12 @@ mal_result mal_decoder_seek_to_frame(mal_decoder* pDecoder, mal_uint64 frameInde
 #endif
 #endif
 
+// Unfortunately using runtime linking for pthreads causes problems. This has occurred for me when testing on FreeBSD. When
+// using runtime linking, deadlocks can occur (for me it happens when loading data from fread()). It turns out that doing
+// compile-time linking fixes this. I'm not sure why this happens, but this is the safest way I can think of to continue. To
+// enable runtime linking, #define this before the implementation of this file. I am not officially supporting this, but I'm
+// leaving it here in case it's useful for somebody, somewhere.
+//#define MAL_USE_RUNTIME_LINKING_FOR_PTHREAD
 
 // Disable run-time linking on certain backends.
 #ifndef MAL_NO_RUNTIME_LINKING
@@ -14493,7 +14500,9 @@ mal_result mal_context_init_backend_apis__win32(mal_context* pContext)
 #else
 mal_result mal_context_uninit_backend_apis__nix(mal_context* pContext)
 {
+#if defined(MAL_USE_RUNTIME_LINKING_FOR_PTHREAD) && !defined(MAL_NO_RUNTIME_LINKING)
     mal_dlclose(pContext->posix.pthreadSO);
+#endif
 
     return MAL_SUCCESS;
 }
@@ -14501,7 +14510,7 @@ mal_result mal_context_uninit_backend_apis__nix(mal_context* pContext)
 mal_result mal_context_init_backend_apis__nix(mal_context* pContext)
 {
     // pthread
-#if !defined(MAL_NO_RUNTIME_LINKING)
+#if defined(MAL_USE_RUNTIME_LINKING_FOR_PTHREAD) && !defined(MAL_NO_RUNTIME_LINKING)
     const char* libpthreadFileNames[] = {
         "libpthread.so",
         "libpthread.so.0",
