@@ -7,5 +7,6 @@ tests/x64/
 tests/Debug/
 tests/Release/
 tests/bin/
-!./tests/DO_NOT_DELETE
+!/tests/DO_NOT_DELETE
+/tests/SDL2.dll
 *.vcxproj.user
