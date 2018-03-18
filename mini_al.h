@@ -905,6 +905,8 @@ struct mal_context
             mal_proc snd_pcm_info_sizeof;
             mal_proc snd_pcm_info_get_name;
             mal_proc snd_config_update_free_global;
+
+            mal_mutex internalDeviceEnumLock;
         } alsa;
 #endif
 #ifdef MAL_SUPPORT_PULSEAUDIO
@@ -7721,8 +7723,11 @@ mal_result mal_context_enumerate_devices__alsa(mal_context* pContext, mal_enum_d
     mal_assert(pContext != NULL);
     mal_assert(callback != NULL);
 
+    mal_mutex_lock(&pContext->alsa.internalDeviceEnumLock);
+
     char** ppDeviceHints;
     if (((mal_snd_device_name_hint_proc)pContext->alsa.snd_device_name_hint)(-1, "pcm", (void***)&ppDeviceHints) < 0) {
+        mal_mutex_unlock(&pContext->alsa.internalDeviceEnumLock);
         return MAL_NO_BACKEND;
     }
 
@@ -7867,6 +7872,8 @@ mal_result mal_context_enumerate_devices__alsa(mal_context* pContext, mal_enum_d
 
     mal_free(pUniqueIDs);
     ((mal_snd_device_name_free_hint_proc)pContext->alsa.snd_device_name_free_hint)((void**)ppDeviceHints);
+
+    mal_mutex_unlock(&pContext->alsa.internalDeviceEnumLock);
 
     return MAL_SUCCESS;
 }
@@ -8079,6 +8086,10 @@ mal_result mal_context_init__alsa(mal_context* pContext)
     pContext->alsa.snd_config_update_free_global          = (mal_proc)_snd_config_update_free_global;
 #endif
 
+    if (mal_mutex_init(pContext, &pContext->alsa.internalDeviceEnumLock) != MAL_SUCCESS) {
+        mal_context_post_error(pContext, NULL, "[ALSA] WARNING: Failed to initialize mutex for internal device enumeration.", MAL_ERROR);
+    }
+
     pContext->onDeviceIDEqual = mal_context_is_device_id_equal__alsa;
     pContext->onEnumDevices   = mal_context_enumerate_devices__alsa;
     pContext->onGetDeviceInfo = mal_context_get_device_info__alsa;
@@ -8097,6 +8108,8 @@ mal_result mal_context_uninit__alsa(mal_context* pContext)
 #ifndef MAL_NO_RUNTIME_LINKING
     mal_dlclose(pContext->alsa.asoundSO);
 #endif
+
+    mal_mutex_uninit(&pContext->alsa.internalDeviceEnumLock);
 
     return MAL_SUCCESS;
 }
@@ -14762,31 +14775,6 @@ mal_result mal_context_get_devices(mal_context* pContext, mal_device_info** ppPl
     return result;
 }
 
-
-typedef struct
-{
-    mal_device_type type;
-    const mal_device_id* pDeviceID;
-    mal_device_info* pDeviceInfo;
-} mal_context_get_device_info__enum_callback_data;
-
-static mal_bool32 mal_context_get_device_info__enum_callback(mal_context* pContext, mal_device_type type, const mal_device_info* pInfoIn, void* pUserData)
-{
-    mal_context_get_device_info__enum_callback_data* pData = (mal_context_get_device_info__enum_callback_data*)pUserData;
-    mal_assert(pData != NULL);
-
-    if (type == pData->type && mal_context__device_id_equal(pContext, &pInfoIn->id, pData->pDeviceID)) {
-        // Found it. Copy the info and stop iteration.
-        if (pData->pDeviceInfo != NULL) {
-            *pData->pDeviceInfo = *pInfoIn;
-        }
-        
-        return MAL_FALSE;   // Stop iteration.
-    } else {
-        // Didn't find it. Continue.
-        return MAL_TRUE;
-    }
-}
 
 mal_result mal_context_get_device_info(mal_context* pContext, mal_device_type type, const mal_device_id* pDeviceID, mal_share_mode shareMode, mal_device_info* pDeviceInfo)
 {
