@@ -48,22 +48,27 @@
 // option before the implementation.
 //
 //
-// Building (Windows)
-// ------------------
+// Building for Windows
+// --------------------
 // The Windows build should compile clean on all popular compilers without the need to configure any include paths
 // nor link to any libraries.
 //
-// Building (Linux)
-// ----------------
+// Building for Linux
+// ------------------
 // The Linux build only requires linking to -ldl. You do not need any development packages for any backend. It
 // depends on pthreads, but you do not need to link to -lpthread.
 //
-// Building (BSD)
-// --------------
+// Building for BSD
+// ----------------
 // The BSD build uses OSS. Requires linking to -lossaudio on {Open,Net}BSD, but not FreeBSD.
 //
-// Building (Emscripten)
-// ---------------------
+// Building for Android
+// --------------------
+// The Android build uses OpenSL|ES, and will require an appropriate API level that supports OpenSL|ES. mini_al has
+// been tested against API levels 16 and 21.
+//
+// Building for Emscripten
+// -----------------------
 // The Emscripten build currently uses SDL 1.2 for it's backend which means specifying "-s USE_SDL=2" is unecessary
 // as of this version. However, if in the future there is legitimate benefit or enough demand for SDL 2 to be used
 // instead, you will need to specify this when compiling.
