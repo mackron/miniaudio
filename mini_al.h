@@ -7187,7 +7187,7 @@ const char* g_malBlacklistedCaptureDeviceNamesALSA[] = {
 
 // This array allows mini_al to control device-specific default buffer sizes. This uses a scaling factor. Order is important. If
 // any part of the string is present in the device's name, the associated scale will be used.
-struct
+static struct
 {
     const char* name;
     float scale;
@@ -7460,6 +7460,8 @@ mal_result mal_context_enumerate_devices__alsa(mal_context* pContext, mal_enum_d
     mal_assert(pContext != NULL);
     mal_assert(callback != NULL);
 
+    mal_bool32 cbResult = MAL_TRUE;
+
     mal_mutex_lock(&pContext->alsa.internalDeviceEnumLock);
 
     char** ppDeviceHints;
@@ -7470,7 +7472,6 @@ mal_result mal_context_enumerate_devices__alsa(mal_context* pContext, mal_enum_d
 
     mal_device_id* pUniqueIDs = NULL;
     mal_uint32 uniqueIDCount = 0;
-
 
     char** ppNextDeviceHint = ppDeviceHints;
     while (*ppNextDeviceHint != NULL) {
@@ -7521,7 +7522,7 @@ mal_result mal_context_enumerate_devices__alsa(mal_context* pContext, mal_enum_d
                     goto next_device;   // The device has already been enumerated. Move on to the next one.
                 } else {
                     // The device has not yet been enumerated. Make sure it's added to our list so that it's not enumerated again.
-                    mal_device_id* pNewUniqueIDs = mal_realloc(pUniqueIDs, sizeof(*pUniqueIDs) * (uniqueIDCount + 1));
+                    mal_device_id* pNewUniqueIDs = (mal_device_id*)mal_realloc(pUniqueIDs, sizeof(*pUniqueIDs) * (uniqueIDCount + 1));
                     if (pNewUniqueIDs == NULL) {
                         goto next_device;   // Failed to allocate memory.
                     }
@@ -7570,7 +7571,6 @@ mal_result mal_context_enumerate_devices__alsa(mal_context* pContext, mal_enum_d
             }
         }
 
-        mal_bool32 cbResult = MAL_TRUE;
         if (!mal_is_device_blacklisted__alsa(deviceType, NAME)) {
             cbResult = callback(pContext, deviceType, &deviceInfo, pUserData);
         }
@@ -9081,7 +9081,7 @@ typedef void (* mal_pa_free_cb_t)          (void* p);
 
 typedef mal_pa_mainloop*          (* mal_pa_mainloop_new_proc)                   ();
 typedef void                      (* mal_pa_mainloop_free_proc)                  (mal_pa_mainloop* m);
-typedef mal_pa_mainloop_api*      (* mal_pa_mainloop_get_api_proc)               ();
+typedef mal_pa_mainloop_api*      (* mal_pa_mainloop_get_api_proc)               (mal_pa_mainloop* m);
 typedef int                       (* mal_pa_mainloop_iterate_proc)               (mal_pa_mainloop* m, int block, int* retval);
 typedef void                      (* mal_pa_mainloop_wakeup_proc)                (mal_pa_mainloop* m);
 typedef mal_pa_context*           (* mal_pa_context_new_proc)                    (mal_pa_mainloop_api* mainloop, const char* name);
@@ -9089,7 +9089,7 @@ typedef void                      (* mal_pa_context_unref_proc)                 
 typedef int                       (* mal_pa_context_connect_proc)                (mal_pa_context* c, const char* server, mal_pa_context_flags_t flags, const mal_pa_spawn_api* api);
 typedef void                      (* mal_pa_context_disconnect_proc)             (mal_pa_context* c);
 typedef void                      (* mal_pa_context_set_state_callback_proc)     (mal_pa_context* c, mal_pa_context_notify_cb_t cb, void* userdata);
-typedef mal_pa_context_state_t    (* mal_pa_context_get_state_proc)              ();
+typedef mal_pa_context_state_t    (* mal_pa_context_get_state_proc)              (mal_pa_context* c);
 typedef mal_pa_operation*         (* mal_pa_context_get_sink_info_list_proc)     (mal_pa_context* c, mal_pa_sink_info_cb_t cb, void* userdata);
 typedef mal_pa_operation*         (* mal_pa_context_get_source_info_list_proc)   (mal_pa_context* c, mal_pa_source_info_cb_t cb, void* userdata);
 typedef mal_pa_operation*         (* mal_pa_context_get_sink_info_by_name_proc)  (mal_pa_context* c, const char* name, mal_pa_sink_info_cb_t cb, void* userdata);
@@ -9385,6 +9385,14 @@ mal_result mal_context_enumerate_devices__pulse(mal_context* pContext, mal_enum_
 
     mal_result result = MAL_SUCCESS;
 
+    mal_context_enumerate_devices_callback_data__pulse callbackData;
+    callbackData.pContext = pContext;
+    callbackData.callback = callback;
+    callbackData.pUserData = pUserData;
+    callbackData.isTerminated = MAL_FALSE;
+
+    mal_pa_operation* pOP = NULL;
+
     mal_pa_mainloop* pMainLoop = ((mal_pa_mainloop_new_proc)pContext->pulse.pa_mainloop_new)();
     if (pMainLoop == NULL) {
         return MAL_FAILED_TO_INIT_BACKEND;
@@ -9417,13 +9425,6 @@ mal_result mal_context_enumerate_devices__pulse(mal_context* pContext, mal_enum_
         }
     }
 
-    mal_context_enumerate_devices_callback_data__pulse callbackData;
-    callbackData.pContext = pContext;
-    callbackData.callback = callback;
-    callbackData.pUserData = pUserData;
-    callbackData.isTerminated = MAL_FALSE;
-
-    mal_pa_operation* pOP = NULL;
 
     // Playback.
     if (!callbackData.isTerminated) {
@@ -9515,6 +9516,12 @@ mal_result mal_context_get_device_info__pulse(mal_context* pContext, mal_device_
 
     mal_result result = MAL_SUCCESS;
 
+    mal_context_get_device_info_callback_data__pulse callbackData;
+    callbackData.pDeviceInfo = pDeviceInfo;
+    callbackData.foundDevice = MAL_FALSE;
+
+    mal_pa_operation* pOP = NULL;
+
     mal_pa_mainloop* pMainLoop = ((mal_pa_mainloop_new_proc)pContext->pulse.pa_mainloop_new)();
     if (pMainLoop == NULL) {
         return MAL_FAILED_TO_INIT_BACKEND;
@@ -9547,11 +9554,6 @@ mal_result mal_context_get_device_info__pulse(mal_context* pContext, mal_device_
         }
     }
 
-    mal_context_get_device_info_callback_data__pulse callbackData;
-    callbackData.pDeviceInfo = pDeviceInfo;
-    callbackData.foundDevice = MAL_FALSE;
-
-    mal_pa_operation* pOP = NULL;
     if (deviceType == mal_device_type_playback) {
         pOP = ((mal_pa_context_get_sink_info_by_name_proc)pContext->pulse.pa_context_get_sink_info_by_name)(pPulseContext, pDeviceID->pulse, mal_context_get_device_info_sink_callback__pulse, &callbackData);
     } else {
@@ -9905,6 +9907,26 @@ mal_result mal_device_init__pulse(mal_context* pContext, mal_device_type type, m
     mal_zero_object(&pDevice->pulse);
 
     mal_result result = MAL_SUCCESS;
+    int error = 0;
+
+    const char* dev = NULL;
+    if (pDeviceID != NULL) {
+        dev = pDeviceID->pulse;
+    }
+
+    mal_pa_sink_info sinkInfo;
+    mal_pa_source_info sourceInfo;
+    mal_pa_operation* pOP = NULL;
+
+    mal_pa_sample_spec ss;
+    mal_pa_channel_map cmap;
+    mal_pa_buffer_attr attr;
+
+    const mal_pa_sample_spec* pActualSS   = NULL;
+    const mal_pa_channel_map* pActualCMap = NULL;
+    const mal_pa_buffer_attr* pActualAttr = NULL;
+
+
 
     pDevice->pulse.pMainLoop = ((mal_pa_mainloop_new_proc)pContext->pulse.pa_mainloop_new)();
     if (pDevice->pulse.pMainLoop == NULL) {
@@ -9924,7 +9946,7 @@ mal_result mal_device_init__pulse(mal_context* pContext, mal_device_type type, m
         goto on_error1;
     }
 
-    int error = ((mal_pa_context_connect_proc)pContext->pulse.pa_context_connect)((mal_pa_context*)pDevice->pulse.pPulseContext, pContext->config.pulse.pServerName, (pContext->config.pulse.tryAutoSpawn) ? 0 : MAL_PA_CONTEXT_NOAUTOSPAWN, NULL);
+    error = ((mal_pa_context_connect_proc)pContext->pulse.pa_context_connect)((mal_pa_context*)pDevice->pulse.pPulseContext, pContext->config.pulse.pServerName, (pContext->config.pulse.tryAutoSpawn) ? 0 : MAL_PA_CONTEXT_NOAUTOSPAWN, NULL);
     if (error != MAL_PA_OK) {
         result = mal_post_error(pDevice, "[PulseAudio] Failed to connect PulseAudio context.", mal_result_from_pulse(error));
         goto on_error2;
@@ -9960,15 +9982,7 @@ mal_result mal_device_init__pulse(mal_context* pContext, mal_device_type type, m
         }
     }
 
-    const char* dev = NULL;
-    if (pDeviceID != NULL) {
-        dev = pDeviceID->pulse;
-    }
-
-
-    mal_pa_sink_info sinkInfo;
-    mal_pa_source_info sourceInfo;
-    mal_pa_operation* pOP = NULL;
+    
     if (type == mal_device_type_playback) {
         pOP = ((mal_pa_context_get_sink_info_by_name_proc)pContext->pulse.pa_context_get_sink_info_by_name)((mal_pa_context*)pDevice->pulse.pPulseContext, dev, mal_device_sink_info_callback, &sinkInfo);
     } else {
@@ -9992,7 +10006,6 @@ mal_result mal_device_init__pulse(mal_context* pContext, mal_device_type type, m
         deviceCMap = sourceInfo.channel_map;
     }
 
-    mal_pa_sample_spec ss;
     if (pDevice->usingDefaultFormat) {
         ss.format = deviceSS.format;
     } else {
@@ -10015,7 +10028,6 @@ mal_result mal_device_init__pulse(mal_context* pContext, mal_device_type type, m
     }
 
 
-    mal_pa_channel_map cmap;
     if (pDevice->usingDefaultChannelMap) {
         cmap = deviceCMap;
     } else {
@@ -10029,8 +10041,6 @@ mal_result mal_device_init__pulse(mal_context* pContext, mal_device_type type, m
         }
     }
 #else
-    mal_pa_sample_spec ss;
-    mal_pa_channel_map cmap;
     if (type == mal_device_type_playback) {
         ss = sinkInfo.sample_spec;
         cmap = sinkInfo.channel_map;
@@ -10040,8 +10050,6 @@ mal_result mal_device_init__pulse(mal_context* pContext, mal_device_type type, m
     }
 #endif
 
-
-    mal_pa_buffer_attr attr;
     attr.maxlength = pConfig->bufferSizeInFrames * mal_get_sample_size_in_bytes(mal_format_from_pulse(ss.format))*ss.channels;
     attr.tlength   = attr.maxlength / pConfig->periods;
     attr.prebuf    = (mal_uint32)-1;
@@ -10087,7 +10095,7 @@ mal_result mal_device_init__pulse(mal_context* pContext, mal_device_type type, m
 
 
     // Internal format.
-    const mal_pa_sample_spec* pActualSS = ((mal_pa_stream_get_sample_spec_proc)pContext->pulse.pa_stream_get_sample_spec)((mal_pa_stream*)pDevice->pulse.pStream);
+    pActualSS = ((mal_pa_stream_get_sample_spec_proc)pContext->pulse.pa_stream_get_sample_spec)((mal_pa_stream*)pDevice->pulse.pStream);
     if (pActualSS != NULL) {
         ss = *pActualSS;
     }
@@ -10098,7 +10106,7 @@ mal_result mal_device_init__pulse(mal_context* pContext, mal_device_type type, m
 
 
     // Internal channel map.
-    const mal_pa_channel_map* pActualCMap = ((mal_pa_stream_get_channel_map_proc)pContext->pulse.pa_stream_get_channel_map)((mal_pa_stream*)pDevice->pulse.pStream);
+    pActualCMap = ((mal_pa_stream_get_channel_map_proc)pContext->pulse.pa_stream_get_channel_map)((mal_pa_stream*)pDevice->pulse.pStream);
     if (pActualCMap != NULL) {
         cmap = *pActualCMap;
     }
@@ -10109,7 +10117,7 @@ mal_result mal_device_init__pulse(mal_context* pContext, mal_device_type type, m
 
 
     // Buffer size.
-    const mal_pa_buffer_attr* pActualAttr = ((mal_pa_stream_get_buffer_attr_proc)pContext->pulse.pa_stream_get_buffer_attr)((mal_pa_stream*)pDevice->pulse.pStream);
+    pActualAttr = ((mal_pa_stream_get_buffer_attr_proc)pContext->pulse.pa_stream_get_buffer_attr)((mal_pa_stream*)pDevice->pulse.pStream);
     if (pActualAttr != NULL) {
         attr = *pActualAttr;
     }
