@@ -1965,6 +1965,7 @@ mal_result mal_decoder_seek_to_frame(mal_decoder* pDecoder, mal_uint64 frameInde
 ///////////////////////////////////////////////////////////////////////////////
 #ifdef MAL_IMPLEMENTATION
 #include <assert.h>
+#include <limits.h> // For INT_MAX
 
 #ifdef MAL_WIN32
 #include <windows.h>
