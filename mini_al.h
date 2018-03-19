@@ -12501,6 +12501,18 @@ void mal_device_uninit__openal(mal_device* pDevice)
 {
     mal_assert(pDevice != NULL);
 
+    
+    // Delete buffers and source first.
+    ((MAL_LPALCMAKECONTEXTCURRENT)pDevice->pContext->openal.alcMakeContextCurrent)((mal_ALCcontext*)pDevice->openal.pContextALC);
+    if (pDevice->openal.sourceAL != 0) {
+        ((MAL_LPALDELETESOURCES)pDevice->pContext->openal.alDeleteSources)(1, (const mal_ALuint*)&pDevice->openal.sourceAL);
+    }
+    if (pDevice->periods > 0 && pDevice->openal.buffersAL[0] != 0) {
+        ((MAL_LPALDELETEBUFFERS)pDevice->pContext->openal.alDeleteBuffers)(pDevice->periods, (const mal_ALuint*)pDevice->openal.buffersAL);
+    }
+
+
+    // Now that resources have been deleted we can destroy the OpenAL context and close the device.
     ((MAL_LPALCMAKECONTEXTCURRENT)pDevice->pContext->openal.alcMakeContextCurrent)(NULL);
     ((MAL_LPALCDESTROYCONTEXT)pDevice->pContext->openal.alcDestroyContext)((mal_ALCcontext*)pDevice->openal.pContextALC);
 
@@ -12615,7 +12627,6 @@ mal_result mal_device_init__openal(mal_context* pContext, mal_device_type type, 
     pDevice->internalChannels = channelsAL;
     pDevice->internalSampleRate = frequencyAL;
 
-    // The internal format is a little bit straight with OpenAL.
     switch (formatAL)
     {
         case MAL_AL_FORMAT_MONO8:
