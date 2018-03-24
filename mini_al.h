@@ -595,6 +595,18 @@ typedef enum
 
 typedef enum
 {
+    mal_stream_layout_interleaved = 0,
+    mal_stream_layout_deinterleaved
+} mal_stream_layout;
+
+typedef enum
+{
+    mal_dither_mode_none = 0,
+    //mal_dither_mode_triangle
+} mal_dither_mode;
+
+typedef enum
+{
     // I like to keep these explicitly defined because they're used as a key into a lookup table. When items are
     // added to this, make sure there are no gaps and that they're added to the lookup table in mal_get_sample_size_in_bytes().
     mal_format_unknown = 0,     // Mainly used for indicating an error, but also used as the default for the output format for decoders.
@@ -1728,6 +1740,53 @@ static inline mal_device_config mal_device_config_init_playback(mal_format forma
 void mal_get_standard_channel_map(mal_standard_channel_map standardChannelMap, mal_uint32 channels, mal_channel channelMap[MAL_MAX_CHANNELS]);
 
 
+
+///////////////////////////////////////////////////////////////////////////////
+//
+// Format Conversion.
+//
+///////////////////////////////////////////////////////////////////////////////
+
+typedef struct mal_format_converter mal_format_converter;
+
+// Callback for reading input data for the format converter.
+typedef mal_uint32 (* mal_format_converter_read_proc)          (mal_format_converter* pConverter, mal_uint32 frameCount, void* pFramesOut, void* pUserData);
+typedef mal_uint32 (* mal_format_converter_read_separated_proc)(mal_format_converter* pConverter, mal_uint32 frameCount, void** ppSamplesOut, void* pUserData);
+
+typedef struct
+{
+    mal_format formatIn;
+    mal_format formatOut;
+    mal_uint32 channels;
+    mal_stream_format streamFormatIn;
+    mal_stream_format streamFormatOut;
+    mal_dither_mode ditherMode;
+} mal_format_converter_config;
+
+struct mal_format_converter
+{
+    mal_format_converter_config config;
+    mal_format_converter_read_proc onRead;
+    mal_format_converter_read_separated_proc onReadSeparated;
+    void* pUserData;
+    void (* onConvertPCM)(void* dst, const void* src, mal_uint64 count, mal_dither_mode ditherMode);
+    void (* onInterleavePCM)(void* dst, const void** src, mal_uint64 frameCount, mal_uint32 channels);
+    void (* onDeinterleavePCM)(void** dst, const void* src, mal_uint64 frameCount, mal_uint32 channels);
+};
+
+// Initializes a format converter.
+mal_result mal_format_converter_init(const mal_format_converter_config* pConfig, mal_format_converter_read_proc onRead, void* pUserData, mal_format_converter* pConverter);
+
+// Initializes a format converter when the input data is non-interleaved.
+mal_result mal_format_converter_init_separated(const mal_format_converter_config* pConfig, mal_format_converter_read_separated_proc onRead, void* pUserData, mal_format_converter* pConverter);
+
+// Reads data from the format converter as interleaved channels.
+mal_uint64 mal_format_converter_read_frames(mal_format_converter* pConverter, mal_uint64 frameCount, void* pFramesOut);
+
+// Reads data from the format converter as separated channels.
+mal_uint64 mal_format_converter_read_frames_separated(mal_format_converter* pConverter, mal_uint64 frameCount, void** ppSamplesOut);
+
+
 ///////////////////////////////////////////////////////////////////////////////
 //
 // SRC
@@ -1848,27 +1907,27 @@ void mal_blend_f32(float* pOut, float* pInA, float* pInB, float factor, mal_uint
 // Format Conversion
 //
 ///////////////////////////////////////////////////////////////////////////////
-void mal_pcm_u8_to_s16(short* pOut, const unsigned char* pIn, unsigned int count);
-void mal_pcm_u8_to_s24(void* pOut, const unsigned char* pIn, unsigned int count);
-void mal_pcm_u8_to_s32(int* pOut, const unsigned char* pIn, unsigned int count);
-void mal_pcm_u8_to_f32(float* pOut, const unsigned char* pIn, unsigned int count);
-void mal_pcm_s16_to_u8(unsigned char* pOut, const short* pIn, unsigned int count);
-void mal_pcm_s16_to_s24(void* pOut, const short* pIn, unsigned int count);
-void mal_pcm_s16_to_s32(int* pOut, const short* pIn, unsigned int count);
-void mal_pcm_s16_to_f32(float* pOut, const short* pIn, unsigned int count);
-void mal_pcm_s24_to_u8(unsigned char* pOut, const void* pIn, unsigned int count);
-void mal_pcm_s24_to_s16(short* pOut, const void* pIn, unsigned int count);
-void mal_pcm_s24_to_s32(int* pOut, const void* pIn, unsigned int count);
-void mal_pcm_s24_to_f32(float* pOut, const void* pIn, unsigned int count);
-void mal_pcm_s32_to_u8(unsigned char* pOut, const int* pIn, unsigned int count);
-void mal_pcm_s32_to_s16(short* pOut, const int* pIn, unsigned int count);
-void mal_pcm_s32_to_s24(void* pOut, const int* pIn, unsigned int count);
-void mal_pcm_s32_to_f32(float* pOut, const int* pIn, unsigned int count);
-void mal_pcm_f32_to_u8(unsigned char* pOut, const float* pIn, unsigned int count);
-void mal_pcm_f32_to_s16(short* pOut, const float* pIn, unsigned int count);
-void mal_pcm_f32_to_s24(void* pOut, const float* pIn, unsigned int count);
-void mal_pcm_f32_to_s32(int* pOut, const float* pIn, unsigned int count);
-void mal_pcm_convert(void* pOut, mal_format formatOut, const void* pIn, mal_format formatIn, unsigned int sampleCount);
+void mal_pcm_u8_to_s16(void* pOut, const void* pIn, mal_uint64 count, mal_dither_mode ditherMode);
+void mal_pcm_u8_to_s24(void* pOut, const void* pIn, mal_uint64 count, mal_dither_mode ditherMode);
+void mal_pcm_u8_to_s32(void* pOut, const void* pIn, mal_uint64 count, mal_dither_mode ditherMode);
+void mal_pcm_u8_to_f32(void* pOut, const void* pIn, mal_uint64 count, mal_dither_mode ditherMode);
+void mal_pcm_s16_to_u8(void* pOut, const void* pIn, mal_uint64 count, mal_dither_mode ditherMode);
+void mal_pcm_s16_to_s24(void* pOut, const void* pIn, mal_uint64 count, mal_dither_mode ditherMode);
+void mal_pcm_s16_to_s32(void* pOut, const void* pIn, mal_uint64 count, mal_dither_mode ditherMode);
+void mal_pcm_s16_to_f32(void* pOut, const void* pIn, mal_uint64 count, mal_dither_mode ditherMode);
+void mal_pcm_s24_to_u8(void* pOut, const void* pIn, mal_uint64 count, mal_dither_mode ditherMode);
+void mal_pcm_s24_to_s16(void* pOut, const void* pIn, mal_uint64 count, mal_dither_mode ditherMode);
+void mal_pcm_s24_to_s32(void* pOut, const void* pIn, mal_uint64 count, mal_dither_mode ditherMode);
+void mal_pcm_s24_to_f32(void* pOut, const void* pIn, mal_uint64 count, mal_dither_mode ditherMode);
+void mal_pcm_s32_to_u8(void* pOut, const void* pIn, mal_uint64 count, mal_dither_mode ditherMode);
+void mal_pcm_s32_to_s16(void* pOut, const void* pIn, mal_uint64 count, mal_dither_mode ditherMode);
+void mal_pcm_s32_to_s24(void* pOut, const void* pIn, mal_uint64 count, mal_dither_mode ditherMode);
+void mal_pcm_s32_to_f32(void* pOut, const void* pIn, mal_uint64 count, mal_dither_mode ditherMode);
+void mal_pcm_f32_to_u8(void* pOut, const void* pIn, mal_uint64 count, mal_dither_mode ditherMode);
+void mal_pcm_f32_to_s16(void* pOut, const void* pIn, mal_uint64 count, mal_dither_mode ditherMode);
+void mal_pcm_f32_to_s24(void* pOut, const void* pIn, mal_uint64 count, mal_dither_mode ditherMode);
+void mal_pcm_f32_to_s32(void* pOut, const void* pIn, mal_uint64 count, mal_dither_mode ditherMode);
+void mal_pcm_convert(void* pOut, mal_format formatOut, const void* pIn, mal_format formatIn, mal_uint64 sampleCount, mal_dither_mode ditherMode);
 
 
 
@@ -15214,6 +15273,1632 @@ void mal_get_standard_channel_map(mal_standard_channel_map standardChannelMap, m
 
 
 
+
+//////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+//
+// Format Conversion.
+//
+//////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+
+//#define MAL_USE_REFERENCE_CONVERSION_APIS   1
+#define MAL_USE_SSE
+
+// u8
+void mal_pcm_u8_to_u8(void* dst, const void* src, mal_uint64 count, mal_dither_mode ditherMode)
+{
+    (void)ditherMode;
+    mal_copy_memory(dst, src, count * sizeof(mal_uint8));
+}
+
+
+void mal_pcm_u8_to_s16__reference(void* dst, const void* src, mal_uint64 count, mal_dither_mode ditherMode)
+{
+    (void)ditherMode;
+
+    mal_int16* dst_s16 = (mal_int16*)dst;
+    const mal_uint8* src_u8 = (const mal_uint8*)src;
+
+    mal_uint64 i;
+    for (i = 0; i < count; i += 1) {
+        mal_int16 x = src_u8[i];
+        x = x - 128;
+        x = x << 8;
+        dst_s16[i] = x;
+    }
+}
+
+void mal_pcm_u8_to_s16__optimized(void* dst, const void* src, mal_uint64 count, mal_dither_mode ditherMode)
+{
+    mal_pcm_u8_to_s16__reference(dst, src, count, ditherMode);
+}
+
+#ifdef MAL_USE_SSE
+void mal_pcm_u8_to_s16__sse(void* dst, const void* src, mal_uint64 count, mal_dither_mode ditherMode)
+{
+    mal_pcm_u8_to_s16__optimized(dst, src, count, ditherMode);
+}
+#endif
+
+void mal_pcm_u8_to_s16(void* dst, const void* src, mal_uint64 count, mal_dither_mode ditherMode)
+{
+#ifdef MAL_USE_REFERENCE_CONVERSION_APIS
+    mal_pcm_u8_to_s16__reference(dst, src, count, ditherMode);
+#else
+#ifdef MAL_USE_SSE
+    mal_pcm_u8_to_s16__sse(dst, src, count, ditherMode);
+#else
+    mal_pcm_u8_to_s16__optimized(dst, src, count, ditherMode);
+#endif
+#endif
+}
+
+
+void mal_pcm_u8_to_s24__reference(void* dst, const void* src, mal_uint64 count, mal_dither_mode ditherMode)
+{
+    (void)ditherMode;
+
+    mal_uint8* dst_s24 = (mal_uint8*)dst;
+    const mal_uint8* src_u8 = (const mal_uint8*)src;
+
+    mal_uint64 i;
+    for (i = 0; i < count; i += 1) {
+        mal_int16 x = src_u8[i];
+        x = x - 128;
+
+        dst_s24[i*3+0] = 0;
+        dst_s24[i*3+1] = 0;
+        dst_s24[i*3+2] = (mal_uint8)((mal_int8)x);
+    }
+}
+
+void mal_pcm_u8_to_s24__optimized(void* dst, const void* src, mal_uint64 count, mal_dither_mode ditherMode)
+{
+    mal_pcm_u8_to_s24__reference(dst, src, count, ditherMode);
+}
+
+#ifdef MAL_USE_SSE
+void mal_pcm_u8_to_s24__sse(void* dst, const void* src, mal_uint64 count, mal_dither_mode ditherMode)
+{
+    mal_pcm_u8_to_s24__optimized(dst, src, count, ditherMode);
+}
+#endif
+
+void mal_pcm_u8_to_s24(void* dst, const void* src, mal_uint64 count, mal_dither_mode ditherMode)
+{
+#ifdef MAL_USE_REFERENCE_CONVERSION_APIS
+    mal_pcm_u8_to_s24__reference(dst, src, count, ditherMode);
+#else
+#ifdef MAL_USE_SSE
+    mal_pcm_u8_to_s24__sse(dst, src, count, ditherMode);
+#else
+    mal_pcm_u8_to_s24__optimized(dst, src, count, ditherMode);
+#endif
+#endif
+}
+
+
+void mal_pcm_u8_to_s32__reference(void* dst, const void* src, mal_uint64 count, mal_dither_mode ditherMode)
+{
+    (void)ditherMode;
+
+    mal_int32* dst_s32 = (mal_int32*)dst;
+    const mal_uint8* src_u8 = (const mal_uint8*)src;
+
+    mal_uint64 i;
+    for (i = 0; i < count; i += 1) {
+        mal_int32 x = src_u8[i];
+        x = x - 128;
+        x = x << 24;
+        dst_s32[i] = x;
+    }
+}
+
+void mal_pcm_u8_to_s32__optimized(void* dst, const void* src, mal_uint64 count, mal_dither_mode ditherMode)
+{
+    mal_pcm_u8_to_s32__reference(dst, src, count, ditherMode);
+}
+
+#ifdef MAL_USE_SSE
+void mal_pcm_u8_to_s32__sse(void* dst, const void* src, mal_uint64 count, mal_dither_mode ditherMode)
+{
+    mal_pcm_u8_to_s32__optimized(dst, src, count, ditherMode);
+}
+#endif
+
+void mal_pcm_u8_to_s32(void* dst, const void* src, mal_uint64 count, mal_dither_mode ditherMode)
+{
+#ifdef MAL_USE_REFERENCE_CONVERSION_APIS
+    mal_pcm_u8_to_s32__reference(dst, src, count, ditherMode);
+#else
+#ifdef MAL_USE_SSE
+    mal_pcm_u8_to_s32__sse(dst, src, count, ditherMode);
+#else
+    mal_pcm_u8_to_s32__optimized(dst, src, count, ditherMode);
+#endif
+#endif
+}
+
+
+void mal_pcm_u8_to_f32__reference(void* dst, const void* src, mal_uint64 count, mal_dither_mode ditherMode)
+{
+    (void)ditherMode;
+
+    float* dst_f32 = (float*)dst;
+    const mal_uint8* src_u8 = (const mal_uint8*)src;
+
+    mal_uint64 i;
+    for (i = 0; i < count; i += 1) {
+        float x = (float)src_u8[i];
+        x = x * 0.00784313725490196078f;    // 0..255 to 0..2
+        x = x - 1;                          // 0..2 to -1..1
+
+        dst_f32[i] = x;
+    }
+}
+
+void mal_pcm_u8_to_f32__optimized(void* dst, const void* src, mal_uint64 count, mal_dither_mode ditherMode)
+{
+    mal_pcm_u8_to_f32__reference(dst, src, count, ditherMode);
+}
+
+#ifdef MAL_USE_SSE
+void mal_pcm_u8_to_f32__sse(void* dst, const void* src, mal_uint64 count, mal_dither_mode ditherMode)
+{
+    mal_pcm_u8_to_f32__optimized(dst, src, count, ditherMode);
+}
+#endif
+
+void mal_pcm_u8_to_f32(void* dst, const void* src, mal_uint64 count, mal_dither_mode ditherMode)
+{
+#ifdef MAL_USE_REFERENCE_CONVERSION_APIS
+    mal_pcm_u8_to_f32__reference(dst, src, count, ditherMode);
+#else
+#ifdef MAL_USE_SSE
+    mal_pcm_u8_to_f32__sse(dst, src, count, ditherMode);
+#else
+    mal_pcm_u8_to_f32__optimized(dst, src, count, ditherMode);
+#endif
+#endif
+}
+
+
+
+void mal_pcm_interleave_u8__reference(void* dst, const void** src, mal_uint64 frameCount, mal_uint32 channels)
+{
+    mal_uint8* dst_u8 = (mal_uint8*)dst;
+    const mal_uint8** src_u8 = (const mal_uint8**)src;
+
+    mal_uint64 iFrame;
+    for (iFrame = 0; iFrame < frameCount; iFrame += 1) {
+        mal_uint32 iChannel;
+        for (iChannel = 0; iChannel < channels; iChannel += 1) {
+            dst_u8[iFrame*channels + iChannel] = src_u8[iChannel][iFrame];
+        }
+    }
+}
+
+void mal_pcm_interleave_u8__optimized(void* dst, const void** src, mal_uint64 frameCount, mal_uint32 channels)
+{
+    mal_uint8* dst_u8 = (mal_uint8*)dst;
+    const mal_uint8** src_u8 = (const mal_uint8**)src;
+
+    if (channels == 1) {
+        mal_copy_memory(dst, src[0], frameCount * sizeof(mal_uint8));
+    } else if (channels == 2) {
+        mal_uint64 iFrame;
+        for (iFrame = 0; iFrame < frameCount; iFrame += 1) {
+            dst_u8[iFrame*2 + 0] = src_u8[0][iFrame];
+            dst_u8[iFrame*2 + 1] = src_u8[1][iFrame];
+        }
+    } else {
+        mal_uint64 iFrame;
+        for (iFrame = 0; iFrame < frameCount; iFrame += 1) {
+            mal_uint32 iChannel;
+            for (iChannel = 0; iChannel < channels; iChannel += 1) {
+                dst_u8[iFrame*channels + iChannel] = src_u8[iChannel][iFrame];
+            }
+        }
+    }
+}
+
+void mal_pcm_interleave_u8(void* dst, const void** src, mal_uint64 frameCount, mal_uint32 channels)
+{
+#ifdef MAL_USE_REFERENCE_CONVERSION_APIS
+    mal_pcm_interleave_u8__reference(dst, src, frameCount, channels); 
+#else
+    mal_pcm_interleave_u8__optimized(dst, src, frameCount, channels);
+#endif
+}
+
+
+void mal_pcm_deinterleave_u8__reference(void** dst, const void* src, mal_uint64 frameCount, mal_uint32 channels)
+{
+    mal_uint8** dst_u8 = (mal_uint8**)dst;
+    const mal_uint8* src_u8 = (const mal_uint8*)src;
+
+    mal_uint64 iFrame;
+    for (iFrame = 0; iFrame < frameCount; iFrame += 1) {
+        mal_uint32 iChannel;
+        for (iChannel = 0; iChannel < channels; iChannel += 1) {
+            dst_u8[iChannel][iFrame] = src_u8[iFrame*channels + iChannel];
+        }
+    }
+}
+
+void mal_pcm_deinterleave_u8__optimized(void** dst, const void* src, mal_uint64 frameCount, mal_uint32 channels)
+{
+    mal_pcm_deinterleave_u8__reference(dst, src, frameCount, channels);
+}
+
+void mal_pcm_deinterleave_u8(void** dst, const void* src, mal_uint64 frameCount, mal_uint32 channels)
+{
+#ifdef MAL_USE_REFERENCE_CONVERSION_APIS
+    mal_pcm_deinterleave_u8__reference(dst, src, frameCount, channels); 
+#else
+    mal_pcm_deinterleave_u8__optimized(dst, src, frameCount, channels);
+#endif
+}
+
+
+// s16
+void mal_pcm_s16_to_u8__reference(void* dst, const void* src, mal_uint64 count, mal_dither_mode ditherMode)
+{
+    (void)ditherMode;
+
+    mal_uint8* dst_u8 = (mal_uint8*)dst;
+    const mal_int16* src_s16 = (const mal_int16*)src;
+
+    mal_uint64 i;
+    for (i = 0; i < count; i += 1) {
+        mal_int16 x = src_s16[i];
+        x = x >> 8;
+        x = x + 128;
+        dst_u8[i] = (mal_uint8)x;
+    }
+}
+
+void mal_pcm_s16_to_u8__optimized(void* dst, const void* src, mal_uint64 count, mal_dither_mode ditherMode)
+{
+    mal_pcm_s16_to_u8__reference(dst, src, count, ditherMode);
+}
+
+#ifdef MAL_USE_SSE
+void mal_pcm_s16_to_u8__sse(void* dst, const void* src, mal_uint64 count, mal_dither_mode ditherMode)
+{
+    mal_pcm_s16_to_u8__optimized(dst, src, count, ditherMode);
+}
+#endif
+
+void mal_pcm_s16_to_u8(void* dst, const void* src, mal_uint64 count, mal_dither_mode ditherMode)
+{
+#ifdef MAL_USE_REFERENCE_CONVERSION_APIS
+    mal_pcm_s16_to_u8__reference(dst, src, count, ditherMode);
+#else
+#ifdef MAL_USE_SSE
+    mal_pcm_s16_to_u8__sse(dst, src, count, ditherMode);
+#else
+    mal_pcm_s16_to_u8__optimized(dst, src, count, ditherMode);
+#endif
+#endif
+}
+
+
+void mal_pcm_s16_to_s16(void* dst, const void* src, mal_uint64 count, mal_dither_mode ditherMode)
+{
+    (void)ditherMode;
+    mal_copy_memory(dst, src, count * sizeof(mal_int16));
+}
+
+
+void mal_pcm_s16_to_s24__reference(void* dst, const void* src, mal_uint64 count, mal_dither_mode ditherMode)
+{
+    (void)ditherMode;
+
+    mal_uint8* dst_s24 = (mal_uint8*)dst;
+    const mal_int16* src_s16 = (const mal_int16*)src;
+
+    mal_uint64 i;
+    for (i = 0; i < count; i += 1) {
+        dst_s24[i*3+0] = 0;
+        dst_s24[i*3+1] = (mal_uint8)(src_s16[i] & 0xFF);
+        dst_s24[i*3+2] = (mal_uint8)(src_s16[i] >> 8);
+    }
+}
+
+void mal_pcm_s16_to_s24__optimized(void* dst, const void* src, mal_uint64 count, mal_dither_mode ditherMode)
+{
+    mal_pcm_s16_to_s24__reference(dst, src, count, ditherMode);
+}
+
+#ifdef MAL_USE_SSE
+void mal_pcm_s16_to_s24__sse(void* dst, const void* src, mal_uint64 count, mal_dither_mode ditherMode)
+{
+    mal_pcm_s16_to_s24__optimized(dst, src, count, ditherMode);
+}
+#endif
+
+void mal_pcm_s16_to_s24(void* dst, const void* src, mal_uint64 count, mal_dither_mode ditherMode)
+{
+#ifdef MAL_USE_REFERENCE_CONVERSION_APIS
+    mal_pcm_s16_to_s24__reference(dst, src, count, ditherMode);
+#else
+#ifdef MAL_USE_SSE
+    mal_pcm_s16_to_s24__sse(dst, src, count, ditherMode);
+#else
+    mal_pcm_s16_to_s24__optimized(dst, src, count, ditherMode);
+#endif
+#endif
+}
+
+
+void mal_pcm_s16_to_s32__reference(void* dst, const void* src, mal_uint64 count, mal_dither_mode ditherMode)
+{
+    (void)ditherMode;
+
+    mal_int32* dst_s32 = (mal_int32*)dst;
+    const mal_int16* src_s16 = (const mal_int16*)src;
+
+    mal_uint64 i;
+    for (i = 0; i < count; i += 1) {
+        dst_s32[i] = src_s16[i] << 16;
+    }
+}
+
+void mal_pcm_s16_to_s32__optimized(void* dst, const void* src, mal_uint64 count, mal_dither_mode ditherMode)
+{
+    mal_pcm_s16_to_s32__reference(dst, src, count, ditherMode);
+}
+
+#ifdef MAL_USE_SSE
+void mal_pcm_s16_to_s32__sse(void* dst, const void* src, mal_uint64 count, mal_dither_mode ditherMode)
+{
+    mal_pcm_s16_to_s32__optimized(dst, src, count, ditherMode);
+}
+#endif
+
+void mal_pcm_s16_to_s32(void* dst, const void* src, mal_uint64 count, mal_dither_mode ditherMode)
+{
+#ifdef MAL_USE_REFERENCE_CONVERSION_APIS
+    mal_pcm_s16_to_s32__reference(dst, src, count, ditherMode);
+#else
+#ifdef MAL_USE_SSE
+    mal_pcm_s16_to_s32__sse(dst, src, count, ditherMode);
+#else
+    mal_pcm_s16_to_s32__optimized(dst, src, count, ditherMode);
+#endif
+#endif
+}
+
+
+void mal_pcm_s16_to_f32__reference(void* dst, const void* src, mal_uint64 count, mal_dither_mode ditherMode)
+{
+    (void)ditherMode;
+
+    float* dst_f32 = (float*)dst;
+    const mal_int16* src_s16 = (const mal_int16*)src;
+
+    mal_uint64 i;
+    for (i = 0; i < count; i += 1) {
+        float x = (float)src_s16[i];
+
+#if 0
+        // The accurate way.
+        x = x + 32768.0f;                   // -32768..32767 to 0..65535
+        x = x * 0.00003051804379339284f;    // 0..65536 to 0..2
+        x = x - 1;                          // 0..2 to -1..1
+#else
+        // The fast way.
+        x = x * 0.000030517578125f;         // -32768..32767 to -1..0.999969482421875
+#endif
+
+        dst_f32[i] = x;
+    }
+}
+
+void mal_pcm_s16_to_f32__optimized(void* dst, const void* src, mal_uint64 count, mal_dither_mode ditherMode)
+{
+    mal_pcm_s16_to_f32__reference(dst, src, count, ditherMode);
+}
+
+#ifdef MAL_USE_SSE
+void mal_pcm_s16_to_f32__sse(void* dst, const void* src, mal_uint64 count, mal_dither_mode ditherMode)
+{
+    mal_pcm_s16_to_f32__optimized(dst, src, count, ditherMode);
+}
+#endif
+
+void mal_pcm_s16_to_f32(void* dst, const void* src, mal_uint64 count, mal_dither_mode ditherMode)
+{
+#ifdef MAL_USE_REFERENCE_CONVERSION_APIS
+    mal_pcm_s16_to_f32__reference(dst, src, count, ditherMode);
+#else
+#ifdef MAL_USE_SSE
+    mal_pcm_s16_to_f32__sse(dst, src, count, ditherMode);
+#else
+    mal_pcm_s16_to_f32__optimized(dst, src, count, ditherMode);
+#endif
+#endif
+}
+
+
+void mal_pcm_interleave_s16__reference(void* dst, const void** src, mal_uint64 frameCount, mal_uint32 channels)
+{
+    mal_int16* dst_s16 = (mal_int16*)dst;
+    const mal_int16** src_s16 = (const mal_int16**)src;
+
+    mal_uint64 iFrame;
+    for (iFrame = 0; iFrame < frameCount; iFrame += 1) {
+        mal_uint32 iChannel;
+        for (iChannel = 0; iChannel < channels; iChannel += 1) {
+            dst_s16[iFrame*channels + iChannel] = src_s16[iChannel][iFrame];
+        }
+    }
+}
+
+void mal_pcm_interleave_s16__optimized(void* dst, const void** src, mal_uint64 frameCount, mal_uint32 channels)
+{
+    mal_pcm_interleave_s16__reference(dst, src, frameCount, channels);
+}
+
+void mal_pcm_interleave_s16(void* dst, const void** src, mal_uint64 frameCount, mal_uint32 channels)
+{
+#ifdef MAL_USE_REFERENCE_CONVERSION_APIS
+    mal_pcm_interleave_s16__reference(dst, src, frameCount, channels); 
+#else
+    mal_pcm_interleave_s16__optimized(dst, src, frameCount, channels);
+#endif
+}
+
+
+void mal_pcm_deinterleave_s16__reference(void** dst, const void* src, mal_uint64 frameCount, mal_uint32 channels)
+{
+    mal_int16** dst_s16 = (mal_int16**)dst;
+    const mal_int16* src_s16 = (const mal_int16*)src;
+
+    mal_uint64 iFrame;
+    for (iFrame = 0; iFrame < frameCount; iFrame += 1) {
+        mal_uint32 iChannel;
+        for (iChannel = 0; iChannel < channels; iChannel += 1) {
+            dst_s16[iChannel][iFrame] = src_s16[iFrame*channels + iChannel];
+        }
+    }
+}
+
+void mal_pcm_deinterleave_s16__optimized(void** dst, const void* src, mal_uint64 frameCount, mal_uint32 channels)
+{
+    mal_pcm_deinterleave_s16__reference(dst, src, frameCount, channels);
+}
+
+void mal_pcm_deinterleave_s16(void** dst, const void* src, mal_uint64 frameCount, mal_uint32 channels)
+{
+#ifdef MAL_USE_REFERENCE_CONVERSION_APIS
+    mal_pcm_deinterleave_s16__reference(dst, src, frameCount, channels); 
+#else
+    mal_pcm_deinterleave_s16__optimized(dst, src, frameCount, channels);
+#endif
+}
+
+
+// s24
+void mal_pcm_s24_to_u8__reference(void* dst, const void* src, mal_uint64 count, mal_dither_mode ditherMode)
+{
+    (void)ditherMode;
+
+    mal_uint8* dst_u8 = (mal_uint8*)dst;
+    const mal_uint8* src_s24 = (const mal_uint8*)src;
+
+    mal_uint64 i;
+    for (i = 0; i < count; i += 1) {
+        mal_int8 x = (mal_int8)src_s24[i*3 + 2] + 128;
+        dst_u8[i] = (mal_uint8)x;
+    }
+}
+
+void mal_pcm_s24_to_u8__optimized(void* dst, const void* src, mal_uint64 count, mal_dither_mode ditherMode)
+{
+    mal_pcm_s24_to_u8__reference(dst, src, count, ditherMode);
+}
+
+#ifdef MAL_USE_SSE
+void mal_pcm_s24_to_u8__sse(void* dst, const void* src, mal_uint64 count, mal_dither_mode ditherMode)
+{
+    mal_pcm_s24_to_u8__optimized(dst, src, count, ditherMode);
+}
+#endif
+
+void mal_pcm_s24_to_u8(void* dst, const void* src, mal_uint64 count, mal_dither_mode ditherMode)
+{
+#ifdef MAL_USE_REFERENCE_CONVERSION_APIS
+    mal_pcm_s24_to_u8__reference(dst, src, count, ditherMode);
+#else
+#ifdef MAL_USE_SSE
+    mal_pcm_s24_to_u8__sse(dst, src, count, ditherMode);
+#else
+    mal_pcm_s24_to_u8__optimized(dst, src, count, ditherMode);
+#endif
+#endif
+}
+
+
+void mal_pcm_s24_to_s16__reference(void* dst, const void* src, mal_uint64 count, mal_dither_mode ditherMode)
+{
+    (void)ditherMode;
+
+    mal_int16* dst_s16 = (mal_int16*)dst;
+    const mal_uint8* src_s24 = (const mal_uint8*)src;
+
+    mal_uint64 i;
+    for (i = 0; i < count; i += 1) {
+        mal_uint16 dst_lo = ((mal_uint16)src_s24[i*3 + 1]);
+        mal_uint16 dst_hi = ((mal_uint16)src_s24[i*3 + 2]) << 8;
+        dst_s16[i] = (mal_int16)dst_lo | dst_hi;
+    }
+}
+
+void mal_pcm_s24_to_s16__optimized(void* dst, const void* src, mal_uint64 count, mal_dither_mode ditherMode)
+{
+    mal_pcm_s24_to_s16__reference(dst, src, count, ditherMode);
+}
+
+#ifdef MAL_USE_SSE
+void mal_pcm_s24_to_s16__sse(void* dst, const void* src, mal_uint64 count, mal_dither_mode ditherMode)
+{
+    mal_pcm_s24_to_s16__optimized(dst, src, count, ditherMode);
+}
+#endif
+
+void mal_pcm_s24_to_s16(void* dst, const void* src, mal_uint64 count, mal_dither_mode ditherMode)
+{
+#ifdef MAL_USE_REFERENCE_CONVERSION_APIS
+    mal_pcm_s24_to_s16__reference(dst, src, count, ditherMode);
+#else
+#ifdef MAL_USE_SSE
+    mal_pcm_s24_to_s16__sse(dst, src, count, ditherMode);
+#else
+    mal_pcm_s24_to_s16__optimized(dst, src, count, ditherMode);
+#endif
+#endif
+}
+
+
+void mal_pcm_s24_to_s24(void* dst, const void* src, mal_uint64 count, mal_dither_mode ditherMode)
+{
+    (void)ditherMode;
+
+    mal_copy_memory(dst, src, count * 3);
+}
+
+
+void mal_pcm_s24_to_s32__reference(void* dst, const void* src, mal_uint64 count, mal_dither_mode ditherMode)
+{
+    (void)ditherMode;
+
+    mal_int32* dst_s32 = (mal_int32*)dst;
+    const mal_uint8* src_s24 = (const mal_uint8*)src;
+
+    mal_uint64 i;
+    for (i = 0; i < count; i += 1) {
+        dst_s32[i] = (mal_int32)(((mal_uint32)(src_s24[i*3+0]) << 8) | ((mal_uint32)(src_s24[i*3+1]) << 16) | ((mal_uint32)(src_s24[i*3+2])) << 24);
+    }
+}
+
+void mal_pcm_s24_to_s32__optimized(void* dst, const void* src, mal_uint64 count, mal_dither_mode ditherMode)
+{
+    mal_pcm_s24_to_s32__reference(dst, src, count, ditherMode);
+}
+
+#ifdef MAL_USE_SSE
+void mal_pcm_s24_to_s32__sse(void* dst, const void* src, mal_uint64 count, mal_dither_mode ditherMode)
+{
+    mal_pcm_s24_to_s32__optimized(dst, src, count, ditherMode);
+}
+#endif
+
+void mal_pcm_s24_to_s32(void* dst, const void* src, mal_uint64 count, mal_dither_mode ditherMode)
+{
+#ifdef MAL_USE_REFERENCE_CONVERSION_APIS
+    mal_pcm_s24_to_s32__reference(dst, src, count, ditherMode);
+#else
+#ifdef MAL_USE_SSE
+    mal_pcm_s24_to_s32__sse(dst, src, count, ditherMode);
+#else
+    mal_pcm_s24_to_s32__optimized(dst, src, count, ditherMode);
+#endif
+#endif
+}
+
+
+void mal_pcm_s24_to_f32__reference(void* dst, const void* src, mal_uint64 count, mal_dither_mode ditherMode)
+{
+    (void)ditherMode;
+
+    float* dst_f32 = (float*)dst;
+    const mal_uint8* src_s24 = (const mal_uint8*)src;
+
+    mal_uint64 i;
+    for (i = 0; i < count; i += 1) {
+        float x = (float)(((mal_int32)(((mal_uint32)(src_s24[i*3+0]) << 8) | ((mal_uint32)(src_s24[i*3+1]) << 16) | ((mal_uint32)(src_s24[i*3+2])) << 24)) >> 8);
+
+#if 0
+        // The accurate way.
+        x = x + 8388608.0f;                 // -8388608..8388607 to 0..16777215
+        x = x * 0.00000011920929665621f;    // 0..16777215 to 0..2
+        x = x - 1;                          // 0..2 to -1..1
+#else
+        // The fast way.
+        x = x * 0.00000011920928955078125f; // -8388608..8388607 to -1..0.999969482421875
+#endif
+
+        dst_f32[i] = x;
+    }
+}
+
+void mal_pcm_s24_to_f32__optimized(void* dst, const void* src, mal_uint64 count, mal_dither_mode ditherMode)
+{
+    mal_pcm_s24_to_f32__reference(dst, src, count, ditherMode);
+}
+
+#ifdef MAL_USE_SSE
+void mal_pcm_s24_to_f32__sse(void* dst, const void* src, mal_uint64 count, mal_dither_mode ditherMode)
+{
+    mal_pcm_s24_to_f32__optimized(dst, src, count, ditherMode);
+}
+#endif
+
+void mal_pcm_s24_to_f32(void* dst, const void* src, mal_uint64 count, mal_dither_mode ditherMode)
+{
+#ifdef MAL_USE_REFERENCE_CONVERSION_APIS
+    mal_pcm_s24_to_f32__reference(dst, src, count, ditherMode);
+#else
+#ifdef MAL_USE_SSE
+    mal_pcm_s24_to_f32__sse(dst, src, count, ditherMode);
+#else
+    mal_pcm_s24_to_f32__optimized(dst, src, count, ditherMode);
+#endif
+#endif
+}
+
+
+void mal_pcm_interleave_s24__reference(void* dst, const void** src, mal_uint64 frameCount, mal_uint32 channels)
+{
+    mal_uint8* dst8 = (mal_uint8*)dst;
+    const mal_uint8** src8 = (const mal_uint8**)src;
+
+    mal_uint64 iFrame;
+    for (iFrame = 0; iFrame < frameCount; iFrame += 1) {
+        mal_uint32 iChannel;
+        for (iChannel = 0; iChannel < channels; iChannel += 1) {
+            dst8[iFrame*3*channels + iChannel + 0] = src8[iChannel][iFrame*3 + 0];
+            dst8[iFrame*3*channels + iChannel + 1] = src8[iChannel][iFrame*3 + 1];
+            dst8[iFrame*3*channels + iChannel + 2] = src8[iChannel][iFrame*3 + 2];
+        }
+    }
+}
+
+void mal_pcm_interleave_s24__optimized(void* dst, const void** src, mal_uint64 frameCount, mal_uint32 channels)
+{
+    mal_pcm_interleave_s24__reference(dst, src, frameCount, channels);
+}
+
+void mal_pcm_interleave_s24(void* dst, const void** src, mal_uint64 frameCount, mal_uint32 channels)
+{
+#ifdef MAL_USE_REFERENCE_CONVERSION_APIS
+    mal_pcm_interleave_s24__reference(dst, src, frameCount, channels);
+#else
+    mal_pcm_interleave_s24__optimized(dst, src, frameCount, channels);
+#endif
+}
+
+
+void mal_pcm_deinterleave_s24__reference(void** dst, const void* src, mal_uint64 frameCount, mal_uint32 channels)
+{
+    mal_uint8** dst8 = (mal_uint8**)dst;
+    const mal_uint8* src8 = (const mal_uint8*)src;
+
+    mal_uint32 iFrame;
+    for (iFrame = 0; iFrame < frameCount; iFrame += 1) {
+        mal_uint32 iChannel;
+        for (iChannel = 0; iChannel < channels; iChannel += 1) {
+            dst8[iChannel][iFrame*3 + 0] = src8[iFrame*3*channels + iChannel + 0];
+            dst8[iChannel][iFrame*3 + 1] = src8[iFrame*3*channels + iChannel + 1];
+            dst8[iChannel][iFrame*3 + 2] = src8[iFrame*3*channels + iChannel + 2];
+        }
+    }
+}
+
+void mal_pcm_deinterleave_s24__optimized(void** dst, const void* src, mal_uint64 frameCount, mal_uint32 channels)
+{
+    mal_pcm_deinterleave_s24__reference(dst, src, frameCount, channels);
+}
+
+void mal_pcm_deinterleave_s24(void** dst, const void* src, mal_uint64 frameCount, mal_uint32 channels)
+{
+#ifdef MAL_USE_REFERENCE_CONVERSION_APIS
+    mal_pcm_deinterleave_s24__reference(dst, src, frameCount, channels);
+#else
+    mal_pcm_deinterleave_s24__optimized(dst, src, frameCount, channels);
+#endif
+}
+
+
+
+// s32
+void mal_pcm_s32_to_u8__reference(void* dst, const void* src, mal_uint64 count, mal_dither_mode ditherMode)
+{
+    (void)ditherMode;
+
+    mal_uint8* dst_u8 = (mal_uint8*)dst;
+    const mal_int32* src_s32 = (const mal_int32*)src;
+
+    mal_uint64 i;
+    for (i = 0; i < count; i += 1) {
+        mal_int32 x = src_s32[i];
+        x = x >> 24;
+        x = x + 128;
+        dst_u8[i] = (mal_uint8)x;
+    }
+}
+
+void mal_pcm_s32_to_u8__optimized(void* dst, const void* src, mal_uint64 count, mal_dither_mode ditherMode)
+{
+    mal_pcm_s32_to_u8__reference(dst, src, count, ditherMode);
+}
+
+#ifdef MAL_USE_SSE
+void mal_pcm_s32_to_u8__sse(void* dst, const void* src, mal_uint64 count, mal_dither_mode ditherMode)
+{
+    mal_pcm_s32_to_u8__optimized(dst, src, count, ditherMode);
+}
+#endif
+
+void mal_pcm_s32_to_u8(void* dst, const void* src, mal_uint64 count, mal_dither_mode ditherMode)
+{
+#ifdef MAL_USE_REFERENCE_CONVERSION_APIS
+    mal_pcm_s32_to_u8__reference(dst, src, count, ditherMode);
+#else
+#ifdef MAL_USE_SSE
+    mal_pcm_s32_to_u8__sse(dst, src, count, ditherMode);
+#else
+    mal_pcm_s32_to_u8__optimized(dst, src, count, ditherMode);
+#endif
+#endif
+}
+
+
+void mal_pcm_s32_to_s16__reference(void* dst, const void* src, mal_uint64 count, mal_dither_mode ditherMode)
+{
+    (void)ditherMode;
+
+    mal_int16* dst_s16 = (mal_int16*)dst;
+    const mal_int32* src_s32 = (const mal_int32*)src;
+
+    mal_uint64 i;
+    for (i = 0; i < count; i += 1) {
+        mal_int32 x = src_s32[i];
+        x = x >> 16;
+        dst_s16[i] = (mal_int16)x;
+    }
+}
+
+void mal_pcm_s32_to_s16__optimized(void* dst, const void* src, mal_uint64 count, mal_dither_mode ditherMode)
+{
+    mal_pcm_s32_to_s16__reference(dst, src, count, ditherMode);
+}
+
+#ifdef MAL_USE_SSE
+void mal_pcm_s32_to_s16__sse(void* dst, const void* src, mal_uint64 count, mal_dither_mode ditherMode)
+{
+    mal_pcm_s32_to_s16__optimized(dst, src, count, ditherMode);
+}
+#endif
+
+void mal_pcm_s32_to_s16(void* dst, const void* src, mal_uint64 count, mal_dither_mode ditherMode)
+{
+#ifdef MAL_USE_REFERENCE_CONVERSION_APIS
+    mal_pcm_s32_to_s16__reference(dst, src, count, ditherMode);
+#else
+#ifdef MAL_USE_SSE
+    mal_pcm_s32_to_s16__sse(dst, src, count, ditherMode);
+#else
+    mal_pcm_s32_to_s16__optimized(dst, src, count, ditherMode);
+#endif
+#endif
+}
+
+
+void mal_pcm_s32_to_s24__reference(void* dst, const void* src, mal_uint64 count, mal_dither_mode ditherMode)
+{
+    (void)ditherMode;
+
+    mal_uint8* dst_s24 = (mal_uint8*)dst;
+    const mal_int32* src_s32 = (const mal_int32*)src;
+
+    mal_uint64 i;
+    for (i = 0; i < count; i += 1) {
+        mal_uint32 x = (mal_uint32)src_s32[i];
+        dst_s24[i*3+0] = (mal_uint8)((x & 0x0000FF00) >>  8);
+        dst_s24[i*3+1] = (mal_uint8)((x & 0x00FF0000) >> 16);
+        dst_s24[i*3+2] = (mal_uint8)((x & 0xFF000000) >> 24);
+    }
+}
+
+void mal_pcm_s32_to_s24__optimized(void* dst, const void* src, mal_uint64 count, mal_dither_mode ditherMode)
+{
+    mal_pcm_s32_to_s24__reference(dst, src, count, ditherMode);
+}
+
+#ifdef MAL_USE_SSE
+void mal_pcm_s32_to_s24__sse(void* dst, const void* src, mal_uint64 count, mal_dither_mode ditherMode)
+{
+    mal_pcm_s32_to_s24__optimized(dst, src, count, ditherMode);
+}
+#endif
+
+void mal_pcm_s32_to_s24(void* dst, const void* src, mal_uint64 count, mal_dither_mode ditherMode)
+{
+#ifdef MAL_USE_REFERENCE_CONVERSION_APIS
+    mal_pcm_s32_to_s24__reference(dst, src, count, ditherMode);
+#else
+#ifdef MAL_USE_SSE
+    mal_pcm_s32_to_s24__sse(dst, src, count, ditherMode);
+#else
+    mal_pcm_s32_to_s24__optimized(dst, src, count, ditherMode);
+#endif
+#endif
+}
+
+
+void mal_pcm_s32_to_s32(void* dst, const void* src, mal_uint64 count, mal_dither_mode ditherMode)
+{
+    (void)ditherMode;
+
+    mal_copy_memory(dst, src, count * sizeof(mal_int32));
+}
+
+
+void mal_pcm_s32_to_f32__reference(void* dst, const void* src, mal_uint64 count, mal_dither_mode ditherMode)
+{
+    (void)ditherMode;
+
+    float* dst_f32 = (float*)dst;
+    const mal_int32* src_s32 = (const mal_int32*)src;
+
+    mal_uint64 i;
+    for (i = 0; i < count; i += 1) {
+        double x = src_s32[i];
+
+#if 0
+        x = x + 2147483648.0;
+        x = x * 0.0000000004656612873077392578125;
+        x = x - 1;
+#else
+        x = x / 2147483648.0;
+#endif
+
+        dst_f32[i] = (float)x;
+    }
+}
+
+void mal_pcm_s32_to_f32__optimized(void* dst, const void* src, mal_uint64 count, mal_dither_mode ditherMode)
+{
+    mal_pcm_s32_to_f32__reference(dst, src, count, ditherMode);
+}
+
+#ifdef MAL_USE_SSE
+void mal_pcm_s32_to_f32__sse(void* dst, const void* src, mal_uint64 count, mal_dither_mode ditherMode)
+{
+    mal_pcm_s32_to_f32__optimized(dst, src, count, ditherMode);
+}
+#endif
+
+void mal_pcm_s32_to_f32(void* dst, const void* src, mal_uint64 count, mal_dither_mode ditherMode)
+{
+#ifdef MAL_USE_REFERENCE_CONVERSION_APIS
+    mal_pcm_s32_to_f32__reference(dst, src, count, ditherMode);
+#else
+#ifdef MAL_USE_SSE
+    mal_pcm_s32_to_f32__sse(dst, src, count, ditherMode);
+#else
+    mal_pcm_s32_to_f32__optimized(dst, src, count, ditherMode);
+#endif
+#endif
+}
+
+
+void mal_pcm_interleave_s32__reference(void* dst, const void** src, mal_uint64 frameCount, mal_uint32 channels)
+{
+    mal_int32* dst_s32 = (mal_int32*)dst;
+    const mal_int32** src_s32 = (const mal_int32**)src;
+
+    mal_uint64 iFrame;
+    for (iFrame = 0; iFrame < frameCount; iFrame += 1) {
+        mal_uint32 iChannel;
+        for (iChannel = 0; iChannel < channels; iChannel += 1) {
+            dst_s32[iFrame*channels + iChannel] = src_s32[iChannel][iFrame];
+        }
+    }
+}
+
+void mal_pcm_interleave_s32__optimized(void* dst, const void** src, mal_uint64 frameCount, mal_uint32 channels)
+{
+    mal_pcm_interleave_s32__reference(dst, src, frameCount, channels);
+}
+
+void mal_pcm_interleave_s32(void* dst, const void** src, mal_uint64 frameCount, mal_uint32 channels)
+{
+#ifdef MAL_USE_REFERENCE_CONVERSION_APIS
+    mal_pcm_interleave_s32__reference(dst, src, frameCount, channels);
+#else
+    mal_pcm_interleave_s32__optimized(dst, src, frameCount, channels);
+#endif
+}
+
+
+void mal_pcm_deinterleave_s32__reference(void** dst, const void* src, mal_uint64 frameCount, mal_uint32 channels)
+{
+    mal_int32** dst_s32 = (mal_int32**)dst;
+    const mal_int32* src_s32 = (const mal_int32*)src;
+
+    mal_uint64 iFrame;
+    for (iFrame = 0; iFrame < frameCount; iFrame += 1) {
+        mal_uint32 iChannel;
+        for (iChannel = 0; iChannel < channels; iChannel += 1) {
+            dst_s32[iChannel][iFrame] = src_s32[iFrame*channels + iChannel];
+        }
+    }
+}
+
+void mal_pcm_deinterleave_s32__optimized(void** dst, const void* src, mal_uint64 frameCount, mal_uint32 channels)
+{
+    mal_pcm_deinterleave_s32__reference(dst, src, frameCount, channels);
+}
+
+void mal_pcm_deinterleave_s32(void** dst, const void* src, mal_uint64 frameCount, mal_uint32 channels)
+{
+#ifdef MAL_USE_REFERENCE_CONVERSION_APIS
+    mal_pcm_deinterleave_s32__reference(dst, src, frameCount, channels);
+#else
+    mal_pcm_deinterleave_s32__optimized(dst, src, frameCount, channels);
+#endif
+}
+
+
+// f32
+void mal_pcm_f32_to_u8__reference(void* dst, const void* src, mal_uint64 count, mal_dither_mode ditherMode)
+{
+    (void)ditherMode;
+
+    mal_uint8* dst_u8 = (mal_uint8*)dst;
+    const float* src_f32 = (const float*)src;
+
+    mal_uint64 i;
+    for (i = 0; i < count; i += 1) {
+        float x = src_f32[i];
+        x = ((x < -1) ? -1 : ((x > 1) ? 1 : x));    // clip
+        x = x + 1;                                  // -1..1 to 0..2
+        x = x * 127.5f;                             // 0..2 to 0..255
+
+        dst_u8[i] = (mal_uint8)x;
+    }
+}
+
+void mal_pcm_f32_to_u8__optimized(void* dst, const void* src, mal_uint64 count, mal_dither_mode ditherMode)
+{
+    mal_pcm_f32_to_u8__reference(dst, src, count, ditherMode);
+}
+
+#ifdef MAL_USE_SSE
+void mal_pcm_f32_to_u8__sse(void* dst, const void* src, mal_uint64 count, mal_dither_mode ditherMode)
+{
+    mal_pcm_f32_to_u8__optimized(dst, src, count, ditherMode);
+}
+#endif
+
+void mal_pcm_f32_to_u8(void* dst, const void* src, mal_uint64 count, mal_dither_mode ditherMode)
+{
+#ifdef MAL_USE_REFERENCE_CONVERSION_APIS
+    mal_pcm_f32_to_u8__reference(dst, src, count, ditherMode);
+#else
+#ifdef MAL_USE_SSE
+    mal_pcm_f32_to_u8__sse(dst, src, count, ditherMode);
+#else
+    mal_pcm_f32_to_u8__optimized(dst, src, count, ditherMode);
+#endif
+#endif
+}
+
+
+void mal_pcm_f32_to_s16__reference(void* dst, const void* src, mal_uint64 count, mal_dither_mode ditherMode)
+{
+    (void)ditherMode;
+
+    mal_int16* dst_s16 = (mal_int16*)dst;
+    const float* src_f32 = (const float*)src;
+
+    mal_uint64 i;
+    for (i = 0; i < count; i += 1) {
+        float x = src_f32[i];
+        x = ((x < -1) ? -1 : ((x > 1) ? 1 : x));    // clip
+
+#if 0
+        // The accurate way.
+        x = x + 1;                                  // -1..1 to 0..2
+        x = x * 32767.5f;                           // 0..2 to 0..65535
+        x = x - 32768.0f;                           // 0...65535 to -32768..32767
+#else
+        // The fast way.
+        x = x * 32767.0f;                           // -1..1 to -32767..32767
+#endif
+        
+        dst_s16[i] = (mal_int16)x;
+    }
+}
+
+void mal_pcm_f32_to_s16__optimized(void* dst, const void* src, mal_uint64 count, mal_dither_mode ditherMode)
+{
+    mal_pcm_f32_to_s16__reference(dst, src, count, ditherMode);
+}
+
+#ifdef MAL_USE_SSE
+void mal_pcm_f32_to_s16__sse(void* dst, const void* src, mal_uint64 count, mal_dither_mode ditherMode)
+{
+    mal_pcm_f32_to_s16__optimized(dst, src, count, ditherMode);
+}
+#endif
+
+void mal_pcm_f32_to_s16(void* dst, const void* src, mal_uint64 count, mal_dither_mode ditherMode)
+{
+#ifdef MAL_USE_REFERENCE_CONVERSION_APIS
+    mal_pcm_f32_to_s16__reference(dst, src, count, ditherMode);
+#else
+#ifdef MAL_USE_SSE
+    mal_pcm_f32_to_s16__sse(dst, src, count, ditherMode);
+#else
+    mal_pcm_f32_to_s16__optimized(dst, src, count, ditherMode);
+#endif
+#endif
+}
+
+
+void mal_pcm_f32_to_s24__reference(void* dst, const void* src, mal_uint64 count, mal_dither_mode ditherMode)
+{
+    (void)ditherMode;
+
+    mal_uint8* dst_s24 = (mal_uint8*)dst;
+    const float* src_f32 = (const float*)src;
+
+    mal_uint64 i;
+    for (i = 0; i < count; i += 1) {
+        float x = src_f32[i];
+        x = ((x < -1) ? -1 : ((x > 1) ? 1 : x));    // clip
+
+#if 0
+        // The accurate way.
+        x = x + 1;                                  // -1..1 to 0..2
+        x = x * 8388607.5f;                         // 0..2 to 0..16777215
+        x = x - 8388608.0f;                         // 0..16777215 to -8388608..8388607
+#else
+        // The fast way.
+        x = x * 8388607.0f;                         // -1..1 to -8388607..8388607
+#endif
+
+        mal_int32 r = (mal_int32)x;
+        dst_s24[(i*3)+0] = (mal_uint8)((r & 0x0000FF) >>  0);
+        dst_s24[(i*3)+1] = (mal_uint8)((r & 0x00FF00) >>  8);
+        dst_s24[(i*3)+2] = (mal_uint8)((r & 0xFF0000) >> 16);
+    }
+}
+
+void mal_pcm_f32_to_s24__optimized(void* dst, const void* src, mal_uint64 count, mal_dither_mode ditherMode)
+{
+    mal_pcm_f32_to_s24__reference(dst, src, count, ditherMode);
+}
+
+#ifdef MAL_USE_SSE
+void mal_pcm_f32_to_s24__sse(void* dst, const void* src, mal_uint64 count, mal_dither_mode ditherMode)
+{
+    mal_pcm_f32_to_s24__optimized(dst, src, count, ditherMode);
+}
+#endif
+
+void mal_pcm_f32_to_s24(void* dst, const void* src, mal_uint64 count, mal_dither_mode ditherMode)
+{
+#ifdef MAL_USE_REFERENCE_CONVERSION_APIS
+    mal_pcm_f32_to_s24__reference(dst, src, count, ditherMode);
+#else
+#ifdef MAL_USE_SSE
+    mal_pcm_f32_to_s24__sse(dst, src, count, ditherMode);
+#else
+    mal_pcm_f32_to_s24__optimized(dst, src, count, ditherMode);
+#endif
+#endif
+}
+
+
+void mal_pcm_f32_to_s32__reference(void* dst, const void* src, mal_uint64 count, mal_dither_mode ditherMode)
+{
+    (void)ditherMode;
+
+    mal_int32* dst_s32 = (mal_int32*)dst;
+    const float* src_f32 = (const float*)src;
+
+    mal_uint32 i;
+    for (i = 0; i < count; i += 1) {
+        double x = src_f32[i];
+        x = ((x < -1) ? -1 : ((x > 1) ? 1 : x));    // clip
+
+#if 0
+        // The accurate way.
+        x = x + 1;                                  // -1..1 to 0..2
+        x = x * 2147483647.5;                       // 0..2 to 0..4294967295
+        x = x - 2147483648.0;                       // 0...4294967295 to -2147483648..2147483647
+#else
+        // The fast way.
+        x = x * 2147483647.0;                       // -1..1 to -2147483647..2147483647
+#endif
+
+        dst_s32[i] = (mal_int32)x;
+    }
+}
+
+void mal_pcm_f32_to_s32__optimized(void* dst, const void* src, mal_uint64 count, mal_dither_mode ditherMode)
+{
+    mal_pcm_f32_to_s32__reference(dst, src, count, ditherMode);
+}
+
+#ifdef MAL_USE_SSE
+void mal_pcm_f32_to_s32__sse(void* dst, const void* src, mal_uint64 count, mal_dither_mode ditherMode)
+{
+    mal_pcm_f32_to_s32__optimized(dst, src, count, ditherMode);
+}
+#endif
+
+void mal_pcm_f32_to_s32(void* dst, const void* src, mal_uint64 count, mal_dither_mode ditherMode)
+{
+#ifdef MAL_USE_REFERENCE_CONVERSION_APIS
+    mal_pcm_f32_to_s32__reference(dst, src, count, ditherMode);
+#else
+#ifdef MAL_USE_SSE
+    mal_pcm_f32_to_s32__sse(dst, src, count, ditherMode);
+#else
+    mal_pcm_f32_to_s32__optimized(dst, src, count, ditherMode);
+#endif
+#endif
+}
+
+
+void mal_pcm_f32_to_f32(void* dst, const void* src, mal_uint64 count, mal_dither_mode ditherMode)
+{
+    (void)ditherMode;
+
+    mal_copy_memory(dst, src, count * sizeof(float));
+}
+
+
+void mal_pcm_interleave_f32__reference(void* dst, const void** src, mal_uint64 frameCount, mal_uint32 channels)
+{
+    float* dst_f32 = (float*)dst;
+    const float** src_f32 = (const float**)src;
+
+    mal_uint64 iFrame;
+    for (iFrame = 0; iFrame < frameCount; iFrame += 1) {
+        mal_uint32 iChannel;
+        for (iChannel = 0; iChannel < channels; iChannel += 1) {
+            dst_f32[iFrame*channels + iChannel] = src_f32[iChannel][iFrame];
+        }
+    }
+}
+
+void mal_pcm_interleave_f32__optimized(void* dst, const void** src, mal_uint64 frameCount, mal_uint32 channels)
+{
+    mal_pcm_interleave_f32__reference(dst, src, frameCount, channels);
+}
+
+void mal_pcm_interleave_f32(void* dst, const void** src, mal_uint64 frameCount, mal_uint32 channels)
+{
+#ifdef MAL_USE_REFERENCE_CONVERSION_APIS
+    mal_pcm_interleave_f32__reference(dst, src, frameCount, channels);
+#else
+    mal_pcm_interleave_f32__optimized(dst, src, frameCount, channels);
+#endif
+}
+
+
+void mal_pcm_deinterleave_f32__reference(void** dst, const void* src, mal_uint64 frameCount, mal_uint32 channels)
+{
+    float** dst_f32 = (float**)dst;
+    const float* src_f32 = (const float*)src;
+
+    mal_uint64 iFrame;
+    for (iFrame = 0; iFrame < frameCount; iFrame += 1) {
+        mal_uint32 iChannel;
+        for (iChannel = 0; iChannel < channels; iChannel += 1) {
+            dst_f32[iChannel][iFrame] = src_f32[iFrame*channels + iChannel];
+        }
+    }
+}
+
+void mal_pcm_deinterleave_f32__optimized(void** dst, const void* src, mal_uint64 frameCount, mal_uint32 channels)
+{
+    mal_pcm_deinterleave_f32__reference(dst, src, frameCount, channels);
+}
+
+void mal_pcm_deinterleave_f32(void** dst, const void* src, mal_uint64 frameCount, mal_uint32 channels)
+{
+#ifdef MAL_USE_REFERENCE_CONVERSION_APIS
+    mal_pcm_deinterleave_f32__reference(dst, src, frameCount, channels);
+#else
+    mal_pcm_deinterleave_f32__optimized(dst, src, frameCount, channels);
+#endif
+}
+
+
+
+mal_result mal_format_converter_init__common(const mal_format_converter_config* pConfig, void* pUserData, mal_format_converter* pConverter)
+{
+    if (pConverter == NULL) {
+        return MAL_INVALID_ARGS;
+    }
+    mal_zero_object(pConverter);
+
+    if (pConfig == NULL) {
+        return MAL_INVALID_ARGS;
+    }
+
+    pConverter->config = *pConfig;
+    pConverter->pUserData = pUserData;
+
+    switch (pConfig->formatIn)
+    {
+        case mal_format_u8:
+        {
+            if (pConfig->formatOut == mal_format_u8) {
+                pConverter->onConvertPCM = mal_pcm_u8_to_u8;
+            } else if (pConfig->formatOut == mal_format_s16) {
+                pConverter->onConvertPCM = mal_pcm_u8_to_s16;
+            } else if (pConfig->formatOut == mal_format_s24) {
+                pConverter->onConvertPCM = mal_pcm_u8_to_s24;
+            } else if (pConfig->formatOut == mal_format_s32) {
+                pConverter->onConvertPCM = mal_pcm_u8_to_s32;
+            } else if (pConfig->formatOut == mal_format_f32) {
+                pConverter->onConvertPCM = mal_pcm_u8_to_f32;
+            }
+        } break;
+
+        case mal_format_s16:
+        {
+            if (pConfig->formatOut == mal_format_u8) {
+                pConverter->onConvertPCM = mal_pcm_s16_to_u8;
+            } else if (pConfig->formatOut == mal_format_s16) {
+                pConverter->onConvertPCM = mal_pcm_s16_to_s16;
+            } else if (pConfig->formatOut == mal_format_s24) {
+                pConverter->onConvertPCM = mal_pcm_s16_to_s24;
+            } else if (pConfig->formatOut == mal_format_s32) {
+                pConverter->onConvertPCM = mal_pcm_s16_to_s32;
+            } else if (pConfig->formatOut == mal_format_f32) {
+                pConverter->onConvertPCM = mal_pcm_s16_to_f32;
+            }
+        } break;
+
+        case mal_format_s24:
+        {
+            if (pConfig->formatOut == mal_format_u8) {
+                pConverter->onConvertPCM = mal_pcm_s24_to_u8;
+            } else if (pConfig->formatOut == mal_format_s16) {
+                pConverter->onConvertPCM = mal_pcm_s24_to_s16;
+            } else if (pConfig->formatOut == mal_format_s24) {
+                pConverter->onConvertPCM = mal_pcm_s24_to_s24;
+            } else if (pConfig->formatOut == mal_format_s32) {
+                pConverter->onConvertPCM = mal_pcm_s24_to_s32;
+            } else if (pConfig->formatOut == mal_format_f32) {
+                pConverter->onConvertPCM = mal_pcm_s24_to_f32;
+            }
+        } break;
+
+        case mal_format_s32:
+        {
+            if (pConfig->formatOut == mal_format_u8) {
+                pConverter->onConvertPCM = mal_pcm_s32_to_u8;
+            } else if (pConfig->formatOut == mal_format_s16) {
+                pConverter->onConvertPCM = mal_pcm_s32_to_s16;
+            } else if (pConfig->formatOut == mal_format_s24) {
+                pConverter->onConvertPCM = mal_pcm_s32_to_s24;
+            } else if (pConfig->formatOut == mal_format_s32) {
+                pConverter->onConvertPCM = mal_pcm_s32_to_s32;
+            } else if (pConfig->formatOut == mal_format_f32) {
+                pConverter->onConvertPCM = mal_pcm_s32_to_f32;
+            }
+        } break;
+
+        case mal_format_f32:
+        default:
+        {
+            if (pConfig->formatOut == mal_format_u8) {
+                pConverter->onConvertPCM = mal_pcm_f32_to_u8;
+            } else if (pConfig->formatOut == mal_format_s16) {
+                pConverter->onConvertPCM = mal_pcm_f32_to_s16;
+            } else if (pConfig->formatOut == mal_format_s24) {
+                pConverter->onConvertPCM = mal_pcm_f32_to_s24;
+            } else if (pConfig->formatOut == mal_format_s32) {
+                pConverter->onConvertPCM = mal_pcm_f32_to_s32;
+            } else if (pConfig->formatOut == mal_format_f32) {
+                pConverter->onConvertPCM = mal_pcm_f32_to_f32;
+            }
+        } break;
+    }
+
+
+    switch (pConfig->formatOut)
+    {
+        case mal_format_u8:
+        {
+            pConverter->onInterleavePCM   = mal_pcm_interleave_u8;
+            pConverter->onDeinterleavePCM = mal_pcm_deinterleave_u8;
+        } break;
+        case mal_format_s16:
+        {
+            pConverter->onInterleavePCM   = mal_pcm_interleave_s16;
+            pConverter->onDeinterleavePCM = mal_pcm_deinterleave_s16;
+        } break;
+        case mal_format_s24:
+        {
+            pConverter->onInterleavePCM   = mal_pcm_interleave_s24;
+            pConverter->onDeinterleavePCM = mal_pcm_deinterleave_s24;
+        } break;
+        case mal_format_s32:
+        {
+            pConverter->onInterleavePCM   = mal_pcm_interleave_s32;
+            pConverter->onDeinterleavePCM = mal_pcm_deinterleave_s32;
+        } break;
+        case mal_format_f32:
+        default:
+        {
+            pConverter->onInterleavePCM   = mal_pcm_interleave_f32;
+            pConverter->onDeinterleavePCM = mal_pcm_deinterleave_f32;
+        } break;
+    }
+
+    return MAL_SUCCESS;
+}
+
+
+mal_result mal_format_converter_init(const mal_format_converter_config* pConfig, mal_format_converter_read_proc onRead, void* pUserData, mal_format_converter* pConverter)
+{
+    mal_result result = mal_format_converter_init__common(pConfig, pUserData, pConverter);
+    if (result != MAL_SUCCESS) {
+        return result;
+    }
+
+    pConverter->onRead = onRead;
+
+    return MAL_SUCCESS;
+}
+
+mal_result mal_format_converter_init_separated(const mal_format_converter_config* pConfig, mal_format_converter_read_separated_proc onRead, void* pUserData, mal_format_converter* pConverter)
+{
+    mal_result result = mal_format_converter_init__common(pConfig, pUserData, pConverter);
+    if (result != MAL_SUCCESS) {
+        return result;
+    }
+
+    pConverter->onReadSeparated = onRead;
+
+    return MAL_SUCCESS;
+}
+
+mal_uint64 mal_format_converter_read_frames(mal_format_converter* pConverter, mal_uint64 frameCount, void* pFramesOut)
+{
+    if (pConverter == NULL || pFramesOut == NULL) {
+        return 0;
+    }
+
+    mal_uint64 totalFramesRead = 0;
+    mal_uint32 sampleSizeIn    = mal_get_sample_size_in_bytes(pConverter->config.formatIn);
+    //mal_uint32 sampleSizeOut   = mal_get_sample_size_in_bytes(pConverter->config.formatOut);
+    mal_uint32 frameSizeIn     = sampleSizeIn  * pConverter->config.channels;
+    //mal_uint32 frameSizeOut    = sampleSizeOut * pConverter->config.channels;
+    mal_uint8* pNextFramesOut  = (mal_uint8*)pFramesOut;
+
+    if (pConverter->onRead != NULL) {
+        // Input data is interleaved.
+        if (pConverter->config.formatIn == pConverter->config.formatOut) {
+            // Pass through.
+            while (totalFramesRead < frameCount) {
+                mal_uint64 framesRemaining = (frameCount - totalFramesRead);
+                mal_uint64 framesToReadRightNow = framesRemaining;
+                if (framesToReadRightNow > 0xFFFFFFFF) {
+                    framesToReadRightNow = 0xFFFFFFFF;
+                }
+
+                mal_uint32 framesJustRead = (mal_uint32)pConverter->onRead(pConverter, (mal_uint32)framesToReadRightNow, pNextFramesOut, pConverter->pUserData);
+                if (framesJustRead == 0) {
+                    break;
+                }
+
+                totalFramesRead += framesJustRead;
+                pNextFramesOut  += framesJustRead * frameSizeIn;
+            }
+        } else {
+            // Conversion required.
+            mal_uint8 temp[MAL_MAX_CHANNELS * MAL_MAX_PCM_SAMPLE_SIZE_IN_BYTES * 128];
+            mal_assert(sizeof(temp) <= 0xFFFFFFFF);
+
+            mal_uint32 maxFramesToReadAtATime = sizeof(temp) / sampleSizeIn / pConverter->config.channels;
+
+            while (totalFramesRead < frameCount) {
+                mal_uint64 framesRemaining = (frameCount - totalFramesRead);
+                mal_uint64 framesToReadRightNow = framesRemaining;
+                if (framesToReadRightNow > maxFramesToReadAtATime) {
+                    framesToReadRightNow = maxFramesToReadAtATime;
+                }
+
+                mal_uint32 framesJustRead = (mal_uint32)pConverter->onRead(pConverter, (mal_uint32)framesToReadRightNow, temp, pConverter->pUserData);
+                if (framesJustRead == 0) {
+                    break;
+                }
+
+                pConverter->onConvertPCM(pNextFramesOut, temp, framesJustRead*pConverter->config.channels, pConverter->config.ditherMode);
+
+                totalFramesRead += framesJustRead;
+                pNextFramesOut  += framesJustRead * frameSizeIn;
+            }
+        }
+    } else {
+        // Input data is separated. If a conversion is required we need to do an intermediary step.
+        mal_uint8 tempSamplesOfOutFormat[MAL_MAX_CHANNELS][MAL_MAX_PCM_SAMPLE_SIZE_IN_BYTES * 128];
+        mal_assert(sizeof(tempSamplesOfOutFormat[0]) <= 0xFFFFFFFFF);
+
+        mal_uint32 maxFramesToReadAtATime = sizeof(tempSamplesOfOutFormat[0]) / sampleSizeIn;
+
+        while (totalFramesRead < frameCount) {
+            mal_uint64 framesRemaining = (frameCount - totalFramesRead);
+            mal_uint64 framesToReadRightNow = framesRemaining;
+            if (framesToReadRightNow > maxFramesToReadAtATime) {
+                framesToReadRightNow = maxFramesToReadAtATime;
+            }
+
+            mal_uint32 framesJustRead = 0;
+
+            if (pConverter->config.formatIn == pConverter->config.formatOut) {
+                // Only interleaving.
+                framesJustRead = (mal_uint32)pConverter->onReadSeparated(pConverter, (mal_uint32)framesToReadRightNow, (void**)tempSamplesOfOutFormat, pConverter->pUserData);
+                if (framesJustRead == 0) {
+                    break;
+                }
+            } else {
+                // Interleaving + Conversion. Convert first, then interleave.
+                mal_uint8 tempSamplesOfInFormat[MAL_MAX_CHANNELS][MAL_MAX_PCM_SAMPLE_SIZE_IN_BYTES * 128];
+
+                framesJustRead = (mal_uint32)pConverter->onReadSeparated(pConverter, (mal_uint32)framesToReadRightNow, (void**)tempSamplesOfInFormat, pConverter->pUserData);
+                if (framesJustRead == 0) {
+                    break;
+                }
+
+                for (mal_uint32 iChannel = 0; iChannel < pConverter->config.channels; iChannel += 1) {
+                    pConverter->onConvertPCM(tempSamplesOfOutFormat[iChannel], tempSamplesOfInFormat[iChannel], framesJustRead, pConverter->config.ditherMode);
+                }
+            }
+
+            pConverter->onInterleavePCM(pNextFramesOut, (void**)tempSamplesOfOutFormat, framesJustRead, pConverter->config.channels);
+
+            totalFramesRead += framesJustRead;
+            pNextFramesOut  += framesJustRead * frameSizeIn;
+        }
+    }
+
+    return totalFramesRead;
+}
+
+mal_uint64 mal_format_converter_read_frames_separated(mal_format_converter* pConverter, mal_uint64 frameCount, void** ppSamplesOut)
+{
+    if (pConverter == NULL || ppSamplesOut == NULL) {
+        return 0;
+    }
+
+    mal_uint64 totalFramesRead = 0;
+    mal_uint32 sampleSizeIn = mal_get_sample_size_in_bytes(pConverter->config.formatIn);
+    //mal_uint32 sampleSizeOut = mal_get_sample_size_in_bytes(pConverter->config.formatOut);
+
+    mal_uint8* ppNextSamplesOut[MAL_MAX_CHANNELS];
+    mal_copy_memory(ppNextSamplesOut, ppSamplesOut, sizeof(void*) * pConverter->config.channels);
+
+    if (pConverter->onRead != NULL) {
+        // Input data is interleaved.
+        mal_uint8 tempSamplesOfOutFormat[MAL_MAX_CHANNELS * MAL_MAX_PCM_SAMPLE_SIZE_IN_BYTES * 128];
+        mal_assert(sizeof(tempSamplesOfOutFormat) <= 0xFFFFFFFF);
+
+        mal_uint32 maxFramesToReadAtATime = sizeof(tempSamplesOfOutFormat) / sampleSizeIn / pConverter->config.channels;
+
+        while (totalFramesRead < frameCount) {
+            mal_uint64 framesRemaining = (frameCount - totalFramesRead);
+            mal_uint64 framesToReadRightNow = framesRemaining;
+            if (framesToReadRightNow > maxFramesToReadAtATime) {
+                framesToReadRightNow = maxFramesToReadAtATime;
+            }
+
+            mal_uint32 framesJustRead = 0;
+
+            if (pConverter->config.formatIn == pConverter->config.formatOut) {
+                // Only de-interleaving.
+                framesJustRead = (mal_uint32)pConverter->onRead(pConverter, (mal_uint32)framesToReadRightNow, tempSamplesOfOutFormat, pConverter->pUserData);
+                if (framesJustRead == 0) {
+                    break;
+                }
+            } else {
+                // De-interleaving + Conversion. Convert first, then de-interleave.
+                mal_uint8 tempSamplesOfInFormat[sizeof(tempSamplesOfOutFormat)];
+
+                framesJustRead = (mal_uint32)pConverter->onRead(pConverter, (mal_uint32)framesToReadRightNow, tempSamplesOfInFormat, pConverter->pUserData);
+                if (framesJustRead == 0) {
+                    break;
+                }
+
+                pConverter->onConvertPCM(tempSamplesOfOutFormat, tempSamplesOfInFormat, framesJustRead * pConverter->config.channels, pConverter->config.ditherMode);
+            }
+
+            pConverter->onDeinterleavePCM((void**)ppNextSamplesOut, tempSamplesOfOutFormat, framesJustRead, pConverter->config.channels);
+
+            totalFramesRead += framesJustRead;
+            for (mal_uint32 iChannel = 0; iChannel < pConverter->config.channels; ++iChannel) {
+                ppNextSamplesOut[iChannel] += framesJustRead * sampleSizeIn;
+            }
+        }
+    } else {
+        // Input data is separated.
+        if (pConverter->config.formatIn == pConverter->config.formatOut) {
+            // Pass through.
+            while (totalFramesRead < frameCount) {
+                mal_uint64 framesRemaining = (frameCount - totalFramesRead);
+                mal_uint64 framesToReadRightNow = framesRemaining;
+                if (framesToReadRightNow > 0xFFFFFFFF) {
+                    framesToReadRightNow = 0xFFFFFFFF;
+                }
+
+                mal_uint32 framesJustRead = (mal_uint32)pConverter->onReadSeparated(pConverter, (mal_uint32)framesToReadRightNow, (void**)ppNextSamplesOut, pConverter->pUserData);
+                if (framesJustRead == 0) {
+                    break;
+                }
+
+                totalFramesRead += framesJustRead;
+                for (mal_uint32 iChannel = 0; iChannel < pConverter->config.channels; ++iChannel) {
+                    ppNextSamplesOut[iChannel] += framesJustRead * sampleSizeIn;
+                }
+            }
+        } else {
+            // Conversion required.
+            mal_uint8 temp[MAL_MAX_CHANNELS][MAL_MAX_PCM_SAMPLE_SIZE_IN_BYTES * 128];
+            mal_assert(sizeof(temp[0]) <= 0xFFFFFFFF);
+
+            mal_uint32 maxFramesToReadAtATime = sizeof(temp[0]) / sampleSizeIn;
+
+            while (totalFramesRead < frameCount) {
+                mal_uint64 framesRemaining = (frameCount - totalFramesRead);
+                mal_uint64 framesToReadRightNow = framesRemaining;
+                if (framesToReadRightNow > maxFramesToReadAtATime) {
+                    framesToReadRightNow = maxFramesToReadAtATime;
+                }
+
+                mal_uint32 framesJustRead = (mal_uint32)pConverter->onReadSeparated(pConverter, (mal_uint32)framesToReadRightNow, (void**)ppNextSamplesOut, pConverter->pUserData);
+                if (framesJustRead == 0) {
+                    break;
+                }
+
+                for (mal_uint32 iChannel = 0; iChannel < pConverter->config.channels; iChannel += 1) {
+                    pConverter->onConvertPCM(ppNextSamplesOut[iChannel], temp[iChannel], framesJustRead, pConverter->config.ditherMode);
+                    ppNextSamplesOut[iChannel] += framesJustRead * sampleSizeIn;
+                }
+
+                totalFramesRead += framesJustRead;
+            }
+        }
+    }
+
+    return totalFramesRead;
+}
+
+
+
+
 //////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 //
 // SRC
@@ -15284,7 +16969,7 @@ mal_uint32 mal_src_cache_read_frames(mal_src_cache* pCache, mal_uint32 frameCoun
             pCache->cachedFrameCount = pCache->pSRC->onRead(pCache->pSRC, framesToReadFromClient, pIntermediaryBuffer, pCache->pSRC->pUserData);
 
             // Convert to f32.
-            mal_pcm_convert(pCache->pCachedFrames, mal_format_f32, pIntermediaryBuffer, pCache->pSRC->config.formatIn, pCache->cachedFrameCount * channels);
+            mal_pcm_convert(pCache->pCachedFrames, mal_format_f32, pIntermediaryBuffer, pCache->pSRC->config.formatIn, pCache->cachedFrameCount * channels, mal_dither_mode_none);
         }
 
 
@@ -15421,7 +17106,7 @@ mal_uint64 mal_src_read_frames_passthrough(mal_src* pSRC, mal_uint64 frameCount,
             break;
         }
 
-        mal_pcm_convert(pFramesOut, pSRC->config.formatOut, pStagingBuffer, pSRC->config.formatIn, framesRead * pSRC->config.channels);
+        mal_pcm_convert(pFramesOut, pSRC->config.formatOut, pStagingBuffer, pSRC->config.formatIn, framesRead * pSRC->config.channels, mal_dither_mode_none);
 
         pFramesOut  = (mal_uint8*)pFramesOut + (framesRead * pSRC->config.channels * mal_get_sample_size_in_bytes(pSRC->config.formatOut));
         frameCount -= framesRead;
@@ -15495,7 +17180,7 @@ mal_uint64 mal_src_read_frames_linear(mal_src* pSRC, mal_uint64 frameCount, void
             }
         }
 
-        mal_pcm_convert(pFramesOut, pSRC->config.formatOut, pFrame, mal_format_f32, 1 * pSRC->config.channels);
+        mal_pcm_convert(pFramesOut, pSRC->config.formatOut, pFrame, mal_format_f32, 1 * pSRC->config.channels, mal_dither_mode_none);
 
         pFramesOut  = (mal_uint8*)pFramesOut + (1 * pSRC->config.channels * mal_get_sample_size_in_bytes(pSRC->config.formatOut));
         frameCount -= 1;
@@ -15519,28 +17204,7 @@ mal_uint64 mal_src_read_frames_linear(mal_src* pSRC, mal_uint64 frameCount, void
 //
 //////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 //////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-void mal_pcm_u8_to_s16(short* pOut, const unsigned char* pIn, unsigned int count);
-void mal_pcm_u8_to_s24(void* pOut, const unsigned char* pIn, unsigned int count);
-void mal_pcm_u8_to_s32(int* pOut, const unsigned char* pIn, unsigned int count);
-void mal_pcm_u8_to_f32(float* pOut, const unsigned char* pIn, unsigned int count);
-void mal_pcm_s16_to_u8(unsigned char* pOut, const short* pIn, unsigned int count);
-void mal_pcm_s16_to_s24(void* pOut, const short* pIn, unsigned int count);
-void mal_pcm_s16_to_s32(int* pOut, const short* pIn, unsigned int count);
-void mal_pcm_s16_to_f32(float* pOut, const short* pIn, unsigned int count);
-void mal_pcm_s24_to_u8(unsigned char* pOut, const void* pIn, unsigned int count);
-void mal_pcm_s24_to_s16(short* pOut, const void* pIn, unsigned int count);
-void mal_pcm_s24_to_s32(int* pOut, const void* pIn, unsigned int count);
-void mal_pcm_s24_to_f32(float* pOut, const void* pIn, unsigned int count);
-void mal_pcm_s32_to_u8(unsigned char* pOut, const int* pIn, unsigned int count);
-void mal_pcm_s32_to_s16(short* pOut, const int* pIn, unsigned int count);
-void mal_pcm_s32_to_s24(void* pOut, const int* pIn, unsigned int count);
-void mal_pcm_s32_to_f32(float* pOut, const int* pIn, unsigned int count);
-void mal_pcm_f32_to_u8(unsigned char* pOut, const float* pIn, unsigned int count);
-void mal_pcm_f32_to_s16(short* pOut, const float* pIn, unsigned int count);
-void mal_pcm_f32_to_s24(void* pOut, const float* pIn, unsigned int count);
-void mal_pcm_f32_to_s32(int* pOut, const float* pIn, unsigned int count);
-
-void mal_pcm_convert(void* pOut, mal_format formatOut, const void* pIn, mal_format formatIn, unsigned int sampleCount)
+void mal_pcm_convert(void* pOut, mal_format formatOut, const void* pIn, mal_format formatIn, mal_uint64 sampleCount, mal_dither_mode ditherMode)
 {
     if (formatOut == formatIn) {
         mal_copy_memory(pOut, pIn, sampleCount * mal_get_sample_size_in_bytes(formatOut));
@@ -15553,10 +17217,10 @@ void mal_pcm_convert(void* pOut, mal_format formatOut, const void* pIn, mal_form
         {
             switch (formatOut)
             {
-                case mal_format_s16: mal_pcm_u8_to_s16((short*)pOut, (const unsigned char*)pIn, sampleCount); return;
-                case mal_format_s24: mal_pcm_u8_to_s24(        pOut, (const unsigned char*)pIn, sampleCount); return;
-                case mal_format_s32: mal_pcm_u8_to_s32(  (int*)pOut, (const unsigned char*)pIn, sampleCount); return;
-                case mal_format_f32: mal_pcm_u8_to_f32((float*)pOut, (const unsigned char*)pIn, sampleCount); return;
+                case mal_format_s16: mal_pcm_u8_to_s16(pOut, pIn, sampleCount, ditherMode); return;
+                case mal_format_s24: mal_pcm_u8_to_s24(pOut, pIn, sampleCount, ditherMode); return;
+                case mal_format_s32: mal_pcm_u8_to_s32(pOut, pIn, sampleCount, ditherMode); return;
+                case mal_format_f32: mal_pcm_u8_to_f32(pOut, pIn, sampleCount, ditherMode); return;
                 default: break;
             }
         } break;
@@ -15565,10 +17229,10 @@ void mal_pcm_convert(void* pOut, mal_format formatOut, const void* pIn, mal_form
         {
             switch (formatOut)
             {
-                case mal_format_u8:  mal_pcm_s16_to_u8( (unsigned char*)pOut, (const short*)pIn, sampleCount); return;
-                case mal_format_s24: mal_pcm_s16_to_s24(                pOut, (const short*)pIn, sampleCount); return;
-                case mal_format_s32: mal_pcm_s16_to_s32(          (int*)pOut, (const short*)pIn, sampleCount); return;
-                case mal_format_f32: mal_pcm_s16_to_f32(        (float*)pOut, (const short*)pIn, sampleCount); return;
+                case mal_format_u8:  mal_pcm_s16_to_u8( pOut, pIn, sampleCount, ditherMode); return;
+                case mal_format_s24: mal_pcm_s16_to_s24(pOut, pIn, sampleCount, ditherMode); return;
+                case mal_format_s32: mal_pcm_s16_to_s32(pOut, pIn, sampleCount, ditherMode); return;
+                case mal_format_f32: mal_pcm_s16_to_f32(pOut, pIn, sampleCount, ditherMode); return;
                 default: break;
             }
         } break;
@@ -15577,10 +17241,10 @@ void mal_pcm_convert(void* pOut, mal_format formatOut, const void* pIn, mal_form
         {
             switch (formatOut)
             {
-                case mal_format_u8:  mal_pcm_s24_to_u8( (unsigned char*)pOut, pIn, sampleCount); return;
-                case mal_format_s16: mal_pcm_s24_to_s16(        (short*)pOut, pIn, sampleCount); return;
-                case mal_format_s32: mal_pcm_s24_to_s32(          (int*)pOut, pIn, sampleCount); return;
-                case mal_format_f32: mal_pcm_s24_to_f32(        (float*)pOut, pIn, sampleCount); return;
+                case mal_format_u8:  mal_pcm_s24_to_u8( pOut, pIn, sampleCount, ditherMode); return;
+                case mal_format_s16: mal_pcm_s24_to_s16(pOut, pIn, sampleCount, ditherMode); return;
+                case mal_format_s32: mal_pcm_s24_to_s32(pOut, pIn, sampleCount, ditherMode); return;
+                case mal_format_f32: mal_pcm_s24_to_f32(pOut, pIn, sampleCount, ditherMode); return;
                 default: break;
             }
         } break;
@@ -15589,10 +17253,10 @@ void mal_pcm_convert(void* pOut, mal_format formatOut, const void* pIn, mal_form
         {
             switch (formatOut)
             {
-                case mal_format_u8:  mal_pcm_s32_to_u8( (unsigned char*)pOut, (const int*)pIn, sampleCount); return;
-                case mal_format_s16: mal_pcm_s32_to_s16(        (short*)pOut, (const int*)pIn, sampleCount); return;
-                case mal_format_s24: mal_pcm_s32_to_s24(                pOut, (const int*)pIn, sampleCount); return;
-                case mal_format_f32: mal_pcm_s32_to_f32(        (float*)pOut, (const int*)pIn, sampleCount); return;
+                case mal_format_u8:  mal_pcm_s32_to_u8( pOut, pIn, sampleCount, ditherMode); return;
+                case mal_format_s16: mal_pcm_s32_to_s16(pOut, pIn, sampleCount, ditherMode); return;
+                case mal_format_s24: mal_pcm_s32_to_s24(pOut, pIn, sampleCount, ditherMode); return;
+                case mal_format_f32: mal_pcm_s32_to_f32(pOut, pIn, sampleCount, ditherMode); return;
                 default: break;
             }
         } break;
@@ -15601,10 +17265,10 @@ void mal_pcm_convert(void* pOut, mal_format formatOut, const void* pIn, mal_form
         {
             switch (formatOut)
             {
-                case mal_format_u8:  mal_pcm_f32_to_u8( (unsigned char*)pOut, (const float*)pIn, sampleCount); return;
-                case mal_format_s16: mal_pcm_f32_to_s16(        (short*)pOut, (const float*)pIn, sampleCount); return;
-                case mal_format_s24: mal_pcm_f32_to_s24(                pOut, (const float*)pIn, sampleCount); return;
-                case mal_format_s32: mal_pcm_f32_to_s32(          (int*)pOut, (const float*)pIn, sampleCount); return;
+                case mal_format_u8:  mal_pcm_f32_to_u8( pOut, pIn, sampleCount, ditherMode); return;
+                case mal_format_s16: mal_pcm_f32_to_s16(pOut, pIn, sampleCount, ditherMode); return;
+                case mal_format_s24: mal_pcm_f32_to_s24(pOut, pIn, sampleCount, ditherMode); return;
+                case mal_format_s32: mal_pcm_f32_to_s32(pOut, pIn, sampleCount, ditherMode); return;
                 default: break;
             }
         } break;
@@ -16322,7 +17986,7 @@ mal_uint64 mal_dsp_read_frames_ex(mal_dsp* pDSP, mal_uint64 frameCount, void* pF
         // Channel mixing. The input format must be in f32 which may require a conversion.
         if (pDSP->config.channelsIn != pDSP->config.channelsOut) {
             if (pFramesFormat[iFrames] != mal_format_f32) {
-                mal_pcm_convert(pFrames[(iFrames + 1) % 2], mal_format_f32, pFrames[iFrames], pDSP->config.formatIn, framesRead * pDSP->config.channelsIn);
+                mal_pcm_convert(pFrames[(iFrames + 1) % 2], mal_format_f32, pFrames[iFrames], pDSP->config.formatIn, framesRead * pDSP->config.channelsIn, mal_dither_mode_none);
                 iFrames = (iFrames + 1) % 2;
                 pFramesFormat[iFrames] = mal_format_f32;
             }
@@ -16342,7 +18006,7 @@ mal_uint64 mal_dsp_read_frames_ex(mal_dsp* pDSP, mal_uint64 frameCount, void* pF
 
 
         // Final conversion to output format.
-        mal_pcm_convert(pFramesOut, pDSP->config.formatOut, pFrames[iFrames], pFramesFormat[iFrames], framesRead * pDSP->config.channelsOut);
+        mal_pcm_convert(pFramesOut, pDSP->config.formatOut, pFrames[iFrames], pFramesFormat[iFrames], framesRead * pDSP->config.channelsOut, mal_dither_mode_none);
 
         pFramesOut  = (mal_uint8*)pFramesOut + (framesRead * pDSP->config.channelsOut * mal_get_sample_size_in_bytes(pDSP->config.formatOut));
         frameCount -= framesRead;
@@ -17647,7 +19311,7 @@ mal_result mal_decoder_seek_to_frame(mal_decoder* pDecoder, mal_uint64 frameInde
 
 
 
-
+#if 0
 //////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 //////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 //////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -17902,6 +19566,7 @@ void mal_pcm_f32_to_s32(int* pOut, const float* pIn, unsigned int count)
         pOut[i] = (int)r;
     }
 }
+#endif
 
 #endif
 
