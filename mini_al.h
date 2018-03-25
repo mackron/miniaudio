@@ -16795,7 +16795,7 @@ mal_uint64 mal_format_converter_read_frames(mal_format_converter* pConverter, ma
                 }
             }
 
-            pConverter->onInterleavePCM(pNextFramesOut, ppTempSampleOfOutFormat, framesJustRead, pConverter->config.channels);
+            pConverter->onInterleavePCM(pNextFramesOut, (const void**)ppTempSampleOfOutFormat, framesJustRead, pConverter->config.channels);
 
             totalFramesRead += framesJustRead;
             pNextFramesOut  += framesJustRead * frameSizeIn;
@@ -16870,7 +16870,7 @@ mal_uint64 mal_format_converter_read_frames_separated(mal_format_converter* pCon
                     framesToReadRightNow = 0xFFFFFFFF;
                 }
 
-                mal_uint32 framesJustRead = (mal_uint32)pConverter->onReadSeparated(pConverter, (mal_uint32)framesToReadRightNow, ppNextSamplesOut, pConverter->pUserData);
+                mal_uint32 framesJustRead = (mal_uint32)pConverter->onReadSeparated(pConverter, (mal_uint32)framesToReadRightNow, (void**)ppNextSamplesOut, pConverter->pUserData);
                 if (framesJustRead == 0) {
                     break;
                 }
@@ -16894,7 +16894,7 @@ mal_uint64 mal_format_converter_read_frames_separated(mal_format_converter* pCon
                     framesToReadRightNow = maxFramesToReadAtATime;
                 }
 
-                mal_uint32 framesJustRead = (mal_uint32)pConverter->onReadSeparated(pConverter, (mal_uint32)framesToReadRightNow, ppNextSamplesOut, pConverter->pUserData);
+                mal_uint32 framesJustRead = (mal_uint32)pConverter->onReadSeparated(pConverter, (mal_uint32)framesToReadRightNow, (void**)ppNextSamplesOut, pConverter->pUserData);
                 if (framesJustRead == 0) {
                     break;
                 }

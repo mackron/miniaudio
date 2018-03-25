@@ -705,16 +705,16 @@ int do_interleaving_test(mal_format format)
                 mal_uint32 channelCountForThisIteration = i + 1;
 
                 // Interleave.
-                mal_pcm_interleave_u8__reference(dsti, ppSrc, frameCount, channelCountForThisIteration);
-                if (compare_interleaved_and_separated_buffers(dsti, ppSrc, frameCount, channelCountForThisIteration, format) != 0) {
+                mal_pcm_interleave_u8__reference(dsti, (const void**)ppSrc, frameCount, channelCountForThisIteration);
+                if (compare_interleaved_and_separated_buffers(dsti, (const void**)ppSrc, frameCount, channelCountForThisIteration, format) != 0) {
                     printf("FAILED. Separated to Interleaved (Channels = %u)\n", i);
                     result = -1;
                     break;
                 }
 
                 // Deinterleave.
-                mal_pcm_deinterleave_u8__reference(ppDst, dsti, frameCount, channelCountForThisIteration);
-                if (compare_interleaved_and_separated_buffers(dsti, ppDst, frameCount, channelCountForThisIteration, format) != 0) {
+                mal_pcm_deinterleave_u8__reference((void**)ppDst, dsti, frameCount, channelCountForThisIteration);
+                if (compare_interleaved_and_separated_buffers(dsti, (const void**)ppDst, frameCount, channelCountForThisIteration, format) != 0) {
                     printf("FAILED. Interleaved to Separated (Channels = %u)\n", i);
                     result = -1;
                     break;
@@ -746,16 +746,16 @@ int do_interleaving_test(mal_format format)
                 mal_uint32 channelCountForThisIteration = i + 1;
 
                 // Interleave.
-                mal_pcm_interleave_s16__reference(dsti, ppSrc, frameCount, channelCountForThisIteration);
-                if (compare_interleaved_and_separated_buffers(dsti, ppSrc, frameCount, channelCountForThisIteration, format) != 0) {
+                mal_pcm_interleave_s16__reference(dsti, (const void**)ppSrc, frameCount, channelCountForThisIteration);
+                if (compare_interleaved_and_separated_buffers(dsti, (const void**)ppSrc, frameCount, channelCountForThisIteration, format) != 0) {
                     printf("FAILED. Separated to Interleaved (Channels = %u)\n", i);
                     result = -1;
                     break;
                 }
 
                 // Deinterleave.
-                mal_pcm_deinterleave_s16__reference(ppDst, dsti, frameCount, channelCountForThisIteration);
-                if (compare_interleaved_and_separated_buffers(dsti, ppDst, frameCount, channelCountForThisIteration, format) != 0) {
+                mal_pcm_deinterleave_s16__reference((void**)ppDst, dsti, frameCount, channelCountForThisIteration);
+                if (compare_interleaved_and_separated_buffers(dsti, (const void**)ppDst, frameCount, channelCountForThisIteration, format) != 0) {
                     printf("FAILED. Interleaved to Separated (Channels = %u)\n", i);
                     result = -1;
                     break;
@@ -789,16 +789,16 @@ int do_interleaving_test(mal_format format)
                 mal_uint32 channelCountForThisIteration = i + 1;
 
                 // Interleave.
-                mal_pcm_interleave_s24__reference(dsti, ppSrc, frameCount, channelCountForThisIteration);
-                if (compare_interleaved_and_separated_buffers(dsti, ppSrc, frameCount, channelCountForThisIteration, format) != 0) {
+                mal_pcm_interleave_s24__reference(dsti, (const void**)ppSrc, frameCount, channelCountForThisIteration);
+                if (compare_interleaved_and_separated_buffers(dsti, (const void**)ppSrc, frameCount, channelCountForThisIteration, format) != 0) {
                     printf("FAILED. Separated to Interleaved (Channels = %u)\n", channelCountForThisIteration);
                     result = -1;
                     break;
                 }
 
                 // Deinterleave.
-                mal_pcm_deinterleave_s24__reference(ppDst, dsti, frameCount, channelCountForThisIteration);
-                if (compare_interleaved_and_separated_buffers(dsti, ppDst, frameCount, channelCountForThisIteration, format) != 0) {
+                mal_pcm_deinterleave_s24__reference((void**)ppDst, dsti, frameCount, channelCountForThisIteration);
+                if (compare_interleaved_and_separated_buffers(dsti, (const void**)ppDst, frameCount, channelCountForThisIteration, format) != 0) {
                     printf("FAILED. Interleaved to Separated (Channels = %u)\n", channelCountForThisIteration);
                     result = -1;
                     break;
@@ -830,16 +830,16 @@ int do_interleaving_test(mal_format format)
                 mal_uint32 channelCountForThisIteration = i + 1;
 
                 // Interleave.
-                mal_pcm_interleave_s32__reference(dsti, ppSrc, frameCount, channelCountForThisIteration);
-                if (compare_interleaved_and_separated_buffers(dsti, ppSrc, frameCount, channelCountForThisIteration, format) != 0) {
+                mal_pcm_interleave_s32__reference(dsti, (const void**)ppSrc, frameCount, channelCountForThisIteration);
+                if (compare_interleaved_and_separated_buffers(dsti, (const void**)ppSrc, frameCount, channelCountForThisIteration, format) != 0) {
                     printf("FAILED. Separated to Interleaved (Channels = %u)\n", i);
                     result = -1;
                     break;
                 }
 
                 // Deinterleave.
-                mal_pcm_deinterleave_s32__reference(ppDst, dsti, frameCount, channelCountForThisIteration);
-                if (compare_interleaved_and_separated_buffers(dsti, ppDst, frameCount, channelCountForThisIteration, format) != 0) {
+                mal_pcm_deinterleave_s32__reference((void**)ppDst, dsti, frameCount, channelCountForThisIteration);
+                if (compare_interleaved_and_separated_buffers(dsti, (const void**)ppDst, frameCount, channelCountForThisIteration, format) != 0) {
                     printf("FAILED. Interleaved to Separated (Channels = %u)\n", i);
                     result = -1;
                     break;
@@ -871,16 +871,16 @@ int do_interleaving_test(mal_format format)
                 mal_uint32 channelCountForThisIteration = i + 1;
 
                 // Interleave.
-                mal_pcm_interleave_f32__reference(dsti, ppSrc, frameCount, channelCountForThisIteration);
-                if (compare_interleaved_and_separated_buffers(dsti, ppSrc, frameCount, channelCountForThisIteration, format) != 0) {
+                mal_pcm_interleave_f32__reference(dsti, (const void**)ppSrc, frameCount, channelCountForThisIteration);
+                if (compare_interleaved_and_separated_buffers(dsti, (const void**)ppSrc, frameCount, channelCountForThisIteration, format) != 0) {
                     printf("FAILED. Separated to Interleaved (Channels = %u)\n", i);
                     result = -1;
                     break;
                 }
 
                 // Deinterleave.
-                mal_pcm_deinterleave_f32__reference(ppDst, dsti, frameCount, channelCountForThisIteration);
-                if (compare_interleaved_and_separated_buffers(dsti, ppDst, frameCount, channelCountForThisIteration, format) != 0) {
+                mal_pcm_deinterleave_f32__reference((void**)ppDst, dsti, frameCount, channelCountForThisIteration);
+                if (compare_interleaved_and_separated_buffers(dsti, (const void**)ppDst, frameCount, channelCountForThisIteration, format) != 0) {
                     printf("FAILED. Interleaved to Separated (Channels = %u)\n", i);
                     result = -1;
                     break;
