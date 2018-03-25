@@ -1798,7 +1798,7 @@ mal_uint64 mal_format_converter_read_frames_separated(mal_format_converter* pCon
 ///////////////////////////////////////////////////////////////////////////////
 
 // Initializes a sample rate conversion object.
-mal_result mal_src_init(mal_src_config* pConfig, mal_src_read_proc onRead, void* pUserData, mal_src* pSRC);
+mal_result mal_src_init(const mal_src_config* pConfig, mal_src_read_proc onRead, void* pUserData, mal_src* pSRC);
 
 // Dynamically adjusts the input sample rate.
 mal_result mal_src_set_input_sample_rate(mal_src* pSRC, mal_uint32 sampleRateIn);
@@ -1831,7 +1831,7 @@ mal_uint64 mal_src_read_frames_ex(mal_src* pSRC, mal_uint64 frameCount, void* pF
 ///////////////////////////////////////////////////////////////////////////////
 
 // Initializes a DSP object.
-mal_result mal_dsp_init(mal_dsp_config* pConfig, mal_dsp_read_proc onRead, void* pUserData, mal_dsp* pDSP);
+mal_result mal_dsp_init(const mal_dsp_config* pConfig, mal_dsp_read_proc onRead, void* pUserData, mal_dsp* pDSP);
 
 // Dynamically adjusts the input sample rate.
 mal_result mal_dsp_set_input_sample_rate(mal_dsp* pDSP, mal_uint32 sampleRateOut);
@@ -17043,7 +17043,7 @@ mal_uint32 mal_src_cache_read_frames(mal_src_cache* pCache, mal_uint32 frameCoun
 mal_uint64 mal_src_read_frames_passthrough(mal_src* pSRC, mal_uint64 frameCount, void* pFramesOut, mal_bool32 flush);
 mal_uint64 mal_src_read_frames_linear(mal_src* pSRC, mal_uint64 frameCount, void* pFramesOut, mal_bool32 flush);
 
-mal_result mal_src_init(mal_src_config* pConfig, mal_src_read_proc onRead, void* pUserData, mal_src* pSRC)
+mal_result mal_src_init(const mal_src_config* pConfig, mal_src_read_proc onRead, void* pUserData, mal_src* pSRC)
 {
     if (pSRC == NULL) {
         return MAL_INVALID_ARGS;
@@ -17823,7 +17823,7 @@ mal_uint32 mal_dsp__src_on_read(mal_src* pSRC, mal_uint32 frameCount, void* pFra
     return pDSP->onRead(pDSP, frameCount, pFramesOut, pDSP->pUserDataForOnRead);
 }
 
-mal_result mal_dsp_init(mal_dsp_config* pConfig, mal_dsp_read_proc onRead, void* pUserData, mal_dsp* pDSP)
+mal_result mal_dsp_init(const mal_dsp_config* pConfig, mal_dsp_read_proc onRead, void* pUserData, mal_dsp* pDSP)
 {
     if (pDSP == NULL) {
         return MAL_INVALID_ARGS;
