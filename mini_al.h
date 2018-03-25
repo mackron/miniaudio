@@ -2013,7 +2013,25 @@ mal_result mal_decoder_uninit(mal_decoder* pDecoder);
 mal_uint64 mal_decoder_read(mal_decoder* pDecoder, mal_uint64 frameCount, void* pFramesOut);
 mal_result mal_decoder_seek_to_frame(mal_decoder* pDecoder, mal_uint64 frameIndex);
 
-#endif
+#endif  // MAL_NO_DECODING
+
+
+///////////////////////////////////////////////////////////////////////////////
+//
+// Generation
+//
+///////////////////////////////////////////////////////////////////////////////
+
+typedef struct
+{
+    double amplitude;
+    double periodsPerSecond;
+    double delta;
+    double time;
+} mal_sine_wave;
+
+mal_result mal_sine_wave_init(double amplitude, double period, mal_uint32 sampleRate, mal_sine_wave* pSignWave);
+mal_uint64 mal_sine_wave_read(mal_sine_wave* pSignWave, mal_uint64 count, float* pSamples);
 
 
 #ifdef __cplusplus
@@ -2032,6 +2050,7 @@ mal_result mal_decoder_seek_to_frame(mal_decoder* pDecoder, mal_uint64 frameInde
 #ifdef MAL_IMPLEMENTATION
 #include <assert.h>
 #include <limits.h> // For INT_MAX
+#include <math.h>   // sin(), etc.
 
 #ifdef MAL_WIN32
 #include <windows.h>
@@ -2076,6 +2095,13 @@ mal_result mal_decoder_seek_to_frame(mal_decoder* pDecoder, mal_uint64 frameInde
 #else
 #define MAL_32BIT
 #endif
+#endif
+
+#ifndef MAL_PI
+#define MAL_PI      3.14159265358979323846264f
+#endif
+#ifndef MAL_PI_D
+#define MAL_PI_D    3.14159265358979323846264
 #endif
 
 // Unfortunately using runtime linking for pthreads causes problems. This has occurred for me when testing on FreeBSD. When
@@ -19325,6 +19351,62 @@ mal_result mal_decoder_seek_to_frame(mal_decoder* pDecoder, mal_uint64 frameInde
 }
 #endif  // MAL_NO_DECODING
 
+
+
+
+//////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+//////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+//
+// GENERATION
+//
+//////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+//////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+
+mal_result mal_sine_wave_init(double amplitude, double periodsPerSecond, mal_uint32 sampleRate, mal_sine_wave* pSignWave)
+{
+    if (pSignWave == NULL) {
+        return MAL_INVALID_ARGS;
+    }
+    mal_zero_object(pSignWave);
+
+    if (amplitude == 0 || periodsPerSecond == 0) {
+        return MAL_INVALID_ARGS;
+    }
+
+    if (amplitude > 1) {
+        amplitude = 1;
+    }
+    if (amplitude < -1) {
+        amplitude = -1;
+    }
+
+    pSignWave->amplitude = amplitude;
+    pSignWave->periodsPerSecond = periodsPerSecond;
+    pSignWave->delta = MAL_PI_D*2 / sampleRate;
+    pSignWave->time = 0;
+
+    return MAL_SUCCESS;
+}
+
+mal_uint64 mal_sine_wave_read(mal_sine_wave* pSignWave, mal_uint64 count, float* pSamples)
+{
+    if (pSignWave == NULL) {
+        return 0;
+    }
+
+    if (pSamples != NULL) {
+        for (mal_uint64 i = 0; i < count; i += 1) {
+            pSamples[i] = (float)(sin(pSignWave->time * pSignWave->periodsPerSecond) * pSignWave->amplitude);
+            pSignWave->time += pSignWave->delta;
+        }
+    } else {
+        pSignWave->time += pSignWave->delta * count;
+    }
+
+    return count;
+}
+
+
 #endif  // MAL_IMPLEMENTATION
 
 
@@ -19355,6 +19437,7 @@ mal_result mal_decoder_seek_to_frame(mal_decoder* pDecoder, mal_uint64 frameInde
 //   - Remove dependency on audioclient.h for the WASAPI backend. This fixes build issues with some
 //     distributions of MinGW.
 //   - Add support for configuring the priority of the worker thread.
+//   - Add a sine wave generator.
 //   - Introduce the notion of standard channel maps. Use mal_get_standard_channel_map().
 //   - Introduce the notion of default device configurations. A default config uses the same configuration
 //     as the backend's internal device, and as such results in a pass-through data transmission pipeline.
