@@ -786,13 +786,14 @@ struct mal_dsp
     mal_dsp_config config;
     mal_dsp_read_proc onRead;
     void* pUserDataForOnRead;
-    mal_format_converter formatConverter;
-    mal_src src;                            // For sample rate conversion.
-    mal_channel channelMapInPostMix[MAL_MAX_CHANNELS];   // <-- When mixing, new channels may need to be created. This represents the channel map after mixing.
+    mal_format_converter formatConverterIn;             // For converting data to f32 in preparation for further processing.
+    mal_format_converter formatConverterOut;            // For converting data to the requested output format. Used as the final step in the processing pipeline.
+    mal_src src;                                        // For sample rate conversion.
+    mal_channel channelMapInPostMix[MAL_MAX_CHANNELS];  // <-- When mixing, new channels may need to be created. This represents the channel map after mixing.
     mal_channel channelShuffleTable[MAL_MAX_CHANNELS];
     mal_bool32 isChannelMappingRequired : 1;
     mal_bool32 isSRCRequired : 1;
-    mal_bool32 isPassthrough : 1;           // <-- Will be set to true when the DSP pipeline is an optimized passthrough.
+    mal_bool32 isPassthrough : 1;                       // <-- Will be set to true when the DSP pipeline is an optimized passthrough.
 };
 
 
