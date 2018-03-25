@@ -443,7 +443,7 @@ int do_format_conversion_test(mal_format formatIn, mal_format formatOut)
                 onConvertPCM(pConvertedData, pBaseData, (mal_uint32)benchmarkFrameCount, mal_dither_mode_none);
                 result = mal_pcm_compare(pBenchmarkData, pConvertedData, benchmarkFrameCount, formatOut, allowedDifference);
                 if (result == 0) {
-                    printf("PASSED.\n");
+                    printf("PASSED\n");
                 }
             } else {
                 printf("FAILED. Out of memory.\n");
@@ -641,6 +641,294 @@ int do_format_conversion_tests()
         result = -1;
     }
     if (do_format_conversion_tests_f32() != 0) {
+        result = -1;
+    }
+
+    return result;
+}
+
+
+int compare_interleaved_and_separated_buffers(const void* interleaved, const void** separated, mal_uint32 frameCount, mal_uint32 channels, mal_format format)
+{
+    mal_uint32 bytesPerSample = mal_get_sample_size_in_bytes(format);
+
+    const mal_uint8* interleaved8 = (const mal_uint8*)interleaved;
+    const mal_uint8** separated8 = (const mal_uint8**)separated;
+
+    for (mal_uint32 iFrame = 0; iFrame < frameCount; iFrame += 1) {
+        const mal_uint8* interleavedFrame = interleaved8 + iFrame*channels*bytesPerSample;
+
+        for (mal_uint32 iChannel = 0; iChannel < channels; iChannel += 1) {
+            const mal_uint8* separatedFrame = separated8[iChannel] + iFrame*bytesPerSample;
+
+            int result = memcmp(interleavedFrame + iChannel*bytesPerSample, separatedFrame, bytesPerSample);
+            if (result != 0) {
+                return -1;
+            }
+        }
+    }
+
+    // Getting here means nothing failed.
+    return 0;
+}
+
+int do_interleaving_test(mal_format format)
+{
+    // This test is simple. We start with a deinterleaved buffer. We then test interleaving. Then we deinterleave the interleaved buffer
+    // and compare that the original. It should be bit-perfect. We do this for all channel counts.
+    
+    int result = 0;
+
+    switch (format)
+    {
+        case mal_format_u8:
+        {
+            mal_uint8 src [MAL_MAX_CHANNELS][64];
+            mal_uint8 dst [MAL_MAX_CHANNELS][64];
+            mal_uint8 dsti[MAL_MAX_CHANNELS*64];
+            void* ppSrc[MAL_MAX_CHANNELS];
+            void* ppDst[MAL_MAX_CHANNELS];
+
+            mal_uint32 frameCount = mal_countof(src[0]);
+            mal_uint32 channelCount = mal_countof(src);
+            for (mal_uint32 iChannel = 0; iChannel < channelCount; iChannel += 1) {
+                for (mal_uint32 iFrame = 0; iFrame < frameCount; iFrame += 1) {
+                    src[iChannel][iFrame] = (mal_uint8)iChannel;
+                }
+
+                ppSrc[iChannel] = &src[iChannel];
+                ppDst[iChannel] = &dst[iChannel];
+            }
+
+            // Now test every channel count.
+            for (mal_uint32 i = 0; i < channelCount; ++i) {
+                mal_uint32 channelCountForThisIteration = i + 1;
+
+                // Interleave.
+                mal_pcm_interleave_u8__reference(dsti, ppSrc, frameCount, channelCountForThisIteration);
+                if (compare_interleaved_and_separated_buffers(dsti, ppSrc, frameCount, channelCountForThisIteration, format) != 0) {
+                    printf("FAILED. Separated to Interleaved (Channels = %u)\n", i);
+                    result = -1;
+                    break;
+                }
+
+                // Deinterleave.
+                mal_pcm_deinterleave_u8__reference(ppDst, dsti, frameCount, channelCountForThisIteration);
+                if (compare_interleaved_and_separated_buffers(dsti, ppDst, frameCount, channelCountForThisIteration, format) != 0) {
+                    printf("FAILED. Interleaved to Separated (Channels = %u)\n", i);
+                    result = -1;
+                    break;
+                }
+            }
+        } break;
+
+        case mal_format_s16:
+        {
+            mal_int16 src [MAL_MAX_CHANNELS][64];
+            mal_int16 dst [MAL_MAX_CHANNELS][64];
+            mal_int16 dsti[MAL_MAX_CHANNELS*64];
+            void* ppSrc[MAL_MAX_CHANNELS];
+            void* ppDst[MAL_MAX_CHANNELS];
+
+            mal_uint32 frameCount = mal_countof(src[0]);
+            mal_uint32 channelCount = mal_countof(src);
+            for (mal_uint32 iChannel = 0; iChannel < channelCount; iChannel += 1) {
+                for (mal_uint32 iFrame = 0; iFrame < frameCount; iFrame += 1) {
+                    src[iChannel][iFrame] = (mal_int16)iChannel;
+                }
+
+                ppSrc[iChannel] = &src[iChannel];
+                ppDst[iChannel] = &dst[iChannel];
+            }
+
+            // Now test every channel count.
+            for (mal_uint32 i = 0; i < channelCount; ++i) {
+                mal_uint32 channelCountForThisIteration = i + 1;
+
+                // Interleave.
+                mal_pcm_interleave_s16__reference(dsti, ppSrc, frameCount, channelCountForThisIteration);
+                if (compare_interleaved_and_separated_buffers(dsti, ppSrc, frameCount, channelCountForThisIteration, format) != 0) {
+                    printf("FAILED. Separated to Interleaved (Channels = %u)\n", i);
+                    result = -1;
+                    break;
+                }
+
+                // Deinterleave.
+                mal_pcm_deinterleave_s16__reference(ppDst, dsti, frameCount, channelCountForThisIteration);
+                if (compare_interleaved_and_separated_buffers(dsti, ppDst, frameCount, channelCountForThisIteration, format) != 0) {
+                    printf("FAILED. Interleaved to Separated (Channels = %u)\n", i);
+                    result = -1;
+                    break;
+                }
+            }
+        } break;
+
+        case mal_format_s24:
+        {
+            mal_uint8 src [MAL_MAX_CHANNELS][64*3];
+            mal_uint8 dst [MAL_MAX_CHANNELS][64*3];
+            mal_uint8 dsti[MAL_MAX_CHANNELS*64*3];
+            void* ppSrc[MAL_MAX_CHANNELS];
+            void* ppDst[MAL_MAX_CHANNELS];
+
+            mal_uint32 frameCount = mal_countof(src[0])/3;
+            mal_uint32 channelCount = mal_countof(src);
+            for (mal_uint32 iChannel = 0; iChannel < channelCount; iChannel += 1) {
+                for (mal_uint32 iFrame = 0; iFrame < frameCount; iFrame += 1) {
+                    src[iChannel][iFrame*3 + 0] = (mal_uint8)iChannel;
+                    src[iChannel][iFrame*3 + 1] = (mal_uint8)iChannel;
+                    src[iChannel][iFrame*3 + 2] = (mal_uint8)iChannel;
+                }
+
+                ppSrc[iChannel] = &src[iChannel];
+                ppDst[iChannel] = &dst[iChannel];
+            }
+
+            // Now test every channel count.
+            for (mal_uint32 i = 0; i < channelCount; ++i) {
+                mal_uint32 channelCountForThisIteration = i + 1;
+
+                // Interleave.
+                mal_pcm_interleave_s24__reference(dsti, ppSrc, frameCount, channelCountForThisIteration);
+                if (compare_interleaved_and_separated_buffers(dsti, ppSrc, frameCount, channelCountForThisIteration, format) != 0) {
+                    printf("FAILED. Separated to Interleaved (Channels = %u)\n", channelCountForThisIteration);
+                    result = -1;
+                    break;
+                }
+
+                // Deinterleave.
+                mal_pcm_deinterleave_s24__reference(ppDst, dsti, frameCount, channelCountForThisIteration);
+                if (compare_interleaved_and_separated_buffers(dsti, ppDst, frameCount, channelCountForThisIteration, format) != 0) {
+                    printf("FAILED. Interleaved to Separated (Channels = %u)\n", channelCountForThisIteration);
+                    result = -1;
+                    break;
+                }
+            }
+        } break;
+
+        case mal_format_s32:
+        {
+            mal_int32 src [MAL_MAX_CHANNELS][64];
+            mal_int32 dst [MAL_MAX_CHANNELS][64];
+            mal_int32 dsti[MAL_MAX_CHANNELS*64];
+            void* ppSrc[MAL_MAX_CHANNELS];
+            void* ppDst[MAL_MAX_CHANNELS];
+
+            mal_uint32 frameCount = mal_countof(src[0]);
+            mal_uint32 channelCount = mal_countof(src);
+            for (mal_uint32 iChannel = 0; iChannel < channelCount; iChannel += 1) {
+                for (mal_uint32 iFrame = 0; iFrame < frameCount; iFrame += 1) {
+                    src[iChannel][iFrame] = (mal_int32)iChannel;
+                }
+
+                ppSrc[iChannel] = &src[iChannel];
+                ppDst[iChannel] = &dst[iChannel];
+            }
+
+            // Now test every channel count.
+            for (mal_uint32 i = 0; i < channelCount; ++i) {
+                mal_uint32 channelCountForThisIteration = i + 1;
+
+                // Interleave.
+                mal_pcm_interleave_s32__reference(dsti, ppSrc, frameCount, channelCountForThisIteration);
+                if (compare_interleaved_and_separated_buffers(dsti, ppSrc, frameCount, channelCountForThisIteration, format) != 0) {
+                    printf("FAILED. Separated to Interleaved (Channels = %u)\n", i);
+                    result = -1;
+                    break;
+                }
+
+                // Deinterleave.
+                mal_pcm_deinterleave_s32__reference(ppDst, dsti, frameCount, channelCountForThisIteration);
+                if (compare_interleaved_and_separated_buffers(dsti, ppDst, frameCount, channelCountForThisIteration, format) != 0) {
+                    printf("FAILED. Interleaved to Separated (Channels = %u)\n", i);
+                    result = -1;
+                    break;
+                }
+            }
+        } break;
+
+        case mal_format_f32:
+        {
+            float src [MAL_MAX_CHANNELS][64];
+            float dst [MAL_MAX_CHANNELS][64];
+            float dsti[MAL_MAX_CHANNELS*64];
+            void* ppSrc[MAL_MAX_CHANNELS];
+            void* ppDst[MAL_MAX_CHANNELS];
+
+            mal_uint32 frameCount = mal_countof(src[0]);
+            mal_uint32 channelCount = mal_countof(src);
+            for (mal_uint32 iChannel = 0; iChannel < channelCount; iChannel += 1) {
+                for (mal_uint32 iFrame = 0; iFrame < frameCount; iFrame += 1) {
+                    src[iChannel][iFrame] = (float)iChannel;
+                }
+
+                ppSrc[iChannel] = &src[iChannel];
+                ppDst[iChannel] = &dst[iChannel];
+            }
+
+            // Now test every channel count.
+            for (mal_uint32 i = 0; i < channelCount; ++i) {
+                mal_uint32 channelCountForThisIteration = i + 1;
+
+                // Interleave.
+                mal_pcm_interleave_f32__reference(dsti, ppSrc, frameCount, channelCountForThisIteration);
+                if (compare_interleaved_and_separated_buffers(dsti, ppSrc, frameCount, channelCountForThisIteration, format) != 0) {
+                    printf("FAILED. Separated to Interleaved (Channels = %u)\n", i);
+                    result = -1;
+                    break;
+                }
+
+                // Deinterleave.
+                mal_pcm_deinterleave_f32__reference(ppDst, dsti, frameCount, channelCountForThisIteration);
+                if (compare_interleaved_and_separated_buffers(dsti, ppDst, frameCount, channelCountForThisIteration, format) != 0) {
+                    printf("FAILED. Interleaved to Separated (Channels = %u)\n", i);
+                    result = -1;
+                    break;
+                }
+            }
+        } break;
+
+        default:
+        {
+            printf("Unknown format.");
+            result = -1;
+        } break;
+    }
+
+
+    if (result == 0) {
+        printf("PASSED\n");
+    }
+
+    return result;
+}
+
+int do_interleaving_tests()
+{
+    int result = 0;
+
+    printf("u8... ");
+    if (do_interleaving_test(mal_format_u8) != 0) {
+        result = -1;
+    }
+
+    printf("s16... ");
+    if (do_interleaving_test(mal_format_s16) != 0) {
+        result = -1;
+    }
+
+    printf("s24... ");
+    if (do_interleaving_test(mal_format_s24) != 0) {
+        result = -1;
+    }
+
+    printf("s32... ");
+    if (do_interleaving_test(mal_format_s32) != 0) {
+        result = -1;
+    }
+
+    printf("f32... ");
+    if (do_interleaving_test(mal_format_f32) != 0) {
         result = -1;
     }
 
@@ -884,6 +1172,15 @@ int main(int argc, char** argv)
         hasErrorOccurred = MAL_TRUE;
     }
     printf("=== END TESTING FORMAT CONVERSION ===\n");
+    
+    printf("\n");
+
+    printf("=== TESTING INTERLEAVING/DEINTERLEAVING ===\n");
+    result = do_interleaving_tests();
+    if (result < 0) {
+        hasErrorOccurred = MAL_TRUE;
+    }
+    printf("=== END TESTING INTERLEAVING/DEINTERLEAVING ===\n");
 
     printf("\n");
     
