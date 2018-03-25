@@ -99,7 +99,7 @@ void* load_raw_audio_data(const char* filePath, mal_format format, mal_uint64* p
         return NULL;
     }
 
-    *pBenchmarkFrameCount = fileSize / mal_get_sample_size_in_bytes(format);
+    *pBenchmarkFrameCount = fileSize / mal_get_bytes_per_sample(format);
     return pFileData;
 }
 
@@ -438,7 +438,7 @@ int do_format_conversion_test(mal_format formatIn, mal_format formatOut)
     void* pBenchmarkData = load_raw_audio_data(pBenchmarkFilePath, formatOut, &benchmarkFrameCount);
     if (pBenchmarkData != NULL) {
         if (benchmarkFrameCount == baseFrameCount) {
-            void* pConvertedData = (void*)mal_malloc(benchmarkFrameCount * mal_get_sample_size_in_bytes(formatOut));
+            void* pConvertedData = (void*)mal_malloc(benchmarkFrameCount * mal_get_bytes_per_sample(formatOut));
             if (pConvertedData != NULL) {
                 onConvertPCM(pConvertedData, pBaseData, (mal_uint32)benchmarkFrameCount, mal_dither_mode_none);
                 result = mal_pcm_compare(pBenchmarkData, pConvertedData, benchmarkFrameCount, formatOut, allowedDifference);
@@ -650,7 +650,7 @@ int do_format_conversion_tests()
 
 int compare_interleaved_and_separated_buffers(const void* interleaved, const void** separated, mal_uint32 frameCount, mal_uint32 channels, mal_format format)
 {
-    mal_uint32 bytesPerSample = mal_get_sample_size_in_bytes(format);
+    mal_uint32 bytesPerSample = mal_get_bytes_per_sample(format);
 
     const mal_uint8* interleaved8 = (const mal_uint8*)interleaved;
     const mal_uint8** separated8 = (const mal_uint8**)separated;

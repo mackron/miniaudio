@@ -608,7 +608,7 @@ typedef enum
 typedef enum
 {
     // I like to keep these explicitly defined because they're used as a key into a lookup table. When items are
-    // added to this, make sure there are no gaps and that they're added to the lookup table in mal_get_sample_size_in_bytes().
+    // added to this, make sure there are no gaps and that they're added to the lookup table in mal_get_bytes_per_sample().
     mal_format_unknown = 0,     // Mainly used for indicating an error, but also used as the default for the output format for decoders.
     mal_format_u8      = 1,
     mal_format_s16     = 2,     // Seems to be the most widely supported format.
@@ -1671,8 +1671,7 @@ mal_uint32 mal_device_get_buffer_size_in_bytes(mal_device* pDevice);
 //
 // Thread Safety: SAFE
 //   This is API is pure.
-mal_uint32 mal_get_sample_size_in_bytes(mal_format format);
-static inline mal_uint32 mal_get_bytes_per_sample(mal_format format) { return mal_get_sample_size_in_bytes(format); }
+mal_uint32 mal_get_bytes_per_sample(mal_format format);
 static inline mal_uint32 mal_get_bytes_per_frame(mal_format format, mal_uint32 channels) { return mal_get_bytes_per_sample(format) * channels; }
 
 // Helper function for initializing a mal_context_config object.
@@ -2343,7 +2342,7 @@ mal_uint32 g_malStandardSampleRatePriorities[] = {
 #define mal_min(x, y)   (((x) < (y)) ? (x) : (y))
 #define mal_offset_ptr(p, offset) (((mal_uint8*)(p)) + (offset))
 
-#define mal_buffer_frame_capacity(buffer, channels, format) (sizeof(buffer) / mal_get_sample_size_in_bytes(format) / (channels))
+#define mal_buffer_frame_capacity(buffer, channels, format) (sizeof(buffer) / mal_get_bytes_per_sample(format) / (channels))
 
 
 // Return Values:
@@ -3224,7 +3223,7 @@ static inline mal_uint32 mal_device__on_read_from_device(mal_dsp* pDSP, mal_uint
         framesToRead = pDevice->_dspFrameCount;
     }
 
-    mal_uint32 bytesToRead = framesToRead * pDevice->internalChannels * mal_get_sample_size_in_bytes(pDevice->internalFormat);
+    mal_uint32 bytesToRead = framesToRead * pDevice->internalChannels * mal_get_bytes_per_sample(pDevice->internalFormat);
     mal_copy_memory(pFramesOut, pDevice->_dspFrames, bytesToRead);
     pDevice->_dspFrameCount -= framesToRead;
     pDevice->_dspFrames += bytesToRead;
@@ -3242,7 +3241,7 @@ static inline mal_uint32 mal_device__read_frames_from_client(mal_device* pDevice
 
     mal_uint32 framesRead     = (mal_uint32)mal_dsp_read_frames(&pDevice->dsp, frameCount, pSamples);
     mal_uint32 samplesRead    = framesRead * pDevice->internalChannels;
-    mal_uint32 sampleSize     = mal_get_sample_size_in_bytes(pDevice->internalFormat);
+    mal_uint32 sampleSize     = mal_get_bytes_per_sample(pDevice->internalFormat);
     mal_uint32 consumedBytes  = samplesRead*sampleSize;
     mal_uint32 remainingBytes = ((frameCount * pDevice->internalChannels) - samplesRead)*sampleSize;
     mal_zero_memory((mal_uint8*)pSamples + consumedBytes, remainingBytes);
@@ -3263,7 +3262,7 @@ static inline void mal_device__send_frames_to_client(mal_device* pDevice, mal_ui
         pDevice->_dspFrames = (const mal_uint8*)pSamples;
 
         mal_uint8 chunkBuffer[4096];
-        mal_uint32 chunkFrameCount = sizeof(chunkBuffer) / mal_get_sample_size_in_bytes(pDevice->format) / pDevice->channels;
+        mal_uint32 chunkFrameCount = sizeof(chunkBuffer) / mal_get_bytes_per_sample(pDevice->format) / pDevice->channels;
 
         for (;;) {
             mal_uint32 framesJustRead = (mal_uint32)mal_dsp_read_frames(&pDevice->dsp, chunkFrameCount, chunkBuffer);
@@ -3482,7 +3481,7 @@ mal_result mal_device_init__null(mal_context* pContext, mal_device_type type, ma
         mal_strncpy_s(pDevice->name, sizeof(pDevice->name), "NULL Capture Device", (size_t)-1);
     }
 
-    pDevice->null_device.pBuffer = (mal_uint8*)mal_malloc(pDevice->bufferSizeInFrames * pDevice->channels * mal_get_sample_size_in_bytes(pDevice->format));
+    pDevice->null_device.pBuffer = (mal_uint8*)mal_malloc(pDevice->bufferSizeInFrames * pDevice->channels * mal_get_bytes_per_sample(pDevice->format));
     if (pDevice->null_device.pBuffer == NULL) {
         return MAL_OUT_OF_MEMORY;
     }
@@ -3609,8 +3608,8 @@ mal_result mal_device__main_loop__null(mal_device* pDevice)
         }
 
         mal_uint32 sampleCount = framesAvailable * pDevice->channels;
-        mal_uint32 lockOffset  = pDevice->null_device.lastProcessedFrame * pDevice->channels * mal_get_sample_size_in_bytes(pDevice->format);
-        mal_uint32 lockSize    = sampleCount * mal_get_sample_size_in_bytes(pDevice->format);
+        mal_uint32 lockOffset  = pDevice->null_device.lastProcessedFrame * pDevice->channels * mal_get_bytes_per_sample(pDevice->format);
+        mal_uint32 lockSize    = sampleCount * mal_get_bytes_per_sample(pDevice->format);
 
         if (pDevice->type == mal_device_type_playback) {
             if (pDevice->null_device.breakFromMainLoop) {
@@ -4618,7 +4617,7 @@ mal_result mal_device_init__wasapi(mal_context* pContext, mal_device_type type, 
     wf.Format.wFormatTag           = WAVE_FORMAT_EXTENSIBLE;
     wf.Format.nChannels            = (WORD)pDevice->channels;
     wf.Format.nSamplesPerSec       = (DWORD)pDevice->sampleRate;
-    wf.Format.wBitsPerSample       = (WORD)mal_get_sample_size_in_bytes(pDevice->format)*8;
+    wf.Format.wBitsPerSample       = (WORD)mal_get_bytes_per_sample(pDevice->format)*8;
     wf.Format.nBlockAlign          = (wf.Format.nChannels * wf.Format.wBitsPerSample) / 8;
     wf.Format.nAvgBytesPerSec      = wf.Format.nBlockAlign * wf.Format.nSamplesPerSec;
     wf.Samples.wValidBitsPerSample = /*(pDevice->format == mal_format_s24_32) ? 24 :*/ wf.Format.wBitsPerSample;
@@ -5696,7 +5695,7 @@ mal_result mal_device_init__dsound(mal_context* pContext, mal_device_type type, 
     wf.Format.wFormatTag           = WAVE_FORMAT_EXTENSIBLE;
     wf.Format.nChannels            = (WORD)pConfig->channels;
     wf.Format.nSamplesPerSec       = (DWORD)pConfig->sampleRate;
-    wf.Format.wBitsPerSample       = (WORD)mal_get_sample_size_in_bytes(pConfig->format)*8;
+    wf.Format.wBitsPerSample       = (WORD)mal_get_bytes_per_sample(pConfig->format)*8;
     wf.Format.nBlockAlign          = (wf.Format.nChannels * wf.Format.wBitsPerSample) / 8;
     wf.Format.nAvgBytesPerSec      = wf.Format.nBlockAlign * wf.Format.nSamplesPerSec;
     wf.Samples.wValidBitsPerSample = wf.Format.wBitsPerSample;
@@ -5798,7 +5797,7 @@ mal_result mal_device_init__dsound(mal_context* pContext, mal_device_type type, 
             mal_channel_mask_to_channel_map__win32(wf.dwChannelMask, pDevice->internalChannels, pDevice->internalChannelMap);
         }
 
-        bufferSizeInBytes = pDevice->bufferSizeInFrames * pDevice->internalChannels * mal_get_sample_size_in_bytes(pDevice->internalFormat);
+        bufferSizeInBytes = pDevice->bufferSizeInFrames * pDevice->internalChannels * mal_get_bytes_per_sample(pDevice->internalFormat);
 
 
 
@@ -5920,7 +5919,7 @@ mal_result mal_device_init__dsound(mal_context* pContext, mal_device_type type, 
         wf.Samples.wValidBitsPerSample = wf.Format.wBitsPerSample;
         wf.SubFormat                   = MAL_GUID_KSDATAFORMAT_SUBTYPE_PCM;
 
-        bufferSizeInBytes = pDevice->bufferSizeInFrames * wf.Format.nChannels * mal_get_sample_size_in_bytes(pDevice->format);
+        bufferSizeInBytes = pDevice->bufferSizeInFrames * wf.Format.nChannels * mal_get_bytes_per_sample(pDevice->format);
 
         MAL_DSCBUFFERDESC descDS;
         mal_zero_object(&descDS);
@@ -6001,14 +6000,14 @@ mal_result mal_device__start_backend__dsound(mal_device* pDevice)
     if (pDevice->type == mal_device_type_playback) {
         // Before playing anything we need to grab an initial group of samples from the client.
         mal_uint32 framesToRead = pDevice->bufferSizeInFrames / pDevice->periods;
-        mal_uint32 desiredLockSize = framesToRead * pDevice->channels * mal_get_sample_size_in_bytes(pDevice->format);
+        mal_uint32 desiredLockSize = framesToRead * pDevice->channels * mal_get_bytes_per_sample(pDevice->format);
 
         void* pLockPtr;
         DWORD actualLockSize;
         void* pLockPtr2;
         DWORD actualLockSize2;
         if (SUCCEEDED(mal_IDirectSoundBuffer_Lock((mal_IDirectSoundBuffer*)pDevice->dsound.pPlaybackBuffer, 0, desiredLockSize, &pLockPtr, &actualLockSize, &pLockPtr2, &actualLockSize2, 0))) {
-            framesToRead = actualLockSize / mal_get_sample_size_in_bytes(pDevice->format) / pDevice->channels;
+            framesToRead = actualLockSize / mal_get_bytes_per_sample(pDevice->format) / pDevice->channels;
             mal_device__read_frames_from_client(pDevice, framesToRead, pLockPtr);
             mal_IDirectSoundBuffer_Unlock((mal_IDirectSoundBuffer*)pDevice->dsound.pPlaybackBuffer, pLockPtr, actualLockSize, pLockPtr2, actualLockSize2);
 
@@ -6075,7 +6074,7 @@ mal_bool32 mal_device__get_current_frame__dsound(mal_device* pDevice, mal_uint32
         }
     }
 
-    *pCurrentPos = (mal_uint32)dwCurrentPosition / mal_get_sample_size_in_bytes(pDevice->format) / pDevice->channels;
+    *pCurrentPos = (mal_uint32)dwCurrentPosition / mal_get_bytes_per_sample(pDevice->format) / pDevice->channels;
     return MAL_TRUE;
 }
 
@@ -6169,8 +6168,8 @@ mal_result mal_device__main_loop__dsound(mal_device* pDevice)
             return MAL_FALSE;
         }
 
-        DWORD lockOffset = pDevice->dsound.lastProcessedFrame * pDevice->channels * mal_get_sample_size_in_bytes(pDevice->format);
-        DWORD lockSize   = framesAvailable * pDevice->channels * mal_get_sample_size_in_bytes(pDevice->format);
+        DWORD lockOffset = pDevice->dsound.lastProcessedFrame * pDevice->channels * mal_get_bytes_per_sample(pDevice->format);
+        DWORD lockSize   = framesAvailable * pDevice->channels * mal_get_bytes_per_sample(pDevice->format);
 
         if (pDevice->type == mal_device_type_playback) {
             void* pLockPtr;
@@ -6181,7 +6180,7 @@ mal_result mal_device__main_loop__dsound(mal_device* pDevice)
                 return mal_post_error(pDevice, "[DirectSound] IDirectSoundBuffer_Lock() failed.", MAL_FAILED_TO_MAP_DEVICE_BUFFER);
             }
 
-            mal_uint32 frameCount = actualLockSize / mal_get_sample_size_in_bytes(pDevice->format) / pDevice->channels;
+            mal_uint32 frameCount = actualLockSize / mal_get_bytes_per_sample(pDevice->format) / pDevice->channels;
             mal_device__read_frames_from_client(pDevice, frameCount, pLockPtr);
             pDevice->dsound.lastProcessedFrame = (pDevice->dsound.lastProcessedFrame + frameCount) % pDevice->bufferSizeInFrames;
 
@@ -6195,7 +6194,7 @@ mal_result mal_device__main_loop__dsound(mal_device* pDevice)
                 return mal_post_error(pDevice, "[DirectSound] IDirectSoundCaptureBuffer_Lock() failed.", MAL_FAILED_TO_MAP_DEVICE_BUFFER);
             }
 
-            mal_uint32 frameCount = actualLockSize / mal_get_sample_size_in_bytes(pDevice->format) / pDevice->channels;
+            mal_uint32 frameCount = actualLockSize / mal_get_bytes_per_sample(pDevice->format) / pDevice->channels;
             mal_device__send_frames_to_client(pDevice, frameCount, pLockPtr);
             pDevice->dsound.lastProcessedFrame = (pDevice->dsound.lastProcessedFrame + frameCount) % pDevice->bufferSizeInFrames;
 
@@ -6578,7 +6577,7 @@ mal_result mal_device_init__winmm(mal_context* pContext, mal_device_type type, m
     wf.wFormatTag      = WAVE_FORMAT_PCM;
     wf.nChannels       = (WORD)pConfig->channels;
     wf.nSamplesPerSec  = (DWORD)pConfig->sampleRate;
-    wf.wBitsPerSample  = (WORD)mal_get_sample_size_in_bytes(pConfig->format)*8;
+    wf.wBitsPerSample  = (WORD)mal_get_bytes_per_sample(pConfig->format)*8;
 
     if (wf.nChannels > 2) {
         wf.nChannels = 2;
@@ -6755,7 +6754,7 @@ mal_result mal_device_init__winmm(mal_context* pContext, mal_device_type type, m
 
     // The size of the intermediary buffer needs to be able to fit every fragment.
     pDevice->winmm.fragmentSizeInFrames = pDevice->bufferSizeInFrames / pDevice->periods;
-    pDevice->winmm.fragmentSizeInBytes = pDevice->winmm.fragmentSizeInFrames * pDevice->internalChannels * mal_get_sample_size_in_bytes(pDevice->internalFormat);
+    pDevice->winmm.fragmentSizeInBytes = pDevice->winmm.fragmentSizeInFrames * pDevice->internalChannels * mal_get_bytes_per_sample(pDevice->internalFormat);
 
     heapSize = (sizeof(WAVEHDR) * pDevice->periods) + (pDevice->winmm.fragmentSizeInBytes * pDevice->periods);
     pDevice->winmm._pHeapData = (mal_uint8*)mal_malloc(heapSize);
@@ -6944,7 +6943,7 @@ mal_result mal_device__main_loop__winmm(mal_device* pDevice)
                 }
             } else {
                 // Capture.
-                mal_uint32 framesCaptured = (mal_uint32)(((LPWAVEHDR)pDevice->winmm.pWAVEHDR)[i].dwBytesRecorded) / pDevice->internalChannels / mal_get_sample_size_in_bytes(pDevice->internalFormat);
+                mal_uint32 framesCaptured = (mal_uint32)(((LPWAVEHDR)pDevice->winmm.pWAVEHDR)[i].dwBytesRecorded) / pDevice->internalChannels / mal_get_bytes_per_sample(pDevice->internalFormat);
                 if (framesCaptured > 0) {
                     mal_device__send_frames_to_client(pDevice, framesCaptured, ((LPWAVEHDR)pDevice->winmm.pWAVEHDR)[i].lpData);
                 }
@@ -8544,7 +8543,7 @@ mal_result mal_device_init__alsa(mal_context* pContext, mal_device_type type, ma
 
     // If we're _not_ using mmap we need to use an intermediary buffer.
     if (!pDevice->alsa.isUsingMMap) {
-        pDevice->alsa.pIntermediaryBuffer = mal_malloc(pDevice->bufferSizeInFrames * pDevice->internalChannels * mal_get_sample_size_in_bytes(pDevice->internalFormat));
+        pDevice->alsa.pIntermediaryBuffer = mal_malloc(pDevice->bufferSizeInFrames * pDevice->internalChannels * mal_get_bytes_per_sample(pDevice->internalFormat));
         if (pDevice->alsa.pIntermediaryBuffer == NULL) {
             mal_device_uninit__alsa(pDevice);
             return mal_post_error(pDevice, "[ALSA] Failed to allocate memory for intermediary buffer.", MAL_OUT_OF_MEMORY);
@@ -9873,7 +9872,7 @@ void mal_pulse_device_write_callback(mal_pa_stream* pStream, size_t sizeInBytes,
         }
 
         if (pBuffer != NULL && bytesToReadFromClient > 0) {
-            mal_uint32 framesToReadFromClient = (mal_uint32)bytesToReadFromClient / (pDevice->internalChannels*mal_get_sample_size_in_bytes(pDevice->internalFormat));
+            mal_uint32 framesToReadFromClient = (mal_uint32)bytesToReadFromClient / (pDevice->internalChannels*mal_get_bytes_per_sample(pDevice->internalFormat));
             if (framesToReadFromClient > 0) {
                 mal_device__read_frames_from_client(pDevice, framesToReadFromClient, pBuffer);
 
@@ -9912,7 +9911,7 @@ void mal_pulse_device_read_callback(mal_pa_stream* pStream, size_t sizeInBytes, 
         }
 
         if (pBuffer != NULL) {
-            mal_uint32 framesToSendToClient = (mal_uint32)bytesToSendToClient / (pDevice->internalChannels*mal_get_sample_size_in_bytes(pDevice->internalFormat));
+            mal_uint32 framesToSendToClient = (mal_uint32)bytesToSendToClient / (pDevice->internalChannels*mal_get_bytes_per_sample(pDevice->internalFormat));
             if (framesToSendToClient > 0) {
                 mal_device__send_frames_to_client(pDevice, framesToSendToClient, pBuffer);
             }
@@ -10140,7 +10139,7 @@ mal_result mal_device_init__pulse(mal_context* pContext, mal_device_type type, m
     }
 #endif
 
-    attr.maxlength = pConfig->bufferSizeInFrames * mal_get_sample_size_in_bytes(mal_format_from_pulse(ss.format))*ss.channels;
+    attr.maxlength = pConfig->bufferSizeInFrames * mal_get_bytes_per_sample(mal_format_from_pulse(ss.format))*ss.channels;
     attr.tlength   = attr.maxlength / pConfig->periods;
     attr.prebuf    = (mal_uint32)-1;
     attr.minreq    = attr.tlength;
@@ -10212,7 +10211,7 @@ mal_result mal_device_init__pulse(mal_context* pContext, mal_device_type type, m
         attr = *pActualAttr;
     }
 
-    pDevice->bufferSizeInFrames = attr.maxlength / (mal_get_sample_size_in_bytes(pDevice->internalFormat)*pDevice->internalChannels);
+    pDevice->bufferSizeInFrames = attr.maxlength / (mal_get_bytes_per_sample(pDevice->internalFormat)*pDevice->internalChannels);
     pDevice->periods = attr.maxlength / attr.tlength;
 
 
@@ -10643,7 +10642,7 @@ int mal_device__jack_buffer_size_callback(mal_jack_nframes_t frameCount, void* p
     mal_context* pContext = pDevice->pContext;
     mal_assert(pContext != NULL);
 
-    float* pNewBuffer = (float*)mal_realloc(pDevice->jack.pIntermediaryBuffer, frameCount * (pDevice->internalChannels*mal_get_sample_size_in_bytes(pDevice->internalFormat)));
+    float* pNewBuffer = (float*)mal_realloc(pDevice->jack.pIntermediaryBuffer, frameCount * (pDevice->internalChannels*mal_get_bytes_per_sample(pDevice->internalFormat)));
     if (pNewBuffer == NULL) {
         return MAL_OUT_OF_MEMORY;
     }
@@ -10790,7 +10789,7 @@ mal_result mal_device_init__jack(mal_context* pContext, mal_device_type type, ma
     pDevice->bufferSizeInFrames = ((mal_jack_get_buffer_size_proc)pContext->jack.jack_get_buffer_size)((mal_jack_client_t*)pDevice->jack.pClient) * pDevice->periods;
 
     // Initial allocation for the intermediary buffer.
-    pDevice->jack.pIntermediaryBuffer = (float*)mal_malloc((pDevice->bufferSizeInFrames/pDevice->periods)*(pDevice->internalChannels*mal_get_sample_size_in_bytes(pDevice->internalFormat)));
+    pDevice->jack.pIntermediaryBuffer = (float*)mal_malloc((pDevice->bufferSizeInFrames/pDevice->periods)*(pDevice->internalChannels*mal_get_bytes_per_sample(pDevice->internalFormat)));
     if (pDevice->jack.pIntermediaryBuffer == NULL) {
         mal_device_uninit__jack(pDevice);
         return MAL_OUT_OF_MEMORY;
@@ -11152,7 +11151,7 @@ mal_result mal_device_init__oss(mal_context* pContext, mal_device_type type, mal
     //
     // OSS wants the fragment size in bytes and a power of 2. When setting, we specify the power, not the actual
     // value.
-    mal_uint32 fragmentSizeInBytes = mal_round_to_power_of_2(pDevice->bufferSizeInFrames * pDevice->internalChannels * mal_get_sample_size_in_bytes(pDevice->internalFormat));
+    mal_uint32 fragmentSizeInBytes = mal_round_to_power_of_2(pDevice->bufferSizeInFrames * pDevice->internalChannels * mal_get_bytes_per_sample(pDevice->internalFormat));
     if (fragmentSizeInBytes < 16) {
         fragmentSizeInBytes = 16;
     }
@@ -11171,7 +11170,7 @@ mal_result mal_device_init__oss(mal_context* pContext, mal_device_type type, mal
     }
 
     int actualFragmentSizeInBytes = 1 << (ossFragment & 0xFFFF);
-    pDevice->oss.fragmentSizeInFrames = actualFragmentSizeInBytes / mal_get_sample_size_in_bytes(pDevice->internalFormat) / pDevice->internalChannels;
+    pDevice->oss.fragmentSizeInFrames = actualFragmentSizeInBytes / mal_get_bytes_per_sample(pDevice->internalFormat) / pDevice->internalChannels;
 
     pDevice->periods = (mal_uint32)(ossFragment >> 16);
     pDevice->bufferSizeInFrames = (mal_uint32)(pDevice->oss.fragmentSizeInFrames * pDevice->periods);
@@ -11204,7 +11203,7 @@ mal_result mal_device__start_backend__oss(mal_device* pDevice)
         // Playback.
         mal_device__read_frames_from_client(pDevice, pDevice->oss.fragmentSizeInFrames, pDevice->oss.pIntermediaryBuffer);
 
-        int bytesWritten = write(pDevice->oss.fd, pDevice->oss.pIntermediaryBuffer, pDevice->oss.fragmentSizeInFrames * pDevice->internalChannels * mal_get_sample_size_in_bytes(pDevice->internalFormat));
+        int bytesWritten = write(pDevice->oss.fd, pDevice->oss.pIntermediaryBuffer, pDevice->oss.fragmentSizeInFrames * pDevice->internalChannels * mal_get_bytes_per_sample(pDevice->internalFormat));
         if (bytesWritten == -1) {
             return mal_post_error(pDevice, "[OSS] Failed to send initial chunk of data to the device.", MAL_FAILED_TO_SEND_DATA_TO_DEVICE);
         }
@@ -11262,18 +11261,18 @@ mal_result mal_device__main_loop__oss(mal_device* pDevice)
             // Playback.
             mal_device__read_frames_from_client(pDevice, pDevice->oss.fragmentSizeInFrames, pDevice->oss.pIntermediaryBuffer);
 
-            int bytesWritten = write(pDevice->oss.fd, pDevice->oss.pIntermediaryBuffer, pDevice->oss.fragmentSizeInFrames * pDevice->internalChannels * mal_get_sample_size_in_bytes(pDevice->internalFormat));
+            int bytesWritten = write(pDevice->oss.fd, pDevice->oss.pIntermediaryBuffer, pDevice->oss.fragmentSizeInFrames * pDevice->internalChannels * mal_get_bytes_per_sample(pDevice->internalFormat));
             if (bytesWritten < 0) {
                 return mal_post_error(pDevice, "[OSS] Failed to send data from the client to the device.", MAL_FAILED_TO_SEND_DATA_TO_DEVICE);
             }
         } else {
             // Capture.
-            int bytesRead = read(pDevice->oss.fd, pDevice->oss.pIntermediaryBuffer, pDevice->oss.fragmentSizeInFrames * mal_get_sample_size_in_bytes(pDevice->internalFormat));
+            int bytesRead = read(pDevice->oss.fd, pDevice->oss.pIntermediaryBuffer, pDevice->oss.fragmentSizeInFrames * mal_get_bytes_per_sample(pDevice->internalFormat));
             if (bytesRead < 0) {
                 return mal_post_error(pDevice, "[OSS] Failed to read data from the device to be sent to the client.", MAL_FAILED_TO_READ_DATA_FROM_DEVICE);
             }
 
-            mal_uint32 framesRead = (mal_uint32)bytesRead / pDevice->internalChannels / mal_get_sample_size_in_bytes(pDevice->internalFormat);
+            mal_uint32 framesRead = (mal_uint32)bytesRead / pDevice->internalChannels / mal_get_bytes_per_sample(pDevice->internalFormat);
             mal_device__send_frames_to_client(pDevice, framesRead, pDevice->oss.pIntermediaryBuffer);
         }
     }
@@ -11680,7 +11679,7 @@ void mal_buffer_queue_callback__opensl_android(SLAndroidSimpleBufferQueueItf pBu
         return;
     }
 
-    size_t periodSizeInBytes = pDevice->opensl.periodSizeInFrames * pDevice->internalChannels * mal_get_sample_size_in_bytes(pDevice->internalFormat);
+    size_t periodSizeInBytes = pDevice->opensl.periodSizeInFrames * pDevice->internalChannels * mal_get_bytes_per_sample(pDevice->internalFormat);
     mal_uint8* pBuffer = pDevice->opensl.pBuffer + (pDevice->opensl.currentBufferIndex * periodSizeInBytes);
 
     if (pDevice->type == mal_device_type_playback) {
@@ -11769,7 +11768,7 @@ mal_result mal_device_init__opensl(mal_context* pContext, mal_device_type type, 
 
     pFormat->numChannels   = pDevice->channels;
     pFormat->samplesPerSec = mal_round_to_standard_sample_rate__opensl(pDevice->sampleRate * 1000);  // In millihertz.
-    pFormat->bitsPerSample = mal_get_sample_size_in_bytes(pDevice->format)*8;
+    pFormat->bitsPerSample = mal_get_bytes_per_sample(pDevice->format)*8;
     pFormat->containerSize = pFormat->bitsPerSample;  // Always tightly packed for now.
     pFormat->channelMask   = mal_channel_map_to_channel_mask__opensl(pConfig->channelMap, pFormat->numChannels);
     pFormat->endianness    = SL_BYTEORDER_LITTLEENDIAN;
@@ -11969,7 +11968,7 @@ mal_result mal_device_init__opensl(mal_context* pContext, mal_device_type type, 
     mal_channel_mask_to_channel_map__opensl(pFormat->channelMask, pDevice->internalChannels, pDevice->internalChannelMap);
 
 
-    size_t bufferSizeInBytes = pDevice->bufferSizeInFrames * pDevice->internalChannels * mal_get_sample_size_in_bytes(pDevice->internalFormat);
+    size_t bufferSizeInBytes = pDevice->bufferSizeInFrames * pDevice->internalChannels * mal_get_bytes_per_sample(pDevice->internalFormat);
     pDevice->opensl.pBuffer = (mal_uint8*)mal_malloc(bufferSizeInBytes);
     if (pDevice->opensl.pBuffer == NULL) {
         mal_device_uninit__opensl(pDevice);
@@ -11994,7 +11993,7 @@ mal_result mal_device__start_backend__opensl(mal_device* pDevice)
         // We need to enqueue a buffer for each period.
         mal_device__read_frames_from_client(pDevice, pDevice->bufferSizeInFrames, pDevice->opensl.pBuffer);
 
-        size_t periodSizeInBytes = pDevice->opensl.periodSizeInFrames * pDevice->internalChannels * mal_get_sample_size_in_bytes(pDevice->internalFormat);
+        size_t periodSizeInBytes = pDevice->opensl.periodSizeInFrames * pDevice->internalChannels * mal_get_bytes_per_sample(pDevice->internalFormat);
         for (mal_uint32 iPeriod = 0; iPeriod < pDevice->periods; ++iPeriod) {
             resultSL = MAL_OPENSL_BUFFERQUEUE(pDevice->opensl.pBufferQueue)->Enqueue((SLAndroidSimpleBufferQueueItf)pDevice->opensl.pBufferQueue, pDevice->opensl.pBuffer + (periodSizeInBytes * iPeriod), periodSizeInBytes);
             if (resultSL != SL_RESULT_SUCCESS) {
@@ -12008,7 +12007,7 @@ mal_result mal_device__start_backend__opensl(mal_device* pDevice)
             return mal_post_error(pDevice, "[OpenSL] Failed to start internal capture device.", MAL_FAILED_TO_START_BACKEND_DEVICE);
         }
 
-        size_t periodSizeInBytes = pDevice->opensl.periodSizeInFrames * pDevice->internalChannels * mal_get_sample_size_in_bytes(pDevice->internalFormat);
+        size_t periodSizeInBytes = pDevice->opensl.periodSizeInFrames * pDevice->internalChannels * mal_get_bytes_per_sample(pDevice->internalFormat);
         for (mal_uint32 iPeriod = 0; iPeriod < pDevice->periods; ++iPeriod) {
             resultSL = MAL_OPENSL_BUFFERQUEUE(pDevice->opensl.pBufferQueue)->Enqueue((SLAndroidSimpleBufferQueueItf)pDevice->opensl.pBufferQueue, pDevice->opensl.pBuffer + (periodSizeInBytes * iPeriod), periodSizeInBytes);
             if (resultSL != SL_RESULT_SUCCESS) {
@@ -12839,7 +12838,7 @@ mal_result mal_device_init__openal(mal_context* pContext, mal_device_type type, 
     pDevice->openal.pContextALC = pContextALC;
     pDevice->openal.formatAL = formatAL;
     pDevice->openal.subBufferSizeInFrames = pDevice->bufferSizeInFrames / pDevice->periods;
-    pDevice->openal.pIntermediaryBuffer = (mal_uint8*)mal_malloc(pDevice->openal.subBufferSizeInFrames * channelsAL * mal_get_sample_size_in_bytes(pDevice->internalFormat));
+    pDevice->openal.pIntermediaryBuffer = (mal_uint8*)mal_malloc(pDevice->openal.subBufferSizeInFrames * channelsAL * mal_get_bytes_per_sample(pDevice->internalFormat));
     if (pDevice->openal.pIntermediaryBuffer == NULL) {
         mal_device_uninit__openal(pDevice);
         return mal_context_post_error(pContext, NULL, "[OpenAL] Failed to allocate memory for intermediary buffer.", MAL_OUT_OF_MEMORY);
@@ -12864,7 +12863,7 @@ mal_result mal_device__start_backend__openal(mal_device* pDevice)
             mal_device__read_frames_from_client(pDevice, pDevice->openal.subBufferSizeInFrames, pDevice->openal.pIntermediaryBuffer);
 
             mal_ALuint bufferAL = pDevice->openal.buffersAL[i];
-            ((MAL_LPALBUFFERDATA)pDevice->pContext->openal.alBufferData)(bufferAL, pDevice->openal.formatAL, pDevice->openal.pIntermediaryBuffer, pDevice->openal.subBufferSizeInFrames * pDevice->internalChannels * mal_get_sample_size_in_bytes(pDevice->internalFormat), pDevice->internalSampleRate);
+            ((MAL_LPALBUFFERDATA)pDevice->pContext->openal.alBufferData)(bufferAL, pDevice->openal.formatAL, pDevice->openal.pIntermediaryBuffer, pDevice->openal.subBufferSizeInFrames * pDevice->internalChannels * mal_get_bytes_per_sample(pDevice->internalFormat), pDevice->internalSampleRate);
             ((MAL_LPALSOURCEQUEUEBUFFERS)pDevice->pContext->openal.alSourceQueueBuffers)(pDevice->openal.sourceAL, 1, &bufferAL);
         }
 
@@ -12967,7 +12966,7 @@ mal_result mal_device__main_loop__openal(mal_device* pDevice)
 
                 ((MAL_LPALCMAKECONTEXTCURRENT)pDevice->pContext->openal.alcMakeContextCurrent)((mal_ALCcontext*)pDevice->openal.pContextALC);
                 ((MAL_LPALSOURCEUNQUEUEBUFFERS)pDevice->pContext->openal.alSourceUnqueueBuffers)(pDevice->openal.sourceAL, 1, &bufferAL);
-                ((MAL_LPALBUFFERDATA)pDevice->pContext->openal.alBufferData)(bufferAL, pDevice->openal.formatAL, pDevice->openal.pIntermediaryBuffer, pDevice->openal.subBufferSizeInFrames * pDevice->internalChannels * mal_get_sample_size_in_bytes(pDevice->internalFormat), pDevice->internalSampleRate);
+                ((MAL_LPALBUFFERDATA)pDevice->pContext->openal.alBufferData)(bufferAL, pDevice->openal.formatAL, pDevice->openal.pIntermediaryBuffer, pDevice->openal.subBufferSizeInFrames * pDevice->internalChannels * mal_get_bytes_per_sample(pDevice->internalFormat), pDevice->internalSampleRate);
                 ((MAL_LPALSOURCEQUEUEBUFFERS)pDevice->pContext->openal.alSourceQueueBuffers)(pDevice->openal.sourceAL, 1, &bufferAL);
 
                 framesAvailable -= framesToRead;
@@ -13315,7 +13314,7 @@ void mal_audio_callback__sdl(void* pUserData, mal_uint8* pBuffer, int bufferSize
     mal_device* pDevice = (mal_device*)pUserData;
     mal_assert(pDevice != NULL);
 
-    mal_uint32 bufferSizeInFrames = (mal_uint32)bufferSizeInBytes / mal_get_sample_size_in_bytes(pDevice->internalFormat) / pDevice->internalChannels;
+    mal_uint32 bufferSizeInFrames = (mal_uint32)bufferSizeInBytes / mal_get_bytes_per_sample(pDevice->internalFormat) / pDevice->internalChannels;
 
     if (pDevice->type == mal_device_type_playback) {
         mal_device__read_frames_from_client(pDevice, bufferSizeInFrames, pBuffer);
@@ -14795,10 +14794,10 @@ mal_bool32 mal_device_is_started(mal_device* pDevice)
 mal_uint32 mal_device_get_buffer_size_in_bytes(mal_device* pDevice)
 {
     if (pDevice == NULL) return 0;
-    return pDevice->bufferSizeInFrames * pDevice->channels * mal_get_sample_size_in_bytes(pDevice->format);
+    return pDevice->bufferSizeInFrames * pDevice->channels * mal_get_bytes_per_sample(pDevice->format);
 }
 
-mal_uint32 mal_get_sample_size_in_bytes(mal_format format)
+mal_uint32 mal_get_bytes_per_sample(mal_format format)
 {
     mal_uint32 sizes[] = {
         0,  // unknown
@@ -16724,8 +16723,8 @@ mal_uint64 mal_format_converter_read_frames(mal_format_converter* pConverter, ma
     }
 
     mal_uint64 totalFramesRead = 0;
-    mal_uint32 sampleSizeIn    = mal_get_sample_size_in_bytes(pConverter->config.formatIn);
-    //mal_uint32 sampleSizeOut   = mal_get_sample_size_in_bytes(pConverter->config.formatOut);
+    mal_uint32 sampleSizeIn    = mal_get_bytes_per_sample(pConverter->config.formatIn);
+    //mal_uint32 sampleSizeOut   = mal_get_bytes_per_sample(pConverter->config.formatOut);
     mal_uint32 frameSizeIn     = sampleSizeIn  * pConverter->config.channels;
     //mal_uint32 frameSizeOut    = sampleSizeOut * pConverter->config.channels;
     mal_uint8* pNextFramesOut  = (mal_uint8*)pFramesOut;
@@ -16838,8 +16837,8 @@ mal_uint64 mal_format_converter_read_frames_separated(mal_format_converter* pCon
     }
 
     mal_uint64 totalFramesRead = 0;
-    mal_uint32 sampleSizeIn = mal_get_sample_size_in_bytes(pConverter->config.formatIn);
-    //mal_uint32 sampleSizeOut = mal_get_sample_size_in_bytes(pConverter->config.formatOut);
+    mal_uint32 sampleSizeIn = mal_get_bytes_per_sample(pConverter->config.formatIn);
+    //mal_uint32 sampleSizeOut = mal_get_bytes_per_sample(pConverter->config.formatOut);
 
     mal_uint8* ppNextSamplesOut[MAL_MAX_CHANNELS];
     mal_copy_memory(ppNextSamplesOut, ppSamplesOut, sizeof(void*) * pConverter->config.channels);
@@ -17124,7 +17123,7 @@ mal_uint64 mal_src_read_frames_passthrough(mal_src* pSRC, mal_uint64 frameCount,
                     break;
                 }
 
-                pFramesOut  = (mal_uint8*)pFramesOut + (framesRead * pSRC->config.channels * mal_get_sample_size_in_bytes(pSRC->config.formatOut));
+                pFramesOut  = (mal_uint8*)pFramesOut + (framesRead * pSRC->config.channels * mal_get_bytes_per_sample(pSRC->config.formatOut));
                 frameCount -= framesRead;
                 totalFramesRead += framesRead;
             }
@@ -17137,7 +17136,7 @@ mal_uint64 mal_src_read_frames_passthrough(mal_src* pSRC, mal_uint64 frameCount,
     mal_uint64 totalFramesRead = 0;
     while (frameCount > 0) {
         mal_uint8 pStagingBuffer[MAL_MAX_CHANNELS * 2048];
-        mal_uint32 stagingBufferSizeInFrames = sizeof(pStagingBuffer) / mal_get_sample_size_in_bytes(pSRC->config.formatIn) / pSRC->config.channels;
+        mal_uint32 stagingBufferSizeInFrames = sizeof(pStagingBuffer) / mal_get_bytes_per_sample(pSRC->config.formatIn) / pSRC->config.channels;
         mal_uint32 framesToRead = stagingBufferSizeInFrames;
         if (framesToRead > frameCount) {
             framesToRead = (mal_uint32)frameCount;
@@ -17150,7 +17149,7 @@ mal_uint64 mal_src_read_frames_passthrough(mal_src* pSRC, mal_uint64 frameCount,
 
         mal_pcm_convert(pFramesOut, pSRC->config.formatOut, pStagingBuffer, pSRC->config.formatIn, framesRead * pSRC->config.channels, mal_dither_mode_none);
 
-        pFramesOut  = (mal_uint8*)pFramesOut + (framesRead * pSRC->config.channels * mal_get_sample_size_in_bytes(pSRC->config.formatOut));
+        pFramesOut  = (mal_uint8*)pFramesOut + (framesRead * pSRC->config.channels * mal_get_bytes_per_sample(pSRC->config.formatOut));
         frameCount -= framesRead;
         totalFramesRead += framesRead;
     }
@@ -17224,7 +17223,7 @@ mal_uint64 mal_src_read_frames_linear(mal_src* pSRC, mal_uint64 frameCount, void
 
         mal_pcm_convert(pFramesOut, pSRC->config.formatOut, pFrame, mal_format_f32, 1 * pSRC->config.channels, mal_dither_mode_none);
 
-        pFramesOut  = (mal_uint8*)pFramesOut + (1 * pSRC->config.channels * mal_get_sample_size_in_bytes(pSRC->config.formatOut));
+        pFramesOut  = (mal_uint8*)pFramesOut + (1 * pSRC->config.channels * mal_get_bytes_per_sample(pSRC->config.formatOut));
         frameCount -= 1;
         totalFramesRead += 1;
 
@@ -17249,7 +17248,7 @@ mal_uint64 mal_src_read_frames_linear(mal_src* pSRC, mal_uint64 frameCount, void
 void mal_pcm_convert(void* pOut, mal_format formatOut, const void* pIn, mal_format formatIn, mal_uint64 sampleCount, mal_dither_mode ditherMode)
 {
     if (formatOut == formatIn) {
-        mal_copy_memory(pOut, pIn, sampleCount * mal_get_sample_size_in_bytes(formatOut));
+        mal_copy_memory(pOut, pIn, sampleCount * mal_get_bytes_per_sample(formatOut));
         return;
     }
 
@@ -17486,7 +17485,7 @@ void mal_rearrange_channels_f32(float* pFrame, mal_uint32 channels, mal_channel 
 
 void mal_rearrange_channels_generic(void* pFrame, mal_uint32 channels, mal_channel channelMap[MAL_MAX_CHANNELS], mal_format format)
 {
-    mal_uint32 sampleSizeInBytes = mal_get_sample_size_in_bytes(format);
+    mal_uint32 sampleSizeInBytes = mal_get_bytes_per_sample(format);
 
     mal_uint8 temp[MAL_MAX_CHANNELS * MAL_MAX_PCM_SAMPLE_SIZE_IN_BYTES];   // Product of MAL_MAX_PCM_SAMPLE_SIZE_IN_BYTES to ensure it's large enough for all formats.
     mal_copy_memory(temp, pFrame, sampleSizeInBytes * channels);
@@ -17987,7 +17986,7 @@ mal_uint64 mal_dsp_read_frames_ex(mal_dsp* pDSP, mal_uint64 frameCount, void* pF
                     break;
                 }
 
-                pFramesOut  = (mal_uint8*)pFramesOut + (framesRead * pDSP->config.channelsOut * mal_get_sample_size_in_bytes(pDSP->config.formatOut));
+                pFramesOut  = (mal_uint8*)pFramesOut + (framesRead * pDSP->config.channelsOut * mal_get_bytes_per_sample(pDSP->config.formatOut));
                 frameCount -= framesRead;
                 totalFramesRead += framesRead;
             }
@@ -18042,7 +18041,7 @@ mal_uint64 mal_dsp_read_frames_ex(mal_dsp* pDSP, mal_uint64 frameCount, void* pF
         // Channel mapping.
         if (pDSP->isChannelMappingRequired) {
             for (mal_uint32 i = 0; i < framesRead; ++i) {
-                mal_rearrange_channels(pFrames[iFrames] + (i * pDSP->config.channelsOut * mal_get_sample_size_in_bytes(pFramesFormat[iFrames])), pDSP->config.channelsOut, pDSP->channelShuffleTable, pFramesFormat[iFrames]);
+                mal_rearrange_channels(pFrames[iFrames] + (i * pDSP->config.channelsOut * mal_get_bytes_per_sample(pFramesFormat[iFrames])), pDSP->config.channelsOut, pDSP->channelShuffleTable, pFramesFormat[iFrames]);
             }
         }
 
@@ -18050,7 +18049,7 @@ mal_uint64 mal_dsp_read_frames_ex(mal_dsp* pDSP, mal_uint64 frameCount, void* pF
         // Final conversion to output format.
         mal_pcm_convert(pFramesOut, pDSP->config.formatOut, pFrames[iFrames], pFramesFormat[iFrames], framesRead * pDSP->config.channelsOut, mal_dither_mode_none);
 
-        pFramesOut  = (mal_uint8*)pFramesOut + (framesRead * pDSP->config.channelsOut * mal_get_sample_size_in_bytes(pDSP->config.formatOut));
+        pFramesOut  = (mal_uint8*)pFramesOut + (framesRead * pDSP->config.channelsOut * mal_get_bytes_per_sample(pDSP->config.formatOut));
         frameCount -= framesRead;
         totalFramesRead += framesRead;
     }
@@ -18097,7 +18096,7 @@ mal_uint32 mal_convert_frames__on_read(mal_dsp* pDSP, mal_uint32 frameCount, voi
         framesToRead = (mal_uint32)framesRemaining;
     }
 
-    mal_uint32 frameSizeInBytes = mal_get_sample_size_in_bytes(pData->formatIn) * pData->channelsIn;
+    mal_uint32 frameSizeInBytes = mal_get_bytes_per_sample(pData->formatIn) * pData->channelsIn;
     mal_copy_memory(pFramesOut, (const mal_uint8*)pData->pDataIn + (frameSizeInBytes * pData->iNextFrame), frameSizeInBytes * framesToRead);
 
     pData->iNextFrame += framesToRead;
@@ -19417,12 +19416,15 @@ mal_uint64 mal_sine_wave_read(mal_sine_wave* pSignWave, mal_uint64 count, float*
 //   - API CHANGE: Replace device enumeration APIs. mal_enumerate_devices() has been replaced with
 //     mal_context_get_devices(). An additional low-level device enumration API has been introduced called
 //     mal_context_enumerate_devices() which uses a callback to report devices.
+//   - API CHANGE: Rename mal_get_sample_size_in_bytes() to mal_get_bytes_per_sample() and add
+//     mal_get_bytes_per_frame().
 //   - API CHANGE: Replace mal_device_config.preferExclusiveMode with mal_device_config.shareMode.
 //     - This new config can be set to mal_share_mode_shared (default) or mal_share_mode_exclusive.
 //   - API CHANGE: Remove excludeNullDevice from mal_context_config.alsa.
 //   - API CHANGE: Rename MAL_MAX_SAMPLE_SIZE_IN_BYTES to MAL_MAX_PCM_SAMPLE_SIZE_IN_BYTES.
 //   - API CHANGE: Change the default channel mapping to the standard Microsoft mapping.
 //   - API CHANGE: Remove backend-specific result codes.
+//   - API CHANGE: Changes to the format conversion APIs (mal_pcm_f32_to_s16(), etc.)
 //   - Add support for PulseAudio.
 //     - This is the highest priority backend on Linux (higher priority than ALSA) since it is commonly
 //       installed by default on many of the popular distros and offer's more seamless integration on
