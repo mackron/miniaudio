@@ -16724,9 +16724,9 @@ mal_uint64 mal_format_converter_read_frames(mal_format_converter* pConverter, ma
 
     mal_uint64 totalFramesRead = 0;
     mal_uint32 sampleSizeIn    = mal_get_bytes_per_sample(pConverter->config.formatIn);
-    //mal_uint32 sampleSizeOut   = mal_get_bytes_per_sample(pConverter->config.formatOut);
-    mal_uint32 frameSizeIn     = sampleSizeIn  * pConverter->config.channels;
-    //mal_uint32 frameSizeOut    = sampleSizeOut * pConverter->config.channels;
+    mal_uint32 sampleSizeOut   = mal_get_bytes_per_sample(pConverter->config.formatOut);
+    //mal_uint32 frameSizeIn     = sampleSizeIn  * pConverter->config.channels;
+    mal_uint32 frameSizeOut    = sampleSizeOut * pConverter->config.channels;
     mal_uint8* pNextFramesOut  = (mal_uint8*)pFramesOut;
 
     if (pConverter->onRead != NULL) {
@@ -16746,7 +16746,7 @@ mal_uint64 mal_format_converter_read_frames(mal_format_converter* pConverter, ma
                 }
 
                 totalFramesRead += framesJustRead;
-                pNextFramesOut  += framesJustRead * frameSizeIn;
+                pNextFramesOut  += framesJustRead * frameSizeOut;
             }
         } else {
             // Conversion required.
@@ -16770,7 +16770,7 @@ mal_uint64 mal_format_converter_read_frames(mal_format_converter* pConverter, ma
                 pConverter->onConvertPCM(pNextFramesOut, temp, framesJustRead*pConverter->config.channels, pConverter->config.ditherMode);
 
                 totalFramesRead += framesJustRead;
-                pNextFramesOut  += framesJustRead * frameSizeIn;
+                pNextFramesOut  += framesJustRead * frameSizeOut;
             }
         }
     } else {
@@ -16823,7 +16823,7 @@ mal_uint64 mal_format_converter_read_frames(mal_format_converter* pConverter, ma
             pConverter->onInterleavePCM(pNextFramesOut, (const void**)ppTempSampleOfOutFormat, framesJustRead, pConverter->config.channels);
 
             totalFramesRead += framesJustRead;
-            pNextFramesOut  += framesJustRead * frameSizeIn;
+            pNextFramesOut  += framesJustRead * frameSizeOut;
         }
     }
 
@@ -16838,7 +16838,7 @@ mal_uint64 mal_format_converter_read_frames_separated(mal_format_converter* pCon
 
     mal_uint64 totalFramesRead = 0;
     mal_uint32 sampleSizeIn = mal_get_bytes_per_sample(pConverter->config.formatIn);
-    //mal_uint32 sampleSizeOut = mal_get_bytes_per_sample(pConverter->config.formatOut);
+    mal_uint32 sampleSizeOut = mal_get_bytes_per_sample(pConverter->config.formatOut);
 
     mal_uint8* ppNextSamplesOut[MAL_MAX_CHANNELS];
     mal_copy_memory(ppNextSamplesOut, ppSamplesOut, sizeof(void*) * pConverter->config.channels);
@@ -16881,7 +16881,7 @@ mal_uint64 mal_format_converter_read_frames_separated(mal_format_converter* pCon
 
             totalFramesRead += framesJustRead;
             for (mal_uint32 iChannel = 0; iChannel < pConverter->config.channels; ++iChannel) {
-                ppNextSamplesOut[iChannel] += framesJustRead * sampleSizeIn;
+                ppNextSamplesOut[iChannel] += framesJustRead * sampleSizeOut;
             }
         }
     } else {
@@ -16902,13 +16902,18 @@ mal_uint64 mal_format_converter_read_frames_separated(mal_format_converter* pCon
 
                 totalFramesRead += framesJustRead;
                 for (mal_uint32 iChannel = 0; iChannel < pConverter->config.channels; ++iChannel) {
-                    ppNextSamplesOut[iChannel] += framesJustRead * sampleSizeIn;
+                    ppNextSamplesOut[iChannel] += framesJustRead * sampleSizeOut;
                 }
             }
         } else {
             // Conversion required.
             mal_uint8 temp[MAL_MAX_CHANNELS][MAL_MAX_PCM_SAMPLE_SIZE_IN_BYTES * 128];
             mal_assert(sizeof(temp[0]) <= 0xFFFFFFFF);
+
+            void* ppTemp[MAL_MAX_CHANNELS];
+            for (mal_uint32 i = 0; i < pConverter->config.channels; ++i) {
+                ppTemp[i] = &temp[i];
+            }
 
             mal_uint32 maxFramesToReadAtATime = sizeof(temp[0]) / sampleSizeIn;
 
@@ -16919,14 +16924,14 @@ mal_uint64 mal_format_converter_read_frames_separated(mal_format_converter* pCon
                     framesToReadRightNow = maxFramesToReadAtATime;
                 }
 
-                mal_uint32 framesJustRead = (mal_uint32)pConverter->onReadSeparated(pConverter, (mal_uint32)framesToReadRightNow, (void**)ppNextSamplesOut, pConverter->pUserData);
+                mal_uint32 framesJustRead = (mal_uint32)pConverter->onReadSeparated(pConverter, (mal_uint32)framesToReadRightNow, ppTemp, pConverter->pUserData);
                 if (framesJustRead == 0) {
                     break;
                 }
 
                 for (mal_uint32 iChannel = 0; iChannel < pConverter->config.channels; iChannel += 1) {
-                    pConverter->onConvertPCM(ppNextSamplesOut[iChannel], temp[iChannel], framesJustRead, pConverter->config.ditherMode);
-                    ppNextSamplesOut[iChannel] += framesJustRead * sampleSizeIn;
+                    pConverter->onConvertPCM(ppNextSamplesOut[iChannel], ppTemp[iChannel], framesJustRead, pConverter->config.ditherMode);
+                    ppNextSamplesOut[iChannel] += framesJustRead * sampleSizeOut;
                 }
 
                 totalFramesRead += framesJustRead;

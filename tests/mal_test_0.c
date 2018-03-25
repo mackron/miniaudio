@@ -34,6 +34,22 @@ void on_log(mal_context* pContext, mal_device* pDevice, const char* message)
     printf("%s\n", message);
 }
 
+FILE* mal_fopen(const char* filePath, const char* openMode)
+{
+    FILE* pFile;
+#if _MSC_VER
+    if (fopen_s(&pFile, filePath, openMode) != 0) {
+        return NULL;
+    }
+#else
+    pFile = fopen(filePath, openMode);
+    if (pFile == NULL) {
+        return NULL;
+    }
+#endif
+
+    return pFile;
+}
 
 void* open_and_read_file_data(const char* filePath, size_t* pSizeOut)
 {
@@ -44,17 +60,10 @@ void* open_and_read_file_data(const char* filePath, size_t* pSizeOut)
         return NULL;
     }
 
-    FILE* pFile;
-#if _MSC_VER
-    if (fopen_s(&pFile, filePath, "rb") != 0) {
-        return NULL;
-    }
-#else
-    pFile = fopen(filePath, "rb");
+    FILE* pFile = mal_fopen(filePath, "rb");
     if (pFile == NULL) {
         return NULL;
     }
-#endif
 
     fseek(pFile, 0, SEEK_END);
     mal_uint64 fileSize = ftell(pFile);
@@ -168,7 +177,7 @@ int mal_pcm_compare(const void* a, const void* b, mal_uint64 count, mal_format f
             case mal_format_s24:
             {
                 mal_int32 sampleA = ((mal_int32)(((mal_uint32)(a_u8[i*3+0]) << 8) | ((mal_uint32)(a_u8[i*3+1]) << 16) | ((mal_uint32)(a_u8[i*3+2])) << 24)) >> 8;
-                mal_int32 sampleB = ((mal_int32)(((mal_uint32)(b_u8[i*3+0]) << 8) | ((mal_uint32)(b_u8[i*3+1]) << 16) | ((mal_uint32)(b_u8[i*3+2])) << 24)) >> 8;;
+                mal_int32 sampleB = ((mal_int32)(((mal_uint32)(b_u8[i*3+0]) << 8) | ((mal_uint32)(b_u8[i*3+1]) << 16) | ((mal_uint32)(b_u8[i*3+2])) << 24)) >> 8;
                 if (sampleA != sampleB) {
                     if (abs(sampleA - sampleB) > allowedDifference) {   // Allow a difference of 1.
                         printf("Sample %I64u not equal. %d != %d (diff: %d)\n", i, sampleA, sampleB, sampleA - sampleB);
@@ -936,6 +945,192 @@ int do_interleaving_tests()
 }
 
 
+mal_uint32 converter_test_interleaved_callback(mal_format_converter* pConverter, mal_uint32 frameCount, void* pFramesOut, void* pUserData)
+{
+    mal_sine_wave* pSineWave = (mal_sine_wave*)pUserData;
+    mal_assert(pSineWave != NULL);
+
+    float* pFramesOutF32 = (float*)pFramesOut;
+
+    for (mal_uint32 iFrame = 0; iFrame < frameCount; iFrame += 1) {
+        float sample;
+        mal_sine_wave_read(pSineWave, 1, &sample);
+
+        for (mal_uint32 iChannel = 0; iChannel < pConverter->config.channels; iChannel += 1) {
+            pFramesOutF32[iFrame*pConverter->config.channels + iChannel] = sample;
+        }
+    }
+
+    return frameCount;
+}
+
+mal_uint32 converter_test_separated_callback(mal_format_converter* pConverter, mal_uint32 frameCount, void** ppSamplesOut, void* pUserData)
+{
+    mal_sine_wave* pSineWave = (mal_sine_wave*)pUserData;
+    mal_assert(pSineWave != NULL);
+
+    mal_sine_wave_read(pSineWave, frameCount, ppSamplesOut[0]);
+
+    // Copy everything from the first channel over the others.
+    for (mal_uint32 iChannel = 1; iChannel < pConverter->config.channels; iChannel += 1) {
+        mal_copy_memory(ppSamplesOut[iChannel], ppSamplesOut[0], frameCount * sizeof(float));
+    }
+
+    return frameCount;
+}
+
+int do_format_converter_tests()
+{
+    double amplitude = 1;
+    double periodsPerSecond = 400;
+    mal_uint32 sampleRate = 48000;
+
+    mal_result result = MAL_SUCCESS;
+
+    mal_sine_wave sineWave;
+    mal_format_converter converter;
+
+    mal_format_converter_config config;
+    mal_zero_object(&config);
+    config.formatIn = mal_format_f32;
+    config.formatOut = mal_format_s16;
+    config.channels = 2;
+    config.streamFormatIn = mal_stream_format_pcm;
+    config.streamFormatOut = mal_stream_format_pcm;
+    config.ditherMode = mal_dither_mode_none;
+
+    // Interleaved/Interleaved f32 to s16.
+    {
+        mal_sine_wave_init(amplitude, periodsPerSecond, sampleRate, &sineWave);
+        result = mal_format_converter_init(&config, converter_test_interleaved_callback, &sineWave, &converter);
+        if (result != MAL_SUCCESS) {
+            printf("Failed to initialize converter.\n");
+            return -1;
+        }
+
+        mal_int16 interleavedFrames[MAL_MAX_CHANNELS * 1024];
+        mal_uint64 framesRead = mal_format_converter_read_frames(&converter, 1024, interleavedFrames);
+        if (framesRead != 1024) {
+            printf("Failed to read interleaved data from converter.\n");
+            return -1;
+        }
+
+        FILE* pFile = mal_fopen("res/output/converter_f32_to_s16_interleaved_interleaved__stereo_48000.raw", "wb");
+        if (pFile == NULL) {
+            printf("Failed to open output file.\n");
+            return -1;
+        }
+
+        fwrite(interleavedFrames, sizeof(mal_int16), framesRead * converter.config.channels, pFile);
+        fclose(pFile);
+    }
+
+    // Interleaved/Deinterleaved f32 to s16.
+    {
+        mal_sine_wave_init(amplitude, periodsPerSecond, sampleRate, &sineWave);
+        result = mal_format_converter_init(&config, converter_test_interleaved_callback, &sineWave, &converter);
+        if (result != MAL_SUCCESS) {
+            printf("Failed to initialize converter.\n");
+            return -1;
+        }
+
+        mal_int16 separatedFrames[MAL_MAX_CHANNELS][1024];
+        void* ppSeparatedFrames[MAL_MAX_CHANNELS];
+        for (mal_uint32 iChannel = 0; iChannel < converter.config.channels; iChannel += 1) {
+            ppSeparatedFrames[iChannel] = &separatedFrames[iChannel];
+        }
+
+        mal_uint64 framesRead = mal_format_converter_read_frames_separated(&converter, 1024, ppSeparatedFrames);
+        if (framesRead != 1024) {
+            printf("Failed to read interleaved data from converter.\n");
+            return -1;
+        }
+
+        // Write a separate file for each channel.
+        for (mal_uint32 iChannel = 0; iChannel < converter.config.channels; iChannel += 1) {
+            char filePath[256];
+            snprintf(filePath, sizeof(filePath), "res/output/converter_f32_to_s16_interleaved_deinterleaved__stereo_48000.raw.%d", iChannel);
+
+            FILE* pFile = mal_fopen(filePath, "wb");
+            if (pFile == NULL) {
+                printf("Failed to open output file.\n");
+                return -1;
+            }
+
+            fwrite(ppSeparatedFrames[iChannel], sizeof(mal_int16), framesRead, pFile);
+            fclose(pFile);
+        }
+    }
+
+    // Deinterleaved/Interleaved f32 to s16.
+    {
+        mal_sine_wave_init(amplitude, periodsPerSecond, sampleRate, &sineWave);
+        result = mal_format_converter_init_separated(&config, converter_test_separated_callback, &sineWave, &converter);
+        if (result != MAL_SUCCESS) {
+            printf("Failed to initialize converter.\n");
+            return -1;
+        }
+
+        mal_int16 interleavedFrames[MAL_MAX_CHANNELS * 1024];
+        mal_uint64 framesRead = mal_format_converter_read_frames(&converter, 1024, interleavedFrames);
+        if (framesRead != 1024) {
+            printf("Failed to read interleaved data from converter.\n");
+            return -1;
+        }
+
+        FILE* pFile = mal_fopen("res/output/converter_f32_to_s16_deinterleaved_interleaved__stereo_48000.raw", "wb");
+        if (pFile == NULL) {
+            printf("Failed to open output file.\n");
+            return -1;
+        }
+
+        fwrite(interleavedFrames, sizeof(mal_int16), framesRead * converter.config.channels, pFile);
+        fclose(pFile);
+    }
+
+    // Deinterleaved/Deinterleaved f32 to s16.
+    {
+        mal_sine_wave_init(amplitude, periodsPerSecond, sampleRate, &sineWave);
+        result = mal_format_converter_init_separated(&config, converter_test_separated_callback, &sineWave, &converter);
+        if (result != MAL_SUCCESS) {
+            printf("Failed to initialize converter.\n");
+            return -1;
+        }
+
+        mal_int16 separatedFrames[MAL_MAX_CHANNELS][1024];
+        void* ppSeparatedFrames[MAL_MAX_CHANNELS];
+        for (mal_uint32 iChannel = 0; iChannel < converter.config.channels; iChannel += 1) {
+            ppSeparatedFrames[iChannel] = &separatedFrames[iChannel];
+        }
+
+        mal_uint64 framesRead = mal_format_converter_read_frames_separated(&converter, 1024, ppSeparatedFrames);
+        if (framesRead != 1024) {
+            printf("Failed to read interleaved data from converter.\n");
+            return -1;
+        }
+
+        // Write a separate file for each channel.
+        for (mal_uint32 iChannel = 0; iChannel < converter.config.channels; iChannel += 1) {
+            char filePath[256];
+            snprintf(filePath, sizeof(filePath), "res/output/converter_f32_to_s16_deinterleaved_deinterleaved__stereo_48000.raw.%d", iChannel);
+
+            FILE* pFile = mal_fopen(filePath, "wb");
+            if (pFile == NULL) {
+                printf("Failed to open output file.\n");
+                return -1;
+            }
+
+            fwrite(ppSeparatedFrames[iChannel], sizeof(mal_int16), framesRead, pFile);
+            fclose(pFile);
+        }
+    }
+
+
+
+    return 0;
+}
+
+
 int do_backend_test(mal_backend backend)
 {
     mal_result result = MAL_SUCCESS;
@@ -1182,6 +1377,15 @@ int main(int argc, char** argv)
     }
     printf("=== END TESTING INTERLEAVING/DEINTERLEAVING ===\n");
 
+    printf("\n");
+
+    printf("=== TESTING FORMAT CONVERTER ===\n");
+    result = do_format_converter_tests();
+    if (result < 0) {
+        hasErrorOccurred = MAL_TRUE;
+    }
+    printf("=== END TESTING FORMAT CONVERTER ===\n");
+    
     printf("\n");
     
     printf("=== TESTING BACKENDS ===\n");
