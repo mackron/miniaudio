@@ -19361,12 +19361,12 @@ mal_result mal_decoder_seek_to_frame(mal_decoder* pDecoder, mal_uint64 frameInde
 //////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 //////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
-mal_result mal_sine_wave_init(double amplitude, double periodsPerSecond, mal_uint32 sampleRate, mal_sine_wave* pSignWave)
+mal_result mal_sine_wave_init(double amplitude, double periodsPerSecond, mal_uint32 sampleRate, mal_sine_wave* pSineWave)
 {
-    if (pSignWave == NULL) {
+    if (pSineWave == NULL) {
         return MAL_INVALID_ARGS;
     }
-    mal_zero_object(pSignWave);
+    mal_zero_object(pSineWave);
 
     if (amplitude == 0 || periodsPerSecond == 0) {
         return MAL_INVALID_ARGS;
@@ -19379,27 +19379,27 @@ mal_result mal_sine_wave_init(double amplitude, double periodsPerSecond, mal_uin
         amplitude = -1;
     }
 
-    pSignWave->amplitude = amplitude;
-    pSignWave->periodsPerSecond = periodsPerSecond;
-    pSignWave->delta = MAL_PI_D*2 / sampleRate;
-    pSignWave->time = 0;
+    pSineWave->amplitude = amplitude;
+    pSineWave->periodsPerSecond = periodsPerSecond;
+    pSineWave->delta = MAL_PI_D*2 / sampleRate;
+    pSineWave->time = 0;
 
     return MAL_SUCCESS;
 }
 
-mal_uint64 mal_sine_wave_read(mal_sine_wave* pSignWave, mal_uint64 count, float* pSamples)
+mal_uint64 mal_sine_wave_read(mal_sine_wave* pSineWave, mal_uint64 count, float* pSamples)
 {
-    if (pSignWave == NULL) {
+    if (pSineWave == NULL) {
         return 0;
     }
 
     if (pSamples != NULL) {
         for (mal_uint64 i = 0; i < count; i += 1) {
-            pSamples[i] = (float)(sin(pSignWave->time * pSignWave->periodsPerSecond) * pSignWave->amplitude);
-            pSignWave->time += pSignWave->delta;
+            pSamples[i] = (float)(sin(pSineWave->time * pSineWave->periodsPerSecond) * pSineWave->amplitude);
+            pSineWave->time += pSineWave->delta;
         }
     } else {
-        pSignWave->time += pSignWave->delta * count;
+        pSineWave->time += pSineWave->delta * count;
     }
 
     return count;
