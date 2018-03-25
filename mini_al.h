@@ -3029,7 +3029,9 @@ void mal_sleep(mal_uint32 milliseconds)
 
 mal_result mal_mutex_init(mal_context* pContext, mal_mutex* pMutex)
 {
-    if (pContext == NULL || pMutex == NULL) return MAL_INVALID_ARGS;
+    if (pContext == NULL || pMutex == NULL) {
+        return MAL_INVALID_ARGS;
+    }
 
     pMutex->pContext = pContext;
 
@@ -13902,7 +13904,10 @@ mal_bool32 mal_is_backend_asynchronous(mal_backend backend)
 
 mal_result mal_context_init(const mal_backend backends[], mal_uint32 backendCount, const mal_context_config* pConfig, mal_context* pContext)
 {
-    if (pContext == NULL) return MAL_INVALID_ARGS;
+    if (pContext == NULL) {
+        return MAL_INVALID_ARGS;
+    }
+
     mal_zero_object(pContext);
 
     // Always make sure the config is set first to ensure properties are available as soon as possible.
@@ -14023,7 +14028,9 @@ mal_result mal_context_init(const mal_backend backends[], mal_uint32 backendCoun
 
 mal_result mal_context_uninit(mal_context* pContext)
 {
-    if (pContext == NULL) return MAL_INVALID_ARGS;
+    if (pContext == NULL) {
+        return MAL_INVALID_ARGS;
+    }
 
     switch (pContext->backend) {
     #ifdef MAL_HAS_WASAPI
@@ -14107,7 +14114,9 @@ mal_result mal_context_uninit(mal_context* pContext)
 
 mal_result mal_context_enumerate_devices(mal_context* pContext, mal_enum_devices_callback_proc callback, void* pUserData)
 {
-    if (pContext == NULL || pContext->onEnumDevices == NULL || callback == NULL) return MAL_INVALID_ARGS;
+    if (pContext == NULL || pContext->onEnumDevices == NULL || callback == NULL) {
+        return MAL_INVALID_ARGS;
+    }
 
     mal_result result;
     mal_mutex_lock(&pContext->deviceEnumLock);
@@ -14172,7 +14181,9 @@ mal_result mal_context_get_devices(mal_context* pContext, mal_device_info** ppPl
     if (ppCaptureDeviceInfos  != NULL) *ppCaptureDeviceInfos  = NULL;
     if (pCaptureDeviceCount   != NULL) *pCaptureDeviceCount   = 0;
 
-    if (pContext == NULL || pContext->onEnumDevices == NULL) return MAL_INVALID_ARGS;
+    if (pContext == NULL || pContext->onEnumDevices == NULL) {
+        return MAL_INVALID_ARGS;
+    }
 
     // Note that we don't use mal_context_enumerate_devices() here because we want to do locking at a higher level.
     mal_result result;
@@ -17034,11 +17045,18 @@ mal_uint64 mal_src_read_frames_linear(mal_src* pSRC, mal_uint64 frameCount, void
 
 mal_result mal_src_init(mal_src_config* pConfig, mal_src_read_proc onRead, void* pUserData, mal_src* pSRC)
 {
-    if (pSRC == NULL) return MAL_INVALID_ARGS;
+    if (pSRC == NULL) {
+        return MAL_INVALID_ARGS;
+    }
+
     mal_zero_object(pSRC);
 
-    if (pConfig == NULL || onRead == NULL) return MAL_INVALID_ARGS;
-    if (pConfig->channels == 0 || pConfig->channels > MAL_MAX_CHANNELS) return MAL_INVALID_ARGS;
+    if (pConfig == NULL || onRead == NULL) {
+        return MAL_INVALID_ARGS;
+    }
+    if (pConfig->channels == 0 || pConfig->channels > MAL_MAX_CHANNELS) {
+        return MAL_INVALID_ARGS;
+    }
 
     pSRC->config = *pConfig;
     pSRC->onRead = onRead;
@@ -17054,7 +17072,9 @@ mal_result mal_src_init(mal_src_config* pConfig, mal_src_read_proc onRead, void*
 
 mal_result mal_src_set_input_sample_rate(mal_src* pSRC, mal_uint32 sampleRateIn)
 {
-    if (pSRC == NULL) return MAL_INVALID_ARGS;
+    if (pSRC == NULL) {
+        return MAL_INVALID_ARGS;
+    }
 
     // Must have a sample rate of > 0.
     if (sampleRateIn == 0) {
@@ -17067,7 +17087,9 @@ mal_result mal_src_set_input_sample_rate(mal_src* pSRC, mal_uint32 sampleRateIn)
 
 mal_result mal_src_set_output_sample_rate(mal_src* pSRC, mal_uint32 sampleRateOut)
 {
-    if (pSRC == NULL) return MAL_INVALID_ARGS;
+    if (pSRC == NULL) {
+        return MAL_INVALID_ARGS;
+    }
 
     // Must have a sample rate of > 0.
     if (sampleRateOut == 0) {
@@ -17803,7 +17825,10 @@ mal_uint32 mal_dsp__src_on_read(mal_src* pSRC, mal_uint32 frameCount, void* pFra
 
 mal_result mal_dsp_init(mal_dsp_config* pConfig, mal_dsp_read_proc onRead, void* pUserData, mal_dsp* pDSP)
 {
-    if (pDSP == NULL) return MAL_INVALID_ARGS;
+    if (pDSP == NULL) {
+        return MAL_INVALID_ARGS;
+    }
+
     mal_zero_object(pDSP);
     pDSP->config = *pConfig;
     pDSP->onRead = onRead;
@@ -17941,7 +17966,9 @@ mal_result mal_dsp_refresh_sample_rate(mal_dsp* pDSP)
 
 mal_result mal_dsp_set_input_sample_rate(mal_dsp* pDSP, mal_uint32 sampleRateIn)
 {
-    if (pDSP == NULL) return MAL_INVALID_ARGS;
+    if (pDSP == NULL) {
+        return MAL_INVALID_ARGS;
+    }
 
     // Must have a sample rate of > 0.
     if (sampleRateIn == 0) {
@@ -17954,7 +17981,9 @@ mal_result mal_dsp_set_input_sample_rate(mal_dsp* pDSP, mal_uint32 sampleRateIn)
 
 mal_result mal_dsp_set_output_sample_rate(mal_dsp* pDSP, mal_uint32 sampleRateOut)
 {
-    if (pDSP == NULL) return MAL_INVALID_ARGS;
+    if (pDSP == NULL) {
+        return MAL_INVALID_ARGS;
+    }
 
     // Must have a sample rate of > 0.
     if (sampleRateOut == 0) {
@@ -18886,7 +18915,10 @@ mal_result mal_decoder__preinit(mal_decoder_read_proc onRead, mal_decoder_seek_p
 {
     mal_assert(pConfig != NULL);
 
-    if (pDecoder == NULL) return MAL_INVALID_ARGS;
+    if (pDecoder == NULL) {
+        return MAL_INVALID_ARGS;
+    }
+
     mal_zero_object(pDecoder);
 
     if (onRead == NULL || onSeek == NULL) {
@@ -19063,7 +19095,10 @@ mal_bool32 mal_decoder__on_seek_memory(mal_decoder* pDecoder, int byteOffset, ma
 
 mal_result mal_decoder__preinit_memory(const void* pData, size_t dataSize, const mal_decoder_config* pConfig, mal_decoder* pDecoder)
 {
-    if (pDecoder == NULL) return MAL_INVALID_ARGS;
+    if (pDecoder == NULL) {
+        return MAL_INVALID_ARGS;
+    }
+
     mal_zero_object(pDecoder);
 
     if (pData == NULL || dataSize == 0) {
@@ -19209,7 +19244,10 @@ mal_bool32 mal_decoder__on_seek_stdio(mal_decoder* pDecoder, int byteOffset, mal
 
 mal_result mal_decoder__preinit_file(const char* pFilePath, const mal_decoder_config* pConfig, mal_decoder* pDecoder)
 {
-    if (pDecoder == NULL) return MAL_INVALID_ARGS;
+    if (pDecoder == NULL) {
+        return MAL_INVALID_ARGS;
+    }
+
     mal_zero_object(pDecoder);
 
     if (pFilePath == NULL || pFilePath[0] == '\0') {
@@ -19319,7 +19357,9 @@ mal_result mal_decoder_init_file_mp3(const char* pFilePath, const mal_decoder_co
 
 mal_result mal_decoder_uninit(mal_decoder* pDecoder)
 {
-    if (pDecoder == NULL) return MAL_INVALID_ARGS;
+    if (pDecoder == NULL) {
+        return MAL_INVALID_ARGS;
+    }
 
     if (pDecoder->onUninit) {
         pDecoder->onUninit(pDecoder);
