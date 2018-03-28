@@ -523,6 +523,7 @@ typedef mal_uint8 mal_channel;
 #define MAL_CHANNEL_AUX_31                              51
 #define MAL_CHANNEL_LEFT                                MAL_CHANNEL_FRONT_LEFT
 #define MAL_CHANNEL_RIGHT                               MAL_CHANNEL_FRONT_RIGHT
+#define MAL_CHANNEL_POSITION_COUNT                      MAL_CHANNEL_AUX_31 + 1
 
 typedef int mal_result;
 #define MAL_SUCCESS                                      0
@@ -713,6 +714,37 @@ struct mal_format_converter
     void (* onConvertPCM)(void* dst, const void* src, mal_uint64 count, mal_dither_mode ditherMode);
     void (* onInterleavePCM)(void* dst, const void** src, mal_uint64 frameCount, mal_uint32 channels);
     void (* onDeinterleavePCM)(void** dst, const void* src, mal_uint64 frameCount, mal_uint32 channels);
+};
+
+
+
+typedef struct mal_channel_router mal_channel_router;
+//typedef mal_uint32 (* mal_channel_router_read_proc)          (mal_channel_router* pRouter, mal_uint32 frameCount, void* pFramesOut, void* pUserData);
+typedef mal_uint32 (* mal_channel_router_read_separated_proc)(mal_channel_router* pRouter, mal_uint32 frameCount, void** ppSamplesOut, void* pUserData);
+
+typedef struct
+{
+    mal_uint32 channelsIn;
+    mal_uint32 channelsOut;
+    mal_channel channelMapIn[MAL_MAX_CHANNELS];
+    mal_channel channelMapOut[MAL_MAX_CHANNELS];
+    mal_channel_mix_mode mixingMode;
+} mal_channel_router_config;
+
+struct mal_channel_router
+{
+    mal_channel_router_config config;
+    //mal_channel_router_read_proc onRead;
+    mal_channel_router_read_separated_proc onReadSeparated;
+    void* pUserData;
+    mal_bool32 isPassthrough   : 1;
+    mal_bool32 isSimpleShuffle : 1;
+    mal_uint8 shuffleTable[MAL_MAX_CHANNELS];
+    struct
+    {
+        mal_uint8 iChannelOut;
+        mal_uint8 volume;   // 0..255
+    } shuffleData[MAL_MAX_CHANNELS][MAL_MAX_CHANNELS];
 };
 
 
@@ -1770,11 +1802,16 @@ static inline mal_device_config mal_device_config_init_playback(mal_format forma
 // Helper for retrieving a standard channel map.
 void mal_get_standard_channel_map(mal_standard_channel_map standardChannelMap, mal_uint32 channels, mal_channel channelMap[MAL_MAX_CHANNELS]);
 
+// Helper for comparing two channel maps for equality.
+//
+// This assumes the channel count is the same between the two.
+mal_bool32 mal_channel_map_equal(mal_uint32 channels, mal_channel channelMapA[MAL_MAX_CHANNELS], mal_channel channelMapB[MAL_MAX_CHANNELS]);
+
 
 
 ///////////////////////////////////////////////////////////////////////////////
 //
-// Format Conversion.
+// Format Conversion
 //
 ///////////////////////////////////////////////////////////////////////////////
 
@@ -1789,6 +1826,24 @@ mal_uint64 mal_format_converter_read_frames(mal_format_converter* pConverter, ma
 
 // Reads data from the format converter as separated channels.
 mal_uint64 mal_format_converter_read_frames_separated(mal_format_converter* pConverter, mal_uint64 frameCount, void** ppSamplesOut);
+
+
+
+///////////////////////////////////////////////////////////////////////////////
+//
+// Channel Routing
+//
+// Note that currently the channel router requires input data to be deinterleaved. Also, it currently only supports
+// deinterleaved output. If you need interleaving you need to run samples through a format converter.
+//
+///////////////////////////////////////////////////////////////////////////////
+
+// Initializes a channel router where it is assumed that the input data is non-interleaved.
+mal_result mal_channel_router_init_separated(const mal_channel_router_config* pConfig, mal_channel_router_read_separated_proc onRead, void* pUserData, mal_channel_router* pRouter);
+
+// Reads data from the channel router as separated channels.
+mal_uint64 mal_channel_router_read_frames_separated(mal_channel_router* pRouter, mal_uint64 frameCount, void** ppSamplesOut);
+
 
 
 ///////////////////////////////////////////////////////////////////////////////
@@ -15312,6 +15367,25 @@ void mal_get_standard_channel_map(mal_standard_channel_map standardChannelMap, m
     }
 }
 
+mal_bool32 mal_channel_map_equal(mal_uint32 channels, mal_channel channelMapA[MAL_MAX_CHANNELS], mal_channel channelMapB[MAL_MAX_CHANNELS])
+{
+    if (channelMapA == channelMapB) {
+        return MAL_FALSE;
+    }
+
+    if (channels == 0 || channels > MAL_MAX_CHANNELS) {
+        return MAL_FALSE;
+    }
+
+    for (mal_uint32 iChannel = 0; iChannel < channels; ++iChannel) {
+        if (channelMapA[iChannel] != channelMapB[iChannel]) {
+            return MAL_FALSE;
+        }
+    }
+
+    return MAL_TRUE;
+}
+
 
 
 
@@ -16953,6 +17027,281 @@ mal_uint64 mal_format_converter_read_frames_separated(mal_format_converter* pCon
     return totalFramesRead;
 }
 
+
+
+//////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+//
+// Channel Routing
+//
+//////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+
+// -X = Left,   +X = Right
+// -Y = Bottom, +Y = Top
+// -Z = Front,  +Z = Back
+typedef struct
+{
+    float x;
+    float y;
+    float z;
+} mal_vec3;
+
+// TODO: Make physical channel positions configurable.
+
+// The position of each speaker relative to the head.
+mal_vec3 g_malChannelPositionsRelativeToHead[MAL_CHANNEL_POSITION_COUNT] = {
+    { 0.0f,  0.0f,  0.0f},  // MAL_CHANNEL_NONE                                
+    { 0.0f,  0.0f,  0.0f},  // MAL_CHANNEL_MONO                                
+    {-1.0f,  0.0f, -1.0f},  // MAL_CHANNEL_FRONT_LEFT                          
+    {+1.0f,  0.0f, -1.0f},  // MAL_CHANNEL_FRONT_RIGHT                         
+    { 0.0f,  0.0f, -1.0f},  // MAL_CHANNEL_FRONT_CENTER                        
+    { 0.0f,  0.0f,  0.0f},  // MAL_CHANNEL_LFE                                 
+    {-1.0f,  0.0f, +1.0f},  // MAL_CHANNEL_BACK_LEFT                           
+    {+1.0f,  0.0f, +1.0f},  // MAL_CHANNEL_BACK_RIGHT                          
+    {-0.5f,  0.0f, -1.0f},  // MAL_CHANNEL_FRONT_LEFT_CENTER                   
+    {+0.5f,  0.0f, -1.0f},  // MAL_CHANNEL_FRONT_RIGHT_CENTER                  
+    { 0.0f,  0.0f, +1.0f},  // MAL_CHANNEL_BACK_CENTER                         
+    {-1.0f,  0.0f,  0.0f},  // MAL_CHANNEL_SIDE_LEFT                           
+    {+1.0f,  0.0f,  0.0f},  // MAL_CHANNEL_SIDE_RIGHT                          
+    { 0.0f, +1.0f,  0.0f},  // MAL_CHANNEL_TOP_CENTER                          
+    {-1.0f, +1.0f, -1.0f},  // MAL_CHANNEL_TOP_FRONT_LEFT                      
+    { 0.0f, +1.0f, -1.0f},  // MAL_CHANNEL_TOP_FRONT_CENTER                    
+    {+1.0f, +1.0f, -1.0f},  // MAL_CHANNEL_TOP_FRONT_RIGHT                     
+    {-1.0f, +1.0f, +1.0f},  // MAL_CHANNEL_TOP_BACK_LEFT                       
+    { 0.0f, +1.0f, +1.0f},  // MAL_CHANNEL_TOP_BACK_CENTER                     
+    {+1.0f, +1.0f, +1.0f},  // MAL_CHANNEL_TOP_BACK_RIGHT                      
+    { 0.0f,  0.0f,  0.0f},  // MAL_CHANNEL_AUX_0                               
+    { 0.0f,  0.0f,  0.0f},  // MAL_CHANNEL_AUX_1                               
+    { 0.0f,  0.0f,  0.0f},  // MAL_CHANNEL_AUX_2                               
+    { 0.0f,  0.0f,  0.0f},  // MAL_CHANNEL_AUX_3                               
+    { 0.0f,  0.0f,  0.0f},  // MAL_CHANNEL_AUX_4                               
+    { 0.0f,  0.0f,  0.0f},  // MAL_CHANNEL_AUX_5                               
+    { 0.0f,  0.0f,  0.0f},  // MAL_CHANNEL_AUX_6                               
+    { 0.0f,  0.0f,  0.0f},  // MAL_CHANNEL_AUX_7                               
+    { 0.0f,  0.0f,  0.0f},  // MAL_CHANNEL_AUX_8                               
+    { 0.0f,  0.0f,  0.0f},  // MAL_CHANNEL_AUX_9                               
+    { 0.0f,  0.0f,  0.0f},  // MAL_CHANNEL_AUX_10                              
+    { 0.0f,  0.0f,  0.0f},  // MAL_CHANNEL_AUX_11                              
+    { 0.0f,  0.0f,  0.0f},  // MAL_CHANNEL_AUX_12                              
+    { 0.0f,  0.0f,  0.0f},  // MAL_CHANNEL_AUX_13                              
+    { 0.0f,  0.0f,  0.0f},  // MAL_CHANNEL_AUX_14                              
+    { 0.0f,  0.0f,  0.0f},  // MAL_CHANNEL_AUX_15                              
+    { 0.0f,  0.0f,  0.0f},  // MAL_CHANNEL_AUX_16                              
+    { 0.0f,  0.0f,  0.0f},  // MAL_CHANNEL_AUX_17                              
+    { 0.0f,  0.0f,  0.0f},  // MAL_CHANNEL_AUX_18                              
+    { 0.0f,  0.0f,  0.0f},  // MAL_CHANNEL_AUX_19                              
+    { 0.0f,  0.0f,  0.0f},  // MAL_CHANNEL_AUX_20                              
+    { 0.0f,  0.0f,  0.0f},  // MAL_CHANNEL_AUX_21                              
+    { 0.0f,  0.0f,  0.0f},  // MAL_CHANNEL_AUX_22                              
+    { 0.0f,  0.0f,  0.0f},  // MAL_CHANNEL_AUX_23                              
+    { 0.0f,  0.0f,  0.0f},  // MAL_CHANNEL_AUX_24                              
+    { 0.0f,  0.0f,  0.0f},  // MAL_CHANNEL_AUX_25                              
+    { 0.0f,  0.0f,  0.0f},  // MAL_CHANNEL_AUX_26                              
+    { 0.0f,  0.0f,  0.0f},  // MAL_CHANNEL_AUX_27                              
+    { 0.0f,  0.0f,  0.0f},  // MAL_CHANNEL_AUX_28                              
+    { 0.0f,  0.0f,  0.0f},  // MAL_CHANNEL_AUX_29                              
+    { 0.0f,  0.0f,  0.0f},  // MAL_CHANNEL_AUX_30                              
+    { 0.0f,  0.0f,  0.0f},  // MAL_CHANNEL_AUX_31                              
+};
+
+mal_result mal_channel_router_init__common(const mal_channel_router_config* pConfig, void* pUserData, mal_channel_router* pRouter)
+{
+    if (pRouter == NULL) {
+        return MAL_INVALID_ARGS;
+    }
+
+    mal_zero_object(pRouter);
+
+    if (pConfig == NULL) {
+        return MAL_INVALID_ARGS;
+    }
+
+    pRouter->config = *pConfig;
+    pRouter->pUserData = pUserData;
+
+    // If the input and output channels and channel maps are the same we should use a passthrough.
+    if (pRouter->config.channelsIn == pRouter->config.channelsOut) {
+        if (mal_channel_map_equal(pRouter->config.channelsIn, pRouter->config.channelMapIn, pRouter->config.channelMapOut)) {
+            pRouter->isPassthrough = MAL_TRUE;
+        }
+    }
+
+    // Here is where we do a bit of pre-processing to know how each channel should be combined to make up the output. Rules:
+    //
+    // 1) If it's a passthrough, do nothing - it's just a simple memcpy().
+    // 2) If the channel counts are the same and every channel position in the input map is present in the output map, use a
+    //    simple shuffle. An example might be different 5.1 channel layouts.
+    // 3) LFEs are treated differently. The will only receive audio data from other LFEs, or silence.
+    // 4) Mono channels are distributed evenly across all channels, except LFEs.
+    // 5) AUX channels will receive audio data from their matching counterpart, mono channels, or silence.
+    // 6) All other channels will receive audio data based on their position relative to the head position.
+    if (!pRouter->isPassthrough) {
+        if (pRouter->config.channelsIn == pRouter->config.channelsOut) {
+            mal_bool32 areAllChannelPositionsPresent = MAL_TRUE;
+            for (mal_uint32 iChannelIn = 0; iChannelIn < pRouter->config.channelsIn; ++iChannelIn) {
+                mal_bool32 isInputChannelPositionInOutput = MAL_FALSE;
+                for (mal_uint32 iChannelOut = 0; iChannelOut < pRouter->config.channelsOut; ++iChannelOut) {
+                    if (pRouter->config.channelMapIn[iChannelIn] == pRouter->config.channelMapOut[iChannelOut]) {
+                        isInputChannelPositionInOutput = MAL_TRUE;
+                        break;
+                    }
+                }
+
+                if (!isInputChannelPositionInOutput) {
+                    areAllChannelPositionsPresent = MAL_FALSE;
+                    break;
+                }
+            }
+
+            if (areAllChannelPositionsPresent) {
+                pRouter->isSimpleShuffle = MAL_TRUE;
+
+                // All the router will be doing is rearranging channels which means all we need to do is use a shuffling table which is just
+                // a mapping between the index of the input channel to the index of the output channel.
+                for (mal_uint32 iChannelIn = 0; iChannelIn < pRouter->config.channelsIn; ++iChannelIn) {
+                    for (mal_uint32 iChannelOut = 0; iChannelOut < pRouter->config.channelsOut; ++iChannelOut) {
+                        if (pRouter->config.channelMapIn[iChannelIn] == pRouter->config.channelMapOut[iChannelOut]) {
+                            pRouter->shuffleTable[iChannelIn] = (mal_uint8)iChannelOut;
+                            break;
+                        }
+                    }
+                }
+            }
+        }
+
+        // If it's not a simple shuffle it's a bit more complicated. We route the input channels to the relevant output channels based on spacial
+        // locality. Special cases exist for mono and LFE positions. LFEs will only receive samples from other LFEs (there should usually be a
+        // maximum of 1 LFE per channel map, but there can technically be more). For mono, the sound is distributed across every other channel
+        // except LFEs.
+        if (!pRouter->isSimpleShuffle) {
+            
+        }
+    }
+
+    return MAL_SUCCESS;
+}
+
+mal_result mal_channel_router_init_separated(const mal_channel_router_config* pConfig, mal_channel_router_read_separated_proc onRead, void* pUserData, mal_channel_router* pRouter)
+{
+    mal_result result = mal_channel_router_init__common(pConfig, pUserData, pRouter);
+    if (result != MAL_SUCCESS) {
+        return result;
+    }
+
+    if (onRead == NULL) {
+        return MAL_INVALID_ARGS;
+    }
+
+    pRouter->onReadSeparated = onRead;
+
+    return MAL_SUCCESS;
+}
+
+void mal_channel_router__do_routing(mal_channel_router* pRouter, mal_uint64 frameCount, float** ppSamplesOut, const float** ppSamplesIn)
+{
+    mal_assert(pRouter != NULL);
+    mal_assert(pRouter->isPassthrough == MAL_FALSE);
+
+    if (pRouter->isSimpleShuffle) {
+        // A shuffle is just a re-arrangement of channels and does not require any arithmetic.
+        mal_assert(pRouter->config.channelsIn == pRouter->config.channelsOut);
+        for (mal_uint32 iChannelIn = 0; iChannelIn < pRouter->config.channelsIn; ++iChannelIn) {
+            mal_uint32 iChannelOut = pRouter->shuffleTable[iChannelIn];
+            mal_copy_memory(ppSamplesOut[iChannelOut], ppSamplesIn[iChannelIn], frameCount * sizeof(float));
+        }
+    } else {
+        // This is the more complicated case. Each of the output channels is accumulated with 0 or more input channels.
+
+        // Clear.
+        for (mal_uint32 iChannelOut = 0; iChannelOut < pRouter->config.channelsOut; ++iChannelOut) {
+            mal_zero_memory(ppSamplesOut[iChannelOut], frameCount * sizeof(float));
+        }
+
+        // Accumulate.
+        for (mal_uint32 iChannelIn = 0; iChannelIn < pRouter->config.channelsIn; ++iChannelIn) {
+            for (mal_uint64 iFrame = 0; iFrame < frameCount; ++iFrame) {
+                for (mal_uint32 j = 0; pRouter->shuffleData[iChannelIn][j].iChannelOut != (mal_uint8)-1; ++j) {
+                    mal_uint8 iChannelOut = pRouter->shuffleData[iChannelIn][j].iChannelOut;
+                    ppSamplesOut[iChannelOut][iFrame] += ppSamplesIn[iChannelIn][iFrame] * (pRouter->shuffleData[iChannelIn][j].volume / 255.0f);
+                }
+            }
+        }
+    }
+}
+
+mal_uint64 mal_channel_router_read_frames_separated(mal_channel_router* pRouter, mal_uint64 frameCount, void** ppSamplesOut)
+{
+    if (pRouter == NULL || ppSamplesOut == NULL) {
+        return 0;
+    }
+
+    // Fast path for a passthrough.
+    if (pRouter->isPassthrough) {
+        if (frameCount <= 0xFFFFFFFF) {
+            return (mal_uint32)pRouter->onReadSeparated(pRouter, (mal_uint32)frameCount, ppSamplesOut, pRouter->pUserData);
+        } else {
+            float* ppNextSamplesOut[MAL_MAX_CHANNELS];
+            mal_copy_memory(ppNextSamplesOut, ppSamplesOut, sizeof(float*) * pRouter->config.channelsOut);
+
+            mal_uint64 totalFramesRead = 0;
+            while (totalFramesRead < frameCount) {
+                mal_uint64 framesRemaining = (frameCount - totalFramesRead);
+                mal_uint64 framesToReadRightNow = framesRemaining;
+                if (framesToReadRightNow > 0xFFFFFFFF) {
+                    framesToReadRightNow = 0xFFFFFFFF;
+                }
+
+                mal_uint32 framesJustRead = (mal_uint32)pRouter->onReadSeparated(pRouter, (mal_uint32)framesToReadRightNow, (void**)ppNextSamplesOut, pRouter->pUserData);
+                if (framesJustRead == 0) {
+                    break;
+                }
+
+                totalFramesRead += framesJustRead;
+                for (mal_uint32 iChannel = 0; iChannel < pRouter->config.channelsOut; ++iChannel) {
+                    ppNextSamplesOut[iChannel] += framesJustRead;
+                }
+            }
+        }
+    }
+
+    // Slower path for a non-passthrough.
+    float* ppNextSamplesOut[MAL_MAX_CHANNELS];
+    mal_copy_memory(ppNextSamplesOut, ppSamplesOut, sizeof(float*) * pRouter->config.channelsOut);
+
+    float temp[MAL_MAX_CHANNELS * 256];
+    mal_assert(sizeof(temp) <= 0xFFFFFFFF);
+
+    mal_uint32 maxFramesToReadEachIteration = mal_countof(temp) / pRouter->config.channelsIn;
+
+    float* ppTemp[MAL_MAX_CHANNELS];
+    for (mal_uint32 iChannel = 0; iChannel < pRouter->config.channelsIn; iChannel += 1) {
+        ppTemp[iChannel] = temp + (maxFramesToReadEachIteration*iChannel);
+    }
+    
+    mal_uint64 totalFramesRead = 0;
+    while (totalFramesRead < frameCount) {
+        mal_uint64 framesRemaining = (frameCount - totalFramesRead);
+        mal_uint64 framesToReadRightNow = framesRemaining;
+        if (framesToReadRightNow > maxFramesToReadEachIteration) {
+            framesToReadRightNow = maxFramesToReadEachIteration;
+        }
+
+        mal_uint32 framesJustRead = pRouter->onReadSeparated(pRouter, (mal_uint32)framesToReadRightNow, (void**)ppTemp, pRouter->pUserData);
+        if (framesJustRead == 0) {
+            break;
+        }
+
+        mal_channel_router__do_routing(pRouter, framesJustRead, (float**)ppSamplesOut, ppTemp);  // <-- Real work is done here.
+
+        totalFramesRead += framesJustRead;
+        if (totalFramesRead < frameCount) {
+            for (mal_uint32 iChannel = 0; iChannel < pRouter->config.channelsIn; iChannel += 1) {
+                ppNextSamplesOut[iChannel] += framesJustRead;
+            }
+        }
+    }
+
+    return totalFramesRead;
+}
 
 
 
