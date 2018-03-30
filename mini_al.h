@@ -620,8 +620,9 @@ typedef enum
 
 typedef enum
 {
-    mal_channel_mix_mode_basic,     // Drop excess channels; zeroed out extra channels.
-    mal_channel_mix_mode_blend,     // Blend channels based on locality.
+    mal_channel_mix_mode_simple = 0,        // Drop excess channels; zeroed out extra channels.
+    mal_channel_mix_mode_planar_average,    // Simple averaging based on the plane(s) the channel is sitting on.
+    //mal_channel_mix_mode_spatial,         // Blend channels based on spatial locality.
 } mal_channel_mix_mode;
 
 typedef enum
@@ -740,11 +741,7 @@ struct mal_channel_router
     mal_bool32 isPassthrough   : 1;
     mal_bool32 isSimpleShuffle : 1;
     mal_uint8 shuffleTable[MAL_MAX_CHANNELS];
-    struct
-    {
-        mal_uint8 iChannelOut;
-        mal_uint8 volume;   // 0..255
-    } shuffleData[MAL_MAX_CHANNELS][MAL_MAX_CHANNELS];
+    float weights[MAL_MAX_CHANNELS][MAL_MAX_CHANNELS];
 };
 
 
@@ -810,6 +807,7 @@ typedef struct
     mal_uint32  channelsOut;
     mal_uint32  sampleRateOut;
     mal_channel channelMapOut[MAL_MAX_CHANNELS];
+    mal_channel_mix_mode channelMixMode;
     mal_uint32  cacheSizeInFrames;  // Applications should set this to 0 for now.
 } mal_dsp_config;
 
@@ -1802,11 +1800,27 @@ static inline mal_device_config mal_device_config_init_playback(mal_format forma
 // Helper for retrieving a standard channel map.
 void mal_get_standard_channel_map(mal_standard_channel_map standardChannelMap, mal_uint32 channels, mal_channel channelMap[MAL_MAX_CHANNELS]);
 
+
+// Determines whether or not a channel map is valid.
+//
+// A blank channel map is valid (all channels set to MAL_CHANNEL_NONE). The way a blank channel map is handled is context specific, but
+// is usually treated as a passthrough.
+//
+// Invalid channel maps:
+//   - A channel map with no channels
+//   - A channel map with more than one channel and a mono channel
+mal_bool32 mal_channel_map_valid(mal_uint32 channels, const mal_channel channelMap[MAL_MAX_CHANNELS]);
+
 // Helper for comparing two channel maps for equality.
 //
 // This assumes the channel count is the same between the two.
-mal_bool32 mal_channel_map_equal(mal_uint32 channels, mal_channel channelMapA[MAL_MAX_CHANNELS], mal_channel channelMapB[MAL_MAX_CHANNELS]);
+mal_bool32 mal_channel_map_equal(mal_uint32 channels, const mal_channel channelMapA[MAL_MAX_CHANNELS], const mal_channel channelMapB[MAL_MAX_CHANNELS]);
 
+// Helper for determining if a channel map is blank (all channels set to MAL_CHANNEL_NONE).
+mal_bool32 mal_channel_map_blank(mal_uint32 channels, const mal_channel channelMap[MAL_MAX_CHANNELS]);
+
+// Helper for determining whether or not a channel is present in the given channel map.
+mal_bool32 mal_channel_map_contains_channel_position(mal_uint32 channels, const mal_channel channelMap[MAL_MAX_CHANNELS], mal_channel channelPosition);
 
 
 ///////////////////////////////////////////////////////////////////////////////
@@ -15367,7 +15381,30 @@ void mal_get_standard_channel_map(mal_standard_channel_map standardChannelMap, m
     }
 }
 
-mal_bool32 mal_channel_map_equal(mal_uint32 channels, mal_channel channelMapA[MAL_MAX_CHANNELS], mal_channel channelMapB[MAL_MAX_CHANNELS])
+mal_bool32 mal_channel_map_valid(mal_uint32 channels, const mal_channel channelMap[MAL_MAX_CHANNELS])
+{
+    if (channelMap == NULL) {
+        return MAL_FALSE;
+    }
+
+    // A channel count of 0 is invalid.
+    if (channels == 0) {
+        return MAL_FALSE;
+    }
+
+    // It does not make sense to have a mono channel when there is more than 1 channel.
+    if (channels > 1) {
+        for (mal_uint32 iChannel = 0; iChannel < channels; ++iChannel) {
+            if (channelMap[iChannel] == MAL_CHANNEL_MONO) {
+                return MAL_FALSE;
+            }
+        }
+    }
+
+    return MAL_TRUE;
+}
+
+mal_bool32 mal_channel_map_equal(mal_uint32 channels, const mal_channel channelMapA[MAL_MAX_CHANNELS], const mal_channel channelMapB[MAL_MAX_CHANNELS])
 {
     if (channelMapA == channelMapB) {
         return MAL_FALSE;
@@ -15384,6 +15421,28 @@ mal_bool32 mal_channel_map_equal(mal_uint32 channels, mal_channel channelMapA[MA
     }
 
     return MAL_TRUE;
+}
+
+mal_bool32 mal_channel_map_blank(mal_uint32 channels, const mal_channel channelMap[MAL_MAX_CHANNELS])
+{
+    for (mal_uint32 iChannel = 0; iChannel < channels; ++iChannel) {
+        if (channelMap[iChannel] != MAL_CHANNEL_NONE) {
+            return MAL_FALSE;
+        }
+    }
+
+    return MAL_TRUE;
+}
+
+mal_bool32 mal_channel_map_contains_channel_position(mal_uint32 channels, const mal_channel channelMap[MAL_MAX_CHANNELS], mal_channel channelPosition)
+{
+    for (mal_uint32 iChannel = 0; iChannel < channels; ++iChannel) {
+        if (channelMap[iChannel] == channelPosition) {
+            return MAL_TRUE;
+        }
+    }
+
+    return MAL_FALSE;
 }
 
 
@@ -17045,10 +17104,88 @@ typedef struct
     float z;
 } mal_vec3;
 
+static inline mal_vec3 mal_vec3f(float x, float y, float z)
+{
+    mal_vec3 r;
+    r.x = x;
+    r.y = y;
+    r.z = z;
+
+    return r;
+}
+
+static inline mal_vec3 mal_vec3_add(mal_vec3 a, mal_vec3 b)
+{
+    return mal_vec3f(
+        a.x + b.x,
+        a.y + b.y,
+        a.z + b.z
+    );
+}
+
+static inline mal_vec3 mal_vec3_sub(mal_vec3 a, mal_vec3 b)
+{
+    return mal_vec3f(
+        a.x - b.x,
+        a.y - b.y,
+        a.z - b.z
+    );
+}
+
+static inline mal_vec3 mal_vec3_mul(mal_vec3 a, mal_vec3 b)
+{
+    return mal_vec3f(
+        a.x * b.x,
+        a.y * b.y,
+        a.z * b.z
+    );
+}
+
+static inline mal_vec3 mal_vec3_div(mal_vec3 a, mal_vec3 b)
+{
+    return mal_vec3f(
+        a.x / b.x,
+        a.y / b.y,
+        a.z / b.z
+    );
+}
+
+static inline float mal_vec3_dot(mal_vec3 a, mal_vec3 b)
+{
+    return a.x*b.x + a.y*b.y + a.z*b.z;
+}
+
+static inline float mal_vec3_length2(mal_vec3 a)
+{
+    return mal_vec3_dot(a, a);
+}
+
+static inline float mal_vec3_length(mal_vec3 a)
+{
+    return (float)sqrt(mal_vec3_length2(a));
+}
+
+static inline mal_vec3 mal_vec3_normalize(mal_vec3 a)
+{
+    float len = 1 / mal_vec3_length(a);
+
+    mal_vec3 r;
+    r.x = a.x * len;
+    r.y = a.y * len;
+    r.z = a.z * len;
+
+    return r;
+}
+
+static inline float mal_vec3_distance(mal_vec3 a, mal_vec3 b)
+{
+    return mal_vec3_length(mal_vec3_sub(a, b));
+}
+
 // TODO: Make physical channel positions configurable.
 
-// The position of each speaker relative to the head.
-mal_vec3 g_malChannelPositionsRelativeToHead[MAL_CHANNEL_POSITION_COUNT] = {
+// The position of each speaker in the room.
+mal_vec3 g_malDefaultChannelPositionsInRoom[MAL_CHANNEL_POSITION_COUNT] = {
     { 0.0f,  0.0f,  0.0f},  // MAL_CHANNEL_NONE                                
     { 0.0f,  0.0f,  0.0f},  // MAL_CHANNEL_MONO                                
     {-1.0f,  0.0f, -1.0f},  // MAL_CHANNEL_FRONT_LEFT                          
@@ -17103,6 +17240,134 @@ mal_vec3 g_malChannelPositionsRelativeToHead[MAL_CHANNEL_POSITION_COUNT] = {
     { 0.0f,  0.0f,  0.0f},  // MAL_CHANNEL_AUX_31                              
 };
 
+
+float mal_calculate_channel_position_planar_weight(mal_channel channelPositionA, mal_channel channelPositionB)
+{
+    mal_vec3 roomPosA = g_malDefaultChannelPositionsInRoom[channelPositionA];
+    mal_vec3 roomPosB = g_malDefaultChannelPositionsInRoom[channelPositionB];
+
+    mal_uint32 planeCountA = 0;
+    if (roomPosA.x < 0 || roomPosA.x > 0) planeCountA += 1;
+    if (roomPosA.y < 0 || roomPosA.y > 0) planeCountA += 1;
+    if (roomPosA.z < 0 || roomPosA.z > 0) planeCountA += 1;
+
+    mal_uint32 sharedPlaneCount = 0;
+    if (roomPosA.x < 0 && roomPosB.x < 0) sharedPlaneCount += 1;
+    if (roomPosA.x > 0 && roomPosB.x > 0) sharedPlaneCount += 1;
+    if (roomPosA.y < 0 && roomPosB.y < 0) sharedPlaneCount += 1;
+    if (roomPosA.y > 0 && roomPosB.y > 0) sharedPlaneCount += 1;
+    if (roomPosA.z < 0 && roomPosB.z < 0) sharedPlaneCount += 1;
+    if (roomPosA.z > 0 && roomPosB.z > 0) sharedPlaneCount += 1;
+
+    mal_assert(sharedPlaneCount <= planeCountA);
+    mal_assert(sharedPlaneCount <= 3);
+
+    if (sharedPlaneCount == 0) {
+        return 0;
+    }
+
+    return (float)planeCountA / sharedPlaneCount;
+}
+
+float mal_calculate_channel_position_spatial_weight(mal_channel channelPositionA, mal_channel channelPositionB, mal_vec3 listenerRoomPos)
+{
+    // The weight between two channel positions is determined by the orientation and position relative to the virtual listener.
+
+    mal_vec3 channelRoomPosA   = g_malDefaultChannelPositionsInRoom[channelPositionA];
+    mal_vec3 channelRoomPosB   = g_malDefaultChannelPositionsInRoom[channelPositionB];
+    mal_vec3 channelDirToHeadA = mal_vec3_normalize(mal_vec3_sub(listenerRoomPos, channelRoomPosA));
+    mal_vec3 channelDirToHeadB = mal_vec3_normalize(mal_vec3_sub(listenerRoomPos, channelRoomPosB));
+
+    float weight = mal_vec3_dot(channelDirToHeadA, channelDirToHeadB);
+    if (weight <= 0) {
+        return 0;
+    }
+
+    float distA = mal_vec3_distance(channelRoomPosA, listenerRoomPos);
+    float distB = mal_vec3_distance(channelRoomPosB, listenerRoomPos);
+    float distFalloffLinear = distB / distA;
+    float distFalloffExp    = distFalloffLinear * distFalloffLinear;
+
+    weight = weight * distFalloffExp;
+    return weight;
+}
+
+mal_uint32 mal_channel_router__get_number_of_channels_on_same_planes(mal_channel channelPosition, mal_uint32 channelCount, const mal_channel channelMap[MAL_MAX_CHANNELS])
+{
+    mal_uint32 count = 0;
+
+    for (mal_uint32 iChannel = 0; iChannel < channelCount; ++iChannel) {
+        mal_vec3 roomPosA = g_malDefaultChannelPositionsInRoom[channelPosition];
+        mal_vec3 roomPosB = g_malDefaultChannelPositionsInRoom[channelMap[iChannel]];
+
+        if (roomPosA.x < 0 && roomPosB.x < 0) {
+            count += 1;
+            continue;
+        }
+        if (roomPosA.x > 0 && roomPosB.x > 0) {
+            count += 1;
+            continue;
+        }
+
+        if (roomPosA.y < 0 && roomPosB.y < 0) {
+            count += 1;
+            continue;
+        }
+        if (roomPosA.y > 0 && roomPosB.y > 0) {
+            count += 1;
+            continue;
+        }
+
+        if (roomPosA.z < 0 && roomPosB.z < 0) {
+            count += 1;
+            continue;
+        }
+        if (roomPosA.z > 0 && roomPosB.z > 0) {
+            count += 1;
+            continue;
+        }
+    }
+
+    return count;
+}
+
+float mal_channel_router__calculate_input_channel_planar_weight(const mal_channel_router* pRouter, mal_channel channelPositionIn, mal_channel channelPositionOut)
+{
+    mal_assert(pRouter != NULL);
+
+    float weight = mal_calculate_channel_position_planar_weight(channelPositionIn, channelPositionOut);
+
+    // At this point the weight will be 0/3, 1/3, 2/3 or 3/3, depending on how many planes are shared between the two channels. Now
+    // we need to find out how many input channels are sitting on the planes that channelPosIn is sitting on, then divide the weight
+    // by that number to find the average.
+    weight = weight / mal_channel_router__get_number_of_channels_on_same_planes(channelPositionIn, pRouter->config.channelsIn, pRouter->config.channelMapIn);
+    return weight;
+}
+
+float mal_channel_router__calculate_spatial_weight(const mal_channel_router* pRouter, mal_channel channelPositionA, mal_channel channelPositionB)
+{
+    mal_assert(pRouter != NULL);
+    (void)pRouter;
+
+    return mal_calculate_channel_position_spatial_weight(channelPositionA, channelPositionB, mal_vec3f(0, 0, 0));
+}
+
+mal_bool32 mal_channel_router__is_spatial_channel_position(const mal_channel_router* pRouter, mal_channel channelPosition)
+{
+    mal_assert(pRouter != NULL);
+    (void)pRouter;
+
+    if (channelPosition == MAL_CHANNEL_NONE || channelPosition == MAL_CHANNEL_MONO || channelPosition == MAL_CHANNEL_LFE) {
+        return MAL_FALSE;
+    }
+
+    if (mal_vec3_length(g_malDefaultChannelPositionsInRoom[channelPosition]) == 0) {
+        return MAL_FALSE;
+    }
+
+    return MAL_TRUE;
+}
+
 mal_result mal_channel_router_init__common(const mal_channel_router_config* pConfig, void* pUserData, mal_channel_router* pRouter)
 {
     if (pRouter == NULL) {
@@ -17115,12 +17380,22 @@ mal_result mal_channel_router_init__common(const mal_channel_router_config* pCon
         return MAL_INVALID_ARGS;
     }
 
+    if (!mal_channel_map_valid(pConfig->channelsIn, pConfig->channelMapIn)) {
+        return MAL_INVALID_ARGS;    // Invalid input channel map.
+    }
+    if (!mal_channel_map_valid(pConfig->channelsIn, pConfig->channelMapOut)) {
+        return MAL_INVALID_ARGS;    // Invalid output channel map.
+    }
+
     pRouter->config = *pConfig;
     pRouter->pUserData = pUserData;
 
     // If the input and output channels and channel maps are the same we should use a passthrough.
     if (pRouter->config.channelsIn == pRouter->config.channelsOut) {
         if (mal_channel_map_equal(pRouter->config.channelsIn, pRouter->config.channelMapIn, pRouter->config.channelMapOut)) {
+            pRouter->isPassthrough = MAL_TRUE;
+        }
+        if (mal_channel_map_blank(pRouter->config.channelsIn, pRouter->config.channelMapIn) || mal_channel_map_blank(pRouter->config.channelsOut, pRouter->config.channelMapOut)) {
             pRouter->isPassthrough = MAL_TRUE;
         }
     }
@@ -17130,7 +17405,7 @@ mal_result mal_channel_router_init__common(const mal_channel_router_config* pCon
     // 1) If it's a passthrough, do nothing - it's just a simple memcpy().
     // 2) If the channel counts are the same and every channel position in the input map is present in the output map, use a
     //    simple shuffle. An example might be different 5.1 channel layouts.
-    // 3) LFEs are treated differently. The will only receive audio data from other LFEs, or silence.
+    // 3) LFEs are treated differently. They will only receive audio data from other LFEs, or silence.
     // 4) Mono channels are distributed evenly across all channels, except LFEs.
     // 5) AUX channels will receive audio data from their matching counterpart, mono channels, or silence.
     // 6) All other channels will receive audio data based on their position relative to the head position.
@@ -17167,15 +17442,136 @@ mal_result mal_channel_router_init__common(const mal_channel_router_config* pCon
                 }
             }
         }
+    }
 
-        // If it's not a simple shuffle it's a bit more complicated. We route the input channels to the relevant output channels based on spacial
-        // locality. Special cases exist for mono and LFE positions. LFEs will only receive samples from other LFEs (there should usually be a
-        // maximum of 1 LFE per channel map, but there can technically be more). For mono, the sound is distributed across every other channel
-        // except LFEs.
-        if (!pRouter->isSimpleShuffle) {
-            
+
+    // Here is where weights are calculated. Note that we calculate the weights at all times, even when using a passthrough and simple
+    // simple shuffling because we want the client to have the ability to freely modify the weights.
+
+    // The first step is to map 1:1 matching channels.
+    for (mal_uint32 iChannelIn = 0; iChannelIn < pRouter->config.channelsIn; ++iChannelIn) {
+        mal_channel channelPosIn = pRouter->config.channelMapIn[iChannelIn];
+
+        for (mal_uint32 iChannelOut = 0; iChannelOut < pRouter->config.channelsOut; ++iChannelOut) {
+            mal_channel channelPosOut = pRouter->config.channelMapOut[iChannelOut];
+
+            if (channelPosIn == channelPosOut) {
+                pRouter->weights[iChannelIn][iChannelOut] = 1;
+            }
         }
     }
+
+    // The mono channel is accumulated on all other channels, except LFE. Make sure in this loop we exclude output mono channels since
+    // they were handled in the pass above.
+    for (mal_uint32 iChannelIn = 0; iChannelIn < pRouter->config.channelsIn; ++iChannelIn) {
+        mal_channel channelPosIn = pRouter->config.channelMapIn[iChannelIn];
+
+        if (channelPosIn == MAL_CHANNEL_MONO) {
+            for (mal_uint32 iChannelOut = 0; iChannelOut < pRouter->config.channelsOut; ++iChannelOut) {
+                mal_channel channelPosOut = pRouter->config.channelMapOut[iChannelOut];
+
+                if (channelPosOut != MAL_CHANNEL_NONE && channelPosOut != MAL_CHANNEL_MONO && channelPosOut != MAL_CHANNEL_LFE) {
+                    pRouter->weights[iChannelIn][iChannelOut] = 1;
+                }
+            }
+        }
+    }
+
+    // The output mono channel is the average of all non-none, non-mono and non-lfe input channels.
+    {
+        mal_uint32 len = 0;
+        for (mal_uint32 iChannelIn = 0; iChannelIn < pRouter->config.channelsIn; ++iChannelIn) {
+            mal_channel channelPosIn = pRouter->config.channelMapIn[iChannelIn];
+
+            if (channelPosIn != MAL_CHANNEL_NONE && channelPosIn != MAL_CHANNEL_MONO && channelPosIn != MAL_CHANNEL_LFE) {
+                len += 1;
+            }
+        }
+
+        if (len > 0) {
+            float monoWeight = 1.0f / len;
+
+            for (mal_uint32 iChannelOut = 0; iChannelOut < pRouter->config.channelsOut; ++iChannelOut) {
+                mal_channel channelPosOut = pRouter->config.channelMapOut[iChannelOut];
+
+                if (channelPosOut == MAL_CHANNEL_MONO) {
+                    for (mal_uint32 iChannelIn = 0; iChannelIn < pRouter->config.channelsIn; ++iChannelIn) {
+                        mal_channel channelPosIn = pRouter->config.channelMapIn[iChannelIn];
+
+                        if (channelPosIn != MAL_CHANNEL_NONE && channelPosIn != MAL_CHANNEL_MONO && channelPosIn != MAL_CHANNEL_LFE) {
+                            pRouter->weights[iChannelIn][iChannelOut] += monoWeight;
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+
+    // Input and output channels that are not present on the other side need to be blended in based on spatial locality.
+    if (pRouter->config.mixingMode != mal_channel_mix_mode_simple) {
+        // Input channels that are not present in output channel map.
+        for (mal_uint32 iChannelIn = 0; iChannelIn < pRouter->config.channelsIn; ++iChannelIn) {
+            mal_channel channelPosIn = pRouter->config.channelMapIn[iChannelIn];
+
+            if (mal_channel_router__is_spatial_channel_position(pRouter, channelPosIn)) {
+                if (!mal_channel_map_contains_channel_position(pRouter->config.channelsOut, pRouter->config.channelMapOut, channelPosIn)) {
+                    for (mal_uint32 iChannelOut = 0; iChannelOut < pRouter->config.channelsOut; ++iChannelOut) {
+                        mal_channel channelPosOut = pRouter->config.channelMapOut[iChannelOut];
+
+                        if (mal_channel_router__is_spatial_channel_position(pRouter, channelPosOut)) {
+                            float weight = 0;
+                            if (pRouter->config.mixingMode == mal_channel_mix_mode_planar_average) {
+                                weight = mal_channel_router__calculate_input_channel_planar_weight(pRouter, channelPosIn, channelPosOut);
+                            }
+                            #if 0
+                            else if (pRouter->config.mixingMode == mal_channel_mix_mode_spatial) {
+                                weight = mal_channel_router__calculate_spatial_weight(pRouter, channelPosIn, channelPosOut);
+                            }
+                            #endif
+
+                            // Only apply the weight if we haven't already got some contribution from the respective channels.
+                            if (pRouter->weights[iChannelIn][iChannelOut] == 0) {
+                                pRouter->weights[iChannelIn][iChannelOut] = weight;
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+
+        // Output channels that are not present in input channel map.
+        for (mal_uint32 iChannelOut = 0; iChannelOut < pRouter->config.channelsOut; ++iChannelOut) {
+            mal_channel channelPosOut = pRouter->config.channelMapOut[iChannelOut];
+
+            if (mal_channel_router__is_spatial_channel_position(pRouter, channelPosOut)) {
+                if (!mal_channel_map_contains_channel_position(pRouter->config.channelsIn, pRouter->config.channelMapIn, channelPosOut)) {
+                    for (mal_uint32 iChannelIn = 0; iChannelIn < pRouter->config.channelsIn; ++iChannelIn) {
+                        mal_channel channelPosIn = pRouter->config.channelMapIn[iChannelIn];
+
+                        if (mal_channel_router__is_spatial_channel_position(pRouter, channelPosIn)) {
+                            float weight = 0;
+                            if (pRouter->config.mixingMode == mal_channel_mix_mode_planar_average) {
+                                weight = mal_channel_router__calculate_input_channel_planar_weight(pRouter, channelPosIn, channelPosOut);
+                            }
+                            #if 0
+                            else if (pRouter->config.mixingMode == mal_channel_mix_mode_spatial) {
+                                weight = mal_channel_router__calculate_spatial_weight(pRouter, channelPosIn, channelPosOut);
+                            }
+                            #endif
+
+                            // Only apply the weight if we haven't already got some contribution from the respective channels.
+                            if (pRouter->weights[iChannelIn][iChannelOut] == 0) {
+                                pRouter->weights[iChannelIn][iChannelOut] = weight;
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
 
     return MAL_SUCCESS;
 }
@@ -17218,10 +17614,9 @@ void mal_channel_router__do_routing(mal_channel_router* pRouter, mal_uint64 fram
 
         // Accumulate.
         for (mal_uint32 iChannelIn = 0; iChannelIn < pRouter->config.channelsIn; ++iChannelIn) {
-            for (mal_uint64 iFrame = 0; iFrame < frameCount; ++iFrame) {
-                for (mal_uint32 j = 0; pRouter->shuffleData[iChannelIn][j].iChannelOut != (mal_uint8)-1; ++j) {
-                    mal_uint8 iChannelOut = pRouter->shuffleData[iChannelIn][j].iChannelOut;
-                    ppSamplesOut[iChannelOut][iFrame] += ppSamplesIn[iChannelIn][iFrame] * (pRouter->shuffleData[iChannelIn][j].volume / 255.0f);
+            for (mal_uint32 iChannelOut = 0; iChannelOut < pRouter->config.channelsOut; ++iChannelOut) {
+                for (mal_uint64 iFrame = 0; iFrame < frameCount; ++iFrame) {
+                    ppSamplesOut[iChannelOut][iFrame] += ppSamplesIn[iChannelIn][iFrame] * pRouter->weights[iChannelIn][iChannelOut];
                 }
             }
         }
@@ -17925,7 +18320,7 @@ void mal_dsp_mix_channels__dec(float* pFramesOut, mal_uint32 channelsOut, const 
     (void)channelMapOut;
     (void)channelMapIn;
 
-    if (mode == mal_channel_mix_mode_basic) {
+    if (mode == mal_channel_mix_mode_simple) {
         // Basic mode is where we just drop excess channels.
         for (mal_uint32 iFrame = 0; iFrame < frameCount; ++iFrame) {
             switch (channelsOut) {
@@ -18007,10 +18402,10 @@ void mal_dsp_mix_channels__dec(float* pFramesOut, mal_uint32 channelsOut, const 
             }
         } else if (channelsOut == 2) {
             // TODO: Implement proper stereo blending.
-            mal_dsp_mix_channels__dec(pFramesOut, channelsOut, channelMapOut, pFramesIn, channelsIn, channelMapIn, frameCount, mal_channel_mix_mode_basic);
+            mal_dsp_mix_channels__dec(pFramesOut, channelsOut, channelMapOut, pFramesIn, channelsIn, channelMapIn, frameCount, mal_channel_mix_mode_simple);
         } else {
             // Fall back to basic mode.
-            mal_dsp_mix_channels__dec(pFramesOut, channelsOut, channelMapOut, pFramesIn, channelsIn, channelMapIn, frameCount, mal_channel_mix_mode_basic);
+            mal_dsp_mix_channels__dec(pFramesOut, channelsOut, channelMapOut, pFramesIn, channelsIn, channelMapIn, frameCount, mal_channel_mix_mode_simple);
         }
     }
 }
@@ -18026,7 +18421,7 @@ void mal_dsp_mix_channels__inc(float* pFramesOut, mal_uint32 channelsOut, const 
     (void)channelMapOut;
     (void)channelMapIn;
 
-    if (mode == mal_channel_mix_mode_basic) {
+    if (mode == mal_channel_mix_mode_simple) {
         // Basic mode is where we just zero out extra channels.
         for (mal_uint32 iFrame = 0; iFrame < frameCount; ++iFrame) {
             switch (channelsIn) {
@@ -18142,10 +18537,10 @@ void mal_dsp_mix_channels__inc(float* pFramesOut, mal_uint32 channelsOut, const 
             }
         } else if (channelsIn == 2) {
             // TODO: Implement an optimized stereo conversion.
-            mal_dsp_mix_channels__inc(pFramesOut, channelsOut, channelMapOut, pFramesIn, channelsIn, channelMapIn, frameCount, mal_channel_mix_mode_basic);
+            mal_dsp_mix_channels__inc(pFramesOut, channelsOut, channelMapOut, pFramesIn, channelsIn, channelMapIn, frameCount, mal_channel_mix_mode_simple);
         } else {
             // Fall back to basic mixing mode.
-            mal_dsp_mix_channels__inc(pFramesOut, channelsOut, channelMapOut, pFramesIn, channelsIn, channelMapIn, frameCount, mal_channel_mix_mode_basic);
+            mal_dsp_mix_channels__inc(pFramesOut, channelsOut, channelMapOut, pFramesIn, channelsIn, channelMapIn, frameCount, mal_channel_mix_mode_simple);
         }
     }
 }
@@ -18415,7 +18810,7 @@ mal_uint64 mal_dsp_read_frames_ex(mal_dsp* pDSP, mal_uint64 frameCount, void* pF
                 pFramesFormat[iFrames] = mal_format_f32;
             }
 
-            mal_dsp_mix_channels((float*)(pFrames[(iFrames + 1) % 2]), pDSP->config.channelsOut, pDSP->config.channelMapOut, (const float*)(pFrames[iFrames]), pDSP->config.channelsIn, pDSP->config.channelMapIn, framesRead, mal_channel_mix_mode_blend);
+            mal_dsp_mix_channels((float*)(pFrames[(iFrames + 1) % 2]), pDSP->config.channelsOut, pDSP->config.channelMapOut, (const float*)(pFrames[iFrames]), pDSP->config.channelsIn, pDSP->config.channelMapIn, framesRead, pDSP->config.channelMixMode);
             iFrames = (iFrames + 1) % 2;
             pFramesFormat[iFrames] = mal_format_f32;
         }
