@@ -17446,7 +17446,7 @@ mal_result mal_channel_router_init__common(const mal_channel_router_config* pCon
     if (!mal_channel_map_valid(pConfig->channelsIn, pConfig->channelMapIn)) {
         return MAL_INVALID_ARGS;    // Invalid input channel map.
     }
-    if (!mal_channel_map_valid(pConfig->channelsIn, pConfig->channelMapOut)) {
+    if (!mal_channel_map_valid(pConfig->channelsOut, pConfig->channelMapOut)) {
         return MAL_INVALID_ARGS;    // Invalid output channel map.
     }
 
