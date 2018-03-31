@@ -694,8 +694,8 @@ typedef struct
 
 
 typedef struct mal_format_converter mal_format_converter;
-typedef mal_uint32 (* mal_format_converter_read_proc)          (mal_format_converter* pConverter, mal_uint32 frameCount, void* pFramesOut, void* pUserData);
-typedef mal_uint32 (* mal_format_converter_read_separated_proc)(mal_format_converter* pConverter, mal_uint32 frameCount, void** ppSamplesOut, void* pUserData);
+typedef mal_uint32 (* mal_format_converter_read_proc)              (mal_format_converter* pConverter, mal_uint32 frameCount, void* pFramesOut, void* pUserData);
+typedef mal_uint32 (* mal_format_converter_read_deinterleaved_proc)(mal_format_converter* pConverter, mal_uint32 frameCount, void** ppSamplesOut, void* pUserData);
 
 typedef struct
 {
@@ -711,7 +711,7 @@ struct mal_format_converter
 {
     mal_format_converter_config config;
     mal_format_converter_read_proc onRead;
-    mal_format_converter_read_separated_proc onReadSeparated;
+    mal_format_converter_read_deinterleaved_proc onReadDeinterleaved;
     void* pUserData;
     void (* onConvertPCM)(void* dst, const void* src, mal_uint64 count, mal_dither_mode ditherMode);
     void (* onInterleavePCM)(void* dst, const void** src, mal_uint64 frameCount, mal_uint32 channels);
@@ -721,8 +721,8 @@ struct mal_format_converter
 
 
 typedef struct mal_channel_router mal_channel_router;
-//typedef mal_uint32 (* mal_channel_router_read_proc)          (mal_channel_router* pRouter, mal_uint32 frameCount, void* pFramesOut, void* pUserData);
-typedef mal_uint32 (* mal_channel_router_read_separated_proc)(mal_channel_router* pRouter, mal_uint32 frameCount, void** ppSamplesOut, void* pUserData);
+//typedef mal_uint32 (* mal_channel_router_read_proc)              (mal_channel_router* pRouter, mal_uint32 frameCount, void* pFramesOut, void* pUserData);
+typedef mal_uint32 (* mal_channel_router_read_deinterleaved_proc)(mal_channel_router* pRouter, mal_uint32 frameCount, void** ppSamplesOut, void* pUserData);
 
 typedef struct
 {
@@ -737,7 +737,7 @@ struct mal_channel_router
 {
     mal_channel_router_config config;
     //mal_channel_router_read_proc onRead;
-    mal_channel_router_read_separated_proc onReadSeparated;
+    mal_channel_router_read_deinterleaved_proc onReadDeinterleaved;
     void* pUserData;
     mal_bool32 isPassthrough   : 1;
     mal_bool32 isSimpleShuffle : 1;
@@ -1835,13 +1835,13 @@ mal_bool32 mal_channel_map_contains_channel_position(mal_uint32 channels, const 
 mal_result mal_format_converter_init(const mal_format_converter_config* pConfig, mal_format_converter_read_proc onRead, void* pUserData, mal_format_converter* pConverter);
 
 // Initializes a format converter when the input data is non-interleaved.
-mal_result mal_format_converter_init_separated(const mal_format_converter_config* pConfig, mal_format_converter_read_separated_proc onRead, void* pUserData, mal_format_converter* pConverter);
+mal_result mal_format_converter_init_deinterleaved(const mal_format_converter_config* pConfig, mal_format_converter_read_deinterleaved_proc onRead, void* pUserData, mal_format_converter* pConverter);
 
 // Reads data from the format converter as interleaved channels.
 mal_uint64 mal_format_converter_read_frames(mal_format_converter* pConverter, mal_uint64 frameCount, void* pFramesOut);
 
-// Reads data from the format converter as separated channels.
-mal_uint64 mal_format_converter_read_frames_separated(mal_format_converter* pConverter, mal_uint64 frameCount, void** ppSamplesOut);
+// Reads data from the format converter as deinterleaved channels.
+mal_uint64 mal_format_converter_read_frames_deinterleaved(mal_format_converter* pConverter, mal_uint64 frameCount, void** ppSamplesOut);
 
 
 
@@ -1855,10 +1855,10 @@ mal_uint64 mal_format_converter_read_frames_separated(mal_format_converter* pCon
 ///////////////////////////////////////////////////////////////////////////////
 
 // Initializes a channel router where it is assumed that the input data is non-interleaved.
-mal_result mal_channel_router_init_separated(const mal_channel_router_config* pConfig, mal_channel_router_read_separated_proc onRead, void* pUserData, mal_channel_router* pRouter);
+mal_result mal_channel_router_init_deinterleaved(const mal_channel_router_config* pConfig, mal_channel_router_read_deinterleaved_proc onRead, void* pUserData, mal_channel_router* pRouter);
 
-// Reads data from the channel router as separated channels.
-mal_uint64 mal_channel_router_read_frames_separated(mal_channel_router* pRouter, mal_uint64 frameCount, void** ppSamplesOut);
+// Reads data from the channel router as deinterleaved channels.
+mal_uint64 mal_channel_router_read_frames_deinterleaved(mal_channel_router* pRouter, mal_uint64 frameCount, void** ppSamplesOut);
 
 
 
@@ -10741,7 +10741,7 @@ int mal_device__jack_process_callback(mal_jack_nframes_t frameCount, void* pUser
     if (pDevice->type == mal_device_type_playback) {
         mal_device__read_frames_from_client(pDevice, frameCount, pDevice->jack.pIntermediaryBuffer);
 
-        // Channels need to be separated.
+        // Channels need to be deinterleaved.
         for (mal_uint32 iChannel = 0; iChannel < pDevice->internalChannels; ++iChannel) {
             float* pDst = (float*)((mal_jack_port_get_buffer_proc)pContext->jack.jack_port_get_buffer)((mal_jack_port_t*)pDevice->jack.pPorts[iChannel], frameCount);
             if (pDst != NULL) {
@@ -16861,14 +16861,14 @@ mal_result mal_format_converter_init(const mal_format_converter_config* pConfig,
     return MAL_SUCCESS;
 }
 
-mal_result mal_format_converter_init_separated(const mal_format_converter_config* pConfig, mal_format_converter_read_separated_proc onRead, void* pUserData, mal_format_converter* pConverter)
+mal_result mal_format_converter_init_deinterleaved(const mal_format_converter_config* pConfig, mal_format_converter_read_deinterleaved_proc onRead, void* pUserData, mal_format_converter* pConverter)
 {
     mal_result result = mal_format_converter_init__common(pConfig, pUserData, pConverter);
     if (result != MAL_SUCCESS) {
         return result;
     }
 
-    pConverter->onReadSeparated = onRead;
+    pConverter->onReadDeinterleaved = onRead;
 
     return MAL_SUCCESS;
 }
@@ -16931,7 +16931,7 @@ mal_uint64 mal_format_converter_read_frames(mal_format_converter* pConverter, ma
             }
         }
     } else {
-        // Input data is separated. If a conversion is required we need to do an intermediary step.
+        // Input data is deinterleaved. If a conversion is required we need to do an intermediary step.
         mal_uint8 tempSamplesOfOutFormat[MAL_MAX_CHANNELS][MAL_MAX_PCM_SAMPLE_SIZE_IN_BYTES * 128];
         mal_assert(sizeof(tempSamplesOfOutFormat[0]) <= 0xFFFFFFFFF);
 
@@ -16953,7 +16953,7 @@ mal_uint64 mal_format_converter_read_frames(mal_format_converter* pConverter, ma
 
             if (pConverter->config.formatIn == pConverter->config.formatOut) {
                 // Only interleaving.
-                framesJustRead = (mal_uint32)pConverter->onReadSeparated(pConverter, (mal_uint32)framesToReadRightNow, ppTempSampleOfOutFormat, pConverter->pUserData);
+                framesJustRead = (mal_uint32)pConverter->onReadDeinterleaved(pConverter, (mal_uint32)framesToReadRightNow, ppTempSampleOfOutFormat, pConverter->pUserData);
                 if (framesJustRead == 0) {
                     break;
                 }
@@ -16967,7 +16967,7 @@ mal_uint64 mal_format_converter_read_frames(mal_format_converter* pConverter, ma
                 }
 
 
-                framesJustRead = (mal_uint32)pConverter->onReadSeparated(pConverter, (mal_uint32)framesToReadRightNow, ppTempSampleOfInFormat, pConverter->pUserData);
+                framesJustRead = (mal_uint32)pConverter->onReadDeinterleaved(pConverter, (mal_uint32)framesToReadRightNow, ppTempSampleOfInFormat, pConverter->pUserData);
                 if (framesJustRead == 0) {
                     break;
                 }
@@ -16987,7 +16987,7 @@ mal_uint64 mal_format_converter_read_frames(mal_format_converter* pConverter, ma
     return totalFramesRead;
 }
 
-mal_uint64 mal_format_converter_read_frames_separated(mal_format_converter* pConverter, mal_uint64 frameCount, void** ppSamplesOut)
+mal_uint64 mal_format_converter_read_frames_deinterleaved(mal_format_converter* pConverter, mal_uint64 frameCount, void** ppSamplesOut)
 {
     if (pConverter == NULL || ppSamplesOut == NULL) {
         return 0;
@@ -17042,7 +17042,7 @@ mal_uint64 mal_format_converter_read_frames_separated(mal_format_converter* pCon
             }
         }
     } else {
-        // Input data is separated.
+        // Input data is deinterleaved.
         if (pConverter->config.formatIn == pConverter->config.formatOut) {
             // Pass through.
             while (totalFramesRead < frameCount) {
@@ -17052,7 +17052,7 @@ mal_uint64 mal_format_converter_read_frames_separated(mal_format_converter* pCon
                     framesToReadRightNow = 0xFFFFFFFF;
                 }
 
-                mal_uint32 framesJustRead = (mal_uint32)pConverter->onReadSeparated(pConverter, (mal_uint32)framesToReadRightNow, (void**)ppNextSamplesOut, pConverter->pUserData);
+                mal_uint32 framesJustRead = (mal_uint32)pConverter->onReadDeinterleaved(pConverter, (mal_uint32)framesToReadRightNow, (void**)ppNextSamplesOut, pConverter->pUserData);
                 if (framesJustRead == 0) {
                     break;
                 }
@@ -17081,7 +17081,7 @@ mal_uint64 mal_format_converter_read_frames_separated(mal_format_converter* pCon
                     framesToReadRightNow = maxFramesToReadAtATime;
                 }
 
-                mal_uint32 framesJustRead = (mal_uint32)pConverter->onReadSeparated(pConverter, (mal_uint32)framesToReadRightNow, ppTemp, pConverter->pUserData);
+                mal_uint32 framesJustRead = (mal_uint32)pConverter->onReadDeinterleaved(pConverter, (mal_uint32)framesToReadRightNow, ppTemp, pConverter->pUserData);
                 if (framesJustRead == 0) {
                     break;
                 }
@@ -17654,7 +17654,7 @@ mal_result mal_channel_router_init__common(const mal_channel_router_config* pCon
     return MAL_SUCCESS;
 }
 
-mal_result mal_channel_router_init_separated(const mal_channel_router_config* pConfig, mal_channel_router_read_separated_proc onRead, void* pUserData, mal_channel_router* pRouter)
+mal_result mal_channel_router_init_deinterleaved(const mal_channel_router_config* pConfig, mal_channel_router_read_deinterleaved_proc onRead, void* pUserData, mal_channel_router* pRouter)
 {
     mal_result result = mal_channel_router_init__common(pConfig, pUserData, pRouter);
     if (result != MAL_SUCCESS) {
@@ -17665,7 +17665,7 @@ mal_result mal_channel_router_init_separated(const mal_channel_router_config* pC
         return MAL_INVALID_ARGS;
     }
 
-    pRouter->onReadSeparated = onRead;
+    pRouter->onReadDeinterleaved = onRead;
 
     return MAL_SUCCESS;
 }
@@ -17701,7 +17701,7 @@ void mal_channel_router__do_routing(mal_channel_router* pRouter, mal_uint64 fram
     }
 }
 
-mal_uint64 mal_channel_router_read_frames_separated(mal_channel_router* pRouter, mal_uint64 frameCount, void** ppSamplesOut)
+mal_uint64 mal_channel_router_read_frames_deinterleaved(mal_channel_router* pRouter, mal_uint64 frameCount, void** ppSamplesOut)
 {
     if (pRouter == NULL || ppSamplesOut == NULL) {
         return 0;
@@ -17710,7 +17710,7 @@ mal_uint64 mal_channel_router_read_frames_separated(mal_channel_router* pRouter,
     // Fast path for a passthrough.
     if (pRouter->isPassthrough) {
         if (frameCount <= 0xFFFFFFFF) {
-            return (mal_uint32)pRouter->onReadSeparated(pRouter, (mal_uint32)frameCount, ppSamplesOut, pRouter->pUserData);
+            return (mal_uint32)pRouter->onReadDeinterleaved(pRouter, (mal_uint32)frameCount, ppSamplesOut, pRouter->pUserData);
         } else {
             float* ppNextSamplesOut[MAL_MAX_CHANNELS];
             mal_copy_memory(ppNextSamplesOut, ppSamplesOut, sizeof(float*) * pRouter->config.channelsOut);
@@ -17723,7 +17723,7 @@ mal_uint64 mal_channel_router_read_frames_separated(mal_channel_router* pRouter,
                     framesToReadRightNow = 0xFFFFFFFF;
                 }
 
-                mal_uint32 framesJustRead = (mal_uint32)pRouter->onReadSeparated(pRouter, (mal_uint32)framesToReadRightNow, (void**)ppNextSamplesOut, pRouter->pUserData);
+                mal_uint32 framesJustRead = (mal_uint32)pRouter->onReadDeinterleaved(pRouter, (mal_uint32)framesToReadRightNow, (void**)ppNextSamplesOut, pRouter->pUserData);
                 if (framesJustRead == 0) {
                     break;
                 }
@@ -17758,7 +17758,7 @@ mal_uint64 mal_channel_router_read_frames_separated(mal_channel_router* pRouter,
             framesToReadRightNow = maxFramesToReadEachIteration;
         }
 
-        mal_uint32 framesJustRead = pRouter->onReadSeparated(pRouter, (mal_uint32)framesToReadRightNow, (void**)ppTemp, pRouter->pUserData);
+        mal_uint32 framesJustRead = pRouter->onReadDeinterleaved(pRouter, (mal_uint32)framesToReadRightNow, (void**)ppTemp, pRouter->pUserData);
         if (framesJustRead == 0) {
             break;
         }

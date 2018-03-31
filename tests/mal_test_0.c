@@ -657,20 +657,20 @@ int do_format_conversion_tests()
 }
 
 
-int compare_interleaved_and_separated_buffers(const void* interleaved, const void** separated, mal_uint32 frameCount, mal_uint32 channels, mal_format format)
+int compare_interleaved_and_deinterleaved_buffers(const void* interleaved, const void** deinterleaved, mal_uint32 frameCount, mal_uint32 channels, mal_format format)
 {
     mal_uint32 bytesPerSample = mal_get_bytes_per_sample(format);
 
     const mal_uint8* interleaved8 = (const mal_uint8*)interleaved;
-    const mal_uint8** separated8 = (const mal_uint8**)separated;
+    const mal_uint8** deinterleaved8 = (const mal_uint8**)deinterleaved;
 
     for (mal_uint32 iFrame = 0; iFrame < frameCount; iFrame += 1) {
         const mal_uint8* interleavedFrame = interleaved8 + iFrame*channels*bytesPerSample;
 
         for (mal_uint32 iChannel = 0; iChannel < channels; iChannel += 1) {
-            const mal_uint8* separatedFrame = separated8[iChannel] + iFrame*bytesPerSample;
+            const mal_uint8* deinterleavedFrame = deinterleaved8[iChannel] + iFrame*bytesPerSample;
 
-            int result = memcmp(interleavedFrame + iChannel*bytesPerSample, separatedFrame, bytesPerSample);
+            int result = memcmp(interleavedFrame + iChannel*bytesPerSample, deinterleavedFrame, bytesPerSample);
             if (result != 0) {
                 return -1;
             }
@@ -715,16 +715,16 @@ int do_interleaving_test(mal_format format)
 
                 // Interleave.
                 mal_pcm_interleave_u8__reference(dsti, (const void**)ppSrc, frameCount, channelCountForThisIteration);
-                if (compare_interleaved_and_separated_buffers(dsti, (const void**)ppSrc, frameCount, channelCountForThisIteration, format) != 0) {
-                    printf("FAILED. Separated to Interleaved (Channels = %u)\n", i);
+                if (compare_interleaved_and_deinterleaved_buffers(dsti, (const void**)ppSrc, frameCount, channelCountForThisIteration, format) != 0) {
+                    printf("FAILED. Deinterleaved to Interleaved (Channels = %u)\n", i);
                     result = -1;
                     break;
                 }
 
                 // Deinterleave.
                 mal_pcm_deinterleave_u8__reference((void**)ppDst, dsti, frameCount, channelCountForThisIteration);
-                if (compare_interleaved_and_separated_buffers(dsti, (const void**)ppDst, frameCount, channelCountForThisIteration, format) != 0) {
-                    printf("FAILED. Interleaved to Separated (Channels = %u)\n", i);
+                if (compare_interleaved_and_deinterleaved_buffers(dsti, (const void**)ppDst, frameCount, channelCountForThisIteration, format) != 0) {
+                    printf("FAILED. Interleaved to Deinterleaved (Channels = %u)\n", i);
                     result = -1;
                     break;
                 }
@@ -756,16 +756,16 @@ int do_interleaving_test(mal_format format)
 
                 // Interleave.
                 mal_pcm_interleave_s16__reference(dsti, (const void**)ppSrc, frameCount, channelCountForThisIteration);
-                if (compare_interleaved_and_separated_buffers(dsti, (const void**)ppSrc, frameCount, channelCountForThisIteration, format) != 0) {
-                    printf("FAILED. Separated to Interleaved (Channels = %u)\n", i);
+                if (compare_interleaved_and_deinterleaved_buffers(dsti, (const void**)ppSrc, frameCount, channelCountForThisIteration, format) != 0) {
+                    printf("FAILED. Deinterleaved to Interleaved (Channels = %u)\n", i);
                     result = -1;
                     break;
                 }
 
                 // Deinterleave.
                 mal_pcm_deinterleave_s16__reference((void**)ppDst, dsti, frameCount, channelCountForThisIteration);
-                if (compare_interleaved_and_separated_buffers(dsti, (const void**)ppDst, frameCount, channelCountForThisIteration, format) != 0) {
-                    printf("FAILED. Interleaved to Separated (Channels = %u)\n", i);
+                if (compare_interleaved_and_deinterleaved_buffers(dsti, (const void**)ppDst, frameCount, channelCountForThisIteration, format) != 0) {
+                    printf("FAILED. Interleaved to Deinterleaved (Channels = %u)\n", i);
                     result = -1;
                     break;
                 }
@@ -799,16 +799,16 @@ int do_interleaving_test(mal_format format)
 
                 // Interleave.
                 mal_pcm_interleave_s24__reference(dsti, (const void**)ppSrc, frameCount, channelCountForThisIteration);
-                if (compare_interleaved_and_separated_buffers(dsti, (const void**)ppSrc, frameCount, channelCountForThisIteration, format) != 0) {
-                    printf("FAILED. Separated to Interleaved (Channels = %u)\n", channelCountForThisIteration);
+                if (compare_interleaved_and_deinterleaved_buffers(dsti, (const void**)ppSrc, frameCount, channelCountForThisIteration, format) != 0) {
+                    printf("FAILED. Deinterleaved to Interleaved (Channels = %u)\n", channelCountForThisIteration);
                     result = -1;
                     break;
                 }
 
                 // Deinterleave.
                 mal_pcm_deinterleave_s24__reference((void**)ppDst, dsti, frameCount, channelCountForThisIteration);
-                if (compare_interleaved_and_separated_buffers(dsti, (const void**)ppDst, frameCount, channelCountForThisIteration, format) != 0) {
-                    printf("FAILED. Interleaved to Separated (Channels = %u)\n", channelCountForThisIteration);
+                if (compare_interleaved_and_deinterleaved_buffers(dsti, (const void**)ppDst, frameCount, channelCountForThisIteration, format) != 0) {
+                    printf("FAILED. Interleaved to Deinterleaved (Channels = %u)\n", channelCountForThisIteration);
                     result = -1;
                     break;
                 }
@@ -840,16 +840,16 @@ int do_interleaving_test(mal_format format)
 
                 // Interleave.
                 mal_pcm_interleave_s32__reference(dsti, (const void**)ppSrc, frameCount, channelCountForThisIteration);
-                if (compare_interleaved_and_separated_buffers(dsti, (const void**)ppSrc, frameCount, channelCountForThisIteration, format) != 0) {
-                    printf("FAILED. Separated to Interleaved (Channels = %u)\n", i);
+                if (compare_interleaved_and_deinterleaved_buffers(dsti, (const void**)ppSrc, frameCount, channelCountForThisIteration, format) != 0) {
+                    printf("FAILED. Deinterleaved to Interleaved (Channels = %u)\n", i);
                     result = -1;
                     break;
                 }
 
                 // Deinterleave.
                 mal_pcm_deinterleave_s32__reference((void**)ppDst, dsti, frameCount, channelCountForThisIteration);
-                if (compare_interleaved_and_separated_buffers(dsti, (const void**)ppDst, frameCount, channelCountForThisIteration, format) != 0) {
-                    printf("FAILED. Interleaved to Separated (Channels = %u)\n", i);
+                if (compare_interleaved_and_deinterleaved_buffers(dsti, (const void**)ppDst, frameCount, channelCountForThisIteration, format) != 0) {
+                    printf("FAILED. Interleaved to Deinterleaved (Channels = %u)\n", i);
                     result = -1;
                     break;
                 }
@@ -881,16 +881,16 @@ int do_interleaving_test(mal_format format)
 
                 // Interleave.
                 mal_pcm_interleave_f32__reference(dsti, (const void**)ppSrc, frameCount, channelCountForThisIteration);
-                if (compare_interleaved_and_separated_buffers(dsti, (const void**)ppSrc, frameCount, channelCountForThisIteration, format) != 0) {
-                    printf("FAILED. Separated to Interleaved (Channels = %u)\n", i);
+                if (compare_interleaved_and_deinterleaved_buffers(dsti, (const void**)ppSrc, frameCount, channelCountForThisIteration, format) != 0) {
+                    printf("FAILED. Deinterleaved to Interleaved (Channels = %u)\n", i);
                     result = -1;
                     break;
                 }
 
                 // Deinterleave.
                 mal_pcm_deinterleave_f32__reference((void**)ppDst, dsti, frameCount, channelCountForThisIteration);
-                if (compare_interleaved_and_separated_buffers(dsti, (const void**)ppDst, frameCount, channelCountForThisIteration, format) != 0) {
-                    printf("FAILED. Interleaved to Separated (Channels = %u)\n", i);
+                if (compare_interleaved_and_deinterleaved_buffers(dsti, (const void**)ppDst, frameCount, channelCountForThisIteration, format) != 0) {
+                    printf("FAILED. Interleaved to Deinterleaved (Channels = %u)\n", i);
                     result = -1;
                     break;
                 }
@@ -964,7 +964,7 @@ mal_uint32 converter_test_interleaved_callback(mal_format_converter* pConverter,
     return frameCount;
 }
 
-mal_uint32 converter_test_separated_callback(mal_format_converter* pConverter, mal_uint32 frameCount, void** ppSamplesOut, void* pUserData)
+mal_uint32 converter_test_deinterleaved_callback(mal_format_converter* pConverter, mal_uint32 frameCount, void** ppSamplesOut, void* pUserData)
 {
     mal_sine_wave* pSineWave = (mal_sine_wave*)pUserData;
     mal_assert(pSineWave != NULL);
@@ -1034,13 +1034,13 @@ int do_format_converter_tests()
             return -1;
         }
 
-        mal_int16 separatedFrames[MAL_MAX_CHANNELS][1024];
-        void* ppSeparatedFrames[MAL_MAX_CHANNELS];
+        mal_int16 deinterleavedFrames[MAL_MAX_CHANNELS][1024];
+        void* ppDeinterleavedFrames[MAL_MAX_CHANNELS];
         for (mal_uint32 iChannel = 0; iChannel < converter.config.channels; iChannel += 1) {
-            ppSeparatedFrames[iChannel] = &separatedFrames[iChannel];
+            ppDeinterleavedFrames[iChannel] = &deinterleavedFrames[iChannel];
         }
 
-        mal_uint64 framesRead = mal_format_converter_read_frames_separated(&converter, 1024, ppSeparatedFrames);
+        mal_uint64 framesRead = mal_format_converter_read_frames_deinterleaved(&converter, 1024, ppDeinterleavedFrames);
         if (framesRead != 1024) {
             printf("Failed to read interleaved data from converter.\n");
             return -1;
@@ -1057,7 +1057,7 @@ int do_format_converter_tests()
                 return -1;
             }
 
-            fwrite(ppSeparatedFrames[iChannel], sizeof(mal_int16), framesRead, pFile);
+            fwrite(ppDeinterleavedFrames[iChannel], sizeof(mal_int16), framesRead, pFile);
             fclose(pFile);
         }
     }
@@ -1065,7 +1065,7 @@ int do_format_converter_tests()
     // Deinterleaved/Interleaved f32 to s16.
     {
         mal_sine_wave_init(amplitude, periodsPerSecond, sampleRate, &sineWave);
-        result = mal_format_converter_init_separated(&config, converter_test_separated_callback, &sineWave, &converter);
+        result = mal_format_converter_init_deinterleaved(&config, converter_test_deinterleaved_callback, &sineWave, &converter);
         if (result != MAL_SUCCESS) {
             printf("Failed to initialize converter.\n");
             return -1;
@@ -1091,19 +1091,19 @@ int do_format_converter_tests()
     // Deinterleaved/Deinterleaved f32 to s16.
     {
         mal_sine_wave_init(amplitude, periodsPerSecond, sampleRate, &sineWave);
-        result = mal_format_converter_init_separated(&config, converter_test_separated_callback, &sineWave, &converter);
+        result = mal_format_converter_init_deinterleaved(&config, converter_test_deinterleaved_callback, &sineWave, &converter);
         if (result != MAL_SUCCESS) {
             printf("Failed to initialize converter.\n");
             return -1;
         }
 
-        mal_int16 separatedFrames[MAL_MAX_CHANNELS][1024];
-        void* ppSeparatedFrames[MAL_MAX_CHANNELS];
+        mal_int16 deinterleavedFrames[MAL_MAX_CHANNELS][1024];
+        void* ppDeinterleavedFrames[MAL_MAX_CHANNELS];
         for (mal_uint32 iChannel = 0; iChannel < converter.config.channels; iChannel += 1) {
-            ppSeparatedFrames[iChannel] = &separatedFrames[iChannel];
+            ppDeinterleavedFrames[iChannel] = &deinterleavedFrames[iChannel];
         }
 
-        mal_uint64 framesRead = mal_format_converter_read_frames_separated(&converter, 1024, ppSeparatedFrames);
+        mal_uint64 framesRead = mal_format_converter_read_frames_deinterleaved(&converter, 1024, ppDeinterleavedFrames);
         if (framesRead != 1024) {
             printf("Failed to read interleaved data from converter.\n");
             return -1;
@@ -1120,7 +1120,7 @@ int do_format_converter_tests()
                 return -1;
             }
 
-            fwrite(ppSeparatedFrames[iChannel], sizeof(mal_int16), framesRead, pFile);
+            fwrite(ppDeinterleavedFrames[iChannel], sizeof(mal_int16), framesRead, pFile);
             fclose(pFile);
         }
     }
@@ -1164,13 +1164,13 @@ int do_format_converter_tests()
             return -1;
         }
 
-        float separatedFrames[MAL_MAX_CHANNELS][1024];
-        void* ppSeparatedFrames[MAL_MAX_CHANNELS];
+        float deinterleavedFrames[MAL_MAX_CHANNELS][1024];
+        void* ppDeinterleavedFrames[MAL_MAX_CHANNELS];
         for (mal_uint32 iChannel = 0; iChannel < converter.config.channels; iChannel += 1) {
-            ppSeparatedFrames[iChannel] = &separatedFrames[iChannel];
+            ppDeinterleavedFrames[iChannel] = &deinterleavedFrames[iChannel];
         }
 
-        mal_uint64 framesRead = mal_format_converter_read_frames_separated(&converter, 1024, ppSeparatedFrames);
+        mal_uint64 framesRead = mal_format_converter_read_frames_deinterleaved(&converter, 1024, ppDeinterleavedFrames);
         if (framesRead != 1024) {
             printf("Failed to read interleaved data from converter.\n");
             return -1;
@@ -1187,7 +1187,7 @@ int do_format_converter_tests()
                 return -1;
             }
 
-            fwrite(ppSeparatedFrames[iChannel], sizeof(float), framesRead, pFile);
+            fwrite(ppDeinterleavedFrames[iChannel], sizeof(float), framesRead, pFile);
             fclose(pFile);
         }
     }
@@ -1195,7 +1195,7 @@ int do_format_converter_tests()
     // Deinterleaved/Interleaved f32 to f32.
     {
         mal_sine_wave_init(amplitude, periodsPerSecond, sampleRate, &sineWave);
-        result = mal_format_converter_init_separated(&config, converter_test_separated_callback, &sineWave, &converter);
+        result = mal_format_converter_init_deinterleaved(&config, converter_test_deinterleaved_callback, &sineWave, &converter);
         if (result != MAL_SUCCESS) {
             printf("Failed to initialize converter.\n");
             return -1;
@@ -1221,19 +1221,19 @@ int do_format_converter_tests()
     // Deinterleaved/Deinterleaved f32 to f32.
     {
         mal_sine_wave_init(amplitude, periodsPerSecond, sampleRate, &sineWave);
-        result = mal_format_converter_init_separated(&config, converter_test_separated_callback, &sineWave, &converter);
+        result = mal_format_converter_init_deinterleaved(&config, converter_test_deinterleaved_callback, &sineWave, &converter);
         if (result != MAL_SUCCESS) {
             printf("Failed to initialize converter.\n");
             return -1;
         }
 
-        float separatedFrames[MAL_MAX_CHANNELS][1024];
-        void* ppSeparatedFrames[MAL_MAX_CHANNELS];
+        float deinterleavedFrames[MAL_MAX_CHANNELS][1024];
+        void* ppDeinterleavedFrames[MAL_MAX_CHANNELS];
         for (mal_uint32 iChannel = 0; iChannel < converter.config.channels; iChannel += 1) {
-            ppSeparatedFrames[iChannel] = &separatedFrames[iChannel];
+            ppDeinterleavedFrames[iChannel] = &deinterleavedFrames[iChannel];
         }
 
-        mal_uint64 framesRead = mal_format_converter_read_frames_separated(&converter, 1024, ppSeparatedFrames);
+        mal_uint64 framesRead = mal_format_converter_read_frames_deinterleaved(&converter, 1024, ppDeinterleavedFrames);
         if (framesRead != 1024) {
             printf("Failed to read interleaved data from converter.\n");
             return -1;
@@ -1250,7 +1250,7 @@ int do_format_converter_tests()
                 return -1;
             }
 
-            fwrite(ppSeparatedFrames[iChannel], sizeof(float), framesRead, pFile);
+            fwrite(ppDeinterleavedFrames[iChannel], sizeof(float), framesRead, pFile);
             fclose(pFile);
         }
     }
@@ -1288,7 +1288,7 @@ int do_channel_routing_tests()
         mal_get_standard_channel_map(mal_standard_channel_map_microsoft, routerConfig.channelsOut, routerConfig.channelMapOut);
         
         mal_channel_router router;
-        mal_result result = mal_channel_router_init_separated(&routerConfig, channel_router_callback__passthrough_test, NULL, &router);
+        mal_result result = mal_channel_router_init_deinterleaved(&routerConfig, channel_router_callback__passthrough_test, NULL, &router);
         if (result == MAL_SUCCESS) {
             if (!router.isPassthrough) {
                 printf("Failed to init router as passthrough.\n");
@@ -1327,7 +1327,7 @@ int do_channel_routing_tests()
             }
         }
 
-        mal_channel_router_init_separated(&routerConfig, channel_router_callback__passthrough_test, ppTestData, &router);
+        mal_channel_router_init_deinterleaved(&routerConfig, channel_router_callback__passthrough_test, ppTestData, &router);
 
         float outputA[MAL_MAX_CHANNELS][100];
         float outputB[MAL_MAX_CHANNELS][100];
@@ -1339,7 +1339,7 @@ int do_channel_routing_tests()
         }
 
         // With optimizations.
-        mal_uint64 framesRead = mal_channel_router_read_frames_separated(&router, 100, (void**)ppOutputA);
+        mal_uint64 framesRead = mal_channel_router_read_frames_deinterleaved(&router, 100, (void**)ppOutputA);
         if (framesRead != 100) {
             printf("Returned frame count for optimized incorrect.");
             hasError = MAL_TRUE;
@@ -1348,7 +1348,7 @@ int do_channel_routing_tests()
         // Without optimizations.
         router.isPassthrough = MAL_FALSE;
         router.isSimpleShuffle = MAL_FALSE;
-        framesRead = mal_channel_router_read_frames_separated(&router, 100, (void**)ppOutputB);
+        framesRead = mal_channel_router_read_frames_deinterleaved(&router, 100, (void**)ppOutputB);
         if (framesRead != 100) {
             printf("Returned frame count for unoptimized path incorrect.");
             hasError = MAL_TRUE;
@@ -1386,7 +1386,7 @@ int do_channel_routing_tests()
         }
 
         mal_channel_router router;
-        mal_result result = mal_channel_router_init_separated(&routerConfig, channel_router_callback__passthrough_test, NULL, &router);
+        mal_result result = mal_channel_router_init_deinterleaved(&routerConfig, channel_router_callback__passthrough_test, NULL, &router);
         if (result == MAL_SUCCESS) {
             if (router.isPassthrough) {
                 printf("Router incorrectly configured as a passthrough.\n");
@@ -1429,7 +1429,7 @@ int do_channel_routing_tests()
             }
         }
 
-        mal_channel_router_init_separated(&routerConfig, channel_router_callback__passthrough_test, ppTestData, &router);
+        mal_channel_router_init_deinterleaved(&routerConfig, channel_router_callback__passthrough_test, ppTestData, &router);
 
         float outputA[MAL_MAX_CHANNELS][100];
         float outputB[MAL_MAX_CHANNELS][100];
@@ -1441,7 +1441,7 @@ int do_channel_routing_tests()
         }
 
         // With optimizations.
-        mal_uint64 framesRead = mal_channel_router_read_frames_separated(&router, 100, (void**)ppOutputA);
+        mal_uint64 framesRead = mal_channel_router_read_frames_deinterleaved(&router, 100, (void**)ppOutputA);
         if (framesRead != 100) {
             printf("Returned frame count for optimized incorrect.");
             hasError = MAL_TRUE;
@@ -1450,7 +1450,7 @@ int do_channel_routing_tests()
         // Without optimizations.
         router.isPassthrough = MAL_FALSE;
         router.isSimpleShuffle = MAL_FALSE;
-        framesRead = mal_channel_router_read_frames_separated(&router, 100, (void**)ppOutputB);
+        framesRead = mal_channel_router_read_frames_deinterleaved(&router, 100, (void**)ppOutputB);
         if (framesRead != 100) {
             printf("Returned frame count for unoptimized path incorrect.");
             hasError = MAL_TRUE;
@@ -1486,7 +1486,7 @@ int do_channel_routing_tests()
         mal_get_standard_channel_map(mal_standard_channel_map_microsoft, routerConfig.channelsOut, routerConfig.channelMapOut);
 
         mal_channel_router router;
-        mal_result result = mal_channel_router_init_separated(&routerConfig, channel_router_callback__passthrough_test, NULL, &router);
+        mal_result result = mal_channel_router_init_deinterleaved(&routerConfig, channel_router_callback__passthrough_test, NULL, &router);
         if (result == MAL_SUCCESS) {
             if (router.isPassthrough) {
                 printf("Router incorrectly configured as a passthrough.\n");
@@ -1532,7 +1532,7 @@ int do_channel_routing_tests()
         mal_get_standard_channel_map(mal_standard_channel_map_microsoft, routerConfig.channelsOut, routerConfig.channelMapOut);
 
         mal_channel_router router;
-        mal_result result = mal_channel_router_init_separated(&routerConfig, channel_router_callback__passthrough_test, NULL, &router);
+        mal_result result = mal_channel_router_init_deinterleaved(&routerConfig, channel_router_callback__passthrough_test, NULL, &router);
         if (result == MAL_SUCCESS) {
             if (router.isPassthrough) {
                 printf("Router incorrectly configured as a passthrough.\n");
@@ -1589,7 +1589,7 @@ int do_channel_routing_tests()
         routerConfig.channelMapOut[7] = MAL_CHANNEL_SIDE_RIGHT;
 
         mal_channel_router router;
-        mal_result result = mal_channel_router_init_separated(&routerConfig, channel_router_callback__passthrough_test, NULL, &router);
+        mal_result result = mal_channel_router_init_deinterleaved(&routerConfig, channel_router_callback__passthrough_test, NULL, &router);
         if (result == MAL_SUCCESS) {
             if (router.isPassthrough) {
                 printf("Router incorrectly configured as a passthrough.\n");
@@ -1645,7 +1645,7 @@ int do_channel_routing_tests()
             ppTestData[1][iFrame] = +1;
         }
 
-        mal_channel_router_init_separated(&routerConfig, channel_router_callback__passthrough_test, ppTestData, &router);
+        mal_channel_router_init_deinterleaved(&routerConfig, channel_router_callback__passthrough_test, ppTestData, &router);
 
         float output[MAL_MAX_CHANNELS][100];
         float* ppOutput[MAL_MAX_CHANNELS];
@@ -1653,7 +1653,7 @@ int do_channel_routing_tests()
             ppOutput[iChannel] = output[iChannel];
         }
 
-        mal_uint64 framesRead = mal_channel_router_read_frames_separated(&router, 100, (void**)ppOutput);
+        mal_uint64 framesRead = mal_channel_router_read_frames_deinterleaved(&router, 100, (void**)ppOutput);
         if (framesRead != 100) {
             printf("Returned frame count for optimized incorrect.\n");
             hasError = MAL_TRUE;
@@ -1704,7 +1704,7 @@ int do_channel_routing_tests()
         routerConfig.channelMapOut[1] = MAL_CHANNEL_FRONT_RIGHT;
 
         mal_channel_router router;
-        mal_result result = mal_channel_router_init_separated(&routerConfig, channel_router_callback__passthrough_test, NULL, &router);
+        mal_result result = mal_channel_router_init_deinterleaved(&routerConfig, channel_router_callback__passthrough_test, NULL, &router);
         if (result == MAL_SUCCESS) {
             if (router.isPassthrough) {
                 printf("Router incorrectly configured as a passthrough.\n");
@@ -1769,7 +1769,7 @@ int do_channel_routing_tests()
         routerConfig.channelMapOut[3] = MAL_CHANNEL_LFE;
 
         mal_channel_router router;
-        mal_result result = mal_channel_router_init_separated(&routerConfig, channel_router_callback__passthrough_test, NULL, &router);
+        mal_result result = mal_channel_router_init_deinterleaved(&routerConfig, channel_router_callback__passthrough_test, NULL, &router);
         if (result == MAL_SUCCESS) {
             if (router.isPassthrough) {
                 printf("Router incorrectly configured as a passthrough.\n");
@@ -1822,7 +1822,7 @@ int do_channel_routing_tests()
         routerConfig.channelMapOut[0] = MAL_CHANNEL_MONO;
 
         mal_channel_router router;
-        mal_result result = mal_channel_router_init_separated(&routerConfig, channel_router_callback__passthrough_test, NULL, &router);
+        mal_result result = mal_channel_router_init_deinterleaved(&routerConfig, channel_router_callback__passthrough_test, NULL, &router);
         if (result == MAL_SUCCESS) {
             if (router.isPassthrough) {
                 printf("Router incorrectly configured as a passthrough.\n");
