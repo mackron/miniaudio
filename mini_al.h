@@ -621,7 +621,7 @@ typedef enum
 typedef enum
 {
     mal_channel_mix_mode_simple = 0,        // Drop excess channels; zeroed out extra channels.
-    mal_channel_mix_mode_planar_average,    // Simple averaging based on the plane(s) the channel is sitting on.
+    mal_channel_mix_mode_planar_blend,    // Simple averaging based on the plane(s) the channel is sitting on.
     //mal_channel_mix_mode_spatial,         // Blend channels based on spatial locality.
 } mal_channel_mix_mode;
 
@@ -17243,6 +17243,56 @@ mal_vec3 g_malDefaultChannelPositionsInRoom[MAL_CHANNEL_POSITION_COUNT] = {
 
 float mal_calculate_channel_position_planar_weight(mal_channel channelPositionA, mal_channel channelPositionB)
 {
+    // Imagine the following simplified example: You have a single input speaker which is the front/left speaker which you want to convert to
+    // the following output configuration:
+    //
+    //  - front/left
+    //  - side/left
+    //  - back/left
+    //
+    // The front/left output is easy - it the same speaker position so it receives the full contribution of the front/left input. The amount
+    // of contribution to apply to the side/left and back/left speakers, however, is a bit more complicated.
+    //
+    // Imagine the front/left speaker as emitting audio from two planes - the front plane and the left plane. You can think of the front/left
+    // speaker emitting half of it's total volume from the front, and the other half from the left. Since part of it's volume is being emitted
+    // from the left side, and the side/left and back/left channels also emit audio from the left plane, one would expect that they would
+    // receive some amount of contribution from front/left speaker. The amount of contribution depends on how many planes are shared between
+    // the two speakers. Note that in the examples below I've added a top/front/left speaker as an example just to show how the math works
+    // across 3 spatial dimensions.
+    //
+    // The first thing to do is figure out how each speaker's volume is spread over each of plane:
+    //  - front/left:     2 planes (front and left)      = 1/2 = half it's total volume on each plane
+    //  - side/left:      1 plane (left only)            = 1/1 = entire volume from left plane
+    //  - back/left:      2 planes (back and left)       = 1/2 = half it's total volume on each plane
+    //  - top/front/left: 3 planes (top, front and left) = 1/3 = one third it's total volume on each plane
+    //
+    // Now that we know how much volume each speaker emits for each of the planes it emits audio from we need to know how many planes are shared
+    // between the two speakers:
+    //  - front/left (in) and front/left (out):     2 shared planes (front and left)
+    //  - front/left (in) and side/left (out):      1 shared plane (left)
+    //  - front/left (in) and back/left (out):      1 shared plane (left)
+    //  - front/left (in) and top/front/left (out): 2 shared planes (front and left)
+    //
+    // We now have enough information to know how much audio the input speaker gives to each of it's output:
+    //
+    //   volumeToGive = volumePerInputSpeakerPlane * sharedPlaneCount
+    //
+    // We can also determine how much volume an output speaker should take:
+    //
+    //   volumeToTake = volumePerOutputSpeakerPlane * sharedPlaneCount
+    //
+    // Thus, the final contribution is:
+    //
+    //   contribution = volumeToGive * volumeToTake
+    //
+    // Contributions for each of our examples:
+    //
+    //   front/left to front/left     = (1/2 * 2) * (1/2 * 2) = 0.5*2.0 * 0.5*2.0  = 1.0*1.0  = 1.0
+    //   front/left to side/left      = (1/2 * 1) * (1/1 * 1) = 0.5*1.0 * 1.0*1.0  = 0.5*1.0  = 0.5
+    //   front/left to back/left      = (1/2 * 1) * (1/2 * 1) = 0.5*1.0 * 0.5*1.0  = 0.5*0.5  = 0.25
+    //   front/left to top/front/left = (1/2 * 2) * (1/3 * 2) = 0.5*2.0 * 0.33*2.0 = 1.0*0.66 = 0.66
+
+
     mal_vec3 roomPosA = g_malDefaultChannelPositionsInRoom[channelPositionA];
     mal_vec3 roomPosB = g_malDefaultChannelPositionsInRoom[channelPositionB];
 
@@ -17250,6 +17300,11 @@ float mal_calculate_channel_position_planar_weight(mal_channel channelPositionA,
     if (roomPosA.x < 0 || roomPosA.x > 0) planeCountA += 1;
     if (roomPosA.y < 0 || roomPosA.y > 0) planeCountA += 1;
     if (roomPosA.z < 0 || roomPosA.z > 0) planeCountA += 1;
+
+    mal_uint32 planeCountB = 0;
+    if (roomPosB.x < 0 || roomPosB.x > 0) planeCountB += 1;
+    if (roomPosB.y < 0 || roomPosB.y > 0) planeCountB += 1;
+    if (roomPosB.z < 0 || roomPosB.z > 0) planeCountB += 1;
 
     mal_uint32 sharedPlaneCount = 0;
     if (roomPosA.x < 0 && roomPosB.x < 0) sharedPlaneCount += 1;
@@ -17266,9 +17321,16 @@ float mal_calculate_channel_position_planar_weight(mal_channel channelPositionA,
         return 0;
     }
 
-    return (float)planeCountA / sharedPlaneCount;
+    mal_assert(planeCountA > 0);
+    mal_assert(planeCountB > 0);
+
+    float contributionA = 1.0f/planeCountA * sharedPlaneCount;
+    float contributionB = 1.0f/planeCountB * sharedPlaneCount;
+
+    return contributionA * contributionB;
 }
 
+#if 0
 float mal_calculate_channel_position_spatial_weight(mal_channel channelPositionA, mal_channel channelPositionB, mal_vec3 listenerRoomPos)
 {
     // The weight between two channel positions is determined by the orientation and position relative to the virtual listener.
@@ -17291,7 +17353,9 @@ float mal_calculate_channel_position_spatial_weight(mal_channel channelPositionA
     weight = weight * distFalloffExp;
     return weight;
 }
+#endif
 
+#if 0
 mal_uint32 mal_channel_router__get_number_of_channels_on_same_planes(mal_channel channelPosition, mal_uint32 channelCount, const mal_channel channelMap[MAL_MAX_CHANNELS])
 {
     mal_uint32 count = 0;
@@ -17330,20 +17394,17 @@ mal_uint32 mal_channel_router__get_number_of_channels_on_same_planes(mal_channel
 
     return count;
 }
+#endif
 
 float mal_channel_router__calculate_input_channel_planar_weight(const mal_channel_router* pRouter, mal_channel channelPositionIn, mal_channel channelPositionOut)
 {
     mal_assert(pRouter != NULL);
+    (void)pRouter;
 
-    float weight = mal_calculate_channel_position_planar_weight(channelPositionIn, channelPositionOut);
-
-    // At this point the weight will be 0/3, 1/3, 2/3 or 3/3, depending on how many planes are shared between the two channels. Now
-    // we need to find out how many input channels are sitting on the planes that channelPosIn is sitting on, then divide the weight
-    // by that number to find the average.
-    weight = weight / mal_channel_router__get_number_of_channels_on_same_planes(channelPositionIn, pRouter->config.channelsIn, pRouter->config.channelMapIn);
-    return weight;
+    return mal_calculate_channel_position_planar_weight(channelPositionIn, channelPositionOut);
 }
 
+#if 0
 float mal_channel_router__calculate_spatial_weight(const mal_channel_router* pRouter, mal_channel channelPositionA, mal_channel channelPositionB)
 {
     mal_assert(pRouter != NULL);
@@ -17351,6 +17412,7 @@ float mal_channel_router__calculate_spatial_weight(const mal_channel_router* pRo
 
     return mal_calculate_channel_position_spatial_weight(channelPositionA, channelPositionB, mal_vec3f(0, 0, 0));
 }
+#endif
 
 mal_bool32 mal_channel_router__is_spatial_channel_position(const mal_channel_router* pRouter, mal_channel channelPosition)
 {
@@ -17446,9 +17508,13 @@ mal_result mal_channel_router_init__common(const mal_channel_router_config* pCon
 
 
     // Here is where weights are calculated. Note that we calculate the weights at all times, even when using a passthrough and simple
-    // simple shuffling because we want the client to have the ability to freely modify the weights.
-
-    // The first step is to map 1:1 matching channels.
+    // shuffling. We use different algorithms for calculating weights depending on our mixing mode.
+    //
+    // In simple mode we don't do any blending (except for converting between mono, which is done in a later step). Instead we just
+    // map 1:1 matching channels. In this mode, if no channels in the input channel map correspond to anything in the output channel
+    // map, nothing will be heard!
+    
+    // In all cases we need to make sure all channels that are present in both channel maps have a 1:1 mapping.
     for (mal_uint32 iChannelIn = 0; iChannelIn < pRouter->config.channelsIn; ++iChannelIn) {
         mal_channel channelPosIn = pRouter->config.channelMapIn[iChannelIn];
 
@@ -17510,7 +17576,7 @@ mal_result mal_channel_router_init__common(const mal_channel_router_config* pCon
 
     // Input and output channels that are not present on the other side need to be blended in based on spatial locality.
     if (pRouter->config.mixingMode != mal_channel_mix_mode_simple) {
-        // Input channels that are not present in output channel map.
+        // Unmapped input channels.
         for (mal_uint32 iChannelIn = 0; iChannelIn < pRouter->config.channelsIn; ++iChannelIn) {
             mal_channel channelPosIn = pRouter->config.channelMapIn[iChannelIn];
 
@@ -17521,7 +17587,7 @@ mal_result mal_channel_router_init__common(const mal_channel_router_config* pCon
 
                         if (mal_channel_router__is_spatial_channel_position(pRouter, channelPosOut)) {
                             float weight = 0;
-                            if (pRouter->config.mixingMode == mal_channel_mix_mode_planar_average) {
+                            if (pRouter->config.mixingMode == mal_channel_mix_mode_planar_blend) {
                                 weight = mal_channel_router__calculate_input_channel_planar_weight(pRouter, channelPosIn, channelPosOut);
                             }
                             #if 0
@@ -17540,8 +17606,7 @@ mal_result mal_channel_router_init__common(const mal_channel_router_config* pCon
             }
         }
 
-
-        // Output channels that are not present in input channel map.
+        // Unmapped output channels.
         for (mal_uint32 iChannelOut = 0; iChannelOut < pRouter->config.channelsOut; ++iChannelOut) {
             mal_channel channelPosOut = pRouter->config.channelMapOut[iChannelOut];
 
@@ -17552,7 +17617,7 @@ mal_result mal_channel_router_init__common(const mal_channel_router_config* pCon
 
                         if (mal_channel_router__is_spatial_channel_position(pRouter, channelPosIn)) {
                             float weight = 0;
-                            if (pRouter->config.mixingMode == mal_channel_mix_mode_planar_average) {
+                            if (pRouter->config.mixingMode == mal_channel_mix_mode_planar_blend) {
                                 weight = mal_channel_router__calculate_input_channel_planar_weight(pRouter, channelPosIn, channelPosOut);
                             }
                             #if 0

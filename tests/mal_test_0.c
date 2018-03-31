@@ -1261,6 +1261,365 @@ int do_format_converter_tests()
 }
 
 
+mal_uint32 channel_router_callback__passthrough_test(mal_channel_router* pRouter, mal_uint32 frameCount, void** ppSamplesOut, void* pUserData)
+{
+    (void)pUserData;
+
+    for (mal_uint32 iChannel = 0; iChannel < pRouter->config.channelsIn; ++iChannel) {
+        mal_zero_memory(ppSamplesOut[iChannel], sizeof(float)*frameCount);
+    }
+
+    return frameCount;
+}
+
+int do_channel_routing_tests()
+{
+    mal_bool32 hasError = MAL_FALSE;
+
+    printf("Passthrough... ");
+    {
+        mal_channel_router_config routerConfig;
+        mal_zero_object(&routerConfig);
+        routerConfig.mixingMode = mal_channel_mix_mode_planar_blend;
+        routerConfig.channelsIn = 6;
+        routerConfig.channelsOut = 6;
+        mal_get_standard_channel_map(mal_standard_channel_map_microsoft, routerConfig.channelsIn, routerConfig.channelMapIn);
+        mal_get_standard_channel_map(mal_standard_channel_map_microsoft, routerConfig.channelsOut, routerConfig.channelMapOut);
+        
+
+        mal_channel_router router;
+        mal_result result = mal_channel_router_init_separated(&routerConfig, channel_router_callback__passthrough_test, NULL, &router);
+        if (result == MAL_SUCCESS) {
+            // Expecing a passthrough.
+            if (!router.isPassthrough) {
+                printf("Failed to init router as passthrough.\n");
+                hasError = MAL_TRUE;
+            }
+            
+            // Expecting the weights to all be equal to 1 for each channel.
+            for (mal_uint32 iChannelIn = 0; iChannelIn < routerConfig.channelsIn; ++iChannelIn) {
+                for (mal_uint32 iChannelOut = 0; iChannelOut < routerConfig.channelsOut; ++iChannelOut) {
+                    float expectedWeight = 0;
+                    if (iChannelIn == iChannelOut) {
+                        expectedWeight = 1;
+                    }
+
+                    if (router.weights[iChannelIn][iChannelOut] != expectedWeight) {
+                        printf("Failed. Channel weight incorrect: %f\n", expectedWeight);
+                        hasError = MAL_TRUE;
+                    }
+                }
+            }
+        } else {
+            printf("Failed to init router.\n");
+            hasError = MAL_TRUE;
+        }
+
+        if (!hasError) {
+            printf("PASSED\n");
+        }
+    }
+
+    printf("Shuffle... ");
+    {
+        // The shuffle is tested by simply reversing the order of the channels. Doing a reversal just makes it easier to
+        // check that everything is working.
+
+        mal_channel_router_config routerConfig;
+        mal_zero_object(&routerConfig);
+        routerConfig.mixingMode = mal_channel_mix_mode_planar_blend;
+        routerConfig.channelsIn = 6;
+        routerConfig.channelsOut = routerConfig.channelsIn;
+        mal_get_standard_channel_map(mal_standard_channel_map_microsoft, routerConfig.channelsIn, routerConfig.channelMapIn);
+        for (mal_uint32 iChannel = 0; iChannel < routerConfig.channelsIn; ++iChannel) {
+            routerConfig.channelMapOut[iChannel] = routerConfig.channelMapIn[routerConfig.channelsIn - iChannel - 1];
+        }
+
+        mal_channel_router router;
+        mal_result result = mal_channel_router_init_separated(&routerConfig, channel_router_callback__passthrough_test, NULL, &router);
+        if (result == MAL_SUCCESS) {
+            // Expecing a shuffle, but not a passthrough.
+            if (router.isPassthrough) {
+                printf("Router incorrectly configured as a passthrough.\n");
+                hasError = MAL_TRUE;
+            }
+            if (!router.isSimpleShuffle) {
+                printf("Router not configured as a simple shuffle.\n");
+                hasError = MAL_TRUE;
+            }
+            
+            // Expecting the weights to all be equal to 1 for each channel.
+            for (mal_uint32 iChannelIn = 0; iChannelIn < routerConfig.channelsIn; ++iChannelIn) {
+                for (mal_uint32 iChannelOut = 0; iChannelOut < routerConfig.channelsOut; ++iChannelOut) {
+                    float expectedWeight = 0;
+                    if (iChannelIn == (routerConfig.channelsOut - iChannelOut - 1)) {
+                        expectedWeight = 1;
+                    }
+
+                    if (router.weights[iChannelIn][iChannelOut] != expectedWeight) {
+                        printf("Failed. Channel weight incorrect: %f\n", expectedWeight);
+                        hasError = MAL_TRUE;
+                    }
+                }
+            }
+        } else {
+            printf("Failed to init router.\n");
+            hasError = MAL_TRUE;
+        }
+
+        if (!hasError) {
+            printf("PASSED\n");
+        }
+    }
+
+    printf("Simple Conversion (Stereo -> 5.1)... ");
+    {
+        // This tests takes a Stereo to 5.1 conversion using the simple mixing mode. We should expect 0 and 1 (front/left, front/right) to have
+        // weights of 1, and the others to have a weight of 0.
+
+        mal_channel_router_config routerConfig;
+        mal_zero_object(&routerConfig);
+        routerConfig.mixingMode = mal_channel_mix_mode_simple;
+        routerConfig.channelsIn = 2;
+        routerConfig.channelsOut = 6;
+        mal_get_standard_channel_map(mal_standard_channel_map_microsoft, routerConfig.channelsIn, routerConfig.channelMapIn);
+        mal_get_standard_channel_map(mal_standard_channel_map_microsoft, routerConfig.channelsOut, routerConfig.channelMapOut);
+
+        mal_channel_router router;
+        mal_result result = mal_channel_router_init_separated(&routerConfig, channel_router_callback__passthrough_test, NULL, &router);
+        if (result == MAL_SUCCESS) {
+            // Expecing a shuffle, but not a passthrough.
+            if (router.isPassthrough) {
+                printf("Router incorrectly configured as a passthrough.\n");
+                hasError = MAL_TRUE;
+            }
+            if (router.isSimpleShuffle) {
+                printf("Router incorrectly configured as a simple shuffle.\n");
+                hasError = MAL_TRUE;
+            }
+            
+            // Expecting the weights to all be equal to 1 for each channel.
+            for (mal_uint32 iChannelIn = 0; iChannelIn < routerConfig.channelsIn; ++iChannelIn) {
+                for (mal_uint32 iChannelOut = 0; iChannelOut < routerConfig.channelsOut; ++iChannelOut) {
+                    float expectedWeight = 0;
+                    if (routerConfig.channelMapIn[iChannelIn] == routerConfig.channelMapOut[iChannelOut]) {
+                        expectedWeight = 1;
+                    }
+
+                    if (router.weights[iChannelIn][iChannelOut] != expectedWeight) {
+                        printf("Failed. Channel weight incorrect: %f\n", expectedWeight);
+                        hasError = MAL_TRUE;
+                    }
+                }
+            }
+        } else {
+            printf("Failed to init router.\n");
+            hasError = MAL_TRUE;
+        }
+
+        if (!hasError) {
+            printf("PASSED\n");
+        }
+    }
+
+    printf("Simple Conversion (5.1 -> Stereo)... ");
+    {
+        mal_channel_router_config routerConfig;
+        mal_zero_object(&routerConfig);
+        routerConfig.mixingMode = mal_channel_mix_mode_simple;
+        routerConfig.channelsIn = 6;
+        routerConfig.channelsOut = 2;
+        mal_get_standard_channel_map(mal_standard_channel_map_microsoft, routerConfig.channelsIn, routerConfig.channelMapIn);
+        mal_get_standard_channel_map(mal_standard_channel_map_microsoft, routerConfig.channelsOut, routerConfig.channelMapOut);
+
+        mal_channel_router router;
+        mal_result result = mal_channel_router_init_separated(&routerConfig, channel_router_callback__passthrough_test, NULL, &router);
+        if (result == MAL_SUCCESS) {
+            // Expecing a shuffle, but not a passthrough.
+            if (router.isPassthrough) {
+                printf("Router incorrectly configured as a passthrough.\n");
+                hasError = MAL_TRUE;
+            }
+            if (router.isSimpleShuffle) {
+                printf("Router incorrectly configured as a simple shuffle.\n");
+                hasError = MAL_TRUE;
+            }
+            
+            // Expecting the weights to all be equal to 1 for each channel.
+            for (mal_uint32 iChannelIn = 0; iChannelIn < routerConfig.channelsIn; ++iChannelIn) {
+                for (mal_uint32 iChannelOut = 0; iChannelOut < routerConfig.channelsOut; ++iChannelOut) {
+                    float expectedWeight = 0;
+                    if (routerConfig.channelMapIn[iChannelIn] == routerConfig.channelMapOut[iChannelOut]) {
+                        expectedWeight = 1;
+                    }
+
+                    if (router.weights[iChannelIn][iChannelOut] != expectedWeight) {
+                        printf("Failed. Channel weight incorrect: %f\n", expectedWeight);
+                        hasError = MAL_TRUE;
+                    }
+                }
+            }
+        } else {
+            printf("Failed to init router.\n");
+            hasError = MAL_TRUE;
+        }
+
+        if (!hasError) {
+            printf("PASSED\n");
+        }
+    }
+
+    printf("Planar Blend Conversion (Stereo -> 5.1)... ");
+    {
+        mal_channel_router_config routerConfig;
+        mal_zero_object(&routerConfig);
+        routerConfig.mixingMode = mal_channel_mix_mode_planar_blend;
+        
+        // Use very specific mappings for this test.
+        routerConfig.channelsIn = 2;
+        routerConfig.channelMapIn[0] = MAL_CHANNEL_FRONT_LEFT;
+        routerConfig.channelMapIn[1] = MAL_CHANNEL_FRONT_RIGHT;
+
+        routerConfig.channelsOut = 8;
+        routerConfig.channelMapOut[0] = MAL_CHANNEL_FRONT_LEFT;
+        routerConfig.channelMapOut[1] = MAL_CHANNEL_FRONT_RIGHT;
+        routerConfig.channelMapOut[2] = MAL_CHANNEL_FRONT_CENTER;
+        routerConfig.channelMapOut[3] = MAL_CHANNEL_LFE;
+        routerConfig.channelMapOut[4] = MAL_CHANNEL_BACK_LEFT;
+        routerConfig.channelMapOut[5] = MAL_CHANNEL_BACK_RIGHT;
+        routerConfig.channelMapOut[6] = MAL_CHANNEL_SIDE_LEFT;
+        routerConfig.channelMapOut[7] = MAL_CHANNEL_SIDE_RIGHT;
+
+        mal_channel_router router;
+        mal_result result = mal_channel_router_init_separated(&routerConfig, channel_router_callback__passthrough_test, NULL, &router);
+        if (result == MAL_SUCCESS) {
+            // Expecing a shuffle, but not a passthrough.
+            if (router.isPassthrough) {
+                printf("Router incorrectly configured as a passthrough.\n");
+                hasError = MAL_TRUE;
+            }
+            if (router.isSimpleShuffle) {
+                printf("Router incorrectly configured as a simple shuffle.\n");
+                hasError = MAL_TRUE;
+            }
+            
+            float expectedWeights[MAL_MAX_CHANNELS][MAL_MAX_CHANNELS];
+            mal_zero_memory(expectedWeights, sizeof(expectedWeights));
+            expectedWeights[0][0] = 1.0f;   // FRONT_LEFT -> FRONT_LEFT
+            expectedWeights[0][1] = 0.0f;   // FRONT_LEFT -> FRONT_RIGHT
+            expectedWeights[0][2] = 0.5f;   // FRONT_LEFT -> FRONT_CENTER
+            expectedWeights[0][3] = 0.0f;   // FRONT_LEFT -> LFE
+            expectedWeights[0][4] = 0.25f;  // FRONT_LEFT -> BACK_LEFT
+            expectedWeights[0][5] = 0.0f;   // FRONT_LEFT -> BACK_RIGHT
+            expectedWeights[0][6] = 0.5f;   // FRONT_LEFT -> SIDE_LEFT
+            expectedWeights[0][7] = 0.0f;   // FRONT_LEFT -> SIDE_RIGHT
+            expectedWeights[1][0] = 0.0f;   // FRONT_RIGHT -> FRONT_LEFT
+            expectedWeights[1][1] = 1.0f;   // FRONT_RIGHT -> FRONT_RIGHT
+            expectedWeights[1][2] = 0.5f;   // FRONT_RIGHT -> FRONT_CENTER
+            expectedWeights[1][3] = 0.0f;   // FRONT_RIGHT -> LFE
+            expectedWeights[1][4] = 0.0f;   // FRONT_RIGHT -> BACK_LEFT
+            expectedWeights[1][5] = 0.25f;  // FRONT_RIGHT -> BACK_RIGHT
+            expectedWeights[1][6] = 0.0f;   // FRONT_RIGHT -> SIDE_LEFT
+            expectedWeights[1][7] = 0.5f;   // FRONT_RIGHT -> SIDE_RIGHT
+
+            for (mal_uint32 iChannelIn = 0; iChannelIn < routerConfig.channelsIn; ++iChannelIn) {
+                for (mal_uint32 iChannelOut = 0; iChannelOut < routerConfig.channelsOut; ++iChannelOut) {
+                    if (router.weights[iChannelIn][iChannelOut] != expectedWeights[iChannelIn][iChannelOut]) {
+                        printf("Failed. Channel weight incorrect for [%d][%d]. Expected %f, got %f\n", iChannelIn, iChannelOut, expectedWeights[iChannelIn][iChannelOut], router.weights[iChannelIn][iChannelOut]);
+                        hasError = MAL_TRUE;
+                    }
+                }
+            }
+        } else {
+            printf("Failed to init router.\n");
+            hasError = MAL_TRUE;
+        }
+
+        if (!hasError) {
+            printf("PASSED\n");
+        }
+    }
+
+    printf("Planar Blend Conversion (5.1 -> Stereo)... ");
+    {
+        mal_channel_router_config routerConfig;
+        mal_zero_object(&routerConfig);
+        routerConfig.mixingMode = mal_channel_mix_mode_planar_blend;
+        
+        // Use very specific mappings for this test.
+        routerConfig.channelsIn = 8;
+        routerConfig.channelMapIn[0] = MAL_CHANNEL_FRONT_LEFT;
+        routerConfig.channelMapIn[1] = MAL_CHANNEL_FRONT_RIGHT;
+        routerConfig.channelMapIn[2] = MAL_CHANNEL_FRONT_CENTER;
+        routerConfig.channelMapIn[3] = MAL_CHANNEL_LFE;
+        routerConfig.channelMapIn[4] = MAL_CHANNEL_BACK_LEFT;
+        routerConfig.channelMapIn[5] = MAL_CHANNEL_BACK_RIGHT;
+        routerConfig.channelMapIn[6] = MAL_CHANNEL_SIDE_LEFT;
+        routerConfig.channelMapIn[7] = MAL_CHANNEL_SIDE_RIGHT;
+
+        routerConfig.channelsOut = 2;
+        routerConfig.channelMapOut[0] = MAL_CHANNEL_FRONT_LEFT;
+        routerConfig.channelMapOut[1] = MAL_CHANNEL_FRONT_RIGHT;
+
+        mal_channel_router router;
+        mal_result result = mal_channel_router_init_separated(&routerConfig, channel_router_callback__passthrough_test, NULL, &router);
+        if (result == MAL_SUCCESS) {
+            // Expecing a shuffle, but not a passthrough.
+            if (router.isPassthrough) {
+                printf("Router incorrectly configured as a passthrough.\n");
+                hasError = MAL_TRUE;
+            }
+            if (router.isSimpleShuffle) {
+                printf("Router incorrectly configured as a simple shuffle.\n");
+                hasError = MAL_TRUE;
+            }
+            
+            float expectedWeights[MAL_MAX_CHANNELS][MAL_MAX_CHANNELS];
+            mal_zero_memory(expectedWeights, sizeof(expectedWeights));
+            expectedWeights[0][0] = 1.0f;   // FRONT_LEFT   -> FRONT_LEFT
+            expectedWeights[1][0] = 0.0f;   // FRONT_RIGHT  -> FRONT_LEFT
+            expectedWeights[2][0] = 0.5f;   // FRONT_CENTER -> FRONT_LEFT
+            expectedWeights[3][0] = 0.0f;   // LFE          -> FRONT_LEFT
+            expectedWeights[4][0] = 0.25f;  // BACK_LEFT    -> FRONT_LEFT
+            expectedWeights[5][0] = 0.0f;   // BACK_RIGHT   -> FRONT_LEFT
+            expectedWeights[6][0] = 0.5f;   // SIDE_LEFT    -> FRONT_LEFT
+            expectedWeights[7][0] = 0.0f;   // SIDE_RIGHT   -> FRONT_LEFT
+            expectedWeights[0][1] = 0.0f;   // FRONT_LEFT   -> FRONT_RIGHT
+            expectedWeights[1][1] = 1.0f;   // FRONT_RIGHT  -> FRONT_RIGHT
+            expectedWeights[2][1] = 0.5f;   // FRONT_CENTER -> FRONT_RIGHT
+            expectedWeights[3][1] = 0.0f;   // LFE          -> FRONT_RIGHT
+            expectedWeights[4][1] = 0.0f;   // BACK_LEFT    -> FRONT_RIGHT
+            expectedWeights[5][1] = 0.25f;  // BACK_RIGHT   -> FRONT_RIGHT
+            expectedWeights[6][1] = 0.0f;   // SIDE_LEFT    -> FRONT_RIGHT
+            expectedWeights[7][1] = 0.5f;   // SIDE_RIGHT   -> FRONT_RIGHT
+
+            for (mal_uint32 iChannelIn = 0; iChannelIn < routerConfig.channelsIn; ++iChannelIn) {
+                for (mal_uint32 iChannelOut = 0; iChannelOut < routerConfig.channelsOut; ++iChannelOut) {
+                    if (router.weights[iChannelIn][iChannelOut] != expectedWeights[iChannelIn][iChannelOut]) {
+                        printf("Failed. Channel weight incorrect for [%d][%d]. Expected %f, got %f\n", iChannelIn, iChannelOut, expectedWeights[iChannelIn][iChannelOut], router.weights[iChannelIn][iChannelOut]);
+                        hasError = MAL_TRUE;
+                    }
+                }
+            }
+        } else {
+            printf("Failed to init router.\n");
+            hasError = MAL_TRUE;
+        }
+
+        if (!hasError) {
+            printf("PASSED\n");
+        }
+    }
+
+
+    if (hasError) {
+        return -1;
+    } else {
+        return 0;
+    }
+}
+
+
 int do_backend_test(mal_backend backend)
 {
     mal_result result = MAL_SUCCESS;
@@ -1491,6 +1850,7 @@ int main(int argc, char** argv)
     mal_bool32 hasErrorOccurred = MAL_FALSE;
     int result = 0;
 
+    // Format Conversion
     printf("=== TESTING FORMAT CONVERSION ===\n");
     result = do_format_conversion_tests();
     if (result < 0) {
@@ -1500,6 +1860,7 @@ int main(int argc, char** argv)
     
     printf("\n");
 
+    // Interleaving / Deinterleaving
     printf("=== TESTING INTERLEAVING/DEINTERLEAVING ===\n");
     result = do_interleaving_tests();
     if (result < 0) {
@@ -1509,6 +1870,7 @@ int main(int argc, char** argv)
 
     printf("\n");
 
+    // mal_format_convert
     printf("=== TESTING FORMAT CONVERTER ===\n");
     result = do_format_converter_tests();
     if (result < 0) {
@@ -1517,7 +1879,18 @@ int main(int argc, char** argv)
     printf("=== END TESTING FORMAT CONVERTER ===\n");
     
     printf("\n");
+
+    // Channel Routing
+    printf("=== TESTING CHANNEL ROUTING ===\n");
+    result = do_channel_routing_tests();
+    if (result < 0) {
+        hasErrorOccurred = MAL_TRUE;
+    }
+    printf("=== END TESTING CHANNEL ROUTING ===\n");
     
+    printf("\n");
+    
+    // Backends
     printf("=== TESTING BACKENDS ===\n");
     result = do_backend_tests();
     if (result < 0) {
@@ -1527,6 +1900,7 @@ int main(int argc, char** argv)
 
     printf("\n");
 
+    // Default Playback Devices
     printf("=== TESTING DEFAULT PLAYBACK DEVICES ===\n");
     result = do_playback_tests();
     if (result < 0) {
