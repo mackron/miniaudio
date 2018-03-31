@@ -809,6 +809,7 @@ typedef struct
     mal_uint32  sampleRateOut;
     mal_channel channelMapOut[MAL_MAX_CHANNELS];
     mal_channel_mix_mode channelMixMode;
+    mal_src_algorithm srcAlgorithm;
     mal_uint32  cacheSizeInFrames;  // Applications should set this to 0 for now.
 } mal_dsp_config;
 
@@ -821,11 +822,16 @@ struct mal_dsp
     mal_format_converter formatConverterOut;            // For converting data to the requested output format. Used as the final step in the processing pipeline.
     mal_channel_router channelRouter;                   // For channel conversion.
     mal_src src;                                        // For sample rate conversion.
+    mal_bool32 isPreFormatConversionRequired  : 1;
+    mal_bool32 isPostFormatConversionRequired : 1;
+    mal_bool32 isChannelRoutingRequired       : 1;
+    mal_bool32 isSRCRequired                  : 1;
+    mal_bool32 isChannelRoutingAtStart        : 1;
+    mal_bool32 isPassthrough                  : 1;      // <-- Will be set to true when the DSP pipeline is an optimized passthrough.
+
     mal_channel channelMapInPostMix[MAL_MAX_CHANNELS];  // <-- When mixing, new channels may need to be created. This represents the channel map after mixing.
     mal_channel channelShuffleTable[MAL_MAX_CHANNELS];
     mal_bool32 isChannelMappingRequired : 1;
-    mal_bool32 isSRCRequired : 1;
-    mal_bool32 isPassthrough : 1;                       // <-- Will be set to true when the DSP pipeline is an optimized passthrough.
 };
 
 
@@ -1861,7 +1867,7 @@ mal_result mal_channel_router_init_deinterleaved(const mal_channel_router_config
 mal_uint64 mal_channel_router_read_frames_deinterleaved(mal_channel_router* pRouter, mal_uint64 frameCount, void** ppSamplesOut);
 
 // Helper for initializing a channel router config.
-mal_channel_router_config mal_channel_router_config_init(mal_uint32 channelsIn, mal_channel channelMapIn[MAL_MAX_CHANNELS], mal_uint32 channelsOut, mal_channel channelMapOut[MAL_MAX_CHANNELS], mal_channel_mix_mode mixingMode);
+mal_channel_router_config mal_channel_router_config_init(mal_uint32 channelsIn, const mal_channel channelMapIn[MAL_MAX_CHANNELS], mal_uint32 channelsOut, const mal_channel channelMapOut[MAL_MAX_CHANNELS], mal_channel_mix_mode mixingMode);
 
 
 ///////////////////////////////////////////////////////////////////////////////
@@ -1894,6 +1900,7 @@ mal_uint64 mal_src_read_frames(mal_src* pSRC, mal_uint64 frameCount, void* pFram
 // pipelines. The problem, however, is that sometimes you need those last few samples (such as if you're doing a bulk conversion
 // of a static file). Enabling flushing will fix this for you.
 mal_uint64 mal_src_read_frames_ex(mal_src* pSRC, mal_uint64 frameCount, void* pFramesOut, mal_bool32 flush);
+mal_uint64 mal_src_read_frames_deinterleaved_ex(mal_src* pSRC, mal_uint64 frameCount, void** ppSamplesOut, mal_bool32 flush);
 
 
 
@@ -17288,7 +17295,7 @@ float mal_calculate_channel_position_planar_weight(mal_channel channelPositionA,
     //  - front/left (in) and back/left (out):      1 shared plane (left)
     //  - front/left (in) and top/front/left (out): 2 shared planes (front and left)
     //
-    // We now have enough information to know how much audio the input speaker gives to each of it's output:
+    // We now have enough information to know how much audio the input speaker gives to each of it's outputs:
     //
     //   volumeToGive = volumePerInputSpeakerPlane * sharedPlaneCount
     //
@@ -17306,7 +17313,6 @@ float mal_calculate_channel_position_planar_weight(mal_channel channelPositionA,
     //   front/left to side/left      = (1/2 * 1) * (1/1 * 1) = 0.5*1.0 * 1.0*1.0  = 0.5*1.0  = 0.5
     //   front/left to back/left      = (1/2 * 1) * (1/2 * 1) = 0.5*1.0 * 0.5*1.0  = 0.5*0.5  = 0.25
     //   front/left to top/front/left = (1/2 * 2) * (1/3 * 2) = 0.5*2.0 * 0.33*2.0 = 1.0*0.66 = 0.66
-
 
     mal_vec3 roomPosA = g_malDefaultChannelPositionsInRoom[channelPositionA];
     mal_vec3 roomPosB = g_malDefaultChannelPositionsInRoom[channelPositionB];
@@ -17778,7 +17784,7 @@ mal_uint64 mal_channel_router_read_frames_deinterleaved(mal_channel_router* pRou
     return totalFramesRead;
 }
 
-mal_channel_router_config mal_channel_router_config_init(mal_uint32 channelsIn, mal_channel channelMapIn[MAL_MAX_CHANNELS], mal_uint32 channelsOut, mal_channel channelMapOut[MAL_MAX_CHANNELS], mal_channel_mix_mode mixingMode)
+mal_channel_router_config mal_channel_router_config_init(mal_uint32 channelsIn, const mal_channel channelMapIn[MAL_MAX_CHANNELS], mal_uint32 channelsOut, const mal_channel channelMapOut[MAL_MAX_CHANNELS], mal_channel_mix_mode mixingMode)
 {
     mal_channel_router_config config;
     mal_zero_object(&config);
@@ -17967,6 +17973,22 @@ mal_uint64 mal_src_read_frames_ex(mal_src* pSRC, mal_uint64 frameCount, void* pF
         case mal_src_algorithm_linear: return mal_src_read_frames_linear(pSRC, frameCount, pFramesOut, flush);
         default: return 0;
     }
+}
+
+mal_uint64 mal_src_read_frames_deinterleaved(mal_src* pSRC, mal_uint64 frameCount, void** ppSamplesOut)
+{
+    return mal_src_read_frames_deinterleaved_ex(pSRC, frameCount, ppSamplesOut, MAL_FALSE);
+}
+
+mal_uint64 mal_src_read_frames_deinterleaved_ex(mal_src* pSRC, mal_uint64 frameCount, void** ppSamplesOut, mal_bool32 flush)
+{
+    (void)pSRC;
+    (void)frameCount;
+    (void)ppSamplesOut;
+    (void)flush;
+
+    // TODO: Implement me.
+    return 0;
 }
 
 mal_uint64 mal_src_read_frames_passthrough(mal_src* pSRC, mal_uint64 frameCount, void* pFramesOut, mal_bool32 flush)
@@ -18657,6 +18679,49 @@ void mal_dsp_mix_channels(float* pFramesOut, mal_uint32 channelsOut, const mal_c
 }
 
 
+mal_uint32 mal_dsp__pre_format_converter_on_read(mal_format_converter* pConverter, mal_uint32 frameCount, void* pFramesOut, void* pUserData)
+{
+    (void)pConverter;
+
+    mal_dsp* pDSP = (mal_dsp*)pUserData;
+    mal_assert(pDSP != NULL);
+
+    return pDSP->onRead(pDSP, frameCount, pFramesOut, pDSP->pUserDataForOnRead);
+}
+
+mal_uint32 mal_dsp__post_format_converter_on_read(mal_format_converter* pConverter, mal_uint32 frameCount, void* pFramesOut, void* pUserData)
+{
+    (void)pConverter;
+
+    mal_dsp* pDSP = (mal_dsp*)pUserData;
+    mal_assert(pDSP != NULL);
+
+    // When this version of this callback is used it means we're reading directly from the client.
+    mal_assert(pDSP->isPreFormatConversionRequired == MAL_FALSE);
+    mal_assert(pDSP->isChannelRoutingRequired == MAL_FALSE);
+    mal_assert(pDSP->isSRCRequired == MAL_FALSE);
+
+    return pDSP->onRead(pDSP, frameCount, pFramesOut, pDSP->pUserDataForOnRead);
+}
+
+mal_uint32 mal_dsp__post_format_converter_on_read_deinterleaved(mal_format_converter* pConverter, mal_uint32 frameCount, void** ppSamplesOut, void* pUserData)
+{
+    (void)pConverter;
+
+    mal_dsp* pDSP = (mal_dsp*)pUserData;
+    mal_assert(pDSP != NULL);
+
+    if (!pDSP->isChannelRoutingAtStart) {
+        return (mal_uint32)mal_channel_router_read_frames_deinterleaved(&pDSP->channelRouter, frameCount, ppSamplesOut);
+    } else {
+        if (pDSP->isSRCRequired) {
+            return (mal_uint32)mal_src_read_frames_deinterleaved_ex(&pDSP->src, frameCount, ppSamplesOut, MAL_FALSE); // TODO: Replace MAL_FALSE with a flush argument.
+        } else {
+            return (mal_uint32)mal_format_converter_read_frames_deinterleaved(&pDSP->formatConverterIn, frameCount, ppSamplesOut);
+        }
+    }
+}
+
 mal_uint32 mal_dsp__src_on_read(mal_src* pSRC, mal_uint32 frameCount, void* pFramesOut, void* pUserData)
 {
     (void)pSRC;
@@ -18665,6 +18730,25 @@ mal_uint32 mal_dsp__src_on_read(mal_src* pSRC, mal_uint32 frameCount, void* pFra
     mal_assert(pDSP != NULL);
 
     return pDSP->onRead(pDSP, frameCount, pFramesOut, pDSP->pUserDataForOnRead);
+}
+
+mal_uint32 mal_dsp__channel_router_on_read(mal_channel_router* pRouter, mal_uint32 frameCount, void** ppSamplesOut, void* pUserData)
+{
+    (void)pRouter;
+
+    mal_dsp* pDSP = (mal_dsp*)pUserData;
+    mal_assert(pDSP != NULL);
+
+    // If the channel routing stage is at the front of the pipeline we read from the pre format converter. Otherwise we read from the sample rate converter.
+    if (pDSP->isChannelRoutingAtStart) {
+        return (mal_uint32)mal_format_converter_read_frames_deinterleaved(&pDSP->formatConverterIn, frameCount, ppSamplesOut);
+    } else {
+        if (pDSP->isSRCRequired) {
+            return (mal_uint32)mal_src_read_frames_deinterleaved_ex(&pDSP->src, frameCount, ppSamplesOut, MAL_FALSE); // TODO: Replace MAL_FALSE with a flush argument.
+        } else {
+            return (mal_uint32)mal_format_converter_read_frames_deinterleaved(&pDSP->formatConverterIn, frameCount, ppSamplesOut);
+        }
+    }
 }
 
 mal_result mal_dsp_init(const mal_dsp_config* pConfig, mal_dsp_read_proc onRead, void* pUserData, mal_dsp* pDSP)
@@ -18682,22 +18766,152 @@ mal_result mal_dsp_init(const mal_dsp_config* pConfig, mal_dsp_read_proc onRead,
         pDSP->config.cacheSizeInFrames = MAL_SRC_CACHE_SIZE_IN_FRAMES;
     }
 
+    // This is generally the pipeline used for data conversion. Note that this can actually change which is explained later.
+    //
+    //   Pre Format Conversion -> Sample Rate Conversion -> Channel Routing -> Post Format Conversion
+    //
+    // Pre Format Conversion
+    // ---------------------
+    // This is where the sample data is converted to a format that's usable by the later stages in the pipeline. Input data
+    // is converted from the original input data to deinterleaved floating-point.
+    //
+    // Channel Routing
+    // ---------------
+    // Channel routing is where stereo is converted to 5.1, mono is converted to stereo, etc. This stage depends on the
+    // pre format conversion stage.
+    //
+    // Sample Rate Conversion
+    // ----------------------
+    // Sample rate conversion depends on the pre format conversion stage and as the name implies performs sample rate conversion.
+    //
+    // Post Format Conversion
+    // ----------------------
+    // This stage is where our deinterleaved floating-point data from the previous stages are converted to the requested output
+    // format.
+    //
+    //
+    // Optimizations
+    // -------------
+    // Sometimes the conversion pipeline is rearranged for efficiency. The first obvious optimization is to eliminate unnecessary
+    // stages in the pipeline. When no channel routing nor sample rate conversion is necessary, the entire pipeline is optimized
+    // down to just this:
+    //
+    //   Post Format Conversion
+    //
+    // When sample rate conversion is not unnecessary:
+    //
+    //   Pre Format Conversion -> Channel Routing -> Post Format Conversion
+    //
+    // When channel routing is unnecessary:
+    //
+    //   Pre Format Conversion -> Sample Rate Conversion -> Post Format Conversion
+    //
+    // A slightly less obvious optimization is used depending on whether or not we are increasing or decreasing the number of
+    // channels. Because everything in the pipeline works on a per-channel basis, the efficiency of the pipeline is directly
+    // proportionate to the number of channels that need to be processed. Therefore, it's can be more efficient to move the
+    // channel conversion stage to an earlier or later stage. When the channel count is being reduced, we move the channel
+    // conversion stage to the start of the pipeline so that later stages can work on a smaller number of channels at a time.
+    // Otherwise, we move the channel conversion stage to the end of the pipeline. When reducing the channel count, the pipeline
+    // will look like this:
+    //
+    //   Pre Format Conversion -> Channel Routing -> Sample Rate Conversion -> Post Format Conversion
+
+    // First we need to determin what's required and what's not.
     if (pConfig->sampleRateIn != pConfig->sampleRateOut) {
         pDSP->isSRCRequired = MAL_TRUE;
+    }
+    if (pConfig->channelsIn != pConfig->channelsOut || !mal_channel_map_equal(pConfig->channelsIn, pConfig->channelMapIn, pConfig->channelMapOut)) {
+        pDSP->isChannelRoutingRequired = MAL_TRUE;
+    }
 
-        mal_src_config srcConfig;
-        srcConfig.sampleRateIn = pConfig->sampleRateIn;
-        srcConfig.sampleRateOut = pConfig->sampleRateOut;
-        srcConfig.formatIn = pConfig->formatIn;
-        srcConfig.formatOut = mal_format_f32;
-        srcConfig.channels = pConfig->channelsIn;
-        srcConfig.algorithm = mal_src_algorithm_linear;
-        srcConfig.cacheSizeInFrames = pConfig->cacheSizeInFrames;
-        mal_result result = mal_src_init(&srcConfig, mal_dsp__src_on_read, pDSP, &pDSP->src);
+    // If neither a sample rate conversion nor channel conversion is necessary we can skip the pre format conversion.
+    if (!pDSP->isSRCRequired && !pDSP->isChannelRoutingRequired) {
+        // We don't need a pre format conversion stage, but we may still need a post format conversion stage.
+        if (pConfig->formatIn != pConfig->formatOut) {
+            pDSP->isPostFormatConversionRequired = MAL_TRUE;
+        }
+    } else {
+        pDSP->isPreFormatConversionRequired  = MAL_TRUE;
+        pDSP->isPostFormatConversionRequired = MAL_TRUE;
+    }
+
+    // Use a passthrough if none of the stages are being used.
+    if (!pDSP->isPreFormatConversionRequired && !pDSP->isPostFormatConversionRequired && !pDSP->isChannelRoutingRequired && !pDSP->isSRCRequired) {
+        pDSP->isPassthrough = MAL_TRUE;
+    }
+
+    // Move the channel conversion stage to the start of the pipeline if we are reducing the channel count.
+    if (pConfig->channelsOut < pConfig->channelsIn) {
+        pDSP->isChannelRoutingAtStart = MAL_TRUE;
+    }
+
+
+    // We always initialize every stage of the pipeline regardless of whether or not the stage is used because it simplifies
+    // a few things when it comes to dynamically changing properties post-initialization.
+    mal_result result = MAL_SUCCESS;
+
+    // Pre format conversion.
+    {
+        mal_format_converter_config preFormatConverterConfig;
+        mal_zero_object(&preFormatConverterConfig);
+        preFormatConverterConfig.formatIn = pConfig->formatIn;
+        preFormatConverterConfig.formatOut = mal_format_f32;
+        preFormatConverterConfig.channels = pConfig->channelsIn;
+        preFormatConverterConfig.streamFormatIn = mal_stream_format_pcm;
+        preFormatConverterConfig.streamFormatOut = mal_stream_format_pcm;
+        result = mal_format_converter_init(&preFormatConverterConfig, mal_dsp__pre_format_converter_on_read, pDSP, &pDSP->formatConverterIn);
         if (result != MAL_SUCCESS) {
             return result;
         }
     }
+
+    // Post format conversion. The exact configuration for this depends on whether or not we are reading data directly from the client
+    // or from an earlier stage in the pipeline.
+    {
+        mal_format_converter_config postFormatConverterConfig;
+        mal_zero_object(&postFormatConverterConfig);
+        postFormatConverterConfig.formatIn = pConfig->formatIn;
+        postFormatConverterConfig.formatOut = pConfig->formatOut;
+        postFormatConverterConfig.channels = pConfig->channelsOut;
+        postFormatConverterConfig.streamFormatIn = mal_stream_format_pcm;
+        postFormatConverterConfig.streamFormatOut = mal_stream_format_pcm;
+        if (pDSP->isPreFormatConversionRequired) {
+            // Converting from an earlier stage in the pipeline which is always deinterleaved floating point.
+            postFormatConverterConfig.formatIn = mal_format_f32;
+            result = mal_format_converter_init_deinterleaved(&postFormatConverterConfig, mal_dsp__post_format_converter_on_read_deinterleaved, pDSP, &pDSP->formatConverterIn);
+        } else {
+            // Converting directly from the input client data.
+            result = mal_format_converter_init(&postFormatConverterConfig, mal_dsp__post_format_converter_on_read, pDSP, &pDSP->formatConverterIn);
+        }
+        if (result != MAL_SUCCESS) {
+            return result;
+        }
+    }
+
+
+    // SRC
+    mal_src_config srcConfig;
+    mal_zero_object(&srcConfig);
+    srcConfig.sampleRateIn = pConfig->sampleRateIn;
+    srcConfig.sampleRateOut = pConfig->sampleRateOut;
+    srcConfig.formatIn = pConfig->formatIn;
+    srcConfig.formatOut = mal_format_f32;
+    srcConfig.channels = pConfig->channelsIn;
+    srcConfig.algorithm = pConfig->srcAlgorithm;
+    srcConfig.cacheSizeInFrames = pConfig->cacheSizeInFrames;
+    result = mal_src_init(&srcConfig, mal_dsp__src_on_read, pDSP, &pDSP->src);
+    if (result != MAL_SUCCESS) {
+        return result;
+    }
+
+
+    // Channel conversion
+    mal_channel_router_config routerConfig = mal_channel_router_config_init(pConfig->channelsIn, pConfig->channelMapIn, pConfig->channelsOut, pConfig->channelMapOut, pConfig->channelMixMode);
+    result = mal_channel_router_init_deinterleaved(&routerConfig, mal_dsp__channel_router_on_read, pDSP, &pDSP->channelRouter);
+    if (result != MAL_SUCCESS) {
+        return result;
+    }
+
 
 
 
@@ -18787,7 +19001,7 @@ mal_result mal_dsp_refresh_sample_rate(mal_dsp* pDSP)
             srcConfig.formatIn          = pDSP->config.formatIn;
             srcConfig.formatOut         = mal_format_f32;
             srcConfig.channels          = pDSP->config.channelsIn;
-            srcConfig.algorithm         = mal_src_algorithm_linear;
+            srcConfig.algorithm         = pDSP->config.srcAlgorithm;
             srcConfig.cacheSizeInFrames = pDSP->config.cacheSizeInFrames;
             mal_result result = mal_src_init(&srcConfig, mal_dsp__src_on_read, pDSP, &pDSP->src);
             if (result != MAL_SUCCESS) {
