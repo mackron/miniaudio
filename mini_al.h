@@ -1860,6 +1860,8 @@ mal_result mal_channel_router_init_deinterleaved(const mal_channel_router_config
 // Reads data from the channel router as deinterleaved channels.
 mal_uint64 mal_channel_router_read_frames_deinterleaved(mal_channel_router* pRouter, mal_uint64 frameCount, void** ppSamplesOut);
 
+// Helper for initializing a channel router config.
+mal_channel_router_config mal_channel_router_config_init(mal_uint32 channelsIn, mal_channel channelMapIn[MAL_MAX_CHANNELS], mal_uint32 channelsOut, mal_channel channelMapOut[MAL_MAX_CHANNELS], mal_channel_mix_mode mixingMode);
 
 
 ///////////////////////////////////////////////////////////////////////////////
@@ -17774,6 +17776,26 @@ mal_uint64 mal_channel_router_read_frames_deinterleaved(mal_channel_router* pRou
     }
 
     return totalFramesRead;
+}
+
+mal_channel_router_config mal_channel_router_config_init(mal_uint32 channelsIn, mal_channel channelMapIn[MAL_MAX_CHANNELS], mal_uint32 channelsOut, mal_channel channelMapOut[MAL_MAX_CHANNELS], mal_channel_mix_mode mixingMode)
+{
+    mal_channel_router_config config;
+    mal_zero_object(&config);
+
+    config.channelsIn = channelsIn;
+    for (mal_uint32 iChannel = 0; iChannel < channelsIn; ++iChannel) {
+        config.channelMapIn[iChannel] = channelMapIn[iChannel];
+    }
+
+    config.channelsOut = channelsOut;
+    for (mal_uint32 iChannel = 0; iChannel < channelsOut; ++iChannel) {
+        config.channelMapOut[iChannel] = channelMapOut[iChannel];
+    }
+
+    config.mixingMode = mixingMode;
+
+    return config;
 }
 
 
