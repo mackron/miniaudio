@@ -969,7 +969,7 @@ mal_uint32 converter_test_separated_callback(mal_format_converter* pConverter, m
     mal_sine_wave* pSineWave = (mal_sine_wave*)pUserData;
     mal_assert(pSineWave != NULL);
 
-    mal_sine_wave_read(pSineWave, frameCount, ppSamplesOut[0]);
+    mal_sine_wave_read(pSineWave, frameCount, (float*)ppSamplesOut[0]);
 
     // Copy everything from the first channel over the others.
     for (mal_uint32 iChannel = 1; iChannel < pConverter->config.channels; iChannel += 1) {
@@ -1339,7 +1339,7 @@ int do_channel_routing_tests()
         }
 
         // With optimizations.
-        mal_uint64 framesRead = mal_channel_router_read_frames_separated(&router, 100, ppOutputA);
+        mal_uint64 framesRead = mal_channel_router_read_frames_separated(&router, 100, (void**)ppOutputA);
         if (framesRead != 100) {
             printf("Returned frame count for optimized incorrect.");
             hasError = MAL_TRUE;
@@ -1348,7 +1348,7 @@ int do_channel_routing_tests()
         // Without optimizations.
         router.isPassthrough = MAL_FALSE;
         router.isSimpleShuffle = MAL_FALSE;
-        framesRead = mal_channel_router_read_frames_separated(&router, 100, ppOutputB);
+        framesRead = mal_channel_router_read_frames_separated(&router, 100, (void**)ppOutputB);
         if (framesRead != 100) {
             printf("Returned frame count for unoptimized path incorrect.");
             hasError = MAL_TRUE;
@@ -1441,7 +1441,7 @@ int do_channel_routing_tests()
         }
 
         // With optimizations.
-        mal_uint64 framesRead = mal_channel_router_read_frames_separated(&router, 100, ppOutputA);
+        mal_uint64 framesRead = mal_channel_router_read_frames_separated(&router, 100, (void**)ppOutputA);
         if (framesRead != 100) {
             printf("Returned frame count for optimized incorrect.");
             hasError = MAL_TRUE;
@@ -1450,7 +1450,7 @@ int do_channel_routing_tests()
         // Without optimizations.
         router.isPassthrough = MAL_FALSE;
         router.isSimpleShuffle = MAL_FALSE;
-        framesRead = mal_channel_router_read_frames_separated(&router, 100, ppOutputB);
+        framesRead = mal_channel_router_read_frames_separated(&router, 100, (void**)ppOutputB);
         if (framesRead != 100) {
             printf("Returned frame count for unoptimized path incorrect.");
             hasError = MAL_TRUE;
@@ -1653,7 +1653,7 @@ int do_channel_routing_tests()
             ppOutput[iChannel] = output[iChannel];
         }
 
-        mal_uint64 framesRead = mal_channel_router_read_frames_separated(&router, 100, ppOutput);
+        mal_uint64 framesRead = mal_channel_router_read_frames_separated(&router, 100, (void**)ppOutput);
         if (framesRead != 100) {
             printf("Returned frame count for optimized incorrect.\n");
             hasError = MAL_TRUE;
