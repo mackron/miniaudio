@@ -819,6 +819,7 @@ struct mal_dsp
     void* pUserDataForOnRead;
     mal_format_converter formatConverterIn;             // For converting data to f32 in preparation for further processing.
     mal_format_converter formatConverterOut;            // For converting data to the requested output format. Used as the final step in the processing pipeline.
+    mal_channel_router channelRouter;                   // For channel conversion.
     mal_src src;                                        // For sample rate conversion.
     mal_channel channelMapInPostMix[MAL_MAX_CHANNELS];  // <-- When mixing, new channels may need to be created. This represents the channel map after mixing.
     mal_channel channelShuffleTable[MAL_MAX_CHANNELS];
@@ -3867,14 +3868,18 @@ void mal_channel_mask_to_channel_map__win32(DWORD dwChannelMask, mal_uint32 chan
         channelMap[0] = MAL_CHANNEL_FRONT_LEFT;
         channelMap[1] = MAL_CHANNEL_FRONT_RIGHT;
     } else {
-        // Just iterate over each bit.
-        mal_uint32 iChannel = 0;
-        for (mal_uint32 iBit = 0; iBit < 32; ++iBit) {
-            DWORD bitValue = (dwChannelMask & (1UL << iBit));
-            if (bitValue != 0) {
-                // The bit is set.
-                channelMap[iChannel] = mal_channel_id_to_mal__win32(bitValue);
-                iChannel += 1;
+        if (channels == 1 && (dwChannelMask & SPEAKER_FRONT_CENTER) != 0) {
+            channelMap[0] = MAL_CHANNEL_MONO;
+        } else {
+            // Just iterate over each bit.
+            mal_uint32 iChannel = 0;
+            for (mal_uint32 iBit = 0; iBit < 32; ++iBit) {
+                DWORD bitValue = (dwChannelMask & (1UL << iBit));
+                if (bitValue != 0) {
+                    // The bit is set.
+                    channelMap[iChannel] = mal_channel_id_to_mal__win32(bitValue);
+                    iChannel += 1;
+                }
             }
         }
     }
@@ -11413,6 +11418,7 @@ SLuint32 mal_channel_id_to_opensl(mal_uint8 id)
 {
     switch (id)
     {
+        case MAL_CHANNEL_MONO:               return SL_SPEAKER_FRONT_CENTER;
         case MAL_CHANNEL_FRONT_LEFT:         return SL_SPEAKER_FRONT_LEFT;
         case MAL_CHANNEL_FRONT_RIGHT:        return SL_SPEAKER_FRONT_RIGHT;
         case MAL_CHANNEL_FRONT_CENTER:       return SL_SPEAKER_FRONT_CENTER;
@@ -11449,18 +11455,24 @@ SLuint32 mal_channel_map_to_channel_mask__opensl(const mal_channel channelMap[MA
 // Converts an OpenSL-style channel mask to a mini_al channel map.
 void mal_channel_mask_to_channel_map__opensl(SLuint32 channelMask, mal_uint32 channels, mal_channel channelMap[MAL_MAX_CHANNELS])
 {
-    if (channels == 2 && channelMask == 0) {
+    if (channels == 1 && channelMask == 0) {
+        channelMap[0] = MAL_CHANNEL_MONO;
+    } else if (channels == 2 && channelMask == 0) {
         channelMap[0] = MAL_CHANNEL_FRONT_LEFT;
         channelMap[1] = MAL_CHANNEL_FRONT_RIGHT;
     } else {
-        // Just iterate over each bit.
-        mal_uint32 iChannel = 0;
-        for (mal_uint32 iBit = 0; iBit < 32; ++iBit) {
-            SLuint32 bitValue = (channelMask & (1UL << iBit));
-            if (bitValue != 0) {
-                // The bit is set.
-                channelMap[iChannel] = mal_channel_id_to_mal__opensl(bitValue);
-                iChannel += 1;
+        if (channels == 1 && (channelMask & SL_SPEAKER_FRONT_CENTER) != 0) {
+            channelMap[0] = MAL_CHANNEL_MONO;
+        } else {
+            // Just iterate over each bit.
+            mal_uint32 iChannel = 0;
+            for (mal_uint32 iBit = 0; iBit < 32; ++iBit) {
+                SLuint32 bitValue = (channelMask & (1UL << iBit));
+                if (bitValue != 0) {
+                    // The bit is set.
+                    channelMap[iChannel] = mal_channel_id_to_mal__opensl(bitValue);
+                    iChannel += 1;
+                }
             }
         }
     }
@@ -17751,7 +17763,7 @@ mal_uint64 mal_channel_router_read_frames_separated(mal_channel_router* pRouter,
             break;
         }
 
-        mal_channel_router__do_routing(pRouter, framesJustRead, (float**)ppSamplesOut, ppTemp);  // <-- Real work is done here.
+        mal_channel_router__do_routing(pRouter, framesJustRead, (float**)ppSamplesOut, (const float**)ppTemp);  // <-- Real work is done here.
 
         totalFramesRead += framesJustRead;
         if (totalFramesRead < frameCount) {
