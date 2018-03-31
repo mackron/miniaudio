@@ -1261,12 +1261,13 @@ int do_format_converter_tests()
 }
 
 
+
 mal_uint32 channel_router_callback__passthrough_test(mal_channel_router* pRouter, mal_uint32 frameCount, void** ppSamplesOut, void* pUserData)
 {
-    (void)pUserData;
+    float** ppSamplesIn = (float**)pUserData;
 
     for (mal_uint32 iChannel = 0; iChannel < pRouter->config.channelsIn; ++iChannel) {
-        mal_zero_memory(ppSamplesOut[iChannel], sizeof(float)*frameCount);
+        mal_copy_memory(ppSamplesOut[iChannel], ppSamplesIn[iChannel], frameCount*sizeof(float));
     }
 
     return frameCount;
@@ -1282,11 +1283,10 @@ int do_channel_routing_tests()
         mal_zero_object(&routerConfig);
         routerConfig.mixingMode = mal_channel_mix_mode_planar_blend;
         routerConfig.channelsIn = 6;
-        routerConfig.channelsOut = 6;
+        routerConfig.channelsOut = routerConfig.channelsIn;
         mal_get_standard_channel_map(mal_standard_channel_map_microsoft, routerConfig.channelsIn, routerConfig.channelMapIn);
         mal_get_standard_channel_map(mal_standard_channel_map_microsoft, routerConfig.channelsOut, routerConfig.channelMapOut);
         
-
         mal_channel_router router;
         mal_result result = mal_channel_router_init_separated(&routerConfig, channel_router_callback__passthrough_test, NULL, &router);
         if (result == MAL_SUCCESS) {
@@ -1313,6 +1313,57 @@ int do_channel_routing_tests()
             printf("Failed to init router.\n");
             hasError = MAL_TRUE;
         }
+
+
+        // Here is where we check that the passthrough optimization works correctly. What we do is compare the output of the passthrough
+        // optimization with the non-passthrough output. We don't use a real sound here, but instead use values that makes it easier for
+        // us to check results. Each channel is given a value equal to it's index, plus 1.
+        float testData[MAL_MAX_CHANNELS][100];
+        float* ppTestData[MAL_MAX_CHANNELS];
+        for (mal_uint32 iChannel = 0; iChannel < routerConfig.channelsIn; ++iChannel) {
+            ppTestData[iChannel] = testData[iChannel];
+            for (mal_uint32 iFrame = 0; iFrame < 100; ++iFrame) {
+                ppTestData[iChannel][iFrame] = (float)(iChannel + 1);
+            }
+        }
+
+        mal_channel_router_init_separated(&routerConfig, channel_router_callback__passthrough_test, ppTestData, &router);
+
+        float outputA[MAL_MAX_CHANNELS][100];
+        float outputB[MAL_MAX_CHANNELS][100];
+        float* ppOutputA[MAL_MAX_CHANNELS];
+        float* ppOutputB[MAL_MAX_CHANNELS];
+        for (mal_uint32 iChannel = 0; iChannel < routerConfig.channelsOut; ++iChannel) {
+            ppOutputA[iChannel] = outputA[iChannel];
+            ppOutputB[iChannel] = outputB[iChannel];
+        }
+
+        // With optimizations.
+        mal_uint64 framesRead = mal_channel_router_read_frames_separated(&router, 100, ppOutputA);
+        if (framesRead != 100) {
+            printf("Returned frame count for optimized incorrect.");
+            hasError = MAL_TRUE;
+        }
+
+        // Without optimizations.
+        router.isPassthrough = MAL_FALSE;
+        router.isSimpleShuffle = MAL_FALSE;
+        framesRead = mal_channel_router_read_frames_separated(&router, 100, ppOutputB);
+        if (framesRead != 100) {
+            printf("Returned frame count for unoptimized path incorrect.");
+            hasError = MAL_TRUE;
+        }
+
+        // Compare.
+        for (mal_uint32 iChannel = 0; iChannel < routerConfig.channelsOut; ++iChannel) {
+            for (mal_uint32 iFrame = 0; iFrame < 100; ++iFrame) {
+                if (ppOutputA[iChannel][iFrame] != ppOutputB[iChannel][iFrame]) {
+                    printf("Sample incorrect [%d][%d]\n", iChannel, iFrame);
+                    hasError = MAL_TRUE;
+                }
+            }
+        }
+
 
         if (!hasError) {
             printf("PASSED\n");
@@ -1364,6 +1415,57 @@ int do_channel_routing_tests()
             printf("Failed to init router.\n");
             hasError = MAL_TRUE;
         }
+
+
+        // Here is where we check that the shuffle optimization works correctly. What we do is compare the output of the shuffle
+        // optimization with the non-shuffle output. We don't use a real sound here, but instead use values that makes it easier
+        // for us to check results. Each channel is given a value equal to it's index, plus 1.
+        float testData[MAL_MAX_CHANNELS][100];
+        float* ppTestData[MAL_MAX_CHANNELS];
+        for (mal_uint32 iChannel = 0; iChannel < routerConfig.channelsIn; ++iChannel) {
+            ppTestData[iChannel] = testData[iChannel];
+            for (mal_uint32 iFrame = 0; iFrame < 100; ++iFrame) {
+                ppTestData[iChannel][iFrame] = (float)(iChannel + 1);
+            }
+        }
+
+        mal_channel_router_init_separated(&routerConfig, channel_router_callback__passthrough_test, ppTestData, &router);
+
+        float outputA[MAL_MAX_CHANNELS][100];
+        float outputB[MAL_MAX_CHANNELS][100];
+        float* ppOutputA[MAL_MAX_CHANNELS];
+        float* ppOutputB[MAL_MAX_CHANNELS];
+        for (mal_uint32 iChannel = 0; iChannel < routerConfig.channelsOut; ++iChannel) {
+            ppOutputA[iChannel] = outputA[iChannel];
+            ppOutputB[iChannel] = outputB[iChannel];
+        }
+
+        // With optimizations.
+        mal_uint64 framesRead = mal_channel_router_read_frames_separated(&router, 100, ppOutputA);
+        if (framesRead != 100) {
+            printf("Returned frame count for optimized incorrect.");
+            hasError = MAL_TRUE;
+        }
+
+        // Without optimizations.
+        router.isPassthrough = MAL_FALSE;
+        router.isSimpleShuffle = MAL_FALSE;
+        framesRead = mal_channel_router_read_frames_separated(&router, 100, ppOutputB);
+        if (framesRead != 100) {
+            printf("Returned frame count for unoptimized path incorrect.");
+            hasError = MAL_TRUE;
+        }
+
+        // Compare.
+        for (mal_uint32 iChannel = 0; iChannel < routerConfig.channelsOut; ++iChannel) {
+            for (mal_uint32 iFrame = 0; iFrame < 100; ++iFrame) {
+                if (ppOutputA[iChannel][iFrame] != ppOutputB[iChannel][iFrame]) {
+                    printf("Sample incorrect [%d][%d]\n", iChannel, iFrame);
+                    hasError = MAL_TRUE;
+                }
+            }
+        }
+
 
         if (!hasError) {
             printf("PASSED\n");
@@ -1528,6 +1630,51 @@ int do_channel_routing_tests()
         } else {
             printf("Failed to init router.\n");
             hasError = MAL_TRUE;
+        }
+
+
+        // Test the actual conversion. The test data is set to +1 for the left channel, and -1 for the right channel.
+        float testData[MAL_MAX_CHANNELS][100];
+        float* ppTestData[MAL_MAX_CHANNELS];
+        for (mal_uint32 iChannel = 0; iChannel < routerConfig.channelsIn; ++iChannel) {
+            ppTestData[iChannel] = testData[iChannel];
+        }
+
+        for (mal_uint32 iFrame = 0; iFrame < 100; ++iFrame) {
+            ppTestData[0][iFrame] = -1;
+            ppTestData[1][iFrame] = +1;
+        }
+
+        mal_channel_router_init_separated(&routerConfig, channel_router_callback__passthrough_test, ppTestData, &router);
+
+        float output[MAL_MAX_CHANNELS][100];
+        float* ppOutput[MAL_MAX_CHANNELS];
+        for (mal_uint32 iChannel = 0; iChannel < routerConfig.channelsOut; ++iChannel) {
+            ppOutput[iChannel] = output[iChannel];
+        }
+
+        mal_uint64 framesRead = mal_channel_router_read_frames_separated(&router, 100, ppOutput);
+        if (framesRead != 100) {
+            printf("Returned frame count for optimized incorrect.\n");
+            hasError = MAL_TRUE;
+        }
+
+        float expectedOutput[MAL_MAX_CHANNELS];
+        expectedOutput[0] = -1.0f;  // FRONT_LEFT
+        expectedOutput[1] = +1.0f;  // FRONT_RIGHT
+        expectedOutput[2] =  0.0f;  // FRONT_CENTER (left and right should cancel out, totalling 0).
+        expectedOutput[3] =  0.0f;  // LFE
+        expectedOutput[4] = -0.25f; // BACK_LEFT
+        expectedOutput[5] = +0.25f; // BACK_RIGHT
+        expectedOutput[6] = -0.5f;  // SIDE_LEFT
+        expectedOutput[7] = +0.5f;  // SIDE_RIGHT
+        for (mal_uint32 iChannel = 0; iChannel < routerConfig.channelsOut; ++iChannel) {
+            for (mal_uint32 iFrame = 0; iFrame < framesRead; ++iFrame) {
+                if (output[iChannel][iFrame] != expectedOutput[iChannel]) {
+                    printf("Incorrect sample [%d][%d]. Expecting %f, got %f\n", iChannel, iFrame, expectedOutput[iChannel], output[iChannel][iFrame]);
+                    hasError = MAL_TRUE;
+                }
+            }
         }
 
         if (!hasError) {
