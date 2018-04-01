@@ -529,33 +529,34 @@ typedef int mal_result;
 #define MAL_SUCCESS                                      0
 #define MAL_ERROR                                       -1      // A generic error.
 #define MAL_INVALID_ARGS                                -2
-#define MAL_OUT_OF_MEMORY                               -3
-#define MAL_FORMAT_NOT_SUPPORTED                        -4
-#define MAL_NO_BACKEND                                  -5
-#define MAL_NO_DEVICE                                   -6
-#define MAL_API_NOT_FOUND                               -7
-#define MAL_DEVICE_BUSY                                 -8
-#define MAL_DEVICE_NOT_INITIALIZED                      -9
-#define MAL_DEVICE_ALREADY_STARTED                      -10
-#define MAL_DEVICE_ALREADY_STARTING                     -11
-#define MAL_DEVICE_ALREADY_STOPPED                      -12
-#define MAL_DEVICE_ALREADY_STOPPING                     -13
-#define MAL_FAILED_TO_MAP_DEVICE_BUFFER                 -14
-#define MAL_FAILED_TO_UNMAP_DEVICE_BUFFER               -15
-#define MAL_FAILED_TO_INIT_BACKEND                      -16
-#define MAL_FAILED_TO_READ_DATA_FROM_CLIENT             -17
-#define MAL_FAILED_TO_READ_DATA_FROM_DEVICE             -18
-#define MAL_FAILED_TO_SEND_DATA_TO_CLIENT               -19
-#define MAL_FAILED_TO_SEND_DATA_TO_DEVICE               -20
-#define MAL_FAILED_TO_OPEN_BACKEND_DEVICE               -21
-#define MAL_FAILED_TO_START_BACKEND_DEVICE              -22
-#define MAL_FAILED_TO_STOP_BACKEND_DEVICE               -23
-#define MAL_FAILED_TO_CONFIGURE_BACKEND_DEVICE          -24
-#define MAL_FAILED_TO_CREATE_MUTEX                      -25
-#define MAL_FAILED_TO_CREATE_EVENT                      -26
-#define MAL_FAILED_TO_CREATE_THREAD                     -27
-#define MAL_INVALID_DEVICE_CONFIG                       -28
-#define MAL_ACCESS_DENIED                               -29
+#define MAL_INVALID_OPERATION                           -3
+#define MAL_OUT_OF_MEMORY                               -4
+#define MAL_FORMAT_NOT_SUPPORTED                        -5
+#define MAL_NO_BACKEND                                  -6
+#define MAL_NO_DEVICE                                   -7
+#define MAL_API_NOT_FOUND                               -8
+#define MAL_DEVICE_BUSY                                 -9
+#define MAL_DEVICE_NOT_INITIALIZED                      -10
+#define MAL_DEVICE_ALREADY_STARTED                      -11
+#define MAL_DEVICE_ALREADY_STARTING                     -12
+#define MAL_DEVICE_ALREADY_STOPPED                      -13
+#define MAL_DEVICE_ALREADY_STOPPING                     -14
+#define MAL_FAILED_TO_MAP_DEVICE_BUFFER                 -15
+#define MAL_FAILED_TO_UNMAP_DEVICE_BUFFER               -16
+#define MAL_FAILED_TO_INIT_BACKEND                      -17
+#define MAL_FAILED_TO_READ_DATA_FROM_CLIENT             -18
+#define MAL_FAILED_TO_READ_DATA_FROM_DEVICE             -19
+#define MAL_FAILED_TO_SEND_DATA_TO_CLIENT               -20
+#define MAL_FAILED_TO_SEND_DATA_TO_DEVICE               -21
+#define MAL_FAILED_TO_OPEN_BACKEND_DEVICE               -22
+#define MAL_FAILED_TO_START_BACKEND_DEVICE              -23
+#define MAL_FAILED_TO_STOP_BACKEND_DEVICE               -24
+#define MAL_FAILED_TO_CONFIGURE_BACKEND_DEVICE          -25
+#define MAL_FAILED_TO_CREATE_MUTEX                      -26
+#define MAL_FAILED_TO_CREATE_EVENT                      -27
+#define MAL_FAILED_TO_CREATE_THREAD                     -28
+#define MAL_INVALID_DEVICE_CONFIG                       -29
+#define MAL_ACCESS_DENIED                               -30
 
 typedef void       (* mal_log_proc) (mal_context* pContext, mal_device* pDevice, const char* message);
 typedef void       (* mal_recv_proc)(mal_device* pDevice, mal_uint32 frameCount, const void* pSamples);
@@ -768,8 +769,6 @@ typedef struct
 {
     mal_uint32 sampleRateIn;
     mal_uint32 sampleRateOut;
-    mal_format formatIn;
-    mal_format formatOut;
     mal_uint32 channels;
     mal_src_algorithm algorithm;
     mal_src_read_proc onRead;
@@ -809,6 +808,7 @@ typedef struct
     mal_channel channelMapOut[MAL_MAX_CHANNELS];
     mal_channel_mix_mode channelMixMode;
     mal_src_algorithm srcAlgorithm;
+    mal_bool32 allowDynamicSampleRate;
     mal_dsp_read_proc onRead;
     void* pUserData;
 } mal_dsp_config;
@@ -821,6 +821,7 @@ struct mal_dsp
     mal_format_converter formatConverterOut;            // For converting data to the requested output format. Used as the final step in the processing pipeline.
     mal_channel_router channelRouter;                   // For channel conversion.
     mal_src src;                                        // For sample rate conversion.
+    mal_bool32 isDynamicSampleRateAllowed     : 1;      // mal_dsp_set_input_sample_rate() and mal_dsp_set_output_sample_rate() will fail if this is set to false.
     mal_bool32 isPreFormatConversionRequired  : 1;
     mal_bool32 isPostFormatConversionRequired : 1;
     mal_bool32 isChannelRoutingRequired       : 1;
@@ -1911,12 +1912,16 @@ mal_uint64 mal_src_read_deinterleaved_ex(mal_src* pSRC, mal_uint64 frameCount, v
 mal_result mal_dsp_init(const mal_dsp_config* pConfig, mal_dsp* pDSP);
 
 // Dynamically adjusts the input sample rate.
+//
+// This will fail is the DSP was not initialized with allowDynamicSampleRate.
 mal_result mal_dsp_set_input_sample_rate(mal_dsp* pDSP, mal_uint32 sampleRateOut);
 
 // Dynamically adjusts the output sample rate.
 //
 // This is useful for dynamically adjust pitch. Keep in mind, however, that this will speed up or slow down the sound. If this
 // is not acceptable you will need to use your own algorithm.
+//
+// This will fail is the DSP was not initialized with allowDynamicSampleRate.
 mal_result mal_dsp_set_output_sample_rate(mal_dsp* pDSP, mal_uint32 sampleRateOut);
 
 // Reads a number of frames and runs them through the DSP processor.
@@ -17816,29 +17821,13 @@ mal_uint32 mal_src_cache_read_frames(mal_src_cache* pCache, mal_uint32 frameCoun
         pFramesOut += framesToReadFromMemory * channels;
 
         pCache->iNextFrame = 0;
-        pCache->cachedFrameCount = 0;
-        if (pCache->pSRC->config.formatIn == mal_format_f32) {
-            // No need for a conversion - read straight into the cache.
-            mal_uint32 framesToReadFromClient = mal_countof(pCache->pCachedFrames) / pCache->pSRC->config.channels;
-            if (framesToReadFromClient > MAL_SRC_CACHE_SIZE_IN_FRAMES) {
-                framesToReadFromClient = MAL_SRC_CACHE_SIZE_IN_FRAMES;
-            }
 
-            pCache->cachedFrameCount = pCache->pSRC->config.onRead(pCache->pSRC, framesToReadFromClient, pCache->pCachedFrames, pUserData);
-        } else {
-            // A format conversion is required which means we need to use an intermediary buffer.
-            mal_uint8 pIntermediaryBuffer[sizeof(pCache->pCachedFrames)];
-            mal_uint32 framesToReadFromClient = mal_min(mal_buffer_frame_capacity(pIntermediaryBuffer, channels, pCache->pSRC->config.formatIn), mal_buffer_frame_capacity(pCache->pCachedFrames, channels, mal_format_f32));
-            if (framesToReadFromClient > MAL_SRC_CACHE_SIZE_IN_FRAMES) {
-                framesToReadFromClient = MAL_SRC_CACHE_SIZE_IN_FRAMES;
-            }
-
-            pCache->cachedFrameCount = pCache->pSRC->config.onRead(pCache->pSRC, framesToReadFromClient, pIntermediaryBuffer, pUserData);
-
-            // Convert to f32.
-            mal_pcm_convert(pCache->pCachedFrames, mal_format_f32, pIntermediaryBuffer, pCache->pSRC->config.formatIn, pCache->cachedFrameCount * channels, mal_dither_mode_none);
+        mal_uint32 framesToReadFromClient = mal_countof(pCache->pCachedFrames) / pCache->pSRC->config.channels;
+        if (framesToReadFromClient > MAL_SRC_CACHE_SIZE_IN_FRAMES) {
+            framesToReadFromClient = MAL_SRC_CACHE_SIZE_IN_FRAMES;
         }
 
+        pCache->cachedFrameCount = pCache->pSRC->config.onRead(pCache->pSRC, framesToReadFromClient, pCache->pCachedFrames, pUserData);
 
         // Get out of this loop if nothing was able to be retrieved.
         if (pCache->cachedFrameCount == 0) {
@@ -17954,55 +17943,28 @@ mal_uint64 mal_src_read_frames_passthrough(mal_src* pSRC, mal_uint64 frameCount,
 
     (void)flush;    // Passthrough need not care about flushing.
 
-    // Fast path. No need for data conversion - just pass right through.
-    if (pSRC->config.formatIn == pSRC->config.formatOut) {
-        if (frameCount <= UINT32_MAX) {
-            return pSRC->config.onRead(pSRC, (mal_uint32)frameCount, pFramesOut, pUserData);
-        } else {
-            mal_uint64 totalFramesRead = 0;
-            while (frameCount > 0) {
-                mal_uint32 framesToReadRightNow = UINT32_MAX;
-                if (framesToReadRightNow > frameCount) {
-                    framesToReadRightNow = (mal_uint32)frameCount;
-                }
-
-                mal_uint32 framesRead = pSRC->config.onRead(pSRC, framesToReadRightNow, pFramesOut, pUserData);
-                if (framesRead == 0) {
-                    break;
-                }
-
-                pFramesOut  = (mal_uint8*)pFramesOut + (framesRead * pSRC->config.channels * mal_get_bytes_per_sample(pSRC->config.formatOut));
-                frameCount -= framesRead;
-                totalFramesRead += framesRead;
+    if (frameCount <= UINT32_MAX) {
+        return pSRC->config.onRead(pSRC, (mal_uint32)frameCount, pFramesOut, pUserData);
+    } else {
+        mal_uint64 totalFramesRead = 0;
+        while (frameCount > 0) {
+            mal_uint32 framesToReadRightNow = UINT32_MAX;
+            if (framesToReadRightNow > frameCount) {
+                framesToReadRightNow = (mal_uint32)frameCount;
             }
 
-            return totalFramesRead;
+            mal_uint32 framesRead = pSRC->config.onRead(pSRC, framesToReadRightNow, pFramesOut, pUserData);
+            if (framesRead == 0) {
+                break;
+            }
+
+            pFramesOut  = (mal_uint8*)pFramesOut + (framesRead * pSRC->config.channels * sizeof(float));
+            frameCount -= framesRead;
+            totalFramesRead += framesRead;
         }
+
+        return totalFramesRead;
     }
-
-    // Slower path. Need to do a format conversion.
-    mal_uint64 totalFramesRead = 0;
-    while (frameCount > 0) {
-        mal_uint8 pStagingBuffer[MAL_MAX_CHANNELS * 2048];
-        mal_uint32 stagingBufferSizeInFrames = sizeof(pStagingBuffer) / mal_get_bytes_per_sample(pSRC->config.formatIn) / pSRC->config.channels;
-        mal_uint32 framesToRead = stagingBufferSizeInFrames;
-        if (framesToRead > frameCount) {
-            framesToRead = (mal_uint32)frameCount;
-        }
-
-        mal_uint32 framesRead = pSRC->config.onRead(pSRC, framesToRead, pStagingBuffer, pUserData);
-        if (framesRead == 0) {
-            break;
-        }
-
-        mal_pcm_convert(pFramesOut, pSRC->config.formatOut, pStagingBuffer, pSRC->config.formatIn, framesRead * pSRC->config.channels, mal_dither_mode_none);
-
-        pFramesOut  = (mal_uint8*)pFramesOut + (framesRead * pSRC->config.channels * mal_get_bytes_per_sample(pSRC->config.formatOut));
-        frameCount -= framesRead;
-        totalFramesRead += framesRead;
-    }
-
-    return totalFramesRead;
 }
 
 mal_uint64 mal_src_read_frames_linear(mal_src* pSRC, mal_uint64 frameCount, void* pFramesOut, mal_bool32 flush, void* pUserData)
@@ -18069,9 +18031,10 @@ mal_uint64 mal_src_read_frames_linear(mal_src* pSRC, mal_uint64 frameCount, void
             }
         }
 
-        mal_pcm_convert(pFramesOut, pSRC->config.formatOut, pFrame, mal_format_f32, 1 * pSRC->config.channels, mal_dither_mode_none);
+        //mal_pcm_convert(pFramesOut, pSRC->config.formatOut, pFrame, mal_format_f32, 1 * pSRC->config.channels, mal_dither_mode_none);
+        mal_copy_memory(pFramesOut, pFrame, 1 * pSRC->config.channels * sizeof(float));
 
-        pFramesOut  = (mal_uint8*)pFramesOut + (1 * pSRC->config.channels * mal_get_bytes_per_sample(pSRC->config.formatOut));
+        pFramesOut  = (mal_uint8*)pFramesOut + (1 * pSRC->config.channels * sizeof(float));
         frameCount -= 1;
         totalFramesRead += 1;
 
@@ -18806,7 +18769,7 @@ mal_result mal_dsp_init(const mal_dsp_config* pConfig, mal_dsp* pDSP)
     // Notice how the Channel Routing and Sample Rate Conversion stages are swapped so that the SRC stage has less data to process.
 
     // First we need to determin what's required and what's not.
-    if (pConfig->sampleRateIn != pConfig->sampleRateOut) {
+    if (pConfig->sampleRateIn != pConfig->sampleRateOut || pConfig->allowDynamicSampleRate) {
         pDSP->isSRCRequired = MAL_TRUE;
     }
     if (pConfig->channelsIn != pConfig->channelsOut || !mal_channel_map_equal(pConfig->channelsIn, pConfig->channelMapIn, pConfig->channelMapOut)) {
@@ -18885,9 +18848,7 @@ mal_result mal_dsp_init(const mal_dsp_config* pConfig, mal_dsp* pDSP)
         mal_zero_object(&srcConfig);
         srcConfig.sampleRateIn = pConfig->sampleRateIn;
         srcConfig.sampleRateOut = pConfig->sampleRateOut;
-        srcConfig.formatIn = pConfig->formatIn;
-        srcConfig.formatOut = mal_format_f32;
-        srcConfig.channels = pConfig->channelsIn;
+        srcConfig.channels = (pConfig->channelsIn < pConfig->channelsOut) ? pConfig->channelsIn : pConfig->channelsOut;
         srcConfig.algorithm = pConfig->srcAlgorithm;
         srcConfig.onRead = mal_dsp__src_on_read;
         srcConfig.onReadDeinterleaved = mal_dsp__src_on_read_deinterleaved;
@@ -18916,7 +18877,7 @@ mal_result mal_dsp_init(const mal_dsp_config* pConfig, mal_dsp* pDSP)
 
 
 
-
+#if 0
     pDSP->isChannelMappingRequired = MAL_FALSE;
     if (pConfig->channelMapIn[0] != MAL_CHANNEL_NONE && pConfig->channelMapOut[0] != MAL_CHANNEL_NONE) {    // <-- Channel mapping will be ignored if the first channel map is MAL_CHANNEL_NONE.
         // When using channel mapping we need to figure out a shuffling table. The first thing to do is convert the input channel map
@@ -18976,6 +18937,7 @@ mal_result mal_dsp_init(const mal_dsp_config* pConfig, mal_dsp* pDSP)
     } else {
         pDSP->isPassthrough = MAL_FALSE;
     }
+#endif
 
     return MAL_SUCCESS;
 }
@@ -18983,45 +18945,9 @@ mal_result mal_dsp_init(const mal_dsp_config* pConfig, mal_dsp* pDSP)
 
 mal_result mal_dsp_refresh_sample_rate(mal_dsp* pDSP)
 {
-    // If we already have an SRC pipeline initialized we do _not_ want to re-create it. Instead we adjust it. If we didn't previously
-    // have an SRC pipeline in place we'll need to initialize it.
-    if (pDSP->isSRCRequired) {
-        if (pDSP->src.config.sampleRateIn != pDSP->src.config.sampleRateOut) {
-            mal_src_set_input_sample_rate(&pDSP->src, pDSP->src.config.sampleRateIn);
-            mal_src_set_output_sample_rate(&pDSP->src, pDSP->src.config.sampleRateOut);
-        } else {
-            pDSP->isSRCRequired = MAL_FALSE;
-        }
-    } else {
-        // We may need a new SRC pipeline.
-        if (pDSP->src.config.sampleRateIn != pDSP->src.config.sampleRateOut) {
-            pDSP->isSRCRequired = MAL_TRUE;
-
-            mal_src_config srcConfig;
-            srcConfig.sampleRateIn        = pDSP->src.config.sampleRateIn;
-            srcConfig.sampleRateOut       = pDSP->src.config.sampleRateOut;
-            srcConfig.formatIn            = pDSP->src.config.formatIn;
-            srcConfig.formatOut           = mal_format_f32;
-            srcConfig.channels            = pDSP->channelRouter.config.channelsIn;
-            srcConfig.algorithm           = pDSP->src.config.algorithm;
-            srcConfig.onRead              = pDSP->src.config.onRead;
-            srcConfig.onReadDeinterleaved = pDSP->src.config.onReadDeinterleaved;
-            srcConfig.pUserData           = pDSP->src.config.pUserData;
-            mal_result result = mal_src_init(&srcConfig, &pDSP->src);
-            if (result != MAL_SUCCESS) {
-                return result;
-            }
-        } else {
-            pDSP->isSRCRequired = MAL_FALSE;
-        }
-    }
-
-    // Update whether or not the pipeline is a passthrough.
-    if (pDSP->formatConverterIn.config.formatIn == pDSP->formatConverterOut.config.formatOut && pDSP->channelRouter.config.channelsIn == pDSP->channelRouter.config.channelsOut && pDSP->src.config.sampleRateIn == pDSP->src.config.sampleRateOut && !pDSP->isChannelMappingRequired) {
-        pDSP->isPassthrough = MAL_TRUE;
-    } else {
-        pDSP->isPassthrough = MAL_FALSE;
-    }
+    // The SRC stage will already have been initialized so we can just set it there.
+    mal_src_set_input_sample_rate(&pDSP->src, pDSP->src.config.sampleRateIn);
+    mal_src_set_output_sample_rate(&pDSP->src, pDSP->src.config.sampleRateOut);
 
     return MAL_SUCCESS;
 }
@@ -19035,6 +18961,11 @@ mal_result mal_dsp_set_input_sample_rate(mal_dsp* pDSP, mal_uint32 sampleRateIn)
     // Must have a sample rate of > 0.
     if (sampleRateIn == 0) {
         return MAL_INVALID_ARGS;
+    }
+
+    // Must have been initialized with allowDynamicSampleRate.
+    if (!pDSP->isDynamicSampleRateAllowed) {
+        return MAL_INVALID_OPERATION;
     }
 
     pDSP->src.config.sampleRateIn = sampleRateIn;
@@ -19052,6 +18983,11 @@ mal_result mal_dsp_set_output_sample_rate(mal_dsp* pDSP, mal_uint32 sampleRateOu
         return MAL_INVALID_ARGS;
     }
 
+    // Must have been initialized with allowDynamicSampleRate.
+    if (!pDSP->isDynamicSampleRateAllowed) {
+        return MAL_INVALID_OPERATION;
+    }
+
     pDSP->src.config.sampleRateOut = sampleRateOut;
     return mal_dsp_refresh_sample_rate(pDSP);
 }
@@ -19067,23 +19003,25 @@ mal_uint64 mal_dsp_read_ex(mal_dsp* pDSP, mal_uint64 frameCount, void* pFramesOu
 
     // Fast path.
     if (pDSP->isPassthrough) {
-        if (frameCount <= UINT32_MAX) {
+        if (frameCount <= 0xFFFFFFFF) {
             return (mal_uint32)pDSP->onRead(pDSP, (mal_uint32)frameCount, pFramesOut, pUserData);
         } else {
+            mal_uint8* pNextFramesOut = (mal_uint8*)pFramesOut;
+
             mal_uint64 totalFramesRead = 0;
-            while (frameCount > 0) {
-                mal_uint32 framesToReadRightNow = UINT32_MAX;
-                if (framesToReadRightNow > frameCount) {
-                    framesToReadRightNow = (mal_uint32)frameCount;
+            while (totalFramesRead < frameCount) {
+                mal_uint64 framesRemaining = (frameCount - totalFramesRead);
+                mal_uint64 framesToReadRightNow = framesRemaining;
+                if (framesToReadRightNow > 0xFFFFFFFF) {
+                    framesToReadRightNow = 0xFFFFFFFF;
                 }
 
-                mal_uint32 framesRead = pDSP->onRead(pDSP, framesToReadRightNow, pFramesOut, pUserData);
+                mal_uint32 framesRead = pDSP->onRead(pDSP, (mal_uint32)framesToReadRightNow, pNextFramesOut, pUserData);
                 if (framesRead == 0) {
                     break;
                 }
 
-                pFramesOut  = (mal_uint8*)pFramesOut + (framesRead * pDSP->channelRouter.config.channelsOut * mal_get_bytes_per_sample(pDSP->formatConverterOut.config.formatOut));
-                frameCount -= framesRead;
+                pNextFramesOut  += framesRead * pDSP->channelRouter.config.channelsOut * mal_get_bytes_per_sample(pDSP->formatConverterOut.config.formatOut);
                 totalFramesRead += framesRead;
             }
 
@@ -19091,10 +19029,19 @@ mal_uint64 mal_dsp_read_ex(mal_dsp* pDSP, mal_uint64 frameCount, void* pFramesOu
         }
     }
 
+    // Slower path. The real is done here. To do this all we need to do is read from the last stage in the pipeline.
+    mal_assert(pDSP->isPostFormatConversionRequired == MAL_TRUE);
 
+    mal_dsp_callback_data data;
+    data.pDSP = pDSP;
+    data.flush = flush;
+    data.pUserDataForClient = pUserData;
+    return mal_format_converter_read(&pDSP->formatConverterOut, frameCount, pFramesOut, &data);
+
+
+#if 0
     // Slower path - where the real work is done.
     mal_uint8 pFrames[2][MAL_MAX_CHANNELS * 512 * MAL_MAX_PCM_SAMPLE_SIZE_IN_BYTES];
-    mal_format pFramesFormat[2];
 
     mal_uint64 totalFramesRead = 0;
     while (frameCount > 0) {
@@ -19109,10 +19056,8 @@ mal_uint64 mal_dsp_read_ex(mal_dsp* pDSP, mal_uint64 frameCount, void* pFramesOu
         mal_uint32 framesRead = 0;
         if (pDSP->isSRCRequired) {
             framesRead = (mal_uint32)mal_src_read_ex(&pDSP->src, framesToRead, pFrames[iFrames], flush, pUserData);
-            pFramesFormat[iFrames] = pDSP->src.config.formatOut;  // Should always be f32.
         } else {
             framesRead = pDSP->onRead(pDSP, framesToRead, pFrames[iFrames], pUserData);
-            pFramesFormat[iFrames] = pDSP->formatConverterIn.config.formatIn;
         }
 
         if (framesRead == 0) {
@@ -19122,28 +19067,21 @@ mal_uint64 mal_dsp_read_ex(mal_dsp* pDSP, mal_uint64 frameCount, void* pFramesOu
 
         // Channel mixing. The input format must be in f32 which may require a conversion.
         if (pDSP->channelRouter.config.channelsIn != pDSP->channelRouter.config.channelsOut) {
-            if (pFramesFormat[iFrames] != mal_format_f32) {
-                mal_pcm_convert(pFrames[(iFrames + 1) % 2], mal_format_f32, pFrames[iFrames], pDSP->formatConverterIn.config.formatIn, framesRead * pDSP->channelRouter.config.channelsIn, mal_dither_mode_none);
-                iFrames = (iFrames + 1) % 2;
-                pFramesFormat[iFrames] = mal_format_f32;
-            }
-
             mal_dsp_mix_channels((float*)(pFrames[(iFrames + 1) % 2]), pDSP->channelRouter.config.channelsOut, pDSP->channelRouter.config.channelMapOut, (const float*)(pFrames[iFrames]), pDSP->channelRouter.config.channelsIn, pDSP->channelRouter.config.channelMapIn, framesRead, pDSP->channelRouter.config.mixingMode);
             iFrames = (iFrames + 1) % 2;
-            pFramesFormat[iFrames] = mal_format_f32;
         }
 
 
         // Channel mapping.
         if (pDSP->isChannelMappingRequired) {
             for (mal_uint32 i = 0; i < framesRead; ++i) {
-                mal_rearrange_channels(pFrames[iFrames] + (i * pDSP->channelRouter.config.channelsOut * mal_get_bytes_per_sample(pFramesFormat[iFrames])), pDSP->channelRouter.config.channelsOut, pDSP->channelShuffleTable, pFramesFormat[iFrames]);
+                mal_rearrange_channels(pFrames[iFrames] + (i * pDSP->channelRouter.config.channelsOut * mal_get_bytes_per_sample(mal_format_f32)), pDSP->channelRouter.config.channelsOut, pDSP->channelShuffleTable, mal_format_f32);
             }
         }
 
 
         // Final conversion to output format.
-        mal_pcm_convert(pFramesOut, pDSP->formatConverterOut.config.formatOut, pFrames[iFrames], pFramesFormat[iFrames], framesRead * pDSP->channelRouter.config.channelsOut, mal_dither_mode_none);
+        mal_pcm_convert(pFramesOut, pDSP->formatConverterOut.config.formatOut, pFrames[iFrames], mal_format_f32, framesRead * pDSP->channelRouter.config.channelsOut, mal_dither_mode_none);
 
         pFramesOut  = (mal_uint8*)pFramesOut + (framesRead * pDSP->channelRouter.config.channelsOut * mal_get_bytes_per_sample(pDSP->formatConverterOut.config.formatOut));
         frameCount -= framesRead;
@@ -19151,6 +19089,7 @@ mal_uint64 mal_dsp_read_ex(mal_dsp* pDSP, mal_uint64 frameCount, void* pFramesOu
     }
 
     return totalFramesRead;
+#endif
 }
 
 
