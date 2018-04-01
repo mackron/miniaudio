@@ -998,18 +998,23 @@ int do_format_converter_tests()
     config.streamFormatIn = mal_stream_format_pcm;
     config.streamFormatOut = mal_stream_format_pcm;
     config.ditherMode = mal_dither_mode_none;
+    config.pUserData = &sineWave;
+
+
+    config.onRead = converter_test_interleaved_callback;
+    config.onReadDeinterleaved = NULL;
 
     // Interleaved/Interleaved f32 to s16.
     {
         mal_sine_wave_init(amplitude, periodsPerSecond, sampleRate, &sineWave);
-        result = mal_format_converter_init(&config, converter_test_interleaved_callback, &sineWave, &converter);
+        result = mal_format_converter_init(&config, &converter);
         if (result != MAL_SUCCESS) {
             printf("Failed to initialize converter.\n");
             return -1;
         }
 
         mal_int16 interleavedFrames[MAL_MAX_CHANNELS * 1024];
-        mal_uint64 framesRead = mal_format_converter_read(&converter, 1024, interleavedFrames, converter.pUserData);
+        mal_uint64 framesRead = mal_format_converter_read(&converter, 1024, interleavedFrames, converter.config.pUserData);
         if (framesRead != 1024) {
             printf("Failed to read interleaved data from converter.\n");
             return -1;
@@ -1028,7 +1033,7 @@ int do_format_converter_tests()
     // Interleaved/Deinterleaved f32 to s16.
     {
         mal_sine_wave_init(amplitude, periodsPerSecond, sampleRate, &sineWave);
-        result = mal_format_converter_init(&config, converter_test_interleaved_callback, &sineWave, &converter);
+        result = mal_format_converter_init(&config, &converter);
         if (result != MAL_SUCCESS) {
             printf("Failed to initialize converter.\n");
             return -1;
@@ -1040,7 +1045,7 @@ int do_format_converter_tests()
             ppDeinterleavedFrames[iChannel] = &deinterleavedFrames[iChannel];
         }
 
-        mal_uint64 framesRead = mal_format_converter_read_deinterleaved(&converter, 1024, ppDeinterleavedFrames, converter.pUserData);
+        mal_uint64 framesRead = mal_format_converter_read_deinterleaved(&converter, 1024, ppDeinterleavedFrames, converter.config.pUserData);
         if (framesRead != 1024) {
             printf("Failed to read interleaved data from converter.\n");
             return -1;
@@ -1062,17 +1067,21 @@ int do_format_converter_tests()
         }
     }
 
+
+    config.onRead = NULL;
+    config.onReadDeinterleaved = converter_test_deinterleaved_callback;
+
     // Deinterleaved/Interleaved f32 to s16.
     {
         mal_sine_wave_init(amplitude, periodsPerSecond, sampleRate, &sineWave);
-        result = mal_format_converter_init_deinterleaved(&config, converter_test_deinterleaved_callback, &sineWave, &converter);
+        result = mal_format_converter_init(&config, &converter);
         if (result != MAL_SUCCESS) {
             printf("Failed to initialize converter.\n");
             return -1;
         }
 
         mal_int16 interleavedFrames[MAL_MAX_CHANNELS * 1024];
-        mal_uint64 framesRead = mal_format_converter_read(&converter, 1024, interleavedFrames, converter.pUserData);
+        mal_uint64 framesRead = mal_format_converter_read(&converter, 1024, interleavedFrames, converter.config.pUserData);
         if (framesRead != 1024) {
             printf("Failed to read interleaved data from converter.\n");
             return -1;
@@ -1091,7 +1100,7 @@ int do_format_converter_tests()
     // Deinterleaved/Deinterleaved f32 to s16.
     {
         mal_sine_wave_init(amplitude, periodsPerSecond, sampleRate, &sineWave);
-        result = mal_format_converter_init_deinterleaved(&config, converter_test_deinterleaved_callback, &sineWave, &converter);
+        result = mal_format_converter_init(&config, &converter);
         if (result != MAL_SUCCESS) {
             printf("Failed to initialize converter.\n");
             return -1;
@@ -1103,7 +1112,7 @@ int do_format_converter_tests()
             ppDeinterleavedFrames[iChannel] = &deinterleavedFrames[iChannel];
         }
 
-        mal_uint64 framesRead = mal_format_converter_read_deinterleaved(&converter, 1024, ppDeinterleavedFrames, converter.pUserData);
+        mal_uint64 framesRead = mal_format_converter_read_deinterleaved(&converter, 1024, ppDeinterleavedFrames, converter.config.pUserData);
         if (framesRead != 1024) {
             printf("Failed to read interleaved data from converter.\n");
             return -1;
@@ -1126,20 +1135,21 @@ int do_format_converter_tests()
     }
 
 
-
+    config.onRead = converter_test_interleaved_callback;
+    config.onReadDeinterleaved = NULL;
     config.formatOut = mal_format_f32;
 
     // Interleaved/Interleaved f32 to f32.
     {
         mal_sine_wave_init(amplitude, periodsPerSecond, sampleRate, &sineWave);
-        result = mal_format_converter_init(&config, converter_test_interleaved_callback, &sineWave, &converter);
+        result = mal_format_converter_init(&config, &converter);
         if (result != MAL_SUCCESS) {
             printf("Failed to initialize converter.\n");
             return -1;
         }
 
         float interleavedFrames[MAL_MAX_CHANNELS * 1024];
-        mal_uint64 framesRead = mal_format_converter_read(&converter, 1024, interleavedFrames, converter.pUserData);
+        mal_uint64 framesRead = mal_format_converter_read(&converter, 1024, interleavedFrames, converter.config.pUserData);
         if (framesRead != 1024) {
             printf("Failed to read interleaved data from converter.\n");
             return -1;
@@ -1158,7 +1168,7 @@ int do_format_converter_tests()
     // Interleaved/Deinterleaved f32 to f32.
     {
         mal_sine_wave_init(amplitude, periodsPerSecond, sampleRate, &sineWave);
-        result = mal_format_converter_init(&config, converter_test_interleaved_callback, &sineWave, &converter);
+        result = mal_format_converter_init(&config, &converter);
         if (result != MAL_SUCCESS) {
             printf("Failed to initialize converter.\n");
             return -1;
@@ -1170,7 +1180,7 @@ int do_format_converter_tests()
             ppDeinterleavedFrames[iChannel] = &deinterleavedFrames[iChannel];
         }
 
-        mal_uint64 framesRead = mal_format_converter_read_deinterleaved(&converter, 1024, ppDeinterleavedFrames, converter.pUserData);
+        mal_uint64 framesRead = mal_format_converter_read_deinterleaved(&converter, 1024, ppDeinterleavedFrames, converter.config.pUserData);
         if (framesRead != 1024) {
             printf("Failed to read interleaved data from converter.\n");
             return -1;
@@ -1192,17 +1202,21 @@ int do_format_converter_tests()
         }
     }
 
+
+    config.onRead = NULL;
+    config.onReadDeinterleaved = converter_test_deinterleaved_callback;
+
     // Deinterleaved/Interleaved f32 to f32.
     {
         mal_sine_wave_init(amplitude, periodsPerSecond, sampleRate, &sineWave);
-        result = mal_format_converter_init_deinterleaved(&config, converter_test_deinterleaved_callback, &sineWave, &converter);
+        result = mal_format_converter_init(&config, &converter);
         if (result != MAL_SUCCESS) {
             printf("Failed to initialize converter.\n");
             return -1;
         }
 
         float interleavedFrames[MAL_MAX_CHANNELS * 1024];
-        mal_uint64 framesRead = mal_format_converter_read(&converter, 1024, interleavedFrames, converter.pUserData);
+        mal_uint64 framesRead = mal_format_converter_read(&converter, 1024, interleavedFrames, converter.config.pUserData);
         if (framesRead != 1024) {
             printf("Failed to read interleaved data from converter.\n");
             return -1;
@@ -1221,7 +1235,7 @@ int do_format_converter_tests()
     // Deinterleaved/Deinterleaved f32 to f32.
     {
         mal_sine_wave_init(amplitude, periodsPerSecond, sampleRate, &sineWave);
-        result = mal_format_converter_init_deinterleaved(&config, converter_test_deinterleaved_callback, &sineWave, &converter);
+        result = mal_format_converter_init(&config, &converter);
         if (result != MAL_SUCCESS) {
             printf("Failed to initialize converter.\n");
             return -1;
@@ -1233,7 +1247,7 @@ int do_format_converter_tests()
             ppDeinterleavedFrames[iChannel] = &deinterleavedFrames[iChannel];
         }
 
-        mal_uint64 framesRead = mal_format_converter_read_deinterleaved(&converter, 1024, ppDeinterleavedFrames, converter.pUserData);
+        mal_uint64 framesRead = mal_format_converter_read_deinterleaved(&converter, 1024, ppDeinterleavedFrames, converter.config.pUserData);
         if (framesRead != 1024) {
             printf("Failed to read interleaved data from converter.\n");
             return -1;

@@ -705,14 +705,14 @@ typedef struct
     mal_stream_format streamFormatIn;
     mal_stream_format streamFormatOut;
     mal_dither_mode ditherMode;
+    mal_format_converter_read_proc onRead;
+    mal_format_converter_read_deinterleaved_proc onReadDeinterleaved;
+    void* pUserData;
 } mal_format_converter_config;
 
 struct mal_format_converter
 {
     mal_format_converter_config config;
-    mal_format_converter_read_proc onRead;
-    mal_format_converter_read_deinterleaved_proc onReadDeinterleaved;
-    void* pUserData;
     void (* onConvertPCM)(void* dst, const void* src, mal_uint64 count, mal_dither_mode ditherMode);
     void (* onInterleavePCM)(void* dst, const void** src, mal_uint64 frameCount, mal_uint32 channels);
     void (* onDeinterleavePCM)(void** dst, const void* src, mal_uint64 frameCount, mal_uint32 channels);
@@ -721,7 +721,6 @@ struct mal_format_converter
 
 
 typedef struct mal_channel_router mal_channel_router;
-//typedef mal_uint32 (* mal_channel_router_read_proc)              (mal_channel_router* pRouter, mal_uint32 frameCount, void* pFramesOut, void* pUserData);
 typedef mal_uint32 (* mal_channel_router_read_deinterleaved_proc)(mal_channel_router* pRouter, mal_uint32 frameCount, void** ppSamplesOut, void* pUserData);
 
 typedef struct
@@ -736,7 +735,6 @@ typedef struct
 struct mal_channel_router
 {
     mal_channel_router_config config;
-    //mal_channel_router_read_proc onRead;
     mal_channel_router_read_deinterleaved_proc onReadDeinterleaved;
     void* pUserData;
     mal_bool32 isPassthrough   : 1;
@@ -1838,10 +1836,7 @@ mal_bool32 mal_channel_map_contains_channel_position(mal_uint32 channels, const 
 ///////////////////////////////////////////////////////////////////////////////
 
 // Initializes a format converter.
-mal_result mal_format_converter_init(const mal_format_converter_config* pConfig, mal_format_converter_read_proc onRead, void* pUserData, mal_format_converter* pConverter);
-
-// Initializes a format converter when the input data is non-interleaved.
-mal_result mal_format_converter_init_deinterleaved(const mal_format_converter_config* pConfig, mal_format_converter_read_deinterleaved_proc onRead, void* pUserData, mal_format_converter* pConverter);
+mal_result mal_format_converter_init(const mal_format_converter_config* pConfig, mal_format_converter* pConverter);
 
 // Reads data from the format converter as interleaved channels.
 mal_uint64 mal_format_converter_read(mal_format_converter* pConverter, mal_uint64 frameCount, void* pFramesOut, void* pUserData);
@@ -16731,7 +16726,7 @@ void mal_pcm_deinterleave_f32(void** dst, const void* src, mal_uint64 frameCount
 
 
 
-mal_result mal_format_converter_init__common(const mal_format_converter_config* pConfig, void* pUserData, mal_format_converter* pConverter)
+mal_result mal_format_converter_init(const mal_format_converter_config* pConfig, mal_format_converter* pConverter)
 {
     if (pConverter == NULL) {
         return MAL_INVALID_ARGS;
@@ -16743,7 +16738,6 @@ mal_result mal_format_converter_init__common(const mal_format_converter_config* 
     }
 
     pConverter->config = *pConfig;
-    pConverter->pUserData = pUserData;
 
     switch (pConfig->formatIn)
     {
@@ -16858,31 +16852,6 @@ mal_result mal_format_converter_init__common(const mal_format_converter_config* 
     return MAL_SUCCESS;
 }
 
-
-mal_result mal_format_converter_init(const mal_format_converter_config* pConfig, mal_format_converter_read_proc onRead, void* pUserData, mal_format_converter* pConverter)
-{
-    mal_result result = mal_format_converter_init__common(pConfig, pUserData, pConverter);
-    if (result != MAL_SUCCESS) {
-        return result;
-    }
-
-    pConverter->onRead = onRead;
-
-    return MAL_SUCCESS;
-}
-
-mal_result mal_format_converter_init_deinterleaved(const mal_format_converter_config* pConfig, mal_format_converter_read_deinterleaved_proc onRead, void* pUserData, mal_format_converter* pConverter)
-{
-    mal_result result = mal_format_converter_init__common(pConfig, pUserData, pConverter);
-    if (result != MAL_SUCCESS) {
-        return result;
-    }
-
-    pConverter->onReadDeinterleaved = onRead;
-
-    return MAL_SUCCESS;
-}
-
 mal_uint64 mal_format_converter_read(mal_format_converter* pConverter, mal_uint64 frameCount, void* pFramesOut, void* pUserData)
 {
     if (pConverter == NULL || pFramesOut == NULL) {
@@ -16896,7 +16865,7 @@ mal_uint64 mal_format_converter_read(mal_format_converter* pConverter, mal_uint6
     mal_uint32 frameSizeOut    = sampleSizeOut * pConverter->config.channels;
     mal_uint8* pNextFramesOut  = (mal_uint8*)pFramesOut;
 
-    if (pConverter->onRead != NULL) {
+    if (pConverter->config.onRead != NULL) {
         // Input data is interleaved.
         if (pConverter->config.formatIn == pConverter->config.formatOut) {
             // Pass through.
@@ -16907,7 +16876,7 @@ mal_uint64 mal_format_converter_read(mal_format_converter* pConverter, mal_uint6
                     framesToReadRightNow = 0xFFFFFFFF;
                 }
 
-                mal_uint32 framesJustRead = (mal_uint32)pConverter->onRead(pConverter, (mal_uint32)framesToReadRightNow, pNextFramesOut, pUserData);
+                mal_uint32 framesJustRead = (mal_uint32)pConverter->config.onRead(pConverter, (mal_uint32)framesToReadRightNow, pNextFramesOut, pUserData);
                 if (framesJustRead == 0) {
                     break;
                 }
@@ -16929,7 +16898,7 @@ mal_uint64 mal_format_converter_read(mal_format_converter* pConverter, mal_uint6
                     framesToReadRightNow = maxFramesToReadAtATime;
                 }
 
-                mal_uint32 framesJustRead = (mal_uint32)pConverter->onRead(pConverter, (mal_uint32)framesToReadRightNow, temp, pUserData);
+                mal_uint32 framesJustRead = (mal_uint32)pConverter->config.onRead(pConverter, (mal_uint32)framesToReadRightNow, temp, pUserData);
                 if (framesJustRead == 0) {
                     break;
                 }
@@ -16963,7 +16932,7 @@ mal_uint64 mal_format_converter_read(mal_format_converter* pConverter, mal_uint6
 
             if (pConverter->config.formatIn == pConverter->config.formatOut) {
                 // Only interleaving.
-                framesJustRead = (mal_uint32)pConverter->onReadDeinterleaved(pConverter, (mal_uint32)framesToReadRightNow, ppTempSampleOfOutFormat, pUserData);
+                framesJustRead = (mal_uint32)pConverter->config.onReadDeinterleaved(pConverter, (mal_uint32)framesToReadRightNow, ppTempSampleOfOutFormat, pUserData);
                 if (framesJustRead == 0) {
                     break;
                 }
@@ -16977,7 +16946,7 @@ mal_uint64 mal_format_converter_read(mal_format_converter* pConverter, mal_uint6
                 }
 
 
-                framesJustRead = (mal_uint32)pConverter->onReadDeinterleaved(pConverter, (mal_uint32)framesToReadRightNow, ppTempSampleOfInFormat, pUserData);
+                framesJustRead = (mal_uint32)pConverter->config.onReadDeinterleaved(pConverter, (mal_uint32)framesToReadRightNow, ppTempSampleOfInFormat, pUserData);
                 if (framesJustRead == 0) {
                     break;
                 }
@@ -17010,7 +16979,7 @@ mal_uint64 mal_format_converter_read_deinterleaved(mal_format_converter* pConver
     mal_uint8* ppNextSamplesOut[MAL_MAX_CHANNELS];
     mal_copy_memory(ppNextSamplesOut, ppSamplesOut, sizeof(void*) * pConverter->config.channels);
 
-    if (pConverter->onRead != NULL) {
+    if (pConverter->config.onRead != NULL) {
         // Input data is interleaved.
         mal_uint8 tempSamplesOfOutFormat[MAL_MAX_CHANNELS * MAL_MAX_PCM_SAMPLE_SIZE_IN_BYTES * 128];
         mal_assert(sizeof(tempSamplesOfOutFormat) <= 0xFFFFFFFF);
@@ -17028,7 +16997,7 @@ mal_uint64 mal_format_converter_read_deinterleaved(mal_format_converter* pConver
 
             if (pConverter->config.formatIn == pConverter->config.formatOut) {
                 // Only de-interleaving.
-                framesJustRead = (mal_uint32)pConverter->onRead(pConverter, (mal_uint32)framesToReadRightNow, tempSamplesOfOutFormat, pUserData);
+                framesJustRead = (mal_uint32)pConverter->config.onRead(pConverter, (mal_uint32)framesToReadRightNow, tempSamplesOfOutFormat, pUserData);
                 if (framesJustRead == 0) {
                     break;
                 }
@@ -17036,7 +17005,7 @@ mal_uint64 mal_format_converter_read_deinterleaved(mal_format_converter* pConver
                 // De-interleaving + Conversion. Convert first, then de-interleave.
                 mal_uint8 tempSamplesOfInFormat[sizeof(tempSamplesOfOutFormat)];
 
-                framesJustRead = (mal_uint32)pConverter->onRead(pConverter, (mal_uint32)framesToReadRightNow, tempSamplesOfInFormat, pUserData);
+                framesJustRead = (mal_uint32)pConverter->config.onRead(pConverter, (mal_uint32)framesToReadRightNow, tempSamplesOfInFormat, pUserData);
                 if (framesJustRead == 0) {
                     break;
                 }
@@ -17062,7 +17031,7 @@ mal_uint64 mal_format_converter_read_deinterleaved(mal_format_converter* pConver
                     framesToReadRightNow = 0xFFFFFFFF;
                 }
 
-                mal_uint32 framesJustRead = (mal_uint32)pConverter->onReadDeinterleaved(pConverter, (mal_uint32)framesToReadRightNow, (void**)ppNextSamplesOut, pUserData);
+                mal_uint32 framesJustRead = (mal_uint32)pConverter->config.onReadDeinterleaved(pConverter, (mal_uint32)framesToReadRightNow, (void**)ppNextSamplesOut, pUserData);
                 if (framesJustRead == 0) {
                     break;
                 }
@@ -17091,7 +17060,7 @@ mal_uint64 mal_format_converter_read_deinterleaved(mal_format_converter* pConver
                     framesToReadRightNow = maxFramesToReadAtATime;
                 }
 
-                mal_uint32 framesJustRead = (mal_uint32)pConverter->onReadDeinterleaved(pConverter, (mal_uint32)framesToReadRightNow, ppTemp, pUserData);
+                mal_uint32 framesJustRead = (mal_uint32)pConverter->config.onReadDeinterleaved(pConverter, (mal_uint32)framesToReadRightNow, ppTemp, pUserData);
                 if (framesJustRead == 0) {
                     break;
                 }
@@ -18887,7 +18856,9 @@ mal_result mal_dsp_init(const mal_dsp_config* pConfig, mal_dsp_read_proc onRead,
         preFormatConverterConfig.channels = pConfig->channelsIn;
         preFormatConverterConfig.streamFormatIn = mal_stream_format_pcm;
         preFormatConverterConfig.streamFormatOut = mal_stream_format_pcm;
-        result = mal_format_converter_init(&preFormatConverterConfig, mal_dsp__pre_format_converter_on_read, pDSP, &pDSP->formatConverterIn);
+        preFormatConverterConfig.onRead = mal_dsp__pre_format_converter_on_read;
+        preFormatConverterConfig.pUserData = pDSP;
+        result = mal_format_converter_init(&preFormatConverterConfig, &pDSP->formatConverterIn);
         if (result != MAL_SUCCESS) {
             return result;
         }
@@ -18903,14 +18874,14 @@ mal_result mal_dsp_init(const mal_dsp_config* pConfig, mal_dsp_read_proc onRead,
         postFormatConverterConfig.channels = pConfig->channelsOut;
         postFormatConverterConfig.streamFormatIn = mal_stream_format_pcm;
         postFormatConverterConfig.streamFormatOut = mal_stream_format_pcm;
+        postFormatConverterConfig.onRead = mal_dsp__post_format_converter_on_read;
+        postFormatConverterConfig.onReadDeinterleaved = mal_dsp__post_format_converter_on_read_deinterleaved;
+        postFormatConverterConfig.pUserData = pDSP;
         if (pDSP->isPreFormatConversionRequired) {
-            // Converting from an earlier stage in the pipeline which is always deinterleaved floating point.
             postFormatConverterConfig.formatIn = mal_format_f32;
-            result = mal_format_converter_init_deinterleaved(&postFormatConverterConfig, mal_dsp__post_format_converter_on_read_deinterleaved, pDSP, &pDSP->formatConverterIn);
-        } else {
-            // Converting directly from the input client data.
-            result = mal_format_converter_init(&postFormatConverterConfig, mal_dsp__post_format_converter_on_read, pDSP, &pDSP->formatConverterIn);
         }
+
+        result = mal_format_converter_init(&postFormatConverterConfig, &pDSP->formatConverterIn);
         if (result != MAL_SUCCESS) {
             return result;
         }
