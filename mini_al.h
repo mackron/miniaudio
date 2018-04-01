@@ -772,7 +772,6 @@ typedef struct
     mal_format formatOut;
     mal_uint32 channels;
     mal_src_algorithm algorithm;
-    mal_uint32 cacheSizeInFrames;  // The number of frames to read from the client at a time.
     mal_src_read_proc onRead;
     mal_src_read_deinterleaved_proc onReadDeinterleaved;
     void* pUserData;
@@ -810,7 +809,6 @@ typedef struct
     mal_channel channelMapOut[MAL_MAX_CHANNELS];
     mal_channel_mix_mode channelMixMode;
     mal_src_algorithm srcAlgorithm;
-    mal_uint32  cacheSizeInFrames;  // Applications should set this to 0 for now.
     mal_dsp_read_proc onRead;
     void* pUserData;
 } mal_dsp_config;
@@ -14570,7 +14568,6 @@ mal_result mal_device_init(mal_context* pContext, mal_device_type type, mal_devi
     // We need a DSP object which is where samples are moved through in order to convert them to the
     // format required by the backend.
     mal_dsp_config dspConfig;
-    dspConfig.cacheSizeInFrames = pDevice->bufferSizeInFrames;
     dspConfig.pUserData = pDevice;
     if (type == mal_device_type_playback) {
         dspConfig.formatIn      = pDevice->format;
@@ -17823,8 +17820,8 @@ mal_uint32 mal_src_cache_read_frames(mal_src_cache* pCache, mal_uint32 frameCoun
         if (pCache->pSRC->config.formatIn == mal_format_f32) {
             // No need for a conversion - read straight into the cache.
             mal_uint32 framesToReadFromClient = mal_countof(pCache->pCachedFrames) / pCache->pSRC->config.channels;
-            if (framesToReadFromClient > pCache->pSRC->config.cacheSizeInFrames) {
-                framesToReadFromClient = pCache->pSRC->config.cacheSizeInFrames;
+            if (framesToReadFromClient > MAL_SRC_CACHE_SIZE_IN_FRAMES) {
+                framesToReadFromClient = MAL_SRC_CACHE_SIZE_IN_FRAMES;
             }
 
             pCache->cachedFrameCount = pCache->pSRC->config.onRead(pCache->pSRC, framesToReadFromClient, pCache->pCachedFrames, pUserData);
@@ -17832,8 +17829,8 @@ mal_uint32 mal_src_cache_read_frames(mal_src_cache* pCache, mal_uint32 frameCoun
             // A format conversion is required which means we need to use an intermediary buffer.
             mal_uint8 pIntermediaryBuffer[sizeof(pCache->pCachedFrames)];
             mal_uint32 framesToReadFromClient = mal_min(mal_buffer_frame_capacity(pIntermediaryBuffer, channels, pCache->pSRC->config.formatIn), mal_buffer_frame_capacity(pCache->pCachedFrames, channels, mal_format_f32));
-            if (framesToReadFromClient > pCache->pSRC->config.cacheSizeInFrames) {
-                framesToReadFromClient = pCache->pSRC->config.cacheSizeInFrames;
+            if (framesToReadFromClient > MAL_SRC_CACHE_SIZE_IN_FRAMES) {
+                framesToReadFromClient = MAL_SRC_CACHE_SIZE_IN_FRAMES;
             }
 
             pCache->cachedFrameCount = pCache->pSRC->config.onRead(pCache->pSRC, framesToReadFromClient, pIntermediaryBuffer, pUserData);
@@ -17872,10 +17869,6 @@ mal_result mal_src_init(const mal_src_config* pConfig, mal_src* pSRC)
     }
 
     pSRC->config = *pConfig;
-
-    if (pSRC->config.cacheSizeInFrames > MAL_SRC_CACHE_SIZE_IN_FRAMES || pSRC->config.cacheSizeInFrames == 0) {
-        pSRC->config.cacheSizeInFrames = MAL_SRC_CACHE_SIZE_IN_FRAMES;
-    }
 
     mal_src_cache_init(pSRC, &pSRC->cache);
     return MAL_SUCCESS;
@@ -18899,10 +18892,6 @@ mal_result mal_dsp_init(const mal_dsp_config* pConfig, mal_dsp* pDSP)
         srcConfig.onRead = mal_dsp__src_on_read;
         srcConfig.onReadDeinterleaved = mal_dsp__src_on_read_deinterleaved;
         srcConfig.pUserData = pDSP;
-        srcConfig.cacheSizeInFrames = pConfig->cacheSizeInFrames;
-        if (srcConfig.cacheSizeInFrames > MAL_SRC_CACHE_SIZE_IN_FRAMES || srcConfig.cacheSizeInFrames == 0) {
-            srcConfig.cacheSizeInFrames = MAL_SRC_CACHE_SIZE_IN_FRAMES;
-        }
         result = mal_src_init(&srcConfig, &pDSP->src);
         if (result != MAL_SUCCESS) {
             return result;
@@ -19015,7 +19004,6 @@ mal_result mal_dsp_refresh_sample_rate(mal_dsp* pDSP)
             srcConfig.formatOut           = mal_format_f32;
             srcConfig.channels            = pDSP->channelRouter.config.channelsIn;
             srcConfig.algorithm           = pDSP->src.config.algorithm;
-            srcConfig.cacheSizeInFrames   = pDSP->src.config.cacheSizeInFrames;
             srcConfig.onRead              = pDSP->src.config.onRead;
             srcConfig.onReadDeinterleaved = pDSP->src.config.onReadDeinterleaved;
             srcConfig.pUserData           = pDSP->src.config.pUserData;
