@@ -1304,7 +1304,7 @@ int do_channel_routing_tests()
         mal_get_standard_channel_map(mal_standard_channel_map_microsoft, routerConfig.channelsOut, routerConfig.channelMapOut);
         
         mal_channel_router router;
-        mal_result result = mal_channel_router_init_deinterleaved(&routerConfig, &router);
+        mal_result result = mal_channel_router_init(&routerConfig, &router);
         if (result == MAL_SUCCESS) {
             if (!router.isPassthrough) {
                 printf("Failed to init router as passthrough.\n");
@@ -1344,7 +1344,7 @@ int do_channel_routing_tests()
         }
 
         routerConfig.pUserData = ppTestData;
-        mal_channel_router_init_deinterleaved(&routerConfig, &router);
+        mal_channel_router_init(&routerConfig, &router);
 
         float outputA[MAL_MAX_CHANNELS][100];
         float outputB[MAL_MAX_CHANNELS][100];
@@ -1405,7 +1405,7 @@ int do_channel_routing_tests()
         }
 
         mal_channel_router router;
-        mal_result result = mal_channel_router_init_deinterleaved(&routerConfig, &router);
+        mal_result result = mal_channel_router_init(&routerConfig, &router);
         if (result == MAL_SUCCESS) {
             if (router.isPassthrough) {
                 printf("Router incorrectly configured as a passthrough.\n");
@@ -1449,7 +1449,7 @@ int do_channel_routing_tests()
         }
 
         routerConfig.pUserData = ppTestData;
-        mal_channel_router_init_deinterleaved(&routerConfig, &router);
+        mal_channel_router_init(&routerConfig, &router);
 
         float outputA[MAL_MAX_CHANNELS][100];
         float outputB[MAL_MAX_CHANNELS][100];
@@ -1508,7 +1508,7 @@ int do_channel_routing_tests()
         mal_get_standard_channel_map(mal_standard_channel_map_microsoft, routerConfig.channelsOut, routerConfig.channelMapOut);
 
         mal_channel_router router;
-        mal_result result = mal_channel_router_init_deinterleaved(&routerConfig, &router);
+        mal_result result = mal_channel_router_init(&routerConfig, &router);
         if (result == MAL_SUCCESS) {
             if (router.isPassthrough) {
                 printf("Router incorrectly configured as a passthrough.\n");
@@ -1556,7 +1556,7 @@ int do_channel_routing_tests()
         mal_get_standard_channel_map(mal_standard_channel_map_microsoft, routerConfig.channelsOut, routerConfig.channelMapOut);
 
         mal_channel_router router;
-        mal_result result = mal_channel_router_init_deinterleaved(&routerConfig, &router);
+        mal_result result = mal_channel_router_init(&routerConfig, &router);
         if (result == MAL_SUCCESS) {
             if (router.isPassthrough) {
                 printf("Router incorrectly configured as a passthrough.\n");
@@ -1615,7 +1615,7 @@ int do_channel_routing_tests()
         routerConfig.channelMapOut[7] = MAL_CHANNEL_SIDE_RIGHT;
 
         mal_channel_router router;
-        mal_result result = mal_channel_router_init_deinterleaved(&routerConfig, &router);
+        mal_result result = mal_channel_router_init(&routerConfig, &router);
         if (result == MAL_SUCCESS) {
             if (router.isPassthrough) {
                 printf("Router incorrectly configured as a passthrough.\n");
@@ -1672,7 +1672,7 @@ int do_channel_routing_tests()
         }
 
         routerConfig.pUserData = ppTestData;
-        mal_channel_router_init_deinterleaved(&routerConfig, &router);
+        mal_channel_router_init(&routerConfig, &router);
 
         float output[MAL_MAX_CHANNELS][100];
         float* ppOutput[MAL_MAX_CHANNELS];
@@ -1733,7 +1733,7 @@ int do_channel_routing_tests()
         routerConfig.channelMapOut[1] = MAL_CHANNEL_FRONT_RIGHT;
 
         mal_channel_router router;
-        mal_result result = mal_channel_router_init_deinterleaved(&routerConfig, &router);
+        mal_result result = mal_channel_router_init(&routerConfig, &router);
         if (result == MAL_SUCCESS) {
             if (router.isPassthrough) {
                 printf("Router incorrectly configured as a passthrough.\n");
@@ -1800,7 +1800,7 @@ int do_channel_routing_tests()
         routerConfig.channelMapOut[3] = MAL_CHANNEL_LFE;
 
         mal_channel_router router;
-        mal_result result = mal_channel_router_init_deinterleaved(&routerConfig, &router);
+        mal_result result = mal_channel_router_init(&routerConfig, &router);
         if (result == MAL_SUCCESS) {
             if (router.isPassthrough) {
                 printf("Router incorrectly configured as a passthrough.\n");
@@ -1855,7 +1855,7 @@ int do_channel_routing_tests()
         routerConfig.channelMapOut[0] = MAL_CHANNEL_MONO;
 
         mal_channel_router router;
-        mal_result result = mal_channel_router_init_deinterleaved(&routerConfig, &router);
+        mal_result result = mal_channel_router_init(&routerConfig, &router);
         if (result == MAL_SUCCESS) {
             if (router.isPassthrough) {
                 printf("Router incorrectly configured as a passthrough.\n");
