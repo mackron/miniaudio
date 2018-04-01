@@ -1295,6 +1295,8 @@ int do_channel_routing_tests()
     {
         mal_channel_router_config routerConfig;
         mal_zero_object(&routerConfig);
+        routerConfig.onReadDeinterleaved = channel_router_callback__passthrough_test;
+        routerConfig.pUserData = NULL;
         routerConfig.mixingMode = mal_channel_mix_mode_planar_blend;
         routerConfig.channelsIn = 6;
         routerConfig.channelsOut = routerConfig.channelsIn;
@@ -1302,7 +1304,7 @@ int do_channel_routing_tests()
         mal_get_standard_channel_map(mal_standard_channel_map_microsoft, routerConfig.channelsOut, routerConfig.channelMapOut);
         
         mal_channel_router router;
-        mal_result result = mal_channel_router_init_deinterleaved(&routerConfig, channel_router_callback__passthrough_test, NULL, &router);
+        mal_result result = mal_channel_router_init_deinterleaved(&routerConfig, &router);
         if (result == MAL_SUCCESS) {
             if (!router.isPassthrough) {
                 printf("Failed to init router as passthrough.\n");
@@ -1341,7 +1343,8 @@ int do_channel_routing_tests()
             }
         }
 
-        mal_channel_router_init_deinterleaved(&routerConfig, channel_router_callback__passthrough_test, ppTestData, &router);
+        routerConfig.pUserData = ppTestData;
+        mal_channel_router_init_deinterleaved(&routerConfig, &router);
 
         float outputA[MAL_MAX_CHANNELS][100];
         float outputB[MAL_MAX_CHANNELS][100];
@@ -1353,7 +1356,7 @@ int do_channel_routing_tests()
         }
 
         // With optimizations.
-        mal_uint64 framesRead = mal_channel_router_read_deinterleaved(&router, 100, (void**)ppOutputA, router.pUserData);
+        mal_uint64 framesRead = mal_channel_router_read_deinterleaved(&router, 100, (void**)ppOutputA, router.config.pUserData);
         if (framesRead != 100) {
             printf("Returned frame count for optimized incorrect.");
             hasError = MAL_TRUE;
@@ -1362,7 +1365,7 @@ int do_channel_routing_tests()
         // Without optimizations.
         router.isPassthrough = MAL_FALSE;
         router.isSimpleShuffle = MAL_FALSE;
-        framesRead = mal_channel_router_read_deinterleaved(&router, 100, (void**)ppOutputB, router.pUserData);
+        framesRead = mal_channel_router_read_deinterleaved(&router, 100, (void**)ppOutputB, router.config.pUserData);
         if (framesRead != 100) {
             printf("Returned frame count for unoptimized path incorrect.");
             hasError = MAL_TRUE;
@@ -1391,6 +1394,8 @@ int do_channel_routing_tests()
 
         mal_channel_router_config routerConfig;
         mal_zero_object(&routerConfig);
+        routerConfig.onReadDeinterleaved = channel_router_callback__passthrough_test;
+        routerConfig.pUserData = NULL;
         routerConfig.mixingMode = mal_channel_mix_mode_planar_blend;
         routerConfig.channelsIn = 6;
         routerConfig.channelsOut = routerConfig.channelsIn;
@@ -1400,7 +1405,7 @@ int do_channel_routing_tests()
         }
 
         mal_channel_router router;
-        mal_result result = mal_channel_router_init_deinterleaved(&routerConfig, channel_router_callback__passthrough_test, NULL, &router);
+        mal_result result = mal_channel_router_init_deinterleaved(&routerConfig, &router);
         if (result == MAL_SUCCESS) {
             if (router.isPassthrough) {
                 printf("Router incorrectly configured as a passthrough.\n");
@@ -1443,7 +1448,8 @@ int do_channel_routing_tests()
             }
         }
 
-        mal_channel_router_init_deinterleaved(&routerConfig, channel_router_callback__passthrough_test, ppTestData, &router);
+        routerConfig.pUserData = ppTestData;
+        mal_channel_router_init_deinterleaved(&routerConfig, &router);
 
         float outputA[MAL_MAX_CHANNELS][100];
         float outputB[MAL_MAX_CHANNELS][100];
@@ -1455,7 +1461,7 @@ int do_channel_routing_tests()
         }
 
         // With optimizations.
-        mal_uint64 framesRead = mal_channel_router_read_deinterleaved(&router, 100, (void**)ppOutputA, router.pUserData);
+        mal_uint64 framesRead = mal_channel_router_read_deinterleaved(&router, 100, (void**)ppOutputA, router.config.pUserData);
         if (framesRead != 100) {
             printf("Returned frame count for optimized incorrect.");
             hasError = MAL_TRUE;
@@ -1464,7 +1470,7 @@ int do_channel_routing_tests()
         // Without optimizations.
         router.isPassthrough = MAL_FALSE;
         router.isSimpleShuffle = MAL_FALSE;
-        framesRead = mal_channel_router_read_deinterleaved(&router, 100, (void**)ppOutputB, router.pUserData);
+        framesRead = mal_channel_router_read_deinterleaved(&router, 100, (void**)ppOutputB, router.config.pUserData);
         if (framesRead != 100) {
             printf("Returned frame count for unoptimized path incorrect.");
             hasError = MAL_TRUE;
@@ -1493,6 +1499,8 @@ int do_channel_routing_tests()
 
         mal_channel_router_config routerConfig;
         mal_zero_object(&routerConfig);
+        routerConfig.onReadDeinterleaved = channel_router_callback__passthrough_test;
+        routerConfig.pUserData = NULL;
         routerConfig.mixingMode = mal_channel_mix_mode_simple;
         routerConfig.channelsIn = 2;
         routerConfig.channelsOut = 6;
@@ -1500,7 +1508,7 @@ int do_channel_routing_tests()
         mal_get_standard_channel_map(mal_standard_channel_map_microsoft, routerConfig.channelsOut, routerConfig.channelMapOut);
 
         mal_channel_router router;
-        mal_result result = mal_channel_router_init_deinterleaved(&routerConfig, channel_router_callback__passthrough_test, NULL, &router);
+        mal_result result = mal_channel_router_init_deinterleaved(&routerConfig, &router);
         if (result == MAL_SUCCESS) {
             if (router.isPassthrough) {
                 printf("Router incorrectly configured as a passthrough.\n");
@@ -1539,6 +1547,8 @@ int do_channel_routing_tests()
     {
         mal_channel_router_config routerConfig;
         mal_zero_object(&routerConfig);
+        routerConfig.onReadDeinterleaved = channel_router_callback__passthrough_test;
+        routerConfig.pUserData = NULL;
         routerConfig.mixingMode = mal_channel_mix_mode_simple;
         routerConfig.channelsIn = 6;
         routerConfig.channelsOut = 2;
@@ -1546,7 +1556,7 @@ int do_channel_routing_tests()
         mal_get_standard_channel_map(mal_standard_channel_map_microsoft, routerConfig.channelsOut, routerConfig.channelMapOut);
 
         mal_channel_router router;
-        mal_result result = mal_channel_router_init_deinterleaved(&routerConfig, channel_router_callback__passthrough_test, NULL, &router);
+        mal_result result = mal_channel_router_init_deinterleaved(&routerConfig, &router);
         if (result == MAL_SUCCESS) {
             if (router.isPassthrough) {
                 printf("Router incorrectly configured as a passthrough.\n");
@@ -1585,6 +1595,8 @@ int do_channel_routing_tests()
     {
         mal_channel_router_config routerConfig;
         mal_zero_object(&routerConfig);
+        routerConfig.onReadDeinterleaved = channel_router_callback__passthrough_test;
+        routerConfig.pUserData = NULL;
         routerConfig.mixingMode = mal_channel_mix_mode_planar_blend;
         
         // Use very specific mappings for this test.
@@ -1603,7 +1615,7 @@ int do_channel_routing_tests()
         routerConfig.channelMapOut[7] = MAL_CHANNEL_SIDE_RIGHT;
 
         mal_channel_router router;
-        mal_result result = mal_channel_router_init_deinterleaved(&routerConfig, channel_router_callback__passthrough_test, NULL, &router);
+        mal_result result = mal_channel_router_init_deinterleaved(&routerConfig, &router);
         if (result == MAL_SUCCESS) {
             if (router.isPassthrough) {
                 printf("Router incorrectly configured as a passthrough.\n");
@@ -1659,7 +1671,8 @@ int do_channel_routing_tests()
             ppTestData[1][iFrame] = +1;
         }
 
-        mal_channel_router_init_deinterleaved(&routerConfig, channel_router_callback__passthrough_test, ppTestData, &router);
+        routerConfig.pUserData = ppTestData;
+        mal_channel_router_init_deinterleaved(&routerConfig, &router);
 
         float output[MAL_MAX_CHANNELS][100];
         float* ppOutput[MAL_MAX_CHANNELS];
@@ -1667,7 +1680,7 @@ int do_channel_routing_tests()
             ppOutput[iChannel] = output[iChannel];
         }
 
-        mal_uint64 framesRead = mal_channel_router_read_deinterleaved(&router, 100, (void**)ppOutput, router.pUserData);
+        mal_uint64 framesRead = mal_channel_router_read_deinterleaved(&router, 100, (void**)ppOutput, router.config.pUserData);
         if (framesRead != 100) {
             printf("Returned frame count for optimized incorrect.\n");
             hasError = MAL_TRUE;
@@ -1700,6 +1713,8 @@ int do_channel_routing_tests()
     {
         mal_channel_router_config routerConfig;
         mal_zero_object(&routerConfig);
+        routerConfig.onReadDeinterleaved = channel_router_callback__passthrough_test;
+        routerConfig.pUserData = NULL;
         routerConfig.mixingMode = mal_channel_mix_mode_planar_blend;
         
         // Use very specific mappings for this test.
@@ -1718,7 +1733,7 @@ int do_channel_routing_tests()
         routerConfig.channelMapOut[1] = MAL_CHANNEL_FRONT_RIGHT;
 
         mal_channel_router router;
-        mal_result result = mal_channel_router_init_deinterleaved(&routerConfig, channel_router_callback__passthrough_test, NULL, &router);
+        mal_result result = mal_channel_router_init_deinterleaved(&routerConfig, &router);
         if (result == MAL_SUCCESS) {
             if (router.isPassthrough) {
                 printf("Router incorrectly configured as a passthrough.\n");
@@ -1770,6 +1785,8 @@ int do_channel_routing_tests()
     {
         mal_channel_router_config routerConfig;
         mal_zero_object(&routerConfig);
+        routerConfig.onReadDeinterleaved = channel_router_callback__passthrough_test;
+        routerConfig.pUserData = NULL;
         routerConfig.mixingMode = mal_channel_mix_mode_planar_blend;
         
         // Use very specific mappings for this test.
@@ -1783,7 +1800,7 @@ int do_channel_routing_tests()
         routerConfig.channelMapOut[3] = MAL_CHANNEL_LFE;
 
         mal_channel_router router;
-        mal_result result = mal_channel_router_init_deinterleaved(&routerConfig, channel_router_callback__passthrough_test, NULL, &router);
+        mal_result result = mal_channel_router_init_deinterleaved(&routerConfig, &router);
         if (result == MAL_SUCCESS) {
             if (router.isPassthrough) {
                 printf("Router incorrectly configured as a passthrough.\n");
@@ -1823,6 +1840,8 @@ int do_channel_routing_tests()
     {
         mal_channel_router_config routerConfig;
         mal_zero_object(&routerConfig);
+        routerConfig.onReadDeinterleaved = channel_router_callback__passthrough_test;
+        routerConfig.pUserData = NULL;
         routerConfig.mixingMode = mal_channel_mix_mode_planar_blend;
         
         // Use very specific mappings for this test.
@@ -1836,7 +1855,7 @@ int do_channel_routing_tests()
         routerConfig.channelMapOut[0] = MAL_CHANNEL_MONO;
 
         mal_channel_router router;
-        mal_result result = mal_channel_router_init_deinterleaved(&routerConfig, channel_router_callback__passthrough_test, NULL, &router);
+        mal_result result = mal_channel_router_init_deinterleaved(&routerConfig, &router);
         if (result == MAL_SUCCESS) {
             if (router.isPassthrough) {
                 printf("Router incorrectly configured as a passthrough.\n");

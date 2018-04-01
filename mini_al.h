@@ -730,13 +730,13 @@ typedef struct
     mal_channel channelMapIn[MAL_MAX_CHANNELS];
     mal_channel channelMapOut[MAL_MAX_CHANNELS];
     mal_channel_mix_mode mixingMode;
+    mal_channel_router_read_deinterleaved_proc onReadDeinterleaved;
+    void* pUserData;
 } mal_channel_router_config;
 
 struct mal_channel_router
 {
     mal_channel_router_config config;
-    mal_channel_router_read_deinterleaved_proc onReadDeinterleaved;
-    void* pUserData;
     mal_bool32 isPassthrough   : 1;
     mal_bool32 isSimpleShuffle : 1;
     mal_uint8 shuffleTable[MAL_MAX_CHANNELS];
@@ -1856,13 +1856,13 @@ mal_uint64 mal_format_converter_read_deinterleaved(mal_format_converter* pConver
 ///////////////////////////////////////////////////////////////////////////////
 
 // Initializes a channel router where it is assumed that the input data is non-interleaved.
-mal_result mal_channel_router_init_deinterleaved(const mal_channel_router_config* pConfig, mal_channel_router_read_deinterleaved_proc onRead, void* pUserData, mal_channel_router* pRouter);
+mal_result mal_channel_router_init_deinterleaved(const mal_channel_router_config* pConfig, mal_channel_router* pRouter);
 
 // Reads data from the channel router as deinterleaved channels.
 mal_uint64 mal_channel_router_read_deinterleaved(mal_channel_router* pRouter, mal_uint64 frameCount, void** ppSamplesOut, void* pUserData);
 
 // Helper for initializing a channel router config.
-mal_channel_router_config mal_channel_router_config_init(mal_uint32 channelsIn, const mal_channel channelMapIn[MAL_MAX_CHANNELS], mal_uint32 channelsOut, const mal_channel channelMapOut[MAL_MAX_CHANNELS], mal_channel_mix_mode mixingMode);
+mal_channel_router_config mal_channel_router_config_init(mal_uint32 channelsIn, const mal_channel channelMapIn[MAL_MAX_CHANNELS], mal_uint32 channelsOut, const mal_channel channelMapOut[MAL_MAX_CHANNELS], mal_channel_mix_mode mixingMode, mal_channel_router_read_deinterleaved_proc onRead, void* pUserData);
 
 
 ///////////////////////////////////////////////////////////////////////////////
@@ -17421,7 +17421,7 @@ mal_bool32 mal_channel_router__is_spatial_channel_position(const mal_channel_rou
     return MAL_TRUE;
 }
 
-mal_result mal_channel_router_init__common(const mal_channel_router_config* pConfig, void* pUserData, mal_channel_router* pRouter)
+mal_result mal_channel_router_init_deinterleaved(const mal_channel_router_config* pConfig, mal_channel_router* pRouter)
 {
     if (pRouter == NULL) {
         return MAL_INVALID_ARGS;
@@ -17430,6 +17430,9 @@ mal_result mal_channel_router_init__common(const mal_channel_router_config* pCon
     mal_zero_object(pRouter);
 
     if (pConfig == NULL) {
+        return MAL_INVALID_ARGS;
+    }
+    if (pConfig->onReadDeinterleaved == NULL) {
         return MAL_INVALID_ARGS;
     }
 
@@ -17441,7 +17444,6 @@ mal_result mal_channel_router_init__common(const mal_channel_router_config* pCon
     }
 
     pRouter->config = *pConfig;
-    pRouter->pUserData = pUserData;
 
     // If the input and output channels and channel maps are the same we should use a passthrough.
     if (pRouter->config.channelsIn == pRouter->config.channelsOut) {
@@ -17628,23 +17630,6 @@ mal_result mal_channel_router_init__common(const mal_channel_router_config* pCon
         }
     }
 
-
-    return MAL_SUCCESS;
-}
-
-mal_result mal_channel_router_init_deinterleaved(const mal_channel_router_config* pConfig, mal_channel_router_read_deinterleaved_proc onRead, void* pUserData, mal_channel_router* pRouter)
-{
-    mal_result result = mal_channel_router_init__common(pConfig, pUserData, pRouter);
-    if (result != MAL_SUCCESS) {
-        return result;
-    }
-
-    if (onRead == NULL) {
-        return MAL_INVALID_ARGS;
-    }
-
-    pRouter->onReadDeinterleaved = onRead;
-
     return MAL_SUCCESS;
 }
 
@@ -17688,7 +17673,7 @@ mal_uint64 mal_channel_router_read_deinterleaved(mal_channel_router* pRouter, ma
     // Fast path for a passthrough.
     if (pRouter->isPassthrough) {
         if (frameCount <= 0xFFFFFFFF) {
-            return (mal_uint32)pRouter->onReadDeinterleaved(pRouter, (mal_uint32)frameCount, ppSamplesOut, pUserData);
+            return (mal_uint32)pRouter->config.onReadDeinterleaved(pRouter, (mal_uint32)frameCount, ppSamplesOut, pUserData);
         } else {
             float* ppNextSamplesOut[MAL_MAX_CHANNELS];
             mal_copy_memory(ppNextSamplesOut, ppSamplesOut, sizeof(float*) * pRouter->config.channelsOut);
@@ -17701,7 +17686,7 @@ mal_uint64 mal_channel_router_read_deinterleaved(mal_channel_router* pRouter, ma
                     framesToReadRightNow = 0xFFFFFFFF;
                 }
 
-                mal_uint32 framesJustRead = (mal_uint32)pRouter->onReadDeinterleaved(pRouter, (mal_uint32)framesToReadRightNow, (void**)ppNextSamplesOut, pUserData);
+                mal_uint32 framesJustRead = (mal_uint32)pRouter->config.onReadDeinterleaved(pRouter, (mal_uint32)framesToReadRightNow, (void**)ppNextSamplesOut, pUserData);
                 if (framesJustRead == 0) {
                     break;
                 }
@@ -17736,7 +17721,7 @@ mal_uint64 mal_channel_router_read_deinterleaved(mal_channel_router* pRouter, ma
             framesToReadRightNow = maxFramesToReadEachIteration;
         }
 
-        mal_uint32 framesJustRead = pRouter->onReadDeinterleaved(pRouter, (mal_uint32)framesToReadRightNow, (void**)ppTemp, pUserData);
+        mal_uint32 framesJustRead = pRouter->config.onReadDeinterleaved(pRouter, (mal_uint32)framesToReadRightNow, (void**)ppTemp, pUserData);
         if (framesJustRead == 0) {
             break;
         }
@@ -17754,7 +17739,7 @@ mal_uint64 mal_channel_router_read_deinterleaved(mal_channel_router* pRouter, ma
     return totalFramesRead;
 }
 
-mal_channel_router_config mal_channel_router_config_init(mal_uint32 channelsIn, const mal_channel channelMapIn[MAL_MAX_CHANNELS], mal_uint32 channelsOut, const mal_channel channelMapOut[MAL_MAX_CHANNELS], mal_channel_mix_mode mixingMode)
+mal_channel_router_config mal_channel_router_config_init(mal_uint32 channelsIn, const mal_channel channelMapIn[MAL_MAX_CHANNELS], mal_uint32 channelsOut, const mal_channel channelMapOut[MAL_MAX_CHANNELS], mal_channel_mix_mode mixingMode, mal_channel_router_read_deinterleaved_proc onRead, void* pUserData)
 {
     mal_channel_router_config config;
     mal_zero_object(&config);
@@ -17770,6 +17755,8 @@ mal_channel_router_config mal_channel_router_config_init(mal_uint32 channelsIn, 
     }
 
     config.mixingMode = mixingMode;
+    config.onReadDeinterleaved = onRead;
+    config.pUserData = pUserData;
 
     return config;
 }
@@ -18905,8 +18892,8 @@ mal_result mal_dsp_init(const mal_dsp_config* pConfig, mal_dsp_read_proc onRead,
 
 
     // Channel conversion
-    mal_channel_router_config routerConfig = mal_channel_router_config_init(pConfig->channelsIn, pConfig->channelMapIn, pConfig->channelsOut, pConfig->channelMapOut, pConfig->channelMixMode);
-    result = mal_channel_router_init_deinterleaved(&routerConfig, mal_dsp__channel_router_on_read, pDSP, &pDSP->channelRouter);
+    mal_channel_router_config routerConfig = mal_channel_router_config_init(pConfig->channelsIn, pConfig->channelMapIn, pConfig->channelsOut, pConfig->channelMapOut, pConfig->channelMixMode, mal_dsp__channel_router_on_read, pDSP);
+    result = mal_channel_router_init_deinterleaved(&routerConfig, &pDSP->channelRouter);
     if (result != MAL_SUCCESS) {
         return result;
     }
