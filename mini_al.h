@@ -752,15 +752,16 @@ typedef mal_uint32 (* mal_src_read_deinterleaved_proc)(mal_src* pSRC, mal_uint32
 
 typedef enum
 {
+    mal_src_algorithm_linear = 0,
     mal_src_algorithm_none,
-    mal_src_algorithm_linear
+    mal_src_algorithm_default = mal_src_algorithm_linear
 } mal_src_algorithm;
 
-#define MAL_SRC_CACHE_SIZE_IN_FRAMES    512
+#define MAL_SRC_CACHE_SIZE_IN_FRAMES    256
 typedef struct
 {
     mal_src* pSRC;
-    float pCachedFrames[MAL_MAX_CHANNELS * MAL_SRC_CACHE_SIZE_IN_FRAMES];
+    float cachedFrames[MAL_MAX_CHANNELS][MAL_SRC_CACHE_SIZE_IN_FRAMES];
     mal_uint32 cachedFrameCount;
     mal_uint32 iNextFrame;
 } mal_src_cache;
@@ -771,7 +772,6 @@ typedef struct
     mal_uint32 sampleRateOut;
     mal_uint32 channels;
     mal_src_algorithm algorithm;
-    mal_src_read_proc onRead;
     mal_src_read_deinterleaved_proc onReadDeinterleaved;
     void* pUserData;
 } mal_src_config;
@@ -779,7 +779,7 @@ typedef struct
 struct mal_src
 {
     mal_src_config config;
-    float bin[256];
+    float bin[MAL_MAX_CHANNELS][32];
     mal_src_cache cache;    // <-- For simplifying and optimizing client -> memory reading.
 
     union
@@ -1888,7 +1888,7 @@ mal_result mal_src_set_output_sample_rate(mal_src* pSRC, mal_uint32 sampleRateOu
 // Reads a number of frames.
 //
 // Returns the number of frames actually read.
-mal_uint64 mal_src_read(mal_src* pSRC, mal_uint64 frameCount, void* pFramesOut, void* pUserData);
+//mal_uint64 mal_src_read(mal_src* pSRC, mal_uint64 frameCount, void* pFramesOut, void* pUserData);
 mal_uint64 mal_src_read_deinterleaved(mal_src* pSRC, mal_uint64 frameCount, void** ppSamplesOut, void* pUserData);
 
 // The same mal_src_read() with extra control over whether or not the internal buffers should be flushed at the end.
@@ -1897,7 +1897,7 @@ mal_uint64 mal_src_read_deinterleaved(mal_src* pSRC, mal_uint64 frameCount, void
 // version of this function does _not_ flush this buffer because otherwise it causes glitches for streaming based conversion
 // pipelines. The problem, however, is that sometimes you need those last few samples (such as if you're doing a bulk conversion
 // of a static file). Enabling flushing will fix this for you.
-mal_uint64 mal_src_read_ex(mal_src* pSRC, mal_uint64 frameCount, void* pFramesOut, mal_bool32 flush, void* pUserData);
+//mal_uint64 mal_src_read_ex(mal_src* pSRC, mal_uint64 frameCount, void* pFramesOut, mal_bool32 flush, void* pUserData);
 mal_uint64 mal_src_read_deinterleaved_ex(mal_src* pSRC, mal_uint64 frameCount, void** ppSamplesOut, mal_bool32 flush, void* pUserData);
 
 
@@ -1944,6 +1944,7 @@ mal_uint64 mal_dsp_read_ex(mal_dsp* pDSP, mal_uint64 frameCount, void* pFramesOu
 mal_uint64 mal_convert_frames(void* pOut, mal_format formatOut, mal_uint32 channelsOut, mal_uint32 sampleRateOut, const void* pIn, mal_format formatIn, mal_uint32 channelsIn, mal_uint32 sampleRateIn, mal_uint64 frameCountIn);
 
 // Helper for initializing a mal_dsp_config object.
+mal_dsp_config mal_dsp_config_init_new();
 mal_dsp_config mal_dsp_config_init(mal_format formatIn, mal_uint32 channelsIn, mal_uint32 sampleRateIn, mal_format formatOut, mal_uint32 channelsOut, mal_uint32 sampleRateOut, mal_dsp_read_proc onRead, void* pUserData);
 mal_dsp_config mal_dsp_config_init_ex(mal_format formatIn, mal_uint32 channelsIn, mal_uint32 sampleRateIn, mal_channel channelMapIn[MAL_MAX_CHANNELS], mal_format formatOut, mal_uint32 channelsOut, mal_uint32 sampleRateOut,  mal_channel channelMapOut[MAL_MAX_CHANNELS], mal_dsp_read_proc onRead, void* pUserData);
 
@@ -14572,7 +14573,7 @@ mal_result mal_device_init(mal_context* pContext, mal_device_type type, mal_devi
 
     // We need a DSP object which is where samples are moved through in order to convert them to the
     // format required by the backend.
-    mal_dsp_config dspConfig;
+    mal_dsp_config dspConfig = mal_dsp_config_init_new();
     dspConfig.pUserData = pDevice;
     if (type == mal_device_type_playback) {
         dspConfig.formatIn      = pDevice->format;
@@ -17777,6 +17778,22 @@ mal_channel_router_config mal_channel_router_config_init(mal_uint32 channelsIn, 
 //
 //////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
+mal_uint64 mal_calculate_frame_count_after_src(mal_uint32 sampleRateOut, mal_uint32 sampleRateIn, mal_uint64 frameCountIn)
+{
+    double srcRatio = (double)sampleRateOut / sampleRateIn;
+    double frameCountOutF = frameCountIn * srcRatio;
+
+    mal_uint64 frameCountOut = (mal_uint64)frameCountOutF;
+
+    // If the output frame count is fractional, make sure we add an extra frame to ensure there's enough room for that last sample.
+    if ((frameCountOutF - frameCountOut) > 0.0) {
+        frameCountOut += 1;
+    }
+
+    return frameCountOut;
+}
+
+
 void mal_src_cache_init(mal_src* pSRC, mal_src_cache* pCache)
 {
     mal_assert(pSRC != NULL);
@@ -17787,15 +17804,20 @@ void mal_src_cache_init(mal_src* pSRC, mal_src_cache* pCache)
     pCache->iNextFrame = 0;
 }
 
-mal_uint32 mal_src_cache_read_frames(mal_src_cache* pCache, mal_uint32 frameCount, float* pFramesOut, void* pUserData)
+mal_uint32 mal_src_cache_read_frames_deinterleaved(mal_src_cache* pCache, mal_uint32 frameCount, float** ppSamplesOut, void* pUserData)
 {
     mal_assert(pCache != NULL);
     mal_assert(pCache->pSRC != NULL);
-    mal_assert(pCache->pSRC->config.onRead != NULL);
+    mal_assert(pCache->pSRC->config.onReadDeinterleaved != NULL);
     mal_assert(frameCount > 0);
-    mal_assert(pFramesOut != NULL);
+    mal_assert(ppSamplesOut != NULL);
 
     mal_uint32 channels = pCache->pSRC->config.channels;
+
+    float* ppCachedFrames[MAL_MAX_CHANNELS];
+    for (mal_uint32 iChannel = 0; iChannel < channels; ++iChannel) {
+        ppCachedFrames[iChannel] = pCache->cachedFrames[iChannel];
+    }
 
     mal_uint32 totalFramesRead = 0;
     while (frameCount > 0) {
@@ -17806,7 +17828,9 @@ mal_uint32 mal_src_cache_read_frames(mal_src_cache* pCache, mal_uint32 frameCoun
             framesToReadFromMemory = framesRemainingInMemory;
         }
 
-        mal_copy_memory(pFramesOut, pCache->pCachedFrames + pCache->iNextFrame*channels, framesToReadFromMemory * channels * sizeof(float));
+        for (mal_uint32 iChannel = 0; iChannel < channels; ++iChannel) {
+            mal_copy_memory(ppSamplesOut[iChannel], pCache->cachedFrames[iChannel] + pCache->iNextFrame, framesToReadFromMemory*sizeof(float));
+        }
         pCache->iNextFrame += framesToReadFromMemory;
 
         totalFramesRead += framesToReadFromMemory;
@@ -17818,16 +17842,18 @@ mal_uint32 mal_src_cache_read_frames(mal_src_cache* pCache, mal_uint32 frameCoun
 
         // At this point there are still more frames to read from the client, so we'll need to reload the cache with fresh data.
         mal_assert(frameCount > 0);
-        pFramesOut += framesToReadFromMemory * channels;
 
         pCache->iNextFrame = 0;
+        for (mal_uint32 iChannel = 0; iChannel < channels; ++iChannel) {
+            ppSamplesOut[iChannel] += framesToReadFromMemory;
+        }
 
-        mal_uint32 framesToReadFromClient = mal_countof(pCache->pCachedFrames) / pCache->pSRC->config.channels;
+        mal_uint32 framesToReadFromClient = mal_countof(pCache->cachedFrames[0]);
         if (framesToReadFromClient > MAL_SRC_CACHE_SIZE_IN_FRAMES) {
             framesToReadFromClient = MAL_SRC_CACHE_SIZE_IN_FRAMES;
         }
 
-        pCache->cachedFrameCount = pCache->pSRC->config.onRead(pCache->pSRC, framesToReadFromClient, pCache->pCachedFrames, pUserData);
+        pCache->cachedFrameCount = pCache->pSRC->config.onReadDeinterleaved(pCache->pSRC, framesToReadFromClient, (void**)ppCachedFrames, pUserData);
 
         // Get out of this loop if nothing was able to be retrieved.
         if (pCache->cachedFrameCount == 0) {
@@ -17839,8 +17865,11 @@ mal_uint32 mal_src_cache_read_frames(mal_src_cache* pCache, mal_uint32 frameCoun
 }
 
 
-mal_uint64 mal_src_read_frames_passthrough(mal_src* pSRC, mal_uint64 frameCount, void* pFramesOut, mal_bool32 flush, void* pUserData);
-mal_uint64 mal_src_read_frames_linear(mal_src* pSRC, mal_uint64 frameCount, void* pFramesOut, mal_bool32 flush, void* pUserData);
+//mal_uint64 mal_src_read_frames_passthrough(mal_src* pSRC, mal_uint64 frameCount, void* pFramesOut, mal_bool32 flush, void* pUserData);
+//mal_uint64 mal_src_read_frames_linear(mal_src* pSRC, mal_uint64 frameCount, void* pFramesOut, mal_bool32 flush, void* pUserData);
+
+mal_uint64 mal_src_read_deinterleaved__passthrough(mal_src* pSRC, mal_uint64 frameCount, void** ppSamplesOut, mal_bool32 flush, void* pUserData);
+mal_uint64 mal_src_read_deinterleaved__linear(mal_src* pSRC, mal_uint64 frameCount, void** ppSamplesOut, mal_bool32 flush, void* pUserData);
 
 mal_result mal_src_init(const mal_src_config* pConfig, mal_src* pSRC)
 {
@@ -17850,7 +17879,7 @@ mal_result mal_src_init(const mal_src_config* pConfig, mal_src* pSRC)
 
     mal_zero_object(pSRC);
 
-    if (pConfig == NULL || pConfig->onRead == NULL) {
+    if (pConfig == NULL || pConfig->onReadDeinterleaved == NULL) {
         return MAL_INVALID_ARGS;
     }
     if (pConfig->channels == 0 || pConfig->channels > MAL_MAX_CHANNELS) {
@@ -17893,6 +17922,7 @@ mal_result mal_src_set_output_sample_rate(mal_src* pSRC, mal_uint32 sampleRateOu
     return MAL_SUCCESS;
 }
 
+#if 0
 mal_uint64 mal_src_read(mal_src* pSRC, mal_uint64 frameCount, void* pFramesOut, void* pUserData)
 {
     return mal_src_read_ex(pSRC, frameCount, pFramesOut, MAL_FALSE, pUserData);
@@ -17917,6 +17947,7 @@ mal_uint64 mal_src_read_ex(mal_src* pSRC, mal_uint64 frameCount, void* pFramesOu
         default: return 0;
     }
 }
+#endif
 
 mal_uint64 mal_src_read_deinterleaved(mal_src* pSRC, mal_uint64 frameCount, void** ppSamplesOut, void* pUserData)
 {
@@ -17925,16 +17956,27 @@ mal_uint64 mal_src_read_deinterleaved(mal_src* pSRC, mal_uint64 frameCount, void
 
 mal_uint64 mal_src_read_deinterleaved_ex(mal_src* pSRC, mal_uint64 frameCount, void** ppSamplesOut, mal_bool32 flush, void* pUserData)
 {
-    (void)pSRC;
-    (void)frameCount;
-    (void)ppSamplesOut;
-    (void)flush;
-    (void)pUserData;
+    if (pSRC == NULL || frameCount == 0 || ppSamplesOut == NULL) {
+        return 0;
+    }
 
-    // TODO: Implement me.
+    mal_src_algorithm algorithm = pSRC->config.algorithm;
+    if (pSRC->config.sampleRateIn == pSRC->config.sampleRateOut) {
+        algorithm = mal_src_algorithm_none;
+    }
+
+    // Can use a function pointer for this.
+    switch (algorithm) {
+        case mal_src_algorithm_none:   return mal_src_read_deinterleaved__passthrough(pSRC, frameCount, ppSamplesOut, flush, pUserData);
+        case mal_src_algorithm_linear: return mal_src_read_deinterleaved__linear(     pSRC, frameCount, ppSamplesOut, flush, pUserData);
+        default: break;
+    }
+
+    // Should never get here.
     return 0;
 }
 
+#if 0
 mal_uint64 mal_src_read_frames_passthrough(mal_src* pSRC, mal_uint64 frameCount, void* pFramesOut, mal_bool32 flush, void* pUserData)
 {
     mal_assert(pSRC != NULL);
@@ -18035,6 +18077,136 @@ mal_uint64 mal_src_read_frames_linear(mal_src* pSRC, mal_uint64 frameCount, void
         mal_copy_memory(pFramesOut, pFrame, 1 * pSRC->config.channels * sizeof(float));
 
         pFramesOut  = (mal_uint8*)pFramesOut + (1 * pSRC->config.channels * sizeof(float));
+        frameCount -= 1;
+        totalFramesRead += 1;
+
+        // If there's no frames available we need to get out of this loop.
+        if (!pSRC->linear.isNextFramesLoaded && (!flush || !pSRC->linear.isPrevFramesLoaded)) {
+            break;
+        }
+    }
+
+    return totalFramesRead;
+}
+#endif
+
+mal_uint64 mal_src_read_deinterleaved__passthrough(mal_src* pSRC, mal_uint64 frameCount, void** ppSamplesOut, mal_bool32 flush, void* pUserData)
+{
+    (void)flush;    // Passthrough need not care about flushing.
+
+    if (frameCount <= 0xFFFFFFFF) {
+        return pSRC->config.onReadDeinterleaved(pSRC, (mal_uint32)frameCount, ppSamplesOut, pUserData);
+    } else {
+        float* ppNextSamplesOut[MAL_MAX_CHANNELS];
+        for (mal_uint32 iChannel = 0; iChannel < pSRC->config.channels; ++iChannel) {
+            ppNextSamplesOut[iChannel] = (float*)ppSamplesOut[iChannel];
+        }
+
+        mal_uint64 totalFramesRead = 0;
+        while (totalFramesRead < frameCount) {
+            mal_uint64 framesRemaining = frameCount - totalFramesRead;
+            mal_uint64 framesToReadRightNow = framesRemaining;
+            if (framesToReadRightNow > 0xFFFFFFFF) {
+                framesToReadRightNow = 0xFFFFFFFF;
+            }
+
+            mal_uint32 framesRead = (mal_uint32)pSRC->config.onReadDeinterleaved(pSRC, (mal_uint32)framesToReadRightNow, ppNextSamplesOut, pUserData);
+            if (framesRead == 0) {
+                break;
+            }
+
+            totalFramesRead += framesRead;
+            for (mal_uint32 iChannel = 0; iChannel < pSRC->config.channels; ++iChannel) {
+                ppNextSamplesOut[iChannel] += framesRead;
+            }
+        }
+
+        return totalFramesRead;
+    }
+}
+
+mal_uint64 mal_src_read_deinterleaved__linear(mal_src* pSRC, mal_uint64 frameCount, void** ppSamplesOut, mal_bool32 flush, void* pUserData)
+{
+    mal_assert(pSRC != NULL);
+    mal_assert(frameCount > 0);
+    mal_assert(ppSamplesOut != NULL);
+
+    // For linear SRC, the bin is only 2 frames: 1 prior, 1 future.
+
+    float* ppNextSamplesOut[MAL_MAX_CHANNELS];
+    mal_copy_memory(ppNextSamplesOut, ppSamplesOut, sizeof(void*) * pSRC->config.channels);
+
+    // Load the bin if necessary.
+    float* ppPrevFrame[MAL_MAX_CHANNELS];
+    float* ppNextFrame[MAL_MAX_CHANNELS];
+    for (mal_uint32 iChannel = 0; iChannel < pSRC->config.channels; ++iChannel) {
+        ppPrevFrame[iChannel] = &pSRC->bin[iChannel][0];
+        ppNextFrame[iChannel] = &pSRC->bin[iChannel][1];
+    }
+
+    if (!pSRC->linear.isPrevFramesLoaded) {
+        mal_uint32 framesRead = mal_src_cache_read_frames_deinterleaved(&pSRC->cache, 1, ppPrevFrame, pUserData);
+        if (framesRead == 0) {
+            return 0;
+        }
+        pSRC->linear.isPrevFramesLoaded = MAL_TRUE;
+    }
+    if (!pSRC->linear.isNextFramesLoaded) {
+        mal_uint32 framesRead = mal_src_cache_read_frames_deinterleaved(&pSRC->cache, 1, ppNextFrame, pUserData);
+        if (framesRead == 0) {
+            return 0;
+        }
+        pSRC->linear.isNextFramesLoaded = MAL_TRUE;
+    }
+
+    float factor = (float)pSRC->config.sampleRateIn / pSRC->config.sampleRateOut;
+
+    mal_uint64 totalFramesRead = 0;
+    while (frameCount > 0) {
+        for (mal_uint32 iChannel = 0; iChannel < pSRC->config.channels; ++iChannel) {
+            // The bin is where the previous and next frames are located.
+            float prevSample = pSRC->bin[iChannel][0];
+            float nextSample = pSRC->bin[iChannel][1];
+            ppNextSamplesOut[iChannel][0] = mal_mix_f32(prevSample, nextSample, pSRC->linear.alpha);
+            ppNextSamplesOut[iChannel] = (float*)ppNextSamplesOut[iChannel] + 1;
+        }
+
+        //float pFrame[MAL_MAX_CHANNELS];
+        //mal_blend_f32(pFrame, pPrevFrame, pNextFrame, pSRC->linear.alpha, pSRC->config.channels);
+
+        pSRC->linear.alpha += factor;
+
+        // The new alpha value is how we determine whether or not we need to read fresh frames.
+        mal_uint32 framesToReadFromClient = (mal_uint32)pSRC->linear.alpha;
+        pSRC->linear.alpha = pSRC->linear.alpha - framesToReadFromClient;
+
+        for (mal_uint32 i = 0; i < framesToReadFromClient; ++i) {
+            for (mal_uint32 iChannel = 0; iChannel < pSRC->config.channels; ++iChannel) {
+                ppPrevFrame[iChannel][0] = ppNextFrame[iChannel][0];
+            }
+
+            mal_uint32 framesRead = mal_src_cache_read_frames_deinterleaved(&pSRC->cache, 1, ppNextFrame, pUserData);
+            if (framesRead == 0) {
+                for (mal_uint32 j = 0; j < pSRC->config.channels; ++j) {
+                    ppNextFrame[j][0] = 0;
+                }
+
+                if (pSRC->linear.isNextFramesLoaded) {
+                    pSRC->linear.isNextFramesLoaded = MAL_FALSE;
+                } else {
+                    if (flush) {
+                        pSRC->linear.isPrevFramesLoaded = MAL_FALSE;
+                    }
+                }
+
+                break;
+            }
+        }
+
+        //mal_pcm_convert(pFramesOut, pSRC->config.formatOut, pFrame, mal_format_f32, 1 * pSRC->config.channels, mal_dither_mode_none);
+        //mal_copy_memory(pFramesOut, pFrame, 1 * pSRC->config.channels * sizeof(float));
+
+        //pFramesOut  = (mal_uint8*)pFramesOut + (1 * pSRC->config.channels * sizeof(float));
         frameCount -= 1;
         totalFramesRead += 1;
 
@@ -18656,6 +18828,7 @@ mal_uint32 mal_dsp__post_format_converter_on_read_deinterleaved(mal_format_conve
     }
 }
 
+#if 0
 mal_uint32 mal_dsp__src_on_read(mal_src* pSRC, mal_uint32 frameCount, void* pFramesOut, void* pUserData)
 {
     (void)pSRC;
@@ -18665,6 +18838,7 @@ mal_uint32 mal_dsp__src_on_read(mal_src* pSRC, mal_uint32 frameCount, void* pFra
 
     return pDSP->onRead(pDSP, frameCount, pFramesOut, pDSP->pUserData);
 }
+#endif
 
 mal_uint32 mal_dsp__src_on_read_deinterleaved(mal_src* pSRC, mal_uint32 frameCount, void** ppSamplesOut, void* pUserData)
 {
@@ -18829,11 +19003,12 @@ mal_result mal_dsp_init(const mal_dsp_config* pConfig, mal_dsp* pDSP)
         postFormatConverterConfig.channels = pConfig->channelsOut;
         postFormatConverterConfig.streamFormatIn = mal_stream_format_pcm;
         postFormatConverterConfig.streamFormatOut = mal_stream_format_pcm;
-        postFormatConverterConfig.onRead = mal_dsp__post_format_converter_on_read;
-        postFormatConverterConfig.onReadDeinterleaved = mal_dsp__post_format_converter_on_read_deinterleaved;
         postFormatConverterConfig.pUserData = pDSP;
         if (pDSP->isPreFormatConversionRequired) {
+            postFormatConverterConfig.onReadDeinterleaved = mal_dsp__post_format_converter_on_read_deinterleaved;
             postFormatConverterConfig.formatIn = mal_format_f32;
+        } else {
+            postFormatConverterConfig.onRead = mal_dsp__post_format_converter_on_read;
         }
 
         result = mal_format_converter_init(&postFormatConverterConfig, &pDSP->formatConverterOut);
@@ -18850,7 +19025,6 @@ mal_result mal_dsp_init(const mal_dsp_config* pConfig, mal_dsp* pDSP)
         srcConfig.sampleRateOut = pConfig->sampleRateOut;
         srcConfig.channels = (pConfig->channelsIn < pConfig->channelsOut) ? pConfig->channelsIn : pConfig->channelsOut;
         srcConfig.algorithm = pConfig->srcAlgorithm;
-        srcConfig.onRead = mal_dsp__src_on_read;
         srcConfig.onReadDeinterleaved = mal_dsp__src_on_read_deinterleaved;
         srcConfig.pUserData = pDSP;
         result = mal_src_init(&srcConfig, &pDSP->src);
@@ -19093,21 +19267,6 @@ mal_uint64 mal_dsp_read_ex(mal_dsp* pDSP, mal_uint64 frameCount, void* pFramesOu
 }
 
 
-mal_uint64 mal_calculate_frame_count_after_src(mal_uint32 sampleRateOut, mal_uint32 sampleRateIn, mal_uint64 frameCountIn)
-{
-    double srcRatio = (double)sampleRateOut / sampleRateIn;
-    double frameCountOutF = frameCountIn * srcRatio;
-
-    mal_uint64 frameCountOut = (mal_uint64)frameCountOutF;
-
-    // If the output frame count is fractional, make sure we add an extra frame to ensure there's enough room for that last sample.
-    if ((frameCountOutF - frameCountOut) > 0.0) {
-        frameCountOut += 1;
-    }
-
-    return frameCountOut;
-}
-
 typedef struct
 {
     const void* pDataIn;
@@ -19173,6 +19332,14 @@ mal_uint64 mal_convert_frames(void* pOut, mal_format formatOut, mal_uint32 chann
     }
 
     return mal_dsp_read_ex(&dsp, frameCountOut, pOut, MAL_TRUE, dsp.pUserData);
+}
+
+mal_dsp_config mal_dsp_config_init_new()
+{
+    mal_dsp_config config;
+    mal_zero_object(&config);
+
+    return config;
 }
 
 mal_dsp_config mal_dsp_config_init(mal_format formatIn, mal_uint32 channelsIn, mal_uint32 sampleRateIn, mal_format formatOut, mal_uint32 channelsOut, mal_uint32 sampleRateOut, mal_dsp_read_proc onRead, void* pUserData)
@@ -19272,6 +19439,7 @@ mal_decoder_config mal_decoder_config_init(mal_format outputFormat, mal_uint32 o
     config.outputFormat = outputFormat;
     config.outputChannels = outputChannels;
     config.outputSampleRate = outputSampleRate;
+    mal_get_standard_channel_map(mal_standard_channel_map_default, config.outputChannels, config.outputChannelMap);
 
     return config;
 }
@@ -19311,8 +19479,12 @@ mal_result mal_decoder__init_dsp(mal_decoder* pDecoder, const mal_decoder_config
         pDecoder->outputSampleRate = pConfig->outputSampleRate;
     }
 
-    mal_copy_memory(pDecoder->outputChannelMap, pConfig->outputChannelMap, sizeof(pConfig->outputChannelMap));
-
+    if (mal_channel_map_blank(pDecoder->outputChannels, pConfig->outputChannelMap)) {
+        mal_get_standard_channel_map(mal_standard_channel_map_default, pDecoder->outputChannels, pDecoder->outputChannelMap);
+    } else {
+        mal_copy_memory(pDecoder->outputChannelMap, pConfig->outputChannelMap, sizeof(pConfig->outputChannelMap));
+    }
+    
 
     // DSP.
     mal_dsp_config dspConfig = mal_dsp_config_init_ex(

@@ -9,4 +9,5 @@ tests/bin/
 tests/res/output/
 !/tests/res/output/DO_NOT_DELETE
 /tests/SDL2.dll
+tests/res/private/
 *.vcxproj.user
