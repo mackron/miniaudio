@@ -1009,7 +1009,7 @@ int do_format_converter_tests()
         }
 
         mal_int16 interleavedFrames[MAL_MAX_CHANNELS * 1024];
-        mal_uint64 framesRead = mal_format_converter_read_frames(&converter, 1024, interleavedFrames);
+        mal_uint64 framesRead = mal_format_converter_read_frames(&converter, 1024, interleavedFrames, converter.pUserData);
         if (framesRead != 1024) {
             printf("Failed to read interleaved data from converter.\n");
             return -1;
@@ -1040,7 +1040,7 @@ int do_format_converter_tests()
             ppDeinterleavedFrames[iChannel] = &deinterleavedFrames[iChannel];
         }
 
-        mal_uint64 framesRead = mal_format_converter_read_frames_deinterleaved(&converter, 1024, ppDeinterleavedFrames);
+        mal_uint64 framesRead = mal_format_converter_read_frames_deinterleaved(&converter, 1024, ppDeinterleavedFrames, converter.pUserData);
         if (framesRead != 1024) {
             printf("Failed to read interleaved data from converter.\n");
             return -1;
@@ -1072,7 +1072,7 @@ int do_format_converter_tests()
         }
 
         mal_int16 interleavedFrames[MAL_MAX_CHANNELS * 1024];
-        mal_uint64 framesRead = mal_format_converter_read_frames(&converter, 1024, interleavedFrames);
+        mal_uint64 framesRead = mal_format_converter_read_frames(&converter, 1024, interleavedFrames, converter.pUserData);
         if (framesRead != 1024) {
             printf("Failed to read interleaved data from converter.\n");
             return -1;
@@ -1103,7 +1103,7 @@ int do_format_converter_tests()
             ppDeinterleavedFrames[iChannel] = &deinterleavedFrames[iChannel];
         }
 
-        mal_uint64 framesRead = mal_format_converter_read_frames_deinterleaved(&converter, 1024, ppDeinterleavedFrames);
+        mal_uint64 framesRead = mal_format_converter_read_frames_deinterleaved(&converter, 1024, ppDeinterleavedFrames, converter.pUserData);
         if (framesRead != 1024) {
             printf("Failed to read interleaved data from converter.\n");
             return -1;
@@ -1139,7 +1139,7 @@ int do_format_converter_tests()
         }
 
         float interleavedFrames[MAL_MAX_CHANNELS * 1024];
-        mal_uint64 framesRead = mal_format_converter_read_frames(&converter, 1024, interleavedFrames);
+        mal_uint64 framesRead = mal_format_converter_read_frames(&converter, 1024, interleavedFrames, converter.pUserData);
         if (framesRead != 1024) {
             printf("Failed to read interleaved data from converter.\n");
             return -1;
@@ -1170,7 +1170,7 @@ int do_format_converter_tests()
             ppDeinterleavedFrames[iChannel] = &deinterleavedFrames[iChannel];
         }
 
-        mal_uint64 framesRead = mal_format_converter_read_frames_deinterleaved(&converter, 1024, ppDeinterleavedFrames);
+        mal_uint64 framesRead = mal_format_converter_read_frames_deinterleaved(&converter, 1024, ppDeinterleavedFrames, converter.pUserData);
         if (framesRead != 1024) {
             printf("Failed to read interleaved data from converter.\n");
             return -1;
@@ -1202,7 +1202,7 @@ int do_format_converter_tests()
         }
 
         float interleavedFrames[MAL_MAX_CHANNELS * 1024];
-        mal_uint64 framesRead = mal_format_converter_read_frames(&converter, 1024, interleavedFrames);
+        mal_uint64 framesRead = mal_format_converter_read_frames(&converter, 1024, interleavedFrames, converter.pUserData);
         if (framesRead != 1024) {
             printf("Failed to read interleaved data from converter.\n");
             return -1;
@@ -1233,7 +1233,7 @@ int do_format_converter_tests()
             ppDeinterleavedFrames[iChannel] = &deinterleavedFrames[iChannel];
         }
 
-        mal_uint64 framesRead = mal_format_converter_read_frames_deinterleaved(&converter, 1024, ppDeinterleavedFrames);
+        mal_uint64 framesRead = mal_format_converter_read_frames_deinterleaved(&converter, 1024, ppDeinterleavedFrames, converter.pUserData);
         if (framesRead != 1024) {
             printf("Failed to read interleaved data from converter.\n");
             return -1;
@@ -1339,7 +1339,7 @@ int do_channel_routing_tests()
         }
 
         // With optimizations.
-        mal_uint64 framesRead = mal_channel_router_read_frames_deinterleaved(&router, 100, (void**)ppOutputA);
+        mal_uint64 framesRead = mal_channel_router_read_frames_deinterleaved(&router, 100, (void**)ppOutputA, router.pUserData);
         if (framesRead != 100) {
             printf("Returned frame count for optimized incorrect.");
             hasError = MAL_TRUE;
@@ -1348,7 +1348,7 @@ int do_channel_routing_tests()
         // Without optimizations.
         router.isPassthrough = MAL_FALSE;
         router.isSimpleShuffle = MAL_FALSE;
-        framesRead = mal_channel_router_read_frames_deinterleaved(&router, 100, (void**)ppOutputB);
+        framesRead = mal_channel_router_read_frames_deinterleaved(&router, 100, (void**)ppOutputB, router.pUserData);
         if (framesRead != 100) {
             printf("Returned frame count for unoptimized path incorrect.");
             hasError = MAL_TRUE;
@@ -1441,7 +1441,7 @@ int do_channel_routing_tests()
         }
 
         // With optimizations.
-        mal_uint64 framesRead = mal_channel_router_read_frames_deinterleaved(&router, 100, (void**)ppOutputA);
+        mal_uint64 framesRead = mal_channel_router_read_frames_deinterleaved(&router, 100, (void**)ppOutputA, router.pUserData);
         if (framesRead != 100) {
             printf("Returned frame count for optimized incorrect.");
             hasError = MAL_TRUE;
@@ -1450,7 +1450,7 @@ int do_channel_routing_tests()
         // Without optimizations.
         router.isPassthrough = MAL_FALSE;
         router.isSimpleShuffle = MAL_FALSE;
-        framesRead = mal_channel_router_read_frames_deinterleaved(&router, 100, (void**)ppOutputB);
+        framesRead = mal_channel_router_read_frames_deinterleaved(&router, 100, (void**)ppOutputB, router.pUserData);
         if (framesRead != 100) {
             printf("Returned frame count for unoptimized path incorrect.");
             hasError = MAL_TRUE;
@@ -1653,7 +1653,7 @@ int do_channel_routing_tests()
             ppOutput[iChannel] = output[iChannel];
         }
 
-        mal_uint64 framesRead = mal_channel_router_read_frames_deinterleaved(&router, 100, (void**)ppOutput);
+        mal_uint64 framesRead = mal_channel_router_read_frames_deinterleaved(&router, 100, (void**)ppOutput, router.pUserData);
         if (framesRead != 100) {
             printf("Returned frame count for optimized incorrect.\n");
             hasError = MAL_TRUE;

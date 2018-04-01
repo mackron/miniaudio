@@ -1844,10 +1844,10 @@ mal_result mal_format_converter_init(const mal_format_converter_config* pConfig,
 mal_result mal_format_converter_init_deinterleaved(const mal_format_converter_config* pConfig, mal_format_converter_read_deinterleaved_proc onRead, void* pUserData, mal_format_converter* pConverter);
 
 // Reads data from the format converter as interleaved channels.
-mal_uint64 mal_format_converter_read_frames(mal_format_converter* pConverter, mal_uint64 frameCount, void* pFramesOut);
+mal_uint64 mal_format_converter_read_frames(mal_format_converter* pConverter, mal_uint64 frameCount, void* pFramesOut, void* pUserData);
 
 // Reads data from the format converter as deinterleaved channels.
-mal_uint64 mal_format_converter_read_frames_deinterleaved(mal_format_converter* pConverter, mal_uint64 frameCount, void** ppSamplesOut);
+mal_uint64 mal_format_converter_read_frames_deinterleaved(mal_format_converter* pConverter, mal_uint64 frameCount, void** ppSamplesOut, void* pUserData);
 
 
 
@@ -1864,7 +1864,7 @@ mal_uint64 mal_format_converter_read_frames_deinterleaved(mal_format_converter* 
 mal_result mal_channel_router_init_deinterleaved(const mal_channel_router_config* pConfig, mal_channel_router_read_deinterleaved_proc onRead, void* pUserData, mal_channel_router* pRouter);
 
 // Reads data from the channel router as deinterleaved channels.
-mal_uint64 mal_channel_router_read_frames_deinterleaved(mal_channel_router* pRouter, mal_uint64 frameCount, void** ppSamplesOut);
+mal_uint64 mal_channel_router_read_frames_deinterleaved(mal_channel_router* pRouter, mal_uint64 frameCount, void** ppSamplesOut, void* pUserData);
 
 // Helper for initializing a channel router config.
 mal_channel_router_config mal_channel_router_config_init(mal_uint32 channelsIn, const mal_channel channelMapIn[MAL_MAX_CHANNELS], mal_uint32 channelsOut, const mal_channel channelMapOut[MAL_MAX_CHANNELS], mal_channel_mix_mode mixingMode);
@@ -1892,6 +1892,7 @@ mal_result mal_src_set_output_sample_rate(mal_src* pSRC, mal_uint32 sampleRateOu
 //
 // Returns the number of frames actually read.
 mal_uint64 mal_src_read_frames(mal_src* pSRC, mal_uint64 frameCount, void* pFramesOut);
+mal_uint64 mal_src_read_frames_deinterleaved(mal_src* pSRC, mal_uint64 frameCount, void** ppSamplesOut, void* pUserData);
 
 // The same mal_src_read_frames() with extra control over whether or not the internal buffers should be flushed at the end.
 //
@@ -1900,7 +1901,7 @@ mal_uint64 mal_src_read_frames(mal_src* pSRC, mal_uint64 frameCount, void* pFram
 // pipelines. The problem, however, is that sometimes you need those last few samples (such as if you're doing a bulk conversion
 // of a static file). Enabling flushing will fix this for you.
 mal_uint64 mal_src_read_frames_ex(mal_src* pSRC, mal_uint64 frameCount, void* pFramesOut, mal_bool32 flush);
-mal_uint64 mal_src_read_frames_deinterleaved_ex(mal_src* pSRC, mal_uint64 frameCount, void** ppSamplesOut, mal_bool32 flush);
+mal_uint64 mal_src_read_frames_deinterleaved_ex(mal_src* pSRC, mal_uint64 frameCount, void** ppSamplesOut, mal_bool32 flush, void* pUserData);
 
 
 
@@ -16882,7 +16883,7 @@ mal_result mal_format_converter_init_deinterleaved(const mal_format_converter_co
     return MAL_SUCCESS;
 }
 
-mal_uint64 mal_format_converter_read_frames(mal_format_converter* pConverter, mal_uint64 frameCount, void* pFramesOut)
+mal_uint64 mal_format_converter_read_frames(mal_format_converter* pConverter, mal_uint64 frameCount, void* pFramesOut, void* pUserData)
 {
     if (pConverter == NULL || pFramesOut == NULL) {
         return 0;
@@ -16906,7 +16907,7 @@ mal_uint64 mal_format_converter_read_frames(mal_format_converter* pConverter, ma
                     framesToReadRightNow = 0xFFFFFFFF;
                 }
 
-                mal_uint32 framesJustRead = (mal_uint32)pConverter->onRead(pConverter, (mal_uint32)framesToReadRightNow, pNextFramesOut, pConverter->pUserData);
+                mal_uint32 framesJustRead = (mal_uint32)pConverter->onRead(pConverter, (mal_uint32)framesToReadRightNow, pNextFramesOut, pUserData);
                 if (framesJustRead == 0) {
                     break;
                 }
@@ -16928,7 +16929,7 @@ mal_uint64 mal_format_converter_read_frames(mal_format_converter* pConverter, ma
                     framesToReadRightNow = maxFramesToReadAtATime;
                 }
 
-                mal_uint32 framesJustRead = (mal_uint32)pConverter->onRead(pConverter, (mal_uint32)framesToReadRightNow, temp, pConverter->pUserData);
+                mal_uint32 framesJustRead = (mal_uint32)pConverter->onRead(pConverter, (mal_uint32)framesToReadRightNow, temp, pUserData);
                 if (framesJustRead == 0) {
                     break;
                 }
@@ -16962,7 +16963,7 @@ mal_uint64 mal_format_converter_read_frames(mal_format_converter* pConverter, ma
 
             if (pConverter->config.formatIn == pConverter->config.formatOut) {
                 // Only interleaving.
-                framesJustRead = (mal_uint32)pConverter->onReadDeinterleaved(pConverter, (mal_uint32)framesToReadRightNow, ppTempSampleOfOutFormat, pConverter->pUserData);
+                framesJustRead = (mal_uint32)pConverter->onReadDeinterleaved(pConverter, (mal_uint32)framesToReadRightNow, ppTempSampleOfOutFormat, pUserData);
                 if (framesJustRead == 0) {
                     break;
                 }
@@ -16976,7 +16977,7 @@ mal_uint64 mal_format_converter_read_frames(mal_format_converter* pConverter, ma
                 }
 
 
-                framesJustRead = (mal_uint32)pConverter->onReadDeinterleaved(pConverter, (mal_uint32)framesToReadRightNow, ppTempSampleOfInFormat, pConverter->pUserData);
+                framesJustRead = (mal_uint32)pConverter->onReadDeinterleaved(pConverter, (mal_uint32)framesToReadRightNow, ppTempSampleOfInFormat, pUserData);
                 if (framesJustRead == 0) {
                     break;
                 }
@@ -16996,7 +16997,7 @@ mal_uint64 mal_format_converter_read_frames(mal_format_converter* pConverter, ma
     return totalFramesRead;
 }
 
-mal_uint64 mal_format_converter_read_frames_deinterleaved(mal_format_converter* pConverter, mal_uint64 frameCount, void** ppSamplesOut)
+mal_uint64 mal_format_converter_read_frames_deinterleaved(mal_format_converter* pConverter, mal_uint64 frameCount, void** ppSamplesOut, void* pUserData)
 {
     if (pConverter == NULL || ppSamplesOut == NULL) {
         return 0;
@@ -17027,7 +17028,7 @@ mal_uint64 mal_format_converter_read_frames_deinterleaved(mal_format_converter* 
 
             if (pConverter->config.formatIn == pConverter->config.formatOut) {
                 // Only de-interleaving.
-                framesJustRead = (mal_uint32)pConverter->onRead(pConverter, (mal_uint32)framesToReadRightNow, tempSamplesOfOutFormat, pConverter->pUserData);
+                framesJustRead = (mal_uint32)pConverter->onRead(pConverter, (mal_uint32)framesToReadRightNow, tempSamplesOfOutFormat, pUserData);
                 if (framesJustRead == 0) {
                     break;
                 }
@@ -17035,7 +17036,7 @@ mal_uint64 mal_format_converter_read_frames_deinterleaved(mal_format_converter* 
                 // De-interleaving + Conversion. Convert first, then de-interleave.
                 mal_uint8 tempSamplesOfInFormat[sizeof(tempSamplesOfOutFormat)];
 
-                framesJustRead = (mal_uint32)pConverter->onRead(pConverter, (mal_uint32)framesToReadRightNow, tempSamplesOfInFormat, pConverter->pUserData);
+                framesJustRead = (mal_uint32)pConverter->onRead(pConverter, (mal_uint32)framesToReadRightNow, tempSamplesOfInFormat, pUserData);
                 if (framesJustRead == 0) {
                     break;
                 }
@@ -17061,7 +17062,7 @@ mal_uint64 mal_format_converter_read_frames_deinterleaved(mal_format_converter* 
                     framesToReadRightNow = 0xFFFFFFFF;
                 }
 
-                mal_uint32 framesJustRead = (mal_uint32)pConverter->onReadDeinterleaved(pConverter, (mal_uint32)framesToReadRightNow, (void**)ppNextSamplesOut, pConverter->pUserData);
+                mal_uint32 framesJustRead = (mal_uint32)pConverter->onReadDeinterleaved(pConverter, (mal_uint32)framesToReadRightNow, (void**)ppNextSamplesOut, pUserData);
                 if (framesJustRead == 0) {
                     break;
                 }
@@ -17090,7 +17091,7 @@ mal_uint64 mal_format_converter_read_frames_deinterleaved(mal_format_converter* 
                     framesToReadRightNow = maxFramesToReadAtATime;
                 }
 
-                mal_uint32 framesJustRead = (mal_uint32)pConverter->onReadDeinterleaved(pConverter, (mal_uint32)framesToReadRightNow, ppTemp, pConverter->pUserData);
+                mal_uint32 framesJustRead = (mal_uint32)pConverter->onReadDeinterleaved(pConverter, (mal_uint32)framesToReadRightNow, ppTemp, pUserData);
                 if (framesJustRead == 0) {
                     break;
                 }
@@ -17709,7 +17710,7 @@ void mal_channel_router__do_routing(mal_channel_router* pRouter, mal_uint64 fram
     }
 }
 
-mal_uint64 mal_channel_router_read_frames_deinterleaved(mal_channel_router* pRouter, mal_uint64 frameCount, void** ppSamplesOut)
+mal_uint64 mal_channel_router_read_frames_deinterleaved(mal_channel_router* pRouter, mal_uint64 frameCount, void** ppSamplesOut, void* pUserData)
 {
     if (pRouter == NULL || ppSamplesOut == NULL) {
         return 0;
@@ -17718,7 +17719,7 @@ mal_uint64 mal_channel_router_read_frames_deinterleaved(mal_channel_router* pRou
     // Fast path for a passthrough.
     if (pRouter->isPassthrough) {
         if (frameCount <= 0xFFFFFFFF) {
-            return (mal_uint32)pRouter->onReadDeinterleaved(pRouter, (mal_uint32)frameCount, ppSamplesOut, pRouter->pUserData);
+            return (mal_uint32)pRouter->onReadDeinterleaved(pRouter, (mal_uint32)frameCount, ppSamplesOut, pUserData);
         } else {
             float* ppNextSamplesOut[MAL_MAX_CHANNELS];
             mal_copy_memory(ppNextSamplesOut, ppSamplesOut, sizeof(float*) * pRouter->config.channelsOut);
@@ -17731,7 +17732,7 @@ mal_uint64 mal_channel_router_read_frames_deinterleaved(mal_channel_router* pRou
                     framesToReadRightNow = 0xFFFFFFFF;
                 }
 
-                mal_uint32 framesJustRead = (mal_uint32)pRouter->onReadDeinterleaved(pRouter, (mal_uint32)framesToReadRightNow, (void**)ppNextSamplesOut, pRouter->pUserData);
+                mal_uint32 framesJustRead = (mal_uint32)pRouter->onReadDeinterleaved(pRouter, (mal_uint32)framesToReadRightNow, (void**)ppNextSamplesOut, pUserData);
                 if (framesJustRead == 0) {
                     break;
                 }
@@ -17766,7 +17767,7 @@ mal_uint64 mal_channel_router_read_frames_deinterleaved(mal_channel_router* pRou
             framesToReadRightNow = maxFramesToReadEachIteration;
         }
 
-        mal_uint32 framesJustRead = pRouter->onReadDeinterleaved(pRouter, (mal_uint32)framesToReadRightNow, (void**)ppTemp, pRouter->pUserData);
+        mal_uint32 framesJustRead = pRouter->onReadDeinterleaved(pRouter, (mal_uint32)framesToReadRightNow, (void**)ppTemp, pUserData);
         if (framesJustRead == 0) {
             break;
         }
@@ -17975,17 +17976,18 @@ mal_uint64 mal_src_read_frames_ex(mal_src* pSRC, mal_uint64 frameCount, void* pF
     }
 }
 
-mal_uint64 mal_src_read_frames_deinterleaved(mal_src* pSRC, mal_uint64 frameCount, void** ppSamplesOut)
+mal_uint64 mal_src_read_frames_deinterleaved(mal_src* pSRC, mal_uint64 frameCount, void** ppSamplesOut, void* pUserData)
 {
-    return mal_src_read_frames_deinterleaved_ex(pSRC, frameCount, ppSamplesOut, MAL_FALSE);
+    return mal_src_read_frames_deinterleaved_ex(pSRC, frameCount, ppSamplesOut, MAL_FALSE, pUserData);
 }
 
-mal_uint64 mal_src_read_frames_deinterleaved_ex(mal_src* pSRC, mal_uint64 frameCount, void** ppSamplesOut, mal_bool32 flush)
+mal_uint64 mal_src_read_frames_deinterleaved_ex(mal_src* pSRC, mal_uint64 frameCount, void** ppSamplesOut, mal_bool32 flush, void* pUserData)
 {
     (void)pSRC;
     (void)frameCount;
     (void)ppSamplesOut;
     (void)flush;
+    (void)pUserData;
 
     // TODO: Implement me.
     return 0;
@@ -18679,11 +18681,20 @@ void mal_dsp_mix_channels(float* pFramesOut, mal_uint32 channelsOut, const mal_c
 }
 
 
+typedef struct
+{
+    mal_dsp* pDSP;
+    mal_bool32 flush;
+} mal_dsp_callback_data;
+
 mal_uint32 mal_dsp__pre_format_converter_on_read(mal_format_converter* pConverter, mal_uint32 frameCount, void* pFramesOut, void* pUserData)
 {
     (void)pConverter;
 
-    mal_dsp* pDSP = (mal_dsp*)pUserData;
+    mal_dsp_callback_data* pData = (mal_dsp_callback_data*)pUserData;
+    mal_assert(pData != NULL);
+
+    mal_dsp* pDSP = pData->pDSP;
     mal_assert(pDSP != NULL);
 
     return pDSP->onRead(pDSP, frameCount, pFramesOut, pDSP->pUserDataForOnRead);
@@ -18693,7 +18704,10 @@ mal_uint32 mal_dsp__post_format_converter_on_read(mal_format_converter* pConvert
 {
     (void)pConverter;
 
-    mal_dsp* pDSP = (mal_dsp*)pUserData;
+    mal_dsp_callback_data* pData = (mal_dsp_callback_data*)pUserData;
+    mal_assert(pData != NULL);
+
+    mal_dsp* pDSP = pData->pDSP;
     mal_assert(pDSP != NULL);
 
     // When this version of this callback is used it means we're reading directly from the client.
@@ -18708,16 +18722,19 @@ mal_uint32 mal_dsp__post_format_converter_on_read_deinterleaved(mal_format_conve
 {
     (void)pConverter;
 
-    mal_dsp* pDSP = (mal_dsp*)pUserData;
+    mal_dsp_callback_data* pData = (mal_dsp_callback_data*)pUserData;
+    mal_assert(pData != NULL);
+
+    mal_dsp* pDSP = pData->pDSP;
     mal_assert(pDSP != NULL);
 
     if (!pDSP->isChannelRoutingAtStart) {
-        return (mal_uint32)mal_channel_router_read_frames_deinterleaved(&pDSP->channelRouter, frameCount, ppSamplesOut);
+        return (mal_uint32)mal_channel_router_read_frames_deinterleaved(&pDSP->channelRouter, frameCount, ppSamplesOut, pUserData);
     } else {
         if (pDSP->isSRCRequired) {
-            return (mal_uint32)mal_src_read_frames_deinterleaved_ex(&pDSP->src, frameCount, ppSamplesOut, MAL_FALSE); // TODO: Replace MAL_FALSE with a flush argument.
+            return (mal_uint32)mal_src_read_frames_deinterleaved_ex(&pDSP->src, frameCount, ppSamplesOut, pData->flush, pUserData);
         } else {
-            return (mal_uint32)mal_format_converter_read_frames_deinterleaved(&pDSP->formatConverterIn, frameCount, ppSamplesOut);
+            return (mal_uint32)mal_format_converter_read_frames_deinterleaved(&pDSP->formatConverterIn, frameCount, ppSamplesOut, pUserData);
         }
     }
 }
@@ -18726,8 +18743,16 @@ mal_uint32 mal_dsp__src_on_read(mal_src* pSRC, mal_uint32 frameCount, void* pFra
 {
     (void)pSRC;
 
+#if 0   // TODO: Change this when the new DSP pipeline system is in.
+    mal_dsp_callback_data* pData = (mal_dsp_callback_data*)pUserData;
+    mal_assert(pData != NULL);
+
+    mal_dsp* pDSP = pData->pDSP;
+    mal_assert(pDSP != NULL);
+#else
     mal_dsp* pDSP = (mal_dsp*)pUserData;
     mal_assert(pDSP != NULL);
+#endif
 
     return pDSP->onRead(pDSP, frameCount, pFramesOut, pDSP->pUserDataForOnRead);
 }
@@ -18736,17 +18761,20 @@ mal_uint32 mal_dsp__channel_router_on_read(mal_channel_router* pRouter, mal_uint
 {
     (void)pRouter;
 
-    mal_dsp* pDSP = (mal_dsp*)pUserData;
+    mal_dsp_callback_data* pData = (mal_dsp_callback_data*)pUserData;
+    mal_assert(pData != NULL);
+
+    mal_dsp* pDSP = pData->pDSP;
     mal_assert(pDSP != NULL);
 
     // If the channel routing stage is at the front of the pipeline we read from the pre format converter. Otherwise we read from the sample rate converter.
     if (pDSP->isChannelRoutingAtStart) {
-        return (mal_uint32)mal_format_converter_read_frames_deinterleaved(&pDSP->formatConverterIn, frameCount, ppSamplesOut);
+        return (mal_uint32)mal_format_converter_read_frames_deinterleaved(&pDSP->formatConverterIn, frameCount, ppSamplesOut, pUserData);
     } else {
         if (pDSP->isSRCRequired) {
-            return (mal_uint32)mal_src_read_frames_deinterleaved_ex(&pDSP->src, frameCount, ppSamplesOut, MAL_FALSE); // TODO: Replace MAL_FALSE with a flush argument.
+            return (mal_uint32)mal_src_read_frames_deinterleaved_ex(&pDSP->src, frameCount, ppSamplesOut, pData->flush, pUserData);
         } else {
-            return (mal_uint32)mal_format_converter_read_frames_deinterleaved(&pDSP->formatConverterIn, frameCount, ppSamplesOut);
+            return (mal_uint32)mal_format_converter_read_frames_deinterleaved(&pDSP->formatConverterIn, frameCount, ppSamplesOut, pUserData);
         }
     }
 }
