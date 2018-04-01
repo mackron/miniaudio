@@ -1856,7 +1856,7 @@ mal_uint64 mal_format_converter_read_deinterleaved(mal_format_converter* pConver
 ///////////////////////////////////////////////////////////////////////////////
 
 // Initializes a channel router where it is assumed that the input data is non-interleaved.
-mal_result mal_channel_router_init_deinterleaved(const mal_channel_router_config* pConfig, mal_channel_router* pRouter);
+mal_result mal_channel_router_init(const mal_channel_router_config* pConfig, mal_channel_router* pRouter);
 
 // Reads data from the channel router as deinterleaved channels.
 mal_uint64 mal_channel_router_read_deinterleaved(mal_channel_router* pRouter, mal_uint64 frameCount, void** ppSamplesOut, void* pUserData);
@@ -17421,7 +17421,7 @@ mal_bool32 mal_channel_router__is_spatial_channel_position(const mal_channel_rou
     return MAL_TRUE;
 }
 
-mal_result mal_channel_router_init_deinterleaved(const mal_channel_router_config* pConfig, mal_channel_router* pRouter)
+mal_result mal_channel_router_init(const mal_channel_router_config* pConfig, mal_channel_router* pRouter)
 {
     if (pRouter == NULL) {
         return MAL_INVALID_ARGS;
