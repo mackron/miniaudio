@@ -604,6 +604,7 @@ typedef enum
 typedef enum
 {
     mal_dither_mode_none = 0,
+    //mal_dither_mode_rectangle,
     //mal_dither_mode_triangle
 } mal_dither_mode;
 
@@ -622,8 +623,7 @@ typedef enum
 typedef enum
 {
     mal_channel_mix_mode_planar_blend = 0,  // Simple averaging based on the plane(s) the channel is sitting on.
-    mal_channel_mix_mode_simple,            // Drop excess channels; zeroed out extra channels.    
-    //mal_channel_mix_mode_spatial,         // Blend channels based on spatial locality.
+    mal_channel_mix_mode_simple,            // Drop excess channels; zeroed out extra channels.
     mal_channel_mix_mode_default = mal_channel_mix_mode_planar_blend
 } mal_channel_mix_mode;
 
@@ -828,10 +828,6 @@ struct mal_dsp
     mal_bool32 isSRCRequired                  : 1;
     mal_bool32 isChannelRoutingAtStart        : 1;
     mal_bool32 isPassthrough                  : 1;      // <-- Will be set to true when the DSP pipeline is an optimized passthrough.
-
-    mal_channel channelMapInPostMix[MAL_MAX_CHANNELS];  // <-- When mixing, new channels may need to be created. This represents the channel map after mixing.
-    mal_channel channelShuffleTable[MAL_MAX_CHANNELS];
-    mal_bool32 isChannelMappingRequired : 1;
 };
 
 
@@ -1831,11 +1827,11 @@ mal_bool32 mal_channel_map_blank(mal_uint32 channels, const mal_channel channelM
 mal_bool32 mal_channel_map_contains_channel_position(mal_uint32 channels, const mal_channel channelMap[MAL_MAX_CHANNELS], mal_channel channelPosition);
 
 
-///////////////////////////////////////////////////////////////////////////////
+//////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 //
 // Format Conversion
 //
-///////////////////////////////////////////////////////////////////////////////
+//////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
 // Initializes a format converter.
 mal_result mal_format_converter_init(const mal_format_converter_config* pConfig, mal_format_converter* pConverter);
@@ -1848,14 +1844,72 @@ mal_uint64 mal_format_converter_read_deinterleaved(mal_format_converter* pConver
 
 
 
-///////////////////////////////////////////////////////////////////////////////
+//////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 //
 // Channel Routing
+// ===============
+// There are two main things you can do with the channel router:
+//   1) Rearrange channels
+//   2) Convert from one channel count to another
 //
-// Note that currently the channel router requires input data to be deinterleaved. Also, it currently only supports
-// deinterleaved output. If you need interleaving you need to run samples through a format converter.
+// Channel Rearrangement
+// ---------------------
+// A simple example of channel rearrangement may be swapping the left and right channels in a stereo stream. To do this you just pass in the same channel
+// count for both the input and output with channel maps that contain the same channels (in a different order).
 //
-///////////////////////////////////////////////////////////////////////////////
+// Channel Conversion
+// ------------------
+// The channel router can also convert from one channel count to another, such as converting a 5.1 stream to stero. When changing the channel count, the
+// router will first perform a 1:1 mapping of channel positions that are present in both the input and output channel maps. The second thing it will do
+// is distribute the input mono channel (if any) across all output channels, excluding any None and LFE channels. If there is an output mono channel, all
+// input channels will be averaged, excluding any None and LFE channels.
+//
+// The last case to consider is when a channel position in the input channel map is not present in the output channel map, and vice versa. In this case the
+// channel router will perform a blend of other related channels to produce an audible channel. There are several blending modes.
+//   1) Simple
+//      Unmatched channels are ignored.
+//   2) Planar Blending
+//      Channels are blended based on a set of planes that each speaker emits audio from.
+//
+// Planar Blending
+// ---------------
+// In this mode, channel positions are associated with a set of planes where the channel conceptually emits audio from. An example is the front/left speaker.
+// This speaker is positioned to the front of the listener, so you can think of it as emitting audio from the front plane. It is also positioned to the left
+// of the listener so you can think of it as also emitting audio from the left plane. Now consider the (unrealistic) situation where the input channel map
+// contains only the front/left channel position, but the output channel map contains both the front/left and front/center channel. When deciding on the audio
+// data to send to the front/center speaker (which has no 1:1 mapping with an input channel) we need to use some logic based on our available input channel
+// positions.
+//
+// As mentioned earlier, our front/left speaker is, conceptually speaking, emitting audio from the front _and_ the left planes. Similarly, the front/center
+// speaker is emitting audio from _only_ the front plane. What these two channels have in common is that they are both emitting audio from the front plane.
+// Thus, it makes sense that the front/center speaker should receive some contribution from the front/left channel. How much contribution depends on their
+// planar relationship (thus the name of this blending technique).
+//
+// Because the front/left channel is emitting audio from two planes (front and left), you can think of it as though it's willing to dedicate 50% of it's total
+// volume to each of it's planes (a channel position emitting from 1 plane would be willing to given 100% of it's total volume to that plane, and a channel
+// position emitting from 3 planes would be willing to given 33% of it's total volume to each plane). Similarly, the front/center speaker is emitting audio
+// from only one plane so you can think of it as though it's willing to _take_ 100% of it's volume from front plane emissions. Now, since the front/left
+// channel is willing to _give_ 50% of it's total volume to the front plane, and the front/center speaker is willing to _take_ 100% of it's total volume
+// from the front, you can imagine that 50% of the front/left speaker will be given to the front/center speaker.
+//
+// This blending technique is not perfect, but it should provide a logical and reasonable estimate. This will not work well with speaker positions such as
+// front/center/left (where the speaker is to the left of the front/center speaker) because the algorithm uses a simplified spatial model.
+//
+// Usage
+// -----
+// To use the channel router you need to specify three things:
+//   1) The input channel count and channel map
+//   2) The output channel count and channel map
+//   3) The mixing mode to use in the case where a 1:1 mapping is unavailable
+//
+// Note that input and output data is always deinterleaved 32-bit floating point.
+//
+// Initialize the channel router with mal_channel_router_init(). You will need to pass in a config object which specifies the input and output configuration,
+// mixing mode and a callback for sending data to the router. This callback will be called when input data needs to be sent to the router for processing.
+//
+// Read data from the channel router with mal_channel_router_read_deinterleaved(). Output data is always 32-bit floating point.
+//
+//////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
 // Initializes a channel router where it is assumed that the input data is non-interleaved.
 mal_result mal_channel_router_init(const mal_channel_router_config* pConfig, mal_channel_router* pRouter);
@@ -1867,11 +1921,13 @@ mal_uint64 mal_channel_router_read_deinterleaved(mal_channel_router* pRouter, ma
 mal_channel_router_config mal_channel_router_config_init(mal_uint32 channelsIn, const mal_channel channelMapIn[MAL_MAX_CHANNELS], mal_uint32 channelsOut, const mal_channel channelMapOut[MAL_MAX_CHANNELS], mal_channel_mix_mode mixingMode, mal_channel_router_read_deinterleaved_proc onRead, void* pUserData);
 
 
-///////////////////////////////////////////////////////////////////////////////
+//////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 //
-// SRC
+// Sample Rate Conversion
+// ======================
+// Note that sample rate conversion in mini_al is currently very low quality.
 //
-///////////////////////////////////////////////////////////////////////////////
+//////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
 // Initializes a sample rate conversion object.
 mal_result mal_src_init(const mal_src_config* pConfig, mal_src* pSRC);
@@ -1902,11 +1958,11 @@ mal_uint64 mal_src_read_deinterleaved_ex(mal_src* pSRC, mal_uint64 frameCount, v
 
 
 
-///////////////////////////////////////////////////////////////////////////////
+//////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 //
 // DSP
 //
-///////////////////////////////////////////////////////////////////////////////
+//////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
 // Initializes a DSP object.
 mal_result mal_dsp_init(const mal_dsp_config* pConfig, mal_dsp* pDSP);
@@ -1950,11 +2006,11 @@ mal_dsp_config mal_dsp_config_init_ex(mal_format formatIn, mal_uint32 channelsIn
 
 
 
-///////////////////////////////////////////////////////////////////////////////
+//////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 //
 // Utiltities
 //
-///////////////////////////////////////////////////////////////////////////////
+//////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
 // Creates a mutex.
 //
@@ -1972,11 +2028,11 @@ void mal_mutex_unlock(mal_mutex* pMutex);
 
 
 
-///////////////////////////////////////////////////////////////////////////////
+//////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 //
 // Miscellaneous Helpers
 //
-///////////////////////////////////////////////////////////////////////////////
+//////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
 // Retrieves a friendly name for a backend.
 const char* mal_get_backend_name(mal_backend backend);
@@ -1989,11 +2045,11 @@ void mal_blend_f32(float* pOut, float* pInA, float* pInB, float factor, mal_uint
 
 
 
-///////////////////////////////////////////////////////////////////////////////
+//////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 //
 // Format Conversion
 //
-///////////////////////////////////////////////////////////////////////////////
+//////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 void mal_pcm_u8_to_s16(void* pOut, const void* pIn, mal_uint64 count, mal_dither_mode ditherMode);
 void mal_pcm_u8_to_s24(void* pOut, const void* pIn, mal_uint64 count, mal_dither_mode ditherMode);
 void mal_pcm_u8_to_s32(void* pOut, const void* pIn, mal_uint64 count, mal_dither_mode ditherMode);
@@ -2018,11 +2074,11 @@ void mal_pcm_convert(void* pOut, mal_format formatOut, const void* pIn, mal_form
 
 
 
-///////////////////////////////////////////////////////////////////////////////
+//////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 //
 // Decoding
 //
-///////////////////////////////////////////////////////////////////////////////
+//////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 #ifndef MAL_NO_DECODING
 
 typedef struct mal_decoder mal_decoder;
@@ -2042,7 +2098,7 @@ typedef struct
 {
     mal_format  outputFormat;       // Set to 0 or mal_format_unknown to use the stream's internal format.
     mal_uint32  outputChannels;     // Set to 0 to use the stream's internal channels.
-    mal_uint32  outputSampleRate;   // Set to 0 to use the stream's internal channels.
+    mal_uint32  outputSampleRate;   // Set to 0 to use the stream's internal sample rate.
     mal_channel outputChannelMap[MAL_MAX_CHANNELS];
 } mal_decoder_config;
 
@@ -2098,11 +2154,11 @@ mal_result mal_decoder_seek_to_frame(mal_decoder* pDecoder, mal_uint64 frameInde
 #endif  // MAL_NO_DECODING
 
 
-///////////////////////////////////////////////////////////////////////////////
+//////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 //
 // Generation
 //
-///////////////////////////////////////////////////////////////////////////////
+//////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
 typedef struct
 {
@@ -10160,7 +10216,7 @@ mal_result mal_device_init__pulse(mal_context* pContext, mal_device_type type, m
         }
     }
 
-    
+
     if (type == mal_device_type_playback) {
         pOP = ((mal_pa_context_get_sink_info_by_name_proc)pContext->pulse.pa_context_get_sink_info_by_name)((mal_pa_context*)pDevice->pulse.pPulseContext, dev, mal_device_sink_info_callback, &sinkInfo);
     } else {
@@ -12686,7 +12742,7 @@ void mal_device_uninit__openal(mal_device* pDevice)
 {
     mal_assert(pDevice != NULL);
 
-    
+
     // Delete buffers and source first.
     ((MAL_LPALCMAKECONTEXTCURRENT)pDevice->pContext->openal.alcMakeContextCurrent)((mal_ALCcontext*)pDevice->openal.pContextALC);
     if (pDevice->openal.sourceAL != 0) {
@@ -15705,7 +15761,7 @@ void mal_pcm_interleave_u8__optimized(void* dst, const void** src, mal_uint64 fr
 void mal_pcm_interleave_u8(void* dst, const void** src, mal_uint64 frameCount, mal_uint32 channels)
 {
 #ifdef MAL_USE_REFERENCE_CONVERSION_APIS
-    mal_pcm_interleave_u8__reference(dst, src, frameCount, channels); 
+    mal_pcm_interleave_u8__reference(dst, src, frameCount, channels);
 #else
     mal_pcm_interleave_u8__optimized(dst, src, frameCount, channels);
 #endif
@@ -15734,7 +15790,7 @@ void mal_pcm_deinterleave_u8__optimized(void** dst, const void* src, mal_uint64 
 void mal_pcm_deinterleave_u8(void** dst, const void* src, mal_uint64 frameCount, mal_uint32 channels)
 {
 #ifdef MAL_USE_REFERENCE_CONVERSION_APIS
-    mal_pcm_deinterleave_u8__reference(dst, src, frameCount, channels); 
+    mal_pcm_deinterleave_u8__reference(dst, src, frameCount, channels);
 #else
     mal_pcm_deinterleave_u8__optimized(dst, src, frameCount, channels);
 #endif
@@ -15944,7 +16000,7 @@ void mal_pcm_interleave_s16__optimized(void* dst, const void** src, mal_uint64 f
 void mal_pcm_interleave_s16(void* dst, const void** src, mal_uint64 frameCount, mal_uint32 channels)
 {
 #ifdef MAL_USE_REFERENCE_CONVERSION_APIS
-    mal_pcm_interleave_s16__reference(dst, src, frameCount, channels); 
+    mal_pcm_interleave_s16__reference(dst, src, frameCount, channels);
 #else
     mal_pcm_interleave_s16__optimized(dst, src, frameCount, channels);
 #endif
@@ -15973,7 +16029,7 @@ void mal_pcm_deinterleave_s16__optimized(void** dst, const void* src, mal_uint64
 void mal_pcm_deinterleave_s16(void** dst, const void* src, mal_uint64 frameCount, mal_uint32 channels)
 {
 #ifdef MAL_USE_REFERENCE_CONVERSION_APIS
-    mal_pcm_deinterleave_s16__reference(dst, src, frameCount, channels); 
+    mal_pcm_deinterleave_s16__reference(dst, src, frameCount, channels);
 #else
     mal_pcm_deinterleave_s16__optimized(dst, src, frameCount, channels);
 #endif
@@ -16530,7 +16586,7 @@ void mal_pcm_f32_to_s16__reference(void* dst, const void* src, mal_uint64 count,
         // The fast way.
         x = x * 32767.0f;                           // -1..1 to -32767..32767
 #endif
-        
+
         dst_s16[i] = (mal_int16)x;
     }
 }
@@ -17183,62 +17239,124 @@ static inline float mal_vec3_distance(mal_vec3 a, mal_vec3 b)
     return mal_vec3_length(mal_vec3_sub(a, b));
 }
 
-// TODO: Make physical channel positions configurable.
+#if 0
+#define MAL_PLANE_LEFT      0
+#define MAL_PLANE_RIGHT     1
+#define MAL_PLANE_FRONT     2
+#define MAL_PLANE_BACK      3
+#define MAL_PLANE_BOTTOM    4
+#define MAL_PLANE_TOP       5
 
-// The position of each speaker in the room.
-mal_vec3 g_malDefaultChannelPositionsInRoom[MAL_CHANNEL_POSITION_COUNT] = {
-    { 0.0f,  0.0f,  0.0f},  // MAL_CHANNEL_NONE                                
-    { 0.0f,  0.0f,  0.0f},  // MAL_CHANNEL_MONO                                
-    {-1.0f,  0.0f, -1.0f},  // MAL_CHANNEL_FRONT_LEFT                          
-    {+1.0f,  0.0f, -1.0f},  // MAL_CHANNEL_FRONT_RIGHT                         
-    { 0.0f,  0.0f, -1.0f},  // MAL_CHANNEL_FRONT_CENTER                        
-    { 0.0f,  0.0f,  0.0f},  // MAL_CHANNEL_LFE                                 
-    {-1.0f,  0.0f, +1.0f},  // MAL_CHANNEL_BACK_LEFT                           
-    {+1.0f,  0.0f, +1.0f},  // MAL_CHANNEL_BACK_RIGHT                          
-    {-0.5f,  0.0f, -1.0f},  // MAL_CHANNEL_FRONT_LEFT_CENTER                   
-    {+0.5f,  0.0f, -1.0f},  // MAL_CHANNEL_FRONT_RIGHT_CENTER                  
-    { 0.0f,  0.0f, +1.0f},  // MAL_CHANNEL_BACK_CENTER                         
-    {-1.0f,  0.0f,  0.0f},  // MAL_CHANNEL_SIDE_LEFT                           
-    {+1.0f,  0.0f,  0.0f},  // MAL_CHANNEL_SIDE_RIGHT                          
-    { 0.0f, +1.0f,  0.0f},  // MAL_CHANNEL_TOP_CENTER                          
-    {-1.0f, +1.0f, -1.0f},  // MAL_CHANNEL_TOP_FRONT_LEFT                      
-    { 0.0f, +1.0f, -1.0f},  // MAL_CHANNEL_TOP_FRONT_CENTER                    
-    {+1.0f, +1.0f, -1.0f},  // MAL_CHANNEL_TOP_FRONT_RIGHT                     
-    {-1.0f, +1.0f, +1.0f},  // MAL_CHANNEL_TOP_BACK_LEFT                       
-    { 0.0f, +1.0f, +1.0f},  // MAL_CHANNEL_TOP_BACK_CENTER                     
-    {+1.0f, +1.0f, +1.0f},  // MAL_CHANNEL_TOP_BACK_RIGHT                      
-    { 0.0f,  0.0f,  0.0f},  // MAL_CHANNEL_AUX_0                               
-    { 0.0f,  0.0f,  0.0f},  // MAL_CHANNEL_AUX_1                               
-    { 0.0f,  0.0f,  0.0f},  // MAL_CHANNEL_AUX_2                               
-    { 0.0f,  0.0f,  0.0f},  // MAL_CHANNEL_AUX_3                               
-    { 0.0f,  0.0f,  0.0f},  // MAL_CHANNEL_AUX_4                               
-    { 0.0f,  0.0f,  0.0f},  // MAL_CHANNEL_AUX_5                               
-    { 0.0f,  0.0f,  0.0f},  // MAL_CHANNEL_AUX_6                               
-    { 0.0f,  0.0f,  0.0f},  // MAL_CHANNEL_AUX_7                               
-    { 0.0f,  0.0f,  0.0f},  // MAL_CHANNEL_AUX_8                               
-    { 0.0f,  0.0f,  0.0f},  // MAL_CHANNEL_AUX_9                               
-    { 0.0f,  0.0f,  0.0f},  // MAL_CHANNEL_AUX_10                              
-    { 0.0f,  0.0f,  0.0f},  // MAL_CHANNEL_AUX_11                              
-    { 0.0f,  0.0f,  0.0f},  // MAL_CHANNEL_AUX_12                              
-    { 0.0f,  0.0f,  0.0f},  // MAL_CHANNEL_AUX_13                              
-    { 0.0f,  0.0f,  0.0f},  // MAL_CHANNEL_AUX_14                              
-    { 0.0f,  0.0f,  0.0f},  // MAL_CHANNEL_AUX_15                              
-    { 0.0f,  0.0f,  0.0f},  // MAL_CHANNEL_AUX_16                              
-    { 0.0f,  0.0f,  0.0f},  // MAL_CHANNEL_AUX_17                              
-    { 0.0f,  0.0f,  0.0f},  // MAL_CHANNEL_AUX_18                              
-    { 0.0f,  0.0f,  0.0f},  // MAL_CHANNEL_AUX_19                              
-    { 0.0f,  0.0f,  0.0f},  // MAL_CHANNEL_AUX_20                              
-    { 0.0f,  0.0f,  0.0f},  // MAL_CHANNEL_AUX_21                              
-    { 0.0f,  0.0f,  0.0f},  // MAL_CHANNEL_AUX_22                              
-    { 0.0f,  0.0f,  0.0f},  // MAL_CHANNEL_AUX_23                              
-    { 0.0f,  0.0f,  0.0f},  // MAL_CHANNEL_AUX_24                              
-    { 0.0f,  0.0f,  0.0f},  // MAL_CHANNEL_AUX_25                              
-    { 0.0f,  0.0f,  0.0f},  // MAL_CHANNEL_AUX_26                              
-    { 0.0f,  0.0f,  0.0f},  // MAL_CHANNEL_AUX_27                              
-    { 0.0f,  0.0f,  0.0f},  // MAL_CHANNEL_AUX_28                              
-    { 0.0f,  0.0f,  0.0f},  // MAL_CHANNEL_AUX_29                              
-    { 0.0f,  0.0f,  0.0f},  // MAL_CHANNEL_AUX_30                              
-    { 0.0f,  0.0f,  0.0f},  // MAL_CHANNEL_AUX_31                              
+float g_malChannelPlaneRatios[MAL_CHANNEL_POSITION_COUNT][6] = {
+    { 0.0f,  0.0f,  0.0f,  0.0f,  0.0f,  0.0f},  // MAL_CHANNEL_NONE
+    { 0.0f,  0.0f,  0.0f,  0.0f,  0.0f,  0.0f},  // MAL_CHANNEL_MONO
+    { 0.5f,  0.0f,  0.5f,  0.0f,  0.0f,  0.0f},  // MAL_CHANNEL_FRONT_LEFT
+    { 0.0f,  0.5f,  0.5f,  0.0f,  0.0f,  0.0f},  // MAL_CHANNEL_FRONT_RIGHT
+    { 0.0f,  0.0f,  1.0f,  0.0f,  0.0f,  0.0f},  // MAL_CHANNEL_FRONT_CENTER
+    { 0.0f,  0.0f,  0.0f,  0.0f,  0.0f,  0.0f},  // MAL_CHANNEL_LFE
+    { 0.5f,  0.0f,  0.0f,  0.0f,  0.5f,  0.0f},  // MAL_CHANNEL_BACK_LEFT
+    { 0.0f,  0.5f,  0.0f,  0.0f,  0.5f,  0.0f},  // MAL_CHANNEL_BACK_RIGHT
+    { 0.25f, 0.0f,  0.75f, 0.0f,  0.0f,  0.0f},  // MAL_CHANNEL_FRONT_LEFT_CENTER
+    { 0.0f,  0.25f, 0.75f, 0.0f,  0.0f,  0.0f},  // MAL_CHANNEL_FRONT_RIGHT_CENTER
+    { 0.0f,  0.0f,  0.0f,  1.0f,  0.0f,  0.0f},  // MAL_CHANNEL_BACK_CENTER
+    { 1.0f,  0.0f,  0.0f,  0.0f,  0.0f,  0.0f},  // MAL_CHANNEL_SIDE_LEFT
+    { 0.0f,  1.0f,  0.0f,  0.0f,  0.0f,  0.0f},  // MAL_CHANNEL_SIDE_RIGHT
+    { 0.0f,  0.0f,  0.0f,  0.0f,  0.0f,  1.0f},  // MAL_CHANNEL_TOP_CENTER
+    { 0.33f, 0.0f,  0.33f, 0.0f,  0.0f,  0.34f}, // MAL_CHANNEL_TOP_FRONT_LEFT
+    { 0.0f,  0.0f,  0.5f,  0.0f,  0.0f,  0.5f},  // MAL_CHANNEL_TOP_FRONT_CENTER
+    { 0.0f,  0.33f, 0.33f, 0.0f,  0.0f,  0.34f}, // MAL_CHANNEL_TOP_FRONT_RIGHT
+    { 0.33f, 0.0f,  0.0f,  0.33f, 0.0f,  0.34f}, // MAL_CHANNEL_TOP_BACK_LEFT
+    { 0.0f,  0.0f,  0.0f,  0.5f,  0.0f,  0.5f},  // MAL_CHANNEL_TOP_BACK_CENTER
+    { 0.0f,  0.33f, 0.0f,  0.33f, 0.0f,  0.34f}, // MAL_CHANNEL_TOP_BACK_RIGHT
+    { 0.0f,  0.0f,  0.0f,  0.0f,  0.0f,  0.0f},  // MAL_CHANNEL_AUX_0
+    { 0.0f,  0.0f,  0.0f,  0.0f,  0.0f,  0.0f},  // MAL_CHANNEL_AUX_1
+    { 0.0f,  0.0f,  0.0f,  0.0f,  0.0f,  0.0f},  // MAL_CHANNEL_AUX_2
+    { 0.0f,  0.0f,  0.0f,  0.0f,  0.0f,  0.0f},  // MAL_CHANNEL_AUX_3
+    { 0.0f,  0.0f,  0.0f,  0.0f,  0.0f,  0.0f},  // MAL_CHANNEL_AUX_4
+    { 0.0f,  0.0f,  0.0f,  0.0f,  0.0f,  0.0f},  // MAL_CHANNEL_AUX_5
+    { 0.0f,  0.0f,  0.0f,  0.0f,  0.0f,  0.0f},  // MAL_CHANNEL_AUX_6
+    { 0.0f,  0.0f,  0.0f,  0.0f,  0.0f,  0.0f},  // MAL_CHANNEL_AUX_7
+    { 0.0f,  0.0f,  0.0f,  0.0f,  0.0f,  0.0f},  // MAL_CHANNEL_AUX_8
+    { 0.0f,  0.0f,  0.0f,  0.0f,  0.0f,  0.0f},  // MAL_CHANNEL_AUX_9
+    { 0.0f,  0.0f,  0.0f,  0.0f,  0.0f,  0.0f},  // MAL_CHANNEL_AUX_10
+    { 0.0f,  0.0f,  0.0f,  0.0f,  0.0f,  0.0f},  // MAL_CHANNEL_AUX_11
+    { 0.0f,  0.0f,  0.0f,  0.0f,  0.0f,  0.0f},  // MAL_CHANNEL_AUX_12
+    { 0.0f,  0.0f,  0.0f,  0.0f,  0.0f,  0.0f},  // MAL_CHANNEL_AUX_13
+    { 0.0f,  0.0f,  0.0f,  0.0f,  0.0f,  0.0f},  // MAL_CHANNEL_AUX_14
+    { 0.0f,  0.0f,  0.0f,  0.0f,  0.0f,  0.0f},  // MAL_CHANNEL_AUX_15
+    { 0.0f,  0.0f,  0.0f,  0.0f,  0.0f,  0.0f},  // MAL_CHANNEL_AUX_16
+    { 0.0f,  0.0f,  0.0f,  0.0f,  0.0f,  0.0f},  // MAL_CHANNEL_AUX_17
+    { 0.0f,  0.0f,  0.0f,  0.0f,  0.0f,  0.0f},  // MAL_CHANNEL_AUX_18
+    { 0.0f,  0.0f,  0.0f,  0.0f,  0.0f,  0.0f},  // MAL_CHANNEL_AUX_19
+    { 0.0f,  0.0f,  0.0f,  0.0f,  0.0f,  0.0f},  // MAL_CHANNEL_AUX_20
+    { 0.0f,  0.0f,  0.0f,  0.0f,  0.0f,  0.0f},  // MAL_CHANNEL_AUX_21
+    { 0.0f,  0.0f,  0.0f,  0.0f,  0.0f,  0.0f},  // MAL_CHANNEL_AUX_22
+    { 0.0f,  0.0f,  0.0f,  0.0f,  0.0f,  0.0f},  // MAL_CHANNEL_AUX_23
+    { 0.0f,  0.0f,  0.0f,  0.0f,  0.0f,  0.0f},  // MAL_CHANNEL_AUX_24
+    { 0.0f,  0.0f,  0.0f,  0.0f,  0.0f,  0.0f},  // MAL_CHANNEL_AUX_25
+    { 0.0f,  0.0f,  0.0f,  0.0f,  0.0f,  0.0f},  // MAL_CHANNEL_AUX_26
+    { 0.0f,  0.0f,  0.0f,  0.0f,  0.0f,  0.0f},  // MAL_CHANNEL_AUX_27
+    { 0.0f,  0.0f,  0.0f,  0.0f,  0.0f,  0.0f},  // MAL_CHANNEL_AUX_28
+    { 0.0f,  0.0f,  0.0f,  0.0f,  0.0f,  0.0f},  // MAL_CHANNEL_AUX_29
+    { 0.0f,  0.0f,  0.0f,  0.0f,  0.0f,  0.0f},  // MAL_CHANNEL_AUX_30
+    { 0.0f,  0.0f,  0.0f,  0.0f,  0.0f,  0.0f},  // MAL_CHANNEL_AUX_31
+};
+#endif
+
+// The position of each speaker in a virtual 3D space. Used for spatial blending.
+mal_vec3 g_malDefaultChannel3DPositions[MAL_CHANNEL_POSITION_COUNT] = {
+    { 0.0f,  0.0f,  0.0f},  // MAL_CHANNEL_NONE
+    { 0.0f,  0.0f,  0.0f},  // MAL_CHANNEL_MONO
+    {-1.0f,  0.0f, -1.0f},  // MAL_CHANNEL_FRONT_LEFT
+    {+1.0f,  0.0f, -1.0f},  // MAL_CHANNEL_FRONT_RIGHT
+    { 0.0f,  0.0f, -1.0f},  // MAL_CHANNEL_FRONT_CENTER
+    { 0.0f,  0.0f,  0.0f},  // MAL_CHANNEL_LFE
+    {-1.0f,  0.0f, +1.0f},  // MAL_CHANNEL_BACK_LEFT
+    {+1.0f,  0.0f, +1.0f},  // MAL_CHANNEL_BACK_RIGHT
+    {-0.5f,  0.0f, -1.0f},  // MAL_CHANNEL_FRONT_LEFT_CENTER
+    {+0.5f,  0.0f, -1.0f},  // MAL_CHANNEL_FRONT_RIGHT_CENTER
+    { 0.0f,  0.0f, +1.0f},  // MAL_CHANNEL_BACK_CENTER
+    {-1.0f,  0.0f,  0.0f},  // MAL_CHANNEL_SIDE_LEFT
+    {+1.0f,  0.0f,  0.0f},  // MAL_CHANNEL_SIDE_RIGHT
+    { 0.0f, +1.0f,  0.0f},  // MAL_CHANNEL_TOP_CENTER
+    {-1.0f, +1.0f, -1.0f},  // MAL_CHANNEL_TOP_FRONT_LEFT
+    { 0.0f, +1.0f, -1.0f},  // MAL_CHANNEL_TOP_FRONT_CENTER
+    {+1.0f, +1.0f, -1.0f},  // MAL_CHANNEL_TOP_FRONT_RIGHT
+    {-1.0f, +1.0f, +1.0f},  // MAL_CHANNEL_TOP_BACK_LEFT
+    { 0.0f, +1.0f, +1.0f},  // MAL_CHANNEL_TOP_BACK_CENTER
+    {+1.0f, +1.0f, +1.0f},  // MAL_CHANNEL_TOP_BACK_RIGHT
+    { 0.0f,  0.0f,  0.0f},  // MAL_CHANNEL_AUX_0
+    { 0.0f,  0.0f,  0.0f},  // MAL_CHANNEL_AUX_1
+    { 0.0f,  0.0f,  0.0f},  // MAL_CHANNEL_AUX_2
+    { 0.0f,  0.0f,  0.0f},  // MAL_CHANNEL_AUX_3
+    { 0.0f,  0.0f,  0.0f},  // MAL_CHANNEL_AUX_4
+    { 0.0f,  0.0f,  0.0f},  // MAL_CHANNEL_AUX_5
+    { 0.0f,  0.0f,  0.0f},  // MAL_CHANNEL_AUX_6
+    { 0.0f,  0.0f,  0.0f},  // MAL_CHANNEL_AUX_7
+    { 0.0f,  0.0f,  0.0f},  // MAL_CHANNEL_AUX_8
+    { 0.0f,  0.0f,  0.0f},  // MAL_CHANNEL_AUX_9
+    { 0.0f,  0.0f,  0.0f},  // MAL_CHANNEL_AUX_10
+    { 0.0f,  0.0f,  0.0f},  // MAL_CHANNEL_AUX_11
+    { 0.0f,  0.0f,  0.0f},  // MAL_CHANNEL_AUX_12
+    { 0.0f,  0.0f,  0.0f},  // MAL_CHANNEL_AUX_13
+    { 0.0f,  0.0f,  0.0f},  // MAL_CHANNEL_AUX_14
+    { 0.0f,  0.0f,  0.0f},  // MAL_CHANNEL_AUX_15
+    { 0.0f,  0.0f,  0.0f},  // MAL_CHANNEL_AUX_16
+    { 0.0f,  0.0f,  0.0f},  // MAL_CHANNEL_AUX_17
+    { 0.0f,  0.0f,  0.0f},  // MAL_CHANNEL_AUX_18
+    { 0.0f,  0.0f,  0.0f},  // MAL_CHANNEL_AUX_19
+    { 0.0f,  0.0f,  0.0f},  // MAL_CHANNEL_AUX_20
+    { 0.0f,  0.0f,  0.0f},  // MAL_CHANNEL_AUX_21
+    { 0.0f,  0.0f,  0.0f},  // MAL_CHANNEL_AUX_22
+    { 0.0f,  0.0f,  0.0f},  // MAL_CHANNEL_AUX_23
+    { 0.0f,  0.0f,  0.0f},  // MAL_CHANNEL_AUX_24
+    { 0.0f,  0.0f,  0.0f},  // MAL_CHANNEL_AUX_25
+    { 0.0f,  0.0f,  0.0f},  // MAL_CHANNEL_AUX_26
+    { 0.0f,  0.0f,  0.0f},  // MAL_CHANNEL_AUX_27
+    { 0.0f,  0.0f,  0.0f},  // MAL_CHANNEL_AUX_28
+    { 0.0f,  0.0f,  0.0f},  // MAL_CHANNEL_AUX_29
+    { 0.0f,  0.0f,  0.0f},  // MAL_CHANNEL_AUX_30
+    { 0.0f,  0.0f,  0.0f},  // MAL_CHANNEL_AUX_31
 };
 
 
@@ -17293,26 +17411,26 @@ float mal_calculate_channel_position_planar_weight(mal_channel channelPositionA,
     //   front/left to back/left      = (1/2 * 1) * (1/2 * 1) = 0.5*1.0 * 0.5*1.0  = 0.5*0.5  = 0.25
     //   front/left to top/front/left = (1/2 * 2) * (1/3 * 2) = 0.5*2.0 * 0.33*2.0 = 1.0*0.66 = 0.66
 
-    mal_vec3 roomPosA = g_malDefaultChannelPositionsInRoom[channelPositionA];
-    mal_vec3 roomPosB = g_malDefaultChannelPositionsInRoom[channelPositionB];
+    mal_vec3 physicalPosA = g_malDefaultChannel3DPositions[channelPositionA];
+    mal_vec3 physicalPosB = g_malDefaultChannel3DPositions[channelPositionB];
 
     mal_uint32 planeCountA = 0;
-    if (roomPosA.x < 0 || roomPosA.x > 0) planeCountA += 1;
-    if (roomPosA.y < 0 || roomPosA.y > 0) planeCountA += 1;
-    if (roomPosA.z < 0 || roomPosA.z > 0) planeCountA += 1;
+    if (physicalPosA.x < 0 || physicalPosA.x > 0) planeCountA += 1;
+    if (physicalPosA.y < 0 || physicalPosA.y > 0) planeCountA += 1;
+    if (physicalPosA.z < 0 || physicalPosA.z > 0) planeCountA += 1;
 
     mal_uint32 planeCountB = 0;
-    if (roomPosB.x < 0 || roomPosB.x > 0) planeCountB += 1;
-    if (roomPosB.y < 0 || roomPosB.y > 0) planeCountB += 1;
-    if (roomPosB.z < 0 || roomPosB.z > 0) planeCountB += 1;
+    if (physicalPosB.x < 0 || physicalPosB.x > 0) planeCountB += 1;
+    if (physicalPosB.y < 0 || physicalPosB.y > 0) planeCountB += 1;
+    if (physicalPosB.z < 0 || physicalPosB.z > 0) planeCountB += 1;
 
     mal_uint32 sharedPlaneCount = 0;
-    if (roomPosA.x < 0 && roomPosB.x < 0) sharedPlaneCount += 1;
-    if (roomPosA.x > 0 && roomPosB.x > 0) sharedPlaneCount += 1;
-    if (roomPosA.y < 0 && roomPosB.y < 0) sharedPlaneCount += 1;
-    if (roomPosA.y > 0 && roomPosB.y > 0) sharedPlaneCount += 1;
-    if (roomPosA.z < 0 && roomPosB.z < 0) sharedPlaneCount += 1;
-    if (roomPosA.z > 0 && roomPosB.z > 0) sharedPlaneCount += 1;
+    if (physicalPosA.x < 0 && physicalPosB.x < 0) sharedPlaneCount += 1;
+    if (physicalPosA.x > 0 && physicalPosB.x > 0) sharedPlaneCount += 1;
+    if (physicalPosA.y < 0 && physicalPosB.y < 0) sharedPlaneCount += 1;
+    if (physicalPosA.y > 0 && physicalPosB.y > 0) sharedPlaneCount += 1;
+    if (physicalPosA.z < 0 && physicalPosB.z < 0) sharedPlaneCount += 1;
+    if (physicalPosA.z > 0 && physicalPosB.z > 0) sharedPlaneCount += 1;
 
     mal_assert(sharedPlaneCount <= planeCountA);
     mal_assert(sharedPlaneCount <= 3);
@@ -17330,72 +17448,6 @@ float mal_calculate_channel_position_planar_weight(mal_channel channelPositionA,
     return contributionA * contributionB;
 }
 
-#if 0
-float mal_calculate_channel_position_spatial_weight(mal_channel channelPositionA, mal_channel channelPositionB, mal_vec3 listenerRoomPos)
-{
-    // The weight between two channel positions is determined by the orientation and position relative to the virtual listener.
-
-    mal_vec3 channelRoomPosA   = g_malDefaultChannelPositionsInRoom[channelPositionA];
-    mal_vec3 channelRoomPosB   = g_malDefaultChannelPositionsInRoom[channelPositionB];
-    mal_vec3 channelDirToHeadA = mal_vec3_normalize(mal_vec3_sub(listenerRoomPos, channelRoomPosA));
-    mal_vec3 channelDirToHeadB = mal_vec3_normalize(mal_vec3_sub(listenerRoomPos, channelRoomPosB));
-
-    float weight = mal_vec3_dot(channelDirToHeadA, channelDirToHeadB);
-    if (weight <= 0) {
-        return 0;
-    }
-
-    float distA = mal_vec3_distance(channelRoomPosA, listenerRoomPos);
-    float distB = mal_vec3_distance(channelRoomPosB, listenerRoomPos);
-    float distFalloffLinear = distB / distA;
-    float distFalloffExp    = distFalloffLinear * distFalloffLinear;
-
-    weight = weight * distFalloffExp;
-    return weight;
-}
-#endif
-
-#if 0
-mal_uint32 mal_channel_router__get_number_of_channels_on_same_planes(mal_channel channelPosition, mal_uint32 channelCount, const mal_channel channelMap[MAL_MAX_CHANNELS])
-{
-    mal_uint32 count = 0;
-
-    for (mal_uint32 iChannel = 0; iChannel < channelCount; ++iChannel) {
-        mal_vec3 roomPosA = g_malDefaultChannelPositionsInRoom[channelPosition];
-        mal_vec3 roomPosB = g_malDefaultChannelPositionsInRoom[channelMap[iChannel]];
-
-        if (roomPosA.x < 0 && roomPosB.x < 0) {
-            count += 1;
-            continue;
-        }
-        if (roomPosA.x > 0 && roomPosB.x > 0) {
-            count += 1;
-            continue;
-        }
-
-        if (roomPosA.y < 0 && roomPosB.y < 0) {
-            count += 1;
-            continue;
-        }
-        if (roomPosA.y > 0 && roomPosB.y > 0) {
-            count += 1;
-            continue;
-        }
-
-        if (roomPosA.z < 0 && roomPosB.z < 0) {
-            count += 1;
-            continue;
-        }
-        if (roomPosA.z > 0 && roomPosB.z > 0) {
-            count += 1;
-            continue;
-        }
-    }
-
-    return count;
-}
-#endif
-
 float mal_channel_router__calculate_input_channel_planar_weight(const mal_channel_router* pRouter, mal_channel channelPositionIn, mal_channel channelPositionOut)
 {
     mal_assert(pRouter != NULL);
@@ -17403,16 +17455,6 @@ float mal_channel_router__calculate_input_channel_planar_weight(const mal_channe
 
     return mal_calculate_channel_position_planar_weight(channelPositionIn, channelPositionOut);
 }
-
-#if 0
-float mal_channel_router__calculate_spatial_weight(const mal_channel_router* pRouter, mal_channel channelPositionA, mal_channel channelPositionB)
-{
-    mal_assert(pRouter != NULL);
-    (void)pRouter;
-
-    return mal_calculate_channel_position_spatial_weight(channelPositionA, channelPositionB, mal_vec3f(0, 0, 0));
-}
-#endif
 
 mal_bool32 mal_channel_router__is_spatial_channel_position(const mal_channel_router* pRouter, mal_channel channelPosition)
 {
@@ -17423,7 +17465,7 @@ mal_bool32 mal_channel_router__is_spatial_channel_position(const mal_channel_rou
         return MAL_FALSE;
     }
 
-    if (mal_vec3_length(g_malDefaultChannelPositionsInRoom[channelPosition]) == 0) {
+    if (mal_vec3_length(g_malDefaultChannel3DPositions[channelPosition]) == 0) {
         return MAL_FALSE;
     }
 
@@ -17469,10 +17511,7 @@ mal_result mal_channel_router_init(const mal_channel_router_config* pConfig, mal
     // 1) If it's a passthrough, do nothing - it's just a simple memcpy().
     // 2) If the channel counts are the same and every channel position in the input map is present in the output map, use a
     //    simple shuffle. An example might be different 5.1 channel layouts.
-    // 3) LFEs are treated differently. They will only receive audio data from other LFEs, or silence.
-    // 4) Mono channels are distributed evenly across all channels, except LFEs.
-    // 5) AUX channels will receive audio data from their matching counterpart, mono channels, or silence.
-    // 6) All other channels will receive audio data based on their position relative to the head position.
+    // 3) Otherwise channels are blended based on spatial locality.
     if (!pRouter->isPassthrough) {
         if (pRouter->config.channelsIn == pRouter->config.channelsOut) {
             mal_bool32 areAllChannelPositionsPresent = MAL_TRUE;
@@ -17515,7 +17554,7 @@ mal_result mal_channel_router_init(const mal_channel_router_config* pConfig, mal
     // In simple mode we don't do any blending (except for converting between mono, which is done in a later step). Instead we just
     // map 1:1 matching channels. In this mode, if no channels in the input channel map correspond to anything in the output channel
     // map, nothing will be heard!
-    
+
     // In all cases we need to make sure all channels that are present in both channel maps have a 1:1 mapping.
     for (mal_uint32 iChannelIn = 0; iChannelIn < pRouter->config.channelsIn; ++iChannelIn) {
         mal_channel channelPosIn = pRouter->config.channelMapIn[iChannelIn];
@@ -17592,11 +17631,6 @@ mal_result mal_channel_router_init(const mal_channel_router_config* pConfig, mal
                             if (pRouter->config.mixingMode == mal_channel_mix_mode_planar_blend) {
                                 weight = mal_channel_router__calculate_input_channel_planar_weight(pRouter, channelPosIn, channelPosOut);
                             }
-                            #if 0
-                            else if (pRouter->config.mixingMode == mal_channel_mix_mode_spatial) {
-                                weight = mal_channel_router__calculate_spatial_weight(pRouter, channelPosIn, channelPosOut);
-                            }
-                            #endif
 
                             // Only apply the weight if we haven't already got some contribution from the respective channels.
                             if (pRouter->weights[iChannelIn][iChannelOut] == 0) {
@@ -17622,11 +17656,6 @@ mal_result mal_channel_router_init(const mal_channel_router_config* pConfig, mal
                             if (pRouter->config.mixingMode == mal_channel_mix_mode_planar_blend) {
                                 weight = mal_channel_router__calculate_input_channel_planar_weight(pRouter, channelPosIn, channelPosOut);
                             }
-                            #if 0
-                            else if (pRouter->config.mixingMode == mal_channel_mix_mode_spatial) {
-                                weight = mal_channel_router__calculate_spatial_weight(pRouter, channelPosIn, channelPosOut);
-                            }
-                            #endif
 
                             // Only apply the weight if we haven't already got some contribution from the respective channels.
                             if (pRouter->weights[iChannelIn][iChannelOut] == 0) {
@@ -17721,7 +17750,7 @@ mal_uint64 mal_channel_router_read_deinterleaved(mal_channel_router* pRouter, ma
     for (mal_uint32 iChannel = 0; iChannel < pRouter->config.channelsIn; iChannel += 1) {
         ppTemp[iChannel] = temp + (maxFramesToReadEachIteration*iChannel);
     }
-    
+
     mal_uint64 totalFramesRead = 0;
     while (totalFramesRead < frameCount) {
         mal_uint64 framesRemaining = (frameCount - totalFramesRead);
@@ -18738,7 +18767,7 @@ mal_result mal_decoder__init_dsp(mal_decoder* pDecoder, const mal_decoder_config
     } else {
         mal_copy_memory(pDecoder->outputChannelMap, pConfig->outputChannelMap, sizeof(pConfig->outputChannelMap));
     }
-    
+
 
     // DSP.
     mal_dsp_config dspConfig = mal_dsp_config_init_ex(
