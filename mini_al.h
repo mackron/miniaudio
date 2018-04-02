@@ -1892,9 +1892,6 @@ mal_uint64 mal_format_converter_read_deinterleaved(mal_format_converter* pConver
 // channel is willing to _give_ 50% of it's total volume to the front plane, and the front/center speaker is willing to _take_ 100% of it's total volume
 // from the front, you can imagine that 50% of the front/left speaker will be given to the front/center speaker.
 //
-// This blending technique is not perfect, but it should provide a logical and reasonable estimate. This will not work well with speaker positions such as
-// front/center/left (where the speaker is to the left of the front/center speaker) because the algorithm uses a simplified spatial model.
-//
 // Usage
 // -----
 // To use the channel router you need to specify three things:
@@ -17239,7 +17236,7 @@ static inline float mal_vec3_distance(mal_vec3 a, mal_vec3 b)
     return mal_vec3_length(mal_vec3_sub(a, b));
 }
 
-#if 0
+
 #define MAL_PLANE_LEFT      0
 #define MAL_PLANE_RIGHT     1
 #define MAL_PLANE_FRONT     2
@@ -17301,64 +17298,6 @@ float g_malChannelPlaneRatios[MAL_CHANNEL_POSITION_COUNT][6] = {
     { 0.0f,  0.0f,  0.0f,  0.0f,  0.0f,  0.0f},  // MAL_CHANNEL_AUX_30
     { 0.0f,  0.0f,  0.0f,  0.0f,  0.0f,  0.0f},  // MAL_CHANNEL_AUX_31
 };
-#endif
-
-// The position of each speaker in a virtual 3D space. Used for spatial blending.
-mal_vec3 g_malDefaultChannel3DPositions[MAL_CHANNEL_POSITION_COUNT] = {
-    { 0.0f,  0.0f,  0.0f},  // MAL_CHANNEL_NONE
-    { 0.0f,  0.0f,  0.0f},  // MAL_CHANNEL_MONO
-    {-1.0f,  0.0f, -1.0f},  // MAL_CHANNEL_FRONT_LEFT
-    {+1.0f,  0.0f, -1.0f},  // MAL_CHANNEL_FRONT_RIGHT
-    { 0.0f,  0.0f, -1.0f},  // MAL_CHANNEL_FRONT_CENTER
-    { 0.0f,  0.0f,  0.0f},  // MAL_CHANNEL_LFE
-    {-1.0f,  0.0f, +1.0f},  // MAL_CHANNEL_BACK_LEFT
-    {+1.0f,  0.0f, +1.0f},  // MAL_CHANNEL_BACK_RIGHT
-    {-0.5f,  0.0f, -1.0f},  // MAL_CHANNEL_FRONT_LEFT_CENTER
-    {+0.5f,  0.0f, -1.0f},  // MAL_CHANNEL_FRONT_RIGHT_CENTER
-    { 0.0f,  0.0f, +1.0f},  // MAL_CHANNEL_BACK_CENTER
-    {-1.0f,  0.0f,  0.0f},  // MAL_CHANNEL_SIDE_LEFT
-    {+1.0f,  0.0f,  0.0f},  // MAL_CHANNEL_SIDE_RIGHT
-    { 0.0f, +1.0f,  0.0f},  // MAL_CHANNEL_TOP_CENTER
-    {-1.0f, +1.0f, -1.0f},  // MAL_CHANNEL_TOP_FRONT_LEFT
-    { 0.0f, +1.0f, -1.0f},  // MAL_CHANNEL_TOP_FRONT_CENTER
-    {+1.0f, +1.0f, -1.0f},  // MAL_CHANNEL_TOP_FRONT_RIGHT
-    {-1.0f, +1.0f, +1.0f},  // MAL_CHANNEL_TOP_BACK_LEFT
-    { 0.0f, +1.0f, +1.0f},  // MAL_CHANNEL_TOP_BACK_CENTER
-    {+1.0f, +1.0f, +1.0f},  // MAL_CHANNEL_TOP_BACK_RIGHT
-    { 0.0f,  0.0f,  0.0f},  // MAL_CHANNEL_AUX_0
-    { 0.0f,  0.0f,  0.0f},  // MAL_CHANNEL_AUX_1
-    { 0.0f,  0.0f,  0.0f},  // MAL_CHANNEL_AUX_2
-    { 0.0f,  0.0f,  0.0f},  // MAL_CHANNEL_AUX_3
-    { 0.0f,  0.0f,  0.0f},  // MAL_CHANNEL_AUX_4
-    { 0.0f,  0.0f,  0.0f},  // MAL_CHANNEL_AUX_5
-    { 0.0f,  0.0f,  0.0f},  // MAL_CHANNEL_AUX_6
-    { 0.0f,  0.0f,  0.0f},  // MAL_CHANNEL_AUX_7
-    { 0.0f,  0.0f,  0.0f},  // MAL_CHANNEL_AUX_8
-    { 0.0f,  0.0f,  0.0f},  // MAL_CHANNEL_AUX_9
-    { 0.0f,  0.0f,  0.0f},  // MAL_CHANNEL_AUX_10
-    { 0.0f,  0.0f,  0.0f},  // MAL_CHANNEL_AUX_11
-    { 0.0f,  0.0f,  0.0f},  // MAL_CHANNEL_AUX_12
-    { 0.0f,  0.0f,  0.0f},  // MAL_CHANNEL_AUX_13
-    { 0.0f,  0.0f,  0.0f},  // MAL_CHANNEL_AUX_14
-    { 0.0f,  0.0f,  0.0f},  // MAL_CHANNEL_AUX_15
-    { 0.0f,  0.0f,  0.0f},  // MAL_CHANNEL_AUX_16
-    { 0.0f,  0.0f,  0.0f},  // MAL_CHANNEL_AUX_17
-    { 0.0f,  0.0f,  0.0f},  // MAL_CHANNEL_AUX_18
-    { 0.0f,  0.0f,  0.0f},  // MAL_CHANNEL_AUX_19
-    { 0.0f,  0.0f,  0.0f},  // MAL_CHANNEL_AUX_20
-    { 0.0f,  0.0f,  0.0f},  // MAL_CHANNEL_AUX_21
-    { 0.0f,  0.0f,  0.0f},  // MAL_CHANNEL_AUX_22
-    { 0.0f,  0.0f,  0.0f},  // MAL_CHANNEL_AUX_23
-    { 0.0f,  0.0f,  0.0f},  // MAL_CHANNEL_AUX_24
-    { 0.0f,  0.0f,  0.0f},  // MAL_CHANNEL_AUX_25
-    { 0.0f,  0.0f,  0.0f},  // MAL_CHANNEL_AUX_26
-    { 0.0f,  0.0f,  0.0f},  // MAL_CHANNEL_AUX_27
-    { 0.0f,  0.0f,  0.0f},  // MAL_CHANNEL_AUX_28
-    { 0.0f,  0.0f,  0.0f},  // MAL_CHANNEL_AUX_29
-    { 0.0f,  0.0f,  0.0f},  // MAL_CHANNEL_AUX_30
-    { 0.0f,  0.0f,  0.0f},  // MAL_CHANNEL_AUX_31
-};
-
 
 float mal_calculate_channel_position_planar_weight(mal_channel channelPositionA, mal_channel channelPositionB)
 {
@@ -17385,67 +17324,20 @@ float mal_calculate_channel_position_planar_weight(mal_channel channelPositionA,
     //  - back/left:      2 planes (back and left)       = 1/2 = half it's total volume on each plane
     //  - top/front/left: 3 planes (top, front and left) = 1/3 = one third it's total volume on each plane
     //
-    // Now that we know how much volume each speaker emits for each of the planes it emits audio from we need to know how many planes are shared
-    // between the two speakers:
-    //  - front/left (in) and front/left (out):     2 shared planes (front and left)
-    //  - front/left (in) and side/left (out):      1 shared plane (left)
-    //  - front/left (in) and back/left (out):      1 shared plane (left)
-    //  - front/left (in) and top/front/left (out): 2 shared planes (front and left)
-    //
-    // We now have enough information to know how much audio the input speaker gives to each of it's outputs:
-    //
-    //   volumeToGive = volumePerInputSpeakerPlane * sharedPlaneCount
-    //
-    // We can also determine how much volume an output speaker should take:
-    //
-    //   volumeToTake = volumePerOutputSpeakerPlane * sharedPlaneCount
-    //
-    // Thus, the final contribution is:
-    //
-    //   contribution = volumeToGive * volumeToTake
-    //
-    // Contributions for each of our examples:
-    //
-    //   front/left to front/left     = (1/2 * 2) * (1/2 * 2) = 0.5*2.0 * 0.5*2.0  = 1.0*1.0  = 1.0
-    //   front/left to side/left      = (1/2 * 1) * (1/1 * 1) = 0.5*1.0 * 1.0*1.0  = 0.5*1.0  = 0.5
-    //   front/left to back/left      = (1/2 * 1) * (1/2 * 1) = 0.5*1.0 * 0.5*1.0  = 0.5*0.5  = 0.25
-    //   front/left to top/front/left = (1/2 * 2) * (1/3 * 2) = 0.5*2.0 * 0.33*2.0 = 1.0*0.66 = 0.66
+    // The amount of volume each channel contributes to each of it's planes is what controls how much it is willing to given and take to other
+    // channels on the same plane. The volume that is willing to the given by one channel is multiplied by the volume that is willing to be
+    // taken by the other to produce the final contribution.
 
-    mal_vec3 physicalPosA = g_malDefaultChannel3DPositions[channelPositionA];
-    mal_vec3 physicalPosB = g_malDefaultChannel3DPositions[channelPositionB];
+    // Contribution = Sum(Volume to Give * Volume to Take)
+    float contribution = 
+        g_malChannelPlaneRatios[channelPositionA][0] * g_malChannelPlaneRatios[channelPositionB][0] +
+        g_malChannelPlaneRatios[channelPositionA][1] * g_malChannelPlaneRatios[channelPositionB][1] +
+        g_malChannelPlaneRatios[channelPositionA][2] * g_malChannelPlaneRatios[channelPositionB][2] +
+        g_malChannelPlaneRatios[channelPositionA][3] * g_malChannelPlaneRatios[channelPositionB][3] +
+        g_malChannelPlaneRatios[channelPositionA][4] * g_malChannelPlaneRatios[channelPositionB][4] +
+        g_malChannelPlaneRatios[channelPositionA][5] * g_malChannelPlaneRatios[channelPositionB][5];
 
-    mal_uint32 planeCountA = 0;
-    if (physicalPosA.x < 0 || physicalPosA.x > 0) planeCountA += 1;
-    if (physicalPosA.y < 0 || physicalPosA.y > 0) planeCountA += 1;
-    if (physicalPosA.z < 0 || physicalPosA.z > 0) planeCountA += 1;
-
-    mal_uint32 planeCountB = 0;
-    if (physicalPosB.x < 0 || physicalPosB.x > 0) planeCountB += 1;
-    if (physicalPosB.y < 0 || physicalPosB.y > 0) planeCountB += 1;
-    if (physicalPosB.z < 0 || physicalPosB.z > 0) planeCountB += 1;
-
-    mal_uint32 sharedPlaneCount = 0;
-    if (physicalPosA.x < 0 && physicalPosB.x < 0) sharedPlaneCount += 1;
-    if (physicalPosA.x > 0 && physicalPosB.x > 0) sharedPlaneCount += 1;
-    if (physicalPosA.y < 0 && physicalPosB.y < 0) sharedPlaneCount += 1;
-    if (physicalPosA.y > 0 && physicalPosB.y > 0) sharedPlaneCount += 1;
-    if (physicalPosA.z < 0 && physicalPosB.z < 0) sharedPlaneCount += 1;
-    if (physicalPosA.z > 0 && physicalPosB.z > 0) sharedPlaneCount += 1;
-
-    mal_assert(sharedPlaneCount <= planeCountA);
-    mal_assert(sharedPlaneCount <= 3);
-
-    if (sharedPlaneCount == 0) {
-        return 0;
-    }
-
-    mal_assert(planeCountA > 0);
-    mal_assert(planeCountB > 0);
-
-    float contributionA = 1.0f/planeCountA * sharedPlaneCount;
-    float contributionB = 1.0f/planeCountB * sharedPlaneCount;
-
-    return contributionA * contributionB;
+    return contribution;
 }
 
 float mal_channel_router__calculate_input_channel_planar_weight(const mal_channel_router* pRouter, mal_channel channelPositionIn, mal_channel channelPositionOut)
@@ -17465,11 +17357,13 @@ mal_bool32 mal_channel_router__is_spatial_channel_position(const mal_channel_rou
         return MAL_FALSE;
     }
 
-    if (mal_vec3_length(g_malDefaultChannel3DPositions[channelPosition]) == 0) {
-        return MAL_FALSE;
+    for (int i = 0; i < 6; ++i) {
+        if (g_malChannelPlaneRatios[channelPosition][i] != 0) {
+            return MAL_TRUE;
+        }
     }
 
-    return MAL_TRUE;
+    return MAL_FALSE;
 }
 
 mal_result mal_channel_router_init(const mal_channel_router_config* pConfig, mal_channel_router* pRouter)
