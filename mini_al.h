@@ -1941,16 +1941,14 @@ mal_result mal_src_set_output_sample_rate(mal_src* pSRC, mal_uint32 sampleRateOu
 // Reads a number of frames.
 //
 // Returns the number of frames actually read.
-//mal_uint64 mal_src_read(mal_src* pSRC, mal_uint64 frameCount, void* pFramesOut, void* pUserData);
 mal_uint64 mal_src_read_deinterleaved(mal_src* pSRC, mal_uint64 frameCount, void** ppSamplesOut, void* pUserData);
 
-// The same mal_src_read() with extra control over whether or not the internal buffers should be flushed at the end.
+// The same mal_src_read_deinterleaved() with extra control over whether or not the internal buffers should be flushed at the end.
 //
 // Internally there exists a buffer that keeps track of the previous and next samples for sample rate conversion. The simple
 // version of this function does _not_ flush this buffer because otherwise it causes glitches for streaming based conversion
 // pipelines. The problem, however, is that sometimes you need those last few samples (such as if you're doing a bulk conversion
 // of a static file). Enabling flushing will fix this for you.
-//mal_uint64 mal_src_read_ex(mal_src* pSRC, mal_uint64 frameCount, void* pFramesOut, mal_bool32 flush, void* pUserData);
 mal_uint64 mal_src_read_deinterleaved_ex(mal_src* pSRC, mal_uint64 frameCount, void** ppSamplesOut, mal_bool32 flush, void* pUserData);
 
 
