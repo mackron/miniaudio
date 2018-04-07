@@ -1803,6 +1803,9 @@ static inline mal_device_config mal_device_config_init_playback(mal_format forma
 // Helper for retrieving a standard channel map.
 void mal_get_standard_channel_map(mal_standard_channel_map standardChannelMap, mal_uint32 channels, mal_channel channelMap[MAL_MAX_CHANNELS]);
 
+// Copies a channel map.
+void mal_channel_map_copy(mal_channel* pOut, mal_channel* pIn, mal_uint32 channels);
+
 
 // Determines whether or not a channel map is valid.
 //
@@ -1992,6 +1995,7 @@ mal_uint64 mal_dsp_read_ex(mal_dsp* pDSP, mal_uint64 frameCount, void* pFramesOu
 //
 // This function is useful for one-off bulk conversions, but if you're streaming data you should use the DSP APIs instead.
 mal_uint64 mal_convert_frames(void* pOut, mal_format formatOut, mal_uint32 channelsOut, mal_uint32 sampleRateOut, const void* pIn, mal_format formatIn, mal_uint32 channelsIn, mal_uint32 sampleRateIn, mal_uint64 frameCountIn);
+mal_uint64 mal_convert_frames_ex(void* pOut, mal_format formatOut, mal_uint32 channelsOut, mal_uint32 sampleRateOut, mal_channel channelMapOut[MAL_MAX_CHANNELS], const void* pIn, mal_format formatIn, mal_uint32 channelsIn, mal_uint32 sampleRateIn, mal_channel channelMapIn[MAL_MAX_CHANNELS], mal_uint64 frameCountIn);
 
 // Helper for initializing a mal_dsp_config object.
 mal_dsp_config mal_dsp_config_init_new();
@@ -15458,6 +15462,13 @@ void mal_get_standard_channel_map(mal_standard_channel_map standardChannelMap, m
     }
 }
 
+void mal_channel_map_copy(mal_channel* pOut, mal_channel* pIn, mal_uint32 channels)
+{
+    if (pOut != NULL && pIn != NULL && channels > 0) {
+        mal_copy_memory(pOut, pIn, sizeof(*pOut) * channels);
+    }
+}
+
 mal_bool32 mal_channel_map_valid(mal_uint32 channels, const mal_channel channelMap[MAL_MAX_CHANNELS])
 {
     if (channelMap == NULL) {
@@ -18477,6 +18488,17 @@ mal_uint32 mal_convert_frames__on_read(mal_dsp* pDSP, mal_uint32 frameCount, voi
 
 mal_uint64 mal_convert_frames(void* pOut, mal_format formatOut, mal_uint32 channelsOut, mal_uint32 sampleRateOut, const void* pIn, mal_format formatIn, mal_uint32 channelsIn, mal_uint32 sampleRateIn, mal_uint64 frameCountIn)
 {
+    mal_channel channelMapOut[MAL_MAX_CHANNELS];
+    mal_get_standard_channel_map(mal_standard_channel_map_default, channelsOut, channelMapOut);
+
+    mal_channel channelMapIn[MAL_MAX_CHANNELS];
+    mal_get_standard_channel_map(mal_standard_channel_map_default, channelsIn, channelMapIn);
+
+    return mal_convert_frames_ex(pOut, formatOut, channelsOut, sampleRateOut, channelMapOut, pIn, formatIn, channelsIn, sampleRateIn, channelMapIn, frameCountIn);
+}
+
+mal_uint64 mal_convert_frames_ex(void* pOut, mal_format formatOut, mal_uint32 channelsOut, mal_uint32 sampleRateOut, mal_channel channelMapOut[MAL_MAX_CHANNELS], const void* pIn, mal_format formatIn, mal_uint32 channelsIn, mal_uint32 sampleRateIn, mal_channel channelMapIn[MAL_MAX_CHANNELS], mal_uint64 frameCountIn)
+{
     if (frameCountIn == 0) {
         return 0;
     }
@@ -18495,14 +18517,25 @@ mal_uint64 mal_convert_frames(void* pOut, mal_format formatOut, mal_uint32 chann
 
     mal_dsp_config config;
     mal_zero_object(&config);
+
     config.formatIn = formatIn;
     config.channelsIn = channelsIn;
     config.sampleRateIn = sampleRateIn;
-    mal_get_standard_channel_map(mal_standard_channel_map_default, config.channelsIn, config.channelMapIn);
+    if (channelMapIn != NULL) {
+        mal_channel_map_copy(config.channelMapIn, channelMapIn, channelsIn);
+    } else {
+        mal_get_standard_channel_map(mal_standard_channel_map_default, config.channelsIn, config.channelMapIn);
+    }
+    
     config.formatOut = formatOut;
     config.channelsOut = channelsOut;
     config.sampleRateOut = sampleRateOut;
-    mal_get_standard_channel_map(mal_standard_channel_map_default, config.channelsOut, config.channelMapOut);
+    if (channelMapOut != NULL) {
+        mal_channel_map_copy(config.channelMapOut, channelMapOut, channelsOut);
+    } else {
+        mal_get_standard_channel_map(mal_standard_channel_map_default, config.channelsOut, config.channelMapOut);
+    }
+
     config.onRead = mal_convert_frames__on_read;
     config.pUserData = &data;
 
