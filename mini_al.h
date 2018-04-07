@@ -18498,9 +18498,11 @@ mal_uint64 mal_convert_frames(void* pOut, mal_format formatOut, mal_uint32 chann
     config.formatIn = formatIn;
     config.channelsIn = channelsIn;
     config.sampleRateIn = sampleRateIn;
+    mal_get_standard_channel_map(mal_standard_channel_map_default, config.channelsIn, config.channelMapIn);
     config.formatOut = formatOut;
     config.channelsOut = channelsOut;
     config.sampleRateOut = sampleRateOut;
+    mal_get_standard_channel_map(mal_standard_channel_map_default, config.channelsOut, config.channelMapOut);
     config.onRead = mal_convert_frames__on_read;
     config.pUserData = &data;
 
