@@ -1988,6 +1988,12 @@ mal_uint64 mal_dsp_read(mal_dsp* pDSP, mal_uint64 frameCount, void* pFramesOut, 
 // See documentation for mal_src_read_frames_ex() for an explanation on flushing.
 mal_uint64 mal_dsp_read_ex(mal_dsp* pDSP, mal_uint64 frameCount, void* pFramesOut, mal_bool32 flush, void* pUserData);
 
+// Helper for initializing a mal_dsp_config object.
+mal_dsp_config mal_dsp_config_init_new();
+mal_dsp_config mal_dsp_config_init(mal_format formatIn, mal_uint32 channelsIn, mal_uint32 sampleRateIn, mal_format formatOut, mal_uint32 channelsOut, mal_uint32 sampleRateOut, mal_dsp_read_proc onRead, void* pUserData);
+mal_dsp_config mal_dsp_config_init_ex(mal_format formatIn, mal_uint32 channelsIn, mal_uint32 sampleRateIn, mal_channel channelMapIn[MAL_MAX_CHANNELS], mal_format formatOut, mal_uint32 channelsOut, mal_uint32 sampleRateOut,  mal_channel channelMapOut[MAL_MAX_CHANNELS], mal_dsp_read_proc onRead, void* pUserData);
+
+
 // High-level helper for doing a full format conversion in one go. Returns the number of output frames. Call this with pOut set to NULL to
 // determine the required size of the output buffer.
 //
@@ -1996,11 +2002,6 @@ mal_uint64 mal_dsp_read_ex(mal_dsp* pDSP, mal_uint64 frameCount, void* pFramesOu
 // This function is useful for one-off bulk conversions, but if you're streaming data you should use the DSP APIs instead.
 mal_uint64 mal_convert_frames(void* pOut, mal_format formatOut, mal_uint32 channelsOut, mal_uint32 sampleRateOut, const void* pIn, mal_format formatIn, mal_uint32 channelsIn, mal_uint32 sampleRateIn, mal_uint64 frameCountIn);
 mal_uint64 mal_convert_frames_ex(void* pOut, mal_format formatOut, mal_uint32 channelsOut, mal_uint32 sampleRateOut, mal_channel channelMapOut[MAL_MAX_CHANNELS], const void* pIn, mal_format formatIn, mal_uint32 channelsIn, mal_uint32 sampleRateIn, mal_channel channelMapIn[MAL_MAX_CHANNELS], mal_uint64 frameCountIn);
-
-// Helper for initializing a mal_dsp_config object.
-mal_dsp_config mal_dsp_config_init_new();
-mal_dsp_config mal_dsp_config_init(mal_format formatIn, mal_uint32 channelsIn, mal_uint32 sampleRateIn, mal_format formatOut, mal_uint32 channelsOut, mal_uint32 sampleRateOut, mal_dsp_read_proc onRead, void* pUserData);
-mal_dsp_config mal_dsp_config_init_ex(mal_format formatIn, mal_uint32 channelsIn, mal_uint32 sampleRateIn, mal_channel channelMapIn[MAL_MAX_CHANNELS], mal_format formatOut, mal_uint32 channelsOut, mal_uint32 sampleRateOut,  mal_channel channelMapOut[MAL_MAX_CHANNELS], mal_dsp_read_proc onRead, void* pUserData);
 
 
 
@@ -18486,6 +18487,43 @@ mal_uint32 mal_convert_frames__on_read(mal_dsp* pDSP, mal_uint32 frameCount, voi
     return framesToRead;
 }
 
+mal_dsp_config mal_dsp_config_init_new()
+{
+    mal_dsp_config config;
+    mal_zero_object(&config);
+
+    return config;
+}
+
+mal_dsp_config mal_dsp_config_init(mal_format formatIn, mal_uint32 channelsIn, mal_uint32 sampleRateIn, mal_format formatOut, mal_uint32 channelsOut, mal_uint32 sampleRateOut, mal_dsp_read_proc onRead, void* pUserData)
+{
+    return mal_dsp_config_init_ex(formatIn, channelsIn, sampleRateIn, NULL, formatOut, channelsOut, sampleRateOut, NULL, onRead, pUserData);
+}
+
+mal_dsp_config mal_dsp_config_init_ex(mal_format formatIn, mal_uint32 channelsIn, mal_uint32 sampleRateIn, mal_channel channelMapIn[MAL_MAX_CHANNELS], mal_format formatOut, mal_uint32 channelsOut, mal_uint32 sampleRateOut,  mal_channel channelMapOut[MAL_MAX_CHANNELS], mal_dsp_read_proc onRead, void* pUserData)
+{
+    mal_dsp_config config;
+    mal_zero_object(&config);
+    config.formatIn = formatIn;
+    config.channelsIn = channelsIn;
+    config.sampleRateIn = sampleRateIn;
+    config.formatOut = formatOut;
+    config.channelsOut = channelsOut;
+    config.sampleRateOut = sampleRateOut;
+    if (channelMapIn != NULL) {
+        mal_copy_memory(config.channelMapIn, channelMapIn, sizeof(config.channelMapIn));
+    }
+    if (channelMapOut != NULL) {
+        mal_copy_memory(config.channelMapOut, channelMapOut, sizeof(config.channelMapOut));
+    }
+    config.onRead = onRead;
+    config.pUserData = pUserData;
+
+    return config;
+}
+
+
+
 mal_uint64 mal_convert_frames(void* pOut, mal_format formatOut, mal_uint32 channelsOut, mal_uint32 sampleRateOut, const void* pIn, mal_format formatIn, mal_uint32 channelsIn, mal_uint32 sampleRateIn, mal_uint64 frameCountIn)
 {
     mal_channel channelMapOut[MAL_MAX_CHANNELS];
@@ -18545,41 +18583,6 @@ mal_uint64 mal_convert_frames_ex(void* pOut, mal_format formatOut, mal_uint32 ch
     }
 
     return mal_dsp_read_ex(&dsp, frameCountOut, pOut, MAL_TRUE, dsp.pUserData);
-}
-
-mal_dsp_config mal_dsp_config_init_new()
-{
-    mal_dsp_config config;
-    mal_zero_object(&config);
-
-    return config;
-}
-
-mal_dsp_config mal_dsp_config_init(mal_format formatIn, mal_uint32 channelsIn, mal_uint32 sampleRateIn, mal_format formatOut, mal_uint32 channelsOut, mal_uint32 sampleRateOut, mal_dsp_read_proc onRead, void* pUserData)
-{
-    return mal_dsp_config_init_ex(formatIn, channelsIn, sampleRateIn, NULL, formatOut, channelsOut, sampleRateOut, NULL, onRead, pUserData);
-}
-
-mal_dsp_config mal_dsp_config_init_ex(mal_format formatIn, mal_uint32 channelsIn, mal_uint32 sampleRateIn, mal_channel channelMapIn[MAL_MAX_CHANNELS], mal_format formatOut, mal_uint32 channelsOut, mal_uint32 sampleRateOut,  mal_channel channelMapOut[MAL_MAX_CHANNELS], mal_dsp_read_proc onRead, void* pUserData)
-{
-    mal_dsp_config config;
-    mal_zero_object(&config);
-    config.formatIn = formatIn;
-    config.channelsIn = channelsIn;
-    config.sampleRateIn = sampleRateIn;
-    config.formatOut = formatOut;
-    config.channelsOut = channelsOut;
-    config.sampleRateOut = sampleRateOut;
-    if (channelMapIn != NULL) {
-        mal_copy_memory(config.channelMapIn, channelMapIn, sizeof(config.channelMapIn));
-    }
-    if (channelMapOut != NULL) {
-        mal_copy_memory(config.channelMapOut, channelMapOut, sizeof(config.channelMapOut));
-    }
-    config.onRead = onRead;
-    config.pUserData = pUserData;
-
-    return config;
 }
 
 
