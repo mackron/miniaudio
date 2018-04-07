@@ -780,15 +780,14 @@ struct mal_src
 {
     mal_src_config config;
     float bin[MAL_MAX_CHANNELS][32];
-    mal_src_cache cache;    // <-- For simplifying and optimizing client -> memory reading.
 
     union
     {
         struct
         {
-            float alpha;
-            mal_bool32 isPrevFramesLoaded : 1;
-            mal_bool32 isNextFramesLoaded : 1;
+            float samplesFromClient[MAL_MAX_CHANNELS][256];
+            float t;
+            mal_uint32 leftoverFrames;
         } linear;
     };
 };
@@ -17715,77 +17714,6 @@ mal_uint64 mal_calculate_frame_count_after_src(mal_uint32 sampleRateOut, mal_uin
 }
 
 
-void mal_src_cache_init(mal_src* pSRC, mal_src_cache* pCache)
-{
-    mal_assert(pSRC != NULL);
-    mal_assert(pCache != NULL);
-
-    pCache->pSRC = pSRC;
-    pCache->cachedFrameCount = 0;
-    pCache->iNextFrame = 0;
-}
-
-mal_uint32 mal_src_cache_read_frames_deinterleaved(mal_src_cache* pCache, mal_uint32 frameCount, float** ppSamplesOut, void* pUserData)
-{
-    mal_assert(pCache != NULL);
-    mal_assert(pCache->pSRC != NULL);
-    mal_assert(pCache->pSRC->config.onReadDeinterleaved != NULL);
-    mal_assert(frameCount > 0);
-    mal_assert(ppSamplesOut != NULL);
-
-    mal_uint32 channels = pCache->pSRC->config.channels;
-
-    float* ppCachedFrames[MAL_MAX_CHANNELS];
-    for (mal_uint32 iChannel = 0; iChannel < channels; ++iChannel) {
-        ppCachedFrames[iChannel] = pCache->cachedFrames[iChannel];
-    }
-
-    mal_uint32 totalFramesRead = 0;
-    while (frameCount > 0) {
-        // If there's anything in memory go ahead and copy that over first.
-        mal_uint32 framesRemainingInMemory = pCache->cachedFrameCount - pCache->iNextFrame;
-        mal_uint32 framesToReadFromMemory = frameCount;
-        if (framesToReadFromMemory > framesRemainingInMemory) {
-            framesToReadFromMemory = framesRemainingInMemory;
-        }
-
-        for (mal_uint32 iChannel = 0; iChannel < channels; ++iChannel) {
-            mal_copy_memory(ppSamplesOut[iChannel], pCache->cachedFrames[iChannel] + pCache->iNextFrame, framesToReadFromMemory*sizeof(float));
-        }
-        pCache->iNextFrame += framesToReadFromMemory;
-
-        totalFramesRead += framesToReadFromMemory;
-        frameCount -= framesToReadFromMemory;
-        if (frameCount == 0) {
-            break;
-        }
-
-
-        // At this point there are still more frames to read from the client, so we'll need to reload the cache with fresh data.
-        mal_assert(frameCount > 0);
-
-        pCache->iNextFrame = 0;
-        for (mal_uint32 iChannel = 0; iChannel < channels; ++iChannel) {
-            ppSamplesOut[iChannel] += framesToReadFromMemory;
-        }
-
-        mal_uint32 framesToReadFromClient = mal_countof(pCache->cachedFrames[0]);
-        if (framesToReadFromClient > MAL_SRC_CACHE_SIZE_IN_FRAMES) {
-            framesToReadFromClient = MAL_SRC_CACHE_SIZE_IN_FRAMES;
-        }
-
-        pCache->cachedFrameCount = pCache->pSRC->config.onReadDeinterleaved(pCache->pSRC, framesToReadFromClient, (void**)ppCachedFrames, pUserData);
-
-        // Get out of this loop if nothing was able to be retrieved.
-        if (pCache->cachedFrameCount == 0) {
-            break;
-        }
-    }
-
-    return totalFramesRead;
-}
-
-
 mal_uint64 mal_src_read_deinterleaved__passthrough(mal_src* pSRC, mal_uint64 frameCount, void** ppSamplesOut, mal_bool32 flush, void* pUserData);
 mal_uint64 mal_src_read_deinterleaved__linear(mal_src* pSRC, mal_uint64 frameCount, void** ppSamplesOut, mal_bool32 flush, void* pUserData);
 
@@ -17806,7 +17734,6 @@ mal_result mal_src_init(const mal_src_config* pConfig, mal_src* pSRC)
 
     pSRC->config = *pConfig;
 
-    mal_src_cache_init(pSRC, &pSRC->cache);
     return MAL_SUCCESS;
 }
 
@@ -17887,7 +17814,7 @@ mal_uint64 mal_src_read_deinterleaved__passthrough(mal_src* pSRC, mal_uint64 fra
                 framesToReadRightNow = 0xFFFFFFFF;
             }
 
-            mal_uint32 framesRead = (mal_uint32)pSRC->config.onReadDeinterleaved(pSRC, (mal_uint32)framesToReadRightNow, ppNextSamplesOut, pUserData);
+            mal_uint32 framesRead = (mal_uint32)pSRC->config.onReadDeinterleaved(pSRC, (mal_uint32)framesToReadRightNow, (void**)ppNextSamplesOut, pUserData);
             if (framesRead == 0) {
                 break;
             }
@@ -17904,84 +17831,160 @@ mal_uint64 mal_src_read_deinterleaved__passthrough(mal_src* pSRC, mal_uint64 fra
 
 mal_uint64 mal_src_read_deinterleaved__linear(mal_src* pSRC, mal_uint64 frameCount, void** ppSamplesOut, mal_bool32 flush, void* pUserData)
 {
+    (void)flush;    // No flushing at the moment.
+
     mal_assert(pSRC != NULL);
     mal_assert(frameCount > 0);
     mal_assert(ppSamplesOut != NULL);
 
-    // For linear SRC, the bin is only 2 frames: 1 prior, 1 future.
-
     float* ppNextSamplesOut[MAL_MAX_CHANNELS];
     mal_copy_memory(ppNextSamplesOut, ppSamplesOut, sizeof(void*) * pSRC->config.channels);
 
-    // Load the bin if necessary.
-    float* ppPrevFrame[MAL_MAX_CHANNELS];
-    float* ppNextFrame[MAL_MAX_CHANNELS];
-    for (mal_uint32 iChannel = 0; iChannel < pSRC->config.channels; ++iChannel) {
-        ppPrevFrame[iChannel] = &pSRC->bin[iChannel][0];
-        ppNextFrame[iChannel] = &pSRC->bin[iChannel][1];
-    }
-
-    if (!pSRC->linear.isPrevFramesLoaded) {
-        mal_uint32 framesRead = mal_src_cache_read_frames_deinterleaved(&pSRC->cache, 1, ppPrevFrame, pUserData);
-        if (framesRead == 0) {
-            return 0;
-        }
-        pSRC->linear.isPrevFramesLoaded = MAL_TRUE;
-    }
-    if (!pSRC->linear.isNextFramesLoaded) {
-        mal_uint32 framesRead = mal_src_cache_read_frames_deinterleaved(&pSRC->cache, 1, ppNextFrame, pUserData);
-        if (framesRead == 0) {
-            return 0;
-        }
-        pSRC->linear.isNextFramesLoaded = MAL_TRUE;
-    }
 
     float factor = (float)pSRC->config.sampleRateIn / pSRC->config.sampleRateOut;
 
+    mal_uint32 maxFrameCountPerChunkIn = mal_countof(pSRC->linear.samplesFromClient[0]);
+
     mal_uint64 totalFramesRead = 0;
-    while (frameCount > 0) {
+    while (totalFramesRead < frameCount) {
+        mal_uint64 framesRemaining = frameCount - totalFramesRead;
+        mal_uint64 framesToRead = framesRemaining;
+        if (framesToRead > 16384) {
+            framesToRead = 16384;    // <-- Keep this small because we're using 32-bit floats for calculating sample positions and I don't want to run out of precision with huge sample counts.
+        }
+
+
+        // Read Input Data
+        // ===============
+        float tBeg = pSRC->linear.t;
+        float tEnd = tBeg + (framesToRead*factor);
+
+        mal_uint32 framesToReadFromClient = (mal_uint32)(tEnd) + 1 + 1;   // +1 to make tEnd 1-based and +1 because we always need to an extra sample for interpolation.
+        if (framesToReadFromClient >= maxFrameCountPerChunkIn) {
+            framesToReadFromClient  = maxFrameCountPerChunkIn;
+        }
+
+        float* ppSamplesFromClient[MAL_MAX_CHANNELS];
         for (mal_uint32 iChannel = 0; iChannel < pSRC->config.channels; ++iChannel) {
-            // The bin is where the previous and next frames are located.
-            float prevSample = pSRC->bin[iChannel][0];
-            float nextSample = pSRC->bin[iChannel][1];
-            ppNextSamplesOut[iChannel][0] = mal_mix_f32(prevSample, nextSample, pSRC->linear.alpha);
-            ppNextSamplesOut[iChannel] = (float*)ppNextSamplesOut[iChannel] + 1;
+            ppSamplesFromClient[iChannel] = pSRC->linear.samplesFromClient[iChannel] + pSRC->linear.leftoverFrames;
+        }
+        
+        mal_uint32 framesReadFromClient = 0;
+        if (framesToReadFromClient > pSRC->linear.leftoverFrames) {
+            framesReadFromClient = (mal_uint32)pSRC->config.onReadDeinterleaved(pSRC, (mal_uint32)framesToReadFromClient - pSRC->linear.leftoverFrames, (void**)ppSamplesFromClient, pUserData);
         }
 
-        pSRC->linear.alpha += factor;
+        framesReadFromClient += pSRC->linear.leftoverFrames;  // <-- You can sort of think of it as though we've re-read the leftover samples from the client.
+        if (framesReadFromClient < 2) {
+            break;
+        }
 
-        // The new alpha value is how we determine whether or not we need to read fresh frames.
-        mal_uint32 framesToReadFromClient = (mal_uint32)pSRC->linear.alpha;
-        pSRC->linear.alpha = pSRC->linear.alpha - framesToReadFromClient;
+        for (mal_uint32 iChannel = 0; iChannel < pSRC->config.channels; ++iChannel) {
+            ppSamplesFromClient[iChannel] = pSRC->linear.samplesFromClient[iChannel];
+        }
 
-        for (mal_uint32 i = 0; i < framesToReadFromClient; ++i) {
-            for (mal_uint32 iChannel = 0; iChannel < pSRC->config.channels; ++iChannel) {
-                ppPrevFrame[iChannel][0] = ppNextFrame[iChannel][0];
+
+        // Write Output Data
+        // =================
+
+        // At this point we have a bunch of frames that the client has given to us for processing. From this we can determine the maximum number of output frames
+        // that can be processed from this input. We want to output as many samples as possible from our input data.
+        float tAvailable = framesReadFromClient - tBeg;
+
+        mal_uint32 maxOutputFramesToRead = (mal_uint32)(tAvailable / factor);
+        if (maxOutputFramesToRead == 0) {
+            maxOutputFramesToRead = 1;
+        }
+        if (maxOutputFramesToRead > framesToRead) {
+            maxOutputFramesToRead = (mal_uint32)framesToRead;
+        }
+
+        // Output frames are always read in groups of 4 because I'm planning on using this as a reference for some SIMD-y stuff later.
+        mal_uint32 maxOutputFramesToRead4 = maxOutputFramesToRead/4;
+        for (mal_uint32 iChannel = 0; iChannel < pSRC->config.channels; ++iChannel) {
+            float t0 = pSRC->linear.t + factor*0;
+            float t1 = pSRC->linear.t + factor*1;
+            float t2 = pSRC->linear.t + factor*2;
+            float t3 = pSRC->linear.t + factor*3;
+
+            for (mal_uint32 iFrameOut = 0; iFrameOut < maxOutputFramesToRead4; iFrameOut += 1) {
+                float iPrevSample0 = (float)floor(t0);
+                float iPrevSample1 = (float)floor(t1);
+                float iPrevSample2 = (float)floor(t2);
+                float iPrevSample3 = (float)floor(t3);
+                
+                float iNextSample0 = iPrevSample0 + 1;
+                float iNextSample1 = iPrevSample1 + 1;
+                float iNextSample2 = iPrevSample2 + 1;
+                float iNextSample3 = iPrevSample3 + 1;
+
+                float alpha0 = t0 - iPrevSample0;
+                float alpha1 = t1 - iPrevSample1;
+                float alpha2 = t2 - iPrevSample2;
+                float alpha3 = t3 - iPrevSample3;
+
+                float prevSample0 = ppSamplesFromClient[iChannel][(mal_uint32)iPrevSample0];
+                float prevSample1 = ppSamplesFromClient[iChannel][(mal_uint32)iPrevSample1];
+                float prevSample2 = ppSamplesFromClient[iChannel][(mal_uint32)iPrevSample2];
+                float prevSample3 = ppSamplesFromClient[iChannel][(mal_uint32)iPrevSample3];
+                
+                float nextSample0 = ppSamplesFromClient[iChannel][(mal_uint32)iNextSample0];
+                float nextSample1 = ppSamplesFromClient[iChannel][(mal_uint32)iNextSample1];
+                float nextSample2 = ppSamplesFromClient[iChannel][(mal_uint32)iNextSample2];
+                float nextSample3 = ppSamplesFromClient[iChannel][(mal_uint32)iNextSample3];
+
+                ppNextSamplesOut[iChannel][iFrameOut*4 + 0] = mal_mix_f32(prevSample0, nextSample0, alpha0);
+                ppNextSamplesOut[iChannel][iFrameOut*4 + 1] = mal_mix_f32(prevSample1, nextSample1, alpha1);
+                ppNextSamplesOut[iChannel][iFrameOut*4 + 2] = mal_mix_f32(prevSample2, nextSample2, alpha2);
+                ppNextSamplesOut[iChannel][iFrameOut*4 + 3] = mal_mix_f32(prevSample3, nextSample3, alpha3);
+
+                t0 += factor*4;
+                t1 += factor*4;
+                t2 += factor*4;
+                t3 += factor*4;
             }
 
-            mal_uint32 framesRead = mal_src_cache_read_frames_deinterleaved(&pSRC->cache, 1, ppNextFrame, pUserData);
-            if (framesRead == 0) {
-                for (mal_uint32 j = 0; j < pSRC->config.channels; ++j) {
-                    ppNextFrame[j][0] = 0;
-                }
+            float t = pSRC->linear.t + (factor*maxOutputFramesToRead4*4);
+            for (mal_uint32 iFrameOut = (maxOutputFramesToRead4*4); iFrameOut < maxOutputFramesToRead; iFrameOut += 1) {
+                float iPrevSample = (float)floor(t);
+                float iNextSample = iPrevSample + 1;
+                float alpha = t - iPrevSample;
 
-                if (pSRC->linear.isNextFramesLoaded) {
-                    pSRC->linear.isNextFramesLoaded = MAL_FALSE;
-                } else {
-                    if (flush) {
-                        pSRC->linear.isPrevFramesLoaded = MAL_FALSE;
-                    }
-                }
+                float prevSample = ppSamplesFromClient[iChannel][(mal_uint32)iPrevSample];
+                float nextSample = ppSamplesFromClient[iChannel][(mal_uint32)iNextSample];
 
-                break;
+                ppNextSamplesOut[iChannel][iFrameOut] = mal_mix_f32(prevSample, nextSample, alpha);
+
+                t += factor;
+            }
+
+            ppNextSamplesOut[iChannel] += maxOutputFramesToRead;
+        }
+
+        totalFramesRead += maxOutputFramesToRead;
+
+
+        // Residual
+        // ========
+        float tNext = pSRC->linear.t + (maxOutputFramesToRead*factor);
+
+        pSRC->linear.t = tNext;
+        mal_assert(tNext <= framesReadFromClient+1);
+
+        mal_uint32 iNextFrame = (mal_uint32)floor(tNext);
+        pSRC->linear.leftoverFrames = framesReadFromClient - iNextFrame;
+        pSRC->linear.t = tNext - iNextFrame;
+
+        for (mal_uint32 iChannel = 0; iChannel < pSRC->config.channels; ++iChannel) {
+            for (mal_uint32 iFrame = 0; iFrame < pSRC->linear.leftoverFrames; ++iFrame) {
+                float sample = ppSamplesFromClient[iChannel][framesReadFromClient-pSRC->linear.leftoverFrames + iFrame];
+                ppSamplesFromClient[iChannel][iFrame] = sample;
             }
         }
 
-        frameCount -= 1;
-        totalFramesRead += 1;
-
-        // If there's no frames available we need to get out of this loop.
-        if (!pSRC->linear.isNextFramesLoaded && (!flush || !pSRC->linear.isPrevFramesLoaded)) {
+        
+        // Exit the loop if we've found everything from the client.
+        if (framesReadFromClient < framesToReadFromClient) {
             break;
         }
     }
