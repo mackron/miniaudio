@@ -212,6 +212,7 @@ extern "C" {
 #if defined(_MSC_VER)
     #pragma warning(push)
     #pragma warning(disable:4201)   // nonstandard extension used: nameless struct/union
+    #pragma warning(disable:4324)   // structure was padded due to alignment specifier
 #endif
 
 // Platform/backend detection.
@@ -317,30 +318,63 @@ extern "C" {
 
 #include <stddef.h> // For size_t.
 
-#if defined(_MSC_VER) && _MSC_VER < 1600
-typedef   signed char    mal_int8;
-typedef unsigned char    mal_uint8;
-typedef   signed short   mal_int16;
-typedef unsigned short   mal_uint16;
-typedef   signed int     mal_int32;
-typedef unsigned int     mal_uint32;
-typedef   signed __int64 mal_int64;
-typedef unsigned __int64 mal_uint64;
+#ifndef MAL_HAS_STDINT
+    #if defined(_MSC_VER)
+        #if _MSC_VER >= 1600
+            #define MAL_HAS_STDINT
+        #endif
+    #else
+        #if defined(__has_include) && __has_include(<stdint.h>)
+            #define MAL_HAS_STDINT
+        #endif
+    #endif
+#endif
+
+#ifndef MAL_HAS_STDINT
+typedef   signed char               mal_int8;
+typedef unsigned char               mal_uint8;
+typedef   signed short              mal_int16;
+typedef unsigned short              mal_uint16;
+typedef   signed int                mal_int32;
+typedef unsigned int                mal_uint32;
+    #if defined(_MSC_VER)
+    typedef   signed __int64        mal_int64;
+    typedef unsigned __int64        mal_uint64;
+    #elif defined(__GNUC__)
+    typedef   signed long long int  mal_int64;
+    typedef unsigned long long int  mal_uint64;
+    #endif
+    #if defined(_WIN32)
+        #if defined(_WIN64)
+        typedef mal_uint64          mal_uintptr;
+        #else
+        typedef mal_uint32          mal_uintptr;
+        #endif
+    #elif defined(__GNUC__)
+        #if defined(__LP64__)
+        typedef mal_uint64          mal_uintptr;
+        #else
+        typedef mal_uint32          mal_uintptr;
+        #endif
+    #else
+        typedef mal_uint64          mal_uintptr;    // Fallback.
+    #endif
 #else
 #include <stdint.h>
-typedef int8_t           mal_int8;
-typedef uint8_t          mal_uint8;
-typedef int16_t          mal_int16;
-typedef uint16_t         mal_uint16;
-typedef int32_t          mal_int32;
-typedef uint32_t         mal_uint32;
-typedef int64_t          mal_int64;
-typedef uint64_t         mal_uint64;
+typedef int8_t                      mal_int8;
+typedef uint8_t                     mal_uint8;
+typedef int16_t                     mal_int16;
+typedef uint16_t                    mal_uint16;
+typedef int32_t                     mal_int32;
+typedef uint32_t                    mal_uint32;
+typedef int64_t                     mal_int64;
+typedef uint64_t                    mal_uint64;
+typedef uintptr_t                   mal_uintptr;
 #endif
-typedef mal_uint8        mal_bool8;
-typedef mal_uint32       mal_bool32;
-#define MAL_TRUE         1
-#define MAL_FALSE        0
+typedef mal_uint8                   mal_bool8;
+typedef mal_uint32                  mal_bool32;
+#define MAL_TRUE                    1
+#define MAL_FALSE                   0
 
 typedef void* mal_handle;
 typedef void* mal_ptr;
@@ -348,6 +382,40 @@ typedef void (* mal_proc)();
 
 typedef struct mal_context mal_context;
 typedef struct mal_device mal_device;
+
+#if defined(_MSC_VER) && !defined(_WCHAR_T_DEFINED)
+typedef mal_uint16 wchar_t;
+#endif
+
+// Define NULL for some compilers.
+#ifndef NULL
+#define NULL 0
+#endif
+
+#ifdef _MSC_VER
+#define MAL_INLINE __forceinline
+#else
+#ifdef __GNUC__
+#define MAL_INLINE inline __attribute__((always_inline))
+#else
+#define MAL_INLINE inline
+#endif
+#endif
+
+#ifdef _MSC_VER
+#define MAL_ALIGN(alignment) __declspec(align(alignment))
+#else
+#define MAL_ALIGN(alignment) __attribute__((aligned(alignment)))
+#endif
+
+#ifdef _MSC_VER
+#define MAL_ALIGNED_STRUCT(alignment) MAL_ALIGN(alignment) struct
+#else
+#define MAL_ALIGNED_STRUCT(alignment) struct MAL_ALIGN(alignment)
+#endif
+
+// SIMD alignment in bytes. Currently set to 64 bytes in preparation for future AVX-512 optimizations.
+#define MAL_SIMD_ALIGNMENT  64
 
 // Thread priorties should be ordered such that the default priority of the worker thread is 0.
 typedef enum
@@ -433,14 +501,6 @@ typedef struct
     };
 } mal_event;
 
-#if defined(_MSC_VER) && !defined(_WCHAR_T_DEFINED)
-typedef mal_uint16 wchar_t;
-#endif
-
-// Define NULL for some compilers.
-#ifndef NULL
-#define NULL 0
-#endif
 
 #define MAL_MAX_PERIODS_DSOUND                          4
 #define MAL_MAX_PERIODS_OPENAL                          4
@@ -757,15 +817,6 @@ typedef enum
     mal_src_algorithm_default = mal_src_algorithm_linear
 } mal_src_algorithm;
 
-#define MAL_SRC_CACHE_SIZE_IN_FRAMES    256
-typedef struct
-{
-    mal_src* pSRC;
-    float cachedFrames[MAL_MAX_CHANNELS][MAL_SRC_CACHE_SIZE_IN_FRAMES];
-    mal_uint32 cachedFrameCount;
-    mal_uint32 iNextFrame;
-} mal_src_cache;
-
 typedef struct
 {
     mal_uint32 sampleRateIn;
@@ -776,16 +827,15 @@ typedef struct
     void* pUserData;
 } mal_src_config;
 
-struct mal_src
+MAL_ALIGNED_STRUCT(MAL_SIMD_ALIGNMENT) mal_src
 {
+    float samplesFromClient[MAL_MAX_CHANNELS][256];
     mal_src_config config;
-    float bin[MAL_MAX_CHANNELS][32];
 
     union
     {
         struct
         {
-            float samplesFromClient[MAL_MAX_CHANNELS][256];
             float t;
             mal_uint32 leftoverFrames;
         } linear;
@@ -812,7 +862,7 @@ typedef struct
     void* pUserData;
 } mal_dsp_config;
 
-struct mal_dsp
+MAL_ALIGNED_STRUCT(MAL_SIMD_ALIGNMENT) mal_dsp
 {
     mal_dsp_read_proc onRead;
     void* pUserData;
@@ -1234,7 +1284,7 @@ struct mal_context
     };
 };
 
-struct mal_device
+MAL_ALIGNED_STRUCT(MAL_SIMD_ALIGNMENT) mal_device
 {
     mal_context* pContext;
     mal_device_type type;
@@ -1705,7 +1755,7 @@ mal_uint32 mal_device_get_buffer_size_in_bytes(mal_device* pDevice);
 // Thread Safety: SAFE
 //   This is API is pure.
 mal_uint32 mal_get_bytes_per_sample(mal_format format);
-static inline mal_uint32 mal_get_bytes_per_frame(mal_format format, mal_uint32 channels) { return mal_get_bytes_per_sample(format) * channels; }
+static MAL_INLINE mal_uint32 mal_get_bytes_per_frame(mal_format format, mal_uint32 channels) { return mal_get_bytes_per_sample(format) * channels; }
 
 // Helper function for initializing a mal_context_config object.
 mal_context_config mal_context_config_init(mal_log_proc onLog);
@@ -1789,15 +1839,15 @@ mal_device_config mal_device_config_init_default_playback(mal_send_proc onSendCa
 mal_device_config mal_device_config_init_ex(mal_format format, mal_uint32 channels, mal_uint32 sampleRate, mal_channel channelMap[MAL_MAX_CHANNELS], mal_recv_proc onRecvCallback, mal_send_proc onSendCallback);
 
 // A simplified version of mal_device_config_init_ex().
-static inline mal_device_config mal_device_config_init(mal_format format, mal_uint32 channels, mal_uint32 sampleRate, mal_recv_proc onRecvCallback, mal_send_proc onSendCallback) { return mal_device_config_init_ex(format, channels, sampleRate, NULL, onRecvCallback, onSendCallback); }
+static MAL_INLINE mal_device_config mal_device_config_init(mal_format format, mal_uint32 channels, mal_uint32 sampleRate, mal_recv_proc onRecvCallback, mal_send_proc onSendCallback) { return mal_device_config_init_ex(format, channels, sampleRate, NULL, onRecvCallback, onSendCallback); }
 
 // A simplified version of mal_device_config_init() for capture devices.
-static inline mal_device_config mal_device_config_init_capture_ex(mal_format format, mal_uint32 channels, mal_uint32 sampleRate, mal_channel channelMap[MAL_MAX_CHANNELS], mal_recv_proc onRecvCallback) { return mal_device_config_init_ex(format, channels, sampleRate, channelMap, onRecvCallback, NULL); }
-static inline mal_device_config mal_device_config_init_capture(mal_format format, mal_uint32 channels, mal_uint32 sampleRate, mal_recv_proc onRecvCallback) { return mal_device_config_init_capture_ex(format, channels, sampleRate, NULL, onRecvCallback); }
+static MAL_INLINE mal_device_config mal_device_config_init_capture_ex(mal_format format, mal_uint32 channels, mal_uint32 sampleRate, mal_channel channelMap[MAL_MAX_CHANNELS], mal_recv_proc onRecvCallback) { return mal_device_config_init_ex(format, channels, sampleRate, channelMap, onRecvCallback, NULL); }
+static MAL_INLINE mal_device_config mal_device_config_init_capture(mal_format format, mal_uint32 channels, mal_uint32 sampleRate, mal_recv_proc onRecvCallback) { return mal_device_config_init_capture_ex(format, channels, sampleRate, NULL, onRecvCallback); }
 
 // A simplified version of mal_device_config_init() for playback devices.
-static inline mal_device_config mal_device_config_init_playback_ex(mal_format format, mal_uint32 channels, mal_uint32 sampleRate, mal_channel channelMap[MAL_MAX_CHANNELS], mal_send_proc onSendCallback) { return mal_device_config_init_ex(format, channels, sampleRate, channelMap, NULL, onSendCallback); }
-static inline mal_device_config mal_device_config_init_playback(mal_format format, mal_uint32 channels, mal_uint32 sampleRate, mal_send_proc onSendCallback) { return mal_device_config_init_playback_ex(format, channels, sampleRate, NULL, onSendCallback); }
+static MAL_INLINE mal_device_config mal_device_config_init_playback_ex(mal_format format, mal_uint32 channels, mal_uint32 sampleRate, mal_channel channelMap[MAL_MAX_CHANNELS], mal_send_proc onSendCallback) { return mal_device_config_init_ex(format, channels, sampleRate, channelMap, NULL, onSendCallback); }
+static MAL_INLINE mal_device_config mal_device_config_init_playback(mal_format format, mal_uint32 channels, mal_uint32 sampleRate, mal_send_proc onSendCallback) { return mal_device_config_init_playback_ex(format, channels, sampleRate, NULL, onSendCallback); }
 
 
 // Helper for retrieving a standard channel map.
@@ -2032,6 +2082,12 @@ void mal_mutex_unlock(mal_mutex* pMutex);
 // Miscellaneous Helpers
 //
 //////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+
+// Performs an aligned malloc, with the assumption that the alignment is a power of 2.
+void* mal_aligned_malloc(size_t sz, size_t alignment);
+
+// Free's an aligned malloc'd buffer.
+void mal_aligned_free(void* p);
 
 // Retrieves a friendly name for a backend.
 const char* mal_get_backend_name(mal_backend backend);
@@ -2680,7 +2736,7 @@ int mal_strcmp(const char* str1, const char* str2)
 
 
 // Thanks to good old Bit Twiddling Hacks for this one: http://graphics.stanford.edu/~seander/bithacks.html#RoundUpPowerOf2
-static inline unsigned int mal_next_power_of_2(unsigned int x)
+static MAL_INLINE unsigned int mal_next_power_of_2(unsigned int x)
 {
     x--;
     x |= x >> 1;
@@ -2693,12 +2749,12 @@ static inline unsigned int mal_next_power_of_2(unsigned int x)
     return x;
 }
 
-static inline unsigned int mal_prev_power_of_2(unsigned int x)
+static MAL_INLINE unsigned int mal_prev_power_of_2(unsigned int x)
 {
     return mal_next_power_of_2(x) >> 1;
 }
 
-static inline unsigned int mal_round_to_power_of_2(unsigned int x)
+static MAL_INLINE unsigned int mal_round_to_power_of_2(unsigned int x)
 {
     unsigned int prev = mal_prev_power_of_2(x);
     unsigned int next = mal_next_power_of_2(x);
@@ -2712,14 +2768,14 @@ static inline unsigned int mal_round_to_power_of_2(unsigned int x)
 
 
 // Clamps an f32 sample to -1..1
-static inline float mal_clip_f32(float x)
+static MAL_INLINE float mal_clip_f32(float x)
 {
     if (x < -1) return -1;
     if (x > +1) return +1;
     return x;
 }
 
-static inline float mal_mix_f32(float x, float y, float a)
+static MAL_INLINE float mal_mix_f32(float x, float y, float a)
 {
     return x*(1-a) + y*a;
 }
@@ -3331,7 +3387,7 @@ mal_result mal_post_error(mal_device* pDevice, const char* message, mal_result r
 
 
 // The callback for reading from the client -> DSP -> device.
-static inline mal_uint32 mal_device__on_read_from_client(mal_dsp* pDSP, mal_uint32 frameCount, void* pFramesOut, void* pUserData)
+mal_uint32 mal_device__on_read_from_client(mal_dsp* pDSP, mal_uint32 frameCount, void* pFramesOut, void* pUserData)
 {
     (void)pDSP;
 
@@ -3347,7 +3403,7 @@ static inline mal_uint32 mal_device__on_read_from_client(mal_dsp* pDSP, mal_uint
 }
 
 // The callback for reading from the device -> DSP -> client.
-static inline mal_uint32 mal_device__on_read_from_device(mal_dsp* pDSP, mal_uint32 frameCount, void* pFramesOut, void* pUserData)
+mal_uint32 mal_device__on_read_from_device(mal_dsp* pDSP, mal_uint32 frameCount, void* pFramesOut, void* pUserData)
 {
     (void)pDSP;
 
@@ -3373,7 +3429,7 @@ static inline mal_uint32 mal_device__on_read_from_device(mal_dsp* pDSP, mal_uint
 
 // A helper function for reading sample data from the client. Returns the number of samples read from the client. Remaining samples
 // are filled with silence.
-static inline mal_uint32 mal_device__read_frames_from_client(mal_device* pDevice, mal_uint32 frameCount, void* pSamples)
+static MAL_INLINE mal_uint32 mal_device__read_frames_from_client(mal_device* pDevice, mal_uint32 frameCount, void* pSamples)
 {
     mal_assert(pDevice != NULL);
     mal_assert(frameCount > 0);
@@ -3390,7 +3446,7 @@ static inline mal_uint32 mal_device__read_frames_from_client(mal_device* pDevice
 }
 
 // A helper for sending sample data to the client.
-static inline void mal_device__send_frames_to_client(mal_device* pDevice, mal_uint32 frameCount, const void* pSamples)
+static MAL_INLINE void mal_device__send_frames_to_client(mal_device* pDevice, mal_uint32 frameCount, const void* pSamples)
 {
     mal_assert(pDevice != NULL);
     mal_assert(frameCount > 0);
@@ -3420,13 +3476,13 @@ static inline void mal_device__send_frames_to_client(mal_device* pDevice, mal_ui
 }
 
 // A helper for changing the state of the device.
-static inline void mal_device__set_state(mal_device* pDevice, mal_uint32 newState)
+static MAL_INLINE void mal_device__set_state(mal_device* pDevice, mal_uint32 newState)
 {
     mal_atomic_exchange_32(&pDevice->state, newState);
 }
 
 // A helper for getting the state of the device.
-static inline mal_uint32 mal_device__get_state(mal_device* pDevice)
+static MAL_INLINE mal_uint32 mal_device__get_state(mal_device* pDevice)
 {
     return pDevice->state;
 }
@@ -4047,7 +4103,7 @@ typedef struct
 #endif
 
 // Some compilers don't define PropVariantInit(). We just do this ourselves since it's just a memset().
-static inline void mal_PropVariantInit(PROPVARIANT* pProp)
+static MAL_INLINE void mal_PropVariantInit(PROPVARIANT* pProp)
 {
     mal_zero_object(pProp);
 }
@@ -17167,7 +17223,7 @@ typedef struct
     float z;
 } mal_vec3;
 
-static inline mal_vec3 mal_vec3f(float x, float y, float z)
+static MAL_INLINE mal_vec3 mal_vec3f(float x, float y, float z)
 {
     mal_vec3 r;
     r.x = x;
@@ -17177,7 +17233,7 @@ static inline mal_vec3 mal_vec3f(float x, float y, float z)
     return r;
 }
 
-static inline mal_vec3 mal_vec3_add(mal_vec3 a, mal_vec3 b)
+static MAL_INLINE mal_vec3 mal_vec3_add(mal_vec3 a, mal_vec3 b)
 {
     return mal_vec3f(
         a.x + b.x,
@@ -17186,7 +17242,7 @@ static inline mal_vec3 mal_vec3_add(mal_vec3 a, mal_vec3 b)
     );
 }
 
-static inline mal_vec3 mal_vec3_sub(mal_vec3 a, mal_vec3 b)
+static MAL_INLINE mal_vec3 mal_vec3_sub(mal_vec3 a, mal_vec3 b)
 {
     return mal_vec3f(
         a.x - b.x,
@@ -17195,7 +17251,7 @@ static inline mal_vec3 mal_vec3_sub(mal_vec3 a, mal_vec3 b)
     );
 }
 
-static inline mal_vec3 mal_vec3_mul(mal_vec3 a, mal_vec3 b)
+static MAL_INLINE mal_vec3 mal_vec3_mul(mal_vec3 a, mal_vec3 b)
 {
     return mal_vec3f(
         a.x * b.x,
@@ -17204,7 +17260,7 @@ static inline mal_vec3 mal_vec3_mul(mal_vec3 a, mal_vec3 b)
     );
 }
 
-static inline mal_vec3 mal_vec3_div(mal_vec3 a, mal_vec3 b)
+static MAL_INLINE mal_vec3 mal_vec3_div(mal_vec3 a, mal_vec3 b)
 {
     return mal_vec3f(
         a.x / b.x,
@@ -17213,22 +17269,22 @@ static inline mal_vec3 mal_vec3_div(mal_vec3 a, mal_vec3 b)
     );
 }
 
-static inline float mal_vec3_dot(mal_vec3 a, mal_vec3 b)
+static MAL_INLINE float mal_vec3_dot(mal_vec3 a, mal_vec3 b)
 {
     return a.x*b.x + a.y*b.y + a.z*b.z;
 }
 
-static inline float mal_vec3_length2(mal_vec3 a)
+static MAL_INLINE float mal_vec3_length2(mal_vec3 a)
 {
     return mal_vec3_dot(a, a);
 }
 
-static inline float mal_vec3_length(mal_vec3 a)
+static MAL_INLINE float mal_vec3_length(mal_vec3 a)
 {
     return (float)sqrt(mal_vec3_length2(a));
 }
 
-static inline mal_vec3 mal_vec3_normalize(mal_vec3 a)
+static MAL_INLINE mal_vec3 mal_vec3_normalize(mal_vec3 a)
 {
     float len = 1 / mal_vec3_length(a);
 
@@ -17240,7 +17296,7 @@ static inline mal_vec3 mal_vec3_normalize(mal_vec3 a)
     return r;
 }
 
-static inline float mal_vec3_distance(mal_vec3 a, mal_vec3 b)
+static MAL_INLINE float mal_vec3_distance(mal_vec3 a, mal_vec3 b)
 {
     return mal_vec3_length(mal_vec3_sub(a, b));
 }
@@ -17855,7 +17911,7 @@ mal_uint64 mal_src_read_deinterleaved__linear(mal_src* pSRC, mal_uint64 frameCou
 
     float factor = (float)pSRC->config.sampleRateIn / pSRC->config.sampleRateOut;
 
-    mal_uint32 maxFrameCountPerChunkIn = mal_countof(pSRC->linear.samplesFromClient[0]);
+    mal_uint32 maxFrameCountPerChunkIn = mal_countof(pSRC->samplesFromClient[0]);
 
     mal_uint64 totalFramesRead = 0;
     while (totalFramesRead < frameCount) {
@@ -17878,7 +17934,7 @@ mal_uint64 mal_src_read_deinterleaved__linear(mal_src* pSRC, mal_uint64 frameCou
 
         float* ppSamplesFromClient[MAL_MAX_CHANNELS];
         for (mal_uint32 iChannel = 0; iChannel < pSRC->config.channels; ++iChannel) {
-            ppSamplesFromClient[iChannel] = pSRC->linear.samplesFromClient[iChannel] + pSRC->linear.leftoverFrames;
+            ppSamplesFromClient[iChannel] = pSRC->samplesFromClient[iChannel] + pSRC->linear.leftoverFrames;
         }
         
         mal_uint32 framesReadFromClient = 0;
@@ -17892,7 +17948,7 @@ mal_uint64 mal_src_read_deinterleaved__linear(mal_src* pSRC, mal_uint64 frameCou
         }
 
         for (mal_uint32 iChannel = 0; iChannel < pSRC->config.channels; ++iChannel) {
-            ppSamplesFromClient[iChannel] = pSRC->linear.samplesFromClient[iChannel];
+            ppSamplesFromClient[iChannel] = pSRC->samplesFromClient[iChannel];
         }
 
 
@@ -18595,6 +18651,30 @@ mal_uint64 mal_convert_frames_ex(void* pOut, mal_format formatOut, mal_uint32 ch
 //
 //////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 //////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+
+void* mal_aligned_malloc(size_t sz, size_t alignment)
+{
+    if (alignment == 0) {
+        return 0;
+    }
+
+    size_t extraBytes = alignment-1 + sizeof(void*);
+
+    void* pUnaligned = mal_malloc(sz + extraBytes);
+    if (pUnaligned == NULL) {
+        return NULL;
+    }
+
+    void* pAligned = (void*)(((mal_uintptr)pUnaligned + extraBytes) & ~((mal_uintptr)(alignment-1)));
+    ((void**)pAligned)[-1] = pUnaligned;
+
+    return pAligned;
+}
+
+void mal_aligned_free(void* p)
+{
+    mal_free(((void**)p)[-1]);
+}
 
 const char* mal_get_backend_name(mal_backend backend)
 {

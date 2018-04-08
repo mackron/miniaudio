@@ -96,6 +96,158 @@ void* open_and_read_file_data(const char* filePath, size_t* pSizeOut)
     return pFileData;
 }
 
+
+int do_types_tests()
+{
+    int result = 0;
+
+    int sizeof_int8 = sizeof(mal_int8);
+    int sizeof_uint8 = sizeof(mal_uint8);
+    int sizeof_int16 = sizeof(mal_int16);
+    int sizeof_uint16 = sizeof(mal_uint16);
+    int sizeof_int32 = sizeof(mal_int32);
+    int sizeof_uint32 = sizeof(mal_uint32);
+    int sizeof_int64 = sizeof(mal_int64);
+    int sizeof_uint64 = sizeof(mal_uint64);
+    int sizeof_float32 = sizeof(float);
+    int sizeof_float64 = sizeof(double);
+    int sizeof_uintptr = sizeof(mal_uintptr);
+
+    printf("sizeof(mal_int8)    1 = %d", sizeof_int8);
+    if (sizeof_int8 != 1) {
+        printf(" - FAILED\n");
+        result = -1;
+    } else {
+        printf(" - PASSED\n");
+    }
+    printf("sizeof(mal_uint8)   1 = %d", sizeof_uint8);
+    if (sizeof_uint8 != 1) {
+        printf(" - FAILED\n");
+        result = -1;
+    } else {
+        printf(" - PASSED\n");
+    }
+
+    printf("sizeof(mal_int16)   2 = %d", sizeof_int16);
+    if (sizeof_int16 != 2) {
+        printf(" - FAILED\n");
+        result = -1;
+    } else {
+        printf(" - PASSED\n");
+    }
+    printf("sizeof(mal_uint16)  2 = %d", sizeof_uint16);
+    if (sizeof_uint16 != 2) {
+        printf(" - FAILED\n");
+        result = -1;
+    } else {
+        printf(" - PASSED\n");
+    }
+
+    printf("sizeof(mal_int32)   4 = %d", sizeof_int32);
+    if (sizeof_int32 != 4) {
+        printf(" - FAILED\n");
+        result = -1;
+    } else {
+        printf(" - PASSED\n");
+    }
+    printf("sizeof(mal_uint32)  4 = %d", sizeof_uint32);
+    if (sizeof_uint32 != 4) {
+        printf(" - FAILED\n");
+        result = -1;
+    } else {
+        printf(" - PASSED\n");
+    }
+
+    printf("sizeof(mal_int64)   8 = %d", sizeof_int64);
+    if (sizeof_int64 != 8) {
+        printf(" - FAILED\n");
+        result = -1;
+    } else {
+        printf(" - PASSED\n");
+    }
+    printf("sizeof(mal_uint64)  8 = %d", sizeof_uint64);
+    if (sizeof_uint64 != 8) {
+        printf(" - FAILED\n");
+        result = -1;
+    } else {
+        printf(" - PASSED\n");
+    }
+
+    printf("sizeof(float)       4 = %d", sizeof_float32);
+    if (sizeof_float32 != 4) {
+        printf(" - FAILED\n");
+        result = -1;
+    } else {
+        printf(" - PASSED\n");
+    }
+    printf("sizeof(double)      8 = %d", sizeof_float64);
+    if (sizeof_float64 != 8) {
+        printf(" - FAILED\n");
+        result = -1;
+    } else {
+        printf(" - PASSED\n");
+    }
+
+    printf("sizeof(mal_uintptr) %d = %d", (int)sizeof(void*), sizeof_uintptr);
+    if (sizeof_uintptr != sizeof(void*)) {
+        printf(" - FAILED\n");
+        result = -1;
+    } else {
+        printf(" - PASSED\n");
+    }
+
+    return result;
+}
+
+int do_aligned_malloc_tests()
+{
+    int result = 0;
+
+    // We just do a whole bunch of malloc's and check them. This can probably be made more exhaustive.
+    void* p[1024];
+    for (mal_uint32 i = 0; i < mal_countof(p); ++i) {
+        mal_uintptr alignment = MAL_SIMD_ALIGNMENT;
+
+        p[i] = mal_aligned_malloc(1024, alignment);
+        if (((mal_uintptr)p[i] & (alignment-1)) != 0) {
+            printf("FAILED\n");
+            result = -1;
+        }
+    }
+
+    // Free.
+    for (mal_uint32 i = 0; i < mal_countof(p); ++i) {
+        mal_aligned_free(p[i]);
+    }
+
+    if (result == 0) {
+        printf("PASSED\n");
+    }
+
+    return result;
+}
+
+int do_core_tests()
+{
+    int result = 0;
+
+    printf("Types...\n");
+    if (do_types_tests() != 0) {
+        printf("FAILED\n");
+        result = -1;
+    } else {
+        printf("PASSED\n");
+    }
+
+    printf("Aligned malloc... ");
+    if (do_aligned_malloc_tests() != 0) {
+        result = -1;
+    }
+
+    return result;
+}
+
+
 void* load_raw_audio_data(const char* filePath, mal_format format, mal_uint64* pBenchmarkFrameCount)
 {
     mal_assert(pBenchmarkFrameCount != NULL);
@@ -2129,6 +2281,16 @@ int main(int argc, char** argv)
 
     mal_bool32 hasErrorOccurred = MAL_FALSE;
     int result = 0;
+
+    // Aligned malloc/free
+    printf("=== TESTING CORE ===\n");
+    result = do_core_tests();
+    if (result < 0) {
+        hasErrorOccurred = MAL_TRUE;
+    }
+    printf("=== END TESTING CORE ===\n");
+    
+    printf("\n");
 
     // Format Conversion
     printf("=== TESTING FORMAT CONVERSION ===\n");
