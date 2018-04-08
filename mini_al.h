@@ -19879,6 +19879,7 @@ mal_uint64 mal_sine_wave_read(mal_sine_wave* pSineWave, mal_uint64 count, float*
 //     distributions of MinGW.
 //   - Add support for configuring the priority of the worker thread.
 //   - Add a sine wave generator.
+//   - Improve efficiency of sample rate conversion.
 //   - Introduce the notion of standard channel maps. Use mal_get_standard_channel_map().
 //   - Introduce the notion of default device configurations. A default config uses the same configuration
 //     as the backend's internal device, and as such results in a pass-through data transmission pipeline.
