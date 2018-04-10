@@ -1508,7 +1508,7 @@ mal_result mal_context_uninit(mal_context* pContext);
 // mal_context_enumerate_devices() if you would rather not incur an internal heap allocation, or
 // it simply suits your code better.
 //
-// Do _not_ assume the first enumerated device or a given type is the default device.
+// Do _not_ assume the first enumerated device of a given type is the default device.
 //
 // Some backends and platforms may only support default playback and capture devices.
 //
@@ -1555,7 +1555,7 @@ mal_result mal_context_get_devices(mal_context* pContext, mal_device_info** ppPl
 
 // Retrieves information about a device with the given ID.
 //
-// Do _not_ call this from within the mal_context_enumerate_devices_callback().
+// Do _not_ call this from within the mal_context_enumerate_devices() callback.
 //
 // It's possible for a device to have different information and capabilities depending on wether or
 // not it's opened in shared or exclusive mode. For example, in shared mode, WASAPI always uses
@@ -1757,6 +1757,7 @@ mal_uint32 mal_device_get_buffer_size_in_bytes(mal_device* pDevice);
 mal_uint32 mal_get_bytes_per_sample(mal_format format);
 static MAL_INLINE mal_uint32 mal_get_bytes_per_frame(mal_format format, mal_uint32 channels) { return mal_get_bytes_per_sample(format) * channels; }
 
+
 // Helper function for initializing a mal_context_config object.
 mal_context_config mal_context_config_init(mal_log_proc onLog);
 
@@ -1919,7 +1920,7 @@ mal_uint64 mal_format_converter_read_deinterleaved(mal_format_converter* pConver
 // The last case to consider is when a channel position in the input channel map is not present in the output channel map, and vice versa. In this case the
 // channel router will perform a blend of other related channels to produce an audible channel. There are several blending modes.
 //   1) Simple
-//      Unmatched channels are ignored.
+//      Unmatched channels are silenced.
 //   2) Planar Blending
 //      Channels are blended based on a set of planes that each speaker emits audio from.
 //
@@ -1974,7 +1975,7 @@ mal_channel_router_config mal_channel_router_config_init(mal_uint32 channelsIn, 
 //
 // Sample Rate Conversion
 // ======================
-// Note that sample rate conversion in mini_al is currently very low quality.
+// Note that mini_al currently only supports low quality linear sample rate conversion.
 //
 //////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
@@ -17723,7 +17724,7 @@ mal_uint64 mal_channel_router_read_deinterleaved(mal_channel_router* pRouter, ma
             break;
         }
 
-        mal_channel_router__do_routing(pRouter, framesJustRead, (float**)ppSamplesOut, (const float**)ppTemp);  // <-- Real work is done here.
+        mal_channel_router__do_routing(pRouter, framesJustRead, (float**)ppNextSamplesOut, (const float**)ppTemp);  // <-- Real work is done here.
 
         totalFramesRead += framesJustRead;
         if (totalFramesRead < frameCount) {
