@@ -1452,6 +1452,10 @@ int do_channel_routing_tests()
         routerConfig.mixingMode = mal_channel_mix_mode_planar_blend;
         routerConfig.channelsIn = 6;
         routerConfig.channelsOut = routerConfig.channelsIn;
+        routerConfig.noSSE2 = MAL_TRUE;
+        routerConfig.noAVX = MAL_TRUE;
+        routerConfig.noAVX512 = MAL_TRUE;
+        routerConfig.noNEON = MAL_TRUE;
         mal_get_standard_channel_map(mal_standard_channel_map_microsoft, routerConfig.channelsIn, routerConfig.channelMapIn);
         mal_get_standard_channel_map(mal_standard_channel_map_microsoft, routerConfig.channelsOut, routerConfig.channelMapOut);
         
@@ -1551,6 +1555,10 @@ int do_channel_routing_tests()
         routerConfig.mixingMode = mal_channel_mix_mode_planar_blend;
         routerConfig.channelsIn = 6;
         routerConfig.channelsOut = routerConfig.channelsIn;
+        routerConfig.noSSE2 = MAL_TRUE;
+        routerConfig.noAVX = MAL_TRUE;
+        routerConfig.noAVX512 = MAL_TRUE;
+        routerConfig.noNEON = MAL_TRUE;
         mal_get_standard_channel_map(mal_standard_channel_map_microsoft, routerConfig.channelsIn, routerConfig.channelMapIn);
         for (mal_uint32 iChannel = 0; iChannel < routerConfig.channelsIn; ++iChannel) {
             routerConfig.channelMapOut[iChannel] = routerConfig.channelMapIn[routerConfig.channelsIn - iChannel - 1];
@@ -1656,6 +1664,10 @@ int do_channel_routing_tests()
         routerConfig.mixingMode = mal_channel_mix_mode_simple;
         routerConfig.channelsIn = 2;
         routerConfig.channelsOut = 6;
+        routerConfig.noSSE2 = MAL_TRUE;
+        routerConfig.noAVX = MAL_TRUE;
+        routerConfig.noAVX512 = MAL_TRUE;
+        routerConfig.noNEON = MAL_TRUE;
         mal_get_standard_channel_map(mal_standard_channel_map_microsoft, routerConfig.channelsIn, routerConfig.channelMapIn);
         mal_get_standard_channel_map(mal_standard_channel_map_microsoft, routerConfig.channelsOut, routerConfig.channelMapOut);
 
@@ -1704,6 +1716,10 @@ int do_channel_routing_tests()
         routerConfig.mixingMode = mal_channel_mix_mode_simple;
         routerConfig.channelsIn = 6;
         routerConfig.channelsOut = 2;
+        routerConfig.noSSE2 = MAL_TRUE;
+        routerConfig.noAVX = MAL_TRUE;
+        routerConfig.noAVX512 = MAL_TRUE;
+        routerConfig.noNEON = MAL_TRUE;
         mal_get_standard_channel_map(mal_standard_channel_map_microsoft, routerConfig.channelsIn, routerConfig.channelMapIn);
         mal_get_standard_channel_map(mal_standard_channel_map_microsoft, routerConfig.channelsOut, routerConfig.channelMapOut);
 
@@ -1750,6 +1766,10 @@ int do_channel_routing_tests()
         routerConfig.onReadDeinterleaved = channel_router_callback__passthrough_test;
         routerConfig.pUserData = NULL;
         routerConfig.mixingMode = mal_channel_mix_mode_planar_blend;
+        routerConfig.noSSE2 = MAL_TRUE;
+        routerConfig.noAVX = MAL_TRUE;
+        routerConfig.noAVX512 = MAL_TRUE;
+        routerConfig.noNEON = MAL_TRUE;
         
         // Use very specific mappings for this test.
         routerConfig.channelsIn = 2;
@@ -1868,6 +1888,10 @@ int do_channel_routing_tests()
         routerConfig.onReadDeinterleaved = channel_router_callback__passthrough_test;
         routerConfig.pUserData = NULL;
         routerConfig.mixingMode = mal_channel_mix_mode_planar_blend;
+        routerConfig.noSSE2 = MAL_TRUE;
+        routerConfig.noAVX = MAL_TRUE;
+        routerConfig.noAVX512 = MAL_TRUE;
+        routerConfig.noNEON = MAL_TRUE;
         
         // Use very specific mappings for this test.
         routerConfig.channelsIn = 8;
@@ -1940,6 +1964,10 @@ int do_channel_routing_tests()
         routerConfig.onReadDeinterleaved = channel_router_callback__passthrough_test;
         routerConfig.pUserData = NULL;
         routerConfig.mixingMode = mal_channel_mix_mode_planar_blend;
+        routerConfig.noSSE2 = MAL_TRUE;
+        routerConfig.noAVX = MAL_TRUE;
+        routerConfig.noAVX512 = MAL_TRUE;
+        routerConfig.noNEON = MAL_TRUE;
         
         // Use very specific mappings for this test.
         routerConfig.channelsIn = 1;
@@ -1995,6 +2023,10 @@ int do_channel_routing_tests()
         routerConfig.onReadDeinterleaved = channel_router_callback__passthrough_test;
         routerConfig.pUserData = NULL;
         routerConfig.mixingMode = mal_channel_mix_mode_planar_blend;
+        routerConfig.noSSE2 = MAL_TRUE;
+        routerConfig.noAVX = MAL_TRUE;
+        routerConfig.noAVX512 = MAL_TRUE;
+        routerConfig.noNEON = MAL_TRUE;
         
         // Use very specific mappings for this test.
         routerConfig.channelsIn = 4;
