@@ -167,6 +167,34 @@ int main(int argc, char** argv)
     (void)argc;
     (void)argv;
 
+    // Summary.
+    if (mal_has_sse2()) {
+        printf("Has SSE:      YES\n");
+    } else {
+        printf("Has SSE:      NO\n");
+    }
+
+    if (mal_has_avx()) {
+        printf("Has AVX:      YES\n");
+    } else {
+        printf("Has AVX:      NO\n");
+    }
+
+    if (mal_has_avx512f()) {
+        printf("Has AVX-512F: YES\n");
+    } else {
+        printf("Has AVX-512F: NO\n");
+    }
+
+    if (mal_has_neon()) {
+        printf("Has NEON:     YES\n");
+    } else {
+        printf("Has NEON:     NO\n");
+    }
+
+
+    printf("\n");
+
     // Channel routing.
     do_profiling__channel_routing();
 
