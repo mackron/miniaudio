@@ -850,7 +850,7 @@ typedef struct
 
 MAL_ALIGNED_STRUCT(MAL_SIMD_ALIGNMENT) mal_src
 {
-    float samplesFromClient[MAL_MAX_CHANNELS][256];
+    MAL_ALIGN(MAL_SIMD_ALIGNMENT) float samplesFromClient[MAL_MAX_CHANNELS][256];
     mal_src_config config;
 
     union
@@ -3035,6 +3035,40 @@ static MAL_INLINE float mal_clip_f32(float x)
 static MAL_INLINE float mal_mix_f32(float x, float y, float a)
 {
     return x*(1-a) + y*a;
+}
+
+
+// Splits a buffer into parts of equal length and of the given alignment. The returned size of the split buffers will be a
+// multiple of the alignment. The alignment must be a power of 2.
+void mal_split_buffer(void* pBuffer, size_t bufferSize, size_t splitCount, size_t alignment, void** ppBuffersOut, size_t* pSplitSizeOut)
+{
+    if (pBuffer == NULL || bufferSize == 0 || splitCount == 0) {
+        return;
+    }
+
+    if (alignment == 0) {
+        alignment = 1;
+    }
+
+    mal_uintptr pBufferUnaligned = (mal_uintptr)pBuffer;
+    mal_uintptr pBufferAligned = (pBufferUnaligned + (alignment-1)) & ~(alignment-1);
+    size_t unalignedBytes = (size_t)(pBufferAligned - pBufferUnaligned);
+
+    size_t splitSize = 0;
+    if (bufferSize >= unalignedBytes) {
+        splitSize = (bufferSize - unalignedBytes) / splitCount;
+        splitSize = splitSize & ~(alignment-1);
+    }
+
+    if (ppBuffersOut != NULL) {
+        for (size_t i = 0; i < splitCount; ++i) {
+            ppBuffersOut[i] = (mal_uint8*)(pBufferAligned + (splitSize*i));
+        }
+    }
+
+    if (pSplitSizeOut) {
+        *pSplitSizeOut = splitSize;
+    }
 }
 
 
@@ -17312,7 +17346,7 @@ mal_uint64 mal_format_converter_read(mal_format_converter* pConverter, mal_uint6
             }
         } else {
             // Conversion required.
-            mal_uint8 temp[MAL_MAX_CHANNELS * MAL_MAX_PCM_SAMPLE_SIZE_IN_BYTES * 128];
+            MAL_ALIGN(MAL_SIMD_ALIGNMENT) mal_uint8 temp[MAL_MAX_CHANNELS * MAL_MAX_PCM_SAMPLE_SIZE_IN_BYTES * 128];
             mal_assert(sizeof(temp) <= 0xFFFFFFFF);
 
             mal_uint32 maxFramesToReadAtATime = sizeof(temp) / sampleSizeIn / pConverter->config.channels;
@@ -17337,15 +17371,14 @@ mal_uint64 mal_format_converter_read(mal_format_converter* pConverter, mal_uint6
         }
     } else {
         // Input data is deinterleaved. If a conversion is required we need to do an intermediary step.
-        mal_uint8 tempSamplesOfOutFormat[MAL_MAX_CHANNELS][MAL_MAX_PCM_SAMPLE_SIZE_IN_BYTES * 128];
-        mal_assert(sizeof(tempSamplesOfOutFormat[0]) <= 0xFFFFFFFFF);
+        MAL_ALIGN(MAL_SIMD_ALIGNMENT) mal_uint8 tempSamplesOfOutFormat[MAL_MAX_CHANNELS * MAL_MAX_PCM_SAMPLE_SIZE_IN_BYTES * 128];
+        mal_assert(sizeof(tempSamplesOfOutFormat) <= 0xFFFFFFFFF);
 
-        void* ppTempSampleOfOutFormat[MAL_MAX_CHANNELS];
-        for (mal_uint32 i = 0; i < pConverter->config.channels; ++i) {
-            ppTempSampleOfOutFormat[i] = &tempSamplesOfOutFormat[i];
-        }
+        void* ppTempSamplesOfOutFormat[MAL_MAX_CHANNELS];
+        size_t splitBufferSizeOut;
+        mal_split_buffer(tempSamplesOfOutFormat, sizeof(tempSamplesOfOutFormat), pConverter->config.channels, MAL_SIMD_ALIGNMENT, (void**)&ppTempSamplesOfOutFormat, &splitBufferSizeOut);
 
-        mal_uint32 maxFramesToReadAtATime = sizeof(tempSamplesOfOutFormat[0]) / sampleSizeIn;
+        mal_uint32 maxFramesToReadAtATime = (mal_uint32)(splitBufferSizeOut / sampleSizeIn);
 
         while (totalFramesRead < frameCount) {
             mal_uint64 framesRemaining = (frameCount - totalFramesRead);
@@ -17358,31 +17391,33 @@ mal_uint64 mal_format_converter_read(mal_format_converter* pConverter, mal_uint6
 
             if (pConverter->config.formatIn == pConverter->config.formatOut) {
                 // Only interleaving.
-                framesJustRead = (mal_uint32)pConverter->config.onReadDeinterleaved(pConverter, (mal_uint32)framesToReadRightNow, ppTempSampleOfOutFormat, pUserData);
+                framesJustRead = (mal_uint32)pConverter->config.onReadDeinterleaved(pConverter, (mal_uint32)framesToReadRightNow, ppTempSamplesOfOutFormat, pUserData);
                 if (framesJustRead == 0) {
                     break;
                 }
             } else {
                 // Interleaving + Conversion. Convert first, then interleave.
-                mal_uint8 tempSamplesOfInFormat[MAL_MAX_CHANNELS][MAL_MAX_PCM_SAMPLE_SIZE_IN_BYTES * 128];
+                MAL_ALIGN(MAL_SIMD_ALIGNMENT) mal_uint8 tempSamplesOfInFormat[MAL_MAX_CHANNELS * MAL_MAX_PCM_SAMPLE_SIZE_IN_BYTES * 128];
 
-                void* ppTempSampleOfInFormat[MAL_MAX_CHANNELS];
-                for (mal_uint32 i = 0; i < pConverter->config.channels; ++i) {
-                    ppTempSampleOfInFormat[i] = &tempSamplesOfInFormat[i];
+                void* ppTempSamplesOfInFormat[MAL_MAX_CHANNELS];
+                size_t splitBufferSizeIn;
+                mal_split_buffer(tempSamplesOfInFormat, sizeof(tempSamplesOfInFormat), pConverter->config.channels, MAL_SIMD_ALIGNMENT, (void**)&ppTempSamplesOfInFormat, &splitBufferSizeIn);
+
+                if (framesToReadRightNow > (splitBufferSizeIn / sampleSizeIn)) {
+                    framesToReadRightNow = (splitBufferSizeIn / sampleSizeIn);
                 }
 
-
-                framesJustRead = (mal_uint32)pConverter->config.onReadDeinterleaved(pConverter, (mal_uint32)framesToReadRightNow, ppTempSampleOfInFormat, pUserData);
+                framesJustRead = (mal_uint32)pConverter->config.onReadDeinterleaved(pConverter, (mal_uint32)framesToReadRightNow, ppTempSamplesOfInFormat, pUserData);
                 if (framesJustRead == 0) {
                     break;
                 }
 
                 for (mal_uint32 iChannel = 0; iChannel < pConverter->config.channels; iChannel += 1) {
-                    pConverter->onConvertPCM(tempSamplesOfOutFormat[iChannel], tempSamplesOfInFormat[iChannel], framesJustRead, pConverter->config.ditherMode);
+                    pConverter->onConvertPCM(ppTempSamplesOfOutFormat[iChannel], ppTempSamplesOfInFormat[iChannel], framesJustRead, pConverter->config.ditherMode);
                 }
             }
 
-            pConverter->onInterleavePCM(pNextFramesOut, (const void**)ppTempSampleOfOutFormat, framesJustRead, pConverter->config.channels);
+            pConverter->onInterleavePCM(pNextFramesOut, (const void**)ppTempSamplesOfOutFormat, framesJustRead, pConverter->config.channels);
 
             totalFramesRead += framesJustRead;
             pNextFramesOut  += framesJustRead * frameSizeOut;
@@ -17407,7 +17442,7 @@ mal_uint64 mal_format_converter_read_deinterleaved(mal_format_converter* pConver
 
     if (pConverter->config.onRead != NULL) {
         // Input data is interleaved.
-        mal_uint8 tempSamplesOfOutFormat[MAL_MAX_CHANNELS * MAL_MAX_PCM_SAMPLE_SIZE_IN_BYTES * 128];
+        MAL_ALIGN(MAL_SIMD_ALIGNMENT) mal_uint8 tempSamplesOfOutFormat[MAL_MAX_CHANNELS * MAL_MAX_PCM_SAMPLE_SIZE_IN_BYTES * 128];
         mal_assert(sizeof(tempSamplesOfOutFormat) <= 0xFFFFFFFF);
 
         mal_uint32 maxFramesToReadAtATime = sizeof(tempSamplesOfOutFormat) / sampleSizeIn / pConverter->config.channels;
@@ -17429,7 +17464,7 @@ mal_uint64 mal_format_converter_read_deinterleaved(mal_format_converter* pConver
                 }
             } else {
                 // De-interleaving + Conversion. Convert first, then de-interleave.
-                mal_uint8 tempSamplesOfInFormat[sizeof(tempSamplesOfOutFormat)];
+                MAL_ALIGN(MAL_SIMD_ALIGNMENT) mal_uint8 tempSamplesOfInFormat[sizeof(tempSamplesOfOutFormat)];
 
                 framesJustRead = (mal_uint32)pConverter->config.onRead(pConverter, (mal_uint32)framesToReadRightNow, tempSamplesOfInFormat, pUserData);
                 if (framesJustRead == 0) {
@@ -17469,15 +17504,14 @@ mal_uint64 mal_format_converter_read_deinterleaved(mal_format_converter* pConver
             }
         } else {
             // Conversion required.
-            mal_uint8 temp[MAL_MAX_CHANNELS][MAL_MAX_PCM_SAMPLE_SIZE_IN_BYTES * 128];
-            mal_assert(sizeof(temp[0]) <= 0xFFFFFFFF);
+            MAL_ALIGN(MAL_SIMD_ALIGNMENT) mal_uint8 temp[MAL_MAX_CHANNELS][MAL_MAX_PCM_SAMPLE_SIZE_IN_BYTES * 128];
+            mal_assert(sizeof(temp) <= 0xFFFFFFFF);
 
             void* ppTemp[MAL_MAX_CHANNELS];
-            for (mal_uint32 i = 0; i < pConverter->config.channels; ++i) {
-                ppTemp[i] = &temp[i];
-            }
+            size_t splitBufferSize;
+            mal_split_buffer(temp, sizeof(temp), pConverter->config.channels, MAL_SIMD_ALIGNMENT, (void**)&ppTemp, &splitBufferSize);
 
-            mal_uint32 maxFramesToReadAtATime = sizeof(temp[0]) / sampleSizeIn;
+            mal_uint32 maxFramesToReadAtATime = (mal_uint32)(splitBufferSize / sampleSizeIn);
 
             while (totalFramesRead < frameCount) {
                 mal_uint64 framesRemaining = (frameCount - totalFramesRead);
@@ -17511,40 +17545,6 @@ mal_uint64 mal_format_converter_read_deinterleaved(mal_format_converter* pConver
 // Channel Routing
 //
 //////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-
-// Splits a buffer into parts of equal length and of the given alignment. The returned size of the split buffers will be a
-// multiple of the alignment. The alignment must be a power of 2.
-void mal_split_buffer(void* pBuffer, size_t bufferSize, size_t splitCount, size_t alignment, void** ppBuffersOut, size_t* pSplitSizeOut)
-{
-    if (pBuffer == NULL || bufferSize == 0 || splitCount == 0) {
-        return;
-    }
-
-    if (alignment == 0) {
-        alignment = 1;
-    }
-
-    mal_uintptr pBufferUnaligned = (mal_uintptr)pBuffer;
-    mal_uintptr pBufferAligned = (pBufferUnaligned + (alignment-1)) & ~(alignment-1);
-    size_t unalignedBytes = (size_t)(pBufferAligned - pBufferUnaligned);
-
-    size_t splitSize = 0;
-    if (bufferSize >= unalignedBytes) {
-        splitSize = (bufferSize - unalignedBytes) / splitCount;
-        splitSize = splitSize & ~(alignment-1);
-    }
-
-    if (ppBuffersOut != NULL) {
-        for (size_t i = 0; i < splitCount; ++i) {
-            ppBuffersOut[i] = (mal_uint8*)(pBufferAligned + (splitSize*i));
-        }
-    }
-
-    if (pSplitSizeOut) {
-        *pSplitSizeOut = splitSize;
-    }
-}
-
 
 // -X = Left,   +X = Right
 // -Y = Bottom, +Y = Top
