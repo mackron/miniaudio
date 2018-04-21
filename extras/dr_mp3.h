@@ -1,5 +1,5 @@
 // MP3 audio decoder. Public domain. See "unlicense" statement at the end of this file.
-// dr_mp3 - v0.1c - 2018-03-11
+// dr_mp3 - v0.2 - 2018-04-21
 //
 // David Reid - mackron@gmail.com
 //
@@ -333,12 +333,12 @@ void drmp3_free(void* p);
 #define DRMP3_HDR_GET_LAYER(h)            (((h[1]) >> 1) & 3)
 #define DRMP3_HDR_GET_BITRATE(h)          ((h[2]) >> 4)
 #define DRMP3_HDR_GET_SAMPLE_RATE(h)      (((h[2]) >> 2) & 3)
-#define DRMP3_HDR_GET_MY_SAMPLE_RATE(h)   (DRMP3_HDR_GET_SAMPLE_RATE(h) + (((h[1] >> 3) & 1) +  ((h[1] >> 4) & 1)) * 3)
+#define DRMP3_HDR_GET_MY_SAMPLE_RATE(h)   (DRMP3_HDR_GET_SAMPLE_RATE(h) + (((h[1] >> 3) & 1) +  ((h[1] >> 4) & 1))*3)
 #define DRMP3_HDR_IS_FRAME_576(h)         ((h[1] & 14) == 2)
 #define DRMP3_HDR_IS_LAYER_1(h)           ((h[1] & 6) == 6)
 
 #define DRMP3_BITS_DEQUANTIZER_OUT        -1
-#define DRMP3_MAX_SCF                     (255 + DRMP3_BITS_DEQUANTIZER_OUT * 4 - 210)
+#define DRMP3_MAX_SCF                     (255 + DRMP3_BITS_DEQUANTIZER_OUT*4 - 210)
 #define DRMP3_MAX_SCFI                    ((DRMP3_MAX_SCF + 3) & ~3)
 
 #define DRMP3_MIN(a, b)           ((a) > (b) ? (b) : (a))
@@ -351,7 +351,7 @@ void drmp3_free(void* p);
 #define DR_MP3_ONLY_SIMD
 #endif
 
-#if defined(_MSC_VER) || ((defined(__i386__) || defined(__x86_64__)) && defined(__SSE2__))
+#if (defined(_MSC_VER) && (defined(_M_IX86) || defined(_M_X64))) || ((defined(__i386__) || defined(__x86_64__)) && defined(__SSE2__))
 #if defined(_MSC_VER)
 #include <intrin.h>
 #endif
@@ -571,7 +571,7 @@ static unsigned drmp3_hdr_frame_samples(const drmp3_uint8 *h)
 
 static int drmp3_hdr_frame_bytes(const drmp3_uint8 *h, int free_format_size)
 {
-    int frame_bytes = drmp3_hdr_frame_samples(h) * drmp3_hdr_bitrate_kbps(h) * 125 / drmp3_hdr_sample_rate_hz(h);
+    int frame_bytes = drmp3_hdr_frame_samples(h)*drmp3_hdr_bitrate_kbps(h)*125/drmp3_hdr_sample_rate_hz(h);
     if (DRMP3_HDR_IS_LAYER_1(h))
     {
         frame_bytes &= ~3; /* slot align */
@@ -647,7 +647,7 @@ static void drmp3_L12_read_scalefactors(drmp3_bs *bs, drmp3_uint8 *pba, drmp3_ui
             if (mask & m)
             {
                 int b = drmp3_bs_get_bits(bs, 6);
-                s = g_deq_L12[ba*3 - 6 + b % 3] * (1 << 21 >> b/3);
+                s = g_deq_L12[ba*3 - 6 + b % 3]*(1 << 21 >> b/3);
             }
             *scf++ = s;
         }
@@ -665,7 +665,7 @@ static void drmp3_L12_read_scale_info(const drmp3_uint8 *hdr, drmp3_bs *bs, drmp
         0,17,18, 3,19,4,5, 6,7, 8, 9,10,11,12,13,14,
         0, 2, 3, 4, 5,6,7, 8,9,10,11,12,13,14,15,16
     };
-    const drmp3_L12_subband_alloc * subband_alloc = drmp3_L12_subband_alloc_table(hdr, sci);
+    const drmp3_L12_subband_alloc *subband_alloc = drmp3_L12_subband_alloc_table(hdr, sci);
 
     int i, k = 0, ba_bits = 0;
     const drmp3_uint8 *ba_code_tab = g_bitalloc_code_tab;
@@ -689,12 +689,12 @@ static void drmp3_L12_read_scale_info(const drmp3_uint8 *hdr, drmp3_bs *bs, drmp
         sci->bitalloc[2*i + 1] = sci->stereo_bands ? ba : 0;
     }
 
-    for (i = 0; i < 2 * sci->total_bands; i++)
+    for (i = 0; i < 2*sci->total_bands; i++)
     {
         sci->scfcod[i] = (drmp3_uint8)(sci->bitalloc[i] ? DRMP3_HDR_IS_LAYER_1(hdr) ? 2 : drmp3_bs_get_bits(bs, 2) : 6);
     }
 
-    drmp3_L12_read_scalefactors(bs, sci->bitalloc, sci->scfcod, sci->total_bands * 2, sci->scf);
+    drmp3_L12_read_scalefactors(bs, sci->bitalloc, sci->scfcod, sci->total_bands*2, sci->scf);
 
     for (i = sci->stereo_bands; i < sci->total_bands; i++)
     {
@@ -1008,7 +1008,7 @@ static float drmp3_L3_pow_43(int x)
 
     sign = 2*x & 64;
     frac = (float)((x & 63) - sign) / ((x & ~63) + sign);
-    return g_pow43[(x + sign) >> 6] * (1.f + frac * ((4.f/3) + frac * (2.f/9))) * mult;
+    return g_pow43[(x + sign) >> 6]*(1.f + frac*((4.f/3) + frac*(2.f/9)))*mult;
 }
 
 static void drmp3_L3_huffman(float *dst, drmp3_bs *bs, const drmp3_L3_gr_info *gr_info, const float *scf, int layer3gr_limit)
@@ -1036,7 +1036,7 @@ static void drmp3_L3_huffman(float *dst, drmp3_bs *bs, const drmp3_L3_gr_info *g
     static const drmp3_uint8 g_linbits[] =  { 0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,2,3,4,6,8,10,13,4,5,6,7,8,9,11,13 };
 
 #define DRMP3_PEEK_BITS(n)    (bs_cache >> (32 - n))
-#define DRMP3_FLUSH_BITS(n)   {bs_cache <<= (n); bs_sh += (n);}
+#define DRMP3_FLUSH_BITS(n)   { bs_cache <<= (n); bs_sh += (n); }
 #define DRMP3_CHECK_BITS      while (bs_sh >= 0) { bs_cache |= (drmp3_uint32)*bs_next_ptr++ << bs_sh; bs_sh -= 8; }
 #define DRMP3_BSPOS           ((bs_next_ptr - bs->buf)*8 - 24 + bs_sh)
 
@@ -1052,7 +1052,7 @@ static void drmp3_L3_huffman(float *dst, drmp3_bs *bs, const drmp3_L3_gr_info *g
     {
         int tab_num = gr_info->table_select[ireg];
         int sfb_cnt = gr_info->region_count[ireg++];
-        const short * codebook = tabindex[tab_num];
+        const short *codebook = tabindex[tab_num];
         int linbits = g_linbits[tab_num];
         do
         {
@@ -1074,24 +1074,21 @@ static void drmp3_L3_huffman(float *dst, drmp3_bs *bs, const drmp3_L3_gr_info *g
                 for (j = 0; j < 2; j++, dst++, leaf >>= 4)
                 {
                     int lsb = leaf & 0x0F;
-                    if (lsb)
+                    if (lsb == 15 && linbits)
                     {
-                        if (lsb == 15 && linbits)
-                        {
-                            lsb += DRMP3_PEEK_BITS(linbits);
-                            DRMP3_FLUSH_BITS(linbits);
-                            DRMP3_CHECK_BITS;
-                            *dst = one*drmp3_L3_pow_43(lsb)*((drmp3_int32)bs_cache < 0 ? -1: 1);
-                        } else
-                        {
-                            *dst = g_pow43_signed[lsb*2 + (bs_cache >> 31)]*one;
-                        }
-                        DRMP3_FLUSH_BITS(1);
+                        lsb += DRMP3_PEEK_BITS(linbits);
+                        DRMP3_FLUSH_BITS(linbits);
+                        DRMP3_CHECK_BITS;
+                        *dst = one*drmp3_L3_pow_43(lsb)*((int32_t)bs_cache < 0 ? -1: 1);
+                    } else
+                    {
+                        *dst = g_pow43_signed[lsb*2 + (bs_cache >> 31)]*one;
                     }
+                    DRMP3_FLUSH_BITS(lsb ? 1 : 0);
                 }
                 DRMP3_CHECK_BITS;
             } while (--pairs_to_decode);
-        } while ((big_val_cnt -= np) > 0 && --sfb_cnt >= 0 );
+        } while ((big_val_cnt -= np) > 0 && --sfb_cnt >= 0);
     }
 
     for (np = 1 - big_val_cnt;; dst += 4)
@@ -1107,8 +1104,8 @@ static void drmp3_L3_huffman(float *dst, drmp3_bs *bs, const drmp3_L3_gr_info *g
         {
             break;
         }
-#define DRMP3_RELOAD_SCALEFACTOR  if (!--np) {np = *sfb++/2; if (!np) break; one = *scf++;}
-#define DRMP3_DEQ_COUNT1(s) if (leaf & (128 >> s)) {dst[s] = ((drmp3_int32)bs_cache < 0) ? -one : one; DRMP3_FLUSH_BITS(1)}
+#define DRMP3_RELOAD_SCALEFACTOR  if (!--np) { np = *sfb++/2; if (!np) break; one = *scf++; }
+#define DRMP3_DEQ_COUNT1(s) if (leaf & (128 >> s)) { dst[s] = ((drmp3_int32)bs_cache < 0) ? -one : one; DRMP3_FLUSH_BITS(1) }
         DRMP3_RELOAD_SCALEFACTOR;
         DRMP3_DEQ_COUNT1(0);
         DRMP3_DEQ_COUNT1(1);
@@ -1241,7 +1238,7 @@ static void drmp3_L3_reorder(float *grbuf, float *scratch, const drmp3_uint8 *sf
             *dst++ = src[2*len];
         }
     }
-    memcpy(grbuf, scratch, (dst - scratch) * sizeof(float));
+    memcpy(grbuf, scratch, (dst - scratch)*sizeof(float));
 }
 
 static void drmp3_L3_antialias(float *grbuf, int nbands)
@@ -1720,8 +1717,8 @@ static void drmp3d_synth(float *xl, short *dstl, int nch, float *lins)
         -4,7,-91,117,177,-106,-1428,1698,402,545,-9416,9916,-7154,12980,-61289,66494,
         -5,6,-97,111,163,-127,-1498,1634,185,288,-9585,9838,-8540,11455,-62684,65290
     };
-    float * zlin = lins + 15*64;
-    const float * w = g_win;
+    float *zlin = lins + 15*64;
+    const float *w = g_win;
 
     zlin[4*15]     = xl[18*16];
     zlin[4*15 + 1] = xr[18*16];
@@ -1742,10 +1739,10 @@ static void drmp3d_synth(float *xl, short *dstl, int nch, float *lins)
     if (drmp3_have_simd()) for (i = 14; i >= 0; i--)
     {
 #define DRMP3_VLOAD(k) drmp3_f4 w0 = DRMP3_VSET(*w++); drmp3_f4 w1 = DRMP3_VSET(*w++); drmp3_f4 vz = DRMP3_VLD(&zlin[4*i - 64*k]); drmp3_f4 vy = DRMP3_VLD(&zlin[4*i - 64*(15 - k)]);
-#define DRMP3_V0(k) {DRMP3_VLOAD(k) b =               DRMP3_VADD(DRMP3_VMUL(vz, w1), DRMP3_VMUL(vy, w0)) ; a =               DRMP3_VSUB(DRMP3_VMUL(vz, w0),DRMP3_VMUL(vy, w1));  }
-#define DRMP3_V1(k) {DRMP3_VLOAD(k) b = DRMP3_VADD(b, DRMP3_VADD(DRMP3_VMUL(vz, w1), DRMP3_VMUL(vy, w0))); a = DRMP3_VADD(a, DRMP3_VSUB(DRMP3_VMUL(vz, w0),DRMP3_VMUL(vy, w1))); }
-#define DRMP3_V2(k) {DRMP3_VLOAD(k) b = DRMP3_VADD(b, DRMP3_VADD(DRMP3_VMUL(vz, w1), DRMP3_VMUL(vy, w0))); a = DRMP3_VADD(a, DRMP3_VSUB(DRMP3_VMUL(vy, w1),DRMP3_VMUL(vz, w0))); }
-        drmp3_f4 a,b;
+#define DRMP3_V0(k) { DRMP3_VLOAD(k) b =               DRMP3_VADD(DRMP3_VMUL(vz, w1), DRMP3_VMUL(vy, w0)) ; a =               DRMP3_VSUB(DRMP3_VMUL(vz, w0), DRMP3_VMUL(vy, w1));  }
+#define DRMP3_V1(k) { DRMP3_VLOAD(k) b = DRMP3_VADD(b, DRMP3_VADD(DRMP3_VMUL(vz, w1), DRMP3_VMUL(vy, w0))); a = DRMP3_VADD(a, DRMP3_VSUB(DRMP3_VMUL(vz, w0), DRMP3_VMUL(vy, w1))); }
+#define DRMP3_V2(k) { DRMP3_VLOAD(k) b = DRMP3_VADD(b, DRMP3_VADD(DRMP3_VMUL(vz, w1), DRMP3_VMUL(vy, w0))); a = DRMP3_VADD(a, DRMP3_VSUB(DRMP3_VMUL(vy, w1), DRMP3_VMUL(vz, w0))); }
+        drmp3_f4 a, b;
         zlin[4*i]     = xl[18*(31 - i)];
         zlin[4*i + 1] = xr[18*(31 - i)];
         zlin[4*i + 2] = xl[1 + 18*(31 - i)];
@@ -1794,10 +1791,10 @@ static void drmp3d_synth(float *xl, short *dstl, int nch, float *lins)
 #else
     for (i = 14; i >= 0; i--)
     {
-#define DRMP3_LOAD(k) float w0 = *w++; float w1 = *w++; float * vz = &zlin[4*i - k*64]; float * vy = &zlin[4*i - (15 - k)*64];
-#define DRMP3_S0(k) {int j; DRMP3_LOAD(k); for (j = 0; j < 4; j++) b[j]  = vz[j] * w1 + vy[j] * w0, a[j]  = vz[j] * w0 - vy[j] * w1;}
-#define DRMP3_S1(k) {int j; DRMP3_LOAD(k); for (j = 0; j < 4; j++) b[j] += vz[j] * w1 + vy[j] * w0, a[j] += vz[j] * w0 - vy[j] * w1;}
-#define DRMP3_S2(k) {int j; DRMP3_LOAD(k); for (j = 0; j < 4; j++) b[j] += vz[j] * w1 + vy[j] * w0, a[j] += vy[j] * w1 - vz[j] * w0;}
+#define DRMP3_LOAD(k) float w0 = *w++; float w1 = *w++; float *vz = &zlin[4*i - k*64]; float *vy = &zlin[4*i - (15 - k)*64];
+#define DRMP3_S0(k) { int j; DRMP3_LOAD(k); for (j = 0; j < 4; j++) b[j]  = vz[j]*w1 + vy[j]*w0, a[j]  = vz[j]*w0 - vy[j]*w1; }
+#define DRMP3_S1(k) { int j; DRMP3_LOAD(k); for (j = 0; j < 4; j++) b[j] += vz[j]*w1 + vy[j]*w0, a[j] += vz[j]*w0 - vy[j]*w1; }
+#define DRMP3_S2(k) { int j; DRMP3_LOAD(k); for (j = 0; j < 4; j++) b[j] += vz[j]*w1 + vy[j]*w0, a[j] += vy[j]*w1 - vz[j]*w0; }
         float a[4], b[4];
 
         zlin[4*i]     = xl[18*(31 - i)];
@@ -2746,6 +2743,13 @@ void drmp3_free(void* p)
 
 // REVISION HISTORY
 // ===============
+//
+// v0.2 - 2018-04-21
+//   - Bring up to date with minimp3.
+//   - Start using major.minor.revision versioning.
+//
+// v0.1d - 2018-03-30
+//   - Bring up to date with minimp3.
 //
 // v0.1c - 2018-03-11
 //   - Fix C++ build error.
