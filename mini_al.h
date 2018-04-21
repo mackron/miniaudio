@@ -18237,7 +18237,7 @@ mal_result mal_src_set_input_sample_rate(mal_src* pSRC, mal_uint32 sampleRateIn)
         return MAL_INVALID_ARGS;
     }
 
-    pSRC->config.sampleRateIn = sampleRateIn;
+    mal_atomic_exchange_32(&pSRC->config.sampleRateIn, sampleRateIn);
     return MAL_SUCCESS;
 }
 
@@ -18252,7 +18252,7 @@ mal_result mal_src_set_output_sample_rate(mal_src* pSRC, mal_uint32 sampleRateOu
         return MAL_INVALID_ARGS;
     }
 
-    pSRC->config.sampleRateOut = sampleRateOut;
+    mal_atomic_exchange_32(&pSRC->config.sampleRateOut, sampleRateOut);
     return MAL_SUCCESS;
 }
 
@@ -18862,7 +18862,7 @@ mal_result mal_dsp_set_input_sample_rate(mal_dsp* pDSP, mal_uint32 sampleRateIn)
         return MAL_INVALID_OPERATION;
     }
 
-    pDSP->src.config.sampleRateIn = sampleRateIn;
+    mal_atomic_exchange_32(&pDSP->src.config.sampleRateIn, sampleRateIn);
     return mal_dsp_refresh_sample_rate(pDSP);
 }
 
@@ -18882,7 +18882,7 @@ mal_result mal_dsp_set_output_sample_rate(mal_dsp* pDSP, mal_uint32 sampleRateOu
         return MAL_INVALID_OPERATION;
     }
 
-    pDSP->src.config.sampleRateOut = sampleRateOut;
+    mal_atomic_exchange_32(&pDSP->src.config.sampleRateOut, sampleRateOut);
     return mal_dsp_refresh_sample_rate(pDSP);
 }
 
