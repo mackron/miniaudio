@@ -3873,6 +3873,8 @@ mal_result mal_context_enumerate_devices__null(mal_context* pContext, mal_enum_d
 mal_result mal_context_get_device_info__null(mal_context* pContext, mal_device_type deviceType, const mal_device_id* pDeviceID, mal_share_mode shareMode, mal_device_info* pDeviceInfo)
 {
     mal_assert(pContext != NULL);
+
+    (void)pContext;
     (void)shareMode;
 
     if (pDeviceID != NULL && pDeviceID->nullbackend != 0) {
@@ -10955,6 +10957,8 @@ mal_result mal_context_enumerate_devices__jack(mal_context* pContext, mal_enum_d
 mal_result mal_context_get_device_info__jack(mal_context* pContext, mal_device_type deviceType, const mal_device_id* pDeviceID, mal_share_mode shareMode, mal_device_info* pDeviceInfo)
 {
     mal_assert(pContext != NULL);
+
+    (void)pContext;
     (void)shareMode;
 
     if (pDeviceID != NULL && pDeviceID->jack != 0) {
@@ -11096,9 +11100,6 @@ int mal_device__jack_buffer_size_callback(mal_jack_nframes_t frameCount, void* p
     mal_device* pDevice = (mal_device*)pUserData;
     mal_assert(pDevice != NULL);
 
-    mal_context* pContext = pDevice->pContext;
-    mal_assert(pContext != NULL);
-
     float* pNewBuffer = (float*)mal_realloc(pDevice->jack.pIntermediaryBuffer, frameCount * (pDevice->internalChannels*mal_get_bytes_per_sample(pDevice->internalFormat)));
     if (pNewBuffer == NULL) {
         return MAL_OUT_OF_MEMORY;
@@ -11162,6 +11163,7 @@ mal_result mal_device_init__jack(mal_context* pContext, mal_device_type type, ma
     mal_assert(pDevice != NULL);
 
     (void)pContext;
+    (void)pConfig;
 
     // Only supporting default devices with JACK.
     if (pDeviceID != NULL && pDeviceID->jack != 0) {
