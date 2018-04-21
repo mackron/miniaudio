@@ -47,6 +47,8 @@
 // the development packages for any particular backend you can disable it by #define-ing the appropriate MAL_NO_*
 // option before the implementation.
 //
+// Note that GCC and Clang requires "-msse2", "-mavx", etc. for SIMD optimizations.
+//
 //
 // Building for Windows
 // --------------------
@@ -55,7 +57,7 @@
 //
 // Building for Linux
 // ------------------
-// The Linux build only requires linking to -ldl and -lpthread. You do not need any development packages for any
+// The Linux build only requires linking to -ldl, -lpthread and -lm. You do not need any development packages for any
 // of the supported backends.
 //
 // Building for BSD
@@ -71,8 +73,7 @@
 // Building for Emscripten
 // -----------------------
 // The Emscripten build currently uses SDL 1.2 for it's backend which means specifying "-s USE_SDL=2" is unecessary
-// as of this version. However, if in the future there is legitimate benefit or enough demand for SDL 2 to be used
-// instead, you will need to specify this when compiling.
+// as of this version.
 //
 //
 // Playback Example
@@ -200,7 +201,19 @@
 //   Disables the decoding APIs.
 //
 // #define MAL_NO_STDIO
-//   Disables file IO APIs
+//   Disables file IO APIs.
+//
+// #define MAL_NO_SSE2
+//   Disables SSE2 optimizations.
+//
+// #define MAL_NO_AVX
+//   Disables AVX optimizations.
+//
+// #define MAL_NO_AVX512
+//   Disables AVX-512 optimizations.
+//
+// #define MAL_NO_NEON
+//   Disables NEON optimizations.
 
 #ifndef mini_al_h
 #define mini_al_h
@@ -791,6 +804,10 @@ typedef struct
     mal_channel channelMapIn[MAL_MAX_CHANNELS];
     mal_channel channelMapOut[MAL_MAX_CHANNELS];
     mal_channel_mix_mode mixingMode;
+    mal_bool32 noSSE2   : 1;
+    mal_bool32 noAVX    : 1;
+    mal_bool32 noAVX512 : 1;
+    mal_bool32 noNEON   : 1;
     mal_channel_router_read_deinterleaved_proc onReadDeinterleaved;
     void* pUserData;
 } mal_channel_router_config;
@@ -800,6 +817,10 @@ struct mal_channel_router
     mal_channel_router_config config;
     mal_bool32 isPassthrough   : 1;
     mal_bool32 isSimpleShuffle : 1;
+    mal_bool32 useSSE2         : 1;
+    mal_bool32 useAVX          : 1;
+    mal_bool32 useAVX512       : 1;
+    mal_bool32 useNEON         : 1;
     mal_uint8 shuffleTable[MAL_MAX_CHANNELS];
     float weights[MAL_MAX_CHANNELS][MAL_MAX_CHANNELS];
 };
@@ -2291,6 +2312,241 @@ mal_uint64 mal_sine_wave_read(mal_sine_wave* pSignWave, mal_uint64 count, float*
 #endif
 #endif
 
+// Architecture Detection
+#if defined(__x86_64__) || defined(_M_X64)
+#define MAL_X64
+#elif defined(__i386) || defined(_M_IX86)
+#define MAL_X86
+#elif defined(__arm__) || defined(_M_ARM)
+#define MAL_ARM
+#endif
+
+// Intrinsics Support
+#if defined(MAL_X64) || defined(MAL_X86)
+    #if defined(_MSC_VER)
+        // MSVC.
+        #if !defined(MAL_NO_SSE2)   // Assume all MSVC compilers support SSE2 intrinsics.
+            #define MAL_SUPPORT_SSE2
+        #endif
+        #if _MSC_VER >= 1600 && !defined(MAL_NO_AVX)    // 2010
+            #define MAL_SUPPORT_AVX
+        #endif
+        #if _MSC_VER >= 1910 && !defined(MAL_NO_AVX512) // 2017
+            #define MAL_SUPPORT_AVX512
+        #endif
+    #else
+        // Assume GNUC-style.
+        #if defined(__SSE2__) && !defined(MAL_NO_SSE2)
+            #define MAL_SUPPORT_SSE2
+        #endif
+        #if defined(__AVX__) && !defined(MAL_NO_AVX)
+            #define MAL_SUPPORT_AVX
+        #endif
+        #if defined(__AVX512F__) && !defined(MAL_NO_AVX512)
+            #define MAL_SUPPORT_AVX512
+        #endif
+    #endif
+
+    // If at this point we still haven't determined compiler support for the intrinsics just fall back to __has_include.
+    #if !defined(__GNUC__) && defined(__has_include)
+        #if !defined(MAL_SUPPORT_SSE2)   && !defined(MAL_NO_SSE2)   && __has_include(<emmintrin.h>)
+            #define MAL_SUPPORT_SSE2
+        #endif
+        #if !defined(MAL_SUPPORT_AVX)    && !defined(MAL_NO_AVX)    && __has_include(<immintrin.h>)
+            #define MAL_SUPPORT_AVX
+        #endif
+        #if !defined(MAL_SUPPORT_AVX512) && !defined(MAL_NO_AVX512) && __has_include(<zmmintrin.h>)
+            #define MAL_SUPPORT_AVX512
+        #endif
+    #endif
+
+    #if defined(MAL_SUPPORT_AVX512)
+        #include <immintrin.h>  // Not a mistake. Intentionally including <immintrin.h> instead of <zmmintrin.h> because otherwise the compiler will complain.
+    #elif defined(MAL_SUPPORT_AVX)
+        #include <immintrin.h>
+    #elif defined(MAL_SUPPORT_SSE2)
+        #include <emmintrin.h>
+    #endif
+#endif
+
+#if defined(MAL_ARM)
+    #if !defined(MAL_NO_NEON) && (defined(__ARM_NEON) || defined(__aarch64__) || defined(_M_ARM64))
+        #define MAL_SUPPORT_NEON
+    #endif
+
+    // Fall back to looking for the #include file.
+    #if !defined(__GNUC__) && defined(__has_include)
+        #if !defined(MAL_SUPPORT_NEON) && !defined(MAL_NO_NEON) && __has_include(<arm_neon.h>)
+            #define MAL_SUPPORT_NEON
+        #endif
+    #endif
+
+    #if defined(MAL_SUPPORT_NEON)
+        #include <arm_neon.h>
+    #endif
+#endif
+
+
+#if defined(MAL_X64) || defined(MAL_X86)
+    #if defined(_MSC_VER)
+        #if _MSC_VER >= 1400
+            #include <intrin.h>
+            static MAL_INLINE void mal_cpuid(int info[4], int fid)
+            {
+                __cpuid(info, fid);
+            }
+        #else
+            #define MAL_NO_CPUID
+        #endif
+
+        #if _MSC_VER >= 1600
+            static MAL_INLINE unsigned __int64 mal_xgetbv(int reg)
+            {
+                return _xgetbv(reg);
+            }
+        #else
+            #define MAL_NO_XGETBV
+        #endif
+    #elif defined(__GNUC__) || defined(__clang__)
+        static MAL_INLINE void mal_cpuid(int info[4], int fid)
+        {
+            asm (
+                "movl %[fid], %%eax\n\t"
+                "cpuid\n\t"
+                "movl %%eax, %[info0]\n\t"
+                "movl %%ebx, %[info1]\n\t"
+                "movl %%ecx, %[info2]\n\t"
+                "movl %%edx, %[info3]\n\t"
+                : [info0] "=rm"(info[0]),
+                  [info1] "=rm"(info[1]),
+                  [info2] "=rm"(info[2]),
+                  [info3] "=rm"(info[3])
+                : [fid] "rm"(fid)
+                : "eax", "ebx", "ecx", "edx"
+            );
+        }
+
+        static MAL_INLINE unsigned long long mal_xgetbv(int reg)
+        {
+            unsigned int hi;
+            unsigned int lo;
+
+            asm (
+                "movl %[reg], %%ecx\n\t"
+                "xgetbv\n\t"
+                "movl %%eax, %[lo]\n\t"
+                "movl %%edx, %[hi]\n\t"
+                : [lo] "=rm"(lo),
+                  [hi] "=rm"(hi)
+                : [reg] "rm"(reg)
+                : "eax", "ecx", "edx"
+            );
+
+            return ((unsigned long long)hi << 32ULL) | (unsigned long long)lo;
+        }
+    #else
+        #define MAL_NO_CPUID
+        #define MAL_NO_XGETBV
+    #endif
+#else
+    #define MAL_NO_CPUID
+    #define MAL_NO_XGETBV
+#endif
+
+static MAL_INLINE mal_bool32 mal_has_sse2()
+{
+#if (defined(MAL_X64) || defined(MAL_X86)) && !defined(MAL_NO_SSE2)
+    #if defined(MAL_X64)
+        return MAL_TRUE;    // 64-bit targets always support SSE2.
+    #elif (defined(_M_IX86_FP) && _M_IX86_FP == 2) || defined(__SSE2__)
+        return MAL_TRUE;    // If the compiler is allowed to freely generate SSE2 code we can assume support.
+    #else
+        #if defined(MAL_NO_CPUID)
+            return MAL_FALSE;
+        #else
+            int info[4];
+            mal_cpuid(info, 1);
+            return (info[3] & (1 << 26)) != 0;
+        #endif
+    #endif
+#else
+    return MAL_FALSE;       // SSE2 is only supported on x86 and x64 architectures.
+#endif
+}
+
+static MAL_INLINE mal_bool32 mal_has_avx()
+{
+#if (defined(MAL_X64) || defined(MAL_X86)) && !defined(MAL_NO_AVX)
+    #if defined(_AVX_) || defined(__AVX__)
+        return MAL_TRUE;    // If the compiler is allowed to freely generate AVX code we can assume support.
+    #else
+        // AVX requires both CPU and OS support.
+        #if defined(MAL_NO_CPUID) || defined(MAL_NO_XGETBV)
+            return MAL_FALSE;
+        #else
+            int info[4];
+            mal_cpuid(info, 1);
+            if (((info[2] & (1 << 27)) != 0) && ((info[2] & (1 << 28)) != 0)) {
+                mal_uint64 xrc = mal_xgetbv(0);
+                if ((xrc & 0x06) == 0x06) {
+                    return MAL_TRUE;
+                } else {
+                    return MAL_FALSE;
+                }
+            } else {
+                return MAL_FALSE;
+            }
+        #endif
+    #endif
+#else
+    return MAL_FALSE;       // AVX is only supported on x86 and x64 architectures.
+#endif
+}
+
+static MAL_INLINE mal_bool32 mal_has_avx512f()
+{
+#if (defined(MAL_X64) || defined(MAL_X86)) && !defined(MAL_NO_AVX512)
+    #if defined(__AVX512F__)
+        return MAL_TRUE;    // If the compiler is allowed to freely generate AVX-512F code we can assume support.
+    #else
+        // AVX-512 requires both CPU and OS support.
+        #if defined(MAL_NO_CPUID) || defined(MAL_NO_XGETBV)
+            return MAL_FALSE;
+        #else
+            int info[4];
+            mal_cpuid(info, 1);
+            if (((info[2] & (1 << 27)) != 0) && ((info[1] & (1 << 16)) != 0)) {
+                mal_uint64 xrc = mal_xgetbv(0);
+                if ((xrc & 0xE6) == 0xE6) {
+                    return MAL_TRUE;
+                } else {
+                    return MAL_FALSE;
+                }
+            } else {
+                return MAL_FALSE;
+            }
+        #endif
+    #endif
+#else
+    return MAL_FALSE;       // AVX-512F is only supported on x86 and x64 architectures.
+#endif
+}
+
+static MAL_INLINE mal_bool32 mal_has_neon()
+{
+#if defined(MAL_ARM) && !defined(MAL_NO_NEON)
+    #if (defined(__ARM_NEON) || defined(__aarch64__) || defined(_M_ARM64))
+        return MAL_TRUE;    // If the compiler is allowed to freely generate NEON code we can assume support.
+    #else
+        // TODO: Runtime check.
+        return MAL_FALSE;
+    #endif
+#else
+    return MAL_FALSE;       // NEON is only supported on ARM architectures.
+#endif
+}
+
+
 #ifndef MAL_PI
 #define MAL_PI      3.14159265358979323846264f
 #endif
@@ -2300,9 +2556,9 @@ mal_uint64 mal_sine_wave_read(mal_sine_wave* pSignWave, mal_uint64 count, float*
 
 // Unfortunately using runtime linking for pthreads causes problems. This has occurred for me when testing on FreeBSD. When
 // using runtime linking, deadlocks can occur (for me it happens when loading data from fread()). It turns out that doing
-// compile-time linking fixes this. I'm not sure why this happens, but this is the safest way I can think of to continue. To
-// enable runtime linking, #define this before the implementation of this file. I am not officially supporting this, but I'm
-// leaving it here in case it's useful for somebody, somewhere.
+// compile-time linking fixes this. I'm not sure why this happens, but the safest way I can think of to fix this is to simply
+// disable runtime linking by default. To enable runtime linking, #define this before the implementation of this file. I am
+// not officially supporting this, but I'm leaving it here in case it's useful for somebody, somewhere.
 //#define MAL_USE_RUNTIME_LINKING_FOR_PTHREAD
 
 // Disable run-time linking on certain backends.
@@ -15601,13 +15857,53 @@ mal_bool32 mal_channel_map_contains_channel_position(mal_uint32 channels, const 
 //////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
 //#define MAL_USE_REFERENCE_CONVERSION_APIS   1
-#define MAL_USE_SSE
+//#define MAL_USE_SSE
+
+void mal_copy_memory_64(void* dst, const void* src, mal_uint64 sizeInBytes)
+{
+#if 0xFFFFFFFFFFFFFFFF <= SIZE_MAX
+    mal_copy_memory(dst, src, (size_t)sizeInBytes);
+#else
+    while (sizeInBytes > 0) {
+        mal_uint64 bytesToCopyNow = sizeInBytes;
+        if (bytesToCopyNow > SIZE_MAX) {
+            bytesToCopyNow = SIZE_MAX;
+        }
+
+        mal_copy_memory(dst, src, (size_t)bytesToCopyNow);  // Safe cast to size_t.
+
+        sizeInBytes -= bytesToCopyNow;
+        dst = (      void*)((      mal_uint8*)dst + bytesToCopyNow);
+        src = (const void*)((const mal_uint8*)src + bytesToCopyNow);
+    }
+#endif
+}
+
+void mal_zero_memory_64(void* dst, mal_uint64 sizeInBytes)
+{
+#if 0xFFFFFFFFFFFFFFFF <= SIZE_MAX
+    mal_zero_memory(dst, (size_t)sizeInBytes);
+#else
+    while (sizeInBytes > 0) {
+        mal_uint64 bytesToZeroNow = sizeInBytes;
+        if (bytesToZeroNow > SIZE_MAX) {
+            bytesToZeroNow = SIZE_MAX;
+        }
+
+        mal_zero_memory(dst, (size_t)bytesToZeroNow);  // Safe cast to size_t.
+
+        sizeInBytes -= bytesToZeroNow;
+        dst = (void*)((mal_uint8*)dst + bytesToZeroNow);
+    }
+#endif
+}
+
 
 // u8
 void mal_pcm_u8_to_u8(void* dst, const void* src, mal_uint64 count, mal_dither_mode ditherMode)
 {
     (void)ditherMode;
-    mal_copy_memory(dst, src, count * sizeof(mal_uint8));
+    mal_copy_memory_64(dst, src, count * sizeof(mal_uint8));
 }
 
 
@@ -15803,7 +16099,7 @@ void mal_pcm_interleave_u8__optimized(void* dst, const void** src, mal_uint64 fr
     const mal_uint8** src_u8 = (const mal_uint8**)src;
 
     if (channels == 1) {
-        mal_copy_memory(dst, src[0], frameCount * sizeof(mal_uint8));
+        mal_copy_memory_64(dst, src[0], frameCount * sizeof(mal_uint8));
     } else if (channels == 2) {
         mal_uint64 iFrame;
         for (iFrame = 0; iFrame < frameCount; iFrame += 1) {
@@ -15906,7 +16202,7 @@ void mal_pcm_s16_to_u8(void* dst, const void* src, mal_uint64 count, mal_dither_
 void mal_pcm_s16_to_s16(void* dst, const void* src, mal_uint64 count, mal_dither_mode ditherMode)
 {
     (void)ditherMode;
-    mal_copy_memory(dst, src, count * sizeof(mal_int16));
+    mal_copy_memory_64(dst, src, count * sizeof(mal_int16));
 }
 
 
@@ -16185,7 +16481,7 @@ void mal_pcm_s24_to_s24(void* dst, const void* src, mal_uint64 count, mal_dither
 {
     (void)ditherMode;
 
-    mal_copy_memory(dst, src, count * 3);
+    mal_copy_memory_64(dst, src, count * 3);
 }
 
 
@@ -16472,7 +16768,7 @@ void mal_pcm_s32_to_s32(void* dst, const void* src, mal_uint64 count, mal_dither
 {
     (void)ditherMode;
 
-    mal_copy_memory(dst, src, count * sizeof(mal_int32));
+    mal_copy_memory_64(dst, src, count * sizeof(mal_int32));
 }
 
 
@@ -16791,7 +17087,7 @@ void mal_pcm_f32_to_f32(void* dst, const void* src, mal_uint64 count, mal_dither
 {
     (void)ditherMode;
 
-    mal_copy_memory(dst, src, count * sizeof(float));
+    mal_copy_memory_64(dst, src, count * sizeof(float));
 }
 
 
@@ -17214,6 +17510,40 @@ mal_uint64 mal_format_converter_read_deinterleaved(mal_format_converter* pConver
 //
 //////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
+// Splits a buffer into parts of equal length and of the given alignment. The returned size of the split buffers will be a
+// multiple of the alignment. The alignment must be a power of 2.
+void mal_split_buffer(void* pBuffer, size_t bufferSize, size_t splitCount, size_t alignment, void** ppBuffersOut, size_t* pSplitSizeOut)
+{
+    if (pBuffer == NULL || bufferSize == 0 || splitCount == 0) {
+        return;
+    }
+
+    if (alignment == 0) {
+        alignment = 1;
+    }
+
+    mal_uintptr pBufferUnaligned = (mal_uintptr)pBuffer;
+    mal_uintptr pBufferAligned = (pBufferUnaligned + (alignment-1)) & ~(alignment-1);
+    size_t unalignedBytes = (size_t)(pBufferAligned - pBufferUnaligned);
+
+    size_t splitSize = 0;
+    if (bufferSize >= unalignedBytes) {
+        splitSize = (bufferSize - unalignedBytes) / splitCount;
+        splitSize = splitSize & ~(alignment-1);
+    }
+
+    if (ppBuffersOut != NULL) {
+        for (size_t i = 0; i < splitCount; ++i) {
+            ppBuffersOut[i] = (mal_uint8*)(pBufferAligned + (splitSize*i));
+        }
+    }
+
+    if (pSplitSizeOut) {
+        *pSplitSizeOut = splitSize;
+    }
+}
+
+
 // -X = Left,   +X = Right
 // -Y = Bottom, +Y = Top
 // -Z = Front,  +Z = Back
@@ -17456,6 +17786,12 @@ mal_result mal_channel_router_init(const mal_channel_router_config* pConfig, mal
 
     pRouter->config = *pConfig;
 
+    // SIMD
+    pRouter->useSSE2   = mal_has_sse2()    && !pConfig->noSSE2;
+    pRouter->useAVX    = mal_has_avx()     && !pConfig->noAVX;
+    pRouter->useAVX512 = mal_has_avx512f() && !pConfig->noAVX512;
+    pRouter->useNEON   = mal_has_neon()    && !pConfig->noNEON;
+
     // If the input and output channels and channel maps are the same we should use a passthrough.
     if (pRouter->config.channelsIn == pRouter->config.channelsOut) {
         if (mal_channel_map_equal(pRouter->config.channelsIn, pRouter->config.channelMapIn, pRouter->config.channelMapOut)) {
@@ -17631,6 +17967,26 @@ mal_result mal_channel_router_init(const mal_channel_router_config* pConfig, mal
     return MAL_SUCCESS;
 }
 
+static MAL_INLINE mal_bool32 mal_channel_router__can_use_sse2(mal_channel_router* pRouter, const float* pSamplesOut, const float* pSamplesIn)
+{
+    return pRouter->useSSE2 && (((mal_uintptr)pSamplesOut & 15) == 0) && (((mal_uintptr)pSamplesIn & 15) == 0);
+}
+
+static MAL_INLINE mal_bool32 mal_channel_router__can_use_avx(mal_channel_router* pRouter, const float* pSamplesOut, const float* pSamplesIn)
+{
+    return pRouter->useAVX && (((mal_uintptr)pSamplesOut & 31) == 0) && (((mal_uintptr)pSamplesIn & 31) == 0);
+}
+
+static MAL_INLINE mal_bool32 mal_channel_router__can_use_avx512(mal_channel_router* pRouter, const float* pSamplesOut, const float* pSamplesIn)
+{
+    return pRouter->useAVX512 && (((mal_uintptr)pSamplesOut & 63) == 0) && (((mal_uintptr)pSamplesIn & 63) == 0);
+}
+
+static MAL_INLINE mal_bool32 mal_channel_router__can_use_neon(mal_channel_router* pRouter, const float* pSamplesOut, const float* pSamplesIn)
+{
+    return pRouter->useNEON && (((mal_uintptr)pSamplesOut & 15) == 0) && (((mal_uintptr)pSamplesIn & 15) == 0);
+}
+
 void mal_channel_router__do_routing(mal_channel_router* pRouter, mal_uint64 frameCount, float** ppSamplesOut, const float** ppSamplesIn)
 {
     mal_assert(pRouter != NULL);
@@ -17641,20 +17997,83 @@ void mal_channel_router__do_routing(mal_channel_router* pRouter, mal_uint64 fram
         mal_assert(pRouter->config.channelsIn == pRouter->config.channelsOut);
         for (mal_uint32 iChannelIn = 0; iChannelIn < pRouter->config.channelsIn; ++iChannelIn) {
             mal_uint32 iChannelOut = pRouter->shuffleTable[iChannelIn];
-            mal_copy_memory(ppSamplesOut[iChannelOut], ppSamplesIn[iChannelIn], frameCount * sizeof(float));
+            mal_copy_memory_64(ppSamplesOut[iChannelOut], ppSamplesIn[iChannelIn], frameCount * sizeof(float));
         }
     } else {
         // This is the more complicated case. Each of the output channels is accumulated with 0 or more input channels.
 
         // Clear.
         for (mal_uint32 iChannelOut = 0; iChannelOut < pRouter->config.channelsOut; ++iChannelOut) {
-            mal_zero_memory(ppSamplesOut[iChannelOut], frameCount * sizeof(float));
+            mal_zero_memory_64(ppSamplesOut[iChannelOut], frameCount * sizeof(float));
         }
 
         // Accumulate.
         for (mal_uint32 iChannelIn = 0; iChannelIn < pRouter->config.channelsIn; ++iChannelIn) {
             for (mal_uint32 iChannelOut = 0; iChannelOut < pRouter->config.channelsOut; ++iChannelOut) {
-                for (mal_uint64 iFrame = 0; iFrame < frameCount; ++iFrame) {
+                mal_uint64 iFrame = 0;
+
+#if defined(MAL_SUPPORT_AVX512)
+                if (mal_channel_router__can_use_avx512(pRouter, ppSamplesOut[iChannelOut], ppSamplesIn[iChannelIn])) {
+                    __m512 weight = _mm512_set1_ps(pRouter->weights[iChannelIn][iChannelOut]);
+
+                    mal_uint64 frameCount16 = frameCount/16;
+                    for (mal_uint64 iFrame16 = 0; iFrame16 < frameCount16; iFrame16 += 1) {
+                        __m512* pO = (__m512*)ppSamplesOut[iChannelOut] + iFrame16;
+                        __m512* pI = (__m512*)ppSamplesIn [iChannelIn ] + iFrame16;
+                        *pO = _mm512_add_ps(*pO, _mm512_mul_ps(*pI, weight));
+                    }
+
+                    iFrame += frameCount16*16;
+                }
+                else
+#endif
+#if defined(MAL_SUPPORT_AVX)
+                if (mal_channel_router__can_use_avx(pRouter, ppSamplesOut[iChannelOut], ppSamplesIn[iChannelIn])) {
+                    __m256 weight = _mm256_set1_ps(pRouter->weights[iChannelIn][iChannelOut]);
+
+                    mal_uint64 frameCount8 = frameCount/8;
+                    for (mal_uint64 iFrame8 = 0; iFrame8 < frameCount8; iFrame8 += 1) {
+                        __m256* pO = (__m256*)ppSamplesOut[iChannelOut] + iFrame8;
+                        __m256* pI = (__m256*)ppSamplesIn [iChannelIn ] + iFrame8;
+                        *pO = _mm256_add_ps(*pO, _mm256_mul_ps(*pI, weight));
+                    }
+
+                    iFrame += frameCount8*8;
+                }
+                else
+#endif
+#if defined(MAL_SUPPORT_SSE2)
+                if (mal_channel_router__can_use_sse2(pRouter, ppSamplesOut[iChannelOut], ppSamplesIn[iChannelIn])) {
+                    __m128 weight = _mm_set1_ps(pRouter->weights[iChannelIn][iChannelOut]);
+
+                    mal_uint64 frameCount4 = frameCount/4;
+                    for (mal_uint64 iFrame4 = 0; iFrame4 < frameCount4; iFrame4 += 1) {
+                        __m128* pO = (__m128*)ppSamplesOut[iChannelOut] + iFrame4;
+                        __m128* pI = (__m128*)ppSamplesIn [iChannelIn ] + iFrame4;
+                        *pO = _mm_add_ps(*pO, _mm_mul_ps(*pI, weight));
+                    }
+
+                    iFrame += frameCount4*4;
+                } else 
+#endif
+                {   // Reference.
+                    float weight0 = pRouter->weights[iChannelIn][iChannelOut];
+                    float weight1 = pRouter->weights[iChannelIn][iChannelOut];
+                    float weight2 = pRouter->weights[iChannelIn][iChannelOut];
+                    float weight3 = pRouter->weights[iChannelIn][iChannelOut];
+
+                    mal_uint64 frameCount4 = frameCount/4;
+                    for (mal_uint64 iFrame4 = 0; iFrame4 < frameCount4; iFrame4 += 1) {
+                        ppSamplesOut[iChannelOut][iFrame+0] += ppSamplesIn[iChannelIn][iFrame+0] * weight0;
+                        ppSamplesOut[iChannelOut][iFrame+1] += ppSamplesIn[iChannelIn][iFrame+1] * weight1;
+                        ppSamplesOut[iChannelOut][iFrame+2] += ppSamplesIn[iChannelIn][iFrame+2] * weight2;
+                        ppSamplesOut[iChannelOut][iFrame+3] += ppSamplesIn[iChannelIn][iFrame+3] * weight3;
+                        iFrame += 4;
+                    }
+                }
+
+                // Leftover.
+                for (; iFrame < frameCount; ++iFrame) {
                     ppSamplesOut[iChannelOut][iFrame] += ppSamplesIn[iChannelIn][iFrame] * pRouter->weights[iChannelIn][iChannelOut];
                 }
             }
@@ -17701,15 +18120,14 @@ mal_uint64 mal_channel_router_read_deinterleaved(mal_channel_router* pRouter, ma
     float* ppNextSamplesOut[MAL_MAX_CHANNELS];
     mal_copy_memory(ppNextSamplesOut, ppSamplesOut, sizeof(float*) * pRouter->config.channelsOut);
 
-    float temp[MAL_MAX_CHANNELS * 256];
+    MAL_ALIGN(MAL_SIMD_ALIGNMENT) float temp[MAL_MAX_CHANNELS * 256];
     mal_assert(sizeof(temp) <= 0xFFFFFFFF);
 
-    mal_uint32 maxFramesToReadEachIteration = mal_countof(temp) / pRouter->config.channelsIn;
-
     float* ppTemp[MAL_MAX_CHANNELS];
-    for (mal_uint32 iChannel = 0; iChannel < pRouter->config.channelsIn; iChannel += 1) {
-        ppTemp[iChannel] = temp + (maxFramesToReadEachIteration*iChannel);
-    }
+    size_t maxBytesToReadPerFrameEachIteration;
+    mal_split_buffer(temp, sizeof(temp), pRouter->config.channelsIn, MAL_SIMD_ALIGNMENT, (void**)&ppTemp, &maxBytesToReadPerFrameEachIteration);
+
+    size_t maxFramesToReadEachIteration = maxBytesToReadPerFrameEachIteration/sizeof(float);
 
     mal_uint64 totalFramesRead = 0;
     while (totalFramesRead < frameCount) {
@@ -18073,7 +18491,7 @@ mal_uint64 mal_src_read_deinterleaved__linear(mal_src* pSRC, mal_uint64 frameCou
 void mal_pcm_convert(void* pOut, mal_format formatOut, const void* pIn, mal_format formatIn, mal_uint64 sampleCount, mal_dither_mode ditherMode)
 {
     if (formatOut == formatIn) {
-        mal_copy_memory(pOut, pIn, sampleCount * mal_get_bytes_per_sample(formatOut));
+        mal_copy_memory_64(pOut, pIn, sampleCount * mal_get_bytes_per_sample(formatOut));
         return;
     }
 
