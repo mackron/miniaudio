@@ -308,7 +308,7 @@ int mal_pcm_compare(const void* a, const void* b, mal_uint64 count, mal_format f
                 mal_uint8 sampleB = b_u8[i];
                 if (sampleA != sampleB) {
                     if (abs(sampleA - sampleB) > allowedDifference) {   // Allow a difference of 1.
-                        printf("Sample %I64u not equal. %d != %d (diff: %d)\n", i, sampleA, sampleB, sampleA - sampleB);
+                        printf("Sample %u not equal. %d != %d (diff: %d)\n", (mal_int32)i, sampleA, sampleB, sampleA - sampleB);
                         result = -1;
                     }
                 }
@@ -320,7 +320,7 @@ int mal_pcm_compare(const void* a, const void* b, mal_uint64 count, mal_format f
                 mal_int16 sampleB = b_s16[i];
                 if (sampleA != sampleB) {
                     if (abs(sampleA - sampleB) > allowedDifference) {   // Allow a difference of 1.
-                        printf("Sample %I64u not equal. %d != %d (diff: %d)\n", i, sampleA, sampleB, sampleA - sampleB);
+                        printf("Sample %u not equal. %d != %d (diff: %d)\n", (mal_int32)i, sampleA, sampleB, sampleA - sampleB);
                         result = -1;
                     }
                 }
@@ -332,7 +332,7 @@ int mal_pcm_compare(const void* a, const void* b, mal_uint64 count, mal_format f
                 mal_int32 sampleB = ((mal_int32)(((mal_uint32)(b_u8[i*3+0]) << 8) | ((mal_uint32)(b_u8[i*3+1]) << 16) | ((mal_uint32)(b_u8[i*3+2])) << 24)) >> 8;
                 if (sampleA != sampleB) {
                     if (abs(sampleA - sampleB) > allowedDifference) {   // Allow a difference of 1.
-                        printf("Sample %I64u not equal. %d != %d (diff: %d)\n", i, sampleA, sampleB, sampleA - sampleB);
+                        printf("Sample %u not equal. %d != %d (diff: %d)\n", (mal_int32)i, sampleA, sampleB, sampleA - sampleB);
                         result = -1;
                     }
                 }
@@ -344,7 +344,7 @@ int mal_pcm_compare(const void* a, const void* b, mal_uint64 count, mal_format f
                 mal_int32 sampleB = b_s32[i];
                 if (sampleA != sampleB) {
                     if (abs(sampleA - sampleB) > allowedDifference) {   // Allow a difference of 1.
-                        printf("Sample %I64u not equal. %d != %d (diff: %d)\n", i, sampleA, sampleB, sampleA - sampleB);
+                        printf("Sample %u not equal. %d != %d (diff: %d)\n", (mal_int32)i, sampleA, sampleB, sampleA - sampleB);
                         result = -1;
                     }
                 }
@@ -359,7 +359,7 @@ int mal_pcm_compare(const void* a, const void* b, mal_uint64 count, mal_format f
                     difference = (difference < 0) ? -difference : difference;
 
                     if (difference > allowedDifference) {
-                        printf("Sample %I64u not equal. %.8f != %.8f (diff: %.8f)\n", i, sampleA, sampleB, sampleA - sampleB);
+                        printf("Sample %u not equal. %.8f != %.8f (diff: %.8f)\n", (mal_int32)i, sampleA, sampleB, sampleA - sampleB);
                         result = -1;
                     }
                 }
@@ -599,7 +599,7 @@ int do_format_conversion_test(mal_format formatIn, mal_format formatOut)
     void* pBenchmarkData = load_raw_audio_data(pBenchmarkFilePath, formatOut, &benchmarkFrameCount);
     if (pBenchmarkData != NULL) {
         if (benchmarkFrameCount == baseFrameCount) {
-            void* pConvertedData = (void*)mal_malloc(benchmarkFrameCount * mal_get_bytes_per_sample(formatOut));
+            void* pConvertedData = (void*)mal_malloc((size_t)benchmarkFrameCount * mal_get_bytes_per_sample(formatOut));
             if (pConvertedData != NULL) {
                 onConvertPCM(pConvertedData, pBaseData, (mal_uint32)benchmarkFrameCount, mal_dither_mode_none);
                 result = mal_pcm_compare(pBenchmarkData, pConvertedData, benchmarkFrameCount, formatOut, allowedDifference);
@@ -1178,7 +1178,7 @@ int do_format_converter_tests()
             return -1;
         }
 
-        fwrite(interleavedFrames, sizeof(mal_int16), framesRead * converter.config.channels, pFile);
+        fwrite(interleavedFrames, sizeof(mal_int16), (size_t)framesRead * converter.config.channels, pFile);
         fclose(pFile);
     }
 
@@ -1214,7 +1214,7 @@ int do_format_converter_tests()
                 return -1;
             }
 
-            fwrite(ppDeinterleavedFrames[iChannel], sizeof(mal_int16), framesRead, pFile);
+            fwrite(ppDeinterleavedFrames[iChannel], sizeof(mal_int16), (size_t)framesRead, pFile);
             fclose(pFile);
         }
     }
@@ -1245,7 +1245,7 @@ int do_format_converter_tests()
             return -1;
         }
 
-        fwrite(interleavedFrames, sizeof(mal_int16), framesRead * converter.config.channels, pFile);
+        fwrite(interleavedFrames, sizeof(mal_int16), (size_t)framesRead * converter.config.channels, pFile);
         fclose(pFile);
     }
 
@@ -1281,7 +1281,7 @@ int do_format_converter_tests()
                 return -1;
             }
 
-            fwrite(ppDeinterleavedFrames[iChannel], sizeof(mal_int16), framesRead, pFile);
+            fwrite(ppDeinterleavedFrames[iChannel], sizeof(mal_int16), (size_t)framesRead, pFile);
             fclose(pFile);
         }
     }
@@ -1313,7 +1313,7 @@ int do_format_converter_tests()
             return -1;
         }
 
-        fwrite(interleavedFrames, sizeof(float), framesRead * converter.config.channels, pFile);
+        fwrite(interleavedFrames, sizeof(float), (size_t)framesRead * converter.config.channels, pFile);
         fclose(pFile);
     }
 
@@ -1349,7 +1349,7 @@ int do_format_converter_tests()
                 return -1;
             }
 
-            fwrite(ppDeinterleavedFrames[iChannel], sizeof(float), framesRead, pFile);
+            fwrite(ppDeinterleavedFrames[iChannel], sizeof(float), (size_t)framesRead, pFile);
             fclose(pFile);
         }
     }
@@ -1380,7 +1380,7 @@ int do_format_converter_tests()
             return -1;
         }
 
-        fwrite(interleavedFrames, sizeof(float), framesRead * converter.config.channels, pFile);
+        fwrite(interleavedFrames, sizeof(float), (size_t)framesRead * converter.config.channels, pFile);
         fclose(pFile);
     }
 
@@ -1416,7 +1416,7 @@ int do_format_converter_tests()
                 return -1;
             }
 
-            fwrite(ppDeinterleavedFrames[iChannel], sizeof(float), framesRead, pFile);
+            fwrite(ppDeinterleavedFrames[iChannel], sizeof(float), (size_t)framesRead, pFile);
             fclose(pFile);
         }
     }
@@ -1486,11 +1486,11 @@ int do_channel_routing_tests()
         // Here is where we check that the passthrough optimization works correctly. What we do is compare the output of the passthrough
         // optimization with the non-passthrough output. We don't use a real sound here, but instead use values that makes it easier for
         // us to check results. Each channel is given a value equal to it's index, plus 1.
-        float testData[MAL_MAX_CHANNELS][100];
+        float testData[MAL_MAX_CHANNELS][MAL_SIMD_ALIGNMENT * 2];
         float* ppTestData[MAL_MAX_CHANNELS];
         for (mal_uint32 iChannel = 0; iChannel < routerConfig.channelsIn; ++iChannel) {
             ppTestData[iChannel] = testData[iChannel];
-            for (mal_uint32 iFrame = 0; iFrame < 100; ++iFrame) {
+            for (mal_uint32 iFrame = 0; iFrame < mal_countof(testData[0]); ++iFrame) {
                 ppTestData[iChannel][iFrame] = (float)(iChannel + 1);
             }
         }
@@ -1498,8 +1498,8 @@ int do_channel_routing_tests()
         routerConfig.pUserData = ppTestData;
         mal_channel_router_init(&routerConfig, &router);
 
-        float outputA[MAL_MAX_CHANNELS][100];
-        float outputB[MAL_MAX_CHANNELS][100];
+        MAL_ALIGN(MAL_SIMD_ALIGNMENT) float outputA[MAL_MAX_CHANNELS][MAL_SIMD_ALIGNMENT * 2];
+        MAL_ALIGN(MAL_SIMD_ALIGNMENT) float outputB[MAL_MAX_CHANNELS][MAL_SIMD_ALIGNMENT * 2];
         float* ppOutputA[MAL_MAX_CHANNELS];
         float* ppOutputB[MAL_MAX_CHANNELS];
         for (mal_uint32 iChannel = 0; iChannel < routerConfig.channelsOut; ++iChannel) {
@@ -1508,8 +1508,8 @@ int do_channel_routing_tests()
         }
 
         // With optimizations.
-        mal_uint64 framesRead = mal_channel_router_read_deinterleaved(&router, 100, (void**)ppOutputA, router.config.pUserData);
-        if (framesRead != 100) {
+        mal_uint64 framesRead = mal_channel_router_read_deinterleaved(&router, mal_countof(outputA[0]), (void**)ppOutputA, router.config.pUserData);
+        if (framesRead != mal_countof(outputA[0])) {
             printf("Returned frame count for optimized incorrect.");
             hasError = MAL_TRUE;
         }
@@ -1517,15 +1517,15 @@ int do_channel_routing_tests()
         // Without optimizations.
         router.isPassthrough = MAL_FALSE;
         router.isSimpleShuffle = MAL_FALSE;
-        framesRead = mal_channel_router_read_deinterleaved(&router, 100, (void**)ppOutputB, router.config.pUserData);
-        if (framesRead != 100) {
+        framesRead = mal_channel_router_read_deinterleaved(&router, mal_countof(outputA[0]), (void**)ppOutputB, router.config.pUserData);
+        if (framesRead != mal_countof(outputA[0])) {
             printf("Returned frame count for unoptimized path incorrect.");
             hasError = MAL_TRUE;
         }
 
         // Compare.
         for (mal_uint32 iChannel = 0; iChannel < routerConfig.channelsOut; ++iChannel) {
-            for (mal_uint32 iFrame = 0; iFrame < 100; ++iFrame) {
+            for (mal_uint32 iFrame = 0; iFrame < mal_countof(outputA[0]); ++iFrame) {
                 if (ppOutputA[iChannel][iFrame] != ppOutputB[iChannel][iFrame]) {
                     printf("Sample incorrect [%d][%d]\n", iChannel, iFrame);
                     hasError = MAL_TRUE;
