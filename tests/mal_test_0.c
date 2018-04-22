@@ -2147,7 +2147,15 @@ int do_backend_test(mal_backend backend)
             
             result = mal_context_get_device_info(&context, mal_device_type_playback, &pPlaybackDeviceInfos[iDevice].id, mal_share_mode_shared, &pPlaybackDeviceInfos[iDevice]);
             if (result == MAL_SUCCESS) {
-                printf("        Name: %s\n", pPlaybackDeviceInfos[iDevice].name);
+                printf("        Name:            %s\n", pPlaybackDeviceInfos[iDevice].name);
+                printf("        Min Channels:    %d\n", pPlaybackDeviceInfos[iDevice].minChannels);
+                printf("        Max Channels:    %d\n", pPlaybackDeviceInfos[iDevice].maxChannels);
+                printf("        Min Sample Rate: %d\n", pPlaybackDeviceInfos[iDevice].minSampleRate);
+                printf("        Max Sample Rate: %d\n", pPlaybackDeviceInfos[iDevice].maxSampleRate);
+                printf("        Format Count:    %d\n", pPlaybackDeviceInfos[iDevice].formatCount);
+                for (mal_uint32 iFormat = 0; iFormat < pPlaybackDeviceInfos[iDevice].formatCount; ++iFormat) {
+                    printf("          %s\n", mal_get_format_name(pPlaybackDeviceInfos[iDevice].formats[iFormat]));
+                }
             } else {
                 printf("        ERROR\n");
             }
@@ -2159,7 +2167,15 @@ int do_backend_test(mal_backend backend)
             
             result = mal_context_get_device_info(&context, mal_device_type_capture, &pCaptureDeviceInfos[iDevice].id, mal_share_mode_shared, &pCaptureDeviceInfos[iDevice]);
             if (result == MAL_SUCCESS) {
-                printf("        Name: %s\n", pCaptureDeviceInfos[iDevice].name);
+                printf("        Name:            %s\n", pCaptureDeviceInfos[iDevice].name);
+                printf("        Min Channels:    %d\n", pCaptureDeviceInfos[iDevice].minChannels);
+                printf("        Max Channels:    %d\n", pCaptureDeviceInfos[iDevice].maxChannels);
+                printf("        Min Sample Rate: %d\n", pCaptureDeviceInfos[iDevice].minSampleRate);
+                printf("        Max Sample Rate: %d\n", pCaptureDeviceInfos[iDevice].maxSampleRate);
+                printf("        Format Count:    %d\n", pCaptureDeviceInfos[iDevice].formatCount);
+                for (mal_uint32 iFormat = 0; iFormat < pCaptureDeviceInfos[iDevice].formatCount; ++iFormat) {
+                    printf("          %s\n", mal_get_format_name(pCaptureDeviceInfos[iDevice].formats[iFormat]));
+                }
             } else {
                 printf("        ERROR\n");
             }
@@ -2344,7 +2360,7 @@ int main(int argc, char** argv)
 
     printf("\n");
 
-    // mal_format_convert
+    // mal_format_converter
     printf("=== TESTING FORMAT CONVERTER ===\n");
     result = do_format_converter_tests();
     if (result < 0) {
