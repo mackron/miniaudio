@@ -691,6 +691,7 @@ typedef enum
     mal_format_s24     = 3,     // Tightly packed. 3 bytes per sample.
     mal_format_s32     = 4,
     mal_format_f32     = 5,
+    mal_format_count
 } mal_format;
 
 typedef enum
@@ -756,8 +757,18 @@ typedef struct
     mal_device_id id;
     char name[256];
 
-    // Detailed info. As much of this is filled as possible with mal_context_get_device_info().
-    // TODO: Implement me.
+    // Detailed info. As much of this is filled as possible with mal_context_get_device_info(). If anything here is set to 0 it means
+    // the backend does not have a reliable way of determining the value. Note that you are allowed to initialize a device with settings
+    // outside of this range, but it just means the data will be converted using mini_al's data conversion pipeline before sending the
+    // data to/from the device.
+    //
+    // These will be set to 0 when returned by mal_context_enumerate_devices() or mal_context_get_devices().
+    mal_uint32 formatCount;
+    mal_format formats[mal_format_count];
+    mal_uint32 minChannels;
+    mal_uint32 maxChannels;
+    mal_uint32 minSampleRate;
+    mal_uint32 maxSampleRate;
 } mal_device_info;
 
 typedef struct
@@ -3922,6 +3933,17 @@ mal_result mal_context_get_device_info__null(mal_context* pContext, mal_device_t
         mal_strncpy_s(pDeviceInfo->name, sizeof(pDeviceInfo->name), "NULL Capture Device", (size_t)-1);
     }
 
+    // Support everything on the null backend.
+    pDeviceInfo->formatCount = mal_format_count;
+    for (mal_uint32 iFormat = 0; iFormat < pDeviceInfo->formatCount; ++iFormat) {
+        pDeviceInfo->formats[iFormat] = (mal_format)iFormat;
+    }
+
+    pDeviceInfo->minChannels   = 1;
+    pDeviceInfo->maxChannels   = MAL_MAX_CHANNELS;
+    pDeviceInfo->minSampleRate = MAL_SAMPLE_RATE_8000;
+    pDeviceInfo->maxSampleRate = MAL_SAMPLE_RATE_384000;
+
     return MAL_SUCCESS;
 }
 
@@ -4307,12 +4329,12 @@ void mal_channel_mask_to_channel_map__win32(DWORD dwChannelMask, mal_uint32 chan
 #define mal_is_guid_equal(a, b) IsEqualGUID((const GUID*)a, (const GUID*)b)
 #endif
 
-mal_format mal_format_from_WAVEFORMATEX(WAVEFORMATEX* pWF)
+mal_format mal_format_from_WAVEFORMATEX(const WAVEFORMATEX* pWF)
 {
     mal_assert(pWF != NULL);
 
     if (pWF->wFormatTag == WAVE_FORMAT_EXTENSIBLE) {
-        WAVEFORMATEXTENSIBLE* pWFEX = (WAVEFORMATEXTENSIBLE*)pWF;
+        const WAVEFORMATEXTENSIBLE* pWFEX = (const WAVEFORMATEXTENSIBLE*)pWF;
         if (mal_is_guid_equal(&pWFEX->SubFormat, &MAL_GUID_KSDATAFORMAT_SUBTYPE_PCM)) {
             if (pWFEX->Samples.wValidBitsPerSample == 32) {
                 return mal_format_s32;
@@ -4697,6 +4719,61 @@ HRESULT mal_IAudioCaptureClient_GetBuffer(mal_IAudioCaptureClient* pThis, BYTE**
 HRESULT mal_IAudioCaptureClient_ReleaseBuffer(mal_IAudioCaptureClient* pThis, UINT32 numFramesRead)                    { return pThis->lpVtbl->ReleaseBuffer(pThis, numFramesRead); }
 HRESULT mal_IAudioCaptureClient_GetNextPacketSize(mal_IAudioCaptureClient* pThis, UINT32* pNumFramesInNextPacket)      { return pThis->lpVtbl->GetNextPacketSize(pThis, pNumFramesInNextPacket); }
 
+// This is the part that's preventing mini_al from being compiled as C with UWP. We need to implement IActivateAudioInterfaceCompletionHandler
+// in C which is quite annoying.
+#ifndef MAL_WIN32_DESKTOP
+    #ifdef __cplusplus
+    #include <mmdeviceapi.h>
+    #include <wrl\implements.h>
+
+    class malCompletionHandler : public Microsoft::WRL::RuntimeClass< Microsoft::WRL::RuntimeClassFlags< Microsoft::WRL::ClassicCom >, Microsoft::WRL::FtmBase, IActivateAudioInterfaceCompletionHandler >
+    {
+    public:
+
+        malCompletionHandler()
+            : m_hEvent(NULL)
+        {
+        }
+
+        mal_result Init()
+        {
+            m_hEvent = CreateEventA(NULL, FALSE, FALSE, NULL);
+            if (m_hEvent == NULL) {
+                return MAL_ERROR;
+            }
+
+            return MAL_SUCCESS;
+        }
+
+        void Uninit()
+        {
+            if (m_hEvent != NULL) {
+                CloseHandle(m_hEvent);
+            }
+        }
+
+        void Wait()
+        {
+            WaitForSingleObject(m_hEvent, INFINITE);
+        }
+
+        HRESULT STDMETHODCALLTYPE ActivateCompleted(IActivateAudioInterfaceAsyncOperation *activateOperation)
+        {
+            (void)activateOperation;
+            SetEvent(m_hEvent);
+            return S_OK;
+        }
+
+    private:
+        HANDLE m_hEvent;  // This is created in Init(), deleted in Uninit(), waited on in Wait() and signaled in ActivateCompleted().
+    };
+    #else
+    #error "The UWP build is currently only supported in C++."
+    #endif
+#endif  // !MAL_WIN32_DESKTOP
+
+
+
 mal_bool32 mal_context_is_device_id_equal__wasapi(mal_context* pContext, const mal_device_id* pID0, const mal_device_id* pID1)
 {
     mal_assert(pContext != NULL);
@@ -4705,6 +4782,227 @@ mal_bool32 mal_context_is_device_id_equal__wasapi(mal_context* pContext, const m
     (void)pContext;
 
     return memcmp(pID0->wasapi, pID1->wasapi, sizeof(pID0->wasapi)) == 0;
+}
+
+void mal_set_device_info_from_WAVEFORMATEX(const WAVEFORMATEX* pWF, mal_device_info* pInfo)
+{
+    mal_assert(pWF != NULL);
+    mal_assert(pInfo != NULL);
+
+    pInfo->formatCount   = 1;
+    pInfo->formats[0]    = mal_format_from_WAVEFORMATEX(pWF);
+    pInfo->minChannels   = pWF->nChannels;
+    pInfo->maxChannels   = pWF->nChannels;
+    pInfo->minSampleRate = pWF->nSamplesPerSec;
+    pInfo->maxSampleRate = pWF->nSamplesPerSec;
+}
+
+#ifndef MAL_WIN32_DESKTOP
+mal_result mal_context_get_IAudioClient_UWP__wasapi(mal_context* pContext, mal_device_type deviceType, const mal_device_id* pDeviceID, mal_IAudioClient** ppAudioClient, IUnknown** ppActivatedInterface)
+{
+    mal_assert(pContext != NULL);
+    mal_assert(ppAudioClient != NULL);
+
+    mal_IActivateAudioInterfaceAsyncOperation *pAsyncOp = NULL;
+    malCompletionHandler completionHandler;
+
+    IID iid;
+    if (pDeviceID != NULL) {
+        mal_copy_memory(&iid, pDeviceID->wasapi, sizeof(iid));
+    } else {
+        if (deviceType == mal_device_type_playback) {
+            iid = MAL_IID_DEVINTERFACE_AUDIO_RENDER;
+        } else {
+            iid = MAL_IID_DEVINTERFACE_AUDIO_CAPTURE;
+        }
+    }
+
+    LPOLESTR iidStr;
+    HRESULT hr = StringFromIID(iid, &iidStr);
+    if (FAILED(hr)) {
+        return mal_context_post_error(pContext, NULL, "[WASAPI] Failed to convert device IID to string for ActivateAudioInterfaceAsync(). Out of memory.", MAL_OUT_OF_MEMORY);
+    }
+
+    mal_result result = completionHandler.Init();
+    if (result != MAL_SUCCESS) {
+        mal_CoTaskMemFree(pContext, iidStr);
+        return mal_context_post_error(pContext, NULL, "[WASAPI] Failed to create event for waiting for ActivateAudioInterfaceAsync().", MAL_FAILED_TO_OPEN_BACKEND_DEVICE);
+    }
+
+    hr = ActivateAudioInterfaceAsync(iidStr, MAL_IID_IAudioClient, NULL, (IActivateAudioInterfaceCompletionHandler*)&completionHandler, (IActivateAudioInterfaceAsyncOperation**)&pAsyncOp);
+    if (FAILED(hr)) {
+        completionHandler.Uninit();
+        mal_CoTaskMemFree(pContext, iidStr);
+        return mal_context_post_error(pContext, NULL, "[WASAPI] ActivateAudioInterfaceAsync() failed.", MAL_FAILED_TO_OPEN_BACKEND_DEVICE);
+    }
+
+    mal_CoTaskMemFree(pContext, iidStr);
+
+    // Wait for the async operation for finish.
+    completionHandler.Wait();
+    completionHandler.Uninit();
+
+    HRESULT activateResult;
+    IUnknown* pActivatedInterface;
+    hr = mal_IActivateAudioInterfaceAsyncOperation_GetActivateResult(pAsyncOp, &activateResult, &pActivatedInterface);
+    mal_IActivateAudioInterfaceAsyncOperation_Release(pAsyncOp);
+
+    if (FAILED(hr) || FAILED(activateResult)) {
+        return mal_context_post_error(pContext, NULL, "[WASAPI] Failed to activate device.", MAL_FAILED_TO_OPEN_BACKEND_DEVICE);
+    }
+
+    // Here is where we grab the IAudioClient interface.
+    hr = pActivatedInterface->QueryInterface(MAL_IID_IAudioClient, (void**)ppAudioClient);
+    if (FAILED(hr)) {
+        return mal_context_post_error(pContext, NULL, "[WASAPI] Failed to query IAudioClient interface.", MAL_FAILED_TO_OPEN_BACKEND_DEVICE);
+    }
+
+    if (ppActivatedInterface) {
+        *ppActivatedInterface = pActivatedInterface;
+    } else {
+        pActivatedInterface->Release();
+    }
+
+    return MAL_SUCCESS;
+}
+#endif
+
+mal_result mal_context_get_device_info_from_IAudioClient__wasapi(mal_context* pContext, /*mal_IMMDevice**/void* pMMDevice, mal_IAudioClient* pAudioClient, mal_share_mode shareMode, mal_device_info* pInfo)
+{
+    mal_assert(pAudioClient != NULL);
+    mal_assert(pInfo != NULL);
+
+    // We use a different technique to retrieve the device information depending on whether or not we are using shared or exclusive mode.
+    if (shareMode == mal_share_mode_shared) {
+        // Shared Mode. We use GetMixFormat() here.
+        WAVEFORMATEX* pWF = NULL;
+        HRESULT hr = mal_IAudioClient_GetMixFormat((mal_IAudioClient*)pAudioClient, (WAVEFORMATEX**)&pWF);
+        if (SUCCEEDED(hr)) {
+            mal_set_device_info_from_WAVEFORMATEX(pWF, pInfo);
+            return MAL_SUCCESS;
+        } else {
+            return mal_context_post_error(pContext, NULL, "[WASAPI] Failed to retrieve mix format for device info retrieval.", MAL_FAILED_TO_OPEN_BACKEND_DEVICE);
+        }
+    } else {
+        // Exlcusive Mode. We repeatedly call IsFormatSupported() here. This is not currently support on UWP.
+#ifdef MAL_WIN32_DESKTOP
+        // The first thing to do is get the format from PKEY_AudioEngine_DeviceFormat. This should give us a channel count we assume is
+        // correct which will simplify our searching.
+        mal_IPropertyStore *pProperties;
+        HRESULT hr = mal_IMMDevice_OpenPropertyStore((mal_IMMDevice*)pMMDevice, STGM_READ, &pProperties);
+        if (SUCCEEDED(hr)) {
+            PROPVARIANT var;
+            mal_PropVariantInit(&var);
+
+            hr = mal_IPropertyStore_GetValue(pProperties, &MAL_PKEY_AudioEngine_DeviceFormat, &var);
+            if (SUCCEEDED(hr)) {
+                WAVEFORMATEX* pWF = (WAVEFORMATEX*)var.blob.pBlobData;
+                mal_set_device_info_from_WAVEFORMATEX(pWF, pInfo);
+
+                // In my testing, the format returned by PKEY_AudioEngine_DeviceFormat is suitable for exclusive mode so we check this format
+                // first. If this fails, fall back to a search.
+                hr = mal_IAudioClient_IsFormatSupported((mal_IAudioClient*)pAudioClient, MAL_AUDCLNT_SHAREMODE_EXCLUSIVE, pWF, NULL);
+                mal_PropVariantClear(pContext, &var);
+
+                if (FAILED(hr)) {
+                    // The format returned by PKEY_AudioEngine_DeviceFormat is not supported, so fall back to a search. We assume the channel
+                    // count returned by MAL_PKEY_AudioEngine_DeviceFormat is valid and correct. For simplicity we're only returning one format.
+                    mal_uint32 channels = pInfo->minChannels;
+
+                    mal_format formatsToSearch[] = {
+                        mal_format_s16,
+                        mal_format_s24,
+                        //mal_format_s24_32,
+                        mal_format_f32,
+                        mal_format_s32,
+                        mal_format_u8
+                    };
+
+                    mal_channel defaultChannelMap[MAL_MAX_CHANNELS];
+                    mal_get_standard_channel_map(mal_standard_channel_map_microsoft, channels, defaultChannelMap);
+
+                    WAVEFORMATEXTENSIBLE wf;
+                    mal_zero_object(&wf);
+                    wf.Format.cbSize     = sizeof(wf);
+                    wf.Format.wFormatTag = WAVE_FORMAT_EXTENSIBLE;
+                    wf.Format.nChannels  = (WORD)channels;
+                    wf.dwChannelMask     = mal_channel_map_to_channel_mask__win32(defaultChannelMap, channels);
+
+                    mal_bool32 found = MAL_FALSE;
+                    for (mal_uint32 iFormat = 0; iFormat < mal_countof(formatsToSearch); ++iFormat) {
+                        mal_format format = formatsToSearch[iFormat];
+
+                        wf.Format.wBitsPerSample       = (WORD)mal_get_bytes_per_sample(format)*8;
+                        wf.Format.nBlockAlign          = (wf.Format.nChannels * wf.Format.wBitsPerSample) / 8;
+                        wf.Format.nAvgBytesPerSec      = wf.Format.nBlockAlign * wf.Format.nSamplesPerSec;
+                        wf.Samples.wValidBitsPerSample = /*(format == mal_format_s24_32) ? 24 :*/ wf.Format.wBitsPerSample;
+                        if (format == mal_format_f32) {
+                            wf.SubFormat = MAL_GUID_KSDATAFORMAT_SUBTYPE_IEEE_FLOAT;
+                        } else {
+                            wf.SubFormat = MAL_GUID_KSDATAFORMAT_SUBTYPE_PCM;
+                        }
+
+                        for (mal_uint32 iSampleRate = 0; iSampleRate < mal_countof(g_malStandardSampleRatePriorities); ++iSampleRate) {
+                            wf.Format.nSamplesPerSec = g_malStandardSampleRatePriorities[iSampleRate];
+
+                            hr = mal_IAudioClient_IsFormatSupported((mal_IAudioClient*)pAudioClient, MAL_AUDCLNT_SHAREMODE_EXCLUSIVE, (WAVEFORMATEX*)&wf, NULL);
+                            if (SUCCEEDED(hr)) {
+                                mal_set_device_info_from_WAVEFORMATEX((WAVEFORMATEX*)&wf, pInfo);
+                                found = MAL_TRUE;
+                                break;
+                            }
+                        }
+
+                        if (found) {
+                            break;
+                        }
+                    }
+
+                    if (!found) {
+                        mal_IPropertyStore_Release(pProperties);
+                        return mal_context_post_error(pContext, NULL, "[WASAPI] Failed to find suitable device format for device info retrieval.", MAL_FAILED_TO_OPEN_BACKEND_DEVICE);
+                    }
+                }
+            } else {
+                mal_IPropertyStore_Release(pProperties);
+                return mal_context_post_error(pContext, NULL, "[WASAPI] Failed to retrieve device format for device info retrieval.", MAL_FAILED_TO_OPEN_BACKEND_DEVICE);
+            }
+        } else {
+            return mal_context_post_error(pContext, NULL, "[WASAPI] Failed to open property store for device info retrieval.", MAL_FAILED_TO_OPEN_BACKEND_DEVICE);
+        }
+
+        return MAL_SUCCESS;
+#else
+        // Exclusive mode not fully supported in UWP right now.
+        return MAL_ERROR;
+#endif
+    }
+}
+
+#ifdef MAL_WIN32_DESKTOP
+mal_result mal_context_get_MMDevice__wasapi(mal_context* pContext, mal_device_type deviceType, const mal_device_id* pDeviceID, mal_IMMDevice** ppMMDevice)
+{
+    mal_assert(pContext != NULL);
+    mal_assert(ppMMDevice != NULL);
+
+    mal_IMMDeviceEnumerator* pDeviceEnumerator;
+    HRESULT hr = mal_CoCreateInstance(pContext, MAL_CLSID_MMDeviceEnumerator, NULL, CLSCTX_ALL, MAL_IID_IMMDeviceEnumerator, (void**)&pDeviceEnumerator);
+    if (FAILED(hr)) {
+        return mal_context_post_error(pContext, NULL, "[WASAPI] Failed to create IMMDeviceEnumerator.", MAL_FAILED_TO_INIT_BACKEND);
+    }
+
+    if (pDeviceID == NULL) {
+        hr = mal_IMMDeviceEnumerator_GetDefaultAudioEndpoint(pDeviceEnumerator, (deviceType == mal_device_type_playback) ? mal_eRender : mal_eCapture, mal_eConsole, ppMMDevice);
+    } else {
+        hr = mal_IMMDeviceEnumerator_GetDevice(pDeviceEnumerator, pDeviceID->wasapi, ppMMDevice);
+    }
+
+    mal_IMMDeviceEnumerator_Release(pDeviceEnumerator);
+    if (FAILED(hr)) {
+        return mal_context_post_error(pContext, NULL, "[WASAPI] Failed to retrieve IMMDevice.", MAL_FAILED_TO_OPEN_BACKEND_DEVICE);
+    }
+
+    return MAL_SUCCESS;
 }
 
 mal_result mal_context_get_device_info_from_MMDevice__wasapi(mal_context* pContext, mal_IMMDevice* pMMDevice, mal_share_mode shareMode, mal_bool32 onlySimpleInfo, mal_device_info* pInfo)
@@ -4730,31 +5028,36 @@ mal_result mal_context_get_device_info_from_MMDevice__wasapi(mal_context* pConte
         mal_CoTaskMemFree(pContext, id);
     }
 
-    mal_IPropertyStore *pProperties;
-    hr = mal_IMMDevice_OpenPropertyStore(pMMDevice, STGM_READ, &pProperties);
-    if (SUCCEEDED(hr)) {
-        PROPVARIANT var;
-
-        // Description / Friendly Name
-        mal_PropVariantInit(&var);
-        hr = mal_IPropertyStore_GetValue(pProperties, &MAL_PKEY_Device_FriendlyName, &var);
+    {
+        mal_IPropertyStore *pProperties;
+        hr = mal_IMMDevice_OpenPropertyStore(pMMDevice, STGM_READ, &pProperties);
         if (SUCCEEDED(hr)) {
-            WideCharToMultiByte(CP_UTF8, 0, var.pwszVal, -1, pInfo->name, sizeof(pInfo->name), 0, FALSE);
-            mal_PropVariantClear(pContext, &var);
-        }
+            PROPVARIANT var;
 
-        // Format
-        if (!onlySimpleInfo) {
-            // TODO:
-            // - Get MAL_PKEY_AudioEngine_DeviceFormat for the channel count
-            // - Open the device
-            // - If shared mode, call GetMixFormat()
-            // - If exclusive mode, loop over most common formats (s16, s24, f32), then each of the standard sample rates.
-            //   - If anything fails, don't allow exclusive mode for this device.
-            (void)shareMode;
-        }
+            // Description / Friendly Name
+            mal_PropVariantInit(&var);
+            hr = mal_IPropertyStore_GetValue(pProperties, &MAL_PKEY_Device_FriendlyName, &var);
+            if (SUCCEEDED(hr)) {
+                WideCharToMultiByte(CP_UTF8, 0, var.pwszVal, -1, pInfo->name, sizeof(pInfo->name), 0, FALSE);
+                mal_PropVariantClear(pContext, &var);
+            }
 
-        mal_IPropertyStore_Release(pProperties);
+            mal_IPropertyStore_Release(pProperties);
+        }
+    }
+
+    // Format
+    if (!onlySimpleInfo) {
+        mal_IAudioClient* pAudioClient;
+        hr = mal_IMMDevice_Activate(pMMDevice, &MAL_IID_IAudioClient, CLSCTX_ALL, NULL, (void**)&pAudioClient);
+        if (SUCCEEDED(hr)) {
+            mal_result result = mal_context_get_device_info_from_IAudioClient__wasapi(pContext, pMMDevice, pAudioClient, shareMode, pInfo);
+            
+            mal_IAudioClient_Release(pAudioClient);
+            return result;
+        } else {
+            return mal_context_post_error(pContext, NULL, "[WASAPI] Failed to activate audio client for device info retrieval.", MAL_FAILED_TO_OPEN_BACKEND_DEVICE);
+        }
     }
 
     return MAL_SUCCESS;
@@ -4792,6 +5095,7 @@ mal_result mal_context_enumerate_device_collection__wasapi(mal_context* pContext
 
     return MAL_SUCCESS;
 }
+#endif
 
 mal_result mal_context_enumerate_devices__wasapi(mal_context* pContext, mal_enum_devices_callback_proc callback, void* pUserData)
 {
@@ -4857,28 +5161,41 @@ mal_result mal_context_enumerate_devices__wasapi(mal_context* pContext, mal_enum
 
 mal_result mal_context_get_device_info__wasapi(mal_context* pContext, mal_device_type deviceType, const mal_device_id* pDeviceID, mal_share_mode shareMode, mal_device_info* pDeviceInfo)
 {
-    mal_IMMDeviceEnumerator* pDeviceEnumerator;
-    HRESULT hr = mal_CoCreateInstance(pContext, MAL_CLSID_MMDeviceEnumerator, NULL, CLSCTX_ALL, MAL_IID_IMMDeviceEnumerator, (void**)&pDeviceEnumerator);
-    if (FAILED(hr)) {
-        return mal_context_post_error(pContext, NULL, "[WASAPI] Failed to create IMMDeviceEnumerator.", MAL_FAILED_TO_INIT_BACKEND);
-    }
-
+#ifdef MAL_WIN32_DESKTOP
     mal_IMMDevice* pMMDevice = NULL;
-    if (pDeviceID == NULL) {
-        hr = mal_IMMDeviceEnumerator_GetDefaultAudioEndpoint(pDeviceEnumerator, (deviceType == mal_device_type_playback) ? mal_eRender : mal_eCapture, mal_eConsole, &pMMDevice);
-    } else {
-        hr = mal_IMMDeviceEnumerator_GetDevice(pDeviceEnumerator, pDeviceID->wasapi, &pMMDevice);
+    mal_result result = mal_context_get_MMDevice__wasapi(pContext, deviceType, pDeviceID, &pMMDevice);
+    if (result != MAL_SUCCESS) {
+        return result;
     }
 
-    mal_IMMDeviceEnumerator_Release(pDeviceEnumerator);
-    if (FAILED(hr)) {
-        return mal_context_post_error(pContext, NULL, "[WASAPI] Failed to retrieve IMMDevice.", MAL_FAILED_TO_OPEN_BACKEND_DEVICE);
-    }
-
-    mal_result result = mal_context_get_device_info_from_MMDevice__wasapi(pContext, pMMDevice, shareMode, MAL_FALSE, pDeviceInfo);   // MAL_FALSE = !onlySimpleInfo.
+    result = mal_context_get_device_info_from_MMDevice__wasapi(pContext, pMMDevice, shareMode, MAL_FALSE, pDeviceInfo);   // MAL_FALSE = !onlySimpleInfo.
 
     mal_IMMDevice_Release(pMMDevice);
     return result;
+#else
+    // UWP currently only uses default devices.
+    if (deviceType == mal_device_type_playback) {
+        mal_strncpy_s(pDeviceInfo->name, sizeof(pDeviceInfo->name), MAL_DEFAULT_PLAYBACK_DEVICE_NAME, (size_t)-1);
+    } else {
+        mal_strncpy_s(pDeviceInfo->name, sizeof(pDeviceInfo->name), MAL_DEFAULT_CAPTURE_DEVICE_NAME, (size_t)-1);
+    }
+
+    // Not currently supporting exclusive mode on UWP.
+    if (shareMode == mal_share_mode_exclusive) {
+        return MAL_ERROR;
+    }
+
+    mal_IAudioClient* pAudioClient;
+    mal_result result = mal_context_get_IAudioClient_UWP__wasapi(pContext, deviceType, pDeviceID, &pAudioClient, NULL);
+    if (result != MAL_SUCCESS) {
+        return result;
+    }
+
+    result = mal_context_get_device_info_from_IAudioClient__wasapi(pContext, NULL, pAudioClient, shareMode, pDeviceInfo);
+
+    mal_IAudioClient_Release(pAudioClient);
+    return result;
+#endif
 }
 
 
@@ -4947,59 +5264,6 @@ void mal_device_uninit__wasapi(mal_device* pDevice)
     }
 }
 
-// This is the part that's preventing mini_al from being compiled as C with UWP. We need to implement IActivateAudioInterfaceCompletionHandler
-// in C which is quite annoying.
-#ifndef MAL_WIN32_DESKTOP
-    #ifdef __cplusplus
-    #include <mmdeviceapi.h>
-    #include <wrl\implements.h>
-
-    class malCompletionHandler : public Microsoft::WRL::RuntimeClass< Microsoft::WRL::RuntimeClassFlags< Microsoft::WRL::ClassicCom >, Microsoft::WRL::FtmBase, IActivateAudioInterfaceCompletionHandler >
-    {
-    public:
-
-        malCompletionHandler()
-            : m_hEvent(NULL)
-        {
-        }
-
-        mal_result Init()
-        {
-            m_hEvent = CreateEventA(NULL, FALSE, FALSE, NULL);
-            if (m_hEvent == NULL) {
-                return MAL_ERROR;
-            }
-
-            return MAL_SUCCESS;
-        }
-
-        void Uninit()
-        {
-            if (m_hEvent != NULL) {
-                CloseHandle(m_hEvent);
-            }
-        }
-
-        void Wait()
-        {
-            WaitForSingleObject(m_hEvent, INFINITE);
-        }
-
-        HRESULT STDMETHODCALLTYPE ActivateCompleted(IActivateAudioInterfaceAsyncOperation *activateOperation)
-        {
-            (void)activateOperation;
-            SetEvent(m_hEvent);
-            return S_OK;
-        }
-
-    private:
-        HANDLE m_hEvent;  // This is created in Init(), deleted in Uninit(), waited on in Wait() and signaled in ActivateCompleted().
-    };
-    #else
-    #error "The UWP build is currently only supported in C++."
-    #endif
-#endif  // !MAL_WIN32_DESKTOP
-
 mal_result mal_device_init__wasapi(mal_context* pContext, mal_device_type type, mal_device_id* pDeviceID, const mal_device_config* pConfig, mal_device* pDevice)
 {
     (void)pContext;
@@ -5016,27 +5280,10 @@ mal_result mal_device_init__wasapi(mal_context* pContext, mal_device_type type, 
 
 #ifdef MAL_WIN32_DESKTOP
     mal_IMMDevice* pMMDevice = NULL;
-
-    mal_IMMDeviceEnumerator* pDeviceEnumerator;
-    hr = mal_CoCreateInstance(pContext, MAL_CLSID_MMDeviceEnumerator, NULL, CLSCTX_ALL, MAL_IID_IMMDeviceEnumerator, (void**)&pDeviceEnumerator);
-    if (FAILED(hr)) {
-        errorMsg = "[WASAPI] Failed to create IMMDeviceEnumerator.", result = MAL_FAILED_TO_OPEN_BACKEND_DEVICE;
+    result = mal_context_get_MMDevice__wasapi(pContext, type, pDeviceID, &pMMDevice);
+    if (result != MAL_SUCCESS) {
         goto done;
     }
-
-    if (pDeviceID == NULL) {
-        hr = mal_IMMDeviceEnumerator_GetDefaultAudioEndpoint(pDeviceEnumerator, (type == mal_device_type_playback) ? mal_eRender : mal_eCapture, mal_eConsole, &pMMDevice);
-    } else {
-        hr = mal_IMMDeviceEnumerator_GetDevice(pDeviceEnumerator, pDeviceID->wasapi, &pMMDevice);
-    }
-
-    if (FAILED(hr)) {
-        mal_IMMDeviceEnumerator_Release(pDeviceEnumerator);
-        errorMsg = "[WASAPI] Failed to create backend device.", result = MAL_FAILED_TO_OPEN_BACKEND_DEVICE;
-        goto done;
-    }
-
-    mal_IMMDeviceEnumerator_Release(pDeviceEnumerator);
 
     hr = mal_IMMDevice_Activate(pMMDevice, &MAL_IID_IAudioClient, CLSCTX_ALL, NULL, &pDevice->wasapi.pAudioClient);
     if (FAILED(hr)) {
@@ -5044,62 +5291,9 @@ mal_result mal_device_init__wasapi(mal_context* pContext, mal_device_type type, 
         goto done;
     }
 #else
-    mal_IActivateAudioInterfaceAsyncOperation *pAsyncOp = NULL;
-    malCompletionHandler completionHandler;
-
-    IID iid;
-    if (pDeviceID != NULL) {
-        mal_copy_memory(&iid, pDeviceID->wasapi, sizeof(iid));
-    } else {
-        if (type == mal_device_type_playback) {
-            iid = MAL_IID_DEVINTERFACE_AUDIO_RENDER;
-        } else {
-            iid = MAL_IID_DEVINTERFACE_AUDIO_CAPTURE;
-        }
-    }
-
-    LPOLESTR iidStr;
-    hr = StringFromIID(iid, &iidStr);
-    if (FAILED(hr)) {
-        errorMsg = "[WASAPI] Failed to convert device IID to string for ActivateAudioInterfaceAsync(). Out of memory.", result = MAL_OUT_OF_MEMORY;
-        goto done;
-    }
-
-    result = completionHandler.Init();
+    IUnknown* pActivatedInterface = NULL;
+    result = mal_context_get_IAudioClient_UWP__wasapi(pContext, type, pDeviceID, (mal_IAudioClient**)&pDevice->wasapi.pAudioClient, &pActivatedInterface);
     if (result != MAL_SUCCESS) {
-        mal_CoTaskMemFree(pContext, iidStr);
-
-        errorMsg = "[WASAPI] Failed to create event for waiting for ActivateAudioInterfaceAsync().", result = MAL_FAILED_TO_OPEN_BACKEND_DEVICE;
-        goto done;
-    }
-
-    hr = ActivateAudioInterfaceAsync(iidStr, MAL_IID_IAudioClient, NULL, (IActivateAudioInterfaceCompletionHandler*)&completionHandler, (IActivateAudioInterfaceAsyncOperation**)&pAsyncOp);
-    if (FAILED(hr)) {
-        completionHandler.Uninit();
-        mal_CoTaskMemFree(pContext, iidStr);
-
-        errorMsg = "[WASAPI] ActivateAudioInterfaceAsync() failed.", result = MAL_FAILED_TO_OPEN_BACKEND_DEVICE;
-        goto done;
-    }
-
-    mal_CoTaskMemFree(pContext, iidStr);
-
-    // Wait for the async operation for finish.
-    completionHandler.Wait();
-    completionHandler.Uninit();
-
-    HRESULT activateResult;
-    IUnknown* pActivatedInterface;
-    hr = mal_IActivateAudioInterfaceAsyncOperation_GetActivateResult(pAsyncOp, &activateResult, &pActivatedInterface);
-    if (FAILED(hr) || FAILED(activateResult)) {
-        errorMsg = "[WASAPI] Failed to activate device.", result = MAL_FAILED_TO_OPEN_BACKEND_DEVICE;
-        goto done;
-    }
-
-    // Here is where we grab the IAudioClient interface.
-    hr = pActivatedInterface->QueryInterface(MAL_IID_IAudioClient, &pDevice->wasapi.pAudioClient);
-    if (FAILED(hr)) {
-        errorMsg = "[WASAPI] Failed to query IAudioClient interface.", result = MAL_FAILED_TO_OPEN_BACKEND_DEVICE;
         goto done;
     }
 #endif
@@ -5332,8 +5526,8 @@ done:
         mal_IMMDevice_Release(pMMDevice);
     }
 #else
-    if (pAsyncOp != NULL) {
-        mal_IActivateAudioInterfaceAsyncOperation_Release(pAsyncOp);
+    if (pActivatedInterface != NULL) {
+        pActivatedInterface->Release();
     }
 #endif
 
