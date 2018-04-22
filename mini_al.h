@@ -3934,9 +3934,9 @@ mal_result mal_context_get_device_info__null(mal_context* pContext, mal_device_t
     }
 
     // Support everything on the null backend.
-    pDeviceInfo->formatCount = mal_format_count;
+    pDeviceInfo->formatCount = mal_format_count - 1;    // Minus one because we don't want to include mal_format_unknown.
     for (mal_uint32 iFormat = 0; iFormat < pDeviceInfo->formatCount; ++iFormat) {
-        pDeviceInfo->formats[iFormat] = (mal_format)iFormat;
+        pDeviceInfo->formats[iFormat] = (mal_format)(iFormat + 1);  // +1 to skip over mal_format_unknown.
     }
 
     pDeviceInfo->minChannels   = 1;
