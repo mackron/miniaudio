@@ -2808,10 +2808,11 @@ mal_uint32 g_malStandardSampleRatePriorities[] = {
 #endif
 #endif
 
-#define mal_countof(x)  (sizeof(x) / sizeof(x[0]))
-#define mal_max(x, y)   (((x) > (y)) ? (x) : (y))
-#define mal_min(x, y)   (((x) < (y)) ? (x) : (y))
-#define mal_offset_ptr(p, offset) (((mal_uint8*)(p)) + (offset))
+#define mal_countof(x)              (sizeof(x) / sizeof(x[0]))
+#define mal_max(x, y)               (((x) > (y)) ? (x) : (y))
+#define mal_min(x, y)               (((x) < (y)) ? (x) : (y))
+#define mal_clamp(x, lo, hi)        (mal_max(lo, mal_min(x, hi)))
+#define mal_offset_ptr(p, offset)   (((mal_uint8*)(p)) + (offset))
 
 #define mal_buffer_frame_capacity(buffer, channels, format) (sizeof(buffer) / mal_get_bytes_per_sample(format) / (channels))
 
@@ -3663,6 +3664,34 @@ mal_uint32 mal_get_best_sample_rate_within_range(mal_uint32 sampleRateMin, mal_u
     // Should never get here.
     mal_assert(MAL_FALSE);
     return 0;
+}
+
+mal_uint32 mal_get_closest_standard_sample_rate(mal_uint32 sampleRateIn)
+{
+    mal_uint32 closestRate = 0;
+    mal_uint32 closestDiff = 0xFFFFFFFF;
+
+    for (size_t iStandardRate = 0; iStandardRate < mal_countof(g_malStandardSampleRatePriorities); ++iStandardRate) {
+        mal_uint32 standardRate = g_malStandardSampleRatePriorities[iStandardRate];
+
+        mal_uint32 diff;
+        if (sampleRateIn > standardRate) {
+            diff = sampleRateIn - standardRate;
+        } else {
+            diff = standardRate - sampleRateIn;
+        }
+
+        if (diff == 0) {
+            return standardRate;    // The input sample rate is a standard rate.
+        }
+
+        if (closestDiff > diff) {
+            closestDiff = diff;
+            closestRate = standardRate;
+        }
+    }
+
+    return closestRate;
 }
 
 
@@ -6101,6 +6130,147 @@ void mal_get_channels_from_speaker_config__dsound(DWORD speakerConfig, WORD* pCh
 }
 
 
+mal_result mal_context_create_IDirectSound__dsound(mal_context* pContext, mal_share_mode shareMode, const mal_device_id* pDeviceID, mal_IDirectSound** ppDirectSound)
+{
+    mal_assert(pContext != NULL);
+    mal_assert(ppDirectSound != NULL);
+
+    *ppDirectSound = NULL;
+    mal_IDirectSound* pDirectSound = NULL;
+
+    if (FAILED(((mal_DirectSoundCreateProc)pContext->dsound.DirectSoundCreate)((pDeviceID == NULL) ? NULL : (const GUID*)pDeviceID->dsound, &pDirectSound, NULL))) {
+        return mal_context_post_error(pContext, NULL, "[DirectSound] DirectSoundCreate() failed for playback device.", MAL_FAILED_TO_OPEN_BACKEND_DEVICE);
+    }
+
+    // The cooperative level must be set before doing anything else.
+    HWND hWnd = ((MAL_PFN_GetForegroundWindow)pContext->win32.GetForegroundWindow)();
+    if (hWnd == NULL) {
+        hWnd = ((MAL_PFN_GetDesktopWindow)pContext->win32.GetDesktopWindow)();
+    }
+    if (FAILED(mal_IDirectSound_SetCooperativeLevel(pDirectSound, hWnd, (shareMode == mal_share_mode_exclusive) ? MAL_DSSCL_EXCLUSIVE : MAL_DSSCL_PRIORITY))) {
+        return mal_context_post_error(pContext, NULL, "[DirectSound] IDirectSound_SetCooperateiveLevel() failed for playback device.", MAL_FAILED_TO_OPEN_BACKEND_DEVICE);
+    }
+
+    *ppDirectSound = pDirectSound;
+    return MAL_SUCCESS;
+}
+
+mal_result mal_context_create_IDirectSoundCapture__dsound(mal_context* pContext, mal_share_mode shareMode, const mal_device_id* pDeviceID, mal_IDirectSoundCapture** ppDirectSoundCapture)
+{
+    mal_assert(pContext != NULL);
+    mal_assert(ppDirectSoundCapture != NULL);
+
+    // Everything is shared in capture mode by the looks of it.
+    (void)shareMode;
+
+    *ppDirectSoundCapture = NULL;
+    mal_IDirectSoundCapture* pDirectSoundCapture = NULL;
+
+    if (FAILED(((mal_DirectSoundCaptureCreateProc)pContext->dsound.DirectSoundCaptureCreate)((pDeviceID == NULL) ? NULL : (const GUID*)pDeviceID->dsound, &pDirectSoundCapture, NULL))) {
+        return mal_context_post_error(pContext, NULL, "[DirectSound] DirectSoundCaptureCreate() failed for capture device.", MAL_FAILED_TO_OPEN_BACKEND_DEVICE);
+    }
+
+    *ppDirectSoundCapture = pDirectSoundCapture;
+    return MAL_SUCCESS;
+}
+
+mal_result mal_context_get_format_info_for_IDirectSoundCapture__dsound(mal_context* pContext, mal_IDirectSoundCapture* pDirectSoundCapture, WORD* pChannels, WORD* pBitsPerSample, DWORD* pSampleRate)
+{
+    mal_assert(pContext != NULL);
+    mal_assert(pDirectSoundCapture != NULL);
+
+    if (pChannels) {
+        *pChannels = 0;
+    }
+    if (pBitsPerSample) {
+        *pBitsPerSample = 0;
+    }
+    if (pSampleRate) {
+        *pSampleRate = 0;
+    }
+
+    MAL_DSCCAPS caps;
+    mal_zero_object(&caps);
+    caps.dwSize = sizeof(caps);
+    if (FAILED(mal_IDirectSoundCapture_GetCaps(pDirectSoundCapture, &caps))) {
+        return mal_context_post_error(pContext, NULL, "[DirectSound] IDirectSoundCapture_GetCaps() failed for capture device.", MAL_FAILED_TO_OPEN_BACKEND_DEVICE);
+    }
+
+    if (pChannels) {
+        *pChannels = (WORD)caps.dwChannels;
+    }
+
+    // The device can support multiple formats. We just go through the different formats in order of priority and
+    // pick the first one. This the same type of system as the WinMM backend.
+    WORD bitsPerSample = 16;
+    DWORD sampleRate = 48000;
+
+    if (caps.dwChannels == 1) {
+        if ((caps.dwFormats & WAVE_FORMAT_48M16) != 0) {
+            sampleRate = 48000;
+        } else if ((caps.dwFormats & WAVE_FORMAT_44M16) != 0) {
+            sampleRate = 44100;
+        } else if ((caps.dwFormats & WAVE_FORMAT_2M16) != 0) {
+            sampleRate = 22050;
+        } else if ((caps.dwFormats & WAVE_FORMAT_1M16) != 0) {
+            sampleRate = 11025;
+        } else if ((caps.dwFormats & WAVE_FORMAT_96M16) != 0) {
+            sampleRate = 96000;
+        } else {
+            bitsPerSample = 8;
+            if ((caps.dwFormats & WAVE_FORMAT_48M08) != 0) {
+                sampleRate = 48000;
+            } else if ((caps.dwFormats & WAVE_FORMAT_44M08) != 0) {
+                sampleRate = 44100;
+            } else if ((caps.dwFormats & WAVE_FORMAT_2M08) != 0) {
+                sampleRate = 22050;
+            } else if ((caps.dwFormats & WAVE_FORMAT_1M08) != 0) {
+                sampleRate = 11025;
+            } else if ((caps.dwFormats & WAVE_FORMAT_96M08) != 0) {
+                sampleRate = 96000;
+            } else {
+                bitsPerSample = 16;  // Didn't find it. Just fall back to 16-bit.
+            }
+        }
+    } else if (caps.dwChannels == 2) {
+        if ((caps.dwFormats & WAVE_FORMAT_48S16) != 0) {
+            sampleRate = 48000;
+        } else if ((caps.dwFormats & WAVE_FORMAT_44S16) != 0) {
+            sampleRate = 44100;
+        } else if ((caps.dwFormats & WAVE_FORMAT_2S16) != 0) {
+            sampleRate = 22050;
+        } else if ((caps.dwFormats & WAVE_FORMAT_1S16) != 0) {
+            sampleRate = 11025;
+        } else if ((caps.dwFormats & WAVE_FORMAT_96S16) != 0) {
+            sampleRate = 96000;
+        } else {
+            bitsPerSample = 8;
+            if ((caps.dwFormats & WAVE_FORMAT_48S08) != 0) {
+                sampleRate = 48000;
+            } else if ((caps.dwFormats & WAVE_FORMAT_44S08) != 0) {
+                sampleRate = 44100;
+            } else if ((caps.dwFormats & WAVE_FORMAT_2S08) != 0) {
+                sampleRate = 22050;
+            } else if ((caps.dwFormats & WAVE_FORMAT_1S08) != 0) {
+                sampleRate = 11025;
+            } else if ((caps.dwFormats & WAVE_FORMAT_96S08) != 0) {
+                sampleRate = 96000;
+            } else {
+                bitsPerSample = 16;  // Didn't find it. Just fall back to 16-bit.
+            }
+        }
+    }
+
+    if (pBitsPerSample) {
+        *pBitsPerSample = bitsPerSample;
+    }
+    if (pSampleRate) {
+        *pSampleRate = sampleRate;
+    }
+
+    return MAL_SUCCESS;
+}
+
 mal_bool32 mal_context_is_device_id_equal__dsound(mal_context* pContext, const mal_device_id* pID0, const mal_device_id* pID1)
 {
     mal_assert(pContext != NULL);
@@ -6230,10 +6400,8 @@ mal_result mal_context_get_device_info__dsound(mal_context* pContext, mal_device
             ((mal_DirectSoundCaptureEnumerateAProc)pContext->dsound.DirectSoundCaptureEnumerateA)(mal_context_get_device_info_callback__dsound, &data);
         }
 
-        if (data.found) {
+        if (!data.found) {
             return MAL_SUCCESS;
-        } else {
-            return MAL_NO_DEVICE;
         }
     } else {
         // I don't think there's a way to get the name of the default device with DirectSound. In this case we just need to use defaults.
@@ -6247,6 +6415,105 @@ mal_result mal_context_get_device_info__dsound(mal_context* pContext, mal_device
         } else {
             mal_strncpy_s(pDeviceInfo->name, sizeof(pDeviceInfo->name), MAL_DEFAULT_CAPTURE_DEVICE_NAME, (size_t)-1);
         }
+    }
+
+    // Retrieving detailed information is slightly different depending on the device type.
+    if (deviceType == mal_device_type_playback) {
+        // Playback.
+        mal_IDirectSound* pDirectSound;
+        mal_result result = mal_context_create_IDirectSound__dsound(pContext, shareMode, pDeviceID, &pDirectSound);
+        if (result != MAL_SUCCESS) {
+            return result;
+        }
+
+        MAL_DSCAPS caps;
+        mal_zero_object(&caps);
+        caps.dwSize = sizeof(caps);
+        if (FAILED(mal_IDirectSound_GetCaps(pDirectSound, &caps))) {
+            return mal_context_post_error(pContext, NULL, "[DirectSound] IDirectSound_GetCaps() failed for playback device.", MAL_FAILED_TO_OPEN_BACKEND_DEVICE);
+        }
+
+        if ((caps.dwFlags & MAL_DSCAPS_PRIMARYSTEREO) != 0) {
+            // It supports at least stereo, but could support more.
+            pDeviceInfo->minChannels = 2;
+            pDeviceInfo->maxChannels = 2;
+
+            // Look at the speaker configuration to get a better idea on the channel count.
+            DWORD speakerConfig;
+            if (SUCCEEDED(mal_IDirectSound_GetSpeakerConfig(pDirectSound, &speakerConfig))) {
+                WORD actualChannels;
+                mal_get_channels_from_speaker_config__dsound(speakerConfig, &actualChannels, NULL);
+
+                pDeviceInfo->minChannels = actualChannels;
+                pDeviceInfo->maxChannels = actualChannels;
+            }
+        } else {
+            // It does not support stereo, which means we are stuck with mono.
+            pDeviceInfo->minChannels = 1;
+            pDeviceInfo->maxChannels = 1;
+        }
+
+        // Sample rate.
+        if ((caps.dwFlags & MAL_DSCAPS_CONTINUOUSRATE) != 0) {
+            pDeviceInfo->minSampleRate = caps.dwMinSecondarySampleRate;
+            pDeviceInfo->maxSampleRate = caps.dwMaxSecondarySampleRate;
+
+            // On my machine the min and max sample rates can return 100 and 200000 respectively. I'd rather these be within
+            // the range of our standard sample rates so I'm clamping.
+            if (caps.dwMinSecondarySampleRate < MAL_MIN_SAMPLE_RATE && caps.dwMaxSecondarySampleRate >= MAL_MIN_SAMPLE_RATE) {
+                pDeviceInfo->minSampleRate = MAL_MIN_SAMPLE_RATE;
+            }
+            if (caps.dwMaxSecondarySampleRate > MAL_MAX_SAMPLE_RATE && caps.dwMinSecondarySampleRate <= MAL_MAX_SAMPLE_RATE) {
+                pDeviceInfo->maxSampleRate = MAL_MAX_SAMPLE_RATE;
+            }
+        } else {
+            // Only supports a single sample rate. Set both min an max to the same thing. Do not clamp within the standard rates.
+            pDeviceInfo->minSampleRate = caps.dwMaxSecondarySampleRate;
+            pDeviceInfo->maxSampleRate = caps.dwMaxSecondarySampleRate;
+        }
+
+        // DirectSound can support all formats.
+        pDeviceInfo->formatCount = mal_format_count - 1;    // Minus one because we don't want to include mal_format_unknown.
+        for (mal_uint32 iFormat = 0; iFormat < pDeviceInfo->formatCount; ++iFormat) {
+            pDeviceInfo->formats[iFormat] = (mal_format)(iFormat + 1);  // +1 to skip over mal_format_unknown.
+        }
+
+        mal_IDirectSound_Release(pDirectSound);
+    } else {
+        // Capture. This is a little different to playback due to the say the supported formats are reported. Technically capture
+        // devices can support a number of different formats, but for simplicity and consistency with mal_device_init() I'm just
+        // reporting the best format.
+        mal_IDirectSoundCapture* pDirectSoundCapture;
+        mal_result result = mal_context_create_IDirectSoundCapture__dsound(pContext, shareMode, pDeviceID, &pDirectSoundCapture);
+        if (result != MAL_SUCCESS) {
+            return result;
+        }
+
+        WORD channels;
+        WORD bitsPerSample;
+        DWORD sampleRate;
+        result = mal_context_get_format_info_for_IDirectSoundCapture__dsound(pContext, pDirectSoundCapture, &channels, &bitsPerSample, &sampleRate);
+        if (result != MAL_SUCCESS) {
+            mal_IDirectSoundCapture_Release(pDirectSoundCapture);
+            return result;
+        }
+
+        pDeviceInfo->minChannels = channels;
+        pDeviceInfo->maxChannels = channels;
+        pDeviceInfo->minSampleRate = sampleRate;
+        pDeviceInfo->maxSampleRate = sampleRate;
+        pDeviceInfo->formatCount = 1;
+        if (bitsPerSample == 8) {
+            pDeviceInfo->formats[0] = mal_format_u8;
+        } else if (bitsPerSample == 16) {
+            pDeviceInfo->formats[0] = mal_format_s16;
+        } else if (bitsPerSample == 24) {
+            pDeviceInfo->formats[0] = mal_format_s24;
+        } else if (bitsPerSample == 32) {
+            pDeviceInfo->formats[0] = mal_format_s32;
+        }
+
+        mal_IDirectSoundCapture_Release(pDirectSoundCapture);
     }
 
     return MAL_SUCCESS;
@@ -6402,19 +6669,10 @@ mal_result mal_device_init__dsound(mal_context* pContext, mal_device_type type, 
 
     // Unfortunately DirectSound uses different APIs and data structures for playback and catpure devices :(
     if (type == mal_device_type_playback) {
-        if (FAILED(((mal_DirectSoundCreateProc)pContext->dsound.DirectSoundCreate)((pDeviceID == NULL) ? NULL : (const GUID*)pDeviceID->dsound, (mal_IDirectSound**)&pDevice->dsound.pPlayback, NULL))) {
+        mal_result result = mal_context_create_IDirectSound__dsound(pContext, pConfig->shareMode, pDeviceID, (mal_IDirectSound**)&pDevice->dsound.pPlayback);
+        if (result != MAL_SUCCESS) {
             mal_device_uninit__dsound(pDevice);
-            return mal_post_error(pDevice, "[DirectSound] DirectSoundCreate() failed for playback device.", MAL_FAILED_TO_OPEN_BACKEND_DEVICE);
-        }
-
-        // The cooperative level must be set before doing anything else.
-        HWND hWnd = ((MAL_PFN_GetForegroundWindow)pContext->win32.GetForegroundWindow)();
-        if (hWnd == NULL) {
-            hWnd = ((MAL_PFN_GetDesktopWindow)pContext->win32.GetDesktopWindow)();
-        }
-        if (FAILED(mal_IDirectSound_SetCooperativeLevel((mal_IDirectSound*)pDevice->dsound.pPlayback, hWnd, (pConfig->shareMode == mal_share_mode_exclusive) ? MAL_DSSCL_EXCLUSIVE : MAL_DSSCL_PRIORITY))) {
-            mal_device_uninit__dsound(pDevice);
-            return mal_post_error(pDevice, "[DirectSound] IDirectSound_SetCooperateiveLevel() failed for playback device.", MAL_FAILED_TO_OPEN_BACKEND_DEVICE);
+            return result;
         }
 
         MAL_DSBUFFERDESC descDSPrimary;
@@ -6533,81 +6791,16 @@ mal_result mal_device_init__dsound(mal_context* pContext, mal_device_type type, 
             pDevice->bufferSizeInFrames *= 2; // <-- Might need to fiddle with this to find a more ideal value. May even be able to just add a fixed amount rather than scaling.
         }
 
-        if (FAILED(((mal_DirectSoundCaptureCreateProc)pContext->dsound.DirectSoundCaptureCreate)((pDeviceID == NULL) ? NULL : (const GUID*)pDeviceID->dsound, (mal_IDirectSoundCapture**)&pDevice->dsound.pCapture, NULL))) {
+        mal_result result = mal_context_create_IDirectSoundCapture__dsound(pContext, pConfig->shareMode, pDeviceID, (mal_IDirectSoundCapture**)&pDevice->dsound.pCapture);
+        if (result != MAL_SUCCESS) {
             mal_device_uninit__dsound(pDevice);
-            return mal_post_error(pDevice, "[DirectSound] DirectSoundCaptureCreate() failed for capture device.", MAL_FAILED_TO_OPEN_BACKEND_DEVICE);
+            return result;
         }
 
-
-        MAL_DSCCAPS caps;
-        mal_zero_object(&caps);
-        caps.dwSize = sizeof(caps);
-        if (FAILED(mal_IDirectSoundCapture_GetCaps((mal_IDirectSoundCapture*)pDevice->dsound.pCapture, &caps))) {
+        result = mal_context_get_format_info_for_IDirectSoundCapture__dsound(pContext, (mal_IDirectSoundCapture*)pDevice->dsound.pCapture, &wf.Format.nChannels, &wf.Format.wBitsPerSample, &wf.Format.nSamplesPerSec);
+        if (result != MAL_SUCCESS) {
             mal_device_uninit__dsound(pDevice);
-            return mal_post_error(pDevice, "[DirectSound] IDirectSoundCapture_GetCaps() failed for capture device.", MAL_FAILED_TO_OPEN_BACKEND_DEVICE);
-        }
-
-        wf.Format.nChannels = (WORD)caps.dwChannels;
-
-        // The device can support multiple formats. We just go through the different formats in order of priority and
-        // pick the first one. This the same type of system as the WinMM backend.
-        wf.Format.wBitsPerSample = 16;
-        wf.Format.nSamplesPerSec = 48000;
-
-        if (caps.dwChannels == 1) {
-            if ((caps.dwFormats & WAVE_FORMAT_48M16) != 0) {
-                wf.Format.nSamplesPerSec = 48000;
-            } else if ((caps.dwFormats & WAVE_FORMAT_44M16) != 0) {
-                wf.Format.nSamplesPerSec = 44100;
-            } else if ((caps.dwFormats & WAVE_FORMAT_2M16) != 0) {
-                wf.Format.nSamplesPerSec = 22050;
-            } else if ((caps.dwFormats & WAVE_FORMAT_1M16) != 0) {
-                wf.Format.nSamplesPerSec = 11025;
-            } else if ((caps.dwFormats & WAVE_FORMAT_96M16) != 0) {
-                wf.Format.nSamplesPerSec = 96000;
-            } else {
-                wf.Format.wBitsPerSample = 8;
-                if ((caps.dwFormats & WAVE_FORMAT_48M08) != 0) {
-                    wf.Format.nSamplesPerSec = 48000;
-                } else if ((caps.dwFormats & WAVE_FORMAT_44M08) != 0) {
-                    wf.Format.nSamplesPerSec = 44100;
-                } else if ((caps.dwFormats & WAVE_FORMAT_2M08) != 0) {
-                    wf.Format.nSamplesPerSec = 22050;
-                } else if ((caps.dwFormats & WAVE_FORMAT_1M08) != 0) {
-                    wf.Format.nSamplesPerSec = 11025;
-                } else if ((caps.dwFormats & WAVE_FORMAT_96M08) != 0) {
-                    wf.Format.nSamplesPerSec = 96000;
-                } else {
-                    wf.Format.wBitsPerSample = 16;  // Didn't find it. Just fall back to 16-bit.
-                }
-            }
-        } else if (caps.dwChannels == 2) {
-            if ((caps.dwFormats & WAVE_FORMAT_48S16) != 0) {
-                wf.Format.nSamplesPerSec = 48000;
-            } else if ((caps.dwFormats & WAVE_FORMAT_44S16) != 0) {
-                wf.Format.nSamplesPerSec = 44100;
-            } else if ((caps.dwFormats & WAVE_FORMAT_2S16) != 0) {
-                wf.Format.nSamplesPerSec = 22050;
-            } else if ((caps.dwFormats & WAVE_FORMAT_1S16) != 0) {
-                wf.Format.nSamplesPerSec = 11025;
-            } else if ((caps.dwFormats & WAVE_FORMAT_96S16) != 0) {
-                wf.Format.nSamplesPerSec = 96000;
-            } else {
-                wf.Format.wBitsPerSample = 8;
-                if ((caps.dwFormats & WAVE_FORMAT_48S08) != 0) {
-                    wf.Format.nSamplesPerSec = 48000;
-                } else if ((caps.dwFormats & WAVE_FORMAT_44S08) != 0) {
-                    wf.Format.nSamplesPerSec = 44100;
-                } else if ((caps.dwFormats & WAVE_FORMAT_2S08) != 0) {
-                    wf.Format.nSamplesPerSec = 22050;
-                } else if ((caps.dwFormats & WAVE_FORMAT_1S08) != 0) {
-                    wf.Format.nSamplesPerSec = 11025;
-                } else if ((caps.dwFormats & WAVE_FORMAT_96S08) != 0) {
-                    wf.Format.nSamplesPerSec = 96000;
-                } else {
-                    wf.Format.wBitsPerSample = 16;  // Didn't find it. Just fall back to 16-bit.
-                }
-            }
+            return result;
         }
 
         wf.Format.nBlockAlign          = (wf.Format.nChannels * wf.Format.wBitsPerSample) / 8;
