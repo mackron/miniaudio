@@ -2339,7 +2339,7 @@ mal_uint64 mal_sine_wave_read(mal_sine_wave* pSignWave, mal_uint64 count, float*
 
 // Intrinsics Support
 #if defined(MAL_X64) || defined(MAL_X86)
-    #if defined(_MSC_VER)
+    #if defined(_MSC_VER) && !defined(__clang__)
         // MSVC.
         #if !defined(MAL_NO_SSE2)   // Assume all MSVC compilers support SSE2 intrinsics.
             #define MAL_SUPPORT_SSE2
@@ -2364,7 +2364,7 @@ mal_uint64 mal_sine_wave_read(mal_sine_wave* pSignWave, mal_uint64 count, float*
     #endif
 
     // If at this point we still haven't determined compiler support for the intrinsics just fall back to __has_include.
-    #if !defined(__GNUC__) && defined(__has_include)
+    #if !defined(__GNUC__) && !defined(__clang__) && defined(__has_include)
         #if !defined(MAL_SUPPORT_SSE2)   && !defined(MAL_NO_SSE2)   && __has_include(<emmintrin.h>)
             #define MAL_SUPPORT_SSE2
         #endif
@@ -2391,7 +2391,7 @@ mal_uint64 mal_sine_wave_read(mal_sine_wave* pSignWave, mal_uint64 count, float*
     #endif
 
     // Fall back to looking for the #include file.
-    #if !defined(__GNUC__) && defined(__has_include)
+    #if !defined(__GNUC__) && !defined(__clang__) && defined(__has_include)
         #if !defined(MAL_SUPPORT_NEON) && !defined(MAL_NO_NEON) && __has_include(<arm_neon.h>)
             #define MAL_SUPPORT_NEON
         #endif
@@ -2404,7 +2404,7 @@ mal_uint64 mal_sine_wave_read(mal_sine_wave* pSignWave, mal_uint64 count, float*
 
 
 #if defined(MAL_X64) || defined(MAL_X86)
-    #if defined(_MSC_VER)
+    #if defined(_MSC_VER) && !defined(__clang__)
         #if _MSC_VER >= 1400
             #include <intrin.h>
             static MAL_INLINE void mal_cpuid(int info[4], int fid)
