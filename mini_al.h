@@ -1289,6 +1289,11 @@ struct mal_context
             /*HMODULE*/ mal_handle hUser32DLL;
             mal_proc GetForegroundWindow;
             mal_proc GetDesktopWindow;
+
+            /*HMODULE*/ mal_handle hAdvapi32DLL;
+            mal_proc RegOpenKeyExA;
+            mal_proc RegCloseKey;
+            mal_proc RegQueryValueExA;
         } win32;
 #endif
 #ifdef MAL_POSIX
@@ -2681,6 +2686,10 @@ typedef int     (WINAPI * MAL_PFN_StringFromGUID2)(const GUID* const rguid, LPOL
 
 typedef HWND (WINAPI * MAL_PFN_GetForegroundWindow)();
 typedef HWND (WINAPI * MAL_PFN_GetDesktopWindow)();
+
+typedef LSTATUS (WINAPI * MAL_PFN_RegOpenKeyExA)(HKEY hKey, LPCSTR lpSubKey, DWORD ulOptions, REGSAM samDesired, PHKEY phkResult);
+typedef LSTATUS (WINAPI * MAL_PFN_RegCloseKey)(HKEY hKey);
+typedef LSTATUS (WINAPI * MAL_PFN_RegQueryValueExA)(HKEY hKey, LPCSTR lpValueName, LPDWORD lpReserved, LPDWORD lpType, LPBYTE lpData, LPDWORD lpcbData);
 #endif
 
 
@@ -7029,12 +7038,12 @@ mal_result mal_context_get_device_info_from_WAVECAPS(mal_context* pContext, MAL_
             mal_strcat_s(keyStr, sizeof(keyStr), guidStr);
 
             HKEY hKey;
-            LONG result = RegOpenKeyExA(HKEY_LOCAL_MACHINE, keyStr, 0, KEY_READ, &hKey);
+            LONG result = ((MAL_PFN_RegOpenKeyExA)pContext->win32.RegOpenKeyExA)(HKEY_LOCAL_MACHINE, keyStr, 0, KEY_READ, &hKey);
             if (result == ERROR_SUCCESS) {
                 BYTE nameFromReg[512];
                 DWORD nameFromRegSize = sizeof(nameFromReg);
-                result = RegQueryValueExA(hKey, "Name", 0, NULL, (LPBYTE)nameFromReg, (LPDWORD)&nameFromRegSize);
-                RegCloseKey(hKey);
+                result = ((MAL_PFN_RegQueryValueExA)pContext->win32.RegQueryValueExA)(hKey, "Name", 0, NULL, (LPBYTE)nameFromReg, (LPDWORD)&nameFromRegSize);
+                ((MAL_PFN_RegCloseKey)pContext->win32.RegCloseKey)(hKey);
 
                 if (result == ERROR_SUCCESS) {
                     // We have the value from the registry, so now we need to construct the name string.
@@ -14444,6 +14453,7 @@ mal_result mal_context_uninit_backend_apis__win32(mal_context* pContext)
     mal_CoUninitialize(pContext);
     mal_dlclose(pContext->win32.hUser32DLL);
     mal_dlclose(pContext->win32.hOle32DLL);
+    mal_dlclose(pContext->win32.hAdvapi32DLL);
 
     return MAL_SUCCESS;
 }
@@ -14473,6 +14483,17 @@ mal_result mal_context_init_backend_apis__win32(mal_context* pContext)
 
     pContext->win32.GetForegroundWindow = (mal_proc)mal_dlsym(pContext->win32.hUser32DLL, "GetForegroundWindow");
     pContext->win32.GetDesktopWindow    = (mal_proc)mal_dlsym(pContext->win32.hUser32DLL, "GetDesktopWindow");
+
+
+    // Advapi32.dll
+    pContext->win32.hAdvapi32DLL = mal_dlopen("advapi32.dll");
+    if (pContext->win32.hAdvapi32DLL == NULL) {
+        return MAL_FAILED_TO_INIT_BACKEND;
+    }
+
+    pContext->win32.RegOpenKeyExA    = (mal_proc)mal_dlsym(pContext->win32.hAdvapi32DLL, "RegOpenKeyExA");
+    pContext->win32.RegCloseKey      = (mal_proc)mal_dlsym(pContext->win32.hAdvapi32DLL, "RegCloseKey");
+    pContext->win32.RegQueryValueExA = (mal_proc)mal_dlsym(pContext->win32.hAdvapi32DLL, "RegQueryValueExA");
 #endif
 
     mal_CoInitializeEx(pContext, NULL, 0);  // 0 = COINIT_MULTITHREADED
