@@ -6401,7 +6401,7 @@ mal_result mal_context_get_device_info__dsound(mal_context* pContext, mal_device
         }
 
         if (!data.found) {
-            return MAL_SUCCESS;
+            return MAL_NO_DEVICE;
         }
     } else {
         // I don't think there's a way to get the name of the default device with DirectSound. In this case we just need to use defaults.
@@ -8692,11 +8692,11 @@ mal_result mal_context_get_device_info__alsa(mal_context* pContext, mal_device_t
         return result;
     }
 
-    if (data.foundDevice) {
-        return MAL_SUCCESS;
-    } else {
+    if (!data.foundDevice) {
         return MAL_NO_DEVICE;
     }
+
+    return MAL_SUCCESS;
 }
 
 mal_result mal_context_init__alsa(mal_context* pContext)
