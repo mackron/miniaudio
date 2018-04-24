@@ -1,5 +1,5 @@
 // FLAC audio decoder. Public domain. See "unlicense" statement at the end of this file.
-// dr_flac - v0.8g - 2018-04-19
+// dr_flac - v0.9 - 2018-04-24
 //
 // David Reid - mackron@gmail.com
 
@@ -1742,7 +1742,7 @@ static DRFLAC_INLINE drflac_bool32 drflac__is_lzcnt_supported()
 
 static DRFLAC_INLINE drflac_uint32 drflac__clz_lzcnt(drflac_cache_t x)
 {
-#ifdef _MSC_VER
+#if defined(_MSC_VER) && !defined(__clang__)
     #ifdef DRFLAC_64BIT
         return (drflac_uint32)__lzcnt64(x);
     #else
@@ -5523,6 +5523,10 @@ const char* drflac_next_vorbis_comment(drflac_vorbis_comment_iterator* pIter, dr
 
 
 // REVISION HISTORY
+//
+// v0.9 - 2018-04-24
+//   - Fix Clang build.
+//   - Start using major.minor.revision versioning.
 //
 // v0.8g - 2018-04-19
 //   - Fix build on non-x86/x64 architectures.
