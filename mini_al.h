@@ -6511,6 +6511,9 @@ mal_result mal_context_get_device_info__dsound(mal_context* pContext, mal_device
             pDeviceInfo->formats[0] = mal_format_s24;
         } else if (bitsPerSample == 32) {
             pDeviceInfo->formats[0] = mal_format_s32;
+        } else {
+            mal_IDirectSoundCapture_Release(pDirectSoundCapture);
+            return MAL_FORMAT_NOT_SUPPORTED;
         }
 
         mal_IDirectSoundCapture_Release(pDirectSoundCapture);
@@ -7197,6 +7200,86 @@ typedef struct
     GUID NameGuid;
 } MAL_WAVECAPSA;
 
+mal_result mal_get_best_info_from_formats_flags__winmm(DWORD dwFormats, WORD channels, WORD* pBitsPerSample, DWORD* pSampleRate)
+{
+    if (pBitsPerSample) {
+        *pBitsPerSample = 0;
+    }
+    if (pSampleRate) {
+        *pSampleRate = 0;
+    }
+
+    WORD bitsPerSample = 0;
+    DWORD sampleRate = 0;
+
+    if (channels == 1) {
+        bitsPerSample = 16;
+        if ((dwFormats & WAVE_FORMAT_48M16) != 0) {
+            sampleRate = 48000;
+        } else if ((dwFormats & WAVE_FORMAT_44M16) != 0) {
+            sampleRate = 44100;
+        } else if ((dwFormats & WAVE_FORMAT_2M16) != 0) {
+            sampleRate = 22050;
+        } else if ((dwFormats & WAVE_FORMAT_1M16) != 0) {
+            sampleRate = 11025;
+        } else if ((dwFormats & WAVE_FORMAT_96M16) != 0) {
+            sampleRate = 96000;
+        } else {
+            bitsPerSample = 8;
+            if ((dwFormats & WAVE_FORMAT_48M08) != 0) {
+                sampleRate = 48000;
+            } else if ((dwFormats & WAVE_FORMAT_44M08) != 0) {
+                sampleRate = 44100;
+            } else if ((dwFormats & WAVE_FORMAT_2M08) != 0) {
+                sampleRate = 22050;
+            } else if ((dwFormats & WAVE_FORMAT_1M08) != 0) {
+                sampleRate = 11025;
+            } else if ((dwFormats & WAVE_FORMAT_96M08) != 0) {
+                sampleRate = 96000;
+            } else {
+                return MAL_FORMAT_NOT_SUPPORTED;
+            }
+        }
+    } else {
+        bitsPerSample = 16;
+        if ((dwFormats & WAVE_FORMAT_48S16) != 0) {
+            sampleRate = 48000;
+        } else if ((dwFormats & WAVE_FORMAT_44S16) != 0) {
+            sampleRate = 44100;
+        } else if ((dwFormats & WAVE_FORMAT_2S16) != 0) {
+            sampleRate = 22050;
+        } else if ((dwFormats & WAVE_FORMAT_1S16) != 0) {
+            sampleRate = 11025;
+        } else if ((dwFormats & WAVE_FORMAT_96S16) != 0) {
+            sampleRate = 96000;
+        } else {
+            bitsPerSample = 8;
+            if ((dwFormats & WAVE_FORMAT_48S08) != 0) {
+                sampleRate = 48000;
+            } else if ((dwFormats & WAVE_FORMAT_44S08) != 0) {
+                sampleRate = 44100;
+            } else if ((dwFormats & WAVE_FORMAT_2S08) != 0) {
+                sampleRate = 22050;
+            } else if ((dwFormats & WAVE_FORMAT_1S08) != 0) {
+                sampleRate = 11025;
+            } else if ((dwFormats & WAVE_FORMAT_96S08) != 0) {
+                sampleRate = 96000;
+            } else {
+                return MAL_FORMAT_NOT_SUPPORTED;
+            }
+        }
+    }
+
+    if (pBitsPerSample) {
+        *pBitsPerSample = bitsPerSample;
+    }
+    if (pSampleRate) {
+        *pSampleRate = sampleRate;
+    }
+
+    return MAL_SUCCESS;
+}
+
 mal_result mal_context_get_device_info_from_WAVECAPS(mal_context* pContext, MAL_WAVECAPSA* pCaps, mal_device_info* pDeviceInfo)
 {
     mal_assert(pContext != NULL);
@@ -7258,6 +7341,31 @@ mal_result mal_context_get_device_info_from_WAVECAPS(mal_context* pContext, MAL_
                 }
             }
         }
+    }
+
+    
+    WORD bitsPerSample;
+    DWORD sampleRate;
+    mal_result result = mal_get_best_info_from_formats_flags__winmm(pCaps->dwFormats, pCaps->wChannels, &bitsPerSample, &sampleRate);
+    if (result != MAL_SUCCESS) {
+        return result;
+    }
+
+    pDeviceInfo->minChannels = pCaps->wChannels;
+    pDeviceInfo->maxChannels = pCaps->wChannels;
+    pDeviceInfo->minSampleRate = sampleRate;
+    pDeviceInfo->maxSampleRate = sampleRate;
+    pDeviceInfo->formatCount = 1;
+    if (bitsPerSample == 8) {
+        pDeviceInfo->formats[0] = mal_format_u8;
+    } else if (bitsPerSample == 16) {
+        pDeviceInfo->formats[0] = mal_format_s16;
+    } else if (bitsPerSample == 24) {
+        pDeviceInfo->formats[0] = mal_format_s24;
+    } else if (bitsPerSample == 32) {
+        pDeviceInfo->formats[0] = mal_format_s32;
+    } else {
+        return MAL_FORMAT_NOT_SUPPORTED;
     }
 
     return MAL_SUCCESS;
@@ -7521,66 +7629,12 @@ mal_result mal_device_init__winmm(mal_context* pContext, mal_device_type type, m
         goto on_error;
     }
 
-    if (wChannels == 1) {
-        wf.nChannels = 1;
-        wf.wBitsPerSample = 16;
-        if ((dwFormats & WAVE_FORMAT_48M16) != 0) {
-            wf.nSamplesPerSec = 48000;
-        } else if ((dwFormats & WAVE_FORMAT_44M16) != 0) {
-            wf.nSamplesPerSec = 44100;
-        } else if ((dwFormats & WAVE_FORMAT_2M16) != 0) {
-            wf.nSamplesPerSec = 22050;
-        } else if ((dwFormats & WAVE_FORMAT_1M16) != 0) {
-            wf.nSamplesPerSec = 11025;
-        } else if ((dwFormats & WAVE_FORMAT_96M16) != 0) {
-            wf.nSamplesPerSec = 96000;
-        } else {
-            wf.wBitsPerSample = 8;
-            if ((dwFormats & WAVE_FORMAT_48M08) != 0) {
-                wf.nSamplesPerSec = 48000;
-            } else if ((dwFormats & WAVE_FORMAT_44M08) != 0) {
-                wf.nSamplesPerSec = 44100;
-            } else if ((dwFormats & WAVE_FORMAT_2M08) != 0) {
-                wf.nSamplesPerSec = 22050;
-            } else if ((dwFormats & WAVE_FORMAT_1M08) != 0) {
-                wf.nSamplesPerSec = 11025;
-            } else if ((dwFormats & WAVE_FORMAT_96M08) != 0) {
-                wf.nSamplesPerSec = 96000;
-            } else {
-                errorMsg = "[WinMM] Could not find appropriate format for internal device.", errorCode = MAL_FORMAT_NOT_SUPPORTED;
-                goto on_error;
-            }
-        }
-    } else {
-        wf.nChannels = 2;
-        wf.wBitsPerSample = 16;
-        if ((dwFormats & WAVE_FORMAT_48S16) != 0) {
-            wf.nSamplesPerSec = 48000;
-        } else if ((dwFormats & WAVE_FORMAT_44S16) != 0) {
-            wf.nSamplesPerSec = 44100;
-        } else if ((dwFormats & WAVE_FORMAT_2S16) != 0) {
-            wf.nSamplesPerSec = 22050;
-        } else if ((dwFormats & WAVE_FORMAT_1S16) != 0) {
-            wf.nSamplesPerSec = 11025;
-        } else if ((dwFormats & WAVE_FORMAT_96S16) != 0) {
-            wf.nSamplesPerSec = 96000;
-        } else {
-            wf.wBitsPerSample = 8;
-            if ((dwFormats & WAVE_FORMAT_48S08) != 0) {
-                wf.nSamplesPerSec = 48000;
-            } else if ((dwFormats & WAVE_FORMAT_44S08) != 0) {
-                wf.nSamplesPerSec = 44100;
-            } else if ((dwFormats & WAVE_FORMAT_2S08) != 0) {
-                wf.nSamplesPerSec = 22050;
-            } else if ((dwFormats & WAVE_FORMAT_1S08) != 0) {
-                wf.nSamplesPerSec = 11025;
-            } else if ((dwFormats & WAVE_FORMAT_96S08) != 0) {
-                wf.nSamplesPerSec = 96000;
-            } else {
-                errorMsg = "[WinMM] Could not find appropriate format for internal device.", errorCode = MAL_FORMAT_NOT_SUPPORTED;
-                goto on_error;
-            }
-        }
+    wf.nChannels = wChannels;
+
+    mal_result result = mal_get_best_info_from_formats_flags__winmm(dwFormats, wChannels, &wf.wBitsPerSample, &wf.nSamplesPerSec);
+    if (result != MAL_SUCCESS) {
+        errorMsg = "[WinMM] Could not find appropriate format for internal device.", errorCode = result;
+        goto on_error;
     }
 
     wf.nBlockAlign     = (wf.nChannels * wf.wBitsPerSample) / 8;
@@ -7596,14 +7650,14 @@ mal_result mal_device_init__winmm(mal_context* pContext, mal_device_type type, m
 
 
     if (type == mal_device_type_playback) {
-        MMRESULT result = ((MAL_PFN_waveOutOpen)pContext->winmm.waveOutOpen)((LPHWAVEOUT)&pDevice->winmm.hDevice, winMMDeviceID, &wf, (DWORD_PTR)pDevice->winmm.hEvent, (DWORD_PTR)pDevice, CALLBACK_EVENT | WAVE_ALLOWSYNC);
-        if (result != MMSYSERR_NOERROR) {
+        MMRESULT resultMM = ((MAL_PFN_waveOutOpen)pContext->winmm.waveOutOpen)((LPHWAVEOUT)&pDevice->winmm.hDevice, winMMDeviceID, &wf, (DWORD_PTR)pDevice->winmm.hEvent, (DWORD_PTR)pDevice, CALLBACK_EVENT | WAVE_ALLOWSYNC);
+        if (resultMM != MMSYSERR_NOERROR) {
             errorMsg = "[WinMM] Failed to open playback device.", errorCode = MAL_FAILED_TO_OPEN_BACKEND_DEVICE;
             goto on_error;
         }
     } else {
-        MMRESULT result = ((MAL_PFN_waveInOpen)pDevice->pContext->winmm.waveInOpen)((LPHWAVEIN)&pDevice->winmm.hDevice, winMMDeviceID, &wf, (DWORD_PTR)pDevice->winmm.hEvent, (DWORD_PTR)pDevice, CALLBACK_EVENT | WAVE_ALLOWSYNC);
-        if (result != MMSYSERR_NOERROR) {
+        MMRESULT resultMM = ((MAL_PFN_waveInOpen)pDevice->pContext->winmm.waveInOpen)((LPHWAVEIN)&pDevice->winmm.hDevice, winMMDeviceID, &wf, (DWORD_PTR)pDevice->winmm.hEvent, (DWORD_PTR)pDevice, CALLBACK_EVENT | WAVE_ALLOWSYNC);
+        if (resultMM != MMSYSERR_NOERROR) {
             errorMsg = "[WinMM] Failed to open capture device.", errorCode = MAL_FAILED_TO_OPEN_BACKEND_DEVICE;
             goto on_error;
         }
