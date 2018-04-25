@@ -62,7 +62,7 @@
 //
 // Building for BSD
 // ----------------
-// The BSD build uses OSS. Requires linking to -lpthread. Also requires linking to -lossaudio on {Open,Net}BSD, but
+// The BSD build uses OSS. Requires linking to -lpthread and -lm. Also requires linking to -lossaudio on {Open,Net}BSD, but
 // not FreeBSD.
 //
 // Building for Android
@@ -11835,6 +11835,29 @@ int mal_open_temp_device__oss()
     return -1;
 }
 
+mal_result mal_context_open_device__oss(mal_context* pContext, mal_device_type type, const mal_device_id* pDeviceID, int* pfd)
+{
+    mal_assert(pContext != NULL);
+    mal_assert(pfd != NULL);
+    (void)pContext;
+
+    *pfd = -1;
+
+    char deviceName[64];
+    if (pDeviceID != NULL) {
+        mal_strncpy_s(deviceName, sizeof(deviceName), pDeviceID->oss, (size_t)-1);
+    } else {
+        mal_strncpy_s(deviceName, sizeof(deviceName), "/dev/dsp", (size_t)-1);
+    }
+
+    *pfd = open(deviceName, (type == mal_device_type_playback) ? O_WRONLY : O_RDONLY, 0);
+    if (*pfd == -1) {
+        return MAL_FAILED_TO_OPEN_BACKEND_DEVICE;
+    }
+
+	return MAL_SUCCESS;
+}
+
 mal_bool32 mal_context_is_device_id_equal__oss(mal_context* pContext, const mal_device_id* pID0, const mal_device_id* pID1)
 {
     mal_assert(pContext != NULL);
@@ -11923,18 +11946,18 @@ mal_result mal_context_get_device_info__oss(mal_context* pContext, mal_device_ty
     // If we get here it means we are _not_ using the default device.
     mal_bool32 foundDevice = MAL_FALSE;
 
-    int fd = mal_open_temp_device__oss();
-    if (fd == -1) {
+    int fdTemp = mal_open_temp_device__oss();
+    if (fdTemp == -1) {
         return mal_context_post_error(pContext, NULL, "[OSS] Failed to open a temporary device for retrieving system information used for device enumeration.", MAL_NO_BACKEND);
     }
 
     oss_sysinfo si;
-    int result = ioctl(fd, SNDCTL_SYSINFO, &si);
+    int result = ioctl(fdTemp, SNDCTL_SYSINFO, &si);
     if (result != -1) {
         for (int iAudioDevice = 0; iAudioDevice < si.numaudios; ++iAudioDevice) {
             oss_audioinfo ai;
             ai.dev = iAudioDevice;
-            result = ioctl(fd, SNDCTL_AUDIOINFO, &ai);
+            result = ioctl(fdTemp, SNDCTL_AUDIOINFO, &ai);
             if (result != -1) {
                 if (mal_strcmp(ai.devnode, pDeviceID->oss) == 0) {
                     // It has the same name, so now just confirm the type.
@@ -11952,6 +11975,29 @@ mal_result mal_context_get_device_info__oss(mal_context* pContext, mal_device_ty
                             mal_strncpy_s(pDeviceInfo->name, sizeof(pDeviceInfo->name), ai.name, (size_t)-1);
                         }
 
+                        pDeviceInfo->minChannels = ai.min_channels;
+                        pDeviceInfo->maxChannels = ai.max_channels;
+                        pDeviceInfo->minSampleRate = ai.min_rate;
+                        pDeviceInfo->maxSampleRate = ai.max_rate;
+                        pDeviceInfo->formatCount = 0;
+
+                        unsigned int formatMask;
+                        if (deviceType == mal_device_type_playback) {
+                            formatMask = ai.oformats;
+                        } else {
+                            formatMask = ai.iformats;
+                        }
+
+                        if ((formatMask & AFMT_U8) != 0) {
+                            pDeviceInfo->formats[pDeviceInfo->formatCount++] = mal_format_u8;
+                        }
+                        if ((formatMask & AFMT_S16_LE) != 0) {
+                            pDeviceInfo->formats[pDeviceInfo->formatCount++] = mal_format_s16;
+                        }
+                        if ((formatMask & AFMT_S32_LE) != 0) {
+                            pDeviceInfo->formats[pDeviceInfo->formatCount++] = mal_format_s32;
+                        }
+
                         foundDevice = MAL_TRUE;
                         break;
                     }
@@ -11959,18 +12005,19 @@ mal_result mal_context_get_device_info__oss(mal_context* pContext, mal_device_ty
             }
         }
     } else {
-        close(fd);
+        close(fdTemp);
         return mal_context_post_error(pContext, NULL, "[OSS] Failed to retrieve system information for device enumeration.", MAL_NO_BACKEND);
     }
 
 
-    close(fd);
+    close(fdTemp);
 
-    if (foundDevice) {
-        return MAL_SUCCESS;
-    } else {
+    if (!foundDevice) {
         return MAL_NO_DEVICE;
     }
+
+
+    return MAL_SUCCESS;
 }
 
 mal_result mal_context_init__oss(mal_context* pContext)
@@ -12026,15 +12073,8 @@ mal_result mal_device_init__oss(mal_context* pContext, mal_device_type type, mal
     mal_assert(pDevice != NULL);
     mal_zero_object(&pDevice->oss);
 
-    char deviceName[64];
-    if (pDeviceID != NULL) {
-        mal_strncpy_s(deviceName, sizeof(deviceName), pDeviceID->oss, (size_t)-1);
-    } else {
-        mal_strncpy_s(deviceName, sizeof(deviceName), "/dev/dsp", (size_t)-1);
-    }
-
-    pDevice->oss.fd = open(deviceName, (type == mal_device_type_playback) ? O_WRONLY : O_RDONLY, 0);
-    if (pDevice->oss.fd == -1) {
+    mal_result result = mal_context_open_device__oss(pContext, type, pDeviceID, &pDevice->oss.fd);
+    if (result != MAL_SUCCESS) {
         return mal_post_error(pDevice, "[OSS] Failed to open device.", MAL_FAILED_TO_OPEN_BACKEND_DEVICE);
     }
 
@@ -12053,8 +12093,8 @@ mal_result mal_device_init__oss(mal_context* pContext, mal_device_type type, mal
         case mal_format_u8:
         default: ossFormat = AFMT_U8; break;
     }
-    int result = ioctl(pDevice->oss.fd, SNDCTL_DSP_SETFMT, &ossFormat);
-    if (result == -1) {
+    int ossResult = ioctl(pDevice->oss.fd, SNDCTL_DSP_SETFMT, &ossFormat);
+    if (ossResult == -1) {
         close(pDevice->oss.fd);
         return mal_post_error(pDevice, "[OSS] Failed to set format.", MAL_FORMAT_NOT_SUPPORTED);
     }
@@ -12069,8 +12109,8 @@ mal_result mal_device_init__oss(mal_context* pContext, mal_device_type type, mal
 
     // Channels.
     int ossChannels = (int)pConfig->channels;
-    result = ioctl(pDevice->oss.fd, SNDCTL_DSP_CHANNELS, &ossChannels);
-    if (result == -1) {
+    ossResult = ioctl(pDevice->oss.fd, SNDCTL_DSP_CHANNELS, &ossChannels);
+    if (ossResult == -1) {
         close(pDevice->oss.fd);
         return mal_post_error(pDevice, "[OSS] Failed to set channel count.", MAL_FORMAT_NOT_SUPPORTED);
     }
@@ -12080,8 +12120,8 @@ mal_result mal_device_init__oss(mal_context* pContext, mal_device_type type, mal
 
     // Sample rate.
     int ossSampleRate = (int)pConfig->sampleRate;
-    result = ioctl(pDevice->oss.fd, SNDCTL_DSP_SPEED, &ossSampleRate);
-    if (result == -1) {
+    ossResult = ioctl(pDevice->oss.fd, SNDCTL_DSP_SPEED, &ossSampleRate);
+    if (ossResult == -1) {
         close(pDevice->oss.fd);
         return mal_post_error(pDevice, "[OSS] Failed to set sample rate.", MAL_FORMAT_NOT_SUPPORTED);
     }
@@ -12107,8 +12147,8 @@ mal_result mal_device_init__oss(mal_context* pContext, mal_device_type type, mal
     }
 
     int ossFragment = (int)((pDevice->periods << 16) | ossFragmentSizePower);
-    result = ioctl(pDevice->oss.fd, SNDCTL_DSP_SETFRAGMENT, &ossFragment);
-    if (result == -1) {
+    ossResult = ioctl(pDevice->oss.fd, SNDCTL_DSP_SETFRAGMENT, &ossFragment);
+    if (ossResult == -1) {
         close(pDevice->oss.fd);
         return mal_post_error(pDevice, "[OSS] Failed to set fragment size and period count.", MAL_FORMAT_NOT_SUPPORTED);
     }

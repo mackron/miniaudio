@@ -1,2 +1,2 @@
-cc  mal_test_0.c   -o ./bin/mal_test_0     -Wall -lpthread
-c++ mal_test_0.cpp -o ./bin/mal_test_0_cpp -Wall -lpthread
+cc  mal_test_0.c   -o ./bin/mal_test_0     -Wall -lpthread -lm
+c++ mal_test_0.cpp -o ./bin/mal_test_0_cpp -Wall -lpthread -lm
