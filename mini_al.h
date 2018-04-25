@@ -2423,7 +2423,7 @@ mal_uint64 mal_sine_wave_read(mal_sine_wave* pSignWave, mal_uint64 count, float*
         #else
             #define MAL_NO_XGETBV
         #endif
-    #elif defined(__GNUC__) || defined(__clang__)
+    #elif (defined(__GNUC__) || defined(__clang__)) && !defined(MAL_ANDROID)
         static MAL_INLINE void mal_cpuid(int info[4], int fid)
         {
             __asm__ (
@@ -12538,6 +12538,8 @@ mal_result mal_context_get_device_info__opensl(mal_context* pContext, mal_device
 
         mal_strncpy_s(pDeviceInfo->name, sizeof(pDeviceInfo->name), (const char*)desc.deviceName, (size_t)-1);
     }
+
+    goto return_detailed_info;
 #else
     goto return_default_device;
 #endif
@@ -12556,6 +12558,26 @@ return_default_device:
     } else {
         mal_strncpy_s(pDeviceInfo->name, sizeof(pDeviceInfo->name), MAL_DEFAULT_CAPTURE_DEVICE_NAME, (size_t)-1);
     }
+
+    goto return_detailed_info;
+
+
+return_detailed_info:
+
+    // For now we're just outputting a set of values that are supported by the API but not necessarily supported
+    // by the device natively. Later on we should work on this so that it more closely reflects the device's
+    // actual native format.
+    pDeviceInfo->minChannels = 1;
+    pDeviceInfo->maxChannels = 2;
+    pDeviceInfo->minSampleRate = 8000;
+    pDeviceInfo->maxSampleRate = 48000;
+    pDeviceInfo->formatCount = 2;
+    pDeviceInfo->formats[0] = mal_format_u8;
+    pDeviceInfo->formats[1] = mal_format_s16;
+#if defined(MAL_ANDROID) && __ANDROID_API__ >= 21
+    pDeviceInfo->formats[pDeviceInfo->formatCount] = mal_format_f32;
+    pDeviceInfo->formatCount += 1;
+#endif
 
     return MAL_SUCCESS;
 }
