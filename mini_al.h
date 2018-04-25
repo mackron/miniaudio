@@ -757,10 +757,10 @@ typedef struct
     mal_device_id id;
     char name[256];
 
-    // Detailed info. As much of this is filled as possible with mal_context_get_device_info(). If anything here is set to 0 it means
-    // the backend does not have a reliable way of determining the value. Note that you are allowed to initialize a device with settings
-    // outside of this range, but it just means the data will be converted using mini_al's data conversion pipeline before sending the
-    // data to/from the device.
+    // Detailed info. As much of this is filled as possible with mal_context_get_device_info(). Note that you are allowed to initialize
+    // a device with settings outside of this range, but it just means the data will be converted using mini_al's data conversion
+    // pipeline before sending the data to/from the device. Most programs will need to not worry about these values, but it's provided
+    // here mainly for informational purposes or in the rare case that someone might find it useful.
     //
     // These will be set to 0 when returned by mal_context_enumerate_devices() or mal_context_get_devices().
     mal_uint32 formatCount;
