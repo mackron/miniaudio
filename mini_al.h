@@ -15496,6 +15496,12 @@ mal_result mal_context_get_device_info(mal_context* pContext, mal_device_type ty
         }
         mal_mutex_unlock(&pContext->deviceInfoLock);
 
+        // Clamp ranges.
+        deviceInfo.minChannels   = mal_max(deviceInfo.minChannels,   MAL_MIN_CHANNELS);
+        deviceInfo.maxChannels   = mal_min(deviceInfo.maxChannels,   MAL_MAX_CHANNELS);
+        deviceInfo.minSampleRate = mal_max(deviceInfo.minSampleRate, MAL_MIN_SAMPLE_RATE);
+        deviceInfo.maxSampleRate = mal_min(deviceInfo.maxSampleRate, MAL_MAX_SAMPLE_RATE);
+
         *pDeviceInfo = deviceInfo;
         return result;
     }
