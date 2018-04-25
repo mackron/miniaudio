@@ -13315,12 +13315,28 @@ mal_result mal_context_get_device_info__openal(mal_context* pContext, mal_device
             return result;
         }
 
-        if (data.foundDevice) {
-            return MAL_SUCCESS;
-        } else {
+        if (!data.foundDevice) {
             return MAL_NO_DEVICE;
         }
     }
+
+    // mini_al's OpenAL backend only supports:
+    //   - mono and stereo
+    //   - u8, s16 and f32
+    //   - All standard sample rates
+    pDeviceInfo->minChannels = 1;
+    pDeviceInfo->maxChannels = 2;
+    pDeviceInfo->minSampleRate = MAL_MIN_SAMPLE_RATE;
+    pDeviceInfo->maxSampleRate = MAL_MAX_SAMPLE_RATE;
+    pDeviceInfo->formatCount = 2;
+    pDeviceInfo->formats[0] = mal_format_u8;
+    pDeviceInfo->formats[1] = mal_format_s16;
+    if (pContext->openal.isFloat32Supported) {
+        pDeviceInfo->formats[pDeviceInfo->formatCount] = mal_format_f32;
+        pDeviceInfo->formatCount += 1;
+    }
+
+    return MAL_SUCCESS;
 }
 
 mal_result mal_context_init__openal(mal_context* pContext)
