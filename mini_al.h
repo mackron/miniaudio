@@ -10521,6 +10521,13 @@ void mal_context_get_device_info_sink_callback__pulse(mal_pa_context* pPulseCont
     if (pInfo->description != NULL) {
         mal_strncpy_s(pData->pDeviceInfo->name, sizeof(pData->pDeviceInfo->name), pInfo->description, (size_t)-1);
     }
+
+    pData->pDeviceInfo->minChannels   = pInfo->sample_spec.channels;
+    pData->pDeviceInfo->maxChannels   = pInfo->sample_spec.channels;
+    pData->pDeviceInfo->minSampleRate = pInfo->sample_spec.rate;
+    pData->pDeviceInfo->maxSampleRate = pInfo->sample_spec.rate;
+    pData->pDeviceInfo->formatCount = 1;
+    pData->pDeviceInfo->formats[0] = mal_format_from_pulse(pInfo->sample_spec.format);
 }
 
 void mal_context_get_device_info_source_callback__pulse(mal_pa_context* pPulseContext, const mal_pa_source_info* pInfo, int endOfList, void* pUserData)
@@ -10540,6 +10547,13 @@ void mal_context_get_device_info_source_callback__pulse(mal_pa_context* pPulseCo
     if (pInfo->description != NULL) {
         mal_strncpy_s(pData->pDeviceInfo->name, sizeof(pData->pDeviceInfo->name), pInfo->description, (size_t)-1);
     }
+
+    pData->pDeviceInfo->minChannels = pInfo->sample_spec.channels;
+    pData->pDeviceInfo->maxChannels = pInfo->sample_spec.channels;
+    pData->pDeviceInfo->minSampleRate = pInfo->sample_spec.rate;
+    pData->pDeviceInfo->maxSampleRate = pInfo->sample_spec.rate;
+    pData->pDeviceInfo->formatCount = 1;
+    pData->pDeviceInfo->formats[0] = mal_format_from_pulse(pInfo->sample_spec.format);
 }
 
 mal_result mal_context_get_device_info__pulse(mal_context* pContext, mal_device_type deviceType, const mal_device_id* pDeviceID, mal_share_mode shareMode, mal_device_info* pDeviceInfo)
