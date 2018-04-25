@@ -11403,6 +11403,36 @@ typedef const char*        (* mal_jack_port_name_proc)               (const mal_
 typedef void*              (* mal_jack_port_get_buffer_proc)         (mal_jack_port_t* port, mal_jack_nframes_t nframes);
 typedef void               (* mal_jack_free_proc)                    (void* ptr);
 
+mal_result mal_context_open_client__jack(mal_context* pContext, mal_device_type type, const mal_device_id* pDeviceID, mal_jack_client_t** ppClient)
+{
+    mal_assert(pContext != NULL);
+    mal_assert(ppClient != NULL);
+
+    (void)type;
+    (void)pDeviceID;
+
+    if (ppClient) {
+        *ppClient = NULL;
+    }
+
+    size_t maxClientNameSize = ((mal_jack_client_name_size_proc)pContext->jack.jack_client_name_size)(); // Includes null terminator.
+
+    char clientName[256];
+    mal_strncpy_s(clientName, mal_min(sizeof(clientName), maxClientNameSize), (pContext->config.jack.pClientName != NULL) ? pContext->config.jack.pClientName : "mini_al", (size_t)-1);
+
+    mal_jack_status_t status;
+    mal_jack_client_t* pClient = ((mal_jack_client_open_proc)pContext->jack.jack_client_open)(clientName, (pContext->config.jack.tryStartServer) ? 0 : mal_JackNoStartServer, &status, NULL);
+    if (pClient == NULL) {
+        return mal_context_post_error(pContext, NULL, "[JACK] Failed to open client.", MAL_FAILED_TO_OPEN_BACKEND_DEVICE);
+    }
+
+    if (ppClient) {
+        *ppClient = pClient;
+    }
+
+    return MAL_SUCCESS;
+}
+
 mal_bool32 mal_context_is_device_id_equal__jack(mal_context* pContext, const mal_device_id* pID0, const mal_device_id* pID1)
 {
     mal_assert(pContext != NULL);
@@ -11456,6 +11486,37 @@ mal_result mal_context_get_device_info__jack(mal_context* pContext, mal_device_t
     } else {
         mal_strncpy_s(pDeviceInfo->name, sizeof(pDeviceInfo->name), MAL_DEFAULT_CAPTURE_DEVICE_NAME, (size_t)-1);
     }
+
+    // Jack only supports f32 and has a specific channel count and sample rate.
+    pDeviceInfo->formatCount = 1;
+    pDeviceInfo->formats[0] = mal_format_f32;
+
+    // The channel count and sample rate can only be determined by opening the device.
+    mal_jack_client_t* pClient;
+    mal_result result = mal_context_open_client__jack(pContext, deviceType, pDeviceID, &pClient);
+    if (result != MAL_SUCCESS) {
+        return result;
+    }
+
+    pDeviceInfo->minSampleRate = ((mal_jack_get_sample_rate_proc)pContext->jack.jack_get_sample_rate)((mal_jack_client_t*)pClient);
+    pDeviceInfo->maxSampleRate = pDeviceInfo->minSampleRate;
+
+    pDeviceInfo->minChannels = 0;
+    pDeviceInfo->maxChannels = 0;
+
+    const char** ppPorts = ((mal_jack_get_ports_proc)pContext->jack.jack_get_ports)((mal_jack_client_t*)pClient, NULL, NULL, mal_JackPortIsPhysical | (deviceType == mal_device_type_playback) ? mal_JackPortIsInput : mal_JackPortIsOutput);
+    if (ppPorts == NULL) {
+        ((mal_jack_client_close_proc)pContext->jack.jack_client_close)((mal_jack_client_t*)pClient);
+        return mal_context_post_error(pContext, NULL, "[JACK] Failed to query physical ports.", MAL_FAILED_TO_OPEN_BACKEND_DEVICE);
+    }
+
+    while (ppPorts[pDeviceInfo->minChannels] != NULL) {
+        pDeviceInfo->minChannels += 1;
+        pDeviceInfo->maxChannels += 1;
+    }
+
+    ((mal_jack_free_proc)pContext->jack.jack_free)((void*)ppPorts);
+    ((mal_jack_client_close_proc)pContext->jack.jack_client_close)((mal_jack_client_t*)pClient);
 
     return MAL_SUCCESS;
 }
@@ -11657,15 +11718,9 @@ mal_result mal_device_init__jack(mal_context* pContext, mal_device_type type, ma
 
 
     // Open the client.
-    size_t maxClientNameSize = ((mal_jack_client_name_size_proc)pContext->jack.jack_client_name_size)(); // Includes null terminator.
-
-    char clientName[256];
-    mal_strncpy_s(clientName, mal_min(sizeof(clientName), maxClientNameSize), (pContext->config.jack.pClientName != NULL) ? pContext->config.jack.pClientName : "mini_al", (size_t)-1);
-
-    mal_jack_status_t status;
-    pDevice->jack.pClient = ((mal_jack_client_open_proc)pContext->jack.jack_client_open)(clientName, (pContext->config.jack.tryStartServer) ? 0 : mal_JackNoStartServer, &status, NULL);
-    if (pDevice->jack.pClient == NULL) {
-        return mal_post_error(pDevice, "[JACK] Failed to open client.", MAL_FAILED_TO_OPEN_BACKEND_DEVICE);
+    mal_result result = mal_context_open_client__jack(pContext, type, pDeviceID, (mal_jack_client_t**)&pDevice->jack.pClient);
+    if (result != MAL_SUCCESS) {
+        return result;
     }
 
     // Callbacks.
