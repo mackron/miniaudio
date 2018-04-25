@@ -2687,9 +2687,10 @@ typedef int     (WINAPI * MAL_PFN_StringFromGUID2)(const GUID* const rguid, LPOL
 typedef HWND (WINAPI * MAL_PFN_GetForegroundWindow)();
 typedef HWND (WINAPI * MAL_PFN_GetDesktopWindow)();
 
-typedef LSTATUS (WINAPI * MAL_PFN_RegOpenKeyExA)(HKEY hKey, LPCSTR lpSubKey, DWORD ulOptions, REGSAM samDesired, PHKEY phkResult);
-typedef LSTATUS (WINAPI * MAL_PFN_RegCloseKey)(HKEY hKey);
-typedef LSTATUS (WINAPI * MAL_PFN_RegQueryValueExA)(HKEY hKey, LPCSTR lpValueName, LPDWORD lpReserved, LPDWORD lpType, LPBYTE lpData, LPDWORD lpcbData);
+// Microsoft documents these APIs as returning LSTATUS, but the Win32 API shipping with some compilers do not define it. It's just a LONG.
+typedef LONG (WINAPI * MAL_PFN_RegOpenKeyExA)(HKEY hKey, LPCSTR lpSubKey, DWORD ulOptions, REGSAM samDesired, PHKEY phkResult);
+typedef LONG (WINAPI * MAL_PFN_RegCloseKey)(HKEY hKey);
+typedef LONG (WINAPI * MAL_PFN_RegQueryValueExA)(HKEY hKey, LPCSTR lpValueName, LPDWORD lpReserved, LPDWORD lpType, LPBYTE lpData, LPDWORD lpcbData);
 #endif
 
 
@@ -7563,7 +7564,7 @@ mal_result mal_device_init__winmm(mal_context* pContext, mal_device_type type, m
 
     const char* errorMsg = "";
     mal_result errorCode = MAL_ERROR;
-
+    mal_result result = MAL_SUCCESS;
 
     // WinMM doesn't seem to have a good way to query the format of the device. Therefore, we'll restrict the formats to the
     // standard formats documented here https://msdn.microsoft.com/en-us/library/windows/desktop/dd743855(v=vs.85).aspx. If
@@ -7631,7 +7632,7 @@ mal_result mal_device_init__winmm(mal_context* pContext, mal_device_type type, m
 
     wf.nChannels = wChannels;
 
-    mal_result result = mal_get_best_info_from_formats_flags__winmm(dwFormats, wChannels, &wf.wBitsPerSample, &wf.nSamplesPerSec);
+    result = mal_get_best_info_from_formats_flags__winmm(dwFormats, wChannels, &wf.wBitsPerSample, &wf.nSamplesPerSec);
     if (result != MAL_SUCCESS) {
         errorMsg = "[WinMM] Could not find appropriate format for internal device.", errorCode = result;
         goto on_error;
