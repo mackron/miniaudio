@@ -12011,7 +12011,7 @@ mal_result mal_context_open_device__oss(mal_context* pContext, mal_device_type t
         return MAL_FAILED_TO_OPEN_BACKEND_DEVICE;
     }
 
-	return MAL_SUCCESS;
+    return MAL_SUCCESS;
 }
 
 mal_bool32 mal_context_is_device_id_equal__oss(mal_context* pContext, const mal_device_id* pID0, const mal_device_id* pID1)
