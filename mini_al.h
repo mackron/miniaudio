@@ -14394,6 +14394,21 @@ mal_result mal_context_get_device_info__sdl(mal_context* pContext, mal_device_ty
     // To get an accurate idea on the backend's native format we need to open the device. Not ideal, but it's the only way. An
     // alternative to this is to report all channel counts, sample rates and formats, but that doesn't offer a good representation
     // of the device's _actual_ ideal format.
+    //
+    // Note: With Emscripten, it looks like non-zero values need to be specified for desiredSpec. Whatever is specified in
+    // desiredSpec will be used by SDL since it uses it just does it's own format conversion internally. Therefore, from what
+    // I can tell, there's no real way to know the device's actual format which means I'm just going to fall back to the full
+    // range of channels and sample rates on Emscripten builds.
+#if defined(__EMSCRIPTEN__)
+    pDeviceInfo->minChannels = MAL_MIN_CHANNELS;
+    pDeviceInfo->maxChannels = MAL_MAX_CHANNELS;
+    pDeviceInfo->minSampleRate = MAL_MIN_SAMPLE_RATE;
+    pDeviceInfo->maxSampleRate = MAL_MAX_SAMPLE_RATE;
+    pDeviceInfo->formatCount = 3;
+    pDeviceInfo->formats[0] = mal_format_u8;
+    pDeviceInfo->formats[1] = mal_format_s16;
+    pDeviceInfo->formats[2] = mal_format_s32;
+#else
     MAL_SDL_AudioSpec desiredSpec, obtainedSpec;
     mal_zero_memory(&desiredSpec, sizeof(desiredSpec));
 
@@ -14447,6 +14462,7 @@ mal_result mal_context_get_device_info__sdl(mal_context* pContext, mal_device_ty
     } else {
         return MAL_FORMAT_NOT_SUPPORTED;
     }
+#endif
 
     return MAL_SUCCESS;
 }
