@@ -3358,6 +3358,7 @@ mal_bool32 mal_thread_create__posix(mal_context* pContext, mal_thread* pThread, 
 {
     pthread_attr_t* pAttr = NULL;
 
+#if !defined(__EMSCRIPTEN__)
     // Try setting the thread priority. It's not critical if anything fails here.
     pthread_attr_t attr;
     if (((mal_pthread_attr_init_proc)pContext->posix.pthread_attr_init)(&attr) == 0) {
@@ -3407,6 +3408,7 @@ mal_bool32 mal_thread_create__posix(mal_context* pContext, mal_thread* pThread, 
 
         ((mal_pthread_attr_destroy_proc)pContext->posix.pthread_attr_destroy)(&attr);
     }
+#endif
 
     int result = ((mal_pthread_create_proc)pContext->posix.pthread_create)(&pThread->posix.thread, pAttr, entryProc, pData);
     if (result != 0) {
@@ -15101,9 +15103,11 @@ mal_result mal_context_init_backend_apis__nix(mal_context* pContext)
     pContext->posix.pthread_cond_signal         = (mal_proc)pthread_cond_signal;
     pContext->posix.pthread_attr_init           = (mal_proc)pthread_attr_init;
     pContext->posix.pthread_attr_destroy        = (mal_proc)pthread_attr_destroy;
+#if !defined(__EMSCRIPTEN__)
     pContext->posix.pthread_attr_setschedpolicy = (mal_proc)pthread_attr_setschedpolicy;
     pContext->posix.pthread_attr_getschedparam  = (mal_proc)pthread_attr_getschedparam;
     pContext->posix.pthread_attr_setschedparam  = (mal_proc)pthread_attr_setschedparam;
+#endif
 #endif
 
     return MAL_SUCCESS;
