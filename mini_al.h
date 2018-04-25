@@ -1037,7 +1037,11 @@ struct mal_context
             mal_proc snd_pcm_hw_params_set_access;
             mal_proc snd_pcm_hw_params_get_format;
             mal_proc snd_pcm_hw_params_get_channels;
+            mal_proc snd_pcm_hw_params_get_channels_min;
+            mal_proc snd_pcm_hw_params_get_channels_max;
             mal_proc snd_pcm_hw_params_get_rate;
+            mal_proc snd_pcm_hw_params_get_rate_min;
+            mal_proc snd_pcm_hw_params_get_rate_max;
             mal_proc snd_pcm_hw_params_get_buffer_size;
             mal_proc snd_pcm_hw_params_get_periods;
             mal_proc snd_pcm_hw_params_get_access;
@@ -8156,7 +8160,11 @@ typedef int                   (* mal_snd_pcm_hw_params_set_periods_near_proc)   
 typedef int                   (* mal_snd_pcm_hw_params_set_access_proc)          (mal_snd_pcm_t *pcm, mal_snd_pcm_hw_params_t *params, mal_snd_pcm_access_t _access);
 typedef int                   (* mal_snd_pcm_hw_params_get_format_proc)          (const mal_snd_pcm_hw_params_t *params, mal_snd_pcm_format_t *format);
 typedef int                   (* mal_snd_pcm_hw_params_get_channels_proc)        (const mal_snd_pcm_hw_params_t *params, unsigned int *val);
+typedef int                   (* mal_snd_pcm_hw_params_get_channels_min_proc)    (const mal_snd_pcm_hw_params_t *params, unsigned int *val);
+typedef int                   (* mal_snd_pcm_hw_params_get_channels_max_proc)    (const mal_snd_pcm_hw_params_t *params, unsigned int *val);
 typedef int                   (* mal_snd_pcm_hw_params_get_rate_proc)            (const mal_snd_pcm_hw_params_t *params, unsigned int *rate, int *dir);
+typedef int                   (* mal_snd_pcm_hw_params_get_rate_min_proc)        (const mal_snd_pcm_hw_params_t *params, unsigned int *rate, int *dir);
+typedef int                   (* mal_snd_pcm_hw_params_get_rate_max_proc)        (const mal_snd_pcm_hw_params_t *params, unsigned int *rate, int *dir);
 typedef int                   (* mal_snd_pcm_hw_params_get_buffer_size_proc)     (const mal_snd_pcm_hw_params_t *params, mal_snd_pcm_uframes_t *val);
 typedef int                   (* mal_snd_pcm_hw_params_get_periods_proc)         (const mal_snd_pcm_hw_params_t *params, unsigned int *val, int *dir);
 typedef int                   (* mal_snd_pcm_hw_params_get_access_proc)          (const mal_snd_pcm_hw_params_t *params, mal_snd_pcm_access_t *_access);
@@ -8478,6 +8486,123 @@ mal_bool32 mal_does_id_exist_in_list__alsa(mal_device_id* pUniqueIDs, mal_uint32
 }
 
 
+mal_result mal_context_open_pcm__alsa(mal_context* pContext, mal_share_mode shareMode, mal_device_type type, const mal_device_id* pDeviceID, mal_snd_pcm_t** ppPCM)
+{
+    mal_assert(pContext != NULL);
+    mal_assert(ppPCM != NULL);
+
+    *ppPCM = NULL;
+
+    mal_snd_pcm_t* pPCM = NULL;
+
+    
+
+    mal_snd_pcm_stream_t stream = (type == mal_device_type_playback) ? MAL_SND_PCM_STREAM_PLAYBACK : MAL_SND_PCM_STREAM_CAPTURE;
+    int openMode = MAL_SND_PCM_NO_AUTO_RESAMPLE | MAL_SND_PCM_NO_AUTO_CHANNELS | MAL_SND_PCM_NO_AUTO_FORMAT;
+
+    if (pDeviceID == NULL) {
+        // We're opening the default device. I don't know if trying anything other than "default" is necessary, but it makes
+        // me feel better to try as hard as we can get to get _something_ working.
+        const char* defaultDeviceNames[] = {
+            "default",
+            NULL,
+            NULL,
+            NULL,
+            NULL,
+            NULL,
+            NULL
+        };
+
+        if (shareMode == mal_share_mode_exclusive) {
+            defaultDeviceNames[1] = "hw";
+            defaultDeviceNames[2] = "hw:0";
+            defaultDeviceNames[3] = "hw:0,0";
+        } else {
+            if (type == mal_device_type_playback) {
+                defaultDeviceNames[1] = "dmix";
+                defaultDeviceNames[2] = "dmix:0";
+                defaultDeviceNames[3] = "dmix:0,0";
+            } else {
+                defaultDeviceNames[1] = "dsnoop";
+                defaultDeviceNames[2] = "dsnoop:0";
+                defaultDeviceNames[3] = "dsnoop:0,0";
+            }
+            defaultDeviceNames[4] = "hw";
+            defaultDeviceNames[5] = "hw:0";
+            defaultDeviceNames[6] = "hw:0,0";
+        }
+
+        mal_bool32 isDeviceOpen = MAL_FALSE;
+        for (size_t i = 0; i < mal_countof(defaultDeviceNames); ++i) {
+            if (defaultDeviceNames[i] != NULL && defaultDeviceNames[i][0] != '\0') {
+                if (((mal_snd_pcm_open_proc)pContext->alsa.snd_pcm_open)(&pPCM, defaultDeviceNames[i], stream, openMode) == 0) {
+                    isDeviceOpen = MAL_TRUE;
+                    break;
+                }
+            }
+        }
+
+        if (!isDeviceOpen) {
+            return mal_context_post_error(pContext, NULL, "[ALSA] snd_pcm_open() failed when trying to open an appropriate default device.", MAL_FAILED_TO_OPEN_BACKEND_DEVICE);
+        }
+    } else {
+        // We're trying to open a specific device. There's a few things to consider here:
+        //
+        // mini_al recongnizes a special format of device id that excludes the "hw", "dmix", etc. prefix. It looks like this: ":0,0", ":0,1", etc. When
+        // an ID of this format is specified, it indicates to mini_al that it can try different combinations of plugins ("hw", "dmix", etc.) until it
+        // finds an appropriate one that works. This comes in very handy when trying to open a device in shared mode ("dmix"), vs exclusive mode ("hw").
+
+        // May end up needing to make small adjustments to the ID, so make a copy.
+        mal_device_id deviceID = *pDeviceID;
+
+        mal_bool32 isDeviceOpen = MAL_FALSE;
+        if (deviceID.alsa[0] != ':') {
+            // The ID is not in ":0,0" format. Use the ID exactly as-is.
+            if (((mal_snd_pcm_open_proc)pContext->alsa.snd_pcm_open)(&pPCM, deviceID.alsa, stream, openMode) == 0) {
+                isDeviceOpen = MAL_TRUE;
+            }
+        } else {
+            // The ID is in ":0,0" format. Try different plugins depending on the shared mode.
+            if (deviceID.alsa[1] == '\0') {
+                deviceID.alsa[0] = '\0';  // An ID of ":" should be converted to "".
+            }
+
+            char hwid[256];
+            if (shareMode == mal_share_mode_shared) {
+                if (type == mal_device_type_playback) {
+                    mal_strcpy_s(hwid, sizeof(hwid), "dmix");
+                } else {
+                    mal_strcpy_s(hwid, sizeof(hwid), "dsnoop");
+                }
+
+                if (mal_strcat_s(hwid, sizeof(hwid), deviceID.alsa) == 0) {
+                    if (((mal_snd_pcm_open_proc)pContext->alsa.snd_pcm_open)(&pPCM, hwid, stream, openMode) == 0) {
+                        isDeviceOpen = MAL_TRUE;
+                    }
+                }
+            }
+
+            // If at this point we still don't have an open device it means we're either preferencing exclusive mode or opening with "dmix"/"dsnoop" failed.
+            if (!isDeviceOpen) {
+                mal_strcpy_s(hwid, sizeof(hwid), "hw");
+                if (mal_strcat_s(hwid, sizeof(hwid), deviceID.alsa) == 0) {
+                    if (((mal_snd_pcm_open_proc)pContext->alsa.snd_pcm_open)(&pPCM, hwid, stream, openMode) == 0) {
+                        isDeviceOpen = MAL_TRUE;
+                    }
+                }
+            }
+        }
+
+        if (!isDeviceOpen) {
+            return mal_context_post_error(pContext, NULL, "[ALSA] snd_pcm_open() failed.", MAL_FAILED_TO_OPEN_BACKEND_DEVICE);
+        }
+    }
+
+    *ppPCM = pPCM;
+    return MAL_SUCCESS;
+}
+
+
 mal_bool32 mal_context_is_device_id_equal__alsa(mal_context* pContext, const mal_device_id* pID0, const mal_device_id* pID1)
 {
     mal_assert(pContext != NULL);
@@ -8697,6 +8822,52 @@ mal_result mal_context_get_device_info__alsa(mal_context* pContext, mal_device_t
         return MAL_NO_DEVICE;
     }
 
+
+    // For detailed info we need to open the device.
+    mal_snd_pcm_t* pPCM;
+    result = mal_context_open_pcm__alsa(pContext, shareMode, deviceType, pDeviceID, &pPCM);
+    if (result != MAL_SUCCESS) {
+        return result;
+    }
+
+    // We need to initialize a HW parameters object in order to know what formats are supported.
+    mal_snd_pcm_hw_params_t* pHWParams = (mal_snd_pcm_hw_params_t*)alloca(((mal_snd_pcm_hw_params_sizeof_proc)pContext->alsa.snd_pcm_hw_params_sizeof)());
+    mal_zero_memory(pHWParams, ((mal_snd_pcm_hw_params_sizeof_proc)pContext->alsa.snd_pcm_hw_params_sizeof)());
+
+    if (((mal_snd_pcm_hw_params_any_proc)pContext->alsa.snd_pcm_hw_params_any)(pPCM, pHWParams) < 0) {
+        return mal_context_post_error(pContext, NULL, "[ALSA] Failed to initialize hardware parameters. snd_pcm_hw_params_any() failed.", MAL_FAILED_TO_CONFIGURE_BACKEND_DEVICE);
+    }
+
+    int sampleRateDir = 0;
+
+    ((mal_snd_pcm_hw_params_get_channels_min_proc)pContext->alsa.snd_pcm_hw_params_get_channels_min)(pHWParams, &pDeviceInfo->minChannels);
+    ((mal_snd_pcm_hw_params_get_channels_max_proc)pContext->alsa.snd_pcm_hw_params_get_channels_max)(pHWParams, &pDeviceInfo->maxChannels);
+    ((mal_snd_pcm_hw_params_get_rate_min_proc)pContext->alsa.snd_pcm_hw_params_get_rate_min)(pHWParams, &pDeviceInfo->minSampleRate, &sampleRateDir);
+    ((mal_snd_pcm_hw_params_get_rate_max_proc)pContext->alsa.snd_pcm_hw_params_get_rate_max)(pHWParams, &pDeviceInfo->maxSampleRate, &sampleRateDir);
+
+    // Formats.
+    mal_snd_pcm_format_mask_t* pFormatMask = (mal_snd_pcm_format_mask_t*)alloca(((mal_snd_pcm_format_mask_sizeof_proc)pContext->alsa.snd_pcm_format_mask_sizeof)());
+    mal_zero_memory(pFormatMask, ((mal_snd_pcm_format_mask_sizeof_proc)pContext->alsa.snd_pcm_format_mask_sizeof)());
+    ((mal_snd_pcm_hw_params_get_format_mask_proc)pContext->alsa.snd_pcm_hw_params_get_format_mask)(pHWParams, pFormatMask);
+
+    pDeviceInfo->formatCount = 0;
+    if (((mal_snd_pcm_format_mask_test_proc)pContext->alsa.snd_pcm_format_mask_test)(pFormatMask, MAL_SND_PCM_FORMAT_U8)) {
+        pDeviceInfo->formats[pDeviceInfo->formatCount++] = mal_format_u8;
+    }
+    if (((mal_snd_pcm_format_mask_test_proc)pContext->alsa.snd_pcm_format_mask_test)(pFormatMask, MAL_SND_PCM_FORMAT_S16_LE)) {
+        pDeviceInfo->formats[pDeviceInfo->formatCount++] = mal_format_s16;
+    }
+    if (((mal_snd_pcm_format_mask_test_proc)pContext->alsa.snd_pcm_format_mask_test)(pFormatMask, MAL_SND_PCM_FORMAT_S24_3LE)) {
+        pDeviceInfo->formats[pDeviceInfo->formatCount++] = mal_format_s24;
+    }
+    if (((mal_snd_pcm_format_mask_test_proc)pContext->alsa.snd_pcm_format_mask_test)(pFormatMask, MAL_SND_PCM_FORMAT_S32_LE)) {
+        pDeviceInfo->formats[pDeviceInfo->formatCount++] = mal_format_s32;
+    }
+    if (((mal_snd_pcm_format_mask_test_proc)pContext->alsa.snd_pcm_format_mask_test)(pFormatMask, MAL_SND_PCM_FORMAT_FLOAT_LE)) {
+        pDeviceInfo->formats[pDeviceInfo->formatCount++] = mal_format_f32;
+    }
+
+    ((mal_snd_pcm_close_proc)pContext->alsa.snd_pcm_close)(pPCM);
     return MAL_SUCCESS;
 }
 
@@ -8725,7 +8896,11 @@ mal_result mal_context_init__alsa(mal_context* pContext)
     pContext->alsa.snd_pcm_hw_params_set_access           = (mal_proc)mal_dlsym(pContext->alsa.asoundSO, "snd_pcm_hw_params_set_access");
     pContext->alsa.snd_pcm_hw_params_get_format           = (mal_proc)mal_dlsym(pContext->alsa.asoundSO, "snd_pcm_hw_params_get_format");
     pContext->alsa.snd_pcm_hw_params_get_channels         = (mal_proc)mal_dlsym(pContext->alsa.asoundSO, "snd_pcm_hw_params_get_channels");
+    pContext->alsa.snd_pcm_hw_params_get_channels_min     = (mal_proc)mal_dlsym(pContext->alsa.asoundSO, "snd_pcm_hw_params_get_channels_min");
+    pContext->alsa.snd_pcm_hw_params_get_channels_max     = (mal_proc)mal_dlsym(pContext->alsa.asoundSO, "snd_pcm_hw_params_get_channels_max");
     pContext->alsa.snd_pcm_hw_params_get_rate             = (mal_proc)mal_dlsym(pContext->alsa.asoundSO, "snd_pcm_hw_params_get_rate");
+    pContext->alsa.snd_pcm_hw_params_get_rate_min         = (mal_proc)mal_dlsym(pContext->alsa.asoundSO, "snd_pcm_hw_params_get_rate_min");
+    pContext->alsa.snd_pcm_hw_params_get_rate_max         = (mal_proc)mal_dlsym(pContext->alsa.asoundSO, "snd_pcm_hw_params_get_rate_max");
     pContext->alsa.snd_pcm_hw_params_get_buffer_size      = (mal_proc)mal_dlsym(pContext->alsa.asoundSO, "snd_pcm_hw_params_get_buffer_size");
     pContext->alsa.snd_pcm_hw_params_get_periods          = (mal_proc)mal_dlsym(pContext->alsa.asoundSO, "snd_pcm_hw_params_get_periods");
     pContext->alsa.snd_pcm_hw_params_get_access           = (mal_proc)mal_dlsym(pContext->alsa.asoundSO, "snd_pcm_hw_params_get_access");
@@ -8774,7 +8949,11 @@ mal_result mal_context_init__alsa(mal_context* pContext)
     mal_snd_pcm_hw_params_set_access_proc           _snd_pcm_hw_params_set_access           = snd_pcm_hw_params_set_access;
     mal_snd_pcm_hw_params_get_format_proc           _snd_pcm_hw_params_get_format           = snd_pcm_hw_params_get_format;
     mal_snd_pcm_hw_params_get_channels_proc         _snd_pcm_hw_params_get_channels         = snd_pcm_hw_params_get_channels;
+    mal_snd_pcm_hw_params_get_channels_min_proc     _snd_pcm_hw_params_get_channels_min     = snd_pcm_hw_params_get_channels_min;
+    mal_snd_pcm_hw_params_get_channels_max_proc     _snd_pcm_hw_params_get_channels_max     = snd_pcm_hw_params_get_channels_max;
     mal_snd_pcm_hw_params_get_rate_proc             _snd_pcm_hw_params_get_rate             = snd_pcm_hw_params_get_rate;
+    mal_snd_pcm_hw_params_get_rate_min_proc         _snd_pcm_hw_params_get_rate_min         = snd_pcm_hw_params_get_rate_min;
+    mal_snd_pcm_hw_params_get_rate_max_proc         _snd_pcm_hw_params_get_rate_max         = snd_pcm_hw_params_get_rate_max;
     mal_snd_pcm_hw_params_get_buffer_size_proc      _snd_pcm_hw_params_get_buffer_size      = snd_pcm_hw_params_get_buffer_size;
     mal_snd_pcm_hw_params_get_periods_proc          _snd_pcm_hw_params_get_periods          = snd_pcm_hw_params_get_periods;
     mal_snd_pcm_hw_params_get_access_proc           _snd_pcm_hw_params_get_access           = snd_pcm_hw_params_get_access;
@@ -8822,6 +9001,8 @@ mal_result mal_context_init__alsa(mal_context* pContext)
     pContext->alsa.snd_pcm_hw_params_set_access           = (mal_proc)_snd_pcm_hw_params_set_access;
     pContext->alsa.snd_pcm_hw_params_get_format           = (mal_proc)_snd_pcm_hw_params_get_format;
     pContext->alsa.snd_pcm_hw_params_get_channels         = (mal_proc)_snd_pcm_hw_params_get_channels;
+    pContext->alsa.snd_pcm_hw_params_get_channels_min     = (mal_proc)_snd_pcm_hw_params_get_channels_min;
+    pContext->alsa.snd_pcm_hw_params_get_channels_max     = (mal_proc)_snd_pcm_hw_params_get_channels_max;
     pContext->alsa.snd_pcm_hw_params_get_rate             = (mal_proc)_snd_pcm_hw_params_get_rate;
     pContext->alsa.snd_pcm_hw_params_get_buffer_size      = (mal_proc)_snd_pcm_hw_params_get_buffer_size;
     pContext->alsa.snd_pcm_hw_params_get_periods          = (mal_proc)_snd_pcm_hw_params_get_periods;
@@ -9159,7 +9340,7 @@ void mal_device_uninit__alsa(mal_device* pDevice)
     }
 }
 
-mal_result mal_device_init__alsa(mal_context* pContext, mal_device_type type, mal_device_id* pDeviceID, const mal_device_config* pConfig, mal_device* pDevice)
+mal_result mal_device_init__alsa(mal_context* pContext, mal_device_type type, const mal_device_id* pDeviceID, const mal_device_config* pConfig, mal_device* pDevice)
 {
     (void)pContext;
 
@@ -9167,104 +9348,10 @@ mal_result mal_device_init__alsa(mal_context* pContext, mal_device_type type, ma
     mal_zero_object(&pDevice->alsa);
 
     mal_snd_pcm_format_t formatALSA = mal_convert_mal_format_to_alsa_format(pConfig->format);
-    mal_snd_pcm_stream_t stream = (type == mal_device_type_playback) ? MAL_SND_PCM_STREAM_PLAYBACK : MAL_SND_PCM_STREAM_CAPTURE;
 
-    int openMode = MAL_SND_PCM_NO_AUTO_RESAMPLE | MAL_SND_PCM_NO_AUTO_CHANNELS | MAL_SND_PCM_NO_AUTO_FORMAT;
-
-    if (pDeviceID == NULL) {
-        // We're opening the default device. I don't know if trying anything other than "default" is necessary, but it makes
-        // me feel better to try as hard as we can get to get _something_ working.
-        const char* defaultDeviceNames[] = {
-            "default",
-            NULL,
-            NULL,
-            NULL,
-            NULL,
-            NULL,
-            NULL
-        };
-
-        if (pConfig->shareMode == mal_share_mode_exclusive) {
-            defaultDeviceNames[1] = "hw";
-            defaultDeviceNames[2] = "hw:0";
-            defaultDeviceNames[3] = "hw:0,0";
-        } else {
-            if (type == mal_device_type_playback) {
-                defaultDeviceNames[1] = "dmix";
-                defaultDeviceNames[2] = "dmix:0";
-                defaultDeviceNames[3] = "dmix:0,0";
-            } else {
-                defaultDeviceNames[1] = "dsnoop";
-                defaultDeviceNames[2] = "dsnoop:0";
-                defaultDeviceNames[3] = "dsnoop:0,0";
-            }
-            defaultDeviceNames[4] = "hw";
-            defaultDeviceNames[5] = "hw:0";
-            defaultDeviceNames[6] = "hw:0,0";
-        }
-
-        mal_bool32 isDeviceOpen = MAL_FALSE;
-        for (size_t i = 0; i < mal_countof(defaultDeviceNames); ++i) {
-            if (defaultDeviceNames[i] != NULL && defaultDeviceNames[i][0] != '\0') {
-                if (((mal_snd_pcm_open_proc)pContext->alsa.snd_pcm_open)((mal_snd_pcm_t**)&pDevice->alsa.pPCM, defaultDeviceNames[i], stream, openMode) == 0) {
-                    isDeviceOpen = MAL_TRUE;
-                    break;
-                }
-            }
-        }
-
-        if (!isDeviceOpen) {
-            mal_device_uninit__alsa(pDevice);
-            return mal_post_error(pDevice, "[ALSA] snd_pcm_open() failed when trying to open an appropriate default device.", MAL_FAILED_TO_OPEN_BACKEND_DEVICE);
-        }
-    } else {
-        // We're trying to open a specific device. There's a few things to consider here:
-        //
-        // mini_al recongnizes a special format of device id that excludes the "hw", "dmix", etc. prefix. It looks like this: ":0,0", ":0,1", etc. When
-        // an ID of this format is specified, it indicates to mini_al that it can try different combinations of plugins ("hw", "dmix", etc.) until it
-        // finds an appropriate one that works. This comes in very handy when trying to open a device in shared mode ("dmix"), vs exclusive mode ("hw").
-        mal_bool32 isDeviceOpen = MAL_FALSE;
-        if (pDeviceID->alsa[0] != ':') {
-            // The ID is not in ":0,0" format. Use the ID exactly as-is.
-            if (((mal_snd_pcm_open_proc)pContext->alsa.snd_pcm_open)((mal_snd_pcm_t**)&pDevice->alsa.pPCM, pDeviceID->alsa, stream, openMode) == 0) {
-                isDeviceOpen = MAL_TRUE;
-            }
-        } else {
-            // The ID is in ":0,0" format. Try different plugins depending on the shared mode.
-            if (pDeviceID->alsa[1] == '\0') {
-                pDeviceID->alsa[0] = '\0';  // An ID of ":" should be converted to "".
-            }
-
-            char hwid[256];
-            if (pConfig->shareMode == mal_share_mode_shared) {
-                if (type == mal_device_type_playback) {
-                    mal_strcpy_s(hwid, sizeof(hwid), "dmix");
-                } else {
-                    mal_strcpy_s(hwid, sizeof(hwid), "dsnoop");
-                }
-
-                if (mal_strcat_s(hwid, sizeof(hwid), pDeviceID->alsa) == 0) {
-                    if (((mal_snd_pcm_open_proc)pContext->alsa.snd_pcm_open)((mal_snd_pcm_t**)&pDevice->alsa.pPCM, hwid, stream, openMode) == 0) {
-                        isDeviceOpen = MAL_TRUE;
-                    }
-                }
-            }
-
-            // If at this point we still don't have an open device it means we're either preferencing exclusive mode or opening with "dmix"/"dsnoop" failed.
-            if (!isDeviceOpen) {
-                mal_strcpy_s(hwid, sizeof(hwid), "hw");
-                if (mal_strcat_s(hwid, sizeof(hwid), pDeviceID->alsa) == 0) {
-                    if (((mal_snd_pcm_open_proc)pContext->alsa.snd_pcm_open)((mal_snd_pcm_t**)&pDevice->alsa.pPCM, hwid, stream, openMode) == 0) {
-                        isDeviceOpen = MAL_TRUE;
-                    }
-                }
-            }
-        }
-
-        if (!isDeviceOpen) {
-            mal_device_uninit__alsa(pDevice);
-            return mal_post_error(pDevice, "[ALSA] snd_pcm_open() failed.", MAL_FAILED_TO_OPEN_BACKEND_DEVICE);
-        }
+    mal_result result = mal_context_open_pcm__alsa(pContext, pConfig->shareMode, type, pDeviceID, (mal_snd_pcm_t**)&pDevice->alsa.pPCM);
+    if (result != MAL_SUCCESS) {
+        return result;
     }
 
     // We may need to scale the size of the buffer depending on the device.
