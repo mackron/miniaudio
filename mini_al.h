@@ -14113,7 +14113,7 @@ mal_result mal_context_enumerate_devices__sdl(mal_context* pContext, mal_enum_de
     } else
 #endif
     {
-        // SDL1 only uses default devices.
+        // SDL1 only uses default devices, and does not support capture.
         mal_bool32 cbResult = MAL_TRUE;
 
         // Playback.
@@ -14124,6 +14124,7 @@ mal_result mal_context_enumerate_devices__sdl(mal_context* pContext, mal_enum_de
             cbResult = callback(pContext, mal_device_type_playback, &deviceInfo, pUserData);
         }
 
+#if 0   // No capture with SDL1.
         // Capture.
         if (cbResult) {
             mal_device_info deviceInfo;
@@ -14131,6 +14132,7 @@ mal_result mal_context_enumerate_devices__sdl(mal_context* pContext, mal_enum_de
             mal_strncpy_s(deviceInfo.name, sizeof(deviceInfo.name), MAL_DEFAULT_CAPTURE_DEVICE_NAME, (size_t)-1);
             cbResult = callback(pContext, mal_device_type_capture, &deviceInfo, pUserData);
         }
+#endif
     }
 
     return MAL_SUCCESS;
@@ -14166,6 +14168,63 @@ mal_result mal_context_get_device_info__sdl(mal_context* pContext, mal_device_ty
             pDeviceInfo->id.sdl = 0;
             mal_strncpy_s(pDeviceInfo->name, sizeof(pDeviceInfo->name), MAL_DEFAULT_CAPTURE_DEVICE_NAME, (size_t)-1);
         }
+    }
+
+    // To get an accurate idea on the backend's native format we need to open the device. Not ideal, but it's the only way. An
+    // alternative to this is to report all channel counts, sample rates and formats, but that doesn't offer a good representation
+    // of the device's _actual_ ideal format.
+    MAL_SDL_AudioSpec desiredSpec, obtainedSpec;
+    mal_zero_memory(&desiredSpec, sizeof(desiredSpec));
+
+#ifndef MAL_USE_SDL_1
+    if (!pContext->sdl.usingSDL1) {
+        int isCapture = (deviceType == mal_device_type_playback) ? 0 : 1;
+
+        const char* pDeviceName = NULL;
+        if (pDeviceID != NULL) {
+            pDeviceName = ((MAL_PFN_SDL_GetAudioDeviceName)pContext->sdl.SDL_GetAudioDeviceName)(pDeviceID->sdl, isCapture);
+        }
+
+        MAL_SDL_AudioDeviceID tempDeviceID = ((MAL_PFN_SDL_OpenAudioDevice)pContext->sdl.SDL_OpenAudioDevice)(pDeviceName, isCapture, &desiredSpec, &obtainedSpec, MAL_SDL_AUDIO_ALLOW_ANY_CHANGE);
+        if (tempDeviceID == 0) {
+            return mal_context_post_error(pContext, NULL, "Failed to open SDL device.", MAL_FAILED_TO_OPEN_BACKEND_DEVICE);
+        }
+
+        ((MAL_PFN_SDL_CloseAudioDevice)pContext->sdl.SDL_CloseAudioDevice)(tempDeviceID);
+    } else
+#endif
+    {
+        // SDL1 uses default devices.
+        (void)pDeviceID;
+
+        // SDL1 only supports playback as far as I can tell.
+        if (deviceType != mal_device_type_playback) {
+            return MAL_NO_DEVICE;
+        }
+
+        MAL_SDL_AudioDeviceID tempDeviceID = ((MAL_PFN_SDL_OpenAudio)pContext->sdl.SDL_OpenAudio)(&desiredSpec, &obtainedSpec);
+        if (tempDeviceID != 0) {
+            return mal_context_post_error(pContext, NULL, "Failed to open SDL device.", MAL_FAILED_TO_OPEN_BACKEND_DEVICE);
+        }
+
+        ((MAL_PFN_SDL_CloseAudio)pContext->sdl.SDL_CloseAudio)();
+    }
+
+    pDeviceInfo->minChannels = obtainedSpec.channels;
+    pDeviceInfo->maxChannels = obtainedSpec.channels;
+    pDeviceInfo->minSampleRate = obtainedSpec.freq;
+    pDeviceInfo->maxSampleRate = obtainedSpec.freq;
+    pDeviceInfo->formatCount = 1;
+    if (obtainedSpec.format == MAL_AUDIO_U8) {
+        pDeviceInfo->formats[0] = mal_format_u8;
+    } else if (obtainedSpec.format == MAL_AUDIO_S16) {
+        pDeviceInfo->formats[0] = mal_format_s16;
+    } else if (obtainedSpec.format == MAL_AUDIO_S32) {
+        pDeviceInfo->formats[0] = mal_format_s32;
+    } else if (obtainedSpec.format == MAL_AUDIO_F32) {
+        pDeviceInfo->formats[0] = mal_format_f32;
+    } else {
+        return MAL_FORMAT_NOT_SUPPORTED;
     }
 
     return MAL_SUCCESS;
