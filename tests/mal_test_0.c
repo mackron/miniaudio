@@ -13,6 +13,14 @@
 #define MAL_IMPLEMENTATION
 #include "../mini_al.h"
 
+#ifdef __EMSCRIPTEN__
+#include <emscripten.h>
+void main_loop__em()
+{
+}
+#endif
+
+
 mal_backend g_Backends[] = {
     mal_backend_wasapi,
     mal_backend_dsound,
@@ -2209,6 +2217,7 @@ int do_backend_tests()
 typedef struct
 {
     mal_decoder* pDecoder;
+    mal_sine_wave* pSineWave;
     mal_event endOfPlaybackEvent;
 } playback_test_callback_data;
 
@@ -2217,12 +2226,29 @@ mal_uint32 on_send__playback_test(mal_device* pDevice, mal_uint32 frameCount, vo
     playback_test_callback_data* pData = (playback_test_callback_data*)pDevice->pUserData;
     mal_assert(pData != NULL);
 
+#if !defined(__EMSCRIPTEN__)
     mal_uint64 framesRead = mal_decoder_read(pData->pDecoder, frameCount, pFrames);
     if (framesRead == 0) {
         mal_event_signal(&pData->endOfPlaybackEvent);
     }
 
     return (mal_uint32)framesRead;
+#else
+    if (pDevice->format == mal_format_f32) {
+        for (mal_uint32 iFrame = 0; iFrame < frameCount; ++iFrame) {
+            float sample;
+            mal_sine_wave_read(pData->pSineWave, 1, &sample);
+
+            for (mal_uint32 iChannel = 0; iChannel < pDevice->channels; ++iChannel) {
+                ((float*)pFrames)[iFrame*pDevice->channels + iChannel] = sample;
+            }
+        }
+
+        return frameCount;
+    } else {
+        return 0;
+    }
+#endif
 }
 
 int do_playback_test(mal_backend backend)
@@ -2230,11 +2256,13 @@ int do_playback_test(mal_backend backend)
     mal_result result = MAL_SUCCESS;
     mal_device device;
     mal_decoder decoder;
+    mal_sine_wave sineWave;
     mal_bool32 haveDevice = MAL_FALSE;
     mal_bool32 haveDecoder = MAL_FALSE;
 
     playback_test_callback_data callbackData;
     callbackData.pDecoder = &decoder;
+    callbackData.pSineWave = &sineWave;
 
     printf("--- %s ---\n", mal_get_backend_name(backend));
 
@@ -2243,6 +2271,10 @@ int do_playback_test(mal_backend backend)
     {
         mal_context_config contextConfig = mal_context_config_init(on_log);
         mal_device_config deviceConfig = mal_device_config_init_default_playback(on_send__playback_test);
+
+    #if defined(__EMSCRIPTEN__)
+        deviceConfig.format = mal_format_f32;
+    #endif
 
         result = mal_device_init_ex(&backend, 1, &contextConfig, mal_device_type_playback, NULL, &deviceConfig, &callbackData, &device);
         if (result == MAL_SUCCESS) {
@@ -2271,6 +2303,7 @@ int do_playback_test(mal_backend backend)
             goto done;
         }
         
+#if !defined(__EMSCRIPTEN__)
         mal_decoder_config decoderConfig = mal_decoder_config_init(device.format, device.channels, device.sampleRate);
         result = mal_decoder_init_file("res/sine_s16_mono_48000.wav", &decoderConfig, &decoder);
         if (result == MAL_SUCCESS) {
@@ -2280,6 +2313,17 @@ int do_playback_test(mal_backend backend)
             goto done;
         }
         haveDecoder = MAL_TRUE;
+#else
+        result = mal_sine_wave_init(0.5f, 400, device.sampleRate, &sineWave);
+        if (result == MAL_SUCCESS) {
+            printf("Done\n");
+        } else {
+            printf("Failed to init sine wave.\n");
+            goto done;
+        }
+#endif
+
+        
     }
 
     printf("  Press Enter to start playback... ");
@@ -2290,6 +2334,10 @@ int do_playback_test(mal_backend backend)
             printf("Failed to start device.\n");
             goto done;
         }
+
+#if defined(__EMSCRIPTEN__)
+        emscripten_set_main_loop(main_loop__em, 0, 1);
+#endif
 
         mal_event_wait(&callbackData.endOfPlaybackEvent);   // Wait for the sound to finish.
         printf("Done\n");
