@@ -1,5 +1,5 @@
 // MP3 audio decoder. Public domain. See "unlicense" statement at the end of this file.
-// dr_mp3 - v0.2 - 2018-04-21
+// dr_mp3 - v0.2.1 - 2018-04-27
 //
 // David Reid - mackron@gmail.com
 //
@@ -225,6 +225,7 @@ typedef struct
     size_t dataSize;
     size_t dataCapacity;
     drmp3_uint8* pData;
+    drmp3_bool32 atEnd : 1;
     struct
     {
         const drmp3_uint8* pData;
@@ -2290,6 +2291,10 @@ static drmp3_bool32 drmp3_decode_next_frame(drmp3* pMP3)
     drmp3_assert(pMP3 != NULL);
     drmp3_assert(pMP3->onRead != NULL);
 
+    if (pMP3->atEnd) {
+        return DRMP3_FALSE;
+    }
+
     do
     {
         // minimp3 recommends doing data submission in 16K chunks. If we don't have at least 16K bytes available, get more.
@@ -2305,10 +2310,16 @@ static drmp3_bool32 drmp3_decode_next_frame(drmp3* pMP3)
             }
 
             size_t bytesRead = pMP3->onRead(pMP3->pUserData, pMP3->pData + pMP3->dataSize, (pMP3->dataCapacity - pMP3->dataSize));
+            if (bytesRead == 0) {
+                pMP3->atEnd = DRMP3_TRUE;
+                return DRMP3_FALSE; // No data.
+            }
+
             pMP3->dataSize += bytesRead;
         }
 
         if (pMP3->dataSize > INT_MAX) {
+            pMP3->atEnd = DRMP3_TRUE;
             return DRMP3_FALSE; // File too big.
         }
 
@@ -2343,6 +2354,7 @@ static drmp3_bool32 drmp3_decode_next_frame(drmp3* pMP3)
             // Fill in a chunk.
             size_t bytesRead = pMP3->onRead(pMP3->pUserData, pMP3->pData + pMP3->dataSize, (pMP3->dataCapacity - pMP3->dataSize));
             if (bytesRead == 0) {
+                pMP3->atEnd = DRMP3_TRUE;
                 return DRMP3_FALSE; // Error reading more data.
             }
 
@@ -2616,6 +2628,7 @@ drmp3_bool32 drmp3_seek_to_frame(drmp3* pMP3, drmp3_uint64 frameIndex)
     pMP3->framesConsumed = 0;
     pMP3->framesRemaining = 0;
     pMP3->dataSize = 0;
+    pMP3->atEnd = DRMP3_FALSE;
 
     // TODO: Optimize.
     //
@@ -2743,6 +2756,9 @@ void drmp3_free(void* p)
 
 // REVISION HISTORY
 // ===============
+//
+// v0.2.1 - 2018-04-27
+//   - Efficiency improvements when the decoder reaches the end of the stream.
 //
 // v0.2 - 2018-04-21
 //   - Bring up to date with minimp3.
