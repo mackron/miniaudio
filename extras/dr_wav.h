@@ -1,5 +1,5 @@
 // WAV audio loader and writer. Public domain. See "unlicense" statement at the end of this file.
-// dr_wav - v0.7f - 2018-02-05
+// dr_wav - v0.8 - 2018-04-27
 //
 // David Reid - mackron@gmail.com
 
@@ -902,8 +902,8 @@ static drwav_bool32 drwav__read_fmt(drwav_read_proc onRead, drwav_seek_proc onSe
     }
 
 
-    // Skip junk chunks.
-    if ((container == drwav_container_riff && drwav__fourcc_equal(header.id.fourcc, "JUNK")) || (container == drwav_container_w64 && drwav__guid_equal(header.id.guid, drwavGUID_W64_JUNK))) {
+    // Skip non-fmt chunks.
+    if ((container == drwav_container_riff && !drwav__fourcc_equal(header.id.fourcc, "fmt ")) || (container == drwav_container_w64 && !drwav__guid_equal(header.id.guid, drwavGUID_W64_FMT))) {
         if (!drwav__seek_forward(onSeek, header.sizeInBytes + header.paddingSize, pUserData)) {
             return DRWAV_FALSE;
         }
@@ -3438,6 +3438,10 @@ void drwav_free(void* pDataReturnedByOpenAndRead)
 
 
 // REVISION HISTORY
+//
+// v0.8 - 2018-04-27
+//   - Bug fix.
+//   - Start using major.minor.revision versioning.
 //
 // v0.7f - 2018-02-05
 //   - Restrict ADPCM formats to a maximum of 2 channels.
