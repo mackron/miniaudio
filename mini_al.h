@@ -20739,17 +20739,17 @@ mal_result mal_decoder_init(mal_decoder_read_proc onRead, mal_decoder_seek_proc 
         }
     }
 #endif
-#ifdef MAL_HAS_MP3
+#ifdef MAL_HAS_VORBIS
     if (result != MAL_SUCCESS) {
-        result = mal_decoder_init_mp3__internal(&config, pDecoder);
+        result = mal_decoder_init_vorbis__internal(&config, pDecoder);
         if (result != MAL_SUCCESS) {
             onSeek(pDecoder, 0, mal_seek_origin_start);
         }
     }
 #endif
-#ifdef MAL_HAS_VORBIS
+#ifdef MAL_HAS_MP3
     if (result != MAL_SUCCESS) {
-        result = mal_decoder_init_vorbis__internal(&config, pDecoder);
+        result = mal_decoder_init_mp3__internal(&config, pDecoder);
         if (result != MAL_SUCCESS) {
             onSeek(pDecoder, 0, mal_seek_origin_start);
         }
