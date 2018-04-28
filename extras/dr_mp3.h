@@ -1,5 +1,5 @@
 // MP3 audio decoder. Public domain. See "unlicense" statement at the end of this file.
-// dr_mp3 - v0.2.1 - 2018-04-27
+// dr_mp3 - v0.2.2 - 2018-04-28
 //
 // David Reid - mackron@gmail.com
 //
@@ -2423,9 +2423,13 @@ static drmp3_uint64 drmp3_read_src(drmp3_src* pSRC, drmp3_uint64 frameCount, voi
     return totalFramesRead;
 }
 
-drmp3_bool32 drmp3_init(drmp3* pMP3, drmp3_read_proc onRead, drmp3_seek_proc onSeek, void* pUserData, const drmp3_config* pConfig)
+drmp3_bool32 drmp3_init_internal(drmp3* pMP3, drmp3_read_proc onRead, drmp3_seek_proc onSeek, void* pUserData, const drmp3_config* pConfig)
 {
-    if (pMP3 == NULL || onRead == NULL) return DRMP3_FALSE;
+    drmp3_assert(pMP3 != NULL);
+    drmp3_assert(onRead != NULL);
+
+    // This function assumes the output object has already been reset to 0. Do not do that here, otherwise things will break.
+    drmp3dec_init(&pMP3->decoder);
 
     // The config can be null in which case we use defaults.
     drmp3_config config;
@@ -2434,9 +2438,6 @@ drmp3_bool32 drmp3_init(drmp3* pMP3, drmp3_read_proc onRead, drmp3_seek_proc onS
     } else {
         drmp3_zero_object(&config);
     }
-
-    drmp3_zero_object(pMP3);
-    drmp3dec_init(&pMP3->decoder);
 
     pMP3->channels = config.outputChannels;
     if (pMP3->channels == 0) {
@@ -2474,6 +2475,16 @@ drmp3_bool32 drmp3_init(drmp3* pMP3, drmp3_read_proc onRead, drmp3_seek_proc onS
     }
 
     return DRMP3_TRUE;
+}
+
+drmp3_bool32 drmp3_init(drmp3* pMP3, drmp3_read_proc onRead, drmp3_seek_proc onSeek, void* pUserData, const drmp3_config* pConfig)
+{
+    if (pMP3 == NULL || onRead == NULL) {
+        return DRMP3_FALSE;
+    }
+
+    drmp3_zero_object(pMP3);
+    return drmp3_init_internal(pMP3, onRead, onSeek, pUserData, pConfig);
 }
 
 
@@ -2527,7 +2538,10 @@ static drmp3_bool32 drmp3__on_seek_memory(void* pUserData, int byteOffset, drmp3
 
 drmp3_bool32 drmp3_init_memory(drmp3* pMP3, const void* pData, size_t dataSize, const drmp3_config* pConfig)
 {
-    if (pMP3 == NULL) return DRMP3_FALSE;
+    if (pMP3 == NULL) {
+        return DRMP3_FALSE;
+    }
+
     drmp3_zero_object(pMP3);
 
     if (pData == NULL || dataSize == 0) {
@@ -2538,7 +2552,7 @@ drmp3_bool32 drmp3_init_memory(drmp3* pMP3, const void* pData, size_t dataSize, 
     pMP3->memory.dataSize = dataSize;
     pMP3->memory.currentReadPos = 0;
 
-    return drmp3_init(pMP3, drmp3__on_read_memory, drmp3__on_seek_memory, pMP3, pConfig);
+    return drmp3_init_internal(pMP3, drmp3__on_read_memory, drmp3__on_seek_memory, pMP3, pConfig);
 }
 
 
@@ -2756,6 +2770,9 @@ void drmp3_free(void* p)
 
 // REVISION HISTORY
 // ===============
+//
+// v0.2.2 - 2018-04-28
+//   - Fix bug when opening a decoder from memory.
 //
 // v0.2.1 - 2018-04-27
 //   - Efficiency improvements when the decoder reaches the end of the stream.
