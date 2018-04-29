@@ -337,8 +337,10 @@ extern "C" {
             #define MAL_HAS_STDINT
         #endif
     #else
-        #if defined(__has_include) && __has_include(<stdint.h>)
-            #define MAL_HAS_STDINT
+        #if defined(__has_include)
+            #if __has_include(<stdint.h>)
+                #define MAL_HAS_STDINT
+            #endif
         #endif
     #endif
 #endif
@@ -353,7 +355,7 @@ typedef unsigned int                mal_uint32;
     #if defined(_MSC_VER)
     typedef   signed __int64        mal_int64;
     typedef unsigned __int64        mal_uint64;
-    #elif defined(__GNUC__)
+    #else
     typedef   signed long long int  mal_int64;
     typedef unsigned long long int  mal_uint64;
     #endif
