@@ -2378,6 +2378,39 @@ int main(int argc, char** argv)
     mal_bool32 hasErrorOccurred = MAL_FALSE;
     int result = 0;
 
+    // Print the compiler.
+#if defined(_MSC_VER) && !defined(__clang__)
+    printf("Compiler:     VC++\n");
+#endif
+#if defined(__GNUC__) && !defined(__clang__)
+    printf("Compiler:     GCC\n");
+#endif
+#if defined(__clang__)
+    printf("Compiler:     Clang\n");
+#endif
+
+    // Print CPU features.
+    if (mal_has_sse2()) {
+        printf("Has SSE:      YES\n");
+    } else {
+        printf("Has SSE:      NO\n");
+    }
+    if (mal_has_avx()) {
+        printf("Has AVX:      YES\n");
+    } else {
+        printf("Has AVX:      NO\n");
+    }
+    if (mal_has_avx512f()) {
+        printf("Has AVX-512F: YES\n");
+    } else {
+        printf("Has AVX-512F: NO\n");
+    }
+    if (mal_has_neon()) {
+        printf("Has NEON:     YES\n");
+    } else {
+        printf("Has NEON:     NO\n");
+    }
+
     // Aligned malloc/free
     printf("=== TESTING CORE ===\n");
     result = do_core_tests();
