@@ -78,11 +78,10 @@ int do_dithering_test()
     mal_sine_wave_init(0.5, 400, 48000, &sineWave);
 
     mal_format srcFormat = mal_format_s24;
-    mal_format dstFormat = mal_format_s16;
+    mal_format dstFormat = mal_format_u8;
     mal_dither_mode ditherMode = mal_dither_mode_triangle;
 
-    mal_format_converter_config converterInConfig;
-    mal_zero_object(&converterInConfig);
+    mal_format_converter_config converterInConfig = mal_format_converter_config_init_new();
     converterInConfig.formatIn = mal_format_f32;  // <-- From the sine wave generator.
     converterInConfig.formatOut = srcFormat;
     converterInConfig.channels = config.channels;
@@ -94,8 +93,7 @@ int do_dithering_test()
         return -3;
     }
 
-    mal_format_converter_config converterOutConfig;
-    mal_zero_object(&converterInConfig);
+    mal_format_converter_config converterOutConfig = mal_format_converter_config_init_new();
     converterOutConfig.formatIn = srcFormat;
     converterOutConfig.formatOut = dstFormat;
     converterOutConfig.channels = config.channels;

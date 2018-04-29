@@ -1971,6 +1971,11 @@ mal_uint64 mal_format_converter_read(mal_format_converter* pConverter, mal_uint6
 mal_uint64 mal_format_converter_read_deinterleaved(mal_format_converter* pConverter, mal_uint64 frameCount, void** ppSamplesOut, void* pUserData);
 
 
+// Helper for initializing a format converter config.
+mal_format_converter_config mal_format_converter_config_init_new();
+mal_format_converter_config mal_format_converter_config_init(mal_format formatIn, mal_format formatOut, mal_uint32 channels, mal_format_converter_read_proc onRead, mal_format_converter_read_deinterleaved_proc onReadDeinterleaved, void* pUserData);
+
+
 
 //////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 //
@@ -18555,6 +18560,28 @@ mal_uint64 mal_format_converter_read_deinterleaved(mal_format_converter* pConver
     }
 
     return totalFramesRead;
+}
+
+
+mal_format_converter_config mal_format_converter_config_init_new()
+{
+    mal_format_converter_config config;
+    mal_zero_object(&config);
+
+    return config;
+}
+
+mal_format_converter_config mal_format_converter_config_init(mal_format formatIn, mal_format formatOut, mal_uint32 channels, mal_format_converter_read_proc onRead, mal_format_converter_read_deinterleaved_proc onReadDeinterleaved, void* pUserData)
+{
+    mal_format_converter_config config = mal_format_converter_config_init_new();
+    config.formatIn = formatIn;
+    config.formatOut = formatOut;
+    config.channels = channels;
+    config.onRead = onRead;
+    config.onReadDeinterleaved = onReadDeinterleaved;
+    config.pUserData = pUserData;
+
+    return config;
 }
 
 
