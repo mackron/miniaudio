@@ -677,8 +677,8 @@ typedef enum
 typedef enum
 {
     mal_dither_mode_none = 0,
-    //mal_dither_mode_rectangle,
-    //mal_dither_mode_triangle
+    mal_dither_mode_rectangle,
+    mal_dither_mode_triangle
 } mal_dither_mode;
 
 typedef enum
@@ -888,6 +888,7 @@ typedef struct
     mal_uint32 sampleRateOut;
     mal_channel channelMapOut[MAL_MAX_CHANNELS];
     mal_channel_mix_mode channelMixMode;
+    mal_dither_mode ditherMode;
     mal_src_algorithm srcAlgorithm;
     mal_bool32 allowDynamicSampleRate;
     mal_dsp_read_proc onRead;
@@ -1924,6 +1925,39 @@ mal_bool32 mal_channel_map_contains_channel_position(mal_uint32 channels, const 
 //////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 //
 // Format Conversion
+// =================
+// The format converter serves two purposes:
+//   1) Conversion between data formats (u8 to f32, etc.)
+//   2) Interleaving and deinterleaving
+//
+// When initializing a converter, you specify the input and output formats (u8, s16, etc.) and read callbacks. There are two read callbacks - one for
+// interleaved input data (onRead) and another for deinterleaved input data (onReadDeinterleaved). You implement whichever is most convenient for you. You
+// can implement both, but it's not recommended as it just introduces unnecessary complexity.
+//
+// To read data as interleaved samples, use mal_format_converter_read(). Otherwise use mal_format_converter_read_deinterleaved().
+//
+// Dithering
+// ---------
+// The format converter also supports dithering. Dithering can be set using ditherMode variable in the config, like so.
+//
+//   pConfig->ditherMode = mal_dither_mode_rectangle;
+//
+// The different dithering modes include the following, in order of efficiency:
+//   - None:      mal_dither_mode_none
+//   - Rectangle: mal_dither_mode_rectangle
+//   - Triangle:  mal_dither_mode_triangle
+//
+// Note that even if the dither mode is set to something other than mal_dither_mode_none, it will be ignored for conversions where dithering is not needed.
+// Dithering is available for the following conversions:
+//   - s16 -> u8
+//   - s24 -> u8
+//   - s32 -> u8
+//   - f32 -> u8
+//   - s24 -> s16
+//   - s32 -> s16
+//   - f32 -> s16
+//
+// Note that it is not an error to pass something other than mal_dither_mode_none for conversions where dither is not used. It will just be ignored.
 //
 //////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
@@ -3061,6 +3095,90 @@ static MAL_INLINE float mal_clip_f32(float x)
 static MAL_INLINE float mal_mix_f32(float x, float y, float a)
 {
     return x*(1-a) + y*a;
+}
+
+static MAL_INLINE float mal_scale_to_range_f32(float x, float lo, float hi)
+{
+    return lo + x*(hi-lo);
+}
+
+
+
+// Random Number Generation
+//
+// mini_al uses the LCG random number generation algorithm. This is good enough for audio.
+//
+// Note that mini_al's LCG implementation uses global state which is _not_ thread-local. When this is called across
+// multiple threads, results will be unpredictable. However, it won't crash and results will still be random enough
+// for mini_al's purposes.
+#define MAL_LCG_M   4294967296
+#define MAL_LCG_A   1103515245
+#define MAL_LCG_C   12345
+static mal_int32 g_malLCG;
+
+void mal_seed(mal_int32 seed)
+{
+    g_malLCG = seed;
+}
+
+mal_int32 mal_rand_s32()
+{
+    mal_int32 lcg = g_malLCG;
+    mal_int32 r = (MAL_LCG_A * lcg + MAL_LCG_C) % MAL_LCG_M;
+    g_malLCG = r;
+    return r;
+}
+
+double mal_rand_f64()
+{
+    return (mal_rand_s32() + 0x80000000) / (double)0x7FFFFFFF;
+}
+
+float mal_rand_f32()
+{
+    return (float)mal_rand_f64();
+}
+
+static MAL_INLINE float mal_rand_range_f32(float lo, float hi)
+{
+    return mal_scale_to_range_f32(mal_rand_f32(), lo, hi);
+}
+
+static MAL_INLINE mal_int32 mal_rand_range_s32(mal_int32 lo, mal_int32 hi)
+{
+    double x = mal_rand_f64();
+    return lo + (mal_int32)(x*(hi-lo));
+}
+
+
+static MAL_INLINE float mal_dither_f32(mal_dither_mode ditherMode, float ditherMin, float ditherMax)
+{
+    if (ditherMode == mal_dither_mode_rectangle) {
+        float a = mal_rand_range_f32(ditherMin, ditherMax);
+        return a;
+    }
+    if (ditherMode == mal_dither_mode_triangle) {
+        float a = mal_rand_range_f32(ditherMin, 0);
+        float b = mal_rand_range_f32(0, ditherMax);
+        return a + b;
+    }
+
+    return 0;
+}
+
+static MAL_INLINE mal_int32 mal_dither_s32(mal_dither_mode ditherMode, mal_int32 ditherMin, mal_int32 ditherMax)
+{
+    if (ditherMode == mal_dither_mode_rectangle) {
+        mal_int32 a = mal_rand_range_s32(ditherMin, ditherMax);
+        return a;
+    }
+    if (ditherMode == mal_dither_mode_triangle) {
+        mal_int32 a = mal_rand_range_s32(ditherMin, 0);
+        mal_int32 b = mal_rand_range_s32(0, ditherMax);
+        return a + b;
+    }
+
+    return 0;
 }
 
 
@@ -16977,17 +17095,34 @@ void mal_pcm_deinterleave_u8(void** dst, const void* src, mal_uint64 frameCount,
 // s16
 void mal_pcm_s16_to_u8__reference(void* dst, const void* src, mal_uint64 count, mal_dither_mode ditherMode)
 {
-    (void)ditherMode;
-
     mal_uint8* dst_u8 = (mal_uint8*)dst;
     const mal_int16* src_s16 = (const mal_int16*)src;
 
-    mal_uint64 i;
-    for (i = 0; i < count; i += 1) {
-        mal_int16 x = src_s16[i];
-        x = x >> 8;
-        x = x + 128;
-        dst_u8[i] = (mal_uint8)x;
+    if (ditherMode == mal_dither_mode_none) {
+        mal_uint64 i;
+        for (i = 0; i < count; i += 1) {
+            mal_int16 x = src_s16[i];
+            x = x >> 8;
+            x = x + 128;
+            dst_u8[i] = (mal_uint8)x;
+        }
+    } else {
+        mal_uint64 i;
+        for (i = 0; i < count; i += 1) {
+            mal_int16 x = src_s16[i];
+
+            // Dither. Don't overflow.
+            mal_int32 dither = mal_dither_s32(ditherMode, -0x80, 0x7F);
+            if ((x + dither) <= 0x7FFF) {
+                x = (mal_int16)(x + dither);
+            } else {
+                x = 0x7FFF;
+            }
+
+            x = x >> 8;
+            x = x + 128;
+            dst_u8[i] = (mal_uint8)x;
+        }
     }
 }
 
@@ -17216,15 +17351,32 @@ void mal_pcm_deinterleave_s16(void** dst, const void* src, mal_uint64 frameCount
 // s24
 void mal_pcm_s24_to_u8__reference(void* dst, const void* src, mal_uint64 count, mal_dither_mode ditherMode)
 {
-    (void)ditherMode;
-
     mal_uint8* dst_u8 = (mal_uint8*)dst;
     const mal_uint8* src_s24 = (const mal_uint8*)src;
 
-    mal_uint64 i;
-    for (i = 0; i < count; i += 1) {
-        mal_int8 x = (mal_int8)src_s24[i*3 + 2] + 128;
-        dst_u8[i] = (mal_uint8)x;
+    if (ditherMode == mal_dither_mode_none) {
+        mal_uint64 i;
+        for (i = 0; i < count; i += 1) {
+            mal_int8 x = (mal_int8)src_s24[i*3 + 2] + 128;
+            dst_u8[i] = (mal_uint8)x;
+        }
+    } else {
+        mal_uint64 i;
+        for (i = 0; i < count; i += 1) {
+            mal_int32 x = (mal_int32)(((mal_uint32)(src_s24[i*3+0]) << 8) | ((mal_uint32)(src_s24[i*3+1]) << 16) | ((mal_uint32)(src_s24[i*3+2])) << 24);
+
+            // Dither. Don't overflow.
+            mal_int32 dither = mal_dither_s32(ditherMode, -0x800000, 0x7FFFFF);
+            if ((mal_int64)x + dither <= 0x7FFFFFFF) {
+                x = x + dither;
+            } else {
+                x = 0x7FFFFFFF;
+            }
+            
+            x = x >> 24;
+            x = x + 128;
+            dst_u8[i] = (mal_uint8)x;
+        }
     }
 }
 
@@ -17256,16 +17408,32 @@ void mal_pcm_s24_to_u8(void* dst, const void* src, mal_uint64 count, mal_dither_
 
 void mal_pcm_s24_to_s16__reference(void* dst, const void* src, mal_uint64 count, mal_dither_mode ditherMode)
 {
-    (void)ditherMode;
-
     mal_int16* dst_s16 = (mal_int16*)dst;
     const mal_uint8* src_s24 = (const mal_uint8*)src;
 
-    mal_uint64 i;
-    for (i = 0; i < count; i += 1) {
-        mal_uint16 dst_lo = ((mal_uint16)src_s24[i*3 + 1]);
-        mal_uint16 dst_hi = ((mal_uint16)src_s24[i*3 + 2]) << 8;
-        dst_s16[i] = (mal_int16)dst_lo | dst_hi;
+    if (ditherMode == mal_dither_mode_none) {
+        mal_uint64 i;
+        for (i = 0; i < count; i += 1) {
+            mal_uint16 dst_lo = ((mal_uint16)src_s24[i*3 + 1]);
+            mal_uint16 dst_hi = ((mal_uint16)src_s24[i*3 + 2]) << 8;
+            dst_s16[i] = (mal_int16)dst_lo | dst_hi;
+        }
+    } else {
+        mal_uint64 i;
+        for (i = 0; i < count; i += 1) {
+            mal_int32 x = (mal_int32)(((mal_uint32)(src_s24[i*3+0]) << 8) | ((mal_uint32)(src_s24[i*3+1]) << 16) | ((mal_uint32)(src_s24[i*3+2])) << 24);
+
+            // Dither. Don't overflow.
+            mal_int32 dither = mal_dither_s32(ditherMode, -0x8000, 0x7FFF);
+            if ((mal_int64)x + dither <= 0x7FFFFFFF) {
+                x = x + dither;
+            } else {
+                x = 0x7FFFFFFF;
+            }
+
+            x = x >> 16;
+            dst_s16[i] = (mal_int16)x;
+        }
     }
 }
 
@@ -17459,17 +17627,34 @@ void mal_pcm_deinterleave_s24(void** dst, const void* src, mal_uint64 frameCount
 // s32
 void mal_pcm_s32_to_u8__reference(void* dst, const void* src, mal_uint64 count, mal_dither_mode ditherMode)
 {
-    (void)ditherMode;
-
     mal_uint8* dst_u8 = (mal_uint8*)dst;
     const mal_int32* src_s32 = (const mal_int32*)src;
 
-    mal_uint64 i;
-    for (i = 0; i < count; i += 1) {
-        mal_int32 x = src_s32[i];
-        x = x >> 24;
-        x = x + 128;
-        dst_u8[i] = (mal_uint8)x;
+    if (ditherMode == mal_dither_mode_none) {
+        mal_uint64 i;
+        for (i = 0; i < count; i += 1) {
+            mal_int32 x = src_s32[i];
+            x = x >> 24;
+            x = x + 128;
+            dst_u8[i] = (mal_uint8)x;
+        }
+    } else {
+        mal_uint64 i;
+        for (i = 0; i < count; i += 1) {
+            mal_int32 x = src_s32[i];
+
+            // Dither. Don't overflow.
+            mal_int32 dither = mal_dither_s32(ditherMode, -0x800000, 0x7FFFFF);
+            if ((mal_int64)x + dither <= 0x7FFFFFFF) {
+                x = x + dither;
+            } else {
+                x = 0x7FFFFFFF;
+            }
+            
+            x = x >> 24;
+            x = x + 128;
+            dst_u8[i] = (mal_uint8)x;
+        }
     }
 }
 
@@ -17501,16 +17686,32 @@ void mal_pcm_s32_to_u8(void* dst, const void* src, mal_uint64 count, mal_dither_
 
 void mal_pcm_s32_to_s16__reference(void* dst, const void* src, mal_uint64 count, mal_dither_mode ditherMode)
 {
-    (void)ditherMode;
-
     mal_int16* dst_s16 = (mal_int16*)dst;
     const mal_int32* src_s32 = (const mal_int32*)src;
 
-    mal_uint64 i;
-    for (i = 0; i < count; i += 1) {
-        mal_int32 x = src_s32[i];
-        x = x >> 16;
-        dst_s16[i] = (mal_int16)x;
+    if (ditherMode == mal_dither_mode_none) {
+        mal_uint64 i;
+        for (i = 0; i < count; i += 1) {
+            mal_int32 x = src_s32[i];
+            x = x >> 16;
+            dst_s16[i] = (mal_int16)x;
+        }
+    } else {
+        mal_uint64 i;
+        for (i = 0; i < count; i += 1) {
+            mal_int32 x = src_s32[i];
+
+            // Dither. Don't overflow.
+            mal_int32 dither = mal_dither_s32(ditherMode, -0x8000, 0x7FFF);
+            if ((mal_int64)x + dither <= 0x7FFFFFFF) {
+                x = x + dither;
+            } else {
+                x = 0x7FFFFFFF;
+            }
+            
+            x = x >> 16;
+            dst_s16[i] = (mal_int16)x;
+        }
     }
 }
 
@@ -17542,7 +17743,7 @@ void mal_pcm_s32_to_s16(void* dst, const void* src, mal_uint64 count, mal_dither
 
 void mal_pcm_s32_to_s24__reference(void* dst, const void* src, mal_uint64 count, mal_dither_mode ditherMode)
 {
-    (void)ditherMode;
+    (void)ditherMode;   // No dithering for s32 -> s24.
 
     mal_uint8* dst_s24 = (mal_uint8*)dst;
     const mal_int32* src_s32 = (const mal_int32*)src;
@@ -17592,7 +17793,7 @@ void mal_pcm_s32_to_s32(void* dst, const void* src, mal_uint64 count, mal_dither
 
 void mal_pcm_s32_to_f32__reference(void* dst, const void* src, mal_uint64 count, mal_dither_mode ditherMode)
 {
-    (void)ditherMode;
+    (void)ditherMode;   // No dithering for s32 -> f32.
 
     float* dst_f32 = (float*)dst;
     const mal_int32* src_s32 = (const mal_int32*)src;
@@ -17700,14 +17901,20 @@ void mal_pcm_deinterleave_s32(void** dst, const void* src, mal_uint64 frameCount
 // f32
 void mal_pcm_f32_to_u8__reference(void* dst, const void* src, mal_uint64 count, mal_dither_mode ditherMode)
 {
-    (void)ditherMode;
-
     mal_uint8* dst_u8 = (mal_uint8*)dst;
     const float* src_f32 = (const float*)src;
+
+    float ditherMin = 0;
+    float ditherMax = 0;
+    if (ditherMode != mal_dither_mode_none) {
+        ditherMin = 1.0f / -128;
+        ditherMax = 1.0f /  127;
+    }
 
     mal_uint64 i;
     for (i = 0; i < count; i += 1) {
         float x = src_f32[i];
+        x = x + mal_dither_f32(ditherMode, ditherMin, ditherMax);
         x = ((x < -1) ? -1 : ((x > 1) ? 1 : x));    // clip
         x = x + 1;                                  // -1..1 to 0..2
         x = x * 127.5f;                             // 0..2 to 0..255
@@ -17744,14 +17951,20 @@ void mal_pcm_f32_to_u8(void* dst, const void* src, mal_uint64 count, mal_dither_
 
 void mal_pcm_f32_to_s16__reference(void* dst, const void* src, mal_uint64 count, mal_dither_mode ditherMode)
 {
-    (void)ditherMode;
-
     mal_int16* dst_s16 = (mal_int16*)dst;
     const float* src_f32 = (const float*)src;
+
+    float ditherMin = 0;
+    float ditherMax = 0;
+    if (ditherMode != mal_dither_mode_none) {
+        ditherMin = 1.0f / -32768;
+        ditherMax = 1.0f /  32767;
+    }
 
     mal_uint64 i;
     for (i = 0; i < count; i += 1) {
         float x = src_f32[i];
+        x = x + mal_dither_f32(ditherMode, ditherMin, ditherMax);
         x = ((x < -1) ? -1 : ((x > 1) ? 1 : x));    // clip
 
 #if 0
@@ -17796,7 +18009,7 @@ void mal_pcm_f32_to_s16(void* dst, const void* src, mal_uint64 count, mal_dither
 
 void mal_pcm_f32_to_s24__reference(void* dst, const void* src, mal_uint64 count, mal_dither_mode ditherMode)
 {
-    (void)ditherMode;
+    (void)ditherMode;   // No dithering for f32 -> s24.
 
     mal_uint8* dst_s24 = (mal_uint8*)dst;
     const float* src_f32 = (const float*)src;
@@ -17851,7 +18064,7 @@ void mal_pcm_f32_to_s24(void* dst, const void* src, mal_uint64 count, mal_dither
 
 void mal_pcm_f32_to_s32__reference(void* dst, const void* src, mal_uint64 count, mal_dither_mode ditherMode)
 {
-    (void)ditherMode;
+    (void)ditherMode;   // No dithering for f32 -> s32.
 
     mal_int32* dst_s32 = (mal_int32*)dst;
     const float* src_f32 = (const float*)src;
@@ -19586,6 +19799,7 @@ mal_result mal_dsp_init(const mal_dsp_config* pConfig, mal_dsp* pDSP)
         preFormatConverterConfig.formatIn = pConfig->formatIn;
         preFormatConverterConfig.formatOut = mal_format_f32;
         preFormatConverterConfig.channels = pConfig->channelsIn;
+        preFormatConverterConfig.ditherMode = pConfig->ditherMode;
         preFormatConverterConfig.streamFormatIn = mal_stream_format_pcm;
         preFormatConverterConfig.streamFormatOut = mal_stream_format_pcm;
         preFormatConverterConfig.onRead = mal_dsp__pre_format_converter_on_read;
@@ -19604,6 +19818,7 @@ mal_result mal_dsp_init(const mal_dsp_config* pConfig, mal_dsp* pDSP)
         postFormatConverterConfig.formatIn = pConfig->formatIn;
         postFormatConverterConfig.formatOut = pConfig->formatOut;
         postFormatConverterConfig.channels = pConfig->channelsOut;
+        postFormatConverterConfig.ditherMode = pConfig->ditherMode;
         postFormatConverterConfig.streamFormatIn = mal_stream_format_pcm;
         postFormatConverterConfig.streamFormatOut = mal_stream_format_pcm;
         postFormatConverterConfig.pUserData = pDSP;
