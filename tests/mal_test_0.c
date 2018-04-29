@@ -2388,6 +2388,9 @@ int main(int argc, char** argv)
 #if defined(__clang__)
     printf("Compiler:     Clang\n");
 #endif
+#if defined(__TINYC__)
+    printf("Compiler:     TCC\n");
+#endif
 
     // Print CPU features.
     if (mal_has_sse2()) {

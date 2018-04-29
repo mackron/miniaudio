@@ -419,8 +419,10 @@ typedef mal_uint16 wchar_t;
 
 #ifdef _MSC_VER
 #define MAL_ALIGN(alignment) __declspec(align(alignment))
-#else
+#elif !defined(__DMC__)
 #define MAL_ALIGN(alignment) __attribute__((aligned(alignment)))
+#else
+#define MAL_ALIGN(alignment)
 #endif
 
 #ifdef _MSC_VER
@@ -2498,94 +2500,110 @@ mal_uint64 mal_sine_wave_read(mal_sine_wave* pSignWave, mal_uint64 count, float*
 
 static MAL_INLINE mal_bool32 mal_has_sse2()
 {
-#if (defined(MAL_X64) || defined(MAL_X86)) && !defined(MAL_NO_SSE2)
-    #if defined(MAL_X64)
-        return MAL_TRUE;    // 64-bit targets always support SSE2.
-    #elif (defined(_M_IX86_FP) && _M_IX86_FP == 2) || defined(__SSE2__)
-        return MAL_TRUE;    // If the compiler is allowed to freely generate SSE2 code we can assume support.
-    #else
-        #if defined(MAL_NO_CPUID)
-            return MAL_FALSE;
+#if defined(MAL_SUPPORTS_SSE2)
+    #if (defined(MAL_X64) || defined(MAL_X86)) && !defined(MAL_NO_SSE2)
+        #if defined(MAL_X64)
+            return MAL_TRUE;    // 64-bit targets always support SSE2.
+        #elif (defined(_M_IX86_FP) && _M_IX86_FP == 2) || defined(__SSE2__)
+            return MAL_TRUE;    // If the compiler is allowed to freely generate SSE2 code we can assume support.
         #else
-            int info[4];
-            mal_cpuid(info, 1);
-            return (info[3] & (1 << 26)) != 0;
+            #if defined(MAL_NO_CPUID)
+                return MAL_FALSE;
+            #else
+                int info[4];
+                mal_cpuid(info, 1);
+                return (info[3] & (1 << 26)) != 0;
+            #endif
         #endif
+    #else
+        return MAL_FALSE;       // SSE2 is only supported on x86 and x64 architectures.
     #endif
 #else
-    return MAL_FALSE;       // SSE2 is only supported on x86 and x64 architectures.
+    return MAL_FALSE;           // No compiler support.
 #endif
 }
 
 static MAL_INLINE mal_bool32 mal_has_avx()
 {
-#if (defined(MAL_X64) || defined(MAL_X86)) && !defined(MAL_NO_AVX)
-    #if defined(_AVX_) || defined(__AVX__)
-        return MAL_TRUE;    // If the compiler is allowed to freely generate AVX code we can assume support.
-    #else
-        // AVX requires both CPU and OS support.
-        #if defined(MAL_NO_CPUID) || defined(MAL_NO_XGETBV)
-            return MAL_FALSE;
+#if defined(MAL_SUPPORTS_AVX)
+    #if (defined(MAL_X64) || defined(MAL_X86)) && !defined(MAL_NO_AVX)
+        #if defined(_AVX_) || defined(__AVX__)
+            return MAL_TRUE;    // If the compiler is allowed to freely generate AVX code we can assume support.
         #else
-            int info[4];
-            mal_cpuid(info, 1);
-            if (((info[2] & (1 << 27)) != 0) && ((info[2] & (1 << 28)) != 0)) {
-                mal_uint64 xrc = mal_xgetbv(0);
-                if ((xrc & 0x06) == 0x06) {
-                    return MAL_TRUE;
+            // AVX requires both CPU and OS support.
+            #if defined(MAL_NO_CPUID) || defined(MAL_NO_XGETBV)
+                return MAL_FALSE;
+            #else
+                int info[4];
+                mal_cpuid(info, 1);
+                if (((info[2] & (1 << 27)) != 0) && ((info[2] & (1 << 28)) != 0)) {
+                    mal_uint64 xrc = mal_xgetbv(0);
+                    if ((xrc & 0x06) == 0x06) {
+                        return MAL_TRUE;
+                    } else {
+                        return MAL_FALSE;
+                    }
                 } else {
                     return MAL_FALSE;
                 }
-            } else {
-                return MAL_FALSE;
-            }
+            #endif
         #endif
+    #else
+        return MAL_FALSE;       // AVX is only supported on x86 and x64 architectures.
     #endif
 #else
-    return MAL_FALSE;       // AVX is only supported on x86 and x64 architectures.
+    return MAL_FALSE;           // No compiler support.
 #endif
 }
 
 static MAL_INLINE mal_bool32 mal_has_avx512f()
 {
-#if (defined(MAL_X64) || defined(MAL_X86)) && !defined(MAL_NO_AVX512)
-    #if defined(__AVX512F__)
-        return MAL_TRUE;    // If the compiler is allowed to freely generate AVX-512F code we can assume support.
-    #else
-        // AVX-512 requires both CPU and OS support.
-        #if defined(MAL_NO_CPUID) || defined(MAL_NO_XGETBV)
-            return MAL_FALSE;
+#if defined(MAL_SUPPORTS_AVX512)
+    #if (defined(MAL_X64) || defined(MAL_X86)) && !defined(MAL_NO_AVX512)
+        #if defined(__AVX512F__)
+            return MAL_TRUE;    // If the compiler is allowed to freely generate AVX-512F code we can assume support.
         #else
-            int info[4];
-            mal_cpuid(info, 1);
-            if (((info[2] & (1 << 27)) != 0) && ((info[1] & (1 << 16)) != 0)) {
-                mal_uint64 xrc = mal_xgetbv(0);
-                if ((xrc & 0xE6) == 0xE6) {
-                    return MAL_TRUE;
+            // AVX-512 requires both CPU and OS support.
+            #if defined(MAL_NO_CPUID) || defined(MAL_NO_XGETBV)
+                return MAL_FALSE;
+            #else
+                int info[4];
+                mal_cpuid(info, 1);
+                if (((info[2] & (1 << 27)) != 0) && ((info[1] & (1 << 16)) != 0)) {
+                    mal_uint64 xrc = mal_xgetbv(0);
+                    if ((xrc & 0xE6) == 0xE6) {
+                        return MAL_TRUE;
+                    } else {
+                        return MAL_FALSE;
+                    }
                 } else {
                     return MAL_FALSE;
                 }
-            } else {
-                return MAL_FALSE;
-            }
+            #endif
         #endif
+    #else
+        return MAL_FALSE;       // AVX-512F is only supported on x86 and x64 architectures.
     #endif
 #else
-    return MAL_FALSE;       // AVX-512F is only supported on x86 and x64 architectures.
+    return MAL_FALSE;           // No compiler support.
 #endif
 }
 
 static MAL_INLINE mal_bool32 mal_has_neon()
 {
-#if defined(MAL_ARM) && !defined(MAL_NO_NEON)
-    #if (defined(__ARM_NEON) || defined(__aarch64__) || defined(_M_ARM64))
-        return MAL_TRUE;    // If the compiler is allowed to freely generate NEON code we can assume support.
+#if defined(MAL_SUPPORTS_NEON)
+    #if defined(MAL_ARM) && !defined(MAL_NO_NEON)
+        #if (defined(__ARM_NEON) || defined(__aarch64__) || defined(_M_ARM64))
+            return MAL_TRUE;    // If the compiler is allowed to freely generate NEON code we can assume support.
+        #else
+            // TODO: Runtime check.
+            return MAL_FALSE;
+        #endif
     #else
-        // TODO: Runtime check.
-        return MAL_FALSE;
+        return MAL_FALSE;       // NEON is only supported on ARM architectures.
     #endif
 #else
-    return MAL_FALSE;       // NEON is only supported on ARM architectures.
+    return MAL_FALSE;           // No compiler support.
 #endif
 }
 
@@ -2814,7 +2832,7 @@ mal_uint32 g_malStandardSampleRatePriorities[] = {
 
 #ifndef mal_realloc
 #ifdef MAL_WIN32
-#define mal_realloc(p, sz) (((sz) > 0) ? ((p) ? HeapReAlloc(GetProcessHeap(), 0, (p), (sz)) : HeapAlloc(GetProcessHeap(), 0, (sz))) : ((VOID*)(SIZE_T)(HeapFree(GetProcessHeap(), 0, (p)) & 0)))
+#define mal_realloc(p, sz) (((sz) > 0) ? ((p) ? HeapReAlloc(GetProcessHeap(), 0, (p), (sz)) : HeapAlloc(GetProcessHeap(), 0, (sz))) : ((VOID*)(size_t)(HeapFree(GetProcessHeap(), 0, (p)) & 0)))
 #else
 #define mal_realloc(p, sz) realloc((p), (sz))
 #endif
@@ -4362,7 +4380,7 @@ typedef size_t DWORD_PTR;
 
 // The SDK that comes with old versions of MSVC (VC6, for example) does not appear to define WAVEFORMATEXTENSIBLE. We
 // define our own implementation in this case.
-#if defined(_MSC_VER) && !defined(_WAVEFORMATEXTENSIBLE_)
+#if (defined(_MSC_VER) && !defined(_WAVEFORMATEXTENSIBLE_)) || defined(__DMC__)
 typedef struct
 {
     WAVEFORMATEX Format;
@@ -4378,7 +4396,11 @@ typedef struct
 #endif
 
 #ifndef WAVE_FORMAT_EXTENSIBLE
-#define WAVE_FORMAT_EXTENSIBLE 0xFFFE
+#define WAVE_FORMAT_EXTENSIBLE  0xFFFE
+#endif
+
+#ifndef WAVE_FORMAT_IEEE_FLOAT
+#define WAVE_FORMAT_IEEE_FLOAT  0x0003
 #endif
 
 GUID MAL_GUID_NULL = {0x00000000, 0x0000, 0x0000, {0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00}};
@@ -4559,6 +4581,36 @@ mal_format mal_format_from_WAVEFORMATEX(const WAVEFORMATEX* pWF)
 //#if defined(_MSC_VER)
 //    #pragma warning(pop)
 //#endif
+
+
+// Some compilers don't define VerifyVersionInfoW. Need to write this ourselves.
+#if defined(__DMC__)
+#define _WIN32_WINNT_VISTA      0x0600
+#define VER_MINORVERSION        0x01
+#define VER_MAJORVERSION        0x02
+#define VER_SERVICEPACKMAJOR    0x20
+#define VER_GREATER_EQUAL       0x03
+
+typedef struct  {
+    DWORD dwOSVersionInfoSize;
+    DWORD dwMajorVersion;
+    DWORD dwMinorVersion;
+    DWORD dwBuildNumber;
+    DWORD dwPlatformId;
+    WCHAR szCSDVersion[128];
+    WORD  wServicePackMajor;
+    WORD  wServicePackMinor;
+    WORD  wSuiteMask;
+    BYTE  wProductType;
+    BYTE  wReserved;
+} mal_OSVERSIONINFOEXW;
+
+BOOL WINAPI VerifyVersionInfoW(mal_OSVERSIONINFOEXW* lpVersionInfo, DWORD dwTypeMask, DWORDLONG dwlConditionMask);
+ULONGLONG WINAPI VerSetConditionMask(ULONGLONG dwlConditionMask, DWORD dwTypeBitMask, BYTE dwConditionMask);
+#else
+typedef OSVERSIONINFOEXW mal_OSVERSIONINFOEXW;
+#endif
+
 
 #ifndef PROPERTYKEY_DEFINED
 #define PROPERTYKEY_DEFINED
@@ -4791,9 +4843,9 @@ typedef struct
 
     // IAudioClient
     HRESULT (STDMETHODCALLTYPE * Initialize)       (mal_IAudioClient* pThis, MAL_AUDCLNT_SHAREMODE shareMode, DWORD streamFlags, MAL_REFERENCE_TIME bufferDuration, MAL_REFERENCE_TIME periodicity, const WAVEFORMATEX* pFormat, const GUID* pAudioSessionGuid);
-    HRESULT (STDMETHODCALLTYPE * GetBufferSize)    (mal_IAudioClient* pThis, UINT32* pNumBufferFrames);
+    HRESULT (STDMETHODCALLTYPE * GetBufferSize)    (mal_IAudioClient* pThis, mal_uint32* pNumBufferFrames);
     HRESULT (STDMETHODCALLTYPE * GetStreamLatency) (mal_IAudioClient* pThis, MAL_REFERENCE_TIME* pLatency);
-    HRESULT (STDMETHODCALLTYPE * GetCurrentPadding)(mal_IAudioClient* pThis, UINT32* pNumPaddingFrames);
+    HRESULT (STDMETHODCALLTYPE * GetCurrentPadding)(mal_IAudioClient* pThis, mal_uint32* pNumPaddingFrames);
     HRESULT (STDMETHODCALLTYPE * IsFormatSupported)(mal_IAudioClient* pThis, MAL_AUDCLNT_SHAREMODE shareMode, const WAVEFORMATEX* pFormat, WAVEFORMATEX** ppClosestMatch);
     HRESULT (STDMETHODCALLTYPE * GetMixFormat)     (mal_IAudioClient* pThis, WAVEFORMATEX** ppDeviceFormat);
     HRESULT (STDMETHODCALLTYPE * GetDevicePeriod)  (mal_IAudioClient* pThis, MAL_REFERENCE_TIME* pDefaultDevicePeriod, MAL_REFERENCE_TIME* pMinimumDevicePeriod);
@@ -4811,9 +4863,9 @@ HRESULT mal_IAudioClient_QueryInterface(mal_IAudioClient* pThis, const IID* cons
 ULONG   mal_IAudioClient_AddRef(mal_IAudioClient* pThis)                                                 { return pThis->lpVtbl->AddRef(pThis); }
 ULONG   mal_IAudioClient_Release(mal_IAudioClient* pThis)                                                { return pThis->lpVtbl->Release(pThis); }
 HRESULT mal_IAudioClient_Initialize(mal_IAudioClient* pThis, MAL_AUDCLNT_SHAREMODE shareMode, DWORD streamFlags, MAL_REFERENCE_TIME bufferDuration, MAL_REFERENCE_TIME periodicity, const WAVEFORMATEX* pFormat, const GUID* pAudioSessionGuid) { return pThis->lpVtbl->Initialize(pThis, shareMode, streamFlags, bufferDuration, periodicity, pFormat, pAudioSessionGuid); }
-HRESULT mal_IAudioClient_GetBufferSize(mal_IAudioClient* pThis, UINT32* pNumBufferFrames)                { return pThis->lpVtbl->GetBufferSize(pThis, pNumBufferFrames); }
+HRESULT mal_IAudioClient_GetBufferSize(mal_IAudioClient* pThis, mal_uint32* pNumBufferFrames)                { return pThis->lpVtbl->GetBufferSize(pThis, pNumBufferFrames); }
 HRESULT mal_IAudioClient_GetStreamLatency(mal_IAudioClient* pThis, MAL_REFERENCE_TIME* pLatency)             { return pThis->lpVtbl->GetStreamLatency(pThis, pLatency); }
-HRESULT mal_IAudioClient_GetCurrentPadding(mal_IAudioClient* pThis, UINT32* pNumPaddingFrames)           { return pThis->lpVtbl->GetCurrentPadding(pThis, pNumPaddingFrames); }
+HRESULT mal_IAudioClient_GetCurrentPadding(mal_IAudioClient* pThis, mal_uint32* pNumPaddingFrames)           { return pThis->lpVtbl->GetCurrentPadding(pThis, pNumPaddingFrames); }
 HRESULT mal_IAudioClient_IsFormatSupported(mal_IAudioClient* pThis, MAL_AUDCLNT_SHAREMODE shareMode, const WAVEFORMATEX* pFormat, WAVEFORMATEX** ppClosestMatch) { return pThis->lpVtbl->IsFormatSupported(pThis, shareMode, pFormat, ppClosestMatch); }
 HRESULT mal_IAudioClient_GetMixFormat(mal_IAudioClient* pThis, WAVEFORMATEX** ppDeviceFormat)            { return pThis->lpVtbl->GetMixFormat(pThis, ppDeviceFormat); }
 HRESULT mal_IAudioClient_GetDevicePeriod(mal_IAudioClient* pThis, MAL_REFERENCE_TIME* pDefaultDevicePeriod, MAL_REFERENCE_TIME* pMinimumDevicePeriod) { return pThis->lpVtbl->GetDevicePeriod(pThis, pDefaultDevicePeriod, pMinimumDevicePeriod); }
@@ -4833,8 +4885,8 @@ typedef struct
     ULONG   (STDMETHODCALLTYPE * Release)       (mal_IAudioRenderClient* pThis);
 
     // IAudioRenderClient
-    HRESULT (STDMETHODCALLTYPE * GetBuffer)    (mal_IAudioRenderClient* pThis, UINT32 numFramesRequested, BYTE** ppData);
-    HRESULT (STDMETHODCALLTYPE * ReleaseBuffer)(mal_IAudioRenderClient* pThis, UINT32 numFramesWritten, DWORD dwFlags);
+    HRESULT (STDMETHODCALLTYPE * GetBuffer)    (mal_IAudioRenderClient* pThis, mal_uint32 numFramesRequested, BYTE** ppData);
+    HRESULT (STDMETHODCALLTYPE * ReleaseBuffer)(mal_IAudioRenderClient* pThis, mal_uint32 numFramesWritten, DWORD dwFlags);
 } mal_IAudioRenderClientVtbl;
 struct mal_IAudioRenderClient
 {
@@ -4843,8 +4895,8 @@ struct mal_IAudioRenderClient
 HRESULT mal_IAudioRenderClient_QueryInterface(mal_IAudioRenderClient* pThis, const IID* const riid, void** ppObject) { return pThis->lpVtbl->QueryInterface(pThis, riid, ppObject); }
 ULONG   mal_IAudioRenderClient_AddRef(mal_IAudioRenderClient* pThis)                                                 { return pThis->lpVtbl->AddRef(pThis); }
 ULONG   mal_IAudioRenderClient_Release(mal_IAudioRenderClient* pThis)                                                { return pThis->lpVtbl->Release(pThis); }
-HRESULT mal_IAudioRenderClient_GetBuffer(mal_IAudioRenderClient* pThis, UINT32 numFramesRequested, BYTE** ppData)    { return pThis->lpVtbl->GetBuffer(pThis, numFramesRequested, ppData); }
-HRESULT mal_IAudioRenderClient_ReleaseBuffer(mal_IAudioRenderClient* pThis, UINT32 numFramesWritten, DWORD dwFlags)  { return pThis->lpVtbl->ReleaseBuffer(pThis, numFramesWritten, dwFlags); }
+HRESULT mal_IAudioRenderClient_GetBuffer(mal_IAudioRenderClient* pThis, mal_uint32 numFramesRequested, BYTE** ppData)    { return pThis->lpVtbl->GetBuffer(pThis, numFramesRequested, ppData); }
+HRESULT mal_IAudioRenderClient_ReleaseBuffer(mal_IAudioRenderClient* pThis, mal_uint32 numFramesWritten, DWORD dwFlags)  { return pThis->lpVtbl->ReleaseBuffer(pThis, numFramesWritten, dwFlags); }
 
 
 // IAudioCaptureClient
@@ -4856,9 +4908,9 @@ typedef struct
     ULONG   (STDMETHODCALLTYPE * Release)       (mal_IAudioCaptureClient* pThis);
 
     // IAudioRenderClient
-    HRESULT (STDMETHODCALLTYPE * GetBuffer)        (mal_IAudioCaptureClient* pThis, BYTE** ppData, UINT32* pNumFramesToRead, DWORD* pFlags, UINT64* pDevicePosition, UINT64* pQPCPosition);
-    HRESULT (STDMETHODCALLTYPE * ReleaseBuffer)    (mal_IAudioCaptureClient* pThis, UINT32 numFramesRead);
-    HRESULT (STDMETHODCALLTYPE * GetNextPacketSize)(mal_IAudioCaptureClient* pThis, UINT32* pNumFramesInNextPacket);
+    HRESULT (STDMETHODCALLTYPE * GetBuffer)        (mal_IAudioCaptureClient* pThis, BYTE** ppData, mal_uint32* pNumFramesToRead, DWORD* pFlags, mal_uint64* pDevicePosition, mal_uint64* pQPCPosition);
+    HRESULT (STDMETHODCALLTYPE * ReleaseBuffer)    (mal_IAudioCaptureClient* pThis, mal_uint32 numFramesRead);
+    HRESULT (STDMETHODCALLTYPE * GetNextPacketSize)(mal_IAudioCaptureClient* pThis, mal_uint32* pNumFramesInNextPacket);
 } mal_IAudioCaptureClientVtbl;
 struct mal_IAudioCaptureClient
 {
@@ -4867,9 +4919,9 @@ struct mal_IAudioCaptureClient
 HRESULT mal_IAudioCaptureClient_QueryInterface(mal_IAudioCaptureClient* pThis, const IID* const riid, void** ppObject) { return pThis->lpVtbl->QueryInterface(pThis, riid, ppObject); }
 ULONG   mal_IAudioCaptureClient_AddRef(mal_IAudioCaptureClient* pThis)                                                 { return pThis->lpVtbl->AddRef(pThis); }
 ULONG   mal_IAudioCaptureClient_Release(mal_IAudioCaptureClient* pThis)                                                { return pThis->lpVtbl->Release(pThis); }
-HRESULT mal_IAudioCaptureClient_GetBuffer(mal_IAudioCaptureClient* pThis, BYTE** ppData, UINT32* pNumFramesToRead, DWORD* pFlags, UINT64* pDevicePosition, UINT64* pQPCPosition) { return pThis->lpVtbl->GetBuffer(pThis, ppData, pNumFramesToRead, pFlags, pDevicePosition, pQPCPosition); }
-HRESULT mal_IAudioCaptureClient_ReleaseBuffer(mal_IAudioCaptureClient* pThis, UINT32 numFramesRead)                    { return pThis->lpVtbl->ReleaseBuffer(pThis, numFramesRead); }
-HRESULT mal_IAudioCaptureClient_GetNextPacketSize(mal_IAudioCaptureClient* pThis, UINT32* pNumFramesInNextPacket)      { return pThis->lpVtbl->GetNextPacketSize(pThis, pNumFramesInNextPacket); }
+HRESULT mal_IAudioCaptureClient_GetBuffer(mal_IAudioCaptureClient* pThis, BYTE** ppData, mal_uint32* pNumFramesToRead, DWORD* pFlags, mal_uint64* pDevicePosition, mal_uint64* pQPCPosition) { return pThis->lpVtbl->GetBuffer(pThis, ppData, pNumFramesToRead, pFlags, pDevicePosition, pQPCPosition); }
+HRESULT mal_IAudioCaptureClient_ReleaseBuffer(mal_IAudioCaptureClient* pThis, mal_uint32 numFramesRead)                    { return pThis->lpVtbl->ReleaseBuffer(pThis, numFramesRead); }
+HRESULT mal_IAudioCaptureClient_GetNextPacketSize(mal_IAudioCaptureClient* pThis, mal_uint32* pNumFramesInNextPacket)      { return pThis->lpVtbl->GetNextPacketSize(pThis, pNumFramesInNextPacket); }
 
 // This is the part that's preventing mini_al from being compiled as C with UWP. We need to implement IActivateAudioInterfaceCompletionHandler
 // in C which is quite annoying.
@@ -5361,7 +5413,7 @@ mal_result mal_context_init__wasapi(mal_context* pContext)
 #ifdef MAL_WIN32_DESKTOP
     // WASAPI is only supported in Vista SP1 and newer. The reason for SP1 and not the base version of Vista is that event-driven
     // exclusive mode does not work until SP1.
-    OSVERSIONINFOEXW osvi;
+    mal_OSVERSIONINFOEXW osvi;
     mal_zero_object(&osvi);
     osvi.dwOSVersionInfoSize = sizeof(osvi);
     osvi.dwMajorVersion = HIBYTE(_WIN32_WINNT_VISTA);
@@ -5748,7 +5800,7 @@ mal_uint32 mal_device__get_available_frames__wasapi(mal_device* pDevice)
 
 #if 1
     if (pDevice->type == mal_device_type_playback) {
-        UINT32 paddingFramesCount;
+        mal_uint32 paddingFramesCount;
         HRESULT hr = mal_IAudioClient_GetCurrentPadding((mal_IAudioClient*)pDevice->wasapi.pAudioClient, &paddingFramesCount);
         if (FAILED(hr)) {
             return 0;
@@ -5760,7 +5812,7 @@ mal_uint32 mal_device__get_available_frames__wasapi(mal_device* pDevice)
             return pDevice->bufferSizeInFrames - paddingFramesCount;
         }
     } else {
-        UINT32 framesAvailable;
+        mal_uint32 framesAvailable;
         HRESULT hr = mal_IAudioCaptureClient_GetNextPacketSize((mal_IAudioCaptureClient*)pDevice->wasapi.pCaptureClient, &framesAvailable);
         if (FAILED(hr)) {
             return 0;
@@ -5769,7 +5821,7 @@ mal_uint32 mal_device__get_available_frames__wasapi(mal_device* pDevice)
         return framesAvailable;
     }
 #else
-    UINT32 paddingFramesCount;
+    mal_uint32 paddingFramesCount;
     HRESULT hr = mal_IAudioClient_GetCurrentPadding(pDevice->wasapi.pAudioClient, &paddingFramesCount);
     if (FAILED(hr)) {
         return 0;
@@ -5845,10 +5897,10 @@ mal_result mal_device__main_loop__wasapi(mal_device* pDevice)
                 return mal_post_error(pDevice, "[WASAPI] Failed to release internal buffer from playback device in preparation for sending new data to the device.", MAL_FAILED_TO_UNMAP_DEVICE_BUFFER);
             }
         } else {
-            UINT32 framesRemaining = framesAvailable;
+            mal_uint32 framesRemaining = framesAvailable;
             while (framesRemaining > 0) {
                 BYTE* pData;
-                UINT32 framesToSend;
+                mal_uint32 framesToSend;
                 DWORD flags;
                 HRESULT hr = mal_IAudioCaptureClient_GetBuffer((mal_IAudioCaptureClient*)pDevice->wasapi.pCaptureClient, &pData, &framesToSend, &flags, NULL, NULL);
                 if (FAILED(hr)) {
@@ -7253,7 +7305,7 @@ typedef struct
 } MAL_WAVEINCAPS2A;
 
 typedef UINT     (WINAPI * MAL_PFN_waveOutGetNumDevs)(void);
-typedef MMRESULT (WINAPI * MAL_PFN_waveOutGetDevCapsA)(UINT_PTR uDeviceID, LPWAVEOUTCAPSA pwoc, UINT cbwoc);
+typedef MMRESULT (WINAPI * MAL_PFN_waveOutGetDevCapsA)(mal_uintptr uDeviceID, LPWAVEOUTCAPSA pwoc, UINT cbwoc);
 typedef MMRESULT (WINAPI * MAL_PFN_waveOutOpen)(LPHWAVEOUT phwo, UINT uDeviceID, LPCWAVEFORMATEX pwfx, DWORD_PTR dwCallback, DWORD_PTR dwInstance, DWORD fdwOpen);
 typedef MMRESULT (WINAPI * MAL_PFN_waveOutClose)(HWAVEOUT hwo);
 typedef MMRESULT (WINAPI * MAL_PFN_waveOutPrepareHeader)(HWAVEOUT hwo, LPWAVEHDR pwh, UINT cbwh);
@@ -7261,7 +7313,7 @@ typedef MMRESULT (WINAPI * MAL_PFN_waveOutUnprepareHeader)(HWAVEOUT hwo, LPWAVEH
 typedef MMRESULT (WINAPI * MAL_PFN_waveOutWrite)(HWAVEOUT hwo, LPWAVEHDR pwh, UINT cbwh);
 typedef MMRESULT (WINAPI * MAL_PFN_waveOutReset)(HWAVEOUT hwo);
 typedef UINT     (WINAPI * MAL_PFN_waveInGetNumDevs)(void);
-typedef MMRESULT (WINAPI * MAL_PFN_waveInGetDevCapsA)(UINT_PTR uDeviceID, LPWAVEINCAPSA pwic, UINT cbwic);
+typedef MMRESULT (WINAPI * MAL_PFN_waveInGetDevCapsA)(mal_uintptr uDeviceID, LPWAVEINCAPSA pwic, UINT cbwic);
 typedef MMRESULT (WINAPI * MAL_PFN_waveInOpen)(LPHWAVEIN phwi, UINT uDeviceID, LPCWAVEFORMATEX pwfx, DWORD_PTR dwCallback, DWORD_PTR dwInstance, DWORD fdwOpen);
 typedef MMRESULT (WINAPI * MAL_PFN_waveInClose)(HWAVEIN hwi);
 typedef MMRESULT (WINAPI * MAL_PFN_waveInPrepareHeader)(HWAVEIN hwi, LPWAVEHDR pwh, UINT cbwh);
@@ -15304,15 +15356,17 @@ mal_result mal_context_init(const mal_backend backends[], mal_uint32 backendCoun
         return result;
     }
 
-    if (backends == NULL) {
-        backends = g_malDefaultBackends;
-        backendCount = mal_countof(g_malDefaultBackends);
+    mal_backend* pBackendsToIterate = (mal_backend*)backends;
+    mal_uint32 backendsToIterateCount = backendCount;
+    if (pBackendsToIterate == NULL) {
+        pBackendsToIterate = (mal_backend*)g_malDefaultBackends;
+        backendsToIterateCount = mal_countof(g_malDefaultBackends);
     }
 
-    mal_assert(backends != NULL);
+    mal_assert(pBackendsToIterate != NULL);
 
-    for (mal_uint32 iBackend = 0; iBackend < backendCount; ++iBackend) {
-        mal_backend backend = backends[iBackend];
+    for (mal_uint32 iBackend = 0; iBackend < backendsToIterateCount; ++iBackend) {
+        mal_backend backend = pBackendsToIterate[iBackend];
 
         result = MAL_NO_BACKEND;
         switch (backend) {
@@ -15919,14 +15973,16 @@ mal_result mal_device_init_ex(const mal_backend backends[], mal_uint32 backendCo
         return MAL_OUT_OF_MEMORY;
     }
 
-    if (backends == NULL) {
-        backends = g_malDefaultBackends;
-        backendCount = mal_countof(g_malDefaultBackends);
+    mal_backend* pBackendsToIterate = (mal_backend*)backends;
+    mal_uint32 backendsToIterateCount = backendCount;
+    if (pBackendsToIterate == NULL) {
+        pBackendsToIterate = (mal_backend*)g_malDefaultBackends;
+        backendsToIterateCount = mal_countof(g_malDefaultBackends);
     }
 
     mal_result result = MAL_NO_BACKEND;
 
-    for (mal_uint32 iBackend = 0; iBackend < backendCount; ++iBackend) {
+    for (mal_uint32 iBackend = 0; iBackend < backendsToIterateCount; ++iBackend) {
         result = mal_context_init(&backends[iBackend], 1, pContextConfig, pContext);
         if (result == MAL_SUCCESS) {
             result = mal_device_init(pContext, type, pDeviceID, pConfig, pUserData, pDevice);
@@ -21105,7 +21161,7 @@ mal_result mal_decoder_init_memory_mp3(const void* pData, size_t dataSize, const
 
 #ifndef MAL_NO_STDIO
 #include <stdio.h>
-#ifndef _MSC_VER
+#if !defined(_MSC_VER) && !defined(__DMC__)
 #include <strings.h>    // For strcasecmp().
 #endif
 
@@ -21165,7 +21221,7 @@ mal_bool32 mal_path_extension_equal(const char* path, const char* extension)
     const char* ext1 = extension;
     const char* ext2 = mal_path_extension(path);
 
-#ifdef _MSC_VER
+#if defined(_MSC_VER) || defined(__DMC__)
     return _stricmp(ext1, ext2) == 0;
 #else
     return strcasecmp(ext1, ext2) == 0;
