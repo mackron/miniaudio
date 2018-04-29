@@ -1,8 +1,7 @@
 ![mini_al](http://dred.io/img/minial_wide.png)
 
-mini_al is a single file library for playing and recording audio. It's written in C (compilable as C++)
-and released into the public domain. It has a heavy focus on simplicity, and features a simple API and
-a very simple build system.
+mini_al is a single file library for audio playback and capture. It's written in C (compilable as C++)
+and released into the public domain.
 
 
 Features
@@ -10,19 +9,19 @@ Features
 - Public domain.
 - Single file.
 - Compilable as both C and C++.
-- Easy to build.
+- A simple build system.
   - It should Just Work out of the box, without the need to download and install any dependencies.
-  - Does not require linking to anything for Windows build and only -ldl, -lpthread and -lm for Linux.
+  - Does not require linking to anything for the Windows build and only -ldl, -lpthread and -lm for Linux.
   - The header section does not include any platform specific headers.
-- A very simple API.
+- A simple API.
 - Transparent data structures with direct access to internal data.
 - Supports both playback and capture on all backends.
-- Automatic format conversion.
-  - Sample format conversion.
+- Automatic data conversion.
+  - Format conversion, with optional dithering where appropriate.
   - Sample rate conversion.
-    - Sample rate conversion is currently low quality, but a higher quality implementation is planned.
-  - Channel mapping/layout.
-  - Channel mixing (converting mono to 5.1, etc.)
+    - Sample rate conversion is currently restricted to a low quality linear implementation, but a higher
+      quality implementation is planned.
+  - Channel mapping and conversion (stereo to 5.1, etc.)
 - MP3, Vorbis, FLAC and WAV decoding.
   - This depends on external single file libraries which can be found in the "extras" folder.
 
