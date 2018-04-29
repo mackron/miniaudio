@@ -1,5 +1,5 @@
 // MP3 audio decoder. Public domain. See "unlicense" statement at the end of this file.
-// dr_mp3 - v0.2.2 - 2018-04-28
+// dr_mp3 - v0.2.3 - 2018-04-29
 //
 // David Reid - mackron@gmail.com
 //
@@ -308,6 +308,11 @@ void drmp3_free(void* p);
 #include <string.h>
 #include <stdint.h>
 #include <limits.h> // For INT_MAX
+
+// Disable SIMD when compiling with TCC for now.
+#if defined(__TINYC__)
+#define DR_MP3_NO_SIMD
+#endif
 
 #define DRMP3_MAX_FREE_FORMAT_FRAME_SIZE  2304    /* more than ISO spec's */
 #define DRMP3_MAX_FRAME_SYNC_MATCHES      10
@@ -2770,6 +2775,9 @@ void drmp3_free(void* p)
 
 // REVISION HISTORY
 // ===============
+//
+// v0.2.3 - 2018-04-29
+//   - Fix TCC build.
 //
 // v0.2.2 - 2018-04-28
 //   - Fix bug when opening a decoder from memory.
