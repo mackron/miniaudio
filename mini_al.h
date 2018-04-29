@@ -2469,19 +2469,8 @@ mal_uint64 mal_sine_wave_read(mal_sine_wave* pSignWave, mal_uint64 count, float*
     #elif (defined(__GNUC__) || defined(__clang__)) && !defined(MAL_ANDROID)
         static MAL_INLINE void mal_cpuid(int info[4], int fid)
         {
-            __asm__ (
-                "movl %[fid], %%eax\n\t"
-                "cpuid\n\t"
-                "movl %%eax, %[info0]\n\t"
-                "movl %%ebx, %[info1]\n\t"
-                "movl %%ecx, %[info2]\n\t"
-                "movl %%edx, %[info3]\n\t"
-                : [info0] "=rm"(info[0]),
-                  [info1] "=rm"(info[1]),
-                  [info2] "=rm"(info[2]),
-                  [info3] "=rm"(info[3])
-                : [fid] "rm"(fid)
-                : "eax", "ebx", "ecx", "edx"
+            __asm__ __volatile__ (
+                "cpuid" : "=a"(info[0]), "=b"(info[1]), "=c"(info[2]), "=d"(info[3]) : "a"(fid), "c"(0)
             );
         }
 
@@ -2490,15 +2479,8 @@ mal_uint64 mal_sine_wave_read(mal_sine_wave* pSignWave, mal_uint64 count, float*
             unsigned int hi;
             unsigned int lo;
 
-            __asm__ (
-                "movl %[reg], %%ecx\n\t"
-                "xgetbv\n\t"
-                "movl %%eax, %[lo]\n\t"
-                "movl %%edx, %[hi]\n\t"
-                : [lo] "=rm"(lo),
-                  [hi] "=rm"(hi)
-                : [reg] "rm"(reg)
-                : "eax", "ecx", "edx"
+            __asm__ __volatile__ (
+                "xgetbv" : "=a"(lo), "=d"(hi) : "c"(reg)
             );
 
             return ((unsigned long long)hi << 32ULL) | (unsigned long long)lo;
