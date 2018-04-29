@@ -21439,6 +21439,7 @@ mal_uint64 mal_sine_wave_read(mal_sine_wave* pSineWave, mal_uint64 count, float*
 //     distributions of MinGW.
 //   - Remove dependency on audioclient.h for the WASAPI backend. This fixes build issues with some
 //     distributions of MinGW.
+//   - Add support for dithering to format conversion.
 //   - Add support for configuring the priority of the worker thread.
 //   - Add a sine wave generator.
 //   - Improve efficiency of sample rate conversion.
