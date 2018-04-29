@@ -65,9 +65,6 @@ int main(int argc, char** argv)
     // backend includes all devices (and there's a lot of them!).
     contextConfig.alsa.useVerboseDeviceEnumeration = MAL_TRUE;
 
-    // Typical installations of ALSA include a null device. The config below will exclude it from enumeration.
-    contextConfig.alsa.excludeNullDevice = MAL_TRUE;
-
 
     // JACK
     // ----
@@ -103,21 +100,16 @@ int main(int argc, char** argv)
         return -2;
     }
 
-
-    // Enumerate playback devices.
+    
+    // Enumerate devices.
+    mal_device_info* pPlaybackDeviceInfos;
     mal_uint32 playbackDeviceCount;
-    if (mal_enumerate_devices(&context, mal_device_type_playback, &playbackDeviceCount, NULL) != MAL_SUCCESS) {
-        printf("Failed to count playback devices.");
-        mal_context_uninit(&context);
+    mal_device_info* pCaptureDeviceInfos;
+    mal_uint32 captureDeviceCount;
+    mal_result result = mal_context_get_devices(&context, &pPlaybackDeviceInfos, &playbackDeviceCount, &pCaptureDeviceInfos, &captureDeviceCount);
+    if (result != MAL_SUCCESS) {
+        printf("Failed to retrieve device information.\n");
         return -3;
-    }
-
-    mal_device_info* pPlaybackDeviceInfos = (mal_device_info*)malloc(playbackDeviceCount * sizeof(*pPlaybackDeviceInfos));
-    if (mal_enumerate_devices(&context, mal_device_type_playback, &playbackDeviceCount, pPlaybackDeviceInfos) != MAL_SUCCESS) {
-        printf("Failed to enumerate playback devices.");
-        free(pPlaybackDeviceInfos);
-        mal_context_uninit(&context);
-        return -4;
     }
 
     printf("Playback Devices (%d)\n", playbackDeviceCount);
@@ -125,34 +117,12 @@ int main(int argc, char** argv)
         printf("    %u: %s\n", iDevice, pPlaybackDeviceInfos[iDevice].name);
     }
 
-    free(pPlaybackDeviceInfos);
-    pPlaybackDeviceInfos = NULL;
-
     printf("\n");
-
-    // Enumerate capture devices.
-    mal_uint32 captureDeviceCount;
-    if (mal_enumerate_devices(&context, mal_device_type_capture, &captureDeviceCount, NULL) != MAL_SUCCESS) {
-        printf("Failed to count capture devices.");
-        mal_context_uninit(&context);
-        return -5;
-    }
-
-    mal_device_info* pCaptureDeviceInfos = (mal_device_info*)malloc(captureDeviceCount * sizeof(*pCaptureDeviceInfos));
-    if (mal_enumerate_devices(&context, mal_device_type_capture, &captureDeviceCount, pCaptureDeviceInfos) != MAL_SUCCESS) {
-        printf("Failed to enumerate capture devices.");
-        free(pCaptureDeviceInfos);
-        mal_context_uninit(&context);
-        return -6;
-    }
 
     printf("Capture Devices (%d)\n", captureDeviceCount);
     for (mal_uint32 iDevice = 0; iDevice < captureDeviceCount; ++iDevice) {
         printf("    %u: %s\n", iDevice, pCaptureDeviceInfos[iDevice].name);
     }
-
-    free(pCaptureDeviceInfos);
-    pCaptureDeviceInfos = NULL;
 
 
     // Open the device.
@@ -168,7 +138,7 @@ int main(int argc, char** argv)
 
     // Applications can request exclusive control of the device using the config variable below. Note that not all
     // backends support this feature, so this is actually just a hint.
-    deviceConfig.preferExclusiveMode = MAL_TRUE;
+    deviceConfig.shareMode = mal_share_mode_exclusive;
 
     // mini_al allows applications to control the mapping of channels. The config below swaps the left and right
     // channels. Normally in an interleaved audio stream, the left channel comes first, but we can change that
@@ -193,9 +163,9 @@ int main(int argc, char** argv)
         strcpy(customDeviceID.alsa, "hw:0,0");
 
         // The ALSA backend also supports a mini_al-specific format which looks like this: ":0,0". In this case,
-        // mini_al will try different plugins depending on the preferExclusiveMode setting. When using shared mode
-        // it will convert ":0,0" to "dmix:0,0"/"dsnoop:0,0". For exclusive mode (or if dmix/dsnoop fails) it will
-        // convert it to "hw:0,0". This is how the ALSA backend honors the preferExclusiveMode hint.
+        // mini_al will try different plugins depending on the shareMode setting. When using shared mode it will
+        // convert ":0,0" to "dmix:0,0"/"dsnoop:0,0". For exclusive mode (or if dmix/dsnoop fails) it will convert
+        // it to "hw:0,0". This is how the ALSA backend honors the shareMode hint.
         strcpy(customDeviceID.alsa, ":0,0");
     }
 #endif
