@@ -1,0 +1,4 @@
+cc ../simple_playback.c    -o ../bin/simple_playback    -Wall -ldl -lpthread -lm
+cc ../simple_capture.c     -o ../bin/simple_capture     -Wall -ldl -lpthread -lm
+cc ../simple_enumeration.c -o ../bin/simple_enumeration -Wall -ldl -lpthread -lm
+cc ../advanced_config.c    -o ../bin/advanced_config    -Wall -ldl -lpthread -lm
