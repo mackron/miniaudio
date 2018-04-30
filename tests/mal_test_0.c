@@ -2391,6 +2391,9 @@ int main(int argc, char** argv)
 #if defined(__TINYC__)
     printf("Compiler:     TCC\n");
 #endif
+#if defined(__DMC__)
+    printf("Compiler:     Digital Mars C++\n");
+#endif
 
     // Print CPU features.
     if (mal_has_sse2()) {
