@@ -2766,7 +2766,7 @@ typedef LONG (WINAPI * MAL_PFN_RegQueryValueExA)(HKEY hKey, LPCSTR lpValueName, 
 // If this is too small you may get underruns and overruns in which case you'll need to either increase
 // this value or use an explicit buffer size.
 #ifndef MAL_DEFAULT_BUFFER_SIZE_IN_MILLISECONDS
-#define MAL_DEFAULT_BUFFER_SIZE_IN_MILLISECONDS     25
+#define MAL_DEFAULT_BUFFER_SIZE_IN_MILLISECONDS     50
 #endif
 
 // Default periods when none is specified in mal_device_init(). More periods means more work on the CPU.
