@@ -2500,7 +2500,7 @@ mal_uint64 mal_sine_wave_read(mal_sine_wave* pSignWave, mal_uint64 count, float*
 
 static MAL_INLINE mal_bool32 mal_has_sse2()
 {
-#if defined(MAL_SUPPORTS_SSE2)
+#if defined(MAL_SUPPORT_SSE2)
     #if (defined(MAL_X64) || defined(MAL_X86)) && !defined(MAL_NO_SSE2)
         #if defined(MAL_X64)
             return MAL_TRUE;    // 64-bit targets always support SSE2.
@@ -2525,7 +2525,7 @@ static MAL_INLINE mal_bool32 mal_has_sse2()
 
 static MAL_INLINE mal_bool32 mal_has_avx()
 {
-#if defined(MAL_SUPPORTS_AVX)
+#if defined(MAL_SUPPORT_AVX)
     #if (defined(MAL_X64) || defined(MAL_X86)) && !defined(MAL_NO_AVX)
         #if defined(_AVX_) || defined(__AVX__)
             return MAL_TRUE;    // If the compiler is allowed to freely generate AVX code we can assume support.
@@ -2558,7 +2558,7 @@ static MAL_INLINE mal_bool32 mal_has_avx()
 
 static MAL_INLINE mal_bool32 mal_has_avx512f()
 {
-#if defined(MAL_SUPPORTS_AVX512)
+#if defined(MAL_SUPPORT_AVX512)
     #if (defined(MAL_X64) || defined(MAL_X86)) && !defined(MAL_NO_AVX512)
         #if defined(__AVX512F__)
             return MAL_TRUE;    // If the compiler is allowed to freely generate AVX-512F code we can assume support.
@@ -2591,7 +2591,7 @@ static MAL_INLINE mal_bool32 mal_has_avx512f()
 
 static MAL_INLINE mal_bool32 mal_has_neon()
 {
-#if defined(MAL_SUPPORTS_NEON)
+#if defined(MAL_SUPPORT_NEON)
     #if defined(MAL_ARM) && !defined(MAL_NO_NEON)
         #if (defined(__ARM_NEON) || defined(__aarch64__) || defined(_M_ARM64))
             return MAL_TRUE;    // If the compiler is allowed to freely generate NEON code we can assume support.
