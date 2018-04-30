@@ -1,0 +1,9 @@
+#!/bin/bash
+cc  mal_test_0.c    -o ./bin/mal_test_0        -Wall -ldl -lpthread -lm -mfpu=neon
+c++ mal_test_0.c    -o ./bin/mal_test_0_cpp    -Wall -ldl -lpthread -lm -mfpu=neon
+
+cc  mal_profiling.c -o ./bin/mal_profiling     -Wall -ldl -lpthread -lm -mfpu=neon
+c++ mal_profiling.c -o ./bin/mal_profiling_cpp -Wall -ldl -lpthread -lm -mfpu=neon
+
+cc  mal_dithering.c -o ./bin/mal_dithering     -Wall -ldl -lpthread -lm -mfpu=neon
+c++ mal_dithering.c -o ./bin/mal_dithering_cpp -Wall -ldl -lpthread -lm -mfpu=neon
