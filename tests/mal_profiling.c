@@ -1,8 +1,8 @@
 #define MAL_IMPLEMENTATION
 #include "../mini_al.h"
 
-float g_ChannelRouterProfilingOutputBenchmark[8][480000];
-float g_ChannelRouterProfilingOutput[8][480000];
+float g_ChannelRouterProfilingOutputBenchmark[8][48000];
+float g_ChannelRouterProfilingOutput[8][48000];
 double g_ChannelRouterTime_Reference = 0;
 double g_ChannelRouterTime_SSE2 = 0;
 double g_ChannelRouterTime_AVX = 0;
@@ -157,6 +157,30 @@ int do_profiling__channel_routing()
         }
 
         printf("AVX: %.4fms (%.2f%%)\n", g_ChannelRouterTime_AVX*1000, g_ChannelRouterTime_Reference/g_ChannelRouterTime_AVX*100);
+    }
+
+    // NEON
+    if (mal_has_neon()) {
+        router.useNEON = MAL_TRUE;
+        mal_timer timer;
+        mal_timer_init(&timer);
+        double startTime = mal_timer_get_time_in_seconds(&timer);
+
+        framesRead = mal_channel_router_read_deinterleaved(&router, framesToRead, ppOut, NULL);
+        if (framesRead != framesToRead) {
+            printf("Channel Router: An error occurred while reading NEON data.\n");
+        }
+
+        g_ChannelRouterTime_NEON = mal_timer_get_time_in_seconds(&timer) - startTime;
+        router.useNEON = MAL_FALSE;
+
+        if (!channel_router_test(channels, framesRead, (float**)ppOutBenchmark, (float**)ppOut)) {
+            printf("  [ERROR] ");
+        } else {
+            printf("  [PASSED] ");
+        }
+
+        printf("NEON: %.4fms (%.2f%%)\n", g_ChannelRouterTime_NEON*1000, g_ChannelRouterTime_Reference/g_ChannelRouterTime_NEON*100);
     }
 
     return 1;
