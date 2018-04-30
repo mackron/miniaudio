@@ -15983,7 +15983,7 @@ mal_result mal_device_init_ex(const mal_backend backends[], mal_uint32 backendCo
     mal_result result = MAL_NO_BACKEND;
 
     for (mal_uint32 iBackend = 0; iBackend < backendsToIterateCount; ++iBackend) {
-        result = mal_context_init(&backends[iBackend], 1, pContextConfig, pContext);
+        result = mal_context_init(&pBackendsToIterate[iBackend], 1, pContextConfig, pContext);
         if (result == MAL_SUCCESS) {
             result = mal_device_init(pContext, type, pDeviceID, pConfig, pUserData, pDevice);
             if (result == MAL_SUCCESS) {
@@ -19099,7 +19099,21 @@ void mal_channel_router__do_routing(mal_channel_router* pRouter, mal_uint64 fram
         for (mal_uint32 iChannelIn = 0; iChannelIn < pRouter->config.channelsIn; ++iChannelIn) {
             for (mal_uint32 iChannelOut = 0; iChannelOut < pRouter->config.channelsOut; ++iChannelOut) {
                 mal_uint64 iFrame = 0;
+#if defined(MAL_SUPPORT_NEON)
+                if (mal_channel_router__can_use_neon(pRouter, ppSamplesOut[iChannelOut], ppSamplesIn[iChannelIn])) {
+                    float32x4_t weight = vmovq_n_f32(pRouter->weights[iChannelIn][iChannelOut]);
 
+                    mal_uint64 frameCount4 = frameCount/4;
+                    for (mal_uint64 iFrame4 = 0; iFrame4 < frameCount4; iFrame4 += 1) {
+                        float32x4_t* pO = (float32x4_t*)ppSamplesOut[iChannelOut] + iFrame4;
+                        float32x4_t* pI = (float32x4_t*)ppSamplesIn [iChannelIn ] + iFrame4;
+                        *pO = vaddq_f32(*pO, vmulq_f32(*pI, weight));
+                    }
+
+                    iFrame += frameCount4*4;
+                }
+                else
+#endif
 #if defined(MAL_SUPPORT_AVX512)
                 if (mal_channel_router__can_use_avx512(pRouter, ppSamplesOut[iChannelOut], ppSamplesIn[iChannelIn])) {
                     __m512 weight = _mm512_set1_ps(pRouter->weights[iChannelIn][iChannelOut]);
