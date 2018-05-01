@@ -715,6 +715,12 @@ typedef enum
     mal_standard_channel_map_default = mal_standard_channel_map_microsoft
 } mal_standard_channel_map;
 
+typedef enum
+{
+    mal_performance_profile_low_latency = 0,
+    mal_performance_profile_conservative
+} mal_performance_profile;
+
 typedef union
 {
 #ifdef MAL_SUPPORT_WASAPI
@@ -926,6 +932,7 @@ typedef struct
     mal_uint32 bufferSizeInFrames;
     mal_uint32 periods;
     mal_share_mode shareMode;
+    mal_performance_profile performanceProfile;
     mal_recv_proc onRecvCallback;
     mal_send_proc onSendCallback;
     mal_stop_proc onStopCallback;
@@ -2183,6 +2190,13 @@ const char* mal_get_format_name(mal_format format);
 // Blends two frames in floating point format.
 void mal_blend_f32(float* pOut, float* pInA, float* pInB, float factor, mal_uint32 channels);
 
+// Calculates a scaling factor relative to speed of the system.
+//
+// This could be useful for dynamically determining the size of a device's internal buffer based on the speed of the system.
+//
+// This is a slow API because it performs a profiling test.
+float mal_calculate_cpu_speed_factor();
+
 
 
 //////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -2748,17 +2762,17 @@ typedef LONG (WINAPI * MAL_PFN_RegQueryValueExA)(HKEY hKey, LPCSTR lpValueName, 
 
 // The default format when mal_format_unknown (0) is requested when initializing a device.
 #ifndef MAL_DEFAULT_FORMAT
-#define MAL_DEFAULT_FORMAT                          mal_format_f32
+#define MAL_DEFAULT_FORMAT                                  mal_format_f32
 #endif
 
 // The default channel count to use when 0 is used when initializing a device.
 #ifndef MAL_DEFAULT_CHANNELS
-#define MAL_DEFAULT_CHANNELS                        2
+#define MAL_DEFAULT_CHANNELS                                2
 #endif
 
 // The default sample rate to use when 0 is used when initializing a device.
 #ifndef MAL_DEFAULT_SAMPLE_RATE
-#define MAL_DEFAULT_SAMPLE_RATE                     48000
+#define MAL_DEFAULT_SAMPLE_RATE                             48000
 #endif
 
 // The default size of the device's buffer in milliseconds.
@@ -2766,13 +2780,24 @@ typedef LONG (WINAPI * MAL_PFN_RegQueryValueExA)(HKEY hKey, LPCSTR lpValueName, 
 // If this is too small you may get underruns and overruns in which case you'll need to either increase
 // this value or use an explicit buffer size.
 #ifndef MAL_DEFAULT_BUFFER_SIZE_IN_MILLISECONDS
-#define MAL_DEFAULT_BUFFER_SIZE_IN_MILLISECONDS     50
+#define MAL_DEFAULT_BUFFER_SIZE_IN_MILLISECONDS             50
 #endif
 
 // Default periods when none is specified in mal_device_init(). More periods means more work on the CPU.
 #ifndef MAL_DEFAULT_PERIODS
-#define MAL_DEFAULT_PERIODS                         2
+#define MAL_DEFAULT_PERIODS                                 2
 #endif
+
+// The base buffer size in milliseconds for low latency mode.
+#ifndef MAL_BASE_BUFFER_SIZE_IN_MILLISECONDS_LOW_LATENCY
+#define MAL_BASE_BUFFER_SIZE_IN_MILLISECONDS_LOW_LATENCY    10
+#endif
+
+// The base buffer size in milliseconds for conservative mode.
+#ifndef MAL_BASE_BUFFER_SIZE_IN_MILLISECONDS_CONSERVATIVE
+#define MAL_BASE_BUFFER_SIZE_IN_MILLISECONDS_CONSERVATIVE   50
+#endif
+
 
 // Standard sample rates, in order of priority.
 mal_uint32 g_malStandardSampleRatePriorities[] = {
@@ -4680,6 +4705,7 @@ typedef mal_int64                                           MAL_REFERENCE_TIME;
 #define MAL_AUDCLNT_SESSIONFLAGS_DISPLAY_HIDEWHENEXPIRED    0x40000000
 
 // We only care about a few error codes.
+#define MAL_AUDCLNT_E_INVALID_DEVICE_PERIOD                 (-2004287456)
 #define MAL_AUDCLNT_E_BUFFER_SIZE_NOT_ALIGNED               (-2004287463)
 #define MAL_AUDCLNT_S_BUFFER_EMPTY                          (143196161)
 
@@ -5631,7 +5657,28 @@ mal_result mal_device_init__wasapi(mal_context* pContext, mal_device_type type, 
     } else {
         // Exclusive.
         MAL_REFERENCE_TIME bufferDuration = bufferDurationInMicroseconds*10;
-        hr = mal_IAudioClient_Initialize((mal_IAudioClient*)pDevice->wasapi.pAudioClient, shareMode, MAL_AUDCLNT_STREAMFLAGS_EVENTCALLBACK, bufferDuration, bufferDuration, (WAVEFORMATEX*)&wf, NULL);
+
+        // If the periodicy is too small, Initialize() will fail with AUDCLNT_E_INVALID_DEVICE_PERIOD. In this case we should just keep increasing
+        // it and trying it again.
+        hr = E_FAIL;
+        for (;;) {
+            hr = mal_IAudioClient_Initialize((mal_IAudioClient*)pDevice->wasapi.pAudioClient, shareMode, MAL_AUDCLNT_STREAMFLAGS_EVENTCALLBACK, bufferDuration, bufferDuration, (WAVEFORMATEX*)&wf, NULL);
+            if (hr == MAL_AUDCLNT_E_INVALID_DEVICE_PERIOD) {
+                if (bufferDuration > 500*10000) {
+                    break;
+                } else {
+                    if (bufferDuration == 0) {  // <-- Just a sanity check to prevent an infinit loop. Should never happen, but it makes me feel better.
+                        break;
+                    }
+
+                    bufferDuration = bufferDuration * 2;
+                    continue;
+                }
+            } else {
+                break;
+            }
+        }
+
         if (hr == MAL_AUDCLNT_E_BUFFER_SIZE_NOT_ALIGNED) {
             UINT bufferSizeInFrames;
             hr = mal_IAudioClient_GetBufferSize((mal_IAudioClient*)pDevice->wasapi.pAudioClient, &bufferSizeInFrames);
@@ -20251,6 +20298,79 @@ void mal_blend_f32(float* pOut, float* pInA, float* pInB, float factor, mal_uint
     for (mal_uint32 i = 0; i < channels; ++i) {
         pOut[i] = mal_mix_f32(pInA[i], pInB[i], factor);
     }
+}
+
+
+typedef struct
+{
+    mal_uint8* pInputFrames;
+    mal_uint32 framesRemaining;
+} mal_calculate_cpu_speed_factor_data;
+
+mal_uint32 mal_calculate_cpu_speed_factor__on_read(mal_dsp* pDSP, mal_uint32 framesToRead, void* pFramesOut, void* pUserData)
+{
+    mal_calculate_cpu_speed_factor_data* pData = (mal_calculate_cpu_speed_factor_data*)pUserData;
+    mal_assert(pData != NULL);
+
+    if (framesToRead > pData->framesRemaining) {
+        framesToRead = pData->framesRemaining;
+    }
+
+    mal_copy_memory(pFramesOut, pData->pInputFrames, framesToRead*pDSP->formatConverterIn.config.channels * sizeof(*pData->pInputFrames));
+
+    pData->pInputFrames += framesToRead;
+    pData->framesRemaining -= framesToRead;
+
+    return framesToRead;
+}
+
+float mal_calculate_cpu_speed_factor()
+{
+    // Our profiling test is based on how quick it can process 1 second worth of samples through mini_al's data conversion pipeline.
+    const float f = 1000;
+    mal_uint32 sampleRateIn  = 44100;
+    mal_uint32 sampleRateOut = 48000;
+    mal_uint32 channelsIn    = 2;
+    mal_uint32 channelsOut   = 6;
+
+    // Using the heap here to avoid an unnecessary static memory allocation. Also too big for the stack.
+    mal_uint8* pInputFrames = (mal_uint8*)mal_aligned_malloc(sampleRateIn * channelsIn * sizeof(*pInputFrames), MAL_SIMD_ALIGNMENT);
+    if (pInputFrames == NULL) {
+        return 1;
+    }
+
+    float* pOutputFrames = (float*)mal_aligned_malloc(sampleRateOut * channelsOut * sizeof(*pOutputFrames), MAL_SIMD_ALIGNMENT);
+    if (pOutputFrames == NULL) {
+        mal_aligned_free(pInputFrames);
+        return 1;
+    }
+
+    mal_calculate_cpu_speed_factor_data data;
+    data.pInputFrames = pInputFrames;
+    data.framesRemaining = sampleRateIn;
+    
+    mal_dsp_config config = mal_dsp_config_init(mal_format_u8, channelsIn, sampleRateIn, mal_format_f32, channelsOut, sampleRateOut, mal_calculate_cpu_speed_factor__on_read, &data);
+    mal_dsp dsp;
+    mal_result result = mal_dsp_init(&config, &dsp);
+    if (result != MAL_SUCCESS) {
+        mal_aligned_free(pInputFrames);
+        mal_aligned_free(pOutputFrames);
+        return 1;
+    }
+
+    mal_timer timer;
+    mal_timer_init(&timer);
+    double startTime = mal_timer_get_time_in_seconds(&timer);
+    {
+        mal_dsp_read(&dsp, sampleRateOut, pOutputFrames, &data);
+    }
+    double executionTimeInSeconds = mal_timer_get_time_in_seconds(&timer) - startTime;
+
+    
+    mal_aligned_free(pInputFrames);
+    mal_aligned_free(pOutputFrames);
+
+    return (float)(executionTimeInSeconds * f);
 }
 
 
