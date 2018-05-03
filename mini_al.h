@@ -2197,6 +2197,11 @@ void mal_blend_f32(float* pOut, float* pInA, float* pInB, float factor, mal_uint
 // This is a slow API because it performs a profiling test.
 float mal_calculate_cpu_speed_factor();
 
+// Adjust buffer size based on a scaling factor.
+//
+// This just multiplies the base size by the scaling factor, making sure it's a size of at least 1.
+mal_uint32 mal_scale_buffer_size(mal_uint32 baseBufferSize, float scale);
+
 
 
 //////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -5505,8 +5510,9 @@ mal_result mal_device_init__wasapi(mal_context* pContext, mal_device_type type, 
     mal_result result = MAL_SUCCESS;
     const char* errorMsg = "";
     MAL_AUDCLNT_SHAREMODE shareMode = MAL_AUDCLNT_SHAREMODE_SHARED;
-    MAL_REFERENCE_TIME bufferDurationInMicroseconds = ((mal_uint64)pDevice->bufferSizeInFrames * 1000 * 1000) / pConfig->sampleRate;
     WAVEFORMATEXTENSIBLE* pBestFormatTemp = NULL;
+    MAL_REFERENCE_TIME bufferDurationInMicroseconds;
+    
 
 #ifdef MAL_WIN32_DESKTOP
     mal_IMMDevice* pMMDevice = NULL;
@@ -5640,21 +5646,38 @@ mal_result mal_device_init__wasapi(mal_context* pContext, mal_device_type type, 
     // Get the internal channel map based on the channel mask.
     mal_channel_mask_to_channel_map__win32(wf.dwChannelMask, pDevice->internalChannels, pDevice->internalChannelMap);
 
-    // Slightly different initialization for shared and exclusive modes.
-    if (shareMode == MAL_AUDCLNT_SHAREMODE_SHARED) {
-        // Shared.
-        MAL_REFERENCE_TIME bufferDuration = bufferDurationInMicroseconds*10;
-        hr = mal_IAudioClient_Initialize((mal_IAudioClient*)pDevice->wasapi.pAudioClient, shareMode, MAL_AUDCLNT_STREAMFLAGS_EVENTCALLBACK, bufferDuration, 0, (WAVEFORMATEX*)&wf, NULL);
-        if (FAILED(hr)) {
-            if (hr == E_ACCESSDENIED) {
-                errorMsg = "[WASAPI] Failed to initialize device. Access denied.", result = MAL_ACCESS_DENIED;
-            } else {
-                errorMsg = "[WASAPI] Failed to initialize device.", result = MAL_FAILED_TO_OPEN_BACKEND_DEVICE;
-            }
+    // If we're using a default buffer size we need to calculate it based on the efficiency of the system.
+    if (pDevice->usingDefaultBufferSize) {
+        // CPU speed is a factor to consider when determine how large of a buffer we need.
+        float fCPUSpeed = mal_calculate_cpu_speed_factor();
 
-            goto done;
+        // We need a slightly bigger buffer if we're using shared mode to cover the inherent tax association with shared mode.
+        float fShareMode;
+        if (pConfig->shareMode == mal_share_mode_shared) {
+            fShareMode = 1.0f;
+        } else {
+            fShareMode = 0.8f;
         }
-    } else {
+
+        // In my testing, capture seems to have worse latency than playback for some reason.
+        float fType;
+        if (type == mal_device_type_playback) {
+            fType = 1.0f;
+        } else {
+            fType = 2.0f;
+        }
+
+        if (pConfig->performanceProfile == mal_performance_profile_low_latency) {
+            pDevice->bufferSizeInFrames = mal_scale_buffer_size((pConfig->sampleRate/1000) * MAL_BASE_BUFFER_SIZE_IN_MILLISECONDS_LOW_LATENCY, fCPUSpeed*fShareMode*fType);
+        } else {
+            pDevice->bufferSizeInFrames = mal_scale_buffer_size((pConfig->sampleRate/1000) * MAL_BASE_BUFFER_SIZE_IN_MILLISECONDS_CONSERVATIVE, fCPUSpeed*fShareMode*fType);
+        }
+    }
+
+    bufferDurationInMicroseconds = ((mal_uint64)pDevice->bufferSizeInFrames * 1000 * 1000) / pConfig->sampleRate;
+
+    // Slightly different initialization for shared and exclusive modes. We try exclusive mode first, and if it fails, fall back to shared mode.
+    if (shareMode == MAL_AUDCLNT_SHAREMODE_EXCLUSIVE) {
         // Exclusive.
         MAL_REFERENCE_TIME bufferDuration = bufferDurationInMicroseconds*10;
 
@@ -5678,7 +5701,7 @@ mal_result mal_device_init__wasapi(mal_context* pContext, mal_device_type type, 
                 break;
             }
         }
-
+        
         if (hr == MAL_AUDCLNT_E_BUFFER_SIZE_NOT_ALIGNED) {
             UINT bufferSizeInFrames;
             hr = mal_IAudioClient_GetBufferSize((mal_IAudioClient*)pDevice->wasapi.pAudioClient, &bufferSizeInFrames);
@@ -5701,7 +5724,25 @@ mal_result mal_device_init__wasapi(mal_context* pContext, mal_device_type type, 
         }
 
         if (FAILED(hr)) {
-            errorMsg = "[WASAPI] Failed to initialize device.", result = MAL_FAILED_TO_OPEN_BACKEND_DEVICE;
+            // Failed to initialize in exclusive mode. We don't return an error here, but instead fall back to shared mode.
+            shareMode = MAL_AUDCLNT_SHAREMODE_SHARED;
+
+            //errorMsg = "[WASAPI] Failed to initialize device.", result = MAL_FAILED_TO_OPEN_BACKEND_DEVICE;
+            //goto done;
+        }
+    }
+
+    if (shareMode == MAL_AUDCLNT_SHAREMODE_SHARED) {
+        // Shared.
+        MAL_REFERENCE_TIME bufferDuration = bufferDurationInMicroseconds*10;
+        hr = mal_IAudioClient_Initialize((mal_IAudioClient*)pDevice->wasapi.pAudioClient, shareMode, MAL_AUDCLNT_STREAMFLAGS_EVENTCALLBACK, bufferDuration, 0, (WAVEFORMATEX*)&wf, NULL);
+        if (FAILED(hr)) {
+            if (hr == E_ACCESSDENIED) {
+                errorMsg = "[WASAPI] Failed to initialize device. Access denied.", result = MAL_ACCESS_DENIED;
+            } else {
+                errorMsg = "[WASAPI] Failed to initialize device.", result = MAL_FAILED_TO_OPEN_BACKEND_DEVICE;
+            }
+
             goto done;
         }
     }
@@ -20327,7 +20368,15 @@ mal_uint32 mal_calculate_cpu_speed_factor__on_read(mal_dsp* pDSP, mal_uint32 fra
 float mal_calculate_cpu_speed_factor()
 {
     // Our profiling test is based on how quick it can process 1 second worth of samples through mini_al's data conversion pipeline.
-    const float f = 1000;
+
+    // This factor is multiplied with the profiling time. May need to fiddle with this to get an accurate value.
+    float f = 1000;
+
+    // Experiment: Reduce the factor a little when debug mode is used to reduce a blowout.
+#ifndef NDEBUG
+    f /= 2;
+#endif
+
     mal_uint32 sampleRateIn  = 44100;
     mal_uint32 sampleRateOut = 48000;
     mal_uint32 channelsIn    = 2;
@@ -20358,19 +20407,32 @@ float mal_calculate_cpu_speed_factor()
         return 1;
     }
 
+
+    int iterationCount = 2;
+
     mal_timer timer;
     mal_timer_init(&timer);
     double startTime = mal_timer_get_time_in_seconds(&timer);
     {
-        mal_dsp_read(&dsp, sampleRateOut, pOutputFrames, &data);
+        for (int i = 0; i < iterationCount; ++i) {
+            mal_dsp_read(&dsp, sampleRateOut, pOutputFrames, &data);
+            data.pInputFrames = pInputFrames;
+            data.framesRemaining = sampleRateIn;
+        }
     }
     double executionTimeInSeconds = mal_timer_get_time_in_seconds(&timer) - startTime;
+    executionTimeInSeconds /= iterationCount;
 
     
     mal_aligned_free(pInputFrames);
     mal_aligned_free(pOutputFrames);
 
     return (float)(executionTimeInSeconds * f);
+}
+
+mal_uint32 mal_scale_buffer_size(mal_uint32 baseBufferSize, float scale)
+{
+    return mal_max(1, (mal_uint32)(baseBufferSize*scale));
 }
 
 

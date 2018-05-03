@@ -2293,6 +2293,7 @@ int do_playback_test(mal_backend backend)
         haveDevice = MAL_TRUE;
 
         printf("    Is Passthrough: %s\n", (device.dsp.isPassthrough) ? "YES" : "NO");
+        printf("    Buffer Size in Frames: %d\n", device.bufferSizeInFrames);
     }
 
     printf("  Opening Decoder... ");
