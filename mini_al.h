@@ -238,7 +238,12 @@ extern "C" {
     #define MAL_POSIX
     #include <pthread.h>    // Unfortunate #include, but needed for pthread_t, pthread_mutex_t and pthread_cond_t types.
 
-    #define MAL_UNIX
+    #ifdef __unix__
+        #define MAL_UNIX
+        #if defined(__DragonFly__) || defined(__FreeBSD__) || defined(__NetBSD__) || defined(__OpenBSD__)
+            #define MAL_BSD
+        #endif
+    #endif
     #ifdef __linux__
         #define MAL_LINUX
     #endif
@@ -268,7 +273,7 @@ extern "C" {
             #define MAL_SUPPORT_ALSA
         #endif
     #endif
-    #if !defined(MAL_ANDROID) && !defined(MAL_EMSCRIPTEN)
+    #if !defined(MAL_BSD) && !defined(MAL_ANDROID) && !defined(MAL_EMSCRIPTEN)
         #define MAL_SUPPORT_PULSEAUDIO
         #define MAL_SUPPORT_JACK
     #endif
