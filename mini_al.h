@@ -2202,6 +2202,9 @@ float mal_calculate_cpu_speed_factor();
 // This just multiplies the base size by the scaling factor, making sure it's a size of at least 1.
 mal_uint32 mal_scale_buffer_size(mal_uint32 baseBufferSize, float scale);
 
+// Calculates a buffer size in frames for the specified performance profile and scale factor.
+mal_uint32 mal_calculate_default_buffer_size_in_frames(mal_performance_profile performanceProfile, mal_uint32 sampleRate, float scale);
+
 
 
 //////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -5667,11 +5670,10 @@ mal_result mal_device_init__wasapi(mal_context* pContext, mal_device_type type, 
             fType = 2.0f;
         }
 
-        if (pConfig->performanceProfile == mal_performance_profile_low_latency) {
-            pDevice->bufferSizeInFrames = mal_scale_buffer_size((pConfig->sampleRate/1000) * MAL_BASE_BUFFER_SIZE_IN_MILLISECONDS_LOW_LATENCY, fCPUSpeed*fShareMode*fType);
-        } else {
-            pDevice->bufferSizeInFrames = mal_scale_buffer_size((pConfig->sampleRate/1000) * MAL_BASE_BUFFER_SIZE_IN_MILLISECONDS_CONSERVATIVE, fCPUSpeed*fShareMode*fType);
-        }
+        // Backend tax. Need to fiddle with this.
+        float fBackend = 1.0;
+
+        pDevice->bufferSizeInFrames = mal_calculate_default_buffer_size_in_frames(pConfig->performanceProfile, pConfig->sampleRate, fCPUSpeed*fShareMode*fType*fBackend);
     }
 
     bufferDurationInMicroseconds = ((mal_uint64)pDevice->bufferSizeInFrames * 1000 * 1000) / pConfig->sampleRate;
@@ -6908,6 +6910,24 @@ mal_result mal_device_init__dsound(mal_context* pContext, mal_device_type type, 
         return MAL_FORMAT_NOT_SUPPORTED;
     }
 
+    if (pDevice->usingDefaultBufferSize) {
+        // CPU speed is a factor to consider when determine how large of a buffer we need.
+        float fCPUSpeed = mal_calculate_cpu_speed_factor();
+
+        // In my testing, capture seems to have worse latency than playback for some reason.
+        float fType;
+        if (type == mal_device_type_playback) {
+            fType = 1.0f;
+        } else {
+            fType = 2.0f;
+        }
+
+        // Backend tax. Need to fiddle with this.
+        float fBackend = 3.0;
+
+        pDevice->bufferSizeInFrames = mal_calculate_default_buffer_size_in_frames(pConfig->performanceProfile, pConfig->sampleRate, fCPUSpeed*fType*fBackend);
+    }
+
 
     WAVEFORMATEXTENSIBLE wf;
     mal_zero_object(&wf);
@@ -7942,12 +7962,30 @@ mal_result mal_device_init__winmm(mal_context* pContext, mal_device_type type, m
 
     // Latency with WinMM seems pretty bad from my testing... Need to increase the default buffer size.
     if (pDevice->usingDefaultBufferSize) {
-        if (pDevice->type == mal_device_type_playback) {
-            pDevice->bufferSizeInFrames *= 4; // <-- Might need to fiddle with this to find a more ideal value. May even be able to just add a fixed amount rather than scaling.
+        // CPU speed is a factor to consider when determine how large of a buffer we need.
+        float fCPUSpeed = mal_calculate_cpu_speed_factor();
+
+        // In my testing, capture seems to have worse latency than playback for some reason.
+        float fType;
+        if (type == mal_device_type_playback) {
+            fType = 1.0f;
         } else {
-            pDevice->bufferSizeInFrames *= 2;
+            fType = 2.0f;
         }
+
+        // Backend tax. Need to fiddle with this.
+        float fBackend = 12.0;
+
+        pDevice->bufferSizeInFrames = mal_calculate_default_buffer_size_in_frames(pConfig->performanceProfile, pConfig->sampleRate, fCPUSpeed*fType*fBackend);
     }
+
+    //if (pDevice->usingDefaultBufferSize) {
+    //    if (pDevice->type == mal_device_type_playback) {
+    //        pDevice->bufferSizeInFrames *= 4; // <-- Might need to fiddle with this to find a more ideal value. May even be able to just add a fixed amount rather than scaling.
+    //    } else {
+    //        pDevice->bufferSizeInFrames *= 2;
+    //    }
+    //}
 
     // The size of the intermediary buffer needs to be able to fit every fragment.
     pDevice->winmm.fragmentSizeInFrames = pDevice->bufferSizeInFrames / pDevice->periods;
@@ -9603,14 +9641,33 @@ mal_result mal_device_init__alsa(mal_context* pContext, mal_device_type type, co
         return result;
     }
 
-    // We may need to scale the size of the buffer depending on the device.
+    // If using the default buffer size we do some calculations based on a simple profiling test.
     if (pDevice->usingDefaultBufferSize) {
         mal_snd_pcm_info_t* pInfo = (mal_snd_pcm_info_t*)alloca(((mal_snd_pcm_info_sizeof_proc)pContext->alsa.snd_pcm_info_sizeof)());
         mal_zero_memory(pInfo, ((mal_snd_pcm_info_sizeof_proc)pContext->alsa.snd_pcm_info_sizeof)());
 
-        if (((mal_snd_pcm_info_proc)pContext->alsa.snd_pcm_info)((mal_snd_pcm_t*)pDevice->alsa.pPCM, pInfo) == 0) {
-            float bufferSizeScale = 1;
+        // CPU speed is a factor to consider when determine how large of a buffer we need.
+        float fCPUSpeed = mal_calculate_cpu_speed_factor();
 
+        // We need a slightly bigger buffer if we're using shared mode to cover the inherent tax association with shared mode.
+        float fShareMode;
+        if (pConfig->shareMode == mal_share_mode_shared) {
+            fShareMode = 1.0f;
+        } else {
+            fShareMode = 0.8f;
+        }
+
+        // In my testing, capture seems to have worse latency than playback for some reason.
+        float fType;
+        if (type == mal_device_type_playback) {
+            fType = 1.0f;
+        } else {
+            fType = 2.0f;
+        }
+
+        // We may need to scale the size of the buffer depending on the device.
+        float fDevice = 1;
+        if (((mal_snd_pcm_info_proc)pContext->alsa.snd_pcm_info)((mal_snd_pcm_t*)pDevice->alsa.pPCM, pInfo) == 0) {
             const char* deviceName = ((mal_snd_pcm_info_get_name_proc)pContext->alsa.snd_pcm_info_get_name)(pInfo);
             if (deviceName != NULL) {
                 if (mal_strcmp(deviceName, "default") == 0) {
@@ -9630,7 +9687,7 @@ mal_result mal_device_init__alsa(mal_context* pContext, mal_device_type type, co
                         if ((type == mal_device_type_playback && (IOID == NULL || mal_strcmp(IOID, "Output") == 0)) ||
                             (type == mal_device_type_capture  && (IOID != NULL && mal_strcmp(IOID, "Input" ) == 0))) {
                             if (mal_strcmp(NAME, deviceName) == 0) {
-                                bufferSizeScale = mal_find_default_buffer_size_scale__alsa(DESC);
+                                fDevice = mal_find_default_buffer_size_scale__alsa(DESC);
                                 foundDevice = MAL_TRUE;
                             }
                         }
@@ -9647,11 +9704,11 @@ mal_result mal_device_init__alsa(mal_context* pContext, mal_device_type type, co
 
                     ((mal_snd_device_name_free_hint_proc)pContext->alsa.snd_device_name_free_hint)((void**)ppDeviceHints);
                 } else {
-                    bufferSizeScale = mal_find_default_buffer_size_scale__alsa(deviceName);
+                    fDevice = mal_find_default_buffer_size_scale__alsa(deviceName);
                 }
             }
 
-            pDevice->bufferSizeInFrames = (mal_uint32)(pDevice->bufferSizeInFrames * bufferSizeScale);
+            pDevice->bufferSizeInFrames = mal_calculate_default_buffer_size_in_frames(pConfig->performanceProfile, pConfig->sampleRate, fCPUSpeed*fShareMode*fType*fDevice);
         }
     }
 
@@ -11297,6 +11354,8 @@ mal_result mal_device_init__pulse(mal_context* pContext, mal_device_type type, m
         dev = pDeviceID->pulse;
     }
 
+    mal_uint32 bufferSizeInFrames = pConfig->bufferSizeInFrames;
+
     mal_pa_sink_info sinkInfo;
     mal_pa_source_info sourceInfo;
     mal_pa_operation* pOP = NULL;
@@ -11433,7 +11492,26 @@ mal_result mal_device_init__pulse(mal_context* pContext, mal_device_type type, m
     }
 #endif
 
-    attr.maxlength = pConfig->bufferSizeInFrames * mal_get_bytes_per_sample(mal_format_from_pulse(ss.format))*ss.channels;
+    // If using the default buffer size try to find an appropriate default.
+    if (pDevice->usingDefaultBufferSize) {
+        // CPU speed is a factor to consider when determine how large of a buffer we need.
+        float fCPUSpeed = mal_calculate_cpu_speed_factor();
+
+        // In my testing, capture seems to have worse latency than playback for some reason.
+        float fType;
+        if (type == mal_device_type_playback) {
+            fType = 1.0f;
+        } else {
+            fType = 2.0f;
+        }
+
+        // Backend tax. Need to fiddle with this.
+        float fBackend = 1.2;
+
+        bufferSizeInFrames = mal_calculate_default_buffer_size_in_frames(pConfig->performanceProfile, pConfig->sampleRate, fCPUSpeed*fType*fBackend);
+    }
+
+    attr.maxlength = bufferSizeInFrames * mal_get_bytes_per_sample(mal_format_from_pulse(ss.format))*ss.channels;
     attr.tlength   = attr.maxlength / pConfig->periods;
     attr.prebuf    = (mal_uint32)-1;
     attr.minreq    = attr.tlength;
@@ -12534,6 +12612,24 @@ mal_result mal_device_init__oss(mal_context* pContext, mal_device_type type, mal
     pDevice->internalSampleRate = ossSampleRate;
 
 
+    // Try calculating an appropriate default buffer size.
+    if (pDevice->usingDefaultBufferSize) {
+        // CPU speed is a factor to consider when determine how large of a buffer we need.
+        float fCPUSpeed = mal_calculate_cpu_speed_factor();
+
+        // In my testing, capture seems to have worse latency than playback for some reason.
+        float fType;
+        if (type == mal_device_type_playback) {
+            fType = 1.0f;
+        } else {
+            fType = 2.0f;
+        }
+
+        // Backend tax. Need to fiddle with this.
+        float fBackend = 1.0;
+
+        pDevice->bufferSizeInFrames = mal_calculate_default_buffer_size_in_frames(pConfig->performanceProfile, pConfig->sampleRate, fCPUSpeed*fType*fBackend);
+    }
 
     // The documentation says that the fragment settings should be set as soon as possible, but I'm not sure if
     // it should be done before or after format/channels/rate.
@@ -13158,6 +13254,25 @@ mal_result mal_device_init__opensl(mal_context* pContext, mal_device_type type, 
     // Now we can start initializing the device properly.
     mal_assert(pDevice != NULL);
     mal_zero_object(&pDevice->opensl);
+
+    // Try calculating an appropriate default buffer size.
+    if (pDevice->usingDefaultBufferSize) {
+        // CPU speed is a factor to consider when determine how large of a buffer we need.
+        float fCPUSpeed = mal_calculate_cpu_speed_factor();
+
+        // In my testing, capture seems to have worse latency than playback for some reason.
+        float fType;
+        if (type == mal_device_type_playback) {
+            fType = 1.0f;
+        } else {
+            fType = 2.0f;
+        }
+
+        // Backend tax. Need to fiddle with this.
+        float fBackend = 1.5f;
+
+        pDevice->bufferSizeInFrames = mal_calculate_default_buffer_size_in_frames(pConfig->performanceProfile, pConfig->sampleRate, fCPUSpeed*fType*fBackend);
+    }
 
     pDevice->opensl.currentBufferIndex = 0;
     pDevice->opensl.periodSizeInFrames = pDevice->bufferSizeInFrames / pConfig->periods;
@@ -14054,9 +14169,23 @@ mal_result mal_device_init__openal(mal_context* pContext, mal_device_type type, 
         pDevice->periods = MAL_MAX_PERIODS_OPENAL;
     }
 
-    // OpenAL has bad latency in my testing :(
+    // Try calculating an appropriate default buffer size.
     if (pDevice->usingDefaultBufferSize) {
-        pDevice->bufferSizeInFrames *= 4;
+        // CPU speed is a factor to consider when determine how large of a buffer we need.
+        float fCPUSpeed = mal_calculate_cpu_speed_factor();
+
+        // In my testing, capture seems to have worse latency than playback for some reason.
+        float fType;
+        if (type == mal_device_type_playback) {
+            fType = 1.0f;
+        } else {
+            fType = 2.0f;
+        }
+
+        // Backend tax. Need to fiddle with this. OpenAL has bad latency in my testing :(
+        float fBackend = 8.0;
+
+        pDevice->bufferSizeInFrames = mal_calculate_default_buffer_size_in_frames(pConfig->performanceProfile, pConfig->sampleRate, fCPUSpeed*fType*fBackend);
     }
 
     mal_ALCsizei bufferSizeInSamplesAL = pDevice->bufferSizeInFrames;
@@ -14843,6 +14972,28 @@ mal_result mal_device_init__sdl(mal_context* pContext, mal_device_type type, mal
     // SDL wants the buffer size to be a power of 2. The SDL_AudioSpec property for this is only a Uint16, so we need
     // to explicitly clamp this because it will be easy to overflow.
     mal_uint32 bufferSize = pConfig->bufferSizeInFrames;
+    if (pDevice->usingDefaultBufferSize) {
+        // CPU speed is a factor to consider when determine how large of a buffer we need.
+        float fCPUSpeed = mal_calculate_cpu_speed_factor();
+
+        // In my testing, capture seems to have worse latency than playback for some reason.
+        float fType;
+        if (type == mal_device_type_playback) {
+            fType = 1.0f;
+        } else {
+            fType = 2.0f;
+        }
+
+        // Backend tax. Need to fiddle with this. Special case for Emscripten.
+    #if defined(__EMSCRIPTEN__)
+        float fBackend = 4.0f;
+    #else
+        float fBackend = 2.0f;
+    #endif
+
+        bufferSize = mal_calculate_default_buffer_size_in_frames(pConfig->performanceProfile, pConfig->sampleRate, fCPUSpeed*fType*fBackend);
+    }
+
     if (bufferSize > 32768) {
         bufferSize = 32768;
     } else {
@@ -20433,6 +20584,15 @@ float mal_calculate_cpu_speed_factor()
 mal_uint32 mal_scale_buffer_size(mal_uint32 baseBufferSize, float scale)
 {
     return mal_max(1, (mal_uint32)(baseBufferSize*scale));
+}
+
+mal_uint32 mal_calculate_default_buffer_size_in_frames(mal_performance_profile performanceProfile, mal_uint32 sampleRate, float scale)
+{
+    if (performanceProfile == mal_performance_profile_low_latency) {
+        return mal_scale_buffer_size((sampleRate/1000) * MAL_BASE_BUFFER_SIZE_IN_MILLISECONDS_LOW_LATENCY, scale);
+    } else {
+        return mal_scale_buffer_size((sampleRate/1000) * MAL_BASE_BUFFER_SIZE_IN_MILLISECONDS_CONSERVATIVE, scale);
+    }
 }
 
 
