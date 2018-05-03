@@ -7979,14 +7979,6 @@ mal_result mal_device_init__winmm(mal_context* pContext, mal_device_type type, m
         pDevice->bufferSizeInFrames = mal_calculate_default_buffer_size_in_frames(pConfig->performanceProfile, pConfig->sampleRate, fCPUSpeed*fType*fBackend);
     }
 
-    //if (pDevice->usingDefaultBufferSize) {
-    //    if (pDevice->type == mal_device_type_playback) {
-    //        pDevice->bufferSizeInFrames *= 4; // <-- Might need to fiddle with this to find a more ideal value. May even be able to just add a fixed amount rather than scaling.
-    //    } else {
-    //        pDevice->bufferSizeInFrames *= 2;
-    //    }
-    //}
-
     // The size of the intermediary buffer needs to be able to fit every fragment.
     pDevice->winmm.fragmentSizeInFrames = pDevice->bufferSizeInFrames / pDevice->periods;
     pDevice->winmm.fragmentSizeInBytes = pDevice->winmm.fragmentSizeInFrames * pDevice->internalChannels * mal_get_bytes_per_sample(pDevice->internalFormat);
