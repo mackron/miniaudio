@@ -32,6 +32,7 @@ Supported Platforms
 - Linux
 - BSD
 - Android
+- Raspberry Pi
 - Emscripten / HTML5
 
 macOS and iOS support is coming soon(ish) via Core Audio. Unofficial support is enabled via the
