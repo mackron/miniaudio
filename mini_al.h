@@ -8517,8 +8517,8 @@ static struct
     const char* name;
     float scale;
 } g_malDefaultBufferSizeScalesALSA[] = {
-    {"bcm2835 IEC958/HDMI", 20},
-    {"bcm2835 ALSA",        20}
+    {"bcm2835 IEC958/HDMI", 8.0f},
+    {"bcm2835 ALSA",        8.0f}
 };
 
 float mal_find_default_buffer_size_scale__alsa(const char* deviceName)
@@ -8548,7 +8548,7 @@ mal_format mal_convert_alsa_format_to_mal_format(mal_snd_pcm_format_t formatALSA
         case MAL_SND_PCM_FORMAT_U8:       return mal_format_u8;
         case MAL_SND_PCM_FORMAT_S16_LE:   return mal_format_s16;
         case MAL_SND_PCM_FORMAT_S24_3LE:  return mal_format_s24;
-        //MAL_SND_PCM_FORMAT_S24_LE,        return mal_format_s24_32
+        //case MAL_SND_PCM_FORMAT_S24_LE:   return mal_format_s24_32
         case MAL_SND_PCM_FORMAT_S32_LE:   return mal_format_s32;
         case MAL_SND_PCM_FORMAT_FLOAT_LE: return mal_format_f32;
         default:                          return mal_format_unknown;
@@ -20521,7 +20521,7 @@ float mal_calculate_cpu_speed_factor()
     float f = 1000;
 
     // Experiment: Reduce the factor a little when debug mode is used to reduce a blowout.
-#ifndef NDEBUG
+#if !defined(NDEBUG) || defined(_DEBUG)
     f /= 2;
 #endif
 
