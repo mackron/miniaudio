@@ -11922,7 +11922,7 @@ mal_result mal_context_get_device_info__jack(mal_context* pContext, mal_device_t
     pDeviceInfo->minChannels = 0;
     pDeviceInfo->maxChannels = 0;
 
-    const char** ppPorts = ((mal_jack_get_ports_proc)pContext->jack.jack_get_ports)((mal_jack_client_t*)pClient, NULL, NULL, mal_JackPortIsPhysical | (deviceType == mal_device_type_playback) ? mal_JackPortIsInput : mal_JackPortIsOutput);
+    const char** ppPorts = ((mal_jack_get_ports_proc)pContext->jack.jack_get_ports)((mal_jack_client_t*)pClient, NULL, NULL, mal_JackPortIsPhysical | ((deviceType == mal_device_type_playback) ? mal_JackPortIsInput : mal_JackPortIsOutput));
     if (ppPorts == NULL) {
         ((mal_jack_client_close_proc)pContext->jack.jack_client_close)((mal_jack_client_t*)pClient);
         return mal_context_post_error(pContext, NULL, "[JACK] Failed to query physical ports.", MAL_FAILED_TO_OPEN_BACKEND_DEVICE);
