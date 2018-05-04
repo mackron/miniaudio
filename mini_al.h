@@ -62,8 +62,8 @@
 //
 // Building for BSD
 // ----------------
-// The BSD build uses OSS. Requires linking to -lpthread and -lm. Also requires linking to -lossaudio on {Open,Net}BSD, but
-// not FreeBSD.
+// The BSD build uses OSS. Requires linking to -lpthread and -lm. Also requires linking to -lossaudio on {Open,Net}BSD,
+// but not FreeBSD.
 //
 // Building for Android
 // --------------------
@@ -189,13 +189,14 @@
 // #define MAL_NO_NULL
 //   Disables the null backend.
 //
-// #define MAL_DEFAULT_BUFFER_SIZE_IN_MILLISECONDS
-//   When a buffer size of 0 is specified when a device is initialized, it will default to a size with
-//   this number of milliseconds worth of data. Note that some backends may adjust this setting if that
-//   particular backend has unusual latency characteristics.
-//
 // #define MAL_DEFAULT_PERIODS
 //   When a period count of 0 is specified when a device is initialized, it will default to this.
+//
+// #define MAL_BASE_BUFFER_SIZE_IN_MILLISECONDS_LOW_LATENCY
+// #define MAL_BASE_BUFFER_SIZE_IN_MILLISECONDS_CONSERVATIVE
+//   When a buffer size of 0 is specified when a device is initialized it will default to a buffer of this size (depending
+//   on the chosen performance profile) multiplied by a weight which is calculated at run-time. These can be increased or
+//   decreased depending on your specific requirements.
 //
 // #define MAL_NO_DECODING
 //   Disables the decoding APIs.
@@ -2786,14 +2787,6 @@ typedef LONG (WINAPI * MAL_PFN_RegQueryValueExA)(HKEY hKey, LPCSTR lpValueName, 
 // The default sample rate to use when 0 is used when initializing a device.
 #ifndef MAL_DEFAULT_SAMPLE_RATE
 #define MAL_DEFAULT_SAMPLE_RATE                             48000
-#endif
-
-// The default size of the device's buffer in milliseconds.
-//
-// If this is too small you may get underruns and overruns in which case you'll need to either increase
-// this value or use an explicit buffer size.
-#ifndef MAL_DEFAULT_BUFFER_SIZE_IN_MILLISECONDS
-#define MAL_DEFAULT_BUFFER_SIZE_IN_MILLISECONDS             50
 #endif
 
 // Default periods when none is specified in mal_device_init(). More periods means more work on the CPU.
@@ -15993,7 +15986,7 @@ mal_result mal_device_init(mal_context* pContext, mal_device_type type, mal_devi
 
     // Default buffer size and periods.
     if (config.bufferSizeInFrames == 0) {
-        config.bufferSizeInFrames = (config.sampleRate/1000) * MAL_DEFAULT_BUFFER_SIZE_IN_MILLISECONDS;
+        config.bufferSizeInFrames = (config.sampleRate/1000) * MAL_BASE_BUFFER_SIZE_IN_MILLISECONDS_LOW_LATENCY;
         pDevice->usingDefaultBufferSize = MAL_TRUE;
     }
     if (config.periods == 0) {
