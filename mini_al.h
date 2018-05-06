@@ -5868,6 +5868,12 @@ mal_result mal_device__stop_backend__wasapi(mal_device* pDevice)
         return mal_post_error(pDevice, "[WASAPI] Failed to stop internal device.", MAL_FAILED_TO_STOP_BACKEND_DEVICE);
     }
 
+    // The client needs to be reset or else we won't be able to resume it again.
+    hr = mal_IAudioClient_Reset((mal_IAudioClient*)pDevice->wasapi.pAudioClient);
+    if (FAILED(hr)) {
+        return mal_post_error(pDevice, "[WASAPI] Failed to reset internal device.", MAL_FAILED_TO_STOP_BACKEND_DEVICE);
+    }
+
     return MAL_SUCCESS;
 }
 
