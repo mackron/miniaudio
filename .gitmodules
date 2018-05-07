@@ -1,0 +1,3 @@
+[submodule "tools/external/dred"]
+	path = tools/external/dred
+	url = https://github.com/dr-soft/dred

@@ -12,6 +12,7 @@ tests/res/output/
 !/tests/res/output/DO_NOT_DELETE
 /tests/SDL2.dll
 tests/res/private/
+tests/private/
 examples/bin/
 examples/res/private/
 /examples/SDL2.dll
