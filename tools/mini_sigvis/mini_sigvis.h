@@ -203,7 +203,7 @@ dtk_bool32 msigvis_window_event_handler(dtk_event* pEvent)
                 mal_uint32 iFirstSample = 0;
                 for (mal_uint32 iSample = iFirstSample; iSample < pChannel->sampleCount; iSample += sampleInterval) {
                     float samplePosX = iSample * sampleSpacingX;
-                    float samplePosY = msigvis_channel_get_sample_f32(pChannel, iSample) * sampleSpacingY * -1; // Swap the Y axis for graphics output.
+                    float samplePosY = msigvis_channel_get_sample_f32(pChannel, iSample) * sampleSpacingY * -1; // Invert the Y axis for graphics output.
 
                     dtk_rect pointRect;
                     pointRect.left = (dtk_int32)samplePosX;
@@ -452,12 +452,7 @@ float msigvis_channel_get_sample_f32(msigvis_channel* pChannel, mal_uint32 iSamp
 {
     switch (pChannel->format)
     {
-        case mal_format_f32:
-        {
-            float x = *((float*)pChannel->pBuffer + iSample);
-            return x;
-            //return *((float*)pChannel->pBuffer + iSample);
-        }
+        case mal_format_f32: return *((float*)pChannel->pBuffer + iSample);
         default: return 0;
     }
 }
