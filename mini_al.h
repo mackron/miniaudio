@@ -16547,14 +16547,18 @@ mal_device_config mal_device_config_init_ex(mal_format format, mal_uint32 channe
     config.onRecvCallback = onRecvCallback;
     config.onSendCallback = onSendCallback;
 
-    if (channelMap == NULL) {
-        if (channels > 8) {
-            mal_zero_memory(channelMap, sizeof(mal_channel)*MAL_MAX_CHANNELS);
+    if (channels > 0) {
+        if (channelMap == NULL) {
+            if (channels > 8) {
+                mal_zero_memory(config.channelMap, sizeof(mal_channel)*MAL_MAX_CHANNELS);
+            } else {
+                mal_get_standard_channel_map(mal_standard_channel_map_default, channels, config.channelMap);
+            }
         } else {
-            mal_get_standard_channel_map(mal_standard_channel_map_default, channels, config.channelMap);
+            mal_copy_memory(config.channelMap, channelMap, sizeof(config.channelMap));
         }
     } else {
-        mal_copy_memory(config.channelMap, channelMap, sizeof(config.channelMap));
+        mal_zero_memory(config.channelMap, sizeof(mal_channel)*MAL_MAX_CHANNELS);
     }
 
     return config;
