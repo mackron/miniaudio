@@ -160,6 +160,9 @@ dtk_bool32 msigvis_window_event_handler(dtk_event* pEvent)
         {
             if (pEvent->mouseWheel.delta > 0) {
                 pScreen->zoomX = pScreen->zoomX * ( 2*pEvent->mouseWheel.delta);
+                if (pScreen->zoomX > 10000.0f) {
+                    pScreen->zoomX = 10000.0f;
+                }
             } else {
                 pScreen->zoomX = pScreen->zoomX / (-2*pEvent->mouseWheel.delta);
                 if (pScreen->zoomX < 0.000001f) {
