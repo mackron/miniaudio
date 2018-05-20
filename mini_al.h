@@ -552,7 +552,7 @@ typedef struct
 #define MAL_MAX_SAMPLE_RATE                             MAL_SAMPLE_RATE_384000
 #define MAL_SRC_SINC_MIN_WINDOW_WIDTH                   2
 #define MAL_SRC_SINC_MAX_WINDOW_WIDTH                   32
-#define MAL_SRC_SINC_DEFAULT_WINDOW_WIDTH               4
+#define MAL_SRC_SINC_DEFAULT_WINDOW_WIDTH               16
 #define MAL_SRC_SINC_LOOKUP_TABLE_RESOLUTION            8
 #define MAL_SRC_INPUT_BUFFER_SIZE_IN_SAMPLES            256
 
@@ -19736,7 +19736,7 @@ mal_uint64 mal_src_read_deinterleaved_ex(mal_src* pSRC, mal_uint64 frameCount, v
 
     mal_src_algorithm algorithm = pSRC->config.algorithm;
     if (pSRC->config.sampleRateIn == pSRC->config.sampleRateOut) {
-        algorithm = mal_src_algorithm_none;
+        //algorithm = mal_src_algorithm_none;
     }
 
     // Can use a function pointer for this.
@@ -20001,7 +20001,7 @@ static MAL_INLINE float mal_src_sinc__interpolation_factor(const mal_src* pSRC, 
     mal_assert(pSRC != NULL);
 
     float xabs = (float)fabs(x);
-    if (xabs >= MAL_SRC_SINC_MAX_WINDOW_WIDTH) {
+    if (xabs >= MAL_SRC_SINC_MAX_WINDOW_WIDTH /*pSRC->config.sinc.windowWidth*/) {
         return 0;
     }
 
@@ -20026,7 +20026,6 @@ mal_uint64 mal_src_read_deinterleaved__sinc(mal_src* pSRC, mal_uint64 frameCount
 
     float factor = (float)pSRC->config.sampleRateIn / pSRC->config.sampleRateOut;
     float inverseFactor = 1/factor;
-    float sincFactor = ((factor < 1) ? 1 : inverseFactor);
 
     mal_int32 windowWidth  = (mal_int32)pSRC->config.sinc.windowWidth;
     mal_int32 windowWidth2 = windowWidth*2;
@@ -20047,7 +20046,7 @@ mal_uint64 mal_src_read_deinterleaved__sinc(mal_src* pSRC, mal_uint64 frameCount
         float timeInEnd = (float)(pSRC->sinc.windowPosInSamples + maxInputSamplesAvailableInCache);
 
         mal_assert(timeInBeg >= 0);
-        mal_assert(timeInEnd <= timeInEnd);
+        mal_assert(timeInBeg <= timeInEnd);
 
         mal_uint64 maxOutputFramesToRead = (mal_uint64)(((timeInEnd - timeInBeg) * inverseFactor));
 
@@ -20068,10 +20067,10 @@ mal_uint64 mal_src_read_deinterleaved__sinc(mal_src* pSRC, mal_uint64 frameCount
                     float t = (timeIn - iTimeIn);
                     float w = (float)(iWindow);
 
-                    float a = mal_src_sinc__interpolation_factor(pSRC, sincFactor * (t - w));
+                    float a = mal_src_sinc__interpolation_factor(pSRC, (t - w));
                     float s = mal_src_sinc__get_input_sample_from_window(pSRC, iChannel, iTimeIn, iWindow);
 
-                    sampleOut += sincFactor * s * a;
+                    sampleOut += s * a;
                 }
 
                 ppNextSamplesOut[iChannel][iSample] = (float)sampleOut;
@@ -20082,24 +20081,20 @@ mal_uint64 mal_src_read_deinterleaved__sinc(mal_src* pSRC, mal_uint64 frameCount
             ppNextSamplesOut[iChannel] += outputFramesToRead;
         }
 
-        mal_uint32 inputSamplesFullyConsumed = (mal_uint32)((outputFramesToRead * factor) + timeInBeg);
+        mal_uint32 prevWindowPosInSamples = pSRC->sinc.windowPosInSamples;
 
-        pSRC->sinc.timeIn              = timeInEnd;
-        pSRC->sinc.windowPosInSamples  = inputSamplesFullyConsumed;
-        if (pSRC->sinc.inputFrameCount < inputSamplesFullyConsumed) {
-            pSRC->sinc.inputFrameCount = 0;
-        } else {
-            pSRC->sinc.inputFrameCount -= inputSamplesFullyConsumed;
-        }
+        pSRC->sinc.timeIn            += (outputFramesToRead * factor);
+        pSRC->sinc.windowPosInSamples = (mal_uint32)pSRC->sinc.timeIn;
+        pSRC->sinc.inputFrameCount   -= pSRC->sinc.windowPosInSamples - prevWindowPosInSamples;
 
         // If the window has reached a point where we cannot read a whole output sample it needs to be moved back to the start.
-        mal_int32 wholeInputSamplesPerOutputSample = (mal_int32)factor;
-        if (pSRC->sinc.windowPosInSamples >= (mal_countof(pSRC->sinc.input[0]) - (pSRC->config.sinc.windowWidth*2)) - wholeInputSamplesPerOutputSample) {
+        mal_uint32 availableOutputFrames = (mal_uint32)((timeInEnd - pSRC->sinc.timeIn) * inverseFactor);
+
+        if (availableOutputFrames == 0) {
             size_t samplesToMove = mal_countof(pSRC->sinc.input[0]) - pSRC->sinc.windowPosInSamples;
 
-            pSRC->sinc.timeIn              = timeInEnd - mal_floorf(timeInEnd);
-            pSRC->sinc.windowPosInSamples  = 0;
-            pSRC->sinc.inputFrameCount     = mal_max(pSRC->sinc.inputFrameCount, pSRC->config.sinc.windowWidth);
+            pSRC->sinc.timeIn            -= mal_floorf(pSRC->sinc.timeIn);
+            pSRC->sinc.windowPosInSamples = 0;
 
             // Move everything from the end of the cache up to the front.
             for (mal_uint32 iChannel = 0; iChannel < pSRC->config.channels; iChannel += 1) {
@@ -20117,16 +20112,22 @@ mal_uint64 mal_src_read_deinterleaved__sinc(mal_src* pSRC, mal_uint64 frameCount
             // Now read data from the client.
             mal_uint32 framesToReadFromClient = mal_countof(pSRC->sinc.input[0]) - (pSRC->config.sinc.windowWidth + pSRC->sinc.inputFrameCount);
             if (framesToReadFromClient > 0) {
-                pSRC->sinc.inputFrameCount = pSRC->sinc.inputFrameCount + pSRC->config.onReadDeinterleaved(pSRC, framesToReadFromClient, (void**)ppInputDst, pUserData);
-                if (pSRC->sinc.inputFrameCount == 0) {
-                    break;
+                mal_uint32 framesReadFromClient = pSRC->config.onReadDeinterleaved(pSRC, framesToReadFromClient, (void**)ppInputDst, pUserData);
+                if (framesReadFromClient != 0) {
+                    pSRC->sinc.inputFrameCount += framesReadFromClient;
+                } else {
+                    // We couldn't get anything more from the client. If not more output samples can be computed from the available input samples
+                    // we need to return.
+                    if (((pSRC->sinc.timeIn - pSRC->sinc.inputFrameCount) * inverseFactor) < 1) {
+                        break;
+                    }
                 }
             }
 
             // Anything left over in the cache must be set to zero.
             mal_uint32 leftoverFrames = mal_countof(pSRC->sinc.input[0]) - (pSRC->config.sinc.windowWidth + pSRC->sinc.inputFrameCount);
             if (leftoverFrames > 0) {
-                for (mal_uint32 iChannel = 0; iChannel < pSRC->config.sinc.windowWidth; iChannel += 1) {
+                for (mal_uint32 iChannel = 0; iChannel < pSRC->config.channels; iChannel += 1) {
                     mal_zero_memory(pSRC->sinc.input[iChannel] + pSRC->config.sinc.windowWidth + pSRC->sinc.inputFrameCount, leftoverFrames * sizeof(float));
                 }
             }
