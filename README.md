@@ -19,8 +19,6 @@ Features
 - Automatic data conversion.
   - Format conversion, with optional dithering where appropriate.
   - Sample rate conversion.
-    - Sample rate conversion is currently restricted to a low quality linear implementation, but a higher
-      quality implementation is planned.
   - Channel mapping and conversion (stereo to 5.1, etc.)
 - MP3, Vorbis, FLAC and WAV decoding.
   - This depends on external single file libraries which can be found in the "extras" folder.

@@ -550,6 +550,11 @@ typedef struct
 #define MAL_MAX_CHANNELS                                32
 #define MAL_MIN_SAMPLE_RATE                             MAL_SAMPLE_RATE_8000
 #define MAL_MAX_SAMPLE_RATE                             MAL_SAMPLE_RATE_384000
+#define MAL_SRC_SINC_MIN_WINDOW_WIDTH                   2
+#define MAL_SRC_SINC_MAX_WINDOW_WIDTH                   32
+#define MAL_SRC_SINC_DEFAULT_WINDOW_WIDTH               4
+#define MAL_SRC_SINC_LOOKUP_TABLE_RESOLUTION            8
+#define MAL_SRC_INPUT_BUFFER_SIZE_IN_SAMPLES            256
 
 typedef mal_uint8 mal_channel;
 #define MAL_CHANNEL_NONE                                0
@@ -856,15 +861,23 @@ struct mal_channel_router
 
 
 typedef struct mal_src mal_src;
-typedef mal_uint32 (* mal_src_read_proc)(mal_src* pSRC, mal_uint32 frameCount, void* pFramesOut, void* pUserData); // Returns the number of frames that were read.
+//typedef mal_uint32 (* mal_src_read_proc)(mal_src* pSRC, mal_uint32 frameCount, void* pFramesOut, void* pUserData); // Returns the number of frames that were read.
 typedef mal_uint32 (* mal_src_read_deinterleaved_proc)(mal_src* pSRC, mal_uint32 frameCount, void** ppSamplesOut, void* pUserData); // Returns the number of frames that were read.
 
 typedef enum
 {
-    mal_src_algorithm_linear = 0,
+    mal_src_algorithm_sinc = 0,
+    mal_src_algorithm_linear,
     mal_src_algorithm_none,
     mal_src_algorithm_default = mal_src_algorithm_linear
 } mal_src_algorithm;
+
+typedef enum
+{
+    mal_src_sinc_window_function_hann = 0,
+    mal_src_sinc_window_function_rectangular,
+    mal_src_sinc_window_function_default = mal_src_sinc_window_function_hann
+} mal_src_sinc_window_function;
 
 typedef struct
 {
@@ -874,21 +887,38 @@ typedef struct
     mal_src_algorithm algorithm;
     mal_src_read_deinterleaved_proc onReadDeinterleaved;
     void* pUserData;
-} mal_src_config;
-
-MAL_ALIGNED_STRUCT(MAL_SIMD_ALIGNMENT) mal_src
-{
-    MAL_ALIGN(MAL_SIMD_ALIGNMENT) float samplesFromClient[MAL_MAX_CHANNELS][256];
-    mal_src_config config;
-
     union
     {
         struct
         {
-            float t;
+            mal_src_sinc_window_function windowFunction;
+            mal_uint32 windowWidth;
+        } sinc;
+    };
+} mal_src_config;
+
+MAL_ALIGNED_STRUCT(MAL_SIMD_ALIGNMENT) mal_src
+{
+    union
+    {
+        struct
+        {
+            MAL_ALIGN(MAL_SIMD_ALIGNMENT) float input[MAL_MAX_CHANNELS][MAL_SRC_INPUT_BUFFER_SIZE_IN_SAMPLES];
+            float timeIn;
             mal_uint32 leftoverFrames;
         } linear;
+
+        struct
+        {
+            MAL_ALIGN(MAL_SIMD_ALIGNMENT) float input[MAL_MAX_CHANNELS][MAL_SRC_SINC_MAX_WINDOW_WIDTH*2 + MAL_SRC_INPUT_BUFFER_SIZE_IN_SAMPLES];
+            float timeIn;
+            mal_uint32 inputFrameCount;     // The number of frames sitting in the input buffer, not including the first half of the window.
+            mal_uint32 windowPosInSamples;  // An offset of <input>.
+            float table[MAL_SRC_SINC_MAX_WINDOW_WIDTH * MAL_SRC_SINC_LOOKUP_TABLE_RESOLUTION]; // Precomputed lookup table.
+        } sinc;
     };
+
+    mal_src_config config;
 };
 
 typedef struct mal_dsp mal_dsp;
@@ -2073,7 +2103,6 @@ mal_channel_router_config mal_channel_router_config_init(mal_uint32 channelsIn, 
 //
 // Sample Rate Conversion
 // ======================
-// Note that mini_al currently only supports low quality linear sample rate conversion.
 //
 //////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
@@ -19558,6 +19587,21 @@ mal_channel_router_config mal_channel_router_config_init(mal_uint32 channelsIn, 
 //
 //////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
+#define mal_floorf(x) ((float)floor((double)(x)))
+#define mal_sinf(x)   ((float)sin((double)(x)))
+#define mal_cosf(x)   ((float)cos((double)(x)))
+
+static MAL_INLINE double mal_sinc(double x)
+{
+    if (x != 0) {
+        return sin(MAL_PI_D*x) / (MAL_PI_D*x);
+    } else {
+        return 1;
+    }
+}
+
+#define mal_sincf(x) ((float)mal_sinc((double)(x)))
+
 mal_uint64 mal_calculate_frame_count_after_src(mal_uint32 sampleRateOut, mal_uint32 sampleRateIn, mal_uint64 frameCountIn)
 {
     double srcRatio = (double)sampleRateOut / sampleRateIn;
@@ -19576,6 +19620,38 @@ mal_uint64 mal_calculate_frame_count_after_src(mal_uint32 sampleRateOut, mal_uin
 
 mal_uint64 mal_src_read_deinterleaved__passthrough(mal_src* pSRC, mal_uint64 frameCount, void** ppSamplesOut, mal_bool32 flush, void* pUserData);
 mal_uint64 mal_src_read_deinterleaved__linear(mal_src* pSRC, mal_uint64 frameCount, void** ppSamplesOut, mal_bool32 flush, void* pUserData);
+mal_uint64 mal_src_read_deinterleaved__sinc(mal_src* pSRC, mal_uint64 frameCount, void** ppSamplesOut, mal_bool32 flush, void* pUserData);
+
+void mal_src__build_sinc_table__sinc(mal_src* pSRC)
+{
+    mal_assert(pSRC != NULL);
+
+    pSRC->sinc.table[0] = 1.0f;
+    for (int i = 1; i < mal_countof(pSRC->sinc.table); i += 1) {
+        double x = i*MAL_PI_D / MAL_SRC_SINC_LOOKUP_TABLE_RESOLUTION;
+        pSRC->sinc.table[i] = (float)(sin(x)/x);
+    }
+}
+
+void mal_src__build_sinc_table__rectangular(mal_src* pSRC)
+{
+    // This is the same as the base sinc table.
+    mal_src__build_sinc_table__sinc(pSRC);
+}
+
+void mal_src__build_sinc_table__hann(mal_src* pSRC)
+{
+    mal_src__build_sinc_table__sinc(pSRC);
+
+    for (int i = 0; i < mal_countof(pSRC->sinc.table); i += 1) {
+        double x = pSRC->sinc.table[i];
+        double N = MAL_SRC_SINC_MAX_WINDOW_WIDTH*2;
+        double n = ((double)(i) / MAL_SRC_SINC_LOOKUP_TABLE_RESOLUTION) + MAL_SRC_SINC_MAX_WINDOW_WIDTH;
+        double w = 0.5 * (1 - cos((2*MAL_PI_D*n) / (N)));
+
+        pSRC->sinc.table[i] = (float)(x * w);
+    }
+}
 
 mal_result mal_src_init(const mal_src_config* pConfig, mal_src* pSRC)
 {
@@ -19593,6 +19669,26 @@ mal_result mal_src_init(const mal_src_config* pConfig, mal_src* pSRC)
     }
 
     pSRC->config = *pConfig;
+
+    if (pSRC->config.algorithm == mal_src_algorithm_sinc) {
+        // Make sure the window width within bounds.
+        if (pSRC->config.sinc.windowWidth == 0) {
+            pSRC->config.sinc.windowWidth = MAL_SRC_SINC_DEFAULT_WINDOW_WIDTH;
+        }
+        if (pSRC->config.sinc.windowWidth < MAL_SRC_SINC_MIN_WINDOW_WIDTH) {
+            pSRC->config.sinc.windowWidth = MAL_SRC_SINC_MIN_WINDOW_WIDTH;
+        }
+        if (pSRC->config.sinc.windowWidth > MAL_SRC_SINC_MAX_WINDOW_WIDTH) {
+            pSRC->config.sinc.windowWidth = MAL_SRC_SINC_MAX_WINDOW_WIDTH;
+        }
+
+        // Set up the lookup table.
+        switch (pSRC->config.sinc.windowFunction) {
+            case mal_src_sinc_window_function_hann:        mal_src__build_sinc_table__hann(pSRC);        break;
+            case mal_src_sinc_window_function_rectangular: mal_src__build_sinc_table__rectangular(pSRC); break;
+            default: return MAL_INVALID_ARGS;   // <-- Hitting this means the window function is unknown to mini_al.
+        }
+    }
 
     return MAL_SUCCESS;
 }
@@ -19647,6 +19743,7 @@ mal_uint64 mal_src_read_deinterleaved_ex(mal_src* pSRC, mal_uint64 frameCount, v
     switch (algorithm) {
         case mal_src_algorithm_none:   return mal_src_read_deinterleaved__passthrough(pSRC, frameCount, ppSamplesOut, flush, pUserData);
         case mal_src_algorithm_linear: return mal_src_read_deinterleaved__linear(     pSRC, frameCount, ppSamplesOut, flush, pUserData);
+        case mal_src_algorithm_sinc:   return mal_src_read_deinterleaved__sinc(       pSRC, frameCount, ppSamplesOut, flush, pUserData);
         default: break;
     }
 
@@ -19707,7 +19804,7 @@ mal_uint64 mal_src_read_deinterleaved__linear(mal_src* pSRC, mal_uint64 frameCou
 
     float factor = (float)pSRC->config.sampleRateIn / pSRC->config.sampleRateOut;
 
-    mal_uint32 maxFrameCountPerChunkIn = mal_countof(pSRC->samplesFromClient[0]);
+    mal_uint32 maxFrameCountPerChunkIn = mal_countof(pSRC->linear.input[0]);
 
     mal_uint64 totalFramesRead = 0;
     while (totalFramesRead < frameCount) {
@@ -19720,7 +19817,7 @@ mal_uint64 mal_src_read_deinterleaved__linear(mal_src* pSRC, mal_uint64 frameCou
 
         // Read Input Data
         // ===============
-        float tBeg = pSRC->linear.t;
+        float tBeg = pSRC->linear.timeIn;
         float tEnd = tBeg + (framesToRead*factor);
 
         mal_uint32 framesToReadFromClient = (mal_uint32)(tEnd) + 1 + 1;   // +1 to make tEnd 1-based and +1 because we always need to an extra sample for interpolation.
@@ -19730,7 +19827,7 @@ mal_uint64 mal_src_read_deinterleaved__linear(mal_src* pSRC, mal_uint64 frameCou
 
         float* ppSamplesFromClient[MAL_MAX_CHANNELS];
         for (mal_uint32 iChannel = 0; iChannel < pSRC->config.channels; ++iChannel) {
-            ppSamplesFromClient[iChannel] = pSRC->samplesFromClient[iChannel] + pSRC->linear.leftoverFrames;
+            ppSamplesFromClient[iChannel] = pSRC->linear.input[iChannel] + pSRC->linear.leftoverFrames;
         }
         
         mal_uint32 framesReadFromClient = 0;
@@ -19744,7 +19841,7 @@ mal_uint64 mal_src_read_deinterleaved__linear(mal_src* pSRC, mal_uint64 frameCou
         }
 
         for (mal_uint32 iChannel = 0; iChannel < pSRC->config.channels; ++iChannel) {
-            ppSamplesFromClient[iChannel] = pSRC->samplesFromClient[iChannel];
+            ppSamplesFromClient[iChannel] = pSRC->linear.input[iChannel];
         }
 
 
@@ -19766,10 +19863,10 @@ mal_uint64 mal_src_read_deinterleaved__linear(mal_src* pSRC, mal_uint64 frameCou
         // Output frames are always read in groups of 4 because I'm planning on using this as a reference for some SIMD-y stuff later.
         mal_uint32 maxOutputFramesToRead4 = maxOutputFramesToRead/4;
         for (mal_uint32 iChannel = 0; iChannel < pSRC->config.channels; ++iChannel) {
-            float t0 = pSRC->linear.t + factor*0;
-            float t1 = pSRC->linear.t + factor*1;
-            float t2 = pSRC->linear.t + factor*2;
-            float t3 = pSRC->linear.t + factor*3;
+            float t0 = pSRC->linear.timeIn + factor*0;
+            float t1 = pSRC->linear.timeIn + factor*1;
+            float t2 = pSRC->linear.timeIn + factor*2;
+            float t3 = pSRC->linear.timeIn + factor*3;
 
             for (mal_uint32 iFrameOut = 0; iFrameOut < maxOutputFramesToRead4; iFrameOut += 1) {
                 float iPrevSample0 = (float)floor(t0);
@@ -19797,10 +19894,10 @@ mal_uint64 mal_src_read_deinterleaved__linear(mal_src* pSRC, mal_uint64 frameCou
                 float nextSample2 = ppSamplesFromClient[iChannel][(mal_uint32)iNextSample2];
                 float nextSample3 = ppSamplesFromClient[iChannel][(mal_uint32)iNextSample3];
 
-                ppNextSamplesOut[iChannel][iFrameOut*4 + 0] = mal_mix_f32(prevSample0, nextSample0, alpha0);
-                ppNextSamplesOut[iChannel][iFrameOut*4 + 1] = mal_mix_f32(prevSample1, nextSample1, alpha1);
-                ppNextSamplesOut[iChannel][iFrameOut*4 + 2] = mal_mix_f32(prevSample2, nextSample2, alpha2);
-                ppNextSamplesOut[iChannel][iFrameOut*4 + 3] = mal_mix_f32(prevSample3, nextSample3, alpha3);
+                ppNextSamplesOut[iChannel][iFrameOut*4 + 0] = mal_mix_f32_fast(prevSample0, nextSample0, alpha0);
+                ppNextSamplesOut[iChannel][iFrameOut*4 + 1] = mal_mix_f32_fast(prevSample1, nextSample1, alpha1);
+                ppNextSamplesOut[iChannel][iFrameOut*4 + 2] = mal_mix_f32_fast(prevSample2, nextSample2, alpha2);
+                ppNextSamplesOut[iChannel][iFrameOut*4 + 3] = mal_mix_f32_fast(prevSample3, nextSample3, alpha3);
 
                 t0 += factor*4;
                 t1 += factor*4;
@@ -19808,7 +19905,7 @@ mal_uint64 mal_src_read_deinterleaved__linear(mal_src* pSRC, mal_uint64 frameCou
                 t3 += factor*4;
             }
 
-            float t = pSRC->linear.t + (factor*maxOutputFramesToRead4*4);
+            float t = pSRC->linear.timeIn + (factor*maxOutputFramesToRead4*4);
             for (mal_uint32 iFrameOut = (maxOutputFramesToRead4*4); iFrameOut < maxOutputFramesToRead; iFrameOut += 1) {
                 float iPrevSample = (float)floor(t);
                 float iNextSample = iPrevSample + 1;
@@ -19817,7 +19914,7 @@ mal_uint64 mal_src_read_deinterleaved__linear(mal_src* pSRC, mal_uint64 frameCou
                 float prevSample = ppSamplesFromClient[iChannel][(mal_uint32)iPrevSample];
                 float nextSample = ppSamplesFromClient[iChannel][(mal_uint32)iNextSample];
 
-                ppNextSamplesOut[iChannel][iFrameOut] = mal_mix_f32(prevSample, nextSample, alpha);
+                ppNextSamplesOut[iChannel][iFrameOut] = mal_mix_f32_fast(prevSample, nextSample, alpha);
 
                 t += factor;
             }
@@ -19830,14 +19927,14 @@ mal_uint64 mal_src_read_deinterleaved__linear(mal_src* pSRC, mal_uint64 frameCou
 
         // Residual
         // ========
-        float tNext = pSRC->linear.t + (maxOutputFramesToRead*factor);
+        float tNext = pSRC->linear.timeIn + (maxOutputFramesToRead*factor);
 
-        pSRC->linear.t = tNext;
+        pSRC->linear.timeIn = tNext;
         mal_assert(tNext <= framesReadFromClient+1);
 
         mal_uint32 iNextFrame = (mal_uint32)floor(tNext);
         pSRC->linear.leftoverFrames = framesReadFromClient - iNextFrame;
-        pSRC->linear.t = tNext - iNextFrame;
+        pSRC->linear.timeIn = tNext - iNextFrame;
 
         for (mal_uint32 iChannel = 0; iChannel < pSRC->config.channels; ++iChannel) {
             for (mal_uint32 iFrame = 0; iFrame < pSRC->linear.leftoverFrames; ++iFrame) {
@@ -19854,6 +19951,191 @@ mal_uint64 mal_src_read_deinterleaved__linear(mal_src* pSRC, mal_uint64 frameCou
     }
 
     return totalFramesRead;
+}
+
+
+///////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+//
+// Sinc Sample Rate Conversion
+// ===========================
+//
+// The sinc SRC algorithm uses a windowed sinc to perform interpolation of samples. Currently, mini_al's implementation supports rectangular and Hann window
+// methods.
+//
+// Whenever an output sample is being computed, it looks at a sub-section of the input samples. I've called this sub-section in the code below the "window",
+// which I realize is a bit ambigous with the mathematical "window", but it works for me when I need to conceptualize things in my head. The window is made up
+// of two halves. The first half contains past input samples (initialized to zero), and the second half contains future input samples. As time moves forward
+// and input samples are consumed, the window moves forward. The larger the window, the better the quality at the expense of slower processing. The window is
+// limited the range [MAL_SRC_SINC_MIN_WINDOW_WIDTH, MAL_SRC_SINC_MAX_WINDOW_WIDTH] and defaults to MAL_SRC_SINC_DEFAULT_WINDOW_WIDTH.
+//
+// Input samples are cached for efficiency (to prevent frequently requesting tiny numbers of samples from the client). When the window gets to the end of the
+// cache, it's moved back to the start, and more samples are read from the client. If the client has no more data to give, the cache is filled with zeros and
+// the last of the input samples will be consumed. Once the last of the input samples have been consumed, no more samples will be output.
+//
+//
+// When reading output samples, we always first read whatever is already in the input cache. Only when the cache has been fully consumed do we read more data
+// from the client.
+//
+// To access samples in the input buffer you do so relative to the window. When the window itself is at position 0, the first item in the buffer is accessed
+// with "windowPos + windowWidth". Generally, to access any sample relative to the window you do "windowPos + windowWidth + sampleIndexRelativeToWindow".
+//
+///////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+
+// Retrieves a sample from the input buffer's window. Values >= 0 retrieve future samples. Negative values return past samples.
+static MAL_INLINE float mal_src_sinc__get_input_sample_from_window(const mal_src* pSRC, mal_uint32 channel, mal_uint32 windowPosInSamples, mal_int32 sampleIndex)
+{
+    mal_assert(pSRC != NULL);
+    mal_assert(channel < pSRC->config.channels);
+    mal_assert(sampleIndex >= -(mal_int32)pSRC->config.sinc.windowWidth);
+    mal_assert(sampleIndex <   (mal_int32)pSRC->config.sinc.windowWidth);
+
+    // The window should always be contained within the input cache.
+    mal_assert(windowPosInSamples >= 0);
+    mal_assert(windowPosInSamples <  mal_countof(pSRC->sinc.input[0]) - pSRC->config.sinc.windowWidth);
+    
+    return pSRC->sinc.input[channel][windowPosInSamples + pSRC->config.sinc.windowWidth + sampleIndex];
+}
+
+static MAL_INLINE float mal_src_sinc__interpolation_factor(const mal_src* pSRC, float x)
+{
+    mal_assert(pSRC != NULL);
+
+    float xabs = (float)fabs(x);
+    if (xabs >= MAL_SRC_SINC_MAX_WINDOW_WIDTH) {
+        return 0;
+    }
+
+    xabs = xabs * MAL_SRC_SINC_LOOKUP_TABLE_RESOLUTION;
+    mal_int32 ixabs = (mal_int32)xabs;
+
+#if 1
+    float a = xabs - ixabs;
+    return mal_mix_f32_fast(pSRC->sinc.table[ixabs], pSRC->sinc.table[ixabs+1], a);
+#else
+    return pSRC->sinc.table[ixabs];
+#endif
+}
+
+mal_uint64 mal_src_read_deinterleaved__sinc(mal_src* pSRC, mal_uint64 frameCount, void** ppSamplesOut, mal_bool32 flush, void* pUserData)
+{
+    (void)flush;    // No flushing at the moment.
+
+    mal_assert(pSRC != NULL);
+    mal_assert(frameCount > 0);
+    mal_assert(ppSamplesOut != NULL);
+
+    float factor = (float)pSRC->config.sampleRateIn / pSRC->config.sampleRateOut;
+    float inverseFactor = 1/factor;
+    float sincFactor = ((factor < 1) ? 1 : inverseFactor);
+
+    mal_int32 windowWidth  = (mal_int32)pSRC->config.sinc.windowWidth;
+    mal_int32 windowWidth2 = windowWidth*2;
+
+    float* ppNextSamplesOut[MAL_MAX_CHANNELS];
+    mal_copy_memory(ppNextSamplesOut, ppSamplesOut, sizeof(void*) * pSRC->config.channels);
+
+    mal_uint64 totalOutputFramesRead = 0;
+    while (totalOutputFramesRead < frameCount) {
+        // The maximum number of frames we can read this iteration depends on how many input samples we have available to us. This is the number
+        // of input samples between the end of the window and the end of the cache.
+        mal_uint32 maxInputSamplesAvailableInCache = mal_countof(pSRC->sinc.input[0]) - (pSRC->config.sinc.windowWidth*2) - pSRC->sinc.windowPosInSamples;
+        if (maxInputSamplesAvailableInCache > pSRC->sinc.inputFrameCount) {
+            maxInputSamplesAvailableInCache = pSRC->sinc.inputFrameCount;
+        }
+
+        float timeInBeg = pSRC->sinc.timeIn;
+        float timeInEnd = (float)(pSRC->sinc.windowPosInSamples + maxInputSamplesAvailableInCache);
+
+        mal_assert(timeInBeg >= 0);
+        mal_assert(timeInEnd <= timeInEnd);
+
+        mal_uint64 maxOutputFramesToRead = (mal_uint64)(((timeInEnd - timeInBeg) * inverseFactor));
+
+        mal_uint64 outputFramesRemaining = frameCount - totalOutputFramesRead;
+        mal_uint64 outputFramesToRead = outputFramesRemaining;
+        if (outputFramesToRead > maxOutputFramesToRead) {
+            outputFramesToRead = maxOutputFramesToRead;
+        }
+
+        for (mal_uint32 iChannel = 0; iChannel < pSRC->config.channels; iChannel += 1) {
+            // Do SRC.
+            float timeIn = timeInBeg;
+            for (mal_uint32 iSample = 0; iSample < outputFramesToRead; iSample += 1) {
+                mal_int32 iTimeIn  = (mal_int32)timeIn;
+
+                float sampleOut = 0;
+                for (mal_int32 iWindow = -windowWidth+1; iWindow < windowWidth; iWindow += 1) {
+                    float t = (timeIn - iTimeIn);
+                    float w = (float)(iWindow);
+
+                    float a = mal_src_sinc__interpolation_factor(pSRC, sincFactor * (t - w));
+                    float s = mal_src_sinc__get_input_sample_from_window(pSRC, iChannel, iTimeIn, iWindow);
+
+                    sampleOut += sincFactor * s * a;
+                }
+
+                ppNextSamplesOut[iChannel][iSample] = (float)sampleOut;
+
+                timeIn += factor;
+            }
+
+            ppNextSamplesOut[iChannel] += outputFramesToRead;
+        }
+
+        mal_uint32 inputSamplesFullyConsumed = (mal_uint32)((outputFramesToRead * factor) + timeInBeg);
+
+        pSRC->sinc.timeIn              = timeInEnd;
+        pSRC->sinc.windowPosInSamples  = inputSamplesFullyConsumed;
+        if (pSRC->sinc.inputFrameCount < inputSamplesFullyConsumed) {
+            pSRC->sinc.inputFrameCount = 0;
+        } else {
+            pSRC->sinc.inputFrameCount -= inputSamplesFullyConsumed;
+        }
+
+        // If the window has reached a point where we cannot read a whole output sample it needs to be moved back to the start.
+        mal_int32 wholeInputSamplesPerOutputSample = (mal_int32)factor;
+        if (pSRC->sinc.windowPosInSamples >= (mal_countof(pSRC->sinc.input[0]) - (pSRC->config.sinc.windowWidth*2)) - wholeInputSamplesPerOutputSample) {
+            size_t samplesToMove = mal_countof(pSRC->sinc.input[0]) - pSRC->sinc.windowPosInSamples;
+
+            pSRC->sinc.timeIn              = timeInEnd - mal_floorf(timeInEnd);
+            pSRC->sinc.windowPosInSamples  = 0;
+            pSRC->sinc.inputFrameCount     = mal_max(pSRC->sinc.inputFrameCount, pSRC->config.sinc.windowWidth);
+
+            // Move everything from the end of the cache up to the front.
+            for (mal_uint32 iChannel = 0; iChannel < pSRC->config.channels; iChannel += 1) {
+                memmove(pSRC->sinc.input[iChannel], pSRC->sinc.input[iChannel] + mal_countof(pSRC->sinc.input[iChannel]) - samplesToMove, samplesToMove * sizeof(*pSRC->sinc.input[iChannel]));
+            }
+        }
+
+        // Read more data from the client if required.
+        if (pSRC->sinc.inputFrameCount < pSRC->config.sinc.windowWidth || pSRC->sinc.windowPosInSamples == 0) {
+            float* ppInputDst[MAL_MAX_CHANNELS] = {0};
+            for (mal_uint32 iChannel = 0; iChannel < pSRC->config.channels; iChannel += 1) {
+                ppInputDst[iChannel] = pSRC->sinc.input[iChannel] + pSRC->config.sinc.windowWidth + pSRC->sinc.inputFrameCount;
+            }
+
+            // Now read data from the client.
+            mal_uint32 framesToReadFromClient = mal_countof(pSRC->sinc.input[0]) - (pSRC->config.sinc.windowWidth + pSRC->sinc.inputFrameCount);
+            if (framesToReadFromClient > 0) {
+                pSRC->sinc.inputFrameCount = pSRC->sinc.inputFrameCount + pSRC->config.onReadDeinterleaved(pSRC, framesToReadFromClient, (void**)ppInputDst, pUserData);
+                if (pSRC->sinc.inputFrameCount == 0) {
+                    break;
+                }
+            }
+
+            // Anything left over in the cache must be set to zero.
+            mal_uint32 leftoverFrames = mal_countof(pSRC->sinc.input[0]) - (pSRC->config.sinc.windowWidth + pSRC->sinc.inputFrameCount);
+            if (leftoverFrames > 0) {
+                for (mal_uint32 iChannel = 0; iChannel < pSRC->config.sinc.windowWidth; iChannel += 1) {
+                    mal_zero_memory(pSRC->sinc.input[iChannel] + pSRC->config.sinc.windowWidth + pSRC->sinc.inputFrameCount, leftoverFrames * sizeof(float));
+                }
+            }
+        }
+
+        totalOutputFramesRead += outputFramesToRead;
+    }
+
+    return totalOutputFramesRead;
 }
 
 
