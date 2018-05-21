@@ -2208,6 +2208,15 @@ void mal_mutex_unlock(mal_mutex* pMutex);
 //
 //////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
+// malloc(). Calls MAL_MALLOC().
+void* mal_malloc(size_t sz);
+
+// realloc(). Calls MAL_REALLOC().
+void* mal_realloc(void* p, size_t sz);
+
+// free(). Calls MAL_FREE().
+void mal_free(void* p);
+
 // Performs an aligned malloc, with the assumption that the alignment is a power of 2.
 void* mal_aligned_malloc(size_t sz, size_t alignment);
 
@@ -2383,13 +2392,13 @@ mal_uint64 mal_sine_wave_read(mal_sine_wave* pSignWave, mal_uint64 count, float*
 #endif  //mini_al_h
 
 
-///////////////////////////////////////////////////////////////////////////////
-///////////////////////////////////////////////////////////////////////////////
+//////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+//////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 //
 // IMPLEMENTATION
 //
-///////////////////////////////////////////////////////////////////////////////
-///////////////////////////////////////////////////////////////////////////////
+//////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+//////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 #if defined(MINI_AL_IMPLEMENTATION) || defined(MAL_IMPLEMENTATION)
 #include <assert.h>
 #include <limits.h> // For INT_MAX
@@ -2872,56 +2881,59 @@ mal_uint32 g_malStandardSampleRatePriorities[] = {
 // Standard Library Stuff
 //
 ///////////////////////////////////////////////////////////////////////////////
-#ifndef mal_zero_memory
+#ifndef MAL_MALLOC
 #ifdef MAL_WIN32
-#define mal_zero_memory(p, sz) ZeroMemory((p), (sz))
+#define MAL_MALLOC(sz) HeapAlloc(GetProcessHeap(), 0, (sz))
 #else
-#define mal_zero_memory(p, sz) memset((p), 0, (sz))
+#define MAL_MALLOC(sz) malloc((sz))
 #endif
 #endif
 
-#define mal_zero_object(p) mal_zero_memory((p), sizeof(*(p)))
-
-#ifndef mal_copy_memory
+#ifndef MAL_REALLOC
 #ifdef MAL_WIN32
-#define mal_copy_memory(dst, src, sz) CopyMemory((dst), (src), (sz))
+#define MAL_REALLOC(p, sz) (((sz) > 0) ? ((p) ? HeapReAlloc(GetProcessHeap(), 0, (p), (sz)) : HeapAlloc(GetProcessHeap(), 0, (sz))) : ((VOID*)(size_t)(HeapFree(GetProcessHeap(), 0, (p)) & 0)))
 #else
-#define mal_copy_memory(dst, src, sz) memcpy((dst), (src), (sz))
+#define MAL_REALLOC(p, sz) realloc((p), (sz))
 #endif
 #endif
 
-#ifndef mal_malloc
+#ifndef MAL_FREE
 #ifdef MAL_WIN32
-#define mal_malloc(sz) HeapAlloc(GetProcessHeap(), 0, (sz))
+#define MAL_FREE(p) HeapFree(GetProcessHeap(), 0, (p))
 #else
-#define mal_malloc(sz) malloc((sz))
+#define MAL_FREE(p) free((p))
 #endif
 #endif
 
-#ifndef mal_realloc
+#ifndef MAL_ZERO_MEMORY
 #ifdef MAL_WIN32
-#define mal_realloc(p, sz) (((sz) > 0) ? ((p) ? HeapReAlloc(GetProcessHeap(), 0, (p), (sz)) : HeapAlloc(GetProcessHeap(), 0, (sz))) : ((VOID*)(size_t)(HeapFree(GetProcessHeap(), 0, (p)) & 0)))
+#define MAL_ZERO_MEMORY(p, sz) ZeroMemory((p), (sz))
 #else
-#define mal_realloc(p, sz) realloc((p), (sz))
+#define MAL_ZERO_MEMORY(p, sz) memset((p), 0, (sz))
 #endif
 #endif
 
-#ifndef mal_free
+#ifndef MAL_COPY_MEMORY
 #ifdef MAL_WIN32
-#define mal_free(p) HeapFree(GetProcessHeap(), 0, (p))
+#define MAL_COPY_MEMORY(dst, src, sz) CopyMemory((dst), (src), (sz))
 #else
-#define mal_free(p) free((p))
+#define MAL_COPY_MEMORY(dst, src, sz) memcpy((dst), (src), (sz))
 #endif
 #endif
 
-#ifndef mal_assert
+#ifndef MAL_ASSERT
 #ifdef MAL_WIN32
-#define mal_assert(condition) assert(condition)
+#define MAL_ASSERT(condition) assert(condition)
 #else
-#define mal_assert(condition) assert(condition)
+#define MAL_ASSERT(condition) assert(condition)
 #endif
 #endif
 
+#define mal_zero_memory MAL_ZERO_MEMORY
+#define mal_copy_memory MAL_COPY_MEMORY
+#define mal_assert      MAL_ASSERT
+
+#define mal_zero_object(p)          mal_zero_memory((p), sizeof(*(p)))
 #define mal_countof(x)              (sizeof(x) / sizeof(x[0]))
 #define mal_max(x, y)               (((x) > (y)) ? (x) : (y))
 #define mal_min(x, y)               (((x) < (y)) ? (x) : (y))
@@ -20739,6 +20751,21 @@ mal_uint64 mal_convert_frames_ex(void* pOut, mal_format formatOut, mal_uint32 ch
 //
 //////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 //////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+
+void* mal_malloc(size_t sz)
+{
+    return MAL_MALLOC(sz);
+}
+
+void* mal_realloc(void* p, size_t sz)
+{
+    return MAL_REALLOC(p, sz);
+}
+
+void mal_free(void* p)
+{
+    MAL_FREE(p);
+}
 
 void* mal_aligned_malloc(size_t sz, size_t alignment)
 {
