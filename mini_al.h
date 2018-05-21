@@ -2029,7 +2029,8 @@ mal_uint64 mal_format_converter_read_deinterleaved(mal_format_converter* pConver
 
 // Helper for initializing a format converter config.
 mal_format_converter_config mal_format_converter_config_init_new();
-mal_format_converter_config mal_format_converter_config_init(mal_format formatIn, mal_format formatOut, mal_uint32 channels, mal_format_converter_read_proc onRead, mal_format_converter_read_deinterleaved_proc onReadDeinterleaved, void* pUserData);
+mal_format_converter_config mal_format_converter_config_init(mal_format formatIn, mal_format formatOut, mal_uint32 channels, mal_format_converter_read_proc onRead, void* pUserData);
+mal_format_converter_config mal_format_converter_config_init_deinterleaved(mal_format formatIn, mal_format formatOut, mal_uint32 channels, mal_format_converter_read_deinterleaved_proc onReadDeinterleaved, void* pUserData);
 
 
 
@@ -18899,15 +18900,23 @@ mal_format_converter_config mal_format_converter_config_init_new()
     return config;
 }
 
-mal_format_converter_config mal_format_converter_config_init(mal_format formatIn, mal_format formatOut, mal_uint32 channels, mal_format_converter_read_proc onRead, mal_format_converter_read_deinterleaved_proc onReadDeinterleaved, void* pUserData)
+mal_format_converter_config mal_format_converter_config_init(mal_format formatIn, mal_format formatOut, mal_uint32 channels, mal_format_converter_read_proc onRead, void* pUserData)
 {
     mal_format_converter_config config = mal_format_converter_config_init_new();
     config.formatIn = formatIn;
     config.formatOut = formatOut;
     config.channels = channels;
     config.onRead = onRead;
-    config.onReadDeinterleaved = onReadDeinterleaved;
+    config.onReadDeinterleaved = NULL;
     config.pUserData = pUserData;
+
+    return config;
+}
+
+mal_format_converter_config mal_format_converter_config_init_deinterleaved(mal_format formatIn, mal_format formatOut, mal_uint32 channels, mal_format_converter_read_deinterleaved_proc onReadDeinterleaved, void* pUserData)
+{
+    mal_format_converter_config config = mal_format_converter_config_init(formatIn, formatOut, channels, NULL, pUserData);
+    config.onReadDeinterleaved = onReadDeinterleaved;
 
     return config;
 }
@@ -20426,16 +20435,14 @@ mal_result mal_dsp_init(const mal_dsp_config* pConfig, mal_dsp* pDSP)
 
     // Pre format conversion.
     {
-        mal_format_converter_config preFormatConverterConfig;
-        mal_zero_object(&preFormatConverterConfig);
-        preFormatConverterConfig.formatIn = pConfig->formatIn;
-        preFormatConverterConfig.formatOut = mal_format_f32;
-        preFormatConverterConfig.channels = pConfig->channelsIn;
+        mal_format_converter_config preFormatConverterConfig = mal_format_converter_config_init(
+            pConfig->formatIn,
+            mal_format_f32,
+            pConfig->channelsIn,
+            mal_dsp__pre_format_converter_on_read,
+            pDSP
+        );
         preFormatConverterConfig.ditherMode = pConfig->ditherMode;
-        preFormatConverterConfig.streamFormatIn = mal_stream_format_pcm;
-        preFormatConverterConfig.streamFormatOut = mal_stream_format_pcm;
-        preFormatConverterConfig.onRead = mal_dsp__pre_format_converter_on_read;
-        preFormatConverterConfig.pUserData = pDSP;
 
         result = mal_format_converter_init(&preFormatConverterConfig, &pDSP->formatConverterIn);
         if (result != MAL_SUCCESS) {
@@ -20446,15 +20453,11 @@ mal_result mal_dsp_init(const mal_dsp_config* pConfig, mal_dsp* pDSP)
     // Post format conversion. The exact configuration for this depends on whether or not we are reading data directly from the client
     // or from an earlier stage in the pipeline.
     {
-        mal_format_converter_config postFormatConverterConfig;
-        mal_zero_object(&postFormatConverterConfig);
+        mal_format_converter_config postFormatConverterConfig = mal_format_converter_config_init_new();
         postFormatConverterConfig.formatIn = pConfig->formatIn;
         postFormatConverterConfig.formatOut = pConfig->formatOut;
         postFormatConverterConfig.channels = pConfig->channelsOut;
         postFormatConverterConfig.ditherMode = pConfig->ditherMode;
-        postFormatConverterConfig.streamFormatIn = mal_stream_format_pcm;
-        postFormatConverterConfig.streamFormatOut = mal_stream_format_pcm;
-        postFormatConverterConfig.pUserData = pDSP;
         if (pDSP->isPreFormatConversionRequired) {
             postFormatConverterConfig.onReadDeinterleaved = mal_dsp__post_format_converter_on_read_deinterleaved;
             postFormatConverterConfig.formatIn = mal_format_f32;
