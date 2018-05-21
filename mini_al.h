@@ -940,6 +940,14 @@ typedef struct
     mal_bool32 allowDynamicSampleRate;
     mal_dsp_read_proc onRead;
     void* pUserData;
+    union
+    {
+        struct
+        {
+            mal_src_sinc_window_function windowFunction;
+            mal_uint32 windowWidth;
+        } sinc;
+    };
 } mal_dsp_config;
 
 MAL_ALIGNED_STRUCT(MAL_SIMD_ALIGNMENT) mal_dsp
@@ -20444,6 +20452,7 @@ mal_result mal_dsp_init(const mal_dsp_config* pConfig, mal_dsp* pDSP)
         srcConfig.algorithm = pConfig->srcAlgorithm;
         srcConfig.onReadDeinterleaved = mal_dsp__src_on_read_deinterleaved;
         srcConfig.pUserData = pDSP;
+        mal_copy_memory(&srcConfig.sinc, &pConfig->sinc, sizeof(pConfig->sinc));
         result = mal_src_init(&srcConfig, &pDSP->src);
         if (result != MAL_SUCCESS) {
             return result;
