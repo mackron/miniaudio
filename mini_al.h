@@ -2132,6 +2132,10 @@ mal_result mal_src_set_output_sample_rate(mal_src* pSRC, mal_uint32 sampleRateOu
 mal_uint64 mal_src_read_deinterleaved(mal_src* pSRC, mal_uint64 frameCount, void** ppSamplesOut, void* pUserData);
 
 
+// Helper for creating a sample rate conversion config.
+mal_src_config mal_src_config_init_new();
+mal_src_config mal_src_config_init(mal_uint32 sampleRateIn, mal_uint32 sampleRateOut, mal_uint32 channels, mal_src_read_deinterleaved_proc onReadDeinterleaved, void* pUserData);
+
 
 //////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 //
@@ -19937,6 +19941,27 @@ mal_uint64 mal_src_read_deinterleaved__linear(mal_src* pSRC, mal_uint64 frameCou
 }
 
 
+mal_src_config mal_src_config_init_new()
+{
+    mal_src_config config;
+    mal_zero_object(&config);
+
+    return config;
+}
+
+mal_src_config mal_src_config_init(mal_uint32 sampleRateIn, mal_uint32 sampleRateOut, mal_uint32 channels, mal_src_read_deinterleaved_proc onReadDeinterleaved, void* pUserData)
+{
+    mal_src_config config = mal_src_config_init_new();
+    config.sampleRateIn = sampleRateIn;
+    config.sampleRateOut = sampleRateOut;
+    config.channels = channels;
+    config.onReadDeinterleaved = onReadDeinterleaved;
+    config.pUserData = pUserData;
+
+    return config;
+}
+
+
 ///////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 //
 // Sinc Sample Rate Conversion
@@ -20411,6 +20436,7 @@ mal_result mal_dsp_init(const mal_dsp_config* pConfig, mal_dsp* pDSP)
         preFormatConverterConfig.streamFormatOut = mal_stream_format_pcm;
         preFormatConverterConfig.onRead = mal_dsp__pre_format_converter_on_read;
         preFormatConverterConfig.pUserData = pDSP;
+
         result = mal_format_converter_init(&preFormatConverterConfig, &pDSP->formatConverterIn);
         if (result != MAL_SUCCESS) {
             return result;
@@ -20444,15 +20470,16 @@ mal_result mal_dsp_init(const mal_dsp_config* pConfig, mal_dsp* pDSP)
 
     // SRC
     {
-        mal_src_config srcConfig;
-        mal_zero_object(&srcConfig);
-        srcConfig.sampleRateIn = pConfig->sampleRateIn;
-        srcConfig.sampleRateOut = pConfig->sampleRateOut;
-        srcConfig.channels = (pConfig->channelsIn < pConfig->channelsOut) ? pConfig->channelsIn : pConfig->channelsOut;
+        mal_src_config srcConfig = mal_src_config_init(
+            pConfig->sampleRateIn,
+            pConfig->sampleRateOut,
+            ((pConfig->channelsIn < pConfig->channelsOut) ? pConfig->channelsIn : pConfig->channelsOut),
+            mal_dsp__src_on_read_deinterleaved,
+            pDSP
+        );
         srcConfig.algorithm = pConfig->srcAlgorithm;
-        srcConfig.onReadDeinterleaved = mal_dsp__src_on_read_deinterleaved;
-        srcConfig.pUserData = pDSP;
         mal_copy_memory(&srcConfig.sinc, &pConfig->sinc, sizeof(pConfig->sinc));
+
         result = mal_src_init(&srcConfig, &pDSP->src);
         if (result != MAL_SUCCESS) {
             return result;
@@ -20469,6 +20496,7 @@ mal_result mal_dsp_init(const mal_dsp_config* pConfig, mal_dsp* pDSP)
             pConfig->channelMixMode,
             mal_dsp__channel_router_on_read_deinterleaved,
             pDSP);
+
         result = mal_channel_router_init(&routerConfig, &pDSP->channelRouter);
         if (result != MAL_SUCCESS) {
             return result;
