@@ -63,7 +63,7 @@ Simple Playback Example
 #define DR_WAV_IMPLEMENTATION
 #include "../extras/dr_wav.h"   // Enables WAV decoding.
 
-#define MAL_IMPLEMENTATION
+#define MINI_AL_IMPLEMENTATION
 #include "../mini_al.h"
 
 #include <stdio.h>
@@ -146,7 +146,7 @@ relevant backend library before the implementation of mini_al, like so:
 #include "dr_mp3.h"     // Enables MP3 decoding.
 #include "dr_wav.h"     // Enables WAV decoding.
 
-#define MAL_IMPLEMENTATION
+#define MINI_AL_IMPLEMENTATION
 #include "mini_al.h"
 ```
 

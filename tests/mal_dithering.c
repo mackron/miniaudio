@@ -1,5 +1,5 @@
 #define MAL_USE_REFERENCE_CONVERSION_APIS
-#define MAL_IMPLEMENTATION
+#define MINI_AL_IMPLEMENTATION
 #include "../mini_al.h"
 
 // Two converters are needed here. One for converting f32 samples from the sine wave generator to the input format,

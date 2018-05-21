@@ -1,4 +1,4 @@
-#define MAL_IMPLEMENTATION
+#define MINI_AL_IMPLEMENTATION
 #include "../mini_al.h"
 
 #include <stdio.h>

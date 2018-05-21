@@ -1,7 +1,7 @@
 // This example simply captures data from your default microphone until you press Enter, after
 // which it plays back the captured audio.
 
-#define MAL_IMPLEMENTATION
+#define MINI_AL_IMPLEMENTATION
 #include "../mini_al.h"
 
 #include <stdlib.h>

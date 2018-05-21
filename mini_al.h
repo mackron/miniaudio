@@ -38,7 +38,7 @@
 // USAGE
 // =====
 // mini_al is a single-file library. To use it, do something like the following in one .c file.
-//   #define MAL_IMPLEMENTATION
+//   #define MINI_AL_IMPLEMENTATION
 //   #include "mini_al.h"
 //
 // You can then #include this file in other parts of the program as you would with any other header file.
@@ -2390,7 +2390,7 @@ mal_uint64 mal_sine_wave_read(mal_sine_wave* pSignWave, mal_uint64 count, float*
 //
 ///////////////////////////////////////////////////////////////////////////////
 ///////////////////////////////////////////////////////////////////////////////
-#ifdef MAL_IMPLEMENTATION
+#if defined(MINI_AL_IMPLEMENTATION) || defined(MAL_IMPLEMENTATION)
 #include <assert.h>
 #include <limits.h> // For INT_MAX
 #include <math.h>   // sin(), etc.
@@ -22378,13 +22378,15 @@ mal_uint64 mal_sine_wave_read(mal_sine_wave* pSineWave, mal_uint64 count, float*
 }
 
 
-#endif  // MAL_IMPLEMENTATION
+#endif  // MINI_AL_IMPLEMENTATION
 
 
 // REVISION HISTORY
 // ================
 //
 // v0.x - 2018-xx-xx
+//   - Changed MAL_IMPLEMENTATION to MINI_AL_IMPLEMENTATION for consistency with other libraries. The old
+//     way is still supported for now, but you should update as it may be removed in the future.
 //   - API CHANGE: Replace device enumeration APIs. mal_enumerate_devices() has been replaced with
 //     mal_context_get_devices(). An additional low-level device enumration API has been introduced called
 //     mal_context_enumerate_devices() which uses a callback to report devices.
