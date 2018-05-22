@@ -20621,6 +20621,7 @@ typedef struct
     mal_uint32 channelsIn;
     mal_uint64 totalFrameCount;
     mal_uint64 iNextFrame;
+    mal_bool32 isFeedingZeros;  // When set to true, feeds the DSP zero samples.
 } mal_convert_frames__data;
 
 mal_uint32 mal_convert_frames__on_read(mal_dsp* pDSP, mal_uint32 frameCount, void* pFramesOut, void* pUserData)
@@ -20637,8 +20638,13 @@ mal_uint32 mal_convert_frames__on_read(mal_dsp* pDSP, mal_uint32 frameCount, voi
         framesToRead = (mal_uint32)framesRemaining;
     }
 
-    mal_uint32 frameSizeInBytes = mal_get_bytes_per_sample(pData->formatIn) * pData->channelsIn;
-    mal_copy_memory(pFramesOut, (const mal_uint8*)pData->pDataIn + (frameSizeInBytes * pData->iNextFrame), frameSizeInBytes * framesToRead);
+    mal_uint32 frameSizeInBytes = mal_get_bytes_per_frame(pData->formatIn, pData->channelsIn);
+
+    if (!pData->isFeedingZeros) {
+        mal_copy_memory(pFramesOut, (const mal_uint8*)pData->pDataIn + (frameSizeInBytes * pData->iNextFrame), frameSizeInBytes * framesToRead);
+    } else {
+        mal_zero_memory(pFramesOut, frameSizeInBytes * framesToRead);
+    }
 
     pData->iNextFrame += framesToRead;
     return framesToRead;
@@ -20709,6 +20715,7 @@ mal_uint64 mal_convert_frames_ex(void* pOut, mal_format formatOut, mal_uint32 ch
     data.channelsIn = channelsIn;
     data.totalFrameCount = frameCountIn;
     data.iNextFrame = 0;
+    data.isFeedingZeros = MAL_FALSE;
 
     mal_dsp_config config;
     mal_zero_object(&config);
@@ -20739,7 +20746,38 @@ mal_uint64 mal_convert_frames_ex(void* pOut, mal_format formatOut, mal_uint32 ch
         return 0;
     }
 
-    return mal_dsp_read(&dsp, frameCountOut, pOut, dsp.pUserData);
+    // Always output our computed frame count. There is a chance the sample rate conversion routine may not output the last sample
+    // due to precision issues with 32-bit floats, in which case we should feed the DSP zero samples so it can generate that last
+    // frame.
+    mal_uint64 totalFramesRead = mal_dsp_read(&dsp, frameCountOut, pOut, dsp.pUserData);
+    if (totalFramesRead < frameCountOut) {
+        mal_uint32 bpf = mal_get_bytes_per_frame(formatIn, channelsIn);
+
+        data.isFeedingZeros = MAL_TRUE;
+        data.totalFrameCount = 0xFFFFFFFFFFFFFFFF;
+        data.pDataIn = NULL;
+
+        while (totalFramesRead < frameCountOut) {
+            mal_uint64 framesToRead = (frameCountOut - totalFramesRead);
+            mal_assert(framesToRead > 0);
+
+            mal_uint64 framesJustRead = mal_dsp_read(&dsp, framesToRead, mal_offset_ptr(pOut, totalFramesRead * bpf), dsp.pUserData);
+            totalFramesRead += framesJustRead;
+
+            if (framesJustRead < framesToRead) {
+                break;
+            }
+        }
+
+        // At this point we should have output every sample, but just to be super duper sure, just fill the rest with zeros.
+        if (totalFramesRead < frameCountOut) {
+            mal_zero_memory_64(mal_offset_ptr(pOut, totalFramesRead * bpf), ((frameCountOut - totalFramesRead) * bpf));
+            totalFramesRead = frameCountOut;
+        }
+    }
+
+    mal_assert(totalFramesRead == frameCountOut);
+    return totalFramesRead;
 }
 
 
