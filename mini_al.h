@@ -15042,11 +15042,12 @@ mal_result mal_device_init__sdl(mal_context* pContext, mal_device_type type, mal
             fType = 2.0f;
         }
 
-        // Backend tax. Need to fiddle with this. Special case for Emscripten.
+        // Backend tax. Need to fiddle with this. Keep in mind that SDL always rounds the buffer size up to the next
+        // power of two which should cover the natural API overhead. Special case for Emscripten.
     #if defined(__EMSCRIPTEN__)
-        float fBackend = 4.0f;
+        float fBackend = 1.0f;
     #else
-        float fBackend = 2.0f;
+        float fBackend = 1.0f;
     #endif
 
         bufferSize = mal_calculate_default_buffer_size_in_frames(pConfig->performanceProfile, pConfig->sampleRate, fCPUSpeed*fType*fBackend);
