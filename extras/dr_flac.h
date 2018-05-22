@@ -1,5 +1,5 @@
 // FLAC audio decoder. Public domain. See "unlicense" statement at the end of this file.
-// dr_flac - v0.9.1 - 2018-04-29
+// dr_flac - v0.9.3 - 2018-05-22
 //
 // David Reid - mackron@gmail.com
 
@@ -1794,7 +1794,6 @@ static inline drflac_bool32 drflac__seek_past_next_set_bit(drflac_bs* bs, unsign
     }
 
     drflac_uint32 setBitOffsetPlus1 = drflac__clz(bs->cache);
-    zeroCounter += setBitOffsetPlus1;
     setBitOffsetPlus1 += 1;
 
     bs->consumedBits += setBitOffsetPlus1;
@@ -3575,7 +3574,7 @@ drflac_bool32 drflac__read_and_decode_metadata(drflac* pFlac)
                         isLastBlock = DRFLAC_TRUE;  // An error occured while seeking. Attempt to recover by treating this as the last block which will in turn terminate the loop.
                     }
                 }
-            }
+            } break;
 
             default:
             {
@@ -5512,6 +5511,12 @@ const char* drflac_next_vorbis_comment(drflac_vorbis_comment_iterator* pIter, dr
 
 
 // REVISION HISTORY
+//
+// v0.9.3 - 2018-05-22
+//   - Bug fix.
+//
+// v0.9.2 - 2018-05-12
+//   - Fix a compilation error due to a missing break statement.
 //
 // v0.9.1 - 2018-04-29
 //   - Fix compilation error with Clang.
