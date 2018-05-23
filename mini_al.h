@@ -20961,23 +20961,33 @@ float mal_calculate_cpu_speed_factor()
     mal_uint32 channelsIn    = 2;
     mal_uint32 channelsOut   = 6;
 
-    // Using the heap here to avoid an unnecessary static memory allocation. Also too big for the stack. TODO: Make this a single malloc. Also doesn't need to be aligned.
-    mal_uint8* pInputFrames = (mal_uint8*)mal_aligned_malloc(sampleRateIn * channelsIn * sizeof(*pInputFrames), MAL_SIMD_ALIGNMENT);
-    if (pInputFrames == NULL) {
+    // Using the heap here to avoid an unnecessary static memory allocation. Also too big for the stack.
+    mal_uint8* pInputFrames  = NULL;
+    float*     pOutputFrames = NULL;
+
+    size_t inputDataSize  = sampleRateIn  * channelsIn  * sizeof(*pInputFrames);
+    size_t outputDataSize = sampleRateOut * channelsOut * sizeof(*pOutputFrames);
+
+    void* pData = mal_malloc(inputDataSize + outputDataSize);
+    if (pData == NULL) {
         return 1;
     }
 
-    float* pOutputFrames = (float*)mal_aligned_malloc(sampleRateOut * channelsOut * sizeof(*pOutputFrames), MAL_SIMD_ALIGNMENT);
-    if (pOutputFrames == NULL) {
-        mal_aligned_free(pInputFrames);
-        return 1;
-    }
+    pInputFrames  = (mal_uint8*)pData;
+    pOutputFrames = (float*)(pInputFrames + inputDataSize);
+
+
+    
 
     mal_calculate_cpu_speed_factor_data data;
     data.pInputFrames = pInputFrames;
     data.framesRemaining = sampleRateIn;
     
     mal_dsp_config config = mal_dsp_config_init(mal_format_u8, channelsIn, sampleRateIn, mal_format_f32, channelsOut, sampleRateOut, mal_calculate_cpu_speed_factor__on_read, &data);
+
+    // Use linear sample rate conversion because it's the simplest and least likely to cause skewing as a result of tweaks to default
+    // configurations in the future.
+    config.srcAlgorithm = mal_src_algorithm_linear;
 
     // Experiment: Disable SIMD extensions when profiling just to try and keep things a bit more consistent. The idea is to get a general
     // indication on the speed of the system, but SIMD is used more heavily in the DSP pipeline than in the general case which may make
@@ -20990,8 +21000,7 @@ float mal_calculate_cpu_speed_factor()
     mal_dsp dsp;
     mal_result result = mal_dsp_init(&config, &dsp);
     if (result != MAL_SUCCESS) {
-        mal_aligned_free(pInputFrames);
-        mal_aligned_free(pOutputFrames);
+        mal_free(pData);
         return 1;
     }
 
@@ -21012,9 +21021,7 @@ float mal_calculate_cpu_speed_factor()
     executionTimeInSeconds /= iterationCount;
 
     
-    mal_aligned_free(pInputFrames);
-    mal_aligned_free(pOutputFrames);
-
+    mal_free(pData);
     return (float)(executionTimeInSeconds * f);
 }
 
