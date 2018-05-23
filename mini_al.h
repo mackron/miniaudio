@@ -812,6 +812,10 @@ typedef struct
     mal_stream_format streamFormatIn;
     mal_stream_format streamFormatOut;
     mal_dither_mode ditherMode;
+    mal_bool32 noSSE2   : 1;
+    mal_bool32 noAVX    : 1;
+    mal_bool32 noAVX512 : 1;
+    mal_bool32 noNEON   : 1;
     mal_format_converter_read_proc onRead;
     mal_format_converter_read_deinterleaved_proc onReadDeinterleaved;
     void* pUserData;
@@ -820,6 +824,10 @@ typedef struct
 struct mal_format_converter
 {
     mal_format_converter_config config;
+    mal_bool32 useSSE2   : 1;
+    mal_bool32 useAVX    : 1;
+    mal_bool32 useAVX512 : 1;
+    mal_bool32 useNEON   : 1;
     void (* onConvertPCM)(void* dst, const void* src, mal_uint64 count, mal_dither_mode ditherMode);
     void (* onInterleavePCM)(void* dst, const void** src, mal_uint64 frameCount, mal_uint32 channels);
     void (* onDeinterleavePCM)(void** dst, const void* src, mal_uint64 frameCount, mal_uint32 channels);
@@ -885,6 +893,10 @@ typedef struct
     mal_uint32 sampleRateOut;
     mal_uint32 channels;
     mal_src_algorithm algorithm;
+    mal_bool32 noSSE2   : 1;
+    mal_bool32 noAVX    : 1;
+    mal_bool32 noAVX512 : 1;
+    mal_bool32 noNEON   : 1;
     mal_src_read_deinterleaved_proc onReadDeinterleaved;
     void* pUserData;
     union
@@ -919,6 +931,10 @@ MAL_ALIGNED_STRUCT(MAL_SIMD_ALIGNMENT) mal_src
     };
 
     mal_src_config config;
+    mal_bool32 useSSE2   : 1;
+    mal_bool32 useAVX    : 1;
+    mal_bool32 useAVX512 : 1;
+    mal_bool32 useNEON   : 1;
 };
 
 typedef struct mal_dsp mal_dsp;
@@ -938,6 +954,10 @@ typedef struct
     mal_dither_mode ditherMode;
     mal_src_algorithm srcAlgorithm;
     mal_bool32 allowDynamicSampleRate;
+    mal_bool32 noSSE2   : 1;
+    mal_bool32 noAVX    : 1;
+    mal_bool32 noAVX512 : 1;
+    mal_bool32 noNEON   : 1;
     mal_dsp_read_proc onRead;
     void* pUserData;
     union
@@ -18541,6 +18561,12 @@ mal_result mal_format_converter_init(const mal_format_converter_config* pConfig,
 
     pConverter->config = *pConfig;
 
+    // SIMD
+    pConverter->useSSE2   = mal_has_sse2()    && !pConfig->noSSE2;
+    pConverter->useAVX    = mal_has_avx()     && !pConfig->noAVX;
+    pConverter->useAVX512 = mal_has_avx512f() && !pConfig->noAVX512;
+    pConverter->useNEON   = mal_has_neon()    && !pConfig->noNEON;
+
     switch (pConfig->formatIn)
     {
         case mal_format_u8:
@@ -19688,6 +19714,12 @@ mal_result mal_src_init(const mal_src_config* pConfig, mal_src* pSRC)
 
     pSRC->config = *pConfig;
 
+    // SIMD
+    pSRC->useSSE2   = mal_has_sse2()    && !pConfig->noSSE2;
+    pSRC->useAVX    = mal_has_avx()     && !pConfig->noAVX;
+    pSRC->useAVX512 = mal_has_avx512f() && !pConfig->noAVX512;
+    pSRC->useNEON   = mal_has_neon()    && !pConfig->noNEON;
+
     if (pSRC->config.algorithm == mal_src_algorithm_sinc) {
         // Make sure the window width within bounds.
         if (pSRC->config.sinc.windowWidth == 0) {
@@ -20360,7 +20392,8 @@ mal_result mal_dsp_init(const mal_dsp_config* pConfig, mal_dsp* pDSP)
     pDSP->pUserData = pConfig->pUserData;
     pDSP->isDynamicSampleRateAllowed = pConfig->allowDynamicSampleRate;
 
-    // This is generally the pipeline used for data conversion. Note that this can actually change which is explained later.
+
+    // In general, this is the pipeline used for data conversion. Note that this can actually change which is explained later.
     //
     //   Pre Format Conversion -> Sample Rate Conversion -> Channel Routing -> Post Format Conversion
     //
@@ -20456,6 +20489,10 @@ mal_result mal_dsp_init(const mal_dsp_config* pConfig, mal_dsp* pDSP)
             pDSP
         );
         preFormatConverterConfig.ditherMode = pConfig->ditherMode;
+        preFormatConverterConfig.noSSE2     = pConfig->noSSE2;
+        preFormatConverterConfig.noAVX      = pConfig->noAVX;
+        preFormatConverterConfig.noAVX512   = pConfig->noAVX512;
+        preFormatConverterConfig.noNEON     = pConfig->noNEON;
 
         result = mal_format_converter_init(&preFormatConverterConfig, &pDSP->formatConverterIn);
         if (result != MAL_SUCCESS) {
@@ -20467,10 +20504,14 @@ mal_result mal_dsp_init(const mal_dsp_config* pConfig, mal_dsp* pDSP)
     // or from an earlier stage in the pipeline.
     {
         mal_format_converter_config postFormatConverterConfig = mal_format_converter_config_init_new();
-        postFormatConverterConfig.formatIn = pConfig->formatIn;
-        postFormatConverterConfig.formatOut = pConfig->formatOut;
-        postFormatConverterConfig.channels = pConfig->channelsOut;
+        postFormatConverterConfig.formatIn   = pConfig->formatIn;
+        postFormatConverterConfig.formatOut  = pConfig->formatOut;
+        postFormatConverterConfig.channels   = pConfig->channelsOut;
         postFormatConverterConfig.ditherMode = pConfig->ditherMode;
+        postFormatConverterConfig.noSSE2     = pConfig->noSSE2;
+        postFormatConverterConfig.noAVX      = pConfig->noAVX;
+        postFormatConverterConfig.noAVX512   = pConfig->noAVX512;
+        postFormatConverterConfig.noNEON     = pConfig->noNEON;
         if (pDSP->isPreFormatConversionRequired) {
             postFormatConverterConfig.onReadDeinterleaved = mal_dsp__post_format_converter_on_read_deinterleaved;
             postFormatConverterConfig.formatIn = mal_format_f32;
@@ -20494,6 +20535,10 @@ mal_result mal_dsp_init(const mal_dsp_config* pConfig, mal_dsp* pDSP)
             pDSP
         );
         srcConfig.algorithm = pConfig->srcAlgorithm;
+        srcConfig.noSSE2    = pConfig->noSSE2;
+        srcConfig.noAVX     = pConfig->noAVX;
+        srcConfig.noAVX512  = pConfig->noAVX512;
+        srcConfig.noNEON    = pConfig->noNEON;
         mal_copy_memory(&srcConfig.sinc, &pConfig->sinc, sizeof(pConfig->sinc));
 
         result = mal_src_init(&srcConfig, &pDSP->src);
@@ -20512,6 +20557,10 @@ mal_result mal_dsp_init(const mal_dsp_config* pConfig, mal_dsp* pDSP)
             pConfig->channelMixMode,
             mal_dsp__channel_router_on_read_deinterleaved,
             pDSP);
+        routerConfig.noSSE2   = pConfig->noSSE2;
+        routerConfig.noAVX    = pConfig->noAVX;
+        routerConfig.noAVX512 = pConfig->noAVX512;
+        routerConfig.noNEON   = pConfig->noNEON;
 
         result = mal_channel_router_init(&routerConfig, &pDSP->channelRouter);
         if (result != MAL_SUCCESS) {
@@ -20912,7 +20961,7 @@ float mal_calculate_cpu_speed_factor()
     mal_uint32 channelsIn    = 2;
     mal_uint32 channelsOut   = 6;
 
-    // Using the heap here to avoid an unnecessary static memory allocation. Also too big for the stack.
+    // Using the heap here to avoid an unnecessary static memory allocation. Also too big for the stack. TODO: Make this a single malloc. Also doesn't need to be aligned.
     mal_uint8* pInputFrames = (mal_uint8*)mal_aligned_malloc(sampleRateIn * channelsIn * sizeof(*pInputFrames), MAL_SIMD_ALIGNMENT);
     if (pInputFrames == NULL) {
         return 1;
@@ -20929,6 +20978,15 @@ float mal_calculate_cpu_speed_factor()
     data.framesRemaining = sampleRateIn;
     
     mal_dsp_config config = mal_dsp_config_init(mal_format_u8, channelsIn, sampleRateIn, mal_format_f32, channelsOut, sampleRateOut, mal_calculate_cpu_speed_factor__on_read, &data);
+
+    // Experiment: Disable SIMD extensions when profiling just to try and keep things a bit more consistent. The idea is to get a general
+    // indication on the speed of the system, but SIMD is used more heavily in the DSP pipeline than in the general case which may make
+    // the results a little less realistic.
+    config.noSSE2   = MAL_TRUE;
+    config.noAVX    = MAL_TRUE;
+    config.noAVX512 = MAL_TRUE;
+    config.noNEON   = MAL_TRUE;
+
     mal_dsp dsp;
     mal_result result = mal_dsp_init(&config, &dsp);
     if (result != MAL_SUCCESS) {
