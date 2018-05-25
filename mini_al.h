@@ -2708,6 +2708,12 @@ static MAL_INLINE mal_bool32 mal_has_neon()
 #ifndef MAL_PI_D
 #define MAL_PI_D    3.14159265358979323846264
 #endif
+#ifndef MAL_TAU
+#define MAL_TAU     6.28318530717958647693f
+#endif
+#ifndef MAL_TAU_D
+#define MAL_TAU_D   6.28318530717958647693
+#endif
 
 // Unfortunately using runtime linking for pthreads causes problems. This has occurred for me when testing on FreeBSD. When
 // using runtime linking, deadlocks can occur (for me it happens when loading data from fread()). It turns out that doing
@@ -22484,7 +22490,7 @@ mal_result mal_sine_wave_init(double amplitude, double periodsPerSecond, mal_uin
 
     pSineWave->amplitude = amplitude;
     pSineWave->periodsPerSecond = periodsPerSecond;
-    pSineWave->delta = MAL_PI_D*2 / sampleRate;
+    pSineWave->delta = MAL_TAU_D / sampleRate;
     pSineWave->time = 0;
 
     return MAL_SUCCESS;
