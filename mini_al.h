@@ -3211,8 +3211,19 @@ static MAL_INLINE float mal_mix_f32(float x, float y, float a)
 }
 static MAL_INLINE float mal_mix_f32_fast(float x, float y, float a)
 {
-    return x + (y - x)*a;
+    float r0 = (y - x);
+    float r1 = r0*a;
+    return x + r1;
+    //return x + (y - x)*a;
 }
+
+#if defined(MAL_SUPPORT_SSE2)
+static MAL_INLINE __m128 mal_mix_f32_fast__sse2(__m128 x, __m128 y, __m128 a)
+{
+    return _mm_add_ps(x, _mm_mul_ps(_mm_sub_ps(y, x), a));
+}
+#endif
+
 
 static MAL_INLINE double mal_mix_f64(double x, double y, double a)
 {
@@ -3384,7 +3395,7 @@ void mal_timer_init(mal_timer* pTimer)
 
     LARGE_INTEGER counter;
     QueryPerformanceCounter(&counter);
-    pTimer->counter = (mal_uint64)counter.QuadPart;
+    pTimer->counter = counter.QuadPart;
 }
 
 double mal_timer_get_time_in_seconds(mal_timer* pTimer)
@@ -3394,7 +3405,7 @@ double mal_timer_get_time_in_seconds(mal_timer* pTimer)
         return 0;
     }
 
-    return (counter.QuadPart - pTimer->counter) / (double)g_mal_TimerFrequency.QuadPart;
+    return (double)(counter.QuadPart - pTimer->counter) / g_mal_TimerFrequency.QuadPart;
 }
 #elif defined(MAL_APPLE) && (__MAC_OS_X_VERSION_MIN_REQUIRED < 101200)
 uint64_t g_mal_TimerFrequency = 0;
@@ -19677,7 +19688,7 @@ void mal_src__build_sinc_table__sinc(mal_src* pSRC)
     mal_assert(pSRC != NULL);
 
     pSRC->sinc.table[0] = 1.0f;
-    for (int i = 1; i < mal_countof(pSRC->sinc.table); i += 1) {
+    for (mal_uint32 i = 1; i < mal_countof(pSRC->sinc.table); i += 1) {
         double x = i*MAL_PI_D / MAL_SRC_SINC_LOOKUP_TABLE_RESOLUTION;
         pSRC->sinc.table[i] = (float)(sin(x)/x);
     }
@@ -19693,7 +19704,7 @@ void mal_src__build_sinc_table__hann(mal_src* pSRC)
 {
     mal_src__build_sinc_table__sinc(pSRC);
 
-    for (int i = 0; i < mal_countof(pSRC->sinc.table); i += 1) {
+    for (mal_uint32 i = 0; i < mal_countof(pSRC->sinc.table); i += 1) {
         double x = pSRC->sinc.table[i];
         double N = MAL_SRC_SINC_MAX_WINDOW_WIDTH*2;
         double n = ((double)(i) / MAL_SRC_SINC_LOOKUP_TABLE_RESOLUTION) + MAL_SRC_SINC_MAX_WINDOW_WIDTH;
@@ -20070,7 +20081,7 @@ static MAL_INLINE float mal_src_sinc__interpolation_factor(const mal_src* pSRC, 
 
     float xabs = (float)fabs(x);
     if (xabs >= MAL_SRC_SINC_MAX_WINDOW_WIDTH /*pSRC->config.sinc.windowWidth*/) {
-        return 0;
+        xabs = 1;   // <-- A non-zero integer will always return 0.
     }
 
     xabs = xabs * MAL_SRC_SINC_LOOKUP_TABLE_RESOLUTION;
@@ -20083,6 +20094,60 @@ static MAL_INLINE float mal_src_sinc__interpolation_factor(const mal_src* pSRC, 
     return pSRC->sinc.table[ixabs];
 #endif
 }
+
+#if defined(MAL_SUPPORT_SSE2)
+static MAL_INLINE __m128 mal_fabsf_sse2(__m128 x)
+{
+    static MAL_ALIGN(16) mal_uint32 mask[4] = {
+        0x7FFFFFFF,
+        0x7FFFFFFF,
+        0x7FFFFFFF,
+        0x7FFFFFFF
+    };
+
+    return _mm_and_ps(*(__m128*)mask, x);
+}
+
+static MAL_INLINE __m128 mal_truncf_sse2(__m128 x)
+{
+    return _mm_cvtepi32_ps(_mm_cvttps_epi32(x));
+}
+
+static MAL_INLINE __m128 mal_src_sinc__interpolation_factor__sse2(const mal_src* pSRC, __m128* x)
+{
+    __m128 windowWidth128 = _mm_set1_ps(MAL_SRC_SINC_MAX_WINDOW_WIDTH);
+    __m128 resolution128  = _mm_set1_ps(MAL_SRC_SINC_LOOKUP_TABLE_RESOLUTION);
+    __m128 one            = _mm_set1_ps(1);
+
+    __m128 xabs = mal_fabsf_sse2(*x);
+
+    // if (MAL_SRC_SINC_MAX_WINDOW_WIDTH <= xabs) xabs = 1 else xabs = xabs;
+    __m128 xcmp = _mm_cmp_ps(windowWidth128, xabs, 2);                      // 2 = Less than or equal = _mm_cmple_ps.
+    xabs = _mm_or_ps(_mm_and_ps(one, xcmp), _mm_andnot_ps(xcmp, xabs));     // xabs = (xcmp) ? 1 : xabs;
+
+    xabs = _mm_mul_ps(xabs, resolution128);
+    __m128i ixabs = _mm_cvttps_epi32(xabs);
+
+    __m128 lo = _mm_set_ps(
+        pSRC->sinc.table[((int*)&ixabs)[3]],
+        pSRC->sinc.table[((int*)&ixabs)[2]],
+        pSRC->sinc.table[((int*)&ixabs)[1]],
+        pSRC->sinc.table[((int*)&ixabs)[0]]
+    );
+
+    __m128 hi = _mm_set_ps(
+        pSRC->sinc.table[((int*)&ixabs)[3]+1],
+        pSRC->sinc.table[((int*)&ixabs)[2]+1],
+        pSRC->sinc.table[((int*)&ixabs)[1]+1],
+        pSRC->sinc.table[((int*)&ixabs)[0]+1]
+    );
+
+    __m128 a = _mm_sub_ps(xabs, _mm_cvtepi32_ps(ixabs));
+    __m128 r = mal_mix_f32_fast__sse2(lo, hi, a);
+
+    return r;
+}
+#endif
 
 mal_uint64 mal_src_read_deinterleaved__sinc(mal_src* pSRC, mal_uint64 frameCount, void** ppSamplesOut, void* pUserData)
 {
@@ -20122,21 +20187,66 @@ mal_uint64 mal_src_read_deinterleaved__sinc(mal_src* pSRC, mal_uint64 frameCount
             outputFramesToRead = maxOutputFramesToRead;
         }
 
+        float _windowSamplesUnaligned[MAL_SRC_SINC_MAX_WINDOW_WIDTH*2 + MAL_SIMD_ALIGNMENT];
+        float* windowSamples = (float*)(((mal_uintptr)_windowSamplesUnaligned + MAL_SIMD_ALIGNMENT-1) & ~(MAL_SIMD_ALIGNMENT-1));
+
+        float _iWindowFUnaligned[MAL_SRC_SINC_MAX_WINDOW_WIDTH*2 + MAL_SIMD_ALIGNMENT];
+        float* iWindowF = (float*)(((mal_uintptr)_iWindowFUnaligned + MAL_SIMD_ALIGNMENT-1) & ~(MAL_SIMD_ALIGNMENT-1));
+        for (mal_int32 i = 0; i < windowWidth2; ++i) {
+            iWindowF[i] = (float)(i - windowWidth);
+        }
+
         for (mal_uint32 iChannel = 0; iChannel < pSRC->config.channels; iChannel += 1) {
             // Do SRC.
             float timeIn = timeInBeg;
             for (mal_uint32 iSample = 0; iSample < outputFramesToRead; iSample += 1) {
-                mal_int32 iTimeIn  = (mal_int32)timeIn;
+                float sampleOut    = 0;
+                float iTimeInF     = mal_floorf(timeIn);
+                mal_uint32 iTimeIn = (mal_uint32)iTimeInF;
 
-                float sampleOut = 0;
-                for (mal_int32 iWindow = -windowWidth+1; iWindow < windowWidth; iWindow += 1) {
+                //mal_int32 iWindowBeg = -windowWidth+1;
+                //mal_int32 iWindowEnd =  windowWidth;
+                mal_int32 iWindow = 0;
+
+                // Pre-load the window samples into an aligned buffer to begin with. Need to put these into an aligned buffer to make SIMD easier.
+                windowSamples[0] = 0;   // <-- The first sample is always zero.
+                for (mal_int32 i = 1; i < windowWidth2; ++i) {
+                    windowSamples[i] = mal_src_sinc__get_input_sample_from_window(pSRC, iChannel, iTimeIn, i - windowWidth);
+                }
+
+#if defined(MAL_SUPPORT_SSE2)
+                if (pSRC->useSSE2) {
+                    __m128 t = _mm_set1_ps((timeIn - iTimeInF));
+
+                    mal_int32 windowWidth4 = windowWidth2 >> 2;
+                    for (mal_int32 iWindow4 = 0; iWindow4 < windowWidth4; iWindow4 += 1) {
+                        __m128* s = (__m128*)windowSamples + iWindow4;
+                        __m128* w = (__m128*)iWindowF + iWindow4;
+
+                        __m128 x = _mm_sub_ps(t, *w);
+                        __m128 a = mal_src_sinc__interpolation_factor__sse2(pSRC, &x);
+                        __m128 r = _mm_mul_ps(*s, a);
+
+                        sampleOut += ((float*)(&r))[0];
+                        sampleOut += ((float*)(&r))[1];
+                        sampleOut += ((float*)(&r))[2];
+                        sampleOut += ((float*)(&r))[3];
+                    }
+
+                    iWindow += windowWidth4 * 4;
+                }
+#endif
+
+                // Non-SIMD/Reference implementation. 
+                for (; iWindow < windowWidth2; iWindow += 1) {
+                    float s = windowSamples[iWindow];
+
                     float t = (timeIn - iTimeIn);
-                    float w = (float)(iWindow);
-
+                    float w = iWindowF[iWindow];
                     float a = mal_src_sinc__interpolation_factor(pSRC, (t - w));
-                    float s = mal_src_sinc__get_input_sample_from_window(pSRC, iChannel, iTimeIn, iWindow);
+                    float r = s * a;
 
-                    sampleOut += s * a;
+                    sampleOut += r;
                 }
 
                 ppNextSamplesOut[iChannel][iSample] = (float)sampleOut;
@@ -21901,6 +22011,13 @@ mal_result mal_decoder_init__internal(mal_decoder_read_proc onRead, mal_decoder_
 {
     mal_assert(pConfig != NULL);
     mal_assert(pDecoder != NULL);
+
+    // Silence some warnings in the case that we don't have any decoder backends enabled.
+    (void)onRead;
+    (void)onSeek;
+    (void)pUserData;
+    (void)pConfig;
+    (void)pDecoder;
 
     // We use trial and error to open a decoder.
     mal_result result = MAL_NO_BACKEND;
