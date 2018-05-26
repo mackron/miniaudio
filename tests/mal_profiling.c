@@ -342,7 +342,8 @@ int do_profiling__src__profile_individual(src_data* pBaseData, mal_uint32 sample
         for (mal_uint32 iFrame = 0; iFrame < pReferenceData->frameCount; iFrame += 1) {
             float s0 = pReferenceData->pFrameData[iChannel][iFrame];
             float s1 =                 pFrameData[iChannel][iFrame];
-            if (s0 != s1) {
+            //if (s0 != s1) {
+            if (fabs(s0 - s1) > 0.000001) {
                 printf("(Channel %d, Sample %d) %f != %f\n", iChannel, iFrame, s0, s1);
                 passed = MAL_FALSE;
             }
