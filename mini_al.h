@@ -4628,7 +4628,10 @@ void mal_channel_mask_to_channel_map__win32(DWORD dwChannelMask, mal_uint32 chan
 }
 
 #ifdef __cplusplus
-#define mal_is_guid_equal(a, b) IsEqualGUID(*((const GUID*)a), *((const GUID*)b))
+mal_bool32 mal_is_guid_equal(const void* a, const void* b)
+{
+    return IsEqualGUID(*(const GUID*)a, *(const GUID*)b);
+}
 #else
 #define mal_is_guid_equal(a, b) IsEqualGUID((const GUID*)a, (const GUID*)b)
 #endif
@@ -20128,18 +20131,20 @@ static MAL_INLINE __m128 mal_src_sinc__interpolation_factor__sse2(const mal_src*
     xabs = _mm_mul_ps(xabs, resolution128);
     __m128i ixabs = _mm_cvttps_epi32(xabs);
 
+    int* ixabsv = (int*)&ixabs;
+    
     __m128 lo = _mm_set_ps(
-        pSRC->sinc.table[((int*)&ixabs)[3]],
-        pSRC->sinc.table[((int*)&ixabs)[2]],
-        pSRC->sinc.table[((int*)&ixabs)[1]],
-        pSRC->sinc.table[((int*)&ixabs)[0]]
+        pSRC->sinc.table[ixabsv[3]],
+        pSRC->sinc.table[ixabsv[2]],
+        pSRC->sinc.table[ixabsv[1]],
+        pSRC->sinc.table[ixabsv[0]]
     );
 
     __m128 hi = _mm_set_ps(
-        pSRC->sinc.table[((int*)&ixabs)[3]+1],
-        pSRC->sinc.table[((int*)&ixabs)[2]+1],
-        pSRC->sinc.table[((int*)&ixabs)[1]+1],
-        pSRC->sinc.table[((int*)&ixabs)[0]+1]
+        pSRC->sinc.table[ixabsv[3]+1],
+        pSRC->sinc.table[ixabsv[2]+1],
+        pSRC->sinc.table[ixabsv[1]+1],
+        pSRC->sinc.table[ixabsv[0]+1]
     );
 
     __m128 a = _mm_sub_ps(xabs, _mm_cvtepi32_ps(ixabs));
