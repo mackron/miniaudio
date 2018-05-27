@@ -207,8 +207,8 @@
 // #define MAL_NO_SSE2
 //   Disables SSE2 optimizations.
 //
-// #define MAL_NO_AVX
-//   Disables AVX optimizations.
+// #define MAL_NO_AVX2
+//   Disables AVX2 optimizations.
 //
 // #define MAL_NO_AVX512
 //   Disables AVX-512 optimizations.
@@ -813,7 +813,7 @@ typedef struct
     mal_stream_format streamFormatOut;
     mal_dither_mode ditherMode;
     mal_bool32 noSSE2   : 1;
-    mal_bool32 noAVX    : 1;
+    mal_bool32 noAVX2   : 1;
     mal_bool32 noAVX512 : 1;
     mal_bool32 noNEON   : 1;
     mal_format_converter_read_proc onRead;
@@ -825,7 +825,7 @@ struct mal_format_converter
 {
     mal_format_converter_config config;
     mal_bool32 useSSE2   : 1;
-    mal_bool32 useAVX    : 1;
+    mal_bool32 useAVX2   : 1;
     mal_bool32 useAVX512 : 1;
     mal_bool32 useNEON   : 1;
     void (* onConvertPCM)(void* dst, const void* src, mal_uint64 count, mal_dither_mode ditherMode);
@@ -846,7 +846,7 @@ typedef struct
     mal_channel channelMapOut[MAL_MAX_CHANNELS];
     mal_channel_mix_mode mixingMode;
     mal_bool32 noSSE2   : 1;
-    mal_bool32 noAVX    : 1;
+    mal_bool32 noAVX2   : 1;
     mal_bool32 noAVX512 : 1;
     mal_bool32 noNEON   : 1;
     mal_channel_router_read_deinterleaved_proc onReadDeinterleaved;
@@ -859,7 +859,7 @@ struct mal_channel_router
     mal_bool32 isPassthrough   : 1;
     mal_bool32 isSimpleShuffle : 1;
     mal_bool32 useSSE2         : 1;
-    mal_bool32 useAVX          : 1;
+    mal_bool32 useAVX2         : 1;
     mal_bool32 useAVX512       : 1;
     mal_bool32 useNEON         : 1;
     mal_uint8 shuffleTable[MAL_MAX_CHANNELS];
@@ -894,7 +894,7 @@ typedef struct
     mal_uint32 channels;
     mal_src_algorithm algorithm;
     mal_bool32 noSSE2   : 1;
-    mal_bool32 noAVX    : 1;
+    mal_bool32 noAVX2   : 1;
     mal_bool32 noAVX512 : 1;
     mal_bool32 noNEON   : 1;
     mal_src_read_deinterleaved_proc onReadDeinterleaved;
@@ -932,7 +932,7 @@ MAL_ALIGNED_STRUCT(MAL_SIMD_ALIGNMENT) mal_src
 
     mal_src_config config;
     mal_bool32 useSSE2   : 1;
-    mal_bool32 useAVX    : 1;
+    mal_bool32 useAVX2   : 1;
     mal_bool32 useAVX512 : 1;
     mal_bool32 useNEON   : 1;
 };
@@ -955,7 +955,7 @@ typedef struct
     mal_src_algorithm srcAlgorithm;
     mal_bool32 allowDynamicSampleRate;
     mal_bool32 noSSE2   : 1;
-    mal_bool32 noAVX    : 1;
+    mal_bool32 noAVX2   : 1;
     mal_bool32 noAVX512 : 1;
     mal_bool32 noNEON   : 1;
     mal_dsp_read_proc onRead;
@@ -2485,8 +2485,11 @@ mal_uint64 mal_sine_wave_read(mal_sine_wave* pSignWave, mal_uint64 count, float*
         #if !defined(MAL_NO_SSE2)   // Assume all MSVC compilers support SSE2 intrinsics.
             #define MAL_SUPPORT_SSE2
         #endif
-        #if _MSC_VER >= 1600 && !defined(MAL_NO_AVX)    // 2010
-            #define MAL_SUPPORT_AVX
+        //#if _MSC_VER >= 1600 && !defined(MAL_NO_AVX)    // 2010
+        //    #define MAL_SUPPORT_AVX
+        //#endif
+        #if _MSC_VER >= 1700 && !defined(MAL_NO_AVX2)   // 2012
+            #define MAL_SUPPORT_AVX2
         #endif
         #if _MSC_VER >= 1910 && !defined(MAL_NO_AVX512) // 2017
             #define MAL_SUPPORT_AVX512
@@ -2496,8 +2499,11 @@ mal_uint64 mal_sine_wave_read(mal_sine_wave* pSignWave, mal_uint64 count, float*
         #if defined(__SSE2__) && !defined(MAL_NO_SSE2)
             #define MAL_SUPPORT_SSE2
         #endif
-        #if defined(__AVX__) && !defined(MAL_NO_AVX)
-            #define MAL_SUPPORT_AVX
+        //#if defined(__AVX__) && !defined(MAL_NO_AVX)
+        //    #define MAL_SUPPORT_AVX
+        //#endif
+        #if defined(__AVX2__) && !defined(MAL_NO_AVX2)
+            #define MAL_SUPPORT_AVX2
         #endif
         #if defined(__AVX512F__) && !defined(MAL_NO_AVX512)
             #define MAL_SUPPORT_AVX512
@@ -2509,8 +2515,11 @@ mal_uint64 mal_sine_wave_read(mal_sine_wave* pSignWave, mal_uint64 count, float*
         #if !defined(MAL_SUPPORT_SSE2)   && !defined(MAL_NO_SSE2)   && __has_include(<emmintrin.h>)
             #define MAL_SUPPORT_SSE2
         #endif
-        #if !defined(MAL_SUPPORT_AVX)    && !defined(MAL_NO_AVX)    && __has_include(<immintrin.h>)
-            #define MAL_SUPPORT_AVX
+        //#if !defined(MAL_SUPPORT_AVX)    && !defined(MAL_NO_AVX)    && __has_include(<immintrin.h>)
+        //    #define MAL_SUPPORT_AVX
+        //#endif
+        #if !defined(MAL_SUPPORT_AVX2)   && !defined(MAL_NO_AVX2)   && __has_include(<immintrin.h>)
+            #define MAL_SUPPORT_AVX2
         #endif
         #if !defined(MAL_SUPPORT_AVX512) && !defined(MAL_NO_AVX512) && __has_include(<zmmintrin.h>)
             #define MAL_SUPPORT_AVX512
@@ -2519,7 +2528,7 @@ mal_uint64 mal_sine_wave_read(mal_sine_wave* pSignWave, mal_uint64 count, float*
 
     #if defined(MAL_SUPPORT_AVX512)
         #include <immintrin.h>  // Not a mistake. Intentionally including <immintrin.h> instead of <zmmintrin.h> because otherwise the compiler will complain.
-    #elif defined(MAL_SUPPORT_AVX)
+    #elif defined(MAL_SUPPORT_AVX2) || defined(MAL_SUPPORT_AVX)
         #include <immintrin.h>
     #elif defined(MAL_SUPPORT_SSE2)
         #include <emmintrin.h>
@@ -2617,6 +2626,7 @@ static MAL_INLINE mal_bool32 mal_has_sse2()
 #endif
 }
 
+#if 0
 static MAL_INLINE mal_bool32 mal_has_avx()
 {
 #if defined(MAL_SUPPORT_AVX)
@@ -2649,6 +2659,42 @@ static MAL_INLINE mal_bool32 mal_has_avx()
     return MAL_FALSE;           // No compiler support.
 #endif
 }
+#endif
+
+static MAL_INLINE mal_bool32 mal_has_avx2()
+{
+#if defined(MAL_SUPPORT_AVX2)
+    #if (defined(MAL_X64) || defined(MAL_X86)) && !defined(MAL_NO_AVX2)
+        #if defined(_AVX2_) || defined(__AVX2__)
+            return MAL_TRUE;    // If the compiler is allowed to freely generate AVX2 code we can assume support.
+        #else
+            // AVX requires both CPU and OS support.
+            #if defined(MAL_NO_CPUID) || defined(MAL_NO_XGETBV)
+                return MAL_FALSE;
+            #else
+                int info1[4];
+                int info7[4];
+                mal_cpuid(info1, 1);
+                mal_cpuid(info7, 7);
+                if (((info1[2] & (1 << 27)) != 0) && ((info7[1] & (1 << 5)) != 0)) {
+                    mal_uint64 xrc = mal_xgetbv(0);
+                    if ((xrc & 0x06) == 0x06) {
+                        return MAL_TRUE;
+                    } else {
+                        return MAL_FALSE;
+                    }
+                } else {
+                    return MAL_FALSE;
+                }
+            #endif
+        #endif
+    #else
+        return MAL_FALSE;       // AVX is only supported on x86 and x64 architectures.
+    #endif
+#else
+    return MAL_FALSE;           // No compiler support.
+#endif
+}
 
 static MAL_INLINE mal_bool32 mal_has_avx512f()
 {
@@ -2661,9 +2707,11 @@ static MAL_INLINE mal_bool32 mal_has_avx512f()
             #if defined(MAL_NO_CPUID) || defined(MAL_NO_XGETBV)
                 return MAL_FALSE;
             #else
-                int info[4];
-                mal_cpuid(info, 1);
-                if (((info[2] & (1 << 27)) != 0) && ((info[1] & (1 << 16)) != 0)) {
+                int info1[4];
+                int info7[4];
+                mal_cpuid(info1, 1);
+                mal_cpuid(info7, 7);
+                if (((info1[2] & (1 << 27)) != 0) && ((info7[1] & (1 << 16)) != 0)) {
                     mal_uint64 xrc = mal_xgetbv(0);
                     if ((xrc & 0xE6) == 0xE6) {
                         return MAL_TRUE;
@@ -3223,8 +3271,8 @@ static MAL_INLINE __m128 mal_mix_f32_fast__sse2(__m128 x, __m128 y, __m128 a)
     return _mm_add_ps(x, _mm_mul_ps(_mm_sub_ps(y, x), a));
 }
 #endif
-#if defined(MAL_SUPPORT_AVX)
-static MAL_INLINE __m256 mal_mix_f32_fast__avx(__m256 x, __m256 y, __m256 a)
+#if defined(MAL_SUPPORT_AVX2)
+static MAL_INLINE __m256 mal_mix_f32_fast__avx2(__m256 x, __m256 y, __m256 a)
 {
     return _mm256_add_ps(x, _mm256_mul_ps(_mm256_sub_ps(y, x), a));
 }
@@ -17288,8 +17336,8 @@ void mal_pcm_u8_to_s16__sse2(void* dst, const void* src, mal_uint64 count, mal_d
     mal_pcm_u8_to_s16__optimized(dst, src, count, ditherMode);
 }
 #endif
-#if defined(MAL_SUPPORT_AVX)
-void mal_pcm_u8_to_s16__avx(void* dst, const void* src, mal_uint64 count, mal_dither_mode ditherMode)
+#if defined(MAL_SUPPORT_AVX2)
+void mal_pcm_u8_to_s16__avx2(void* dst, const void* src, mal_uint64 count, mal_dither_mode ditherMode)
 {
     mal_pcm_u8_to_s16__optimized(dst, src, count, ditherMode);
 }
@@ -17346,8 +17394,8 @@ void mal_pcm_u8_to_s24__sse2(void* dst, const void* src, mal_uint64 count, mal_d
     mal_pcm_u8_to_s24__optimized(dst, src, count, ditherMode);
 }
 #endif
-#if defined(MAL_SUPPORT_AVX)
-void mal_pcm_u8_to_s24__avx(void* dst, const void* src, mal_uint64 count, mal_dither_mode ditherMode)
+#if defined(MAL_SUPPORT_AVX2)
+void mal_pcm_u8_to_s24__avx2(void* dst, const void* src, mal_uint64 count, mal_dither_mode ditherMode)
 {
     mal_pcm_u8_to_s24__optimized(dst, src, count, ditherMode);
 }
@@ -17402,8 +17450,8 @@ void mal_pcm_u8_to_s32__sse2(void* dst, const void* src, mal_uint64 count, mal_d
     mal_pcm_u8_to_s32__optimized(dst, src, count, ditherMode);
 }
 #endif
-#if defined(MAL_SUPPORT_AVX)
-void mal_pcm_u8_to_s32__avx(void* dst, const void* src, mal_uint64 count, mal_dither_mode ditherMode)
+#if defined(MAL_SUPPORT_AVX2)
+void mal_pcm_u8_to_s32__avx2(void* dst, const void* src, mal_uint64 count, mal_dither_mode ditherMode)
 {
     mal_pcm_u8_to_s32__optimized(dst, src, count, ditherMode);
 }
@@ -17459,13 +17507,13 @@ void mal_pcm_u8_to_f32__sse2(void* dst, const void* src, mal_uint64 count, mal_d
     mal_pcm_u8_to_f32__optimized(dst, src, count, ditherMode);
 }
 #endif
-#if defined(MAL_SUPPORT_AVX)
-void mal_pcm_u8_to_f32__avx(void* dst, const void* src, mal_uint64 count, mal_dither_mode ditherMode)
+#if defined(MAL_SUPPORT_AVX2)
+void mal_pcm_u8_to_f32__avx2(void* dst, const void* src, mal_uint64 count, mal_dither_mode ditherMode)
 {
     mal_pcm_u8_to_f32__optimized(dst, src, count, ditherMode);
 }
 #endif
-#if defined(MAL_SUPPORT_SSE2)
+#if defined(MAL_SUPPORT_AVX512)
 void mal_pcm_u8_to_f32__avx512(void* dst, const void* src, mal_uint64 count, mal_dither_mode ditherMode)
 {
     mal_pcm_u8_to_f32__optimized(dst, src, count, ditherMode);
@@ -17611,8 +17659,8 @@ void mal_pcm_s16_to_u8__sse2(void* dst, const void* src, mal_uint64 count, mal_d
     mal_pcm_s16_to_u8__optimized(dst, src, count, ditherMode);
 }
 #endif
-#if defined(MAL_SUPPORT_AVX)
-void mal_pcm_s16_to_u8__avx(void* dst, const void* src, mal_uint64 count, mal_dither_mode ditherMode)
+#if defined(MAL_SUPPORT_AVX2)
+void mal_pcm_s16_to_u8__avx2(void* dst, const void* src, mal_uint64 count, mal_dither_mode ditherMode)
 {
     mal_pcm_s16_to_u8__optimized(dst, src, count, ditherMode);
 }
@@ -17673,8 +17721,8 @@ void mal_pcm_s16_to_s24__sse2(void* dst, const void* src, mal_uint64 count, mal_
     mal_pcm_s16_to_s24__optimized(dst, src, count, ditherMode);
 }
 #endif
-#if defined(MAL_SUPPORT_AVX)
-void mal_pcm_s16_to_s24__avx(void* dst, const void* src, mal_uint64 count, mal_dither_mode ditherMode)
+#if defined(MAL_SUPPORT_AVX2)
+void mal_pcm_s16_to_s24__avx2(void* dst, const void* src, mal_uint64 count, mal_dither_mode ditherMode)
 {
     mal_pcm_s16_to_s24__optimized(dst, src, count, ditherMode);
 }
@@ -17726,8 +17774,8 @@ void mal_pcm_s16_to_s32__sse2(void* dst, const void* src, mal_uint64 count, mal_
     mal_pcm_s16_to_s32__optimized(dst, src, count, ditherMode);
 }
 #endif
-#if defined(MAL_SUPPORT_AVX)
-void mal_pcm_s16_to_s32__avx(void* dst, const void* src, mal_uint64 count, mal_dither_mode ditherMode)
+#if defined(MAL_SUPPORT_AVX2)
+void mal_pcm_s16_to_s32__avx2(void* dst, const void* src, mal_uint64 count, mal_dither_mode ditherMode)
 {
     mal_pcm_s16_to_s32__optimized(dst, src, count, ditherMode);
 }
@@ -17791,8 +17839,8 @@ void mal_pcm_s16_to_f32__sse2(void* dst, const void* src, mal_uint64 count, mal_
     mal_pcm_s16_to_f32__optimized(dst, src, count, ditherMode);
 }
 #endif
-#if defined(MAL_SUPPORT_AVX)
-void mal_pcm_s16_to_f32__avx(void* dst, const void* src, mal_uint64 count, mal_dither_mode ditherMode)
+#if defined(MAL_SUPPORT_AVX2)
+void mal_pcm_s16_to_f32__avx2(void* dst, const void* src, mal_uint64 count, mal_dither_mode ditherMode)
 {
     mal_pcm_s16_to_f32__optimized(dst, src, count, ditherMode);
 }
@@ -17921,8 +17969,8 @@ void mal_pcm_s24_to_u8__sse2(void* dst, const void* src, mal_uint64 count, mal_d
     mal_pcm_s24_to_u8__optimized(dst, src, count, ditherMode);
 }
 #endif
-#if defined(MAL_SUPPORT_AVX)
-void mal_pcm_s24_to_u8__avx(void* dst, const void* src, mal_uint64 count, mal_dither_mode ditherMode)
+#if defined(MAL_SUPPORT_AVX2)
+void mal_pcm_s24_to_u8__avx2(void* dst, const void* src, mal_uint64 count, mal_dither_mode ditherMode)
 {
     mal_pcm_s24_to_u8__optimized(dst, src, count, ditherMode);
 }
@@ -17992,8 +18040,8 @@ void mal_pcm_s24_to_s16__sse2(void* dst, const void* src, mal_uint64 count, mal_
     mal_pcm_s24_to_s16__optimized(dst, src, count, ditherMode);
 }
 #endif
-#if defined(MAL_SUPPORT_AVX)
-void mal_pcm_s24_to_s16__avx(void* dst, const void* src, mal_uint64 count, mal_dither_mode ditherMode)
+#if defined(MAL_SUPPORT_AVX2)
+void mal_pcm_s24_to_s16__avx2(void* dst, const void* src, mal_uint64 count, mal_dither_mode ditherMode)
 {
     mal_pcm_s24_to_s16__optimized(dst, src, count, ditherMode);
 }
@@ -18053,8 +18101,8 @@ void mal_pcm_s24_to_s32__sse2(void* dst, const void* src, mal_uint64 count, mal_
     mal_pcm_s24_to_s32__optimized(dst, src, count, ditherMode);
 }
 #endif
-#if defined(MAL_SUPPORT_AVX)
-void mal_pcm_s24_to_s32__avx(void* dst, const void* src, mal_uint64 count, mal_dither_mode ditherMode)
+#if defined(MAL_SUPPORT_AVX2)
+void mal_pcm_s24_to_s32__avx2(void* dst, const void* src, mal_uint64 count, mal_dither_mode ditherMode)
 {
     mal_pcm_s24_to_s32__optimized(dst, src, count, ditherMode);
 }
@@ -18118,8 +18166,8 @@ void mal_pcm_s24_to_f32__sse2(void* dst, const void* src, mal_uint64 count, mal_
     mal_pcm_s24_to_f32__optimized(dst, src, count, ditherMode);
 }
 #endif
-#if defined(MAL_SUPPORT_AVX)
-void mal_pcm_s24_to_f32__avx(void* dst, const void* src, mal_uint64 count, mal_dither_mode ditherMode)
+#if defined(MAL_SUPPORT_AVX2)
+void mal_pcm_s24_to_f32__avx2(void* dst, const void* src, mal_uint64 count, mal_dither_mode ditherMode)
 {
     mal_pcm_s24_to_f32__optimized(dst, src, count, ditherMode);
 }
@@ -18255,8 +18303,8 @@ void mal_pcm_s32_to_u8__sse2(void* dst, const void* src, mal_uint64 count, mal_d
     mal_pcm_s32_to_u8__optimized(dst, src, count, ditherMode);
 }
 #endif
-#if defined(MAL_SUPPORT_AVX)
-void mal_pcm_s32_to_u8__avx(void* dst, const void* src, mal_uint64 count, mal_dither_mode ditherMode)
+#if defined(MAL_SUPPORT_AVX2)
+void mal_pcm_s32_to_u8__avx2(void* dst, const void* src, mal_uint64 count, mal_dither_mode ditherMode)
 {
     mal_pcm_s32_to_u8__optimized(dst, src, count, ditherMode);
 }
@@ -18326,8 +18374,8 @@ void mal_pcm_s32_to_s16__sse2(void* dst, const void* src, mal_uint64 count, mal_
     mal_pcm_s32_to_s16__optimized(dst, src, count, ditherMode);
 }
 #endif
-#if defined(MAL_SUPPORT_AVX)
-void mal_pcm_s32_to_s16__avx(void* dst, const void* src, mal_uint64 count, mal_dither_mode ditherMode)
+#if defined(MAL_SUPPORT_AVX2)
+void mal_pcm_s32_to_s16__avx2(void* dst, const void* src, mal_uint64 count, mal_dither_mode ditherMode)
 {
     mal_pcm_s32_to_s16__optimized(dst, src, count, ditherMode);
 }
@@ -18382,8 +18430,8 @@ void mal_pcm_s32_to_s24__sse2(void* dst, const void* src, mal_uint64 count, mal_
     mal_pcm_s32_to_s24__optimized(dst, src, count, ditherMode);
 }
 #endif
-#if defined(MAL_SUPPORT_AVX)
-void mal_pcm_s32_to_s24__avx(void* dst, const void* src, mal_uint64 count, mal_dither_mode ditherMode)
+#if defined(MAL_SUPPORT_AVX2)
+void mal_pcm_s32_to_s24__avx2(void* dst, const void* src, mal_uint64 count, mal_dither_mode ditherMode)
 {
     mal_pcm_s32_to_s24__optimized(dst, src, count, ditherMode);
 }
@@ -18453,8 +18501,8 @@ void mal_pcm_s32_to_f32__sse2(void* dst, const void* src, mal_uint64 count, mal_
     mal_pcm_s32_to_f32__optimized(dst, src, count, ditherMode);
 }
 #endif
-#if defined(MAL_SUPPORT_AVX)
-void mal_pcm_s32_to_f32__avx(void* dst, const void* src, mal_uint64 count, mal_dither_mode ditherMode)
+#if defined(MAL_SUPPORT_AVX2)
+void mal_pcm_s32_to_f32__avx2(void* dst, const void* src, mal_uint64 count, mal_dither_mode ditherMode)
 {
     mal_pcm_s32_to_f32__optimized(dst, src, count, ditherMode);
 }
@@ -18576,8 +18624,8 @@ void mal_pcm_f32_to_u8__sse2(void* dst, const void* src, mal_uint64 count, mal_d
     mal_pcm_f32_to_u8__optimized(dst, src, count, ditherMode);
 }
 #endif
-#if defined(MAL_SUPPORT_AVX)
-void mal_pcm_f32_to_u8__avx(void* dst, const void* src, mal_uint64 count, mal_dither_mode ditherMode)
+#if defined(MAL_SUPPORT_AVX2)
+void mal_pcm_f32_to_u8__avx2(void* dst, const void* src, mal_uint64 count, mal_dither_mode ditherMode)
 {
     mal_pcm_f32_to_u8__optimized(dst, src, count, ditherMode);
 }
@@ -18775,8 +18823,8 @@ void mal_pcm_f32_to_s16__sse2(void* dst, const void* src, mal_uint64 count, mal_
     }
 }
 #endif
-#if defined(MAL_SUPPORT_AVX)
-void mal_pcm_f32_to_s16__avx(void* dst, const void* src, mal_uint64 count, mal_dither_mode ditherMode)
+#if defined(MAL_SUPPORT_AVX2)
+void mal_pcm_f32_to_s16__avx2(void* dst, const void* src, mal_uint64 count, mal_dither_mode ditherMode)
 {
     mal_int16* dst_s16 = (mal_int16*)dst;
     const float* src_f32 = (const float*)src;
@@ -18790,7 +18838,7 @@ void mal_pcm_f32_to_s16__avx(void* dst, const void* src, mal_uint64 count, mal_d
 
     mal_uint64 i = 0;
 
-    // AVX. AVX allows us to output 16 s16's at a time which means our loop is unrolled 16 times.
+    // AVX2. AVX2 allows us to output 16 s16's at a time which means our loop is unrolled 16 times.
     mal_uint64 count16 = count >> 4;
     for (mal_uint64 i16 = 0; i16 < count16; i16 += 1) {
         __m256 d0;
@@ -18851,7 +18899,7 @@ void mal_pcm_f32_to_s16__avx(void* dst, const void* src, mal_uint64 count, mal_d
         x0 = _mm256_mul_ps(x0, _mm256_set1_ps(32767.0f));
         x1 = _mm256_mul_ps(x1, _mm256_set1_ps(32767.0f));
 
-        // Computing the final result is a little more complicated for AVX than SSE.
+        // Computing the final result is a little more complicated for AVX2 than SSE2.
         __m256i i0 = _mm256_cvttps_epi32(x0);
         __m256i i1 = _mm256_cvttps_epi32(x1);
         __m256i p0 = _mm256_permute2x128_si256(i0, i1, 32);
@@ -18878,7 +18926,7 @@ void mal_pcm_f32_to_s16__avx(void* dst, const void* src, mal_uint64 count, mal_d
 void mal_pcm_f32_to_s16__avx512(void* dst, const void* src, mal_uint64 count, mal_dither_mode ditherMode)
 {
     // TODO: Convert this from AVX to AVX-512.
-    mal_pcm_f32_to_s16__avx(dst, src, count, ditherMode);
+    mal_pcm_f32_to_s16__avx2(dst, src, count, ditherMode);
 }
 #endif
 #if defined(MAL_SUPPORT_NEON)
@@ -18938,8 +18986,8 @@ void mal_pcm_f32_to_s24__sse2(void* dst, const void* src, mal_uint64 count, mal_
     mal_pcm_f32_to_s24__optimized(dst, src, count, ditherMode);
 }
 #endif
-#if defined(MAL_SUPPORT_AVX)
-void mal_pcm_f32_to_s24__avx(void* dst, const void* src, mal_uint64 count, mal_dither_mode ditherMode)
+#if defined(MAL_SUPPORT_AVX2)
+void mal_pcm_f32_to_s24__avx2(void* dst, const void* src, mal_uint64 count, mal_dither_mode ditherMode)
 {
     mal_pcm_f32_to_s24__optimized(dst, src, count, ditherMode);
 }
@@ -19004,8 +19052,8 @@ void mal_pcm_f32_to_s32__sse2(void* dst, const void* src, mal_uint64 count, mal_
     mal_pcm_f32_to_s32__optimized(dst, src, count, ditherMode);
 }
 #endif
-#if defined(MAL_SUPPORT_AVX)
-void mal_pcm_f32_to_s32__avx(void* dst, const void* src, mal_uint64 count, mal_dither_mode ditherMode)
+#if defined(MAL_SUPPORT_AVX2)
+void mal_pcm_f32_to_s32__avx2(void* dst, const void* src, mal_uint64 count, mal_dither_mode ditherMode)
 {
     mal_pcm_f32_to_s32__optimized(dst, src, count, ditherMode);
 }
@@ -19115,7 +19163,7 @@ mal_result mal_format_converter_init(const mal_format_converter_config* pConfig,
 
     // SIMD
     pConverter->useSSE2   = mal_has_sse2()    && !pConfig->noSSE2;
-    pConverter->useAVX    = mal_has_avx()     && !pConfig->noAVX;
+    pConverter->useAVX2   = mal_has_avx2()    && !pConfig->noAVX2;
     pConverter->useAVX512 = mal_has_avx512f() && !pConfig->noAVX512;
     pConverter->useNEON   = mal_has_neon()    && !pConfig->noNEON;
 
@@ -19764,7 +19812,7 @@ mal_result mal_channel_router_init(const mal_channel_router_config* pConfig, mal
 
     // SIMD
     pRouter->useSSE2   = mal_has_sse2()    && !pConfig->noSSE2;
-    pRouter->useAVX    = mal_has_avx()     && !pConfig->noAVX;
+    pRouter->useAVX2   = mal_has_avx2()    && !pConfig->noAVX2;
     pRouter->useAVX512 = mal_has_avx512f() && !pConfig->noAVX512;
     pRouter->useNEON   = mal_has_neon()    && !pConfig->noNEON;
 
@@ -19948,9 +19996,9 @@ static MAL_INLINE mal_bool32 mal_channel_router__can_use_sse2(mal_channel_router
     return pRouter->useSSE2 && (((mal_uintptr)pSamplesOut & 15) == 0) && (((mal_uintptr)pSamplesIn & 15) == 0);
 }
 
-static MAL_INLINE mal_bool32 mal_channel_router__can_use_avx(mal_channel_router* pRouter, const float* pSamplesOut, const float* pSamplesIn)
+static MAL_INLINE mal_bool32 mal_channel_router__can_use_avx2(mal_channel_router* pRouter, const float* pSamplesOut, const float* pSamplesIn)
 {
-    return pRouter->useAVX && (((mal_uintptr)pSamplesOut & 31) == 0) && (((mal_uintptr)pSamplesIn & 31) == 0);
+    return pRouter->useAVX2 && (((mal_uintptr)pSamplesOut & 31) == 0) && (((mal_uintptr)pSamplesIn & 31) == 0);
 }
 
 static MAL_INLINE mal_bool32 mal_channel_router__can_use_avx512(mal_channel_router* pRouter, const float* pSamplesOut, const float* pSamplesIn)
@@ -20017,8 +20065,8 @@ void mal_channel_router__do_routing(mal_channel_router* pRouter, mal_uint64 fram
                 }
                 else
 #endif
-#if defined(MAL_SUPPORT_AVX)
-                if (mal_channel_router__can_use_avx(pRouter, ppSamplesOut[iChannelOut], ppSamplesIn[iChannelIn])) {
+#if defined(MAL_SUPPORT_AVX2)
+                if (mal_channel_router__can_use_avx2(pRouter, ppSamplesOut[iChannelOut], ppSamplesIn[iChannelIn])) {
                     __m256 weight = _mm256_set1_ps(pRouter->weights[iChannelIn][iChannelOut]);
 
                     mal_uint64 frameCount8 = frameCount/8;
@@ -20268,7 +20316,7 @@ mal_result mal_src_init(const mal_src_config* pConfig, mal_src* pSRC)
 
     // SIMD
     pSRC->useSSE2   = mal_has_sse2()    && !pConfig->noSSE2;
-    pSRC->useAVX    = mal_has_avx()     && !pConfig->noAVX;
+    pSRC->useAVX2   = mal_has_avx2()    && !pConfig->noAVX2;
     pSRC->useAVX512 = mal_has_avx512f() && !pConfig->noAVX512;
     pSRC->useNEON   = mal_has_neon()    && !pConfig->noNEON;
 
@@ -20682,20 +20730,20 @@ static MAL_INLINE __m128 mal_src_sinc__interpolation_factor__sse2(const mal_src*
 }
 #endif
 
-#if defined(MAL_SUPPORT_AVX)
-static MAL_INLINE __m256 mal_fabsf_avx(__m256 x)
+#if defined(MAL_SUPPORT_AVX2)
+static MAL_INLINE __m256 mal_fabsf_avx2(__m256 x)
 {
     return _mm256_and_ps(_mm256_castsi256_ps(_mm256_set1_epi32(0x7FFFFFFF)), x);
 }
 
 #if 0
-static MAL_INLINE __m256 mal_src_sinc__interpolation_factor__avx(const mal_src* pSRC, __m256 x)
+static MAL_INLINE __m256 mal_src_sinc__interpolation_factor__avx2(const mal_src* pSRC, __m256 x)
 {
     //__m256 windowWidth256 = _mm256_set1_ps(MAL_SRC_SINC_MAX_WINDOW_WIDTH);
     __m256 resolution256  = _mm256_set1_ps(MAL_SRC_SINC_LOOKUP_TABLE_RESOLUTION);
     //__m256 one            = _mm256_set1_ps(1);
 
-    __m256 xabs = mal_fabsf_avx(x);
+    __m256 xabs = mal_fabsf_avx2(x);
 
     // if (MAL_SRC_SINC_MAX_WINDOW_WIDTH <= xabs) xabs = 1 else xabs = xabs;
     //__m256 xcmp = _mm256_cmp_ps(windowWidth256, xabs, 2);                      // 2 = Less than or equal = _mm_cmple_ps.
@@ -20731,7 +20779,7 @@ static MAL_INLINE __m256 mal_src_sinc__interpolation_factor__avx(const mal_src* 
         pSRC->sinc.table[ixabsv[0]+1]
     );
 
-    __m256 r = mal_mix_f32_fast__avx(lo, hi, a);
+    __m256 r = mal_mix_f32_fast__avx2(lo, hi, a);
 
     return r;
 }
@@ -20799,8 +20847,8 @@ mal_uint64 mal_src_read_deinterleaved__sinc(mal_src* pSRC, mal_uint64 frameCount
     }
     else
 #endif
-#if defined(MAL_SUPPORT_AVX)
-    if (pSRC->useAVX) {
+#if defined(MAL_SUPPORT_AVX2)
+    if (pSRC->useAVX2) {
         windowWidthSIMD = (windowWidthSIMD + 3) & ~(3);
     }
     else
@@ -20866,8 +20914,8 @@ mal_uint64 mal_src_read_deinterleaved__sinc(mal_src* pSRC, mal_uint64 frameCount
                     windowSamples[i] = pSRC->sinc.input[iChannel][iTimeIn + i];
                 }
 
-#if defined(MAL_SUPPORT_AVX)
-                if (pSRC->useAVX) {
+#if defined(MAL_SUPPORT_AVX2)
+                if (pSRC->useAVX2) {
                     __m256i ixabs[MAL_SRC_SINC_MAX_WINDOW_WIDTH*2/8];
                     __m256      a[MAL_SRC_SINC_MAX_WINDOW_WIDTH*2/8];
                     __m256 resolution256 = _mm256_set1_ps(MAL_SRC_SINC_LOOKUP_TABLE_RESOLUTION);
@@ -20880,7 +20928,7 @@ mal_uint64 mal_src_read_deinterleaved__sinc(mal_src* pSRC, mal_uint64 frameCount
                         __m256 w = *((__m256*)iWindowF + iWindow8);
 
                         __m256 xabs = _mm256_sub_ps(t, w);
-                        xabs = mal_fabsf_avx(xabs);
+                        xabs = mal_fabsf_avx2(xabs);
                         xabs = _mm256_mul_ps(xabs, resolution256);
 
                         ixabs[iWindow8] = _mm256_cvttps_epi32(xabs);
@@ -20913,7 +20961,7 @@ mal_uint64 mal_src_read_deinterleaved__sinc(mal_src* pSRC, mal_uint64 frameCount
                         );
 
                         __m256 s = *((__m256*)windowSamples + iWindow8);
-                        r = _mm256_add_ps(r, _mm256_mul_ps(s, mal_mix_f32_fast__avx(lo, hi, a[iWindow8])));
+                        r = _mm256_add_ps(r, _mm256_mul_ps(s, mal_mix_f32_fast__avx2(lo, hi, a[iWindow8])));
                     }
 
                     // Horizontal add.
@@ -21345,7 +21393,7 @@ mal_result mal_dsp_init(const mal_dsp_config* pConfig, mal_dsp* pDSP)
         );
         preFormatConverterConfig.ditherMode = pConfig->ditherMode;
         preFormatConverterConfig.noSSE2     = pConfig->noSSE2;
-        preFormatConverterConfig.noAVX      = pConfig->noAVX;
+        preFormatConverterConfig.noAVX2     = pConfig->noAVX2;
         preFormatConverterConfig.noAVX512   = pConfig->noAVX512;
         preFormatConverterConfig.noNEON     = pConfig->noNEON;
 
@@ -21364,7 +21412,7 @@ mal_result mal_dsp_init(const mal_dsp_config* pConfig, mal_dsp* pDSP)
         postFormatConverterConfig.channels   = pConfig->channelsOut;
         postFormatConverterConfig.ditherMode = pConfig->ditherMode;
         postFormatConverterConfig.noSSE2     = pConfig->noSSE2;
-        postFormatConverterConfig.noAVX      = pConfig->noAVX;
+        postFormatConverterConfig.noAVX2     = pConfig->noAVX2;
         postFormatConverterConfig.noAVX512   = pConfig->noAVX512;
         postFormatConverterConfig.noNEON     = pConfig->noNEON;
         if (pDSP->isPreFormatConversionRequired) {
@@ -21391,7 +21439,7 @@ mal_result mal_dsp_init(const mal_dsp_config* pConfig, mal_dsp* pDSP)
         );
         srcConfig.algorithm = pConfig->srcAlgorithm;
         srcConfig.noSSE2    = pConfig->noSSE2;
-        srcConfig.noAVX     = pConfig->noAVX;
+        srcConfig.noAVX2    = pConfig->noAVX2;
         srcConfig.noAVX512  = pConfig->noAVX512;
         srcConfig.noNEON    = pConfig->noNEON;
         mal_copy_memory(&srcConfig.sinc, &pConfig->sinc, sizeof(pConfig->sinc));
@@ -21413,7 +21461,7 @@ mal_result mal_dsp_init(const mal_dsp_config* pConfig, mal_dsp* pDSP)
             mal_dsp__channel_router_on_read_deinterleaved,
             pDSP);
         routerConfig.noSSE2   = pConfig->noSSE2;
-        routerConfig.noAVX    = pConfig->noAVX;
+        routerConfig.noAVX2   = pConfig->noAVX2;
         routerConfig.noAVX512 = pConfig->noAVX512;
         routerConfig.noNEON   = pConfig->noNEON;
 
@@ -21848,7 +21896,7 @@ float mal_calculate_cpu_speed_factor()
     // indication on the speed of the system, but SIMD is used more heavily in the DSP pipeline than in the general case which may make
     // the results a little less realistic.
     config.noSSE2   = MAL_TRUE;
-    config.noAVX    = MAL_TRUE;
+    config.noAVX2   = MAL_TRUE;
     config.noAVX512 = MAL_TRUE;
     config.noNEON   = MAL_TRUE;
 
@@ -23414,12 +23462,13 @@ mal_uint64 mal_sine_wave_read(mal_sine_wave* pSineWave, mal_uint64 count, float*
 //     as the backend's internal device, and as such results in a pass-through data transmission pipeline.
 //   - Add support for passing in NULL for the device config in mal_device_init(), which uses a default
 //     config. This requires manually calling mal_device_set_send/recv_callback().
+//   - Add support for decoding from raw PCM data (mal_decoder_init_raw(), etc.)
 //   - Make mal_device_init_ex() more robust.
 //   - Make some APIs more const-correct.
 //   - Fix errors with OpenAL detection.
 //   - Fix some memory leaks.
 //   - Fix a bug with opening decoders from memory.
-//   - Add support for decoding from raw PCM data (mal_decoder_init_raw(), etc.)
+//   - Early work on SSE2, AVX2 and NEON optimizations.
 //   - Miscellaneous bug fixes.
 //   - Documentation updates.
 //

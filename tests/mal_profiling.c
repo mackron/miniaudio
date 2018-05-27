@@ -5,7 +5,7 @@ typedef enum
 {
     simd_mode_scalar = 0,
     simd_mode_sse2,
-    simd_mode_avx,
+    simd_mode_avx2,
     simd_mode_avx512,
     simd_mode_neon
 } simd_mode;
@@ -14,8 +14,8 @@ const char* simd_mode_to_string(simd_mode mode)
 {
     switch (mode) {
         case simd_mode_scalar: return "Reference";
-        case simd_mode_sse2:    return "SSE2";
-        case simd_mode_avx:    return "AVX";
+        case simd_mode_sse2:   return "SSE2";
+        case simd_mode_avx2:   return "AVX2";
         case simd_mode_avx512: return "AVX-512";
         case simd_mode_neon:   return "NEON";
     }
@@ -266,7 +266,7 @@ void pcm_convert__sse2(void* pOut, mal_format formatOut, const void* pIn, mal_fo
 }
 #endif
 
-#if defined(MAL_SUPPORT_AVX)
+#if defined(MAL_SUPPORT_AVX2)
 void pcm_convert__avx(void* pOut, mal_format formatOut, const void* pIn, mal_format formatIn, mal_uint64 sampleCount, mal_dither_mode ditherMode)
 {
     switch (formatIn)
@@ -275,10 +275,10 @@ void pcm_convert__avx(void* pOut, mal_format formatOut, const void* pIn, mal_for
         {
             switch (formatOut)
             {
-                case mal_format_s16: mal_pcm_u8_to_s16__avx(pOut, pIn, sampleCount, ditherMode); return;
-                case mal_format_s24: mal_pcm_u8_to_s24__avx(pOut, pIn, sampleCount, ditherMode); return;
-                case mal_format_s32: mal_pcm_u8_to_s32__avx(pOut, pIn, sampleCount, ditherMode); return;
-                case mal_format_f32: mal_pcm_u8_to_f32__avx(pOut, pIn, sampleCount, ditherMode); return;
+                case mal_format_s16: mal_pcm_u8_to_s16__avx2(pOut, pIn, sampleCount, ditherMode); return;
+                case mal_format_s24: mal_pcm_u8_to_s24__avx2(pOut, pIn, sampleCount, ditherMode); return;
+                case mal_format_s32: mal_pcm_u8_to_s32__avx2(pOut, pIn, sampleCount, ditherMode); return;
+                case mal_format_f32: mal_pcm_u8_to_f32__avx2(pOut, pIn, sampleCount, ditherMode); return;
                 default: break;
             }
         } break;
@@ -287,10 +287,10 @@ void pcm_convert__avx(void* pOut, mal_format formatOut, const void* pIn, mal_for
         {
             switch (formatOut)
             {
-                case mal_format_u8:  mal_pcm_s16_to_u8__avx( pOut, pIn, sampleCount, ditherMode); return;
-                case mal_format_s24: mal_pcm_s16_to_s24__avx(pOut, pIn, sampleCount, ditherMode); return;
-                case mal_format_s32: mal_pcm_s16_to_s32__avx(pOut, pIn, sampleCount, ditherMode); return;
-                case mal_format_f32: mal_pcm_s16_to_f32__avx(pOut, pIn, sampleCount, ditherMode); return;
+                case mal_format_u8:  mal_pcm_s16_to_u8__avx2( pOut, pIn, sampleCount, ditherMode); return;
+                case mal_format_s24: mal_pcm_s16_to_s24__avx2(pOut, pIn, sampleCount, ditherMode); return;
+                case mal_format_s32: mal_pcm_s16_to_s32__avx2(pOut, pIn, sampleCount, ditherMode); return;
+                case mal_format_f32: mal_pcm_s16_to_f32__avx2(pOut, pIn, sampleCount, ditherMode); return;
                 default: break;
             }
         } break;
@@ -299,10 +299,10 @@ void pcm_convert__avx(void* pOut, mal_format formatOut, const void* pIn, mal_for
         {
             switch (formatOut)
             {
-                case mal_format_u8:  mal_pcm_s24_to_u8__avx( pOut, pIn, sampleCount, ditherMode); return;
-                case mal_format_s16: mal_pcm_s24_to_s16__avx(pOut, pIn, sampleCount, ditherMode); return;
-                case mal_format_s32: mal_pcm_s24_to_s32__avx(pOut, pIn, sampleCount, ditherMode); return;
-                case mal_format_f32: mal_pcm_s24_to_f32__avx(pOut, pIn, sampleCount, ditherMode); return;
+                case mal_format_u8:  mal_pcm_s24_to_u8__avx2( pOut, pIn, sampleCount, ditherMode); return;
+                case mal_format_s16: mal_pcm_s24_to_s16__avx2(pOut, pIn, sampleCount, ditherMode); return;
+                case mal_format_s32: mal_pcm_s24_to_s32__avx2(pOut, pIn, sampleCount, ditherMode); return;
+                case mal_format_f32: mal_pcm_s24_to_f32__avx2(pOut, pIn, sampleCount, ditherMode); return;
                 default: break;
             }
         } break;
@@ -311,10 +311,10 @@ void pcm_convert__avx(void* pOut, mal_format formatOut, const void* pIn, mal_for
         {
             switch (formatOut)
             {
-                case mal_format_u8:  mal_pcm_s32_to_u8__avx( pOut, pIn, sampleCount, ditherMode); return;
-                case mal_format_s16: mal_pcm_s32_to_s16__avx(pOut, pIn, sampleCount, ditherMode); return;
-                case mal_format_s24: mal_pcm_s32_to_s24__avx(pOut, pIn, sampleCount, ditherMode); return;
-                case mal_format_f32: mal_pcm_s32_to_f32__avx(pOut, pIn, sampleCount, ditherMode); return;
+                case mal_format_u8:  mal_pcm_s32_to_u8__avx2( pOut, pIn, sampleCount, ditherMode); return;
+                case mal_format_s16: mal_pcm_s32_to_s16__avx2(pOut, pIn, sampleCount, ditherMode); return;
+                case mal_format_s24: mal_pcm_s32_to_s24__avx2(pOut, pIn, sampleCount, ditherMode); return;
+                case mal_format_f32: mal_pcm_s32_to_f32__avx2(pOut, pIn, sampleCount, ditherMode); return;
                 default: break;
             }
         } break;
@@ -323,10 +323,10 @@ void pcm_convert__avx(void* pOut, mal_format formatOut, const void* pIn, mal_for
         {
             switch (formatOut)
             {
-                case mal_format_u8:  mal_pcm_f32_to_u8__avx( pOut, pIn, sampleCount, ditherMode); return;
-                case mal_format_s16: mal_pcm_f32_to_s16__avx(pOut, pIn, sampleCount, ditherMode); return;
-                case mal_format_s24: mal_pcm_f32_to_s24__avx(pOut, pIn, sampleCount, ditherMode); return;
-                case mal_format_s32: mal_pcm_f32_to_s32__avx(pOut, pIn, sampleCount, ditherMode); return;
+                case mal_format_u8:  mal_pcm_f32_to_u8__avx2( pOut, pIn, sampleCount, ditherMode); return;
+                case mal_format_s16: mal_pcm_f32_to_s16__avx2(pOut, pIn, sampleCount, ditherMode); return;
+                case mal_format_s24: mal_pcm_f32_to_s24__avx2(pOut, pIn, sampleCount, ditherMode); return;
+                case mal_format_s32: mal_pcm_f32_to_s32__avx2(pOut, pIn, sampleCount, ditherMode); return;
                 default: break;
             }
         } break;
@@ -495,8 +495,8 @@ void pcm_convert(void* pOut, mal_format formatOut, const void* pIn, mal_format f
         } break;
 #endif
         
-#if defined(MAL_SUPPORT_AVX)
-        case simd_mode_avx:
+#if defined(MAL_SUPPORT_AVX2)
+        case simd_mode_avx2:
         {
             pcm_convert__avx(pOut, formatOut, pIn, formatIn, sampleCount, ditherMode);
         } break;
@@ -515,6 +515,8 @@ void pcm_convert(void* pOut, mal_format formatOut, const void* pIn, mal_format f
             pcm_convert__neon(pOut, formatOut, pIn, formatIn, sampleCount, ditherMode);
         } break;
 #endif
+
+        default: break;
     }
 }
 
@@ -611,8 +613,8 @@ int do_profiling__format_conversion__profile_set(mal_format formatIn, mal_format
     if (mal_has_sse2()) {
         do_profiling__format_conversion__profile_individual(formatIn, formatOut, ditherMode, pBaseData, sampleCount, simd_mode_sse2, pReferenceData, referenceTime);
     }
-    if (mal_has_avx()) {
-        do_profiling__format_conversion__profile_individual(formatIn, formatOut, ditherMode, pBaseData, sampleCount, simd_mode_avx, pReferenceData, referenceTime);
+    if (mal_has_avx2()) {
+        do_profiling__format_conversion__profile_individual(formatIn, formatOut, ditherMode, pBaseData, sampleCount, simd_mode_avx2, pReferenceData, referenceTime);
     }
     if (mal_has_avx512f()) {
         do_profiling__format_conversion__profile_individual(formatIn, formatOut, ditherMode, pBaseData, sampleCount, simd_mode_avx512, pReferenceData, referenceTime);
@@ -651,7 +653,7 @@ float g_ChannelRouterProfilingOutputBenchmark[8][48000];
 float g_ChannelRouterProfilingOutput[8][48000];
 double g_ChannelRouterTime_Reference = 0;
 double g_ChannelRouterTime_SSE2 = 0;
-double g_ChannelRouterTime_AVX = 0;
+double g_ChannelRouterTime_AVX2 = 0;
 double g_ChannelRouterTime_AVX512 = 0;
 double g_ChannelRouterTime_NEON = 0;
 
@@ -709,7 +711,7 @@ int do_profiling__channel_routing()
     router.isPassthrough = MAL_FALSE;
     router.isSimpleShuffle = MAL_FALSE;
     router.useSSE2 = MAL_FALSE;
-    router.useAVX = MAL_FALSE;
+    router.useAVX2 = MAL_FALSE;
     router.useAVX512 = MAL_FALSE;
     router.useNEON = MAL_FALSE;
 
@@ -781,20 +783,20 @@ int do_profiling__channel_routing()
         printf("SSE2: %.4fms (%.2f%%)\n", g_ChannelRouterTime_SSE2*1000, g_ChannelRouterTime_Reference/g_ChannelRouterTime_SSE2*100);
     }
 
-    // AVX
-    if (mal_has_avx()) {
-        router.useAVX = MAL_TRUE;
+    // AVX2
+    if (mal_has_avx2()) {
+        router.useAVX2 = MAL_TRUE;
         mal_timer timer;
         mal_timer_init(&timer);
         double startTime = mal_timer_get_time_in_seconds(&timer);
 
         framesRead = mal_channel_router_read_deinterleaved(&router, framesToRead, ppOut, NULL);
         if (framesRead != framesToRead) {
-            printf("Channel Router: An error occurred while reading AVX data.\n");
+            printf("Channel Router: An error occurred while reading AVX2 data.\n");
         }
 
-        g_ChannelRouterTime_AVX = mal_timer_get_time_in_seconds(&timer) - startTime;
-        router.useAVX = MAL_FALSE;
+        g_ChannelRouterTime_AVX2 = mal_timer_get_time_in_seconds(&timer) - startTime;
+        router.useAVX2 = MAL_FALSE;
 
         if (!channel_router_test(channels, framesRead, (float**)ppOutBenchmark, (float**)ppOut)) {
             printf("  [ERROR] ");
@@ -802,7 +804,7 @@ int do_profiling__channel_routing()
             printf("  [PASSED] ");
         }
 
-        printf("AVX: %.4fms (%.2f%%)\n", g_ChannelRouterTime_AVX*1000, g_ChannelRouterTime_Reference/g_ChannelRouterTime_AVX*100);
+        printf("AVX2: %.4fms (%.2f%%)\n", g_ChannelRouterTime_AVX2*1000, g_ChannelRouterTime_Reference/g_ChannelRouterTime_AVX2*100);
     }
 
     // NEON
@@ -887,12 +889,12 @@ mal_result init_src(src_data* pBaseData, mal_uint32 sampleRateIn, mal_uint32 sam
     srcConfig.sinc.windowWidth = 17;    // <-- Make this an odd number to test unaligned section in the SIMD implementations.
     srcConfig.algorithm = algorithm;
     srcConfig.noSSE2    = MAL_TRUE;
-    srcConfig.noAVX     = MAL_TRUE;
+    srcConfig.noAVX2    = MAL_TRUE;
     srcConfig.noAVX512  = MAL_TRUE;
     srcConfig.noNEON    = MAL_TRUE;
     switch (mode) {
         case simd_mode_sse2:   srcConfig.noSSE2   = MAL_FALSE; break;
-        case simd_mode_avx:    srcConfig.noAVX    = MAL_FALSE; break;
+        case simd_mode_avx2:   srcConfig.noAVX2   = MAL_FALSE; break;
         case simd_mode_avx512: srcConfig.noAVX512 = MAL_FALSE; break;
         case simd_mode_neon:   srcConfig.noNEON   = MAL_FALSE; break;
         case simd_mode_scalar:
@@ -1032,8 +1034,8 @@ int do_profiling__src__profile_set(src_data* pBaseData, mal_uint32 sampleRateIn,
     if (mal_has_sse2()) {
         do_profiling__src__profile_individual(pBaseData, sampleRateIn, sampleRateOut, algorithm, simd_mode_sse2, &referenceData);
     }
-    if (mal_has_avx()) {
-        do_profiling__src__profile_individual(pBaseData, sampleRateIn, sampleRateOut, algorithm, simd_mode_avx, &referenceData);
+    if (mal_has_avx2()) {
+        do_profiling__src__profile_individual(pBaseData, sampleRateIn, sampleRateOut, algorithm, simd_mode_avx2, &referenceData);
     }
     if (mal_has_avx512f()) {
         do_profiling__src__profile_individual(pBaseData, sampleRateIn, sampleRateOut, algorithm, simd_mode_avx512, &referenceData);
@@ -1115,11 +1117,11 @@ int main(int argc, char** argv)
         //__m128  f1 = _mm_set_ps(-32780, 6, 5, 4);
         //__m128i r = drmath_vf32_to_vi16__sse2(f0, f1);
 
-        __m256  f0 = _mm256_set_ps(7,  6,  5,  4,  3,  2,  1, 0);
-        __m256  f1 = _mm256_set_ps(15, 14, 13, 12, 11, 10, 9, 8);
-        __m256i r = drmath_vf32_to_vi16__avx(f0, f1);
-        
-        int a = 5;
+        //__m256  f0 = _mm256_set_ps(7,  6,  5,  4,  3,  2,  1, 0);
+        //__m256  f1 = _mm256_set_ps(15, 14, 13, 12, 11, 10, 9, 8);
+        //__m256i r = drmath_vf32_to_vi16__avx(f0, f1);
+        //
+        //int a = 5;
     }
 
 
@@ -1130,10 +1132,10 @@ int main(int argc, char** argv)
     } else {
         printf("Has SSE2:     NO\n");
     }
-    if (mal_has_avx()) {
-        printf("Has AVX:      YES\n");
+    if (mal_has_avx2()) {
+        printf("Has AVX2:     YES\n");
     } else {
-        printf("Has AVX:      NO\n");
+        printf("Has AVX2:     NO\n");
     }
     if (mal_has_avx512f()) {
         printf("Has AVX-512F: YES\n");
