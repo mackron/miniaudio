@@ -34,6 +34,429 @@ const char* mal_src_algorithm_to_string(mal_src_algorithm algorithm)
     return "Unknown";
 }
 
+const char* mal_dither_mode_to_string(mal_dither_mode ditherMode)
+{
+    switch (ditherMode) {
+        case mal_dither_mode_none:      return "None";
+        case mal_dither_mode_rectangle: return "Rectangle";
+        case mal_dither_mode_triangle:  return "Triangle";
+    }
+
+    return "Unkown";
+}
+
+
+
+
+///////////////////////////////////////////////////////////////////////////////
+//
+// Format Conversion
+//
+///////////////////////////////////////////////////////////////////////////////
+typedef struct
+{
+    void* pBaseData;
+    mal_uint64 sampleCount;
+    mal_uint64 iNextSample;
+} format_conversion_data;
+
+void pcm_convert__reference(void* pOut, mal_format formatOut, const void* pIn, mal_format formatIn, mal_uint64 sampleCount, mal_dither_mode ditherMode)
+{
+    switch (formatIn)
+    {
+        case mal_format_u8:
+        {
+            switch (formatOut)
+            {
+                case mal_format_s16: mal_pcm_u8_to_s16__reference(pOut, pIn, sampleCount, ditherMode); return;
+                case mal_format_s24: mal_pcm_u8_to_s24__reference(pOut, pIn, sampleCount, ditherMode); return;
+                case mal_format_s32: mal_pcm_u8_to_s32__reference(pOut, pIn, sampleCount, ditherMode); return;
+                case mal_format_f32: mal_pcm_u8_to_f32__reference(pOut, pIn, sampleCount, ditherMode); return;
+                default: break;
+            }
+        } break;
+
+        case mal_format_s16:
+        {
+            switch (formatOut)
+            {
+                case mal_format_u8:  mal_pcm_s16_to_u8__reference( pOut, pIn, sampleCount, ditherMode); return;
+                case mal_format_s24: mal_pcm_s16_to_s24__reference(pOut, pIn, sampleCount, ditherMode); return;
+                case mal_format_s32: mal_pcm_s16_to_s32__reference(pOut, pIn, sampleCount, ditherMode); return;
+                case mal_format_f32: mal_pcm_s16_to_f32__reference(pOut, pIn, sampleCount, ditherMode); return;
+                default: break;
+            }
+        } break;
+
+        case mal_format_s24:
+        {
+            switch (formatOut)
+            {
+                case mal_format_u8:  mal_pcm_s24_to_u8__reference( pOut, pIn, sampleCount, ditherMode); return;
+                case mal_format_s16: mal_pcm_s24_to_s16__reference(pOut, pIn, sampleCount, ditherMode); return;
+                case mal_format_s32: mal_pcm_s24_to_s32__reference(pOut, pIn, sampleCount, ditherMode); return;
+                case mal_format_f32: mal_pcm_s24_to_f32__reference(pOut, pIn, sampleCount, ditherMode); return;
+                default: break;
+            }
+        } break;
+
+        case mal_format_s32:
+        {
+            switch (formatOut)
+            {
+                case mal_format_u8:  mal_pcm_s32_to_u8__reference( pOut, pIn, sampleCount, ditherMode); return;
+                case mal_format_s16: mal_pcm_s32_to_s16__reference(pOut, pIn, sampleCount, ditherMode); return;
+                case mal_format_s24: mal_pcm_s32_to_s24__reference(pOut, pIn, sampleCount, ditherMode); return;
+                case mal_format_f32: mal_pcm_s32_to_f32__reference(pOut, pIn, sampleCount, ditherMode); return;
+                default: break;
+            }
+        } break;
+
+        case mal_format_f32:
+        {
+            switch (formatOut)
+            {
+                case mal_format_u8:  mal_pcm_f32_to_u8__reference( pOut, pIn, sampleCount, ditherMode); return;
+                case mal_format_s16: mal_pcm_f32_to_s16__reference(pOut, pIn, sampleCount, ditherMode); return;
+                case mal_format_s24: mal_pcm_f32_to_s24__reference(pOut, pIn, sampleCount, ditherMode); return;
+                case mal_format_s32: mal_pcm_f32_to_s32__reference(pOut, pIn, sampleCount, ditherMode); return;
+                default: break;
+            }
+        } break;
+
+        default: break;
+    }
+}
+
+void pcm_convert__optimized(void* pOut, mal_format formatOut, const void* pIn, mal_format formatIn, mal_uint64 sampleCount, mal_dither_mode ditherMode)
+{
+    switch (formatIn)
+    {
+        case mal_format_u8:
+        {
+            switch (formatOut)
+            {
+                case mal_format_s16: mal_pcm_u8_to_s16__optimized(pOut, pIn, sampleCount, ditherMode); return;
+                case mal_format_s24: mal_pcm_u8_to_s24__optimized(pOut, pIn, sampleCount, ditherMode); return;
+                case mal_format_s32: mal_pcm_u8_to_s32__optimized(pOut, pIn, sampleCount, ditherMode); return;
+                case mal_format_f32: mal_pcm_u8_to_f32__optimized(pOut, pIn, sampleCount, ditherMode); return;
+                default: break;
+            }
+        } break;
+
+        case mal_format_s16:
+        {
+            switch (formatOut)
+            {
+                case mal_format_u8:  mal_pcm_s16_to_u8__optimized( pOut, pIn, sampleCount, ditherMode); return;
+                case mal_format_s24: mal_pcm_s16_to_s24__optimized(pOut, pIn, sampleCount, ditherMode); return;
+                case mal_format_s32: mal_pcm_s16_to_s32__optimized(pOut, pIn, sampleCount, ditherMode); return;
+                case mal_format_f32: mal_pcm_s16_to_f32__optimized(pOut, pIn, sampleCount, ditherMode); return;
+                default: break;
+            }
+        } break;
+
+        case mal_format_s24:
+        {
+            switch (formatOut)
+            {
+                case mal_format_u8:  mal_pcm_s24_to_u8__optimized( pOut, pIn, sampleCount, ditherMode); return;
+                case mal_format_s16: mal_pcm_s24_to_s16__optimized(pOut, pIn, sampleCount, ditherMode); return;
+                case mal_format_s32: mal_pcm_s24_to_s32__optimized(pOut, pIn, sampleCount, ditherMode); return;
+                case mal_format_f32: mal_pcm_s24_to_f32__optimized(pOut, pIn, sampleCount, ditherMode); return;
+                default: break;
+            }
+        } break;
+
+        case mal_format_s32:
+        {
+            switch (formatOut)
+            {
+                case mal_format_u8:  mal_pcm_s32_to_u8__optimized( pOut, pIn, sampleCount, ditherMode); return;
+                case mal_format_s16: mal_pcm_s32_to_s16__optimized(pOut, pIn, sampleCount, ditherMode); return;
+                case mal_format_s24: mal_pcm_s32_to_s24__optimized(pOut, pIn, sampleCount, ditherMode); return;
+                case mal_format_f32: mal_pcm_s32_to_f32__optimized(pOut, pIn, sampleCount, ditherMode); return;
+                default: break;
+            }
+        } break;
+
+        case mal_format_f32:
+        {
+            switch (formatOut)
+            {
+                case mal_format_u8:  mal_pcm_f32_to_u8__optimized( pOut, pIn, sampleCount, ditherMode); return;
+                case mal_format_s16: mal_pcm_f32_to_s16__optimized(pOut, pIn, sampleCount, ditherMode); return;
+                case mal_format_s24: mal_pcm_f32_to_s24__optimized(pOut, pIn, sampleCount, ditherMode); return;
+                case mal_format_s32: mal_pcm_f32_to_s32__optimized(pOut, pIn, sampleCount, ditherMode); return;
+                default: break;
+            }
+        } break;
+
+        default: break;
+    }
+}
+
+#if defined(MAL_SUPPORT_SSE2)
+void pcm_convert__sse2(void* pOut, mal_format formatOut, const void* pIn, mal_format formatIn, mal_uint64 sampleCount, mal_dither_mode ditherMode)
+{
+    switch (formatIn)
+    {
+        case mal_format_u8:
+        {
+            switch (formatOut)
+            {
+                case mal_format_s16: mal_pcm_u8_to_s16__sse2(pOut, pIn, sampleCount, ditherMode); return;
+                case mal_format_s24: mal_pcm_u8_to_s24__sse2(pOut, pIn, sampleCount, ditherMode); return;
+                case mal_format_s32: mal_pcm_u8_to_s32__sse2(pOut, pIn, sampleCount, ditherMode); return;
+                case mal_format_f32: mal_pcm_u8_to_f32__sse2(pOut, pIn, sampleCount, ditherMode); return;
+                default: break;
+            }
+        } break;
+
+        case mal_format_s16:
+        {
+            switch (formatOut)
+            {
+                case mal_format_u8:  mal_pcm_s16_to_u8__sse2( pOut, pIn, sampleCount, ditherMode); return;
+                case mal_format_s24: mal_pcm_s16_to_s24__sse2(pOut, pIn, sampleCount, ditherMode); return;
+                case mal_format_s32: mal_pcm_s16_to_s32__sse2(pOut, pIn, sampleCount, ditherMode); return;
+                case mal_format_f32: mal_pcm_s16_to_f32__sse2(pOut, pIn, sampleCount, ditherMode); return;
+                default: break;
+            }
+        } break;
+
+        case mal_format_s24:
+        {
+            switch (formatOut)
+            {
+                case mal_format_u8:  mal_pcm_s24_to_u8__sse2( pOut, pIn, sampleCount, ditherMode); return;
+                case mal_format_s16: mal_pcm_s24_to_s16__sse2(pOut, pIn, sampleCount, ditherMode); return;
+                case mal_format_s32: mal_pcm_s24_to_s32__sse2(pOut, pIn, sampleCount, ditherMode); return;
+                case mal_format_f32: mal_pcm_s24_to_f32__sse2(pOut, pIn, sampleCount, ditherMode); return;
+                default: break;
+            }
+        } break;
+
+        case mal_format_s32:
+        {
+            switch (formatOut)
+            {
+                case mal_format_u8:  mal_pcm_s32_to_u8__sse2( pOut, pIn, sampleCount, ditherMode); return;
+                case mal_format_s16: mal_pcm_s32_to_s16__sse2(pOut, pIn, sampleCount, ditherMode); return;
+                case mal_format_s24: mal_pcm_s32_to_s24__sse2(pOut, pIn, sampleCount, ditherMode); return;
+                case mal_format_f32: mal_pcm_s32_to_f32__sse2(pOut, pIn, sampleCount, ditherMode); return;
+                default: break;
+            }
+        } break;
+
+        case mal_format_f32:
+        {
+            switch (formatOut)
+            {
+                case mal_format_u8:  mal_pcm_f32_to_u8__sse2( pOut, pIn, sampleCount, ditherMode); return;
+                case mal_format_s16: mal_pcm_f32_to_s16__sse2(pOut, pIn, sampleCount, ditherMode); return;
+                case mal_format_s24: mal_pcm_f32_to_s24__sse2(pOut, pIn, sampleCount, ditherMode); return;
+                case mal_format_s32: mal_pcm_f32_to_s32__sse2(pOut, pIn, sampleCount, ditherMode); return;
+                default: break;
+            }
+        } break;
+
+        default: break;
+    }
+}
+#endif
+
+#if defined(MAL_SUPPORT_AVX)
+void pcm_convert__avx(void* pOut, mal_format formatOut, const void* pIn, mal_format formatIn, mal_uint64 sampleCount, mal_dither_mode ditherMode)
+{
+    pcm_convert__sse2(pOut, formatOut, pIn, formatIn, sampleCount, ditherMode);
+}
+#endif
+
+#if defined(MAL_SUPPORT_AVX512)
+void pcm_convert__avx512(void* pOut, mal_format formatOut, const void* pIn, mal_format formatIn, mal_uint64 sampleCount, mal_dither_mode ditherMode)
+{
+    pcm_convert__avx(pOut, formatOut, pIn, formatIn, sampleCount, ditherMode);
+}
+#endif
+
+#if defined(MAL_SUPPORT_NEON)
+void pcm_convert__neon(void* pOut, mal_format formatOut, const void* pIn, mal_format formatIn, mal_uint64 sampleCount, mal_dither_mode ditherMode)
+{
+    pcm_convert__reference(pOut, formatOut, pIn, formatIn, sampleCount, ditherMode);
+}
+#endif
+
+void pcm_convert(void* pOut, mal_format formatOut, const void* pIn, mal_format formatIn, mal_uint64 sampleCount, mal_dither_mode ditherMode, simd_mode mode)
+{
+    // For testing, we always reset the seed for dithering so we can get consistent results for comparisons.
+    mal_seed(1234);
+
+    switch (mode)
+    {
+        case simd_mode_scalar:
+        {
+            pcm_convert__optimized(pOut, formatOut, pIn, formatIn, sampleCount, ditherMode);
+        } break;
+
+#if defined(MAL_SUPPORT_SSE2)
+        case simd_mode_sse2:
+        {
+            pcm_convert__sse2(pOut, formatOut, pIn, formatIn, sampleCount, ditherMode);
+        } break;
+#endif
+        
+#if defined(MAL_SUPPORT_AVX)
+        case simd_mode_avx:
+        {
+            pcm_convert__avx(pOut, formatOut, pIn, formatIn, sampleCount, ditherMode);
+        } break;
+#endif
+
+#if defined(MAL_SUPPORT_AVX512)
+        case simd_mode_avx512:
+        {
+            pcm_convert__avx512(pOut, formatOut, pIn, formatIn, sampleCount, ditherMode);
+        } break;
+#endif
+        
+#if defined(MAL_SUPPORT_NEON)
+        case simd_mode_neon:
+        {
+            pcm_convert__neon(pOut, formatOut, pIn, formatIn, sampleCount, ditherMode);
+        } break;
+#endif
+    }
+}
+
+
+int do_profiling__format_conversion__profile_individual(mal_format formatIn, mal_format formatOut, mal_dither_mode ditherMode, const void* pBaseData, mal_uint64 sampleCount, simd_mode mode, const void* pReferenceData, double referenceTime)
+{
+    void* pTestData = mal_aligned_malloc((size_t)(sampleCount * mal_get_bytes_per_sample(formatOut)), MAL_SIMD_ALIGNMENT);
+    if (pTestData == NULL) {
+        printf("Out of memory.\n");
+        return -1;
+    }
+
+    mal_timer timer;
+    mal_timer_init(&timer);
+    double timeTaken = mal_timer_get_time_in_seconds(&timer);
+    {
+        pcm_convert(pTestData, formatOut, pBaseData, formatIn, sampleCount, ditherMode, mode);
+    }
+    timeTaken = mal_timer_get_time_in_seconds(&timer) - timeTaken;
+
+
+    // Compare with the reference for correctness.
+    mal_bool32 passed = MAL_TRUE;
+    for (mal_uint64 iSample = 0; iSample < sampleCount; ++iSample) {
+        mal_uint32 bps = mal_get_bytes_per_sample(formatOut);
+
+        // We need to compare on a format by format basis because we allow for very slight deviations in results depending on the output format.
+        switch (formatOut)
+        {
+            case mal_format_s16:
+            {
+                mal_int16 a = ((const mal_int16*)pReferenceData)[iSample];
+                mal_int16 b = ((const mal_int16*)pTestData)[iSample];
+                if (abs(a-b) > 1) {
+                    printf("Incorrect Sample: (%d) %d != %d\n", (int)iSample, a, b);
+                    passed = MAL_FALSE;
+                }
+            } break;
+
+            default:
+            {
+                if (memcmp(mal_offset_ptr(pReferenceData, iSample*bps), mal_offset_ptr(pTestData, iSample*bps), bps) != 0) {
+                    printf("Incorrect Sample: (%d)\n", (int)iSample);
+                    passed = MAL_FALSE;
+                }
+            } break;
+        }
+    }
+
+    if (passed) {
+        printf("  [PASSED] ");
+    } else {
+        printf("  [FAILED] ");
+    }
+    printf("(Dither = %s) %s -> %s (%s): %.4fms (%.2f%%)\n", mal_dither_mode_to_string(ditherMode), mal_get_format_name(formatIn), mal_get_format_name(formatOut), simd_mode_to_string(mode), timeTaken*1000, referenceTime/timeTaken*100);
+
+    mal_aligned_free(pTestData);
+    return 0;
+}
+
+int do_profiling__format_conversion__profile_set(mal_format formatIn, mal_format formatOut, mal_dither_mode ditherMode)
+{
+    // Generate our base data to begin with. This is generated from an f32 sine wave which is converted to formatIn. That then becomes our base data.
+    mal_uint32 sampleCount = 1000000;
+
+    float* pSourceData = (float*)mal_aligned_malloc(sampleCount*sizeof(*pSourceData), MAL_SIMD_ALIGNMENT);
+    if (pSourceData == NULL) {
+        printf("Out of memory.\n");
+        return -1;
+    }
+
+    mal_sine_wave sineWave;
+    mal_sine_wave_init(1.0, 400, 48000, &sineWave);
+    mal_sine_wave_read(&sineWave, sampleCount, pSourceData);
+
+    void* pBaseData = mal_aligned_malloc(sampleCount * mal_get_bytes_per_sample(formatIn), MAL_SIMD_ALIGNMENT);
+    mal_pcm_convert(pBaseData, formatIn, pSourceData, mal_format_f32, sampleCount, mal_dither_mode_none);
+
+
+    // Reference first so we can get a benchmark.
+    void* pReferenceData = mal_aligned_malloc(sampleCount * mal_get_bytes_per_sample(formatOut), MAL_SIMD_ALIGNMENT);
+    mal_timer timer;
+    mal_timer_init(&timer);
+    double referenceTime = mal_timer_get_time_in_seconds(&timer);
+    {
+        pcm_convert__reference(pReferenceData, formatOut, pBaseData, formatIn, sampleCount, ditherMode);
+    }
+    referenceTime = mal_timer_get_time_in_seconds(&timer) - referenceTime;
+
+    
+    // Here is where each optimized implementation is profiled.
+    do_profiling__format_conversion__profile_individual(formatIn, formatOut, ditherMode, pBaseData, sampleCount, simd_mode_scalar, pReferenceData, referenceTime);
+
+    if (mal_has_sse2()) {
+        do_profiling__format_conversion__profile_individual(formatIn, formatOut, ditherMode, pBaseData, sampleCount, simd_mode_sse2, pReferenceData, referenceTime);
+    }
+    if (mal_has_avx()) {
+        do_profiling__format_conversion__profile_individual(formatIn, formatOut, ditherMode, pBaseData, sampleCount, simd_mode_avx, pReferenceData, referenceTime);
+    }
+    if (mal_has_avx512f()) {
+        do_profiling__format_conversion__profile_individual(formatIn, formatOut, ditherMode, pBaseData, sampleCount, simd_mode_avx512, pReferenceData, referenceTime);
+    }
+    if (mal_has_neon()) {
+        do_profiling__format_conversion__profile_individual(formatIn, formatOut, ditherMode, pBaseData, sampleCount, simd_mode_neon, pReferenceData, referenceTime);
+    }
+
+
+
+    mal_aligned_free(pReferenceData);
+    mal_aligned_free(pBaseData);
+    mal_aligned_free(pSourceData);
+    return 0;
+}
+
+int do_profiling__format_conversion()
+{
+    // First we need to generate our base data.
+
+
+    do_profiling__format_conversion__profile_set(mal_format_f32, mal_format_s16, mal_dither_mode_none);
+
+    return 0;
+}
+
+
+
+///////////////////////////////////////////////////////////////////////////////
+//
+// Channel Routing
+//
+///////////////////////////////////////////////////////////////////////////////
 
 float g_ChannelRouterProfilingOutputBenchmark[8][48000];
 float g_ChannelRouterProfilingOutput[8][48000];
@@ -416,6 +839,7 @@ int do_profiling__src__profile_set(src_data* pBaseData, mal_uint32 sampleRateIn,
 
 
     // Now that we have the reference data to compare against we can go ahead and measure the SIMD optimizations.
+    do_profiling__src__profile_individual(pBaseData, sampleRateIn, sampleRateOut, algorithm, simd_mode_scalar, &referenceData);
     if (mal_has_sse2()) {
         do_profiling__src__profile_individual(pBaseData, sampleRateIn, sampleRateOut, algorithm, simd_mode_sse2, &referenceData);
     }
@@ -446,7 +870,7 @@ int do_profiling__src()
     src_data baseData;
     mal_zero_object(&baseData);
     baseData.channels = 8;
-    baseData.frameCount = 10000;
+    baseData.frameCount = 100000;
     for (mal_uint32 iChannel = 0; iChannel < baseData.channels; ++iChannel) {
         baseData.pFrameData[iChannel] = (float*)mal_aligned_malloc((size_t)(baseData.frameCount * sizeof(float)), MAL_SIMD_ALIGNMENT);
         if (baseData.pFrameData[iChannel] == NULL) {
@@ -475,16 +899,33 @@ int do_profiling__src()
 }
 
 
+// Converts two 4xf32 vectors to one 8xi16 vector with signed saturation.
+static inline __m128i drmath_vf32_to_vi16__sse2(__m128 f32_0, __m128 f32_1)
+{    
+    return _mm_packs_epi32(_mm_cvtps_epi32(f32_0), _mm_cvtps_epi32(f32_1));
+}
+
 int main(int argc, char** argv)
 {
     (void)argc;
     (void)argv;
 
+
+    {
+        //__m128  f0 = _mm_set_ps(32780, 2, 1, 0);
+        //__m128  f1 = _mm_set_ps(-32780, 6, 5, 4);
+        //__m128i r = drmath_vf32_to_vi16__sse2(f0, f1);
+
+        //int a = 5;
+    }
+
+
+
     // Summary.
     if (mal_has_sse2()) {
-        printf("Has SSE:      YES\n");
+        printf("Has SSE2:     YES\n");
     } else {
-        printf("Has SSE:      NO\n");
+        printf("Has SSE2:     NO\n");
     }
     if (mal_has_avx()) {
         printf("Has AVX:      YES\n");
@@ -504,6 +945,10 @@ int main(int argc, char** argv)
 
 
     printf("\n");
+
+    // Format conversion.
+    do_profiling__format_conversion();
+    printf("\n\n");
 
     // Channel routing.
     do_profiling__channel_routing();
