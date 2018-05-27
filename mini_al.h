@@ -17288,6 +17288,24 @@ void mal_pcm_u8_to_s16__sse2(void* dst, const void* src, mal_uint64 count, mal_d
     mal_pcm_u8_to_s16__optimized(dst, src, count, ditherMode);
 }
 #endif
+#if defined(MAL_SUPPORT_AVX)
+void mal_pcm_u8_to_s16__avx(void* dst, const void* src, mal_uint64 count, mal_dither_mode ditherMode)
+{
+    mal_pcm_u8_to_s16__optimized(dst, src, count, ditherMode);
+}
+#endif
+#if defined(MAL_SUPPORT_AVX512)
+void mal_pcm_u8_to_s16__avx512(void* dst, const void* src, mal_uint64 count, mal_dither_mode ditherMode)
+{
+    mal_pcm_u8_to_s16__optimized(dst, src, count, ditherMode);
+}
+#endif
+#if defined(MAL_SUPPORT_NEON)
+void mal_pcm_u8_to_s16__neon(void* dst, const void* src, mal_uint64 count, mal_dither_mode ditherMode)
+{
+    mal_pcm_u8_to_s16__optimized(dst, src, count, ditherMode);
+}
+#endif
 
 void mal_pcm_u8_to_s16(void* dst, const void* src, mal_uint64 count, mal_dither_mode ditherMode)
 {
@@ -17328,17 +17346,31 @@ void mal_pcm_u8_to_s24__sse2(void* dst, const void* src, mal_uint64 count, mal_d
     mal_pcm_u8_to_s24__optimized(dst, src, count, ditherMode);
 }
 #endif
+#if defined(MAL_SUPPORT_AVX)
+void mal_pcm_u8_to_s24__avx(void* dst, const void* src, mal_uint64 count, mal_dither_mode ditherMode)
+{
+    mal_pcm_u8_to_s24__optimized(dst, src, count, ditherMode);
+}
+#endif
+#if defined(MAL_SUPPORT_AVX512)
+void mal_pcm_u8_to_s24__avx512(void* dst, const void* src, mal_uint64 count, mal_dither_mode ditherMode)
+{
+    mal_pcm_u8_to_s24__optimized(dst, src, count, ditherMode);
+}
+#endif
+#if defined(MAL_SUPPORT_NEON)
+void mal_pcm_u8_to_s24__neon(void* dst, const void* src, mal_uint64 count, mal_dither_mode ditherMode)
+{
+    mal_pcm_u8_to_s24__optimized(dst, src, count, ditherMode);
+}
+#endif
 
 void mal_pcm_u8_to_s24(void* dst, const void* src, mal_uint64 count, mal_dither_mode ditherMode)
 {
 #ifdef MAL_USE_REFERENCE_CONVERSION_APIS
     mal_pcm_u8_to_s24__reference(dst, src, count, ditherMode);
 #else
-#if defined(MAL_SUPPORT_SSE2)
-    mal_pcm_u8_to_s24__sse2(dst, src, count, ditherMode);
-#else
     mal_pcm_u8_to_s24__optimized(dst, src, count, ditherMode);
-#endif
 #endif
 }
 
@@ -17366,6 +17398,24 @@ void mal_pcm_u8_to_s32__optimized(void* dst, const void* src, mal_uint64 count, 
 
 #if defined(MAL_SUPPORT_SSE2)
 void mal_pcm_u8_to_s32__sse2(void* dst, const void* src, mal_uint64 count, mal_dither_mode ditherMode)
+{
+    mal_pcm_u8_to_s32__optimized(dst, src, count, ditherMode);
+}
+#endif
+#if defined(MAL_SUPPORT_AVX)
+void mal_pcm_u8_to_s32__avx(void* dst, const void* src, mal_uint64 count, mal_dither_mode ditherMode)
+{
+    mal_pcm_u8_to_s32__optimized(dst, src, count, ditherMode);
+}
+#endif
+#if defined(MAL_SUPPORT_AVX512)
+void mal_pcm_u8_to_s32__avx512(void* dst, const void* src, mal_uint64 count, mal_dither_mode ditherMode)
+{
+    mal_pcm_u8_to_s32__optimized(dst, src, count, ditherMode);
+}
+#endif
+#if defined(MAL_SUPPORT_NEON)
+void mal_pcm_u8_to_s32__neon(void* dst, const void* src, mal_uint64 count, mal_dither_mode ditherMode)
 {
     mal_pcm_u8_to_s32__optimized(dst, src, count, ditherMode);
 }
@@ -17405,6 +17455,24 @@ void mal_pcm_u8_to_f32__optimized(void* dst, const void* src, mal_uint64 count, 
 
 #if defined(MAL_SUPPORT_SSE2)
 void mal_pcm_u8_to_f32__sse2(void* dst, const void* src, mal_uint64 count, mal_dither_mode ditherMode)
+{
+    mal_pcm_u8_to_f32__optimized(dst, src, count, ditherMode);
+}
+#endif
+#if defined(MAL_SUPPORT_AVX)
+void mal_pcm_u8_to_f32__avx(void* dst, const void* src, mal_uint64 count, mal_dither_mode ditherMode)
+{
+    mal_pcm_u8_to_f32__optimized(dst, src, count, ditherMode);
+}
+#endif
+#if defined(MAL_SUPPORT_SSE2)
+void mal_pcm_u8_to_f32__avx512(void* dst, const void* src, mal_uint64 count, mal_dither_mode ditherMode)
+{
+    mal_pcm_u8_to_f32__optimized(dst, src, count, ditherMode);
+}
+#endif
+#if defined(MAL_SUPPORT_NEON)
+void mal_pcm_u8_to_f32__neon(void* dst, const void* src, mal_uint64 count, mal_dither_mode ditherMode)
 {
     mal_pcm_u8_to_f32__optimized(dst, src, count, ditherMode);
 }
@@ -17543,6 +17611,24 @@ void mal_pcm_s16_to_u8__sse2(void* dst, const void* src, mal_uint64 count, mal_d
     mal_pcm_s16_to_u8__optimized(dst, src, count, ditherMode);
 }
 #endif
+#if defined(MAL_SUPPORT_AVX)
+void mal_pcm_s16_to_u8__avx(void* dst, const void* src, mal_uint64 count, mal_dither_mode ditherMode)
+{
+    mal_pcm_s16_to_u8__optimized(dst, src, count, ditherMode);
+}
+#endif
+#if defined(MAL_SUPPORT_AVX512)
+void mal_pcm_s16_to_u8__avx512(void* dst, const void* src, mal_uint64 count, mal_dither_mode ditherMode)
+{
+    mal_pcm_s16_to_u8__optimized(dst, src, count, ditherMode);
+}
+#endif
+#if defined(MAL_SUPPORT_NEON)
+void mal_pcm_s16_to_u8__neon(void* dst, const void* src, mal_uint64 count, mal_dither_mode ditherMode)
+{
+    mal_pcm_s16_to_u8__optimized(dst, src, count, ditherMode);
+}
+#endif
 
 void mal_pcm_s16_to_u8(void* dst, const void* src, mal_uint64 count, mal_dither_mode ditherMode)
 {
@@ -17587,6 +17673,24 @@ void mal_pcm_s16_to_s24__sse2(void* dst, const void* src, mal_uint64 count, mal_
     mal_pcm_s16_to_s24__optimized(dst, src, count, ditherMode);
 }
 #endif
+#if defined(MAL_SUPPORT_AVX)
+void mal_pcm_s16_to_s24__avx(void* dst, const void* src, mal_uint64 count, mal_dither_mode ditherMode)
+{
+    mal_pcm_s16_to_s24__optimized(dst, src, count, ditherMode);
+}
+#endif
+#if defined(MAL_SUPPORT_AVX512)
+void mal_pcm_s16_to_s24__avx512(void* dst, const void* src, mal_uint64 count, mal_dither_mode ditherMode)
+{
+    mal_pcm_s16_to_s24__optimized(dst, src, count, ditherMode);
+}
+#endif
+#if defined(MAL_SUPPORT_NEON)
+void mal_pcm_s16_to_s24__neon(void* dst, const void* src, mal_uint64 count, mal_dither_mode ditherMode)
+{
+    mal_pcm_s16_to_s24__optimized(dst, src, count, ditherMode);
+}
+#endif
 
 void mal_pcm_s16_to_s24(void* dst, const void* src, mal_uint64 count, mal_dither_mode ditherMode)
 {
@@ -17618,6 +17722,24 @@ void mal_pcm_s16_to_s32__optimized(void* dst, const void* src, mal_uint64 count,
 
 #if defined(MAL_SUPPORT_SSE2)
 void mal_pcm_s16_to_s32__sse2(void* dst, const void* src, mal_uint64 count, mal_dither_mode ditherMode)
+{
+    mal_pcm_s16_to_s32__optimized(dst, src, count, ditherMode);
+}
+#endif
+#if defined(MAL_SUPPORT_AVX)
+void mal_pcm_s16_to_s32__avx(void* dst, const void* src, mal_uint64 count, mal_dither_mode ditherMode)
+{
+    mal_pcm_s16_to_s32__optimized(dst, src, count, ditherMode);
+}
+#endif
+#if defined(MAL_SUPPORT_AVX512)
+void mal_pcm_s16_to_s32__avx512(void* dst, const void* src, mal_uint64 count, mal_dither_mode ditherMode)
+{
+    mal_pcm_s16_to_s32__optimized(dst, src, count, ditherMode);
+}
+#endif
+#if defined(MAL_SUPPORT_NEON)
+void mal_pcm_s16_to_s32__neon(void* dst, const void* src, mal_uint64 count, mal_dither_mode ditherMode)
 {
     mal_pcm_s16_to_s32__optimized(dst, src, count, ditherMode);
 }
@@ -17665,6 +17787,24 @@ void mal_pcm_s16_to_f32__optimized(void* dst, const void* src, mal_uint64 count,
 
 #if defined(MAL_SUPPORT_SSE2)
 void mal_pcm_s16_to_f32__sse2(void* dst, const void* src, mal_uint64 count, mal_dither_mode ditherMode)
+{
+    mal_pcm_s16_to_f32__optimized(dst, src, count, ditherMode);
+}
+#endif
+#if defined(MAL_SUPPORT_AVX)
+void mal_pcm_s16_to_f32__avx(void* dst, const void* src, mal_uint64 count, mal_dither_mode ditherMode)
+{
+    mal_pcm_s16_to_f32__optimized(dst, src, count, ditherMode);
+}
+#endif
+#if defined(MAL_SUPPORT_AVX512)
+void mal_pcm_s16_to_f32__avx512(void* dst, const void* src, mal_uint64 count, mal_dither_mode ditherMode)
+{
+    mal_pcm_s16_to_f32__optimized(dst, src, count, ditherMode);
+}
+#endif
+#if defined(MAL_SUPPORT_NEON)
+void mal_pcm_s16_to_f32__neon(void* dst, const void* src, mal_uint64 count, mal_dither_mode ditherMode)
 {
     mal_pcm_s16_to_f32__optimized(dst, src, count, ditherMode);
 }
@@ -17781,6 +17921,24 @@ void mal_pcm_s24_to_u8__sse2(void* dst, const void* src, mal_uint64 count, mal_d
     mal_pcm_s24_to_u8__optimized(dst, src, count, ditherMode);
 }
 #endif
+#if defined(MAL_SUPPORT_AVX)
+void mal_pcm_s24_to_u8__avx(void* dst, const void* src, mal_uint64 count, mal_dither_mode ditherMode)
+{
+    mal_pcm_s24_to_u8__optimized(dst, src, count, ditherMode);
+}
+#endif
+#if defined(MAL_SUPPORT_AVX512)
+void mal_pcm_s24_to_u8__avx512(void* dst, const void* src, mal_uint64 count, mal_dither_mode ditherMode)
+{
+    mal_pcm_s24_to_u8__optimized(dst, src, count, ditherMode);
+}
+#endif
+#if defined(MAL_SUPPORT_NEON)
+void mal_pcm_s24_to_u8__neon(void* dst, const void* src, mal_uint64 count, mal_dither_mode ditherMode)
+{
+    mal_pcm_s24_to_u8__optimized(dst, src, count, ditherMode);
+}
+#endif
 
 void mal_pcm_s24_to_u8(void* dst, const void* src, mal_uint64 count, mal_dither_mode ditherMode)
 {
@@ -17834,6 +17992,24 @@ void mal_pcm_s24_to_s16__sse2(void* dst, const void* src, mal_uint64 count, mal_
     mal_pcm_s24_to_s16__optimized(dst, src, count, ditherMode);
 }
 #endif
+#if defined(MAL_SUPPORT_AVX)
+void mal_pcm_s24_to_s16__avx(void* dst, const void* src, mal_uint64 count, mal_dither_mode ditherMode)
+{
+    mal_pcm_s24_to_s16__optimized(dst, src, count, ditherMode);
+}
+#endif
+#if defined(MAL_SUPPORT_AVX512)
+void mal_pcm_s24_to_s16__avx512(void* dst, const void* src, mal_uint64 count, mal_dither_mode ditherMode)
+{
+    mal_pcm_s24_to_s16__optimized(dst, src, count, ditherMode);
+}
+#endif
+#if defined(MAL_SUPPORT_NEON)
+void mal_pcm_s24_to_s16__neon(void* dst, const void* src, mal_uint64 count, mal_dither_mode ditherMode)
+{
+    mal_pcm_s24_to_s16__optimized(dst, src, count, ditherMode);
+}
+#endif
 
 void mal_pcm_s24_to_s16(void* dst, const void* src, mal_uint64 count, mal_dither_mode ditherMode)
 {
@@ -17873,6 +18049,24 @@ void mal_pcm_s24_to_s32__optimized(void* dst, const void* src, mal_uint64 count,
 
 #if defined(MAL_SUPPORT_SSE2)
 void mal_pcm_s24_to_s32__sse2(void* dst, const void* src, mal_uint64 count, mal_dither_mode ditherMode)
+{
+    mal_pcm_s24_to_s32__optimized(dst, src, count, ditherMode);
+}
+#endif
+#if defined(MAL_SUPPORT_AVX)
+void mal_pcm_s24_to_s32__avx(void* dst, const void* src, mal_uint64 count, mal_dither_mode ditherMode)
+{
+    mal_pcm_s24_to_s32__optimized(dst, src, count, ditherMode);
+}
+#endif
+#if defined(MAL_SUPPORT_AVX512)
+void mal_pcm_s24_to_s32__avx512(void* dst, const void* src, mal_uint64 count, mal_dither_mode ditherMode)
+{
+    mal_pcm_s24_to_s32__optimized(dst, src, count, ditherMode);
+}
+#endif
+#if defined(MAL_SUPPORT_NEON)
+void mal_pcm_s24_to_s32__neon(void* dst, const void* src, mal_uint64 count, mal_dither_mode ditherMode)
 {
     mal_pcm_s24_to_s32__optimized(dst, src, count, ditherMode);
 }
@@ -17920,6 +18114,24 @@ void mal_pcm_s24_to_f32__optimized(void* dst, const void* src, mal_uint64 count,
 
 #if defined(MAL_SUPPORT_SSE2)
 void mal_pcm_s24_to_f32__sse2(void* dst, const void* src, mal_uint64 count, mal_dither_mode ditherMode)
+{
+    mal_pcm_s24_to_f32__optimized(dst, src, count, ditherMode);
+}
+#endif
+#if defined(MAL_SUPPORT_AVX)
+void mal_pcm_s24_to_f32__avx(void* dst, const void* src, mal_uint64 count, mal_dither_mode ditherMode)
+{
+    mal_pcm_s24_to_f32__optimized(dst, src, count, ditherMode);
+}
+#endif
+#if defined(MAL_SUPPORT_AVX512)
+void mal_pcm_s24_to_f32__avx512(void* dst, const void* src, mal_uint64 count, mal_dither_mode ditherMode)
+{
+    mal_pcm_s24_to_f32__optimized(dst, src, count, ditherMode);
+}
+#endif
+#if defined(MAL_SUPPORT_NEON)
+void mal_pcm_s24_to_f32__neon(void* dst, const void* src, mal_uint64 count, mal_dither_mode ditherMode)
 {
     mal_pcm_s24_to_f32__optimized(dst, src, count, ditherMode);
 }
@@ -18043,6 +18255,24 @@ void mal_pcm_s32_to_u8__sse2(void* dst, const void* src, mal_uint64 count, mal_d
     mal_pcm_s32_to_u8__optimized(dst, src, count, ditherMode);
 }
 #endif
+#if defined(MAL_SUPPORT_AVX)
+void mal_pcm_s32_to_u8__avx(void* dst, const void* src, mal_uint64 count, mal_dither_mode ditherMode)
+{
+    mal_pcm_s32_to_u8__optimized(dst, src, count, ditherMode);
+}
+#endif
+#if defined(MAL_SUPPORT_AVX512)
+void mal_pcm_s32_to_u8__avx512(void* dst, const void* src, mal_uint64 count, mal_dither_mode ditherMode)
+{
+    mal_pcm_s32_to_u8__optimized(dst, src, count, ditherMode);
+}
+#endif
+#if defined(MAL_SUPPORT_NEON)
+void mal_pcm_s32_to_u8__neon(void* dst, const void* src, mal_uint64 count, mal_dither_mode ditherMode)
+{
+    mal_pcm_s32_to_u8__optimized(dst, src, count, ditherMode);
+}
+#endif
 
 void mal_pcm_s32_to_u8(void* dst, const void* src, mal_uint64 count, mal_dither_mode ditherMode)
 {
@@ -18096,6 +18326,24 @@ void mal_pcm_s32_to_s16__sse2(void* dst, const void* src, mal_uint64 count, mal_
     mal_pcm_s32_to_s16__optimized(dst, src, count, ditherMode);
 }
 #endif
+#if defined(MAL_SUPPORT_AVX)
+void mal_pcm_s32_to_s16__avx(void* dst, const void* src, mal_uint64 count, mal_dither_mode ditherMode)
+{
+    mal_pcm_s32_to_s16__optimized(dst, src, count, ditherMode);
+}
+#endif
+#if defined(MAL_SUPPORT_AVX512)
+void mal_pcm_s32_to_s16__avx512(void* dst, const void* src, mal_uint64 count, mal_dither_mode ditherMode)
+{
+    mal_pcm_s32_to_s16__optimized(dst, src, count, ditherMode);
+}
+#endif
+#if defined(MAL_SUPPORT_NEON)
+void mal_pcm_s32_to_s16__neon(void* dst, const void* src, mal_uint64 count, mal_dither_mode ditherMode)
+{
+    mal_pcm_s32_to_s16__optimized(dst, src, count, ditherMode);
+}
+#endif
 
 void mal_pcm_s32_to_s16(void* dst, const void* src, mal_uint64 count, mal_dither_mode ditherMode)
 {
@@ -18130,6 +18378,24 @@ void mal_pcm_s32_to_s24__optimized(void* dst, const void* src, mal_uint64 count,
 
 #if defined(MAL_SUPPORT_SSE2)
 void mal_pcm_s32_to_s24__sse2(void* dst, const void* src, mal_uint64 count, mal_dither_mode ditherMode)
+{
+    mal_pcm_s32_to_s24__optimized(dst, src, count, ditherMode);
+}
+#endif
+#if defined(MAL_SUPPORT_AVX)
+void mal_pcm_s32_to_s24__avx(void* dst, const void* src, mal_uint64 count, mal_dither_mode ditherMode)
+{
+    mal_pcm_s32_to_s24__optimized(dst, src, count, ditherMode);
+}
+#endif
+#if defined(MAL_SUPPORT_AVX512)
+void mal_pcm_s32_to_s24__avx512(void* dst, const void* src, mal_uint64 count, mal_dither_mode ditherMode)
+{
+    mal_pcm_s32_to_s24__optimized(dst, src, count, ditherMode);
+}
+#endif
+#if defined(MAL_SUPPORT_NEON)
+void mal_pcm_s32_to_s24__neon(void* dst, const void* src, mal_uint64 count, mal_dither_mode ditherMode)
 {
     mal_pcm_s32_to_s24__optimized(dst, src, count, ditherMode);
 }
@@ -18183,6 +18449,24 @@ void mal_pcm_s32_to_f32__optimized(void* dst, const void* src, mal_uint64 count,
 
 #if defined(MAL_SUPPORT_SSE2)
 void mal_pcm_s32_to_f32__sse2(void* dst, const void* src, mal_uint64 count, mal_dither_mode ditherMode)
+{
+    mal_pcm_s32_to_f32__optimized(dst, src, count, ditherMode);
+}
+#endif
+#if defined(MAL_SUPPORT_AVX)
+void mal_pcm_s32_to_f32__avx(void* dst, const void* src, mal_uint64 count, mal_dither_mode ditherMode)
+{
+    mal_pcm_s32_to_f32__optimized(dst, src, count, ditherMode);
+}
+#endif
+#if defined(MAL_SUPPORT_AVX512)
+void mal_pcm_s32_to_f32__avx512(void* dst, const void* src, mal_uint64 count, mal_dither_mode ditherMode)
+{
+    mal_pcm_s32_to_f32__optimized(dst, src, count, ditherMode);
+}
+#endif
+#if defined(MAL_SUPPORT_NEON)
+void mal_pcm_s32_to_f32__neon(void* dst, const void* src, mal_uint64 count, mal_dither_mode ditherMode)
 {
     mal_pcm_s32_to_f32__optimized(dst, src, count, ditherMode);
 }
@@ -18288,6 +18572,24 @@ void mal_pcm_f32_to_u8__optimized(void* dst, const void* src, mal_uint64 count, 
 
 #if defined(MAL_SUPPORT_SSE2)
 void mal_pcm_f32_to_u8__sse2(void* dst, const void* src, mal_uint64 count, mal_dither_mode ditherMode)
+{
+    mal_pcm_f32_to_u8__optimized(dst, src, count, ditherMode);
+}
+#endif
+#if defined(MAL_SUPPORT_AVX)
+void mal_pcm_f32_to_u8__avx(void* dst, const void* src, mal_uint64 count, mal_dither_mode ditherMode)
+{
+    mal_pcm_f32_to_u8__optimized(dst, src, count, ditherMode);
+}
+#endif
+#if defined(MAL_SUPPORT_AVX512)
+void mal_pcm_f32_to_u8__avx512(void* dst, const void* src, mal_uint64 count, mal_dither_mode ditherMode)
+{
+    mal_pcm_f32_to_u8__optimized(dst, src, count, ditherMode);
+}
+#endif
+#if defined(MAL_SUPPORT_NEON)
+void mal_pcm_f32_to_u8__neon(void* dst, const void* src, mal_uint64 count, mal_dither_mode ditherMode)
 {
     mal_pcm_f32_to_u8__optimized(dst, src, count, ditherMode);
 }
@@ -18399,7 +18701,6 @@ void mal_pcm_f32_to_s16__optimized(void* dst, const void* src, mal_uint64 count,
 #if defined(MAL_SUPPORT_SSE2)
 void mal_pcm_f32_to_s16__sse2(void* dst, const void* src, mal_uint64 count, mal_dither_mode ditherMode)
 {
-#if 1
     mal_int16* dst_s16 = (mal_int16*)dst;
     const float* src_f32 = (const float*)src;
 
@@ -18457,7 +18758,7 @@ void mal_pcm_f32_to_s16__sse2(void* dst, const void* src, mal_uint64 count, mal_
         x0 = _mm_mul_ps(x0, _mm_set1_ps(32767.0f));
         x1 = _mm_mul_ps(x1, _mm_set1_ps(32767.0f));
 
-        *((__m128i*)(dst_s16 + i)) = _mm_packs_epi32(_mm_cvtps_epi32(x0), _mm_cvtps_epi32(x1));
+        *((__m128i*)(dst_s16 + i)) = _mm_packs_epi32(_mm_cvttps_epi32(x0), _mm_cvttps_epi32(x1));
 
         i += 8;
     }
@@ -18472,9 +18773,118 @@ void mal_pcm_f32_to_s16__sse2(void* dst, const void* src, mal_uint64 count, mal_
 
         dst_s16[i] = (mal_int16)x;
     }
-#else
-    mal_pcm_f32_to_s16__optimized(dst, src, count, ditherMode);
+}
 #endif
+#if defined(MAL_SUPPORT_AVX)
+void mal_pcm_f32_to_s16__avx(void* dst, const void* src, mal_uint64 count, mal_dither_mode ditherMode)
+{
+    mal_int16* dst_s16 = (mal_int16*)dst;
+    const float* src_f32 = (const float*)src;
+
+    float ditherMin = 0;
+    float ditherMax = 0;
+    if (ditherMode != mal_dither_mode_none) {
+        ditherMin = 1.0f / -32768;
+        ditherMax = 1.0f /  32767;
+    }
+
+    mal_uint64 i = 0;
+
+    // AVX. AVX allows us to output 16 s16's at a time which means our loop is unrolled 16 times.
+    mal_uint64 count16 = count >> 4;
+    for (mal_uint64 i16 = 0; i16 < count16; i16 += 1) {
+        __m256 d0;
+        __m256 d1;
+        if (ditherMode == mal_dither_mode_none) {
+            d0 = _mm256_set1_ps(0);
+            d1 = _mm256_set1_ps(0);
+        } else if (ditherMode == mal_dither_mode_rectangle) {
+            d0 = _mm256_set_ps(
+                mal_dither_f32_rectangle(ditherMin, ditherMax),
+                mal_dither_f32_rectangle(ditherMin, ditherMax),
+                mal_dither_f32_rectangle(ditherMin, ditherMax),
+                mal_dither_f32_rectangle(ditherMin, ditherMax),
+                mal_dither_f32_rectangle(ditherMin, ditherMax),
+                mal_dither_f32_rectangle(ditherMin, ditherMax),
+                mal_dither_f32_rectangle(ditherMin, ditherMax),
+                mal_dither_f32_rectangle(ditherMin, ditherMax)
+            );
+            d1 = _mm256_set_ps(
+                mal_dither_f32_rectangle(ditherMin, ditherMax),
+                mal_dither_f32_rectangle(ditherMin, ditherMax),
+                mal_dither_f32_rectangle(ditherMin, ditherMax),
+                mal_dither_f32_rectangle(ditherMin, ditherMax),
+                mal_dither_f32_rectangle(ditherMin, ditherMax),
+                mal_dither_f32_rectangle(ditherMin, ditherMax),
+                mal_dither_f32_rectangle(ditherMin, ditherMax),
+                mal_dither_f32_rectangle(ditherMin, ditherMax)
+            );
+        } else {
+            d0 = _mm256_set_ps(
+                mal_dither_f32_triangle(ditherMin, ditherMax),
+                mal_dither_f32_triangle(ditherMin, ditherMax),
+                mal_dither_f32_triangle(ditherMin, ditherMax),
+                mal_dither_f32_triangle(ditherMin, ditherMax),
+                mal_dither_f32_triangle(ditherMin, ditherMax),
+                mal_dither_f32_triangle(ditherMin, ditherMax),
+                mal_dither_f32_triangle(ditherMin, ditherMax),
+                mal_dither_f32_triangle(ditherMin, ditherMax)
+            );
+            d1 = _mm256_set_ps(
+                mal_dither_f32_triangle(ditherMin, ditherMax),
+                mal_dither_f32_triangle(ditherMin, ditherMax),
+                mal_dither_f32_triangle(ditherMin, ditherMax),
+                mal_dither_f32_triangle(ditherMin, ditherMax),
+                mal_dither_f32_triangle(ditherMin, ditherMax),
+                mal_dither_f32_triangle(ditherMin, ditherMax),
+                mal_dither_f32_triangle(ditherMin, ditherMax),
+                mal_dither_f32_triangle(ditherMin, ditherMax)
+            );
+        }
+
+        __m256 x0 = *((__m256*)(src_f32 + i) + 0);
+        __m256 x1 = *((__m256*)(src_f32 + i) + 1);
+
+        x0 = _mm256_add_ps(x0, d0);
+        x1 = _mm256_add_ps(x1, d1);
+
+        x0 = _mm256_mul_ps(x0, _mm256_set1_ps(32767.0f));
+        x1 = _mm256_mul_ps(x1, _mm256_set1_ps(32767.0f));
+
+        // Computing the final result is a little more complicated for AVX than SSE.
+        __m256i i0 = _mm256_cvttps_epi32(x0);
+        __m256i i1 = _mm256_cvttps_epi32(x1);
+        __m256i p0 = _mm256_permute2x128_si256(i0, i1, 32);
+        __m256i p1 = _mm256_permute2x128_si256(i0, i1, 49);
+        __m256i r  = _mm256_packs_epi32(p0, p1);
+
+        *((__m256i*)(dst_s16 + i)) = r;
+        i += 16;
+    }
+
+
+    // Leftover.
+    for (; i < count; i += 1) {
+        float x = src_f32[i];
+        x = x + mal_dither_f32(ditherMode, ditherMin, ditherMax);
+        x = ((x < -1) ? -1 : ((x > 1) ? 1 : x));    // clip
+        x = x * 32767.0f;                           // -1..1 to -32767..32767
+
+        dst_s16[i] = (mal_int16)x;
+    }
+}
+#endif
+#if defined(MAL_SUPPORT_AVX512)
+void mal_pcm_f32_to_s16__avx512(void* dst, const void* src, mal_uint64 count, mal_dither_mode ditherMode)
+{
+    // TODO: Convert this from AVX to AVX-512.
+    mal_pcm_f32_to_s16__avx(dst, src, count, ditherMode);
+}
+#endif
+#if defined(MAL_SUPPORT_NEON)
+void mal_pcm_f32_to_s16__neon(void* dst, const void* src, mal_uint64 count, mal_dither_mode ditherMode)
+{
+    mal_pcm_f32_to_s16__optimized(dst, src, count, ditherMode);
 }
 #endif
 
@@ -18528,6 +18938,24 @@ void mal_pcm_f32_to_s24__sse2(void* dst, const void* src, mal_uint64 count, mal_
     mal_pcm_f32_to_s24__optimized(dst, src, count, ditherMode);
 }
 #endif
+#if defined(MAL_SUPPORT_AVX)
+void mal_pcm_f32_to_s24__avx(void* dst, const void* src, mal_uint64 count, mal_dither_mode ditherMode)
+{
+    mal_pcm_f32_to_s24__optimized(dst, src, count, ditherMode);
+}
+#endif
+#if defined(MAL_SUPPORT_AVX512)
+void mal_pcm_f32_to_s24__avx512(void* dst, const void* src, mal_uint64 count, mal_dither_mode ditherMode)
+{
+    mal_pcm_f32_to_s24__optimized(dst, src, count, ditherMode);
+}
+#endif
+#if defined(MAL_SUPPORT_NEON)
+void mal_pcm_f32_to_s24__neon(void* dst, const void* src, mal_uint64 count, mal_dither_mode ditherMode)
+{
+    mal_pcm_f32_to_s24__optimized(dst, src, count, ditherMode);
+}
+#endif
 
 void mal_pcm_f32_to_s24(void* dst, const void* src, mal_uint64 count, mal_dither_mode ditherMode)
 {
@@ -18572,6 +19000,24 @@ void mal_pcm_f32_to_s32__optimized(void* dst, const void* src, mal_uint64 count,
 
 #if defined(MAL_SUPPORT_SSE2)
 void mal_pcm_f32_to_s32__sse2(void* dst, const void* src, mal_uint64 count, mal_dither_mode ditherMode)
+{
+    mal_pcm_f32_to_s32__optimized(dst, src, count, ditherMode);
+}
+#endif
+#if defined(MAL_SUPPORT_AVX)
+void mal_pcm_f32_to_s32__avx(void* dst, const void* src, mal_uint64 count, mal_dither_mode ditherMode)
+{
+    mal_pcm_f32_to_s32__optimized(dst, src, count, ditherMode);
+}
+#endif
+#if defined(MAL_SUPPORT_AVX512)
+void mal_pcm_f32_to_s32__avx512(void* dst, const void* src, mal_uint64 count, mal_dither_mode ditherMode)
+{
+    mal_pcm_f32_to_s32__optimized(dst, src, count, ditherMode);
+}
+#endif
+#if defined(MAL_SUPPORT_NEON)
+void mal_pcm_f32_to_s32__neon(void* dst, const void* src, mal_uint64 count, mal_dither_mode ditherMode)
 {
     mal_pcm_f32_to_s32__optimized(dst, src, count, ditherMode);
 }

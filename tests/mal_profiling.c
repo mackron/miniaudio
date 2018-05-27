@@ -269,21 +269,210 @@ void pcm_convert__sse2(void* pOut, mal_format formatOut, const void* pIn, mal_fo
 #if defined(MAL_SUPPORT_AVX)
 void pcm_convert__avx(void* pOut, mal_format formatOut, const void* pIn, mal_format formatIn, mal_uint64 sampleCount, mal_dither_mode ditherMode)
 {
-    pcm_convert__sse2(pOut, formatOut, pIn, formatIn, sampleCount, ditherMode);
+    switch (formatIn)
+    {
+        case mal_format_u8:
+        {
+            switch (formatOut)
+            {
+                case mal_format_s16: mal_pcm_u8_to_s16__avx(pOut, pIn, sampleCount, ditherMode); return;
+                case mal_format_s24: mal_pcm_u8_to_s24__avx(pOut, pIn, sampleCount, ditherMode); return;
+                case mal_format_s32: mal_pcm_u8_to_s32__avx(pOut, pIn, sampleCount, ditherMode); return;
+                case mal_format_f32: mal_pcm_u8_to_f32__avx(pOut, pIn, sampleCount, ditherMode); return;
+                default: break;
+            }
+        } break;
+
+        case mal_format_s16:
+        {
+            switch (formatOut)
+            {
+                case mal_format_u8:  mal_pcm_s16_to_u8__avx( pOut, pIn, sampleCount, ditherMode); return;
+                case mal_format_s24: mal_pcm_s16_to_s24__avx(pOut, pIn, sampleCount, ditherMode); return;
+                case mal_format_s32: mal_pcm_s16_to_s32__avx(pOut, pIn, sampleCount, ditherMode); return;
+                case mal_format_f32: mal_pcm_s16_to_f32__avx(pOut, pIn, sampleCount, ditherMode); return;
+                default: break;
+            }
+        } break;
+
+        case mal_format_s24:
+        {
+            switch (formatOut)
+            {
+                case mal_format_u8:  mal_pcm_s24_to_u8__avx( pOut, pIn, sampleCount, ditherMode); return;
+                case mal_format_s16: mal_pcm_s24_to_s16__avx(pOut, pIn, sampleCount, ditherMode); return;
+                case mal_format_s32: mal_pcm_s24_to_s32__avx(pOut, pIn, sampleCount, ditherMode); return;
+                case mal_format_f32: mal_pcm_s24_to_f32__avx(pOut, pIn, sampleCount, ditherMode); return;
+                default: break;
+            }
+        } break;
+
+        case mal_format_s32:
+        {
+            switch (formatOut)
+            {
+                case mal_format_u8:  mal_pcm_s32_to_u8__avx( pOut, pIn, sampleCount, ditherMode); return;
+                case mal_format_s16: mal_pcm_s32_to_s16__avx(pOut, pIn, sampleCount, ditherMode); return;
+                case mal_format_s24: mal_pcm_s32_to_s24__avx(pOut, pIn, sampleCount, ditherMode); return;
+                case mal_format_f32: mal_pcm_s32_to_f32__avx(pOut, pIn, sampleCount, ditherMode); return;
+                default: break;
+            }
+        } break;
+
+        case mal_format_f32:
+        {
+            switch (formatOut)
+            {
+                case mal_format_u8:  mal_pcm_f32_to_u8__avx( pOut, pIn, sampleCount, ditherMode); return;
+                case mal_format_s16: mal_pcm_f32_to_s16__avx(pOut, pIn, sampleCount, ditherMode); return;
+                case mal_format_s24: mal_pcm_f32_to_s24__avx(pOut, pIn, sampleCount, ditherMode); return;
+                case mal_format_s32: mal_pcm_f32_to_s32__avx(pOut, pIn, sampleCount, ditherMode); return;
+                default: break;
+            }
+        } break;
+
+        default: break;
+    }
 }
 #endif
 
 #if defined(MAL_SUPPORT_AVX512)
 void pcm_convert__avx512(void* pOut, mal_format formatOut, const void* pIn, mal_format formatIn, mal_uint64 sampleCount, mal_dither_mode ditherMode)
 {
-    pcm_convert__avx(pOut, formatOut, pIn, formatIn, sampleCount, ditherMode);
+    switch (formatIn)
+    {
+        case mal_format_u8:
+        {
+            switch (formatOut)
+            {
+                case mal_format_s16: mal_pcm_u8_to_s16__avx512(pOut, pIn, sampleCount, ditherMode); return;
+                case mal_format_s24: mal_pcm_u8_to_s24__avx512(pOut, pIn, sampleCount, ditherMode); return;
+                case mal_format_s32: mal_pcm_u8_to_s32__avx512(pOut, pIn, sampleCount, ditherMode); return;
+                case mal_format_f32: mal_pcm_u8_to_f32__avx512(pOut, pIn, sampleCount, ditherMode); return;
+                default: break;
+            }
+        } break;
+
+        case mal_format_s16:
+        {
+            switch (formatOut)
+            {
+                case mal_format_u8:  mal_pcm_s16_to_u8__avx512( pOut, pIn, sampleCount, ditherMode); return;
+                case mal_format_s24: mal_pcm_s16_to_s24__avx512(pOut, pIn, sampleCount, ditherMode); return;
+                case mal_format_s32: mal_pcm_s16_to_s32__avx512(pOut, pIn, sampleCount, ditherMode); return;
+                case mal_format_f32: mal_pcm_s16_to_f32__avx512(pOut, pIn, sampleCount, ditherMode); return;
+                default: break;
+            }
+        } break;
+
+        case mal_format_s24:
+        {
+            switch (formatOut)
+            {
+                case mal_format_u8:  mal_pcm_s24_to_u8__avx512( pOut, pIn, sampleCount, ditherMode); return;
+                case mal_format_s16: mal_pcm_s24_to_s16__avx512(pOut, pIn, sampleCount, ditherMode); return;
+                case mal_format_s32: mal_pcm_s24_to_s32__avx512(pOut, pIn, sampleCount, ditherMode); return;
+                case mal_format_f32: mal_pcm_s24_to_f32__avx512(pOut, pIn, sampleCount, ditherMode); return;
+                default: break;
+            }
+        } break;
+
+        case mal_format_s32:
+        {
+            switch (formatOut)
+            {
+                case mal_format_u8:  mal_pcm_s32_to_u8__avx512( pOut, pIn, sampleCount, ditherMode); return;
+                case mal_format_s16: mal_pcm_s32_to_s16__avx512(pOut, pIn, sampleCount, ditherMode); return;
+                case mal_format_s24: mal_pcm_s32_to_s24__avx512(pOut, pIn, sampleCount, ditherMode); return;
+                case mal_format_f32: mal_pcm_s32_to_f32__avx512(pOut, pIn, sampleCount, ditherMode); return;
+                default: break;
+            }
+        } break;
+
+        case mal_format_f32:
+        {
+            switch (formatOut)
+            {
+                case mal_format_u8:  mal_pcm_f32_to_u8__avx512( pOut, pIn, sampleCount, ditherMode); return;
+                case mal_format_s16: mal_pcm_f32_to_s16__avx512(pOut, pIn, sampleCount, ditherMode); return;
+                case mal_format_s24: mal_pcm_f32_to_s24__avx512(pOut, pIn, sampleCount, ditherMode); return;
+                case mal_format_s32: mal_pcm_f32_to_s32__avx512(pOut, pIn, sampleCount, ditherMode); return;
+                default: break;
+            }
+        } break;
+
+        default: break;
+    }
 }
 #endif
 
 #if defined(MAL_SUPPORT_NEON)
 void pcm_convert__neon(void* pOut, mal_format formatOut, const void* pIn, mal_format formatIn, mal_uint64 sampleCount, mal_dither_mode ditherMode)
 {
-    pcm_convert__reference(pOut, formatOut, pIn, formatIn, sampleCount, ditherMode);
+    switch (formatIn)
+    {
+        case mal_format_u8:
+        {
+            switch (formatOut)
+            {
+                case mal_format_s16: mal_pcm_u8_to_s16__neon(pOut, pIn, sampleCount, ditherMode); return;
+                case mal_format_s24: mal_pcm_u8_to_s24__neon(pOut, pIn, sampleCount, ditherMode); return;
+                case mal_format_s32: mal_pcm_u8_to_s32__neon(pOut, pIn, sampleCount, ditherMode); return;
+                case mal_format_f32: mal_pcm_u8_to_f32__neon(pOut, pIn, sampleCount, ditherMode); return;
+                default: break;
+            }
+        } break;
+
+        case mal_format_s16:
+        {
+            switch (formatOut)
+            {
+                case mal_format_u8:  mal_pcm_s16_to_u8__neon( pOut, pIn, sampleCount, ditherMode); return;
+                case mal_format_s24: mal_pcm_s16_to_s24__neon(pOut, pIn, sampleCount, ditherMode); return;
+                case mal_format_s32: mal_pcm_s16_to_s32__neon(pOut, pIn, sampleCount, ditherMode); return;
+                case mal_format_f32: mal_pcm_s16_to_f32__neon(pOut, pIn, sampleCount, ditherMode); return;
+                default: break;
+            }
+        } break;
+
+        case mal_format_s24:
+        {
+            switch (formatOut)
+            {
+                case mal_format_u8:  mal_pcm_s24_to_u8__neon( pOut, pIn, sampleCount, ditherMode); return;
+                case mal_format_s16: mal_pcm_s24_to_s16__neon(pOut, pIn, sampleCount, ditherMode); return;
+                case mal_format_s32: mal_pcm_s24_to_s32__neon(pOut, pIn, sampleCount, ditherMode); return;
+                case mal_format_f32: mal_pcm_s24_to_f32__neon(pOut, pIn, sampleCount, ditherMode); return;
+                default: break;
+            }
+        } break;
+
+        case mal_format_s32:
+        {
+            switch (formatOut)
+            {
+                case mal_format_u8:  mal_pcm_s32_to_u8__neon( pOut, pIn, sampleCount, ditherMode); return;
+                case mal_format_s16: mal_pcm_s32_to_s16__neon(pOut, pIn, sampleCount, ditherMode); return;
+                case mal_format_s24: mal_pcm_s32_to_s24__neon(pOut, pIn, sampleCount, ditherMode); return;
+                case mal_format_f32: mal_pcm_s32_to_f32__neon(pOut, pIn, sampleCount, ditherMode); return;
+                default: break;
+            }
+        } break;
+
+        case mal_format_f32:
+        {
+            switch (formatOut)
+            {
+                case mal_format_u8:  mal_pcm_f32_to_u8__neon( pOut, pIn, sampleCount, ditherMode); return;
+                case mal_format_s16: mal_pcm_f32_to_s16__neon(pOut, pIn, sampleCount, ditherMode); return;
+                case mal_format_s24: mal_pcm_f32_to_s24__neon(pOut, pIn, sampleCount, ditherMode); return;
+                case mal_format_s32: mal_pcm_f32_to_s32__neon(pOut, pIn, sampleCount, ditherMode); return;
+                default: break;
+            }
+        } break;
+
+        default: break;
+    }
 }
 #endif
 
@@ -359,7 +548,7 @@ int do_profiling__format_conversion__profile_individual(mal_format formatIn, mal
             {
                 mal_int16 a = ((const mal_int16*)pReferenceData)[iSample];
                 mal_int16 b = ((const mal_int16*)pTestData)[iSample];
-                if (abs(a-b) > 1) {
+                if (abs(a-b) > 0) {
                     printf("Incorrect Sample: (%d) %d != %d\n", (int)iSample, a, b);
                     passed = MAL_FALSE;
                 }
@@ -900,9 +1089,19 @@ int do_profiling__src()
 
 
 // Converts two 4xf32 vectors to one 8xi16 vector with signed saturation.
-static inline __m128i drmath_vf32_to_vi16__sse2(__m128 f32_0, __m128 f32_1)
+__m128i drmath_vf32_to_vi16__sse2(__m128 f32_0, __m128 f32_1)
 {    
-    return _mm_packs_epi32(_mm_cvtps_epi32(f32_0), _mm_cvtps_epi32(f32_1));
+    return _mm_packs_epi32(_mm_cvttps_epi32(f32_0), _mm_cvttps_epi32(f32_1));
+}
+
+__m256i drmath_vf32_to_vi16__avx(__m256 f32_0, __m256 f32_1)
+{
+    __m256i i0 = _mm256_cvttps_epi32(f32_0);
+    __m256i i1 = _mm256_cvttps_epi32(f32_1);
+    __m256i p0 = _mm256_permute2x128_si256(i0, i1, 32);
+    __m256i p1 = _mm256_permute2x128_si256(i0, i1, 49);
+    __m256i r  = _mm256_packs_epi32(p0, p1);
+    return r;
 }
 
 int main(int argc, char** argv)
@@ -916,7 +1115,11 @@ int main(int argc, char** argv)
         //__m128  f1 = _mm_set_ps(-32780, 6, 5, 4);
         //__m128i r = drmath_vf32_to_vi16__sse2(f0, f1);
 
-        //int a = 5;
+        __m256  f0 = _mm256_set_ps(7,  6,  5,  4,  3,  2,  1, 0);
+        __m256  f1 = _mm256_set_ps(15, 14, 13, 12, 11, 10, 9, 8);
+        __m256i r = drmath_vf32_to_vi16__avx(f0, f1);
+        
+        int a = 5;
     }
 
 
