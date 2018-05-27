@@ -3235,6 +3235,12 @@ static MAL_INLINE __m512 mal_mix_f32_fast__avx512(__m512 x, __m512 y, __m512 a)
     return _mm512_add_ps(x, _mm512_mul_ps(_mm512_sub_ps(y, x), a));
 }
 #endif
+#if defined(MAL_SUPPORT_NEON)
+static MAL_INLINE float32x4_t mal_mix_f32_fast__neon(float32x4_t x, float32x4_t y, float32x4_t a)
+{
+    return vaddq_f32(x, vmulq_f32(vsubq_f32(y, x), a));
+}
+#endif
 
 
 static MAL_INLINE double mal_mix_f64(double x, double y, double a)
@@ -20223,6 +20229,40 @@ static MAL_INLINE __m256 mal_src_sinc__interpolation_factor__avx(const mal_src* 
 
 #endif
 
+#if defined(MAL_SUPPORT_NEON)
+static MAL_INLINE float32x4_t mal_fabsf_neon(float32x4_t x)
+{
+    return vabdq_f32(vmovq_n_f32(0), x);
+}
+
+static MAL_INLINE float32x4_t mal_src_sinc__interpolation_factor__neon(const mal_src* pSRC, float32x4_t x)
+{
+    float32x4_t xabs = mal_fabsf_neon(x);
+    xabs = vmulq_n_f32(xabs, MAL_SRC_SINC_LOOKUP_TABLE_RESOLUTION);
+
+    int32x4_t ixabs = vcvtq_s32_f32(xabs);
+
+    int* ixabsv = (int*)&ixabs;
+    
+    float lo[4];
+    lo[0] = pSRC->sinc.table[ixabsv[0]];
+    lo[1] = pSRC->sinc.table[ixabsv[1]];
+    lo[2] = pSRC->sinc.table[ixabsv[2]];
+    lo[3] = pSRC->sinc.table[ixabsv[3]];
+
+    float hi[4];
+    hi[0] = pSRC->sinc.table[ixabsv[0]+1];
+    hi[1] = pSRC->sinc.table[ixabsv[1]+1];
+    hi[2] = pSRC->sinc.table[ixabsv[2]+1];
+    hi[3] = pSRC->sinc.table[ixabsv[3]+1];
+
+    float32x4_t a = vsubq_f32(xabs, vcvtq_f32_s32(ixabs));
+    float32x4_t r = mal_mix_f32_fast__neon(vld1q_f32(lo), vld1q_f32(hi), a);
+
+    return r;
+}
+#endif
+
 mal_uint64 mal_src_read_deinterleaved__sinc(mal_src* pSRC, mal_uint64 frameCount, void** ppSamplesOut, void* pUserData)
 {
     mal_assert(pSRC != NULL);
@@ -20388,6 +20428,29 @@ mal_uint64 mal_src_read_deinterleaved__sinc(mal_src* pSRC, mal_uint64 frameCount
 
                         __m128 a = mal_src_sinc__interpolation_factor__sse2(pSRC, _mm_sub_ps(t, *w));
                         r = _mm_add_ps(r, _mm_mul_ps(*s, a));
+                    }
+
+                    sampleOut += ((float*)(&r))[0];
+                    sampleOut += ((float*)(&r))[1];
+                    sampleOut += ((float*)(&r))[2];
+                    sampleOut += ((float*)(&r))[3];
+
+                    iWindow += windowWidth4 * 4;
+                }
+                else
+#endif
+#if defined(MAL_SUPPORT_NEON)
+                if (pSRC->useNEON) {
+                    float32x4_t t = vmovq_n_f32((timeIn - iTimeInF));
+                    float32x4_t r = vmovq_n_f32(0);
+
+                    mal_int32 windowWidth4 = windowWidthSIMD2 >> 2;
+                    for (mal_int32 iWindow4 = 0; iWindow4 < windowWidth4; iWindow4 += 1) {
+                        float32x4_t* s = (float32x4_t*)windowSamples + iWindow4;
+                        float32x4_t* w = (float32x4_t*)iWindowF + iWindow4;
+
+                        float32x4_t a = mal_src_sinc__interpolation_factor__neon(pSRC, vsubq_f32(t, *w));
+                        r = vaddq_f32(r, vmulq_f32(*s, a));
                     }
 
                     sampleOut += ((float*)(&r))[0];
