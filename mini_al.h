@@ -3335,6 +3335,10 @@ static MAL_INLINE mal_int32 mal_dither_s32(mal_dither_mode ditherMode, mal_int32
 // multiple of the alignment. The alignment must be a power of 2.
 void mal_split_buffer(void* pBuffer, size_t bufferSize, size_t splitCount, size_t alignment, void** ppBuffersOut, size_t* pSplitSizeOut)
 {
+    if (pSplitSizeOut) {
+        *pSplitSizeOut = 0;
+    }
+
     if (pBuffer == NULL || bufferSize == 0 || splitCount == 0) {
         return;
     }
@@ -20075,6 +20079,9 @@ mal_src_config mal_src_config_init(mal_uint32 sampleRateIn, mal_uint32 sampleRat
 //
 ///////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
+// Comment this to disable interpolation of table lookups. Less accurate, but faster.
+#define MAL_USE_SINC_TABLE_INTERPOLATION
+
 // Retrieves a sample from the input buffer's window. Values >= 0 retrieve future samples. Negative values return past samples.
 static MAL_INLINE float mal_src_sinc__get_input_sample_from_window(const mal_src* pSRC, mal_uint32 channel, mal_uint32 windowPosInSamples, mal_int32 sampleIndex)
 {
@@ -20095,14 +20102,14 @@ static MAL_INLINE float mal_src_sinc__interpolation_factor(const mal_src* pSRC, 
     mal_assert(pSRC != NULL);
 
     float xabs = (float)fabs(x);
-    if (xabs >= MAL_SRC_SINC_MAX_WINDOW_WIDTH /*pSRC->config.sinc.windowWidth*/) {
-        xabs = 1;   // <-- A non-zero integer will always return 0.
-    }
+    //if (xabs >= MAL_SRC_SINC_MAX_WINDOW_WIDTH /*pSRC->config.sinc.windowWidth*/) {
+    //    xabs = 1;   // <-- A non-zero integer will always return 0.
+    //}
 
     xabs = xabs * MAL_SRC_SINC_LOOKUP_TABLE_RESOLUTION;
     mal_int32 ixabs = (mal_int32)xabs;
 
-#if 1
+#if defined(MAL_USE_SINC_TABLE_INTERPOLATION)
     float a = xabs - ixabs;
     return mal_mix_f32_fast(pSRC->sinc.table[ixabs], pSRC->sinc.table[ixabs+1], a);
 #else
@@ -20113,14 +20120,7 @@ static MAL_INLINE float mal_src_sinc__interpolation_factor(const mal_src* pSRC, 
 #if defined(MAL_SUPPORT_SSE2)
 static MAL_INLINE __m128 mal_fabsf_sse2(__m128 x)
 {
-    static MAL_ALIGN(16) mal_uint32 mask[4] = {
-        0x7FFFFFFF,
-        0x7FFFFFFF,
-        0x7FFFFFFF,
-        0x7FFFFFFF
-    };
-
-    return _mm_and_ps(*(__m128*)mask, x);
+    return _mm_and_ps(_mm_castsi128_ps(_mm_set1_epi32(0x7FFFFFFF)), x);
 }
 
 static MAL_INLINE __m128 mal_truncf_sse2(__m128 x)
@@ -20175,15 +20175,15 @@ static MAL_INLINE __m256 mal_fabsf_avx(__m256 x)
 #if 0
 static MAL_INLINE __m256 mal_src_sinc__interpolation_factor__avx(const mal_src* pSRC, __m256 x)
 {
-    __m256 windowWidth256 = _mm256_set1_ps(MAL_SRC_SINC_MAX_WINDOW_WIDTH);
+    //__m256 windowWidth256 = _mm256_set1_ps(MAL_SRC_SINC_MAX_WINDOW_WIDTH);
     __m256 resolution256  = _mm256_set1_ps(MAL_SRC_SINC_LOOKUP_TABLE_RESOLUTION);
-    __m256 one            = _mm256_set1_ps(1);
+    //__m256 one            = _mm256_set1_ps(1);
 
     __m256 xabs = mal_fabsf_avx(x);
 
     // if (MAL_SRC_SINC_MAX_WINDOW_WIDTH <= xabs) xabs = 1 else xabs = xabs;
-    __m256 xcmp = _mm256_cmp_ps(windowWidth256, xabs, 2);                      // 2 = Less than or equal = _mm_cmple_ps.
-    xabs = _mm256_or_ps(_mm256_and_ps(one, xcmp), _mm256_andnot_ps(xcmp, xabs));     // xabs = (xcmp) ? 1 : xabs;
+    //__m256 xcmp = _mm256_cmp_ps(windowWidth256, xabs, 2);                      // 2 = Less than or equal = _mm_cmple_ps.
+    //xabs = _mm256_or_ps(_mm256_and_ps(one, xcmp), _mm256_andnot_ps(xcmp, xabs));     // xabs = (xcmp) ? 1 : xabs;
 
     xabs = _mm256_mul_ps(xabs, resolution256);
 
@@ -20308,8 +20308,6 @@ mal_uint64 mal_src_read_deinterleaved__sinc(mal_src* pSRC, mal_uint64 frameCount
                 float iTimeInF     = mal_floorf(timeIn);
                 mal_uint32 iTimeIn = (mal_uint32)iTimeInF;
 
-                //mal_int32 iWindowBeg = -windowWidth+1;
-                //mal_int32 iWindowEnd =  windowWidth;
                 mal_int32 iWindow = 0;
 
                 // Pre-load the window samples into an aligned buffer to begin with. Need to put these into an aligned buffer to make SIMD easier.
@@ -20338,13 +20336,11 @@ mal_uint64 mal_src_read_deinterleaved__sinc(mal_src* pSRC, mal_uint64 frameCount
                         ixabs[iWindow8] = _mm256_cvttps_epi32(xabs);
                             a[iWindow8] = _mm256_sub_ps(xabs, _mm256_cvtepi32_ps(ixabs[iWindow8]));
                     }
-
-                    __m256 lo[MAL_SRC_SINC_MAX_WINDOW_WIDTH*2/8];
-                    __m256 hi[MAL_SRC_SINC_MAX_WINDOW_WIDTH*2/8];
+                    
                     for (mal_int32 iWindow8 = 0; iWindow8 < windowWidth8; iWindow8 += 1) {
                         int* ixabsv = (int*)&ixabs[iWindow8];
 
-                        lo[iWindow8] = _mm256_set_ps(
+                        __m256 lo = _mm256_set_ps(
                             pSRC->sinc.table[ixabsv[7]],
                             pSRC->sinc.table[ixabsv[6]],
                             pSRC->sinc.table[ixabsv[5]],
@@ -20355,7 +20351,7 @@ mal_uint64 mal_src_read_deinterleaved__sinc(mal_src* pSRC, mal_uint64 frameCount
                             pSRC->sinc.table[ixabsv[0]]
                         );
     
-                        hi[iWindow8] = _mm256_set_ps(
+                        __m256 hi = _mm256_set_ps(
                             pSRC->sinc.table[ixabsv[7]+1],
                             pSRC->sinc.table[ixabsv[6]+1],
                             pSRC->sinc.table[ixabsv[5]+1],
@@ -20367,7 +20363,7 @@ mal_uint64 mal_src_read_deinterleaved__sinc(mal_src* pSRC, mal_uint64 frameCount
                         );
 
                         __m256 s = *((__m256*)windowSamples + iWindow8);
-                        r = _mm256_add_ps(r, _mm256_mul_ps(s, mal_mix_f32_fast__avx(lo[iWindow8], hi[iWindow8], a[iWindow8])));
+                        r = _mm256_add_ps(r, _mm256_mul_ps(s, mal_mix_f32_fast__avx(lo, hi, a[iWindow8])));
                     }
 
                     // Horizontal add.
