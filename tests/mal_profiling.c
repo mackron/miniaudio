@@ -1089,7 +1089,7 @@ int do_profiling__src()
     return 0;
 }
 
-
+#if 0
 // Converts two 4xf32 vectors to one 8xi16 vector with signed saturation.
 __m128i drmath_vf32_to_vi16__sse2(__m128 f32_0, __m128 f32_1)
 {    
@@ -1105,6 +1105,7 @@ __m256i drmath_vf32_to_vi16__avx(__m256 f32_0, __m256 f32_1)
     __m256i r  = _mm256_packs_epi32(p0, p1);
     return r;
 }
+#endif
 
 int main(int argc, char** argv)
 {
