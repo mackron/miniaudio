@@ -1461,7 +1461,7 @@ int do_channel_routing_tests()
         routerConfig.channelsIn = 6;
         routerConfig.channelsOut = routerConfig.channelsIn;
         routerConfig.noSSE2 = MAL_TRUE;
-        routerConfig.noAVX = MAL_TRUE;
+        routerConfig.noAVX2 = MAL_TRUE;
         routerConfig.noAVX512 = MAL_TRUE;
         routerConfig.noNEON = MAL_TRUE;
         mal_get_standard_channel_map(mal_standard_channel_map_microsoft, routerConfig.channelsIn, routerConfig.channelMapIn);
@@ -1564,7 +1564,7 @@ int do_channel_routing_tests()
         routerConfig.channelsIn = 6;
         routerConfig.channelsOut = routerConfig.channelsIn;
         routerConfig.noSSE2 = MAL_TRUE;
-        routerConfig.noAVX = MAL_TRUE;
+        routerConfig.noAVX2 = MAL_TRUE;
         routerConfig.noAVX512 = MAL_TRUE;
         routerConfig.noNEON = MAL_TRUE;
         mal_get_standard_channel_map(mal_standard_channel_map_microsoft, routerConfig.channelsIn, routerConfig.channelMapIn);
@@ -1673,7 +1673,7 @@ int do_channel_routing_tests()
         routerConfig.channelsIn = 2;
         routerConfig.channelsOut = 6;
         routerConfig.noSSE2 = MAL_TRUE;
-        routerConfig.noAVX = MAL_TRUE;
+        routerConfig.noAVX2 = MAL_TRUE;
         routerConfig.noAVX512 = MAL_TRUE;
         routerConfig.noNEON = MAL_TRUE;
         mal_get_standard_channel_map(mal_standard_channel_map_microsoft, routerConfig.channelsIn, routerConfig.channelMapIn);
@@ -1725,7 +1725,7 @@ int do_channel_routing_tests()
         routerConfig.channelsIn = 6;
         routerConfig.channelsOut = 2;
         routerConfig.noSSE2 = MAL_TRUE;
-        routerConfig.noAVX = MAL_TRUE;
+        routerConfig.noAVX2 = MAL_TRUE;
         routerConfig.noAVX512 = MAL_TRUE;
         routerConfig.noNEON = MAL_TRUE;
         mal_get_standard_channel_map(mal_standard_channel_map_microsoft, routerConfig.channelsIn, routerConfig.channelMapIn);
@@ -1775,7 +1775,7 @@ int do_channel_routing_tests()
         routerConfig.pUserData = NULL;
         routerConfig.mixingMode = mal_channel_mix_mode_planar_blend;
         routerConfig.noSSE2 = MAL_TRUE;
-        routerConfig.noAVX = MAL_TRUE;
+        routerConfig.noAVX2 = MAL_TRUE;
         routerConfig.noAVX512 = MAL_TRUE;
         routerConfig.noNEON = MAL_TRUE;
         
@@ -1897,7 +1897,7 @@ int do_channel_routing_tests()
         routerConfig.pUserData = NULL;
         routerConfig.mixingMode = mal_channel_mix_mode_planar_blend;
         routerConfig.noSSE2 = MAL_TRUE;
-        routerConfig.noAVX = MAL_TRUE;
+        routerConfig.noAVX2 = MAL_TRUE;
         routerConfig.noAVX512 = MAL_TRUE;
         routerConfig.noNEON = MAL_TRUE;
         
@@ -1973,7 +1973,7 @@ int do_channel_routing_tests()
         routerConfig.pUserData = NULL;
         routerConfig.mixingMode = mal_channel_mix_mode_planar_blend;
         routerConfig.noSSE2 = MAL_TRUE;
-        routerConfig.noAVX = MAL_TRUE;
+        routerConfig.noAVX2 = MAL_TRUE;
         routerConfig.noAVX512 = MAL_TRUE;
         routerConfig.noNEON = MAL_TRUE;
         
@@ -2032,7 +2032,7 @@ int do_channel_routing_tests()
         routerConfig.pUserData = NULL;
         routerConfig.mixingMode = mal_channel_mix_mode_planar_blend;
         routerConfig.noSSE2 = MAL_TRUE;
-        routerConfig.noAVX = MAL_TRUE;
+        routerConfig.noAVX2 = MAL_TRUE;
         routerConfig.noAVX512 = MAL_TRUE;
         routerConfig.noNEON = MAL_TRUE;
         
@@ -2402,10 +2402,10 @@ int main(int argc, char** argv)
     } else {
         printf("Has SSE:      NO\n");
     }
-    if (mal_has_avx()) {
-        printf("Has AVX:      YES\n");
+    if (mal_has_avx2()) {
+        printf("Has AVX2:     YES\n");
     } else {
-        printf("Has AVX:      NO\n");
+        printf("Has AVX2:     NO\n");
     }
     if (mal_has_avx512f()) {
         printf("Has AVX-512F: YES\n");
