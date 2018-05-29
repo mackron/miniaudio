@@ -19147,6 +19147,433 @@ void mal_pcm_deinterleave_f32(void** dst, const void* src, mal_uint64 frameCount
 }
 
 
+void mal_format_converter_init_callbacks__default(mal_format_converter* pConverter)
+{
+    mal_assert(pConverter != NULL);
+
+    switch (pConverter->config.formatIn)
+    {
+        case mal_format_u8:
+        {
+            if (pConverter->config.formatOut == mal_format_u8) {
+                pConverter->onConvertPCM = mal_pcm_u8_to_u8;
+            } else if (pConverter->config.formatOut == mal_format_s16) {
+                pConverter->onConvertPCM = mal_pcm_u8_to_s16;
+            } else if (pConverter->config.formatOut == mal_format_s24) {
+                pConverter->onConvertPCM = mal_pcm_u8_to_s24;
+            } else if (pConverter->config.formatOut == mal_format_s32) {
+                pConverter->onConvertPCM = mal_pcm_u8_to_s32;
+            } else if (pConverter->config.formatOut == mal_format_f32) {
+                pConverter->onConvertPCM = mal_pcm_u8_to_f32;
+            }
+        } break;
+
+        case mal_format_s16:
+        {
+            if (pConverter->config.formatOut == mal_format_u8) {
+                pConverter->onConvertPCM = mal_pcm_s16_to_u8;
+            } else if (pConverter->config.formatOut == mal_format_s16) {
+                pConverter->onConvertPCM = mal_pcm_s16_to_s16;
+            } else if (pConverter->config.formatOut == mal_format_s24) {
+                pConverter->onConvertPCM = mal_pcm_s16_to_s24;
+            } else if (pConverter->config.formatOut == mal_format_s32) {
+                pConverter->onConvertPCM = mal_pcm_s16_to_s32;
+            } else if (pConverter->config.formatOut == mal_format_f32) {
+                pConverter->onConvertPCM = mal_pcm_s16_to_f32;
+            }
+        } break;
+
+        case mal_format_s24:
+        {
+            if (pConverter->config.formatOut == mal_format_u8) {
+                pConverter->onConvertPCM = mal_pcm_s24_to_u8;
+            } else if (pConverter->config.formatOut == mal_format_s16) {
+                pConverter->onConvertPCM = mal_pcm_s24_to_s16;
+            } else if (pConverter->config.formatOut == mal_format_s24) {
+                pConverter->onConvertPCM = mal_pcm_s24_to_s24;
+            } else if (pConverter->config.formatOut == mal_format_s32) {
+                pConverter->onConvertPCM = mal_pcm_s24_to_s32;
+            } else if (pConverter->config.formatOut == mal_format_f32) {
+                pConverter->onConvertPCM = mal_pcm_s24_to_f32;
+            }
+        } break;
+
+        case mal_format_s32:
+        {
+            if (pConverter->config.formatOut == mal_format_u8) {
+                pConverter->onConvertPCM = mal_pcm_s32_to_u8;
+            } else if (pConverter->config.formatOut == mal_format_s16) {
+                pConverter->onConvertPCM = mal_pcm_s32_to_s16;
+            } else if (pConverter->config.formatOut == mal_format_s24) {
+                pConverter->onConvertPCM = mal_pcm_s32_to_s24;
+            } else if (pConverter->config.formatOut == mal_format_s32) {
+                pConverter->onConvertPCM = mal_pcm_s32_to_s32;
+            } else if (pConverter->config.formatOut == mal_format_f32) {
+                pConverter->onConvertPCM = mal_pcm_s32_to_f32;
+            }
+        } break;
+
+        case mal_format_f32:
+        default:
+        {
+            if (pConverter->config.formatOut == mal_format_u8) {
+                pConverter->onConvertPCM = mal_pcm_f32_to_u8;
+            } else if (pConverter->config.formatOut == mal_format_s16) {
+                pConverter->onConvertPCM = mal_pcm_f32_to_s16;
+            } else if (pConverter->config.formatOut == mal_format_s24) {
+                pConverter->onConvertPCM = mal_pcm_f32_to_s24;
+            } else if (pConverter->config.formatOut == mal_format_s32) {
+                pConverter->onConvertPCM = mal_pcm_f32_to_s32;
+            } else if (pConverter->config.formatOut == mal_format_f32) {
+                pConverter->onConvertPCM = mal_pcm_f32_to_f32;
+            }
+        } break;
+    }
+}
+
+#if defined(MAL_SUPPORT_SSE2)
+void mal_format_converter_init_callbacks__sse2(mal_format_converter* pConverter)
+{
+    mal_assert(pConverter != NULL);
+
+    switch (pConverter->config.formatIn)
+    {
+        case mal_format_u8:
+        {
+            if (pConverter->config.formatOut == mal_format_u8) {
+                pConverter->onConvertPCM = mal_pcm_u8_to_u8;
+            } else if (pConverter->config.formatOut == mal_format_s16) {
+                pConverter->onConvertPCM = mal_pcm_u8_to_s16__sse2;
+            } else if (pConverter->config.formatOut == mal_format_s24) {
+                pConverter->onConvertPCM = mal_pcm_u8_to_s24__sse2;
+            } else if (pConverter->config.formatOut == mal_format_s32) {
+                pConverter->onConvertPCM = mal_pcm_u8_to_s32__sse2;
+            } else if (pConverter->config.formatOut == mal_format_f32) {
+                pConverter->onConvertPCM = mal_pcm_u8_to_f32__sse2;
+            }
+        } break;
+
+        case mal_format_s16:
+        {
+            if (pConverter->config.formatOut == mal_format_u8) {
+                pConverter->onConvertPCM = mal_pcm_s16_to_u8__sse2;
+            } else if (pConverter->config.formatOut == mal_format_s16) {
+                pConverter->onConvertPCM = mal_pcm_s16_to_s16;
+            } else if (pConverter->config.formatOut == mal_format_s24) {
+                pConverter->onConvertPCM = mal_pcm_s16_to_s24__sse2;
+            } else if (pConverter->config.formatOut == mal_format_s32) {
+                pConverter->onConvertPCM = mal_pcm_s16_to_s32__sse2;
+            } else if (pConverter->config.formatOut == mal_format_f32) {
+                pConverter->onConvertPCM = mal_pcm_s16_to_f32__sse2;
+            }
+        } break;
+
+        case mal_format_s24:
+        {
+            if (pConverter->config.formatOut == mal_format_u8) {
+                pConverter->onConvertPCM = mal_pcm_s24_to_u8__sse2;
+            } else if (pConverter->config.formatOut == mal_format_s16) {
+                pConverter->onConvertPCM = mal_pcm_s24_to_s16__sse2;
+            } else if (pConverter->config.formatOut == mal_format_s24) {
+                pConverter->onConvertPCM = mal_pcm_s24_to_s24;
+            } else if (pConverter->config.formatOut == mal_format_s32) {
+                pConverter->onConvertPCM = mal_pcm_s24_to_s32__sse2;
+            } else if (pConverter->config.formatOut == mal_format_f32) {
+                pConverter->onConvertPCM = mal_pcm_s24_to_f32__sse2;
+            }
+        } break;
+
+        case mal_format_s32:
+        {
+            if (pConverter->config.formatOut == mal_format_u8) {
+                pConverter->onConvertPCM = mal_pcm_s32_to_u8__sse2;
+            } else if (pConverter->config.formatOut == mal_format_s16) {
+                pConverter->onConvertPCM = mal_pcm_s32_to_s16__sse2;
+            } else if (pConverter->config.formatOut == mal_format_s24) {
+                pConverter->onConvertPCM = mal_pcm_s32_to_s24__sse2;
+            } else if (pConverter->config.formatOut == mal_format_s32) {
+                pConverter->onConvertPCM = mal_pcm_s32_to_s32;
+            } else if (pConverter->config.formatOut == mal_format_f32) {
+                pConverter->onConvertPCM = mal_pcm_s32_to_f32__sse2;
+            }
+        } break;
+
+        case mal_format_f32:
+        default:
+        {
+            if (pConverter->config.formatOut == mal_format_u8) {
+                pConverter->onConvertPCM = mal_pcm_f32_to_u8__sse2;
+            } else if (pConverter->config.formatOut == mal_format_s16) {
+                pConverter->onConvertPCM = mal_pcm_f32_to_s16__sse2;
+            } else if (pConverter->config.formatOut == mal_format_s24) {
+                pConverter->onConvertPCM = mal_pcm_f32_to_s24__sse2;
+            } else if (pConverter->config.formatOut == mal_format_s32) {
+                pConverter->onConvertPCM = mal_pcm_f32_to_s32__sse2;
+            } else if (pConverter->config.formatOut == mal_format_f32) {
+                pConverter->onConvertPCM = mal_pcm_f32_to_f32;
+            }
+        } break;
+    }
+}
+#endif
+
+#if defined(MAL_SUPPORT_AVX2)
+void mal_format_converter_init_callbacks__avx2(mal_format_converter* pConverter)
+{
+    mal_assert(pConverter != NULL);
+
+    switch (pConverter->config.formatIn)
+    {
+        case mal_format_u8:
+        {
+            if (pConverter->config.formatOut == mal_format_u8) {
+                pConverter->onConvertPCM = mal_pcm_u8_to_u8;
+            } else if (pConverter->config.formatOut == mal_format_s16) {
+                pConverter->onConvertPCM = mal_pcm_u8_to_s16__avx2;
+            } else if (pConverter->config.formatOut == mal_format_s24) {
+                pConverter->onConvertPCM = mal_pcm_u8_to_s24__avx2;
+            } else if (pConverter->config.formatOut == mal_format_s32) {
+                pConverter->onConvertPCM = mal_pcm_u8_to_s32__avx2;
+            } else if (pConverter->config.formatOut == mal_format_f32) {
+                pConverter->onConvertPCM = mal_pcm_u8_to_f32__avx2;
+            }
+        } break;
+
+        case mal_format_s16:
+        {
+            if (pConverter->config.formatOut == mal_format_u8) {
+                pConverter->onConvertPCM = mal_pcm_s16_to_u8__avx2;
+            } else if (pConverter->config.formatOut == mal_format_s16) {
+                pConverter->onConvertPCM = mal_pcm_s16_to_s16;
+            } else if (pConverter->config.formatOut == mal_format_s24) {
+                pConverter->onConvertPCM = mal_pcm_s16_to_s24__avx2;
+            } else if (pConverter->config.formatOut == mal_format_s32) {
+                pConverter->onConvertPCM = mal_pcm_s16_to_s32__avx2;
+            } else if (pConverter->config.formatOut == mal_format_f32) {
+                pConverter->onConvertPCM = mal_pcm_s16_to_f32__avx2;
+            }
+        } break;
+
+        case mal_format_s24:
+        {
+            if (pConverter->config.formatOut == mal_format_u8) {
+                pConverter->onConvertPCM = mal_pcm_s24_to_u8__avx2;
+            } else if (pConverter->config.formatOut == mal_format_s16) {
+                pConverter->onConvertPCM = mal_pcm_s24_to_s16__avx2;
+            } else if (pConverter->config.formatOut == mal_format_s24) {
+                pConverter->onConvertPCM = mal_pcm_s24_to_s24;
+            } else if (pConverter->config.formatOut == mal_format_s32) {
+                pConverter->onConvertPCM = mal_pcm_s24_to_s32__avx2;
+            } else if (pConverter->config.formatOut == mal_format_f32) {
+                pConverter->onConvertPCM = mal_pcm_s24_to_f32__avx2;
+            }
+        } break;
+
+        case mal_format_s32:
+        {
+            if (pConverter->config.formatOut == mal_format_u8) {
+                pConverter->onConvertPCM = mal_pcm_s32_to_u8__avx2;
+            } else if (pConverter->config.formatOut == mal_format_s16) {
+                pConverter->onConvertPCM = mal_pcm_s32_to_s16__avx2;
+            } else if (pConverter->config.formatOut == mal_format_s24) {
+                pConverter->onConvertPCM = mal_pcm_s32_to_s24__avx2;
+            } else if (pConverter->config.formatOut == mal_format_s32) {
+                pConverter->onConvertPCM = mal_pcm_s32_to_s32;
+            } else if (pConverter->config.formatOut == mal_format_f32) {
+                pConverter->onConvertPCM = mal_pcm_s32_to_f32__avx2;
+            }
+        } break;
+
+        case mal_format_f32:
+        default:
+        {
+            if (pConverter->config.formatOut == mal_format_u8) {
+                pConverter->onConvertPCM = mal_pcm_f32_to_u8__avx2;
+            } else if (pConverter->config.formatOut == mal_format_s16) {
+                pConverter->onConvertPCM = mal_pcm_f32_to_s16__avx2;
+            } else if (pConverter->config.formatOut == mal_format_s24) {
+                pConverter->onConvertPCM = mal_pcm_f32_to_s24__avx2;
+            } else if (pConverter->config.formatOut == mal_format_s32) {
+                pConverter->onConvertPCM = mal_pcm_f32_to_s32__avx2;
+            } else if (pConverter->config.formatOut == mal_format_f32) {
+                pConverter->onConvertPCM = mal_pcm_f32_to_f32;
+            }
+        } break;
+    }
+}
+#endif
+
+#if defined(MAL_SUPPORT_AVX512)
+void mal_format_converter_init_callbacks__avx512(mal_format_converter* pConverter)
+{
+    mal_assert(pConverter != NULL);
+
+    switch (pConverter->config.formatIn)
+    {
+        case mal_format_u8:
+        {
+            if (pConverter->config.formatOut == mal_format_u8) {
+                pConverter->onConvertPCM = mal_pcm_u8_to_u8;
+            } else if (pConverter->config.formatOut == mal_format_s16) {
+                pConverter->onConvertPCM = mal_pcm_u8_to_s16__avx512;
+            } else if (pConverter->config.formatOut == mal_format_s24) {
+                pConverter->onConvertPCM = mal_pcm_u8_to_s24__avx512;
+            } else if (pConverter->config.formatOut == mal_format_s32) {
+                pConverter->onConvertPCM = mal_pcm_u8_to_s32__avx512;
+            } else if (pConverter->config.formatOut == mal_format_f32) {
+                pConverter->onConvertPCM = mal_pcm_u8_to_f32__avx512;
+            }
+        } break;
+
+        case mal_format_s16:
+        {
+            if (pConverter->config.formatOut == mal_format_u8) {
+                pConverter->onConvertPCM = mal_pcm_s16_to_u8__avx512;
+            } else if (pConverter->config.formatOut == mal_format_s16) {
+                pConverter->onConvertPCM = mal_pcm_s16_to_s16;
+            } else if (pConverter->config.formatOut == mal_format_s24) {
+                pConverter->onConvertPCM = mal_pcm_s16_to_s24__avx512;
+            } else if (pConverter->config.formatOut == mal_format_s32) {
+                pConverter->onConvertPCM = mal_pcm_s16_to_s32__avx512;
+            } else if (pConverter->config.formatOut == mal_format_f32) {
+                pConverter->onConvertPCM = mal_pcm_s16_to_f32__avx512;
+            }
+        } break;
+
+        case mal_format_s24:
+        {
+            if (pConverter->config.formatOut == mal_format_u8) {
+                pConverter->onConvertPCM = mal_pcm_s24_to_u8__avx512;
+            } else if (pConverter->config.formatOut == mal_format_s16) {
+                pConverter->onConvertPCM = mal_pcm_s24_to_s16__avx512;
+            } else if (pConverter->config.formatOut == mal_format_s24) {
+                pConverter->onConvertPCM = mal_pcm_s24_to_s24;
+            } else if (pConverter->config.formatOut == mal_format_s32) {
+                pConverter->onConvertPCM = mal_pcm_s24_to_s32__avx512;
+            } else if (pConverter->config.formatOut == mal_format_f32) {
+                pConverter->onConvertPCM = mal_pcm_s24_to_f32__avx512;
+            }
+        } break;
+
+        case mal_format_s32:
+        {
+            if (pConverter->config.formatOut == mal_format_u8) {
+                pConverter->onConvertPCM = mal_pcm_s32_to_u8__avx512;
+            } else if (pConverter->config.formatOut == mal_format_s16) {
+                pConverter->onConvertPCM = mal_pcm_s32_to_s16__avx512;
+            } else if (pConverter->config.formatOut == mal_format_s24) {
+                pConverter->onConvertPCM = mal_pcm_s32_to_s24__avx512;
+            } else if (pConverter->config.formatOut == mal_format_s32) {
+                pConverter->onConvertPCM = mal_pcm_s32_to_s32;
+            } else if (pConverter->config.formatOut == mal_format_f32) {
+                pConverter->onConvertPCM = mal_pcm_s32_to_f32__avx512;
+            }
+        } break;
+
+        case mal_format_f32:
+        default:
+        {
+            if (pConverter->config.formatOut == mal_format_u8) {
+                pConverter->onConvertPCM = mal_pcm_f32_to_u8__avx512;
+            } else if (pConverter->config.formatOut == mal_format_s16) {
+                pConverter->onConvertPCM = mal_pcm_f32_to_s16__avx512;
+            } else if (pConverter->config.formatOut == mal_format_s24) {
+                pConverter->onConvertPCM = mal_pcm_f32_to_s24__avx512;
+            } else if (pConverter->config.formatOut == mal_format_s32) {
+                pConverter->onConvertPCM = mal_pcm_f32_to_s32__avx512;
+            } else if (pConverter->config.formatOut == mal_format_f32) {
+                pConverter->onConvertPCM = mal_pcm_f32_to_f32;
+            }
+        } break;
+    }
+}
+#endif
+
+#if defined(MAL_SUPPORT_NEON)
+void mal_format_converter_init_callbacks__neon(mal_format_converter* pConverter)
+{
+    mal_assert(pConverter != NULL);
+
+    switch (pConverter->config.formatIn)
+    {
+        case mal_format_u8:
+        {
+            if (pConverter->config.formatOut == mal_format_u8) {
+                pConverter->onConvertPCM = mal_pcm_u8_to_u8;
+            } else if (pConverter->config.formatOut == mal_format_s16) {
+                pConverter->onConvertPCM = mal_pcm_u8_to_s16__neon;
+            } else if (pConverter->config.formatOut == mal_format_s24) {
+                pConverter->onConvertPCM = mal_pcm_u8_to_s24__neon;
+            } else if (pConverter->config.formatOut == mal_format_s32) {
+                pConverter->onConvertPCM = mal_pcm_u8_to_s32__neon;
+            } else if (pConverter->config.formatOut == mal_format_f32) {
+                pConverter->onConvertPCM = mal_pcm_u8_to_f32__neon;
+            }
+        } break;
+
+        case mal_format_s16:
+        {
+            if (pConverter->config.formatOut == mal_format_u8) {
+                pConverter->onConvertPCM = mal_pcm_s16_to_u8__neon;
+            } else if (pConverter->config.formatOut == mal_format_s16) {
+                pConverter->onConvertPCM = mal_pcm_s16_to_s16;
+            } else if (pConverter->config.formatOut == mal_format_s24) {
+                pConverter->onConvertPCM = mal_pcm_s16_to_s24__neon;
+            } else if (pConverter->config.formatOut == mal_format_s32) {
+                pConverter->onConvertPCM = mal_pcm_s16_to_s32__neon;
+            } else if (pConverter->config.formatOut == mal_format_f32) {
+                pConverter->onConvertPCM = mal_pcm_s16_to_f32__neon;
+            }
+        } break;
+
+        case mal_format_s24:
+        {
+            if (pConverter->config.formatOut == mal_format_u8) {
+                pConverter->onConvertPCM = mal_pcm_s24_to_u8__neon;
+            } else if (pConverter->config.formatOut == mal_format_s16) {
+                pConverter->onConvertPCM = mal_pcm_s24_to_s16__neon;
+            } else if (pConverter->config.formatOut == mal_format_s24) {
+                pConverter->onConvertPCM = mal_pcm_s24_to_s24;
+            } else if (pConverter->config.formatOut == mal_format_s32) {
+                pConverter->onConvertPCM = mal_pcm_s24_to_s32__neon;
+            } else if (pConverter->config.formatOut == mal_format_f32) {
+                pConverter->onConvertPCM = mal_pcm_s24_to_f32__neon;
+            }
+        } break;
+
+        case mal_format_s32:
+        {
+            if (pConverter->config.formatOut == mal_format_u8) {
+                pConverter->onConvertPCM = mal_pcm_s32_to_u8__neon;
+            } else if (pConverter->config.formatOut == mal_format_s16) {
+                pConverter->onConvertPCM = mal_pcm_s32_to_s16__neon;
+            } else if (pConverter->config.formatOut == mal_format_s24) {
+                pConverter->onConvertPCM = mal_pcm_s32_to_s24__neon;
+            } else if (pConverter->config.formatOut == mal_format_s32) {
+                pConverter->onConvertPCM = mal_pcm_s32_to_s32;
+            } else if (pConverter->config.formatOut == mal_format_f32) {
+                pConverter->onConvertPCM = mal_pcm_s32_to_f32__neon;
+            }
+        } break;
+
+        case mal_format_f32:
+        default:
+        {
+            if (pConverter->config.formatOut == mal_format_u8) {
+                pConverter->onConvertPCM = mal_pcm_f32_to_u8__neon;
+            } else if (pConverter->config.formatOut == mal_format_s16) {
+                pConverter->onConvertPCM = mal_pcm_f32_to_s16__neon;
+            } else if (pConverter->config.formatOut == mal_format_s24) {
+                pConverter->onConvertPCM = mal_pcm_f32_to_s24__neon;
+            } else if (pConverter->config.formatOut == mal_format_s32) {
+                pConverter->onConvertPCM = mal_pcm_f32_to_s32__neon;
+            } else if (pConverter->config.formatOut == mal_format_f32) {
+                pConverter->onConvertPCM = mal_pcm_f32_to_f32;
+            }
+        } break;
+    }
+}
+#endif
 
 mal_result mal_format_converter_init(const mal_format_converter_config* pConfig, mal_format_converter* pConverter)
 {
@@ -19167,85 +19594,29 @@ mal_result mal_format_converter_init(const mal_format_converter_config* pConfig,
     pConverter->useAVX512 = mal_has_avx512f() && !pConfig->noAVX512;
     pConverter->useNEON   = mal_has_neon()    && !pConfig->noNEON;
 
-    switch (pConfig->formatIn)
+#if defined(MAL_SUPPORT_AVX512)
+    if (pConverter->useAVX512) {
+        mal_format_converter_init_callbacks__avx512(pConverter);
+    } else
+#endif
+#if defined(MAL_SUPPORT_AVX2)
+    if (pConverter->useAVX2) {
+        mal_format_converter_init_callbacks__avx2(pConverter);
+    } else
+#endif
+#if defined(MAL_SUPPORT_SSE2)
+    if (pConverter->useSSE2) {
+        mal_format_converter_init_callbacks__sse2(pConverter);
+    } else
+#endif
+#if defined(MAL_SUPPORT_NEON)
+    if (pConverter->useNEON) {
+        mal_format_converter_init_callbacks__neon(pConverter);
+    } else
+#endif
     {
-        case mal_format_u8:
-        {
-            if (pConfig->formatOut == mal_format_u8) {
-                pConverter->onConvertPCM = mal_pcm_u8_to_u8;
-            } else if (pConfig->formatOut == mal_format_s16) {
-                pConverter->onConvertPCM = mal_pcm_u8_to_s16;
-            } else if (pConfig->formatOut == mal_format_s24) {
-                pConverter->onConvertPCM = mal_pcm_u8_to_s24;
-            } else if (pConfig->formatOut == mal_format_s32) {
-                pConverter->onConvertPCM = mal_pcm_u8_to_s32;
-            } else if (pConfig->formatOut == mal_format_f32) {
-                pConverter->onConvertPCM = mal_pcm_u8_to_f32;
-            }
-        } break;
-
-        case mal_format_s16:
-        {
-            if (pConfig->formatOut == mal_format_u8) {
-                pConverter->onConvertPCM = mal_pcm_s16_to_u8;
-            } else if (pConfig->formatOut == mal_format_s16) {
-                pConverter->onConvertPCM = mal_pcm_s16_to_s16;
-            } else if (pConfig->formatOut == mal_format_s24) {
-                pConverter->onConvertPCM = mal_pcm_s16_to_s24;
-            } else if (pConfig->formatOut == mal_format_s32) {
-                pConverter->onConvertPCM = mal_pcm_s16_to_s32;
-            } else if (pConfig->formatOut == mal_format_f32) {
-                pConverter->onConvertPCM = mal_pcm_s16_to_f32;
-            }
-        } break;
-
-        case mal_format_s24:
-        {
-            if (pConfig->formatOut == mal_format_u8) {
-                pConverter->onConvertPCM = mal_pcm_s24_to_u8;
-            } else if (pConfig->formatOut == mal_format_s16) {
-                pConverter->onConvertPCM = mal_pcm_s24_to_s16;
-            } else if (pConfig->formatOut == mal_format_s24) {
-                pConverter->onConvertPCM = mal_pcm_s24_to_s24;
-            } else if (pConfig->formatOut == mal_format_s32) {
-                pConverter->onConvertPCM = mal_pcm_s24_to_s32;
-            } else if (pConfig->formatOut == mal_format_f32) {
-                pConverter->onConvertPCM = mal_pcm_s24_to_f32;
-            }
-        } break;
-
-        case mal_format_s32:
-        {
-            if (pConfig->formatOut == mal_format_u8) {
-                pConverter->onConvertPCM = mal_pcm_s32_to_u8;
-            } else if (pConfig->formatOut == mal_format_s16) {
-                pConverter->onConvertPCM = mal_pcm_s32_to_s16;
-            } else if (pConfig->formatOut == mal_format_s24) {
-                pConverter->onConvertPCM = mal_pcm_s32_to_s24;
-            } else if (pConfig->formatOut == mal_format_s32) {
-                pConverter->onConvertPCM = mal_pcm_s32_to_s32;
-            } else if (pConfig->formatOut == mal_format_f32) {
-                pConverter->onConvertPCM = mal_pcm_s32_to_f32;
-            }
-        } break;
-
-        case mal_format_f32:
-        default:
-        {
-            if (pConfig->formatOut == mal_format_u8) {
-                pConverter->onConvertPCM = mal_pcm_f32_to_u8;
-            } else if (pConfig->formatOut == mal_format_s16) {
-                pConverter->onConvertPCM = mal_pcm_f32_to_s16;
-            } else if (pConfig->formatOut == mal_format_s24) {
-                pConverter->onConvertPCM = mal_pcm_f32_to_s24;
-            } else if (pConfig->formatOut == mal_format_s32) {
-                pConverter->onConvertPCM = mal_pcm_f32_to_s32;
-            } else if (pConfig->formatOut == mal_format_f32) {
-                pConverter->onConvertPCM = mal_pcm_f32_to_f32;
-            }
-        } break;
+        mal_format_converter_init_callbacks__default(pConverter);
     }
-
 
     switch (pConfig->formatOut)
     {
