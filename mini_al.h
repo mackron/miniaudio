@@ -17345,7 +17345,7 @@ void mal_pcm_u8_to_s16__avx2(void* dst, const void* src, mal_uint64 count, mal_d
 #if defined(MAL_SUPPORT_AVX512)
 void mal_pcm_u8_to_s16__avx512(void* dst, const void* src, mal_uint64 count, mal_dither_mode ditherMode)
 {
-    mal_pcm_u8_to_s16__optimized(dst, src, count, ditherMode);
+    mal_pcm_u8_to_s16__avx2(dst, src, count, ditherMode);
 }
 #endif
 #if defined(MAL_SUPPORT_NEON)
@@ -17403,7 +17403,7 @@ void mal_pcm_u8_to_s24__avx2(void* dst, const void* src, mal_uint64 count, mal_d
 #if defined(MAL_SUPPORT_AVX512)
 void mal_pcm_u8_to_s24__avx512(void* dst, const void* src, mal_uint64 count, mal_dither_mode ditherMode)
 {
-    mal_pcm_u8_to_s24__optimized(dst, src, count, ditherMode);
+    mal_pcm_u8_to_s24__avx2(dst, src, count, ditherMode);
 }
 #endif
 #if defined(MAL_SUPPORT_NEON)
@@ -17459,7 +17459,7 @@ void mal_pcm_u8_to_s32__avx2(void* dst, const void* src, mal_uint64 count, mal_d
 #if defined(MAL_SUPPORT_AVX512)
 void mal_pcm_u8_to_s32__avx512(void* dst, const void* src, mal_uint64 count, mal_dither_mode ditherMode)
 {
-    mal_pcm_u8_to_s32__optimized(dst, src, count, ditherMode);
+    mal_pcm_u8_to_s32__avx2(dst, src, count, ditherMode);
 }
 #endif
 #if defined(MAL_SUPPORT_NEON)
@@ -17516,7 +17516,7 @@ void mal_pcm_u8_to_f32__avx2(void* dst, const void* src, mal_uint64 count, mal_d
 #if defined(MAL_SUPPORT_AVX512)
 void mal_pcm_u8_to_f32__avx512(void* dst, const void* src, mal_uint64 count, mal_dither_mode ditherMode)
 {
-    mal_pcm_u8_to_f32__optimized(dst, src, count, ditherMode);
+    mal_pcm_u8_to_f32__avx2(dst, src, count, ditherMode);
 }
 #endif
 #if defined(MAL_SUPPORT_NEON)
@@ -17668,7 +17668,7 @@ void mal_pcm_s16_to_u8__avx2(void* dst, const void* src, mal_uint64 count, mal_d
 #if defined(MAL_SUPPORT_AVX512)
 void mal_pcm_s16_to_u8__avx512(void* dst, const void* src, mal_uint64 count, mal_dither_mode ditherMode)
 {
-    mal_pcm_s16_to_u8__optimized(dst, src, count, ditherMode);
+    mal_pcm_s16_to_u8__avx2(dst, src, count, ditherMode);
 }
 #endif
 #if defined(MAL_SUPPORT_NEON)
@@ -17730,7 +17730,7 @@ void mal_pcm_s16_to_s24__avx2(void* dst, const void* src, mal_uint64 count, mal_
 #if defined(MAL_SUPPORT_AVX512)
 void mal_pcm_s16_to_s24__avx512(void* dst, const void* src, mal_uint64 count, mal_dither_mode ditherMode)
 {
-    mal_pcm_s16_to_s24__optimized(dst, src, count, ditherMode);
+    mal_pcm_s16_to_s24__avx2(dst, src, count, ditherMode);
 }
 #endif
 #if defined(MAL_SUPPORT_NEON)
@@ -17783,7 +17783,7 @@ void mal_pcm_s16_to_s32__avx2(void* dst, const void* src, mal_uint64 count, mal_
 #if defined(MAL_SUPPORT_AVX512)
 void mal_pcm_s16_to_s32__avx512(void* dst, const void* src, mal_uint64 count, mal_dither_mode ditherMode)
 {
-    mal_pcm_s16_to_s32__optimized(dst, src, count, ditherMode);
+    mal_pcm_s16_to_s32__avx2(dst, src, count, ditherMode);
 }
 #endif
 #if defined(MAL_SUPPORT_NEON)
@@ -17848,7 +17848,7 @@ void mal_pcm_s16_to_f32__avx2(void* dst, const void* src, mal_uint64 count, mal_
 #if defined(MAL_SUPPORT_AVX512)
 void mal_pcm_s16_to_f32__avx512(void* dst, const void* src, mal_uint64 count, mal_dither_mode ditherMode)
 {
-    mal_pcm_s16_to_f32__optimized(dst, src, count, ditherMode);
+    mal_pcm_s16_to_f32__avx2(dst, src, count, ditherMode);
 }
 #endif
 #if defined(MAL_SUPPORT_NEON)
@@ -17978,7 +17978,7 @@ void mal_pcm_s24_to_u8__avx2(void* dst, const void* src, mal_uint64 count, mal_d
 #if defined(MAL_SUPPORT_AVX512)
 void mal_pcm_s24_to_u8__avx512(void* dst, const void* src, mal_uint64 count, mal_dither_mode ditherMode)
 {
-    mal_pcm_s24_to_u8__optimized(dst, src, count, ditherMode);
+    mal_pcm_s24_to_u8__avx2(dst, src, count, ditherMode);
 }
 #endif
 #if defined(MAL_SUPPORT_NEON)
@@ -18049,7 +18049,7 @@ void mal_pcm_s24_to_s16__avx2(void* dst, const void* src, mal_uint64 count, mal_
 #if defined(MAL_SUPPORT_AVX512)
 void mal_pcm_s24_to_s16__avx512(void* dst, const void* src, mal_uint64 count, mal_dither_mode ditherMode)
 {
-    mal_pcm_s24_to_s16__optimized(dst, src, count, ditherMode);
+    mal_pcm_s24_to_s16__avx2(dst, src, count, ditherMode);
 }
 #endif
 #if defined(MAL_SUPPORT_NEON)
@@ -18110,7 +18110,7 @@ void mal_pcm_s24_to_s32__avx2(void* dst, const void* src, mal_uint64 count, mal_
 #if defined(MAL_SUPPORT_AVX512)
 void mal_pcm_s24_to_s32__avx512(void* dst, const void* src, mal_uint64 count, mal_dither_mode ditherMode)
 {
-    mal_pcm_s24_to_s32__optimized(dst, src, count, ditherMode);
+    mal_pcm_s24_to_s32__avx2(dst, src, count, ditherMode);
 }
 #endif
 #if defined(MAL_SUPPORT_NEON)
@@ -18175,7 +18175,7 @@ void mal_pcm_s24_to_f32__avx2(void* dst, const void* src, mal_uint64 count, mal_
 #if defined(MAL_SUPPORT_AVX512)
 void mal_pcm_s24_to_f32__avx512(void* dst, const void* src, mal_uint64 count, mal_dither_mode ditherMode)
 {
-    mal_pcm_s24_to_f32__optimized(dst, src, count, ditherMode);
+    mal_pcm_s24_to_f32__avx2(dst, src, count, ditherMode);
 }
 #endif
 #if defined(MAL_SUPPORT_NEON)
@@ -18312,7 +18312,7 @@ void mal_pcm_s32_to_u8__avx2(void* dst, const void* src, mal_uint64 count, mal_d
 #if defined(MAL_SUPPORT_AVX512)
 void mal_pcm_s32_to_u8__avx512(void* dst, const void* src, mal_uint64 count, mal_dither_mode ditherMode)
 {
-    mal_pcm_s32_to_u8__optimized(dst, src, count, ditherMode);
+    mal_pcm_s32_to_u8__avx2(dst, src, count, ditherMode);
 }
 #endif
 #if defined(MAL_SUPPORT_NEON)
@@ -18383,7 +18383,7 @@ void mal_pcm_s32_to_s16__avx2(void* dst, const void* src, mal_uint64 count, mal_
 #if defined(MAL_SUPPORT_AVX512)
 void mal_pcm_s32_to_s16__avx512(void* dst, const void* src, mal_uint64 count, mal_dither_mode ditherMode)
 {
-    mal_pcm_s32_to_s16__optimized(dst, src, count, ditherMode);
+    mal_pcm_s32_to_s16__avx2(dst, src, count, ditherMode);
 }
 #endif
 #if defined(MAL_SUPPORT_NEON)
@@ -18439,7 +18439,7 @@ void mal_pcm_s32_to_s24__avx2(void* dst, const void* src, mal_uint64 count, mal_
 #if defined(MAL_SUPPORT_AVX512)
 void mal_pcm_s32_to_s24__avx512(void* dst, const void* src, mal_uint64 count, mal_dither_mode ditherMode)
 {
-    mal_pcm_s32_to_s24__optimized(dst, src, count, ditherMode);
+    mal_pcm_s32_to_s24__avx2(dst, src, count, ditherMode);
 }
 #endif
 #if defined(MAL_SUPPORT_NEON)
@@ -18510,7 +18510,7 @@ void mal_pcm_s32_to_f32__avx2(void* dst, const void* src, mal_uint64 count, mal_
 #if defined(MAL_SUPPORT_AVX512)
 void mal_pcm_s32_to_f32__avx512(void* dst, const void* src, mal_uint64 count, mal_dither_mode ditherMode)
 {
-    mal_pcm_s32_to_f32__optimized(dst, src, count, ditherMode);
+    mal_pcm_s32_to_f32__avx2(dst, src, count, ditherMode);
 }
 #endif
 #if defined(MAL_SUPPORT_NEON)
@@ -18633,7 +18633,7 @@ void mal_pcm_f32_to_u8__avx2(void* dst, const void* src, mal_uint64 count, mal_d
 #if defined(MAL_SUPPORT_AVX512)
 void mal_pcm_f32_to_u8__avx512(void* dst, const void* src, mal_uint64 count, mal_dither_mode ditherMode)
 {
-    mal_pcm_f32_to_u8__optimized(dst, src, count, ditherMode);
+    mal_pcm_f32_to_u8__avx2(dst, src, count, ditherMode);
 }
 #endif
 #if defined(MAL_SUPPORT_NEON)
@@ -18902,8 +18902,8 @@ void mal_pcm_f32_to_s16__avx2(void* dst, const void* src, mal_uint64 count, mal_
         // Computing the final result is a little more complicated for AVX2 than SSE2.
         __m256i i0 = _mm256_cvttps_epi32(x0);
         __m256i i1 = _mm256_cvttps_epi32(x1);
-        __m256i p0 = _mm256_permute2x128_si256(i0, i1, 32);
-        __m256i p1 = _mm256_permute2x128_si256(i0, i1, 49);
+        __m256i p0 = _mm256_permute2x128_si256(i0, i1, 0 | 32);
+        __m256i p1 = _mm256_permute2x128_si256(i0, i1, 1 | 48);
         __m256i r  = _mm256_packs_epi32(p0, p1);
 
         *((__m256i*)(dst_s16 + i)) = r;
@@ -18995,7 +18995,7 @@ void mal_pcm_f32_to_s24__avx2(void* dst, const void* src, mal_uint64 count, mal_
 #if defined(MAL_SUPPORT_AVX512)
 void mal_pcm_f32_to_s24__avx512(void* dst, const void* src, mal_uint64 count, mal_dither_mode ditherMode)
 {
-    mal_pcm_f32_to_s24__optimized(dst, src, count, ditherMode);
+    mal_pcm_f32_to_s24__avx2(dst, src, count, ditherMode);
 }
 #endif
 #if defined(MAL_SUPPORT_NEON)
@@ -19061,7 +19061,7 @@ void mal_pcm_f32_to_s32__avx2(void* dst, const void* src, mal_uint64 count, mal_
 #if defined(MAL_SUPPORT_AVX512)
 void mal_pcm_f32_to_s32__avx512(void* dst, const void* src, mal_uint64 count, mal_dither_mode ditherMode)
 {
-    mal_pcm_f32_to_s32__optimized(dst, src, count, ditherMode);
+    mal_pcm_f32_to_s32__avx2(dst, src, count, ditherMode);
 }
 #endif
 #if defined(MAL_SUPPORT_NEON)
@@ -21285,8 +21285,8 @@ mal_uint64 mal_src_read_deinterleaved__sinc(mal_src* pSRC, mal_uint64 frameCount
                     windowSamples[i] = pSRC->sinc.input[iChannel][iTimeIn + i];
                 }
 
-#if defined(MAL_SUPPORT_AVX2)
-                if (pSRC->useAVX2) {
+#if defined(MAL_SUPPORT_AVX2) || defined(MAL_SUPPORT_AVX512)
+                if (pSRC->useAVX2 || pSRC->useAVX512) {
                     __m256i ixabs[MAL_SRC_SINC_MAX_WINDOW_WIDTH*2/8];
                     __m256      a[MAL_SRC_SINC_MAX_WINDOW_WIDTH*2/8];
                     __m256 resolution256 = _mm256_set1_ps(MAL_SRC_SINC_LOOKUP_TABLE_RESOLUTION);
