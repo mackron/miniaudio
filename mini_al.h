@@ -18933,7 +18933,82 @@ void mal_pcm_f32_to_s16__avx512(void* dst, const void* src, mal_uint64 count, ma
 #if defined(MAL_SUPPORT_NEON)
 void mal_pcm_f32_to_s16__neon(void* dst, const void* src, mal_uint64 count, mal_dither_mode ditherMode)
 {
-    mal_pcm_f32_to_s16__optimized(dst, src, count, ditherMode);
+    mal_int16* dst_s16 = (mal_int16*)dst;
+    const float* src_f32 = (const float*)src;
+
+    float ditherMin = 0;
+    float ditherMax = 0;
+    if (ditherMode != mal_dither_mode_none) {
+        ditherMin = 1.0f / -32768;
+        ditherMax = 1.0f /  32767;
+    }
+
+    mal_uint64 i = 0;
+
+    // NEON. NEON allows us to output 8 s16's at a time which means our loop is unrolled 8 times.
+    mal_uint64 count8 = count >> 3;
+    for (mal_uint64 i8 = 0; i8 < count8; i8 += 1) {
+        float32x4_t d0;
+        float32x4_t d1;
+        if (ditherMode == mal_dither_mode_none) {
+            d0 = vmovq_n_f32(0);
+            d1 = vmovq_n_f32(0);
+        } else if (ditherMode == mal_dither_mode_rectangle) {
+            float d0v[4];
+            d0v[0] = mal_dither_f32_rectangle(ditherMin, ditherMax);
+            d0v[1] = mal_dither_f32_rectangle(ditherMin, ditherMax);
+            d0v[2] = mal_dither_f32_rectangle(ditherMin, ditherMax);
+            d0v[3] = mal_dither_f32_rectangle(ditherMin, ditherMax);
+            d0 = vld1q_f32(d0v);
+
+            float d1v[4];
+            d1v[0] = mal_dither_f32_rectangle(ditherMin, ditherMax);
+            d1v[1] = mal_dither_f32_rectangle(ditherMin, ditherMax);
+            d1v[2] = mal_dither_f32_rectangle(ditherMin, ditherMax);
+            d1v[3] = mal_dither_f32_rectangle(ditherMin, ditherMax);
+            d1 = vld1q_f32(d1v);
+        } else {
+            float d0v[4];
+            d0v[0] = mal_dither_f32_triangle(ditherMin, ditherMax);
+            d0v[1] = mal_dither_f32_triangle(ditherMin, ditherMax);
+            d0v[2] = mal_dither_f32_triangle(ditherMin, ditherMax);
+            d0v[3] = mal_dither_f32_triangle(ditherMin, ditherMax);
+            d0 = vld1q_f32(d0v);
+
+            float d1v[4];
+            d1v[0] = mal_dither_f32_triangle(ditherMin, ditherMax);
+            d1v[1] = mal_dither_f32_triangle(ditherMin, ditherMax);
+            d1v[2] = mal_dither_f32_triangle(ditherMin, ditherMax);
+            d1v[3] = mal_dither_f32_triangle(ditherMin, ditherMax);
+            d1 = vld1q_f32(d1v);
+        }
+
+        float32x4_t x0 = *((float32x4_t*)(src_f32 + i) + 0);
+        float32x4_t x1 = *((float32x4_t*)(src_f32 + i) + 1);
+
+        x0 = vaddq_f32(x0, d0);
+        x1 = vaddq_f32(x1, d1);
+
+        x0 = vmulq_n_f32(x0, 32767.0f);
+        x1 = vmulq_n_f32(x1, 32767.0f);
+
+        int32x4_t i0 = vcvtq_s32_f32(x0);
+        int32x4_t i1 = vcvtq_s32_f32(x1);
+        *((int16x8_t*)(dst_s16 + i)) = vcombine_s16(vqmovn_s32(i0), vqmovn_s32(i1));
+
+        i += 8;
+    }
+
+
+    // Leftover.
+    for (; i < count; i += 1) {
+        float x = src_f32[i];
+        x = x + mal_dither_f32(ditherMode, ditherMin, ditherMax);
+        x = ((x < -1) ? -1 : ((x > 1) ? 1 : x));    // clip
+        x = x * 32767.0f;                           // -1..1 to -32767..32767
+
+        dst_s16[i] = (mal_int16)x;
+    }
 }
 #endif
 
