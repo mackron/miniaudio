@@ -580,7 +580,7 @@ int do_profiling__format_conversion__profile_individual(mal_format formatIn, mal
 int do_profiling__format_conversion__profile_set(mal_format formatIn, mal_format formatOut, mal_dither_mode ditherMode)
 {
     // Generate our base data to begin with. This is generated from an f32 sine wave which is converted to formatIn. That then becomes our base data.
-    mal_uint32 sampleCount = 1000000;
+    mal_uint32 sampleCount = 10000000;
 
     float* pSourceData = (float*)mal_aligned_malloc(sampleCount*sizeof(*pSourceData), MAL_SIMD_ALIGNMENT);
     if (pSourceData == NULL) {

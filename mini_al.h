@@ -18806,8 +18806,8 @@ void mal_pcm_f32_to_s16__sse2(void* dst, const void* src, mal_uint64 count, mal_
         x0 = _mm_mul_ps(x0, _mm_set1_ps(32767.0f));
         x1 = _mm_mul_ps(x1, _mm_set1_ps(32767.0f));
 
-        *((__m128i*)(dst_s16 + i)) = _mm_packs_epi32(_mm_cvttps_epi32(x0), _mm_cvttps_epi32(x1));
-
+        _mm_stream_si128(((__m128i*)(dst_s16 + i)), _mm_packs_epi32(_mm_cvttps_epi32(x0), _mm_cvttps_epi32(x1)));
+        
         i += 8;
     }
 
@@ -18906,7 +18906,8 @@ void mal_pcm_f32_to_s16__avx2(void* dst, const void* src, mal_uint64 count, mal_
         __m256i p1 = _mm256_permute2x128_si256(i0, i1, 1 | 48);
         __m256i r  = _mm256_packs_epi32(p0, p1);
 
-        *((__m256i*)(dst_s16 + i)) = r;
+        _mm256_stream_si256(((__m256i*)(dst_s16 + i)), r);
+
         i += 16;
     }
 
