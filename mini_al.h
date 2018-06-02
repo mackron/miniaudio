@@ -20938,7 +20938,7 @@ mal_uint64 mal_src_read_deinterleaved__linear(mal_src* pSRC, mal_uint64 frameCou
 
         // At this point we have a bunch of frames that the client has given to us for processing. From this we can determine the maximum number of output frames
         // that can be processed from this input. We want to output as many samples as possible from our input data.
-        float tAvailable = framesReadFromClient - tBeg;
+        float tAvailable = framesReadFromClient - tBeg - 1; // Subtract 1 because the last input sample is needed for interpolation and cannot be included in the output sample count calculation.
 
         mal_uint32 maxOutputFramesToRead = (mal_uint32)(tAvailable / factor);
         if (maxOutputFramesToRead == 0) {
@@ -20998,6 +20998,9 @@ mal_uint64 mal_src_read_deinterleaved__linear(mal_src* pSRC, mal_uint64 frameCou
                 float iPrevSample = (float)floor(t);
                 float iNextSample = iPrevSample + 1;
                 float alpha = t - iPrevSample;
+
+                mal_assert(iPrevSample < mal_countof(pSRC->linear.input[iChannel]));
+                mal_assert(iNextSample < mal_countof(pSRC->linear.input[iChannel]));
 
                 float prevSample = ppSamplesFromClient[iChannel][(mal_uint32)iPrevSample];
                 float nextSample = ppSamplesFromClient[iChannel][(mal_uint32)iNextSample];
