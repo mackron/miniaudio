@@ -3505,10 +3505,16 @@ double mal_timer_get_time_in_seconds(mal_timer* pTimer)
     return (newTimeCounter - oldTimeCounter) / g_mal_TimerFrequency;
 }
 #else
+#if defined(CLOCK_MONOTONIC)
+    #define MAL_CLOCK_ID CLOCK_MONOTONIC
+#else
+    #define MAL_CLOCK_ID CLOCK_REALTIME
+#endif
+
 void mal_timer_init(mal_timer* pTimer)
 {
     struct timespec newTime;
-    clock_gettime(CLOCK_MONOTONIC, &newTime);
+    clock_gettime(MAL_CLOCK_ID, &newTime);
 
     pTimer->counter = (newTime.tv_sec * 1000000000) + newTime.tv_nsec;
 }
@@ -3516,7 +3522,7 @@ void mal_timer_init(mal_timer* pTimer)
 double mal_timer_get_time_in_seconds(mal_timer* pTimer)
 {
     struct timespec newTime;
-    clock_gettime(CLOCK_MONOTONIC, &newTime);
+    clock_gettime(MAL_CLOCK_ID, &newTime);
 
     uint64_t newTimeCounter = (newTime.tv_sec * 1000000000) + newTime.tv_nsec;
     uint64_t oldTimeCounter = pTimer->counter;
