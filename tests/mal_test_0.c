@@ -25,6 +25,7 @@ mal_backend g_Backends[] = {
     mal_backend_wasapi,
     mal_backend_dsound,
     mal_backend_winmm,
+    mal_backend_coreaudio,
     mal_backend_oss,
     mal_backend_pulseaudio,
     mal_backend_alsa,

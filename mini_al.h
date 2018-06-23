@@ -16,6 +16,7 @@
 //   - WASAPI
 //   - DirectSound
 //   - WinMM
+//   - Core Audio (macOS, iOS)
 //   - ALSA
 //   - PulseAudio
 //   - JACK
@@ -24,8 +25,6 @@
 //   - OpenAL
 //   - SDL
 //   - Null (Silence)
-//   - ... and more in the future.
-//     - Core Audio (OSX, iOS)
 //
 // Supported Formats:
 //   - Unsigned 8-bit PCM
@@ -47,13 +46,16 @@
 // the development packages for any particular backend you can disable it by #define-ing the appropriate MAL_NO_*
 // option before the implementation.
 //
-// Note that GCC and Clang requires "-msse2", "-mavx", etc. for SIMD optimizations.
+// Note that GCC and Clang requires "-msse2", "-mavx2", etc. for SIMD optimizations.
 //
 //
 // Building for Windows
 // --------------------
 // The Windows build should compile clean on all popular compilers without the need to configure any include paths
 // nor link to any libraries.
+//
+// Building for macOS
+// ------------------
 //
 // Building for Linux
 // ------------------
@@ -174,6 +176,9 @@
 // #define MAL_NO_JACK
 //   Disables the JACK backend.
 //
+// #define MAL_NO_COREAUDIO
+//   Disables the Core Audio backend.
+//
 // #define MAL_NO_OSS
 //   Disables the OSS backend.
 //
@@ -278,15 +283,15 @@ extern "C" {
         #define MAL_SUPPORT_PULSEAUDIO
         #define MAL_SUPPORT_JACK
     #endif
-    #if defined(MAL_APPLE)
-        #define MAL_SUPPORT_COREAUDIO
-    #endif
     #if defined(MAL_ANDROID)
         #define MAL_SUPPORT_OPENSL
     #endif
     #if !defined(MAL_LINUX) && !defined(MAL_APPLE) && !defined(MAL_ANDROID) && !defined(MAL_EMSCRIPTEN)
         #define MAL_SUPPORT_OSS
     #endif
+#endif
+#if defined(MAL_APPLE)
+    #define MAL_SUPPORT_COREAUDIO
 #endif
 
 #define MAL_SUPPORT_SDL     // All platforms support SDL.
@@ -661,6 +666,7 @@ typedef enum
     mal_backend_alsa,
     mal_backend_pulseaudio,
     mal_backend_jack,
+    mal_backend_coreaudio,
     mal_backend_oss,
     mal_backend_opensl,
     mal_backend_openal,
@@ -754,7 +760,7 @@ typedef union
     int jack;                       // JACK always uses default devices.
 #endif
 #ifdef MAL_SUPPORT_COREAUDIO
-    // TODO: Implement me.
+    int coreaudio;
 #endif
 #ifdef MAL_SUPPORT_OSS
     char oss[64];                   // "dev/dsp0", etc. "dev/dsp" for the default device.
@@ -1589,6 +1595,7 @@ MAL_ALIGNED_STRUCT(MAL_SIMD_ALIGNMENT) mal_device
 //   - WASAPI
 //   - DirectSound
 //   - WinMM
+//   - Core Audio (macOS, iOS)
 //   - OSS
 //   - PulseAudio
 //   - ALSA
@@ -3487,7 +3494,7 @@ double mal_timer_get_time_in_seconds(mal_timer* pTimer)
     return (double)(counter.QuadPart - pTimer->counter) / g_mal_TimerFrequency.QuadPart;
 }
 #elif defined(MAL_APPLE) && (__MAC_OS_X_VERSION_MIN_REQUIRED < 101200)
-uint64_t g_mal_TimerFrequency = 0;
+mal_uint64 g_mal_TimerFrequency = 0;
 void mal_timer_init(mal_timer* pTimer)
 {
     mach_timebase_info_data_t baseTime;
@@ -3499,8 +3506,8 @@ void mal_timer_init(mal_timer* pTimer)
 
 double mal_timer_get_time_in_seconds(mal_timer* pTimer)
 {
-    uint64_t newTimeCounter = mach_absolute_time();
-    uint64_t oldTimeCounter = pTimer->counter;
+    mal_uint64 newTimeCounter = mach_absolute_time();
+    mal_uint64 oldTimeCounter = pTimer->counter;
 
     return (newTimeCounter - oldTimeCounter) / g_mal_TimerFrequency;
 }
@@ -12473,7 +12480,97 @@ mal_result mal_device__stop_backend__jack(mal_device* pDevice)
 
     return MAL_SUCCESS;
 }
-#endif
+#endif  // Jack
+
+
+
+///////////////////////////////////////////////////////////////////////////////
+//
+// Core Audio Backend
+//
+///////////////////////////////////////////////////////////////////////////////
+#ifdef MAL_HAS_COREAUDIO
+
+mal_bool32 mal_context_is_device_id_equal__coreaudio(mal_context* pContext, const mal_device_id* pID0, const mal_device_id* pID1)
+{
+    mal_assert(pContext != NULL);
+    mal_assert(pID0 != NULL);
+    mal_assert(pID1 != NULL);
+    (void)pContext;
+
+    return pID0->coreaudio == pID1->coreaudio;
+}
+
+mal_result mal_context_enumerate_devices__coreaudio(mal_context* pContext, mal_enum_devices_callback_proc callback, void* pUserData)
+{
+    mal_assert(pContext != NULL);
+    mal_assert(callback != NULL);
+    
+    (void)pContext;
+    (void)callback;
+    (void)pUserData;
+    
+    // TODO: Implement me.
+    return MAL_ERROR;
+}
+
+mal_result mal_context_get_device_info__coreaudio(mal_context* pContext, mal_device_type deviceType, const mal_device_id* pDeviceID, mal_share_mode shareMode, mal_device_info* pDeviceInfo)
+{
+    mal_assert(pContext != NULL);
+    (void)pContext;
+    (void)deviceType;
+    (void)pDeviceID;
+    (void)shareMode;
+    (void)pDeviceInfo;
+    
+    // TODO: Implement me.
+    return MAL_ERROR;
+}
+
+mal_result mal_context_init__coreaudio(mal_context* pContext)
+{
+    mal_assert(pContext != NULL);
+    (void)pContext;
+
+    pContext->onDeviceIDEqual = mal_context_is_device_id_equal__coreaudio;
+    pContext->onEnumDevices   = mal_context_enumerate_devices__coreaudio;
+    pContext->onGetDeviceInfo = mal_context_get_device_info__coreaudio;
+
+    // TODO: Implement me.
+    return MAL_ERROR;
+}
+
+mal_result mal_context_uninit__coreaudio(mal_context* pContext)
+{
+    mal_assert(pContext != NULL);
+    mal_assert(pContext->backend == mal_backend_coreaudio);
+
+    // TODO: Implement me.
+    (void)pContext;
+    return MAL_ERROR;
+}
+
+void mal_device_uninit__coreaudio(mal_device* pDevice)
+{
+    mal_assert(pDevice != NULL);
+
+    // TODO: Implement me.
+    (void)pDevice;
+}
+
+mal_result mal_device_init__coreaudio(mal_context* pContext, mal_device_type type, mal_device_id* pDeviceID, const mal_device_config* pConfig, mal_device* pDevice)
+{
+    (void)pContext;
+    (void)type;
+    (void)pDeviceID;
+    (void)pConfig;
+    (void)pDevice;
+
+    // TODO: Implement me.
+    return MAL_ERROR;
+}
+
+#endif  // Core Audio
 
 
 
@@ -15742,6 +15839,7 @@ const mal_backend g_malDefaultBackends[] = {
     mal_backend_wasapi,
     mal_backend_dsound,
     mal_backend_winmm,
+    mal_backend_coreaudio,
     mal_backend_oss,
     mal_backend_pulseaudio,
     mal_backend_alsa,
@@ -15829,6 +15927,12 @@ mal_result mal_context_init(const mal_backend backends[], mal_uint32 backendCoun
             case mal_backend_jack:
             {
                 result = mal_context_init__jack(pContext);
+            } break;
+        #endif
+        #ifdef MAL_HAS_COREAUDIO
+            case mal_backend_coreaudio:
+            {
+                result = mal_context_init__coreaudio(pContext);
             } break;
         #endif
         #ifdef MAL_HAS_OSS
@@ -15927,6 +16031,12 @@ mal_result mal_context_uninit(mal_context* pContext)
         case mal_backend_jack:
         {
             mal_context_uninit__jack(pContext);
+        } break;
+    #endif
+    #ifdef MAL_HAS_COREAUDIO
+        case mal_backend_coreaudio:
+        {
+            mal_context_uninit__coreaudio(pContext);
         } break;
     #endif
     #ifdef MAL_HAS_OSS
@@ -16269,6 +16379,12 @@ mal_result mal_device_init(mal_context* pContext, mal_device_type type, mal_devi
             result = mal_device_init__jack(pContext, type, pDeviceID, &config, pDevice);
         } break;
     #endif
+    #ifdef MAL_HAS_COREAUDIO
+        case mal_backend_coreaudio:
+        {
+            result = mal_device_init__coreaudio(pContext, type, pDeviceID, &config, pDevice);
+        } break;
+    #endif
     #ifdef MAL_HAS_OSS
         case mal_backend_oss:
         {
@@ -16482,6 +16598,11 @@ void mal_device_uninit(mal_device* pDevice)
 #ifdef MAL_HAS_JACK
     if (pDevice->pContext->backend == mal_backend_jack) {
         mal_device_uninit__jack(pDevice);
+    }
+#endif
+#ifdef MAL_HAS_COREAUDIO
+    if (pDevice->pContext->backend == mal_backend_coreaudio) {
+        mal_device_uninit__coreaudio(pDevice);
     }
 #endif
 #ifdef MAL_HAS_OSS
@@ -22251,7 +22372,7 @@ const char* mal_get_backend_name(mal_backend backend)
         case mal_backend_alsa:       return "ALSA";
         case mal_backend_pulseaudio: return "PulseAudio";
         case mal_backend_jack:       return "JACK";
-        //case mal_backend_coreaudio:  return "Core Audio";
+        case mal_backend_coreaudio:  return "Core Audio";
         case mal_backend_oss:        return "OSS";
         case mal_backend_opensl:     return "OpenSL|ES";
         case mal_backend_openal:     return "OpenAL";
