@@ -1,5 +1,5 @@
 // FLAC audio decoder. Public domain. See "unlicense" statement at the end of this file.
-// dr_flac - v0.9.4 - 2018-06-14
+// dr_flac - v0.9.5 - 2018-06-23
 //
 // David Reid - mackron@gmail.com
 
@@ -1438,7 +1438,7 @@ static DRFLAC_INLINE drflac_bool32 drflac__read_uint32(drflac_bs* bs, unsigned i
 
     if (bitCount <= DRFLAC_CACHE_L1_BITS_REMAINING(bs)) {
         if (bitCount < DRFLAC_CACHE_L1_SIZE_BITS(bs)) {
-            *pResultOut = DRFLAC_CACHE_L1_SELECT_AND_SHIFT(bs, bitCount);
+            *pResultOut = (drflac_uint32)DRFLAC_CACHE_L1_SELECT_AND_SHIFT(bs, bitCount);
             bs->consumedBits += bitCount;
             bs->cache <<= bitCount;
         } else {
@@ -1451,13 +1451,13 @@ static DRFLAC_INLINE drflac_bool32 drflac__read_uint32(drflac_bs* bs, unsigned i
         // It straddles the cached data. It will never cover more than the next chunk. We just read the number in two parts and combine them.
         drflac_uint32 bitCountHi = DRFLAC_CACHE_L1_BITS_REMAINING(bs);
         drflac_uint32 bitCountLo = bitCount - bitCountHi;
-        drflac_uint32 resultHi = DRFLAC_CACHE_L1_SELECT_AND_SHIFT(bs, bitCountHi);
+        drflac_uint32 resultHi = (drflac_uint32)DRFLAC_CACHE_L1_SELECT_AND_SHIFT(bs, bitCountHi);
 
         if (!drflac__reload_cache(bs)) {
             return DRFLAC_FALSE;
         }
 
-        *pResultOut = (resultHi << bitCountLo) | DRFLAC_CACHE_L1_SELECT_AND_SHIFT(bs, bitCountLo);
+        *pResultOut = (resultHi << bitCountLo) | (drflac_uint32)DRFLAC_CACHE_L1_SELECT_AND_SHIFT(bs, bitCountLo);
         bs->consumedBits += bitCountLo;
         bs->cache <<= bitCountLo;
         return DRFLAC_TRUE;
@@ -4699,8 +4699,8 @@ drflac* drflac_open_with_metadata_private(drflac_read_proc onRead, drflac_seek_p
     }
 
     drflac_oggbs oggbs;
+    drflac_zero_memory(&oggbs, sizeof(oggbs));
     if (init.container == drflac_container_ogg) {
-        drflac_zero_memory(&oggbs, sizeof(oggbs));
         oggbs.onRead = onRead;
         oggbs.onSeek = onSeek;
         oggbs.pUserData = pUserData;
@@ -5718,6 +5718,9 @@ const char* drflac_next_vorbis_comment(drflac_vorbis_comment_iterator* pIter, dr
 
 
 // REVISION HISTORY
+//
+// v0.9.5 - 2018-06-23
+//   - Fix some warnings.
 //
 // v0.9.4 - 2018-06-14
 //   - Optimizations to seeking.
