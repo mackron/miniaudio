@@ -399,7 +399,7 @@ typedef mal_uint32                  mal_bool32;
 
 typedef void* mal_handle;
 typedef void* mal_ptr;
-typedef void (* mal_proc)();
+typedef void (* mal_proc)(void);
 
 typedef struct mal_context mal_context;
 typedef struct mal_device mal_device;
@@ -1888,7 +1888,7 @@ mal_context_config mal_context_config_init(mal_log_proc onLog);
 //
 // mal_device_config_init(), mal_device_config_init_playback(), etc. will allow you to explicitly set the sample format,
 // channel count, etc.
-mal_device_config mal_device_config_init_default();
+mal_device_config mal_device_config_init_default(void);
 mal_device_config mal_device_config_init_default_capture(mal_recv_proc onRecvCallback);
 mal_device_config mal_device_config_init_default_playback(mal_send_proc onSendCallback);
 
@@ -2048,7 +2048,7 @@ mal_uint64 mal_format_converter_read_deinterleaved(mal_format_converter* pConver
 
 
 // Helper for initializing a format converter config.
-mal_format_converter_config mal_format_converter_config_init_new();
+mal_format_converter_config mal_format_converter_config_init_new(void);
 mal_format_converter_config mal_format_converter_config_init(mal_format formatIn, mal_format formatOut, mal_uint32 channels, mal_format_converter_read_proc onRead, void* pUserData);
 mal_format_converter_config mal_format_converter_config_init_deinterleaved(mal_format formatIn, mal_format formatOut, mal_uint32 channels, mal_format_converter_read_deinterleaved_proc onReadDeinterleaved, void* pUserData);
 
@@ -2154,7 +2154,7 @@ mal_uint64 mal_src_read_deinterleaved(mal_src* pSRC, mal_uint64 frameCount, void
 
 
 // Helper for creating a sample rate conversion config.
-mal_src_config mal_src_config_init_new();
+mal_src_config mal_src_config_init_new(void);
 mal_src_config mal_src_config_init(mal_uint32 sampleRateIn, mal_uint32 sampleRateOut, mal_uint32 channels, mal_src_read_deinterleaved_proc onReadDeinterleaved, void* pUserData);
 
 
@@ -2184,7 +2184,7 @@ mal_result mal_dsp_set_output_sample_rate(mal_dsp* pDSP, mal_uint32 sampleRateOu
 mal_uint64 mal_dsp_read(mal_dsp* pDSP, mal_uint64 frameCount, void* pFramesOut, void* pUserData);
 
 // Helper for initializing a mal_dsp_config object.
-mal_dsp_config mal_dsp_config_init_new();
+mal_dsp_config mal_dsp_config_init_new(void);
 mal_dsp_config mal_dsp_config_init(mal_format formatIn, mal_uint32 channelsIn, mal_uint32 sampleRateIn, mal_format formatOut, mal_uint32 channelsOut, mal_uint32 sampleRateOut, mal_dsp_read_proc onRead, void* pUserData);
 mal_dsp_config mal_dsp_config_init_ex(mal_format formatIn, mal_uint32 channelsIn, mal_uint32 sampleRateIn, mal_channel channelMapIn[MAL_MAX_CHANNELS], mal_format formatOut, mal_uint32 channelsOut, mal_uint32 sampleRateOut,  mal_channel channelMapOut[MAL_MAX_CHANNELS], mal_dsp_read_proc onRead, void* pUserData);
 
@@ -2257,7 +2257,7 @@ void mal_blend_f32(float* pOut, float* pInA, float* pInB, float factor, mal_uint
 // This could be useful for dynamically determining the size of a device's internal buffer based on the speed of the system.
 //
 // This is a slow API because it performs a profiling test.
-float mal_calculate_cpu_speed_factor();
+float mal_calculate_cpu_speed_factor(void);
 
 // Adjust buffer size based on a scaling factor.
 //
