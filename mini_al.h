@@ -3715,8 +3715,10 @@ mal_bool32 mal_thread_create__posix(mal_context* pContext, mal_thread* pThread, 
                 scheduler = SCHED_FIFO;
             }
 #endif
+#ifdef MAL_LINUX
         } else {
             scheduler = sched_getscheduler(0);
+#endif
         }
 
         if (scheduler != -1) {
