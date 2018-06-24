@@ -630,27 +630,29 @@ typedef int mal_result;
 #define MAL_API_NOT_FOUND                               -8
 #define MAL_DEVICE_BUSY                                 -9
 #define MAL_DEVICE_NOT_INITIALIZED                      -10
-#define MAL_DEVICE_ALREADY_STARTED                      -11
-#define MAL_DEVICE_ALREADY_STARTING                     -12
-#define MAL_DEVICE_ALREADY_STOPPED                      -13
-#define MAL_DEVICE_ALREADY_STOPPING                     -14
-#define MAL_FAILED_TO_MAP_DEVICE_BUFFER                 -15
-#define MAL_FAILED_TO_UNMAP_DEVICE_BUFFER               -16
-#define MAL_FAILED_TO_INIT_BACKEND                      -17
-#define MAL_FAILED_TO_READ_DATA_FROM_CLIENT             -18
-#define MAL_FAILED_TO_READ_DATA_FROM_DEVICE             -19
-#define MAL_FAILED_TO_SEND_DATA_TO_CLIENT               -20
-#define MAL_FAILED_TO_SEND_DATA_TO_DEVICE               -21
-#define MAL_FAILED_TO_OPEN_BACKEND_DEVICE               -22
-#define MAL_FAILED_TO_START_BACKEND_DEVICE              -23
-#define MAL_FAILED_TO_STOP_BACKEND_DEVICE               -24
-#define MAL_FAILED_TO_CONFIGURE_BACKEND_DEVICE          -25
-#define MAL_FAILED_TO_CREATE_MUTEX                      -26
-#define MAL_FAILED_TO_CREATE_EVENT                      -27
-#define MAL_FAILED_TO_CREATE_THREAD                     -28
-#define MAL_INVALID_DEVICE_CONFIG                       -29
-#define MAL_ACCESS_DENIED                               -30
-#define MAL_TOO_LARGE                                   -31
+#define MAL_DEVICE_NOT_STARTED                          -11
+#define MAL_DEVICE_NOT_STOPPED                          -12
+#define MAL_DEVICE_ALREADY_STARTED                      -13
+#define MAL_DEVICE_ALREADY_STARTING                     -14
+#define MAL_DEVICE_ALREADY_STOPPED                      -15
+#define MAL_DEVICE_ALREADY_STOPPING                     -16
+#define MAL_FAILED_TO_MAP_DEVICE_BUFFER                 -17
+#define MAL_FAILED_TO_UNMAP_DEVICE_BUFFER               -18
+#define MAL_FAILED_TO_INIT_BACKEND                      -19
+#define MAL_FAILED_TO_READ_DATA_FROM_CLIENT             -20
+#define MAL_FAILED_TO_READ_DATA_FROM_DEVICE             -21
+#define MAL_FAILED_TO_SEND_DATA_TO_CLIENT               -22
+#define MAL_FAILED_TO_SEND_DATA_TO_DEVICE               -23
+#define MAL_FAILED_TO_OPEN_BACKEND_DEVICE               -24
+#define MAL_FAILED_TO_START_BACKEND_DEVICE              -25
+#define MAL_FAILED_TO_STOP_BACKEND_DEVICE               -26
+#define MAL_FAILED_TO_CONFIGURE_BACKEND_DEVICE          -27
+#define MAL_FAILED_TO_CREATE_MUTEX                      -28
+#define MAL_FAILED_TO_CREATE_EVENT                      -29
+#define MAL_FAILED_TO_CREATE_THREAD                     -30
+#define MAL_INVALID_DEVICE_CONFIG                       -31
+#define MAL_ACCESS_DENIED                               -32
+#define MAL_TOO_LARGE                                   -33
 
 typedef void       (* mal_log_proc) (mal_context* pContext, mal_device* pDevice, const char* message);
 typedef void       (* mal_recv_proc)(mal_device* pDevice, mal_uint32 frameCount, const void* pSamples);
@@ -760,7 +762,7 @@ typedef union
     int jack;                       // JACK always uses default devices.
 #endif
 #ifdef MAL_SUPPORT_COREAUDIO
-    int coreaudio;
+    char coreaudio[256];            // Core Audio uses a string for identification.
 #endif
 #ifdef MAL_SUPPORT_OSS
     char oss[64];                   // "dev/dsp0", etc. "dev/dsp" for the default device.
@@ -12490,6 +12492,158 @@ mal_result mal_device__stop_backend__jack(mal_device* pDevice)
 //
 ///////////////////////////////////////////////////////////////////////////////
 #ifdef MAL_HAS_COREAUDIO
+#include <CoreAudio/CoreAudio.h>
+//#include <AudioUnit/AudioUnit.h>    // <-- TODO: Check if I still need this.
+
+#include <TargetConditionals.h>
+#if defined(TARGET_OS_OSX)
+    #define MAL_APPLE_DESKTOP
+#elif defined(TARGET_OS_IPHONE)
+    #define MAL_APPLE_MOBILE
+#endif
+
+// Core Audio
+//
+// So far, Core Audio has been the worst backend to work with due to being both unintuitive and having almost no documentation
+// apart from comments in the headers (which admittedly are quite good). For my own purposes, and for anybody out there whose
+// needing to figure out how this darn thing works, I'm going to outline a few things here.
+//
+// Since mini_al is a fairly low-level API, one of the things it needs is control over specific devices, and it needs to be
+// able to identify whether or not it can be used as playback and/or capture. The AudioObject API is the only one I've seen
+// that supports this level of detail. There was some public domain sample code I stumbled across that used the AudioComponent
+// and AudioUnit APIs, but I couldn't see anything that gave low-level control over device selection and capabilities (the
+// distinction between playback and capture in particular). Therefore, mini_al is using the AudioObject API.
+//
+// Most (all?) functions in the AudioObject API take a AudioObjectID as it's input. This is the device identifier. When
+// retrieving global information, such as the device list, you use kAudioObjectSystemObject. When retrieving device-specific
+// data, you pass in the ID for that device. In order to retrieve device-specific IDs you need to enumerate over each of the
+// devices. This is done using the AudioObjectGetPropertyDataSize() and AudioObjectGetPropertyData() APIs which seem to be
+// the central APIs for retrieving information about the system and specific devices.
+//
+// To use the AudioObjectGetPropertyData() API you need to use the notion of a property address. A property address is a
+// structure with three variables and is used to identify which property you are getting or setting. The first is the "selector"
+// which is basically the specific property that you're wanting to retrieve or set. The second is the "scope", which is
+// typically set to kAudioObjectPropertyScopeGlobal, kAudioObjectPropertyScopeInput for input-specific properties and
+// kAudioObjectPropertyScopeOutput for output-specific properties. The last is the "element" which is always set to
+// kAudioObjectPropertyElementMaster in mini_al's case. I don't know of any cases where this would be set to anything different.
+//
+// Back to the earlier issue of device retrieval, you first use the AudioObjectGetPropertyDataSize() API to retrieve the size
+// of the raw data which is just a list of AudioDeviceID's. You use the kAudioObjectSystemObject AudioObjectID, and a property
+// address with the kAudioHardwarePropertyDevices selector and the kAudioObjectPropertyScopeGlobal scope. Once you have the
+// size, allocate a block of memory of that size and then call AudioObjectGetPropertyData(). The data is just a list of
+// AudioDeviceID's so just do "dataSize/sizeof(AudioDeviceID)" to know the device count.
+//
+//
+
+
+mal_result mal_result_from_OSStatus(OSStatus status)
+{
+    switch (status) {
+        case kAudioHardwareNoError                   : return MAL_SUCCESS;
+        case kAudioHardwareNotRunningError           : return MAL_DEVICE_NOT_STARTED;
+        case kAudioHardwareUnspecifiedError          : return MAL_ERROR;
+        case kAudioHardwareUnknownPropertyError      : return MAL_INVALID_ARGS;
+        case kAudioHardwareBadPropertySizeError      : return MAL_INVALID_OPERATION;
+        case kAudioHardwareIllegalOperationError     : return MAL_INVALID_OPERATION;
+        case kAudioHardwareBadObjectError            : return MAL_INVALID_ARGS;
+        case kAudioHardwareBadDeviceError            : return MAL_INVALID_ARGS;
+        case kAudioHardwareBadStreamError            : return MAL_INVALID_ARGS;
+        case kAudioHardwareUnsupportedOperationError : return MAL_INVALID_OPERATION;
+        case kAudioDeviceUnsupportedFormatError      : return MAL_FORMAT_NOT_SUPPORTED;
+        case kAudioDevicePermissionsError            : return MAL_ACCESS_DENIED;
+        default                                      : return MAL_ERROR;
+    }
+}
+
+mal_result mal_get_AudioObject_uid(AudioObjectID objectID, size_t bufferSize, char* bufferOut)
+{
+    AudioObjectPropertyAddress propAddress;
+    propAddress.mSelector = kAudioDevicePropertyDeviceUID;
+    propAddress.mScope    = kAudioObjectPropertyScopeGlobal;
+    propAddress.mElement  = kAudioObjectPropertyElementMaster;
+
+    CFStringRef deviceName = NULL;
+    UInt32 dataSize = sizeof(deviceName);
+    OSStatus status = AudioObjectGetPropertyData(objectID, &propAddress, 0, NULL, &dataSize, &deviceName);
+    if (status != kAudioHardwareNoError) {
+        return mal_result_from_OSStatus(status);
+    }
+    
+    if (!CFStringGetCString(deviceName, bufferOut, bufferSize, kCFStringEncodingUTF8)) {
+        return MAL_ERROR;
+    }
+    
+    return MAL_SUCCESS;
+}
+
+mal_result mal_get_AudioObject_name(AudioObjectID objectID, size_t bufferSize, char* bufferOut)
+{
+    AudioObjectPropertyAddress propAddress;
+    propAddress.mSelector = kAudioDevicePropertyDeviceNameCFString;
+    propAddress.mScope    = kAudioObjectPropertyScopeGlobal;
+    propAddress.mElement  = kAudioObjectPropertyElementMaster;
+
+    CFStringRef deviceName = NULL;
+    UInt32 dataSize = sizeof(deviceName);
+    OSStatus status = AudioObjectGetPropertyData(objectID, &propAddress, 0, NULL, &dataSize, &deviceName);
+    if (status != kAudioHardwareNoError) {
+        return mal_result_from_OSStatus(status);
+    }
+    
+    if (!CFStringGetCString(deviceName, bufferOut, bufferSize, kCFStringEncodingUTF8)) {
+        return MAL_ERROR;
+    }
+    
+    return MAL_SUCCESS;
+}
+
+mal_bool32 mal_does_AudioObject_support_scope(AudioObjectID deviceObjectID, AudioObjectPropertyScope scope)
+{
+    // To know whether or not a device is an input device we need ot look at the stream configuration. If it has an output channel it's a
+    // playback device.
+    AudioObjectPropertyAddress propAddress;
+    propAddress.mSelector = kAudioDevicePropertyStreamConfiguration;
+    propAddress.mScope    = scope;
+    propAddress.mElement  = kAudioObjectPropertyElementMaster;
+    
+    UInt32 dataSize;
+    OSStatus status = AudioObjectGetPropertyDataSize(deviceObjectID, &propAddress, 0, NULL, &dataSize);
+    if (status != kAudioHardwareNoError) {
+        return MAL_FALSE;
+    }
+    
+    AudioBufferList* pBufferList = (AudioBufferList*)mal_malloc(dataSize);
+    if (pBufferList == NULL) {
+        return MAL_FALSE;   // Out of memory.
+    }
+    
+    status = AudioObjectGetPropertyData(deviceObjectID, &propAddress, 0, NULL, &dataSize, pBufferList);
+    if (status != kAudioHardwareNoError) {
+        mal_free(pBufferList);
+        return MAL_FALSE;
+    }
+
+    mal_bool32 isSupported = MAL_FALSE;
+    if (pBufferList->mNumberBuffers > 0) {
+        isSupported = MAL_TRUE;
+    }
+    
+    mal_free(pBufferList);
+    return isSupported;
+}
+
+mal_bool32 mal_does_AudioObject_support_playback(AudioObjectID deviceObjectID)
+{
+    return mal_does_AudioObject_support_scope(deviceObjectID, kAudioObjectPropertyScopeOutput);
+}
+
+mal_bool32 mal_does_AudioObject_support_capture(AudioObjectID deviceObjectID)
+{
+    return mal_does_AudioObject_support_scope(deviceObjectID, kAudioObjectPropertyScopeInput);
+}
+
+
+
 
 mal_bool32 mal_context_is_device_id_equal__coreaudio(mal_context* pContext, const mal_device_id* pID0, const mal_device_id* pID1)
 {
@@ -12498,20 +12652,63 @@ mal_bool32 mal_context_is_device_id_equal__coreaudio(mal_context* pContext, cons
     mal_assert(pID1 != NULL);
     (void)pContext;
 
-    return pID0->coreaudio == pID1->coreaudio;
+    return strcmp(pID0->coreaudio, pID1->coreaudio) == 0;
 }
 
 mal_result mal_context_enumerate_devices__coreaudio(mal_context* pContext, mal_enum_devices_callback_proc callback, void* pUserData)
 {
     mal_assert(pContext != NULL);
     mal_assert(callback != NULL);
+  
+    AudioObjectPropertyAddress propAddressDevices;
+    propAddressDevices.mSelector = kAudioHardwarePropertyDevices;
+    propAddressDevices.mScope    = kAudioObjectPropertyScopeGlobal;
+    propAddressDevices.mElement  = kAudioObjectPropertyElementMaster;
+
+    UInt32 deviceObjectsDataSize;
+    OSStatus status = AudioObjectGetPropertyDataSize(kAudioObjectSystemObject, &propAddressDevices, 0, NULL, &deviceObjectsDataSize);
+    if (status != kAudioHardwareNoError) {
+        return mal_result_from_OSStatus(status);
+    }
     
-    (void)pContext;
-    (void)callback;
-    (void)pUserData;
+    AudioObjectID* pDeviceObjectIDs = (AudioObjectID*)mal_malloc(deviceObjectsDataSize);
+    if (pDeviceObjectIDs == NULL) {
+        return MAL_OUT_OF_MEMORY;
+    }
     
-    // TODO: Implement me.
-    return MAL_ERROR;
+    status = AudioObjectGetPropertyData(kAudioObjectSystemObject, &propAddressDevices, 0, NULL, &deviceObjectsDataSize, pDeviceObjectIDs);
+    if (status != kAudioHardwareNoError) {
+        mal_free(pDeviceObjectIDs);
+        return mal_result_from_OSStatus(status);
+    }
+    
+    UInt32 deviceCount = deviceObjectsDataSize / sizeof(AudioObjectID);
+    for (UInt32 iDevice = 0; iDevice < deviceCount; ++iDevice) {
+        AudioObjectID deviceObjectID = pDeviceObjectIDs[iDevice];
+
+        mal_device_info info;
+        mal_zero_object(&info);
+        if (mal_get_AudioObject_uid(deviceObjectID, sizeof(info.id.coreaudio), info.id.coreaudio) != MAL_SUCCESS) {
+            continue;
+        }
+        if (mal_get_AudioObject_name(deviceObjectID, sizeof(info.name), info.name) != MAL_SUCCESS) {
+            continue;
+        }
+
+        if (mal_does_AudioObject_support_playback(deviceObjectID)) {
+            if (!callback(pContext, mal_device_type_playback, &info, pUserData)) {
+                break;
+            }
+        }
+        if (mal_does_AudioObject_support_capture(deviceObjectID)) {
+            if (!callback(pContext, mal_device_type_capture, &info, pUserData)) {
+                break;
+            }
+        }
+    }
+    
+    mal_free(pDeviceObjectIDs);
+    return MAL_SUCCESS;
 }
 
 mal_result mal_context_get_device_info__coreaudio(mal_context* pContext, mal_device_type deviceType, const mal_device_id* pDeviceID, mal_share_mode shareMode, mal_device_info* pDeviceInfo)
@@ -12531,13 +12728,12 @@ mal_result mal_context_init__coreaudio(mal_context* pContext)
 {
     mal_assert(pContext != NULL);
     (void)pContext;
-
+    
     pContext->onDeviceIDEqual = mal_context_is_device_id_equal__coreaudio;
     pContext->onEnumDevices   = mal_context_enumerate_devices__coreaudio;
     pContext->onGetDeviceInfo = mal_context_get_device_info__coreaudio;
 
-    // TODO: Implement me.
-    return MAL_ERROR;
+    return MAL_SUCCESS;
 }
 
 mal_result mal_context_uninit__coreaudio(mal_context* pContext)
@@ -12545,9 +12741,8 @@ mal_result mal_context_uninit__coreaudio(mal_context* pContext)
     mal_assert(pContext != NULL);
     mal_assert(pContext->backend == mal_backend_coreaudio);
 
-    // TODO: Implement me.
     (void)pContext;
-    return MAL_ERROR;
+    return MAL_SUCCESS;
 }
 
 void mal_device_uninit__coreaudio(mal_device* pDevice)
@@ -12565,6 +12760,9 @@ mal_result mal_device_init__coreaudio(mal_context* pContext, mal_device_type typ
     (void)pDeviceID;
     (void)pConfig;
     (void)pDevice;
+    
+    
+    
 
     // TODO: Implement me.
     return MAL_ERROR;
