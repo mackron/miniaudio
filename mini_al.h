@@ -12551,21 +12551,193 @@ mal_result mal_device__stop_backend__jack(mal_device* pDevice)
 
 mal_result mal_result_from_OSStatus(OSStatus status)
 {
-    switch (status) {
-        case kAudioHardwareNoError                   : return MAL_SUCCESS;
-        case kAudioHardwareNotRunningError           : return MAL_DEVICE_NOT_STARTED;
-        case kAudioHardwareUnspecifiedError          : return MAL_ERROR;
-        case kAudioHardwareUnknownPropertyError      : return MAL_INVALID_ARGS;
-        case kAudioHardwareBadPropertySizeError      : return MAL_INVALID_OPERATION;
-        case kAudioHardwareIllegalOperationError     : return MAL_INVALID_OPERATION;
-        case kAudioHardwareBadObjectError            : return MAL_INVALID_ARGS;
-        case kAudioHardwareBadDeviceError            : return MAL_INVALID_ARGS;
-        case kAudioHardwareBadStreamError            : return MAL_INVALID_ARGS;
-        case kAudioHardwareUnsupportedOperationError : return MAL_INVALID_OPERATION;
-        case kAudioDeviceUnsupportedFormatError      : return MAL_FORMAT_NOT_SUPPORTED;
-        case kAudioDevicePermissionsError            : return MAL_ACCESS_DENIED;
-        default                                      : return MAL_ERROR;
+    switch (status)
+    {
+        case kAudioHardwareNoError:                   return MAL_SUCCESS;
+        case kAudioHardwareNotRunningError:           return MAL_DEVICE_NOT_STARTED;
+        case kAudioHardwareUnspecifiedError:          return MAL_ERROR;
+        case kAudioHardwareUnknownPropertyError:      return MAL_INVALID_ARGS;
+        case kAudioHardwareBadPropertySizeError:      return MAL_INVALID_OPERATION;
+        case kAudioHardwareIllegalOperationError:     return MAL_INVALID_OPERATION;
+        case kAudioHardwareBadObjectError:            return MAL_INVALID_ARGS;
+        case kAudioHardwareBadDeviceError:            return MAL_INVALID_ARGS;
+        case kAudioHardwareBadStreamError:            return MAL_INVALID_ARGS;
+        case kAudioHardwareUnsupportedOperationError: return MAL_INVALID_OPERATION;
+        case kAudioDeviceUnsupportedFormatError:      return MAL_FORMAT_NOT_SUPPORTED;
+        case kAudioDevicePermissionsError:            return MAL_ACCESS_DENIED;
+        default:                                      return MAL_ERROR;
     }
+}
+
+mal_channel mal_channel_from_AudioChannelBit(AudioChannelBitmap bit)
+{
+    switch (bit)
+    {
+        case kAudioChannelBit_Left:                 return MAL_CHANNEL_LEFT;
+        case kAudioChannelBit_Right:                return MAL_CHANNEL_RIGHT;
+        case kAudioChannelBit_Center:               return MAL_CHANNEL_FRONT_CENTER;
+        case kAudioChannelBit_LFEScreen:            return MAL_CHANNEL_LFE;
+        case kAudioChannelBit_LeftSurround:         return MAL_CHANNEL_BACK_LEFT;
+        case kAudioChannelBit_RightSurround:        return MAL_CHANNEL_BACK_RIGHT;
+        case kAudioChannelBit_LeftCenter:           return MAL_CHANNEL_FRONT_LEFT_CENTER;
+        case kAudioChannelBit_RightCenter:          return MAL_CHANNEL_FRONT_RIGHT_CENTER;
+        case kAudioChannelBit_CenterSurround:       return MAL_CHANNEL_BACK_CENTER;
+        case kAudioChannelBit_LeftSurroundDirect:   return MAL_CHANNEL_SIDE_LEFT;
+        case kAudioChannelBit_RightSurroundDirect:  return MAL_CHANNEL_SIDE_RIGHT;
+        case kAudioChannelBit_TopCenterSurround:    return MAL_CHANNEL_TOP_CENTER;
+        case kAudioChannelBit_VerticalHeightLeft:   return MAL_CHANNEL_TOP_FRONT_LEFT;
+        case kAudioChannelBit_VerticalHeightCenter: return MAL_CHANNEL_TOP_FRONT_CENTER;
+        case kAudioChannelBit_VerticalHeightRight:  return MAL_CHANNEL_TOP_FRONT_RIGHT;
+        case kAudioChannelBit_TopBackLeft:          return MAL_CHANNEL_TOP_BACK_LEFT;
+        case kAudioChannelBit_TopBackCenter:        return MAL_CHANNEL_TOP_BACK_CENTER;
+        case kAudioChannelBit_TopBackRight:         return MAL_CHANNEL_TOP_BACK_RIGHT;
+        default:                                    return MAL_CHANNEL_NONE;
+    }
+}
+
+mal_channel mal_channel_from_AudioChannelLabel(AudioChannelLabel label)
+{
+    switch (label)
+    {
+        case kAudioChannelLabel_Unknown:              return MAL_CHANNEL_NONE;
+        case kAudioChannelLabel_Unused:               return MAL_CHANNEL_NONE;
+        case kAudioChannelLabel_UseCoordinates:       return MAL_CHANNEL_NONE;
+        case kAudioChannelLabel_Left:                 return MAL_CHANNEL_LEFT;
+        case kAudioChannelLabel_Right:                return MAL_CHANNEL_RIGHT;
+        case kAudioChannelLabel_Center:               return MAL_CHANNEL_FRONT_CENTER;
+        case kAudioChannelLabel_LFEScreen:            return MAL_CHANNEL_LFE;
+        case kAudioChannelLabel_LeftSurround:         return MAL_CHANNEL_BACK_LEFT;
+        case kAudioChannelLabel_RightSurround:        return MAL_CHANNEL_BACK_RIGHT;
+        case kAudioChannelLabel_LeftCenter:           return MAL_CHANNEL_FRONT_LEFT_CENTER;
+        case kAudioChannelLabel_RightCenter:          return MAL_CHANNEL_FRONT_RIGHT_CENTER;
+        case kAudioChannelLabel_CenterSurround:       return MAL_CHANNEL_BACK_CENTER;
+        case kAudioChannelLabel_LeftSurroundDirect:   return MAL_CHANNEL_SIDE_LEFT;
+        case kAudioChannelLabel_RightSurroundDirect:  return MAL_CHANNEL_SIDE_RIGHT;
+        case kAudioChannelLabel_TopCenterSurround:    return MAL_CHANNEL_TOP_CENTER;
+        case kAudioChannelLabel_VerticalHeightLeft:   return MAL_CHANNEL_TOP_FRONT_LEFT;
+        case kAudioChannelLabel_VerticalHeightCenter: return MAL_CHANNEL_TOP_FRONT_CENTER;
+        case kAudioChannelLabel_VerticalHeightRight:  return MAL_CHANNEL_TOP_FRONT_RIGHT;
+        case kAudioChannelLabel_TopBackLeft:          return MAL_CHANNEL_TOP_BACK_LEFT;
+        case kAudioChannelLabel_TopBackCenter:        return MAL_CHANNEL_TOP_BACK_CENTER;
+        case kAudioChannelLabel_TopBackRight:         return MAL_CHANNEL_TOP_BACK_RIGHT;
+        case kAudioChannelLabel_RearSurroundLeft:     return MAL_CHANNEL_BACK_LEFT;
+        case kAudioChannelLabel_RearSurroundRight:    return MAL_CHANNEL_BACK_RIGHT;
+        case kAudioChannelLabel_LeftWide:             return MAL_CHANNEL_SIDE_LEFT;
+        case kAudioChannelLabel_RightWide:            return MAL_CHANNEL_SIDE_RIGHT;
+        case kAudioChannelLabel_LFE2:                 return MAL_CHANNEL_LFE;
+        case kAudioChannelLabel_LeftTotal:            return MAL_CHANNEL_LEFT;
+        case kAudioChannelLabel_RightTotal:           return MAL_CHANNEL_RIGHT;
+        case kAudioChannelLabel_HearingImpaired:      return MAL_CHANNEL_NONE;
+        case kAudioChannelLabel_Narration:            return MAL_CHANNEL_MONO;
+        case kAudioChannelLabel_Mono:                 return MAL_CHANNEL_MONO;
+        case kAudioChannelLabel_DialogCentricMix:     return MAL_CHANNEL_MONO;
+        case kAudioChannelLabel_CenterSurroundDirect: return MAL_CHANNEL_BACK_CENTER;
+        case kAudioChannelLabel_Haptic:               return MAL_CHANNEL_NONE;
+        case kAudioChannelLabel_Ambisonic_W:          return MAL_CHANNEL_NONE;
+        case kAudioChannelLabel_Ambisonic_X:          return MAL_CHANNEL_NONE;
+        case kAudioChannelLabel_Ambisonic_Y:          return MAL_CHANNEL_NONE;
+        case kAudioChannelLabel_Ambisonic_Z:          return MAL_CHANNEL_NONE;
+        case kAudioChannelLabel_MS_Mid:               return MAL_CHANNEL_LEFT;
+        case kAudioChannelLabel_MS_Side:              return MAL_CHANNEL_RIGHT;
+        case kAudioChannelLabel_XY_X:                 return MAL_CHANNEL_LEFT;
+        case kAudioChannelLabel_XY_Y:                 return MAL_CHANNEL_RIGHT;
+        case kAudioChannelLabel_HeadphonesLeft:       return MAL_CHANNEL_LEFT;
+        case kAudioChannelLabel_HeadphonesRight:      return MAL_CHANNEL_RIGHT;
+        case kAudioChannelLabel_ClickTrack:           return MAL_CHANNEL_NONE;
+        case kAudioChannelLabel_ForeignLanguage:      return MAL_CHANNEL_NONE;
+        case kAudioChannelLabel_Discrete:             return MAL_CHANNEL_NONE;
+        case kAudioChannelLabel_Discrete_0:           return MAL_CHANNEL_AUX_0;
+        case kAudioChannelLabel_Discrete_1:           return MAL_CHANNEL_AUX_1;
+        case kAudioChannelLabel_Discrete_2:           return MAL_CHANNEL_AUX_2;
+        case kAudioChannelLabel_Discrete_3:           return MAL_CHANNEL_AUX_3;
+        case kAudioChannelLabel_Discrete_4:           return MAL_CHANNEL_AUX_4;
+        case kAudioChannelLabel_Discrete_5:           return MAL_CHANNEL_AUX_5;
+        case kAudioChannelLabel_Discrete_6:           return MAL_CHANNEL_AUX_6;
+        case kAudioChannelLabel_Discrete_7:           return MAL_CHANNEL_AUX_7;
+        case kAudioChannelLabel_Discrete_8:           return MAL_CHANNEL_AUX_8;
+        case kAudioChannelLabel_Discrete_9:           return MAL_CHANNEL_AUX_9;
+        case kAudioChannelLabel_Discrete_10:          return MAL_CHANNEL_AUX_10;
+        case kAudioChannelLabel_Discrete_11:          return MAL_CHANNEL_AUX_11;
+        case kAudioChannelLabel_Discrete_12:          return MAL_CHANNEL_AUX_12;
+        case kAudioChannelLabel_Discrete_13:          return MAL_CHANNEL_AUX_13;
+        case kAudioChannelLabel_Discrete_14:          return MAL_CHANNEL_AUX_14;
+        case kAudioChannelLabel_Discrete_15:          return MAL_CHANNEL_AUX_15;
+        case kAudioChannelLabel_Discrete_65535:       return MAL_CHANNEL_NONE;
+        case kAudioChannelLabel_HOA_ACN:              return MAL_CHANNEL_NONE;
+        case kAudioChannelLabel_HOA_ACN_0:            return MAL_CHANNEL_AUX_0;
+        case kAudioChannelLabel_HOA_ACN_1:            return MAL_CHANNEL_AUX_1;
+        case kAudioChannelLabel_HOA_ACN_2:            return MAL_CHANNEL_AUX_2;
+        case kAudioChannelLabel_HOA_ACN_3:            return MAL_CHANNEL_AUX_3;
+        case kAudioChannelLabel_HOA_ACN_4:            return MAL_CHANNEL_AUX_4;
+        case kAudioChannelLabel_HOA_ACN_5:            return MAL_CHANNEL_AUX_5;
+        case kAudioChannelLabel_HOA_ACN_6:            return MAL_CHANNEL_AUX_6;
+        case kAudioChannelLabel_HOA_ACN_7:            return MAL_CHANNEL_AUX_7;
+        case kAudioChannelLabel_HOA_ACN_8:            return MAL_CHANNEL_AUX_8;
+        case kAudioChannelLabel_HOA_ACN_9:            return MAL_CHANNEL_AUX_9;
+        case kAudioChannelLabel_HOA_ACN_10:           return MAL_CHANNEL_AUX_10;
+        case kAudioChannelLabel_HOA_ACN_11:           return MAL_CHANNEL_AUX_11;
+        case kAudioChannelLabel_HOA_ACN_12:           return MAL_CHANNEL_AUX_12;
+        case kAudioChannelLabel_HOA_ACN_13:           return MAL_CHANNEL_AUX_13;
+        case kAudioChannelLabel_HOA_ACN_14:           return MAL_CHANNEL_AUX_14;
+        case kAudioChannelLabel_HOA_ACN_15:           return MAL_CHANNEL_AUX_15;
+        case kAudioChannelLabel_HOA_ACN_65024:        return MAL_CHANNEL_NONE;
+        default:                                      return MAL_CHANNEL_NONE;
+    }
+}
+
+mal_result mal_format_from_AudioStreamBasicDescription(AudioStreamBasicDescription* pDescription, mal_format* pFormatOut)
+{
+    mal_assert(pDescription != NULL);
+    mal_assert(pFormatOut != NULL);
+    
+    *pFormatOut = mal_format_unknown;   // Safety.
+    
+    // There's a few things mini_al doesn't support.
+    if (pDescription->mFormatID != kAudioFormatLinearPCM) {
+        return MAL_FORMAT_NOT_SUPPORTED;
+    }
+    
+    // We don't support any non-packed formats that are aligned high.
+    if ((pDescription->mFormatFlags & kLinearPCMFormatFlagIsAlignedHigh) != 0) {
+        return MAL_FORMAT_NOT_SUPPORTED;
+    }
+
+    if ((pDescription->mFormatFlags & kLinearPCMFormatFlagIsFloat) != 0) {
+        if (pDescription->mBitsPerChannel == 32) {
+            *pFormatOut = mal_format_f32;
+            return MAL_SUCCESS;
+        }
+    } else {
+        if ((pDescription->mFormatFlags & kLinearPCMFormatFlagIsSignedInteger) != 0) {
+            if (pDescription->mBitsPerChannel == 16) {
+                *pFormatOut = mal_format_s16;
+                return MAL_SUCCESS;
+            } else if (pDescription->mBitsPerChannel == 24) {
+                if (pDescription->mBytesPerFrame == (pDescription->mBitsPerChannel/8 * pDescription->mChannelsPerFrame)) {
+                    *pFormatOut = mal_format_s24;
+                    return MAL_SUCCESS;
+                } else {
+                    if (pDescription->mBytesPerFrame/pDescription->mChannelsPerFrame == sizeof(mal_int32)) {
+                        // TODO: Implement mal_format_s24_32.
+                        //*pFormatOut = mal_format_s24_32;
+                        //return MAL_SUCCESS;
+                        return MAL_FORMAT_NOT_SUPPORTED;
+                    }
+                }
+            } else if (pDescription->mBitsPerChannel == 32) {
+                *pFormatOut = mal_format_s32;
+                return MAL_SUCCESS;
+            }
+        } else {
+            if (pDescription->mBitsPerChannel == 8) {
+                *pFormatOut = mal_format_u8;
+                return MAL_SUCCESS;
+            }
+        }
+    }
+    
+    // Getting here means the format is not supported.
+    return MAL_FORMAT_NOT_SUPPORTED;
 }
 
 mal_result mal_get_device_object_ids__coreaudio(mal_context* pContext, UInt32* pDeviceCount, AudioObjectID** ppDeviceObjectIDs) // NOTE: Free the returned buffer with mal_free().
@@ -12694,6 +12866,82 @@ mal_bool32 mal_does_AudioObject_support_capture(AudioObjectID deviceObjectID)
 }
 
 
+mal_result mal_get_AudioObject_stream_descriptions(AudioObjectID deviceObjectID, mal_device_type deviceType, UInt32* pDescriptionCount, AudioStreamRangedDescription** ppDescriptions)    // NOTE: Free the returned pointer with mal_free().
+{
+    mal_assert(pDescriptionCount != NULL);
+    mal_assert(ppDescriptions != NULL);
+    
+    // TODO: Experiment with kAudioStreamPropertyAvailablePhysicalFormats instead of (or in addition to) kAudioStreamPropertyAvailableVirtualFormats. My
+    //       MacBook Pro uses s24/32 format, however, which mini_al does not currently support.
+    AudioObjectPropertyAddress propAddress;
+    propAddress.mSelector = kAudioStreamPropertyAvailableVirtualFormats; //kAudioStreamPropertyAvailablePhysicalFormats;
+    propAddress.mScope    = (deviceType == mal_device_type_playback) ? kAudioObjectPropertyScopeOutput : kAudioObjectPropertyScopeInput;
+    propAddress.mElement  = kAudioObjectPropertyElementMaster;
+    
+    UInt32 dataSize;
+    OSStatus status = AudioObjectGetPropertyDataSize(deviceObjectID, &propAddress, 0, NULL, &dataSize);
+    if (status != kAudioHardwareNoError) {
+        return mal_result_from_OSStatus(status);
+    }
+    
+    AudioStreamRangedDescription* pDescriptions = (AudioStreamRangedDescription*)mal_malloc(dataSize);
+    if (pDescriptions == NULL) {
+        return MAL_OUT_OF_MEMORY;
+    }
+    
+    status = AudioObjectGetPropertyData(deviceObjectID, &propAddress, 0, NULL, &dataSize, pDescriptions);
+    if (status != kAudioHardwareNoError) {
+        mal_free(pDescriptions);
+        return mal_result_from_OSStatus(status);
+    }
+    
+    *pDescriptionCount = dataSize / sizeof(*pDescriptions);
+    *ppDescriptions = pDescriptions;
+    return MAL_SUCCESS;
+}
+
+mal_result mal_get_AudioObject_best_format(AudioObjectID deviceObjectID, mal_device_type deviceType, mal_uint32 sampleRate, mal_format* pFormatOut)
+{
+    mal_assert(pFormatOut != NULL);
+    
+    *pFormatOut = mal_format_unknown;   // Safety.
+    
+    // Currently we are just retrieving the first format that contains the specified sample rate.
+    UInt32 streamDescriptionCount;
+    AudioStreamRangedDescription* pStreamDescriptions;
+    mal_result result = mal_get_AudioObject_stream_descriptions(deviceObjectID, deviceType, &streamDescriptionCount, &pStreamDescriptions);
+    if (result != MAL_SUCCESS) {
+        return result;
+    }
+    
+    for (UInt32 iStreamDescription = 0; iStreamDescription < streamDescriptionCount; ++iStreamDescription) {
+        AudioStreamRangedDescription description = pStreamDescriptions[iStreamDescription];
+    
+        // Ignore this description if the internal sample rate is out of range.
+        if (sampleRate < description.mSampleRateRange.mMinimum || sampleRate > description.mSampleRateRange.mMaximum) {
+            continue;
+        }
+        
+        mal_format format;
+        result = mal_format_from_AudioStreamBasicDescription(&description.mFormat, &format);
+        if (result != MAL_SUCCESS) {
+            continue;
+        }
+        
+        *pFormatOut = format;
+        break;
+    }
+    
+    mal_free(pStreamDescriptions);
+    
+    if (*pFormatOut == mal_format_unknown) {
+        return MAL_FORMAT_NOT_SUPPORTED;
+    } else {
+        return MAL_SUCCESS;
+    }
+}
+
+
 mal_result mal_get_AudioObject_channel_layout(AudioObjectID deviceObjectID, mal_device_type deviceType, AudioChannelLayout** ppChannelLayout)   // NOTE: Free the returned pointer with mal_free().
 {
     mal_assert(ppChannelLayout != NULL);
@@ -12724,6 +12972,115 @@ mal_result mal_get_AudioObject_channel_layout(AudioObjectID deviceObjectID, mal_
     
     *ppChannelLayout = pChannelLayout;
     return MAL_SUCCESS;
+}
+
+mal_result mal_get_AudioObject_channel_count(AudioObjectID deviceObjectID, mal_device_type deviceType, mal_uint32* pChannelCount)
+{
+    mal_assert(pChannelCount != NULL);
+    
+    *pChannelCount = 0; // Safety.
+
+    AudioChannelLayout* pChannelLayout;
+    mal_result result = mal_get_AudioObject_channel_layout(deviceObjectID, deviceType, &pChannelLayout);
+    if (result != MAL_SUCCESS) {
+        return result;
+    }
+    
+    if (pChannelLayout->mChannelLayoutTag == kAudioChannelLayoutTag_UseChannelDescriptions) {
+        *pChannelCount = pChannelLayout->mNumberChannelDescriptions;
+    } else if (pChannelLayout->mChannelLayoutTag == kAudioChannelLayoutTag_UseChannelBitmap) {
+        *pChannelCount = mal_count_set_bits(pChannelLayout->mChannelBitmap);
+    } else {
+        *pChannelCount = AudioChannelLayoutTag_GetNumberOfChannels(pChannelLayout->mChannelLayoutTag);
+    }
+    
+    mal_free(pChannelLayout);
+    return MAL_SUCCESS;
+}
+
+mal_result mal_get_channel_map_from_AudioChannelLayout(AudioChannelLayout* pChannelLayout, mal_channel channelMap[MAL_MAX_CHANNELS])
+{
+    mal_assert(pChannelLayout != NULL);
+    
+    if (pChannelLayout->mChannelLayoutTag == kAudioChannelLayoutTag_UseChannelDescriptions) {
+        for (UInt32 iChannel = 0; iChannel < pChannelLayout->mNumberChannelDescriptions; ++iChannel) {
+            channelMap[iChannel] = mal_channel_from_AudioChannelLabel(pChannelLayout->mChannelDescriptions[iChannel].mChannelLabel);
+        }
+    } else if (pChannelLayout->mChannelLayoutTag == kAudioChannelLayoutTag_UseChannelBitmap) {
+        // This is the same kind of system that's used by Windows audio APIs.
+        UInt32 iChannel = 0;
+        AudioChannelBitmap bitmap = pChannelLayout->mChannelBitmap;
+        for (UInt32 iBit = 0; iBit < 32; ++iBit) {
+            AudioChannelBitmap bit = bitmap & (1 << iBit);
+            if (bit != 0) {
+                channelMap[iChannel++] = mal_channel_from_AudioChannelBit(bit);
+            }
+        }
+    } else {
+        // Need to use the tag to determine the channel map. For now I'm just assuming a default channel map, but later on this should
+        // be updated to determine the mapping based on the tag.
+        UInt32 channelCount = AudioChannelLayoutTag_GetNumberOfChannels(pChannelLayout->mChannelLayoutTag);
+        switch (pChannelLayout->mChannelLayoutTag)
+        {
+            case kAudioChannelLayoutTag_Mono:
+            case kAudioChannelLayoutTag_Stereo:
+            case kAudioChannelLayoutTag_StereoHeadphones:
+            case kAudioChannelLayoutTag_MatrixStereo:
+            case kAudioChannelLayoutTag_MidSide:
+            case kAudioChannelLayoutTag_XY:
+            case kAudioChannelLayoutTag_Binaural:
+            case kAudioChannelLayoutTag_Ambisonic_B_Format:
+            {
+                mal_get_standard_channel_map(mal_standard_channel_map_default, channelCount, channelMap);
+            } break;
+            
+            case kAudioChannelLayoutTag_Octagonal:
+            {
+                channelMap[7] = MAL_CHANNEL_SIDE_RIGHT;
+                channelMap[6] = MAL_CHANNEL_SIDE_LEFT;
+            } // Intentional fallthrough.
+            case kAudioChannelLayoutTag_Hexagonal:
+            {
+                channelMap[5] = MAL_CHANNEL_BACK_CENTER;
+            } // Intentional fallthrough.
+            case kAudioChannelLayoutTag_Pentagonal:
+            {
+                channelMap[4] = MAL_CHANNEL_FRONT_CENTER;
+            } // Intentional fallghrough.
+            case kAudioChannelLayoutTag_Quadraphonic:
+            {
+                channelMap[3] = MAL_CHANNEL_BACK_RIGHT;
+                channelMap[2] = MAL_CHANNEL_BACK_LEFT;
+                channelMap[1] = MAL_CHANNEL_RIGHT;
+                channelMap[0] = MAL_CHANNEL_LEFT;
+            } break;
+            
+            // TODO: Add support for more tags here.
+        
+            default:
+            {
+                mal_get_standard_channel_map(mal_standard_channel_map_default, channelCount, channelMap);
+            } break;
+        }
+    }
+    
+    return MAL_SUCCESS;
+}
+
+mal_result mal_get_AudioObject_channel_map(AudioObjectID deviceObjectID, mal_device_type deviceType, mal_channel channelMap[MAL_MAX_CHANNELS])
+{
+    AudioChannelLayout* pChannelLayout;
+    mal_result result = mal_get_AudioObject_channel_layout(deviceObjectID, deviceType, &pChannelLayout);
+    if (result != MAL_SUCCESS) {
+        return result;  // Rather than always failing here, would it be more robust to simply assume a default?
+    }
+    
+    result = mal_get_channel_map_from_AudioChannelLayout(pChannelLayout, channelMap);
+    if (result != MAL_SUCCESS) {
+        return result;
+    }
+    
+    return result;
 }
 
 mal_result mal_get_AudioObject_sample_rates(AudioObjectID deviceObjectID, mal_device_type deviceType, UInt32* pSampleRateRangesCount, AudioValueRange** ppSampleRateRanges)   // NOTE: Free the returned pointer with mal_free().
@@ -12760,6 +13117,81 @@ mal_result mal_get_AudioObject_sample_rates(AudioObjectID deviceObjectID, mal_de
     *pSampleRateRangesCount = dataSize / sizeof(*pSampleRateRanges);
     *ppSampleRateRanges = pSampleRateRanges;
     return MAL_SUCCESS;
+}
+
+mal_result mal_get_AudioObject_get_closest_sample_rate(AudioObjectID deviceObjectID, mal_device_type type, mal_uint32 sampleRateIn, mal_uint32* pSampleRateOut)
+{
+    mal_assert(pSampleRateOut != NULL);
+    
+    *pSampleRateOut = 0;    // Safety.
+    
+    UInt32 sampleRateRangeCount;
+    AudioValueRange* pSampleRateRanges;
+    mal_result result = mal_get_AudioObject_sample_rates(deviceObjectID, type, &sampleRateRangeCount, &pSampleRateRanges);
+    if (result != MAL_SUCCESS) {
+        return result;
+    }
+    
+    if (sampleRateRangeCount == 0) {
+        mal_free(pSampleRateRanges);
+        return MAL_ERROR;   // Should never hit this case should we?
+    }
+    
+    if (sampleRateIn == 0) {
+        // Search in order of mini_al's preferred priority.
+        for (UInt32 iMALSampleRate = 0; iMALSampleRate < mal_countof(g_malStandardSampleRatePriorities); ++iMALSampleRate) {
+            mal_uint32 malSampleRate = g_malStandardSampleRatePriorities[iMALSampleRate];
+            for (UInt32 iCASampleRate = 0; iCASampleRate < sampleRateRangeCount; ++iCASampleRate) {
+                AudioValueRange caSampleRate = pSampleRateRanges[iCASampleRate];
+                if (caSampleRate.mMinimum <= malSampleRate && caSampleRate.mMaximum >= malSampleRate) {
+                    *pSampleRateOut = malSampleRate;
+                    mal_free(pSampleRateRanges);
+                    return MAL_SUCCESS;
+                }
+            }
+        }
+        
+        // If we get here it means none of mini_al's standard sample rates matched any of the supported sample rates from the device. In this
+        // case we just fall back to the first one reported by Core Audio.
+        mal_assert(sampleRateRangeCount > 0);
+        
+        *pSampleRateOut = pSampleRateRanges[0].mMinimum;
+        mal_free(pSampleRateRanges);
+        return MAL_SUCCESS;
+    } else {
+        // Find the closest match to this sample rate.
+        UInt32 currentAbsoluteDifference = INT32_MAX;
+        UInt32 iCurrentClosestRange = (UInt32)-1;
+        for (UInt32 iRange = 0; iRange < sampleRateRangeCount; ++iRange) {
+            if (pSampleRateRanges[iRange].mMinimum <= sampleRateIn && pSampleRateRanges[iRange].mMaximum >= sampleRateIn) {
+                *pSampleRateOut = sampleRateIn;
+                mal_free(pSampleRateRanges);
+                return MAL_SUCCESS;
+            } else {
+                UInt32 absoluteDifference;
+                if (pSampleRateRanges[iRange].mMinimum > sampleRateIn) {
+                    absoluteDifference = pSampleRateRanges[iRange].mMinimum - sampleRateIn;
+                } else {
+                    absoluteDifference = sampleRateIn - pSampleRateRanges[iRange].mMaximum;
+                }
+                
+                if (currentAbsoluteDifference > absoluteDifference) {
+                    currentAbsoluteDifference = absoluteDifference;
+                    iCurrentClosestRange = iRange;
+                }
+            }
+        }
+        
+        mal_assert(iCurrentClosestRange != (UInt32)-1);
+        
+        *pSampleRateOut = pSampleRateRanges[iCurrentClosestRange].mMinimum;
+        mal_free(pSampleRateRanges);
+        return MAL_SUCCESS;
+    }
+    
+    // Should never get here, but it would mean we weren't able to find any suitable sample rates.
+    //mal_free(pSampleRateRanges);
+    //return MAL_ERROR;
 }
 
 
@@ -12905,30 +13337,45 @@ mal_result mal_context_get_device_info__coreaudio(mal_context* pContext, mal_dev
     }
     
     // Formats.
-    pDeviceInfo->formats[pDeviceInfo->formatCount++] = mal_format_u8;
-    pDeviceInfo->formats[pDeviceInfo->formatCount++] = mal_format_s16;
-    pDeviceInfo->formats[pDeviceInfo->formatCount++] = mal_format_s24;
-    pDeviceInfo->formats[pDeviceInfo->formatCount++] = mal_format_s32;
-    pDeviceInfo->formats[pDeviceInfo->formatCount++] = mal_format_f32;
-    
-    
-    // Channels.
-    AudioChannelLayout* pChannelLayout;
-    result = mal_get_AudioObject_channel_layout(deviceObjectID, deviceType, &pChannelLayout);
+    UInt32 streamDescriptionCount;
+    AudioStreamRangedDescription* pStreamDescriptions;
+    result = mal_get_AudioObject_stream_descriptions(deviceObjectID, deviceType, &streamDescriptionCount, &pStreamDescriptions);
     if (result != MAL_SUCCESS) {
         return result;
     }
     
-    if (pChannelLayout->mChannelLayoutTag == kAudioChannelLayoutTag_UseChannelDescriptions) {
-        pDeviceInfo->minChannels = pChannelLayout->mNumberChannelDescriptions;
-    } else if (pChannelLayout->mChannelLayoutTag == kAudioChannelLayoutTag_UseChannelBitmap) {
-        pDeviceInfo->minChannels = mal_count_set_bits(pChannelLayout->mChannelBitmap);
-    } else {
-        pDeviceInfo->minChannels = AudioChannelLayoutTag_GetNumberOfChannels(pChannelLayout->mChannelLayoutTag);
+    for (UInt32 iStreamDescription = 0; iStreamDescription < streamDescriptionCount; ++iStreamDescription) {
+        mal_format format;
+        result = mal_format_from_AudioStreamBasicDescription(&pStreamDescriptions[iStreamDescription].mFormat, &format);
+        if (result != MAL_SUCCESS) {
+            continue;
+        }
+        
+        mal_assert(format != mal_format_unknown);
+        
+        // Make sure the format isn't already in the output list.
+        mal_bool32 exists = MAL_FALSE;
+        for (mal_uint32 iOutputFormat = 0; iOutputFormat < pDeviceInfo->formatCount; ++iOutputFormat) {
+            if (pDeviceInfo->formats[iOutputFormat] == format) {
+                exists = MAL_TRUE;
+                break;
+            }
+        }
+        
+        if (!exists) {
+            pDeviceInfo->formats[pDeviceInfo->formatCount++] = format;
+        }
+    }
+    
+    mal_free(pStreamDescriptions);
+    
+    
+    // Channels.
+    result = mal_get_AudioObject_channel_count(deviceObjectID, deviceType, &pDeviceInfo->minChannels);
+    if (result != MAL_SUCCESS) {
+        return result;
     }
     pDeviceInfo->maxChannels = pDeviceInfo->minChannels;
-    
-    mal_free(pChannelLayout);
     
     
     // Sample rates.
@@ -12958,7 +13405,6 @@ mal_result mal_context_get_device_info__coreaudio(mal_context* pContext, mal_dev
 mal_result mal_context_init__coreaudio(mal_context* pContext)
 {
     mal_assert(pContext != NULL);
-    (void)pContext;
     
     pContext->onDeviceIDEqual = mal_context_is_device_id_equal__coreaudio;
     pContext->onEnumDevices   = mal_context_enumerate_devices__coreaudio;
@@ -12999,16 +13445,51 @@ mal_result mal_device_init__coreaudio(mal_context* pContext, mal_device_type typ
     
     pDevice->coreaudio.deviceObjectID = deviceObjectID;
     
+    // Internal format.
+    if (pDevice->usingDefaultFormat) {
+        pDevice->internalFormat = mal_format_s16;
+    } else {
+        pDevice->internalFormat = pDevice->format;
+    }
+    
+    // Internal channels.
+    result = mal_get_AudioObject_channel_count(deviceObjectID, type, &pDevice->internalChannels);
+    if (result != MAL_SUCCESS) {
+        return result;
+    }
+    
+    // Internal sample rate.
+    result = mal_get_AudioObject_get_closest_sample_rate(deviceObjectID, type, (pDevice->usingDefaultSampleRate) ? 0 : pDevice->sampleRate, &pDevice->internalSampleRate);
+    if (result != MAL_SUCCESS) {
+        return result;
+    }
+    
+    // Internal channel map.
+    result = mal_get_AudioObject_channel_map(deviceObjectID, type, pDevice->internalChannelMap);
+    if (result != MAL_SUCCESS) {
+        return result;
+    }
+    
+    // Internal format. This depends on the internal sample rate, so it needs to come after that.
+    result = mal_get_AudioObject_best_format(deviceObjectID, type, pDevice->internalSampleRate, &pDevice->internalFormat);
+    if (result != MAL_SUCCESS) {
+        return result;
+    }
+    
+    
+    
+    
+    
     AudioStreamBasicDescription streamFormat;
     mal_zero_object(&streamFormat);
-    streamFormat.mSampleRate = (Float64)pConfig->sampleRate;
-    streamFormat.mFormatID = kAudioFormatLinearPCM;
-    streamFormat.mFormatFlags = kLinearPCMFormatFlagIsPacked;
-    streamFormat.mFramesPerPacket = 1;
-    streamFormat.mChannelsPerFrame = pConfig->channels;
-    streamFormat.mBitsPerChannel = mal_get_bytes_per_sample(pConfig->format) * 8;
-    streamFormat.mBytesPerFrame  = mal_get_bytes_per_sample(pConfig->format) * pConfig->channels;
-    streamFormat.mBytesPerPacket = streamFormat.mBytesPerFrame * streamFormat.mFramesPerPacket;
+    streamFormat.mSampleRate       = (Float64)pDevice->internalSampleRate;
+    streamFormat.mFormatID         = kAudioFormatLinearPCM;
+    streamFormat.mFormatFlags      = kLinearPCMFormatFlagIsPacked;
+    streamFormat.mFramesPerPacket  = 1;
+    streamFormat.mChannelsPerFrame = pDevice->internalChannels;
+    streamFormat.mBitsPerChannel   = mal_get_bytes_per_sample(pDevice->internalFormat) * 8;
+    streamFormat.mBytesPerFrame    = mal_get_bytes_per_sample(pDevice->internalFormat) * streamFormat.mChannelsPerFrame;
+    streamFormat.mBytesPerPacket   = streamFormat.mBytesPerFrame * streamFormat.mFramesPerPacket;
     if (pConfig->format == mal_format_f32 /*|| pConfig->format == mal_format_f64*/) {
         streamFormat.mFormatFlags |= kLinearPCMFormatFlagIsFloat;
     } else {
