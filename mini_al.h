@@ -1522,7 +1522,7 @@ MAL_ALIGNED_STRUCT(MAL_SIMD_ALIGNMENT) mal_device
 #ifdef MAL_SUPPORT_COREAUDIO
         struct
         {
-            int _unused;
+            mal_uint32 deviceObjectID;
         } coreaudio;
 #endif
 #ifdef MAL_SUPPORT_OSS
@@ -3250,6 +3250,20 @@ static MAL_INLINE unsigned int mal_round_to_power_of_2(unsigned int x)
     } else {
         return next;
     }
+}
+
+static MAL_INLINE unsigned int mal_count_set_bits(unsigned int x)
+{
+    unsigned int count = 0;
+    while (x != 0) {
+        if (x & 1) {
+            count += 1;
+        }
+        
+        x = x >> 1;
+    }
+    
+    return count;
 }
 
 
@@ -12493,7 +12507,6 @@ mal_result mal_device__stop_backend__jack(mal_device* pDevice)
 ///////////////////////////////////////////////////////////////////////////////
 #ifdef MAL_HAS_COREAUDIO
 #include <CoreAudio/CoreAudio.h>
-//#include <AudioUnit/AudioUnit.h>    // <-- TODO: Check if I still need this.
 
 #include <TargetConditionals.h>
 #if defined(TARGET_OS_OSX)
@@ -12553,6 +12566,44 @@ mal_result mal_result_from_OSStatus(OSStatus status)
         case kAudioDevicePermissionsError            : return MAL_ACCESS_DENIED;
         default                                      : return MAL_ERROR;
     }
+}
+
+mal_result mal_get_device_object_ids__coreaudio(mal_context* pContext, UInt32* pDeviceCount, AudioObjectID** ppDeviceObjectIDs) // NOTE: Free the returned buffer with mal_free().
+{
+    mal_assert(pContext != NULL);
+    mal_assert(pDeviceCount != NULL);
+    mal_assert(ppDeviceObjectIDs != NULL);
+    (void)pContext;
+
+    // Safety.
+    *pDeviceCount = 0;
+    *ppDeviceObjectIDs = NULL;
+    
+    AudioObjectPropertyAddress propAddressDevices;
+    propAddressDevices.mSelector = kAudioHardwarePropertyDevices;
+    propAddressDevices.mScope    = kAudioObjectPropertyScopeGlobal;
+    propAddressDevices.mElement  = kAudioObjectPropertyElementMaster;
+
+    UInt32 deviceObjectsDataSize;
+    OSStatus status = AudioObjectGetPropertyDataSize(kAudioObjectSystemObject, &propAddressDevices, 0, NULL, &deviceObjectsDataSize);
+    if (status != kAudioHardwareNoError) {
+        return mal_result_from_OSStatus(status);
+    }
+    
+    AudioObjectID* pDeviceObjectIDs = (AudioObjectID*)mal_malloc(deviceObjectsDataSize);
+    if (pDeviceObjectIDs == NULL) {
+        return MAL_OUT_OF_MEMORY;
+    }
+    
+    status = AudioObjectGetPropertyData(kAudioObjectSystemObject, &propAddressDevices, 0, NULL, &deviceObjectsDataSize, pDeviceObjectIDs);
+    if (status != kAudioHardwareNoError) {
+        mal_free(pDeviceObjectIDs);
+        return mal_result_from_OSStatus(status);
+    }
+    
+    *pDeviceCount = deviceObjectsDataSize / sizeof(AudioObjectID);
+    *ppDeviceObjectIDs = pDeviceObjectIDs;
+    return MAL_SUCCESS;
 }
 
 mal_result mal_get_AudioObject_uid(AudioObjectID objectID, size_t bufferSize, char* bufferOut)
@@ -12643,6 +12694,142 @@ mal_bool32 mal_does_AudioObject_support_capture(AudioObjectID deviceObjectID)
 }
 
 
+mal_result mal_get_AudioObject_channel_layout(AudioObjectID deviceObjectID, mal_device_type deviceType, AudioChannelLayout** ppChannelLayout)   // NOTE: Free the returned pointer with mal_free().
+{
+    mal_assert(ppChannelLayout != NULL);
+    
+    *ppChannelLayout = NULL;    // Safety.
+    
+    AudioObjectPropertyAddress propAddress;
+    propAddress.mSelector = kAudioDevicePropertyPreferredChannelLayout;
+    propAddress.mScope    = (deviceType == mal_device_type_playback) ? kAudioObjectPropertyScopeOutput : kAudioObjectPropertyScopeInput;
+    propAddress.mElement  = kAudioObjectPropertyElementMaster;
+    
+    UInt32 dataSize;
+    OSStatus status = AudioObjectGetPropertyDataSize(deviceObjectID, &propAddress, 0, NULL, &dataSize);
+    if (status != kAudioHardwareNoError) {
+        return mal_result_from_OSStatus(status);
+    }
+    
+    AudioChannelLayout* pChannelLayout = (AudioChannelLayout*)mal_malloc(dataSize);
+    if (pChannelLayout == NULL) {
+        return MAL_OUT_OF_MEMORY;
+    }
+    
+    status = AudioObjectGetPropertyData(deviceObjectID, &propAddress, 0, NULL, &dataSize, pChannelLayout);
+    if (status != kAudioHardwareNoError) {
+        mal_free(pChannelLayout);
+        return mal_result_from_OSStatus(status);
+    }
+    
+    *ppChannelLayout = pChannelLayout;
+    return MAL_SUCCESS;
+}
+
+mal_result mal_get_AudioObject_sample_rates(AudioObjectID deviceObjectID, mal_device_type deviceType, UInt32* pSampleRateRangesCount, AudioValueRange** ppSampleRateRanges)   // NOTE: Free the returned pointer with mal_free().
+{
+    mal_assert(pSampleRateRangesCount != NULL);
+    mal_assert(ppSampleRateRanges != NULL);
+  
+    // Safety.
+    *pSampleRateRangesCount = 0;
+    *ppSampleRateRanges = NULL;
+    
+    AudioObjectPropertyAddress propAddress;
+    propAddress.mSelector = kAudioDevicePropertyAvailableNominalSampleRates;
+    propAddress.mScope    = (deviceType == mal_device_type_playback) ? kAudioObjectPropertyScopeOutput : kAudioObjectPropertyScopeInput;
+    propAddress.mElement  = kAudioObjectPropertyElementMaster;
+    
+    UInt32 dataSize;
+    OSStatus status = AudioObjectGetPropertyDataSize(deviceObjectID, &propAddress, 0, NULL, &dataSize);
+    if (status != kAudioHardwareNoError) {
+        return mal_result_from_OSStatus(status);
+    }
+    
+    AudioValueRange* pSampleRateRanges = (AudioValueRange*)mal_malloc(dataSize);
+    if (pSampleRateRanges == NULL) {
+        return MAL_OUT_OF_MEMORY;
+    }
+    
+    status = AudioObjectGetPropertyData(deviceObjectID, &propAddress, 0, NULL, &dataSize, pSampleRateRanges);
+    if (status != kAudioHardwareNoError) {
+        mal_free(pSampleRateRanges);
+        return mal_result_from_OSStatus(status);
+    }
+    
+    *pSampleRateRangesCount = dataSize / sizeof(*pSampleRateRanges);
+    *ppSampleRateRanges = pSampleRateRanges;
+    return MAL_SUCCESS;
+}
+
+
+mal_result mal_find_AudioObjectID(mal_context* pContext, mal_device_type type, const mal_device_id* pDeviceID, AudioObjectID* pDeviceObjectID)
+{
+    mal_assert(pContext != NULL);
+    mal_assert(pDeviceObjectID != NULL);
+    (void)pContext;
+
+    // Safety.
+    *pDeviceObjectID = 0;
+    
+    if (pDeviceID == NULL) {
+        // Default device.
+        AudioObjectPropertyAddress propAddressDefaultDevice;
+        propAddressDefaultDevice.mScope = kAudioObjectPropertyScopeGlobal;
+        propAddressDefaultDevice.mElement = kAudioObjectPropertyElementMaster;
+        if (type == mal_device_type_playback) {
+            propAddressDefaultDevice.mSelector = kAudioHardwarePropertyDefaultOutputDevice;
+        } else {
+            propAddressDefaultDevice.mSelector = kAudioHardwarePropertyDefaultInputDevice;
+        }
+        
+        UInt32 defaultDeviceObjectIDSize = sizeof(AudioObjectID);
+        AudioObjectID defaultDeviceObjectID;
+        OSStatus status = AudioObjectGetPropertyData(kAudioObjectSystemObject, &propAddressDefaultDevice, 0, NULL, &defaultDeviceObjectIDSize, &defaultDeviceObjectID);
+        if (status == kAudioHardwareNoError) {
+            *pDeviceObjectID = defaultDeviceObjectID;
+            return MAL_SUCCESS;
+        }
+    } else {
+        // Explicit device.
+        UInt32 deviceCount;
+        AudioObjectID* pDeviceObjectIDs;
+        mal_result result = mal_get_device_object_ids__coreaudio(pContext, &deviceCount, &pDeviceObjectIDs);
+        if (result != MAL_SUCCESS) {
+            return result;
+        }
+        
+        for (UInt32 iDevice = 0; iDevice < deviceCount; ++iDevice) {
+            AudioObjectID deviceObjectID = pDeviceObjectIDs[iDevice];
+            
+            char uid[256];
+            if (mal_get_AudioObject_uid(deviceObjectID, sizeof(uid), uid) != MAL_SUCCESS) {
+                continue;
+            }
+            
+            if (type == mal_device_type_playback) {
+                if (mal_does_AudioObject_support_playback(deviceObjectID)) {
+                    if (strcmp(uid, pDeviceID->coreaudio) == 0) {
+                        *pDeviceObjectID = deviceObjectID;
+                        return MAL_SUCCESS;
+                    }
+                }
+            } else {
+                if (mal_does_AudioObject_support_capture(deviceObjectID)) {
+                    if (strcmp(uid, pDeviceID->coreaudio) == 0) {
+                        *pDeviceObjectID = deviceObjectID;
+                        return MAL_SUCCESS;
+                    }
+                }
+            }
+        }
+    }
+    
+    // If we get here it means we couldn't find the device.
+    return MAL_NO_DEVICE;
+}
+
+
 
 
 mal_bool32 mal_context_is_device_id_equal__coreaudio(mal_context* pContext, const mal_device_id* pID0, const mal_device_id* pID1)
@@ -12659,30 +12846,14 @@ mal_result mal_context_enumerate_devices__coreaudio(mal_context* pContext, mal_e
 {
     mal_assert(pContext != NULL);
     mal_assert(callback != NULL);
+    
+    UInt32 deviceCount;
+    AudioObjectID* pDeviceObjectIDs;
+    mal_result result = mal_get_device_object_ids__coreaudio(pContext, &deviceCount, &pDeviceObjectIDs);
+    if (result != MAL_SUCCESS) {
+        return result;
+    }
   
-    AudioObjectPropertyAddress propAddressDevices;
-    propAddressDevices.mSelector = kAudioHardwarePropertyDevices;
-    propAddressDevices.mScope    = kAudioObjectPropertyScopeGlobal;
-    propAddressDevices.mElement  = kAudioObjectPropertyElementMaster;
-
-    UInt32 deviceObjectsDataSize;
-    OSStatus status = AudioObjectGetPropertyDataSize(kAudioObjectSystemObject, &propAddressDevices, 0, NULL, &deviceObjectsDataSize);
-    if (status != kAudioHardwareNoError) {
-        return mal_result_from_OSStatus(status);
-    }
-    
-    AudioObjectID* pDeviceObjectIDs = (AudioObjectID*)mal_malloc(deviceObjectsDataSize);
-    if (pDeviceObjectIDs == NULL) {
-        return MAL_OUT_OF_MEMORY;
-    }
-    
-    status = AudioObjectGetPropertyData(kAudioObjectSystemObject, &propAddressDevices, 0, NULL, &deviceObjectsDataSize, pDeviceObjectIDs);
-    if (status != kAudioHardwareNoError) {
-        mal_free(pDeviceObjectIDs);
-        return mal_result_from_OSStatus(status);
-    }
-    
-    UInt32 deviceCount = deviceObjectsDataSize / sizeof(AudioObjectID);
     for (UInt32 iDevice = 0; iDevice < deviceCount; ++iDevice) {
         AudioObjectID deviceObjectID = pDeviceObjectIDs[iDevice];
 
@@ -12714,14 +12885,74 @@ mal_result mal_context_enumerate_devices__coreaudio(mal_context* pContext, mal_e
 mal_result mal_context_get_device_info__coreaudio(mal_context* pContext, mal_device_type deviceType, const mal_device_id* pDeviceID, mal_share_mode shareMode, mal_device_info* pDeviceInfo)
 {
     mal_assert(pContext != NULL);
-    (void)pContext;
-    (void)deviceType;
-    (void)pDeviceID;
     (void)shareMode;
     (void)pDeviceInfo;
     
-    // TODO: Implement me.
-    return MAL_ERROR;
+    AudioObjectID deviceObjectID;
+    mal_result result = mal_find_AudioObjectID(pContext, deviceType, pDeviceID, &deviceObjectID);
+    if (result != MAL_SUCCESS) {
+        return result;
+    }
+    
+    result = mal_get_AudioObject_uid(deviceObjectID, sizeof(pDeviceInfo->id.coreaudio), pDeviceInfo->id.coreaudio);
+    if (result != MAL_SUCCESS) {
+        return result;
+    }
+    
+    result = mal_get_AudioObject_name(deviceObjectID, sizeof(pDeviceInfo->name), pDeviceInfo->name);
+    if (result != MAL_SUCCESS) {
+        return result;
+    }
+    
+    // Formats.
+    pDeviceInfo->formats[pDeviceInfo->formatCount++] = mal_format_u8;
+    pDeviceInfo->formats[pDeviceInfo->formatCount++] = mal_format_s16;
+    pDeviceInfo->formats[pDeviceInfo->formatCount++] = mal_format_s24;
+    pDeviceInfo->formats[pDeviceInfo->formatCount++] = mal_format_s32;
+    pDeviceInfo->formats[pDeviceInfo->formatCount++] = mal_format_f32;
+    
+    
+    // Channels.
+    AudioChannelLayout* pChannelLayout;
+    result = mal_get_AudioObject_channel_layout(deviceObjectID, deviceType, &pChannelLayout);
+    if (result != MAL_SUCCESS) {
+        return result;
+    }
+    
+    if (pChannelLayout->mChannelLayoutTag == kAudioChannelLayoutTag_UseChannelDescriptions) {
+        pDeviceInfo->minChannels = pChannelLayout->mNumberChannelDescriptions;
+    } else if (pChannelLayout->mChannelLayoutTag == kAudioChannelLayoutTag_UseChannelBitmap) {
+        pDeviceInfo->minChannels = mal_count_set_bits(pChannelLayout->mChannelBitmap);
+    } else {
+        pDeviceInfo->minChannels = AudioChannelLayoutTag_GetNumberOfChannels(pChannelLayout->mChannelLayoutTag);
+    }
+    pDeviceInfo->maxChannels = pDeviceInfo->minChannels;
+    
+    mal_free(pChannelLayout);
+    
+    
+    // Sample rates.
+    UInt32 sampleRateRangeCount;
+    AudioValueRange* pSampleRateRanges;
+    result = mal_get_AudioObject_sample_rates(deviceObjectID, deviceType, &sampleRateRangeCount, &pSampleRateRanges);
+    if (result != MAL_SUCCESS) {
+        return result;
+    }
+    
+    if (sampleRateRangeCount > 0) {
+        pDeviceInfo->minSampleRate = UINT32_MAX;
+        pDeviceInfo->maxSampleRate = 0;
+        for (UInt32 iSampleRate = 0; iSampleRate < sampleRateRangeCount; ++iSampleRate) {
+            if (pDeviceInfo->minSampleRate > pSampleRateRanges[iSampleRate].mMinimum) {
+                pDeviceInfo->minSampleRate = pSampleRateRanges[iSampleRate].mMinimum;
+            }
+            if (pDeviceInfo->maxSampleRate < pSampleRateRanges[iSampleRate].mMaximum) {
+                pDeviceInfo->maxSampleRate = pSampleRateRanges[iSampleRate].mMaximum;
+            }
+        }
+    }
+    
+    return MAL_SUCCESS;
 }
 
 mal_result mal_context_init__coreaudio(mal_context* pContext)
@@ -12753,15 +12984,38 @@ void mal_device_uninit__coreaudio(mal_device* pDevice)
     (void)pDevice;
 }
 
-mal_result mal_device_init__coreaudio(mal_context* pContext, mal_device_type type, mal_device_id* pDeviceID, const mal_device_config* pConfig, mal_device* pDevice)
+mal_result mal_device_init__coreaudio(mal_context* pContext, mal_device_type type, const mal_device_id* pDeviceID, const mal_device_config* pConfig, mal_device* pDevice)
 {
-    (void)pContext;
-    (void)type;
-    (void)pDeviceID;
-    (void)pConfig;
-    (void)pDevice;
+    mal_assert(pContext != NULL);
+    mal_assert(pConfig != NULL);
+    mal_assert(pDevice != NULL);
+    mal_assert(type == mal_device_type_playback || type == mal_device_type_capture);
     
+    AudioObjectID deviceObjectID;
+    mal_result result = mal_find_AudioObjectID(pContext, type, pDeviceID, &deviceObjectID);
+    if (result != MAL_SUCCESS) {
+        return result;
+    }
     
+    pDevice->coreaudio.deviceObjectID = deviceObjectID;
+    
+    AudioStreamBasicDescription streamFormat;
+    mal_zero_object(&streamFormat);
+    streamFormat.mSampleRate = (Float64)pConfig->sampleRate;
+    streamFormat.mFormatID = kAudioFormatLinearPCM;
+    streamFormat.mFormatFlags = kLinearPCMFormatFlagIsPacked;
+    streamFormat.mFramesPerPacket = 1;
+    streamFormat.mChannelsPerFrame = pConfig->channels;
+    streamFormat.mBitsPerChannel = mal_get_bytes_per_sample(pConfig->format) * 8;
+    streamFormat.mBytesPerFrame  = mal_get_bytes_per_sample(pConfig->format) * pConfig->channels;
+    streamFormat.mBytesPerPacket = streamFormat.mBytesPerFrame * streamFormat.mFramesPerPacket;
+    if (pConfig->format == mal_format_f32 /*|| pConfig->format == mal_format_f64*/) {
+        streamFormat.mFormatFlags |= kLinearPCMFormatFlagIsFloat;
+    } else {
+        if (pConfig->format != mal_format_u8) {
+            streamFormat.mFormatFlags |= kLinearPCMFormatFlagIsSignedInteger;
+        }
+    }
     
 
     // TODO: Implement me.
