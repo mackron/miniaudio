@@ -16455,8 +16455,8 @@ mal_result mal_context_init__sdl(mal_context* pContext)
         "SDL2.dll",
         "SDL.dll"
 #elif defined(MAL_APPLE)
-        "libSDL2-2.0.0.dylib",  // Can any Mac users out there comfirm these library names?
-        "libSDL-1.2.0.dylib"
+        "SDL2.framework/SDL2",
+        "SDL.framework/SDL"
 #else
         "libSDL2-2.0.so.0",
         "libSDL-1.2.so.0"
