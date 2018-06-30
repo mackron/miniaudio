@@ -13584,6 +13584,18 @@ mal_thread_result MAL_THREADCALL mal_AudioQueue_worker_thread__coreaudio(void* p
         return (mal_thread_result)(size_t)pThreadData->initResult;
     }
     
+    // In our loop below we use CFRunLoopRunInMode() so we can use a timeout (CFRunLoopRun() does not allow a timeout for some reason). The
+    // problem with this is that is requires a mode (kCFRunLoopDefaultMode or kCFRunLoopCommonModes) which is actually dynamically linked.
+    // This creates a problem for mini_al because we prefer to do run-time linking which would not be possible if we depended on
+    // kCFRunLoopDefaultMode, etc. Therefore we do something sneaky - we get the run loop modes for our run loop using CFRunLoopCopyAllModes
+    // which will give us a value we need.
+    CFArrayRef runLoopModes = CFRunLoopCopyAllModes((CFRunLoopRef)pDevice->coreaudio.runLoop);
+    if (CFArrayGetCount(runLoopModes) == 0) {
+        pThreadData->initResult = MAL_ERROR;
+        mal_event_signal(&pThreadData->initCompletionEvent);
+        return (mal_thread_result)(size_t)pThreadData->initResult;
+    }
+    
     OSStatus status;
     if (pDevice->type == mal_device_type_playback) {
         status = AudioQueueNewOutput(&streamFormat, mal_on_output__core_audio, pDevice, (CFRunLoopRef)pDevice->coreaudio.runLoop, NULL, 0, (AudioQueueRef*)&pDevice->coreaudio.audioQueue);
@@ -13694,12 +13706,13 @@ mal_thread_result MAL_THREADCALL mal_AudioQueue_worker_thread__coreaudio(void* p
         
         // Just keep running the running loop indefinitely. We'll wake it up when we need to.
         for (;;) {
-            // Getting here means the loop has timed out or was woken up. This gives us a chace to stop the device is requested.
             if (mal_device__get_state(pDevice) != MAL_STATE_STARTED) {
                 goto stop_device_and_continue;
             }
-        
-            CFRunLoopRun();
+            
+            // Just use the first reported mode. Using CFRunLoopRunInMode so we can specify a timeout for safety against an infinite loop.
+            CFTimeInterval timeout = 1.0f;
+            CFRunLoopRunInMode(CFArrayGetValueAtIndex(runLoopModes, 0), timeout, MAL_FALSE);
         }
 
         
@@ -13731,6 +13744,7 @@ mal_thread_result MAL_THREADCALL mal_AudioQueue_worker_thread__coreaudio(void* p
     }
     
     // We'll get here when the device is uninitialized.
+    CFRelease(runLoopModes);
     AudioQueueDispose((AudioQueueRef)pDevice->coreaudio.audioQueue, MAL_TRUE);
     return 0;
 }
