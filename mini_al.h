@@ -13243,6 +13243,33 @@ mal_result mal_get_AudioObject_closest_buffer_size_in_frames(AudioObjectID devic
     } else {
         *pBufferSizeInFramesOut = bufferSizeInFramesIn;
     }
+
+    return MAL_SUCCESS;
+}
+
+mal_result mal_set_AudioObject_buffer_size_in_frames(AudioObjectID deviceObjectID, mal_device_type deviceType, mal_uint32* pBufferSizeInOut)
+{
+    mal_uint32 chosenBufferSizeInFrames;
+    mal_result result = mal_get_AudioObject_closest_buffer_size_in_frames(deviceObjectID, deviceType, *pBufferSizeInOut, &chosenBufferSizeInFrames);
+    if (result != MAL_SUCCESS) {
+        return result;
+    }
+
+    // Try setting the size of the buffer... If this fails we just use whatever is currently set.
+    AudioObjectPropertyAddress propAddress;
+    propAddress.mSelector = kAudioDevicePropertyBufferFrameSize;
+    propAddress.mScope    = (deviceType == mal_device_type_playback) ? kAudioObjectPropertyScopeOutput : kAudioObjectPropertyScopeInput;
+    propAddress.mElement  = kAudioObjectPropertyElementMaster;
+    
+    OSStatus status = AudioObjectSetPropertyData(deviceObjectID, &propAddress, 0, NULL, sizeof(chosenBufferSizeInFrames), &chosenBufferSizeInFrames);
+    if (status != kAudioHardwareNoError) {
+        // Getting here means we were unable to set the buffer size. In this case just use whatever is currently selected.
+        UInt32 dataSize = sizeof(*pBufferSizeInOut);
+        OSStatus status = AudioObjectGetPropertyData(deviceObjectID, &propAddress, 0, NULL, &dataSize, pBufferSizeInOut);
+        if (status != kAudioHardwareNoError) {
+            return mal_result_from_OSStatus(status);
+        }
+    }
     
     return MAL_SUCCESS;
 }
@@ -13757,14 +13784,7 @@ mal_thread_result MAL_THREADCALL mal_AudioQueue_worker_thread__coreaudio(void* p
         if (status != kAudioHardwareNoError) {
             // An error occurred while stopping the audio queue... just continue on I suppose...
         }
-        
-    #if 0
-        status = AudioQueueReset((AudioQueueRef)pDevice->coreaudio.audioQueue);
-        if (status != kAudioHardwareNoError) {
-            // Don't think we need to do anything if resetting fails.
-        }
-    #endif
-    
+
         // Make sure the client is notified that the device has stopped, but make sure it's done after the status has been set.
         mal_stop_proc onStop = pDevice->onStop;
         if (onStop) {
@@ -13830,47 +13850,50 @@ mal_result mal_device_init__coreaudio(mal_context* pContext, mal_device_type dev
     
     
     // Buffer size.
-    mal_uint32 requestedBufferSizeInFrames = pDevice->bufferSizeInFrames / pDevice->periods;
-    if (requestedBufferSizeInFrames == 0) {
-        requestedBufferSizeInFrames = 1;
+    mal_uint32 actualBufferSizeInFrames = pDevice->bufferSizeInFrames;
+    if (actualBufferSizeInFrames < pDevice->periods) {
+        actualBufferSizeInFrames = pDevice->periods;
     }
     
     if (pDevice->usingDefaultBufferSize) {
         // CPU speed is a factor to consider when determine how large of a buffer we need.
         float fCPUSpeed = mal_calculate_cpu_speed_factor();
 
-#if 0   // TODO: Test capture latency.
-        // In my testing, capture seems to have worse latency than playback for some reason.
-        float fType;
-        if (type == mal_device_type_playback) {
-            fType = 1.0f;
+        // In my admittedly limited testing, capture latency seems to be about the same as playback with Core Audio, at least on my MacBook Pro. On other
+        // backends, however, this is often different. I am therefore leaving the logic below in place just in case I need to do some capture/playback
+        // specific tweaking.
+        float fDeviceType;
+        if (deviceType == mal_device_type_playback) {
+            fDeviceType = 1.0f;
         } else {
-            fType = 2.0f;
+            fDeviceType = 1.0f;
         }
-#else
-        float fType = 1.0f;
-#endif
 
         // Backend tax. Need to fiddle with this.
-        float fBackend = 1.5f;   // <-- mini_al's implementation is actually kind of bad at the moment. TODO: Revisit this after AudioUnit implementation.
+        float fBackend = 0.5f;
 
-        requestedBufferSizeInFrames = mal_calculate_default_buffer_size_in_frames(pConfig->performanceProfile, pConfig->sampleRate, fCPUSpeed*fType*fBackend);
-        if (requestedBufferSizeInFrames == 0) {
-            requestedBufferSizeInFrames = 1;
+        actualBufferSizeInFrames = mal_calculate_default_buffer_size_in_frames(pConfig->performanceProfile, pConfig->sampleRate, fCPUSpeed*fDeviceType*fBackend);
+        if (actualBufferSizeInFrames < pDevice->periods) {
+            actualBufferSizeInFrames = pDevice->periods;
         }
     }
     
-    mal_uint32 closestBufferSizeInFrames;
-    result = mal_get_AudioObject_closest_buffer_size_in_frames(deviceObjectID, deviceType, requestedBufferSizeInFrames, &closestBufferSizeInFrames);
+    
+    actualBufferSizeInFrames = actualBufferSizeInFrames / pDevice->periods;
+    result = mal_set_AudioObject_buffer_size_in_frames(deviceObjectID, deviceType, &actualBufferSizeInFrames);
     if (result != MAL_SUCCESS) {
         return result;
     }
     
     
-    // The audio queue is initialized in the worker thread. We need a signal to know when the thread has been initialized.
+    // The audio queue is initialized in the worker thread.
     mal_AudioQueue_worker_thread_data__coreaudio threadData;
     threadData.pDevice = pDevice;
-    threadData.queueBufferSizeInBytes = closestBufferSizeInFrames * mal_get_bytes_per_frame(pDevice->internalFormat, pDevice->internalChannels);
+    
+    // In my testing, it appears that Core Audio likes queue buffers to be larger than device's IO buffer which was set above.
+    threadData.queueBufferSizeInBytes = actualBufferSizeInFrames*2 * mal_get_bytes_per_frame(pDevice->internalFormat, pDevice->internalChannels);
+    
+    // We need a signal to know when the thread has been initialized.
     mal_event_init(pDevice->pContext, &threadData.initCompletionEvent);
 
     // The Core Audio backend is not using the main worker thread object so we can just reuse that one.
