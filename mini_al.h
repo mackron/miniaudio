@@ -1234,7 +1234,9 @@ struct mal_context
 #ifdef MAL_SUPPORT_COREAUDIO
         struct
         {
-            int _unused;
+            mal_handle hCoreFoundation;
+            mal_handle hCoreAudio;
+            mal_handle hAudioToolbox;
         } coreaudio;
 #endif
 #ifdef MAL_SUPPORT_OSS
@@ -12500,7 +12502,7 @@ mal_result mal_device__stop_backend__jack(mal_device* pDevice)
 
     return MAL_SUCCESS;
 }
-#endif  // Jack
+#endif  // JACK
 
 
 
@@ -12512,7 +12514,6 @@ mal_result mal_device__stop_backend__jack(mal_device* pDevice)
 #ifdef MAL_HAS_COREAUDIO
 #include <CoreAudio/CoreAudio.h>
 #include <AudioToolbox/AudioToolbox.h>
-//#include <AudioUnit/AudioUnit.h>
 
 #include <TargetConditionals.h>
 #if defined(TARGET_OS_OSX)
@@ -13453,6 +13454,26 @@ mal_result mal_context_init__coreaudio(mal_context* pContext)
 {
     mal_assert(pContext != NULL);
     
+#ifndef MAL_NO_RUNTIME_LINKING
+    pContext->coreaudio.hCoreFoundation = mal_dlopen("CoreFoundation.framework/CoreFoundation");
+    if (pContext->coreaudio.hCoreFoundation == NULL) {
+        return MAL_API_NOT_FOUND;
+    }
+    
+    pContext->coreaudio.hCoreAudio = mal_dlopen("CoreAudio.framework/CoreAudio");
+    if (pContext->coreaudio.hCoreAudio == NULL) {
+        mal_dlclose(pContext->coreaudio.hCoreFoundation);
+        return MAL_API_NOT_FOUND;
+    }
+    
+    pContext->coreaudio.hAudioToolbox = mal_dlopen("AudioToolbox.framework/AudioToolbox");
+    if (pContext->coreaudio.hAudioToolbox == NULL) {
+        mal_dlclose(pContext->coreaudio.hCoreAudio);
+        mal_dlclose(pContext->coreaudio.hCoreFoundation);
+        return MAL_API_NOT_FOUND;
+    }
+#endif
+    
     pContext->onDeviceIDEqual = mal_context_is_device_id_equal__coreaudio;
     pContext->onEnumDevices   = mal_context_enumerate_devices__coreaudio;
     pContext->onGetDeviceInfo = mal_context_get_device_info__coreaudio;
@@ -13464,6 +13485,12 @@ mal_result mal_context_uninit__coreaudio(mal_context* pContext)
 {
     mal_assert(pContext != NULL);
     mal_assert(pContext->backend == mal_backend_coreaudio);
+    
+#ifndef MAL_NO_RUNTIME_LINKING
+    mal_dlclose(pContext->coreaudio.hAudioToolbox);
+    mal_dlclose(pContext->coreaudio.hCoreAudio);
+    mal_dlclose(pContext->coreaudio.hCoreFoundation);
+#endif
 
     (void)pContext;
     return MAL_SUCCESS;
