@@ -42,9 +42,7 @@
 //
 // You can then #include this file in other parts of the program as you would with any other header file.
 //
-// The implementation of this library will try #include-ing necessary headers for some backends. If you do not have
-// the development packages for any particular backend you can disable it by #define-ing the appropriate MAL_NO_*
-// option before the implementation.
+// If you want to disable a specific backend, #define the appropriate MAL_NO_* option before the implementation.
 //
 // Note that GCC and Clang requires "-msse2", "-mavx2", etc. for SIMD optimizations.
 //
@@ -56,6 +54,7 @@
 //
 // Building for macOS
 // ------------------
+// The macOS build requires -framework CoreFoundation -framework CoreAudio -framework AudioToolbox.
 //
 // Building for Linux
 // ------------------
@@ -12499,6 +12498,12 @@ mal_result mal_device__stop_backend__jack(mal_device* pDevice)
     if (((mal_jack_deactivate_proc)pContext->jack.jack_deactivate)((mal_jack_client_t*)pDevice->jack.pClient) != 0) {
         return mal_post_error(pDevice, "[JACK] An error occurred when deactivating the JACK client.", MAL_ERROR);
     }
+    
+    mal_device__set_state(pDevice, MAL_STATE_STOPPED);
+    mal_stop_proc onStop = pDevice->onStop;
+    if (onStop) {
+        onStop(pDevice);
+    }
 
     return MAL_SUCCESS;
 }
@@ -13847,7 +13852,7 @@ mal_result mal_device_init__coreaudio(mal_context* pContext, mal_device_type dev
 #endif
 
         // Backend tax. Need to fiddle with this.
-        float fBackend = 1.0;
+        float fBackend = 1.5f;   // <-- mini_al's implementation is actually kind of bad at the moment. TODO: Revisit this after AudioUnit implementation.
 
         requestedBufferSizeInFrames = mal_calculate_default_buffer_size_in_frames(pConfig->performanceProfile, pConfig->sampleRate, fCPUSpeed*fType*fBackend);
         if (requestedBufferSizeInFrames == 0) {
@@ -15202,8 +15207,9 @@ mal_result mal_device__stop_backend__opensl(mal_device* pDevice)
 
     // Make sure the client is aware that the device has stopped. There may be an OpenSL|ES callback for this, but I haven't found it.
     mal_device__set_state(pDevice, MAL_STATE_STOPPED);
-    if (pDevice->onStop) {
-        pDevice->onStop(pDevice);
+    mal_stop_proc onStop = pDevice->onStop;
+    if (onStop) {
+        onStop(pDevice);
     }
 
     return MAL_SUCCESS;
@@ -16726,6 +16732,12 @@ mal_result mal_device__stop_backend__sdl(mal_device* pDevice)
 #endif
     {
         ((MAL_PFN_SDL_PauseAudio)pDevice->pContext->sdl.SDL_PauseAudio)(1);
+    }
+    
+    mal_device__set_state(pDevice, MAL_STATE_STOPPED);
+    mal_stop_proc onStop = pDevice->onStop;
+    if (onStop) {
+        onStop(pDevice);
     }
 
     return MAL_SUCCESS;

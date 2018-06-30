@@ -43,6 +43,12 @@ void on_log(mal_context* pContext, mal_device* pDevice, const char* message)
     printf("%s\n", message);
 }
 
+void on_stop(mal_device* pDevice)
+{
+    (void)pDevice;
+    printf("Device Stopped.\n");
+}
+
 FILE* mal_fopen(const char* filePath, const char* openMode)
 {
     FILE* pFile;
@@ -2272,6 +2278,7 @@ int do_playback_test(mal_backend backend)
     {
         mal_context_config contextConfig = mal_context_config_init(on_log);
         mal_device_config deviceConfig = mal_device_config_init_default_playback(on_send__playback_test);
+        deviceConfig.onStopCallback = on_stop;
 
     #if defined(__EMSCRIPTEN__)
         deviceConfig.format = mal_format_f32;
