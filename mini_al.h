@@ -13870,7 +13870,7 @@ mal_result mal_device_init__coreaudio(mal_context* pContext, mal_device_type dev
         }
 
         // Backend tax. Need to fiddle with this.
-        float fBackend = 0.5f;
+        float fBackend = 1.0f;
 
         actualBufferSizeInFrames = mal_calculate_default_buffer_size_in_frames(pConfig->performanceProfile, pConfig->sampleRate, fCPUSpeed*fDeviceType*fBackend);
         if (actualBufferSizeInFrames < pDevice->periods) {
@@ -13879,19 +13879,20 @@ mal_result mal_device_init__coreaudio(mal_context* pContext, mal_device_type dev
     }
     
     
-    actualBufferSizeInFrames = actualBufferSizeInFrames / pDevice->periods;
+    // In my testing, it appears that Core Audio likes queue buffers to be larger than device's IO buffer which was set above. We're going to make
+    // the size of the queue buffers twice the size of the device's IO buffer.
+    actualBufferSizeInFrames = actualBufferSizeInFrames / pDevice->periods / 2;
     result = mal_set_AudioObject_buffer_size_in_frames(deviceObjectID, deviceType, &actualBufferSizeInFrames);
     if (result != MAL_SUCCESS) {
         return result;
     }
     
+    mal_uint32 queueBufferSizeInFrames = actualBufferSizeInFrames * 2;
     
     // The audio queue is initialized in the worker thread.
     mal_AudioQueue_worker_thread_data__coreaudio threadData;
     threadData.pDevice = pDevice;
-    
-    // In my testing, it appears that Core Audio likes queue buffers to be larger than device's IO buffer which was set above.
-    threadData.queueBufferSizeInBytes = actualBufferSizeInFrames*2 * mal_get_bytes_per_frame(pDevice->internalFormat, pDevice->internalChannels);
+    threadData.queueBufferSizeInBytes = queueBufferSizeInFrames * mal_get_bytes_per_frame(pDevice->internalFormat, pDevice->internalChannels);
     
     // We need a signal to know when the thread has been initialized.
     mal_event_init(pDevice->pContext, &threadData.initCompletionEvent);
