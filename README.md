@@ -6,20 +6,15 @@ and released into the public domain.
 
 Features
 ========
-- Public domain.
-- Single file.
-- Compilable as both C and C++.
 - A simple build system.
   - It should Just Work out of the box, without the need to download and install any dependencies.
-  - Does not require linking to anything for the Windows build and only -ldl, -lpthread and -lm for Linux.
-  - The header section does not include any platform specific headers.
 - A simple API.
 - Transparent data structures with direct access to internal data.
 - Supports both playback and capture on all backends.
 - Automatic data conversion.
-  - Format conversion, with optional dithering where appropriate.
+  - Sample format conversion, with optional dithering.
   - Sample rate conversion.
-  - Channel mapping and conversion (stereo to 5.1, etc.)
+  - Channel mapping and channel conversion (stereo to 5.1, etc.)
 - MP3, Vorbis, FLAC and WAV decoding.
   - This depends on external single file libraries which can be found in the "extras" folder.
 
@@ -27,14 +22,12 @@ Features
 Supported Platforms
 ===================
 - Windows (XP+)
+- macOS
 - Linux
 - BSD
 - Android
 - Raspberry Pi
 - Emscripten / HTML5
-
-macOS and iOS support is coming soon(ish) via Core Audio. Unofficial support is enabled via the
-PulseAudio, JACK, OpenAL and SDL backends, however I have not tested these personally.
 
 
 Backends
@@ -42,6 +35,7 @@ Backends
 - WASAPI
 - DirectSound
 - WinMM
+- Core Audio
 - ALSA
 - PulseAudio
 - JACK
@@ -50,6 +44,18 @@ Backends
 - OpenAL
 - SDL
 - Null (Silence)
+
+
+Building
+======
+Do the following in one source file:
+```
+#define MINI_AL_IMPLEMENTATION
+#include "mini_al.h"
+```
+Then just compile. There's no need to install any dependencies. On Windows and macOS there's no need to link
+to anything. On Linux, just link to -lpthread, -ldl and -lm. Link to -lossaudio on OpenBSD and NetBSD (FreeBSD
+does not require linking to anything).
 
 
 Simple Playback Example
