@@ -13782,6 +13782,28 @@ OSStatus mal_on_input__coreaudio(void* pUserData, AudioUnitRenderActionFlags* pA
     return noErr;
 }
 
+void on_start_stop__coreaudio(void* pUserData, AudioUnit audioUnit, AudioUnitPropertyID propertyID, AudioUnitScope scope, AudioUnitElement element)
+{
+    (void)propertyID;
+    
+    mal_device* pDevice = (mal_device*)pUserData;
+    mal_assert(pDevice != NULL);
+    
+    UInt32 isRunning;
+    UInt32 isRunningSize = sizeof(isRunning);
+    OSStatus status = AudioUnitGetProperty(audioUnit, kAudioOutputUnitProperty_IsRunning, scope, element, &isRunning, &isRunningSize);
+    if (status != noErr) {
+        return; // Don't really know what to do in this case... just ignore it, I suppose...
+    }
+    
+    if (!isRunning) {
+        mal_stop_proc onStop = pDevice->onStop;
+        if (onStop) {
+            onStop(pDevice);
+        }
+    }
+}
+
 
 mal_result mal_device_init__coreaudio(mal_context* pContext, mal_device_type deviceType, const mal_device_id* pDeviceID, const mal_device_config* pConfig, mal_device* pDevice)
 {
@@ -13947,6 +13969,33 @@ mal_result mal_device_init__coreaudio(mal_context* pContext, mal_device_type dev
     
     pDevice->bufferSizeInFrames = actualBufferSizeInFrames * pDevice->periods;
     
+
+    // Callbacks.
+    AURenderCallbackStruct callbackInfo;
+    callbackInfo.inputProcRefCon = pDevice;
+    if (deviceType == mal_device_type_playback) {
+        callbackInfo.inputProc = mal_on_output__coreaudio;
+        status = AudioUnitSetProperty((AudioUnit)pDevice->coreaudio.audioUnit, kAudioUnitProperty_SetRenderCallback, kAudioUnitScope_Global, MAL_COREAUDIO_OUTPUT_BUS, &callbackInfo, sizeof(callbackInfo));
+        if (status != noErr) {
+            AudioComponentInstanceDispose((AudioUnit)pDevice->coreaudio.audioUnit);
+            return mal_result_from_OSStatus(status);
+        }
+    } else {
+        callbackInfo.inputProc = mal_on_input__coreaudio;
+        status = AudioUnitSetProperty((AudioUnit)pDevice->coreaudio.audioUnit, kAudioOutputUnitProperty_SetInputCallback, kAudioUnitScope_Global, MAL_COREAUDIO_INPUT_BUS, &callbackInfo, sizeof(callbackInfo));
+        if (status != noErr) {
+            AudioComponentInstanceDispose((AudioUnit)pDevice->coreaudio.audioUnit);
+            return mal_result_from_OSStatus(status);
+        }
+    }
+    
+    // We need to listen for stop events.
+    status = AudioUnitAddPropertyListener((AudioUnit)pDevice->coreaudio.audioUnit, kAudioOutputUnitProperty_IsRunning, on_start_stop__coreaudio, pDevice);
+    if (status != noErr) {
+        AudioComponentInstanceDispose((AudioUnit)pDevice->coreaudio.audioUnit);
+        return mal_result_from_OSStatus(status);
+    }
+    
     
     // We need a buffer list if this is an input device. We render into this in the input callback.
     if (deviceType == mal_device_type_capture) {
@@ -13987,29 +14036,10 @@ mal_result mal_device_init__coreaudio(mal_context* pContext, mal_device_type dev
     }
     
     
-    // Callbacks.
-    AURenderCallbackStruct callbackInfo;
-    callbackInfo.inputProcRefCon = pDevice;
-    if (deviceType == mal_device_type_playback) {
-        callbackInfo.inputProc = mal_on_output__coreaudio;
-        status = AudioUnitSetProperty((AudioUnit)pDevice->coreaudio.audioUnit, kAudioUnitProperty_SetRenderCallback, kAudioUnitScope_Global, MAL_COREAUDIO_OUTPUT_BUS, &callbackInfo, sizeof(callbackInfo));
-        if (status != noErr) {
-            AudioComponentInstanceDispose((AudioUnit)pDevice->coreaudio.audioUnit);
-            return mal_result_from_OSStatus(status);
-        }
-    } else {
-        callbackInfo.inputProc = mal_on_input__coreaudio;
-        status = AudioUnitSetProperty((AudioUnit)pDevice->coreaudio.audioUnit, kAudioOutputUnitProperty_SetInputCallback, kAudioUnitScope_Global, MAL_COREAUDIO_INPUT_BUS, &callbackInfo, sizeof(callbackInfo));
-        if (status != noErr) {
-            AudioComponentInstanceDispose((AudioUnit)pDevice->coreaudio.audioUnit);
-            return mal_result_from_OSStatus(status);
-        }
-    }
-    
-    
     // Initialize the audio unit.
     status = AudioUnitInitialize((AudioUnit)pDevice->coreaudio.audioUnit);
     if (status != noErr) {
+        mal_free(pDevice->coreaudio.pAudioBufferList);
         AudioComponentInstanceDispose((AudioUnit)pDevice->coreaudio.audioUnit);
         return mal_result_from_OSStatus(status);
     }
@@ -14037,11 +14067,6 @@ mal_result mal_device__stop_backend__coreaudio(mal_device* pDevice)
     OSStatus status = AudioOutputUnitStop((AudioUnit)pDevice->coreaudio.audioUnit);
     if (status != noErr) {
         return mal_result_from_OSStatus(status);
-    }
-    
-    mal_stop_proc onStop = pDevice->onStop;
-    if (onStop) {
-        onStop(pDevice);
     }
     
     return MAL_SUCCESS;
