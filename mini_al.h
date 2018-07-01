@@ -1528,6 +1528,10 @@ MAL_ALIGNED_STRUCT(MAL_SIMD_ALIGNMENT) mal_device
             /*AudioQueueRef*/ mal_ptr audioQueue;
             /*AudioQueueBufferRef*/ mal_ptr audioQueueBuffers[MAL_MAX_PERIODS_COREAUDIO];
             /*CFRunLoopRef*/ mal_ptr runLoop;
+            
+            /*AudioComponent*/ mal_ptr component;   // <-- Can this be per-context?
+            /*AudioUnit*/ mal_ptr audioUnit;
+            /*AudioBufferList**/ mal_ptr pAudioBufferList;
         } coreaudio;
 #endif
 #ifdef MAL_SUPPORT_OSS
@@ -2961,6 +2965,18 @@ mal_uint32 g_malStandardSampleRatePriorities[] = {
     MAL_SAMPLE_RATE_384000
 };
 
+mal_format g_malFormatPriorities[] = {
+    mal_format_f32,         // Most common
+    mal_format_s16,
+    
+    //mal_format_s24_32,    // Clean alignment
+    mal_format_s32,
+    
+    mal_format_s24,         // Unclean alignment
+    
+    mal_format_u8           // Low quality
+};
+
 #define MAL_DEFAULT_PLAYBACK_DEVICE_NAME    "Default Playback Device"
 #define MAL_DEFAULT_CAPTURE_DEVICE_NAME     "Default Capture Device"
 
@@ -4284,6 +4300,19 @@ mal_result mal_context__try_get_device_name_by_id(mal_context* pContext, mal_dev
     } else {
         return MAL_SUCCESS;
     }
+}
+
+
+mal_uint32 mal_get_format_priority_index(mal_format format) // Lower = better.
+{
+    for (mal_uint32 i = 0; i < mal_countof(g_malFormatPriorities); ++i) {
+        if (g_malFormatPriorities[i] == format) {
+            return i;
+        }
+    }
+
+    // Getting here means the format could not be found or is equal to mal_format_unknown.
+    return (mal_uint32)-1;
 }
 
 
@@ -12561,6 +12590,10 @@ mal_result mal_device__stop_backend__jack(mal_device* pDevice)
 //
 
 
+#define MAL_COREAUDIO_OUTPUT_BUS    0
+#define MAL_COREAUDIO_INPUT_BUS     1
+
+
 mal_result mal_result_from_OSStatus(OSStatus status)
 {
     switch (status)
@@ -12697,7 +12730,7 @@ mal_channel mal_channel_from_AudioChannelLabel(AudioChannelLabel label)
     }
 }
 
-mal_result mal_format_from_AudioStreamBasicDescription(AudioStreamBasicDescription* pDescription, mal_format* pFormatOut)
+mal_result mal_format_from_AudioStreamBasicDescription(const AudioStreamBasicDescription* pDescription, mal_format* pFormatOut)
 {
     mal_assert(pDescription != NULL);
     mal_assert(pFormatOut != NULL);
@@ -12711,6 +12744,16 @@ mal_result mal_format_from_AudioStreamBasicDescription(AudioStreamBasicDescripti
     
     // We don't support any non-packed formats that are aligned high.
     if ((pDescription->mFormatFlags & kLinearPCMFormatFlagIsAlignedHigh) != 0) {
+        return MAL_FORMAT_NOT_SUPPORTED;
+    }
+    
+    // Big-endian formats are not currently supported, but will be added in a future version of mini_al.
+    if ((pDescription->mFormatFlags & kLinearPCMFormatFlagIsAlignedHigh) != 0) {
+        return MAL_FORMAT_NOT_SUPPORTED;
+    }
+    
+    // We are not currently supporting non-interleaved formats (this will be added in a future version of mini_al).
+    if ((pDescription->mFormatFlags & kAudioFormatFlagIsNonInterleaved) != 0) {
         return MAL_FORMAT_NOT_SUPPORTED;
     }
 
@@ -13342,6 +13385,183 @@ mal_result mal_find_AudioObjectID(mal_context* pContext, mal_device_type type, c
 }
 
 
+mal_result mal_device_find_best_format__coreaudio(const mal_device* pDevice, AudioStreamBasicDescription* pFormat)
+{
+    mal_assert(pDevice != NULL);
+    
+    AudioObjectID deviceObjectID = (AudioObjectID)pDevice->coreaudio.deviceObjectID;
+    
+    UInt32 deviceFormatDescriptionCount;
+    AudioStreamRangedDescription* pDeviceFormatDescriptions;
+    mal_result result = mal_get_AudioObject_stream_descriptions(deviceObjectID, pDevice->type, &deviceFormatDescriptionCount, &pDeviceFormatDescriptions);
+    if (result != MAL_SUCCESS) {
+        return result;
+    }
+    
+    mal_uint32 desiredSampleRate = pDevice->sampleRate;
+    if (pDevice->usingDefaultSampleRate) {
+        // When using the device's default sample rate, we get the highest priority standard rate supported by the device. Otherwise
+        // we just use the pre-set rate.
+        for (mal_uint32 iStandardRate = 0; iStandardRate < mal_countof(g_malStandardSampleRatePriorities); ++iStandardRate) {
+            mal_uint32 standardRate = g_malStandardSampleRatePriorities[iStandardRate];
+            
+            mal_bool32 foundRate = MAL_FALSE;
+            for (UInt32 iDeviceRate = 0; iDeviceRate < deviceFormatDescriptionCount; ++iDeviceRate) {
+                mal_uint32 deviceRate = (mal_uint32)pDeviceFormatDescriptions[iDeviceRate].mFormat.mSampleRate;
+                
+                if (deviceRate == standardRate) {
+                    desiredSampleRate = standardRate;
+                    foundRate = MAL_TRUE;
+                    break;
+                }
+            }
+            
+            if (foundRate) {
+                break;
+            }
+        }
+    }
+    
+    mal_uint32 desiredChannelCount = pDevice->channels;
+    if (pDevice->usingDefaultChannels) {
+        mal_get_AudioObject_channel_count(deviceObjectID, pDevice->type, &desiredChannelCount);    // <-- Not critical if this fails.
+    }
+    
+    mal_format desiredFormat = pDevice->format;
+    if (pDevice->usingDefaultFormat) {
+        desiredFormat = g_malFormatPriorities[0];
+    }
+    
+    // If we get here it means we don't have an exact match to what the client is asking for. We'll need to find the closest one. The next
+    // loop will check for formats that have the same sample rate to what we're asking for. If there is, we prefer that one in all cases.
+    AudioStreamBasicDescription bestDeviceFormatSoFar;
+    mal_zero_object(&bestDeviceFormatSoFar);
+    
+    mal_bool32 hasSupportedFormat = MAL_FALSE;
+    for (UInt32 iFormat = 0; iFormat < deviceFormatDescriptionCount; ++iFormat) {
+        mal_format format;
+        mal_result formatResult = mal_format_from_AudioStreamBasicDescription(&pDeviceFormatDescriptions[iFormat].mFormat, &format);
+        if (formatResult == MAL_SUCCESS && format != mal_format_unknown) {
+            hasSupportedFormat = MAL_TRUE;
+            bestDeviceFormatSoFar = pDeviceFormatDescriptions[iFormat].mFormat;
+            break;
+        }
+    }
+    
+    if (!hasSupportedFormat) {
+        return MAL_FORMAT_NOT_SUPPORTED;
+    }
+    
+    
+    for (UInt32 iFormat = 0; iFormat < deviceFormatDescriptionCount; ++iFormat) {
+        AudioStreamBasicDescription thisDeviceFormat = pDeviceFormatDescriptions[iFormat].mFormat;
+    
+        // If the format is not supported by mini_al we need to skip this one entirely.
+        mal_format thisSampleFormat;
+        mal_result formatResult = mal_format_from_AudioStreamBasicDescription(&pDeviceFormatDescriptions[iFormat].mFormat, &thisSampleFormat);
+        if (formatResult != MAL_SUCCESS || thisSampleFormat == mal_format_unknown) {
+            continue;   // The format is not supported by mini_al. Skip.
+        }
+        
+        mal_format bestSampleFormatSoFar;
+        mal_format_from_AudioStreamBasicDescription(&bestDeviceFormatSoFar, &bestSampleFormatSoFar);
+        
+    
+        // Getting here means the format is supported by mini_al which makes this format a candidate.
+        if (thisDeviceFormat.mSampleRate != desiredSampleRate) {
+            // The sample rate does not match, but this format could still be usable, although it's a very low priority. If the best format
+            // so far has an equal sample rate we can just ignore this one.
+            if (bestDeviceFormatSoFar.mSampleRate == desiredSampleRate) {
+                continue;   // The best sample rate so far has the same sample rate as what we requested which means it's still the best so far. Skip this format.
+            } else {
+                // In this case, neither the best format so far nor this one have the same sample rate. Check the channel count next.
+                if (thisDeviceFormat.mChannelsPerFrame != desiredChannelCount) {
+                    // This format has a different sample rate _and_ a different channel count.
+                    if (bestDeviceFormatSoFar.mChannelsPerFrame == desiredChannelCount) {
+                        continue;   // No change to the best format.
+                    } else {
+                        // Both this format and the best so far have different sample rates and different channel counts. Whichever has the
+                        // best format is the new best.
+                        if (mal_get_format_priority_index(thisSampleFormat) < mal_get_format_priority_index(bestSampleFormatSoFar)) {
+                            bestDeviceFormatSoFar = thisDeviceFormat;
+                            continue;
+                        } else {
+                            continue;   // No change to the best format.
+                        }
+                    }
+                } else {
+                    // This format has a different sample rate but the desired channel count.
+                    if (bestDeviceFormatSoFar.mChannelsPerFrame == desiredChannelCount) {
+                        // Both this format and the best so far have the desired channel count. Whichever has the best format is the new best.
+                        if (mal_get_format_priority_index(thisSampleFormat) < mal_get_format_priority_index(bestSampleFormatSoFar)) {
+                            bestDeviceFormatSoFar = thisDeviceFormat;
+                            continue;
+                        } else {
+                            continue;   // No change to the best format for now.
+                        }
+                    } else {
+                        // This format has the desired channel count, but the best so far does not. We have a new best.
+                        bestDeviceFormatSoFar = thisDeviceFormat;
+                        continue;
+                    }
+                }
+            }
+        } else {
+            // The sample rates match which makes this format a very high priority contender. If the best format so far has a different
+            // sample rate it needs to be replaced with this one.
+            if (bestDeviceFormatSoFar.mSampleRate != desiredSampleRate) {
+                bestDeviceFormatSoFar = thisDeviceFormat;
+                continue;
+            } else {
+                // In this case both this format and the best format so far have the same sample rate. Check the channel count next.
+                if (thisDeviceFormat.mChannelsPerFrame == desiredChannelCount) {
+                    // In this case this format has the same channel count as what the client is requesting. If the best format so far has
+                    // a different count, this one becomes the new best.
+                    if (bestDeviceFormatSoFar.mChannelsPerFrame != desiredChannelCount) {
+                        bestDeviceFormatSoFar = thisDeviceFormat;
+                        continue;
+                    } else {
+                        // In this case both this format and the best so far have the ideal sample rate and channel count. Check the format.
+                        if (thisSampleFormat == desiredFormat) {
+                            bestDeviceFormatSoFar = thisDeviceFormat;
+                            break;  // Found the exact match.
+                        } else {
+                            // The formats are different. The new best format is the one with the highest priority format according to mini_al.
+                            if (mal_get_format_priority_index(thisSampleFormat) < mal_get_format_priority_index(bestSampleFormatSoFar)) {
+                                bestDeviceFormatSoFar = thisDeviceFormat;
+                                continue;
+                            } else {
+                                continue;   // No change to the best format for now.
+                            }
+                        }
+                    }
+                } else {
+                    // In this case the channel count is different to what the client has requested. If the best so far has the same channel
+                    // count as the requested count then it remains the best.
+                    if (bestDeviceFormatSoFar.mChannelsPerFrame == desiredChannelCount) {
+                        continue;
+                    } else {
+                        // This is the case where both have the same sample rate (good) but different channel counts. Right now both have about
+                        // the same priority, but we need to compare the format now.
+                        if (thisSampleFormat == bestSampleFormatSoFar) {
+                            if (mal_get_format_priority_index(thisSampleFormat) < mal_get_format_priority_index(bestSampleFormatSoFar)) {
+                                bestDeviceFormatSoFar = thisDeviceFormat;
+                                continue;
+                            } else {
+                                continue;   // No change to the best format for now.
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+    
+    *pFormat = bestDeviceFormatSoFar;
+    return MAL_SUCCESS;
+}
+
+
 
 
 mal_bool32 mal_context_is_device_id_equal__coreaudio(mal_context* pContext, const mal_device_id* pID0, const mal_device_id* pID1)
@@ -13533,13 +13753,22 @@ void mal_device_uninit__coreaudio(mal_device* pDevice)
     mal_assert(pDevice != NULL);
     mal_assert(mal_device__get_state(pDevice) == MAL_STATE_UNINITIALIZED);
     
+#ifdef MAL_COREAUDIO_USE_AUDIOQUEUE
     // We just need to kill the thread. Which we do by simply waking it up. Upon wakeup, if the thread can see that the
     // device is being uninitialized (by checking if the state is equal to MAL_STATE_UNINITIALIZED) it will return.
     mal_event_signal(&pDevice->wakeupEvent);
     mal_thread_wait(&pDevice->thread);
+#else
+    AudioComponentInstanceDispose((AudioUnit)pDevice->coreaudio.audioUnit);
+    
+    if (pDevice->coreaudio.pAudioBufferList) {
+        mal_free(pDevice->coreaudio.pAudioBufferList);
+    }
+#endif
 }
 
 
+#ifdef MAL_COREAUDIO_USE_AUDIOQUEUE
 void mal_on_output__core_audio(void* pUserData, AudioQueueRef audioQueue, AudioQueueBufferRef audioQueueBuffer)
 {
     mal_device* pDevice = (mal_device*)pUserData;
@@ -13800,6 +14029,77 @@ mal_thread_result MAL_THREADCALL mal_AudioQueue_worker_thread__coreaudio(void* p
     AudioQueueDispose((AudioQueueRef)pDevice->coreaudio.audioQueue, MAL_TRUE);
     return 0;
 }
+#endif
+
+#if !defined(MAL_COREAUDIO_USE_AUDIOQUEUE)
+OSStatus mal_on_output__coreaudio(void* pUserData, AudioUnitRenderActionFlags* pActionFlags, const AudioTimeStamp* pTimeStamp, UInt32 busNumber, UInt32 frameCount, AudioBufferList* pBufferList)
+{
+    (void)pActionFlags;
+    (void)pTimeStamp;
+    (void)busNumber;
+
+    mal_device* pDevice = (mal_device*)pUserData;
+    mal_assert(pDevice != NULL);
+    
+    // For now we can assume everything is interleaved.
+    for (UInt32 iBuffer = 0; iBuffer < pBufferList->mNumberBuffers; ++iBuffer) {
+        if (pBufferList->mBuffers[iBuffer].mNumberChannels == pDevice->internalChannels) {
+            mal_uint32 frameCountForThisBuffer = pBufferList->mBuffers[iBuffer].mDataByteSize / mal_get_bytes_per_frame(pDevice->internalFormat, pDevice->internalChannels);
+            if (frameCountForThisBuffer > 0) {
+                mal_device__read_frames_from_client(pDevice, frameCountForThisBuffer, pBufferList->mBuffers[iBuffer].mData);
+            }
+        } else {
+            // This case is where the number of channels in the output buffer do not match our internal channels. It could mean that it's
+            // not interleaved, in which case we can't handle right now since mini_al does not yet support non-interleaved streams. We just
+            // output silence here.
+            mal_zero_memory(pBufferList->mBuffers[iBuffer].mData, pBufferList->mBuffers[iBuffer].mDataByteSize);
+        }
+    }
+    
+    return noErr;
+}
+
+OSStatus mal_on_input__coreaudio(void* pUserData, AudioUnitRenderActionFlags* pActionFlags, const AudioTimeStamp* pTimeStamp, UInt32 busNumber, UInt32 frameCount, AudioBufferList* pUnusedBufferList)
+{
+    (void)pActionFlags;
+    (void)pTimeStamp;
+    (void)busNumber;
+    (void)frameCount;
+    (void)pUnusedBufferList;
+    
+    mal_device* pDevice = (mal_device*)pUserData;
+    mal_assert(pDevice != NULL);
+    
+    // I'm not going to trust the input frame count. I'm instead going to base this off the size of the first buffer.
+    UInt32 actualFrameCount = ((AudioBufferList*)pDevice->coreaudio.pAudioBufferList)->mBuffers[0].mDataByteSize / mal_get_bytes_per_sample(pDevice->internalFormat) / ((AudioBufferList*)pDevice->coreaudio.pAudioBufferList)->mBuffers[0].mNumberChannels;
+    if (actualFrameCount == 0) {
+        return noErr;
+    }
+    
+    OSStatus status = AudioUnitRender((AudioUnit)pDevice->coreaudio.audioUnit, pActionFlags, pTimeStamp, busNumber, actualFrameCount, (AudioBufferList*)pDevice->coreaudio.pAudioBufferList);
+    if (status != noErr) {
+        return status;
+    }
+    
+    AudioBufferList* pRenderedBufferList = (AudioBufferList*)pDevice->coreaudio.pAudioBufferList;
+    mal_assert(pRenderedBufferList);
+    
+    // For now we can assume everything is interleaved.
+    for (UInt32 iBuffer = 0; iBuffer < pRenderedBufferList->mNumberBuffers; ++iBuffer) {
+        if (pRenderedBufferList->mBuffers[iBuffer].mNumberChannels == pDevice->internalChannels) {
+            mal_uint32 frameCountForThisBuffer = pRenderedBufferList->mBuffers[iBuffer].mDataByteSize / mal_get_bytes_per_frame(pDevice->internalFormat, pDevice->internalChannels);
+            if (frameCountForThisBuffer > 0) {
+                mal_device__send_frames_to_client(pDevice, frameCountForThisBuffer, pRenderedBufferList->mBuffers[iBuffer].mData);
+            }
+        } else {
+            // This case is where the number of channels in the output buffer do not match our internal channels. It could mean that it's
+            // not interleaved, in which case we can't handle right now since mini_al does not yet support non-interleaved streams.
+        }
+    }
+
+    return noErr;
+}
+#endif
 
 mal_result mal_device_init__coreaudio(mal_context* pContext, mal_device_type deviceType, const mal_device_id* pDeviceID, const mal_device_config* pConfig, mal_device* pDevice)
 {
@@ -13816,30 +14116,12 @@ mal_result mal_device_init__coreaudio(mal_context* pContext, mal_device_type dev
     
     pDevice->coreaudio.deviceObjectID = deviceObjectID;
     
-    // Internal channels.
-    result = mal_get_AudioObject_channel_count(deviceObjectID, deviceType, &pDevice->internalChannels);
-    if (result != MAL_SUCCESS) {
-        return result;
-    }
-    
-    // Internal sample rate.
-    result = mal_get_AudioObject_get_closest_sample_rate(deviceObjectID, deviceType, (pDevice->usingDefaultSampleRate) ? 0 : pDevice->sampleRate, &pDevice->internalSampleRate);
-    if (result != MAL_SUCCESS) {
-        return result;
-    }
-    
     // Internal channel map.
     result = mal_get_AudioObject_channel_map(deviceObjectID, deviceType, pDevice->internalChannelMap);
     if (result != MAL_SUCCESS) {
         return result;
     }
-    
-    // Internal format. This depends on the internal sample rate, so it needs to come after that.
-    result = mal_get_AudioObject_best_format(deviceObjectID, deviceType, pDevice->internalSampleRate, &pDevice->internalFormat);
-    if (result != MAL_SUCCESS) {
-        return result;
-    }
-    
+
     // Need at least 2 queue buffers.
     if (pDevice->periods < 2) {
         pDevice->periods = 2;
@@ -13881,12 +14163,31 @@ mal_result mal_device_init__coreaudio(mal_context* pContext, mal_device_type dev
     
     // In my testing, it appears that Core Audio likes queue buffers to be larger than device's IO buffer which was set above. We're going to make
     // the size of the queue buffers twice the size of the device's IO buffer.
-    actualBufferSizeInFrames = actualBufferSizeInFrames / pDevice->periods / 2;
+    actualBufferSizeInFrames = actualBufferSizeInFrames / pDevice->periods;
     result = mal_set_AudioObject_buffer_size_in_frames(deviceObjectID, deviceType, &actualBufferSizeInFrames);
     if (result != MAL_SUCCESS) {
         return result;
     }
     
+#ifdef MAL_COREAUDIO_USE_AUDIOQUEUE
+    // Internal channels.
+    result = mal_get_AudioObject_channel_count(deviceObjectID, deviceType, &pDevice->internalChannels);
+    if (result != MAL_SUCCESS) {
+        return result;
+    }
+    
+    // Internal sample rate.
+    result = mal_get_AudioObject_get_closest_sample_rate(deviceObjectID, deviceType, (pDevice->usingDefaultSampleRate) ? 0 : pDevice->sampleRate, &pDevice->internalSampleRate);
+    if (result != MAL_SUCCESS) {
+        return result;
+    }
+    
+    // Internal format. This depends on the internal sample rate, so it needs to come after that.
+    result = mal_get_AudioObject_best_format(deviceObjectID, deviceType, pDevice->internalSampleRate, &pDevice->internalFormat);
+    if (result != MAL_SUCCESS) {
+        return result;
+    }
+
     mal_uint32 queueBufferSizeInFrames = actualBufferSizeInFrames * 2;
     
     // The audio queue is initialized in the worker thread.
@@ -13911,7 +14212,175 @@ mal_result mal_device_init__coreaudio(mal_context* pContext, mal_device_type dev
     
     // At this point the worker thread is up and running which means we can finish up.
     pDevice->bufferSizeInFrames = threadData.actualBufferSizeInBytes / mal_get_bytes_per_frame(pDevice->internalFormat, pDevice->internalChannels);
+#else
+    // AudioUnit Implementation
+    // ========================
+    
+    // Audio component.
+    AudioComponentDescription desc;
+    desc.componentType = kAudioUnitType_Output;
+#if defined(TARGET_OS_OSX)
+    desc.componentSubType = kAudioUnitSubType_HALOutput;
+#else
+    desc.componentSubType = kAudioUnitSubType_RemoteIO;
+#endif
+    desc.componentManufacturer = kAudioUnitManufacturer_Apple;
+    desc.componentFlags = 0;
+    desc.componentFlagsMask = 0;
+    
+    pDevice->coreaudio.component = AudioComponentFindNext(NULL, &desc);
+    if (pDevice->coreaudio.component == NULL) {
+        return MAL_FAILED_TO_INIT_BACKEND;
+    }
+    
+    
+    // Audio unit.
+    OSStatus status = AudioComponentInstanceNew(pDevice->coreaudio.component, (AudioUnit*)&pDevice->coreaudio.audioUnit);
+    if (status != kAudioHardwareNoError) {
+        return mal_result_from_OSStatus(status);
+    }
+    
+    
+    // The input/output buses need to be explicitly enabled and disabled. We set the flag based on the output unit first, then we just swap it for input.
+    UInt32 enableIOFlag = 1;
+    if (deviceType == mal_device_type_capture) {
+        enableIOFlag = 0;
+    }
+    
+    status = AudioUnitSetProperty((AudioUnit)pDevice->coreaudio.audioUnit, kAudioOutputUnitProperty_EnableIO, kAudioUnitScope_Output, MAL_COREAUDIO_OUTPUT_BUS, &enableIOFlag, sizeof(enableIOFlag));
+    if (status != kAudioHardwareNoError) {
+        AudioComponentInstanceDispose((AudioUnit)pDevice->coreaudio.audioUnit);
+        return mal_result_from_OSStatus(status);
+    }
+    
+    enableIOFlag = (enableIOFlag == 0) ? 1 : 0;
+    status = AudioUnitSetProperty((AudioUnit)pDevice->coreaudio.audioUnit, kAudioOutputUnitProperty_EnableIO, kAudioUnitScope_Input, MAL_COREAUDIO_INPUT_BUS, &enableIOFlag, sizeof(enableIOFlag));
+    if (status != kAudioHardwareNoError) {
+        AudioComponentInstanceDispose((AudioUnit)pDevice->coreaudio.audioUnit);
+        return mal_result_from_OSStatus(status);
+    }
+    
+    
+    // Set the device to use with this audio unit.
+    status = AudioUnitSetProperty((AudioUnit)pDevice->coreaudio.audioUnit, kAudioOutputUnitProperty_CurrentDevice, kAudioUnitScope_Global, (deviceType == mal_device_type_playback) ? MAL_COREAUDIO_OUTPUT_BUS : MAL_COREAUDIO_INPUT_BUS, &deviceObjectID, sizeof(AudioDeviceID));
+    if (status != noErr) {
+        AudioComponentInstanceDispose((AudioUnit)pDevice->coreaudio.audioUnit);
+        return mal_result_from_OSStatus(result);
+    }
+    
+    
+    // Format. This is the hardest part of initialization because there's a few variables to take into account.
+    //   1) The format must be supported by the device.
+    //   2) The format must be supported mini_al.
+    //   3) There's a priority that mini_al prefers.
+    //
+    // Ideally we would like to use a format that's as close to the hardware as possible so we can get as close to a passthrough as possible. The
+    // most important property is the sample rate. mini_al can do format conversion for any sample rate and channel count, but cannot do the same
+    // for the sample data format. If the sample data format is not supported by mini_al it must be ignored completely.
+    {
+        AudioUnitScope   formatScope   = (deviceType == mal_device_type_playback) ? kAudioUnitScope_Input : kAudioUnitScope_Output;
+        AudioUnitElement formatElement = (deviceType == mal_device_type_playback) ? MAL_COREAUDIO_OUTPUT_BUS : MAL_COREAUDIO_INPUT_BUS;
+    
+        AudioStreamBasicDescription bestFormat;
+        result = mal_device_find_best_format__coreaudio(pDevice, &bestFormat);
+        if (result != MAL_SUCCESS) {
+            AudioComponentInstanceDispose((AudioUnit)pDevice->coreaudio.audioUnit);
+            return result;
+        }
+        
+        status = AudioUnitSetProperty((AudioUnit)pDevice->coreaudio.audioUnit, kAudioUnitProperty_StreamFormat, formatScope, formatElement, &bestFormat, sizeof(bestFormat));
+        if (status != noErr) {
+            // We failed to set the format, so fall back to the current format of the audio unit.
+            UInt32 propSize = sizeof(bestFormat);
+            status = AudioUnitGetProperty((AudioUnit)pDevice->coreaudio.audioUnit, kAudioUnitProperty_StreamFormat, formatScope, formatElement, &bestFormat, &propSize);
+            if (status != noErr) {
+                AudioComponentInstanceDispose((AudioUnit)pDevice->coreaudio.audioUnit);
+                return mal_result_from_OSStatus(status);
+            }
+        }
+        
+        result = mal_format_from_AudioStreamBasicDescription(&bestFormat, &pDevice->internalFormat);
+        if (result != MAL_SUCCESS || pDevice->internalFormat == mal_format_unknown) {
+            AudioComponentInstanceDispose((AudioUnit)pDevice->coreaudio.audioUnit);
+            return result;
+        }
+        
+        pDevice->channels = bestFormat.mChannelsPerFrame;
+        pDevice->sampleRate = bestFormat.mSampleRate;
+    }
+    
+    
+    // Buffer size.
+    pDevice->bufferSizeInFrames = actualBufferSizeInFrames * pDevice->periods;
+    
+    // We need a buffer list if this is an input device. We render into this in the input callback.
+    if (deviceType == mal_device_type_capture) {
+        mal_bool32 isInterleaved = MAL_TRUE;    // TODO: Add support for non-interleaved streams.
+        
+        size_t allocationSize = sizeof(AudioBufferList) - sizeof(AudioBuffer);  // Subtract sizeof(AudioBuffer) because that part is dynamically sized.
+        if (isInterleaved) {
+            // Interleaved case. This is the simple case because we just have one buffer.
+            allocationSize += sizeof(AudioBuffer) * 1;
+            allocationSize += actualBufferSizeInFrames * mal_get_bytes_per_frame(pDevice->internalFormat, pDevice->internalChannels);
+        } else {
+            // Non-interleaved case. This is the more complex case because there's more than one buffer.
+            allocationSize += sizeof(AudioBuffer) * pDevice->internalChannels;
+            allocationSize += actualBufferSizeInFrames * mal_get_bytes_per_sample(pDevice->internalFormat) * pDevice->internalChannels;
+        }
+        
+        AudioBufferList* pBufferList = (AudioBufferList*)mal_malloc(allocationSize);
+        if (pBufferList == NULL) {
+            AudioComponentInstanceDispose((AudioUnit)pDevice->coreaudio.audioUnit);
+            return MAL_OUT_OF_MEMORY;
+        }
+        
+        if (isInterleaved) {
+            pBufferList->mNumberBuffers = 1;
+            pBufferList->mBuffers[0].mNumberChannels = pDevice->internalChannels;
+            pBufferList->mBuffers[0].mDataByteSize = actualBufferSizeInFrames * mal_get_bytes_per_frame(pDevice->internalFormat, pDevice->internalChannels);
+            pBufferList->mBuffers[0].mData = (mal_uint8*)pBufferList + sizeof(AudioBufferList);
+        } else {
+            pBufferList->mNumberBuffers = pDevice->internalChannels;
+            for (mal_uint32 iBuffer = 0; iBuffer < pBufferList->mNumberBuffers; ++iBuffer) {
+                pBufferList->mBuffers[iBuffer].mNumberChannels = 1;
+                pBufferList->mBuffers[iBuffer].mDataByteSize = actualBufferSizeInFrames * mal_get_bytes_per_sample(pDevice->internalFormat);
+                pBufferList->mBuffers[iBuffer].mData = (mal_uint8*)pBufferList + ((sizeof(AudioBufferList) - sizeof(AudioBuffer)) + (sizeof(AudioBuffer) * pDevice->internalChannels)) + (actualBufferSizeInFrames * mal_get_bytes_per_sample(pDevice->internalFormat) * iBuffer);
+            }
+        }
+        
+        pDevice->coreaudio.pAudioBufferList = pBufferList;
+    }
+    
+    
+    // Callbacks.
+    AURenderCallbackStruct callbackInfo;
+    callbackInfo.inputProcRefCon = pDevice;
+    if (deviceType == mal_device_type_playback) {
+        callbackInfo.inputProc = mal_on_output__coreaudio;
+        status = AudioUnitSetProperty((AudioUnit)pDevice->coreaudio.audioUnit, kAudioUnitProperty_SetRenderCallback, kAudioUnitScope_Global, MAL_COREAUDIO_OUTPUT_BUS, &callbackInfo, sizeof(callbackInfo));
+        if (status != noErr) {
+            AudioComponentInstanceDispose((AudioUnit)pDevice->coreaudio.audioUnit);
+            return mal_result_from_OSStatus(status);
+        }
+    } else {
+        callbackInfo.inputProc = mal_on_input__coreaudio;
+        status = AudioUnitSetProperty((AudioUnit)pDevice->coreaudio.audioUnit, kAudioOutputUnitProperty_SetInputCallback, kAudioUnitScope_Global, MAL_COREAUDIO_INPUT_BUS, &callbackInfo, sizeof(callbackInfo));
+        if (status != noErr) {
+            AudioComponentInstanceDispose((AudioUnit)pDevice->coreaudio.audioUnit);
+            return mal_result_from_OSStatus(status);
+        }
+    }
+    
+    
+    // Initialize the audio unit.
+    status = AudioUnitInitialize((AudioUnit)pDevice->coreaudio.audioUnit);
+    if (status != noErr) {
+        AudioComponentInstanceDispose((AudioUnit)pDevice->coreaudio.audioUnit);
+        return mal_result_from_OSStatus(status);
+    }
+    
 
+#endif
 
     return MAL_SUCCESS;
 }
@@ -13920,6 +14389,7 @@ mal_result mal_device__start_backend__coreaudio(mal_device* pDevice)
 {
     mal_assert(pDevice != NULL);
     
+#ifdef MAL_COREAUDIO_USE_AUDIOQUEUE
     // We set the state to playing and wake up the worker thread which is where the device will be started for
     // real. We need to wait for the startEvent to get signalled before returning.
     mal_device__set_state(pDevice, MAL_STATE_STARTING);
@@ -13930,12 +14400,21 @@ mal_result mal_device__start_backend__coreaudio(mal_device* pDevice)
     
     // We use the work result to know whether or not we were successful.
     return pDevice->workResult;
+#else
+    OSStatus status = AudioOutputUnitStart((AudioUnit)pDevice->coreaudio.audioUnit);
+    if (status != noErr) {
+        return mal_result_from_OSStatus(status);
+    }
+    
+    return MAL_SUCCESS;
+#endif
 }
 
 mal_result mal_device__stop_backend__coreaudio(mal_device* pDevice)
 {
     mal_assert(pDevice != NULL);
     
+#ifdef MAL_COREAUDIO_USE_AUDIOQUEUE
     // Stopping the device is similar to starting in that we need to let the worker thread do it's thing before
     // returning, however we need to wake up the thread slightly differently.
     mal_device__set_state(pDevice, MAL_STATE_STOPPING);
@@ -13944,6 +14423,19 @@ mal_result mal_device__stop_backend__coreaudio(mal_device* pDevice)
     // Wait for the device to be stopped on the worker thread before returning.
     mal_event_wait(&pDevice->stopEvent);
     return MAL_SUCCESS;
+#else
+    OSStatus status = AudioOutputUnitStop((AudioUnit)pDevice->coreaudio.audioUnit);
+    if (status != noErr) {
+        return mal_result_from_OSStatus(status);
+    }
+    
+    mal_stop_proc onStop = pDevice->onStop;
+    if (onStop) {
+        onStop(pDevice);
+    }
+    
+    return MAL_SUCCESS;
+#endif
 }
 #endif  // Core Audio
 
