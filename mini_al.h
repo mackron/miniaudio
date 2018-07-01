@@ -13958,9 +13958,6 @@ mal_result mal_device_init__coreaudio(mal_context* pContext, mal_device_type dev
         }
     }
     
-    
-    // In my testing, it appears that Core Audio likes queue buffers to be larger than device's IO buffer which was set above. We're going to make
-    // the size of the queue buffers twice the size of the device's IO buffer.
     actualBufferSizeInFrames = actualBufferSizeInFrames / pDevice->periods;
     result = mal_set_AudioObject_buffer_size_in_frames(deviceObjectID, deviceType, &actualBufferSizeInFrames);
     if (result != MAL_SUCCESS) {
