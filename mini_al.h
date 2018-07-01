@@ -1233,8 +1233,23 @@ struct mal_context
         struct
         {
             mal_handle hCoreFoundation;
+            mal_proc CFStringGetCString;
+            
             mal_handle hCoreAudio;
+            mal_proc AudioObjectGetPropertyData;
+            mal_proc AudioObjectGetPropertyDataSize;
+            mal_proc AudioObjectSetPropertyData;
+            
             mal_handle hAudioToolbox;
+            mal_proc AudioComponentFindNext;
+            mal_proc AudioComponentInstanceDispose;
+            mal_proc AudioComponentInstanceNew;
+            mal_proc AudioOutputUnitStart;
+            mal_proc AudioOutputUnitStop;
+            mal_proc AudioUnitAddPropertyListener;
+            mal_proc AudioUnitGetProperty;
+            mal_proc AudioUnitInitialize;
+            mal_proc AudioUnitRender;
         } coreaudio;
 #endif
 #ifdef MAL_SUPPORT_OSS
@@ -12551,6 +12566,14 @@ mal_result mal_device__stop_backend__jack(mal_device* pDevice)
     #define MAL_APPLE_MOBILE
 #endif
 
+// CoreFoundation
+typedef Boolean (* mal_CFStringGetCString_proc)(CFStringRef theString, char* buffer, CFIndex bufferSize, CFStringEncoding encoding);
+
+// CoreAudio
+
+// AudioToolbox
+
+
 // Core Audio
 //
 // So far, Core Audio has been the worst backend to work with due to being both unintuitive and having almost no documentation
@@ -12842,23 +12865,27 @@ mal_result mal_get_AudioObject_uid_as_CFStringRef(AudioObjectID objectID, CFStri
     return MAL_SUCCESS;
 }
 
-mal_result mal_get_AudioObject_uid(AudioObjectID objectID, size_t bufferSize, char* bufferOut)
+mal_result mal_get_AudioObject_uid(mal_context* pContext, AudioObjectID objectID, size_t bufferSize, char* bufferOut)
 {
+    mal_assert(pContext != NULL);
+
     CFStringRef uid;
     mal_result result = mal_get_AudioObject_uid_as_CFStringRef(objectID, &uid);
     if (result != MAL_SUCCESS) {
         return result;
     }
     
-    if (!CFStringGetCString(uid, bufferOut, bufferSize, kCFStringEncodingUTF8)) {
+    if (!((mal_CFStringGetCString_proc)pContext->coreaudio.CFStringGetCString)(uid, bufferOut, bufferSize, kCFStringEncodingUTF8)) {
         return MAL_ERROR;
     }
     
     return MAL_SUCCESS;
 }
 
-mal_result mal_get_AudioObject_name(AudioObjectID objectID, size_t bufferSize, char* bufferOut)
+mal_result mal_get_AudioObject_name(mal_context* pContext, AudioObjectID objectID, size_t bufferSize, char* bufferOut)
 {
+    mal_assert(pContext != NULL);
+
     AudioObjectPropertyAddress propAddress;
     propAddress.mSelector = kAudioDevicePropertyDeviceNameCFString;
     propAddress.mScope    = kAudioObjectPropertyScopeGlobal;
@@ -12871,7 +12898,7 @@ mal_result mal_get_AudioObject_name(AudioObjectID objectID, size_t bufferSize, c
         return mal_result_from_OSStatus(status);
     }
     
-    if (!CFStringGetCString(deviceName, bufferOut, bufferSize, kCFStringEncodingUTF8)) {
+    if (!((mal_CFStringGetCString_proc)pContext->coreaudio.CFStringGetCString)(deviceName, bufferOut, bufferSize, kCFStringEncodingUTF8)) {
         return MAL_ERROR;
     }
     
@@ -13311,7 +13338,7 @@ mal_result mal_find_AudioObjectID(mal_context* pContext, mal_device_type type, c
             AudioObjectID deviceObjectID = pDeviceObjectIDs[iDevice];
             
             char uid[256];
-            if (mal_get_AudioObject_uid(deviceObjectID, sizeof(uid), uid) != MAL_SUCCESS) {
+            if (mal_get_AudioObject_uid(pContext, deviceObjectID, sizeof(uid), uid) != MAL_SUCCESS) {
                 continue;
             }
             
@@ -13544,10 +13571,10 @@ mal_result mal_context_enumerate_devices__coreaudio(mal_context* pContext, mal_e
 
         mal_device_info info;
         mal_zero_object(&info);
-        if (mal_get_AudioObject_uid(deviceObjectID, sizeof(info.id.coreaudio), info.id.coreaudio) != MAL_SUCCESS) {
+        if (mal_get_AudioObject_uid(pContext, deviceObjectID, sizeof(info.id.coreaudio), info.id.coreaudio) != MAL_SUCCESS) {
             continue;
         }
-        if (mal_get_AudioObject_name(deviceObjectID, sizeof(info.name), info.name) != MAL_SUCCESS) {
+        if (mal_get_AudioObject_name(pContext, deviceObjectID, sizeof(info.name), info.name) != MAL_SUCCESS) {
             continue;
         }
 
@@ -13579,12 +13606,12 @@ mal_result mal_context_get_device_info__coreaudio(mal_context* pContext, mal_dev
         return result;
     }
     
-    result = mal_get_AudioObject_uid(deviceObjectID, sizeof(pDeviceInfo->id.coreaudio), pDeviceInfo->id.coreaudio);
+    result = mal_get_AudioObject_uid(pContext, deviceObjectID, sizeof(pDeviceInfo->id.coreaudio), pDeviceInfo->id.coreaudio);
     if (result != MAL_SUCCESS) {
         return result;
     }
     
-    result = mal_get_AudioObject_name(deviceObjectID, sizeof(pDeviceInfo->name), pDeviceInfo->name);
+    result = mal_get_AudioObject_name(pContext, deviceObjectID, sizeof(pDeviceInfo->name), pDeviceInfo->name);
     if (result != MAL_SUCCESS) {
         return result;
     }
@@ -13665,11 +13692,15 @@ mal_result mal_context_init__coreaudio(mal_context* pContext)
         return MAL_API_NOT_FOUND;
     }
     
+    pContext->coreaudio.CFStringGetCString = mal_dlsym(pContext->coreaudio.hCoreFoundation, "CFStringGetCString");
+    
+    
     pContext->coreaudio.hCoreAudio = mal_dlopen("CoreAudio.framework/CoreAudio");
     if (pContext->coreaudio.hCoreAudio == NULL) {
         mal_dlclose(pContext->coreaudio.hCoreFoundation);
         return MAL_API_NOT_FOUND;
     }
+    
     
     pContext->coreaudio.hAudioToolbox = mal_dlopen("AudioToolbox.framework/AudioToolbox");
     if (pContext->coreaudio.hAudioToolbox == NULL) {
@@ -13677,6 +13708,8 @@ mal_result mal_context_init__coreaudio(mal_context* pContext)
         mal_dlclose(pContext->coreaudio.hCoreFoundation);
         return MAL_API_NOT_FOUND;
     }
+#else
+    pContext->coreaudio.CFStringGetCString = CFStringGetCString;
 #endif
     
     pContext->onDeviceIDEqual = mal_context_is_device_id_equal__coreaudio;
