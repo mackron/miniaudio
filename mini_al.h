@@ -54,7 +54,8 @@
 //
 // Building for macOS
 // ------------------
-// The macOS build requires -framework CoreFoundation -framework CoreAudio -framework AudioToolbox.
+// The macOS build should compile clean without the need to download any dependencies or link to any libraries or
+// frameworks.
 //
 // Building for Linux
 // ------------------
@@ -1248,6 +1249,7 @@ struct mal_context
             mal_proc AudioOutputUnitStop;
             mal_proc AudioUnitAddPropertyListener;
             mal_proc AudioUnitGetProperty;
+            mal_proc AudioUnitSetProperty;
             mal_proc AudioUnitInitialize;
             mal_proc AudioUnitRender;
         } coreaudio;
@@ -12582,6 +12584,7 @@ typedef OSStatus (* mal_AudioOutputUnitStart_proc)(AudioUnit inUnit);
 typedef OSStatus (* mal_AudioOutputUnitStop_proc)(AudioUnit inUnit);
 typedef OSStatus (* mal_AudioUnitAddPropertyListener_proc)(AudioUnit inUnit, AudioUnitPropertyID inID, AudioUnitPropertyListenerProc inProc, void* inProcUserData);
 typedef OSStatus (* mal_AudioUnitGetProperty_proc)(AudioUnit inUnit, AudioUnitPropertyID inID, AudioUnitScope inScope, AudioUnitElement inElement, void* outData, UInt32* ioDataSize);
+typedef OSStatus (* mal_AudioUnitSetProperty_proc)(AudioUnit inUnit, AudioUnitPropertyID inID, AudioUnitScope inScope, AudioUnitElement inElement, const void* inData, UInt32 inDataSize);
 typedef OSStatus (* mal_AudioUnitInitialize_proc)(AudioUnit inUnit);
 typedef OSStatus (* mal_AudioUnitRender_proc)(AudioUnit inUnit, AudioUnitRenderActionFlags* ioActionFlags, const AudioTimeStamp* inTimeStamp, UInt32 inOutputBusNumber, UInt32 inNumberFrames, AudioBufferList* ioData);
 
@@ -13716,7 +13719,7 @@ mal_result mal_context_init__coreaudio(mal_context* pContext)
         return MAL_API_NOT_FOUND;
     }
     
-    pContext->coreaudio.CFStringGetCString = mal_dlsym(pContext->coreaudio.hCoreFoundation, "CFStringGetCString");
+    pContext->coreaudio.CFStringGetCString             = mal_dlsym(pContext->coreaudio.hCoreFoundation, "CFStringGetCString");
     
     
     pContext->coreaudio.hCoreAudio = mal_dlopen("CoreAudio.framework/CoreAudio");
@@ -13736,12 +13739,34 @@ mal_result mal_context_init__coreaudio(mal_context* pContext)
         mal_dlclose(pContext->coreaudio.hCoreFoundation);
         return MAL_API_NOT_FOUND;
     }
+    
+    pContext->coreaudio.AudioComponentFindNext         = mal_dlsym(pContext->coreaudio.hAudioToolbox, "AudioComponentFindNext");
+    pContext->coreaudio.AudioComponentInstanceDispose  = mal_dlsym(pContext->coreaudio.hAudioToolbox, "AudioComponentInstanceDispose");
+    pContext->coreaudio.AudioComponentInstanceNew      = mal_dlsym(pContext->coreaudio.hAudioToolbox, "AudioComponentInstanceNew");
+    pContext->coreaudio.AudioOutputUnitStart           = mal_dlsym(pContext->coreaudio.hAudioToolbox, "AudioOutputUnitStart");
+    pContext->coreaudio.AudioOutputUnitStop            = mal_dlsym(pContext->coreaudio.hAudioToolbox, "AudioOutputUnitStop");
+    pContext->coreaudio.AudioUnitAddPropertyListener   = mal_dlsym(pContext->coreaudio.hAudioToolbox, "AudioUnitAddPropertyListener");
+    pContext->coreaudio.AudioUnitGetProperty           = mal_dlsym(pContext->coreaudio.hAudioToolbox, "AudioUnitGetProperty");
+    pContext->coreaudio.AudioUnitSetProperty           = mal_dlsym(pContext->coreaudio.hAudioToolbox, "AudioUnitSetProperty");
+    pContext->coreaudio.AudioUnitInitialize            = mal_dlsym(pContext->coreaudio.hAudioToolbox, "AudioUnitInitialize");
+    pContext->coreaudio.AudioUnitRender                = mal_dlsym(pContext->coreaudio.hAudioToolbox, "AudioUnitRender");
 #else
-    pContext->coreaudio.CFStringGetCString = CFStringGetCString;
+    pContext->coreaudio.CFStringGetCString             = CFStringGetCString;
     
     pContext->coreaudio.AudioObjectGetPropertyData     = AudioObjectGetPropertyData;
     pContext->coreaudio.AudioObjectGetPropertyDataSize = AudioObjectGetPropertyDataSize;
     pContext->coreaudio.AudioObjectSetPropertyData     = AudioObjectSetPropertyData;
+    
+    pContext->coreaudio.AudioComponentFindNext         = AudioComponentFindNext;
+    pContext->coreaudio.AudioComponentInstanceDispose  = AudioComponentInstanceDispose;
+    pContext->coreaudio.AudioComponentInstanceNew      = AudioComponentInstanceNew;
+    pContext->coreaudio.AudioOutputUnitStart           = AudioOutputUnitStart;
+    pContext->coreaudio.AudioOutputUnitStop            = AudioOutputUnitStop;
+    pContext->coreaudio.AudioUnitAddPropertyListener   = AudioUnitAddPropertyListener;
+    pContext->coreaudio.AudioUnitGetProperty           = AudioUnitGetProperty;
+    pContext->coreaudio.AudioUnitSetProperty           = AudioUnitSetProperty;
+    pContext->coreaudio.AudioUnitInitialize            = AudioUnitInitialize;
+    pContext->coreaudio.AudioUnitRender                = AudioUnitRender;
 #endif
     
     pContext->onDeviceIDEqual = mal_context_is_device_id_equal__coreaudio;
@@ -13771,7 +13796,7 @@ void mal_device_uninit__coreaudio(mal_device* pDevice)
     mal_assert(pDevice != NULL);
     mal_assert(mal_device__get_state(pDevice) == MAL_STATE_UNINITIALIZED);
     
-    AudioComponentInstanceDispose((AudioUnit)pDevice->coreaudio.audioUnit);
+    ((mal_AudioComponentInstanceDispose_proc)pDevice->pContext->coreaudio.AudioComponentInstanceDispose)((AudioUnit)pDevice->coreaudio.audioUnit);
     
     if (pDevice->coreaudio.pAudioBufferList) {
         mal_free(pDevice->coreaudio.pAudioBufferList);
@@ -13823,7 +13848,7 @@ OSStatus mal_on_input__coreaudio(void* pUserData, AudioUnitRenderActionFlags* pA
         return noErr;
     }
     
-    OSStatus status = AudioUnitRender((AudioUnit)pDevice->coreaudio.audioUnit, pActionFlags, pTimeStamp, busNumber, actualFrameCount, (AudioBufferList*)pDevice->coreaudio.pAudioBufferList);
+    OSStatus status = ((mal_AudioUnitRender_proc)pDevice->pContext->coreaudio.AudioUnitRender)((AudioUnit)pDevice->coreaudio.audioUnit, pActionFlags, pTimeStamp, busNumber, actualFrameCount, (AudioBufferList*)pDevice->coreaudio.pAudioBufferList);
     if (status != noErr) {
         return status;
     }
@@ -13856,7 +13881,7 @@ void on_start_stop__coreaudio(void* pUserData, AudioUnit audioUnit, AudioUnitPro
     
     UInt32 isRunning;
     UInt32 isRunningSize = sizeof(isRunning);
-    OSStatus status = AudioUnitGetProperty(audioUnit, kAudioOutputUnitProperty_IsRunning, scope, element, &isRunning, &isRunningSize);
+    OSStatus status = ((mal_AudioUnitGetProperty_proc)pDevice->pContext->coreaudio.AudioUnitGetProperty)(audioUnit, kAudioOutputUnitProperty_IsRunning, scope, element, &isRunning, &isRunningSize);
     if (status != noErr) {
         return; // Don't really know what to do in this case... just ignore it, I suppose...
     }
@@ -13906,14 +13931,14 @@ mal_result mal_device_init__coreaudio(mal_context* pContext, mal_device_type dev
     desc.componentFlags = 0;
     desc.componentFlagsMask = 0;
     
-    pDevice->coreaudio.component = AudioComponentFindNext(NULL, &desc);
+    pDevice->coreaudio.component = ((mal_AudioComponentFindNext_proc)pContext->coreaudio.AudioComponentFindNext)(NULL, &desc);
     if (pDevice->coreaudio.component == NULL) {
         return MAL_FAILED_TO_INIT_BACKEND;
     }
     
     
     // Audio unit.
-    OSStatus status = AudioComponentInstanceNew(pDevice->coreaudio.component, (AudioUnit*)&pDevice->coreaudio.audioUnit);
+    OSStatus status = ((mal_AudioComponentInstanceNew_proc)pContext->coreaudio.AudioComponentInstanceNew)(pDevice->coreaudio.component, (AudioUnit*)&pDevice->coreaudio.audioUnit);
     if (status != noErr) {
         return mal_result_from_OSStatus(status);
     }
@@ -13925,24 +13950,24 @@ mal_result mal_device_init__coreaudio(mal_context* pContext, mal_device_type dev
         enableIOFlag = 0;
     }
     
-    status = AudioUnitSetProperty((AudioUnit)pDevice->coreaudio.audioUnit, kAudioOutputUnitProperty_EnableIO, kAudioUnitScope_Output, MAL_COREAUDIO_OUTPUT_BUS, &enableIOFlag, sizeof(enableIOFlag));
+    status = ((mal_AudioUnitSetProperty_proc)pContext->coreaudio.AudioUnitSetProperty)((AudioUnit)pDevice->coreaudio.audioUnit, kAudioOutputUnitProperty_EnableIO, kAudioUnitScope_Output, MAL_COREAUDIO_OUTPUT_BUS, &enableIOFlag, sizeof(enableIOFlag));
     if (status != noErr) {
-        AudioComponentInstanceDispose((AudioUnit)pDevice->coreaudio.audioUnit);
+        ((mal_AudioComponentInstanceDispose_proc)pContext->coreaudio.AudioComponentInstanceDispose)((AudioUnit)pDevice->coreaudio.audioUnit);
         return mal_result_from_OSStatus(status);
     }
     
     enableIOFlag = (enableIOFlag == 0) ? 1 : 0;
-    status = AudioUnitSetProperty((AudioUnit)pDevice->coreaudio.audioUnit, kAudioOutputUnitProperty_EnableIO, kAudioUnitScope_Input, MAL_COREAUDIO_INPUT_BUS, &enableIOFlag, sizeof(enableIOFlag));
+    status = ((mal_AudioUnitSetProperty_proc)pContext->coreaudio.AudioUnitSetProperty)((AudioUnit)pDevice->coreaudio.audioUnit, kAudioOutputUnitProperty_EnableIO, kAudioUnitScope_Input, MAL_COREAUDIO_INPUT_BUS, &enableIOFlag, sizeof(enableIOFlag));
     if (status != noErr) {
-        AudioComponentInstanceDispose((AudioUnit)pDevice->coreaudio.audioUnit);
+        ((mal_AudioComponentInstanceDispose_proc)pContext->coreaudio.AudioComponentInstanceDispose)((AudioUnit)pDevice->coreaudio.audioUnit);
         return mal_result_from_OSStatus(status);
     }
     
     
     // Set the device to use with this audio unit.
-    status = AudioUnitSetProperty((AudioUnit)pDevice->coreaudio.audioUnit, kAudioOutputUnitProperty_CurrentDevice, kAudioUnitScope_Global, (deviceType == mal_device_type_playback) ? MAL_COREAUDIO_OUTPUT_BUS : MAL_COREAUDIO_INPUT_BUS, &deviceObjectID, sizeof(AudioDeviceID));
+    status = ((mal_AudioUnitSetProperty_proc)pContext->coreaudio.AudioUnitSetProperty)((AudioUnit)pDevice->coreaudio.audioUnit, kAudioOutputUnitProperty_CurrentDevice, kAudioUnitScope_Global, (deviceType == mal_device_type_playback) ? MAL_COREAUDIO_OUTPUT_BUS : MAL_COREAUDIO_INPUT_BUS, &deviceObjectID, sizeof(AudioDeviceID));
     if (status != noErr) {
-        AudioComponentInstanceDispose((AudioUnit)pDevice->coreaudio.audioUnit);
+        ((mal_AudioComponentInstanceDispose_proc)pContext->coreaudio.AudioComponentInstanceDispose)((AudioUnit)pDevice->coreaudio.audioUnit);
         return mal_result_from_OSStatus(result);
     }
     
@@ -13962,24 +13987,24 @@ mal_result mal_device_init__coreaudio(mal_context* pContext, mal_device_type dev
         AudioStreamBasicDescription bestFormat;
         result = mal_device_find_best_format__coreaudio(pDevice, &bestFormat);
         if (result != MAL_SUCCESS) {
-            AudioComponentInstanceDispose((AudioUnit)pDevice->coreaudio.audioUnit);
+            ((mal_AudioComponentInstanceDispose_proc)pContext->coreaudio.AudioComponentInstanceDispose)((AudioUnit)pDevice->coreaudio.audioUnit);
             return result;
         }
         
-        status = AudioUnitSetProperty((AudioUnit)pDevice->coreaudio.audioUnit, kAudioUnitProperty_StreamFormat, formatScope, formatElement, &bestFormat, sizeof(bestFormat));
+        status = ((mal_AudioUnitSetProperty_proc)pContext->coreaudio.AudioUnitSetProperty)((AudioUnit)pDevice->coreaudio.audioUnit, kAudioUnitProperty_StreamFormat, formatScope, formatElement, &bestFormat, sizeof(bestFormat));
         if (status != noErr) {
             // We failed to set the format, so fall back to the current format of the audio unit.
             UInt32 propSize = sizeof(bestFormat);
-            status = AudioUnitGetProperty((AudioUnit)pDevice->coreaudio.audioUnit, kAudioUnitProperty_StreamFormat, formatScope, formatElement, &bestFormat, &propSize);
+            status = ((mal_AudioUnitGetProperty_proc)pContext->coreaudio.AudioUnitGetProperty)((AudioUnit)pDevice->coreaudio.audioUnit, kAudioUnitProperty_StreamFormat, formatScope, formatElement, &bestFormat, &propSize);
             if (status != noErr) {
-                AudioComponentInstanceDispose((AudioUnit)pDevice->coreaudio.audioUnit);
+                ((mal_AudioComponentInstanceDispose_proc)pContext->coreaudio.AudioComponentInstanceDispose)((AudioUnit)pDevice->coreaudio.audioUnit);
                 return mal_result_from_OSStatus(status);
             }
         }
         
         result = mal_format_from_AudioStreamBasicDescription(&bestFormat, &pDevice->internalFormat);
         if (result != MAL_SUCCESS || pDevice->internalFormat == mal_format_unknown) {
-            AudioComponentInstanceDispose((AudioUnit)pDevice->coreaudio.audioUnit);
+            ((mal_AudioComponentInstanceDispose_proc)pContext->coreaudio.AudioComponentInstanceDispose)((AudioUnit)pDevice->coreaudio.audioUnit);
             return result;
         }
         
@@ -14037,24 +14062,24 @@ mal_result mal_device_init__coreaudio(mal_context* pContext, mal_device_type dev
     callbackInfo.inputProcRefCon = pDevice;
     if (deviceType == mal_device_type_playback) {
         callbackInfo.inputProc = mal_on_output__coreaudio;
-        status = AudioUnitSetProperty((AudioUnit)pDevice->coreaudio.audioUnit, kAudioUnitProperty_SetRenderCallback, kAudioUnitScope_Global, MAL_COREAUDIO_OUTPUT_BUS, &callbackInfo, sizeof(callbackInfo));
+        status = ((mal_AudioUnitSetProperty_proc)pContext->coreaudio.AudioUnitSetProperty)((AudioUnit)pDevice->coreaudio.audioUnit, kAudioUnitProperty_SetRenderCallback, kAudioUnitScope_Global, MAL_COREAUDIO_OUTPUT_BUS, &callbackInfo, sizeof(callbackInfo));
         if (status != noErr) {
-            AudioComponentInstanceDispose((AudioUnit)pDevice->coreaudio.audioUnit);
+            ((mal_AudioComponentInstanceDispose_proc)pContext->coreaudio.AudioComponentInstanceDispose)((AudioUnit)pDevice->coreaudio.audioUnit);
             return mal_result_from_OSStatus(status);
         }
     } else {
         callbackInfo.inputProc = mal_on_input__coreaudio;
-        status = AudioUnitSetProperty((AudioUnit)pDevice->coreaudio.audioUnit, kAudioOutputUnitProperty_SetInputCallback, kAudioUnitScope_Global, MAL_COREAUDIO_INPUT_BUS, &callbackInfo, sizeof(callbackInfo));
+        status = ((mal_AudioUnitSetProperty_proc)pContext->coreaudio.AudioUnitSetProperty)((AudioUnit)pDevice->coreaudio.audioUnit, kAudioOutputUnitProperty_SetInputCallback, kAudioUnitScope_Global, MAL_COREAUDIO_INPUT_BUS, &callbackInfo, sizeof(callbackInfo));
         if (status != noErr) {
-            AudioComponentInstanceDispose((AudioUnit)pDevice->coreaudio.audioUnit);
+            ((mal_AudioComponentInstanceDispose_proc)pContext->coreaudio.AudioComponentInstanceDispose)((AudioUnit)pDevice->coreaudio.audioUnit);
             return mal_result_from_OSStatus(status);
         }
     }
     
     // We need to listen for stop events.
-    status = AudioUnitAddPropertyListener((AudioUnit)pDevice->coreaudio.audioUnit, kAudioOutputUnitProperty_IsRunning, on_start_stop__coreaudio, pDevice);
+    status = ((mal_AudioUnitAddPropertyListener_proc)pContext->coreaudio.AudioUnitAddPropertyListener)((AudioUnit)pDevice->coreaudio.audioUnit, kAudioOutputUnitProperty_IsRunning, on_start_stop__coreaudio, pDevice);
     if (status != noErr) {
-        AudioComponentInstanceDispose((AudioUnit)pDevice->coreaudio.audioUnit);
+        ((mal_AudioComponentInstanceDispose_proc)pContext->coreaudio.AudioComponentInstanceDispose)((AudioUnit)pDevice->coreaudio.audioUnit);
         return mal_result_from_OSStatus(status);
     }
     
@@ -14076,7 +14101,7 @@ mal_result mal_device_init__coreaudio(mal_context* pContext, mal_device_type dev
         
         AudioBufferList* pBufferList = (AudioBufferList*)mal_malloc(allocationSize);
         if (pBufferList == NULL) {
-            AudioComponentInstanceDispose((AudioUnit)pDevice->coreaudio.audioUnit);
+            ((mal_AudioComponentInstanceDispose_proc)pContext->coreaudio.AudioComponentInstanceDispose)((AudioUnit)pDevice->coreaudio.audioUnit);
             return MAL_OUT_OF_MEMORY;
         }
         
@@ -14099,10 +14124,10 @@ mal_result mal_device_init__coreaudio(mal_context* pContext, mal_device_type dev
     
     
     // Initialize the audio unit.
-    status = AudioUnitInitialize((AudioUnit)pDevice->coreaudio.audioUnit);
+    status = ((mal_AudioUnitInitialize_proc)pContext->coreaudio.AudioUnitInitialize)((AudioUnit)pDevice->coreaudio.audioUnit);
     if (status != noErr) {
         mal_free(pDevice->coreaudio.pAudioBufferList);
-        AudioComponentInstanceDispose((AudioUnit)pDevice->coreaudio.audioUnit);
+        ((mal_AudioComponentInstanceDispose_proc)pContext->coreaudio.AudioComponentInstanceDispose)((AudioUnit)pDevice->coreaudio.audioUnit);
         return mal_result_from_OSStatus(status);
     }
     
@@ -14114,7 +14139,7 @@ mal_result mal_device__start_backend__coreaudio(mal_device* pDevice)
 {
     mal_assert(pDevice != NULL);
     
-    OSStatus status = AudioOutputUnitStart((AudioUnit)pDevice->coreaudio.audioUnit);
+    OSStatus status = ((mal_AudioOutputUnitStart_proc)pDevice->pContext->coreaudio.AudioOutputUnitStart)((AudioUnit)pDevice->coreaudio.audioUnit);
     if (status != noErr) {
         return mal_result_from_OSStatus(status);
     }
@@ -14126,7 +14151,7 @@ mal_result mal_device__stop_backend__coreaudio(mal_device* pDevice)
 {
     mal_assert(pDevice != NULL);
     
-    OSStatus status = AudioOutputUnitStop((AudioUnit)pDevice->coreaudio.audioUnit);
+    OSStatus status = ((mal_AudioOutputUnitStop_proc)pDevice->pContext->coreaudio.AudioOutputUnitStop)((AudioUnit)pDevice->coreaudio.audioUnit);
     if (status != noErr) {
         return mal_result_from_OSStatus(status);
     }
