@@ -531,7 +531,6 @@ typedef struct
 
 #define MAL_MAX_PERIODS_DSOUND                          4
 #define MAL_MAX_PERIODS_OPENAL                          4
-#define MAL_MAX_PERIODS_COREAUDIO                       4
 
 // Standard sample rates.
 #define MAL_SAMPLE_RATE_8000                            8000
@@ -1525,13 +1524,9 @@ MAL_ALIGNED_STRUCT(MAL_SIMD_ALIGNMENT) mal_device
         struct
         {
             mal_uint32 deviceObjectID;
-            /*AudioQueueRef*/ mal_ptr audioQueue;
-            /*AudioQueueBufferRef*/ mal_ptr audioQueueBuffers[MAL_MAX_PERIODS_COREAUDIO];
-            /*CFRunLoopRef*/ mal_ptr runLoop;
-            
             /*AudioComponent*/ mal_ptr component;   // <-- Can this be per-context?
             /*AudioUnit*/ mal_ptr audioUnit;
-            /*AudioBufferList**/ mal_ptr pAudioBufferList;
+            /*AudioBufferList**/ mal_ptr pAudioBufferList;  // Only used for input devices.
         } coreaudio;
 #endif
 #ifdef MAL_SUPPORT_OSS
@@ -12586,8 +12581,6 @@ mal_result mal_device__stop_backend__jack(mal_device* pDevice)
 // address with the kAudioHardwarePropertyDevices selector and the kAudioObjectPropertyScopeGlobal scope. Once you have the
 // size, allocate a block of memory of that size and then call AudioObjectGetPropertyData(). The data is just a list of
 // AudioDeviceID's so just do "dataSize/sizeof(AudioDeviceID)" to know the device count.
-//
-//
 
 
 #define MAL_COREAUDIO_OUTPUT_BUS    0
@@ -12965,46 +12958,6 @@ mal_result mal_get_AudioObject_stream_descriptions(AudioObjectID deviceObjectID,
     return MAL_SUCCESS;
 }
 
-mal_result mal_get_AudioObject_best_format(AudioObjectID deviceObjectID, mal_device_type deviceType, mal_uint32 sampleRate, mal_format* pFormatOut)
-{
-    mal_assert(pFormatOut != NULL);
-    
-    *pFormatOut = mal_format_unknown;   // Safety.
-    
-    // Currently we are just retrieving the first format that contains the specified sample rate.
-    UInt32 streamDescriptionCount;
-    AudioStreamRangedDescription* pStreamDescriptions;
-    mal_result result = mal_get_AudioObject_stream_descriptions(deviceObjectID, deviceType, &streamDescriptionCount, &pStreamDescriptions);
-    if (result != MAL_SUCCESS) {
-        return result;
-    }
-    
-    for (UInt32 iStreamDescription = 0; iStreamDescription < streamDescriptionCount; ++iStreamDescription) {
-        AudioStreamRangedDescription description = pStreamDescriptions[iStreamDescription];
-    
-        // Ignore this description if the internal sample rate is out of range.
-        if (sampleRate < description.mSampleRateRange.mMinimum || sampleRate > description.mSampleRateRange.mMaximum) {
-            continue;
-        }
-        
-        mal_format format;
-        result = mal_format_from_AudioStreamBasicDescription(&description.mFormat, &format);
-        if (result != MAL_SUCCESS) {
-            continue;
-        }
-        
-        *pFormatOut = format;
-        break;
-    }
-    
-    mal_free(pStreamDescriptions);
-    
-    if (*pFormatOut == mal_format_unknown) {
-        return MAL_FORMAT_NOT_SUPPORTED;
-    } else {
-        return MAL_SUCCESS;
-    }
-}
 
 
 mal_result mal_get_AudioObject_channel_layout(AudioObjectID deviceObjectID, mal_device_type deviceType, AudioChannelLayout** ppChannelLayout)   // NOTE: Free the returned pointer with mal_free().
@@ -13753,285 +13706,14 @@ void mal_device_uninit__coreaudio(mal_device* pDevice)
     mal_assert(pDevice != NULL);
     mal_assert(mal_device__get_state(pDevice) == MAL_STATE_UNINITIALIZED);
     
-#ifdef MAL_COREAUDIO_USE_AUDIOQUEUE
-    // We just need to kill the thread. Which we do by simply waking it up. Upon wakeup, if the thread can see that the
-    // device is being uninitialized (by checking if the state is equal to MAL_STATE_UNINITIALIZED) it will return.
-    mal_event_signal(&pDevice->wakeupEvent);
-    mal_thread_wait(&pDevice->thread);
-#else
     AudioComponentInstanceDispose((AudioUnit)pDevice->coreaudio.audioUnit);
     
     if (pDevice->coreaudio.pAudioBufferList) {
         mal_free(pDevice->coreaudio.pAudioBufferList);
     }
-#endif
 }
 
 
-#ifdef MAL_COREAUDIO_USE_AUDIOQUEUE
-void mal_on_output__core_audio(void* pUserData, AudioQueueRef audioQueue, AudioQueueBufferRef audioQueueBuffer)
-{
-    mal_device* pDevice = (mal_device*)pUserData;
-    mal_assert(pDevice != NULL);
-    
-    // The callback is called when AudioQueueStop has been called so we want to just ignore everything in this case.
-    if (mal_device__get_state(pDevice) != MAL_STATE_STARTED) {
-        return;
-    }
-    
-    mal_uint32 frameCount = audioQueueBuffer->mAudioDataBytesCapacity / mal_get_bytes_per_frame(pDevice->internalFormat, pDevice->internalChannels);
-    mal_assert(frameCount > 0);
-    
-    // When reading frames from the client, keep in mind that mal_device__read_frames_from_client() will padd the output with silence in the
-    // case that the client has run out of audio data.
-    mal_device__read_frames_from_client(pDevice, frameCount, audioQueueBuffer->mAudioData);
-    audioQueueBuffer->mAudioDataByteSize = audioQueueBuffer->mAudioDataBytesCapacity;
-    
-    // If enqueing the the buffer fails we need to stop the device.
-    OSStatus status = AudioQueueEnqueueBuffer(audioQueue, audioQueueBuffer, 0, NULL);
-    if (status != kAudioHardwareNoError) {
-        // We failed to enqueue the buffer for some reason. If the device is started it needs to be stopped.
-        if (mal_device__get_state(pDevice) == MAL_STATE_STARTED) {
-            mal_device_stop(pDevice);
-        }
-    }
-}
-
-void mal_on_input__core_audio(void* pUserData, AudioQueueRef audioQueue, AudioQueueBufferRef audioQueueBuffer, const AudioTimeStamp* pStartTime, UInt32 packetDescriptionCount, const AudioStreamPacketDescription* pPacketDescriptions)
-{
-    (void)pStartTime;
-    (void)packetDescriptionCount;
-    (void)pPacketDescriptions;
-    
-    mal_device* pDevice = (mal_device*)pUserData;
-    mal_assert(pDevice != NULL);
-    
-    // The callback is called when AudioQueueStop has been called so we want to just ignore everything in this case.
-    if (mal_device__get_state(pDevice) != MAL_STATE_STARTED) {
-        return;
-    }
-    
-    mal_uint32 frameCount = audioQueueBuffer->mAudioDataByteSize / mal_get_bytes_per_frame(pDevice->internalFormat, pDevice->internalChannels);
-    if (frameCount == 0) {
-        return;
-    }
-    
-    mal_device__send_frames_to_client(pDevice, frameCount, audioQueueBuffer->mAudioData);
-    
-    // If enqueing the buffer fails we need to stop the device.
-    OSStatus status = AudioQueueEnqueueBuffer(audioQueue, audioQueueBuffer, 0, NULL);
-    if (status != kAudioHardwareNoError) {
-        // We failed to enqueue the buffer for some reason. If the device is started it needs to be stopped.
-        if (mal_device__get_state(pDevice) == MAL_STATE_STARTED) {
-            mal_device_stop(pDevice);
-        }
-    }
-}
-
-
-typedef struct
-{
-    mal_device* pDevice;
-    UInt32 queueBufferSizeInBytes;
-    UInt32 actualBufferSizeInBytes;
-    mal_event initCompletionEvent;
-    mal_result initResult;
-} mal_AudioQueue_worker_thread_data__coreaudio;
-
-mal_thread_result MAL_THREADCALL mal_AudioQueue_worker_thread__coreaudio(void* pData)
-{
-    mal_AudioQueue_worker_thread_data__coreaudio* pThreadData = (mal_AudioQueue_worker_thread_data__coreaudio*)pData;
-    mal_assert(pThreadData != NULL);
-    
-    mal_device* pDevice = pThreadData->pDevice;
-    mal_assert(pDevice != NULL);
-    
-    // Audio Queue.
-    AudioStreamBasicDescription streamFormat;
-    mal_zero_object(&streamFormat);
-    streamFormat.mSampleRate       = (Float64)pDevice->internalSampleRate;
-    streamFormat.mFormatID         = kAudioFormatLinearPCM;
-    streamFormat.mFormatFlags      = kLinearPCMFormatFlagIsPacked;
-    streamFormat.mFramesPerPacket  = 1;
-    streamFormat.mChannelsPerFrame = pDevice->internalChannels;
-    streamFormat.mBitsPerChannel   = mal_get_bytes_per_sample(pDevice->internalFormat) * 8;
-    streamFormat.mBytesPerFrame    = mal_get_bytes_per_sample(pDevice->internalFormat) * streamFormat.mChannelsPerFrame;
-    streamFormat.mBytesPerPacket   = streamFormat.mBytesPerFrame * streamFormat.mFramesPerPacket;
-    if (pDevice->internalFormat == mal_format_f32 /*|| pDevice->internalFormat == mal_format_f64*/) {
-        streamFormat.mFormatFlags |= kLinearPCMFormatFlagIsFloat;
-    } else {
-        if (pDevice->internalFormat != mal_format_u8) {
-            streamFormat.mFormatFlags |= kLinearPCMFormatFlagIsSignedInteger;
-        }
-    }
-    
-    pDevice->coreaudio.runLoop = CFRunLoopGetCurrent();
-    if (pDevice->coreaudio.runLoop == NULL) {
-        pThreadData->initResult = MAL_ERROR;
-        mal_event_signal(&pThreadData->initCompletionEvent);
-        return (mal_thread_result)(size_t)pThreadData->initResult;
-    }
-    
-    // In our loop below we use CFRunLoopRunInMode() so we can use a timeout (CFRunLoopRun() does not allow a timeout for some reason). The
-    // problem with this is that is requires a mode (kCFRunLoopDefaultMode or kCFRunLoopCommonModes) which is actually dynamically linked.
-    // This creates a problem for mini_al because we prefer to do run-time linking which would not be possible if we depended on
-    // kCFRunLoopDefaultMode, etc. Therefore we do something sneaky - we get the run loop modes for our run loop using CFRunLoopCopyAllModes
-    // which will give us a value we need.
-    CFArrayRef runLoopModes = CFRunLoopCopyAllModes((CFRunLoopRef)pDevice->coreaudio.runLoop);
-    if (CFArrayGetCount(runLoopModes) == 0) {
-        pThreadData->initResult = MAL_ERROR;
-        mal_event_signal(&pThreadData->initCompletionEvent);
-        return (mal_thread_result)(size_t)pThreadData->initResult;
-    }
-    
-    OSStatus status;
-    if (pDevice->type == mal_device_type_playback) {
-        status = AudioQueueNewOutput(&streamFormat, mal_on_output__core_audio, pDevice, (CFRunLoopRef)pDevice->coreaudio.runLoop, NULL, 0, (AudioQueueRef*)&pDevice->coreaudio.audioQueue);
-    } else {
-        status = AudioQueueNewInput(&streamFormat, mal_on_input__core_audio, pDevice, (CFRunLoopRef)pDevice->coreaudio.runLoop, NULL, 0, (AudioQueueRef*)&pDevice->coreaudio.audioQueue);
-    }
-    
-    if (status != kAudioHardwareNoError) {
-        pThreadData->initResult = mal_result_from_OSStatus(status);
-        mal_event_signal(&pThreadData->initCompletionEvent);
-        return (mal_thread_result)(size_t)pThreadData->initResult;
-    }
-    
-    
-    // Attach the device to the queue.
-    CFStringRef uid;
-    pThreadData->initResult = mal_get_AudioObject_uid_as_CFStringRef(pDevice->coreaudio.deviceObjectID, &uid);
-    if (pThreadData->initResult != MAL_SUCCESS) {
-        AudioQueueDispose((AudioQueueRef)pDevice->coreaudio.audioQueue, MAL_TRUE);
-        pThreadData->initResult = mal_result_from_OSStatus(status);
-        mal_event_signal(&pThreadData->initCompletionEvent);
-        return (mal_thread_result)(size_t)pThreadData->initResult;
-    }
-    
-    status = AudioQueueSetProperty((AudioQueueRef)pDevice->coreaudio.audioQueue, kAudioQueueProperty_CurrentDevice, &uid, sizeof(uid));
-    if (status != kAudioHardwareNoError) {
-        AudioQueueDispose((AudioQueueRef)pDevice->coreaudio.audioQueue, MAL_TRUE);
-        pThreadData->initResult = mal_result_from_OSStatus(status);
-        mal_event_signal(&pThreadData->initCompletionEvent);
-        return (mal_thread_result)(size_t)pThreadData->initResult;
-    }
-    
-    
-    // One queue buffer for each period.
-    pThreadData->actualBufferSizeInBytes = 0;
-    for (mal_uint32 iBuffer = 0; iBuffer < pDevice->periods; ++iBuffer) {
-        status = AudioQueueAllocateBuffer((AudioQueueRef)pDevice->coreaudio.audioQueue, pThreadData->queueBufferSizeInBytes, (AudioQueueBufferRef*)&pDevice->coreaudio.audioQueueBuffers[iBuffer]);
-        if (status != kAudioHardwareNoError) {
-            AudioQueueDispose((AudioQueueRef)pDevice->coreaudio.audioQueue, MAL_TRUE);
-            pThreadData->initResult = mal_result_from_OSStatus(status);
-            mal_event_signal(&pThreadData->initCompletionEvent);
-            return (mal_thread_result)(size_t)pThreadData->initResult;
-        }
-        
-        pThreadData->actualBufferSizeInBytes += ((AudioQueueBufferRef)pDevice->coreaudio.audioQueueBuffers[iBuffer])->mAudioDataBytesCapacity;
-    }
-    
-    // Make sure the device is initially marked as stopped.
-    pDevice->state = MAL_STATE_STOPPED;
-    
-    // Signal the initialization completion event before entering our loop.
-    pThreadData->initResult = MAL_SUCCESS;
-    mal_event_signal(&pThreadData->initCompletionEvent);
-    
-    for (;;) {
-        // Just wait for something to wake up the thread. We'll then look at the state of the device to know what to do.
-        mal_event_wait(&pDevice->wakeupEvent);
-        
-        // Get out of the loop, and the thread, if the device is uninitialized.
-        if (mal_device__get_state(pDevice) == MAL_STATE_UNINITIALIZED) {
-            break;
-        }
-
-        // Getting here means the device is being started.
-        mal_assert(mal_device__get_state(pDevice) == MAL_STATE_STARTING);
-        
-        // Each of the buffer queues need to be filled before starting.
-        mal_result result = MAL_SUCCESS;
-        for (mal_uint32 iBuffer = 0; iBuffer < pDevice->periods; ++iBuffer) {
-            AudioQueueBufferRef audioQueueBuffer = (AudioQueueBufferRef)pDevice->coreaudio.audioQueueBuffers[iBuffer];
-        
-            // Read data from the client for the initial state of the buffers.
-            mal_uint32 frameCount = audioQueueBuffer->mAudioDataBytesCapacity / mal_get_bytes_per_frame(pDevice->internalFormat, pDevice->internalChannels);
-            mal_assert(frameCount > 0);
-            
-            mal_device__read_frames_from_client(pDevice, frameCount, audioQueueBuffer->mAudioData);
-            audioQueueBuffer->mAudioDataByteSize = audioQueueBuffer->mAudioDataBytesCapacity;
-            
-            // Once loaded with data, make sure it's enqueued.
-            status = AudioQueueEnqueueBuffer((AudioQueueRef)pDevice->coreaudio.audioQueue, audioQueueBuffer, 0, NULL);
-            if (status != kAudioHardwareNoError) {
-                result = mal_result_from_OSStatus(status);
-                break;
-            }
-        }
-        
-        if (result != MAL_SUCCESS) {
-            pDevice->workResult = result;
-            mal_device__set_state(pDevice, MAL_STATE_STOPPED);
-            mal_event_signal(&pDevice->startEvent);
-            continue;
-        }
-        
-        
-        
-        // If an error occurs while trying to start the queue, just mark the device as stopped and go back to the start of the loop.
-        status = AudioQueueStart((AudioQueueRef)pDevice->coreaudio.audioQueue, NULL);
-        if (status != kAudioHardwareNoError) {
-            pDevice->workResult = mal_result_from_OSStatus(status);
-            mal_device__set_state(pDevice, MAL_STATE_STOPPED);
-            mal_event_signal(&pDevice->startEvent);
-            continue;
-        }
-        
-        mal_device__set_state(pDevice, MAL_STATE_STARTED);
-        mal_event_signal(&pDevice->startEvent);
-        
-        
-        // Just keep running the running loop indefinitely. We'll wake it up when we need to.
-        for (;;) {
-            if (mal_device__get_state(pDevice) != MAL_STATE_STARTED) {
-                goto stop_device_and_continue;
-            }
-            
-            // Just use the first reported mode. Using CFRunLoopRunInMode so we can specify a timeout for safety against an infinite loop.
-            CFTimeInterval timeout = 1.0f;
-            CFRunLoopRunInMode(CFArrayGetValueAtIndex(runLoopModes, 0), timeout, MAL_FALSE);
-        }
-
-        
-        
-        // Getting here means the device has stopped showhow - either explicitly or due to an error.
-    stop_device_and_continue:
-        mal_device__set_state(pDevice, MAL_STATE_STOPPING);
-        
-        status = AudioQueueStop((AudioQueueRef)pDevice->coreaudio.audioQueue, MAL_TRUE);
-        if (status != kAudioHardwareNoError) {
-            // An error occurred while stopping the audio queue... just continue on I suppose...
-        }
-
-        // Make sure the client is notified that the device has stopped, but make sure it's done after the status has been set.
-        mal_stop_proc onStop = pDevice->onStop;
-        if (onStop) {
-            onStop(pDevice);
-        }
-        
-        mal_device__set_state(pDevice, MAL_STATE_STOPPED);
-        mal_event_signal(&pDevice->stopEvent);
-    }
-    
-    // We'll get here when the device is uninitialized.
-    CFRelease(runLoopModes);
-    AudioQueueDispose((AudioQueueRef)pDevice->coreaudio.audioQueue, MAL_TRUE);
-    return 0;
-}
-#endif
-
-#if !defined(MAL_COREAUDIO_USE_AUDIOQUEUE)
 OSStatus mal_on_output__coreaudio(void* pUserData, AudioUnitRenderActionFlags* pActionFlags, const AudioTimeStamp* pTimeStamp, UInt32 busNumber, UInt32 frameCount, AudioBufferList* pBufferList)
 {
     (void)pActionFlags;
@@ -14099,7 +13781,7 @@ OSStatus mal_on_input__coreaudio(void* pUserData, AudioUnitRenderActionFlags* pA
 
     return noErr;
 }
-#endif
+
 
 mal_result mal_device_init__coreaudio(mal_context* pContext, mal_device_type deviceType, const mal_device_id* pDeviceID, const mal_device_config* pConfig, mal_device* pDevice)
 {
@@ -14116,106 +13798,15 @@ mal_result mal_device_init__coreaudio(mal_context* pContext, mal_device_type dev
     
     pDevice->coreaudio.deviceObjectID = deviceObjectID;
     
-    // Internal channel map.
-    result = mal_get_AudioObject_channel_map(deviceObjectID, deviceType, pDevice->internalChannelMap);
-    if (result != MAL_SUCCESS) {
-        return result;
+    // Core audio doesn't really use the notion of a period so we can leave this unmodified, but not too over the top.
+    if (pDevice->periods < 1) {
+        pDevice->periods = 1;
     }
+    if (pDevice->periods > 16) {
+        pDevice->periods = 16;
+    }
+    
 
-    // Need at least 2 queue buffers.
-    if (pDevice->periods < 2) {
-        pDevice->periods = 2;
-    }
-    if (pDevice->periods > MAL_MAX_PERIODS_COREAUDIO) {
-        pDevice->periods = MAL_MAX_PERIODS_COREAUDIO;
-    }
-    
-    
-    // Buffer size.
-    mal_uint32 actualBufferSizeInFrames = pDevice->bufferSizeInFrames;
-    if (actualBufferSizeInFrames < pDevice->periods) {
-        actualBufferSizeInFrames = pDevice->periods;
-    }
-    
-    if (pDevice->usingDefaultBufferSize) {
-        // CPU speed is a factor to consider when determine how large of a buffer we need.
-        float fCPUSpeed = mal_calculate_cpu_speed_factor();
-
-        // In my admittedly limited testing, capture latency seems to be about the same as playback with Core Audio, at least on my MacBook Pro. On other
-        // backends, however, this is often different. I am therefore leaving the logic below in place just in case I need to do some capture/playback
-        // specific tweaking.
-        float fDeviceType;
-        if (deviceType == mal_device_type_playback) {
-            fDeviceType = 1.0f;
-        } else {
-            fDeviceType = 1.0f;
-        }
-
-        // Backend tax. Need to fiddle with this.
-        float fBackend = 1.0f;
-
-        actualBufferSizeInFrames = mal_calculate_default_buffer_size_in_frames(pConfig->performanceProfile, pConfig->sampleRate, fCPUSpeed*fDeviceType*fBackend);
-        if (actualBufferSizeInFrames < pDevice->periods) {
-            actualBufferSizeInFrames = pDevice->periods;
-        }
-    }
-    
-    
-    // In my testing, it appears that Core Audio likes queue buffers to be larger than device's IO buffer which was set above. We're going to make
-    // the size of the queue buffers twice the size of the device's IO buffer.
-    actualBufferSizeInFrames = actualBufferSizeInFrames / pDevice->periods;
-    result = mal_set_AudioObject_buffer_size_in_frames(deviceObjectID, deviceType, &actualBufferSizeInFrames);
-    if (result != MAL_SUCCESS) {
-        return result;
-    }
-    
-#ifdef MAL_COREAUDIO_USE_AUDIOQUEUE
-    // Internal channels.
-    result = mal_get_AudioObject_channel_count(deviceObjectID, deviceType, &pDevice->internalChannels);
-    if (result != MAL_SUCCESS) {
-        return result;
-    }
-    
-    // Internal sample rate.
-    result = mal_get_AudioObject_get_closest_sample_rate(deviceObjectID, deviceType, (pDevice->usingDefaultSampleRate) ? 0 : pDevice->sampleRate, &pDevice->internalSampleRate);
-    if (result != MAL_SUCCESS) {
-        return result;
-    }
-    
-    // Internal format. This depends on the internal sample rate, so it needs to come after that.
-    result = mal_get_AudioObject_best_format(deviceObjectID, deviceType, pDevice->internalSampleRate, &pDevice->internalFormat);
-    if (result != MAL_SUCCESS) {
-        return result;
-    }
-
-    mal_uint32 queueBufferSizeInFrames = actualBufferSizeInFrames * 2;
-    
-    // The audio queue is initialized in the worker thread.
-    mal_AudioQueue_worker_thread_data__coreaudio threadData;
-    threadData.pDevice = pDevice;
-    threadData.queueBufferSizeInBytes = queueBufferSizeInFrames * mal_get_bytes_per_frame(pDevice->internalFormat, pDevice->internalChannels);
-    
-    // We need a signal to know when the thread has been initialized.
-    mal_event_init(pDevice->pContext, &threadData.initCompletionEvent);
-
-    // The Core Audio backend is not using the main worker thread object so we can just reuse that one.
-    result = mal_thread_create(pDevice->pContext, &pDevice->thread, mal_AudioQueue_worker_thread__coreaudio, &threadData);
-    if (result != MAL_SUCCESS) {
-        return result;
-    }
-
-    // Wait for the thread to finish initializing before returning.
-    mal_event_wait(&threadData.initCompletionEvent);
-    if (threadData.initResult != MAL_SUCCESS) {
-        return result;
-    }
-    
-    // At this point the worker thread is up and running which means we can finish up.
-    pDevice->bufferSizeInFrames = threadData.actualBufferSizeInBytes / mal_get_bytes_per_frame(pDevice->internalFormat, pDevice->internalChannels);
-#else
-    // AudioUnit Implementation
-    // ========================
-    
     // Audio component.
     AudioComponentDescription desc;
     desc.componentType = kAudioUnitType_Output;
@@ -14309,9 +13900,53 @@ mal_result mal_device_init__coreaudio(mal_context* pContext, mal_device_type dev
         pDevice->sampleRate = bestFormat.mSampleRate;
     }
     
+    // Internal channel map.
+    result = mal_get_AudioObject_channel_map(deviceObjectID, deviceType, pDevice->internalChannelMap);
+    if (result != MAL_SUCCESS) {
+        return result;
+    }
+    
     
     // Buffer size.
+    mal_uint32 actualBufferSizeInFrames = pDevice->bufferSizeInFrames;
+    if (actualBufferSizeInFrames < pDevice->periods) {
+        actualBufferSizeInFrames = pDevice->periods;
+    }
+    
+    if (pDevice->usingDefaultBufferSize) {
+        // CPU speed is a factor to consider when determine how large of a buffer we need.
+        float fCPUSpeed = mal_calculate_cpu_speed_factor();
+
+        // In my admittedly limited testing, capture latency seems to be about the same as playback with Core Audio, at least on my MacBook Pro. On other
+        // backends, however, this is often different. I am therefore leaving the logic below in place just in case I need to do some capture/playback
+        // specific tweaking.
+        float fDeviceType;
+        if (deviceType == mal_device_type_playback) {
+            fDeviceType = 1.0f;
+        } else {
+            fDeviceType = 1.0f;
+        }
+
+        // Backend tax. Need to fiddle with this.
+        float fBackend = 1.0f;
+
+        actualBufferSizeInFrames = mal_calculate_default_buffer_size_in_frames(pConfig->performanceProfile, pConfig->sampleRate, fCPUSpeed*fDeviceType*fBackend);
+        if (actualBufferSizeInFrames < pDevice->periods) {
+            actualBufferSizeInFrames = pDevice->periods;
+        }
+    }
+    
+    
+    // In my testing, it appears that Core Audio likes queue buffers to be larger than device's IO buffer which was set above. We're going to make
+    // the size of the queue buffers twice the size of the device's IO buffer.
+    actualBufferSizeInFrames = actualBufferSizeInFrames / pDevice->periods;
+    result = mal_set_AudioObject_buffer_size_in_frames(deviceObjectID, deviceType, &actualBufferSizeInFrames);
+    if (result != MAL_SUCCESS) {
+        return result;
+    }
+    
     pDevice->bufferSizeInFrames = actualBufferSizeInFrames * pDevice->periods;
+    
     
     // We need a buffer list if this is an input device. We render into this in the input callback.
     if (deviceType == mal_device_type_capture) {
@@ -14380,8 +14015,6 @@ mal_result mal_device_init__coreaudio(mal_context* pContext, mal_device_type dev
     }
     
 
-#endif
-
     return MAL_SUCCESS;
 }
 
@@ -14389,41 +14022,18 @@ mal_result mal_device__start_backend__coreaudio(mal_device* pDevice)
 {
     mal_assert(pDevice != NULL);
     
-#ifdef MAL_COREAUDIO_USE_AUDIOQUEUE
-    // We set the state to playing and wake up the worker thread which is where the device will be started for
-    // real. We need to wait for the startEvent to get signalled before returning.
-    mal_device__set_state(pDevice, MAL_STATE_STARTING);
-    mal_event_signal(&pDevice->wakeupEvent);
-    
-    // Now wait for the thread to let us know that it's started.
-    mal_event_wait(&pDevice->startEvent);
-    
-    // We use the work result to know whether or not we were successful.
-    return pDevice->workResult;
-#else
     OSStatus status = AudioOutputUnitStart((AudioUnit)pDevice->coreaudio.audioUnit);
     if (status != noErr) {
         return mal_result_from_OSStatus(status);
     }
     
     return MAL_SUCCESS;
-#endif
 }
 
 mal_result mal_device__stop_backend__coreaudio(mal_device* pDevice)
 {
     mal_assert(pDevice != NULL);
     
-#ifdef MAL_COREAUDIO_USE_AUDIOQUEUE
-    // Stopping the device is similar to starting in that we need to let the worker thread do it's thing before
-    // returning, however we need to wake up the thread slightly differently.
-    mal_device__set_state(pDevice, MAL_STATE_STOPPING);
-    CFRunLoopStop((CFRunLoopRef)pDevice->coreaudio.runLoop);  // <-- Wake up the run loop so that the worker thread can see that we're needing to stop.
-    
-    // Wait for the device to be stopped on the worker thread before returning.
-    mal_event_wait(&pDevice->stopEvent);
-    return MAL_SUCCESS;
-#else
     OSStatus status = AudioOutputUnitStop((AudioUnit)pDevice->coreaudio.audioUnit);
     if (status != noErr) {
         return mal_result_from_OSStatus(status);
@@ -14435,7 +14045,6 @@ mal_result mal_device__stop_backend__coreaudio(mal_device* pDevice)
     }
     
     return MAL_SUCCESS;
-#endif
 }
 #endif  // Core Audio
 
