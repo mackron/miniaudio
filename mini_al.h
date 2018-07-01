@@ -12806,7 +12806,7 @@ mal_result mal_get_device_object_ids__coreaudio(mal_context* pContext, UInt32* p
 
     UInt32 deviceObjectsDataSize;
     OSStatus status = AudioObjectGetPropertyDataSize(kAudioObjectSystemObject, &propAddressDevices, 0, NULL, &deviceObjectsDataSize);
-    if (status != kAudioHardwareNoError) {
+    if (status != noErr) {
         return mal_result_from_OSStatus(status);
     }
     
@@ -12816,7 +12816,7 @@ mal_result mal_get_device_object_ids__coreaudio(mal_context* pContext, UInt32* p
     }
     
     status = AudioObjectGetPropertyData(kAudioObjectSystemObject, &propAddressDevices, 0, NULL, &deviceObjectsDataSize, pDeviceObjectIDs);
-    if (status != kAudioHardwareNoError) {
+    if (status != noErr) {
         mal_free(pDeviceObjectIDs);
         return mal_result_from_OSStatus(status);
     }
@@ -12835,7 +12835,7 @@ mal_result mal_get_AudioObject_uid_as_CFStringRef(AudioObjectID objectID, CFStri
 
     UInt32 dataSize = sizeof(*pUID);
     OSStatus status = AudioObjectGetPropertyData(objectID, &propAddress, 0, NULL, &dataSize, pUID);
-    if (status != kAudioHardwareNoError) {
+    if (status != noErr) {
         return mal_result_from_OSStatus(status);
     }
     
@@ -12867,7 +12867,7 @@ mal_result mal_get_AudioObject_name(AudioObjectID objectID, size_t bufferSize, c
     CFStringRef deviceName = NULL;
     UInt32 dataSize = sizeof(deviceName);
     OSStatus status = AudioObjectGetPropertyData(objectID, &propAddress, 0, NULL, &dataSize, &deviceName);
-    if (status != kAudioHardwareNoError) {
+    if (status != noErr) {
         return mal_result_from_OSStatus(status);
     }
     
@@ -12889,7 +12889,7 @@ mal_bool32 mal_does_AudioObject_support_scope(AudioObjectID deviceObjectID, Audi
     
     UInt32 dataSize;
     OSStatus status = AudioObjectGetPropertyDataSize(deviceObjectID, &propAddress, 0, NULL, &dataSize);
-    if (status != kAudioHardwareNoError) {
+    if (status != noErr) {
         return MAL_FALSE;
     }
     
@@ -12899,7 +12899,7 @@ mal_bool32 mal_does_AudioObject_support_scope(AudioObjectID deviceObjectID, Audi
     }
     
     status = AudioObjectGetPropertyData(deviceObjectID, &propAddress, 0, NULL, &dataSize, pBufferList);
-    if (status != kAudioHardwareNoError) {
+    if (status != noErr) {
         mal_free(pBufferList);
         return MAL_FALSE;
     }
@@ -12938,7 +12938,7 @@ mal_result mal_get_AudioObject_stream_descriptions(AudioObjectID deviceObjectID,
     
     UInt32 dataSize;
     OSStatus status = AudioObjectGetPropertyDataSize(deviceObjectID, &propAddress, 0, NULL, &dataSize);
-    if (status != kAudioHardwareNoError) {
+    if (status != noErr) {
         return mal_result_from_OSStatus(status);
     }
     
@@ -12948,7 +12948,7 @@ mal_result mal_get_AudioObject_stream_descriptions(AudioObjectID deviceObjectID,
     }
     
     status = AudioObjectGetPropertyData(deviceObjectID, &propAddress, 0, NULL, &dataSize, pDescriptions);
-    if (status != kAudioHardwareNoError) {
+    if (status != noErr) {
         mal_free(pDescriptions);
         return mal_result_from_OSStatus(status);
     }
@@ -12973,7 +12973,7 @@ mal_result mal_get_AudioObject_channel_layout(AudioObjectID deviceObjectID, mal_
     
     UInt32 dataSize;
     OSStatus status = AudioObjectGetPropertyDataSize(deviceObjectID, &propAddress, 0, NULL, &dataSize);
-    if (status != kAudioHardwareNoError) {
+    if (status != noErr) {
         return mal_result_from_OSStatus(status);
     }
     
@@ -12983,7 +12983,7 @@ mal_result mal_get_AudioObject_channel_layout(AudioObjectID deviceObjectID, mal_
     }
     
     status = AudioObjectGetPropertyData(deviceObjectID, &propAddress, 0, NULL, &dataSize, pChannelLayout);
-    if (status != kAudioHardwareNoError) {
+    if (status != noErr) {
         mal_free(pChannelLayout);
         return mal_result_from_OSStatus(status);
     }
@@ -13117,7 +13117,7 @@ mal_result mal_get_AudioObject_sample_rates(AudioObjectID deviceObjectID, mal_de
     
     UInt32 dataSize;
     OSStatus status = AudioObjectGetPropertyDataSize(deviceObjectID, &propAddress, 0, NULL, &dataSize);
-    if (status != kAudioHardwareNoError) {
+    if (status != noErr) {
         return mal_result_from_OSStatus(status);
     }
     
@@ -13127,7 +13127,7 @@ mal_result mal_get_AudioObject_sample_rates(AudioObjectID deviceObjectID, mal_de
     }
     
     status = AudioObjectGetPropertyData(deviceObjectID, &propAddress, 0, NULL, &dataSize, pSampleRateRanges);
-    if (status != kAudioHardwareNoError) {
+    if (status != noErr) {
         mal_free(pSampleRateRanges);
         return mal_result_from_OSStatus(status);
     }
@@ -13227,7 +13227,7 @@ mal_result mal_get_AudioObject_closest_buffer_size_in_frames(AudioObjectID devic
     AudioValueRange bufferSizeRange;
     UInt32 dataSize = sizeof(bufferSizeRange);
     OSStatus status = AudioObjectGetPropertyData(deviceObjectID, &propAddress, 0, NULL, &dataSize, &bufferSizeRange);
-    if (status != kAudioHardwareNoError) {
+    if (status != noErr) {
         return mal_result_from_OSStatus(status);
     }
     
@@ -13258,11 +13258,11 @@ mal_result mal_set_AudioObject_buffer_size_in_frames(AudioObjectID deviceObjectI
     propAddress.mElement  = kAudioObjectPropertyElementMaster;
     
     OSStatus status = AudioObjectSetPropertyData(deviceObjectID, &propAddress, 0, NULL, sizeof(chosenBufferSizeInFrames), &chosenBufferSizeInFrames);
-    if (status != kAudioHardwareNoError) {
+    if (status != noErr) {
         // Getting here means we were unable to set the buffer size. In this case just use whatever is currently selected.
         UInt32 dataSize = sizeof(*pBufferSizeInOut);
         OSStatus status = AudioObjectGetPropertyData(deviceObjectID, &propAddress, 0, NULL, &dataSize, pBufferSizeInOut);
-        if (status != kAudioHardwareNoError) {
+        if (status != noErr) {
             return mal_result_from_OSStatus(status);
         }
     }
@@ -13294,7 +13294,7 @@ mal_result mal_find_AudioObjectID(mal_context* pContext, mal_device_type type, c
         UInt32 defaultDeviceObjectIDSize = sizeof(AudioObjectID);
         AudioObjectID defaultDeviceObjectID;
         OSStatus status = AudioObjectGetPropertyData(kAudioObjectSystemObject, &propAddressDefaultDevice, 0, NULL, &defaultDeviceObjectIDSize, &defaultDeviceObjectID);
-        if (status == kAudioHardwareNoError) {
+        if (status == noErr) {
             *pDeviceObjectID = defaultDeviceObjectID;
             return MAL_SUCCESS;
         }
@@ -13849,7 +13849,7 @@ mal_result mal_device_init__coreaudio(mal_context* pContext, mal_device_type dev
     
     // Audio unit.
     OSStatus status = AudioComponentInstanceNew(pDevice->coreaudio.component, (AudioUnit*)&pDevice->coreaudio.audioUnit);
-    if (status != kAudioHardwareNoError) {
+    if (status != noErr) {
         return mal_result_from_OSStatus(status);
     }
     
@@ -13861,14 +13861,14 @@ mal_result mal_device_init__coreaudio(mal_context* pContext, mal_device_type dev
     }
     
     status = AudioUnitSetProperty((AudioUnit)pDevice->coreaudio.audioUnit, kAudioOutputUnitProperty_EnableIO, kAudioUnitScope_Output, MAL_COREAUDIO_OUTPUT_BUS, &enableIOFlag, sizeof(enableIOFlag));
-    if (status != kAudioHardwareNoError) {
+    if (status != noErr) {
         AudioComponentInstanceDispose((AudioUnit)pDevice->coreaudio.audioUnit);
         return mal_result_from_OSStatus(status);
     }
     
     enableIOFlag = (enableIOFlag == 0) ? 1 : 0;
     status = AudioUnitSetProperty((AudioUnit)pDevice->coreaudio.audioUnit, kAudioOutputUnitProperty_EnableIO, kAudioUnitScope_Input, MAL_COREAUDIO_INPUT_BUS, &enableIOFlag, sizeof(enableIOFlag));
-    if (status != kAudioHardwareNoError) {
+    if (status != noErr) {
         AudioComponentInstanceDispose((AudioUnit)pDevice->coreaudio.audioUnit);
         return mal_result_from_OSStatus(status);
     }
