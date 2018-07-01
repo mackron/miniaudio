@@ -25627,6 +25627,7 @@ mal_uint64 mal_sine_wave_read(mal_sine_wave* pSineWave, mal_uint64 count, float*
 //   - API CHANGE: Change the default channel mapping to the standard Microsoft mapping.
 //   - API CHANGE: Remove backend-specific result codes.
 //   - API CHANGE: Changes to the format conversion APIs (mal_pcm_f32_to_s16(), etc.)
+//   - Add support for Core Audio (Apple).
 //   - Add support for PulseAudio.
 //     - This is the highest priority backend on Linux (higher priority than ALSA) since it is commonly
 //       installed by default on many of the popular distros and offer's more seamless integration on
@@ -25652,6 +25653,7 @@ mal_uint64 mal_sine_wave_read(mal_sine_wave* pSineWave, mal_uint64 count, float*
 //   - Add support for decoding from raw PCM data (mal_decoder_init_raw(), etc.)
 //   - Make mal_device_init_ex() more robust.
 //   - Make some APIs more const-correct.
+//   - Fix errors with SDL detection on Apple platforms.
 //   - Fix errors with OpenAL detection.
 //   - Fix some memory leaks.
 //   - Fix a bug with opening decoders from memory.
