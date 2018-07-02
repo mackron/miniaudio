@@ -12653,7 +12653,8 @@ mal_result mal_result_from_OSStatus(OSStatus status)
     }
 }
 
-mal_channel mal_channel_from_AudioChannelBit(AudioChannelBitmap bit)
+#if 0
+mal_channel mal_channel_from_AudioChannelBitmap(AudioChannelBitmap bit)
 {
     switch (bit)
     {
@@ -12678,6 +12679,7 @@ mal_channel mal_channel_from_AudioChannelBit(AudioChannelBitmap bit)
         default:                                    return MAL_CHANNEL_NONE;
     }
 }
+#endif
 
 mal_channel mal_channel_from_AudioChannelLabel(AudioChannelLabel label)
 {
@@ -12747,6 +12749,8 @@ mal_channel mal_channel_from_AudioChannelLabel(AudioChannelLabel label)
         case kAudioChannelLabel_Discrete_14:          return MAL_CHANNEL_AUX_14;
         case kAudioChannelLabel_Discrete_15:          return MAL_CHANNEL_AUX_15;
         case kAudioChannelLabel_Discrete_65535:       return MAL_CHANNEL_NONE;
+        
+    #if 0   // Introduced in a later version of macOS.
         case kAudioChannelLabel_HOA_ACN:              return MAL_CHANNEL_NONE;
         case kAudioChannelLabel_HOA_ACN_0:            return MAL_CHANNEL_AUX_0;
         case kAudioChannelLabel_HOA_ACN_1:            return MAL_CHANNEL_AUX_1;
@@ -12765,6 +12769,8 @@ mal_channel mal_channel_from_AudioChannelLabel(AudioChannelLabel label)
         case kAudioChannelLabel_HOA_ACN_14:           return MAL_CHANNEL_AUX_14;
         case kAudioChannelLabel_HOA_ACN_15:           return MAL_CHANNEL_AUX_15;
         case kAudioChannelLabel_HOA_ACN_65024:        return MAL_CHANNEL_NONE;
+    #endif
+        
         default:                                      return MAL_CHANNEL_NONE;
     }
 }
@@ -13082,7 +13088,9 @@ mal_result mal_get_channel_map_from_AudioChannelLayout(AudioChannelLayout* pChan
         for (UInt32 iChannel = 0; iChannel < pChannelLayout->mNumberChannelDescriptions; ++iChannel) {
             channelMap[iChannel] = mal_channel_from_AudioChannelLabel(pChannelLayout->mChannelDescriptions[iChannel].mChannelLabel);
         }
-    } else if (pChannelLayout->mChannelLayoutTag == kAudioChannelLayoutTag_UseChannelBitmap) {
+    } else
+#if 0
+    if (pChannelLayout->mChannelLayoutTag == kAudioChannelLayoutTag_UseChannelBitmap) {
         // This is the same kind of system that's used by Windows audio APIs.
         UInt32 iChannel = 0;
         AudioChannelBitmap bitmap = pChannelLayout->mChannelBitmap;
@@ -13092,7 +13100,9 @@ mal_result mal_get_channel_map_from_AudioChannelLayout(AudioChannelLayout* pChan
                 channelMap[iChannel++] = mal_channel_from_AudioChannelBit(bit);
             }
         }
-    } else {
+    } else
+#endif
+    {
         // Need to use the tag to determine the channel map. For now I'm just assuming a default channel map, but later on this should
         // be updated to determine the mapping based on the tag.
         UInt32 channelCount = AudioChannelLayoutTag_GetNumberOfChannels(pChannelLayout->mChannelLayoutTag);
