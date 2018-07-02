@@ -13788,6 +13788,10 @@ mal_result mal_context_get_device_info__coreaudio(mal_context* pContext, mal_dev
         return mal_result_from_OSStatus(status);
     }
     
+    ((mal_AudioComponentInstanceDispose_proc)pContext->coreaudio.AudioComponentInstanceDispose)(audioUnit);
+    audioUnit = NULL;
+    
+    
     pDeviceInfo->minChannels = bestFormat.mChannelsPerFrame;
     pDeviceInfo->maxChannels = bestFormat.mChannelsPerFrame;
     
