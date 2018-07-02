@@ -12560,10 +12560,11 @@ mal_result mal_device__stop_backend__jack(mal_device* pDevice)
 ///////////////////////////////////////////////////////////////////////////////
 #ifdef MAL_HAS_COREAUDIO
 #include <TargetConditionals.h>
-#if defined(TARGET_OS_OSX) && TARGET_OS_OSX != 0
-    #define MAL_APPLE_DESKTOP
-#elif defined(TARGET_OS_IPHONE) && TARGET_OS_OSX == 0
+
+#if defined(TARGET_OS_IPHONE) && TARGET_OS_IPHONE == 1
     #define MAL_APPLE_MOBILE
+#else
+    #define MAL_APPLE_DESKTOP
 #endif
 
 #if defined(MAL_APPLE_DESKTOP)
