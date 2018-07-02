@@ -52,10 +52,11 @@
 // The Windows build should compile clean on all popular compilers without the need to configure any include paths
 // nor link to any libraries.
 //
-// Building for macOS
-// ------------------
+// Building for macOS and iOS
+// --------------------------
 // The macOS build should compile clean without the need to download any dependencies or link to any libraries or
-// frameworks. The iOS build will need to link the relevant frameworks but should Just Work with Xcode.
+// frameworks. The iOS build needs to be compiled as Objective-C (sorry) and will need to link the relevant frameworks
+// but should Just Work with Xcode.
 //
 // Building for Linux
 // ------------------
