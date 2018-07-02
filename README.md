@@ -22,7 +22,7 @@ Features
 Supported Platforms
 ===================
 - Windows (XP+)
-- macOS
+- macOS, iOS
 - Linux
 - BSD
 - Android
@@ -35,7 +35,7 @@ Backends
 - WASAPI
 - DirectSound
 - WinMM
-- Core Audio
+- Core Audio (Apple)
 - ALSA
 - PulseAudio
 - JACK

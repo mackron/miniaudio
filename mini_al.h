@@ -55,7 +55,7 @@
 // Building for macOS
 // ------------------
 // The macOS build should compile clean without the need to download any dependencies or link to any libraries or
-// frameworks.
+// frameworks. The iOS build will need to link the relevant frameworks but should Just Work with Xcode.
 //
 // Building for Linux
 // ------------------
@@ -14120,6 +14120,12 @@ mal_result mal_device_init__coreaudio(mal_context* pContext, mal_device_type dev
             
             [pAudioSession setPreferredSampleRate:(double)pDevice->sampleRate error:nil];
             bestFormat.mSampleRate = pAudioSession.sampleRate;
+        }
+        
+        status = ((mal_AudioUnitSetProperty_proc)pContext->coreaudio.AudioUnitSetProperty)((AudioUnit)pDevice->coreaudio.audioUnit, kAudioUnitProperty_StreamFormat, formatScope, formatElement, &bestFormat, sizeof(bestFormat));
+        if (status != noErr) {
+            ((mal_AudioComponentInstanceDispose_proc)pContext->coreaudio.AudioComponentInstanceDispose)((AudioUnit)pDevice->coreaudio.audioUnit);
+            return mal_result_from_OSStatus(status);
         }
     #endif
         
