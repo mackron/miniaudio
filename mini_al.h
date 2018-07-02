@@ -12558,23 +12558,30 @@ mal_result mal_device__stop_backend__jack(mal_device* pDevice)
 //
 ///////////////////////////////////////////////////////////////////////////////
 #ifdef MAL_HAS_COREAUDIO
-#include <CoreAudio/CoreAudio.h>
-#include <AudioToolbox/AudioToolbox.h>
-
 #include <TargetConditionals.h>
-#if defined(TARGET_OS_OSX)
+#if defined(TARGET_OS_OSX) && TARGET_OS_OSX != 0
     #define MAL_APPLE_DESKTOP
-#elif defined(TARGET_OS_IPHONE)
+#elif defined(TARGET_OS_IPHONE) && TARGET_OS_OSX == 0
     #define MAL_APPLE_MOBILE
 #endif
+
+#if defined(MAL_APPLE_DESKTOP)
+#include <CoreAudio/CoreAudio.h>
+#else
+#include <AVFoundation/AVFoundation.h>
+#endif
+
+#include <AudioToolbox/AudioToolbox.h>
 
 // CoreFoundation
 typedef Boolean (* mal_CFStringGetCString_proc)(CFStringRef theString, char* buffer, CFIndex bufferSize, CFStringEncoding encoding);
 
 // CoreAudio
+#if defined(MAL_APPLE_DESKTOP)
 typedef OSStatus (* mal_AudioObjectGetPropertyData_proc)(AudioObjectID inObjectID, const AudioObjectPropertyAddress* inAddress, UInt32 inQualifierDataSize, const void* inQualifierData, UInt32* ioDataSize, void* outData);
 typedef OSStatus (* mal_AudioObjectGetPropertyDataSize_proc)(AudioObjectID inObjectID, const AudioObjectPropertyAddress* inAddress, UInt32 inQualifierDataSize, const void* inQualifierData, UInt32* outDataSize);
 typedef OSStatus (* mal_AudioObjectSetPropertyData_proc)(AudioObjectID inObjectID, const AudioObjectPropertyAddress* inAddress, UInt32 inQualifierDataSize, const void* inQualifierData, UInt32 inDataSize, const void* inData);
+#endif
 
 // AudioToolbox
 typedef AudioComponent (* mal_AudioComponentFindNext_proc)(AudioComponent inComponent, const AudioComponentDescription* inDesc);
@@ -12628,7 +12635,8 @@ mal_result mal_result_from_OSStatus(OSStatus status)
 {
     switch (status)
     {
-        case kAudioHardwareNoError:                   return MAL_SUCCESS;
+        case noErr:                                   return MAL_SUCCESS;
+    #if defined(MAL_APPLE_DESKTOP)
         case kAudioHardwareNotRunningError:           return MAL_DEVICE_NOT_STARTED;
         case kAudioHardwareUnspecifiedError:          return MAL_ERROR;
         case kAudioHardwareUnknownPropertyError:      return MAL_INVALID_ARGS;
@@ -12640,6 +12648,7 @@ mal_result mal_result_from_OSStatus(OSStatus status)
         case kAudioHardwareUnsupportedOperationError: return MAL_INVALID_OPERATION;
         case kAudioDeviceUnsupportedFormatError:      return MAL_FORMAT_NOT_SUPPORTED;
         case kAudioDevicePermissionsError:            return MAL_ACCESS_DENIED;
+    #endif
         default:                                      return MAL_ERROR;
     }
 }
@@ -12825,6 +12834,7 @@ mal_result mal_format_from_AudioStreamBasicDescription(const AudioStreamBasicDes
     return MAL_FORMAT_NOT_SUPPORTED;
 }
 
+#if defined(MAL_APPLE_DESKTOP)
 mal_result mal_get_device_object_ids__coreaudio(mal_context* pContext, UInt32* pDeviceCount, AudioObjectID** ppDeviceObjectIDs) // NOTE: Free the returned buffer with mal_free().
 {
     mal_assert(pContext != NULL);
@@ -13567,7 +13577,7 @@ mal_result mal_device_find_best_format__coreaudio(const mal_device* pDevice, Aud
     *pFormat = bestDeviceFormatSoFar;
     return MAL_SUCCESS;
 }
-
+#endif
 
 
 
@@ -13586,6 +13596,7 @@ mal_result mal_context_enumerate_devices__coreaudio(mal_context* pContext, mal_e
     mal_assert(pContext != NULL);
     mal_assert(callback != NULL);
     
+#if defined(MAL_APPLE_DESKTOP)
     UInt32 deviceCount;
     AudioObjectID* pDeviceObjectIDs;
     mal_result result = mal_get_device_object_ids__coreaudio(pContext, &deviceCount, &pDeviceObjectIDs);
@@ -13618,6 +13629,23 @@ mal_result mal_context_enumerate_devices__coreaudio(mal_context* pContext, mal_e
     }
     
     mal_free(pDeviceObjectIDs);
+#else
+    // Only supporting default devices on non-Desktop platforms.
+    mal_device_info info;
+    
+    mal_zero_object(&info);
+    mal_strncpy_s(info.name, sizeof(info.name), MAL_DEFAULT_PLAYBACK_DEVICE_NAME, (size_t)-1);
+    if (!callback(pContext, mal_device_type_playback, &info, pUserData)) {
+        return MAL_SUCCESS;
+    }
+    
+    mal_zero_object(&info);
+    mal_strncpy_s(info.name, sizeof(info.name), MAL_DEFAULT_CAPTURE_DEVICE_NAME, (size_t)-1);
+    if (!callback(pContext, mal_device_type_capture, &info, pUserData)) {
+        return MAL_SUCCESS;
+    }
+#endif
+    
     return MAL_SUCCESS;
 }
 
@@ -13627,6 +13655,9 @@ mal_result mal_context_get_device_info__coreaudio(mal_context* pContext, mal_dev
     (void)shareMode;
     (void)pDeviceInfo;
     
+#if defined(MAL_APPLE_DESKTOP)
+    // Desktop
+    // =======
     AudioObjectID deviceObjectID;
     mal_result result = mal_find_AudioObjectID(pContext, deviceType, pDeviceID, &deviceObjectID);
     if (result != MAL_SUCCESS) {
@@ -13705,6 +13736,66 @@ mal_result mal_context_get_device_info__coreaudio(mal_context* pContext, mal_dev
             }
         }
     }
+#else
+    // Mobile
+    // ======
+    if (deviceType == mal_device_type_playback) {
+        mal_strncpy_s(pDeviceInfo->name, sizeof(pDeviceInfo->name), MAL_DEFAULT_PLAYBACK_DEVICE_NAME, (size_t)-1);
+    } else {
+        mal_strncpy_s(pDeviceInfo->name, sizeof(pDeviceInfo->name), MAL_DEFAULT_CAPTURE_DEVICE_NAME, (size_t)-1);
+    }
+    
+    // Retrieving device information is more annoying on mobile than desktop. For simplicity I'm locking this down to whatever format is
+    // reported on a temporary I/O unit. The problem, however, is that this doesn't return a value for the sample rate which we need to
+    // retrieve from the AVAudioSession shared instance.
+    AudioComponentDescription desc;
+    desc.componentType = kAudioUnitType_Output;
+    desc.componentSubType = kAudioUnitSubType_RemoteIO;
+    desc.componentManufacturer = kAudioUnitManufacturer_Apple;
+    desc.componentFlags = 0;
+    desc.componentFlagsMask = 0;
+    
+    AudioComponent component = ((mal_AudioComponentFindNext_proc)pContext->coreaudio.AudioComponentFindNext)(NULL, &desc);
+    if (component == NULL) {
+        return MAL_FAILED_TO_INIT_BACKEND;
+    }
+    
+    AudioUnit audioUnit;
+    OSStatus status = ((mal_AudioComponentInstanceNew_proc)pContext->coreaudio.AudioComponentInstanceNew)(component, &audioUnit);
+    if (status != noErr) {
+        return mal_result_from_OSStatus(status);
+    }
+    
+    AudioUnitScope   formatScope   = (deviceType == mal_device_type_playback) ? kAudioUnitScope_Input : kAudioUnitScope_Output;
+    AudioUnitElement formatElement = (deviceType == mal_device_type_playback) ? MAL_COREAUDIO_OUTPUT_BUS : MAL_COREAUDIO_INPUT_BUS;
+    
+    AudioStreamBasicDescription bestFormat;
+    UInt32 propSize = sizeof(bestFormat);
+    status = ((mal_AudioUnitGetProperty_proc)pContext->coreaudio.AudioUnitGetProperty)(audioUnit, kAudioUnitProperty_StreamFormat, formatScope, formatElement, &bestFormat, &propSize);
+    if (status != noErr) {
+        ((mal_AudioComponentInstanceDispose_proc)pContext->coreaudio.AudioComponentInstanceDispose)(audioUnit);
+        return mal_result_from_OSStatus(status);
+    }
+    
+    pDeviceInfo->minChannels = bestFormat.mChannelsPerFrame;
+    pDeviceInfo->maxChannels = bestFormat.mChannelsPerFrame;
+    
+    pDeviceInfo->formatCount = 1;
+    mal_result result = mal_format_from_AudioStreamBasicDescription(&bestFormat, &pDeviceInfo->formats[0]);
+    if (result != MAL_SUCCESS) {
+        return result;
+    }
+    
+    // It looks like Apple are wanting to push the whole AVAudioSession thing. Thus, we need to use that to determine device settings. To do
+    // this we just get the shared instance and inspect.
+    @autoreleasepool {
+        AVAudioSession* pAudioSession = [AVAudioSession sharedInstance];
+        mal_assert(pAudioSession != NULL);
+
+        pDeviceInfo->minSampleRate = (mal_uint32)pAudioSession.sampleRate;
+        pDeviceInfo->maxSampleRate = pDeviceInfo->minSampleRate;
+    }
+#endif
     
     return MAL_SUCCESS;
 }
@@ -13713,7 +13804,7 @@ mal_result mal_context_init__coreaudio(mal_context* pContext)
 {
     mal_assert(pContext != NULL);
     
-#ifndef MAL_NO_RUNTIME_LINKING
+#if !defined(MAL_NO_RUNTIME_LINKING) && !defined(MAL_APPLE_MOBILE)
     pContext->coreaudio.hCoreFoundation = mal_dlopen("CoreFoundation.framework/CoreFoundation");
     if (pContext->coreaudio.hCoreFoundation == NULL) {
         return MAL_API_NOT_FOUND;
@@ -13751,22 +13842,24 @@ mal_result mal_context_init__coreaudio(mal_context* pContext)
     pContext->coreaudio.AudioUnitInitialize            = mal_dlsym(pContext->coreaudio.hAudioToolbox, "AudioUnitInitialize");
     pContext->coreaudio.AudioUnitRender                = mal_dlsym(pContext->coreaudio.hAudioToolbox, "AudioUnitRender");
 #else
-    pContext->coreaudio.CFStringGetCString             = CFStringGetCString;
+    pContext->coreaudio.CFStringGetCString             = (mal_proc)CFStringGetCString;
     
+    #if defined(MAL_APPLE_DESKTOP)
     pContext->coreaudio.AudioObjectGetPropertyData     = AudioObjectGetPropertyData;
     pContext->coreaudio.AudioObjectGetPropertyDataSize = AudioObjectGetPropertyDataSize;
     pContext->coreaudio.AudioObjectSetPropertyData     = AudioObjectSetPropertyData;
+    #endif
     
-    pContext->coreaudio.AudioComponentFindNext         = AudioComponentFindNext;
-    pContext->coreaudio.AudioComponentInstanceDispose  = AudioComponentInstanceDispose;
-    pContext->coreaudio.AudioComponentInstanceNew      = AudioComponentInstanceNew;
-    pContext->coreaudio.AudioOutputUnitStart           = AudioOutputUnitStart;
-    pContext->coreaudio.AudioOutputUnitStop            = AudioOutputUnitStop;
-    pContext->coreaudio.AudioUnitAddPropertyListener   = AudioUnitAddPropertyListener;
-    pContext->coreaudio.AudioUnitGetProperty           = AudioUnitGetProperty;
-    pContext->coreaudio.AudioUnitSetProperty           = AudioUnitSetProperty;
-    pContext->coreaudio.AudioUnitInitialize            = AudioUnitInitialize;
-    pContext->coreaudio.AudioUnitRender                = AudioUnitRender;
+    pContext->coreaudio.AudioComponentFindNext         = (mal_proc)AudioComponentFindNext;
+    pContext->coreaudio.AudioComponentInstanceDispose  = (mal_proc)AudioComponentInstanceDispose;
+    pContext->coreaudio.AudioComponentInstanceNew      = (mal_proc)AudioComponentInstanceNew;
+    pContext->coreaudio.AudioOutputUnitStart           = (mal_proc)AudioOutputUnitStart;
+    pContext->coreaudio.AudioOutputUnitStop            = (mal_proc)AudioOutputUnitStop;
+    pContext->coreaudio.AudioUnitAddPropertyListener   = (mal_proc)AudioUnitAddPropertyListener;
+    pContext->coreaudio.AudioUnitGetProperty           = (mal_proc)AudioUnitGetProperty;
+    pContext->coreaudio.AudioUnitSetProperty           = (mal_proc)AudioUnitSetProperty;
+    pContext->coreaudio.AudioUnitInitialize            = (mal_proc)AudioUnitInitialize;
+    pContext->coreaudio.AudioUnitRender                = (mal_proc)AudioUnitRender;
 #endif
     
     pContext->onDeviceIDEqual = mal_context_is_device_id_equal__coreaudio;
@@ -13781,7 +13874,7 @@ mal_result mal_context_uninit__coreaudio(mal_context* pContext)
     mal_assert(pContext != NULL);
     mal_assert(pContext->backend == mal_backend_coreaudio);
     
-#ifndef MAL_NO_RUNTIME_LINKING
+#if !defined(MAL_NO_RUNTIME_LINKING) && !defined(MAL_APPLE_MOBILE)
     mal_dlclose(pContext->coreaudio.hAudioToolbox);
     mal_dlclose(pContext->coreaudio.hCoreAudio);
     mal_dlclose(pContext->coreaudio.hCoreFoundation);
@@ -13902,13 +13995,17 @@ mal_result mal_device_init__coreaudio(mal_context* pContext, mal_device_type dev
     mal_assert(pDevice != NULL);
     mal_assert(deviceType == mal_device_type_playback || deviceType == mal_device_type_capture);
     
+    mal_result result;
+    
+#if defined(MAL_APPLE_DESKTOP)
     AudioObjectID deviceObjectID;
-    mal_result result = mal_find_AudioObjectID(pContext, deviceType, pDeviceID, &deviceObjectID);
+    result = mal_find_AudioObjectID(pContext, deviceType, pDeviceID, &deviceObjectID);
     if (result != MAL_SUCCESS) {
         return result;
     }
     
     pDevice->coreaudio.deviceObjectID = deviceObjectID;
+#endif
     
     // Core audio doesn't really use the notion of a period so we can leave this unmodified, but not too over the top.
     if (pDevice->periods < 1) {
@@ -13922,7 +14019,7 @@ mal_result mal_device_init__coreaudio(mal_context* pContext, mal_device_type dev
     // Audio component.
     AudioComponentDescription desc;
     desc.componentType = kAudioUnitType_Output;
-#if defined(TARGET_OS_OSX)
+#if defined(MAL_APPLE_DESKTOP)
     desc.componentSubType = kAudioUnitSubType_HALOutput;
 #else
     desc.componentSubType = kAudioUnitSubType_RemoteIO;
@@ -13964,13 +14061,14 @@ mal_result mal_device_init__coreaudio(mal_context* pContext, mal_device_type dev
     }
     
     
-    // Set the device to use with this audio unit.
+    // Set the device to use with this audio unit. This is only used on desktop since we are using defaults on mobile.
+#if defined(MAL_APPLE_DESKTOP)
     status = ((mal_AudioUnitSetProperty_proc)pContext->coreaudio.AudioUnitSetProperty)((AudioUnit)pDevice->coreaudio.audioUnit, kAudioOutputUnitProperty_CurrentDevice, kAudioUnitScope_Global, (deviceType == mal_device_type_playback) ? MAL_COREAUDIO_OUTPUT_BUS : MAL_COREAUDIO_INPUT_BUS, &deviceObjectID, sizeof(AudioDeviceID));
     if (status != noErr) {
         ((mal_AudioComponentInstanceDispose_proc)pContext->coreaudio.AudioComponentInstanceDispose)((AudioUnit)pDevice->coreaudio.audioUnit);
         return mal_result_from_OSStatus(result);
     }
-    
+#endif
     
     // Format. This is the hardest part of initialization because there's a few variables to take into account.
     //   1) The format must be supported by the device.
@@ -13980,11 +14078,14 @@ mal_result mal_device_init__coreaudio(mal_context* pContext, mal_device_type dev
     // Ideally we would like to use a format that's as close to the hardware as possible so we can get as close to a passthrough as possible. The
     // most important property is the sample rate. mini_al can do format conversion for any sample rate and channel count, but cannot do the same
     // for the sample data format. If the sample data format is not supported by mini_al it must be ignored completely.
+    //
+    // On mobile platforms this is a bit different. We just force the use of whatever the audio unit's current format is set to.
     {
         AudioUnitScope   formatScope   = (deviceType == mal_device_type_playback) ? kAudioUnitScope_Input : kAudioUnitScope_Output;
         AudioUnitElement formatElement = (deviceType == mal_device_type_playback) ? MAL_COREAUDIO_OUTPUT_BUS : MAL_COREAUDIO_INPUT_BUS;
     
         AudioStreamBasicDescription bestFormat;
+    #if defined(MAL_APPLE_DESKTOP)
         result = mal_device_find_best_format__coreaudio(pDevice, &bestFormat);
         if (result != MAL_SUCCESS) {
             ((mal_AudioComponentInstanceDispose_proc)pContext->coreaudio.AudioComponentInstanceDispose)((AudioUnit)pDevice->coreaudio.audioUnit);
@@ -14001,6 +14102,26 @@ mal_result mal_device_init__coreaudio(mal_context* pContext, mal_device_type dev
                 return mal_result_from_OSStatus(status);
             }
         }
+    #else
+        UInt32 propSize = sizeof(bestFormat);
+        status = ((mal_AudioUnitGetProperty_proc)pContext->coreaudio.AudioUnitGetProperty)((AudioUnit)pDevice->coreaudio.audioUnit, kAudioUnitProperty_StreamFormat, formatScope, formatElement, &bestFormat, &propSize);
+        if (status != noErr) {
+            ((mal_AudioComponentInstanceDispose_proc)pContext->coreaudio.AudioComponentInstanceDispose)((AudioUnit)pDevice->coreaudio.audioUnit);
+            return mal_result_from_OSStatus(status);
+        }
+        
+        // Sample rate is a little different here because for some reason kAudioUnitProperty_StreamFormat returns 0... Oh well. We need to instead try
+        // setting the sample rate to what the user has requested and then just see the results of it. Need to use some Objective-C here for this since
+        // it depends on Apple's AVAudioSession API. To do this we just get the shared AVAudioSession instance and then set it. Note that from what I
+        // can tell, it looks like the sample rate is shared between playback and capture for everything.
+        @autoreleasepool {
+            AVAudioSession* pAudioSession = [AVAudioSession sharedInstance];
+            mal_assert(pAudioSession != NULL);
+            
+            [pAudioSession setPreferredSampleRate:(double)pDevice->sampleRate error:nil];
+            bestFormat.mSampleRate = pAudioSession.sampleRate;
+        }
+    #endif
         
         result = mal_format_from_AudioStreamBasicDescription(&bestFormat, &pDevice->internalFormat);
         if (result != MAL_SUCCESS || pDevice->internalFormat == mal_format_unknown) {
@@ -14008,23 +14129,30 @@ mal_result mal_device_init__coreaudio(mal_context* pContext, mal_device_type dev
             return result;
         }
         
-        pDevice->channels = bestFormat.mChannelsPerFrame;
-        pDevice->sampleRate = bestFormat.mSampleRate;
+        pDevice->internalChannels = bestFormat.mChannelsPerFrame;
+        pDevice->internalSampleRate = bestFormat.mSampleRate;
     }
     
+    
     // Internal channel map.
+#if defined(MAL_APPLE_DESKTOP)
     result = mal_get_AudioObject_channel_map(pContext, deviceObjectID, deviceType, pDevice->internalChannelMap);
     if (result != MAL_SUCCESS) {
         return result;
     }
+#else
+    // TODO: Figure out how to get the channel map using AVAudioSession.
+    mal_get_standard_channel_map(mal_standard_channel_map_default, pDevice->internalChannels, pDevice->internalChannelMap);
+#endif
     
     
-    // Buffer size.
+    // Buffer size. Not allowing this to be configurable on iOS.
     mal_uint32 actualBufferSizeInFrames = pDevice->bufferSizeInFrames;
     if (actualBufferSizeInFrames < pDevice->periods) {
         actualBufferSizeInFrames = pDevice->periods;
     }
     
+#if defined(MAL_APPLE_DESKTOP)
     if (pDevice->usingDefaultBufferSize) {
         // CPU speed is a factor to consider when determine how large of a buffer we need.
         float fCPUSpeed = mal_calculate_cpu_speed_factor();
@@ -14053,7 +14181,10 @@ mal_result mal_device_init__coreaudio(mal_context* pContext, mal_device_type dev
     if (result != MAL_SUCCESS) {
         return result;
     }
-    
+#else
+    actualBufferSizeInFrames = 4096;
+#endif
+
     pDevice->bufferSizeInFrames = actualBufferSizeInFrames * pDevice->periods;
     
 
