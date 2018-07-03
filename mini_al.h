@@ -1242,7 +1242,7 @@ struct mal_context
             mal_proc AudioObjectGetPropertyDataSize;
             mal_proc AudioObjectSetPropertyData;
             
-            mal_handle hAudioToolbox;
+            mal_handle hAudioUnit;  // Could possibly be set to AudioToolbox on later versions of macOS.
             mal_proc AudioComponentFindNext;
             mal_proc AudioComponentInstanceDispose;
             mal_proc AudioComponentInstanceNew;
@@ -13840,23 +13840,38 @@ mal_result mal_context_init__coreaudio(mal_context* pContext)
     pContext->coreaudio.AudioObjectSetPropertyData     = mal_dlsym(pContext->coreaudio.hCoreAudio, "AudioObjectSetPropertyData");
     
     
-    pContext->coreaudio.hAudioToolbox = mal_dlopen("AudioToolbox.framework/AudioToolbox");
-    if (pContext->coreaudio.hAudioToolbox == NULL) {
+    // It looks like Apple has moved some APIs from AudioUnit into AudioToolbox on more recent versions of macOS. They are still
+    // defined in AudioUnit, but just in case they decided to remove them from there entirely I'm going to do implement a fallback.
+    // The way it'll work is that it'll first try AudioUnit, and if the required symbols are not present there we'll fall back to
+    // AudioToolbox.
+    pContext->coreaudio.hAudioUnit = mal_dlopen("AudioUnit.framework/AudioUnit");
+    if (pContext->coreaudio.hAudioUnit == NULL) {
         mal_dlclose(pContext->coreaudio.hCoreAudio);
         mal_dlclose(pContext->coreaudio.hCoreFoundation);
         return MAL_API_NOT_FOUND;
     }
     
-    pContext->coreaudio.AudioComponentFindNext         = mal_dlsym(pContext->coreaudio.hAudioToolbox, "AudioComponentFindNext");
-    pContext->coreaudio.AudioComponentInstanceDispose  = mal_dlsym(pContext->coreaudio.hAudioToolbox, "AudioComponentInstanceDispose");
-    pContext->coreaudio.AudioComponentInstanceNew      = mal_dlsym(pContext->coreaudio.hAudioToolbox, "AudioComponentInstanceNew");
-    pContext->coreaudio.AudioOutputUnitStart           = mal_dlsym(pContext->coreaudio.hAudioToolbox, "AudioOutputUnitStart");
-    pContext->coreaudio.AudioOutputUnitStop            = mal_dlsym(pContext->coreaudio.hAudioToolbox, "AudioOutputUnitStop");
-    pContext->coreaudio.AudioUnitAddPropertyListener   = mal_dlsym(pContext->coreaudio.hAudioToolbox, "AudioUnitAddPropertyListener");
-    pContext->coreaudio.AudioUnitGetProperty           = mal_dlsym(pContext->coreaudio.hAudioToolbox, "AudioUnitGetProperty");
-    pContext->coreaudio.AudioUnitSetProperty           = mal_dlsym(pContext->coreaudio.hAudioToolbox, "AudioUnitSetProperty");
-    pContext->coreaudio.AudioUnitInitialize            = mal_dlsym(pContext->coreaudio.hAudioToolbox, "AudioUnitInitialize");
-    pContext->coreaudio.AudioUnitRender                = mal_dlsym(pContext->coreaudio.hAudioToolbox, "AudioUnitRender");
+    if (mal_dlsym(pContext->coreaudio.hAudioUnit, "AudioComponentFindNext") == NULL) {
+        // Couldn't find the required symbols in AudioUnit, so fall back to AudioToolbox.
+        mal_dlclose(pContext->coreaudio.hAudioUnit);
+        pContext->coreaudio.hAudioUnit = mal_dlopen("AudioToolbox.framework/AudioToolbox");
+        if (pContext->coreaudio.hAudioUnit == NULL) {
+            mal_dlclose(pContext->coreaudio.hCoreAudio);
+            mal_dlclose(pContext->coreaudio.hCoreFoundation);
+            return MAL_API_NOT_FOUND;
+        }
+    }
+    
+    pContext->coreaudio.AudioComponentFindNext         = mal_dlsym(pContext->coreaudio.hAudioUnit, "AudioComponentFindNext");
+    pContext->coreaudio.AudioComponentInstanceDispose  = mal_dlsym(pContext->coreaudio.hAudioUnit, "AudioComponentInstanceDispose");
+    pContext->coreaudio.AudioComponentInstanceNew      = mal_dlsym(pContext->coreaudio.hAudioUnit, "AudioComponentInstanceNew");
+    pContext->coreaudio.AudioOutputUnitStart           = mal_dlsym(pContext->coreaudio.hAudioUnit, "AudioOutputUnitStart");
+    pContext->coreaudio.AudioOutputUnitStop            = mal_dlsym(pContext->coreaudio.hAudioUnit, "AudioOutputUnitStop");
+    pContext->coreaudio.AudioUnitAddPropertyListener   = mal_dlsym(pContext->coreaudio.hAudioUnit, "AudioUnitAddPropertyListener");
+    pContext->coreaudio.AudioUnitGetProperty           = mal_dlsym(pContext->coreaudio.hAudioUnit, "AudioUnitGetProperty");
+    pContext->coreaudio.AudioUnitSetProperty           = mal_dlsym(pContext->coreaudio.hAudioUnit, "AudioUnitSetProperty");
+    pContext->coreaudio.AudioUnitInitialize            = mal_dlsym(pContext->coreaudio.hAudioUnit, "AudioUnitInitialize");
+    pContext->coreaudio.AudioUnitRender                = mal_dlsym(pContext->coreaudio.hAudioUnit, "AudioUnitRender");
 #else
     pContext->coreaudio.CFStringGetCString             = (mal_proc)CFStringGetCString;
     
@@ -13891,7 +13906,7 @@ mal_result mal_context_uninit__coreaudio(mal_context* pContext)
     mal_assert(pContext->backend == mal_backend_coreaudio);
     
 #if !defined(MAL_NO_RUNTIME_LINKING) && !defined(MAL_APPLE_MOBILE)
-    mal_dlclose(pContext->coreaudio.hAudioToolbox);
+    mal_dlclose(pContext->coreaudio.hAudioUnit);
     mal_dlclose(pContext->coreaudio.hCoreAudio);
     mal_dlclose(pContext->coreaudio.hCoreFoundation);
 #endif
