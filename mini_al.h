@@ -357,6 +357,10 @@ extern "C" {
     #endif
 #endif
 
+#if !defined(MAL_HAS_STDINT) && (defined(__GNUC__) || defined(__clang__))   // Assume support for stdint.h on GCC and Clang.
+    #define MAL_HAS_STDINT
+#endif
+
 #ifndef MAL_HAS_STDINT
 typedef   signed char               mal_int8;
 typedef unsigned char               mal_uint8;
@@ -418,6 +422,13 @@ typedef mal_uint16 wchar_t;
 #ifndef NULL
 #define NULL 0
 #endif
+
+#if defined(SIZE_MAX)
+    #define MAL_SIZE_MAX    SIZE_MAX
+#else
+    #define MAL_SIZE_MAX    0xFFFFFFFF  /* When SIZE_MAX is not defined by the standard library just default to the maximum 32-bit unsigned integer. */
+#endif
+
 
 #ifdef _MSC_VER
 #define MAL_INLINE __forceinline
@@ -3581,8 +3592,8 @@ double mal_timer_get_time_in_seconds(mal_timer* pTimer)
     struct timespec newTime;
     clock_gettime(MAL_CLOCK_ID, &newTime);
 
-    uint64_t newTimeCounter = (newTime.tv_sec * 1000000000) + newTime.tv_nsec;
-    uint64_t oldTimeCounter = pTimer->counter;
+    mal_uint64 newTimeCounter = (newTime.tv_sec * 1000000000) + newTime.tv_nsec;
+    mal_uint64 oldTimeCounter = pTimer->counter;
 
     return (newTimeCounter - oldTimeCounter) / 1000000000.0;
 }
@@ -19168,13 +19179,13 @@ mal_bool32 mal_channel_map_contains_channel_position(mal_uint32 channels, const 
 
 void mal_copy_memory_64(void* dst, const void* src, mal_uint64 sizeInBytes)
 {
-#if 0xFFFFFFFFFFFFFFFF <= SIZE_MAX
+#if 0xFFFFFFFFFFFFFFFF <= MAL_SIZE_MAX
     mal_copy_memory(dst, src, (size_t)sizeInBytes);
 #else
     while (sizeInBytes > 0) {
         mal_uint64 bytesToCopyNow = sizeInBytes;
-        if (bytesToCopyNow > SIZE_MAX) {
-            bytesToCopyNow = SIZE_MAX;
+        if (bytesToCopyNow > MAL_SIZE_MAX) {
+            bytesToCopyNow = MAL_SIZE_MAX;
         }
 
         mal_copy_memory(dst, src, (size_t)bytesToCopyNow);  // Safe cast to size_t.
@@ -19188,13 +19199,13 @@ void mal_copy_memory_64(void* dst, const void* src, mal_uint64 sizeInBytes)
 
 void mal_zero_memory_64(void* dst, mal_uint64 sizeInBytes)
 {
-#if 0xFFFFFFFFFFFFFFFF <= SIZE_MAX
+#if 0xFFFFFFFFFFFFFFFF <= MAL_SIZE_MAX
     mal_zero_memory(dst, (size_t)sizeInBytes);
 #else
     while (sizeInBytes > 0) {
         mal_uint64 bytesToZeroNow = sizeInBytes;
-        if (bytesToZeroNow > SIZE_MAX) {
-            bytesToZeroNow = SIZE_MAX;
+        if (bytesToZeroNow > MAL_SIZE_MAX) {
+            bytesToZeroNow = MAL_SIZE_MAX;
         }
 
         mal_zero_memory(dst, (size_t)bytesToZeroNow);  // Safe cast to size_t.
@@ -25617,7 +25628,7 @@ mal_result mal_decoder__full_decode_and_uninit(mal_decoder* pDecoder, mal_decode
                 newDataCapInFrames = 4096;
             }
 
-            if ((newDataCapInFrames * bpf) > SIZE_MAX) {
+            if ((newDataCapInFrames * bpf) > MAL_SIZE_MAX) {
                 mal_free(pDataOut);
                 return MAL_TOO_LARGE;
             }
