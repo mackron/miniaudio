@@ -13861,9 +13861,9 @@ mal_result mal_context_init__coreaudio(mal_context* pContext)
     pContext->coreaudio.CFStringGetCString             = (mal_proc)CFStringGetCString;
     
     #if defined(MAL_APPLE_DESKTOP)
-    pContext->coreaudio.AudioObjectGetPropertyData     = AudioObjectGetPropertyData;
-    pContext->coreaudio.AudioObjectGetPropertyDataSize = AudioObjectGetPropertyDataSize;
-    pContext->coreaudio.AudioObjectSetPropertyData     = AudioObjectSetPropertyData;
+    pContext->coreaudio.AudioObjectGetPropertyData     = (mal_proc)AudioObjectGetPropertyData;
+    pContext->coreaudio.AudioObjectGetPropertyDataSize = (mal_proc)AudioObjectGetPropertyDataSize;
+    pContext->coreaudio.AudioObjectSetPropertyData     = (mal_proc)AudioObjectSetPropertyData;
     #endif
     
     pContext->coreaudio.AudioComponentFindNext         = (mal_proc)AudioComponentFindNext;
