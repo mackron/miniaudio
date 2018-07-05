@@ -1,5 +1,5 @@
 // FLAC audio decoder. Public domain. See "unlicense" statement at the end of this file.
-// dr_flac - v0.9.5 - 2018-06-23
+// dr_flac - v0.9.6 - 2018-06-29
 //
 // David Reid - mackron@gmail.com
 
@@ -111,7 +111,7 @@
 // - This has not been tested on big-endian architectures.
 // - Rice codes in unencoded binary form (see https://xiph.org/flac/format.html#rice_partition) has not been tested. If anybody
 //   knows where I can find some test files for this, let me know.
-// - dr_flac is not thread-safe, but it's APIs can be called from any thread so long as you do your own synchronization.
+// - dr_flac is not thread-safe, but its APIs can be called from any thread so long as you do your own synchronization.
 // - When using Ogg encapsulation, a corrupted metadata block will result in drflac_open_with_metadata() and drflac_open()
 //   returning inconsistent samples.
 
@@ -467,7 +467,7 @@ typedef struct
     // value specified in the STREAMINFO block.
     drflac_uint8 channels;
 
-    // The bits per sample. Will be set to somthing like 16, 24, etc.
+    // The bits per sample. Will be set to something like 16, 24, etc.
     drflac_uint8 bitsPerSample;
 
     // The maximum block size, in samples. This number represents the number of samples in each channel (not combined).
@@ -579,7 +579,7 @@ drflac* drflac_open_relaxed(drflac_read_proc onRead, drflac_seek_proc onSeek, dr
 // See also: drflac_open_file_with_metadata(), drflac_open_memory_with_metadata(), drflac_open(), drflac_close()
 drflac* drflac_open_with_metadata(drflac_read_proc onRead, drflac_seek_proc onSeek, drflac_meta_proc onMeta, void* pUserData);
 
-// The same as drflac_open_with_metadata(), except attemps to open the stream even when a header block is not present.
+// The same as drflac_open_with_metadata(), except attempts to open the stream even when a header block is not present.
 //
 // See also: drflac_open_with_metadata(), drflac_open_relaxed()
 drflac* drflac_open_with_metadata_relaxed(drflac_read_proc onRead, drflac_seek_proc onSeek, drflac_meta_proc onMeta, drflac_container container, void* pUserData);
@@ -3175,10 +3175,10 @@ static drflac_bool32 drflac__seek_to_sample__brute_force(drflac* pFlac, drflac_u
 
     drflac_bool32 isMidFrame = DRFLAC_FALSE;
 
-    // If we are seeking foward we start from the current position. Otherwise we need to start all the way from the start of the file.
+    // If we are seeking forward we start from the current position. Otherwise we need to start all the way from the start of the file.
     drflac_uint64 runningSampleCount;
     if (sampleIndex >= pFlac->currentSample) {
-        // Seeking foward. Need to seek from the current position.
+        // Seeking forward. Need to seek from the current position.
         runningSampleCount = pFlac->currentSample;
 
         // The frame header for the first frame may not yet have been read. We need to do that if necessary.
@@ -3204,7 +3204,7 @@ static drflac_bool32 drflac__seek_to_sample__brute_force(drflac* pFlac, drflac_u
         }
     }
 
-    // We need to as quickly as possible find the frame that contains the target sample. To do this, we iterate over each frame and inspect it's
+    // We need to as quickly as possible find the frame that contains the target sample. To do this, we iterate over each frame and inspect its
     // header. If based on the header we can determine that the frame contains the sample, we do a full decode of that frame.
     for (;;) {
         drflac_uint64 firstSampleInFrame = 0;
@@ -3657,7 +3657,7 @@ drflac_bool32 drflac__read_and_decode_metadata(drflac_read_proc onRead, drflac_s
 
                     // Padding doesn't have anything meaningful in it, so just skip over it, but make sure the caller is aware of it by firing the callback.
                     if (!onSeek(pUserData, blockSize, drflac_seek_origin_current)) {
-                        isLastBlock = DRFLAC_TRUE;  // An error occured while seeking. Attempt to recover by treating this as the last block which will in turn terminate the loop.
+                        isLastBlock = DRFLAC_TRUE;  // An error occurred while seeking. Attempt to recover by treating this as the last block which will in turn terminate the loop.
                     } else {
                         onMeta(pUserDataMD, &metadata);
                     }
@@ -3669,7 +3669,7 @@ drflac_bool32 drflac__read_and_decode_metadata(drflac_read_proc onRead, drflac_s
                 // Invalid chunk. Just skip over this one.
                 if (onMeta) {
                     if (!onSeek(pUserData, blockSize, drflac_seek_origin_current)) {
-                        isLastBlock = DRFLAC_TRUE;  // An error occured while seeking. Attempt to recover by treating this as the last block which will in turn terminate the loop.
+                        isLastBlock = DRFLAC_TRUE;  // An error occurred while seeking. Attempt to recover by treating this as the last block which will in turn terminate the loop.
                     }
                 }
             } break;
@@ -4003,7 +4003,7 @@ drflac_result drflac_ogg__read_page_header(drflac_read_proc onRead, void* pUserD
 
 
 // The main part of the Ogg encapsulation is the conversion from the physical Ogg bitstream to the native FLAC bitstream. It works
-// in three general stages: Ogg Physical Bitstream -> Ogg/FLAC Logical Bitstream -> FLAC Native Bitstream. dr_flac is architecured
+// in three general stages: Ogg Physical Bitstream -> Ogg/FLAC Logical Bitstream -> FLAC Native Bitstream. dr_flac is designed
 // in such a way that the core sections assume everything is delivered in native format. Therefore, for each encapsulation type
 // dr_flac is supporting there needs to be a layer sitting on top of the onRead and onSeek callbacks that ensures the bits read from
 // the physical Ogg bitstream are converted and delivered in native FLAC format.
@@ -4351,13 +4351,13 @@ drflac_bool32 drflac_ogg__seek_to_sample(drflac* pFlac, drflac_uint64 sampleInde
         //
         // Another thing to consider is that using the Ogg framing system will perform direct seeking of the physical Ogg
         // bitstream. This is important to consider because it means we cannot read data from the drflac_bs object using the
-        // standard drflac__*() APIs because that will read in extra data for it's own internal caching which in turn breaks
+        // standard drflac__*() APIs because that will read in extra data for its own internal caching which in turn breaks
         // the positioning of the read pointer of the physical Ogg bitstream. Therefore, anything that would normally be read
         // using the native FLAC decoding APIs, such as drflac__read_next_frame_header(), need to be re-implemented so as to
         // avoid the use of the drflac_bs object.
         //
         // Considering these issues, I have decided to use the slower native FLAC decoding method for the following reasons:
-        //   1) Seeking is already partially accellerated using Ogg's paging system in the code block above.
+        //   1) Seeking is already partially accelerated using Ogg's paging system in the code block above.
         //   2) Seeking in an Ogg encapsulated FLAC stream is probably quite uncommon.
         //   3) Simplicity.
         if (!drflac__read_next_frame_header(&pFlac->bs, pFlac->bitsPerSample, &pFlac->currentFrame.header)) {
@@ -4550,7 +4550,7 @@ drflac_bool32 drflac__init_private__ogg(drflac_init_info* pInit, drflac_read_pro
 
 
     // If we get here it means we found a FLAC audio stream. We should be sitting on the first byte of the header of the next page. The next
-    // packets in the FLAC logical stream contain the metadata. The only thing left to do in the initialiation phase for Ogg is to create the
+    // packets in the FLAC logical stream contain the metadata. The only thing left to do in the initialization phase for Ogg is to create the
     // Ogg bistream object.
     pInit->hasMetadataBlocks = DRFLAC_TRUE;    // <-- Always have at least VORBIS_COMMENT metadata block.
     return DRFLAC_TRUE;
@@ -4758,7 +4758,7 @@ drflac* drflac_open_with_metadata_private(drflac_read_proc onRead, drflac_seek_p
 
     pFlac->firstFramePos = firstFramePos;
 
-    // NOTE: Seektables are not currently compatible with Ogg encapsulation (Ogg has it's own accelerated seeking system). I may change this later, so I'm leaving this here for now.
+    // NOTE: Seektables are not currently compatible with Ogg encapsulation (Ogg has its own accelerated seeking system). I may change this later, so I'm leaving this here for now.
 #ifndef DR_FLAC_NO_OGG
     if (init.container == drflac_container_ogg)
     {
@@ -5718,6 +5718,9 @@ const char* drflac_next_vorbis_comment(drflac_vorbis_comment_iterator* pIter, dr
 
 
 // REVISION HISTORY
+//
+// v0.9.6 - 2018-06-29
+//   - Fix some typos.
 //
 // v0.9.5 - 2018-06-23
 //   - Fix some warnings.
