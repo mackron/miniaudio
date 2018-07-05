@@ -23243,7 +23243,7 @@ mal_uint64 mal_src_read_deinterleaved__sinc(mal_src* pSRC, mal_uint64 frameCount
     }
 #endif
     mal_int32 windowWidthSIMD2 = windowWidthSIMD*2;
-
+    (void)windowWidthSIMD2; // <-- Silence a warning when SIMD is disabled.
 
     float* ppNextSamplesOut[MAL_MAX_CHANNELS];
     mal_copy_memory(ppNextSamplesOut, ppSamplesOut, sizeof(void*) * pSRC->config.channels);
