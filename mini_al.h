@@ -8248,7 +8248,7 @@ mal_result mal_device_init__winmm(mal_context* pContext, mal_device_type type, m
         }
 
         // Backend tax. Need to fiddle with this.
-        float fBackend = 12.0;
+        float fBackend = 10.0;
 
         pDevice->bufferSizeInFrames = mal_calculate_default_buffer_size_in_frames(pConfig->performanceProfile, pConfig->sampleRate, fCPUSpeed*fType*fBackend);
     }
@@ -20665,6 +20665,12 @@ void mal_pcm_f32_to_s16__optimized(void* dst, const void* src, mal_uint64 count,
 #if defined(MAL_SUPPORT_SSE2)
 void mal_pcm_f32_to_s16__sse2(void* dst, const void* src, mal_uint64 count, mal_dither_mode ditherMode)
 {
+    // Both the input and output buffers need to be aligned to 16 bytes.
+    if ((((mal_uintptr)dst & 15) != 0) || (((mal_uintptr)src & 15) != 0)) {
+        mal_pcm_f32_to_s16__optimized(dst, src, count, ditherMode);
+        return;
+    }
+
     mal_int16* dst_s16 = (mal_int16*)dst;
     const float* src_f32 = (const float*)src;
 
@@ -20742,6 +20748,12 @@ void mal_pcm_f32_to_s16__sse2(void* dst, const void* src, mal_uint64 count, mal_
 #if defined(MAL_SUPPORT_AVX2)
 void mal_pcm_f32_to_s16__avx2(void* dst, const void* src, mal_uint64 count, mal_dither_mode ditherMode)
 {
+    // Both the input and output buffers need to be aligned to 32 bytes.
+    if ((((mal_uintptr)dst & 31) != 0) || (((mal_uintptr)src & 31) != 0)) {
+        mal_pcm_f32_to_s16__optimized(dst, src, count, ditherMode);
+        return;
+    }
+
     mal_int16* dst_s16 = (mal_int16*)dst;
     const float* src_f32 = (const float*)src;
 
@@ -20849,6 +20861,12 @@ void mal_pcm_f32_to_s16__avx512(void* dst, const void* src, mal_uint64 count, ma
 #if defined(MAL_SUPPORT_NEON)
 void mal_pcm_f32_to_s16__neon(void* dst, const void* src, mal_uint64 count, mal_dither_mode ditherMode)
 {
+    // Both the input and output buffers need to be aligned to 16 bytes.
+    if ((((mal_uintptr)dst & 15) != 0) || (((mal_uintptr)src & 15) != 0)) {
+        mal_pcm_f32_to_s16__optimized(dst, src, count, ditherMode);
+        return;
+    }
+
     mal_int16* dst_s16 = (mal_int16*)dst;
     const float* src_f32 = (const float*)src;
 
@@ -24218,7 +24236,7 @@ float mal_calculate_cpu_speed_factor()
     // Our profiling test is based on how quick it can process 1 second worth of samples through mini_al's data conversion pipeline.
 
     // This factor is multiplied with the profiling time. May need to fiddle with this to get an accurate value.
-    float f = 1000;
+    double f = 1000;
 
     // Experiment: Reduce the factor a little when debug mode is used to reduce a blowout.
 #if !defined(NDEBUG) || defined(_DEBUG)
@@ -24289,9 +24307,11 @@ float mal_calculate_cpu_speed_factor()
     double executionTimeInSeconds = mal_timer_get_time_in_seconds(&timer) - startTime;
     executionTimeInSeconds /= iterationCount;
 
-    
+
     mal_free(pData);
-    return (float)(executionTimeInSeconds * f);
+
+    // Guard against extreme blowouts.
+    return (float)mal_clamp(executionTimeInSeconds * f, 0.1, 100.0);
 }
 
 mal_uint32 mal_scale_buffer_size(mal_uint32 baseBufferSize, float scale)
@@ -24301,11 +24321,20 @@ mal_uint32 mal_scale_buffer_size(mal_uint32 baseBufferSize, float scale)
 
 mal_uint32 mal_calculate_default_buffer_size_in_frames(mal_performance_profile performanceProfile, mal_uint32 sampleRate, float scale)
 {
+    mal_uint32 baseLatency;
     if (performanceProfile == mal_performance_profile_low_latency) {
-        return mal_scale_buffer_size((sampleRate/1000) * MAL_BASE_BUFFER_SIZE_IN_MILLISECONDS_LOW_LATENCY, scale);
+        baseLatency = MAL_BASE_BUFFER_SIZE_IN_MILLISECONDS_LOW_LATENCY;
     } else {
-        return mal_scale_buffer_size((sampleRate/1000) * MAL_BASE_BUFFER_SIZE_IN_MILLISECONDS_CONSERVATIVE, scale);
+        baseLatency = MAL_BASE_BUFFER_SIZE_IN_MILLISECONDS_CONSERVATIVE;
     }
+
+    mal_uint32 sampleRateMS = (sampleRate/1000);
+
+    mal_uint32 minBufferSize = sampleRateMS * mal_min(baseLatency / 5, 1);  // <-- Guard against multiply by zero.
+    mal_uint32 maxBufferSize = sampleRateMS *        (baseLatency * 20);
+
+    mal_uint32 bufferSize = mal_scale_buffer_size((sampleRate/1000) * baseLatency, scale);
+    return mal_clamp(bufferSize, minBufferSize, maxBufferSize);
 }
 
 
