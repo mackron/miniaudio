@@ -8786,8 +8786,8 @@ static struct
     const char* name;
     float scale;
 } g_malDefaultBufferSizeScalesALSA[] = {
-    {"bcm2835 IEC958/HDMI", 8.0f},
-    {"bcm2835 ALSA",        8.0f}
+    {"bcm2835 IEC958/HDMI", 6.0f},
+    {"bcm2835 ALSA",        6.0f}
 };
 
 float mal_find_default_buffer_size_scale__alsa(const char* deviceName)
@@ -9977,6 +9977,8 @@ mal_result mal_device_init__alsa(mal_context* pContext, mal_device_type type, co
             pDevice->bufferSizeInFrames = mal_calculate_default_buffer_size_in_frames(pConfig->performanceProfile, pConfig->sampleRate, fCPUSpeed*fShareMode*fType*fDevice);
         }
     }
+
+
 
 
     // Hardware parameters.
@@ -24331,7 +24333,7 @@ mal_uint32 mal_calculate_default_buffer_size_in_frames(mal_performance_profile p
     mal_uint32 sampleRateMS = (sampleRate/1000);
 
     mal_uint32 minBufferSize = sampleRateMS * mal_min(baseLatency / 5, 1);  // <-- Guard against multiply by zero.
-    mal_uint32 maxBufferSize = sampleRateMS *        (baseLatency * 20);
+    mal_uint32 maxBufferSize = sampleRateMS *        (baseLatency * 40);
 
     mal_uint32 bufferSize = mal_scale_buffer_size((sampleRate/1000) * baseLatency, scale);
     return mal_clamp(bufferSize, minBufferSize, maxBufferSize);
