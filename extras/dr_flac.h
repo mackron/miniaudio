@@ -1,5 +1,5 @@
 // FLAC audio decoder. Public domain. See "unlicense" statement at the end of this file.
-// dr_flac - v0.9.6 - 2018-06-29
+// dr_flac - v0.9.7 - 2018-07-05
 //
 // David Reid - mackron@gmail.com
 
@@ -1483,6 +1483,7 @@ static drflac_bool32 drflac__read_int32(drflac_bs* bs, unsigned int bitCount, dr
     return DRFLAC_TRUE;
 }
 
+#ifdef DRFLAC_64BIT
 static drflac_bool32 drflac__read_uint64(drflac_bs* bs, unsigned int bitCount, drflac_uint64* pResultOut)
 {
     drflac_assert(bitCount <= 64);
@@ -1501,6 +1502,7 @@ static drflac_bool32 drflac__read_uint64(drflac_bs* bs, unsigned int bitCount, d
     *pResultOut = (((drflac_uint64)resultHi) << 32) | ((drflac_uint64)resultLo);
     return DRFLAC_TRUE;
 }
+#endif
 
 // Function below is unused, but leaving it here in case I need to quickly add it again.
 #if 0
@@ -5718,6 +5720,9 @@ const char* drflac_next_vorbis_comment(drflac_vorbis_comment_iterator* pIter, dr
 
 
 // REVISION HISTORY
+//
+// v0.9.7 - 2018-07-05
+//   - Fix a warning.
 //
 // v0.9.6 - 2018-06-29
 //   - Fix some typos.
