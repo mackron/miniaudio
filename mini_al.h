@@ -1,5 +1,5 @@
 // Audio playback and capture library. Public domain. See "unlicense" statement at the end of this file.
-// mini_al - v0.8 - 2018-07-05
+// mini_al - v0.x-dev - 2018-xx-xx
 //
 // David Reid - davidreidsoftware@gmail.com
 
@@ -15075,7 +15075,7 @@ mal_result mal_context_enumerate_devices__opensl(mal_context* pContext, mal_enum
     goto return_default_device;
 #endif
 
-return_default_device:
+return_default_device:;
     mal_bool32 cbResult = MAL_TRUE;
 
     // Playback.
@@ -25821,6 +25821,9 @@ mal_uint64 mal_sine_wave_read(mal_sine_wave* pSineWave, mal_uint64 count, float*
 
 // REVISION HISTORY
 // ================
+//
+// v0.x-dev - 2018-xx-xx
+//   - Fix a compilation error on the Android build.
 //
 // v0.8 - 2018-07-05
 //   - Changed MAL_IMPLEMENTATION to MINI_AL_IMPLEMENTATION for consistency with other libraries. The old
