@@ -14079,7 +14079,7 @@ mal_result mal_device_init__coreaudio(mal_context* pContext, mal_device_type dev
     
     
     // Audio unit.
-    OSStatus status = ((mal_AudioComponentInstanceNew_proc)pContext->coreaudio.AudioComponentInstanceNew)(pDevice->coreaudio.component, (AudioUnit*)&pDevice->coreaudio.audioUnit);
+    OSStatus status = ((mal_AudioComponentInstanceNew_proc)pContext->coreaudio.AudioComponentInstanceNew)((AudioComponent)pDevice->coreaudio.component, (AudioUnit*)&pDevice->coreaudio.audioUnit);
     if (status != noErr) {
         return mal_result_from_OSStatus(status);
     }
@@ -25822,7 +25822,7 @@ mal_uint64 mal_sine_wave_read(mal_sine_wave* pSineWave, mal_uint64 count, float*
 // ================
 //
 // v0.x-dev - 2018-xx-xx
-//   - Fix a compilation error on the Android build.
+//   - Fix a compilation errors.
 //   - Fix warnings.
 //
 // v0.8 - 2018-07-05
