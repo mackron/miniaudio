@@ -474,6 +474,10 @@ typedef mal_uint16 wchar_t;
 #define MAL_LOG_LEVEL_WARNING   2
 #define MAL_LOG_LEVEL_ERROR     1
 
+#ifndef MAL_LOG_LEVEL
+#define MAL_LOG_LEVEL           MAL_LOG_LEVEL_ERROR
+#endif
+
 
 // Thread priorties should be ordered such that the default priority of the worker thread is 0.
 typedef enum
