@@ -1,5 +1,5 @@
 // Audio playback and capture library. Public domain. See "unlicense" statement at the end of this file.
-// mini_al - v0.8.1 - 2018-07-06
+// mini_al - v0.8.2 - 2018-07-07
 //
 // David Reid - davidreidsoftware@gmail.com
 
@@ -25903,6 +25903,9 @@ mal_uint64 mal_sine_wave_read(mal_sine_wave* pSineWave, mal_uint64 count, float*
 
 // REVISION HISTORY
 // ================
+//
+// v0.8.2 - 2018-07-07
+//   - Fix a bug on macOS with Core Audio where the internal callback is not called.
 //
 // v0.8.1 - 2018-07-06
 //   - Fix compilation errors and warnings.
