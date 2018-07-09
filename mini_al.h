@@ -12861,9 +12861,9 @@ mal_result mal_format_from_AudioStreamBasicDescription(const AudioStreamBasicDes
     }
     
     // We are not currently supporting non-interleaved formats (this will be added in a future version of mini_al).
-    if ((pDescription->mFormatFlags & kAudioFormatFlagIsNonInterleaved) != 0) {
-        return MAL_FORMAT_NOT_SUPPORTED;
-    }
+    //if ((pDescription->mFormatFlags & kAudioFormatFlagIsNonInterleaved) != 0) {
+    //    return MAL_FORMAT_NOT_SUPPORTED;
+    //}
 
     if ((pDescription->mFormatFlags & kLinearPCMFormatFlagIsFloat) != 0) {
         if (pDescription->mBitsPerChannel == 32) {
@@ -14040,27 +14040,28 @@ OSStatus mal_on_input__coreaudio(void* pUserData, AudioUnitRenderActionFlags* pA
     mal_device* pDevice = (mal_device*)pUserData;
     mal_assert(pDevice != NULL);
     
-    // I'm not going to trust the input frame count. I'm instead going to base this off the size of the first buffer.
-    UInt32 actualFrameCount = ((AudioBufferList*)pDevice->coreaudio.pAudioBufferList)->mBuffers[0].mDataByteSize / mal_get_bytes_per_sample(pDevice->internalFormat) / ((AudioBufferList*)pDevice->coreaudio.pAudioBufferList)->mBuffers[0].mNumberChannels;
-    if (actualFrameCount == 0) {
-        return noErr;
-    }
-    
-    OSStatus status = ((mal_AudioUnitRender_proc)pDevice->pContext->coreaudio.AudioUnitRender)((AudioUnit)pDevice->coreaudio.audioUnit, pActionFlags, pTimeStamp, busNumber, actualFrameCount, (AudioBufferList*)pDevice->coreaudio.pAudioBufferList);
-    if (status != noErr) {
-        return status;
-    }
-    
     AudioBufferList* pRenderedBufferList = (AudioBufferList*)pDevice->coreaudio.pAudioBufferList;
     mal_assert(pRenderedBufferList);
+    
+#if defined(MAL_DEBUG_OUTPUT)
+    printf("INFO: Input Callback: busNumber=%d, frameCount=%d, mNumberBuffers=%d\n", busNumber, frameCount, pRenderedBufferList->mNumberBuffers);
+#endif
+    
+    OSStatus status = ((mal_AudioUnitRender_proc)pDevice->pContext->coreaudio.AudioUnitRender)((AudioUnit)pDevice->coreaudio.audioUnit, pActionFlags, pTimeStamp, busNumber, frameCount, pRenderedBufferList);
+    if (status != noErr) {
+    #if defined(MAL_DEBUG_OUTPUT)
+        printf("  ERROR: AudioUnitRender() failed with %d\n", status);
+    #endif
+        return status;
+    }
     
     // For now we can assume everything is interleaved.
     for (UInt32 iBuffer = 0; iBuffer < pRenderedBufferList->mNumberBuffers; ++iBuffer) {
         if (pRenderedBufferList->mBuffers[iBuffer].mNumberChannels == pDevice->internalChannels) {
-            mal_uint32 frameCountForThisBuffer = pRenderedBufferList->mBuffers[iBuffer].mDataByteSize / mal_get_bytes_per_frame(pDevice->internalFormat, pDevice->internalChannels);
-            if (frameCountForThisBuffer > 0) {
-                mal_device__send_frames_to_client(pDevice, frameCountForThisBuffer, pRenderedBufferList->mBuffers[iBuffer].mData);
-            }
+            mal_device__send_frames_to_client(pDevice, frameCount, pRenderedBufferList->mBuffers[iBuffer].mData);
+        #if defined(MAL_DEBUG_OUTPUT)
+            printf("  mDataByteSize=%d\n", pRenderedBufferList->mBuffers[iBuffer].mDataByteSize);
+        #endif
         } else {
             // This case is where the number of channels in the output buffer do not match our internal channels. It could mean that it's
             // not interleaved, in which case we can't handle right now since mini_al does not yet support non-interleaved streams.
@@ -14185,11 +14186,11 @@ mal_result mal_device_init__coreaudio(mal_context* pContext, mal_device_type dev
     // for the sample data format. If the sample data format is not supported by mini_al it must be ignored completely.
     //
     // On mobile platforms this is a bit different. We just force the use of whatever the audio unit's current format is set to.
+    AudioStreamBasicDescription bestFormat;
     {
         AudioUnitScope   formatScope   = (deviceType == mal_device_type_playback) ? kAudioUnitScope_Input : kAudioUnitScope_Output;
         AudioUnitElement formatElement = (deviceType == mal_device_type_playback) ? MAL_COREAUDIO_OUTPUT_BUS : MAL_COREAUDIO_INPUT_BUS;
     
-        AudioStreamBasicDescription bestFormat;
     #if defined(MAL_APPLE_DESKTOP)
         result = mal_device_find_best_format__coreaudio(pDevice, &bestFormat);
         if (result != MAL_SUCCESS) {
@@ -14197,15 +14198,27 @@ mal_result mal_device_init__coreaudio(mal_context* pContext, mal_device_type dev
             return result;
         }
         
+        // From what I can see, Apple's documentation implies that we should keep the sample rate consistent.
+        AudioStreamBasicDescription origFormat;
+        UInt32 origFormatSize = sizeof(origFormat);
+        if (deviceType == mal_device_type_playback) {
+            status = ((mal_AudioUnitGetProperty_proc)pContext->coreaudio.AudioUnitGetProperty)((AudioUnit)pDevice->coreaudio.audioUnit, kAudioUnitProperty_StreamFormat, kAudioUnitScope_Output, MAL_COREAUDIO_OUTPUT_BUS, &origFormat, &origFormatSize);
+        } else {
+            status = ((mal_AudioUnitGetProperty_proc)pContext->coreaudio.AudioUnitGetProperty)((AudioUnit)pDevice->coreaudio.audioUnit, kAudioUnitProperty_StreamFormat, kAudioUnitScope_Input, MAL_COREAUDIO_INPUT_BUS, &origFormat, &origFormatSize);
+        }
+        
+        if (status != noErr) {
+            ((mal_AudioComponentInstanceDispose_proc)pContext->coreaudio.AudioComponentInstanceDispose)((AudioUnit)pDevice->coreaudio.audioUnit);
+            return result;
+        }
+        
+        bestFormat.mSampleRate = origFormat.mSampleRate;
+        //bestFormat = origFormat;
+        
         status = ((mal_AudioUnitSetProperty_proc)pContext->coreaudio.AudioUnitSetProperty)((AudioUnit)pDevice->coreaudio.audioUnit, kAudioUnitProperty_StreamFormat, formatScope, formatElement, &bestFormat, sizeof(bestFormat));
         if (status != noErr) {
             // We failed to set the format, so fall back to the current format of the audio unit.
-            UInt32 propSize = sizeof(bestFormat);
-            status = ((mal_AudioUnitGetProperty_proc)pContext->coreaudio.AudioUnitGetProperty)((AudioUnit)pDevice->coreaudio.audioUnit, kAudioUnitProperty_StreamFormat, formatScope, formatElement, &bestFormat, &propSize);
-            if (status != noErr) {
-                ((mal_AudioComponentInstanceDispose_proc)pContext->coreaudio.AudioComponentInstanceDispose)((AudioUnit)pDevice->coreaudio.audioUnit);
-                return mal_result_from_OSStatus(status);
-            }
+            bestFormat = origFormat;
         }
     #else
         UInt32 propSize = sizeof(bestFormat);
@@ -14280,7 +14293,7 @@ mal_result mal_device_init__coreaudio(mal_context* pContext, mal_device_type dev
         if (deviceType == mal_device_type_playback) {
             fDeviceType = 1.0f;
         } else {
-            fDeviceType = 1.0f;
+            fDeviceType = 6.0f;
         }
 
         // Backend tax. Need to fiddle with this.
@@ -14292,7 +14305,7 @@ mal_result mal_device_init__coreaudio(mal_context* pContext, mal_device_type dev
         }
     }
     
-    actualBufferSizeInFrames = actualBufferSizeInFrames / pDevice->periods;
+    actualBufferSizeInFrames = mal_next_power_of_2(actualBufferSizeInFrames / pDevice->periods);
     result = mal_set_AudioObject_buffer_size_in_frames(pContext, deviceObjectID, deviceType, &actualBufferSizeInFrames);
     if (result != MAL_SUCCESS) {
         return result;
@@ -14310,10 +14323,16 @@ mal_result mal_device_init__coreaudio(mal_context* pContext, mal_device_type dev
     // Note how inFramesToProcess is smaller than mMaxFramesPerSlice. To fix, we need to set kAudioUnitProperty_MaximumFramesPerSlice to that
     // of the size of our buffer, or do it the other way around and set our buffer size to the kAudioUnitProperty_MaximumFramesPerSlice.
     {
-        AudioUnitScope propScope = (deviceType == mal_device_type_playback) ? kAudioUnitScope_Input : kAudioUnitScope_Output;
+        /*AudioUnitScope propScope = (deviceType == mal_device_type_playback) ? kAudioUnitScope_Input : kAudioUnitScope_Output;
         AudioUnitElement propBus = (deviceType == mal_device_type_playback) ? MAL_COREAUDIO_OUTPUT_BUS : MAL_COREAUDIO_INPUT_BUS;
     
         status = ((mal_AudioUnitSetProperty_proc)pContext->coreaudio.AudioUnitSetProperty)((AudioUnit)pDevice->coreaudio.audioUnit, kAudioUnitProperty_MaximumFramesPerSlice, propScope, propBus, &actualBufferSizeInFrames, sizeof(actualBufferSizeInFrames));
+        if (status != noErr) {
+            ((mal_AudioComponentInstanceDispose_proc)pContext->coreaudio.AudioComponentInstanceDispose)((AudioUnit)pDevice->coreaudio.audioUnit);
+            return mal_result_from_OSStatus(status);
+        }*/
+        
+        status = ((mal_AudioUnitSetProperty_proc)pContext->coreaudio.AudioUnitSetProperty)((AudioUnit)pDevice->coreaudio.audioUnit, kAudioUnitProperty_MaximumFramesPerSlice, kAudioUnitScope_Global, 0, &actualBufferSizeInFrames, sizeof(actualBufferSizeInFrames));
         if (status != noErr) {
             ((mal_AudioComponentInstanceDispose_proc)pContext->coreaudio.AudioComponentInstanceDispose)((AudioUnit)pDevice->coreaudio.audioUnit);
             return mal_result_from_OSStatus(status);
@@ -14350,7 +14369,7 @@ mal_result mal_device_init__coreaudio(mal_context* pContext, mal_device_type dev
     
     // We need a buffer list if this is an input device. We render into this in the input callback.
     if (deviceType == mal_device_type_capture) {
-        mal_bool32 isInterleaved = MAL_TRUE;    // TODO: Add support for non-interleaved streams.
+        mal_bool32 isInterleaved = (bestFormat.mFormatFlags & kAudioFormatFlagIsNonInterleaved) == 0;
         
         size_t allocationSize = sizeof(AudioBufferList) - sizeof(AudioBuffer);  // Subtract sizeof(AudioBuffer) because that part is dynamically sized.
         if (isInterleaved) {
