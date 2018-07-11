@@ -11515,6 +11515,8 @@ mal_result mal_context_init__pulse(mal_context* pContext)
         return MAL_NO_BACKEND;
     }
 
+    ((mal_pa_context_unref_proc)pContext->pulse.pa_context_unref)(pPulseContext);
+    ((mal_pa_mainloop_free_proc)pContext->pulse.pa_mainloop_free)(pMainLoop);
     return MAL_SUCCESS;
 }
 
