@@ -11337,7 +11337,6 @@ done:
     return result;
 }
 
-
 mal_result mal_context_init__pulse(mal_context* pContext)
 {
     mal_assert(pContext != NULL);
@@ -11489,6 +11488,36 @@ mal_result mal_context_init__pulse(mal_context* pContext)
     pContext->onEnumDevices   = mal_context_enumerate_devices__pulse;
     pContext->onGetDeviceInfo = mal_context_get_device_info__pulse;
 
+    
+    // Although we have found the libpulse library, it doesn't necessarily mean PulseAudio is useable. We need to initialize
+    // and connect a dummy PulseAudio context to test PulseAudio's usability.
+    mal_pa_mainloop* pMainLoop = ((mal_pa_mainloop_new_proc)pContext->pulse.pa_mainloop_new)();
+    if (pMainLoop == NULL) {
+        return MAL_NO_BACKEND;
+    }
+
+    mal_pa_mainloop_api* pAPI = ((mal_pa_mainloop_get_api_proc)pContext->pulse.pa_mainloop_get_api)(pMainLoop);
+    if (pAPI == NULL) {
+        ((mal_pa_mainloop_free_proc)pContext->pulse.pa_mainloop_free)(pMainLoop);
+        return MAL_NO_BACKEND;
+    }
+
+    mal_pa_context* pPulseContext = ((mal_pa_context_new_proc)pContext->pulse.pa_context_new)(pAPI, pContext->config.pulse.pApplicationName);
+    if (pPulseContext == NULL) {
+        ((mal_pa_mainloop_free_proc)pContext->pulse.pa_mainloop_free)(pMainLoop);
+        return MAL_NO_BACKEND;
+    }
+
+    int error = ((mal_pa_context_connect_proc)pContext->pulse.pa_context_connect)(pPulseContext, pContext->config.pulse.pServerName, 0, NULL);
+    if (error != MAL_PA_OK) {
+        ((mal_pa_context_unref_proc)pContext->pulse.pa_context_unref)(pPulseContext);
+        ((mal_pa_mainloop_free_proc)pContext->pulse.pa_mainloop_free)(pMainLoop);
+        return MAL_NO_BACKEND;
+    }
+
+    ((mal_pa_context_disconnect_proc)pContext->pulse.pa_context_disconnect)(pPulseContext);
+    ((mal_pa_context_unref_proc)pContext->pulse.pa_context_unref)(pPulseContext);
+    ((mal_pa_mainloop_free_proc)pContext->pulse.pa_mainloop_free)(pMainLoop);
     return MAL_SUCCESS;
 }
 
@@ -12147,13 +12176,10 @@ typedef const char*        (* mal_jack_port_name_proc)               (const mal_
 typedef void*              (* mal_jack_port_get_buffer_proc)         (mal_jack_port_t* port, mal_jack_nframes_t nframes);
 typedef void               (* mal_jack_free_proc)                    (void* ptr);
 
-mal_result mal_context_open_client__jack(mal_context* pContext, mal_device_type type, const mal_device_id* pDeviceID, mal_jack_client_t** ppClient)
+mal_result mal_context_open_client__jack(mal_context* pContext, mal_jack_client_t** ppClient)
 {
     mal_assert(pContext != NULL);
     mal_assert(ppClient != NULL);
-
-    (void)type;
-    (void)pDeviceID;
 
     if (ppClient) {
         *ppClient = NULL;
@@ -12167,7 +12193,7 @@ mal_result mal_context_open_client__jack(mal_context* pContext, mal_device_type 
     mal_jack_status_t status;
     mal_jack_client_t* pClient = ((mal_jack_client_open_proc)pContext->jack.jack_client_open)(clientName, (pContext->config.jack.tryStartServer) ? 0 : mal_JackNoStartServer, &status, NULL);
     if (pClient == NULL) {
-        return mal_context_post_error(pContext, NULL, MAL_LOG_LEVEL_ERROR, "[JACK] Failed to open client.", MAL_FAILED_TO_OPEN_BACKEND_DEVICE);
+        return MAL_FAILED_TO_OPEN_BACKEND_DEVICE;
     }
 
     if (ppClient) {
@@ -12237,9 +12263,9 @@ mal_result mal_context_get_device_info__jack(mal_context* pContext, mal_device_t
 
     // The channel count and sample rate can only be determined by opening the device.
     mal_jack_client_t* pClient;
-    mal_result result = mal_context_open_client__jack(pContext, deviceType, pDeviceID, &pClient);
+    mal_result result = mal_context_open_client__jack(pContext, &pClient);
     if (result != MAL_SUCCESS) {
-        return result;
+        return mal_context_post_error(pContext, NULL, MAL_LOG_LEVEL_ERROR, "[JACK] Failed to open client.", MAL_FAILED_TO_OPEN_BACKEND_DEVICE);
     }
 
     pDeviceInfo->minSampleRate = ((mal_jack_get_sample_rate_proc)pContext->jack.jack_get_sample_rate)((mal_jack_client_t*)pClient);
@@ -12349,6 +12375,16 @@ mal_result mal_context_init__jack(mal_context* pContext)
     pContext->onEnumDevices   = mal_context_enumerate_devices__jack;
     pContext->onGetDeviceInfo = mal_context_get_device_info__jack;
 
+
+    // Getting here means the JACK library is installed, but it doesn't necessarily mean it's usable. We need to quickly test this by connecting
+    // a temporary client.
+    mal_jack_client_t* pDummyClient;
+    mal_result result = mal_context_open_client__jack(pContext, &pDummyClient);
+    if (result != MAL_SUCCESS) {
+        return MAL_NO_BACKEND;
+    }
+
+    ((mal_jack_client_close_proc)pContext->jack.jack_client_close)((mal_jack_client_t*)pDummyClient);
     return MAL_SUCCESS;
 }
 
@@ -12462,9 +12498,9 @@ mal_result mal_device_init__jack(mal_context* pContext, mal_device_type type, ma
 
 
     // Open the client.
-    mal_result result = mal_context_open_client__jack(pContext, type, pDeviceID, (mal_jack_client_t**)&pDevice->jack.pClient);
+    mal_result result = mal_context_open_client__jack(pContext, (mal_jack_client_t**)&pDevice->jack.pClient);
     if (result != MAL_SUCCESS) {
-        return result;
+        return mal_post_error(pDevice, MAL_LOG_LEVEL_ERROR, "[JACK] Failed to open client.", MAL_FAILED_TO_OPEN_BACKEND_DEVICE);
     }
 
     // Callbacks.
