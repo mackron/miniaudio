@@ -4263,7 +4263,7 @@ static MAL_INLINE void mal_device__send_frames_to_client(mal_device* pDevice, ma
         pDevice->_dspFrames = (const mal_uint8*)pSamples;
 
         mal_uint8 chunkBuffer[4096];
-        mal_uint32 chunkFrameCount = sizeof(chunkBuffer) / mal_get_bytes_per_sample(pDevice->format) / pDevice->channels;
+        mal_uint32 chunkFrameCount = sizeof(chunkBuffer) / mal_get_bytes_per_frame(pDevice->format, pDevice->channels);
 
         for (;;) {
             mal_uint32 framesJustRead = (mal_uint32)mal_dsp_read(&pDevice->dsp, chunkFrameCount, chunkBuffer, pDevice->dsp.pUserData);
@@ -13395,14 +13395,13 @@ mal_result mal_set_AudioObject_buffer_size_in_frames(mal_context* pContext, Audi
     propAddress.mScope    = (deviceType == mal_device_type_playback) ? kAudioObjectPropertyScopeOutput : kAudioObjectPropertyScopeInput;
     propAddress.mElement  = kAudioObjectPropertyElementMaster;
     
-    OSStatus status = ((mal_AudioObjectSetPropertyData_proc)pContext->coreaudio.AudioObjectSetPropertyData)(deviceObjectID, &propAddress, 0, NULL, sizeof(chosenBufferSizeInFrames), &chosenBufferSizeInFrames);
+    ((mal_AudioObjectSetPropertyData_proc)pContext->coreaudio.AudioObjectSetPropertyData)(deviceObjectID, &propAddress, 0, NULL, sizeof(chosenBufferSizeInFrames), &chosenBufferSizeInFrames);
+    
+    // Get the actual size of the buffer.
+    UInt32 dataSize = sizeof(*pBufferSizeInOut);
+    OSStatus status = ((mal_AudioObjectGetPropertyData_proc)pContext->coreaudio.AudioObjectGetPropertyData)(deviceObjectID, &propAddress, 0, NULL, &dataSize, &chosenBufferSizeInFrames);
     if (status != noErr) {
-        // Getting here means we were unable to set the buffer size. In this case just use whatever is currently selected.
-        UInt32 dataSize = sizeof(*pBufferSizeInOut);
-        OSStatus status = ((mal_AudioObjectGetPropertyData_proc)pContext->coreaudio.AudioObjectGetPropertyData)(deviceObjectID, &propAddress, 0, NULL, &dataSize, pBufferSizeInOut);
-        if (status != noErr) {
-            return mal_result_from_OSStatus(status);
-        }
+        return mal_result_from_OSStatus(status);
     }
     
     *pBufferSizeInOut = chosenBufferSizeInFrames;
@@ -13903,7 +13902,7 @@ mal_result mal_context_init__coreaudio(mal_context* pContext)
     
     
     // It looks like Apple has moved some APIs from AudioUnit into AudioToolbox on more recent versions of macOS. They are still
-    // defined in AudioUnit, but just in case they decided to remove them from there entirely I'm going to do implement a fallback.
+    // defined in AudioUnit, but just in case they decide to remove them from there entirely I'm going to implement a fallback.
     // The way it'll work is that it'll first try AudioUnit, and if the required symbols are not present there we'll fall back to
     // AudioToolbox.
     pContext->coreaudio.hAudioUnit = mal_dlopen("AudioUnit.framework/AudioUnit");
@@ -14213,7 +14212,6 @@ mal_result mal_device_init__coreaudio(mal_context* pContext, mal_device_type dev
         }
         
         bestFormat.mSampleRate = origFormat.mSampleRate;
-        //bestFormat = origFormat;
         
         status = ((mal_AudioUnitSetProperty_proc)pContext->coreaudio.AudioUnitSetProperty)((AudioUnit)pDevice->coreaudio.audioUnit, kAudioUnitProperty_StreamFormat, formatScope, formatElement, &bestFormat, sizeof(bestFormat));
         if (status != noErr) {
@@ -14305,7 +14303,7 @@ mal_result mal_device_init__coreaudio(mal_context* pContext, mal_device_type dev
         }
     }
     
-    actualBufferSizeInFrames = mal_next_power_of_2(actualBufferSizeInFrames / pDevice->periods);
+    actualBufferSizeInFrames = actualBufferSizeInFrames / pDevice->periods;
     result = mal_set_AudioObject_buffer_size_in_frames(pContext, deviceObjectID, deviceType, &actualBufferSizeInFrames);
     if (result != MAL_SUCCESS) {
         return result;
@@ -23566,7 +23564,7 @@ mal_uint64 mal_src_read_deinterleaved__sinc(mal_src* pSRC, mal_uint64 frameCount
                 if (framesReadFromClient != 0) {
                     pSRC->sinc.inputFrameCount += framesReadFromClient;
                 } else {
-                    // We couldn't get anything more from the client. If not more output samples can be computed from the available input samples
+                    // We couldn't get anything more from the client. If no more output samples can be computed from the available input samples
                     // we need to return.
                     if (((pSRC->sinc.timeIn - pSRC->sinc.inputFrameCount) * inverseFactor) < 1) {
                         break;
