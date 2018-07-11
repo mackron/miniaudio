@@ -11337,7 +11337,6 @@ done:
     return result;
 }
 
-
 mal_result mal_context_init__pulse(mal_context* pContext)
 {
     mal_assert(pContext != NULL);
@@ -11488,6 +11487,33 @@ mal_result mal_context_init__pulse(mal_context* pContext)
     pContext->onDeviceIDEqual = mal_context_is_device_id_equal__pulse;
     pContext->onEnumDevices   = mal_context_enumerate_devices__pulse;
     pContext->onGetDeviceInfo = mal_context_get_device_info__pulse;
+
+    
+    // Although we have found the libpulse library, it doesn't necessarily mean PulseAudio is useable. We need to initialize
+    // and connect a dummy PulseAudio context to test PulseAudio's usability.
+    mal_pa_mainloop* pMainLoop = ((mal_pa_mainloop_new_proc)pContext->pulse.pa_mainloop_new)();
+    if (pMainLoop == NULL) {
+        return MAL_NO_BACKEND;
+    }
+
+    mal_pa_mainloop_api* pAPI = ((mal_pa_mainloop_get_api_proc)pContext->pulse.pa_mainloop_get_api)(pMainLoop);
+    if (pAPI == NULL) {
+        ((mal_pa_mainloop_free_proc)pContext->pulse.pa_mainloop_free)(pMainLoop);
+        return MAL_NO_BACKEND;
+    }
+
+    mal_pa_context* pPulseContext = ((mal_pa_context_new_proc)pContext->pulse.pa_context_new)(pAPI, pContext->config.pulse.pApplicationName);
+    if (pPulseContext == NULL) {
+        ((mal_pa_mainloop_free_proc)pContext->pulse.pa_mainloop_free)(pMainLoop);
+        return MAL_NO_BACKEND;
+    }
+
+    int error = ((mal_pa_context_connect_proc)pContext->pulse.pa_context_connect)(pPulseContext, pContext->config.pulse.pServerName, 0, NULL);
+    if (error != MAL_PA_OK) {
+        ((mal_pa_context_unref_proc)pContext->pulse.pa_context_unref)(pPulseContext);
+        ((mal_pa_mainloop_free_proc)pContext->pulse.pa_mainloop_free)(pMainLoop);
+        return MAL_NO_BACKEND;
+    }
 
     return MAL_SUCCESS;
 }
