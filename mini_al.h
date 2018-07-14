@@ -9746,7 +9746,6 @@ mal_bool32 mal_device_write__alsa(mal_device* pDevice)
         return MAL_FALSE;
     }
 
-
     if (pDevice->alsa.isUsingMMap) {
         // mmap.
         mal_bool32 requiresRestart;
@@ -9786,7 +9785,11 @@ mal_bool32 mal_device_write__alsa(mal_device* pDevice)
                 }
             }
 
-            framesAvailable -= mappedFrames;
+            if (framesAvailable >= mappedFrames) {
+                framesAvailable -= mappedFrames;
+            } else {
+                framesAvailable = 0;
+            }
         }
     } else {
         // readi/writei.
@@ -9880,7 +9883,11 @@ mal_bool32 mal_device_read__alsa(mal_device* pDevice)
                 }
             }
 
-            framesAvailable -= mappedFrames;
+            if (framesAvailable >= mappedFrames) {
+                framesAvailable -= mappedFrames;
+            } else {
+                framesAvailable = 0;
+            }
         }
     } else {
         // readi/writei.
