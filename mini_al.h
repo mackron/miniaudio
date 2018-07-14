@@ -919,7 +919,7 @@ typedef enum
     mal_src_algorithm_sinc = 0,
     mal_src_algorithm_linear,
     mal_src_algorithm_none,
-    mal_src_algorithm_default = mal_src_algorithm_linear
+    mal_src_algorithm_default = mal_src_algorithm_sinc
 } mal_src_algorithm;
 
 typedef enum
