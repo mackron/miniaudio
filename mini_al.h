@@ -1094,6 +1094,7 @@ struct mal_context
     mal_uint32 playbackDeviceInfoCount;
     mal_uint32 captureDeviceInfoCount;
     mal_device_info* pDeviceInfos;          // Playback devices first, then capture.
+    mal_bool32 isBackendAsynchronous : 1;   // Set when the context is initialized. Set to 1 for asynchronous backends such as Core Audio and JACK. Do not modify.
 
     mal_result (* onUninit             )(mal_context* pContext);
     mal_bool32 (* onDeviceIDEqual      )(mal_context* pContext, const mal_device_id* pID0, const mal_device_id* pID1);
@@ -12399,6 +12400,8 @@ mal_result mal_context_init__jack(mal_context* pContext)
     pContext->jack.jack_free                     = (mal_proc)_jack_free;
 #endif
 
+    pContext->isBackendAsynchronous = MAL_TRUE;
+
     pContext->onDeviceIDEqual = mal_context_is_device_id_equal__jack;
     pContext->onEnumDevices   = mal_context_enumerate_devices__jack;
     pContext->onGetDeviceInfo = mal_context_get_device_info__jack;
@@ -14017,6 +14020,8 @@ mal_result mal_context_init__coreaudio(mal_context* pContext)
     pContext->coreaudio.AudioUnitInitialize            = (mal_proc)AudioUnitInitialize;
     pContext->coreaudio.AudioUnitRender                = (mal_proc)AudioUnitRender;
 #endif
+
+    pContext->isBackendAsynchronous = MAL_TRUE;
     
     pContext->onDeviceIDEqual = mal_context_is_device_id_equal__coreaudio;
     pContext->onEnumDevices   = mal_context_enumerate_devices__coreaudio;
@@ -15360,6 +15365,8 @@ mal_result mal_context_init__opensl(mal_context* pContext)
             return MAL_NO_BACKEND;
         }
     }
+
+    pContext->isBackendAsynchronous = MAL_TRUE;
 
     pContext->onDeviceIDEqual = mal_context_is_device_id_equal__opensl;
     pContext->onEnumDevices   = mal_context_enumerate_devices__opensl;
@@ -17132,6 +17139,8 @@ mal_result mal_context_init__sdl(mal_context* pContext)
         return MAL_ERROR;
     }
 
+    pContext->isBackendAsynchronous = MAL_TRUE;
+
     pContext->onDeviceIDEqual = mal_context_is_device_id_equal__sdl;
     pContext->onEnumDevices   = mal_context_enumerate_devices__sdl;
     pContext->onGetDeviceInfo = mal_context_get_device_info__sdl;
@@ -17790,13 +17799,9 @@ const mal_backend g_malDefaultBackends[] = {
     mal_backend_null
 };
 
-mal_bool32 mal_is_backend_asynchronous(mal_backend backend)
+mal_bool32 mal_context_is_backend_asynchronous(mal_context* pContext)
 {
-    return
-        backend == mal_backend_jack      ||
-        backend == mal_backend_coreaudio ||
-        backend == mal_backend_opensl    ||
-        backend == mal_backend_sdl;
+    return pContext->isBackendAsynchronous;
 }
 
 mal_result mal_context_init(const mal_backend backends[], mal_uint32 backendCount, const mal_context_config* pConfig, mal_context* pContext)
@@ -18432,7 +18437,7 @@ mal_result mal_device_init(mal_context* pContext, mal_device_type type, mal_devi
 
 
     // Some backends don't require the worker thread.
-    if (!mal_is_backend_asynchronous(pContext->backend)) {
+    if (!mal_context_is_backend_asynchronous(pContext)) {
         // The worker thread.
         if (mal_thread_create(pContext, &pDevice->thread, mal_worker_thread, pDevice) != MAL_SUCCESS) {
             mal_device_uninit(pDevice);
@@ -18502,7 +18507,7 @@ void mal_device_uninit(mal_device* pDevice)
     mal_device__set_state(pDevice, MAL_STATE_UNINITIALIZED);
 
     // Wake up the worker thread and wait for it to properly terminate.
-    if (!mal_is_backend_asynchronous(pDevice->pContext->backend)) {
+    if (!mal_context_is_backend_asynchronous(pDevice->pContext)) {
         mal_event_signal(&pDevice->wakeupEvent);
         mal_thread_wait(&pDevice->thread);
     }
