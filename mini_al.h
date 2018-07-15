@@ -935,6 +935,7 @@ typedef struct
     mal_uint32 sampleRateOut;
     mal_uint32 channels;
     mal_src_algorithm algorithm;
+    mal_bool32 neverConsumeEndOfInput : 1;
     mal_bool32 noSSE2   : 1;
     mal_bool32 noAVX2   : 1;
     mal_bool32 noAVX512 : 1;
@@ -973,6 +974,7 @@ MAL_ALIGNED_STRUCT(MAL_SIMD_ALIGNMENT) mal_src
     };
 
     mal_src_config config;
+    mal_bool32 isEndOfInputLoaded : 1;
     mal_bool32 useSSE2   : 1;
     mal_bool32 useAVX2   : 1;
     mal_bool32 useAVX512 : 1;
@@ -996,6 +998,7 @@ typedef struct
     mal_dither_mode ditherMode;
     mal_src_algorithm srcAlgorithm;
     mal_bool32 allowDynamicSampleRate;
+    mal_bool32 neverConsumeEndOfInput : 1;  // <-- For SRC.
     mal_bool32 noSSE2   : 1;
     mal_bool32 noAVX2   : 1;
     mal_bool32 noAVX512 : 1;
@@ -18387,6 +18390,7 @@ mal_result mal_device_init(mal_context* pContext, mal_device_type type, mal_devi
     // We need a DSP object which is where samples are moved through in order to convert them to the
     // format required by the backend.
     mal_dsp_config dspConfig = mal_dsp_config_init_new();
+    dspConfig.neverConsumeEndOfInput = MAL_TRUE;
     dspConfig.pUserData = pDevice;
     if (type == mal_device_type_playback) {
         dspConfig.formatIn      = pDevice->format;
@@ -23405,6 +23409,15 @@ mal_uint64 mal_src_read_deinterleaved__sinc(mal_src* pSRC, mal_uint64 frameCount
             maxInputSamplesAvailableInCache = pSRC->sinc.inputFrameCount;
         }
 
+        // If the last of the input data has been loaded, we need to ensure we don't read into it if it's configured such.
+        if (pSRC->config.neverConsumeEndOfInput && pSRC->isEndOfInputLoaded) {
+            if (maxInputSamplesAvailableInCache >= pSRC->config.sinc.windowWidth) {
+                maxInputSamplesAvailableInCache -= pSRC->config.sinc.windowWidth;
+            } else {
+                maxInputSamplesAvailableInCache  = 0;
+            }
+        }
+
         float timeInBeg = pSRC->sinc.timeIn;
         float timeInEnd = (float)(pSRC->sinc.windowPosInSamples + maxInputSamplesAvailableInCache);
 
@@ -23589,7 +23602,7 @@ mal_uint64 mal_src_read_deinterleaved__sinc(mal_src* pSRC, mal_uint64 frameCount
         }
 
         // Read more data from the client if required.
-        if (pSRC->sinc.inputFrameCount < pSRC->config.sinc.windowWidth || pSRC->sinc.windowPosInSamples == 0) {
+        if (pSRC->sinc.inputFrameCount <= pSRC->config.sinc.windowWidth || availableOutputFrames == 0) {
             float* ppInputDst[MAL_MAX_CHANNELS] = {0};
             for (mal_uint32 iChannel = 0; iChannel < pSRC->config.channels; iChannel += 1) {
                 ppInputDst[iChannel] = pSRC->sinc.input[iChannel] + pSRC->config.sinc.windowWidth + pSRC->sinc.inputFrameCount;
@@ -23599,6 +23612,12 @@ mal_uint64 mal_src_read_deinterleaved__sinc(mal_src* pSRC, mal_uint64 frameCount
             mal_uint32 framesToReadFromClient = mal_countof(pSRC->sinc.input[0]) - (pSRC->config.sinc.windowWidth + pSRC->sinc.inputFrameCount);
             if (framesToReadFromClient > 0) {
                 mal_uint32 framesReadFromClient = pSRC->config.onReadDeinterleaved(pSRC, framesToReadFromClient, (void**)ppInputDst, pUserData);
+                if (framesReadFromClient != framesToReadFromClient) {
+                    pSRC->isEndOfInputLoaded = MAL_TRUE;
+                } else {
+                    pSRC->isEndOfInputLoaded = MAL_FALSE;
+                }
+
                 if (framesReadFromClient != 0) {
                     pSRC->sinc.inputFrameCount += framesReadFromClient;
                 } else {
@@ -23869,7 +23888,7 @@ mal_result mal_dsp_init(const mal_dsp_config* pConfig, mal_dsp* pDSP)
     //
     // Notice how the Channel Routing and Sample Rate Conversion stages are swapped so that the SRC stage has less data to process.
 
-    // First we need to determin what's required and what's not.
+    // First we need to determine what's required and what's not.
     if (pConfig->sampleRateIn != pConfig->sampleRateOut || pConfig->allowDynamicSampleRate) {
         pDSP->isSRCRequired = MAL_TRUE;
     }
@@ -23958,11 +23977,12 @@ mal_result mal_dsp_init(const mal_dsp_config* pConfig, mal_dsp* pDSP)
             mal_dsp__src_on_read_deinterleaved,
             pDSP
         );
-        srcConfig.algorithm = pConfig->srcAlgorithm;
-        srcConfig.noSSE2    = pConfig->noSSE2;
-        srcConfig.noAVX2    = pConfig->noAVX2;
-        srcConfig.noAVX512  = pConfig->noAVX512;
-        srcConfig.noNEON    = pConfig->noNEON;
+        srcConfig.algorithm              = pConfig->srcAlgorithm;
+        srcConfig.neverConsumeEndOfInput = pConfig->neverConsumeEndOfInput;
+        srcConfig.noSSE2                 = pConfig->noSSE2;
+        srcConfig.noAVX2                 = pConfig->noAVX2;
+        srcConfig.noAVX512               = pConfig->noAVX512;
+        srcConfig.noNEON                 = pConfig->noNEON;
         mal_copy_memory(&srcConfig.sinc, &pConfig->sinc, sizeof(pConfig->sinc));
 
         result = mal_src_init(&srcConfig, &pDSP->src);
