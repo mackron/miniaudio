@@ -373,6 +373,8 @@ mal_result msigvis_screen_redraw(msigvis_screen* pScreen)
 ///////////////////////////////////////////////////////////////////////////////
 mal_result msigvis_channel_init(msigvis_context* pContext, mal_format format, mal_uint32 sampleRate, msigvis_channel* pChannel)
 {
+    (void)pContext;
+
     if (pChannel == NULL) {
         return MAL_INVALID_ARGS;
     }
