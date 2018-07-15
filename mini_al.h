@@ -17442,202 +17442,6 @@ mal_bool32 mal__is_channel_map_valid(const mal_channel* channelMap, mal_uint32 c
 }
 
 
-mal_result mal_device__start_backend(mal_device* pDevice)
-{
-    mal_assert(pDevice != NULL);
-
-    mal_result result = MAL_NO_BACKEND;
-#ifdef MAL_HAS_WASAPI
-    if (pDevice->pContext->backend == mal_backend_wasapi) {
-        result = pDevice->pContext->onDeviceStart(pDevice);
-    }
-#endif
-#ifdef MAL_HAS_DSOUND
-    if (pDevice->pContext->backend == mal_backend_dsound) {
-        result = mal_device__start_backend__dsound(pDevice);
-    }
-#endif
-#ifdef MAL_HAS_WINMM
-    if (pDevice->pContext->backend == mal_backend_winmm) {
-        result = mal_device__start_backend__winmm(pDevice);
-    }
-#endif
-#ifdef MAL_HAS_ALSA
-    if (pDevice->pContext->backend == mal_backend_alsa) {
-        result = mal_device__start_backend__alsa(pDevice);
-    }
-#endif
-#ifdef MAL_HAS_PULSEAUDIO
-    if (pDevice->pContext->backend == mal_backend_pulseaudio) {
-        result = mal_device__start_backend__pulse(pDevice);
-    }
-#endif
-#ifdef MAL_HAS_OSS
-    if (pDevice->pContext->backend == mal_backend_oss) {
-        result = mal_device__start_backend__oss(pDevice);
-    }
-#endif
-#ifdef MAL_HAS_OPENAL
-    if (pDevice->pContext->backend == mal_backend_openal) {
-        result = mal_device__start_backend__openal(pDevice);
-    }
-#endif
-#ifdef MAL_HAS_NULL
-    if (pDevice->pContext->backend == mal_backend_null) {
-        result = mal_device__start_backend__null(pDevice);
-    }
-#endif
-
-    return result;
-}
-
-mal_result mal_device__stop_backend(mal_device* pDevice)
-{
-    mal_assert(pDevice != NULL);
-
-    mal_result result = MAL_NO_BACKEND;
-#ifdef MAL_HAS_WASAPI
-    if (pDevice->pContext->backend == mal_backend_wasapi) {
-        result = pDevice->pContext->onDeviceStop(pDevice);
-    }
-#endif
-#ifdef MAL_HAS_DSOUND
-    if (pDevice->pContext->backend == mal_backend_dsound) {
-        result = mal_device__stop_backend__dsound(pDevice);
-    }
-#endif
-#ifdef MAL_HAS_WINMM
-    if (pDevice->pContext->backend == mal_backend_winmm) {
-        result = mal_device__stop_backend__winmm(pDevice);
-    }
-#endif
-#ifdef MAL_HAS_ALSA
-    if (pDevice->pContext->backend == mal_backend_alsa) {
-        result = mal_device__stop_backend__alsa(pDevice);
-    }
-#endif
-#ifdef MAL_HAS_PULSEAUDIO
-    if (pDevice->pContext->backend == mal_backend_pulseaudio) {
-        result = mal_device__stop_backend__pulse(pDevice);
-    }
-#endif
-#ifdef MAL_HAS_OSS
-    if (pDevice->pContext->backend == mal_backend_oss) {
-        result = mal_device__stop_backend__oss(pDevice);
-    }
-#endif
-#ifdef MAL_HAS_OPENAL
-    if (pDevice->pContext->backend == mal_backend_openal) {
-        result = mal_device__stop_backend__openal(pDevice);
-    }
-#endif
-#ifdef MAL_HAS_NULL
-    if (pDevice->pContext->backend == mal_backend_null) {
-        result = mal_device__stop_backend__null(pDevice);
-    }
-#endif
-
-    return result;
-}
-
-mal_result mal_device__break_main_loop(mal_device* pDevice)
-{
-    mal_assert(pDevice != NULL);
-
-    mal_result result = MAL_NO_BACKEND;
-#ifdef MAL_HAS_WASAPI
-    if (pDevice->pContext->backend == mal_backend_wasapi) {
-        result = pDevice->pContext->onDeviceBreakMainLoop(pDevice);
-    }
-#endif
-#ifdef MAL_HAS_DSOUND
-    if (pDevice->pContext->backend == mal_backend_dsound) {
-        result = mal_device__break_main_loop__dsound(pDevice);
-    }
-#endif
-#ifdef MAL_HAS_WINMM
-    if (pDevice->pContext->backend == mal_backend_winmm) {
-        result = mal_device__break_main_loop__winmm(pDevice);
-    }
-#endif
-#ifdef MAL_HAS_ALSA
-    if (pDevice->pContext->backend == mal_backend_alsa) {
-        result = mal_device__break_main_loop__alsa(pDevice);
-    }
-#endif
-#ifdef MAL_HAS_PULSEAUDIO
-    if (pDevice->pContext->backend == mal_backend_pulseaudio) {
-        result = mal_device__break_main_loop__pulse(pDevice);
-    }
-#endif
-#ifdef MAL_HAS_OSS
-    if (pDevice->pContext->backend == mal_backend_oss) {
-        result = mal_device__break_main_loop__oss(pDevice);
-    }
-#endif
-#ifdef MAL_HAS_OPENAL
-    if (pDevice->pContext->backend == mal_backend_openal) {
-        result = mal_device__break_main_loop__openal(pDevice);
-    }
-#endif
-#ifdef MAL_HAS_NULL
-    if (pDevice->pContext->backend == mal_backend_null) {
-        result = mal_device__break_main_loop__null(pDevice);
-    }
-#endif
-
-    return result;
-}
-
-mal_result mal_device__main_loop(mal_device* pDevice)
-{
-    mal_assert(pDevice != NULL);
-
-    mal_result result = MAL_NO_BACKEND;
-#ifdef MAL_HAS_WASAPI
-    if (pDevice->pContext->backend == mal_backend_wasapi) {
-        result = pDevice->pContext->onDeviceMainLoop(pDevice);
-    }
-#endif
-#ifdef MAL_HAS_DSOUND
-    if (pDevice->pContext->backend == mal_backend_dsound) {
-        result = mal_device__main_loop__dsound(pDevice);
-    }
-#endif
-#ifdef MAL_HAS_WINMM
-    if (pDevice->pContext->backend == mal_backend_winmm) {
-        result = mal_device__main_loop__winmm(pDevice);
-    }
-#endif
-#ifdef MAL_HAS_ALSA
-    if (pDevice->pContext->backend == mal_backend_alsa) {
-        result = mal_device__main_loop__alsa(pDevice);
-    }
-#endif
-#ifdef MAL_HAS_PULSEAUDIO
-    if (pDevice->pContext->backend == mal_backend_pulseaudio) {
-        result = mal_device__main_loop__pulse(pDevice);
-    }
-#endif
-#ifdef MAL_HAS_OSS
-    if (pDevice->pContext->backend == mal_backend_oss) {
-        result = mal_device__main_loop__oss(pDevice);
-    }
-#endif
-#ifdef MAL_HAS_OPENAL
-    if (pDevice->pContext->backend == mal_backend_openal) {
-        result = mal_device__main_loop__openal(pDevice);
-    }
-#endif
-#ifdef MAL_HAS_NULL
-    if (pDevice->pContext->backend == mal_backend_null) {
-        result = mal_device__main_loop__null(pDevice);
-    }
-#endif
-
-    return result;
-}
-
 mal_thread_result MAL_THREADCALL mal_worker_thread(void* pData)
 {
     mal_device* pDevice = (mal_device*)pData;
@@ -17652,7 +17456,7 @@ mal_thread_result MAL_THREADCALL mal_worker_thread(void* pData)
 
     for (;;) {
         // At the start of iteration the device is stopped - we must explicitly mark it as such.
-        mal_device__stop_backend(pDevice);
+        pDevice->pContext->onDeviceStop(pDevice);
 
         if (!skipNextStopEvent) {
             mal_stop_proc onStop = pDevice->onStop;
@@ -17684,7 +17488,7 @@ mal_thread_result MAL_THREADCALL mal_worker_thread(void* pData)
         // either deliver us data (recording) or request more data (playback).
         mal_assert(mal_device__get_state(pDevice) == MAL_STATE_STARTING);
 
-        pDevice->workResult = mal_device__start_backend(pDevice);
+        pDevice->workResult = pDevice->pContext->onDeviceStart(pDevice);
         if (pDevice->workResult != MAL_SUCCESS) {
             mal_event_signal(&pDevice->startEvent);
             continue;
@@ -17696,7 +17500,7 @@ mal_thread_result MAL_THREADCALL mal_worker_thread(void* pData)
         mal_event_signal(&pDevice->startEvent);
 
         // Now we just enter the main loop. The main loop can be broken with mal_device__break_main_loop().
-        mal_device__main_loop(pDevice);
+        pDevice->pContext->onDeviceMainLoop(pDevice);
     }
 
     // Make sure we aren't continuously waiting on a stop event.
@@ -18024,82 +17828,7 @@ mal_result mal_context_uninit(mal_context* pContext)
         return MAL_INVALID_ARGS;
     }
 
-    switch (pContext->backend) {
-    #ifdef MAL_HAS_WASAPI
-        case mal_backend_wasapi:
-        {
-            pContext->onUninit(pContext);
-        } break;
-    #endif
-    #ifdef MAL_HAS_DSOUND
-        case mal_backend_dsound:
-        {
-            mal_context_uninit__dsound(pContext);
-        } break;
-    #endif
-    #ifdef MAL_HAS_WINMM
-        case mal_backend_winmm:
-        {
-            mal_context_uninit__winmm(pContext);
-        } break;
-    #endif
-    #ifdef MAL_HAS_ALSA
-        case mal_backend_alsa:
-        {
-            mal_context_uninit__alsa(pContext);
-        } break;
-    #endif
-    #ifdef MAL_HAS_PULSEAUDIO
-        case mal_backend_pulseaudio:
-        {
-            mal_context_uninit__pulse(pContext);
-        } break;
-    #endif
-    #ifdef MAL_HAS_JACK
-        case mal_backend_jack:
-        {
-            pContext->onUninit(pContext);
-        } break;
-    #endif
-    #ifdef MAL_HAS_COREAUDIO
-        case mal_backend_coreaudio:
-        {
-            pContext->onUninit(pContext);
-        } break;
-    #endif
-    #ifdef MAL_HAS_OSS
-        case mal_backend_oss:
-        {
-            mal_context_uninit__oss(pContext);
-        } break;
-    #endif
-    #ifdef MAL_HAS_OPENSL
-        case mal_backend_opensl:
-        {
-            pContext->onUninit(pContext);
-        } break;
-    #endif
-    #ifdef MAL_HAS_OPENAL
-        case mal_backend_openal:
-        {
-            mal_context_uninit__openal(pContext);
-        } break;
-    #endif
-    #ifdef MAL_HAS_SDL
-        case mal_backend_sdl:
-        {
-            pContext->onUninit(pContext);
-        } break;
-    #endif
-    #ifdef MAL_HAS_NULL
-        case mal_backend_null:
-        {
-            mal_context_uninit__null(pContext);
-        } break;
-    #endif
-
-        default: break;
-    }
+    pContext->onUninit(pContext);
 
     mal_context_uninit_backend_apis(pContext);
     mal_mutex_uninit(&pContext->deviceEnumLock);
@@ -18368,85 +18097,7 @@ mal_result mal_device_init(mal_context* pContext, mal_device_type type, mal_devi
     }
 
 
-    mal_result result = MAL_NO_BACKEND;
-    switch (pContext->backend)
-    {
-    #ifdef MAL_HAS_WASAPI
-        case mal_backend_wasapi:
-        {
-            result = pContext->onDeviceInit(pContext, type, pDeviceID, &config, pDevice);
-        } break;
-    #endif
-    #ifdef MAL_HAS_DSOUND
-        case mal_backend_dsound:
-        {
-            result = mal_device_init__dsound(pContext, type, pDeviceID, &config, pDevice);
-        } break;
-    #endif
-    #ifdef MAL_HAS_WINMM
-        case mal_backend_winmm:
-        {
-            result = mal_device_init__winmm(pContext, type, pDeviceID, &config, pDevice);
-        } break;
-    #endif
-    #ifdef MAL_HAS_ALSA
-        case mal_backend_alsa:
-        {
-            result = mal_device_init__alsa(pContext, type, pDeviceID, &config, pDevice);
-        } break;
-    #endif
-    #ifdef MAL_HAS_PULSEAUDIO
-        case mal_backend_pulseaudio:
-        {
-            result = mal_device_init__pulse(pContext, type, pDeviceID, &config, pDevice);
-        } break;
-    #endif
-    #ifdef MAL_HAS_JACK
-        case mal_backend_jack:
-        {
-            result = pContext->onDeviceInit(pContext, type, pDeviceID, &config, pDevice);
-        } break;
-    #endif
-    #ifdef MAL_HAS_COREAUDIO
-        case mal_backend_coreaudio:
-        {
-            result = pContext->onDeviceInit(pContext, type, pDeviceID, &config, pDevice);
-        } break;
-    #endif
-    #ifdef MAL_HAS_OSS
-        case mal_backend_oss:
-        {
-            result = mal_device_init__oss(pContext, type, pDeviceID, &config, pDevice);
-        } break;
-    #endif
-    #ifdef MAL_HAS_OPENSL
-        case mal_backend_opensl:
-        {
-            result = pContext->onDeviceInit(pContext, type, pDeviceID, &config, pDevice);
-        } break;
-    #endif
-    #ifdef MAL_HAS_OPENAL
-        case mal_backend_openal:
-        {
-            result = mal_device_init__openal(pContext, type, pDeviceID, &config, pDevice);
-        } break;
-    #endif
-    #ifdef MAL_HAS_SDL
-        case mal_backend_sdl:
-        {
-            result = pContext->onDeviceInit(pContext, type, pDeviceID, &config, pDevice);
-        } break;
-    #endif
-    #ifdef MAL_HAS_NULL
-        case mal_backend_null:
-        {
-            result = mal_device_init__null(pContext, type, pDeviceID, &config, pDevice);
-        } break;
-    #endif
-
-        default: break;
-    }
-
+    mal_result result = pContext->onDeviceInit(pContext, type, pDeviceID, &config, pDevice);
     if (result != MAL_SUCCESS) {
         return MAL_NO_BACKEND;  // The error message will have been posted with mal_post_error() by the source of the error so don't bother calling it here.
     }
@@ -18594,66 +18245,7 @@ void mal_device_uninit(mal_device* pDevice)
         mal_thread_wait(&pDevice->thread);
     }
 
-#ifdef MAL_HAS_WASAPI
-    if (pDevice->pContext->backend == mal_backend_wasapi) {
-        pDevice->pContext->onDeviceUninit(pDevice);
-    }
-#endif
-#ifdef MAL_HAS_DSOUND
-    if (pDevice->pContext->backend == mal_backend_dsound) {
-        mal_device_uninit__dsound(pDevice);
-    }
-#endif
-#ifdef MAL_HAS_WINMM
-    if (pDevice->pContext->backend == mal_backend_winmm) {
-        mal_device_uninit__winmm(pDevice);
-    }
-#endif
-#ifdef MAL_HAS_ALSA
-    if (pDevice->pContext->backend == mal_backend_alsa) {
-        mal_device_uninit__alsa(pDevice);
-    }
-#endif
-#ifdef MAL_HAS_PULSEAUDIO
-    if (pDevice->pContext->backend == mal_backend_pulseaudio) {
-        mal_device_uninit__pulse(pDevice);
-    }
-#endif
-#ifdef MAL_HAS_JACK
-    if (pDevice->pContext->backend == mal_backend_jack) {
-        pDevice->pContext->onDeviceUninit(pDevice);
-    }
-#endif
-#ifdef MAL_HAS_COREAUDIO
-    if (pDevice->pContext->backend == mal_backend_coreaudio) {
-        pDevice->pContext->onDeviceUninit(pDevice);
-    }
-#endif
-#ifdef MAL_HAS_OSS
-    if (pDevice->pContext->backend == mal_backend_oss) {
-        mal_device_uninit__oss(pDevice);
-    }
-#endif
-#ifdef MAL_HAS_OPENSL
-    if (pDevice->pContext->backend == mal_backend_opensl) {
-        pDevice->pContext->onDeviceUninit(pDevice);
-    }
-#endif
-#ifdef MAL_HAS_OPENAL
-    if (pDevice->pContext->backend == mal_backend_openal) {
-        mal_device_uninit__openal(pDevice);
-    }
-#endif
-#ifdef MAL_HAS_SDL
-    if (pDevice->pContext->backend == mal_backend_sdl) {
-        pDevice->pContext->onDeviceUninit(pDevice);
-    }
-#endif
-#ifdef MAL_HAS_NULL
-    if (pDevice->pContext->backend == mal_backend_null) {
-        mal_device_uninit__null(pDevice);
-    }
-#endif
+    pDevice->pContext->onDeviceUninit(pDevice);
 
     mal_event_uninit(&pDevice->stopEvent);
     mal_event_uninit(&pDevice->startEvent);
@@ -18772,7 +18364,7 @@ mal_result mal_device_stop(mal_device* pDevice)
 
             // When we get here the worker thread is likely in a wait state while waiting for the backend device to deliver or request
             // audio data. We need to force these to return as quickly as possible.
-            mal_device__break_main_loop(pDevice);
+            pDevice->pContext->onDeviceBreakMainLoop(pDevice);
 
             // We need to wait for the worker thread to become available for work before returning. Note that the worker thread will be
             // the one who puts the device into the stopped state. Don't call mal_device__set_state() here.
