@@ -12667,7 +12667,6 @@ mal_result mal_context_init__jack(mal_context* pContext)
     pContext->onDeviceIDEqual = mal_context_is_device_id_equal__jack;
     pContext->onEnumDevices   = mal_context_enumerate_devices__jack;
     pContext->onGetDeviceInfo = mal_context_get_device_info__jack;
-    pContext->onGetDeviceInfo = mal_context_get_device_info__jack;
     pContext->onDeviceInit    = mal_device_init__jack;
     pContext->onDeviceUninit  = mal_device_uninit__jack;
     pContext->onDeviceStart   = mal_device__start_backend__jack;
@@ -15351,54 +15350,6 @@ return_detailed_info:
     return MAL_SUCCESS;
 }
 
-mal_result mal_context_init__opensl(mal_context* pContext)
-{
-    mal_assert(pContext != NULL);
-    (void)pContext;
-
-    // Initialize global data first if applicable.
-    if (mal_atomic_increment_32(&g_malOpenSLInitCounter) == 1) {
-        SLresult resultSL = slCreateEngine(&g_malEngineObjectSL, 0, NULL, 0, NULL, NULL);
-        if (resultSL != SL_RESULT_SUCCESS) {
-            mal_atomic_decrement_32(&g_malOpenSLInitCounter);
-            return MAL_NO_BACKEND;
-        }
-
-        (*g_malEngineObjectSL)->Realize(g_malEngineObjectSL, SL_BOOLEAN_FALSE);
-
-        resultSL = (*g_malEngineObjectSL)->GetInterface(g_malEngineObjectSL, SL_IID_ENGINE, &g_malEngineSL);
-        if (resultSL != SL_RESULT_SUCCESS) {
-            (*g_malEngineObjectSL)->Destroy(g_malEngineObjectSL);
-            mal_atomic_decrement_32(&g_malOpenSLInitCounter);
-            return MAL_NO_BACKEND;
-        }
-    }
-
-    pContext->isBackendAsynchronous = MAL_TRUE;
-
-    pContext->onDeviceIDEqual = mal_context_is_device_id_equal__opensl;
-    pContext->onEnumDevices   = mal_context_enumerate_devices__opensl;
-    pContext->onGetDeviceInfo = mal_context_get_device_info__opensl;
-
-    return MAL_SUCCESS;
-}
-
-mal_result mal_context_uninit__opensl(mal_context* pContext)
-{
-    mal_assert(pContext != NULL);
-    mal_assert(pContext->backend == mal_backend_opensl);
-    (void)pContext;
-
-    // Uninit global data.
-    if (g_malOpenSLInitCounter > 0) {
-        if (mal_atomic_decrement_32(&g_malOpenSLInitCounter) == 0) {
-            (*g_malEngineObjectSL)->Destroy(g_malEngineObjectSL);
-        }
-    }
-
-    return MAL_SUCCESS;
-}
-
 
 #ifdef MAL_ANDROID
 //void mal_buffer_queue_callback__opensl_android(SLAndroidSimpleBufferQueueItf pBufferQueue, SLuint32 eventFlags, const void* pBuffer, SLuint32 bufferSize, SLuint32 dataUsed, void* pContext)
@@ -15808,6 +15759,60 @@ mal_result mal_device__stop_backend__opensl(mal_device* pDevice)
     if (onStop) {
         onStop(pDevice);
     }
+
+    return MAL_SUCCESS;
+}
+
+
+mal_result mal_context_uninit__opensl(mal_context* pContext)
+{
+    mal_assert(pContext != NULL);
+    mal_assert(pContext->backend == mal_backend_opensl);
+    (void)pContext;
+
+    // Uninit global data.
+    if (g_malOpenSLInitCounter > 0) {
+        if (mal_atomic_decrement_32(&g_malOpenSLInitCounter) == 0) {
+            (*g_malEngineObjectSL)->Destroy(g_malEngineObjectSL);
+        }
+    }
+
+    return MAL_SUCCESS;
+}
+
+mal_result mal_context_init__opensl(mal_context* pContext)
+{
+    mal_assert(pContext != NULL);
+    (void)pContext;
+
+    // Initialize global data first if applicable.
+    if (mal_atomic_increment_32(&g_malOpenSLInitCounter) == 1) {
+        SLresult resultSL = slCreateEngine(&g_malEngineObjectSL, 0, NULL, 0, NULL, NULL);
+        if (resultSL != SL_RESULT_SUCCESS) {
+            mal_atomic_decrement_32(&g_malOpenSLInitCounter);
+            return MAL_NO_BACKEND;
+        }
+
+        (*g_malEngineObjectSL)->Realize(g_malEngineObjectSL, SL_BOOLEAN_FALSE);
+
+        resultSL = (*g_malEngineObjectSL)->GetInterface(g_malEngineObjectSL, SL_IID_ENGINE, &g_malEngineSL);
+        if (resultSL != SL_RESULT_SUCCESS) {
+            (*g_malEngineObjectSL)->Destroy(g_malEngineObjectSL);
+            mal_atomic_decrement_32(&g_malOpenSLInitCounter);
+            return MAL_NO_BACKEND;
+        }
+    }
+
+    pContext->isBackendAsynchronous = MAL_TRUE;
+
+    pContext->onUninit        = mal_context_uninit__opensl;
+    pContext->onDeviceIDEqual = mal_context_is_device_id_equal__opensl;
+    pContext->onEnumDevices   = mal_context_enumerate_devices__opensl;
+    pContext->onGetDeviceInfo = mal_context_get_device_info__opensl;
+    pContext->onDeviceInit    = mal_device_init__opensl;
+    pContext->onDeviceUninit  = mal_device_uninit__opensl;
+    pContext->onDeviceStart   = mal_device__start_backend__opensl;
+    pContext->onDeviceStop    = mal_device__stop_backend__opensl;
 
     return MAL_SUCCESS;
 }
@@ -18008,7 +18013,7 @@ mal_result mal_context_uninit(mal_context* pContext)
     #ifdef MAL_HAS_OPENSL
         case mal_backend_opensl:
         {
-            mal_context_uninit__opensl(pContext);
+            pContext->onUninit(pContext);
         } break;
     #endif
     #ifdef MAL_HAS_OPENAL
@@ -18354,7 +18359,7 @@ mal_result mal_device_init(mal_context* pContext, mal_device_type type, mal_devi
     #ifdef MAL_HAS_OPENSL
         case mal_backend_opensl:
         {
-            result = mal_device_init__opensl(pContext, type, pDeviceID, &config, pDevice);
+            result = pContext->onDeviceInit(pContext, type, pDeviceID, &config, pDevice);
         } break;
     #endif
     #ifdef MAL_HAS_OPENAL
@@ -18568,7 +18573,7 @@ void mal_device_uninit(mal_device* pDevice)
 #endif
 #ifdef MAL_HAS_OPENSL
     if (pDevice->pContext->backend == mal_backend_opensl) {
-        mal_device_uninit__opensl(pDevice);
+        pDevice->pContext->onDeviceUninit(pDevice);
     }
 #endif
 #ifdef MAL_HAS_OPENAL
@@ -18665,7 +18670,7 @@ mal_result mal_device_start(mal_device* pDevice)
 #endif
 #ifdef MAL_HAS_OPENSL
             if (pDevice->pContext->backend == mal_backend_opensl) {
-                result = mal_device__start_backend__opensl(pDevice);
+                result = pDevice->pContext->onDeviceStart(pDevice);
                 if (result == MAL_SUCCESS) {
                     mal_device__set_state(pDevice, MAL_STATE_STARTED);
                 }
@@ -18738,7 +18743,7 @@ mal_result mal_device_stop(mal_device* pDevice)
 #endif
 #ifdef MAL_HAS_OPENSL
             if (pDevice->pContext->backend == mal_backend_opensl) {
-                mal_device__stop_backend__opensl(pDevice);
+                pDevice->pContext->onDeviceStop(pDevice);
             }
 #endif
 #ifdef MAL_HAS_SDL
