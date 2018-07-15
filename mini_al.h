@@ -14762,44 +14762,6 @@ mal_result mal_context_get_device_info__oss(mal_context* pContext, mal_device_ty
     return MAL_SUCCESS;
 }
 
-mal_result mal_context_init__oss(mal_context* pContext)
-{
-    mal_assert(pContext != NULL);
-
-    // Try opening a temporary device first so we can get version information. This is closed at the end.
-    int fd = mal_open_temp_device__oss();
-    if (fd == -1) {
-        return mal_context_post_error(pContext, NULL, MAL_LOG_LEVEL_ERROR, "[OSS] Failed to open temporary device for retrieving system properties.", MAL_NO_BACKEND);   // Looks liks OSS isn't installed, or there are no available devices.
-    }
-
-    // Grab the OSS version.
-    int ossVersion = 0;
-    int result = ioctl(fd, OSS_GETVERSION, &ossVersion);
-    if (result == -1) {
-        close(fd);
-        return mal_context_post_error(pContext, NULL, MAL_LOG_LEVEL_ERROR, "[OSS] Failed to retrieve OSS version.", MAL_NO_BACKEND);
-    }
-
-    pContext->oss.versionMajor = ((ossVersion & 0xFF0000) >> 16);
-    pContext->oss.versionMinor = ((ossVersion & 0x00FF00) >> 8);
-
-    pContext->onDeviceIDEqual = mal_context_is_device_id_equal__oss;
-    pContext->onEnumDevices   = mal_context_enumerate_devices__oss;
-    pContext->onGetDeviceInfo = mal_context_get_device_info__oss;
-
-    close(fd);
-    return MAL_SUCCESS;
-}
-
-mal_result mal_context_uninit__oss(mal_context* pContext)
-{
-    mal_assert(pContext != NULL);
-    mal_assert(pContext->backend == mal_backend_oss);
-
-    (void)pContext;
-    return MAL_SUCCESS;
-}
-
 void mal_device_uninit__oss(mal_device* pDevice)
 {
     mal_assert(pDevice != NULL);
@@ -15021,6 +14983,51 @@ mal_result mal_device__main_loop__oss(mal_device* pDevice)
         }
     }
 
+    return MAL_SUCCESS;
+}
+
+mal_result mal_context_uninit__oss(mal_context* pContext)
+{
+    mal_assert(pContext != NULL);
+    mal_assert(pContext->backend == mal_backend_oss);
+
+    (void)pContext;
+    return MAL_SUCCESS;
+}
+
+mal_result mal_context_init__oss(mal_context* pContext)
+{
+    mal_assert(pContext != NULL);
+
+    // Try opening a temporary device first so we can get version information. This is closed at the end.
+    int fd = mal_open_temp_device__oss();
+    if (fd == -1) {
+        return mal_context_post_error(pContext, NULL, MAL_LOG_LEVEL_ERROR, "[OSS] Failed to open temporary device for retrieving system properties.", MAL_NO_BACKEND);   // Looks liks OSS isn't installed, or there are no available devices.
+    }
+
+    // Grab the OSS version.
+    int ossVersion = 0;
+    int result = ioctl(fd, OSS_GETVERSION, &ossVersion);
+    if (result == -1) {
+        close(fd);
+        return mal_context_post_error(pContext, NULL, MAL_LOG_LEVEL_ERROR, "[OSS] Failed to retrieve OSS version.", MAL_NO_BACKEND);
+    }
+
+    pContext->oss.versionMajor = ((ossVersion & 0xFF0000) >> 16);
+    pContext->oss.versionMinor = ((ossVersion & 0x00FF00) >> 8);
+
+    pContext->onUninit              = mal_context_uninit__oss;
+    pContext->onDeviceIDEqual       = mal_context_is_device_id_equal__oss;
+    pContext->onEnumDevices         = mal_context_enumerate_devices__oss;
+    pContext->onGetDeviceInfo       = mal_context_get_device_info__oss;
+    pContext->onDeviceInit          = mal_device_init__oss;
+    pContext->onDeviceUninit        = mal_device_uninit__oss;
+    pContext->onDeviceStart         = mal_device__start_backend__oss;
+    pContext->onDeviceStop          = mal_device__stop_backend__oss;
+    pContext->onDeviceBreakMainLoop = mal_device__break_main_loop__oss;
+    pContext->onDeviceMainLoop      = mal_device__main_loop__oss;
+
+    close(fd);
     return MAL_SUCCESS;
 }
 #endif  // OSS
