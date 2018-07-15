@@ -1095,9 +1095,16 @@ struct mal_context
     mal_uint32 captureDeviceInfoCount;
     mal_device_info* pDeviceInfos;          // Playback devices first, then capture.
 
-    mal_bool32 (* onDeviceIDEqual)(mal_context* pContext, const mal_device_id* pID0, const mal_device_id* pID1);
-    mal_result (* onEnumDevices  )(mal_context* pContext, mal_enum_devices_callback_proc callback, void* pUserData);    // Return false from the callback to stop enumeration.
-    mal_result (* onGetDeviceInfo)(mal_context* pContext, mal_device_type type, const mal_device_id* pDeviceID, mal_share_mode shareMode, mal_device_info* pDeviceInfo);
+    mal_result (* onUninit             )(mal_context* pContext);
+    mal_bool32 (* onDeviceIDEqual      )(mal_context* pContext, const mal_device_id* pID0, const mal_device_id* pID1);
+    mal_result (* onEnumDevices        )(mal_context* pContext, mal_enum_devices_callback_proc callback, void* pUserData);    // Return false from the callback to stop enumeration.
+    mal_result (* onGetDeviceInfo      )(mal_context* pContext, mal_device_type type, const mal_device_id* pDeviceID, mal_share_mode shareMode, mal_device_info* pDeviceInfo);
+    mal_result (* onDeviceInit         )(mal_context* pContext, mal_device_type type, mal_device_id* pDeviceID, const mal_device_config* pConfig, mal_device* pDevice);
+    void       (* onDeviceUninit       )(mal_device* pDevice);
+    mal_result (* onDeviceStart        )(mal_device* pDevice);
+    mal_result (* onDeviceStop         )(mal_device* pDevice);
+    mal_result (* onDeviceBreakMainLoop)(mal_device* pDevice);
+    mal_result (* onDeviceMainLoop     )(mal_device* pDevice);
 
     union
     {
@@ -5760,50 +5767,6 @@ mal_result mal_context_get_device_info__wasapi(mal_context* pContext, mal_device
 #endif
 }
 
-
-mal_result mal_context_init__wasapi(mal_context* pContext)
-{
-    mal_assert(pContext != NULL);
-    (void)pContext;
-
-    mal_result result = MAL_SUCCESS;
-
-#ifdef MAL_WIN32_DESKTOP
-    // WASAPI is only supported in Vista SP1 and newer. The reason for SP1 and not the base version of Vista is that event-driven
-    // exclusive mode does not work until SP1.
-    mal_OSVERSIONINFOEXW osvi;
-    mal_zero_object(&osvi);
-    osvi.dwOSVersionInfoSize = sizeof(osvi);
-    osvi.dwMajorVersion = HIBYTE(_WIN32_WINNT_VISTA);
-    osvi.dwMinorVersion = LOBYTE(_WIN32_WINNT_VISTA);
-    osvi.wServicePackMajor = 1;
-    if (VerifyVersionInfoW(&osvi, VER_MAJORVERSION | VER_MINORVERSION | VER_SERVICEPACKMAJOR, VerSetConditionMask(VerSetConditionMask(VerSetConditionMask(0, VER_MAJORVERSION, VER_GREATER_EQUAL), VER_MINORVERSION, VER_GREATER_EQUAL), VER_SERVICEPACKMAJOR, VER_GREATER_EQUAL))) {
-        result = MAL_SUCCESS;
-    } else {
-        result = MAL_NO_BACKEND;
-    }
-#endif
-
-    if (result != MAL_SUCCESS) {
-        return result;
-    }
-
-    pContext->onDeviceIDEqual = mal_context_is_device_id_equal__wasapi;
-    pContext->onEnumDevices   = mal_context_enumerate_devices__wasapi;
-    pContext->onGetDeviceInfo = mal_context_get_device_info__wasapi;
-
-    return result;
-}
-
-mal_result mal_context_uninit__wasapi(mal_context* pContext)
-{
-    mal_assert(pContext != NULL);
-    mal_assert(pContext->backend == mal_backend_wasapi);
-    (void)pContext;
-
-    return MAL_SUCCESS;
-}
-
 void mal_device_uninit__wasapi(mal_device* pDevice)
 {
     mal_assert(pDevice != NULL);
@@ -6348,6 +6311,56 @@ mal_result mal_device__main_loop__wasapi(mal_device* pDevice)
     }
 
     return MAL_SUCCESS;
+}
+
+mal_result mal_context_uninit__wasapi(mal_context* pContext)
+{
+    mal_assert(pContext != NULL);
+    mal_assert(pContext->backend == mal_backend_wasapi);
+    (void)pContext;
+
+    return MAL_SUCCESS;
+}
+
+mal_result mal_context_init__wasapi(mal_context* pContext)
+{
+    mal_assert(pContext != NULL);
+    (void)pContext;
+
+    mal_result result = MAL_SUCCESS;
+
+#ifdef MAL_WIN32_DESKTOP
+    // WASAPI is only supported in Vista SP1 and newer. The reason for SP1 and not the base version of Vista is that event-driven
+    // exclusive mode does not work until SP1.
+    mal_OSVERSIONINFOEXW osvi;
+    mal_zero_object(&osvi);
+    osvi.dwOSVersionInfoSize = sizeof(osvi);
+    osvi.dwMajorVersion = HIBYTE(_WIN32_WINNT_VISTA);
+    osvi.dwMinorVersion = LOBYTE(_WIN32_WINNT_VISTA);
+    osvi.wServicePackMajor = 1;
+    if (VerifyVersionInfoW(&osvi, VER_MAJORVERSION | VER_MINORVERSION | VER_SERVICEPACKMAJOR, VerSetConditionMask(VerSetConditionMask(VerSetConditionMask(0, VER_MAJORVERSION, VER_GREATER_EQUAL), VER_MINORVERSION, VER_GREATER_EQUAL), VER_SERVICEPACKMAJOR, VER_GREATER_EQUAL))) {
+        result = MAL_SUCCESS;
+    } else {
+        result = MAL_NO_BACKEND;
+    }
+#endif
+
+    if (result != MAL_SUCCESS) {
+        return result;
+    }
+
+    pContext->onUninit              = mal_context_uninit__wasapi;
+    pContext->onDeviceIDEqual       = mal_context_is_device_id_equal__wasapi;
+    pContext->onEnumDevices         = mal_context_enumerate_devices__wasapi;
+    pContext->onGetDeviceInfo       = mal_context_get_device_info__wasapi;
+    pContext->onDeviceInit          = mal_device_init__wasapi;
+    pContext->onDeviceUninit        = mal_device_uninit__wasapi;
+    pContext->onDeviceStart         = mal_device__start_backend__wasapi;
+    pContext->onDeviceStop          = mal_device__stop_backend__wasapi;
+    pContext->onDeviceBreakMainLoop = mal_device__break_main_loop__wasapi;
+    pContext->onDeviceMainLoop      = mal_device__main_loop__wasapi;
+
+    return result;
 }
 #endif
 
@@ -17345,7 +17358,7 @@ mal_result mal_device__start_backend(mal_device* pDevice)
     mal_result result = MAL_NO_BACKEND;
 #ifdef MAL_HAS_WASAPI
     if (pDevice->pContext->backend == mal_backend_wasapi) {
-        result = mal_device__start_backend__wasapi(pDevice);
+        result = pDevice->pContext->onDeviceStart(pDevice);
     }
 #endif
 #ifdef MAL_HAS_DSOUND
@@ -17394,7 +17407,7 @@ mal_result mal_device__stop_backend(mal_device* pDevice)
     mal_result result = MAL_NO_BACKEND;
 #ifdef MAL_HAS_WASAPI
     if (pDevice->pContext->backend == mal_backend_wasapi) {
-        result = mal_device__stop_backend__wasapi(pDevice);
+        result = pDevice->pContext->onDeviceStop(pDevice);
     }
 #endif
 #ifdef MAL_HAS_DSOUND
@@ -17443,7 +17456,7 @@ mal_result mal_device__break_main_loop(mal_device* pDevice)
     mal_result result = MAL_NO_BACKEND;
 #ifdef MAL_HAS_WASAPI
     if (pDevice->pContext->backend == mal_backend_wasapi) {
-        result = mal_device__break_main_loop__wasapi(pDevice);
+        result = pDevice->pContext->onDeviceBreakMainLoop(pDevice);
     }
 #endif
 #ifdef MAL_HAS_DSOUND
@@ -17492,7 +17505,7 @@ mal_result mal_device__main_loop(mal_device* pDevice)
     mal_result result = MAL_NO_BACKEND;
 #ifdef MAL_HAS_WASAPI
     if (pDevice->pContext->backend == mal_backend_wasapi) {
-        result = mal_device__main_loop__wasapi(pDevice);
+        result = pDevice->pContext->onDeviceMainLoop(pDevice);
     }
 #endif
 #ifdef MAL_HAS_DSOUND
@@ -17928,7 +17941,7 @@ mal_result mal_context_uninit(mal_context* pContext)
     #ifdef MAL_HAS_WASAPI
         case mal_backend_wasapi:
         {
-            mal_context_uninit__wasapi(pContext);
+            pContext->onUninit(pContext);
         } break;
     #endif
     #ifdef MAL_HAS_DSOUND
@@ -18274,7 +18287,7 @@ mal_result mal_device_init(mal_context* pContext, mal_device_type type, mal_devi
     #ifdef MAL_HAS_WASAPI
         case mal_backend_wasapi:
         {
-            result = mal_device_init__wasapi(pContext, type, pDeviceID, &config, pDevice);
+            result = pContext->onDeviceInit(pContext, type, pDeviceID, &config, pDevice);
         } break;
     #endif
     #ifdef MAL_HAS_DSOUND
@@ -18496,7 +18509,7 @@ void mal_device_uninit(mal_device* pDevice)
 
 #ifdef MAL_HAS_WASAPI
     if (pDevice->pContext->backend == mal_backend_wasapi) {
-        mal_device_uninit__wasapi(pDevice);
+        pDevice->pContext->onDeviceUninit(pDevice);
     }
 #endif
 #ifdef MAL_HAS_DSOUND
