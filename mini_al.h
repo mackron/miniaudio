@@ -17066,96 +17066,6 @@ mal_result mal_context_get_device_info__sdl(mal_context* pContext, mal_device_ty
     return MAL_SUCCESS;
 }
 
-mal_result mal_context_init__sdl(mal_context* pContext)
-{
-    mal_assert(pContext != NULL);
-
-#ifndef MAL_NO_RUNTIME_LINKING
-    // Run-time linking.
-    const char* libNames[] = {
-#if defined(MAL_WIN32)
-        "SDL2.dll",
-        "SDL.dll"
-#elif defined(MAL_APPLE)
-        "SDL2.framework/SDL2",
-        "SDL.framework/SDL"
-#else
-        "libSDL2-2.0.so.0",
-        "libSDL-1.2.so.0"
-#endif
-    };
-
-    for (size_t i = 0; i < mal_countof(libNames); ++i) {
-        pContext->sdl.hSDL = mal_dlopen(libNames[i]);
-        if (pContext->sdl.hSDL != NULL) {
-            break;
-        }
-    }
-
-    if (pContext->sdl.hSDL == NULL) {
-        return MAL_NO_BACKEND;  // Couldn't find SDL2.dll, etc. Most likely it's not installed.
-    }
-
-    pContext->sdl.SDL_InitSubSystem      = mal_dlsym(pContext->sdl.hSDL, "SDL_InitSubSystem");
-    pContext->sdl.SDL_QuitSubSystem      = mal_dlsym(pContext->sdl.hSDL, "SDL_QuitSubSystem");
-    pContext->sdl.SDL_CloseAudio         = mal_dlsym(pContext->sdl.hSDL, "SDL_CloseAudio");
-    pContext->sdl.SDL_OpenAudio          = mal_dlsym(pContext->sdl.hSDL, "SDL_OpenAudio");
-    pContext->sdl.SDL_PauseAudio         = mal_dlsym(pContext->sdl.hSDL, "SDL_PauseAudio");
-#ifndef MAL_USE_SDL_1
-    pContext->sdl.SDL_GetNumAudioDevices = mal_dlsym(pContext->sdl.hSDL, "SDL_GetNumAudioDevices");
-    pContext->sdl.SDL_GetAudioDeviceName = mal_dlsym(pContext->sdl.hSDL, "SDL_GetAudioDeviceName");
-    pContext->sdl.SDL_CloseAudioDevice   = mal_dlsym(pContext->sdl.hSDL, "SDL_CloseAudioDevice");
-    pContext->sdl.SDL_OpenAudioDevice    = mal_dlsym(pContext->sdl.hSDL, "SDL_OpenAudioDevice");
-    pContext->sdl.SDL_PauseAudioDevice   = mal_dlsym(pContext->sdl.hSDL, "SDL_PauseAudioDevice");
-#endif
-#else
-    // Compile-time linking.
-    pContext->sdl.SDL_InitSubSystem      = (mal_proc)SDL_InitSubSystem;
-    pContext->sdl.SDL_QuitSubSystem      = (mal_proc)SDL_QuitSubSystem;
-    pContext->sdl.SDL_CloseAudio         = (mal_proc)SDL_CloseAudio;
-    pContext->sdl.SDL_OpenAudio          = (mal_proc)SDL_OpenAudio;
-    pContext->sdl.SDL_PauseAudio         = (mal_proc)SDL_PauseAudio;
-#ifndef MAL_USE_SDL_1
-    pContext->sdl.SDL_GetNumAudioDevices = (mal_proc)SDL_GetNumAudioDevices;
-    pContext->sdl.SDL_GetAudioDeviceName = (mal_proc)SDL_GetAudioDeviceName;
-    pContext->sdl.SDL_CloseAudioDevice   = (mal_proc)SDL_CloseAudioDevice;
-    pContext->sdl.SDL_OpenAudioDevice    = (mal_proc)SDL_OpenAudioDevice;
-    pContext->sdl.SDL_PauseAudioDevice   = (mal_proc)SDL_PauseAudioDevice;
-#endif
-#endif
-
-    // We need to determine whether or not we are using SDL2 or SDL1. We can know this by looking at whether or not certain
-    // function pointers are NULL.
-    if (pContext->sdl.SDL_GetNumAudioDevices == NULL ||
-        pContext->sdl.SDL_GetAudioDeviceName == NULL ||
-        pContext->sdl.SDL_CloseAudioDevice   == NULL ||
-        pContext->sdl.SDL_OpenAudioDevice    == NULL ||
-        pContext->sdl.SDL_PauseAudioDevice   == NULL) {
-        pContext->sdl.usingSDL1 = MAL_TRUE;
-    }
-
-    int resultSDL = ((MAL_PFN_SDL_InitSubSystem)pContext->sdl.SDL_InitSubSystem)(MAL_SDL_INIT_AUDIO);
-    if (resultSDL != 0) {
-        return MAL_ERROR;
-    }
-
-    pContext->isBackendAsynchronous = MAL_TRUE;
-
-    pContext->onDeviceIDEqual = mal_context_is_device_id_equal__sdl;
-    pContext->onEnumDevices   = mal_context_enumerate_devices__sdl;
-    pContext->onGetDeviceInfo = mal_context_get_device_info__sdl;
-
-    return MAL_SUCCESS;
-}
-
-mal_result mal_context_uninit__sdl(mal_context* pContext)
-{
-    mal_assert(pContext != NULL);
-    mal_assert(pContext->backend == mal_backend_sdl);
-
-    ((MAL_PFN_SDL_QuitSubSystem)pContext->sdl.SDL_QuitSubSystem)(MAL_SDL_INIT_AUDIO);
-    return MAL_SUCCESS;
-}
 
 void mal_device_uninit__sdl(mal_device* pDevice)
 {
@@ -17333,8 +17243,104 @@ mal_result mal_device__stop_backend__sdl(mal_device* pDevice)
 
     return MAL_SUCCESS;
 }
-#endif  // SDL
 
+
+mal_result mal_context_uninit__sdl(mal_context* pContext)
+{
+    mal_assert(pContext != NULL);
+    mal_assert(pContext->backend == mal_backend_sdl);
+
+    ((MAL_PFN_SDL_QuitSubSystem)pContext->sdl.SDL_QuitSubSystem)(MAL_SDL_INIT_AUDIO);
+    return MAL_SUCCESS;
+}
+
+mal_result mal_context_init__sdl(mal_context* pContext)
+{
+    mal_assert(pContext != NULL);
+
+#ifndef MAL_NO_RUNTIME_LINKING
+    // Run-time linking.
+    const char* libNames[] = {
+#if defined(MAL_WIN32)
+        "SDL2.dll",
+        "SDL.dll"
+#elif defined(MAL_APPLE)
+        "SDL2.framework/SDL2",
+        "SDL.framework/SDL"
+#else
+        "libSDL2-2.0.so.0",
+        "libSDL-1.2.so.0"
+#endif
+    };
+
+    for (size_t i = 0; i < mal_countof(libNames); ++i) {
+        pContext->sdl.hSDL = mal_dlopen(libNames[i]);
+        if (pContext->sdl.hSDL != NULL) {
+            break;
+        }
+    }
+
+    if (pContext->sdl.hSDL == NULL) {
+        return MAL_NO_BACKEND;  // Couldn't find SDL2.dll, etc. Most likely it's not installed.
+    }
+
+    pContext->sdl.SDL_InitSubSystem      = mal_dlsym(pContext->sdl.hSDL, "SDL_InitSubSystem");
+    pContext->sdl.SDL_QuitSubSystem      = mal_dlsym(pContext->sdl.hSDL, "SDL_QuitSubSystem");
+    pContext->sdl.SDL_CloseAudio         = mal_dlsym(pContext->sdl.hSDL, "SDL_CloseAudio");
+    pContext->sdl.SDL_OpenAudio          = mal_dlsym(pContext->sdl.hSDL, "SDL_OpenAudio");
+    pContext->sdl.SDL_PauseAudio         = mal_dlsym(pContext->sdl.hSDL, "SDL_PauseAudio");
+#ifndef MAL_USE_SDL_1
+    pContext->sdl.SDL_GetNumAudioDevices = mal_dlsym(pContext->sdl.hSDL, "SDL_GetNumAudioDevices");
+    pContext->sdl.SDL_GetAudioDeviceName = mal_dlsym(pContext->sdl.hSDL, "SDL_GetAudioDeviceName");
+    pContext->sdl.SDL_CloseAudioDevice   = mal_dlsym(pContext->sdl.hSDL, "SDL_CloseAudioDevice");
+    pContext->sdl.SDL_OpenAudioDevice    = mal_dlsym(pContext->sdl.hSDL, "SDL_OpenAudioDevice");
+    pContext->sdl.SDL_PauseAudioDevice   = mal_dlsym(pContext->sdl.hSDL, "SDL_PauseAudioDevice");
+#endif
+#else
+    // Compile-time linking.
+    pContext->sdl.SDL_InitSubSystem      = (mal_proc)SDL_InitSubSystem;
+    pContext->sdl.SDL_QuitSubSystem      = (mal_proc)SDL_QuitSubSystem;
+    pContext->sdl.SDL_CloseAudio         = (mal_proc)SDL_CloseAudio;
+    pContext->sdl.SDL_OpenAudio          = (mal_proc)SDL_OpenAudio;
+    pContext->sdl.SDL_PauseAudio         = (mal_proc)SDL_PauseAudio;
+#ifndef MAL_USE_SDL_1
+    pContext->sdl.SDL_GetNumAudioDevices = (mal_proc)SDL_GetNumAudioDevices;
+    pContext->sdl.SDL_GetAudioDeviceName = (mal_proc)SDL_GetAudioDeviceName;
+    pContext->sdl.SDL_CloseAudioDevice   = (mal_proc)SDL_CloseAudioDevice;
+    pContext->sdl.SDL_OpenAudioDevice    = (mal_proc)SDL_OpenAudioDevice;
+    pContext->sdl.SDL_PauseAudioDevice   = (mal_proc)SDL_PauseAudioDevice;
+#endif
+#endif
+
+    // We need to determine whether or not we are using SDL2 or SDL1. We can know this by looking at whether or not certain
+    // function pointers are NULL.
+    if (pContext->sdl.SDL_GetNumAudioDevices == NULL ||
+        pContext->sdl.SDL_GetAudioDeviceName == NULL ||
+        pContext->sdl.SDL_CloseAudioDevice   == NULL ||
+        pContext->sdl.SDL_OpenAudioDevice    == NULL ||
+        pContext->sdl.SDL_PauseAudioDevice   == NULL) {
+        pContext->sdl.usingSDL1 = MAL_TRUE;
+    }
+
+    int resultSDL = ((MAL_PFN_SDL_InitSubSystem)pContext->sdl.SDL_InitSubSystem)(MAL_SDL_INIT_AUDIO);
+    if (resultSDL != 0) {
+        return MAL_ERROR;
+    }
+
+    pContext->isBackendAsynchronous = MAL_TRUE;
+
+    pContext->onUninit        = mal_context_uninit__sdl;
+    pContext->onDeviceIDEqual = mal_context_is_device_id_equal__sdl;
+    pContext->onEnumDevices   = mal_context_enumerate_devices__sdl;
+    pContext->onGetDeviceInfo = mal_context_get_device_info__sdl;
+    pContext->onDeviceInit    = mal_device_init__sdl;
+    pContext->onDeviceUninit  = mal_device_uninit__sdl;
+    pContext->onDeviceStart   = mal_device__start_backend__sdl;
+    pContext->onDeviceStop    = mal_device__stop_backend__sdl;
+
+    return MAL_SUCCESS;
+}
+#endif  // SDL
 
 
 
@@ -18006,7 +18012,7 @@ mal_result mal_context_uninit(mal_context* pContext)
     #ifdef MAL_HAS_SDL
         case mal_backend_sdl:
         {
-            mal_context_uninit__sdl(pContext);
+            pContext->onUninit(pContext);
         } break;
     #endif
     #ifdef MAL_HAS_NULL
@@ -18352,7 +18358,7 @@ mal_result mal_device_init(mal_context* pContext, mal_device_type type, mal_devi
     #ifdef MAL_HAS_SDL
         case mal_backend_sdl:
         {
-            result = mal_device_init__sdl(pContext, type, pDeviceID, &config, pDevice);
+            result = pContext->onDeviceInit(pContext, type, pDeviceID, &config, pDevice);
         } break;
     #endif
     #ifdef MAL_HAS_NULL
@@ -18564,7 +18570,7 @@ void mal_device_uninit(mal_device* pDevice)
 #endif
 #ifdef MAL_HAS_SDL
     if (pDevice->pContext->backend == mal_backend_sdl) {
-        mal_device_uninit__sdl(pDevice);
+        pDevice->pContext->onDeviceUninit(pDevice);
     }
 #endif
 #ifdef MAL_HAS_NULL
@@ -18632,40 +18638,42 @@ mal_result mal_device_start(mal_device* pDevice)
         mal_device__set_state(pDevice, MAL_STATE_STARTING);
 
         // Asynchronous backends need to be handled differently.
+        if (mal_context_is_backend_asynchronous(pDevice->pContext)) {
 #ifdef MAL_HAS_JACK
-        if (pDevice->pContext->backend == mal_backend_jack) {
-            result = mal_device__start_backend__jack(pDevice);
-            if (result == MAL_SUCCESS) {
-                mal_device__set_state(pDevice, MAL_STATE_STARTED);
+            if (pDevice->pContext->backend == mal_backend_jack) {
+                result = mal_device__start_backend__jack(pDevice);
+                if (result == MAL_SUCCESS) {
+                    mal_device__set_state(pDevice, MAL_STATE_STARTED);
+                }
             }
-        } else
 #endif
 #ifdef MAL_HAS_COREAUDIO
-        if (pDevice->pContext->backend == mal_backend_coreaudio) {
-            result = mal_device__start_backend__coreaudio(pDevice);
-            if (result == MAL_SUCCESS) {
-                mal_device__set_state(pDevice, MAL_STATE_STARTED);
+            if (pDevice->pContext->backend == mal_backend_coreaudio) {
+                result = mal_device__start_backend__coreaudio(pDevice);
+                if (result == MAL_SUCCESS) {
+                    mal_device__set_state(pDevice, MAL_STATE_STARTED);
+                }
             }
-        } else
 #endif
 #ifdef MAL_HAS_OPENSL
-        if (pDevice->pContext->backend == mal_backend_opensl) {
-            result = mal_device__start_backend__opensl(pDevice);
-            if (result == MAL_SUCCESS) {
-                mal_device__set_state(pDevice, MAL_STATE_STARTED);
+            if (pDevice->pContext->backend == mal_backend_opensl) {
+                result = mal_device__start_backend__opensl(pDevice);
+                if (result == MAL_SUCCESS) {
+                    mal_device__set_state(pDevice, MAL_STATE_STARTED);
+                }
             }
-        } else
 #endif
 #ifdef MAL_HAS_SDL
-        if (pDevice->pContext->backend == mal_backend_sdl) {
-            result = mal_device__start_backend__sdl(pDevice);
-            if (result == MAL_SUCCESS) {
-                mal_device__set_state(pDevice, MAL_STATE_STARTED);
+            if (pDevice->pContext->backend == mal_backend_sdl) {
+                result = pDevice->pContext->onDeviceStart(pDevice);
+                if (result == MAL_SUCCESS) {
+                    mal_device__set_state(pDevice, MAL_STATE_STARTED);
+                }
             }
-        } else
 #endif
-        // Synchronous backends.
-        {
+        } else {
+            // Synchronous backends are started by signaling an event that's being waited on in the worker thread. We first wake up the
+            // thread and then wait for the start event.
             mal_event_signal(&pDevice->wakeupEvent);
 
             // Wait for the worker thread to finish starting the device. Note that the worker thread will be the one
@@ -18709,28 +18717,30 @@ mal_result mal_device_stop(mal_device* pDevice)
         // There's no need to wake up the thread like we do when starting.
 
         // Asynchronous backends need to be handled differently.
+        if (mal_context_is_backend_asynchronous(pDevice->pContext)) {
 #ifdef MAL_HAS_JACK
-        if (pDevice->pContext->backend == mal_backend_jack) {
-            mal_device__stop_backend__jack(pDevice);
-        } else
+            if (pDevice->pContext->backend == mal_backend_jack) {
+                mal_device__stop_backend__jack(pDevice);
+            }
 #endif
 #ifdef MAL_HAS_COREAUDIO
-        if (pDevice->pContext->backend == mal_backend_coreaudio) {
-            mal_device__stop_backend__coreaudio(pDevice);
-        } else
+            if (pDevice->pContext->backend == mal_backend_coreaudio) {
+                mal_device__stop_backend__coreaudio(pDevice);
+            }
 #endif
 #ifdef MAL_HAS_OPENSL
-        if (pDevice->pContext->backend == mal_backend_opensl) {
-            mal_device__stop_backend__opensl(pDevice);
-        } else
+            if (pDevice->pContext->backend == mal_backend_opensl) {
+                mal_device__stop_backend__opensl(pDevice);
+            }
 #endif
 #ifdef MAL_HAS_SDL
-        if (pDevice->pContext->backend == mal_backend_sdl) {
-            mal_device__stop_backend__sdl(pDevice);
-        } else
+            if (pDevice->pContext->backend == mal_backend_sdl) {
+                pDevice->pContext->onDeviceStop(pDevice);
+            }
 #endif
-        // Synchronous backends.
-        {
+        } else {
+            // Synchronous backends.
+
             // When we get here the worker thread is likely in a wait state while waiting for the backend device to deliver or request
             // audio data. We need to force these to return as quickly as possible.
             mal_device__break_main_loop(pDevice);
