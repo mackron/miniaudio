@@ -12320,116 +12320,6 @@ mal_result mal_context_get_device_info__jack(mal_context* pContext, mal_device_t
     return MAL_SUCCESS;
 }
 
-mal_result mal_context_init__jack(mal_context* pContext)
-{
-    mal_assert(pContext != NULL);
-
-#ifndef MAL_NO_RUNTIME_LINKING
-    // libjack.so
-    const char* libjackNames[] = {
-#ifdef MAL_WIN32
-        "libjack.dll"
-#else
-        "libjack.so",
-        "libjack.so.0"
-#endif
-    };
-
-    for (size_t i = 0; i < mal_countof(libjackNames); ++i) {
-        pContext->jack.jackSO = mal_dlopen(libjackNames[i]);
-        if (pContext->jack.jackSO != NULL) {
-            break;
-        }
-    }
-
-    if (pContext->jack.jackSO == NULL) {
-        return MAL_NO_BACKEND;
-    }
-
-    pContext->jack.jack_client_open              = (mal_proc)mal_dlsym(pContext->jack.jackSO, "jack_client_open");
-    pContext->jack.jack_client_close             = (mal_proc)mal_dlsym(pContext->jack.jackSO, "jack_client_close");
-    pContext->jack.jack_client_name_size         = (mal_proc)mal_dlsym(pContext->jack.jackSO, "jack_client_name_size");
-    pContext->jack.jack_set_process_callback     = (mal_proc)mal_dlsym(pContext->jack.jackSO, "jack_set_process_callback");
-    pContext->jack.jack_set_buffer_size_callback = (mal_proc)mal_dlsym(pContext->jack.jackSO, "jack_set_buffer_size_callback");
-    pContext->jack.jack_on_shutdown              = (mal_proc)mal_dlsym(pContext->jack.jackSO, "jack_on_shutdown");
-    pContext->jack.jack_get_sample_rate          = (mal_proc)mal_dlsym(pContext->jack.jackSO, "jack_get_sample_rate");
-    pContext->jack.jack_get_buffer_size          = (mal_proc)mal_dlsym(pContext->jack.jackSO, "jack_get_buffer_size");
-    pContext->jack.jack_get_ports                = (mal_proc)mal_dlsym(pContext->jack.jackSO, "jack_get_ports");
-    pContext->jack.jack_activate                 = (mal_proc)mal_dlsym(pContext->jack.jackSO, "jack_activate");
-    pContext->jack.jack_deactivate               = (mal_proc)mal_dlsym(pContext->jack.jackSO, "jack_deactivate");
-    pContext->jack.jack_connect                  = (mal_proc)mal_dlsym(pContext->jack.jackSO, "jack_connect");
-    pContext->jack.jack_port_register            = (mal_proc)mal_dlsym(pContext->jack.jackSO, "jack_port_register");
-    pContext->jack.jack_port_name                = (mal_proc)mal_dlsym(pContext->jack.jackSO, "jack_port_name");
-    pContext->jack.jack_port_get_buffer          = (mal_proc)mal_dlsym(pContext->jack.jackSO, "jack_port_get_buffer");
-    pContext->jack.jack_free                     = (mal_proc)mal_dlsym(pContext->jack.jackSO, "jack_free");
-#else
-    // This strange assignment system is here just to ensure type safety of mini_al's function pointer
-    // types. If anything differs slightly the compiler should throw a warning.
-    mal_jack_client_open_proc              _jack_client_open              = jack_client_open;
-    mal_jack_client_close_proc             _jack_client_close             = jack_client_close;
-    mal_jack_client_name_size_proc         _jack_client_name_size         = jack_client_name_size;
-    mal_jack_set_process_callback_proc     _jack_set_process_callback     = jack_set_process_callback;
-    mal_jack_set_buffer_size_callback_proc _jack_set_buffer_size_callback = jack_set_buffer_size_callback;
-    mal_jack_on_shutdown_proc              _jack_on_shutdown              = jack_on_shutdown;
-    mal_jack_get_sample_rate_proc          _jack_get_sample_rate          = jack_get_sample_rate;
-    mal_jack_get_buffer_size_proc          _jack_get_buffer_size          = jack_get_buffer_size;
-    mal_jack_get_ports_proc                _jack_get_ports                = jack_get_ports;
-    mal_jack_activate_proc                 _jack_activate                 = jack_activate;
-    mal_jack_deactivate_proc               _jack_deactivate               = jack_deactivate;
-    mal_jack_connect_proc                  _jack_connect                  = jack_connect;
-    mal_jack_port_register_proc            _jack_port_register            = jack_port_register;
-    mal_jack_port_name_proc                _jack_port_name                = jack_port_name;
-    mal_jack_port_get_buffer_proc          _jack_port_get_buffer          = jack_port_get_buffer;
-    mal_jack_free_proc                     _jack_free                     = jack_free;
-
-    pContext->jack.jack_client_open              = (mal_proc)_jack_client_open;
-    pContext->jack.jack_client_close             = (mal_proc)_jack_client_close;
-    pContext->jack.jack_client_name_size         = (mal_proc)_jack_client_name_size;
-    pContext->jack.jack_set_process_callback     = (mal_proc)_jack_set_process_callback;
-    pContext->jack.jack_set_buffer_size_callback = (mal_proc)_jack_set_buffer_size_callback;
-    pContext->jack.jack_on_shutdown              = (mal_proc)_jack_on_shutdown;
-    pContext->jack.jack_get_sample_rate          = (mal_proc)_jack_get_sample_rate;
-    pContext->jack.jack_get_buffer_size          = (mal_proc)_jack_get_buffer_size;
-    pContext->jack.jack_get_ports                = (mal_proc)_jack_get_ports;
-    pContext->jack.jack_activate                 = (mal_proc)_jack_activate;
-    pContext->jack.jack_deactivate               = (mal_proc)_jack_deactivate;
-    pContext->jack.jack_connect                  = (mal_proc)_jack_connect;
-    pContext->jack.jack_port_register            = (mal_proc)_jack_port_register;
-    pContext->jack.jack_port_name                = (mal_proc)_jack_port_name;
-    pContext->jack.jack_port_get_buffer          = (mal_proc)_jack_port_get_buffer;
-    pContext->jack.jack_free                     = (mal_proc)_jack_free;
-#endif
-
-    pContext->isBackendAsynchronous = MAL_TRUE;
-
-    pContext->onDeviceIDEqual = mal_context_is_device_id_equal__jack;
-    pContext->onEnumDevices   = mal_context_enumerate_devices__jack;
-    pContext->onGetDeviceInfo = mal_context_get_device_info__jack;
-
-
-    // Getting here means the JACK library is installed, but it doesn't necessarily mean it's usable. We need to quickly test this by connecting
-    // a temporary client.
-    mal_jack_client_t* pDummyClient;
-    mal_result result = mal_context_open_client__jack(pContext, &pDummyClient);
-    if (result != MAL_SUCCESS) {
-        return MAL_NO_BACKEND;
-    }
-
-    ((mal_jack_client_close_proc)pContext->jack.jack_client_close)((mal_jack_client_t*)pDummyClient);
-    return MAL_SUCCESS;
-}
-
-mal_result mal_context_uninit__jack(mal_context* pContext)
-{
-    mal_assert(pContext != NULL);
-    mal_assert(pContext->backend == mal_backend_jack);
-
-#ifndef MAL_NO_RUNTIME_LINKING
-    mal_dlclose(pContext->jack.jackSO);
-#endif
-
-    return MAL_SUCCESS;
-}
 
 void mal_device_uninit__jack(mal_device* pDevice)
 {
@@ -12675,6 +12565,124 @@ mal_result mal_device__stop_backend__jack(mal_device* pDevice)
         onStop(pDevice);
     }
 
+    return MAL_SUCCESS;
+}
+
+
+mal_result mal_context_uninit__jack(mal_context* pContext)
+{
+    mal_assert(pContext != NULL);
+    mal_assert(pContext->backend == mal_backend_jack);
+
+#ifndef MAL_NO_RUNTIME_LINKING
+    mal_dlclose(pContext->jack.jackSO);
+#endif
+
+    return MAL_SUCCESS;
+}
+
+mal_result mal_context_init__jack(mal_context* pContext)
+{
+    mal_assert(pContext != NULL);
+
+#ifndef MAL_NO_RUNTIME_LINKING
+    // libjack.so
+    const char* libjackNames[] = {
+#ifdef MAL_WIN32
+        "libjack.dll"
+#else
+        "libjack.so",
+        "libjack.so.0"
+#endif
+    };
+
+    for (size_t i = 0; i < mal_countof(libjackNames); ++i) {
+        pContext->jack.jackSO = mal_dlopen(libjackNames[i]);
+        if (pContext->jack.jackSO != NULL) {
+            break;
+        }
+    }
+
+    if (pContext->jack.jackSO == NULL) {
+        return MAL_NO_BACKEND;
+    }
+
+    pContext->jack.jack_client_open              = (mal_proc)mal_dlsym(pContext->jack.jackSO, "jack_client_open");
+    pContext->jack.jack_client_close             = (mal_proc)mal_dlsym(pContext->jack.jackSO, "jack_client_close");
+    pContext->jack.jack_client_name_size         = (mal_proc)mal_dlsym(pContext->jack.jackSO, "jack_client_name_size");
+    pContext->jack.jack_set_process_callback     = (mal_proc)mal_dlsym(pContext->jack.jackSO, "jack_set_process_callback");
+    pContext->jack.jack_set_buffer_size_callback = (mal_proc)mal_dlsym(pContext->jack.jackSO, "jack_set_buffer_size_callback");
+    pContext->jack.jack_on_shutdown              = (mal_proc)mal_dlsym(pContext->jack.jackSO, "jack_on_shutdown");
+    pContext->jack.jack_get_sample_rate          = (mal_proc)mal_dlsym(pContext->jack.jackSO, "jack_get_sample_rate");
+    pContext->jack.jack_get_buffer_size          = (mal_proc)mal_dlsym(pContext->jack.jackSO, "jack_get_buffer_size");
+    pContext->jack.jack_get_ports                = (mal_proc)mal_dlsym(pContext->jack.jackSO, "jack_get_ports");
+    pContext->jack.jack_activate                 = (mal_proc)mal_dlsym(pContext->jack.jackSO, "jack_activate");
+    pContext->jack.jack_deactivate               = (mal_proc)mal_dlsym(pContext->jack.jackSO, "jack_deactivate");
+    pContext->jack.jack_connect                  = (mal_proc)mal_dlsym(pContext->jack.jackSO, "jack_connect");
+    pContext->jack.jack_port_register            = (mal_proc)mal_dlsym(pContext->jack.jackSO, "jack_port_register");
+    pContext->jack.jack_port_name                = (mal_proc)mal_dlsym(pContext->jack.jackSO, "jack_port_name");
+    pContext->jack.jack_port_get_buffer          = (mal_proc)mal_dlsym(pContext->jack.jackSO, "jack_port_get_buffer");
+    pContext->jack.jack_free                     = (mal_proc)mal_dlsym(pContext->jack.jackSO, "jack_free");
+#else
+    // This strange assignment system is here just to ensure type safety of mini_al's function pointer
+    // types. If anything differs slightly the compiler should throw a warning.
+    mal_jack_client_open_proc              _jack_client_open              = jack_client_open;
+    mal_jack_client_close_proc             _jack_client_close             = jack_client_close;
+    mal_jack_client_name_size_proc         _jack_client_name_size         = jack_client_name_size;
+    mal_jack_set_process_callback_proc     _jack_set_process_callback     = jack_set_process_callback;
+    mal_jack_set_buffer_size_callback_proc _jack_set_buffer_size_callback = jack_set_buffer_size_callback;
+    mal_jack_on_shutdown_proc              _jack_on_shutdown              = jack_on_shutdown;
+    mal_jack_get_sample_rate_proc          _jack_get_sample_rate          = jack_get_sample_rate;
+    mal_jack_get_buffer_size_proc          _jack_get_buffer_size          = jack_get_buffer_size;
+    mal_jack_get_ports_proc                _jack_get_ports                = jack_get_ports;
+    mal_jack_activate_proc                 _jack_activate                 = jack_activate;
+    mal_jack_deactivate_proc               _jack_deactivate               = jack_deactivate;
+    mal_jack_connect_proc                  _jack_connect                  = jack_connect;
+    mal_jack_port_register_proc            _jack_port_register            = jack_port_register;
+    mal_jack_port_name_proc                _jack_port_name                = jack_port_name;
+    mal_jack_port_get_buffer_proc          _jack_port_get_buffer          = jack_port_get_buffer;
+    mal_jack_free_proc                     _jack_free                     = jack_free;
+
+    pContext->jack.jack_client_open              = (mal_proc)_jack_client_open;
+    pContext->jack.jack_client_close             = (mal_proc)_jack_client_close;
+    pContext->jack.jack_client_name_size         = (mal_proc)_jack_client_name_size;
+    pContext->jack.jack_set_process_callback     = (mal_proc)_jack_set_process_callback;
+    pContext->jack.jack_set_buffer_size_callback = (mal_proc)_jack_set_buffer_size_callback;
+    pContext->jack.jack_on_shutdown              = (mal_proc)_jack_on_shutdown;
+    pContext->jack.jack_get_sample_rate          = (mal_proc)_jack_get_sample_rate;
+    pContext->jack.jack_get_buffer_size          = (mal_proc)_jack_get_buffer_size;
+    pContext->jack.jack_get_ports                = (mal_proc)_jack_get_ports;
+    pContext->jack.jack_activate                 = (mal_proc)_jack_activate;
+    pContext->jack.jack_deactivate               = (mal_proc)_jack_deactivate;
+    pContext->jack.jack_connect                  = (mal_proc)_jack_connect;
+    pContext->jack.jack_port_register            = (mal_proc)_jack_port_register;
+    pContext->jack.jack_port_name                = (mal_proc)_jack_port_name;
+    pContext->jack.jack_port_get_buffer          = (mal_proc)_jack_port_get_buffer;
+    pContext->jack.jack_free                     = (mal_proc)_jack_free;
+#endif
+
+    pContext->isBackendAsynchronous = MAL_TRUE;
+
+    pContext->onUninit        = mal_context_uninit__jack;
+    pContext->onDeviceIDEqual = mal_context_is_device_id_equal__jack;
+    pContext->onEnumDevices   = mal_context_enumerate_devices__jack;
+    pContext->onGetDeviceInfo = mal_context_get_device_info__jack;
+    pContext->onGetDeviceInfo = mal_context_get_device_info__jack;
+    pContext->onDeviceInit    = mal_device_init__jack;
+    pContext->onDeviceUninit  = mal_device_uninit__jack;
+    pContext->onDeviceStart   = mal_device__start_backend__jack;
+    pContext->onDeviceStop    = mal_device__stop_backend__jack;
+
+
+    // Getting here means the JACK library is installed, but it doesn't necessarily mean it's usable. We need to quickly test this by connecting
+    // a temporary client.
+    mal_jack_client_t* pDummyClient;
+    mal_result result = mal_context_open_client__jack(pContext, &pDummyClient);
+    if (result != MAL_SUCCESS) {
+        return MAL_NO_BACKEND;
+    }
+
+    ((mal_jack_client_close_proc)pContext->jack.jack_client_close)((mal_jack_client_t*)pDummyClient);
     return MAL_SUCCESS;
 }
 #endif  // JACK
@@ -17982,7 +17990,7 @@ mal_result mal_context_uninit(mal_context* pContext)
     #ifdef MAL_HAS_JACK
         case mal_backend_jack:
         {
-            mal_context_uninit__jack(pContext);
+            pContext->onUninit(pContext);
         } break;
     #endif
     #ifdef MAL_HAS_COREAUDIO
@@ -18328,7 +18336,7 @@ mal_result mal_device_init(mal_context* pContext, mal_device_type type, mal_devi
     #ifdef MAL_HAS_JACK
         case mal_backend_jack:
         {
-            result = mal_device_init__jack(pContext, type, pDeviceID, &config, pDevice);
+            result = pContext->onDeviceInit(pContext, type, pDeviceID, &config, pDevice);
         } break;
     #endif
     #ifdef MAL_HAS_COREAUDIO
@@ -18545,7 +18553,7 @@ void mal_device_uninit(mal_device* pDevice)
 #endif
 #ifdef MAL_HAS_JACK
     if (pDevice->pContext->backend == mal_backend_jack) {
-        mal_device_uninit__jack(pDevice);
+        pDevice->pContext->onDeviceUninit(pDevice);
     }
 #endif
 #ifdef MAL_HAS_COREAUDIO
@@ -18641,7 +18649,7 @@ mal_result mal_device_start(mal_device* pDevice)
         if (mal_context_is_backend_asynchronous(pDevice->pContext)) {
 #ifdef MAL_HAS_JACK
             if (pDevice->pContext->backend == mal_backend_jack) {
-                result = mal_device__start_backend__jack(pDevice);
+                result = pDevice->pContext->onDeviceStart(pDevice);
                 if (result == MAL_SUCCESS) {
                     mal_device__set_state(pDevice, MAL_STATE_STARTED);
                 }
@@ -18720,7 +18728,7 @@ mal_result mal_device_stop(mal_device* pDevice)
         if (mal_context_is_backend_asynchronous(pDevice->pContext)) {
 #ifdef MAL_HAS_JACK
             if (pDevice->pContext->backend == mal_backend_jack) {
-                mal_device__stop_backend__jack(pDevice);
+                pDevice->pContext->onDeviceStop(pDevice);
             }
 #endif
 #ifdef MAL_HAS_COREAUDIO
