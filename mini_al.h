@@ -1,5 +1,5 @@
 // Audio playback and capture library. Public domain. See "unlicense" statement at the end of this file.
-// mini_al - v0.8.3-rc - 2018-07-xx
+// mini_al - v0.8.3 - 2018-07-15
 //
 // David Reid - davidreidsoftware@gmail.com
 
@@ -25977,7 +25977,7 @@ mal_uint64 mal_sine_wave_read(mal_sine_wave* pSineWave, mal_uint64 count, float*
 // REVISION HISTORY
 // ================
 //
-// v0.8.3-rc - 2018-07-xx
+// v0.8.3 - 2018-07-15
 //   - Fix a crackling bug when resampling in capture mode.
 //   - Core Audio: Fix a bug where capture does not work.
 //   - ALSA: Fix a bug where the worker thread can get stuck in an infinite loop.
