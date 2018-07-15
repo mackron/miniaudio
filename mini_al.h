@@ -18659,38 +18659,10 @@ mal_result mal_device_start(mal_device* pDevice)
 
         // Asynchronous backends need to be handled differently.
         if (mal_context_is_backend_asynchronous(pDevice->pContext)) {
-#ifdef MAL_HAS_JACK
-            if (pDevice->pContext->backend == mal_backend_jack) {
-                result = pDevice->pContext->onDeviceStart(pDevice);
-                if (result == MAL_SUCCESS) {
-                    mal_device__set_state(pDevice, MAL_STATE_STARTED);
-                }
+            result = pDevice->pContext->onDeviceStart(pDevice);
+            if (result == MAL_SUCCESS) {
+                mal_device__set_state(pDevice, MAL_STATE_STARTED);
             }
-#endif
-#ifdef MAL_HAS_COREAUDIO
-            if (pDevice->pContext->backend == mal_backend_coreaudio) {
-                result = pDevice->pContext->onDeviceStart(pDevice);
-                if (result == MAL_SUCCESS) {
-                    mal_device__set_state(pDevice, MAL_STATE_STARTED);
-                }
-            }
-#endif
-#ifdef MAL_HAS_OPENSL
-            if (pDevice->pContext->backend == mal_backend_opensl) {
-                result = pDevice->pContext->onDeviceStart(pDevice);
-                if (result == MAL_SUCCESS) {
-                    mal_device__set_state(pDevice, MAL_STATE_STARTED);
-                }
-            }
-#endif
-#ifdef MAL_HAS_SDL
-            if (pDevice->pContext->backend == mal_backend_sdl) {
-                result = pDevice->pContext->onDeviceStart(pDevice);
-                if (result == MAL_SUCCESS) {
-                    mal_device__set_state(pDevice, MAL_STATE_STARTED);
-                }
-            }
-#endif
         } else {
             // Synchronous backends are started by signaling an event that's being waited on in the worker thread. We first wake up the
             // thread and then wait for the start event.
@@ -18738,26 +18710,7 @@ mal_result mal_device_stop(mal_device* pDevice)
 
         // Asynchronous backends need to be handled differently.
         if (mal_context_is_backend_asynchronous(pDevice->pContext)) {
-#ifdef MAL_HAS_JACK
-            if (pDevice->pContext->backend == mal_backend_jack) {
-                pDevice->pContext->onDeviceStop(pDevice);
-            }
-#endif
-#ifdef MAL_HAS_COREAUDIO
-            if (pDevice->pContext->backend == mal_backend_coreaudio) {
-                pDevice->pContext->onDeviceStop(pDevice);
-            }
-#endif
-#ifdef MAL_HAS_OPENSL
-            if (pDevice->pContext->backend == mal_backend_opensl) {
-                pDevice->pContext->onDeviceStop(pDevice);
-            }
-#endif
-#ifdef MAL_HAS_SDL
-            if (pDevice->pContext->backend == mal_backend_sdl) {
-                pDevice->pContext->onDeviceStop(pDevice);
-            }
-#endif
+            pDevice->pContext->onDeviceStop(pDevice);
         } else {
             // Synchronous backends.
 
