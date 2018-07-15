@@ -23565,6 +23565,8 @@ mal_uint64 mal_src_read_deinterleaved__sinc(mal_src* pSRC, mal_uint64 frameCount
             ppNextSamplesOut[iChannel] += outputFramesToRead;
         }
 
+        totalOutputFramesRead += outputFramesToRead;
+
         mal_uint32 prevWindowPosInSamples = pSRC->sinc.windowPosInSamples;
 
         pSRC->sinc.timeIn            += (outputFramesToRead * factor);
@@ -23616,8 +23618,6 @@ mal_uint64 mal_src_read_deinterleaved__sinc(mal_src* pSRC, mal_uint64 frameCount
                 }
             }
         }
-
-        totalOutputFramesRead += outputFramesToRead;
     }
 
     return totalOutputFramesRead;
