@@ -1,5 +1,5 @@
 // MP3 audio decoder. Public domain. See "unlicense" statement at the end of this file.
-// dr_mp3 - v0.2.5 - 2018-06-22
+// dr_mp3 - v0.2.7 - 2018-07-13
 //
 // David Reid - mackron@gmail.com
 //
@@ -99,21 +99,14 @@ typedef drmp3_uint32     drmp3_bool32;
 // ==================
 typedef struct
 {
-    int frame_bytes;
-    int channels;
-    int hz;
-    int layer;
-    int bitrate_kbps;
+    int frame_bytes, channels, hz, layer, bitrate_kbps;
 } drmp3dec_frame_info;
 
 typedef struct
 {
-    float mdct_overlap[2][9*32];
-    float qmf_state[15*2*32];
-    int reserv;
-    int free_format_bytes;
-    unsigned char header[4];
-    unsigned char reserv_buf[511];
+    float mdct_overlap[2][9*32], qmf_state[15*2*32];
+    int reserv, free_format_bytes;
+    unsigned char header[4], reserv_buf[511];
 } drmp3dec;
 
 // Initializes a low level decoder.
@@ -462,44 +455,27 @@ static int drmp3_have_simd()
 typedef struct
 {
     const drmp3_uint8 *buf;
-    int pos;
-    int limit;
+    int pos, limit;
 } drmp3_bs;
 
 typedef struct
 {
-    drmp3_uint8 total_bands;
-    drmp3_uint8 stereo_bands;
-    drmp3_uint8 bitalloc[64];
-    drmp3_uint8 scfcod[64];
     float scf[3*64];
+    drmp3_uint8 total_bands, stereo_bands, bitalloc[64], scfcod[64];
 } drmp3_L12_scale_info;
 
 typedef struct
 {
-    drmp3_uint8 tab_offset;
-    drmp3_uint8 code_tab_width;
-    drmp3_uint8 band_count;
+    drmp3_uint8 tab_offset, code_tab_width, band_count;
 } drmp3_L12_subband_alloc;
 
 typedef struct
 {
     const drmp3_uint8 *sfbtab;
-    drmp3_uint16 part_23_length;
-    drmp3_uint16 big_values;
-    drmp3_uint16 scalefac_compress;
-    drmp3_uint8 global_gain;
-    drmp3_uint8 block_type;
-    drmp3_uint8 mixed_block_flag;
-    drmp3_uint8 n_long_sfb;
-    drmp3_uint8 n_short_sfb;
-    drmp3_uint8 table_select[3];
-    drmp3_uint8 region_count[3];
-    drmp3_uint8 subblock_gain[3];
-    drmp3_uint8 preflag;
-    drmp3_uint8 scalefac_scale;
-    drmp3_uint8 count1_table;
-    drmp3_uint8 scfsi;
+    drmp3_uint16 part_23_length, big_values, scalefac_compress;
+    drmp3_uint8 global_gain, block_type, mixed_block_flag, n_long_sfb, n_short_sfb;
+    drmp3_uint8 table_select[3], region_count[3], subblock_gain[3];
+    drmp3_uint8 preflag, scalefac_scale, count1_table, scfsi;
 } drmp3_L3_gr_info;
 
 typedef struct
@@ -507,10 +483,8 @@ typedef struct
     drmp3_bs bs;
     drmp3_uint8 maindata[DRMP3_MAX_BITRESERVOIR_BYTES + DRMP3_MAX_L3_FRAME_PAYLOAD_BYTES];
     drmp3_L3_gr_info gr_info[4];
-    float grbuf[2][576];
-    float scf[40];
+    float grbuf[2][576], scf[40], syn[18 + 15][2*32];
     drmp3_uint8 ist_pos[2][39];
-    float syn[18 + 15][2*32];
 } drmp3dec_scratch;
 
 static void drmp3_bs_init(drmp3_bs *bs, const drmp3_uint8 *data, int bytes)
@@ -988,17 +962,19 @@ static void drmp3_L3_decode_scalefactors(const drmp3_uint8 *hdr, drmp3_uint8 *is
     }
 }
 
+static const float g_drmp3_pow43[129 + 16] = {
+    0,-1,-2.519842f,-4.326749f,-6.349604f,-8.549880f,-10.902724f,-13.390518f,-16.000000f,-18.720754f,-21.544347f,-24.463781f,-27.473142f,-30.567351f,-33.741992f,-36.993181f,
+    0,1,2.519842f,4.326749f,6.349604f,8.549880f,10.902724f,13.390518f,16.000000f,18.720754f,21.544347f,24.463781f,27.473142f,30.567351f,33.741992f,36.993181f,40.317474f,43.711787f,47.173345f,50.699631f,54.288352f,57.937408f,61.644865f,65.408941f,69.227979f,73.100443f,77.024898f,81.000000f,85.024491f,89.097188f,93.216975f,97.382800f,101.593667f,105.848633f,110.146801f,114.487321f,118.869381f,123.292209f,127.755065f,132.257246f,136.798076f,141.376907f,145.993119f,150.646117f,155.335327f,160.060199f,164.820202f,169.614826f,174.443577f,179.305980f,184.201575f,189.129918f,194.090580f,199.083145f,204.107210f,209.162385f,214.248292f,219.364564f,224.510845f,229.686789f,234.892058f,240.126328f,245.389280f,250.680604f,256.000000f,261.347174f,266.721841f,272.123723f,277.552547f,283.008049f,288.489971f,293.998060f,299.532071f,305.091761f,310.676898f,316.287249f,321.922592f,327.582707f,333.267377f,338.976394f,344.709550f,350.466646f,356.247482f,362.051866f,367.879608f,373.730522f,379.604427f,385.501143f,391.420496f,397.362314f,403.326427f,409.312672f,415.320884f,421.350905f,427.402579f,433.475750f,439.570269f,445.685987f,451.822757f,457.980436f,464.158883f,470.357960f,476.577530f,482.817459f,489.077615f,495.357868f,501.658090f,507.978156f,514.317941f,520.677324f,527.056184f,533.454404f,539.871867f,546.308458f,552.764065f,559.238575f,565.731879f,572.243870f,578.774440f,585.323483f,591.890898f,598.476581f,605.080431f,611.702349f,618.342238f,625.000000f,631.675540f,638.368763f,645.079578f
+};
+
 static float drmp3_L3_pow_43(int x)
 {
-    static const float g_pow43[129] = {
-        0,1,2.519842f,4.326749f,6.349604f,8.549880f,10.902724f,13.390518f,16.000000f,18.720754f,21.544347f,24.463781f,27.473142f,30.567351f,33.741992f,36.993181f,40.317474f,43.711787f,47.173345f,50.699631f,54.288352f,57.937408f,61.644865f,65.408941f,69.227979f,73.100443f,77.024898f,81.000000f,85.024491f,89.097188f,93.216975f,97.382800f,101.593667f,105.848633f,110.146801f,114.487321f,118.869381f,123.292209f,127.755065f,132.257246f,136.798076f,141.376907f,145.993119f,150.646117f,155.335327f,160.060199f,164.820202f,169.614826f,174.443577f,179.305980f,184.201575f,189.129918f,194.090580f,199.083145f,204.107210f,209.162385f,214.248292f,219.364564f,224.510845f,229.686789f,234.892058f,240.126328f,245.389280f,250.680604f,256.000000f,261.347174f,266.721841f,272.123723f,277.552547f,283.008049f,288.489971f,293.998060f,299.532071f,305.091761f,310.676898f,316.287249f,321.922592f,327.582707f,333.267377f,338.976394f,344.709550f,350.466646f,356.247482f,362.051866f,367.879608f,373.730522f,379.604427f,385.501143f,391.420496f,397.362314f,403.326427f,409.312672f,415.320884f,421.350905f,427.402579f,433.475750f,439.570269f,445.685987f,451.822757f,457.980436f,464.158883f,470.357960f,476.577530f,482.817459f,489.077615f,495.357868f,501.658090f,507.978156f,514.317941f,520.677324f,527.056184f,533.454404f,539.871867f,546.308458f,552.764065f,559.238575f,565.731879f,572.243870f,578.774440f,585.323483f,591.890898f,598.476581f,605.080431f,611.702349f,618.342238f,625.000000f,631.675540f,638.368763f,645.079578f
-    };
     float frac;
     int sign, mult = 256;
 
     if (x < 129)
     {
-        return g_pow43[x];
+        return g_drmp3_pow43[16 + x];
     }
 
     if (x < 1024)
@@ -1009,12 +985,11 @@ static float drmp3_L3_pow_43(int x)
 
     sign = 2*x & 64;
     frac = (float)((x & 63) - sign) / ((x & ~63) + sign);
-    return g_pow43[(x + sign) >> 6]*(1.f + frac*((4.f/3) + frac*(2.f/9)))*mult;
+    return g_drmp3_pow43[16 + ((x + sign) >> 6)]*(1.f + frac*((4.f/3) + frac*(2.f/9)))*mult;
 }
 
 static void drmp3_L3_huffman(float *dst, drmp3_bs *bs, const drmp3_L3_gr_info *gr_info, const float *scf, int layer3gr_limit)
 {
-    static const float g_pow43_signed[32] = { 0,0,1,-1,2.519842f,-2.519842f,4.326749f,-4.326749f,6.349604f,-6.349604f,8.549880f,-8.549880f,10.902724f,-10.902724f,13.390518f,-13.390518f,16.000000f,-16.000000f,18.720754f,-18.720754f,21.544347f,-21.544347f,24.463781f,-24.463781f,27.473142f,-27.473142f,30.567351f,-30.567351f,33.741992f,-33.741992f,36.993181f,-36.993181f };
     static const drmp3_int16 tabs[] = { 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
         785,785,785,785,784,784,784,784,513,513,513,513,513,513,513,513,256,256,256,256,256,256,256,256,256,256,256,256,256,256,256,256,
         -255,1313,1298,1282,785,785,785,785,784,784,784,784,769,769,769,769,256,256,256,256,256,256,256,256,256,256,256,256,256,256,256,256,290,288,
@@ -1083,7 +1058,7 @@ static void drmp3_L3_huffman(float *dst, drmp3_bs *bs, const drmp3_L3_gr_info *g
                         *dst = one*drmp3_L3_pow_43(lsb)*((int32_t)bs_cache < 0 ? -1: 1);
                     } else
                     {
-                        *dst = g_pow43_signed[lsb*2 + (bs_cache >> 31)]*one;
+                        *dst = g_drmp3_pow43[16 + lsb - 16*(bs_cache >> 31)]*one;
                     }
                     DRMP3_FLUSH_BITS(lsb ? 1 : 0);
                 }
@@ -2770,6 +2745,12 @@ void drmp3_free(void* p)
 
 // REVISION HISTORY
 // ===============
+//
+// v0.2.7 - 2018-07-13
+//   - Bring up to date with minimp3.
+//
+// v0.2.6 - 2018-07-12
+//   - Bring up to date with minimp3.
 //
 // v0.2.5 - 2018-06-22
 //   - Bring up to date with minimp3.
