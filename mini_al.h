@@ -7131,37 +7131,6 @@ mal_result mal_context_get_device_info__dsound(mal_context* pContext, mal_device
     return MAL_SUCCESS;
 }
 
-mal_result mal_context_init__dsound(mal_context* pContext)
-{
-    mal_assert(pContext != NULL);
-
-    pContext->dsound.hDSoundDLL = mal_dlopen("dsound.dll");
-    if (pContext->dsound.hDSoundDLL == NULL) {
-        return MAL_API_NOT_FOUND;
-    }
-
-    pContext->dsound.DirectSoundCreate            = mal_dlsym(pContext->dsound.hDSoundDLL, "DirectSoundCreate");
-    pContext->dsound.DirectSoundEnumerateA        = mal_dlsym(pContext->dsound.hDSoundDLL, "DirectSoundEnumerateA");
-    pContext->dsound.DirectSoundCaptureCreate     = mal_dlsym(pContext->dsound.hDSoundDLL, "DirectSoundCaptureCreate");
-    pContext->dsound.DirectSoundCaptureEnumerateA = mal_dlsym(pContext->dsound.hDSoundDLL, "DirectSoundCaptureEnumerateA");
-
-    pContext->onDeviceIDEqual = mal_context_is_device_id_equal__dsound;
-    pContext->onEnumDevices   = mal_context_enumerate_devices__dsound;
-    pContext->onGetDeviceInfo = mal_context_get_device_info__dsound;
-
-    return MAL_SUCCESS;
-}
-
-mal_result mal_context_uninit__dsound(mal_context* pContext)
-{
-    mal_assert(pContext != NULL);
-    mal_assert(pContext->backend == mal_backend_dsound);
-
-    mal_dlclose(pContext->dsound.hDSoundDLL);
-
-    return MAL_SUCCESS;
-}
-
 
 typedef struct
 {
@@ -7720,6 +7689,45 @@ mal_result mal_device__main_loop__dsound(mal_device* pDevice)
             mal_IDirectSoundCaptureBuffer_Unlock((mal_IDirectSoundCaptureBuffer*)pDevice->dsound.pCaptureBuffer, pLockPtr, actualLockSize, pLockPtr2, actualLockSize2);
         }
     }
+
+    return MAL_SUCCESS;
+}
+
+
+mal_result mal_context_uninit__dsound(mal_context* pContext)
+{
+    mal_assert(pContext != NULL);
+    mal_assert(pContext->backend == mal_backend_dsound);
+
+    mal_dlclose(pContext->dsound.hDSoundDLL);
+
+    return MAL_SUCCESS;
+}
+
+mal_result mal_context_init__dsound(mal_context* pContext)
+{
+    mal_assert(pContext != NULL);
+
+    pContext->dsound.hDSoundDLL = mal_dlopen("dsound.dll");
+    if (pContext->dsound.hDSoundDLL == NULL) {
+        return MAL_API_NOT_FOUND;
+    }
+
+    pContext->dsound.DirectSoundCreate            = mal_dlsym(pContext->dsound.hDSoundDLL, "DirectSoundCreate");
+    pContext->dsound.DirectSoundEnumerateA        = mal_dlsym(pContext->dsound.hDSoundDLL, "DirectSoundEnumerateA");
+    pContext->dsound.DirectSoundCaptureCreate     = mal_dlsym(pContext->dsound.hDSoundDLL, "DirectSoundCaptureCreate");
+    pContext->dsound.DirectSoundCaptureEnumerateA = mal_dlsym(pContext->dsound.hDSoundDLL, "DirectSoundCaptureEnumerateA");
+
+    pContext->onUninit              = mal_context_uninit__dsound;
+    pContext->onDeviceIDEqual       = mal_context_is_device_id_equal__dsound;
+    pContext->onEnumDevices         = mal_context_enumerate_devices__dsound;
+    pContext->onGetDeviceInfo       = mal_context_get_device_info__dsound;
+    pContext->onDeviceInit          = mal_device_init__dsound;
+    pContext->onDeviceUninit        = mal_device_uninit__dsound;
+    pContext->onDeviceStart         = mal_device__start_backend__dsound;
+    pContext->onDeviceStop          = mal_device__stop_backend__dsound;
+    pContext->onDeviceBreakMainLoop = mal_device__break_main_loop__dsound;
+    pContext->onDeviceMainLoop      = mal_device__main_loop__dsound;
 
     return MAL_SUCCESS;
 }
