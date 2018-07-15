@@ -25631,7 +25631,7 @@ mal_uint64 mal_sine_wave_read(mal_sine_wave* pSineWave, mal_uint64 count, float*
 //   - Core Audio: Fix a bug where capture does not work.
 //   - ALSA: Fix a bug where the worker thread can get stuck in an infinite loop.
 //   - PulseAudio: Fix a bug where mal_context_init() succeeds when PulseAudio is unusable.
-//   - JACK: Fix a bug where mal_context_init() will succeeds when JACK is unusable.
+//   - JACK: Fix a bug where mal_context_init() succeeds when JACK is unusable.
 //
 // v0.8.2 - 2018-07-07
 //   - Fix a bug on macOS with Core Audio where the internal callback is not called.
