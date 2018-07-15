@@ -2546,6 +2546,11 @@ mal_uint64 mal_sine_wave_read(mal_sine_wave* pSignWave, mal_uint64 count, float*
 #define MAL_ARM
 #endif
 
+// Cannot currently support AVX-512 if AVX is disabled.
+#if !defined(MAL_NO_AVX512) && defined(MAL_NO_AVX2)
+#define MAL_NO_AVX512
+#endif
+
 // Intrinsics Support
 #if defined(MAL_X64) || defined(MAL_X86)
     #if defined(_MSC_VER) && !defined(__clang__)
@@ -23364,28 +23369,16 @@ mal_uint64 mal_src_read_deinterleaved__sinc(mal_src* pSRC, mal_uint64 frameCount
     // There are cases where it's actually more efficient to increase the window width so that it's aligned with the respective
     // SIMD pipeline being used.
     mal_int32 windowWidthSIMD = windowWidth;
-#if defined(MAL_SUPPORT_NEON)
     if (pSRC->useNEON) {
         windowWidthSIMD = (windowWidthSIMD + 1) & ~(1);
-    }
-#endif
-#if defined(MAL_SUPPORT_AVX512)
-    if (pSRC->useAVX512) {
+    } else  if (pSRC->useAVX512) {
         windowWidthSIMD = (windowWidthSIMD + 7) & ~(7);
-    }
-    else
-#endif
-#if defined(MAL_SUPPORT_AVX2)
-    if (pSRC->useAVX2) {
+    } else if (pSRC->useAVX2) {
         windowWidthSIMD = (windowWidthSIMD + 3) & ~(3);
-    }
-    else
-#endif
-#if defined(MAL_SUPPORT_SSE2)
-    if (pSRC->useSSE2) {
+    } else if (pSRC->useSSE2) {
         windowWidthSIMD = (windowWidthSIMD + 1) & ~(1);
     }
-#endif
+
     mal_int32 windowWidthSIMD2 = windowWidthSIMD*2;
     (void)windowWidthSIMD2; // <-- Silence a warning when SIMD is disabled.
 
