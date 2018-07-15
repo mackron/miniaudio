@@ -9519,200 +9519,6 @@ mal_result mal_context_get_device_info__alsa(mal_context* pContext, mal_device_t
     return MAL_SUCCESS;
 }
 
-mal_result mal_context_init__alsa(mal_context* pContext)
-{
-    mal_assert(pContext != NULL);
-
-#ifndef MAL_NO_RUNTIME_LINKING
-    pContext->alsa.asoundSO = mal_dlopen("libasound.so");
-    if (pContext->alsa.asoundSO == NULL) {
-        return MAL_NO_BACKEND;
-    }
-
-    pContext->alsa.snd_pcm_open                           = (mal_proc)mal_dlsym(pContext->alsa.asoundSO, "snd_pcm_open");
-    pContext->alsa.snd_pcm_close                          = (mal_proc)mal_dlsym(pContext->alsa.asoundSO, "snd_pcm_close");
-    pContext->alsa.snd_pcm_hw_params_sizeof               = (mal_proc)mal_dlsym(pContext->alsa.asoundSO, "snd_pcm_hw_params_sizeof");
-    pContext->alsa.snd_pcm_hw_params_any                  = (mal_proc)mal_dlsym(pContext->alsa.asoundSO, "snd_pcm_hw_params_any");
-    pContext->alsa.snd_pcm_hw_params_set_format           = (mal_proc)mal_dlsym(pContext->alsa.asoundSO, "snd_pcm_hw_params_set_format");
-    pContext->alsa.snd_pcm_hw_params_set_format_first     = (mal_proc)mal_dlsym(pContext->alsa.asoundSO, "snd_pcm_hw_params_set_format_first");
-    pContext->alsa.snd_pcm_hw_params_get_format_mask      = (mal_proc)mal_dlsym(pContext->alsa.asoundSO, "snd_pcm_hw_params_get_format_mask");
-    pContext->alsa.snd_pcm_hw_params_set_channels_near    = (mal_proc)mal_dlsym(pContext->alsa.asoundSO, "snd_pcm_hw_params_set_channels_near");
-    pContext->alsa.snd_pcm_hw_params_set_rate_resample    = (mal_proc)mal_dlsym(pContext->alsa.asoundSO, "snd_pcm_hw_params_set_rate_resample");
-    pContext->alsa.snd_pcm_hw_params_set_rate_near        = (mal_proc)mal_dlsym(pContext->alsa.asoundSO, "snd_pcm_hw_params_set_rate_near");
-    pContext->alsa.snd_pcm_hw_params_set_buffer_size_near = (mal_proc)mal_dlsym(pContext->alsa.asoundSO, "snd_pcm_hw_params_set_buffer_size_near");
-    pContext->alsa.snd_pcm_hw_params_set_periods_near     = (mal_proc)mal_dlsym(pContext->alsa.asoundSO, "snd_pcm_hw_params_set_periods_near");
-    pContext->alsa.snd_pcm_hw_params_set_access           = (mal_proc)mal_dlsym(pContext->alsa.asoundSO, "snd_pcm_hw_params_set_access");
-    pContext->alsa.snd_pcm_hw_params_get_format           = (mal_proc)mal_dlsym(pContext->alsa.asoundSO, "snd_pcm_hw_params_get_format");
-    pContext->alsa.snd_pcm_hw_params_get_channels         = (mal_proc)mal_dlsym(pContext->alsa.asoundSO, "snd_pcm_hw_params_get_channels");
-    pContext->alsa.snd_pcm_hw_params_get_channels_min     = (mal_proc)mal_dlsym(pContext->alsa.asoundSO, "snd_pcm_hw_params_get_channels_min");
-    pContext->alsa.snd_pcm_hw_params_get_channels_max     = (mal_proc)mal_dlsym(pContext->alsa.asoundSO, "snd_pcm_hw_params_get_channels_max");
-    pContext->alsa.snd_pcm_hw_params_get_rate             = (mal_proc)mal_dlsym(pContext->alsa.asoundSO, "snd_pcm_hw_params_get_rate");
-    pContext->alsa.snd_pcm_hw_params_get_rate_min         = (mal_proc)mal_dlsym(pContext->alsa.asoundSO, "snd_pcm_hw_params_get_rate_min");
-    pContext->alsa.snd_pcm_hw_params_get_rate_max         = (mal_proc)mal_dlsym(pContext->alsa.asoundSO, "snd_pcm_hw_params_get_rate_max");
-    pContext->alsa.snd_pcm_hw_params_get_buffer_size      = (mal_proc)mal_dlsym(pContext->alsa.asoundSO, "snd_pcm_hw_params_get_buffer_size");
-    pContext->alsa.snd_pcm_hw_params_get_periods          = (mal_proc)mal_dlsym(pContext->alsa.asoundSO, "snd_pcm_hw_params_get_periods");
-    pContext->alsa.snd_pcm_hw_params_get_access           = (mal_proc)mal_dlsym(pContext->alsa.asoundSO, "snd_pcm_hw_params_get_access");
-    pContext->alsa.snd_pcm_hw_params                      = (mal_proc)mal_dlsym(pContext->alsa.asoundSO, "snd_pcm_hw_params");
-    pContext->alsa.snd_pcm_sw_params_sizeof               = (mal_proc)mal_dlsym(pContext->alsa.asoundSO, "snd_pcm_sw_params_sizeof");
-    pContext->alsa.snd_pcm_sw_params_current              = (mal_proc)mal_dlsym(pContext->alsa.asoundSO, "snd_pcm_sw_params_current");
-    pContext->alsa.snd_pcm_sw_params_set_avail_min        = (mal_proc)mal_dlsym(pContext->alsa.asoundSO, "snd_pcm_sw_params_set_avail_min");
-    pContext->alsa.snd_pcm_sw_params_set_start_threshold  = (mal_proc)mal_dlsym(pContext->alsa.asoundSO, "snd_pcm_sw_params_set_start_threshold");
-    pContext->alsa.snd_pcm_sw_params                      = (mal_proc)mal_dlsym(pContext->alsa.asoundSO, "snd_pcm_sw_params");
-    pContext->alsa.snd_pcm_format_mask_sizeof             = (mal_proc)mal_dlsym(pContext->alsa.asoundSO, "snd_pcm_format_mask_sizeof");
-    pContext->alsa.snd_pcm_format_mask_test               = (mal_proc)mal_dlsym(pContext->alsa.asoundSO, "snd_pcm_format_mask_test");
-    pContext->alsa.snd_pcm_get_chmap                      = (mal_proc)mal_dlsym(pContext->alsa.asoundSO, "snd_pcm_get_chmap");
-    pContext->alsa.snd_pcm_prepare                        = (mal_proc)mal_dlsym(pContext->alsa.asoundSO, "snd_pcm_prepare");
-    pContext->alsa.snd_pcm_start                          = (mal_proc)mal_dlsym(pContext->alsa.asoundSO, "snd_pcm_start");
-    pContext->alsa.snd_pcm_drop                           = (mal_proc)mal_dlsym(pContext->alsa.asoundSO, "snd_pcm_drop");
-    pContext->alsa.snd_device_name_hint                   = (mal_proc)mal_dlsym(pContext->alsa.asoundSO, "snd_device_name_hint");
-    pContext->alsa.snd_device_name_get_hint               = (mal_proc)mal_dlsym(pContext->alsa.asoundSO, "snd_device_name_get_hint");
-    pContext->alsa.snd_card_get_index                     = (mal_proc)mal_dlsym(pContext->alsa.asoundSO, "snd_card_get_index");
-    pContext->alsa.snd_device_name_free_hint              = (mal_proc)mal_dlsym(pContext->alsa.asoundSO, "snd_device_name_free_hint");
-    pContext->alsa.snd_pcm_mmap_begin                     = (mal_proc)mal_dlsym(pContext->alsa.asoundSO, "snd_pcm_mmap_begin");
-    pContext->alsa.snd_pcm_mmap_commit                    = (mal_proc)mal_dlsym(pContext->alsa.asoundSO, "snd_pcm_mmap_commit");
-    pContext->alsa.snd_pcm_recover                        = (mal_proc)mal_dlsym(pContext->alsa.asoundSO, "snd_pcm_recover");
-    pContext->alsa.snd_pcm_readi                          = (mal_proc)mal_dlsym(pContext->alsa.asoundSO, "snd_pcm_readi");
-    pContext->alsa.snd_pcm_writei                         = (mal_proc)mal_dlsym(pContext->alsa.asoundSO, "snd_pcm_writei");
-    pContext->alsa.snd_pcm_avail                          = (mal_proc)mal_dlsym(pContext->alsa.asoundSO, "snd_pcm_avail");
-    pContext->alsa.snd_pcm_avail_update                   = (mal_proc)mal_dlsym(pContext->alsa.asoundSO, "snd_pcm_avail_update");
-    pContext->alsa.snd_pcm_wait                           = (mal_proc)mal_dlsym(pContext->alsa.asoundSO, "snd_pcm_wait");
-    pContext->alsa.snd_pcm_info                           = (mal_proc)mal_dlsym(pContext->alsa.asoundSO, "snd_pcm_info");
-    pContext->alsa.snd_pcm_info_sizeof                    = (mal_proc)mal_dlsym(pContext->alsa.asoundSO, "snd_pcm_info_sizeof");
-    pContext->alsa.snd_pcm_info_get_name                  = (mal_proc)mal_dlsym(pContext->alsa.asoundSO, "snd_pcm_info_get_name");
-    pContext->alsa.snd_config_update_free_global          = (mal_proc)mal_dlsym(pContext->alsa.asoundSO, "snd_config_update_free_global");
-#else
-    // The system below is just for type safety.
-    mal_snd_pcm_open_proc                           _snd_pcm_open                           = snd_pcm_open;
-    mal_snd_pcm_close_proc                          _snd_pcm_close                          = snd_pcm_close;
-    mal_snd_pcm_hw_params_sizeof_proc               _snd_pcm_hw_params_sizeof               = snd_pcm_hw_params_sizeof;
-    mal_snd_pcm_hw_params_any_proc                  _snd_pcm_hw_params_any                  = snd_pcm_hw_params_any;
-    mal_snd_pcm_hw_params_set_format_proc           _snd_pcm_hw_params_set_format           = snd_pcm_hw_params_set_format;
-    mal_snd_pcm_hw_params_set_format_first_proc     _snd_pcm_hw_params_set_format_first     = snd_pcm_hw_params_set_format_first;
-    mal_snd_pcm_hw_params_get_format_mask_proc      _snd_pcm_hw_params_get_format_mask      = snd_pcm_hw_params_get_format_mask;
-    mal_snd_pcm_hw_params_set_channels_near_proc    _snd_pcm_hw_params_set_channels_near    = snd_pcm_hw_params_set_channels_near;
-    mal_snd_pcm_hw_params_set_rate_resample_proc    _snd_pcm_hw_params_set_rate_resample    = snd_pcm_hw_params_set_rate_resample;
-    mal_snd_pcm_hw_params_set_rate_near_proc        _snd_pcm_hw_params_set_rate_near        = snd_pcm_hw_params_set_rate_near;
-    mal_snd_pcm_hw_params_set_buffer_size_near_proc _snd_pcm_hw_params_set_buffer_size_near = snd_pcm_hw_params_set_buffer_size_near;
-    mal_snd_pcm_hw_params_set_periods_near_proc     _snd_pcm_hw_params_set_periods_near     = snd_pcm_hw_params_set_periods_near;
-    mal_snd_pcm_hw_params_set_access_proc           _snd_pcm_hw_params_set_access           = snd_pcm_hw_params_set_access;
-    mal_snd_pcm_hw_params_get_format_proc           _snd_pcm_hw_params_get_format           = snd_pcm_hw_params_get_format;
-    mal_snd_pcm_hw_params_get_channels_proc         _snd_pcm_hw_params_get_channels         = snd_pcm_hw_params_get_channels;
-    mal_snd_pcm_hw_params_get_channels_min_proc     _snd_pcm_hw_params_get_channels_min     = snd_pcm_hw_params_get_channels_min;
-    mal_snd_pcm_hw_params_get_channels_max_proc     _snd_pcm_hw_params_get_channels_max     = snd_pcm_hw_params_get_channels_max;
-    mal_snd_pcm_hw_params_get_rate_proc             _snd_pcm_hw_params_get_rate             = snd_pcm_hw_params_get_rate;
-    mal_snd_pcm_hw_params_get_rate_min_proc         _snd_pcm_hw_params_get_rate_min         = snd_pcm_hw_params_get_rate_min;
-    mal_snd_pcm_hw_params_get_rate_max_proc         _snd_pcm_hw_params_get_rate_max         = snd_pcm_hw_params_get_rate_max;
-    mal_snd_pcm_hw_params_get_buffer_size_proc      _snd_pcm_hw_params_get_buffer_size      = snd_pcm_hw_params_get_buffer_size;
-    mal_snd_pcm_hw_params_get_periods_proc          _snd_pcm_hw_params_get_periods          = snd_pcm_hw_params_get_periods;
-    mal_snd_pcm_hw_params_get_access_proc           _snd_pcm_hw_params_get_access           = snd_pcm_hw_params_get_access;
-    mal_snd_pcm_hw_params_proc                      _snd_pcm_hw_params                      = snd_pcm_hw_params;
-    mal_snd_pcm_sw_params_sizeof_proc               _snd_pcm_sw_params_sizeof               = snd_pcm_sw_params_sizeof;
-    mal_snd_pcm_sw_params_current_proc              _snd_pcm_sw_params_current              = snd_pcm_sw_params_current;
-    mal_snd_pcm_sw_params_set_avail_min_proc        _snd_pcm_sw_params_set_avail_min        = snd_pcm_sw_params_set_avail_min;
-    mal_snd_pcm_sw_params_set_start_threshold_proc  _snd_pcm_sw_params_set_start_threshold  = snd_pcm_sw_params_set_start_threshold;
-    mal_snd_pcm_sw_params_proc                      _snd_pcm_sw_params                      = snd_pcm_sw_params;
-    mal_snd_pcm_format_mask_sizeof_proc             _snd_pcm_format_mask_sizeof             = snd_pcm_format_mask_sizeof;
-    mal_snd_pcm_format_mask_test_proc               _snd_pcm_format_mask_test               = snd_pcm_format_mask_test;
-    mal_snd_pcm_get_chmap_proc                      _snd_pcm_get_chmap                      = snd_pcm_get_chmap;
-    mal_snd_pcm_prepare_proc                        _snd_pcm_prepare                        = snd_pcm_prepare;
-    mal_snd_pcm_start_proc                          _snd_pcm_start                          = snd_pcm_start;
-    mal_snd_pcm_drop_proc                           _snd_pcm_drop                           = snd_pcm_drop;
-    mal_snd_device_name_hint_proc                   _snd_device_name_hint                   = snd_device_name_hint;
-    mal_snd_device_name_get_hint_proc               _snd_device_name_get_hint               = snd_device_name_get_hint;
-    mal_snd_card_get_index_proc                     _snd_card_get_index                     = snd_card_get_index;
-    mal_snd_device_name_free_hint_proc              _snd_device_name_free_hint              = snd_device_name_free_hint;
-    mal_snd_pcm_mmap_begin_proc                     _snd_pcm_mmap_begin                     = snd_pcm_mmap_begin;
-    mal_snd_pcm_mmap_commit_proc                    _snd_pcm_mmap_commit                    = snd_pcm_mmap_commit;
-    mal_snd_pcm_recover_proc                        _snd_pcm_recover                        = snd_pcm_recover;
-    mal_snd_pcm_readi_proc                          _snd_pcm_readi                          = snd_pcm_readi;
-    mal_snd_pcm_writei_proc                         _snd_pcm_writei                         = snd_pcm_writei;
-    mal_snd_pcm_avail_proc                          _snd_pcm_avail                          = snd_pcm_avail;
-    mal_snd_pcm_avail_update_proc                   _snd_pcm_avail_update                   = snd_pcm_avail_update;
-    mal_snd_pcm_wait_proc                           _snd_pcm_wait                           = snd_pcm_wait;
-    mal_snd_pcm_info_proc                           _snd_pcm_info                           = snd_pcm_info;
-    mal_snd_pcm_info_sizeof_proc                    _snd_pcm_info_sizeof                    = snd_pcm_info_sizeof;
-    mal_snd_pcm_info_get_name_proc                  _snd_pcm_info_get_name                  = snd_pcm_info_get_name;
-    mal_snd_config_update_free_global_proc          _snd_config_update_free_global          = snd_config_update_free_global;
-
-    pContext->alsa.snd_pcm_open                           = (mal_proc)_snd_pcm_open;
-    pContext->alsa.snd_pcm_close                          = (mal_proc)_snd_pcm_close;
-    pContext->alsa.snd_pcm_hw_params_sizeof               = (mal_proc)_snd_pcm_hw_params_sizeof;
-    pContext->alsa.snd_pcm_hw_params_any                  = (mal_proc)_snd_pcm_hw_params_any;
-    pContext->alsa.snd_pcm_hw_params_set_format           = (mal_proc)_snd_pcm_hw_params_set_format;
-    pContext->alsa.snd_pcm_hw_params_set_format_first     = (mal_proc)_snd_pcm_hw_params_set_format_first;
-    pContext->alsa.snd_pcm_hw_params_get_format_mask      = (mal_proc)_snd_pcm_hw_params_get_format_mask;
-    pContext->alsa.snd_pcm_hw_params_set_channels_near    = (mal_proc)_snd_pcm_hw_params_set_channels_near;
-    pContext->alsa.snd_pcm_hw_params_set_rate_resample    = (mal_proc)_snd_pcm_hw_params_set_rate_resample;
-    pContext->alsa.snd_pcm_hw_params_set_rate_near        = (mal_proc)_snd_pcm_hw_params_set_rate_near;
-    pContext->alsa.snd_pcm_hw_params_set_buffer_size_near = (mal_proc)_snd_pcm_hw_params_set_buffer_size_near;
-    pContext->alsa.snd_pcm_hw_params_set_periods_near     = (mal_proc)_snd_pcm_hw_params_set_periods_near;
-    pContext->alsa.snd_pcm_hw_params_set_access           = (mal_proc)_snd_pcm_hw_params_set_access;
-    pContext->alsa.snd_pcm_hw_params_get_format           = (mal_proc)_snd_pcm_hw_params_get_format;
-    pContext->alsa.snd_pcm_hw_params_get_channels         = (mal_proc)_snd_pcm_hw_params_get_channels;
-    pContext->alsa.snd_pcm_hw_params_get_channels_min     = (mal_proc)_snd_pcm_hw_params_get_channels_min;
-    pContext->alsa.snd_pcm_hw_params_get_channels_max     = (mal_proc)_snd_pcm_hw_params_get_channels_max;
-    pContext->alsa.snd_pcm_hw_params_get_rate             = (mal_proc)_snd_pcm_hw_params_get_rate;
-    pContext->alsa.snd_pcm_hw_params_get_buffer_size      = (mal_proc)_snd_pcm_hw_params_get_buffer_size;
-    pContext->alsa.snd_pcm_hw_params_get_periods          = (mal_proc)_snd_pcm_hw_params_get_periods;
-    pContext->alsa.snd_pcm_hw_params_get_access           = (mal_proc)_snd_pcm_hw_params_get_access;
-    pContext->alsa.snd_pcm_hw_params                      = (mal_proc)_snd_pcm_hw_params;
-    pContext->alsa.snd_pcm_sw_params_sizeof               = (mal_proc)_snd_pcm_sw_params_sizeof;
-    pContext->alsa.snd_pcm_sw_params_current              = (mal_proc)_snd_pcm_sw_params_current;
-    pContext->alsa.snd_pcm_sw_params_set_avail_min        = (mal_proc)_snd_pcm_sw_params_set_avail_min;
-    pContext->alsa.snd_pcm_sw_params_set_start_threshold  = (mal_proc)_snd_pcm_sw_params_set_start_threshold;
-    pContext->alsa.snd_pcm_sw_params                      = (mal_proc)_snd_pcm_sw_params;
-    pContext->alsa.snd_pcm_format_mask_sizeof             = (mal_proc)_snd_pcm_format_mask_sizeof;
-    pContext->alsa.snd_pcm_format_mask_test               = (mal_proc)_snd_pcm_format_mask_test;
-    pContext->alsa.snd_pcm_get_chmap                      = (mal_proc)_snd_pcm_get_chmap;
-    pContext->alsa.snd_pcm_prepare                        = (mal_proc)_snd_pcm_prepare;
-    pContext->alsa.snd_pcm_start                          = (mal_proc)_snd_pcm_start;
-    pContext->alsa.snd_pcm_drop                           = (mal_proc)_snd_pcm_drop;
-    pContext->alsa.snd_device_name_hint                   = (mal_proc)_snd_device_name_hint;
-    pContext->alsa.snd_device_name_get_hint               = (mal_proc)_snd_device_name_get_hint;
-    pContext->alsa.snd_card_get_index                     = (mal_proc)_snd_card_get_index;
-    pContext->alsa.snd_device_name_free_hint              = (mal_proc)_snd_device_name_free_hint;
-    pContext->alsa.snd_pcm_mmap_begin                     = (mal_proc)_snd_pcm_mmap_begin;
-    pContext->alsa.snd_pcm_mmap_commit                    = (mal_proc)_snd_pcm_mmap_commit;
-    pContext->alsa.snd_pcm_recover                        = (mal_proc)_snd_pcm_recover;
-    pContext->alsa.snd_pcm_readi                          = (mal_proc)_snd_pcm_readi;
-    pContext->alsa.snd_pcm_writei                         = (mal_proc)_snd_pcm_writei;
-    pContext->alsa.snd_pcm_avail                          = (mal_proc)_snd_pcm_avail;
-    pContext->alsa.snd_pcm_avail_update                   = (mal_proc)_snd_pcm_avail_update;
-    pContext->alsa.snd_pcm_wait                           = (mal_proc)_snd_pcm_wait;
-    pContext->alsa.snd_pcm_info                           = (mal_proc)_snd_pcm_info;
-    pContext->alsa.snd_pcm_info_sizeof                    = (mal_proc)_snd_pcm_info_sizeof;
-    pContext->alsa.snd_pcm_info_get_name                  = (mal_proc)_snd_pcm_info_get_name;
-    pContext->alsa.snd_config_update_free_global          = (mal_proc)_snd_config_update_free_global;
-#endif
-
-    if (mal_mutex_init(pContext, &pContext->alsa.internalDeviceEnumLock) != MAL_SUCCESS) {
-        mal_context_post_error(pContext, NULL, MAL_LOG_LEVEL_ERROR, "[ALSA] WARNING: Failed to initialize mutex for internal device enumeration.", MAL_ERROR);
-    }
-
-    pContext->onDeviceIDEqual = mal_context_is_device_id_equal__alsa;
-    pContext->onEnumDevices   = mal_context_enumerate_devices__alsa;
-    pContext->onGetDeviceInfo = mal_context_get_device_info__alsa;
-
-    return MAL_SUCCESS;
-}
-
-mal_result mal_context_uninit__alsa(mal_context* pContext)
-{
-    mal_assert(pContext != NULL);
-    mal_assert(pContext->backend == mal_backend_alsa);
-
-    // Clean up memory for memory leak checkers.
-    ((mal_snd_config_update_free_global_proc)pContext->alsa.snd_config_update_free_global)();
-
-#ifndef MAL_NO_RUNTIME_LINKING
-    mal_dlclose(pContext->alsa.asoundSO);
-#endif
-
-    mal_mutex_uninit(&pContext->alsa.internalDeviceEnumLock);
-
-    return MAL_SUCCESS;
-}
-
 
 // Waits for a number of frames to become available for either capture or playback. The return
 // value is the number of frames available.
@@ -10373,6 +10179,208 @@ mal_result mal_device__main_loop__alsa(mal_device* pDevice)
         while (!pDevice->alsa.breakFromMainLoop && mal_device_read__alsa(pDevice)) {
         }
     }
+
+    return MAL_SUCCESS;
+}
+
+
+mal_result mal_context_uninit__alsa(mal_context* pContext)
+{
+    mal_assert(pContext != NULL);
+    mal_assert(pContext->backend == mal_backend_alsa);
+
+    // Clean up memory for memory leak checkers.
+    ((mal_snd_config_update_free_global_proc)pContext->alsa.snd_config_update_free_global)();
+
+#ifndef MAL_NO_RUNTIME_LINKING
+    mal_dlclose(pContext->alsa.asoundSO);
+#endif
+
+    mal_mutex_uninit(&pContext->alsa.internalDeviceEnumLock);
+
+    return MAL_SUCCESS;
+}
+
+mal_result mal_context_init__alsa(mal_context* pContext)
+{
+    mal_assert(pContext != NULL);
+
+#ifndef MAL_NO_RUNTIME_LINKING
+    pContext->alsa.asoundSO = mal_dlopen("libasound.so");
+    if (pContext->alsa.asoundSO == NULL) {
+        return MAL_NO_BACKEND;
+    }
+
+    pContext->alsa.snd_pcm_open                           = (mal_proc)mal_dlsym(pContext->alsa.asoundSO, "snd_pcm_open");
+    pContext->alsa.snd_pcm_close                          = (mal_proc)mal_dlsym(pContext->alsa.asoundSO, "snd_pcm_close");
+    pContext->alsa.snd_pcm_hw_params_sizeof               = (mal_proc)mal_dlsym(pContext->alsa.asoundSO, "snd_pcm_hw_params_sizeof");
+    pContext->alsa.snd_pcm_hw_params_any                  = (mal_proc)mal_dlsym(pContext->alsa.asoundSO, "snd_pcm_hw_params_any");
+    pContext->alsa.snd_pcm_hw_params_set_format           = (mal_proc)mal_dlsym(pContext->alsa.asoundSO, "snd_pcm_hw_params_set_format");
+    pContext->alsa.snd_pcm_hw_params_set_format_first     = (mal_proc)mal_dlsym(pContext->alsa.asoundSO, "snd_pcm_hw_params_set_format_first");
+    pContext->alsa.snd_pcm_hw_params_get_format_mask      = (mal_proc)mal_dlsym(pContext->alsa.asoundSO, "snd_pcm_hw_params_get_format_mask");
+    pContext->alsa.snd_pcm_hw_params_set_channels_near    = (mal_proc)mal_dlsym(pContext->alsa.asoundSO, "snd_pcm_hw_params_set_channels_near");
+    pContext->alsa.snd_pcm_hw_params_set_rate_resample    = (mal_proc)mal_dlsym(pContext->alsa.asoundSO, "snd_pcm_hw_params_set_rate_resample");
+    pContext->alsa.snd_pcm_hw_params_set_rate_near        = (mal_proc)mal_dlsym(pContext->alsa.asoundSO, "snd_pcm_hw_params_set_rate_near");
+    pContext->alsa.snd_pcm_hw_params_set_buffer_size_near = (mal_proc)mal_dlsym(pContext->alsa.asoundSO, "snd_pcm_hw_params_set_buffer_size_near");
+    pContext->alsa.snd_pcm_hw_params_set_periods_near     = (mal_proc)mal_dlsym(pContext->alsa.asoundSO, "snd_pcm_hw_params_set_periods_near");
+    pContext->alsa.snd_pcm_hw_params_set_access           = (mal_proc)mal_dlsym(pContext->alsa.asoundSO, "snd_pcm_hw_params_set_access");
+    pContext->alsa.snd_pcm_hw_params_get_format           = (mal_proc)mal_dlsym(pContext->alsa.asoundSO, "snd_pcm_hw_params_get_format");
+    pContext->alsa.snd_pcm_hw_params_get_channels         = (mal_proc)mal_dlsym(pContext->alsa.asoundSO, "snd_pcm_hw_params_get_channels");
+    pContext->alsa.snd_pcm_hw_params_get_channels_min     = (mal_proc)mal_dlsym(pContext->alsa.asoundSO, "snd_pcm_hw_params_get_channels_min");
+    pContext->alsa.snd_pcm_hw_params_get_channels_max     = (mal_proc)mal_dlsym(pContext->alsa.asoundSO, "snd_pcm_hw_params_get_channels_max");
+    pContext->alsa.snd_pcm_hw_params_get_rate             = (mal_proc)mal_dlsym(pContext->alsa.asoundSO, "snd_pcm_hw_params_get_rate");
+    pContext->alsa.snd_pcm_hw_params_get_rate_min         = (mal_proc)mal_dlsym(pContext->alsa.asoundSO, "snd_pcm_hw_params_get_rate_min");
+    pContext->alsa.snd_pcm_hw_params_get_rate_max         = (mal_proc)mal_dlsym(pContext->alsa.asoundSO, "snd_pcm_hw_params_get_rate_max");
+    pContext->alsa.snd_pcm_hw_params_get_buffer_size      = (mal_proc)mal_dlsym(pContext->alsa.asoundSO, "snd_pcm_hw_params_get_buffer_size");
+    pContext->alsa.snd_pcm_hw_params_get_periods          = (mal_proc)mal_dlsym(pContext->alsa.asoundSO, "snd_pcm_hw_params_get_periods");
+    pContext->alsa.snd_pcm_hw_params_get_access           = (mal_proc)mal_dlsym(pContext->alsa.asoundSO, "snd_pcm_hw_params_get_access");
+    pContext->alsa.snd_pcm_hw_params                      = (mal_proc)mal_dlsym(pContext->alsa.asoundSO, "snd_pcm_hw_params");
+    pContext->alsa.snd_pcm_sw_params_sizeof               = (mal_proc)mal_dlsym(pContext->alsa.asoundSO, "snd_pcm_sw_params_sizeof");
+    pContext->alsa.snd_pcm_sw_params_current              = (mal_proc)mal_dlsym(pContext->alsa.asoundSO, "snd_pcm_sw_params_current");
+    pContext->alsa.snd_pcm_sw_params_set_avail_min        = (mal_proc)mal_dlsym(pContext->alsa.asoundSO, "snd_pcm_sw_params_set_avail_min");
+    pContext->alsa.snd_pcm_sw_params_set_start_threshold  = (mal_proc)mal_dlsym(pContext->alsa.asoundSO, "snd_pcm_sw_params_set_start_threshold");
+    pContext->alsa.snd_pcm_sw_params                      = (mal_proc)mal_dlsym(pContext->alsa.asoundSO, "snd_pcm_sw_params");
+    pContext->alsa.snd_pcm_format_mask_sizeof             = (mal_proc)mal_dlsym(pContext->alsa.asoundSO, "snd_pcm_format_mask_sizeof");
+    pContext->alsa.snd_pcm_format_mask_test               = (mal_proc)mal_dlsym(pContext->alsa.asoundSO, "snd_pcm_format_mask_test");
+    pContext->alsa.snd_pcm_get_chmap                      = (mal_proc)mal_dlsym(pContext->alsa.asoundSO, "snd_pcm_get_chmap");
+    pContext->alsa.snd_pcm_prepare                        = (mal_proc)mal_dlsym(pContext->alsa.asoundSO, "snd_pcm_prepare");
+    pContext->alsa.snd_pcm_start                          = (mal_proc)mal_dlsym(pContext->alsa.asoundSO, "snd_pcm_start");
+    pContext->alsa.snd_pcm_drop                           = (mal_proc)mal_dlsym(pContext->alsa.asoundSO, "snd_pcm_drop");
+    pContext->alsa.snd_device_name_hint                   = (mal_proc)mal_dlsym(pContext->alsa.asoundSO, "snd_device_name_hint");
+    pContext->alsa.snd_device_name_get_hint               = (mal_proc)mal_dlsym(pContext->alsa.asoundSO, "snd_device_name_get_hint");
+    pContext->alsa.snd_card_get_index                     = (mal_proc)mal_dlsym(pContext->alsa.asoundSO, "snd_card_get_index");
+    pContext->alsa.snd_device_name_free_hint              = (mal_proc)mal_dlsym(pContext->alsa.asoundSO, "snd_device_name_free_hint");
+    pContext->alsa.snd_pcm_mmap_begin                     = (mal_proc)mal_dlsym(pContext->alsa.asoundSO, "snd_pcm_mmap_begin");
+    pContext->alsa.snd_pcm_mmap_commit                    = (mal_proc)mal_dlsym(pContext->alsa.asoundSO, "snd_pcm_mmap_commit");
+    pContext->alsa.snd_pcm_recover                        = (mal_proc)mal_dlsym(pContext->alsa.asoundSO, "snd_pcm_recover");
+    pContext->alsa.snd_pcm_readi                          = (mal_proc)mal_dlsym(pContext->alsa.asoundSO, "snd_pcm_readi");
+    pContext->alsa.snd_pcm_writei                         = (mal_proc)mal_dlsym(pContext->alsa.asoundSO, "snd_pcm_writei");
+    pContext->alsa.snd_pcm_avail                          = (mal_proc)mal_dlsym(pContext->alsa.asoundSO, "snd_pcm_avail");
+    pContext->alsa.snd_pcm_avail_update                   = (mal_proc)mal_dlsym(pContext->alsa.asoundSO, "snd_pcm_avail_update");
+    pContext->alsa.snd_pcm_wait                           = (mal_proc)mal_dlsym(pContext->alsa.asoundSO, "snd_pcm_wait");
+    pContext->alsa.snd_pcm_info                           = (mal_proc)mal_dlsym(pContext->alsa.asoundSO, "snd_pcm_info");
+    pContext->alsa.snd_pcm_info_sizeof                    = (mal_proc)mal_dlsym(pContext->alsa.asoundSO, "snd_pcm_info_sizeof");
+    pContext->alsa.snd_pcm_info_get_name                  = (mal_proc)mal_dlsym(pContext->alsa.asoundSO, "snd_pcm_info_get_name");
+    pContext->alsa.snd_config_update_free_global          = (mal_proc)mal_dlsym(pContext->alsa.asoundSO, "snd_config_update_free_global");
+#else
+    // The system below is just for type safety.
+    mal_snd_pcm_open_proc                           _snd_pcm_open                           = snd_pcm_open;
+    mal_snd_pcm_close_proc                          _snd_pcm_close                          = snd_pcm_close;
+    mal_snd_pcm_hw_params_sizeof_proc               _snd_pcm_hw_params_sizeof               = snd_pcm_hw_params_sizeof;
+    mal_snd_pcm_hw_params_any_proc                  _snd_pcm_hw_params_any                  = snd_pcm_hw_params_any;
+    mal_snd_pcm_hw_params_set_format_proc           _snd_pcm_hw_params_set_format           = snd_pcm_hw_params_set_format;
+    mal_snd_pcm_hw_params_set_format_first_proc     _snd_pcm_hw_params_set_format_first     = snd_pcm_hw_params_set_format_first;
+    mal_snd_pcm_hw_params_get_format_mask_proc      _snd_pcm_hw_params_get_format_mask      = snd_pcm_hw_params_get_format_mask;
+    mal_snd_pcm_hw_params_set_channels_near_proc    _snd_pcm_hw_params_set_channels_near    = snd_pcm_hw_params_set_channels_near;
+    mal_snd_pcm_hw_params_set_rate_resample_proc    _snd_pcm_hw_params_set_rate_resample    = snd_pcm_hw_params_set_rate_resample;
+    mal_snd_pcm_hw_params_set_rate_near_proc        _snd_pcm_hw_params_set_rate_near        = snd_pcm_hw_params_set_rate_near;
+    mal_snd_pcm_hw_params_set_buffer_size_near_proc _snd_pcm_hw_params_set_buffer_size_near = snd_pcm_hw_params_set_buffer_size_near;
+    mal_snd_pcm_hw_params_set_periods_near_proc     _snd_pcm_hw_params_set_periods_near     = snd_pcm_hw_params_set_periods_near;
+    mal_snd_pcm_hw_params_set_access_proc           _snd_pcm_hw_params_set_access           = snd_pcm_hw_params_set_access;
+    mal_snd_pcm_hw_params_get_format_proc           _snd_pcm_hw_params_get_format           = snd_pcm_hw_params_get_format;
+    mal_snd_pcm_hw_params_get_channels_proc         _snd_pcm_hw_params_get_channels         = snd_pcm_hw_params_get_channels;
+    mal_snd_pcm_hw_params_get_channels_min_proc     _snd_pcm_hw_params_get_channels_min     = snd_pcm_hw_params_get_channels_min;
+    mal_snd_pcm_hw_params_get_channels_max_proc     _snd_pcm_hw_params_get_channels_max     = snd_pcm_hw_params_get_channels_max;
+    mal_snd_pcm_hw_params_get_rate_proc             _snd_pcm_hw_params_get_rate             = snd_pcm_hw_params_get_rate;
+    mal_snd_pcm_hw_params_get_rate_min_proc         _snd_pcm_hw_params_get_rate_min         = snd_pcm_hw_params_get_rate_min;
+    mal_snd_pcm_hw_params_get_rate_max_proc         _snd_pcm_hw_params_get_rate_max         = snd_pcm_hw_params_get_rate_max;
+    mal_snd_pcm_hw_params_get_buffer_size_proc      _snd_pcm_hw_params_get_buffer_size      = snd_pcm_hw_params_get_buffer_size;
+    mal_snd_pcm_hw_params_get_periods_proc          _snd_pcm_hw_params_get_periods          = snd_pcm_hw_params_get_periods;
+    mal_snd_pcm_hw_params_get_access_proc           _snd_pcm_hw_params_get_access           = snd_pcm_hw_params_get_access;
+    mal_snd_pcm_hw_params_proc                      _snd_pcm_hw_params                      = snd_pcm_hw_params;
+    mal_snd_pcm_sw_params_sizeof_proc               _snd_pcm_sw_params_sizeof               = snd_pcm_sw_params_sizeof;
+    mal_snd_pcm_sw_params_current_proc              _snd_pcm_sw_params_current              = snd_pcm_sw_params_current;
+    mal_snd_pcm_sw_params_set_avail_min_proc        _snd_pcm_sw_params_set_avail_min        = snd_pcm_sw_params_set_avail_min;
+    mal_snd_pcm_sw_params_set_start_threshold_proc  _snd_pcm_sw_params_set_start_threshold  = snd_pcm_sw_params_set_start_threshold;
+    mal_snd_pcm_sw_params_proc                      _snd_pcm_sw_params                      = snd_pcm_sw_params;
+    mal_snd_pcm_format_mask_sizeof_proc             _snd_pcm_format_mask_sizeof             = snd_pcm_format_mask_sizeof;
+    mal_snd_pcm_format_mask_test_proc               _snd_pcm_format_mask_test               = snd_pcm_format_mask_test;
+    mal_snd_pcm_get_chmap_proc                      _snd_pcm_get_chmap                      = snd_pcm_get_chmap;
+    mal_snd_pcm_prepare_proc                        _snd_pcm_prepare                        = snd_pcm_prepare;
+    mal_snd_pcm_start_proc                          _snd_pcm_start                          = snd_pcm_start;
+    mal_snd_pcm_drop_proc                           _snd_pcm_drop                           = snd_pcm_drop;
+    mal_snd_device_name_hint_proc                   _snd_device_name_hint                   = snd_device_name_hint;
+    mal_snd_device_name_get_hint_proc               _snd_device_name_get_hint               = snd_device_name_get_hint;
+    mal_snd_card_get_index_proc                     _snd_card_get_index                     = snd_card_get_index;
+    mal_snd_device_name_free_hint_proc              _snd_device_name_free_hint              = snd_device_name_free_hint;
+    mal_snd_pcm_mmap_begin_proc                     _snd_pcm_mmap_begin                     = snd_pcm_mmap_begin;
+    mal_snd_pcm_mmap_commit_proc                    _snd_pcm_mmap_commit                    = snd_pcm_mmap_commit;
+    mal_snd_pcm_recover_proc                        _snd_pcm_recover                        = snd_pcm_recover;
+    mal_snd_pcm_readi_proc                          _snd_pcm_readi                          = snd_pcm_readi;
+    mal_snd_pcm_writei_proc                         _snd_pcm_writei                         = snd_pcm_writei;
+    mal_snd_pcm_avail_proc                          _snd_pcm_avail                          = snd_pcm_avail;
+    mal_snd_pcm_avail_update_proc                   _snd_pcm_avail_update                   = snd_pcm_avail_update;
+    mal_snd_pcm_wait_proc                           _snd_pcm_wait                           = snd_pcm_wait;
+    mal_snd_pcm_info_proc                           _snd_pcm_info                           = snd_pcm_info;
+    mal_snd_pcm_info_sizeof_proc                    _snd_pcm_info_sizeof                    = snd_pcm_info_sizeof;
+    mal_snd_pcm_info_get_name_proc                  _snd_pcm_info_get_name                  = snd_pcm_info_get_name;
+    mal_snd_config_update_free_global_proc          _snd_config_update_free_global          = snd_config_update_free_global;
+
+    pContext->alsa.snd_pcm_open                           = (mal_proc)_snd_pcm_open;
+    pContext->alsa.snd_pcm_close                          = (mal_proc)_snd_pcm_close;
+    pContext->alsa.snd_pcm_hw_params_sizeof               = (mal_proc)_snd_pcm_hw_params_sizeof;
+    pContext->alsa.snd_pcm_hw_params_any                  = (mal_proc)_snd_pcm_hw_params_any;
+    pContext->alsa.snd_pcm_hw_params_set_format           = (mal_proc)_snd_pcm_hw_params_set_format;
+    pContext->alsa.snd_pcm_hw_params_set_format_first     = (mal_proc)_snd_pcm_hw_params_set_format_first;
+    pContext->alsa.snd_pcm_hw_params_get_format_mask      = (mal_proc)_snd_pcm_hw_params_get_format_mask;
+    pContext->alsa.snd_pcm_hw_params_set_channels_near    = (mal_proc)_snd_pcm_hw_params_set_channels_near;
+    pContext->alsa.snd_pcm_hw_params_set_rate_resample    = (mal_proc)_snd_pcm_hw_params_set_rate_resample;
+    pContext->alsa.snd_pcm_hw_params_set_rate_near        = (mal_proc)_snd_pcm_hw_params_set_rate_near;
+    pContext->alsa.snd_pcm_hw_params_set_buffer_size_near = (mal_proc)_snd_pcm_hw_params_set_buffer_size_near;
+    pContext->alsa.snd_pcm_hw_params_set_periods_near     = (mal_proc)_snd_pcm_hw_params_set_periods_near;
+    pContext->alsa.snd_pcm_hw_params_set_access           = (mal_proc)_snd_pcm_hw_params_set_access;
+    pContext->alsa.snd_pcm_hw_params_get_format           = (mal_proc)_snd_pcm_hw_params_get_format;
+    pContext->alsa.snd_pcm_hw_params_get_channels         = (mal_proc)_snd_pcm_hw_params_get_channels;
+    pContext->alsa.snd_pcm_hw_params_get_channels_min     = (mal_proc)_snd_pcm_hw_params_get_channels_min;
+    pContext->alsa.snd_pcm_hw_params_get_channels_max     = (mal_proc)_snd_pcm_hw_params_get_channels_max;
+    pContext->alsa.snd_pcm_hw_params_get_rate             = (mal_proc)_snd_pcm_hw_params_get_rate;
+    pContext->alsa.snd_pcm_hw_params_get_buffer_size      = (mal_proc)_snd_pcm_hw_params_get_buffer_size;
+    pContext->alsa.snd_pcm_hw_params_get_periods          = (mal_proc)_snd_pcm_hw_params_get_periods;
+    pContext->alsa.snd_pcm_hw_params_get_access           = (mal_proc)_snd_pcm_hw_params_get_access;
+    pContext->alsa.snd_pcm_hw_params                      = (mal_proc)_snd_pcm_hw_params;
+    pContext->alsa.snd_pcm_sw_params_sizeof               = (mal_proc)_snd_pcm_sw_params_sizeof;
+    pContext->alsa.snd_pcm_sw_params_current              = (mal_proc)_snd_pcm_sw_params_current;
+    pContext->alsa.snd_pcm_sw_params_set_avail_min        = (mal_proc)_snd_pcm_sw_params_set_avail_min;
+    pContext->alsa.snd_pcm_sw_params_set_start_threshold  = (mal_proc)_snd_pcm_sw_params_set_start_threshold;
+    pContext->alsa.snd_pcm_sw_params                      = (mal_proc)_snd_pcm_sw_params;
+    pContext->alsa.snd_pcm_format_mask_sizeof             = (mal_proc)_snd_pcm_format_mask_sizeof;
+    pContext->alsa.snd_pcm_format_mask_test               = (mal_proc)_snd_pcm_format_mask_test;
+    pContext->alsa.snd_pcm_get_chmap                      = (mal_proc)_snd_pcm_get_chmap;
+    pContext->alsa.snd_pcm_prepare                        = (mal_proc)_snd_pcm_prepare;
+    pContext->alsa.snd_pcm_start                          = (mal_proc)_snd_pcm_start;
+    pContext->alsa.snd_pcm_drop                           = (mal_proc)_snd_pcm_drop;
+    pContext->alsa.snd_device_name_hint                   = (mal_proc)_snd_device_name_hint;
+    pContext->alsa.snd_device_name_get_hint               = (mal_proc)_snd_device_name_get_hint;
+    pContext->alsa.snd_card_get_index                     = (mal_proc)_snd_card_get_index;
+    pContext->alsa.snd_device_name_free_hint              = (mal_proc)_snd_device_name_free_hint;
+    pContext->alsa.snd_pcm_mmap_begin                     = (mal_proc)_snd_pcm_mmap_begin;
+    pContext->alsa.snd_pcm_mmap_commit                    = (mal_proc)_snd_pcm_mmap_commit;
+    pContext->alsa.snd_pcm_recover                        = (mal_proc)_snd_pcm_recover;
+    pContext->alsa.snd_pcm_readi                          = (mal_proc)_snd_pcm_readi;
+    pContext->alsa.snd_pcm_writei                         = (mal_proc)_snd_pcm_writei;
+    pContext->alsa.snd_pcm_avail                          = (mal_proc)_snd_pcm_avail;
+    pContext->alsa.snd_pcm_avail_update                   = (mal_proc)_snd_pcm_avail_update;
+    pContext->alsa.snd_pcm_wait                           = (mal_proc)_snd_pcm_wait;
+    pContext->alsa.snd_pcm_info                           = (mal_proc)_snd_pcm_info;
+    pContext->alsa.snd_pcm_info_sizeof                    = (mal_proc)_snd_pcm_info_sizeof;
+    pContext->alsa.snd_pcm_info_get_name                  = (mal_proc)_snd_pcm_info_get_name;
+    pContext->alsa.snd_config_update_free_global          = (mal_proc)_snd_config_update_free_global;
+#endif
+
+    if (mal_mutex_init(pContext, &pContext->alsa.internalDeviceEnumLock) != MAL_SUCCESS) {
+        mal_context_post_error(pContext, NULL, MAL_LOG_LEVEL_ERROR, "[ALSA] WARNING: Failed to initialize mutex for internal device enumeration.", MAL_ERROR);
+    }
+
+    pContext->onUninit              = mal_context_uninit__alsa;
+    pContext->onDeviceIDEqual       = mal_context_is_device_id_equal__alsa;
+    pContext->onEnumDevices         = mal_context_enumerate_devices__alsa;
+    pContext->onGetDeviceInfo       = mal_context_get_device_info__alsa;
+    pContext->onDeviceInit          = mal_device_init__alsa;
+    pContext->onDeviceUninit        = mal_device_uninit__alsa;
+    pContext->onDeviceStart         = mal_device__start_backend__alsa;
+    pContext->onDeviceStop          = mal_device__stop_backend__alsa;
+    pContext->onDeviceBreakMainLoop = mal_device__break_main_loop__alsa;
+    pContext->onDeviceMainLoop      = mal_device__main_loop__alsa;
 
     return MAL_SUCCESS;
 }
