@@ -11391,202 +11391,6 @@ done:
     return result;
 }
 
-mal_result mal_context_init__pulse(mal_context* pContext)
-{
-    mal_assert(pContext != NULL);
-
-#ifndef MAL_NO_RUNTIME_LINKING
-    // libpulse.so
-    const char* libpulseNames[] = {
-        "libpulse.so",
-        "libpulse.so.0"
-    };
-
-    for (size_t i = 0; i < mal_countof(libpulseNames); ++i) {
-        pContext->pulse.pulseSO = mal_dlopen(libpulseNames[i]);
-        if (pContext->pulse.pulseSO != NULL) {
-            break;
-        }
-    }
-
-    if (pContext->pulse.pulseSO == NULL) {
-        return MAL_NO_BACKEND;
-    }
-
-    pContext->pulse.pa_mainloop_new                    = (mal_proc)mal_dlsym(pContext->pulse.pulseSO, "pa_mainloop_new");
-    pContext->pulse.pa_mainloop_free                   = (mal_proc)mal_dlsym(pContext->pulse.pulseSO, "pa_mainloop_free");
-    pContext->pulse.pa_mainloop_get_api                = (mal_proc)mal_dlsym(pContext->pulse.pulseSO, "pa_mainloop_get_api");
-    pContext->pulse.pa_mainloop_iterate                = (mal_proc)mal_dlsym(pContext->pulse.pulseSO, "pa_mainloop_iterate");
-    pContext->pulse.pa_mainloop_wakeup                 = (mal_proc)mal_dlsym(pContext->pulse.pulseSO, "pa_mainloop_wakeup");
-    pContext->pulse.pa_context_new                     = (mal_proc)mal_dlsym(pContext->pulse.pulseSO, "pa_context_new");
-    pContext->pulse.pa_context_unref                   = (mal_proc)mal_dlsym(pContext->pulse.pulseSO, "pa_context_unref");
-    pContext->pulse.pa_context_connect                 = (mal_proc)mal_dlsym(pContext->pulse.pulseSO, "pa_context_connect");
-    pContext->pulse.pa_context_disconnect              = (mal_proc)mal_dlsym(pContext->pulse.pulseSO, "pa_context_disconnect");
-    pContext->pulse.pa_context_set_state_callback      = (mal_proc)mal_dlsym(pContext->pulse.pulseSO, "pa_context_set_state_callback");
-    pContext->pulse.pa_context_get_state               = (mal_proc)mal_dlsym(pContext->pulse.pulseSO, "pa_context_get_state");
-    pContext->pulse.pa_context_get_sink_info_list      = (mal_proc)mal_dlsym(pContext->pulse.pulseSO, "pa_context_get_sink_info_list");
-    pContext->pulse.pa_context_get_source_info_list    = (mal_proc)mal_dlsym(pContext->pulse.pulseSO, "pa_context_get_source_info_list");
-    pContext->pulse.pa_context_get_sink_info_by_name   = (mal_proc)mal_dlsym(pContext->pulse.pulseSO, "pa_context_get_sink_info_by_name");
-    pContext->pulse.pa_context_get_source_info_by_name = (mal_proc)mal_dlsym(pContext->pulse.pulseSO, "pa_context_get_source_info_by_name");
-    pContext->pulse.pa_operation_unref                 = (mal_proc)mal_dlsym(pContext->pulse.pulseSO, "pa_operation_unref");
-    pContext->pulse.pa_operation_get_state             = (mal_proc)mal_dlsym(pContext->pulse.pulseSO, "pa_operation_get_state");
-    pContext->pulse.pa_channel_map_init_extend         = (mal_proc)mal_dlsym(pContext->pulse.pulseSO, "pa_channel_map_init_extend");
-    pContext->pulse.pa_channel_map_valid               = (mal_proc)mal_dlsym(pContext->pulse.pulseSO, "pa_channel_map_valid");
-    pContext->pulse.pa_channel_map_compatible          = (mal_proc)mal_dlsym(pContext->pulse.pulseSO, "pa_channel_map_compatible");
-    pContext->pulse.pa_stream_new                      = (mal_proc)mal_dlsym(pContext->pulse.pulseSO, "pa_stream_new");
-    pContext->pulse.pa_stream_unref                    = (mal_proc)mal_dlsym(pContext->pulse.pulseSO, "pa_stream_unref");
-    pContext->pulse.pa_stream_connect_playback         = (mal_proc)mal_dlsym(pContext->pulse.pulseSO, "pa_stream_connect_playback");
-    pContext->pulse.pa_stream_connect_record           = (mal_proc)mal_dlsym(pContext->pulse.pulseSO, "pa_stream_connect_record");
-    pContext->pulse.pa_stream_disconnect               = (mal_proc)mal_dlsym(pContext->pulse.pulseSO, "pa_stream_disconnect");
-    pContext->pulse.pa_stream_get_state                = (mal_proc)mal_dlsym(pContext->pulse.pulseSO, "pa_stream_get_state");
-    pContext->pulse.pa_stream_get_sample_spec          = (mal_proc)mal_dlsym(pContext->pulse.pulseSO, "pa_stream_get_sample_spec");
-    pContext->pulse.pa_stream_get_channel_map          = (mal_proc)mal_dlsym(pContext->pulse.pulseSO, "pa_stream_get_channel_map");
-    pContext->pulse.pa_stream_get_buffer_attr          = (mal_proc)mal_dlsym(pContext->pulse.pulseSO, "pa_stream_get_buffer_attr");
-    pContext->pulse.pa_stream_get_device_name          = (mal_proc)mal_dlsym(pContext->pulse.pulseSO, "pa_stream_get_device_name");
-    pContext->pulse.pa_stream_set_write_callback       = (mal_proc)mal_dlsym(pContext->pulse.pulseSO, "pa_stream_set_write_callback");
-    pContext->pulse.pa_stream_set_read_callback        = (mal_proc)mal_dlsym(pContext->pulse.pulseSO, "pa_stream_set_read_callback");
-    pContext->pulse.pa_stream_flush                    = (mal_proc)mal_dlsym(pContext->pulse.pulseSO, "pa_stream_flush");
-    pContext->pulse.pa_stream_drain                    = (mal_proc)mal_dlsym(pContext->pulse.pulseSO, "pa_stream_drain");
-    pContext->pulse.pa_stream_cork                     = (mal_proc)mal_dlsym(pContext->pulse.pulseSO, "pa_stream_cork");
-    pContext->pulse.pa_stream_trigger                  = (mal_proc)mal_dlsym(pContext->pulse.pulseSO, "pa_stream_trigger");
-    pContext->pulse.pa_stream_begin_write              = (mal_proc)mal_dlsym(pContext->pulse.pulseSO, "pa_stream_begin_write");
-    pContext->pulse.pa_stream_write                    = (mal_proc)mal_dlsym(pContext->pulse.pulseSO, "pa_stream_write");
-    pContext->pulse.pa_stream_peek                     = (mal_proc)mal_dlsym(pContext->pulse.pulseSO, "pa_stream_peek");
-    pContext->pulse.pa_stream_drop                     = (mal_proc)mal_dlsym(pContext->pulse.pulseSO, "pa_stream_drop");
-#else
-    // This strange assignment system is just for type safety.
-    mal_pa_mainloop_new_proc                    _pa_mainloop_new                   = pa_mainloop_new;
-    mal_pa_mainloop_free_proc                   _pa_mainloop_free                  = pa_mainloop_free;
-    mal_pa_mainloop_get_api_proc                _pa_mainloop_get_api               = pa_mainloop_get_api;
-    mal_pa_mainloop_iterate_proc                _pa_mainloop_iterate               = pa_mainloop_iterate;
-    mal_pa_mainloop_wakeup_proc                 _pa_mainloop_wakeup                = pa_mainloop_wakeup;
-    mal_pa_context_new_proc                     _pa_context_new                    = pa_context_new;
-    mal_pa_context_unref_proc                   _pa_context_unref                  = pa_context_unref;
-    mal_pa_context_connect_proc                 _pa_context_connect                = pa_context_connect;
-    mal_pa_context_disconnect_proc              _pa_context_disconnect             = pa_context_disconnect;
-    mal_pa_context_set_state_callback_proc      _pa_context_set_state_callback     = pa_context_set_state_callback;
-    mal_pa_context_get_state_proc               _pa_context_get_state              = pa_context_get_state;
-    mal_pa_context_get_sink_info_list_proc      _pa_context_get_sink_info_list     = pa_context_get_sink_info_list;
-    mal_pa_context_get_source_info_list_proc    _pa_context_get_source_info_list   = pa_context_get_source_info_list;
-    mal_pa_context_get_sink_info_by_name_proc   _pa_context_get_sink_info_by_name  = pa_context_get_sink_info_by_name;
-    mal_pa_context_get_source_info_by_name_proc _pa_context_get_source_info_by_name= pa_context_get_source_info_by_name;
-    mal_pa_operation_unref_proc                 _pa_operation_unref                = pa_operation_unref;
-    mal_pa_operation_get_state_proc             _pa_operation_get_state            = pa_operation_get_state;
-    mal_pa_channel_map_init_extend_proc         _pa_channel_map_init_extend        = pa_channel_map_init_extend;
-    mal_pa_channel_map_valid_proc               _pa_channel_map_valid              = pa_channel_map_valid;
-    mal_pa_channel_map_compatible_proc          _pa_channel_map_compatible         = pa_channel_map_compatible;
-    mal_pa_stream_new_proc                      _pa_stream_new                     = pa_stream_new;
-    mal_pa_stream_unref_proc                    _pa_stream_unref                   = pa_stream_unref;
-    mal_pa_stream_connect_playback_proc         _pa_stream_connect_playback        = pa_stream_connect_playback;
-    mal_pa_stream_connect_record_proc           _pa_stream_connect_record          = pa_stream_connect_record;
-    mal_pa_stream_disconnect_proc               _pa_stream_disconnect              = pa_stream_disconnect;
-    mal_pa_stream_get_state_proc                _pa_stream_get_state               = pa_stream_get_state;
-    mal_pa_stream_get_sample_spec_proc          _pa_stream_get_sample_spec         = pa_stream_get_sample_spec;
-    mal_pa_stream_get_channel_map_proc          _pa_stream_get_channel_map         = pa_stream_get_channel_map;
-    mal_pa_stream_get_buffer_attr_proc          _pa_stream_get_buffer_attr         = pa_stream_get_buffer_attr;
-    mal_pa_stream_get_device_name_proc          _pa_stream_get_device_name         = pa_stream_get_device_name;
-    mal_pa_stream_set_write_callback_proc       _pa_stream_set_write_callback      = pa_stream_set_write_callback;
-    mal_pa_stream_set_read_callback_proc        _pa_stream_set_read_callback       = pa_stream_set_read_callback;
-    mal_pa_stream_flush_proc                    _pa_stream_flush                   = pa_stream_flush;
-    mal_pa_stream_drain_proc                    _pa_stream_drain                   = pa_stream_drain;
-    mal_pa_stream_cork_proc                     _pa_stream_cork                    = pa_stream_cork;
-    mal_pa_stream_trigger_proc                  _pa_stream_trigger                 = pa_stream_trigger;
-    mal_pa_stream_begin_write_proc              _pa_stream_begin_write             = pa_stream_begin_write;
-    mal_pa_stream_write_proc                    _pa_stream_write                   = pa_stream_write;
-    mal_pa_stream_peek_proc                     _pa_stream_peek                    = pa_stream_peek;
-    mal_pa_stream_drop_proc                     _pa_stream_drop                    = pa_stream_drop;
-
-    pContext->pulse.pa_mainloop_new                    = (mal_proc)_pa_mainloop_new;
-    pContext->pulse.pa_mainloop_free                   = (mal_proc)_pa_mainloop_free;
-    pContext->pulse.pa_mainloop_get_api                = (mal_proc)_pa_mainloop_get_api;
-    pContext->pulse.pa_mainloop_iterate                = (mal_proc)_pa_mainloop_iterate;
-    pContext->pulse.pa_mainloop_wakeup                 = (mal_proc)_pa_mainloop_wakeup;
-    pContext->pulse.pa_context_new                     = (mal_proc)_pa_context_new;
-    pContext->pulse.pa_context_unref                   = (mal_proc)_pa_context_unref;
-    pContext->pulse.pa_context_connect                 = (mal_proc)_pa_context_connect;
-    pContext->pulse.pa_context_disconnect              = (mal_proc)_pa_context_disconnect;
-    pContext->pulse.pa_context_set_state_callback      = (mal_proc)_pa_context_set_state_callback;
-    pContext->pulse.pa_context_get_state               = (mal_proc)_pa_context_get_state;
-    pContext->pulse.pa_context_get_sink_info_list      = (mal_proc)_pa_context_get_sink_info_list;
-    pContext->pulse.pa_context_get_source_info_list    = (mal_proc)_pa_context_get_source_info_list;
-    pContext->pulse.pa_context_get_sink_info_by_name   = (mal_proc)_pa_context_get_sink_info_by_name;
-    pContext->pulse.pa_context_get_source_info_by_name = (mal_proc)_pa_context_get_source_info_by_name;
-    pContext->pulse.pa_operation_unref                 = (mal_proc)_pa_operation_unref;
-    pContext->pulse.pa_operation_get_state             = (mal_proc)_pa_operation_get_state;
-    pContext->pulse.pa_channel_map_init_extend         = (mal_proc)_pa_channel_map_init_extend;
-    pContext->pulse.pa_channel_map_valid               = (mal_proc)_pa_channel_map_valid;
-    pContext->pulse.pa_channel_map_compatible          = (mal_proc)_pa_channel_map_compatible;
-    pContext->pulse.pa_stream_new                      = (mal_proc)_pa_stream_new;
-    pContext->pulse.pa_stream_unref                    = (mal_proc)_pa_stream_unref;
-    pContext->pulse.pa_stream_connect_playback         = (mal_proc)_pa_stream_connect_playback;
-    pContext->pulse.pa_stream_connect_record           = (mal_proc)_pa_stream_connect_record;
-    pContext->pulse.pa_stream_disconnect               = (mal_proc)_pa_stream_disconnect;
-    pContext->pulse.pa_stream_get_state                = (mal_proc)_pa_stream_get_state;
-    pContext->pulse.pa_stream_get_sample_spec          = (mal_proc)_pa_stream_get_sample_spec;
-    pContext->pulse.pa_stream_get_channel_map          = (mal_proc)_pa_stream_get_channel_map;
-    pContext->pulse.pa_stream_get_buffer_attr          = (mal_proc)_pa_stream_get_buffer_attr;
-    pContext->pulse.pa_stream_get_device_name          = (mal_proc)_pa_stream_get_device_name;
-    pContext->pulse.pa_stream_set_write_callback       = (mal_proc)_pa_stream_set_write_callback;
-    pContext->pulse.pa_stream_set_read_callback        = (mal_proc)_pa_stream_set_read_callback;
-    pContext->pulse.pa_stream_flush                    = (mal_proc)_pa_stream_flush;
-    pContext->pulse.pa_stream_drain                    = (mal_proc)_pa_stream_drain;
-    pContext->pulse.pa_stream_cork                     = (mal_proc)_pa_stream_cork;
-    pContext->pulse.pa_stream_trigger                  = (mal_proc)_pa_stream_trigger;
-    pContext->pulse.pa_stream_begin_write              = (mal_proc)_pa_stream_begin_write;
-    pContext->pulse.pa_stream_write                    = (mal_proc)_pa_stream_write;
-    pContext->pulse.pa_stream_peek                     = (mal_proc)_pa_stream_peek;
-    pContext->pulse.pa_stream_drop                     = (mal_proc)_pa_stream_drop;
-#endif
-
-    pContext->onDeviceIDEqual = mal_context_is_device_id_equal__pulse;
-    pContext->onEnumDevices   = mal_context_enumerate_devices__pulse;
-    pContext->onGetDeviceInfo = mal_context_get_device_info__pulse;
-
-    
-    // Although we have found the libpulse library, it doesn't necessarily mean PulseAudio is useable. We need to initialize
-    // and connect a dummy PulseAudio context to test PulseAudio's usability.
-    mal_pa_mainloop* pMainLoop = ((mal_pa_mainloop_new_proc)pContext->pulse.pa_mainloop_new)();
-    if (pMainLoop == NULL) {
-        return MAL_NO_BACKEND;
-    }
-
-    mal_pa_mainloop_api* pAPI = ((mal_pa_mainloop_get_api_proc)pContext->pulse.pa_mainloop_get_api)(pMainLoop);
-    if (pAPI == NULL) {
-        ((mal_pa_mainloop_free_proc)pContext->pulse.pa_mainloop_free)(pMainLoop);
-        return MAL_NO_BACKEND;
-    }
-
-    mal_pa_context* pPulseContext = ((mal_pa_context_new_proc)pContext->pulse.pa_context_new)(pAPI, pContext->config.pulse.pApplicationName);
-    if (pPulseContext == NULL) {
-        ((mal_pa_mainloop_free_proc)pContext->pulse.pa_mainloop_free)(pMainLoop);
-        return MAL_NO_BACKEND;
-    }
-
-    int error = ((mal_pa_context_connect_proc)pContext->pulse.pa_context_connect)(pPulseContext, pContext->config.pulse.pServerName, 0, NULL);
-    if (error != MAL_PA_OK) {
-        ((mal_pa_context_unref_proc)pContext->pulse.pa_context_unref)(pPulseContext);
-        ((mal_pa_mainloop_free_proc)pContext->pulse.pa_mainloop_free)(pMainLoop);
-        return MAL_NO_BACKEND;
-    }
-
-    ((mal_pa_context_disconnect_proc)pContext->pulse.pa_context_disconnect)(pPulseContext);
-    ((mal_pa_context_unref_proc)pContext->pulse.pa_context_unref)(pPulseContext);
-    ((mal_pa_mainloop_free_proc)pContext->pulse.pa_mainloop_free)(pMainLoop);
-    return MAL_SUCCESS;
-}
-
-mal_result mal_context_uninit__pulse(mal_context* pContext)
-{
-    mal_assert(pContext != NULL);
-    mal_assert(pContext->backend == mal_backend_pulseaudio);
-
-#ifndef MAL_NO_RUNTIME_LINKING
-    mal_dlclose(pContext->pulse.pulseSO);
-#endif
-
-    return MAL_SUCCESS;
-}
-
 
 void mal_pulse_device_state_callback(mal_pa_context* pPulseContext, void* pUserData)
 {
@@ -12168,6 +11972,210 @@ mal_result mal_device__main_loop__pulse(mal_device* pDevice)
         }
     }
 
+    return MAL_SUCCESS;
+}
+
+
+mal_result mal_context_uninit__pulse(mal_context* pContext)
+{
+    mal_assert(pContext != NULL);
+    mal_assert(pContext->backend == mal_backend_pulseaudio);
+
+#ifndef MAL_NO_RUNTIME_LINKING
+    mal_dlclose(pContext->pulse.pulseSO);
+#endif
+
+    return MAL_SUCCESS;
+}
+
+mal_result mal_context_init__pulse(mal_context* pContext)
+{
+    mal_assert(pContext != NULL);
+
+#ifndef MAL_NO_RUNTIME_LINKING
+    // libpulse.so
+    const char* libpulseNames[] = {
+        "libpulse.so",
+        "libpulse.so.0"
+    };
+
+    for (size_t i = 0; i < mal_countof(libpulseNames); ++i) {
+        pContext->pulse.pulseSO = mal_dlopen(libpulseNames[i]);
+        if (pContext->pulse.pulseSO != NULL) {
+            break;
+        }
+    }
+
+    if (pContext->pulse.pulseSO == NULL) {
+        return MAL_NO_BACKEND;
+    }
+
+    pContext->pulse.pa_mainloop_new                    = (mal_proc)mal_dlsym(pContext->pulse.pulseSO, "pa_mainloop_new");
+    pContext->pulse.pa_mainloop_free                   = (mal_proc)mal_dlsym(pContext->pulse.pulseSO, "pa_mainloop_free");
+    pContext->pulse.pa_mainloop_get_api                = (mal_proc)mal_dlsym(pContext->pulse.pulseSO, "pa_mainloop_get_api");
+    pContext->pulse.pa_mainloop_iterate                = (mal_proc)mal_dlsym(pContext->pulse.pulseSO, "pa_mainloop_iterate");
+    pContext->pulse.pa_mainloop_wakeup                 = (mal_proc)mal_dlsym(pContext->pulse.pulseSO, "pa_mainloop_wakeup");
+    pContext->pulse.pa_context_new                     = (mal_proc)mal_dlsym(pContext->pulse.pulseSO, "pa_context_new");
+    pContext->pulse.pa_context_unref                   = (mal_proc)mal_dlsym(pContext->pulse.pulseSO, "pa_context_unref");
+    pContext->pulse.pa_context_connect                 = (mal_proc)mal_dlsym(pContext->pulse.pulseSO, "pa_context_connect");
+    pContext->pulse.pa_context_disconnect              = (mal_proc)mal_dlsym(pContext->pulse.pulseSO, "pa_context_disconnect");
+    pContext->pulse.pa_context_set_state_callback      = (mal_proc)mal_dlsym(pContext->pulse.pulseSO, "pa_context_set_state_callback");
+    pContext->pulse.pa_context_get_state               = (mal_proc)mal_dlsym(pContext->pulse.pulseSO, "pa_context_get_state");
+    pContext->pulse.pa_context_get_sink_info_list      = (mal_proc)mal_dlsym(pContext->pulse.pulseSO, "pa_context_get_sink_info_list");
+    pContext->pulse.pa_context_get_source_info_list    = (mal_proc)mal_dlsym(pContext->pulse.pulseSO, "pa_context_get_source_info_list");
+    pContext->pulse.pa_context_get_sink_info_by_name   = (mal_proc)mal_dlsym(pContext->pulse.pulseSO, "pa_context_get_sink_info_by_name");
+    pContext->pulse.pa_context_get_source_info_by_name = (mal_proc)mal_dlsym(pContext->pulse.pulseSO, "pa_context_get_source_info_by_name");
+    pContext->pulse.pa_operation_unref                 = (mal_proc)mal_dlsym(pContext->pulse.pulseSO, "pa_operation_unref");
+    pContext->pulse.pa_operation_get_state             = (mal_proc)mal_dlsym(pContext->pulse.pulseSO, "pa_operation_get_state");
+    pContext->pulse.pa_channel_map_init_extend         = (mal_proc)mal_dlsym(pContext->pulse.pulseSO, "pa_channel_map_init_extend");
+    pContext->pulse.pa_channel_map_valid               = (mal_proc)mal_dlsym(pContext->pulse.pulseSO, "pa_channel_map_valid");
+    pContext->pulse.pa_channel_map_compatible          = (mal_proc)mal_dlsym(pContext->pulse.pulseSO, "pa_channel_map_compatible");
+    pContext->pulse.pa_stream_new                      = (mal_proc)mal_dlsym(pContext->pulse.pulseSO, "pa_stream_new");
+    pContext->pulse.pa_stream_unref                    = (mal_proc)mal_dlsym(pContext->pulse.pulseSO, "pa_stream_unref");
+    pContext->pulse.pa_stream_connect_playback         = (mal_proc)mal_dlsym(pContext->pulse.pulseSO, "pa_stream_connect_playback");
+    pContext->pulse.pa_stream_connect_record           = (mal_proc)mal_dlsym(pContext->pulse.pulseSO, "pa_stream_connect_record");
+    pContext->pulse.pa_stream_disconnect               = (mal_proc)mal_dlsym(pContext->pulse.pulseSO, "pa_stream_disconnect");
+    pContext->pulse.pa_stream_get_state                = (mal_proc)mal_dlsym(pContext->pulse.pulseSO, "pa_stream_get_state");
+    pContext->pulse.pa_stream_get_sample_spec          = (mal_proc)mal_dlsym(pContext->pulse.pulseSO, "pa_stream_get_sample_spec");
+    pContext->pulse.pa_stream_get_channel_map          = (mal_proc)mal_dlsym(pContext->pulse.pulseSO, "pa_stream_get_channel_map");
+    pContext->pulse.pa_stream_get_buffer_attr          = (mal_proc)mal_dlsym(pContext->pulse.pulseSO, "pa_stream_get_buffer_attr");
+    pContext->pulse.pa_stream_get_device_name          = (mal_proc)mal_dlsym(pContext->pulse.pulseSO, "pa_stream_get_device_name");
+    pContext->pulse.pa_stream_set_write_callback       = (mal_proc)mal_dlsym(pContext->pulse.pulseSO, "pa_stream_set_write_callback");
+    pContext->pulse.pa_stream_set_read_callback        = (mal_proc)mal_dlsym(pContext->pulse.pulseSO, "pa_stream_set_read_callback");
+    pContext->pulse.pa_stream_flush                    = (mal_proc)mal_dlsym(pContext->pulse.pulseSO, "pa_stream_flush");
+    pContext->pulse.pa_stream_drain                    = (mal_proc)mal_dlsym(pContext->pulse.pulseSO, "pa_stream_drain");
+    pContext->pulse.pa_stream_cork                     = (mal_proc)mal_dlsym(pContext->pulse.pulseSO, "pa_stream_cork");
+    pContext->pulse.pa_stream_trigger                  = (mal_proc)mal_dlsym(pContext->pulse.pulseSO, "pa_stream_trigger");
+    pContext->pulse.pa_stream_begin_write              = (mal_proc)mal_dlsym(pContext->pulse.pulseSO, "pa_stream_begin_write");
+    pContext->pulse.pa_stream_write                    = (mal_proc)mal_dlsym(pContext->pulse.pulseSO, "pa_stream_write");
+    pContext->pulse.pa_stream_peek                     = (mal_proc)mal_dlsym(pContext->pulse.pulseSO, "pa_stream_peek");
+    pContext->pulse.pa_stream_drop                     = (mal_proc)mal_dlsym(pContext->pulse.pulseSO, "pa_stream_drop");
+#else
+    // This strange assignment system is just for type safety.
+    mal_pa_mainloop_new_proc                    _pa_mainloop_new                   = pa_mainloop_new;
+    mal_pa_mainloop_free_proc                   _pa_mainloop_free                  = pa_mainloop_free;
+    mal_pa_mainloop_get_api_proc                _pa_mainloop_get_api               = pa_mainloop_get_api;
+    mal_pa_mainloop_iterate_proc                _pa_mainloop_iterate               = pa_mainloop_iterate;
+    mal_pa_mainloop_wakeup_proc                 _pa_mainloop_wakeup                = pa_mainloop_wakeup;
+    mal_pa_context_new_proc                     _pa_context_new                    = pa_context_new;
+    mal_pa_context_unref_proc                   _pa_context_unref                  = pa_context_unref;
+    mal_pa_context_connect_proc                 _pa_context_connect                = pa_context_connect;
+    mal_pa_context_disconnect_proc              _pa_context_disconnect             = pa_context_disconnect;
+    mal_pa_context_set_state_callback_proc      _pa_context_set_state_callback     = pa_context_set_state_callback;
+    mal_pa_context_get_state_proc               _pa_context_get_state              = pa_context_get_state;
+    mal_pa_context_get_sink_info_list_proc      _pa_context_get_sink_info_list     = pa_context_get_sink_info_list;
+    mal_pa_context_get_source_info_list_proc    _pa_context_get_source_info_list   = pa_context_get_source_info_list;
+    mal_pa_context_get_sink_info_by_name_proc   _pa_context_get_sink_info_by_name  = pa_context_get_sink_info_by_name;
+    mal_pa_context_get_source_info_by_name_proc _pa_context_get_source_info_by_name= pa_context_get_source_info_by_name;
+    mal_pa_operation_unref_proc                 _pa_operation_unref                = pa_operation_unref;
+    mal_pa_operation_get_state_proc             _pa_operation_get_state            = pa_operation_get_state;
+    mal_pa_channel_map_init_extend_proc         _pa_channel_map_init_extend        = pa_channel_map_init_extend;
+    mal_pa_channel_map_valid_proc               _pa_channel_map_valid              = pa_channel_map_valid;
+    mal_pa_channel_map_compatible_proc          _pa_channel_map_compatible         = pa_channel_map_compatible;
+    mal_pa_stream_new_proc                      _pa_stream_new                     = pa_stream_new;
+    mal_pa_stream_unref_proc                    _pa_stream_unref                   = pa_stream_unref;
+    mal_pa_stream_connect_playback_proc         _pa_stream_connect_playback        = pa_stream_connect_playback;
+    mal_pa_stream_connect_record_proc           _pa_stream_connect_record          = pa_stream_connect_record;
+    mal_pa_stream_disconnect_proc               _pa_stream_disconnect              = pa_stream_disconnect;
+    mal_pa_stream_get_state_proc                _pa_stream_get_state               = pa_stream_get_state;
+    mal_pa_stream_get_sample_spec_proc          _pa_stream_get_sample_spec         = pa_stream_get_sample_spec;
+    mal_pa_stream_get_channel_map_proc          _pa_stream_get_channel_map         = pa_stream_get_channel_map;
+    mal_pa_stream_get_buffer_attr_proc          _pa_stream_get_buffer_attr         = pa_stream_get_buffer_attr;
+    mal_pa_stream_get_device_name_proc          _pa_stream_get_device_name         = pa_stream_get_device_name;
+    mal_pa_stream_set_write_callback_proc       _pa_stream_set_write_callback      = pa_stream_set_write_callback;
+    mal_pa_stream_set_read_callback_proc        _pa_stream_set_read_callback       = pa_stream_set_read_callback;
+    mal_pa_stream_flush_proc                    _pa_stream_flush                   = pa_stream_flush;
+    mal_pa_stream_drain_proc                    _pa_stream_drain                   = pa_stream_drain;
+    mal_pa_stream_cork_proc                     _pa_stream_cork                    = pa_stream_cork;
+    mal_pa_stream_trigger_proc                  _pa_stream_trigger                 = pa_stream_trigger;
+    mal_pa_stream_begin_write_proc              _pa_stream_begin_write             = pa_stream_begin_write;
+    mal_pa_stream_write_proc                    _pa_stream_write                   = pa_stream_write;
+    mal_pa_stream_peek_proc                     _pa_stream_peek                    = pa_stream_peek;
+    mal_pa_stream_drop_proc                     _pa_stream_drop                    = pa_stream_drop;
+
+    pContext->pulse.pa_mainloop_new                    = (mal_proc)_pa_mainloop_new;
+    pContext->pulse.pa_mainloop_free                   = (mal_proc)_pa_mainloop_free;
+    pContext->pulse.pa_mainloop_get_api                = (mal_proc)_pa_mainloop_get_api;
+    pContext->pulse.pa_mainloop_iterate                = (mal_proc)_pa_mainloop_iterate;
+    pContext->pulse.pa_mainloop_wakeup                 = (mal_proc)_pa_mainloop_wakeup;
+    pContext->pulse.pa_context_new                     = (mal_proc)_pa_context_new;
+    pContext->pulse.pa_context_unref                   = (mal_proc)_pa_context_unref;
+    pContext->pulse.pa_context_connect                 = (mal_proc)_pa_context_connect;
+    pContext->pulse.pa_context_disconnect              = (mal_proc)_pa_context_disconnect;
+    pContext->pulse.pa_context_set_state_callback      = (mal_proc)_pa_context_set_state_callback;
+    pContext->pulse.pa_context_get_state               = (mal_proc)_pa_context_get_state;
+    pContext->pulse.pa_context_get_sink_info_list      = (mal_proc)_pa_context_get_sink_info_list;
+    pContext->pulse.pa_context_get_source_info_list    = (mal_proc)_pa_context_get_source_info_list;
+    pContext->pulse.pa_context_get_sink_info_by_name   = (mal_proc)_pa_context_get_sink_info_by_name;
+    pContext->pulse.pa_context_get_source_info_by_name = (mal_proc)_pa_context_get_source_info_by_name;
+    pContext->pulse.pa_operation_unref                 = (mal_proc)_pa_operation_unref;
+    pContext->pulse.pa_operation_get_state             = (mal_proc)_pa_operation_get_state;
+    pContext->pulse.pa_channel_map_init_extend         = (mal_proc)_pa_channel_map_init_extend;
+    pContext->pulse.pa_channel_map_valid               = (mal_proc)_pa_channel_map_valid;
+    pContext->pulse.pa_channel_map_compatible          = (mal_proc)_pa_channel_map_compatible;
+    pContext->pulse.pa_stream_new                      = (mal_proc)_pa_stream_new;
+    pContext->pulse.pa_stream_unref                    = (mal_proc)_pa_stream_unref;
+    pContext->pulse.pa_stream_connect_playback         = (mal_proc)_pa_stream_connect_playback;
+    pContext->pulse.pa_stream_connect_record           = (mal_proc)_pa_stream_connect_record;
+    pContext->pulse.pa_stream_disconnect               = (mal_proc)_pa_stream_disconnect;
+    pContext->pulse.pa_stream_get_state                = (mal_proc)_pa_stream_get_state;
+    pContext->pulse.pa_stream_get_sample_spec          = (mal_proc)_pa_stream_get_sample_spec;
+    pContext->pulse.pa_stream_get_channel_map          = (mal_proc)_pa_stream_get_channel_map;
+    pContext->pulse.pa_stream_get_buffer_attr          = (mal_proc)_pa_stream_get_buffer_attr;
+    pContext->pulse.pa_stream_get_device_name          = (mal_proc)_pa_stream_get_device_name;
+    pContext->pulse.pa_stream_set_write_callback       = (mal_proc)_pa_stream_set_write_callback;
+    pContext->pulse.pa_stream_set_read_callback        = (mal_proc)_pa_stream_set_read_callback;
+    pContext->pulse.pa_stream_flush                    = (mal_proc)_pa_stream_flush;
+    pContext->pulse.pa_stream_drain                    = (mal_proc)_pa_stream_drain;
+    pContext->pulse.pa_stream_cork                     = (mal_proc)_pa_stream_cork;
+    pContext->pulse.pa_stream_trigger                  = (mal_proc)_pa_stream_trigger;
+    pContext->pulse.pa_stream_begin_write              = (mal_proc)_pa_stream_begin_write;
+    pContext->pulse.pa_stream_write                    = (mal_proc)_pa_stream_write;
+    pContext->pulse.pa_stream_peek                     = (mal_proc)_pa_stream_peek;
+    pContext->pulse.pa_stream_drop                     = (mal_proc)_pa_stream_drop;
+#endif
+
+    pContext->onUninit              = mal_context_uninit__pulse;
+    pContext->onDeviceIDEqual       = mal_context_is_device_id_equal__pulse;
+    pContext->onEnumDevices         = mal_context_enumerate_devices__pulse;
+    pContext->onGetDeviceInfo       = mal_context_get_device_info__pulse;
+    pContext->onDeviceInit          = mal_device_init__pulse;
+    pContext->onDeviceUninit        = mal_device_uninit__pulse;
+    pContext->onDeviceStart         = mal_device__start_backend__pulse;
+    pContext->onDeviceStop          = mal_device__stop_backend__pulse;
+    pContext->onDeviceBreakMainLoop = mal_device__break_main_loop__pulse;
+    pContext->onDeviceMainLoop      = mal_device__main_loop__pulse;
+
+    
+    // Although we have found the libpulse library, it doesn't necessarily mean PulseAudio is useable. We need to initialize
+    // and connect a dummy PulseAudio context to test PulseAudio's usability.
+    mal_pa_mainloop* pMainLoop = ((mal_pa_mainloop_new_proc)pContext->pulse.pa_mainloop_new)();
+    if (pMainLoop == NULL) {
+        return MAL_NO_BACKEND;
+    }
+
+    mal_pa_mainloop_api* pAPI = ((mal_pa_mainloop_get_api_proc)pContext->pulse.pa_mainloop_get_api)(pMainLoop);
+    if (pAPI == NULL) {
+        ((mal_pa_mainloop_free_proc)pContext->pulse.pa_mainloop_free)(pMainLoop);
+        return MAL_NO_BACKEND;
+    }
+
+    mal_pa_context* pPulseContext = ((mal_pa_context_new_proc)pContext->pulse.pa_context_new)(pAPI, pContext->config.pulse.pApplicationName);
+    if (pPulseContext == NULL) {
+        ((mal_pa_mainloop_free_proc)pContext->pulse.pa_mainloop_free)(pMainLoop);
+        return MAL_NO_BACKEND;
+    }
+
+    int error = ((mal_pa_context_connect_proc)pContext->pulse.pa_context_connect)(pPulseContext, pContext->config.pulse.pServerName, 0, NULL);
+    if (error != MAL_PA_OK) {
+        ((mal_pa_context_unref_proc)pContext->pulse.pa_context_unref)(pPulseContext);
+        ((mal_pa_mainloop_free_proc)pContext->pulse.pa_mainloop_free)(pMainLoop);
+        return MAL_NO_BACKEND;
+    }
+
+    ((mal_pa_context_disconnect_proc)pContext->pulse.pa_context_disconnect)(pPulseContext);
+    ((mal_pa_context_unref_proc)pContext->pulse.pa_context_unref)(pPulseContext);
+    ((mal_pa_mainloop_free_proc)pContext->pulse.pa_mainloop_free)(pMainLoop);
     return MAL_SUCCESS;
 }
 #endif
