@@ -8117,49 +8117,6 @@ mal_result mal_context_get_device_info__winmm(mal_context* pContext, mal_device_
 }
 
 
-mal_result mal_context_init__winmm(mal_context* pContext)
-{
-    mal_assert(pContext != NULL);
-
-    pContext->winmm.hWinMM = mal_dlopen("winmm.dll");
-    if (pContext->winmm.hWinMM == NULL) {
-        return MAL_NO_BACKEND;
-    }
-
-    pContext->winmm.waveOutGetNumDevs      = mal_dlsym(pContext->winmm.hWinMM, "waveOutGetNumDevs");
-    pContext->winmm.waveOutGetDevCapsA     = mal_dlsym(pContext->winmm.hWinMM, "waveOutGetDevCapsA");
-    pContext->winmm.waveOutOpen            = mal_dlsym(pContext->winmm.hWinMM, "waveOutOpen");
-    pContext->winmm.waveOutClose           = mal_dlsym(pContext->winmm.hWinMM, "waveOutClose");
-    pContext->winmm.waveOutPrepareHeader   = mal_dlsym(pContext->winmm.hWinMM, "waveOutPrepareHeader");
-    pContext->winmm.waveOutUnprepareHeader = mal_dlsym(pContext->winmm.hWinMM, "waveOutUnprepareHeader");
-    pContext->winmm.waveOutWrite           = mal_dlsym(pContext->winmm.hWinMM, "waveOutWrite");
-    pContext->winmm.waveOutReset           = mal_dlsym(pContext->winmm.hWinMM, "waveOutReset");
-    pContext->winmm.waveInGetNumDevs       = mal_dlsym(pContext->winmm.hWinMM, "waveInGetNumDevs");
-    pContext->winmm.waveInGetDevCapsA      = mal_dlsym(pContext->winmm.hWinMM, "waveInGetDevCapsA");
-    pContext->winmm.waveInOpen             = mal_dlsym(pContext->winmm.hWinMM, "waveInOpen");
-    pContext->winmm.waveInClose            = mal_dlsym(pContext->winmm.hWinMM, "waveInClose");
-    pContext->winmm.waveInPrepareHeader    = mal_dlsym(pContext->winmm.hWinMM, "waveInPrepareHeader");
-    pContext->winmm.waveInUnprepareHeader  = mal_dlsym(pContext->winmm.hWinMM, "waveInUnprepareHeader");
-    pContext->winmm.waveInAddBuffer        = mal_dlsym(pContext->winmm.hWinMM, "waveInAddBuffer");
-    pContext->winmm.waveInStart            = mal_dlsym(pContext->winmm.hWinMM, "waveInStart");
-    pContext->winmm.waveInReset            = mal_dlsym(pContext->winmm.hWinMM, "waveInReset");
-
-    pContext->onDeviceIDEqual = mal_context_is_device_id_equal__winmm;
-    pContext->onEnumDevices   = mal_context_enumerate_devices__winmm;
-    pContext->onGetDeviceInfo = mal_context_get_device_info__winmm;
-
-    return MAL_SUCCESS;
-}
-
-mal_result mal_context_uninit__winmm(mal_context* pContext)
-{
-    mal_assert(pContext != NULL);
-    mal_assert(pContext->backend == mal_backend_winmm);
-
-    mal_dlclose(pContext->winmm.hWinMM);
-    return MAL_SUCCESS;
-}
-
 void mal_device_uninit__winmm(mal_device* pDevice)
 {
     mal_assert(pDevice != NULL);
@@ -8577,6 +8534,57 @@ mal_result mal_device__main_loop__winmm(mal_device* pDevice)
             }
         }
     }
+
+    return MAL_SUCCESS;
+}
+
+
+mal_result mal_context_uninit__winmm(mal_context* pContext)
+{
+    mal_assert(pContext != NULL);
+    mal_assert(pContext->backend == mal_backend_winmm);
+
+    mal_dlclose(pContext->winmm.hWinMM);
+    return MAL_SUCCESS;
+}
+
+mal_result mal_context_init__winmm(mal_context* pContext)
+{
+    mal_assert(pContext != NULL);
+
+    pContext->winmm.hWinMM = mal_dlopen("winmm.dll");
+    if (pContext->winmm.hWinMM == NULL) {
+        return MAL_NO_BACKEND;
+    }
+
+    pContext->winmm.waveOutGetNumDevs      = mal_dlsym(pContext->winmm.hWinMM, "waveOutGetNumDevs");
+    pContext->winmm.waveOutGetDevCapsA     = mal_dlsym(pContext->winmm.hWinMM, "waveOutGetDevCapsA");
+    pContext->winmm.waveOutOpen            = mal_dlsym(pContext->winmm.hWinMM, "waveOutOpen");
+    pContext->winmm.waveOutClose           = mal_dlsym(pContext->winmm.hWinMM, "waveOutClose");
+    pContext->winmm.waveOutPrepareHeader   = mal_dlsym(pContext->winmm.hWinMM, "waveOutPrepareHeader");
+    pContext->winmm.waveOutUnprepareHeader = mal_dlsym(pContext->winmm.hWinMM, "waveOutUnprepareHeader");
+    pContext->winmm.waveOutWrite           = mal_dlsym(pContext->winmm.hWinMM, "waveOutWrite");
+    pContext->winmm.waveOutReset           = mal_dlsym(pContext->winmm.hWinMM, "waveOutReset");
+    pContext->winmm.waveInGetNumDevs       = mal_dlsym(pContext->winmm.hWinMM, "waveInGetNumDevs");
+    pContext->winmm.waveInGetDevCapsA      = mal_dlsym(pContext->winmm.hWinMM, "waveInGetDevCapsA");
+    pContext->winmm.waveInOpen             = mal_dlsym(pContext->winmm.hWinMM, "waveInOpen");
+    pContext->winmm.waveInClose            = mal_dlsym(pContext->winmm.hWinMM, "waveInClose");
+    pContext->winmm.waveInPrepareHeader    = mal_dlsym(pContext->winmm.hWinMM, "waveInPrepareHeader");
+    pContext->winmm.waveInUnprepareHeader  = mal_dlsym(pContext->winmm.hWinMM, "waveInUnprepareHeader");
+    pContext->winmm.waveInAddBuffer        = mal_dlsym(pContext->winmm.hWinMM, "waveInAddBuffer");
+    pContext->winmm.waveInStart            = mal_dlsym(pContext->winmm.hWinMM, "waveInStart");
+    pContext->winmm.waveInReset            = mal_dlsym(pContext->winmm.hWinMM, "waveInReset");
+
+    pContext->onUninit              = mal_context_uninit__winmm;
+    pContext->onDeviceIDEqual       = mal_context_is_device_id_equal__winmm;
+    pContext->onEnumDevices         = mal_context_enumerate_devices__winmm;
+    pContext->onGetDeviceInfo       = mal_context_get_device_info__winmm;
+    pContext->onDeviceInit          = mal_device_init__winmm;
+    pContext->onDeviceUninit        = mal_device_uninit__winmm;
+    pContext->onDeviceStart         = mal_device__start_backend__winmm;
+    pContext->onDeviceStop          = mal_device__stop_backend__winmm;
+    pContext->onDeviceBreakMainLoop = mal_device__break_main_loop__winmm;
+    pContext->onDeviceMainLoop      = mal_device__main_loop__winmm;
 
     return MAL_SUCCESS;
 }
