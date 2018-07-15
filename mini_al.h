@@ -4479,26 +4479,6 @@ mal_result mal_context_get_device_info__null(mal_context* pContext, mal_device_t
     return MAL_SUCCESS;
 }
 
-mal_result mal_context_init__null(mal_context* pContext)
-{
-    mal_assert(pContext != NULL);
-
-    pContext->onDeviceIDEqual = mal_context_is_device_id_equal__null;
-    pContext->onEnumDevices   = mal_context_enumerate_devices__null;
-    pContext->onGetDeviceInfo = mal_context_get_device_info__null;
-
-    // The null backend always works.
-    return MAL_SUCCESS;
-}
-
-mal_result mal_context_uninit__null(mal_context* pContext)
-{
-    mal_assert(pContext != NULL);
-    mal_assert(pContext->backend == mal_backend_null);
-
-    (void)pContext;
-    return MAL_SUCCESS;
-}
 
 void mal_device_uninit__null(mal_device* pDevice)
 {
@@ -4668,6 +4648,35 @@ mal_result mal_device__main_loop__null(mal_device* pDevice)
         pDevice->null_device.lastProcessedFrame = (pDevice->null_device.lastProcessedFrame + framesAvailable) % pDevice->bufferSizeInFrames;
     }
 
+    return MAL_SUCCESS;
+}
+
+
+mal_result mal_context_uninit__null(mal_context* pContext)
+{
+    mal_assert(pContext != NULL);
+    mal_assert(pContext->backend == mal_backend_null);
+
+    (void)pContext;
+    return MAL_SUCCESS;
+}
+
+mal_result mal_context_init__null(mal_context* pContext)
+{
+    mal_assert(pContext != NULL);
+
+    pContext->onUninit              = mal_context_uninit__null;
+    pContext->onDeviceIDEqual       = mal_context_is_device_id_equal__null;
+    pContext->onEnumDevices         = mal_context_enumerate_devices__null;
+    pContext->onGetDeviceInfo       = mal_context_get_device_info__null;
+    pContext->onDeviceInit          = mal_device_init__null;
+    pContext->onDeviceUninit        = mal_device_uninit__null;
+    pContext->onDeviceStart         = mal_device__start_backend__null;
+    pContext->onDeviceStop          = mal_device__stop_backend__null;
+    pContext->onDeviceBreakMainLoop = mal_device__break_main_loop__null;
+    pContext->onDeviceMainLoop      = mal_device__main_loop__null;
+
+    // The null backend always works.
     return MAL_SUCCESS;
 }
 #endif
