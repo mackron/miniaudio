@@ -7021,18 +7021,16 @@ mal_result mal_context_get_device_info__dsound(mal_context* pContext, mal_device
 
         if ((caps.dwFlags & MAL_DSCAPS_PRIMARYSTEREO) != 0) {
             // It supports at least stereo, but could support more.
-            pDeviceInfo->minChannels = 2;
-            pDeviceInfo->maxChannels = 2;
+            WORD channels = 2;
 
             // Look at the speaker configuration to get a better idea on the channel count.
             DWORD speakerConfig;
             if (SUCCEEDED(mal_IDirectSound_GetSpeakerConfig(pDirectSound, &speakerConfig))) {
-                WORD actualChannels;
-                mal_get_channels_from_speaker_config__dsound(speakerConfig, &actualChannels, NULL);
-
-                pDeviceInfo->minChannels = actualChannels;
-                pDeviceInfo->maxChannels = actualChannels;
+                mal_get_channels_from_speaker_config__dsound(speakerConfig, &channels, NULL);
             }
+
+            pDeviceInfo->minChannels = channels;
+            pDeviceInfo->maxChannels = channels;
         } else {
             // It does not support stereo, which means we are stuck with mono.
             pDeviceInfo->minChannels = 1;
