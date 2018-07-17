@@ -2214,13 +2214,23 @@ mal_channel_router_config mal_channel_router_config_init(mal_uint32 channelsIn, 
 mal_result mal_src_init(const mal_src_config* pConfig, mal_src* pSRC);
 
 // Dynamically adjusts the input sample rate.
+//
+// DEPRECATED. Use mal_src_set_sample_rate() instead.
 mal_result mal_src_set_input_sample_rate(mal_src* pSRC, mal_uint32 sampleRateIn);
 
 // Dynamically adjusts the output sample rate.
 //
 // This is useful for dynamically adjust pitch. Keep in mind, however, that this will speed up or slow down the sound. If this
 // is not acceptable you will need to use your own algorithm.
+//
+// DEPRECATED. Use mal_src_set_sample_rate() instead.
 mal_result mal_src_set_output_sample_rate(mal_src* pSRC, mal_uint32 sampleRateOut);
+
+// Dynamically adjusts the sample rate.
+//
+// This is useful for dynamically adjust pitch. Keep in mind, however, that this will speed up or slow down the sound. If this
+// is not acceptable you will need to use your own algorithm.
+mal_result mal_src_set_sample_rate(mal_src* pSRC, mal_uint32 sampleRateIn, mal_uint32 sampleRateOut);
 
 // Reads a number of frames.
 //
@@ -2245,6 +2255,8 @@ mal_result mal_dsp_init(const mal_dsp_config* pConfig, mal_dsp* pDSP);
 // Dynamically adjusts the input sample rate.
 //
 // This will fail is the DSP was not initialized with allowDynamicSampleRate.
+//
+// DEPRECATED. Use mal_dsp_set_sample_rate() instead.
 mal_result mal_dsp_set_input_sample_rate(mal_dsp* pDSP, mal_uint32 sampleRateOut);
 
 // Dynamically adjusts the output sample rate.
@@ -2253,7 +2265,18 @@ mal_result mal_dsp_set_input_sample_rate(mal_dsp* pDSP, mal_uint32 sampleRateOut
 // is not acceptable you will need to use your own algorithm.
 //
 // This will fail is the DSP was not initialized with allowDynamicSampleRate.
+//
+// DEPRECATED. Use mal_dsp_set_sample_rate() instead.
 mal_result mal_dsp_set_output_sample_rate(mal_dsp* pDSP, mal_uint32 sampleRateOut);
+
+// Dynamically adjusts the output sample rate.
+//
+// This is useful for dynamically adjust pitch. Keep in mind, however, that this will speed up or slow down the sound. If this
+// is not acceptable you will need to use your own algorithm.
+//
+// This will fail is the DSP was not initialized with allowDynamicSampleRate.
+mal_result mal_dsp_set_sample_rate(mal_dsp* pDSP, mal_uint32 sampleRateIn, mal_uint32 sampleRateOut);
+
 
 // Reads a number of frames and runs them through the DSP processor.
 mal_uint64 mal_dsp_read(mal_dsp* pDSP, mal_uint64 frameCount, void* pFramesOut, void* pUserData);
@@ -22555,6 +22578,23 @@ mal_result mal_src_set_output_sample_rate(mal_src* pSRC, mal_uint32 sampleRateOu
     return MAL_SUCCESS;
 }
 
+mal_result mal_src_set_sample_rate(mal_src* pSRC, mal_uint32 sampleRateIn, mal_uint32 sampleRateOut)
+{
+    if (pSRC == NULL) {
+        return MAL_INVALID_ARGS;
+    }
+
+    // Must have a sample rate of > 0.
+    if (sampleRateIn == 0 || sampleRateOut == 0) {
+        return MAL_INVALID_ARGS;
+    }
+
+    mal_atomic_exchange_32(&pSRC->config.sampleRateIn, sampleRateIn);
+    mal_atomic_exchange_32(&pSRC->config.sampleRateOut, sampleRateOut);
+
+    return MAL_SUCCESS;
+}
+
 mal_uint64 mal_src_read_deinterleaved(mal_src* pSRC, mal_uint64 frameCount, void** ppSamplesOut, void* pUserData)
 {
     if (pSRC == NULL || frameCount == 0 || ppSamplesOut == NULL) {
@@ -23709,6 +23749,28 @@ mal_result mal_dsp_set_output_sample_rate(mal_dsp* pDSP, mal_uint32 sampleRateOu
     }
 
     mal_atomic_exchange_32(&pDSP->src.config.sampleRateOut, sampleRateOut);
+    return mal_dsp_refresh_sample_rate(pDSP);
+}
+
+mal_result mal_dsp_set_sample_rate(mal_dsp* pDSP, mal_uint32 sampleRateIn, mal_uint32 sampleRateOut)
+{
+    if (pDSP == NULL) {
+        return MAL_INVALID_ARGS;
+    }
+
+    // Must have a sample rate of > 0.
+    if (sampleRateIn == 0 || sampleRateOut == 0) {
+        return MAL_INVALID_ARGS;
+    }
+
+    // Must have been initialized with allowDynamicSampleRate.
+    if (!pDSP->isDynamicSampleRateAllowed) {
+        return MAL_INVALID_OPERATION;
+    }
+
+    mal_atomic_exchange_32(&pDSP->src.config.sampleRateIn, sampleRateIn);
+    mal_atomic_exchange_32(&pDSP->src.config.sampleRateOut, sampleRateOut);
+
     return mal_dsp_refresh_sample_rate(pDSP);
 }
 
