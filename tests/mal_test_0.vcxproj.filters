@@ -30,6 +30,9 @@
     <ClCompile Include="mal_resampling.c">
       <Filter>Source Files</Filter>
     </ClCompile>
+    <ClCompile Include="mal_no_device_io.c">
+      <Filter>Source Files</Filter>
+    </ClCompile>
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="..\mini_al.h">

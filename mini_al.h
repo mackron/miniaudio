@@ -207,6 +207,10 @@
 // #define MAL_NO_DECODING
 //   Disables the decoding APIs.
 //
+// #define MAL_NO_DEVICE_IO
+//   Disables playback and recording. This will disable mal_context and mal_device APIs. This is useful if you only want to
+//   use mini_al's data conversion and/or decoding APIs. 
+//
 // #define MAL_NO_STDIO
 //   Disables file IO APIs.
 //
@@ -479,122 +483,6 @@ typedef mal_uint16 wchar_t;
 #endif
 
 
-// Thread priorties should be ordered such that the default priority of the worker thread is 0.
-typedef enum
-{
-    mal_thread_priority_idle     = -5,
-    mal_thread_priority_lowest   = -4,
-    mal_thread_priority_low      = -3,
-    mal_thread_priority_normal   = -2,
-    mal_thread_priority_high     = -1,
-    mal_thread_priority_highest  =  0,
-    mal_thread_priority_realtime =  1,
-    mal_thread_priority_default  =  0
-} mal_thread_priority;
-
-typedef struct
-{
-    mal_context* pContext;
-
-    union
-    {
-#ifdef MAL_WIN32
-        struct
-        {
-            /*HANDLE*/ mal_handle hThread;
-        } win32;
-#endif
-#ifdef MAL_POSIX
-        struct
-        {
-            pthread_t thread;
-        } posix;
-#endif
-
-        int _unused;
-    };
-} mal_thread;
-
-typedef struct
-{
-    mal_context* pContext;
-
-    union
-    {
-#ifdef MAL_WIN32
-        struct
-        {
-            /*HANDLE*/ mal_handle hMutex;
-        } win32;
-#endif
-#ifdef MAL_POSIX
-        struct
-        {
-            pthread_mutex_t mutex;
-        } posix;
-#endif
-
-        int _unused;
-    };
-} mal_mutex;
-
-typedef struct
-{
-    mal_context* pContext;
-
-    union
-    {
-#ifdef MAL_WIN32
-        struct
-        {
-            /*HANDLE*/ mal_handle hEvent;
-        } win32;
-#endif
-#ifdef MAL_POSIX
-        struct
-        {
-            pthread_mutex_t mutex;
-            pthread_cond_t condition;
-            mal_uint32 value;
-        } posix;
-#endif
-
-        int _unused;
-    };
-} mal_event;
-
-
-#define MAL_MAX_PERIODS_DSOUND                          4
-#define MAL_MAX_PERIODS_OPENAL                          4
-
-// Standard sample rates.
-#define MAL_SAMPLE_RATE_8000                            8000
-#define MAL_SAMPLE_RATE_11025                           11025
-#define MAL_SAMPLE_RATE_16000                           16000
-#define MAL_SAMPLE_RATE_22050                           22050
-#define MAL_SAMPLE_RATE_24000                           24000
-#define MAL_SAMPLE_RATE_32000                           32000
-#define MAL_SAMPLE_RATE_44100                           44100
-#define MAL_SAMPLE_RATE_48000                           48000
-#define MAL_SAMPLE_RATE_88200                           88200
-#define MAL_SAMPLE_RATE_96000                           96000
-#define MAL_SAMPLE_RATE_176400                          176400
-#define MAL_SAMPLE_RATE_192000                          192000
-#define MAL_SAMPLE_RATE_352800                          352800
-#define MAL_SAMPLE_RATE_384000                          384000
-
-#define MAL_MIN_PCM_SAMPLE_SIZE_IN_BYTES                1   // For simplicity, mini_al does not support PCM samples that are not byte aligned.
-#define MAL_MAX_PCM_SAMPLE_SIZE_IN_BYTES                8
-#define MAL_MIN_CHANNELS                                1
-#define MAL_MAX_CHANNELS                                32
-#define MAL_MIN_SAMPLE_RATE                             MAL_SAMPLE_RATE_8000
-#define MAL_MAX_SAMPLE_RATE                             MAL_SAMPLE_RATE_384000
-#define MAL_SRC_SINC_MIN_WINDOW_WIDTH                   2
-#define MAL_SRC_SINC_MAX_WINDOW_WIDTH                   32
-#define MAL_SRC_SINC_DEFAULT_WINDOW_WIDTH               16
-#define MAL_SRC_SINC_LOOKUP_TABLE_RESOLUTION            8
-#define MAL_SRC_INPUT_BUFFER_SIZE_IN_SAMPLES            256
-
 typedef mal_uint8 mal_channel;
 #define MAL_CHANNEL_NONE                                0
 #define MAL_CHANNEL_MONO                                1
@@ -688,38 +576,33 @@ typedef int mal_result;
 #define MAL_ACCESS_DENIED                               -32
 #define MAL_TOO_LARGE                                   -33
 
-typedef void       (* mal_log_proc) (mal_context* pContext, mal_device* pDevice, const char* message);
-typedef void       (* mal_recv_proc)(mal_device* pDevice, mal_uint32 frameCount, const void* pSamples);
-typedef mal_uint32 (* mal_send_proc)(mal_device* pDevice, mal_uint32 frameCount, void* pSamples);
-typedef void       (* mal_stop_proc)(mal_device* pDevice);
+// Standard sample rates.
+#define MAL_SAMPLE_RATE_8000                            8000
+#define MAL_SAMPLE_RATE_11025                           11025
+#define MAL_SAMPLE_RATE_16000                           16000
+#define MAL_SAMPLE_RATE_22050                           22050
+#define MAL_SAMPLE_RATE_24000                           24000
+#define MAL_SAMPLE_RATE_32000                           32000
+#define MAL_SAMPLE_RATE_44100                           44100
+#define MAL_SAMPLE_RATE_48000                           48000
+#define MAL_SAMPLE_RATE_88200                           88200
+#define MAL_SAMPLE_RATE_96000                           96000
+#define MAL_SAMPLE_RATE_176400                          176400
+#define MAL_SAMPLE_RATE_192000                          192000
+#define MAL_SAMPLE_RATE_352800                          352800
+#define MAL_SAMPLE_RATE_384000                          384000
 
-typedef enum
-{
-    mal_backend_null,
-    mal_backend_wasapi,
-    mal_backend_dsound,
-    mal_backend_winmm,
-    mal_backend_alsa,
-    mal_backend_pulseaudio,
-    mal_backend_jack,
-    mal_backend_coreaudio,
-    mal_backend_oss,
-    mal_backend_opensl,
-    mal_backend_openal,
-    mal_backend_sdl
-} mal_backend;
-
-typedef enum
-{
-    mal_device_type_playback,
-    mal_device_type_capture
-} mal_device_type;
-
-typedef enum
-{
-    mal_share_mode_shared = 0,
-    mal_share_mode_exclusive,
-} mal_share_mode;
+#define MAL_MIN_PCM_SAMPLE_SIZE_IN_BYTES                1   // For simplicity, mini_al does not support PCM samples that are not byte aligned.
+#define MAL_MAX_PCM_SAMPLE_SIZE_IN_BYTES                8
+#define MAL_MIN_CHANNELS                                1
+#define MAL_MAX_CHANNELS                                32
+#define MAL_MIN_SAMPLE_RATE                             MAL_SAMPLE_RATE_8000
+#define MAL_MAX_SAMPLE_RATE                             MAL_SAMPLE_RATE_384000
+#define MAL_SRC_SINC_MIN_WINDOW_WIDTH                   2
+#define MAL_SRC_SINC_MAX_WINDOW_WIDTH                   32
+#define MAL_SRC_SINC_DEFAULT_WINDOW_WIDTH               16
+#define MAL_SRC_SINC_LOOKUP_TABLE_RESOLUTION            8
+#define MAL_SRC_INPUT_BUFFER_SIZE_IN_SAMPLES            256
 
 typedef enum
 {
@@ -774,6 +657,129 @@ typedef enum
     mal_performance_profile_low_latency = 0,
     mal_performance_profile_conservative
 } mal_performance_profile;
+
+
+#ifndef MAL_NO_DEVICE_IO
+typedef enum
+{
+    mal_backend_null,
+    mal_backend_wasapi,
+    mal_backend_dsound,
+    mal_backend_winmm,
+    mal_backend_alsa,
+    mal_backend_pulseaudio,
+    mal_backend_jack,
+    mal_backend_coreaudio,
+    mal_backend_oss,
+    mal_backend_opensl,
+    mal_backend_openal,
+    mal_backend_sdl
+} mal_backend;
+
+// Thread priorties should be ordered such that the default priority of the worker thread is 0.
+typedef enum
+{
+    mal_thread_priority_idle     = -5,
+    mal_thread_priority_lowest   = -4,
+    mal_thread_priority_low      = -3,
+    mal_thread_priority_normal   = -2,
+    mal_thread_priority_high     = -1,
+    mal_thread_priority_highest  =  0,
+    mal_thread_priority_realtime =  1,
+    mal_thread_priority_default  =  0
+} mal_thread_priority;
+
+typedef struct
+{
+    mal_context* pContext;
+
+    union
+    {
+#ifdef MAL_WIN32
+        struct
+        {
+            /*HANDLE*/ mal_handle hThread;
+        } win32;
+#endif
+#ifdef MAL_POSIX
+        struct
+        {
+            pthread_t thread;
+        } posix;
+#endif
+
+        int _unused;
+    };
+} mal_thread;
+
+typedef struct
+{
+    mal_context* pContext;
+
+    union
+    {
+#ifdef MAL_WIN32
+        struct
+        {
+            /*HANDLE*/ mal_handle hMutex;
+        } win32;
+#endif
+#ifdef MAL_POSIX
+        struct
+        {
+            pthread_mutex_t mutex;
+        } posix;
+#endif
+
+        int _unused;
+    };
+} mal_mutex;
+
+typedef struct
+{
+    mal_context* pContext;
+
+    union
+    {
+#ifdef MAL_WIN32
+        struct
+        {
+            /*HANDLE*/ mal_handle hEvent;
+        } win32;
+#endif
+#ifdef MAL_POSIX
+        struct
+        {
+            pthread_mutex_t mutex;
+            pthread_cond_t condition;
+            mal_uint32 value;
+        } posix;
+#endif
+
+        int _unused;
+    };
+} mal_event;
+
+
+#define MAL_MAX_PERIODS_DSOUND                          4
+#define MAL_MAX_PERIODS_OPENAL                          4
+
+typedef void       (* mal_log_proc) (mal_context* pContext, mal_device* pDevice, const char* message);
+typedef void       (* mal_recv_proc)(mal_device* pDevice, mal_uint32 frameCount, const void* pSamples);
+typedef mal_uint32 (* mal_send_proc)(mal_device* pDevice, mal_uint32 frameCount, void* pSamples);
+typedef void       (* mal_stop_proc)(mal_device* pDevice);
+
+typedef enum
+{
+    mal_device_type_playback,
+    mal_device_type_capture
+} mal_device_type;
+
+typedef enum
+{
+    mal_share_mode_shared = 0,
+    mal_share_mode_exclusive,
+} mal_share_mode;
 
 typedef union
 {
@@ -839,7 +845,7 @@ typedef struct
 {
     mal_int64 counter;
 } mal_timer;
-
+#endif  // MAL_NO_DEVICE_IO
 
 
 typedef struct mal_format_converter mal_format_converter;
@@ -1031,6 +1037,7 @@ MAL_ALIGNED_STRUCT(MAL_SIMD_ALIGNMENT) mal_dsp
 };
 
 
+#ifndef MAL_NO_DEVICE_IO
 typedef struct
 {
     mal_format format;
@@ -1939,15 +1946,6 @@ mal_bool32 mal_device_is_started(mal_device* pDevice);
 //   This is calculated from constant values which are set at initialization time and never change.
 mal_uint32 mal_device_get_buffer_size_in_bytes(mal_device* pDevice);
 
-// Retrieves the size of a sample in bytes for the given format.
-//
-// This API is efficient and is implemented using a lookup table.
-//
-// Thread Safety: SAFE
-//   This is API is pure.
-mal_uint32 mal_get_bytes_per_sample(mal_format format);
-static MAL_INLINE mal_uint32 mal_get_bytes_per_frame(mal_format format, mal_uint32 channels) { return mal_get_bytes_per_sample(format) * channels; }
-
 
 // Helper function for initializing a mal_context_config object.
 mal_context_config mal_context_config_init(mal_log_proc onLog);
@@ -2040,7 +2038,14 @@ static MAL_INLINE mal_device_config mal_device_config_init_capture(mal_format fo
 // A simplified version of mal_device_config_init() for playback devices.
 static MAL_INLINE mal_device_config mal_device_config_init_playback_ex(mal_format format, mal_uint32 channels, mal_uint32 sampleRate, mal_channel channelMap[MAL_MAX_CHANNELS], mal_send_proc onSendCallback) { return mal_device_config_init_ex(format, channels, sampleRate, channelMap, NULL, onSendCallback); }
 static MAL_INLINE mal_device_config mal_device_config_init_playback(mal_format format, mal_uint32 channels, mal_uint32 sampleRate, mal_send_proc onSendCallback) { return mal_device_config_init_playback_ex(format, channels, sampleRate, NULL, onSendCallback); }
+#endif
 
+
+//////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+//
+// Channel Maps
+//
+//////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
 // Helper for retrieving a standard channel map.
 void mal_get_standard_channel_map(mal_standard_channel_map standardChannelMap, mal_uint32 channels, mal_channel channelMap[MAL_MAX_CHANNELS]);
@@ -2302,6 +2307,7 @@ mal_uint64 mal_convert_frames_ex(void* pOut, mal_format formatOut, mal_uint32 ch
 //
 //////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
+#ifndef MAL_NO_DEVICE_IO
 // Creates a mutex.
 //
 // A mutex must be created from a valid context. A mutex is initially unlocked.
@@ -2315,7 +2321,7 @@ void mal_mutex_lock(mal_mutex* pMutex);
 
 // Unlocks a mutex.
 void mal_mutex_unlock(mal_mutex* pMutex);
-
+#endif
 
 
 //////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -2339,14 +2345,25 @@ void* mal_aligned_malloc(size_t sz, size_t alignment);
 // Free's an aligned malloc'd buffer.
 void mal_aligned_free(void* p);
 
-// Retrieves a friendly name for a backend.
-const char* mal_get_backend_name(mal_backend backend);
-
 // Retrieves a friendly name for a format.
 const char* mal_get_format_name(mal_format format);
 
 // Blends two frames in floating point format.
 void mal_blend_f32(float* pOut, float* pInA, float* pInB, float factor, mal_uint32 channels);
+
+// Retrieves the size of a sample in bytes for the given format.
+//
+// This API is efficient and is implemented using a lookup table.
+//
+// Thread Safety: SAFE
+//   This is API is pure.
+mal_uint32 mal_get_bytes_per_sample(mal_format format);
+static MAL_INLINE mal_uint32 mal_get_bytes_per_frame(mal_format format, mal_uint32 channels) { return mal_get_bytes_per_sample(format) * channels; }
+
+
+#ifndef MAL_NO_DEVICE_IO
+// Retrieves a friendly name for a backend.
+const char* mal_get_backend_name(mal_backend backend);
 
 // Calculates a scaling factor relative to speed of the system.
 //
@@ -2362,7 +2379,7 @@ mal_uint32 mal_scale_buffer_size(mal_uint32 baseBufferSize, float scale);
 
 // Calculates a buffer size in frames for the specified performance profile and scale factor.
 mal_uint32 mal_calculate_default_buffer_size_in_frames(mal_performance_profile performanceProfile, mal_uint32 sampleRate, float scale);
-
+#endif  // MAL_NO_DEVICE_IO
 
 
 //////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -2875,136 +2892,6 @@ static MAL_INLINE mal_bool32 mal_has_neon()
 #define MAL_TAU_D   6.28318530717958647693
 #endif
 
-// Unfortunately using runtime linking for pthreads causes problems. This has occurred for me when testing on FreeBSD. When
-// using runtime linking, deadlocks can occur (for me it happens when loading data from fread()). It turns out that doing
-// compile-time linking fixes this. I'm not sure why this happens, but the safest way I can think of to fix this is to simply
-// disable runtime linking by default. To enable runtime linking, #define this before the implementation of this file. I am
-// not officially supporting this, but I'm leaving it here in case it's useful for somebody, somewhere.
-//#define MAL_USE_RUNTIME_LINKING_FOR_PTHREAD
-
-// Disable run-time linking on certain backends.
-#ifndef MAL_NO_RUNTIME_LINKING
-    #if defined(MAL_ANDROID) || defined(MAL_EMSCRIPTEN)
-        #define MAL_NO_RUNTIME_LINKING
-    #endif
-#endif
-
-// Check if we have the necessary development packages for each backend at the top so we can use this to determine whether or not
-// certain unused functions and variables can be excluded from the build to avoid warnings.
-#ifdef MAL_ENABLE_WASAPI
-    #define MAL_HAS_WASAPI      // Every compiler should support WASAPI
-#endif
-#ifdef MAL_ENABLE_DSOUND
-    #define MAL_HAS_DSOUND      // Every compiler should support DirectSound.
-#endif
-#ifdef MAL_ENABLE_WINMM
-    #define MAL_HAS_WINMM       // Every compiler I'm aware of supports WinMM.
-#endif
-#ifdef MAL_ENABLE_ALSA
-    #define MAL_HAS_ALSA
-    #ifdef MAL_NO_RUNTIME_LINKING
-        #ifdef __has_include
-            #if !__has_include(<alsa/asoundlib.h>)
-                #undef MAL_HAS_ALSA
-            #endif
-        #endif
-    #endif
-#endif
-#ifdef MAL_ENABLE_PULSEAUDIO
-    #define MAL_HAS_PULSEAUDIO  // Development packages are unnecessary for PulseAudio.
-    #ifdef MAL_NO_RUNTIME_LINKING
-        #ifdef __has_include
-            #if !__has_include(<pulse/pulseaudio.h>)
-                #undef MAL_HAS_PULSEAUDIO
-            #endif
-        #endif
-    #endif
-#endif
-#ifdef MAL_ENABLE_JACK
-    #define MAL_HAS_JACK
-    #ifdef MAL_NO_RUNTIME_LINKING
-        #ifdef __has_include
-            #if !__has_include(<jack/jack.h>)
-                #undef MAL_HAS_JACK
-            #endif
-        #endif
-    #endif
-#endif
-#ifdef MAL_ENABLE_COREAUDIO
-    #define MAL_HAS_COREAUDIO
-#endif
-#ifdef MAL_ENABLE_OSS
-    #define MAL_HAS_OSS         // OSS is the only supported backend for Unix and BSD, so it must be present else this library is useless.
-#endif
-#ifdef MAL_ENABLE_OPENSL
-    #define MAL_HAS_OPENSL      // OpenSL is the only supported backend for Android. It must be present.
-#endif
-#ifdef MAL_ENABLE_OPENAL
-    #define MAL_HAS_OPENAL
-    #ifdef MAL_NO_RUNTIME_LINKING
-        #ifdef __has_include
-            #if !__has_include(<AL/al.h>)
-                #undef MAL_HAS_OPENAL
-            #endif
-        #endif
-    #endif
-#endif
-#ifdef MAL_ENABLE_SDL
-    #define MAL_HAS_SDL
-
-    // SDL headers are necessary if using compile-time linking.
-    #ifdef MAL_NO_RUNTIME_LINKING
-        #ifdef __has_include
-            #ifdef MAL_EMSCRIPTEN
-                #if !__has_include(<SDL/SDL_audio.h>)
-                    #undef MAL_HAS_SDL
-                #endif
-            #else
-                #if !__has_include(<SDL2/SDL_audio.h>)
-                    #undef MAL_HAS_SDL
-                #endif
-            #endif
-        #endif
-    #endif
-#endif
-#ifdef MAL_ENABLE_NULL
-    #define MAL_HAS_NULL    // Everything supports the null backend.
-#endif
-
-
-#ifdef MAL_WIN32
-    #define MAL_THREADCALL WINAPI
-    typedef unsigned long mal_thread_result;
-#else
-    #define MAL_THREADCALL
-    typedef void* mal_thread_result;
-#endif
-typedef mal_thread_result (MAL_THREADCALL * mal_thread_entry_proc)(void* pData);
-
-#ifdef MAL_WIN32
-typedef HRESULT (WINAPI * MAL_PFN_CoInitializeEx)(LPVOID pvReserved, DWORD  dwCoInit);
-typedef void    (WINAPI * MAL_PFN_CoUninitialize)();
-typedef HRESULT (WINAPI * MAL_PFN_CoCreateInstance)(REFCLSID rclsid, LPUNKNOWN pUnkOuter, DWORD dwClsContext, REFIID riid, LPVOID *ppv);
-typedef void    (WINAPI * MAL_PFN_CoTaskMemFree)(LPVOID pv);
-typedef HRESULT (WINAPI * MAL_PFN_PropVariantClear)(PROPVARIANT *pvar);
-typedef int     (WINAPI * MAL_PFN_StringFromGUID2)(const GUID* const rguid, LPOLESTR lpsz, int cchMax);
-
-typedef HWND (WINAPI * MAL_PFN_GetForegroundWindow)();
-typedef HWND (WINAPI * MAL_PFN_GetDesktopWindow)();
-
-// Microsoft documents these APIs as returning LSTATUS, but the Win32 API shipping with some compilers do not define it. It's just a LONG.
-typedef LONG (WINAPI * MAL_PFN_RegOpenKeyExA)(HKEY hKey, LPCSTR lpSubKey, DWORD ulOptions, REGSAM samDesired, PHKEY phkResult);
-typedef LONG (WINAPI * MAL_PFN_RegCloseKey)(HKEY hKey);
-typedef LONG (WINAPI * MAL_PFN_RegQueryValueExA)(HKEY hKey, LPCSTR lpValueName, LPDWORD lpReserved, LPDWORD lpType, LPBYTE lpData, LPDWORD lpcbData);
-#endif
-
-
-#define MAL_STATE_UNINITIALIZED     0
-#define MAL_STATE_STOPPED           1   // The device's default state after initialization.
-#define MAL_STATE_STARTED           2   // The worker thread is in it's main loop waiting for the driver to request or deliver audio data.
-#define MAL_STATE_STARTING          3   // Transitioning from a stopped state to started.
-#define MAL_STATE_STOPPING          4   // Transitioning from a started state to stopped.
-
 
 // The default format when mal_format_unknown (0) is requested when initializing a device.
 #ifndef MAL_DEFAULT_FORMAT
@@ -3071,8 +2958,6 @@ mal_format g_malFormatPriorities[] = {
     mal_format_u8           // Low quality
 };
 
-#define MAL_DEFAULT_PLAYBACK_DEVICE_NAME    "Default Playback Device"
-#define MAL_DEFAULT_CAPTURE_DEVICE_NAME     "Default Capture Device"
 
 ///////////////////////////////////////////////////////////////////////////////
 //
@@ -3595,6 +3480,141 @@ void mal_split_buffer(void* pBuffer, size_t bufferSize, size_t splitCount, size_
 #ifdef MAL_32BIT
 #define mal_atomic_exchange_ptr mal_atomic_exchange_32
 #endif
+
+
+#ifndef MAL_NO_DEVICE_IO
+// Unfortunately using runtime linking for pthreads causes problems. This has occurred for me when testing on FreeBSD. When
+// using runtime linking, deadlocks can occur (for me it happens when loading data from fread()). It turns out that doing
+// compile-time linking fixes this. I'm not sure why this happens, but the safest way I can think of to fix this is to simply
+// disable runtime linking by default. To enable runtime linking, #define this before the implementation of this file. I am
+// not officially supporting this, but I'm leaving it here in case it's useful for somebody, somewhere.
+//#define MAL_USE_RUNTIME_LINKING_FOR_PTHREAD
+
+// Disable run-time linking on certain backends.
+#ifndef MAL_NO_RUNTIME_LINKING
+    #if defined(MAL_ANDROID) || defined(MAL_EMSCRIPTEN)
+        #define MAL_NO_RUNTIME_LINKING
+    #endif
+#endif
+
+// Check if we have the necessary development packages for each backend at the top so we can use this to determine whether or not
+// certain unused functions and variables can be excluded from the build to avoid warnings.
+#ifdef MAL_ENABLE_WASAPI
+    #define MAL_HAS_WASAPI      // Every compiler should support WASAPI
+#endif
+#ifdef MAL_ENABLE_DSOUND
+    #define MAL_HAS_DSOUND      // Every compiler should support DirectSound.
+#endif
+#ifdef MAL_ENABLE_WINMM
+    #define MAL_HAS_WINMM       // Every compiler I'm aware of supports WinMM.
+#endif
+#ifdef MAL_ENABLE_ALSA
+    #define MAL_HAS_ALSA
+    #ifdef MAL_NO_RUNTIME_LINKING
+        #ifdef __has_include
+            #if !__has_include(<alsa/asoundlib.h>)
+                #undef MAL_HAS_ALSA
+            #endif
+        #endif
+    #endif
+#endif
+#ifdef MAL_ENABLE_PULSEAUDIO
+    #define MAL_HAS_PULSEAUDIO  // Development packages are unnecessary for PulseAudio.
+    #ifdef MAL_NO_RUNTIME_LINKING
+        #ifdef __has_include
+            #if !__has_include(<pulse/pulseaudio.h>)
+                #undef MAL_HAS_PULSEAUDIO
+            #endif
+        #endif
+    #endif
+#endif
+#ifdef MAL_ENABLE_JACK
+    #define MAL_HAS_JACK
+    #ifdef MAL_NO_RUNTIME_LINKING
+        #ifdef __has_include
+            #if !__has_include(<jack/jack.h>)
+                #undef MAL_HAS_JACK
+            #endif
+        #endif
+    #endif
+#endif
+#ifdef MAL_ENABLE_COREAUDIO
+    #define MAL_HAS_COREAUDIO
+#endif
+#ifdef MAL_ENABLE_OSS
+    #define MAL_HAS_OSS         // OSS is the only supported backend for Unix and BSD, so it must be present else this library is useless.
+#endif
+#ifdef MAL_ENABLE_OPENSL
+    #define MAL_HAS_OPENSL      // OpenSL is the only supported backend for Android. It must be present.
+#endif
+#ifdef MAL_ENABLE_OPENAL
+    #define MAL_HAS_OPENAL
+    #ifdef MAL_NO_RUNTIME_LINKING
+        #ifdef __has_include
+            #if !__has_include(<AL/al.h>)
+                #undef MAL_HAS_OPENAL
+            #endif
+        #endif
+    #endif
+#endif
+#ifdef MAL_ENABLE_SDL
+    #define MAL_HAS_SDL
+
+    // SDL headers are necessary if using compile-time linking.
+    #ifdef MAL_NO_RUNTIME_LINKING
+        #ifdef __has_include
+            #ifdef MAL_EMSCRIPTEN
+                #if !__has_include(<SDL/SDL_audio.h>)
+                    #undef MAL_HAS_SDL
+                #endif
+            #else
+                #if !__has_include(<SDL2/SDL_audio.h>)
+                    #undef MAL_HAS_SDL
+                #endif
+            #endif
+        #endif
+    #endif
+#endif
+#ifdef MAL_ENABLE_NULL
+    #define MAL_HAS_NULL    // Everything supports the null backend.
+#endif
+
+
+#ifdef MAL_WIN32
+    #define MAL_THREADCALL WINAPI
+    typedef unsigned long mal_thread_result;
+#else
+    #define MAL_THREADCALL
+    typedef void* mal_thread_result;
+#endif
+typedef mal_thread_result (MAL_THREADCALL * mal_thread_entry_proc)(void* pData);
+
+#ifdef MAL_WIN32
+typedef HRESULT (WINAPI * MAL_PFN_CoInitializeEx)(LPVOID pvReserved, DWORD  dwCoInit);
+typedef void    (WINAPI * MAL_PFN_CoUninitialize)();
+typedef HRESULT (WINAPI * MAL_PFN_CoCreateInstance)(REFCLSID rclsid, LPUNKNOWN pUnkOuter, DWORD dwClsContext, REFIID riid, LPVOID *ppv);
+typedef void    (WINAPI * MAL_PFN_CoTaskMemFree)(LPVOID pv);
+typedef HRESULT (WINAPI * MAL_PFN_PropVariantClear)(PROPVARIANT *pvar);
+typedef int     (WINAPI * MAL_PFN_StringFromGUID2)(const GUID* const rguid, LPOLESTR lpsz, int cchMax);
+
+typedef HWND (WINAPI * MAL_PFN_GetForegroundWindow)();
+typedef HWND (WINAPI * MAL_PFN_GetDesktopWindow)();
+
+// Microsoft documents these APIs as returning LSTATUS, but the Win32 API shipping with some compilers do not define it. It's just a LONG.
+typedef LONG (WINAPI * MAL_PFN_RegOpenKeyExA)(HKEY hKey, LPCSTR lpSubKey, DWORD ulOptions, REGSAM samDesired, PHKEY phkResult);
+typedef LONG (WINAPI * MAL_PFN_RegCloseKey)(HKEY hKey);
+typedef LONG (WINAPI * MAL_PFN_RegQueryValueExA)(HKEY hKey, LPCSTR lpValueName, LPDWORD lpReserved, LPDWORD lpType, LPBYTE lpData, LPDWORD lpcbData);
+#endif
+
+
+#define MAL_STATE_UNINITIALIZED     0
+#define MAL_STATE_STOPPED           1   // The device's default state after initialization.
+#define MAL_STATE_STARTED           2   // The worker thread is in it's main loop waiting for the driver to request or deliver audio data.
+#define MAL_STATE_STARTING          3   // Transitioning from a stopped state to started.
+#define MAL_STATE_STOPPING          4   // Transitioning from a started state to stopped.
+
+#define MAL_DEFAULT_PLAYBACK_DEVICE_NAME    "Default Playback Device"
+#define MAL_DEFAULT_CAPTURE_DEVICE_NAME     "Default Capture Device"
 
 
 ///////////////////////////////////////////////////////////////////////////////
@@ -18415,19 +18435,6 @@ mal_uint32 mal_device_get_buffer_size_in_bytes(mal_device* pDevice)
     return pDevice->bufferSizeInFrames * pDevice->channels * mal_get_bytes_per_sample(pDevice->format);
 }
 
-mal_uint32 mal_get_bytes_per_sample(mal_format format)
-{
-    mal_uint32 sizes[] = {
-        0,  // unknown
-        1,  // u8
-        2,  // s16
-        3,  // s24
-        4,  // s32
-        4,  // f32
-    };
-    return sizes[format];
-}
-
 mal_context_config mal_context_config_init(mal_log_proc onLog)
 {
     mal_context_config config;
@@ -18490,6 +18497,7 @@ mal_device_config mal_device_config_init_ex(mal_format format, mal_uint32 channe
 
     return config;
 }
+#endif  // MAL_NO_DEVICE_IO
 
 
 void mal_get_standard_channel_map_microsoft(mal_uint32 channels, mal_channel channelMap[MAL_MAX_CHANNELS])
@@ -24037,26 +24045,6 @@ void mal_aligned_free(void* p)
     mal_free(((void**)p)[-1]);
 }
 
-const char* mal_get_backend_name(mal_backend backend)
-{
-    switch (backend)
-    {
-        case mal_backend_null:       return "Null";
-        case mal_backend_wasapi:     return "WASAPI";
-        case mal_backend_dsound:     return "DirectSound";
-        case mal_backend_winmm:      return "WinMM";
-        case mal_backend_alsa:       return "ALSA";
-        case mal_backend_pulseaudio: return "PulseAudio";
-        case mal_backend_jack:       return "JACK";
-        case mal_backend_coreaudio:  return "Core Audio";
-        case mal_backend_oss:        return "OSS";
-        case mal_backend_opensl:     return "OpenSL|ES";
-        case mal_backend_openal:     return "OpenAL";
-        case mal_backend_sdl:        return "SDL";
-        default:                     return "Unknown";
-    }
-}
-
 const char* mal_get_format_name(mal_format format)
 {
     switch (format)
@@ -24075,6 +24063,42 @@ void mal_blend_f32(float* pOut, float* pInA, float* pInB, float factor, mal_uint
 {
     for (mal_uint32 i = 0; i < channels; ++i) {
         pOut[i] = mal_mix_f32(pInA[i], pInB[i], factor);
+    }
+}
+
+
+mal_uint32 mal_get_bytes_per_sample(mal_format format)
+{
+    mal_uint32 sizes[] = {
+        0,  // unknown
+        1,  // u8
+        2,  // s16
+        3,  // s24
+        4,  // s32
+        4,  // f32
+    };
+    return sizes[format];
+}
+
+
+#ifndef MAL_NO_DEVICE_IO
+const char* mal_get_backend_name(mal_backend backend)
+{
+    switch (backend)
+    {
+        case mal_backend_null:       return "Null";
+        case mal_backend_wasapi:     return "WASAPI";
+        case mal_backend_dsound:     return "DirectSound";
+        case mal_backend_winmm:      return "WinMM";
+        case mal_backend_alsa:       return "ALSA";
+        case mal_backend_pulseaudio: return "PulseAudio";
+        case mal_backend_jack:       return "JACK";
+        case mal_backend_coreaudio:  return "Core Audio";
+        case mal_backend_oss:        return "OSS";
+        case mal_backend_opensl:     return "OpenSL|ES";
+        case mal_backend_openal:     return "OpenAL";
+        case mal_backend_sdl:        return "SDL";
+        default:                     return "Unknown";
     }
 }
 
@@ -24207,6 +24231,7 @@ mal_uint32 mal_calculate_default_buffer_size_in_frames(mal_performance_profile p
     mal_uint32 bufferSize = mal_scale_buffer_size((sampleRate/1000) * baseLatency, scale);
     return mal_clamp(bufferSize, minBufferSize, maxBufferSize);
 }
+#endif  // MAL_NO_DEVICE_IO
 
 
 
