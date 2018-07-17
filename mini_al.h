@@ -1,5 +1,5 @@
 // Audio playback and capture library. Public domain. See "unlicense" statement at the end of this file.
-// mini_al - v0.8.3 - 2018-07-15
+// mini_al - v0.8.4-rc - 2018-xx-xx
 //
 // David Reid - davidreidsoftware@gmail.com
 
@@ -931,6 +931,12 @@ typedef enum
 
 typedef struct
 {
+    mal_src_sinc_window_function windowFunction;
+    mal_uint32 windowWidth;
+} mal_src_config_sinc;
+
+typedef struct
+{
     mal_uint32 sampleRateIn;
     mal_uint32 sampleRateOut;
     mal_uint32 channels;
@@ -944,11 +950,7 @@ typedef struct
     void* pUserData;
     union
     {
-        struct
-        {
-            mal_src_sinc_window_function windowFunction;
-            mal_uint32 windowWidth;
-        } sinc;
+        mal_src_config_sinc sinc;
     };
 } mal_src_config;
 
@@ -1007,11 +1009,7 @@ typedef struct
     void* pUserData;
     union
     {
-        struct
-        {
-            mal_src_sinc_window_function windowFunction;
-            mal_uint32 windowWidth;
-        } sinc;
+        mal_src_config_sinc sinc;
     };
 } mal_dsp_config;
 
@@ -2418,10 +2416,17 @@ typedef mal_result (* mal_decoder_uninit_proc)       (mal_decoder* pDecoder);
 
 typedef struct
 {
-    mal_format  format;       // Set to 0 or mal_format_unknown to use the stream's internal format.
-    mal_uint32  channels;     // Set to 0 to use the stream's internal channels.
-    mal_uint32  sampleRate;   // Set to 0 to use the stream's internal sample rate.
+    mal_format format;      // Set to 0 or mal_format_unknown to use the stream's internal format.
+    mal_uint32 channels;    // Set to 0 to use the stream's internal channels.
+    mal_uint32 sampleRate;  // Set to 0 to use the stream's internal sample rate.
     mal_channel channelMap[MAL_MAX_CHANNELS];
+    mal_channel_mix_mode channelMixMode;
+    mal_dither_mode ditherMode;
+    mal_src_algorithm srcAlgorithm;
+    union
+    {
+        mal_src_config_sinc sinc;
+    } src;
 } mal_decoder_config;
 
 struct mal_decoder
@@ -24273,6 +24278,11 @@ mal_result mal_decoder__init_dsp(mal_decoder* pDecoder, const mal_decoder_config
         pDecoder->internalFormat, pDecoder->internalChannels, pDecoder->internalSampleRate, pDecoder->internalChannelMap,
         pDecoder->outputFormat,   pDecoder->outputChannels,   pDecoder->outputSampleRate,   pDecoder->outputChannelMap,
         onRead, pDecoder);
+    dspConfig.channelMixMode = pConfig->channelMixMode;
+    dspConfig.ditherMode = pConfig->ditherMode;
+    dspConfig.srcAlgorithm = pConfig->srcAlgorithm;
+    dspConfig.sinc = pConfig->src.sinc;
+
     return mal_dsp_init(&dspConfig, &pDecoder->dsp);
 }
 
