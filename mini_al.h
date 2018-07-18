@@ -279,82 +279,6 @@ extern "C" {
     #endif
 #endif
 
-// Some backends are only supported on certain platforms.
-#if defined(MAL_WIN32)
-    #define MAL_SUPPORT_WASAPI
-    #if defined(MAL_WIN32_DESKTOP)  // DirectSound and WinMM backends are only supported on desktop's.
-        #define MAL_SUPPORT_DSOUND
-        #define MAL_SUPPORT_WINMM
-        #define MAL_SUPPORT_JACK    // JACK is technically supported on Windows, but I don't know how many people use it in practice...
-    #endif
-#endif
-#if defined(MAL_UNIX)
-    #if defined(MAL_LINUX)
-        #if !defined(MAL_ANDROID)   // ALSA is not supported on Android.
-            #define MAL_SUPPORT_ALSA
-        #endif
-    #endif
-    #if !defined(MAL_BSD) && !defined(MAL_ANDROID) && !defined(MAL_EMSCRIPTEN)
-        #define MAL_SUPPORT_PULSEAUDIO
-        #define MAL_SUPPORT_JACK
-    #endif
-    #if defined(MAL_ANDROID)
-        #define MAL_SUPPORT_OPENSL
-    #endif
-    #if !defined(MAL_LINUX) && !defined(MAL_APPLE) && !defined(MAL_ANDROID) && !defined(MAL_EMSCRIPTEN)
-        #define MAL_SUPPORT_OSS
-    #endif
-#endif
-#if defined(MAL_APPLE)
-    #define MAL_SUPPORT_COREAUDIO
-#endif
-
-#define MAL_SUPPORT_SDL     // All platforms support SDL.
-
-// Explicitly disable OpenAL and Null backends for Emscripten because they both use a background thread which is not properly supported right now.
-#if !defined(MAL_EMSCRIPTEN)
-#define MAL_SUPPORT_OPENAL
-#define MAL_SUPPORT_NULL    // All platforms support the null backend.
-#endif
-
-
-#if !defined(MAL_NO_WASAPI) && defined(MAL_SUPPORT_WASAPI)
-    #define MAL_ENABLE_WASAPI
-#endif
-#if !defined(MAL_NO_DSOUND) && defined(MAL_SUPPORT_DSOUND)
-    #define MAL_ENABLE_DSOUND
-#endif
-#if !defined(MAL_NO_WINMM) && defined(MAL_SUPPORT_WINMM)
-    #define MAL_ENABLE_WINMM
-#endif
-#if !defined(MAL_NO_ALSA) && defined(MAL_SUPPORT_ALSA)
-    #define MAL_ENABLE_ALSA
-#endif
-#if !defined(MAL_NO_PULSEAUDIO) && defined(MAL_SUPPORT_PULSEAUDIO)
-    #define MAL_ENABLE_PULSEAUDIO
-#endif
-#if !defined(MAL_NO_JACK) && defined(MAL_SUPPORT_JACK)
-    #define MAL_ENABLE_JACK
-#endif
-#if !defined(MAL_NO_COREAUDIO) && defined(MAL_SUPPORT_COREAUDIO)
-    #define MAL_ENABLE_COREAUDIO
-#endif
-#if !defined(MAL_NO_OSS) && defined(MAL_SUPPORT_OSS)
-    #define MAL_ENABLE_OSS
-#endif
-#if !defined(MAL_NO_OPENSL) && defined(MAL_SUPPORT_OPENSL)
-    #define MAL_ENABLE_OPENSL
-#endif
-#if !defined(MAL_NO_OPENAL) && defined(MAL_SUPPORT_OPENAL)
-    #define MAL_ENABLE_OPENAL
-#endif
-#if !defined(MAL_NO_SDL) && defined(MAL_SUPPORT_SDL)
-    #define MAL_ENABLE_SDL
-#endif
-#if !defined(MAL_NO_NULL) && defined(MAL_SUPPORT_NULL)
-    #define MAL_ENABLE_NULL
-#endif
-
 #include <stddef.h> // For size_t.
 
 #ifndef MAL_HAS_STDINT
@@ -659,195 +583,6 @@ typedef enum
 } mal_performance_profile;
 
 
-#ifndef MAL_NO_DEVICE_IO
-typedef enum
-{
-    mal_backend_null,
-    mal_backend_wasapi,
-    mal_backend_dsound,
-    mal_backend_winmm,
-    mal_backend_alsa,
-    mal_backend_pulseaudio,
-    mal_backend_jack,
-    mal_backend_coreaudio,
-    mal_backend_oss,
-    mal_backend_opensl,
-    mal_backend_openal,
-    mal_backend_sdl
-} mal_backend;
-
-// Thread priorties should be ordered such that the default priority of the worker thread is 0.
-typedef enum
-{
-    mal_thread_priority_idle     = -5,
-    mal_thread_priority_lowest   = -4,
-    mal_thread_priority_low      = -3,
-    mal_thread_priority_normal   = -2,
-    mal_thread_priority_high     = -1,
-    mal_thread_priority_highest  =  0,
-    mal_thread_priority_realtime =  1,
-    mal_thread_priority_default  =  0
-} mal_thread_priority;
-
-typedef struct
-{
-    mal_context* pContext;
-
-    union
-    {
-#ifdef MAL_WIN32
-        struct
-        {
-            /*HANDLE*/ mal_handle hThread;
-        } win32;
-#endif
-#ifdef MAL_POSIX
-        struct
-        {
-            pthread_t thread;
-        } posix;
-#endif
-
-        int _unused;
-    };
-} mal_thread;
-
-typedef struct
-{
-    mal_context* pContext;
-
-    union
-    {
-#ifdef MAL_WIN32
-        struct
-        {
-            /*HANDLE*/ mal_handle hMutex;
-        } win32;
-#endif
-#ifdef MAL_POSIX
-        struct
-        {
-            pthread_mutex_t mutex;
-        } posix;
-#endif
-
-        int _unused;
-    };
-} mal_mutex;
-
-typedef struct
-{
-    mal_context* pContext;
-
-    union
-    {
-#ifdef MAL_WIN32
-        struct
-        {
-            /*HANDLE*/ mal_handle hEvent;
-        } win32;
-#endif
-#ifdef MAL_POSIX
-        struct
-        {
-            pthread_mutex_t mutex;
-            pthread_cond_t condition;
-            mal_uint32 value;
-        } posix;
-#endif
-
-        int _unused;
-    };
-} mal_event;
-
-
-#define MAL_MAX_PERIODS_DSOUND                          4
-#define MAL_MAX_PERIODS_OPENAL                          4
-
-typedef void       (* mal_log_proc) (mal_context* pContext, mal_device* pDevice, const char* message);
-typedef void       (* mal_recv_proc)(mal_device* pDevice, mal_uint32 frameCount, const void* pSamples);
-typedef mal_uint32 (* mal_send_proc)(mal_device* pDevice, mal_uint32 frameCount, void* pSamples);
-typedef void       (* mal_stop_proc)(mal_device* pDevice);
-
-typedef enum
-{
-    mal_device_type_playback,
-    mal_device_type_capture
-} mal_device_type;
-
-typedef enum
-{
-    mal_share_mode_shared = 0,
-    mal_share_mode_exclusive,
-} mal_share_mode;
-
-typedef union
-{
-#ifdef MAL_SUPPORT_WASAPI
-    wchar_t wasapi[64];             // WASAPI uses a wchar_t string for identification.
-#endif
-#ifdef MAL_SUPPORT_DSOUND
-    mal_uint8 dsound[16];           // DirectSound uses a GUID for identification.
-#endif
-#ifdef MAL_SUPPORT_WINMM
-    /*UINT_PTR*/ mal_uint32 winmm;  // When creating a device, WinMM expects a Win32 UINT_PTR for device identification. In practice it's actually just a UINT.
-#endif
-#ifdef MAL_SUPPORT_ALSA
-    char alsa[256];                 // ALSA uses a name string for identification.
-#endif
-#ifdef MAL_SUPPORT_PULSEAUDIO
-    char pulse[256];                // PulseAudio uses a name string for identification.
-#endif
-#ifdef MAL_SUPPORT_JACK
-    int jack;                       // JACK always uses default devices.
-#endif
-#ifdef MAL_SUPPORT_COREAUDIO
-    char coreaudio[256];            // Core Audio uses a string for identification.
-#endif
-#ifdef MAL_SUPPORT_OSS
-    char oss[64];                   // "dev/dsp0", etc. "dev/dsp" for the default device.
-#endif
-#ifdef MAL_SUPPORT_OPENSL
-    mal_uint32 opensl;              // OpenSL|ES uses a 32-bit unsigned integer for identification.
-#endif
-#ifdef MAL_SUPPORT_OPENAL
-    char openal[256];               // OpenAL seems to use human-readable device names as the ID.
-#endif
-#ifdef MAL_SUPPORT_SDL
-    int sdl;                        // SDL devices are identified with an index.
-#endif
-#ifdef MAL_SUPPORT_NULL
-    int nullbackend;                // The null backend uses an integer for device IDs.
-#endif
-} mal_device_id;
-
-typedef struct
-{
-    // Basic info. This is the only information guaranteed to be filled in during device enumeration.
-    mal_device_id id;
-    char name[256];
-
-    // Detailed info. As much of this is filled as possible with mal_context_get_device_info(). Note that you are allowed to initialize
-    // a device with settings outside of this range, but it just means the data will be converted using mini_al's data conversion
-    // pipeline before sending the data to/from the device. Most programs will need to not worry about these values, but it's provided
-    // here mainly for informational purposes or in the rare case that someone might find it useful.
-    //
-    // These will be set to 0 when returned by mal_context_enumerate_devices() or mal_context_get_devices().
-    mal_uint32 formatCount;
-    mal_format formats[mal_format_count];
-    mal_uint32 minChannels;
-    mal_uint32 maxChannels;
-    mal_uint32 minSampleRate;
-    mal_uint32 maxSampleRate;
-} mal_device_info;
-
-typedef struct
-{
-    mal_int64 counter;
-} mal_timer;
-#endif  // MAL_NO_DEVICE_IO
-
-
 typedef struct mal_format_converter mal_format_converter;
 typedef mal_uint32 (* mal_format_converter_read_proc)              (mal_format_converter* pConverter, mal_uint32 frameCount, void* pFramesOut, void* pUserData);
 typedef mal_uint32 (* mal_format_converter_read_deinterleaved_proc)(mal_format_converter* pConverter, mal_uint32 frameCount, void** ppSamplesOut, void* pUserData);
@@ -1037,7 +772,617 @@ MAL_ALIGNED_STRUCT(MAL_SIMD_ALIGNMENT) mal_dsp
 };
 
 
+//////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+//////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+//
+// DATA CONVERSION
+// ===============
+//
+// This section contains the APIs for data conversion. You will find everything here for channel mapping, sample format conversion, resampling, etc.
+//
+//////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+//////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+
+//////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+//
+// Channel Maps
+//
+//////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+
+// Helper for retrieving a standard channel map.
+void mal_get_standard_channel_map(mal_standard_channel_map standardChannelMap, mal_uint32 channels, mal_channel channelMap[MAL_MAX_CHANNELS]);
+
+// Copies a channel map.
+void mal_channel_map_copy(mal_channel* pOut, const mal_channel* pIn, mal_uint32 channels);
+
+
+// Determines whether or not a channel map is valid.
+//
+// A blank channel map is valid (all channels set to MAL_CHANNEL_NONE). The way a blank channel map is handled is context specific, but
+// is usually treated as a passthrough.
+//
+// Invalid channel maps:
+//   - A channel map with no channels
+//   - A channel map with more than one channel and a mono channel
+mal_bool32 mal_channel_map_valid(mal_uint32 channels, const mal_channel channelMap[MAL_MAX_CHANNELS]);
+
+// Helper for comparing two channel maps for equality.
+//
+// This assumes the channel count is the same between the two.
+mal_bool32 mal_channel_map_equal(mal_uint32 channels, const mal_channel channelMapA[MAL_MAX_CHANNELS], const mal_channel channelMapB[MAL_MAX_CHANNELS]);
+
+// Helper for determining if a channel map is blank (all channels set to MAL_CHANNEL_NONE).
+mal_bool32 mal_channel_map_blank(mal_uint32 channels, const mal_channel channelMap[MAL_MAX_CHANNELS]);
+
+// Helper for determining whether or not a channel is present in the given channel map.
+mal_bool32 mal_channel_map_contains_channel_position(mal_uint32 channels, const mal_channel channelMap[MAL_MAX_CHANNELS], mal_channel channelPosition);
+
+
+//////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+//
+// Format Conversion
+// =================
+// The format converter serves two purposes:
+//   1) Conversion between data formats (u8 to f32, etc.)
+//   2) Interleaving and deinterleaving
+//
+// When initializing a converter, you specify the input and output formats (u8, s16, etc.) and read callbacks. There are two read callbacks - one for
+// interleaved input data (onRead) and another for deinterleaved input data (onReadDeinterleaved). You implement whichever is most convenient for you. You
+// can implement both, but it's not recommended as it just introduces unnecessary complexity.
+//
+// To read data as interleaved samples, use mal_format_converter_read(). Otherwise use mal_format_converter_read_deinterleaved().
+//
+// Dithering
+// ---------
+// The format converter also supports dithering. Dithering can be set using ditherMode variable in the config, like so.
+//
+//   pConfig->ditherMode = mal_dither_mode_rectangle;
+//
+// The different dithering modes include the following, in order of efficiency:
+//   - None:      mal_dither_mode_none
+//   - Rectangle: mal_dither_mode_rectangle
+//   - Triangle:  mal_dither_mode_triangle
+//
+// Note that even if the dither mode is set to something other than mal_dither_mode_none, it will be ignored for conversions where dithering is not needed.
+// Dithering is available for the following conversions:
+//   - s16 -> u8
+//   - s24 -> u8
+//   - s32 -> u8
+//   - f32 -> u8
+//   - s24 -> s16
+//   - s32 -> s16
+//   - f32 -> s16
+//
+// Note that it is not an error to pass something other than mal_dither_mode_none for conversions where dither is not used. It will just be ignored.
+//
+//////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+
+// Initializes a format converter.
+mal_result mal_format_converter_init(const mal_format_converter_config* pConfig, mal_format_converter* pConverter);
+
+// Reads data from the format converter as interleaved channels.
+mal_uint64 mal_format_converter_read(mal_format_converter* pConverter, mal_uint64 frameCount, void* pFramesOut, void* pUserData);
+
+// Reads data from the format converter as deinterleaved channels.
+mal_uint64 mal_format_converter_read_deinterleaved(mal_format_converter* pConverter, mal_uint64 frameCount, void** ppSamplesOut, void* pUserData);
+
+
+// Helper for initializing a format converter config.
+mal_format_converter_config mal_format_converter_config_init_new(void);
+mal_format_converter_config mal_format_converter_config_init(mal_format formatIn, mal_format formatOut, mal_uint32 channels, mal_format_converter_read_proc onRead, void* pUserData);
+mal_format_converter_config mal_format_converter_config_init_deinterleaved(mal_format formatIn, mal_format formatOut, mal_uint32 channels, mal_format_converter_read_deinterleaved_proc onReadDeinterleaved, void* pUserData);
+
+
+
+//////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+//
+// Channel Routing
+// ===============
+// There are two main things you can do with the channel router:
+//   1) Rearrange channels
+//   2) Convert from one channel count to another
+//
+// Channel Rearrangement
+// ---------------------
+// A simple example of channel rearrangement may be swapping the left and right channels in a stereo stream. To do this you just pass in the same channel
+// count for both the input and output with channel maps that contain the same channels (in a different order).
+//
+// Channel Conversion
+// ------------------
+// The channel router can also convert from one channel count to another, such as converting a 5.1 stream to stero. When changing the channel count, the
+// router will first perform a 1:1 mapping of channel positions that are present in both the input and output channel maps. The second thing it will do
+// is distribute the input mono channel (if any) across all output channels, excluding any None and LFE channels. If there is an output mono channel, all
+// input channels will be averaged, excluding any None and LFE channels.
+//
+// The last case to consider is when a channel position in the input channel map is not present in the output channel map, and vice versa. In this case the
+// channel router will perform a blend of other related channels to produce an audible channel. There are several blending modes.
+//   1) Simple
+//      Unmatched channels are silenced.
+//   2) Planar Blending
+//      Channels are blended based on a set of planes that each speaker emits audio from.
+//
+// Planar Blending
+// ---------------
+// In this mode, channel positions are associated with a set of planes where the channel conceptually emits audio from. An example is the front/left speaker.
+// This speaker is positioned to the front of the listener, so you can think of it as emitting audio from the front plane. It is also positioned to the left
+// of the listener so you can think of it as also emitting audio from the left plane. Now consider the (unrealistic) situation where the input channel map
+// contains only the front/left channel position, but the output channel map contains both the front/left and front/center channel. When deciding on the audio
+// data to send to the front/center speaker (which has no 1:1 mapping with an input channel) we need to use some logic based on our available input channel
+// positions.
+//
+// As mentioned earlier, our front/left speaker is, conceptually speaking, emitting audio from the front _and_ the left planes. Similarly, the front/center
+// speaker is emitting audio from _only_ the front plane. What these two channels have in common is that they are both emitting audio from the front plane.
+// Thus, it makes sense that the front/center speaker should receive some contribution from the front/left channel. How much contribution depends on their
+// planar relationship (thus the name of this blending technique).
+//
+// Because the front/left channel is emitting audio from two planes (front and left), you can think of it as though it's willing to dedicate 50% of it's total
+// volume to each of it's planes (a channel position emitting from 1 plane would be willing to given 100% of it's total volume to that plane, and a channel
+// position emitting from 3 planes would be willing to given 33% of it's total volume to each plane). Similarly, the front/center speaker is emitting audio
+// from only one plane so you can think of it as though it's willing to _take_ 100% of it's volume from front plane emissions. Now, since the front/left
+// channel is willing to _give_ 50% of it's total volume to the front plane, and the front/center speaker is willing to _take_ 100% of it's total volume
+// from the front, you can imagine that 50% of the front/left speaker will be given to the front/center speaker.
+//
+// Usage
+// -----
+// To use the channel router you need to specify three things:
+//   1) The input channel count and channel map
+//   2) The output channel count and channel map
+//   3) The mixing mode to use in the case where a 1:1 mapping is unavailable
+//
+// Note that input and output data is always deinterleaved 32-bit floating point.
+//
+// Initialize the channel router with mal_channel_router_init(). You will need to pass in a config object which specifies the input and output configuration,
+// mixing mode and a callback for sending data to the router. This callback will be called when input data needs to be sent to the router for processing.
+//
+// Read data from the channel router with mal_channel_router_read_deinterleaved(). Output data is always 32-bit floating point.
+//
+//////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+
+// Initializes a channel router where it is assumed that the input data is non-interleaved.
+mal_result mal_channel_router_init(const mal_channel_router_config* pConfig, mal_channel_router* pRouter);
+
+// Reads data from the channel router as deinterleaved channels.
+mal_uint64 mal_channel_router_read_deinterleaved(mal_channel_router* pRouter, mal_uint64 frameCount, void** ppSamplesOut, void* pUserData);
+
+// Helper for initializing a channel router config.
+mal_channel_router_config mal_channel_router_config_init(mal_uint32 channelsIn, const mal_channel channelMapIn[MAL_MAX_CHANNELS], mal_uint32 channelsOut, const mal_channel channelMapOut[MAL_MAX_CHANNELS], mal_channel_mix_mode mixingMode, mal_channel_router_read_deinterleaved_proc onRead, void* pUserData);
+
+
+//////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+//
+// Sample Rate Conversion
+// ======================
+//
+//////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+
+// Initializes a sample rate conversion object.
+mal_result mal_src_init(const mal_src_config* pConfig, mal_src* pSRC);
+
+// Dynamically adjusts the input sample rate.
+//
+// DEPRECATED. Use mal_src_set_sample_rate() instead.
+mal_result mal_src_set_input_sample_rate(mal_src* pSRC, mal_uint32 sampleRateIn);
+
+// Dynamically adjusts the output sample rate.
+//
+// This is useful for dynamically adjust pitch. Keep in mind, however, that this will speed up or slow down the sound. If this
+// is not acceptable you will need to use your own algorithm.
+//
+// DEPRECATED. Use mal_src_set_sample_rate() instead.
+mal_result mal_src_set_output_sample_rate(mal_src* pSRC, mal_uint32 sampleRateOut);
+
+// Dynamically adjusts the sample rate.
+//
+// This is useful for dynamically adjust pitch. Keep in mind, however, that this will speed up or slow down the sound. If this
+// is not acceptable you will need to use your own algorithm.
+mal_result mal_src_set_sample_rate(mal_src* pSRC, mal_uint32 sampleRateIn, mal_uint32 sampleRateOut);
+
+// Reads a number of frames.
+//
+// Returns the number of frames actually read.
+mal_uint64 mal_src_read_deinterleaved(mal_src* pSRC, mal_uint64 frameCount, void** ppSamplesOut, void* pUserData);
+
+
+// Helper for creating a sample rate conversion config.
+mal_src_config mal_src_config_init_new(void);
+mal_src_config mal_src_config_init(mal_uint32 sampleRateIn, mal_uint32 sampleRateOut, mal_uint32 channels, mal_src_read_deinterleaved_proc onReadDeinterleaved, void* pUserData);
+
+
+//////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+//
+// DSP
+//
+//////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+
+// Initializes a DSP object.
+mal_result mal_dsp_init(const mal_dsp_config* pConfig, mal_dsp* pDSP);
+
+// Dynamically adjusts the input sample rate.
+//
+// This will fail is the DSP was not initialized with allowDynamicSampleRate.
+//
+// DEPRECATED. Use mal_dsp_set_sample_rate() instead.
+mal_result mal_dsp_set_input_sample_rate(mal_dsp* pDSP, mal_uint32 sampleRateOut);
+
+// Dynamically adjusts the output sample rate.
+//
+// This is useful for dynamically adjust pitch. Keep in mind, however, that this will speed up or slow down the sound. If this
+// is not acceptable you will need to use your own algorithm.
+//
+// This will fail is the DSP was not initialized with allowDynamicSampleRate.
+//
+// DEPRECATED. Use mal_dsp_set_sample_rate() instead.
+mal_result mal_dsp_set_output_sample_rate(mal_dsp* pDSP, mal_uint32 sampleRateOut);
+
+// Dynamically adjusts the output sample rate.
+//
+// This is useful for dynamically adjust pitch. Keep in mind, however, that this will speed up or slow down the sound. If this
+// is not acceptable you will need to use your own algorithm.
+//
+// This will fail is the DSP was not initialized with allowDynamicSampleRate.
+mal_result mal_dsp_set_sample_rate(mal_dsp* pDSP, mal_uint32 sampleRateIn, mal_uint32 sampleRateOut);
+
+
+// Reads a number of frames and runs them through the DSP processor.
+mal_uint64 mal_dsp_read(mal_dsp* pDSP, mal_uint64 frameCount, void* pFramesOut, void* pUserData);
+
+// Helper for initializing a mal_dsp_config object.
+mal_dsp_config mal_dsp_config_init_new(void);
+mal_dsp_config mal_dsp_config_init(mal_format formatIn, mal_uint32 channelsIn, mal_uint32 sampleRateIn, mal_format formatOut, mal_uint32 channelsOut, mal_uint32 sampleRateOut, mal_dsp_read_proc onRead, void* pUserData);
+mal_dsp_config mal_dsp_config_init_ex(mal_format formatIn, mal_uint32 channelsIn, mal_uint32 sampleRateIn, mal_channel channelMapIn[MAL_MAX_CHANNELS], mal_format formatOut, mal_uint32 channelsOut, mal_uint32 sampleRateOut,  mal_channel channelMapOut[MAL_MAX_CHANNELS], mal_dsp_read_proc onRead, void* pUserData);
+
+
+// High-level helper for doing a full format conversion in one go. Returns the number of output frames. Call this with pOut set to NULL to
+// determine the required size of the output buffer.
+//
+// A return value of 0 indicates an error.
+//
+// This function is useful for one-off bulk conversions, but if you're streaming data you should use the DSP APIs instead.
+mal_uint64 mal_convert_frames(void* pOut, mal_format formatOut, mal_uint32 channelsOut, mal_uint32 sampleRateOut, const void* pIn, mal_format formatIn, mal_uint32 channelsIn, mal_uint32 sampleRateIn, mal_uint64 frameCountIn);
+mal_uint64 mal_convert_frames_ex(void* pOut, mal_format formatOut, mal_uint32 channelsOut, mal_uint32 sampleRateOut, mal_channel channelMapOut[MAL_MAX_CHANNELS], const void* pIn, mal_format formatIn, mal_uint32 channelsIn, mal_uint32 sampleRateIn, mal_channel channelMapIn[MAL_MAX_CHANNELS], mal_uint64 frameCountIn);
+
+
+
+//////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+//
+// Miscellaneous Helpers
+//
+//////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+
+// malloc(). Calls MAL_MALLOC().
+void* mal_malloc(size_t sz);
+
+// realloc(). Calls MAL_REALLOC().
+void* mal_realloc(void* p, size_t sz);
+
+// free(). Calls MAL_FREE().
+void mal_free(void* p);
+
+// Performs an aligned malloc, with the assumption that the alignment is a power of 2.
+void* mal_aligned_malloc(size_t sz, size_t alignment);
+
+// Free's an aligned malloc'd buffer.
+void mal_aligned_free(void* p);
+
+// Retrieves a friendly name for a format.
+const char* mal_get_format_name(mal_format format);
+
+// Blends two frames in floating point format.
+void mal_blend_f32(float* pOut, float* pInA, float* pInB, float factor, mal_uint32 channels);
+
+// Retrieves the size of a sample in bytes for the given format.
+//
+// This API is efficient and is implemented using a lookup table.
+//
+// Thread Safety: SAFE
+//   This is API is pure.
+mal_uint32 mal_get_bytes_per_sample(mal_format format);
+static MAL_INLINE mal_uint32 mal_get_bytes_per_frame(mal_format format, mal_uint32 channels) { return mal_get_bytes_per_sample(format) * channels; }
+
+
+//////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+//
+// Format Conversion
+//
+//////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+void mal_pcm_u8_to_s16(void* pOut, const void* pIn, mal_uint64 count, mal_dither_mode ditherMode);
+void mal_pcm_u8_to_s24(void* pOut, const void* pIn, mal_uint64 count, mal_dither_mode ditherMode);
+void mal_pcm_u8_to_s32(void* pOut, const void* pIn, mal_uint64 count, mal_dither_mode ditherMode);
+void mal_pcm_u8_to_f32(void* pOut, const void* pIn, mal_uint64 count, mal_dither_mode ditherMode);
+void mal_pcm_s16_to_u8(void* pOut, const void* pIn, mal_uint64 count, mal_dither_mode ditherMode);
+void mal_pcm_s16_to_s24(void* pOut, const void* pIn, mal_uint64 count, mal_dither_mode ditherMode);
+void mal_pcm_s16_to_s32(void* pOut, const void* pIn, mal_uint64 count, mal_dither_mode ditherMode);
+void mal_pcm_s16_to_f32(void* pOut, const void* pIn, mal_uint64 count, mal_dither_mode ditherMode);
+void mal_pcm_s24_to_u8(void* pOut, const void* pIn, mal_uint64 count, mal_dither_mode ditherMode);
+void mal_pcm_s24_to_s16(void* pOut, const void* pIn, mal_uint64 count, mal_dither_mode ditherMode);
+void mal_pcm_s24_to_s32(void* pOut, const void* pIn, mal_uint64 count, mal_dither_mode ditherMode);
+void mal_pcm_s24_to_f32(void* pOut, const void* pIn, mal_uint64 count, mal_dither_mode ditherMode);
+void mal_pcm_s32_to_u8(void* pOut, const void* pIn, mal_uint64 count, mal_dither_mode ditherMode);
+void mal_pcm_s32_to_s16(void* pOut, const void* pIn, mal_uint64 count, mal_dither_mode ditherMode);
+void mal_pcm_s32_to_s24(void* pOut, const void* pIn, mal_uint64 count, mal_dither_mode ditherMode);
+void mal_pcm_s32_to_f32(void* pOut, const void* pIn, mal_uint64 count, mal_dither_mode ditherMode);
+void mal_pcm_f32_to_u8(void* pOut, const void* pIn, mal_uint64 count, mal_dither_mode ditherMode);
+void mal_pcm_f32_to_s16(void* pOut, const void* pIn, mal_uint64 count, mal_dither_mode ditherMode);
+void mal_pcm_f32_to_s24(void* pOut, const void* pIn, mal_uint64 count, mal_dither_mode ditherMode);
+void mal_pcm_f32_to_s32(void* pOut, const void* pIn, mal_uint64 count, mal_dither_mode ditherMode);
+void mal_pcm_convert(void* pOut, mal_format formatOut, const void* pIn, mal_format formatIn, mal_uint64 sampleCount, mal_dither_mode ditherMode);
+
+
+
+//////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+//////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+//
+// DEVICE I/O
+// ==========
+//
+// This section contains the APIs for device playback and capture. Here is where you'll find mal_device_init(), etc.
+//
+//////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+//////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 #ifndef MAL_NO_DEVICE_IO
+// Some backends are only supported on certain platforms.
+#if defined(MAL_WIN32)
+    #define MAL_SUPPORT_WASAPI
+    #if defined(MAL_WIN32_DESKTOP)  // DirectSound and WinMM backends are only supported on desktop's.
+        #define MAL_SUPPORT_DSOUND
+        #define MAL_SUPPORT_WINMM
+        #define MAL_SUPPORT_JACK    // JACK is technically supported on Windows, but I don't know how many people use it in practice...
+    #endif
+#endif
+#if defined(MAL_UNIX)
+    #if defined(MAL_LINUX)
+        #if !defined(MAL_ANDROID)   // ALSA is not supported on Android.
+            #define MAL_SUPPORT_ALSA
+        #endif
+    #endif
+    #if !defined(MAL_BSD) && !defined(MAL_ANDROID) && !defined(MAL_EMSCRIPTEN)
+        #define MAL_SUPPORT_PULSEAUDIO
+        #define MAL_SUPPORT_JACK
+    #endif
+    #if defined(MAL_ANDROID)
+        #define MAL_SUPPORT_OPENSL
+    #endif
+    #if !defined(MAL_LINUX) && !defined(MAL_APPLE) && !defined(MAL_ANDROID) && !defined(MAL_EMSCRIPTEN)
+        #define MAL_SUPPORT_OSS
+    #endif
+#endif
+#if defined(MAL_APPLE)
+    #define MAL_SUPPORT_COREAUDIO
+#endif
+
+#define MAL_SUPPORT_SDL     // All platforms support SDL.
+
+// Explicitly disable OpenAL and Null backends for Emscripten because they both use a background thread which is not properly supported right now.
+#if !defined(MAL_EMSCRIPTEN)
+#define MAL_SUPPORT_OPENAL
+#define MAL_SUPPORT_NULL    // All platforms support the null backend.
+#endif
+
+
+#if !defined(MAL_NO_WASAPI) && defined(MAL_SUPPORT_WASAPI)
+    #define MAL_ENABLE_WASAPI
+#endif
+#if !defined(MAL_NO_DSOUND) && defined(MAL_SUPPORT_DSOUND)
+    #define MAL_ENABLE_DSOUND
+#endif
+#if !defined(MAL_NO_WINMM) && defined(MAL_SUPPORT_WINMM)
+    #define MAL_ENABLE_WINMM
+#endif
+#if !defined(MAL_NO_ALSA) && defined(MAL_SUPPORT_ALSA)
+    #define MAL_ENABLE_ALSA
+#endif
+#if !defined(MAL_NO_PULSEAUDIO) && defined(MAL_SUPPORT_PULSEAUDIO)
+    #define MAL_ENABLE_PULSEAUDIO
+#endif
+#if !defined(MAL_NO_JACK) && defined(MAL_SUPPORT_JACK)
+    #define MAL_ENABLE_JACK
+#endif
+#if !defined(MAL_NO_COREAUDIO) && defined(MAL_SUPPORT_COREAUDIO)
+    #define MAL_ENABLE_COREAUDIO
+#endif
+#if !defined(MAL_NO_OSS) && defined(MAL_SUPPORT_OSS)
+    #define MAL_ENABLE_OSS
+#endif
+#if !defined(MAL_NO_OPENSL) && defined(MAL_SUPPORT_OPENSL)
+    #define MAL_ENABLE_OPENSL
+#endif
+#if !defined(MAL_NO_OPENAL) && defined(MAL_SUPPORT_OPENAL)
+    #define MAL_ENABLE_OPENAL
+#endif
+#if !defined(MAL_NO_SDL) && defined(MAL_SUPPORT_SDL)
+    #define MAL_ENABLE_SDL
+#endif
+#if !defined(MAL_NO_NULL) && defined(MAL_SUPPORT_NULL)
+    #define MAL_ENABLE_NULL
+#endif
+
+
+typedef enum
+{
+    mal_backend_null,
+    mal_backend_wasapi,
+    mal_backend_dsound,
+    mal_backend_winmm,
+    mal_backend_alsa,
+    mal_backend_pulseaudio,
+    mal_backend_jack,
+    mal_backend_coreaudio,
+    mal_backend_oss,
+    mal_backend_opensl,
+    mal_backend_openal,
+    mal_backend_sdl
+} mal_backend;
+
+// Thread priorties should be ordered such that the default priority of the worker thread is 0.
+typedef enum
+{
+    mal_thread_priority_idle     = -5,
+    mal_thread_priority_lowest   = -4,
+    mal_thread_priority_low      = -3,
+    mal_thread_priority_normal   = -2,
+    mal_thread_priority_high     = -1,
+    mal_thread_priority_highest  =  0,
+    mal_thread_priority_realtime =  1,
+    mal_thread_priority_default  =  0
+} mal_thread_priority;
+
+typedef struct
+{
+    mal_context* pContext;
+
+    union
+    {
+#ifdef MAL_WIN32
+        struct
+        {
+            /*HANDLE*/ mal_handle hThread;
+        } win32;
+#endif
+#ifdef MAL_POSIX
+        struct
+        {
+            pthread_t thread;
+        } posix;
+#endif
+
+        int _unused;
+    };
+} mal_thread;
+
+typedef struct
+{
+    mal_context* pContext;
+
+    union
+    {
+#ifdef MAL_WIN32
+        struct
+        {
+            /*HANDLE*/ mal_handle hMutex;
+        } win32;
+#endif
+#ifdef MAL_POSIX
+        struct
+        {
+            pthread_mutex_t mutex;
+        } posix;
+#endif
+
+        int _unused;
+    };
+} mal_mutex;
+
+typedef struct
+{
+    mal_context* pContext;
+
+    union
+    {
+#ifdef MAL_WIN32
+        struct
+        {
+            /*HANDLE*/ mal_handle hEvent;
+        } win32;
+#endif
+#ifdef MAL_POSIX
+        struct
+        {
+            pthread_mutex_t mutex;
+            pthread_cond_t condition;
+            mal_uint32 value;
+        } posix;
+#endif
+
+        int _unused;
+    };
+} mal_event;
+
+
+#define MAL_MAX_PERIODS_DSOUND                          4
+#define MAL_MAX_PERIODS_OPENAL                          4
+
+typedef void       (* mal_log_proc) (mal_context* pContext, mal_device* pDevice, const char* message);
+typedef void       (* mal_recv_proc)(mal_device* pDevice, mal_uint32 frameCount, const void* pSamples);
+typedef mal_uint32 (* mal_send_proc)(mal_device* pDevice, mal_uint32 frameCount, void* pSamples);
+typedef void       (* mal_stop_proc)(mal_device* pDevice);
+
+typedef enum
+{
+    mal_device_type_playback,
+    mal_device_type_capture
+} mal_device_type;
+
+typedef enum
+{
+    mal_share_mode_shared = 0,
+    mal_share_mode_exclusive,
+} mal_share_mode;
+
+typedef union
+{
+#ifdef MAL_SUPPORT_WASAPI
+    wchar_t wasapi[64];             // WASAPI uses a wchar_t string for identification.
+#endif
+#ifdef MAL_SUPPORT_DSOUND
+    mal_uint8 dsound[16];           // DirectSound uses a GUID for identification.
+#endif
+#ifdef MAL_SUPPORT_WINMM
+    /*UINT_PTR*/ mal_uint32 winmm;  // When creating a device, WinMM expects a Win32 UINT_PTR for device identification. In practice it's actually just a UINT.
+#endif
+#ifdef MAL_SUPPORT_ALSA
+    char alsa[256];                 // ALSA uses a name string for identification.
+#endif
+#ifdef MAL_SUPPORT_PULSEAUDIO
+    char pulse[256];                // PulseAudio uses a name string for identification.
+#endif
+#ifdef MAL_SUPPORT_JACK
+    int jack;                       // JACK always uses default devices.
+#endif
+#ifdef MAL_SUPPORT_COREAUDIO
+    char coreaudio[256];            // Core Audio uses a string for identification.
+#endif
+#ifdef MAL_SUPPORT_OSS
+    char oss[64];                   // "dev/dsp0", etc. "dev/dsp" for the default device.
+#endif
+#ifdef MAL_SUPPORT_OPENSL
+    mal_uint32 opensl;              // OpenSL|ES uses a 32-bit unsigned integer for identification.
+#endif
+#ifdef MAL_SUPPORT_OPENAL
+    char openal[256];               // OpenAL seems to use human-readable device names as the ID.
+#endif
+#ifdef MAL_SUPPORT_SDL
+    int sdl;                        // SDL devices are identified with an index.
+#endif
+#ifdef MAL_SUPPORT_NULL
+    int nullbackend;                // The null backend uses an integer for device IDs.
+#endif
+} mal_device_id;
+
+typedef struct
+{
+    // Basic info. This is the only information guaranteed to be filled in during device enumeration.
+    mal_device_id id;
+    char name[256];
+
+    // Detailed info. As much of this is filled as possible with mal_context_get_device_info(). Note that you are allowed to initialize
+    // a device with settings outside of this range, but it just means the data will be converted using mini_al's data conversion
+    // pipeline before sending the data to/from the device. Most programs will need to not worry about these values, but it's provided
+    // here mainly for informational purposes or in the rare case that someone might find it useful.
+    //
+    // These will be set to 0 when returned by mal_context_enumerate_devices() or mal_context_get_devices().
+    mal_uint32 formatCount;
+    mal_format formats[mal_format_count];
+    mal_uint32 minChannels;
+    mal_uint32 maxChannels;
+    mal_uint32 minSampleRate;
+    mal_uint32 maxSampleRate;
+} mal_device_info;
+
+typedef struct
+{
+    mal_int64 counter;
+} mal_timer;
+
 typedef struct
 {
     mal_format format;
@@ -2038,266 +2383,6 @@ static MAL_INLINE mal_device_config mal_device_config_init_capture(mal_format fo
 // A simplified version of mal_device_config_init() for playback devices.
 static MAL_INLINE mal_device_config mal_device_config_init_playback_ex(mal_format format, mal_uint32 channels, mal_uint32 sampleRate, mal_channel channelMap[MAL_MAX_CHANNELS], mal_send_proc onSendCallback) { return mal_device_config_init_ex(format, channels, sampleRate, channelMap, NULL, onSendCallback); }
 static MAL_INLINE mal_device_config mal_device_config_init_playback(mal_format format, mal_uint32 channels, mal_uint32 sampleRate, mal_send_proc onSendCallback) { return mal_device_config_init_playback_ex(format, channels, sampleRate, NULL, onSendCallback); }
-#endif
-
-
-//////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-//
-// Channel Maps
-//
-//////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-
-// Helper for retrieving a standard channel map.
-void mal_get_standard_channel_map(mal_standard_channel_map standardChannelMap, mal_uint32 channels, mal_channel channelMap[MAL_MAX_CHANNELS]);
-
-// Copies a channel map.
-void mal_channel_map_copy(mal_channel* pOut, const mal_channel* pIn, mal_uint32 channels);
-
-
-// Determines whether or not a channel map is valid.
-//
-// A blank channel map is valid (all channels set to MAL_CHANNEL_NONE). The way a blank channel map is handled is context specific, but
-// is usually treated as a passthrough.
-//
-// Invalid channel maps:
-//   - A channel map with no channels
-//   - A channel map with more than one channel and a mono channel
-mal_bool32 mal_channel_map_valid(mal_uint32 channels, const mal_channel channelMap[MAL_MAX_CHANNELS]);
-
-// Helper for comparing two channel maps for equality.
-//
-// This assumes the channel count is the same between the two.
-mal_bool32 mal_channel_map_equal(mal_uint32 channels, const mal_channel channelMapA[MAL_MAX_CHANNELS], const mal_channel channelMapB[MAL_MAX_CHANNELS]);
-
-// Helper for determining if a channel map is blank (all channels set to MAL_CHANNEL_NONE).
-mal_bool32 mal_channel_map_blank(mal_uint32 channels, const mal_channel channelMap[MAL_MAX_CHANNELS]);
-
-// Helper for determining whether or not a channel is present in the given channel map.
-mal_bool32 mal_channel_map_contains_channel_position(mal_uint32 channels, const mal_channel channelMap[MAL_MAX_CHANNELS], mal_channel channelPosition);
-
-
-//////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-//
-// Format Conversion
-// =================
-// The format converter serves two purposes:
-//   1) Conversion between data formats (u8 to f32, etc.)
-//   2) Interleaving and deinterleaving
-//
-// When initializing a converter, you specify the input and output formats (u8, s16, etc.) and read callbacks. There are two read callbacks - one for
-// interleaved input data (onRead) and another for deinterleaved input data (onReadDeinterleaved). You implement whichever is most convenient for you. You
-// can implement both, but it's not recommended as it just introduces unnecessary complexity.
-//
-// To read data as interleaved samples, use mal_format_converter_read(). Otherwise use mal_format_converter_read_deinterleaved().
-//
-// Dithering
-// ---------
-// The format converter also supports dithering. Dithering can be set using ditherMode variable in the config, like so.
-//
-//   pConfig->ditherMode = mal_dither_mode_rectangle;
-//
-// The different dithering modes include the following, in order of efficiency:
-//   - None:      mal_dither_mode_none
-//   - Rectangle: mal_dither_mode_rectangle
-//   - Triangle:  mal_dither_mode_triangle
-//
-// Note that even if the dither mode is set to something other than mal_dither_mode_none, it will be ignored for conversions where dithering is not needed.
-// Dithering is available for the following conversions:
-//   - s16 -> u8
-//   - s24 -> u8
-//   - s32 -> u8
-//   - f32 -> u8
-//   - s24 -> s16
-//   - s32 -> s16
-//   - f32 -> s16
-//
-// Note that it is not an error to pass something other than mal_dither_mode_none for conversions where dither is not used. It will just be ignored.
-//
-//////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-
-// Initializes a format converter.
-mal_result mal_format_converter_init(const mal_format_converter_config* pConfig, mal_format_converter* pConverter);
-
-// Reads data from the format converter as interleaved channels.
-mal_uint64 mal_format_converter_read(mal_format_converter* pConverter, mal_uint64 frameCount, void* pFramesOut, void* pUserData);
-
-// Reads data from the format converter as deinterleaved channels.
-mal_uint64 mal_format_converter_read_deinterleaved(mal_format_converter* pConverter, mal_uint64 frameCount, void** ppSamplesOut, void* pUserData);
-
-
-// Helper for initializing a format converter config.
-mal_format_converter_config mal_format_converter_config_init_new(void);
-mal_format_converter_config mal_format_converter_config_init(mal_format formatIn, mal_format formatOut, mal_uint32 channels, mal_format_converter_read_proc onRead, void* pUserData);
-mal_format_converter_config mal_format_converter_config_init_deinterleaved(mal_format formatIn, mal_format formatOut, mal_uint32 channels, mal_format_converter_read_deinterleaved_proc onReadDeinterleaved, void* pUserData);
-
-
-
-//////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-//
-// Channel Routing
-// ===============
-// There are two main things you can do with the channel router:
-//   1) Rearrange channels
-//   2) Convert from one channel count to another
-//
-// Channel Rearrangement
-// ---------------------
-// A simple example of channel rearrangement may be swapping the left and right channels in a stereo stream. To do this you just pass in the same channel
-// count for both the input and output with channel maps that contain the same channels (in a different order).
-//
-// Channel Conversion
-// ------------------
-// The channel router can also convert from one channel count to another, such as converting a 5.1 stream to stero. When changing the channel count, the
-// router will first perform a 1:1 mapping of channel positions that are present in both the input and output channel maps. The second thing it will do
-// is distribute the input mono channel (if any) across all output channels, excluding any None and LFE channels. If there is an output mono channel, all
-// input channels will be averaged, excluding any None and LFE channels.
-//
-// The last case to consider is when a channel position in the input channel map is not present in the output channel map, and vice versa. In this case the
-// channel router will perform a blend of other related channels to produce an audible channel. There are several blending modes.
-//   1) Simple
-//      Unmatched channels are silenced.
-//   2) Planar Blending
-//      Channels are blended based on a set of planes that each speaker emits audio from.
-//
-// Planar Blending
-// ---------------
-// In this mode, channel positions are associated with a set of planes where the channel conceptually emits audio from. An example is the front/left speaker.
-// This speaker is positioned to the front of the listener, so you can think of it as emitting audio from the front plane. It is also positioned to the left
-// of the listener so you can think of it as also emitting audio from the left plane. Now consider the (unrealistic) situation where the input channel map
-// contains only the front/left channel position, but the output channel map contains both the front/left and front/center channel. When deciding on the audio
-// data to send to the front/center speaker (which has no 1:1 mapping with an input channel) we need to use some logic based on our available input channel
-// positions.
-//
-// As mentioned earlier, our front/left speaker is, conceptually speaking, emitting audio from the front _and_ the left planes. Similarly, the front/center
-// speaker is emitting audio from _only_ the front plane. What these two channels have in common is that they are both emitting audio from the front plane.
-// Thus, it makes sense that the front/center speaker should receive some contribution from the front/left channel. How much contribution depends on their
-// planar relationship (thus the name of this blending technique).
-//
-// Because the front/left channel is emitting audio from two planes (front and left), you can think of it as though it's willing to dedicate 50% of it's total
-// volume to each of it's planes (a channel position emitting from 1 plane would be willing to given 100% of it's total volume to that plane, and a channel
-// position emitting from 3 planes would be willing to given 33% of it's total volume to each plane). Similarly, the front/center speaker is emitting audio
-// from only one plane so you can think of it as though it's willing to _take_ 100% of it's volume from front plane emissions. Now, since the front/left
-// channel is willing to _give_ 50% of it's total volume to the front plane, and the front/center speaker is willing to _take_ 100% of it's total volume
-// from the front, you can imagine that 50% of the front/left speaker will be given to the front/center speaker.
-//
-// Usage
-// -----
-// To use the channel router you need to specify three things:
-//   1) The input channel count and channel map
-//   2) The output channel count and channel map
-//   3) The mixing mode to use in the case where a 1:1 mapping is unavailable
-//
-// Note that input and output data is always deinterleaved 32-bit floating point.
-//
-// Initialize the channel router with mal_channel_router_init(). You will need to pass in a config object which specifies the input and output configuration,
-// mixing mode and a callback for sending data to the router. This callback will be called when input data needs to be sent to the router for processing.
-//
-// Read data from the channel router with mal_channel_router_read_deinterleaved(). Output data is always 32-bit floating point.
-//
-//////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-
-// Initializes a channel router where it is assumed that the input data is non-interleaved.
-mal_result mal_channel_router_init(const mal_channel_router_config* pConfig, mal_channel_router* pRouter);
-
-// Reads data from the channel router as deinterleaved channels.
-mal_uint64 mal_channel_router_read_deinterleaved(mal_channel_router* pRouter, mal_uint64 frameCount, void** ppSamplesOut, void* pUserData);
-
-// Helper for initializing a channel router config.
-mal_channel_router_config mal_channel_router_config_init(mal_uint32 channelsIn, const mal_channel channelMapIn[MAL_MAX_CHANNELS], mal_uint32 channelsOut, const mal_channel channelMapOut[MAL_MAX_CHANNELS], mal_channel_mix_mode mixingMode, mal_channel_router_read_deinterleaved_proc onRead, void* pUserData);
-
-
-//////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-//
-// Sample Rate Conversion
-// ======================
-//
-//////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-
-// Initializes a sample rate conversion object.
-mal_result mal_src_init(const mal_src_config* pConfig, mal_src* pSRC);
-
-// Dynamically adjusts the input sample rate.
-//
-// DEPRECATED. Use mal_src_set_sample_rate() instead.
-mal_result mal_src_set_input_sample_rate(mal_src* pSRC, mal_uint32 sampleRateIn);
-
-// Dynamically adjusts the output sample rate.
-//
-// This is useful for dynamically adjust pitch. Keep in mind, however, that this will speed up or slow down the sound. If this
-// is not acceptable you will need to use your own algorithm.
-//
-// DEPRECATED. Use mal_src_set_sample_rate() instead.
-mal_result mal_src_set_output_sample_rate(mal_src* pSRC, mal_uint32 sampleRateOut);
-
-// Dynamically adjusts the sample rate.
-//
-// This is useful for dynamically adjust pitch. Keep in mind, however, that this will speed up or slow down the sound. If this
-// is not acceptable you will need to use your own algorithm.
-mal_result mal_src_set_sample_rate(mal_src* pSRC, mal_uint32 sampleRateIn, mal_uint32 sampleRateOut);
-
-// Reads a number of frames.
-//
-// Returns the number of frames actually read.
-mal_uint64 mal_src_read_deinterleaved(mal_src* pSRC, mal_uint64 frameCount, void** ppSamplesOut, void* pUserData);
-
-
-// Helper for creating a sample rate conversion config.
-mal_src_config mal_src_config_init_new(void);
-mal_src_config mal_src_config_init(mal_uint32 sampleRateIn, mal_uint32 sampleRateOut, mal_uint32 channels, mal_src_read_deinterleaved_proc onReadDeinterleaved, void* pUserData);
-
-
-//////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-//
-// DSP
-//
-//////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-
-// Initializes a DSP object.
-mal_result mal_dsp_init(const mal_dsp_config* pConfig, mal_dsp* pDSP);
-
-// Dynamically adjusts the input sample rate.
-//
-// This will fail is the DSP was not initialized with allowDynamicSampleRate.
-//
-// DEPRECATED. Use mal_dsp_set_sample_rate() instead.
-mal_result mal_dsp_set_input_sample_rate(mal_dsp* pDSP, mal_uint32 sampleRateOut);
-
-// Dynamically adjusts the output sample rate.
-//
-// This is useful for dynamically adjust pitch. Keep in mind, however, that this will speed up or slow down the sound. If this
-// is not acceptable you will need to use your own algorithm.
-//
-// This will fail is the DSP was not initialized with allowDynamicSampleRate.
-//
-// DEPRECATED. Use mal_dsp_set_sample_rate() instead.
-mal_result mal_dsp_set_output_sample_rate(mal_dsp* pDSP, mal_uint32 sampleRateOut);
-
-// Dynamically adjusts the output sample rate.
-//
-// This is useful for dynamically adjust pitch. Keep in mind, however, that this will speed up or slow down the sound. If this
-// is not acceptable you will need to use your own algorithm.
-//
-// This will fail is the DSP was not initialized with allowDynamicSampleRate.
-mal_result mal_dsp_set_sample_rate(mal_dsp* pDSP, mal_uint32 sampleRateIn, mal_uint32 sampleRateOut);
-
-
-// Reads a number of frames and runs them through the DSP processor.
-mal_uint64 mal_dsp_read(mal_dsp* pDSP, mal_uint64 frameCount, void* pFramesOut, void* pUserData);
-
-// Helper for initializing a mal_dsp_config object.
-mal_dsp_config mal_dsp_config_init_new(void);
-mal_dsp_config mal_dsp_config_init(mal_format formatIn, mal_uint32 channelsIn, mal_uint32 sampleRateIn, mal_format formatOut, mal_uint32 channelsOut, mal_uint32 sampleRateOut, mal_dsp_read_proc onRead, void* pUserData);
-mal_dsp_config mal_dsp_config_init_ex(mal_format formatIn, mal_uint32 channelsIn, mal_uint32 sampleRateIn, mal_channel channelMapIn[MAL_MAX_CHANNELS], mal_format formatOut, mal_uint32 channelsOut, mal_uint32 sampleRateOut,  mal_channel channelMapOut[MAL_MAX_CHANNELS], mal_dsp_read_proc onRead, void* pUserData);
-
-
-// High-level helper for doing a full format conversion in one go. Returns the number of output frames. Call this with pOut set to NULL to
-// determine the required size of the output buffer.
-//
-// A return value of 0 indicates an error.
-//
-// This function is useful for one-off bulk conversions, but if you're streaming data you should use the DSP APIs instead.
-mal_uint64 mal_convert_frames(void* pOut, mal_format formatOut, mal_uint32 channelsOut, mal_uint32 sampleRateOut, const void* pIn, mal_format formatIn, mal_uint32 channelsIn, mal_uint32 sampleRateIn, mal_uint64 frameCountIn);
-mal_uint64 mal_convert_frames_ex(void* pOut, mal_format formatOut, mal_uint32 channelsOut, mal_uint32 sampleRateOut, mal_channel channelMapOut[MAL_MAX_CHANNELS], const void* pIn, mal_format formatIn, mal_uint32 channelsIn, mal_uint32 sampleRateIn, mal_channel channelMapIn[MAL_MAX_CHANNELS], mal_uint64 frameCountIn);
 
 
 
@@ -2307,7 +2392,6 @@ mal_uint64 mal_convert_frames_ex(void* pOut, mal_format formatOut, mal_uint32 ch
 //
 //////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
-#ifndef MAL_NO_DEVICE_IO
 // Creates a mutex.
 //
 // A mutex must be created from a valid context. A mutex is initially unlocked.
@@ -2321,47 +2405,8 @@ void mal_mutex_lock(mal_mutex* pMutex);
 
 // Unlocks a mutex.
 void mal_mutex_unlock(mal_mutex* pMutex);
-#endif
 
 
-//////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-//
-// Miscellaneous Helpers
-//
-//////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-
-// malloc(). Calls MAL_MALLOC().
-void* mal_malloc(size_t sz);
-
-// realloc(). Calls MAL_REALLOC().
-void* mal_realloc(void* p, size_t sz);
-
-// free(). Calls MAL_FREE().
-void mal_free(void* p);
-
-// Performs an aligned malloc, with the assumption that the alignment is a power of 2.
-void* mal_aligned_malloc(size_t sz, size_t alignment);
-
-// Free's an aligned malloc'd buffer.
-void mal_aligned_free(void* p);
-
-// Retrieves a friendly name for a format.
-const char* mal_get_format_name(mal_format format);
-
-// Blends two frames in floating point format.
-void mal_blend_f32(float* pOut, float* pInA, float* pInB, float factor, mal_uint32 channels);
-
-// Retrieves the size of a sample in bytes for the given format.
-//
-// This API is efficient and is implemented using a lookup table.
-//
-// Thread Safety: SAFE
-//   This is API is pure.
-mal_uint32 mal_get_bytes_per_sample(mal_format format);
-static MAL_INLINE mal_uint32 mal_get_bytes_per_frame(mal_format format, mal_uint32 channels) { return mal_get_bytes_per_sample(format) * channels; }
-
-
-#ifndef MAL_NO_DEVICE_IO
 // Retrieves a friendly name for a backend.
 const char* mal_get_backend_name(mal_backend backend);
 
@@ -2379,35 +2424,9 @@ mal_uint32 mal_scale_buffer_size(mal_uint32 baseBufferSize, float scale);
 
 // Calculates a buffer size in frames for the specified performance profile and scale factor.
 mal_uint32 mal_calculate_default_buffer_size_in_frames(mal_performance_profile performanceProfile, mal_uint32 sampleRate, float scale);
+
 #endif  // MAL_NO_DEVICE_IO
 
-
-//////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-//
-// Format Conversion
-//
-//////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-void mal_pcm_u8_to_s16(void* pOut, const void* pIn, mal_uint64 count, mal_dither_mode ditherMode);
-void mal_pcm_u8_to_s24(void* pOut, const void* pIn, mal_uint64 count, mal_dither_mode ditherMode);
-void mal_pcm_u8_to_s32(void* pOut, const void* pIn, mal_uint64 count, mal_dither_mode ditherMode);
-void mal_pcm_u8_to_f32(void* pOut, const void* pIn, mal_uint64 count, mal_dither_mode ditherMode);
-void mal_pcm_s16_to_u8(void* pOut, const void* pIn, mal_uint64 count, mal_dither_mode ditherMode);
-void mal_pcm_s16_to_s24(void* pOut, const void* pIn, mal_uint64 count, mal_dither_mode ditherMode);
-void mal_pcm_s16_to_s32(void* pOut, const void* pIn, mal_uint64 count, mal_dither_mode ditherMode);
-void mal_pcm_s16_to_f32(void* pOut, const void* pIn, mal_uint64 count, mal_dither_mode ditherMode);
-void mal_pcm_s24_to_u8(void* pOut, const void* pIn, mal_uint64 count, mal_dither_mode ditherMode);
-void mal_pcm_s24_to_s16(void* pOut, const void* pIn, mal_uint64 count, mal_dither_mode ditherMode);
-void mal_pcm_s24_to_s32(void* pOut, const void* pIn, mal_uint64 count, mal_dither_mode ditherMode);
-void mal_pcm_s24_to_f32(void* pOut, const void* pIn, mal_uint64 count, mal_dither_mode ditherMode);
-void mal_pcm_s32_to_u8(void* pOut, const void* pIn, mal_uint64 count, mal_dither_mode ditherMode);
-void mal_pcm_s32_to_s16(void* pOut, const void* pIn, mal_uint64 count, mal_dither_mode ditherMode);
-void mal_pcm_s32_to_s24(void* pOut, const void* pIn, mal_uint64 count, mal_dither_mode ditherMode);
-void mal_pcm_s32_to_f32(void* pOut, const void* pIn, mal_uint64 count, mal_dither_mode ditherMode);
-void mal_pcm_f32_to_u8(void* pOut, const void* pIn, mal_uint64 count, mal_dither_mode ditherMode);
-void mal_pcm_f32_to_s16(void* pOut, const void* pIn, mal_uint64 count, mal_dither_mode ditherMode);
-void mal_pcm_f32_to_s24(void* pOut, const void* pIn, mal_uint64 count, mal_dither_mode ditherMode);
-void mal_pcm_f32_to_s32(void* pOut, const void* pIn, mal_uint64 count, mal_dither_mode ditherMode);
-void mal_pcm_convert(void* pOut, mal_format formatOut, const void* pIn, mal_format formatIn, mal_uint64 sampleCount, mal_dither_mode ditherMode);
 
 
 
@@ -3482,6 +3501,15 @@ void mal_split_buffer(void* pBuffer, size_t bufferSize, size_t splitCount, size_
 #endif
 
 
+
+//////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+//////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+//
+// DEVICE I/O
+// ==========
+//
+//////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+//////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 #ifndef MAL_NO_DEVICE_IO
 // Unfortunately using runtime linking for pthreads causes problems. This has occurred for me when testing on FreeBSD. When
 // using runtime linking, deadlocks can occur (for me it happens when loading data from fread()). It turns out that doing
@@ -4199,6 +4227,157 @@ mal_uint32 mal_get_closest_standard_sample_rate(mal_uint32 sampleRateIn)
     }
 
     return closestRate;
+}
+
+
+const char* mal_get_backend_name(mal_backend backend)
+{
+    switch (backend)
+    {
+        case mal_backend_null:       return "Null";
+        case mal_backend_wasapi:     return "WASAPI";
+        case mal_backend_dsound:     return "DirectSound";
+        case mal_backend_winmm:      return "WinMM";
+        case mal_backend_alsa:       return "ALSA";
+        case mal_backend_pulseaudio: return "PulseAudio";
+        case mal_backend_jack:       return "JACK";
+        case mal_backend_coreaudio:  return "Core Audio";
+        case mal_backend_oss:        return "OSS";
+        case mal_backend_opensl:     return "OpenSL|ES";
+        case mal_backend_openal:     return "OpenAL";
+        case mal_backend_sdl:        return "SDL";
+        default:                     return "Unknown";
+    }
+}
+
+
+typedef struct
+{
+    mal_uint8* pInputFrames;
+    mal_uint32 framesRemaining;
+} mal_calculate_cpu_speed_factor_data;
+
+mal_uint32 mal_calculate_cpu_speed_factor__on_read(mal_dsp* pDSP, mal_uint32 framesToRead, void* pFramesOut, void* pUserData)
+{
+    mal_calculate_cpu_speed_factor_data* pData = (mal_calculate_cpu_speed_factor_data*)pUserData;
+    mal_assert(pData != NULL);
+
+    if (framesToRead > pData->framesRemaining) {
+        framesToRead = pData->framesRemaining;
+    }
+
+    mal_copy_memory(pFramesOut, pData->pInputFrames, framesToRead*pDSP->formatConverterIn.config.channels * sizeof(*pData->pInputFrames));
+
+    pData->pInputFrames += framesToRead;
+    pData->framesRemaining -= framesToRead;
+
+    return framesToRead;
+}
+
+float mal_calculate_cpu_speed_factor()
+{
+    // Our profiling test is based on how quick it can process 1 second worth of samples through mini_al's data conversion pipeline.
+
+    // This factor is multiplied with the profiling time. May need to fiddle with this to get an accurate value.
+    double f = 1000;
+
+    // Experiment: Reduce the factor a little when debug mode is used to reduce a blowout.
+#if !defined(NDEBUG) || defined(_DEBUG)
+    f /= 2;
+#endif
+
+    mal_uint32 sampleRateIn  = 44100;
+    mal_uint32 sampleRateOut = 48000;
+    mal_uint32 channelsIn    = 2;
+    mal_uint32 channelsOut   = 6;
+
+    // Using the heap here to avoid an unnecessary static memory allocation. Also too big for the stack.
+    mal_uint8* pInputFrames  = NULL;
+    float*     pOutputFrames = NULL;
+
+    size_t inputDataSize  = sampleRateIn  * channelsIn  * sizeof(*pInputFrames);
+    size_t outputDataSize = sampleRateOut * channelsOut * sizeof(*pOutputFrames);
+
+    void* pData = mal_malloc(inputDataSize + outputDataSize);
+    if (pData == NULL) {
+        return 1;
+    }
+
+    pInputFrames  = (mal_uint8*)pData;
+    pOutputFrames = (float*)(pInputFrames + inputDataSize);
+
+
+    
+
+    mal_calculate_cpu_speed_factor_data data;
+    data.pInputFrames = pInputFrames;
+    data.framesRemaining = sampleRateIn;
+    
+    mal_dsp_config config = mal_dsp_config_init(mal_format_u8, channelsIn, sampleRateIn, mal_format_f32, channelsOut, sampleRateOut, mal_calculate_cpu_speed_factor__on_read, &data);
+
+    // Use linear sample rate conversion because it's the simplest and least likely to cause skewing as a result of tweaks to default
+    // configurations in the future.
+    config.srcAlgorithm = mal_src_algorithm_linear;
+
+    // Experiment: Disable SIMD extensions when profiling just to try and keep things a bit more consistent. The idea is to get a general
+    // indication on the speed of the system, but SIMD is used more heavily in the DSP pipeline than in the general case which may make
+    // the results a little less realistic.
+    config.noSSE2   = MAL_TRUE;
+    config.noAVX2   = MAL_TRUE;
+    config.noAVX512 = MAL_TRUE;
+    config.noNEON   = MAL_TRUE;
+
+    mal_dsp dsp;
+    mal_result result = mal_dsp_init(&config, &dsp);
+    if (result != MAL_SUCCESS) {
+        mal_free(pData);
+        return 1;
+    }
+
+
+    int iterationCount = 2;
+
+    mal_timer timer;
+    mal_timer_init(&timer);
+    double startTime = mal_timer_get_time_in_seconds(&timer);
+    {
+        for (int i = 0; i < iterationCount; ++i) {
+            mal_dsp_read(&dsp, sampleRateOut, pOutputFrames, &data);
+            data.pInputFrames = pInputFrames;
+            data.framesRemaining = sampleRateIn;
+        }
+    }
+    double executionTimeInSeconds = mal_timer_get_time_in_seconds(&timer) - startTime;
+    executionTimeInSeconds /= iterationCount;
+
+
+    mal_free(pData);
+
+    // Guard against extreme blowouts.
+    return (float)mal_clamp(executionTimeInSeconds * f, 0.1, 100.0);
+}
+
+mal_uint32 mal_scale_buffer_size(mal_uint32 baseBufferSize, float scale)
+{
+    return mal_max(1, (mal_uint32)(baseBufferSize*scale));
+}
+
+mal_uint32 mal_calculate_default_buffer_size_in_frames(mal_performance_profile performanceProfile, mal_uint32 sampleRate, float scale)
+{
+    mal_uint32 baseLatency;
+    if (performanceProfile == mal_performance_profile_low_latency) {
+        baseLatency = MAL_BASE_BUFFER_SIZE_IN_MILLISECONDS_LOW_LATENCY;
+    } else {
+        baseLatency = MAL_BASE_BUFFER_SIZE_IN_MILLISECONDS_CONSERVATIVE;
+    }
+
+    mal_uint32 sampleRateMS = (sampleRate/1000);
+
+    mal_uint32 minBufferSize = sampleRateMS * mal_min(baseLatency / 5, 1);  // <-- Guard against multiply by zero.
+    mal_uint32 maxBufferSize = sampleRateMS *        (baseLatency * 40);
+
+    mal_uint32 bufferSize = mal_scale_buffer_size((sampleRate/1000) * baseLatency, scale);
+    return mal_clamp(bufferSize, minBufferSize, maxBufferSize);
 }
 
 
@@ -24079,160 +24258,6 @@ mal_uint32 mal_get_bytes_per_sample(mal_format format)
     };
     return sizes[format];
 }
-
-
-#ifndef MAL_NO_DEVICE_IO
-const char* mal_get_backend_name(mal_backend backend)
-{
-    switch (backend)
-    {
-        case mal_backend_null:       return "Null";
-        case mal_backend_wasapi:     return "WASAPI";
-        case mal_backend_dsound:     return "DirectSound";
-        case mal_backend_winmm:      return "WinMM";
-        case mal_backend_alsa:       return "ALSA";
-        case mal_backend_pulseaudio: return "PulseAudio";
-        case mal_backend_jack:       return "JACK";
-        case mal_backend_coreaudio:  return "Core Audio";
-        case mal_backend_oss:        return "OSS";
-        case mal_backend_opensl:     return "OpenSL|ES";
-        case mal_backend_openal:     return "OpenAL";
-        case mal_backend_sdl:        return "SDL";
-        default:                     return "Unknown";
-    }
-}
-
-
-typedef struct
-{
-    mal_uint8* pInputFrames;
-    mal_uint32 framesRemaining;
-} mal_calculate_cpu_speed_factor_data;
-
-mal_uint32 mal_calculate_cpu_speed_factor__on_read(mal_dsp* pDSP, mal_uint32 framesToRead, void* pFramesOut, void* pUserData)
-{
-    mal_calculate_cpu_speed_factor_data* pData = (mal_calculate_cpu_speed_factor_data*)pUserData;
-    mal_assert(pData != NULL);
-
-    if (framesToRead > pData->framesRemaining) {
-        framesToRead = pData->framesRemaining;
-    }
-
-    mal_copy_memory(pFramesOut, pData->pInputFrames, framesToRead*pDSP->formatConverterIn.config.channels * sizeof(*pData->pInputFrames));
-
-    pData->pInputFrames += framesToRead;
-    pData->framesRemaining -= framesToRead;
-
-    return framesToRead;
-}
-
-float mal_calculate_cpu_speed_factor()
-{
-    // Our profiling test is based on how quick it can process 1 second worth of samples through mini_al's data conversion pipeline.
-
-    // This factor is multiplied with the profiling time. May need to fiddle with this to get an accurate value.
-    double f = 1000;
-
-    // Experiment: Reduce the factor a little when debug mode is used to reduce a blowout.
-#if !defined(NDEBUG) || defined(_DEBUG)
-    f /= 2;
-#endif
-
-    mal_uint32 sampleRateIn  = 44100;
-    mal_uint32 sampleRateOut = 48000;
-    mal_uint32 channelsIn    = 2;
-    mal_uint32 channelsOut   = 6;
-
-    // Using the heap here to avoid an unnecessary static memory allocation. Also too big for the stack.
-    mal_uint8* pInputFrames  = NULL;
-    float*     pOutputFrames = NULL;
-
-    size_t inputDataSize  = sampleRateIn  * channelsIn  * sizeof(*pInputFrames);
-    size_t outputDataSize = sampleRateOut * channelsOut * sizeof(*pOutputFrames);
-
-    void* pData = mal_malloc(inputDataSize + outputDataSize);
-    if (pData == NULL) {
-        return 1;
-    }
-
-    pInputFrames  = (mal_uint8*)pData;
-    pOutputFrames = (float*)(pInputFrames + inputDataSize);
-
-
-    
-
-    mal_calculate_cpu_speed_factor_data data;
-    data.pInputFrames = pInputFrames;
-    data.framesRemaining = sampleRateIn;
-    
-    mal_dsp_config config = mal_dsp_config_init(mal_format_u8, channelsIn, sampleRateIn, mal_format_f32, channelsOut, sampleRateOut, mal_calculate_cpu_speed_factor__on_read, &data);
-
-    // Use linear sample rate conversion because it's the simplest and least likely to cause skewing as a result of tweaks to default
-    // configurations in the future.
-    config.srcAlgorithm = mal_src_algorithm_linear;
-
-    // Experiment: Disable SIMD extensions when profiling just to try and keep things a bit more consistent. The idea is to get a general
-    // indication on the speed of the system, but SIMD is used more heavily in the DSP pipeline than in the general case which may make
-    // the results a little less realistic.
-    config.noSSE2   = MAL_TRUE;
-    config.noAVX2   = MAL_TRUE;
-    config.noAVX512 = MAL_TRUE;
-    config.noNEON   = MAL_TRUE;
-
-    mal_dsp dsp;
-    mal_result result = mal_dsp_init(&config, &dsp);
-    if (result != MAL_SUCCESS) {
-        mal_free(pData);
-        return 1;
-    }
-
-
-    int iterationCount = 2;
-
-    mal_timer timer;
-    mal_timer_init(&timer);
-    double startTime = mal_timer_get_time_in_seconds(&timer);
-    {
-        for (int i = 0; i < iterationCount; ++i) {
-            mal_dsp_read(&dsp, sampleRateOut, pOutputFrames, &data);
-            data.pInputFrames = pInputFrames;
-            data.framesRemaining = sampleRateIn;
-        }
-    }
-    double executionTimeInSeconds = mal_timer_get_time_in_seconds(&timer) - startTime;
-    executionTimeInSeconds /= iterationCount;
-
-
-    mal_free(pData);
-
-    // Guard against extreme blowouts.
-    return (float)mal_clamp(executionTimeInSeconds * f, 0.1, 100.0);
-}
-
-mal_uint32 mal_scale_buffer_size(mal_uint32 baseBufferSize, float scale)
-{
-    return mal_max(1, (mal_uint32)(baseBufferSize*scale));
-}
-
-mal_uint32 mal_calculate_default_buffer_size_in_frames(mal_performance_profile performanceProfile, mal_uint32 sampleRate, float scale)
-{
-    mal_uint32 baseLatency;
-    if (performanceProfile == mal_performance_profile_low_latency) {
-        baseLatency = MAL_BASE_BUFFER_SIZE_IN_MILLISECONDS_LOW_LATENCY;
-    } else {
-        baseLatency = MAL_BASE_BUFFER_SIZE_IN_MILLISECONDS_CONSERVATIVE;
-    }
-
-    mal_uint32 sampleRateMS = (sampleRate/1000);
-
-    mal_uint32 minBufferSize = sampleRateMS * mal_min(baseLatency / 5, 1);  // <-- Guard against multiply by zero.
-    mal_uint32 maxBufferSize = sampleRateMS *        (baseLatency * 40);
-
-    mal_uint32 bufferSize = mal_scale_buffer_size((sampleRate/1000) * baseLatency, scale);
-    return mal_clamp(bufferSize, minBufferSize, maxBufferSize);
-}
-#endif  // MAL_NO_DEVICE_IO
-
 
 
 //////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
