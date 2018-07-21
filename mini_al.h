@@ -524,7 +524,7 @@ typedef int mal_result;
 #define MAL_MAX_SAMPLE_RATE                             MAL_SAMPLE_RATE_384000
 #define MAL_SRC_SINC_MIN_WINDOW_WIDTH                   2
 #define MAL_SRC_SINC_MAX_WINDOW_WIDTH                   32
-#define MAL_SRC_SINC_DEFAULT_WINDOW_WIDTH               16
+#define MAL_SRC_SINC_DEFAULT_WINDOW_WIDTH               32
 #define MAL_SRC_SINC_LOOKUP_TABLE_RESOLUTION            8
 #define MAL_SRC_INPUT_BUFFER_SIZE_IN_SAMPLES            256
 
