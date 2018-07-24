@@ -1,5 +1,5 @@
 // FLAC audio decoder. Public domain. See "unlicense" statement at the end of this file.
-// dr_flac - v0.9.7 - 2018-07-05
+// dr_flac - v0.9.8 - 2018-07-24
 //
 // David Reid - mackron@gmail.com
 
@@ -754,6 +754,16 @@ const char* drflac_next_vorbis_comment(drflac_vorbis_comment_iterator* pIter, dr
 //
 ///////////////////////////////////////////////////////////////////////////////
 #ifdef DR_FLAC_IMPLEMENTATION
+#ifdef __linux__
+    #ifndef _BSD_SOURCE
+    #define _BSD_SOURCE
+    #endif
+    #ifndef __USE_BSD
+    #define __USE_BSD
+    #endif
+    #include <endian.h>
+#endif
+
 #include <stdlib.h>
 #include <string.h>
 
@@ -776,18 +786,32 @@ const char* drflac_next_vorbis_comment(drflac_vorbis_comment_iterator* pIter, dr
                 __cpuid(info, fid);
             }
         #else
-        #define DRFLAC_NO_CPUID
+            #define DRFLAC_NO_CPUID
         #endif
     #else
         #if defined(__GNUC__) || defined(__clang__)
             static void drflac__cpuid(int info[4], int fid)
             {
-                __asm__ __volatile__ (
-                    "cpuid" : "=a"(info[0]), "=b"(info[1]), "=c"(info[2]), "=d"(info[3]) : "a"(fid), "c"(0)
-                );
+                // It looks like the -fPIC option uses the ebx register which GCC complains about. We can work around this by just using a different register, the
+                // specific register of which I'm letting the compiler decide on. The "k" prefix is used to specify a 32-bit register. The {...} syntax is for
+                // supporting different assembly dialects.
+                //
+                // What's basically happening is that we're saving and restoring the ebx register manually.
+                #if defined(DRFLAC_X86) && defined(__PIC__)
+                    __asm__ __volatile__ (
+                        "xchg{l} {%%}ebx, %k1;"
+                        "cpuid;"
+                        "xchg{l} {%%}ebx, %k1;"
+                        : "=a"(info[0]), "=&r"(info[1]), "=c"(info[2]), "=d"(info[3]) : "a"(fid), "c"(0)
+                    );
+                #else
+                    __asm__ __volatile__ (
+                        "cpuid" : "=a"(info[0]), "=b"(info[1]), "=c"(info[2]), "=d"(info[3]) : "a"(fid), "c"(0)
+                    );
+                #endif
             }
         #else
-        #define DRFLAC_NO_CPUID
+            #define DRFLAC_NO_CPUID
         #endif
     #endif
 #else
@@ -795,28 +819,37 @@ const char* drflac_next_vorbis_comment(drflac_vorbis_comment_iterator* pIter, dr
 #endif
 
 
-#ifdef __linux__
-#define _BSD_SOURCE
-#include <endian.h>
-#endif
-
 #if defined(_MSC_VER) && _MSC_VER >= 1500 && (defined(DRFLAC_X86) || defined(DRFLAC_X64))
-#define DRFLAC_HAS_LZCNT_INTRINSIC
+    #define DRFLAC_HAS_LZCNT_INTRINSIC
 #elif (defined(__GNUC__) && ((__GNUC__ > 4) || (__GNUC__ == 4 && __GNUC_MINOR__ >= 7)))
-#define DRFLAC_HAS_LZCNT_INTRINSIC
+    #define DRFLAC_HAS_LZCNT_INTRINSIC
 #elif defined(__clang__)
     #if __has_builtin(__builtin_clzll) || __has_builtin(__builtin_clzl)
-    #define DRFLAC_HAS_LZCNT_INTRINSIC
+        #define DRFLAC_HAS_LZCNT_INTRINSIC
     #endif
 #endif
 
 #if defined(_MSC_VER) && _MSC_VER >= 1300
-#define DRFLAC_HAS_BYTESWAP_INTRINSIC
-#elif defined(__GNUC__) && ((__GNUC__ > 4) || (__GNUC__ == 4 && __GNUC_MINOR__ >= 3))
-#define DRFLAC_HAS_BYTESWAP_INTRINSIC
+    #define DRFLAC_HAS_BYTESWAP16_INTRINSIC
+    #define DRFLAC_HAS_BYTESWAP32_INTRINSIC
+    #define DRFLAC_HAS_BYTESWAP64_INTRINSIC
 #elif defined(__clang__)
-    #if __has_builtin(__builtin_bswap16) && __has_builtin(__builtin_bswap32) && __has_builtin(__builtin_bswap64)
-    #define DRFLAC_HAS_BYTESWAP_INTRINSIC
+    #if __has_builtin(__builtin_bswap16)
+        #define DRFLAC_HAS_BYTESWAP16_INTRINSIC
+    #endif
+    #if __has_builtin(__builtin_bswap32)
+        #define DRFLAC_HAS_BYTESWAP32_INTRINSIC
+    #endif
+    #if __has_builtin(__builtin_bswap64)
+        #define DRFLAC_HAS_BYTESWAP64_INTRINSIC
+    #endif
+#elif defined(__GNUC__)
+    #if ((__GNUC__ > 4) || (__GNUC__ == 4 && __GNUC_MINOR__ >= 3))
+        #define DRFLAC_HAS_BYTESWAP32_INTRINSIC
+        #define DRFLAC_HAS_BYTESWAP64_INTRINSIC
+    #endif
+    #if ((__GNUC__ > 4) || (__GNUC__ == 4 && __GNUC_MINOR__ >= 8))
+        #define DRFLAC_HAS_BYTESWAP16_INTRINSIC
     #endif
 #endif
 
@@ -914,7 +947,7 @@ static DRFLAC_INLINE drflac_bool32 drflac__is_little_endian()
 
 static DRFLAC_INLINE drflac_uint16 drflac__swap_endian_uint16(drflac_uint16 n)
 {
-#ifdef DRFLAC_HAS_BYTESWAP_INTRINSIC
+#ifdef DRFLAC_HAS_BYTESWAP16_INTRINSIC
     #if defined(_MSC_VER)
         return _byteswap_ushort(n);
     #elif defined(__GNUC__) || defined(__clang__)
@@ -930,7 +963,7 @@ static DRFLAC_INLINE drflac_uint16 drflac__swap_endian_uint16(drflac_uint16 n)
 
 static DRFLAC_INLINE drflac_uint32 drflac__swap_endian_uint32(drflac_uint32 n)
 {
-#ifdef DRFLAC_HAS_BYTESWAP_INTRINSIC
+#ifdef DRFLAC_HAS_BYTESWAP32_INTRINSIC
     #if defined(_MSC_VER)
         return _byteswap_ulong(n);
     #elif defined(__GNUC__) || defined(__clang__)
@@ -948,7 +981,7 @@ static DRFLAC_INLINE drflac_uint32 drflac__swap_endian_uint32(drflac_uint32 n)
 
 static DRFLAC_INLINE drflac_uint64 drflac__swap_endian_uint64(drflac_uint64 n)
 {
-#ifdef DRFLAC_HAS_BYTESWAP_INTRINSIC
+#ifdef DRFLAC_HAS_BYTESWAP64_INTRINSIC
     #if defined(_MSC_VER)
         return _byteswap_uint64(n);
     #elif defined(__GNUC__) || defined(__clang__)
@@ -5720,6 +5753,9 @@ const char* drflac_next_vorbis_comment(drflac_vorbis_comment_iterator* pIter, dr
 
 
 // REVISION HISTORY
+//
+// v0.9.8 - 2018-07-24
+//   - Fix compilation errors.
 //
 // v0.9.7 - 2018-07-05
 //   - Fix a warning.
