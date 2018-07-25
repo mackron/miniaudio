@@ -2724,9 +2724,23 @@ mal_uint64 mal_sine_wave_read(mal_sine_wave* pSignWave, mal_uint64 count, float*
     #elif (defined(__GNUC__) || defined(__clang__)) && !defined(MAL_ANDROID)
         static MAL_INLINE void mal_cpuid(int info[4], int fid)
         {
-            __asm__ __volatile__ (
-                "cpuid" : "=a"(info[0]), "=b"(info[1]), "=c"(info[2]), "=d"(info[3]) : "a"(fid), "c"(0)
-            );
+            // It looks like the -fPIC option uses the ebx register which GCC complains about. We can work around this by just using a different register, the
+            // specific register of which I'm letting the compiler decide on. The "k" prefix is used to specify a 32-bit register. The {...} syntax is for
+            // supporting different assembly dialects.
+            //
+            // What's basically happening is that we're saving and restoring the ebx register manually.
+            #if defined(DRFLAC_X86) && defined(__PIC__)
+                __asm__ __volatile__ (
+                    "xchg{l} {%%}ebx, %k1;"
+                    "cpuid;"
+                    "xchg{l} {%%}ebx, %k1;"
+                    : "=a"(info[0]), "=&r"(info[1]), "=c"(info[2]), "=d"(info[3]) : "a"(fid), "c"(0)
+                );
+            #else
+                __asm__ __volatile__ (
+                    "cpuid" : "=a"(info[0]), "=b"(info[1]), "=c"(info[2]), "=d"(info[3]) : "a"(fid), "c"(0)
+                );
+            #endif
         }
 
         static MAL_INLINE unsigned long long mal_xgetbv(int reg)
