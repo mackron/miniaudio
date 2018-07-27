@@ -180,6 +180,9 @@
 // #define MAL_NO_COREAUDIO
 //   Disables the Core Audio backend.
 //
+// #define MAL_NO_AUDIOIO
+//   Disables the audioio backend.
+//
 // #define MAL_NO_OSS
 //   Disables the OSS backend.
 //
@@ -1142,8 +1145,11 @@ void mal_pcm_convert(void* pOut, mal_format formatOut, const void* pIn, mal_form
     #if defined(MAL_ANDROID)
         #define MAL_SUPPORT_OPENSL
     #endif
-    #if !defined(MAL_LINUX) && !defined(MAL_APPLE) && !defined(MAL_ANDROID) && !defined(MAL_EMSCRIPTEN)
-        #define MAL_SUPPORT_OSS
+    #if defined(__OpenBSD__) || defined(__NetBSD__)
+        #define MAL_SUPPORT_AUDIOIO // Only support audioio on platforms with known support.
+    #endif
+    #if defined(__FreeBSD__) || defined(__DragonFly__)
+        #define MAL_SUPPORT_OSS     // Only support OSS on specific platforms with known support.
     #endif
 #endif
 #if defined(MAL_APPLE)
@@ -1180,6 +1186,9 @@ void mal_pcm_convert(void* pOut, mal_format formatOut, const void* pIn, mal_form
 #if !defined(MAL_NO_COREAUDIO) && defined(MAL_SUPPORT_COREAUDIO)
     #define MAL_ENABLE_COREAUDIO
 #endif
+#if !defined(MAL_NO_AUDIOIO) && defined(MAL_SUPPORT_AUDIOIO)
+    #define MAL_ENABLE_AUDIOIO
+#endif
 #if !defined(MAL_NO_OSS) && defined(MAL_SUPPORT_OSS)
     #define MAL_ENABLE_OSS
 #endif
@@ -1207,6 +1216,7 @@ typedef enum
     mal_backend_pulseaudio,
     mal_backend_jack,
     mal_backend_coreaudio,
+    mal_backend_audioio,
     mal_backend_oss,
     mal_backend_opensl,
     mal_backend_openal,
@@ -1340,6 +1350,9 @@ typedef union
 #endif
 #ifdef MAL_SUPPORT_COREAUDIO
     char coreaudio[256];            // Core Audio uses a string for identification.
+#endif
+#ifdef MAL_SUPPORT_AUDIOIO
+    char audioio[256];              // "/dev/audio", etc.
 #endif
 #ifdef MAL_SUPPORT_OSS
     char oss[64];                   // "dev/dsp0", etc. "dev/dsp" for the default device.
@@ -1649,6 +1662,12 @@ struct mal_context
             mal_proc AudioUnitRender;
         } coreaudio;
 #endif
+#ifdef MAL_SUPPORT_AUDIOIO
+        struct
+        {
+            int _unused;
+        } audioio;
+#endif
 #ifdef MAL_SUPPORT_OSS
         struct
         {
@@ -1941,6 +1960,15 @@ MAL_ALIGNED_STRUCT(MAL_SIMD_ALIGNMENT) mal_device
             /*AudioBufferList**/ mal_ptr pAudioBufferList;  // Only used for input devices.
         } coreaudio;
 #endif
+#ifdef MAL_SUPPORT_AUDIOIO
+        struct
+        {
+            int fd;
+            mal_uint32 fragmentSizeInFrames;
+            mal_bool32 breakFromMainLoop;
+            void* pIntermediaryBuffer;
+        } audioio;
+#endif
 #ifdef MAL_SUPPORT_OSS
         struct
         {
@@ -2013,7 +2041,8 @@ MAL_ALIGNED_STRUCT(MAL_SIMD_ALIGNMENT) mal_device
 //   - WASAPI
 //   - DirectSound
 //   - WinMM
-//   - Core Audio (macOS, iOS)
+//   - Core Audio (Apple)
+//   - audioio
 //   - OSS
 //   - PulseAudio
 //   - ALSA
@@ -3583,6 +3612,9 @@ void mal_split_buffer(void* pBuffer, size_t bufferSize, size_t splitCount, size_
 #ifdef MAL_ENABLE_COREAUDIO
     #define MAL_HAS_COREAUDIO
 #endif
+#ifdef MAL_ENABLE_AUDIOIO
+    #define MAL_HAS_AUDIOIO     // When enabled, always assume audioio is available.
+#endif
 #ifdef MAL_ENABLE_OSS
     #define MAL_HAS_OSS         // OSS is the only supported backend for Unix and BSD, so it must be present else this library is useless.
 #endif
@@ -4256,6 +4288,7 @@ const char* mal_get_backend_name(mal_backend backend)
         case mal_backend_pulseaudio: return "PulseAudio";
         case mal_backend_jack:       return "JACK";
         case mal_backend_coreaudio:  return "Core Audio";
+        case mal_backend_audioio:    return "audioio";
         case mal_backend_oss:        return "OSS";
         case mal_backend_opensl:     return "OpenSL|ES";
         case mal_backend_openal:     return "OpenAL";
@@ -14808,6 +14841,316 @@ mal_result mal_context_init__coreaudio(mal_context* pContext)
 
 ///////////////////////////////////////////////////////////////////////////////
 //
+// audioio Backend
+//
+///////////////////////////////////////////////////////////////////////////////
+#ifdef MAL_HAS_AUDIOIO
+#include <fcntl.h>
+#include <sys/stat.h>
+#include <sys/types.h>
+#include <sys/ioctl.h>
+#include <sys/audioio.h>
+//#include <string.h>   // <-- Need this here?
+
+void mal_construct_device_id__audioio(char* id, size_t idSize, const char* base, int deviceIndex)
+{
+    mal_assert(id != NULL);
+    mal_assert(idSize > 0);
+    mal_assert(deviceIndex >= 0);
+    
+    size_t baseLen = strlen(base);
+    mal_assert(idSize > baseLen);
+    
+    mal_strcpy_s(id, idSize, base);
+    mal_itoa_s(deviceIndex, id+baseLen, idSize-baseLen, 10);
+}
+
+mal_result mal_extract_device_index_from_id__audioio(const char* id, const char* base, int* pIndexOut)
+{
+    mal_assert(id != NULL);
+    mal_assert(base != NULL);
+    mal_assert(pIndexOut != NULL);
+    
+    size_t idLen = strlen(id);
+    size_t baseLen = strlen(base);
+    if (idLen <= baseLen) {
+        return MAL_ERROR;   // Doesn't look like the id starts with the base.
+    }
+    
+    if (strncmp(id, base, baseLen) != 0) {
+        return MAL_ERROR;   // ID does not begin with base.
+    }
+    
+    const char* deviceIndexStr = id + baseLen;
+    if (deviceIndexStr[0] == '\0') {
+        return MAL_ERROR;   // No index specified in the ID.
+    }
+    
+    if (pIndexOut) {
+        *pIndexOut = atoi(deviceIndexStr);
+    }
+    
+    return MAL_SUCCESS;
+}
+
+mal_bool32 mal_context_is_device_id_equal__audioio(mal_context* pContext, const mal_device_id* pID0, const mal_device_id* pID1)
+{
+    mal_assert(pContext != NULL);
+    mal_assert(pID0 != NULL);
+    mal_assert(pID1 != NULL);
+    (void)pContext;
+
+    return mal_strcmp(pID0->audioio, pID1->audioio) == 0;
+}
+
+mal_result mal_context_get_device_info_from_fd__audioio(mal_context* pContext, mal_device_type deviceType, int fd, mal_device_info* pInfoOut)
+{
+    mal_assert(pContext != NULL);
+    mal_assert(fd >= 0);
+    mal_assert(pInfoOut != NULL);
+    
+    (void)pContext;
+    (void)deviceType;
+    (void)fd;
+    (void)pInfoOut;
+    
+    // TODO: Implement me.
+    return MAL_SUCCESS;
+}
+
+mal_result mal_context_enumerate_devices__audioio(mal_context* pContext, mal_enum_devices_callback_proc callback, void* pUserData)
+{
+    mal_assert(pContext != NULL);
+    mal_assert(callback != NULL);
+    
+    const int maxDevices = 64;
+    
+    // Every device will be named "/dev/audioN", with a "/dev/audioctlN" equivalent. We use the "/dev/audioctlN"
+    // version here since we can open it even when another process has control of the "/dev/audioN" device.
+    char devpath[256];
+    for (int iDevice = 0; iDevice < maxDevices; ++iDevice) {
+        mal_strcpy_s(devpath, sizeof(devpath), "/dev/audioctl");
+        mal_itoa_s(iDevice, devpath+strlen(devpath), sizeof(devpath)-strlen(devpath), 10);
+    
+        struct stat st;
+        if (stat(devpath, &st) == 0) {
+            // The device exists, but we need to check if it's usable as playback and/or capture.
+            int fd;
+            mal_bool32 isTerminating = MAL_FALSE;
+            
+            // Playback.
+            if (!isTerminating) {
+                fd = open(devpath, O_RDONLY, 0);
+                if (fd >= 0) {
+                    // Supports playback.
+                    mal_device_info deviceInfo;
+                    mal_zero_object(&deviceInfo);
+                    mal_construct_device_id__audioio(deviceInfo.id.audioio, sizeof(deviceInfo.id.audioio), "/dev/audio", iDevice);
+                    if (mal_context_get_device_info_from_fd__audioio(pContext, mal_device_type_playback, fd, &deviceInfo) != MAL_SUCCESS) {
+                        isTerminating = !callback(pContext, mal_device_type_playback, &deviceInfo, pUserData);
+                    }
+                    
+                    close(fd);
+                }
+            }
+            
+            // Capture.
+            if (!isTerminating) {
+                fd = open(devpath, O_WRONLY, 0);
+                if (fd >= 0) {
+                    // Supports capture.
+                    mal_device_info deviceInfo;
+                    mal_zero_object(&deviceInfo);
+                    mal_construct_device_id__audioio(deviceInfo.id.audioio, sizeof(deviceInfo.id.audioio), "/dev/audio", iDevice);
+                    if (mal_context_get_device_info_from_fd__audioio(pContext, mal_device_type_capture, fd, &deviceInfo) != MAL_SUCCESS) {
+                        isTerminating = !callback(pContext, mal_device_type_capture, &deviceInfo, pUserData);
+                    }
+                    
+                    close(fd);
+                }
+            }
+            
+            if (isTerminating) {
+                break;
+            }
+        }
+    }
+    
+    return MAL_SUCCESS;
+}
+
+mal_result mal_context_get_device_info__audioio(mal_context* pContext, mal_device_type deviceType, const mal_device_id* pDeviceID, mal_share_mode shareMode, mal_device_info* pDeviceInfo)
+{
+    mal_assert(pContext != NULL);
+    (void)shareMode;
+    
+    // We need to open the "/dev/audioctlN" device to get the info. To do this we need to extract the number
+    // from the device ID which will be in "/dev/audioN" format.
+    int fd = -1;
+    int deviceIndex = -1;
+    if (pDeviceID == NULL) {
+        // Default device.
+        fd = open("/dev/audioctl", (deviceType == mal_device_type_playback) ? O_RDONLY : O_WRONLY, 0);
+    } else {
+        // Specific device. We need to convert from "/dev/audioN" to "/dev/audioctlN".
+        
+        // TODO: Implement me.
+    }
+    
+    if (fd == -1) {
+        return MAL_NO_DEVICE;
+    }
+    
+    if (deviceIndex == -1) {
+        mal_strcpy_s(pDeviceInfo->id.audioio, sizeof(pDeviceInfo->id.audioio), "/dev/audio");
+    } else {
+        mal_construct_device_id__audioio(pDeviceInfo->id.audioio, sizeof(pDeviceInfo->id.audioio), "/dev/audio", deviceIndex);
+    }
+    
+    mal_result result = mal_context_get_device_info_from_fd__audioio(pContext, deviceType, fd, pDeviceInfo);
+    
+    close(fd);
+    return result;
+}
+
+void mal_device_uninit__audioio(mal_device* pDevice)
+{
+    mal_assert(pDevice != NULL);
+
+    close(pDevice->audioio.fd);
+    mal_free(pDevice->audioio.pIntermediaryBuffer);
+}
+
+mal_result mal_device_init__audioio(mal_context* pContext, mal_device_type deviceType, const mal_device_id* pDeviceID, const mal_device_config* pConfig, mal_device* pDevice)
+{
+    (void)pContext;
+
+    mal_assert(pDevice != NULL);
+    mal_zero_object(&pDevice->audioio);
+    
+    // The first thing to do is open the file.
+    const char* deviceName = "/dev/audio";
+    if (pDeviceID != NULL) {
+        deviceName = pDeviceID->audioio;
+    }
+    
+    pDevice->audioio.fd = open(deviceName, (deviceType == mal_device_type_playback) ? O_RDONLY : O_WRONLY, 0);
+    if (pDevice->audioio.fd == -1) {
+        return mal_post_error(pDevice, MAL_LOG_LEVEL_ERROR, "[audioio] Failed to open device.", MAL_FAILED_TO_OPEN_BACKEND_DEVICE);
+    }
+    
+    // TODO: Implement me.
+    return MAL_ERROR;
+}
+
+
+mal_result mal_device__start_backend__audioio(mal_device* pDevice)
+{
+    mal_assert(pDevice != NULL);
+
+    // The device is started by the next calls to read() and write(). For playback it's simple - just read
+    // data from the client, then write it to the device with write() which will in turn start the device.
+    // For capture it's a bit less intuitive - we do nothing (it'll be started automatically by the first
+    // call to read().
+    if (pDevice->type == mal_device_type_playback) {
+        // Playback.
+        mal_device__read_frames_from_client(pDevice, pDevice->audioio.fragmentSizeInFrames, pDevice->audioio.pIntermediaryBuffer);
+
+        int bytesWritten = write(pDevice->audioio.fd, pDevice->audioio.pIntermediaryBuffer, pDevice->audioio.fragmentSizeInFrames * pDevice->internalChannels * mal_get_bytes_per_sample(pDevice->internalFormat));
+        if (bytesWritten == -1) {
+            return mal_post_error(pDevice, MAL_LOG_LEVEL_ERROR, "[audioio] Failed to send initial chunk of data to the device.", MAL_FAILED_TO_SEND_DATA_TO_DEVICE);
+        }
+    } else {
+        // Capture. Do nothing.
+    }
+
+    return MAL_SUCCESS;
+}
+
+mal_result mal_device__stop_backend__audioio(mal_device* pDevice)
+{
+    mal_assert(pDevice != NULL);
+
+    (void)pDevice;
+
+    // TODO: Implement me.
+    return MAL_SUCCESS;
+}
+
+mal_result mal_device__break_main_loop__audioio(mal_device* pDevice)
+{
+    mal_assert(pDevice != NULL);
+
+    pDevice->audioio.breakFromMainLoop = MAL_TRUE;
+    return MAL_SUCCESS;
+}
+
+mal_result mal_device__main_loop__audioio(mal_device* pDevice)
+{
+    mal_assert(pDevice != NULL);
+
+    pDevice->audioio.breakFromMainLoop = MAL_FALSE;
+    while (!pDevice->audioio.breakFromMainLoop) {
+        // Break from the main loop if the device isn't started anymore. Likely what's happened is the application
+        // has requested that the device be stopped.
+        if (!mal_device_is_started(pDevice)) {
+            break;
+        }
+
+        if (pDevice->type == mal_device_type_playback) {
+            // Playback.
+            mal_device__read_frames_from_client(pDevice, pDevice->audioio.fragmentSizeInFrames, pDevice->audioio.pIntermediaryBuffer);
+
+            int bytesWritten = write(pDevice->audioio.fd, pDevice->audioio.pIntermediaryBuffer, pDevice->audioio.fragmentSizeInFrames * pDevice->internalChannels * mal_get_bytes_per_sample(pDevice->internalFormat));
+            if (bytesWritten < 0) {
+                return mal_post_error(pDevice, MAL_LOG_LEVEL_ERROR, "[audioio] Failed to send data from the client to the device.", MAL_FAILED_TO_SEND_DATA_TO_DEVICE);
+            }
+        } else {
+            // Capture.
+            int bytesRead = read(pDevice->audioio.fd, pDevice->audioio.pIntermediaryBuffer, pDevice->audioio.fragmentSizeInFrames * mal_get_bytes_per_sample(pDevice->internalFormat));
+            if (bytesRead < 0) {
+                return mal_post_error(pDevice, MAL_LOG_LEVEL_ERROR, "[audioio] Failed to read data from the device to be sent to the client.", MAL_FAILED_TO_READ_DATA_FROM_DEVICE);
+            }
+
+            mal_uint32 framesRead = (mal_uint32)bytesRead / pDevice->internalChannels / mal_get_bytes_per_sample(pDevice->internalFormat);
+            mal_device__send_frames_to_client(pDevice, framesRead, pDevice->audioio.pIntermediaryBuffer);
+        }
+    }
+
+    return MAL_SUCCESS;
+}
+
+mal_result mal_context_uninit__audioio(mal_context* pContext)
+{
+    mal_assert(pContext != NULL);
+    mal_assert(pContext->backend == mal_backend_audioio);
+
+    (void)pContext;
+    return MAL_SUCCESS;
+}
+
+mal_result mal_context_init__audioio(mal_context* pContext)
+{
+    mal_assert(pContext != NULL);
+
+    pContext->onUninit              = mal_context_uninit__audioio;
+    pContext->onDeviceIDEqual       = mal_context_is_device_id_equal__audioio;
+    pContext->onEnumDevices         = mal_context_enumerate_devices__audioio;
+    pContext->onGetDeviceInfo       = mal_context_get_device_info__audioio;
+    pContext->onDeviceInit          = mal_device_init__audioio;
+    pContext->onDeviceUninit        = mal_device_uninit__audioio;
+    pContext->onDeviceStart         = mal_device__start_backend__audioio;
+    pContext->onDeviceStop          = mal_device__stop_backend__audioio;
+    pContext->onDeviceBreakMainLoop = mal_device__break_main_loop__audioio;
+    pContext->onDeviceMainLoop      = mal_device__main_loop__audioio;
+
+    return MAL_SUCCESS;
+}
+#endif  // audioio
+
+
+///////////////////////////////////////////////////////////////////////////////
+//
 // OSS Backend
 //
 ///////////////////////////////////////////////////////////////////////////////
@@ -17914,6 +18257,7 @@ const mal_backend g_malDefaultBackends[] = {
     mal_backend_dsound,
     mal_backend_winmm,
     mal_backend_coreaudio,
+    mal_backend_audioio,
     mal_backend_oss,
     mal_backend_pulseaudio,
     mal_backend_alsa,
@@ -18004,6 +18348,12 @@ mal_result mal_context_init(const mal_backend backends[], mal_uint32 backendCoun
             case mal_backend_coreaudio:
             {
                 result = mal_context_init__coreaudio(pContext);
+            } break;
+        #endif
+        #ifdef MAL_HAS_AUDIOIO
+            case mal_backend_audioio:
+            {
+                result = mal_context_init__audioio(pContext);
             } break;
         #endif
         #ifdef MAL_HAS_OSS
