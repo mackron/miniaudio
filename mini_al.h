@@ -1145,7 +1145,7 @@ void mal_pcm_convert(void* pOut, mal_format formatOut, const void* pIn, mal_form
     #if defined(MAL_ANDROID)
         #define MAL_SUPPORT_OPENSL
     #endif
-    #if defined(__OpenBSD__) || defined(__NetBSD__)
+    #if defined(__NetBSD__)
         #define MAL_SUPPORT_AUDIOIO // Only support audioio on platforms with known support.
     #endif
     #if defined(__FreeBSD__) || defined(__DragonFly__)
