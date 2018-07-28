@@ -14850,7 +14850,6 @@ mal_result mal_context_init__coreaudio(mal_context* pContext)
 #include <sys/types.h>
 #include <sys/ioctl.h>
 #include <sys/audioio.h>
-//#include <string.h>   // <-- Need this here?
 
 void mal_construct_device_id__audioio(char* id, size_t idSize, const char* base, int deviceIndex)
 {
