@@ -14911,10 +14911,66 @@ mal_result mal_context_get_device_info_from_fd__audioio(mal_context* pContext, m
     
     (void)pContext;
     (void)deviceType;
-    (void)fd;
-    (void)pInfoOut;
+
+    audio_device_t fdDevice;
+    if (ioctl(fd, AUDIO_GETDEV, &fdDevice) < 0) {
+        return MAL_ERROR;   // Failed to retrieve device info.
+    }
+
+    // Name.
+    mal_strcpy_s(pInfoOut->name, sizeof(pInfoOut->name), fdDevice.name);
+
+    // Supported formats. We get this by looking at the encodings. 
+    int counter = 0;
+    for (;;) {
+        audio_encoding_t encoding;
+        mal_zero_object(&encoding);
+        encoding.index = counter;
+        if (ioctl(fd, AUDIO_GETENC, &encoding) < 0) {
+            break;
+        }
+
+        if (encoding.precision == 8 && (encoding.encoding == AUDIO_ENCODING_ULINEAR || encoding.encoding == AUDIO_ENCODING_ULINEAR || encoding.encoding == AUDIO_ENCODING_ULINEAR_LE || encoding.encoding == AUDIO_ENCODING_ULINEAR_BE)) {
+            pInfoOut->formats[pInfoOut->formatCount++] = mal_format_u8;
+        } else {
+            if (encoding.encoding == AUDIO_ENCODING_SLINEAR_LE) {
+                if (encoding.precision == 16) {
+                    pInfoOut->formats[pInfoOut->formatCount++] = mal_format_s16;
+                } else if (encoding.precision == 24) {
+                    pInfoOut->formats[pInfoOut->formatCount++] = mal_format_s24;
+                } else if (encoding.precision == 32) {
+                    pInfoOut->formats[pInfoOut->formatCount++] = mal_format_s32;
+                }
+            }
+        }
+
+#if 0
+        printf("Encoding Name: %s\n", encoding.name);
+        printf("    Encoding:  %d\n", encoding.encoding);
+        printf("    Precision: %d\n", encoding.precision);
+        printf("    Flags:     %d\n", encoding.flags);
+#endif
+
+        counter += 1;
+    }
+
+    audio_info_t fdInfo;
+    if (ioctl(fd, AUDIO_GETINFO, &fdInfo) < 0) {
+        return MAL_ERROR;
+    }
+
+    if (deviceType == mal_device_type_playback) {
+        pInfoOut->minChannels = fdInfo.play.channels; 
+        pInfoOut->maxChannels = fdInfo.play.channels;
+        pInfoOut->minSampleRate = fdInfo.play.sample_rate;
+        pInfoOut->maxSampleRate = fdInfo.play.sample_rate;
+    } else {
+        pInfoOut->minChannels = fdInfo.record.channels;
+        pInfoOut->maxChannels = fdInfo.record.channels;
+        pInfoOut->minSampleRate = fdInfo.record.sample_rate;
+        pInfoOut->maxSampleRate = fdInfo.record.sample_rate;
+    }
     
-    // TODO: Implement me.
     return MAL_SUCCESS;
 }
 
@@ -14946,7 +15002,7 @@ mal_result mal_context_enumerate_devices__audioio(mal_context* pContext, mal_enu
                     mal_device_info deviceInfo;
                     mal_zero_object(&deviceInfo);
                     mal_construct_device_id__audioio(deviceInfo.id.audioio, sizeof(deviceInfo.id.audioio), "/dev/audio", iDevice);
-                    if (mal_context_get_device_info_from_fd__audioio(pContext, mal_device_type_playback, fd, &deviceInfo) != MAL_SUCCESS) {
+                    if (mal_context_get_device_info_from_fd__audioio(pContext, mal_device_type_playback, fd, &deviceInfo) == MAL_SUCCESS) {
                         isTerminating = !callback(pContext, mal_device_type_playback, &deviceInfo, pUserData);
                     }
                     
@@ -14962,7 +15018,7 @@ mal_result mal_context_enumerate_devices__audioio(mal_context* pContext, mal_enu
                     mal_device_info deviceInfo;
                     mal_zero_object(&deviceInfo);
                     mal_construct_device_id__audioio(deviceInfo.id.audioio, sizeof(deviceInfo.id.audioio), "/dev/audio", iDevice);
-                    if (mal_context_get_device_info_from_fd__audioio(pContext, mal_device_type_capture, fd, &deviceInfo) != MAL_SUCCESS) {
+                    if (mal_context_get_device_info_from_fd__audioio(pContext, mal_device_type_capture, fd, &deviceInfo) == MAL_SUCCESS) {
                         isTerminating = !callback(pContext, mal_device_type_capture, &deviceInfo, pUserData);
                     }
                     
@@ -14988,15 +15044,21 @@ mal_result mal_context_get_device_info__audioio(mal_context* pContext, mal_devic
     // from the device ID which will be in "/dev/audioN" format.
     int fd = -1;
     int deviceIndex = -1;
+    char ctlid[256];
     if (pDeviceID == NULL) {
         // Default device.
-        fd = open("/dev/audioctl", (deviceType == mal_device_type_playback) ? O_RDONLY : O_WRONLY, 0);
+        mal_strcpy_s(ctlid, sizeof(ctlid), "/dev/audioctl");
     } else {
         // Specific device. We need to convert from "/dev/audioN" to "/dev/audioctlN".
+        mal_result result = mal_extract_device_index_from_id__audioio(pDeviceID->audioio, "/dev/audio", &deviceIndex);
+        if (result != MAL_SUCCESS) {
+            return result;
+        }
         
-        // TODO: Implement me.
+        mal_construct_device_id__audioio(ctlid, sizeof(ctlid), "/dev/audioctl", deviceIndex);
     }
     
+    fd = open(ctlid, (deviceType == mal_device_type_playback) ? O_RDONLY : O_WRONLY, 0);
     if (fd == -1) {
         return MAL_NO_DEVICE;
     }
