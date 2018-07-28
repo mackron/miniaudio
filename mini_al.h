@@ -15159,8 +15159,8 @@ mal_result mal_device_init__audioio(mal_context* pContext, mal_device_type devic
         return mal_post_error(pDevice, MAL_LOG_LEVEL_ERROR, "[audioio] Failed to retrieve device format.", result);
     }
 
-    prinfo->channels = nativeInfo.maxChannels; //pDevice->channels;
-    prinfo->sample_rate = nativeInfo.maxSampleRate; //pDevice->sampleRate;
+    prinfo->channels = nativeInfo.maxChannels;
+    prinfo->sample_rate = nativeInfo.maxSampleRate;
     
     // We need to apply the settings so far so we can get back the actual sample rate which we need for calculating
     // the default buffer size below.
@@ -15173,8 +15173,6 @@ mal_result mal_device_init__audioio(mal_context* pContext, mal_device_type devic
         close(pDevice->audioio.fd);
         return mal_post_error(pDevice, MAL_LOG_LEVEL_ERROR, "[audioio] AUDIO_GETINFO failed.", MAL_FORMAT_NOT_SUPPORTED);
     }
-    //printf("Channels: %d\n", prinfo->channels);
-    //printf("Sample Rate: %d\n", prinfo->sample_rate);
     
     pDevice->internalFormat = mal_format_from_prinfo__audioio(prinfo);
     if (pDevice->internalFormat == mal_format_unknown) {
@@ -15255,7 +15253,7 @@ mal_result mal_device__start_backend__audioio(mal_device* pDevice)
 
             int bytesWritten = write(pDevice->audioio.fd, pDevice->audioio.pIntermediaryBuffer, pDevice->audioio.fragmentSizeInFrames * mal_get_bytes_per_frame(pDevice->internalFormat, pDevice->internalChannels));
             if (bytesWritten == -1) {
-              return mal_post_error(pDevice, MAL_LOG_LEVEL_ERROR, "[audioio] Failed to send initial chunk of data to the device.", MAL_FAILED_TO_SEND_DATA_TO_DEVICE);
+                return mal_post_error(pDevice, MAL_LOG_LEVEL_ERROR, "[audioio] Failed to send initial chunk of data to the device.", MAL_FAILED_TO_SEND_DATA_TO_DEVICE);
             }
         }
     } else {
