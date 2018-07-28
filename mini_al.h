@@ -15210,22 +15210,13 @@ mal_result mal_device_init__audioio(mal_context* pContext, mal_device_type devic
 
     
     AUDIO_INITINFO(&fdInfo);
-
-    
-    
     fdInfo.blocksize = fragmentSizeInBytes;
-    fdInfo.hiwat = mal_max(pDevice->periods, 2);
+    fdInfo.hiwat = mal_max(pDevice->periods, 5);
     fdInfo.lowat = (unsigned int)(fdInfo.hiwat * 0.75);
     if (ioctl(pDevice->audioio.fd, AUDIO_SETINFO, &fdInfo) < 0) {
         close(pDevice->audioio.fd);
         return mal_post_error(pDevice, MAL_LOG_LEVEL_ERROR, "[audioio] Failed to set internal buffer size. AUDIO_SETINFO failed.", MAL_FORMAT_NOT_SUPPORTED);
     }
-    
-    #if 1
-    printf("blocksize: %d -> %d\n", fragmentSizeInBytes, fdInfo.blocksize);
-    printf("hiwat: %d\n", fdInfo.hiwat);
-    printf("lowat: %d\n", fdInfo.lowat);
-    #endif
     
     pDevice->periods = fdInfo.hiwat;
     pDevice->bufferSizeInFrames = (fdInfo.blocksize * fdInfo.hiwat) / mal_get_bytes_per_frame(pDevice->internalFormat, pDevice->internalChannels);
@@ -15279,7 +15270,7 @@ mal_result mal_device__stop_backend__audioio(mal_device* pDevice)
 {
     mal_assert(pDevice != NULL);
 
-    if (ioctl(pDevice->audioio.fd, AUDIO_DRAIN, 0) < 0) {
+    if (ioctl(pDevice->audioio.fd, AUDIO_FLUSH, 0) < 0) {
         return mal_post_error(pDevice, MAL_LOG_LEVEL_ERROR, "[audioio] Failed to stop device. AUDIO_FLUSH failed.", MAL_FAILED_TO_STOP_BACKEND_DEVICE);
     }
 
