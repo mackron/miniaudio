@@ -1,8 +1,16 @@
 // We're using sigvis for visualizations. This will include mini_al for us, so no need to include mini_al in this file.
+#define NO_SIGVIS
+
 #define MAL_NO_SSE2
 #define MAL_NO_AVX2
-#define MINI_SIGVIS_IMPLEMENTATION
-#include "../tools/mini_sigvis/mini_sigvis.h" // <-- Includes mini_al.
+
+#ifdef NO_SIGVIS
+    #define MINI_AL_IMPLEMENTATION
+    #include "../mini_al.h"
+#else
+    #define MINI_SIGVIS_IMPLEMENTATION
+    #include "../tools/mini_sigvis/mini_sigvis.h" // <-- Includes mini_al.
+#endif
 
 // There is a usage pattern for resampling that mini_al does not properly support which is where the client continuously
 // reads samples until mal_src_read() returns 0. The problem with this pattern is that is consumes the samples sitting
@@ -100,6 +108,8 @@ int main(int argc, char** argv)
     mal_device device;
     mal_result result;
 
+    config.bufferSizeInFrames = 8192*1;
+
     // We first play the sound the way it's meant to be played.
     result = mal_device_init(NULL, mal_device_type_playback, NULL, &config, NULL, &device);
     if (result != MAL_SUCCESS) {
@@ -114,6 +124,7 @@ int main(int argc, char** argv)
 
     mal_src_config srcConfig = mal_src_config_init(sampleRateIn, sampleRateOut, 1, on_src, NULL);
     srcConfig.algorithm = mal_src_algorithm_sinc;
+    srcConfig.neverConsumeEndOfInput = MAL_TRUE;
 
     result = mal_src_init(&srcConfig, &src);
     if (result != MAL_SUCCESS) {
@@ -123,7 +134,7 @@ int main(int argc, char** argv)
 
 
 
-#if 0
+#ifndef NO_SIGVIS
     msigvis_context sigvis;
     result = msigvis_init(&sigvis);
     if (result != MAL_SUCCESS) {
