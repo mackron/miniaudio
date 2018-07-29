@@ -15571,7 +15571,12 @@ mal_result mal_device_init__sndio(mal_context* pContext, mal_device_type deviceT
     mal_assert(pDevice != NULL);
     mal_zero_object(&pDevice->sndio);
     
-    const char* deviceName = MAL_SIO_DEVANY;
+    const char* deviceName;
+#if defined(__FreeBSD__) || defined(__DragonFly__)
+    deviceName = "rsnd/0";
+#else
+    deviceName = MAL_SIO_DEVANY;
+#endif
     if (pDeviceID != NULL) {
         deviceName = pDeviceID->sndio;
     }
@@ -15713,15 +15718,6 @@ mal_result mal_device_init__sndio(mal_context* pContext, mal_device_type deviceT
     if (pDevice->sndio.pIntermediaryBuffer == NULL) {
         ((mal_sio_close_proc)pContext->sndio.sio_close)((struct mal_sio_hdl*)pDevice->sndio.handle);
         return mal_post_error(pDevice, MAL_LOG_LEVEL_ERROR, "[sndio] Failed to allocate memory for intermediary buffer.", MAL_OUT_OF_MEMORY);
-    }
-    
-    // Make sure the device is put into a waiting state. It won't be started for real until audio is delivered. This
-    // is also called in start_backend(), however this is not a mistake. With the way mini_al works, if we don't put
-    // this here it's possible for sio_stop() to be called before sio_start() which causes sndio to put the handle
-    // into an EOF state which then causes everything thereafter to fail.
-    if (((mal_sio_start_proc)pDevice->pContext->sndio.sio_start)((struct mal_sio_hdl*)pDevice->sndio.handle) == 0) {
-        ((mal_sio_close_proc)pContext->sndio.sio_close)((struct mal_sio_hdl*)pDevice->sndio.handle);
-        return mal_post_error(pDevice, MAL_LOG_LEVEL_ERROR, "[sndio] Failed to start backend device.", MAL_FAILED_TO_START_BACKEND_DEVICE);
     }
     
 #ifdef MAL_DEBUG_OUTPUT
