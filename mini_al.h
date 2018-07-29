@@ -1152,8 +1152,8 @@ void mal_pcm_convert(void* pOut, mal_format formatOut, const void* pIn, mal_form
     #if defined(MAL_ANDROID)
         #define MAL_SUPPORT_OPENSL
     #endif
-    #if defined(MAL_BSD)
-        #define MAL_SUPPORT_SNDIO   // sndio can be used on all flavours of BSD as far as I'm aware of.
+    #if defined(__OpenBSD__)
+        #define MAL_SUPPORT_SNDIO   // sndio is only supported on OpenBSD for now. May be expanded later if there's demand.
     #endif
     #if defined(__NetBSD__)
         #define MAL_SUPPORT_AUDIOIO // Only support audioio on platforms with known support.
@@ -15636,16 +15636,6 @@ mal_result mal_device_init__sndio(mal_context* pContext, mal_device_type deviceT
 
     par.rate = desiredSampleRate;
     
-    /*if (((mal_sio_setpar_proc)pContext->sndio.sio_setpar)((struct mal_sio_hdl*)pDevice->sndio.handle, &par) == 0) {
-        ((mal_sio_close_proc)pContext->sndio.sio_close)((struct mal_sio_hdl*)pDevice->sndio.handle);
-        return mal_post_error(pDevice, MAL_LOG_LEVEL_ERROR, "[sndio] Failed to set device parameters.", MAL_FORMAT_NOT_SUPPORTED);
-    }
-    if (((mal_sio_getpar_proc)pDevice->pContext->sndio.sio_getpar)((struct mal_sio_hdl*)pDevice->sndio.handle, &par) == 0) {
-        ((mal_sio_close_proc)pDevice->pContext->sndio.sio_close)((struct mal_sio_hdl*)pDevice->sndio.handle);
-        return mal_post_error(pDevice, MAL_LOG_LEVEL_ERROR, "[sndio] Failed to retrieve device parameters.", MAL_FORMAT_NOT_SUPPORTED);
-    }*/
-    
-    
     // Try calculating an appropriate default buffer size after we have the sample rate.
     mal_uint32 desiredBufferSizeInFrames = pDevice->bufferSizeInFrames;
     if (pDevice->usingDefaultBufferSize) {
@@ -15661,7 +15651,6 @@ mal_result mal_device_init__sndio(mal_context* pContext, mal_device_type deviceT
         desiredBufferSizeInFrames = mal_calculate_default_buffer_size_in_frames(pConfig->performanceProfile, par.rate, fCPUSpeed*fDeviceType*fBackend);
     }
     
-    //((mal_sio_initpar_proc)pContext->sndio.sio_initpar)(&par);
     par.round = desiredBufferSizeInFrames / pDevice->periods;
     par.appbufsz = par.round * pDevice->periods;
     
@@ -27396,7 +27385,9 @@ mal_uint64 mal_sine_wave_read(mal_sine_wave* pSineWave, mal_uint64 count, float*
 // ================
 //
 // v0.8.4-rc - 2018-xx-xx
-//   - Add audioio backend for NetBSD. The OSS backend is no longer supported on NetBSD.
+//   - Add sndio backend for OpenBSD.
+//   - Add audioio backend for NetBSD.
+//   - Drop support for the OSS backend on everything except FreeBSD.
 //   - Mark some APIs as deprecated:
 //     - mal_src_set_input_sample_rate() and mal_src_set_output_sample_rate() are replaced with mal_src_set_sample_rate().
 //     - mal_dsp_set_input_sample_rate() and mal_dsp_set_output_sample_rate() are replaced with mal_dsp_set_sample_rate().
