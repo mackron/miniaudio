@@ -20,7 +20,7 @@
 //   - ALSA
 //   - PulseAudio
 //   - JACK
-//   - sndio (BSD)
+//   - sndio (OpenBSD)
 //   - audioio (NetBSD)
 //   - OSS (FreeBSD)
 //   - OpenSL|ES (Android only)
@@ -67,7 +67,8 @@
 //
 // Building for BSD
 // ----------------
-// The BSD build only requires linking to -ldl, -lpthread and -lm.
+// The BSD build only requires linking to -ldl, -lpthread and -lm. NetBSD uses audio(4), OpenBSD uses sndio and
+// FreeBSD uses OSS.
 //
 // Building for Android
 // --------------------
@@ -119,6 +120,7 @@
 //   is that it depends on members of mal_device being correctly aligned for atomic assignments.
 // - Sample data is always little-endian and interleaved. For example, mal_format_s16 means signed 16-bit
 //   integer samples, interleaved. Let me know if you need non-interleaved and I'll look into it.
+// - The sndio backend is currently only enabled on OpenBSD builds.
 //
 //
 //
@@ -15634,14 +15636,14 @@ mal_result mal_device_init__sndio(mal_context* pContext, mal_device_type deviceT
 
     par.rate = desiredSampleRate;
     
-    if (((mal_sio_setpar_proc)pContext->sndio.sio_setpar)((struct mal_sio_hdl*)pDevice->sndio.handle, &par) == 0) {
+    /*if (((mal_sio_setpar_proc)pContext->sndio.sio_setpar)((struct mal_sio_hdl*)pDevice->sndio.handle, &par) == 0) {
         ((mal_sio_close_proc)pContext->sndio.sio_close)((struct mal_sio_hdl*)pDevice->sndio.handle);
         return mal_post_error(pDevice, MAL_LOG_LEVEL_ERROR, "[sndio] Failed to set device parameters.", MAL_FORMAT_NOT_SUPPORTED);
     }
     if (((mal_sio_getpar_proc)pDevice->pContext->sndio.sio_getpar)((struct mal_sio_hdl*)pDevice->sndio.handle, &par) == 0) {
         ((mal_sio_close_proc)pDevice->pContext->sndio.sio_close)((struct mal_sio_hdl*)pDevice->sndio.handle);
         return mal_post_error(pDevice, MAL_LOG_LEVEL_ERROR, "[sndio] Failed to retrieve device parameters.", MAL_FORMAT_NOT_SUPPORTED);
-    }
+    }*/
     
     
     // Try calculating an appropriate default buffer size after we have the sample rate.
@@ -15659,7 +15661,7 @@ mal_result mal_device_init__sndio(mal_context* pContext, mal_device_type deviceT
         desiredBufferSizeInFrames = mal_calculate_default_buffer_size_in_frames(pConfig->performanceProfile, par.rate, fCPUSpeed*fDeviceType*fBackend);
     }
     
-    ((mal_sio_initpar_proc)pContext->sndio.sio_initpar)(&par);
+    //((mal_sio_initpar_proc)pContext->sndio.sio_initpar)(&par);
     par.round = desiredBufferSizeInFrames / pDevice->periods;
     par.appbufsz = par.round * pDevice->periods;
     
