@@ -14952,8 +14952,78 @@ mal_result mal_context_init__coreaudio(mal_context* pContext)
 #ifdef MAL_HAS_SNDIO
 #include <fcntl.h>
 #include <sys/stat.h>
+//#include <sndio.h>
+
+#if defined(__NetBSD__) || defined(__OpenBSD__)
 #include <sys/audioio.h>
-#include <sndio.h>
+#endif
+
+#define MAL_SIO_DEVANY	"default"
+#define MAL_SIO_PLAY	1
+#define MAL_SIO_REC		2
+#define MAL_SIO_NENC	8
+#define MAL_SIO_NCHAN	8
+#define MAL_SIO_NRATE	16
+#define MAL_SIO_NCONF	4
+
+struct mal_sio_hdl; // <-- Opaque
+
+struct mal_sio_par
+{
+    unsigned int bits;
+    unsigned int bps;
+    unsigned int sig;
+    unsigned int le;
+    unsigned int msb;
+    unsigned int rchan;
+    unsigned int pchan;
+    unsigned int rate;
+    unsigned int bufsz;
+    unsigned int xrun;
+    unsigned int round;
+    unsigned int appbufsz;
+    int __pad[3];
+    unsigned int __magic;
+};
+
+struct mal_sio_enc
+{
+    unsigned int bits;
+    unsigned int bps;
+    unsigned int sig;
+    unsigned int le;
+    unsigned int msb;
+};
+
+struct mal_sio_conf
+{
+    unsigned int enc;
+    unsigned int rchan;
+    unsigned int pchan;
+    unsigned int rate;
+};
+
+struct mal_sio_cap
+{
+    struct mal_sio_enc enc[MAL_SIO_NENC];
+	unsigned int rchan[MAL_SIO_NCHAN];
+	unsigned int pchan[MAL_SIO_NCHAN];
+	unsigned int rate[MAL_SIO_NRATE];
+	int __pad[7];
+	unsigned int nconf;
+	struct mal_sio_conf confs[MAL_SIO_NCONF];
+};
+
+typedef struct mal_sio_hdl* (* mal_sio_open_proc)   (const char*, unsigned int, int);
+typedef void                (* mal_sio_close_proc)  (struct mal_sio_hdl*);
+typedef int                 (* mal_sio_setpar_proc) (struct mal_sio_hdl*, struct mal_sio_par*);
+typedef int                 (* mal_sio_getpar_proc) (struct mal_sio_hdl*, struct mal_sio_par*);
+typedef int                 (* mal_sio_getcap_proc) (struct mal_sio_hdl*, struct mal_sio_cap*);
+typedef size_t              (* mal_sio_write_proc)  (struct mal_sio_hdl*, const void*, size_t);
+typedef size_t              (* mal_sio_read_proc)   (struct mal_sio_hdl*, void*, size_t);
+typedef int                 (* mal_sio_start_proc)  (struct mal_sio_hdl*);
+typedef int                 (* mal_sio_stop_proc)   (struct mal_sio_hdl*);
+typedef int                 (* mal_sio_initpar_proc)(struct mal_sio_par*);
 
 // A note on sndio and device capabilities.
 //
@@ -15042,14 +15112,14 @@ mal_format mal_format_from_sio_enc__sndio(unsigned int bits, unsigned int bps, u
     return mal_format_unknown;
 }
 
-mal_format mal_find_best_format_from_sio_cap__sndio(struct sio_cap* caps)
+mal_format mal_find_best_format_from_sio_cap__sndio(struct mal_sio_cap* caps)
 {
     mal_assert(caps != NULL);
     
 #ifdef MAL_SNDIO_USE_AUDIOIO_FOR_DEVICE_CAPS
     mal_format bestFormat = mal_format_unknown;
     for (unsigned int iConfig = 0; iConfig < caps->nconf; iConfig += 1) {
-        for (unsigned int iEncoding = 0; iEncoding < SIO_NENC; iEncoding += 1) {
+        for (unsigned int iEncoding = 0; iEncoding < MAL_SIO_NENC; iEncoding += 1) {
             if ((caps->confs[iConfig].enc & (1UL << iEncoding)) == 0) {
                 continue;
             }
@@ -15081,7 +15151,7 @@ mal_format mal_find_best_format_from_sio_cap__sndio(struct sio_cap* caps)
 #endif
 }
 
-mal_uint32 mal_find_best_channels_from_sio_cap__sndio(struct sio_cap* caps, mal_device_type deviceType, mal_format requiredFormat)
+mal_uint32 mal_find_best_channels_from_sio_cap__sndio(struct mal_sio_cap* caps, mal_device_type deviceType, mal_format requiredFormat)
 {
     mal_assert(caps != NULL);
     mal_assert(requiredFormat != mal_format_unknown);
@@ -15091,7 +15161,7 @@ mal_uint32 mal_find_best_channels_from_sio_cap__sndio(struct sio_cap* caps, mal_
     mal_uint32 maxChannels = 0;
     for (unsigned int iConfig = 0; iConfig < caps->nconf; iConfig += 1) {
         // The encoding should be of requiredFormat.
-        for (unsigned int iEncoding = 0; iEncoding < SIO_NENC; iEncoding += 1) {
+        for (unsigned int iEncoding = 0; iEncoding < MAL_SIO_NENC; iEncoding += 1) {
             if ((caps->confs[iConfig].enc & (1UL << iEncoding)) == 0) {
                 continue;
             }
@@ -15107,7 +15177,7 @@ mal_uint32 mal_find_best_channels_from_sio_cap__sndio(struct sio_cap* caps, mal_
             }
             
             // Getting here means the format is supported. Iterate over each channel count and grab the biggest one.
-            for (unsigned int iChannel = 0; iChannel < SIO_NCHAN; iChannel += 1) {
+            for (unsigned int iChannel = 0; iChannel < MAL_SIO_NCHAN; iChannel += 1) {
                 unsigned int chan = 0;
                 if (deviceType == mal_device_type_playback) {
                     chan = caps->confs[iConfig].pchan;
@@ -15142,7 +15212,7 @@ mal_uint32 mal_find_best_channels_from_sio_cap__sndio(struct sio_cap* caps, mal_
 #endif
 }
 
-mal_uint32 mal_find_best_sample_rate_from_sio_cap__sndio(struct sio_cap* caps, mal_device_type deviceType, mal_format requiredFormat, mal_uint32 requiredChannels)
+mal_uint32 mal_find_best_sample_rate_from_sio_cap__sndio(struct mal_sio_cap* caps, mal_device_type deviceType, mal_format requiredFormat, mal_uint32 requiredChannels)
 {
     mal_assert(caps != NULL);
     mal_assert(requiredFormat != mal_format_unknown);
@@ -15155,7 +15225,7 @@ mal_uint32 mal_find_best_sample_rate_from_sio_cap__sndio(struct sio_cap* caps, m
     mal_uint32 bestSampleRate = 0;    
     for (unsigned int iConfig = 0; iConfig < caps->nconf; iConfig += 1) {
         // The encoding should be of requiredFormat.
-        for (unsigned int iEncoding = 0; iEncoding < SIO_NENC; iEncoding += 1) {
+        for (unsigned int iEncoding = 0; iEncoding < MAL_SIO_NENC; iEncoding += 1) {
             if ((caps->confs[iConfig].enc & (1UL << iEncoding)) == 0) {
                 continue;
             }
@@ -15171,7 +15241,7 @@ mal_uint32 mal_find_best_sample_rate_from_sio_cap__sndio(struct sio_cap* caps, m
             }
             
             // Getting here means the format is supported. Iterate over each channel count and grab the biggest one.
-            for (unsigned int iChannel = 0; iChannel < SIO_NCHAN; iChannel += 1) {
+            for (unsigned int iChannel = 0; iChannel < MAL_SIO_NCHAN; iChannel += 1) {
                 unsigned int chan = 0;
                 if (deviceType == mal_device_type_playback) {
                     chan = caps->confs[iConfig].pchan;
@@ -15195,7 +15265,7 @@ mal_uint32 mal_find_best_sample_rate_from_sio_cap__sndio(struct sio_cap* caps, m
                 }
                 
                 // Getting here means we have found a compatible encoding/channel pair.
-                for (unsigned int iRate = 0; iRate < SIO_NRATE; iRate += 1) {
+                for (unsigned int iRate = 0; iRate < MAL_SIO_NRATE; iRate += 1) {
                     mal_uint32 rate = (mal_uint32)caps->rate[iRate];
                 
                     if (firstSampleRate == 0) {
@@ -15270,11 +15340,11 @@ mal_result mal_context_enumerate_devices__sndio(mal_context* pContext, mal_enum_
             mal_itoa_s(iDevice, devid+strlen(devid), sizeof(devid)-strlen(devid), 10);
             
             mal_bool32 isTerminating = MAL_FALSE;
-            struct sio_hdl* handle;
+            struct mal_sio_hdl* handle;
             
             // Playback.
             if (!isTerminating) {
-                handle = sio_open(devid, SIO_PLAY, 0);
+                handle = ((mal_sio_open_proc)pContext->sndio.sio_open)(devid, MAL_SIO_PLAY, 0);
                 if (handle != NULL) {
                     // Supports playback.
                     mal_device_info deviceInfo;
@@ -15284,13 +15354,13 @@ mal_result mal_context_enumerate_devices__sndio(mal_context* pContext, mal_enum_
                     
                     isTerminating = !callback(pContext, mal_device_type_playback, &deviceInfo, pUserData);
                     
-                    sio_close(handle);
+                    ((mal_sio_close_proc)pDevice->pContext->sndio.sio_close)(handle);
                 }
             }
             
             // Capture.
             if (!isTerminating) {
-                handle = sio_open(devid, SIO_REC, 0);
+                handle = ((mal_sio_open_proc)pContext->sndio.sio_open)(devid, MAL_SIO_REC, 0);
                 if (handle != NULL) {
                     // Supports capture.
                     mal_device_info deviceInfo;
@@ -15300,7 +15370,7 @@ mal_result mal_context_enumerate_devices__sndio(mal_context* pContext, mal_enum_
 
                     isTerminating = !callback(pContext, mal_device_type_capture, &deviceInfo, pUserData);
                     
-                    sio_close(handle);
+                    ((mal_sio_close_proc)pDevice->pContext->sndio.sio_close)(handle);
                 }
             }
             
@@ -15314,11 +15384,11 @@ mal_result mal_context_enumerate_devices__sndio(mal_context* pContext, mal_enum_
 #else
     // Fall back to default devices.
     mal_bool32 isTerminating = MAL_FALSE;
-    struct sio_hdl* handle;
+    struct mal_sio_hdl* handle;
     
     // Playback.
     if (!isTerminating) {
-        handle = sio_open(NULL, SIO_PLAY, 0);
+        handle = ((mal_sio_open_proc)pContext->sndio.sio_open)(NULL, MAL_SIO_PLAY, 0);
         if (handle != NULL) {
             // Supports playback.
             mal_device_info deviceInfo;
@@ -15328,13 +15398,13 @@ mal_result mal_context_enumerate_devices__sndio(mal_context* pContext, mal_enum_
             
             isTerminating = !callback(pContext, mal_device_type_playback, &deviceInfo, pUserData);
             
-            sio_close(handle);
+            ((mal_sio_close_proc)pContext->sndio.sio_close)(handle);
         }
     }
     
     // Capture.
     if (!isTerminating) {
-        handle = sio_open(NULL, SIO_REC, 0);
+        handle = ((mal_sio_open_proc)pContext->sndio.sio_open)(NULL, MAL_SIO_REC, 0);
         if (handle != NULL) {
             // Supports capture.
             mal_device_info deviceInfo;
@@ -15344,7 +15414,7 @@ mal_result mal_context_enumerate_devices__sndio(mal_context* pContext, mal_enum_
 
             isTerminating = !callback(pContext, mal_device_type_capture, &deviceInfo, pUserData);
             
-            sio_close(handle);
+            ((mal_sio_close_proc)pContext->sndio.sio_close)(handle);
         }
     }
     
@@ -15368,20 +15438,20 @@ mal_result mal_context_get_device_info__sndio(mal_context* pContext, mal_device_
     }
     
 #ifdef MAL_SNDIO_USE_AUDIOIO_FOR_DEVICE_CAPS
-    struct sio_hdl* handle = sio_open(devid, (deviceType == mal_device_type_playback) ? SIO_PLAY : SIO_REC, 0);
+    struct mal_sio_hdl* handle = ((mal_sio_open_proc)pContext->sndio.sio_open)(devid, (deviceType == mal_device_type_playback) ? MAL_SIO_PLAY : MAL_SIO_REC, 0);
     if (handle == NULL) {
         return MAL_NO_DEVICE;
     }
     
-    struct sio_cap caps;
-    if (sio_getcap(handle, &caps) == 0) {
+    struct mal_sio_cap caps;
+    if (((mal_sio_getcap_proc)pContext->sndio.sio_getcap)(handle, &caps) == 0) {
         return MAL_ERROR;
     }
     
     for (unsigned int iConfig = 0; iConfig < caps.nconf; iConfig += 1) {
         // The main thing we care about is that the encoding is supported by mini_al. If it is, we want to give
         // preference to some formats over others.
-        for (unsigned int iEncoding = 0; iEncoding < SIO_NENC; iEncoding += 1) {
+        for (unsigned int iEncoding = 0; iEncoding < MAL_SIO_NENC; iEncoding += 1) {
             if ((caps.confs[iConfig].enc & (1UL << iEncoding)) == 0) {
                 continue;
             }
@@ -15411,7 +15481,7 @@ mal_result mal_context_get_device_info__sndio(mal_context* pContext, mal_device_
         }
         
         // Channels.
-        for (unsigned int iChannel = 0; iChannel < SIO_NCHAN; iChannel += 1) {
+        for (unsigned int iChannel = 0; iChannel < MAL_SIO_NCHAN; iChannel += 1) {
             unsigned int chan = 0;
             if (deviceType == mal_device_type_playback) {
                 chan = caps.confs[iConfig].pchan;
@@ -15439,7 +15509,7 @@ mal_result mal_context_get_device_info__sndio(mal_context* pContext, mal_device_
         }
         
         // Sample rates.
-        for (unsigned int iRate = 0; iRate < SIO_NRATE; iRate += 1) {
+        for (unsigned int iRate = 0; iRate < MAL_SIO_NRATE; iRate += 1) {
             if ((caps.confs[iConfig].rate & (1UL << iRate)) != 0) {
                 unsigned int rate = caps.rate[iRate];
                 if (pDeviceInfo->minSampleRate > rate) {
@@ -15452,7 +15522,7 @@ mal_result mal_context_get_device_info__sndio(mal_context* pContext, mal_device_
         }
     }
 
-    sio_close(handle);
+    ((mal_sio_close_proc)pDevice->pContext->sndio.sio_close)(handle);
 #else
     pDeviceInfo->formats[pDeviceInfo->formatCount++] = MAL_SNDIO_DEVICE_FORMAT;
     pDeviceInfo->minChannels   = MAL_SNDIO_DEVICE_CHANNELS;
@@ -15468,7 +15538,7 @@ void mal_device_uninit__sndio(mal_device* pDevice)
 {
     mal_assert(pDevice != NULL);
 
-    sio_close(pDevice->sndio.handle);
+    ((mal_sio_close_proc)pDevice->pContext->sndio.sio_close)(pDevice->sndio.handle);
     mal_free(pDevice->sndio.pIntermediaryBuffer);
 }
 
@@ -15479,20 +15549,20 @@ mal_result mal_device_init__sndio(mal_context* pContext, mal_device_type deviceT
     mal_assert(pDevice != NULL);
     mal_zero_object(&pDevice->sndio);
     
-    const char* deviceName = NULL;
+    const char* deviceName = MAL_SIO_DEVANY;
     if (pDeviceID != NULL) {
         deviceName = pDeviceID->sndio;
     }
     
-    pDevice->sndio.handle = sio_open(deviceName, (deviceType == mal_device_type_playback) ? SIO_PLAY : SIO_REC, 0);
+    pDevice->sndio.handle = (mal_ptr)((mal_sio_open_proc)pContext->sndio.sio_open)(deviceName, (deviceType == mal_device_type_playback) ? MAL_SIO_PLAY : MAL_SIO_REC, 0);
     if (pDevice->sndio.handle == NULL) {
         return mal_post_error(pDevice, MAL_LOG_LEVEL_ERROR, "[sndio] Failed to open device.", MAL_FAILED_TO_OPEN_BACKEND_DEVICE);
     }
     
     // We need to retrieve the device caps to determine the most appropriate format to use.
-    struct sio_cap caps;
-    if (sio_getcap(pDevice->sndio.handle, &caps) == 0) {
-        sio_close(pDevice->sndio.handle);
+    struct mal_sio_cap caps;
+    if (((mal_sio_getcap_proc)pContext->sndio.sio_getcap)(pDevice->sndio.handle, &caps) == 0) {
+        ((mal_sio_close_proc)pContext->sndio.sio_close)(pDevice->sndio.handle);
         return mal_post_error(pDevice, MAL_LOG_LEVEL_ERROR, "[sndio] Failed to retrieve device caps.", MAL_ERROR);
     }
     
@@ -15526,10 +15596,10 @@ mal_result mal_device_init__sndio(mal_context* pContext, mal_device_type deviceT
     }
     
     
-    struct sio_par par;
-    sio_initpar(&par);
+    struct mal_sio_par par;
+    ((mal_sio_initpar_proc)pDevice->pContext->sndio.sio_initpar)(&par);
     par.msb = 0;
-    par.le  = SIO_LE_NATIVE;
+    par.le  = mal_is_little_endian();
     
     switch (desiredFormat) {
         case mal_format_u8:
@@ -15571,12 +15641,12 @@ mal_result mal_device_init__sndio(mal_context* pContext, mal_device_type deviceT
 
     par.rate = desiredSampleRate;
     
-    if (sio_setpar(pDevice->sndio.handle, &par) == 0) {
-        sio_close(pDevice->sndio.handle);
+    if (((mal_sio_setpar_proc)pContext->sndio.sio_setpar)(pDevice->sndio.handle, &par) == 0) {
+        ((mal_sio_close_proc)pContext->sndio.sio_close)(pDevice->sndio.handle);
         return mal_post_error(pDevice, MAL_LOG_LEVEL_ERROR, "[sndio] Failed to set device parameters.", MAL_FORMAT_NOT_SUPPORTED);
     }
-    if (sio_getpar(pDevice->sndio.handle, &par) == 0) {
-        sio_close(pDevice->sndio.handle);
+    if (((mal_sio_getpar_proc)pDevice->pContext->sndio.sio_getpar)(pDevice->sndio.handle, &par) == 0) {
+        ((mal_sio_close_proc)pDevice->pContext->sndio.sio_close)(pDevice->sndio.handle);
         return mal_post_error(pDevice, MAL_LOG_LEVEL_ERROR, "[sndio] Failed to retrieve device parameters.", MAL_FORMAT_NOT_SUPPORTED);
     }
     
@@ -15596,16 +15666,16 @@ mal_result mal_device_init__sndio(mal_context* pContext, mal_device_type deviceT
         desiredBufferSizeInFrames = mal_calculate_default_buffer_size_in_frames(pConfig->performanceProfile, par.rate, fCPUSpeed*fDeviceType*fBackend);
     }
     
-    sio_initpar(&par);
+    ((mal_sio_initpar_proc)pContext->sndio.sio_initpar)(&par);
     par.round = desiredBufferSizeInFrames / pDevice->periods;
     par.appbufsz = par.round * pDevice->periods;
     
-    if (sio_setpar(pDevice->sndio.handle, &par) == 0) {
-        sio_close(pDevice->sndio.handle);
+    if (((mal_sio_setpar_proc)pContext->sndio.sio_setpar)(pDevice->sndio.handle, &par) == 0) {
+        ((mal_sio_close_proc)pContext->sndio.sio_close)(pDevice->sndio.handle);
         return mal_post_error(pDevice, MAL_LOG_LEVEL_ERROR, "[sndio] Failed to set buffer size.", MAL_FORMAT_NOT_SUPPORTED);
     }
-    if (sio_getpar(pDevice->sndio.handle, &par) == 0) {
-        sio_close(pDevice->sndio.handle);
+    if (((mal_sio_getpar_proc)pContext->sndio.sio_getpar)(pDevice->sndio.handle, &par) == 0) {
+        ((mal_sio_close_proc)pContext->sndio.sio_close)(pDevice->sndio.handle);
         return mal_post_error(pDevice, MAL_LOG_LEVEL_ERROR, "[sndio] Failed to retrieve buffer size.", MAL_FORMAT_NOT_SUPPORTED);
     }
     
@@ -15627,7 +15697,7 @@ mal_result mal_device_init__sndio(mal_context* pContext, mal_device_type deviceT
     
     pDevice->sndio.pIntermediaryBuffer = mal_malloc(pDevice->sndio.fragmentSizeInFrames * mal_get_bytes_per_frame(pDevice->internalFormat, pDevice->internalChannels));
     if (pDevice->sndio.pIntermediaryBuffer == NULL) {
-        sio_close(pDevice->sndio.handle);
+        ((mal_sio_close_proc)pContext->sndio.sio_close)(pDevice->sndio.handle);
         return mal_post_error(pDevice, MAL_LOG_LEVEL_ERROR, "[sndio] Failed to allocate memory for intermediary buffer.", MAL_OUT_OF_MEMORY);
     }
     
@@ -15649,7 +15719,7 @@ mal_result mal_device__start_backend__sndio(mal_device* pDevice)
 {
     mal_assert(pDevice != NULL);
     
-    if (sio_start((struct sio_hdl*)pDevice->sndio.handle) == 0) {
+    if (((mal_sio_start_proc)pDevice->pContext->sndio.sio_start)((struct mal_sio_hdl*)pDevice->sndio.handle) == 0) {
         return mal_post_error(pDevice, MAL_LOG_LEVEL_ERROR, "[sndio] Failed to start backend device.", MAL_FAILED_TO_START_BACKEND_DEVICE);
     }
 
@@ -15662,7 +15732,8 @@ mal_result mal_device__start_backend__sndio(mal_device* pDevice)
         for (mal_uint32 iPeriod = 0; iPeriod < pDevice->periods; iPeriod += 1) { 
             mal_device__read_frames_from_client(pDevice, pDevice->sndio.fragmentSizeInFrames, pDevice->sndio.pIntermediaryBuffer);
 
-            int bytesWritten = sio_write(pDevice->sndio.handle, pDevice->sndio.pIntermediaryBuffer, pDevice->sndio.fragmentSizeInFrames * mal_get_bytes_per_frame(pDevice->internalFormat, pDevice->internalChannels));
+printf("TESTING: %d\n", iPeriod);
+            int bytesWritten = ((mal_sio_write_proc)pDevice->pContext->sndio.sio_write)(pDevice->sndio.handle, pDevice->sndio.pIntermediaryBuffer, pDevice->sndio.fragmentSizeInFrames * mal_get_bytes_per_frame(pDevice->internalFormat, pDevice->internalChannels));
             if (bytesWritten == 0) {
                 return mal_post_error(pDevice, MAL_LOG_LEVEL_ERROR, "[sndio] Failed to send initial chunk of data to the device.", MAL_FAILED_TO_SEND_DATA_TO_DEVICE);
             }
@@ -15678,7 +15749,7 @@ mal_result mal_device__stop_backend__sndio(mal_device* pDevice)
 {
     mal_assert(pDevice != NULL);
 
-    sio_stop(pDevice->sndio.handle);
+    ((mal_sio_stop_proc)pDevice->pContext->sndio.sio_stop)(pDevice->sndio.handle);
     return MAL_SUCCESS;
 }
 
@@ -15706,13 +15777,13 @@ mal_result mal_device__main_loop__sndio(mal_device* pDevice)
             // Playback.
             mal_device__read_frames_from_client(pDevice, pDevice->sndio.fragmentSizeInFrames, pDevice->sndio.pIntermediaryBuffer);
 
-            int bytesWritten = sio_write(pDevice->sndio.handle, pDevice->sndio.pIntermediaryBuffer, pDevice->sndio.fragmentSizeInFrames * pDevice->internalChannels * mal_get_bytes_per_sample(pDevice->internalFormat));
+            int bytesWritten = ((mal_sio_write_proc)pDevice->pContext->sndio.sio_write)(pDevice->sndio.handle, pDevice->sndio.pIntermediaryBuffer, pDevice->sndio.fragmentSizeInFrames * pDevice->internalChannels * mal_get_bytes_per_sample(pDevice->internalFormat));
             if (bytesWritten == 0) {
                 return mal_post_error(pDevice, MAL_LOG_LEVEL_ERROR, "[sndio] Failed to send data from the client to the device.", MAL_FAILED_TO_SEND_DATA_TO_DEVICE);
             }
         } else {
             // Capture.
-            int bytesRead = sio_read(pDevice->sndio.handle, pDevice->sndio.pIntermediaryBuffer, pDevice->sndio.fragmentSizeInFrames * mal_get_bytes_per_sample(pDevice->internalFormat));
+            int bytesRead = ((mal_sio_read_proc)pDevice->pContext->sndio.sio_read)(pDevice->sndio.handle, pDevice->sndio.pIntermediaryBuffer, pDevice->sndio.fragmentSizeInFrames * mal_get_bytes_per_sample(pDevice->internalFormat));
             if (bytesRead == 0) {
                 return mal_post_error(pDevice, MAL_LOG_LEVEL_ERROR, "[sndio] Failed to read data from the device to be sent to the client.", MAL_FAILED_TO_READ_DATA_FROM_DEVICE);
             }
@@ -15738,7 +15809,45 @@ mal_result mal_context_init__sndio(mal_context* pContext)
 {
     mal_assert(pContext != NULL);
     
-    // TODO: Dynamically load the sndio API.
+#ifndef MAL_NO_RUNTIME_LINKING
+    // libpulse.so
+    const char* libsndioNames[] = {
+        "libsndio.so"
+    };
+
+    for (size_t i = 0; i < mal_countof(libsndioNames); ++i) {
+        pContext->sndio.sndioSO = mal_dlopen(libsndioNames[i]);
+        if (pContext->sndio.sndioSO != NULL) {
+            break;
+        }
+    }
+
+    if (pContext->sndio.sndioSO == NULL) {
+        return MAL_NO_BACKEND;
+    }
+    
+    pContext->sndio.sio_open    = (mal_proc)mal_dlsym(pContext->sndio.sndioSO, "sio_open");
+    pContext->sndio.sio_close   = (mal_proc)mal_dlsym(pContext->sndio.sndioSO, "sio_close");
+    pContext->sndio.sio_setpar  = (mal_proc)mal_dlsym(pContext->sndio.sndioSO, "sio_setpar");
+    pContext->sndio.sio_getpar  = (mal_proc)mal_dlsym(pContext->sndio.sndioSO, "sio_getpar");
+    pContext->sndio.sio_getcap  = (mal_proc)mal_dlsym(pContext->sndio.sndioSO, "sio_getcap");
+    pContext->sndio.sio_write   = (mal_proc)mal_dlsym(pContext->sndio.sndioSO, "sio_write");
+    pContext->sndio.sio_read    = (mal_proc)mal_dlsym(pContext->sndio.sndioSO, "sio_read");
+    pContext->sndio.sio_start   = (mal_proc)mal_dlsym(pContext->sndio.sndioSO, "sio_start");
+    pContext->sndio.sio_stop    = (mal_proc)mal_dlsym(pContext->sndio.sndioSO, "sio_stop");
+    pContext->sndio.sio_initpar = (mal_proc)mal_dlsym(pContext->sndio.sndioSO, "sio_initpar");
+#else
+    pContext->sndio.sio_open    = sio_open;
+    pContext->sndio.sio_close   = sio_close;
+    pContext->sndio.sio_setpar  = sio_setpar;
+    pContext->sndio.sio_getpar  = sio_getpar;
+    pContext->sndio.sio_getcap  = sio_getcap;
+    pContext->sndio.sio_write   = sio_write;
+    pContext->sndio.sio_read    = sio_read;
+    pContext->sndio.sio_start   = sio_start;
+    pContext->sndio.sio_stop    = sio_stop;
+    pContext->sndio.sio_initpar = sio_initpar;
+#endif
 
     pContext->onUninit              = mal_context_uninit__sndio;
     pContext->onDeviceIDEqual       = mal_context_is_device_id_equal__sndio;
