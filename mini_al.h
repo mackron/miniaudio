@@ -1152,7 +1152,7 @@ void mal_pcm_convert(void* pOut, mal_format formatOut, const void* pIn, mal_form
     #if defined(MAL_ANDROID)
         #define MAL_SUPPORT_OPENSL
     #endif
-    #if defined(__OpenBSD__)
+    #if defined(__OpenBSD__)    // <-- Change this to "#if defined(MAL_BSD)" to enable sndio on all BSD flavors.
         #define MAL_SUPPORT_SNDIO   // sndio is only supported on OpenBSD for now. May be expanded later if there's demand.
     #endif
     #if defined(__NetBSD__)
@@ -15445,12 +15445,10 @@ mal_result mal_device_init__sndio(mal_context* pContext, mal_device_type deviceT
     mal_assert(pDevice != NULL);
     mal_zero_object(&pDevice->sndio);
     
-    const char* deviceName;
-#if defined(__FreeBSD__) || defined(__DragonFly__)
-    deviceName = "rsnd/0";
-#else
-    deviceName = MAL_SIO_DEVANY;
-#endif
+    const char* deviceName = MAL_SIO_DEVANY;
+//#if defined(__FreeBSD__) || defined(__DragonFly__)
+//    deviceName = "rsnd/0";
+//#else
     if (pDeviceID != NULL) {
         deviceName = pDeviceID->sndio;
     }
