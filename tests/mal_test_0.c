@@ -2260,6 +2260,15 @@ mal_uint32 on_send__playback_test(mal_device* pDevice, mal_uint32 frameCount, vo
 #endif
 }
 
+void on_stop__playback_test(mal_device* pDevice)
+{
+    playback_test_callback_data* pData = (playback_test_callback_data*)pDevice->pUserData;
+    mal_assert(pData != NULL);
+    
+    printf("Device Stopped.\n");
+    mal_event_signal(&pData->endOfPlaybackEvent);
+}
+
 int do_playback_test(mal_backend backend)
 {
     mal_result result = MAL_SUCCESS;
@@ -2280,7 +2289,7 @@ int do_playback_test(mal_backend backend)
     {
         mal_context_config contextConfig = mal_context_config_init(on_log);
         mal_device_config deviceConfig = mal_device_config_init_default_playback(on_send__playback_test);
-        deviceConfig.onStopCallback = on_stop;
+        deviceConfig.onStopCallback = on_stop__playback_test;
 
     #if defined(__EMSCRIPTEN__)
         deviceConfig.format = mal_format_f32;
