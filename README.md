@@ -39,7 +39,8 @@ Backends
 - ALSA
 - PulseAudio
 - JACK
-- OSS
+- audioio (NetBSD)
+- OSS (FreeBSD)
 - OpenSL|ES (Android only)
 - OpenAL
 - SDL
@@ -54,8 +55,7 @@ Do the following in one source file:
 #include "mini_al.h"
 ```
 Then just compile. There's no need to install any dependencies. On Windows and macOS there's no need to link
-to anything. On Linux, just link to -lpthread, -ldl and -lm. Link to -lossaudio on OpenBSD and NetBSD (FreeBSD
-does not require linking to anything).
+to anything. On Linux and BSD, just link to -lpthread, -lm and -ldl.
 
 
 Simple Playback Example

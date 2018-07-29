@@ -20,7 +20,8 @@
 //   - ALSA
 //   - PulseAudio
 //   - JACK
-//   - OSS
+//   - audioio (NetBSD)
+//   - OSS (FreeBSD)
 //   - OpenSL|ES (Android only)
 //   - OpenAL
 //   - SDL
@@ -65,8 +66,7 @@
 //
 // Building for BSD
 // ----------------
-// The BSD build uses OSS. Requires linking to -lpthread and -lm. Also requires linking to -lossaudio on {Open,Net}BSD,
-// but not FreeBSD.
+// The BSD build only requires linking to -ldl, -lpthread and -lm.
 //
 // Building for Android
 // --------------------
@@ -26306,6 +26306,14 @@ mal_uint64 mal_sine_wave_read(mal_sine_wave* pSineWave, mal_uint64 count, float*
 
 // REVISION HISTORY
 // ================
+//
+// v0.8.4-rc - 2018-xx-xx
+//   - Add audioio backend for NetBSD. The OSS backend is no longer supported on NetBSD.
+//   - Mark some APIs as deprecated:
+//     - mal_src_set_input_sample_rate() and mal_src_set_output_sample_rate() are replaced with mal_src_set_sample_rate().
+//     - mal_dsp_set_input_sample_rate() and mal_dsp_set_output_sample_rate() are replaced with mal_dsp_set_sample_rate().
+//   - Fix some aliasing issues with resampling, specifically when increasing the sample rate.
+//   - Fix warnings.
 //
 // v0.8.3 - 2018-07-15
 //   - Fix a crackling bug when resampling in capture mode.
