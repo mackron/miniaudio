@@ -14947,10 +14947,32 @@ mal_result mal_context_init__coreaudio(mal_context* pContext)
 #ifdef MAL_HAS_SNDIO
 #include <fcntl.h>
 #include <sys/stat.h>
-//#include <sndio.h>
+
+// Only supporting OpenBSD. To get working on FreeBSD (and possibly others):
+//
+// Device Enumeration
+// ------------------
+// On OpenBSD and NetBSD mini_al will just enumerate over the "/dev/audio" devices. On FreeBSD this will need to
+// change to loop over OSS devices.
+//
+// Device Caps
+// -----------
+// The sndio API does not appear to have a way to retrieve a device's _actual_ hardware configuration which makes
+// the implementation of mal_get_device_info() difficult. Currently this is just hard coded to specific values,
+// but a more optimal solution would be to query the device caps from the sys/audioio.h or sys/soundcard.h APIs,
+// depending on the BSD flavor.
+//
+// Device Initialization
+// ---------------------
+// mini_al uses SIO_DEVANY ("default") for the default device, however this does not work very well on FreeBSD in
+// my testing (and possibly NetBSD - I have not tested). Settings this to "rsnd/0" appears to fix it, but then that
+// doesn't work properly on OpenBSD in my testing.
 
 #if defined(__NetBSD__) || defined(__OpenBSD__)
 #include <sys/audioio.h>
+#endif
+#if defined(__FreeBSD__) || defined(__DragonFly__)
+#include <sys/soundcard.h>
 #endif
 
 #define MAL_SIO_DEVANY	"default"
