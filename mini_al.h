@@ -17460,6 +17460,8 @@ mal_result mal_device_init__oss(mal_context* pContext, mal_device_type type, con
     // Set the internal channel map. Not sure if this can be queried. For now just using the channel layouts defined in FreeBSD's sound(4) man page.
     mal_get_standard_channel_map(mal_standard_channel_map_sound4, pDevice->internalChannels, pDevice->internalChannelMap);
 
+    // OSS seems to be shared.
+    pDevice->exclusiveMode = MAL_FALSE;
 
     // When not using MMAP mode, we need to use an intermediary buffer for the client <-> device transfer. We do
     // everything by the size of a fragment.
