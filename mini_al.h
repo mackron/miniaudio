@@ -15398,51 +15398,53 @@ mal_result mal_context_enumerate_devices__sndio(mal_context* pContext, mal_enum_
         mal_itoa_s(iDevice, devpath+strlen(devpath), sizeof(devpath)-strlen(devpath), 10);
     
         struct stat st;
-        if (stat(devpath, &st) == 0) {
-            // The device exists, but we need to check if it's usable as playback and/or capture. This is done
-            // via the sndio API by using the "snd/N" format for the device name.
-            char devid[256];
-            mal_strcpy_s(devid, sizeof(devid), "snd/");
-            mal_itoa_s(iDevice, devid+strlen(devid), sizeof(devid)-strlen(devid), 10);
-            
-            mal_bool32 isTerminating = MAL_FALSE;
-            struct mal_sio_hdl* handle;
-            
-            // Playback.
-            if (!isTerminating) {
-                handle = ((mal_sio_open_proc)pContext->sndio.sio_open)(devid, MAL_SIO_PLAY, 0);
-                if (handle != NULL) {
-                    // Supports playback.
-                    mal_device_info deviceInfo;
-                    mal_zero_object(&deviceInfo);
-                    mal_strcpy_s(deviceInfo.id.sndio, sizeof(deviceInfo.id.sndio), devid);
-                    mal_strcpy_s(deviceInfo.name, sizeof(deviceInfo.name), devid);
-                    
-                    isTerminating = !callback(pContext, mal_device_type_playback, &deviceInfo, pUserData);
-                    
-                    ((mal_sio_close_proc)pContext->sndio.sio_close)(handle);
-                }
+        if (stat(devpath, &st) != 0) {
+            break;
+        }
+        
+        // The device exists, but we need to check if it's usable as playback and/or capture. This is done
+        // via the sndio API by using the "snd/N" format for the device name.
+        char devid[256];
+        mal_strcpy_s(devid, sizeof(devid), "snd/");
+        mal_itoa_s(iDevice, devid+strlen(devid), sizeof(devid)-strlen(devid), 10);
+        
+        mal_bool32 isTerminating = MAL_FALSE;
+        struct mal_sio_hdl* handle;
+        
+        // Playback.
+        if (!isTerminating) {
+            handle = ((mal_sio_open_proc)pContext->sndio.sio_open)(devid, MAL_SIO_PLAY, 0);
+            if (handle != NULL) {
+                // Supports playback.
+                mal_device_info deviceInfo;
+                mal_zero_object(&deviceInfo);
+                mal_strcpy_s(deviceInfo.id.sndio, sizeof(deviceInfo.id.sndio), devid);
+                mal_strcpy_s(deviceInfo.name, sizeof(deviceInfo.name), devid);
+                
+                isTerminating = !callback(pContext, mal_device_type_playback, &deviceInfo, pUserData);
+                
+                ((mal_sio_close_proc)pContext->sndio.sio_close)(handle);
             }
-            
-            // Capture.
-            if (!isTerminating) {
-                handle = ((mal_sio_open_proc)pContext->sndio.sio_open)(devid, MAL_SIO_REC, 0);
-                if (handle != NULL) {
-                    // Supports capture.
-                    mal_device_info deviceInfo;
-                    mal_zero_object(&deviceInfo);
-                    mal_strcpy_s(deviceInfo.id.sndio, sizeof(deviceInfo.id.sndio), devid);
-                    mal_strcpy_s(deviceInfo.name, sizeof(deviceInfo.name), devid);
+        }
+        
+        // Capture.
+        if (!isTerminating) {
+            handle = ((mal_sio_open_proc)pContext->sndio.sio_open)(devid, MAL_SIO_REC, 0);
+            if (handle != NULL) {
+                // Supports capture.
+                mal_device_info deviceInfo;
+                mal_zero_object(&deviceInfo);
+                mal_strcpy_s(deviceInfo.id.sndio, sizeof(deviceInfo.id.sndio), devid);
+                mal_strcpy_s(deviceInfo.name, sizeof(deviceInfo.name), devid);
 
-                    isTerminating = !callback(pContext, mal_device_type_capture, &deviceInfo, pUserData);
-                    
-                    ((mal_sio_close_proc)pContext->sndio.sio_close)(handle);
-                }
+                isTerminating = !callback(pContext, mal_device_type_capture, &deviceInfo, pUserData);
+                
+                ((mal_sio_close_proc)pContext->sndio.sio_close)(handle);
             }
-            
-            if (isTerminating) {
-                break;
-            }
+        }
+        
+        if (isTerminating) {
+            break;
         }
     }
     
