@@ -14997,32 +14997,17 @@ mal_result mal_context_init__coreaudio(mal_context* pContext)
 #include <fcntl.h>
 #include <sys/stat.h>
 
-// Only supporting OpenBSD. To get working on FreeBSD (and possibly others):
-//
-// Device Enumeration
-// ------------------
-// On OpenBSD and NetBSD mini_al will just enumerate over the "/dev/audio" devices. On FreeBSD this will need to
-// change to loop over OSS devices.
-//
-// Device Caps
-// -----------
-// The sndio API does not appear to have a way to retrieve a device's _actual_ hardware configuration which makes
-// the implementation of mal_get_device_info() difficult. Currently this is just hard coded to specific values,
-// but a more optimal solution would be to query the device caps from the sys/audioio.h or sys/soundcard.h APIs,
-// depending on the BSD flavor.
-//
-// Device Initialization
-// ---------------------
-// mini_al uses SIO_DEVANY ("default") for the default device, however this does not work very well on FreeBSD in
-// my testing (and possibly NetBSD - I have not tested). Settings this to "rsnd/0" appears to fix it, but then that
-// doesn't work properly on OpenBSD in my testing.
+// Only supporting OpenBSD. This did not work very well at all on FreeBSD when I tried it. Not sure if this is due
+// to mini_al's implementation or if it's some kind of system configuration issue, but basically the default device
+// just doesn't emit any sound, or at times you'll hear tiny pieces. I will consider enabling this when there's
+// demand for it or if I can get it tested and debugged more thoroughly.
 
-#if defined(__NetBSD__) || defined(__OpenBSD__)
-#include <sys/audioio.h>
-#endif
-#if defined(__FreeBSD__) || defined(__DragonFly__)
-#include <sys/soundcard.h>
-#endif
+//#if defined(__NetBSD__) || defined(__OpenBSD__)
+//#include <sys/audioio.h>
+//#endif
+//#if defined(__FreeBSD__) || defined(__DragonFly__)
+//#include <sys/soundcard.h>
+//#endif
 
 #define MAL_SIO_DEVANY	"default"
 #define MAL_SIO_PLAY	1
@@ -15091,67 +15076,6 @@ typedef int                 (* mal_sio_start_proc)  (struct mal_sio_hdl*);
 typedef int                 (* mal_sio_stop_proc)   (struct mal_sio_hdl*);
 typedef int                 (* mal_sio_initpar_proc)(struct mal_sio_par*);
 
-// A note on sndio and device capabilities.
-//
-// Because sndio performs it's own data conversions it reports support a wide range of formats, channels
-// and sample rates. The only way I can think of to find the _actual_ device caps is to use sys/audioio.h.
-//
-// For the moment while I'm still figuring it all out I'm pretending _all_ hardware is s16/stereo/48000.
-//#define MAL_SNDIO_USE_AUDIOIO_FOR_DEVICE_CAPS /* <-- Experimenting. */
-
-#ifndef MAL_SNDIO_DEVICE_FORMAT
-#define MAL_SNDIO_DEVICE_FORMAT         mal_format_s16
-#endif
-#ifndef MAL_SNDIO_DEVICE_CHANNELS
-#define MAL_SNDIO_DEVICE_CHANNELS       2
-#endif
-#ifndef MAL_SNDIO_DEVICE_SAMPLE_RATE
-#define MAL_SNDIO_DEVICE_SAMPLE_RATE    48000
-#endif
-
-/*
-void mal_construct_device_id__sndio(char* id, size_t idSize, const char* base, int deviceIndex)
-{
-    mal_assert(id != NULL);
-    mal_assert(idSize > 0);
-    mal_assert(deviceIndex >= 0);
-    
-    size_t baseLen = strlen(base);
-    mal_assert(idSize > baseLen);
-    
-    mal_strcpy_s(id, idSize, base);
-    mal_itoa_s(deviceIndex, id+baseLen, idSize-baseLen, 10);
-}
-
-mal_result mal_extract_device_index_from_id__sndio(const char* id, const char* base, int* pIndexOut)
-{
-    mal_assert(id != NULL);
-    mal_assert(base != NULL);
-    mal_assert(pIndexOut != NULL);
-    
-    size_t idLen = strlen(id);
-    size_t baseLen = strlen(base);
-    if (idLen <= baseLen) {
-        return MAL_ERROR;   // Doesn't look like the id starts with the base.
-    }
-    
-    if (strncmp(id, base, baseLen) != 0) {
-        return MAL_ERROR;   // ID does not begin with base.
-    }
-    
-    const char* deviceIndexStr = id + baseLen;
-    if (deviceIndexStr[0] == '\0') {
-        return MAL_ERROR;   // No index specified in the ID.
-    }
-    
-    if (pIndexOut) {
-        *pIndexOut = atoi(deviceIndexStr);
-    }
-    
-    return MAL_SUCCESS;
-}
-*/
-
 mal_format mal_format_from_sio_enc__sndio(unsigned int bits, unsigned int bps, unsigned int sig, unsigned int le, unsigned int msb)
 {
     // We only support native-endian right now.
@@ -15182,7 +15106,6 @@ mal_format mal_find_best_format_from_sio_cap__sndio(struct mal_sio_cap* caps)
 {
     mal_assert(caps != NULL);
     
-#ifdef MAL_SNDIO_USE_AUDIOIO_FOR_DEVICE_CAPS
     mal_format bestFormat = mal_format_unknown;
     for (unsigned int iConfig = 0; iConfig < caps->nconf; iConfig += 1) {
         for (unsigned int iEncoding = 0; iEncoding < MAL_SIO_NENC; iEncoding += 1) {
@@ -15211,10 +15134,6 @@ mal_format mal_find_best_format_from_sio_cap__sndio(struct mal_sio_cap* caps)
     }
     
     return mal_format_unknown;
-#else
-    (void)caps;
-    return MAL_SNDIO_DEVICE_FORMAT;
-#endif
 }
 
 mal_uint32 mal_find_best_channels_from_sio_cap__sndio(struct mal_sio_cap* caps, mal_device_type deviceType, mal_format requiredFormat)
@@ -15222,7 +15141,6 @@ mal_uint32 mal_find_best_channels_from_sio_cap__sndio(struct mal_sio_cap* caps, 
     mal_assert(caps != NULL);
     mal_assert(requiredFormat != mal_format_unknown);
     
-#ifdef MAL_SNDIO_USE_AUDIOIO_FOR_DEVICE_CAPS
     // Just pick whatever configuration has the most channels.
     mal_uint32 maxChannels = 0;
     for (unsigned int iConfig = 0; iConfig < caps->nconf; iConfig += 1) {
@@ -15270,12 +15188,6 @@ mal_uint32 mal_find_best_channels_from_sio_cap__sndio(struct mal_sio_cap* caps, 
     }
     
     return maxChannels;
-#else
-    (void)caps;
-    (void)deviceType;
-    (void)requiredFormat;
-    return MAL_SNDIO_DEVICE_CHANNELS;
-#endif
 }
 
 mal_uint32 mal_find_best_sample_rate_from_sio_cap__sndio(struct mal_sio_cap* caps, mal_device_type deviceType, mal_format requiredFormat, mal_uint32 requiredChannels)
@@ -15285,7 +15197,6 @@ mal_uint32 mal_find_best_sample_rate_from_sio_cap__sndio(struct mal_sio_cap* cap
     mal_assert(requiredChannels > 0);
     mal_assert(requiredChannels <= MAL_MAX_CHANNELS);
     
-#ifdef MAL_SNDIO_USE_AUDIOIO_FOR_DEVICE_CAPS
     mal_uint32 firstSampleRate = 0; // <-- If the device does not support a standard rate we'll fall back to the first one that's found.
     
     mal_uint32 bestSampleRate = 0;    
@@ -15358,12 +15269,6 @@ mal_uint32 mal_find_best_sample_rate_from_sio_cap__sndio(struct mal_sio_cap* cap
     }
     
     return bestSampleRate;
-#else
-    (void)caps;
-    (void)deviceType;
-    (void)requiredFormat;
-    return MAL_SNDIO_DEVICE_SAMPLE_RATE;
-#endif
 }
 
 
@@ -15382,75 +15287,8 @@ mal_result mal_context_enumerate_devices__sndio(mal_context* pContext, mal_enum_
     mal_assert(pContext != NULL);
     mal_assert(callback != NULL);
     
-    // I can't find any information on how to use the sndio library to enumerate devices. I'm therefore going
-    // to enumerate over each device file. On OpenBSD and NetBSD this enumerates over each "/dev/audioctlN"
-    // device. On all other platforms it's restricted to default devices.
-#if defined(__OpenBSD__) || defined(__NetBSD__)
-    // Enumerate over each "/dev/audioctlN" device. This is very similar to the audioio backend, except we use
-    // sndio_getpar() to get device properties. Also note that I don't know how to get user friendly device names
-    // using sndio so I'm assigning the name to the ID. An alternative is to use audioio to get the device name,
-    // but I haven't done that yet.
-    const int maxDevices = 64;
-
-    char devpath[256];
-    for (int iDevice = 0; iDevice < maxDevices; ++iDevice) {
-        mal_strcpy_s(devpath, sizeof(devpath), "/dev/audioctl");
-        mal_itoa_s(iDevice, devpath+strlen(devpath), sizeof(devpath)-strlen(devpath), 10);
-    
-        struct stat st;
-        if (stat(devpath, &st) < 0) {
-            break;
-        }
-        
-        // The device exists, but we need to check if it's usable as playback and/or capture. This is done
-        // via the sndio API by using the "snd/N" format for the device name.
-        char devid[256];
-        mal_strcpy_s(devid, sizeof(devid), "snd/");
-        mal_itoa_s(iDevice, devid+strlen(devid), sizeof(devid)-strlen(devid), 10);
-        
-        mal_bool32 isTerminating = MAL_FALSE;
-        struct mal_sio_hdl* handle;
-        
-        // Playback.
-        if (!isTerminating) {
-            handle = ((mal_sio_open_proc)pContext->sndio.sio_open)(devid, MAL_SIO_PLAY, 0);
-            if (handle != NULL) {
-                // Supports playback.
-                mal_device_info deviceInfo;
-                mal_zero_object(&deviceInfo);
-                mal_strcpy_s(deviceInfo.id.sndio, sizeof(deviceInfo.id.sndio), devid);
-                mal_strcpy_s(deviceInfo.name, sizeof(deviceInfo.name), devid);
-                
-                isTerminating = !callback(pContext, mal_device_type_playback, &deviceInfo, pUserData);
-                
-                ((mal_sio_close_proc)pContext->sndio.sio_close)(handle);
-            }
-        }
-        
-        // Capture.
-        if (!isTerminating) {
-            handle = ((mal_sio_open_proc)pContext->sndio.sio_open)(devid, MAL_SIO_REC, 0);
-            if (handle != NULL) {
-                // Supports capture.
-                mal_device_info deviceInfo;
-                mal_zero_object(&deviceInfo);
-                mal_strcpy_s(deviceInfo.id.sndio, sizeof(deviceInfo.id.sndio), devid);
-                mal_strcpy_s(deviceInfo.name, sizeof(deviceInfo.name), devid);
-
-                isTerminating = !callback(pContext, mal_device_type_capture, &deviceInfo, pUserData);
-                
-                ((mal_sio_close_proc)pContext->sndio.sio_close)(handle);
-            }
-        }
-        
-        if (isTerminating) {
-            break;
-        }
-    }
-    
-    return MAL_SUCCESS;
-#else
-    // Fall back to default devices.
+    // sndio doesn't seem to have a good device enumeration API, so I'm therefore only enumerating
+    // over default devices for now.
     mal_bool32 isTerminating = MAL_FALSE;
     struct mal_sio_hdl* handle;
     
@@ -15461,7 +15299,7 @@ mal_result mal_context_enumerate_devices__sndio(mal_context* pContext, mal_enum_
             // Supports playback.
             mal_device_info deviceInfo;
             mal_zero_object(&deviceInfo);
-            mal_strcpy_s(deviceInfo.id.sndio, sizeof(deviceInfo.id.sndio), "default");
+            mal_strcpy_s(deviceInfo.id.sndio, sizeof(deviceInfo.id.sndio), MAL_SIO_DEVANY);
             mal_strcpy_s(deviceInfo.name, sizeof(deviceInfo.name), MAL_DEFAULT_PLAYBACK_DEVICE_NAME);
             
             isTerminating = !callback(pContext, mal_device_type_playback, &deviceInfo, pUserData);
@@ -15487,7 +15325,6 @@ mal_result mal_context_enumerate_devices__sndio(mal_context* pContext, mal_enum_
     }
     
     return MAL_SUCCESS;
-#endif
 }
 
 mal_result mal_context_get_device_info__sndio(mal_context* pContext, mal_device_type deviceType, const mal_device_id* pDeviceID, mal_share_mode shareMode, mal_device_info* pDeviceInfo)
@@ -15505,7 +15342,6 @@ mal_result mal_context_get_device_info__sndio(mal_context* pContext, mal_device_
         mal_strcpy_s(pDeviceInfo->name, sizeof(pDeviceInfo->name), devid);
     }
     
-#ifdef MAL_SNDIO_USE_AUDIOIO_FOR_DEVICE_CAPS
     struct mal_sio_hdl* handle = ((mal_sio_open_proc)pContext->sndio.sio_open)(devid, (deviceType == mal_device_type_playback) ? MAL_SIO_PLAY : MAL_SIO_REC, 0);
     if (handle == NULL) {
         return MAL_NO_DEVICE;
@@ -15590,15 +15426,7 @@ mal_result mal_context_get_device_info__sndio(mal_context* pContext, mal_device_
         }
     }
 
-    ((mal_sio_close_proc)pDevice->pContext->sndio.sio_close)(handle);
-#else
-    pDeviceInfo->formats[pDeviceInfo->formatCount++] = MAL_SNDIO_DEVICE_FORMAT;
-    pDeviceInfo->minChannels   = MAL_SNDIO_DEVICE_CHANNELS;
-    pDeviceInfo->maxChannels   = MAL_SNDIO_DEVICE_CHANNELS;
-    pDeviceInfo->minSampleRate = MAL_SNDIO_DEVICE_SAMPLE_RATE;
-    pDeviceInfo->maxSampleRate = MAL_SNDIO_DEVICE_SAMPLE_RATE;
-#endif
-    
+    ((mal_sio_close_proc)pContext->sndio.sio_close)(handle);
     return MAL_SUCCESS;
 }
 
@@ -15648,16 +15476,24 @@ mal_result mal_device_init__sndio(mal_context* pContext, mal_device_type deviceT
         desiredFormat = pDevice->format;
     }
     
-    
+
+    // Note: sndio reports a huge range of available channels. This is inconvenient for us because there's no real
+    // way, as far as I can tell, to get the _actual_ channel count of the device. I'm therefore restricting this
+    // to the requested channels, regardless of whether or not the default channel count is requested.
+    //
+    // For hardware devices, I'm suspecting only a single channel count will be reported and we can safely use the
+    // value returned by mal_find_best_channels_from_sio_cap__sndio().
     mal_uint32 desiredChannels = pDevice->channels;
     if (pDevice->usingDefaultChannels) {
-        desiredChannels = mal_find_best_channels_from_sio_cap__sndio(&caps, deviceType, desiredFormat);
+        if (strlen(deviceName) > strlen("rsnd/") && strncmp(deviceName, "rsnd/", strlen("rsnd/")) == 0) {
+            desiredChannels = mal_find_best_channels_from_sio_cap__sndio(&caps, deviceType, desiredFormat);
+        }
     }
-    
+
     if (desiredChannels == 0) {
         desiredChannels = pDevice->channels;
     }
-    
+
     
     mal_uint32 desiredSampleRate = pDevice->sampleRate;
     if (pDevice->usingDefaultSampleRate) {
