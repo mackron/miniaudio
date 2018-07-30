@@ -2029,9 +2029,7 @@ MAL_ALIGNED_STRUCT(MAL_SIMD_ALIGNMENT) mal_device
         struct
         {
             mal_ptr handle;
-            mal_uint32 fragmentSizeInFrames;
-            mal_bool32 breakFromMainLoop;
-            void* pIntermediaryBuffer;
+            mal_bool32 isStarted;
         } sndio;
 #endif
 #ifdef MAL_SUPPORT_AUDIO4
@@ -16679,7 +16677,6 @@ void mal_device_uninit__sndio(mal_device* pDevice)
     mal_assert(pDevice != NULL);
 
     ((mal_sio_close_proc)pDevice->pContext->sndio.sio_close)((struct mal_sio_hdl*)pDevice->sndio.handle);
-    mal_free(pDevice->sndio.pIntermediaryBuffer);
 }
 
 mal_result mal_device_init__sndio(mal_context* pContext, mal_device_type deviceType, const mal_device_id* pDeviceID, const mal_device_config* pConfig, mal_device* pDevice)
@@ -16825,15 +16822,8 @@ mal_result mal_device_init__sndio(mal_context* pContext, mal_device_type deviceT
         pDevice->periods = 2;
     }
     pDevice->bufferSizeInFrames = par.round * pDevice->periods;
-    pDevice->sndio.fragmentSizeInFrames = par.round;
     
     mal_get_standard_channel_map(mal_standard_channel_map_sndio, pDevice->internalChannels, pDevice->internalChannelMap);
-    
-    pDevice->sndio.pIntermediaryBuffer = mal_malloc(pDevice->sndio.fragmentSizeInFrames * mal_get_bytes_per_frame(pDevice->internalFormat, pDevice->internalChannels));
-    if (pDevice->sndio.pIntermediaryBuffer == NULL) {
-        ((mal_sio_close_proc)pContext->sndio.sio_close)((struct mal_sio_hdl*)pDevice->sndio.handle);
-        return mal_post_error(pDevice, MAL_LOG_LEVEL_ERROR, "[sndio] Failed to allocate memory for intermediary buffer.", MAL_OUT_OF_MEMORY);
-    }
     
 #ifdef MAL_DEBUG_OUTPUT
     printf("DEVICE INFO\n");
@@ -16857,24 +16847,8 @@ mal_result mal_device_start__sndio(mal_device* pDevice)
         return mal_post_error(pDevice, MAL_LOG_LEVEL_ERROR, "[sndio] Failed to start backend device.", MAL_FAILED_TO_START_BACKEND_DEVICE);
     }
 
-    // The device is started by the next calls to read() and write(). For playback it's simple - just read
-    // data from the client, then write it to the device with write() which will in turn start the device.
-    // For capture it's a bit less intuitive - we do nothing (it'll be started automatically by the first
-    // call to read().
-    if (pDevice->type == mal_device_type_playback) {
-        // Playback. Need to load the entire buffer, which means we need to write a fragment for each period.
-        for (mal_uint32 iPeriod = 0; iPeriod < pDevice->periods; iPeriod += 1) { 
-            mal_device__read_frames_from_client(pDevice, pDevice->sndio.fragmentSizeInFrames, pDevice->sndio.pIntermediaryBuffer);
-
-            int bytesWritten = ((mal_sio_write_proc)pDevice->pContext->sndio.sio_write)((struct mal_sio_hdl*)pDevice->sndio.handle, pDevice->sndio.pIntermediaryBuffer, pDevice->sndio.fragmentSizeInFrames * mal_get_bytes_per_frame(pDevice->internalFormat, pDevice->internalChannels));
-            if (bytesWritten == 0) {
-                return mal_post_error(pDevice, MAL_LOG_LEVEL_ERROR, "[sndio] Failed to send initial chunk of data to the device.", MAL_FAILED_TO_SEND_DATA_TO_DEVICE);
-            }
-        }
-    } else {
-        // Capture. Do nothing.
-    }
-
+    mal_atomic_exchange_32(&pDevice->sndio.isStarted, MAL_TRUE);
+    
     return MAL_SUCCESS;
 }
 
@@ -16883,49 +16857,36 @@ mal_result mal_device_stop__sndio(mal_device* pDevice)
     mal_assert(pDevice != NULL);
 
     ((mal_sio_stop_proc)pDevice->pContext->sndio.sio_stop)((struct mal_sio_hdl*)pDevice->sndio.handle);
+    mal_atomic_exchange_32(&pDevice->sndio.isStarted, MAL_FALSE);
+    
     return MAL_SUCCESS;
 }
 
-mal_result mal_device_break_main_loop__sndio(mal_device* pDevice)
+mal_result mal_device_write__sndio(mal_device* pDevice, const void* pPCMFrames, mal_uint32 pcmFrameCount)
 {
-    mal_assert(pDevice != NULL);
-
-    pDevice->sndio.breakFromMainLoop = MAL_TRUE;
-    return MAL_SUCCESS;
-}
-
-mal_result mal_device_main_loop__sndio(mal_device* pDevice)
-{
-    mal_assert(pDevice != NULL);
-
-    pDevice->sndio.breakFromMainLoop = MAL_FALSE;
-    while (!pDevice->sndio.breakFromMainLoop) {
-        // Break from the main loop if the device isn't started anymore. Likely what's happened is the application
-        // has requested that the device be stopped.
-        if (!mal_device_is_started(pDevice)) {
-            break;
-        }
-
-        if (pDevice->type == mal_device_type_playback) {
-            // Playback.
-            mal_device__read_frames_from_client(pDevice, pDevice->sndio.fragmentSizeInFrames, pDevice->sndio.pIntermediaryBuffer);
-
-            int bytesWritten = ((mal_sio_write_proc)pDevice->pContext->sndio.sio_write)((struct mal_sio_hdl*)pDevice->sndio.handle, pDevice->sndio.pIntermediaryBuffer, pDevice->sndio.fragmentSizeInFrames * pDevice->internalChannels * mal_get_bytes_per_sample(pDevice->internalFormat));
-            if (bytesWritten == 0) {
-                return mal_post_error(pDevice, MAL_LOG_LEVEL_ERROR, "[sndio] Failed to send data from the client to the device.", MAL_FAILED_TO_SEND_DATA_TO_DEVICE);
-            }
-        } else {
-            // Capture.
-            int bytesRead = ((mal_sio_read_proc)pDevice->pContext->sndio.sio_read)((struct mal_sio_hdl*)pDevice->sndio.handle, pDevice->sndio.pIntermediaryBuffer, pDevice->sndio.fragmentSizeInFrames * mal_get_bytes_per_sample(pDevice->internalFormat));
-            if (bytesRead == 0) {
-                return mal_post_error(pDevice, MAL_LOG_LEVEL_ERROR, "[sndio] Failed to read data from the device to be sent to the client.", MAL_FAILED_TO_READ_DATA_FROM_DEVICE);
-            }
-
-            mal_uint32 framesRead = (mal_uint32)bytesRead / pDevice->internalChannels / mal_get_bytes_per_sample(pDevice->internalFormat);
-            mal_device__send_frames_to_client(pDevice, framesRead, pDevice->sndio.pIntermediaryBuffer);
-        }
+    if (!pDevice->sndio.isStarted) {
+        mal_device_start__sndio(pDevice); /* <-- Doesn't actually playback until data is written. */
     }
 
+    int result = ((mal_sio_write_proc)pDevice->pContext->sndio.sio_write)((struct mal_sio_hdl*)pDevice->sndio.handle, pPCMFrames, pcmFrameCount * mal_get_bytes_per_frame(pDevice->internalFormat, pDevice->internalChannels));
+    if (result == 0) {
+        return mal_post_error(pDevice, MAL_LOG_LEVEL_ERROR, "[sndio] Failed to send data from the client to the device.", MAL_FAILED_TO_SEND_DATA_TO_DEVICE);
+    }
+    
+    return MAL_SUCCESS;
+}
+
+mal_result mal_device_read__sndio(mal_device* pDevice, void* pPCMFrames, mal_uint32 pcmFrameCount)
+{
+    if (!pDevice->sndio.isStarted) {
+        mal_device_start__sndio(pDevice);
+    }
+    
+    int result = ((mal_sio_read_proc)pDevice->pContext->sndio.sio_read)((struct mal_sio_hdl*)pDevice->sndio.handle, pPCMFrames, pcmFrameCount * mal_get_bytes_per_frame(pDevice->internalFormat, pDevice->internalChannels));
+    if (result == 0) {
+        return mal_post_error(pDevice, MAL_LOG_LEVEL_ERROR, "[sndio] Failed to read data from the device to be sent to the device.", MAL_FAILED_TO_SEND_DATA_TO_DEVICE);
+    }
+    
     return MAL_SUCCESS;
 }
 
@@ -16988,10 +16949,10 @@ mal_result mal_context_init__sndio(mal_context* pContext)
     pContext->onGetDeviceInfo       = mal_context_get_device_info__sndio;
     pContext->onDeviceInit          = mal_device_init__sndio;
     pContext->onDeviceUninit        = mal_device_uninit__sndio;
-    pContext->onDeviceStart         = mal_device_start__sndio;
+    pContext->onDeviceStart         = NULL; /* Not required for synchronous backends. */
     pContext->onDeviceStop          = mal_device_stop__sndio;
-    pContext->onDeviceBreakMainLoop = mal_device_break_main_loop__sndio;
-    pContext->onDeviceMainLoop      = mal_device_main_loop__sndio;
+    pContext->onDeviceWrite         = mal_device_write__sndio;
+    pContext->onDeviceRead          = mal_device_read__sndio;
 
     return MAL_SUCCESS;
 }
