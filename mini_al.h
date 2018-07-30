@@ -17956,7 +17956,7 @@ mal_result mal_device_init__oss(mal_context* pContext, mal_device_type type, con
         case mal_format_s16: ossFormat = (mal_is_little_endian()) ? AFMT_S16_LE : AFMT_S16_BE; break;
         case mal_format_s24: ossFormat = (mal_is_little_endian()) ? AFMT_S32_LE : AFMT_S32_BE; break;
         case mal_format_s32: ossFormat = (mal_is_little_endian()) ? AFMT_S32_LE : AFMT_S32_BE; break;
-        case mal_format_f32: ossFormat = (mal_is_little_endian()) ? AFMT_S32_LE : AFMT_S32_BE; break;
+        case mal_format_f32: ossFormat = (mal_is_little_endian()) ? AFMT_S16_LE : AFMT_S16_BE; break;
         case mal_format_u8:
         default: ossFormat = AFMT_U8; break;
     }
@@ -18054,30 +18054,6 @@ mal_result mal_device_init__oss(mal_context* pContext, mal_device_type type, con
     return MAL_SUCCESS;
 }
 
-
-mal_result mal_device_start__oss(mal_device* pDevice)
-{
-    mal_assert(pDevice != NULL);
-
-    // The device is started by the next calls to read() and write(). For playback it's simple - just read
-    // data from the client, then write it to the device with write() which will in turn start the device.
-    // For capture it's a bit less intuitive - we do nothing (it'll be started automatically by the first
-    // call to read().
-    if (pDevice->type == mal_device_type_playback) {
-        // Playback.
-        mal_device__read_frames_from_client(pDevice, pDevice->oss.fragmentSizeInFrames, pDevice->oss.pIntermediaryBuffer);
-
-        int bytesWritten = write(pDevice->oss.fd, pDevice->oss.pIntermediaryBuffer, pDevice->oss.fragmentSizeInFrames * pDevice->internalChannels * mal_get_bytes_per_sample(pDevice->internalFormat));
-        if (bytesWritten == -1) {
-            return mal_post_error(pDevice, MAL_LOG_LEVEL_ERROR, "[OSS] Failed to send initial chunk of data to the device.", MAL_FAILED_TO_SEND_DATA_TO_DEVICE);
-        }
-    } else {
-        // Capture. Do nothing.
-    }
-
-    return MAL_SUCCESS;
-}
-
 mal_result mal_device_stop__oss(mal_device* pDevice)
 {
     mal_assert(pDevice != NULL);
@@ -18101,46 +18077,23 @@ mal_result mal_device_stop__oss(mal_device* pDevice)
     return MAL_SUCCESS;
 }
 
-mal_result mal_device_break_main_loop__oss(mal_device* pDevice)
+mal_result mal_device_write__oss(mal_device* pDevice, const void* pPCMFrames, mal_uint32 pcmFrameCount)
 {
-    mal_assert(pDevice != NULL);
-
-    pDevice->oss.breakFromMainLoop = MAL_TRUE;
+    int resultOSS = write(pDevice->oss.fd, pPCMFrames, pcmFrameCount * mal_get_bytes_per_frame(pDevice->internalFormat, pDevice->internalChannels));
+    if (resultOSS < 0) {
+        return mal_post_error(pDevice, MAL_LOG_LEVEL_ERROR, "[OSS] Failed to send data from the client to the device.", MAL_FAILED_TO_SEND_DATA_TO_DEVICE);
+    }
+    
     return MAL_SUCCESS;
 }
 
-mal_result mal_device_main_loop__oss(mal_device* pDevice)
+mal_result mal_device_read__oss(mal_device* pDevice, void* pPCMFrames, mal_uint32 pcmFrameCount)
 {
-    mal_assert(pDevice != NULL);
-
-    pDevice->oss.breakFromMainLoop = MAL_FALSE;
-    while (!pDevice->oss.breakFromMainLoop) {
-        // Break from the main loop if the device isn't started anymore. Likely what's happened is the application
-        // has requested that the device be stopped.
-        if (!mal_device_is_started(pDevice)) {
-            break;
-        }
-
-        if (pDevice->type == mal_device_type_playback) {
-            // Playback.
-            mal_device__read_frames_from_client(pDevice, pDevice->oss.fragmentSizeInFrames, pDevice->oss.pIntermediaryBuffer);
-
-            int bytesWritten = write(pDevice->oss.fd, pDevice->oss.pIntermediaryBuffer, pDevice->oss.fragmentSizeInFrames * pDevice->internalChannels * mal_get_bytes_per_sample(pDevice->internalFormat));
-            if (bytesWritten < 0) {
-                return mal_post_error(pDevice, MAL_LOG_LEVEL_ERROR, "[OSS] Failed to send data from the client to the device.", MAL_FAILED_TO_SEND_DATA_TO_DEVICE);
-            }
-        } else {
-            // Capture.
-            int bytesRead = read(pDevice->oss.fd, pDevice->oss.pIntermediaryBuffer, pDevice->oss.fragmentSizeInFrames * mal_get_bytes_per_sample(pDevice->internalFormat));
-            if (bytesRead < 0) {
-                return mal_post_error(pDevice, MAL_LOG_LEVEL_ERROR, "[OSS] Failed to read data from the device to be sent to the client.", MAL_FAILED_TO_READ_DATA_FROM_DEVICE);
-            }
-
-            mal_uint32 framesRead = (mal_uint32)bytesRead / pDevice->internalChannels / mal_get_bytes_per_sample(pDevice->internalFormat);
-            mal_device__send_frames_to_client(pDevice, framesRead, pDevice->oss.pIntermediaryBuffer);
-        }
+    int resultOSS = read(pDevice->oss.fd, pPCMFrames, pcmFrameCount * mal_get_bytes_per_frame(pDevice->internalFormat, pDevice->internalChannels));
+    if (resultOSS < 0) {
+        return mal_post_error(pDevice, MAL_LOG_LEVEL_ERROR, "[OSS] Failed to read data from the device to be sent to the client.", MAL_FAILED_TO_READ_DATA_FROM_DEVICE);
     }
-
+    
     return MAL_SUCCESS;
 }
 
@@ -18157,13 +18110,13 @@ mal_result mal_context_init__oss(mal_context* pContext)
 {
     mal_assert(pContext != NULL);
 
-    // Try opening a temporary device first so we can get version information. This is closed at the end.
+    /* Try opening a temporary device first so we can get version information. This is closed at the end. */
     int fd = mal_open_temp_device__oss();
     if (fd == -1) {
-        return mal_context_post_error(pContext, NULL, MAL_LOG_LEVEL_ERROR, "[OSS] Failed to open temporary device for retrieving system properties.", MAL_NO_BACKEND);   // Looks liks OSS isn't installed, or there are no available devices.
+        return mal_context_post_error(pContext, NULL, MAL_LOG_LEVEL_ERROR, "[OSS] Failed to open temporary device for retrieving system properties.", MAL_NO_BACKEND);   /* Looks liks OSS isn't installed, or there are no available devices. */
     }
 
-    // Grab the OSS version.
+    /* Grab the OSS version. */
     int ossVersion = 0;
     int result = ioctl(fd, OSS_GETVERSION, &ossVersion);
     if (result == -1) {
@@ -18180,15 +18133,15 @@ mal_result mal_context_init__oss(mal_context* pContext)
     pContext->onGetDeviceInfo       = mal_context_get_device_info__oss;
     pContext->onDeviceInit          = mal_device_init__oss;
     pContext->onDeviceUninit        = mal_device_uninit__oss;
-    pContext->onDeviceStart         = mal_device_start__oss;
+    pContext->onDeviceStart         = NULL; /* Not required for synchronous backends. */
     pContext->onDeviceStop          = mal_device_stop__oss;
-    pContext->onDeviceBreakMainLoop = mal_device_break_main_loop__oss;
-    pContext->onDeviceMainLoop      = mal_device_main_loop__oss;
+    pContext->onDeviceWrite         = mal_device_write__oss;
+    pContext->onDeviceRead          = mal_device_read__oss;
 
     close(fd);
     return MAL_SUCCESS;
 }
-#endif  // OSS
+#endif  /* OSS */
 
 
 ///////////////////////////////////////////////////////////////////////////////
