@@ -16245,6 +16245,9 @@ mal_result mal_device_init__sndio(mal_context* pContext, mal_device_type deviceT
     
     mal_get_standard_channel_map(mal_standard_channel_map_sndio, pDevice->internalChannels, pDevice->internalChannelMap);
     
+    // The device is always shared with sndio.
+    pDevice->exclusiveMode = MAL_FALSE;
+    
     pDevice->sndio.pIntermediaryBuffer = mal_malloc(pDevice->sndio.fragmentSizeInFrames * mal_get_bytes_per_frame(pDevice->internalFormat, pDevice->internalChannels));
     if (pDevice->sndio.pIntermediaryBuffer == NULL) {
         ((mal_sio_close_proc)pContext->sndio.sio_close)((struct mal_sio_hdl*)pDevice->sndio.handle);
