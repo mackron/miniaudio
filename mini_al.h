@@ -2045,9 +2045,6 @@ MAL_ALIGNED_STRUCT(MAL_SIMD_ALIGNMENT) mal_device
         struct
         {
             int fd;
-            mal_uint32 fragmentSizeInFrames;
-            mal_bool32 breakFromMainLoop;
-            void* pIntermediaryBuffer;
         } oss;
 #endif
 #ifdef MAL_SUPPORT_AAUDIO
@@ -17767,7 +17764,6 @@ void mal_device_uninit__oss(mal_device* pDevice)
     mal_assert(pDevice != NULL);
 
     close(pDevice->oss.fd);
-    mal_free(pDevice->oss.pIntermediaryBuffer);
 }
 
 mal_result mal_device_init__oss(mal_context* pContext, mal_device_type type, const mal_device_id* pDeviceID, const mal_device_config* pConfig, mal_device* pDevice)
@@ -17872,21 +17868,12 @@ mal_result mal_device_init__oss(mal_context* pContext, mal_device_type type, con
     }
 
     int actualFragmentSizeInBytes = 1 << (ossFragment & 0xFFFF);
-    pDevice->oss.fragmentSizeInFrames = actualFragmentSizeInBytes / mal_get_bytes_per_sample(pDevice->internalFormat) / pDevice->internalChannels;
 
     pDevice->periods = (mal_uint32)(ossFragment >> 16);
-    pDevice->bufferSizeInFrames = (mal_uint32)(pDevice->oss.fragmentSizeInFrames * pDevice->periods);
+    pDevice->bufferSizeInFrames = (mal_uint32)(actualFragmentSizeInBytes/mal_get_bytes_per_frame(pDevice->internalFormat, pDevice->internalChannels) * pDevice->periods);
 
     // Set the internal channel map. Not sure if this can be queried. For now just using the channel layouts defined in FreeBSD's sound(4) man page.
     mal_get_standard_channel_map(mal_standard_channel_map_sound4, pDevice->internalChannels, pDevice->internalChannelMap);
-
-    // When not using MMAP mode, we need to use an intermediary buffer for the client <-> device transfer. We do
-    // everything by the size of a fragment.
-    pDevice->oss.pIntermediaryBuffer = mal_malloc(actualFragmentSizeInBytes);
-    if (pDevice->oss.pIntermediaryBuffer == NULL) {
-        close(pDevice->oss.fd);
-        return mal_post_error(pDevice, MAL_LOG_LEVEL_ERROR, "[OSS] Failed to allocate memory for intermediary buffer.", MAL_OUT_OF_MEMORY);
-    }
 
     return MAL_SUCCESS;
 }
