@@ -1,5 +1,5 @@
 // MP3 audio decoder. Public domain. See "unlicense" statement at the end of this file.
-// dr_mp3 - v0.2.7 - 2018-07-13
+// dr_mp3 - v0.2.8 - 2018-08-02
 //
 // David Reid - mackron@gmail.com
 //
@@ -354,7 +354,7 @@ void drmp3_free(void* p);
 #if defined(_MSC_VER)
 #include <intrin.h>
 #endif
-#include <immintrin.h>
+#include <emmintrin.h>
 #define DRMP3_HAVE_SSE 1
 #define DRMP3_HAVE_SIMD 1
 #define DRMP3_VSTORE _mm_storeu_ps
@@ -2745,6 +2745,9 @@ void drmp3_free(void* p)
 
 // REVISION HISTORY
 // ===============
+//
+// v0.2.8 - 2018-08-02
+//   - Fix compilation errors with older versions of GCC.
 //
 // v0.2.7 - 2018-07-13
 //   - Bring up to date with minimp3.

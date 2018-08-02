@@ -1,5 +1,5 @@
 // WAV audio loader and writer. Public domain. See "unlicense" statement at the end of this file.
-// dr_wav - v0.8.1 - 2018-06-29
+// dr_wav - v0.8.2 - 2018-08-02
 //
 // David Reid - mackron@gmail.com
 
@@ -787,11 +787,7 @@ static DRWAV_INLINE int drwav__is_little_endian()
 
 static DRWAV_INLINE unsigned short drwav__bytes_to_u16(const unsigned char* data)
 {
-    if (drwav__is_little_endian()) {
-        return (data[0] << 0) | (data[1] << 8);
-    } else {
-        return (data[1] << 0) | (data[0] << 8);
-    }
+    return (data[0] << 0) | (data[1] << 8);
 }
 
 static DRWAV_INLINE short drwav__bytes_to_s16(const unsigned char* data)
@@ -801,24 +797,14 @@ static DRWAV_INLINE short drwav__bytes_to_s16(const unsigned char* data)
 
 static DRWAV_INLINE unsigned int drwav__bytes_to_u32(const unsigned char* data)
 {
-    if (drwav__is_little_endian()) {
-        return (data[0] << 0) | (data[1] << 8) | (data[2] << 16) | (data[3] << 24);
-    } else {
-        return (data[3] << 0) | (data[2] << 8) | (data[1] << 16) | (data[0] << 24);
-    }
+    return (data[0] << 0) | (data[1] << 8) | (data[2] << 16) | (data[3] << 24);
 }
 
 static DRWAV_INLINE drwav_uint64 drwav__bytes_to_u64(const unsigned char* data)
 {
-    if (drwav__is_little_endian()) {
-        return
-            ((drwav_uint64)data[0] <<  0) | ((drwav_uint64)data[1] <<  8) | ((drwav_uint64)data[2] << 16) | ((drwav_uint64)data[3] << 24) |
-            ((drwav_uint64)data[4] << 32) | ((drwav_uint64)data[5] << 40) | ((drwav_uint64)data[6] << 48) | ((drwav_uint64)data[7] << 56);
-    } else {
-        return
-            ((drwav_uint64)data[7] <<  0) | ((drwav_uint64)data[6] <<  8) | ((drwav_uint64)data[5] << 16) | ((drwav_uint64)data[4] << 24) |
-            ((drwav_uint64)data[3] << 32) | ((drwav_uint64)data[2] << 40) | ((drwav_uint64)data[1] << 48) | ((drwav_uint64)data[0] << 56);
-    }
+    return
+        ((drwav_uint64)data[0] <<  0) | ((drwav_uint64)data[1] <<  8) | ((drwav_uint64)data[2] << 16) | ((drwav_uint64)data[3] << 24) |
+        ((drwav_uint64)data[4] << 32) | ((drwav_uint64)data[5] << 40) | ((drwav_uint64)data[6] << 48) | ((drwav_uint64)data[7] << 56);
 }
 
 static DRWAV_INLINE void drwav__bytes_to_guid(const unsigned char* data, drwav_uint8* guid)
@@ -3593,6 +3579,9 @@ void drwav_free(void* pDataReturnedByOpenAndRead)
 
 
 // REVISION HISTORY
+//
+// v0.8.2 - 2018-08-02
+//   - Fix some big-endian bugs.
 //
 // v0.8.1 - 2018-06-29
 //   - Add support for sequential writing APIs.
