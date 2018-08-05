@@ -39,6 +39,7 @@ Backends
 - ALSA
 - PulseAudio
 - JACK
+- sndio (OpenBSD)
 - audioio (NetBSD)
 - OSS (FreeBSD)
 - OpenSL|ES (Android only)
