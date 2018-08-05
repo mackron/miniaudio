@@ -84,9 +84,12 @@ int main(int argc, char** argv)
         mal_backend_wasapi, // Higest priority.
         mal_backend_dsound,
         mal_backend_winmm,
+        mal_backend_coreaudio,
+        mal_backend_sndio,
+        mal_backend_audioio,
+        mal_backend_oss,
         mal_backend_pulseaudio,
         mal_backend_alsa,
-        mal_backend_oss,
         mal_backend_jack,
         mal_backend_opensl,
         mal_backend_openal,
