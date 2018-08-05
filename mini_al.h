@@ -11358,8 +11358,7 @@ mal_pa_sample_format_t mal_format_to_pulse(mal_format format)
             case mal_format_s24: return MAL_PA_SAMPLE_S24LE;
             case mal_format_s32: return MAL_PA_SAMPLE_S32LE;
             case mal_format_f32: return MAL_PA_SAMPLE_FLOAT32LE;
-
-            default: return MAL_PA_SAMPLE_INVALID;
+            default: break;
         }
     } else {
         switch (format) {
@@ -11367,8 +11366,7 @@ mal_pa_sample_format_t mal_format_to_pulse(mal_format format)
             case mal_format_s24: return MAL_PA_SAMPLE_S24BE;
             case mal_format_s32: return MAL_PA_SAMPLE_S32BE;
             case mal_format_f32: return MAL_PA_SAMPLE_FLOAT32BE;
-
-            default: return MAL_PA_SAMPLE_INVALID;
+            default: break;
         }
     }
 
@@ -27533,6 +27531,7 @@ mal_uint64 mal_sine_wave_read(mal_sine_wave* pSineWave, mal_uint64 count, float*
 //   - Add sndio backend for OpenBSD.
 //   - Add audioio backend for NetBSD.
 //   - Drop support for the OSS backend on everything except FreeBSD.
+//   - Formats are now native-endian (were previously little-endian).
 //   - Mark some APIs as deprecated:
 //     - mal_src_set_input_sample_rate() and mal_src_set_output_sample_rate() are replaced with mal_src_set_sample_rate().
 //     - mal_dsp_set_input_sample_rate() and mal_dsp_set_output_sample_rate() are replaced with mal_dsp_set_sample_rate().
