@@ -118,7 +118,7 @@
 // - If mal_device_init() is called with a device that's not aligned to the platform's natural alignment
 //   boundary (4 bytes on 32-bit, 8 bytes on 64-bit), it will _not_ be thread-safe. The reason for this
 //   is that it depends on members of mal_device being correctly aligned for atomic assignments.
-// - Sample data is always little-endian and interleaved. For example, mal_format_s16 means signed 16-bit
+// - Sample data is always native-endian and interleaved. For example, mal_format_s16 means signed 16-bit
 //   integer samples, interleaved. Let me know if you need non-interleaved and I'll look into it.
 // - The sndio backend is currently only enabled on OpenBSD builds.
 //
@@ -9222,16 +9222,6 @@ typedef size_t                (* mal_snd_pcm_info_sizeof_proc)                  
 typedef const char*           (* mal_snd_pcm_info_get_name_proc)                 (const mal_snd_pcm_info_t* info);
 typedef int                   (* mal_snd_config_update_free_global_proc)         ();
 
-mal_snd_pcm_format_t g_mal_ALSAFormats[] = {
-    MAL_SND_PCM_FORMAT_UNKNOWN,     // mal_format_unknown
-    MAL_SND_PCM_FORMAT_U8,          // mal_format_u8
-    MAL_SND_PCM_FORMAT_S16_LE,      // mal_format_s16
-    MAL_SND_PCM_FORMAT_S24_3LE,     // mal_format_s24
-    //MAL_SND_PCM_FORMAT_S24_LE,      // mal_format_s24_32
-    MAL_SND_PCM_FORMAT_S32_LE,      // mal_format_s32
-    MAL_SND_PCM_FORMAT_FLOAT_LE     // mal_format_f32
-};
-
 // This array specifies each of the common devices that can be used for both playback and capture.
 const char* g_malCommonDeviceNamesALSA[] = {
     "default",
@@ -9279,20 +9269,52 @@ float mal_find_default_buffer_size_scale__alsa(const char* deviceName)
 
 mal_snd_pcm_format_t mal_convert_mal_format_to_alsa_format(mal_format format)
 {
-    return g_mal_ALSAFormats[format];
+    mal_snd_pcm_format_t ALSAFormats[] = {
+        MAL_SND_PCM_FORMAT_UNKNOWN,     // mal_format_unknown
+        MAL_SND_PCM_FORMAT_U8,          // mal_format_u8
+        MAL_SND_PCM_FORMAT_S16_LE,      // mal_format_s16
+        MAL_SND_PCM_FORMAT_S24_3LE,     // mal_format_s24
+        MAL_SND_PCM_FORMAT_S32_LE,      // mal_format_s32
+        MAL_SND_PCM_FORMAT_FLOAT_LE     // mal_format_f32
+    };
+
+    if (mal_is_big_endian()) {
+        ALSAFormats[0] = MAL_SND_PCM_FORMAT_UNKNOWN;
+        ALSAFormats[1] = MAL_SND_PCM_FORMAT_U8;
+        ALSAFormats[2] = MAL_SND_PCM_FORMAT_S16_BE;
+        ALSAFormats[3] = MAL_SND_PCM_FORMAT_S24_3BE;
+        ALSAFormats[4] = MAL_SND_PCM_FORMAT_S32_BE;
+        ALSAFormats[5] = MAL_SND_PCM_FORMAT_FLOAT_BE;
+    }
+
+
+    return ALSAFormats[format];
 }
 
 mal_format mal_convert_alsa_format_to_mal_format(mal_snd_pcm_format_t formatALSA)
 {
-    switch (formatALSA)
-    {
-        case MAL_SND_PCM_FORMAT_U8:       return mal_format_u8;
-        case MAL_SND_PCM_FORMAT_S16_LE:   return mal_format_s16;
-        case MAL_SND_PCM_FORMAT_S24_3LE:  return mal_format_s24;
-        //case MAL_SND_PCM_FORMAT_S24_LE:   return mal_format_s24_32
-        case MAL_SND_PCM_FORMAT_S32_LE:   return mal_format_s32;
-        case MAL_SND_PCM_FORMAT_FLOAT_LE: return mal_format_f32;
-        default:                          return mal_format_unknown;
+    if (mal_is_little_endian()) {
+        switch (formatALSA) {
+            case MAL_SND_PCM_FORMAT_S16_LE:   return mal_format_s16;
+            case MAL_SND_PCM_FORMAT_S24_3LE:  return mal_format_s24;
+            case MAL_SND_PCM_FORMAT_S32_LE:   return mal_format_s32;
+            case MAL_SND_PCM_FORMAT_FLOAT_LE: return mal_format_f32;
+            default: break;
+        }
+    } else {
+        switch (formatALSA) {
+            case MAL_SND_PCM_FORMAT_S16_BE:   return mal_format_s16;
+            case MAL_SND_PCM_FORMAT_S24_3BE:  return mal_format_s24;
+            case MAL_SND_PCM_FORMAT_S32_BE:   return mal_format_s32;
+            case MAL_SND_PCM_FORMAT_FLOAT_BE: return mal_format_f32;
+            default: break;
+        }
+    }
+
+    // Endian agnostic.
+    switch (formatALSA) {
+        case MAL_SND_PCM_FORMAT_U8: return mal_format_u8;
+        default: return mal_format_unknown;
     }
 }
 
@@ -10312,10 +10334,18 @@ mal_result mal_device_init__alsa(mal_context* pContext, mal_device_type type, co
             MAL_SND_PCM_FORMAT_FLOAT_LE,    // mal_format_f32
             MAL_SND_PCM_FORMAT_S32_LE,      // mal_format_s32
             MAL_SND_PCM_FORMAT_S24_3LE,     // mal_format_s24
-            //MAL_SND_PCM_FORMAT_S24_LE,      // mal_format_s24_32
             MAL_SND_PCM_FORMAT_S16_LE,      // mal_format_s16
             MAL_SND_PCM_FORMAT_U8           // mal_format_u8
         };
+
+        if (mal_is_big_endian()) {
+            preferredFormatsALSA[0] = MAL_SND_PCM_FORMAT_FLOAT_BE;
+            preferredFormatsALSA[1] = MAL_SND_PCM_FORMAT_S32_BE;
+            preferredFormatsALSA[2] = MAL_SND_PCM_FORMAT_S24_3BE;
+            preferredFormatsALSA[3] = MAL_SND_PCM_FORMAT_S16_BE;
+            preferredFormatsALSA[4] = MAL_SND_PCM_FORMAT_U8;
+        }
+
 
         formatALSA = MAL_SND_PCM_FORMAT_UNKNOWN;
         for (size_t i = 0; i < (sizeof(preferredFormatsALSA) / sizeof(preferredFormatsALSA[0])); ++i) {
@@ -11322,20 +11352,29 @@ mal_result mal_result_from_pulse(int result)
 #if 0
 mal_pa_sample_format_t mal_format_to_pulse(mal_format format)
 {
-    switch (format)
-    {
-        case mal_format_u8:       return MAL_PA_SAMPLE_U8;
-        case mal_format_s16:      return MAL_PA_SAMPLE_S16LE;
-        //case mal_format_s16be:    return MAL_PA_SAMPLE_S16BE;
-        case mal_format_s24:      return MAL_PA_SAMPLE_S24LE;
-        //case mal_format_s24be:    return MAL_PA_SAMPLE_S24BE;
-        //case mal_format_s24_32:   return MAL_PA_SAMPLE_S24_32LE;
-        //case mal_format_s24_32be: return MAL_PA_SAMPLE_S24_32BE;
-        case mal_format_s32:      return MAL_PA_SAMPLE_S32LE;
-        //case mal_format_s32be:    return MAL_PA_SAMPLE_S32BE;
-        case mal_format_f32:      return MAL_PA_SAMPLE_FLOAT32LE;
-        //case mal_format_f32be:    return PA_SAMPLE_FLOAT32BE;
+    if (mal_is_little_endian()) {
+        switch (format) {
+            case mal_format_s16: return MAL_PA_SAMPLE_S16LE;
+            case mal_format_s24: return MAL_PA_SAMPLE_S24LE;
+            case mal_format_s32: return MAL_PA_SAMPLE_S32LE;
+            case mal_format_f32: return MAL_PA_SAMPLE_FLOAT32LE;
 
+            default: return MAL_PA_SAMPLE_INVALID;
+        }
+    } else {
+        switch (format) {
+            case mal_format_s16: return MAL_PA_SAMPLE_S16BE;
+            case mal_format_s24: return MAL_PA_SAMPLE_S24BE;
+            case mal_format_s32: return MAL_PA_SAMPLE_S32BE;
+            case mal_format_f32: return MAL_PA_SAMPLE_FLOAT32BE;
+
+            default: return MAL_PA_SAMPLE_INVALID;
+        }
+    }
+
+    // Endian agnostic.
+    switch (format) {
+        case mal_format_u8: return MAL_PA_SAMPLE_U8;
         default: return MAL_PA_SAMPLE_INVALID;
     }
 }
@@ -11343,20 +11382,27 @@ mal_pa_sample_format_t mal_format_to_pulse(mal_format format)
 
 mal_format mal_format_from_pulse(mal_pa_sample_format_t format)
 {
-    switch (format)
-    {
-        case MAL_PA_SAMPLE_U8:        return mal_format_u8;
-        case MAL_PA_SAMPLE_S16LE:     return mal_format_s16;
-        //case MAL_PA_SAMPLE_S16BE:     return mal_format_s16be;
-        case MAL_PA_SAMPLE_S24LE:     return mal_format_s24;
-        //case MAL_PA_SAMPLE_S24BE:     return mal_format_s24be;
-        //case MAL_PA_SAMPLE_S24_32LE:  return mal_format_s24_32;
-        //case MAL_PA_SAMPLE_S24_32BE:  return mal_format_s24_32be;
-        case MAL_PA_SAMPLE_S32LE:     return mal_format_s32;
-        //case MAL_PA_SAMPLE_S32BE:     return mal_format_s32be;
-        case MAL_PA_SAMPLE_FLOAT32LE: return mal_format_f32;
-        //case MAL_PA_SAMPLE_FLOAT32BE: return mal_format_f32be;
+    if (mal_is_little_endian()) {
+        switch (format) {
+            case MAL_PA_SAMPLE_S16LE:     return mal_format_s16;
+            case MAL_PA_SAMPLE_S24LE:     return mal_format_s24;
+            case MAL_PA_SAMPLE_S32LE:     return mal_format_s32;
+            case MAL_PA_SAMPLE_FLOAT32LE: return mal_format_f32;
+            default: break;
+        }
+    } else {
+        switch (format) {
+            case MAL_PA_SAMPLE_S16BE:     return mal_format_s16;
+            case MAL_PA_SAMPLE_S24BE:     return mal_format_s24;
+            case MAL_PA_SAMPLE_S32BE:     return mal_format_s32;
+            case MAL_PA_SAMPLE_FLOAT32BE: return mal_format_f32;
+            default: break;
+        }
+    }
 
+    // Endian agnostic.
+    switch (format) {
+        case MAL_PA_SAMPLE_U8: return mal_format_u8;
         default: return mal_format_unknown;
     }
 }
@@ -13346,9 +13392,9 @@ mal_result mal_format_from_AudioStreamBasicDescription(const AudioStreamBasicDes
     if ((pDescription->mFormatFlags & kLinearPCMFormatFlagIsAlignedHigh) != 0) {
         return MAL_FORMAT_NOT_SUPPORTED;
     }
-    
-    // Big-endian formats are not currently supported, but will be added in a future version of mini_al.
-    if ((pDescription->mFormatFlags & kLinearPCMFormatFlagIsAlignedHigh) != 0) {
+
+    // Only supporting native-endian.
+    if ((mal_is_little_endian() && (pDescription->mFormatFlags & kAudioFormatFlagIsBigEndian) != 0) || (mal_is_big_endian() && (pDescription->mFormatFlags & kAudioFormatFlagIsBigEndian) == 0)) {
         return MAL_FORMAT_NOT_SUPPORTED;
     }
     
@@ -15952,7 +15998,15 @@ mal_format mal_format_from_encoding__audioio(unsigned int encoding, unsigned int
     if (precision == 8 && (encoding == AUDIO_ENCODING_ULINEAR || encoding == AUDIO_ENCODING_ULINEAR || encoding == AUDIO_ENCODING_ULINEAR_LE || encoding == AUDIO_ENCODING_ULINEAR_BE)) {
         return mal_format_u8;
     } else {
-        if (encoding == AUDIO_ENCODING_SLINEAR_LE) {
+        if (mal_is_little_endian() && encoding == AUDIO_ENCODING_SLINEAR_LE) {
+            if (precision == 16) {
+                return mal_format_s16;
+            } else if (precision == 24) {
+                return mal_format_s24;
+            } else if (precision == 32) {
+                return mal_format_s32;
+            }
+        } else if (mal_is_big_endian() && encoding == AUDIO_ENCODING_SLINEAR_BE) {
             if (precision == 16) {
                 return mal_format_s16;
             } else if (precision == 24) {
@@ -16177,13 +16231,13 @@ mal_result mal_device_init__audioio(mal_context* pContext, mal_device_type devic
 
         case mal_format_s24:
         {
-            prinfo->encoding = AUDIO_ENCODING_SLINEAR_LE;
+            prinfo->encoding = (mal_is_little_endian()) ? AUDIO_ENCODING_SLINEAR_LE : AUDIO_ENCODING_SLINEAR_BE;
             prinfo->precision = 24;
         } break;
 
         case mal_format_s32:
         {
-            prinfo->encoding = AUDIO_ENCODING_SLINEAR_LE;
+            prinfo->encoding = (mal_is_little_endian()) ? AUDIO_ENCODING_SLINEAR_LE : AUDIO_ENCODING_SLINEAR_BE;
             prinfo->precision = 32;
         } break;
 
@@ -16191,7 +16245,7 @@ mal_result mal_device_init__audioio(mal_context* pContext, mal_device_type devic
         case mal_format_f32:
         default:
         {
-            prinfo->encoding = AUDIO_ENCODING_SLINEAR_LE;
+            prinfo->encoding = (mal_is_little_endian()) ? AUDIO_ENCODING_SLINEAR_LE : AUDIO_ENCODING_SLINEAR_BE;
             prinfo->precision = 16;
         } break;
     }
@@ -16573,10 +16627,10 @@ mal_result mal_context_get_device_info__oss(mal_context* pContext, mal_device_ty
                         if ((formatMask & AFMT_U8) != 0) {
                             pDeviceInfo->formats[pDeviceInfo->formatCount++] = mal_format_u8;
                         }
-                        if ((formatMask & AFMT_S16_LE) != 0) {
+                        if (((formatMask & AFMT_S16_LE) != 0 && mal_is_little_endian()) || (AFMT_S16_BE && mal_is_big_endian())) {
                             pDeviceInfo->formats[pDeviceInfo->formatCount++] = mal_format_s16;
                         }
-                        if ((formatMask & AFMT_S32_LE) != 0) {
+                        if (((formatMask & AFMT_S32_LE) != 0 && mal_is_little_endian()) || (AFMT_S32_BE && mal_is_big_endian())) {
                             pDeviceInfo->formats[pDeviceInfo->formatCount++] = mal_format_s32;
                         }
 
@@ -16630,10 +16684,10 @@ mal_result mal_device_init__oss(mal_context* pContext, mal_device_type type, con
     // Format.
     int ossFormat = AFMT_U8;
     switch (pDevice->format) {
-        case mal_format_s16: ossFormat = AFMT_S16_LE; break;
-        case mal_format_s24: ossFormat = AFMT_S32_LE; break;
-        case mal_format_s32: ossFormat = AFMT_S32_LE; break;
-        case mal_format_f32: ossFormat = AFMT_S32_LE; break;
+        case mal_format_s16: ossFormat = (mal_is_little_endian()) ? AFMT_S16_LE : AFMT_S16_BE; break;
+        case mal_format_s24: ossFormat = (mal_is_little_endian()) ? AFMT_S32_LE : AFMT_S32_BE; break;
+        case mal_format_s32: ossFormat = (mal_is_little_endian()) ? AFMT_S32_LE : AFMT_S32_BE; break;
+        case mal_format_f32: ossFormat = (mal_is_little_endian()) ? AFMT_S32_LE : AFMT_S32_BE; break;
         case mal_format_u8:
         default: ossFormat = AFMT_U8; break;
     }
@@ -16643,13 +16697,23 @@ mal_result mal_device_init__oss(mal_context* pContext, mal_device_type type, con
         return mal_post_error(pDevice, MAL_LOG_LEVEL_ERROR, "[OSS] Failed to set format.", MAL_FORMAT_NOT_SUPPORTED);
     }
 
-    switch (ossFormat) {
-        case AFMT_U8:     pDevice->internalFormat = mal_format_u8;  break;
-        case AFMT_S16_LE: pDevice->internalFormat = mal_format_s16; break;
-        case AFMT_S32_LE: pDevice->internalFormat = mal_format_s32; break;
-        default: mal_post_error(pDevice, MAL_LOG_LEVEL_ERROR, "[OSS] The device's internal format is not supported by mini_al.", MAL_FORMAT_NOT_SUPPORTED);
+    if (ossFormat == AFMT_U8) {
+        pDevice->internalFormat = mal_format_u8;
+    } else {
+        if (mal_is_little_endian()) {
+            switch (ossFormat) {
+                case AFMT_S16_LE: pDevice->internalFormat = mal_format_s16; break;
+                case AFMT_S32_LE: pDevice->internalFormat = mal_format_s32; break;
+                default: mal_post_error(pDevice, MAL_LOG_LEVEL_ERROR, "[OSS] The device's internal format is not supported by mini_al.", MAL_FORMAT_NOT_SUPPORTED);
+            }
+        } else {
+            switch (ossFormat) {
+                case AFMT_S16_BE: pDevice->internalFormat = mal_format_s16; break;
+                case AFMT_S32_BE: pDevice->internalFormat = mal_format_s32; break;
+                default: mal_post_error(pDevice, MAL_LOG_LEVEL_ERROR, "[OSS] The device's internal format is not supported by mini_al.", MAL_FORMAT_NOT_SUPPORTED);
+            }
+        }
     }
-
 
     // Channels.
     int ossChannels = (int)pConfig->channels;
@@ -17364,7 +17428,7 @@ mal_result mal_device_init__opensl(mal_context* pContext, mal_device_type type, 
     pFormat->bitsPerSample = mal_get_bytes_per_sample(pDevice->format)*8;
     pFormat->containerSize = pFormat->bitsPerSample;  // Always tightly packed for now.
     pFormat->channelMask   = mal_channel_map_to_channel_mask__opensl(pConfig->channelMap, pFormat->numChannels);
-    pFormat->endianness    = SL_BYTEORDER_LITTLEENDIAN;
+    pFormat->endianness    = (mal_is_little_endian()) ? SL_BYTEORDER_LITTLEENDIAN : SL_BYTEORDER_BIGENDIAN;
 
     // Android has a few restrictions on the format as documented here: https://developer.android.com/ndk/guides/audio/opensl-for-android.html
     //  - Only mono and stereo is supported.
@@ -17417,7 +17481,8 @@ mal_result mal_device_init__opensl(mal_context* pContext, mal_device_type type, 
 
         // Set the output device.
         if (pDeviceID != NULL) {
-            MAL_OPENSL_OUTPUTMIX(pDevice->opensl.pOutputMix)->ReRoute((SLOutputMixItf)pDevice->opensl.pOutputMix, 1, &pDeviceID->opensl);
+            SLuint32 deviceID_OpenSL = pDeviceID->opensl;
+            MAL_OPENSL_OUTPUTMIX(pDevice->opensl.pOutputMix)->ReRoute((SLOutputMixItf)pDevice->opensl.pOutputMix, 1, &deviceID_OpenSL);
         }
 
         SLDataSource source;
