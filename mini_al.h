@@ -3076,8 +3076,8 @@ mal_uint32 g_malStandardSampleRatePriorities[] = {
 };
 
 mal_format g_malFormatPriorities[] = {
-    mal_format_f32,         // Most common
-    mal_format_s16,
+    mal_format_s16,         // Most common
+    mal_format_f32,
     
     //mal_format_s24_32,    // Clean alignment
     mal_format_s32,
