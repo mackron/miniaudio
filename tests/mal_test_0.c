@@ -85,7 +85,7 @@ void* open_and_read_file_data(const char* filePath, size_t* pSizeOut)
     mal_uint64 fileSize = ftell(pFile);
     fseek(pFile, 0, SEEK_SET);
 
-    if (fileSize > SIZE_MAX) {
+    if (fileSize > MAL_SIZE_MAX) {
         fclose(pFile);
         return NULL;
     }

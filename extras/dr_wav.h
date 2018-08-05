@@ -1,5 +1,5 @@
 // WAV audio loader and writer. Public domain. See "unlicense" statement at the end of this file.
-// dr_wav - v0.8.2 - 2018-08-02
+// dr_wav - v0.8.3 - 2018-08-05
 //
 // David Reid - mackron@gmail.com
 
@@ -740,12 +740,13 @@ void drwav_free(void* pDataReturnedByOpenAndRead);
 #endif
 #endif
 
-// I couldn't figure out where SIZE_MAX was defined for VC6. If anybody knows, let me know.
-#if defined(_MSC_VER) && _MSC_VER <= 1200
-    #if defined(_WIN64)
-        #define SIZE_MAX    ((drwav_uint64)0xFFFFFFFFFFFFFFFF)
+#if defined(SIZE_MAX)
+    #define DRWAV_SIZE_MAX  SIZE_MAX
+#else
+    #if defined(_WIN64) || defined(__ppc64__) || defined(__x86_64__) || defined(_M_X64) || defined(_M_ARM64) || defined(__aarch64__)
+        #define DRWAV_SIZE_MAX  ((drwav_uint64)0xFFFFFFFFFFFFFFFF)
     #else
-        #define SIZE_MAX    0xFFFFFFFF
+        #define DRWAV_SIZE_MAX  0xFFFFFFFF
     #endif
 #endif
 
@@ -1890,8 +1891,8 @@ drwav_uint64 drwav_read(drwav* pWav, drwav_uint64 samplesToRead, void* pBufferOu
     }
 
     // Don't try to read more samples than can potentially fit in the output buffer.
-    if (samplesToRead * pWav->bytesPerSample > SIZE_MAX) {
-        samplesToRead = SIZE_MAX / pWav->bytesPerSample;
+    if (samplesToRead * pWav->bytesPerSample > DRWAV_SIZE_MAX) {
+        samplesToRead = DRWAV_SIZE_MAX / pWav->bytesPerSample;
     }
 
     size_t bytesRead = drwav_read_raw(pWav, (size_t)(samplesToRead * pWav->bytesPerSample), pBufferOut);
@@ -2031,7 +2032,7 @@ drwav_uint64 drwav_write(drwav* pWav, drwav_uint64 samplesToWrite, const void* p
     }
 
     drwav_uint64 bytesToWrite = ((samplesToWrite * pWav->bitsPerSample) / 8);
-    if (bytesToWrite > SIZE_MAX) {
+    if (bytesToWrite > DRWAV_SIZE_MAX) {
         return 0;
     }
 
@@ -2039,8 +2040,8 @@ drwav_uint64 drwav_write(drwav* pWav, drwav_uint64 samplesToWrite, const void* p
     const drwav_uint8* pRunningData = (const drwav_uint8*)pData;
     while (bytesToWrite > 0) {
         drwav_uint64 bytesToWriteThisIteration = bytesToWrite;
-        if (bytesToWriteThisIteration > SIZE_MAX) {
-            bytesToWriteThisIteration = SIZE_MAX;
+        if (bytesToWriteThisIteration > DRWAV_SIZE_MAX) {
+            bytesToWriteThisIteration = DRWAV_SIZE_MAX;
         }
 
         size_t bytesJustWritten = drwav_write_raw(pWav, (size_t)bytesToWriteThisIteration, pRunningData);
@@ -2567,8 +2568,8 @@ drwav_uint64 drwav_read_s16(drwav* pWav, drwav_uint64 samplesToRead, drwav_int16
     }
 
     // Don't try to read more samples than can potentially fit in the output buffer.
-    if (samplesToRead * sizeof(drwav_int16) > SIZE_MAX) {
-        samplesToRead = SIZE_MAX / sizeof(drwav_int16);
+    if (samplesToRead * sizeof(drwav_int16) > DRWAV_SIZE_MAX) {
+        samplesToRead = DRWAV_SIZE_MAX / sizeof(drwav_int16);
     }
 
     if (pWav->translatedFormatTag == DR_WAVE_FORMAT_PCM) {
@@ -2889,8 +2890,8 @@ drwav_uint64 drwav_read_f32(drwav* pWav, drwav_uint64 samplesToRead, float* pBuf
     }
 
     // Don't try to read more samples than can potentially fit in the output buffer.
-    if (samplesToRead * sizeof(float) > SIZE_MAX) {
-        samplesToRead = SIZE_MAX / sizeof(float);
+    if (samplesToRead * sizeof(float) > DRWAV_SIZE_MAX) {
+        samplesToRead = DRWAV_SIZE_MAX / sizeof(float);
     }
 
     if (pWav->translatedFormatTag == DR_WAVE_FORMAT_PCM) {
@@ -3230,8 +3231,8 @@ drwav_uint64 drwav_read_s32(drwav* pWav, drwav_uint64 samplesToRead, drwav_int32
     }
 
     // Don't try to read more samples than can potentially fit in the output buffer.
-    if (samplesToRead * sizeof(drwav_int32) > SIZE_MAX) {
-        samplesToRead = SIZE_MAX / sizeof(drwav_int32);
+    if (samplesToRead * sizeof(drwav_int32) > DRWAV_SIZE_MAX) {
+        samplesToRead = DRWAV_SIZE_MAX / sizeof(drwav_int32);
     }
 
 
@@ -3351,7 +3352,7 @@ drwav_int16* drwav__read_and_close_s16(drwav* pWav, unsigned int* channels, unsi
     drwav_assert(pWav != NULL);
 
     drwav_uint64 sampleDataSize = pWav->totalSampleCount * sizeof(drwav_int16);
-    if (sampleDataSize > SIZE_MAX) {
+    if (sampleDataSize > DRWAV_SIZE_MAX) {
         drwav_uninit(pWav);
         return NULL;    // File's too big.
     }
@@ -3382,7 +3383,7 @@ float* drwav__read_and_close_f32(drwav* pWav, unsigned int* channels, unsigned i
     drwav_assert(pWav != NULL);
 
     drwav_uint64 sampleDataSize = pWav->totalSampleCount * sizeof(float);
-    if (sampleDataSize > SIZE_MAX) {
+    if (sampleDataSize > DRWAV_SIZE_MAX) {
         drwav_uninit(pWav);
         return NULL;    // File's too big.
     }
@@ -3413,7 +3414,7 @@ drwav_int32* drwav__read_and_close_s32(drwav* pWav, unsigned int* channels, unsi
     drwav_assert(pWav != NULL);
 
     drwav_uint64 sampleDataSize = pWav->totalSampleCount * sizeof(drwav_int32);
-    if (sampleDataSize > SIZE_MAX) {
+    if (sampleDataSize > DRWAV_SIZE_MAX) {
         drwav_uninit(pWav);
         return NULL;    // File's too big.
     }
@@ -3579,6 +3580,9 @@ void drwav_free(void* pDataReturnedByOpenAndRead)
 
 
 // REVISION HISTORY
+//
+// v0.8.3 - 2018-08-05
+//   - Fix C++ build on older versions of GCC.
 //
 // v0.8.2 - 2018-08-02
 //   - Fix some big-endian bugs.

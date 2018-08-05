@@ -1,5 +1,5 @@
 // FLAC audio decoder. Public domain. See "unlicense" statement at the end of this file.
-// dr_flac - v0.9.8 - 2018-07-24
+// dr_flac - v0.9.9 - 2018-08-05
 //
 // David Reid - mackron@gmail.com
 
@@ -162,7 +162,7 @@ extern "C" {
 #endif
 
 #if defined(__GNUC__)
-#if defined(__x86_64__) || defined(__ppc64__)
+#if defined(__x86_64__) || defined(__ppc64__) || defined(__aarch64__)
 #define DRFLAC_64BIT
 #endif
 #endif
@@ -5504,14 +5504,16 @@ drflac_bool32 drflac_seek_to_sample(drflac* pFlac, drflac_uint64 sampleIndex)
 
 //// High Level APIs ////
 
-// I couldn't figure out where SIZE_MAX was defined for VC6. If anybody knows, let me know.
-#if defined(_MSC_VER) && _MSC_VER <= 1200
-#ifdef DRFLAC_64BIT
-#define SIZE_MAX    ((drflac_uint64)0xFFFFFFFFFFFFFFFF)
+#if defined(SIZE_MAX)
+    #define DRFLAC_SIZE_MAX  SIZE_MAX
 #else
-#define SIZE_MAX    0xFFFFFFFF
+    #if defined(DRFLAC_64BIT)
+        #define DRFLAC_SIZE_MAX  ((drflac_uint64)0xFFFFFFFFFFFFFFFF)
+    #else
+        #define DRFLAC_SIZE_MAX  0xFFFFFFFF
+    #endif
 #endif
-#endif
+
 
 // Using a macro as the definition of the drflac__full_decode_and_close_*() API family. Sue me.
 #define DRFLAC_DEFINE_FULL_DECODE_AND_CLOSE(extension, type) \
@@ -5553,7 +5555,7 @@ static type* drflac__full_decode_and_close_ ## extension (drflac* pFlac, unsigne
         drflac_zero_memory(pSampleData + totalSampleCount, (size_t)(sampleDataBufferSize - totalSampleCount*sizeof(type)));                                         \
     } else {                                                                                                                                                        \
         drflac_uint64 dataSize = totalSampleCount * sizeof(type);                                                                                                   \
-        if (dataSize > SIZE_MAX) {                                                                                                                                  \
+        if (dataSize > DRFLAC_SIZE_MAX) {                                                                                                                           \
             goto on_error;  /* The decoded data is too big. */                                                                                                      \
         }                                                                                                                                                           \
                                                                                                                                                                     \
@@ -5753,6 +5755,9 @@ const char* drflac_next_vorbis_comment(drflac_vorbis_comment_iterator* pIter, dr
 
 
 // REVISION HISTORY
+//
+// v0.9.9 - 2018-08-05
+//   - Fix C++ build on older versions of GCC. 
 //
 // v0.9.8 - 2018-07-24
 //   - Fix compilation errors.
