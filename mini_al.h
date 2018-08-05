@@ -6565,7 +6565,7 @@ mal_uint32 mal_device__get_available_frames__wasapi(mal_device* pDevice)
 {
     mal_assert(pDevice != NULL);
 
-#if 1
+#if 0
     if (pDevice->type == mal_device_type_playback) {
         mal_uint32 paddingFramesCount;
         HRESULT hr = mal_IAudioClient_GetCurrentPadding((mal_IAudioClient*)pDevice->wasapi.pAudioClient, &paddingFramesCount);
@@ -6589,15 +6589,20 @@ mal_uint32 mal_device__get_available_frames__wasapi(mal_device* pDevice)
     }
 #else
     mal_uint32 paddingFramesCount;
-    HRESULT hr = mal_IAudioClient_GetCurrentPadding(pDevice->wasapi.pAudioClient, &paddingFramesCount);
+    HRESULT hr = mal_IAudioClient_GetCurrentPadding((mal_IAudioClient*)pDevice->wasapi.pAudioClient, &paddingFramesCount);
     if (FAILED(hr)) {
         return 0;
     }
 
+    // Slightly different rules for exclusive and shared modes.
     if (pDevice->exclusiveMode) {
         return paddingFramesCount;
     } else {
-        return pDevice->bufferSizeInFrames - paddingFramesCount;
+        if (pDevice->type == mal_device_type_playback) {
+            return pDevice->bufferSizeInFrames - paddingFramesCount;
+        } else {
+            return paddingFramesCount;
+        }
     }
 #endif
 }
