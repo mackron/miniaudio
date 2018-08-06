@@ -15977,9 +15977,6 @@ mal_result mal_device_init__audioio(mal_context* pContext, mal_device_type devic
     if (pDevice->bufferSizeInFrames == 0) {
         pDevice->bufferSizeInFrames = mal_calculate_buffer_size_in_frames_from_milliseconds(pDevice->bufferSizeInMilliseconds, pDevice->internalSampleRate);
     }
-    //if (pDevice->usingDefaultBufferSize) {
-    //    pDevice->bufferSizeInFrames = mal_get_default_buffer_size_in_frames(pConfig->performanceProfile, pDevice->internalSampleRate);
-    //}
 
     // What mini_al calls a fragment, audioio calls a block.
     mal_uint32 fragmentSizeInBytes = pDevice->bufferSizeInFrames * mal_get_bytes_per_frame(pDevice->internalFormat, pDevice->internalChannels);
@@ -15989,9 +15986,9 @@ mal_result mal_device_init__audioio(mal_context* pContext, mal_device_type devic
 
     
     AUDIO_INITINFO(&fdInfo);
-    fdInfo.blocksize = fragmentSizeInBytes;
     fdInfo.hiwat = mal_max(pDevice->periods, 5);
     fdInfo.lowat = (unsigned int)(fdInfo.hiwat * 0.75);
+    fdInfo.blocksize = fragmentSizeInBytes / fdInfo.hiwat;
     if (ioctl(pDevice->audioio.fd, AUDIO_SETINFO, &fdInfo) < 0) {
         close(pDevice->audioio.fd);
         return mal_post_error(pDevice, MAL_LOG_LEVEL_ERROR, "[audioio] Failed to set internal buffer size. AUDIO_SETINFO failed.", MAL_FORMAT_NOT_SUPPORTED);
