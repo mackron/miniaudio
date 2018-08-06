@@ -15398,7 +15398,7 @@ mal_result mal_context_enumerate_devices__sndio(mal_context* pContext, mal_enum_
         mal_itoa_s(iDevice, devpath+strlen(devpath), sizeof(devpath)-strlen(devpath), 10);
     
         struct stat st;
-        if (stat(devpath, &st) != 0) {
+        if (stat(devpath, &st) < 0) {
             break;
         }
         
@@ -16095,46 +16095,48 @@ mal_result mal_context_enumerate_devices__audioio(mal_context* pContext, mal_enu
         mal_itoa_s(iDevice, devpath+strlen(devpath), sizeof(devpath)-strlen(devpath), 10);
     
         struct stat st;
-        if (stat(devpath, &st) == 0) {
-            // The device exists, but we need to check if it's usable as playback and/or capture.
-            int fd;
-            mal_bool32 isTerminating = MAL_FALSE;
-            
-            // Playback.
-            if (!isTerminating) {
-                fd = open(devpath, O_RDONLY, 0);
-                if (fd >= 0) {
-                    // Supports playback.
-                    mal_device_info deviceInfo;
-                    mal_zero_object(&deviceInfo);
-                    mal_construct_device_id__audioio(deviceInfo.id.audioio, sizeof(deviceInfo.id.audioio), "/dev/audio", iDevice);
-                    if (mal_context_get_device_info_from_fd__audioio(pContext, mal_device_type_playback, fd, &deviceInfo) == MAL_SUCCESS) {
-                        isTerminating = !callback(pContext, mal_device_type_playback, &deviceInfo, pUserData);
-                    }
-                    
-                    close(fd);
+        if (stat(devpath, &st) < 0) {
+            break;
+        }
+
+        // The device exists, but we need to check if it's usable as playback and/or capture.
+        int fd;
+        mal_bool32 isTerminating = MAL_FALSE;
+        
+        // Playback.
+        if (!isTerminating) {
+            fd = open(devpath, O_RDONLY, 0);
+            if (fd >= 0) {
+                // Supports playback.
+                mal_device_info deviceInfo;
+                mal_zero_object(&deviceInfo);
+                mal_construct_device_id__audioio(deviceInfo.id.audioio, sizeof(deviceInfo.id.audioio), "/dev/audio", iDevice);
+                if (mal_context_get_device_info_from_fd__audioio(pContext, mal_device_type_playback, fd, &deviceInfo) == MAL_SUCCESS) {
+                    isTerminating = !callback(pContext, mal_device_type_playback, &deviceInfo, pUserData);
                 }
+                
+                close(fd);
             }
-            
-            // Capture.
-            if (!isTerminating) {
-                fd = open(devpath, O_WRONLY, 0);
-                if (fd >= 0) {
-                    // Supports capture.
-                    mal_device_info deviceInfo;
-                    mal_zero_object(&deviceInfo);
-                    mal_construct_device_id__audioio(deviceInfo.id.audioio, sizeof(deviceInfo.id.audioio), "/dev/audio", iDevice);
-                    if (mal_context_get_device_info_from_fd__audioio(pContext, mal_device_type_capture, fd, &deviceInfo) == MAL_SUCCESS) {
-                        isTerminating = !callback(pContext, mal_device_type_capture, &deviceInfo, pUserData);
-                    }
-                    
-                    close(fd);
+        }
+        
+        // Capture.
+        if (!isTerminating) {
+            fd = open(devpath, O_WRONLY, 0);
+            if (fd >= 0) {
+                // Supports capture.
+                mal_device_info deviceInfo;
+                mal_zero_object(&deviceInfo);
+                mal_construct_device_id__audioio(deviceInfo.id.audioio, sizeof(deviceInfo.id.audioio), "/dev/audio", iDevice);
+                if (mal_context_get_device_info_from_fd__audioio(pContext, mal_device_type_capture, fd, &deviceInfo) == MAL_SUCCESS) {
+                    isTerminating = !callback(pContext, mal_device_type_capture, &deviceInfo, pUserData);
                 }
+                
+                close(fd);
             }
-            
-            if (isTerminating) {
-                break;
-            }
+        }
+        
+        if (isTerminating) {
+            break;
         }
     }
     
