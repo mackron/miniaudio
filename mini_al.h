@@ -1,5 +1,5 @@
 // Audio playback and capture library. Public domain. See "unlicense" statement at the end of this file.
-// mini_al - v0.8.4-rc - 2018-xx-xx
+// mini_al - v0.8.4 - 2018-08-06
 //
 // David Reid - davidreidsoftware@gmail.com
 
@@ -27365,14 +27365,15 @@ mal_uint64 mal_sine_wave_read(mal_sine_wave* pSineWave, mal_uint64 count, float*
 // REVISION HISTORY
 // ================
 //
-// v0.8.4-rc - 2018-xx-xx
+// v0.8.4 - 2018-08-06
 //   - Add sndio backend for OpenBSD.
 //   - Add audioio backend for NetBSD.
-//   - Drop support for the OSS backend on everything except FreeBSD.
+//   - Drop support for the OSS backend on everything except FreeBSD and DragonFly BSD.
 //   - Formats are now native-endian (were previously little-endian).
 //   - Mark some APIs as deprecated:
 //     - mal_src_set_input_sample_rate() and mal_src_set_output_sample_rate() are replaced with mal_src_set_sample_rate().
 //     - mal_dsp_set_input_sample_rate() and mal_dsp_set_output_sample_rate() are replaced with mal_dsp_set_sample_rate().
+//   - Fix a bug when capturing using the WASAPI backend.
 //   - Fix some aliasing issues with resampling, specifically when increasing the sample rate.
 //   - Fix warnings.
 //
