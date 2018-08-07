@@ -1,5 +1,5 @@
 // WAV audio loader and writer. Public domain. See "unlicense" statement at the end of this file.
-// dr_wav - v0.8.3 - 2018-08-05
+// dr_wav - v0.8.4 - 2018-08-07
 //
 // David Reid - mackron@gmail.com
 
@@ -743,7 +743,7 @@ void drwav_free(void* pDataReturnedByOpenAndRead);
 #if defined(SIZE_MAX)
     #define DRWAV_SIZE_MAX  SIZE_MAX
 #else
-    #if defined(_WIN64) || defined(__ppc64__) || defined(__x86_64__) || defined(_M_X64) || defined(_M_ARM64) || defined(__aarch64__)
+    #if defined(_WIN64) || defined(_LP64) || defined(__LP64__)
         #define DRWAV_SIZE_MAX  ((drwav_uint64)0xFFFFFFFFFFFFFFFF)
     #else
         #define DRWAV_SIZE_MAX  0xFFFFFFFF
@@ -3580,6 +3580,9 @@ void drwav_free(void* pDataReturnedByOpenAndRead)
 
 
 // REVISION HISTORY
+//
+// v0.8.4 - 2018-08-07
+//   - Improve 64-bit detection.
 //
 // v0.8.3 - 2018-08-05
 //   - Fix C++ build on older versions of GCC.

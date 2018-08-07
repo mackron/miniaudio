@@ -1,5 +1,5 @@
 // MP3 audio decoder. Public domain. See "unlicense" statement at the end of this file.
-// dr_mp3 - v0.2.9 - 2018-08-05
+// dr_mp3 - v0.2.10 - 2018-08-07
 //
 // David Reid - mackron@gmail.com
 //
@@ -1987,7 +1987,7 @@ int drmp3dec_decode_frame(drmp3dec *dec, const unsigned char *mp3, int mp3_bytes
 #if defined(SIZE_MAX)
     #define DRMP3_SIZE_MAX  SIZE_MAX
 #else
-    #if defined(_WIN64) || defined(__ppc64__) || defined(__x86_64__) || defined(_M_X64) || defined(_M_ARM64) || defined(__aarch64__)
+    #if defined(_WIN64) || defined(_LP64) || defined(__LP64__)
         #define DRMP3_SIZE_MAX  ((drmp3_uint64)0xFFFFFFFFFFFFFFFF)
     #else
         #define DRMP3_SIZE_MAX  0xFFFFFFFF
@@ -2760,6 +2760,9 @@ void drmp3_free(void* p)
 
 // REVISION HISTORY
 // ===============
+//
+// v0.2.10 - 2018-08-07
+//   - Improve 64-bit detection.
 //
 // v0.2.9 - 2018-08-05
 //   - Fix C++ build on older versions of GCC.

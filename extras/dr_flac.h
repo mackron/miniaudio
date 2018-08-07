@@ -1,5 +1,5 @@
 // FLAC audio decoder. Public domain. See "unlicense" statement at the end of this file.
-// dr_flac - v0.9.9 - 2018-08-05
+// dr_flac - v0.9.10 - 2018-08-07
 //
 // David Reid - mackron@gmail.com
 
@@ -157,14 +157,8 @@ extern "C" {
 #endif
 
 // Check if we can enable 64-bit optimizations.
-#if defined(_WIN64)
+#if defined(_WIN64) || defined(_LP64) || defined(__LP64__)
 #define DRFLAC_64BIT
-#endif
-
-#if defined(__GNUC__)
-#if defined(__x86_64__) || defined(__ppc64__) || defined(__aarch64__)
-#define DRFLAC_64BIT
-#endif
 #endif
 
 #ifdef DRFLAC_64BIT
@@ -5756,8 +5750,11 @@ const char* drflac_next_vorbis_comment(drflac_vorbis_comment_iterator* pIter, dr
 
 // REVISION HISTORY
 //
+// v0.9.10 - 2018-08-07
+//   - Improve 64-bit detection.
+//
 // v0.9.9 - 2018-08-05
-//   - Fix C++ build on older versions of GCC. 
+//   - Fix C++ build on older versions of GCC.
 //
 // v0.9.8 - 2018-07-24
 //   - Fix compilation errors.
