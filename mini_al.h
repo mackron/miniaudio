@@ -1,5 +1,5 @@
 // Audio playback and capture library. Public domain. See "unlicense" statement at the end of this file.
-// mini_al - v0.8.4 - 2018-08-06
+// mini_al - v0.8.5-rc - 2018-xx-xx
 //
 // David Reid - davidreidsoftware@gmail.com
 
@@ -24907,8 +24907,8 @@ mal_uint64 mal_src_read_deinterleaved__sinc(mal_src* pSRC, mal_uint64 frameCount
             maxInputSamplesAvailableInCache = pSRC->sinc.inputFrameCount;
         }
 
-        // If the last of the input data has been loaded, we need to ensure we don't read into it if it's configured such.
-        if (pSRC->config.neverConsumeEndOfInput && pSRC->isEndOfInputLoaded) {
+        // Never consume the tail end of the input data if requested.
+        if (pSRC->config.neverConsumeEndOfInput) {
             if (maxInputSamplesAvailableInCache >= pSRC->config.sinc.windowWidth) {
                 maxInputSamplesAvailableInCache -= pSRC->config.sinc.windowWidth;
             } else {
@@ -25100,6 +25100,15 @@ mal_uint64 mal_src_read_deinterleaved__sinc(mal_src* pSRC, mal_uint64 frameCount
         }
 
         // Read more data from the client if required.
+        if (pSRC->isEndOfInputLoaded) {
+            pSRC->isEndOfInputLoaded = MAL_FALSE;
+            break;
+        }
+
+        // Everything beyond this point is reloading. If we're at the end of the input data we do _not_ want to try reading any more in this function call. If the
+        // caller wants to keep trying, they can reload their internal data sources and call this function again. We should never be 
+        mal_assert(pSRC->isEndOfInputLoaded == MAL_FALSE);
+
         if (pSRC->sinc.inputFrameCount <= pSRC->config.sinc.windowWidth || availableOutputFrames == 0) {
             float* ppInputDst[MAL_MAX_CHANNELS] = {0};
             for (mal_uint32 iChannel = 0; iChannel < pSRC->config.channels; iChannel += 1) {
@@ -25108,20 +25117,29 @@ mal_uint64 mal_src_read_deinterleaved__sinc(mal_src* pSRC, mal_uint64 frameCount
 
             // Now read data from the client.
             mal_uint32 framesToReadFromClient = mal_countof(pSRC->sinc.input[0]) - (pSRC->config.sinc.windowWidth + pSRC->sinc.inputFrameCount);
-            if (framesToReadFromClient > 0) {
-                mal_uint32 framesReadFromClient = pSRC->config.onReadDeinterleaved(pSRC, framesToReadFromClient, (void**)ppInputDst, pUserData);
-                if (framesReadFromClient != framesToReadFromClient) {
-                    pSRC->isEndOfInputLoaded = MAL_TRUE;
-                } else {
-                    pSRC->isEndOfInputLoaded = MAL_FALSE;
-                }
 
-                if (framesReadFromClient != 0) {
-                    pSRC->sinc.inputFrameCount += framesReadFromClient;
+            mal_uint32 framesReadFromClient = 0;
+            if (framesToReadFromClient > 0) {
+                framesReadFromClient = pSRC->config.onReadDeinterleaved(pSRC, framesToReadFromClient, (void**)ppInputDst, pUserData);
+            }
+
+            if (framesReadFromClient != framesToReadFromClient) {
+                pSRC->isEndOfInputLoaded = MAL_TRUE;
+            } else {
+                pSRC->isEndOfInputLoaded = MAL_FALSE;
+            }
+
+            if (framesReadFromClient != 0) {
+                pSRC->sinc.inputFrameCount += framesReadFromClient;
+            } else {
+                // We couldn't get anything more from the client. If no more output samples can be computed from the available input samples
+                // we need to return.
+                if (pSRC->config.neverConsumeEndOfInput) {
+                    if ((pSRC->sinc.inputFrameCount * inverseFactor) <= pSRC->config.sinc.windowWidth) {
+                        break;
+                    }
                 } else {
-                    // We couldn't get anything more from the client. If no more output samples can be computed from the available input samples
-                    // we need to return.
-                    if (((pSRC->sinc.timeIn - pSRC->sinc.inputFrameCount) * inverseFactor) < 1) {
+                    if ((pSRC->sinc.inputFrameCount * inverseFactor) < 1) {
                         break;
                     }
                 }
@@ -27364,6 +27382,9 @@ mal_uint64 mal_sine_wave_read(mal_sine_wave* pSineWave, mal_uint64 count, float*
 
 // REVISION HISTORY
 // ================
+//
+// v0.8.5-rc - 2018-xx-xx
+//   - Fix a bug where an incorrect number of samples is returned from sinc resampling.
 //
 // v0.8.4 - 2018-08-06
 //   - Add sndio backend for OpenBSD.
