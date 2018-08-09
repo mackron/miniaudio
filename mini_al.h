@@ -244,6 +244,9 @@
 //
 // #define MAL_DEBUT_OUTPUT
 //   Enable printf() debug output.
+//
+// #ifndef MAL_COINIT_VALUE
+//   Windows only. The value to pass to internal calls to CoInitializeEx(). Defaults to COINIT_MULTITHREADED.
 
 #ifndef mini_al_h
 #define mini_al_h
@@ -3005,6 +3008,11 @@ static MAL_INLINE mal_bool32 mal_is_big_endian()
 {
     return !mal_is_little_endian();
 }
+
+
+#ifndef MAL_COINIT_VALUE
+#define MAL_COINIT_VALUE    0   /* 0 = COINIT_MULTITHREADED*/
+#endif
 
 
 
@@ -19173,7 +19181,7 @@ mal_thread_result MAL_THREADCALL mal_worker_thread(void* pData)
     mal_assert(pDevice != NULL);
 
 #ifdef MAL_WIN32
-    mal_CoInitializeEx(pDevice->pContext, NULL, 0); // 0 = COINIT_MULTITHREADED
+    mal_CoInitializeEx(pDevice->pContext, NULL, MAL_COINIT_VALUE);
 #endif
 
 #if 1
@@ -19353,7 +19361,7 @@ mal_result mal_context_init_backend_apis__win32(mal_context* pContext)
     pContext->win32.RegQueryValueExA = (mal_proc)mal_dlsym(pContext->win32.hAdvapi32DLL, "RegQueryValueExA");
 #endif
 
-    mal_CoInitializeEx(pContext, NULL, 0);  // 0 = COINIT_MULTITHREADED
+    mal_CoInitializeEx(pContext, NULL, MAL_COINIT_VALUE);
     return MAL_SUCCESS;
 }
 #else
@@ -27385,6 +27393,7 @@ mal_uint64 mal_sine_wave_read(mal_sine_wave* pSineWave, mal_uint64 count, float*
 //
 // v0.8.5-rc - 2018-xx-xx
 //   - Fix a bug where an incorrect number of samples is returned from sinc resampling.
+//   - Add support for setting the value to be passed to internal calls to CoInitializeEx().
 //
 // v0.8.4 - 2018-08-06
 //   - Add sndio backend for OpenBSD.
