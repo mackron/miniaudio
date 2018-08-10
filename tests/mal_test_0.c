@@ -2437,8 +2437,6 @@ int main(int argc, char** argv)
         printf("Has NEON:     NO\n");
     }
 
-    printf("CPU Speed Factor: %f\n", mal_calculate_cpu_speed_factor());
-
 
     // Aligned malloc/free
     printf("=== TESTING CORE ===\n");
