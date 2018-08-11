@@ -15604,7 +15604,7 @@ mal_result mal_context_init__sndio(mal_context* pContext)
 #include <sys/stat.h>
 #include <sys/types.h>
 #include <sys/ioctl.h>
-#include <sys/audio4.h>
+#include <sys/audioio.h>
 
 #if defined(__OpenBSD__)
     #include <sys/param.h>
