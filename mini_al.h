@@ -587,6 +587,7 @@ typedef enum
     mal_standard_channel_map_rfc3551,   // Based off AIFF.
     mal_standard_channel_map_flac,
     mal_standard_channel_map_vorbis,
+    mal_standard_channel_map_sound4,    // FreeBSD's sound(4).
     mal_standard_channel_map_sndio,     // www.sndio.org/tips.html
     mal_standard_channel_map_default = mal_standard_channel_map_microsoft
 } mal_standard_channel_map;
@@ -16073,8 +16074,8 @@ mal_result mal_device_init__audioio(mal_context* pContext, mal_device_type devic
 
 
     // For the channel map, I'm not sure how to query the channel map (or if it's even possible). I'm just
-    // using mini_al's default channel map for now.
-    mal_get_standard_channel_map(mal_standard_channel_map_default, pDevice->internalChannels, pDevice->internalChannelMap);
+    // using the channels defined in FreeBSD's sound(4) man page.
+    mal_get_standard_channel_map(mal_standard_channel_map_sound4, pDevice->internalChannels, pDevice->internalChannelMap);
 
     
     // When not using MMAP mode we need to use an intermediary buffer to the data transfer between the client
@@ -16529,8 +16530,8 @@ mal_result mal_device_init__oss(mal_context* pContext, mal_device_type type, con
     pDevice->periods = (mal_uint32)(ossFragment >> 16);
     pDevice->bufferSizeInFrames = (mal_uint32)(pDevice->oss.fragmentSizeInFrames * pDevice->periods);
 
-    // Set the internal channel map. Not sure if this can be queried. For now just using our default assumptions.
-    mal_get_standard_channel_map(mal_standard_channel_map_default, pDevice->internalChannels, pDevice->internalChannelMap);
+    // Set the internal channel map. Not sure if this can be queried. For now just using the channel layouts defined in FreeBSD's sound(4) man page.
+    mal_get_standard_channel_map(mal_standard_channel_map_sound4, pDevice->internalChannels, pDevice->internalChannelMap);
 
 
     // When not using MMAP mode, we need to use an intermediary buffer for the client <-> device transfer. We do
@@ -20503,6 +20504,88 @@ void mal_get_standard_channel_map_vorbis(mal_uint32 channels, mal_channel channe
     }
 }
 
+void mal_get_standard_channel_map_sound4(mal_uint32 channels, mal_channel channelMap[MAL_MAX_CHANNELS])
+{
+    switch (channels)
+    {
+        case 1:
+        {
+            channelMap[0] = MAL_CHANNEL_MONO;
+        } break;
+
+        case 2:
+        {
+            channelMap[0] = MAL_CHANNEL_LEFT;
+            channelMap[1] = MAL_CHANNEL_RIGHT;
+        } break;
+
+        case 3:
+        {
+            channelMap[0] = MAL_CHANNEL_FRONT_LEFT;
+            channelMap[1] = MAL_CHANNEL_FRONT_RIGHT;
+            channelMap[2] = MAL_CHANNEL_BACK_CENTER;
+        } break;
+
+        case 4:
+        {
+            channelMap[0] = MAL_CHANNEL_FRONT_LEFT;
+            channelMap[1] = MAL_CHANNEL_FRONT_RIGHT;
+            channelMap[2] = MAL_CHANNEL_BACK_LEFT;
+            channelMap[3] = MAL_CHANNEL_BACK_RIGHT;
+        } break;
+
+        case 5:
+        {
+            channelMap[0] = MAL_CHANNEL_FRONT_LEFT;
+            channelMap[1] = MAL_CHANNEL_FRONT_RIGHT;
+            channelMap[2] = MAL_CHANNEL_BACK_LEFT;
+            channelMap[3] = MAL_CHANNEL_BACK_RIGHT;
+            channelMap[4] = MAL_CHANNEL_FRONT_CENTER;
+        } break;
+
+        case 6:
+        {
+            channelMap[0] = MAL_CHANNEL_FRONT_LEFT;
+            channelMap[1] = MAL_CHANNEL_FRONT_RIGHT;
+            channelMap[2] = MAL_CHANNEL_BACK_LEFT;
+            channelMap[3] = MAL_CHANNEL_BACK_RIGHT;
+            channelMap[4] = MAL_CHANNEL_FRONT_CENTER;
+            channelMap[5] = MAL_CHANNEL_LFE;
+        } break;
+
+        case 7:
+        {
+            channelMap[0] = MAL_CHANNEL_FRONT_LEFT;
+            channelMap[1] = MAL_CHANNEL_FRONT_RIGHT;
+            channelMap[2] = MAL_CHANNEL_BACK_LEFT;
+            channelMap[3] = MAL_CHANNEL_BACK_RIGHT;
+            channelMap[4] = MAL_CHANNEL_FRONT_CENTER;
+            channelMap[5] = MAL_CHANNEL_BACK_CENTER;
+            channelMap[6] = MAL_CHANNEL_LFE;
+        } break;
+
+        case 8:
+        default:
+        {
+            channelMap[0] = MAL_CHANNEL_FRONT_LEFT;
+            channelMap[1] = MAL_CHANNEL_FRONT_RIGHT;
+            channelMap[2] = MAL_CHANNEL_BACK_LEFT;
+            channelMap[3] = MAL_CHANNEL_BACK_RIGHT;
+            channelMap[4] = MAL_CHANNEL_FRONT_CENTER;
+            channelMap[5] = MAL_CHANNEL_LFE;
+            channelMap[6] = MAL_CHANNEL_SIDE_LEFT;
+            channelMap[7] = MAL_CHANNEL_SIDE_RIGHT;
+        } break;
+    }
+
+    // Remainder.
+    if (channels > 8) {
+        for (mal_uint32 iChannel = 8; iChannel < MAL_MAX_CHANNELS; ++iChannel) {
+            channelMap[iChannel] = (mal_channel)(MAL_CHANNEL_AUX_0 + (iChannel-8));
+        }
+    }
+}
+
 void mal_get_standard_channel_map_sndio(mal_uint32 channels, mal_channel channelMap[MAL_MAX_CHANNELS])
 {
     switch (channels)
@@ -20584,6 +20667,11 @@ void mal_get_standard_channel_map(mal_standard_channel_map standardChannelMap, m
         case mal_standard_channel_map_vorbis:
         {
             mal_get_standard_channel_map_vorbis(channels, channelMap);
+        } break;
+
+        case mal_standard_channel_map_sound4:
+        {
+            mal_get_standard_channel_map_sound4(channels, channelMap);
         } break;
         
         case mal_standard_channel_map_sndio:
