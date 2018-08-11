@@ -40,7 +40,7 @@ Backends
 - PulseAudio
 - JACK
 - sndio (OpenBSD)
-- audioio (NetBSD)
+- audioio/audio(4) (NetBSD and OpenBSD)
 - OSS (FreeBSD)
 - OpenSL|ES (Android only)
 - OpenAL
