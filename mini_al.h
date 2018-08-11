@@ -6251,10 +6251,6 @@ mal_result mal_device_init__wasapi(mal_context* pContext, mal_device_type type, 
         pDevice->bufferSizeInFrames = mal_calculate_buffer_size_in_frames_from_milliseconds(pDevice->bufferSizeInMilliseconds, pDevice->internalSampleRate);
     }
 
-    //if (pDevice->usingDefaultBufferSize) {
-    //    pDevice->bufferSizeInFrames = mal_get_default_buffer_size_in_frames(pConfig->performanceProfile, pConfig->sampleRate);
-    //}
-
     bufferDurationInMicroseconds = ((mal_uint64)pDevice->bufferSizeInFrames * 1000 * 1000) / pDevice->internalSampleRate;
 
     // Slightly different initialization for shared and exclusive modes. We try exclusive mode first, and if it fails, fall back to shared mode.
@@ -7517,11 +7513,6 @@ mal_result mal_device_init__dsound(mal_context* pContext, mal_device_type type, 
         return MAL_FORMAT_NOT_SUPPORTED;
     }
 
-    //if (pDevice->usingDefaultBufferSize) {
-    //    pDevice->bufferSizeInFrames = mal_get_default_buffer_size_in_frames(pConfig->performanceProfile, pConfig->sampleRate);
-    //}
-
-
     WAVEFORMATEXTENSIBLE wf;
     mal_zero_object(&wf);
     wf.Format.cbSize               = sizeof(wf);
@@ -8565,11 +8556,6 @@ mal_result mal_device_init__winmm(mal_context* pContext, mal_device_type type, c
             pDevice->bufferSizeInFrames = mal_scale_buffer_size(pDevice->bufferSizeInFrames, bufferSizeScaleFactor);
         }
     }
-
-    //if (pDevice->usingDefaultBufferSize) {
-    //    float bufferSizeScaleFactor = 4;
-    //    pDevice->bufferSizeInFrames = mal_scale_buffer_size(mal_get_default_buffer_size_in_frames(pConfig->performanceProfile, pConfig->sampleRate), bufferSizeScaleFactor);
-    //}
 
     // The size of the intermediary buffer needs to be able to fit every fragment.
     pDevice->winmm.fragmentSizeInFrames = pDevice->bufferSizeInFrames / pDevice->periods;
@@ -12007,11 +11993,7 @@ mal_result mal_device_init__pulse(mal_context* pContext, mal_device_type type, c
     }
 #endif
 
-    // If using the default buffer size try to find an appropriate default.
-    //if (pDevice->usingDefaultBufferSize) {
-    //    bufferSizeInFrames = mal_get_default_buffer_size_in_frames(pConfig->performanceProfile, pConfig->sampleRate);
-    //}
-
+    // Buffer size.
     bufferSizeInFrames = pDevice->bufferSizeInFrames;
     if (bufferSizeInFrames == 0) {
         bufferSizeInFrames = mal_calculate_buffer_size_in_frames_from_milliseconds(pDevice->bufferSizeInMilliseconds, ss.rate);
@@ -14589,13 +14571,6 @@ mal_result mal_device_init__coreaudio(mal_context* pContext, mal_device_type dev
     mal_uint32 actualBufferSizeInFrames = pDevice->bufferSizeInFrames;
     
 #if defined(MAL_APPLE_DESKTOP)
-    //if (pDevice->usingDefaultBufferSize) {
-    //    actualBufferSizeInFrames = mal_get_default_buffer_size_in_frames(pConfig->performanceProfile, pConfig->sampleRate);
-    //    if (actualBufferSizeInFrames < pDevice->periods) {
-    //        actualBufferSizeInFrames = pDevice->periods;
-    //    }
-    //}
-
     if (actualBufferSizeInFrames == 0) {
         actualBufferSizeInFrames = mal_calculate_buffer_size_in_frames_from_milliseconds(pDevice->bufferSizeInMilliseconds, pDevice->internalSampleRate);
     }
@@ -15412,10 +15387,7 @@ mal_result mal_device_init__sndio(mal_context* pContext, mal_device_type deviceT
     if (desiredBufferSizeInFrames == 0) {
         desiredBufferSizeInFrames = mal_calculate_buffer_size_in_frames_from_milliseconds(pDevice->bufferSizeInMilliseconds, par.rate);
     }
-    //if (pDevice->usingDefaultBufferSize) {
-    //    desiredBufferSizeInFrames = mal_get_default_buffer_size_in_frames(pConfig->performanceProfile, par.rate);
-    //}
-    
+
     par.round = desiredBufferSizeInFrames / pDevice->periods;
     par.appbufsz = par.round * pDevice->periods;
     
@@ -16421,9 +16393,6 @@ mal_result mal_device_init__oss(mal_context* pContext, mal_device_type type, con
     if (pDevice->bufferSizeInFrames == 0) {
         pDevice->bufferSizeInFrames = mal_calculate_buffer_size_in_frames_from_milliseconds(pDevice->bufferSizeInMilliseconds, pDevice->internalSampleRate);
     }
-    //if (pDevice->usingDefaultBufferSize) {
-    //    pDevice->bufferSizeInFrames = mal_get_default_buffer_size_in_frames(pConfig->performanceProfile, pConfig->sampleRate);
-    //}
 
     // The documentation says that the fragment settings should be set as soon as possible, but I'm not sure if
     // it should be done before or after format/channels/rate.
@@ -17275,9 +17244,6 @@ mal_result mal_device_init__opensl(mal_context* pContext, mal_device_type type, 
     if (pDevice->bufferSizeInFrames == 0) {
         pDevice->bufferSizeInFrames = mal_calculate_buffer_size_in_frames_from_milliseconds(pDevice->bufferSizeInMilliseconds, pDevice->internalSampleRate);
     }
-    //if (pDevice->usingDefaultBufferSize) {
-    //    pDevice->bufferSizeInFrames = mal_get_default_buffer_size_in_frames(pConfig->performanceProfile, pConfig->sampleRate);
-    //}
 
     pDevice->opensl.currentBufferIndex = 0;
     pDevice->opensl.periodSizeInFrames = pDevice->bufferSizeInFrames / pConfig->periods;
@@ -17801,11 +17767,6 @@ mal_result mal_device_init__openal(mal_context* pContext, mal_device_type type, 
             pDevice->bufferSizeInFrames = mal_scale_buffer_size(pDevice->bufferSizeInFrames, bufferSizeScaleFactor);
         }
     }
-
-    //if (pDevice->usingDefaultBufferSize) {
-    //    float bufferSizeScaleFactor = 3;
-    //    pDevice->bufferSizeInFrames = mal_scale_buffer_size(mal_get_default_buffer_size_in_frames(pConfig->performanceProfile, pConfig->sampleRate), bufferSizeScaleFactor);
-    //}
 
     mal_ALCsizei bufferSizeInSamplesAL = pDevice->bufferSizeInFrames;
     mal_ALCuint frequencyAL = pConfig->sampleRate;
@@ -18720,11 +18681,6 @@ mal_result mal_device_init__sdl(mal_context* pContext, mal_device_type type, con
     mal_assert(pDevice != NULL);
 
     (void)pContext;
-
-    //mal_uint32 bufferSize = pConfig->bufferSizeInFrames;
-    //if (pDevice->usingDefaultBufferSize) {
-    //    bufferSize = mal_get_default_buffer_size_in_frames(pConfig->performanceProfile, pConfig->sampleRate);
-    //}
 
     if (pDevice->bufferSizeInFrames == 0) {
         pDevice->bufferSizeInFrames = mal_calculate_buffer_size_in_frames_from_milliseconds(pDevice->bufferSizeInMilliseconds, pDevice->sampleRate);
