@@ -11993,6 +11993,16 @@ mal_result mal_device_init__pulse(mal_context* pContext, mal_device_type type, c
     bufferSizeInFrames = pDevice->bufferSizeInFrames;
     if (bufferSizeInFrames == 0) {
         bufferSizeInFrames = mal_calculate_buffer_size_in_frames_from_milliseconds(pDevice->bufferSizeInMilliseconds, ss.rate);
+
+        // PulseAudio seems to need a bit of an bit of size to the buffer to be reliable.
+        if (pDevice->usingDefaultBufferSize) {
+            float bufferSizeScaleFactor = 1.0f;
+            if (type == mal_device_type_capture) {
+                bufferSizeScaleFactor = 2.0f;
+            }
+
+            bufferSizeInFrames = mal_scale_buffer_size(bufferSizeInFrames, bufferSizeScaleFactor);
+        }
     }
 
     attr.maxlength = bufferSizeInFrames * mal_get_bytes_per_sample(mal_format_from_pulse(ss.format))*ss.channels;
