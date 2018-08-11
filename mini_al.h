@@ -8868,6 +8868,7 @@ mal_result mal_context_init__winmm(mal_context* pContext)
 ///////////////////////////////////////////////////////////////////////////////
 #ifdef MAL_HAS_ALSA
 
+#include <alsa/asoundlib.h>
 #ifdef MAL_NO_RUNTIME_LINKING
 #include <alsa/asoundlib.h>
 typedef snd_pcm_uframes_t                       mal_snd_pcm_uframes_t;
@@ -9131,8 +9132,8 @@ static struct
     const char* name;
     float scale;
 } g_malDefaultBufferSizeScalesALSA[] = {
-    {"bcm2835 IEC958/HDMI", 40.0f},
-    {"bcm2835 ALSA",        40.0f}
+    {"bcm2835 IEC958/HDMI", 2.0f},
+    {"bcm2835 ALSA",        2.0f}
 };
 
 float mal_find_default_buffer_size_scale__alsa(const char* deviceName)
@@ -9812,6 +9813,47 @@ mal_uint32 mal_device__wait_for_frames__alsa(mal_device* pDevice, mal_bool32* pR
 
     if (pRequiresRestart) *pRequiresRestart = MAL_FALSE;
 
+    // I want it so that this function returns the period size in frames. We just wait until that number of frames are available and then return.
+    mal_uint32 periodSizeInFrames = pDevice->bufferSizeInFrames / pDevice->periods;
+    while (!pDevice->alsa.breakFromMainLoop) {
+        mal_snd_pcm_sframes_t framesAvailable = ((mal_snd_pcm_avail_update_proc)pDevice->pContext->alsa.snd_pcm_avail_update)((mal_snd_pcm_t*)pDevice->alsa.pPCM);
+        if (framesAvailable < 0) {
+            if (framesAvailable == -EPIPE) {
+                if (((mal_snd_pcm_recover_proc)pDevice->pContext->alsa.snd_pcm_recover)((mal_snd_pcm_t*)pDevice->alsa.pPCM, framesAvailable, MAL_TRUE) < 0) {
+                    return 0;
+                }
+
+                if (pRequiresRestart) *pRequiresRestart = MAL_TRUE; // A device recovery means a restart for mmap mode.
+
+                // Try again, but if it fails this time just return an error.
+                framesAvailable = ((mal_snd_pcm_avail_update_proc)pDevice->pContext->alsa.snd_pcm_avail_update)((mal_snd_pcm_t*)pDevice->alsa.pPCM);
+                if (framesAvailable < 0) {
+                    return 0;
+                }
+            }
+        }
+
+        if (framesAvailable >= periodSizeInFrames) {
+            return periodSizeInFrames;
+        }
+
+	if (framesAvailable < periodSizeInFrames) {
+            // Less than a whole period is available so keep waiting.
+            int waitResult = ((mal_snd_pcm_wait_proc)pDevice->pContext->alsa.snd_pcm_wait)((mal_snd_pcm_t*)pDevice->alsa.pPCM, -1);
+            if (waitResult < 0) {
+                if (waitResult == -EPIPE) {
+                    if (((mal_snd_pcm_recover_proc)pDevice->pContext->alsa.snd_pcm_recover)((mal_snd_pcm_t*)pDevice->alsa.pPCM, waitResult, MAL_TRUE) < 0) {
+                        return 0;
+                    }
+
+                    if (pRequiresRestart) *pRequiresRestart = MAL_TRUE; // A device recovery means a restart for mmap mode.
+                }
+            }
+        }
+    }
+
+
+#if 0
     while (!pDevice->alsa.breakFromMainLoop) {
         int waitResult = ((mal_snd_pcm_wait_proc)pDevice->pContext->alsa.snd_pcm_wait)((mal_snd_pcm_t*)pDevice->alsa.pPCM, -1);
         if (waitResult < 0) {
@@ -9861,6 +9903,7 @@ mal_uint32 mal_device__wait_for_frames__alsa(mal_device* pDevice, mal_bool32* pR
         }
 #endif
     }
+#endif
 
     // We'll get here if the loop was terminated. Just return whatever's available.
     mal_snd_pcm_sframes_t framesAvailable = ((mal_snd_pcm_avail_update_proc)pDevice->pContext->alsa.snd_pcm_avail_update)((mal_snd_pcm_t*)pDevice->alsa.pPCM);
@@ -10150,8 +10193,6 @@ mal_result mal_device_init__alsa(mal_context* pContext, mal_device_type type, co
     }
 
 
-
-
     // Hardware parameters.
     mal_snd_pcm_hw_params_t* pHWParams = (mal_snd_pcm_hw_params_t*)alloca(((mal_snd_pcm_hw_params_sizeof_proc)pContext->alsa.snd_pcm_hw_params_sizeof)());
     mal_zero_memory(pHWParams, ((mal_snd_pcm_hw_params_sizeof_proc)pContext->alsa.snd_pcm_hw_params_sizeof)());
@@ -10167,7 +10208,7 @@ mal_result mal_device_init__alsa(mal_context* pContext, mal_device_type type, co
     // Try using interleaved MMAP access. If this fails, fall back to standard readi/writei.
     pDevice->alsa.isUsingMMap = MAL_FALSE;
     if (!pConfig->alsa.noMMap && pDevice->type != mal_device_type_capture) {    // <-- Disabling MMAP mode for capture devices because I apparently do not have a device that supports it which means I can't test it... Contributions welcome.
-        if (((mal_snd_pcm_hw_params_set_access_proc)pContext->alsa.snd_pcm_hw_params_set_access)((mal_snd_pcm_t*)pDevice->alsa.pPCM, pHWParams, MAL_SND_PCM_ACCESS_MMAP_INTERLEAVED) == 0) {
+	if (((mal_snd_pcm_hw_params_set_access_proc)pContext->alsa.snd_pcm_hw_params_set_access)((mal_snd_pcm_t*)pDevice->alsa.pPCM, pHWParams, MAL_SND_PCM_ACCESS_MMAP_INTERLEAVED) == 0) {
             pDevice->alsa.isUsingMMap = MAL_TRUE;
         }
     }
@@ -10271,27 +10312,26 @@ mal_result mal_device_init__alsa(mal_context* pContext, mal_device_type type, co
     pDevice->internalSampleRate = (mal_uint32)sampleRate;
 
 
-    // Periods.
-    mal_uint32 periods = pConfig->periods;
-    int dir = 0;
-    if (((mal_snd_pcm_hw_params_set_periods_near_proc)pContext->alsa.snd_pcm_hw_params_set_periods_near)((mal_snd_pcm_t*)pDevice->alsa.pPCM, pHWParams, &periods, &dir) < 0) {
-        mal_device_uninit__alsa(pDevice);
-        return mal_post_error(pDevice, MAL_LOG_LEVEL_ERROR, "[ALSA] Failed to set period count. snd_pcm_hw_params_set_periods_near() failed.", MAL_FORMAT_NOT_SUPPORTED);
-    }
-    pDevice->periods = periods;
-
-
-    // Buffer Size
+    // At this point we know the internal sample rate which means we can calculate the buffer size in frames.
     if (pDevice->bufferSizeInFrames == 0) {
         pDevice->bufferSizeInFrames = mal_scale_buffer_size(mal_calculate_buffer_size_in_frames_from_milliseconds(pDevice->bufferSizeInMilliseconds, pDevice->internalSampleRate), bufferSizeScaleFactor);
     }
 
+    // Buffer Size
     mal_snd_pcm_uframes_t actualBufferSize = pDevice->bufferSizeInFrames;
     if (((mal_snd_pcm_hw_params_set_buffer_size_near_proc)pContext->alsa.snd_pcm_hw_params_set_buffer_size_near)((mal_snd_pcm_t*)pDevice->alsa.pPCM, pHWParams, &actualBufferSize) < 0) {
         mal_device_uninit__alsa(pDevice);
         return mal_post_error(pDevice, MAL_LOG_LEVEL_ERROR, "[ALSA] Failed to set buffer size for device. snd_pcm_hw_params_set_buffer_size() failed.", MAL_FORMAT_NOT_SUPPORTED);
     }
     pDevice->bufferSizeInFrames = actualBufferSize;
+
+    // Periods.
+    mal_uint32 periods = pConfig->periods;
+    if (((mal_snd_pcm_hw_params_set_periods_near_proc)pContext->alsa.snd_pcm_hw_params_set_periods_near)((mal_snd_pcm_t*)pDevice->alsa.pPCM, pHWParams, &periods, NULL) < 0) {
+        mal_device_uninit__alsa(pDevice);
+        return mal_post_error(pDevice, MAL_LOG_LEVEL_ERROR, "[ALSA] Failed to set period count. snd_pcm_hw_params_set_periods_near() failed.", MAL_FORMAT_NOT_SUPPORTED);
+    }
+    pDevice->periods = periods;
 
 
     // Apply hardware parameters.
