@@ -27148,6 +27148,9 @@ mal_uint64 mal_sine_wave_read(mal_sine_wave* pSineWave, mal_uint64 count, float*
 // ================
 //
 // v0.8.5-rc - 2018-xx-xx
+//   - Add support for specifying the size of a device's buffer in milliseconds. You can still set the buffer size in
+//     frames if that suits you. When bufferSizeInFrames is 0, bufferSizeInMilliseconds will be used. If both are non-0
+//     then bufferSizeInFrames will take priority. If both are set to 0 the default buffer size is used.
 //   - Fix a bug where an incorrect number of samples is returned from sinc resampling.
 //   - Add support for setting the value to be passed to internal calls to CoInitializeEx().
 //
