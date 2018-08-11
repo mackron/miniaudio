@@ -18886,6 +18886,7 @@ mal_result mal_device_init__sdl(mal_context* pContext, mal_device_type type, con
     pDevice->internalFormat     = mal_format_from_sdl(obtainedSpec.format);
     pDevice->internalChannels   = obtainedSpec.channels;
     pDevice->internalSampleRate = (mal_uint32)obtainedSpec.freq;
+    mal_get_standard_channel_map(mal_standard_channel_map_default, pDevice->internalChannels, pDevice->internalChannelMap);
     pDevice->bufferSizeInFrames = obtainedSpec.samples;
     pDevice->periods            = 1;    // SDL doesn't seem to tell us what the period count is. Just set this 1.
 
@@ -19799,6 +19800,13 @@ mal_result mal_device_init(mal_context* pContext, mal_device_type type, mal_devi
             }
         }
     }
+
+
+    // Make sure the internal channel map was set correctly by the backend. If it's not valid, just fall back to defaults.
+    if (!mal_channel_map_valid(pDevice->internalChannels, pDevice->internalChannelMap)) {
+        mal_get_standard_channel_map(mal_standard_channel_map_default, pDevice->internalChannels, pDevice->internalChannelMap);
+    }
+
 
     // If the format/channels/rate is using defaults we need to set these to be the same as the internal config.
     if (pDevice->usingDefaultFormat) {
