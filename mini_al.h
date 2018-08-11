@@ -9823,7 +9823,10 @@ mal_uint32 mal_device__wait_for_frames__alsa(mal_device* pDevice, mal_bool32* pR
                     return 0;
                 }
 
-                if (pRequiresRestart) *pRequiresRestart = MAL_TRUE; // A device recovery means a restart for mmap mode.
+                // A device recovery means a restart for mmap mode.
+                if (pRequiresRestart) {
+                    *pRequiresRestart = MAL_TRUE;
+                }
 
                 // Try again, but if it fails this time just return an error.
                 framesAvailable = ((mal_snd_pcm_avail_update_proc)pDevice->pContext->alsa.snd_pcm_avail_update)((mal_snd_pcm_t*)pDevice->alsa.pPCM);
@@ -9837,7 +9840,7 @@ mal_uint32 mal_device__wait_for_frames__alsa(mal_device* pDevice, mal_bool32* pR
             return periodSizeInFrames;
         }
 
-	if (framesAvailable < periodSizeInFrames) {
+        if (framesAvailable < periodSizeInFrames) {
             // Less than a whole period is available so keep waiting.
             int waitResult = ((mal_snd_pcm_wait_proc)pDevice->pContext->alsa.snd_pcm_wait)((mal_snd_pcm_t*)pDevice->alsa.pPCM, -1);
             if (waitResult < 0) {
@@ -9846,64 +9849,14 @@ mal_uint32 mal_device__wait_for_frames__alsa(mal_device* pDevice, mal_bool32* pR
                         return 0;
                     }
 
-                    if (pRequiresRestart) *pRequiresRestart = MAL_TRUE; // A device recovery means a restart for mmap mode.
+                    // A device recovery means a restart for mmap mode.
+                    if (pRequiresRestart) {
+                        *pRequiresRestart = MAL_TRUE;
+                    }
                 }
             }
         }
     }
-
-
-#if 0
-    while (!pDevice->alsa.breakFromMainLoop) {
-        int waitResult = ((mal_snd_pcm_wait_proc)pDevice->pContext->alsa.snd_pcm_wait)((mal_snd_pcm_t*)pDevice->alsa.pPCM, -1);
-        if (waitResult < 0) {
-            if (waitResult == -EPIPE) {
-                if (((mal_snd_pcm_recover_proc)pDevice->pContext->alsa.snd_pcm_recover)((mal_snd_pcm_t*)pDevice->alsa.pPCM, waitResult, MAL_TRUE) < 0) {
-                    return 0;
-                }
-
-                if (pRequiresRestart) *pRequiresRestart = MAL_TRUE; // A device recovery means a restart for mmap mode.
-            }
-        }
-
-        if (pDevice->alsa.breakFromMainLoop) {
-            return 0;
-        }
-
-        mal_snd_pcm_sframes_t framesAvailable = ((mal_snd_pcm_avail_update_proc)pDevice->pContext->alsa.snd_pcm_avail_update)((mal_snd_pcm_t*)pDevice->alsa.pPCM);
-        if (framesAvailable < 0) {
-            if (framesAvailable == -EPIPE) {
-                if (((mal_snd_pcm_recover_proc)pDevice->pContext->alsa.snd_pcm_recover)((mal_snd_pcm_t*)pDevice->alsa.pPCM, framesAvailable, MAL_TRUE) < 0) {
-                    return 0;
-                }
-
-                if (pRequiresRestart) *pRequiresRestart = MAL_TRUE; // A device recovery means a restart for mmap mode.
-
-                // Try again, but if it fails this time just return an error.
-                framesAvailable = ((mal_snd_pcm_avail_update_proc)pDevice->pContext->alsa.snd_pcm_avail_update)((mal_snd_pcm_t*)pDevice->alsa.pPCM);
-                if (framesAvailable < 0) {
-                    return 0;
-                }
-            }
-        }
-
-        // Ideally I'd like to keep the number of frames consistent with the period size, but unfortunately it appears
-        // this does not work correctly in some situations. In my testing, this breaks when the period size is <= 1024
-        // when using "hw:0,0" in a VirtualBox guest. What's happening is that it looks like snd_pcm_writei() (and
-        // snd_pcm_mmap_commit() in MMAP mode) are not physically writing the data to the internal buffers. As a result,
-        // snd_pcm_wait() is returning immediately, always reporting the full buffer size as available. I'm not sure if
-        // this is me not doing something right, or if it's some kind of driver bug, but to fix this we just need to
-        // report the exact value returned by snd_pcm_avail_update() and not clamp it to the period size.
-#if 1
-        return framesAvailable;
-#else
-        mal_uint32 periodSizeInFrames = pDevice->bufferSizeInFrames / pDevice->periods;
-        if (framesAvailable >= periodSizeInFrames) {
-            return periodSizeInFrames;
-        }
-#endif
-    }
-#endif
 
     // We'll get here if the loop was terminated. Just return whatever's available.
     mal_snd_pcm_sframes_t framesAvailable = ((mal_snd_pcm_avail_update_proc)pDevice->pContext->alsa.snd_pcm_avail_update)((mal_snd_pcm_t*)pDevice->alsa.pPCM);
@@ -10208,7 +10161,7 @@ mal_result mal_device_init__alsa(mal_context* pContext, mal_device_type type, co
     // Try using interleaved MMAP access. If this fails, fall back to standard readi/writei.
     pDevice->alsa.isUsingMMap = MAL_FALSE;
     if (!pConfig->alsa.noMMap && pDevice->type != mal_device_type_capture) {    // <-- Disabling MMAP mode for capture devices because I apparently do not have a device that supports it which means I can't test it... Contributions welcome.
-	if (((mal_snd_pcm_hw_params_set_access_proc)pContext->alsa.snd_pcm_hw_params_set_access)((mal_snd_pcm_t*)pDevice->alsa.pPCM, pHWParams, MAL_SND_PCM_ACCESS_MMAP_INTERLEAVED) == 0) {
+        if (((mal_snd_pcm_hw_params_set_access_proc)pContext->alsa.snd_pcm_hw_params_set_access)((mal_snd_pcm_t*)pDevice->alsa.pPCM, pHWParams, MAL_SND_PCM_ACCESS_MMAP_INTERLEAVED) == 0) {
             pDevice->alsa.isUsingMMap = MAL_TRUE;
         }
     }
@@ -27191,6 +27144,8 @@ mal_uint64 mal_sine_wave_read(mal_sine_wave* pSineWave, mal_uint64 count, float*
 //   - Add support for specifying the size of a device's buffer in milliseconds. You can still set the buffer size in
 //     frames if that suits you. When bufferSizeInFrames is 0, bufferSizeInMilliseconds will be used. If both are non-0
 //     then bufferSizeInFrames will take priority. If both are set to 0 the default buffer size is used.
+//   - Fix a bug with the ALSA backend that was causing problems on Raspberry Pi. This significantly improves the
+//     Raspberry Pi experience.
 //   - Fix a bug where an incorrect number of samples is returned from sinc resampling.
 //   - Add support for setting the value to be passed to internal calls to CoInitializeEx().
 //
