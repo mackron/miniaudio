@@ -21,7 +21,7 @@
 //   - PulseAudio
 //   - JACK
 //   - sndio (OpenBSD)
-//   - audioio (NetBSD)
+//   - audioio/audio(4) (NetBSD and OpenBSD)
 //   - OSS (FreeBSD)
 //   - OpenSL|ES (Android only)
 //   - OpenAL
@@ -121,6 +121,8 @@
 // - Sample data is always native-endian and interleaved. For example, mal_format_s16 means signed 16-bit
 //   integer samples, interleaved. Let me know if you need non-interleaved and I'll look into it.
 // - The sndio backend is currently only enabled on OpenBSD builds.
+// - The audioio/audio(4) backend is supported on OpenBSD, but you may need to disable sndiod before you
+//   can use it.
 //
 //
 //
@@ -27255,6 +27257,7 @@ mal_uint64 mal_sine_wave_read(mal_sine_wave* pSineWave, mal_uint64 count, float*
 //   - Add support for specifying the size of a device's buffer in milliseconds. You can still set the buffer size in
 //     frames if that suits you. When bufferSizeInFrames is 0, bufferSizeInMilliseconds will be used. If both are non-0
 //     then bufferSizeInFrames will take priority. If both are set to 0 the default buffer size is used.
+//   - Add support for the audioio/audio(4) backend to OpenBSD.
 //   - Fix a bug with the ALSA backend that was causing problems on Raspberry Pi. This significantly improves the
 //     Raspberry Pi experience.
 //   - Fix a bug where an incorrect number of samples is returned from sinc resampling.
