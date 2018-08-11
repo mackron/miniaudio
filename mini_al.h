@@ -512,6 +512,7 @@ typedef int mal_result;
 #define MAL_INVALID_DEVICE_CONFIG                       -31
 #define MAL_ACCESS_DENIED                               -32
 #define MAL_TOO_LARGE                                   -33
+#define MAL_DEVICE_UNAVAILABLE                          -34
 
 // Standard sample rates.
 #define MAL_SAMPLE_RATE_8000                            8000
@@ -6467,55 +6468,65 @@ mal_result mal_device__break_main_loop__wasapi(mal_device* pDevice)
     return MAL_SUCCESS;
 }
 
-mal_uint32 mal_device__get_available_frames__wasapi(mal_device* pDevice)
+mal_result mal_device__get_available_frames__wasapi(mal_device* pDevice, mal_uint32* pFrameCount)
 {
     mal_assert(pDevice != NULL);
+    mal_assert(pFrameCount != NULL);
+    
+    *pFrameCount = 0;
 
 #if 0
     if (pDevice->type == mal_device_type_playback) {
         mal_uint32 paddingFramesCount;
         HRESULT hr = mal_IAudioClient_GetCurrentPadding((mal_IAudioClient*)pDevice->wasapi.pAudioClient, &paddingFramesCount);
         if (FAILED(hr)) {
-            return 0;
+            return MAL_ERROR;
         }
 
         if (pDevice->exclusiveMode) {
-            return paddingFramesCount;
+            *pFrameCount = paddingFramesCount;
+            return MAL_SUCCESS;
         } else {
-            return pDevice->bufferSizeInFrames - paddingFramesCount;
+            *pFrameCount = pDevice->bufferSizeInFrames - paddingFramesCount;
+            return MAL_SUCCESS;
         }
     } else {
         mal_uint32 framesAvailable;
         HRESULT hr = mal_IAudioCaptureClient_GetNextPacketSize((mal_IAudioCaptureClient*)pDevice->wasapi.pCaptureClient, &framesAvailable);
         if (FAILED(hr)) {
-            return 0;
+            return MAL_ERROR;
         }
 
-        return framesAvailable;
+        *pFrameCount = framesAvailable;
+        return MAL_SUCCESS;
     }
 #else
     mal_uint32 paddingFramesCount;
     HRESULT hr = mal_IAudioClient_GetCurrentPadding((mal_IAudioClient*)pDevice->wasapi.pAudioClient, &paddingFramesCount);
     if (FAILED(hr)) {
-        return 0;
+        return MAL_DEVICE_UNAVAILABLE;
     }
 
     // Slightly different rules for exclusive and shared modes.
     if (pDevice->exclusiveMode) {
-        return paddingFramesCount;
+        *pFrameCount = paddingFramesCount;
     } else {
         if (pDevice->type == mal_device_type_playback) {
-            return pDevice->bufferSizeInFrames - paddingFramesCount;
+            *pFrameCount = pDevice->bufferSizeInFrames - paddingFramesCount;
         } else {
-            return paddingFramesCount;
+            *pFrameCount = paddingFramesCount;
         }
     }
+
+    return MAL_SUCCESS;
 #endif
 }
 
-mal_uint32 mal_device__wait_for_frames__wasapi(mal_device* pDevice)
+mal_result mal_device__wait_for_frames__wasapi(mal_device* pDevice, mal_uint32* pFrameCount)
 {
     mal_assert(pDevice != NULL);
+
+    mal_result result;
 
     while (!pDevice->wasapi.breakFromMainLoop) {
         // Wait for a buffer to become available or for the stop event to be signalled.
@@ -6532,14 +6543,18 @@ mal_uint32 mal_device__wait_for_frames__wasapi(mal_device* pDevice)
             break;
         }
 
-        mal_uint32 framesAvailable = mal_device__get_available_frames__wasapi(pDevice);
-        if (framesAvailable > 0) {
-            return framesAvailable;
+        result = mal_device__get_available_frames__wasapi(pDevice, pFrameCount);
+        if (result != MAL_SUCCESS) {
+            return result;
+        }
+
+        if (*pFrameCount > 0) {
+            return MAL_SUCCESS;
         }
     }
 
     // We'll get here if the loop was terminated. Just return whatever's available.
-    return mal_device__get_available_frames__wasapi(pDevice);
+    return mal_device__get_available_frames__wasapi(pDevice, pFrameCount);
 }
 
 mal_result mal_device__main_loop__wasapi(mal_device* pDevice)
@@ -6551,14 +6566,19 @@ mal_result mal_device__main_loop__wasapi(mal_device* pDevice)
 
     pDevice->wasapi.breakFromMainLoop = MAL_FALSE;
     while (!pDevice->wasapi.breakFromMainLoop) {
-        mal_uint32 framesAvailable = mal_device__wait_for_frames__wasapi(pDevice);
+        mal_uint32 framesAvailable;
+        mal_result result = mal_device__wait_for_frames__wasapi(pDevice, &framesAvailable);
+        if (result != MAL_SUCCESS) {
+            return result;
+        }
+
         if (framesAvailable == 0) {
             continue;
         }
 
         // If it's a playback device, don't bother grabbing more data if the device is being stopped.
         if (pDevice->wasapi.breakFromMainLoop && pDevice->type == mal_device_type_playback) {
-            return MAL_FALSE;
+            return MAL_SUCCESS;
         }
 
         if (pDevice->type == mal_device_type_playback) {
@@ -8732,7 +8752,7 @@ mal_result mal_device__main_loop__winmm(mal_device* pDevice)
                 MMRESULT resultMM = ((MAL_PFN_waveOutUnprepareHeader)pDevice->pContext->winmm.waveOutUnprepareHeader)((HWAVEOUT)pDevice->winmm.hDevice, &((LPWAVEHDR)pDevice->winmm.pWAVEHDR)[i], sizeof(WAVEHDR));
                 if (resultMM != MMSYSERR_NOERROR) {
                     mal_post_error(pDevice, MAL_LOG_LEVEL_ERROR, "[WinMM] Failed to unprepare header for playback device in preparation for sending a new block of data to the device for playback.", mal_result_from_MMRESULT(resultMM));
-                    break;
+                    return MAL_DEVICE_UNAVAILABLE;
                 }
 
                 mal_zero_object(&((LPWAVEHDR)pDevice->winmm.pWAVEHDR)[i]);
@@ -8746,7 +8766,7 @@ mal_result mal_device__main_loop__winmm(mal_device* pDevice)
                 resultMM = ((MAL_PFN_waveOutPrepareHeader)pDevice->pContext->winmm.waveOutPrepareHeader)((HWAVEOUT)pDevice->winmm.hDevice, &((LPWAVEHDR)pDevice->winmm.pWAVEHDR)[i], sizeof(WAVEHDR));
                 if (resultMM != MMSYSERR_NOERROR) {
                     mal_post_error(pDevice, MAL_LOG_LEVEL_ERROR, "[WinMM] Failed to prepare header for playback device in preparation for sending a new block of data to the device for playback.", mal_result_from_MMRESULT(resultMM));
-                    break;
+                    return MAL_DEVICE_UNAVAILABLE;
                 }
             } else {
                 // Capture.
@@ -8758,7 +8778,7 @@ mal_result mal_device__main_loop__winmm(mal_device* pDevice)
                 MMRESULT resultMM = ((MAL_PFN_waveInUnprepareHeader)pDevice->pContext->winmm.waveInUnprepareHeader)((HWAVEIN)pDevice->winmm.hDevice, &((LPWAVEHDR)pDevice->winmm.pWAVEHDR)[i], sizeof(WAVEHDR));
                 if (resultMM != MMSYSERR_NOERROR) {
                     mal_post_error(pDevice, MAL_LOG_LEVEL_ERROR, "[WinMM] Failed to unprepare header for capture device in preparation for adding a new capture buffer for the device.", mal_result_from_MMRESULT(resultMM));
-                    break;
+                    return MAL_DEVICE_UNAVAILABLE;
                 }
 
                 mal_zero_object(&((LPWAVEHDR)pDevice->winmm.pWAVEHDR)[i]);
@@ -8771,7 +8791,7 @@ mal_result mal_device__main_loop__winmm(mal_device* pDevice)
                 resultMM = ((MAL_PFN_waveInPrepareHeader)pDevice->pContext->winmm.waveInPrepareHeader)((HWAVEIN)pDevice->winmm.hDevice, &((LPWAVEHDR)pDevice->winmm.pWAVEHDR)[i], sizeof(WAVEHDR));
                 if (resultMM != MMSYSERR_NOERROR) {
                     mal_post_error(pDevice, MAL_LOG_LEVEL_ERROR, "[WinMM] Failed to prepare header for capture device in preparation for adding a new capture buffer for the device.", mal_result_from_MMRESULT(resultMM));
-                    break;
+                    return MAL_DEVICE_UNAVAILABLE;
                 }
             }
 
@@ -8791,14 +8811,14 @@ mal_result mal_device__main_loop__winmm(mal_device* pDevice)
                     MMRESULT resultMM = ((MAL_PFN_waveOutWrite)pDevice->pContext->winmm.waveOutWrite)((HWAVEOUT)pDevice->winmm.hDevice, &((LPWAVEHDR)pDevice->winmm.pWAVEHDR)[i], sizeof(WAVEHDR));
                     if (resultMM != MMSYSERR_NOERROR) {
                         mal_post_error(pDevice, MAL_LOG_LEVEL_ERROR, "[WinMM] Failed to write data to the internal playback device.", mal_result_from_MMRESULT(resultMM));
-                        break;
+                        return MAL_DEVICE_UNAVAILABLE;
                     }
                 } else {
                     // Capture.
                     MMRESULT resultMM = ((MAL_PFN_waveInAddBuffer)pDevice->pContext->winmm.waveInAddBuffer)((HWAVEIN)pDevice->winmm.hDevice, &((LPWAVEHDR)pDevice->winmm.pWAVEHDR)[i], sizeof(WAVEHDR));
                     if (resultMM != MMSYSERR_NOERROR) {
                         mal_post_error(pDevice, MAL_LOG_LEVEL_ERROR, "[WinMM] Failed to add new capture buffer to the internal capture device.", mal_result_from_MMRESULT(resultMM));
-                        break;
+                        return MAL_DEVICE_UNAVAILABLE;
                     }
                 }
             }
