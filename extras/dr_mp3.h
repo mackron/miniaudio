@@ -1,5 +1,5 @@
 // MP3 audio decoder. Public domain. See "unlicense" statement at the end of this file.
-// dr_mp3 - v0.2.10 - 2018-08-07
+// dr_mp3 - v0.2.11 - 2018-08-08
 //
 // David Reid - mackron@gmail.com
 //
@@ -2301,8 +2301,10 @@ static drmp3_bool32 drmp3_decode_next_frame(drmp3* pMP3)
 
             size_t bytesRead = pMP3->onRead(pMP3->pUserData, pMP3->pData + pMP3->dataSize, (pMP3->dataCapacity - pMP3->dataSize));
             if (bytesRead == 0) {
-                pMP3->atEnd = DRMP3_TRUE;
-                return DRMP3_FALSE; // No data.
+                if (pMP3->dataSize == 0) {
+                    pMP3->atEnd = DRMP3_TRUE;
+                    return DRMP3_FALSE; // No data.
+                }
             }
 
             pMP3->dataSize += bytesRead;
@@ -2760,6 +2762,9 @@ void drmp3_free(void* p)
 
 // REVISION HISTORY
 // ===============
+//
+// v0.2.11 - 2018-08-08
+//   - Fix a bug where the last part of a file is not read.
 //
 // v0.2.10 - 2018-08-07
 //   - Improve 64-bit detection.
