@@ -2632,8 +2632,9 @@ typedef struct
     double time;
 } mal_sine_wave;
 
-mal_result mal_sine_wave_init(double amplitude, double period, mal_uint32 sampleRate, mal_sine_wave* pSignWave);
-mal_uint64 mal_sine_wave_read(mal_sine_wave* pSignWave, mal_uint64 count, float* pSamples);
+mal_result mal_sine_wave_init(double amplitude, double period, mal_uint32 sampleRate, mal_sine_wave* pSineWave);
+mal_uint64 mal_sine_wave_read(mal_sine_wave* pSineWave, mal_uint64 count, float* pSamples);
+mal_uint64 mal_sine_wave_read_ex(mal_sine_wave* pSineWave, mal_uint64 frameCount, mal_uint32 channels, mal_stream_layout layout, float** ppFrames);
 
 
 #ifdef __cplusplus
@@ -27355,20 +27356,35 @@ mal_result mal_sine_wave_init(double amplitude, double periodsPerSecond, mal_uin
 
 mal_uint64 mal_sine_wave_read(mal_sine_wave* pSineWave, mal_uint64 count, float* pSamples)
 {
+    return mal_sine_wave_read_ex(pSineWave, count, 1, mal_stream_layout_interleaved, &pSamples);
+}
+
+mal_uint64 mal_sine_wave_read_ex(mal_sine_wave* pSineWave, mal_uint64 frameCount, mal_uint32 channels, mal_stream_layout layout, float** ppFrames)
+{
     if (pSineWave == NULL) {
         return 0;
     }
 
-    if (pSamples != NULL) {
-        for (mal_uint64 i = 0; i < count; i += 1) {
-            pSamples[i] = (float)(sin(pSineWave->time * pSineWave->periodsPerSecond) * pSineWave->amplitude);
+    if (ppFrames != NULL) {
+        for (mal_uint64 iFrame = 0; iFrame < frameCount; iFrame += 1) {
+            float s = (float)(sin(pSineWave->time * pSineWave->periodsPerSecond) * pSineWave->amplitude);
             pSineWave->time += pSineWave->delta;
+
+            if (layout == mal_stream_layout_interleaved) {
+                for (mal_uint32 iChannel = 0; iChannel < channels; iChannel += 1) {
+                    ppFrames[0][iFrame*channels + iChannel] = s;
+                }
+            } else {
+                for (mal_uint32 iChannel = 0; iChannel < channels; iChannel += 1) {
+                    ppFrames[iChannel][iFrame] = s;
+                }
+            }
         }
     } else {
-        pSineWave->time += pSineWave->delta * count;
+        pSineWave->time += pSineWave->delta * frameCount;
     }
 
-    return count;
+    return frameCount;
 }
 
 
@@ -27387,6 +27403,7 @@ mal_uint64 mal_sine_wave_read(mal_sine_wave* pSineWave, mal_uint64 count, float*
 //     Raspberry Pi experience.
 //   - Fix a bug where an incorrect number of samples is returned from sinc resampling.
 //   - Add support for setting the value to be passed to internal calls to CoInitializeEx().
+//   - WASAPI and WinMM: Stop the device when it is unplugged.
 //
 // v0.8.4 - 2018-08-06
 //   - Add sndio backend for OpenBSD.
