@@ -1,5 +1,5 @@
 // Audio playback and capture library. Public domain. See "unlicense" statement at the end of this file.
-// mini_al - v0.8.5-rc - 2018-xx-xx
+// mini_al - v0.8.5 - 2018-08-12
 //
 // David Reid - davidreidsoftware@gmail.com
 
@@ -27394,7 +27394,7 @@ mal_uint64 mal_sine_wave_read_ex(mal_sine_wave* pSineWave, mal_uint64 frameCount
 // REVISION HISTORY
 // ================
 //
-// v0.8.5-rc - 2018-xx-xx
+// v0.8.5 - 2018-08-12
 //   - Add support for specifying the size of a device's buffer in milliseconds. You can still set the buffer size in
 //     frames if that suits you. When bufferSizeInFrames is 0, bufferSizeInMilliseconds will be used. If both are non-0
 //     then bufferSizeInFrames will take priority. If both are set to 0 the default buffer size is used.
