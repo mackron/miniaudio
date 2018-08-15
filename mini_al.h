@@ -16168,7 +16168,7 @@ mal_result mal_device__stop_backend__audio4(mal_device* pDevice)
     }
 #else
     if (ioctl(pDevice->audio4.fd, AUDIO_STOP, 0) < 0) {
-        return mal_post_error(pDevice, MAL_LOG_LEVEL_ERROR, "[audio4] Failed to stop device. AUDIO_FLUSH failed.", MAL_FAILED_TO_STOP_BACKEND_DEVICE);
+        return mal_post_error(pDevice, MAL_LOG_LEVEL_ERROR, "[audio4] Failed to stop device. AUDIO_STOP failed.", MAL_FAILED_TO_STOP_BACKEND_DEVICE);
     }
 #endif
 
