@@ -1489,6 +1489,7 @@ struct mal_context
     mal_result (* onGetDeviceInfo      )(mal_context* pContext, mal_device_type type, const mal_device_id* pDeviceID, mal_share_mode shareMode, mal_device_info* pDeviceInfo);
     mal_result (* onDeviceInit         )(mal_context* pContext, mal_device_type type, const mal_device_id* pDeviceID, const mal_device_config* pConfig, mal_device* pDevice);
     void       (* onDeviceUninit       )(mal_device* pDevice);
+    mal_result (* onDeviceReinit       )(mal_device* pDevice);
     mal_result (* onDeviceStart        )(mal_device* pDevice);
     mal_result (* onDeviceStop         )(mal_device* pDevice);
     mal_result (* onDeviceBreakMainLoop)(mal_device* pDevice);
@@ -1904,14 +1905,15 @@ MAL_ALIGNED_STRUCT(MAL_SIMD_ALIGNMENT) mal_device
     mal_recv_proc onRecv;
     mal_send_proc onSend;
     mal_stop_proc onStop;
-    void* pUserData;        // Application defined data.
+    void* pUserData;                // Application defined data.
     char name[256];
+    mal_device_config initConfig;   // The configuration passed in to mal_device_init(). Mainly used for reinitializing the backend device.
     mal_mutex lock;
     mal_event wakeupEvent;
     mal_event startEvent;
     mal_event stopEvent;
     mal_thread thread;
-    mal_result workResult;  // This is set by the worker thread after it's finished doing a job.
+    mal_result workResult;          // This is set by the worker thread after it's finished doing a job.
     mal_bool32 usingDefaultFormat     : 1;
     mal_bool32 usingDefaultChannels   : 1;
     mal_bool32 usingDefaultSampleRate : 1;
@@ -1920,6 +1922,7 @@ MAL_ALIGNED_STRUCT(MAL_SIMD_ALIGNMENT) mal_device
     mal_bool32 usingDefaultPeriods    : 1;
     mal_bool32 exclusiveMode          : 1;
     mal_bool32 isOwnerOfContext       : 1;  // When set to true, uninitializing the device will also uninitialize the context. Set to true when NULL is passed into mal_device_init().
+    mal_bool32 isDefaultDevice        : 1;  // Used to determine if the backend should try reinitializing if the default device is unplugged.
     mal_format internalFormat;
     mal_uint32 internalChannels;
     mal_uint32 internalSampleRate;
@@ -8431,6 +8434,8 @@ void mal_device_uninit__winmm(mal_device* pDevice)
 
     mal_free(pDevice->winmm._pHeapData);
     CloseHandle((HANDLE)pDevice->winmm.hEvent);
+
+    mal_zero_object(&pDevice->winmm);   // Safety.
 }
 
 mal_result mal_device_init__winmm(mal_context* pContext, mal_device_type type, const mal_device_id* pDeviceID, const mal_device_config* pConfig, mal_device* pDevice)
@@ -8615,6 +8620,10 @@ mal_result mal_device__start_backend__winmm(mal_device* pDevice)
 {
     mal_assert(pDevice != NULL);
 
+    if (pDevice->winmm.hDevice == NULL) {
+        return MAL_INVALID_ARGS;
+    }
+
     if (pDevice->type == mal_device_type_playback) {
         // Playback. The device is started when we call waveOutWrite() with a block of data. From MSDN:
         //
@@ -8678,6 +8687,10 @@ mal_result mal_device__start_backend__winmm(mal_device* pDevice)
 mal_result mal_device__stop_backend__winmm(mal_device* pDevice)
 {
     mal_assert(pDevice != NULL);
+
+    if (pDevice->winmm.hDevice == NULL) {
+        return MAL_INVALID_ARGS;
+    }
 
     if (pDevice->type == mal_device_type_playback) {
         MMRESULT resultMM = ((MAL_PFN_waveOutReset)pDevice->pContext->winmm.waveOutReset)((HWAVEOUT)pDevice->winmm.hDevice);
@@ -19063,6 +19076,65 @@ mal_bool32 mal__is_channel_map_valid(const mal_channel* channelMap, mal_uint32 c
 }
 
 
+void mal_device__post_init_setup(mal_device* pDevice)
+{
+    mal_assert(pDevice != NULL);
+
+    // Make sure the internal channel map was set correctly by the backend. If it's not valid, just fall back to defaults.
+    if (!mal_channel_map_valid(pDevice->internalChannels, pDevice->internalChannelMap)) {
+        mal_get_standard_channel_map(mal_standard_channel_map_default, pDevice->internalChannels, pDevice->internalChannelMap);
+    }
+
+
+    // If the format/channels/rate is using defaults we need to set these to be the same as the internal config.
+    if (pDevice->usingDefaultFormat) {
+        pDevice->format = pDevice->internalFormat;
+    }
+    if (pDevice->usingDefaultChannels) {
+        pDevice->channels = pDevice->internalChannels;
+    }
+    if (pDevice->usingDefaultSampleRate) {
+        pDevice->sampleRate = pDevice->internalSampleRate;
+    }
+    if (pDevice->usingDefaultChannelMap) {
+        mal_copy_memory(pDevice->channelMap, pDevice->internalChannelMap, sizeof(pDevice->channelMap));
+    }
+
+    // Buffer size. The backend will have set bufferSizeInFrames. We need to calculate bufferSizeInMilliseconds here.
+    pDevice->bufferSizeInMilliseconds = pDevice->bufferSizeInFrames / (pDevice->internalSampleRate/1000);
+
+
+    // We need a DSP object which is where samples are moved through in order to convert them to the
+    // format required by the backend.
+    mal_dsp_config dspConfig = mal_dsp_config_init_new();
+    dspConfig.neverConsumeEndOfInput = MAL_TRUE;
+    dspConfig.pUserData = pDevice;
+    if (pDevice->type == mal_device_type_playback) {
+        dspConfig.formatIn      = pDevice->format;
+        dspConfig.channelsIn    = pDevice->channels;
+        dspConfig.sampleRateIn  = pDevice->sampleRate;
+        mal_copy_memory(dspConfig.channelMapIn, pDevice->channelMap, sizeof(dspConfig.channelMapIn));
+        dspConfig.formatOut     = pDevice->internalFormat;
+        dspConfig.channelsOut   = pDevice->internalChannels;
+        dspConfig.sampleRateOut = pDevice->internalSampleRate;
+        mal_copy_memory(dspConfig.channelMapOut, pDevice->internalChannelMap, sizeof(dspConfig.channelMapOut));
+        dspConfig.onRead = mal_device__on_read_from_client;
+        mal_dsp_init(&dspConfig, &pDevice->dsp);
+    } else {
+        dspConfig.formatIn      = pDevice->internalFormat;
+        dspConfig.channelsIn    = pDevice->internalChannels;
+        dspConfig.sampleRateIn  = pDevice->internalSampleRate;
+        mal_copy_memory(dspConfig.channelMapIn, pDevice->internalChannelMap, sizeof(dspConfig.channelMapIn));
+        dspConfig.formatOut     = pDevice->format;
+        dspConfig.channelsOut   = pDevice->channels;
+        dspConfig.sampleRateOut = pDevice->sampleRate;
+        mal_copy_memory(dspConfig.channelMapOut, pDevice->channelMap, sizeof(dspConfig.channelMapOut));
+        dspConfig.onRead = mal_device__on_read_from_device;
+        mal_dsp_init(&dspConfig, &pDevice->dsp);
+    }
+}
+
+
 mal_thread_result MAL_THREADCALL mal_worker_thread(void* pData)
 {
     mal_device* pDevice = (mal_device*)pData;
@@ -19111,11 +19183,42 @@ mal_thread_result MAL_THREADCALL mal_worker_thread(void* pData)
 
         // Now we just enter the main loop. When the main loop is terminated the device needs to be marked as stopped. This can
         // be broken with mal_device__break_main_loop().
-        pDevice->pContext->onDeviceMainLoop(pDevice);
+        mal_result mainLoopResult = pDevice->pContext->onDeviceMainLoop(pDevice);
+        if (mainLoopResult != MAL_SUCCESS && pDevice->isDefaultDevice && mal_device__get_state(pDevice) == MAL_STATE_STARTED) {
+            // Something has failed during the main loop. It could be that the device has been lost. If it's the default device,
+            // we can try switching over to the new default device by uninitializing and reinitializing.
+            mal_result reinitResult = MAL_ERROR;
+            if (pDevice->pContext->onDeviceReinit) {
+                reinitResult = pDevice->pContext->onDeviceReinit(pDevice);
+            } else {
+                pDevice->pContext->onDeviceStop(pDevice);
+                mal_device__set_state(pDevice, MAL_STATE_STOPPED);
+
+                pDevice->pContext->onDeviceUninit(pDevice);
+                mal_device__set_state(pDevice, MAL_STATE_UNINITIALIZED);
+
+                reinitResult = pDevice->pContext->onDeviceInit(pDevice->pContext, pDevice->type, NULL, &pDevice->initConfig, pDevice);
+                if (reinitResult == MAL_SUCCESS) {
+                    mal_device__post_init_setup(pDevice);
+                }
+            }
 
 
-        // Getting here means we have broken from the main loop which happens the application has requested that device be stopped.
-        pDevice->pContext->onDeviceStop(pDevice);
+            // If reinitialization was successful, loop back to the start.
+            if (reinitResult == MAL_SUCCESS) {
+                mal_device__set_state(pDevice, MAL_STATE_STARTING); // <-- The device is restarting.
+                mal_event_signal(&pDevice->wakeupEvent);
+                continue;
+            }
+        }
+
+
+        // Getting here means we have broken from the main loop which happens the application has requested that device be stopped. Note that this
+        // may have actually already happened above if the device was lost and mini_al has attempted to re-initialize the device. In this case we
+        // don't want to be doing this a second time.
+        if (mal_device__get_state(pDevice) != MAL_STATE_UNINITIALIZED) {
+            pDevice->pContext->onDeviceStop(pDevice);
+        }
 
         // After the device has stopped, make sure an event is posted.
         mal_stop_proc onStop = pDevice->onStop;
@@ -19123,9 +19226,13 @@ mal_thread_result MAL_THREADCALL mal_worker_thread(void* pData)
             onStop(pDevice);
         }
 
-        // A function somewhere is waiting for the device to have stopped for real so we need to signal an event to allow it to continue.
-        mal_device__set_state(pDevice, MAL_STATE_STOPPED);
-        mal_event_signal(&pDevice->stopEvent);
+        // A function somewhere is waiting for the device to have stopped for real so we need to signal an event to allow it to continue. Note that
+        // it's possible that the device has been uninitialized which means we need to _not_ change the status to stopped. We cannot go from an
+        // uninitialized state to stopped state.
+        if (mal_device__get_state(pDevice) != MAL_STATE_UNINITIALIZED) {
+            mal_device__set_state(pDevice, MAL_STATE_STOPPED);
+            mal_event_signal(&pDevice->stopEvent);
+        }
     }
 #else
     // This is only used to prevent posting onStop() when the device is first initialized.
@@ -19690,6 +19797,7 @@ mal_result mal_device_init(mal_context* pContext, mal_device_type type, mal_devi
 
     mal_zero_object(pDevice);
     pDevice->pContext = pContext;
+    pDevice->initConfig = config;
 
     // Set the user data and log callback ASAP to ensure it is available for the entire initialization process.
     pDevice->pUserData = pUserData;
@@ -19701,6 +19809,10 @@ mal_result mal_device_init(mal_context* pContext, mal_device_type type, mal_devi
         if (pContext->config.onLog) {
             pContext->config.onLog(pContext, pDevice, "WARNING: mal_device_init() called for a device that is not properly aligned. Thread safety is not supported.");
         }
+    }
+
+    if (pDeviceID == NULL) {
+        pDevice->isDefaultDevice = MAL_TRUE;
     }
 
 
@@ -19781,28 +19893,10 @@ mal_result mal_device_init(mal_context* pContext, mal_device_type type, mal_devi
         return MAL_NO_BACKEND;  // The error message will have been posted with mal_post_error() by the source of the error so don't bother calling it here.
     }
 
-
-    // If the backend did not fill out a name for the device, try a generic method.
-    if (pDevice->name[0] == '\0') {
-        if (mal_context__try_get_device_name_by_id(pContext, type, pDeviceID, pDevice->name, sizeof(pDevice->name)) != MAL_SUCCESS) {
-            // We failed to get the device name, so fall back to some generic names.
-            if (pDeviceID == NULL) {
-                if (type == mal_device_type_playback) {
-                    mal_strncpy_s(pDevice->name, sizeof(pDevice->name), MAL_DEFAULT_PLAYBACK_DEVICE_NAME, (size_t)-1);
-                } else {
-                    mal_strncpy_s(pDevice->name, sizeof(pDevice->name), MAL_DEFAULT_CAPTURE_DEVICE_NAME, (size_t)-1);
-                }
-            } else {
-                if (type == mal_device_type_playback) {
-                    mal_strncpy_s(pDevice->name, sizeof(pDevice->name), "Playback Device", (size_t)-1);
-                } else {
-                    mal_strncpy_s(pDevice->name, sizeof(pDevice->name), "Capture Device", (size_t)-1);
-                }
-            }
-        }
-    }
+    mal_device__post_init_setup(pDevice);
 
 
+#if 0
     // Make sure the internal channel map was set correctly by the backend. If it's not valid, just fall back to defaults.
     if (!mal_channel_map_valid(pDevice->internalChannels, pDevice->internalChannelMap)) {
         mal_get_standard_channel_map(mal_standard_channel_map_default, pDevice->internalChannels, pDevice->internalChannelMap);
@@ -19855,7 +19949,28 @@ mal_result mal_device_init(mal_context* pContext, mal_device_type type, mal_devi
         dspConfig.onRead = mal_device__on_read_from_device;
         mal_dsp_init(&dspConfig, &pDevice->dsp);
     }
+#endif
 
+
+    // If the backend did not fill out a name for the device, try a generic method.
+    if (pDevice->name[0] == '\0') {
+        if (mal_context__try_get_device_name_by_id(pContext, type, pDeviceID, pDevice->name, sizeof(pDevice->name)) != MAL_SUCCESS) {
+            // We failed to get the device name, so fall back to some generic names.
+            if (pDeviceID == NULL) {
+                if (type == mal_device_type_playback) {
+                    mal_strncpy_s(pDevice->name, sizeof(pDevice->name), MAL_DEFAULT_PLAYBACK_DEVICE_NAME, (size_t)-1);
+                } else {
+                    mal_strncpy_s(pDevice->name, sizeof(pDevice->name), MAL_DEFAULT_CAPTURE_DEVICE_NAME, (size_t)-1);
+                }
+            } else {
+                if (type == mal_device_type_playback) {
+                    mal_strncpy_s(pDevice->name, sizeof(pDevice->name), "Playback Device", (size_t)-1);
+                } else {
+                    mal_strncpy_s(pDevice->name, sizeof(pDevice->name), "Capture Device", (size_t)-1);
+                }
+            }
+        }
+    }
 
 
     // Some backends don't require the worker thread.
