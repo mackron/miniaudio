@@ -19144,7 +19144,6 @@ mal_thread_result MAL_THREADCALL mal_worker_thread(void* pData)
     mal_CoInitializeEx(pDevice->pContext, NULL, MAL_COINIT_VALUE);
 #endif
 
-#if 1
     // When the device is being initialized it's initial state is set to MAL_STATE_UNINITIALIZED. Before returning from
     // mal_device_init(), the state needs to be set to something valid. In mini_al the device's default state immediately
     // after initialization is stopped, so therefore we need to mark the device as such. mini_al will wait on the worker
@@ -19203,7 +19202,6 @@ mal_thread_result MAL_THREADCALL mal_worker_thread(void* pData)
                 }
             }
 
-
             // If reinitialization was successful, loop back to the start.
             if (reinitResult == MAL_SUCCESS) {
                 mal_device__set_state(pDevice, MAL_STATE_STARTING); // <-- The device is restarting.
@@ -19234,59 +19232,6 @@ mal_thread_result MAL_THREADCALL mal_worker_thread(void* pData)
             mal_event_signal(&pDevice->stopEvent);
         }
     }
-#else
-    // This is only used to prevent posting onStop() when the device is first initialized.
-    mal_bool32 skipNextStopEvent = MAL_TRUE;
-
-    for (;;) {
-        // At the start of iteration the device is stopped - we must explicitly mark it as such.
-        pDevice->pContext->onDeviceStop(pDevice);
-
-        if (!skipNextStopEvent) {
-            mal_stop_proc onStop = pDevice->onStop;
-            if (onStop) {
-                onStop(pDevice);
-            }
-        } else {
-            skipNextStopEvent = MAL_FALSE;
-        }
-
-
-        // Let the other threads know that the device has stopped.
-        mal_device__set_state(pDevice, MAL_STATE_STOPPED);
-        mal_event_signal(&pDevice->stopEvent);
-
-        // We use an event to wait for a request to wake up.
-        mal_event_wait(&pDevice->wakeupEvent);
-
-        // Default result code.
-        pDevice->workResult = MAL_SUCCESS;
-
-        // Just break if we're terminating.
-        if (mal_device__get_state(pDevice) == MAL_STATE_UNINITIALIZED) {
-            break;
-        }
-
-
-        // Getting here means we just started the device and we need to wait for the device to
-        // either deliver us data (recording) or request more data (playback).
-        mal_assert(mal_device__get_state(pDevice) == MAL_STATE_STARTING);
-
-        pDevice->workResult = pDevice->pContext->onDeviceStart(pDevice);
-        if (pDevice->workResult != MAL_SUCCESS) {
-            mal_event_signal(&pDevice->startEvent);
-            continue;
-        }
-
-        // The thread that requested the device to start playing is waiting for this thread to start the
-        // device for real, which is now.
-        mal_device__set_state(pDevice, MAL_STATE_STARTED);
-        mal_event_signal(&pDevice->startEvent);
-
-        // Now we just enter the main loop. The main loop can be broken with mal_device__break_main_loop().
-        pDevice->pContext->onDeviceMainLoop(pDevice);
-    }
-#endif
 
     // Make sure we aren't continuously waiting on a stop event.
     mal_event_signal(&pDevice->stopEvent);  // <-- Is this still needed?
