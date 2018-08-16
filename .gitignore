@@ -17,3 +17,4 @@ examples/bin/
 examples/res/private/
 /examples/SDL2.dll
 *.vcxproj.user
+.vs/
