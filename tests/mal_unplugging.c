@@ -1,5 +1,6 @@
 // This test just plays a constant sine wave tone. Mainly intended to check how physically
 // unplugging a device while it's playing works.
+//#define MAL_DEBUG_OUTPUT
 #define MINI_AL_IMPLEMENTATION
 #include "../mini_al.h"
 #include <stdio.h>
@@ -42,6 +43,7 @@ int main()
     mal_context_config contextConfig = mal_context_config_init(on_log);
     mal_device_config deviceConfig = mal_device_config_init_playback(mal_format_f32, 0, 48000, on_send);
     deviceConfig.onStopCallback = on_stop;
+    //deviceConfig.shareMode = mal_share_mode_exclusive;
 
     mal_device device;
     result = mal_device_init_ex(&backend, 1, &contextConfig, mal_device_type_playback, NULL, &deviceConfig, NULL, &device);
@@ -57,34 +59,7 @@ int main()
         return result;
     }
 
-
-    printf("Unplug the device...\n");
-    mal_event_wait(&g_stopEvent);
-
-    printf("Plug in the device and hit Enter to attempt to restart the device...\n");
-    getchar();
-
-    // To restart the device, first try mal_device_start(). If it fails, re-initialize from the top.
-    result = mal_device_start(&device);
-    if (result != MAL_SUCCESS) {
-        printf("Failed to restart. Attempting to reinitialize...\n");
-        mal_device_uninit(&device);
-        
-        result = mal_device_init_ex(&backend, 1, &contextConfig, mal_device_type_playback, NULL, &deviceConfig, NULL, &device);
-        if (result != MAL_SUCCESS) {
-            printf("Failed to reinitialize.\n");
-            return -1;
-        }
-
-        result = mal_device_start(&device);
-        if (result != MAL_SUCCESS) {
-            printf("Failed to start device.\n");
-            mal_device_uninit(&device);
-            return -1;
-        }
-    }
-
-    printf("Press Enter to quit...");
+    printf("Press Enter to quit...\n");
     getchar();
 
     mal_device_uninit(&device);
