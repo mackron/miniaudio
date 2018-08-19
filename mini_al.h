@@ -15171,6 +15171,11 @@ mal_result mal_device_init_internal__coreaudio(mal_context* pContext, mal_device
         return mal_result_from_OSStatus(status);
     }
     
+    // Grab the name.
+#if defined(MAL_APPLE_DESKTOP)
+    mal_get_AudioObject_name(pContext, deviceObjectID, sizeof(pData->deviceName), pData->deviceName);
+#endif
+    
     return result;
 }
 
@@ -15422,7 +15427,6 @@ mal_result mal_context_init__coreaudio(mal_context* pContext)
     pContext->onGetDeviceInfo = mal_context_get_device_info__coreaudio;
     pContext->onDeviceInit    = mal_device_init__coreaudio;
     pContext->onDeviceUninit  = mal_device_uninit__coreaudio;
-    //pContext->onDeviceReinit  = mal_device_reinit__coreaudio;
     pContext->onDeviceStart   = mal_device__start_backend__coreaudio;
     pContext->onDeviceStop    = mal_device__stop_backend__coreaudio;
 
