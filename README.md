@@ -9,9 +9,8 @@ Features
 - A simple build system.
   - It should Just Work out of the box, without the need to download and install any dependencies.
 - A simple API.
-- Transparent data structures with direct access to internal data.
 - Supports both playback and capture on all backends.
-- Automatic data conversion.
+- Data conversion.
   - Sample format conversion, with optional dithering.
   - Sample rate conversion.
   - Channel mapping and channel conversion (stereo to 5.1, etc.)
