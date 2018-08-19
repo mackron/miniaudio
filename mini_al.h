@@ -1683,6 +1683,7 @@ struct mal_context
             mal_proc AudioObjectGetPropertyData;
             mal_proc AudioObjectGetPropertyDataSize;
             mal_proc AudioObjectSetPropertyData;
+            mal_proc AudioObjectAddPropertyListener;
             
             mal_handle hAudioUnit;  // Could possibly be set to AudioToolbox on later versions of macOS.
             mal_proc AudioComponentFindNext;
@@ -13424,6 +13425,7 @@ typedef Boolean (* mal_CFStringGetCString_proc)(CFStringRef theString, char* buf
 typedef OSStatus (* mal_AudioObjectGetPropertyData_proc)(AudioObjectID inObjectID, const AudioObjectPropertyAddress* inAddress, UInt32 inQualifierDataSize, const void* inQualifierData, UInt32* ioDataSize, void* outData);
 typedef OSStatus (* mal_AudioObjectGetPropertyDataSize_proc)(AudioObjectID inObjectID, const AudioObjectPropertyAddress* inAddress, UInt32 inQualifierDataSize, const void* inQualifierData, UInt32* outDataSize);
 typedef OSStatus (* mal_AudioObjectSetPropertyData_proc)(AudioObjectID inObjectID, const AudioObjectPropertyAddress* inAddress, UInt32 inQualifierDataSize, const void* inQualifierData, UInt32 inDataSize, const void* inData);
+typedef OSStatus (* mal_AudioObjectAddPropertyListener_proc)(AudioObjectID inObjectID, const AudioObjectPropertyAddress* inAddress, AudioObjectPropertyListenerProc inListener, void* inClientData);
 #endif
 
 // AudioToolbox
@@ -14771,7 +14773,7 @@ void on_start_stop__coreaudio(void* pUserData, AudioUnit audioUnit, AudioUnitPro
         // 2) When the device is changed via the default device change notification, this will be called _after_ the switch.
         //
         // For case #1, we just check if there's a new default device available. If so, we just ignore the stop event. For case #2 we check a flag.
-        if (pDevice->isDefaultDevice && mal_device__get_state(pDevice) != MAL_STATE_STOPPING) {
+        if (pDevice->isDefaultDevice && mal_device__get_state(pDevice) != MAL_STATE_STOPPING && mal_device__get_state(pDevice) != MAL_STATE_STOPPED) {
             // It looks like the device is switching through an external event, such as the user unplugging the device or changing the default device
             // via the operating system's sound settings. If we're re-initializing the device, we just terminate because we want the stopping of the
             // device to be seamless to the client (we don't want them receiving the onStop event and thinking that the device has stopped when it
@@ -15283,19 +15285,11 @@ mal_result mal_device_init__coreaudio(mal_context* pContext, mal_device_type dev
 #if defined(MAL_APPLE_DESKTOP)
     // If we are using the default device we'll need to listen for changes to the system's default device so we can seemlessly
     // switch the device in the background.
-    AudioObjectPropertyAddress outputDeviceAddress = {
-        kAudioHardwarePropertyDefaultOutputDevice,
-        kAudioObjectPropertyScopeGlobal,
-        kAudioObjectPropertyElementMaster
-    };
-    AudioObjectAddPropertyListener(kAudioObjectSystemObject, &outputDeviceAddress, &mal_default_output_device_changed__coreaudio, pDevice);
-    
-    AudioObjectPropertyAddress inputDeviceAddress = {
-        kAudioHardwarePropertyDefaultInputDevice,
-        kAudioObjectPropertyScopeGlobal,
-        kAudioObjectPropertyElementMaster
-    };
-    AudioObjectAddPropertyListener(kAudioObjectSystemObject, &inputDeviceAddress, &mal_default_output_device_changed__coreaudio, pDevice);
+    AudioObjectPropertyAddress propAddress;
+    propAddress.mSelector = (deviceType == mal_device_type_playback) ? kAudioHardwarePropertyDefaultOutputDevice : kAudioHardwarePropertyDefaultInputDevice;
+    propAddress.mScope    = kAudioObjectPropertyScopeGlobal;
+    propAddress.mElement  = kAudioObjectPropertyElementMaster;
+    ((mal_AudioObjectAddPropertyListener_proc)pDevice->pContext->coreaudio.AudioObjectAddPropertyListener)(kAudioObjectSystemObject, &propAddress, &mal_default_output_device_changed__coreaudio, pDevice);
 #endif
 
     return MAL_SUCCESS;
@@ -15364,7 +15358,8 @@ mal_result mal_context_init__coreaudio(mal_context* pContext)
     pContext->coreaudio.AudioObjectGetPropertyData     = mal_dlsym(pContext->coreaudio.hCoreAudio, "AudioObjectGetPropertyData");
     pContext->coreaudio.AudioObjectGetPropertyDataSize = mal_dlsym(pContext->coreaudio.hCoreAudio, "AudioObjectGetPropertyDataSize");
     pContext->coreaudio.AudioObjectSetPropertyData     = mal_dlsym(pContext->coreaudio.hCoreAudio, "AudioObjectSetPropertyData");
-    
+    pContext->coreaudio.AudioObjectAddPropertyListener = mal_dlsym(pContext->coreaudio.hCoreAudio, "AudioObjectAddPropertyListener");
+
     
     // It looks like Apple has moved some APIs from AudioUnit into AudioToolbox on more recent versions of macOS. They are still
     // defined in AudioUnit, but just in case they decide to remove them from there entirely I'm going to implement a fallback.
@@ -15405,6 +15400,7 @@ mal_result mal_context_init__coreaudio(mal_context* pContext)
     pContext->coreaudio.AudioObjectGetPropertyData     = (mal_proc)AudioObjectGetPropertyData;
     pContext->coreaudio.AudioObjectGetPropertyDataSize = (mal_proc)AudioObjectGetPropertyDataSize;
     pContext->coreaudio.AudioObjectSetPropertyData     = (mal_proc)AudioObjectSetPropertyData;
+    pContext->coreaudio.AudioObjectAddPropertyListener = (mal_proc)AudioObjectAddPropertyListener;
     #endif
     
     pContext->coreaudio.AudioComponentFindNext         = (mal_proc)AudioComponentFindNext;
