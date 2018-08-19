@@ -5335,6 +5335,8 @@ const PROPERTYKEY MAL_PKEY_AudioEngine_DeviceFormat = {{0xF19F064D, 0x82C,  0x4E
 const IID MAL_IID_IUnknown                          = {0x00000000, 0x0000, 0x0000, {0xC0, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x46}}; // 00000000-0000-0000-C000-000000000046
 
 const IID MAL_IID_IAudioClient                      = {0x1CB9AD4C, 0xDBFA, 0x4C32, {0xB1, 0x78, 0xC2, 0xF5, 0x68, 0xA7, 0x03, 0xB2}}; // 1CB9AD4C-DBFA-4C32-B178-C2F568A703B2 = __uuidof(IAudioClient)
+const IID MAL_IID_IAudioClient2                     = {0x726778CD, 0xF60A, 0x4EDA, {0x82, 0xDE, 0xE4, 0x76, 0x10, 0xCD, 0x78, 0xAA}}; // 726778CD-F60A-4EDA-82DE-E47610CD78AA = __uuidof(IAudioClient2)
+const IID MAL_IID_IAudioClient3                     = {0x7ED4EE07, 0x8E67, 0x4CD4, {0x8C, 0x1A, 0x2B, 0x7A, 0x59, 0x87, 0xAD, 0x42}}; // 7ED4EE07-8E67-4CD4-8C1A-2B7A5987AD42 = __uuidof(IAudioClient3)
 const IID MAL_IID_IAudioRenderClient                = {0xF294ACFC, 0x3146, 0x4483, {0xA7, 0xBF, 0xAD, 0xDC, 0xA7, 0xC2, 0x60, 0xE2}}; // F294ACFC-3146-4483-A7BF-ADDCA7C260E2 = __uuidof(IAudioRenderClient)
 const IID MAL_IID_IAudioCaptureClient               = {0xC8ADBD64, 0xE71E, 0x48A0, {0xA4, 0xDE, 0x18, 0x5C, 0x39, 0x5C, 0xD3, 0x17}}; // C8ADBD64-E71E-48A0-A4DE-185C395CD317 = __uuidof(IAudioCaptureClient)
 const IID MAL_IID_IMMNotificationClient             = {0x7991EEC9, 0x7E89, 0x4D85, {0x83, 0x90, 0x6C, 0x70, 0x3C, 0xEC, 0x60, 0xC0}}; // 7991EEC9-7E89-4D85-8390-6C703CEC60C0 = __uuidof(IMMNotificationClient)
@@ -5367,6 +5369,8 @@ typedef struct mal_IActivateAudioInterfaceAsyncOperation    mal_IActivateAudioIn
 #endif
 typedef struct mal_IPropertyStore                           mal_IPropertyStore;
 typedef struct mal_IAudioClient                             mal_IAudioClient;
+typedef struct mal_IAudioClient2                            mal_IAudioClient2;
+typedef struct mal_IAudioClient3                            mal_IAudioClient3;
 typedef struct mal_IAudioRenderClient                       mal_IAudioRenderClient;
 typedef struct mal_IAudioCaptureClient                      mal_IAudioCaptureClient;
 
@@ -5407,6 +5411,18 @@ typedef enum
     MAL_AUDCLNT_SHAREMODE_SHARED,
     MAL_AUDCLNT_SHAREMODE_EXCLUSIVE
 } MAL_AUDCLNT_SHAREMODE;
+
+typedef enum
+{
+    MAL_AudioCategory_Other = 0,    // <-- mini_al is only caring about Other.
+} MAL_AUDIO_STREAM_CATEGORY;
+
+typedef struct
+{
+    UINT32 cbSize;
+    BOOL bIsOffload;
+    MAL_AUDIO_STREAM_CATEGORY eCategory;
+} mal_AudioClientProperties;
 
 #ifdef MAL_WIN32_DESKTOP
     // IMMNotificationClient
@@ -5594,6 +5610,115 @@ HRESULT mal_IAudioClient_Stop(mal_IAudioClient* pThis)                          
 HRESULT mal_IAudioClient_Reset(mal_IAudioClient* pThis)                                                  { return pThis->lpVtbl->Reset(pThis); }
 HRESULT mal_IAudioClient_SetEventHandle(mal_IAudioClient* pThis, HANDLE eventHandle)                     { return pThis->lpVtbl->SetEventHandle(pThis, eventHandle); }
 HRESULT mal_IAudioClient_GetService(mal_IAudioClient* pThis, const IID* const riid, void** pp)           { return pThis->lpVtbl->GetService(pThis, riid, pp); }
+
+// IAudioClient2
+typedef struct
+{
+    // IUnknown
+    HRESULT (STDMETHODCALLTYPE * QueryInterface)(mal_IAudioClient2* pThis, const IID* const riid, void** ppObject);
+    ULONG   (STDMETHODCALLTYPE * AddRef)        (mal_IAudioClient2* pThis);
+    ULONG   (STDMETHODCALLTYPE * Release)       (mal_IAudioClient2* pThis);
+
+    // IAudioClient
+    HRESULT (STDMETHODCALLTYPE * Initialize)       (mal_IAudioClient2* pThis, MAL_AUDCLNT_SHAREMODE shareMode, DWORD streamFlags, MAL_REFERENCE_TIME bufferDuration, MAL_REFERENCE_TIME periodicity, const WAVEFORMATEX* pFormat, const GUID* pAudioSessionGuid);
+    HRESULT (STDMETHODCALLTYPE * GetBufferSize)    (mal_IAudioClient2* pThis, mal_uint32* pNumBufferFrames);
+    HRESULT (STDMETHODCALLTYPE * GetStreamLatency) (mal_IAudioClient2* pThis, MAL_REFERENCE_TIME* pLatency);
+    HRESULT (STDMETHODCALLTYPE * GetCurrentPadding)(mal_IAudioClient2* pThis, mal_uint32* pNumPaddingFrames);
+    HRESULT (STDMETHODCALLTYPE * IsFormatSupported)(mal_IAudioClient2* pThis, MAL_AUDCLNT_SHAREMODE shareMode, const WAVEFORMATEX* pFormat, WAVEFORMATEX** ppClosestMatch);
+    HRESULT (STDMETHODCALLTYPE * GetMixFormat)     (mal_IAudioClient2* pThis, WAVEFORMATEX** ppDeviceFormat);
+    HRESULT (STDMETHODCALLTYPE * GetDevicePeriod)  (mal_IAudioClient2* pThis, MAL_REFERENCE_TIME* pDefaultDevicePeriod, MAL_REFERENCE_TIME* pMinimumDevicePeriod);
+    HRESULT (STDMETHODCALLTYPE * Start)            (mal_IAudioClient2* pThis);
+    HRESULT (STDMETHODCALLTYPE * Stop)             (mal_IAudioClient2* pThis);
+    HRESULT (STDMETHODCALLTYPE * Reset)            (mal_IAudioClient2* pThis);
+    HRESULT (STDMETHODCALLTYPE * SetEventHandle)   (mal_IAudioClient2* pThis, HANDLE eventHandle);
+    HRESULT (STDMETHODCALLTYPE * GetService)       (mal_IAudioClient2* pThis, const IID* const riid, void** pp);
+
+    // IAudioClient2
+    HRESULT (STDMETHODCALLTYPE * IsOffloadCapable)   (mal_IAudioClient2* pThis, MAL_AUDIO_STREAM_CATEGORY category, BOOL* pOffloadCapable);
+    HRESULT (STDMETHODCALLTYPE * SetClientProperties)(mal_IAudioClient2* pThis, const mal_AudioClientProperties* pProperties);
+    HRESULT (STDMETHODCALLTYPE * GetBufferSizeLimits)(mal_IAudioClient2* pThis, const WAVEFORMATEX* pFormat, BOOL eventDriven, MAL_REFERENCE_TIME* pMinBufferDuration, MAL_REFERENCE_TIME* pMaxBufferDuration);
+} mal_IAudioClient2Vtbl;
+struct mal_IAudioClient2
+{
+    mal_IAudioClient2Vtbl* lpVtbl;
+};
+HRESULT mal_IAudioClient2_QueryInterface(mal_IAudioClient2* pThis, const IID* const riid, void** ppObject) { return pThis->lpVtbl->QueryInterface(pThis, riid, ppObject); }
+ULONG   mal_IAudioClient2_AddRef(mal_IAudioClient2* pThis)                                                 { return pThis->lpVtbl->AddRef(pThis); }
+ULONG   mal_IAudioClient2_Release(mal_IAudioClient2* pThis)                                                { return pThis->lpVtbl->Release(pThis); }
+HRESULT mal_IAudioClient2_Initialize(mal_IAudioClient2* pThis, MAL_AUDCLNT_SHAREMODE shareMode, DWORD streamFlags, MAL_REFERENCE_TIME bufferDuration, MAL_REFERENCE_TIME periodicity, const WAVEFORMATEX* pFormat, const GUID* pAudioSessionGuid) { return pThis->lpVtbl->Initialize(pThis, shareMode, streamFlags, bufferDuration, periodicity, pFormat, pAudioSessionGuid); }
+HRESULT mal_IAudioClient2_GetBufferSize(mal_IAudioClient2* pThis, mal_uint32* pNumBufferFrames)                { return pThis->lpVtbl->GetBufferSize(pThis, pNumBufferFrames); }
+HRESULT mal_IAudioClient2_GetStreamLatency(mal_IAudioClient2* pThis, MAL_REFERENCE_TIME* pLatency)             { return pThis->lpVtbl->GetStreamLatency(pThis, pLatency); }
+HRESULT mal_IAudioClient2_GetCurrentPadding(mal_IAudioClient2* pThis, mal_uint32* pNumPaddingFrames)           { return pThis->lpVtbl->GetCurrentPadding(pThis, pNumPaddingFrames); }
+HRESULT mal_IAudioClient2_IsFormatSupported(mal_IAudioClient2* pThis, MAL_AUDCLNT_SHAREMODE shareMode, const WAVEFORMATEX* pFormat, WAVEFORMATEX** ppClosestMatch) { return pThis->lpVtbl->IsFormatSupported(pThis, shareMode, pFormat, ppClosestMatch); }
+HRESULT mal_IAudioClient2_GetMixFormat(mal_IAudioClient2* pThis, WAVEFORMATEX** ppDeviceFormat)            { return pThis->lpVtbl->GetMixFormat(pThis, ppDeviceFormat); }
+HRESULT mal_IAudioClient2_GetDevicePeriod(mal_IAudioClient2* pThis, MAL_REFERENCE_TIME* pDefaultDevicePeriod, MAL_REFERENCE_TIME* pMinimumDevicePeriod) { return pThis->lpVtbl->GetDevicePeriod(pThis, pDefaultDevicePeriod, pMinimumDevicePeriod); }
+HRESULT mal_IAudioClient2_Start(mal_IAudioClient2* pThis)                                                  { return pThis->lpVtbl->Start(pThis); }
+HRESULT mal_IAudioClient2_Stop(mal_IAudioClient2* pThis)                                                   { return pThis->lpVtbl->Stop(pThis); }
+HRESULT mal_IAudioClient2_Reset(mal_IAudioClient2* pThis)                                                  { return pThis->lpVtbl->Reset(pThis); }
+HRESULT mal_IAudioClient2_SetEventHandle(mal_IAudioClient2* pThis, HANDLE eventHandle)                     { return pThis->lpVtbl->SetEventHandle(pThis, eventHandle); }
+HRESULT mal_IAudioClient2_GetService(mal_IAudioClient2* pThis, const IID* const riid, void** pp)           { return pThis->lpVtbl->GetService(pThis, riid, pp); }
+HRESULT mal_IAudioClient2_IsOffloadCapable(mal_IAudioClient2* pThis, MAL_AUDIO_STREAM_CATEGORY category, BOOL* pOffloadCapable) { return pThis->lpVtbl->IsOffloadCapable(pThis, category, pOffloadCapable); }
+HRESULT mal_IAudioClient2_SetClientProperties(mal_IAudioClient2* pThis, const mal_AudioClientProperties* pProperties)           { return pThis->lpVtbl->SetClientProperties(pThis, pProperties); }
+HRESULT mal_IAudioClient2_GetBufferSizeLimits(mal_IAudioClient2* pThis, const WAVEFORMATEX* pFormat, BOOL eventDriven, MAL_REFERENCE_TIME* pMinBufferDuration, MAL_REFERENCE_TIME* pMaxBufferDuration) { return pThis->lpVtbl->GetBufferSizeLimits(pThis, pFormat, eventDriven, pMinBufferDuration, pMaxBufferDuration); }
+
+
+// IAudioClient3
+typedef struct
+{
+    // IUnknown
+    HRESULT (STDMETHODCALLTYPE * QueryInterface)(mal_IAudioClient3* pThis, const IID* const riid, void** ppObject);
+    ULONG   (STDMETHODCALLTYPE * AddRef)        (mal_IAudioClient3* pThis);
+    ULONG   (STDMETHODCALLTYPE * Release)       (mal_IAudioClient3* pThis);
+
+    // IAudioClient
+    HRESULT (STDMETHODCALLTYPE * Initialize)       (mal_IAudioClient3* pThis, MAL_AUDCLNT_SHAREMODE shareMode, DWORD streamFlags, MAL_REFERENCE_TIME bufferDuration, MAL_REFERENCE_TIME periodicity, const WAVEFORMATEX* pFormat, const GUID* pAudioSessionGuid);
+    HRESULT (STDMETHODCALLTYPE * GetBufferSize)    (mal_IAudioClient3* pThis, mal_uint32* pNumBufferFrames);
+    HRESULT (STDMETHODCALLTYPE * GetStreamLatency) (mal_IAudioClient3* pThis, MAL_REFERENCE_TIME* pLatency);
+    HRESULT (STDMETHODCALLTYPE * GetCurrentPadding)(mal_IAudioClient3* pThis, mal_uint32* pNumPaddingFrames);
+    HRESULT (STDMETHODCALLTYPE * IsFormatSupported)(mal_IAudioClient3* pThis, MAL_AUDCLNT_SHAREMODE shareMode, const WAVEFORMATEX* pFormat, WAVEFORMATEX** ppClosestMatch);
+    HRESULT (STDMETHODCALLTYPE * GetMixFormat)     (mal_IAudioClient3* pThis, WAVEFORMATEX** ppDeviceFormat);
+    HRESULT (STDMETHODCALLTYPE * GetDevicePeriod)  (mal_IAudioClient3* pThis, MAL_REFERENCE_TIME* pDefaultDevicePeriod, MAL_REFERENCE_TIME* pMinimumDevicePeriod);
+    HRESULT (STDMETHODCALLTYPE * Start)            (mal_IAudioClient3* pThis);
+    HRESULT (STDMETHODCALLTYPE * Stop)             (mal_IAudioClient3* pThis);
+    HRESULT (STDMETHODCALLTYPE * Reset)            (mal_IAudioClient3* pThis);
+    HRESULT (STDMETHODCALLTYPE * SetEventHandle)   (mal_IAudioClient3* pThis, HANDLE eventHandle);
+    HRESULT (STDMETHODCALLTYPE * GetService)       (mal_IAudioClient3* pThis, const IID* const riid, void** pp);
+
+    // IAudioClient2
+    HRESULT (STDMETHODCALLTYPE * IsOffloadCapable)   (mal_IAudioClient3* pThis, MAL_AUDIO_STREAM_CATEGORY category, BOOL* pOffloadCapable);
+    HRESULT (STDMETHODCALLTYPE * SetClientProperties)(mal_IAudioClient3* pThis, const mal_AudioClientProperties* pProperties);
+    HRESULT (STDMETHODCALLTYPE * GetBufferSizeLimits)(mal_IAudioClient3* pThis, const WAVEFORMATEX* pFormat, BOOL eventDriven, MAL_REFERENCE_TIME* pMinBufferDuration, MAL_REFERENCE_TIME* pMaxBufferDuration);
+
+    // IAudioClient3
+    HRESULT (STDMETHODCALLTYPE * GetSharedModeEnginePeriod)       (mal_IAudioClient3* pThis, const WAVEFORMATEX* pFormat, UINT32* pDefaultPeriodInFrames, UINT32* pFundamentalPeriodInFrames, UINT32* pMinPeriodInFrames, UINT32* pMaxPeriodInFrames);
+    HRESULT (STDMETHODCALLTYPE * GetCurrentSharedModeEnginePeriod)(mal_IAudioClient3* pThis, WAVEFORMATEX** ppFormat, UINT32* pCurrentPeriodInFrames);
+    HRESULT (STDMETHODCALLTYPE * InitializeSharedAudioStream)     (mal_IAudioClient3* pThis, DWORD streamFlags, UINT32 periodInFrames, const WAVEFORMATEX* pFormat, const GUID* pAudioSessionGuid);
+} mal_IAudioClient3Vtbl;
+struct mal_IAudioClient3
+{
+    mal_IAudioClient3Vtbl* lpVtbl;
+};
+HRESULT mal_IAudioClient3_QueryInterface(mal_IAudioClient3* pThis, const IID* const riid, void** ppObject) { return pThis->lpVtbl->QueryInterface(pThis, riid, ppObject); }
+ULONG   mal_IAudioClient3_AddRef(mal_IAudioClient3* pThis)                                                 { return pThis->lpVtbl->AddRef(pThis); }
+ULONG   mal_IAudioClient3_Release(mal_IAudioClient3* pThis)                                                { return pThis->lpVtbl->Release(pThis); }
+HRESULT mal_IAudioClient3_Initialize(mal_IAudioClient3* pThis, MAL_AUDCLNT_SHAREMODE shareMode, DWORD streamFlags, MAL_REFERENCE_TIME bufferDuration, MAL_REFERENCE_TIME periodicity, const WAVEFORMATEX* pFormat, const GUID* pAudioSessionGuid) { return pThis->lpVtbl->Initialize(pThis, shareMode, streamFlags, bufferDuration, periodicity, pFormat, pAudioSessionGuid); }
+HRESULT mal_IAudioClient3_GetBufferSize(mal_IAudioClient3* pThis, mal_uint32* pNumBufferFrames)                { return pThis->lpVtbl->GetBufferSize(pThis, pNumBufferFrames); }
+HRESULT mal_IAudioClient3_GetStreamLatency(mal_IAudioClient3* pThis, MAL_REFERENCE_TIME* pLatency)             { return pThis->lpVtbl->GetStreamLatency(pThis, pLatency); }
+HRESULT mal_IAudioClient3_GetCurrentPadding(mal_IAudioClient3* pThis, mal_uint32* pNumPaddingFrames)           { return pThis->lpVtbl->GetCurrentPadding(pThis, pNumPaddingFrames); }
+HRESULT mal_IAudioClient3_IsFormatSupported(mal_IAudioClient3* pThis, MAL_AUDCLNT_SHAREMODE shareMode, const WAVEFORMATEX* pFormat, WAVEFORMATEX** ppClosestMatch) { return pThis->lpVtbl->IsFormatSupported(pThis, shareMode, pFormat, ppClosestMatch); }
+HRESULT mal_IAudioClient3_GetMixFormat(mal_IAudioClient3* pThis, WAVEFORMATEX** ppDeviceFormat)            { return pThis->lpVtbl->GetMixFormat(pThis, ppDeviceFormat); }
+HRESULT mal_IAudioClient3_GetDevicePeriod(mal_IAudioClient3* pThis, MAL_REFERENCE_TIME* pDefaultDevicePeriod, MAL_REFERENCE_TIME* pMinimumDevicePeriod) { return pThis->lpVtbl->GetDevicePeriod(pThis, pDefaultDevicePeriod, pMinimumDevicePeriod); }
+HRESULT mal_IAudioClient3_Start(mal_IAudioClient3* pThis)                                                  { return pThis->lpVtbl->Start(pThis); }
+HRESULT mal_IAudioClient3_Stop(mal_IAudioClient3* pThis)                                                   { return pThis->lpVtbl->Stop(pThis); }
+HRESULT mal_IAudioClient3_Reset(mal_IAudioClient3* pThis)                                                  { return pThis->lpVtbl->Reset(pThis); }
+HRESULT mal_IAudioClient3_SetEventHandle(mal_IAudioClient3* pThis, HANDLE eventHandle)                     { return pThis->lpVtbl->SetEventHandle(pThis, eventHandle); }
+HRESULT mal_IAudioClient3_GetService(mal_IAudioClient3* pThis, const IID* const riid, void** pp)           { return pThis->lpVtbl->GetService(pThis, riid, pp); }
+HRESULT mal_IAudioClient3_IsOffloadCapable(mal_IAudioClient3* pThis, MAL_AUDIO_STREAM_CATEGORY category, BOOL* pOffloadCapable) { return pThis->lpVtbl->IsOffloadCapable(pThis, category, pOffloadCapable); }
+HRESULT mal_IAudioClient3_SetClientProperties(mal_IAudioClient3* pThis, const mal_AudioClientProperties* pProperties)           { return pThis->lpVtbl->SetClientProperties(pThis, pProperties); }
+HRESULT mal_IAudioClient3_GetBufferSizeLimits(mal_IAudioClient3* pThis, const WAVEFORMATEX* pFormat, BOOL eventDriven, MAL_REFERENCE_TIME* pMinBufferDuration, MAL_REFERENCE_TIME* pMaxBufferDuration) { return pThis->lpVtbl->GetBufferSizeLimits(pThis, pFormat, eventDriven, pMinBufferDuration, pMaxBufferDuration); }
+HRESULT mal_IAudioClient3_GetSharedModeEnginePeriod(mal_IAudioClient3* pThis, const WAVEFORMATEX* pFormat, UINT32* pDefaultPeriodInFrames, UINT32* pFundamentalPeriodInFrames, UINT32* pMinPeriodInFrames, UINT32* pMaxPeriodInFrames) { return pThis->lpVtbl->GetSharedModeEnginePeriod(pThis, pFormat, pDefaultPeriodInFrames, pFundamentalPeriodInFrames, pMinPeriodInFrames, pMaxPeriodInFrames); }
+HRESULT mal_IAudioClient3_GetCurrentSharedModeEnginePeriod(mal_IAudioClient3* pThis, WAVEFORMATEX** ppFormat, UINT32* pCurrentPeriodInFrames) { return pThis->lpVtbl->GetCurrentSharedModeEnginePeriod(pThis, ppFormat, pCurrentPeriodInFrames); }
+HRESULT mal_IAudioClient3_InitializeSharedAudioStream(mal_IAudioClient3* pThis, DWORD streamFlags, UINT32 periodInFrames, const WAVEFORMATEX* pFormat, const GUID* pAudioSessionGUID) { return pThis->lpVtbl->InitializeSharedAudioStream(pThis, streamFlags, periodInFrames, pFormat, pAudioSessionGUID); }
 
 
 // IAudioRenderClient
