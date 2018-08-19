@@ -6521,6 +6521,24 @@ mal_result mal_device_init_internal__wasapi(mal_context* pContext, mal_device_ty
     }
 #endif
 
+    // Try enabling hardware offloading.
+    mal_IAudioClient2* pAudioClient2;
+    hr = mal_IAudioClient_QueryInterface(pData->pAudioClient, &MAL_IID_IAudioClient2, (void**)&pAudioClient2);
+    if (SUCCEEDED(hr)) {
+        BOOL isHardwareOffloadingSupported = 0;
+        hr = mal_IAudioClient2_IsOffloadCapable(pAudioClient2, MAL_AudioCategory_Other, &isHardwareOffloadingSupported);
+        if (SUCCEEDED(hr) && isHardwareOffloadingSupported) {
+            mal_AudioClientProperties clientProperties;
+            mal_zero_object(&clientProperties);
+            clientProperties.cbSize = sizeof(clientProperties);
+            clientProperties.bIsOffload = 1;
+            clientProperties.eCategory = MAL_AudioCategory_Other;
+            mal_IAudioClient2_SetClientProperties(pAudioClient2, &clientProperties);
+        }
+    }
+
+
+
     WAVEFORMATEXTENSIBLE wf;
     mal_zero_object(&wf);
     wf.Format.cbSize               = sizeof(wf);
@@ -28216,6 +28234,7 @@ mal_uint64 mal_sine_wave_read_ex(mal_sine_wave* pSineWave, mal_uint64 frameCount
 //   - WASAPI and Core Audio: Add support for stream routing. When the application is using a default device and the
 //     user switches the default device via the operating system's audio preferences, mini_al will automatically switch
 //     the internal device to the new default.
+//   - Add support for compiling the UWP build as C.
 //   - mal_device_set_recv_callback() and mal_device_set_send_callback() have been deprecated. You must now set this
 //     when the device is initialized with mal_device_init*(). These will be removed in version 0.9.0.
 //
