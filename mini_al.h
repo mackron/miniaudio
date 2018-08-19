@@ -14815,8 +14815,10 @@ OSStatus mal_default_output_device_changed__coreaudio(AudioObjectID objectID, UI
 #ifdef MAL_DEBUG_OUTPUT
             printf("Device Changed: addressCount=%d, pAddresses[0].mElement=%d\n", addressCount, pAddresses[0].mElement);
 #endif
-            
+            pDevice->coreaudio.isSwitchingDevice = MAL_TRUE;
             mal_result reinitResult = mal_device_reinit_internal__coreaudio(pDevice, MAL_TRUE);
+            pDevice->coreaudio.isSwitchingDevice = MAL_FALSE;
+            
             if (reinitResult == MAL_SUCCESS) {
                 mal_device__post_init_setup(pDevice);
                 
