@@ -6652,12 +6652,16 @@ mal_result mal_device_init_internal__wasapi(mal_context* pContext, mal_device_ty
     mal_channel_mask_to_channel_map__win32(wf.dwChannelMask, pData->channelsOut, pData->channelMapOut);
 
     // If we're using a default buffer size we need to calculate it based on the efficiency of the system.
+    pData->periodsOut = pData->periodsIn;
     pData->bufferSizeInFramesOut = pData->bufferSizeInFramesIn;
     if (pData->bufferSizeInFramesOut == 0) {
         pData->bufferSizeInFramesOut = mal_calculate_buffer_size_in_frames_from_milliseconds(pData->bufferSizeInMillisecondsIn, pData->sampleRateOut);
     }
 
     bufferDurationInMicroseconds = ((mal_uint64)pData->bufferSizeInFramesOut * 1000 * 1000) / pData->sampleRateOut;
+
+
+    mal_bool32 wasInitializedUsingIAudioClient3 = MAL_FALSE;
 
     // Slightly different initialization for shared and exclusive modes. We try exclusive mode first, and if it fails, fall back to shared mode.
     if (shareMode == MAL_AUDCLNT_SHAREMODE_EXCLUSIVE) {
@@ -6714,23 +6718,59 @@ mal_result mal_device_init_internal__wasapi(mal_context* pContext, mal_device_ty
 
     if (shareMode == MAL_AUDCLNT_SHAREMODE_SHARED) {
         // Shared.
-        MAL_REFERENCE_TIME bufferDuration = bufferDurationInMicroseconds*10;
-        hr = mal_IAudioClient_Initialize((mal_IAudioClient*)pData->pAudioClient, shareMode, MAL_AUDCLNT_STREAMFLAGS_EVENTCALLBACK, bufferDuration, 0, (WAVEFORMATEX*)&wf, NULL);
-        if (FAILED(hr)) {
-            if (hr == E_ACCESSDENIED) {
-                errorMsg = "[WASAPI] Failed to initialize device. Access denied.", result = MAL_ACCESS_DENIED;
-            } else {
-                errorMsg = "[WASAPI] Failed to initialize device.", result = MAL_FAILED_TO_OPEN_BACKEND_DEVICE;
+
+        // Low latency shared mode via IAudioClient3.
+        mal_IAudioClient3* pAudioClient3 = NULL;
+        hr = mal_IAudioClient_QueryInterface(pData->pAudioClient, &MAL_IID_IAudioClient3, (void**)&pAudioClient3);
+        if (SUCCEEDED(hr)) {
+            UINT32 defaultPeriodInFrames;
+            UINT32 fundamentalPeriodInFrames;
+            UINT32 minPeriodInFrames;
+            UINT32 maxPeriodInFrames;
+            hr = mal_IAudioClient3_GetSharedModeEnginePeriod(pAudioClient3, (WAVEFORMATEX*)&wf, &defaultPeriodInFrames, &fundamentalPeriodInFrames, &minPeriodInFrames, &maxPeriodInFrames);
+            if (SUCCEEDED(hr)) {
+                UINT32 desiredPeriodInFrames = pData->bufferSizeInFramesOut / pData->periodsOut;
+                
+                // Make sure the period size is a multiple of fundamentalPeriodInFrames.
+                desiredPeriodInFrames = desiredPeriodInFrames / fundamentalPeriodInFrames;
+                desiredPeriodInFrames = desiredPeriodInFrames * fundamentalPeriodInFrames;
+
+                // The period needs to be clamped between minPeriodInFrames and maxPeriodInFrames.
+                desiredPeriodInFrames = mal_clamp(desiredPeriodInFrames, minPeriodInFrames, maxPeriodInFrames);
+                
+                hr = mal_IAudioClient3_InitializeSharedAudioStream(pAudioClient3, MAL_AUDCLNT_STREAMFLAGS_EVENTCALLBACK, desiredPeriodInFrames, (WAVEFORMATEX*)&wf, NULL);
+                if (SUCCEEDED(hr)) {
+                    wasInitializedUsingIAudioClient3 = MAL_TRUE;
+                    pData->bufferSizeInFramesOut = desiredPeriodInFrames * pData->periodsOut;
+                }
             }
 
-            goto done;
+            mal_IAudioClient3_Release(pAudioClient3);
+            pAudioClient3 = NULL;
+        }
+
+        // If we don't have an IAudioClient3 then we need to use the normal initialization routine.
+        if (!wasInitializedUsingIAudioClient3) {
+            MAL_REFERENCE_TIME bufferDuration = bufferDurationInMicroseconds*10;
+            hr = mal_IAudioClient_Initialize((mal_IAudioClient*)pData->pAudioClient, shareMode, MAL_AUDCLNT_STREAMFLAGS_EVENTCALLBACK, bufferDuration, 0, (WAVEFORMATEX*)&wf, NULL);
+            if (FAILED(hr)) {
+                if (hr == E_ACCESSDENIED) {
+                    errorMsg = "[WASAPI] Failed to initialize device. Access denied.", result = MAL_ACCESS_DENIED;
+                } else {
+                    errorMsg = "[WASAPI] Failed to initialize device.", result = MAL_FAILED_TO_OPEN_BACKEND_DEVICE;
+                }
+
+                goto done;
+            }
         }
     }
 
-    hr = mal_IAudioClient_GetBufferSize((mal_IAudioClient*)pData->pAudioClient, &pData->bufferSizeInFramesOut);
-    if (FAILED(hr)) {
-        errorMsg = "[WASAPI] Failed to get audio client's actual buffer size.", result = MAL_FAILED_TO_OPEN_BACKEND_DEVICE;
-        goto done;
+    if (!wasInitializedUsingIAudioClient3) {
+        hr = mal_IAudioClient_GetBufferSize((mal_IAudioClient*)pData->pAudioClient, &pData->bufferSizeInFramesOut);
+        if (FAILED(hr)) {
+            errorMsg = "[WASAPI] Failed to get audio client's actual buffer size.", result = MAL_FAILED_TO_OPEN_BACKEND_DEVICE;
+            goto done;
+        }
     }
 
     if (type == mal_device_type_playback) {
@@ -28234,6 +28274,8 @@ mal_uint64 mal_sine_wave_read_ex(mal_sine_wave* pSineWave, mal_uint64 frameCount
 //   - WASAPI and Core Audio: Add support for stream routing. When the application is using a default device and the
 //     user switches the default device via the operating system's audio preferences, mini_al will automatically switch
 //     the internal device to the new default.
+//   - WASAPI: Add support for hardware offloading via IAudioClient2. Only supported on Windows 8 and newer.
+//   - WASAPI: Add support for low-latency shared mode via IAudioClient3. Only supported on Windows 10 and newer.
 //   - Add support for compiling the UWP build as C.
 //   - mal_device_set_recv_callback() and mal_device_set_send_callback() have been deprecated. You must now set this
 //     when the device is initialized with mal_device_init*(). These will be removed in version 0.9.0.
