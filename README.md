@@ -21,7 +21,7 @@ Features
 
 Supported Platforms
 ===================
-- Windows (XP+)
+- Windows (XP+), UWP
 - macOS, iOS
 - Linux
 - BSD
