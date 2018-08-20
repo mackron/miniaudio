@@ -5802,7 +5802,7 @@ struct mal_completion_handler_uwp
     HANDLE hEvent;
 };
 
-HRESULT mal_completion_handler_uwp_QueryInterface(mal_completion_handler_uwp* pThis, const IID* const riid, void** ppObject)
+HRESULT STDMETHODCALLTYPE mal_completion_handler_uwp_QueryInterface(mal_completion_handler_uwp* pThis, const IID* const riid, void** ppObject)
 {
     // We need to "implement" IAgileObject which is just an indicator that's used internally by WASAPI for some multithreading management. To
     // "implement" this, we just make sure we return pThis when the IAgileObject is requested.
@@ -5817,12 +5817,12 @@ HRESULT mal_completion_handler_uwp_QueryInterface(mal_completion_handler_uwp* pT
     return S_OK;
 }
 
-ULONG mal_completion_handler_uwp_AddRef(mal_completion_handler_uwp* pThis)
+ULONG STDMETHODCALLTYPE mal_completion_handler_uwp_AddRef(mal_completion_handler_uwp* pThis)
 {
     return (ULONG)mal_atomic_increment_32(&pThis->counter);
 }
 
-ULONG mal_completion_handler_uwp_Release(mal_completion_handler_uwp* pThis)
+ULONG STDMETHODCALLTYPE mal_completion_handler_uwp_Release(mal_completion_handler_uwp* pThis)
 {
     mal_uint32 newRefCount = mal_atomic_decrement_32(&pThis->counter);
     if (newRefCount == 0) {
@@ -5832,7 +5832,7 @@ ULONG mal_completion_handler_uwp_Release(mal_completion_handler_uwp* pThis)
     return (ULONG)newRefCount;
 }
 
-HRESULT mal_completion_handler_uwp_ActivateCompleted(mal_completion_handler_uwp* pThis, mal_IActivateAudioInterfaceAsyncOperation* pActivateOperation)
+HRESULT STDMETHODCALLTYPE mal_completion_handler_uwp_ActivateCompleted(mal_completion_handler_uwp* pThis, mal_IActivateAudioInterfaceAsyncOperation* pActivateOperation)
 {
     (void)pActivateOperation;
     SetEvent(pThis->hEvent);
@@ -5877,7 +5877,7 @@ void mal_completion_handler_uwp_wait(mal_completion_handler_uwp* pHandler)
 
 // We need a virtual table for our notification client object that's used for detecting changes to the default device.
 #ifdef MAL_WIN32_DESKTOP
-HRESULT mal_IMMNotificationClient_QueryInterface(mal_IMMNotificationClient* pThis, const IID* const riid, void** ppObject)
+HRESULT STDMETHODCALLTYPE mal_IMMNotificationClient_QueryInterface(mal_IMMNotificationClient* pThis, const IID* const riid, void** ppObject)
 {
     // We care about two interfaces - IUnknown and IMMNotificationClient. If the requested IID is something else
     // we just return E_NOINTERFACE. Otherwise we need to increment the reference counter and return S_OK.
@@ -5892,12 +5892,12 @@ HRESULT mal_IMMNotificationClient_QueryInterface(mal_IMMNotificationClient* pThi
     return S_OK;
 }
 
-ULONG mal_IMMNotificationClient_AddRef(mal_IMMNotificationClient* pThis)
+ULONG STDMETHODCALLTYPE mal_IMMNotificationClient_AddRef(mal_IMMNotificationClient* pThis)
 {
     return (ULONG)mal_atomic_increment_32(&pThis->counter);
 }
 
-ULONG mal_IMMNotificationClient_Release(mal_IMMNotificationClient* pThis)
+ULONG STDMETHODCALLTYPE mal_IMMNotificationClient_Release(mal_IMMNotificationClient* pThis)
 {
     mal_uint32 newRefCount = mal_atomic_decrement_32(&pThis->counter);
     if (newRefCount == 0) {
@@ -5908,7 +5908,7 @@ ULONG mal_IMMNotificationClient_Release(mal_IMMNotificationClient* pThis)
 }
 
 
-HRESULT mal_IMMNotificationClient_OnDeviceStateChanged(mal_IMMNotificationClient* pThis, LPCWSTR pDeviceID, DWORD dwNewState)
+HRESULT STDMETHODCALLTYPE mal_IMMNotificationClient_OnDeviceStateChanged(mal_IMMNotificationClient* pThis, LPCWSTR pDeviceID, DWORD dwNewState)
 {
 #ifdef MAL_DEBUG_OUTPUT
     printf("IMMNotificationClient_OnDeviceStateChanged(pDeviceID=%S, dwNewState=%d)\n", pDeviceID, dwNewState);
@@ -5920,7 +5920,7 @@ HRESULT mal_IMMNotificationClient_OnDeviceStateChanged(mal_IMMNotificationClient
     return S_OK;
 }
 
-HRESULT mal_IMMNotificationClient_OnDeviceAdded(mal_IMMNotificationClient* pThis, LPCWSTR pDeviceID)
+HRESULT STDMETHODCALLTYPE mal_IMMNotificationClient_OnDeviceAdded(mal_IMMNotificationClient* pThis, LPCWSTR pDeviceID)
 {
 #ifdef MAL_DEBUG_OUTPUT
     printf("IMMNotificationClient_OnDeviceAdded(pDeviceID=%S)\n", pDeviceID);
@@ -5932,7 +5932,7 @@ HRESULT mal_IMMNotificationClient_OnDeviceAdded(mal_IMMNotificationClient* pThis
     return S_OK;
 }
 
-HRESULT mal_IMMNotificationClient_OnDeviceRemoved(mal_IMMNotificationClient* pThis, LPCWSTR pDeviceID)
+HRESULT STDMETHODCALLTYPE mal_IMMNotificationClient_OnDeviceRemoved(mal_IMMNotificationClient* pThis, LPCWSTR pDeviceID)
 {
 #ifdef MAL_DEBUG_OUTPUT
     printf("IMMNotificationClient_OnDeviceRemoved(pDeviceID=%S)\n", pDeviceID);
@@ -5944,7 +5944,7 @@ HRESULT mal_IMMNotificationClient_OnDeviceRemoved(mal_IMMNotificationClient* pTh
     return S_OK;
 }
 
-HRESULT mal_IMMNotificationClient_OnDefaultDeviceChanged(mal_IMMNotificationClient* pThis, mal_EDataFlow dataFlow, mal_ERole role, LPCWSTR pDefaultDeviceID)
+HRESULT STDMETHODCALLTYPE mal_IMMNotificationClient_OnDefaultDeviceChanged(mal_IMMNotificationClient* pThis, mal_EDataFlow dataFlow, mal_ERole role, LPCWSTR pDefaultDeviceID)
 {
 #ifdef MAL_DEBUG_OUTPUT
     printf("IMMNotificationClient_OnDefaultDeviceChanged(dataFlow=%d, role=%d, pDefaultDeviceID=%S)\n", dataFlow, role, pDefaultDeviceID);
@@ -5978,7 +5978,7 @@ HRESULT mal_IMMNotificationClient_OnDefaultDeviceChanged(mal_IMMNotificationClie
     return S_OK;
 }
 
-HRESULT mal_IMMNotificationClient_OnPropertyValueChanged(mal_IMMNotificationClient* pThis, LPCWSTR pDeviceID, const PROPERTYKEY key)
+HRESULT STDMETHODCALLTYPE mal_IMMNotificationClient_OnPropertyValueChanged(mal_IMMNotificationClient* pThis, LPCWSTR pDeviceID, const PROPERTYKEY key)
 {
 #ifdef MAL_DEBUG_OUTPUT
     printf("IMMNotificationClient_OnPropertyValueChanged(pDeviceID=%S)\n", pDeviceID);
