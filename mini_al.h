@@ -6500,6 +6500,7 @@ mal_result mal_device_init_internal__wasapi(mal_context* pContext, mal_device_ty
     MAL_AUDCLNT_SHAREMODE shareMode = MAL_AUDCLNT_SHAREMODE_SHARED;
     WAVEFORMATEXTENSIBLE* pBestFormatTemp = NULL;
     MAL_REFERENCE_TIME bufferDurationInMicroseconds;
+    mal_bool32 wasInitializedUsingIAudioClient3 = MAL_FALSE;
 
 #ifdef MAL_WIN32_DESKTOP
     mal_IMMDevice* pMMDevice = NULL;
@@ -6660,8 +6661,6 @@ mal_result mal_device_init_internal__wasapi(mal_context* pContext, mal_device_ty
 
     bufferDurationInMicroseconds = ((mal_uint64)pData->bufferSizeInFramesOut * 1000 * 1000) / pData->sampleRateOut;
 
-
-    mal_bool32 wasInitializedUsingIAudioClient3 = MAL_FALSE;
 
     // Slightly different initialization for shared and exclusive modes. We try exclusive mode first, and if it fails, fall back to shared mode.
     if (shareMode == MAL_AUDCLNT_SHAREMODE_EXCLUSIVE) {
