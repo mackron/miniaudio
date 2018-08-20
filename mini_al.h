@@ -122,6 +122,9 @@
 //   integer samples, interleaved. Let me know if you need non-interleaved and I'll look into it.
 // - The sndio backend is currently only enabled on OpenBSD builds.
 // - The audio(4) backend is supported on OpenBSD, but you may need to disable sndiod before you can use it.
+// - If you are using the platform's default device, mini_al will try automatically switching the internal
+//   device when the device is unplugged. This feature is disabled when the device is opened in exclusive
+//   mode.
 //
 //
 //
@@ -5384,6 +5387,7 @@ typedef mal_int64                                           MAL_REFERENCE_TIME;
 #define MAL_AUDCLNT_E_INVALID_DEVICE_PERIOD                 (-2004287456)
 #define MAL_AUDCLNT_E_BUFFER_SIZE_NOT_ALIGNED               (-2004287463)
 #define MAL_AUDCLNT_S_BUFFER_EMPTY                          (143196161)
+#define MAL_AUDCLNT_E_DEVICE_IN_USE                         (2290679818)
 
 typedef enum
 {
@@ -5954,6 +5958,13 @@ HRESULT mal_IMMNotificationClient_OnDefaultDeviceChanged(mal_IMMNotificationClie
     // We only care about devices with the same data flow and role as the current device.
     if ((pThis->pDevice->type == mal_device_type_playback && dataFlow != mal_eRender ) ||
         (pThis->pDevice->type == mal_device_type_capture  && dataFlow != mal_eCapture)) {
+        return S_OK;
+    }
+
+    // Not currently supporting automatic stream routing in exclusive mode. This is not working correctly on my machine due to
+    // AUDCLNT_E_DEVICE_IN_USE errors when reinitializing the device. If this is a bug in mini_al, we can try re-enabling this once
+    // it's fixed.
+    if (pThis->pDevice->exclusiveMode) {
         return S_OK;
     }
 
@@ -6706,6 +6717,8 @@ mal_result mal_device_init_internal__wasapi(mal_context* pContext, mal_device_ty
             if (FAILED(hr)) {
                 if (hr == E_ACCESSDENIED) {
                     errorMsg = "[WASAPI] Failed to initialize device. Access denied.", result = MAL_ACCESS_DENIED;
+                } else if (hr == MAL_AUDCLNT_E_DEVICE_IN_USE) {
+                    errorMsg = "[WASAPI] Failed to initialize device. Device in use.", result = MAL_DEVICE_BUSY;
                 } else {
                     errorMsg = "[WASAPI] Failed to initialize device.", result = MAL_FAILED_TO_OPEN_BACKEND_DEVICE;
                 }
@@ -6814,12 +6827,15 @@ mal_result mal_device_reinit__wasapi(mal_device* pDevice)
     // At this point we have some new objects ready to go. We need to uninitialize the previous ones and then set the new ones.
     if (pDevice->wasapi.pRenderClient) {
         mal_IAudioRenderClient_Release((mal_IAudioRenderClient*)pDevice->wasapi.pRenderClient);
+        pDevice->wasapi.pRenderClient = NULL;
     }
     if (pDevice->wasapi.pCaptureClient) {
         mal_IAudioCaptureClient_Release((mal_IAudioCaptureClient*)pDevice->wasapi.pCaptureClient);
+        pDevice->wasapi.pCaptureClient = NULL;
     }
     if (pDevice->wasapi.pAudioClient) {
         mal_IAudioClient_Release((mal_IAudioClient*)pDevice->wasapi.pAudioClient);
+        pDevice->wasapi.pAudioClient = NULL;
     }
 
     pDevice->wasapi.pAudioClient = data.pAudioClient;
@@ -6971,6 +6987,10 @@ mal_result mal_device__stop_backend__wasapi(mal_device* pDevice)
 {
     mal_assert(pDevice != NULL);
 
+    if (pDevice->wasapi.pAudioClient == NULL) {
+        return MAL_DEVICE_NOT_INITIALIZED;
+    }
+
     HRESULT hr = mal_IAudioClient_Stop((mal_IAudioClient*)pDevice->wasapi.pAudioClient);
     if (FAILED(hr)) {
         return mal_post_error(pDevice, MAL_LOG_LEVEL_ERROR, "[WASAPI] Failed to stop internal device.", MAL_FAILED_TO_STOP_BACKEND_DEVICE);
@@ -7060,7 +7080,11 @@ mal_result mal_device__wait_for_frames__wasapi(mal_device* pDevice, mal_uint32* 
         if (!needDeviceReinit) {
             result = mal_device__get_available_frames__wasapi(pDevice, pFrameCount);
             if (result != MAL_SUCCESS) {
-                needDeviceReinit = MAL_TRUE;
+                if (!pDevice->exclusiveMode) {
+                    needDeviceReinit = MAL_TRUE;
+                } else {
+                    return result;
+                }
             }
         }
 
@@ -19945,7 +19969,7 @@ mal_thread_result MAL_THREADCALL mal_worker_thread(void* pData)
         // Now we just enter the main loop. When the main loop is terminated the device needs to be marked as stopped. This can
         // be broken with mal_device__break_main_loop().
         mal_result mainLoopResult = pDevice->pContext->onDeviceMainLoop(pDevice);
-        if (mainLoopResult != MAL_SUCCESS && pDevice->isDefaultDevice && mal_device__get_state(pDevice) == MAL_STATE_STARTED) {
+        if (mainLoopResult != MAL_SUCCESS && pDevice->isDefaultDevice && mal_device__get_state(pDevice) == MAL_STATE_STARTED && !pDevice->exclusiveMode) {
             // Something has failed during the main loop. It could be that the device has been lost. If it's the default device,
             // we can try switching over to the new default device by uninitializing and reinitializing.
             mal_result reinitResult = MAL_ERROR;
@@ -28220,10 +28244,10 @@ mal_uint64 mal_sine_wave_read_ex(mal_sine_wave* pSineWave, mal_uint64 frameCount
 //   - Automatically switch the internal device when the default device is unplugged. Note that this is still in the
 //     early stages and not all backends handle this the same way. As of this version, this will not detect a default
 //     device switch when changed from the operating system's audio preferences (unless the backend itself handles
-//     this automatically).
+//     this automatically). This is not supported in exclusive mode.
 //   - WASAPI and Core Audio: Add support for stream routing. When the application is using a default device and the
 //     user switches the default device via the operating system's audio preferences, mini_al will automatically switch
-//     the internal device to the new default.
+//     the internal device to the new default. This is not supported in exclusive mode.
 //   - WASAPI: Add support for hardware offloading via IAudioClient2. Only supported on Windows 8 and newer.
 //   - WASAPI: Add support for low-latency shared mode via IAudioClient3. Only supported on Windows 10 and newer.
 //   - Add support for compiling the UWP build as C.
