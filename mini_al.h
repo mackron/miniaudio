@@ -16906,6 +16906,16 @@ mal_result mal_device_init__audio4(mal_context* pContext, mal_device_type device
     // using the channels defined in FreeBSD's sound(4) man page.
     mal_get_standard_channel_map(mal_standard_channel_map_sound4, pDevice->internalChannels, pDevice->internalChannelMap);
 
+
+    // The version of the operating system dictates whether or not the device is exclusive or shared. NetBSD
+    // introduced in-kernel mixing which means it's shared. All other BSD flavours are exclusive as far as
+    // I'm aware.
+#if defined(__NetBSD_Version__) && __NetBSD_Version__ >= 800000000
+    pDevice->exclusiveMode = MAL_FALSE;
+#else
+    pDevice->exclusiveMode = MAL_TRUE;
+#endif
+
     
     // When not using MMAP mode we need to use an intermediary buffer to the data transfer between the client
     // and device. Everything is done by the size of a fragment.
