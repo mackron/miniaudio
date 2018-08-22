@@ -16421,6 +16421,7 @@ mal_result mal_context_init__sndio(mal_context* pContext)
 ///////////////////////////////////////////////////////////////////////////////
 #ifdef MAL_HAS_AUDIO4
 #include <fcntl.h>
+#include <poll.h>
 #include <sys/stat.h>
 #include <sys/types.h>
 #include <sys/ioctl.h>
@@ -16740,7 +16741,8 @@ mal_result mal_device_init__audio4(mal_context* pContext, mal_device_type device
         deviceName = pDeviceID->audio4;
     }
     
-    pDevice->audio4.fd = open(deviceName, (deviceType == mal_device_type_playback) ? O_WRONLY : O_RDONLY, 0);
+    // TODO: Consider non blocking mode: O_NONBLOCK. Needed for detecting device unplugs.
+    pDevice->audio4.fd = open(deviceName, ((deviceType == mal_device_type_playback) ? O_WRONLY : O_RDONLY) | O_NONBLOCK, 0);
     if (pDevice->audio4.fd == -1) {
         return mal_post_error(pDevice, MAL_LOG_LEVEL_ERROR, "[audio4] Failed to open device.", MAL_FAILED_TO_OPEN_BACKEND_DEVICE);
     }
@@ -16995,18 +16997,85 @@ mal_result mal_device__main_loop__audio4(mal_device* pDevice)
             // Playback.
             mal_device__read_frames_from_client(pDevice, pDevice->audio4.fragmentSizeInFrames, pDevice->audio4.pIntermediaryBuffer);
 
-            int bytesWritten = write(pDevice->audio4.fd, pDevice->audio4.pIntermediaryBuffer, pDevice->audio4.fragmentSizeInFrames * pDevice->internalChannels * mal_get_bytes_per_sample(pDevice->internalFormat));
-            if (bytesWritten < 0) {
-                return mal_post_error(pDevice, MAL_LOG_LEVEL_ERROR, "[audio4] Failed to send data from the client to the device.", MAL_FAILED_TO_SEND_DATA_TO_DEVICE);
+            // Wait for data to become available.
+            struct pollfd fds[1];
+            fds[0].fd     = pDevice->audio4.fd;
+            fds[0].events = POLLOUT | POLLWRBAND;
+            int timeout = 2 * 1000; //mal_calculate_buffer_size_in_milliseconds_from_frames(pDevice->audio4.fragmentSizeInFrames, pDevice->internalSampleRate);
+            for (;;) {
+                int ioresult = poll(fds, mal_countof(fds), timeout);
+                if (ioresult < 0) {
+                #ifdef MAL_DEBUG_OUTPUT
+                    printf("poll() failed: timeout=%d, ioresult=%d\n", pDevice->bufferSizeInMilliseconds, ioresult);
+                #endif
+                    return mal_post_error(pDevice, MAL_LOG_LEVEL_ERROR, "[audio4] Failed to wait for device.", MAL_FAILED_TO_SEND_DATA_TO_DEVICE);
+                }
+
+                if (ioresult > 0) {
+                    break;
+                }
+
+                mal_assert(ioresult == 0);
+
+                // A return value of 0 from pool indicates a timeout.
+                return mal_post_error(pDevice, MAL_LOG_LEVEL_ERROR, "[audio4] Timeout while waiting for device.", MAL_FAILED_TO_SEND_DATA_TO_DEVICE);
+            }
+           
+            size_t bytesToWrite = pDevice->audio4.fragmentSizeInFrames * mal_get_bytes_per_frame(pDevice->internalFormat, pDevice->internalChannels);
+            while (bytesToWrite > 0) {
+                ssize_t bytesWritten = write(pDevice->audio4.fd, pDevice->audio4.pIntermediaryBuffer, bytesToWrite);
+                if (bytesWritten < 0) {
+                    return mal_post_error(pDevice, MAL_LOG_LEVEL_ERROR, "[audio4] Failed to send data from the client to the device.", MAL_FAILED_TO_SEND_DATA_TO_DEVICE);
+                }
+
+                if (bytesWritten == 0) {
+                    return mal_post_error(pDevice, MAL_LOG_LEVEL_ERROR, "[audio4] Failed to write any data to the device.", MAL_FAILED_TO_SEND_DATA_TO_DEVICE);
+                }
+
+                bytesToWrite -= bytesWritten;
             }
         } else {
             // Capture.
-            int bytesRead = read(pDevice->audio4.fd, pDevice->audio4.pIntermediaryBuffer, pDevice->audio4.fragmentSizeInFrames * mal_get_bytes_per_sample(pDevice->internalFormat));
-            if (bytesRead < 0) {
-                return mal_post_error(pDevice, MAL_LOG_LEVEL_ERROR, "[audio4] Failed to read data from the device to be sent to the client.", MAL_FAILED_TO_READ_DATA_FROM_DEVICE);
+            struct pollfd fds[1];
+            fds[0].fd     = pDevice->audio4.fd;
+            fds[0].events = POLLIN | POLLPRI;
+            int timeout = 2 * 1000; //mal_calculate_buffer_size_in_milliseconds_from_frames(pDevice->audio4.fragmentSizeInFrames, pDevice->internalSampleRate);
+            for (;;) {
+                int ioresult = poll(fds, mal_countof(fds), timeout);
+                if (ioresult < 0) { // 0 = timeout.
+                #ifdef MAL_DEBUG_OUTPUT
+                    printf("poll() failed: timeout=%d, ioresult=%d\n", pDevice->bufferSizeInMilliseconds, ioresult);
+                #endif
+                    return mal_post_error(pDevice, MAL_LOG_LEVEL_ERROR, "[audio4] Failed to wait for device.", MAL_FAILED_TO_READ_DATA_FROM_DEVICE);
+                }
+
+                if (ioresult > 0) {
+                    break;
+                }
+
+                mal_assert(ioresult == 0);
+                
+                // A return value of 0 from pool indicates a timeout.
+                return mal_post_error(pDevice, MAL_LOG_LEVEL_ERROR, "[audio4] Timeout while waiting for device.", MAL_FAILED_TO_READ_DATA_FROM_DEVICE);
             }
 
-            mal_uint32 framesRead = (mal_uint32)bytesRead / pDevice->internalChannels / mal_get_bytes_per_sample(pDevice->internalFormat);
+            size_t totalBytesRead = 0;
+            size_t bytesToRead = pDevice->audio4.fragmentSizeInFrames * mal_get_bytes_per_frame(pDevice->internalFormat, pDevice->internalChannels);
+            while (bytesToRead > 0) {
+                int bytesRead = read(pDevice->audio4.fd, pDevice->audio4.pIntermediaryBuffer, bytesToRead);
+                if (bytesRead < 0) {
+                    return mal_post_error(pDevice, MAL_LOG_LEVEL_ERROR, "[audio4] Failed to read data from the device to be sent to the client.", MAL_FAILED_TO_READ_DATA_FROM_DEVICE);
+                }
+
+                if (bytesRead == 0) {
+                    return mal_post_error(pDevice, MAL_LOG_LEVEL_ERROR, "[audio4] Failed to read any data from the device.", MAL_FAILED_TO_READ_DATA_FROM_DEVICE);
+                }
+
+                bytesToRead -= bytesRead;
+                totalBytesRead += bytesRead;
+            }
+
+            mal_uint32 framesRead = (mal_uint32)totalBytesRead / mal_get_bytes_per_frame(pDevice->internalFormat, pDevice->internalChannels);
             mal_device__send_frames_to_client(pDevice, framesRead, pDevice->audio4.pIntermediaryBuffer);
         }
     }
