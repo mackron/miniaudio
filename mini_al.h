@@ -505,6 +505,7 @@ typedef int mal_result;
 #define MAL_ACCESS_DENIED                               -32
 #define MAL_TOO_LARGE                                   -33
 #define MAL_DEVICE_UNAVAILABLE                          -34
+#define MAL_TIMEOUT                                     -35
 
 // Standard sample rates.
 #define MAL_SAMPLE_RATE_8000                            8000
@@ -16734,6 +16735,7 @@ mal_result mal_device_init__audio4(mal_context* pContext, mal_device_type device
 
     mal_assert(pDevice != NULL);
     mal_zero_object(&pDevice->audio4);
+    pDevice->audio4.fd = -1;
     
     // The first thing to do is open the file.
     const char* deviceName = "/dev/audio";
@@ -16741,7 +16743,6 @@ mal_result mal_device_init__audio4(mal_context* pContext, mal_device_type device
         deviceName = pDeviceID->audio4;
     }
     
-    // TODO: Consider non blocking mode: O_NONBLOCK. Needed for detecting device unplugs.
     pDevice->audio4.fd = open(deviceName, ((deviceType == mal_device_type_playback) ? O_WRONLY : O_RDONLY) | O_NONBLOCK, 0);
     if (pDevice->audio4.fd == -1) {
         return mal_post_error(pDevice, MAL_LOG_LEVEL_ERROR, "[audio4] Failed to open device.", MAL_FAILED_TO_OPEN_BACKEND_DEVICE);
@@ -16935,6 +16936,10 @@ mal_result mal_device__start_backend__audio4(mal_device* pDevice)
 {
     mal_assert(pDevice != NULL);
 
+    if (pDevice->audio4.fd == -1) {
+        return MAL_INVALID_ARGS;
+    }
+
     // The device is started by the next calls to read() and write(). For playback it's simple - just read
     // data from the client, then write it to the device with write() which will in turn start the device.
     // For capture it's a bit less intuitive - we do nothing (it'll be started automatically by the first
@@ -16960,6 +16965,10 @@ mal_result mal_device__stop_backend__audio4(mal_device* pDevice)
 {
     mal_assert(pDevice != NULL);
 
+    if (pDevice->audio4.fd == -1) {
+        return MAL_INVALID_ARGS;
+    }
+
 #if defined(__NetBSD__)
     if (ioctl(pDevice->audio4.fd, AUDIO_FLUSH, 0) < 0) {
         return mal_post_error(pDevice, MAL_LOG_LEVEL_ERROR, "[audio4] Failed to stop device. AUDIO_FLUSH failed.", MAL_FAILED_TO_STOP_BACKEND_DEVICE);
@@ -16981,6 +16990,44 @@ mal_result mal_device__break_main_loop__audio4(mal_device* pDevice)
     return MAL_SUCCESS;
 }
 
+mal_result mal_device__wait__audio4(mal_device* pDevice)
+{
+    mal_assert(pDevice != NULL);
+
+    struct pollfd fds[1];
+    fds[0].fd     = pDevice->audio4.fd;
+    fds[0].events = (pDevice->type == mal_device_type_playback) ? (POLLOUT | POLLWRBAND) : (POLLIN | POLLPRI);
+    int timeout = 2 * 1000;
+    int ioresult = poll(fds, mal_countof(fds), timeout);
+    if (ioresult < 0) {
+    #ifdef MAL_DEBUG_OUTPUT
+        printf("poll() failed: timeout=%d, ioresult=%d\n", pDevice->bufferSizeInMilliseconds, ioresult);
+    #endif
+        return mal_post_error(pDevice, MAL_LOG_LEVEL_ERROR, "[audio4] Failed to wait for device.", MAL_ERROR);
+    }
+
+    // Check for a timeout. This has been annoying in my testing. In my testing, when the device is unplugged it will just
+    // hang on the next calls to write(), ioctl(), etc. The only way I have figured out how to handle this is to wait for
+    // a timeout from poll(). In the unplugging case poll() will timeout, however there's no indication that the device is
+    // unusable - no flags are set, no errors are reported, nothing. To work around this I have decided to outright fail
+    // in the event of a timeout.
+    if (ioresult == 0) {
+        // Check for errors.
+        if ((fds[0].revents & (POLLERR | POLLNVAL)) != 0) {
+            return mal_post_error(pDevice, MAL_LOG_LEVEL_ERROR, "[audio4] Failed to wait for device.", MAL_NO_DEVICE);
+        }
+        if ((fds[0].revents & (POLLHUP)) != 0) {
+            return mal_post_error(pDevice, MAL_LOG_LEVEL_ERROR, "[audio4] Failed to wait for device. Disconnected.", MAL_NO_DEVICE);
+        }
+
+        // A return value of 0 from poll indicates a timeout.
+        return mal_post_error(pDevice, MAL_LOG_LEVEL_ERROR, "[audio4] Timeout while waiting for device.", MAL_TIMEOUT);
+    }
+
+    mal_assert(ioresult > 0);
+    return MAL_SUCCESS;
+}
+
 mal_result mal_device__main_loop__audio4(mal_device* pDevice)
 {
     mal_assert(pDevice != NULL);
@@ -16998,29 +17045,11 @@ mal_result mal_device__main_loop__audio4(mal_device* pDevice)
             mal_device__read_frames_from_client(pDevice, pDevice->audio4.fragmentSizeInFrames, pDevice->audio4.pIntermediaryBuffer);
 
             // Wait for data to become available.
-            struct pollfd fds[1];
-            fds[0].fd     = pDevice->audio4.fd;
-            fds[0].events = POLLOUT | POLLWRBAND;
-            int timeout = 2 * 1000; //mal_calculate_buffer_size_in_milliseconds_from_frames(pDevice->audio4.fragmentSizeInFrames, pDevice->internalSampleRate);
-            for (;;) {
-                int ioresult = poll(fds, mal_countof(fds), timeout);
-                if (ioresult < 0) {
-                #ifdef MAL_DEBUG_OUTPUT
-                    printf("poll() failed: timeout=%d, ioresult=%d\n", pDevice->bufferSizeInMilliseconds, ioresult);
-                #endif
-                    return mal_post_error(pDevice, MAL_LOG_LEVEL_ERROR, "[audio4] Failed to wait for device.", MAL_FAILED_TO_SEND_DATA_TO_DEVICE);
-                }
-
-                if (ioresult > 0) {
-                    break;
-                }
-
-                mal_assert(ioresult == 0);
-
-                // A return value of 0 from pool indicates a timeout.
-                return mal_post_error(pDevice, MAL_LOG_LEVEL_ERROR, "[audio4] Timeout while waiting for device.", MAL_FAILED_TO_SEND_DATA_TO_DEVICE);
+            mal_result result = mal_device__wait__audio4(pDevice);
+            if (result != MAL_SUCCESS) {
+                return result;
             }
-           
+
             size_t bytesToWrite = pDevice->audio4.fragmentSizeInFrames * mal_get_bytes_per_frame(pDevice->internalFormat, pDevice->internalChannels);
             while (bytesToWrite > 0) {
                 ssize_t bytesWritten = write(pDevice->audio4.fd, pDevice->audio4.pIntermediaryBuffer, bytesToWrite);
@@ -17036,27 +17065,9 @@ mal_result mal_device__main_loop__audio4(mal_device* pDevice)
             }
         } else {
             // Capture.
-            struct pollfd fds[1];
-            fds[0].fd     = pDevice->audio4.fd;
-            fds[0].events = POLLIN | POLLPRI;
-            int timeout = 2 * 1000; //mal_calculate_buffer_size_in_milliseconds_from_frames(pDevice->audio4.fragmentSizeInFrames, pDevice->internalSampleRate);
-            for (;;) {
-                int ioresult = poll(fds, mal_countof(fds), timeout);
-                if (ioresult < 0) { // 0 = timeout.
-                #ifdef MAL_DEBUG_OUTPUT
-                    printf("poll() failed: timeout=%d, ioresult=%d\n", pDevice->bufferSizeInMilliseconds, ioresult);
-                #endif
-                    return mal_post_error(pDevice, MAL_LOG_LEVEL_ERROR, "[audio4] Failed to wait for device.", MAL_FAILED_TO_READ_DATA_FROM_DEVICE);
-                }
-
-                if (ioresult > 0) {
-                    break;
-                }
-
-                mal_assert(ioresult == 0);
-                
-                // A return value of 0 from pool indicates a timeout.
-                return mal_post_error(pDevice, MAL_LOG_LEVEL_ERROR, "[audio4] Timeout while waiting for device.", MAL_FAILED_TO_READ_DATA_FROM_DEVICE);
+            mal_result result = mal_device__wait__audio4(pDevice);
+            if (result != MAL_SUCCESS) {
+                return result;
             }
 
             size_t totalBytesRead = 0;
