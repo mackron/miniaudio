@@ -17390,24 +17390,25 @@ mal_result mal_device_init__audio4(mal_context* pContext, mal_device_type device
     }
 
     // What mini_al calls a fragment, audio4 calls a block.
-    mal_uint32 fragmentSizeInBytes = pDevice->bufferSizeInFrames * mal_get_bytes_per_frame(pDevice->internalFormat, pDevice->internalChannels);
-    if (fragmentSizeInBytes < 16) {
-        fragmentSizeInBytes = 16;
+    mal_uint32 bufferSizeInBytes = pDevice->bufferSizeInFrames * mal_get_bytes_per_frame(pDevice->internalFormat, pDevice->internalChannels);
+    if (bufferSizeInBytes < 16) {
+        bufferSizeInBytes = 16;
     }
 
     
     AUDIO_INITINFO(&fdInfo);
-    fdInfo.hiwat = mal_max(pDevice->periods, 5);
-    fdInfo.lowat = (unsigned int)(fdInfo.hiwat * 0.75);
-    fdInfo.blocksize = fragmentSizeInBytes / fdInfo.hiwat;
+    fdInfo.hiwat = pDevice->periods;
+    fdInfo.lowat = pDevice->periods-1;
+    fdInfo.blocksize = bufferSizeInBytes / pDevice->periods;
     if (ioctl(pDevice->audio4.fd, AUDIO_SETINFO, &fdInfo) < 0) {
         close(pDevice->audio4.fd);
         return mal_post_error(pDevice, MAL_LOG_LEVEL_ERROR, "[audio4] Failed to set internal buffer size. AUDIO_SETINFO failed.", MAL_FORMAT_NOT_SUPPORTED);
     }
     
+    printf("blocksize=%d, hiwat=%d\n", fdInfo.blocksize, fdInfo.hiwat);
+
     pDevice->periods = fdInfo.hiwat;
     pDevice->bufferSizeInFrames = (fdInfo.blocksize * fdInfo.hiwat) / mal_get_bytes_per_frame(pDevice->internalFormat, pDevice->internalChannels);
-    pDevice->audio4.fragmentSizeInFrames = fdInfo.blocksize / mal_get_bytes_per_frame(pDevice->internalFormat, pDevice->internalChannels);
 #else
     // We need to retrieve the format of the device so we can know the channel count and sample rate. Then we
     // can calculate the buffer size.
@@ -17455,27 +17456,16 @@ mal_result mal_device_init__audio4(mal_context* pContext, mal_device_type device
     } else {
         pDevice->internalChannels = fdPar.rchan;
     }
-    pDevice->internalSampleRate = fdPar.rate;
-    
+    pDevice->internalSampleRate = fdPar.rate; 
+
     pDevice->periods = fdPar.nblks;
     pDevice->bufferSizeInFrames = (fdPar.nblks * fdPar.round) / mal_get_bytes_per_frame(pDevice->internalFormat, pDevice->internalChannels);
-    pDevice->audio4.fragmentSizeInFrames = fdPar.round / mal_get_bytes_per_frame(pDevice->internalFormat, pDevice->internalChannels);
 #endif
 
 
     // For the channel map, I'm not sure how to query the channel map (or if it's even possible). I'm just
     // using the channels defined in FreeBSD's sound(4) man page.
     mal_get_standard_channel_map(mal_standard_channel_map_sound4, pDevice->internalChannels, pDevice->internalChannelMap);
-
-
-    // When not using MMAP mode we need to use an intermediary buffer to the data transfer between the client
-    // and device. Everything is done by the size of a fragment.
-    pDevice->audio4.pIntermediaryBuffer = mal_malloc(pDevice->audio4.fragmentSizeInFrames * mal_get_bytes_per_frame(pDevice->internalFormat, pDevice->internalChannels));
-    if (pDevice->audio4.pIntermediaryBuffer == NULL) {
-        close(pDevice->audio4.fd);
-        return mal_post_error(pDevice, MAL_LOG_LEVEL_ERROR, "[audio4] Failed to allocate memory for intermediary buffer.", MAL_OUT_OF_MEMORY);
-    }
-
     
     return MAL_SUCCESS;
 }
@@ -17486,24 +17476,6 @@ mal_result mal_device_start__audio4(mal_device* pDevice)
 
     if (pDevice->audio4.fd == -1) {
         return MAL_INVALID_ARGS;
-    }
-
-    // The device is started by the next calls to read() and write(). For playback it's simple - just read
-    // data from the client, then write it to the device with write() which will in turn start the device.
-    // For capture it's a bit less intuitive - we do nothing (it'll be started automatically by the first
-    // call to read().
-    if (pDevice->type == mal_device_type_playback) {
-        // Playback. Need to load the entire buffer, which means we need to write a fragment for each period.
-        for (mal_uint32 iPeriod = 0; iPeriod < pDevice->periods; iPeriod += 1) { 
-            mal_device__read_frames_from_client(pDevice, pDevice->audio4.fragmentSizeInFrames, pDevice->audio4.pIntermediaryBuffer);
-
-            int bytesWritten = write(pDevice->audio4.fd, pDevice->audio4.pIntermediaryBuffer, pDevice->audio4.fragmentSizeInFrames * mal_get_bytes_per_frame(pDevice->internalFormat, pDevice->internalChannels));
-            if (bytesWritten == -1) {
-                return mal_post_error(pDevice, MAL_LOG_LEVEL_ERROR, "[audio4] Failed to send initial chunk of data to the device.", MAL_FAILED_TO_SEND_DATA_TO_DEVICE);
-            }
-        }
-    } else {
-        // Capture. Do nothing.
     }
 
     return MAL_SUCCESS;
@@ -17530,117 +17502,21 @@ mal_result mal_device_stop__audio4(mal_device* pDevice)
     return MAL_SUCCESS;
 }
 
-mal_result mal_device_break_main_loop__audio4(mal_device* pDevice)
+mal_result mal_device_write__audio4(mal_device* pDevice, const void* pPCMFrames, mal_uint32 pcmFrameCount)
 {
-    mal_assert(pDevice != NULL);
+    int result = write(pDevice->audio4.fd, pPCMFrames, pcmFrameCount * mal_get_bytes_per_frame(pDevice->internalFormat, pDevice->internalChannels));
+    if (result < 0) {
+        return mal_post_error(pDevice, MAL_LOG_LEVEL_ERROR, "[audio4] Failed to write data to the device.", MAL_FAILED_TO_SEND_DATA_TO_DEVICE);
+    }
 
-    pDevice->audio4.breakFromMainLoop = MAL_TRUE;
     return MAL_SUCCESS;
 }
 
-mal_result mal_device__wait__audio4(mal_device* pDevice)
+mal_result mal_device_read__audio4(mal_device* pDevice, void* pPCMFrames, mal_uint32 pcmFrameCount)
 {
-    mal_assert(pDevice != NULL);
-
-    struct pollfd fds[1];
-    fds[0].fd     = pDevice->audio4.fd;
-    fds[0].events = (pDevice->type == mal_device_type_playback) ? (POLLOUT | POLLWRBAND) : (POLLIN | POLLPRI);
-    int timeout = 2 * 1000;
-    int ioresult = poll(fds, mal_countof(fds), timeout);
-    if (ioresult < 0) {
-    #ifdef MAL_DEBUG_OUTPUT
-        printf("poll() failed: timeout=%d, ioresult=%d\n", pDevice->bufferSizeInMilliseconds, ioresult);
-    #endif
-        return mal_post_error(pDevice, MAL_LOG_LEVEL_ERROR, "[audio4] Failed to wait for device.", MAL_ERROR);
-    }
-
-    // Check for a timeout. This has been annoying in my testing. In my testing, when the device is unplugged it will just
-    // hang on the next calls to write(), ioctl(), etc. The only way I have figured out how to handle this is to wait for
-    // a timeout from poll(). In the unplugging case poll() will timeout, however there's no indication that the device is
-    // unusable - no flags are set, no errors are reported, nothing. To work around this I have decided to outright fail
-    // in the event of a timeout.
-    if (ioresult == 0) {
-        // Check for errors.
-        if ((fds[0].revents & (POLLERR | POLLNVAL)) != 0) {
-            return mal_post_error(pDevice, MAL_LOG_LEVEL_ERROR, "[audio4] Failed to wait for device.", MAL_NO_DEVICE);
-        }
-        if ((fds[0].revents & (POLLHUP)) != 0) {
-            return mal_post_error(pDevice, MAL_LOG_LEVEL_ERROR, "[audio4] Failed to wait for device. Disconnected.", MAL_NO_DEVICE);
-        }
-
-        // A return value of 0 from poll indicates a timeout.
-        return mal_post_error(pDevice, MAL_LOG_LEVEL_ERROR, "[audio4] Timeout while waiting for device.", MAL_TIMEOUT);
-    }
-
-    mal_assert(ioresult > 0);
-    return MAL_SUCCESS;
-}
-
-mal_result mal_device_main_loop__audio4(mal_device* pDevice)
-{
-    mal_assert(pDevice != NULL);
-
-    pDevice->audio4.breakFromMainLoop = MAL_FALSE;
-    while (!pDevice->audio4.breakFromMainLoop) {
-        // Break from the main loop if the device isn't started anymore. Likely what's happened is the application
-        // has requested that the device be stopped.
-        if (!mal_device_is_started(pDevice)) {
-            break;
-        }
-
-        if (pDevice->type == mal_device_type_playback) {
-            // Playback.
-            mal_device__read_frames_from_client(pDevice, pDevice->audio4.fragmentSizeInFrames, pDevice->audio4.pIntermediaryBuffer);
-
-            // Wait for data to become available.
-            mal_result result = mal_device__wait__audio4(pDevice);
-            if (result != MAL_SUCCESS) {
-                return result;
-            }
-
-            size_t bytesToWrite = pDevice->audio4.fragmentSizeInFrames * mal_get_bytes_per_frame(pDevice->internalFormat, pDevice->internalChannels);
-            while (bytesToWrite > 0) {
-                ssize_t bytesWritten = write(pDevice->audio4.fd, pDevice->audio4.pIntermediaryBuffer, bytesToWrite);
-                if (bytesWritten < 0) {
-                    return mal_post_error(pDevice, MAL_LOG_LEVEL_ERROR, "[audio4] Failed to send data from the client to the device.", MAL_FAILED_TO_SEND_DATA_TO_DEVICE);
-                }
-
-                if (bytesWritten == 0) {
-                    return mal_post_error(pDevice, MAL_LOG_LEVEL_ERROR, "[audio4] Failed to write any data to the device.", MAL_FAILED_TO_SEND_DATA_TO_DEVICE);
-                }
-
-                bytesToWrite -= bytesWritten;
-            }
-        } else {
-            // Capture.
-            mal_result result = mal_device__wait__audio4(pDevice);
-            if (result != MAL_SUCCESS) {
-                return result;
-            }
-
-            size_t totalBytesRead = 0;
-            size_t bytesToRead = pDevice->audio4.fragmentSizeInFrames * mal_get_bytes_per_frame(pDevice->internalFormat, pDevice->internalChannels);
-            while (bytesToRead > 0) {
-                ssize_t bytesRead = read(pDevice->audio4.fd, pDevice->audio4.pIntermediaryBuffer, bytesToRead);
-                if (bytesRead < 0) { 
-                    if (errno == EAGAIN) {
-                        break;
-                    }
-
-                    return mal_post_error(pDevice, MAL_LOG_LEVEL_ERROR, "[audio4] Failed to read data from the device to be sent to the client.", MAL_FAILED_TO_READ_DATA_FROM_DEVICE);
-                }
-
-                if (bytesRead == 0) {
-                    return mal_post_error(pDevice, MAL_LOG_LEVEL_ERROR, "[audio4] Failed to read any data from the device.", MAL_FAILED_TO_READ_DATA_FROM_DEVICE);
-                }
-
-                bytesToRead -= bytesRead;
-                totalBytesRead += bytesRead;
-            }
-
-            mal_uint32 framesRead = (mal_uint32)totalBytesRead / mal_get_bytes_per_frame(pDevice->internalFormat, pDevice->internalChannels);
-            mal_device__send_frames_to_client(pDevice, framesRead, pDevice->audio4.pIntermediaryBuffer);
-        }
+    int result = read(pDevice->audio4.fd, pPCMFrames, pcmFrameCount * mal_get_bytes_per_frame(pDevice->internalFormat, pDevice->internalChannels));
+    if (result < 0) {
+        return mal_post_error(pDevice, MAL_LOG_LEVEL_ERROR, "[audio4] Failed to read data from the device.", MAL_FAILED_TO_READ_DATA_FROM_DEVICE);
     }
 
     return MAL_SUCCESS;
@@ -17667,8 +17543,8 @@ mal_result mal_context_init__audio4(mal_context* pContext)
     pContext->onDeviceUninit        = mal_device_uninit__audio4;
     pContext->onDeviceStart         = mal_device_start__audio4;
     pContext->onDeviceStop          = mal_device_stop__audio4;
-    pContext->onDeviceBreakMainLoop = mal_device_break_main_loop__audio4;
-    pContext->onDeviceMainLoop      = mal_device_main_loop__audio4;
+    pContext->onDeviceWrite         = mal_device_write__audio4;
+    pContext->onDeviceRead          = mal_device_read__audio4;
 
     return MAL_SUCCESS;
 }
