@@ -5912,7 +5912,7 @@ ULONG STDMETHODCALLTYPE mal_IMMNotificationClient_Release(mal_IMMNotificationCli
 HRESULT STDMETHODCALLTYPE mal_IMMNotificationClient_OnDeviceStateChanged(mal_IMMNotificationClient* pThis, LPCWSTR pDeviceID, DWORD dwNewState)
 {
 #ifdef MAL_DEBUG_OUTPUT
-    printf("IMMNotificationClient_OnDeviceStateChanged(pDeviceID=%S, dwNewState=%d)\n", pDeviceID, dwNewState);
+    printf("IMMNotificationClient_OnDeviceStateChanged(pDeviceID=%S, dwNewState=%u)\n", pDeviceID, (unsigned int)dwNewState);
 #endif
 
     (void)pThis;
@@ -20770,7 +20770,7 @@ mal_result mal_device_init(mal_context* pContext, mal_device_type type, mal_devi
 
 
 #ifdef MAL_DEBUG_OUTPUT
-    printf("[WASAPI] %s (%s)\n", pDevice->name, (pDevice->type) ? "Playback" : "Capture");
+    printf("[WASAPI] %s (%s)\n", pDevice->name, (pDevice->type == mal_device_type_playback) ? "Playback" : "Capture");
     printf("  Format:      %s -> %s\n", mal_get_format_name(pDevice->format), mal_get_format_name(pDevice->internalFormat));
     printf("  Channels:    %d -> %d\n", pDevice->channels, pDevice->internalChannels);
     printf("  Sample Rate: %d -> %d\n", pDevice->sampleRate, pDevice->internalSampleRate);
