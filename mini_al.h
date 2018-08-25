@@ -5388,7 +5388,7 @@ typedef mal_int64                                           MAL_REFERENCE_TIME;
 #define MAL_AUDCLNT_E_INVALID_DEVICE_PERIOD                 (-2004287456)
 #define MAL_AUDCLNT_E_BUFFER_SIZE_NOT_ALIGNED               (-2004287463)
 #define MAL_AUDCLNT_S_BUFFER_EMPTY                          (143196161)
-#define MAL_AUDCLNT_E_DEVICE_IN_USE                         (2290679818)
+#define MAL_AUDCLNT_E_DEVICE_IN_USE                         (-2004287478)
 
 typedef enum
 {
