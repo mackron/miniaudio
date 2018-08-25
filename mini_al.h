@@ -6575,8 +6575,12 @@ mal_result mal_device_init_internal__wasapi(mal_context* pContext, mal_device_ty
             mal_IPropertyStore_Release(pStore);
         }
     #else
-        // With non-Desktop builds we just try using the requested format.
-        hr = mal_IAudioClient_IsFormatSupported((mal_IAudioClient*)pData->pAudioClient, MAL_AUDCLNT_SHAREMODE_EXCLUSIVE, (WAVEFORMATEX*)&wf, NULL);
+        // I do not know how to query the device's native format on UWP so for now I'm just disabling support for
+        // exclusive mode. The alternative is to enumerate over different formats and check IsFormatSupported()
+        // until you find one that works.
+        //
+        // TODO: Add support for exclusive mode to UWP.
+        hr = S_FALSE;
     #endif
 
         if (hr == S_OK) {
@@ -20729,62 +20733,6 @@ mal_result mal_device_init(mal_context* pContext, mal_device_type type, mal_devi
     mal_device__post_init_setup(pDevice);
 
 
-#if 0
-    // Make sure the internal channel map was set correctly by the backend. If it's not valid, just fall back to defaults.
-    if (!mal_channel_map_valid(pDevice->internalChannels, pDevice->internalChannelMap)) {
-        mal_get_standard_channel_map(mal_standard_channel_map_default, pDevice->internalChannels, pDevice->internalChannelMap);
-    }
-
-
-    // If the format/channels/rate is using defaults we need to set these to be the same as the internal config.
-    if (pDevice->usingDefaultFormat) {
-        pDevice->format = pDevice->internalFormat;
-    }
-    if (pDevice->usingDefaultChannels) {
-        pDevice->channels = pDevice->internalChannels;
-    }
-    if (pDevice->usingDefaultSampleRate) {
-        pDevice->sampleRate = pDevice->internalSampleRate;
-    }
-    if (pDevice->usingDefaultChannelMap) {
-        mal_copy_memory(pDevice->channelMap, pDevice->internalChannelMap, sizeof(pDevice->channelMap));
-    }
-
-    // Buffer size. The backend will have set bufferSizeInFrames. We need to calculate bufferSizeInMilliseconds here.
-    pDevice->bufferSizeInMilliseconds = pDevice->bufferSizeInFrames / (pDevice->internalSampleRate/1000);
-
-
-    // We need a DSP object which is where samples are moved through in order to convert them to the
-    // format required by the backend.
-    mal_dsp_config dspConfig = mal_dsp_config_init_new();
-    dspConfig.neverConsumeEndOfInput = MAL_TRUE;
-    dspConfig.pUserData = pDevice;
-    if (type == mal_device_type_playback) {
-        dspConfig.formatIn      = pDevice->format;
-        dspConfig.channelsIn    = pDevice->channels;
-        dspConfig.sampleRateIn  = pDevice->sampleRate;
-        mal_copy_memory(dspConfig.channelMapIn, pDevice->channelMap, sizeof(dspConfig.channelMapIn));
-        dspConfig.formatOut     = pDevice->internalFormat;
-        dspConfig.channelsOut   = pDevice->internalChannels;
-        dspConfig.sampleRateOut = pDevice->internalSampleRate;
-        mal_copy_memory(dspConfig.channelMapOut, pDevice->internalChannelMap, sizeof(dspConfig.channelMapOut));
-        dspConfig.onRead = mal_device__on_read_from_client;
-        mal_dsp_init(&dspConfig, &pDevice->dsp);
-    } else {
-        dspConfig.formatIn      = pDevice->internalFormat;
-        dspConfig.channelsIn    = pDevice->internalChannels;
-        dspConfig.sampleRateIn  = pDevice->internalSampleRate;
-        mal_copy_memory(dspConfig.channelMapIn, pDevice->internalChannelMap, sizeof(dspConfig.channelMapIn));
-        dspConfig.formatOut     = pDevice->format;
-        dspConfig.channelsOut   = pDevice->channels;
-        dspConfig.sampleRateOut = pDevice->sampleRate;
-        mal_copy_memory(dspConfig.channelMapOut, pDevice->channelMap, sizeof(dspConfig.channelMapOut));
-        dspConfig.onRead = mal_device__on_read_from_device;
-        mal_dsp_init(&dspConfig, &pDevice->dsp);
-    }
-#endif
-
-
     // If the backend did not fill out a name for the device, try a generic method.
     if (pDevice->name[0] == '\0') {
         if (mal_context__try_get_device_name_by_id(pContext, type, pDeviceID, pDevice->name, sizeof(pDevice->name)) != MAL_SUCCESS) {
@@ -20819,6 +20767,15 @@ mal_result mal_device_init(mal_context* pContext, mal_device_type type, mal_devi
     } else {
         mal_device__set_state(pDevice, MAL_STATE_STOPPED);
     }
+
+
+#ifdef MAL_DEBUG_OUTPUT
+    printf("[WASAPI] %s (%s)\n", pDevice->name, (pDevice->type) ? "Playback" : "Capture");
+    printf("  Format:      %s -> %s\n", mal_get_format_name(pDevice->format), mal_get_format_name(pDevice->internalFormat));
+    printf("  Channels:    %d -> %d\n", pDevice->channels, pDevice->internalChannels);
+    printf("  Sample Rate: %d -> %d\n", pDevice->sampleRate, pDevice->internalSampleRate);
+#endif
+
 
     mal_assert(mal_device__get_state(pDevice) == MAL_STATE_STOPPED);
     return MAL_SUCCESS;
