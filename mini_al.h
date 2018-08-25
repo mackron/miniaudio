@@ -20078,9 +20078,11 @@ mal_thread_result MAL_THREADCALL mal_worker_thread(void* pData)
                 mal_device__set_state(pDevice, MAL_STATE_UNINITIALIZED);
 
                 reinitResult = pDevice->pContext->onDeviceInit(pDevice->pContext, pDevice->type, NULL, &pDevice->initConfig, pDevice);
-                if (reinitResult == MAL_SUCCESS) {
-                    mal_device__post_init_setup(pDevice);
-                }
+            }
+
+            // Perform the post initialization setup just in case the data conversion pipeline needs to be reinitialized.
+            if (reinitResult == MAL_SUCCESS) {
+                mal_device__post_init_setup(pDevice);
             }
 
             // If reinitialization was successful, loop back to the start.
