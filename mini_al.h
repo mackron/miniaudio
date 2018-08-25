@@ -16423,6 +16423,7 @@ mal_result mal_context_init__sndio(mal_context* pContext)
 #ifdef MAL_HAS_AUDIO4
 #include <fcntl.h>
 #include <poll.h>
+#include <errno.h>
 #include <sys/stat.h>
 #include <sys/types.h>
 #include <sys/ioctl.h>
@@ -17050,6 +17051,7 @@ mal_result mal_device__main_loop__audio4(mal_device* pDevice)
                 return result;
             }
 
+
             size_t bytesToWrite = pDevice->audio4.fragmentSizeInFrames * mal_get_bytes_per_frame(pDevice->internalFormat, pDevice->internalChannels);
             while (bytesToWrite > 0) {
                 ssize_t bytesWritten = write(pDevice->audio4.fd, pDevice->audio4.pIntermediaryBuffer, bytesToWrite);
@@ -17073,14 +17075,37 @@ mal_result mal_device__main_loop__audio4(mal_device* pDevice)
             size_t totalBytesRead = 0;
             size_t bytesToRead = pDevice->audio4.fragmentSizeInFrames * mal_get_bytes_per_frame(pDevice->internalFormat, pDevice->internalChannels);
             while (bytesToRead > 0) {
-                int bytesRead = read(pDevice->audio4.fd, pDevice->audio4.pIntermediaryBuffer, bytesToRead);
-                if (bytesRead < 0) {
+                ssize_t bytesRead = read(pDevice->audio4.fd, pDevice->audio4.pIntermediaryBuffer, bytesToRead);
+
+                if (bytesRead < 0) { 
+                #if MAL_DEBUG_OUTPUT
+                    printf("read() failed: errno=%d\n", errno);
+                    audio_info_t info;
+                    if (ioctl(pDevice->audio4.fd, AUDIO_GETINFO, &info) < 0) {
+                        printf("ioctl failed.\n");
+                    }
+    
+                    printf("MODE:   %d\n", info.mode);
+                    printf("PAUSED: %d\n", info.record.pause);
+                    printf("EOF:    %d\n", info.record.eof);
+                    printf("SAMPELS: %d\n", info.record.samples);
+                    printf("ERROR:   %d\n", info.record.error);
+                    printf("WAITING: %d\n", info.record.waiting);
+                    printf("OPEN:    %d\n", info.record.open);
+                    printf("ACTIVE:  %d\n", info.record.active);
+                #endif
+
+                    if (errno == EAGAIN) {
+                        break;
+                    }
+
                     return mal_post_error(pDevice, MAL_LOG_LEVEL_ERROR, "[audio4] Failed to read data from the device to be sent to the client.", MAL_FAILED_TO_READ_DATA_FROM_DEVICE);
                 }
 
                 if (bytesRead == 0) {
                     return mal_post_error(pDevice, MAL_LOG_LEVEL_ERROR, "[audio4] Failed to read any data from the device.", MAL_FAILED_TO_READ_DATA_FROM_DEVICE);
                 }
+
 
                 bytesToRead -= bytesRead;
                 totalBytesRead += bytesRead;
