@@ -20870,7 +20870,7 @@ ma_result ma_device_init_fd__audio4(ma_context* pContext, const ma_device_config
     } else {
         fdFlags = O_WRONLY;
     }
-    fdFlags |= O_NONBLOCK;
+    /*fdFlags |= O_NONBLOCK;*/
 
     if ((deviceType == ma_device_type_capture && pConfig->capture.pDeviceID == NULL) || (deviceType == ma_device_type_playback && pConfig->playback.pDeviceID == NULL)) {
         /* Default device. */
