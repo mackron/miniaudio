@@ -1,3 +1,4 @@
+#define MAL_DEBUG_OUTPUT
 #define MAL_USE_REFERENCE_CONVERSION_APIS
 #define MINI_AL_IMPLEMENTATION
 #include "../mini_al.h"
@@ -51,9 +52,6 @@ mal_uint32 on_send_to_device__dithered(mal_device* pDevice, mal_uint32 frameCoun
 
 int do_dithering_test()
 {
-    mal_sine_wave_init(0.5, 400, 48000, &sineWave);
-
-
     mal_device_config config = mal_device_config_init_playback(mal_format_f32, 1, 0, on_send_to_device__original);
     mal_device device;
     mal_result result;
@@ -63,6 +61,8 @@ int do_dithering_test()
     if (result != MAL_SUCCESS) {
         return -1;
     }
+
+    mal_sine_wave_init(0.5, 400, device.sampleRate, &sineWave);
 
     result = mal_device_start(&device);
     if (result != MAL_SUCCESS) {
@@ -75,7 +75,7 @@ int do_dithering_test()
 
 
     // Now we play the sound after it's run through a dithered format converter.
-    mal_sine_wave_init(0.5, 400, 48000, &sineWave);
+    mal_sine_wave_init(0.5, 400, device.sampleRate, &sineWave);
 
     mal_format srcFormat = mal_format_s24;
     mal_format dstFormat = mal_format_u8;
