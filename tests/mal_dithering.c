@@ -74,9 +74,6 @@ int do_dithering_test()
     mal_device_uninit(&device);
 
 
-    // Now we play the sound after it's run through a dithered format converter.
-    mal_sine_wave_init(0.5, 400, device.sampleRate, &sineWave);
-
     mal_format srcFormat = mal_format_s24;
     mal_format dstFormat = mal_format_u8;
     mal_dither_mode ditherMode = mal_dither_mode_triangle;
@@ -111,6 +108,9 @@ int do_dithering_test()
     if (result != MAL_SUCCESS) {
         return -1;
     }
+
+    // Now we play the sound after it's run through a dithered format converter.
+    mal_sine_wave_init(0.5, 400, device.sampleRate, &sineWave);
 
     result = mal_device_start(&device);
     if (result != MAL_SUCCESS) {
