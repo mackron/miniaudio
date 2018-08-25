@@ -12,7 +12,7 @@ int main(int argc, char** argv)
     (void)argv;
 
     mal_result result;
-    mal_backend backend = mal_backend_oss;
+    mal_backend backend = mal_backend_audio4;
 
     mal_device_config deviceConfig = mal_device_config_init(mal_device_type_playback);
     deviceConfig.playback.format = mal_format_f32;
@@ -21,7 +21,7 @@ int main(int argc, char** argv)
     //deviceConfig.bufferSizeInMilliseconds = 80;
     deviceConfig.periods = 2;
 
-#if 0
+#if 1
     /* Playback */
     mal_device device;
     result = mal_device_init_ex(&backend, 1, NULL, &deviceConfig, &device);

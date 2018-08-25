@@ -18489,6 +18489,7 @@ mal_result mal_device_init_fd__audio4(mal_context* pContext, const mal_device_co
     }
 
     if (deviceType == mal_device_type_capture) {
+        pDevice->audio4.fdCapture                  = fd;
         pDevice->capture.internalFormat             = internalFormat;
         pDevice->capture.internalChannels           = internalChannels;
         pDevice->capture.internalSampleRate         = internalSampleRate;
@@ -18496,6 +18497,7 @@ mal_result mal_device_init_fd__audio4(mal_context* pContext, const mal_device_co
         pDevice->capture.internalBufferSizeInFrames = internalBufferSizeInFrames;
         pDevice->capture.internalPeriods            = internalPeriods;
     } else {
+        pDevice->audio4.fdPlayback                 = fd;
         pDevice->playback.internalFormat             = internalFormat;
         pDevice->playback.internalChannels           = internalChannels;
         pDevice->playback.internalSampleRate         = internalSampleRate;
