@@ -18317,13 +18317,11 @@ void mal_device_uninit__audio4(mal_device* pDevice)
 
 mal_result mal_device_init_fd__audio4(mal_context* pContext, const mal_device_config* pConfig, mal_device_type deviceType, mal_device* pDevice)
 {
-    mal_result result;
     const char* pDeviceName;
     int fd;
     int fdFlags = 0;
 #if !defined(MAL_AUDIO4_USE_NEW_API)    /* Old API */
     audio_info_t fdInfo;
-    mal_device_info nativeInfo;
 #else
     struct audio_swpar fdPar;
 #endif
@@ -18376,7 +18374,7 @@ mal_result mal_device_init_fd__audio4(mal_context* pContext, const mal_device_co
         fdInfo.play.sample_rate = pConfig->sampleRate;
     }
 
-    if (fd, AUDIO_SETINFO, &fdInfo) < 0) {
+    if (ioctl(fd, AUDIO_SETINFO, &fdInfo) < 0) {
         close(fd);
         return mal_post_error(pDevice, MAL_LOG_LEVEL_ERROR, "[audio4] Failed to set device format. AUDIO_SETINFO failed.", MAL_FORMAT_NOT_SUPPORTED);
     }
@@ -18572,21 +18570,23 @@ mal_result mal_device_start__audio4(mal_device* pDevice)
 }
 #endif
 
-mal_result mal_device_stop_fd__audio4(int fd)
+mal_result mal_device_stop_fd__audio4(mal_device* pDevice, int fd)
 {
-    if (pDevice->audio4.fdCapture == -1) {
+    if (fd == -1) {
         return MAL_INVALID_ARGS;
     }
 
 #if !defined(MAL_AUDIO4_USE_NEW_API)
-    if (ioctl(pDevice->audio4.fdCapture, AUDIO_FLUSH, 0) < 0) {
+    if (ioctl(fd, AUDIO_FLUSH, 0) < 0) {
         return mal_post_error(pDevice, MAL_LOG_LEVEL_ERROR, "[audio4] Failed to stop device. AUDIO_FLUSH failed.", MAL_FAILED_TO_STOP_BACKEND_DEVICE);
     }
 #else
-    if (ioctl(pDevice->audio4.fdCapture, AUDIO_STOP, 0) < 0) {
+    if (ioctl(fd, AUDIO_STOP, 0) < 0) {
         return mal_post_error(pDevice, MAL_LOG_LEVEL_ERROR, "[audio4] Failed to stop device. AUDIO_STOP failed.", MAL_FAILED_TO_STOP_BACKEND_DEVICE);
     }
 #endif
+
+    return MAL_SUCCESS;
 }
 
 mal_result mal_device_stop__audio4(mal_device* pDevice)
@@ -18594,14 +18594,14 @@ mal_result mal_device_stop__audio4(mal_device* pDevice)
     mal_assert(pDevice != NULL);
 
     if (pDevice->type == mal_device_type_capture || pDevice->type == mal_device_type_duplex) {
-        mal_result result = mal_device_stop_fd__audio4(pDevice->audio4.fdCapture);
+        mal_result result = mal_device_stop_fd__audio4(pDevice, pDevice->audio4.fdCapture);
         if (result != MAL_SUCCESS) {
             return result;
         }
     }
 
     if (pDevice->type == mal_device_type_playback || pDevice->type == mal_device_type_duplex) {
-        mal_result result = mal_device_stop_fd__audio4(pDevice->audio4.fdPlayback);
+        mal_result result = mal_device_stop_fd__audio4(pDevice, pDevice->audio4.fdPlayback);
         if (result != MAL_SUCCESS) {
             return result;
         }
