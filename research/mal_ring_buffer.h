@@ -54,8 +54,8 @@ typedef struct
     mal_uint32 subbufferSizeInBytes;
     mal_uint32 subbufferCount;
     mal_uint32 subbufferStrideInBytes;
-    mal_uint32 readOffset;              /* Most significant bit is the loop flag. Lower 31 bits contains the actual offset in bytes. */
-    mal_uint32 writeOffset;             /* Most significant bit is the loop flag. Lower 31 bits contains the actual offset in bytes. */
+    volatile mal_uint32 readOffset;     /* Most significant bit is the loop flag. Lower 31 bits contains the actual offset in bytes. */
+    volatile mal_uint32 writeOffset;    /* Most significant bit is the loop flag. Lower 31 bits contains the actual offset in bytes. */
     mal_bool32 ownsBuffer          : 1; /* Used to know whether or not mini_al is responsible for free()-ing the buffer. */
     mal_bool32 clearOnWriteAcquire : 1; /* When set, clears the acquired write buffer before returning from mal_rb_acquire_write(). */
 } mal_rb;
@@ -168,13 +168,15 @@ mal_result mal_rb_acquire_read(mal_rb* pRB, size_t* pSizeInBytes, void** ppBuffe
     }
 
     // The returned buffer should never move ahead of the write pointer.
+    volatile mal_uint32 writeOffset = pRB->writeOffset;
     mal_uint32 writeOffsetInBytes;
     mal_uint32 writeOffsetLoopFlag;
-    mal_rb__deconstruct_offset(pRB->writeOffset, &writeOffsetInBytes, &writeOffsetLoopFlag);
+    mal_rb__deconstruct_offset(writeOffset, &writeOffsetInBytes, &writeOffsetLoopFlag);
 
+    volatile mal_uint32 readOffset = pRB->readOffset;
     mal_uint32 readOffsetInBytes;
     mal_uint32 readOffsetLoopFlag;
-    mal_rb__deconstruct_offset(pRB->readOffset, &readOffsetInBytes, &readOffsetLoopFlag);
+    mal_rb__deconstruct_offset(readOffset, &readOffsetInBytes, &readOffsetLoopFlag);
 
     // The number of bytes available depends on whether or not the read and write pointers are on the same loop iteration. If so, we
     // can only read up to the write pointer. If not, we can only read up to the end of the buffer.
@@ -207,9 +209,10 @@ mal_result mal_rb_commit_read(mal_rb* pRB, size_t sizeInBytes, void* pBufferOut)
         return MAL_INVALID_ARGS;
     }
 
+    volatile mal_uint32 readOffset = pRB->readOffset;
     mal_uint32 readOffsetInBytes;
     mal_uint32 readOffsetLoopFlag;
-    mal_rb__deconstruct_offset(pRB->readOffset, &readOffsetInBytes, &readOffsetLoopFlag);
+    mal_rb__deconstruct_offset(readOffset, &readOffsetInBytes, &readOffsetLoopFlag);
 
     // Check that sizeInBytes is correct. It should never go beyond the end of the buffer.
     mal_uint32 newReadOffsetInBytes = (mal_uint32)(readOffsetInBytes + sizeInBytes);
@@ -235,13 +238,15 @@ mal_result mal_rb_acquire_write(mal_rb* pRB, size_t* pSizeInBytes, void** ppBuff
     }
 
     // The returned buffer should never overtake the read buffer.
+    volatile mal_uint32 readOffset = pRB->readOffset;
     mal_uint32 readOffsetInBytes;
     mal_uint32 readOffsetLoopFlag;
-    mal_rb__deconstruct_offset(pRB->readOffset, &readOffsetInBytes, &readOffsetLoopFlag);
+    mal_rb__deconstruct_offset(readOffset, &readOffsetInBytes, &readOffsetLoopFlag);
 
+    volatile mal_uint32 writeOffset = pRB->writeOffset;
     mal_uint32 writeOffsetInBytes;
     mal_uint32 writeOffsetLoopFlag;
-    mal_rb__deconstruct_offset(pRB->writeOffset, &writeOffsetInBytes, &writeOffsetLoopFlag);
+    mal_rb__deconstruct_offset(writeOffset, &writeOffsetInBytes, &writeOffsetLoopFlag);
 
     // In the case of writing, if the write pointer and the read pointer are on the same loop iteration we can only
     // write up to the end of the buffer. Otherwise we can only write up to the read pointer. The write pointer should
@@ -280,9 +285,10 @@ mal_result mal_rb_commit_write(mal_rb* pRB, size_t sizeInBytes, void* pBufferOut
         return MAL_INVALID_ARGS;
     }
 
+    volatile mal_uint32 writeOffset = pRB->writeOffset;
     mal_uint32 writeOffsetInBytes;
     mal_uint32 writeOffsetLoopFlag;
-    mal_rb__deconstruct_offset(pRB->writeOffset, &writeOffsetInBytes, &writeOffsetLoopFlag);
+    mal_rb__deconstruct_offset(writeOffset, &writeOffsetInBytes, &writeOffsetLoopFlag);
 
     // Check that sizeInBytes is correct. It should never go beyond the end of the buffer.
     mal_uint32 newWriteOffsetInBytes = (mal_uint32)(writeOffsetInBytes + sizeInBytes);
@@ -307,13 +313,15 @@ mal_result mal_rb_seek_read(mal_rb* pRB, size_t offsetInBytes)
         return MAL_INVALID_ARGS;
     }
 
+    volatile mal_uint32 readOffset = pRB->readOffset;
     mal_uint32 readOffsetInBytes;
     mal_uint32 readOffsetLoopFlag;
-    mal_rb__deconstruct_offset(pRB->readOffset, &readOffsetInBytes, &readOffsetLoopFlag);
+    mal_rb__deconstruct_offset(readOffset, &readOffsetInBytes, &readOffsetLoopFlag);
 
+    volatile mal_uint32 writeOffset = pRB->writeOffset;
     mal_uint32 writeOffsetInBytes;
     mal_uint32 writeOffsetLoopFlag;
-    mal_rb__deconstruct_offset(pRB->writeOffset, &writeOffsetInBytes, &writeOffsetLoopFlag);
+    mal_rb__deconstruct_offset(writeOffset, &writeOffsetInBytes, &writeOffsetLoopFlag);
 
     mal_uint32 newReadOffsetInBytes = readOffsetInBytes;
     mal_uint32 newReadOffsetLoopFlag = readOffsetLoopFlag;
@@ -323,15 +331,15 @@ mal_result mal_rb_seek_read(mal_rb* pRB, size_t offsetInBytes)
         if ((readOffsetInBytes + offsetInBytes) > writeOffsetInBytes) {
             newReadOffsetInBytes = writeOffsetInBytes;
         } else {
-            newReadOffsetInBytes = (readOffsetInBytes + offsetInBytes);
+            newReadOffsetInBytes = (mal_uint32)(readOffsetInBytes + offsetInBytes);
         }
     } else {
         // May end up looping.
         if ((readOffsetInBytes + offsetInBytes) >= pRB->subbufferSizeInBytes) {
-            newReadOffsetInBytes = (readOffsetInBytes + offsetInBytes) - pRB->subbufferSizeInBytes;
+            newReadOffsetInBytes = (mal_uint32)(readOffsetInBytes + offsetInBytes) - pRB->subbufferSizeInBytes;
             newReadOffsetLoopFlag ^= 0x80000000;    /* <-- Looped. */
         } else {
-            newReadOffsetInBytes = (readOffsetInBytes + offsetInBytes);
+            newReadOffsetInBytes = (mal_uint32)(readOffsetInBytes + offsetInBytes);
         }
     }
 
@@ -345,13 +353,15 @@ mal_result mal_rb_seek_write(mal_rb* pRB, size_t offsetInBytes)
         return MAL_INVALID_ARGS;
     }
 
+    volatile mal_uint32 readOffset = pRB->readOffset;
     mal_uint32 readOffsetInBytes;
     mal_uint32 readOffsetLoopFlag;
-    mal_rb__deconstruct_offset(pRB->readOffset, &readOffsetInBytes, &readOffsetLoopFlag);
+    mal_rb__deconstruct_offset(readOffset, &readOffsetInBytes, &readOffsetLoopFlag);
 
+    volatile mal_uint32 writeOffset = pRB->writeOffset;
     mal_uint32 writeOffsetInBytes;
     mal_uint32 writeOffsetLoopFlag;
-    mal_rb__deconstruct_offset(pRB->writeOffset, &writeOffsetInBytes, &writeOffsetLoopFlag);
+    mal_rb__deconstruct_offset(writeOffset, &writeOffsetInBytes, &writeOffsetLoopFlag);
 
     mal_uint32 newWriteOffsetInBytes = writeOffsetInBytes;
     mal_uint32 newWriteOffsetLoopFlag = writeOffsetLoopFlag;
@@ -360,16 +370,16 @@ mal_result mal_rb_seek_write(mal_rb* pRB, size_t offsetInBytes)
     if (readOffsetLoopFlag == writeOffsetLoopFlag) {
         // May end up looping.
         if ((writeOffsetInBytes + offsetInBytes) >= pRB->subbufferSizeInBytes) {
-            newWriteOffsetInBytes = (writeOffsetInBytes + offsetInBytes) - pRB->subbufferSizeInBytes;
+            newWriteOffsetInBytes = (mal_uint32)(writeOffsetInBytes + offsetInBytes) - pRB->subbufferSizeInBytes;
             newWriteOffsetLoopFlag ^= 0x80000000;    /* <-- Looped. */
         } else {
-            newWriteOffsetInBytes = (writeOffsetInBytes + offsetInBytes);
+            newWriteOffsetInBytes = (mal_uint32)(writeOffsetInBytes + offsetInBytes);
         }
     } else {
         if ((writeOffsetInBytes + offsetInBytes) > readOffsetInBytes) {
             newWriteOffsetInBytes = readOffsetInBytes;
         } else {
-            newWriteOffsetInBytes = (writeOffsetInBytes + offsetInBytes);
+            newWriteOffsetInBytes = (mal_uint32)(writeOffsetInBytes + offsetInBytes);
         }
     }
 
@@ -383,13 +393,15 @@ mal_int32 mal_rb_pointer_distance(mal_rb* pRB)
         return 0;
     }
 
+    volatile mal_uint32 readOffset = pRB->readOffset;
     mal_uint32 readOffsetInBytes;
     mal_uint32 readOffsetLoopFlag;
-    mal_rb__deconstruct_offset(pRB->readOffset, &readOffsetInBytes, &readOffsetLoopFlag);
+    mal_rb__deconstruct_offset(readOffset, &readOffsetInBytes, &readOffsetLoopFlag);
 
+    volatile mal_uint32 writeOffset = pRB->writeOffset;
     mal_uint32 writeOffsetInBytes;
     mal_uint32 writeOffsetLoopFlag;
-    mal_rb__deconstruct_offset(pRB->writeOffset, &writeOffsetInBytes, &writeOffsetLoopFlag);
+    mal_rb__deconstruct_offset(writeOffset, &writeOffsetInBytes, &writeOffsetLoopFlag);
 
     if (readOffsetLoopFlag == writeOffsetLoopFlag) {
         return writeOffsetInBytes - readOffsetInBytes;
