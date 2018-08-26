@@ -2937,7 +2937,7 @@ static MAL_INLINE mal_bool32 mal_has_avx2()
         #if defined(_AVX2_) || defined(__AVX2__)
             return MAL_TRUE;    // If the compiler is allowed to freely generate AVX2 code we can assume support.
         #else
-            // AVX requires both CPU and OS support.
+            // AVX2 requires both CPU and OS support.
             #if defined(MAL_NO_CPUID) || defined(MAL_NO_XGETBV)
                 return MAL_FALSE;
             #else
@@ -2958,7 +2958,7 @@ static MAL_INLINE mal_bool32 mal_has_avx2()
             #endif
         #endif
     #else
-        return MAL_FALSE;       // AVX is only supported on x86 and x64 architectures.
+        return MAL_FALSE;       // AVX2 is only supported on x86 and x64 architectures.
     #endif
 #else
     return MAL_FALSE;           // No compiler support.
