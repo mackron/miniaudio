@@ -1,7 +1,7 @@
 @echo off
 SET c_compiler=gcc
 SET cpp_compiler=g++
-SET options=-Wall -mavx2
+SET options=-Wall
 @echo on
 
 %c_compiler% mal_test_0.c    -o ./bin/mal_test_0.exe        %options%
