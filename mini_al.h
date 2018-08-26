@@ -1,5 +1,5 @@
 // Audio playback and capture library. Public domain. See "unlicense" statement at the end of this file.
-// mini_al - v0.8.6-rc - 2018-xx-xx
+// mini_al - v0.8.6 - 2018-08-26
 //
 // David Reid - davidreidsoftware@gmail.com
 
@@ -28299,7 +28299,7 @@ mal_uint64 mal_sine_wave_read_ex(mal_sine_wave* pSineWave, mal_uint64 frameCount
 // REVISION HISTORY
 // ================
 //
-// v0.8.6-rc - 2018-xx-xx
+// v0.8.6 - 2018-08-26
 //   - Automatically switch the internal device when the default device is unplugged. Note that this is still in the
 //     early stages and not all backends handle this the same way. As of this version, this will not detect a default
 //     device switch when changed from the operating system's audio preferences (unless the backend itself handles
