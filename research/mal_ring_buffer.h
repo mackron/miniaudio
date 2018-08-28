@@ -54,10 +54,10 @@ typedef struct
     mal_uint32 subbufferSizeInBytes;
     mal_uint32 subbufferCount;
     mal_uint32 subbufferStrideInBytes;
-    volatile mal_uint32 readOffset;     /* Most significant bit is the loop flag. Lower 31 bits contains the actual offset in bytes. */
-    volatile mal_uint32 writeOffset;    /* Most significant bit is the loop flag. Lower 31 bits contains the actual offset in bytes. */
-    mal_bool32 ownsBuffer          : 1; /* Used to know whether or not mini_al is responsible for free()-ing the buffer. */
-    mal_bool32 clearOnWriteAcquire : 1; /* When set, clears the acquired write buffer before returning from mal_rb_acquire_write(). */
+    volatile mal_uint32 encodedReadOffset;  /* Most significant bit is the loop flag. Lower 31 bits contains the actual offset in bytes. */
+    volatile mal_uint32 encodedWriteOffset; /* Most significant bit is the loop flag. Lower 31 bits contains the actual offset in bytes. */
+    mal_bool32 ownsBuffer          : 1;     /* Used to know whether or not mini_al is responsible for free()-ing the buffer. */
+    mal_bool32 clearOnWriteAcquire : 1;     /* When set, clears the acquired write buffer before returning from mal_rb_acquire_write(). */
 } mal_rb;
 
 mal_result mal_rb_init_ex(size_t subbufferSizeInBytes, size_t subbufferCount, size_t subbufferStrideInBytes, void* pOptionalPreallocatedBuffer, mal_rb* pRB);
@@ -77,30 +77,40 @@ void* mal_rb_get_subbuffer_ptr(mal_rb* pRB, size_t subbufferIndex, void* pBuffer
 #endif  // mal_ring_buffer_h
 
 #ifdef MINI_AL_IMPLEMENTATION
-void* mal_rb__get_read_ptr(mal_rb* pRB)
+MAL_INLINE mal_uint32 mal_rb__extract_offset_in_bytes(mal_uint32 encodedOffset)
 {
-    mal_assert(pRB != NULL);
-    return mal_offset_ptr(pRB->pBuffer, (pRB->readOffset & 0x7FFFFFFF));
+    return encodedOffset & 0x7FFFFFFF;
 }
 
-void* mal_rb__get_write_ptr(mal_rb* pRB)
+MAL_INLINE mal_uint32 mal_rb__extract_offset_loop_flag(mal_uint32 encodedOffset)
 {
-    mal_assert(pRB != NULL);
-    return mal_offset_ptr(pRB->pBuffer, (pRB->writeOffset & 0x7FFFFFFF));
+    return encodedOffset & 0x80000000;
 }
 
-mal_uint32 mal_rb__construct_offset(mal_uint32 offsetInBytes, mal_uint32 offsetLoopFlag)
+MAL_INLINE void* mal_rb__get_read_ptr(mal_rb* pRB)
+{
+    mal_assert(pRB != NULL);
+    return mal_offset_ptr(pRB->pBuffer, mal_rb__extract_offset_in_bytes(pRB->encodedReadOffset));
+}
+
+MAL_INLINE void* mal_rb__get_write_ptr(mal_rb* pRB)
+{
+    mal_assert(pRB != NULL);
+    return mal_offset_ptr(pRB->pBuffer, mal_rb__extract_offset_in_bytes(pRB->encodedWriteOffset));
+}
+
+MAL_INLINE mal_uint32 mal_rb__construct_offset(mal_uint32 offsetInBytes, mal_uint32 offsetLoopFlag)
 {
     return offsetLoopFlag | offsetInBytes;
 }
 
-void mal_rb__deconstruct_offset(mal_uint32 offset, mal_uint32* pOffsetInBytes, mal_uint32* pOffsetLoopFlag)
+MAL_INLINE void mal_rb__deconstruct_offset(mal_uint32 encodedOffset, mal_uint32* pOffsetInBytes, mal_uint32* pOffsetLoopFlag)
 {
     mal_assert(pOffsetInBytes != NULL);
     mal_assert(pOffsetLoopFlag != NULL);
 
-    *pOffsetInBytes  = offset & 0x7FFFFFFF;
-    *pOffsetLoopFlag = offset & 0x80000000;
+    *pOffsetInBytes  = mal_rb__extract_offset_in_bytes(encodedOffset);
+    *pOffsetLoopFlag = mal_rb__extract_offset_loop_flag(encodedOffset);
 }
 
 
@@ -168,12 +178,12 @@ mal_result mal_rb_acquire_read(mal_rb* pRB, size_t* pSizeInBytes, void** ppBuffe
     }
 
     // The returned buffer should never move ahead of the write pointer.
-    mal_uint32 writeOffset = pRB->writeOffset;
+    mal_uint32 writeOffset = pRB->encodedWriteOffset;
     mal_uint32 writeOffsetInBytes;
     mal_uint32 writeOffsetLoopFlag;
     mal_rb__deconstruct_offset(writeOffset, &writeOffsetInBytes, &writeOffsetLoopFlag);
 
-    mal_uint32 readOffset = pRB->readOffset;
+    mal_uint32 readOffset = pRB->encodedReadOffset;
     mal_uint32 readOffsetInBytes;
     mal_uint32 readOffsetLoopFlag;
     mal_rb__deconstruct_offset(readOffset, &readOffsetInBytes, &readOffsetLoopFlag);
@@ -209,7 +219,7 @@ mal_result mal_rb_commit_read(mal_rb* pRB, size_t sizeInBytes, void* pBufferOut)
         return MAL_INVALID_ARGS;
     }
 
-    mal_uint32 readOffset = pRB->readOffset;
+    mal_uint32 readOffset = pRB->encodedReadOffset;
     mal_uint32 readOffsetInBytes;
     mal_uint32 readOffsetLoopFlag;
     mal_rb__deconstruct_offset(readOffset, &readOffsetInBytes, &readOffsetLoopFlag);
@@ -227,7 +237,7 @@ mal_result mal_rb_commit_read(mal_rb* pRB, size_t sizeInBytes, void* pBufferOut)
         newReadOffsetLoopFlag ^= 0x80000000;
     }
 
-    mal_atomic_exchange_32(&pRB->readOffset, mal_rb__construct_offset(newReadOffsetLoopFlag, newReadOffsetInBytes));
+    mal_atomic_exchange_32(&pRB->encodedReadOffset, mal_rb__construct_offset(newReadOffsetLoopFlag, newReadOffsetInBytes));
     return MAL_SUCCESS;
 }
 
@@ -238,12 +248,12 @@ mal_result mal_rb_acquire_write(mal_rb* pRB, size_t* pSizeInBytes, void** ppBuff
     }
 
     // The returned buffer should never overtake the read buffer.
-    mal_uint32 readOffset = pRB->readOffset;
+    mal_uint32 readOffset = pRB->encodedReadOffset;
     mal_uint32 readOffsetInBytes;
     mal_uint32 readOffsetLoopFlag;
     mal_rb__deconstruct_offset(readOffset, &readOffsetInBytes, &readOffsetLoopFlag);
 
-    mal_uint32 writeOffset = pRB->writeOffset;
+    mal_uint32 writeOffset = pRB->encodedWriteOffset;
     mal_uint32 writeOffsetInBytes;
     mal_uint32 writeOffsetLoopFlag;
     mal_rb__deconstruct_offset(writeOffset, &writeOffsetInBytes, &writeOffsetLoopFlag);
@@ -285,7 +295,7 @@ mal_result mal_rb_commit_write(mal_rb* pRB, size_t sizeInBytes, void* pBufferOut
         return MAL_INVALID_ARGS;
     }
 
-    mal_uint32 writeOffset = pRB->writeOffset;
+    mal_uint32 writeOffset = pRB->encodedWriteOffset;
     mal_uint32 writeOffsetInBytes;
     mal_uint32 writeOffsetLoopFlag;
     mal_rb__deconstruct_offset(writeOffset, &writeOffsetInBytes, &writeOffsetLoopFlag);
@@ -303,7 +313,7 @@ mal_result mal_rb_commit_write(mal_rb* pRB, size_t sizeInBytes, void* pBufferOut
         newWriteOffsetLoopFlag ^= 0x80000000;
     }
 
-    mal_atomic_exchange_32(&pRB->writeOffset, mal_rb__construct_offset(newWriteOffsetLoopFlag, newWriteOffsetInBytes));
+    mal_atomic_exchange_32(&pRB->encodedWriteOffset, mal_rb__construct_offset(newWriteOffsetLoopFlag, newWriteOffsetInBytes));
     return MAL_SUCCESS;
 }
 
@@ -313,12 +323,12 @@ mal_result mal_rb_seek_read(mal_rb* pRB, size_t offsetInBytes)
         return MAL_INVALID_ARGS;
     }
 
-    mal_uint32 readOffset = pRB->readOffset;
+    mal_uint32 readOffset = pRB->encodedReadOffset;
     mal_uint32 readOffsetInBytes;
     mal_uint32 readOffsetLoopFlag;
     mal_rb__deconstruct_offset(readOffset, &readOffsetInBytes, &readOffsetLoopFlag);
 
-    mal_uint32 writeOffset = pRB->writeOffset;
+    mal_uint32 writeOffset = pRB->encodedWriteOffset;
     mal_uint32 writeOffsetInBytes;
     mal_uint32 writeOffsetLoopFlag;
     mal_rb__deconstruct_offset(writeOffset, &writeOffsetInBytes, &writeOffsetLoopFlag);
@@ -343,7 +353,7 @@ mal_result mal_rb_seek_read(mal_rb* pRB, size_t offsetInBytes)
         }
     }
 
-    mal_atomic_exchange_32(&pRB->readOffset, mal_rb__construct_offset(newReadOffsetInBytes, newReadOffsetLoopFlag));
+    mal_atomic_exchange_32(&pRB->encodedReadOffset, mal_rb__construct_offset(newReadOffsetInBytes, newReadOffsetLoopFlag));
     return MAL_SUCCESS;
 }
 
@@ -353,12 +363,12 @@ mal_result mal_rb_seek_write(mal_rb* pRB, size_t offsetInBytes)
         return MAL_INVALID_ARGS;
     }
 
-    mal_uint32 readOffset = pRB->readOffset;
+    mal_uint32 readOffset = pRB->encodedReadOffset;
     mal_uint32 readOffsetInBytes;
     mal_uint32 readOffsetLoopFlag;
     mal_rb__deconstruct_offset(readOffset, &readOffsetInBytes, &readOffsetLoopFlag);
 
-    mal_uint32 writeOffset = pRB->writeOffset;
+    mal_uint32 writeOffset = pRB->encodedWriteOffset;
     mal_uint32 writeOffsetInBytes;
     mal_uint32 writeOffsetLoopFlag;
     mal_rb__deconstruct_offset(writeOffset, &writeOffsetInBytes, &writeOffsetLoopFlag);
@@ -383,7 +393,7 @@ mal_result mal_rb_seek_write(mal_rb* pRB, size_t offsetInBytes)
         }
     }
 
-    mal_atomic_exchange_32(&pRB->writeOffset, mal_rb__construct_offset(newWriteOffsetInBytes, newWriteOffsetLoopFlag));
+    mal_atomic_exchange_32(&pRB->encodedWriteOffset, mal_rb__construct_offset(newWriteOffsetInBytes, newWriteOffsetLoopFlag));
     return MAL_SUCCESS;
 }
 
@@ -393,12 +403,12 @@ mal_int32 mal_rb_pointer_distance(mal_rb* pRB)
         return 0;
     }
 
-    mal_uint32 readOffset = pRB->readOffset;
+    mal_uint32 readOffset = pRB->encodedReadOffset;
     mal_uint32 readOffsetInBytes;
     mal_uint32 readOffsetLoopFlag;
     mal_rb__deconstruct_offset(readOffset, &readOffsetInBytes, &readOffsetLoopFlag);
 
-    mal_uint32 writeOffset = pRB->writeOffset;
+    mal_uint32 writeOffset = pRB->encodedWriteOffset;
     mal_uint32 writeOffsetInBytes;
     mal_uint32 writeOffsetLoopFlag;
     mal_rb__deconstruct_offset(writeOffset, &writeOffsetInBytes, &writeOffsetLoopFlag);
