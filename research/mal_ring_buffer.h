@@ -168,12 +168,12 @@ mal_result mal_rb_acquire_read(mal_rb* pRB, size_t* pSizeInBytes, void** ppBuffe
     }
 
     // The returned buffer should never move ahead of the write pointer.
-    volatile mal_uint32 writeOffset = pRB->writeOffset;
+    mal_uint32 writeOffset = pRB->writeOffset;
     mal_uint32 writeOffsetInBytes;
     mal_uint32 writeOffsetLoopFlag;
     mal_rb__deconstruct_offset(writeOffset, &writeOffsetInBytes, &writeOffsetLoopFlag);
 
-    volatile mal_uint32 readOffset = pRB->readOffset;
+    mal_uint32 readOffset = pRB->readOffset;
     mal_uint32 readOffsetInBytes;
     mal_uint32 readOffsetLoopFlag;
     mal_rb__deconstruct_offset(readOffset, &readOffsetInBytes, &readOffsetLoopFlag);
@@ -209,7 +209,7 @@ mal_result mal_rb_commit_read(mal_rb* pRB, size_t sizeInBytes, void* pBufferOut)
         return MAL_INVALID_ARGS;
     }
 
-    volatile mal_uint32 readOffset = pRB->readOffset;
+    mal_uint32 readOffset = pRB->readOffset;
     mal_uint32 readOffsetInBytes;
     mal_uint32 readOffsetLoopFlag;
     mal_rb__deconstruct_offset(readOffset, &readOffsetInBytes, &readOffsetLoopFlag);
@@ -238,12 +238,12 @@ mal_result mal_rb_acquire_write(mal_rb* pRB, size_t* pSizeInBytes, void** ppBuff
     }
 
     // The returned buffer should never overtake the read buffer.
-    volatile mal_uint32 readOffset = pRB->readOffset;
+    mal_uint32 readOffset = pRB->readOffset;
     mal_uint32 readOffsetInBytes;
     mal_uint32 readOffsetLoopFlag;
     mal_rb__deconstruct_offset(readOffset, &readOffsetInBytes, &readOffsetLoopFlag);
 
-    volatile mal_uint32 writeOffset = pRB->writeOffset;
+    mal_uint32 writeOffset = pRB->writeOffset;
     mal_uint32 writeOffsetInBytes;
     mal_uint32 writeOffsetLoopFlag;
     mal_rb__deconstruct_offset(writeOffset, &writeOffsetInBytes, &writeOffsetLoopFlag);
@@ -285,7 +285,7 @@ mal_result mal_rb_commit_write(mal_rb* pRB, size_t sizeInBytes, void* pBufferOut
         return MAL_INVALID_ARGS;
     }
 
-    volatile mal_uint32 writeOffset = pRB->writeOffset;
+    mal_uint32 writeOffset = pRB->writeOffset;
     mal_uint32 writeOffsetInBytes;
     mal_uint32 writeOffsetLoopFlag;
     mal_rb__deconstruct_offset(writeOffset, &writeOffsetInBytes, &writeOffsetLoopFlag);
@@ -313,12 +313,12 @@ mal_result mal_rb_seek_read(mal_rb* pRB, size_t offsetInBytes)
         return MAL_INVALID_ARGS;
     }
 
-    volatile mal_uint32 readOffset = pRB->readOffset;
+    mal_uint32 readOffset = pRB->readOffset;
     mal_uint32 readOffsetInBytes;
     mal_uint32 readOffsetLoopFlag;
     mal_rb__deconstruct_offset(readOffset, &readOffsetInBytes, &readOffsetLoopFlag);
 
-    volatile mal_uint32 writeOffset = pRB->writeOffset;
+    mal_uint32 writeOffset = pRB->writeOffset;
     mal_uint32 writeOffsetInBytes;
     mal_uint32 writeOffsetLoopFlag;
     mal_rb__deconstruct_offset(writeOffset, &writeOffsetInBytes, &writeOffsetLoopFlag);
@@ -353,12 +353,12 @@ mal_result mal_rb_seek_write(mal_rb* pRB, size_t offsetInBytes)
         return MAL_INVALID_ARGS;
     }
 
-    volatile mal_uint32 readOffset = pRB->readOffset;
+    mal_uint32 readOffset = pRB->readOffset;
     mal_uint32 readOffsetInBytes;
     mal_uint32 readOffsetLoopFlag;
     mal_rb__deconstruct_offset(readOffset, &readOffsetInBytes, &readOffsetLoopFlag);
 
-    volatile mal_uint32 writeOffset = pRB->writeOffset;
+    mal_uint32 writeOffset = pRB->writeOffset;
     mal_uint32 writeOffsetInBytes;
     mal_uint32 writeOffsetLoopFlag;
     mal_rb__deconstruct_offset(writeOffset, &writeOffsetInBytes, &writeOffsetLoopFlag);
@@ -393,12 +393,12 @@ mal_int32 mal_rb_pointer_distance(mal_rb* pRB)
         return 0;
     }
 
-    volatile mal_uint32 readOffset = pRB->readOffset;
+    mal_uint32 readOffset = pRB->readOffset;
     mal_uint32 readOffsetInBytes;
     mal_uint32 readOffsetLoopFlag;
     mal_rb__deconstruct_offset(readOffset, &readOffsetInBytes, &readOffsetLoopFlag);
 
-    volatile mal_uint32 writeOffset = pRB->writeOffset;
+    mal_uint32 writeOffset = pRB->writeOffset;
     mal_uint32 writeOffsetInBytes;
     mal_uint32 writeOffsetLoopFlag;
     mal_rb__deconstruct_offset(writeOffset, &writeOffsetInBytes, &writeOffsetLoopFlag);
