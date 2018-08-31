@@ -354,9 +354,6 @@ typedef void* mal_handle;
 typedef void* mal_ptr;
 typedef void (* mal_proc)(void);
 
-typedef struct mal_context mal_context;
-typedef struct mal_device mal_device;
-
 #if defined(_MSC_VER) && !defined(_WCHAR_T_DEFINED)
 typedef mal_uint16 wchar_t;
 #endif
@@ -411,6 +408,8 @@ typedef mal_uint16 wchar_t;
 #define MAL_LOG_LEVEL           MAL_LOG_LEVEL_ERROR
 #endif
 
+typedef struct mal_context mal_context;
+typedef struct mal_device mal_device;
 
 typedef mal_uint8 mal_channel;
 #define MAL_CHANNEL_NONE                                0
