@@ -1,5 +1,5 @@
 // FLAC audio decoder. Public domain. See "unlicense" statement at the end of this file.
-// dr_flac - v0.9.11 - 2018-08-29
+// dr_flac - v0.10.0 - 2018-09-11
 //
 // David Reid - mackron@gmail.com
 
@@ -80,15 +80,10 @@
 // #define these options before including this file.
 //
 // #define DR_FLAC_NO_STDIO
-//   Disable drflac_open_file().
+//   Disable drflac_open_file() and family.
 //
 // #define DR_FLAC_NO_OGG
 //   Disables support for Ogg/FLAC streams.
-//
-// #define DR_FLAC_NO_WIN32_IO
-//   In the Win32 build, dr_flac uses the Win32 IO APIs for drflac_open_file() by default. This setting will make it use the
-//   standard FILE APIs instead. Ignored when DR_FLAC_NO_STDIO is #defined. (The rationale for this configuration is that
-//   there's a bug in one compiler's Win32 implementation of the FILE APIs which is not present in the Win32 IO APIs.)
 //
 // #define DR_FLAC_BUFFER_SIZE <number>
 //   Defines the size of the internal buffer to store data from onRead(). This buffer is used to reduce the number of calls
@@ -109,8 +104,6 @@
 // - dr_flac does not currently support changing the sample rate nor channel count mid stream.
 // - Audio data is output as signed 32-bit PCM, regardless of the bits per sample the FLAC stream is encoded as.
 // - This has not been tested on big-endian architectures.
-// - Rice codes in unencoded binary form (see https://xiph.org/flac/format.html#rice_partition) has not been tested. If anybody
-//   knows where I can find some test files for this, let me know.
 // - dr_flac is not thread-safe, but its APIs can be called from any thread so long as you do your own synchronization.
 // - When using Ogg encapsulation, a corrupted metadata block will result in drflac_open_with_metadata() and drflac_open()
 //   returning inconsistent samples.
@@ -276,7 +269,7 @@ typedef struct
             drflac_uint32 vendorLength;
             const char* vendor;
             drflac_uint32 commentCount;
-            const char* comments;
+            const void* pComments;
         } vorbis_comment;
 
         struct
@@ -285,7 +278,7 @@ typedef struct
             drflac_uint64 leadInSampleCount;
             drflac_bool32 isCD;
             drflac_uint8 trackCount;
-            const drflac_uint8* pTrackData;
+            const void* pTrackData;
         } cuesheet;
 
         struct
@@ -728,11 +721,47 @@ typedef struct
 
 // Initializes a vorbis comment iterator. This can be used for iterating over the vorbis comments in a VORBIS_COMMENT
 // metadata block.
-void drflac_init_vorbis_comment_iterator(drflac_vorbis_comment_iterator* pIter, drflac_uint32 commentCount, const char* pComments);
+void drflac_init_vorbis_comment_iterator(drflac_vorbis_comment_iterator* pIter, drflac_uint32 commentCount, const void* pComments);
 
 // Goes to the next vorbis comment in the given iterator. If null is returned it means there are no more comments. The
 // returned string is NOT null terminated.
 const char* drflac_next_vorbis_comment(drflac_vorbis_comment_iterator* pIter, drflac_uint32* pCommentLengthOut);
+
+
+// Structure representing an iterator for cuesheet tracks in a CUESHEET metadata block.
+typedef struct
+{
+    drflac_uint32 countRemaining;
+    const char* pRunningData;
+} drflac_cuesheet_track_iterator;
+
+// Packing is important on this structure because we map this directly to the raw data within the CUESHEET metadata block.
+#pragma pack(4)
+typedef struct
+{
+    drflac_uint64 offset;
+    drflac_uint8 index;
+    drflac_uint8 reserved[3];
+} drflac_cuesheet_track_index;
+#pragma pack()
+
+typedef struct
+{
+    drflac_uint64 offset;
+    drflac_uint8 trackNumber;
+    char ISRC[12];
+    drflac_bool8 isAudio;
+    drflac_bool8 preEmphasis;
+    drflac_uint8 indexCount;
+    const drflac_cuesheet_track_index* pIndexPoints;
+} drflac_cuesheet_track;
+
+// Initializes a cuesheet track iterator. This can be used for iterating over the cuesheet tracks in a CUESHEET metadata
+// block.
+void drflac_init_cuesheet_track_iterator(drflac_cuesheet_track_iterator* pIter, drflac_uint32 trackCount, const void* pTrackData);
+
+// Goes to the next cuesheet track in the given iterator. If DRFLAC_FALSE is returned it means there are no more comments.
+drflac_bool32 drflac_next_cuesheet_track(drflac_cuesheet_track_iterator* pIter, drflac_cuesheet_track* pCuesheetTrack);
 
 
 
@@ -750,10 +779,10 @@ const char* drflac_next_vorbis_comment(drflac_vorbis_comment_iterator* pIter, dr
 #ifdef DR_FLAC_IMPLEMENTATION
 #ifdef __linux__
     #ifndef _BSD_SOURCE
-    #define _BSD_SOURCE
+        #define _BSD_SOURCE
     #endif
     #ifndef __USE_BSD
-    #define __USE_BSD
+        #define __USE_BSD
     #endif
     #include <endian.h>
 #endif
@@ -763,11 +792,11 @@ const char* drflac_next_vorbis_comment(drflac_vorbis_comment_iterator* pIter, dr
 
 // CPU architecture.
 #if defined(__x86_64__) || defined(_M_X64)
-#define DRFLAC_X64
+    #define DRFLAC_X64
 #elif defined(__i386) || defined(_M_IX86)
-#define DRFLAC_X86
+    #define DRFLAC_X86
 #elif defined(__arm__) || defined(_M_ARM)
-#define DRFLAC_ARM
+    #define DRFLAC_ARM
 #endif
 
 // Compile-time CPU feature support.
@@ -809,7 +838,7 @@ const char* drflac_next_vorbis_comment(drflac_vorbis_comment_iterator* pIter, dr
         #endif
     #endif
 #else
-#define DRFLAC_NO_CPUID
+    #define DRFLAC_NO_CPUID
 #endif
 
 
@@ -1293,20 +1322,17 @@ static DRFLAC_INLINE drflac_uint16 drflac_crc16(drflac_uint16 crc, drflac_cache_
 // is a 32- or 64-bit unsigned integer (depending on whether or not a 32- or 64-bit build is being compiled) and the L2 is an
 // array of "cache lines", with each cache line being the same size as the L1. The L2 is a buffer of about 4KB and is where data
 // from onRead() is read into.
-#define DRFLAC_CACHE_L1_SIZE_BYTES(bs)                  (sizeof((bs)->cache))
-#define DRFLAC_CACHE_L1_SIZE_BITS(bs)                   (sizeof((bs)->cache)*8)
-#define DRFLAC_CACHE_L1_BITS_REMAINING(bs)              (DRFLAC_CACHE_L1_SIZE_BITS(bs) - ((bs)->consumedBits))
-#ifdef DRFLAC_64BIT
-#define DRFLAC_CACHE_L1_SELECTION_MASK(_bitCount)       (~(((drflac_uint64)-1LL) >> (_bitCount)))
-#else
-#define DRFLAC_CACHE_L1_SELECTION_MASK(_bitCount)       (~(((drflac_uint32)-1) >> (_bitCount)))
-#endif
-#define DRFLAC_CACHE_L1_SELECTION_SHIFT(bs, _bitCount)  (DRFLAC_CACHE_L1_SIZE_BITS(bs) - (_bitCount))
-#define DRFLAC_CACHE_L1_SELECT(bs, _bitCount)           (((bs)->cache) & DRFLAC_CACHE_L1_SELECTION_MASK(_bitCount))
-#define DRFLAC_CACHE_L1_SELECT_AND_SHIFT(bs, _bitCount) (DRFLAC_CACHE_L1_SELECT((bs), _bitCount) >> DRFLAC_CACHE_L1_SELECTION_SHIFT((bs), _bitCount))
-#define DRFLAC_CACHE_L2_SIZE_BYTES(bs)                  (sizeof((bs)->cacheL2))
-#define DRFLAC_CACHE_L2_LINE_COUNT(bs)                  (DRFLAC_CACHE_L2_SIZE_BYTES(bs) / sizeof((bs)->cacheL2[0]))
-#define DRFLAC_CACHE_L2_LINES_REMAINING(bs)             (DRFLAC_CACHE_L2_LINE_COUNT(bs) - (bs)->nextL2Line)
+#define DRFLAC_CACHE_L1_SIZE_BYTES(bs)                      (sizeof((bs)->cache))
+#define DRFLAC_CACHE_L1_SIZE_BITS(bs)                       (sizeof((bs)->cache)*8)
+#define DRFLAC_CACHE_L1_BITS_REMAINING(bs)                  (DRFLAC_CACHE_L1_SIZE_BITS(bs) - (bs)->consumedBits)
+#define DRFLAC_CACHE_L1_SELECTION_MASK(_bitCount)           (~((~(drflac_cache_t)0) >> (_bitCount)))
+#define DRFLAC_CACHE_L1_SELECTION_SHIFT(bs, _bitCount)      (DRFLAC_CACHE_L1_SIZE_BITS(bs) - (_bitCount))
+#define DRFLAC_CACHE_L1_SELECT(bs, _bitCount)               (((bs)->cache) & DRFLAC_CACHE_L1_SELECTION_MASK(_bitCount))
+#define DRFLAC_CACHE_L1_SELECT_AND_SHIFT(bs, _bitCount)     (DRFLAC_CACHE_L1_SELECT((bs), (_bitCount)) >>  DRFLAC_CACHE_L1_SELECTION_SHIFT((bs), (_bitCount)))
+#define DRFLAC_CACHE_L1_SELECT_AND_SHIFT_SAFE(bs, _bitCount)(DRFLAC_CACHE_L1_SELECT((bs), (_bitCount)) >> (DRFLAC_CACHE_L1_SELECTION_SHIFT((bs), (_bitCount)) & (DRFLAC_CACHE_L1_SIZE_BITS(bs)-1)))
+#define DRFLAC_CACHE_L2_SIZE_BYTES(bs)                      (sizeof((bs)->cacheL2))
+#define DRFLAC_CACHE_L2_LINE_COUNT(bs)                      (DRFLAC_CACHE_L2_SIZE_BYTES(bs) / sizeof((bs)->cacheL2[0]))
+#define DRFLAC_CACHE_L2_LINES_REMAINING(bs)                 (DRFLAC_CACHE_L2_LINE_COUNT(bs) - (bs)->nextL2Line)
 
 
 #ifndef DR_FLAC_NO_CRC
@@ -1418,6 +1444,7 @@ static drflac_bool32 drflac__reload_cache(drflac_bs* bs)
     // data from the unaligned cache.
     size_t bytesRead = bs->unalignedByteCount;
     if (bytesRead == 0) {
+        bs->consumedBits = DRFLAC_CACHE_L1_SIZE_BITS(bs);   // <-- The stream has been exhausted, so marked the bits as consumed.
         return DRFLAC_FALSE;
     }
 
@@ -1425,7 +1452,7 @@ static drflac_bool32 drflac__reload_cache(drflac_bs* bs)
     bs->consumedBits = (drflac_uint32)(DRFLAC_CACHE_L1_SIZE_BYTES(bs) - bytesRead) * 8;
 
     bs->cache = drflac__be2host__cache_line(bs->unalignedCache);
-    bs->cache &= DRFLAC_CACHE_L1_SELECTION_MASK(DRFLAC_CACHE_L1_SIZE_BITS(bs) - bs->consumedBits);    // <-- Make sure the consumed bits are always set to zero. Other parts of the library depend on this property.
+    bs->cache &= DRFLAC_CACHE_L1_SELECTION_MASK(DRFLAC_CACHE_L1_BITS_REMAINING(bs));    // <-- Make sure the consumed bits are always set to zero. Other parts of the library depend on this property.
     bs->unalignedByteCount = 0;     // <-- At this point the unaligned bytes have been moved into the cache and we thus have no more unaligned bytes.
 
 #ifndef DR_FLAC_NO_CRC
@@ -1464,15 +1491,26 @@ static DRFLAC_INLINE drflac_bool32 drflac__read_uint32(drflac_bs* bs, unsigned i
     }
 
     if (bitCount <= DRFLAC_CACHE_L1_BITS_REMAINING(bs)) {
+        // If we want to load all 32-bits from a 32-bit cache we need to do it slightly differently because we can't do
+        // a 32-bit shift on a 32-bit integer. This will never be the case on 64-bit caches, so we can have a slightly
+        // more optimal solution for this.
+#ifdef DRFLAC_64BIT
+        *pResultOut = (drflac_uint32)DRFLAC_CACHE_L1_SELECT_AND_SHIFT(bs, bitCount);
+        bs->consumedBits += bitCount;
+        bs->cache <<= bitCount;
+#else
         if (bitCount < DRFLAC_CACHE_L1_SIZE_BITS(bs)) {
             *pResultOut = (drflac_uint32)DRFLAC_CACHE_L1_SELECT_AND_SHIFT(bs, bitCount);
             bs->consumedBits += bitCount;
             bs->cache <<= bitCount;
         } else {
+            // Cannot shift by 32-bits, so need to do it differently.
             *pResultOut = (drflac_uint32)bs->cache;
             bs->consumedBits = DRFLAC_CACHE_L1_SIZE_BITS(bs);
             bs->cache = 0;
         }
+#endif
+
         return DRFLAC_TRUE;
     } else {
         // It straddles the cached data. It will never cover more than the next chunk. We just read the number in two parts and combine them.
@@ -1784,6 +1822,8 @@ static DRFLAC_INLINE drflac_uint32 drflac__clz_lzcnt(drflac_cache_t x)
 #endif
 
 #ifdef DRFLAC_IMPLEMENT_CLZ_MSVC
+#include <intrin.h> // For BitScanReverse().
+
 static DRFLAC_INLINE drflac_uint32 drflac__clz_msvc(drflac_cache_t x)
 {
     drflac_uint32 n;
@@ -1805,11 +1845,11 @@ static DRFLAC_INLINE drflac_uint32 drflac__clz(drflac_cache_t x)
     } else
 #endif
     {
-    #ifdef DRFLAC_IMPLEMENT_CLZ_MSVC
+#ifdef DRFLAC_IMPLEMENT_CLZ_MSVC
         return drflac__clz_msvc(x);
-    #else
+#else
         return drflac__clz_software(x);
-    #endif
+#endif
     }
 }
 
@@ -2250,9 +2290,9 @@ static drflac_bool32 drflac__read_rice_parts__reference(drflac_bs* bs, drflac_ui
 
 static DRFLAC_INLINE drflac_bool32 drflac__read_rice_parts(drflac_bs* bs, drflac_uint8 riceParam, drflac_uint32* pZeroCounterOut, drflac_uint32* pRiceParamPartOut)
 {
-    drflac_cache_t riceParamMask = DRFLAC_CACHE_L1_SELECTION_MASK(riceParam);
-    drflac_cache_t resultHiShift = DRFLAC_CACHE_L1_SIZE_BITS(bs) - riceParam;
+    drflac_assert(riceParam > 0);   // <-- riceParam should never be 0. drflac__read_rice_parts__param_equals_zero() should be used instead for this case.
 
+    drflac_cache_t riceParamMask = DRFLAC_CACHE_L1_SELECTION_MASK(riceParam);
 
     drflac_uint32 zeroCounter = 0;
     while (bs->cache == 0) {
@@ -2270,29 +2310,27 @@ static DRFLAC_INLINE drflac_bool32 drflac__read_rice_parts(drflac_bs* bs, drflac
     drflac_uint32 riceParamPart;
     drflac_uint32 riceLength = setBitOffsetPlus1 + riceParam;
     if (riceLength < DRFLAC_CACHE_L1_BITS_REMAINING(bs)) {
-        riceParamPart = (drflac_uint32)((bs->cache & (riceParamMask >> setBitOffsetPlus1)) >> (DRFLAC_CACHE_L1_SIZE_BITS(bs) - riceLength));
+        riceParamPart = (drflac_uint32)((bs->cache & (riceParamMask >> setBitOffsetPlus1)) >> DRFLAC_CACHE_L1_SELECTION_SHIFT(bs, riceLength));
 
         bs->consumedBits += riceLength;
         bs->cache <<= riceLength;
     } else {
         bs->consumedBits += riceLength;
-        if (setBitOffsetPlus1 < DRFLAC_CACHE_L1_SIZE_BITS(bs)) {
-            bs->cache <<= setBitOffsetPlus1;
-        }
+        bs->cache <<= setBitOffsetPlus1 & (DRFLAC_CACHE_L1_SIZE_BITS(bs)-1);    // <-- Equivalent to "if (setBitOffsetPlus1 < DRFLAC_CACHE_L1_SIZE_BITS(bs)) { bs->cache <<= setBitOffsetPlus1; }"
 
         // It straddles the cached data. It will never cover more than the next chunk. We just read the number in two parts and combine them.
         drflac_uint32 bitCountLo = bs->consumedBits - DRFLAC_CACHE_L1_SIZE_BITS(bs);
-        drflac_cache_t resultHi = bs->cache & riceParamMask;    // <-- This mask is OK because all bits after the first bits are always zero.
+        drflac_cache_t resultHi = DRFLAC_CACHE_L1_SELECT_AND_SHIFT(bs, riceParam);  // <-- Use DRFLAC_CACHE_L1_SELECT_AND_SHIFT_SAFE() if ever this function allows riceParam=0.
 
         if (bs->nextL2Line < DRFLAC_CACHE_L2_LINE_COUNT(bs)) {
-        #ifndef DR_FLAC_NO_CRC
+#ifndef DR_FLAC_NO_CRC
             drflac__update_crc16(bs);
-        #endif
+#endif
             bs->cache = drflac__be2host__cache_line(bs->cacheL2[bs->nextL2Line++]);
             bs->consumedBits = 0;
-        #ifndef DR_FLAC_NO_CRC
+#ifndef DR_FLAC_NO_CRC
             bs->crc16Cache = bs->cache;
-        #endif
+#endif
         } else {
             // Slow path. We need to fetch more data from the client.
             if (!drflac__reload_cache(bs)) {
@@ -2300,7 +2338,62 @@ static DRFLAC_INLINE drflac_bool32 drflac__read_rice_parts(drflac_bs* bs, drflac
             }
         }
 
-        riceParamPart = (drflac_uint32)((resultHi >> resultHiShift) | DRFLAC_CACHE_L1_SELECT_AND_SHIFT(bs, bitCountLo));
+        riceParamPart = (drflac_uint32)(resultHi | DRFLAC_CACHE_L1_SELECT_AND_SHIFT_SAFE(bs, bitCountLo));
+
+        bs->consumedBits += bitCountLo;
+        bs->cache <<= bitCountLo;
+    }
+
+    *pZeroCounterOut = zeroCounter;
+    *pRiceParamPartOut = riceParamPart;
+    return DRFLAC_TRUE;
+}
+
+static DRFLAC_INLINE drflac_bool32 drflac__read_rice_parts__param_equals_zero(drflac_bs* bs, drflac_uint32* pZeroCounterOut, drflac_uint32* pRiceParamPartOut)
+{
+    drflac_cache_t riceParamMask = DRFLAC_CACHE_L1_SELECTION_MASK(0);
+
+    drflac_uint32 zeroCounter = 0;
+    while (bs->cache == 0) {
+        zeroCounter += (drflac_uint32)DRFLAC_CACHE_L1_BITS_REMAINING(bs);
+        if (!drflac__reload_cache(bs)) {
+            return DRFLAC_FALSE;
+        }
+    }
+
+    drflac_uint32 setBitOffsetPlus1 = drflac__clz(bs->cache);
+    zeroCounter += setBitOffsetPlus1;
+    setBitOffsetPlus1 += 1;
+
+
+    drflac_uint32 riceParamPart;
+    drflac_uint32 riceLength = setBitOffsetPlus1;
+    if (riceLength < DRFLAC_CACHE_L1_BITS_REMAINING(bs)) {
+        riceParamPart = (drflac_uint32)((bs->cache & (riceParamMask >> setBitOffsetPlus1)) >> DRFLAC_CACHE_L1_SELECTION_SHIFT(bs, riceLength));
+
+        bs->consumedBits += riceLength;
+        bs->cache <<= riceLength;
+    } else {
+        // It straddles the cached data. It will never cover more than the next chunk. We just read the number in two parts and combine them.
+        drflac_uint32 bitCountLo = riceLength + bs->consumedBits - DRFLAC_CACHE_L1_SIZE_BITS(bs);
+
+        if (bs->nextL2Line < DRFLAC_CACHE_L2_LINE_COUNT(bs)) {
+#ifndef DR_FLAC_NO_CRC
+            drflac__update_crc16(bs);
+#endif
+            bs->cache = drflac__be2host__cache_line(bs->cacheL2[bs->nextL2Line++]);
+            bs->consumedBits = 0;
+#ifndef DR_FLAC_NO_CRC
+            bs->crc16Cache = bs->cache;
+#endif
+        } else {
+            // Slow path. We need to fetch more data from the client.
+            if (!drflac__reload_cache(bs)) {
+                return DRFLAC_FALSE;
+            }
+        }
+
+        riceParamPart = (drflac_uint32)(DRFLAC_CACHE_L1_SELECT_AND_SHIFT_SAFE(bs, bitCountLo));
 
         bs->consumedBits += bitCountLo;
         bs->cache <<= bitCountLo;
@@ -2391,12 +2484,94 @@ static drflac_bool32 drflac__decode_samples_with_residual__rice__simple(drflac_b
     return DRFLAC_TRUE;
 }
 
+static drflac_bool32 drflac__decode_samples_with_residual__rice__param_equals_zero(drflac_bs* bs, drflac_uint32 bitsPerSample, drflac_uint32 count, drflac_uint32 order, drflac_int32 shift, const drflac_int32* coefficients, drflac_int32* pSamplesOut)
+{
+    drflac_assert(bs != NULL);
+    drflac_assert(count > 0);
+    drflac_assert(pSamplesOut != NULL);
+
+    static drflac_uint32 t[2] = {0x00000000, 0xFFFFFFFF};
+
+    drflac_uint32 zeroCountPart0;
+    drflac_uint32 zeroCountPart1;
+    drflac_uint32 zeroCountPart2;
+    drflac_uint32 zeroCountPart3;
+    drflac_uint32 riceParamPart0;
+    drflac_uint32 riceParamPart1;
+    drflac_uint32 riceParamPart2;
+    drflac_uint32 riceParamPart3;
+    drflac_uint32 i4 = 0;
+    drflac_uint32 count4 = count >> 2;
+    while (i4 < count4) {
+        // Rice extraction.
+        if (!drflac__read_rice_parts__param_equals_zero(bs, &zeroCountPart0, &riceParamPart0) ||
+            !drflac__read_rice_parts__param_equals_zero(bs, &zeroCountPart1, &riceParamPart1) ||
+            !drflac__read_rice_parts__param_equals_zero(bs, &zeroCountPart2, &riceParamPart2) ||
+            !drflac__read_rice_parts__param_equals_zero(bs, &zeroCountPart3, &riceParamPart3)) {
+            return DRFLAC_FALSE;
+        }
+
+        riceParamPart0 |= zeroCountPart0;
+        riceParamPart1 |= zeroCountPart1;
+        riceParamPart2 |= zeroCountPart2;
+        riceParamPart3 |= zeroCountPart3;
+
+        riceParamPart0  = (riceParamPart0 >> 1) ^ t[riceParamPart0 & 0x01];
+        riceParamPart1  = (riceParamPart1 >> 1) ^ t[riceParamPart1 & 0x01];
+        riceParamPart2  = (riceParamPart2 >> 1) ^ t[riceParamPart2 & 0x01];
+        riceParamPart3  = (riceParamPart3 >> 1) ^ t[riceParamPart3 & 0x01];
+
+        if (bitsPerSample > 16) {
+            pSamplesOut[0] = riceParamPart0 + drflac__calculate_prediction_64(order, shift, coefficients, pSamplesOut + 0);
+            pSamplesOut[1] = riceParamPart1 + drflac__calculate_prediction_64(order, shift, coefficients, pSamplesOut + 1);
+            pSamplesOut[2] = riceParamPart2 + drflac__calculate_prediction_64(order, shift, coefficients, pSamplesOut + 2);
+            pSamplesOut[3] = riceParamPart3 + drflac__calculate_prediction_64(order, shift, coefficients, pSamplesOut + 3);
+        } else {
+            pSamplesOut[0] = riceParamPart0 + drflac__calculate_prediction_32(order, shift, coefficients, pSamplesOut + 0);
+            pSamplesOut[1] = riceParamPart1 + drflac__calculate_prediction_32(order, shift, coefficients, pSamplesOut + 1);
+            pSamplesOut[2] = riceParamPart2 + drflac__calculate_prediction_32(order, shift, coefficients, pSamplesOut + 2);
+            pSamplesOut[3] = riceParamPart3 + drflac__calculate_prediction_32(order, shift, coefficients, pSamplesOut + 3);
+        }
+
+        i4 += 1;
+        pSamplesOut += 4;
+    }
+
+    drflac_uint32 i = i4 << 2;
+    while (i < count) {
+        // Rice extraction.
+        if (!drflac__read_rice_parts__param_equals_zero(bs, &zeroCountPart0, &riceParamPart0)) {
+            return DRFLAC_FALSE;
+        }
+
+        // Rice reconstruction.
+        riceParamPart0 |= zeroCountPart0;
+        riceParamPart0  = (riceParamPart0 >> 1) ^ t[riceParamPart0 & 0x01];
+
+        // Sample reconstruction.
+        if (bitsPerSample > 16) {
+            pSamplesOut[0] = riceParamPart0 + drflac__calculate_prediction_64(order, shift, coefficients, pSamplesOut + 0);
+        } else {
+            pSamplesOut[0] = riceParamPart0 + drflac__calculate_prediction_32(order, shift, coefficients, pSamplesOut + 0);
+        }
+
+        i += 1;
+        pSamplesOut += 1;
+    }
+
+    return DRFLAC_TRUE;
+}
+
 static drflac_bool32 drflac__decode_samples_with_residual__rice(drflac_bs* bs, drflac_uint32 bitsPerSample, drflac_uint32 count, drflac_uint8 riceParam, drflac_uint32 order, drflac_int32 shift, const drflac_int32* coefficients, drflac_int32* pSamplesOut)
 {
 #if 0
     return drflac__decode_samples_with_residual__rice__reference(bs, bitsPerSample, count, riceParam, order, shift, coefficients, pSamplesOut);
 #else
-    return drflac__decode_samples_with_residual__rice__simple(bs, bitsPerSample, count, riceParam, order, shift, coefficients, pSamplesOut);
+    if (riceParam != 0) {
+        return drflac__decode_samples_with_residual__rice__simple(bs, bitsPerSample, count, riceParam, order, shift, coefficients, pSamplesOut);
+    } else {
+        return drflac__decode_samples_with_residual__rice__param_equals_zero(bs, bitsPerSample, count, order, shift, coefficients, pSamplesOut);
+    }
 #endif
 }
 
@@ -2406,11 +2581,20 @@ static drflac_bool32 drflac__read_and_seek_residual__rice(drflac_bs* bs, drflac_
     drflac_assert(bs != NULL);
     drflac_assert(count > 0);
 
-    for (drflac_uint32 i = 0; i < count; ++i) {
-        drflac_uint32 zeroCountPart;
-        drflac_uint32 riceParamPart;
-        if (!drflac__read_rice_parts(bs, riceParam, &zeroCountPart, &riceParamPart)) {
-            return DRFLAC_FALSE;
+    drflac_uint32 zeroCountPart;
+    drflac_uint32 riceParamPart;
+
+    if (riceParam != 0) {
+        for (drflac_uint32 i = 0; i < count; ++i) {
+            if (!drflac__read_rice_parts(bs, riceParam, &zeroCountPart, &riceParamPart)) {
+                return DRFLAC_FALSE;
+            }
+        }
+    } else {
+        for (drflac_uint32 i = 0; i < count; ++i) {
+            if (!drflac__read_rice_parts__param_equals_zero(bs, &zeroCountPart, &riceParamPart)) {
+                return DRFLAC_FALSE;
+            }
         }
     }
 
@@ -2421,12 +2605,16 @@ static drflac_bool32 drflac__decode_samples_with_residual__unencoded(drflac_bs* 
 {
     drflac_assert(bs != NULL);
     drflac_assert(count > 0);
-    drflac_assert(unencodedBitsPerSample > 0 && unencodedBitsPerSample <= 32);
+    drflac_assert(unencodedBitsPerSample <= 31);    // <-- unencodedBitsPerSample is a 5 bit number, so cannot exceed 31.
     drflac_assert(pSamplesOut != NULL);
 
     for (unsigned int i = 0; i < count; ++i) {
-        if (!drflac__read_int32(bs, unencodedBitsPerSample, pSamplesOut + i)) {
-            return DRFLAC_FALSE;
+        if (unencodedBitsPerSample > 0) {
+            if (!drflac__read_int32(bs, unencodedBitsPerSample, pSamplesOut + i)) {
+                return DRFLAC_FALSE;
+            }
+        } else {
+            pSamplesOut[i] = 0;
         }
 
         if (bitsPerSample > 16) {
@@ -2486,14 +2674,14 @@ static drflac_bool32 drflac__decode_samples_with_residual(drflac_bs* bs, drflac_
             if (!drflac__read_uint8(bs, 4, &riceParam)) {
                 return DRFLAC_FALSE;
             }
-            if (riceParam == 16) {
+            if (riceParam == 15) {
                 riceParam = 0xFF;
             }
         } else if (residualMethod == DRFLAC_RESIDUAL_CODING_METHOD_PARTITIONED_RICE2) {
             if (!drflac__read_uint8(bs, 5, &riceParam)) {
                 return DRFLAC_FALSE;
             }
-            if (riceParam == 32) {
+            if (riceParam == 31) {
                 riceParam = 0xFF;
             }
         }
@@ -2552,6 +2740,17 @@ static drflac_bool32 drflac__read_and_seek_residual(drflac_bs* bs, drflac_uint32
         return DRFLAC_FALSE;
     }
 
+    // From the FLAC spec:
+    //   The Rice partition order in a Rice-coded residual section must be less than or equal to 8.
+    if (partitionOrder > 8) {
+        return DRFLAC_FALSE;
+    }
+
+    // Validation check.
+    if ((blockSize / (1 << partitionOrder)) <= order) {
+        return DRFLAC_FALSE;
+    }
+
     drflac_uint32 samplesInPartition = (blockSize / (1 << partitionOrder)) - order;
     drflac_uint32 partitionsRemaining = (1 << partitionOrder);
     for (;;)
@@ -2561,14 +2760,14 @@ static drflac_bool32 drflac__read_and_seek_residual(drflac_bs* bs, drflac_uint32
             if (!drflac__read_uint8(bs, 4, &riceParam)) {
                 return DRFLAC_FALSE;
             }
-            if (riceParam == 16) {
+            if (riceParam == 15) {
                 riceParam = 0xFF;
             }
         } else if (residualMethod == DRFLAC_RESIDUAL_CODING_METHOD_PARTITIONED_RICE2) {
             if (!drflac__read_uint8(bs, 5, &riceParam)) {
                 return DRFLAC_FALSE;
             }
-            if (riceParam == 32) {
+            if (riceParam == 31) {
                 riceParam = 0xFF;
             }
         }
@@ -2725,6 +2924,9 @@ static drflac_bool32 drflac__read_next_frame_header(drflac_bs* bs, drflac_uint8 
         if (!drflac__read_uint8(bs, 1, &reserved)) {
             return DRFLAC_FALSE;
         }
+        if (reserved == 1) {
+            continue;
+        }
         crc8 = drflac_crc8(crc8, reserved, 1);
 
 
@@ -2738,6 +2940,9 @@ static drflac_bool32 drflac__read_next_frame_header(drflac_bs* bs, drflac_uint8 
         drflac_uint8 blockSize = 0;
         if (!drflac__read_uint8(bs, 4, &blockSize)) {
             return DRFLAC_FALSE;
+        }
+        if (blockSize == 0) {
+            continue;
         }
         crc8 = drflac_crc8(crc8, blockSize, 4);
 
@@ -2753,6 +2958,9 @@ static drflac_bool32 drflac__read_next_frame_header(drflac_bs* bs, drflac_uint8 
         if (!drflac__read_uint8(bs, 4, &channelAssignment)) {
             return DRFLAC_FALSE;
         }
+        if (channelAssignment > 10) {
+            continue;
+        }
         crc8 = drflac_crc8(crc8, channelAssignment, 4);
 
 
@@ -2760,11 +2968,17 @@ static drflac_bool32 drflac__read_next_frame_header(drflac_bs* bs, drflac_uint8 
         if (!drflac__read_uint8(bs, 3, &bitsPerSample)) {
             return DRFLAC_FALSE;
         }
+        if (bitsPerSample == 3 || bitsPerSample == 7) {
+            continue;
+        }
         crc8 = drflac_crc8(crc8, bitsPerSample, 3);
 
 
         if (!drflac__read_uint8(bs, 1, &reserved)) {
             return DRFLAC_FALSE;
+        }
+        if (reserved == 1) {
+            continue;
         }
         crc8 = drflac_crc8(crc8, reserved, 1);
 
@@ -2853,11 +3067,11 @@ static drflac_bool32 drflac__read_next_frame_header(drflac_bs* bs, drflac_uint8 
             return DRFLAC_FALSE;
         }
 
-    #ifndef DR_FLAC_NO_CRC
+#ifndef DR_FLAC_NO_CRC
         if (header->crc8 != crc8) {
             continue;    // CRC mismatch. Loop back to the top and find the next sync code.
         }
-    #endif
+#endif
         return DRFLAC_TRUE;
     }
 }
@@ -2931,6 +3145,9 @@ static drflac_bool32 drflac__decode_subframe(drflac_bs* bs, drflac_frame* frame,
     }
 
     // Need to handle wasted bits per sample.
+    if (pSubframe->wastedBitsPerSample >= pSubframe->bitsPerSample) {
+        return DRFLAC_FALSE;
+    }
     pSubframe->bitsPerSample -= pSubframe->wastedBitsPerSample;
     pSubframe->pDecodedSamples = pDecodedSamplesOut;
 
@@ -2981,6 +3198,9 @@ static drflac_bool32 drflac__seek_subframe(drflac_bs* bs, drflac_frame* frame, i
     }
 
     // Need to handle wasted bits per sample.
+    if (pSubframe->wastedBitsPerSample >= pSubframe->bitsPerSample) {
+        return DRFLAC_FALSE;
+    }
     pSubframe->bitsPerSample -= pSubframe->wastedBitsPerSample;
     pSubframe->pDecodedSamples = NULL;
 
@@ -3533,6 +3753,10 @@ drflac_bool32 drflac__read_and_decode_metadata(drflac_read_proc onRead, drflac_s
         {
             case DRFLAC_METADATA_BLOCK_TYPE_APPLICATION:
             {
+                if (blockSize < 4) {
+                    return DRFLAC_FALSE;
+                }
+
                 if (onMeta) {
                     void* pRawData = DRFLAC_MALLOC(blockSize);
                     if (pRawData == NULL) {
@@ -3592,6 +3816,10 @@ drflac_bool32 drflac__read_and_decode_metadata(drflac_read_proc onRead, drflac_s
 
             case DRFLAC_METADATA_BLOCK_TYPE_VORBIS_COMMENT:
             {
+                if (blockSize < 8) {
+                    return DRFLAC_FALSE;
+                }
+
                 if (onMeta) {
                     void* pRawData = DRFLAC_MALLOC(blockSize);
                     if (pRawData == NULL) {
@@ -3607,10 +3835,39 @@ drflac_bool32 drflac__read_and_decode_metadata(drflac_read_proc onRead, drflac_s
                     metadata.rawDataSize = blockSize;
 
                     const char* pRunningData = (const char*)pRawData;
-                    metadata.data.vorbis_comment.vendorLength = drflac__le2host_32(*(drflac_uint32*)pRunningData); pRunningData += 4;
-                    metadata.data.vorbis_comment.vendor       = pRunningData;                                      pRunningData += metadata.data.vorbis_comment.vendorLength;
-                    metadata.data.vorbis_comment.commentCount = drflac__le2host_32(*(drflac_uint32*)pRunningData); pRunningData += 4;
-                    metadata.data.vorbis_comment.comments     = pRunningData;
+                    const char* const pRunningDataEnd = (const char*)pRawData + blockSize;
+
+                    metadata.data.vorbis_comment.vendorLength = drflac__le2host_32(*(const drflac_uint32*)pRunningData); pRunningData += 4;
+
+                    // Need space for the rest of the block
+                    if ((pRunningDataEnd - pRunningData) - 4 < (drflac_int64)metadata.data.vorbis_comment.vendorLength) { // <-- Note the order of operations to avoid overflow to a valid value
+                        DRFLAC_FREE(pRawData);
+                        return DRFLAC_FALSE;
+                    }
+                    metadata.data.vorbis_comment.vendor       = pRunningData;                                            pRunningData += metadata.data.vorbis_comment.vendorLength;
+                    metadata.data.vorbis_comment.commentCount = drflac__le2host_32(*(const drflac_uint32*)pRunningData); pRunningData += 4;
+
+                    // Need space for 'commentCount' comments after the block, which at minimum is a drflac_uint32 per comment
+                    if ((pRunningDataEnd - pRunningData) / sizeof(drflac_uint32) < metadata.data.vorbis_comment.commentCount) { // <-- Note the order of operations to avoid overflow to a valid value
+                        DRFLAC_FREE(pRawData);
+                        return DRFLAC_FALSE;
+                    }
+                    metadata.data.vorbis_comment.pComments    = pRunningData;
+
+                    // Check that the comments section is valid before passing it to the callback
+                    for (drflac_uint32 i = 0; i < metadata.data.vorbis_comment.commentCount; ++i) {
+                        if (pRunningDataEnd - pRunningData < 4) {
+                            DRFLAC_FREE(pRawData);
+                            return DRFLAC_FALSE;
+                        }
+                        const drflac_uint32 commentLength     = drflac__le2host_32(*(const drflac_uint32*)pRunningData); pRunningData += 4;
+                        if (pRunningDataEnd - pRunningData < (drflac_int64)commentLength) { // <-- Note the order of operations to avoid overflow to a valid value
+                            DRFLAC_FREE(pRawData);
+                            return DRFLAC_FALSE;
+                        }
+                        pRunningData += commentLength;
+                    }
+
                     onMeta(pUserDataMD, &metadata);
 
                     DRFLAC_FREE(pRawData);
@@ -3619,6 +3876,10 @@ drflac_bool32 drflac__read_and_decode_metadata(drflac_read_proc onRead, drflac_s
 
             case DRFLAC_METADATA_BLOCK_TYPE_CUESHEET:
             {
+                if (blockSize < 396) {
+                    return DRFLAC_FALSE;
+                }
+
                 if (onMeta) {
                     void* pRawData = DRFLAC_MALLOC(blockSize);
                     if (pRawData == NULL) {
@@ -3633,12 +3894,39 @@ drflac_bool32 drflac__read_and_decode_metadata(drflac_read_proc onRead, drflac_s
                     metadata.pRawData = pRawData;
                     metadata.rawDataSize = blockSize;
 
-                    const char* pRunningData = (const char*)pRawData;
-                    drflac_copy_memory(metadata.data.cuesheet.catalog, pRunningData, 128);                        pRunningData += 128;
-                    metadata.data.cuesheet.leadInSampleCount = drflac__be2host_64(*(drflac_uint64*)pRunningData); pRunningData += 4;
-                    metadata.data.cuesheet.isCD              = ((pRunningData[0] & 0x80) >> 7) != 0;              pRunningData += 259;
-                    metadata.data.cuesheet.trackCount        = pRunningData[0];                                   pRunningData += 1;
-                    metadata.data.cuesheet.pTrackData        = (const drflac_uint8*)pRunningData;
+                    char* pRunningData = (char*)pRawData;
+                    const char* const pRunningDataEnd = (const char*)pRawData + blockSize;
+
+                    drflac_copy_memory(metadata.data.cuesheet.catalog, pRunningData, 128);                              pRunningData += 128;
+                    metadata.data.cuesheet.leadInSampleCount = drflac__be2host_64(*(const drflac_uint64*)pRunningData); pRunningData += 8;
+                    metadata.data.cuesheet.isCD              = (pRunningData[0] & 0x80) != 0;                           pRunningData += 259;
+                    metadata.data.cuesheet.trackCount        = pRunningData[0];                                         pRunningData += 1;
+                    metadata.data.cuesheet.pTrackData        = pRunningData;
+
+                    // Check that the cuesheet tracks are valid before passing it to the callback
+                    for (drflac_uint8 i = 0; i < metadata.data.cuesheet.trackCount; ++i) {
+                        if (pRunningDataEnd - pRunningData < 36) {
+                            DRFLAC_FREE(pRawData);
+                            return DRFLAC_FALSE;
+                        }
+
+                        // Skip to the index point count
+                        pRunningData += 35;
+                        const drflac_uint8 indexCount        = pRunningData[0];                                         pRunningData += 1;
+                        const drflac_uint32 indexPointSize = indexCount * sizeof(drflac_cuesheet_track_index);
+                        if (pRunningDataEnd - pRunningData < (drflac_int64)indexPointSize) {
+                            DRFLAC_FREE(pRawData);
+                            return DRFLAC_FALSE;
+                        }
+
+                        // Endian swap.
+                        for (drflac_uint8 index = 0; index < indexCount; ++index) {
+                            drflac_cuesheet_track_index* pTrack = (drflac_cuesheet_track_index*)pRunningData;
+                            pRunningData += sizeof(drflac_cuesheet_track_index);
+                            pTrack->offset = drflac__be2host_64(pTrack->offset);
+                        }
+                    }
+
                     onMeta(pUserDataMD, &metadata);
 
                     DRFLAC_FREE(pRawData);
@@ -3647,6 +3935,10 @@ drflac_bool32 drflac__read_and_decode_metadata(drflac_read_proc onRead, drflac_s
 
             case DRFLAC_METADATA_BLOCK_TYPE_PICTURE:
             {
+                if (blockSize < 32) {
+                    return DRFLAC_FALSE;
+                }
+
                 if (onMeta) {
                     void* pRawData = DRFLAC_MALLOC(blockSize);
                     if (pRawData == NULL) {
@@ -3662,17 +3954,38 @@ drflac_bool32 drflac__read_and_decode_metadata(drflac_read_proc onRead, drflac_s
                     metadata.rawDataSize = blockSize;
 
                     const char* pRunningData = (const char*)pRawData;
-                    metadata.data.picture.type              = drflac__be2host_32(*(drflac_uint32*)pRunningData); pRunningData += 4;
-                    metadata.data.picture.mimeLength        = drflac__be2host_32(*(drflac_uint32*)pRunningData); pRunningData += 4;
-                    metadata.data.picture.mime              = pRunningData;                                      pRunningData += metadata.data.picture.mimeLength;
-                    metadata.data.picture.descriptionLength = drflac__be2host_32(*(drflac_uint32*)pRunningData); pRunningData += 4;
-                    metadata.data.picture.description       = pRunningData;
-                    metadata.data.picture.width             = drflac__be2host_32(*(drflac_uint32*)pRunningData); pRunningData += 4;
-                    metadata.data.picture.height            = drflac__be2host_32(*(drflac_uint32*)pRunningData); pRunningData += 4;
-                    metadata.data.picture.colorDepth        = drflac__be2host_32(*(drflac_uint32*)pRunningData); pRunningData += 4;
-                    metadata.data.picture.indexColorCount   = drflac__be2host_32(*(drflac_uint32*)pRunningData); pRunningData += 4;
-                    metadata.data.picture.pictureDataSize   = drflac__be2host_32(*(drflac_uint32*)pRunningData); pRunningData += 4;
+                    const char* const pRunningDataEnd = (const char*)pRawData + blockSize;
+
+                    metadata.data.picture.type              = drflac__be2host_32(*(const drflac_uint32*)pRunningData); pRunningData += 4;
+                    metadata.data.picture.mimeLength        = drflac__be2host_32(*(const drflac_uint32*)pRunningData); pRunningData += 4;
+
+                    // Need space for the rest of the block
+                    if ((pRunningDataEnd - pRunningData) - 24 < (drflac_int64)metadata.data.picture.mimeLength) { // <-- Note the order of operations to avoid overflow to a valid value
+                        DRFLAC_FREE(pRawData);
+                        return DRFLAC_FALSE;
+                    }
+                    metadata.data.picture.mime              = pRunningData;                                            pRunningData += metadata.data.picture.mimeLength;
+                    metadata.data.picture.descriptionLength = drflac__be2host_32(*(const drflac_uint32*)pRunningData); pRunningData += 4;
+
+                    // Need space for the rest of the block
+                    if ((pRunningDataEnd - pRunningData) - 20 < (drflac_int64)metadata.data.picture.descriptionLength) { // <-- Note the order of operations to avoid overflow to a valid value
+                        DRFLAC_FREE(pRawData);
+                        return DRFLAC_FALSE;
+                    }
+                    metadata.data.picture.description       = pRunningData;                                            pRunningData += metadata.data.picture.descriptionLength;
+                    metadata.data.picture.width             = drflac__be2host_32(*(const drflac_uint32*)pRunningData); pRunningData += 4;
+                    metadata.data.picture.height            = drflac__be2host_32(*(const drflac_uint32*)pRunningData); pRunningData += 4;
+                    metadata.data.picture.colorDepth        = drflac__be2host_32(*(const drflac_uint32*)pRunningData); pRunningData += 4;
+                    metadata.data.picture.indexColorCount   = drflac__be2host_32(*(const drflac_uint32*)pRunningData); pRunningData += 4;
+                    metadata.data.picture.pictureDataSize   = drflac__be2host_32(*(const drflac_uint32*)pRunningData); pRunningData += 4;
                     metadata.data.picture.pPictureData      = (const drflac_uint8*)pRunningData;
+
+                    // Need space for the picture after the block
+                    if (pRunningDataEnd - pRunningData < (drflac_int64)metadata.data.picture.pictureDataSize) { // <-- Note the order of operations to avoid overflow to a valid value
+                        DRFLAC_FREE(pRawData);
+                        return DRFLAC_FALSE;
+                    }
+
                     onMeta(pUserDataMD, &metadata);
 
                     DRFLAC_FREE(pRawData);
@@ -4265,7 +4578,7 @@ static drflac_bool32 drflac__on_seek_ogg(void* pUserData, int offset, drflac_see
 {
     drflac_oggbs* oggbs = (drflac_oggbs*)pUserData;
     drflac_assert(oggbs != NULL);
-    drflac_assert(offset > 0 || (offset == 0 && origin == drflac_seek_origin_start));
+    drflac_assert(offset >= 0);  // <-- Never seek backwards.
 
     // Seeking is always forward which makes things a lot simpler.
     if (origin == drflac_seek_origin_start) {
@@ -4819,6 +5132,7 @@ drflac* drflac_open_with_metadata_private(drflac_read_proc onRead, drflac_seek_p
 
                 // We need to seek back to where we were. If this fails it's a critical error.
                 if (!pFlac->bs.onSeek(pFlac->bs.pUserData, (int)pFlac->firstFramePos, drflac_seek_origin_start)) {
+                    DRFLAC_FREE(pFlac);
                     return NULL;
                 }
             } else {
@@ -4861,9 +5175,6 @@ drflac* drflac_open_with_metadata_private(drflac_read_proc onRead, drflac_seek_p
 
 
 #ifndef DR_FLAC_NO_STDIO
-typedef void* drflac_file;
-
-#if defined(DR_FLAC_NO_WIN32_IO) || !defined(_WIN32)
 #include <stdio.h>
 
 static size_t drflac__on_read_stdio(void* pUserData, void* bufferOut, size_t bytesToRead)
@@ -4873,12 +5184,12 @@ static size_t drflac__on_read_stdio(void* pUserData, void* bufferOut, size_t byt
 
 static drflac_bool32 drflac__on_seek_stdio(void* pUserData, int offset, drflac_seek_origin origin)
 {
-    drflac_assert(offset > 0 || (offset == 0 && origin == drflac_seek_origin_start));
+    drflac_assert(offset >= 0);  // <-- Never seek backwards.
 
     return fseek((FILE*)pUserData, offset, (origin == drflac_seek_origin_current) ? SEEK_CUR : SEEK_SET) == 0;
 }
 
-static drflac_file drflac__open_file_handle(const char* filename)
+static FILE* drflac__fopen(const char* filename)
 {
     FILE* pFile;
 #ifdef _MSC_VER
@@ -4892,65 +5203,20 @@ static drflac_file drflac__open_file_handle(const char* filename)
     }
 #endif
 
-    return (drflac_file)pFile;
+    return pFile;
 }
-
-static void drflac__close_file_handle(drflac_file file)
-{
-    fclose((FILE*)file);
-}
-#else
-#include <windows.h>
-
-// This doesn't seem to be defined for VC6.
-#ifndef INVALID_SET_FILE_POINTER
-#define INVALID_SET_FILE_POINTER ((DWORD)-1)
-#endif
-
-static size_t drflac__on_read_stdio(void* pUserData, void* bufferOut, size_t bytesToRead)
-{
-    drflac_assert(bytesToRead < 0xFFFFFFFF);   // dr_flac will never request huge amounts of data at a time. This is a safe assertion.
-
-    DWORD bytesRead;
-    ReadFile((HANDLE)pUserData, bufferOut, (DWORD)bytesToRead, &bytesRead, NULL);
-
-    return (size_t)bytesRead;
-}
-
-static drflac_bool32 drflac__on_seek_stdio(void* pUserData, int offset, drflac_seek_origin origin)
-{
-    drflac_assert(offset > 0 || (offset == 0 && origin == drflac_seek_origin_start));
-
-    return SetFilePointer((HANDLE)pUserData, offset, NULL, (origin == drflac_seek_origin_current) ? FILE_CURRENT : FILE_BEGIN) != INVALID_SET_FILE_POINTER;
-}
-
-static drflac_file drflac__open_file_handle(const char* filename)
-{
-    HANDLE hFile = CreateFileA(filename, FILE_GENERIC_READ, FILE_SHARE_READ, NULL, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, NULL);
-    if (hFile == INVALID_HANDLE_VALUE) {
-        return NULL;
-    }
-
-    return (drflac_file)hFile;
-}
-
-static void drflac__close_file_handle(drflac_file file)
-{
-    CloseHandle((HANDLE)file);
-}
-#endif
 
 
 drflac* drflac_open_file(const char* filename)
 {
-    drflac_file file = drflac__open_file_handle(filename);
+    FILE* file = drflac__fopen(filename);
     if (file == NULL) {
         return NULL;
     }
 
     drflac* pFlac = drflac_open(drflac__on_read_stdio, drflac__on_seek_stdio, (void*)file);
     if (pFlac == NULL) {
-        drflac__close_file_handle(file);
+        fclose(file);
         return NULL;
     }
 
@@ -4959,14 +5225,14 @@ drflac* drflac_open_file(const char* filename)
 
 drflac* drflac_open_file_with_metadata(const char* filename, drflac_meta_proc onMeta, void* pUserData)
 {
-    drflac_file file = drflac__open_file_handle(filename);
+    FILE* file = drflac__fopen(filename);
     if (file == NULL) {
         return NULL;
     }
 
     drflac* pFlac = drflac_open_with_metadata_private(drflac__on_read_stdio, drflac__on_seek_stdio, onMeta, drflac_container_unknown, (void*)file, pUserData);
     if (pFlac == NULL) {
-        drflac__close_file_handle(file);
+        fclose(file);
         return pFlac;
     }
 
@@ -4997,20 +5263,23 @@ static drflac_bool32 drflac__on_seek_memory(void* pUserData, int offset, drflac_
 {
     drflac__memory_stream* memoryStream = (drflac__memory_stream*)pUserData;
     drflac_assert(memoryStream != NULL);
-    drflac_assert(offset > 0 || (offset == 0 && origin == drflac_seek_origin_start));
-    drflac_assert(offset <= (drflac_int64)memoryStream->dataSize);
+    drflac_assert(offset >= 0); // <-- Never seek backwards.
+
+    if (offset > (drflac_int64)memoryStream->dataSize) {
+        return DRFLAC_FALSE;
+    }
 
     if (origin == drflac_seek_origin_current) {
         if (memoryStream->currentReadPos + offset <= memoryStream->dataSize) {
             memoryStream->currentReadPos += offset;
         } else {
-            memoryStream->currentReadPos = memoryStream->dataSize;  // Trying to seek too far forward.
+            return DRFLAC_FALSE;  // Trying to seek too far forward.
         }
     } else {
         if ((drflac_uint32)offset <= memoryStream->dataSize) {
             memoryStream->currentReadPos = offset;
         } else {
-            memoryStream->currentReadPos = memoryStream->dataSize;  // Trying to seek too far forward.
+            return DRFLAC_FALSE;  // Trying to seek too far forward.
         }
     }
 
@@ -5105,7 +5374,7 @@ void drflac_close(drflac* pFlac)
     // If we opened the file with drflac_open_file() we will want to close the file handle. We can know whether or not drflac_open_file()
     // was used by looking at the callbacks.
     if (pFlac->bs.onRead == drflac__on_read_stdio) {
-        drflac__close_file_handle((drflac_file)pFlac->bs.pUserData);
+        fclose((FILE*)pFlac->bs.pUserData);
     }
 
 #ifndef DR_FLAC_NO_OGG
@@ -5114,7 +5383,7 @@ void drflac_close(drflac* pFlac)
         drflac_assert(pFlac->bs.onRead == drflac__on_read_ogg);
         drflac_oggbs* oggbs = (drflac_oggbs*)pFlac->_oggbs;
         if (oggbs->onRead == drflac__on_read_stdio) {
-            drflac__close_file_handle((drflac_file)oggbs->pUserData);
+            fclose((FILE*)oggbs->pUserData);
         }
     }
 #endif
@@ -5476,13 +5745,13 @@ drflac_bool32 drflac_seek_to_sample(drflac* pFlac, drflac_uint64 sampleIndex)
 
         // Different techniques depending on encapsulation. Using the native FLAC seektable with Ogg encapsulation is a bit awkward so
         // we'll instead use Ogg's natural seeking facility.
-    #ifndef DR_FLAC_NO_OGG
+#ifndef DR_FLAC_NO_OGG
         if (pFlac->container == drflac_container_ogg)
         {
             wasSuccessful = drflac_ogg__seek_to_sample(pFlac, sampleIndex);
         }
         else
-    #endif
+#endif
         {
             // First try seeking via the seek table. If this fails, fall back to a brute force seek which is much slower.
             wasSuccessful = drflac__seek_to_sample__seek_table(pFlac, sampleIndex);
@@ -5718,14 +5987,14 @@ void drflac_free(void* pSampleDataReturnedByOpenAndDecode)
 
 
 
-void drflac_init_vorbis_comment_iterator(drflac_vorbis_comment_iterator* pIter, drflac_uint32 commentCount, const char* pComments)
+void drflac_init_vorbis_comment_iterator(drflac_vorbis_comment_iterator* pIter, drflac_uint32 commentCount, const void* pComments)
 {
     if (pIter == NULL) {
         return;
     }
 
     pIter->countRemaining = commentCount;
-    pIter->pRunningData   = pComments;
+    pIter->pRunningData   = (const char*)pComments;
 }
 
 const char* drflac_next_vorbis_comment(drflac_vorbis_comment_iterator* pIter, drflac_uint32* pCommentLengthOut)
@@ -5737,7 +6006,7 @@ const char* drflac_next_vorbis_comment(drflac_vorbis_comment_iterator* pIter, dr
         return NULL;
     }
 
-    drflac_uint32 length = drflac__le2host_32(*(drflac_uint32*)pIter->pRunningData);
+    drflac_uint32 length = drflac__le2host_32(*(const drflac_uint32*)pIter->pRunningData);
     pIter->pRunningData += 4;
 
     const char* pComment = pIter->pRunningData;
@@ -5747,10 +6016,61 @@ const char* drflac_next_vorbis_comment(drflac_vorbis_comment_iterator* pIter, dr
     if (pCommentLengthOut) *pCommentLengthOut = length;
     return pComment;
 }
+
+
+
+
+void drflac_init_cuesheet_track_iterator(drflac_cuesheet_track_iterator* pIter, drflac_uint32 trackCount, const void* pTrackData)
+{
+    if (pIter == NULL) {
+        return;
+    }
+
+    pIter->countRemaining = trackCount;
+    pIter->pRunningData   = (const char*)pTrackData;
+}
+
+drflac_bool32 drflac_next_cuesheet_track(drflac_cuesheet_track_iterator* pIter, drflac_cuesheet_track* pCuesheetTrack)
+{
+    if (pIter == NULL || pIter->countRemaining == 0 || pIter->pRunningData == NULL) {
+        return DRFLAC_FALSE;
+    }
+
+    drflac_cuesheet_track cuesheetTrack;
+
+    const char* pRunningData = pIter->pRunningData;
+
+    drflac_uint64 offsetHi     = drflac__be2host_32(*(const drflac_uint32*)pRunningData); pRunningData += 4;
+    drflac_uint64 offsetLo     = drflac__be2host_32(*(const drflac_uint32*)pRunningData); pRunningData += 4;
+    cuesheetTrack.offset       = offsetLo | (offsetHi << 32);
+    cuesheetTrack.trackNumber  = pRunningData[0];                                         pRunningData += 1;
+    drflac_copy_memory(cuesheetTrack.ISRC, pRunningData, sizeof(cuesheetTrack.ISRC));     pRunningData += 12;
+    cuesheetTrack.isAudio      = (pRunningData[0] & 0x80) != 0;
+    cuesheetTrack.preEmphasis  = (pRunningData[0] & 0x40) != 0;                           pRunningData += 14;
+    cuesheetTrack.indexCount   = pRunningData[0];                                         pRunningData += 1;
+    cuesheetTrack.pIndexPoints = (const drflac_cuesheet_track_index*)pRunningData;        pRunningData += cuesheetTrack.indexCount * sizeof(drflac_cuesheet_track_index);
+
+    pIter->pRunningData = pRunningData;
+    pIter->countRemaining -= 1;
+
+    if (pCuesheetTrack) *pCuesheetTrack = cuesheetTrack;
+    return DRFLAC_TRUE;
+}
 #endif  //DR_FLAC_IMPLEMENTATION
 
 
 // REVISION HISTORY
+//
+// v0.10.0 - 2018-09-11
+//   - Remove the DR_FLAC_NO_WIN32_IO option and the Win32 file IO functionality. If you need to use Win32 file IO you
+//     need to do it yourself via the callback API.
+//   - Fix the clang build.
+//   - Fix undefined behavior.
+//   - Fix errors with CUESHEET metdata blocks.
+//   - Add an API for iterating over each cuesheet track in the CUESHEET metadata block. This works the same way as the
+//     Vorbis comment API.
+//   - Other miscellaneous bug fixes, mostly relating to invalid FLAC streams.
+//   - Minor optimizations.
 //
 // v0.9.11 - 2018-08-29
 //   - Fix a bug with sample reconstruction.

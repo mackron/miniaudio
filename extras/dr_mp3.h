@@ -1,5 +1,5 @@
 // MP3 audio decoder. Public domain. See "unlicense" statement at the end of this file.
-// dr_mp3 - v0.3.1 - 2018-08-25
+// dr_mp3 - v0.3.2 - 2018-09-11
 //
 // David Reid - mackron@gmail.com
 //
@@ -315,7 +315,9 @@ void drmp3_free(void* p);
 #define DRMP3_OFFSET_PTR(p, offset) ((void*)((drmp3_uint8*)(p) + (offset)))
 
 #define DRMP3_MAX_FREE_FORMAT_FRAME_SIZE  2304    /* more than ISO spec's */
+#ifndef DRMP3_MAX_FRAME_SYNC_MATCHES
 #define DRMP3_MAX_FRAME_SYNC_MATCHES      10
+#endif
 
 #define DRMP3_MAX_L3_FRAME_PAYLOAD_BYTES  DRMP3_MAX_FREE_FORMAT_FRAME_SIZE /* MUST be >= 320000/8/32000*1152 = 1440 */
 
@@ -2583,11 +2585,13 @@ drmp3_bool32 drmp3_init_internal(drmp3* pMP3, drmp3_read_proc onRead, drmp3_seek
     srcConfig.channels = pMP3->channels;
     srcConfig.algorithm = drmp3_src_algorithm_linear;
     if (!drmp3_src_init(&srcConfig, drmp3_read_src, pMP3, &pMP3->src)) {
+        drmp3_uninit(pMP3);
         return DRMP3_FALSE;
     }
     
     // Decode the first frame to confirm that it is indeed a valid MP3 stream.
     if (!drmp3_decode_next_frame(pMP3)) {
+        drmp3_uninit(pMP3);
         return DRMP3_FALSE; // Not a valid MP3 stream.
     }
 
@@ -2887,6 +2891,10 @@ void drmp3_free(void* p)
 
 // REVISION HISTORY
 // ===============
+//
+// v0.3.2 - 2018-09-11
+//   - Fix a couple of memory leaks.
+//   - Bring up to date with minimp3.
 //
 // v0.3.1 - 2018-08-25
 //   - Fix C++ build.

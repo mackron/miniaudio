@@ -1,5 +1,5 @@
 // WAV audio loader and writer. Public domain. See "unlicense" statement at the end of this file.
-// dr_wav - v0.8.4 - 2018-08-07
+// dr_wav - v0.8.5 - 2018-09-11
 //
 // David Reid - mackron@gmail.com
 
@@ -909,13 +909,16 @@ static drwav_bool32 drwav__read_fmt(drwav_read_proc onRead, drwav_seek_proc onSe
 
 
     // Skip non-fmt chunks.
-    if ((container == drwav_container_riff && !drwav__fourcc_equal(header.id.fourcc, "fmt ")) || (container == drwav_container_w64 && !drwav__guid_equal(header.id.guid, drwavGUID_W64_FMT))) {
+    while ((container == drwav_container_riff && !drwav__fourcc_equal(header.id.fourcc, "fmt ")) || (container == drwav_container_w64 && !drwav__guid_equal(header.id.guid, drwavGUID_W64_FMT))) {
         if (!drwav__seek_forward(onSeek, header.sizeInBytes + header.paddingSize, pUserData)) {
             return DRWAV_FALSE;
         }
         *pRunningBytesReadOut += header.sizeInBytes + header.paddingSize;
 
-        return drwav__read_fmt(onRead, onSeek, pUserData, container, pRunningBytesReadOut, fmtOut);
+        // Try the next header.
+        if (!drwav__read_chunk_header(onRead, pUserData, container, pRunningBytesReadOut, &header)) {
+            return DRWAV_FALSE;
+        }
     }
 
 
@@ -1140,11 +1143,11 @@ static drwav_bool32 drwav__on_seek_memory(void* pUserData, int offset, drwav_see
     if (origin == drwav_seek_origin_current) {
         if (offset > 0) {
             if (memory->currentReadPos + offset > memory->dataSize) {
-                offset = (int)(memory->dataSize - memory->currentReadPos);  // Trying to seek too far forward.
+                return DRWAV_FALSE; // Trying to seek too far forward.
             }
         } else {
             if (memory->currentReadPos < (size_t)-offset) {
-                offset = -(int)memory->currentReadPos;  // Trying to seek too far backwards.
+                return DRWAV_FALSE; // Trying to seek too far backwards.
             }
         }
 
@@ -1154,7 +1157,7 @@ static drwav_bool32 drwav__on_seek_memory(void* pUserData, int offset, drwav_see
         if ((drwav_uint32)offset <= memory->dataSize) {
             memory->currentReadPos = offset;
         } else {
-            memory->currentReadPos = memory->dataSize;  // Trying to seek too far forward.
+            return DRWAV_FALSE; // Trying to seek too far forward.
         }
     }
     
@@ -2424,7 +2427,7 @@ static void drwav__pcm_to_s16(drwav_int16* pOut, const unsigned char* pIn, size_
     // Slightly more optimal implementation for common formats.
     if (bytesPerSample == 2) {
         for (unsigned int i = 0; i < totalSampleCount; ++i) {
-           *pOut++ = ((drwav_int16*)pIn)[i];
+           *pOut++ = ((const drwav_int16*)pIn)[i];
         }
         return;
     }
@@ -2464,10 +2467,10 @@ static void drwav__pcm_to_s16(drwav_int16* pOut, const unsigned char* pIn, size_
 static void drwav__ieee_to_s16(drwav_int16* pOut, const unsigned char* pIn, size_t totalSampleCount, unsigned short bytesPerSample)
 {
     if (bytesPerSample == 4) {
-        drwav_f32_to_s16(pOut, (float*)pIn, totalSampleCount);
+        drwav_f32_to_s16(pOut, (const float*)pIn, totalSampleCount);
         return;
     } else if (bytesPerSample == 8) {
-        drwav_f64_to_s16(pOut, (double*)pIn, totalSampleCount);
+        drwav_f64_to_s16(pOut, (const double*)pIn, totalSampleCount);
         return;
     } else {
         // Only supporting 32- and 64-bit float. Output silence in all other cases. Contributions welcome for 16-bit float.
@@ -2614,7 +2617,7 @@ void drwav_s24_to_s16(drwav_int16* pOut, const drwav_uint8* pIn, size_t sampleCo
 {
     int r;
     for (size_t i = 0; i < sampleCount; ++i) {
-        int x = ((int)(((unsigned int)(((unsigned char*)pIn)[i*3+0]) << 8) | ((unsigned int)(((unsigned char*)pIn)[i*3+1]) << 16) | ((unsigned int)(((unsigned char*)pIn)[i*3+2])) << 24)) >> 8;
+        int x = ((int)(((unsigned int)(((const unsigned char*)pIn)[i*3+0]) << 8) | ((unsigned int)(((const unsigned char*)pIn)[i*3+1]) << 16) | ((unsigned int)(((const unsigned char*)pIn)[i*3+2])) << 24)) >> 8;
         r = x >> 8;
         pOut[i] = (short)r;
     }
@@ -2724,11 +2727,11 @@ static void drwav__ieee_to_f32(float* pOut, const unsigned char* pIn, size_t sam
 {
     if (bytesPerSample == 4) {
         for (unsigned int i = 0; i < sampleCount; ++i) {
-            *pOut++ = ((float*)pIn)[i];
+            *pOut++ = ((const float*)pIn)[i];
         }
         return;
     } else if (bytesPerSample == 8) {
-        drwav_f64_to_f32(pOut, (double*)pIn, sampleCount);
+        drwav_f64_to_f32(pOut, (const double*)pIn, sampleCount);
         return;
     } else {
         // Only supporting 32- and 64-bit float. Output silence in all other cases. Contributions welcome for 16-bit float.
@@ -3034,7 +3037,7 @@ static void drwav__pcm_to_s32(drwav_int32* pOut, const unsigned char* pIn, size_
     }
     if (bytesPerSample == 4) {
         for (unsigned int i = 0; i < totalSampleCount; ++i) {
-           *pOut++ = ((drwav_int32*)pIn)[i];
+           *pOut++ = ((const drwav_int32*)pIn)[i];
         }
         return;
     }
@@ -3066,10 +3069,10 @@ static void drwav__pcm_to_s32(drwav_int32* pOut, const unsigned char* pIn, size_
 static void drwav__ieee_to_s32(drwav_int32* pOut, const unsigned char* pIn, size_t totalSampleCount, unsigned short bytesPerSample)
 {
     if (bytesPerSample == 4) {
-        drwav_f32_to_s32(pOut, (float*)pIn, totalSampleCount);
+        drwav_f32_to_s32(pOut, (const float*)pIn, totalSampleCount);
         return;
     } else if (bytesPerSample == 8) {
-        drwav_f64_to_s32(pOut, (double*)pIn, totalSampleCount);
+        drwav_f64_to_s32(pOut, (const double*)pIn, totalSampleCount);
         return;
     } else {
         // Only supporting 32- and 64-bit float. Output silence in all other cases. Contributions welcome for 16-bit float.
@@ -3580,6 +3583,10 @@ void drwav_free(void* pDataReturnedByOpenAndRead)
 
 
 // REVISION HISTORY
+//
+// v0.8.5 - 2018-09-11
+//   - Const correctness.
+//   - Fix a potential stack overflow.
 //
 // v0.8.4 - 2018-08-07
 //   - Improve 64-bit detection.
