@@ -1,5 +1,5 @@
 // Audio playback and capture library. Public domain. See "unlicense" statement at the end of this file.
-// mini_al - v0.8.x - 2018-xx-xx
+// mini_al - v0.8.7 - 2018-09-12
 //
 // David Reid - davidreidsoftware@gmail.com
 
@@ -28298,7 +28298,7 @@ mal_uint64 mal_sine_wave_read_ex(mal_sine_wave* pSineWave, mal_uint64 frameCount
 // REVISION HISTORY
 // ================
 //
-// v0.8.x - 2018-xx-xx
+// v0.8.7 - 2018-09-12
 //   - Fix a bug with UWP detection.
 //
 // v0.8.6 - 2018-08-26
