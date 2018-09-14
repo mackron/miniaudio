@@ -1,5 +1,5 @@
 // Audio playback and capture library. Public domain. See "unlicense" statement at the end of this file.
-// mini_al - v0.8.7 - 2018-09-12
+// mini_al - v0.x.x - xxxx-xx-xx
 //
 // David Reid - davidreidsoftware@gmail.com
 
@@ -200,9 +200,8 @@
 //
 // #define MAL_BASE_BUFFER_SIZE_IN_MILLISECONDS_LOW_LATENCY
 // #define MAL_BASE_BUFFER_SIZE_IN_MILLISECONDS_CONSERVATIVE
-//   When a buffer size of 0 is specified when a device is initialized it will default to a buffer of this size (depending
-//   on the chosen performance profile) multiplied by a weight which is calculated at run-time. These can be increased or
-//   decreased depending on your specific requirements.
+//   When a buffer size of 0 is specified when a device is initialized it will default to a buffer of this size, depending
+//   on the chosen performance profile. These can be increased or decreased depending on your specific requirements.
 //
 // #define MAL_NO_DECODING
 //   Disables the decoding APIs.
@@ -28297,6 +28296,9 @@ mal_uint64 mal_sine_wave_read_ex(mal_sine_wave* pSineWave, mal_uint64 frameCount
 
 // REVISION HISTORY
 // ================
+//
+// v0.x.x - xxxx-xx-xx
+//   - Minor documentation fix.
 //
 // v0.8.7 - 2018-09-12
 //   - Fix a bug with UWP detection.
