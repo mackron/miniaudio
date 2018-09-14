@@ -1,5 +1,5 @@
 // Audio playback and capture library. Public domain. See "unlicense" statement at the end of this file.
-// mini_al - v0.x.x - xxxx-xx-xx
+// mini_al - v0.8.8 - 2018-09-14
 //
 // David Reid - davidreidsoftware@gmail.com
 
@@ -9472,7 +9472,6 @@ mal_result mal_context_init__winmm(mal_context* pContext)
 ///////////////////////////////////////////////////////////////////////////////
 #ifdef MAL_HAS_ALSA
 
-#include <alsa/asoundlib.h>
 #ifdef MAL_NO_RUNTIME_LINKING
 #include <alsa/asoundlib.h>
 typedef snd_pcm_uframes_t                       mal_snd_pcm_uframes_t;
@@ -28297,7 +28296,8 @@ mal_uint64 mal_sine_wave_read_ex(mal_sine_wave* pSineWave, mal_uint64 frameCount
 // REVISION HISTORY
 // ================
 //
-// v0.x.x - xxxx-xx-xx
+// v0.8.8 - 2018-09-14
+//   - Fix Linux build with the ALSA backend.
 //   - Minor documentation fix.
 //
 // v0.8.7 - 2018-09-12
