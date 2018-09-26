@@ -1,5 +1,5 @@
 // Audio playback and capture library. Public domain. See "unlicense" statement at the end of this file.
-// mini_al - v0.8.8 - 2018-09-14
+// mini_al - v0.8.9-rc - 2018-09-xx
 //
 // David Reid - davidreidsoftware@gmail.com
 
@@ -19725,7 +19725,7 @@ mal_result mal_device_init__sdl(mal_context* pContext, mal_device_type type, con
 
     // SDL wants the buffer size to be a power of 2. The SDL_AudioSpec property for this is only a Uint16, so we need
     // to explicitly clamp this because it will be easy to overflow.
-    mal_uint32 bufferSize = pConfig->bufferSizeInFrames;
+    mal_uint32 bufferSize = pDevice->bufferSizeInFrames;
     if (bufferSize > 32768) {
         bufferSize = 32768;
     } else {
@@ -19760,7 +19760,7 @@ mal_result mal_device_init__sdl(mal_context* pContext, mal_device_type type, con
 
         pDevice->sdl.deviceID = ((MAL_PFN_SDL_OpenAudioDevice)pDevice->pContext->sdl.SDL_OpenAudioDevice)(pDeviceName, isCapture, &desiredSpec, &obtainedSpec, MAL_SDL_AUDIO_ALLOW_ANY_CHANGE);
         if (pDevice->sdl.deviceID == 0) {
-            return mal_post_error(pDevice, MAL_LOG_LEVEL_ERROR, "Failed to open SDL device.", MAL_FAILED_TO_OPEN_BACKEND_DEVICE);
+            return mal_post_error(pDevice, MAL_LOG_LEVEL_ERROR, "Failed to open SDL2 device.", MAL_FAILED_TO_OPEN_BACKEND_DEVICE);
         }
     } else
 #endif
@@ -19778,10 +19778,12 @@ mal_result mal_device_init__sdl(mal_context* pContext, mal_device_type type, con
             desiredSpec.format  = MAL_AUDIO_S16;
         }
 
-        pDevice->sdl.deviceID = ((MAL_PFN_SDL_OpenAudio)pDevice->pContext->sdl.SDL_OpenAudio)(&desiredSpec, &obtainedSpec);
-        if (pDevice->sdl.deviceID != 0) {
-            return mal_post_error(pDevice, MAL_LOG_LEVEL_ERROR, "Failed to open SDL device.", MAL_FAILED_TO_OPEN_BACKEND_DEVICE);
+        int deviceID = ((MAL_PFN_SDL_OpenAudio)pDevice->pContext->sdl.SDL_OpenAudio)(&desiredSpec, &obtainedSpec);
+        if (deviceID < 0) {
+            return mal_post_error(pDevice, MAL_LOG_LEVEL_ERROR, "Failed to open SDL1 device.", MAL_FAILED_TO_OPEN_BACKEND_DEVICE);
         }
+
+        pDevice->sdl.deviceID = (mal_uint32)deviceID;
     }
 
     pDevice->internalFormat     = mal_format_from_sdl(obtainedSpec.format);
@@ -28295,6 +28297,9 @@ mal_uint64 mal_sine_wave_read_ex(mal_sine_wave* pSineWave, mal_uint64 frameCount
 
 // REVISION HISTORY
 // ================
+//
+// v0.8.9-rc - 2018-09-xx
+//   - Fix SDL backend.
 //
 // v0.8.8 - 2018-09-14
 //   - Fix Linux build with the ALSA backend.
