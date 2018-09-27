@@ -1,5 +1,5 @@
 // Audio playback and capture library. Public domain. See "unlicense" statement at the end of this file.
-// mini_al - v0.8.9-rc - 2018-09-xx
+// mini_al - v0.8.9 - 2018-09-28
 //
 // David Reid - davidreidsoftware@gmail.com
 
@@ -28298,8 +28298,8 @@ mal_uint64 mal_sine_wave_read_ex(mal_sine_wave* pSineWave, mal_uint64 frameCount
 // REVISION HISTORY
 // ================
 //
-// v0.8.9-rc - 2018-09-xx
-//   - Fix SDL backend.
+// v0.8.9 - 2018-09-28
+//   - Fix a bug with the SDL backend where device initialization fails.
 //
 // v0.8.8 - 2018-09-14
 //   - Fix Linux build with the ALSA backend.
