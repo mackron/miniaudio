@@ -1,5 +1,5 @@
 // Audio playback and capture library. Public domain. See "unlicense" statement at the end of this file.
-// mini_al - v0.8.9 - 2018-09-28
+// mini_al - v0.8.10-rc - 2018-xx-xx
 //
 // David Reid - davidreidsoftware@gmail.com
 
@@ -20951,7 +20951,7 @@ mal_result mal_device_stop(mal_device* pDevice)
 
         // Asynchronous backends need to be handled differently.
         if (mal_context_is_backend_asynchronous(pDevice->pContext)) {
-            pDevice->pContext->onDeviceStop(pDevice);
+            result = pDevice->pContext->onDeviceStop(pDevice);
         } else {
             // Synchronous backends.
 
@@ -28297,6 +28297,9 @@ mal_uint64 mal_sine_wave_read_ex(mal_sine_wave* pSineWave, mal_uint64 frameCount
 
 // REVISION HISTORY
 // ================
+//
+// v0.8.10-rc - 2018-xx-xx
+//   - Fix a bug where an incorrect value is returned from mal_device_stop().
 //
 // v0.8.9 - 2018-09-28
 //   - Fix a bug with the SDL backend where device initialization fails.
