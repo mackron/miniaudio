@@ -1,5 +1,5 @@
 // Audio playback and capture library. Public domain. See "unlicense" statement at the end of this file.
-// mini_al - v0.8.10-rc - 2018-xx-xx
+// mini_al - v0.8.10 - 2018-10-21
 //
 // David Reid - davidreidsoftware@gmail.com
 
@@ -14979,7 +14979,7 @@ void on_start_stop__coreaudio(void* pUserData, AudioUnit audioUnit, AudioUnitPro
     // There's been a report of a deadlock here when triggered by mal_device_uninit(). It looks like
     // AudioUnitGetProprty (called below) and AudioComponentInstanceDispose (called in mal_device_uninit)
     // can try waiting on the same lock. I'm going to try working around this by not calling any Core
-    // Audio APIs in the callback when the device has been stopped or initialized.
+    // Audio APIs in the callback when the device has been stopped or uninitialized.
     if (mal_device__get_state(pDevice) == MAL_STATE_UNINITIALIZED || mal_device__get_state(pDevice) == MAL_STATE_STOPPING) {
         mal_stop_proc onStop = pDevice->onStop;
         if (onStop) {
@@ -28309,7 +28309,8 @@ mal_uint64 mal_sine_wave_read_ex(mal_sine_wave* pSineWave, mal_uint64 frameCount
 // REVISION HISTORY
 // ================
 //
-// v0.8.10-rc - 2018-xx-xx
+// v0.8.10 - 2018-10-21
+//   - Core Audio: Fix a hang when uninitializing a device.
 //   - Fix a bug where an incorrect value is returned from mal_device_stop().
 //
 // v0.8.9 - 2018-09-28
