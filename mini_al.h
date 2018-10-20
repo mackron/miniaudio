@@ -14976,41 +14976,52 @@ void on_start_stop__coreaudio(void* pUserData, AudioUnit audioUnit, AudioUnitPro
     mal_device* pDevice = (mal_device*)pUserData;
     mal_assert(pDevice != NULL);
     
-    UInt32 isRunning;
-    UInt32 isRunningSize = sizeof(isRunning);
-    OSStatus status = ((mal_AudioUnitGetProperty_proc)pDevice->pContext->coreaudio.AudioUnitGetProperty)(audioUnit, kAudioOutputUnitProperty_IsRunning, scope, element, &isRunning, &isRunningSize);
-    if (status != noErr) {
-        return; // Don't really know what to do in this case... just ignore it, I suppose...
-    }
-    
-    if (!isRunning) {
-        // The stop event is a bit annoying in Core Audio because it will be called when we automatically switch the default device. Some scenarios to consider:
-        //
-        // 1) When the device is unplugged, this will be called _before_ the default device change notification.
-        // 2) When the device is changed via the default device change notification, this will be called _after_ the switch.
-        //
-        // For case #1, we just check if there's a new default device available. If so, we just ignore the stop event. For case #2 we check a flag.
-        if (pDevice->isDefaultDevice && mal_device__get_state(pDevice) != MAL_STATE_STOPPING && mal_device__get_state(pDevice) != MAL_STATE_STOPPED) {
-            // It looks like the device is switching through an external event, such as the user unplugging the device or changing the default device
-            // via the operating system's sound settings. If we're re-initializing the device, we just terminate because we want the stopping of the
-            // device to be seamless to the client (we don't want them receiving the onStop event and thinking that the device has stopped when it
-            // hasn't!).
-            if (pDevice->coreaudio.isSwitchingDevice) {
-                return;
-            }
-            
-            // Getting here means the device is not reinitializing which means it may have been unplugged. From what I can see, it looks like Core Audio
-            // will try switching to the new default device seamlessly. We need to somehow find a way to determine whether or not Core Audio will most
-            // likely be successful in switching to the new device.
-            //
-            // TODO: Try to predict if Core Audio will switch devices. If not, the onStop callback needs to be posted.
-            return;
-        }
-        
-        // Getting here means we need to stop the device.
+    // There's been a report of a deadlock here when triggered by mal_device_uninit(). It looks like
+    // AudioUnitGetProprty (called below) and AudioComponentInstanceDispose (called in mal_device_uninit)
+    // can try waiting on the same lock. I'm going to try working around this by not calling any Core
+    // Audio APIs in the callback when the device has been stopped or initialized.
+    if (mal_device__get_state(pDevice) == MAL_STATE_UNINITIALIZED || mal_device__get_state(pDevice) == MAL_STATE_STOPPING) {
         mal_stop_proc onStop = pDevice->onStop;
         if (onStop) {
             onStop(pDevice);
+        }
+    } else {
+        UInt32 isRunning;
+        UInt32 isRunningSize = sizeof(isRunning);
+        OSStatus status = ((mal_AudioUnitGetProperty_proc)pDevice->pContext->coreaudio.AudioUnitGetProperty)(audioUnit, kAudioOutputUnitProperty_IsRunning, scope, element, &isRunning, &isRunningSize);
+        if (status != noErr) {
+            return; // Don't really know what to do in this case... just ignore it, I suppose...
+        }
+        
+        if (!isRunning) {
+            // The stop event is a bit annoying in Core Audio because it will be called when we automatically switch the default device. Some scenarios to consider:
+            //
+            // 1) When the device is unplugged, this will be called _before_ the default device change notification.
+            // 2) When the device is changed via the default device change notification, this will be called _after_ the switch.
+            //
+            // For case #1, we just check if there's a new default device available. If so, we just ignore the stop event. For case #2 we check a flag.
+            if (pDevice->isDefaultDevice && mal_device__get_state(pDevice) != MAL_STATE_STOPPING && mal_device__get_state(pDevice) != MAL_STATE_STOPPED) {
+                // It looks like the device is switching through an external event, such as the user unplugging the device or changing the default device
+                // via the operating system's sound settings. If we're re-initializing the device, we just terminate because we want the stopping of the
+                // device to be seamless to the client (we don't want them receiving the onStop event and thinking that the device has stopped when it
+                // hasn't!).
+                if (pDevice->coreaudio.isSwitchingDevice) {
+                    return;
+                }
+                
+                // Getting here means the device is not reinitializing which means it may have been unplugged. From what I can see, it looks like Core Audio
+                // will try switching to the new default device seamlessly. We need to somehow find a way to determine whether or not Core Audio will most
+                // likely be successful in switching to the new device.
+                //
+                // TODO: Try to predict if Core Audio will switch devices. If not, the onStop callback needs to be posted.
+                return;
+            }
+            
+            // Getting here means we need to stop the device.
+            mal_stop_proc onStop = pDevice->onStop;
+            if (onStop) {
+                onStop(pDevice);
+            }
         }
     }
 }
