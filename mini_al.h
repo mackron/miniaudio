@@ -15567,6 +15567,15 @@ mal_result mal_context_uninit__coreaudio(mal_context* pContext)
 mal_result mal_context_init__coreaudio(mal_context* pContext)
 {
     mal_assert(pContext != NULL);
+
+#if defined(MAL_APPLE_MOBILE)
+    @autoreleasepool {
+        AVAudioSession* pAudioSession = [AVAudioSession sharedInstance];
+        mal_assert(pAudioSession != NULL);
+
+        [pAudioSession setCategory: AVAudioSessionCategoryPlayAndRecord error:nil];
+    }
+#endif
     
 #if !defined(MAL_NO_RUNTIME_LINKING) && !defined(MAL_APPLE_MOBILE)
     pContext->coreaudio.hCoreFoundation = mal_dlopen("CoreFoundation.framework/CoreFoundation");
