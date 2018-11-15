@@ -15299,11 +15299,14 @@ mal_result mal_device_init_internal__coreaudio(mal_context* pContext, mal_device
     if (result != MAL_SUCCESS) {
         return result;
     }
+    
+    pData->bufferSizeInFramesOut = actualBufferSizeInFrames * pData->periodsOut;
 #else
     actualBufferSizeInFrames = 4096;
+    pData->bufferSizeInFramesOut = actualBufferSizeInFrames;
 #endif
 
-    pData->bufferSizeInFramesOut = actualBufferSizeInFrames * pData->periodsOut;
+
     
     // During testing I discovered that the buffer size can be too big. You'll get an error like this:
     //
