@@ -4917,11 +4917,11 @@ mal_uint32 mal_device__wait_for_frames__null(mal_device* pDevice)
 
     while (!pDevice->null_device.breakFromMainLoop) {
         mal_uint32 framesAvailable = mal_device__get_available_frames__null(pDevice);
-        if (framesAvailable > 0) {
+        if (framesAvailable >= (pDevice->bufferSizeInFrames/pDevice->periods)) {
             return framesAvailable;
         }
 
-        mal_sleep(16);
+        mal_sleep(pDevice->bufferSizeInMilliseconds/pDevice->periods);
     }
 
     // We'll get here if the loop was terminated. Just return whatever's available.
