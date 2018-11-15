@@ -4864,7 +4864,7 @@ mal_bool32 mal_device__get_current_frame__null(mal_device* pDevice, mal_uint32* 
     mal_assert(pCurrentPos != NULL);
     *pCurrentPos = 0;
 
-    mal_uint64 currentFrameAbs = (mal_uint64)(mal_timer_get_time_in_seconds(&pDevice->null_device.timer) * pDevice->sampleRate) / pDevice->channels;
+    mal_uint64 currentFrameAbs = (mal_uint64)(mal_timer_get_time_in_seconds(&pDevice->null_device.timer) * pDevice->sampleRate);
 
     *pCurrentPos = (mal_uint32)(currentFrameAbs % pDevice->bufferSizeInFrames);
     return MAL_TRUE;
