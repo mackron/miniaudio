@@ -15011,7 +15011,19 @@ OSStatus mal_on_input__coreaudio(void* pUserData, AudioUnitRenderActionFlags* pA
                 // This case is where the number of channels in the output buffer do not match our internal channels. It could mean that it's
                 // not interleaved, in which case we can't handle right now since mini_al does not yet support non-interleaved streams.
                 
-                // TODO: Call mal_device__send_frames_to_client() with silence.
+                mal_uint8 silentBuffer[4096];
+                mal_zero_memory(silentBuffer, sizeof(silentBuffer));
+                
+                mal_uint32 framesRemaining = frameCount;
+                while (framesRemaining > 0) {
+                    mal_uint32 framesToSend = sizeof(silentBuffer) / mal_get_bytes_per_frame(pDevice->internalFormat, pDevice->internalChannels);
+                    if (framesToSend > framesRemaining) {
+                        framesToSend = framesRemaining;
+                    }
+                    
+                    mal_device__send_frames_to_client(pDevice, framesToSend, silentBuffer);
+                    framesRemaining -= framesToSend;
+                }
                 
             #if defined(MAL_DEBUG_OUTPUT)
                 printf("  WARNING: Outputting silence. frameCount=%d, mNumberChannels=%d, mDataByteSize=%d\n", frameCount, pRenderBufferList->mBuffers[iBuffer].mNumberChannels, pRenderBufferList->mBuffers[iBuffer].mDataByteSize);
