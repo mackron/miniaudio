@@ -1114,6 +1114,11 @@ void mal_pcm_f32_to_s24(void* pOut, const void* pIn, mal_uint64 count, mal_dithe
 void mal_pcm_f32_to_s32(void* pOut, const void* pIn, mal_uint64 count, mal_dither_mode ditherMode);
 void mal_pcm_convert(void* pOut, mal_format formatOut, const void* pIn, mal_format formatIn, mal_uint64 sampleCount, mal_dither_mode ditherMode);
 
+// Deinterleaves an interleaved buffer.
+void mal_deinterleave_pcm_frames(mal_format format, mal_uint32 channels, mal_uint32 frameCount, const void* pInterleavedPCMFrames, void** ppDeinterleavedPCMFrames);
+
+// Interleaves a group of deinterleaved buffers.
+void mal_interleave_pcm_frames(mal_format format, mal_uint32 channels, mal_uint32 frameCount, const void** ppDeinterleavedPCMFrames, void* pInterleavedPCMFrames);
 
 
 //////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -14900,27 +14905,62 @@ OSStatus mal_on_output__coreaudio(void* pUserData, AudioUnitRenderActionFlags* p
 #if defined(MAL_DEBUG_OUTPUT)
     printf("INFO: Output Callback: busNumber=%d, frameCount=%d, mNumberBuffers=%d\n", busNumber, frameCount, pBufferList->mNumberBuffers);
 #endif
-    
-    // For now we can assume everything is interleaved.
-    for (UInt32 iBuffer = 0; iBuffer < pBufferList->mNumberBuffers; ++iBuffer) {
-        if (pBufferList->mBuffers[iBuffer].mNumberChannels == pDevice->internalChannels) {
-            mal_uint32 frameCountForThisBuffer = pBufferList->mBuffers[iBuffer].mDataByteSize / mal_get_bytes_per_frame(pDevice->internalFormat, pDevice->internalChannels);
-            if (frameCountForThisBuffer > 0) {
-                mal_device__read_frames_from_client(pDevice, frameCountForThisBuffer, pBufferList->mBuffers[iBuffer].mData);
-            }
-            
-        #if defined(MAL_DEBUG_OUTPUT)
-            printf("  frameCount=%d, mNumberChannels=%d, mDataByteSize=%d\n", frameCount, pBufferList->mBuffers[iBuffer].mNumberChannels, pBufferList->mBuffers[iBuffer].mDataByteSize);
-        #endif
-        } else {
-            // This case is where the number of channels in the output buffer do not match our internal channels. It could mean that it's
-            // not interleaved, in which case we can't handle right now since mini_al does not yet support non-interleaved streams. We just
-            // output silence here.
-            mal_zero_memory(pBufferList->mBuffers[iBuffer].mData, pBufferList->mBuffers[iBuffer].mDataByteSize);
 
-        #if defined(MAL_DEBUG_OUTPUT)
-            printf("  WARNING: Outputting silence. frameCount=%d, mNumberChannels=%d, mDataByteSize=%d\n", frameCount, pBufferList->mBuffers[iBuffer].mNumberChannels, pBufferList->mBuffers[iBuffer].mDataByteSize);
-        #endif
+    // We need to check whether or not we are outputting interleaved or non-interleaved samples. The
+    // way we do this is slightly different for each type.
+    mal_stream_layout layout = mal_stream_layout_interleaved;
+    if (pBufferList->mBuffers[0].mNumberChannels != pDevice->internalChannels) {
+        layout = mal_stream_layout_deinterleaved;
+    }
+    
+    if (layout == mal_stream_layout_interleaved) {
+        // For now we can assume everything is interleaved.
+        for (UInt32 iBuffer = 0; iBuffer < pBufferList->mNumberBuffers; ++iBuffer) {
+            if (pBufferList->mBuffers[iBuffer].mNumberChannels == pDevice->internalChannels) {
+                mal_uint32 frameCountForThisBuffer = pBufferList->mBuffers[iBuffer].mDataByteSize / mal_get_bytes_per_frame(pDevice->internalFormat, pDevice->internalChannels);
+                if (frameCountForThisBuffer > 0) {
+                    mal_device__read_frames_from_client(pDevice, frameCountForThisBuffer, pBufferList->mBuffers[iBuffer].mData);
+                }
+                
+            #if defined(MAL_DEBUG_OUTPUT)
+                printf("  frameCount=%d, mNumberChannels=%d, mDataByteSize=%d\n", frameCount, pBufferList->mBuffers[iBuffer].mNumberChannels, pBufferList->mBuffers[iBuffer].mDataByteSize);
+            #endif
+            } else {
+                // This case is where the number of channels in the output buffer do not match our internal channels. It could mean that it's
+                // not interleaved, in which case we can't handle right now since mini_al does not yet support non-interleaved streams. We just
+                // output silence here.
+                mal_zero_memory(pBufferList->mBuffers[iBuffer].mData, pBufferList->mBuffers[iBuffer].mDataByteSize);
+
+            #if defined(MAL_DEBUG_OUTPUT)
+                printf("  WARNING: Outputting silence. frameCount=%d, mNumberChannels=%d, mDataByteSize=%d\n", frameCount, pBufferList->mBuffers[iBuffer].mNumberChannels, pBufferList->mBuffers[iBuffer].mDataByteSize);
+            #endif
+            }
+        }
+    } else {
+        // This is the deinterleaved case. We need to update each buffer in groups of internalChannels. This
+        // assumes each buffer is the same size.
+        mal_uint8 tempBuffer[4096];
+        for (UInt32 iBuffer = 0; iBuffer < pBufferList->mNumberBuffers; iBuffer += pDevice->internalChannels) {
+            mal_uint32 frameCountPerBuffer = pBufferList->mBuffers[iBuffer].mDataByteSize / mal_get_bytes_per_frame(pDevice->internalFormat, pDevice->internalChannels);
+            
+            mal_uint32 framesRemaining = frameCountPerBuffer;
+            while (framesRemaining > 0) {
+                mal_uint32 framesToRead = sizeof(tempBuffer) / mal_get_bytes_per_frame(pDevice->internalFormat, pDevice->internalChannels);
+                if (framesToRead > framesRemaining) {
+                    framesToRead = framesRemaining;
+                }
+                
+                mal_device__read_frames_from_client(pDevice, framesToRead, tempBuffer);
+                
+                void* ppDeinterleavedBuffers[MAL_MAX_CHANNELS];
+                for (mal_uint32 iChannel = 0; iChannel < pDevice->internalChannels; ++iChannel) {
+                    ppDeinterleavedBuffers[iChannel] = (void*)mal_offset_ptr(pBufferList->mBuffers[iBuffer].mData, (frameCountPerBuffer - framesRemaining) * mal_get_bytes_per_sample(pDevice->internalFormat));
+                }
+                
+                mal_deinterleave_pcm_frames(pDevice->internalFormat, pDevice->internalChannels, framesToRead, tempBuffer, ppDeinterleavedBuffers);
+                
+                framesRemaining -= framesToRead;
+            }
         }
     }
     
@@ -14941,6 +14981,13 @@ OSStatus mal_on_input__coreaudio(void* pUserData, AudioUnitRenderActionFlags* pA
     AudioBufferList* pRenderedBufferList = (AudioBufferList*)pDevice->coreaudio.pAudioBufferList;
     mal_assert(pRenderedBufferList);
     
+    // We need to check whether or not we are outputting interleaved or non-interleaved samples. The
+    // way we do this is slightly different for each type.
+    mal_stream_layout layout = mal_stream_layout_interleaved;
+    if (pRenderedBufferList->mBuffers[0].mNumberChannels != pDevice->internalChannels) {
+        layout = mal_stream_layout_deinterleaved;
+    }
+    
 #if defined(MAL_DEBUG_OUTPUT)
     printf("INFO: Input Callback: busNumber=%d, frameCount=%d, mNumberBuffers=%d\n", busNumber, frameCount, pRenderedBufferList->mNumberBuffers);
 #endif
@@ -14953,16 +15000,46 @@ OSStatus mal_on_input__coreaudio(void* pUserData, AudioUnitRenderActionFlags* pA
         return status;
     }
     
-    // For now we can assume everything is interleaved.
-    for (UInt32 iBuffer = 0; iBuffer < pRenderedBufferList->mNumberBuffers; ++iBuffer) {
-        if (pRenderedBufferList->mBuffers[iBuffer].mNumberChannels == pDevice->internalChannels) {
-            mal_device__send_frames_to_client(pDevice, frameCount, pRenderedBufferList->mBuffers[iBuffer].mData);
-        #if defined(MAL_DEBUG_OUTPUT)
-            printf("  mDataByteSize=%d\n", pRenderedBufferList->mBuffers[iBuffer].mDataByteSize);
-        #endif
-        } else {
-            // This case is where the number of channels in the output buffer do not match our internal channels. It could mean that it's
-            // not interleaved, in which case we can't handle right now since mini_al does not yet support non-interleaved streams.
+    if (layout == mal_stream_layout_interleaved) {
+        for (UInt32 iBuffer = 0; iBuffer < pRenderedBufferList->mNumberBuffers; ++iBuffer) {
+            if (pRenderedBufferList->mBuffers[iBuffer].mNumberChannels == pDevice->internalChannels) {
+                mal_device__send_frames_to_client(pDevice, frameCount, pRenderedBufferList->mBuffers[iBuffer].mData);
+            #if defined(MAL_DEBUG_OUTPUT)
+                printf("  mDataByteSize=%d\n", pRenderedBufferList->mBuffers[iBuffer].mDataByteSize);
+            #endif
+            } else {
+                // This case is where the number of channels in the output buffer do not match our internal channels. It could mean that it's
+                // not interleaved, in which case we can't handle right now since mini_al does not yet support non-interleaved streams.
+                
+                // TODO: Call mal_device__send_frames_to_client() with silence.
+                
+            #if defined(MAL_DEBUG_OUTPUT)
+                printf("  WARNING: Outputting silence. frameCount=%d, mNumberChannels=%d, mDataByteSize=%d\n", frameCount, pRenderBufferList->mBuffers[iBuffer].mNumberChannels, pRenderBufferList->mBuffers[iBuffer].mDataByteSize);
+            #endif
+            }
+        }
+    } else {
+        // This is the deinterleaved case. We need to interleave the audio data before sending it to the client. This
+        // assumes each buffer is the same size.
+        mal_uint8 tempBuffer[4096];
+        for (UInt32 iBuffer = 0; iBuffer < pRenderedBufferList->mNumberBuffers; iBuffer += pDevice->internalChannels) {
+            mal_uint32 framesRemaining = frameCount;
+            while (framesRemaining > 0) {
+                mal_uint32 framesToSend = sizeof(tempBuffer) / mal_get_bytes_per_frame(pDevice->internalFormat, pDevice->internalChannels);
+                if (framesToSend > framesRemaining) {
+                    framesToSend = framesRemaining;
+                }
+                
+                void* ppDeinterleavedBuffers[MAL_MAX_CHANNELS];
+                for (mal_uint32 iChannel = 0; iChannel < pDevice->internalChannels; ++iChannel) {
+                    ppDeinterleavedBuffers[iChannel] = (void*)mal_offset_ptr(pRenderedBufferList->mBuffers[iBuffer].mData, (frameCount - framesRemaining) * mal_get_bytes_per_sample(pDevice->internalFormat));
+                }
+                
+                mal_interleave_pcm_frames(pDevice->internalFormat, pDevice->internalChannels, framesToSend, (const void**)ppDeinterleavedBuffers, tempBuffer);
+                mal_device__send_frames_to_client(pDevice, framesToSend, tempBuffer);
+
+                framesRemaining -= framesToSend;
+            }
         }
     }
 
@@ -26160,6 +26237,92 @@ void mal_pcm_convert(void* pOut, mal_format formatOut, const void* pIn, mal_form
         } break;
 
         default: break;
+    }
+}
+
+void mal_deinterleave_pcm_frames(mal_format format, mal_uint32 channels, mal_uint32 frameCount, const void* pInterleavedPCMFrames, void** ppDeinterleavedPCMFrames)
+{
+    if (pInterleavedPCMFrames == NULL || ppDeinterleavedPCMFrames == NULL) {
+        return; // Invalid args.
+    }
+
+    // For efficiency we do this per format.
+    switch (format) {
+        case mal_format_s16:
+        {
+            const mal_int16* pSrcS16 = (const mal_int16*)pInterleavedPCMFrames;
+            for (mal_uint32 iPCMFrame = 0; iPCMFrame < frameCount; ++iPCMFrame) {
+                for (mal_uint32 iChannel = 0; iChannel < channels; ++iChannel) {
+                    mal_int16* pDstS16 = (mal_int16*)ppDeinterleavedPCMFrames[iChannel];
+                    pDstS16[iPCMFrame] = pSrcS16[iPCMFrame*channels+iChannel];
+                }
+            }
+        } break;
+        
+        case mal_format_f32:
+        {
+            const float* pSrcF32 = (const float*)pInterleavedPCMFrames;
+            for (mal_uint32 iPCMFrame = 0; iPCMFrame < frameCount; ++iPCMFrame) {
+                for (mal_uint32 iChannel = 0; iChannel < channels; ++iChannel) {
+                    float* pDstF32 = (float*)ppDeinterleavedPCMFrames[iChannel];
+                    pDstF32[iPCMFrame] = pSrcF32[iPCMFrame*channels+iChannel];
+                }
+            }
+        } break;
+        
+        default:
+        {
+            mal_uint32 sampleSizeInBytes = mal_get_bytes_per_sample(format);
+
+            for (mal_uint32 iPCMFrame = 0; iPCMFrame < frameCount; ++iPCMFrame) {
+                for (mal_uint32 iChannel = 0; iChannel < channels; ++iChannel) {
+                          void* pDst = mal_offset_ptr(ppDeinterleavedPCMFrames[iChannel], iPCMFrame*sampleSizeInBytes);
+                    const void* pSrc = mal_offset_ptr(pInterleavedPCMFrames, (iPCMFrame*channels+iChannel)*sampleSizeInBytes);
+                    memcpy(pDst, pSrc, sampleSizeInBytes);
+                }
+            }
+        } break;
+    }
+}
+
+void mal_interleave_pcm_frames(mal_format format, mal_uint32 channels, mal_uint32 frameCount, const void** ppDeinterleavedPCMFrames, void* pInterleavedPCMFrames)
+{
+    switch (format)
+    {
+        case mal_format_s16:
+        {
+            mal_int16* pDstS16 = (mal_int16*)pInterleavedPCMFrames;
+            for (mal_uint32 iPCMFrame = 0; iPCMFrame < frameCount; ++iPCMFrame) {
+                for (mal_uint32 iChannel = 0; iChannel < channels; ++iChannel) {
+                    const mal_int16* pSrcS16 = (const mal_int16*)ppDeinterleavedPCMFrames[iChannel];
+                    pDstS16[iPCMFrame*channels+iChannel] = pSrcS16[iPCMFrame];
+                }
+            }
+        } break;
+        
+        case mal_format_f32:
+        {
+            float* pDstF32 = (float*)pInterleavedPCMFrames;
+            for (mal_uint32 iPCMFrame = 0; iPCMFrame < frameCount; ++iPCMFrame) {
+                for (mal_uint32 iChannel = 0; iChannel < channels; ++iChannel) {
+                    const float* pSrcF32 = (const float*)ppDeinterleavedPCMFrames[iChannel];
+                    pDstF32[iPCMFrame*channels+iChannel] = pSrcF32[iPCMFrame];
+                }
+            }
+        } break;
+    
+        default:
+        {
+            mal_uint32 sampleSizeInBytes = mal_get_bytes_per_sample(format);
+
+            for (mal_uint32 iPCMFrame = 0; iPCMFrame < frameCount; ++iPCMFrame) {
+                for (mal_uint32 iChannel = 0; iChannel < channels; ++iChannel) {
+                          void* pDst = mal_offset_ptr(pInterleavedPCMFrames, (iPCMFrame*channels+iChannel)*sampleSizeInBytes);
+                    const void* pSrc = mal_offset_ptr(ppDeinterleavedPCMFrames[iChannel], iPCMFrame*sampleSizeInBytes);
+                    memcpy(pDst, pSrc, sampleSizeInBytes);
+                }
+            }
+        } break;
     }
 }
 
