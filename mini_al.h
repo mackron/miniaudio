@@ -12485,6 +12485,7 @@ mal_result mal_device_init__pulse(mal_context* pContext, mal_device_type type, c
     mal_pa_sample_spec ss;
     mal_pa_channel_map cmap;
     mal_pa_buffer_attr attr;
+    mal_pa_stream_flags_t streamFlags;
 
     const mal_pa_sample_spec* pActualSS   = NULL;
     const mal_pa_channel_map* pActualCMap = NULL;
@@ -12610,11 +12611,12 @@ mal_result mal_device_init__pulse(mal_context* pContext, mal_device_type type, c
     }
 
 
+    streamFlags = MAL_PA_STREAM_START_CORKED | MAL_PA_STREAM_FIX_FORMAT | MAL_PA_STREAM_FIX_RATE | MAL_PA_STREAM_FIX_CHANNELS;
 
     if (type == mal_device_type_playback) {
-        error = ((mal_pa_stream_connect_playback_proc)pContext->pulse.pa_stream_connect_playback)((mal_pa_stream*)pDevice->pulse.pStream, dev, &attr, MAL_PA_STREAM_START_CORKED, NULL, NULL);
+        error = ((mal_pa_stream_connect_playback_proc)pContext->pulse.pa_stream_connect_playback)((mal_pa_stream*)pDevice->pulse.pStream, dev, &attr, streamFlags, NULL, NULL);
     } else {
-        error = ((mal_pa_stream_connect_record_proc)pContext->pulse.pa_stream_connect_record)((mal_pa_stream*)pDevice->pulse.pStream, dev, &attr, MAL_PA_STREAM_START_CORKED);
+        error = ((mal_pa_stream_connect_record_proc)pContext->pulse.pa_stream_connect_record)((mal_pa_stream*)pDevice->pulse.pStream, dev, &attr, streamFlags);
     }
 
     if (error != MAL_PA_OK) {
