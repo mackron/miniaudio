@@ -1634,6 +1634,7 @@ struct mal_context
             mal_proc pa_stream_get_sample_spec;
             mal_proc pa_stream_get_channel_map;
             mal_proc pa_stream_get_buffer_attr;
+            mal_proc pa_stream_set_buffer_attr;
             mal_proc pa_stream_get_device_name;
             mal_proc pa_stream_set_write_callback;
             mal_proc pa_stream_set_read_callback;
@@ -11789,6 +11790,7 @@ typedef mal_pa_stream_state_t     (* mal_pa_stream_get_state_proc)              
 typedef const mal_pa_sample_spec* (* mal_pa_stream_get_sample_spec_proc)         (mal_pa_stream* s);
 typedef const mal_pa_channel_map* (* mal_pa_stream_get_channel_map_proc)         (mal_pa_stream* s);
 typedef const mal_pa_buffer_attr* (* mal_pa_stream_get_buffer_attr_proc)         (mal_pa_stream* s);
+typedef mal_pa_operation*         (* mal_pa_stream_set_buffer_attr_proc)         (mal_pa_stream* s, const mal_pa_buffer_attr* attr, mal_pa_stream_success_cb_t cb, void* userdata);
 typedef const char*               (* mal_pa_stream_get_device_name_proc)         (mal_pa_stream* s);
 typedef void                      (* mal_pa_stream_set_write_callback_proc)      (mal_pa_stream* s, mal_pa_stream_request_cb_t cb, void* userdata);
 typedef void                      (* mal_pa_stream_set_read_callback_proc)       (mal_pa_stream* s, mal_pa_stream_request_cb_t cb, void* userdata);
@@ -12611,8 +12613,11 @@ mal_result mal_device_init__pulse(mal_context* pContext, mal_device_type type, c
     }
 
 
-    streamFlags = MAL_PA_STREAM_START_CORKED | MAL_PA_STREAM_FIX_FORMAT | MAL_PA_STREAM_FIX_RATE | MAL_PA_STREAM_FIX_CHANNELS;
-
+    streamFlags = MAL_PA_STREAM_START_CORKED;
+    if (dev != NULL) {
+        streamFlags |= MAL_PA_STREAM_DONT_MOVE | MAL_PA_STREAM_FIX_FORMAT | MAL_PA_STREAM_FIX_RATE | MAL_PA_STREAM_FIX_CHANNELS;
+    }
+    
     if (type == mal_device_type_playback) {
         error = ((mal_pa_stream_connect_playback_proc)pContext->pulse.pa_stream_connect_playback)((mal_pa_stream*)pDevice->pulse.pStream, dev, &attr, streamFlags, NULL, NULL);
     } else {
@@ -12636,6 +12641,21 @@ mal_result mal_device_init__pulse(mal_context* pContext, mal_device_type type, c
     // Internal format.
     pActualSS = ((mal_pa_stream_get_sample_spec_proc)pContext->pulse.pa_stream_get_sample_spec)((mal_pa_stream*)pDevice->pulse.pStream);
     if (pActualSS != NULL) {
+        // If anything has changed between the requested and the actual sample spec, we need to update the buffer.
+        if (ss.format != pActualSS->format || ss.channels != pActualSS->channels || ss.rate != pActualSS->rate) {
+            attr.maxlength = bufferSizeInFrames * mal_get_bytes_per_sample(mal_format_from_pulse(pActualSS->format))*pActualSS->channels;
+            attr.tlength   = attr.maxlength;
+            attr.prebuf    = (mal_uint32)-1;
+            attr.minreq    = attr.maxlength / pConfig->periods;
+            attr.fragsize  = attr.maxlength / pConfig->periods;
+
+            pOP = ((mal_pa_stream_set_buffer_attr_proc)pContext->pulse.pa_stream_set_buffer_attr)((mal_pa_stream*)pDevice->pulse.pStream, &attr, NULL, NULL);
+            if (pOP != NULL) {
+                mal_device__wait_for_operation__pulse(pDevice, pOP);
+                ((mal_pa_operation_unref_proc)pContext->pulse.pa_operation_unref)(pOP);
+            }
+        }
+
         ss = *pActualSS;
     }
 
@@ -12918,6 +12938,7 @@ mal_result mal_context_init__pulse(mal_context* pContext)
     pContext->pulse.pa_stream_get_sample_spec          = (mal_proc)mal_dlsym(pContext->pulse.pulseSO, "pa_stream_get_sample_spec");
     pContext->pulse.pa_stream_get_channel_map          = (mal_proc)mal_dlsym(pContext->pulse.pulseSO, "pa_stream_get_channel_map");
     pContext->pulse.pa_stream_get_buffer_attr          = (mal_proc)mal_dlsym(pContext->pulse.pulseSO, "pa_stream_get_buffer_attr");
+    pContext->pulse.pa_stream_set_buffer_attr          = (mal_proc)mal_dlsym(pContext->pulse.pulseSO, "pa_stream_set_buffer_attr");
     pContext->pulse.pa_stream_get_device_name          = (mal_proc)mal_dlsym(pContext->pulse.pulseSO, "pa_stream_get_device_name");
     pContext->pulse.pa_stream_set_write_callback       = (mal_proc)mal_dlsym(pContext->pulse.pulseSO, "pa_stream_set_write_callback");
     pContext->pulse.pa_stream_set_read_callback        = (mal_proc)mal_dlsym(pContext->pulse.pulseSO, "pa_stream_set_read_callback");
@@ -12960,6 +12981,7 @@ mal_result mal_context_init__pulse(mal_context* pContext)
     mal_pa_stream_get_sample_spec_proc          _pa_stream_get_sample_spec         = pa_stream_get_sample_spec;
     mal_pa_stream_get_channel_map_proc          _pa_stream_get_channel_map         = pa_stream_get_channel_map;
     mal_pa_stream_get_buffer_attr_proc          _pa_stream_get_buffer_attr         = pa_stream_get_buffer_attr;
+    mal_pa_stream_set_buffer_attr_proc          _pa_stream_set_buffer_attr         = pa_stream_set_buffer_attr;
     mal_pa_stream_get_device_name_proc          _pa_stream_get_device_name         = pa_stream_get_device_name;
     mal_pa_stream_set_write_callback_proc       _pa_stream_set_write_callback      = pa_stream_set_write_callback;
     mal_pa_stream_set_read_callback_proc        _pa_stream_set_read_callback       = pa_stream_set_read_callback;
@@ -13001,6 +13023,7 @@ mal_result mal_context_init__pulse(mal_context* pContext)
     pContext->pulse.pa_stream_get_sample_spec          = (mal_proc)_pa_stream_get_sample_spec;
     pContext->pulse.pa_stream_get_channel_map          = (mal_proc)_pa_stream_get_channel_map;
     pContext->pulse.pa_stream_get_buffer_attr          = (mal_proc)_pa_stream_get_buffer_attr;
+    pContext->pulse.pa_stream_set_buffer_attr          = (mal_proc)_pa_stream_set_buffer_attr;
     pContext->pulse.pa_stream_get_device_name          = (mal_proc)_pa_stream_get_device_name;
     pContext->pulse.pa_stream_set_write_callback       = (mal_proc)_pa_stream_set_write_callback;
     pContext->pulse.pa_stream_set_read_callback        = (mal_proc)_pa_stream_set_read_callback;
