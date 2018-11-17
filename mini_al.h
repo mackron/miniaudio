@@ -12558,53 +12558,6 @@ mal_result mal_device_init__pulse(mal_context* pContext, mal_device_type type, c
         ((mal_pa_operation_unref_proc)pContext->pulse.pa_operation_unref)(pOP);
     }
 
-
-#if 0
-    mal_pa_sample_spec deviceSS;
-    mal_pa_channel_map deviceCMap;
-    if (type == mal_device_type_playback) {
-        deviceSS = sinkInfo.sample_spec;
-        deviceCMap = sinkInfo.channel_map;
-    } else {
-        deviceSS = sourceInfo.sample_spec;
-        deviceCMap = sourceInfo.channel_map;
-    }
-
-    if (pDevice->usingDefaultFormat) {
-        ss.format = deviceSS.format;
-    } else {
-        ss.format = mal_format_to_pulse(pConfig->format);
-    }
-    if (ss.format == MAL_PA_SAMPLE_INVALID) {
-        ss.format = MAL_PA_SAMPLE_S16LE;
-    }
-
-    if (pDevice->usingDefaultChannels) {
-        ss.channels = deviceSS.channels;
-    } else {
-        ss.channels = pConfig->channels;
-    }
-
-    if (pDevice->usingDefaultSampleRate) {
-        ss.rate = deviceSS.rate;
-    } else {
-        ss.rate = pConfig->sampleRate;
-    }
-
-
-    if (pDevice->usingDefaultChannelMap) {
-        cmap = deviceCMap;
-    } else {
-        cmap.channels = pConfig->channels;
-        for (mal_uint32 iChannel = 0; iChannel < pConfig->channels; ++iChannel) {
-            cmap.map[iChannel] = mal_channel_position_to_pulse(pConfig->channelMap[iChannel]);
-        }
-
-        if (((mal_pa_channel_map_valid_proc)pContext->pulse.pa_channel_map_valid)(&cmap) == 0 || ((mal_pa_channel_map_compatible_proc)pContext->pulse.pa_channel_map_compatible)(&cmap, &ss) == 0) {
-            ((mal_pa_channel_map_init_extend_proc)pContext->pulse.pa_channel_map_init_extend)(&cmap, ss.channels, MAL_PA_CHANNEL_MAP_DEFAULT);     // The channel map is invalid, so just fall back to the default.
-        }
-    }
-#else
     if (type == mal_device_type_playback) {
         ss = sinkInfo.sample_spec;
         cmap = sinkInfo.channel_map;
@@ -12612,7 +12565,7 @@ mal_result mal_device_init__pulse(mal_context* pContext, mal_device_type type, c
         ss = sourceInfo.sample_spec;
         cmap = sourceInfo.channel_map;
     }
-#endif
+
 
     // Buffer size.
     bufferSizeInFrames = pDevice->bufferSizeInFrames;
