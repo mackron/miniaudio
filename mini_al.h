@@ -12310,6 +12310,10 @@ void mal_pulse_device_write_callback(mal_pa_stream* pStream, size_t sizeInBytes,
     mal_context* pContext = pDevice->pContext;
     mal_assert(pContext != NULL);
 
+#ifdef MAL_DEBUG_OUTPUT
+    printf("[PulseAudio] write_callback: sizeInBytes=%d\n", (int)sizeInBytes);
+#endif
+
     size_t bytesRemaining = sizeInBytes;
     while (bytesRemaining > 0) {
         size_t bytesToReadFromClient = bytesRemaining;
@@ -12324,19 +12328,35 @@ void mal_pulse_device_write_callback(mal_pa_stream* pStream, size_t sizeInBytes,
             return;
         }
 
+#ifdef MAL_DEBUG_OUTPUT
+        printf("    bytesToReadFromClient=%d", (int)bytesToReadFromClient);
+#endif
+
         if (pBuffer != NULL && bytesToReadFromClient > 0) {
             mal_uint32 framesToReadFromClient = (mal_uint32)bytesToReadFromClient / (pDevice->internalChannels*mal_get_bytes_per_sample(pDevice->internalFormat));
             if (framesToReadFromClient > 0) {
                 mal_device__read_frames_from_client(pDevice, framesToReadFromClient, pBuffer);
+
+#ifdef MAL_DEBUG_OUTPUT
+                printf(", framesToReadFromClient=%d\n", (int)framesToReadFromClient);
+#endif
 
                 error = ((mal_pa_stream_write_proc)pContext->pulse.pa_stream_write)((mal_pa_stream*)pDevice->pulse.pStream, pBuffer, bytesToReadFromClient, NULL, 0, MAL_PA_SEEK_RELATIVE);
                 if (error < 0) {
                     mal_post_error(pDevice, MAL_LOG_LEVEL_ERROR, "[PulseAudio] Failed to write data to the PulseAudio stream.", mal_result_from_pulse(error));
                     return;
                 }
+            } else {
+#ifdef MAL_DEBUG_OUTPUT
+            printf(", framesToReadFromClient=0\n");
+#endif
             }
 
             bytesRemaining -= bytesToReadFromClient;
+        } else {
+#ifdef MAL_DEBUG_OUTPUT
+            printf(", framesToReadFromClient=0\n");
+#endif
         }
     }
 }
@@ -12616,6 +12636,10 @@ mal_result mal_device_init__pulse(mal_context* pContext, mal_device_type type, c
     attr.minreq    = attr.tlength;
     attr.fragsize  = attr.tlength;
 
+#ifdef MAL_DEBUG_OUTPUT
+    printf("[PulseAudio] attr: maxlength=%d, tlength=%d, prebuf=%d, minreq=%d, fragsize=%d; bufferSizeInFrames=%d\n", attr.maxlength, attr.tlength, attr.prebuf, attr.minreq, attr.fragsize, bufferSizeInFrames);
+#endif
+
     char streamName[256];
     if (pConfig->pulse.pStreamName != NULL) {
         mal_strncpy_s(streamName, sizeof(streamName), pConfig->pulse.pStreamName, (size_t)-1);
@@ -12684,6 +12708,10 @@ mal_result mal_device_init__pulse(mal_context* pContext, mal_device_type type, c
 
     pDevice->bufferSizeInFrames = attr.maxlength / (mal_get_bytes_per_sample(pDevice->internalFormat)*pDevice->internalChannels);
     pDevice->periods = attr.maxlength / attr.tlength;
+
+#ifdef MAL_DEBUG_OUTPUT
+    printf("[PulseAudio] actual attr: maxlength=%d, tlength=%d, prebuf=%d, minreq=%d, fragsize=%d; bufferSizeInFrames=%d\n", attr.maxlength, attr.tlength, attr.prebuf, attr.minreq, attr.fragsize, bufferSizeInFrames);
+#endif
 
 
     // Grab the name of the device if we can.
@@ -20542,6 +20570,14 @@ mal_result mal_context_init(const mal_backend backends[], mal_uint32 backendCoun
             if (result != MAL_SUCCESS) {
                 mal_context_post_error(pContext, NULL, MAL_LOG_LEVEL_WARNING, "Failed to initialize mutex for device info retrieval. mal_context_get_device_info() is not thread safe.", MAL_FAILED_TO_CREATE_MUTEX);
             }
+
+#ifdef MAL_DEBUG_OUTPUT
+            printf("[mini_al] Endian:  %s\n", mal_is_little_endian() ? "LE" : "BE");
+            printf("[mini_al] SSE2:    %s\n", mal_has_sse2()    ? "YES" : "NO");
+            printf("[mini_al] AVX2:    %s\n", mal_has_avx2()    ? "YES" : "NO");
+            printf("[mini_al] AVX512F: %s\n", mal_has_avx512f() ? "YES" : "NO");
+            printf("[mini_al] NEON:    %s\n", mal_has_neon()    ? "YES" : "NO");
+#endif
 
             pContext->backend = backend;
             return result;
