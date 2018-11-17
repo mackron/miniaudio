@@ -12631,10 +12631,10 @@ mal_result mal_device_init__pulse(mal_context* pContext, mal_device_type type, c
     }
 
     attr.maxlength = bufferSizeInFrames * mal_get_bytes_per_sample(mal_format_from_pulse(ss.format))*ss.channels;
-    attr.tlength   = attr.maxlength / pConfig->periods;
+    attr.tlength   = attr.maxlength;
     attr.prebuf    = (mal_uint32)-1;
-    attr.minreq    = attr.tlength;
-    attr.fragsize  = attr.tlength;
+    attr.minreq    = attr.maxlength / pConfig->periods;
+    attr.fragsize  = attr.maxlength / pConfig->periods;
 
 #ifdef MAL_DEBUG_OUTPUT
     printf("[PulseAudio] attr: maxlength=%d, tlength=%d, prebuf=%d, minreq=%d, fragsize=%d; bufferSizeInFrames=%d\n", attr.maxlength, attr.tlength, attr.prebuf, attr.minreq, attr.fragsize, bufferSizeInFrames);
