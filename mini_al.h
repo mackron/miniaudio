@@ -131,6 +131,12 @@
 // BACKEND NUANCES
 // ===============
 //
+// PulseAudio
+// ----------
+// - If you experience bad glitching/noise on Arch Linux, consider this fix from the Arch wiki:
+//     https://wiki.archlinux.org/index.php/PulseAudio/Troubleshooting#Glitches,_skips_or_crackling
+//   Alternatively, consider using a different backend such as ALSA.
+//
 // Android
 // -------
 // - To capture audio on Android, remember to add the RECORD_AUDIO permission to your manifest:
