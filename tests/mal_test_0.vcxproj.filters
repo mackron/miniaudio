@@ -36,6 +36,9 @@
     <ClCompile Include="mal_unplugging.c">
       <Filter>Source Files</Filter>
     </ClCompile>
+    <ClCompile Include="..\research\tests\mal_resampler_test_0.c">
+      <Filter>Source Files</Filter>
+    </ClCompile>
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="..\mini_al.h">
