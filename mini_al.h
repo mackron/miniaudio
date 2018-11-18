@@ -25452,9 +25452,6 @@ mal_uint64 mal_src_read_deinterleaved(mal_src* pSRC, mal_uint64 frameCount, void
     }
 
     mal_src_algorithm algorithm = pSRC->config.algorithm;
-    if (pSRC->config.sampleRateIn == pSRC->config.sampleRateOut) {
-        //algorithm = mal_src_algorithm_none;
-    }
 
     // Can use a function pointer for this.
     switch (algorithm) {
