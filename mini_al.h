@@ -14953,7 +14953,7 @@ OSStatus mal_on_output__coreaudio(void* pUserData, AudioUnitRenderActionFlags* p
         // assumes each buffer is the same size.
         mal_uint8 tempBuffer[4096];
         for (UInt32 iBuffer = 0; iBuffer < pBufferList->mNumberBuffers; iBuffer += pDevice->internalChannels) {
-            mal_uint32 frameCountPerBuffer = pBufferList->mBuffers[iBuffer].mDataByteSize / mal_get_bytes_per_frame(pDevice->internalFormat, pDevice->internalChannels);
+            mal_uint32 frameCountPerBuffer = pBufferList->mBuffers[iBuffer].mDataByteSize / mal_get_bytes_per_sample(pDevice->internalFormat);
             
             mal_uint32 framesRemaining = frameCountPerBuffer;
             while (framesRemaining > 0) {
@@ -15049,7 +15049,7 @@ OSStatus mal_on_input__coreaudio(void* pUserData, AudioUnitRenderActionFlags* pA
         for (UInt32 iBuffer = 0; iBuffer < pRenderedBufferList->mNumberBuffers; iBuffer += pDevice->internalChannels) {
             mal_uint32 framesRemaining = frameCount;
             while (framesRemaining > 0) {
-                mal_uint32 framesToSend = sizeof(tempBuffer) / mal_get_bytes_per_frame(pDevice->internalFormat, pDevice->internalChannels);
+                mal_uint32 framesToSend = sizeof(tempBuffer) / mal_get_bytes_per_sample(pDevice->internalFormat);
                 if (framesToSend > framesRemaining) {
                     framesToSend = framesRemaining;
                 }
