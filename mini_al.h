@@ -154,6 +154,10 @@
 //           </Capabilities>
 //       </Package>
 //
+// OpenAL
+// ------
+// - Capture is not supported on iOS with OpenAL. Use the Core Audio backend instead.
+//
 //
 // OPTIONS
 // =======
@@ -18994,8 +18998,6 @@ mal_result mal_device_init__openal(mal_context* pContext, mal_device_type type, 
     if (type == mal_device_type_playback) {
         pDeviceALC = ((MAL_LPALCOPENDEVICE)pContext->openal.alcOpenDevice)((pDeviceID == NULL) ? NULL : pDeviceID->openal);
     } else {
-        // I had a bug report that suggested I set the OpenAL context to NULL before attempting to open a capture device.
-        ((MAL_LPALCMAKECONTEXTCURRENT)pContext->openal.alcMakeContextCurrent)(NULL);
         pDeviceALC = ((MAL_LPALCCAPTUREOPENDEVICE)pContext->openal.alcCaptureOpenDevice)((pDeviceID == NULL) ? NULL : pDeviceID->openal, frequencyAL, formatAL, bufferSizeInSamplesAL);
     }
 
