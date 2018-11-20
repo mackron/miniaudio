@@ -15678,6 +15678,13 @@ mal_result mal_context_init__coreaudio(mal_context* pContext)
         mal_assert(pAudioSession != NULL);
 
         [pAudioSession setCategory: AVAudioSessionCategoryPlayAndRecord error:nil];
+        
+        // By default we want mini_al to use the speakers instead of the receiver. In the future this may
+        // be customizable.
+        mal_bool32 useSpeakers = MAL_TRUE;
+        if (useSpeakers) {
+            [pAudioSession overrideOutputAudioPort:AVAudioSessionPortOverrideSpeaker error:nil];
+        }
     }
 #endif
     
