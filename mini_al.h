@@ -1,5 +1,5 @@
 // Audio playback and capture library. Public domain. See "unlicense" statement at the end of this file.
-// mini_al - v0.8.10 - 2018-10-21
+// mini_al - v0.8.11 - 2018-11-21
 //
 // David Reid - davidreidsoftware@gmail.com
 
@@ -28537,6 +28537,10 @@ mal_uint64 mal_sine_wave_read_ex(mal_sine_wave* pSineWave, mal_uint64 frameCount
 
 // REVISION HISTORY
 // ================
+//
+// v0.8.11 - 2018-11-21
+//   - iOS bug fixes.
+//   - Minor tweaks to PulseAudio.
 //
 // v0.8.10 - 2018-10-21
 //   - Core Audio: Fix a hang when uninitializing a device.
