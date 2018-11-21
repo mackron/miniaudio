@@ -53,9 +53,9 @@ typedef mal_uint32 (* mal_resampler_read_from_client_proc)               (mal_re
 /* Backend functions. */
 typedef mal_uint64 (* mal_resampler_read_proc)                           (mal_resampler* pResampler, mal_uint64 frameCount, void** ppFrames);
 typedef mal_uint64 (* mal_resampler_seek_proc)                           (mal_resampler* pResampler, mal_uint64 frameCount, mal_uint32 options);
-typedef mal_result (* mal_resampler_get_cached_frame_counts_proc)        (mal_resampler* pResampler, mal_uint64* pInputPCMFrameCount, double* pExcessInput, mal_uint64* pOutputPCMFrameCount, double* pLeftoverInput);
-typedef mal_uint64 (* mal_resampler_get_required_input_frame_count_proc) (mal_resampler* pResampler, mal_uint64 outputFrameCount, double* pExcessInput);
-typedef mal_uint64 (* mal_resampler_get_expected_output_frame_count_proc)(mal_resampler* pResampler, mal_uint64 inputFrameCount, double* pLeftoverInput);
+typedef mal_result (* mal_resampler_get_cached_time_proc)                (mal_resampler* pResampler, double* pInputTime, double* pOutputTime);
+typedef mal_uint64 (* mal_resampler_get_required_input_frame_count_proc) (mal_resampler* pResampler, mal_uint64 outputFrameCount);
+typedef mal_uint64 (* mal_resampler_get_expected_output_frame_count_proc)(mal_resampler* pResampler, mal_uint64 inputFrameCount);
 
 typedef enum
 {
@@ -88,7 +88,7 @@ struct mal_resampler
     mal_resampler_config config;
     mal_resampler_read_proc read;
     mal_resampler_seek_proc seek;
-    mal_resampler_get_cached_frame_counts_proc getCachedFrameCounts;
+    mal_resampler_get_cached_time_proc getCachedTime;
     mal_resampler_get_required_input_frame_count_proc getRequiredInputFrameCount;
     mal_resampler_get_expected_output_frame_count_proc getExpectedOutputFrameCount;
 };
@@ -132,43 +132,34 @@ Seeks forward by the specified number of PCM frames.
 mal_uint64 mal_resampler_seek(mal_resampler* pResampler, mal_uint64 frameCount, mal_uint32 options);
 
 /*
-Retrieves detailed information about the number of PCM frames that are current sitting inside the cache.
+Retrieves the number of cached input frames.
 
-Since the ratio may be fractional, returning whole values for the input and output count does not quite provide enough
-information for complete accuracy. When an input sample is only partially consumed, it is still required to compute the
-next output frame which means it needs to be included in pInputPCMFrameCount. That little bit of excess is returned in
-pExcessInput. Likewise, when computing the number of cached output frames, there may be some leftover input frames which
-are returned in pLeftoverInput.
-
-When the end of input mode is set to mal_resampler_end_of_input_mode_no_consume, the input frames currently sitting in the
-window are not included in the calculation.
-
-Consider using mal_resampler_get_cached_input_frame_count() and mal_resampler_get_cached_output_frame_count() for a simpler
-and easier to user API.
-*/
-mal_result mal_resampler_get_cached_frame_counts(mal_resampler* pResampler, mal_uint64* pInputPCMFrameCount, double* pExcessInput, mal_uint64* pOutputPCMFrameCount, double* pLeftoverInput);
-
-/*
-A helper API for retrieving the number of cached input frames.
-
-Sine this function returns whole input frames and the ratio may be fractional, there is a situation where part of the last
-input sample may be required in the calculation of the next output sample. This excess is returned in pExcessInput.
+This is equivalent to: (mal_uint64)ceil(mal_resampler_get_cached_input_time(pResampler));
 
 See also: mal_resampler_get_cached_frame_counts()
 */
-mal_uint64 mal_resampler_get_cached_input_frame_count(mal_resampler* pResampler, double* pExcessInput);
+mal_uint64 mal_resampler_get_cached_input_frame_count(mal_resampler* pResampler);
 
 /*
-A helper API for retrieving the number of whole output frames that can be calculated from the currently cached input frames.
+Retrieves the number of whole output frames that can be calculated from the currently cached input frames.
 
-Since this function returns whole output frames and the ratio may be fractional, there is a situation where the very last
-input frame cannot be fully process because in order to do so the resampler would need part of the next input frame after
-that. In this case the last input frames may have only been partially processed. The leftover input frames are returned
-in pLeftoverInput which may be fractional and may be greater than 1, depending on the ratio.
+This is equivalent to: (mal_uint64)floor(mal_resampler_get_cached_output_time(pResampler));
 
 See also: mal_resampler_get_cached_frame_counts()
 */
-mal_uint64 mal_resampler_get_cached_output_frame_count(mal_resampler* pResampler, double* pLeftoverInput);
+mal_uint64 mal_resampler_get_cached_output_frame_count(mal_resampler* pResampler);
+
+/*
+The same as mal_resampler_get_cached_input_frame_count(), except returns a fractional value representing the exact amount
+of time in input rate making up the cached input.
+*/
+double mal_resampler_get_cached_input_time(mal_resampler* pResampler);
+
+/*
+The same as mal_resampler_get_cached_output_frame_count(), except returns a fractional value representing the exact amount
+of time in output rate making up the cached output.
+*/
+double mal_resampler_get_cached_output_time(mal_resampler* pResampler);
 
 /*
 Calculates the number of whole input frames that would need to be read from the client in order to output the specified
@@ -177,17 +168,14 @@ number of output frames.
 The returned value does not include cached input frames. It only returns the number of extra frames that would need to be
 read from the client in order to output the specified number of output frames.
 
-Sine this function returns whole input frames and the ratio may be fractional, there is a situation where part of the last
-input sample may be required in the calculation of the next output sample. This excess is returned in pExcessInput.
-
 When the end of input mode is set to mal_resampler_end_of_input_mode_no_consume, the input frames sitting in the filter
 window are not included in the calculation.
 */
-mal_uint64 mal_resampler_get_required_input_frame_count(mal_resampler* pResampler, mal_uint64 outputFrameCount, double* pExcessInput);
+mal_uint64 mal_resampler_get_required_input_frame_count(mal_resampler* pResampler, mal_uint64 outputFrameCount);
 
 /*
-Calculates the number of output PCM frames that would be output after fully reading and consuming the specified number of
-input PCM frames from the client.
+Calculates the number of whole output frames that would be output after fully reading and consuming the specified number of
+input frames from the client.
 
 A detail to keep in mind is how cached input frames are handled. This function calculates the output frame count based on
 inputFrameCount + mal_resampler_get_cached_input_frame_count(). It essentially calcualtes how many output frames will be
@@ -195,35 +183,30 @@ returned if an additional inputFrameCount frames were read from the client and c
 the return value by mal_resampler_get_cached_output_frame_count() which calculates the number of output frames that can be
 output from the currently cached input.
 
-Since this function returns whole output frames and the ratio may be fractional, there is a situation where the very last
-input frame cannot be fully process because in order to do so the resampler would need part of the next input frame after
-that. In this case the last input frames may have only been partially processed. The leftover input frames are returned
-in pLeftoverInput which may be fractional and may be greater than 1, depending on the ratio.
-
 When the end of input mode is set to mal_resampler_end_of_input_mode_no_consume, the input frames sitting in the filter
 window are not included in the calculation.
 */
-mal_uint64 mal_resampler_get_expected_output_frame_count(mal_resampler* pResampler, mal_uint64 inputFrameCount, double* pLeftoverInput);
+mal_uint64 mal_resampler_get_expected_output_frame_count(mal_resampler* pResampler, mal_uint64 inputFrameCount);
 #endif
 
 #ifdef MINI_AL_IMPLEMENTATION
 mal_uint64 mal_resampler_read__passthrough(mal_resampler* pResampler, mal_uint64 frameCount, void** ppFrames);
 mal_uint64 mal_resampler_seek__passthrough(mal_resampler* pResampler, mal_uint64 frameCount, mal_uint32 options);
-mal_result mal_resampler_get_cached_frame_counts__passthrough(mal_resampler* pResampler, mal_uint64* pInputPCMFrameCount, double* pExcessInput, mal_uint64* pOutputPCMFrameCount, double* pLeftoverInput);
-mal_uint64 mal_resampler_get_required_input_frame_count__passthrough(mal_resampler* pResampler, mal_uint64 outputFrameCount, double* pExcessInput);
-mal_uint64 mal_resampler_get_expected_output_frame_count__passthrough(mal_resampler* pResampler, mal_uint64 inputFrameCount, double* pLeftoverInput);
+mal_result mal_resampler_get_cached_time__passthrough(mal_resampler* pResampler, double* pInputTime, double* pOutputTime);
+mal_uint64 mal_resampler_get_required_input_frame_count__passthrough(mal_resampler* pResampler, mal_uint64 outputFrameCount);
+mal_uint64 mal_resampler_get_expected_output_frame_count__passthrough(mal_resampler* pResampler, mal_uint64 inputFrameCount);
 
 mal_uint64 mal_resampler_read__linear(mal_resampler* pResampler, mal_uint64 frameCount, void** ppFrames);
 mal_uint64 mal_resampler_seek__linear(mal_resampler* pResampler, mal_uint64 frameCount, mal_uint32 options);
-mal_result mal_resampler_get_cached_frame_counts__linear(mal_resampler* pResampler, mal_uint64* pInputPCMFrameCount, double* pExcessInput, mal_uint64* pOutputPCMFrameCount, double* pLeftoverInput);
-mal_uint64 mal_resampler_get_required_input_frame_count__linear(mal_resampler* pResampler, mal_uint64 outputFrameCount, double* pExcessInput);
-mal_uint64 mal_resampler_get_expected_output_frame_count__linear(mal_resampler* pResampler, mal_uint64 inputFrameCount, double* pLeftoverInput);
+mal_result mal_resampler_get_cached_time__linear(mal_resampler* pResampler, double* pInputTime, double* pOutputTime);
+mal_uint64 mal_resampler_get_required_input_frame_count__linear(mal_resampler* pResampler, mal_uint64 outputFrameCount);
+mal_uint64 mal_resampler_get_expected_output_frame_count__linear(mal_resampler* pResampler, mal_uint64 inputFrameCount);
 
 mal_uint64 mal_resampler_read__sinc(mal_resampler* pResampler, mal_uint64 frameCount, void** ppFrames);
 mal_uint64 mal_resampler_seek__sinc(mal_resampler* pResampler, mal_uint64 frameCount, mal_uint32 options);
-mal_result mal_resampler_get_cached_frame_counts__sinc(mal_resampler* pResampler, mal_uint64* pInputPCMFrameCount, double* pExcessInput, mal_uint64* pOutputPCMFrameCount, double* pLeftoverInput);
-mal_uint64 mal_resampler_get_required_input_frame_count__sinc(mal_resampler* pResampler, mal_uint64 outputFrameCount, double* pExcessInput);
-mal_uint64 mal_resampler_get_expected_output_frame_count__sinc(mal_resampler* pResampler, mal_uint64 inputFrameCount, double* pLeftoverInput);
+mal_result mal_resampler_get_cached_time__sinc(mal_resampler* pResampler, double* pInputTime, double* pOutputTime);
+mal_uint64 mal_resampler_get_required_input_frame_count__sinc(mal_resampler* pResampler, mal_uint64 outputFrameCount);
+mal_uint64 mal_resampler_get_expected_output_frame_count__sinc(mal_resampler* pResampler, mal_uint64 inputFrameCount);
 
 /* TODO: Add this to mini_al.h */
 #define MAL_ALIGN_INT(val, alignment) (((val) + ((alignment-1))) & ~((alignment)-1))
@@ -282,7 +265,7 @@ mal_result mal_resampler_init(const mal_resampler_config* pConfig, mal_resampler
         {
             pResampler->read                        = mal_resampler_read__passthrough;
             pResampler->seek                        = mal_resampler_seek__passthrough;
-            pResampler->getCachedFrameCounts        = mal_resampler_get_cached_frame_counts__passthrough;
+            pResampler->getCachedTime               = mal_resampler_get_cached_time__passthrough;
             pResampler->getRequiredInputFrameCount  = mal_resampler_get_required_input_frame_count__passthrough;
             pResampler->getExpectedOutputFrameCount = mal_resampler_get_expected_output_frame_count__passthrough;
         } break;
@@ -291,7 +274,7 @@ mal_result mal_resampler_init(const mal_resampler_config* pConfig, mal_resampler
         {
             pResampler->read                        = mal_resampler_read__linear;
             pResampler->seek                        = mal_resampler_seek__linear;
-            pResampler->getCachedFrameCounts        = mal_resampler_get_cached_frame_counts__linear;
+            pResampler->getCachedTime               = mal_resampler_get_cached_time__linear;
             pResampler->getRequiredInputFrameCount  = mal_resampler_get_required_input_frame_count__linear;
             pResampler->getExpectedOutputFrameCount = mal_resampler_get_expected_output_frame_count__linear;
         } break;
@@ -300,7 +283,7 @@ mal_result mal_resampler_init(const mal_resampler_config* pConfig, mal_resampler
         {
             pResampler->read                        = mal_resampler_read__sinc;
             pResampler->seek                        = mal_resampler_seek__sinc;
-            pResampler->getCachedFrameCounts        = mal_resampler_get_cached_frame_counts__sinc;
+            pResampler->getCachedTime               = mal_resampler_get_cached_time__sinc;
             pResampler->getRequiredInputFrameCount  = mal_resampler_get_required_input_frame_count__sinc;
             pResampler->getExpectedOutputFrameCount = mal_resampler_get_expected_output_frame_count__sinc;
         } break;
@@ -377,77 +360,52 @@ mal_uint64 mal_resampler_seek(mal_resampler* pResampler, mal_uint64 frameCount, 
     return pResampler->seek(pResampler, frameCount, options);
 }
 
-mal_result mal_resampler_get_cached_frame_counts(mal_resampler* pResampler, mal_uint64* pInputPCMFrameCount, double* pExcessInput, mal_uint64* pOutputPCMFrameCount, double* pLeftoverInput)
+
+mal_uint64 mal_resampler_get_cached_input_frame_count(mal_resampler* pResampler)
 {
-    /* For safety in case a backend fails to set the frame counts. */
-    if (pInputPCMFrameCount  != NULL) { *pInputPCMFrameCount  = 0; }
-    if (pOutputPCMFrameCount != NULL) { *pOutputPCMFrameCount = 0; }
-
-    if (pResampler == NULL || pResampler->getCachedFrameCounts == NULL) {
-        return MAL_INVALID_ARGS;
-    }
-
-    /* For safety we will ensure NULL is never passed to this callback. It also simplifies the implementation of each backend. */
-    mal_uint64 inputPCMFrameCount = 0;
-    double excessInput = 0;
-    mal_uint64 outputPCMFrameCount = 0;
-    double leftoverInput = 0;
-    mal_result result = pResampler->getCachedFrameCounts(pResampler, &inputPCMFrameCount, &excessInput, &outputPCMFrameCount, &leftoverInput);
-    if (result != MAL_SUCCESS) {
-        return result;
-    }
-
-    if (pInputPCMFrameCount  != NULL) { *pInputPCMFrameCount  = inputPCMFrameCount;  }
-    if (pExcessInput         != NULL) { *pExcessInput         = excessInput;         }
-    if (pOutputPCMFrameCount != NULL) { *pOutputPCMFrameCount = outputPCMFrameCount; }
-    if (pLeftoverInput       != NULL) { *pLeftoverInput       = leftoverInput;       }
-
-    return result;
+    return (mal_uint64)ceil(mal_resampler_get_cached_input_time(pResampler));
 }
 
-mal_uint64 mal_resampler_get_cached_input_frame_count(mal_resampler* pResampler, double* pExcessInput)
+mal_uint64 mal_resampler_get_cached_output_frame_count(mal_resampler* pResampler)
 {
-    if (pResampler == NULL || pResampler->getCachedFrameCounts == NULL) {
-        return 0;
+    return (mal_uint64)floor(mal_resampler_get_cached_output_time(pResampler));
+}
+
+
+double mal_resampler_get_cached_input_time(mal_resampler* pResampler)
+{
+    if (pResampler == NULL || pResampler->getCachedTime == NULL) {
+        return 0;   /* Invalid args. */
     }
 
-    mal_uint64 inputPCMFrameCount = 0;
-    double excessInput = 0;
-    mal_uint64 unused;
-    double unused2;
-    mal_result result = pResampler->getCachedFrameCounts(pResampler, &inputPCMFrameCount, &excessInput, &unused, &unused2);
+    double inputTime = 0;
+    double outputTime = 0;
+    mal_result result = pResampler->getCachedTime(pResampler, &inputTime, &outputTime);
     if (result != MAL_SUCCESS) {
         return 0;
     }
 
-    if (pExcessInput != NULL) {
-        *pExcessInput = excessInput;
-    }
-    return inputPCMFrameCount;
+    return inputTime;
 }
 
-mal_uint64 mal_resampler_get_cached_output_frame_count(mal_resampler* pResampler, double* pLeftoverInput)
+double mal_resampler_get_cached_output_time(mal_resampler* pResampler)
 {
-    if (pResampler == NULL || pResampler->getCachedFrameCounts == NULL) {
-        return 0;
+    if (pResampler == NULL || pResampler->getCachedTime == NULL) {
+        return 0;   /* Invalid args. */
     }
 
-    mal_uint64 unused;
-    double unused2;
-    mal_uint64 outputPCMFrameCount = 0;
-    double leftoverInput = 0;
-    mal_result result = pResampler->getCachedFrameCounts(pResampler, &unused, &unused2, &outputPCMFrameCount, &leftoverInput);
+    double inputTime = 0;
+    double outputTime = 0;
+    mal_result result = pResampler->getCachedTime(pResampler, &inputTime, &outputTime);
     if (result != MAL_SUCCESS) {
         return 0;
     }
 
-    if (pLeftoverInput != NULL) {
-        *pLeftoverInput = leftoverInput;
-    }
-    return outputPCMFrameCount;
+    return outputTime;
 }
 
-mal_uint64 mal_resampler_get_required_input_frame_count(mal_resampler* pResampler, mal_uint64 outputFrameCount, double* pExcessInput)
+
+mal_uint64 mal_resampler_get_required_input_frame_count(mal_resampler* pResampler, mal_uint64 outputFrameCount)
 {
     if (pResampler == NULL || pResampler->getRequiredInputFrameCount == NULL) {
         return 0;   /* Invalid args. */
@@ -457,10 +415,10 @@ mal_uint64 mal_resampler_get_required_input_frame_count(mal_resampler* pResample
         return 0;
     }
 
-    return pResampler->getRequiredInputFrameCount(pResampler, outputFrameCount, pExcessInput);
+    return pResampler->getRequiredInputFrameCount(pResampler, outputFrameCount);
 }
 
-mal_uint64 mal_resampler_get_expected_output_frame_count(mal_resampler* pResampler, mal_uint64 inputFrameCount, double* pLeftoverInput)
+mal_uint64 mal_resampler_get_expected_output_frame_count(mal_resampler* pResampler, mal_uint64 inputFrameCount)
 {
     if (pResampler == NULL || pResampler->getExpectedOutputFrameCount == NULL) {
         return 0; /* Invalid args. */
@@ -470,7 +428,7 @@ mal_uint64 mal_resampler_get_expected_output_frame_count(mal_resampler* pResampl
         return 0;
     }
 
-    return pResampler->getExpectedOutputFrameCount(pResampler, inputFrameCount, pLeftoverInput);
+    return pResampler->getExpectedOutputFrameCount(pResampler, inputFrameCount);
 }
 
 
@@ -565,44 +523,36 @@ mal_uint64 mal_resampler_seek__passthrough(mal_resampler* pResampler, mal_uint64
     return totalFramesRead;
 }
 
-mal_result mal_resampler_get_cached_frame_counts__passthrough(mal_resampler* pResampler, mal_uint64* pInputPCMFrameCount, double* pExcessInput, mal_uint64* pOutputPCMFrameCount, double* pLeftoverInput)
+mal_result mal_resampler_get_cached_time__passthrough(mal_resampler* pResampler, double* pInputTime, double* pOutputTime)
 {
     mal_assert(pResampler != NULL);
-    mal_assert(pInputPCMFrameCount != NULL);
-    mal_assert(pExcessInput != NULL);
-    mal_assert(pOutputPCMFrameCount != NULL);
-    mal_assert(pLeftoverInput != NULL);
+    mal_assert(pInputTime != NULL);
+    mal_assert(pOutputTime != NULL);
 
     /* The passthrough implementation never caches, so this is always 0. */
-    *pInputPCMFrameCount = 0;
-    *pExcessInput = 0;
-    *pOutputPCMFrameCount = 0;
-    *pLeftoverInput = 0;
+    *pInputTime = 0;
+    *pOutputTime = 0;
 
     return MAL_SUCCESS;
 }
 
-mal_uint64 mal_resampler_get_required_input_frame_count__passthrough(mal_resampler* pResampler, mal_uint64 outputFrameCount, double* pExcessInput)
+mal_uint64 mal_resampler_get_required_input_frame_count__passthrough(mal_resampler* pResampler, mal_uint64 outputFrameCount)
 {
     mal_assert(pResampler != NULL);
     mal_assert(outputFrameCount > 0);
-    mal_assert(pExcessInput != NULL);
 
     /* For passthrough input and output is the same. */
     (void)pResampler;
-    *pExcessInput = 0;
     return outputFrameCount;
 }
 
-mal_uint64 mal_resampler_get_expected_output_frame_count__passthrough(mal_resampler* pResampler, mal_uint64 inputFrameCount, double* pLeftoverInput)
+mal_uint64 mal_resampler_get_expected_output_frame_count__passthrough(mal_resampler* pResampler, mal_uint64 inputFrameCount)
 {
     mal_assert(pResampler != NULL);
     mal_assert(inputFrameCount > 0);
-    mal_assert(pLeftoverInput != NULL);
 
     /* For passthrough input and output is the same. */
     (void)pResampler;
-    *pLeftoverInput = 0;
     return inputFrameCount;
 }
 
@@ -637,39 +587,33 @@ mal_uint64 mal_resampler_seek__linear(mal_resampler* pResampler, mal_uint64 fram
     return 0;
 }
 
-mal_result mal_resampler_get_cached_frame_counts__linear(mal_resampler* pResampler, mal_uint64* pInputPCMFrameCount, double* pExcessInput, mal_uint64* pOutputPCMFrameCount, double* pLeftoverInput)
+mal_result mal_resampler_get_cached_time__linear(mal_resampler* pResampler, double* pInputTime, double* pOutputTime)
 {
     mal_assert(pResampler != NULL);
-    mal_assert(pInputPCMFrameCount != NULL);
-    mal_assert(pExcessInput != NULL);
-    mal_assert(pOutputPCMFrameCount != NULL);
-    mal_assert(pLeftoverInput != NULL);
+    mal_assert(pInputTime != NULL);
+    mal_assert(pOutputTime != NULL);
 
     /* TODO: Implement me. */
     return MAL_ERROR;
 }
 
-mal_uint64 mal_resampler_get_required_input_frame_count__linear(mal_resampler* pResampler, mal_uint64 outputFrameCount, double* pExcessInput)
+mal_uint64 mal_resampler_get_required_input_frame_count__linear(mal_resampler* pResampler, mal_uint64 outputFrameCount)
 {
     mal_assert(pResampler != NULL);
     mal_assert(outputFrameCount > 0);
-    mal_assert(pExcessInput != NULL);
 
     /* TODO: Implement me. */
     (void)pResampler;
-    *pExcessInput = 0;
     return 0;
 }
 
-mal_uint64 mal_resampler_get_expected_output_frame_count__linear(mal_resampler* pResampler, mal_uint64 inputFrameCount, double* pLeftoverInput)
+mal_uint64 mal_resampler_get_expected_output_frame_count__linear(mal_resampler* pResampler, mal_uint64 inputFrameCount)
 {
     mal_assert(pResampler != NULL);
     mal_assert(inputFrameCount > 0);
-    mal_assert(pLeftoverInput != NULL);
 
     /* TODO: Implement me. */
     (void)pResampler;
-    *pLeftoverInput = 0;
     return 0;
 }
 
@@ -704,39 +648,33 @@ mal_uint64 mal_resampler_seek__sinc(mal_resampler* pResampler, mal_uint64 frameC
     return 0;
 }
 
-mal_result mal_resampler_get_cached_frame_counts__sinc(mal_resampler* pResampler, mal_uint64* pInputPCMFrameCount, double* pExcessInput, mal_uint64* pOutputPCMFrameCount, double* pLeftoverInput)
+mal_result mal_resampler_get_cached_time__sinc(mal_resampler* pResampler, double* pInputTime, double* pOutputTime)
 {
     mal_assert(pResampler != NULL);
-    mal_assert(pInputPCMFrameCount != NULL);
-    mal_assert(pExcessInput != NULL);
-    mal_assert(pOutputPCMFrameCount != NULL);
-    mal_assert(pLeftoverInput != NULL);
+    mal_assert(pInputTime != NULL);
+    mal_assert(pOutputTime != NULL);
 
     /* TODO: Implement me. */
     return MAL_ERROR;
 }
 
-mal_uint64 mal_resampler_get_required_input_frame_count__sinc(mal_resampler* pResampler, mal_uint64 outputFrameCount, double* pExcessInput)
+mal_uint64 mal_resampler_get_required_input_frame_count__sinc(mal_resampler* pResampler, mal_uint64 outputFrameCount)
 {
     mal_assert(pResampler != NULL);
     mal_assert(outputFrameCount > 0);
-    mal_assert(pExcessInput != NULL);
 
     /* TODO: Implement me. */
     (void)pResampler;
-    *pExcessInput = 0;
     return 0;
 }
 
-mal_uint64 mal_resampler_get_expected_output_frame_count__sinc(mal_resampler* pResampler, mal_uint64 inputFrameCount, double* pLeftoverInput)
+mal_uint64 mal_resampler_get_expected_output_frame_count__sinc(mal_resampler* pResampler, mal_uint64 inputFrameCount)
 {
     mal_assert(pResampler != NULL);
     mal_assert(inputFrameCount > 0);
-    mal_assert(pLeftoverInput != NULL);
 
     /* TODO: Implement me. */
     (void)pResampler;
-    *pLeftoverInput = 0;
     return 0;
 }
 
