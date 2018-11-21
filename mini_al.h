@@ -2821,6 +2821,10 @@ mal_uint64 mal_sine_wave_read_ex(mal_sine_wave* pSineWave, mal_uint64 frameCount
     #endif
 #endif
 
+#if defined(_MSC_VER)
+    #pragma warning(push)
+    #pragma warning(disable:4752)   // found Intel(R) Advanced Vector Extensions; consider using /arch:AVX
+#endif
 
 #if defined(MAL_X64) || defined(MAL_X86)
     #if defined(_MSC_VER) && !defined(__clang__)
@@ -28524,6 +28528,9 @@ mal_uint64 mal_sine_wave_read_ex(mal_sine_wave* pSineWave, mal_uint64 frameCount
     return frameCount;
 }
 
+#if defined(_MSC_VER)
+    #pragma warning(pop)
+#endif
 
 #endif  // MINI_AL_IMPLEMENTATION
 
