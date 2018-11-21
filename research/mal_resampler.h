@@ -42,8 +42,8 @@ Random Notes:
 #ifndef mal_resampler_h
 #define mal_resampler_h
 
-#define MAL_RESAMPLER_SEEK_SILENT_INPUT (1 << 0)    /* When set, does not read anything from the client when seeking. This does _not_ call onRead(). */
-#define MAL_RESAMPLER_SEEK_INPUT_RATE   (1 << 1)    /* When set, treats the specified frame count based on the input sample rate rather than the output sample rate. */
+#define MAL_RESAMPLER_SEEK_NO_CLIENT_READ   (1 << 0)    /* When set, does not read anything from the client when seeking. This does _not_ call onRead(). */
+#define MAL_RESAMPLER_SEEK_INPUT_RATE       (1 << 1)    /* When set, treats the specified frame count based on the input sample rate rather than the output sample rate. */
 
 typedef struct mal_resampler mal_resampler;
 
@@ -124,7 +124,7 @@ mal_uint64 mal_resampler_read(mal_resampler* pResampler, mal_uint64 frameCount, 
 Seeks forward by the specified number of PCM frames.
 
 "options" can be a cobination of the following:
-    MAL_RESAMPLER_SEEK_SILENT_INPUT
+    MAL_RESAMPLER_SEEK_NO_CLIENT_READ
         Reads in silence instead of reading in data from the onRead callback.
     MAL_RESAMPLER_SEEK_INPUT_RATE
         Treats "frameCount" as input samples instead of output samples.
@@ -496,7 +496,7 @@ mal_uint64 mal_resampler_seek__passthrough(mal_resampler* pResampler, mal_uint64
     mal_assert(pResampler->config.onRead != NULL);
     mal_assert(frameCount > 0);
 
-    if ((options & MAL_RESAMPLER_SEEK_SILENT_INPUT) != 0) {
+    if ((options & MAL_RESAMPLER_SEEK_NO_CLIENT_READ) != 0) {
         return frameCount;  /* No input from onRead(), so just return immediately. */
     }
 
