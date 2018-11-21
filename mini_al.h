@@ -11098,8 +11098,22 @@ mal_result mal_context_init__alsa(mal_context* pContext)
     mal_assert(pContext != NULL);
 
 #ifndef MAL_NO_RUNTIME_LINKING
-    pContext->alsa.asoundSO = mal_dlopen("libasound.so");
+    const char* libasoundNames[] = {
+        "libasound.so.2",
+        "libasound.so"
+    };
+
+    for (size_t i = 0; i < mal_countof(libasoundNames); ++i) {
+        pContext->alsa.asoundSO = mal_dlopen(libasoundNames[i]);
+        if (pContext->alsa.asoundSO != NULL) {
+            break;
+        }
+    }
+
     if (pContext->alsa.asoundSO == NULL) {
+#ifdef MAL_DEBUG_OUTPUT
+        printf("[ALSA] Failed to open shared object.\n");
+#endif
         return MAL_NO_BACKEND;
     }
 
