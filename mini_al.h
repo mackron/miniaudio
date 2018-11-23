@@ -19855,7 +19855,11 @@ void mal_audio_callback__sdl(void* pUserData, mal_uint8* pBuffer, int bufferSize
     mal_device* pDevice = (mal_device*)pUserData;
     mal_assert(pDevice != NULL);
 
-    mal_uint32 bufferSizeInFrames = (mal_uint32)bufferSizeInBytes / mal_get_bytes_per_sample(pDevice->internalFormat) / pDevice->internalChannels;
+    mal_uint32 bufferSizeInFrames = (mal_uint32)bufferSizeInBytes / mal_get_bytes_per_frame(pDevice->internalFormat, pDevice->internalChannels);
+
+#ifdef MAL_DEBUG_OUTPUT
+        printf("[SDL] Callback: bufferSizeInBytes=%d, bufferSizeInFrames=%d\n", bufferSizeInBytes, bufferSizeInFrames);
+#endif
 
     if (pDevice->type == mal_device_type_playback) {
         mal_device__read_frames_from_client(pDevice, bufferSizeInFrames, pBuffer);
@@ -19948,7 +19952,7 @@ mal_result mal_device_init__sdl(mal_context* pContext, mal_device_type type, con
 
 #ifdef MAL_DEBUG_OUTPUT
     printf("=== SDL CONFIG ===\n");
-    printf("REQUESTED -> RECEIVED\n");
+    printf("    SDL VERSION:            %s\n", pDevice->pContext->sdl.usingSDL1 ? "1" : "2");
     printf("    FORMAT:                 %s -> %s\n", mal_get_format_name(pConfig->format), mal_get_format_name(pDevice->internalFormat));
     printf("    CHANNELS:               %d -> %d\n", desiredSpec.channels, obtainedSpec.channels);
     printf("    SAMPLE RATE:            %d -> %d\n", desiredSpec.freq, obtainedSpec.freq);
