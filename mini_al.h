@@ -15060,7 +15060,7 @@ OSStatus mal_on_input__coreaudio(void* pUserData, AudioUnitRenderActionFlags* pA
                 }
                 
             #if defined(MAL_DEBUG_OUTPUT)
-                printf("  WARNING: Outputting silence. frameCount=%d, mNumberChannels=%d, mDataByteSize=%d\n", frameCount, pRenderBufferList->mBuffers[iBuffer].mNumberChannels, pRenderBufferList->mBuffers[iBuffer].mDataByteSize);
+                printf("  WARNING: Outputting silence. frameCount=%d, mNumberChannels=%d, mDataByteSize=%d\n", frameCount, pRenderedBufferList->mBuffers[iBuffer].mNumberChannels, pRenderedBufferList->mBuffers[iBuffer].mDataByteSize);
             #endif
             }
         }
