@@ -38,6 +38,7 @@ Other Notes:
 
 Random Notes:
 - You cannot change the algorithm after initialization.
+- It is recommended to keep the mal_resampler object aligned to MAL_SIMD_ALIGNMENT, though it is not necessary.
 */
 #ifndef mal_resampler_h
 #define mal_resampler_h
@@ -45,12 +46,15 @@ Random Notes:
 #define MAL_RESAMPLER_SEEK_NO_CLIENT_READ   (1 << 0)    /* When set, does not read anything from the client when seeking. This does _not_ call onRead(). */
 #define MAL_RESAMPLER_SEEK_INPUT_RATE       (1 << 1)    /* When set, treats the specified frame count based on the input sample rate rather than the output sample rate. */
 
+#define MAL_RESAMPLER_CACHE_SIZE_IN_BYTES   4096
+
 typedef struct mal_resampler mal_resampler;
 
 /* Client callbacks. */
 typedef mal_uint32 (* mal_resampler_read_from_client_proc)               (mal_resampler* pResampler, mal_uint32 frameCount, void** ppFrames);
 
 /* Backend functions. */
+typedef mal_result (* mal_resampler_init_proc)                           (mal_resampler* pResampler);
 typedef mal_uint64 (* mal_resampler_read_proc)                           (mal_resampler* pResampler, mal_uint64 frameCount, void** ppFrames);
 typedef mal_uint64 (* mal_resampler_seek_proc)                           (mal_resampler* pResampler, mal_uint64 frameCount, mal_uint32 options);
 typedef mal_result (* mal_resampler_get_cached_time_proc)                (mal_resampler* pResampler, double* pInputTime, double* pOutputTime);
@@ -85,7 +89,17 @@ typedef struct
 
 struct mal_resampler
 {
+    union
+    {
+        float     f32[MAL_RESAMPLER_CACHE_SIZE_IN_BYTES/sizeof(float)];
+        mal_int16 s16[MAL_RESAMPLER_CACHE_SIZE_IN_BYTES/sizeof(mal_int16)];
+    } cache;   /* Do not use directly. Keep this as the first member of this structure for SIMD alignment purposes. */
+    mal_uint16 firstCachedFrame;
+    mal_uint16 cacheLengthInFrames; /* The number of valid frames sitting in the cache. May be less than the cache's capacity. */
+    mal_uint16 windowLength;
+    double windowTime;  /* By input rate. Relative to the start of the cache. */
     mal_resampler_config config;
+    mal_resampler_init_proc init;
     mal_resampler_read_proc read;
     mal_resampler_seek_proc seek;
     mal_resampler_get_cached_time_proc getCachedTime;
@@ -202,6 +216,7 @@ mal_result mal_resampler_get_cached_time__linear(mal_resampler* pResampler, doub
 mal_uint64 mal_resampler_get_required_input_frame_count__linear(mal_resampler* pResampler, mal_uint64 outputFrameCount);
 mal_uint64 mal_resampler_get_expected_output_frame_count__linear(mal_resampler* pResampler, mal_uint64 inputFrameCount);
 
+mal_result mal_resampler_init__sinc(mal_resampler* pResampler);
 mal_uint64 mal_resampler_read__sinc(mal_resampler* pResampler, mal_uint64 frameCount, void** ppFrames);
 mal_uint64 mal_resampler_seek__sinc(mal_resampler* pResampler, mal_uint64 frameCount, mal_uint32 options);
 mal_result mal_resampler_get_cached_time__sinc(mal_resampler* pResampler, double* pInputTime, double* pOutputTime);
@@ -263,6 +278,7 @@ mal_result mal_resampler_init(const mal_resampler_config* pConfig, mal_resampler
     switch (pResampler->config.algorithm) {
         case mal_resample_algorithm_passthrough:
         {
+            pResampler->init                        = NULL;
             pResampler->read                        = mal_resampler_read__passthrough;
             pResampler->seek                        = mal_resampler_seek__passthrough;
             pResampler->getCachedTime               = mal_resampler_get_cached_time__passthrough;
@@ -272,6 +288,7 @@ mal_result mal_resampler_init(const mal_resampler_config* pConfig, mal_resampler
 
         case mal_resample_algorithm_linear:
         {
+            pResampler->init                        = NULL;
             pResampler->read                        = mal_resampler_read__linear;
             pResampler->seek                        = mal_resampler_seek__linear;
             pResampler->getCachedTime               = mal_resampler_get_cached_time__linear;
@@ -281,12 +298,20 @@ mal_result mal_resampler_init(const mal_resampler_config* pConfig, mal_resampler
 
         case mal_resample_algorithm_sinc:
         {
+            pResampler->init                        = mal_resampler_init__sinc;
             pResampler->read                        = mal_resampler_read__sinc;
             pResampler->seek                        = mal_resampler_seek__sinc;
             pResampler->getCachedTime               = mal_resampler_get_cached_time__sinc;
             pResampler->getRequiredInputFrameCount  = mal_resampler_get_required_input_frame_count__sinc;
             pResampler->getExpectedOutputFrameCount = mal_resampler_get_expected_output_frame_count__sinc;
         } break;
+    }
+
+    if (pResampler->init != NULL) {
+        mal_result result = pResampler->init(pResampler);
+        if (result != MAL_SUCCESS) {
+            return result;
+        }
     }
 
     return MAL_SUCCESS;
@@ -621,6 +646,14 @@ mal_uint64 mal_resampler_get_expected_output_frame_count__linear(mal_resampler* 
 /*
 Sinc
 */
+mal_result mal_resampler_init__sinc(mal_resampler* pResampler)
+{
+    mal_assert(pResampler != NULL);
+
+    /* TODO: Implement me. Need to initialize the sinc table. */
+    return MAL_SUCCESS;
+}
+
 mal_uint64 mal_resampler_read__sinc(mal_resampler* pResampler, mal_uint64 frameCount, void** ppFrames)
 {
     mal_assert(pResampler != NULL);
