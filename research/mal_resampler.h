@@ -492,7 +492,7 @@ mal_uint64 mal_resampler_read__passthrough(mal_resampler* pResampler, mal_uint64
                 framesToReadNow = frameCount;
             }
 
-            mal_uint32 framesJustRead = pResampler->config.onRead(pResampler, (mal_uint32)framesToReadNow, ppRunningFrames);
+            mal_uint32 framesJustRead = pResampler->config.onRead(pResampler, (mal_uint32)framesToReadNow, (void**)ppRunningFrames);
             if (framesJustRead == 0) {
                 break;
             }
@@ -535,7 +535,7 @@ mal_uint64 mal_resampler_seek__passthrough(mal_resampler* pResampler, mal_uint64
             framesToRead = frameCount;
         }
 
-        mal_uint64 framesRead = pResampler->config.onRead(pResampler, (mal_uint32)framesToRead, trash);
+        mal_uint64 framesRead = pResampler->config.onRead(pResampler, (mal_uint32)framesToRead, (void**)trash);
         totalFramesRead += framesRead;
         frameCount -= framesRead;
 
