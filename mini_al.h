@@ -15530,6 +15530,12 @@ mal_result mal_device_init_internal__coreaudio(mal_context* pContext, mal_device
     // Grab the name.
 #if defined(MAL_APPLE_DESKTOP)
     mal_get_AudioObject_name(pContext, deviceObjectID, sizeof(pData->deviceName), pData->deviceName);
+#else
+    if (deviceType == mal_device_type_playback) {
+        mal_strcpy_s(pData->deviceName, sizeof(pData->deviceName), MAL_DEFAULT_PLAYBACK_DEVICE_NAME);
+    } else {
+        mal_strcpy_s(pData->deviceName, sizeof(pData->deviceName), MAL_DEFAULT_CAPTURE_DEVICE_NAME);
+    }
 #endif
     
     return result;
