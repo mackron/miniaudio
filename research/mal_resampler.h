@@ -5,7 +5,6 @@ This is research into a new resampler for mini_al. Not yet complete.
 
 Requirements:
 - Selection of different algorithms. The following at a minimum:
-  - Passthrough
   - Linear with optional filtering
   - Sinc
 - Floating point pipeline for f32 and fixed point integer pipeline for s16
@@ -60,9 +59,8 @@ typedef mal_uint64 (* mal_resampler_seek_proc)(mal_resampler* pResampler, mal_ui
 
 typedef enum
 {
-    mal_resampler_algorithm_sinc = 0,    /* Default. */
-    mal_resampler_algorithm_linear,      /* Fastest. */
-    mal_resampler_algorithm_passthrough  /* No resampling. */
+    mal_resampler_algorithm_sinc = 0,   /* Default. */
+    mal_resampler_algorithm_linear,     /* Fastest. */
 } mal_resampler_algorithm;
 
 typedef enum
@@ -200,9 +198,6 @@ mal_uint64 mal_resampler_get_expected_output_frame_count(mal_resampler* pResampl
 #endif
 
 #ifdef MINI_AL_IMPLEMENTATION
-mal_uint64 mal_resampler_read__passthrough(mal_resampler* pResampler, mal_uint64 frameCount, void** ppFrames);
-mal_uint64 mal_resampler_seek__passthrough(mal_resampler* pResampler, mal_uint64 frameCount, mal_uint32 options);
-
 mal_uint64 mal_resampler_read__linear(mal_resampler* pResampler, mal_uint64 frameCount, void** ppFrames);
 mal_uint64 mal_resampler_seek__linear(mal_resampler* pResampler, mal_uint64 frameCount, mal_uint32 options);
 
@@ -263,13 +258,6 @@ mal_result mal_resampler_init(const mal_resampler_config* pConfig, mal_resampler
     }
 
     switch (pResampler->config.algorithm) {
-        case mal_resampler_algorithm_passthrough:
-        {
-            pResampler->init = NULL;
-            pResampler->read = mal_resampler_read__passthrough;
-            pResampler->seek = mal_resampler_seek__passthrough;
-        } break;
-
         case mal_resampler_algorithm_linear:
         {
             pResampler->init = NULL;
@@ -347,12 +335,6 @@ mal_uint64 mal_resampler_read(mal_resampler* pResampler, mal_uint64 frameCount, 
         return mal_resampler_seek(pResampler, frameCount, 0);
     }
 
-    /* Special case for passthrough. That has a specialized function for reading for efficiency. */
-    if (pResampler->config.algorithm == mal_resampler_algorithm_passthrough) {
-        return pResampler->read(pResampler, frameCount, ppFrames);
-    }
-
-
 
     return pResampler->read(pResampler, frameCount, ppFrames);
 }
@@ -366,12 +348,6 @@ mal_uint64 mal_resampler_seek(mal_resampler* pResampler, mal_uint64 frameCount, 
     if (frameCount == 0) {
         return 0;   /* Nothing to do, so return early. */
     }
-
-    /* Special case for passthrough. That has a specialized function for reading for efficiency. */
-    if (pResampler->config.algorithm == mal_resampler_algorithm_passthrough) {
-        return pResampler->seek(pResampler, frameCount, options);
-    }
-
 
 
     return pResampler->seek(pResampler, frameCount, options);
@@ -411,11 +387,6 @@ double mal_resampler_get_cached_input_time(mal_resampler* pResampler)
         return 0;   /* Invalid args. */
     }
 
-    /* Special case for passthrough. Nothing is ever cached. */
-    if (pResampler->config.algorithm == mal_resampler_algorithm_passthrough) {
-        return 0;
-    }
-
     return mal_resampler__calculate_cached_input_time(pResampler);
 }
 
@@ -430,11 +401,6 @@ double mal_resampler_get_cached_output_time(mal_resampler* pResampler)
         return 0;   /* Invalid args. */
     }
 
-    /* Special case for passthrough. Nothing is ever cached. */
-    if (pResampler->config.algorithm == mal_resampler_algorithm_passthrough) {
-        return 0;
-    }
-
     return mal_resampler__calculate_cached_output_time(pResampler);
 }
 
@@ -447,11 +413,6 @@ mal_uint64 mal_resampler_get_required_input_frame_count(mal_resampler* pResample
 
     if (outputFrameCount == 0) {
         return 0;
-    }
-
-    /* Special case for passthrough. */
-    if (pResampler->config.algorithm == mal_resampler_algorithm_passthrough) {
-        return outputFrameCount;
     }
 
     /* First grab the amount of output time sitting in the cache. */
@@ -488,105 +449,8 @@ mal_uint64 mal_resampler_get_expected_output_frame_count(mal_resampler* pResampl
         return 0;
     }
 
-    /* Special case for passthrough. */
-    if (pResampler->config.algorithm == mal_resampler_algorithm_passthrough) {
-        return inputFrameCount;
-    }
-
     /* What we're actually calculating here is how many whole output frames will be calculated after consuming inputFrameCount + mal_resampler_get_cached_input_time(). */
     return (mal_uint64)floor((mal_resampler__calculate_cached_input_time(pResampler) + inputFrameCount) / pResampler->config.ratio);
-}
-
-
-/*
-Passthrough
-*/
-mal_uint64 mal_resampler_read__passthrough(mal_resampler* pResampler, mal_uint64 frameCount, void** ppFrames)
-{
-    mal_assert(pResampler != NULL);
-    mal_assert(pResampler->config.onRead != NULL);
-    mal_assert(frameCount > 0);
-    mal_assert(ppFrames != NULL);
-
-    /*
-    It's tempting to to just call pResampler->config.onRead() and pass in ppFrames directly, however this violates
-    our requirement that all buffers passed into onRead() are aligned to MAL_SIMD_ALIGNMENT. If any of the ppFrames
-    buffers are misaligned we need to read into a temporary buffer.
-    */
-    mal_bool32 isOutputBufferAligned = MAL_TRUE;
-    for (mal_uint32 iChannel = 0; iChannel < pResampler->config.channels; ++iChannel) {
-        if (((mal_uintptr)ppFrames[iChannel] & (MAL_SIMD_ALIGNMENT-1)) != 0) {
-            isOutputBufferAligned = MAL_FALSE;
-            break;
-        }
-    }
-
-    if (frameCount <= 0xFFFFFFFF && isOutputBufferAligned) {
-        return pResampler->config.onRead(pResampler, (mal_uint32)frameCount, ppFrames); /* Fast path. */
-    } else {
-        MAL_DECLARE_ALIGNED_STACK_BUFFER(float, ppRunningFrames, 4096, pResampler->config.channels);
-
-        mal_uint64 totalFramesRead = 0;
-        while (frameCount > 0) {
-            mal_uint64 framesToReadNow = (pResampler->config.format == mal_format_f32) ? ppRunningFramesFrameCount : ppRunningFramesFrameCount*2;   /* x2 for the s16 frame count because ppRunningFramesFrameCount is based on f32. */
-            if (framesToReadNow > frameCount) {
-                framesToReadNow = frameCount;
-            }
-
-            mal_uint32 framesJustRead = pResampler->config.onRead(pResampler, (mal_uint32)framesToReadNow, (void**)ppRunningFrames);
-            if (framesJustRead == 0) {
-                break;
-            }
-
-            totalFramesRead += framesJustRead;
-            frameCount -= framesJustRead;
-
-            mal_uint32 bytesJustRead = framesJustRead * mal_get_bytes_per_sample(pResampler->config.format);
-            for (mal_uint32 iChannel = 0; iChannel < pResampler->config.channels; ++iChannel) {
-                mal_copy_memory(ppFrames[iChannel], ppRunningFrames[iChannel], bytesJustRead);
-                ppFrames[iChannel] = mal_offset_ptr(ppFrames[iChannel], bytesJustRead);
-            }
-            
-            if (framesJustRead < framesToReadNow) {
-                break;
-            }
-        }
-
-        return totalFramesRead;
-    }
-}
-
-mal_uint64 mal_resampler_seek__passthrough(mal_resampler* pResampler, mal_uint64 frameCount, mal_uint32 options)
-{
-    mal_assert(pResampler != NULL);
-    mal_assert(pResampler->config.onRead != NULL);
-    mal_assert(frameCount > 0);
-
-    if ((options & MAL_RESAMPLER_SEEK_NO_CLIENT_READ) != 0) {
-        return frameCount;  /* No input from onRead(), so just return immediately. */
-    }
-
-    /* Getting here means we need to read from onRead(). In this case we just read into a trash buffer. */
-    MAL_DECLARE_ALIGNED_STACK_BUFFER(float, trash, 4096, pResampler->config.channels);
-
-    mal_uint64 totalFramesRead = 0;
-    while (frameCount > 0) {
-        mal_uint64 framesToRead = trashFrameCount;
-        if (framesToRead > frameCount) {
-            framesToRead = frameCount;
-        }
-
-        mal_uint64 framesRead = pResampler->config.onRead(pResampler, (mal_uint32)framesToRead, (void**)trash);
-        totalFramesRead += framesRead;
-        frameCount -= framesRead;
-
-        /* Don't get stuck in a loop if the client returns no samples. */
-        if (framesRead < framesToRead) {
-            break;
-        }
-    }
-
-    return totalFramesRead;
 }
 
 
