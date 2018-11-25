@@ -38,6 +38,8 @@ Other Notes:
 Random Notes:
 - You cannot change the algorithm after initialization.
 - It is recommended to keep the mal_resampler object aligned to MAL_SIMD_ALIGNMENT, though it is not necessary.
+- Ratios need to be in the range of MAL_RESAMPLER_MIN_RATIO and MAL_RESAMPLER_MAX_RATIO. If you need extreme ratios
+  then you will need to chain resamplers together.
 */
 #ifndef mal_resampler_h
 #define mal_resampler_h
@@ -198,6 +200,14 @@ mal_uint64 mal_resampler_get_expected_output_frame_count(mal_resampler* pResampl
 #endif
 
 #ifdef MINI_AL_IMPLEMENTATION
+
+#ifndef MAL_RESAMPLER_MIN_RATIO
+#define MAL_RESAMPLER_MIN_RATIO 0.001
+#endif
+#ifndef MAL_RESAMPLER_MAX_RATIO
+#define MAL_RESAMPLER_MAX_RATIO 100.0
+#endif
+
 mal_uint64 mal_resampler_read__linear(mal_resampler* pResampler, mal_uint64 frameCount, void** ppFrames);
 mal_uint64 mal_resampler_seek__linear(mal_resampler* pResampler, mal_uint64 frameCount, mal_uint32 options);
 
@@ -298,9 +308,14 @@ mal_result mal_resampler_set_rate(mal_resampler* pResampler, mal_uint32 sampleRa
         return MAL_INVALID_ARGS;
     }
 
+    double ratio = (double)pResampler->config.sampleRateIn / (double)pResampler->config.sampleRateOut;
+    if (ratio < MAL_RESAMPLER_MIN_RATIO || ratio > MAL_RESAMPLER_MAX_RATIO) {
+        return MAL_INVALID_ARGS;    /* Ratio is too extreme. */
+    }
+
     pResampler->config.sampleRateIn  = sampleRateIn;
     pResampler->config.sampleRateOut = sampleRateOut;
-    pResampler->config.ratio         = (double)pResampler->config.sampleRateIn / (double)pResampler->config.sampleRateOut;
+    pResampler->config.ratio         = ratio;
 
     return MAL_SUCCESS;
 }
@@ -311,8 +326,8 @@ mal_result mal_resampler_set_rate_ratio(mal_resampler* pResampler, double ratio)
         return MAL_INVALID_ARGS;
     }
 
-    if (ratio == 0) {
-        return MAL_INVALID_ARGS;
+    if (ratio < MAL_RESAMPLER_MIN_RATIO || ratio > MAL_RESAMPLER_MAX_RATIO) {
+        return MAL_INVALID_ARGS;    /* Ratio is too extreme. */
     }
 
     pResampler->config.ratio = ratio;
