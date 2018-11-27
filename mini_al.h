@@ -1,5 +1,5 @@
 // Audio playback and capture library. Public domain. See "unlicense" statement at the end of this file.
-// mini_al - v0.8.11 - 2018-11-21
+// mini_al - v0.8.12 - 2018-11-27
 //
 // David Reid - davidreidsoftware@gmail.com
 
@@ -28414,6 +28414,11 @@ mal_uint64 mal_sine_wave_read_ex(mal_sine_wave* pSineWave, mal_uint64 frameCount
 
 // REVISION HISTORY
 // ================
+//
+// v0.8.12 - 2018-11-27
+//   - Drop support for SDL 1.2. The Emscripten build now requires "-s USE_SDL=2".
+//   - Fix a linking error with ALSA.
+//   - Fix a bug on iOS where the device name is not set correctly.
 //
 // v0.8.11 - 2018-11-21
 //   - iOS bug fixes.
