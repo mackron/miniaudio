@@ -24676,8 +24676,8 @@ float g_malChannelPlaneRatios[MAL_CHANNEL_POSITION_COUNT][6] = {
     { 0.0f,  0.5f,  0.5f,  0.0f,  0.0f,  0.0f},  // MAL_CHANNEL_FRONT_RIGHT
     { 0.0f,  0.0f,  1.0f,  0.0f,  0.0f,  0.0f},  // MAL_CHANNEL_FRONT_CENTER
     { 0.0f,  0.0f,  0.0f,  0.0f,  0.0f,  0.0f},  // MAL_CHANNEL_LFE
-    { 0.5f,  0.0f,  0.0f,  0.0f,  0.5f,  0.0f},  // MAL_CHANNEL_BACK_LEFT
-    { 0.0f,  0.5f,  0.0f,  0.0f,  0.5f,  0.0f},  // MAL_CHANNEL_BACK_RIGHT
+    { 0.5f,  0.0f,  0.0f,  0.5f,  0.0f,  0.0f},  // MAL_CHANNEL_BACK_LEFT
+    { 0.0f,  0.5f,  0.0f,  0.5f,  0.0f,  0.0f},  // MAL_CHANNEL_BACK_RIGHT
     { 0.25f, 0.0f,  0.75f, 0.0f,  0.0f,  0.0f},  // MAL_CHANNEL_FRONT_LEFT_CENTER
     { 0.0f,  0.25f, 0.75f, 0.0f,  0.0f,  0.0f},  // MAL_CHANNEL_FRONT_RIGHT_CENTER
     { 0.0f,  0.0f,  0.0f,  1.0f,  0.0f,  0.0f},  // MAL_CHANNEL_BACK_CENTER
