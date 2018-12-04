@@ -1,5 +1,5 @@
 // Audio playback and capture library. Public domain. See "unlicense" statement at the end of this file.
-// mini_al - v0.8.12 - 2018-11-27
+// mini_al - v0.8.13 - 2018-12-04
 //
 // David Reid - davidreidsoftware@gmail.com
 
@@ -28472,6 +28472,10 @@ mal_uint64 mal_sine_wave_read_ex(mal_sine_wave* pSineWave, mal_uint64 frameCount
 
 // REVISION HISTORY
 // ================
+//
+// v0.8.13 - 2018-12-04
+//   - Core Audio: Fix a bug with channel mapping.
+//   - Fix a bug with channel routing where the back/left and back/right channels have the wrong weight.
 //
 // v0.8.12 - 2018-11-27
 //   - Drop support for SDL 1.2. The Emscripten build now requires "-s USE_SDL=2".
