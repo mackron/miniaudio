@@ -39,6 +39,12 @@
     <ClCompile Include="..\research\tests\mal_resampler_test_0.c">
       <Filter>Source Files</Filter>
     </ClCompile>
+    <ClCompile Include="..\examples\simple_playback.c">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="..\debugging\source\mal_router_1.c">
+      <Filter>Source Files</Filter>
+    </ClCompile>
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="..\mini_al.h">
