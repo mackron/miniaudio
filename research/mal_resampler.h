@@ -591,7 +591,7 @@ mal_uint64 mal_resampler_get_cached_output_frame_count(mal_resampler* pResampler
     return (mal_uint64)floor(mal_resampler_get_cached_output_time(pResampler));
 }
 
-double mal_resampler__calculate_cached_input_time(mal_resampler* pResampler)
+static MAL_INLINE double mal_resampler__calculate_cached_input_time(mal_resampler* pResampler)
 {
     /*
     The cached input time depends on whether or not the end of the input is being consumed. If so, it's the difference between the
@@ -617,7 +617,7 @@ double mal_resampler_get_cached_input_time(mal_resampler* pResampler)
     return mal_resampler__calculate_cached_input_time(pResampler);
 }
 
-double mal_resampler__calculate_cached_output_time(mal_resampler* pResampler)
+static MAL_INLINE double mal_resampler__calculate_cached_output_time(mal_resampler* pResampler)
 {
     return mal_resampler__calculate_cached_input_time(pResampler) / pResampler->config.ratio;
 }
