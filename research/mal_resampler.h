@@ -83,6 +83,7 @@ typedef struct
     double ratio;    /* ratio = in/out */
     mal_resampler_algorithm algorithm;
     mal_resampler_end_of_input_mode endOfInputMode;
+    mal_stream_layout layout;   /* Interleaved or deinterleaved. */
     mal_resampler_read_from_client_proc onRead;
     void* pUserData;
 } mal_resampler_config;
@@ -394,10 +395,17 @@ typedef union
     mal_int16* s16[MAL_MAX_CHANNELS];
 } mal_resampler_deinterleaved_pointers;
 
+typedef union
+{
+    float* f32;
+    mal_int16* s16;
+} mal_resampler_interleaved_pointers;
+
 mal_uint64 mal_resampler_read(mal_resampler* pResampler, mal_uint64 frameCount, void** ppFrames)
 {
     mal_uint64 totalFramesRead;
-    mal_resampler_deinterleaved_pointers runningFramesOut;
+    mal_resampler_deinterleaved_pointers runningFramesOutDeinterleaved;
+    mal_resampler_interleaved_pointers runningFramesOutInterleaved;
     mal_bool32 atEnd = MAL_FALSE;
 
     if (pResampler == NULL) {
@@ -422,9 +430,15 @@ mal_uint64 mal_resampler_read(mal_resampler* pResampler, mal_uint64 frameCount, 
 
 
     /* Initialization of the running frame pointers. */
-    for (mal_uint32 iChannel = 0; iChannel < pResampler->config.channels; ++iChannel) {
-        runningFramesOut.f32[iChannel] = (float*)ppFrames[iChannel];
+    if (pResampler->config.layout == mal_stream_layout_deinterleaved) {
+        for (mal_uint32 iChannel = 0; iChannel < pResampler->config.channels; ++iChannel) {
+            runningFramesOutDeinterleaved.f32[iChannel] = (float*)ppFrames[iChannel];
+        }
+        runningFramesOutInterleaved.f32 = NULL; /* Silences a warning. */
+    } else {
+        runningFramesOutInterleaved.f32 = (float*)ppFrames[0];
     }
+    
 
     /*
     The backend read callbacks are only called for ranges that can be read entirely from cache. This simplifies each backend
@@ -456,24 +470,61 @@ mal_uint64 mal_resampler_read(mal_resampler* pResampler, mal_uint64 frameCount, 
                 mal_uint16 iFirstSample = (mal_uint16)pResampler->windowTime + mal_resampler_window_length_left(pResampler);
                 if (pResampler->config.format == mal_format_f32) {
                     for (mal_uint16 iChannel = 0; iChannel < pResampler->config.channels; ++iChannel) {
-                        for (mal_uint16 iFrame = 0; iFrame < framesToReadRightNow; ++iFrame) {
-                            runningFramesOut.f32[iChannel][iFrame] = pResampler->cache.f32[pResampler->cacheStrideInFrames*iChannel + iFirstSample + iFrame];
+                        if (pResampler->config.layout == mal_stream_layout_deinterleaved) {
+                            for (mal_uint16 iFrame = 0; iFrame < framesToReadRightNow; ++iFrame) {
+                                runningFramesOutDeinterleaved.f32[iChannel][iFrame] = pResampler->cache.f32[pResampler->cacheStrideInFrames*iChannel + iFirstSample + iFrame];
+                            }
+                        } else {
+                            for (mal_uint16 iFrame = 0; iFrame < framesToReadRightNow; ++iFrame) {
+                                runningFramesOutInterleaved.f32[iFrame*pResampler->config.channels + iChannel] = pResampler->cache.f32[pResampler->cacheStrideInFrames*iChannel + iFirstSample + iFrame];
+                            }
                         }
                     }
                 } else {
                     for (mal_uint16 iChannel = 0; iChannel < pResampler->config.channels; ++iChannel) {
-                        for (mal_uint16 iFrame = 0; iFrame < framesToReadRightNow; ++iFrame) {
-                            runningFramesOut.s16[iChannel][iFrame] = pResampler->cache.s16[pResampler->cacheStrideInFrames*iChannel + iFirstSample + iFrame];
+                        if (pResampler->config.layout == mal_stream_layout_deinterleaved) {
+                            for (mal_uint16 iFrame = 0; iFrame < framesToReadRightNow; ++iFrame) {
+                                runningFramesOutDeinterleaved.s16[iChannel][iFrame] = pResampler->cache.s16[pResampler->cacheStrideInFrames*iChannel + iFirstSample + iFrame];
+                            }
+                        } else {
+                            for (mal_uint16 iFrame = 0; iFrame < framesToReadRightNow; ++iFrame) {
+                                runningFramesOutInterleaved.s16[iFrame*pResampler->config.channels + iChannel] = pResampler->cache.s16[pResampler->cacheStrideInFrames*iChannel + iFirstSample + iFrame];
+                            }
                         }
                     }
                 }
             } else {
-                /* Need to read from the backend. */
+                /*
+                Need to read from the backend. Input data is always from the cache. Output data is always to a deinterleaved buffer. When the stream layout
+                is set to deinterleaved, we need to read into a temporary buffer and then interleave.
+                */
                 mal_uint64 framesJustRead;
                 if (pResampler->config.format == mal_format_f32) {
-                    framesJustRead = pResampler->readF32(pResampler, framesToReadRightNow, runningFramesOut.f32);
+                    if (pResampler->config.layout == mal_stream_layout_deinterleaved) {
+                        framesJustRead = pResampler->readF32(pResampler, framesToReadRightNow, runningFramesOutDeinterleaved.f32);
+                    } else {
+                        float buffer[mal_countof(pResampler->cache.f32)];
+                        float* ppDeinterleavedFrames[MAL_MAX_CHANNELS];
+                        for (mal_uint32 iChannel = 0; iChannel < pResampler->config.channels; ++iChannel) {
+                            ppDeinterleavedFrames[iChannel] = buffer + (pResampler->cacheStrideInFrames*iChannel);
+                        }
+
+                        framesJustRead = pResampler->readF32(pResampler, framesToReadRightNow, ppDeinterleavedFrames);
+                        mal_interleave_pcm_frames(pResampler->config.format, pResampler->config.channels, framesJustRead, (const void**)ppDeinterleavedFrames, runningFramesOutInterleaved.f32);
+                    }
                 } else {
-                    framesJustRead = pResampler->readS16(pResampler, framesToReadRightNow, runningFramesOut.s16);
+                    if (pResampler->config.layout == mal_stream_layout_interleaved) {
+                        framesJustRead = pResampler->readS16(pResampler, framesToReadRightNow, runningFramesOutDeinterleaved.s16);
+                    } else {
+                        mal_int16 buffer[mal_countof(pResampler->cache.s16)];
+                        mal_int16* ppDeinterleavedFrames[MAL_MAX_CHANNELS];
+                        for (mal_uint32 iChannel = 0; iChannel < pResampler->config.channels; ++iChannel) {
+                            ppDeinterleavedFrames[iChannel] = buffer + (pResampler->cacheStrideInFrames*iChannel);
+                        }
+
+                        framesJustRead = pResampler->readS16(pResampler, framesToReadRightNow, ppDeinterleavedFrames);
+                        mal_interleave_pcm_frames(pResampler->config.format, pResampler->config.channels, framesJustRead, (const void**)ppDeinterleavedFrames, runningFramesOutInterleaved.s16);
+                    }
                 }
             
                 if (framesJustRead != framesToReadRightNow) {
@@ -486,12 +537,20 @@ mal_uint64 mal_resampler_read(mal_resampler* pResampler, mal_uint64 frameCount, 
             pResampler->windowTime += (framesToReadRightNow * pResampler->config.ratio);
 
             if (pResampler->config.format == mal_format_f32) {
-                for (mal_uint32 iChannel = 0; iChannel < pResampler->config.channels; ++iChannel) {
-                    runningFramesOut.f32[iChannel] += framesToReadRightNow;
+                if (pResampler->config.layout == mal_stream_layout_interleaved) {
+                    for (mal_uint32 iChannel = 0; iChannel < pResampler->config.channels; ++iChannel) {
+                        runningFramesOutDeinterleaved.f32[iChannel] += framesToReadRightNow;
+                    }
+                } else {
+                    runningFramesOutInterleaved.f32 += framesToReadRightNow * pResampler->config.channels;
                 }
             } else {
-                for (mal_uint32 iChannel = 0; iChannel < pResampler->config.channels; ++iChannel) {
-                    runningFramesOut.s16[iChannel] += framesToReadRightNow;
+                if (pResampler->config.layout == mal_stream_layout_interleaved) {
+                    for (mal_uint32 iChannel = 0; iChannel < pResampler->config.channels; ++iChannel) {
+                        runningFramesOutDeinterleaved.s16[iChannel] += framesToReadRightNow;
+                    }
+                } else {
+                    runningFramesOutInterleaved.s16 += framesToReadRightNow * pResampler->config.channels;
                 }
             }
 
@@ -546,12 +605,26 @@ mal_uint64 mal_resampler_read(mal_resampler* pResampler, mal_uint64 frameCount, 
                 for (mal_uint32 iChannel = 0; iChannel < pResampler->config.channels; ++iChannel) {
                     clientDst.f32[iChannel] = pResampler->cache.f32 + (pResampler->cacheStrideInFrames*iChannel + pResampler->cacheLengthInFrames);
                 }
-                framesReadFromClient = pResampler->config.onRead(pResampler, framesToReadFromClient, clientDst.f32);
+                
+                if (pResampler->config.layout == mal_stream_layout_deinterleaved) {
+                    framesReadFromClient = pResampler->config.onRead(pResampler, framesToReadFromClient, clientDst.f32);
+                } else {
+                    float pInterleavedFrames[mal_countof(pResampler->cache.f32)];
+                    framesReadFromClient = pResampler->config.onRead(pResampler, framesToReadFromClient, (void**)&pInterleavedFrames);
+                    mal_deinterleave_pcm_frames(pResampler->config.format, pResampler->config.channels, framesReadFromClient, pInterleavedFrames, (void**)clientDst.f32);
+                }
             } else {
                 for (mal_uint32 iChannel = 0; iChannel < pResampler->config.channels; ++iChannel) {
                     clientDst.s16[iChannel] = pResampler->cache.s16 + (pResampler->cacheStrideInFrames*iChannel + pResampler->cacheLengthInFrames);
                 }
-                framesReadFromClient = pResampler->config.onRead(pResampler, framesToReadFromClient, clientDst.s16);
+
+                if (pResampler->config.layout == mal_stream_layout_deinterleaved) {
+                    framesReadFromClient = pResampler->config.onRead(pResampler, framesToReadFromClient, clientDst.s16);
+                } else {
+                    mal_int16 pInterleavedFrames[mal_countof(pResampler->cache.s16)];
+                    framesReadFromClient = pResampler->config.onRead(pResampler, framesToReadFromClient, (void**)&pInterleavedFrames);
+                    mal_deinterleave_pcm_frames(pResampler->config.format, pResampler->config.channels, framesReadFromClient, pInterleavedFrames, (void**)clientDst.s16);
+                }
             }
             
             mal_assert(framesReadFromClient <= framesToReadFromClient);
