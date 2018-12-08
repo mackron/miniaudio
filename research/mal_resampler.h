@@ -47,7 +47,9 @@ Random Notes:
 #define MAL_RESAMPLER_SEEK_NO_CLIENT_READ   (1 << 0)    /* When set, does not read anything from the client when seeking. This does _not_ call onRead(). */
 #define MAL_RESAMPLER_SEEK_INPUT_RATE       (1 << 1)    /* When set, treats the specified frame count based on the input sample rate rather than the output sample rate. */
 
+#ifndef MAL_RESAMPLER_CACHE_SIZE_IN_BYTES
 #define MAL_RESAMPLER_CACHE_SIZE_IN_BYTES   4096
+#endif
 
 typedef struct mal_resampler mal_resampler;
 
@@ -91,7 +93,7 @@ struct mal_resampler
     {
         float     f32[MAL_RESAMPLER_CACHE_SIZE_IN_BYTES/sizeof(float)];
         mal_int16 s16[MAL_RESAMPLER_CACHE_SIZE_IN_BYTES/sizeof(mal_int16)];
-    } cache;   /* Do not use directly. Keep this as the first member of this structure for SIMD alignment purposes. */
+    } cache;   /* Keep this as the first member of this structure for SIMD alignment purposes. */
     mal_uint32 cacheStrideInFrames; /* The number of the samples between channels in the cache. The first sample for channel 0 is cacheStrideInFrames*0. The first sample for channel 1 is cacheStrideInFrames*1, etc. */
     mal_uint16 cacheLengthInFrames; /* The number of valid frames sitting in the cache, including the filter window. May be less than the cache's capacity. */
     mal_uint16 windowLength;
@@ -120,6 +122,8 @@ mal_result mal_resampler_set_rate(mal_resampler* pResampler, mal_uint32 sampleRa
 
 /*
 Dynamically adjusts the sample rate by a ratio.
+
+The ratio is in/out.
 */
 mal_result mal_resampler_set_rate_ratio(mal_resampler* pResampler, double ratio);
 
@@ -163,7 +167,7 @@ When the end of input mode is set to mal_resampler_end_of_input_mode_no_consume,
 window are not included in the calculation.
 
 This can return a negative value if nothing has yet been loaded into the internal cache. This will happen if this is called
-immediately after initialization, before the first read has been performed, and may also happen if only a few samples have
+immediately after initialization, before the first read has been performed. It may also happen if only a few samples have
 been read from the client.
 */
 double mal_resampler_get_cached_input_time(mal_resampler* pResampler);
@@ -175,9 +179,7 @@ of time in output rate making up the cached output.
 When the end of input mode is set to mal_resampler_end_of_input_mode_no_consume, the input frames currently sitting in the
 window are not included in the calculation.
 
-This can return a negative value if nothing has yet been loaded into the internal cache. This will happen if this is called
-immediately after initialization, before the first read has been performed, and may also happen if only a few samples have
-been read from the client.
+This can return a negative value. See mal_resampler_get_cached_input_time() for details.
 */
 double mal_resampler_get_cached_output_time(mal_resampler* pResampler);
 
@@ -394,7 +396,7 @@ typedef union
 
 mal_uint64 mal_resampler_read(mal_resampler* pResampler, mal_uint64 frameCount, void** ppFrames)
 {
-    mal_uint64 framesRead;
+    mal_uint64 totalFramesRead;
     mal_resampler_deinterleaved_pointers runningFramesOut;
     mal_bool32 atEnd = MAL_FALSE;
 
@@ -429,73 +431,75 @@ mal_uint64 mal_resampler_read(mal_resampler* pResampler, mal_uint64 frameCount, 
     because they do not need to worry about cache reloading logic. Instead we do all of the cache reloading stuff from here.
     */
 
-    framesRead = 0;
-    while (framesRead < frameCount) {
+    totalFramesRead = 0;
+    while (totalFramesRead < frameCount) {
         double cachedOutputTime;
-        mal_uint64 framesRemaining = frameCount - framesRead;
+        mal_uint64 framesRemaining = frameCount - totalFramesRead;
         mal_uint64 framesToReadRightNow = framesRemaining;
 
         /* We need to make sure we don't read more than what's already in the buffer at a time. */
         cachedOutputTime = mal_resampler_get_cached_output_time(pResampler);
-        if (framesRemaining > cachedOutputTime) {
-            framesToReadRightNow = (mal_uint64)floor(cachedOutputTime);
-        }
+        if (cachedOutputTime > 0) {
+            if (framesRemaining > cachedOutputTime) {
+                framesToReadRightNow = (mal_uint64)floor(cachedOutputTime);
+            }
 
-        /* 
-        At this point we should know how many frames can be read this iteration. We need an optimization for when the ratio=1
-        and the current time is a whole number. In this case we need to do a direct copy without any processing.
-        */
-        if (pResampler->config.ratio == 1 && mal_fractional_part_f64(pResampler->windowTime) == 0) {
-            /*
-            No need to read from the backend - just copy the input straight over without any processing. We start reading from
-            the right side of the filter window.
+            /* 
+            At this point we should know how many frames can be read this iteration. We need an optimization for when the ratio=1
+            and the current time is a whole number. In this case we need to do a direct copy without any processing.
             */
-            mal_uint16 iFirstSample = (mal_uint16)pResampler->windowTime + mal_resampler_window_length_left(pResampler);
-            if (pResampler->config.format == mal_format_f32) {
-                for (mal_uint16 iChannel = 0; iChannel < pResampler->config.channels; ++iChannel) {
-                    for (mal_uint16 iFrame = 0; iFrame < framesToReadRightNow; ++iFrame) {
-                        runningFramesOut.f32[iChannel][iFrame] = pResampler->cache.f32[pResampler->cacheStrideInFrames*iChannel + iFirstSample + iFrame];
+            if (pResampler->config.ratio == 1 && mal_fractional_part_f64(pResampler->windowTime) == 0) {
+                /*
+                No need to read from the backend - just copy the input straight over without any processing. We start reading from
+                the right side of the filter window.
+                */
+                mal_uint16 iFirstSample = (mal_uint16)pResampler->windowTime + mal_resampler_window_length_left(pResampler);
+                if (pResampler->config.format == mal_format_f32) {
+                    for (mal_uint16 iChannel = 0; iChannel < pResampler->config.channels; ++iChannel) {
+                        for (mal_uint16 iFrame = 0; iFrame < framesToReadRightNow; ++iFrame) {
+                            runningFramesOut.f32[iChannel][iFrame] = pResampler->cache.f32[pResampler->cacheStrideInFrames*iChannel + iFirstSample + iFrame];
+                        }
+                    }
+                } else {
+                    for (mal_uint16 iChannel = 0; iChannel < pResampler->config.channels; ++iChannel) {
+                        for (mal_uint16 iFrame = 0; iFrame < framesToReadRightNow; ++iFrame) {
+                            runningFramesOut.s16[iChannel][iFrame] = pResampler->cache.s16[pResampler->cacheStrideInFrames*iChannel + iFirstSample + iFrame];
+                        }
                     }
                 }
             } else {
-                for (mal_uint16 iChannel = 0; iChannel < pResampler->config.channels; ++iChannel) {
-                    for (mal_uint16 iFrame = 0; iFrame < framesToReadRightNow; ++iFrame) {
-                        runningFramesOut.s16[iChannel][iFrame] = pResampler->cache.s16[pResampler->cacheStrideInFrames*iChannel + iFirstSample + iFrame];
-                    }
+                /* Need to read from the backend. */
+                mal_uint64 framesJustRead;
+                if (pResampler->config.format == mal_format_f32) {
+                    framesJustRead = pResampler->readF32(pResampler, framesToReadRightNow, runningFramesOut.f32);
+                } else {
+                    framesJustRead = pResampler->readS16(pResampler, framesToReadRightNow, runningFramesOut.s16);
                 }
-            }
-        } else {
-            /* Need to read from the backend. */
-            mal_uint64 framesJustRead;
-            if (pResampler->config.format == mal_format_f32) {
-                framesJustRead = pResampler->readF32(pResampler, framesToReadRightNow, runningFramesOut.f32);
-            } else {
-                framesJustRead = pResampler->readS16(pResampler, framesToReadRightNow, runningFramesOut.s16);
-            }
             
-            if (framesJustRead != framesToReadRightNow) {
-                mal_assert(MAL_FALSE);
-                break;  /* Should never hit this. */
+                if (framesJustRead != framesToReadRightNow) {
+                    mal_assert(MAL_FALSE);
+                    break;  /* Should never hit this. */
+                }
             }
-        }
 
-        /* Move time forward. */
-        pResampler->windowTime += (framesToReadRightNow * pResampler->config.ratio);
+            /* Move time forward. */
+            pResampler->windowTime += (framesToReadRightNow * pResampler->config.ratio);
 
-        if (pResampler->config.format == mal_format_f32) {
-            for (mal_uint32 iChannel = 0; iChannel < pResampler->config.channels; ++iChannel) {
-                runningFramesOut.f32[iChannel] += framesToReadRightNow;
+            if (pResampler->config.format == mal_format_f32) {
+                for (mal_uint32 iChannel = 0; iChannel < pResampler->config.channels; ++iChannel) {
+                    runningFramesOut.f32[iChannel] += framesToReadRightNow;
+                }
+            } else {
+                for (mal_uint32 iChannel = 0; iChannel < pResampler->config.channels; ++iChannel) {
+                    runningFramesOut.s16[iChannel] += framesToReadRightNow;
+                }
             }
-        } else {
-            for (mal_uint32 iChannel = 0; iChannel < pResampler->config.channels; ++iChannel) {
-                runningFramesOut.s16[iChannel] += framesToReadRightNow;
-            }
-        }
 
-        /* We don't want to reload the buffer if we've finished reading. */
-        framesRead += framesToReadRightNow;
-        if (framesRead == frameCount) {
-            break;
+            /* We don't want to reload the buffer if we've finished reading. */
+            totalFramesRead += framesToReadRightNow;
+            if (totalFramesRead == frameCount) {
+                break;
+            }
         }
 
         /*
@@ -561,7 +565,7 @@ mal_uint64 mal_resampler_read(mal_resampler* pResampler, mal_uint64 frameCount, 
         }
     }
 
-    return framesRead;
+    return totalFramesRead;
 }
 
 mal_uint64 mal_resampler_seek(mal_resampler* pResampler, mal_uint64 frameCount, mal_uint32 options)
