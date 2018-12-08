@@ -1124,10 +1124,10 @@ void mal_pcm_f32_to_s32(void* pOut, const void* pIn, mal_uint64 count, mal_dithe
 void mal_pcm_convert(void* pOut, mal_format formatOut, const void* pIn, mal_format formatIn, mal_uint64 sampleCount, mal_dither_mode ditherMode);
 
 // Deinterleaves an interleaved buffer.
-void mal_deinterleave_pcm_frames(mal_format format, mal_uint32 channels, mal_uint32 frameCount, const void* pInterleavedPCMFrames, void** ppDeinterleavedPCMFrames);
+void mal_deinterleave_pcm_frames(mal_format format, mal_uint32 channels, mal_uint64 frameCount, const void* pInterleavedPCMFrames, void** ppDeinterleavedPCMFrames);
 
 // Interleaves a group of deinterleaved buffers.
-void mal_interleave_pcm_frames(mal_format format, mal_uint32 channels, mal_uint32 frameCount, const void** ppDeinterleavedPCMFrames, void* pInterleavedPCMFrames);
+void mal_interleave_pcm_frames(mal_format format, mal_uint32 channels, mal_uint64 frameCount, const void** ppDeinterleavedPCMFrames, void* pInterleavedPCMFrames);
 
 
 //////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -26238,7 +26238,7 @@ void mal_pcm_convert(void* pOut, mal_format formatOut, const void* pIn, mal_form
     }
 }
 
-void mal_deinterleave_pcm_frames(mal_format format, mal_uint32 channels, mal_uint32 frameCount, const void* pInterleavedPCMFrames, void** ppDeinterleavedPCMFrames)
+void mal_deinterleave_pcm_frames(mal_format format, mal_uint32 channels, mal_uint64 frameCount, const void* pInterleavedPCMFrames, void** ppDeinterleavedPCMFrames)
 {
     if (pInterleavedPCMFrames == NULL || ppDeinterleavedPCMFrames == NULL) {
         return; // Invalid args.
@@ -26249,7 +26249,7 @@ void mal_deinterleave_pcm_frames(mal_format format, mal_uint32 channels, mal_uin
         case mal_format_s16:
         {
             const mal_int16* pSrcS16 = (const mal_int16*)pInterleavedPCMFrames;
-            for (mal_uint32 iPCMFrame = 0; iPCMFrame < frameCount; ++iPCMFrame) {
+            for (mal_uint64 iPCMFrame = 0; iPCMFrame < frameCount; ++iPCMFrame) {
                 for (mal_uint32 iChannel = 0; iChannel < channels; ++iChannel) {
                     mal_int16* pDstS16 = (mal_int16*)ppDeinterleavedPCMFrames[iChannel];
                     pDstS16[iPCMFrame] = pSrcS16[iPCMFrame*channels+iChannel];
@@ -26260,7 +26260,7 @@ void mal_deinterleave_pcm_frames(mal_format format, mal_uint32 channels, mal_uin
         case mal_format_f32:
         {
             const float* pSrcF32 = (const float*)pInterleavedPCMFrames;
-            for (mal_uint32 iPCMFrame = 0; iPCMFrame < frameCount; ++iPCMFrame) {
+            for (mal_uint64 iPCMFrame = 0; iPCMFrame < frameCount; ++iPCMFrame) {
                 for (mal_uint32 iChannel = 0; iChannel < channels; ++iChannel) {
                     float* pDstF32 = (float*)ppDeinterleavedPCMFrames[iChannel];
                     pDstF32[iPCMFrame] = pSrcF32[iPCMFrame*channels+iChannel];
@@ -26272,7 +26272,7 @@ void mal_deinterleave_pcm_frames(mal_format format, mal_uint32 channels, mal_uin
         {
             mal_uint32 sampleSizeInBytes = mal_get_bytes_per_sample(format);
 
-            for (mal_uint32 iPCMFrame = 0; iPCMFrame < frameCount; ++iPCMFrame) {
+            for (mal_uint64 iPCMFrame = 0; iPCMFrame < frameCount; ++iPCMFrame) {
                 for (mal_uint32 iChannel = 0; iChannel < channels; ++iChannel) {
                           void* pDst = mal_offset_ptr(ppDeinterleavedPCMFrames[iChannel], iPCMFrame*sampleSizeInBytes);
                     const void* pSrc = mal_offset_ptr(pInterleavedPCMFrames, (iPCMFrame*channels+iChannel)*sampleSizeInBytes);
@@ -26283,14 +26283,14 @@ void mal_deinterleave_pcm_frames(mal_format format, mal_uint32 channels, mal_uin
     }
 }
 
-void mal_interleave_pcm_frames(mal_format format, mal_uint32 channels, mal_uint32 frameCount, const void** ppDeinterleavedPCMFrames, void* pInterleavedPCMFrames)
+void mal_interleave_pcm_frames(mal_format format, mal_uint32 channels, mal_uint64 frameCount, const void** ppDeinterleavedPCMFrames, void* pInterleavedPCMFrames)
 {
     switch (format)
     {
         case mal_format_s16:
         {
             mal_int16* pDstS16 = (mal_int16*)pInterleavedPCMFrames;
-            for (mal_uint32 iPCMFrame = 0; iPCMFrame < frameCount; ++iPCMFrame) {
+            for (mal_uint64 iPCMFrame = 0; iPCMFrame < frameCount; ++iPCMFrame) {
                 for (mal_uint32 iChannel = 0; iChannel < channels; ++iChannel) {
                     const mal_int16* pSrcS16 = (const mal_int16*)ppDeinterleavedPCMFrames[iChannel];
                     pDstS16[iPCMFrame*channels+iChannel] = pSrcS16[iPCMFrame];
@@ -26301,7 +26301,7 @@ void mal_interleave_pcm_frames(mal_format format, mal_uint32 channels, mal_uint3
         case mal_format_f32:
         {
             float* pDstF32 = (float*)pInterleavedPCMFrames;
-            for (mal_uint32 iPCMFrame = 0; iPCMFrame < frameCount; ++iPCMFrame) {
+            for (mal_uint64 iPCMFrame = 0; iPCMFrame < frameCount; ++iPCMFrame) {
                 for (mal_uint32 iChannel = 0; iChannel < channels; ++iChannel) {
                     const float* pSrcF32 = (const float*)ppDeinterleavedPCMFrames[iChannel];
                     pDstF32[iPCMFrame*channels+iChannel] = pSrcF32[iPCMFrame];
@@ -26313,7 +26313,7 @@ void mal_interleave_pcm_frames(mal_format format, mal_uint32 channels, mal_uint3
         {
             mal_uint32 sampleSizeInBytes = mal_get_bytes_per_sample(format);
 
-            for (mal_uint32 iPCMFrame = 0; iPCMFrame < frameCount; ++iPCMFrame) {
+            for (mal_uint64 iPCMFrame = 0; iPCMFrame < frameCount; ++iPCMFrame) {
                 for (mal_uint32 iChannel = 0; iChannel < channels; ++iChannel) {
                           void* pDst = mal_offset_ptr(pInterleavedPCMFrames, (iPCMFrame*channels+iChannel)*sampleSizeInBytes);
                     const void* pSrc = mal_offset_ptr(ppDeinterleavedPCMFrames[iChannel], iPCMFrame*sampleSizeInBytes);
