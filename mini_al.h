@@ -2025,6 +2025,7 @@ MAL_ALIGNED_STRUCT(MAL_SIMD_ALIGNMENT) mal_device
             /*AudioComponent*/ mal_ptr component;   // <-- Can this be per-context?
             /*AudioUnit*/ mal_ptr audioUnit;
             /*AudioBufferList**/ mal_ptr pAudioBufferList;  // Only used for input devices.
+            mal_event stopEvent;
             mal_bool32 isSwitchingDevice;   /* <-- Set to true when the default device has changed and mini_al is in the process of switching. */
         } coreaudio;
 #endif
@@ -15145,6 +15146,8 @@ void on_start_stop__coreaudio(void* pUserData, AudioUnit audioUnit, AudioUnitPro
         if (onStop) {
             onStop(pDevice);
         }
+        
+        mal_event_signal(&pDevice->coreaudio.stopEvent);
     } else {
         UInt32 isRunning;
         UInt32 isRunningSize = sizeof(isRunning);
@@ -15702,6 +15705,12 @@ mal_result mal_device_init__coreaudio(mal_context* pContext, mal_device_type dev
     ((mal_AudioObjectAddPropertyListener_proc)pDevice->pContext->coreaudio.AudioObjectAddPropertyListener)(kAudioObjectSystemObject, &propAddress, &mal_default_output_device_changed__coreaudio, pDevice);
 #endif
 
+    /*
+    When stopping the device, a callback is called on another thread. We need to wait for this callback
+    before returning from mal_device_stop(). This event is used for this.
+    */
+    mal_event_init(pContext, &pDevice->coreaudio.stopEvent);
+
     return MAL_SUCCESS;
 }
 
@@ -15727,6 +15736,8 @@ mal_result mal_device__stop_backend__coreaudio(mal_device* pDevice)
         return mal_result_from_OSStatus(status);
     }
     
+    /* We need to wait for the callback to finish before returning. */
+    mal_event_wait(&pDevice->coreaudio.stopEvent);
     return MAL_SUCCESS;
 }
 
@@ -21041,6 +21052,7 @@ mal_result mal_device_stop(mal_device* pDevice)
         // Asynchronous backends need to be handled differently.
         if (mal_context_is_backend_asynchronous(pDevice->pContext)) {
             result = pDevice->pContext->onDeviceStop(pDevice);
+            mal_device__set_state(pDevice, MAL_STATE_STOPPED);
         } else {
             // Synchronous backends.
 
