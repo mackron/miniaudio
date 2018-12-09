@@ -793,11 +793,22 @@ mal_uint64 mal_resampler_read_s16__linear(mal_resampler* pResampler, mal_uint64 
     mal_assert(frameCount > 0);
     mal_assert(ppFrames != NULL);
 
-    /* TODO: Implement me. */
-    (void)pResampler;
-    (void)frameCount;
-    (void)ppFrames;
-    return 0;
+    /* TODO: Implement an s16 optimized implementation. */
+
+    /* I'm cheating here and just using the f32 implementation and converting to s16. This will be changed later - for now just focusing on getting it working. */
+    float bufferF32[mal_countof(pResampler->cache.s16)];
+    float* ppFramesF32[MAL_MAX_CHANNELS];
+    for (mal_uint32 iChannel = 0; iChannel < pResampler->config.channels; ++iChannel) {
+        ppFramesF32[iChannel] = bufferF32 + (pResampler->cacheStrideInFrames*iChannel);
+    }
+
+    mal_uint64 framesRead = mal_resampler_read_f32__linear(pResampler, frameCount, ppFramesF32);
+
+    for (mal_uint32 iChannel = 0; iChannel < pResampler->config.channels; ++iChannel) {
+        mal_pcm_f32_to_s16(ppFrames[iChannel], ppFramesF32[iChannel], frameCount, mal_dither_mode_none);    /* No dithering - keep it fast for linear. */
+    }
+
+    return framesRead;
 }
 
 mal_uint64 mal_resampler_seek__linear(mal_resampler* pResampler, mal_uint64 frameCount, mal_uint32 options)
@@ -846,11 +857,22 @@ mal_uint64 mal_resampler_read_s16__sinc(mal_resampler* pResampler, mal_uint64 fr
     mal_assert(frameCount > 0);
     mal_assert(ppFrames != NULL);
 
-    /* TODO: Implement me. */
-    (void)pResampler;
-    (void)frameCount;
-    (void)ppFrames;
-    return 0;
+    /* TODO: Implement an s16 optimized implementation. */
+
+    /* I'm cheating here and just using the f32 implementation and converting to s16. This will be changed later - for now just focusing on getting it working. */
+    float bufferF32[mal_countof(pResampler->cache.s16)];
+    float* ppFramesF32[MAL_MAX_CHANNELS];
+    for (mal_uint32 iChannel = 0; iChannel < pResampler->config.channels; ++iChannel) {
+        ppFramesF32[iChannel] = bufferF32 + (pResampler->cacheStrideInFrames*iChannel);
+    }
+
+    mal_uint64 framesRead = mal_resampler_read_f32__sinc(pResampler, frameCount, ppFramesF32);
+
+    for (mal_uint32 iChannel = 0; iChannel < pResampler->config.channels; ++iChannel) {
+        mal_pcm_f32_to_s16(ppFrames[iChannel], ppFramesF32[iChannel], frameCount, mal_dither_mode_triangle);
+    }
+
+    return framesRead;
 }
 
 mal_uint64 mal_resampler_seek__sinc(mal_resampler* pResampler, mal_uint64 frameCount, mal_uint32 options)
