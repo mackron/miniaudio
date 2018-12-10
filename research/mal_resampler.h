@@ -268,14 +268,159 @@ This does not work for formats that do not have a clean mapping to a primitive C
 #define mal_filter_window_length_left(length)   ((length) >> 1)
 #define mal_filter_window_length_right(length)  ((length) - mal_filter_window_length_left(length))
 
-static MAL_INLINE mal_uint16 mal_resampler_window_length_left(const mal_resampler* pResampler)
+static MAL_INLINE mal_uint16 mal_resampler__window_length_left(const mal_resampler* pResampler)
 {
     return mal_filter_window_length_left(pResampler->windowLength);
 }
 
-static MAL_INLINE mal_uint16 mal_resampler_window_length_right(const mal_resampler* pResampler)
+static MAL_INLINE mal_uint16 mal_resampler__window_length_right(const mal_resampler* pResampler)
 {
     return mal_filter_window_length_right(pResampler->windowLength);
+}
+
+static MAL_INLINE double mal_resampler__calculate_cached_input_time_by_mode(mal_resampler* pResampler, mal_resampler_end_of_input_mode mode)
+{
+    /*
+    The cached input time depends on whether or not the end of the input is being consumed. If so, it's the difference between the
+    last cached frame and the halfway point of the window, rounded down. Otherwise it's between the last cached frame and the end
+    of the window.
+    */
+    double cachedInputTime = pResampler->cacheLengthInFrames;
+    if (mode == mal_resampler_end_of_input_mode_consume) {
+        cachedInputTime -= (pResampler->windowTime + mal_resampler__window_length_left(pResampler));
+    } else {
+        cachedInputTime -= (pResampler->windowTime + pResampler->windowLength);
+    }
+
+    return cachedInputTime;
+}
+
+static MAL_INLINE double mal_resampler__calculate_cached_input_time(mal_resampler* pResampler)
+{
+    return mal_resampler__calculate_cached_input_time_by_mode(pResampler, pResampler->config.endOfInputMode);
+}
+
+
+static MAL_INLINE mal_result mal_resampler__slide_cache_down(mal_resampler* pResampler)
+{
+    /* This function moves everything from the start of the window to the last loaded frame in the cache down to the front. */
+
+    mal_uint16 framesToConsume;
+    framesToConsume = (mal_uint16)pResampler->windowTime;
+
+    pResampler->windowTime          -= framesToConsume;
+    pResampler->cacheLengthInFrames -= framesToConsume;
+
+    if (pResampler->config.format == mal_format_f32) {
+        for (mal_uint32 iChannel = 0; iChannel < pResampler->config.channels; ++iChannel) {
+            for (mal_uint32 iFrame = 0; iFrame < pResampler->cacheLengthInFrames; ++iFrame) {
+                pResampler->cache.f32[pResampler->cacheStrideInFrames*iChannel + iFrame] = pResampler->cache.f32[pResampler->cacheStrideInFrames*iChannel + iFrame + framesToConsume];
+            }
+        }
+    } else {
+        for (mal_uint32 iChannel = 0; iChannel < pResampler->config.channels; ++iChannel) {
+            for (mal_uint32 iFrame = 0; iFrame < pResampler->cacheLengthInFrames; ++iFrame) {
+                pResampler->cache.s16[pResampler->cacheStrideInFrames*iChannel + iFrame] = pResampler->cache.s16[pResampler->cacheStrideInFrames*iChannel + iFrame + framesToConsume];
+            }
+        }
+    }
+
+    return MAL_SUCCESS;
+}
+
+mal_result mal_resampler__reload_cache(mal_resampler* pResampler, mal_bool32* pLoadedEndOfInput)
+{
+    /* When reloading the buffer there's a specific rule to keep into consideration. When the client */
+
+    mal_result result;
+    mal_uint32 framesToReadFromClient;
+    mal_uint32 framesReadFromClient;
+    mal_bool32 loadedEndOfInput = MAL_FALSE;
+    
+    mal_assert(pLoadedEndOfInput != NULL);
+    mal_assert(pResampler->windowTime <  65536);
+    mal_assert(pResampler->windowTime <= pResampler->cacheLengthInFrames);
+
+    /* Before loading anything from the client we need to move anything left in the cache down the front. */
+    result = mal_resampler__slide_cache_down(pResampler);
+    if (result != MAL_SUCCESS) {
+        return result;  /* Should never actually happen. */
+    }
+
+    /*
+    Here is where we calculate the number of samples to read from the client. We always read in slightly less than the capacity of the
+    cache. The reason is that the little bit is filled with zero-padding when the end of input is reached. The amount of padding is equal
+    to the size of the right side of the filter window.
+    */
+    if (pResampler->config.format == mal_format_f32) {
+        framesToReadFromClient = pResampler->cacheStrideInFrames - mal_resampler__window_length_right(pResampler) - pResampler->cacheLengthInFrames;
+    } else {
+        framesToReadFromClient = pResampler->cacheStrideInFrames - mal_resampler__window_length_right(pResampler) - pResampler->cacheLengthInFrames;
+    }
+
+    /* Here is where we need to read more data from the client. We need to construct some deinterleaved buffers first, though. */
+    mal_resampler_deinterleaved_pointers clientDst;
+    if (pResampler->config.format == mal_format_f32) {
+        for (mal_uint32 iChannel = 0; iChannel < pResampler->config.channels; ++iChannel) {
+            clientDst.f32[iChannel] = pResampler->cache.f32 + (pResampler->cacheStrideInFrames*iChannel + pResampler->cacheLengthInFrames);
+        }
+                
+        if (pResampler->config.layout == mal_stream_layout_deinterleaved) {
+            framesReadFromClient = pResampler->config.onRead(pResampler, framesToReadFromClient, clientDst.f32);
+        } else {
+            float buffer[mal_countof(pResampler->cache.f32)];
+            float* pInterleavedFrames = buffer;
+            framesReadFromClient = pResampler->config.onRead(pResampler, framesToReadFromClient, &pInterleavedFrames);
+            mal_deinterleave_pcm_frames(pResampler->config.format, pResampler->config.channels, framesReadFromClient, pInterleavedFrames, clientDst.f32);
+        }
+    } else {
+        for (mal_uint32 iChannel = 0; iChannel < pResampler->config.channels; ++iChannel) {
+            clientDst.s16[iChannel] = pResampler->cache.s16 + (pResampler->cacheStrideInFrames*iChannel + pResampler->cacheLengthInFrames);
+        }
+
+        if (pResampler->config.layout == mal_stream_layout_deinterleaved) {
+            framesReadFromClient = pResampler->config.onRead(pResampler, framesToReadFromClient, clientDst.s16);
+        } else {
+            mal_int16 buffer[mal_countof(pResampler->cache.s16)];
+            mal_int16* pInterleavedFrames = buffer;
+            framesReadFromClient = pResampler->config.onRead(pResampler, framesToReadFromClient, &pInterleavedFrames);
+            mal_deinterleave_pcm_frames(pResampler->config.format, pResampler->config.channels, framesReadFromClient, pInterleavedFrames, clientDst.s16);
+        }
+    }
+            
+    mal_assert(framesReadFromClient <= framesToReadFromClient);
+    if (framesReadFromClient < framesToReadFromClient) {
+        /* We have reached the end of the input buffer. We do _not_ want to attempt to read any more data from the client in this case. */
+        loadedEndOfInput = MAL_TRUE;
+        *pLoadedEndOfInput = loadedEndOfInput;
+    }
+
+    mal_assert(framesReadFromClient <= 65535);
+    pResampler->cacheLengthInFrames += (mal_uint16)framesReadFromClient;
+
+    /*
+    If we just loaded the end of the input and the resampler is configured to consume it, we need to pad the end of the cache with
+    silence. This system ensures the last input samples are processed by the resampler. The amount of padding is equal to the length
+    of the right side of the filter window.
+    */
+    if (loadedEndOfInput && pResampler->config.endOfInputMode == mal_resampler_end_of_input_mode_consume) {
+        mal_uint32 paddingLengthInFrames = mal_resampler__window_length_right(pResampler);
+        if (paddingLengthInFrames > 0) {
+            if (pResampler->config.format == mal_format_f32) {
+                for (mal_uint32 iChannel = 0; iChannel < pResampler->config.channels; ++iChannel) {
+                    mal_zero_memory(pResampler->cache.f32 + (pResampler->cacheStrideInFrames*iChannel + pResampler->cacheLengthInFrames), paddingLengthInFrames*sizeof(float));
+                }
+            } else {
+                for (mal_uint32 iChannel = 0; iChannel < pResampler->config.channels; ++iChannel) {
+                    mal_zero_memory(pResampler->cache.s16 + (pResampler->cacheStrideInFrames*iChannel + pResampler->cacheLengthInFrames), paddingLengthInFrames*sizeof(mal_int16));
+                }
+            }
+            
+            pResampler->cacheLengthInFrames += paddingLengthInFrames;
+        }
+    }
+
+    return MAL_SUCCESS;
 }
 
 
@@ -342,7 +487,7 @@ mal_result mal_resampler_init(const mal_resampler_config* pConfig, mal_resampler
     After initializing the backend, we'll need to pre-fill the filter with zeroes. This has already been half done via
     the call to mal_zero_object() at the top of this function, but we need to increment the frame counter to complete it.
     */
-    pResampler->cacheLengthInFrames = mal_resampler_window_length_left(pResampler);
+    pResampler->cacheLengthInFrames = mal_resampler__window_length_left(pResampler);
 
     return MAL_SUCCESS;
 }
@@ -394,6 +539,7 @@ typedef union
     float* f32[MAL_MAX_CHANNELS];
     mal_int16* s16[MAL_MAX_CHANNELS];
 } mal_resampler_deinterleaved_pointers;
+
 typedef union
 {
     float* f32;
@@ -402,10 +548,11 @@ typedef union
 
 mal_uint64 mal_resampler_read(mal_resampler* pResampler, mal_uint64 frameCount, void** ppFrames)
 {
+    mal_result result;
     mal_uint64 totalFramesRead;
     mal_resampler_deinterleaved_pointers runningFramesOutDeinterleaved;
     mal_resampler_interleaved_pointers runningFramesOutInterleaved;
-    mal_bool32 atEnd = MAL_FALSE;
+    mal_bool32 loadedEndOfInput = MAL_FALSE;
 
     if (pResampler == NULL) {
         return 0;   /* Invalid arguments. */
@@ -451,7 +598,7 @@ mal_uint64 mal_resampler_read(mal_resampler* pResampler, mal_uint64 frameCount, 
         mal_uint64 framesToReadRightNow = framesRemaining;
 
         /* We need to make sure we don't read more than what's already in the buffer at a time. */
-        cachedOutputTime = mal_resampler_get_cached_output_time(pResampler);
+        cachedOutputTime = mal_resampler__calculate_cached_output_time_by_mode(pResampler, mal_resampler_end_of_input_mode_no_consume);
         if (cachedOutputTime > 0) {
             if (framesRemaining > cachedOutputTime) {
                 framesToReadRightNow = (mal_uint64)floor(cachedOutputTime);
@@ -466,7 +613,7 @@ mal_uint64 mal_resampler_read(mal_resampler* pResampler, mal_uint64 frameCount, 
                 No need to read from the backend - just copy the input straight over without any processing. We start reading from
                 the right side of the filter window.
                 */
-                mal_uint16 iFirstSample = (mal_uint16)pResampler->windowTime + mal_resampler_window_length_left(pResampler);
+                mal_uint16 iFirstSample = (mal_uint16)pResampler->windowTime + mal_resampler__window_length_left(pResampler);
                 if (pResampler->config.format == mal_format_f32) {
                     for (mal_uint16 iChannel = 0; iChannel < pResampler->config.channels; ++iChannel) {
                         if (pResampler->config.layout == mal_stream_layout_deinterleaved) {
@@ -564,7 +711,7 @@ mal_uint64 mal_resampler_read(mal_resampler* pResampler, mal_uint64 frameCount, 
         We need to exit if we've reached the end of the input buffer. We do not want to attempt to read more data, nor
         do we want to read in zeroes to fill out the requested frame count (frameCount).
         */
-        if (atEnd) {
+        if (loadedEndOfInput) {
             break;
         }
 
@@ -573,69 +720,9 @@ mal_uint64 mal_resampler_read(mal_resampler* pResampler, mal_uint64 frameCount, 
         need to move the remaining data down to the front of the buffer, adjust the window time, then read more from the
         client. If we have already reached the end of the client's data, we don't want to attempt to read more.
         */
-        {
-            mal_uint32 framesToReadFromClient;
-            mal_uint32 framesReadFromClient;
-            mal_uint16 framesToConsume;
-            
-            mal_assert(pResampler->windowTime <  65536);
-            mal_assert(pResampler->windowTime <= pResampler->cacheLengthInFrames);
-
-            framesToConsume = (mal_uint16)pResampler->windowTime;
-
-            pResampler->windowTime          -= framesToConsume;
-            pResampler->cacheLengthInFrames -= framesToConsume;
-
-            if (pResampler->config.format == mal_format_f32) {
-                for (mal_int32 i = 0; i < pResampler->cacheLengthInFrames; ++i) {
-                    pResampler->cache.f32[i] = pResampler->cache.f32[i + framesToConsume];
-                }
-                framesToReadFromClient = mal_countof(pResampler->cache.f32) - pResampler->cacheLengthInFrames;
-            } else {
-                for (mal_int32 i = 0; i < pResampler->cacheLengthInFrames; ++i) {
-                    pResampler->cache.s16[i] = pResampler->cache.s16[i + framesToConsume];
-                }
-                framesToReadFromClient = mal_countof(pResampler->cache.s16) - pResampler->cacheLengthInFrames;
-            }
-
-            /* Here is where we need to read more data from the client. We need to construct some deinterleaved buffers first, though. */
-            mal_resampler_deinterleaved_pointers clientDst;
-            if (pResampler->config.format == mal_format_f32) {
-                for (mal_uint32 iChannel = 0; iChannel < pResampler->config.channels; ++iChannel) {
-                    clientDst.f32[iChannel] = pResampler->cache.f32 + (pResampler->cacheStrideInFrames*iChannel + pResampler->cacheLengthInFrames);
-                }
-                
-                if (pResampler->config.layout == mal_stream_layout_deinterleaved) {
-                    framesReadFromClient = pResampler->config.onRead(pResampler, framesToReadFromClient, clientDst.f32);
-                } else {
-                    float buffer[mal_countof(pResampler->cache.f32)];
-                    float* pInterleavedFrames = buffer;
-                    framesReadFromClient = pResampler->config.onRead(pResampler, framesToReadFromClient, &pInterleavedFrames);
-                    mal_deinterleave_pcm_frames(pResampler->config.format, pResampler->config.channels, framesReadFromClient, pInterleavedFrames, clientDst.f32);
-                }
-            } else {
-                for (mal_uint32 iChannel = 0; iChannel < pResampler->config.channels; ++iChannel) {
-                    clientDst.s16[iChannel] = pResampler->cache.s16 + (pResampler->cacheStrideInFrames*iChannel + pResampler->cacheLengthInFrames);
-                }
-
-                if (pResampler->config.layout == mal_stream_layout_deinterleaved) {
-                    framesReadFromClient = pResampler->config.onRead(pResampler, framesToReadFromClient, clientDst.s16);
-                } else {
-                    mal_int16 buffer[mal_countof(pResampler->cache.s16)];
-                    mal_int16* pInterleavedFrames = buffer;
-                    framesReadFromClient = pResampler->config.onRead(pResampler, framesToReadFromClient, &pInterleavedFrames);
-                    mal_deinterleave_pcm_frames(pResampler->config.format, pResampler->config.channels, framesReadFromClient, pInterleavedFrames, clientDst.s16);
-                }
-            }
-            
-            mal_assert(framesReadFromClient <= framesToReadFromClient);
-            if (framesReadFromClient < framesToReadFromClient) {
-                /* We have reached the end of the input buffer. We do _not_ want to attempt to read any more data from the client in this case. */
-                atEnd = MAL_TRUE;
-            }
-
-            mal_assert(framesReadFromClient <= 65535);
-            pResampler->cacheLengthInFrames += (mal_uint16)framesReadFromClient;
+        result = mal_resampler__reload_cache(pResampler, &loadedEndOfInput);
+        if (result != MAL_SUCCESS) {
+            break;  /* An error occurred when trying to reload the cache from the client. This does _not_ indicate that the end of the input has been reached. */
         }
     }
 
@@ -650,6 +737,25 @@ mal_uint64 mal_resampler_seek(mal_resampler* pResampler, mal_uint64 frameCount, 
 
     if (frameCount == 0) {
         return 0;   /* Nothing to do, so return early. */
+    }
+
+    /* Seeking is slightly different depending on whether or not we are seeking by the output or input rate. */
+    if ((options & MAL_RESAMPLER_SEEK_INPUT_RATE) != 0 || pResampler->config.ratio == 1) {
+        /* Seeking by input rate. This is a simpler case because we don't need to care about the ratio. */
+        if ((options & MAL_RESAMPLER_SEEK_NO_CLIENT_READ) != 0) {
+            /* Not reading from the client. This is the fast path. We can do this in constant time. */
+            /*mal_uint32 wholeInputFramesInCache = mal_resampler__get_whole_cached_input_frame_count(pResampler);*/
+        } else {
+            /* We need to read from the client which means we need to loop. */
+        }
+    } else {
+        /* Seeking by output rate. */
+        if ((options & MAL_RESAMPLER_SEEK_NO_CLIENT_READ) != 0) {
+            /* Not reading from the client. This is a fast-ish path, though I'm not doing this in constant time like when seeking by input rate. It's easier to just loop. */
+        } else {
+            /* Reading from the client. This case is basically the same as reading, but without the filtering. */
+
+        }
     }
 
     /* TODO: Do seeking. */
@@ -669,22 +775,6 @@ mal_uint64 mal_resampler_get_cached_output_frame_count(mal_resampler* pResampler
     return (mal_uint64)floor(mal_resampler_get_cached_output_time(pResampler));
 }
 
-static MAL_INLINE double mal_resampler__calculate_cached_input_time(mal_resampler* pResampler)
-{
-    /*
-    The cached input time depends on whether or not the end of the input is being consumed. If so, it's the difference between the
-    last cached frame and the halfway point of the window, rounded down. Otherwise it's between the last cached frame and the end
-    of the window.
-    */
-    double cachedInputTime = pResampler->cacheLengthInFrames;
-    if (pResampler->config.endOfInputMode == mal_resampler_end_of_input_mode_consume) {
-        cachedInputTime -= (pResampler->windowTime + mal_resampler_window_length_left(pResampler));
-    } else {
-        cachedInputTime -= (pResampler->windowTime + pResampler->windowLength);
-    }
-
-    return cachedInputTime;
-}
 
 double mal_resampler_get_cached_input_time(mal_resampler* pResampler)
 {
