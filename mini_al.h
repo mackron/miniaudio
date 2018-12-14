@@ -18580,7 +18580,6 @@ mal_result mal_device__stop_backend__opensl(mal_device* pDevice)
     MAL_OPENSL_BUFFERQUEUE(pDevice->opensl.pBufferQueue)->Clear((SLAndroidSimpleBufferQueueItf)pDevice->opensl.pBufferQueue);
 
     // Make sure the client is aware that the device has stopped. There may be an OpenSL|ES callback for this, but I haven't found it.
-    mal_device__set_state(pDevice, MAL_STATE_STOPPED);
     mal_stop_proc onStop = pDevice->onStop;
     if (onStop) {
         onStop(pDevice);
