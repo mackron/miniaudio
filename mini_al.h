@@ -575,8 +575,9 @@ typedef enum
 
 typedef enum
 {
-    mal_channel_mix_mode_planar_blend = 0,  // Simple averaging based on the plane(s) the channel is sitting on.
+    mal_channel_mix_mode_rectangular = 0,   // Simple averaging based on the plane(s) the channel is sitting on.
     mal_channel_mix_mode_simple,            // Drop excess channels; zeroed out extra channels.
+    mal_channel_mix_mode_planar_blend = mal_channel_mix_mode_rectangular,
     mal_channel_mix_mode_default = mal_channel_mix_mode_planar_blend
 } mal_channel_mix_mode;
 
