@@ -1,5 +1,5 @@
 // Audio playback and capture library. Public domain. See "unlicense" statement at the end of this file.
-// mini_al - v0.8.13 - 2018-12-04
+// mini_al - v0.8.14 - 2018-12-16
 //
 // David Reid - davidreidsoftware@gmail.com
 
@@ -18247,10 +18247,16 @@ void mal_device_uninit__opensl(mal_device* pDevice)
 
     // Uninit device.
     if (pDevice->type == mal_device_type_playback) {
-        if (pDevice->opensl.pAudioPlayerObj) MAL_OPENSL_OBJ(pDevice->opensl.pAudioPlayerObj)->Destroy((SLObjectItf)pDevice->opensl.pAudioPlayerObj);
-        if (pDevice->opensl.pOutputMixObj) MAL_OPENSL_OBJ(pDevice->opensl.pOutputMixObj)->Destroy((SLObjectItf)pDevice->opensl.pOutputMixObj);
+        if (pDevice->opensl.pAudioPlayerObj) {
+            MAL_OPENSL_OBJ(pDevice->opensl.pAudioPlayerObj)->Destroy((SLObjectItf)pDevice->opensl.pAudioPlayerObj);
+        }
+        if (pDevice->opensl.pOutputMixObj) {
+            MAL_OPENSL_OBJ(pDevice->opensl.pOutputMixObj)->Destroy((SLObjectItf)pDevice->opensl.pOutputMixObj);
+        }
     } else {
-        if (pDevice->opensl.pAudioRecorderObj) MAL_OPENSL_OBJ(pDevice->opensl.pAudioRecorderObj)->Destroy((SLObjectItf)pDevice->opensl.pAudioRecorderObj);
+        if (pDevice->opensl.pAudioRecorderObj) {
+            MAL_OPENSL_OBJ(pDevice->opensl.pAudioRecorderObj)->Destroy((SLObjectItf)pDevice->opensl.pAudioRecorderObj);
+        }
     }
 
     mal_free(pDevice->opensl.pBuffer);
@@ -27083,7 +27089,7 @@ mal_result mal_decoder_internal_on_seek_to_frame__wav(mal_decoder* pDecoder, mal
     drwav* pWav = (drwav*)pDecoder->pInternalDecoder;
     mal_assert(pWav != NULL);
 
-    drwav_bool32 result = drwav_seek_to_sample(pWav, frameIndex*pWav->channels);
+    drwav_bool32 result = drwav_seek_to_pcm_frame(pWav, frameIndex);
     if (result) {
         return MAL_SUCCESS;
     } else {
@@ -27108,9 +27114,9 @@ mal_uint32 mal_decoder_internal_on_read_frames__wav(mal_dsp* pDSP, mal_uint32 fr
     mal_assert(pWav != NULL);
 
     switch (pDecoder->internalFormat) {
-        case mal_format_s16: return (mal_uint32)drwav_read_s16(pWav, frameCount*pDecoder->internalChannels, (drwav_int16*)pSamplesOut) / pDecoder->internalChannels;
-        case mal_format_s32: return (mal_uint32)drwav_read_s32(pWav, frameCount*pDecoder->internalChannels, (drwav_int32*)pSamplesOut) / pDecoder->internalChannels;
-        case mal_format_f32: return (mal_uint32)drwav_read_f32(pWav, frameCount*pDecoder->internalChannels,       (float*)pSamplesOut) / pDecoder->internalChannels;
+        case mal_format_s16: return (mal_uint32)drwav_read_pcm_frames_s16(pWav, frameCount, (drwav_int16*)pSamplesOut);
+        case mal_format_s32: return (mal_uint32)drwav_read_pcm_frames_s32(pWav, frameCount, (drwav_int32*)pSamplesOut);
+        case mal_format_f32: return (mal_uint32)drwav_read_pcm_frames_f32(pWav, frameCount,       (float*)pSamplesOut);
         default: break;
     }
 
@@ -27210,7 +27216,7 @@ mal_result mal_decoder_internal_on_seek_to_frame__flac(mal_decoder* pDecoder, ma
     drflac* pFlac = (drflac*)pDecoder->pInternalDecoder;
     mal_assert(pFlac != NULL);
 
-    drflac_bool32 result = drflac_seek_to_sample(pFlac, frameIndex*pFlac->channels);
+    drflac_bool32 result = drflac_seek_to_pcm_frame(pFlac, frameIndex);
     if (result) {
         return MAL_SUCCESS;
     } else {
@@ -27235,7 +27241,7 @@ mal_uint32 mal_decoder_internal_on_read_frames__flac(mal_dsp* pDSP, mal_uint32 f
     drflac* pFlac = (drflac*)pDecoder->pInternalDecoder;
     mal_assert(pFlac != NULL);
 
-    return (mal_uint32)drflac_read_s32(pFlac, frameCount*pDecoder->internalChannels, (drflac_int32*)pSamplesOut) / pDecoder->internalChannels;
+    return (mal_uint32)drflac_read_pcm_frames_s32(pFlac, frameCount, (drflac_int32*)pSamplesOut);
 }
 
 mal_result mal_decoder_init_flac__internal(const mal_decoder_config* pConfig, mal_decoder* pDecoder)
@@ -27574,7 +27580,7 @@ mal_result mal_decoder_internal_on_seek_to_frame__mp3(mal_decoder* pDecoder, mal
     drmp3* pMP3 = (drmp3*)pDecoder->pInternalDecoder;
     mal_assert(pMP3 != NULL);
 
-    drmp3_bool32 result = drmp3_seek_to_frame(pMP3, frameIndex);
+    drmp3_bool32 result = drmp3_seek_to_pcm_frame(pMP3, frameIndex);
     if (result) {
         return MAL_SUCCESS;
     } else {
@@ -27600,7 +27606,7 @@ mal_uint32 mal_decoder_internal_on_read_frames__mp3(mal_dsp* pDSP, mal_uint32 fr
     drmp3* pMP3 = (drmp3*)pDecoder->pInternalDecoder;
     mal_assert(pMP3 != NULL);
 
-    return (mal_uint32)drmp3_read_f32(pMP3, frameCount, (float*)pSamplesOut);
+    return (mal_uint32)drmp3_read_pcm_frames_f32(pMP3, frameCount, (float*)pSamplesOut);
 }
 
 mal_result mal_decoder_init_mp3__internal(const mal_decoder_config* pConfig, mal_decoder* pDecoder)
@@ -28483,6 +28489,10 @@ mal_uint64 mal_sine_wave_read_ex(mal_sine_wave* pSineWave, mal_uint64 frameCount
 
 // REVISION HISTORY
 // ================
+//
+// v0.8.14 - 2018-12-16
+//   - Core Audio: Fix a bug where the device state is not set correctly after stopping.
+//   - Update decoders to use updated APIs in dr_flac, dr_mp3 and dr_wav.
 //
 // v0.8.13 - 2018-12-04
 //   - Core Audio: Fix a bug with channel mapping.
