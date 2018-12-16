@@ -577,6 +577,7 @@ typedef enum
 {
     mal_channel_mix_mode_rectangular = 0,   // Simple averaging based on the plane(s) the channel is sitting on.
     mal_channel_mix_mode_simple,            // Drop excess channels; zeroed out extra channels.
+    mal_channel_mix_mode_custom_weights,    // Use custom weights specified in mal_channel_router_config.
     mal_channel_mix_mode_planar_blend = mal_channel_mix_mode_rectangular,
     mal_channel_mix_mode_default = mal_channel_mix_mode_planar_blend
 } mal_channel_mix_mode;
@@ -645,6 +646,7 @@ typedef struct
     mal_channel channelMapIn[MAL_MAX_CHANNELS];
     mal_channel channelMapOut[MAL_MAX_CHANNELS];
     mal_channel_mix_mode mixingMode;
+    float weights[MAL_MAX_CHANNELS][MAL_MAX_CHANNELS];  // [in][out]. Only used when mixingMode is set to mal_channel_mix_mode_custom_weights.
     mal_bool32 noSSE2   : 1;
     mal_bool32 noAVX2   : 1;
     mal_bool32 noAVX512 : 1;
@@ -663,7 +665,6 @@ struct mal_channel_router
     mal_bool32 useAVX512       : 1;
     mal_bool32 useNEON         : 1;
     mal_uint8 shuffleTable[MAL_MAX_CHANNELS];
-    float weights[MAL_MAX_CHANNELS][MAL_MAX_CHANNELS];
 };
 
 
@@ -918,8 +919,8 @@ mal_format_converter_config mal_format_converter_config_init_deinterleaved(mal_f
 //   2) Planar Blending
 //      Channels are blended based on a set of planes that each speaker emits audio from.
 //
-// Planar Blending
-// ---------------
+// Rectangular / Planar Blending
+// -----------------------------
 // In this mode, channel positions are associated with a set of planes where the channel conceptually emits audio from. An example is the front/left speaker.
 // This speaker is positioned to the front of the listener, so you can think of it as emitting audio from the front plane. It is also positioned to the left
 // of the listener so you can think of it as also emitting audio from the left plane. Now consider the (unrealistic) situation where the input channel map
@@ -949,7 +950,8 @@ mal_format_converter_config mal_format_converter_config_init_deinterleaved(mal_f
 // Note that input and output data is always deinterleaved 32-bit floating point.
 //
 // Initialize the channel router with mal_channel_router_init(). You will need to pass in a config object which specifies the input and output configuration,
-// mixing mode and a callback for sending data to the router. This callback will be called when input data needs to be sent to the router for processing.
+// mixing mode and a callback for sending data to the router. This callback will be called when input data needs to be sent to the router for processing. Note
+// that the mixing mode is only used when a 1:1 mapping is unavailable. This includes the custom weights mode.
 //
 // Read data from the channel router with mal_channel_router_read_deinterleaved(). Output data is always 32-bit floating point.
 //
@@ -24906,7 +24908,7 @@ mal_result mal_channel_router_init(const mal_channel_router_config* pConfig, mal
             mal_channel channelPosOut = pRouter->config.channelMapOut[iChannelOut];
 
             if (channelPosIn == channelPosOut) {
-                pRouter->weights[iChannelIn][iChannelOut] = 1;
+                pRouter->config.weights[iChannelIn][iChannelOut] = 1;
             }
         }
     }
@@ -24921,7 +24923,7 @@ mal_result mal_channel_router_init(const mal_channel_router_config* pConfig, mal
                 mal_channel channelPosOut = pRouter->config.channelMapOut[iChannelOut];
 
                 if (channelPosOut != MAL_CHANNEL_NONE && channelPosOut != MAL_CHANNEL_MONO && channelPosOut != MAL_CHANNEL_LFE) {
-                    pRouter->weights[iChannelIn][iChannelOut] = 1;
+                    pRouter->config.weights[iChannelIn][iChannelOut] = 1;
                 }
             }
         }
@@ -24949,7 +24951,7 @@ mal_result mal_channel_router_init(const mal_channel_router_config* pConfig, mal
                         mal_channel channelPosIn = pRouter->config.channelMapIn[iChannelIn];
 
                         if (channelPosIn != MAL_CHANNEL_NONE && channelPosIn != MAL_CHANNEL_MONO && channelPosIn != MAL_CHANNEL_LFE) {
-                            pRouter->weights[iChannelIn][iChannelOut] += monoWeight;
+                            pRouter->config.weights[iChannelIn][iChannelOut] += monoWeight;
                         }
                     }
                 }
@@ -24959,56 +24961,67 @@ mal_result mal_channel_router_init(const mal_channel_router_config* pConfig, mal
 
 
     // Input and output channels that are not present on the other side need to be blended in based on spatial locality.
-    if (pRouter->config.mixingMode != mal_channel_mix_mode_simple) {
-        // Unmapped input channels.
-        for (mal_uint32 iChannelIn = 0; iChannelIn < pRouter->config.channelsIn; ++iChannelIn) {
-            mal_channel channelPosIn = pRouter->config.channelMapIn[iChannelIn];
+    switch (pRouter->config.mixingMode)
+    {
+        case mal_channel_mix_mode_rectangular:
+        {
+            // Unmapped input channels.
+            for (mal_uint32 iChannelIn = 0; iChannelIn < pRouter->config.channelsIn; ++iChannelIn) {
+                mal_channel channelPosIn = pRouter->config.channelMapIn[iChannelIn];
 
-            if (mal_channel_router__is_spatial_channel_position(pRouter, channelPosIn)) {
-                if (!mal_channel_map_contains_channel_position(pRouter->config.channelsOut, pRouter->config.channelMapOut, channelPosIn)) {
-                    for (mal_uint32 iChannelOut = 0; iChannelOut < pRouter->config.channelsOut; ++iChannelOut) {
-                        mal_channel channelPosOut = pRouter->config.channelMapOut[iChannelOut];
+                if (mal_channel_router__is_spatial_channel_position(pRouter, channelPosIn)) {
+                    if (!mal_channel_map_contains_channel_position(pRouter->config.channelsOut, pRouter->config.channelMapOut, channelPosIn)) {
+                        for (mal_uint32 iChannelOut = 0; iChannelOut < pRouter->config.channelsOut; ++iChannelOut) {
+                            mal_channel channelPosOut = pRouter->config.channelMapOut[iChannelOut];
 
-                        if (mal_channel_router__is_spatial_channel_position(pRouter, channelPosOut)) {
-                            float weight = 0;
-                            if (pRouter->config.mixingMode == mal_channel_mix_mode_planar_blend) {
-                                weight = mal_channel_router__calculate_input_channel_planar_weight(pRouter, channelPosIn, channelPosOut);
-                            }
+                            if (mal_channel_router__is_spatial_channel_position(pRouter, channelPosOut)) {
+                                float weight = 0;
+                                if (pRouter->config.mixingMode == mal_channel_mix_mode_planar_blend) {
+                                    weight = mal_channel_router__calculate_input_channel_planar_weight(pRouter, channelPosIn, channelPosOut);
+                                }
 
-                            // Only apply the weight if we haven't already got some contribution from the respective channels.
-                            if (pRouter->weights[iChannelIn][iChannelOut] == 0) {
-                                pRouter->weights[iChannelIn][iChannelOut] = weight;
-                            }
-                        }
-                    }
-                }
-            }
-        }
-
-        // Unmapped output channels.
-        for (mal_uint32 iChannelOut = 0; iChannelOut < pRouter->config.channelsOut; ++iChannelOut) {
-            mal_channel channelPosOut = pRouter->config.channelMapOut[iChannelOut];
-
-            if (mal_channel_router__is_spatial_channel_position(pRouter, channelPosOut)) {
-                if (!mal_channel_map_contains_channel_position(pRouter->config.channelsIn, pRouter->config.channelMapIn, channelPosOut)) {
-                    for (mal_uint32 iChannelIn = 0; iChannelIn < pRouter->config.channelsIn; ++iChannelIn) {
-                        mal_channel channelPosIn = pRouter->config.channelMapIn[iChannelIn];
-
-                        if (mal_channel_router__is_spatial_channel_position(pRouter, channelPosIn)) {
-                            float weight = 0;
-                            if (pRouter->config.mixingMode == mal_channel_mix_mode_planar_blend) {
-                                weight = mal_channel_router__calculate_input_channel_planar_weight(pRouter, channelPosIn, channelPosOut);
-                            }
-
-                            // Only apply the weight if we haven't already got some contribution from the respective channels.
-                            if (pRouter->weights[iChannelIn][iChannelOut] == 0) {
-                                pRouter->weights[iChannelIn][iChannelOut] = weight;
+                                // Only apply the weight if we haven't already got some contribution from the respective channels.
+                                if (pRouter->config.weights[iChannelIn][iChannelOut] == 0) {
+                                    pRouter->config.weights[iChannelIn][iChannelOut] = weight;
+                                }
                             }
                         }
                     }
                 }
             }
-        }
+
+            // Unmapped output channels.
+            for (mal_uint32 iChannelOut = 0; iChannelOut < pRouter->config.channelsOut; ++iChannelOut) {
+                mal_channel channelPosOut = pRouter->config.channelMapOut[iChannelOut];
+
+                if (mal_channel_router__is_spatial_channel_position(pRouter, channelPosOut)) {
+                    if (!mal_channel_map_contains_channel_position(pRouter->config.channelsIn, pRouter->config.channelMapIn, channelPosOut)) {
+                        for (mal_uint32 iChannelIn = 0; iChannelIn < pRouter->config.channelsIn; ++iChannelIn) {
+                            mal_channel channelPosIn = pRouter->config.channelMapIn[iChannelIn];
+
+                            if (mal_channel_router__is_spatial_channel_position(pRouter, channelPosIn)) {
+                                float weight = 0;
+                                if (pRouter->config.mixingMode == mal_channel_mix_mode_planar_blend) {
+                                    weight = mal_channel_router__calculate_input_channel_planar_weight(pRouter, channelPosIn, channelPosOut);
+                                }
+
+                                // Only apply the weight if we haven't already got some contribution from the respective channels.
+                                if (pRouter->config.weights[iChannelIn][iChannelOut] == 0) {
+                                    pRouter->config.weights[iChannelIn][iChannelOut] = weight;
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        } break;
+
+        case mal_channel_mix_mode_custom_weights:
+        case mal_channel_mix_mode_simple:
+        default:
+        {
+            /* Fallthrough. */
+        } break;
     }
 
     return MAL_SUCCESS;
@@ -25060,7 +25073,7 @@ void mal_channel_router__do_routing(mal_channel_router* pRouter, mal_uint64 fram
                 mal_uint64 iFrame = 0;
 #if defined(MAL_SUPPORT_NEON)
                 if (mal_channel_router__can_use_neon(pRouter, ppSamplesOut[iChannelOut], ppSamplesIn[iChannelIn])) {
-                    float32x4_t weight = vmovq_n_f32(pRouter->weights[iChannelIn][iChannelOut]);
+                    float32x4_t weight = vmovq_n_f32(pRouter->config.weights[iChannelIn][iChannelOut]);
 
                     mal_uint64 frameCount4 = frameCount/4;
                     for (mal_uint64 iFrame4 = 0; iFrame4 < frameCount4; iFrame4 += 1) {
@@ -25075,7 +25088,7 @@ void mal_channel_router__do_routing(mal_channel_router* pRouter, mal_uint64 fram
 #endif
 #if defined(MAL_SUPPORT_AVX512)
                 if (mal_channel_router__can_use_avx512(pRouter, ppSamplesOut[iChannelOut], ppSamplesIn[iChannelIn])) {
-                    __m512 weight = _mm512_set1_ps(pRouter->weights[iChannelIn][iChannelOut]);
+                    __m512 weight = _mm512_set1_ps(pRouter->config.weights[iChannelIn][iChannelOut]);
 
                     mal_uint64 frameCount16 = frameCount/16;
                     for (mal_uint64 iFrame16 = 0; iFrame16 < frameCount16; iFrame16 += 1) {
@@ -25090,7 +25103,7 @@ void mal_channel_router__do_routing(mal_channel_router* pRouter, mal_uint64 fram
 #endif
 #if defined(MAL_SUPPORT_AVX2)
                 if (mal_channel_router__can_use_avx2(pRouter, ppSamplesOut[iChannelOut], ppSamplesIn[iChannelIn])) {
-                    __m256 weight = _mm256_set1_ps(pRouter->weights[iChannelIn][iChannelOut]);
+                    __m256 weight = _mm256_set1_ps(pRouter->config.weights[iChannelIn][iChannelOut]);
 
                     mal_uint64 frameCount8 = frameCount/8;
                     for (mal_uint64 iFrame8 = 0; iFrame8 < frameCount8; iFrame8 += 1) {
@@ -25105,7 +25118,7 @@ void mal_channel_router__do_routing(mal_channel_router* pRouter, mal_uint64 fram
 #endif
 #if defined(MAL_SUPPORT_SSE2)
                 if (mal_channel_router__can_use_sse2(pRouter, ppSamplesOut[iChannelOut], ppSamplesIn[iChannelIn])) {
-                    __m128 weight = _mm_set1_ps(pRouter->weights[iChannelIn][iChannelOut]);
+                    __m128 weight = _mm_set1_ps(pRouter->config.weights[iChannelIn][iChannelOut]);
 
                     mal_uint64 frameCount4 = frameCount/4;
                     for (mal_uint64 iFrame4 = 0; iFrame4 < frameCount4; iFrame4 += 1) {
@@ -25118,10 +25131,10 @@ void mal_channel_router__do_routing(mal_channel_router* pRouter, mal_uint64 fram
                 } else 
 #endif
                 {   // Reference.
-                    float weight0 = pRouter->weights[iChannelIn][iChannelOut];
-                    float weight1 = pRouter->weights[iChannelIn][iChannelOut];
-                    float weight2 = pRouter->weights[iChannelIn][iChannelOut];
-                    float weight3 = pRouter->weights[iChannelIn][iChannelOut];
+                    float weight0 = pRouter->config.weights[iChannelIn][iChannelOut];
+                    float weight1 = pRouter->config.weights[iChannelIn][iChannelOut];
+                    float weight2 = pRouter->config.weights[iChannelIn][iChannelOut];
+                    float weight3 = pRouter->config.weights[iChannelIn][iChannelOut];
 
                     mal_uint64 frameCount4 = frameCount/4;
                     for (mal_uint64 iFrame4 = 0; iFrame4 < frameCount4; iFrame4 += 1) {
@@ -25135,7 +25148,7 @@ void mal_channel_router__do_routing(mal_channel_router* pRouter, mal_uint64 fram
 
                 // Leftover.
                 for (; iFrame < frameCount; ++iFrame) {
-                    ppSamplesOut[iChannelOut][iFrame] += ppSamplesIn[iChannelIn][iFrame] * pRouter->weights[iChannelIn][iChannelOut];
+                    ppSamplesOut[iChannelOut][iFrame] += ppSamplesIn[iChannelIn][iFrame] * pRouter->config.weights[iChannelIn][iChannelOut];
                 }
             }
         }
@@ -28493,6 +28506,7 @@ mal_uint64 mal_sine_wave_read_ex(mal_sine_wave* pSineWave, mal_uint64 frameCount
 //
 // v0.8.14 - 2018-12-16
 //   - Core Audio: Fix a bug where the device state is not set correctly after stopping.
+//   - Add support for custom weights to the channel router.
 //   - Update decoders to use updated APIs in dr_flac, dr_mp3 and dr_wav.
 //
 // v0.8.13 - 2018-12-04
