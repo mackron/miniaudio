@@ -1,5 +1,5 @@
 // MP3 audio decoder. Public domain. See "unlicense" statement at the end of this file.
-// dr_mp3 - v0.4.0 - 2018-xx-xx
+// dr_mp3 - v0.4.0 - 2018-12-16
 //
 // David Reid - mackron@gmail.com
 //
@@ -3450,7 +3450,7 @@ void drmp3_free(void* p)
 // REVISION HISTORY
 // ================
 //
-// v0.4.0 - 2018-xx-xx
+// v0.4.0 - 2018-12-16
 //   - API CHANGE: Rename some APIs:
 //     - drmp3_read_f32 -> to drmp3_read_pcm_frames_f32
 //     - drmp3_seek_to_frame -> drmp3_seek_to_pcm_frame

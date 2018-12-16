@@ -1,5 +1,5 @@
 // FLAC audio decoder. Public domain. See "unlicense" statement at the end of this file.
-// dr_flac - v0.11.0 - 2018-12-xx
+// dr_flac - v0.11.0 - 2018-12-16
 //
 // David Reid - mackron@gmail.com
 
@@ -17,8 +17,8 @@
 //         // Failed to open FLAC file
 //     }
 //
-//     drflac_int32* pSamples = malloc(pFlac->totalSampleCount * sizeof(drflac_int32));
-//     drflac_uint64 numberOfInterleavedSamplesActuallyRead = drflac_read_pcm_frames_s32(pFlac, pFlac->totalSampleCount, pSamples);
+//     drflac_int32* pSamples = malloc(pFlac->totalPCMFrameCount * pFlac->channels * sizeof(drflac_int32));
+//     drflac_uint64 numberOfInterleavedSamplesActuallyRead = drflac_read_pcm_frames_s32(pFlac, pFlac->totalPCMFrameCount, pSamples);
 //
 // The drflac object represents the decoder. It is a transparent type so all the information you need, such as the number of
 // channels and the bits per sample, should be directly accessible - just make sure you don't change their values. Samples are
@@ -29,7 +29,7 @@
 // the decoder will give you as many samples as it can, up to the amount requested. Later on when you need the next batch of
 // samples, just call it again. Example:
 //
-//     while (drflac_read_pcm_frames_s32(pFlac, chunkSize, pChunkSamples) > 0) {
+//     while (drflac_read_pcm_frames_s32(pFlac, chunkSizeInPCMFrames, pChunkSamples) > 0) {
 //         do_something();
 //     }
 //
@@ -43,8 +43,8 @@
 //
 //     unsigned int channels;
 //     unsigned int sampleRate;
-//     drflac_uint64 totalSampleCount;
-//     drflac_int32* pSampleData = drflac_open_and_decode_file_s32("MySong.flac", &channels, &sampleRate, &totalSampleCount);
+//     drflac_uint64 totalPCMFrameCount;
+//     drflac_int32* pSampleData = drflac_open_file_and_read_pcm_frames_s32("MySong.flac", &channels, &sampleRate, &totalPCMFrameCount);
 //     if (pSampleData == NULL) {
 //         // Failed to open and decode FLAC file.
 //     }
@@ -7958,7 +7958,7 @@ drflac_bool32 drflac_next_cuesheet_track(drflac_cuesheet_track_iterator* pIter, 
 
 // REVISION HISTORY
 //
-// v0.11.0 - 2018-12-xx
+// v0.11.0 - 2018-12-16
 //   - API CHANGE: Deprecated drflac_read_s32(), drflac_read_s16() and drflac_read_f32() and replaced them with 
 //     drflac_read_pcm_frames_s32(), drflac_read_pcm_frames_s16() and drflac_read_pcm_frames_f32(). The new APIs take
 //     and return PCM frame counts instead of sample counts. To upgrade you will need to change the input count by
