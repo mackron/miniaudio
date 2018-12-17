@@ -18021,6 +18021,11 @@ mal_result mal_context_enumerate_devices__opensl(mal_context* pContext, mal_enum
     mal_assert(pContext != NULL);
     mal_assert(callback != NULL);
 
+    mal_assert(g_malOpenSLInitCounter > 0); /* <-- If you trigger this it means you've either not initialized the context, or you've uninitialized it and then attempted to enumerate devices. */
+    if (g_malOpenSLInitCounter == 0) {
+        return MAL_INVALID_OPERATION;
+    }
+
     // TODO: Test Me.
     //
     // This is currently untested, so for now we are just returning default devices.
@@ -18120,6 +18125,11 @@ mal_result mal_context_get_device_info__opensl(mal_context* pContext, mal_device
 {
     mal_assert(pContext != NULL);
     (void)shareMode;
+
+    mal_assert(g_malOpenSLInitCounter > 0); /* <-- If you trigger this it means you've either not initialized the context, or you've uninitialized it and then attempted to get device info. */
+    if (g_malOpenSLInitCounter == 0) {
+        return MAL_INVALID_OPERATION;
+    }
 
     // TODO: Test Me.
     //
@@ -18248,6 +18258,11 @@ void mal_device_uninit__opensl(mal_device* pDevice)
 {
     mal_assert(pDevice != NULL);
 
+    mal_assert(g_malOpenSLInitCounter > 0); /* <-- If you trigger this it means you've either not initialized the context, or you've uninitialized it before uninitializing the device. */
+    if (g_malOpenSLInitCounter == 0) {
+        return;
+    }
+
     // Uninit device.
     if (pDevice->type == mal_device_type_playback) {
         if (pDevice->opensl.pAudioPlayerObj) {
@@ -18268,6 +18283,11 @@ void mal_device_uninit__opensl(mal_device* pDevice)
 mal_result mal_device_init__opensl(mal_context* pContext, mal_device_type type, const mal_device_id* pDeviceID, const mal_device_config* pConfig, mal_device* pDevice)
 {
     (void)pContext;
+
+    mal_assert(g_malOpenSLInitCounter > 0); /* <-- If you trigger this it means you've either not initialized the context, or you've uninitialized it and then attempted to initialize a new device. */
+    if (g_malOpenSLInitCounter == 0) {
+        return MAL_INVALID_OPERATION;
+    }
 
     // For now, only supporting Android implementations of OpenSL|ES since that's the only one I've
     // been able to test with and I currently depend on Android-specific extensions (simple buffer
@@ -18533,6 +18553,11 @@ mal_result mal_device__start_backend__opensl(mal_device* pDevice)
 {
     mal_assert(pDevice != NULL);
 
+    mal_assert(g_malOpenSLInitCounter > 0); /* <-- If you trigger this it means you've either not initialized the context, or you've uninitialized it and then attempted to start the device. */
+    if (g_malOpenSLInitCounter == 0) {
+        return MAL_INVALID_OPERATION;
+    }
+
     if (pDevice->type == mal_device_type_playback) {
         SLresult resultSL = MAL_OPENSL_PLAY(pDevice->opensl.pAudioPlayer)->SetPlayState((SLPlayItf)pDevice->opensl.pAudioPlayer, SL_PLAYSTATE_PLAYING);
         if (resultSL != SL_RESULT_SUCCESS) {
@@ -18572,6 +18597,11 @@ mal_result mal_device__start_backend__opensl(mal_device* pDevice)
 mal_result mal_device__stop_backend__opensl(mal_device* pDevice)
 {
     mal_assert(pDevice != NULL);
+
+    mal_assert(g_malOpenSLInitCounter > 0); /* <-- If you trigger this it means you've either not initialized the context, or you've uninitialized it before stopping/uninitializing the device. */
+    if (g_malOpenSLInitCounter == 0) {
+        return MAL_INVALID_OPERATION;
+    }
 
     if (pDevice->type == mal_device_type_playback) {
         SLresult resultSL = MAL_OPENSL_PLAY(pDevice->opensl.pAudioPlayer)->SetPlayState((SLPlayItf)pDevice->opensl.pAudioPlayer, SL_PLAYSTATE_STOPPED);
