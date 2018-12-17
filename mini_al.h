@@ -20927,14 +20927,14 @@ mal_result mal_device_init_ex(const mal_backend backends[], mal_uint32 backendCo
 
 void mal_device_uninit(mal_device* pDevice)
 {
-    if (!mal_device__is_initialized(pDevice)) return;
+    if (!mal_device__is_initialized(pDevice)) {
+        return;
+    }
 
     // Make sure the device is stopped first. The backends will probably handle this naturally,
     // but I like to do it explicitly for my own sanity.
     if (mal_device_is_started(pDevice)) {
-        while (mal_device_stop(pDevice) == MAL_DEVICE_BUSY) {
-            mal_sleep(1);
-        }
+        mal_device_stop(pDevice);
     }
 
     // Putting the device into an uninitialized state will make the worker thread return.
@@ -20981,28 +20981,19 @@ void mal_device_set_stop_callback(mal_device* pDevice, mal_stop_proc proc)
 
 mal_result mal_device_start(mal_device* pDevice)
 {
-    if (pDevice == NULL) return mal_post_error(pDevice, MAL_LOG_LEVEL_ERROR, "mal_device_start() called with invalid arguments (pDevice == NULL).", MAL_INVALID_ARGS);
-    if (mal_device__get_state(pDevice) == MAL_STATE_UNINITIALIZED) return mal_post_error(pDevice, MAL_LOG_LEVEL_ERROR, "mal_device_start() called for an uninitialized device.", MAL_DEVICE_NOT_INITIALIZED);
+    if (pDevice == NULL) {
+        return mal_post_error(pDevice, MAL_LOG_LEVEL_ERROR, "mal_device_start() called with invalid arguments (pDevice == NULL).", MAL_INVALID_ARGS);
+    }
+
+    if (mal_device__get_state(pDevice) == MAL_STATE_UNINITIALIZED) {
+        return mal_post_error(pDevice, MAL_LOG_LEVEL_ERROR, "mal_device_start() called for an uninitialized device.", MAL_DEVICE_NOT_INITIALIZED);
+    }
 
     mal_result result = MAL_ERROR;
     mal_mutex_lock(&pDevice->lock);
     {
-        // Be a bit more descriptive if the device is already started or is already in the process of starting. This is likely
-        // a bug with the application.
-        if (mal_device__get_state(pDevice) == MAL_STATE_STARTING) {
-            mal_mutex_unlock(&pDevice->lock);
-            return mal_post_error(pDevice, MAL_LOG_LEVEL_ERROR, "mal_device_start() called while another thread is already starting it.", MAL_DEVICE_ALREADY_STARTING);
-        }
-        if (mal_device__get_state(pDevice) == MAL_STATE_STARTED) {
-            mal_mutex_unlock(&pDevice->lock);
-            return mal_post_error(pDevice, MAL_LOG_LEVEL_ERROR, "mal_device_start() called for a device that's already started.", MAL_DEVICE_ALREADY_STARTED);
-        }
-
-        // The device needs to be in a stopped state. If it's not, we just let the caller know the device is busy.
-        if (mal_device__get_state(pDevice) != MAL_STATE_STOPPED) {
-            mal_mutex_unlock(&pDevice->lock);
-            return mal_post_error(pDevice, MAL_LOG_LEVEL_ERROR, "mal_device_start() called while another thread is in the process of stopping it.", MAL_DEVICE_BUSY);
-        }
+        // Starting, stopping and pausing are wrapped in a mutex which means we can assert that the device is in a stopped or paused state.
+        mal_assert(mal_device__get_state(pDevice) == MAL_STATE_STOPPED /*|| mal_device__get_state(pDevice) == MAL_STATE_PAUSED*/);
 
         mal_device__set_state(pDevice, MAL_STATE_STARTING);
 
@@ -21030,28 +21021,19 @@ mal_result mal_device_start(mal_device* pDevice)
 
 mal_result mal_device_stop(mal_device* pDevice)
 {
-    if (pDevice == NULL) return mal_post_error(pDevice, MAL_LOG_LEVEL_ERROR, "mal_device_stop() called with invalid arguments (pDevice == NULL).", MAL_INVALID_ARGS);
-    if (mal_device__get_state(pDevice) == MAL_STATE_UNINITIALIZED) return mal_post_error(pDevice, MAL_LOG_LEVEL_ERROR, "mal_device_stop() called for an uninitialized device.", MAL_DEVICE_NOT_INITIALIZED);
+    if (pDevice == NULL) {
+        return mal_post_error(pDevice, MAL_LOG_LEVEL_ERROR, "mal_device_stop() called with invalid arguments (pDevice == NULL).", MAL_INVALID_ARGS);
+    }
+
+    if (mal_device__get_state(pDevice) == MAL_STATE_UNINITIALIZED) {
+        return mal_post_error(pDevice, MAL_LOG_LEVEL_ERROR, "mal_device_stop() called for an uninitialized device.", MAL_DEVICE_NOT_INITIALIZED);
+    }
 
     mal_result result = MAL_ERROR;
     mal_mutex_lock(&pDevice->lock);
     {
-        // Be a bit more descriptive if the device is already stopped or is already in the process of stopping. This is likely
-        // a bug with the application.
-        if (mal_device__get_state(pDevice) == MAL_STATE_STOPPING) {
-            mal_mutex_unlock(&pDevice->lock);
-            return mal_post_error(pDevice, MAL_LOG_LEVEL_ERROR, "mal_device_stop() called while another thread is already stopping it.", MAL_DEVICE_ALREADY_STOPPING);
-        }
-        if (mal_device__get_state(pDevice) == MAL_STATE_STOPPED) {
-            mal_mutex_unlock(&pDevice->lock);
-            return mal_post_error(pDevice, MAL_LOG_LEVEL_ERROR, "mal_device_stop() called for a device that's already stopped.", MAL_DEVICE_ALREADY_STOPPED);
-        }
-
-        // The device needs to be in a started state. If it's not, we just let the caller know the device is busy.
-        if (mal_device__get_state(pDevice) != MAL_STATE_STARTED) {
-            mal_mutex_unlock(&pDevice->lock);
-            return mal_post_error(pDevice, MAL_LOG_LEVEL_ERROR, "mal_device_stop() called while another thread is in the process of starting it.", MAL_DEVICE_BUSY);
-        }
+        // Starting, stopping and pausing are wrapped in a mutex which means we can assert that the device is in a started or paused state.
+        mal_assert(mal_device__get_state(pDevice) == MAL_STATE_STARTED /*|| mal_device__get_state(pDevice) == MAL_STATE_PAUSED*/);
 
         mal_device__set_state(pDevice, MAL_STATE_STOPPING);
 
