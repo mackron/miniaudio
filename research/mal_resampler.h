@@ -140,7 +140,7 @@ Seeks forward by the specified number of PCM frames.
 
 "options" can be a cobination of the following:
     MAL_RESAMPLER_SEEK_NO_CLIENT_READ
-        Reads in silence instead of reading in data from the onRead callback.
+        Leaves the contents of the internal cached undefined instead of reading in data from the onRead callback.
     MAL_RESAMPLER_SEEK_INPUT_RATE
         Treats "frameCount" as input samples instead of output samples.
 */
@@ -300,6 +300,17 @@ static MAL_INLINE double mal_resampler__calculate_cached_input_time(mal_resample
     return mal_resampler__calculate_cached_input_time_by_mode(pResampler, pResampler->config.endOfInputMode);
 }
 
+static MAL_INLINE double mal_resampler__calculate_cached_output_time_by_mode(mal_resampler* pResampler, mal_resampler_end_of_input_mode mode)
+{
+    return mal_resampler__calculate_cached_input_time_by_mode(pResampler, mode) / pResampler->config.ratio;
+}
+
+static MAL_INLINE double mal_resampler__calculate_cached_output_time(mal_resampler* pResampler)
+{
+    return mal_resampler__calculate_cached_output_time_by_mode(pResampler, pResampler->config.endOfInputMode);
+}
+
+
 
 static MAL_INLINE mal_result mal_resampler__slide_cache_down(mal_resampler* pResampler)
 {
@@ -327,6 +338,18 @@ static MAL_INLINE mal_result mal_resampler__slide_cache_down(mal_resampler* pRes
 
     return MAL_SUCCESS;
 }
+
+typedef union
+{
+    float* f32[MAL_MAX_CHANNELS];
+    mal_int16* s16[MAL_MAX_CHANNELS];
+} mal_resampler_deinterleaved_pointers;
+
+typedef union
+{
+    float* f32;
+    mal_int16* s16;
+} mal_resampler_interleaved_pointers;
 
 mal_result mal_resampler__reload_cache(mal_resampler* pResampler, mal_bool32* pLoadedEndOfInput)
 {
@@ -404,7 +427,7 @@ mal_result mal_resampler__reload_cache(mal_resampler* pResampler, mal_bool32* pL
     of the right side of the filter window.
     */
     if (loadedEndOfInput && pResampler->config.endOfInputMode == mal_resampler_end_of_input_mode_consume) {
-        mal_uint32 paddingLengthInFrames = mal_resampler__window_length_right(pResampler);
+        mal_uint16 paddingLengthInFrames = mal_resampler__window_length_right(pResampler);
         if (paddingLengthInFrames > 0) {
             if (pResampler->config.format == mal_format_f32) {
                 for (mal_uint32 iChannel = 0; iChannel < pResampler->config.channels; ++iChannel) {
@@ -533,18 +556,6 @@ mal_result mal_resampler_set_rate_ratio(mal_resampler* pResampler, double ratio)
 
     return MAL_SUCCESS;
 }
-
-typedef union
-{
-    float* f32[MAL_MAX_CHANNELS];
-    mal_int16* s16[MAL_MAX_CHANNELS];
-} mal_resampler_deinterleaved_pointers;
-
-typedef union
-{
-    float* f32;
-    mal_int16* s16;
-} mal_resampler_interleaved_pointers;
 
 mal_uint64 mal_resampler_read(mal_resampler* pResampler, mal_uint64 frameCount, void** ppFrames)
 {
@@ -731,8 +742,10 @@ mal_uint64 mal_resampler_read(mal_resampler* pResampler, mal_uint64 frameCount, 
 
 mal_uint64 mal_resampler_seek(mal_resampler* pResampler, mal_uint64 frameCount, mal_uint32 options)
 {
-    if (pResampler == NULL || pResampler->seek == NULL) {
-        return 0;
+    mal_uint64 totalFramesSeeked = 0;
+
+    if (pResampler == NULL) {
+        return 0;   /* Invalid args. */
     }
 
     if (frameCount == 0) {
@@ -743,10 +756,19 @@ mal_uint64 mal_resampler_seek(mal_resampler* pResampler, mal_uint64 frameCount, 
     if ((options & MAL_RESAMPLER_SEEK_INPUT_RATE) != 0 || pResampler->config.ratio == 1) {
         /* Seeking by input rate. This is a simpler case because we don't need to care about the ratio. */
         if ((options & MAL_RESAMPLER_SEEK_NO_CLIENT_READ) != 0) {
-            /* Not reading from the client. This is the fast path. We can do this in constant time. */
-            /*mal_uint32 wholeInputFramesInCache = mal_resampler__get_whole_cached_input_frame_count(pResampler);*/
+            /*
+            Not reading from the client. This is the fast path. We can do this in constant time. Because in this mode the contents
+            of the cache are left undefined and the fractional part of the window time is left exactly the same (since we're seeking
+            by input rate instead of output rate), all we need to do is change the loaded sample count to the start of the right
+            side of the filter window so that a reload is forced in the next read.
+            */
+            pResampler->cacheLengthInFrames = (mal_uint16)ceil(pResampler->windowTime + mal_resampler__window_length_left(pResampler));
+            totalFramesSeeked = frameCount;
         } else {
             /* We need to read from the client which means we need to loop. */
+            /*while (totalFramesSeeked < frameCount) {
+
+            }*/
         }
     } else {
         /* Seeking by output rate. */
@@ -754,14 +776,10 @@ mal_uint64 mal_resampler_seek(mal_resampler* pResampler, mal_uint64 frameCount, 
             /* Not reading from the client. This is a fast-ish path, though I'm not doing this in constant time like when seeking by input rate. It's easier to just loop. */
         } else {
             /* Reading from the client. This case is basically the same as reading, but without the filtering. */
-
         }
     }
 
-    /* TODO: Do seeking. */
-    (void)options;
-
-    return 0;
+    return totalFramesSeeked;
 }
 
 
@@ -783,11 +801,6 @@ double mal_resampler_get_cached_input_time(mal_resampler* pResampler)
     }
 
     return mal_resampler__calculate_cached_input_time(pResampler);
-}
-
-static MAL_INLINE double mal_resampler__calculate_cached_output_time(mal_resampler* pResampler)
-{
-    return mal_resampler__calculate_cached_input_time(pResampler) / pResampler->config.ratio;
 }
 
 double mal_resampler_get_cached_output_time(mal_resampler* pResampler)
