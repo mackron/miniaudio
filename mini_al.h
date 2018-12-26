@@ -1409,7 +1409,7 @@ typedef union
     mal_uint32 opensl;              // OpenSL|ES uses a 32-bit unsigned integer for identification.
 #endif
 #ifdef MAL_SUPPORT_WEBAUDIO
-    int webaudio;                   // Web Audio always uses default devices for now.
+    char webaudio[32];              // Web Audio always uses default devices for now, but if this changes it'll be a GUID.
 #endif
 #ifdef MAL_SUPPORT_OPENAL
     char openal[256];               // OpenAL seems to use human-readable device names as the ID.
@@ -3775,6 +3775,9 @@ mal_uint32 mal_get_standard_sample_rate_priority_index(mal_uint32 sampleRate)   
 #endif
 #ifdef MAL_ENABLE_OPENSL
     #define MAL_HAS_OPENSL      // OpenSL is the only supported backend for Android. It must be present.
+#endif
+#ifdef MAL_ENABLE_WEBAUDIO
+    #define MAL_HAS_WEBAUDIO
 #endif
 #ifdef MAL_ENABLE_OPENAL
     #define MAL_HAS_OPENAL
@@ -18714,7 +18717,7 @@ mal_result mal_context_init__opensl(mal_context* pContext)
 //
 ///////////////////////////////////////////////////////////////////////////////
 #ifdef MAL_HAS_WEBAUDIO
-#include <emscripten.h>
+#include <emscripten/emscripten.h>
 
 mal_bool32 mal_context_is_device_id_equal__webaudio(mal_context* pContext, const mal_device_id* pID0, const mal_device_id* pID1)
 {
@@ -18758,7 +18761,7 @@ mal_result mal_context_get_device_info__webaudio(mal_context* pContext, mal_devi
     mal_assert(pContext != NULL);
     (void)shareMode;
 
-    pDeviceInfo->id.webaudio = 0;
+    mal_zero_memory(pDeviceInfo->id.webaudio, sizeof(pDeviceInfo->id.webaudio));
 
     // Only supporting default devices for now.
     if (deviceType == mal_device_type_playback) {
@@ -18774,6 +18777,7 @@ mal_result mal_context_get_device_info__webaudio(mal_context* pContext, mal_devi
         pDeviceInfo->maxChannels = 32;  /* Maximum output channel count is 32 for createScriptProcessor() (JavaScript). */
     }
 
+    // TODO: Change this to the actual sample rate. Can maybe initialize a temporary AudioContext and read it's sampleRate parameter.
     pDeviceInfo->minSampleRate = MAL_MIN_SAMPLE_RATE;
     pDeviceInfo->maxSampleRate = MAL_MAX_SAMPLE_RATE;
     pDeviceInfo->formatCount   = 1;
