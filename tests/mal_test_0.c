@@ -10,6 +10,7 @@
     #include "../extras/stb_vorbis.c"
 #endif
 
+#define MAL_NO_SDL
 #define MINI_AL_IMPLEMENTATION
 #include "../mini_al.h"
 
@@ -1494,7 +1495,7 @@ int do_channel_routing_tests()
                         expectedWeight = 1;
                     }
 
-                    if (router.weights[iChannelIn][iChannelOut] != expectedWeight) {
+                    if (router.config.weights[iChannelIn][iChannelOut] != expectedWeight) {
                         printf("Failed. Channel weight incorrect: %f\n", expectedWeight);
                         hasError = MAL_TRUE;
                     }
@@ -1603,7 +1604,7 @@ int do_channel_routing_tests()
                         expectedWeight = 1;
                     }
 
-                    if (router.weights[iChannelIn][iChannelOut] != expectedWeight) {
+                    if (router.config.weights[iChannelIn][iChannelOut] != expectedWeight) {
                         printf("Failed. Channel weight incorrect: %f\n", expectedWeight);
                         hasError = MAL_TRUE;
                     }
@@ -1710,7 +1711,7 @@ int do_channel_routing_tests()
                         expectedWeight = 1;
                     }
 
-                    if (router.weights[iChannelIn][iChannelOut] != expectedWeight) {
+                    if (router.config.weights[iChannelIn][iChannelOut] != expectedWeight) {
                         printf("Failed. Channel weight incorrect: %f\n", expectedWeight);
                         hasError = MAL_TRUE;
                     }
@@ -1762,7 +1763,7 @@ int do_channel_routing_tests()
                         expectedWeight = 1;
                     }
 
-                    if (router.weights[iChannelIn][iChannelOut] != expectedWeight) {
+                    if (router.config.weights[iChannelIn][iChannelOut] != expectedWeight) {
                         printf("Failed. Channel weight incorrect: %f\n", expectedWeight);
                         hasError = MAL_TRUE;
                     }
@@ -1838,8 +1839,8 @@ int do_channel_routing_tests()
 
             for (mal_uint32 iChannelIn = 0; iChannelIn < routerConfig.channelsIn; ++iChannelIn) {
                 for (mal_uint32 iChannelOut = 0; iChannelOut < routerConfig.channelsOut; ++iChannelOut) {
-                    if (router.weights[iChannelIn][iChannelOut] != expectedWeights[iChannelIn][iChannelOut]) {
-                        printf("Failed. Channel weight incorrect for [%d][%d]. Expected %f, got %f\n", iChannelIn, iChannelOut, expectedWeights[iChannelIn][iChannelOut], router.weights[iChannelIn][iChannelOut]);
+                    if (router.config.weights[iChannelIn][iChannelOut] != expectedWeights[iChannelIn][iChannelOut]) {
+                        printf("Failed. Channel weight incorrect for [%d][%d]. Expected %f, got %f\n", iChannelIn, iChannelOut, expectedWeights[iChannelIn][iChannelOut], router.config.weights[iChannelIn][iChannelOut]);
                         hasError = MAL_TRUE;
                     }
                 }
@@ -1960,8 +1961,8 @@ int do_channel_routing_tests()
 
             for (mal_uint32 iChannelIn = 0; iChannelIn < routerConfig.channelsIn; ++iChannelIn) {
                 for (mal_uint32 iChannelOut = 0; iChannelOut < routerConfig.channelsOut; ++iChannelOut) {
-                    if (router.weights[iChannelIn][iChannelOut] != expectedWeights[iChannelIn][iChannelOut]) {
-                        printf("Failed. Channel weight incorrect for [%d][%d]. Expected %f, got %f\n", iChannelIn, iChannelOut, expectedWeights[iChannelIn][iChannelOut], router.weights[iChannelIn][iChannelOut]);
+                    if (router.config.weights[iChannelIn][iChannelOut] != expectedWeights[iChannelIn][iChannelOut]) {
+                        printf("Failed. Channel weight incorrect for [%d][%d]. Expected %f, got %f\n", iChannelIn, iChannelOut, expectedWeights[iChannelIn][iChannelOut], router.config.weights[iChannelIn][iChannelOut]);
                         hasError = MAL_TRUE;
                     }
                 }
@@ -2019,8 +2020,8 @@ int do_channel_routing_tests()
 
             for (mal_uint32 iChannelIn = 0; iChannelIn < routerConfig.channelsIn; ++iChannelIn) {
                 for (mal_uint32 iChannelOut = 0; iChannelOut < routerConfig.channelsOut; ++iChannelOut) {
-                    if (router.weights[iChannelIn][iChannelOut] != expectedWeights[iChannelIn][iChannelOut]) {
-                        printf("Failed. Channel weight incorrect for [%d][%d]. Expected %f, got %f\n", iChannelIn, iChannelOut, expectedWeights[iChannelIn][iChannelOut], router.weights[iChannelIn][iChannelOut]);
+                    if (router.config.weights[iChannelIn][iChannelOut] != expectedWeights[iChannelIn][iChannelOut]) {
+                        printf("Failed. Channel weight incorrect for [%d][%d]. Expected %f, got %f\n", iChannelIn, iChannelOut, expectedWeights[iChannelIn][iChannelOut], router.config.weights[iChannelIn][iChannelOut]);
                         hasError = MAL_TRUE;
                     }
                 }
@@ -2078,8 +2079,8 @@ int do_channel_routing_tests()
 
             for (mal_uint32 iChannelIn = 0; iChannelIn < routerConfig.channelsIn; ++iChannelIn) {
                 for (mal_uint32 iChannelOut = 0; iChannelOut < routerConfig.channelsOut; ++iChannelOut) {
-                    if (router.weights[iChannelIn][iChannelOut] != expectedWeights[iChannelIn][iChannelOut]) {
-                        printf("Failed. Channel weight incorrect for [%d][%d]. Expected %f, got %f\n", iChannelIn, iChannelOut, expectedWeights[iChannelIn][iChannelOut], router.weights[iChannelIn][iChannelOut]);
+                    if (router.config.weights[iChannelIn][iChannelOut] != expectedWeights[iChannelIn][iChannelOut]) {
+                        printf("Failed. Channel weight incorrect for [%d][%d]. Expected %f, got %f\n", iChannelIn, iChannelOut, expectedWeights[iChannelIn][iChannelOut], router.config.weights[iChannelIn][iChannelOut]);
                         hasError = MAL_TRUE;
                     }
                 }
