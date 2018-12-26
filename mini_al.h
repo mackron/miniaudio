@@ -195,6 +195,9 @@
 // #define MAL_NO_OPENSL
 //   Disables the OpenSL|ES backend.
 //
+// #define MAL_NO_WEBAUDIO
+//   Disables the Web Audio backend.
+//
 // #define MAL_NO_OPENAL
 //   Disables the OpenAL backend.
 //
@@ -1179,13 +1182,16 @@ void mal_interleave_pcm_frames(mal_format format, mal_uint32 channels, mal_uint6
 #if defined(MAL_APPLE)
     #define MAL_SUPPORT_COREAUDIO
 #endif
+#if defined(MAL_EMSCRIPTEN)
+    #define MAL_SUPPORT_WEBAUDIO
+#endif
 
 #define MAL_SUPPORT_SDL     // All platforms support SDL.
 
 // Explicitly disable OpenAL and Null backends for Emscripten because they both use a background thread which is not properly supported right now.
 #if !defined(MAL_EMSCRIPTEN)
 #define MAL_SUPPORT_OPENAL
-#define MAL_SUPPORT_NULL    // All platforms support the null backend.
+#define MAL_SUPPORT_NULL
 #endif
 
 
@@ -1222,6 +1228,9 @@ void mal_interleave_pcm_frames(mal_format format, mal_uint32 channels, mal_uint6
 #if !defined(MAL_NO_OPENSL) && defined(MAL_SUPPORT_OPENSL)
     #define MAL_ENABLE_OPENSL
 #endif
+#if !defined(MAL_NO_WEBAUDIO) && defined(MAL_SUPPORT_WEBAUDIO)
+    #define MAL_ENABLE_WEBAUDIO
+#endif
 #if !defined(MAL_NO_OPENAL) && defined(MAL_SUPPORT_OPENAL)
     #define MAL_ENABLE_OPENAL
 #endif
@@ -1257,6 +1266,7 @@ typedef enum
     mal_backend_audio4,
     mal_backend_oss,
     mal_backend_opensl,
+    mal_backend_webaudio,
     mal_backend_openal,
     mal_backend_sdl
 } mal_backend;
@@ -1292,7 +1302,6 @@ typedef struct
             pthread_t thread;
         } posix;
 #endif
-
         int _unused;
     };
 } mal_thread;
@@ -1315,7 +1324,6 @@ typedef struct
             pthread_mutex_t mutex;
         } posix;
 #endif
-
         int _unused;
     };
 } mal_mutex;
@@ -1340,7 +1348,6 @@ typedef struct
             mal_uint32 value;
         } posix;
 #endif
-
         int _unused;
     };
 } mal_event;
@@ -1400,6 +1407,9 @@ typedef union
 #endif
 #ifdef MAL_SUPPORT_OPENSL
     mal_uint32 opensl;              // OpenSL|ES uses a 32-bit unsigned integer for identification.
+#endif
+#ifdef MAL_SUPPORT_WEBAUDIO
+    int webaudio;                   // Web Audio always uses default devices for now.
 #endif
 #ifdef MAL_SUPPORT_OPENAL
     char openal[256];               // OpenAL seems to use human-readable device names as the ID.
@@ -1750,6 +1760,12 @@ struct mal_context
             int _unused;
         } opensl;
 #endif
+#ifdef MAL_SUPPORT_WEBAUDIO
+        struct
+        {
+            int _unused;
+        } webaudio;
+#endif
 #ifdef MAL_SUPPORT_OPENAL
         struct
         {
@@ -2074,6 +2090,12 @@ MAL_ALIGNED_STRUCT(MAL_SIMD_ALIGNMENT) mal_device
             mal_uint8* pBuffer;                 // This is malloc()'d and is used for storing audio data. Typed as mal_uint8 for easy offsetting.
         } opensl;
 #endif
+#ifdef MAL_SUPPORT_WEBAUDIO
+        struct
+        {
+            int _unused;
+        } webaudio;
+#endif
 #ifdef MAL_SUPPORT_OPENAL
         struct
         {
@@ -2130,6 +2152,7 @@ MAL_ALIGNED_STRUCT(MAL_SIMD_ALIGNMENT) mal_device
 //   - ALSA
 //   - JACK
 //   - OpenSL|ES
+//   - Web Audio / Emscripten
 //   - OpenAL
 //   - SDL
 //   - Null
@@ -3748,7 +3771,7 @@ mal_uint32 mal_get_standard_sample_rate_priority_index(mal_uint32 sampleRate)   
     #define MAL_HAS_AUDIO4      // When enabled, always assume audio(4) is available.
 #endif
 #ifdef MAL_ENABLE_OSS
-    #define MAL_HAS_OSS         // OSS is the only supported backend for Unix and BSD, so it must be present else this library is useless.
+    #define MAL_HAS_OSS
 #endif
 #ifdef MAL_ENABLE_OPENSL
     #define MAL_HAS_OPENSL      // OpenSL is the only supported backend for Android. It must be present.
@@ -3797,6 +3820,7 @@ const mal_backend g_malDefaultBackends[] = {
     mal_backend_alsa,
     mal_backend_jack,
     mal_backend_opensl,
+    mal_backend_webaudio,
     mal_backend_openal,
     mal_backend_sdl,
     mal_backend_null
@@ -3818,6 +3842,7 @@ const char* mal_get_backend_name(mal_backend backend)
         case mal_backend_audio4:     return "audio(4)";
         case mal_backend_oss:        return "OSS";
         case mal_backend_opensl:     return "OpenSL|ES";
+        case mal_backend_webaudio:   return "Web Audio";
         case mal_backend_openal:     return "OpenAL";
         case mal_backend_sdl:        return "SDL";
         default:                     return "Unknown";
@@ -18682,6 +18707,152 @@ mal_result mal_context_init__opensl(mal_context* pContext)
 }
 #endif  // OpenSL|ES
 
+
+///////////////////////////////////////////////////////////////////////////////
+//
+// OpenAL Backend
+//
+///////////////////////////////////////////////////////////////////////////////
+#ifdef MAL_HAS_WEBAUDIO
+#include <emscripten.h>
+
+mal_bool32 mal_context_is_device_id_equal__webaudio(mal_context* pContext, const mal_device_id* pID0, const mal_device_id* pID1)
+{
+    mal_assert(pContext != NULL);
+    mal_assert(pID0 != NULL);
+    mal_assert(pID1 != NULL);
+    (void)pContext;
+
+    return mal_strcmp(pID0->webaudio, pID1->webaudio) == 0;
+}
+
+mal_result mal_context_enumerate_devices__webaudio(mal_context* pContext, mal_enum_devices_callback_proc callback, void* pUserData)
+{
+    mal_assert(pContext != NULL);
+    mal_assert(callback != NULL);
+
+    // Only supporting default devices for now.
+    mal_bool32 cbResult = MAL_TRUE;
+
+    // Playback.
+    if (cbResult) {
+        mal_device_info deviceInfo;
+        mal_zero_object(&deviceInfo);
+        mal_strncpy_s(deviceInfo.name, sizeof(deviceInfo.name), MAL_DEFAULT_PLAYBACK_DEVICE_NAME, (size_t)-1);
+        cbResult = callback(pContext, mal_device_type_playback, &deviceInfo, pUserData);
+    }
+
+    // Capture.
+    if (cbResult) {
+        mal_device_info deviceInfo;
+        mal_zero_object(&deviceInfo);
+        mal_strncpy_s(deviceInfo.name, sizeof(deviceInfo.name), MAL_DEFAULT_CAPTURE_DEVICE_NAME, (size_t)-1);
+        cbResult = callback(pContext, mal_device_type_capture, &deviceInfo, pUserData);
+    }
+
+    return MAL_SUCCESS;
+}
+
+mal_result mal_context_get_device_info__webaudio(mal_context* pContext, mal_device_type deviceType, const mal_device_id* pDeviceID, mal_share_mode shareMode, mal_device_info* pDeviceInfo)
+{
+    mal_assert(pContext != NULL);
+    (void)shareMode;
+
+    pDeviceInfo->id.webaudio = 0;
+
+    // Only supporting default devices for now.
+    if (deviceType == mal_device_type_playback) {
+        mal_strncpy_s(pDeviceInfo->name, sizeof(pDeviceInfo->name), MAL_DEFAULT_PLAYBACK_DEVICE_NAME, (size_t)-1);
+    } else {
+        mal_strncpy_s(pDeviceInfo->name, sizeof(pDeviceInfo->name), MAL_DEFAULT_CAPTURE_DEVICE_NAME, (size_t)-1);
+    }
+
+    // Web Audio can support any number of channels and sample rates. It only supports f32 formats, however.
+    pDeviceInfo->minChannels   = 1;
+    pDeviceInfo->maxChannels   = MAL_MAX_CHANNELS;
+    if (pDeviceInfo->maxChannels > 32) {
+        pDeviceInfo->maxChannels = 32;  /* Maximum output channel count is 32 for createScriptProcessor() (JavaScript). */
+    }
+
+    pDeviceInfo->minSampleRate = MAL_MIN_SAMPLE_RATE;
+    pDeviceInfo->maxSampleRate = MAL_MAX_SAMPLE_RATE;
+    pDeviceInfo->formatCount   = 1;
+    pDeviceInfo->formats[0]    = mal_format_f32;
+
+    return MAL_SUCCESS;
+}
+
+
+void mal_device_uninit__webaudio(mal_device* pDevice)
+{
+    mal_assert(pDevice != NULL);
+
+
+}
+
+mal_result mal_device_init__webaudio(mal_context* pContext, mal_device_type type, const mal_device_id* pDeviceID, const mal_device_config* pConfig, mal_device* pDevice)
+{
+    if (pDevice->periods > MAL_MAX_PERIODS_OPENAL) {
+        pDevice->periods = MAL_MAX_PERIODS_OPENAL;
+    }
+
+    // Try calculating an appropriate default buffer size.
+    if (pDevice->bufferSizeInFrames == 0) {
+        pDevice->bufferSizeInFrames = mal_calculate_buffer_size_in_frames_from_milliseconds(pDevice->bufferSizeInMilliseconds, pDevice->sampleRate);
+        if (pDevice->usingDefaultBufferSize) {
+            float bufferSizeScaleFactor = 1;
+            pDevice->bufferSizeInFrames = mal_scale_buffer_size(pDevice->bufferSizeInFrames, bufferSizeScaleFactor);
+        }
+    }
+
+
+    return MAL_SUCCESS;
+}
+
+mal_result mal_device__start_backend__webaudio(mal_device* pDevice)
+{
+    mal_assert(pDevice != NULL);
+
+    // resume()
+    return MAL_SUCCESS;
+}
+
+mal_result mal_device__stop_backend__webaudio(mal_device* pDevice)
+{
+    mal_assert(pDevice != NULL);
+
+    // suspend()
+    return MAL_SUCCESS;
+}
+
+mal_result mal_context_uninit__webaudio(mal_context* pContext)
+{
+    mal_assert(pContext != NULL);
+    mal_assert(pContext->backend == mal_backend_webaudio);
+
+    return MAL_SUCCESS;
+}
+
+mal_result mal_context_init__webaudio(mal_context* pContext)
+{
+    mal_assert(pContext != NULL);
+
+    pContext->isBackendAsynchronous = MAL_TRUE;
+
+    pContext->onUninit              = mal_context_uninit__webaudio;
+    pContext->onDeviceIDEqual       = mal_context_is_device_id_equal__webaudio;
+    pContext->onEnumDevices         = mal_context_enumerate_devices__webaudio;
+    pContext->onGetDeviceInfo       = mal_context_get_device_info__webaudio;
+    pContext->onDeviceInit          = mal_device_init__webaudio;
+    pContext->onDeviceUninit        = mal_device_uninit__webaudio;
+    pContext->onDeviceStart         = mal_device__start_backend__webaudio;
+    pContext->onDeviceStop          = mal_device__stop_backend__webaudio;
+
+    return MAL_SUCCESS;
+}
+#endif  // Web Audio
+
+
 ///////////////////////////////////////////////////////////////////////////////
 //
 // OpenAL Backend
@@ -20519,6 +20690,12 @@ mal_result mal_context_init(const mal_backend backends[], mal_uint32 backendCoun
             case mal_backend_opensl:
             {
                 result = mal_context_init__opensl(pContext);
+            } break;
+        #endif
+        #ifdef MAL_HAS_WEBAUDIO
+            case mal_backend_webaudio:
+            {
+                result = mal_context_init__webaudio(pContext);
             } break;
         #endif
         #ifdef MAL_HAS_OPENAL
