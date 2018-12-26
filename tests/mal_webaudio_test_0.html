@@ -1,0 +1,207 @@
+<html>
+    <head>
+    </head>
+    <body>
+        This is a test of the Web Audio API
+        
+        <div id="Error" style="color:red">
+        </div>
+        
+        <div><b>Playback Devices</b></div>
+        <div id="PlaybackDevices">
+            [Playback Devices]
+        </div>
+        
+        <div><b>Capture Devices</b></div>
+        <div id="CaptureDevices">
+            [Capture Devices]
+        </div>
+        
+        <button id="btnStartPlayback">
+            Start Playback
+        </button>
+        <button id="btnStopPlayback">
+            Stop Playback
+        </button>
+        <button id="btnClosePlayback">
+            Close Playback
+        </button>
+    
+        <script>
+            var runningTime = 0.0;
+        
+            function mal_enum_devices(deviceType) {
+                if (deviceType !== 'audiooutput' && deviceType !== 'audioinput') {
+                    alert("Invalid device type: " + deviceType);
+                    return null;
+                }
+                
+                // Unfortunately the navigator.mediaDevices.enumerateDevices() API doesn't seem to be very well supported.
+                //   1) On Chrome and Opera the label is always an empty string
+                //   2) No devices are returned in Firefox.
+                //
+                // This is not a production quality solution right now. It's better to instead just assume default
+                // devices and output/input silence if they fail to open (if a microphone is not connected, for example).
+                var promise = new Promise(function(resolve, reject) {
+                    var devices = [];
+                    navigator.mediaDevices.enumerateDevices().then(function(deviceInfos) {
+                        for (var i = 0; i < deviceInfos.length; ++i) {
+                            if (deviceInfos[i].kind === deviceType) {
+                                devices.push(deviceInfos[i]);
+                            }
+                        }
+                        resolve(devices);
+                    }).catch(function(error) {
+                        reject("Failed to enumerate devices: " + error);
+                    });
+                });
+                
+                return promise;
+            }
+        
+            function mal_device_new(deviceType, deviceID) {
+                if (typeof(mal) === 'undefined') {
+                    return null;   // Context not initialized.
+                }
+                
+                // For now only default devices are being used. The device ID needs to be null.
+                if (deviceID != null) {
+                    return null;    // Only default devices are currently supported.
+                }
+                
+                if (deviceID == null) {
+                    deviceID = "";
+                }
+                
+                var device = {};
+                if (deviceType == 'audiooutput') {
+                    device.playback = {};
+                    device.playback.webaudioContext = new (window.AudioContext || window.webkitAudioContext)();
+                    device.playback.webaudioContext.suspend();  // mini_al always starts it's devices in a stopped state.
+                    
+                    var bufferSizeInFrames = 512;
+                    var inputChannelCount = 1;
+                    var outputChannelCount = 1;
+                    device.playback.scriptNode = device.playback.webaudioContext.createScriptProcessor(
+                        bufferSizeInFrames,
+                        inputChannelCount,
+                        outputChannelCount
+                    );
+                    device.playback.scriptNode.onaudioprocess = function(e) {
+                        var outputData = e.outputBuffer.getChannelData(0);
+                        for (var iFrame = 0; iFrame < e.outputBuffer.length; ++iFrame) {
+                            outputData[iFrame] = Math.sin((runningTime+(iFrame*6.28318530717958647693/44100.0)) * 400.0) * 0.25;
+                        }
+                        runningTime += (6.28318530717958647693*e.outputBuffer.length) / 44100.0;
+                    };
+                    device.playback.scriptNode.connect(device.playback.webaudioContext.destination);
+                } else if (deviceType == 'audioinput') {
+                    device.capture = {};
+                } else {
+                    return null;    // Unknown device type.
+                }
+                
+                return device;
+            }
+        
+            function mal_context_init() {
+                if ((window.AudioContext || window.webkitAudioContext) === undefined) {
+                    return 0;   // Web Audio not supported.
+                }
+            
+                if (typeof(mal) === 'undefined') {
+                    mal = {};
+                    mal.devices = [];   // Device cache for mapping devices to indexes for JS/C interop.
+                    
+                    // Returns the index of the device. Throws an exception on error.
+                    mal.track_device = function(device) {
+                        if (typeof(mal) === 'undefined') {
+                            throw "Context not initialized."
+                        }
+                        
+                        if (mal.devices === undefined) {
+                            mal.devices = [];
+                        }
+                        
+                        // Try inserting into a free slot first.
+                        for (var iDevice = 0; iDevice < mal.devices.length; ++iDevice) {
+                            if (mal.devices[iDevice] == null) {
+                                mal.devices[iDevice] = device;
+                                return iDevice;
+                            }
+                        }
+                        
+                        // Getting here means there is no empty slots in the array so we just push to the end.
+                        mal.devices.push(device);
+                        return mal.devices.length - 1;
+                    };
+                    
+                    mal.untrack_device = function(device) {
+                        // We just set the device's slot to null. The slot will get reused in the next call
+                        // to mal_track_device.
+                        for (var iDevice = 0; iDevice < mal.devices.length; ++iDevice) {
+                            if (mal.devices[iDevice] == device) {
+                                mal.devices[iDevice] = null;
+                            }
+                        }
+                        
+                        // Trim the array if possible.
+                        while (mal.devices.length > 0) {
+                            if (mal.devices[mal.devices.length-1] == null) {
+                                mal.devices.pop();
+                            } else {
+                                break;
+                            }
+                        }
+                    };
+                }
+                
+                return 1;
+            }
+        
+            window.onload = function() {
+                if (mal_context_init() != 1) {
+                    alert("Failed to initialize context.");
+                    return;
+                }
+                
+                // Unfortunately this doesn't seem to work too well. See comment in mal_enum_devices().
+                mal_enum_devices('audiooutput').then(function(outputDevices) {
+                    for (var iDevice = 0; iDevice < outputDevices.length; ++iDevice) {
+                        console.log("Output Device: ", JSON.stringify(outputDevices[iDevice]));
+                    }
+                }).catch(function(error) {
+                    console.log("Failed to retrieve output devices: ", error);
+                });
+                
+                mal_enum_devices('audioinput').then(function(inputDevices) {
+                    for (var iDevice = 0; iDevice < inputDevices.length; ++iDevice) {
+                        console.log("Input Device: ", JSON.stringify(inputDevices[iDevice]));
+                    }
+                }).catch(function(error) {
+                    console.log("Failed to retrieve input devices: ", error);
+                });
+                
+                
+                var device = mal_device_new('audiooutput', null);
+                
+                var btnStartPlayback = document.getElementById("btnStartPlayback");
+                btnStartPlayback.addEventListener('click', function() {
+                    device.playback.webaudioContext.resume();
+                });
+                
+                var btnStopPlayback = document.getElementById("btnStopPlayback");
+                btnStopPlayback.addEventListener('click', function() {
+                    device.playback.webaudioContext.suspend();
+                });
+                
+                var btnClosePlayback = document.getElementById("btnClosePlayback");
+                btnClosePlayback.addEventListener('click', function() {
+                    device.playback.webaudioContext.close();
+                });
+            }
+        </script>
+        
+        
+    </body>
+</html>
