@@ -27,6 +27,18 @@
             Close Playback
         </button>
     
+        <br/>
+    
+        <button id="btnStartCapture">
+            Start Capture
+        </button>
+        <button id="btnStopCapture">
+            Stop Capture
+        </button>
+        <button id="btnCloseCapture">
+            Close Capture
+        </button>
+    
         <script>
             var runningTime = 0.0;
         
@@ -73,56 +85,142 @@
                     deviceID = "";
                 }
                 
+                var bufferSizeInFrames = 512;
+                var sampleRate = 44100;
+                var channelCount = 2;
+                
                 var device = {};
+                
+                device.webaudioContext = new (window.AudioContext || window.webkitAudioContext)({
+                    latencyHint: 'interactive',
+                    sampleRate: sampleRate,
+                });
+                device.webaudioContext.suspend();  // mini_al always starts it's devices in a stopped state.
+                console.log("Sample Rate: " + device.webaudioContext.sampleRate);
+                
+                device.intermediaryBufferSizeInBytes = channelCount * bufferSizeInFrames * 4;
+                //device.intermediaryBuffer = Module._malloc(device.intermediaryBufferSizeInBytes);
+                device.intermediaryBuffer = new Float32Array(channelCount * bufferSizeInFrames);
+                
                 if (deviceType == 'audiooutput') {
                     device.playback = {};
-                    device.playback.webaudioContext = new (window.AudioContext || window.webkitAudioContext)();
-                    device.playback.webaudioContext.suspend();  // mini_al always starts it's devices in a stopped state.
-                    
-                    var bufferSizeInFrames = 512;
-                    var inputChannelCount = 1;
-                    var outputChannelCount = 1;
-                    device.playback.scriptNode = device.playback.webaudioContext.createScriptProcessor(
+                    device.playback.scriptNode = device.webaudioContext.createScriptProcessor(
                         bufferSizeInFrames,
-                        inputChannelCount,
-                        outputChannelCount
+                        channelCount,
+                        channelCount
                     );
                     device.playback.scriptNode.onaudioprocess = function(e) {
-                        var outputData = e.outputBuffer.getChannelData(0);
+                        // TODO: Don't do anything if we don't have an intermediary buffer. This means the device
+                        // was uninitialized.
+                    
+                        // The buffer we give to the client needs to be interleaved. After the client callback has returned
+                        // we deinterleave it.
+                        var requiredBufferLength = channelCount * e.outputBuffer.length;
+                        if (device.intermediaryBuffer.length < requiredBufferLength) {
+                            device.intermediaryBuffer = new Float32Array(requiredBufferLength);
+                        }
+                        
+                        // Here is where we get the client to fill the buffer with audio data.
+                        
+                        // TESTING: Output a sine wave to the speakers.
                         for (var iFrame = 0; iFrame < e.outputBuffer.length; ++iFrame) {
-                            outputData[iFrame] = Math.sin((runningTime+(iFrame*6.28318530717958647693/44100.0)) * 400.0) * 0.25;
+                            var value = Math.sin((runningTime+(iFrame*6.28318530717958647693/44100.0)) * 400.0) * 0.25;
+                            for (var iChannel = 0; iChannel < channelCount; ++iChannel) {
+                                device.intermediaryBuffer[iFrame*channelCount + iChannel] = value;
+                            }
                         }
                         runningTime += (6.28318530717958647693*e.outputBuffer.length) / 44100.0;
+                        
+                        // At this point the intermediary buffer should be filled with data. We now need to deinterleave
+                        // it and write it to the output buffer.
+                        for (var iChannel = 0; iChannel < channelCount; ++iChannel) {
+                            for (var iFrame = 0; iFrame < e.outputBuffer.length; ++iFrame) {
+                                e.outputBuffer.getChannelData(iChannel)[iFrame] = device.intermediaryBuffer[iFrame*channelCount + iChannel];
+                            }
+                        }
                     };
-                    device.playback.scriptNode.connect(device.playback.webaudioContext.destination);
+                    device.playback.scriptNode.connect(device.webaudioContext.destination);
                 } else if (deviceType == 'audioinput') {
                     device.capture = {};
+
+                    navigator.mediaDevices.getUserMedia({audio:true, video:false})
+                        .then(function(stream) {
+                            // We need to use ScriptProcessorNode instead of MediaRecorder because we need raw PCM data
+                            // rather than compressed data. Why is this not supported? Seriously...
+                            //
+                            // This way this works is that we connect the output of a MediaStreamSourceNode to the input
+                            // of a ScriptProcessorNode. The ScriptProcessorNode is connected to the AudioContext
+                            // destination, but instead of connecting the input to the output we just output silence.
+                            device.capture.streamNode = device.webaudioContext.createMediaStreamSource(stream);
+                            device.capture.scriptNode = device.webaudioContext.createScriptProcessor(
+                                bufferSizeInFrames,
+                                channelCount,
+                                channelCount
+                            );
+                            device.capture.scriptNode.onaudioprocess = function(e) {
+                                // The input buffer needs to be interleaved before sending to the client. We need to do
+                                // this in an intermediary buffer.
+                                var requiredBufferLength = e.inputBuffer.numberOfChannels * e.inputBuffer.length;
+                                if (device.intermediaryBuffer.length < requiredBufferLength) {
+                                    device.intermediaryBuffer = new Float32Array(requiredBufferLength);
+                                }
+                                
+                                for (var iFrame = 0; iFrame < e.inputBuffer.length; ++iFrame) {
+                                    for (var iChannel = 0; iChannel < e.inputBuffer.numberOfChannels; ++iChannel) {
+                                        device.intermediaryBuffer[iFrame*e.inputBuffer.numberOfChannels + iChannel] = e.inputBuffer.getChannelData(iChannel)[iFrame];
+                                    }
+                                }
+                                
+                                // At this point the input data has been interleaved and can be passed on to the client.
+                                
+                                
+                                // Always output silence.
+                                for (var iChannel = 0; iChannel < e.outputBuffer.numberOfChannels; ++iChannel) {
+                                    e.outputBuffer.getChannelData(iChannel).fill(0.0);
+                                }
+                                
+                                /*
+                                // TESTING: Write to the interleaved data to the output buffers.
+                                for (var iChannel = 0; iChannel < e.inputBuffer.numberOfChannels; ++iChannel) {
+                                    for (var iFrame = 0; iFrame < e.inputBuffer.length; ++iFrame) {
+                                        e.outputBuffer.getChannelData(iChannel)[iFrame] = device.intermediaryBuffer[iFrame*e.inputBuffer.numberOfChannels + iChannel];
+                                    }
+                                }
+                                */
+                            };
+                            device.capture.streamNode.connect(device.capture.scriptNode);
+                            device.capture.scriptNode.connect(device.webaudioContext.destination);
+                        })
+                        .catch(function(error) {
+                            // For now just do nothing, but later on we may want to periodically fire the callback with silence.
+                            console.log("No Stream.");
+                        });
                 } else {
                     return null;    // Unknown device type.
                 }
                 
                 return device;
             }
+            
+            function mal_device_delete(device) {
+                Module._free(device.intermediaryBuffer);
+            }
         
             function mal_context_init() {
                 if ((window.AudioContext || window.webkitAudioContext) === undefined) {
                     return 0;   // Web Audio not supported.
                 }
+                if (typeof(Float32Array) === 'undefined') {
+                    return 0;   // Float32Array not supported.
+                }
+                
             
                 if (typeof(mal) === 'undefined') {
                     mal = {};
-                    mal.devices = [];   // Device cache for mapping devices to indexes for JS/C interop.
+                    mal.devices = [];   // Device cache for mapping devices to indexes for JavaScript/C interop.
                     
                     // Returns the index of the device. Throws an exception on error.
                     mal.track_device = function(device) {
-                        if (typeof(mal) === 'undefined') {
-                            throw "Context not initialized."
-                        }
-                        
-                        if (mal.devices === undefined) {
-                            mal.devices = [];
-                        }
-                        
                         // Try inserting into a free slot first.
                         for (var iDevice = 0; iDevice < mal.devices.length; ++iDevice) {
                             if (mal.devices[iDevice] == null) {
@@ -136,14 +234,9 @@
                         return mal.devices.length - 1;
                     };
                     
-                    mal.untrack_device = function(device) {
-                        // We just set the device's slot to null. The slot will get reused in the next call
-                        // to mal_track_device.
-                        for (var iDevice = 0; iDevice < mal.devices.length; ++iDevice) {
-                            if (mal.devices[iDevice] == device) {
-                                mal.devices[iDevice] = null;
-                            }
-                        }
+                    mal.untrack_device_by_index = function(deviceIndex) {
+                        // We just set the device's slot to null. The slot will get reused in the next call to mal_track_device.
+                        mal.devices[iDevice] = null;
                         
                         // Trim the array if possible.
                         while (mal.devices.length > 0) {
@@ -153,6 +246,18 @@
                                 break;
                             }
                         }
+                    };
+                    
+                    mal.untrack_device = function(device) {
+                        for (var iDevice = 0; iDevice < mal.devices.length; ++iDevice) {
+                            if (mal.devices[iDevice] == device) {
+                                return mal.untrack_device_by_index(iDevice);
+                            }
+                        }
+                    };
+                    
+                    mal.get_device_by_index = function(deviceIndex) {
+                        return mal.devices[deviceIndex];
                     };
                 }
                 
@@ -165,6 +270,7 @@
                     return;
                 }
                 
+
                 // Unfortunately this doesn't seem to work too well. See comment in mal_enum_devices().
                 mal_enum_devices('audiooutput').then(function(outputDevices) {
                     for (var iDevice = 0; iDevice < outputDevices.length; ++iDevice) {
@@ -183,21 +289,38 @@
                 });
                 
                 
-                var device = mal_device_new('audiooutput', null);
-                
+                var outputDevice = mal_device_new('audiooutput', null);
+                var inputDevice = mal_device_new('audioinput', null);
+
                 var btnStartPlayback = document.getElementById("btnStartPlayback");
                 btnStartPlayback.addEventListener('click', function() {
-                    device.playback.webaudioContext.resume();
+                    outputDevice.webaudioContext.resume();
                 });
                 
                 var btnStopPlayback = document.getElementById("btnStopPlayback");
                 btnStopPlayback.addEventListener('click', function() {
-                    device.playback.webaudioContext.suspend();
+                    outputDevice.webaudioContext.suspend();
                 });
                 
                 var btnClosePlayback = document.getElementById("btnClosePlayback");
                 btnClosePlayback.addEventListener('click', function() {
-                    device.playback.webaudioContext.close();
+                    outputDevice.webaudioContext.close();
+                });
+                
+                
+                var btnStartCapture = document.getElementById("btnStartCapture");
+                btnStartCapture.addEventListener('click', function() {
+                    inputDevice.webaudioContext.resume();
+                });
+                
+                var btnStopCapture = document.getElementById("btnStopCapture");
+                btnStopCapture.addEventListener('click', function() {
+                    inputDevice.webaudioContext.suspend();
+                });
+                
+                var btnCloseCapture = document.getElementById("btnCloseCapture");
+                btnCloseCapture.addEventListener('click', function() {
+                    inputDevice.webaudioContext.close();
                 });
             }
         </script>
