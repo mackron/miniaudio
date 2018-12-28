@@ -277,7 +277,7 @@ void* load_raw_audio_data(const char* filePath, mal_format format, mal_uint64* p
     size_t fileSize;
     void* pFileData = open_and_read_file_data(filePath, &fileSize);
     if (pFileData == NULL) {
-        printf("Cound not open file %s\n", filePath);
+        printf("Could not open file %s\n", filePath);
         return NULL;
     }
 
