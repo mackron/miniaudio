@@ -24,6 +24,7 @@
 //   - audio(4) (NetBSD and OpenBSD)
 //   - OSS (FreeBSD)
 //   - OpenSL|ES (Android only)
+//   - Web Audio (Emscripten)
 //   - OpenAL
 //   - SDL2
 //   - Null (Silence)
