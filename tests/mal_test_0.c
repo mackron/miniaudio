@@ -34,6 +34,7 @@ mal_backend g_Backends[] = {
     mal_backend_alsa,
     mal_backend_jack,
     mal_backend_opensl,
+    mal_backend_webaudio,
     mal_backend_openal,
 #ifndef __linux__
     mal_backend_sdl,    // <-- SDL doesn't work properly for me on Linux due to a deadlock when enumerating capture devices when none are connected. Disabling for now.
