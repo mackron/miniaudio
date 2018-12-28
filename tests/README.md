@@ -16,4 +16,7 @@ work for me for some reason. Then, run the relevant batch file:
 
     mal_build_tests_emscripten.bat
     
-The output will be placed in the bin folder.
+The output will be placed in the bin folder. If you have output WASM it may not work when
+running the web page locally. To test you can run with something like this:
+
+    emrun bin/mal_test_0_emscripten.html
