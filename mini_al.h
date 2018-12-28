@@ -594,6 +594,7 @@ typedef enum
     mal_standard_channel_map_vorbis,
     mal_standard_channel_map_sound4,    // FreeBSD's sound(4).
     mal_standard_channel_map_sndio,     // www.sndio.org/tips.html
+    mal_standard_channel_map_webaudio = mal_standard_channel_map_flac, // https://webaudio.github.io/web-audio-api/#ChannelOrdering. Only 1, 2, 4 and 6 channels are defined, but can fill in the gaps with logical assumptions.
     mal_standard_channel_map_default = mal_standard_channel_map_microsoft
 } mal_standard_channel_map;
 
@@ -2093,7 +2094,7 @@ MAL_ALIGNED_STRUCT(MAL_SIMD_ALIGNMENT) mal_device
 #ifdef MAL_SUPPORT_WEBAUDIO
         struct
         {
-            int _unused;
+            int index;  /* We use a factory on the JavaScript side to manage devices and use an index for JS/C interop. */
         } webaudio;
 #endif
 #ifdef MAL_SUPPORT_OPENAL
@@ -18713,11 +18714,35 @@ mal_result mal_context_init__opensl(mal_context* pContext)
 
 ///////////////////////////////////////////////////////////////////////////////
 //
-// OpenAL Backend
+// Web Audio Backend
 //
 ///////////////////////////////////////////////////////////////////////////////
 #ifdef MAL_HAS_WEBAUDIO
 #include <emscripten/emscripten.h>
+
+mal_bool32 mal_is_capture_supported__webaudio()
+{
+    return EM_ASM_INT({
+        return (navigator.mediaDevices !== undefined && navigator.mediaDevices.getUserMedia !== undefined);
+    }) != 0;
+}
+
+#ifdef __cplusplus
+extern "C" {
+#endif
+EMSCRIPTEN_KEEPALIVE void mal_device_process_pcm_frames__webaudio(mal_device* pDevice, int frameCount, float* pFrames)
+{
+    if (pDevice->type == mal_device_type_playback) {
+        /* Playback. Write to pFrames. */
+        mal_device__read_frames_from_client(pDevice, (mal_uint32)frameCount, pFrames);
+    } else {
+        /* Capture. Read from pFrames. */
+        mal_device__send_frames_to_client(pDevice, (mal_uint32)frameCount, pFrames);
+    }
+}
+#ifdef __cplusplus
+}
+#endif
 
 mal_bool32 mal_context_is_device_id_equal__webaudio(mal_context* pContext, const mal_device_id* pID0, const mal_device_id* pID1)
 {
@@ -18747,10 +18772,12 @@ mal_result mal_context_enumerate_devices__webaudio(mal_context* pContext, mal_en
 
     // Capture.
     if (cbResult) {
-        mal_device_info deviceInfo;
-        mal_zero_object(&deviceInfo);
-        mal_strncpy_s(deviceInfo.name, sizeof(deviceInfo.name), MAL_DEFAULT_CAPTURE_DEVICE_NAME, (size_t)-1);
-        cbResult = callback(pContext, mal_device_type_capture, &deviceInfo, pUserData);
+        if (mal_is_capture_supported__webaudio()) {
+            mal_device_info deviceInfo;
+            mal_zero_object(&deviceInfo);
+            mal_strncpy_s(deviceInfo.name, sizeof(deviceInfo.name), MAL_DEFAULT_CAPTURE_DEVICE_NAME, (size_t)-1);
+            cbResult = callback(pContext, mal_device_type_capture, &deviceInfo, pUserData);
+        }
     }
 
     return MAL_SUCCESS;
@@ -18761,27 +18788,46 @@ mal_result mal_context_get_device_info__webaudio(mal_context* pContext, mal_devi
     mal_assert(pContext != NULL);
     (void)shareMode;
 
+    if (deviceType == mal_device_type_capture && !mal_is_capture_supported__webaudio()) {
+        return MAL_NO_DEVICE;
+    }
+
+
     mal_zero_memory(pDeviceInfo->id.webaudio, sizeof(pDeviceInfo->id.webaudio));
 
-    // Only supporting default devices for now.
+    /* Only supporting default devices for now. */
     if (deviceType == mal_device_type_playback) {
         mal_strncpy_s(pDeviceInfo->name, sizeof(pDeviceInfo->name), MAL_DEFAULT_PLAYBACK_DEVICE_NAME, (size_t)-1);
     } else {
         mal_strncpy_s(pDeviceInfo->name, sizeof(pDeviceInfo->name), MAL_DEFAULT_CAPTURE_DEVICE_NAME, (size_t)-1);
     }
 
-    // Web Audio can support any number of channels and sample rates. It only supports f32 formats, however.
-    pDeviceInfo->minChannels   = 1;
-    pDeviceInfo->maxChannels   = MAL_MAX_CHANNELS;
+    /* Web Audio can support any number of channels and sample rates. It only supports f32 formats, however. */
+    pDeviceInfo->minChannels = 1;
+    pDeviceInfo->maxChannels = MAL_MAX_CHANNELS;
     if (pDeviceInfo->maxChannels > 32) {
         pDeviceInfo->maxChannels = 32;  /* Maximum output channel count is 32 for createScriptProcessor() (JavaScript). */
     }
 
-    // TODO: Change this to the actual sample rate. Can maybe initialize a temporary AudioContext and read it's sampleRate parameter.
-    pDeviceInfo->minSampleRate = MAL_MIN_SAMPLE_RATE;
-    pDeviceInfo->maxSampleRate = MAL_MAX_SAMPLE_RATE;
-    pDeviceInfo->formatCount   = 1;
-    pDeviceInfo->formats[0]    = mal_format_f32;
+    /* We can query the sample rate by just using a temporary audio context. */
+    pDeviceInfo->minSampleRate = EM_ASM_INT({
+        try {
+            var temp = new (window.AudioContext || window.webkitAudioContext)();
+            var sampleRate = temp.sampleRate;
+            temp.close();
+            return sampleRate;
+        } catch {
+            return 0;
+        }
+    });
+    pDeviceInfo->maxSampleRate = pDeviceInfo->minSampleRate;
+    if (pDeviceInfo->minSampleRate == 0) {
+        return MAL_NO_DEVICE;
+    }
+
+    /* Web Audio only supports f32. */
+    pDeviceInfo->formatCount = 1;
+    pDeviceInfo->formats[0]  = mal_format_f32;
 
     return MAL_SUCCESS;
 }
@@ -18791,16 +18837,47 @@ void mal_device_uninit__webaudio(mal_device* pDevice)
 {
     mal_assert(pDevice != NULL);
 
+    EM_ASM({
+        var device = mal.get_device_by_index($0);
 
+        /* Make sure all nodes are disconnected and marked for collection. */
+        if (device.scriptNode !== undefined) {
+            device.scriptNode.onaudioprocess = function(e) {};  /* We want to reset the callback to ensure it doesn't get called after AudioContext.close() has returned. Shouldn't happen since we're disconnecting, but just to be safe... */
+            device.scriptNode.disconnect();
+            device.scriptNode = undefined;
+        }
+        if (device.streamNode !== undefined) {
+            device.streamNode.disconnect();
+            device.streamNode = undefined;
+        }
+
+        /*
+        Stop the device. I think there is a chance the callback could get fired after calling this, hence why we want
+        to clear the callback before closing.
+        */
+        device.webaudio.close();
+        device.webaudio = undefined;
+
+        /* Can't forget to free the intermediary buffer. This is the buffer that's shared between JavaScript and C. */
+        if (device.intermediaryBuffer !== undefined) {
+            Module._free(device.intermediaryBuffer);
+            device.intermediaryBuffer = undefined;
+            device.intermediaryBufferView = undefined;
+            device.intermediaryBufferSizeInBytes = undefined;
+        }
+
+        /* Make sure the device is untracked so the slot can be reused later. */
+        mal.untrack_device_by_index($0);
+    }, pDevice->webaudio.index, pDevice->type == mal_device_type_playback);
 }
 
-mal_result mal_device_init__webaudio(mal_context* pContext, mal_device_type type, const mal_device_id* pDeviceID, const mal_device_config* pConfig, mal_device* pDevice)
+mal_result mal_device_init__webaudio(mal_context* pContext, mal_device_type deviceType, const mal_device_id* pDeviceID, const mal_device_config* pConfig, mal_device* pDevice)
 {
-    if (pDevice->periods > MAL_MAX_PERIODS_OPENAL) {
-        pDevice->periods = MAL_MAX_PERIODS_OPENAL;
+    if (deviceType == mal_device_type_capture && !mal_is_capture_supported__webaudio()) {
+        return MAL_NO_DEVICE;
     }
 
-    // Try calculating an appropriate default buffer size.
+    /* Try calculating an appropriate default buffer size. */
     if (pDevice->bufferSizeInFrames == 0) {
         pDevice->bufferSizeInFrames = mal_calculate_buffer_size_in_frames_from_milliseconds(pDevice->bufferSizeInMilliseconds, pDevice->sampleRate);
         if (pDevice->usingDefaultBufferSize) {
@@ -18809,6 +18886,178 @@ mal_result mal_device_init__webaudio(mal_context* pContext, mal_device_type type
         }
     }
 
+    /* The size of the buffer must be a power of 2 and between 256 and 16384. */
+    if (pDevice->bufferSizeInFrames < 256) {
+        pDevice->bufferSizeInFrames = 256;
+    } else if (pDevice->bufferSizeInFrames > 16384) {
+        pDevice->bufferSizeInFrames = 16384;
+    } else {
+        pDevice->bufferSizeInFrames = mal_next_power_of_2(pDevice->bufferSizeInFrames);
+    }
+    
+    /* We create the device on the JavaScript side and reference it using an index. We use this to make it possible to reference the device between JavaScript and C. */
+    pDevice->webaudio.index = EM_ASM_INT({
+        var channels   = $0;
+        var sampleRate = $1;
+        var bufferSize = $2;    /* In PCM frames. */
+        var isPlayback = $3;
+        var pDevice    = $4;
+
+        if (typeof(mal) === 'undefined') {
+            return -1;  /* Context not initialized. */
+        }
+
+        var device = {};
+
+        /* The AudioContext must be created in a suspended state. */
+        device.webaudio = new (window.AudioContext || window.webkitAudioContext)({sampleRate:sampleRate});
+        device.webaudio.suspend();
+
+        /*
+        We need an intermediary buffer which we use for JavaScript and C interop. This buffer stores interleaved f32 PCM data. Because it's passed between
+        JavaScript and C it needs to be allocated and freed using Module._malloc() and Module._free().
+        */
+        device.intermediaryBufferSizeInBytes = channels * bufferSize * 4;
+        device.intermediaryBuffer = Module._malloc(device.intermediaryBufferSizeInBytes);
+        device.intermediaryBufferView = new Float32Array(Module.HEAPF32.buffer, device.intermediaryBuffer, device.intermediaryBufferSizeInBytes);
+
+        /*
+        Both playback and capture devices use a ScriptProcessorNode for performing per-sample operations.
+
+        ScriptProcessorNode is actually deprecated so this is likely to be temporary. The way this works for playback is very simple. You just set a callback
+        that's periodically fired, just like a normal audio callback function. But apparently this design is "flawed" and is now deprecated in favour of
+        something called AudioWorklets which _forces_ you to load a _separate_ .js file at run time... nice... Hopefully ScriptProcessorNode will continue to
+        work for years to come, but this may need to change to use AudioSourceBufferNode instead, which I think is what Emscripten uses for it's built-in SDL
+        implementation. I'll be avoiding that insane AudioWorklet API like the plague...
+
+        For capture it is a bit unintuitive. We use the ScriptProccessorNode _only_ to get the raw PCM data. It is connected to an AudioContext just like the
+        playback case, however we just output silence to the AudioContext instead of passing any real data. It would make more sense to me to use the
+        MediaRecorder API, but unfortunately you need to specify a MIME time (Opus, Vorbis, etc.) for the binary blob that's returned to the client, but I've
+        been unable to figure out how to get this as raw PCM. The closes I can think is to use the MIME type for WAV files and just parse it, but I don't know
+        how well this would work. Although ScriptProccessorNode is deprecated, in practice it seems to have pretty good browser support so I'm leaving it like
+        this for now. If anything knows how I could get raw PCM data using the MediaRecorder API please let me know!
+        */
+        device.scriptNode = device.webaudio.createScriptProcessor(bufferSize, channels, channels);
+
+        if (isPlayback) {
+            device.scriptNode.onaudioprocess = function(e) {
+                if (device.intermediaryBuffer === undefined) {
+                    return; /* This means the device has been uninitialized. */
+                }
+
+                var outputSilence = false;
+
+                /* Sanity check. This will never happen, right? */
+                if (e.outputBuffer.numberOfChannels != channels) {
+                    console.log("Playback: Channel count mismatch. " + e.outputBufer.numberOfChannels + " != " + channels + ". Outputting silence.");
+                    outputSilence = true;
+                    return;
+                }
+
+                /* This looped design guards against the situation where e.outputBuffer is a different size to the original buffer size. Should never happen in practice. */
+                var totalFramesProcessed = 0;
+                while (totalFramesProcessed < e.outputBuffer.length) {
+                    var framesRemaining = e.outputBuffer.length - totalFramesProcessed;
+                    var framesToProcess = framesRemaining;
+                    if (framesToProcess > (device.intermediaryBufferSizeInBytes/channels/4)) {
+                        framesToProcess = (device.intermediaryBufferSizeInBytes/channels/4);
+                    }
+
+                    /* Read data from the client into our intermediary buffer. */
+                    ccall("mal_device_process_pcm_frames__webaudio", "undefined", ["number", "number", "number"], [pDevice, framesToProcess, device.intermediaryBuffer]);
+
+                    /* At this point we'll have data in our intermediary buffer which we now need to deinterleave and copy over to the output buffers. */
+                    if (outputSilence) {
+                        for (var iChannel = 0; iChannel < e.outputBuffer.numberOfChannels; ++iChannel) {
+                            e.outputBuffer.getChannelData(iChannel).fill(0.0);
+                        }
+                    } else {
+                        for (var iChannel = 0; iChannel < e.outputBuffer.numberOfChannels; ++iChannel) {
+                            for (var iFrame = 0; iFrame < framesToProcess; ++iFrame) {
+                                e.outputBuffer.getChannelData(iChannel)[totalFramesProcessed + iFrame] = device.intermediaryBufferView[iFrame*channels + iChannel];
+                            }
+                        }
+                    }
+
+                    totalFramesProcessed += framesToProcess;
+                }
+            };
+
+            device.scriptNode.connect(device.webaudio.destination);
+        } else {
+            device.scriptNode.onaudioprocess = function(e) {
+                if (device.intermediaryBuffer === undefined) {
+                    return; /* This means the device has been uninitialized. */
+                }
+
+                /* Make sure silence it output to the AudioContext destination. Not doing this will cause sound to come out of the speakers! */
+                for (var iChannel = 0; iChannel < e.outputBuffer.numberOfChannels; ++iChannel) {
+                    e.outputBuffer.getChannelData(iChannel).fill(0.0);
+                }
+
+                /* There are some situations where we may want to send silence to the client. */
+                var sendSilence = false;
+                if (device.streamNode === undefined) {
+                    sendSilence = true;
+                }
+
+                /* Sanity check. This will never happen, right? */
+                if (e.inputBuffer.numberOfChannels != channels) {
+                    console.log("Capture: Channel count mismatch. " + e.inputBufer.numberOfChannels + " != " + channels + ". Sending silence.");
+                    sendSilence = true;
+                }
+
+                /* This looped design guards against the situation where e.inputBuffer is a different size to the original buffer size. Should never happen in practice. */
+                var totalFramesProcessed = 0;
+                while (totalFramesProcessed < e.inputBuffer.length) {
+                    var framesRemaining = e.inputBuffer.length - totalFramesProcessed;
+                    var framesToProcess = framesRemaining;
+                    if (framesToProcess > (device.intermediaryBufferSizeInBytes/channels/4)) {
+                        framesToProcess = (device.intermediaryBufferSizeInBytes/channels/4);
+                    }
+
+                    /* We need to do the reverse of the playback case. We need to interleave the input data and copy it into the intermediary buffer. Then we send it to the client. */
+                    if (sendSilence) {
+                        device.intermediaryBufferView.fill(0.0);
+                    } else {
+                        for (var iFrame = 0; iFrame < framesToProcess; ++iFrame) {
+                            for (var iChannel = 0; iChannel < e.inputBuffer.numberOfChannels; ++iChannel) {
+                                device.intermediaryBufferView[iFrame*channels + iChannel] = e.inputBuffer.getChannelData(iChannel)[totalFramesProcessed + iFrame];
+                            }
+                        }
+                    }
+
+                    /* Send data to the client from our intermediary buffer. */
+                    ccall("mal_device_process_pcm_frames__webaudio", "undefined", ["number", "number", "number"], [pDevice, framesToProcess, device.intermediaryBuffer]);
+
+                    totalFramesProcessed += framesToProcess;
+                }
+            };
+
+            navigator.mediaDevices.getUserMedia({audio:true, video:false})
+                .then(function(stream) {
+                    device.streamNode = device.webaudio.createMediaStreamSource(stream);
+                    device.streamNode.connect(device.scriptNode);
+                    device.scriptNode.connect(device.webaudio.destination);
+                })
+                .catch(function(error) {
+                    /* I think this should output silence... */
+                    device.scriptNode.connect(device.webaudio.destination);
+                });
+        }
+
+        return mal.track_device(device);
+    }, pConfig->channels, pConfig->sampleRate, pDevice->bufferSizeInFrames, deviceType == mal_device_type_playback, pDevice);
+
+    if (pDevice->webaudio.index < 0) {
+        return MAL_FAILED_TO_OPEN_BACKEND_DEVICE;
+    }
+
+    pDevice->internalFormat     = mal_format_f32;
+    pDevice->internalChannels   = pConfig->channels;
+    pDevice->internalSampleRate = EM_ASM_INT({ return mal.get_device_by_index($0).webaudio.sampleRate; }, pDevice->webaudio.index);
+    mal_get_standard_channel_map(mal_standard_channel_map_webaudio, pDevice->internalChannels, pDevice->internalChannelMap);
+    pDevice->periods            = 1;
 
     return MAL_SUCCESS;
 }
@@ -18817,7 +19066,10 @@ mal_result mal_device__start_backend__webaudio(mal_device* pDevice)
 {
     mal_assert(pDevice != NULL);
 
-    // resume()
+    EM_ASM({
+        mal.get_device_by_index($0).webaudio.resume();
+    }, pDevice->webaudio.index);
+
     return MAL_SUCCESS;
 }
 
@@ -18825,7 +19077,10 @@ mal_result mal_device__stop_backend__webaudio(mal_device* pDevice)
 {
     mal_assert(pDevice != NULL);
 
-    // suspend()
+    EM_ASM({
+        mal.get_device_by_index($0).webaudio.suspend();
+    }, pDevice->webaudio.index);
+
     return MAL_SUCCESS;
 }
 
@@ -18834,12 +19089,74 @@ mal_result mal_context_uninit__webaudio(mal_context* pContext)
     mal_assert(pContext != NULL);
     mal_assert(pContext->backend == mal_backend_webaudio);
 
+    /* Nothing needs to be done here. */
+    (void)pContext;
+
     return MAL_SUCCESS;
 }
 
 mal_result mal_context_init__webaudio(mal_context* pContext)
 {
     mal_assert(pContext != NULL);
+
+    /* Here is where our global JavaScript object is initialized. */
+    int resultFromJS = EM_ASM_INT({
+        if ((window.AudioContext || window.webkitAudioContext) === undefined) {
+            return 0;   /* Web Audio not supported. */
+        }
+
+        if (typeof(mal) === 'undefined') {
+            mal = {};
+            mal.devices = [];   /* Device cache for mapping devices to indexes for JavaScript/C interop. */
+                    
+            mal.track_device = function(device) {
+                /* Try inserting into a free slot first. */
+                for (var iDevice = 0; iDevice < mal.devices.length; ++iDevice) {
+                    if (mal.devices[iDevice] == null) {
+                        mal.devices[iDevice] = device;
+                        return iDevice;
+                    }
+                }
+                        
+                /* Getting here means there is no empty slots in the array so we just push to the end. */
+                mal.devices.push(device);
+                return mal.devices.length - 1;
+            };
+                    
+            mal.untrack_device_by_index = function(deviceIndex) {
+                /* We just set the device's slot to null. The slot will get reused in the next call to mal_track_device. */
+                mal.devices[deviceIndex] = null;
+                        
+                /* Trim the array if possible. */
+                while (mal.devices.length > 0) {
+                    if (mal.devices[mal.devices.length-1] == null) {
+                        mal.devices.pop();
+                    } else {
+                        break;
+                    }
+                }
+            };
+                    
+            mal.untrack_device = function(device) {
+                for (var iDevice = 0; iDevice < mal.devices.length; ++iDevice) {
+                    if (mal.devices[iDevice] == device) {
+                        return mal.untrack_device_by_index(iDevice);
+                    }
+                }
+            };
+                    
+            mal.get_device_by_index = function(deviceIndex) {
+                return mal.devices[deviceIndex];
+            };
+        }
+                
+        return 1;
+    });
+
+    if (resultFromJS != 1) {
+        return MAL_FAILED_TO_INIT_BACKEND;
+    }
+
 
     pContext->isBackendAsynchronous = MAL_TRUE;
 
