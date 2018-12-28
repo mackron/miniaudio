@@ -18817,7 +18817,7 @@ mal_result mal_context_get_device_info__webaudio(mal_context* pContext, mal_devi
             var sampleRate = temp.sampleRate;
             temp.close();
             return sampleRate;
-        } catch {
+        } catch(e) {
             return 0;
         }
     });
