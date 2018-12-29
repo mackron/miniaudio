@@ -1,16 +1,12 @@
 // Audio playback and capture library. Public domain. See "unlicense" statement at the end of this file.
-// mini_al - v0.8.14 - 2018-12-16
+// mini_al - v0.8.15 - 201x-xx-xx
 //
 // David Reid - davidreidsoftware@gmail.com
 
 // ABOUT
 // =====
-// mini_al is a small library for making it easy to connect to a playback or capture device and send
-// or receive data from that device.
-//
-// mini_al uses an asynchronous API. Every device is created with it's own thread, with audio data
-// being delivered to or from the device via a callback. Synchronous APIs are not supported in the
-// interest of keeping the library as simple and light-weight as possible.
+// mini_al is a single file library for audio playback and capture. It's written in C (compilable as
+// C++) and released into the public domain.
 //
 // Supported Backends:
 //   - WASAPI
@@ -23,10 +19,9 @@
 //   - sndio (OpenBSD)
 //   - audio(4) (NetBSD and OpenBSD)
 //   - OSS (FreeBSD)
+//   - AAudio (Android 8.0+)
 //   - OpenSL|ES (Android only)
 //   - Web Audio (Emscripten)
-//   - OpenAL
-//   - SDL2
 //   - Null (Silence)
 //
 // Supported Formats:
@@ -45,41 +40,10 @@
 //
 // You can then #include this file in other parts of the program as you would with any other header file.
 //
-// If you want to disable a specific backend, #define the appropriate MAL_NO_* option before the implementation.
-//
-// Note that GCC and Clang requires "-msse2", "-mavx2", etc. for SIMD optimizations.
-//
-//
-// Building for Windows
-// --------------------
-// The Windows build should compile clean on all popular compilers without the need to configure any include paths
-// nor link to any libraries.
-//
-// Building for macOS and iOS
-// --------------------------
-// The macOS build should compile clean without the need to download any dependencies or link to any libraries or
-// frameworks. The iOS build needs to be compiled as Objective-C (sorry) and will need to link the relevant frameworks
-// but should Just Work with Xcode.
-//
-// Building for Linux
-// ------------------
-// The Linux build only requires linking to -ldl, -lpthread and -lm. You do not need any development packages for any
-// of the supported backends.
-//
-// Building for BSD
-// ----------------
-// The BSD build only requires linking to -ldl, -lpthread and -lm. NetBSD uses audio(4), OpenBSD uses sndio and
-// FreeBSD uses OSS.
-//
-// Building for Android
-// --------------------
-// The Android build uses OpenSL|ES, and will require an appropriate API level that supports OpenSL|ES. mini_al has
-// been tested against API levels 16 and 21.
-//
-// Building for Emscripten
-// -----------------------
-// The Emscripten build uses SDL2 and requires "-s USE_SDL=2" on the command line.
-//
+// mini_al uses an asynchronous, callback based API. You initialize a device with a configuration (sample rate,
+// channel count, etc.) which includes the callback you want to use to handle data transmission to/from the
+// device. In the callback you either read from a data pointer in the case of playback or write to it in the case
+// of capture.
 //
 // Playback Example
 // ----------------
@@ -111,6 +75,42 @@
 //
 //
 //
+// If you want to disable a specific backend, #define the appropriate MAL_NO_* option before the implementation.
+//
+// Note that GCC and Clang requires "-msse2", "-mavx2", etc. for SIMD optimizations.
+//
+//
+// Building for Windows
+// --------------------
+// The Windows build should compile clean on all popular compilers without the need to configure any include paths
+// nor link to any libraries.
+//
+// Building for macOS and iOS
+// --------------------------
+// The macOS build should compile clean without the need to download any dependencies or link to any libraries or
+// frameworks. The iOS build needs to be compiled as Objective-C (sorry) and will need to link the relevant frameworks
+// but should Just Work with Xcode.
+//
+// Building for Linux
+// ------------------
+// The Linux build only requires linking to -ldl, -lpthread and -lm. You do not need any development packages.
+//
+// Building for BSD
+// ----------------
+// The BSD build only requires linking to -ldl, -lpthread and -lm. NetBSD uses audio(4), OpenBSD uses sndio and
+// FreeBSD uses OSS.
+//
+// Building for Android
+// --------------------
+// AAudio is the highest priority backend on Android. This should work out out of the box without needing any kind of
+// compiler configuration. Support for AAudio starts with Android 8 which means older versions will fall back to
+// OpenSL|ES which requires API level 16+.
+//
+// Building for Emscripten
+// -----------------------
+// The Emscripten build emits Web Audio JavaScript directly and should Just Work without any configuration.
+//
+//
 // NOTES
 // =====
 // - This library uses an asynchronous API for delivering and requesting audio data. Each device will have
@@ -127,7 +127,6 @@
 //   mode.
 //
 //
-//
 // BACKEND NUANCES
 // ===============
 //
@@ -141,7 +140,12 @@
 // -------
 // - To capture audio on Android, remember to add the RECORD_AUDIO permission to your manifest:
 //     <uses-permission android:name="android.permission.RECORD_AUDIO" />
-// - Only a single mal_context can be active at any given time. This is due to a limitation with OpenSL|ES.
+// - With OpenSL|ES, only a single mal_context can be active at any given time. This is due to a limitation with OpenSL|ES.
+// - With AAudio, only default devices are enumerated. This is due to AAudio not having an enumeration API (devices are
+//   enumerated through Java). You can however perform your own device enumeration through Java and then set the ID in the
+//   mal_device_id structure (mal_device_id.aaudio) and pass it to mal_device_init().
+// - The backend API will perform resampling where possible. The reason for this as opposed to using mini_al's built-in
+//   resampler is to take advantage of any potential device-specific optimizations the driver may implement.
 //
 // UWP
 // ---
@@ -153,6 +157,15 @@
 //               <DeviceCapability Name="microphone" />
 //           </Capabilities>
 //       </Package>
+//
+// Web Audio / Emscripten
+// ----------------------
+// - The first time a context is initialized it will create a global object called "mal" whose primary purpose is to act
+//   as a factory for device objects.
+// - Currently the Web Audio backend uses ScriptProcessorNode's, but this may need to change later as they've been deprecated.
+// - Google is implementing a policy in their browsers that prevent automatic media output without first receiving some kind
+//   of user input. See here for details: https://developers.google.com/web/updates/2017/09/autoplay-policy-changes. Starting
+//   the device may fail if you try to start playback without first handling some kind of user input.
 //
 // OpenAL
 // ------
@@ -2203,8 +2216,6 @@ MAL_ALIGNED_STRUCT(MAL_SIMD_ALIGNMENT) mal_device
 //   - AAudio
 //   - OpenSL|ES
 //   - Web Audio / Emscripten
-//   - OpenAL
-//   - SDL
 //   - Null
 //
 // <pConfig> is used to configure the context. Use the onLog config to set a callback for whenever a
@@ -29552,6 +29563,14 @@ mal_uint64 mal_sine_wave_read_ex(mal_sine_wave* pSineWave, mal_uint64 frameCount
 
 // REVISION HISTORY
 // ================
+//
+// v0.8.15 - 201x-xx-xx
+//   - Add Web Audio backend. This is used when compiling with Emscripten. The SDL backend, which was previously
+//     used for web support, will be removed in a future version.
+//   - Add AAudio backend (Android Audio). This is the new priority backend for Android. Support for AAudio starts
+//     with Android 8. OpenSL|ES is used as a fallback for older versions of Android.
+//   - Deprecate the OpenAL backend.
+//   - Deprecate the SDL backend.
 //
 // v0.8.14 - 2018-12-16
 //   - Core Audio: Fix a bug where the device state is not set correctly after stopping.
