@@ -4945,7 +4945,7 @@ mal_result mal_device_init__null(mal_context* pContext, mal_device_type type, co
     return MAL_SUCCESS;
 }
 
-mal_result mal_device__start_backend__null(mal_device* pDevice)
+mal_result mal_device_start__null(mal_device* pDevice)
 {
     mal_assert(pDevice != NULL);
 
@@ -4955,7 +4955,7 @@ mal_result mal_device__start_backend__null(mal_device* pDevice)
     return MAL_SUCCESS;
 }
 
-mal_result mal_device__stop_backend__null(mal_device* pDevice)
+mal_result mal_device_stop__null(mal_device* pDevice)
 {
     mal_assert(pDevice != NULL);
     (void)pDevice;
@@ -4963,7 +4963,7 @@ mal_result mal_device__stop_backend__null(mal_device* pDevice)
     return MAL_SUCCESS;
 }
 
-mal_result mal_device__break_main_loop__null(mal_device* pDevice)
+mal_result mal_device_break_main_loop__null(mal_device* pDevice)
 {
     mal_assert(pDevice != NULL);
 
@@ -5041,7 +5041,7 @@ mal_uint32 mal_device__wait_for_frames__null(mal_device* pDevice)
     return mal_device__get_available_frames__null(pDevice);
 }
 
-mal_result mal_device__main_loop__null(mal_device* pDevice)
+mal_result mal_device_main_loop__null(mal_device* pDevice)
 {
     mal_assert(pDevice != NULL);
 
@@ -5102,10 +5102,10 @@ mal_result mal_context_init__null(mal_context* pContext)
     pContext->onGetDeviceInfo       = mal_context_get_device_info__null;
     pContext->onDeviceInit          = mal_device_init__null;
     pContext->onDeviceUninit        = mal_device_uninit__null;
-    pContext->onDeviceStart         = mal_device__start_backend__null;
-    pContext->onDeviceStop          = mal_device__stop_backend__null;
-    pContext->onDeviceBreakMainLoop = mal_device__break_main_loop__null;
-    pContext->onDeviceMainLoop      = mal_device__main_loop__null;
+    pContext->onDeviceStart         = mal_device_start__null;
+    pContext->onDeviceStop          = mal_device_stop__null;
+    pContext->onDeviceBreakMainLoop = mal_device_break_main_loop__null;
+    pContext->onDeviceMainLoop      = mal_device_main_loop__null;
 
     // The null backend always works.
     return MAL_SUCCESS;
@@ -7071,7 +7071,7 @@ done:
     }
 }
 
-mal_result mal_device__start_backend__wasapi(mal_device* pDevice)
+mal_result mal_device_start__wasapi(mal_device* pDevice)
 {
     mal_assert(pDevice != NULL);
 
@@ -7099,7 +7099,7 @@ mal_result mal_device__start_backend__wasapi(mal_device* pDevice)
     return MAL_SUCCESS;
 }
 
-mal_result mal_device__stop_backend__wasapi(mal_device* pDevice)
+mal_result mal_device_stop__wasapi(mal_device* pDevice)
 {
     mal_assert(pDevice != NULL);
 
@@ -7121,7 +7121,7 @@ mal_result mal_device__stop_backend__wasapi(mal_device* pDevice)
     return MAL_SUCCESS;
 }
 
-mal_result mal_device__break_main_loop__wasapi(mal_device* pDevice)
+mal_result mal_device_break_main_loop__wasapi(mal_device* pDevice)
 {
     mal_assert(pDevice != NULL);
 
@@ -7241,7 +7241,7 @@ mal_result mal_device__wait_for_frames__wasapi(mal_device* pDevice, mal_uint32* 
     return mal_device__get_available_frames__wasapi(pDevice, pFrameCount);
 }
 
-mal_result mal_device__main_loop__wasapi(mal_device* pDevice)
+mal_result mal_device_main_loop__wasapi(mal_device* pDevice)
 {
     mal_assert(pDevice != NULL);
 
@@ -7355,10 +7355,10 @@ mal_result mal_context_init__wasapi(mal_context* pContext)
     pContext->onDeviceInit          = mal_device_init__wasapi;
     pContext->onDeviceUninit        = mal_device_uninit__wasapi;
     pContext->onDeviceReinit        = mal_device_reinit__wasapi;
-    pContext->onDeviceStart         = mal_device__start_backend__wasapi;
-    pContext->onDeviceStop          = mal_device__stop_backend__wasapi;
-    pContext->onDeviceBreakMainLoop = mal_device__break_main_loop__wasapi;
-    pContext->onDeviceMainLoop      = mal_device__main_loop__wasapi;
+    pContext->onDeviceStart         = mal_device_start__wasapi;
+    pContext->onDeviceStop          = mal_device_stop__wasapi;
+    pContext->onDeviceBreakMainLoop = mal_device_break_main_loop__wasapi;
+    pContext->onDeviceMainLoop      = mal_device_main_loop__wasapi;
 
     return result;
 }
@@ -8459,7 +8459,7 @@ mal_result mal_device_init__dsound(mal_context* pContext, mal_device_type type, 
 }
 
 
-mal_result mal_device__start_backend__dsound(mal_device* pDevice)
+mal_result mal_device_start__dsound(mal_device* pDevice)
 {
     mal_assert(pDevice != NULL);
 
@@ -8493,7 +8493,7 @@ mal_result mal_device__start_backend__dsound(mal_device* pDevice)
     return MAL_SUCCESS;
 }
 
-mal_result mal_device__stop_backend__dsound(mal_device* pDevice)
+mal_result mal_device_stop__dsound(mal_device* pDevice)
 {
     mal_assert(pDevice != NULL);
 
@@ -8512,7 +8512,7 @@ mal_result mal_device__stop_backend__dsound(mal_device* pDevice)
     return MAL_SUCCESS;
 }
 
-mal_result mal_device__break_main_loop__dsound(mal_device* pDevice)
+mal_result mal_device_break_main_loop__dsound(mal_device* pDevice)
 {
     mal_assert(pDevice != NULL);
 
@@ -8615,7 +8615,7 @@ mal_uint32 mal_device__wait_for_frames__dsound(mal_device* pDevice)
     return mal_device__get_available_frames__dsound(pDevice);
 }
 
-mal_result mal_device__main_loop__dsound(mal_device* pDevice)
+mal_result mal_device_main_loop__dsound(mal_device* pDevice)
 {
     mal_assert(pDevice != NULL);
 
@@ -8702,10 +8702,10 @@ mal_result mal_context_init__dsound(mal_context* pContext)
     pContext->onGetDeviceInfo       = mal_context_get_device_info__dsound;
     pContext->onDeviceInit          = mal_device_init__dsound;
     pContext->onDeviceUninit        = mal_device_uninit__dsound;
-    pContext->onDeviceStart         = mal_device__start_backend__dsound;
-    pContext->onDeviceStop          = mal_device__stop_backend__dsound;
-    pContext->onDeviceBreakMainLoop = mal_device__break_main_loop__dsound;
-    pContext->onDeviceMainLoop      = mal_device__main_loop__dsound;
+    pContext->onDeviceStart         = mal_device_start__dsound;
+    pContext->onDeviceStop          = mal_device_stop__dsound;
+    pContext->onDeviceBreakMainLoop = mal_device_break_main_loop__dsound;
+    pContext->onDeviceMainLoop      = mal_device_main_loop__dsound;
 
     return MAL_SUCCESS;
 }
@@ -9297,7 +9297,7 @@ on_error:
 }
 
 
-mal_result mal_device__start_backend__winmm(mal_device* pDevice)
+mal_result mal_device_start__winmm(mal_device* pDevice)
 {
     mal_assert(pDevice != NULL);
 
@@ -9365,7 +9365,7 @@ mal_result mal_device__start_backend__winmm(mal_device* pDevice)
     return MAL_SUCCESS;
 }
 
-mal_result mal_device__stop_backend__winmm(mal_device* pDevice)
+mal_result mal_device_stop__winmm(mal_device* pDevice)
 {
     mal_assert(pDevice != NULL);
 
@@ -9404,7 +9404,7 @@ mal_result mal_device__stop_backend__winmm(mal_device* pDevice)
     return MAL_SUCCESS;
 }
 
-mal_result mal_device__break_main_loop__winmm(mal_device* pDevice)
+mal_result mal_device_break_main_loop__winmm(mal_device* pDevice)
 {
     mal_assert(pDevice != NULL);
 
@@ -9414,7 +9414,7 @@ mal_result mal_device__break_main_loop__winmm(mal_device* pDevice)
     return MAL_SUCCESS;
 }
 
-mal_result mal_device__main_loop__winmm(mal_device* pDevice)
+mal_result mal_device_main_loop__winmm(mal_device* pDevice)
 {
     mal_assert(pDevice != NULL);
 
@@ -9566,10 +9566,10 @@ mal_result mal_context_init__winmm(mal_context* pContext)
     pContext->onGetDeviceInfo       = mal_context_get_device_info__winmm;
     pContext->onDeviceInit          = mal_device_init__winmm;
     pContext->onDeviceUninit        = mal_device_uninit__winmm;
-    pContext->onDeviceStart         = mal_device__start_backend__winmm;
-    pContext->onDeviceStop          = mal_device__stop_backend__winmm;
-    pContext->onDeviceBreakMainLoop = mal_device__break_main_loop__winmm;
-    pContext->onDeviceMainLoop      = mal_device__main_loop__winmm;
+    pContext->onDeviceStart         = mal_device_start__winmm;
+    pContext->onDeviceStop          = mal_device_stop__winmm;
+    pContext->onDeviceBreakMainLoop = mal_device_break_main_loop__winmm;
+    pContext->onDeviceMainLoop      = mal_device_main_loop__winmm;
 
     return MAL_SUCCESS;
 }
@@ -11098,7 +11098,7 @@ mal_result mal_device_init__alsa(mal_context* pContext, mal_device_type type, co
 }
 
 
-mal_result mal_device__start_backend__alsa(mal_device* pDevice)
+mal_result mal_device_start__alsa(mal_device* pDevice)
 {
     mal_assert(pDevice != NULL);
 
@@ -11129,7 +11129,7 @@ mal_result mal_device__start_backend__alsa(mal_device* pDevice)
     return MAL_SUCCESS;
 }
 
-mal_result mal_device__stop_backend__alsa(mal_device* pDevice)
+mal_result mal_device_stop__alsa(mal_device* pDevice)
 {
     mal_assert(pDevice != NULL);
 
@@ -11137,7 +11137,7 @@ mal_result mal_device__stop_backend__alsa(mal_device* pDevice)
     return MAL_SUCCESS;
 }
 
-mal_result mal_device__break_main_loop__alsa(mal_device* pDevice)
+mal_result mal_device_break_main_loop__alsa(mal_device* pDevice)
 {
     mal_assert(pDevice != NULL);
 
@@ -11150,7 +11150,7 @@ mal_result mal_device__break_main_loop__alsa(mal_device* pDevice)
     return MAL_SUCCESS;
 }
 
-mal_result mal_device__main_loop__alsa(mal_device* pDevice)
+mal_result mal_device_main_loop__alsa(mal_device* pDevice)
 {
     mal_assert(pDevice != NULL);
 
@@ -11376,10 +11376,10 @@ mal_result mal_context_init__alsa(mal_context* pContext)
     pContext->onGetDeviceInfo       = mal_context_get_device_info__alsa;
     pContext->onDeviceInit          = mal_device_init__alsa;
     pContext->onDeviceUninit        = mal_device_uninit__alsa;
-    pContext->onDeviceStart         = mal_device__start_backend__alsa;
-    pContext->onDeviceStop          = mal_device__stop_backend__alsa;
-    pContext->onDeviceBreakMainLoop = mal_device__break_main_loop__alsa;
-    pContext->onDeviceMainLoop      = mal_device__main_loop__alsa;
+    pContext->onDeviceStart         = mal_device_start__alsa;
+    pContext->onDeviceStop          = mal_device_stop__alsa;
+    pContext->onDeviceBreakMainLoop = mal_device_break_main_loop__alsa;
+    pContext->onDeviceMainLoop      = mal_device_main_loop__alsa;
 
     return MAL_SUCCESS;
 }
@@ -12887,7 +12887,7 @@ mal_result mal_device__cork_stream__pulse(mal_device* pDevice, int cork)
     return MAL_SUCCESS;
 }
 
-mal_result mal_device__start_backend__pulse(mal_device* pDevice)
+mal_result mal_device_start__pulse(mal_device* pDevice)
 {
     mal_assert(pDevice != NULL);
 
@@ -12919,7 +12919,7 @@ mal_result mal_device__start_backend__pulse(mal_device* pDevice)
     return MAL_SUCCESS;
 }
 
-mal_result mal_device__stop_backend__pulse(mal_device* pDevice)
+mal_result mal_device_stop__pulse(mal_device* pDevice)
 {
     mal_assert(pDevice != NULL);
 
@@ -12958,7 +12958,7 @@ mal_result mal_device__stop_backend__pulse(mal_device* pDevice)
     return MAL_SUCCESS;
 }
 
-mal_result mal_device__break_main_loop__pulse(mal_device* pDevice)
+mal_result mal_device_break_main_loop__pulse(mal_device* pDevice)
 {
     mal_assert(pDevice != NULL);
 
@@ -12971,7 +12971,7 @@ mal_result mal_device__break_main_loop__pulse(mal_device* pDevice)
     return MAL_SUCCESS;
 }
 
-mal_result mal_device__main_loop__pulse(mal_device* pDevice)
+mal_result mal_device_main_loop__pulse(mal_device* pDevice)
 {
     mal_assert(pDevice != NULL);
 
@@ -13164,10 +13164,10 @@ mal_result mal_context_init__pulse(mal_context* pContext)
     pContext->onGetDeviceInfo       = mal_context_get_device_info__pulse;
     pContext->onDeviceInit          = mal_device_init__pulse;
     pContext->onDeviceUninit        = mal_device_uninit__pulse;
-    pContext->onDeviceStart         = mal_device__start_backend__pulse;
-    pContext->onDeviceStop          = mal_device__stop_backend__pulse;
-    pContext->onDeviceBreakMainLoop = mal_device__break_main_loop__pulse;
-    pContext->onDeviceMainLoop      = mal_device__main_loop__pulse;
+    pContext->onDeviceStart         = mal_device_start__pulse;
+    pContext->onDeviceStop          = mal_device_stop__pulse;
+    pContext->onDeviceBreakMainLoop = mal_device_break_main_loop__pulse;
+    pContext->onDeviceMainLoop      = mal_device_main_loop__pulse;
 
     
     // Although we have found the libpulse library, it doesn't necessarily mean PulseAudio is useable. We need to initialize
@@ -13555,7 +13555,7 @@ mal_result mal_device_init__jack(mal_context* pContext, mal_device_type type, co
 }
 
 
-mal_result mal_device__start_backend__jack(mal_device* pDevice)
+mal_result mal_device_start__jack(mal_device* pDevice)
 {
     mal_assert(pDevice != NULL);
 
@@ -13604,7 +13604,7 @@ mal_result mal_device__start_backend__jack(mal_device* pDevice)
     return MAL_SUCCESS;
 }
 
-mal_result mal_device__stop_backend__jack(mal_device* pDevice)
+mal_result mal_device_stop__jack(mal_device* pDevice)
 {
     mal_assert(pDevice != NULL);
 
@@ -13725,8 +13725,8 @@ mal_result mal_context_init__jack(mal_context* pContext)
     pContext->onGetDeviceInfo = mal_context_get_device_info__jack;
     pContext->onDeviceInit    = mal_device_init__jack;
     pContext->onDeviceUninit  = mal_device_uninit__jack;
-    pContext->onDeviceStart   = mal_device__start_backend__jack;
-    pContext->onDeviceStop    = mal_device__stop_backend__jack;
+    pContext->onDeviceStart   = mal_device_start__jack;
+    pContext->onDeviceStop    = mal_device_stop__jack;
 
 
     // Getting here means the JACK library is installed, but it doesn't necessarily mean it's usable. We need to quickly test this by connecting
@@ -15812,7 +15812,7 @@ mal_result mal_device_init__coreaudio(mal_context* pContext, mal_device_type dev
 }
 
 
-mal_result mal_device__start_backend__coreaudio(mal_device* pDevice)
+mal_result mal_device_start__coreaudio(mal_device* pDevice)
 {
     mal_assert(pDevice != NULL);
     
@@ -15824,7 +15824,7 @@ mal_result mal_device__start_backend__coreaudio(mal_device* pDevice)
     return MAL_SUCCESS;
 }
 
-mal_result mal_device__stop_backend__coreaudio(mal_device* pDevice)
+mal_result mal_device_stop__coreaudio(mal_device* pDevice)
 {
     mal_assert(pDevice != NULL);
     
@@ -15959,8 +15959,8 @@ mal_result mal_context_init__coreaudio(mal_context* pContext)
     pContext->onGetDeviceInfo = mal_context_get_device_info__coreaudio;
     pContext->onDeviceInit    = mal_device_init__coreaudio;
     pContext->onDeviceUninit  = mal_device_uninit__coreaudio;
-    pContext->onDeviceStart   = mal_device__start_backend__coreaudio;
-    pContext->onDeviceStop    = mal_device__stop_backend__coreaudio;
+    pContext->onDeviceStart   = mal_device_start__coreaudio;
+    pContext->onDeviceStop    = mal_device_stop__coreaudio;
 
     return MAL_SUCCESS;
 }
@@ -16588,7 +16588,7 @@ mal_result mal_device_init__sndio(mal_context* pContext, mal_device_type deviceT
     return MAL_SUCCESS;
 }
 
-mal_result mal_device__start_backend__sndio(mal_device* pDevice)
+mal_result mal_device_start__sndio(mal_device* pDevice)
 {
     mal_assert(pDevice != NULL);
     
@@ -16617,7 +16617,7 @@ mal_result mal_device__start_backend__sndio(mal_device* pDevice)
     return MAL_SUCCESS;
 }
 
-mal_result mal_device__stop_backend__sndio(mal_device* pDevice)
+mal_result mal_device_stop__sndio(mal_device* pDevice)
 {
     mal_assert(pDevice != NULL);
 
@@ -16625,7 +16625,7 @@ mal_result mal_device__stop_backend__sndio(mal_device* pDevice)
     return MAL_SUCCESS;
 }
 
-mal_result mal_device__break_main_loop__sndio(mal_device* pDevice)
+mal_result mal_device_break_main_loop__sndio(mal_device* pDevice)
 {
     mal_assert(pDevice != NULL);
 
@@ -16633,7 +16633,7 @@ mal_result mal_device__break_main_loop__sndio(mal_device* pDevice)
     return MAL_SUCCESS;
 }
 
-mal_result mal_device__main_loop__sndio(mal_device* pDevice)
+mal_result mal_device_main_loop__sndio(mal_device* pDevice)
 {
     mal_assert(pDevice != NULL);
 
@@ -16727,10 +16727,10 @@ mal_result mal_context_init__sndio(mal_context* pContext)
     pContext->onGetDeviceInfo       = mal_context_get_device_info__sndio;
     pContext->onDeviceInit          = mal_device_init__sndio;
     pContext->onDeviceUninit        = mal_device_uninit__sndio;
-    pContext->onDeviceStart         = mal_device__start_backend__sndio;
-    pContext->onDeviceStop          = mal_device__stop_backend__sndio;
-    pContext->onDeviceBreakMainLoop = mal_device__break_main_loop__sndio;
-    pContext->onDeviceMainLoop      = mal_device__main_loop__sndio;
+    pContext->onDeviceStart         = mal_device_start__sndio;
+    pContext->onDeviceStop          = mal_device_stop__sndio;
+    pContext->onDeviceBreakMainLoop = mal_device_break_main_loop__sndio;
+    pContext->onDeviceMainLoop      = mal_device_main_loop__sndio;
 
     return MAL_SUCCESS;
 }
@@ -17256,7 +17256,7 @@ mal_result mal_device_init__audio4(mal_context* pContext, mal_device_type device
     return MAL_SUCCESS;
 }
 
-mal_result mal_device__start_backend__audio4(mal_device* pDevice)
+mal_result mal_device_start__audio4(mal_device* pDevice)
 {
     mal_assert(pDevice != NULL);
 
@@ -17285,7 +17285,7 @@ mal_result mal_device__start_backend__audio4(mal_device* pDevice)
     return MAL_SUCCESS;
 }
 
-mal_result mal_device__stop_backend__audio4(mal_device* pDevice)
+mal_result mal_device_stop__audio4(mal_device* pDevice)
 {
     mal_assert(pDevice != NULL);
 
@@ -17306,7 +17306,7 @@ mal_result mal_device__stop_backend__audio4(mal_device* pDevice)
     return MAL_SUCCESS;
 }
 
-mal_result mal_device__break_main_loop__audio4(mal_device* pDevice)
+mal_result mal_device_break_main_loop__audio4(mal_device* pDevice)
 {
     mal_assert(pDevice != NULL);
 
@@ -17352,7 +17352,7 @@ mal_result mal_device__wait__audio4(mal_device* pDevice)
     return MAL_SUCCESS;
 }
 
-mal_result mal_device__main_loop__audio4(mal_device* pDevice)
+mal_result mal_device_main_loop__audio4(mal_device* pDevice)
 {
     mal_assert(pDevice != NULL);
 
@@ -17441,10 +17441,10 @@ mal_result mal_context_init__audio4(mal_context* pContext)
     pContext->onGetDeviceInfo       = mal_context_get_device_info__audio4;
     pContext->onDeviceInit          = mal_device_init__audio4;
     pContext->onDeviceUninit        = mal_device_uninit__audio4;
-    pContext->onDeviceStart         = mal_device__start_backend__audio4;
-    pContext->onDeviceStop          = mal_device__stop_backend__audio4;
-    pContext->onDeviceBreakMainLoop = mal_device__break_main_loop__audio4;
-    pContext->onDeviceMainLoop      = mal_device__main_loop__audio4;
+    pContext->onDeviceStart         = mal_device_start__audio4;
+    pContext->onDeviceStop          = mal_device_stop__audio4;
+    pContext->onDeviceBreakMainLoop = mal_device_break_main_loop__audio4;
+    pContext->onDeviceMainLoop      = mal_device_main_loop__audio4;
 
     return MAL_SUCCESS;
 }
@@ -17795,7 +17795,7 @@ mal_result mal_device_init__oss(mal_context* pContext, mal_device_type type, con
 }
 
 
-mal_result mal_device__start_backend__oss(mal_device* pDevice)
+mal_result mal_device_start__oss(mal_device* pDevice)
 {
     mal_assert(pDevice != NULL);
 
@@ -17818,7 +17818,7 @@ mal_result mal_device__start_backend__oss(mal_device* pDevice)
     return MAL_SUCCESS;
 }
 
-mal_result mal_device__stop_backend__oss(mal_device* pDevice)
+mal_result mal_device_stop__oss(mal_device* pDevice)
 {
     mal_assert(pDevice != NULL);
 
@@ -17841,7 +17841,7 @@ mal_result mal_device__stop_backend__oss(mal_device* pDevice)
     return MAL_SUCCESS;
 }
 
-mal_result mal_device__break_main_loop__oss(mal_device* pDevice)
+mal_result mal_device_break_main_loop__oss(mal_device* pDevice)
 {
     mal_assert(pDevice != NULL);
 
@@ -17849,7 +17849,7 @@ mal_result mal_device__break_main_loop__oss(mal_device* pDevice)
     return MAL_SUCCESS;
 }
 
-mal_result mal_device__main_loop__oss(mal_device* pDevice)
+mal_result mal_device_main_loop__oss(mal_device* pDevice)
 {
     mal_assert(pDevice != NULL);
 
@@ -17920,10 +17920,10 @@ mal_result mal_context_init__oss(mal_context* pContext)
     pContext->onGetDeviceInfo       = mal_context_get_device_info__oss;
     pContext->onDeviceInit          = mal_device_init__oss;
     pContext->onDeviceUninit        = mal_device_uninit__oss;
-    pContext->onDeviceStart         = mal_device__start_backend__oss;
-    pContext->onDeviceStop          = mal_device__stop_backend__oss;
-    pContext->onDeviceBreakMainLoop = mal_device__break_main_loop__oss;
-    pContext->onDeviceMainLoop      = mal_device__main_loop__oss;
+    pContext->onDeviceStart         = mal_device_start__oss;
+    pContext->onDeviceStop          = mal_device_stop__oss;
+    pContext->onDeviceBreakMainLoop = mal_device_break_main_loop__oss;
+    pContext->onDeviceMainLoop      = mal_device_main_loop__oss;
 
     close(fd);
     return MAL_SUCCESS;
@@ -18267,7 +18267,7 @@ mal_result mal_device_init__aaudio(mal_context* pContext, mal_device_type type, 
     return MAL_SUCCESS;
 }
 
-mal_result mal_device__start_backend__aaudio(mal_device* pDevice)
+mal_result mal_device_start__aaudio(mal_device* pDevice)
 {
     mal_aaudio_result_t resultAA;
 
@@ -18298,7 +18298,7 @@ mal_result mal_device__start_backend__aaudio(mal_device* pDevice)
     return MAL_SUCCESS;
 }
 
-mal_result mal_device__stop_backend__aaudio(mal_device* pDevice)
+mal_result mal_device_stop__aaudio(mal_device* pDevice)
 {
     mal_aaudio_result_t resultAA;
 
@@ -18397,8 +18397,8 @@ mal_result mal_context_init__aaudio(mal_context* pContext)
     pContext->onGetDeviceInfo = mal_context_get_device_info__aaudio;
     pContext->onDeviceInit    = mal_device_init__aaudio;
     pContext->onDeviceUninit  = mal_device_uninit__aaudio;
-    pContext->onDeviceStart   = mal_device__start_backend__aaudio;
-    pContext->onDeviceStop    = mal_device__stop_backend__aaudio;
+    pContext->onDeviceStart   = mal_device_start__aaudio;
+    pContext->onDeviceStop    = mal_device_stop__aaudio;
 
     return MAL_SUCCESS;
 }
@@ -19117,7 +19117,7 @@ mal_result mal_device_init__opensl(mal_context* pContext, mal_device_type type, 
     return MAL_SUCCESS;
 }
 
-mal_result mal_device__start_backend__opensl(mal_device* pDevice)
+mal_result mal_device_start__opensl(mal_device* pDevice)
 {
     mal_assert(pDevice != NULL);
 
@@ -19162,7 +19162,7 @@ mal_result mal_device__start_backend__opensl(mal_device* pDevice)
     return MAL_SUCCESS;
 }
 
-mal_result mal_device__stop_backend__opensl(mal_device* pDevice)
+mal_result mal_device_stop__opensl(mal_device* pDevice)
 {
     mal_assert(pDevice != NULL);
 
@@ -19243,8 +19243,8 @@ mal_result mal_context_init__opensl(mal_context* pContext)
     pContext->onGetDeviceInfo = mal_context_get_device_info__opensl;
     pContext->onDeviceInit    = mal_device_init__opensl;
     pContext->onDeviceUninit  = mal_device_uninit__opensl;
-    pContext->onDeviceStart   = mal_device__start_backend__opensl;
-    pContext->onDeviceStop    = mal_device__stop_backend__opensl;
+    pContext->onDeviceStart   = mal_device_start__opensl;
+    pContext->onDeviceStop    = mal_device_stop__opensl;
 
     return MAL_SUCCESS;
 }
@@ -19601,7 +19601,7 @@ mal_result mal_device_init__webaudio(mal_context* pContext, mal_device_type devi
     return MAL_SUCCESS;
 }
 
-mal_result mal_device__start_backend__webaudio(mal_device* pDevice)
+mal_result mal_device_start__webaudio(mal_device* pDevice)
 {
     mal_assert(pDevice != NULL);
 
@@ -19612,7 +19612,7 @@ mal_result mal_device__start_backend__webaudio(mal_device* pDevice)
     return MAL_SUCCESS;
 }
 
-mal_result mal_device__stop_backend__webaudio(mal_device* pDevice)
+mal_result mal_device_stop__webaudio(mal_device* pDevice)
 {
     mal_assert(pDevice != NULL);
 
@@ -19710,8 +19710,8 @@ mal_result mal_context_init__webaudio(mal_context* pContext)
     pContext->onGetDeviceInfo       = mal_context_get_device_info__webaudio;
     pContext->onDeviceInit          = mal_device_init__webaudio;
     pContext->onDeviceUninit        = mal_device_uninit__webaudio;
-    pContext->onDeviceStart         = mal_device__start_backend__webaudio;
-    pContext->onDeviceStop          = mal_device__stop_backend__webaudio;
+    pContext->onDeviceStart         = mal_device_start__webaudio;
+    pContext->onDeviceStop          = mal_device_stop__webaudio;
 
     return MAL_SUCCESS;
 }
@@ -20323,7 +20323,7 @@ mal_result mal_device_init__openal(mal_context* pContext, mal_device_type type, 
     return MAL_SUCCESS;
 }
 
-mal_result mal_device__start_backend__openal(mal_device* pDevice)
+mal_result mal_device_start__openal(mal_device* pDevice)
 {
     mal_assert(pDevice != NULL);
 
@@ -20353,7 +20353,7 @@ mal_result mal_device__start_backend__openal(mal_device* pDevice)
     return MAL_SUCCESS;
 }
 
-mal_result mal_device__stop_backend__openal(mal_device* pDevice)
+mal_result mal_device_stop__openal(mal_device* pDevice)
 {
     mal_assert(pDevice != NULL);
 
@@ -20367,7 +20367,7 @@ mal_result mal_device__stop_backend__openal(mal_device* pDevice)
     return MAL_SUCCESS;
 }
 
-mal_result mal_device__break_main_loop__openal(mal_device* pDevice)
+mal_result mal_device_break_main_loop__openal(mal_device* pDevice)
 {
     mal_assert(pDevice != NULL);
 
@@ -20415,7 +20415,7 @@ mal_uint32 mal_device__wait_for_frames__openal(mal_device* pDevice)
     }
 }
 
-mal_result mal_device__main_loop__openal(mal_device* pDevice)
+mal_result mal_device_main_loop__openal(mal_device* pDevice)
 {
     mal_assert(pDevice != NULL);
 
@@ -20683,10 +20683,10 @@ mal_result mal_context_init__openal(mal_context* pContext)
     pContext->onGetDeviceInfo       = mal_context_get_device_info__openal;
     pContext->onDeviceInit          = mal_device_init__openal;
     pContext->onDeviceUninit        = mal_device_uninit__openal;
-    pContext->onDeviceStart         = mal_device__start_backend__openal;
-    pContext->onDeviceStop          = mal_device__stop_backend__openal;
-    pContext->onDeviceBreakMainLoop = mal_device__break_main_loop__openal;
-    pContext->onDeviceMainLoop      = mal_device__main_loop__openal;
+    pContext->onDeviceStart         = mal_device_start__openal;
+    pContext->onDeviceStop          = mal_device_stop__openal;
+    pContext->onDeviceBreakMainLoop = mal_device_break_main_loop__openal;
+    pContext->onDeviceMainLoop      = mal_device_main_loop__openal;
 
     return MAL_SUCCESS;
 }
@@ -21002,7 +21002,7 @@ mal_result mal_device_init__sdl(mal_context* pContext, mal_device_type type, con
     return MAL_SUCCESS;
 }
 
-mal_result mal_device__start_backend__sdl(mal_device* pDevice)
+mal_result mal_device_start__sdl(mal_device* pDevice)
 {
     mal_assert(pDevice != NULL);
 
@@ -21010,7 +21010,7 @@ mal_result mal_device__start_backend__sdl(mal_device* pDevice)
     return MAL_SUCCESS;
 }
 
-mal_result mal_device__stop_backend__sdl(mal_device* pDevice)
+mal_result mal_device_stop__sdl(mal_device* pDevice)
 {
     mal_assert(pDevice != NULL);
 
@@ -21093,8 +21093,8 @@ mal_result mal_context_init__sdl(mal_context* pContext)
     pContext->onGetDeviceInfo = mal_context_get_device_info__sdl;
     pContext->onDeviceInit    = mal_device_init__sdl;
     pContext->onDeviceUninit  = mal_device_uninit__sdl;
-    pContext->onDeviceStart   = mal_device__start_backend__sdl;
-    pContext->onDeviceStop    = mal_device__stop_backend__sdl;
+    pContext->onDeviceStart   = mal_device_start__sdl;
+    pContext->onDeviceStop    = mal_device_stop__sdl;
 
     return MAL_SUCCESS;
 }
