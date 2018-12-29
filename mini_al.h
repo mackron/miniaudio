@@ -1205,10 +1205,9 @@ void mal_interleave_pcm_frames(mal_format format, mal_uint32 channels, mal_uint6
     #define MAL_SUPPORT_WEBAUDIO
 #endif
 
-#define MAL_SUPPORT_SDL     // All platforms support SDL.
-
 // Explicitly disable OpenAL and Null backends for Emscripten because they both use a background thread which is not properly supported right now.
 #if !defined(MAL_EMSCRIPTEN)
+#define MAL_SUPPORT_SDL
 #define MAL_SUPPORT_OPENAL
 #define MAL_SUPPORT_NULL
 #endif

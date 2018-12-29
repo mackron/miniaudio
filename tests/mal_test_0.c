@@ -10,7 +10,6 @@
     #include "../extras/stb_vorbis.c"
 #endif
 
-#define MAL_NO_SDL
 #define MINI_AL_IMPLEMENTATION
 #include "../mini_al.h"
 
