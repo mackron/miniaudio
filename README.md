@@ -41,10 +41,9 @@ Backends
 - sndio (OpenBSD)
 - audio(4) (NetBSD and OpenBSD)
 - OSS (FreeBSD)
+- AAudio (Android 8.0+)
 - OpenSL|ES (Android only)
 - Web Audio (Emscripten)
-- OpenAL
-- SDL
 - Null (Silence)
 
 
