@@ -18083,6 +18083,9 @@ mal_result mal_open_stream__aaudio(mal_context* pContext, mal_device_type device
         /* TODO: Don't set the data callback when synchronous reading and writing is being used. */
         ((MAL_PFN_AAudioStreamBuilder_setFramesPerDataCallback)pContext->aaudio.AAudioStreamBuilder_setFramesPerDataCallback)(pBuilder, pConfig->bufferSizeInFrames / pConfig->periods);
         ((MAL_PFN_AAudioStreamBuilder_setDataCallback)pContext->aaudio.AAudioStreamBuilder_setDataCallback)(pBuilder, mal_stream_data_callback__aaudio, (void*)pDevice);
+
+        /* Not sure how this affects things, but since there's a mapping between mini_al's performance profiles and AAudio's performance modes, let go ahead and set it. */
+        ((MAL_PFN_AAudioStreamBuilder_setPerformanceMode)pContext->aaudio.AAudioStreamBuilder_setPerformanceMode)(pBuilder, (pConfig->performanceProfile == mal_performance_profile_low_latency) ? MAL_AAUDIO_PERFORMANCE_MODE_LOW_LATENCY : MAL_AAUDIO_PERFORMANCE_MODE_NONE);
     }
 
     resultAA = ((MAL_PFN_AAudioStreamBuilder_openStream)pContext->aaudio.AAudioStreamBuilder_openStream)(pBuilder, ppStream);
