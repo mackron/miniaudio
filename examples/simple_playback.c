@@ -18,7 +18,7 @@ mal_uint32 on_send_frames_to_device(mal_device* pDevice, mal_uint32 frameCount, 
         return 0;
     }
 
-    return (mal_uint32)mal_decoder_read(pDecoder, frameCount, pSamples);
+    return (mal_uint32)mal_decoder_read_pcm_frames(pDecoder, frameCount, pSamples);
 }
 
 int main(int argc, char** argv)
