@@ -1126,7 +1126,7 @@ mal_uint32 converter_test_interleaved_callback(mal_format_converter* pConverter,
 
     for (mal_uint32 iFrame = 0; iFrame < frameCount; iFrame += 1) {
         float sample;
-        mal_sine_wave_read(pSineWave, 1, &sample);
+        mal_sine_wave_read_f32(pSineWave, 1, &sample);
 
         for (mal_uint32 iChannel = 0; iChannel < pConverter->config.channels; iChannel += 1) {
             pFramesOutF32[iFrame*pConverter->config.channels + iChannel] = sample;
@@ -1141,7 +1141,7 @@ mal_uint32 converter_test_deinterleaved_callback(mal_format_converter* pConverte
     mal_sine_wave* pSineWave = (mal_sine_wave*)pUserData;
     mal_assert(pSineWave != NULL);
 
-    mal_sine_wave_read(pSineWave, frameCount, (float*)ppSamplesOut[0]);
+    mal_sine_wave_read_f32(pSineWave, frameCount, (float*)ppSamplesOut[0]);
 
     // Copy everything from the first channel over the others.
     for (mal_uint32 iChannel = 1; iChannel < pConverter->config.channels; iChannel += 1) {
@@ -2239,7 +2239,7 @@ mal_uint32 on_send__playback_test(mal_device* pDevice, mal_uint32 frameCount, vo
     mal_assert(pData != NULL);
 
 #if !defined(__EMSCRIPTEN__)
-    mal_uint64 framesRead = mal_decoder_read(pData->pDecoder, frameCount, pFrames);
+    mal_uint64 framesRead = mal_decoder_read_pcm_frames(pData->pDecoder, frameCount, pFrames);
     if (framesRead == 0) {
         mal_event_signal(&pData->endOfPlaybackEvent);
     }
