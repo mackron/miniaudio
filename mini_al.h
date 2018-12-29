@@ -2744,8 +2744,8 @@ typedef struct
 } mal_sine_wave;
 
 mal_result mal_sine_wave_init(double amplitude, double period, mal_uint32 sampleRate, mal_sine_wave* pSineWave);
-mal_uint64 mal_sine_wave_read(mal_sine_wave* pSineWave, mal_uint64 count, float* pSamples);
-mal_uint64 mal_sine_wave_read_ex(mal_sine_wave* pSineWave, mal_uint64 frameCount, mal_uint32 channels, mal_stream_layout layout, float** ppFrames);
+mal_uint64 mal_sine_wave_read_f32(mal_sine_wave* pSineWave, mal_uint64 count, float* pSamples);
+mal_uint64 mal_sine_wave_read_f32_ex(mal_sine_wave* pSineWave, mal_uint64 frameCount, mal_uint32 channels, mal_stream_layout layout, float** ppFrames);
 
 
 #ifdef __cplusplus
@@ -29539,12 +29539,12 @@ mal_result mal_sine_wave_init(double amplitude, double periodsPerSecond, mal_uin
     return MAL_SUCCESS;
 }
 
-mal_uint64 mal_sine_wave_read(mal_sine_wave* pSineWave, mal_uint64 count, float* pSamples)
+mal_uint64 mal_sine_wave_read_f32(mal_sine_wave* pSineWave, mal_uint64 count, float* pSamples)
 {
-    return mal_sine_wave_read_ex(pSineWave, count, 1, mal_stream_layout_interleaved, &pSamples);
+    return mal_sine_wave_read_f32_ex(pSineWave, count, 1, mal_stream_layout_interleaved, &pSamples);
 }
 
-mal_uint64 mal_sine_wave_read_ex(mal_sine_wave* pSineWave, mal_uint64 frameCount, mal_uint32 channels, mal_stream_layout layout, float** ppFrames)
+mal_uint64 mal_sine_wave_read_f32_ex(mal_sine_wave* pSineWave, mal_uint64 frameCount, mal_uint32 channels, mal_stream_layout layout, float** ppFrames)
 {
     if (pSineWave == NULL) {
         return 0;
