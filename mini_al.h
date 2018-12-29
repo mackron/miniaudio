@@ -28318,7 +28318,16 @@ mal_uint32 mal_decoder_internal_on_read_frames__flac(mal_dsp* pDSP, mal_uint32 f
     drflac* pFlac = (drflac*)pDecoder->pInternalDecoder;
     mal_assert(pFlac != NULL);
 
-    return (mal_uint32)drflac_read_pcm_frames_s32(pFlac, frameCount, (drflac_int32*)pSamplesOut);
+    switch (pDecoder->internalFormat) {
+        case mal_format_s16: return (mal_uint32)drflac_read_pcm_frames_s16(pFlac, frameCount, (drflac_int16*)pSamplesOut);
+        case mal_format_s32: return (mal_uint32)drflac_read_pcm_frames_s32(pFlac, frameCount, (drflac_int32*)pSamplesOut);
+        case mal_format_f32: return (mal_uint32)drflac_read_pcm_frames_f32(pFlac, frameCount,        (float*)pSamplesOut);
+        default: break;
+    }
+
+    // Should never get here. If we do, it means the internal format was not set correctly at initialization time.
+    mal_assert(MAL_FALSE);
+    return 0;
 }
 
 mal_result mal_decoder_init_flac__internal(const mal_decoder_config* pConfig, mal_decoder* pDecoder)
@@ -28337,8 +28346,15 @@ mal_result mal_decoder_init_flac__internal(const mal_decoder_config* pConfig, ma
     pDecoder->onUninit = mal_decoder_internal_on_uninit__flac;
     pDecoder->pInternalDecoder = pFlac;
 
-    // The internal format is always s32.
+    // dr_flac supports reading as s32, s16 and f32. Try to do a one-to-one mapping if possible, but fall back to s32 if not. s32 is the "native" FLAC format
+    // since it's the only one that's truly lossless.
     pDecoder->internalFormat = mal_format_s32;
+    if (pConfig->format == mal_format_s16) {
+        pDecoder->internalFormat = mal_format_s16;
+    } else if (pConfig->format == mal_format_f32) {
+        pDecoder->internalFormat = mal_format_f32;
+    }
+
     pDecoder->internalChannels = pFlac->channels;
     pDecoder->internalSampleRate = pFlac->sampleRate;
     mal_get_standard_channel_map(mal_standard_channel_map_flac, pDecoder->internalChannels, pDecoder->internalChannelMap);
