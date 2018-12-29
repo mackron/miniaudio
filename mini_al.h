@@ -18254,6 +18254,11 @@ mal_result mal_device__start_backend__aaudio(mal_device* pDevice)
         }
     }
 
+    mal_stop_proc onStop = pDevice->onStop;
+    if (onStop) {
+        onStop(pDevice);
+    }
+
     return MAL_SUCCESS;
 }
 
