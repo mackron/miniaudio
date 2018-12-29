@@ -1,271 +1,275 @@
-// Audio playback and capture library. Public domain. See "unlicense" statement at the end of this file.
-// mini_al - v0.8.15 - 201x-xx-xx
-//
-// David Reid - davidreidsoftware@gmail.com
+/*
+Audio playback and capture library. Public domain. See "unlicense" statement at the end of this file.
+mini_al - v0.8.15 - 201x-xx-xx
 
-// ABOUT
-// =====
-// mini_al is a single file library for audio playback and capture. It's written in C (compilable as
-// C++) and released into the public domain.
-//
-// Supported Backends:
-//   - WASAPI
-//   - DirectSound
-//   - WinMM
-//   - Core Audio (Apple)
-//   - ALSA
-//   - PulseAudio
-//   - JACK
-//   - sndio (OpenBSD)
-//   - audio(4) (NetBSD and OpenBSD)
-//   - OSS (FreeBSD)
-//   - AAudio (Android 8.0+)
-//   - OpenSL|ES (Android only)
-//   - Web Audio (Emscripten)
-//   - Null (Silence)
-//
-// Supported Formats:
-//   - Unsigned 8-bit PCM
-//   - Signed 16-bit PCM
-//   - Signed 24-bit PCM (tightly packed)
-//   - Signed 32-bit PCM
-//   - IEEE 32-bit floating point PCM
-//
-//
-// USAGE
-// =====
-// mini_al is a single-file library. To use it, do something like the following in one .c file.
-//   #define MINI_AL_IMPLEMENTATION
-//   #include "mini_al.h"
-//
-// You can then #include this file in other parts of the program as you would with any other header file.
-//
-// mini_al uses an asynchronous, callback based API. You initialize a device with a configuration (sample rate,
-// channel count, etc.) which includes the callback you want to use to handle data transmission to/from the
-// device. In the callback you either read from a data pointer in the case of playback or write to it in the case
-// of capture.
-//
-// Playback Example
-// ----------------
-//   mal_uint32 on_send_samples(mal_device* pDevice, mal_uint32 frameCount, void* pSamples)
-//   {
-//       // This callback is set at initialization time and will be called when a playback device needs more
-//       // data. You need to write as many frames as you can to pSamples (but no more than frameCount) and
-//       // then return the number of frames you wrote.
-//       //
-//       // The user data (pDevice->pUserData) is set by mal_device_init().
-//       return (mal_uint32)mal_decoder_read((mal_decoder*)pDevice->pUserData, frameCount, pSamples);
-//   }
-//
-//   ...
-//
-//   mal_device_config config = mal_device_config_init_playback(decoder.outputFormat, decoder.outputChannels, decoder.outputSampleRate, on_send_frames_to_device);
-//
-//   mal_device device;
-//   mal_result result = mal_device_init(NULL, mal_device_type_playback, NULL, &config, &decoder /*pUserData*/, &device);
-//   if (result != MAL_SUCCESS) {
-//       return -1;
-//   }
-//
-//   mal_device_start(&device);     // The device is sleeping by default so you'll need to start it manually.
-//
-//   ...
-//
-//   mal_device_uninit(&device);    // This will stop the device so no need to do that manually.
-//
-//
-//
-// If you want to disable a specific backend, #define the appropriate MAL_NO_* option before the implementation.
-//
-// Note that GCC and Clang requires "-msse2", "-mavx2", etc. for SIMD optimizations.
-//
-//
-// Building for Windows
-// --------------------
-// The Windows build should compile clean on all popular compilers without the need to configure any include paths
-// nor link to any libraries.
-//
-// Building for macOS and iOS
-// --------------------------
-// The macOS build should compile clean without the need to download any dependencies or link to any libraries or
-// frameworks. The iOS build needs to be compiled as Objective-C (sorry) and will need to link the relevant frameworks
-// but should Just Work with Xcode.
-//
-// Building for Linux
-// ------------------
-// The Linux build only requires linking to -ldl, -lpthread and -lm. You do not need any development packages.
-//
-// Building for BSD
-// ----------------
-// The BSD build only requires linking to -ldl, -lpthread and -lm. NetBSD uses audio(4), OpenBSD uses sndio and
-// FreeBSD uses OSS.
-//
-// Building for Android
-// --------------------
-// AAudio is the highest priority backend on Android. This should work out out of the box without needing any kind of
-// compiler configuration. Support for AAudio starts with Android 8 which means older versions will fall back to
-// OpenSL|ES which requires API level 16+.
-//
-// Building for Emscripten
-// -----------------------
-// The Emscripten build emits Web Audio JavaScript directly and should Just Work without any configuration.
-//
-//
-// NOTES
-// =====
-// - This library uses an asynchronous API for delivering and requesting audio data. Each device will have
-//   it's own worker thread which is managed by the library.
-// - If mal_device_init() is called with a device that's not aligned to the platform's natural alignment
-//   boundary (4 bytes on 32-bit, 8 bytes on 64-bit), it will _not_ be thread-safe. The reason for this
-//   is that it depends on members of mal_device being correctly aligned for atomic assignments.
-// - Sample data is always native-endian and interleaved. For example, mal_format_s16 means signed 16-bit
-//   integer samples, interleaved. Let me know if you need non-interleaved and I'll look into it.
-// - The sndio backend is currently only enabled on OpenBSD builds.
-// - The audio(4) backend is supported on OpenBSD, but you may need to disable sndiod before you can use it.
-// - If you are using the platform's default device, mini_al will try automatically switching the internal
-//   device when the device is unplugged. This feature is disabled when the device is opened in exclusive
-//   mode.
-//
-//
-// BACKEND NUANCES
-// ===============
-//
-// PulseAudio
-// ----------
-// - If you experience bad glitching/noise on Arch Linux, consider this fix from the Arch wiki:
-//     https://wiki.archlinux.org/index.php/PulseAudio/Troubleshooting#Glitches,_skips_or_crackling
-//   Alternatively, consider using a different backend such as ALSA.
-//
-// Android
-// -------
-// - To capture audio on Android, remember to add the RECORD_AUDIO permission to your manifest:
-//     <uses-permission android:name="android.permission.RECORD_AUDIO" />
-// - With OpenSL|ES, only a single mal_context can be active at any given time. This is due to a limitation with OpenSL|ES.
-// - With AAudio, only default devices are enumerated. This is due to AAudio not having an enumeration API (devices are
-//   enumerated through Java). You can however perform your own device enumeration through Java and then set the ID in the
-//   mal_device_id structure (mal_device_id.aaudio) and pass it to mal_device_init().
-// - The backend API will perform resampling where possible. The reason for this as opposed to using mini_al's built-in
-//   resampler is to take advantage of any potential device-specific optimizations the driver may implement.
-//
-// UWP
-// ---
-// - UWP only supports default playback and capture devices.
-// - UWP requires the Microphone capability to be enabled in the application's manifest (Package.appxmanifest):
-//       <Package ...>
-//           ...
-//           <Capabilities>
-//               <DeviceCapability Name="microphone" />
-//           </Capabilities>
-//       </Package>
-//
-// Web Audio / Emscripten
-// ----------------------
-// - The first time a context is initialized it will create a global object called "mal" whose primary purpose is to act
-//   as a factory for device objects.
-// - Currently the Web Audio backend uses ScriptProcessorNode's, but this may need to change later as they've been deprecated.
-// - Google is implementing a policy in their browsers that prevent automatic media output without first receiving some kind
-//   of user input. See here for details: https://developers.google.com/web/updates/2017/09/autoplay-policy-changes. Starting
-//   the device may fail if you try to start playback without first handling some kind of user input.
-//
-// OpenAL
-// ------
-// - Capture is not supported on iOS with OpenAL. Use the Core Audio backend instead.
-//
-//
-// OPTIONS
-// =======
-// #define these options before including this file.
-//
-// #define MAL_NO_WASAPI
-//   Disables the WASAPI backend.
-//
-// #define MAL_NO_DSOUND
-//   Disables the DirectSound backend.
-//
-// #define MAL_NO_WINMM
-//   Disables the WinMM backend.
-//
-// #define MAL_NO_ALSA
-//   Disables the ALSA backend.
-//
-// #define MAL_NO_PULSEAUDIO
-//   Disables the PulseAudio backend.
-//
-// #define MAL_NO_JACK
-//   Disables the JACK backend.
-//
-// #define MAL_NO_COREAUDIO
-//   Disables the Core Audio backend.
-//
-// #define MAL_NO_SNDIO
-//   Disables the sndio backend.
-//
-// #define MAL_NO_AUDIO4
-//   Disables the audio(4) backend.
-//
-// #define MAL_NO_OSS
-//   Disables the OSS backend.
-//
-// #define MAL_NO_AAUDIO
-//   Disables the AAudio backend.
-//
-// #define MAL_NO_OPENSL
-//   Disables the OpenSL|ES backend.
-//
-// #define MAL_NO_WEBAUDIO
-//   Disables the Web Audio backend.
-//
-// #define MAL_NO_OPENAL
-//   Disables the OpenAL backend.
-//
-// #define MAL_NO_SDL
-//   Disables the SDL backend.
-//
-// #define MAL_NO_NULL
-//   Disables the null backend.
-//
-// #define MAL_DEFAULT_PERIODS
-//   When a period count of 0 is specified when a device is initialized, it will default to this.
-//
-// #define MAL_BASE_BUFFER_SIZE_IN_MILLISECONDS_LOW_LATENCY
-// #define MAL_BASE_BUFFER_SIZE_IN_MILLISECONDS_CONSERVATIVE
-//   When a buffer size of 0 is specified when a device is initialized it will default to a buffer of this size, depending
-//   on the chosen performance profile. These can be increased or decreased depending on your specific requirements.
-//
-// #define MAL_NO_DECODING
-//   Disables the decoding APIs.
-//
-// #define MAL_NO_DEVICE_IO
-//   Disables playback and recording. This will disable mal_context and mal_device APIs. This is useful if you only want to
-//   use mini_al's data conversion and/or decoding APIs. 
-//
-// #define MAL_NO_STDIO
-//   Disables file IO APIs.
-//
-// #define MAL_NO_SSE2
-//   Disables SSE2 optimizations.
-//
-// #define MAL_NO_AVX2
-//   Disables AVX2 optimizations.
-//
-// #define MAL_NO_AVX512
-//   Disables AVX-512 optimizations.
-//
-// #define MAL_NO_NEON
-//   Disables NEON optimizations.
-//
-// #define MAL_LOG_LEVEL <Level>
-//   Sets the logging level. Set level to one of the following:
-//     MAL_LOG_LEVEL_VERBOSE
-//     MAL_LOG_LEVEL_INFO
-//     MAL_LOG_LEVEL_WARNING
-//     MAL_LOG_LEVEL_ERROR
-//
-// #define MAL_DEBUT_OUTPUT
-//   Enable printf() debug output.
-//
-// #ifndef MAL_COINIT_VALUE
-//   Windows only. The value to pass to internal calls to CoInitializeEx(). Defaults to COINIT_MULTITHREADED.
+David Reid - davidreidsoftware@gmail.com
+*/
+
+/*
+ABOUT
+=====
+mini_al is a single file library for audio playback and capture. It's written in C (compilable as
+C++) and released into the public domain.
+
+Supported Backends:
+  - WASAPI
+  - DirectSound
+  - WinMM
+  - Core Audio (Apple)
+  - ALSA
+  - PulseAudio
+  - JACK
+  - sndio (OpenBSD)
+  - audio(4) (NetBSD and OpenBSD)
+  - OSS (FreeBSD)
+  - AAudio (Android 8.0+)
+  - OpenSL|ES (Android only)
+  - Web Audio (Emscripten)
+  - Null (Silence)
+
+Supported Formats:
+  - Unsigned 8-bit PCM
+  - Signed 16-bit PCM
+  - Signed 24-bit PCM (tightly packed)
+  - Signed 32-bit PCM
+  - IEEE 32-bit floating point PCM
+
+
+USAGE
+=====
+mini_al is a single-file library. To use it, do something like the following in one .c file.
+  #define MINI_AL_IMPLEMENTATION
+  #include "mini_al.h"
+
+You can then #include this file in other parts of the program as you would with any other header file.
+
+mini_al uses an asynchronous, callback based API. You initialize a device with a configuration (sample rate,
+channel count, etc.) which includes the callback you want to use to handle data transmission to/from the
+device. In the callback you either read from a data pointer in the case of playback or write to it in the case
+of capture.
+
+Playback Example
+----------------
+  mal_uint32 on_send_samples(mal_device* pDevice, mal_uint32 frameCount, void* pSamples)
+  {
+      // This callback is set at initialization time and will be called when a playback device needs more
+      // data. You need to write as many frames as you can to pSamples (but no more than frameCount) and
+      // then return the number of frames you wrote.
+      //
+      // The user data (pDevice->pUserData) is set by mal_device_init().
+      return (mal_uint32)mal_decoder_read_pcm_frames((mal_decoder*)pDevice->pUserData, frameCount, pSamples);
+  }
+
+  ...
+
+  mal_device_config config = mal_device_config_init_playback(decoder.outputFormat, decoder.outputChannels, decoder.outputSampleRate, on_send_frames_to_device);
+
+  mal_device device;
+  mal_result result = mal_device_init(NULL, mal_device_type_playback, NULL, &config, &decoder, &device);
+  if (result != MAL_SUCCESS) {
+      return -1;
+  }
+
+  mal_device_start(&device);     // The device is sleeping by default so you'll need to start it manually.
+
+  ...
+
+  mal_device_uninit(&device);    // This will stop the device so no need to do that manually.
+
+
+
+If you want to disable a specific backend, #define the appropriate MAL_NO_* option before the implementation.
+
+Note that GCC and Clang requires "-msse2", "-mavx2", etc. for SIMD optimizations.
+
+
+Building for Windows
+--------------------
+The Windows build should compile clean on all popular compilers without the need to configure any include paths
+nor link to any libraries.
+
+Building for macOS and iOS
+--------------------------
+The macOS build should compile clean without the need to download any dependencies or link to any libraries or
+frameworks. The iOS build needs to be compiled as Objective-C (sorry) and will need to link the relevant frameworks
+but should Just Work with Xcode.
+
+Building for Linux
+------------------
+The Linux build only requires linking to -ldl, -lpthread and -lm. You do not need any development packages.
+
+Building for BSD
+----------------
+The BSD build only requires linking to -ldl, -lpthread and -lm. NetBSD uses audio(4), OpenBSD uses sndio and
+FreeBSD uses OSS.
+
+Building for Android
+--------------------
+AAudio is the highest priority backend on Android. This should work out out of the box without needing any kind of
+compiler configuration. Support for AAudio starts with Android 8 which means older versions will fall back to
+OpenSL|ES which requires API level 16+.
+
+Building for Emscripten
+-----------------------
+The Emscripten build emits Web Audio JavaScript directly and should Just Work without any configuration.
+
+
+NOTES
+=====
+- This library uses an asynchronous API for delivering and requesting audio data. Each device will have
+  it's own worker thread which is managed by the library.
+- If mal_device_init() is called with a device that's not aligned to the platform's natural alignment
+  boundary (4 bytes on 32-bit, 8 bytes on 64-bit), it will _not_ be thread-safe. The reason for this
+  is that it depends on members of mal_device being correctly aligned for atomic assignments.
+- Sample data is always native-endian and interleaved. For example, mal_format_s16 means signed 16-bit
+  integer samples, interleaved. Let me know if you need non-interleaved and I'll look into it.
+- The sndio backend is currently only enabled on OpenBSD builds.
+- The audio(4) backend is supported on OpenBSD, but you may need to disable sndiod before you can use it.
+- If you are using the platform's default device, mini_al will try automatically switching the internal
+  device when the device is unplugged. This feature is disabled when the device is opened in exclusive
+  mode.
+
+
+BACKEND NUANCES
+===============
+
+PulseAudio
+----------
+- If you experience bad glitching/noise on Arch Linux, consider this fix from the Arch wiki:
+    https://wiki.archlinux.org/index.php/PulseAudio/Troubleshooting#Glitches,_skips_or_crackling
+  Alternatively, consider using a different backend such as ALSA.
+
+Android
+-------
+- To capture audio on Android, remember to add the RECORD_AUDIO permission to your manifest:
+    <uses-permission android:name="android.permission.RECORD_AUDIO" />
+- With OpenSL|ES, only a single mal_context can be active at any given time. This is due to a limitation with OpenSL|ES.
+- With AAudio, only default devices are enumerated. This is due to AAudio not having an enumeration API (devices are
+  enumerated through Java). You can however perform your own device enumeration through Java and then set the ID in the
+  mal_device_id structure (mal_device_id.aaudio) and pass it to mal_device_init().
+- The backend API will perform resampling where possible. The reason for this as opposed to using mini_al's built-in
+  resampler is to take advantage of any potential device-specific optimizations the driver may implement.
+
+UWP
+---
+- UWP only supports default playback and capture devices.
+- UWP requires the Microphone capability to be enabled in the application's manifest (Package.appxmanifest):
+      <Package ...>
+          ...
+          <Capabilities>
+              <DeviceCapability Name="microphone" />
+          </Capabilities>
+      </Package>
+
+Web Audio / Emscripten
+----------------------
+- The first time a context is initialized it will create a global object called "mal" whose primary purpose is to act
+  as a factory for device objects.
+- Currently the Web Audio backend uses ScriptProcessorNode's, but this may need to change later as they've been deprecated.
+- Google is implementing a policy in their browsers that prevent automatic media output without first receiving some kind
+  of user input. See here for details: https://developers.google.com/web/updates/2017/09/autoplay-policy-changes. Starting
+  the device may fail if you try to start playback without first handling some kind of user input.
+
+OpenAL
+------
+- Capture is not supported on iOS with OpenAL. Use the Core Audio backend instead.
+
+
+OPTIONS
+=======
+#define these options before including this file.
+
+#define MAL_NO_WASAPI
+  Disables the WASAPI backend.
+
+#define MAL_NO_DSOUND
+  Disables the DirectSound backend.
+
+#define MAL_NO_WINMM
+  Disables the WinMM backend.
+
+#define MAL_NO_ALSA
+  Disables the ALSA backend.
+
+#define MAL_NO_PULSEAUDIO
+  Disables the PulseAudio backend.
+
+#define MAL_NO_JACK
+  Disables the JACK backend.
+
+#define MAL_NO_COREAUDIO
+  Disables the Core Audio backend.
+
+#define MAL_NO_SNDIO
+  Disables the sndio backend.
+
+#define MAL_NO_AUDIO4
+  Disables the audio(4) backend.
+
+#define MAL_NO_OSS
+  Disables the OSS backend.
+
+#define MAL_NO_AAUDIO
+  Disables the AAudio backend.
+
+#define MAL_NO_OPENSL
+  Disables the OpenSL|ES backend.
+
+#define MAL_NO_WEBAUDIO
+  Disables the Web Audio backend.
+
+#define MAL_NO_OPENAL
+  Disables the OpenAL backend.
+
+#define MAL_NO_SDL
+  Disables the SDL backend.
+
+#define MAL_NO_NULL
+  Disables the null backend.
+
+#define MAL_DEFAULT_PERIODS
+  When a period count of 0 is specified when a device is initialized, it will default to this.
+
+#define MAL_BASE_BUFFER_SIZE_IN_MILLISECONDS_LOW_LATENCY
+#define MAL_BASE_BUFFER_SIZE_IN_MILLISECONDS_CONSERVATIVE
+  When a buffer size of 0 is specified when a device is initialized it will default to a buffer of this size, depending
+  on the chosen performance profile. These can be increased or decreased depending on your specific requirements.
+
+#define MAL_NO_DECODING
+  Disables the decoding APIs.
+
+#define MAL_NO_DEVICE_IO
+  Disables playback and recording. This will disable mal_context and mal_device APIs. This is useful if you only want to
+  use mini_al's data conversion and/or decoding APIs. 
+
+#define MAL_NO_STDIO
+  Disables file IO APIs.
+
+#define MAL_NO_SSE2
+  Disables SSE2 optimizations.
+
+#define MAL_NO_AVX2
+  Disables AVX2 optimizations.
+
+#define MAL_NO_AVX512
+  Disables AVX-512 optimizations.
+
+#define MAL_NO_NEON
+  Disables NEON optimizations.
+
+#define MAL_LOG_LEVEL <Level>
+  Sets the logging level. Set level to one of the following:
+    MAL_LOG_LEVEL_VERBOSE
+    MAL_LOG_LEVEL_INFO
+    MAL_LOG_LEVEL_WARNING
+    MAL_LOG_LEVEL_ERROR
+
+#define MAL_DEBUT_OUTPUT
+  Enable printf() debug output.
+
+#ifndef MAL_COINIT_VALUE
+  Windows only. The value to pass to internal calls to CoInitializeEx(). Defaults to COINIT_MULTITHREADED.
+*/
 
 #ifndef mini_al_h
 #define mini_al_h
@@ -29578,255 +29582,256 @@ mal_uint64 mal_sine_wave_read_f32_ex(mal_sine_wave* pSineWave, mal_uint64 frameC
 
 #endif  // MINI_AL_IMPLEMENTATION
 
+/*
+REVISION HISTORY
+================
 
-// REVISION HISTORY
-// ================
-//
-// v0.8.15 - 201x-xx-xx
-//   - Add Web Audio backend. This is used when compiling with Emscripten. The SDL backend, which was previously
-//     used for web support, will be removed in a future version.
-//   - Add AAudio backend (Android Audio). This is the new priority backend for Android. Support for AAudio starts
-//     with Android 8. OpenSL|ES is used as a fallback for older versions of Android.
-//   - Deprecate the OpenAL backend.
-//   - Deprecate the SDL backend.
-//
-// v0.8.14 - 2018-12-16
-//   - Core Audio: Fix a bug where the device state is not set correctly after stopping.
-//   - Add support for custom weights to the channel router.
-//   - Update decoders to use updated APIs in dr_flac, dr_mp3 and dr_wav.
-//
-// v0.8.13 - 2018-12-04
-//   - Core Audio: Fix a bug with channel mapping.
-//   - Fix a bug with channel routing where the back/left and back/right channels have the wrong weight.
-//
-// v0.8.12 - 2018-11-27
-//   - Drop support for SDL 1.2. The Emscripten build now requires "-s USE_SDL=2".
-//   - Fix a linking error with ALSA.
-//   - Fix a bug on iOS where the device name is not set correctly.
-//
-// v0.8.11 - 2018-11-21
-//   - iOS bug fixes.
-//   - Minor tweaks to PulseAudio.
-//
-// v0.8.10 - 2018-10-21
-//   - Core Audio: Fix a hang when uninitializing a device.
-//   - Fix a bug where an incorrect value is returned from mal_device_stop().
-//
-// v0.8.9 - 2018-09-28
-//   - Fix a bug with the SDL backend where device initialization fails.
-//
-// v0.8.8 - 2018-09-14
-//   - Fix Linux build with the ALSA backend.
-//   - Minor documentation fix.
-//
-// v0.8.7 - 2018-09-12
-//   - Fix a bug with UWP detection.
-//
-// v0.8.6 - 2018-08-26
-//   - Automatically switch the internal device when the default device is unplugged. Note that this is still in the
-//     early stages and not all backends handle this the same way. As of this version, this will not detect a default
-//     device switch when changed from the operating system's audio preferences (unless the backend itself handles
-//     this automatically). This is not supported in exclusive mode.
-//   - WASAPI and Core Audio: Add support for stream routing. When the application is using a default device and the
-//     user switches the default device via the operating system's audio preferences, mini_al will automatically switch
-//     the internal device to the new default. This is not supported in exclusive mode.
-//   - WASAPI: Add support for hardware offloading via IAudioClient2. Only supported on Windows 8 and newer.
-//   - WASAPI: Add support for low-latency shared mode via IAudioClient3. Only supported on Windows 10 and newer.
-//   - Add support for compiling the UWP build as C.
-//   - mal_device_set_recv_callback() and mal_device_set_send_callback() have been deprecated. You must now set this
-//     when the device is initialized with mal_device_init*(). These will be removed in version 0.9.0.
-//
-// v0.8.5 - 2018-08-12
-//   - Add support for specifying the size of a device's buffer in milliseconds. You can still set the buffer size in
-//     frames if that suits you. When bufferSizeInFrames is 0, bufferSizeInMilliseconds will be used. If both are non-0
-//     then bufferSizeInFrames will take priority. If both are set to 0 the default buffer size is used.
-//   - Add support for the audio(4) backend to OpenBSD.
-//   - Fix a bug with the ALSA backend that was causing problems on Raspberry Pi. This significantly improves the
-//     Raspberry Pi experience.
-//   - Fix a bug where an incorrect number of samples is returned from sinc resampling.
-//   - Add support for setting the value to be passed to internal calls to CoInitializeEx().
-//   - WASAPI and WinMM: Stop the device when it is unplugged.
-//
-// v0.8.4 - 2018-08-06
-//   - Add sndio backend for OpenBSD.
-//   - Add audio(4) backend for NetBSD.
-//   - Drop support for the OSS backend on everything except FreeBSD and DragonFly BSD.
-//   - Formats are now native-endian (were previously little-endian).
-//   - Mark some APIs as deprecated:
-//     - mal_src_set_input_sample_rate() and mal_src_set_output_sample_rate() are replaced with mal_src_set_sample_rate().
-//     - mal_dsp_set_input_sample_rate() and mal_dsp_set_output_sample_rate() are replaced with mal_dsp_set_sample_rate().
-//   - Fix a bug when capturing using the WASAPI backend.
-//   - Fix some aliasing issues with resampling, specifically when increasing the sample rate.
-//   - Fix warnings.
-//
-// v0.8.3 - 2018-07-15
-//   - Fix a crackling bug when resampling in capture mode.
-//   - Core Audio: Fix a bug where capture does not work.
-//   - ALSA: Fix a bug where the worker thread can get stuck in an infinite loop.
-//   - PulseAudio: Fix a bug where mal_context_init() succeeds when PulseAudio is unusable.
-//   - JACK: Fix a bug where mal_context_init() succeeds when JACK is unusable.
-//
-// v0.8.2 - 2018-07-07
-//   - Fix a bug on macOS with Core Audio where the internal callback is not called.
-//
-// v0.8.1 - 2018-07-06
-//   - Fix compilation errors and warnings.
-//
-// v0.8 - 2018-07-05
-//   - Changed MAL_IMPLEMENTATION to MINI_AL_IMPLEMENTATION for consistency with other libraries. The old
-//     way is still supported for now, but you should update as it may be removed in the future.
-//   - API CHANGE: Replace device enumeration APIs. mal_enumerate_devices() has been replaced with
-//     mal_context_get_devices(). An additional low-level device enumration API has been introduced called
-//     mal_context_enumerate_devices() which uses a callback to report devices.
-//   - API CHANGE: Rename mal_get_sample_size_in_bytes() to mal_get_bytes_per_sample() and add
-//     mal_get_bytes_per_frame().
-//   - API CHANGE: Replace mal_device_config.preferExclusiveMode with mal_device_config.shareMode.
-//     - This new config can be set to mal_share_mode_shared (default) or mal_share_mode_exclusive.
-//   - API CHANGE: Remove excludeNullDevice from mal_context_config.alsa.
-//   - API CHANGE: Rename MAL_MAX_SAMPLE_SIZE_IN_BYTES to MAL_MAX_PCM_SAMPLE_SIZE_IN_BYTES.
-//   - API CHANGE: Change the default channel mapping to the standard Microsoft mapping.
-//   - API CHANGE: Remove backend-specific result codes.
-//   - API CHANGE: Changes to the format conversion APIs (mal_pcm_f32_to_s16(), etc.)
-//   - Add support for Core Audio (Apple).
-//   - Add support for PulseAudio.
-//     - This is the highest priority backend on Linux (higher priority than ALSA) since it is commonly
-//       installed by default on many of the popular distros and offer's more seamless integration on
-//       platforms where PulseAudio is used. In addition, if PulseAudio is installed and running (which
-//       is extremely common), it's better to just use PulseAudio directly rather than going through the
-//       "pulse" ALSA plugin (which is what the "default" ALSA device is likely set to).
-//   - Add support for JACK.
-//   - Remove dependency on asound.h for the ALSA backend. This means the ALSA development packages are no
-//     longer required to build mini_al.
-//   - Remove dependency on dsound.h for the DirectSound backend. This fixes build issues with some
-//     distributions of MinGW.
-//   - Remove dependency on audioclient.h for the WASAPI backend. This fixes build issues with some
-//     distributions of MinGW.
-//   - Add support for dithering to format conversion.
-//   - Add support for configuring the priority of the worker thread.
-//   - Add a sine wave generator.
-//   - Improve efficiency of sample rate conversion.
-//   - Introduce the notion of standard channel maps. Use mal_get_standard_channel_map().
-//   - Introduce the notion of default device configurations. A default config uses the same configuration
-//     as the backend's internal device, and as such results in a pass-through data transmission pipeline.
-//   - Add support for passing in NULL for the device config in mal_device_init(), which uses a default
-//     config. This requires manually calling mal_device_set_send/recv_callback().
-//   - Add support for decoding from raw PCM data (mal_decoder_init_raw(), etc.)
-//   - Make mal_device_init_ex() more robust.
-//   - Make some APIs more const-correct.
-//   - Fix errors with SDL detection on Apple platforms.
-//   - Fix errors with OpenAL detection.
-//   - Fix some memory leaks.
-//   - Fix a bug with opening decoders from memory.
-//   - Early work on SSE2, AVX2 and NEON optimizations.
-//   - Miscellaneous bug fixes.
-//   - Documentation updates.
-//
-// v0.7 - 2018-02-25
-//   - API CHANGE: Change mal_src_read_frames() and mal_dsp_read_frames() to use 64-bit sample counts.
-//   - Add decoder APIs for loading WAV, FLAC, Vorbis and MP3 files.
-//   - Allow opening of devices without a context.
-//     - In this case the context is created and managed internally by the device.
-//   - Change the default channel mapping to the same as that used by FLAC.
-//   - Fix build errors with macOS.
-//
-// v0.6c - 2018-02-12
-//   - Fix build errors with BSD/OSS.
-//
-// v0.6b - 2018-02-03
-//   - Fix some warnings when compiling with Visual C++.
-//
-// v0.6a - 2018-01-26
-//   - Fix errors with channel mixing when increasing the channel count.
-//   - Improvements to the build system for the OpenAL backend.
-//   - Documentation fixes.
-//
-// v0.6 - 2017-12-08
-//   - API CHANGE: Expose and improve mutex APIs. If you were using the mutex APIs before this version you'll
-//     need to update.
-//   - API CHANGE: SRC and DSP callbacks now take a pointer to a mal_src and mal_dsp object respectively.
-//   - API CHANGE: Improvements to event and thread APIs. These changes make these APIs more consistent.
-//   - Add support for SDL and Emscripten.
-//   - Simplify the build system further for when development packages for various backends are not installed.
-//     With this change, when the compiler supports __has_include, backends without the relevant development
-//     packages installed will be ignored. This fixes the build for old versions of MinGW.
-//   - Fixes to the Android build.
-//   - Add mal_convert_frames(). This is a high-level helper API for performing a one-time, bulk conversion of
-//     audio data to a different format.
-//   - Improvements to f32 -> u8/s16/s24/s32 conversion routines.
-//   - Fix a bug where the wrong value is returned from mal_device_start() for the OpenSL backend.
-//   - Fixes and improvements for Raspberry Pi.
-//   - Warning fixes.
-//
-// v0.5 - 2017-11-11
-//   - API CHANGE: The mal_context_init() function now takes a pointer to a mal_context_config object for
-//     configuring the context. The works in the same kind of way as the device config. The rationale for this
-//     change is to give applications better control over context-level properties, add support for backend-
-//     specific configurations, and support extensibility without breaking the API.
-//   - API CHANGE: The alsa.preferPlugHW device config variable has been removed since it's not really useful for
-//     anything anymore.
-//   - ALSA: By default, device enumeration will now only enumerate over unique card/device pairs. Applications
-//     can enable verbose device enumeration by setting the alsa.useVerboseDeviceEnumeration context config
-//     variable.
-//   - ALSA: When opening a device in shared mode (the default), the dmix/dsnoop plugin will be prioritized. If
-//     this fails it will fall back to the hw plugin. With this change the preferExclusiveMode config is now
-//     honored. Note that this does not happen when alsa.useVerboseDeviceEnumeration is set to true (see above)
-//     which is by design.
-//   - ALSA: Add support for excluding the "null" device using the alsa.excludeNullDevice context config variable.
-//   - ALSA: Fix a bug with channel mapping which causes an assertion to fail.
-//   - Fix errors with enumeration when pInfo is set to NULL.
-//   - OSS: Fix a bug when starting a device when the client sends 0 samples for the initial buffer fill.
-//
-// v0.4 - 2017-11-05
-//   - API CHANGE: The log callback is now per-context rather than per-device and as is thus now passed to
-//     mal_context_init(). The rationale for this change is that it allows applications to capture diagnostic
-//     messages at the context level. Previously this was only available at the device level.
-//   - API CHANGE: The device config passed to mal_device_init() is now const.
-//   - Added support for OSS which enables support on BSD platforms.
-//   - Added support for WinMM (waveOut/waveIn).
-//   - Added support for UWP (Universal Windows Platform) applications. Currently C++ only.
-//   - Added support for exclusive mode for selected backends. Currently supported on WASAPI.
-//   - POSIX builds no longer require explicit linking to libpthread (-lpthread).
-//   - ALSA: Explicit linking to libasound (-lasound) is no longer required.
-//   - ALSA: Latency improvements.
-//   - ALSA: Use MMAP mode where available. This can be disabled with the alsa.noMMap config.
-//   - ALSA: Use "hw" devices instead of "plughw" devices by default. This can be disabled with the
-//     alsa.preferPlugHW config.
-//   - WASAPI is now the highest priority backend on Windows platforms.
-//   - Fixed an error with sample rate conversion which was causing crackling when capturing.
-//   - Improved error handling.
-//   - Improved compiler support.
-//   - Miscellaneous bug fixes.
-//
-// v0.3 - 2017-06-19
-//   - API CHANGE: Introduced the notion of a context. The context is the highest level object and is required for
-//     enumerating and creating devices. Now, applications must first create a context, and then use that to
-//     enumerate and create devices. The reason for this change is to ensure device enumeration and creation is
-//     tied to the same backend. In addition, some backends are better suited to this design.
-//   - API CHANGE: Removed the rewinding APIs because they're too inconsistent across the different backends, hard
-//     to test and maintain, and just generally unreliable.
-//   - Added helper APIs for initializing mal_device_config objects.
-//   - Null Backend: Fixed a crash when recording.
-//   - Fixed build for UWP.
-//   - Added support for f32 formats to the OpenSL|ES backend.
-//   - Added initial implementation of the WASAPI backend.
-//   - Added initial implementation of the OpenAL backend.
-//   - Added support for low quality linear sample rate conversion.
-//   - Added early support for basic channel mapping.
-//
-// v0.2 - 2016-10-28
-//   - API CHANGE: Add user data pointer as the last parameter to mal_device_init(). The rationale for this
-//     change is to ensure the logging callback has access to the user data during initialization.
-//   - API CHANGE: Have device configuration properties be passed to mal_device_init() via a structure. Rationale:
-//     1) The number of parameters is just getting too much.
-//     2) It makes it a bit easier to add new configuration properties in the future. In particular, there's a
-//        chance there will be support added for backend-specific properties.
-//   - Dropped support for f64, A-law and Mu-law formats since they just aren't common enough to justify the
-//     added maintenance cost.
-//   - DirectSound: Increased the default buffer size for capture devices.
-//   - Added initial implementation of the OpenSL|ES backend.
-//
-// v0.1 - 2016-10-21
-//   - Initial versioned release.
+v0.8.15 - 201x-xx-xx
+  - Add Web Audio backend. This is used when compiling with Emscripten. The SDL backend, which was previously
+    used for web support, will be removed in a future version.
+  - Add AAudio backend (Android Audio). This is the new priority backend for Android. Support for AAudio starts
+    with Android 8. OpenSL|ES is used as a fallback for older versions of Android.
+  - Deprecate the OpenAL backend.
+  - Deprecate the SDL backend.
+
+v0.8.14 - 2018-12-16
+  - Core Audio: Fix a bug where the device state is not set correctly after stopping.
+  - Add support for custom weights to the channel router.
+  - Update decoders to use updated APIs in dr_flac, dr_mp3 and dr_wav.
+
+v0.8.13 - 2018-12-04
+  - Core Audio: Fix a bug with channel mapping.
+  - Fix a bug with channel routing where the back/left and back/right channels have the wrong weight.
+
+v0.8.12 - 2018-11-27
+  - Drop support for SDL 1.2. The Emscripten build now requires "-s USE_SDL=2".
+  - Fix a linking error with ALSA.
+  - Fix a bug on iOS where the device name is not set correctly.
+
+v0.8.11 - 2018-11-21
+  - iOS bug fixes.
+  - Minor tweaks to PulseAudio.
+
+v0.8.10 - 2018-10-21
+  - Core Audio: Fix a hang when uninitializing a device.
+  - Fix a bug where an incorrect value is returned from mal_device_stop().
+
+v0.8.9 - 2018-09-28
+  - Fix a bug with the SDL backend where device initialization fails.
+
+v0.8.8 - 2018-09-14
+  - Fix Linux build with the ALSA backend.
+  - Minor documentation fix.
+
+v0.8.7 - 2018-09-12
+  - Fix a bug with UWP detection.
+
+v0.8.6 - 2018-08-26
+  - Automatically switch the internal device when the default device is unplugged. Note that this is still in the
+    early stages and not all backends handle this the same way. As of this version, this will not detect a default
+    device switch when changed from the operating system's audio preferences (unless the backend itself handles
+    this automatically). This is not supported in exclusive mode.
+  - WASAPI and Core Audio: Add support for stream routing. When the application is using a default device and the
+    user switches the default device via the operating system's audio preferences, mini_al will automatically switch
+    the internal device to the new default. This is not supported in exclusive mode.
+  - WASAPI: Add support for hardware offloading via IAudioClient2. Only supported on Windows 8 and newer.
+  - WASAPI: Add support for low-latency shared mode via IAudioClient3. Only supported on Windows 10 and newer.
+  - Add support for compiling the UWP build as C.
+  - mal_device_set_recv_callback() and mal_device_set_send_callback() have been deprecated. You must now set this
+    when the device is initialized with mal_device_init*(). These will be removed in version 0.9.0.
+
+v0.8.5 - 2018-08-12
+  - Add support for specifying the size of a device's buffer in milliseconds. You can still set the buffer size in
+    frames if that suits you. When bufferSizeInFrames is 0, bufferSizeInMilliseconds will be used. If both are non-0
+    then bufferSizeInFrames will take priority. If both are set to 0 the default buffer size is used.
+  - Add support for the audio(4) backend to OpenBSD.
+  - Fix a bug with the ALSA backend that was causing problems on Raspberry Pi. This significantly improves the
+    Raspberry Pi experience.
+  - Fix a bug where an incorrect number of samples is returned from sinc resampling.
+  - Add support for setting the value to be passed to internal calls to CoInitializeEx().
+  - WASAPI and WinMM: Stop the device when it is unplugged.
+
+v0.8.4 - 2018-08-06
+  - Add sndio backend for OpenBSD.
+  - Add audio(4) backend for NetBSD.
+  - Drop support for the OSS backend on everything except FreeBSD and DragonFly BSD.
+  - Formats are now native-endian (were previously little-endian).
+  - Mark some APIs as deprecated:
+    - mal_src_set_input_sample_rate() and mal_src_set_output_sample_rate() are replaced with mal_src_set_sample_rate().
+    - mal_dsp_set_input_sample_rate() and mal_dsp_set_output_sample_rate() are replaced with mal_dsp_set_sample_rate().
+  - Fix a bug when capturing using the WASAPI backend.
+  - Fix some aliasing issues with resampling, specifically when increasing the sample rate.
+  - Fix warnings.
+
+v0.8.3 - 2018-07-15
+  - Fix a crackling bug when resampling in capture mode.
+  - Core Audio: Fix a bug where capture does not work.
+  - ALSA: Fix a bug where the worker thread can get stuck in an infinite loop.
+  - PulseAudio: Fix a bug where mal_context_init() succeeds when PulseAudio is unusable.
+  - JACK: Fix a bug where mal_context_init() succeeds when JACK is unusable.
+
+v0.8.2 - 2018-07-07
+  - Fix a bug on macOS with Core Audio where the internal callback is not called.
+
+v0.8.1 - 2018-07-06
+  - Fix compilation errors and warnings.
+
+v0.8 - 2018-07-05
+  - Changed MAL_IMPLEMENTATION to MINI_AL_IMPLEMENTATION for consistency with other libraries. The old
+    way is still supported for now, but you should update as it may be removed in the future.
+  - API CHANGE: Replace device enumeration APIs. mal_enumerate_devices() has been replaced with
+    mal_context_get_devices(). An additional low-level device enumration API has been introduced called
+    mal_context_enumerate_devices() which uses a callback to report devices.
+  - API CHANGE: Rename mal_get_sample_size_in_bytes() to mal_get_bytes_per_sample() and add
+    mal_get_bytes_per_frame().
+  - API CHANGE: Replace mal_device_config.preferExclusiveMode with mal_device_config.shareMode.
+    - This new config can be set to mal_share_mode_shared (default) or mal_share_mode_exclusive.
+  - API CHANGE: Remove excludeNullDevice from mal_context_config.alsa.
+  - API CHANGE: Rename MAL_MAX_SAMPLE_SIZE_IN_BYTES to MAL_MAX_PCM_SAMPLE_SIZE_IN_BYTES.
+  - API CHANGE: Change the default channel mapping to the standard Microsoft mapping.
+  - API CHANGE: Remove backend-specific result codes.
+  - API CHANGE: Changes to the format conversion APIs (mal_pcm_f32_to_s16(), etc.)
+  - Add support for Core Audio (Apple).
+  - Add support for PulseAudio.
+    - This is the highest priority backend on Linux (higher priority than ALSA) since it is commonly
+      installed by default on many of the popular distros and offer's more seamless integration on
+      platforms where PulseAudio is used. In addition, if PulseAudio is installed and running (which
+      is extremely common), it's better to just use PulseAudio directly rather than going through the
+      "pulse" ALSA plugin (which is what the "default" ALSA device is likely set to).
+  - Add support for JACK.
+  - Remove dependency on asound.h for the ALSA backend. This means the ALSA development packages are no
+    longer required to build mini_al.
+  - Remove dependency on dsound.h for the DirectSound backend. This fixes build issues with some
+    distributions of MinGW.
+  - Remove dependency on audioclient.h for the WASAPI backend. This fixes build issues with some
+    distributions of MinGW.
+  - Add support for dithering to format conversion.
+  - Add support for configuring the priority of the worker thread.
+  - Add a sine wave generator.
+  - Improve efficiency of sample rate conversion.
+  - Introduce the notion of standard channel maps. Use mal_get_standard_channel_map().
+  - Introduce the notion of default device configurations. A default config uses the same configuration
+    as the backend's internal device, and as such results in a pass-through data transmission pipeline.
+  - Add support for passing in NULL for the device config in mal_device_init(), which uses a default
+    config. This requires manually calling mal_device_set_send/recv_callback().
+  - Add support for decoding from raw PCM data (mal_decoder_init_raw(), etc.)
+  - Make mal_device_init_ex() more robust.
+  - Make some APIs more const-correct.
+  - Fix errors with SDL detection on Apple platforms.
+  - Fix errors with OpenAL detection.
+  - Fix some memory leaks.
+  - Fix a bug with opening decoders from memory.
+  - Early work on SSE2, AVX2 and NEON optimizations.
+  - Miscellaneous bug fixes.
+  - Documentation updates.
+
+v0.7 - 2018-02-25
+  - API CHANGE: Change mal_src_read_frames() and mal_dsp_read_frames() to use 64-bit sample counts.
+  - Add decoder APIs for loading WAV, FLAC, Vorbis and MP3 files.
+  - Allow opening of devices without a context.
+    - In this case the context is created and managed internally by the device.
+  - Change the default channel mapping to the same as that used by FLAC.
+  - Fix build errors with macOS.
+
+v0.6c - 2018-02-12
+  - Fix build errors with BSD/OSS.
+
+v0.6b - 2018-02-03
+  - Fix some warnings when compiling with Visual C++.
+
+v0.6a - 2018-01-26
+  - Fix errors with channel mixing when increasing the channel count.
+  - Improvements to the build system for the OpenAL backend.
+  - Documentation fixes.
+
+v0.6 - 2017-12-08
+  - API CHANGE: Expose and improve mutex APIs. If you were using the mutex APIs before this version you'll
+    need to update.
+  - API CHANGE: SRC and DSP callbacks now take a pointer to a mal_src and mal_dsp object respectively.
+  - API CHANGE: Improvements to event and thread APIs. These changes make these APIs more consistent.
+  - Add support for SDL and Emscripten.
+  - Simplify the build system further for when development packages for various backends are not installed.
+    With this change, when the compiler supports __has_include, backends without the relevant development
+    packages installed will be ignored. This fixes the build for old versions of MinGW.
+  - Fixes to the Android build.
+  - Add mal_convert_frames(). This is a high-level helper API for performing a one-time, bulk conversion of
+    audio data to a different format.
+  - Improvements to f32 -> u8/s16/s24/s32 conversion routines.
+  - Fix a bug where the wrong value is returned from mal_device_start() for the OpenSL backend.
+  - Fixes and improvements for Raspberry Pi.
+  - Warning fixes.
+
+v0.5 - 2017-11-11
+  - API CHANGE: The mal_context_init() function now takes a pointer to a mal_context_config object for
+    configuring the context. The works in the same kind of way as the device config. The rationale for this
+    change is to give applications better control over context-level properties, add support for backend-
+    specific configurations, and support extensibility without breaking the API.
+  - API CHANGE: The alsa.preferPlugHW device config variable has been removed since it's not really useful for
+    anything anymore.
+  - ALSA: By default, device enumeration will now only enumerate over unique card/device pairs. Applications
+    can enable verbose device enumeration by setting the alsa.useVerboseDeviceEnumeration context config
+    variable.
+  - ALSA: When opening a device in shared mode (the default), the dmix/dsnoop plugin will be prioritized. If
+    this fails it will fall back to the hw plugin. With this change the preferExclusiveMode config is now
+    honored. Note that this does not happen when alsa.useVerboseDeviceEnumeration is set to true (see above)
+    which is by design.
+  - ALSA: Add support for excluding the "null" device using the alsa.excludeNullDevice context config variable.
+  - ALSA: Fix a bug with channel mapping which causes an assertion to fail.
+  - Fix errors with enumeration when pInfo is set to NULL.
+  - OSS: Fix a bug when starting a device when the client sends 0 samples for the initial buffer fill.
+
+v0.4 - 2017-11-05
+  - API CHANGE: The log callback is now per-context rather than per-device and as is thus now passed to
+    mal_context_init(). The rationale for this change is that it allows applications to capture diagnostic
+    messages at the context level. Previously this was only available at the device level.
+  - API CHANGE: The device config passed to mal_device_init() is now const.
+  - Added support for OSS which enables support on BSD platforms.
+  - Added support for WinMM (waveOut/waveIn).
+  - Added support for UWP (Universal Windows Platform) applications. Currently C++ only.
+  - Added support for exclusive mode for selected backends. Currently supported on WASAPI.
+  - POSIX builds no longer require explicit linking to libpthread (-lpthread).
+  - ALSA: Explicit linking to libasound (-lasound) is no longer required.
+  - ALSA: Latency improvements.
+  - ALSA: Use MMAP mode where available. This can be disabled with the alsa.noMMap config.
+  - ALSA: Use "hw" devices instead of "plughw" devices by default. This can be disabled with the
+    alsa.preferPlugHW config.
+  - WASAPI is now the highest priority backend on Windows platforms.
+  - Fixed an error with sample rate conversion which was causing crackling when capturing.
+  - Improved error handling.
+  - Improved compiler support.
+  - Miscellaneous bug fixes.
+
+v0.3 - 2017-06-19
+  - API CHANGE: Introduced the notion of a context. The context is the highest level object and is required for
+    enumerating and creating devices. Now, applications must first create a context, and then use that to
+    enumerate and create devices. The reason for this change is to ensure device enumeration and creation is
+    tied to the same backend. In addition, some backends are better suited to this design.
+  - API CHANGE: Removed the rewinding APIs because they're too inconsistent across the different backends, hard
+    to test and maintain, and just generally unreliable.
+  - Added helper APIs for initializing mal_device_config objects.
+  - Null Backend: Fixed a crash when recording.
+  - Fixed build for UWP.
+  - Added support for f32 formats to the OpenSL|ES backend.
+  - Added initial implementation of the WASAPI backend.
+  - Added initial implementation of the OpenAL backend.
+  - Added support for low quality linear sample rate conversion.
+  - Added early support for basic channel mapping.
+
+v0.2 - 2016-10-28
+  - API CHANGE: Add user data pointer as the last parameter to mal_device_init(). The rationale for this
+    change is to ensure the logging callback has access to the user data during initialization.
+  - API CHANGE: Have device configuration properties be passed to mal_device_init() via a structure. Rationale:
+    1) The number of parameters is just getting too much.
+    2) It makes it a bit easier to add new configuration properties in the future. In particular, there's a
+       chance there will be support added for backend-specific properties.
+  - Dropped support for f64, A-law and Mu-law formats since they just aren't common enough to justify the
+    added maintenance cost.
+  - DirectSound: Increased the default buffer size for capture devices.
+  - Added initial implementation of the OpenSL|ES backend.
+
+v0.1 - 2016-10-21
+  - Initial versioned release.
+*/
 
 
 /*
