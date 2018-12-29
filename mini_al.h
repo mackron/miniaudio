@@ -1361,7 +1361,7 @@ typedef struct
 #define MAL_MAX_PERIODS_DSOUND                          4
 #define MAL_MAX_PERIODS_OPENAL                          4
 
-typedef void       (* mal_log_proc) (mal_context* pContext, mal_device* pDevice, const char* message);
+typedef void       (* mal_log_proc) (mal_context* pContext, mal_device* pDevice, mal_uint32 logLevel, const char* message);
 typedef void       (* mal_recv_proc)(mal_device* pDevice, mal_uint32 frameCount, const void* pSamples);
 typedef mal_uint32 (* mal_send_proc)(mal_device* pDevice, mal_uint32 frameCount, void* pSamples);
 typedef void       (* mal_stop_proc)(mal_device* pDevice);
@@ -4569,7 +4569,7 @@ void mal_log(mal_context* pContext, mal_device* pDevice, mal_uint32 logLevel, co
     
         mal_log_proc onLog = pContext->config.onLog;
         if (onLog) {
-            onLog(pContext, pDevice, message);
+            onLog(pContext, pDevice, logLevel, message);
         }
     }
 #endif
@@ -21784,7 +21784,7 @@ mal_result mal_device_init(mal_context* pContext, mal_device_type type, mal_devi
 
     if (((size_t)pDevice % sizeof(pDevice)) != 0) {
         if (pContext->config.onLog) {
-            pContext->config.onLog(pContext, pDevice, "WARNING: mal_device_init() called for a device that is not properly aligned. Thread safety is not supported.");
+            pContext->config.onLog(pContext, pDevice, MAL_LOG_LEVEL_WARNING, "WARNING: mal_device_init() called for a device that is not properly aligned. Thread safety is not supported.");
         }
     }
 
