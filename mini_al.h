@@ -1770,6 +1770,7 @@ struct mal_context
             mal_proc AAudioStreamBuilder_setBufferCapacityInFrames;
             mal_proc AAudioStreamBuilder_setFramesPerDataCallback;
             mal_proc AAudioStreamBuilder_setDataCallback;
+            mal_proc AAudioStreamBuilder_setPerformanceMode;
             mal_proc AAudioStreamBuilder_openStream;
             mal_proc AAudioStream_close;
             mal_proc AAudioStream_getState;
@@ -17895,44 +17896,101 @@ mal_result mal_context_init__oss(mal_context* pContext)
 //
 ///////////////////////////////////////////////////////////////////////////////
 #ifdef MAL_HAS_AAUDIO
-#include <AAudio/AAudio.h>
+//#include <AAudio/AAudio.h>
 
-typedef aaudio_result_t       (AAUDIO_API * MAL_PFN_AAudio_createStreamBuilder)                   (AAudioStreamBuilder** ppBuilder);
-typedef aaudio_result_t       (AAUDIO_API * MAL_PFN_AAudioStreamBuilder_delete)                   (AAudioStreamBuilder* pBuilder);
-typedef void                  (AAUDIO_API * MAL_PFN_AAudioStreamBuilder_setDeviceId)              (AAudioStreamBuilder* pBuilder, int32_t deviceId);
-typedef void                  (AAUDIO_API * MAL_PFN_AAudioStreamBuilder_setDirection)             (AAudioStreamBuilder* pBuilder, aaudio_direction_t direction);
-typedef void                  (AAUDIO_API * MAL_PFN_AAudioStreamBuilder_setSharingMode)           (AAudioStreamBuilder* pBuilder, aaudio_sharing_mode_t sharingMode);
-typedef void                  (AAUDIO_API * MAL_PFN_AAudioStreamBuilder_setFormat)                (AAudioStreamBuilder* pBuilder, aaudio_format_t format);
-typedef void                  (AAUDIO_API * MAL_PFN_AAudioStreamBuilder_setChannelCount)          (AAudioStreamBuilder* pBuilder, int32_t channelCount);
-typedef void                  (AAUDIO_API * MAL_PFN_AAudioStreamBuilder_setSampleRate)            (AAudioStreamBuilder* pBuilder, int32_t sampleRate);
-typedef void                  (AAUDIO_API * MAL_PFN_AAudioStreamBuilder_setBufferCapacityInFrames)(AAudioStreamBuilder* pBuilder, int32_t numFrames);
-typedef void                  (AAUDIO_API * MAL_PFN_AAudioStreamBuilder_setFramesPerDataCallback) (AAudioStreamBuilder* pBuilder, int32_t numFrames);
-typedef void                  (AAUDIO_API * MAL_PFN_AAudioStreamBuilder_setDataCallback)          (AAudioStreamBuilder* pBuilder, AAudioStream_dataCallback callback, void* pUserData);
-typedef aaudio_result_t       (AAUDIO_API * MAL_PFN_AAudioStreamBuilder_openStream)               (AAudioStreamBuilder* pBuilder, AAudioStream** ppStream);
-typedef aaudio_result_t       (AAUDIO_API * MAL_PFN_AAudioStream_close)                           (AAudioStream* pStream);
-typedef aaudio_stream_state_t (AAUDIO_API * MAL_PFN_AAudioStream_getState)                        (AAudioStream* pStream);
-typedef aaudio_result_t       (AAUDIO_API * MAL_PFN_AAudioStream_waitForStateChange)              (AAudioStream* pStream, aaudio_stream_state_t inputState, aaudio_stream_state_t* pNextState, int64_t timeoutInNanoseconds);
-typedef aaudio_format_t       (AAUDIO_API * MAL_PFN_AAudioStream_getFormat)                       (AAudioStream* pStream);
-typedef int32_t               (AAUDIO_API * MAL_PFN_AAudioStream_getChannelCount)                 (AAudioStream* pStream);
-typedef int32_t               (AAUDIO_API * MAL_PFN_AAudioStream_getSampleRate)                   (AAudioStream* pStream);
-typedef int32_t               (AAUDIO_API * MAL_PFN_AAudioStream_getBufferCapacityInFrames)       (AAudioStream* pStream);
-typedef int32_t               (AAUDIO_API * MAL_PFN_AAudioStream_getFramesPerDataCallback)        (AAudioStream* pStream);
-typedef int32_t               (AAUDIO_API * MAL_PFN_AAudioStream_getFramesPerBurst)               (AAudioStream* pStream);
-typedef aaudio_result_t       (AAUDIO_API * MAL_PFN_AAudioStream_requestStart)                    (AAudioStream* pStream);
-typedef aaudio_result_t       (AAUDIO_API * MAL_PFN_AAudioStream_requestStop)                     (AAudioStream* pStream);
+#define MAL_AAUDIO_UNSPECIFIED 0
 
-mal_result mal_result_from_aaudio(aaudio_result_t resultAA)
+typedef int32_t mal_aaudio_result_t;
+typedef int32_t mal_aaudio_direction_t;
+typedef int32_t mal_aaudio_sharing_mode_t;
+typedef int32_t mal_aaudio_format_t;
+typedef int32_t mal_aaudio_stream_state_t;
+typedef int32_t mal_aaudio_performance_mode_t;
+typedef int32_t mal_aaudio_data_callback_result_t;
+
+/* Result codes. mini_al only cares about the success code. */
+#define MAL_AAUDIO_OK                               0
+
+/* Directions. */
+#define MAL_AAUDIO_DIRECTION_OUTPUT                 0
+#define MAL_AAUDIO_DIRECTION_INPUT                  1
+
+/* Sharing modes. */
+#define MAL_AAUDIO_SHARING_MODE_EXCLUSIVE           0
+#define MAL_AAUDIO_SHARING_MODE_SHARED              1
+
+/* Formats. */
+#define MAL_AAUDIO_FORMAT_PCM_I16                   1
+#define MAL_AAUDIO_FORMAT_PCM_FLOAT                 2
+
+/* Stream states. */
+#define MAL_AAUDIO_STREAM_STATE_UNINITIALIZED       0
+#define MAL_AAUDIO_STREAM_STATE_UNKNOWN             1
+#define MAL_AAUDIO_STREAM_STATE_OPEN                2
+#define MAL_AAUDIO_STREAM_STATE_STARTING            3
+#define MAL_AAUDIO_STREAM_STATE_STARTED             4
+#define MAL_AAUDIO_STREAM_STATE_PAUSING             5
+#define MAL_AAUDIO_STREAM_STATE_PAUSED              6
+#define MAL_AAUDIO_STREAM_STATE_FLUSHING            7
+#define MAL_AAUDIO_STREAM_STATE_FLUSHED             8
+#define MAL_AAUDIO_STREAM_STATE_STOPPING            9
+#define MAL_AAUDIO_STREAM_STATE_STOPPED             10
+#define MAL_AAUDIO_STREAM_STATE_CLOSING             11
+#define MAL_AAUDIO_STREAM_STATE_CLOSED              12
+#define MAL_AAUDIO_STREAM_STATE_DISCONNECTED        13
+
+/* Performance modes. */
+#define MAL_AAUDIO_PERFORMANCE_MODE_NONE            10
+#define MAL_AAUDIO_PERFORMANCE_MODE_POWER_SAVING    11
+#define MAL_AAUDIO_PERFORMANCE_MODE_LOW_LATENCY     12
+
+/* Callback results. */
+#define MAL_AAUDIO_CALLBACK_RESULT_CONTINUE         0
+#define MAL_AAUDIO_CALLBACK_RESULT_STOP             1
+
+/* Objects. */
+typedef struct mal_AAudioStreamBuilder_t* mal_AAudioStreamBuilder;
+typedef struct mal_AAudioStream_t*        mal_AAudioStream;
+
+typedef mal_aaudio_data_callback_result_t (*mal_AAudioStream_dataCallback)(mal_AAudioStream* pStream, void* pUserData, void* pAudioData, int32_t numFrames);
+
+typedef mal_aaudio_result_t       (* MAL_PFN_AAudio_createStreamBuilder)                   (mal_AAudioStreamBuilder** ppBuilder);
+typedef mal_aaudio_result_t       (* MAL_PFN_AAudioStreamBuilder_delete)                   (mal_AAudioStreamBuilder* pBuilder);
+typedef void                      (* MAL_PFN_AAudioStreamBuilder_setDeviceId)              (mal_AAudioStreamBuilder* pBuilder, int32_t deviceId);
+typedef void                      (* MAL_PFN_AAudioStreamBuilder_setDirection)             (mal_AAudioStreamBuilder* pBuilder, mal_aaudio_direction_t direction);
+typedef void                      (* MAL_PFN_AAudioStreamBuilder_setSharingMode)           (mal_AAudioStreamBuilder* pBuilder, mal_aaudio_sharing_mode_t sharingMode);
+typedef void                      (* MAL_PFN_AAudioStreamBuilder_setFormat)                (mal_AAudioStreamBuilder* pBuilder, mal_aaudio_format_t format);
+typedef void                      (* MAL_PFN_AAudioStreamBuilder_setChannelCount)          (mal_AAudioStreamBuilder* pBuilder, int32_t channelCount);
+typedef void                      (* MAL_PFN_AAudioStreamBuilder_setSampleRate)            (mal_AAudioStreamBuilder* pBuilder, int32_t sampleRate);
+typedef void                      (* MAL_PFN_AAudioStreamBuilder_setBufferCapacityInFrames)(mal_AAudioStreamBuilder* pBuilder, int32_t numFrames);
+typedef void                      (* MAL_PFN_AAudioStreamBuilder_setFramesPerDataCallback) (mal_AAudioStreamBuilder* pBuilder, int32_t numFrames);
+typedef void                      (* MAL_PFN_AAudioStreamBuilder_setDataCallback)          (mal_AAudioStreamBuilder* pBuilder, mal_AAudioStream_dataCallback callback, void* pUserData);
+typedef void                      (* MAL_PFN_AAudioStreamBuilder_setPerformanceMode)       (mal_AAudioStreamBuilder* pBuilder, mal_aaudio_performance_mode_t mode);
+typedef mal_aaudio_result_t       (* MAL_PFN_AAudioStreamBuilder_openStream)               (mal_AAudioStreamBuilder* pBuilder, mal_AAudioStream** ppStream);
+typedef mal_aaudio_result_t       (* MAL_PFN_AAudioStream_close)                           (mal_AAudioStream* pStream);
+typedef mal_aaudio_stream_state_t (* MAL_PFN_AAudioStream_getState)                        (mal_AAudioStream* pStream);
+typedef mal_aaudio_result_t       (* MAL_PFN_AAudioStream_waitForStateChange)              (mal_AAudioStream* pStream, mal_aaudio_stream_state_t inputState, mal_aaudio_stream_state_t* pNextState, int64_t timeoutInNanoseconds);
+typedef mal_aaudio_format_t       (* MAL_PFN_AAudioStream_getFormat)                       (mal_AAudioStream* pStream);
+typedef int32_t                   (* MAL_PFN_AAudioStream_getChannelCount)                 (mal_AAudioStream* pStream);
+typedef int32_t                   (* MAL_PFN_AAudioStream_getSampleRate)                   (mal_AAudioStream* pStream);
+typedef int32_t                   (* MAL_PFN_AAudioStream_getBufferCapacityInFrames)       (mal_AAudioStream* pStream);
+typedef int32_t                   (* MAL_PFN_AAudioStream_getFramesPerDataCallback)        (mal_AAudioStream* pStream);
+typedef int32_t                   (* MAL_PFN_AAudioStream_getFramesPerBurst)               (mal_AAudioStream* pStream);
+typedef mal_aaudio_result_t       (* MAL_PFN_AAudioStream_requestStart)                    (mal_AAudioStream* pStream);
+typedef mal_aaudio_result_t       (* MAL_PFN_AAudioStream_requestStop)                     (mal_AAudioStream* pStream);
+
+mal_result mal_result_from_aaudio(mal_aaudio_result_t resultAA)
 {
     switch (resultAA)
     {
-        case AAUDIO_OK: return MAL_SUCCESS;
+        case MAL_AAUDIO_OK: return MAL_SUCCESS;
         default: break;
     }
 
     return MAL_ERROR;
 }
 
-aaudio_data_callback_result_t mal_stream_data_callback__aaudio(AAudioStream* pStream, void* pUserData, void* pAudioData, int32_t frameCount)
+mal_aaudio_data_callback_result_t mal_stream_data_callback__aaudio(mal_AAudioStream* pStream, void* pUserData, void* pAudioData, int32_t frameCount)
 {
     mal_device* pDevice = (mal_device*)pUserData;
     mal_assert(pDevice != NULL);
@@ -17945,19 +18003,19 @@ aaudio_data_callback_result_t mal_stream_data_callback__aaudio(AAudioStream* pSt
         mal_device__send_frames_to_client(pDevice, frameCount, pAudioData);
     }
 
-    return AAUDIO_CALLBACK_RESULT_CONTINUE;
+    return MAL_AAUDIO_CALLBACK_RESULT_CONTINUE;
 }
 
-mal_result mal_open_stream__aaudio(mal_context* pContext, mal_device_type deviceType, const mal_device_id* pDeviceID, mal_share_mode shareMode, const mal_device_config* pConfig, const mal_device* pDevice, AAudioStream** ppStream)
+mal_result mal_open_stream__aaudio(mal_context* pContext, mal_device_type deviceType, const mal_device_id* pDeviceID, mal_share_mode shareMode, const mal_device_config* pConfig, const mal_device* pDevice, mal_AAudioStream** ppStream)
 {
-    AAudioStreamBuilder* pBuilder;
-    aaudio_result_t resultAA;
+    mal_AAudioStreamBuilder* pBuilder;
+    mal_aaudio_result_t resultAA;
 
     (void)pContext;
     *ppStream = NULL;
 
     resultAA = ((MAL_PFN_AAudio_createStreamBuilder)pContext->aaudio.AAudio_createStreamBuilder)(&pBuilder);
-    if (resultAA != AAUDIO_OK) {
+    if (resultAA != MAL_AAUDIO_OK) {
         return mal_result_from_aaudio(resultAA);
     }
 
@@ -17965,8 +18023,8 @@ mal_result mal_open_stream__aaudio(mal_context* pContext, mal_device_type device
         ((MAL_PFN_AAudioStreamBuilder_setDeviceId)pContext->aaudio.AAudioStreamBuilder_setDeviceId)(pBuilder, pDeviceID->aaudio);
     }
 
-    ((MAL_PFN_AAudioStreamBuilder_setDirection)pContext->aaudio.AAudioStreamBuilder_setDirection)(pBuilder, (deviceType == mal_device_type_playback) ? AAUDIO_DIRECTION_OUTPUT : AAUDIO_DIRECTION_INPUT);
-    ((MAL_PFN_AAudioStreamBuilder_setSharingMode)pContext->aaudio.AAudioStreamBuilder_setSharingMode)(pBuilder, (shareMode == mal_share_mode_shared) ? AAUDIO_SHARING_MODE_SHARED : AAUDIO_SHARING_MODE_EXCLUSIVE);
+    ((MAL_PFN_AAudioStreamBuilder_setDirection)pContext->aaudio.AAudioStreamBuilder_setDirection)(pBuilder, (deviceType == mal_device_type_playback) ? MAL_AAUDIO_DIRECTION_OUTPUT : MAL_AAUDIO_DIRECTION_INPUT);
+    ((MAL_PFN_AAudioStreamBuilder_setSharingMode)pContext->aaudio.AAudioStreamBuilder_setSharingMode)(pBuilder, (shareMode == mal_share_mode_shared) ? MAL_AAUDIO_SHARING_MODE_SHARED : MAL_AAUDIO_SHARING_MODE_EXCLUSIVE);
 
     if (pConfig != NULL) {
         if (pDevice == NULL || !pDevice->usingDefaultSampleRate) {
@@ -17976,7 +18034,7 @@ mal_result mal_open_stream__aaudio(mal_context* pContext, mal_device_type device
             ((MAL_PFN_AAudioStreamBuilder_setChannelCount)pContext->aaudio.AAudioStreamBuilder_setChannelCount)(pBuilder, pConfig->channels);
         }
         if (pDevice == NULL || !pDevice->usingDefaultFormat) {
-            ((MAL_PFN_AAudioStreamBuilder_setFormat)pContext->aaudio.AAudioStreamBuilder_setFormat)(pBuilder, (pConfig->format == mal_format_s16) ? AAUDIO_FORMAT_PCM_I16 : AAUDIO_FORMAT_PCM_FLOAT);
+            ((MAL_PFN_AAudioStreamBuilder_setFormat)pContext->aaudio.AAudioStreamBuilder_setFormat)(pBuilder, (pConfig->format == mal_format_s16) ? MAL_AAUDIO_FORMAT_PCM_I16 : MAL_AAUDIO_FORMAT_PCM_FLOAT);
         }
 
         ((MAL_PFN_AAudioStreamBuilder_setBufferCapacityInFrames)pContext->aaudio.AAudioStreamBuilder_setBufferCapacityInFrames)(pBuilder, pConfig->bufferSizeInFrames);
@@ -17987,7 +18045,7 @@ mal_result mal_open_stream__aaudio(mal_context* pContext, mal_device_type device
     }
 
     resultAA = ((MAL_PFN_AAudioStreamBuilder_openStream)pContext->aaudio.AAudioStreamBuilder_openStream)(pBuilder, ppStream);
-    if (resultAA != AAUDIO_OK) {
+    if (resultAA != MAL_AAUDIO_OK) {
         *ppStream = NULL;
         ((MAL_PFN_AAudioStreamBuilder_delete)pContext->aaudio.AAudioStreamBuilder_delete)(pBuilder);
         return mal_result_from_aaudio(resultAA);
@@ -17997,7 +18055,7 @@ mal_result mal_open_stream__aaudio(mal_context* pContext, mal_device_type device
     return MAL_SUCCESS;
 }
 
-mal_result mal_close_stream__aaudio(mal_context* pContext, AAudioStream* pStream)
+mal_result mal_close_stream__aaudio(mal_context* pContext, mal_AAudioStream* pStream)
 {
     return mal_result_from_aaudio(((MAL_PFN_AAudioStream_close)pContext->aaudio.AAudioStream_close)(pStream));
 }
@@ -18005,7 +18063,7 @@ mal_result mal_close_stream__aaudio(mal_context* pContext, AAudioStream* pStream
 mal_bool32 mal_has_default_device__aaudio(mal_context* pContext, mal_device_type deviceType)
 {
     /* The only way to know this is to try creating a stream. */
-    AAudioStream* pStream;
+    mal_AAudioStream* pStream;
     mal_result result = mal_open_stream__aaudio(pContext, deviceType, NULL, mal_share_mode_shared, NULL, NULL, &pStream);
     if (result != MAL_SUCCESS) {
         return MAL_FALSE;
@@ -18015,11 +18073,11 @@ mal_bool32 mal_has_default_device__aaudio(mal_context* pContext, mal_device_type
     return MAL_TRUE;
 }
 
-mal_result mal_wait_for_simple_state_transition__aaudio(mal_context* pContext, AAudioStream* pStream, aaudio_stream_state_t oldState, aaudio_stream_state_t newState)
+mal_result mal_wait_for_simple_state_transition__aaudio(mal_context* pContext, mal_AAudioStream* pStream, mal_aaudio_stream_state_t oldState, mal_aaudio_stream_state_t newState)
 {
-    aaudio_stream_state_t actualNewState;
-    aaudio_result_t resultAA = ((MAL_PFN_AAudioStream_waitForStateChange)pContext->aaudio.AAudioStream_waitForStateChange)(pStream, oldState, &actualNewState, 5000000000); /* 5 second timeout. */
-    if (resultAA != AAUDIO_OK) {
+    mal_aaudio_stream_state_t actualNewState;
+    mal_aaudio_result_t resultAA = ((MAL_PFN_AAudioStream_waitForStateChange)pContext->aaudio.AAudioStream_waitForStateChange)(pStream, oldState, &actualNewState, 5000000000); /* 5 second timeout. */
+    if (resultAA != MAL_AAUDIO_OK) {
         return mal_result_from_aaudio(resultAA);
     }
 
@@ -18054,7 +18112,7 @@ mal_result mal_context_enumerate_devices__aaudio(mal_context* pContext, mal_enum
     if (cbResult) {
         mal_device_info deviceInfo;
         mal_zero_object(&deviceInfo);
-        deviceInfo.id.aaudio = AAUDIO_UNSPECIFIED;
+        deviceInfo.id.aaudio = MAL_AAUDIO_UNSPECIFIED;
         mal_strncpy_s(deviceInfo.name, sizeof(deviceInfo.name), MAL_DEFAULT_PLAYBACK_DEVICE_NAME, (size_t)-1);
 
         if (mal_has_default_device__aaudio(pContext, mal_device_type_playback)) {
@@ -18066,7 +18124,7 @@ mal_result mal_context_enumerate_devices__aaudio(mal_context* pContext, mal_enum
     if (cbResult) {
         mal_device_info deviceInfo;
         mal_zero_object(&deviceInfo);
-        deviceInfo.id.aaudio = AAUDIO_UNSPECIFIED;
+        deviceInfo.id.aaudio = MAL_AAUDIO_UNSPECIFIED;
         mal_strncpy_s(deviceInfo.name, sizeof(deviceInfo.name), MAL_DEFAULT_CAPTURE_DEVICE_NAME, (size_t)-1);
 
         if (mal_has_default_device__aaudio(pContext, mal_device_type_capture)) {
@@ -18079,7 +18137,7 @@ mal_result mal_context_enumerate_devices__aaudio(mal_context* pContext, mal_enum
 
 mal_result mal_context_get_device_info__aaudio(mal_context* pContext, mal_device_type deviceType, const mal_device_id* pDeviceID, mal_share_mode shareMode, mal_device_info* pDeviceInfo)
 {
-    AAudioStream* pStream;
+    mal_AAudioStream* pStream;
     mal_result result;
 
     mal_assert(pContext != NULL);
@@ -18088,7 +18146,7 @@ mal_result mal_context_get_device_info__aaudio(mal_context* pContext, mal_device
     if (pDeviceID != NULL) {
         pDeviceInfo->id.aaudio = pDeviceID->aaudio;
     } else {
-        pDeviceInfo->id.aaudio = AAUDIO_UNSPECIFIED;
+        pDeviceInfo->id.aaudio = MAL_AAUDIO_UNSPECIFIED;
     }
     
     /* Name */
@@ -18127,7 +18185,7 @@ void mal_device_uninit__aaudio(mal_device* pDevice)
 {
     mal_assert(pDevice != NULL);
 
-    mal_close_stream__aaudio(pDevice->pContext, (AAudioStream*)pDevice->aaudio.pStream);
+    mal_close_stream__aaudio(pDevice->pContext, (mal_AAudioStream*)pDevice->aaudio.pStream);
     pDevice->aaudio.pStream = NULL;
 }
 
@@ -18145,20 +18203,20 @@ mal_result mal_device_init__aaudio(mal_context* pContext, mal_device_type type, 
     }
 
     /* We first need to try opening the stream. */
-    result = mal_open_stream__aaudio(pContext, type, pDeviceID, pConfig->shareMode, &config, pDevice, (AAudioStream**)&pDevice->aaudio.pStream);
+    result = mal_open_stream__aaudio(pContext, type, pDeviceID, pConfig->shareMode, &config, pDevice, (mal_AAudioStream**)&pDevice->aaudio.pStream);
     if (result != MAL_SUCCESS) {
         return result;  /* Failed to open the AAudio stream. */
     }
 
-    pDevice->internalFormat     = (((MAL_PFN_AAudioStream_getFormat)pContext->aaudio.AAudioStream_getFormat)((AAudioStream*)pDevice->aaudio.pStream) == AAUDIO_FORMAT_PCM_I16) ? mal_format_s16 : mal_format_f32;
-    pDevice->internalChannels   = ((MAL_PFN_AAudioStream_getChannelCount)pContext->aaudio.AAudioStream_getChannelCount)((AAudioStream*)pDevice->aaudio.pStream);
-    pDevice->internalSampleRate = ((MAL_PFN_AAudioStream_getSampleRate)pContext->aaudio.AAudioStream_getSampleRate)((AAudioStream*)pDevice->aaudio.pStream);
+    pDevice->internalFormat     = (((MAL_PFN_AAudioStream_getFormat)pContext->aaudio.AAudioStream_getFormat)((mal_AAudioStream*)pDevice->aaudio.pStream) == MAL_AAUDIO_FORMAT_PCM_I16) ? mal_format_s16 : mal_format_f32;
+    pDevice->internalChannels   = ((MAL_PFN_AAudioStream_getChannelCount)pContext->aaudio.AAudioStream_getChannelCount)((mal_AAudioStream*)pDevice->aaudio.pStream);
+    pDevice->internalSampleRate = ((MAL_PFN_AAudioStream_getSampleRate)pContext->aaudio.AAudioStream_getSampleRate)((mal_AAudioStream*)pDevice->aaudio.pStream);
     mal_get_standard_channel_map(mal_standard_channel_map_default, pDevice->internalChannels, pDevice->internalChannelMap); /* <-- Cannot find info on channel order, so assuming a default. */
-    pDevice->bufferSizeInFrames = ((MAL_PFN_AAudioStream_getBufferCapacityInFrames)pContext->aaudio.AAudioStream_getBufferCapacityInFrames)((AAudioStream*)pDevice->aaudio.pStream);
+    pDevice->bufferSizeInFrames = ((MAL_PFN_AAudioStream_getBufferCapacityInFrames)pContext->aaudio.AAudioStream_getBufferCapacityInFrames)((mal_AAudioStream*)pDevice->aaudio.pStream);
 
     /* TODO: When synchronous reading and writing is supported, use AAudioStream_getFramesPerBurst() instead of AAudioStream_getFramesPerDataCallback(). Keep
      * using AAudioStream_getFramesPerDataCallback() for asynchronous mode, though. */
-    int32_t framesPerPeriod = ((MAL_PFN_AAudioStream_getFramesPerDataCallback)pContext->aaudio.AAudioStream_getFramesPerDataCallback)((AAudioStream*)pDevice->aaudio.pStream);
+    int32_t framesPerPeriod = ((MAL_PFN_AAudioStream_getFramesPerDataCallback)pContext->aaudio.AAudioStream_getFramesPerDataCallback)((mal_AAudioStream*)pDevice->aaudio.pStream);
     if (framesPerPeriod > 0) {
         pDevice->periods = 1;
     } else {
@@ -18170,27 +18228,27 @@ mal_result mal_device_init__aaudio(mal_context* pContext, mal_device_type type, 
 
 mal_result mal_device__start_backend__aaudio(mal_device* pDevice)
 {
-    aaudio_result_t resultAA;
+    mal_aaudio_result_t resultAA;
 
     mal_assert(pDevice != NULL);
 
-    resultAA = ((MAL_PFN_AAudioStream_requestStart)pDevice->pContext->aaudio.AAudioStream_requestStart)((AAudioStream*)pDevice->aaudio.pStream);
-    if (resultAA != AAUDIO_OK) {
+    resultAA = ((MAL_PFN_AAudioStream_requestStart)pDevice->pContext->aaudio.AAudioStream_requestStart)((mal_AAudioStream*)pDevice->aaudio.pStream);
+    if (resultAA != MAL_AAUDIO_OK) {
         return mal_result_from_aaudio(resultAA);
     }
 
     /* Do we actually need to wait for the device to transition into it's started state? */
 
     /* The device should be in either a starting or started state. If it's not set to started we need to wait for it to transition. It should go from starting to started. */
-    aaudio_stream_state_t currentState = ((MAL_PFN_AAudioStream_getState)pDevice->pContext->aaudio.AAudioStream_getState)((AAudioStream*)pDevice->aaudio.pStream);
-    if (currentState != AAUDIO_STREAM_STATE_STARTED) {
+    mal_aaudio_stream_state_t currentState = ((MAL_PFN_AAudioStream_getState)pDevice->pContext->aaudio.AAudioStream_getState)((mal_AAudioStream*)pDevice->aaudio.pStream);
+    if (currentState != MAL_AAUDIO_STREAM_STATE_STARTED) {
         mal_result result;
 
-        if (currentState != AAUDIO_STREAM_STATE_STARTING) {
+        if (currentState != MAL_AAUDIO_STREAM_STATE_STARTING) {
             return MAL_ERROR;   /* Expecting the stream to be a starting or started state. */
         }
 
-        result = mal_wait_for_simple_state_transition__aaudio(pDevice->pContext, (AAudioStream*)pDevice->aaudio.pStream, currentState, AAUDIO_STREAM_STATE_STARTED);
+        result = mal_wait_for_simple_state_transition__aaudio(pDevice->pContext, (mal_AAudioStream*)pDevice->aaudio.pStream, currentState, MAL_AAUDIO_STREAM_STATE_STARTED);
         if (result != MAL_SUCCESS) {
             return result;
         }
@@ -18201,25 +18259,25 @@ mal_result mal_device__start_backend__aaudio(mal_device* pDevice)
 
 mal_result mal_device__stop_backend__aaudio(mal_device* pDevice)
 {
-    aaudio_result_t resultAA;
+    mal_aaudio_result_t resultAA;
 
     mal_assert(pDevice != NULL);
 
-    resultAA = ((MAL_PFN_AAudioStream_requestStop)pDevice->pContext->aaudio.AAudioStream_requestStop)((AAudioStream*)pDevice->aaudio.pStream);
-    if (resultAA != AAUDIO_OK) {
+    resultAA = ((MAL_PFN_AAudioStream_requestStop)pDevice->pContext->aaudio.AAudioStream_requestStop)((mal_AAudioStream*)pDevice->aaudio.pStream);
+    if (resultAA != MAL_AAUDIO_OK) {
         return mal_result_from_aaudio(resultAA);
     }
 
     /* The device should be in either a stopping or stopped state. If it's not set to started we need to wait for it to transition. It should go from stopping to stopped. */
-    aaudio_stream_state_t currentState = ((MAL_PFN_AAudioStream_getState)pDevice->pContext->aaudio.AAudioStream_getState)((AAudioStream*)pDevice->aaudio.pStream);
-    if (currentState != AAUDIO_STREAM_STATE_STOPPED) {
+    mal_aaudio_stream_state_t currentState = ((MAL_PFN_AAudioStream_getState)pDevice->pContext->aaudio.AAudioStream_getState)((mal_AAudioStream*)pDevice->aaudio.pStream);
+    if (currentState != MAL_AAUDIO_STREAM_STATE_STOPPED) {
         mal_result result;
 
-        if (currentState != AAUDIO_STREAM_STATE_STOPPING) {
+        if (currentState != MAL_AAUDIO_STREAM_STATE_STOPPING) {
             return MAL_ERROR;   /* Expecting the stream to be a stopping or stopped state. */
         }
 
-        result = mal_wait_for_simple_state_transition__aaudio(pDevice->pContext, (AAudioStream*)pDevice->aaudio.pStream, currentState, AAUDIO_STREAM_STATE_STOPPED);
+        result = mal_wait_for_simple_state_transition__aaudio(pDevice->pContext, (mal_AAudioStream*)pDevice->aaudio.pStream, currentState, MAL_AAUDIO_STREAM_STATE_STOPPED);
         if (result != MAL_SUCCESS) {
             return result;
         }
@@ -18271,6 +18329,7 @@ mal_result mal_context_init__aaudio(mal_context* pContext)
     pContext->aaudio.AAudioStreamBuilder_setBufferCapacityInFrames = (mal_proc)mal_dlsym(pContext->aaudio.hAAudio, "AAudioStreamBuilder_setBufferCapacityInFrames");
     pContext->aaudio.AAudioStreamBuilder_setFramesPerDataCallback  = (mal_proc)mal_dlsym(pContext->aaudio.hAAudio, "AAudioStreamBuilder_setFramesPerDataCallback");
     pContext->aaudio.AAudioStreamBuilder_setDataCallback           = (mal_proc)mal_dlsym(pContext->aaudio.hAAudio, "AAudioStreamBuilder_setDataCallback");
+    pContext->aaudio.AAudioStreamBuilder_setPerformanceMode        = (mal_proc)mal_dlsym(pContext->aaudio.hAAudio, "AAudioStreamBuilder_setPerformanceMode");
     pContext->aaudio.AAudioStreamBuilder_openStream                = (mal_proc)mal_dlsym(pContext->aaudio.hAAudio, "AAudioStreamBuilder_openStream");
     pContext->aaudio.AAudioStream_close                            = (mal_proc)mal_dlsym(pContext->aaudio.hAAudio, "AAudioStream_close");
     pContext->aaudio.AAudioStream_getState                         = (mal_proc)mal_dlsym(pContext->aaudio.hAAudio, "AAudioStream_getState");
