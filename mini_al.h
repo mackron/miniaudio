@@ -994,19 +994,6 @@ mal_channel_router_config mal_channel_router_config_init(mal_uint32 channelsIn, 
 // Initializes a sample rate conversion object.
 mal_result mal_src_init(const mal_src_config* pConfig, mal_src* pSRC);
 
-// Dynamically adjusts the input sample rate.
-//
-// DEPRECATED. Use mal_src_set_sample_rate() instead.
-mal_result mal_src_set_input_sample_rate(mal_src* pSRC, mal_uint32 sampleRateIn);
-
-// Dynamically adjusts the output sample rate.
-//
-// This is useful for dynamically adjust pitch. Keep in mind, however, that this will speed up or slow down the sound. If this
-// is not acceptable you will need to use your own algorithm.
-//
-// DEPRECATED. Use mal_src_set_sample_rate() instead.
-mal_result mal_src_set_output_sample_rate(mal_src* pSRC, mal_uint32 sampleRateOut);
-
 // Dynamically adjusts the sample rate.
 //
 // This is useful for dynamically adjust pitch. Keep in mind, however, that this will speed up or slow down the sound. If this
@@ -2323,11 +2310,9 @@ mal_result mal_context_get_device_info(mal_context* pContext, mal_device_type ty
 // by mal_context_enumerate_devices() or mal_context_get_devices() to be the default device.
 //
 // The device's configuration is controlled with pConfig. This allows you to configure the sample
-// format, channel count, sample rate, etc. Before calling mal_device_init(), you will most likely
-// want to initialize a mal_device_config object using mal_device_config_init(),
-// mal_device_config_init_playback(), etc. You can also pass in NULL for the device config in
-// which case it will use defaults, but will require you to call mal_device_set_recv_callback() or
-// mal_device_set_send_callback() before starting the device.
+// format, channel count, sample rate, etc. Before calling mal_device_init(), you will need to
+// initialize a mal_device_config object using mal_device_config_init(), mal_device_config_init_playback(),
+// etc. You must set the callback in the device config.
 //
 // Passing in 0 to any property in pConfig will force the use of a default value. In the case of
 // sample format, channel count, sample rate and channel map it will default to the values used by
@@ -2377,26 +2362,6 @@ mal_result mal_device_init_ex(const mal_backend backends[], mal_uint32 backendCo
 //   As soon as this API is called the device should be considered undefined. All bets are off if you
 //   try using the device at the same time as uninitializing it.
 void mal_device_uninit(mal_device* pDevice);
-
-// Sets the callback to use when the application has received data from the device.
-//
-// Thread Safety: SAFE
-//   This API is implemented as a simple atomic assignment.
-//
-// DEPRECATED. Set this when the device is initialized with mal_device_init*().
-void mal_device_set_recv_callback(mal_device* pDevice, mal_recv_proc proc);
-
-// Sets the callback to use when the application needs to send data to the device for playback.
-//
-// Note that the implementation of this callback must copy over as many samples as is available. The
-// return value specifies how many samples were written to the output buffer. The backend will fill
-// any leftover samples with silence.
-//
-// Thread Safety: SAFE
-//   This API is implemented as a simple atomic assignment.
-//
-// DEPRECATED. Set this when the device is initialized with mal_device_init*().
-void mal_device_set_send_callback(mal_device* pDevice, mal_send_proc proc);
 
 // Sets the callback to use when the device has stopped, either explicitly or as a result of an error.
 //
@@ -21786,7 +21751,6 @@ mal_result mal_device_init(mal_context* pContext, mal_device_type type, mal_devi
         return mal_device_init_ex(NULL, 0, NULL, type, pDeviceID, pConfig, pUserData, pDevice);
     }
 
-
     if (pDevice == NULL) {
         return mal_post_error(pDevice, MAL_LOG_LEVEL_ERROR, "mal_device_init() called with invalid arguments (pDevice == NULL).",  MAL_INVALID_ARGS);
     }
@@ -22035,18 +21999,6 @@ void mal_device_uninit(mal_device* pDevice)
     }
 
     mal_zero_object(pDevice);
-}
-
-void mal_device_set_recv_callback(mal_device* pDevice, mal_recv_proc proc)
-{
-    if (pDevice == NULL) return;
-    mal_atomic_exchange_ptr(&pDevice->onRecv, proc);
-}
-
-void mal_device_set_send_callback(mal_device* pDevice, mal_send_proc proc)
-{
-    if (pDevice == NULL) return;
-    mal_atomic_exchange_ptr(&pDevice->onSend, proc);
 }
 
 void mal_device_set_stop_callback(mal_device* pDevice, mal_stop_proc proc)
@@ -26437,36 +26389,6 @@ mal_result mal_src_init(const mal_src_config* pConfig, mal_src* pSRC)
     return MAL_SUCCESS;
 }
 
-mal_result mal_src_set_input_sample_rate(mal_src* pSRC, mal_uint32 sampleRateIn)
-{
-    if (pSRC == NULL) {
-        return MAL_INVALID_ARGS;
-    }
-
-    // Must have a sample rate of > 0.
-    if (sampleRateIn == 0) {
-        return MAL_INVALID_ARGS;
-    }
-
-    mal_atomic_exchange_32(&pSRC->config.sampleRateIn, sampleRateIn);
-    return MAL_SUCCESS;
-}
-
-mal_result mal_src_set_output_sample_rate(mal_src* pSRC, mal_uint32 sampleRateOut)
-{
-    if (pSRC == NULL) {
-        return MAL_INVALID_ARGS;
-    }
-
-    // Must have a sample rate of > 0.
-    if (sampleRateOut == 0) {
-        return MAL_INVALID_ARGS;
-    }
-
-    mal_atomic_exchange_32(&pSRC->config.sampleRateOut, sampleRateOut);
-    return MAL_SUCCESS;
-}
-
 mal_result mal_src_set_sample_rate(mal_src* pSRC, mal_uint32 sampleRateIn, mal_uint32 sampleRateOut)
 {
     if (pSRC == NULL) {
@@ -27696,9 +27618,7 @@ mal_result mal_dsp_init(const mal_dsp_config* pConfig, mal_dsp* pDSP)
 mal_result mal_dsp_refresh_sample_rate(mal_dsp* pDSP)
 {
     // The SRC stage will already have been initialized so we can just set it there.
-    mal_src_set_input_sample_rate(&pDSP->src, pDSP->src.config.sampleRateIn);
-    mal_src_set_output_sample_rate(&pDSP->src, pDSP->src.config.sampleRateOut);
-
+    mal_src_set_sample_rate(&pDSP->src, pDSP->src.config.sampleRateIn, pDSP->src.config.sampleRateOut);
     return MAL_SUCCESS;
 }
 
