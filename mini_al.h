@@ -2647,10 +2647,10 @@ typedef enum
     mal_seek_origin_current
 } mal_seek_origin;
 
-typedef size_t     (* mal_decoder_read_proc)         (mal_decoder* pDecoder, void* pBufferOut, size_t bytesToRead); // Returns the number of bytes read.
-typedef mal_bool32 (* mal_decoder_seek_proc)         (mal_decoder* pDecoder, int byteOffset, mal_seek_origin origin);
-typedef mal_result (* mal_decoder_seek_to_frame_proc)(mal_decoder* pDecoder, mal_uint64 frameIndex);
-typedef mal_result (* mal_decoder_uninit_proc)       (mal_decoder* pDecoder);
+typedef size_t     (* mal_decoder_read_proc)             (mal_decoder* pDecoder, void* pBufferOut, size_t bytesToRead); // Returns the number of bytes read.
+typedef mal_bool32 (* mal_decoder_seek_proc)             (mal_decoder* pDecoder, int byteOffset, mal_seek_origin origin);
+typedef mal_result (* mal_decoder_seek_to_pcm_frame_proc)(mal_decoder* pDecoder, mal_uint64 frameIndex);
+typedef mal_result (* mal_decoder_uninit_proc)           (mal_decoder* pDecoder);
 
 typedef struct
 {
@@ -2681,7 +2681,7 @@ struct mal_decoder
     mal_uint32  outputSampleRate;
     mal_channel outputChannelMap[MAL_MAX_CHANNELS];
     mal_dsp dsp;                // <-- Format conversion is achieved by running frames through this.
-    mal_decoder_seek_to_frame_proc onSeekToFrame;
+    mal_decoder_seek_to_pcm_frame_proc onSeekToPCMFrame;
     mal_decoder_uninit_proc onUninit;
     void* pInternalDecoder;     // <-- The drwav/drflac/stb_vorbis/etc. objects.
     struct
@@ -2715,8 +2715,8 @@ mal_result mal_decoder_init_file_wav(const char* pFilePath, const mal_decoder_co
 
 mal_result mal_decoder_uninit(mal_decoder* pDecoder);
 
-mal_uint64 mal_decoder_read(mal_decoder* pDecoder, mal_uint64 frameCount, void* pFramesOut);
-mal_result mal_decoder_seek_to_frame(mal_decoder* pDecoder, mal_uint64 frameIndex);
+mal_uint64 mal_decoder_read_pcm_frames(mal_decoder* pDecoder, mal_uint64 frameCount, void* pFramesOut);
+mal_result mal_decoder_seek_to_pcm_frame(mal_decoder* pDecoder, mal_uint64 frameIndex);
 
 
 // Helper for opening and decoding a file into a heap allocated block of memory. Free the returned pointer with mal_free(). On input,
@@ -28160,26 +28160,7 @@ drwav_bool32 mal_decoder_internal_on_seek__wav(void* pUserData, int offset, drwa
     return pDecoder->onSeek(pDecoder, offset, (origin == drwav_seek_origin_start) ? mal_seek_origin_start : mal_seek_origin_current);
 }
 
-mal_result mal_decoder_internal_on_seek_to_frame__wav(mal_decoder* pDecoder, mal_uint64 frameIndex)
-{
-    drwav* pWav = (drwav*)pDecoder->pInternalDecoder;
-    mal_assert(pWav != NULL);
-
-    drwav_bool32 result = drwav_seek_to_pcm_frame(pWav, frameIndex);
-    if (result) {
-        return MAL_SUCCESS;
-    } else {
-        return MAL_ERROR;
-    }
-}
-
-mal_result mal_decoder_internal_on_uninit__wav(mal_decoder* pDecoder)
-{
-    drwav_close((drwav*)pDecoder->pInternalDecoder);
-    return MAL_SUCCESS;
-}
-
-mal_uint32 mal_decoder_internal_on_read_frames__wav(mal_dsp* pDSP, mal_uint32 frameCount, void* pSamplesOut, void* pUserData)
+mal_uint32 mal_decoder_internal_on_read_pcm_frames__wav(mal_dsp* pDSP, mal_uint32 frameCount, void* pSamplesOut, void* pUserData)
 {
     (void)pDSP;
 
@@ -28201,6 +28182,25 @@ mal_uint32 mal_decoder_internal_on_read_frames__wav(mal_dsp* pDSP, mal_uint32 fr
     return 0;
 }
 
+mal_result mal_decoder_internal_on_seek_to_pcm_frame__wav(mal_decoder* pDecoder, mal_uint64 frameIndex)
+{
+    drwav* pWav = (drwav*)pDecoder->pInternalDecoder;
+    mal_assert(pWav != NULL);
+
+    drwav_bool32 result = drwav_seek_to_pcm_frame(pWav, frameIndex);
+    if (result) {
+        return MAL_SUCCESS;
+    } else {
+        return MAL_ERROR;
+    }
+}
+
+mal_result mal_decoder_internal_on_uninit__wav(mal_decoder* pDecoder)
+{
+    drwav_close((drwav*)pDecoder->pInternalDecoder);
+    return MAL_SUCCESS;
+}
+
 mal_result mal_decoder_init_wav__internal(const mal_decoder_config* pConfig, mal_decoder* pDecoder)
 {
     mal_assert(pConfig != NULL);
@@ -28213,7 +28213,7 @@ mal_result mal_decoder_init_wav__internal(const mal_decoder_config* pConfig, mal
     }
 
     // If we get here it means we successfully initialized the WAV decoder. We can now initialize the rest of the mal_decoder.
-    pDecoder->onSeekToFrame = mal_decoder_internal_on_seek_to_frame__wav;
+    pDecoder->onSeekToPCMFrame = mal_decoder_internal_on_seek_to_pcm_frame__wav;
     pDecoder->onUninit = mal_decoder_internal_on_uninit__wav;
     pDecoder->pInternalDecoder = pWav;
 
@@ -28255,7 +28255,7 @@ mal_result mal_decoder_init_wav__internal(const mal_decoder_config* pConfig, mal
     pDecoder->internalSampleRate = pWav->sampleRate;
     mal_get_standard_channel_map(mal_standard_channel_map_microsoft, pDecoder->internalChannels, pDecoder->internalChannelMap);
 
-    mal_result result = mal_decoder__init_dsp(pDecoder, pConfig, mal_decoder_internal_on_read_frames__wav);
+    mal_result result = mal_decoder__init_dsp(pDecoder, pConfig, mal_decoder_internal_on_read_pcm_frames__wav);
     if (result != MAL_SUCCESS) {
         drwav_close(pWav);
         return result;
@@ -28287,26 +28287,7 @@ drflac_bool32 mal_decoder_internal_on_seek__flac(void* pUserData, int offset, dr
     return pDecoder->onSeek(pDecoder, offset, (origin == drflac_seek_origin_start) ? mal_seek_origin_start : mal_seek_origin_current);
 }
 
-mal_result mal_decoder_internal_on_seek_to_frame__flac(mal_decoder* pDecoder, mal_uint64 frameIndex)
-{
-    drflac* pFlac = (drflac*)pDecoder->pInternalDecoder;
-    mal_assert(pFlac != NULL);
-
-    drflac_bool32 result = drflac_seek_to_pcm_frame(pFlac, frameIndex);
-    if (result) {
-        return MAL_SUCCESS;
-    } else {
-        return MAL_ERROR;
-    }
-}
-
-mal_result mal_decoder_internal_on_uninit__flac(mal_decoder* pDecoder)
-{
-    drflac_close((drflac*)pDecoder->pInternalDecoder);
-    return MAL_SUCCESS;
-}
-
-mal_uint32 mal_decoder_internal_on_read_frames__flac(mal_dsp* pDSP, mal_uint32 frameCount, void* pSamplesOut, void* pUserData)
+mal_uint32 mal_decoder_internal_on_read_pcm_frames__flac(mal_dsp* pDSP, mal_uint32 frameCount, void* pSamplesOut, void* pUserData)
 {
     (void)pDSP;
 
@@ -28329,6 +28310,25 @@ mal_uint32 mal_decoder_internal_on_read_frames__flac(mal_dsp* pDSP, mal_uint32 f
     return 0;
 }
 
+mal_result mal_decoder_internal_on_seek_to_pcm_frame__flac(mal_decoder* pDecoder, mal_uint64 frameIndex)
+{
+    drflac* pFlac = (drflac*)pDecoder->pInternalDecoder;
+    mal_assert(pFlac != NULL);
+
+    drflac_bool32 result = drflac_seek_to_pcm_frame(pFlac, frameIndex);
+    if (result) {
+        return MAL_SUCCESS;
+    } else {
+        return MAL_ERROR;
+    }
+}
+
+mal_result mal_decoder_internal_on_uninit__flac(mal_decoder* pDecoder)
+{
+    drflac_close((drflac*)pDecoder->pInternalDecoder);
+    return MAL_SUCCESS;
+}
+
 mal_result mal_decoder_init_flac__internal(const mal_decoder_config* pConfig, mal_decoder* pDecoder)
 {
     mal_assert(pConfig != NULL);
@@ -28341,7 +28341,7 @@ mal_result mal_decoder_init_flac__internal(const mal_decoder_config* pConfig, ma
     }
 
     // If we get here it means we successfully initialized the FLAC decoder. We can now initialize the rest of the mal_decoder.
-    pDecoder->onSeekToFrame = mal_decoder_internal_on_seek_to_frame__flac;
+    pDecoder->onSeekToPCMFrame = mal_decoder_internal_on_seek_to_pcm_frame__flac;
     pDecoder->onUninit = mal_decoder_internal_on_uninit__flac;
     pDecoder->pInternalDecoder = pFlac;
 
@@ -28358,7 +28358,7 @@ mal_result mal_decoder_init_flac__internal(const mal_decoder_config* pConfig, ma
     pDecoder->internalSampleRate = pFlac->sampleRate;
     mal_get_standard_channel_map(mal_standard_channel_map_flac, pDecoder->internalChannels, pDecoder->internalChannelMap);
 
-    mal_result result = mal_decoder__init_dsp(pDecoder, pConfig, mal_decoder_internal_on_read_frames__flac);
+    mal_result result = mal_decoder__init_dsp(pDecoder, pConfig, mal_decoder_internal_on_read_pcm_frames__flac);
     if (result != MAL_SUCCESS) {
         drflac_close(pFlac);
         return result;
@@ -28386,7 +28386,7 @@ typedef struct
     float** ppPacketData;
 } mal_vorbis_decoder;
 
-mal_uint32 mal_vorbis_decoder_read(mal_vorbis_decoder* pVorbis, mal_decoder* pDecoder, mal_uint32 frameCount, void* pSamplesOut)
+mal_uint32 mal_vorbis_decoder_read_pcm_frames(mal_vorbis_decoder* pVorbis, mal_decoder* pDecoder, mal_uint32 frameCount, void* pSamplesOut)
 {
     mal_assert(pVorbis != NULL);
     mal_assert(pDecoder != NULL);
@@ -28462,7 +28462,7 @@ mal_uint32 mal_vorbis_decoder_read(mal_vorbis_decoder* pVorbis, mal_decoder* pDe
     return totalFramesRead;
 }
 
-mal_result mal_vorbis_decoder_seek_to_frame(mal_vorbis_decoder* pVorbis, mal_decoder* pDecoder, mal_uint64 frameIndex)
+mal_result mal_vorbis_decoder_seek_to_pcm_frame(mal_vorbis_decoder* pVorbis, mal_decoder* pDecoder, mal_uint64 frameIndex)
 {
     mal_assert(pVorbis != NULL);
     mal_assert(pDecoder != NULL);
@@ -28488,7 +28488,7 @@ mal_result mal_vorbis_decoder_seek_to_frame(mal_vorbis_decoder* pVorbis, mal_dec
             framesToRead = (mal_uint32)frameIndex;
         }
 
-        mal_uint32 framesRead = mal_vorbis_decoder_read(pVorbis, pDecoder, framesToRead, buffer);
+        mal_uint32 framesRead = mal_vorbis_decoder_read_pcm_frames(pVorbis, pDecoder, framesToRead, buffer);
         if (framesRead == 0) {
             return MAL_ERROR;
         }
@@ -28500,7 +28500,7 @@ mal_result mal_vorbis_decoder_seek_to_frame(mal_vorbis_decoder* pVorbis, mal_dec
 }
 
 
-mal_result mal_decoder_internal_on_seek_to_frame__vorbis(mal_decoder* pDecoder, mal_uint64 frameIndex)
+mal_result mal_decoder_internal_on_seek_to_pcm_frame__vorbis(mal_decoder* pDecoder, mal_uint64 frameIndex)
 {
     mal_assert(pDecoder != NULL);
     mal_assert(pDecoder->onRead != NULL);
@@ -28509,7 +28509,7 @@ mal_result mal_decoder_internal_on_seek_to_frame__vorbis(mal_decoder* pDecoder, 
     mal_vorbis_decoder* pVorbis = (mal_vorbis_decoder*)pDecoder->pInternalDecoder;
     mal_assert(pVorbis != NULL);
 
-    return mal_vorbis_decoder_seek_to_frame(pVorbis, pDecoder, frameIndex);
+    return mal_vorbis_decoder_seek_to_pcm_frame(pVorbis, pDecoder, frameIndex);
 }
 
 mal_result mal_decoder_internal_on_uninit__vorbis(mal_decoder* pDecoder)
@@ -28524,7 +28524,7 @@ mal_result mal_decoder_internal_on_uninit__vorbis(mal_decoder* pDecoder)
     return MAL_SUCCESS;
 }
 
-mal_uint32 mal_decoder_internal_on_read_frames__vorbis(mal_dsp* pDSP, mal_uint32 frameCount, void* pSamplesOut, void* pUserData)
+mal_uint32 mal_decoder_internal_on_read_pcm_frames__vorbis(mal_dsp* pDSP, mal_uint32 frameCount, void* pSamplesOut, void* pUserData)
 {
     (void)pDSP;
 
@@ -28537,7 +28537,7 @@ mal_uint32 mal_decoder_internal_on_read_frames__vorbis(mal_dsp* pDSP, mal_uint32
     mal_vorbis_decoder* pVorbis = (mal_vorbis_decoder*)pDecoder->pInternalDecoder;
     mal_assert(pVorbis != NULL);
 
-    return mal_vorbis_decoder_read(pVorbis, pDecoder, frameCount, pSamplesOut);
+    return mal_vorbis_decoder_read_pcm_frames(pVorbis, pDecoder, frameCount, pSamplesOut);
 }
 
 mal_result mal_decoder_init_vorbis__internal(const mal_decoder_config* pConfig, mal_decoder* pDecoder)
@@ -28623,7 +28623,7 @@ mal_result mal_decoder_init_vorbis__internal(const mal_decoder_config* pConfig, 
     pVorbis->dataSize = dataSize;
     pVorbis->dataCapacity = dataCapacity;
 
-    pDecoder->onSeekToFrame = mal_decoder_internal_on_seek_to_frame__vorbis;
+    pDecoder->onSeekToPCMFrame = mal_decoder_internal_on_seek_to_pcm_frame__vorbis;
     pDecoder->onUninit = mal_decoder_internal_on_uninit__vorbis;
     pDecoder->pInternalDecoder = pVorbis;
 
@@ -28633,7 +28633,7 @@ mal_result mal_decoder_init_vorbis__internal(const mal_decoder_config* pConfig, 
     pDecoder->internalSampleRate = vorbisInfo.sample_rate;
     mal_get_standard_channel_map(mal_standard_channel_map_vorbis, pDecoder->internalChannels, pDecoder->internalChannelMap);
 
-    mal_result result = mal_decoder__init_dsp(pDecoder, pConfig, mal_decoder_internal_on_read_frames__vorbis);
+    mal_result result = mal_decoder__init_dsp(pDecoder, pConfig, mal_decoder_internal_on_read_pcm_frames__vorbis);
     if (result != MAL_SUCCESS) {
         stb_vorbis_close(pVorbis->pInternalVorbis);
         mal_free(pVorbis->pData);
@@ -28667,7 +28667,21 @@ drmp3_bool32 mal_decoder_internal_on_seek__mp3(void* pUserData, int offset, drmp
     return pDecoder->onSeek(pDecoder, offset, (origin == drmp3_seek_origin_start) ? mal_seek_origin_start : mal_seek_origin_current);
 }
 
-mal_result mal_decoder_internal_on_seek_to_frame__mp3(mal_decoder* pDecoder, mal_uint64 frameIndex)
+mal_uint32 mal_decoder_internal_on_read_pcm_frames__mp3(mal_dsp* pDSP, mal_uint32 frameCount, void* pSamplesOut, void* pUserData)
+{
+    (void)pDSP;
+
+    mal_decoder* pDecoder = (mal_decoder*)pUserData;
+    mal_assert(pDecoder != NULL);
+    mal_assert(pDecoder->internalFormat == mal_format_f32);
+
+    drmp3* pMP3 = (drmp3*)pDecoder->pInternalDecoder;
+    mal_assert(pMP3 != NULL);
+
+    return (mal_uint32)drmp3_read_pcm_frames_f32(pMP3, frameCount, (float*)pSamplesOut);
+}
+
+mal_result mal_decoder_internal_on_seek_to_pcm_frame__mp3(mal_decoder* pDecoder, mal_uint64 frameIndex)
 {
     drmp3* pMP3 = (drmp3*)pDecoder->pInternalDecoder;
     mal_assert(pMP3 != NULL);
@@ -28685,20 +28699,6 @@ mal_result mal_decoder_internal_on_uninit__mp3(mal_decoder* pDecoder)
     drmp3_uninit((drmp3*)pDecoder->pInternalDecoder);
     mal_free(pDecoder->pInternalDecoder);
     return MAL_SUCCESS;
-}
-
-mal_uint32 mal_decoder_internal_on_read_frames__mp3(mal_dsp* pDSP, mal_uint32 frameCount, void* pSamplesOut, void* pUserData)
-{
-    (void)pDSP;
-
-    mal_decoder* pDecoder = (mal_decoder*)pUserData;
-    mal_assert(pDecoder != NULL);
-    mal_assert(pDecoder->internalFormat == mal_format_f32);
-
-    drmp3* pMP3 = (drmp3*)pDecoder->pInternalDecoder;
-    mal_assert(pMP3 != NULL);
-
-    return (mal_uint32)drmp3_read_pcm_frames_f32(pMP3, frameCount, (float*)pSamplesOut);
 }
 
 mal_result mal_decoder_init_mp3__internal(const mal_decoder_config* pConfig, mal_decoder* pDecoder)
@@ -28729,7 +28729,7 @@ mal_result mal_decoder_init_mp3__internal(const mal_decoder_config* pConfig, mal
     }
 
     // If we get here it means we successfully initialized the MP3 decoder. We can now initialize the rest of the mal_decoder.
-    pDecoder->onSeekToFrame = mal_decoder_internal_on_seek_to_frame__mp3;
+    pDecoder->onSeekToPCMFrame = mal_decoder_internal_on_seek_to_pcm_frame__mp3;
     pDecoder->onUninit = mal_decoder_internal_on_uninit__mp3;
     pDecoder->pInternalDecoder = pMP3;
 
@@ -28739,7 +28739,7 @@ mal_result mal_decoder_init_mp3__internal(const mal_decoder_config* pConfig, mal
     pDecoder->internalSampleRate = pMP3->sampleRate;
     mal_get_standard_channel_map(mal_standard_channel_map_default, pDecoder->internalChannels, pDecoder->internalChannelMap);
 
-    mal_result result = mal_decoder__init_dsp(pDecoder, pConfig, mal_decoder_internal_on_read_frames__mp3);
+    mal_result result = mal_decoder__init_dsp(pDecoder, pConfig, mal_decoder_internal_on_read_pcm_frames__mp3);
     if (result != MAL_SUCCESS) {
         mal_free(pMP3);
         return result;
@@ -28750,7 +28750,19 @@ mal_result mal_decoder_init_mp3__internal(const mal_decoder_config* pConfig, mal
 #endif
 
 // Raw
-mal_result mal_decoder_internal_on_seek_to_frame__raw(mal_decoder* pDecoder, mal_uint64 frameIndex)
+mal_uint32 mal_decoder_internal_on_read_pcm_frames__raw(mal_dsp* pDSP, mal_uint32 frameCount, void* pSamplesOut, void* pUserData)
+{
+    (void)pDSP;
+
+    mal_decoder* pDecoder = (mal_decoder*)pUserData;
+    mal_assert(pDecoder != NULL);
+
+    // For raw decoding we just read directly from the decoder's callbacks.
+    mal_uint32 bpf = mal_get_bytes_per_frame(pDecoder->internalFormat, pDecoder->internalChannels);
+    return (mal_uint32)pDecoder->onRead(pDecoder, pSamplesOut, frameCount * bpf) / bpf;
+}
+
+mal_result mal_decoder_internal_on_seek_to_pcm_frame__raw(mal_decoder* pDecoder, mal_uint64 frameIndex)
 {
     mal_assert(pDecoder != NULL);
 
@@ -28800,25 +28812,13 @@ mal_result mal_decoder_internal_on_uninit__raw(mal_decoder* pDecoder)
     return MAL_SUCCESS;
 }
 
-mal_uint32 mal_decoder_internal_on_read_frames__raw(mal_dsp* pDSP, mal_uint32 frameCount, void* pSamplesOut, void* pUserData)
-{
-    (void)pDSP;
-
-    mal_decoder* pDecoder = (mal_decoder*)pUserData;
-    mal_assert(pDecoder != NULL);
-
-    // For raw decoding we just read directly from the decoder's callbacks.
-    mal_uint32 bpf = mal_get_bytes_per_frame(pDecoder->internalFormat, pDecoder->internalChannels);
-    return (mal_uint32)pDecoder->onRead(pDecoder, pSamplesOut, frameCount * bpf) / bpf;
-}
-
 mal_result mal_decoder_init_raw__internal(const mal_decoder_config* pConfigIn, const mal_decoder_config* pConfigOut, mal_decoder* pDecoder)
 {
     mal_assert(pConfigIn != NULL);
     mal_assert(pConfigOut != NULL);
     mal_assert(pDecoder != NULL);
 
-    pDecoder->onSeekToFrame = mal_decoder_internal_on_seek_to_frame__raw;
+    pDecoder->onSeekToPCMFrame = mal_decoder_internal_on_seek_to_pcm_frame__raw;
     pDecoder->onUninit = mal_decoder_internal_on_uninit__raw;
 
     // Internal format.
@@ -28827,7 +28827,7 @@ mal_result mal_decoder_init_raw__internal(const mal_decoder_config* pConfigIn, c
     pDecoder->internalSampleRate = pConfigIn->sampleRate;
     mal_channel_map_copy(pDecoder->internalChannelMap, pConfigIn->channelMap, pConfigIn->channels);
 
-    mal_result result = mal_decoder__init_dsp(pDecoder, pConfigOut, mal_decoder_internal_on_read_frames__raw);
+    mal_result result = mal_decoder__init_dsp(pDecoder, pConfigOut, mal_decoder_internal_on_read_pcm_frames__raw);
     if (result != MAL_SUCCESS) {
         return result;
     }
@@ -29363,27 +29363,27 @@ mal_result mal_decoder_uninit(mal_decoder* pDecoder)
     return MAL_SUCCESS;
 }
 
-mal_uint64 mal_decoder_read(mal_decoder* pDecoder, mal_uint64 frameCount, void* pFramesOut)
+mal_uint64 mal_decoder_read_pcm_frames(mal_decoder* pDecoder, mal_uint64 frameCount, void* pFramesOut)
 {
     if (pDecoder == NULL) return 0;
 
     return mal_dsp_read(&pDecoder->dsp, frameCount, pFramesOut, pDecoder->dsp.pUserData);
 }
 
-mal_result mal_decoder_seek_to_frame(mal_decoder* pDecoder, mal_uint64 frameIndex)
+mal_result mal_decoder_seek_to_pcm_frame(mal_decoder* pDecoder, mal_uint64 frameIndex)
 {
     if (pDecoder == NULL) return 0;
 
-    if (pDecoder->onSeekToFrame) {
-        return pDecoder->onSeekToFrame(pDecoder, frameIndex);
+    if (pDecoder->onSeekToPCMFrame) {
+        return pDecoder->onSeekToPCMFrame(pDecoder, frameIndex);
     }
 
-    // Should never get here, but if we do it means onSeekToFrame was not set by the backend.
+    // Should never get here, but if we do it means onSeekToPCMFrame was not set by the backend.
     return MAL_INVALID_ARGS;
 }
 
 
-mal_result mal_decoder__full_decode_and_uninit(mal_decoder* pDecoder, mal_decoder_config* pConfigOut, mal_uint64* pFrameCountOut, void** ppDataOut)
+mal_result mal_decoder__full_decode_and_uninit(mal_decoder* pDecoder, mal_decoder_config* pConfigOut, mal_uint64* pFrameCountOut, void** ppPCMFramesOut)
 {
     mal_assert(pDecoder != NULL);
     
@@ -29392,7 +29392,7 @@ mal_result mal_decoder__full_decode_and_uninit(mal_decoder* pDecoder, mal_decode
 
     // The frame count is unknown until we try reading. Thus, we just run in a loop.
     mal_uint64 dataCapInFrames = 0;
-    void* pDataOut = NULL;
+    void* pPCMFramesOut = NULL;
     for (;;) {
         // Make room if there's not enough.
         if (totalFrameCount == dataCapInFrames) {
@@ -29402,25 +29402,25 @@ mal_result mal_decoder__full_decode_and_uninit(mal_decoder* pDecoder, mal_decode
             }
 
             if ((newDataCapInFrames * bpf) > MAL_SIZE_MAX) {
-                mal_free(pDataOut);
+                mal_free(pPCMFramesOut);
                 return MAL_TOO_LARGE;
             }
 
 
-            void* pNewDataOut = (void*)mal_realloc(pDataOut, (size_t)(newDataCapInFrames * bpf));
-            if (pNewDataOut == NULL) {
-                mal_free(pDataOut);
+            void* pNewPCMFramesOut = (void*)mal_realloc(pPCMFramesOut, (size_t)(newDataCapInFrames * bpf));
+            if (pNewPCMFramesOut == NULL) {
+                mal_free(pPCMFramesOut);
                 return MAL_OUT_OF_MEMORY;
             }
 
             dataCapInFrames = newDataCapInFrames;
-            pDataOut = pNewDataOut;
+            pPCMFramesOut = pNewPCMFramesOut;
         }
 
         mal_uint64 frameCountToTryReading = dataCapInFrames - totalFrameCount;
         mal_assert(frameCountToTryReading > 0);
 
-        mal_uint64 framesJustRead = mal_decoder_read(pDecoder, frameCountToTryReading, (mal_uint8*)pDataOut + (totalFrameCount * bpf));
+        mal_uint64 framesJustRead = mal_decoder_read_pcm_frames(pDecoder, frameCountToTryReading, (mal_uint8*)pPCMFramesOut + (totalFrameCount * bpf));
         totalFrameCount += framesJustRead;
 
         if (framesJustRead < frameCountToTryReading) {
@@ -29436,10 +29436,10 @@ mal_result mal_decoder__full_decode_and_uninit(mal_decoder* pDecoder, mal_decode
         mal_channel_map_copy(pConfigOut->channelMap, pDecoder->outputChannelMap, pDecoder->outputChannels);
     }
 
-    if (ppDataOut != NULL) {
-        *ppDataOut = pDataOut;
+    if (ppPCMFramesOut != NULL) {
+        *ppPCMFramesOut = pPCMFramesOut;
     } else {
-        mal_free(pDataOut);
+        mal_free(pPCMFramesOut);
     }
 
     if (pFrameCountOut != NULL) {
@@ -29451,13 +29451,13 @@ mal_result mal_decoder__full_decode_and_uninit(mal_decoder* pDecoder, mal_decode
 }
 
 #ifndef MAL_NO_STDIO
-mal_result mal_decode_file(const char* pFilePath, mal_decoder_config* pConfig, mal_uint64* pFrameCountOut, void** ppDataOut)
+mal_result mal_decode_file(const char* pFilePath, mal_decoder_config* pConfig, mal_uint64* pFrameCountOut, void** ppPCMFramesOut)
 {
     if (pFrameCountOut != NULL) {
         *pFrameCountOut = 0;
     }
-    if (ppDataOut != NULL) {
-        *ppDataOut = NULL;
+    if (ppPCMFramesOut != NULL) {
+        *ppPCMFramesOut = NULL;
     }
 
     if (pFilePath == NULL) {
@@ -29472,17 +29472,17 @@ mal_result mal_decode_file(const char* pFilePath, mal_decoder_config* pConfig, m
         return result;
     }
 
-    return mal_decoder__full_decode_and_uninit(&decoder, pConfig, pFrameCountOut, ppDataOut);
+    return mal_decoder__full_decode_and_uninit(&decoder, pConfig, pFrameCountOut, ppPCMFramesOut);
 }
 #endif
 
-mal_result mal_decode_memory(const void* pData, size_t dataSize, mal_decoder_config* pConfig, mal_uint64* pFrameCountOut, void** ppDataOut)
+mal_result mal_decode_memory(const void* pData, size_t dataSize, mal_decoder_config* pConfig, mal_uint64* pFrameCountOut, void** ppPCMFramesOut)
 {
     if (pFrameCountOut != NULL) {
         *pFrameCountOut = 0;
     }
-    if (ppDataOut != NULL) {
-        *ppDataOut = NULL;
+    if (ppPCMFramesOut != NULL) {
+        *ppPCMFramesOut = NULL;
     }
 
     if (pData == NULL || dataSize == 0) {
@@ -29497,7 +29497,7 @@ mal_result mal_decode_memory(const void* pData, size_t dataSize, mal_decoder_con
         return result;
     }
 
-    return mal_decoder__full_decode_and_uninit(&decoder, pConfig, pFrameCountOut, ppDataOut);
+    return mal_decoder__full_decode_and_uninit(&decoder, pConfig, pFrameCountOut, ppPCMFramesOut);
 }
 
 #endif  // MAL_NO_DECODING

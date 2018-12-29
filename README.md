@@ -82,7 +82,7 @@ mal_uint32 on_send_frames_to_device(mal_device* pDevice, mal_uint32 frameCount, 
         return 0;
     }
 
-    return (mal_uint32)mal_decoder_read(pDecoder, frameCount, pSamples);
+    return (mal_uint32)mal_decoder_read_pcm_frames(pDecoder, frameCount, pSamples);
 }
 
 int main(int argc, char** argv)
@@ -186,13 +186,13 @@ decoding backend.
 Data is read from the decoder as PCM frames:
 
 ```
-mal_uint64 framesRead = mal_decoder_read(pDecoder, framesToRead, pFrames);
+mal_uint64 framesRead = mal_decoder_read_pcm_frames(pDecoder, framesToRead, pFrames);
 ```
 
 You can also seek to a specific frame like so:
 
 ```
-mal_result result = mal_decoder_seek(pDecoder, targetFrame);
+mal_result result = mal_decoder_seek_to_pcm_frame(pDecoder, targetFrame);
 if (result != MAL_SUCCESS) {
     return false;   // An error occurred.
 }
