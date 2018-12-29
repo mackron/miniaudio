@@ -316,67 +316,59 @@ extern "C" {
     #endif
 #endif
 
-#include <stddef.h> // For size_t.
+#include <stddef.h> /* For size_t. */
 
-#ifndef MAL_HAS_STDINT
-    #if defined(_MSC_VER)
-        #if _MSC_VER >= 1600
-            #define MAL_HAS_STDINT
-        #endif
-    #else
-        #if defined(__has_include)
-            #if __has_include(<stdint.h>)
-                #define MAL_HAS_STDINT
-            #endif
-        #endif
+/* Sized types. Prefer built-in types. Fall back to stdint. */
+#ifdef _MSC_VER
+    #if defined(__clang__)
+        #pragma GCC diagnostic push
+        #pragma GCC diagnostic ignored "-Wlanguage-extension-token"
+        #pragma GCC diagnostic ignored "-Wc++11-long-long"
     #endif
-#endif
-
-#if !defined(MAL_HAS_STDINT) && (defined(__GNUC__) || defined(__clang__))   // Assume support for stdint.h on GCC and Clang.
+    typedef   signed __int8  mal_int8;
+    typedef unsigned __int8  mal_uint8;
+    typedef   signed __int16 mal_int16;
+    typedef unsigned __int16 mal_uint16;
+    typedef   signed __int32 mal_int32;
+    typedef unsigned __int32 mal_uint32;
+    typedef   signed __int64 mal_int64;
+    typedef unsigned __int64 mal_uint64;
+    #if defined(__clang__)
+        #pragma GCC diagnostic pop
+    #endif
+#else
     #define MAL_HAS_STDINT
+    #include <stdint.h>
+    typedef int8_t   mal_int8;
+    typedef uint8_t  mal_uint8;
+    typedef int16_t  mal_int16;
+    typedef uint16_t mal_uint16;
+    typedef int32_t  mal_int32;
+    typedef uint32_t mal_uint32;
+    typedef int64_t  mal_int64;
+    typedef uint64_t mal_uint64;
 #endif
 
-#ifndef MAL_HAS_STDINT
-typedef   signed char               mal_int8;
-typedef unsigned char               mal_uint8;
-typedef   signed short              mal_int16;
-typedef unsigned short              mal_uint16;
-typedef   signed int                mal_int32;
-typedef unsigned int                mal_uint32;
-    #if defined(_MSC_VER)
-    typedef   signed __int64        mal_int64;
-    typedef unsigned __int64        mal_uint64;
-    #else
-    typedef   signed long long int  mal_int64;
-    typedef unsigned long long int  mal_uint64;
-    #endif
+#ifdef MAL_HAS_STDINT
+    typedef uintptr_t mal_uintptr;
+#else
     #if defined(_WIN32)
         #if defined(_WIN64)
-        typedef mal_uint64          mal_uintptr;
+            typedef mal_uint64 mal_uintptr;
         #else
-        typedef mal_uint32          mal_uintptr;
+            typedef mal_uint32 mal_uintptr;
         #endif
     #elif defined(__GNUC__)
         #if defined(__LP64__)
-        typedef mal_uint64          mal_uintptr;
+            typedef mal_uint64 mal_uintptr;
         #else
-        typedef mal_uint32          mal_uintptr;
+            typedef mal_uint32 mal_uintptr;
         #endif
     #else
-        typedef mal_uint64          mal_uintptr;    // Fallback.
+        typedef mal_uint64 mal_uintptr;   /* Fallback. */
     #endif
-#else
-#include <stdint.h>
-typedef int8_t                      mal_int8;
-typedef uint8_t                     mal_uint8;
-typedef int16_t                     mal_int16;
-typedef uint16_t                    mal_uint16;
-typedef int32_t                     mal_int32;
-typedef uint32_t                    mal_uint32;
-typedef int64_t                     mal_int64;
-typedef uint64_t                    mal_uint64;
-typedef uintptr_t                   mal_uintptr;
 #endif
+
 typedef mal_uint8                   mal_bool8;
 typedef mal_uint32                  mal_bool32;
 #define MAL_TRUE                    1
