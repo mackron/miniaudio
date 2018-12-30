@@ -2225,6 +2225,15 @@ mal_result mal_context_get_device_info(mal_context* pContext, mal_device_type ty
 // MAL_BASE_BUFFER_SIZE_IN_MILLISECONDS_CONSERVATIVE, depending on whether or not performanceProfile
 // is set to mal_performance_profile_low_latency or mal_performance_profile_conservative.
 //
+// If you request exclusive mode and the backend does not support it an error will be returned. For
+// robustness, you may want to first try initializing the device in exclusive mode, and then fall back
+// to shared mode if required. Alternatively you can just request shared mode (the default if you
+// leave it unset in the config) which is the most reliable option. Some backends do not have a
+// practical way of choosing whether or not the device should be exclusive or not (ALSA, for example)
+// in which case it just acts as a hint. Unless you have special requirements you should try avoiding
+// exclusive mode as it's intrusive to the user. Starting with Windows 10, mini_al will use low-latency
+// shared mode where possible which may make exclusive mode unnecessary.
+//
 // When sending or receiving data to/from a device, mini_al will internally perform a format
 // conversion to convert between the format specified by pConfig and the format used internally by
 // the backend. If you pass in NULL for pConfig or 0 for the sample format, channel count,
