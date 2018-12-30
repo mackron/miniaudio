@@ -269,6 +269,45 @@ OPTIONS
 
 #ifndef MAL_COINIT_VALUE
   Windows only. The value to pass to internal calls to CoInitializeEx(). Defaults to COINIT_MULTITHREADED.
+
+
+DEFINITIONS
+===========
+This section defines common terms used throughout mini_al. Unfortunately there is often ambiguity in the use of terms
+throughout the audio space, so this section is intended to clarify how mini_al uses each term.
+
+Sample
+------
+A sample is a single unit of audio data. If the sample format is f32, then one sample is one 32-bit floating point number.
+
+Frame / PCM Frame
+-----------------
+A frame is a groups of samples equal to the number of channels. For a stereo stream a frame is 2 samples, a mono frame
+is 1 sample, a 5.1 surround sound frame is 6 samples, etc. The terms "frame" and "PCM frame" are the same thing in
+mini_al. Note that this is different to a compressed frame. If ever mini_al needs to refer to a compressed frame, such
+as a FLAC frame, it will always clarify what it's referring to with something like "FLAC frame" or whatnot.
+
+Channel
+-------
+A stream of monaural audio that is emitted from an individual speaker in a speaker system, or received from an individual
+microphone in a microphone system. A stereo stream has two channels (a left channel, and a right channel), a 5.1 surround
+sound system has 6 channels, etc. Some audio systems refer to a channel as a complex audio stream that's mixed with other
+channels to produce the final mix - this is completely different to mini_al's use of the term "channel" and should not be
+confused.
+
+Sample Rate
+-----------
+The sample rate in mini_al is always expressed in Hz, such as 44100, 48000, etc. It's the number of PCM frames that are
+processed per second.
+
+Formats
+-------
+Throughout mini_al you will see references to different sample formats:
+    u8  - Unsigned 8-bit integer
+    s16 - Signed 16-bit integer
+    s24 - Signed 24-bit integer (tightly packed).
+    s32 - Signed 32-bit integer
+    f32 - 32-bit floating point
 */
 
 #ifndef mini_al_h
