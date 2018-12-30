@@ -2069,6 +2069,7 @@ MAL_ALIGNED_STRUCT(MAL_SIMD_ALIGNMENT) mal_device
             mal_uint32 lastProcessedFrame;      // This is circular.
             mal_bool32 breakFromMainLoop;
             mal_uint8* pBuffer;                 // This is malloc()'d and is used as the destination for reading from the client. Typed as mal_uint8 for easy offsetting.
+            mal_bool32 hasStarted : 1;          /* Keeps track of whether or not the device has been started at least once. */
         } null_device;
 #endif
     };
@@ -4120,7 +4121,6 @@ mal_bool32 mal_event_wait__posix(mal_event* pEvent)
         while (pEvent->posix.value == 0) {
             ((mal_pthread_cond_wait_proc)pEvent->pContext->posix.pthread_cond_wait)(&pEvent->posix.condition, &pEvent->posix.mutex);
         }
-
         pEvent->posix.value = 0;  // Auto-reset.
     }
     ((mal_pthread_mutex_unlock_proc)pEvent->pContext->posix.pthread_mutex_unlock)(&pEvent->posix.mutex);
@@ -4749,8 +4749,11 @@ mal_result mal_device_start__null(mal_device* pDevice)
 {
     mal_assert(pDevice != NULL);
 
-    mal_timer_init(&pDevice->null_device.timer);
-    pDevice->null_device.lastProcessedFrame = 0;
+    if (!pDevice->null_device.hasStarted) {
+        mal_timer_init(&pDevice->null_device.timer);
+        pDevice->null_device.lastProcessedFrame = 0;
+        pDevice->null_device.hasStarted = MAL_TRUE;
+    }
 
     return MAL_SUCCESS;
 }
@@ -4854,7 +4857,7 @@ mal_result mal_device_main_loop__null(mal_device* pDevice)
 
         // If it's a playback device, don't bother grabbing more data if the device is being stopped.
         if (pDevice->null_device.breakFromMainLoop && pDevice->type == mal_device_type_playback) {
-            return MAL_FALSE;
+            return MAL_ERROR;
         }
 
         if (framesAvailable + pDevice->null_device.lastProcessedFrame > pDevice->bufferSizeInFrames) {
@@ -4867,7 +4870,7 @@ mal_result mal_device_main_loop__null(mal_device* pDevice)
 
         if (pDevice->type == mal_device_type_playback) {
             if (pDevice->null_device.breakFromMainLoop) {
-                return MAL_FALSE;
+                return MAL_ERROR;
             }
 
             mal_device__read_frames_from_client(pDevice, framesAvailable, pDevice->null_device.pBuffer + lockOffset);
@@ -8239,25 +8242,8 @@ mal_result mal_device_start__dsound(mal_device* pDevice)
     mal_assert(pDevice != NULL);
 
     if (pDevice->type == mal_device_type_playback) {
-        // Before playing anything we need to grab an initial group of samples from the client.
-        mal_uint32 framesToRead = pDevice->bufferSizeInFrames / pDevice->periods;
-        mal_uint32 desiredLockSize = framesToRead * pDevice->channels * mal_get_bytes_per_sample(pDevice->format);
-
-        void* pLockPtr;
-        DWORD actualLockSize;
-        void* pLockPtr2;
-        DWORD actualLockSize2;
-        if (SUCCEEDED(mal_IDirectSoundBuffer_Lock((mal_IDirectSoundBuffer*)pDevice->dsound.pPlaybackBuffer, 0, desiredLockSize, &pLockPtr, &actualLockSize, &pLockPtr2, &actualLockSize2, 0))) {
-            framesToRead = actualLockSize / mal_get_bytes_per_sample(pDevice->format) / pDevice->channels;
-            mal_device__read_frames_from_client(pDevice, framesToRead, pLockPtr);
-            mal_IDirectSoundBuffer_Unlock((mal_IDirectSoundBuffer*)pDevice->dsound.pPlaybackBuffer, pLockPtr, actualLockSize, pLockPtr2, actualLockSize2);
-
-            pDevice->dsound.lastProcessedFrame = framesToRead;
-            if (FAILED(mal_IDirectSoundBuffer_Play((mal_IDirectSoundBuffer*)pDevice->dsound.pPlaybackBuffer, 0, 0, MAL_DSBPLAY_LOOPING))) {
-                return mal_post_error(pDevice, MAL_LOG_LEVEL_ERROR, "[DirectSound] IDirectSoundBuffer_Play() failed.", MAL_FAILED_TO_START_BACKEND_DEVICE);
-            }
-        } else {
-            return mal_post_error(pDevice, MAL_LOG_LEVEL_ERROR, "[DirectSound] IDirectSoundBuffer_Lock() failed.", MAL_FAILED_TO_MAP_DEVICE_BUFFER);
+        if (FAILED(mal_IDirectSoundBuffer_Play((mal_IDirectSoundBuffer*)pDevice->dsound.pPlaybackBuffer, 0, 0, MAL_DSBPLAY_LOOPING))) {
+            return mal_post_error(pDevice, MAL_LOG_LEVEL_ERROR, "[DirectSound] IDirectSoundBuffer_Play() failed.", MAL_FAILED_TO_START_BACKEND_DEVICE);
         }
     } else {
         if (FAILED(mal_IDirectSoundCaptureBuffer_Start((mal_IDirectSoundCaptureBuffer*)pDevice->dsound.pCaptureBuffer, MAL_DSCBSTART_LOOPING))) {
@@ -8276,8 +8262,6 @@ mal_result mal_device_stop__dsound(mal_device* pDevice)
         if (FAILED(mal_IDirectSoundBuffer_Stop((mal_IDirectSoundBuffer*)pDevice->dsound.pPlaybackBuffer))) {
             return mal_post_error(pDevice, MAL_LOG_LEVEL_ERROR, "[DirectSound] IDirectSoundBuffer_Stop() failed.", MAL_FAILED_TO_STOP_BACKEND_DEVICE);
         }
-
-        mal_IDirectSoundBuffer_SetCurrentPosition((mal_IDirectSoundBuffer*)pDevice->dsound.pPlaybackBuffer, 0);
     } else {
         if (FAILED(mal_IDirectSoundCaptureBuffer_Stop((mal_IDirectSoundCaptureBuffer*)pDevice->dsound.pCaptureBuffer))) {
             return mal_post_error(pDevice, MAL_LOG_LEVEL_ERROR, "[DirectSound] IDirectSoundCaptureBuffer_Stop() failed.", MAL_FAILED_TO_STOP_BACKEND_DEVICE);
@@ -12267,6 +12251,8 @@ void mal_pulse_device_write_callback(mal_pa_stream* pStream, size_t sizeInBytes,
 #ifdef MAL_DEBUG_OUTPUT
             printf(", framesToReadFromClient=0\n");
 #endif
+            /* pa_stream_begin_write() returned a null pointer or 0 bytes. Get out of the loop. */
+            break;
         }
     }
 }
