@@ -17,7 +17,7 @@ mal_uint32 on_convert_samples_in(mal_format_converter* pConverter, mal_uint32 fr
     mal_sine_wave* pSineWave = (mal_sine_wave*)pConverter->config.pUserData;
     mal_assert(pSineWave);
 
-    return (mal_uint32)mal_sine_wave_read(pSineWave, frameCount, (float*)pFrames);
+    return (mal_uint32)mal_sine_wave_read_f32(pSineWave, frameCount, (float*)pFrames);
 }
 
 mal_uint32 on_convert_samples_out(mal_format_converter* pConverter, mal_uint32 frameCount, void* pFrames, void* pUserData)
@@ -36,7 +36,7 @@ mal_uint32 on_send_to_device__original(mal_device* pDevice, mal_uint32 frameCoun
     mal_assert(pDevice->format == mal_format_f32);
     mal_assert(pDevice->channels == 1);
 
-    return (mal_uint32)mal_sine_wave_read(&sineWave, frameCount, (float*)pFrames);
+    return (mal_uint32)mal_sine_wave_read_f32(&sineWave, frameCount, (float*)pFrames);
 }
 
 mal_uint32 on_send_to_device__dithered(mal_device* pDevice, mal_uint32 frameCount, void* pFrames)

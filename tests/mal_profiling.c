@@ -590,7 +590,7 @@ int do_profiling__format_conversion__profile_set(mal_format formatIn, mal_format
 
     mal_sine_wave sineWave;
     mal_sine_wave_init(1.0, 400, 48000, &sineWave);
-    mal_sine_wave_read(&sineWave, sampleCount, pSourceData);
+    mal_sine_wave_read_f32(&sineWave, sampleCount, pSourceData);
 
     void* pBaseData = mal_aligned_malloc(sampleCount * mal_get_bytes_per_sample(formatIn), MAL_SIMD_ALIGNMENT);
     mal_pcm_convert(pBaseData, formatIn, pSourceData, mal_format_f32, sampleCount, mal_dither_mode_none);
@@ -681,7 +681,7 @@ mal_uint32 channel_router_on_read(mal_channel_router* pRouter, mal_uint32 frameC
 
     for (mal_uint32 iChannel = 0; iChannel < pRouter->config.channelsIn; ++iChannel) {
         mal_sine_wave_init(1/(iChannel+1), 400, 48000, &g_sineWave);
-        mal_sine_wave_read(&g_sineWave, frameCount, ppSamplesOutF[iChannel]);
+        mal_sine_wave_read_f32(&g_sineWave, frameCount, ppSamplesOutF[iChannel]);
     }
 
     return frameCount;
@@ -1071,7 +1071,7 @@ int do_profiling__src()
 
         mal_sine_wave sineWave;
         mal_sine_wave_init(1.0f, 400 + (iChannel*50), 48000, &sineWave);
-        mal_sine_wave_read(&sineWave, baseData.frameCount, baseData.pFrameData[iChannel]);
+        mal_sine_wave_read_f32(&sineWave, baseData.frameCount, baseData.pFrameData[iChannel]);
     }
     
 
