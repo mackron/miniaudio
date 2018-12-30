@@ -13138,7 +13138,11 @@ mal_result mal_context_get_device_info__jack(mal_context* pContext, mal_device_t
     mal_assert(pContext != NULL);
 
     (void)pContext;
-    (void)shareMode;
+
+    /* No exclusive mode with the JACK backend. */
+    if (shareMode == mal_share_mode_exclusive) {
+        return MAL_SHARE_MODE_NOT_SUPPORTED;
+    }
 
     if (pDeviceID != NULL && pDeviceID->jack != 0) {
         return MAL_NO_DEVICE;   // Don't know the device.
@@ -13275,13 +13279,16 @@ mal_result mal_device_init__jack(mal_context* pContext, mal_device_type type, co
     mal_assert(pDevice != NULL);
 
     (void)pContext;
-    (void)pConfig;
 
     // Only supporting default devices with JACK.
     if (pDeviceID != NULL && pDeviceID->jack != 0) {
         return MAL_NO_DEVICE;
     }
 
+    /* No exclusive mode with the JACK backend. */
+    if (pConfig->shareMode == mal_share_mode_exclusive) {
+        return MAL_SHARE_MODE_NOT_SUPPORTED;
+    }
 
     // Open the client.
     mal_result result = mal_context_open_client__jack(pContext, (mal_jack_client_t**)&pDevice->jack.pClient);
