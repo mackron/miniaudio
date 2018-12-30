@@ -540,10 +540,12 @@ typedef int mal_result;
 
 /* General mini_al-specific errors. */
 #define MAL_FORMAT_NOT_SUPPORTED                        -100
-#define MAL_NO_BACKEND                                  -101
-#define MAL_NO_DEVICE                                   -102
-#define MAL_API_NOT_FOUND                               -103
-#define MAL_INVALID_DEVICE_CONFIG                       -104
+#define MAL_DEVICE_TYPE_NOT_SUPPORTED                   -101
+#define MAL_SHARE_MODE_NOT_SUPPORTED                    -102
+#define MAL_NO_BACKEND                                  -103
+#define MAL_NO_DEVICE                                   -104
+#define MAL_API_NOT_FOUND                               -105
+#define MAL_INVALID_DEVICE_CONFIG                       -106
 
 /* State errors. */
 #define MAL_DEVICE_BUSY                                 -200
@@ -6475,11 +6477,10 @@ mal_result mal_device_init_internal__wasapi(mal_context* pContext, mal_device_ty
         if (hr == S_OK) {
             shareMode = MAL_AUDCLNT_SHAREMODE_EXCLUSIVE;
             result = MAL_SUCCESS;
+        } else {
+            result = MAL_SHARE_MODE_NOT_SUPPORTED;
         }
-    }
-
-    // Fall back to shared mode if necessary.
-    if (result != MAL_SUCCESS) {
+    } else {
         // In shared mode we are always using the format reported by the operating system.
         WAVEFORMATEXTENSIBLE* pNativeFormat = NULL;
         hr = mal_IAudioClient_GetMixFormat((mal_IAudioClient*)pData->pAudioClient, (WAVEFORMATEX**)&pNativeFormat);
@@ -6497,7 +6498,7 @@ mal_result mal_device_init_internal__wasapi(mal_context* pContext, mal_device_ty
 
     // Return an error if we still haven't found a format.
     if (result != MAL_SUCCESS) {
-        errorMsg = "[WASAPI] Failed to find best device mix format.", result = MAL_FORMAT_NOT_SUPPORTED;
+        errorMsg = "[WASAPI] Failed to find best device mix format.";
         goto done;
     }
 
@@ -6520,7 +6521,6 @@ mal_result mal_device_init_internal__wasapi(mal_context* pContext, mal_device_ty
 
     // Slightly different initialization for shared and exclusive modes. We try exclusive mode first, and if it fails, fall back to shared mode.
     if (shareMode == MAL_AUDCLNT_SHAREMODE_EXCLUSIVE) {
-        // Exclusive.
         MAL_REFERENCE_TIME bufferDuration = bufferDurationInMicroseconds*10;
 
         // If the periodicy is too small, Initialize() will fail with AUDCLNT_E_INVALID_DEVICE_PERIOD. In this case we should just keep increasing
@@ -6566,14 +6566,19 @@ mal_result mal_device_init_internal__wasapi(mal_context* pContext, mal_device_ty
         }
 
         if (FAILED(hr)) {
-            // Failed to initialize in exclusive mode. We don't return an error here, but instead fall back to shared mode.
-            shareMode = MAL_AUDCLNT_SHAREMODE_SHARED;
+            /* Failed to initialize in exclusive mode. Don't fall back to shared mode - instead tell the client about it. They can reinitialize in shared mode if they want. */
+            if (hr == E_ACCESSDENIED) {
+                errorMsg = "[WASAPI] Failed to initialize device in exclusive mode. Access denied.", result = MAL_ACCESS_DENIED;
+            } else if (hr == MAL_AUDCLNT_E_DEVICE_IN_USE) {
+                errorMsg = "[WASAPI] Failed to initialize device in exclusive mode. Device in use.", result = MAL_DEVICE_BUSY;
+            } else {
+                errorMsg = "[WASAPI] Failed to initialize device in exclusive mode."; result = MAL_SHARE_MODE_NOT_SUPPORTED;
+            }
+            goto done;
         }
     }
 
     if (shareMode == MAL_AUDCLNT_SHAREMODE_SHARED) {
-        // Shared.
-
         // Low latency shared mode via IAudioClient3.
         mal_IAudioClient3* pAudioClient3 = NULL;
         hr = mal_IAudioClient_QueryInterface(pData->pAudioClient, &MAL_IID_IAudioClient3, (void**)&pAudioClient3);
@@ -27925,7 +27930,31 @@ mal_uint64 mal_sine_wave_read_f32_ex(mal_sine_wave* pSineWave, mal_uint64 frameC
     #pragma warning(pop)
 #endif
 
-#endif  // MINI_AL_IMPLEMENTATION
+#endif  /* MINI_AL_IMPLEMENTATION */
+
+/*
+BACKEND IMPLEMENTATION GUIDLINES
+================================
+Context
+-------
+- Run-time linking if possible.
+- Set whether or not it's an asynchronous backend
+
+Device
+------
+- If a full-duplex device is requested and the backend does not support full duplex devices have mal_device_init__[backend]()
+  return MAL_DEVICE_TYPE_NOT_SUPPORTED.
+- If the backend or device does not support the specified share mode, return MAL_SHARE_MODE_NOT_SUPPORTED. If practical, try
+  not to fall back to a different share mode - give the client exactly what they asked for. Some backends, such as ALSA, may
+  not have a practical way to distinguish between the two.
+- Backends must set the following members of pDevice before returning successfully from mal_device_init__[backend]():
+  - internalFormat
+  - internalChannels
+  - internalSampleRate
+  - internalChannelMap
+  - bufferSizeInFrames
+  - periods
+*/
 
 /*
 REVISION HISTORY
