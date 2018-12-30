@@ -1633,6 +1633,7 @@ struct mal_context
             mal_proc snd_pcm_prepare;
             mal_proc snd_pcm_start;
             mal_proc snd_pcm_drop;
+            mal_proc snd_pcm_drain;
             mal_proc snd_device_name_hint;
             mal_proc snd_device_name_get_hint;
             mal_proc snd_card_get_index;
@@ -2305,6 +2306,12 @@ mal_result mal_device_start(mal_device* pDevice);
 // also waits on a mutex for thread-safety. In addition, some backends need to wait for the device to
 // finish playback/recording of the current fragment which can take some time (usually proportionate to
 // the buffer size that was specified at initialization time).
+//
+// This should not drop unprocessed samples. Backends are required to either pause the stream in-place
+// or drain the buffer if pausing is not possible. The reason for this is that stopping the device and
+// the resuming it with mal_device_start() (which you might do when your program loses focus) may result
+// in a situation where those samples are never output to the speakers or received from the microphone
+// which can in turn result in de-syncs.
 //
 // Return Value:
 //   MAL_SUCCESS if successful; any other error code otherwise.
@@ -6860,22 +6867,6 @@ mal_result mal_device_start__wasapi(mal_device* pDevice)
 {
     mal_assert(pDevice != NULL);
 
-    // Playback devices need to have an initial chunk of data loaded.
-    if (pDevice->type == mal_device_type_playback) {
-        BYTE* pData;
-        HRESULT hr = mal_IAudioRenderClient_GetBuffer((mal_IAudioRenderClient*)pDevice->wasapi.pRenderClient, pDevice->bufferSizeInFrames, &pData);
-        if (FAILED(hr)) {
-            return mal_post_error(pDevice, MAL_LOG_LEVEL_ERROR, "[WASAPI] Failed to retrieve buffer from internal playback device.", MAL_FAILED_TO_MAP_DEVICE_BUFFER);
-        }
-
-        mal_device__read_frames_from_client(pDevice, pDevice->bufferSizeInFrames, pData);
-
-        hr = mal_IAudioRenderClient_ReleaseBuffer((mal_IAudioRenderClient*)pDevice->wasapi.pRenderClient, pDevice->bufferSizeInFrames, 0);
-        if (FAILED(hr)) {
-            return mal_post_error(pDevice, MAL_LOG_LEVEL_ERROR, "[WASAPI] Failed to release internal buffer for playback device.", MAL_FAILED_TO_UNMAP_DEVICE_BUFFER);
-        }
-    }
-
     HRESULT hr = mal_IAudioClient_Start((mal_IAudioClient*)pDevice->wasapi.pAudioClient);
     if (FAILED(hr)) {
         return mal_post_error(pDevice, MAL_LOG_LEVEL_ERROR, "[WASAPI] Failed to start internal device.", MAL_FAILED_TO_START_BACKEND_DEVICE);
@@ -6895,12 +6886,6 @@ mal_result mal_device_stop__wasapi(mal_device* pDevice)
     HRESULT hr = mal_IAudioClient_Stop((mal_IAudioClient*)pDevice->wasapi.pAudioClient);
     if (FAILED(hr)) {
         return mal_post_error(pDevice, MAL_LOG_LEVEL_ERROR, "[WASAPI] Failed to stop internal device.", MAL_FAILED_TO_STOP_BACKEND_DEVICE);
-    }
-
-    // The client needs to be reset or else we won't be able to resume it again.
-    hr = mal_IAudioClient_Reset((mal_IAudioClient*)pDevice->wasapi.pAudioClient);
-    if (FAILED(hr)) {
-        return mal_post_error(pDevice, MAL_LOG_LEVEL_ERROR, "[WASAPI] Failed to reset internal device.", MAL_FAILED_TO_STOP_BACKEND_DEVICE);
     }
 
     return MAL_SUCCESS;
@@ -9603,6 +9588,7 @@ typedef mal_snd_pcm_chmap_t * (* mal_snd_pcm_get_chmap_proc)                    
 typedef int                   (* mal_snd_pcm_prepare_proc)                       (mal_snd_pcm_t *pcm);
 typedef int                   (* mal_snd_pcm_start_proc)                         (mal_snd_pcm_t *pcm);
 typedef int                   (* mal_snd_pcm_drop_proc)                          (mal_snd_pcm_t *pcm);
+typedef int                   (* mal_snd_pcm_drain_proc)                         (mal_snd_pcm_t *pcm);
 typedef int                   (* mal_snd_device_name_hint_proc)                  (int card, const char *iface, void ***hints);
 typedef char *                (* mal_snd_device_name_get_hint_proc)              (const void *hint, const char *id);
 typedef int                   (* mal_snd_card_get_index_proc)                    (const char *name);
@@ -10931,7 +10917,8 @@ mal_result mal_device_stop__alsa(mal_device* pDevice)
 {
     mal_assert(pDevice != NULL);
 
-    ((mal_snd_pcm_drop_proc)pDevice->pContext->alsa.snd_pcm_drop)((mal_snd_pcm_t*)pDevice->alsa.pPCM);
+    /* Using drain instead of drop because mal_device_stop() is defined such that pending frames are processed before returning. */
+    ((mal_snd_pcm_drain_proc)pDevice->pContext->alsa.snd_pcm_drain)((mal_snd_pcm_t*)pDevice->alsa.pPCM);
     return MAL_SUCCESS;
 }
 
@@ -10939,12 +10926,7 @@ mal_result mal_device_break_main_loop__alsa(mal_device* pDevice)
 {
     mal_assert(pDevice != NULL);
 
-    // First we tell the main loop that we're breaking...
     pDevice->alsa.breakFromMainLoop = MAL_TRUE;
-
-    // Then we need to force snd_pcm_wait() to return.
-    //((mal_snd_pcm_drop_proc)pDevice->pContext->alsa.snd_pcm_drop)((mal_snd_pcm_t*)pDevice->alsa.pPCM);
-
     return MAL_SUCCESS;
 }
 
@@ -11043,6 +11025,7 @@ mal_result mal_context_init__alsa(mal_context* pContext)
     pContext->alsa.snd_pcm_prepare                        = (mal_proc)mal_dlsym(pContext->alsa.asoundSO, "snd_pcm_prepare");
     pContext->alsa.snd_pcm_start                          = (mal_proc)mal_dlsym(pContext->alsa.asoundSO, "snd_pcm_start");
     pContext->alsa.snd_pcm_drop                           = (mal_proc)mal_dlsym(pContext->alsa.asoundSO, "snd_pcm_drop");
+    pContext->alsa.snd_pcm_drain                          = (mal_proc)mal_dlsym(pContext->alsa.asoundSO, "snd_pcm_drain");
     pContext->alsa.snd_device_name_hint                   = (mal_proc)mal_dlsym(pContext->alsa.asoundSO, "snd_device_name_hint");
     pContext->alsa.snd_device_name_get_hint               = (mal_proc)mal_dlsym(pContext->alsa.asoundSO, "snd_device_name_get_hint");
     pContext->alsa.snd_card_get_index                     = (mal_proc)mal_dlsym(pContext->alsa.asoundSO, "snd_card_get_index");
@@ -11096,6 +11079,7 @@ mal_result mal_context_init__alsa(mal_context* pContext)
     mal_snd_pcm_prepare_proc                        _snd_pcm_prepare                        = snd_pcm_prepare;
     mal_snd_pcm_start_proc                          _snd_pcm_start                          = snd_pcm_start;
     mal_snd_pcm_drop_proc                           _snd_pcm_drop                           = snd_pcm_drop;
+    mal_snd_pcm_drain_proc                          _snd_pcm_drain                          = snd_pcm_drain;
     mal_snd_device_name_hint_proc                   _snd_device_name_hint                   = snd_device_name_hint;
     mal_snd_device_name_get_hint_proc               _snd_device_name_get_hint               = snd_device_name_get_hint;
     mal_snd_card_get_index_proc                     _snd_card_get_index                     = snd_card_get_index;
@@ -11146,6 +11130,7 @@ mal_result mal_context_init__alsa(mal_context* pContext)
     pContext->alsa.snd_pcm_prepare                        = (mal_proc)_snd_pcm_prepare;
     pContext->alsa.snd_pcm_start                          = (mal_proc)_snd_pcm_start;
     pContext->alsa.snd_pcm_drop                           = (mal_proc)_snd_pcm_drop;
+    pContext->alsa.snd_pcm_drain                          = (mal_proc)_snd_pcm_drain;
     pContext->alsa.snd_device_name_hint                   = (mal_proc)_snd_device_name_hint;
     pContext->alsa.snd_device_name_get_hint               = (mal_proc)_snd_device_name_get_hint;
     pContext->alsa.snd_card_get_index                     = (mal_proc)_snd_card_get_index;
@@ -12728,38 +12713,17 @@ mal_result mal_device_start__pulse(mal_device* pDevice)
 
 mal_result mal_device_stop__pulse(mal_device* pDevice)
 {
+    mal_result result;
+
     mal_assert(pDevice != NULL);
 
-    mal_context* pContext = pDevice->pContext;
-    mal_assert(pContext != NULL);
-
-    mal_result result = mal_device__cork_stream__pulse(pDevice, 1);
+    /*
+    Corking the device without flushing or draining should satisfy the requirements of mal_device_stop() which is that it must not
+    drop unprocessed samples.
+    */
+    result = mal_device__cork_stream__pulse(pDevice, 1);
     if (result != MAL_SUCCESS) {
         return result;
-    }
-
-    // For playback, buffers need to be flushed. For capture they need to be drained.
-    mal_bool32 wasSuccessful;
-    mal_pa_operation* pOP = NULL;
-    if (pDevice->type == mal_device_type_playback) {
-        pOP = ((mal_pa_stream_flush_proc)pContext->pulse.pa_stream_flush)((mal_pa_stream*)pDevice->pulse.pStream, mal_pulse_operation_complete_callback, &wasSuccessful);
-    } else {
-        pOP = ((mal_pa_stream_drain_proc)pContext->pulse.pa_stream_drain)((mal_pa_stream*)pDevice->pulse.pStream, mal_pulse_operation_complete_callback, &wasSuccessful);
-    }
-
-    if (pOP == NULL) {
-        return mal_post_error(pDevice, MAL_LOG_LEVEL_ERROR, "[PulseAudio] Failed to flush buffers after stopping PulseAudio stream.", MAL_ERROR);
-    }
-
-    result = mal_device__wait_for_operation__pulse(pDevice, pOP);
-    ((mal_pa_operation_unref_proc)pContext->pulse.pa_operation_unref)(pOP);
-
-    if (result != MAL_SUCCESS) {
-        return mal_post_error(pDevice, MAL_LOG_LEVEL_ERROR, "[PulseAudio] An error occurred while waiting for the PulseAudio stream to flush.", result);
-    }
-
-    if (!wasSuccessful) {
-        return mal_post_error(pDevice, MAL_LOG_LEVEL_ERROR, "[PulseAudio] Failed to flush buffers after stopping PulseAudio stream.", MAL_ERROR);
     }
 
     return MAL_SUCCESS;
