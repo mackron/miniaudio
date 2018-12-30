@@ -14712,8 +14712,12 @@ mal_result mal_context_enumerate_devices__coreaudio(mal_context* pContext, mal_e
 mal_result mal_context_get_device_info__coreaudio(mal_context* pContext, mal_device_type deviceType, const mal_device_id* pDeviceID, mal_share_mode shareMode, mal_device_info* pDeviceInfo)
 {
     mal_assert(pContext != NULL);
-    (void)shareMode;
     (void)pDeviceInfo;
+
+    /* No exclusive mode with the Core Audio backend for now. */
+    if (shareMode == mal_share_mode_exclusive) {
+        return MAL_SHARE_MODE_NOT_SUPPORTED;
+    }
     
 #if defined(MAL_APPLE_DESKTOP)
     // Desktop
@@ -15564,7 +15568,11 @@ mal_result mal_device_init__coreaudio(mal_context* pContext, mal_device_type dev
     mal_assert(pContext != NULL);
     mal_assert(pConfig != NULL);
     mal_assert(pDevice != NULL);
-    mal_assert(deviceType == mal_device_type_playback || deviceType == mal_device_type_capture);
+
+    /* No exclusive mode with the Core Audio backend for now. */
+    if (pConfig->shareMode == mal_share_mode_exclusive) {
+        return MAL_SHARE_MODE_NOT_SUPPORTED;
+    }
     
     mal_device_init_internal_data__coreaudio data;
     data.formatIn = pDevice->format;
