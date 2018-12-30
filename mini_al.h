@@ -1303,7 +1303,7 @@ typedef struct
 } mal_IMMNotificationClient;
 #endif
 
-
+/* Backend enums must be in priority order. */
 typedef enum
 {
     mal_backend_wasapi,
@@ -3777,7 +3777,7 @@ mal_uint32 mal_get_standard_sample_rate_priority_index(mal_uint32 sampleRate)   
     #endif
 #endif
 #ifdef MAL_ENABLE_PULSEAUDIO
-    #define MAL_HAS_PULSEAUDIO  // Development packages are unnecessary for PulseAudio.
+    #define MAL_HAS_PULSEAUDIO
     #ifdef MAL_NO_RUNTIME_LINKING
         #ifdef __has_include
             #if !__has_include(<pulse/pulseaudio.h>)
@@ -3803,7 +3803,7 @@ mal_uint32 mal_get_standard_sample_rate_priority_index(mal_uint32 sampleRate)   
     #define MAL_HAS_SNDIO
 #endif
 #ifdef MAL_ENABLE_AUDIO4
-    #define MAL_HAS_AUDIO4      // When enabled, always assume audio(4) is available.
+    #define MAL_HAS_AUDIO4
 #endif
 #ifdef MAL_ENABLE_OSS
     #define MAL_HAS_OSS
@@ -3812,7 +3812,7 @@ mal_uint32 mal_get_standard_sample_rate_priority_index(mal_uint32 sampleRate)   
     #define MAL_HAS_AAUDIO
 #endif
 #ifdef MAL_ENABLE_OPENSL
-    #define MAL_HAS_OPENSL      // OpenSL is the only supported backend for Android. It must be present.
+    #define MAL_HAS_OPENSL
 #endif
 #ifdef MAL_ENABLE_WEBAUDIO
     #define MAL_HAS_WEBAUDIO
@@ -3848,25 +3848,6 @@ mal_uint32 mal_get_standard_sample_rate_priority_index(mal_uint32 sampleRate)   
 #ifdef MAL_ENABLE_NULL
     #define MAL_HAS_NULL    // Everything supports the null backend.
 #endif
-
-const mal_backend g_malDefaultBackends[] = {
-    mal_backend_wasapi,
-    mal_backend_dsound,
-    mal_backend_winmm,
-    mal_backend_coreaudio,
-    mal_backend_sndio,
-    mal_backend_audio4,
-    mal_backend_oss,
-    mal_backend_pulseaudio,
-    mal_backend_alsa,
-    mal_backend_jack,
-    mal_backend_aaudio,
-    mal_backend_opensl,
-    mal_backend_webaudio,
-    mal_backend_openal,
-    mal_backend_sdl,
-    mal_backend_null
-};
 
 const char* mal_get_backend_name(mal_backend backend)
 {
@@ -21454,11 +21435,16 @@ mal_result mal_context_init(const mal_backend backends[], mal_uint32 backendCoun
         return result;
     }
 
+    mal_backend defaultBackends[mal_backend_null+1];
+    for (int i = 0; i <= mal_backend_null; ++i) {
+        defaultBackends[i] = (mal_backend)i;
+    }
+
     mal_backend* pBackendsToIterate = (mal_backend*)backends;
     mal_uint32 backendsToIterateCount = backendCount;
     if (pBackendsToIterate == NULL) {
-        pBackendsToIterate = (mal_backend*)g_malDefaultBackends;
-        backendsToIterateCount = mal_countof(g_malDefaultBackends);
+        pBackendsToIterate = (mal_backend*)defaultBackends;
+        backendsToIterateCount = mal_countof(defaultBackends);
     }
 
     mal_assert(pBackendsToIterate != NULL);
@@ -21949,11 +21935,16 @@ mal_result mal_device_init_ex(const mal_backend backends[], mal_uint32 backendCo
         return MAL_OUT_OF_MEMORY;
     }
 
+    mal_backend defaultBackends[mal_backend_null+1];
+    for (int i = 0; i <= mal_backend_null; ++i) {
+        defaultBackends[i] = (mal_backend)i;
+    }
+
     mal_backend* pBackendsToIterate = (mal_backend*)backends;
     mal_uint32 backendsToIterateCount = backendCount;
     if (pBackendsToIterate == NULL) {
-        pBackendsToIterate = (mal_backend*)g_malDefaultBackends;
-        backendsToIterateCount = mal_countof(g_malDefaultBackends);
+        pBackendsToIterate = (mal_backend*)defaultBackends;
+        backendsToIterateCount = mal_countof(defaultBackends);
     }
 
     mal_result result = MAL_NO_BACKEND;
