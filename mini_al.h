@@ -1469,7 +1469,11 @@ typedef struct
 
 typedef struct
 {
-    mal_int64 counter;
+    union
+    {
+        mal_int64 counter;
+        double counterD;
+    };
 } mal_timer;
 
 typedef struct
@@ -2786,6 +2790,10 @@ mal_uint64 mal_sine_wave_read_ex(mal_sine_wave* pSineWave, mal_uint64 frameCount
 #include <dlfcn.h>
 #endif
 
+#ifdef MAL_EMSCRIPTEN
+#include <emscripten/emscripten.h>
+#endif
+
 #if !defined(MAL_64BIT) && !defined(MAL_32BIT)
 #ifdef _WIN32
 #ifdef _WIN64
@@ -4001,6 +4009,16 @@ double mal_timer_get_time_in_seconds(mal_timer* pTimer)
 
     return (newTimeCounter - oldTimeCounter) / g_mal_TimerFrequency;
 }
+#elif defined(MAL_EMSCRIPTEN)
+void mal_timer_init(mal_timer* pTimer)
+{
+    pTimer->counterD = emscripten_get_now();
+}
+
+double mal_timer_get_time_in_seconds(mal_timer* pTimer)
+{
+    return (emscripten_get_now() - pTimer->counterD) / 1000;    /* Emscripten is in milliseconds. */
+}
 #else
 #if defined(CLOCK_MONOTONIC)
     #define MAL_CLOCK_ID CLOCK_MONOTONIC
@@ -4264,7 +4282,12 @@ void mal_thread_wait__posix(mal_thread* pThread)
 
 void mal_sleep__posix(mal_uint32 milliseconds)
 {
-    usleep(milliseconds * 1000);    // <-- usleep is in microseconds.
+#ifdef MAL_EMSCRIPTEN
+    (void)milliseconds;
+    mal_assert(MAL_FALSE);  /* The Emscripten build should never sleep. */
+#else
+    usleep(milliseconds * 1000);    /* <-- usleep is in microseconds. */
+#endif
 }
 
 
@@ -19259,13 +19282,14 @@ mal_result mal_context_init__opensl(mal_context* pContext)
 //
 ///////////////////////////////////////////////////////////////////////////////
 #ifdef MAL_HAS_WEBAUDIO
+#include <emscripten/em_asm.h>
 #include <emscripten/emscripten.h>
 
 mal_bool32 mal_is_capture_supported__webaudio()
 {
     return EM_ASM_INT({
         return (navigator.mediaDevices !== undefined && navigator.mediaDevices.getUserMedia !== undefined);
-    }) != 0;
+    }, 0) != 0; /* Must pass in a dummy argument for C99 compatibility. */
 }
 
 #ifdef __cplusplus
@@ -19360,7 +19384,7 @@ mal_result mal_context_get_device_info__webaudio(mal_context* pContext, mal_devi
         } catch(e) {
             return 0;
         }
-    });
+    }, 0);  /* Must pass in a dummy argument for C99 compatibility. */
     pDeviceInfo->maxSampleRate = pDeviceInfo->minSampleRate;
     if (pDeviceInfo->minSampleRate == 0) {
         return MAL_NO_DEVICE;
@@ -19697,7 +19721,7 @@ mal_result mal_context_init__webaudio(mal_context* pContext)
         }
                 
         return 1;
-    });
+    }, 0);  /* Must pass in a dummy argument for C99 compatibility. */
 
     if (resultFromJS != 1) {
         return MAL_FAILED_TO_INIT_BACKEND;
