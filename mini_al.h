@@ -7767,7 +7767,10 @@ BOOL CALLBACK mal_context_get_device_info_callback__dsound(LPGUID lpGuid, LPCSTR
 
 mal_result mal_context_get_device_info__dsound(mal_context* pContext, mal_device_type deviceType, const mal_device_id* pDeviceID, mal_share_mode shareMode, mal_device_info* pDeviceInfo)
 {
-    (void)shareMode;
+    /* Exclusive mode and capture not supported with DirectSound. */
+    if (deviceType == mal_device_type_capture && shareMode == mal_share_mode_exclusive) {
+        return MAL_SHARE_MODE_NOT_SUPPORTED;
+    }
 
     if (pDeviceID != NULL) {
         // ID.
