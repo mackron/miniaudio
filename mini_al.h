@@ -225,9 +225,6 @@ OPTIONS
 #define MAL_NO_OPENAL
   Disables the OpenAL backend.
 
-#define MAL_NO_SDL
-  Disables the SDL backend.
-
 #define MAL_NO_NULL
   Disables the null backend.
 
@@ -1238,7 +1235,6 @@ void mal_interleave_pcm_frames(mal_format format, mal_uint32 channels, mal_uint6
 
 // Explicitly disable OpenAL and Null backends for Emscripten because they both use a background thread which is not properly supported right now.
 #if !defined(MAL_EMSCRIPTEN)
-#define MAL_SUPPORT_SDL
 #define MAL_SUPPORT_OPENAL
 #define MAL_SUPPORT_NULL
 #endif
@@ -1286,9 +1282,6 @@ void mal_interleave_pcm_frames(mal_format format, mal_uint32 channels, mal_uint6
 #if !defined(MAL_NO_OPENAL) && defined(MAL_SUPPORT_OPENAL)
     #define MAL_ENABLE_OPENAL
 #endif
-#if !defined(MAL_NO_SDL) && defined(MAL_SUPPORT_SDL)
-    #define MAL_ENABLE_SDL
-#endif
 #if !defined(MAL_NO_NULL) && defined(MAL_SUPPORT_NULL)
     #define MAL_ENABLE_NULL
 #endif
@@ -1320,7 +1313,6 @@ typedef enum
     mal_backend_opensl,
     mal_backend_webaudio,
     mal_backend_openal,
-    mal_backend_sdl,
     mal_backend_null    /* <-- Must always be the last item. Lowest priority, and used as the terminator for backend enumeration. */
 } mal_backend;
 
@@ -1469,9 +1461,6 @@ typedef union
 #endif
 #ifdef MAL_SUPPORT_OPENAL
     char openal[256];               // OpenAL seems to use human-readable device names as the ID.
-#endif
-#ifdef MAL_SUPPORT_SDL
-    int sdl;                        // SDL devices are identified with an index.
 #endif
 #ifdef MAL_SUPPORT_NULL
     int nullbackend;                // The null backend uses an integer for device IDs.
@@ -1939,19 +1928,6 @@ struct mal_context
             mal_bool32 isMCFormatsSupported   : 1;
         } openal;
 #endif
-#ifdef MAL_SUPPORT_SDL
-        struct
-        {
-            mal_handle hSDL;    // SDL
-            mal_proc SDL_InitSubSystem;
-            mal_proc SDL_QuitSubSystem;
-            mal_proc SDL_GetNumAudioDevices;
-            mal_proc SDL_GetAudioDeviceName;
-            mal_proc SDL_CloseAudioDevice;
-            mal_proc SDL_OpenAudioDevice;
-            mal_proc SDL_PauseAudioDevice;
-        } sdl;
-#endif
 #ifdef MAL_SUPPORT_NULL
         struct
         {
@@ -2201,12 +2177,6 @@ MAL_ALIGNED_STRUCT(MAL_SIMD_ALIGNMENT) mal_device
             mal_uint32 iNextBuffer;             // The next buffer to unenqueue and then re-enqueue as new data is read.
             mal_bool32 breakFromMainLoop;
         } openal;
-#endif
-#ifdef MAL_SUPPORT_SDL
-        struct
-        {
-            mal_uint32 deviceID;
-        } sdl;
 #endif
 #ifdef MAL_SUPPORT_NULL
         struct
@@ -3827,24 +3797,6 @@ mal_uint32 mal_get_standard_sample_rate_priority_index(mal_uint32 sampleRate)   
         #endif
     #endif
 #endif
-#ifdef MAL_ENABLE_SDL
-    #define MAL_HAS_SDL
-
-    // SDL headers are necessary if using compile-time linking.
-    #ifdef MAL_NO_RUNTIME_LINKING
-        #ifdef __has_include
-            #ifdef MAL_EMSCRIPTEN
-                #if !__has_include(<SDL/SDL_audio.h>)
-                    #undef MAL_HAS_SDL
-                #endif
-            #else
-                #if !__has_include(<SDL2/SDL_audio.h>)
-                    #undef MAL_HAS_SDL
-                #endif
-            #endif
-        #endif
-    #endif
-#endif
 #ifdef MAL_ENABLE_NULL
     #define MAL_HAS_NULL    // Everything supports the null backend.
 #endif
@@ -3867,7 +3819,6 @@ const char* mal_get_backend_name(mal_backend backend)
         case mal_backend_opensl:     return "OpenSL|ES";
         case mal_backend_webaudio:   return "Web Audio";
         case mal_backend_openal:     return "OpenAL";
-        case mal_backend_sdl:        return "SDL";
         case mal_backend_null:       return "Null";
         default:                     return "Unknown";
     }
@@ -20652,414 +20603,6 @@ mal_result mal_context_init__openal(mal_context* pContext)
 
 
 
-///////////////////////////////////////////////////////////////////////////////
-//
-// SDL Backend
-//
-///////////////////////////////////////////////////////////////////////////////
-#ifdef MAL_HAS_SDL
-
-#define MAL_SDL_INIT_AUDIO                      0x00000010
-#define MAL_AUDIO_U8                            0x0008
-#define MAL_AUDIO_S16                           0x8010
-#define MAL_AUDIO_S32                           0x8020
-#define MAL_AUDIO_F32                           0x8120
-#define MAL_SDL_AUDIO_ALLOW_FREQUENCY_CHANGE    0x00000001
-#define MAL_SDL_AUDIO_ALLOW_FORMAT_CHANGE       0x00000002
-#define MAL_SDL_AUDIO_ALLOW_CHANNELS_CHANGE     0x00000004
-#define MAL_SDL_AUDIO_ALLOW_ANY_CHANGE          (MAL_SDL_AUDIO_ALLOW_FREQUENCY_CHANGE | MAL_SDL_AUDIO_ALLOW_FORMAT_CHANGE | MAL_SDL_AUDIO_ALLOW_CHANNELS_CHANGE)
-
-// If we are linking at compile time we'll just #include SDL.h. Otherwise we can just redeclare some stuff to avoid the
-// need for development packages to be installed.
-#ifdef MAL_NO_RUNTIME_LINKING
-    #define SDL_MAIN_HANDLED
-    #ifdef MAL_EMSCRIPTEN
-        #include <SDL/SDL.h>
-    #else
-        #include <SDL2/SDL.h>
-    #endif
-
-    typedef SDL_AudioCallback   MAL_SDL_AudioCallback;
-    typedef SDL_AudioSpec       MAL_SDL_AudioSpec;
-    typedef SDL_AudioFormat     MAL_SDL_AudioFormat;
-    typedef SDL_AudioDeviceID   MAL_SDL_AudioDeviceID;
-#else
-    typedef void (* MAL_SDL_AudioCallback)(void* userdata, mal_uint8* stream, int len);
-    typedef mal_uint16 MAL_SDL_AudioFormat;
-    typedef mal_uint32 MAL_SDL_AudioDeviceID;
-
-    typedef struct MAL_SDL_AudioSpec
-    {
-        int freq;
-        MAL_SDL_AudioFormat format;
-        mal_uint8 channels;
-        mal_uint8 silence;
-        mal_uint16 samples;
-        mal_uint16 padding;
-        mal_uint32 size;
-        MAL_SDL_AudioCallback callback;
-        void* userdata;
-    } MAL_SDL_AudioSpec;
-#endif
-
-typedef int                   (* MAL_PFN_SDL_InitSubSystem)(mal_uint32 flags);
-typedef void                  (* MAL_PFN_SDL_QuitSubSystem)(mal_uint32 flags);
-typedef int                   (* MAL_PFN_SDL_GetNumAudioDevices)(int iscapture);
-typedef const char*           (* MAL_PFN_SDL_GetAudioDeviceName)(int index, int iscapture);
-typedef void                  (* MAL_PFN_SDL_CloseAudioDevice)(MAL_SDL_AudioDeviceID dev);
-typedef MAL_SDL_AudioDeviceID (* MAL_PFN_SDL_OpenAudioDevice)(const char* device, int iscapture, const MAL_SDL_AudioSpec* desired, MAL_SDL_AudioSpec* obtained, int allowed_changes);
-typedef void                  (* MAL_PFN_SDL_PauseAudioDevice)(MAL_SDL_AudioDeviceID dev, int pause_on);
-
-MAL_SDL_AudioFormat mal_format_to_sdl(mal_format format)
-{
-    switch (format)
-    {
-    case mal_format_unknown: return 0;
-    case mal_format_u8:      return MAL_AUDIO_U8;
-    case mal_format_s16:     return MAL_AUDIO_S16;
-    case mal_format_s24:     return MAL_AUDIO_S32;  // Closest match.
-    case mal_format_s32:     return MAL_AUDIO_S32;
-    default:                 return 0;
-    }
-}
-
-mal_format mal_format_from_sdl(MAL_SDL_AudioFormat format)
-{
-    switch (format)
-    {
-        case MAL_AUDIO_U8:  return mal_format_u8;
-        case MAL_AUDIO_S16: return mal_format_s16;
-        case MAL_AUDIO_S32: return mal_format_s32;
-        case MAL_AUDIO_F32: return mal_format_f32;
-        default:            return mal_format_unknown;
-    }
-}
-
-mal_bool32 mal_context_is_device_id_equal__sdl(mal_context* pContext, const mal_device_id* pID0, const mal_device_id* pID1)
-{
-    mal_assert(pContext != NULL);
-    mal_assert(pID0 != NULL);
-    mal_assert(pID1 != NULL);
-    (void)pContext;
-
-    return pID0->sdl == pID1->sdl;
-}
-
-mal_result mal_context_enumerate_devices__sdl(mal_context* pContext, mal_enum_devices_callback_proc callback, void* pUserData)
-{
-    mal_assert(pContext != NULL);
-    mal_assert(callback != NULL);
-
-    mal_bool32 isTerminated = MAL_FALSE;
-
-    // Playback
-    if (!isTerminated) {
-        int deviceCount = ((MAL_PFN_SDL_GetNumAudioDevices)pContext->sdl.SDL_GetNumAudioDevices)(0);
-        for (int i = 0; i < deviceCount; ++i) {
-            mal_device_info deviceInfo;
-            mal_zero_object(&deviceInfo);
-
-            deviceInfo.id.sdl = i;
-            mal_strncpy_s(deviceInfo.name, sizeof(deviceInfo.name), ((MAL_PFN_SDL_GetAudioDeviceName)pContext->sdl.SDL_GetAudioDeviceName)(i, 0), (size_t)-1);
-
-            mal_bool32 cbResult = callback(pContext, mal_device_type_playback, &deviceInfo, pUserData);
-            if (cbResult == MAL_FALSE) {
-                isTerminated = MAL_TRUE;
-                break;
-            }
-        }
-    }
-
-    // Capture
-    if (!isTerminated) {
-        int deviceCount = ((MAL_PFN_SDL_GetNumAudioDevices)pContext->sdl.SDL_GetNumAudioDevices)(1);
-        for (int i = 0; i < deviceCount; ++i) {
-            mal_device_info deviceInfo;
-            mal_zero_object(&deviceInfo);
-
-            deviceInfo.id.sdl = i;
-            mal_strncpy_s(deviceInfo.name, sizeof(deviceInfo.name), ((MAL_PFN_SDL_GetAudioDeviceName)pContext->sdl.SDL_GetAudioDeviceName)(i, 1), (size_t)-1);
-
-            mal_bool32 cbResult = callback(pContext, mal_device_type_capture, &deviceInfo, pUserData);
-            if (cbResult == MAL_FALSE) {
-                isTerminated = MAL_TRUE;
-                break;
-            }
-        }
-    }
-
-    return MAL_SUCCESS;
-}
-
-mal_result mal_context_get_device_info__sdl(mal_context* pContext, mal_device_type deviceType, const mal_device_id* pDeviceID, mal_share_mode shareMode, mal_device_info* pDeviceInfo)
-{
-    mal_assert(pContext != NULL);
-    (void)shareMode;
-
-    if (pDeviceID == NULL) {
-        if (deviceType == mal_device_type_playback) {
-            pDeviceInfo->id.sdl = 0;
-            mal_strncpy_s(pDeviceInfo->name, sizeof(pDeviceInfo->name), MAL_DEFAULT_PLAYBACK_DEVICE_NAME, (size_t)-1);
-        } else {
-            pDeviceInfo->id.sdl = 0;
-            mal_strncpy_s(pDeviceInfo->name, sizeof(pDeviceInfo->name), MAL_DEFAULT_CAPTURE_DEVICE_NAME, (size_t)-1);
-        }
-    } else {
-        pDeviceInfo->id.sdl = pDeviceID->sdl;
-        mal_strncpy_s(pDeviceInfo->name, sizeof(pDeviceInfo->name), ((MAL_PFN_SDL_GetAudioDeviceName)pContext->sdl.SDL_GetAudioDeviceName)(pDeviceID->sdl, (deviceType == mal_device_type_playback) ? 0 : 1), (size_t)-1);
-    }
-
-    // To get an accurate idea on the backend's native format we need to open the device. Not ideal, but it's the only way. An
-    // alternative to this is to report all channel counts, sample rates and formats, but that doesn't offer a good representation
-    // of the device's _actual_ ideal format.
-    //
-    // Note: With Emscripten, it looks like non-zero values need to be specified for desiredSpec. Whatever is specified in
-    // desiredSpec will be used by SDL since it uses it just does it's own format conversion internally. Therefore, from what
-    // I can tell, there's no real way to know the device's actual format which means I'm just going to fall back to the full
-    // range of channels and sample rates on Emscripten builds.
-#if defined(__EMSCRIPTEN__)
-    pDeviceInfo->minChannels = MAL_MIN_CHANNELS;
-    pDeviceInfo->maxChannels = MAL_MAX_CHANNELS;
-    pDeviceInfo->minSampleRate = MAL_MIN_SAMPLE_RATE;
-    pDeviceInfo->maxSampleRate = MAL_MAX_SAMPLE_RATE;
-    pDeviceInfo->formatCount = 3;
-    pDeviceInfo->formats[0] = mal_format_u8;
-    pDeviceInfo->formats[1] = mal_format_s16;
-    pDeviceInfo->formats[2] = mal_format_s32;
-#else
-    MAL_SDL_AudioSpec desiredSpec, obtainedSpec;
-    mal_zero_memory(&desiredSpec, sizeof(desiredSpec));
-
-    int isCapture = (deviceType == mal_device_type_playback) ? 0 : 1;
-
-    const char* pDeviceName = NULL;
-    if (pDeviceID != NULL) {
-        pDeviceName = ((MAL_PFN_SDL_GetAudioDeviceName)pContext->sdl.SDL_GetAudioDeviceName)(pDeviceID->sdl, isCapture);
-    }
-
-    MAL_SDL_AudioDeviceID tempDeviceID = ((MAL_PFN_SDL_OpenAudioDevice)pContext->sdl.SDL_OpenAudioDevice)(pDeviceName, isCapture, &desiredSpec, &obtainedSpec, MAL_SDL_AUDIO_ALLOW_ANY_CHANGE);
-    if (tempDeviceID == 0) {
-        return mal_context_post_error(pContext, NULL, MAL_LOG_LEVEL_ERROR, "Failed to open SDL device.", MAL_FAILED_TO_OPEN_BACKEND_DEVICE);
-    }
-
-    ((MAL_PFN_SDL_CloseAudioDevice)pContext->sdl.SDL_CloseAudioDevice)(tempDeviceID);
-
-    pDeviceInfo->minChannels = obtainedSpec.channels;
-    pDeviceInfo->maxChannels = obtainedSpec.channels;
-    pDeviceInfo->minSampleRate = obtainedSpec.freq;
-    pDeviceInfo->maxSampleRate = obtainedSpec.freq;
-    pDeviceInfo->formatCount = 1;
-    if (obtainedSpec.format == MAL_AUDIO_U8) {
-        pDeviceInfo->formats[0] = mal_format_u8;
-    } else if (obtainedSpec.format == MAL_AUDIO_S16) {
-        pDeviceInfo->formats[0] = mal_format_s16;
-    } else if (obtainedSpec.format == MAL_AUDIO_S32) {
-        pDeviceInfo->formats[0] = mal_format_s32;
-    } else if (obtainedSpec.format == MAL_AUDIO_F32) {
-        pDeviceInfo->formats[0] = mal_format_f32;
-    } else {
-        return MAL_FORMAT_NOT_SUPPORTED;
-    }
-#endif
-
-    return MAL_SUCCESS;
-}
-
-
-void mal_device_uninit__sdl(mal_device* pDevice)
-{
-    mal_assert(pDevice != NULL);
-
-    ((MAL_PFN_SDL_CloseAudioDevice)pDevice->pContext->sdl.SDL_CloseAudioDevice)(pDevice->sdl.deviceID);
-}
-
-
-void mal_audio_callback__sdl(void* pUserData, mal_uint8* pBuffer, int bufferSizeInBytes)
-{
-    mal_device* pDevice = (mal_device*)pUserData;
-    mal_assert(pDevice != NULL);
-
-    mal_uint32 bufferSizeInFrames = (mal_uint32)bufferSizeInBytes / mal_get_bytes_per_frame(pDevice->internalFormat, pDevice->internalChannels);
-
-#ifdef MAL_DEBUG_OUTPUT
-    printf("[SDL] Callback: bufferSizeInBytes=%d, bufferSizeInFrames=%d\n", bufferSizeInBytes, bufferSizeInFrames);
-#endif
-
-    if (pDevice->type == mal_device_type_playback) {
-        mal_device__read_frames_from_client(pDevice, bufferSizeInFrames, pBuffer);
-    } else {
-        mal_device__send_frames_to_client(pDevice, bufferSizeInFrames, pBuffer);
-    }
-}
-
-mal_result mal_device_init__sdl(mal_context* pContext, mal_device_type type, const mal_device_id* pDeviceID, const mal_device_config* pConfig, mal_device* pDevice)
-{
-    mal_assert(pContext != NULL);
-    mal_assert(pConfig != NULL);
-    mal_assert(pDevice != NULL);
-
-    (void)pContext;
-
-    if (pDevice->bufferSizeInFrames == 0) {
-        pDevice->bufferSizeInFrames = mal_calculate_buffer_size_in_frames_from_milliseconds(pDevice->bufferSizeInMilliseconds, pDevice->sampleRate);
-    }
-
-    // SDL wants the buffer size to be a power of 2. The SDL_AudioSpec property for this is only a Uint16, so we need
-    // to explicitly clamp this because it will be easy to overflow.
-    mal_uint32 bufferSize = pDevice->bufferSizeInFrames;
-    if (bufferSize > 32768) {
-        bufferSize = 32768;
-    } else {
-        bufferSize = mal_next_power_of_2(bufferSize);
-    }
-
-    mal_assert(bufferSize <= 32768);
-
-
-    MAL_SDL_AudioSpec desiredSpec, obtainedSpec;
-    mal_zero_memory(&desiredSpec, sizeof(desiredSpec));
-    desiredSpec.freq     = (int)pConfig->sampleRate;
-    desiredSpec.format   = mal_format_to_sdl(pConfig->format);
-    desiredSpec.channels = (mal_uint8)pConfig->channels;
-    desiredSpec.samples  = (mal_uint16)bufferSize;
-    desiredSpec.callback = mal_audio_callback__sdl;
-    desiredSpec.userdata = pDevice;
-
-    // Fall back to f32 if we don't have an appropriate mapping between mini_al and SDL.
-    if (desiredSpec.format == 0) {
-        desiredSpec.format = MAL_AUDIO_F32;
-    }
-
-    int isCapture = (type == mal_device_type_playback) ? 0 : 1;
-
-    const char* pDeviceName = NULL;
-    if (pDeviceID != NULL) {
-        pDeviceName = ((MAL_PFN_SDL_GetAudioDeviceName)pDevice->pContext->sdl.SDL_GetAudioDeviceName)(pDeviceID->sdl, isCapture);
-    }
-
-    pDevice->sdl.deviceID = ((MAL_PFN_SDL_OpenAudioDevice)pDevice->pContext->sdl.SDL_OpenAudioDevice)(pDeviceName, isCapture, &desiredSpec, &obtainedSpec, MAL_SDL_AUDIO_ALLOW_ANY_CHANGE);
-    if (pDevice->sdl.deviceID == 0) {
-        return mal_post_error(pDevice, MAL_LOG_LEVEL_ERROR, "Failed to open SDL2 device.", MAL_FAILED_TO_OPEN_BACKEND_DEVICE);
-    }
-
-    pDevice->internalFormat     = mal_format_from_sdl(obtainedSpec.format);
-    pDevice->internalChannels   = obtainedSpec.channels;
-    pDevice->internalSampleRate = (mal_uint32)obtainedSpec.freq;
-    mal_get_standard_channel_map(mal_standard_channel_map_default, pDevice->internalChannels, pDevice->internalChannelMap);
-    pDevice->bufferSizeInFrames = obtainedSpec.samples;
-    pDevice->periods            = 1;    // SDL doesn't seem to tell us what the period count is. Just set this 1.
-
-#ifdef MAL_DEBUG_OUTPUT
-    printf("=== SDL CONFIG ===\n");
-    printf("    FORMAT:                 %s -> %s\n", mal_get_format_name(pConfig->format), mal_get_format_name(pDevice->internalFormat));
-    printf("    CHANNELS:               %d -> %d\n", desiredSpec.channels, obtainedSpec.channels);
-    printf("    SAMPLE RATE:            %d -> %d\n", desiredSpec.freq, obtainedSpec.freq);
-    printf("    BUFFER SIZE IN SAMPLES: %d -> %d\n", desiredSpec.samples, obtainedSpec.samples);
-#endif
-
-    return MAL_SUCCESS;
-}
-
-mal_result mal_device_start__sdl(mal_device* pDevice)
-{
-    mal_assert(pDevice != NULL);
-
-    ((MAL_PFN_SDL_PauseAudioDevice)pDevice->pContext->sdl.SDL_PauseAudioDevice)(pDevice->sdl.deviceID, 0);
-    return MAL_SUCCESS;
-}
-
-mal_result mal_device_stop__sdl(mal_device* pDevice)
-{
-    mal_assert(pDevice != NULL);
-
-    ((MAL_PFN_SDL_PauseAudioDevice)pDevice->pContext->sdl.SDL_PauseAudioDevice)(pDevice->sdl.deviceID, 1);
-    
-    mal_device__set_state(pDevice, MAL_STATE_STOPPED);
-    mal_stop_proc onStop = pDevice->onStop;
-    if (onStop) {
-        onStop(pDevice);
-    }
-
-    return MAL_SUCCESS;
-}
-
-
-mal_result mal_context_uninit__sdl(mal_context* pContext)
-{
-    mal_assert(pContext != NULL);
-    mal_assert(pContext->backend == mal_backend_sdl);
-
-    ((MAL_PFN_SDL_QuitSubSystem)pContext->sdl.SDL_QuitSubSystem)(MAL_SDL_INIT_AUDIO);
-    return MAL_SUCCESS;
-}
-
-mal_result mal_context_init__sdl(mal_context* pContext)
-{
-    mal_assert(pContext != NULL);
-
-#ifndef MAL_NO_RUNTIME_LINKING
-    // Run-time linking.
-    const char* libNames[] = {
-#if defined(MAL_WIN32)
-        "SDL2.dll"
-#elif defined(MAL_APPLE)
-        "SDL2.framework/SDL2"
-#else
-        "libSDL2-2.0.so.0"
-#endif
-    };
-
-    for (size_t i = 0; i < mal_countof(libNames); ++i) {
-        pContext->sdl.hSDL = mal_dlopen(libNames[i]);
-        if (pContext->sdl.hSDL != NULL) {
-            break;
-        }
-    }
-
-    if (pContext->sdl.hSDL == NULL) {
-        return MAL_NO_BACKEND;  // Couldn't find SDL2.dll, etc. Most likely it's not installed.
-    }
-
-    pContext->sdl.SDL_InitSubSystem      = mal_dlsym(pContext->sdl.hSDL, "SDL_InitSubSystem");
-    pContext->sdl.SDL_QuitSubSystem      = mal_dlsym(pContext->sdl.hSDL, "SDL_QuitSubSystem");
-    pContext->sdl.SDL_GetNumAudioDevices = mal_dlsym(pContext->sdl.hSDL, "SDL_GetNumAudioDevices");
-    pContext->sdl.SDL_GetAudioDeviceName = mal_dlsym(pContext->sdl.hSDL, "SDL_GetAudioDeviceName");
-    pContext->sdl.SDL_CloseAudioDevice   = mal_dlsym(pContext->sdl.hSDL, "SDL_CloseAudioDevice");
-    pContext->sdl.SDL_OpenAudioDevice    = mal_dlsym(pContext->sdl.hSDL, "SDL_OpenAudioDevice");
-    pContext->sdl.SDL_PauseAudioDevice   = mal_dlsym(pContext->sdl.hSDL, "SDL_PauseAudioDevice");
-#else
-    // Compile-time linking.
-    pContext->sdl.SDL_InitSubSystem      = (mal_proc)SDL_InitSubSystem;
-    pContext->sdl.SDL_QuitSubSystem      = (mal_proc)SDL_QuitSubSystem;
-    pContext->sdl.SDL_GetNumAudioDevices = (mal_proc)SDL_GetNumAudioDevices;
-    pContext->sdl.SDL_GetAudioDeviceName = (mal_proc)SDL_GetAudioDeviceName;
-    pContext->sdl.SDL_CloseAudioDevice   = (mal_proc)SDL_CloseAudioDevice;
-    pContext->sdl.SDL_OpenAudioDevice    = (mal_proc)SDL_OpenAudioDevice;
-    pContext->sdl.SDL_PauseAudioDevice   = (mal_proc)SDL_PauseAudioDevice;
-#endif
-
-    int resultSDL = ((MAL_PFN_SDL_InitSubSystem)pContext->sdl.SDL_InitSubSystem)(MAL_SDL_INIT_AUDIO);
-    if (resultSDL != 0) {
-        return MAL_ERROR;
-    }
-
-    pContext->isBackendAsynchronous = MAL_TRUE;
-
-    pContext->onUninit        = mal_context_uninit__sdl;
-    pContext->onDeviceIDEqual = mal_context_is_device_id_equal__sdl;
-    pContext->onEnumDevices   = mal_context_enumerate_devices__sdl;
-    pContext->onGetDeviceInfo = mal_context_get_device_info__sdl;
-    pContext->onDeviceInit    = mal_device_init__sdl;
-    pContext->onDeviceUninit  = mal_device_uninit__sdl;
-    pContext->onDeviceStart   = mal_device_start__sdl;
-    pContext->onDeviceStop    = mal_device_stop__sdl;
-
-    return MAL_SUCCESS;
-}
-#endif  // SDL
-
-
-
 mal_bool32 mal__is_channel_map_valid(const mal_channel* channelMap, mal_uint32 channels)
 {
     // A blank channel map should be allowed, in which case it should use an appropriate default which will depend on context.
@@ -21536,12 +21079,6 @@ mal_result mal_context_init(const mal_backend backends[], mal_uint32 backendCoun
             case mal_backend_openal:
             {
                 result = mal_context_init__openal(pContext);
-            } break;
-        #endif
-        #ifdef MAL_HAS_SDL
-            case mal_backend_sdl:
-            {
-                result = mal_context_init__sdl(pContext);
             } break;
         #endif
         #ifdef MAL_HAS_NULL
