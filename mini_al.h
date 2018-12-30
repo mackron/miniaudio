@@ -77,6 +77,10 @@ Playback Example
   mal_device_uninit(&device);    // This will stop the device so no need to do that manually.
 
 
+BUILDING
+========
+mini_al should Just Work by adding it to your project's source tree. You do not need to download or install
+any dependencies. See below for platform-specific details.
 
 If you want to disable a specific backend, #define the appropriate MAL_NO_* option before the implementation.
 
