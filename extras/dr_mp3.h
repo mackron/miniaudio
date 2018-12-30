@@ -1,5 +1,5 @@
 // MP3 audio decoder. Public domain. See "unlicense" statement at the end of this file.
-// dr_mp3 - v0.4.0 - 2018-12-16
+// dr_mp3 - v0.4.1 - 2018-12-30
 //
 // David Reid - mackron@gmail.com
 //
@@ -3279,7 +3279,7 @@ drmp3_bool32 drmp3_calculate_seek_points(drmp3* pMP3, drmp3_uint32* pSeekPointCo
                 } else {
                     // The next seek point is not in the current MP3 frame, so continue on to the next one. The first thing to do is cycle the cached
                     // MP3 frame info.
-                    for (int i = 0; i < drmp3_countof(mp3FrameInfo)-1; ++i) {
+                    for (size_t i = 0; i < drmp3_countof(mp3FrameInfo)-1; ++i) {
                         mp3FrameInfo[i] = mp3FrameInfo[i+1];
                     }
 
@@ -3449,6 +3449,9 @@ void drmp3_free(void* p)
 
 // REVISION HISTORY
 // ================
+//
+// v0.4.1 - 2018-12-30
+//   - Fix a warning.
 //
 // v0.4.0 - 2018-12-16
 //   - API CHANGE: Rename some APIs:
