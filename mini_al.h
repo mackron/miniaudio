@@ -8859,7 +8859,10 @@ mal_result mal_context_enumerate_devices__winmm(mal_context* pContext, mal_enum_
 mal_result mal_context_get_device_info__winmm(mal_context* pContext, mal_device_type deviceType, const mal_device_id* pDeviceID, mal_share_mode shareMode, mal_device_info* pDeviceInfo)
 {
     mal_assert(pContext != NULL);
-    (void)shareMode;
+
+    if (shareMode == mal_share_mode_exclusive) {
+        return MAL_SHARE_MODE_NOT_SUPPORTED;
+    }
 
     UINT winMMDeviceID = 0;
     if (pDeviceID != NULL) {
@@ -8912,6 +8915,11 @@ mal_result mal_device_init__winmm(mal_context* pContext, mal_device_type type, c
 
     mal_assert(pDevice != NULL);
     mal_zero_object(&pDevice->winmm);
+
+    /* No exlusive mode with WinMM. */
+    if (pConfig->shareMode == mal_share_mode_exclusive) {
+        return MAL_SHARE_MODE_NOT_SUPPORTED;
+    }
 
     UINT winMMDeviceID = 0;
     if (pDeviceID != NULL) {
