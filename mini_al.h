@@ -1306,22 +1306,22 @@ typedef struct
 
 typedef enum
 {
-    mal_backend_null,
     mal_backend_wasapi,
     mal_backend_dsound,
     mal_backend_winmm,
-    mal_backend_alsa,
-    mal_backend_pulseaudio,
-    mal_backend_jack,
     mal_backend_coreaudio,
     mal_backend_sndio,
     mal_backend_audio4,
     mal_backend_oss,
+    mal_backend_pulseaudio,
+    mal_backend_alsa,
+    mal_backend_jack,
     mal_backend_aaudio,
     mal_backend_opensl,
     mal_backend_webaudio,
     mal_backend_openal,
-    mal_backend_sdl
+    mal_backend_sdl,
+    mal_backend_null    /* <-- Must always be the last item. Lowest priority, and used as the terminator for backend enumeration. */
 } mal_backend;
 
 // Thread priorties should be ordered such that the default priority of the worker thread is 0.
@@ -3872,22 +3872,22 @@ const char* mal_get_backend_name(mal_backend backend)
 {
     switch (backend)
     {
-        case mal_backend_null:       return "Null";
         case mal_backend_wasapi:     return "WASAPI";
         case mal_backend_dsound:     return "DirectSound";
         case mal_backend_winmm:      return "WinMM";
-        case mal_backend_alsa:       return "ALSA";
-        case mal_backend_pulseaudio: return "PulseAudio";
-        case mal_backend_jack:       return "JACK";
         case mal_backend_coreaudio:  return "Core Audio";
         case mal_backend_sndio:      return "sndio";
         case mal_backend_audio4:     return "audio(4)";
         case mal_backend_oss:        return "OSS";
+        case mal_backend_pulseaudio: return "PulseAudio";
+        case mal_backend_alsa:       return "ALSA";
+        case mal_backend_jack:       return "JACK";
         case mal_backend_aaudio:     return "AAudio";
         case mal_backend_opensl:     return "OpenSL|ES";
         case mal_backend_webaudio:   return "Web Audio";
         case mal_backend_openal:     return "OpenAL";
         case mal_backend_sdl:        return "SDL";
+        case mal_backend_null:       return "Null";
         default:                     return "Unknown";
     }
 }
