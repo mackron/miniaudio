@@ -19282,7 +19282,6 @@ mal_result mal_context_init__opensl(mal_context* pContext)
 //
 ///////////////////////////////////////////////////////////////////////////////
 #ifdef MAL_HAS_WEBAUDIO
-#include <emscripten/em_asm.h>
 #include <emscripten/emscripten.h>
 
 mal_bool32 mal_is_capture_supported__webaudio()
