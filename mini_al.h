@@ -18010,6 +18010,11 @@ mal_result mal_context_get_device_info__aaudio(mal_context* pContext, mal_device
 
     mal_assert(pContext != NULL);
 
+    /* No exclusive mode with AAudio. */
+    if (shareMode == mal_share_mode_exclusive) {
+        return MAL_SHARE_MODE_NOT_SUPPORTED;
+    }
+
     /* ID */
     if (pDeviceID != NULL) {
         pDeviceInfo->id.aaudio = pDeviceID->aaudio;
@@ -18062,6 +18067,11 @@ mal_result mal_device_init__aaudio(mal_context* pContext, mal_device_type type, 
     mal_result result;
 
     mal_assert(pDevice != NULL);
+
+    /* No exclusive mode with AAudio. */
+    if (pConfig->shareMode == mal_share_mode_exclusive) {
+        return MAL_SHARE_MODE_NOT_SUPPORTED;
+    }
 
     /* We need to make a copy of the config so we can make an adjustment to the buffer size. */
     mal_device_config config = *pConfig;
@@ -18519,11 +18529,15 @@ return_default_device:;
 mal_result mal_context_get_device_info__opensl(mal_context* pContext, mal_device_type deviceType, const mal_device_id* pDeviceID, mal_share_mode shareMode, mal_device_info* pDeviceInfo)
 {
     mal_assert(pContext != NULL);
-    (void)shareMode;
 
     mal_assert(g_malOpenSLInitCounter > 0); /* <-- If you trigger this it means you've either not initialized the context, or you've uninitialized it and then attempted to get device info. */
     if (g_malOpenSLInitCounter == 0) {
         return MAL_INVALID_OPERATION;
+    }
+
+    /* No exclusive mode with OpenSL|ES. */
+    if (shareMode == mal_share_mode_exclusive) {
+        return MAL_SHARE_MODE_NOT_SUPPORTED;
     }
 
     // TODO: Test Me.
@@ -18690,6 +18704,11 @@ mal_result mal_device_init__opensl(mal_context* pContext, mal_device_type type, 
 #ifndef MAL_ANDROID
     return MAL_NO_BACKEND;
 #endif
+
+    /* No exclusive mode with OpenSL|ES. */
+    if (pConfig->shareMode == mal_share_mode_exclusive) {
+        return MAL_SHARE_MODE_NOT_SUPPORTED;
+    }
 
     // Use s32 as the internal format for when floating point is specified.
     if (pConfig->format == mal_format_f32) {
@@ -19152,7 +19171,11 @@ mal_result mal_context_enumerate_devices__webaudio(mal_context* pContext, mal_en
 mal_result mal_context_get_device_info__webaudio(mal_context* pContext, mal_device_type deviceType, const mal_device_id* pDeviceID, mal_share_mode shareMode, mal_device_info* pDeviceInfo)
 {
     mal_assert(pContext != NULL);
-    (void)shareMode;
+
+    /* No exclusive mode with Web Audio. */
+    if (shareMode == mal_share_mode_exclusive) {
+        return MAL_SHARE_MODE_NOT_SUPPORTED;
+    }
 
     if (deviceType == mal_device_type_capture && !mal_is_capture_supported__webaudio()) {
         return MAL_NO_DEVICE;
@@ -19239,6 +19262,11 @@ void mal_device_uninit__webaudio(mal_device* pDevice)
 
 mal_result mal_device_init__webaudio(mal_context* pContext, mal_device_type deviceType, const mal_device_id* pDeviceID, const mal_device_config* pConfig, mal_device* pDevice)
 {
+    /* No exclusive mode with Web Audio. */
+    if (pConfig->shareMode == mal_share_mode_exclusive) {
+        return MAL_SHARE_MODE_NOT_SUPPORTED;
+    }
+
     if (deviceType == mal_device_type_capture && !mal_is_capture_supported__webaudio()) {
         return MAL_NO_DEVICE;
     }
