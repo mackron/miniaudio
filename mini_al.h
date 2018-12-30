@@ -2238,6 +2238,10 @@ mal_result mal_context_get_device_info(mal_context* pContext, mal_device_type ty
 // operating system may need to present the user with a message asking for permissions. Please refer
 // to the official documentation for ActivateAudioInterfaceAsync() for more information.
 //
+// ALSA Specific: When initializing the default device, requesting shared mode will try using the
+// "dmix" device for playback and the "dsnoop" device for capture. If these fail it will try falling
+// back to the "hw" device.
+//
 // Return Value:
 //   MAL_SUCCESS if successful; any other error code otherwise.
 //
@@ -12140,7 +12144,11 @@ void mal_context_get_device_info_source_callback__pulse(mal_pa_context* pPulseCo
 mal_result mal_context_get_device_info__pulse(mal_context* pContext, mal_device_type deviceType, const mal_device_id* pDeviceID, mal_share_mode shareMode, mal_device_info* pDeviceInfo)
 {
     mal_assert(pContext != NULL);
-    (void)shareMode;
+
+    /* No exclusive mode with the PulseAudio backend. */
+    if (shareMode == mal_share_mode_exclusive) {
+        return MAL_SHARE_MODE_NOT_SUPPORTED;
+    }
 
     mal_result result = MAL_SUCCESS;
 
@@ -12389,6 +12397,11 @@ mal_result mal_device_init__pulse(mal_context* pContext, mal_device_type type, c
 
     mal_result result = MAL_SUCCESS;
     int error = 0;
+
+    /* No exclusive mode with the PulseAudio backend. */
+    if (pConfig->shareMode == mal_share_mode_exclusive) {
+        return MAL_SHARE_MODE_NOT_SUPPORTED;
+    }
 
     const char* dev = NULL;
     if (pDeviceID != NULL) {
