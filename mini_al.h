@@ -1913,7 +1913,6 @@ MAL_ALIGNED_STRUCT(MAL_SIMD_ALIGNMENT) mal_device
     mal_bool32 usingDefaultChannelMap : 1;
     mal_bool32 usingDefaultBufferSize : 1;
     mal_bool32 usingDefaultPeriods    : 1;
-    mal_bool32 exclusiveMode          : 1;
     mal_bool32 isOwnerOfContext       : 1;  // When set to true, uninitializing the device will also uninitialize the context. Set to true when NULL is passed into mal_device_init().
     mal_bool32 isDefaultDevice        : 1;  // Used to determine if the backend should try reinitializing if the default device is unplugged.
     mal_format internalFormat;
@@ -4724,15 +4723,17 @@ mal_result mal_device_init__null(mal_context* pContext, mal_device_type type, co
         mal_strncpy_s(pDevice->name, sizeof(pDevice->name), "NULL Capture Device", (size_t)-1);
     }
 
-    if (pDevice->bufferSizeInFrames == 0) {
-        pDevice->bufferSizeInFrames = mal_calculate_buffer_size_in_frames_from_milliseconds(pDevice->bufferSizeInMilliseconds, pDevice->sampleRate);
+    mal_uint32 bufferSizeInFrames = pConfig->bufferSizeInFrames;
+    if (bufferSizeInFrames == 0) {
+        bufferSizeInFrames = mal_calculate_buffer_size_in_frames_from_milliseconds(pConfig->bufferSizeInMilliseconds, pConfig->sampleRate);
     }
 
-    pDevice->null_device.pBuffer = (mal_uint8*)mal_malloc(pDevice->bufferSizeInFrames * pDevice->channels * mal_get_bytes_per_sample(pDevice->format));
+    pDevice->null_device.pBuffer = (mal_uint8*)mal_malloc(bufferSizeInFrames * pConfig->channels * mal_get_bytes_per_sample(pConfig->format));
     if (pDevice->null_device.pBuffer == NULL) {
         return MAL_OUT_OF_MEMORY;
     }
 
+    pDevice->bufferSizeInFrames = bufferSizeInFrames;
     mal_zero_memory(pDevice->null_device.pBuffer, mal_device_get_buffer_size_in_bytes(pDevice));
 
     return MAL_SUCCESS;
@@ -5869,7 +5870,7 @@ HRESULT STDMETHODCALLTYPE mal_IMMNotificationClient_OnDefaultDeviceChanged(mal_I
     // Not currently supporting automatic stream routing in exclusive mode. This is not working correctly on my machine due to
     // AUDCLNT_E_DEVICE_IN_USE errors when reinitializing the device. If this is a bug in mini_al, we can try re-enabling this once
     // it's fixed.
-    if (pThis->pDevice->exclusiveMode) {
+    if (pThis->pDevice->initConfig.shareMode == mal_share_mode_exclusive) {
         return S_OK;
     }
 
@@ -6394,7 +6395,6 @@ typedef struct
     mal_channel channelMapOut[MAL_MAX_CHANNELS];
     mal_uint32 bufferSizeInFramesOut;
     mal_uint32 periodsOut;
-    mal_bool32 exclusiveMode;
     char deviceName[256];
 } mal_device_init_internal_data__wasapi;
 
@@ -6660,13 +6660,6 @@ mal_result mal_device_init_internal__wasapi(mal_context* pContext, mal_device_ty
     }
 
 
-    if (shareMode == MAL_AUDCLNT_SHAREMODE_SHARED) {
-        pData->exclusiveMode = MAL_FALSE;
-    } else /*if (shareMode == MAL_AUDCLNT_SHAREMODE_EXCLUSIVE)*/ {
-        pData->exclusiveMode = MAL_TRUE;
-    }
-
-
     // Grab the name of the device.
 #ifdef MAL_WIN32_DESKTOP
     mal_IPropertyStore *pProperties;
@@ -6760,7 +6753,6 @@ mal_result mal_device_reinit__wasapi(mal_device* pDevice)
     mal_copy_memory(pDevice->internalChannelMap, data.channelMapOut, sizeof(data.channelMapOut));
     pDevice->bufferSizeInFrames = data.bufferSizeInFramesOut;
     pDevice->periods = data.periodsOut;
-    pDevice->exclusiveMode = data.exclusiveMode;
     mal_strcpy_s(pDevice->name, sizeof(pDevice->name), data.deviceName);
 
     mal_IAudioClient_SetEventHandle((mal_IAudioClient*)pDevice->wasapi.pAudioClient, pDevice->wasapi.hEvent);
@@ -6771,7 +6763,6 @@ mal_result mal_device_reinit__wasapi(mal_device* pDevice)
 mal_result mal_device_init__wasapi(mal_context* pContext, mal_device_type type, const mal_device_id* pDeviceID, const mal_device_config* pConfig, mal_device* pDevice)
 {
     (void)pContext;
-    (void)pConfig;
 
     mal_assert(pDevice != NULL);
     mal_zero_object(&pDevice->wasapi);
@@ -6780,18 +6771,18 @@ mal_result mal_device_init__wasapi(mal_context* pContext, mal_device_type type, 
     const char* errorMsg = "";
 
     mal_device_init_internal_data__wasapi data;
-    data.formatIn = pDevice->format;
-    data.channelsIn = pDevice->channels;
-    data.sampleRateIn = pDevice->sampleRate;
-    mal_copy_memory(data.channelMapIn, pDevice->channelMap, sizeof(pDevice->channelMap));
-    data.bufferSizeInFramesIn = pDevice->bufferSizeInFrames;
-    data.bufferSizeInMillisecondsIn = pDevice->bufferSizeInMilliseconds;
-    data.periodsIn = pDevice->periods;
+    data.formatIn = pConfig->format;
+    data.channelsIn = pConfig->channels;
+    data.sampleRateIn = pConfig->sampleRate;
+    mal_copy_memory(data.channelMapIn, pConfig->channelMap, sizeof(pConfig->channelMap));
+    data.bufferSizeInFramesIn = pConfig->bufferSizeInFrames;
+    data.bufferSizeInMillisecondsIn = pConfig->bufferSizeInMilliseconds;
+    data.periodsIn = pConfig->periods;
     data.usingDefaultFormat = pDevice->usingDefaultFormat;
     data.usingDefaultChannels = pDevice->usingDefaultChannels;
     data.usingDefaultSampleRate = pDevice->usingDefaultSampleRate;
     data.usingDefaultChannelMap = pDevice->usingDefaultChannelMap;
-    data.shareMode = pDevice->initConfig.shareMode;
+    data.shareMode = pConfig->shareMode;
     result = mal_device_init_internal__wasapi(pDevice->pContext, type, pDeviceID, &data);
     if (result != MAL_SUCCESS) {
         return result;
@@ -6807,7 +6798,6 @@ mal_result mal_device_init__wasapi(mal_context* pContext, mal_device_type type, 
     mal_copy_memory(pDevice->internalChannelMap, data.channelMapOut, sizeof(data.channelMapOut));
     pDevice->bufferSizeInFrames = data.bufferSizeInFramesOut;
     pDevice->periods = data.periodsOut;
-    pDevice->exclusiveMode = data.exclusiveMode;
     mal_strcpy_s(pDevice->name, sizeof(pDevice->name), data.deviceName);
 
 
@@ -6942,7 +6932,7 @@ mal_result mal_device__get_available_frames__wasapi(mal_device* pDevice, mal_uin
     }
 
     // Slightly different rules for exclusive and shared modes.
-    if (pDevice->exclusiveMode) {
+    if (pDevice->initConfig.shareMode == mal_share_mode_exclusive) {
         *pFrameCount = paddingFramesCount;
     } else {
         if (pDevice->type == mal_device_type_playback) {
@@ -6992,7 +6982,7 @@ mal_result mal_device__wait_for_frames__wasapi(mal_device* pDevice, mal_uint32* 
         if (!needDeviceReinit) {
             result = mal_device__get_available_frames__wasapi(pDevice, pFrameCount);
             if (result != MAL_SUCCESS) {
-                if (!pDevice->exclusiveMode) {
+                if (pDevice->initConfig.shareMode != mal_share_mode_exclusive) {
                     needDeviceReinit = MAL_TRUE;
                 } else {
                     return result;
@@ -15185,7 +15175,6 @@ typedef struct
     mal_channel channelMapOut[MAL_MAX_CHANNELS];
     mal_uint32 bufferSizeInFramesOut;
     mal_uint32 periodsOut;
-    mal_bool32 exclusiveMode;
     char deviceName[256];
 } mal_device_init_internal_data__coreaudio;
 
@@ -15563,7 +15552,6 @@ mal_result mal_device_reinit_internal__coreaudio(mal_device* pDevice, mal_bool32
     mal_copy_memory(pDevice->internalChannelMap, data.channelMapOut, sizeof(data.channelMapOut));
     pDevice->bufferSizeInFrames = data.bufferSizeInFramesOut;
     pDevice->periods = data.periodsOut;
-    pDevice->exclusiveMode = MAL_FALSE;
     mal_strcpy_s(pDevice->name, sizeof(pDevice->name), data.deviceName);
     
     return MAL_SUCCESS;
@@ -15622,7 +15610,6 @@ mal_result mal_device_init__coreaudio(mal_context* pContext, mal_device_type dev
     mal_copy_memory(pDevice->internalChannelMap, data.channelMapOut, sizeof(data.channelMapOut));
     pDevice->bufferSizeInFrames = data.bufferSizeInFramesOut;
     pDevice->periods = data.periodsOut;
-    pDevice->exclusiveMode = MAL_FALSE;
     mal_strcpy_s(pDevice->name, sizeof(pDevice->name), data.deviceName);
     
 #if defined(MAL_APPLE_DESKTOP)
@@ -16398,9 +16385,6 @@ mal_result mal_device_init__sndio(mal_context* pContext, mal_device_type deviceT
     
     mal_get_standard_channel_map(mal_standard_channel_map_sndio, pDevice->internalChannels, pDevice->internalChannelMap);
     
-    // The device is always shared with sndio.
-    pDevice->exclusiveMode = MAL_FALSE;
-    
     pDevice->sndio.pIntermediaryBuffer = mal_malloc(pDevice->sndio.fragmentSizeInFrames * mal_get_bytes_per_frame(pDevice->internalFormat, pDevice->internalChannels));
     if (pDevice->sndio.pIntermediaryBuffer == NULL) {
         ((mal_sio_close_proc)pContext->sndio.sio_close)((struct mal_sio_hdl*)pDevice->sndio.handle);
@@ -16893,6 +16877,18 @@ mal_result mal_device_init__audio4(mal_context* pContext, mal_device_type device
     mal_assert(pDevice != NULL);
     mal_zero_object(&pDevice->audio4);
     pDevice->audio4.fd = -1;
+
+    // The version of the operating system dictates whether or not the device is exclusive or shared. NetBSD
+    // introduced in-kernel mixing which means it's shared. All other BSD flavours are exclusive as far as
+    // I'm aware.
+#if defined(__NetBSD_Version__) && __NetBSD_Version__ >= 800000000
+    /* NetBSD 8.0+ */
+    if (pConfig->shareMode == mal_share_mode_exclusive) {
+        return MAL_SHARE_MODE_NOT_SUPPORTED;
+    }
+#else
+    /* All other flavors. */
+#endif
     
     // The first thing to do is open the file.
     const char* deviceName = "/dev/audio";
@@ -17067,16 +17063,6 @@ mal_result mal_device_init__audio4(mal_context* pContext, mal_device_type device
     mal_get_standard_channel_map(mal_standard_channel_map_sound4, pDevice->internalChannels, pDevice->internalChannelMap);
 
 
-    // The version of the operating system dictates whether or not the device is exclusive or shared. NetBSD
-    // introduced in-kernel mixing which means it's shared. All other BSD flavours are exclusive as far as
-    // I'm aware.
-#if defined(__NetBSD_Version__) && __NetBSD_Version__ >= 800000000
-    pDevice->exclusiveMode = MAL_FALSE;
-#else
-    pDevice->exclusiveMode = MAL_TRUE;
-#endif
-
-    
     // When not using MMAP mode we need to use an intermediary buffer to the data transfer between the client
     // and device. Everything is done by the size of a fragment.
     pDevice->audio4.pIntermediaryBuffer = mal_malloc(pDevice->audio4.fragmentSizeInFrames * mal_get_bytes_per_frame(pDevice->internalFormat, pDevice->internalChannels));
@@ -17613,9 +17599,6 @@ mal_result mal_device_init__oss(mal_context* pContext, mal_device_type type, con
     // Set the internal channel map. Not sure if this can be queried. For now just using the channel layouts defined in FreeBSD's sound(4) man page.
     mal_get_standard_channel_map(mal_standard_channel_map_sound4, pDevice->internalChannels, pDevice->internalChannelMap);
 
-    // OSS seems to be shared.
-    pDevice->exclusiveMode = MAL_FALSE;
-
     // When not using MMAP mode, we need to use an intermediary buffer for the client <-> device transfer. We do
     // everything by the size of a fragment.
     pDevice->oss.pIntermediaryBuffer = mal_malloc(actualFragmentSizeInBytes);
@@ -17911,10 +17894,14 @@ mal_result mal_open_stream__aaudio(mal_context* pContext, mal_device_type device
             ((MAL_PFN_AAudioStreamBuilder_setFormat)pContext->aaudio.AAudioStreamBuilder_setFormat)(pBuilder, (pConfig->format == mal_format_s16) ? MAL_AAUDIO_FORMAT_PCM_I16 : MAL_AAUDIO_FORMAT_PCM_FLOAT);
         }
 
-        ((MAL_PFN_AAudioStreamBuilder_setBufferCapacityInFrames)pContext->aaudio.AAudioStreamBuilder_setBufferCapacityInFrames)(pBuilder, pConfig->bufferSizeInFrames);
+        mal_uint32 bufferCapacityInFrames = pConfig->bufferSizeInFrames;
+        if (bufferCapacityInFrames == 0) {
+            bufferCapacityInFrames = mal_calculate_buffer_size_in_frames_from_milliseconds(pConfig->bufferSizeInMilliseconds, pConfig->sampleRate);
+        }
+        ((MAL_PFN_AAudioStreamBuilder_setBufferCapacityInFrames)pContext->aaudio.AAudioStreamBuilder_setBufferCapacityInFrames)(pBuilder, bufferCapacityInFrames);
 
         /* TODO: Don't set the data callback when synchronous reading and writing is being used. */
-        ((MAL_PFN_AAudioStreamBuilder_setFramesPerDataCallback)pContext->aaudio.AAudioStreamBuilder_setFramesPerDataCallback)(pBuilder, pConfig->bufferSizeInFrames / pConfig->periods);
+        ((MAL_PFN_AAudioStreamBuilder_setFramesPerDataCallback)pContext->aaudio.AAudioStreamBuilder_setFramesPerDataCallback)(pBuilder, bufferCapacityInFrames / pConfig->periods);
         ((MAL_PFN_AAudioStreamBuilder_setDataCallback)pContext->aaudio.AAudioStreamBuilder_setDataCallback)(pBuilder, mal_stream_data_callback__aaudio, (void*)pDevice);
 
         /* Not sure how this affects things, but since there's a mapping between mini_al's performance profiles and AAudio's performance modes, let go ahead and set it. */
@@ -18082,15 +18069,8 @@ mal_result mal_device_init__aaudio(mal_context* pContext, mal_device_type type, 
         return MAL_SHARE_MODE_NOT_SUPPORTED;
     }
 
-    /* We need to make a copy of the config so we can make an adjustment to the buffer size. */
-    mal_device_config config = *pConfig;
-    config.bufferSizeInFrames = pDevice->bufferSizeInFrames;
-    if (config.bufferSizeInFrames == 0) {
-        config.bufferSizeInFrames = mal_calculate_buffer_size_in_frames_from_milliseconds(pDevice->bufferSizeInMilliseconds, pDevice->sampleRate);
-    }
-
     /* We first need to try opening the stream. */
-    result = mal_open_stream__aaudio(pContext, type, pDeviceID, pConfig->shareMode, &config, pDevice, (mal_AAudioStream**)&pDevice->aaudio.pStream);
+    result = mal_open_stream__aaudio(pContext, type, pDeviceID, pConfig->shareMode, pConfig, pDevice, (mal_AAudioStream**)&pDevice->aaudio.pStream);
     if (result != MAL_SUCCESS) {
         return result;  /* Failed to open the AAudio stream. */
     }
@@ -19712,7 +19692,7 @@ mal_thread_result MAL_THREADCALL mal_worker_thread(void* pData)
         // Now we just enter the main loop. When the main loop is terminated the device needs to be marked as stopped. This can
         // be broken with mal_device__break_main_loop().
         mal_result mainLoopResult = pDevice->pContext->onDeviceMainLoop(pDevice);
-        if (mainLoopResult != MAL_SUCCESS && pDevice->isDefaultDevice && mal_device__get_state(pDevice) == MAL_STATE_STARTED && !pDevice->exclusiveMode) {
+        if (mainLoopResult != MAL_SUCCESS && pDevice->isDefaultDevice && mal_device__get_state(pDevice) == MAL_STATE_STARTED && pDevice->initConfig.shareMode != mal_share_mode_exclusive) {
             // Something has failed during the main loop. It could be that the device has been lost. If it's the default device,
             // we can try switching over to the new default device by uninitializing and reinitializing.
             mal_result reinitResult = MAL_ERROR;
@@ -28022,9 +28002,13 @@ Device
 ------
 - If a full-duplex device is requested and the backend does not support full duplex devices have mal_device_init__[backend]()
   return MAL_DEVICE_TYPE_NOT_SUPPORTED.
-- If the backend or device does not support the specified share mode, return MAL_SHARE_MODE_NOT_SUPPORTED. If practical, try
+- If exclusive mode is requested, but the backend does not support it, return MAL_SHARE_MODE_NOT_SUPPORTED. If practical, try
   not to fall back to a different share mode - give the client exactly what they asked for. Some backends, such as ALSA, may
   not have a practical way to distinguish between the two.
+- If pDevice->usingDefault* is set, prefer the device's native value if the backend supports it. Otherwise use the relevant
+  value from the config.
+- If the configs buffer size in frames is 0, set it based on the buffer size in milliseconds, keeping in mind to handle the
+  case when the default sample rate is being used where practical.
 - Backends must set the following members of pDevice before returning successfully from mal_device_init__[backend]():
   - internalFormat
   - internalChannels
