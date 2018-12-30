@@ -492,43 +492,48 @@ typedef mal_uint8 mal_channel;
 #define MAL_CHANNEL_RIGHT                               MAL_CHANNEL_FRONT_RIGHT
 #define MAL_CHANNEL_POSITION_COUNT                      MAL_CHANNEL_AUX_31 + 1
 
+
 typedef int mal_result;
 #define MAL_SUCCESS                                      0
-#define MAL_ERROR                                       -1      // A generic error.
+
+/* General errors. */
+#define MAL_ERROR                                       -1      /* A generic error. */
 #define MAL_INVALID_ARGS                                -2
 #define MAL_INVALID_OPERATION                           -3
 #define MAL_OUT_OF_MEMORY                               -4
-#define MAL_FORMAT_NOT_SUPPORTED                        -5
-#define MAL_NO_BACKEND                                  -6
-#define MAL_NO_DEVICE                                   -7
-#define MAL_API_NOT_FOUND                               -8
-#define MAL_DEVICE_BUSY                                 -9
-#define MAL_DEVICE_NOT_INITIALIZED                      -10
-#define MAL_DEVICE_NOT_STARTED                          -11
-#define MAL_DEVICE_NOT_STOPPED                          -12
-#define MAL_DEVICE_ALREADY_STARTED                      -13
-#define MAL_DEVICE_ALREADY_STARTING                     -14
-#define MAL_DEVICE_ALREADY_STOPPED                      -15
-#define MAL_DEVICE_ALREADY_STOPPING                     -16
-#define MAL_FAILED_TO_MAP_DEVICE_BUFFER                 -17
-#define MAL_FAILED_TO_UNMAP_DEVICE_BUFFER               -18
-#define MAL_FAILED_TO_INIT_BACKEND                      -19
-#define MAL_FAILED_TO_READ_DATA_FROM_CLIENT             -20
-#define MAL_FAILED_TO_READ_DATA_FROM_DEVICE             -21
-#define MAL_FAILED_TO_SEND_DATA_TO_CLIENT               -22
-#define MAL_FAILED_TO_SEND_DATA_TO_DEVICE               -23
-#define MAL_FAILED_TO_OPEN_BACKEND_DEVICE               -24
-#define MAL_FAILED_TO_START_BACKEND_DEVICE              -25
-#define MAL_FAILED_TO_STOP_BACKEND_DEVICE               -26
-#define MAL_FAILED_TO_CONFIGURE_BACKEND_DEVICE          -27
-#define MAL_FAILED_TO_CREATE_MUTEX                      -28
-#define MAL_FAILED_TO_CREATE_EVENT                      -29
-#define MAL_FAILED_TO_CREATE_THREAD                     -30
-#define MAL_INVALID_DEVICE_CONFIG                       -31
-#define MAL_ACCESS_DENIED                               -32
-#define MAL_TOO_LARGE                                   -33
-#define MAL_DEVICE_UNAVAILABLE                          -34
-#define MAL_TIMEOUT                                     -35
+#define MAL_ACCESS_DENIED                               -5
+#define MAL_TOO_LARGE                                   -6
+#define MAL_TIMEOUT                                     -7
+
+/* General mini_al-specific errors. */
+#define MAL_FORMAT_NOT_SUPPORTED                        -100
+#define MAL_NO_BACKEND                                  -101
+#define MAL_NO_DEVICE                                   -102
+#define MAL_API_NOT_FOUND                               -103
+#define MAL_INVALID_DEVICE_CONFIG                       -104
+
+/* State errors. */
+#define MAL_DEVICE_BUSY                                 -200
+#define MAL_DEVICE_NOT_INITIALIZED                      -201
+#define MAL_DEVICE_NOT_STARTED                          -202
+#define MAL_DEVICE_UNAVAILABLE                          -203
+
+/* Operation errors. */
+#define MAL_FAILED_TO_MAP_DEVICE_BUFFER                 -300
+#define MAL_FAILED_TO_UNMAP_DEVICE_BUFFER               -301
+#define MAL_FAILED_TO_INIT_BACKEND                      -302
+#define MAL_FAILED_TO_READ_DATA_FROM_CLIENT             -303
+#define MAL_FAILED_TO_READ_DATA_FROM_DEVICE             -304
+#define MAL_FAILED_TO_SEND_DATA_TO_CLIENT               -305
+#define MAL_FAILED_TO_SEND_DATA_TO_DEVICE               -306
+#define MAL_FAILED_TO_OPEN_BACKEND_DEVICE               -307
+#define MAL_FAILED_TO_START_BACKEND_DEVICE              -308
+#define MAL_FAILED_TO_STOP_BACKEND_DEVICE               -309
+#define MAL_FAILED_TO_CONFIGURE_BACKEND_DEVICE          -310
+#define MAL_FAILED_TO_CREATE_MUTEX                      -311
+#define MAL_FAILED_TO_CREATE_EVENT                      -312
+#define MAL_FAILED_TO_CREATE_THREAD                     -313
+
 
 // Standard sample rates.
 #define MAL_SAMPLE_RATE_8000                            8000
@@ -2380,26 +2385,7 @@ void mal_device_set_stop_callback(mal_device* pDevice, mal_stop_proc proc);
 // waits on a mutex for thread-safety.
 //
 // Return Value:
-//   - MAL_SUCCESS if successful; any other error code otherwise.
-//   - MAL_INVALID_ARGS
-//       One or more of the input arguments is invalid.
-//   - MAL_DEVICE_NOT_INITIALIZED
-//       The device is not currently or was never initialized.
-//   - MAL_DEVICE_BUSY
-//       The device is in the process of stopping. This will only happen if mal_device_start() and
-//       mal_device_stop() is called simultaneous on separate threads. This will never be returned in
-//       single-threaded applications.
-//   - MAL_DEVICE_ALREADY_STARTING
-//       The device is already in the process of starting. This will never be returned in single-threaded
-//       applications.
-//   - MAL_DEVICE_ALREADY_STARTED
-//       The device is already started.
-//   - MAL_FAILED_TO_READ_DATA_FROM_CLIENT
-//       Failed to read the initial chunk of audio data from the client. This initial chunk of data is
-//       required so that the device has valid audio data as soon as it starts playing. This will never
-//       be returned for capture devices.
-//   - MAL_FAILED_TO_START_BACKEND_DEVICE
-//       There was a backend-specific error starting the device.
+//   MAL_SUCCESS if successful; any other error code otherwise.
 //
 // Thread Safety: SAFE
 mal_result mal_device_start(mal_device* pDevice);
@@ -2412,22 +2398,7 @@ mal_result mal_device_start(mal_device* pDevice);
 // the buffer size that was specified at initialization time).
 //
 // Return Value:
-//   - MAL_SUCCESS if successful; any other error code otherwise.
-//   - MAL_INVALID_ARGS
-//       One or more of the input arguments is invalid.
-//   - MAL_DEVICE_NOT_INITIALIZED
-//       The device is not currently or was never initialized.
-//   - MAL_DEVICE_BUSY
-//       The device is in the process of starting. This will only happen if mal_device_start() and
-//       mal_device_stop() is called simultaneous on separate threads. This will never be returned in
-//       single-threaded applications.
-//   - MAL_DEVICE_ALREADY_STOPPING
-//       The device is already in the process of stopping. This will never be returned in single-threaded
-//       applications.
-//   - MAL_DEVICE_ALREADY_STOPPED
-//       The device is already stopped.
-//   - MAL_FAILED_TO_STOP_BACKEND_DEVICE
-//       There was a backend-specific error stopping the device.
+//   MAL_SUCCESS if successful; any other error code otherwise.
 //
 // Thread Safety: SAFE
 mal_result mal_device_stop(mal_device* pDevice);
