@@ -41,10 +41,11 @@ mal_backend g_Backends[] = {
     mal_backend_null
 };
 
-void on_log(mal_context* pContext, mal_device* pDevice, const char* message)
+void on_log(mal_context* pContext, mal_device* pDevice, mal_uint32 logLevel, const char* message)
 {
     (void)pContext;
     (void)pDevice;
+    (void)logLevel;
     printf("%s\n", message);
 }
 
