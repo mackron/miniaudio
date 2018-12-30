@@ -7530,7 +7530,7 @@ mal_result mal_context_create_IDirectSound__dsound(mal_context* pContext, mal_sh
         hWnd = ((MAL_PFN_GetDesktopWindow)pContext->win32.GetDesktopWindow)();
     }
     if (FAILED(mal_IDirectSound_SetCooperativeLevel(pDirectSound, hWnd, (shareMode == mal_share_mode_exclusive) ? MAL_DSSCL_EXCLUSIVE : MAL_DSSCL_PRIORITY))) {
-        return mal_context_post_error(pContext, NULL, MAL_LOG_LEVEL_ERROR, "[DirectSound] IDirectSound_SetCooperateiveLevel() failed for playback device.", MAL_FAILED_TO_OPEN_BACKEND_DEVICE);
+        return mal_context_post_error(pContext, NULL, MAL_LOG_LEVEL_ERROR, "[DirectSound] IDirectSound_SetCooperateiveLevel() failed for playback device.", MAL_SHARE_MODE_NOT_SUPPORTED);
     }
 
     *ppDirectSound = pDirectSound;
@@ -7542,8 +7542,10 @@ mal_result mal_context_create_IDirectSoundCapture__dsound(mal_context* pContext,
     mal_assert(pContext != NULL);
     mal_assert(ppDirectSoundCapture != NULL);
 
-    // Everything is shared in capture mode by the looks of it.
-    (void)shareMode;
+    /* DirectSound does not support exclusive mode for capture. */
+    if (shareMode == mal_share_mode_exclusive) {
+        return MAL_SHARE_MODE_NOT_SUPPORTED;
+    }
 
     *ppDirectSoundCapture = NULL;
     mal_IDirectSoundCapture* pDirectSoundCapture = NULL;
