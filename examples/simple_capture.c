@@ -53,11 +53,11 @@ int main()
         return -1;
     }
 
-    mal_device_config config = mal_device_config_init(mal_format_s16, 2, 48000, on_recv_frames, on_send_frames);
+    mal_device_config config = mal_device_config_init(mal_format_s16, 2, 48000, on_recv_frames, on_send_frames, NULL);
 
     printf("Recording...\n");
     mal_device captureDevice;
-    if (mal_device_init(&context, mal_device_type_capture, NULL, &config, NULL, &captureDevice) != MAL_SUCCESS) {
+    if (mal_device_init(&context, mal_device_type_capture, NULL, &config, &captureDevice) != MAL_SUCCESS) {
         mal_context_uninit(&context);
         printf("Failed to initialize capture device.\n");
         return -2;
@@ -79,7 +79,7 @@ int main()
 
     printf("Playing...\n");
     mal_device playbackDevice;
-    if (mal_device_init(&context, mal_device_type_playback, NULL, &config, NULL, &playbackDevice) != MAL_SUCCESS) {
+    if (mal_device_init(&context, mal_device_type_playback, NULL, &config, &playbackDevice) != MAL_SUCCESS) {
         mal_context_uninit(&context);
         printf("Failed to initialize playback device.\n");
         return -4;

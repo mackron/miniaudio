@@ -62,10 +62,10 @@ Playback Example
 
   ...
 
-  mal_device_config config = mal_device_config_init_playback(decoder.outputFormat, decoder.outputChannels, decoder.outputSampleRate, on_send_frames_to_device);
+  mal_device_config config = mal_device_config_init_playback(decoder.outputFormat, decoder.outputChannels, decoder.outputSampleRate, on_send_frames_to_device, &decoder);
 
   mal_device device;
-  mal_result result = mal_device_init(NULL, mal_device_type_playback, NULL, &config, &decoder, &device);
+  mal_result result = mal_device_init(NULL, mal_device_type_playback, NULL, &config, &device);
   if (result != MAL_SUCCESS) {
       return -1;
   }
@@ -1492,12 +1492,11 @@ typedef struct
     mal_recv_proc onRecvCallback;
     mal_send_proc onSendCallback;
     mal_stop_proc onStopCallback;
-
+    void* pUserData;
     struct
     {
         mal_bool32 noMMap;  // Disables MMap mode.
     } alsa;
-
     struct
     {
         const char* pStreamName;
@@ -2257,13 +2256,13 @@ mal_result mal_context_get_device_info(mal_context* pContext, mal_device_type ty
 //   It is not safe to call this function simultaneously for different devices because some backends
 //   depend on and mutate global state (such as OpenSL|ES). The same applies to calling this at the
 //   same time as mal_device_uninit().
-mal_result mal_device_init(mal_context* pContext, mal_device_type type, mal_device_id* pDeviceID, const mal_device_config* pConfig, void* pUserData, mal_device* pDevice);
+mal_result mal_device_init(mal_context* pContext, mal_device_type type, mal_device_id* pDeviceID, const mal_device_config* pConfig, mal_device* pDevice);
 
 // Initializes a device without a context, with extra parameters for controlling the configuration
 // of the internal self-managed context.
 //
 // See mal_device_init() and mal_context_init().
-mal_result mal_device_init_ex(const mal_backend backends[], mal_uint32 backendCount, const mal_context_config* pContextConfig, mal_device_type type, mal_device_id* pDeviceID, const mal_device_config* pConfig, void* pUserData, mal_device* pDevice);
+mal_result mal_device_init_ex(const mal_backend backends[], mal_uint32 backendCount, const mal_context_config* pContextConfig, mal_device_type type, mal_device_id* pDeviceID, const mal_device_config* pConfig, mal_device* pDevice);
 
 // Uninitializes a device.
 //
@@ -2346,9 +2345,9 @@ mal_context_config mal_context_config_init(mal_log_proc onLog);
 //
 // mal_device_config_init(), mal_device_config_init_playback(), etc. will allow you to explicitly set the sample format,
 // channel count, etc.
-mal_device_config mal_device_config_init_default(void);
-mal_device_config mal_device_config_init_default_capture(mal_recv_proc onRecvCallback);
-mal_device_config mal_device_config_init_default_playback(mal_send_proc onSendCallback);
+mal_device_config mal_device_config_init_default(void* pUserData);
+mal_device_config mal_device_config_init_default_capture(mal_recv_proc onRecvCallback, void* pUserData);
+mal_device_config mal_device_config_init_default_playback(mal_send_proc onSendCallback, void* pUserData);
 
 // Helper function for initializing a mal_device_config object.
 //
@@ -2413,18 +2412,18 @@ mal_device_config mal_device_config_init_default_playback(mal_send_proc onSendCa
 //
 // Efficiency: HIGH
 //   This just returns a stack allocated object and consists of just a few assignments.
-mal_device_config mal_device_config_init_ex(mal_format format, mal_uint32 channels, mal_uint32 sampleRate, mal_channel channelMap[MAL_MAX_CHANNELS], mal_recv_proc onRecvCallback, mal_send_proc onSendCallback);
+mal_device_config mal_device_config_init_ex(mal_format format, mal_uint32 channels, mal_uint32 sampleRate, mal_channel channelMap[MAL_MAX_CHANNELS], mal_recv_proc onRecvCallback, mal_send_proc onSendCallback, void* pUserData);
 
 // A simplified version of mal_device_config_init_ex().
-static MAL_INLINE mal_device_config mal_device_config_init(mal_format format, mal_uint32 channels, mal_uint32 sampleRate, mal_recv_proc onRecvCallback, mal_send_proc onSendCallback) { return mal_device_config_init_ex(format, channels, sampleRate, NULL, onRecvCallback, onSendCallback); }
+static MAL_INLINE mal_device_config mal_device_config_init(mal_format format, mal_uint32 channels, mal_uint32 sampleRate, mal_recv_proc onRecvCallback, mal_send_proc onSendCallback, void* pUserData) { return mal_device_config_init_ex(format, channels, sampleRate, NULL, onRecvCallback, onSendCallback, pUserData); }
 
 // A simplified version of mal_device_config_init() for capture devices.
-static MAL_INLINE mal_device_config mal_device_config_init_capture_ex(mal_format format, mal_uint32 channels, mal_uint32 sampleRate, mal_channel channelMap[MAL_MAX_CHANNELS], mal_recv_proc onRecvCallback) { return mal_device_config_init_ex(format, channels, sampleRate, channelMap, onRecvCallback, NULL); }
-static MAL_INLINE mal_device_config mal_device_config_init_capture(mal_format format, mal_uint32 channels, mal_uint32 sampleRate, mal_recv_proc onRecvCallback) { return mal_device_config_init_capture_ex(format, channels, sampleRate, NULL, onRecvCallback); }
+static MAL_INLINE mal_device_config mal_device_config_init_capture_ex(mal_format format, mal_uint32 channels, mal_uint32 sampleRate, mal_channel channelMap[MAL_MAX_CHANNELS], mal_recv_proc onRecvCallback, void* pUserData) { return mal_device_config_init_ex(format, channels, sampleRate, channelMap, onRecvCallback, NULL, pUserData); }
+static MAL_INLINE mal_device_config mal_device_config_init_capture(mal_format format, mal_uint32 channels, mal_uint32 sampleRate, mal_recv_proc onRecvCallback, void* pUserData) { return mal_device_config_init_capture_ex(format, channels, sampleRate, NULL, onRecvCallback, pUserData); }
 
 // A simplified version of mal_device_config_init() for playback devices.
-static MAL_INLINE mal_device_config mal_device_config_init_playback_ex(mal_format format, mal_uint32 channels, mal_uint32 sampleRate, mal_channel channelMap[MAL_MAX_CHANNELS], mal_send_proc onSendCallback) { return mal_device_config_init_ex(format, channels, sampleRate, channelMap, NULL, onSendCallback); }
-static MAL_INLINE mal_device_config mal_device_config_init_playback(mal_format format, mal_uint32 channels, mal_uint32 sampleRate, mal_send_proc onSendCallback) { return mal_device_config_init_playback_ex(format, channels, sampleRate, NULL, onSendCallback); }
+static MAL_INLINE mal_device_config mal_device_config_init_playback_ex(mal_format format, mal_uint32 channels, mal_uint32 sampleRate, mal_channel channelMap[MAL_MAX_CHANNELS], mal_send_proc onSendCallback, void* pUserData) { return mal_device_config_init_ex(format, channels, sampleRate, channelMap, NULL, onSendCallback, pUserData); }
+static MAL_INLINE mal_device_config mal_device_config_init_playback(mal_format format, mal_uint32 channels, mal_uint32 sampleRate, mal_send_proc onSendCallback, void* pUserData) { return mal_device_config_init_playback_ex(format, channels, sampleRate, NULL, onSendCallback, pUserData); }
 
 
 
@@ -20236,10 +20235,10 @@ mal_result mal_context_get_device_info(mal_context* pContext, mal_device_type ty
 }
 
 
-mal_result mal_device_init(mal_context* pContext, mal_device_type type, mal_device_id* pDeviceID, const mal_device_config* pConfig, void* pUserData, mal_device* pDevice)
+mal_result mal_device_init(mal_context* pContext, mal_device_type type, mal_device_id* pDeviceID, const mal_device_config* pConfig, mal_device* pDevice)
 {
     if (pContext == NULL) {
-        return mal_device_init_ex(NULL, 0, NULL, type, pDeviceID, pConfig, pUserData, pDevice);
+        return mal_device_init_ex(NULL, 0, NULL, type, pDeviceID, pConfig, pDevice);
     }
 
     if (pDevice == NULL) {
@@ -20249,7 +20248,7 @@ mal_result mal_device_init(mal_context* pContext, mal_device_type type, mal_devi
     // The config is allowed to be NULL, in which case we default to mal_device_config_init_default().
     mal_device_config config;
     if (pConfig == NULL) {
-        config = mal_device_config_init_default();
+        config = mal_device_config_init_default(NULL);
     } else {
         config = *pConfig;
     }
@@ -20268,7 +20267,7 @@ mal_result mal_device_init(mal_context* pContext, mal_device_type type, mal_devi
     pDevice->initConfig = config;
 
     // Set the user data and log callback ASAP to ensure it is available for the entire initialization process.
-    pDevice->pUserData = pUserData;
+    pDevice->pUserData = config.pUserData;
     pDevice->onStop = config.onStopCallback;
     pDevice->onSend = config.onSendCallback;
     pDevice->onRecv = config.onRecvCallback;
@@ -20419,7 +20418,7 @@ mal_result mal_device_init(mal_context* pContext, mal_device_type type, mal_devi
     return MAL_SUCCESS;
 }
 
-mal_result mal_device_init_ex(const mal_backend backends[], mal_uint32 backendCount, const mal_context_config* pContextConfig, mal_device_type type, mal_device_id* pDeviceID, const mal_device_config* pConfig, void* pUserData, mal_device* pDevice)
+mal_result mal_device_init_ex(const mal_backend backends[], mal_uint32 backendCount, const mal_context_config* pContextConfig, mal_device_type type, mal_device_id* pDeviceID, const mal_device_config* pConfig, mal_device* pDevice)
 {
     mal_context* pContext = (mal_context*)mal_malloc(sizeof(*pContext));
     if (pContext == NULL) {
@@ -20443,7 +20442,7 @@ mal_result mal_device_init_ex(const mal_backend backends[], mal_uint32 backendCo
     for (mal_uint32 iBackend = 0; iBackend < backendsToIterateCount; ++iBackend) {
         result = mal_context_init(&pBackendsToIterate[iBackend], 1, pContextConfig, pContext);
         if (result == MAL_SUCCESS) {
-            result = mal_device_init(pContext, type, pDeviceID, pConfig, pUserData, pDevice);
+            result = mal_device_init(pContext, type, pDeviceID, pConfig, pDevice);
             if (result == MAL_SUCCESS) {
                 break;  // Success.
             } else {
@@ -20608,34 +20607,35 @@ mal_context_config mal_context_config_init(mal_log_proc onLog)
 }
 
 
-mal_device_config mal_device_config_init_default()
+mal_device_config mal_device_config_init_default(void* pUserData)
 {
     mal_device_config config;
     mal_zero_object(&config);
+    config.pUserData = pUserData;
 
     return config;
 }
 
-mal_device_config mal_device_config_init_default_capture(mal_recv_proc onRecvCallback)
+mal_device_config mal_device_config_init_default_capture(mal_recv_proc onRecvCallback, void* pUserData)
 {
-    mal_device_config config = mal_device_config_init_default();
+    mal_device_config config = mal_device_config_init_default(pUserData);
     config.onRecvCallback = onRecvCallback;
 
     return config;
 }
 
-mal_device_config mal_device_config_init_default_playback(mal_send_proc onSendCallback)
+mal_device_config mal_device_config_init_default_playback(mal_send_proc onSendCallback, void* pUserData)
 {
-    mal_device_config config = mal_device_config_init_default();
+    mal_device_config config = mal_device_config_init_default(pUserData);
     config.onSendCallback = onSendCallback;
 
     return config;
 }
 
 
-mal_device_config mal_device_config_init_ex(mal_format format, mal_uint32 channels, mal_uint32 sampleRate, mal_channel channelMap[MAL_MAX_CHANNELS], mal_recv_proc onRecvCallback, mal_send_proc onSendCallback)
+mal_device_config mal_device_config_init_ex(mal_format format, mal_uint32 channels, mal_uint32 sampleRate, mal_channel channelMap[MAL_MAX_CHANNELS], mal_recv_proc onRecvCallback, mal_send_proc onSendCallback, void* pUserData)
 {
-    mal_device_config config = mal_device_config_init_default();
+    mal_device_config config = mal_device_config_init_default(pUserData);
 
     config.format = format;
     config.channels = channels;

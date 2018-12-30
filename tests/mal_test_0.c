@@ -2289,14 +2289,14 @@ int do_playback_test(mal_backend backend)
     printf("  Opening Device... ");
     {
         mal_context_config contextConfig = mal_context_config_init(on_log);
-        mal_device_config deviceConfig = mal_device_config_init_default_playback(on_send__playback_test);
+        mal_device_config deviceConfig = mal_device_config_init_default_playback(on_send__playback_test, &callbackData);
         deviceConfig.onStopCallback = on_stop__playback_test;
 
     #if defined(__EMSCRIPTEN__)
         deviceConfig.format = mal_format_f32;
     #endif
 
-        result = mal_device_init_ex(&backend, 1, &contextConfig, mal_device_type_playback, NULL, &deviceConfig, &callbackData, &device);
+        result = mal_device_init_ex(&backend, 1, &contextConfig, mal_device_type_playback, NULL, &deviceConfig, &device);
         if (result == MAL_SUCCESS) {
             printf("Done\n");
         } else {

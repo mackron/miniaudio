@@ -34,9 +34,9 @@ int main(int argc, char** argv)
     mal_sine_wave sineWave;
     mal_sine_wave_init(0.2, 400, DEVICE_SAMPLE_RATE, &sineWave);
     
-    mal_device_config config = mal_device_config_init_playback(DEVICE_FORMAT, DEVICE_CHANNELS, DEVICE_SAMPLE_RATE, on_send_frames_to_device);
+    mal_device_config config = mal_device_config_init_playback(DEVICE_FORMAT, DEVICE_CHANNELS, DEVICE_SAMPLE_RATE, on_send_frames_to_device, &sineWave);
     mal_device device;
-    if (mal_device_init(NULL, mal_device_type_playback, NULL, &config, &sineWave, &device) != MAL_SUCCESS) {
+    if (mal_device_init(NULL, mal_device_type_playback, NULL, &config, &device) != MAL_SUCCESS) {
         printf("Failed to open playback device.\n");
         return -4;
     }

@@ -91,9 +91,9 @@ int main(int argc, char** argv)
         mal_backend_pulseaudio,
         mal_backend_alsa,
         mal_backend_jack,
+        mal_backend_aaudio
         mal_backend_opensl,
-        mal_backend_openal,
-        mal_backend_sdl,
+        mal_backend_webaudio,
         mal_backend_null    // Lowest priority.
     };
 
@@ -134,7 +134,7 @@ int main(int argc, char** argv)
     // initialize a config object called mal_device_config_init(). There are an additional two helper APIs to make
     // it easy for you to initialize playback or capture configs specifically: mal_device_config_init_playback()
     // and mal_device_config_init_capture().
-    mal_device_config deviceConfig = mal_device_config_init(mal_format_s16, 2, 48000, NULL, on_send_frames_to_device);
+    mal_device_config deviceConfig = mal_device_config_init(mal_format_s16, 2, 48000, NULL, on_send_frames_to_device, NULL);
 
     // Applications can specify a callback for when a device is stopped.
     deviceConfig.onStopCallback = on_device_stop;
@@ -174,7 +174,7 @@ int main(int argc, char** argv)
 #endif
 
     mal_device playbackDevice;
-    if (mal_device_init(&context, mal_device_type_playback, NULL, &deviceConfig, NULL, &playbackDevice) != MAL_SUCCESS) {
+    if (mal_device_init(&context, mal_device_type_playback, NULL, &deviceConfig, &playbackDevice) != MAL_SUCCESS) {
         printf("Failed to initialize playback device.\n");
         mal_context_uninit(&context);
         return -7;
