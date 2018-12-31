@@ -1554,6 +1554,8 @@ struct mal_context
     mal_result (* onDeviceReinit       )(mal_device* pDevice);
     mal_result (* onDeviceStart        )(mal_device* pDevice);
     mal_result (* onDeviceStop         )(mal_device* pDevice);
+    mal_result (* onDeviceWrite        )(mal_device* pDevice, mal_uint32 pcmFrameCount, const void* pPCMFrames, mal_uint32* pPCMFramesWritten); /* Data is in internal device format. */
+    mal_result (* onDeviceRead         )(mal_device* pDevice, mal_uint32 pcmFrameCount,       void* pPCMFrames, mal_uint32* pPCMFramesRead);    /* Data is in internal device format. */
     mal_result (* onDeviceBreakMainLoop)(mal_device* pDevice);
     mal_result (* onDeviceMainLoop     )(mal_device* pDevice);
 
@@ -1937,8 +1939,17 @@ MAL_ALIGNED_STRUCT(MAL_SIMD_ALIGNMENT) mal_device
             /*IAudioCaptureClient**/ mal_ptr pCaptureClient;
             /*IMMDeviceEnumerator**/ mal_ptr pDeviceEnumerator; /* <-- Used for IMMNotificationClient notifications. Required for detecting default device changes. */
             mal_IMMNotificationClient notificationClient;
+            /*HANDLE*/ mal_handle hEventPlayback;   /* Used with the blocking API. Manual reset. Initialized to signaled. */
+            /*HANDLE*/ mal_handle hEventCapture;    /* Used with the blocking API. Manual reset. Initialized to unsignaled. */
             /*HANDLE*/ mal_handle hEvent;
             /*HANDLE*/ mal_handle hBreakEvent;  /* <-- Used to break from WaitForMultipleObjects() in the main loop. */
+            void* pDeviceBufferPlayback;
+            void* pDeviceBufferCapture;
+            mal_uint32 deviceBufferFramesRemainingPlayback;
+            mal_uint32 deviceBufferFramesRemainingCapture;
+            mal_uint32 deviceBufferFramesCapacityPlayback;
+            mal_uint32 deviceBufferFramesCapacityCapture;
+            mal_bool32 isStarted;
             mal_bool32 breakFromMainLoop;
             mal_bool32 hasDefaultDeviceChanged; /* <-- Make sure this is always a whole 32-bits because we use atomic assignments. */
         } wasapi;
@@ -2282,6 +2293,14 @@ mal_result mal_device_init_ex(const mal_backend backends[], mal_uint32 backendCo
 //   As soon as this API is called the device should be considered undefined. All bets are off if you
 //   try using the device at the same time as uninitializing it.
 void mal_device_uninit(mal_device* pDevice);
+
+
+// Writes PCM frames to the device.
+mal_result mal_device_write(mal_device* pDevice, mal_uint32 pcmFrameCount, const void* pPCMFrames, mal_uint32* pPCMFramesWritten);
+
+// Reads PCM frames from the device.
+mal_result mal_device_read(mal_device* pDevice, mal_uint32 pcmFrameCount, void* pPCMFrames, mal_uint32* pPCMFramesRead);
+
 
 // Sets the callback to use when the device has stopped, either explicitly or as a result of an error.
 //
@@ -6393,6 +6412,13 @@ void mal_device_uninit__wasapi(mal_device* pDevice)
         mal_IAudioClient_Release((mal_IAudioClient*)pDevice->wasapi.pAudioClient);
     }
 
+    if (pDevice->wasapi.hEventPlayback) {
+        CloseHandle(pDevice->wasapi.hEventPlayback);
+    }
+    if (pDevice->wasapi.hEventCapture) {
+        CloseHandle(pDevice->wasapi.hEventCapture);
+    }
+
     if (pDevice->wasapi.hEvent) {
         CloseHandle(pDevice->wasapi.hEvent);
     }
@@ -6857,16 +6883,54 @@ mal_result mal_device_init__wasapi(mal_context* pContext, mal_device_type type, 
     }
 #endif
 
+    /* Events. */
+    mal_bool32 isSynchronous = (pConfig->onRecvCallback == NULL && pConfig->onSendCallback == NULL);
 
-    // We need to create and set the event for event-driven mode. This event is signalled whenever a new chunk of audio
-    // data needs to be written or read from the device.
-    pDevice->wasapi.hEvent = CreateEventA(NULL, FALSE, FALSE, NULL);
-    if (pDevice->wasapi.hEvent == NULL) {
-        errorMsg = "[WASAPI] Failed to create main event for main loop.", result = MAL_FAILED_TO_CREATE_EVENT;
-        goto done;
+    if (isSynchronous) {
+        /*
+        The event for playback is needs to be manual reset because we want to explicitly control the fact that it becomes signalled
+        only after the whole available space has been filled, never before.
+
+        The playback event also needs to be initially set to a signaled state so that the first call to mal_device_write() is able
+        to get passed WaitForMultipleObjects().
+        */
+        if (type == mal_device_type_playback) {
+            pDevice->wasapi.hEventPlayback = CreateEventA(NULL, TRUE, TRUE, NULL);  /* Manual reset, signaled by default. */
+            if (pDevice->wasapi.hEventPlayback == NULL) {
+                errorMsg = "[WASAPI] Failed to create event for playback."; result = MAL_FAILED_TO_CREATE_EVENT;
+                goto done;
+            }
+
+            mal_IAudioClient_SetEventHandle((mal_IAudioClient*)pDevice->wasapi.pAudioClient, pDevice->wasapi.hEventPlayback);
+        }
+
+        /*
+        The event for capture needs to be manual reset for the same reason as playback. We keep the initial state set to unsignaled,
+        however, because we want to block until we actually have something for the first call to mal_device_read().
+        */
+        if (type == mal_device_type_capture) {
+            pDevice->wasapi.hEventCapture = CreateEventA(NULL, TRUE, FALSE, NULL);  /* Manual reset, unsignaled by default. */
+            if (pDevice->wasapi.hEventCapture == NULL) {
+                errorMsg = "[WASAPI] Failed to create event for capture."; result = MAL_FAILED_TO_CREATE_EVENT;
+                goto done;
+            }
+
+            mal_IAudioClient_SetEventHandle((mal_IAudioClient*)pDevice->wasapi.pAudioClient, pDevice->wasapi.hEventCapture);
+        }
+    } else {
+        // We need to create and set the event for event-driven mode. This event is signaled whenever a new chunk of audio
+        // data needs to be written or read from the device.
+        pDevice->wasapi.hEvent = CreateEventA(NULL, FALSE, TRUE, NULL);
+        if (pDevice->wasapi.hEvent == NULL) {
+            errorMsg = "[WASAPI] Failed to create main event for main loop.", result = MAL_FAILED_TO_CREATE_EVENT;
+            goto done;
+        }
+
+        mal_IAudioClient_SetEventHandle((mal_IAudioClient*)pDevice->wasapi.pAudioClient, pDevice->wasapi.hEvent);
     }
 
-    mal_IAudioClient_SetEventHandle((mal_IAudioClient*)pDevice->wasapi.pAudioClient, pDevice->wasapi.hEvent);
+    
+    
 
 
     // When the device is playing the worker thread will be waiting on a bunch of notification events. To return from
@@ -6898,6 +6962,7 @@ mal_result mal_device_start__wasapi(mal_device* pDevice)
         return mal_post_error(pDevice, MAL_LOG_LEVEL_ERROR, "[WASAPI] Failed to start internal device.", MAL_FAILED_TO_START_BACKEND_DEVICE);
     }
 
+    pDevice->wasapi.isStarted = MAL_TRUE;
     return MAL_SUCCESS;
 }
 
@@ -6914,19 +6979,10 @@ mal_result mal_device_stop__wasapi(mal_device* pDevice)
         return mal_post_error(pDevice, MAL_LOG_LEVEL_ERROR, "[WASAPI] Failed to stop internal device.", MAL_FAILED_TO_STOP_BACKEND_DEVICE);
     }
 
+    pDevice->wasapi.isStarted = MAL_FALSE;
     return MAL_SUCCESS;
 }
 
-mal_result mal_device_break_main_loop__wasapi(mal_device* pDevice)
-{
-    mal_assert(pDevice != NULL);
-
-    // The main loop will be waiting on a bunch of events via the WaitForMultipleObjects() API. One of those events
-    // is a special event we use for forcing that function to return.
-    pDevice->wasapi.breakFromMainLoop = MAL_TRUE;
-    SetEvent(pDevice->wasapi.hBreakEvent);
-    return MAL_SUCCESS;
-}
 
 mal_result mal_device__get_available_frames__wasapi(mal_device* pDevice, mal_uint32* pFrameCount)
 {
@@ -6952,6 +7008,210 @@ mal_result mal_device__get_available_frames__wasapi(mal_device* pDevice, mal_uin
         }
     }
 
+    return MAL_SUCCESS;
+}
+
+
+mal_result mal_device_write__wasapi(mal_device* pDevice, mal_uint32 pcmFrameCount, const void* pPCMFrames, mal_uint32* pPCMFramesWritten)
+{
+    mal_result result;
+    mal_bool32 wasStartedOnEntry;
+    mal_uint32 totalPCMFramesWritten;
+    HRESULT hr;
+    DWORD waitResult;
+    HANDLE hEvents[1];
+    hEvents[0] = pDevice->wasapi.hEventPlayback;
+
+    wasStartedOnEntry = pDevice->wasapi.isStarted;
+
+    /* Try to write every frame. */
+    totalPCMFramesWritten = 0;
+    while (totalPCMFramesWritten < pcmFrameCount) {
+        /*
+        If we've already got a pointer to the device buffer we will want to fill that up first. Once it's consumed we'll want to reset
+        the event and set the cached pointer to NULL.
+        */
+        if (pDevice->wasapi.pDeviceBufferPlayback != NULL && pDevice->wasapi.deviceBufferFramesRemainingPlayback > 0) {
+            mal_uint32 bpf = mal_get_bytes_per_frame(pDevice->internalFormat, pDevice->internalChannels);
+            mal_uint32 deviceBufferFramesConsumed = pDevice->wasapi.deviceBufferFramesCapacityPlayback - pDevice->wasapi.deviceBufferFramesRemainingPlayback;
+
+            void* pDst = (mal_uint8*)pDevice->wasapi.pDeviceBufferPlayback + (deviceBufferFramesConsumed * bpf);
+            const void* pSrc = (const mal_uint8*)pPCMFrames + (totalPCMFramesWritten * bpf);
+            mal_uint32  framesToCopy = mal_min(pDevice->wasapi.deviceBufferFramesRemainingPlayback, (pcmFrameCount - totalPCMFramesWritten));
+            mal_copy_memory(pDst, pSrc, framesToCopy * bpf);
+
+            pDevice->wasapi.deviceBufferFramesRemainingPlayback -= framesToCopy;
+            totalPCMFramesWritten += framesToCopy;
+        }
+
+        mal_assert(totalPCMFramesWritten <= pcmFrameCount);
+        if (totalPCMFramesWritten == pcmFrameCount) {
+            break;
+        }
+
+        /* Getting here means we've consumed the device buffer and need to wait for more to become available. */
+        if (pDevice->wasapi.deviceBufferFramesCapacityPlayback > 0) {
+            hr = mal_IAudioRenderClient_ReleaseBuffer((mal_IAudioRenderClient*)pDevice->wasapi.pRenderClient, pDevice->wasapi.deviceBufferFramesCapacityPlayback, 0);
+            pDevice->wasapi.pDeviceBufferPlayback = NULL;
+            pDevice->wasapi.deviceBufferFramesRemainingPlayback = 0;
+            pDevice->wasapi.deviceBufferFramesCapacityPlayback = 0;
+
+            if (FAILED(hr)) {
+                result = MAL_FAILED_TO_UNMAP_DEVICE_BUFFER;
+                mal_post_error(pDevice, MAL_LOG_LEVEL_ERROR, "[WASAPI] Failed to release internal buffer from playback device after writing to the device.", result);
+                break;
+            }
+
+            ResetEvent(pDevice->wasapi.hEventPlayback);
+
+            /*
+            After releasing the buffer, if the device is not started we need to do so. Note from MSDN:
+
+                The event handle should be in the nonsignaled state at the time that the client calls the Start method.
+
+            This means we should start the device only after setting the event to non-signaled (after the call to ResetEvent()).
+            */
+            if (!pDevice->wasapi.isStarted && !wasStartedOnEntry) {
+                result = mal_device_start__wasapi(pDevice);
+                if (result != MAL_SUCCESS) {
+                    break;
+                }
+            }
+        }
+
+        
+        /* Wait for data. */
+        waitResult = WaitForMultipleObjects(mal_countof(hEvents), hEvents, FALSE, INFINITE);
+        if (waitResult == WAIT_FAILED) {
+            result = MAL_ERROR;
+            break;  /* An error occurred while waiting for the event. */
+        }
+
+        /* If the device has been stopped don't continue. */
+        if (!pDevice->wasapi.isStarted && wasStartedOnEntry) {
+            break;
+        }
+
+        /* The device buffer has become available, so now we need to get a pointer to it. */
+        result = mal_device__get_available_frames__wasapi(pDevice, &pDevice->wasapi.deviceBufferFramesCapacityPlayback);
+        if (result != MAL_SUCCESS) {
+            break;
+        }
+
+        hr = mal_IAudioRenderClient_GetBuffer((mal_IAudioRenderClient*)pDevice->wasapi.pRenderClient, pDevice->wasapi.deviceBufferFramesCapacityPlayback, (BYTE**)&pDevice->wasapi.pDeviceBufferPlayback);
+        if (FAILED(hr)) {
+            result = MAL_FAILED_TO_MAP_DEVICE_BUFFER;
+            mal_post_error(pDevice, MAL_LOG_LEVEL_ERROR, "[WASAPI] Failed to retrieve internal buffer from playback device in preparation for writing to the device.", result);
+            break;
+        }
+
+        pDevice->wasapi.deviceBufferFramesRemainingPlayback = pDevice->wasapi.deviceBufferFramesCapacityPlayback;
+    }
+
+    *pPCMFramesWritten = totalPCMFramesWritten;
+    return MAL_SUCCESS;
+}
+
+mal_result mal_device_read__wasapi(mal_device* pDevice, mal_uint32 pcmFrameCount, void* pPCMFrames, mal_uint32* pPCMFramesRead)
+{
+    mal_result result;
+    mal_uint32 totalPCMFramesRead;
+    HRESULT hr;
+    DWORD waitResult;
+    DWORD flags;    /* Passed to IAudioCaptureClient_GetBuffer(). */
+    HANDLE hEvents[1];
+    hEvents[0] = pDevice->wasapi.hEventCapture;
+
+    /*
+    This is mostly the same as mal_device_write__wasapi() with only a few exceptions:
+        - If the device is not already started, it's started immediately.
+    */
+    if (!pDevice->wasapi.isStarted) {
+        result = mal_device_start__wasapi(pDevice);
+        if (result != MAL_SUCCESS) {
+            return result;  /* Failed to auto-start device. */
+        }
+    }
+
+    /* Try to read every frame. */
+    totalPCMFramesRead = 0;
+    while (totalPCMFramesRead < pcmFrameCount) {
+        /* Make sure we consume any cached data before waiting for more. */
+        if (pDevice->wasapi.pDeviceBufferCapture != NULL && pDevice->wasapi.deviceBufferFramesRemainingCapture > 0) {
+            mal_uint32 bpf = mal_get_bytes_per_frame(pDevice->internalFormat, pDevice->internalChannels);
+            mal_uint32 deviceBufferFramesConsumed = pDevice->wasapi.deviceBufferFramesCapacityCapture - pDevice->wasapi.deviceBufferFramesRemainingCapture;
+
+            void* pDst = (mal_uint8*)pPCMFrames + (totalPCMFramesRead * bpf);
+            const void* pSrc = (const mal_uint8*)pDevice->wasapi.pDeviceBufferCapture + (deviceBufferFramesConsumed * bpf);
+            mal_uint32  framesToCopy = mal_min(pDevice->wasapi.deviceBufferFramesRemainingCapture, (pcmFrameCount - totalPCMFramesRead));
+            mal_copy_memory(pDst, pSrc, framesToCopy * bpf);
+
+            pDevice->wasapi.deviceBufferFramesRemainingCapture -= framesToCopy;
+            totalPCMFramesRead += framesToCopy;
+        }
+
+        mal_assert(totalPCMFramesRead <= pcmFrameCount);
+        if (totalPCMFramesRead == pcmFrameCount) {
+            break;
+        }
+
+        /* Getting here means we've consumed the device buffer and need to wait for more to become available. */
+        if (pDevice->wasapi.deviceBufferFramesCapacityCapture > 0) {
+            hr = mal_IAudioCaptureClient_ReleaseBuffer((mal_IAudioCaptureClient*)pDevice->wasapi.pCaptureClient, pDevice->wasapi.deviceBufferFramesCapacityCapture);
+            pDevice->wasapi.pDeviceBufferCapture = NULL;
+            pDevice->wasapi.deviceBufferFramesRemainingCapture = 0;
+            pDevice->wasapi.deviceBufferFramesCapacityCapture = 0;
+
+            if (FAILED(hr)) {
+                result = MAL_FAILED_TO_UNMAP_DEVICE_BUFFER;
+                mal_post_error(pDevice, MAL_LOG_LEVEL_ERROR, "[WASAPI] Failed to release internal buffer from capture device after reading from the device.", result);
+                break;
+            }
+
+            ResetEvent(pDevice->wasapi.hEventCapture);
+        }
+
+        /* Wait for data. */
+        waitResult = WaitForMultipleObjects(mal_countof(hEvents), hEvents, FALSE, INFINITE);
+        if (waitResult == WAIT_FAILED) {
+            result = MAL_ERROR;
+            break;  /* An error occurred while waiting for the event. */
+        }
+
+        /* If the device has been stopped don't continue. */
+        if (!pDevice->wasapi.isStarted) {
+            break;
+        }
+
+        /* The device buffer has become available, so now we need to get a pointer to it. */
+        result = mal_device__get_available_frames__wasapi(pDevice, &pDevice->wasapi.deviceBufferFramesCapacityCapture);
+        if (result != MAL_SUCCESS) {
+            break;
+        }
+
+        hr = mal_IAudioCaptureClient_GetBuffer((mal_IAudioCaptureClient*)pDevice->wasapi.pCaptureClient, (BYTE**)&pDevice->wasapi.pDeviceBufferCapture, &pDevice->wasapi.deviceBufferFramesCapacityCapture, &flags, NULL, NULL);
+        if (FAILED(hr)) {
+            result = MAL_FAILED_TO_MAP_DEVICE_BUFFER;
+            mal_post_error(pDevice, MAL_LOG_LEVEL_ERROR, "[WASAPI] Failed to retrieve internal buffer from playback device in preparation for writing to the device.", result);
+            break;
+        }
+
+        pDevice->wasapi.deviceBufferFramesRemainingCapture = pDevice->wasapi.deviceBufferFramesCapacityCapture;
+    }
+
+    *pPCMFramesRead = totalPCMFramesRead;
+    return MAL_SUCCESS;
+}
+
+
+mal_result mal_device_break_main_loop__wasapi(mal_device* pDevice)
+{
+    mal_assert(pDevice != NULL);
+
+    // The main loop will be waiting on a bunch of events via the WaitForMultipleObjects() API. One of those events
+    // is a special event we use for forcing that function to return.
+    pDevice->wasapi.breakFromMainLoop = MAL_TRUE;
+    SetEvent(pDevice->wasapi.hBreakEvent);
     return MAL_SUCCESS;
 }
 
@@ -7153,6 +7413,9 @@ mal_result mal_context_init__wasapi(mal_context* pContext)
     pContext->onDeviceReinit        = mal_device_reinit__wasapi;
     pContext->onDeviceStart         = mal_device_start__wasapi;
     pContext->onDeviceStop          = mal_device_stop__wasapi;
+    pContext->onDeviceWrite         = mal_device_write__wasapi;
+    pContext->onDeviceRead          = mal_device_read__wasapi;
+
     pContext->onDeviceBreakMainLoop = mal_device_break_main_loop__wasapi;
     pContext->onDeviceMainLoop      = mal_device_main_loop__wasapi;
 
@@ -20467,6 +20730,111 @@ void mal_device_uninit(mal_device* pDevice)
     }
 
     mal_zero_object(pDevice);
+}
+
+mal_result mal_device_write(mal_device* pDevice, mal_uint32 pcmFrameCount, const void* pPCMFrames, mal_uint32* pPCMFramesWritten)
+{
+    mal_result result;
+    mal_uint32 totalPCMFramesWritten = 0;
+
+    if (pPCMFramesWritten != NULL) {
+        *pPCMFramesWritten = 0; /* Safety. */
+    }
+
+    if (pDevice == NULL || pPCMFrames == NULL) {
+        return MAL_INVALID_ARGS;
+    }
+
+    /* Not allowed to call this in asynchronous mode. */
+    if (pDevice->onRecv != NULL || pDevice->onSend != NULL) {
+        return MAL_INVALID_OPERATION;
+    }
+
+    /* Backend must supporting synchronous writes. */
+    if (pDevice->pContext->onDeviceWrite == NULL) {
+        return MAL_INVALID_OPERATION;
+    }
+
+    /* If it's a passthrough we can call the backend directly, otherwise we need a data conversion into an intermediary buffer. */
+    if (pDevice->dsp.isPassthrough) {
+        /* Fast path. Write directly to the device. */
+        result = pDevice->pContext->onDeviceWrite(pDevice, pcmFrameCount, pPCMFrames, &totalPCMFramesWritten);
+    } else {
+        /* Slow path. Perform a data conversion. */
+#if 0
+        mal_uint8 buffer[4096];
+        while (totalPCMFramesWritten < pcmFrameCount) {
+            mal_uint32 framesJustWritten = 0;
+            mal_uint32 framesRemaining = (pcmFrameCount - totalPCMFramesWritten);
+            mal_uint32 framesToWrite = framesRemaining;
+            if (framesToWrite > (sizeof(buffer)/mal_get_bytes_per_frame(pDevice->internalFormat, pDevice->internalChannels))) {
+                framesToWrite = (sizeof(buffer)/mal_get_bytes_per_frame(pDevice->internalFormat, pDevice->internalChannels));
+            }
+
+            /* TODO: Convert the pPCMFrames to the device's internal format. */
+
+            result = pDevice->pContext->onDeviceWrite(pDevice, framesToWrite, buffer, &framesJustWritten);
+            totalPCMFramesWritten += framesJustWritten;
+            if (result != MAL_SUCCESS) {
+                break;
+            }
+        }
+#endif
+
+        result = MAL_INVALID_OPERATION;
+        /*result = MAL_SUCCESS;*/
+    }
+
+
+    if (pPCMFramesWritten != NULL) {
+        *pPCMFramesWritten = totalPCMFramesWritten;
+    }
+
+    return result;
+}
+
+mal_result mal_device_read(mal_device* pDevice, mal_uint32 pcmFrameCount, void* pPCMFrames, mal_uint32* pPCMFramesRead)
+{
+    mal_result result;
+    mal_uint32 totalPCMFramesRead = 0;
+
+    if (pPCMFramesRead != NULL) {
+        *pPCMFramesRead = 0; /* Safety. */
+    }
+
+    if (pDevice == NULL || pPCMFrames == NULL) {
+        return MAL_INVALID_ARGS;
+    }
+
+    /* Not allowed to call this in asynchronous mode. */
+    if (pDevice->onRecv != NULL || pDevice->onSend != NULL) {
+        return MAL_INVALID_OPERATION;
+    }
+
+    /* Backend must supporting synchronous reads. */
+    if (pDevice->pContext->onDeviceRead == NULL) {
+        return MAL_INVALID_OPERATION;
+    }
+
+
+    /* If it's a passthrough we can call the backend directly, otherwise we need a data conversion into an intermediary buffer. */
+    if (pDevice->dsp.isPassthrough) {
+        /* Fast path. Write directly to the device. */
+        result = pDevice->pContext->onDeviceRead(pDevice, pcmFrameCount, pPCMFrames, &totalPCMFramesRead);
+    } else {
+        /* Slow path. Perform a data conversion. */
+
+
+        /* TODO: Implement me. */
+        result = MAL_INVALID_OPERATION;
+    }
+
+
+    if (pPCMFramesRead != NULL) {
+        *pPCMFramesRead = totalPCMFramesRead;
+    }
+
+    return result;
 }
 
 void mal_device_set_stop_callback(mal_device* pDevice, mal_stop_proc proc)
