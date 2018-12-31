@@ -1941,8 +1941,10 @@ MAL_ALIGNED_STRUCT(MAL_SIMD_ALIGNMENT) mal_device
             mal_IMMNotificationClient notificationClient;
             /*HANDLE*/ mal_handle hEventPlayback;   /* Used with the blocking API. Manual reset. Initialized to signaled. */
             /*HANDLE*/ mal_handle hEventCapture;    /* Used with the blocking API. Manual reset. Initialized to unsignaled. */
+#if 0
             /*HANDLE*/ mal_handle hEvent;
             /*HANDLE*/ mal_handle hBreakEvent;  /* <-- Used to break from WaitForMultipleObjects() in the main loop. */
+#endif
             void* pDeviceBufferPlayback;
             void* pDeviceBufferCapture;
             mal_uint32 deviceBufferFramesRemainingPlayback;
@@ -2293,14 +2295,6 @@ mal_result mal_device_init_ex(const mal_backend backends[], mal_uint32 backendCo
 //   As soon as this API is called the device should be considered undefined. All bets are off if you
 //   try using the device at the same time as uninitializing it.
 void mal_device_uninit(mal_device* pDevice);
-
-
-// Writes PCM frames to the device.
-mal_result mal_device_write(mal_device* pDevice, mal_uint32 pcmFrameCount, const void* pPCMFrames, mal_uint32* pPCMFramesWritten);
-
-// Reads PCM frames from the device.
-mal_result mal_device_read(mal_device* pDevice, mal_uint32 pcmFrameCount, void* pPCMFrames, mal_uint32* pPCMFramesRead);
-
 
 // Sets the callback to use when the device has stopped, either explicitly or as a result of an error.
 //
@@ -4576,6 +4570,12 @@ static MAL_INLINE mal_uint32 mal_device__get_state(mal_device* pDevice)
     return pDevice->state;
 }
 
+/* A helper for determining whether or not the device is running in async mode. */
+static MAL_INLINE mal_bool32 mal_device__is_async(mal_device* pDevice)
+{
+    return pDevice->onRecv != NULL || pDevice->onSend != NULL;
+}
+
 
 #ifdef MAL_WIN32
     GUID MAL_GUID_KSDATAFORMAT_SUBTYPE_PCM        = {0x00000001, 0x0000, 0x0010, {0x80, 0x00, 0x00, 0xaa, 0x00, 0x38, 0x9b, 0x71}};
@@ -5928,8 +5928,10 @@ HRESULT STDMETHODCALLTYPE mal_IMMNotificationClient_OnDefaultDeviceChanged(mal_I
     // We don't change the device here - we change it in the worker thread to keep synchronization simple. To this I'm just setting a flag to
     // indicate that the default device has changed.
     mal_atomic_exchange_32(&pThis->pDevice->wasapi.hasDefaultDeviceChanged, MAL_TRUE);
-    SetEvent(pThis->pDevice->wasapi.hBreakEvent);   // <-- The main loop will be waiting on some events. We want to break from this wait ASAP so we can change the device as quickly as possible.
 
+#if 0
+    SetEvent(pThis->pDevice->wasapi.hBreakEvent);   // <-- The main loop will be waiting on some events. We want to break from this wait ASAP so we can change the device as quickly as possible.
+#endif
     
     (void)pDefaultDeviceID;
     return S_OK;
@@ -6419,12 +6421,14 @@ void mal_device_uninit__wasapi(mal_device* pDevice)
         CloseHandle(pDevice->wasapi.hEventCapture);
     }
 
+#if 0
     if (pDevice->wasapi.hEvent) {
         CloseHandle(pDevice->wasapi.hEvent);
     }
     if (pDevice->wasapi.hBreakEvent) {
         CloseHandle(pDevice->wasapi.hBreakEvent);
     }
+#endif
 }
 
 typedef struct
@@ -6813,7 +6817,9 @@ mal_result mal_device_reinit__wasapi(mal_device* pDevice)
     pDevice->periods = data.periodsOut;
     mal_strcpy_s(pDevice->name, sizeof(pDevice->name), data.deviceName);
 
+#if 0
     mal_IAudioClient_SetEventHandle((mal_IAudioClient*)pDevice->wasapi.pAudioClient, pDevice->wasapi.hEvent);
+#endif
 
     return MAL_SUCCESS;
 }
@@ -6884,54 +6890,48 @@ mal_result mal_device_init__wasapi(mal_context* pContext, mal_device_type type, 
 #endif
 
     /* Events. */
-    mal_bool32 isSynchronous = (pConfig->onRecvCallback == NULL && pConfig->onSendCallback == NULL);
 
-    if (isSynchronous) {
-        /*
-        The event for playback is needs to be manual reset because we want to explicitly control the fact that it becomes signalled
-        only after the whole available space has been filled, never before.
+    /*
+    The event for playback is needs to be manual reset because we want to explicitly control the fact that it becomes signalled
+    only after the whole available space has been filled, never before.
 
-        The playback event also needs to be initially set to a signaled state so that the first call to mal_device_write() is able
-        to get passed WaitForMultipleObjects().
-        */
-        if (type == mal_device_type_playback) {
-            pDevice->wasapi.hEventPlayback = CreateEventA(NULL, TRUE, TRUE, NULL);  /* Manual reset, signaled by default. */
-            if (pDevice->wasapi.hEventPlayback == NULL) {
-                errorMsg = "[WASAPI] Failed to create event for playback."; result = MAL_FAILED_TO_CREATE_EVENT;
-                goto done;
-            }
-
-            mal_IAudioClient_SetEventHandle((mal_IAudioClient*)pDevice->wasapi.pAudioClient, pDevice->wasapi.hEventPlayback);
-        }
-
-        /*
-        The event for capture needs to be manual reset for the same reason as playback. We keep the initial state set to unsignaled,
-        however, because we want to block until we actually have something for the first call to mal_device_read().
-        */
-        if (type == mal_device_type_capture) {
-            pDevice->wasapi.hEventCapture = CreateEventA(NULL, TRUE, FALSE, NULL);  /* Manual reset, unsignaled by default. */
-            if (pDevice->wasapi.hEventCapture == NULL) {
-                errorMsg = "[WASAPI] Failed to create event for capture."; result = MAL_FAILED_TO_CREATE_EVENT;
-                goto done;
-            }
-
-            mal_IAudioClient_SetEventHandle((mal_IAudioClient*)pDevice->wasapi.pAudioClient, pDevice->wasapi.hEventCapture);
-        }
-    } else {
-        // We need to create and set the event for event-driven mode. This event is signaled whenever a new chunk of audio
-        // data needs to be written or read from the device.
-        pDevice->wasapi.hEvent = CreateEventA(NULL, FALSE, TRUE, NULL);
-        if (pDevice->wasapi.hEvent == NULL) {
-            errorMsg = "[WASAPI] Failed to create main event for main loop.", result = MAL_FAILED_TO_CREATE_EVENT;
+    The playback event also needs to be initially set to a signaled state so that the first call to mal_device_write() is able
+    to get passed WaitForMultipleObjects().
+    */
+    if (type == mal_device_type_playback) {
+        pDevice->wasapi.hEventPlayback = CreateEventA(NULL, TRUE, TRUE, NULL);  /* Manual reset, signaled by default. */
+        if (pDevice->wasapi.hEventPlayback == NULL) {
+            errorMsg = "[WASAPI] Failed to create event for playback."; result = MAL_FAILED_TO_CREATE_EVENT;
             goto done;
         }
 
-        mal_IAudioClient_SetEventHandle((mal_IAudioClient*)pDevice->wasapi.pAudioClient, pDevice->wasapi.hEvent);
+        mal_IAudioClient_SetEventHandle((mal_IAudioClient*)pDevice->wasapi.pAudioClient, pDevice->wasapi.hEventPlayback);
     }
 
-    
-    
+    /*
+    The event for capture needs to be manual reset for the same reason as playback. We keep the initial state set to unsignaled,
+    however, because we want to block until we actually have something for the first call to mal_device_read().
+    */
+    if (type == mal_device_type_capture) {
+        pDevice->wasapi.hEventCapture = CreateEventA(NULL, TRUE, FALSE, NULL);  /* Manual reset, unsignaled by default. */
+        if (pDevice->wasapi.hEventCapture == NULL) {
+            errorMsg = "[WASAPI] Failed to create event for capture."; result = MAL_FAILED_TO_CREATE_EVENT;
+            goto done;
+        }
 
+        mal_IAudioClient_SetEventHandle((mal_IAudioClient*)pDevice->wasapi.pAudioClient, pDevice->wasapi.hEventCapture);
+    }
+
+#if 0
+    // We need to create and set the event for event-driven mode. This event is signaled whenever a new chunk of audio
+    // data needs to be written or read from the device.
+    pDevice->wasapi.hEvent = CreateEventA(NULL, FALSE, TRUE, NULL);
+    if (pDevice->wasapi.hEvent == NULL) {
+        errorMsg = "[WASAPI] Failed to create main event for main loop.", result = MAL_FAILED_TO_CREATE_EVENT;
+        goto done;
+    }
+
+    mal_IAudioClient_SetEventHandle((mal_IAudioClient*)pDevice->wasapi.pAudioClient, pDevice->wasapi.hEvent);
 
     // When the device is playing the worker thread will be waiting on a bunch of notification events. To return from
     // this wait state we need to signal a special event.
@@ -6940,6 +6940,7 @@ mal_result mal_device_init__wasapi(mal_context* pContext, mal_device_type type, 
         errorMsg = "[WASAPI] Failed to create break event for main loop break notification.", result = MAL_FAILED_TO_CREATE_EVENT;
         goto done;
     }
+#endif
 
     result = MAL_SUCCESS;
 
@@ -7203,7 +7204,7 @@ mal_result mal_device_read__wasapi(mal_device* pDevice, mal_uint32 pcmFrameCount
     return MAL_SUCCESS;
 }
 
-
+#if 0
 mal_result mal_device_break_main_loop__wasapi(mal_device* pDevice)
 {
     mal_assert(pDevice != NULL);
@@ -7367,6 +7368,7 @@ mal_result mal_device_main_loop__wasapi(mal_device* pDevice)
 
     return MAL_SUCCESS;
 }
+#endif
 
 mal_result mal_context_uninit__wasapi(mal_context* pContext)
 {
@@ -7416,8 +7418,10 @@ mal_result mal_context_init__wasapi(mal_context* pContext)
     pContext->onDeviceWrite         = mal_device_write__wasapi;
     pContext->onDeviceRead          = mal_device_read__wasapi;
 
+#if 0
     pContext->onDeviceBreakMainLoop = mal_device_break_main_loop__wasapi;
     pContext->onDeviceMainLoop      = mal_device_main_loop__wasapi;
+#endif
 
     return result;
 }
@@ -19895,7 +19899,7 @@ mal_thread_result MAL_THREADCALL mal_worker_thread(void* pData)
     mal_device__set_state(pDevice, MAL_STATE_STOPPED);
     mal_event_signal(&pDevice->stopEvent);
 
-    for (;;) {
+    for (;;) {  /* <-- This loop just keeps the thread alive. The main audio loop is inside. */
         // We wait on an event to know when something has requested that the device be started and the main loop entered.
         mal_event_wait(&pDevice->wakeupEvent);
 
@@ -19912,50 +19916,131 @@ mal_thread_result MAL_THREADCALL mal_worker_thread(void* pData)
         // in both the success and error case. It's important that the state of the device is set _before_ signaling the event.
         mal_assert(mal_device__get_state(pDevice) == MAL_STATE_STARTING);
 
-        pDevice->workResult = pDevice->pContext->onDeviceStart(pDevice);
-        if (pDevice->workResult != MAL_SUCCESS) {
-            mal_device__set_state(pDevice, MAL_STATE_STOPPED);
+        /*
+        The old main loop is getting replaced with an improved implementation that's based on the blocking read/write API.
+        */
+        if (pDevice->pContext->onDeviceRead || pDevice->pContext->onDeviceWrite) {  /* <-- TODO: Get rid of this check once the old implementation has been entirely replaced. */
+            mal_uint32 periodSizeInFrames = pDevice->bufferSizeInFrames / pDevice->periods;
+
+            /*
+            With the blocking API, the device is started automatically in read()/write(). All we need to do is enter the loop and just keep reading
+            or writing based on the period size.
+            */
+            mal_assert(pDevice->periods >= 2);
+            mal_assert(pDevice->bufferSizeInFrames >= pDevice->periods);
+
+            /* Make sure the state is set appropriately. */
+            mal_device__set_state(pDevice, MAL_STATE_STARTED);
             mal_event_signal(&pDevice->startEvent);
-            continue;
-        }
+            
+            /* Main Loop */
+            mal_assert(periodSizeInFrames >= 1);
+            while (mal_device__get_state(pDevice) == MAL_STATE_STARTED) {
+                mal_result result = MAL_SUCCESS;
+                mal_uint32 totalFramesProcessed = 0;
+                mal_uint8  buffer[4096];
+                mal_uint32 bufferSizeInFrames = sizeof(buffer) / mal_get_bytes_per_frame(pDevice->internalFormat, pDevice->internalChannels);
 
-        // At this point the device should be started.
-        mal_device__set_state(pDevice, MAL_STATE_STARTED);
-        mal_event_signal(&pDevice->startEvent);
+                while (totalFramesProcessed < periodSizeInFrames) {
+                    mal_uint32 framesProcessed;
+                    mal_uint32 framesRemaining = periodSizeInFrames - totalFramesProcessed;
+                    mal_uint32 framesToProcess = framesRemaining;
+                    if (framesToProcess > bufferSizeInFrames) {
+                        framesToProcess = bufferSizeInFrames;
+                    }
 
+                    framesProcessed = 0;
+                    if (pDevice->type == mal_device_type_playback) {
+                        mal_device__read_frames_from_client(pDevice, framesToProcess, buffer);
+                        result = pDevice->pContext->onDeviceWrite(pDevice, framesToProcess, buffer, &framesProcessed);
+                    } else {
+                        result = pDevice->pContext->onDeviceRead(pDevice, framesToProcess, buffer, &framesProcessed);
+                        mal_device__send_frames_to_client(pDevice, framesProcessed, buffer);
+                    }
 
-        // Now we just enter the main loop. When the main loop is terminated the device needs to be marked as stopped. This can
-        // be broken with mal_device__break_main_loop().
-        mal_result mainLoopResult = pDevice->pContext->onDeviceMainLoop(pDevice);
-        if (mainLoopResult != MAL_SUCCESS && pDevice->isDefaultDevice && mal_device__get_state(pDevice) == MAL_STATE_STARTED && pDevice->initConfig.shareMode != mal_share_mode_exclusive) {
-            // Something has failed during the main loop. It could be that the device has been lost. If it's the default device,
-            // we can try switching over to the new default device by uninitializing and reinitializing.
-            mal_result reinitResult = MAL_ERROR;
-            if (pDevice->pContext->onDeviceReinit) {
-                reinitResult = pDevice->pContext->onDeviceReinit(pDevice);
-            } else {
-                pDevice->pContext->onDeviceStop(pDevice);
+                    totalFramesProcessed += framesProcessed;
+                }
+
+                /* If something has gone wrong while writing or reading, we can try switching devices. */
+                if (result != MAL_SUCCESS && pDevice->isDefaultDevice && mal_device__get_state(pDevice) == MAL_STATE_STARTED && pDevice->initConfig.shareMode != mal_share_mode_exclusive) {
+                    /* Here is where we try switching to the new default device. */
+                    mal_result reinitResult = MAL_ERROR;
+                    if (pDevice->pContext->onDeviceReinit) {
+                        reinitResult = pDevice->pContext->onDeviceReinit(pDevice);
+                    } else {
+                        pDevice->pContext->onDeviceStop(pDevice);
+                        mal_device__set_state(pDevice, MAL_STATE_STOPPED);
+
+                        pDevice->pContext->onDeviceUninit(pDevice);
+                        mal_device__set_state(pDevice, MAL_STATE_UNINITIALIZED);
+
+                        reinitResult = pDevice->pContext->onDeviceInit(pDevice->pContext, pDevice->type, NULL, &pDevice->initConfig, pDevice);
+                    }
+
+                    /* Perform the post initialization setup just in case the data conversion pipeline needs to be reinitialized. */
+                    if (reinitResult == MAL_SUCCESS) {
+                        mal_device__post_init_setup(pDevice);
+                    }
+
+                    /* If reinitialization was successful, loop back to the start. */
+                    if (reinitResult == MAL_SUCCESS) {
+                        mal_device__set_state(pDevice, MAL_STATE_STARTING); /* <-- The device is restarting. */
+                        mal_event_signal(&pDevice->wakeupEvent);
+                        continue;
+                    }
+                }
+
+                /* Get out of the loop if read()/write() returned an error. It probably means the device has been stopped. */
+                if (result != MAL_SUCCESS) {
+                    break;
+                }
+            }
+        } else {
+            /* Old loop. This will be removed later. */
+            pDevice->workResult = pDevice->pContext->onDeviceStart(pDevice);
+            if (pDevice->workResult != MAL_SUCCESS) {
                 mal_device__set_state(pDevice, MAL_STATE_STOPPED);
-
-                pDevice->pContext->onDeviceUninit(pDevice);
-                mal_device__set_state(pDevice, MAL_STATE_UNINITIALIZED);
-
-                reinitResult = pDevice->pContext->onDeviceInit(pDevice->pContext, pDevice->type, NULL, &pDevice->initConfig, pDevice);
-            }
-
-            // Perform the post initialization setup just in case the data conversion pipeline needs to be reinitialized.
-            if (reinitResult == MAL_SUCCESS) {
-                mal_device__post_init_setup(pDevice);
-            }
-
-            // If reinitialization was successful, loop back to the start.
-            if (reinitResult == MAL_SUCCESS) {
-                mal_device__set_state(pDevice, MAL_STATE_STARTING); // <-- The device is restarting.
-                mal_event_signal(&pDevice->wakeupEvent);
+                mal_event_signal(&pDevice->startEvent);
                 continue;
             }
-        }
 
+            // At this point the device should be started.
+            mal_device__set_state(pDevice, MAL_STATE_STARTED);
+            mal_event_signal(&pDevice->startEvent);
+
+
+            // Now we just enter the main loop. When the main loop is terminated the device needs to be marked as stopped. This can
+            // be broken with mal_device__break_main_loop().
+            mal_result mainLoopResult = pDevice->pContext->onDeviceMainLoop(pDevice);
+            if (mainLoopResult != MAL_SUCCESS && pDevice->isDefaultDevice && mal_device__get_state(pDevice) == MAL_STATE_STARTED && pDevice->initConfig.shareMode != mal_share_mode_exclusive) {
+                // Something has failed during the main loop. It could be that the device has been lost. If it's the default device,
+                // we can try switching over to the new default device by uninitializing and reinitializing.
+                mal_result reinitResult = MAL_ERROR;
+                if (pDevice->pContext->onDeviceReinit) {
+                    reinitResult = pDevice->pContext->onDeviceReinit(pDevice);
+                } else {
+                    pDevice->pContext->onDeviceStop(pDevice);
+                    mal_device__set_state(pDevice, MAL_STATE_STOPPED);
+
+                    pDevice->pContext->onDeviceUninit(pDevice);
+                    mal_device__set_state(pDevice, MAL_STATE_UNINITIALIZED);
+
+                    reinitResult = pDevice->pContext->onDeviceInit(pDevice->pContext, pDevice->type, NULL, &pDevice->initConfig, pDevice);
+                }
+
+                // Perform the post initialization setup just in case the data conversion pipeline needs to be reinitialized.
+                if (reinitResult == MAL_SUCCESS) {
+                    mal_device__post_init_setup(pDevice);
+                }
+
+                // If reinitialization was successful, loop back to the start.
+                if (reinitResult == MAL_SUCCESS) {
+                    mal_device__set_state(pDevice, MAL_STATE_STARTING); // <-- The device is restarting.
+                    mal_event_signal(&pDevice->wakeupEvent);
+                    continue;
+                }
+            }
+        }
 
         // Getting here means we have broken from the main loop which happens the application has requested that device be stopped. Note that this
         // may have actually already happened above if the device was lost and mini_al has attempted to re-initialize the device. In this case we
@@ -20732,6 +20817,9 @@ void mal_device_uninit(mal_device* pDevice)
     mal_zero_object(pDevice);
 }
 
+/*
+Writes PCM frames to the device.
+*/
 mal_result mal_device_write(mal_device* pDevice, mal_uint32 pcmFrameCount, const void* pPCMFrames, mal_uint32* pPCMFramesWritten)
 {
     mal_result result;
@@ -20741,7 +20829,7 @@ mal_result mal_device_write(mal_device* pDevice, mal_uint32 pcmFrameCount, const
         *pPCMFramesWritten = 0; /* Safety. */
     }
 
-    if (pDevice == NULL || pPCMFrames == NULL) {
+    if (mal_device__is_async(pDevice)) {
         return MAL_INVALID_ARGS;
     }
 
@@ -20761,28 +20849,9 @@ mal_result mal_device_write(mal_device* pDevice, mal_uint32 pcmFrameCount, const
         result = pDevice->pContext->onDeviceWrite(pDevice, pcmFrameCount, pPCMFrames, &totalPCMFramesWritten);
     } else {
         /* Slow path. Perform a data conversion. */
-#if 0
-        mal_uint8 buffer[4096];
-        while (totalPCMFramesWritten < pcmFrameCount) {
-            mal_uint32 framesJustWritten = 0;
-            mal_uint32 framesRemaining = (pcmFrameCount - totalPCMFramesWritten);
-            mal_uint32 framesToWrite = framesRemaining;
-            if (framesToWrite > (sizeof(buffer)/mal_get_bytes_per_frame(pDevice->internalFormat, pDevice->internalChannels))) {
-                framesToWrite = (sizeof(buffer)/mal_get_bytes_per_frame(pDevice->internalFormat, pDevice->internalChannels));
-            }
 
-            /* TODO: Convert the pPCMFrames to the device's internal format. */
-
-            result = pDevice->pContext->onDeviceWrite(pDevice, framesToWrite, buffer, &framesJustWritten);
-            totalPCMFramesWritten += framesJustWritten;
-            if (result != MAL_SUCCESS) {
-                break;
-            }
-        }
-#endif
-
+        /* TODO: Implement me. */
         result = MAL_INVALID_OPERATION;
-        /*result = MAL_SUCCESS;*/
     }
 
 
@@ -20793,6 +20862,9 @@ mal_result mal_device_write(mal_device* pDevice, mal_uint32 pcmFrameCount, const
     return result;
 }
 
+/*
+Reads PCM frames from the device.
+*/
 mal_result mal_device_read(mal_device* pDevice, mal_uint32 pcmFrameCount, void* pPCMFrames, mal_uint32* pPCMFramesRead)
 {
     mal_result result;
@@ -20807,7 +20879,7 @@ mal_result mal_device_read(mal_device* pDevice, mal_uint32 pcmFrameCount, void* 
     }
 
     /* Not allowed to call this in asynchronous mode. */
-    if (pDevice->onRecv != NULL || pDevice->onSend != NULL) {
+    if (mal_device__is_async(pDevice)) {
         return MAL_INVALID_OPERATION;
     }
 
@@ -20816,14 +20888,12 @@ mal_result mal_device_read(mal_device* pDevice, mal_uint32 pcmFrameCount, void* 
         return MAL_INVALID_OPERATION;
     }
 
-
     /* If it's a passthrough we can call the backend directly, otherwise we need a data conversion into an intermediary buffer. */
     if (pDevice->dsp.isPassthrough) {
         /* Fast path. Write directly to the device. */
         result = pDevice->pContext->onDeviceRead(pDevice, pcmFrameCount, pPCMFrames, &totalPCMFramesRead);
     } else {
         /* Slow path. Perform a data conversion. */
-
 
         /* TODO: Implement me. */
         result = MAL_INVALID_OPERATION;
@@ -20853,11 +20923,20 @@ mal_result mal_device_start(mal_device* pDevice)
         return mal_post_error(pDevice, MAL_LOG_LEVEL_ERROR, "mal_device_start() called for an uninitialized device.", MAL_DEVICE_NOT_INITIALIZED);
     }
 
+    /*
+    Starting the device doesn't do anything in synchronous mode because in that case it's started automatically with
+    mal_device_write() and mal_device_read(). It's best to return an error so that the application can be aware that
+    it's not doing it right.
+    */
+    if (!mal_device__is_async(pDevice)) {
+        return mal_post_error(pDevice, MAL_LOG_LEVEL_ERROR, "mal_device_start() called in synchronous mode. This should only be used in asynchronous/callback mode.", MAL_DEVICE_NOT_INITIALIZED);
+    }
+
     mal_result result = MAL_ERROR;
     mal_mutex_lock(&pDevice->lock);
     {
-        // Starting, stopping and pausing are wrapped in a mutex which means we can assert that the device is in a stopped or paused state.
-        mal_assert(mal_device__get_state(pDevice) == MAL_STATE_STOPPED /*|| mal_device__get_state(pDevice) == MAL_STATE_PAUSED*/);
+        // Starting and stopping are wrapped in a mutex which means we can assert that the device is in a stopped or paused state.
+        mal_assert(mal_device__get_state(pDevice) == MAL_STATE_STOPPED);
 
         mal_device__set_state(pDevice, MAL_STATE_STARTING);
 
@@ -20893,11 +20972,19 @@ mal_result mal_device_stop(mal_device* pDevice)
         return mal_post_error(pDevice, MAL_LOG_LEVEL_ERROR, "mal_device_stop() called for an uninitialized device.", MAL_DEVICE_NOT_INITIALIZED);
     }
 
+    /*
+    Stopping is slightly different for synchronous mode. In this case it just tells the driver to stop the internal processing of the device. Also,
+    stopping in synchronous mode does not require state checking.
+    */
+    if (!mal_device__is_async(pDevice)) {
+        return pDevice->pContext->onDeviceStop(pDevice);
+    }
+
     mal_result result = MAL_ERROR;
     mal_mutex_lock(&pDevice->lock);
     {
-        // Starting, stopping and pausing are wrapped in a mutex which means we can assert that the device is in a started or paused state.
-        mal_assert(mal_device__get_state(pDevice) == MAL_STATE_STARTED /*|| mal_device__get_state(pDevice) == MAL_STATE_PAUSED*/);
+        // Starting and stopping are wrapped in a mutex which means we can assert that the device is in a started or paused state.
+        mal_assert(mal_device__get_state(pDevice) == MAL_STATE_STARTED);
 
         mal_device__set_state(pDevice, MAL_STATE_STOPPING);
 
@@ -20912,7 +20999,9 @@ mal_result mal_device_stop(mal_device* pDevice)
 
             // When we get here the worker thread is likely in a wait state while waiting for the backend device to deliver or request
             // audio data. We need to force these to return as quickly as possible.
-            pDevice->pContext->onDeviceBreakMainLoop(pDevice);
+            if (pDevice->pContext->onDeviceBreakMainLoop) {
+                pDevice->pContext->onDeviceBreakMainLoop(pDevice);
+            }
 
             // We need to wait for the worker thread to become available for work before returning. Note that the worker thread will be
             // the one who puts the device into the stopped state. Don't call mal_device__set_state() here.
