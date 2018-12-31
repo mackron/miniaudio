@@ -6808,7 +6808,8 @@ mal_result mal_device_reinit__wasapi(mal_device* pDevice)
     pDevice->wasapi.pAudioClient = data.pAudioClient;
     pDevice->wasapi.pRenderClient = data.pRenderClient;
     pDevice->wasapi.pCaptureClient = data.pCaptureClient;
-    
+    pDevice->wasapi.isStarted = MAL_FALSE;
+
     pDevice->internalFormat = data.formatOut;
     pDevice->internalChannels = data.channelsOut;
     pDevice->internalSampleRate = data.sampleRateOut;
@@ -6816,6 +6817,13 @@ mal_result mal_device_reinit__wasapi(mal_device* pDevice)
     pDevice->bufferSizeInFrames = data.bufferSizeInFramesOut;
     pDevice->periods = data.periodsOut;
     mal_strcpy_s(pDevice->name, sizeof(pDevice->name), data.deviceName);
+
+    if (pDevice->type == mal_device_type_playback) {
+        mal_IAudioClient_SetEventHandle((mal_IAudioClient*)pDevice->wasapi.pAudioClient, pDevice->wasapi.hEventPlayback);
+    }
+    if (pDevice->type == mal_device_type_capture) {
+        mal_IAudioClient_SetEventHandle((mal_IAudioClient*)pDevice->wasapi.pAudioClient, pDevice->wasapi.hEventCapture);
+    }
 
 #if 0
     mal_IAudioClient_SetEventHandle((mal_IAudioClient*)pDevice->wasapi.pAudioClient, pDevice->wasapi.hEvent);
@@ -6855,6 +6863,7 @@ mal_result mal_device_init__wasapi(mal_context* pContext, mal_device_type type, 
     pDevice->wasapi.pAudioClient = data.pAudioClient;
     pDevice->wasapi.pRenderClient = data.pRenderClient;
     pDevice->wasapi.pCaptureClient = data.pCaptureClient;
+    pDevice->wasapi.isStarted = MAL_FALSE;
     
     pDevice->internalFormat = data.formatOut;
     pDevice->internalChannels = data.channelsOut;
@@ -7012,6 +7021,29 @@ mal_result mal_device__get_available_frames__wasapi(mal_device* pDevice, mal_uin
     return MAL_SUCCESS;
 }
 
+mal_bool32 mal_device_is_reroute_required__wasapi(mal_device* pDevice)
+{
+    mal_assert(pDevice != NULL);
+    return pDevice->wasapi.hasDefaultDeviceChanged && pDevice->isDefaultDevice;
+}
+
+mal_result mal_device_reroute__wasapi(mal_device* pDevice)
+{
+    mal_atomic_exchange_32(&pDevice->wasapi.hasDefaultDeviceChanged, MAL_FALSE);
+
+    #ifdef MAL_DEBUG_OUTPUT
+        printf("=== CHANGING DEVICE ===\n");
+    #endif
+
+    mal_result result = pDevice->pContext->onDeviceReinit(pDevice);
+    if (result != MAL_SUCCESS) {
+        return result;
+    }
+
+    mal_device__post_init_setup(pDevice);
+
+    return MAL_SUCCESS;
+}
 
 mal_result mal_device_write__wasapi(mal_device* pDevice, mal_uint32 pcmFrameCount, const void* pPCMFrames, mal_uint32* pPCMFramesWritten)
 {
@@ -7091,6 +7123,14 @@ mal_result mal_device_write__wasapi(mal_device* pDevice, mal_uint32 pcmFrameCoun
         /* If the device has been stopped don't continue. */
         if (!pDevice->wasapi.isStarted && wasStartedOnEntry) {
             break;
+        }
+
+        /* We may need to reroute the device. */
+        if (mal_device_is_reroute_required__wasapi(pDevice)) {
+            result = mal_device_reroute__wasapi(pDevice);
+            if (result != MAL_SUCCESS) {
+                break;
+            }
         }
 
         /* The device buffer has become available, so now we need to get a pointer to it. */
@@ -7182,6 +7222,14 @@ mal_result mal_device_read__wasapi(mal_device* pDevice, mal_uint32 pcmFrameCount
         /* If the device has been stopped don't continue. */
         if (!pDevice->wasapi.isStarted) {
             break;
+        }
+
+        /* We may need to reroute the device. */
+        if (mal_device_is_reroute_required__wasapi(pDevice)) {
+            result = mal_device_reroute__wasapi(pDevice);
+            if (result != MAL_SUCCESS) {
+                break;
+            }
         }
 
         /* The device buffer has become available, so now we need to get a pointer to it. */
@@ -19959,35 +20007,6 @@ mal_thread_result MAL_THREADCALL mal_worker_thread(void* pData)
                     }
 
                     totalFramesProcessed += framesProcessed;
-                }
-
-                /* If something has gone wrong while writing or reading, we can try switching devices. */
-                if (result != MAL_SUCCESS && pDevice->isDefaultDevice && mal_device__get_state(pDevice) == MAL_STATE_STARTED && pDevice->initConfig.shareMode != mal_share_mode_exclusive) {
-                    /* Here is where we try switching to the new default device. */
-                    mal_result reinitResult = MAL_ERROR;
-                    if (pDevice->pContext->onDeviceReinit) {
-                        reinitResult = pDevice->pContext->onDeviceReinit(pDevice);
-                    } else {
-                        pDevice->pContext->onDeviceStop(pDevice);
-                        mal_device__set_state(pDevice, MAL_STATE_STOPPED);
-
-                        pDevice->pContext->onDeviceUninit(pDevice);
-                        mal_device__set_state(pDevice, MAL_STATE_UNINITIALIZED);
-
-                        reinitResult = pDevice->pContext->onDeviceInit(pDevice->pContext, pDevice->type, NULL, &pDevice->initConfig, pDevice);
-                    }
-
-                    /* Perform the post initialization setup just in case the data conversion pipeline needs to be reinitialized. */
-                    if (reinitResult == MAL_SUCCESS) {
-                        mal_device__post_init_setup(pDevice);
-                    }
-
-                    /* If reinitialization was successful, loop back to the start. */
-                    if (reinitResult == MAL_SUCCESS) {
-                        mal_device__set_state(pDevice, MAL_STATE_STARTING); /* <-- The device is restarting. */
-                        mal_event_signal(&pDevice->wakeupEvent);
-                        continue;
-                    }
                 }
 
                 /* Get out of the loop if read()/write() returned an error. It probably means the device has been stopped. */
