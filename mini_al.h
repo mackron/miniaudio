@@ -1952,7 +1952,7 @@ MAL_ALIGNED_STRUCT(MAL_SIMD_ALIGNMENT) mal_device
             mal_uint32 deviceBufferFramesCapacityPlayback;
             mal_uint32 deviceBufferFramesCapacityCapture;
             mal_bool32 isStarted;
-            mal_bool32 breakFromMainLoop;
+            mal_bool32 breakFromMainLoop; /* TODO: Delete me once the new main loop is finialized. */
             mal_bool32 hasDefaultDeviceChanged; /* <-- Make sure this is always a whole 32-bits because we use atomic assignments. */
         } wasapi;
 #endif
@@ -1978,11 +1978,14 @@ MAL_ALIGNED_STRUCT(MAL_SIMD_ALIGNMENT) mal_device
             /*HANDLE*/ mal_handle hEvent;
             mal_uint32 fragmentSizeInFrames;
             mal_uint32 fragmentSizeInBytes;
-            mal_uint32 iNextHeader;             // [0,periods). Used as an index into pWAVEHDR.
-            /*WAVEHDR**/ mal_uint8* pWAVEHDR;   // One instantiation for each period.
+            mal_uint32 iNextHeader;                     /* [0,periods). Used as an index into pWAVEHDR. */
+            mal_uint32 headerFramesConsumedPlayback;    /* The number of PCM frames consumed in the buffer in pWAVEHEADER[iNextHeader]. */
+            mal_uint32 headerFramesConsumedCapture;     /* ^^^ */
+            /*WAVEHDR**/ mal_uint8* pWAVEHDR;           /* One instantiation for each period. */
             mal_uint8* pIntermediaryBuffer;
-            mal_uint8* _pHeapData;              // Used internally and is used for the heap allocated data for the intermediary buffer and the WAVEHDR structures.
-            mal_bool32 breakFromMainLoop;
+            mal_uint8* _pHeapData;                      /* Used internally and is used for the heap allocated data for the intermediary buffer and the WAVEHDR structures. */
+            mal_bool32 isStarted;
+            mal_bool32 breakFromMainLoop; /* TODO: Delete me once the new main loop is finialized. */
         } winmm;
 #endif
 #ifdef MAL_SUPPORT_ALSA
@@ -9207,6 +9210,8 @@ void mal_device_uninit__winmm(mal_device* pDevice)
 {
     mal_assert(pDevice != NULL);
 
+    ((MAL_PFN_waveOutReset)pDevice->pContext->winmm.waveOutReset);
+
     if (pDevice->type == mal_device_type_playback) {
         ((MAL_PFN_waveOutClose)pDevice->pContext->winmm.waveOutClose)((HWAVEOUT)pDevice->winmm.hDevice);
     } else {
@@ -9373,7 +9378,7 @@ mal_result mal_device_init__winmm(mal_context* pContext, mal_device_type type, c
 
     // The size of the intermediary buffer needs to be able to fit every fragment.
     pDevice->winmm.fragmentSizeInFrames = pDevice->bufferSizeInFrames / pDevice->periods;
-    pDevice->winmm.fragmentSizeInBytes = pDevice->winmm.fragmentSizeInFrames * pDevice->internalChannels * mal_get_bytes_per_sample(pDevice->internalFormat);
+    pDevice->winmm.fragmentSizeInBytes = pDevice->winmm.fragmentSizeInFrames * mal_get_bytes_per_frame(pDevice->internalFormat, pDevice->internalChannels);
 
     heapSize = (sizeof(WAVEHDR) * pDevice->periods) + (pDevice->winmm.fragmentSizeInBytes * pDevice->periods);
     pDevice->winmm._pHeapData = (mal_uint8*)mal_malloc(heapSize);
@@ -9388,9 +9393,39 @@ mal_result mal_device_init__winmm(mal_context* pContext, mal_device_type type, c
     pDevice->winmm.pIntermediaryBuffer = pDevice->winmm._pHeapData + (sizeof(WAVEHDR) * pDevice->periods);
 
 
+    /* Prepare headers. */
+    for (mal_uint32 iPeriod = 0; iPeriod < pDevice->periods; ++iPeriod) {
+        ((WAVEHDR*)pDevice->winmm.pWAVEHDR)[iPeriod].lpData         = (LPSTR)(pDevice->winmm.pIntermediaryBuffer + (pDevice->winmm.fragmentSizeInBytes * iPeriod));
+        ((WAVEHDR*)pDevice->winmm.pWAVEHDR)[iPeriod].dwBufferLength = pDevice->winmm.fragmentSizeInBytes;
+        ((WAVEHDR*)pDevice->winmm.pWAVEHDR)[iPeriod].dwFlags        = 0L;
+        ((WAVEHDR*)pDevice->winmm.pWAVEHDR)[iPeriod].dwLoops        = 0L;
+        if (pDevice->type == mal_device_type_playback) {
+            ((MAL_PFN_waveOutPrepareHeader)pContext->winmm.waveOutPrepareHeader)((HWAVEOUT)pDevice->winmm.hDevice, &((WAVEHDR*)pDevice->winmm.pWAVEHDR)[iPeriod], sizeof(WAVEHDR));
+        } else {
+            ((MAL_PFN_waveInPrepareHeader)pContext->winmm.waveInPrepareHeader)((HWAVEIN)pDevice->winmm.hDevice, &((WAVEHDR*)pDevice->winmm.pWAVEHDR)[iPeriod], sizeof(WAVEHDR));
+        }
+
+        /*
+        The user data of the WAVEHDR structure is a single flag the controls whether or not it is ready for writing. Consider it to be named "isLocked". A value of 0 means
+        it's unlocked and available for writing. A value of 1 means it's locked.
+        */
+        ((WAVEHDR*)pDevice->winmm.pWAVEHDR)[iPeriod].dwUser = 0;
+    }
+
+
     return MAL_SUCCESS;
 
 on_error:
+    if (pDevice->winmm.pWAVEHDR != NULL) {
+        for (mal_uint32 iPeriod = 0; iPeriod < pDevice->periods; ++iPeriod) {
+            if (pDevice->type == mal_device_type_playback) {
+                ((MAL_PFN_waveOutUnprepareHeader)pContext->winmm.waveOutUnprepareHeader)((HWAVEOUT)pDevice->winmm.hDevice, &((WAVEHDR*)pDevice->winmm.pWAVEHDR)[iPeriod], sizeof(WAVEHDR));
+            } else {
+                ((MAL_PFN_waveInUnprepareHeader)pContext->winmm.waveInUnprepareHeader)((HWAVEIN)pDevice->winmm.hDevice, &((WAVEHDR*)pDevice->winmm.pWAVEHDR)[iPeriod], sizeof(WAVEHDR));
+            }
+        }
+    }
+
     if (pDevice->type == mal_device_type_playback) {
         ((MAL_PFN_waveOutClose)pContext->winmm.waveOutClose)((HWAVEOUT)pDevice->winmm.hDevice);
     } else {
@@ -9467,6 +9502,8 @@ mal_result mal_device_start__winmm(mal_device* pDevice)
     }
 
     pDevice->winmm.iNextHeader = 0;
+    mal_atomic_exchange_32(&pDevice->winmm.isStarted, MAL_TRUE);
+
     return MAL_SUCCESS;
 }
 
@@ -9506,8 +9543,107 @@ mal_result mal_device_stop__winmm(mal_device* pDevice)
         }
     }
 
+    mal_atomic_exchange_32(&pDevice->winmm.isStarted, MAL_FALSE);
     return MAL_SUCCESS;
 }
+
+mal_result mal_device_write__winmm(mal_device* pDevice, mal_uint32 pcmFrameCount, const void* pPCMFrames, mal_uint32* pPCMFramesWritten)
+{
+    mal_assert(pDevice != NULL);
+    mal_assert(pPCMFrames != NULL);
+
+    mal_result result;
+    MMRESULT resultMM;
+    mal_uint32 totalPCMFramesWritten;
+    WAVEHDR* pWAVEHDR = (WAVEHDR*)pDevice->winmm.pWAVEHDR;
+
+    *pPCMFramesWritten = 0;
+
+    /* Keep processing as much data as possible. */
+    totalPCMFramesWritten = 0;
+    while (totalPCMFramesWritten < pcmFrameCount) {
+        /* If the current header has some space available we need to write part of it. */
+        if (pWAVEHDR[pDevice->winmm.iNextHeader].dwUser == 0) { /* 0 = unlocked. */
+            /*
+            This header has room in it. We copy as much of it as we can. If we end up fully consuming the buffer we need to
+            write it out and move on to the next iteration.
+            */
+            mal_uint32 bpf = mal_get_bytes_per_frame(pDevice->internalFormat, pDevice->internalChannels);
+            mal_uint32 framesRemainingInHeader = (pWAVEHDR[pDevice->winmm.iNextHeader].dwBufferLength/bpf) - pDevice->winmm.headerFramesConsumedPlayback;
+
+            mal_uint32 framesToCopy = mal_min(framesRemainingInHeader, (pcmFrameCount - totalPCMFramesWritten));
+            const void* pSrc = mal_offset_ptr(pPCMFrames, totalPCMFramesWritten*bpf);
+            void* pDst = mal_offset_ptr(pWAVEHDR[pDevice->winmm.iNextHeader].lpData, pDevice->winmm.headerFramesConsumedPlayback*bpf);
+            mal_copy_memory(pDst, pSrc, framesToCopy*bpf);
+
+            pDevice->winmm.headerFramesConsumedPlayback += framesToCopy;
+            totalPCMFramesWritten += framesToCopy;
+
+            /* If we've consumed the buffer entirely we need to write it out to the device. */
+            if (pDevice->winmm.headerFramesConsumedPlayback == (pWAVEHDR[pDevice->winmm.iNextHeader].dwBufferLength/bpf)) {
+                pWAVEHDR[pDevice->winmm.iNextHeader].dwUser = 1;            /* 1 = locked. */
+                pWAVEHDR[pDevice->winmm.iNextHeader].dwFlags &= ~WHDR_DONE; /* <-- Need to make sure the WHDR_DONE flag is unset. */
+
+                /* Make sure the event is reset to a non-signaled state to ensure we don't prematurely return from WaitForSingleObject(). */
+                ResetEvent((HANDLE)pDevice->winmm.hEvent);
+
+                /* The device will be started here. */
+                resultMM = ((MAL_PFN_waveOutWrite)pDevice->pContext->winmm.waveOutWrite)((HWAVEOUT)pDevice->winmm.hDevice, &pWAVEHDR[pDevice->winmm.iNextHeader], sizeof(WAVEHDR));
+                if (resultMM != MMSYSERR_NOERROR) {
+                    result = mal_result_from_MMRESULT(resultMM);
+                    mal_post_error(pDevice, MAL_LOG_LEVEL_ERROR, "[WinMM] waveOutWrite() failed.", result);
+                    break;
+                }
+
+                /* Make sure we move to the next header. */
+                pDevice->winmm.iNextHeader = (pDevice->winmm.iNextHeader + 1) % pDevice->periods;
+                pDevice->winmm.headerFramesConsumedPlayback = 0;
+            }
+
+            /* If at this point we have consumed the entire input buffer we can return. */
+            mal_assert(totalPCMFramesWritten <= pcmFrameCount);
+            if (totalPCMFramesWritten == pcmFrameCount) {
+                break;
+            }
+
+            /* Getting here means there's more to process. */
+            continue;
+        }
+
+        /* Getting here means there isn't enough room in the buffer and we need to wait for one to become available. */
+        if (WaitForSingleObject((HANDLE)pDevice->winmm.hEvent, INFINITE) != WAIT_OBJECT_0) {
+            result = MAL_ERROR;
+            break;
+        }
+
+        /* Something happened. If the next buffer has been marked as done we need to reset a bit of state. */
+        if ((pWAVEHDR[pDevice->winmm.iNextHeader].dwFlags & WHDR_DONE) != 0) {
+            pWAVEHDR[pDevice->winmm.iNextHeader].dwUser = 0;    /* 0 = unlocked (make it available for writing). */
+            pDevice->winmm.headerFramesConsumedPlayback = 0;
+        }
+
+        /* If the device has been stopped we need to break. */
+        if (!pDevice->winmm.isStarted) {
+            break;
+        }
+    }
+
+    *pPCMFramesWritten = totalPCMFramesWritten;
+    return MAL_SUCCESS;
+}
+
+mal_result mal_device_read__winmm(mal_device* pDevice, mal_uint32 pcmFrameCount, void* pPCMFrames, mal_uint32* pPCMFramesRead)
+{
+    mal_assert(pDevice != NULL);
+    mal_assert(pPCMFrames != NULL);
+
+    (void)pDevice;
+    (void)pcmFrameCount;
+    (void)pPCMFrames;
+    (void)pPCMFramesRead;
+    return MAL_INVALID_OPERATION;
+}
+
 
 mal_result mal_device_break_main_loop__winmm(mal_device* pDevice)
 {
@@ -9673,6 +9809,9 @@ mal_result mal_context_init__winmm(mal_context* pContext)
     pContext->onDeviceUninit        = mal_device_uninit__winmm;
     pContext->onDeviceStart         = mal_device_start__winmm;
     pContext->onDeviceStop          = mal_device_stop__winmm;
+    pContext->onDeviceWrite         = mal_device_write__winmm;
+    pContext->onDeviceRead          = mal_device_read__winmm;
+
     pContext->onDeviceBreakMainLoop = mal_device_break_main_loop__winmm;
     pContext->onDeviceMainLoop      = mal_device_main_loop__winmm;
 
@@ -20870,7 +21009,29 @@ mal_result mal_device_write(mal_device* pDevice, mal_uint32 pcmFrameCount, const
         /* Slow path. Perform a data conversion. */
 
         /* TODO: Implement me. */
-        result = MAL_INVALID_OPERATION;
+        result = MAL_SUCCESS;
+
+        /* NOTE: Only doing format conversion for now just while testing. */
+        mal_uint8 buffer[4096];
+        mal_uint32 bufferSizeInFrames = sizeof(buffer) / mal_get_bytes_per_frame(pDevice->internalFormat, pDevice->internalChannels);
+
+        while (totalPCMFramesWritten < pcmFrameCount) {
+            mal_uint32 framesRemaining = (pcmFrameCount - totalPCMFramesWritten);
+            mal_uint32 framesToProcess = framesRemaining;
+            if (framesToProcess > bufferSizeInFrames) {
+                framesToProcess = bufferSizeInFrames;
+            }
+
+            mal_pcm_convert(buffer, pDevice->internalFormat, mal_offset_ptr(pPCMFrames, totalPCMFramesWritten * mal_get_bytes_per_frame(pDevice->format, pDevice->channels)), pDevice->format, framesToProcess*pDevice->channels, mal_dither_mode_none);
+
+            mal_uint32 framesProcessed = 0;
+            result = pDevice->pContext->onDeviceWrite(pDevice, framesToProcess, buffer, &framesProcessed);
+            totalPCMFramesWritten += framesProcessed;
+
+            if (result != MAL_SUCCESS) {
+                break;
+            }
+        }
     }
 
 
