@@ -9743,7 +9743,7 @@ mal_result mal_device_read__winmm(mal_device* pDevice, mal_uint32 pcmFrameCount,
     return MAL_SUCCESS;
 }
 
-
+#if 0
 mal_result mal_device_break_main_loop__winmm(mal_device* pDevice)
 {
     mal_assert(pDevice != NULL);
@@ -9862,7 +9862,7 @@ mal_result mal_device_main_loop__winmm(mal_device* pDevice)
 
     return MAL_SUCCESS;
 }
-
+#endif
 
 mal_result mal_context_uninit__winmm(mal_context* pContext)
 {
@@ -9911,8 +9911,8 @@ mal_result mal_context_init__winmm(mal_context* pContext)
     pContext->onDeviceWrite         = mal_device_write__winmm;
     pContext->onDeviceRead          = mal_device_read__winmm;
 
-    pContext->onDeviceBreakMainLoop = mal_device_break_main_loop__winmm;
-    pContext->onDeviceMainLoop      = mal_device_main_loop__winmm;
+    //pContext->onDeviceBreakMainLoop = mal_device_break_main_loop__winmm;
+    //pContext->onDeviceMainLoop      = mal_device_main_loop__winmm;
 
     return MAL_SUCCESS;
 }
