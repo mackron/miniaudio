@@ -129,9 +129,9 @@ NOTES
   integer samples, interleaved. Let me know if you need non-interleaved and I'll look into it.
 - The sndio backend is currently only enabled on OpenBSD builds.
 - The audio(4) backend is supported on OpenBSD, but you may need to disable sndiod before you can use it.
-- If you are using the platform's default device, mini_al will try automatically switching the internal
-  device when the device is unplugged. This feature is disabled when the device is opened in exclusive
-  mode.
+- Automatic stream routing is enabled on a per-backend basis. Support is explicitly enabled for WASAPI
+  and Core Audio, however other backends such as PulseAudio may naturally support it, though not all have
+  been tested.
 
 
 BACKEND NUANCES
@@ -8092,6 +8092,15 @@ mal_result mal_device_init__dsound(mal_context* pContext, mal_device_type type, 
     mal_assert(pDevice != NULL);
     mal_zero_object(&pDevice->dsound);
 
+    /* DirectSound should use a latency of about 20ms per period for low latency mode. */
+    if (pDevice->usingDefaultBufferSize) {
+        if (pConfig->performanceProfile == mal_performance_profile_low_latency) {
+            pDevice->bufferSizeInMilliseconds = 20 * pDevice->periods;
+        } else {
+            pDevice->bufferSizeInMilliseconds = 200 * pDevice->periods;
+        }
+    }
+
     // Check that we have a valid format.
     GUID subformat;
     switch (pConfig->format)
@@ -9091,6 +9100,15 @@ mal_result mal_device_init__winmm(mal_context* pContext, mal_device_type type, c
         return MAL_SHARE_MODE_NOT_SUPPORTED;
     }
 
+    /* WinMM has horrible latency. */
+    if (pDevice->usingDefaultBufferSize) {
+        if (pConfig->performanceProfile == mal_performance_profile_low_latency) {
+            pDevice->bufferSizeInMilliseconds = 40 * pDevice->periods;
+        } else {
+            pDevice->bufferSizeInMilliseconds = 400 * pDevice->periods;
+        }
+    }
+
     UINT winMMDeviceID = 0;
     if (pDeviceID != NULL) {
         winMMDeviceID = (UINT)pDeviceID->winmm;
@@ -9223,10 +9241,6 @@ mal_result mal_device_init__winmm(mal_context* pContext, mal_device_type type, c
 
     if (pDevice->bufferSizeInFrames == 0) {
         pDevice->bufferSizeInFrames = mal_calculate_buffer_size_in_frames_from_milliseconds(pDevice->bufferSizeInMilliseconds, pDevice->internalSampleRate);
-        if (pDevice->usingDefaultBufferSize) {
-            float bufferSizeScaleFactor = 4;    // <-- Latency with WinMM seems pretty bad from my testing...
-            pDevice->bufferSizeInFrames = mal_scale_buffer_size(pDevice->bufferSizeInFrames, bufferSizeScaleFactor);
-        }
     }
 
     // The size of the intermediary buffer needs to be able to fit every fragment.
@@ -9406,7 +9420,7 @@ mal_result mal_device_stop__winmm(mal_device* pDevice)
 
 mal_result mal_device_write__winmm(mal_device* pDevice, mal_uint32 pcmFrameCount, const void* pPCMFrames, mal_uint32* pPCMFramesWritten)
 {
-    mal_result result;
+    mal_result result = MAL_SUCCESS;
     MMRESULT resultMM;
     mal_uint32 totalPCMFramesWritten;
     WAVEHDR* pWAVEHDR = (WAVEHDR*)pDevice->winmm.pWAVEHDR;
@@ -9451,6 +9465,7 @@ mal_result mal_device_write__winmm(mal_device* pDevice, mal_uint32 pcmFrameCount
                     mal_post_error(pDevice, MAL_LOG_LEVEL_ERROR, "[WinMM] waveOutWrite() failed.", result);
                     break;
                 }
+                mal_atomic_exchange_32(&pDevice->winmm.isStarted, MAL_TRUE);
 
                 /* Make sure we move to the next header. */
                 pDevice->winmm.iNextHeader = (pDevice->winmm.iNextHeader + 1) % pDevice->periods;
@@ -9486,7 +9501,7 @@ mal_result mal_device_write__winmm(mal_device* pDevice, mal_uint32 pcmFrameCount
     }
 
     *pPCMFramesWritten = totalPCMFramesWritten;
-    return MAL_SUCCESS;
+    return result;
 }
 
 mal_result mal_device_read__winmm(mal_device* pDevice, mal_uint32 pcmFrameCount, void* pPCMFrames, mal_uint32* pPCMFramesRead)
@@ -9494,7 +9509,7 @@ mal_result mal_device_read__winmm(mal_device* pDevice, mal_uint32 pcmFrameCount,
     mal_assert(pDevice != NULL);
     mal_assert(pPCMFrames != NULL);
 
-    mal_result result;
+    mal_result result = MAL_SUCCESS;
     MMRESULT resultMM;
     mal_uint32 totalPCMFramesRead;
     WAVEHDR* pWAVEHDR = (WAVEHDR*)pDevice->winmm.pWAVEHDR;
@@ -9593,7 +9608,7 @@ mal_result mal_device_read__winmm(mal_device* pDevice, mal_uint32 pcmFrameCount,
     }
 
     *pPCMFramesRead = totalPCMFramesRead;
-    return MAL_SUCCESS;
+    return result;
 }
 
 #if 0
