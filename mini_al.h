@@ -1939,10 +1939,6 @@ MAL_ALIGNED_STRUCT(MAL_SIMD_ALIGNMENT) mal_device
             mal_IMMNotificationClient notificationClient;
             /*HANDLE*/ mal_handle hEventPlayback;   /* Used with the blocking API. Manual reset. Initialized to signaled. */
             /*HANDLE*/ mal_handle hEventCapture;    /* Used with the blocking API. Manual reset. Initialized to unsignaled. */
-#if 0
-            /*HANDLE*/ mal_handle hEvent;
-            /*HANDLE*/ mal_handle hBreakEvent;  /* <-- Used to break from WaitForMultipleObjects() in the main loop. */
-#endif
             void* pDeviceBufferPlayback;
             void* pDeviceBufferCapture;
             mal_uint32 deviceBufferFramesRemainingPlayback;
@@ -1950,7 +1946,6 @@ MAL_ALIGNED_STRUCT(MAL_SIMD_ALIGNMENT) mal_device
             mal_uint32 deviceBufferFramesCapacityPlayback;
             mal_uint32 deviceBufferFramesCapacityCapture;
             mal_bool32 isStarted;
-            mal_bool32 breakFromMainLoop; /* TODO: Delete me once the new main loop is finialized. */
             mal_bool32 hasDefaultDeviceChanged; /* <-- Make sure this is always a whole 32-bits because we use atomic assignments. */
         } wasapi;
 #endif
@@ -1986,7 +1981,6 @@ MAL_ALIGNED_STRUCT(MAL_SIMD_ALIGNMENT) mal_device
             mal_uint8* pIntermediaryBuffer;
             mal_uint8* _pHeapData;                      /* Used internally and is used for the heap allocated data for the intermediary buffer and the WAVEHDR structures. */
             mal_bool32 isStarted;
-            mal_bool32 breakFromMainLoop; /* TODO: Delete me once the new main loop is finialized. */
         } winmm;
 #endif
 #ifdef MAL_SUPPORT_ALSA
@@ -6424,15 +6418,6 @@ void mal_device_uninit__wasapi(mal_device* pDevice)
     if (pDevice->wasapi.hEventCapture) {
         CloseHandle(pDevice->wasapi.hEventCapture);
     }
-
-#if 0
-    if (pDevice->wasapi.hEvent) {
-        CloseHandle(pDevice->wasapi.hEvent);
-    }
-    if (pDevice->wasapi.hBreakEvent) {
-        CloseHandle(pDevice->wasapi.hBreakEvent);
-    }
-#endif
 }
 
 typedef struct
@@ -6812,7 +6797,7 @@ mal_result mal_device_reinit__wasapi(mal_device* pDevice)
     pDevice->wasapi.pAudioClient = data.pAudioClient;
     pDevice->wasapi.pRenderClient = data.pRenderClient;
     pDevice->wasapi.pCaptureClient = data.pCaptureClient;
-    pDevice->wasapi.isStarted = MAL_FALSE;
+    mal_atomic_exchange_32(&pDevice->wasapi.isStarted, MAL_FALSE);
 
     pDevice->internalFormat = data.formatOut;
     pDevice->internalChannels = data.channelsOut;
@@ -6828,10 +6813,6 @@ mal_result mal_device_reinit__wasapi(mal_device* pDevice)
     if (pDevice->type == mal_device_type_capture) {
         mal_IAudioClient_SetEventHandle((mal_IAudioClient*)pDevice->wasapi.pAudioClient, pDevice->wasapi.hEventCapture);
     }
-
-#if 0
-    mal_IAudioClient_SetEventHandle((mal_IAudioClient*)pDevice->wasapi.pAudioClient, pDevice->wasapi.hEvent);
-#endif
 
     return MAL_SUCCESS;
 }
@@ -6867,7 +6848,7 @@ mal_result mal_device_init__wasapi(mal_context* pContext, mal_device_type type, 
     pDevice->wasapi.pAudioClient = data.pAudioClient;
     pDevice->wasapi.pRenderClient = data.pRenderClient;
     pDevice->wasapi.pCaptureClient = data.pCaptureClient;
-    pDevice->wasapi.isStarted = MAL_FALSE;
+    mal_atomic_exchange_32(&pDevice->wasapi.isStarted, MAL_FALSE);
     
     pDevice->internalFormat = data.formatOut;
     pDevice->internalChannels = data.channelsOut;
@@ -6935,26 +6916,6 @@ mal_result mal_device_init__wasapi(mal_context* pContext, mal_device_type type, 
         mal_IAudioClient_SetEventHandle((mal_IAudioClient*)pDevice->wasapi.pAudioClient, pDevice->wasapi.hEventCapture);
     }
 
-#if 0
-    // We need to create and set the event for event-driven mode. This event is signaled whenever a new chunk of audio
-    // data needs to be written or read from the device.
-    pDevice->wasapi.hEvent = CreateEventA(NULL, FALSE, TRUE, NULL);
-    if (pDevice->wasapi.hEvent == NULL) {
-        errorMsg = "[WASAPI] Failed to create main event for main loop.", result = MAL_FAILED_TO_CREATE_EVENT;
-        goto done;
-    }
-
-    mal_IAudioClient_SetEventHandle((mal_IAudioClient*)pDevice->wasapi.pAudioClient, pDevice->wasapi.hEvent);
-
-    // When the device is playing the worker thread will be waiting on a bunch of notification events. To return from
-    // this wait state we need to signal a special event.
-    pDevice->wasapi.hBreakEvent = CreateEventA(NULL, FALSE, FALSE, NULL);
-    if (pDevice->wasapi.hBreakEvent == NULL) {
-        errorMsg = "[WASAPI] Failed to create break event for main loop break notification.", result = MAL_FAILED_TO_CREATE_EVENT;
-        goto done;
-    }
-#endif
-
     result = MAL_SUCCESS;
 
 done:
@@ -6976,7 +6937,7 @@ mal_result mal_device_start__wasapi(mal_device* pDevice)
         return mal_post_error(pDevice, MAL_LOG_LEVEL_ERROR, "[WASAPI] Failed to start internal device.", MAL_FAILED_TO_START_BACKEND_DEVICE);
     }
 
-    pDevice->wasapi.isStarted = MAL_TRUE;
+    mal_atomic_exchange_32(&pDevice->wasapi.isStarted, MAL_TRUE);
     return MAL_SUCCESS;
 }
 
@@ -6993,7 +6954,7 @@ mal_result mal_device_stop__wasapi(mal_device* pDevice)
         return mal_post_error(pDevice, MAL_LOG_LEVEL_ERROR, "[WASAPI] Failed to stop internal device.", MAL_FAILED_TO_STOP_BACKEND_DEVICE);
     }
 
-    pDevice->wasapi.isStarted = MAL_FALSE;
+    mal_atomic_exchange_32(&pDevice->wasapi.isStarted, MAL_FALSE);
     return MAL_SUCCESS;
 }
 
@@ -7056,8 +7017,6 @@ mal_result mal_device_write__wasapi(mal_device* pDevice, mal_uint32 pcmFrameCoun
     mal_uint32 totalPCMFramesWritten;
     HRESULT hr;
     DWORD waitResult;
-    HANDLE hEvents[1];
-    hEvents[0] = pDevice->wasapi.hEventPlayback;
 
     *pPCMFramesWritten = 0;
     wasStartedOnEntry = pDevice->wasapi.isStarted;
@@ -7119,7 +7078,7 @@ mal_result mal_device_write__wasapi(mal_device* pDevice, mal_uint32 pcmFrameCoun
 
         
         /* Wait for data. */
-        waitResult = WaitForMultipleObjects(mal_countof(hEvents), hEvents, FALSE, INFINITE);
+        waitResult = WaitForSingleObject(pDevice->wasapi.hEventPlayback, INFINITE);
         if (waitResult == WAIT_FAILED) {
             result = MAL_ERROR;
             break;  /* An error occurred while waiting for the event. */
@@ -7165,8 +7124,6 @@ mal_result mal_device_read__wasapi(mal_device* pDevice, mal_uint32 pcmFrameCount
     HRESULT hr;
     DWORD waitResult;
     DWORD flags;    /* Passed to IAudioCaptureClient_GetBuffer(). */
-    HANDLE hEvents[1];
-    hEvents[0] = pDevice->wasapi.hEventCapture;
 
     /*
     This is mostly the same as mal_device_write__wasapi() with only a few exceptions:
@@ -7218,7 +7175,7 @@ mal_result mal_device_read__wasapi(mal_device* pDevice, mal_uint32 pcmFrameCount
         }
 
         /* Wait for data. */
-        waitResult = WaitForMultipleObjects(mal_countof(hEvents), hEvents, FALSE, INFINITE);
+        waitResult = WaitForSingleObject(pDevice->wasapi.hEventCapture, INFINITE);
         if (waitResult == WAIT_FAILED) {
             result = MAL_ERROR;
             break;  /* An error occurred while waiting for the event. */
@@ -7256,172 +7213,6 @@ mal_result mal_device_read__wasapi(mal_device* pDevice, mal_uint32 pcmFrameCount
     *pPCMFramesRead = totalPCMFramesRead;
     return result;
 }
-
-#if 0
-mal_result mal_device_break_main_loop__wasapi(mal_device* pDevice)
-{
-    mal_assert(pDevice != NULL);
-
-    // The main loop will be waiting on a bunch of events via the WaitForMultipleObjects() API. One of those events
-    // is a special event we use for forcing that function to return.
-    pDevice->wasapi.breakFromMainLoop = MAL_TRUE;
-    SetEvent(pDevice->wasapi.hBreakEvent);
-    return MAL_SUCCESS;
-}
-
-mal_result mal_device__wait_for_frames__wasapi(mal_device* pDevice, mal_uint32* pFrameCount)
-{
-    mal_assert(pDevice != NULL);
-
-    mal_result result;
-
-    while (!pDevice->wasapi.breakFromMainLoop) {
-        // Wait for a buffer to become available or for the stop event to be signalled.
-        HANDLE hEvents[2];
-        hEvents[0] = (HANDLE)pDevice->wasapi.hEvent;
-        hEvents[1] = (HANDLE)pDevice->wasapi.hBreakEvent;
-        if (WaitForMultipleObjects(mal_countof(hEvents), hEvents, FALSE, INFINITE) == WAIT_FAILED) {
-            break;
-        }
-
-        // Break from the main loop if the device isn't started anymore. Likely what's happened is the application
-        // has requested that the device be stopped.
-        if (!mal_device_is_started(pDevice)) {
-            break;
-        }
-
-        // Make sure we break from the main loop if requested from an external factor.
-        if (pDevice->wasapi.breakFromMainLoop) {
-            break;
-        }
-
-        // We may want to reinitialize the device. Only do this if this device is the default.
-        mal_bool32 needDeviceReinit = MAL_FALSE;
-
-        mal_bool32 hasDefaultDeviceChanged = pDevice->wasapi.hasDefaultDeviceChanged;
-        if (hasDefaultDeviceChanged && pDevice->isDefaultDevice) {
-            needDeviceReinit = MAL_TRUE;
-        }
-
-        if (!needDeviceReinit) {
-            result = mal_device__get_available_frames__wasapi(pDevice, pFrameCount);
-            if (result != MAL_SUCCESS) {
-                if (pDevice->initConfig.shareMode != mal_share_mode_exclusive) {
-                    needDeviceReinit = MAL_TRUE;
-                } else {
-                    return result;
-                }
-            }
-        }
-
-
-        mal_atomic_exchange_32(&pDevice->wasapi.hasDefaultDeviceChanged, MAL_FALSE);
-
-        // Here is where the device is re-initialized if required.
-        if (needDeviceReinit) {
-            #ifdef MAL_DEBUG_OUTPUT
-                printf("=== CHANGING DEVICE ===\n");
-            #endif
-
-            if (pDevice->pContext->onDeviceReinit) {
-                mal_result reinitResult = pDevice->pContext->onDeviceReinit(pDevice);
-                if (reinitResult != MAL_SUCCESS) {
-                    return reinitResult;
-                }
-
-                mal_device__post_init_setup(pDevice);
-
-                // Start playing the device again, and then continue the loop from the top.
-                if (mal_device__get_state(pDevice) == MAL_STATE_STARTED) {
-                    if (pDevice->pContext->onDeviceStart) {
-                        pDevice->pContext->onDeviceStart(pDevice);
-                    }
-                    continue;
-                }
-            }
-        }
-        
-
-        if (*pFrameCount > 0) {
-            return MAL_SUCCESS;
-        }
-    }
-
-    // We'll get here if the loop was terminated. Just return whatever's available.
-    return mal_device__get_available_frames__wasapi(pDevice, pFrameCount);
-}
-
-mal_result mal_device_main_loop__wasapi(mal_device* pDevice)
-{
-    mal_assert(pDevice != NULL);
-
-    // Make sure the break event is not signaled to ensure we don't end up immediately returning from WaitForMultipleObjects().
-    ResetEvent(pDevice->wasapi.hBreakEvent);
-
-    pDevice->wasapi.breakFromMainLoop = MAL_FALSE;
-    while (!pDevice->wasapi.breakFromMainLoop) {
-        mal_uint32 framesAvailable;
-        mal_result result = mal_device__wait_for_frames__wasapi(pDevice, &framesAvailable);
-        if (result != MAL_SUCCESS) {
-            return result;
-        }
-
-        if (framesAvailable == 0) {
-            continue;
-        }
-
-        // If it's a playback device, don't bother grabbing more data if the device is being stopped.
-        if (pDevice->wasapi.breakFromMainLoop && pDevice->type == mal_device_type_playback) {
-            return MAL_SUCCESS;
-        }
-
-        if (pDevice->type == mal_device_type_playback) {
-            BYTE* pData;
-            HRESULT hr = mal_IAudioRenderClient_GetBuffer((mal_IAudioRenderClient*)pDevice->wasapi.pRenderClient, framesAvailable, &pData);
-            if (FAILED(hr)) {
-                return mal_post_error(pDevice, MAL_LOG_LEVEL_ERROR, "[WASAPI] Failed to retrieve internal buffer from playback device in preparation for sending new data to the device.", MAL_FAILED_TO_MAP_DEVICE_BUFFER);
-            }
-
-            mal_device__read_frames_from_client(pDevice, framesAvailable, pData);
-
-            hr = mal_IAudioRenderClient_ReleaseBuffer((mal_IAudioRenderClient*)pDevice->wasapi.pRenderClient, framesAvailable, 0);
-            if (FAILED(hr)) {
-                return mal_post_error(pDevice, MAL_LOG_LEVEL_ERROR, "[WASAPI] Failed to release internal buffer from playback device in preparation for sending new data to the device.", MAL_FAILED_TO_UNMAP_DEVICE_BUFFER);
-            }
-        } else {
-            mal_uint32 framesRemaining = framesAvailable;
-            while (framesRemaining > 0) {
-                BYTE* pData;
-                mal_uint32 framesToSend;
-                DWORD flags;
-                HRESULT hr = mal_IAudioCaptureClient_GetBuffer((mal_IAudioCaptureClient*)pDevice->wasapi.pCaptureClient, &pData, &framesToSend, &flags, NULL, NULL);
-                if (FAILED(hr)) {
-                    mal_post_error(pDevice, MAL_LOG_LEVEL_ERROR, "[WASAPI] WARNING: Failed to retrieve internal buffer from capture device in preparation for sending new data to the client.", MAL_FAILED_TO_MAP_DEVICE_BUFFER);
-                    break;
-                }
-
-                if (hr != MAL_AUDCLNT_S_BUFFER_EMPTY) {
-                    mal_device__send_frames_to_client(pDevice, framesToSend, pData);
-
-                    hr = mal_IAudioCaptureClient_ReleaseBuffer((mal_IAudioCaptureClient*)pDevice->wasapi.pCaptureClient, framesToSend);
-                    if (FAILED(hr)) {
-                        mal_post_error(pDevice, MAL_LOG_LEVEL_ERROR, "[WASAPI] WARNING: Failed to release internal buffer from capture device in preparation for sending new data to the client.", MAL_FAILED_TO_UNMAP_DEVICE_BUFFER);
-                        break;
-                    }
-
-                    if (framesRemaining >= framesToSend) {
-                        framesRemaining -= framesToSend;
-                    } else {
-                        framesRemaining = 0;
-                    }
-                }
-            }
-        }
-    }
-
-    return MAL_SUCCESS;
-}
-#endif
 
 mal_result mal_context_uninit__wasapi(mal_context* pContext)
 {
@@ -7470,11 +7261,6 @@ mal_result mal_context_init__wasapi(mal_context* pContext)
     pContext->onDeviceStop          = mal_device_stop__wasapi;
     pContext->onDeviceWrite         = mal_device_write__wasapi;
     pContext->onDeviceRead          = mal_device_read__wasapi;
-
-#if 0
-    pContext->onDeviceBreakMainLoop = mal_device_break_main_loop__wasapi;
-    pContext->onDeviceMainLoop      = mal_device_main_loop__wasapi;
-#endif
 
     return result;
 }
@@ -9737,7 +9523,7 @@ mal_result mal_device_read__winmm(mal_device* pDevice, mal_uint32 pcmFrameCount,
             return mal_post_error(pDevice, MAL_LOG_LEVEL_ERROR, "[WinMM] Failed to start backend device.", mal_result_from_MMRESULT(resultMM));
         }
 
-        pDevice->winmm.isStarted = MAL_TRUE;
+        mal_atomic_exchange_32(&pDevice->winmm.isStarted, MAL_TRUE);
     }
 
     /* Keep processing as much data as possible. */
