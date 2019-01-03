@@ -1552,8 +1552,8 @@ struct mal_context
     mal_result (* onDeviceReinit       )(mal_device* pDevice);
     mal_result (* onDeviceStart        )(mal_device* pDevice);
     mal_result (* onDeviceStop         )(mal_device* pDevice);
-    mal_result (* onDeviceWrite        )(mal_device* pDevice, mal_uint32 pcmFrameCount, const void* pPCMFrames, mal_uint32* pPCMFramesWritten); /* Data is in internal device format. */
-    mal_result (* onDeviceRead         )(mal_device* pDevice, mal_uint32 pcmFrameCount,       void* pPCMFrames, mal_uint32* pPCMFramesRead);    /* Data is in internal device format. */
+    mal_result (* onDeviceWrite        )(mal_device* pDevice, const void* pPCMFrames, mal_uint32 pcmFrameCount);    /* Data is in internal device format. */
+    mal_result (* onDeviceRead         )(mal_device* pDevice,       void* pPCMFrames, mal_uint32 pcmFrameCount);    /* Data is in internal device format. */
     mal_result (* onDeviceBreakMainLoop)(mal_device* pDevice);
     mal_result (* onDeviceMainLoop     )(mal_device* pDevice);
 
@@ -7010,7 +7010,7 @@ mal_result mal_device_reroute__wasapi(mal_device* pDevice)
     return MAL_SUCCESS;
 }
 
-mal_result mal_device_write__wasapi(mal_device* pDevice, mal_uint32 pcmFrameCount, const void* pPCMFrames, mal_uint32* pPCMFramesWritten)
+mal_result mal_device_write__wasapi(mal_device* pDevice, const void* pPCMFrames, mal_uint32 pcmFrameCount)
 {
     mal_result result = MAL_SUCCESS;
     mal_bool32 wasStartedOnEntry;
@@ -7018,7 +7018,6 @@ mal_result mal_device_write__wasapi(mal_device* pDevice, mal_uint32 pcmFrameCoun
     HRESULT hr;
     DWORD waitResult;
 
-    *pPCMFramesWritten = 0;
     wasStartedOnEntry = pDevice->wasapi.isStarted;
 
     /* Try to write every frame. */
@@ -7113,11 +7112,10 @@ mal_result mal_device_write__wasapi(mal_device* pDevice, mal_uint32 pcmFrameCoun
         pDevice->wasapi.deviceBufferFramesRemainingPlayback = pDevice->wasapi.deviceBufferFramesCapacityPlayback;
     }
 
-    *pPCMFramesWritten = totalPCMFramesWritten;
     return result;
 }
 
-mal_result mal_device_read__wasapi(mal_device* pDevice, mal_uint32 pcmFrameCount, void* pPCMFrames, mal_uint32* pPCMFramesRead)
+mal_result mal_device_read__wasapi(mal_device* pDevice, void* pPCMFrames, mal_uint32 pcmFrameCount)
 {
     mal_result result = MAL_SUCCESS;
     mal_uint32 totalPCMFramesRead;
@@ -7210,7 +7208,6 @@ mal_result mal_device_read__wasapi(mal_device* pDevice, mal_uint32 pcmFrameCount
         pDevice->wasapi.deviceBufferFramesRemainingCapture = pDevice->wasapi.deviceBufferFramesCapacityCapture;
     }
 
-    *pPCMFramesRead = totalPCMFramesRead;
     return result;
 }
 
@@ -8398,7 +8395,7 @@ mal_result mal_device_map_next_playback_buffer__dsound(mal_device* pDevice)
     return MAL_SUCCESS;
 }
 
-mal_result mal_device_write__dsound(mal_device* pDevice, mal_uint32 pcmFrameCount, const void* pPCMFrames, mal_uint32* pPCMFramesWritten)
+mal_result mal_device_write__dsound(mal_device* pDevice, const void* pPCMFrames, mal_uint32 pcmFrameCount)
 {
     mal_result result = MAL_SUCCESS;
     mal_bool32 wasStartedOnEntry;
@@ -8408,7 +8405,6 @@ mal_result mal_device_write__dsound(mal_device* pDevice, mal_uint32 pcmFrameCoun
     mal_assert(pDevice != NULL);
     mal_assert(pPCMFrames != NULL);
 
-    *pPCMFramesWritten = 0;
     wasStartedOnEntry = pDevice->dsound.isStarted;
 
     /* If the device is not started we do not have a mapped buffer, we'll need to map the first period so we can fill it. */
@@ -8510,7 +8506,6 @@ mal_result mal_device_write__dsound(mal_device* pDevice, mal_uint32 pcmFrameCoun
         }
     }
 
-    *pPCMFramesWritten = totalPCMFramesWritten;
     return result;
 }
 
@@ -8538,7 +8533,7 @@ mal_result mal_device_map_next_capture_buffer__dsound(mal_device* pDevice)
     return MAL_SUCCESS;
 }
 
-mal_result mal_device_read__dsound(mal_device* pDevice, mal_uint32 pcmFrameCount, void* pPCMFrames, mal_uint32* pPCMFramesRead)
+mal_result mal_device_read__dsound(mal_device* pDevice, void* pPCMFrames, mal_uint32 pcmFrameCount)
 {
     mal_result result = MAL_SUCCESS;
     mal_uint32 totalPCMFramesRead;
@@ -8630,7 +8625,6 @@ mal_result mal_device_read__dsound(mal_device* pDevice, mal_uint32 pcmFrameCount
         }
     }
 
-    *pPCMFramesRead = totalPCMFramesRead;
     return result;
 }
 
@@ -9345,7 +9339,7 @@ mal_result mal_device_stop__winmm(mal_device* pDevice)
     return MAL_SUCCESS;
 }
 
-mal_result mal_device_write__winmm(mal_device* pDevice, mal_uint32 pcmFrameCount, const void* pPCMFrames, mal_uint32* pPCMFramesWritten)
+mal_result mal_device_write__winmm(mal_device* pDevice, const void* pPCMFrames, mal_uint32 pcmFrameCount)
 {
     mal_result result = MAL_SUCCESS;
     MMRESULT resultMM;
@@ -9354,8 +9348,6 @@ mal_result mal_device_write__winmm(mal_device* pDevice, mal_uint32 pcmFrameCount
 
     mal_assert(pDevice != NULL);
     mal_assert(pPCMFrames != NULL);
-
-    *pPCMFramesWritten = 0;
 
     /* Keep processing as much data as possible. */
     totalPCMFramesWritten = 0;
@@ -9427,11 +9419,10 @@ mal_result mal_device_write__winmm(mal_device* pDevice, mal_uint32 pcmFrameCount
         }
     }
 
-    *pPCMFramesWritten = totalPCMFramesWritten;
     return result;
 }
 
-mal_result mal_device_read__winmm(mal_device* pDevice, mal_uint32 pcmFrameCount, void* pPCMFrames, mal_uint32* pPCMFramesRead)
+mal_result mal_device_read__winmm(mal_device* pDevice, void* pPCMFrames, mal_uint32 pcmFrameCount)
 {
     mal_assert(pDevice != NULL);
     mal_assert(pPCMFrames != NULL);
@@ -9440,8 +9431,6 @@ mal_result mal_device_read__winmm(mal_device* pDevice, mal_uint32 pcmFrameCount,
     MMRESULT resultMM;
     mal_uint32 totalPCMFramesRead;
     WAVEHDR* pWAVEHDR = (WAVEHDR*)pDevice->winmm.pWAVEHDR;
-
-    *pPCMFramesRead = 0;
 
     /* We want to start the device immediately. */
     if (!pDevice->winmm.isStarted) {
@@ -9534,7 +9523,6 @@ mal_result mal_device_read__winmm(mal_device* pDevice, mal_uint32 pcmFrameCount,
         }
     }
 
-    *pPCMFramesRead = totalPCMFramesRead;
     return result;
 }
 
@@ -19899,23 +19887,21 @@ mal_thread_result MAL_THREADCALL mal_worker_thread(void* pData)
                 mal_uint32 bufferSizeInFrames = sizeof(buffer) / mal_get_bytes_per_frame(pDevice->internalFormat, pDevice->internalChannels);
 
                 while (totalFramesProcessed < periodSizeInFrames) {
-                    mal_uint32 framesProcessed;
                     mal_uint32 framesRemaining = periodSizeInFrames - totalFramesProcessed;
                     mal_uint32 framesToProcess = framesRemaining;
                     if (framesToProcess > bufferSizeInFrames) {
                         framesToProcess = bufferSizeInFrames;
                     }
 
-                    framesProcessed = 0;
                     if (pDevice->type == mal_device_type_playback) {
                         mal_device__read_frames_from_client(pDevice, framesToProcess, buffer);
-                        result = pDevice->pContext->onDeviceWrite(pDevice, framesToProcess, buffer, &framesProcessed);
+                        result = pDevice->pContext->onDeviceWrite(pDevice, buffer, framesToProcess);
                     } else {
-                        result = pDevice->pContext->onDeviceRead(pDevice, framesToProcess, buffer, &framesProcessed);
-                        mal_device__send_frames_to_client(pDevice, framesProcessed, buffer);
+                        result = pDevice->pContext->onDeviceRead(pDevice, buffer, framesToProcess);
+                        mal_device__send_frames_to_client(pDevice, framesToProcess, buffer);
                     }
 
-                    totalFramesProcessed += framesProcessed;
+                    totalFramesProcessed += framesToProcess;
                 }
 
                 /* Get out of the loop if read()/write() returned an error. It probably means the device has been stopped. */
@@ -20748,14 +20734,10 @@ void mal_device_uninit(mal_device* pDevice)
 /*
 Writes PCM frames to the device.
 */
-mal_result mal_device_write(mal_device* pDevice, mal_uint32 pcmFrameCount, const void* pPCMFrames, mal_uint32* pPCMFramesWritten)
+mal_result mal_device_write(mal_device* pDevice, const void* pPCMFrames, mal_uint32 pcmFrameCount)
 {
     mal_result result;
     mal_uint32 totalPCMFramesWritten = 0;
-
-    if (pPCMFramesWritten != NULL) {
-        *pPCMFramesWritten = 0; /* Safety. */
-    }
 
     if (mal_device__is_async(pDevice)) {
         return MAL_INVALID_ARGS;
@@ -20774,7 +20756,7 @@ mal_result mal_device_write(mal_device* pDevice, mal_uint32 pcmFrameCount, const
     /* If it's a passthrough we can call the backend directly, otherwise we need a data conversion into an intermediary buffer. */
     if (pDevice->dsp.isPassthrough) {
         /* Fast path. Write directly to the device. */
-        result = pDevice->pContext->onDeviceWrite(pDevice, pcmFrameCount, pPCMFrames, &totalPCMFramesWritten);
+        result = pDevice->pContext->onDeviceWrite(pDevice, pPCMFrames, pcmFrameCount);
     } else {
         /* Slow path. Perform a data conversion. */
 
@@ -20794,19 +20776,13 @@ mal_result mal_device_write(mal_device* pDevice, mal_uint32 pcmFrameCount, const
 
             mal_pcm_convert(buffer, pDevice->internalFormat, mal_offset_ptr(pPCMFrames, totalPCMFramesWritten * mal_get_bytes_per_frame(pDevice->format, pDevice->channels)), pDevice->format, framesToProcess*pDevice->channels, mal_dither_mode_none);
 
-            mal_uint32 framesProcessed = 0;
-            result = pDevice->pContext->onDeviceWrite(pDevice, framesToProcess, buffer, &framesProcessed);
-            totalPCMFramesWritten += framesProcessed;
+            result = pDevice->pContext->onDeviceWrite(pDevice, buffer, framesToProcess);
+            totalPCMFramesWritten += framesToProcess;
 
             if (result != MAL_SUCCESS) {
                 break;
             }
         }
-    }
-
-
-    if (pPCMFramesWritten != NULL) {
-        *pPCMFramesWritten = totalPCMFramesWritten;
     }
 
     return result;
@@ -20815,14 +20791,10 @@ mal_result mal_device_write(mal_device* pDevice, mal_uint32 pcmFrameCount, const
 /*
 Reads PCM frames from the device.
 */
-mal_result mal_device_read(mal_device* pDevice, mal_uint32 pcmFrameCount, void* pPCMFrames, mal_uint32* pPCMFramesRead)
+mal_result mal_device_read(mal_device* pDevice, void* pPCMFrames, mal_uint32 pcmFrameCount)
 {
     mal_result result;
     mal_uint32 totalPCMFramesRead = 0;
-
-    if (pPCMFramesRead != NULL) {
-        *pPCMFramesRead = 0; /* Safety. */
-    }
 
     if (pDevice == NULL || pPCMFrames == NULL) {
         return MAL_INVALID_ARGS;
@@ -20841,7 +20813,7 @@ mal_result mal_device_read(mal_device* pDevice, mal_uint32 pcmFrameCount, void* 
     /* If it's a passthrough we can call the backend directly, otherwise we need a data conversion into an intermediary buffer. */
     if (pDevice->dsp.isPassthrough) {
         /* Fast path. Write directly to the device. */
-        result = pDevice->pContext->onDeviceRead(pDevice, pcmFrameCount, pPCMFrames, &totalPCMFramesRead);
+        result = pDevice->pContext->onDeviceRead(pDevice, pPCMFrames, pcmFrameCount);
     } else {
         /* Slow path. Perform a data conversion. */
 
@@ -20859,21 +20831,15 @@ mal_result mal_device_read(mal_device* pDevice, mal_uint32 pcmFrameCount, void* 
                 framesToProcess = bufferSizeInFrames;
             }
 
-            mal_uint32 framesProcessed = 0;
-            result = pDevice->pContext->onDeviceRead(pDevice, framesToProcess, buffer, &framesProcessed);
+            result = pDevice->pContext->onDeviceRead(pDevice, buffer, framesToProcess);
 
             mal_pcm_convert(mal_offset_ptr(pPCMFrames, totalPCMFramesRead * mal_get_bytes_per_frame(pDevice->format, pDevice->channels)), pDevice->format, buffer, pDevice->internalFormat, framesToProcess*pDevice->channels, mal_dither_mode_none);
 
-            totalPCMFramesRead += framesProcessed;
+            totalPCMFramesRead += framesToProcess;
             if (result != MAL_SUCCESS) {
                 break;
             }
         }
-    }
-
-
-    if (pPCMFramesRead != NULL) {
-        *pPCMFramesRead = totalPCMFramesRead;
     }
 
     return result;
