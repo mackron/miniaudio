@@ -2080,11 +2080,18 @@ MAL_ALIGNED_STRUCT(MAL_SIMD_ALIGNMENT) mal_device
 #ifdef MAL_SUPPORT_NULL
         struct
         {
+            mal_thread deviceThread;
+            mal_event operationEvent;
+            mal_event operationCompletionEvent;
+            mal_uint32 operation;
+            mal_result operationResult;
             mal_timer timer;
-            mal_uint32 lastProcessedFrame;      // This is circular.
-            mal_bool32 breakFromMainLoop;
-            mal_uint8* pBuffer;                 // This is malloc()'d and is used as the destination for reading from the client. Typed as mal_uint8 for easy offsetting.
-            mal_bool32 hasStarted : 1;          /* Keeps track of whether or not the device has been started at least once. */
+            double priorRunTime;
+            mal_uint32 currentPeriodFramesRemainingPlayback;
+            mal_uint32 currentPeriodFramesRemainingCapture;
+            mal_uint64 lastProcessedFramePlayback;
+            mal_uint32 lastProcessedFrameCapture;
+            mal_bool32 isStarted;
         } null_device;
 #endif
     };
@@ -4678,6 +4685,93 @@ void mal_device__post_init_setup(mal_device* pDevice);
 ///////////////////////////////////////////////////////////////////////////////
 #ifdef MAL_HAS_NULL
 
+#define MAL_DEVICE_OP_NONE__NULL    0
+#define MAL_DEVICE_OP_START__NULL   1
+#define MAL_DEVICE_OP_SUSPEND__NULL 2
+#define MAL_DEVICE_OP_KILL__NULL    3
+
+mal_thread_result MAL_THREADCALL mal_device_thread__null(void* pData)
+{
+    mal_device* pDevice = (mal_device*)pData;
+    mal_assert(pDevice != NULL);
+
+    for (;;) {  /* Keep the thread alive until the device is uninitialized. */
+        /* Wait for an operation to be requested. */
+        mal_event_wait(&pDevice->null_device.operationEvent);
+
+        /* At this point an event should have been triggered. */
+
+        /* Starting the device needs to put the thread into a loop. */
+        if (pDevice->null_device.operation == MAL_DEVICE_OP_START__NULL) {
+            mal_atomic_exchange_32(&pDevice->null_device.operation, MAL_DEVICE_OP_NONE__NULL);
+
+            /* Reset the timer just in case. */
+            mal_timer_init(&pDevice->null_device.timer);
+
+            /* Keep looping until an operation has been requested. */
+            while (pDevice->null_device.operation != MAL_DEVICE_OP_NONE__NULL && pDevice->null_device.operation != MAL_DEVICE_OP_START__NULL) {
+                mal_sleep(10); /* Don't hog the CPU. */
+            }
+
+            /* Getting here means a suspend or kill operation has been requested. */
+            mal_atomic_exchange_32(&pDevice->null_device.operationResult, MAL_SUCCESS);
+            mal_event_signal(&pDevice->null_device.operationCompletionEvent);
+            continue;
+        }
+
+        /* Suspending the device means we need to stop the timer and just continue the loop. */
+        if (pDevice->null_device.operation == MAL_DEVICE_OP_SUSPEND__NULL) {
+            mal_atomic_exchange_32(&pDevice->null_device.operation, MAL_DEVICE_OP_NONE__NULL);
+
+            /* We need to add the current run time to the prior run time, then reset the timer. */
+            pDevice->null_device.priorRunTime += mal_timer_get_time_in_seconds(&pDevice->null_device.timer);
+            mal_timer_init(&pDevice->null_device.timer);
+
+            /* We're done. */
+            mal_atomic_exchange_32(&pDevice->null_device.operationResult, MAL_SUCCESS);
+            mal_event_signal(&pDevice->null_device.operationCompletionEvent);
+            continue;
+        }
+
+        /* Killing the device means we need to get out of this loop so that this thread can terminate. */
+        if (pDevice->null_device.operation == MAL_DEVICE_OP_KILL__NULL) {
+            mal_atomic_exchange_32(&pDevice->null_device.operation, MAL_DEVICE_OP_NONE__NULL);
+            mal_atomic_exchange_32(&pDevice->null_device.operationResult, MAL_SUCCESS);
+            mal_event_signal(&pDevice->null_device.operationCompletionEvent);
+            break;
+        }
+
+        /* Getting a signal on a "none" operation probably means an error. Return invalid operation. */
+        if (pDevice->null_device.operation == MAL_DEVICE_OP_NONE__NULL) {
+            mal_assert(MAL_FALSE);  /* <-- Trigger this in debug mode to ensure developers are aware they're doing something wrong (or there's a bug in a mini_al). */
+            mal_atomic_exchange_32(&pDevice->null_device.operationResult, MAL_INVALID_OPERATION);
+            mal_event_signal(&pDevice->null_device.operationCompletionEvent);
+            continue;   /* Continue the loop. Don't terminate. */
+        }
+    }
+
+    return (mal_thread_result)0;
+}
+
+mal_result mal_device_do_operation__null(mal_device* pDevice, mal_uint32 operation)
+{
+    mal_atomic_exchange_32(&pDevice->null_device.operation, operation);
+    if (!mal_event_signal(&pDevice->null_device.operationEvent)) {
+        return MAL_ERROR;
+    }
+
+    if (!mal_event_wait(&pDevice->null_device.operationCompletionEvent)) {
+        return MAL_ERROR;
+    }
+
+    return pDevice->null_device.operationResult;
+}
+
+mal_uint64 mal_device_get_total_run_time_in_frames__null(mal_device* pDevice)
+{
+    return (mal_uint64)((pDevice->null_device.priorRunTime + mal_timer_get_time_in_seconds(&pDevice->null_device.timer)) * pDevice->internalSampleRate);
+}
+
 mal_bool32 mal_context_is_device_id_equal__null(mal_context* pContext, const mal_device_id* pID0, const mal_device_id* pID1)
 {
     mal_assert(pContext != NULL);
@@ -4750,7 +4844,13 @@ mal_result mal_context_get_device_info__null(mal_context* pContext, mal_device_t
 void mal_device_uninit__null(mal_device* pDevice)
 {
     mal_assert(pDevice != NULL);
-    mal_free(pDevice->null_device.pBuffer);
+
+    /* Keep it clean and wait for the device thread to finish before returning. */
+    mal_device_do_operation__null(pDevice, MAL_DEVICE_OP_KILL__NULL);
+
+    /* At this point the loop in the device thread is as good as terminated so we can uninitialize our events. */
+    mal_event_uninit(&pDevice->null_device.operationCompletionEvent);
+    mal_event_uninit(&pDevice->null_device.operationEvent);
 }
 
 mal_result mal_device_init__null(mal_context* pContext, mal_device_type type, const mal_device_id* pDeviceID, const mal_device_config* pConfig, mal_device* pDevice)
@@ -4759,6 +4859,8 @@ mal_result mal_device_init__null(mal_context* pContext, mal_device_type type, co
     (void)type;
     (void)pDeviceID;
     (void)pConfig;
+
+    mal_result result;
 
     mal_assert(pDevice != NULL);
     mal_zero_object(&pDevice->null_device);
@@ -4774,13 +4876,26 @@ mal_result mal_device_init__null(mal_context* pContext, mal_device_type type, co
         bufferSizeInFrames = mal_calculate_buffer_size_in_frames_from_milliseconds(pConfig->bufferSizeInMilliseconds, pConfig->sampleRate);
     }
 
-    pDevice->null_device.pBuffer = (mal_uint8*)mal_malloc(bufferSizeInFrames * pConfig->channels * mal_get_bytes_per_sample(pConfig->format));
-    if (pDevice->null_device.pBuffer == NULL) {
-        return MAL_OUT_OF_MEMORY;
+    pDevice->bufferSizeInFrames = bufferSizeInFrames;
+
+    /*
+    In order to get timing right, we need to create a thread that does nothing but keeps track of the timer. This timer is started when the
+    first period is "written" to it, and then stopped in mal_device_stop__null().
+    */
+    result = mal_event_init(pContext, &pDevice->null_device.operationEvent);
+    if (result != MAL_SUCCESS) {
+        return result;
     }
 
-    pDevice->bufferSizeInFrames = bufferSizeInFrames;
-    mal_zero_memory(pDevice->null_device.pBuffer, mal_device_get_buffer_size_in_bytes(pDevice));
+    result = mal_event_init(pContext, &pDevice->null_device.operationCompletionEvent);
+    if (result != MAL_SUCCESS) {
+        return result;
+    }
+
+    result = mal_thread_create(pContext, &pDevice->thread, mal_device_thread__null, pDevice);
+    if (result != MAL_SUCCESS) {
+        return result;
+    }
 
     return MAL_SUCCESS;
 }
@@ -4789,142 +4904,156 @@ mal_result mal_device_start__null(mal_device* pDevice)
 {
     mal_assert(pDevice != NULL);
 
-    if (!pDevice->null_device.hasStarted) {
-        mal_timer_init(&pDevice->null_device.timer);
-        pDevice->null_device.lastProcessedFrame = 0;
-        pDevice->null_device.hasStarted = MAL_TRUE;
-    }
+    mal_device_do_operation__null(pDevice, MAL_DEVICE_OP_START__NULL);
 
+    mal_atomic_exchange_32(&pDevice->null_device.isStarted, MAL_TRUE);
     return MAL_SUCCESS;
 }
 
 mal_result mal_device_stop__null(mal_device* pDevice)
 {
     mal_assert(pDevice != NULL);
-    (void)pDevice;
 
+    mal_device_do_operation__null(pDevice, MAL_DEVICE_OP_SUSPEND__NULL);
+
+    mal_atomic_exchange_32(&pDevice->null_device.isStarted, MAL_FALSE);
     return MAL_SUCCESS;
 }
 
-mal_result mal_device_break_main_loop__null(mal_device* pDevice)
+mal_result mal_device_write__null(mal_device* pDevice, const void* pPCMFrames, mal_uint32 pcmFrameCount)
 {
-    mal_assert(pDevice != NULL);
+    mal_result result = MAL_SUCCESS;
+    mal_uint32 totalPCMFramesProcessed;
+    mal_bool32 wasStartedOnEntry;
 
-    pDevice->null_device.breakFromMainLoop = MAL_TRUE;
-    return MAL_SUCCESS;
-}
+    wasStartedOnEntry = pDevice->null_device.isStarted;
 
-mal_bool32 mal_device__get_current_frame__null(mal_device* pDevice, mal_uint32* pCurrentPos)
-{
-    mal_assert(pDevice != NULL);
-    mal_assert(pCurrentPos != NULL);
-    *pCurrentPos = 0;
-
-    mal_uint64 currentFrameAbs = (mal_uint64)(mal_timer_get_time_in_seconds(&pDevice->null_device.timer) * pDevice->sampleRate);
-
-    *pCurrentPos = (mal_uint32)(currentFrameAbs % pDevice->bufferSizeInFrames);
-    return MAL_TRUE;
-}
-
-mal_uint32 mal_device__get_available_frames__null(mal_device* pDevice)
-{
-    mal_assert(pDevice != NULL);
-
-    mal_uint32 currentFrame;
-    if (!mal_device__get_current_frame__null(pDevice, &currentFrame)) {
-        return 0;
-    }
-
-    // In a playback device the last processed frame should always be ahead of the current frame. The space between
-    // the last processed and current frame (moving forward, starting from the last processed frame) is the amount
-    // of space available to write.
-    //
-    // For a recording device it's the other way around - the last processed frame is always _behind_ the current
-    // frame and the space between is the available space.
-    mal_uint32 totalFrameCount = pDevice->bufferSizeInFrames;
-    if (pDevice->type == mal_device_type_playback) {
-        mal_uint32 committedBeg = currentFrame;
-        mal_uint32 committedEnd = pDevice->null_device.lastProcessedFrame;
-        if (committedEnd <= committedBeg) {
-            committedEnd += totalFrameCount;    // Wrap around.
-        }
-
-        mal_uint32 committedSize = (committedEnd - committedBeg);
-        mal_assert(committedSize <= totalFrameCount);
-
-        return totalFrameCount - committedSize;
-    } else {
-        mal_uint32 validBeg = pDevice->null_device.lastProcessedFrame;
-        mal_uint32 validEnd = currentFrame;
-        if (validEnd < validBeg) {
-            validEnd += totalFrameCount;        // Wrap around.
-        }
-
-        mal_uint32 validSize = (validEnd - validBeg);
-        mal_assert(validSize <= totalFrameCount);
-
-        return validSize;
-    }
-}
-
-mal_uint32 mal_device__wait_for_frames__null(mal_device* pDevice)
-{
-    mal_assert(pDevice != NULL);
-
-    while (!pDevice->null_device.breakFromMainLoop) {
-        mal_uint32 framesAvailable = mal_device__get_available_frames__null(pDevice);
-        if (framesAvailable >= (pDevice->bufferSizeInFrames/pDevice->periods)) {
-            return framesAvailable;
-        }
-
-        mal_sleep(pDevice->bufferSizeInMilliseconds/pDevice->periods);
-    }
-
-    // We'll get here if the loop was terminated. Just return whatever's available.
-    return mal_device__get_available_frames__null(pDevice);
-}
-
-mal_result mal_device_main_loop__null(mal_device* pDevice)
-{
-    mal_assert(pDevice != NULL);
-
-    pDevice->null_device.breakFromMainLoop = MAL_FALSE;
-    while (!pDevice->null_device.breakFromMainLoop) {
-        mal_uint32 framesAvailable = mal_device__wait_for_frames__null(pDevice);
-        if (framesAvailable == 0) {
-            continue;
-        }
-
-        // If it's a playback device, don't bother grabbing more data if the device is being stopped.
-        if (pDevice->null_device.breakFromMainLoop && pDevice->type == mal_device_type_playback) {
-            return MAL_ERROR;
-        }
-
-        if (framesAvailable + pDevice->null_device.lastProcessedFrame > pDevice->bufferSizeInFrames) {
-            framesAvailable = pDevice->bufferSizeInFrames - pDevice->null_device.lastProcessedFrame;
-        }
-
-        mal_uint32 sampleCount = framesAvailable * pDevice->channels;
-        mal_uint32 lockOffset  = pDevice->null_device.lastProcessedFrame * pDevice->channels * mal_get_bytes_per_sample(pDevice->format);
-        mal_uint32 lockSize    = sampleCount * mal_get_bytes_per_sample(pDevice->format);
-
-        if (pDevice->type == mal_device_type_playback) {
-            if (pDevice->null_device.breakFromMainLoop) {
-                return MAL_ERROR;
+    /* Keep going until everything has been read. */
+    totalPCMFramesProcessed = 0;
+    while (totalPCMFramesProcessed < pcmFrameCount) {
+        /* If there are any frames remaining in the current period, consume those first. */
+        if (pDevice->null_device.currentPeriodFramesRemainingPlayback > 0) {
+            mal_uint32 framesRemaining = (pcmFrameCount - totalPCMFramesProcessed);
+            mal_uint32 framesToProcess = pDevice->null_device.currentPeriodFramesRemainingPlayback;
+            if (framesToProcess > framesRemaining) {
+                framesToProcess = framesRemaining;
             }
 
-            mal_device__read_frames_from_client(pDevice, framesAvailable, pDevice->null_device.pBuffer + lockOffset);
-        } else {
-            mal_zero_memory(pDevice->null_device.pBuffer + lockOffset, lockSize);
-            mal_device__send_frames_to_client(pDevice, framesAvailable, pDevice->null_device.pBuffer + lockOffset);
+            /* We don't actually do anything with pPCMFrames, so just mark it as unused to prevent a warning. */
+            (void)pPCMFrames;
+
+            pDevice->null_device.currentPeriodFramesRemainingPlayback -= framesToProcess;
+            totalPCMFramesProcessed += framesToProcess;
         }
 
-        pDevice->null_device.lastProcessedFrame = (pDevice->null_device.lastProcessedFrame + framesAvailable) % pDevice->bufferSizeInFrames;
+        /* If we've consumed the current period we'll need to mark it as such an ensure the device is started if it's not already. */
+        if (pDevice->null_device.currentPeriodFramesRemainingPlayback == 0) {
+            pDevice->null_device.currentPeriodFramesRemainingPlayback = 0;
+
+            if (!pDevice->null_device.isStarted && !wasStartedOnEntry) {
+                result = mal_device_start__null(pDevice);
+                if (result != MAL_SUCCESS) {
+                    break;
+                }
+            }
+        }
+
+        /* If we've consumed the whole buffer we can return now. */
+        mal_assert(totalPCMFramesProcessed <= pcmFrameCount);
+        if (totalPCMFramesProcessed == pcmFrameCount) {
+            break;
+        }
+
+        /* Getting here means we've still got more frames to consume, we but need to wait for it to become available. */
+        mal_uint64 targetFrame = pDevice->null_device.lastProcessedFramePlayback;
+        for (;;) {
+            /* Stop waiting if the device has been stopped. */
+            if (!pDevice->null_device.isStarted) {
+                break;
+            }
+
+            mal_uint64 currentFrame = mal_device_get_total_run_time_in_frames__null(pDevice);
+            if (currentFrame >= targetFrame) {
+                break;
+            }
+
+            /* Getting here means we haven't yet reached the target sample, so continue waiting. */
+            mal_sleep(10);
+        }
+
+        pDevice->null_device.lastProcessedFramePlayback += pDevice->bufferSizeInFrames/pDevice->periods;
+        pDevice->null_device.currentPeriodFramesRemainingPlayback = pDevice->bufferSizeInFrames/pDevice->periods;
     }
 
-    return MAL_SUCCESS;
+    return result;
 }
 
+mal_result mal_device_read__null(mal_device* pDevice, void* pPCMFrames, mal_uint32 pcmFrameCount)
+{
+    mal_result result = MAL_SUCCESS;
+    mal_uint32 totalPCMFramesProcessed;
+
+    /* The device needs to be started immediately. */
+    if (!pDevice->null_device.isStarted) {
+        result = mal_device_start__null(pDevice);
+        if (result != MAL_SUCCESS) {
+            return result;
+        }
+    }
+
+    /* Keep going until everything has been read. */
+    totalPCMFramesProcessed = 0;
+    while (totalPCMFramesProcessed < pcmFrameCount) {
+        /* If there are any frames remaining in the current period, consume those first. */
+        if (pDevice->null_device.currentPeriodFramesRemainingCapture > 0) {
+            mal_uint32 bpf = mal_get_bytes_per_frame(pDevice->internalFormat, pDevice->internalChannels);
+            mal_uint32 framesRemaining = (pcmFrameCount - totalPCMFramesProcessed);
+            mal_uint32 framesToProcess = pDevice->null_device.currentPeriodFramesRemainingCapture;
+            if (framesToProcess > framesRemaining) {
+                framesToProcess = framesRemaining;
+            }
+
+            /* We need to ensured the output buffer is zeroed. */
+            mal_zero_memory(mal_offset_ptr(pPCMFrames, totalPCMFramesProcessed*bpf), framesToProcess*bpf);
+
+            pDevice->null_device.currentPeriodFramesRemainingCapture -= framesToProcess;
+            totalPCMFramesProcessed += framesToProcess;
+        }
+
+        /* If we've consumed the current period we'll need to mark it as such an ensure the device is started if it's not already. */
+        if (pDevice->null_device.currentPeriodFramesRemainingCapture == 0) {
+            pDevice->null_device.currentPeriodFramesRemainingCapture = 0;
+        }
+
+        /* If we've consumed the whole buffer we can return now. */
+        mal_assert(totalPCMFramesProcessed <= pcmFrameCount);
+        if (totalPCMFramesProcessed == pcmFrameCount) {
+            break;
+        }
+
+        /* Getting here means we've still got more frames to consume, we but need to wait for it to become available. */
+        mal_uint64 targetFrame = pDevice->null_device.lastProcessedFrameCapture + (pDevice->bufferSizeInFrames/pDevice->periods);
+        for (;;) {
+            /* Stop waiting if the device has been stopped. */
+            if (!pDevice->null_device.isStarted) {
+                break;
+            }
+
+            mal_uint64 currentFrame = mal_device_get_total_run_time_in_frames__null(pDevice);
+            if (currentFrame >= targetFrame) {
+                break;
+            }
+
+            /* Getting here means we haven't yet reached the target sample, so continue waiting. */
+            mal_sleep(10);
+        }
+
+        pDevice->null_device.lastProcessedFrameCapture          += pDevice->bufferSizeInFrames/pDevice->periods;
+        pDevice->null_device.currentPeriodFramesRemainingCapture = pDevice->bufferSizeInFrames/pDevice->periods;
+    }
+
+    return result;
+}
 
 mal_result mal_context_uninit__null(mal_context* pContext)
 {
@@ -4947,10 +5076,10 @@ mal_result mal_context_init__null(mal_context* pContext)
     pContext->onDeviceUninit        = mal_device_uninit__null;
     pContext->onDeviceStart         = mal_device_start__null;
     pContext->onDeviceStop          = mal_device_stop__null;
-    pContext->onDeviceBreakMainLoop = mal_device_break_main_loop__null;
-    pContext->onDeviceMainLoop      = mal_device_main_loop__null;
+    pContext->onDeviceWrite         = mal_device_write__null;
+    pContext->onDeviceRead          = mal_device_read__null;
 
-    // The null backend always works.
+    /* The null backend always works. */
     return MAL_SUCCESS;
 }
 #endif
