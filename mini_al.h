@@ -10715,7 +10715,7 @@ mal_uint32 mal_device__wait_for_frames__alsa(mal_device* pDevice, mal_bool32* pR
     return framesAvailable;
 }
 
-mal_bool32 mal_device_write__alsa(mal_device* pDevice)
+mal_bool32 mal_device_read_from_client_and_write__alsa(mal_device* pDevice)
 {
     mal_assert(pDevice != NULL);
     if (!mal_device_is_started(pDevice) && mal_device__get_state(pDevice) != MAL_STATE_STARTING) {
@@ -10816,7 +10816,7 @@ mal_bool32 mal_device_write__alsa(mal_device* pDevice)
     return MAL_TRUE;
 }
 
-mal_bool32 mal_device_read__alsa(mal_device* pDevice)
+mal_bool32 mal_device_read_and_send_to_client__alsa(mal_device* pDevice)
 {
     mal_assert(pDevice != NULL);
     if (!mal_device_is_started(pDevice)) {
@@ -11242,7 +11242,7 @@ mal_result mal_device_start__alsa(mal_device* pDevice)
     // ... and then grab an initial chunk from the client. After this is done, the device should
     // automatically start playing, since that's how we configured the software parameters.
     if (pDevice->type == mal_device_type_playback) {
-        if (!mal_device_write__alsa(pDevice)) {
+        if (!mal_device_read_from_client_and_write__alsa(pDevice)) {
             return mal_post_error(pDevice, MAL_LOG_LEVEL_ERROR, "[ALSA] Failed to write initial chunk of data to the playback device.", MAL_FAILED_TO_SEND_DATA_TO_DEVICE);
         }
 
@@ -11285,11 +11285,11 @@ mal_result mal_device_main_loop__alsa(mal_device* pDevice)
     pDevice->alsa.breakFromMainLoop = MAL_FALSE;
     if (pDevice->type == mal_device_type_playback) {
         // Playback. Read from client, write to device.
-        while (!pDevice->alsa.breakFromMainLoop && mal_device_write__alsa(pDevice)) {
+        while (!pDevice->alsa.breakFromMainLoop && mal_device_read_from_client_and_write__alsa(pDevice)) {
         }
     } else {
         // Capture. Read from device, write to client.
-        while (!pDevice->alsa.breakFromMainLoop && mal_device_read__alsa(pDevice)) {
+        while (!pDevice->alsa.breakFromMainLoop && mal_device_read_and_send_to_client__alsa(pDevice)) {
         }
     }
 
