@@ -1630,10 +1630,12 @@ struct mal_context
             mal_proc snd_pcm_sw_params_current;
             mal_proc snd_pcm_sw_params_set_avail_min;
             mal_proc snd_pcm_sw_params_set_start_threshold;
+            mal_proc snd_pcm_sw_params_set_stop_threshold;
             mal_proc snd_pcm_sw_params;
             mal_proc snd_pcm_format_mask_sizeof;
             mal_proc snd_pcm_format_mask_test;
             mal_proc snd_pcm_get_chmap;
+            mal_proc snd_pcm_state;
             mal_proc snd_pcm_prepare;
             mal_proc snd_pcm_start;
             mal_proc snd_pcm_drop;
@@ -9827,6 +9829,17 @@ typedef struct
     unsigned int pos[0];
 } mal_snd_pcm_chmap_t;
 
+// snd_pcm_state_t
+#define MAL_SND_PCM_STATE_OPEN                  0
+#define MAL_SND_PCM_STATE_SETUP                 1
+#define MAL_SND_PCM_STATE_PREPARED              2
+#define MAL_SND_PCM_STATE_RUNNING               3
+#define MAL_SND_PCM_STATE_XRUN                  4
+#define MAL_SND_PCM_STATE_DRAINING              5
+#define MAL_SND_PCM_STATE_PAUSED                6
+#define MAL_SND_PCM_STATE_SUSPENDED             7
+#define MAL_SND_PCM_STATE_DISCONNECTED          8
+
 // snd_pcm_stream_t
 #define MAL_SND_PCM_STREAM_PLAYBACK             0
 #define MAL_SND_PCM_STREAM_CAPTURE              1
@@ -9929,10 +9942,12 @@ typedef size_t                (* mal_snd_pcm_sw_params_sizeof_proc)             
 typedef int                   (* mal_snd_pcm_sw_params_current_proc)             (mal_snd_pcm_t *pcm, mal_snd_pcm_sw_params_t *params);
 typedef int                   (* mal_snd_pcm_sw_params_set_avail_min_proc)       (mal_snd_pcm_t *pcm, mal_snd_pcm_sw_params_t *params, mal_snd_pcm_uframes_t val);
 typedef int                   (* mal_snd_pcm_sw_params_set_start_threshold_proc) (mal_snd_pcm_t *pcm, mal_snd_pcm_sw_params_t *params, mal_snd_pcm_uframes_t val);
+typedef int                   (* mal_snd_pcm_sw_params_set_stop_threshold_proc)  (mal_snd_pcm_t *pcm, mal_snd_pcm_sw_params_t *params, mal_snd_pcm_uframes_t val);
 typedef int                   (* mal_snd_pcm_sw_params_proc)                     (mal_snd_pcm_t *pcm, mal_snd_pcm_sw_params_t *params);
 typedef size_t                (* mal_snd_pcm_format_mask_sizeof_proc)            (void);
 typedef int                   (* mal_snd_pcm_format_mask_test_proc)              (const mal_snd_pcm_format_mask_t *mask, mal_snd_pcm_format_t val);
 typedef mal_snd_pcm_chmap_t * (* mal_snd_pcm_get_chmap_proc)                     (mal_snd_pcm_t *pcm);
+typedef int                   (* mal_snd_pcm_state_proc)                         (mal_snd_pcm_t *pcm);
 typedef int                   (* mal_snd_pcm_prepare_proc)                       (mal_snd_pcm_t *pcm);
 typedef int                   (* mal_snd_pcm_start_proc)                         (mal_snd_pcm_t *pcm);
 typedef int                   (* mal_snd_pcm_drop_proc)                          (mal_snd_pcm_t *pcm);
@@ -10715,6 +10730,7 @@ mal_uint32 mal_device__wait_for_frames__alsa(mal_device* pDevice, mal_bool32* pR
     return framesAvailable;
 }
 
+#if 0
 mal_bool32 mal_device_read_from_client_and_write__alsa(mal_device* pDevice)
 {
     mal_assert(pDevice != NULL);
@@ -10913,6 +10929,7 @@ mal_bool32 mal_device_read_and_send_to_client__alsa(mal_device* pDevice)
 
     return MAL_TRUE;
 }
+#endif
 
 void mal_device_uninit__alsa(mal_device* pDevice)
 {
@@ -11008,11 +11025,13 @@ mal_result mal_device_init__alsa(mal_context* pContext, mal_device_type type, co
     //
     // Try using interleaved MMAP access. If this fails, fall back to standard readi/writei.
     pDevice->alsa.isUsingMMap = MAL_FALSE;
-    if (!pConfig->alsa.noMMap && pDevice->type != mal_device_type_capture) {    // <-- Disabling MMAP mode for capture devices because I apparently do not have a device that supports it which means I can't test it... Contributions welcome.
+#if 0   /* NOTE: MMAP mode temporarily disabled. */
+    if (!pConfig->alsa.noMMap && pDevice->type != mal_device_type_capture && mal_device__is_async(pDevice)) {    // <-- Disabling MMAP mode for capture devices because I apparently do not have a device that supports it which means I can't test it... Contributions welcome.
         if (((mal_snd_pcm_hw_params_set_access_proc)pContext->alsa.snd_pcm_hw_params_set_access)((mal_snd_pcm_t*)pDevice->alsa.pPCM, pHWParams, MAL_SND_PCM_ACCESS_MMAP_INTERLEAVED) == 0) {
             pDevice->alsa.isUsingMMap = MAL_TRUE;
         }
     }
+#endif
 
     if (!pDevice->alsa.isUsingMMap) {
         if (((mal_snd_pcm_hw_params_set_access_proc)pContext->alsa.snd_pcm_hw_params_set_access)((mal_snd_pcm_t*)pDevice->alsa.pPCM, pHWParams, MAL_SND_PCM_ACCESS_RW_INTERLEAVED) < 0) {;
@@ -11162,6 +11181,10 @@ mal_result mal_device_init__alsa(mal_context* pContext, mal_device_type type, co
             mal_device_uninit__alsa(pDevice);
             return mal_post_error(pDevice, MAL_LOG_LEVEL_ERROR, "[ALSA] Failed to set start threshold for playback device. snd_pcm_sw_params_set_start_threshold() failed.", MAL_FAILED_TO_CONFIGURE_BACKEND_DEVICE);
         }
+        if (((mal_snd_pcm_sw_params_set_stop_threshold_proc)pContext->alsa.snd_pcm_sw_params_set_stop_threshold)((mal_snd_pcm_t*)pDevice->alsa.pPCM, pSWParams, pDevice->bufferSizeInFrames) != 0) {
+            mal_device_uninit__alsa(pDevice);
+            return mal_post_error(pDevice, MAL_LOG_LEVEL_ERROR, "[ALSA] Failed to set start threshold for playback device. snd_pcm_sw_params_set_stop_threshold() failed.", MAL_FAILED_TO_CONFIGURE_BACKEND_DEVICE);
+        }
     }
 
     if (((mal_snd_pcm_sw_params_proc)pContext->alsa.snd_pcm_sw_params)((mal_snd_pcm_t*)pDevice->alsa.pPCM, pSWParams) != 0) {
@@ -11226,10 +11249,16 @@ mal_result mal_device_init__alsa(mal_context* pContext, mal_device_type type, co
         mal_get_standard_channel_map(mal_standard_channel_map_alsa, pDevice->internalChannels, pDevice->internalChannelMap);
     }
 
+
+    if (((mal_snd_pcm_prepare_proc)pDevice->pContext->alsa.snd_pcm_prepare)((mal_snd_pcm_t*)pDevice->alsa.pPCM) < 0) {
+        mal_device_uninit__alsa(pDevice);
+        return mal_post_error(pDevice, MAL_LOG_LEVEL_ERROR, "[ALSA] Failed to prepare device.", MAL_FAILED_TO_START_BACKEND_DEVICE);
+    }
+
     return MAL_SUCCESS;
 }
 
-
+#if 0
 mal_result mal_device_start__alsa(mal_device* pDevice)
 {
     mal_assert(pDevice != NULL);
@@ -11260,6 +11289,7 @@ mal_result mal_device_start__alsa(mal_device* pDevice)
 
     return MAL_SUCCESS;
 }
+#endif
 
 mal_result mal_device_stop__alsa(mal_device* pDevice)
 {
@@ -11270,6 +11300,101 @@ mal_result mal_device_stop__alsa(mal_device* pDevice)
     return MAL_SUCCESS;
 }
 
+mal_result mal_device_write__alsa(mal_device* pDevice, const void* pPCMFrames, mal_uint32 pcmFrameCount)
+{
+    mal_snd_pcm_sframes_t resultALSA;
+    mal_uint32 totalPCMFramesProcessed;
+
+    mal_assert(pDevice != NULL);
+    mal_assert(pPCMFrames != NULL);
+
+    totalPCMFramesProcessed = 0;
+    while (totalPCMFramesProcessed < pcmFrameCount) {
+        const void* pSrc = mal_offset_ptr(pPCMFrames, totalPCMFramesProcessed * mal_get_bytes_per_frame(pDevice->internalFormat, pDevice->internalChannels));
+        mal_uint32 framesRemaining = (pcmFrameCount - totalPCMFramesProcessed);
+
+        resultALSA = ((mal_snd_pcm_writei_proc)pDevice->pContext->alsa.snd_pcm_writei)((mal_snd_pcm_t*)pDevice->alsa.pPCM, pSrc, framesRemaining);
+        if (resultALSA < 0) {
+            if (resultALSA == -EAGAIN) {
+                continue;   /* Try again. */
+            } else if (resultALSA == -EPIPE) {
+                /* Underrun. Recover and try again. If this fails we need to return an error. */
+                if (((mal_snd_pcm_recover_proc)pDevice->pContext->alsa.snd_pcm_recover)((mal_snd_pcm_t*)pDevice->alsa.pPCM, resultALSA, MAL_TRUE) < 0) { /* MAL_TRUE=silent (don't print anything on error). */
+                    return mal_post_error(pDevice, MAL_LOG_LEVEL_ERROR, "[ALSA] Failed to recover device after underrun.", MAL_FAILED_TO_START_BACKEND_DEVICE);
+                }
+
+                /*
+                In my testing I have had a situation where writei() does not automatically restart the device even though I've set it
+                up as such in the software parameters. What will happen is writei() will block indefinitely even though the number of
+                frames is well beyond the auto-start threshold. To work around this I've needed to add an explicit start here. Not sure
+                if this is me just being stupid and not recovering the device properly, but this definitely feels like something isn't
+                quite right here.
+                */
+                if (((mal_snd_pcm_start_proc)pDevice->pContext->alsa.snd_pcm_start)((mal_snd_pcm_t*)pDevice->alsa.pPCM) < 0) {
+                    return mal_post_error(pDevice, MAL_LOG_LEVEL_ERROR, "[ALSA] Failed to start device after underrun.", MAL_FAILED_TO_START_BACKEND_DEVICE);
+                }
+
+                resultALSA = ((mal_snd_pcm_writei_proc)pDevice->pContext->alsa.snd_pcm_writei)((mal_snd_pcm_t*)pDevice->alsa.pPCM, pSrc, framesRemaining);
+                if (resultALSA < 0) {
+                    return mal_post_error(pDevice, MAL_LOG_LEVEL_ERROR, "[ALSA] Failed to write data to the internal device.", MAL_FAILED_TO_SEND_DATA_TO_DEVICE);
+                }
+            }
+        }
+
+        totalPCMFramesProcessed += resultALSA;
+    }
+
+    return MAL_SUCCESS;
+}
+
+mal_result mal_device_read__alsa(mal_device* pDevice, void* pPCMFrames, mal_uint32 pcmFrameCount)
+{
+    mal_snd_pcm_sframes_t resultALSA;
+    mal_uint32 totalPCMFramesProcessed;
+
+    mal_assert(pDevice != NULL);
+    mal_assert(pPCMFrames != NULL);
+
+    /* We need to explicitly start the device if it isn't already. */
+    if (((mal_snd_pcm_state_proc)pDevice->pContext->alsa.snd_pcm_state)((mal_snd_pcm_t*)pDevice->alsa.pPCM) != MAL_SND_PCM_STATE_RUNNING) {
+        if (((mal_snd_pcm_start_proc)pDevice->pContext->alsa.snd_pcm_start)((mal_snd_pcm_t*)pDevice->alsa.pPCM) < 0) {
+            return mal_post_error(pDevice, MAL_LOG_LEVEL_ERROR, "[ALSA] Failed to start device in preparation for reading.", MAL_FAILED_TO_START_BACKEND_DEVICE);
+        }
+    }
+
+    totalPCMFramesProcessed = 0;
+    while (totalPCMFramesProcessed < pcmFrameCount) {
+        void* pDst = mal_offset_ptr(pPCMFrames, totalPCMFramesProcessed * mal_get_bytes_per_frame(pDevice->internalFormat, pDevice->internalChannels));
+        mal_uint32 framesRemaining = (pcmFrameCount - totalPCMFramesProcessed);
+
+        resultALSA = ((mal_snd_pcm_readi_proc)pDevice->pContext->alsa.snd_pcm_readi)((mal_snd_pcm_t*)pDevice->alsa.pPCM, pDst, framesRemaining);
+        if (resultALSA < 0) {
+            if (resultALSA == -EAGAIN) {
+                continue;
+            } else if (resultALSA == -EPIPE) {
+                /* Overrun. Recover and try again. If this fails we need to return an error. */
+                if (((mal_snd_pcm_recover_proc)pDevice->pContext->alsa.snd_pcm_recover)((mal_snd_pcm_t*)pDevice->alsa.pPCM, resultALSA, MAL_TRUE) < 0) {
+                    return mal_post_error(pDevice, MAL_LOG_LEVEL_ERROR, "[ALSA] Failed to recover device after overrun.", MAL_FAILED_TO_START_BACKEND_DEVICE);
+                }
+
+                if (((mal_snd_pcm_start_proc)pDevice->pContext->alsa.snd_pcm_start)((mal_snd_pcm_t*)pDevice->alsa.pPCM) < 0) {
+                    return mal_post_error(pDevice, MAL_LOG_LEVEL_ERROR, "[ALSA] Failed to start device after underrun.", MAL_FAILED_TO_START_BACKEND_DEVICE);
+                }
+
+                resultALSA = ((mal_snd_pcm_readi_proc)pDevice->pContext->alsa.snd_pcm_readi)((mal_snd_pcm_t*)pDevice->alsa.pPCM, pDst, framesRemaining);
+                if (resultALSA < 0) {
+                    return mal_post_error(pDevice, MAL_LOG_LEVEL_ERROR, "[ALSA] Failed to read data from the internal device.", MAL_FAILED_TO_READ_DATA_FROM_DEVICE);
+                }
+            }
+        }
+
+        totalPCMFramesProcessed += resultALSA;
+    }
+
+    return MAL_SUCCESS;
+}
+
+#if 0
 mal_result mal_device_break_main_loop__alsa(mal_device* pDevice)
 {
     mal_assert(pDevice != NULL);
@@ -11295,7 +11420,7 @@ mal_result mal_device_main_loop__alsa(mal_device* pDevice)
 
     return MAL_SUCCESS;
 }
-
+#endif
 
 mal_result mal_context_uninit__alsa(mal_context* pContext)
 {
@@ -11366,10 +11491,12 @@ mal_result mal_context_init__alsa(mal_context* pContext)
     pContext->alsa.snd_pcm_sw_params_current              = (mal_proc)mal_dlsym(pContext->alsa.asoundSO, "snd_pcm_sw_params_current");
     pContext->alsa.snd_pcm_sw_params_set_avail_min        = (mal_proc)mal_dlsym(pContext->alsa.asoundSO, "snd_pcm_sw_params_set_avail_min");
     pContext->alsa.snd_pcm_sw_params_set_start_threshold  = (mal_proc)mal_dlsym(pContext->alsa.asoundSO, "snd_pcm_sw_params_set_start_threshold");
+    pContext->alsa.snd_pcm_sw_params_set_stop_threshold   = (mal_proc)mal_dlsym(pContext->alsa.asoundSO, "snd_pcm_sw_params_set_stop_threshold");
     pContext->alsa.snd_pcm_sw_params                      = (mal_proc)mal_dlsym(pContext->alsa.asoundSO, "snd_pcm_sw_params");
     pContext->alsa.snd_pcm_format_mask_sizeof             = (mal_proc)mal_dlsym(pContext->alsa.asoundSO, "snd_pcm_format_mask_sizeof");
     pContext->alsa.snd_pcm_format_mask_test               = (mal_proc)mal_dlsym(pContext->alsa.asoundSO, "snd_pcm_format_mask_test");
     pContext->alsa.snd_pcm_get_chmap                      = (mal_proc)mal_dlsym(pContext->alsa.asoundSO, "snd_pcm_get_chmap");
+    pContext->alsa.snd_pcm_state                          = (mal_proc)mal_dlsym(pContext->alsa.asoundSO, "snd_pcm_state");
     pContext->alsa.snd_pcm_prepare                        = (mal_proc)mal_dlsym(pContext->alsa.asoundSO, "snd_pcm_prepare");
     pContext->alsa.snd_pcm_start                          = (mal_proc)mal_dlsym(pContext->alsa.asoundSO, "snd_pcm_start");
     pContext->alsa.snd_pcm_drop                           = (mal_proc)mal_dlsym(pContext->alsa.asoundSO, "snd_pcm_drop");
@@ -11420,10 +11547,12 @@ mal_result mal_context_init__alsa(mal_context* pContext)
     mal_snd_pcm_sw_params_current_proc              _snd_pcm_sw_params_current              = snd_pcm_sw_params_current;
     mal_snd_pcm_sw_params_set_avail_min_proc        _snd_pcm_sw_params_set_avail_min        = snd_pcm_sw_params_set_avail_min;
     mal_snd_pcm_sw_params_set_start_threshold_proc  _snd_pcm_sw_params_set_start_threshold  = snd_pcm_sw_params_set_start_threshold;
+    mal_snd_pcm_sw_params_set_stop_threshold_proc   _snd_pcm_sw_params_set_stop_threshold   = snd_pcm_sw_params_set_stop_threshold;
     mal_snd_pcm_sw_params_proc                      _snd_pcm_sw_params                      = snd_pcm_sw_params;
     mal_snd_pcm_format_mask_sizeof_proc             _snd_pcm_format_mask_sizeof             = snd_pcm_format_mask_sizeof;
     mal_snd_pcm_format_mask_test_proc               _snd_pcm_format_mask_test               = snd_pcm_format_mask_test;
     mal_snd_pcm_get_chmap_proc                      _snd_pcm_get_chmap                      = snd_pcm_get_chmap;
+    mal_snd_pcm_state_proc                          _snd_pcm_state                          = snd_pcm_state;
     mal_snd_pcm_prepare_proc                        _snd_pcm_prepare                        = snd_pcm_prepare;
     mal_snd_pcm_start_proc                          _snd_pcm_start                          = snd_pcm_start;
     mal_snd_pcm_drop_proc                           _snd_pcm_drop                           = snd_pcm_drop;
@@ -11471,10 +11600,12 @@ mal_result mal_context_init__alsa(mal_context* pContext)
     pContext->alsa.snd_pcm_sw_params_current              = (mal_proc)_snd_pcm_sw_params_current;
     pContext->alsa.snd_pcm_sw_params_set_avail_min        = (mal_proc)_snd_pcm_sw_params_set_avail_min;
     pContext->alsa.snd_pcm_sw_params_set_start_threshold  = (mal_proc)_snd_pcm_sw_params_set_start_threshold;
+    pContext->alsa.snd_pcm_sw_params_set_stop_threshold   = (mal_proc)_snd_pcm_sw_params_set_stop_threshold;
     pContext->alsa.snd_pcm_sw_params                      = (mal_proc)_snd_pcm_sw_params;
     pContext->alsa.snd_pcm_format_mask_sizeof             = (mal_proc)_snd_pcm_format_mask_sizeof;
     pContext->alsa.snd_pcm_format_mask_test               = (mal_proc)_snd_pcm_format_mask_test;
     pContext->alsa.snd_pcm_get_chmap                      = (mal_proc)_snd_pcm_get_chmap;
+    pContext->alsa.snd_pcm_state                          = (mal_proc)_snd_pcm_state;
     pContext->alsa.snd_pcm_prepare                        = (mal_proc)_snd_pcm_prepare;
     pContext->alsa.snd_pcm_start                          = (mal_proc)_snd_pcm_start;
     pContext->alsa.snd_pcm_drop                           = (mal_proc)_snd_pcm_drop;
@@ -11507,10 +11638,10 @@ mal_result mal_context_init__alsa(mal_context* pContext)
     pContext->onGetDeviceInfo       = mal_context_get_device_info__alsa;
     pContext->onDeviceInit          = mal_device_init__alsa;
     pContext->onDeviceUninit        = mal_device_uninit__alsa;
-    pContext->onDeviceStart         = mal_device_start__alsa;
+    pContext->onDeviceStart         = NULL; /*mal_device_start__alsa;*/
     pContext->onDeviceStop          = mal_device_stop__alsa;
-    pContext->onDeviceBreakMainLoop = mal_device_break_main_loop__alsa;
-    pContext->onDeviceMainLoop      = mal_device_main_loop__alsa;
+    pContext->onDeviceWrite         = mal_device_write__alsa;
+    pContext->onDeviceRead          = mal_device_read__alsa;
 
     return MAL_SUCCESS;
 }
