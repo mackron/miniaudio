@@ -1101,8 +1101,8 @@ mal_pcm_converter_config mal_pcm_converter_config_init_ex(mal_format formatIn, m
 // A return value of 0 indicates an error.
 //
 // This function is useful for one-off bulk conversions, but if you're streaming data you should use the DSP APIs instead.
-mal_uint64 mal_convert_frames(void* pOut, mal_format formatOut, mal_uint32 channelsOut, mal_uint32 sampleRateOut, const void* pIn, mal_format formatIn, mal_uint32 channelsIn, mal_uint32 sampleRateIn, mal_uint64 frameCountIn);
-mal_uint64 mal_convert_frames_ex(void* pOut, mal_format formatOut, mal_uint32 channelsOut, mal_uint32 sampleRateOut, mal_channel channelMapOut[MAL_MAX_CHANNELS], const void* pIn, mal_format formatIn, mal_uint32 channelsIn, mal_uint32 sampleRateIn, mal_channel channelMapIn[MAL_MAX_CHANNELS], mal_uint64 frameCountIn);
+mal_uint64 mal_convert_frames(void* pOut, mal_format formatOut, mal_uint32 channelsOut, mal_uint32 sampleRateOut, const void* pIn, mal_format formatIn, mal_uint32 channelsIn, mal_uint32 sampleRateIn, mal_uint64 frameCount);
+mal_uint64 mal_convert_frames_ex(void* pOut, mal_format formatOut, mal_uint32 channelsOut, mal_uint32 sampleRateOut, mal_channel channelMapOut[MAL_MAX_CHANNELS], const void* pIn, mal_format formatIn, mal_uint32 channelsIn, mal_uint32 sampleRateIn, mal_channel channelMapIn[MAL_MAX_CHANNELS], mal_uint64 frameCount);
 
 
 
@@ -26700,7 +26700,7 @@ mal_pcm_converter_config mal_pcm_converter_config_init_ex(mal_format formatIn, m
 
 
 
-mal_uint64 mal_convert_frames(void* pOut, mal_format formatOut, mal_uint32 channelsOut, mal_uint32 sampleRateOut, const void* pIn, mal_format formatIn, mal_uint32 channelsIn, mal_uint32 sampleRateIn, mal_uint64 frameCountIn)
+mal_uint64 mal_convert_frames(void* pOut, mal_format formatOut, mal_uint32 channelsOut, mal_uint32 sampleRateOut, const void* pIn, mal_format formatIn, mal_uint32 channelsIn, mal_uint32 sampleRateIn, mal_uint64 frameCount)
 {
     mal_channel channelMapOut[MAL_MAX_CHANNELS];
     mal_get_standard_channel_map(mal_standard_channel_map_default, channelsOut, channelMapOut);
@@ -26708,16 +26708,16 @@ mal_uint64 mal_convert_frames(void* pOut, mal_format formatOut, mal_uint32 chann
     mal_channel channelMapIn[MAL_MAX_CHANNELS];
     mal_get_standard_channel_map(mal_standard_channel_map_default, channelsIn, channelMapIn);
 
-    return mal_convert_frames_ex(pOut, formatOut, channelsOut, sampleRateOut, channelMapOut, pIn, formatIn, channelsIn, sampleRateIn, channelMapIn, frameCountIn);
+    return mal_convert_frames_ex(pOut, formatOut, channelsOut, sampleRateOut, channelMapOut, pIn, formatIn, channelsIn, sampleRateIn, channelMapIn, frameCount);
 }
 
-mal_uint64 mal_convert_frames_ex(void* pOut, mal_format formatOut, mal_uint32 channelsOut, mal_uint32 sampleRateOut, mal_channel channelMapOut[MAL_MAX_CHANNELS], const void* pIn, mal_format formatIn, mal_uint32 channelsIn, mal_uint32 sampleRateIn, mal_channel channelMapIn[MAL_MAX_CHANNELS], mal_uint64 frameCountIn)
+mal_uint64 mal_convert_frames_ex(void* pOut, mal_format formatOut, mal_uint32 channelsOut, mal_uint32 sampleRateOut, mal_channel channelMapOut[MAL_MAX_CHANNELS], const void* pIn, mal_format formatIn, mal_uint32 channelsIn, mal_uint32 sampleRateIn, mal_channel channelMapIn[MAL_MAX_CHANNELS], mal_uint64 frameCount)
 {
-    if (frameCountIn == 0) {
+    if (frameCount == 0) {
         return 0;
     }
 
-    mal_uint64 frameCountOut = mal_calculate_frame_count_after_src(sampleRateOut, sampleRateIn, frameCountIn);
+    mal_uint64 frameCountOut = mal_calculate_frame_count_after_src(sampleRateOut, sampleRateIn, frameCount);
     if (pOut == NULL) {
         return frameCountOut;
     }
@@ -26726,7 +26726,7 @@ mal_uint64 mal_convert_frames_ex(void* pOut, mal_format formatOut, mal_uint32 ch
     data.pDataIn = pIn;
     data.formatIn = formatIn;
     data.channelsIn = channelsIn;
-    data.totalFrameCount = frameCountIn;
+    data.totalFrameCount = frameCount;
     data.iNextFrame = 0;
     data.isFeedingZeros = MAL_FALSE;
 
