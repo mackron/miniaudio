@@ -10,6 +10,7 @@
     #include "../extras/stb_vorbis.c"
 #endif
 
+//#define MAL_DEBUG_OUTPUT
 #define MINI_AL_IMPLEMENTATION
 #include "../mini_al.h"
 
@@ -2247,7 +2248,7 @@ mal_uint32 on_send__playback_test(mal_device* pDevice, mal_uint32 frameCount, vo
     if (pDevice->format == mal_format_f32) {
         for (mal_uint32 iFrame = 0; iFrame < frameCount; ++iFrame) {
             float sample;
-            mal_sine_wave_read(pData->pSineWave, 1, &sample);
+            mal_sine_wave_read_f32(pData->pSineWave, 1, &sample);
 
             for (mal_uint32 iChannel = 0; iChannel < pDevice->channels; ++iChannel) {
                 ((float*)pFrames)[iFrame*pDevice->channels + iChannel] = sample;
@@ -2359,6 +2360,10 @@ int do_playback_test(mal_backend backend)
 #if defined(__EMSCRIPTEN__)
         emscripten_set_main_loop(main_loop__em, 0, 1);
 #endif
+
+        // Test rapid stopping and restarting.
+        //mal_device_stop(&device);
+        //mal_device_start(&device);
 
         mal_event_wait(&callbackData.endOfPlaybackEvent);   // Wait for the sound to finish.
         printf("Done\n");
