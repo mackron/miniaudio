@@ -11,14 +11,16 @@
 #include <stdio.h>
 
 // This is the function that's used for sending more data to the device for playback.
-mal_uint32 on_send_frames_to_device(mal_device* pDevice, mal_uint32 frameCount, void* pSamples)
+void on_send_frames_to_device(mal_device* pDevice, const void* pInput, void* pOutput, mal_uint32 frameCount)
 {
     mal_decoder* pDecoder = (mal_decoder*)pDevice->pUserData;
     if (pDecoder == NULL) {
-        return 0;
+        return;
     }
 
-    return (mal_uint32)mal_decoder_read_pcm_frames(pDecoder, frameCount, pSamples);
+    mal_decoder_read_pcm_frames(pDecoder, frameCount, pOutput);
+
+    (void)pInput;
 }
 
 int main(int argc, char** argv)
@@ -34,7 +36,7 @@ int main(int argc, char** argv)
         return -2;
     }
 
-    mal_device_config config = mal_device_config_init_playback(
+    mal_device_config config = mal_device_config_init(
         decoder.outputFormat,
         decoder.outputChannels,
         decoder.outputSampleRate,

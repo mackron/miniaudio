@@ -30,16 +30,18 @@ mal_uint32 on_convert_samples_out(mal_format_converter* pConverter, mal_uint32 f
     return (mal_uint32)mal_format_converter_read(pConverterIn, frameCount, pFrames, NULL);
 }
 
-mal_uint32 on_send_to_device__original(mal_device* pDevice, mal_uint32 frameCount, void* pFrames)
+void on_send_to_device__original(mal_device* pDevice, const void* pInput, void* pOutput, mal_uint32 frameCount)
 {
-    (void)pDevice;
     mal_assert(pDevice->format == mal_format_f32);
     mal_assert(pDevice->channels == 1);
 
-    return (mal_uint32)mal_sine_wave_read_f32(&sineWave, frameCount, (float*)pFrames);
+    mal_sine_wave_read_f32(&sineWave, frameCount, (float*)pOutput);
+
+    (void)pDevice;
+    (void)pInput;
 }
 
-mal_uint32 on_send_to_device__dithered(mal_device* pDevice, mal_uint32 frameCount, void* pFrames)
+void on_send_to_device__dithered(mal_device* pDevice, const void* pInput, void* pOutput, mal_uint32 frameCount)
 {
     mal_assert(pDevice->channels == 1);
 
@@ -47,12 +49,14 @@ mal_uint32 on_send_to_device__dithered(mal_device* pDevice, mal_uint32 frameCoun
     mal_assert(pConverter != NULL);
     mal_assert(pDevice->format == pConverter->config.formatOut);
 
-    return (mal_uint32)mal_format_converter_read(pConverter, frameCount, pFrames, NULL);
+    mal_format_converter_read(pConverter, frameCount, pOutput, NULL);
+
+    (void)pInput;
 }
 
 int do_dithering_test()
 {
-    mal_device_config config = mal_device_config_init_playback(mal_format_f32, 1, 0, on_send_to_device__original, NULL);
+    mal_device_config config = mal_device_config_init(mal_format_f32, 1, 0, on_send_to_device__original, NULL);
     mal_device device;
     mal_result result;
 
@@ -102,7 +106,7 @@ int do_dithering_test()
         return -3;
     }
 
-    config = mal_device_config_init_playback(converterOutConfig.formatOut, 1, 0, on_send_to_device__dithered, &converterOut);
+    config = mal_device_config_init(converterOutConfig.formatOut, 1, 0, on_send_to_device__dithered, &converterOut);
 
     result = mal_device_init(NULL, mal_device_type_playback, NULL, &config, &device);
     if (result != MAL_SUCCESS) {

@@ -51,6 +51,15 @@
     <ClCompile Include="..\examples\simple_enumeration.c">
       <Filter>Source Files</Filter>
     </ClCompile>
+    <ClCompile Include="mal_duplex.c">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="mal_stop.c">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="..\examples\simple_capture.c">
+      <Filter>Source Files</Filter>
+    </ClCompile>
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="..\mini_al.h">

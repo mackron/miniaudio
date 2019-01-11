@@ -12,7 +12,7 @@ mal_uint32 capturedSampleCount = 0;
 mal_int16* pCapturedSamples = NULL;
 mal_uint32 playbackSample = 0;
 
-void on_recv_frames(mal_device* pDevice, mal_uint32 frameCount, const void* pSamples)
+void on_recv_frames(mal_device* pDevice, const void* pInput, void* pOutput, mal_uint32 frameCount)
 {
     mal_uint32 sampleCount = frameCount * pDevice->channels;
 
@@ -22,13 +22,15 @@ void on_recv_frames(mal_device* pDevice, mal_uint32 frameCount, const void* pSam
         return;
     }
 
-    memcpy(pNewCapturedSamples + capturedSampleCount, pSamples, sampleCount * sizeof(mal_int16));
+    memcpy(pNewCapturedSamples + capturedSampleCount, pInput, sampleCount * sizeof(mal_int16));
 
     pCapturedSamples = pNewCapturedSamples;
     capturedSampleCount = newCapturedSampleCount;
+
+    (void)pOutput;
 }
 
-mal_uint32 on_send_frames(mal_device* pDevice, mal_uint32 frameCount, void* pSamples)
+void on_send_frames(mal_device* pDevice, const void* pInput, void* pOutput, mal_uint32 frameCount)
 {
     mal_uint32 samplesToRead = frameCount * pDevice->channels;
     if (samplesToRead > capturedSampleCount-playbackSample) {
@@ -36,26 +38,27 @@ mal_uint32 on_send_frames(mal_device* pDevice, mal_uint32 frameCount, void* pSam
     }
 
     if (samplesToRead == 0) {
-        return 0;
+        return;
     }
 
-    memcpy(pSamples, pCapturedSamples + playbackSample, samplesToRead * sizeof(mal_int16));
+    memcpy(pOutput, pCapturedSamples + playbackSample, samplesToRead * sizeof(mal_int16));
     playbackSample += samplesToRead;
 
-    return samplesToRead / pDevice->channels;
+    (void)pInput;
 }
 
 int main()
 {
+    mal_device_config config;
+
     mal_context context;
     if (mal_context_init(NULL, 0, NULL, &context) != MAL_SUCCESS) {
         printf("Failed to initialize context.");
         return -1;
     }
 
-    mal_device_config config = mal_device_config_init(mal_format_s16, 2, 48000, on_recv_frames, on_send_frames, NULL);
-
     printf("Recording...\n");
+    config = mal_device_config_init(mal_format_s16, 2, 48000, on_recv_frames, NULL);
     mal_device captureDevice;
     if (mal_device_init(&context, mal_device_type_capture, NULL, &config, &captureDevice) != MAL_SUCCESS) {
         mal_context_uninit(&context);
@@ -78,6 +81,7 @@ int main()
 
 
     printf("Playing...\n");
+    config = mal_device_config_init(mal_format_s16, 2, 48000, on_send_frames, NULL);
     mal_device playbackDevice;
     if (mal_device_init(&context, mal_device_type_playback, NULL, &config, &playbackDevice) != MAL_SUCCESS) {
         mal_context_uninit(&context);

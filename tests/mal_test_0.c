@@ -2232,18 +2232,16 @@ typedef struct
     mal_event endOfPlaybackEvent;
 } playback_test_callback_data;
 
-mal_uint32 on_send__playback_test(mal_device* pDevice, mal_uint32 frameCount, void* pFrames)
+void on_send__playback_test(mal_device* pDevice, const void* pInput, void* pOutput, mal_uint32 frameCount)
 {
     playback_test_callback_data* pData = (playback_test_callback_data*)pDevice->pUserData;
     mal_assert(pData != NULL);
 
 #if !defined(__EMSCRIPTEN__)
-    mal_uint64 framesRead = mal_decoder_read_pcm_frames(pData->pDecoder, frameCount, pFrames);
+    mal_uint64 framesRead = mal_decoder_read_pcm_frames(pData->pDecoder, frameCount, pOutput);
     if (framesRead == 0) {
         mal_event_signal(&pData->endOfPlaybackEvent);
     }
-
-    return (mal_uint32)framesRead;
 #else
     if (pDevice->format == mal_format_f32) {
         for (mal_uint32 iFrame = 0; iFrame < frameCount; ++iFrame) {
@@ -2254,10 +2252,6 @@ mal_uint32 on_send__playback_test(mal_device* pDevice, mal_uint32 frameCount, vo
                 ((float*)pFrames)[iFrame*pDevice->channels + iChannel] = sample;
             }
         }
-
-        return frameCount;
-    } else {
-        return 0;
     }
 #endif
 }
@@ -2290,7 +2284,7 @@ int do_playback_test(mal_backend backend)
     printf("  Opening Device... ");
     {
         mal_context_config contextConfig = mal_context_config_init(on_log);
-        mal_device_config deviceConfig = mal_device_config_init_default_playback(on_send__playback_test, &callbackData);
+        mal_device_config deviceConfig = mal_device_config_init_default(on_send__playback_test, &callbackData);
         deviceConfig.onStopCallback = on_stop__playback_test;
 
     #if defined(__EMSCRIPTEN__)

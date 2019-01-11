@@ -1388,15 +1388,52 @@ typedef struct
 } mal_event;
 
 
-typedef void       (* mal_log_proc) (mal_context* pContext, mal_device* pDevice, mal_uint32 logLevel, const char* message);
-typedef void       (* mal_recv_proc)(mal_device* pDevice, mal_uint32 frameCount, const void* pSamples);
-typedef mal_uint32 (* mal_send_proc)(mal_device* pDevice, mal_uint32 frameCount, void* pSamples);
-typedef void       (* mal_stop_proc)(mal_device* pDevice);
+/*
+The callback for processing audio data from the device.
+
+pInput is a pointer to a buffer containing input data from the device. This will be non-null for a capture or full-duplex device, and
+null for a playback device.
+
+pOutput is a pointer to a buffer that will receive audio data that will later be played back through the speakers. This will be non-null
+for a playback or full-duplex device and null for a capture device.
+
+frameCount is the number of PCM frames to process. If an output buffer is provided (pOutput is not null), applications should write out
+to the entire output buffer.
+
+Do _not_ call any mini_al APIs from the callback. Attempting the stop the device can result in a deadlock. The proper way to stop the
+device is to call mal_device_stop() from a different thread, normally the main application thread.
+*/
+typedef void (* mal_device_callback_proc)(mal_device* pDevice, const void* pInput, void* pOutput, mal_uint32 frameCount);
+
+/*
+The callback for when the device has been stopped.
+
+This will be called when the device is stopped explicitly with mal_device_stop() and also called implicitly when the device is stopped
+through external forces such as being unplugged or an internal error occuring.
+
+Do not restart the device from the callback.
+*/
+typedef void (* mal_stop_proc)(mal_device* pDevice);
+
+/*
+The callback for handling log messages.
+
+It is possible for pDevice to be null in which case the log originated from the context. If it is non-null you can assume the message
+came from the device.
+
+logLevel is one of the following:
+    MAL_LOG_LEVEL_VERBOSE
+    MAL_LOG_LEVEL_INFO
+    MAL_LOG_LEVEL_WARNING
+    MAL_LOG_LEVEL_ERROR
+*/
+typedef void (* mal_log_proc)(mal_context* pContext, mal_device* pDevice, mal_uint32 logLevel, const char* message);
 
 typedef enum
 {
-    mal_device_type_playback,
-    mal_device_type_capture
+    mal_device_type_playback = 1,
+    mal_device_type_capture  = 2,
+    mal_device_type_duplex   = mal_device_type_playback | mal_device_type_capture,
 } mal_device_type;
 
 typedef enum
@@ -1491,8 +1528,7 @@ typedef struct
     mal_uint32 periods;
     mal_share_mode shareMode;
     mal_performance_profile performanceProfile;
-    mal_recv_proc onRecvCallback;
-    mal_send_proc onSendCallback;
+    mal_device_callback_proc onDataCallback;
     mal_stop_proc onStopCallback;
     void* pUserData;
     struct
@@ -1901,8 +1937,7 @@ MAL_ALIGNED_STRUCT(MAL_SIMD_ALIGNMENT) mal_device
     mal_uint32 bufferSizeInMilliseconds;
     mal_uint32 periods;
     mal_uint32 state;
-    mal_recv_proc onRecv;
-    mal_send_proc onSend;
+    mal_device_callback_proc onData;
     mal_stop_proc onStop;
     void* pUserData;                // Application defined data.
     char name[256];
@@ -2372,9 +2407,7 @@ mal_context_config mal_context_config_init(mal_log_proc onLog);
 //
 // mal_device_config_init(), mal_device_config_init_playback(), etc. will allow you to explicitly set the sample format,
 // channel count, etc.
-mal_device_config mal_device_config_init_default(void* pUserData);
-mal_device_config mal_device_config_init_default_capture(mal_recv_proc onRecvCallback, void* pUserData);
-mal_device_config mal_device_config_init_default_playback(mal_send_proc onSendCallback, void* pUserData);
+mal_device_config mal_device_config_init_default(mal_device_callback_proc onDataCallback, void* pUserData);
 
 // Helper function for initializing a mal_device_config object.
 //
@@ -2439,19 +2472,10 @@ mal_device_config mal_device_config_init_default_playback(mal_send_proc onSendCa
 //
 // Efficiency: HIGH
 //   This just returns a stack allocated object and consists of just a few assignments.
-mal_device_config mal_device_config_init_ex(mal_format format, mal_uint32 channels, mal_uint32 sampleRate, mal_channel channelMap[MAL_MAX_CHANNELS], mal_recv_proc onRecvCallback, mal_send_proc onSendCallback, void* pUserData);
+mal_device_config mal_device_config_init_ex(mal_format format, mal_uint32 channels, mal_uint32 sampleRate, mal_channel channelMap[MAL_MAX_CHANNELS], mal_device_callback_proc onDataCallback, void* pUserData);
 
 // A simplified version of mal_device_config_init_ex().
-static MAL_INLINE mal_device_config mal_device_config_init(mal_format format, mal_uint32 channels, mal_uint32 sampleRate, mal_recv_proc onRecvCallback, mal_send_proc onSendCallback, void* pUserData) { return mal_device_config_init_ex(format, channels, sampleRate, NULL, onRecvCallback, onSendCallback, pUserData); }
-
-// A simplified version of mal_device_config_init() for capture devices.
-static MAL_INLINE mal_device_config mal_device_config_init_capture_ex(mal_format format, mal_uint32 channels, mal_uint32 sampleRate, mal_channel channelMap[MAL_MAX_CHANNELS], mal_recv_proc onRecvCallback, void* pUserData) { return mal_device_config_init_ex(format, channels, sampleRate, channelMap, onRecvCallback, NULL, pUserData); }
-static MAL_INLINE mal_device_config mal_device_config_init_capture(mal_format format, mal_uint32 channels, mal_uint32 sampleRate, mal_recv_proc onRecvCallback, void* pUserData) { return mal_device_config_init_capture_ex(format, channels, sampleRate, NULL, onRecvCallback, pUserData); }
-
-// A simplified version of mal_device_config_init() for playback devices.
-static MAL_INLINE mal_device_config mal_device_config_init_playback_ex(mal_format format, mal_uint32 channels, mal_uint32 sampleRate, mal_channel channelMap[MAL_MAX_CHANNELS], mal_send_proc onSendCallback, void* pUserData) { return mal_device_config_init_ex(format, channels, sampleRate, channelMap, NULL, onSendCallback, pUserData); }
-static MAL_INLINE mal_device_config mal_device_config_init_playback(mal_format format, mal_uint32 channels, mal_uint32 sampleRate, mal_send_proc onSendCallback, void* pUserData) { return mal_device_config_init_playback_ex(format, channels, sampleRate, NULL, onSendCallback, pUserData); }
-
+static MAL_INLINE mal_device_config mal_device_config_init(mal_format format, mal_uint32 channels, mal_uint32 sampleRate, mal_device_callback_proc onDataCallback, void* pUserData) { return mal_device_config_init_ex(format, channels, sampleRate, NULL, onDataCallback, pUserData); }
 
 
 //////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -4479,9 +4503,10 @@ mal_uint32 mal_device__on_read_from_client(mal_pcm_converter* pDSP, mal_uint32 f
     mal_device* pDevice = (mal_device*)pUserData;
     mal_assert(pDevice != NULL);
 
-    mal_send_proc onSend = pDevice->onSend;
-    if (onSend) {
-        return onSend(pDevice, frameCount, pFramesOut);
+    mal_device_callback_proc onData = pDevice->onData;
+    if (onData) {
+        onData(pDevice, NULL, pFramesOut, frameCount);
+        return frameCount;
     }
 
     return 0;
@@ -4504,7 +4529,7 @@ mal_uint32 mal_device__on_read_from_device(mal_pcm_converter* pDSP, mal_uint32 f
         framesToRead = pDevice->_dspFrameCount;
     }
 
-    mal_uint32 bytesToRead = framesToRead * pDevice->internalChannels * mal_get_bytes_per_sample(pDevice->internalFormat);
+    mal_uint32 bytesToRead = framesToRead * mal_get_bytes_per_frame(pDevice->internalFormat, pDevice->internalChannels);
     mal_copy_memory(pFramesOut, pDevice->_dspFrames, bytesToRead);
     pDevice->_dspFrameCount -= framesToRead;
     pDevice->_dspFrames += bytesToRead;
@@ -4537,8 +4562,8 @@ static MAL_INLINE void mal_device__send_frames_to_client(mal_device* pDevice, ma
     mal_assert(frameCount > 0);
     mal_assert(pSamples != NULL);
 
-    mal_recv_proc onRecv = pDevice->onRecv;
-    if (onRecv) {
+    mal_device_callback_proc onData = pDevice->onData;
+    if (onData) {
         pDevice->_dspFrameCount = frameCount;
         pDevice->_dspFrames = (const mal_uint8*)pSamples;
 
@@ -4551,7 +4576,7 @@ static MAL_INLINE void mal_device__send_frames_to_client(mal_device* pDevice, ma
                 break;
             }
 
-            onRecv(pDevice, framesJustRead, chunkBuffer);
+            onData(pDevice, chunkBuffer, NULL, framesJustRead);
 
             if (framesJustRead < chunkFrameCount) {
                 break;
@@ -4575,7 +4600,7 @@ static MAL_INLINE mal_uint32 mal_device__get_state(mal_device* pDevice)
 /* A helper for determining whether or not the device is running in async mode. */
 static MAL_INLINE mal_bool32 mal_device__is_async(mal_device* pDevice)
 {
-    return pDevice->onRecv != NULL || pDevice->onSend != NULL;
+    return pDevice->onData != NULL;
 }
 
 
@@ -7075,9 +7100,17 @@ mal_result mal_device_stop__wasapi(mal_device* pDevice)
         return MAL_DEVICE_NOT_INITIALIZED;
     }
 
+    /* TODO: Wait until every sample that was written by the callback has been processed. */
+
     HRESULT hr = mal_IAudioClient_Stop((mal_IAudioClient*)pDevice->wasapi.pAudioClient);
     if (FAILED(hr)) {
         return mal_post_error(pDevice, MAL_LOG_LEVEL_ERROR, "[WASAPI] Failed to stop internal device.", MAL_FAILED_TO_STOP_BACKEND_DEVICE);
+    }
+
+    /* The audio client needs to be reset otherwise restarting will fail. */
+    hr = mal_IAudioClient_Reset((mal_IAudioClient*)pDevice->wasapi.pAudioClient);
+    if (FAILED(hr)) {
+        return mal_post_error(pDevice, MAL_LOG_LEVEL_ERROR, "[WASAPI] Failed to reset internal device.", MAL_FAILED_TO_STOP_BACKEND_DEVICE);
     }
 
     mal_atomic_exchange_32(&pDevice->wasapi.isStarted, MAL_FALSE);
@@ -8469,6 +8502,10 @@ mal_result mal_device_start__dsound(mal_device* pDevice)
 mal_result mal_device_stop__dsound(mal_device* pDevice)
 {
     mal_assert(pDevice != NULL);
+
+    if (!pDevice->dsound.isStarted) {
+        return MAL_DEVICE_NOT_STARTED;
+    }
 
     if (pDevice->type == mal_device_type_playback) {
         if (FAILED(mal_IDirectSoundBuffer_Stop((mal_IDirectSoundBuffer*)pDevice->dsound.pPlaybackBuffer))) {
@@ -12358,14 +12395,13 @@ mal_pa_channel_position_t mal_channel_position_to_pulse(mal_channel position)
 }
 #endif
 
-
 mal_result mal_wait_for_operation__pulse(mal_context* pContext, mal_pa_mainloop* pMainLoop, mal_pa_operation* pOP)
 {
     mal_assert(pContext != NULL);
     mal_assert(pMainLoop != NULL);
     mal_assert(pOP != NULL);
 
-    while (((mal_pa_operation_get_state_proc)pContext->pulse.pa_operation_get_state)(pOP) != MAL_PA_OPERATION_DONE) {
+    while (((mal_pa_operation_get_state_proc)pContext->pulse.pa_operation_get_state)(pOP) == MAL_PA_OPERATION_RUNNING) {
         int error = ((mal_pa_mainloop_iterate_proc)pContext->pulse.pa_mainloop_iterate)(pMainLoop, 1, NULL);
         if (error < 0) {
             return mal_result_from_pulse(error);
@@ -12698,6 +12734,11 @@ void mal_pulse_device_write_callback(mal_pa_stream* pStream, size_t sizeInBytes,
     printf("[PulseAudio] write_callback: sizeInBytes=%d\n", (int)sizeInBytes);
 #endif
 
+    /* Don't do anything if the device is stopping. Not doing this will result in draining never completing. */
+    if (mal_device__get_state(pDevice) == MAL_STATE_STOPPING) {
+        return;
+    }
+
     size_t bytesRemaining = sizeInBytes;
     while (bytesRemaining > 0) {
         size_t bytesToReadFromClient = bytesRemaining;
@@ -12754,6 +12795,11 @@ void mal_pulse_device_read_callback(mal_pa_stream* pStream, size_t sizeInBytes, 
 
     mal_context* pContext = pDevice->pContext;
     mal_assert(pContext != NULL);
+
+    /* Don't do anything if the device is stopping. */
+    if (mal_device__get_state(pDevice) == MAL_STATE_STOPPING) {
+        return;
+    }
 
     size_t bytesRemaining = sizeInBytes;
     while (bytesRemaining > 0) {
@@ -13190,13 +13236,20 @@ mal_result mal_device_start__pulse(mal_device* pDevice)
 mal_result mal_device_stop__pulse(mal_device* pDevice)
 {
     mal_result result;
+    mal_bool32 wasSuccessful;
+    mal_pa_operation* pOP;
 
     mal_assert(pDevice != NULL);
 
-    /*
-    Corking the device without flushing or draining should satisfy the requirements of mal_device_stop() which is that it must not
-    drop unprocessed samples.
-    */
+    /* The stream needs to be drained if it's a playback device. */
+    if (pDevice->type == mal_device_type_playback) {
+        pOP = ((mal_pa_stream_drain_proc)pDevice->pContext->pulse.pa_stream_drain)((mal_pa_stream*)pDevice->pulse.pStream, mal_pulse_operation_complete_callback, &wasSuccessful);
+        if (pOP != NULL) {
+            mal_device__wait_for_operation__pulse(pDevice, pOP);
+            ((mal_pa_operation_unref_proc)pDevice->pContext->pulse.pa_operation_unref)(pOP);
+        }
+    }
+    
     result = mal_device__cork_stream__pulse(pDevice, 1);
     if (result != MAL_SUCCESS) {
         return result;
@@ -13869,7 +13922,6 @@ mal_result mal_device_stop__jack(mal_device* pDevice)
         return mal_post_error(pDevice, MAL_LOG_LEVEL_ERROR, "[JACK] An error occurred when deactivating the JACK client.", MAL_ERROR);
     }
     
-    mal_device__set_state(pDevice, MAL_STATE_STOPPED);
     mal_stop_proc onStop = pDevice->onStop;
     if (onStop) {
         onStop(pDevice);
@@ -15328,7 +15380,7 @@ OSStatus mal_on_output__coreaudio(void* pUserData, AudioUnitRenderActionFlags* p
 
     mal_device* pDevice = (mal_device*)pUserData;
     mal_assert(pDevice != NULL);
-    
+
 #if defined(MAL_DEBUG_OUTPUT)
     printf("INFO: Output Callback: busNumber=%d, frameCount=%d, mNumberBuffers=%d\n", busNumber, frameCount, pBufferList->mNumberBuffers);
 #endif
@@ -18842,18 +18894,16 @@ void mal_buffer_queue_callback__opensl_android(SLAndroidSimpleBufferQueueItf pBu
     // For now, don't do anything unless the buffer was fully processed. From what I can tell, it looks like
     // OpenSL|ES 1.1 improves on buffer queues to the point that we could much more intelligently handle this,
     // but unfortunately it looks like Android is only supporting OpenSL|ES 1.0.1 for now :(
+
+    /* Don't do anything if the device is not started. */
     if (pDevice->state != MAL_STATE_STARTED) {
         return;
     }
 
-    size_t periodSizeInBytes = pDevice->opensl.periodSizeInFrames * pDevice->internalChannels * mal_get_bytes_per_sample(pDevice->internalFormat);
+    size_t periodSizeInBytes = pDevice->opensl.periodSizeInFrames * mal_get_bytes_per_frame(pDevice->internalFormat, pDevice->internalChannels);
     mal_uint8* pBuffer = pDevice->opensl.pBuffer + (pDevice->opensl.currentBufferIndex * periodSizeInBytes);
 
     if (pDevice->type == mal_device_type_playback) {
-        if (pDevice->state != MAL_STATE_STARTED) {
-            return;
-        }
-
         mal_device__read_frames_from_client(pDevice, pDevice->opensl.periodSizeInFrames, pBuffer);
 
         SLresult resultSL = MAL_OPENSL_BUFFERQUEUE(pDevice->opensl.pBufferQueue)->Enqueue((SLAndroidSimpleBufferQueueItf)pDevice->opensl.pBufferQueue, pBuffer, periodSizeInBytes);
@@ -19226,6 +19276,8 @@ mal_result mal_device_stop__opensl(mal_device* pDevice)
     if (g_malOpenSLInitCounter == 0) {
         return MAL_INVALID_OPERATION;
     }
+
+    /* TODO: Wait until all buffers have been processed. Hint: Maybe SLAndroidSimpleBufferQueue::GetState() could be used in a loop? */
 
     if (pDevice->type == mal_device_type_playback) {
         SLresult resultSL = MAL_OPENSL_PLAY(pDevice->opensl.pAudioPlayer)->SetPlayState((SLPlayItf)pDevice->opensl.pAudioPlayer, SL_PLAYSTATE_STOPPED);
@@ -20520,7 +20572,7 @@ mal_result mal_device_init(mal_context* pContext, mal_device_type type, mal_devi
     // The config is allowed to be NULL, in which case we default to mal_device_config_init_default().
     mal_device_config config;
     if (pConfig == NULL) {
-        config = mal_device_config_init_default(NULL);
+        config = mal_device_config_init_default(NULL, NULL);
     } else {
         config = *pConfig;
     }
@@ -20540,9 +20592,8 @@ mal_result mal_device_init(mal_context* pContext, mal_device_type type, mal_devi
 
     // Set the user data and log callback ASAP to ensure it is available for the entire initialization process.
     pDevice->pUserData = config.pUserData;
+    pDevice->onData = config.onDataCallback;
     pDevice->onStop = config.onStopCallback;
-    pDevice->onSend = config.onSendCallback;
-    pDevice->onRecv = config.onRecvCallback;
 
     if (((size_t)pDevice % sizeof(pDevice)) != 0) {
         if (pContext->config.onLog) {
@@ -20780,11 +20831,6 @@ mal_result mal_device_write(mal_device* pDevice, const void* pPCMFrames, mal_uin
         return MAL_INVALID_ARGS;
     }
 
-    /* Not allowed to call this in asynchronous mode. */
-    if (pDevice->onRecv != NULL || pDevice->onSend != NULL) {
-        return MAL_INVALID_OPERATION;
-    }
-
     /* Backend must supporting synchronous writes. */
     if (pDevice->pContext->onDeviceWrite == NULL) {
         return MAL_INVALID_OPERATION;
@@ -21012,41 +21058,22 @@ mal_context_config mal_context_config_init(mal_log_proc onLog)
 }
 
 
-mal_device_config mal_device_config_init_default(void* pUserData)
+mal_device_config mal_device_config_init_default(mal_device_callback_proc onDataCallback, void* pUserData)
 {
     mal_device_config config;
     mal_zero_object(&config);
+    config.onDataCallback = onDataCallback;
     config.pUserData = pUserData;
 
     return config;
 }
 
-mal_device_config mal_device_config_init_default_capture(mal_recv_proc onRecvCallback, void* pUserData)
+mal_device_config mal_device_config_init_ex(mal_format format, mal_uint32 channels, mal_uint32 sampleRate, mal_channel channelMap[MAL_MAX_CHANNELS], mal_device_callback_proc onDataCallback, void* pUserData)
 {
-    mal_device_config config = mal_device_config_init_default(pUserData);
-    config.onRecvCallback = onRecvCallback;
-
-    return config;
-}
-
-mal_device_config mal_device_config_init_default_playback(mal_send_proc onSendCallback, void* pUserData)
-{
-    mal_device_config config = mal_device_config_init_default(pUserData);
-    config.onSendCallback = onSendCallback;
-
-    return config;
-}
-
-
-mal_device_config mal_device_config_init_ex(mal_format format, mal_uint32 channels, mal_uint32 sampleRate, mal_channel channelMap[MAL_MAX_CHANNELS], mal_recv_proc onRecvCallback, mal_send_proc onSendCallback, void* pUserData)
-{
-    mal_device_config config = mal_device_config_init_default(pUserData);
-
+    mal_device_config config = mal_device_config_init_default(onDataCallback, pUserData);
     config.format = format;
     config.channels = channels;
     config.sampleRate = sampleRate;
-    config.onRecvCallback = onRecvCallback;
-    config.onSendCallback = onSendCallback;
 
     if (channels > 0) {
         if (channelMap == NULL) {
