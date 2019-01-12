@@ -30,7 +30,7 @@ mal_uint32 on_convert_samples_out(mal_format_converter* pConverter, mal_uint32 f
     return (mal_uint32)mal_format_converter_read(pConverterIn, frameCount, pFrames, NULL);
 }
 
-void on_send_to_device__original(mal_device* pDevice, const void* pInput, void* pOutput, mal_uint32 frameCount)
+void on_send_to_device__original(mal_device* pDevice, void* pOutput, const void* pInput, mal_uint32 frameCount)
 {
     mal_assert(pDevice->format == mal_format_f32);
     mal_assert(pDevice->channels == 1);
@@ -41,7 +41,7 @@ void on_send_to_device__original(mal_device* pDevice, const void* pInput, void* 
     (void)pInput;
 }
 
-void on_send_to_device__dithered(mal_device* pDevice, const void* pInput, void* pOutput, mal_uint32 frameCount)
+void on_send_to_device__dithered(mal_device* pDevice, void* pOutput, const void* pInput, mal_uint32 frameCount)
 {
     mal_assert(pDevice->channels == 1);
 

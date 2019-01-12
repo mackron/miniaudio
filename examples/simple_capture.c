@@ -12,7 +12,7 @@ mal_uint32 capturedSampleCount = 0;
 mal_int16* pCapturedSamples = NULL;
 mal_uint32 playbackSample = 0;
 
-void on_recv_frames(mal_device* pDevice, const void* pInput, void* pOutput, mal_uint32 frameCount)
+void on_recv_frames(mal_device* pDevice, void* pOutput, const void* pInput, mal_uint32 frameCount)
 {
     mal_uint32 sampleCount = frameCount * pDevice->channels;
 
@@ -30,7 +30,7 @@ void on_recv_frames(mal_device* pDevice, const void* pInput, void* pOutput, mal_
     (void)pOutput;
 }
 
-void on_send_frames(mal_device* pDevice, const void* pInput, void* pOutput, mal_uint32 frameCount)
+void on_send_frames(mal_device* pDevice, void* pOutput, const void* pInput, mal_uint32 frameCount)
 {
     mal_uint32 samplesToRead = frameCount * pDevice->channels;
     if (samplesToRead > capturedSampleCount-playbackSample) {

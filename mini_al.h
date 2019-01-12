@@ -1391,11 +1391,11 @@ typedef struct
 /*
 The callback for processing audio data from the device.
 
-pInput is a pointer to a buffer containing input data from the device. This will be non-null for a capture or full-duplex device, and
-null for a playback device.
-
 pOutput is a pointer to a buffer that will receive audio data that will later be played back through the speakers. This will be non-null
 for a playback or full-duplex device and null for a capture device.
+
+pInput is a pointer to a buffer containing input data from the device. This will be non-null for a capture or full-duplex device, and
+null for a playback device.
 
 frameCount is the number of PCM frames to process. If an output buffer is provided (pOutput is not null), applications should write out
 to the entire output buffer.
@@ -1403,7 +1403,7 @@ to the entire output buffer.
 Do _not_ call any mini_al APIs from the callback. Attempting the stop the device can result in a deadlock. The proper way to stop the
 device is to call mal_device_stop() from a different thread, normally the main application thread.
 */
-typedef void (* mal_device_callback_proc)(mal_device* pDevice, const void* pInput, void* pOutput, mal_uint32 frameCount);
+typedef void (* mal_device_callback_proc)(mal_device* pDevice, void* pOutput, const void* pInput, mal_uint32 frameCount);
 
 /*
 The callback for when the device has been stopped.
@@ -4505,7 +4505,7 @@ mal_uint32 mal_device__on_read_from_client(mal_pcm_converter* pDSP, mal_uint32 f
 
     mal_device_callback_proc onData = pDevice->onData;
     if (onData) {
-        onData(pDevice, NULL, pFramesOut, frameCount);
+        onData(pDevice, pFramesOut, NULL, frameCount);
         return frameCount;
     }
 
@@ -4576,7 +4576,7 @@ static MAL_INLINE void mal_device__send_frames_to_client(mal_device* pDevice, ma
                 break;
             }
 
-            onData(pDevice, chunkBuffer, NULL, framesJustRead);
+            onData(pDevice, NULL, chunkBuffer, framesJustRead);
 
             if (framesJustRead < chunkFrameCount) {
                 break;

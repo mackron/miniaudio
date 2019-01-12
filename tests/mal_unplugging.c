@@ -23,12 +23,12 @@ void on_stop(mal_device* pDevice)
     mal_event_signal(&g_stopEvent);
 }
 
-mal_uint32 on_send(mal_device* pDevice, mal_uint32 frameCount, void* pFramesOut)
+void on_send(mal_device* pDevice, void* pFramesOut, const void* pFramesIn, mal_uint32 frameCount)
 {
     mal_assert(pDevice != NULL);
 
     //printf("TESTING: %d\n", frameCount);
-    return (mal_uint32)mal_sine_wave_read_f32_ex(&g_sineWave, frameCount, pDevice->channels, mal_stream_layout_interleaved, (float**)&pFramesOut);
+    mal_sine_wave_read_f32_ex(&g_sineWave, frameCount, pDevice->channels, mal_stream_layout_interleaved, (float**)&pFramesOut);
 }
 
 int main()

@@ -14,7 +14,7 @@ void on_stop(mal_device* pDevice)
     printf("STOPPED\n");
 }
 
-void data_callback(mal_device* pDevice, const void* pInput, void* pOutput, mal_uint32 frameCount)
+void data_callback(mal_device* pDevice, void* pOutput, const void* pInput, mal_uint32 frameCount)
 {
     (void)pInput;   /* Not used yet. */
 

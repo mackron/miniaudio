@@ -10,8 +10,7 @@
 
 #include <stdio.h>
 
-// This is the function that's used for sending more data to the device for playback.
-void on_send_frames_to_device(mal_device* pDevice, const void* pInput, void* pOutput, mal_uint32 frameCount)
+void on_send_frames_to_device(mal_device* pDevice, void* pOutput, const void* pInput, mal_uint32 frameCount)
 {
     mal_decoder* pDecoder = (mal_decoder*)pDevice->pUserData;
     if (pDecoder == NULL) {

@@ -2232,7 +2232,7 @@ typedef struct
     mal_event endOfPlaybackEvent;
 } playback_test_callback_data;
 
-void on_send__playback_test(mal_device* pDevice, const void* pInput, void* pOutput, mal_uint32 frameCount)
+void on_send__playback_test(mal_device* pDevice, void* pOutput, const void* pInput, mal_uint32 frameCount)
 {
     playback_test_callback_data* pData = (playback_test_callback_data*)pDevice->pUserData;
     mal_assert(pData != NULL);
