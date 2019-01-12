@@ -14,7 +14,7 @@ void on_stop(mal_device* pDevice)
     printf("STOPPED\n");
 }
 
-void data_callback(mal_device* pDevice, void* pOutput, const void* pInput, mal_uint32 frameCount)
+void on_data(mal_device* pDevice, void* pOutput, const void* pInput, mal_uint32 frameCount)
 {
     (void)pInput;   /* Not used yet. */
 
@@ -54,15 +54,16 @@ int main(int argc, char** argv)
 
     mal_sine_wave_init(0.25, 400, 44100, &sineWave);
 
-    mal_device_config config = mal_device_config_init_default(data_callback, NULL);
+    mal_device_config config = mal_device_config_init(mal_device_type_playback);
     config.format = mal_format_f32;
     config.channels = 2;
     config.sampleRate = 44100;
-    config.onStopCallback = on_stop;
+    config.dataCallback = on_data;
+    config.stopCallback = on_stop;
     config.bufferSizeInFrames = 16384*4;
 
     mal_device device;
-    result = mal_device_init_ex(&backend, 1, NULL, mal_device_type_playback, NULL, &config, &device);
+    result = mal_device_init_ex(&backend, 1, NULL, &config, &device);
     if (result != MAL_SUCCESS) {
         printf("Failed to initialize device.\n");
         return result;

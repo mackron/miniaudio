@@ -56,12 +56,18 @@ void on_send_to_device__dithered(mal_device* pDevice, void* pOutput, const void*
 
 int do_dithering_test()
 {
-    mal_device_config config = mal_device_config_init(mal_format_f32, 1, 0, on_send_to_device__original, NULL);
+    mal_device_config config;
     mal_device device;
     mal_result result;
 
+    config = mal_device_config_init(mal_device_type_playback);
+    config.format = mal_format_f32;
+    config.channels = 1;
+    config.sampleRate = 0;
+    config.dataCallback = on_send_to_device__original;
+
     // We first play the sound the way it's meant to be played.
-    result = mal_device_init(NULL, mal_device_type_playback, NULL, &config, &device);
+    result = mal_device_init(NULL, &config, &device);
     if (result != MAL_SUCCESS) {
         return -1;
     }
@@ -106,9 +112,11 @@ int do_dithering_test()
         return -3;
     }
 
-    config = mal_device_config_init(converterOutConfig.formatOut, 1, 0, on_send_to_device__dithered, &converterOut);
 
-    result = mal_device_init(NULL, mal_device_type_playback, NULL, &config, &device);
+    config.dataCallback = on_send_to_device__dithered;
+    config.pUserData = &converterOut;
+
+    result = mal_device_init(NULL, &config, &device);
     if (result != MAL_SUCCESS) {
         return -1;
     }

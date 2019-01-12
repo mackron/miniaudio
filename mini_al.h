@@ -1585,7 +1585,7 @@ typedef struct
     mal_uint32 periods;
     mal_share_mode shareMode;
     mal_performance_profile performanceProfile;
-    mal_device_callback_proc callback;
+    mal_device_callback_proc dataCallback;
     mal_stop_proc stopCallback;
     void* pUserData;
     struct
@@ -1640,7 +1640,7 @@ struct mal_context
     mal_bool32 (* onDeviceIDEqual      )(mal_context* pContext, const mal_device_id* pID0, const mal_device_id* pID1);
     mal_result (* onEnumDevices        )(mal_context* pContext, mal_enum_devices_callback_proc callback, void* pUserData);    // Return false from the callback to stop enumeration.
     mal_result (* onGetDeviceInfo      )(mal_context* pContext, mal_device_type type, const mal_device_id* pDeviceID, mal_share_mode shareMode, mal_device_info* pDeviceInfo);
-    mal_result (* onDeviceInit         )(mal_context* pContext, mal_device_type type, const mal_device_id* pDeviceID, const mal_device_config* pConfig, mal_device* pDevice);
+    mal_result (* onDeviceInit         )(mal_context* pContext, const mal_device_config* pConfig, mal_device* pDevice);
     void       (* onDeviceUninit       )(mal_device* pDevice);
     mal_result (* onDeviceReinit       )(mal_device* pDevice);
     mal_result (* onDeviceStart        )(mal_device* pDevice);
@@ -2369,13 +2369,13 @@ mal_result mal_context_get_device_info(mal_context* pContext, mal_device_type ty
 //   It is not safe to call this function simultaneously for different devices because some backends
 //   depend on and mutate global state (such as OpenSL|ES). The same applies to calling this at the
 //   same time as mal_device_uninit().
-mal_result mal_device_init(mal_context* pContext, mal_device_type type, mal_device_id* pDeviceID, const mal_device_config* pConfig, mal_device* pDevice);
+mal_result mal_device_init(mal_context* pContext, const mal_device_config* pConfig, mal_device* pDevice);
 
 // Initializes a device without a context, with extra parameters for controlling the configuration
 // of the internal self-managed context.
 //
 // See mal_device_init() and mal_context_init().
-mal_result mal_device_init_ex(const mal_backend backends[], mal_uint32 backendCount, const mal_context_config* pContextConfig, mal_device_type type, mal_device_id* pDeviceID, const mal_device_config* pConfig, mal_device* pDevice);
+mal_result mal_device_init_ex(const mal_backend backends[], mal_uint32 backendCount, const mal_context_config* pContextConfig, const mal_device_config* pConfig, mal_device* pDevice);
 
 // Uninitializes a device.
 //
@@ -4891,11 +4891,9 @@ void mal_device_uninit__null(mal_device* pDevice)
     mal_event_uninit(&pDevice->null_device.operationEvent);
 }
 
-mal_result mal_device_init__null(mal_context* pContext, mal_device_type type, const mal_device_id* pDeviceID, const mal_device_config* pConfig, mal_device* pDevice)
+mal_result mal_device_init__null(mal_context* pContext, const mal_device_config* pConfig, mal_device* pDevice)
 {
     (void)pContext;
-    (void)type;
-    (void)pDeviceID;
     (void)pConfig;
 
     mal_result result;
@@ -4903,7 +4901,7 @@ mal_result mal_device_init__null(mal_context* pContext, mal_device_type type, co
     mal_assert(pDevice != NULL);
     mal_zero_object(&pDevice->null_device);
 
-    if (type == mal_device_type_playback) {
+    if (pConfig->deviceType == mal_device_type_playback) {
         mal_strncpy_s(pDevice->name, sizeof(pDevice->name), "NULL Playback Device", (size_t)-1);
     } else {
         mal_strncpy_s(pDevice->name, sizeof(pDevice->name), "NULL Capture Device", (size_t)-1);
@@ -6984,7 +6982,7 @@ mal_result mal_device_reinit__wasapi(mal_device* pDevice)
     return MAL_SUCCESS;
 }
 
-mal_result mal_device_init__wasapi(mal_context* pContext, mal_device_type type, const mal_device_id* pDeviceID, const mal_device_config* pConfig, mal_device* pDevice)
+mal_result mal_device_init__wasapi(mal_context* pContext, const mal_device_config* pConfig, mal_device* pDevice)
 {
     (void)pContext;
 
@@ -7007,7 +7005,7 @@ mal_result mal_device_init__wasapi(mal_context* pContext, mal_device_type type, 
     data.usingDefaultSampleRate = pDevice->usingDefaultSampleRate;
     data.usingDefaultChannelMap = pDevice->usingDefaultChannelMap;
     data.shareMode = pConfig->shareMode;
-    result = mal_device_init_internal__wasapi(pDevice->pContext, type, pDeviceID, &data);
+    result = mal_device_init_internal__wasapi(pDevice->pContext, pConfig->deviceType, pConfig->pDeviceID, &data);
     if (result != MAL_SUCCESS) {
         return result;
     }
@@ -7059,7 +7057,7 @@ mal_result mal_device_init__wasapi(mal_context* pContext, mal_device_type type, 
     The playback event also needs to be initially set to a signaled state so that the first call to mal_device_write() is able
     to get passed WaitForMultipleObjects().
     */
-    if (type == mal_device_type_playback) {
+    if (pConfig->deviceType == mal_device_type_playback) {
         pDevice->wasapi.hEventPlayback = CreateEventA(NULL, TRUE, TRUE, NULL);  /* Manual reset, signaled by default. */
         if (pDevice->wasapi.hEventPlayback == NULL) {
             errorMsg = "[WASAPI] Failed to create event for playback."; result = MAL_FAILED_TO_CREATE_EVENT;
@@ -7073,7 +7071,7 @@ mal_result mal_device_init__wasapi(mal_context* pContext, mal_device_type type, 
     The event for capture needs to be manual reset for the same reason as playback. We keep the initial state set to unsignaled,
     however, because we want to block until we actually have something for the first call to mal_device_read().
     */
-    if (type == mal_device_type_capture) {
+    if (pConfig->deviceType == mal_device_type_capture) {
         pDevice->wasapi.hEventCapture = CreateEventA(NULL, TRUE, FALSE, NULL);  /* Manual reset, unsignaled by default. */
         if (pDevice->wasapi.hEventCapture == NULL) {
             errorMsg = "[WASAPI] Failed to create event for capture."; result = MAL_FAILED_TO_CREATE_EVENT;
@@ -8257,7 +8255,7 @@ void mal_device_uninit__dsound(mal_device* pDevice)
     }
 }
 
-mal_result mal_device_init__dsound(mal_context* pContext, mal_device_type type, const mal_device_id* pDeviceID, const mal_device_config* pConfig, mal_device* pDevice)
+mal_result mal_device_init__dsound(mal_context* pContext, const mal_device_config* pConfig, mal_device* pDevice)
 {
     (void)pContext;
 
@@ -8309,8 +8307,8 @@ mal_result mal_device_init__dsound(mal_context* pContext, mal_device_type type, 
     wf.SubFormat                   = subformat;
 
     // Unfortunately DirectSound uses different APIs and data structures for playback and catpure devices :(
-    if (type == mal_device_type_playback) {
-        mal_result result = mal_context_create_IDirectSound__dsound(pContext, pConfig->shareMode, pDeviceID, (mal_IDirectSound**)&pDevice->dsound.pPlayback);
+    if (pConfig->deviceType == mal_device_type_playback) {
+        mal_result result = mal_context_create_IDirectSound__dsound(pContext, pConfig->shareMode, pConfig->pDeviceID, (mal_IDirectSound**)&pDevice->dsound.pPlayback);
         if (result != MAL_SUCCESS) {
             mal_device_uninit__dsound(pDevice);
             return result;
@@ -8424,7 +8422,7 @@ mal_result mal_device_init__dsound(mal_context* pContext, mal_device_type type, 
             return mal_post_error(pDevice, MAL_LOG_LEVEL_ERROR, "[DirectSound] IDirectSound_CreateSoundBuffer() failed for playback device's secondary buffer.", MAL_FAILED_TO_OPEN_BACKEND_DEVICE);
         }
     } else {
-        mal_result result = mal_context_create_IDirectSoundCapture__dsound(pContext, pConfig->shareMode, pDeviceID, (mal_IDirectSoundCapture**)&pDevice->dsound.pCapture);
+        mal_result result = mal_context_create_IDirectSoundCapture__dsound(pContext, pConfig->shareMode, pConfig->pDeviceID, (mal_IDirectSoundCapture**)&pDevice->dsound.pCapture);
         if (result != MAL_SUCCESS) {
             mal_device_uninit__dsound(pDevice);
             return result;
@@ -9259,7 +9257,7 @@ void mal_device_uninit__winmm(mal_device* pDevice)
     mal_zero_object(&pDevice->winmm);   // Safety.
 }
 
-mal_result mal_device_init__winmm(mal_context* pContext, mal_device_type type, const mal_device_id* pDeviceID, const mal_device_config* pConfig, mal_device* pDevice)
+mal_result mal_device_init__winmm(mal_context* pContext, const mal_device_config* pConfig, mal_device* pDevice)
 {
     (void)pContext;
 
@@ -9283,8 +9281,8 @@ mal_result mal_device_init__winmm(mal_context* pContext, mal_device_type type, c
     }
 
     UINT winMMDeviceID = 0;
-    if (pDeviceID != NULL) {
-        winMMDeviceID = (UINT)pDeviceID->winmm;
+    if (pConfig->pDeviceID != NULL) {
+        winMMDeviceID = (UINT)pConfig->pDeviceID->winmm;
     }
 
     const char* errorMsg = "";
@@ -9330,7 +9328,7 @@ mal_result mal_device_init__winmm(mal_context* pContext, mal_device_type type, c
     // Change the format based on the closest match of the supported standard formats.
     DWORD dwFormats = 0;
     WORD wChannels = 0;
-    if (type == mal_device_type_playback) {
+    if (pConfig->deviceType == mal_device_type_playback) {
         WAVEOUTCAPSA caps;
         if (((MAL_PFN_waveOutGetDevCapsA)pContext->winmm.waveOutGetDevCapsA)(winMMDeviceID, &caps, sizeof(caps)) == MMSYSERR_NOERROR) {
             dwFormats = caps.dwFormats;
@@ -9375,7 +9373,7 @@ mal_result mal_device_init__winmm(mal_context* pContext, mal_device_type type, c
     }
 
 
-    if (type == mal_device_type_playback) {
+    if (pConfig->deviceType == mal_device_type_playback) {
         MMRESULT resultMM = ((MAL_PFN_waveOutOpen)pContext->winmm.waveOutOpen)((LPHWAVEOUT)&pDevice->winmm.hDevice, winMMDeviceID, &wf, (DWORD_PTR)pDevice->winmm.hEvent, (DWORD_PTR)pDevice, CALLBACK_EVENT | WAVE_ALLOWSYNC);
         if (resultMM != MMSYSERR_NOERROR) {
             errorMsg = "[WinMM] Failed to open playback device.", errorCode = MAL_FAILED_TO_OPEN_BACKEND_DEVICE;
@@ -10992,7 +10990,7 @@ void mal_device_uninit__alsa(mal_device* pDevice)
     }
 }
 
-mal_result mal_device_init__alsa(mal_context* pContext, mal_device_type type, const mal_device_id* pDeviceID, const mal_device_config* pConfig, mal_device* pDevice)
+mal_result mal_device_init__alsa(mal_context* pContext, const mal_device_config* pConfig, mal_device* pDevice)
 {
     (void)pContext;
 
@@ -11001,7 +10999,7 @@ mal_result mal_device_init__alsa(mal_context* pContext, mal_device_type type, co
 
     mal_snd_pcm_format_t formatALSA = mal_convert_mal_format_to_alsa_format(pConfig->format);
 
-    mal_result result = mal_context_open_pcm__alsa(pContext, pConfig->shareMode, type, pDeviceID, (mal_snd_pcm_t**)&pDevice->alsa.pPCM);
+    mal_result result = mal_context_open_pcm__alsa(pContext, pConfig->shareMode, pConfig->deviceType, pConfig->pDeviceID, (mal_snd_pcm_t**)&pDevice->alsa.pPCM);
     if (result != MAL_SUCCESS) {
         return result;
     }
@@ -11032,8 +11030,8 @@ mal_result mal_device_init__alsa(mal_context* pContext, mal_device_type type, co
                         char* IOID = ((mal_snd_device_name_get_hint_proc)pContext->alsa.snd_device_name_get_hint)(*ppNextDeviceHint, "IOID");
 
                         mal_bool32 foundDevice = MAL_FALSE;
-                        if ((type == mal_device_type_playback && (IOID == NULL || mal_strcmp(IOID, "Output") == 0)) ||
-                            (type == mal_device_type_capture  && (IOID != NULL && mal_strcmp(IOID, "Input" ) == 0))) {
+                        if ((pConfig->deviceType == mal_device_type_playback && (IOID == NULL || mal_strcmp(IOID, "Output") == 0)) ||
+                            (pConfig->deviceType == mal_device_type_capture  && (IOID != NULL && mal_strcmp(IOID, "Input" ) == 0))) {
                             if (mal_strcmp(NAME, deviceName) == 0) {
                                 bufferSizeScaleFactor = mal_find_default_buffer_size_scale__alsa(DESC);
                                 foundDevice = MAL_TRUE;
@@ -11224,7 +11222,7 @@ mal_result mal_device_init__alsa(mal_context* pContext, mal_device_type type, co
         return mal_post_error(pDevice, MAL_LOG_LEVEL_ERROR, "[ALSA] snd_pcm_sw_params_set_avail_min() failed.", MAL_FORMAT_NOT_SUPPORTED);
     }
 
-    if (type == mal_device_type_playback && !pDevice->alsa.isUsingMMap) {   // Only playback devices in writei/readi mode need a start threshold.
+    if (pConfig->deviceType == mal_device_type_playback && !pDevice->alsa.isUsingMMap) {   // Only playback devices in writei/readi mode need a start threshold.
         if (((mal_snd_pcm_sw_params_set_start_threshold_proc)pContext->alsa.snd_pcm_sw_params_set_start_threshold)((mal_snd_pcm_t*)pDevice->alsa.pPCM, pSWParams, /*(pDevice->sampleRate/1000) * 1*/ pDevice->bufferSizeInFrames/pDevice->periods) != 0) { //mal_prev_power_of_2(pDevice->bufferSizeInFrames/pDevice->periods)
             mal_device_uninit__alsa(pDevice);
             return mal_post_error(pDevice, MAL_LOG_LEVEL_ERROR, "[ALSA] Failed to set start threshold for playback device. snd_pcm_sw_params_set_start_threshold() failed.", MAL_FAILED_TO_CONFIGURE_BACKEND_DEVICE);
@@ -12909,7 +12907,7 @@ void mal_device_uninit__pulse(mal_device* pDevice)
     ((mal_pa_mainloop_free_proc)pContext->pulse.pa_mainloop_free)((mal_pa_mainloop*)pDevice->pulse.pMainLoop);
 }
 
-mal_result mal_device_init__pulse(mal_context* pContext, mal_device_type type, const mal_device_id* pDeviceID, const mal_device_config* pConfig, mal_device* pDevice)
+mal_result mal_device_init__pulse(mal_context* pContext, const mal_device_config* pConfig, mal_device* pDevice)
 {
     (void)pContext;
 
@@ -12925,8 +12923,8 @@ mal_result mal_device_init__pulse(mal_context* pContext, mal_device_type type, c
     }
 
     const char* dev = NULL;
-    if (pDeviceID != NULL) {
-        dev = pDeviceID->pulse;
+    if (pConfig->pDeviceID != NULL) {
+        dev = pConfig->pDeviceID->pulse;
     }
 
     mal_uint32 bufferSizeInFrames = pConfig->bufferSizeInFrames;
@@ -13001,7 +12999,7 @@ mal_result mal_device_init__pulse(mal_context* pContext, mal_device_type type, c
     }
 
 
-    if (type == mal_device_type_playback) {
+    if (pConfig->deviceType == mal_device_type_playback) {
         pOP = ((mal_pa_context_get_sink_info_by_name_proc)pContext->pulse.pa_context_get_sink_info_by_name)((mal_pa_context*)pDevice->pulse.pPulseContext, dev, mal_device_sink_info_callback, &sinkInfo);
     } else {
         pOP = ((mal_pa_context_get_source_info_by_name_proc)pContext->pulse.pa_context_get_source_info_by_name)((mal_pa_context*)pDevice->pulse.pPulseContext, dev, mal_device_source_info_callback, &sourceInfo);
@@ -13012,7 +13010,7 @@ mal_result mal_device_init__pulse(mal_context* pContext, mal_device_type type, c
         ((mal_pa_operation_unref_proc)pContext->pulse.pa_operation_unref)(pOP);
     }
 
-    if (type == mal_device_type_playback) {
+    if (pConfig->deviceType == mal_device_type_playback) {
         ss = sinkInfo.sample_spec;
         cmap = sinkInfo.channel_map;
     } else {
@@ -13026,10 +13024,9 @@ mal_result mal_device_init__pulse(mal_context* pContext, mal_device_type type, c
     if (bufferSizeInFrames == 0) {
         bufferSizeInFrames = mal_calculate_buffer_size_in_frames_from_milliseconds(pDevice->bufferSizeInMilliseconds, ss.rate);
 
-        // PulseAudio seems to need a bit of an bit of size to the buffer to be reliable.
         if (pDevice->usingDefaultBufferSize) {
             float bufferSizeScaleFactor = 1.0f;
-            if (type == mal_device_type_capture) {
+            if (pConfig->deviceType == mal_device_type_capture) {
                 bufferSizeScaleFactor = 2.0f;
             }
 
@@ -13069,7 +13066,7 @@ mal_result mal_device_init__pulse(mal_context* pContext, mal_device_type type, c
         streamFlags |= MAL_PA_STREAM_DONT_MOVE | MAL_PA_STREAM_FIX_FORMAT | MAL_PA_STREAM_FIX_RATE | MAL_PA_STREAM_FIX_CHANNELS;
     }
     
-    if (type == mal_device_type_playback) {
+    if (pConfig->deviceType == mal_device_type_playback) {
         error = ((mal_pa_stream_connect_playback_proc)pContext->pulse.pa_stream_connect_playback)((mal_pa_stream*)pDevice->pulse.pStream, dev, &attr, streamFlags, NULL, NULL);
     } else {
         error = ((mal_pa_stream_connect_record_proc)pContext->pulse.pa_stream_connect_record)((mal_pa_stream*)pDevice->pulse.pStream, dev, &attr, streamFlags);
@@ -13144,7 +13141,7 @@ mal_result mal_device_init__pulse(mal_context* pContext, mal_device_type type, c
     dev = ((mal_pa_stream_get_device_name_proc)pContext->pulse.pa_stream_get_device_name)((mal_pa_stream*)pDevice->pulse.pStream);
     if (dev != NULL) {
         mal_pa_operation* pOP = NULL;
-        if (type == mal_device_type_playback) {
+        if (pConfig->deviceType == mal_device_type_playback) {
             pOP = ((mal_pa_context_get_sink_info_by_name_proc)pContext->pulse.pa_context_get_sink_info_by_name)((mal_pa_context*)pDevice->pulse.pPulseContext, dev, mal_device_sink_name_callback, pDevice);
         } else {
             pOP = ((mal_pa_context_get_source_info_by_name_proc)pContext->pulse.pa_context_get_source_info_by_name)((mal_pa_context*)pDevice->pulse.pPulseContext, dev, mal_device_source_name_callback, pDevice);
@@ -13158,7 +13155,7 @@ mal_result mal_device_init__pulse(mal_context* pContext, mal_device_type type, c
 
 
     // Set callbacks for reading and writing data to/from the PulseAudio stream.
-    if (type == mal_device_type_playback) {
+    if (pConfig->deviceType == mal_device_type_playback) {
         ((mal_pa_stream_set_write_callback_proc)pContext->pulse.pa_stream_set_write_callback)((mal_pa_stream*)pDevice->pulse.pStream, mal_pulse_device_write_callback, pDevice);
     } else {
         ((mal_pa_stream_set_read_callback_proc)pContext->pulse.pa_stream_set_read_callback)((mal_pa_stream*)pDevice->pulse.pStream, mal_pulse_device_read_callback, pDevice);
@@ -13779,7 +13776,7 @@ int mal_device__jack_process_callback(mal_jack_nframes_t frameCount, void* pUser
     return 0;
 }
 
-mal_result mal_device_init__jack(mal_context* pContext, mal_device_type type, const mal_device_id* pDeviceID, const mal_device_config* pConfig, mal_device* pDevice)
+mal_result mal_device_init__jack(mal_context* pContext, const mal_device_config* pConfig, mal_device* pDevice)
 {
     mal_assert(pContext != NULL);
     mal_assert(pConfig != NULL);
@@ -13787,8 +13784,8 @@ mal_result mal_device_init__jack(mal_context* pContext, mal_device_type type, co
 
     (void)pContext;
 
-    // Only supporting default devices with JACK.
-    if (pDeviceID != NULL && pDeviceID->jack != 0) {
+    /* Only supporting default devices with JACK. */
+    if (pConfig->pDeviceID != NULL && pConfig->pDeviceID->jack != 0) {
         return MAL_NO_DEVICE;
     }
 
@@ -13797,13 +13794,13 @@ mal_result mal_device_init__jack(mal_context* pContext, mal_device_type type, co
         return MAL_SHARE_MODE_NOT_SUPPORTED;
     }
 
-    // Open the client.
+    /* Open the client. */
     mal_result result = mal_context_open_client__jack(pContext, (mal_jack_client_t**)&pDevice->jack.pClient);
     if (result != MAL_SUCCESS) {
         return mal_post_error(pDevice, MAL_LOG_LEVEL_ERROR, "[JACK] Failed to open client.", MAL_FAILED_TO_OPEN_BACKEND_DEVICE);
     }
 
-    // Callbacks.
+    /* Callbacks. */
     if (((mal_jack_set_process_callback_proc)pContext->jack.jack_set_process_callback)((mal_jack_client_t*)pDevice->jack.pClient, mal_device__jack_process_callback, pDevice) != 0) {
         return mal_post_error(pDevice, MAL_LOG_LEVEL_ERROR, "[JACK] Failed to set process callback.", MAL_FAILED_TO_OPEN_BACKEND_DEVICE);
     }
@@ -13820,7 +13817,7 @@ mal_result mal_device_init__jack(mal_context* pContext, mal_device_type type, co
     // A port is a channel.
     unsigned long serverPortFlags;
     unsigned long clientPortFlags;
-    if (type == mal_device_type_playback) {
+    if (pConfig->deviceType == mal_device_type_playback) {
         serverPortFlags = mal_JackPortIsInput;
         clientPortFlags = mal_JackPortIsOutput;
     } else {
@@ -13836,7 +13833,7 @@ mal_result mal_device_init__jack(mal_context* pContext, mal_device_type type, co
     pDevice->internalChannels = 0;
     while (ppPorts[pDevice->internalChannels] != NULL) {
         char name[64];
-        if (type == mal_device_type_playback) {
+        if (pConfig->deviceType == mal_device_type_playback) {
             mal_strcpy_s(name, sizeof(name), "playback");
             mal_itoa_s((int)pDevice->internalChannels, name+8, sizeof(name)-8, 10); // 8 = length of "playback"
         } else {
@@ -16065,7 +16062,7 @@ mal_result mal_device_reinit_internal__coreaudio(mal_device* pDevice, mal_bool32
 }
 
 
-mal_result mal_device_init__coreaudio(mal_context* pContext, mal_device_type deviceType, const mal_device_id* pDeviceID, const mal_device_config* pConfig, mal_device* pDevice)
+mal_result mal_device_init__coreaudio(mal_context* pContext, const mal_device_config* pConfig, mal_device* pDevice)
 {
     (void)pConfig;
 
@@ -16092,7 +16089,7 @@ mal_result mal_device_init__coreaudio(mal_context* pContext, mal_device_type dev
     data.usingDefaultChannelMap = pDevice->usingDefaultChannelMap;
     data.shareMode = pDevice->initConfig.shareMode;
 
-    mal_result result = mal_device_init_internal__coreaudio(pDevice->pContext, pDevice->type, pDeviceID, &data, (void*)pDevice);
+    mal_result result = mal_device_init_internal__coreaudio(pDevice->pContext, pConfig->deviceType, pConfig->pDeviceID, &data, (void*)pDevice);
     if (result != MAL_SUCCESS) {
         return result;
     }
@@ -16744,7 +16741,7 @@ void mal_device_uninit__sndio(mal_device* pDevice)
     ((mal_sio_close_proc)pDevice->pContext->sndio.sio_close)((struct mal_sio_hdl*)pDevice->sndio.handle);
 }
 
-mal_result mal_device_init__sndio(mal_context* pContext, mal_device_type deviceType, const mal_device_id* pDeviceID, const mal_device_config* pConfig, mal_device* pDevice)
+mal_result mal_device_init__sndio(mal_context* pContext, const mal_device_config* pConfig, mal_device* pDevice)
 {
     (void)pContext;
 
@@ -16755,11 +16752,11 @@ mal_result mal_device_init__sndio(mal_context* pContext, mal_device_type deviceT
 //#if defined(__FreeBSD__) || defined(__DragonFly__)
 //    deviceName = "rsnd/0";
 //#else
-    if (pDeviceID != NULL) {
-        deviceName = pDeviceID->sndio;
+    if (pConfig->pDeviceID != NULL) {
+        deviceName = pConfig->pDeviceID->sndio;
     }
     
-    pDevice->sndio.handle = (mal_ptr)((mal_sio_open_proc)pContext->sndio.sio_open)(deviceName, (deviceType == mal_device_type_playback) ? MAL_SIO_PLAY : MAL_SIO_REC, 0);
+    pDevice->sndio.handle = (mal_ptr)((mal_sio_open_proc)pContext->sndio.sio_open)(deviceName, (pConfig->deviceType == mal_device_type_playback) ? MAL_SIO_PLAY : MAL_SIO_REC, 0);
     if (pDevice->sndio.handle == NULL) {
         return mal_post_error(pDevice, MAL_LOG_LEVEL_ERROR, "[sndio] Failed to open device.", MAL_FAILED_TO_OPEN_BACKEND_DEVICE);
     }
@@ -16790,7 +16787,7 @@ mal_result mal_device_init__sndio(mal_context* pContext, mal_device_type deviceT
     mal_uint32 desiredChannels = pDevice->channels;
     if (pDevice->usingDefaultChannels) {
         if (strlen(deviceName) > strlen("rsnd/") && strncmp(deviceName, "rsnd/", strlen("rsnd/")) == 0) {
-            desiredChannels = mal_find_best_channels_from_sio_cap__sndio(&caps, deviceType, desiredFormat);
+            desiredChannels = mal_find_best_channels_from_sio_cap__sndio(&caps, pConfig->deviceType, desiredFormat);
         }
     }
 
@@ -16801,7 +16798,7 @@ mal_result mal_device_init__sndio(mal_context* pContext, mal_device_type deviceT
     
     mal_uint32 desiredSampleRate = pDevice->sampleRate;
     if (pDevice->usingDefaultSampleRate) {
-        desiredSampleRate = mal_find_best_sample_rate_from_sio_cap__sndio(&caps, deviceType, desiredFormat, desiredChannels);
+        desiredSampleRate = mal_find_best_sample_rate_from_sio_cap__sndio(&caps, pConfig->deviceType, desiredFormat, desiredChannels);
     }
     
     if (desiredSampleRate == 0) {
@@ -16846,7 +16843,7 @@ mal_result mal_device_init__sndio(mal_context* pContext, mal_device_type deviceT
         } break;
     }
     
-    if (deviceType == mal_device_type_playback) {
+    if (pConfig->deviceType == mal_device_type_playback) {
         par.pchan = desiredChannels;
     } else {
         par.rchan = desiredChannels;
@@ -16874,7 +16871,7 @@ mal_result mal_device_init__sndio(mal_context* pContext, mal_device_type deviceT
     
     pDevice->internalFormat = mal_format_from_sio_enc__sndio(par.bits, par.bps, par.sig, par.le, par.msb);
     
-    if (deviceType == mal_device_type_playback) {
+    if (pConfig->deviceType == mal_device_type_playback) {
         pDevice->internalChannels = par.pchan;
     } else {
         pDevice->internalChannels = par.rchan;
@@ -17340,7 +17337,7 @@ void mal_device_uninit__audio4(mal_device* pDevice)
     mal_free(pDevice->audio4.pIntermediaryBuffer);
 }
 
-mal_result mal_device_init__audio4(mal_context* pContext, mal_device_type deviceType, const mal_device_id* pDeviceID, const mal_device_config* pConfig, mal_device* pDevice)
+mal_result mal_device_init__audio4(mal_context* pContext, const mal_device_config* pConfig, mal_device* pDevice)
 {
     (void)pContext;
 
@@ -17362,11 +17359,11 @@ mal_result mal_device_init__audio4(mal_context* pContext, mal_device_type device
     
     // The first thing to do is open the file.
     const char* deviceName = "/dev/audio";
-    if (pDeviceID != NULL) {
-        deviceName = pDeviceID->audio4;
+    if (pConfig->pDeviceID != NULL) {
+        deviceName = pConfig->pDeviceID->audio4;
     }
     
-    pDevice->audio4.fd = open(deviceName, ((deviceType == mal_device_type_playback) ? O_WRONLY : O_RDONLY) | O_NONBLOCK, 0);
+    pDevice->audio4.fd = open(deviceName, ((pConfig->deviceType == mal_device_type_playback) ? O_WRONLY : O_RDONLY) | O_NONBLOCK, 0);
     if (pDevice->audio4.fd == -1) {
         return mal_post_error(pDevice, MAL_LOG_LEVEL_ERROR, "[audio4] Failed to open device.", MAL_FAILED_TO_OPEN_BACKEND_DEVICE);
     }
@@ -17376,7 +17373,7 @@ mal_result mal_device_init__audio4(mal_context* pContext, mal_device_type device
     AUDIO_INITINFO(&fdInfo);
 
     struct audio_prinfo* prinfo;
-    if (deviceType == mal_device_type_playback) {
+    if (pConfig->deviceType == mal_device_type_playback) {
         prinfo = &fdInfo.play;
         fdInfo.mode = AUMODE_PLAY;
     } else {
@@ -17417,7 +17414,7 @@ mal_result mal_device_init__audio4(mal_context* pContext, mal_device_type device
 
     // We always want to the use the devices native channel count and sample rate.
     mal_device_info nativeInfo;
-    mal_result result = mal_context_get_device_info(pContext, deviceType, pDeviceID, pConfig->shareMode, &nativeInfo);
+    mal_result result = mal_context_get_device_info(pContext, pConfig->deviceType, pConfig->pDeviceID, pConfig->shareMode, &nativeInfo);
     if (result != MAL_SUCCESS) {
         close(pDevice->audio4.fd);
         return mal_post_error(pDevice, MAL_LOG_LEVEL_ERROR, "[audio4] Failed to retrieve device format.", result);
@@ -17470,8 +17467,6 @@ mal_result mal_device_init__audio4(mal_context* pContext, mal_device_type device
         return mal_post_error(pDevice, MAL_LOG_LEVEL_ERROR, "[audio4] Failed to set internal buffer size. AUDIO_SETINFO failed.", MAL_FORMAT_NOT_SUPPORTED);
     }
     
-    printf("blocksize=%d, hiwat=%d\n", fdInfo.blocksize, fdInfo.hiwat);
-
     pDevice->periods = fdInfo.hiwat;
     pDevice->bufferSizeInFrames = (fdInfo.blocksize * fdInfo.hiwat) / mal_get_bytes_per_frame(pDevice->internalFormat, pDevice->internalChannels);
 #else
@@ -17485,7 +17480,7 @@ mal_result mal_device_init__audio4(mal_context* pContext, mal_device_type device
     
     // Set the initial internal formats so we can do calculations below.
     pDevice->internalFormat = mal_format_from_swpar__audio4(&fdPar);
-    if (deviceType == mal_device_type_playback) {
+    if (pConfig->deviceType == mal_device_type_playback) {
         pDevice->internalChannels = fdPar.pchan;
     } else {
         pDevice->internalChannels = fdPar.rchan;
@@ -17516,7 +17511,7 @@ mal_result mal_device_init__audio4(mal_context* pContext, mal_device_type device
     }
     
     pDevice->internalFormat = mal_format_from_swpar__audio4(&fdPar);
-    if (deviceType == mal_device_type_playback) {
+    if (pConfig->deviceType == mal_device_type_playback) {
         pDevice->internalChannels = fdPar.pchan;
     } else {
         pDevice->internalChannels = fdPar.rchan;
@@ -17834,14 +17829,14 @@ void mal_device_uninit__oss(mal_device* pDevice)
     close(pDevice->oss.fd);
 }
 
-mal_result mal_device_init__oss(mal_context* pContext, mal_device_type type, const mal_device_id* pDeviceID, const mal_device_config* pConfig, mal_device* pDevice)
+mal_result mal_device_init__oss(mal_context* pContext, const mal_device_config* pConfig, mal_device* pDevice)
 {
     (void)pContext;
 
     mal_assert(pDevice != NULL);
     mal_zero_object(&pDevice->oss);
 
-    mal_result result = mal_context_open_device__oss(pContext, type, pDeviceID, &pDevice->oss.fd);
+    mal_result result = mal_context_open_device__oss(pContext, pConfig->deviceType, pConfig->pDeviceID, &pDevice->oss.fd);
     if (result != MAL_SUCCESS) {
         return mal_post_error(pDevice, MAL_LOG_LEVEL_ERROR, "[OSS] Failed to open device.", MAL_FAILED_TO_OPEN_BACKEND_DEVICE);
     }
@@ -18347,7 +18342,7 @@ void mal_device_uninit__aaudio(mal_device* pDevice)
     pDevice->aaudio.pStream = NULL;
 }
 
-mal_result mal_device_init__aaudio(mal_context* pContext, mal_device_type type, const mal_device_id* pDeviceID, const mal_device_config* pConfig, mal_device* pDevice)
+mal_result mal_device_init__aaudio(mal_context* pContext, const mal_device_config* pConfig, mal_device* pDevice)
 {
     mal_result result;
 
@@ -18359,7 +18354,7 @@ mal_result mal_device_init__aaudio(mal_context* pContext, mal_device_type type, 
     }
 
     /* We first need to try opening the stream. */
-    result = mal_open_stream__aaudio(pContext, type, pDeviceID, pConfig->shareMode, pConfig, pDevice, (mal_AAudioStream**)&pDevice->aaudio.pStream);
+    result = mal_open_stream__aaudio(pContext, pConfig->deviceType, pConfig->pDeviceID, pConfig->shareMode, pConfig, pDevice, (mal_AAudioStream**)&pDevice->aaudio.pStream);
     if (result != MAL_SUCCESS) {
         return result;  /* Failed to open the AAudio stream. */
     }
@@ -18965,7 +18960,7 @@ void mal_device_uninit__opensl(mal_device* pDevice)
     mal_free(pDevice->opensl.pBuffer);
 }
 
-mal_result mal_device_init__opensl(mal_context* pContext, mal_device_type type, const mal_device_id* pDeviceID, const mal_device_config* pConfig, mal_device* pDevice)
+mal_result mal_device_init__opensl(mal_context* pContext, const mal_device_config* pConfig, mal_device* pDevice)
 {
     (void)pContext;
 
@@ -19055,7 +19050,7 @@ mal_result mal_device_init__opensl(mal_context* pContext, mal_device_type type, 
     }
 #endif
 
-    if (type == mal_device_type_playback) {
+    if (pConfig->deviceType == mal_device_type_playback) {
         SLresult resultSL = (*g_malEngineSL)->CreateOutputMix(g_malEngineSL, (SLObjectItf*)&pDevice->opensl.pOutputMixObj, 0, NULL, NULL);
         if (resultSL != SL_RESULT_SUCCESS) {
             mal_device_uninit__opensl(pDevice);
@@ -19073,8 +19068,8 @@ mal_result mal_device_init__opensl(mal_context* pContext, mal_device_type type, 
         }
 
         // Set the output device.
-        if (pDeviceID != NULL) {
-            SLuint32 deviceID_OpenSL = pDeviceID->opensl;
+        if (pConfig->pDeviceID != NULL) {
+            SLuint32 deviceID_OpenSL = pConfig->pDeviceID->opensl;
             MAL_OPENSL_OUTPUTMIX(pDevice->opensl.pOutputMix)->ReRoute((SLOutputMixItf)pDevice->opensl.pOutputMix, 1, &deviceID_OpenSL);
         }
 
@@ -19133,7 +19128,7 @@ mal_result mal_device_init__opensl(mal_context* pContext, mal_device_type type, 
         SLDataLocator_IODevice locatorDevice;
         locatorDevice.locatorType = SL_DATALOCATOR_IODEVICE;
         locatorDevice.deviceType = SL_IODEVICE_AUDIOINPUT;
-        locatorDevice.deviceID = (pDeviceID == NULL) ? SL_DEFAULTDEVICEID_AUDIOINPUT : pDeviceID->opensl;
+        locatorDevice.deviceID = (pConfig->pDeviceID == NULL) ? SL_DEFAULTDEVICEID_AUDIOINPUT : pConfig->pDeviceID->opensl;
         locatorDevice.device = NULL;
 
         SLDataSource source;
@@ -20044,7 +20039,7 @@ mal_thread_result MAL_THREADCALL mal_worker_thread(void* pData)
                     pDevice->pContext->onDeviceUninit(pDevice);
                     mal_device__set_state(pDevice, MAL_STATE_UNINITIALIZED);
 
-                    reinitResult = pDevice->pContext->onDeviceInit(pDevice->pContext, pDevice->type, NULL, &pDevice->initConfig, pDevice);
+                    reinitResult = pDevice->pContext->onDeviceInit(pDevice->pContext, &pDevice->initConfig, pDevice);
                 }
 
                 // Perform the post initialization setup just in case the data conversion pipeline needs to be reinitialized.
@@ -20575,25 +20570,22 @@ mal_result mal_context_get_device_info(mal_context* pContext, mal_device_type ty
 }
 
 
-mal_result mal_device_init(mal_context* pContext, mal_device_type type, mal_device_id* pDeviceID, const mal_device_config* pConfig, mal_device* pDevice)
+mal_result mal_device_init(mal_context* pContext, const mal_device_config* pConfig, mal_device* pDevice)
 {
     if (pContext == NULL) {
-        return mal_device_init_ex(NULL, 0, NULL, type, pDeviceID, pConfig, pDevice);
+        return mal_device_init_ex(NULL, 0, NULL, pConfig, pDevice);
     }
-
     if (pDevice == NULL) {
-        return mal_post_error(pDevice, MAL_LOG_LEVEL_ERROR, "mal_device_init() called with invalid arguments (pDevice == NULL).",  MAL_INVALID_ARGS);
+        return mal_post_error(pDevice, MAL_LOG_LEVEL_ERROR, "mal_device_init() called with invalid arguments (pDevice == NULL).", MAL_INVALID_ARGS);
     }
-
-    // The config is allowed to be NULL, in which case we default to mal_device_config_init_default().
-    mal_device_config config;
     if (pConfig == NULL) {
-        config = mal_device_config_init_default(NULL, NULL);
-    } else {
-        config = *pConfig;
+        return mal_post_error(pDevice, MAL_LOG_LEVEL_ERROR, "mal_device_init() called with invalid arguments (pConfig == NULL).", MAL_INVALID_ARGS);
     }
 
-    // Basic config validation.
+    /* We need to make a copy of the config so we can set default values if they were left unset in the input config. */
+    mal_device_config config = *pConfig;
+
+    /* Basic config validation. */
     if (config.channels > MAL_MAX_CHANNELS) {
         return mal_post_error(pDevice, MAL_LOG_LEVEL_ERROR, "mal_device_init() called with an invalid config. Channel count cannot exceed 32.", MAL_INVALID_DEVICE_CONFIG);
     }
@@ -20608,8 +20600,8 @@ mal_result mal_device_init(mal_context* pContext, mal_device_type type, mal_devi
 
     // Set the user data and log callback ASAP to ensure it is available for the entire initialization process.
     pDevice->pUserData = config.pUserData;
-    pDevice->onData = config.onDataCallback;
-    pDevice->onStop = config.onStopCallback;
+    pDevice->onData = config.dataCallback;
+    pDevice->onStop = config.stopCallback;
 
     if (((size_t)pDevice % sizeof(pDevice)) != 0) {
         if (pContext->config.onLog) {
@@ -20617,7 +20609,7 @@ mal_result mal_device_init(mal_context* pContext, mal_device_type type, mal_devi
         }
     }
 
-    if (pDeviceID == NULL) {
+    if (config.pDeviceID == NULL) {
         pDevice->isDefaultDevice = MAL_TRUE;
     }
 
@@ -20653,7 +20645,7 @@ mal_result mal_device_init(mal_context* pContext, mal_device_type type, mal_devi
         pDevice->usingDefaultPeriods = MAL_TRUE;
     }
 
-    pDevice->type = type;
+    pDevice->type = config.deviceType;
     pDevice->format = config.format;
     pDevice->channels = config.channels;
     pDevice->sampleRate = config.sampleRate;
@@ -20694,7 +20686,7 @@ mal_result mal_device_init(mal_context* pContext, mal_device_type type, mal_devi
     }
 
 
-    mal_result result = pContext->onDeviceInit(pContext, type, pDeviceID, &config, pDevice);
+    mal_result result = pContext->onDeviceInit(pContext, &config, pDevice);
     if (result != MAL_SUCCESS) {
         return MAL_NO_BACKEND;  // The error message will have been posted with mal_post_error() by the source of the error so don't bother calling it here.
     }
@@ -20704,16 +20696,16 @@ mal_result mal_device_init(mal_context* pContext, mal_device_type type, mal_devi
 
     // If the backend did not fill out a name for the device, try a generic method.
     if (pDevice->name[0] == '\0') {
-        if (mal_context__try_get_device_name_by_id(pContext, type, pDeviceID, pDevice->name, sizeof(pDevice->name)) != MAL_SUCCESS) {
+        if (mal_context__try_get_device_name_by_id(pContext, config.deviceType, config.pDeviceID, pDevice->name, sizeof(pDevice->name)) != MAL_SUCCESS) {
             // We failed to get the device name, so fall back to some generic names.
-            if (pDeviceID == NULL) {
-                if (type == mal_device_type_playback) {
+            if (config.pDeviceID == NULL) {
+                if (config.deviceType == mal_device_type_playback) {
                     mal_strncpy_s(pDevice->name, sizeof(pDevice->name), MAL_DEFAULT_PLAYBACK_DEVICE_NAME, (size_t)-1);
                 } else {
                     mal_strncpy_s(pDevice->name, sizeof(pDevice->name), MAL_DEFAULT_CAPTURE_DEVICE_NAME, (size_t)-1);
                 }
             } else {
-                if (type == mal_device_type_playback) {
+                if (config.deviceType == mal_device_type_playback) {
                     mal_strncpy_s(pDevice->name, sizeof(pDevice->name), "Playback Device", (size_t)-1);
                 } else {
                     mal_strncpy_s(pDevice->name, sizeof(pDevice->name), "Capture Device", (size_t)-1);
@@ -20757,8 +20749,12 @@ mal_result mal_device_init(mal_context* pContext, mal_device_type type, mal_devi
     return MAL_SUCCESS;
 }
 
-mal_result mal_device_init_ex(const mal_backend backends[], mal_uint32 backendCount, const mal_context_config* pContextConfig, mal_device_type type, mal_device_id* pDeviceID, const mal_device_config* pConfig, mal_device* pDevice)
+mal_result mal_device_init_ex(const mal_backend backends[], mal_uint32 backendCount, const mal_context_config* pContextConfig, const mal_device_config* pConfig, mal_device* pDevice)
 {
+    if (pConfig == NULL) {
+        return MAL_INVALID_ARGS;
+    }
+
     mal_context* pContext = (mal_context*)mal_malloc(sizeof(*pContext));
     if (pContext == NULL) {
         return MAL_OUT_OF_MEMORY;
@@ -20781,7 +20777,7 @@ mal_result mal_device_init_ex(const mal_backend backends[], mal_uint32 backendCo
     for (mal_uint32 iBackend = 0; iBackend < backendsToIterateCount; ++iBackend) {
         result = mal_context_init(&pBackendsToIterate[iBackend], 1, pContextConfig, pContext);
         if (result == MAL_SUCCESS) {
-            result = mal_device_init(pContext, type, pDeviceID, pConfig, pDevice);
+            result = mal_device_init(pContext, pConfig, pDevice);
             if (result == MAL_SUCCESS) {
                 break;  // Success.
             } else {
@@ -21072,7 +21068,6 @@ mal_context_config mal_context_config_init(mal_log_proc onLog)
 
     return config;
 }
-
 
 mal_device_config mal_device_config_init(mal_device_type deviceType)
 {
