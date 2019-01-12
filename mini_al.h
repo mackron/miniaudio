@@ -861,6 +861,61 @@ MAL_ALIGNED_STRUCT(MAL_SIMD_ALIGNMENT) mal_pcm_converter
 //////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 //
 // Channel Maps
+// ============
+//
+// Below is the channel map used by mal_standar_channel_map_default:
+//
+// |---------------|------------------------------|
+// | Channel Count | Mapping                      |
+// |---------------|------------------------------|
+// | 1 (Mono)      | 0: MAL_CHANNEL_MONO          |
+// |---------------|------------------------------|
+// | 2 (Stereo)    | 0: MAL_CHANNEL_FRONT_LEFT    |
+// |               | 1: MAL_CHANNEL_FRONT_RIGHT   |
+// |---------------|------------------------------|
+// | 3             | 0: MAL_CHANNEL_FRONT_LEFT    |
+// |               | 1: MAL_CHANNEL_FRONT_RIGHT   |
+// |               | 2: MAL_CHANNEL_FRONT_CENTER  |
+// |---------------|------------------------------|
+// | 4 (Surround)  | 0: MAL_CHANNEL_FRONT_LEFT    |
+// |               | 1: MAL_CHANNEL_FRONT_RIGHT   |
+// |               | 2: MAL_CHANNEL_FRONT_CENTER  |
+// |               | 3: MAL_CHANNEL_BACK_CENTER   |
+// |---------------|------------------------------|
+// | 5             | 0: MAL_CHANNEL_FRONT_LEFT    |
+// |               | 1: MAL_CHANNEL_FRONT_RIGHT   |
+// |               | 2: MAL_CHANNEL_FRONT_CENTER  |
+// |               | 3: MAL_CHANNEL_BACK_LEFT     |
+// |               | 4: MAL_CHANNEL_BACK_RIGHT    |
+// |---------------|------------------------------|
+// | 6 (5.1)       | 0: MAL_CHANNEL_FRONT_LEFT    |
+// |               | 1: MAL_CHANNEL_FRONT_RIGHT   |
+// |               | 2: MAL_CHANNEL_FRONT_CENTER  |
+// |               | 3: MAL_CHANNEL_LFE           |
+// |               | 4: MAL_CHANNEL_SIDE_LEFT     |
+// |               | 5: MAL_CHANNEL_SIDE_RIGHT    |
+// |---------------|------------------------------|
+// | 7             | 0: MAL_CHANNEL_FRONT_LEFT    |
+// |               | 1: MAL_CHANNEL_FRONT_RIGHT   |
+// |               | 2: MAL_CHANNEL_FRONT_CENTER  |
+// |               | 3: MAL_CHANNEL_LFE           |
+// |               | 4: MAL_CHANNEL_BACK_CENTER   |
+// |               | 4: MAL_CHANNEL_SIDE_LEFT     |
+// |               | 5: MAL_CHANNEL_SIDE_RIGHT    |
+// |---------------|------------------------------|
+// | 8 (7.1)       | 0: MAL_CHANNEL_FRONT_LEFT    |
+// |               | 1: MAL_CHANNEL_FRONT_RIGHT   |
+// |               | 2: MAL_CHANNEL_FRONT_CENTER  |
+// |               | 3: MAL_CHANNEL_LFE           |
+// |               | 4: MAL_CHANNEL_BACK_LEFT     |
+// |               | 5: MAL_CHANNEL_BACK_RIGHT    |
+// |               | 6: MAL_CHANNEL_SIDE_LEFT     |
+// |               | 7: MAL_CHANNEL_SIDE_RIGHT    |
+// |---------------|------------------------------|
+// | Other         | All channels set to 0. This  |
+// |               | is equivalent to the same    |
+// |               | mapping as the device.       |
+// |---------------|------------------------------|
 //
 //////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
@@ -1519,6 +1574,8 @@ typedef struct
 
 typedef struct
 {
+    mal_device_type deviceType;
+    mal_device_id* pDeviceID;
     mal_format format;
     mal_uint32 channels;
     mal_uint32 sampleRate;
@@ -1528,8 +1585,8 @@ typedef struct
     mal_uint32 periods;
     mal_share_mode shareMode;
     mal_performance_profile performanceProfile;
-    mal_device_callback_proc onDataCallback;
-    mal_stop_proc onStopCallback;
+    mal_device_callback_proc callback;
+    mal_stop_proc stopCallback;
     void* pUserData;
     struct
     {
@@ -2398,84 +2455,43 @@ mal_uint32 mal_device_get_buffer_size_in_bytes(mal_device* pDevice);
 // Helper function for initializing a mal_context_config object.
 mal_context_config mal_context_config_init(mal_log_proc onLog);
 
-// Initializes a default device config.
+// Initializes a device config.
 //
-// A default configuration will configure the device such that the format, channel count, sample rate and channel map are
-// the same as the backend's internal configuration. This means the application loses explicit control of these properties,
-// but in return gets an optimized fast path for data transmission since mini_al will be releived of all format conversion
-// duties. You will not typically want to use default configurations unless you have some specific low-latency requirements.
+// By default, the device config will use native device settings (format, channels, sample rate, etc.). Using native
+// settings means you will get an optimized pass-throught data transmission pipeline to and from the device, but you will
+// need to do all format conversions manually. Normally you would want to use a known format that your program can handle
+// natively, which you can do by specifying it after this function returns, like so:
 //
-// mal_device_config_init(), mal_device_config_init_playback(), etc. will allow you to explicitly set the sample format,
-// channel count, etc.
-mal_device_config mal_device_config_init_default(mal_device_callback_proc onDataCallback, void* pUserData);
-
-// Helper function for initializing a mal_device_config object.
+//     mal_device_config config = mal_device_config_init(mal_device_type_playback);
+//     config.callback = my_data_callback;
+//     config.pUserData = pMyUserData;
+//     config.format = mal_format_f32;
+//     config.channels = 2;
+//     config.sampleRate = 44100;
 //
-// This is just a helper API, and as such the returned object can be safely modified as needed.
+// In this case mini_al will perform all of the necessary data conversion for you behind the scenes.
 //
-// The default channel mapping is based on the channel count, as per the table below. Note that these
-// can be freely changed after this function returns if you are needing something in particular.
+// Currently mini_al only supports asynchronous, callback based data delivery which means you must specify callback. A
+// pointer to user data can also be specified which is set in the pUserData member of the mal_device object.
 //
-// |---------------|------------------------------|
-// | Channel Count | Mapping                      |
-// |---------------|------------------------------|
-// | 1 (Mono)      | 0: MAL_CHANNEL_MONO          |
-// |---------------|------------------------------|
-// | 2 (Stereo)    | 0: MAL_CHANNEL_FRONT_LEFT    |
-// |               | 1: MAL_CHANNEL_FRONT_RIGHT   |
-// |---------------|------------------------------|
-// | 3             | 0: MAL_CHANNEL_FRONT_LEFT    |
-// |               | 1: MAL_CHANNEL_FRONT_RIGHT   |
-// |               | 2: MAL_CHANNEL_FRONT_CENTER  |
-// |---------------|------------------------------|
-// | 4 (Surround)  | 0: MAL_CHANNEL_FRONT_LEFT    |
-// |               | 1: MAL_CHANNEL_FRONT_RIGHT   |
-// |               | 2: MAL_CHANNEL_FRONT_CENTER  |
-// |               | 3: MAL_CHANNEL_BACK_CENTER   |
-// |---------------|------------------------------|
-// | 5             | 0: MAL_CHANNEL_FRONT_LEFT    |
-// |               | 1: MAL_CHANNEL_FRONT_RIGHT   |
-// |               | 2: MAL_CHANNEL_FRONT_CENTER  |
-// |               | 3: MAL_CHANNEL_BACK_LEFT     |
-// |               | 4: MAL_CHANNEL_BACK_RIGHT    |
-// |---------------|------------------------------|
-// | 6 (5.1)       | 0: MAL_CHANNEL_FRONT_LEFT    |
-// |               | 1: MAL_CHANNEL_FRONT_RIGHT   |
-// |               | 2: MAL_CHANNEL_FRONT_CENTER  |
-// |               | 3: MAL_CHANNEL_LFE           |
-// |               | 4: MAL_CHANNEL_SIDE_LEFT     |
-// |               | 5: MAL_CHANNEL_SIDE_RIGHT    |
-// |---------------|------------------------------|
-// | 7             | 0: MAL_CHANNEL_FRONT_LEFT    |
-// |               | 1: MAL_CHANNEL_FRONT_RIGHT   |
-// |               | 2: MAL_CHANNEL_FRONT_CENTER  |
-// |               | 3: MAL_CHANNEL_LFE           |
-// |               | 4: MAL_CHANNEL_BACK_CENTER   |
-// |               | 4: MAL_CHANNEL_SIDE_LEFT     |
-// |               | 5: MAL_CHANNEL_SIDE_RIGHT    |
-// |---------------|------------------------------|
-// | 8 (7.1)       | 0: MAL_CHANNEL_FRONT_LEFT    |
-// |               | 1: MAL_CHANNEL_FRONT_RIGHT   |
-// |               | 2: MAL_CHANNEL_FRONT_CENTER  |
-// |               | 3: MAL_CHANNEL_LFE           |
-// |               | 4: MAL_CHANNEL_BACK_LEFT     |
-// |               | 5: MAL_CHANNEL_BACK_RIGHT    |
-// |               | 6: MAL_CHANNEL_SIDE_LEFT     |
-// |               | 7: MAL_CHANNEL_SIDE_RIGHT    |
-// |---------------|------------------------------|
-// | Other         | All channels set to 0. This  |
-// |               | is equivalent to the same    |
-// |               | mapping as the device.       |
-// |---------------|------------------------------|
+// To specify a channel map you can use mal_get_standard_channel_map():
+//
+//     mal_get_standard_channel_map(mal_standard_channel_map_default, config.channels, config.channelMap);
+//
+// Alternatively you can set the channel map manually if you need something specific or something that isn't one of mini_al's
+// stock channel maps.
+//
+// By default the system's default device will be used. Set the pDeviceID member to a pointer to a mal_device_id object to 
+// use a specific device. You can enumerate over the devices with mal_context_enumerate_devices() or mal_context_get_devices()
+// which will give you access to the device ID. Set pDeviceID to NULL to use the default device.
+//
+// The device type can be one of the mal_device_type's:
+//   mal_device_type_playback
+//   mal_device_type_capture
+//   mal_device_type_duplex
 //
 // Thread Safety: SAFE
-//
-// Efficiency: HIGH
-//   This just returns a stack allocated object and consists of just a few assignments.
-mal_device_config mal_device_config_init_ex(mal_format format, mal_uint32 channels, mal_uint32 sampleRate, mal_channel channelMap[MAL_MAX_CHANNELS], mal_device_callback_proc onDataCallback, void* pUserData);
-
-// A simplified version of mal_device_config_init_ex().
-static MAL_INLINE mal_device_config mal_device_config_init(mal_format format, mal_uint32 channels, mal_uint32 sampleRate, mal_device_callback_proc onDataCallback, void* pUserData) { return mal_device_config_init_ex(format, channels, sampleRate, NULL, onDataCallback, pUserData); }
+mal_device_config mal_device_config_init(mal_device_type deviceType);
 
 
 //////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -21058,36 +21074,11 @@ mal_context_config mal_context_config_init(mal_log_proc onLog)
 }
 
 
-mal_device_config mal_device_config_init_default(mal_device_callback_proc onDataCallback, void* pUserData)
+mal_device_config mal_device_config_init(mal_device_type deviceType)
 {
     mal_device_config config;
     mal_zero_object(&config);
-    config.onDataCallback = onDataCallback;
-    config.pUserData = pUserData;
-
-    return config;
-}
-
-mal_device_config mal_device_config_init_ex(mal_format format, mal_uint32 channels, mal_uint32 sampleRate, mal_channel channelMap[MAL_MAX_CHANNELS], mal_device_callback_proc onDataCallback, void* pUserData)
-{
-    mal_device_config config = mal_device_config_init_default(onDataCallback, pUserData);
-    config.format = format;
-    config.channels = channels;
-    config.sampleRate = sampleRate;
-
-    if (channels > 0) {
-        if (channelMap == NULL) {
-            if (channels > 8) {
-                mal_zero_memory(config.channelMap, sizeof(mal_channel)*MAL_MAX_CHANNELS);
-            } else {
-                mal_get_standard_channel_map(mal_standard_channel_map_default, channels, config.channelMap);
-            }
-        } else {
-            mal_copy_memory(config.channelMap, channelMap, sizeof(config.channelMap));
-        }
-    } else {
-        mal_zero_memory(config.channelMap, sizeof(mal_channel)*MAL_MAX_CHANNELS);
-    }
+    config.deviceType = deviceType;
 
     return config;
 }
