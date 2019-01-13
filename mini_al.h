@@ -2316,11 +2316,6 @@ mal_result mal_context_get_device_info(mal_context* pContext, mal_device_type de
 // however, use null when initializing the first device, and then use device.pContext for the
 // initialization of other devices.
 //
-// The device ID (pDeviceID) can be null, in which case the default device is used. Otherwise, you
-// can retrieve the ID by calling mal_context_get_devices() and using the ID from the returned data.
-// Set pDeviceID to NULL to use the default device. Do _not_ rely on the first device ID returned
-// by mal_context_enumerate_devices() or mal_context_get_devices() to be the default device.
-//
 // The device's configuration is controlled with pConfig. This allows you to configure the sample
 // format, channel count, sample rate, etc. Before calling mal_device_init(), you will need to
 // initialize a mal_device_config object using mal_device_config_init(), mal_device_config_init_playback(),
@@ -2347,6 +2342,10 @@ mal_result mal_context_get_device_info(mal_context* pContext, mal_device_type de
 // conversion to convert between the format specified by pConfig and the format used internally by
 // the backend. If you pass in NULL for pConfig or 0 for the sample format, channel count,
 // sample rate _and_ channel map, data transmission will run on an optimized pass-through fast path.
+//
+// The buffer size should be treated as a hint. mini_al will try it's best to use exactly what you
+// ask for, but it may differ. You should not assume the number of frames specified in each call to
+// the data callback is exactly what you originally specified.
 //
 // The <periods> property controls how frequently the background thread is woken to check for more
 // data. It's tied to the buffer size, so as an example, if your buffer size is equivalent to 10
