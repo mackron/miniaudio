@@ -1622,7 +1622,7 @@ typedef struct
     } jack;
 } mal_context_config;
 
-typedef mal_bool32 (* mal_enum_devices_callback_proc)(mal_context* pContext, mal_device_type type, const mal_device_info* pInfo, void* pUserData);
+typedef mal_bool32 (* mal_enum_devices_callback_proc)(mal_context* pContext, mal_device_type deviceType, const mal_device_info* pInfo, void* pUserData);
 
 struct mal_context
 {
@@ -1639,7 +1639,7 @@ struct mal_context
     mal_result (* onUninit             )(mal_context* pContext);
     mal_bool32 (* onDeviceIDEqual      )(mal_context* pContext, const mal_device_id* pID0, const mal_device_id* pID1);
     mal_result (* onEnumDevices        )(mal_context* pContext, mal_enum_devices_callback_proc callback, void* pUserData);    // Return false from the callback to stop enumeration.
-    mal_result (* onGetDeviceInfo      )(mal_context* pContext, mal_device_type type, const mal_device_id* pDeviceID, mal_share_mode shareMode, mal_device_info* pDeviceInfo);
+    mal_result (* onGetDeviceInfo      )(mal_context* pContext, mal_device_type deviceType, const mal_device_id* pDeviceID, mal_share_mode shareMode, mal_device_info* pDeviceInfo);
     mal_result (* onDeviceInit         )(mal_context* pContext, const mal_device_config* pConfig, mal_device* pDevice);
     void       (* onDeviceUninit       )(mal_device* pDevice);
     mal_result (* onDeviceReinit       )(mal_device* pDevice);
@@ -2305,7 +2305,7 @@ mal_result mal_context_get_devices(mal_context* pContext, mal_device_info** ppPl
 //
 // Thread Safety: SAFE
 //   This is guarded using a simple mutex lock.
-mal_result mal_context_get_device_info(mal_context* pContext, mal_device_type type, const mal_device_id* pDeviceID, mal_share_mode shareMode, mal_device_info* pDeviceInfo);
+mal_result mal_context_get_device_info(mal_context* pContext, mal_device_type deviceType, const mal_device_id* pDeviceID, mal_share_mode shareMode, mal_device_info* pDeviceInfo);
 
 // Initializes a device.
 //
@@ -4674,7 +4674,7 @@ mal_bool32 mal_context__try_get_device_name_by_id__enum_callback(mal_context* pC
 // Generic function for retrieving the name of a device by it's ID.
 //
 // This function simply enumerates every device and then retrieves the name of the first device that has the same ID.
-mal_result mal_context__try_get_device_name_by_id(mal_context* pContext, mal_device_type type, const mal_device_id* pDeviceID, char* pName, size_t nameBufferSize)
+mal_result mal_context__try_get_device_name_by_id(mal_context* pContext, mal_device_type deviceType, const mal_device_id* pDeviceID, char* pName, size_t nameBufferSize)
 {
     mal_assert(pContext != NULL);
     mal_assert(pName != NULL);
@@ -4684,7 +4684,7 @@ mal_result mal_context__try_get_device_name_by_id(mal_context* pContext, mal_dev
     }
 
     mal_context__try_get_device_name_by_id__enum_callback_data data;
-    data.deviceType = type;
+    data.deviceType = deviceType;
     data.pDeviceID = pDeviceID;
     data.pName = pName;
     data.nameBufferSize = nameBufferSize;
@@ -6614,7 +6614,7 @@ typedef struct
     char deviceName[256];
 } mal_device_init_internal_data__wasapi;
 
-mal_result mal_device_init_internal__wasapi(mal_context* pContext, mal_device_type type, const mal_device_id* pDeviceID, mal_device_init_internal_data__wasapi* pData)
+mal_result mal_device_init_internal__wasapi(mal_context* pContext, mal_device_type deviceType, const mal_device_id* pDeviceID, mal_device_init_internal_data__wasapi* pData)
 {
     (void)pContext;
 
@@ -6636,7 +6636,7 @@ mal_result mal_device_init_internal__wasapi(mal_context* pContext, mal_device_ty
 
 #ifdef MAL_WIN32_DESKTOP
     mal_IMMDevice* pMMDevice = NULL;
-    result = mal_context_get_MMDevice__wasapi(pContext, type, pDeviceID, &pMMDevice);
+    result = mal_context_get_MMDevice__wasapi(pContext, deviceType, pDeviceID, &pMMDevice);
     if (result != MAL_SUCCESS) {
         goto done;
     }
@@ -6864,7 +6864,7 @@ mal_result mal_device_init_internal__wasapi(mal_context* pContext, mal_device_ty
         }
     }
 
-    if (type == mal_device_type_playback) {
+    if (deviceType == mal_device_type_playback) {
         hr = mal_IAudioClient_GetService((mal_IAudioClient*)pData->pAudioClient, &MAL_IID_IAudioRenderClient, (void**)&pData->pRenderClient);
     } else {
         hr = mal_IAudioClient_GetService((mal_IAudioClient*)pData->pAudioClient, &MAL_IID_IAudioCaptureClient, (void**)&pData->pCaptureClient);
@@ -10326,7 +10326,7 @@ mal_bool32 mal_does_id_exist_in_list__alsa(mal_device_id* pUniqueIDs, mal_uint32
 }
 
 
-mal_result mal_context_open_pcm__alsa(mal_context* pContext, mal_share_mode shareMode, mal_device_type type, const mal_device_id* pDeviceID, mal_snd_pcm_t** ppPCM)
+mal_result mal_context_open_pcm__alsa(mal_context* pContext, mal_share_mode shareMode, mal_device_type deviceType, const mal_device_id* pDeviceID, mal_snd_pcm_t** ppPCM)
 {
     mal_assert(pContext != NULL);
     mal_assert(ppPCM != NULL);
@@ -10337,7 +10337,7 @@ mal_result mal_context_open_pcm__alsa(mal_context* pContext, mal_share_mode shar
 
     
 
-    mal_snd_pcm_stream_t stream = (type == mal_device_type_playback) ? MAL_SND_PCM_STREAM_PLAYBACK : MAL_SND_PCM_STREAM_CAPTURE;
+    mal_snd_pcm_stream_t stream = (deviceType == mal_device_type_playback) ? MAL_SND_PCM_STREAM_PLAYBACK : MAL_SND_PCM_STREAM_CAPTURE;
     int openMode = MAL_SND_PCM_NO_AUTO_RESAMPLE | MAL_SND_PCM_NO_AUTO_CHANNELS | MAL_SND_PCM_NO_AUTO_FORMAT;
 
     if (pDeviceID == NULL) {
@@ -10358,7 +10358,7 @@ mal_result mal_context_open_pcm__alsa(mal_context* pContext, mal_share_mode shar
             defaultDeviceNames[2] = "hw:0";
             defaultDeviceNames[3] = "hw:0,0";
         } else {
-            if (type == mal_device_type_playback) {
+            if (deviceType == mal_device_type_playback) {
                 defaultDeviceNames[1] = "dmix";
                 defaultDeviceNames[2] = "dmix:0";
                 defaultDeviceNames[3] = "dmix:0,0";
@@ -10409,7 +10409,7 @@ mal_result mal_context_open_pcm__alsa(mal_context* pContext, mal_share_mode shar
 
             char hwid[256];
             if (shareMode == mal_share_mode_shared) {
-                if (type == mal_device_type_playback) {
+                if (deviceType == mal_device_type_playback) {
                     mal_strcpy_s(hwid, sizeof(hwid), "dmix");
                 } else {
                     mal_strcpy_s(hwid, sizeof(hwid), "dsnoop");
@@ -14864,7 +14864,7 @@ mal_result mal_set_AudioObject_buffer_size_in_frames(mal_context* pContext, Audi
 }
 
 
-mal_result mal_find_AudioObjectID(mal_context* pContext, mal_device_type type, const mal_device_id* pDeviceID, AudioObjectID* pDeviceObjectID)
+mal_result mal_find_AudioObjectID(mal_context* pContext, mal_device_type deviceType, const mal_device_id* pDeviceID, AudioObjectID* pDeviceObjectID)
 {
     mal_assert(pContext != NULL);
     mal_assert(pDeviceObjectID != NULL);
@@ -14877,7 +14877,7 @@ mal_result mal_find_AudioObjectID(mal_context* pContext, mal_device_type type, c
         AudioObjectPropertyAddress propAddressDefaultDevice;
         propAddressDefaultDevice.mScope = kAudioObjectPropertyScopeGlobal;
         propAddressDefaultDevice.mElement = kAudioObjectPropertyElementMaster;
-        if (type == mal_device_type_playback) {
+        if (deviceType == mal_device_type_playback) {
             propAddressDefaultDevice.mSelector = kAudioHardwarePropertyDefaultOutputDevice;
         } else {
             propAddressDefaultDevice.mSelector = kAudioHardwarePropertyDefaultInputDevice;
@@ -14907,7 +14907,7 @@ mal_result mal_find_AudioObjectID(mal_context* pContext, mal_device_type type, c
                 continue;
             }
             
-            if (type == mal_device_type_playback) {
+            if (deviceType == mal_device_type_playback) {
                 if (mal_does_AudioObject_support_playback(pContext, deviceObjectID)) {
                     if (strcmp(uid, pDeviceID->coreaudio) == 0) {
                         *pDeviceObjectID = deviceObjectID;
@@ -17637,7 +17637,7 @@ int mal_open_temp_device__oss()
     return -1;
 }
 
-mal_result mal_context_open_device__oss(mal_context* pContext, mal_device_type type, const mal_device_id* pDeviceID, int* pfd)
+mal_result mal_context_open_device__oss(mal_context* pContext, mal_device_type deviceType, const mal_device_id* pDeviceID, int* pfd)
 {
     mal_assert(pContext != NULL);
     mal_assert(pfd != NULL);
@@ -17652,7 +17652,7 @@ mal_result mal_context_open_device__oss(mal_context* pContext, mal_device_type t
         mal_strncpy_s(deviceName, sizeof(deviceName), "/dev/dsp", (size_t)-1);
     }
 
-    *pfd = open(deviceName, (type == mal_device_type_playback) ? O_WRONLY : O_RDONLY, 0);
+    *pfd = open(deviceName, (deviceType == mal_device_type_playback) ? O_WRONLY : O_RDONLY, 0);
     if (*pfd == -1) {
         return MAL_FAILED_TO_OPEN_BACKEND_DEVICE;
     }
@@ -20442,7 +20442,7 @@ mal_result mal_context_enumerate_devices(mal_context* pContext, mal_enum_devices
 }
 
 
-mal_bool32 mal_context_get_devices__enum_callback(mal_context* pContext, mal_device_type type, const mal_device_info* pInfo, void* pUserData)
+mal_bool32 mal_context_get_devices__enum_callback(mal_context* pContext, mal_device_type deviceType, const mal_device_info* pInfo, void* pUserData)
 {
     (void)pUserData;
 
@@ -20465,7 +20465,7 @@ mal_bool32 mal_context_get_devices__enum_callback(mal_context* pContext, mal_dev
         pContext->deviceInfoCapacity = newCapacity;
     }
 
-    if (type == mal_device_type_playback) {
+    if (deviceType == mal_device_type_playback) {
         // Playback. Insert just before the first capture device.
 
         // The first thing to do is move all of the capture devices down a slot.
@@ -20531,7 +20531,7 @@ mal_result mal_context_get_devices(mal_context* pContext, mal_device_info** ppPl
     return result;
 }
 
-mal_result mal_context_get_device_info(mal_context* pContext, mal_device_type type, const mal_device_id* pDeviceID, mal_share_mode shareMode, mal_device_info* pDeviceInfo)
+mal_result mal_context_get_device_info(mal_context* pContext, mal_device_type deviceType, const mal_device_id* pDeviceID, mal_share_mode shareMode, mal_device_info* pDeviceInfo)
 {
     // NOTE: Do not clear pDeviceInfo on entry. The reason is the pDeviceID may actually point to pDeviceInfo->id which will break things.
     if (pContext == NULL || pDeviceInfo == NULL) {
@@ -20551,7 +20551,7 @@ mal_result mal_context_get_device_info(mal_context* pContext, mal_device_type ty
         mal_result result;
         mal_mutex_lock(&pContext->deviceInfoLock);
         {
-            result = pContext->onGetDeviceInfo(pContext, type, pDeviceID, shareMode, &deviceInfo);
+            result = pContext->onGetDeviceInfo(pContext, deviceType, pDeviceID, shareMode, &deviceInfo);
         }
         mal_mutex_unlock(&pContext->deviceInfoLock);
 
