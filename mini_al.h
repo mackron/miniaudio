@@ -863,7 +863,7 @@ MAL_ALIGNED_STRUCT(MAL_SIMD_ALIGNMENT) mal_pcm_converter
 // Channel Maps
 // ============
 //
-// Below is the channel map used by mal_standar_channel_map_default:
+// Below is the channel map used by mal_standard_channel_map_default:
 //
 // |---------------|------------------------------|
 // | Channel Count | Mapping                      |
@@ -2455,7 +2455,7 @@ mal_context_config mal_context_config_init(mal_log_proc onLog);
 // Initializes a device config.
 //
 // By default, the device config will use native device settings (format, channels, sample rate, etc.). Using native
-// settings means you will get an optimized pass-throught data transmission pipeline to and from the device, but you will
+// settings means you will get an optimized pass-through data transmission pipeline to and from the device, but you will
 // need to do all format conversions manually. Normally you would want to use a known format that your program can handle
 // natively, which you can do by specifying it after this function returns, like so:
 //
