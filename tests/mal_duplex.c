@@ -3,7 +3,15 @@
 #define MINI_AL_IMPLEMENTATION
 #include "../mini_al.h"
 
-void on_stop(mal_device* pDevice)
+void log_callback(mal_context* pContext, mal_device* pDevice, mal_uint32 logLevel, const char* message)
+{
+    (void)pContext;
+    (void)pDevice;
+    (void)logLevel;
+    printf("%s\n", message);
+}
+
+void stop_callback(mal_device* pDevice)
 {
     (void)pDevice;
     printf("STOPPED\n");
@@ -11,7 +19,7 @@ void on_stop(mal_device* pDevice)
 
 void data_callback(mal_device* pDevice, void* pOutput, const void* pInput, mal_uint32 frameCount)
 {
-    /* In our this test the format and channel count is the same for both input and output which means we can just memcpy(). */
+    /* In this test the format and channel count are the same for both input and output which means we can just memcpy(). */
     mal_copy_memory(pOutput, pInput, frameCount * mal_get_bytes_per_frame(pDevice->format, pDevice->channels));
 }
 
@@ -24,15 +32,28 @@ int main(int argc, char** argv)
 
     mal_backend backend = mal_backend_wasapi;
 
-    mal_device_config config = mal_device_config_init_default(data_callback, NULL);
-    config.format = mal_format_f32;
-    config.channels = 2;
-    config.sampleRate = 44100;
-    config.onStopCallback = on_stop;
-    config.bufferSizeInFrames = 16384*4;
+    mal_context_config contextConfig = mal_context_config_init(log_callback);
+    mal_context context;
+    result = mal_context_init(&backend, 1, &contextConfig, &context);
+    if (result != MAL_SUCCESS) {
+        printf("Failed to initialize context.\n");
+        return result;
+    }
+
+    mal_device_config deviceConfig = mal_device_config_init(mal_device_type_duplex);
+    deviceConfig.pDeviceID = NULL;
+    deviceConfig.format = mal_format_f32;
+    deviceConfig.channels = 2;
+    deviceConfig.sampleRate = 44100;
+    deviceConfig.bufferSizeInMilliseconds = 50;
+    deviceConfig.periods = 3;
+    deviceConfig.shareMode = mal_share_mode_shared;
+    deviceConfig.dataCallback = data_callback;
+    deviceConfig.stopCallback = stop_callback;
+    deviceConfig.pUserData = NULL;
 
     mal_device device;
-    result = mal_device_init_ex(&backend, 1, NULL, mal_device_type_playback, NULL, &config, &device);
+    result = mal_device_init(&context, &deviceConfig, &device);
     if (result != MAL_SUCCESS) {
         return result;
     }
