@@ -261,7 +261,7 @@ OPTIONS
 #define MAL_DEBUT_OUTPUT
   Enable printf() debug output.
 
-#ifndef MAL_COINIT_VALUE
+#define MAL_COINIT_VALUE
   Windows only. The value to pass to internal calls to CoInitializeEx(). Defaults to COINIT_MULTITHREADED.
 
 
@@ -1600,7 +1600,7 @@ typedef struct
 
 typedef struct
 {
-    mal_log_proc onLog;
+    mal_log_proc logCallback;
     mal_thread_priority threadPriority;
 
     struct
@@ -1636,17 +1636,17 @@ struct mal_context
     mal_device_info* pDeviceInfos;          // Playback devices first, then capture.
     mal_bool32 isBackendAsynchronous : 1;   // Set when the context is initialized. Set to 1 for asynchronous backends such as Core Audio and JACK. Do not modify.
 
-    mal_result (* onUninit             )(mal_context* pContext);
-    mal_bool32 (* onDeviceIDEqual      )(mal_context* pContext, const mal_device_id* pID0, const mal_device_id* pID1);
-    mal_result (* onEnumDevices        )(mal_context* pContext, mal_enum_devices_callback_proc callback, void* pUserData);    // Return false from the callback to stop enumeration.
-    mal_result (* onGetDeviceInfo      )(mal_context* pContext, mal_device_type deviceType, const mal_device_id* pDeviceID, mal_share_mode shareMode, mal_device_info* pDeviceInfo);
-    mal_result (* onDeviceInit         )(mal_context* pContext, const mal_device_config* pConfig, mal_device* pDevice);
-    void       (* onDeviceUninit       )(mal_device* pDevice);
-    mal_result (* onDeviceStart        )(mal_device* pDevice);
-    mal_result (* onDeviceStop         )(mal_device* pDevice);
-    mal_result (* onDeviceWrite        )(mal_device* pDevice, const void* pPCMFrames, mal_uint32 frameCount);    /* Data is in internal device format. */
-    mal_result (* onDeviceRead         )(mal_device* pDevice,       void* pPCMFrames, mal_uint32 frameCount);    /* Data is in internal device format. */
-    mal_result (* onDeviceMainLoop     )(mal_device* pDevice);
+    mal_result (* onUninit        )(mal_context* pContext);
+    mal_bool32 (* onDeviceIDEqual )(mal_context* pContext, const mal_device_id* pID0, const mal_device_id* pID1);
+    mal_result (* onEnumDevices   )(mal_context* pContext, mal_enum_devices_callback_proc callback, void* pUserData);    // Return false from the callback to stop enumeration.
+    mal_result (* onGetDeviceInfo )(mal_context* pContext, mal_device_type deviceType, const mal_device_id* pDeviceID, mal_share_mode shareMode, mal_device_info* pDeviceInfo);
+    mal_result (* onDeviceInit    )(mal_context* pContext, const mal_device_config* pConfig, mal_device* pDevice);
+    void       (* onDeviceUninit  )(mal_device* pDevice);
+    mal_result (* onDeviceStart   )(mal_device* pDevice);
+    mal_result (* onDeviceStop    )(mal_device* pDevice);
+    mal_result (* onDeviceWrite   )(mal_device* pDevice, const void* pPCMFrames, mal_uint32 frameCount);    /* Data is in internal device format. */
+    mal_result (* onDeviceRead    )(mal_device* pDevice,       void* pPCMFrames, mal_uint32 frameCount);    /* Data is in internal device format. */
+    mal_result (* onDeviceMainLoop)(mal_device* pDevice);
 
     union
     {
@@ -1659,7 +1659,7 @@ struct mal_context
 #ifdef MAL_SUPPORT_DSOUND
         struct
         {
-            /*HMODULE*/ mal_handle hDSoundDLL;
+            mal_handle hDSoundDLL;
             mal_proc DirectSoundCreate;
             mal_proc DirectSoundEnumerateA;
             mal_proc DirectSoundCaptureCreate;
@@ -1669,7 +1669,7 @@ struct mal_context
 #ifdef MAL_SUPPORT_WINMM
         struct
         {
-            /*HMODULE*/ mal_handle hWinMM;
+            mal_handle hWinMM;
             mal_proc waveOutGetNumDevs;
             mal_proc waveOutGetDevCapsA;
             mal_proc waveOutOpen;
@@ -2212,7 +2212,7 @@ MAL_ALIGNED_STRUCT(MAL_SIMD_ALIGNMENT) mal_device
 //   - Web Audio / Emscripten
 //   - Null
 //
-// <pConfig> is used to configure the context. Use the onLog config to set a callback for whenever a
+// <pConfig> is used to configure the context. Use the logCallback config to set a callback for whenever a
 // log message is posted. The priority of the worker thread can be set with the threadPriority config.
 //
 // It is recommended that only a single context is active at any given time because it's a bulky data
@@ -2318,8 +2318,8 @@ mal_result mal_context_get_device_info(mal_context* pContext, mal_device_type de
 //
 // The device's configuration is controlled with pConfig. This allows you to configure the sample
 // format, channel count, sample rate, etc. Before calling mal_device_init(), you will need to
-// initialize a mal_device_config object using mal_device_config_init(), mal_device_config_init_playback(),
-// etc. You must set the callback in the device config.
+// initialize a mal_device_config object using mal_device_config_init(). You must set the callback in
+// the device config.
 //
 // Passing in 0 to any property in pConfig will force the use of a default value. In the case of
 // sample format, channel count, sample rate and channel map it will default to the values used by
@@ -2450,7 +2450,7 @@ mal_uint32 mal_device_get_buffer_size_in_bytes(mal_device* pDevice);
 
 
 // Helper function for initializing a mal_context_config object.
-mal_context_config mal_context_config_init(mal_log_proc onLog);
+mal_context_config mal_context_config_init();
 
 // Initializes a device config.
 //
@@ -4480,7 +4480,7 @@ void mal_log(mal_context* pContext, mal_device* pDevice, mal_uint32 logLevel, co
         }
     #endif
     
-        mal_log_proc onLog = pContext->config.onLog;
+        mal_log_proc onLog = pContext->config.logCallback;
         if (onLog) {
             onLog(pContext, pDevice, logLevel, message);
         }
@@ -20560,8 +20560,8 @@ mal_result mal_device_init(mal_context* pContext, const mal_device_config* pConf
     pDevice->onStop = config.stopCallback;
 
     if (((size_t)pDevice % sizeof(pDevice)) != 0) {
-        if (pContext->config.onLog) {
-            pContext->config.onLog(pContext, pDevice, MAL_LOG_LEVEL_WARNING, "WARNING: mal_device_init() called for a device that is not properly aligned. Thread safety is not supported.");
+        if (pContext->config.logCallback) {
+            pContext->config.logCallback(pContext, pDevice, MAL_LOG_LEVEL_WARNING, "WARNING: mal_device_init() called for a device that is not properly aligned. Thread safety is not supported.");
         }
     }
 
@@ -21009,12 +21009,10 @@ mal_uint32 mal_device_get_buffer_size_in_bytes(mal_device* pDevice)
     return pDevice->bufferSizeInFrames * pDevice->channels * mal_get_bytes_per_sample(pDevice->format);
 }
 
-mal_context_config mal_context_config_init(mal_log_proc onLog)
+mal_context_config mal_context_config_init()
 {
     mal_context_config config;
     mal_zero_object(&config);
-
-    config.onLog = onLog;
 
     return config;
 }
