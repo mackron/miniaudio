@@ -1575,7 +1575,8 @@ typedef struct
 typedef struct
 {
     mal_device_type deviceType;
-    mal_device_id* pDeviceID;
+    mal_device_id* pPlaybackDeviceID;
+    mal_device_id* pCaptureDeviceID;
     mal_format format;
     mal_uint32 channels;
     mal_uint32 sampleRate;
@@ -6121,6 +6122,14 @@ static mal_IMMNotificationClientVtbl g_malNotificationCientVtbl = {
 };
 #endif  // MAL_WIN32_DESKTOP
 
+#ifdef MAL_WIN32_DESKTOP
+typedef mal_IMMDevice mal_WASAPIDeviceInterface;
+#else
+typedef mal_IUnknown mal_WASAPIDeviceInterface;
+#endif
+
+
+
 mal_bool32 mal_context_is_device_id_equal__wasapi(mal_context* pContext, const mal_device_id* pID0, const mal_device_id* pID1)
 {
     mal_assert(pContext != NULL);
@@ -6143,84 +6152,6 @@ void mal_set_device_info_from_WAVEFORMATEX(const WAVEFORMATEX* pWF, mal_device_i
     pInfo->minSampleRate = pWF->nSamplesPerSec;
     pInfo->maxSampleRate = pWF->nSamplesPerSec;
 }
-
-#ifndef MAL_WIN32_DESKTOP
-mal_result mal_context_get_IAudioClient_UWP__wasapi(mal_context* pContext, mal_device_type deviceType, const mal_device_id* pDeviceID, mal_IAudioClient** ppAudioClient, mal_IUnknown** ppActivatedInterface)
-{
-    mal_assert(pContext != NULL);
-    mal_assert(ppAudioClient != NULL);
-
-    mal_IActivateAudioInterfaceAsyncOperation *pAsyncOp = NULL;
-    mal_completion_handler_uwp completionHandler;
-
-    IID iid;
-    if (pDeviceID != NULL) {
-        mal_copy_memory(&iid, pDeviceID->wasapi, sizeof(iid));
-    } else {
-        if (deviceType == mal_device_type_playback) {
-            iid = MAL_IID_DEVINTERFACE_AUDIO_RENDER;
-        } else {
-            iid = MAL_IID_DEVINTERFACE_AUDIO_CAPTURE;
-        }
-    }
-
-    LPOLESTR iidStr;
-#if defined(__cplusplus)
-    HRESULT hr = StringFromIID(iid, &iidStr);
-#else
-    HRESULT hr = StringFromIID(&iid, &iidStr);
-#endif
-    if (FAILED(hr)) {
-        return mal_context_post_error(pContext, NULL, MAL_LOG_LEVEL_ERROR, "[WASAPI] Failed to convert device IID to string for ActivateAudioInterfaceAsync(). Out of memory.", MAL_OUT_OF_MEMORY);
-    }
-
-    mal_result result = mal_completion_handler_uwp_init(&completionHandler);
-    if (result != MAL_SUCCESS) {
-        mal_CoTaskMemFree(pContext, iidStr);
-        return mal_context_post_error(pContext, NULL, MAL_LOG_LEVEL_ERROR, "[WASAPI] Failed to create event for waiting for ActivateAudioInterfaceAsync().", MAL_FAILED_TO_OPEN_BACKEND_DEVICE);
-    }
-
-#if defined(__cplusplus)
-    hr = ActivateAudioInterfaceAsync(iidStr, MAL_IID_IAudioClient, NULL, (IActivateAudioInterfaceCompletionHandler*)&completionHandler, (IActivateAudioInterfaceAsyncOperation**)&pAsyncOp);
-#else
-    hr = ActivateAudioInterfaceAsync(iidStr, &MAL_IID_IAudioClient, NULL, (IActivateAudioInterfaceCompletionHandler*)&completionHandler, (IActivateAudioInterfaceAsyncOperation**)&pAsyncOp);
-#endif
-    if (FAILED(hr)) {
-        mal_completion_handler_uwp_uninit(&completionHandler);
-        mal_CoTaskMemFree(pContext, iidStr);
-        return mal_context_post_error(pContext, NULL, MAL_LOG_LEVEL_ERROR, "[WASAPI] ActivateAudioInterfaceAsync() failed.", MAL_FAILED_TO_OPEN_BACKEND_DEVICE);
-    }
-
-    mal_CoTaskMemFree(pContext, iidStr);
-
-    // Wait for the async operation for finish.
-    mal_completion_handler_uwp_wait(&completionHandler);
-    mal_completion_handler_uwp_uninit(&completionHandler);
-
-    HRESULT activateResult;
-    mal_IUnknown* pActivatedInterface;
-    hr = mal_IActivateAudioInterfaceAsyncOperation_GetActivateResult(pAsyncOp, &activateResult, &pActivatedInterface);
-    mal_IActivateAudioInterfaceAsyncOperation_Release(pAsyncOp);
-
-    if (FAILED(hr) || FAILED(activateResult)) {
-        return mal_context_post_error(pContext, NULL, MAL_LOG_LEVEL_ERROR, "[WASAPI] Failed to activate device.", MAL_FAILED_TO_OPEN_BACKEND_DEVICE);
-    }
-
-    // Here is where we grab the IAudioClient interface.
-    hr = mal_IUnknown_QueryInterface(pActivatedInterface, &MAL_IID_IAudioClient, (void**)ppAudioClient);
-    if (FAILED(hr)) {
-        return mal_context_post_error(pContext, NULL, MAL_LOG_LEVEL_ERROR, "[WASAPI] Failed to query IAudioClient interface.", MAL_FAILED_TO_OPEN_BACKEND_DEVICE);
-    }
-
-    if (ppActivatedInterface) {
-        *ppActivatedInterface = pActivatedInterface;
-    } else {
-        mal_IUnknown_Release(pActivatedInterface);
-    }
-
-    return MAL_SUCCESS;
-}
-#endif
 
 mal_result mal_context_get_device_info_from_IAudioClient__wasapi(mal_context* pContext, /*mal_IMMDevice**/void* pMMDevice, mal_IAudioClient* pAudioClient, mal_share_mode shareMode, mal_device_info* pInfo)
 {
@@ -6452,6 +6383,116 @@ mal_result mal_context_enumerate_device_collection__wasapi(mal_context* pContext
 }
 #endif
 
+#ifdef MAL_WIN32_DESKTOP
+mal_result mal_context_get_IAudioClient_Desktop__wasapi(mal_context* pContext, mal_device_type deviceType, const mal_device_id* pDeviceID, mal_IAudioClient** ppAudioClient, mal_IMMDevice** ppMMDevice)
+{
+    mal_result result;
+    HRESULT hr;
+
+    mal_assert(pContext != NULL);
+    mal_assert(ppAudioClient != NULL);
+    mal_assert(ppMMDevice != NULL);
+
+    result = mal_context_get_MMDevice__wasapi(pContext, deviceType, pDeviceID, ppMMDevice);
+    if (result != MAL_SUCCESS) {
+        return result;
+    }
+
+    hr = mal_IMMDevice_Activate(*ppMMDevice, &MAL_IID_IAudioClient, CLSCTX_ALL, NULL, (void**)ppAudioClient);
+    if (FAILED(hr)) {
+        return MAL_FAILED_TO_OPEN_BACKEND_DEVICE;
+    }
+
+    return MAL_SUCCESS;
+}
+#else
+mal_result mal_context_get_IAudioClient_UWP__wasapi(mal_context* pContext, mal_device_type deviceType, const mal_device_id* pDeviceID, mal_IAudioClient** ppAudioClient, mal_IUnknown** ppActivatedInterface)
+{
+    mal_assert(pContext != NULL);
+    mal_assert(ppAudioClient != NULL);
+
+    mal_IActivateAudioInterfaceAsyncOperation *pAsyncOp = NULL;
+    mal_completion_handler_uwp completionHandler;
+
+    IID iid;
+    if (pDeviceID != NULL) {
+        mal_copy_memory(&iid, pDeviceID->wasapi, sizeof(iid));
+    } else {
+        if (deviceType == mal_device_type_playback) {
+            iid = MAL_IID_DEVINTERFACE_AUDIO_RENDER;
+        } else {
+            iid = MAL_IID_DEVINTERFACE_AUDIO_CAPTURE;
+        }
+    }
+
+    LPOLESTR iidStr;
+#if defined(__cplusplus)
+    HRESULT hr = StringFromIID(iid, &iidStr);
+#else
+    HRESULT hr = StringFromIID(&iid, &iidStr);
+#endif
+    if (FAILED(hr)) {
+        return mal_context_post_error(pContext, NULL, MAL_LOG_LEVEL_ERROR, "[WASAPI] Failed to convert device IID to string for ActivateAudioInterfaceAsync(). Out of memory.", MAL_OUT_OF_MEMORY);
+    }
+
+    mal_result result = mal_completion_handler_uwp_init(&completionHandler);
+    if (result != MAL_SUCCESS) {
+        mal_CoTaskMemFree(pContext, iidStr);
+        return mal_context_post_error(pContext, NULL, MAL_LOG_LEVEL_ERROR, "[WASAPI] Failed to create event for waiting for ActivateAudioInterfaceAsync().", MAL_FAILED_TO_OPEN_BACKEND_DEVICE);
+    }
+
+#if defined(__cplusplus)
+    hr = ActivateAudioInterfaceAsync(iidStr, MAL_IID_IAudioClient, NULL, (IActivateAudioInterfaceCompletionHandler*)&completionHandler, (IActivateAudioInterfaceAsyncOperation**)&pAsyncOp);
+#else
+    hr = ActivateAudioInterfaceAsync(iidStr, &MAL_IID_IAudioClient, NULL, (IActivateAudioInterfaceCompletionHandler*)&completionHandler, (IActivateAudioInterfaceAsyncOperation**)&pAsyncOp);
+#endif
+    if (FAILED(hr)) {
+        mal_completion_handler_uwp_uninit(&completionHandler);
+        mal_CoTaskMemFree(pContext, iidStr);
+        return mal_context_post_error(pContext, NULL, MAL_LOG_LEVEL_ERROR, "[WASAPI] ActivateAudioInterfaceAsync() failed.", MAL_FAILED_TO_OPEN_BACKEND_DEVICE);
+    }
+
+    mal_CoTaskMemFree(pContext, iidStr);
+
+    // Wait for the async operation for finish.
+    mal_completion_handler_uwp_wait(&completionHandler);
+    mal_completion_handler_uwp_uninit(&completionHandler);
+
+    HRESULT activateResult;
+    mal_IUnknown* pActivatedInterface;
+    hr = mal_IActivateAudioInterfaceAsyncOperation_GetActivateResult(pAsyncOp, &activateResult, &pActivatedInterface);
+    mal_IActivateAudioInterfaceAsyncOperation_Release(pAsyncOp);
+
+    if (FAILED(hr) || FAILED(activateResult)) {
+        return mal_context_post_error(pContext, NULL, MAL_LOG_LEVEL_ERROR, "[WASAPI] Failed to activate device.", MAL_FAILED_TO_OPEN_BACKEND_DEVICE);
+    }
+
+    // Here is where we grab the IAudioClient interface.
+    hr = mal_IUnknown_QueryInterface(pActivatedInterface, &MAL_IID_IAudioClient, (void**)ppAudioClient);
+    if (FAILED(hr)) {
+        return mal_context_post_error(pContext, NULL, MAL_LOG_LEVEL_ERROR, "[WASAPI] Failed to query IAudioClient interface.", MAL_FAILED_TO_OPEN_BACKEND_DEVICE);
+    }
+
+    if (ppActivatedInterface) {
+        *ppActivatedInterface = pActivatedInterface;
+    } else {
+        mal_IUnknown_Release(pActivatedInterface);
+    }
+
+    return MAL_SUCCESS;
+}
+#endif
+
+mal_result mal_context_get_IAudioClient__wasapi(mal_context* pContext, mal_device_type deviceType, const mal_device_id* pDeviceID, mal_IAudioClient** ppAudioClient, mal_WASAPIDeviceInterface** ppDeviceInterface)
+{
+#ifdef MAL_WIN32_DESKTOP
+    return mal_context_get_IAudioClient_Desktop__wasapi(pContext, deviceType, pDeviceID, ppAudioClient, ppDeviceInterface);
+#else
+    return mal_context_get_IAudioClient_UWP__wasapi(pContext, deviceType, pDeviceID, ppAudioClient, ppDeviceInterface);
+#endif
+}
+
+
 mal_result mal_context_enumerate_devices__wasapi(mal_context* pContext, mal_enum_devices_callback_proc callback, void* pUserData)
 {
     mal_assert(pContext != NULL);
@@ -6582,6 +6623,7 @@ void mal_device_uninit__wasapi(mal_device* pDevice)
     }
 }
 
+
 typedef struct
 {
     // Input.
@@ -6611,12 +6653,17 @@ typedef struct
     char deviceName[256];
 } mal_device_init_internal_data__wasapi;
 
-mal_result mal_device_init_internal__wasapi(mal_context* pContext, mal_device_type deviceType, const mal_device_id* pDeviceID, mal_device_init_internal_data__wasapi* pData)
+mal_result mal_device_init_internal__wasapi(mal_context* pContext, mal_device_type deviceType, const mal_device_id* pPlaybackDeviceID, const mal_device_id* pCaptureDeviceID, mal_device_init_internal_data__wasapi* pData)
 {
     (void)pContext;
 
     mal_assert(pContext != NULL);
     mal_assert(pData != NULL);
+
+    /* Not currently supporting full-duplex. */
+    if (deviceType == mal_device_type_duplex) {
+        return MAL_INVALID_ARGS;
+    }
 
     pData->pAudioClient = NULL;
     pData->pRenderClient = NULL;
@@ -6630,10 +6677,35 @@ mal_result mal_device_init_internal__wasapi(mal_context* pContext, mal_device_ty
     MAL_REFERENCE_TIME bufferDurationInMicroseconds;
     mal_bool32 wasInitializedUsingIAudioClient3 = MAL_FALSE;
     WAVEFORMATEXTENSIBLE wf;
+    //mal_WASAPIDeviceInterface* pDeviceInterfacePlayback = NULL;
+    //mal_WASAPIDeviceInterface* pDeviceInterfaceCapture = NULL;
+    mal_WASAPIDeviceInterface* pDeviceInterface = NULL;    // TEMP: Will be split between playback and capture when full-duplex support is implemented.
 
+#if 0
+    /*
+    We first try initializing the capture device if applicable. If the device is full-duplex we will try re-using the capture audio client, but
+    if that fails we'll need to initialize a separate playback audio client.
+    */
+    if (deviceType == mal_device_type_capture || deviceType == mal_device_type_duplex) {
+
+    }
+
+    /* We may need a playback render client. If it's a duplex device we want to try re-using the same audio client. Otherwise we need a separate one. */
+    if (deviceType == mal_device_type_playback || deviceType == mal_device_type_duplex) {
+        if (deviceType == mal_device_type_duplex) {
+            if (pPlaybackDeviceID != NULL && pCaptureDeviceID != NULL && mal_context_is_device_id_equal__wasapi(pContext, pPlaybackDeviceID, pCaptureDeviceID)) {
+
+            }
+        }
+
+        /* Getting here means we need to initialize a separate playback audio client. */
+
+    }
+#endif
+
+#if 0
 #ifdef MAL_WIN32_DESKTOP
-    mal_IMMDevice* pMMDevice = NULL;
-    result = mal_context_get_MMDevice__wasapi(pContext, deviceType, pDeviceID, &pMMDevice);
+    result = mal_context_get_MMDevice__wasapi(pContext, deviceType, (deviceType == mal_device_type_playback) ? pPlaybackDeviceID : pCaptureDeviceID, &pMMDevice);
     if (result != MAL_SUCCESS) {
         goto done;
     }
@@ -6645,11 +6717,19 @@ mal_result mal_device_init_internal__wasapi(mal_context* pContext, mal_device_ty
     }
 #else
     mal_IUnknown* pActivatedInterface = NULL;
-    result = mal_context_get_IAudioClient_UWP__wasapi(pContext, type, pDeviceID, &pData->pAudioClient, &pActivatedInterface);
+    result = mal_context_get_IAudioClient_UWP__wasapi(pContext, deviceType, pDeviceID, &pData->pAudioClient, &pActivatedInterface);
     if (result != MAL_SUCCESS) {
         goto done;
     }
 #endif
+#endif
+
+    /* TEMP: Will be replaced when full-duplex is added. */
+    result = mal_context_get_IAudioClient__wasapi(pContext, deviceType, (deviceType == mal_device_type_playback) ? pPlaybackDeviceID : pCaptureDeviceID, &pData->pAudioClient, &pDeviceInterface);
+    if (result != MAL_SUCCESS) {
+        goto done;
+    }
+
 
     // Try enabling hardware offloading.
     mal_IAudioClient2* pAudioClient2;
@@ -6674,7 +6754,7 @@ mal_result mal_device_init_internal__wasapi(mal_context* pContext, mal_device_ty
     #ifdef MAL_WIN32_DESKTOP
         // In exclusive mode on desktop we always use the backend's native format.
         mal_IPropertyStore* pStore = NULL;
-        hr = mal_IMMDevice_OpenPropertyStore(pMMDevice, STGM_READ, &pStore);
+        hr = mal_IMMDevice_OpenPropertyStore(pDeviceInterface, STGM_READ, &pStore);
         if (SUCCEEDED(hr)) {
             PROPVARIANT prop;
             mal_PropVariantInit(&prop);
@@ -6780,9 +6860,9 @@ mal_result mal_device_init_internal__wasapi(mal_context* pContext, mal_device_ty
                 mal_IAudioClient_Release((mal_IAudioClient*)pData->pAudioClient);
 
             #ifdef MAL_WIN32_DESKTOP
-                hr = mal_IMMDevice_Activate(pMMDevice, &MAL_IID_IAudioClient, CLSCTX_ALL, NULL, (void**)&pData->pAudioClient);
+                hr = mal_IMMDevice_Activate(pDeviceInterface, &MAL_IID_IAudioClient, CLSCTX_ALL, NULL, (void**)&pData->pAudioClient);
             #else
-                hr = mal_IUnknown_QueryInterface(pActivatedInterface, &MAL_IID_IAudioClient, (void**)&pData->pAudioClient);
+                hr = mal_IUnknown_QueryInterface(pDeviceInterface, &MAL_IID_IAudioClient, (void**)&pData->pAudioClient);
             #endif
 
                 if (SUCCEEDED(hr)) {
@@ -6876,7 +6956,7 @@ mal_result mal_device_init_internal__wasapi(mal_context* pContext, mal_device_ty
     // Grab the name of the device.
 #ifdef MAL_WIN32_DESKTOP
     mal_IPropertyStore *pProperties;
-    hr = mal_IMMDevice_OpenPropertyStore(pMMDevice, STGM_READ, &pProperties);
+    hr = mal_IMMDevice_OpenPropertyStore(pDeviceInterface, STGM_READ, &pProperties);
     if (SUCCEEDED(hr)) {
         PROPVARIANT varName;
         mal_PropVariantInit(&varName);
@@ -6893,12 +6973,12 @@ mal_result mal_device_init_internal__wasapi(mal_context* pContext, mal_device_ty
 done:
     // Clean up.
 #ifdef MAL_WIN32_DESKTOP
-    if (pMMDevice != NULL) {
-        mal_IMMDevice_Release(pMMDevice);
+    if (pDeviceInterface != NULL) {
+        mal_IMMDevice_Release(pDeviceInterface);
     }
 #else
-    if (pActivatedInterface != NULL) {
-        mal_IUnknown_Release(pActivatedInterface);
+    if (pDeviceInterface != NULL) {
+        mal_IUnknown_Release(pDeviceInterface);
     }
 #endif
 
@@ -6937,7 +7017,7 @@ mal_result mal_device_reinit__wasapi(mal_device* pDevice)
     data.usingDefaultSampleRate = pDevice->usingDefaultSampleRate;
     data.usingDefaultChannelMap = pDevice->usingDefaultChannelMap;
     data.shareMode = pDevice->initConfig.shareMode;
-    mal_result result = mal_device_init_internal__wasapi(pDevice->pContext, pDevice->type, NULL, &data);
+    mal_result result = mal_device_init_internal__wasapi(pDevice->pContext, pDevice->type, NULL, NULL, &data);
     if (result != MAL_SUCCESS) {
         return result;
     }
@@ -7002,7 +7082,7 @@ mal_result mal_device_init__wasapi(mal_context* pContext, const mal_device_confi
     data.usingDefaultSampleRate = pDevice->usingDefaultSampleRate;
     data.usingDefaultChannelMap = pDevice->usingDefaultChannelMap;
     data.shareMode = pConfig->shareMode;
-    result = mal_device_init_internal__wasapi(pDevice->pContext, pConfig->deviceType, pConfig->pDeviceID, &data);
+    result = mal_device_init_internal__wasapi(pDevice->pContext, pConfig->deviceType, pConfig->pPlaybackDeviceID, pConfig->pCaptureDeviceID, &data);
     if (result != MAL_SUCCESS) {
         return result;
     }
@@ -7159,7 +7239,7 @@ mal_result mal_device__get_available_frames__wasapi(mal_device* pDevice, mal_uin
 mal_bool32 mal_device_is_reroute_required__wasapi(mal_device* pDevice)
 {
     mal_assert(pDevice != NULL);
-    return pDevice->wasapi.hasDefaultDeviceChanged && pDevice->isDefaultDevice;
+    return pDevice->wasapi.hasDefaultDeviceChanged;
 }
 
 mal_result mal_device_reroute__wasapi(mal_device* pDevice)
@@ -8258,6 +8338,11 @@ mal_result mal_device_init__dsound(mal_context* pContext, const mal_device_confi
     mal_assert(pDevice != NULL);
     mal_zero_object(&pDevice->dsound);
 
+    /* Full-duplex is not yet implemented. */
+    if (pConfig->deviceType == mal_device_type_duplex) {
+        return MAL_INVALID_ARGS;
+    }
+
     /* DirectSound should use a latency of about 20ms per period for low latency mode. */
     if (pDevice->usingDefaultBufferSize) {
         if (pConfig->performanceProfile == mal_performance_profile_low_latency) {
@@ -8304,7 +8389,7 @@ mal_result mal_device_init__dsound(mal_context* pContext, const mal_device_confi
 
     // Unfortunately DirectSound uses different APIs and data structures for playback and catpure devices :(
     if (pConfig->deviceType == mal_device_type_playback) {
-        mal_result result = mal_context_create_IDirectSound__dsound(pContext, pConfig->shareMode, pConfig->pDeviceID, (mal_IDirectSound**)&pDevice->dsound.pPlayback);
+        mal_result result = mal_context_create_IDirectSound__dsound(pContext, pConfig->shareMode, pConfig->pPlaybackDeviceID, (mal_IDirectSound**)&pDevice->dsound.pPlayback);
         if (result != MAL_SUCCESS) {
             mal_device_uninit__dsound(pDevice);
             return result;
@@ -8418,7 +8503,7 @@ mal_result mal_device_init__dsound(mal_context* pContext, const mal_device_confi
             return mal_post_error(pDevice, MAL_LOG_LEVEL_ERROR, "[DirectSound] IDirectSound_CreateSoundBuffer() failed for playback device's secondary buffer.", MAL_FAILED_TO_OPEN_BACKEND_DEVICE);
         }
     } else {
-        mal_result result = mal_context_create_IDirectSoundCapture__dsound(pContext, pConfig->shareMode, pConfig->pDeviceID, (mal_IDirectSoundCapture**)&pDevice->dsound.pCapture);
+        mal_result result = mal_context_create_IDirectSoundCapture__dsound(pContext, pConfig->shareMode, pConfig->pCaptureDeviceID, (mal_IDirectSoundCapture**)&pDevice->dsound.pCapture);
         if (result != MAL_SUCCESS) {
             mal_device_uninit__dsound(pDevice);
             return result;
@@ -9262,6 +9347,11 @@ mal_result mal_device_init__winmm(mal_context* pContext, const mal_device_config
     mal_assert(pDevice != NULL);
     mal_zero_object(&pDevice->winmm);
 
+    /* Full-duplex is not yet implemented. */
+    if (pConfig->deviceType == mal_device_type_duplex) {
+        return MAL_INVALID_ARGS;
+    }
+
     /* No exlusive mode with WinMM. */
     if (pConfig->shareMode == mal_share_mode_exclusive) {
         return MAL_SHARE_MODE_NOT_SUPPORTED;
@@ -9276,9 +9366,13 @@ mal_result mal_device_init__winmm(mal_context* pContext, const mal_device_config
         }
     }
 
-    UINT winMMDeviceID = 0;
-    if (pConfig->pDeviceID != NULL) {
-        winMMDeviceID = (UINT)pConfig->pDeviceID->winmm;
+    UINT winMMDeviceIDPlayback = 0;
+    UINT winMMDeviceIDCapture  = 0;
+    if (pConfig->pPlaybackDeviceID != NULL) {
+        winMMDeviceIDPlayback = (UINT)pConfig->pPlaybackDeviceID->winmm;
+    }
+    if (pConfig->pCaptureDeviceID != NULL) {
+        winMMDeviceIDCapture = (UINT)pConfig->pCaptureDeviceID->winmm;
     }
 
     const char* errorMsg = "";
@@ -9326,7 +9420,7 @@ mal_result mal_device_init__winmm(mal_context* pContext, const mal_device_config
     WORD wChannels = 0;
     if (pConfig->deviceType == mal_device_type_playback) {
         WAVEOUTCAPSA caps;
-        if (((MAL_PFN_waveOutGetDevCapsA)pContext->winmm.waveOutGetDevCapsA)(winMMDeviceID, &caps, sizeof(caps)) == MMSYSERR_NOERROR) {
+        if (((MAL_PFN_waveOutGetDevCapsA)pContext->winmm.waveOutGetDevCapsA)(winMMDeviceIDPlayback, &caps, sizeof(caps)) == MMSYSERR_NOERROR) {
             dwFormats = caps.dwFormats;
             wChannels = caps.wChannels;
         } else {
@@ -9335,7 +9429,7 @@ mal_result mal_device_init__winmm(mal_context* pContext, const mal_device_config
         }
     } else {
         WAVEINCAPSA caps;
-        if (((MAL_PFN_waveInGetDevCapsA)pContext->winmm.waveInGetDevCapsA)(winMMDeviceID, &caps, sizeof(caps)) == MMSYSERR_NOERROR) {
+        if (((MAL_PFN_waveInGetDevCapsA)pContext->winmm.waveInGetDevCapsA)(winMMDeviceIDCapture, &caps, sizeof(caps)) == MMSYSERR_NOERROR) {
             dwFormats = caps.dwFormats;
             wChannels = caps.wChannels;
         } else {
@@ -9370,13 +9464,13 @@ mal_result mal_device_init__winmm(mal_context* pContext, const mal_device_config
 
 
     if (pConfig->deviceType == mal_device_type_playback) {
-        MMRESULT resultMM = ((MAL_PFN_waveOutOpen)pContext->winmm.waveOutOpen)((LPHWAVEOUT)&pDevice->winmm.hDevice, winMMDeviceID, &wf, (DWORD_PTR)pDevice->winmm.hEvent, (DWORD_PTR)pDevice, CALLBACK_EVENT | WAVE_ALLOWSYNC);
+        MMRESULT resultMM = ((MAL_PFN_waveOutOpen)pContext->winmm.waveOutOpen)((LPHWAVEOUT)&pDevice->winmm.hDevice, winMMDeviceIDPlayback, &wf, (DWORD_PTR)pDevice->winmm.hEvent, (DWORD_PTR)pDevice, CALLBACK_EVENT | WAVE_ALLOWSYNC);
         if (resultMM != MMSYSERR_NOERROR) {
             errorMsg = "[WinMM] Failed to open playback device.", errorCode = MAL_FAILED_TO_OPEN_BACKEND_DEVICE;
             goto on_error;
         }
     } else {
-        MMRESULT resultMM = ((MAL_PFN_waveInOpen)pDevice->pContext->winmm.waveInOpen)((LPHWAVEIN)&pDevice->winmm.hDevice, winMMDeviceID, &wf, (DWORD_PTR)pDevice->winmm.hEvent, (DWORD_PTR)pDevice, CALLBACK_EVENT | WAVE_ALLOWSYNC);
+        MMRESULT resultMM = ((MAL_PFN_waveInOpen)pDevice->pContext->winmm.waveInOpen)((LPHWAVEIN)&pDevice->winmm.hDevice, winMMDeviceIDCapture, &wf, (DWORD_PTR)pDevice->winmm.hEvent, (DWORD_PTR)pDevice, CALLBACK_EVENT | WAVE_ALLOWSYNC);
         if (resultMM != MMSYSERR_NOERROR) {
             errorMsg = "[WinMM] Failed to open capture device.", errorCode = MAL_FAILED_TO_OPEN_BACKEND_DEVICE;
             goto on_error;
@@ -10990,12 +11084,17 @@ mal_result mal_device_init__alsa(mal_context* pContext, const mal_device_config*
 {
     (void)pContext;
 
+    /* Full-duplex is not yet implemented. */
+    if (pConfig->deviceType == mal_device_type_duplex) {
+        return MAL_INVALID_ARGS;
+    }
+
     mal_assert(pDevice != NULL);
     mal_zero_object(&pDevice->alsa);
 
     mal_snd_pcm_format_t formatALSA = mal_convert_mal_format_to_alsa_format(pConfig->format);
 
-    mal_result result = mal_context_open_pcm__alsa(pContext, pConfig->shareMode, pConfig->deviceType, pConfig->pDeviceID, (mal_snd_pcm_t**)&pDevice->alsa.pPCM);
+    mal_result result = mal_context_open_pcm__alsa(pContext, pConfig->shareMode, pConfig->deviceType, (pConfig->deviceType == mal_device_type_playback) ? pConfig->pPlaybackDeviceID : pConfig->pCaptureDeviceID, (mal_snd_pcm_t**)&pDevice->alsa.pPCM);
     if (result != MAL_SUCCESS) {
         return result;
     }
@@ -12912,15 +13011,24 @@ mal_result mal_device_init__pulse(mal_context* pContext, const mal_device_config
 
     mal_result result = MAL_SUCCESS;
     int error = 0;
+    const char* devPlayback = NULL;
+    const char* devCapture  = NULL;
+
+    /* Full-duplex is not yet implemented. */
+    if (pConfig->deviceType == mal_device_type_duplex) {
+        return MAL_INVALID_ARGS;
+    }
 
     /* No exclusive mode with the PulseAudio backend. */
     if (pConfig->shareMode == mal_share_mode_exclusive) {
         return MAL_SHARE_MODE_NOT_SUPPORTED;
     }
 
-    const char* dev = NULL;
-    if (pConfig->pDeviceID != NULL) {
-        dev = pConfig->pDeviceID->pulse;
+    if ((pConfig->deviceType == mal_device_type_playback || pConfig->deviceType == mal_device_type_duplex) && pConfig->pPlaybackDeviceID != NULL) {
+        devPlayback = pConfig->pPlaybackDeviceID->pulse;
+    }
+    if ((pConfig->deviceType == mal_device_type_capture || pConfig->deviceType == mal_device_type_duplex) && pConfig->pCaptureDeviceID != NULL) {
+        devCapture = pConfig->pCaptureDeviceID->pulse;
     }
 
     mal_uint32 bufferSizeInFrames = pConfig->bufferSizeInFrames;
@@ -12996,9 +13104,9 @@ mal_result mal_device_init__pulse(mal_context* pContext, const mal_device_config
 
 
     if (pConfig->deviceType == mal_device_type_playback) {
-        pOP = ((mal_pa_context_get_sink_info_by_name_proc)pContext->pulse.pa_context_get_sink_info_by_name)((mal_pa_context*)pDevice->pulse.pPulseContext, dev, mal_device_sink_info_callback, &sinkInfo);
+        pOP = ((mal_pa_context_get_sink_info_by_name_proc)pContext->pulse.pa_context_get_sink_info_by_name)((mal_pa_context*)pDevice->pulse.pPulseContext, devPlayback, mal_device_sink_info_callback, &sinkInfo);
     } else {
-        pOP = ((mal_pa_context_get_source_info_by_name_proc)pContext->pulse.pa_context_get_source_info_by_name)((mal_pa_context*)pDevice->pulse.pPulseContext, dev, mal_device_source_info_callback, &sourceInfo);
+        pOP = ((mal_pa_context_get_source_info_by_name_proc)pContext->pulse.pa_context_get_source_info_by_name)((mal_pa_context*)pDevice->pulse.pPulseContext, devCapture, mal_device_source_info_callback, &sourceInfo);
     }
 
     if (pOP != NULL) {
@@ -13058,14 +13166,15 @@ mal_result mal_device_init__pulse(mal_context* pContext, const mal_device_config
 
 
     streamFlags = MAL_PA_STREAM_START_CORKED;
-    if (dev != NULL) {
+    if (((pConfig->deviceType == mal_device_type_playback) && devPlayback != NULL) ||
+        ((pConfig->deviceType == mal_device_type_capture)  && devCapture  != NULL)) {
         streamFlags |= MAL_PA_STREAM_DONT_MOVE | MAL_PA_STREAM_FIX_FORMAT | MAL_PA_STREAM_FIX_RATE | MAL_PA_STREAM_FIX_CHANNELS;
     }
     
     if (pConfig->deviceType == mal_device_type_playback) {
-        error = ((mal_pa_stream_connect_playback_proc)pContext->pulse.pa_stream_connect_playback)((mal_pa_stream*)pDevice->pulse.pStream, dev, &attr, streamFlags, NULL, NULL);
+        error = ((mal_pa_stream_connect_playback_proc)pContext->pulse.pa_stream_connect_playback)((mal_pa_stream*)pDevice->pulse.pStream, devPlayback, &attr, streamFlags, NULL, NULL);
     } else {
-        error = ((mal_pa_stream_connect_record_proc)pContext->pulse.pa_stream_connect_record)((mal_pa_stream*)pDevice->pulse.pStream, dev, &attr, streamFlags);
+        error = ((mal_pa_stream_connect_record_proc)pContext->pulse.pa_stream_connect_record)((mal_pa_stream*)pDevice->pulse.pStream, devCapture, &attr, streamFlags);
     }
 
     if (error != MAL_PA_OK) {
@@ -13134,18 +13243,23 @@ mal_result mal_device_init__pulse(mal_context* pContext, const mal_device_config
 
 
     // Grab the name of the device if we can.
-    dev = ((mal_pa_stream_get_device_name_proc)pContext->pulse.pa_stream_get_device_name)((mal_pa_stream*)pDevice->pulse.pStream);
-    if (dev != NULL) {
-        mal_pa_operation* pOP = NULL;
-        if (pConfig->deviceType == mal_device_type_playback) {
-            pOP = ((mal_pa_context_get_sink_info_by_name_proc)pContext->pulse.pa_context_get_sink_info_by_name)((mal_pa_context*)pDevice->pulse.pPulseContext, dev, mal_device_sink_name_callback, pDevice);
-        } else {
-            pOP = ((mal_pa_context_get_source_info_by_name_proc)pContext->pulse.pa_context_get_source_info_by_name)((mal_pa_context*)pDevice->pulse.pPulseContext, dev, mal_device_source_name_callback, pDevice);
+    if (pDevice->type == mal_device_type_playback) {
+        devPlayback = ((mal_pa_stream_get_device_name_proc)pContext->pulse.pa_stream_get_device_name)((mal_pa_stream*)pDevice->pulse.pStream);
+        if (devPlayback != NULL) {
+            mal_pa_operation* pOP = ((mal_pa_context_get_sink_info_by_name_proc)pContext->pulse.pa_context_get_sink_info_by_name)((mal_pa_context*)pDevice->pulse.pPulseContext, devPlayback, mal_device_sink_name_callback, pDevice);
+            if (pOP != NULL) {
+                mal_device__wait_for_operation__pulse(pDevice, pOP);
+                ((mal_pa_operation_unref_proc)pContext->pulse.pa_operation_unref)(pOP);
+            }
         }
-
-        if (pOP != NULL) {
-            mal_device__wait_for_operation__pulse(pDevice, pOP);
-            ((mal_pa_operation_unref_proc)pContext->pulse.pa_operation_unref)(pOP);
+    } else {
+        devCapture = ((mal_pa_stream_get_device_name_proc)pContext->pulse.pa_stream_get_device_name)((mal_pa_stream*)pDevice->pulse.pStream);
+        if (devCapture != NULL) {
+            mal_pa_operation* pOP = ((mal_pa_context_get_source_info_by_name_proc)pContext->pulse.pa_context_get_source_info_by_name)((mal_pa_context*)pDevice->pulse.pPulseContext, devCapture, mal_device_source_name_callback, pDevice);
+            if (pOP != NULL) {
+                mal_device__wait_for_operation__pulse(pDevice, pOP);
+                ((mal_pa_operation_unref_proc)pContext->pulse.pa_operation_unref)(pOP);
+            }
         }
     }
 
@@ -13467,16 +13581,15 @@ mal_result mal_context_init__pulse(mal_context* pContext)
     pContext->pulse.pa_stream_drop                     = (mal_proc)_pa_stream_drop;
 #endif
 
-    pContext->onUninit              = mal_context_uninit__pulse;
-    pContext->onDeviceIDEqual       = mal_context_is_device_id_equal__pulse;
-    pContext->onEnumDevices         = mal_context_enumerate_devices__pulse;
-    pContext->onGetDeviceInfo       = mal_context_get_device_info__pulse;
-    pContext->onDeviceInit          = mal_device_init__pulse;
-    pContext->onDeviceUninit        = mal_device_uninit__pulse;
-    pContext->onDeviceStart         = mal_device_start__pulse;
-    pContext->onDeviceStop          = mal_device_stop__pulse;
-    pContext->onDeviceBreakMainLoop = mal_device_break_main_loop__pulse;
-    pContext->onDeviceMainLoop      = mal_device_main_loop__pulse;
+    pContext->onUninit         = mal_context_uninit__pulse;
+    pContext->onDeviceIDEqual  = mal_context_is_device_id_equal__pulse;
+    pContext->onEnumDevices    = mal_context_enumerate_devices__pulse;
+    pContext->onGetDeviceInfo  = mal_context_get_device_info__pulse;
+    pContext->onDeviceInit     = mal_device_init__pulse;
+    pContext->onDeviceUninit   = mal_device_uninit__pulse;
+    pContext->onDeviceStart    = mal_device_start__pulse;
+    pContext->onDeviceStop     = mal_device_stop__pulse;
+    pContext->onDeviceMainLoop = mal_device_main_loop__pulse;
 
     
     // Although we have found the libpulse library, it doesn't necessarily mean PulseAudio is useable. We need to initialize
@@ -13780,8 +13893,14 @@ mal_result mal_device_init__jack(mal_context* pContext, const mal_device_config*
 
     (void)pContext;
 
+    /* Full-duplex is not yet implemented. */
+    if (pConfig->deviceType == mal_device_type_duplex) {
+        return MAL_INVALID_ARGS;
+    }
+
     /* Only supporting default devices with JACK. */
-    if (pConfig->pDeviceID != NULL && pConfig->pDeviceID->jack != 0) {
+    if (((pConfig->deviceType == mal_device_type_playback || pConfig->deviceType == mal_device_type_duplex) && pConfig->pPlaybackDeviceID != NULL && pConfig->pPlaybackDeviceID->jack != 0) ||
+        ((pConfig->deviceType == mal_device_type_capture  || pConfig->deviceType == mal_device_type_duplex) && pConfig->pCaptureDeviceID  != NULL && pConfig->pCaptureDeviceID->jack  != 0)) {
         return MAL_NO_DEVICE;
     }
 
@@ -15678,11 +15797,16 @@ typedef struct
     char deviceName[256];
 } mal_device_init_internal_data__coreaudio;
 
-mal_result mal_device_init_internal__coreaudio(mal_context* pContext, mal_device_type deviceType, const mal_device_id* pDeviceID, mal_device_init_internal_data__coreaudio* pData, void* pDevice_DoNotReference)   /* <-- pDevice is typed as void* intentionally so as to avoid accidentally referencing it. */
+mal_result mal_device_init_internal__coreaudio(mal_context* pContext, mal_device_type deviceType, const mal_device_id* pPlaybackDeviceID, const mal_device_id* pCaptureDeviceID, mal_device_init_internal_data__coreaudio* pData, void* pDevice_DoNotReference)   /* <-- pDevice is typed as void* intentionally so as to avoid accidentally referencing it. */
 {
+    /* Not currently supporting full-duplex. */
+    if (deviceType == mal_device_type_duplex) {
+        return MAL_INVALID_ARGS;
+    }
+
     mal_assert(pContext != NULL);
-    mal_assert(deviceType == mal_device_type_playback || deviceType == mal_device_type_capture);
-    
+    mal_assert(deviceType == mal_device_type_playback || deviceType == mal_device_type_capture || deviceType == mal_device_type_duplex);
+
 #if defined(MAL_APPLE_DESKTOP)
     pData->deviceObjectID = 0;
 #endif
@@ -15694,7 +15818,7 @@ mal_result mal_device_init_internal__coreaudio(mal_context* pContext, mal_device
     
 #if defined(MAL_APPLE_DESKTOP)
     AudioObjectID deviceObjectID;
-    result = mal_find_AudioObjectID(pContext, deviceType, pDeviceID, &deviceObjectID);
+    result = mal_find_AudioObjectID(pContext, deviceType, (deviceType == mal_device_type_playback) ? pPlaybackDeviceID : pCaptureDeviceID, &deviceObjectID);
     if (result != MAL_SUCCESS) {
         return result;
     }
@@ -16025,7 +16149,7 @@ mal_result mal_device_reinit_internal__coreaudio(mal_device* pDevice, mal_bool32
     data.usingDefaultChannelMap = pDevice->usingDefaultChannelMap;
     data.shareMode = pDevice->initConfig.shareMode;
 
-    mal_result result = mal_device_init_internal__coreaudio(pDevice->pContext, pDevice->type, NULL, &data, (void*)pDevice);
+    mal_result result = mal_device_init_internal__coreaudio(pDevice->pContext, pDevice->type, NULL, NULL, &data, (void*)pDevice);
     if (result != MAL_SUCCESS) {
         return result;
     }
@@ -16085,7 +16209,7 @@ mal_result mal_device_init__coreaudio(mal_context* pContext, const mal_device_co
     data.usingDefaultChannelMap = pDevice->usingDefaultChannelMap;
     data.shareMode = pDevice->initConfig.shareMode;
 
-    mal_result result = mal_device_init_internal__coreaudio(pDevice->pContext, pConfig->deviceType, pConfig->pDeviceID, &data, (void*)pDevice);
+    mal_result result = mal_device_init_internal__coreaudio(pDevice->pContext, pConfig->deviceType, pConfig->pPlaybackDeviceID, pConfig->pCaptureDeviceID, &data, (void*)pDevice);
     if (result != MAL_SUCCESS) {
         return result;
     }
@@ -16743,16 +16867,40 @@ mal_result mal_device_init__sndio(mal_context* pContext, const mal_device_config
 
     mal_assert(pDevice != NULL);
     mal_zero_object(&pDevice->sndio);
-    
-    const char* deviceName = MAL_SIO_DEVANY;
-//#if defined(__FreeBSD__) || defined(__DragonFly__)
-//    deviceName = "rsnd/0";
-//#else
-    if (pConfig->pDeviceID != NULL) {
-        deviceName = pConfig->pDeviceID->sndio;
+
+    /* Full-duplex is not yet implemented. */
+    if (pConfig->deviceType == mal_device_type_duplex) {
+        return MAL_INVALID_ARGS;
     }
     
-    pDevice->sndio.handle = (mal_ptr)((mal_sio_open_proc)pContext->sndio.sio_open)(deviceName, (pConfig->deviceType == mal_device_type_playback) ? MAL_SIO_PLAY : MAL_SIO_REC, 0);
+    const char* deviceNamePlayback = MAL_SIO_DEVANY;
+    const char* deviceNameCapture  = MAL_SIO_DEVANY;
+
+    if (pConfig->pPlaybackDeviceID != NULL) {
+        deviceNamePlayback = pConfig->pPlaybackDeviceID->sndio;
+    }
+    if (pConfig->pCaptureDeviceID != NULL) {
+        deviceNameCapture = pConfig->pCaptureDeviceID->sndio;
+    }
+    
+    if (pConfig->deviceType == mal_device_type_playback) {
+        pDevice->sndio.handle = (mal_ptr)((mal_sio_open_proc)pContext->sndio.sio_open)(deviceNamePlayback, MAL_SIO_PLAY, 0);
+    } else if (pConfig->deviceType == mal_device_type_capture) {
+        pDevice->sndio.handle = (mal_ptr)((mal_sio_open_proc)pContext->sndio.sio_open)(deviceNameCapture, MAL_SIO_REC, 0);
+    } else if (pConfig->deviceType == mal_device_type_duplex) {
+        /*
+        TODO: Handle this case.
+
+        - If the device names are the same, try opening in MAL_SIO_PLAY | MAL_SIO_REC mode.
+        - If the device names are different or MAL_SIO_PLAY | MAL_SIO_REC mode fails, fall back to separate device handles.
+        */
+        mal_assert(MAL_FALSE);
+        return MAL_INVALID_ARGS;
+    } else {
+        mal_assert(MAL_FALSE);  /* Should never hit this. */
+        return MAL_INVALID_ARGS;
+    }
+    
     if (pDevice->sndio.handle == NULL) {
         return mal_post_error(pDevice, MAL_LOG_LEVEL_ERROR, "[sndio] Failed to open device.", MAL_FAILED_TO_OPEN_BACKEND_DEVICE);
     }
@@ -16782,6 +16930,13 @@ mal_result mal_device_init__sndio(mal_context* pContext, const mal_device_config
     // value returned by mal_find_best_channels_from_sio_cap__sndio().
     mal_uint32 desiredChannels = pDevice->channels;
     if (pDevice->usingDefaultChannels) {
+        const char* deviceName;
+        if (pConfig->deviceType == mal_device_type_playback) {
+            deviceName = deviceNamePlayback;
+        } else {
+            deviceName = deviceNameCapture;
+        }
+
         if (strlen(deviceName) > strlen("rsnd/") && strncmp(deviceName, "rsnd/", strlen("rsnd/")) == 0) {
             desiredChannels = mal_find_best_channels_from_sio_cap__sndio(&caps, pConfig->deviceType, desiredFormat);
         }
@@ -17341,6 +17496,11 @@ mal_result mal_device_init__audio4(mal_context* pContext, const mal_device_confi
     mal_zero_object(&pDevice->audio4);
     pDevice->audio4.fd = -1;
 
+    /* Full-duplex is not yet implemented. */
+    if (pConfig->deviceType == mal_device_type_duplex) {
+        return MAL_INVALID_ARGS;
+    }
+
     // The version of the operating system dictates whether or not the device is exclusive or shared. NetBSD
     // introduced in-kernel mixing which means it's shared. All other BSD flavours are exclusive as far as
     // I'm aware.
@@ -17354,12 +17514,28 @@ mal_result mal_device_init__audio4(mal_context* pContext, const mal_device_confi
 #endif
     
     // The first thing to do is open the file.
-    const char* deviceName = "/dev/audio";
-    if (pConfig->pDeviceID != NULL) {
-        deviceName = pConfig->pDeviceID->audio4;
+    const char* deviceNamePlayback = "/dev/audio";
+    const char* deviceNameCapture  = "/dev/audio";
+    if (pConfig->pPlaybackDeviceID != NULL) {
+        deviceNamePlayback = pConfig->pPlaybackDeviceID->audio4;
+    }
+    if (pConfig->pCaptureDeviceID != NULL) {
+        deviceNameCapture = pConfig->pCaptureDeviceID->audio4;
     }
     
-    pDevice->audio4.fd = open(deviceName, ((pConfig->deviceType == mal_device_type_playback) ? O_WRONLY : O_RDONLY) | O_NONBLOCK, 0);
+    if (pConfig->deviceType == mal_device_type_playback) {
+        pDevice->audio4.fd = open(deviceNamePlayback, O_WRONLY | O_NONBLOCK, 0);
+    } else if (pConfig->deviceType == mal_device_type_capture) {
+        pDevice->audio4.fd = open(deviceNameCapture, O_RDONLY | O_NONBLOCK, 0);
+    } else if (pConfig->deviceType == mal_device_type_duplex) {
+        /* TOOD: Implement me. */
+        mal_assert(MAL_FALSE);
+        return MAL_INVALID_ARGS;
+    } else {
+        mal_assert(MAL_FALSE);
+        return MAL_INVALID_ARGS;
+    }
+    
     if (pDevice->audio4.fd == -1) {
         return mal_post_error(pDevice, MAL_LOG_LEVEL_ERROR, "[audio4] Failed to open device.", MAL_FAILED_TO_OPEN_BACKEND_DEVICE);
     }
@@ -17633,7 +17809,7 @@ int mal_open_temp_device__oss()
     return -1;
 }
 
-mal_result mal_context_open_device__oss(mal_context* pContext, mal_device_type deviceType, const mal_device_id* pDeviceID, int* pfd)
+mal_result mal_context_open_device__oss(mal_context* pContext, mal_device_type deviceType, const mal_device_id* pPlaybackDeviceID, const mal_device_id* pCaptureDevice, int* pfd)
 {
     mal_assert(pContext != NULL);
     mal_assert(pfd != NULL);
@@ -17641,14 +17817,28 @@ mal_result mal_context_open_device__oss(mal_context* pContext, mal_device_type d
 
     *pfd = -1;
 
-    char deviceName[64];
-    if (pDeviceID != NULL) {
-        mal_strncpy_s(deviceName, sizeof(deviceName), pDeviceID->oss, (size_t)-1);
-    } else {
-        mal_strncpy_s(deviceName, sizeof(deviceName), "/dev/dsp", (size_t)-1);
+    const char* deviceNamePlayback = "/dev/dsp";
+    const char* deviceNameCapture  = "/dev/dsp";
+    if (pPlaybackDeviceID != NULL) {
+        deviceNamePlayback = pPlaybackDeviceID->oss;
+    }
+    if (pCaptureDeviceID != NULL) {
+        deviceNameCapture = pCaptureDeviceID->oss;
     }
 
-    *pfd = open(deviceName, (deviceType == mal_device_type_playback) ? O_WRONLY : O_RDONLY, 0);
+    if (deviceType == mal_device_type_playback) {
+        *pfd = open(deviceNamePlayback, O_WRONLY, 0);
+    } else if (deviceType == mal_device_type_capture) {
+        *pfd = open(deviceNameCapture, O_RDONLY, 0);
+    } else if (deviceType == mal_device_type_duplex) {
+        /* TODO: Implement me. */
+        mal_assert(MAL_FALSE);
+        return MAL_INVALID_ARGS;
+    } else {
+        mal_assert(MAL_FALSE);  /* Should never hit this. */
+        return MAL_INVALID_ARGS;
+    }
+
     if (*pfd == -1) {
         return MAL_FAILED_TO_OPEN_BACKEND_DEVICE;
     }
@@ -17832,7 +18022,12 @@ mal_result mal_device_init__oss(mal_context* pContext, const mal_device_config* 
     mal_assert(pDevice != NULL);
     mal_zero_object(&pDevice->oss);
 
-    mal_result result = mal_context_open_device__oss(pContext, pConfig->deviceType, pConfig->pDeviceID, &pDevice->oss.fd);
+    /* Full-duplex is not yet implemented. */
+    if (pConfig->deviceType == mal_device_type_duplex) {
+        return MAL_INVALID_ARGS;
+    }
+
+    mal_result result = mal_context_open_device__oss(pContext, pConfig->deviceType, pConfig->pPlaybackDeviceID, pConfig->pCaptureDeviceID, &pDevice->oss.fd);
     if (result != MAL_SUCCESS) {
         return mal_post_error(pDevice, MAL_LOG_LEVEL_ERROR, "[OSS] Failed to open device.", MAL_FAILED_TO_OPEN_BACKEND_DEVICE);
     }
@@ -18343,6 +18538,11 @@ mal_result mal_device_init__aaudio(mal_context* pContext, const mal_device_confi
     mal_result result;
 
     mal_assert(pDevice != NULL);
+
+    /* Full-duplex is not yet implemented. */
+    if (pConfig->deviceType == mal_device_type_duplex) {
+        return MAL_INVALID_ARGS;
+    }
 
     /* No exclusive mode with AAudio. */
     if (pConfig->shareMode == mal_share_mode_exclusive) {
@@ -18971,6 +19171,11 @@ mal_result mal_device_init__opensl(mal_context* pContext, const mal_device_confi
 #ifndef MAL_ANDROID
     return MAL_NO_BACKEND;
 #endif
+
+    /* Full-duplex is not yet implemented. */
+    if (pConfig->deviceType == mal_device_type_duplex) {
+        return MAL_INVALID_ARGS;
+    }
 
     /* No exclusive mode with OpenSL|ES. */
     if (pConfig->shareMode == mal_share_mode_exclusive) {
@@ -20216,7 +20421,7 @@ mal_result mal_context_init(const mal_backend backends[], mal_uint32 backendCoun
     if (pConfig != NULL) {
         pContext->config = *pConfig;
     } else {
-        pContext->config = mal_context_config_init(NULL);
+        pContext->config = mal_context_config_init();
     }
 
     // Backend APIs need to be initialized first. This is where external libraries will be loaded and linked.
@@ -20559,13 +20764,14 @@ mal_result mal_device_init(mal_context* pContext, const mal_device_config* pConf
     pDevice->onData = config.dataCallback;
     pDevice->onStop = config.stopCallback;
 
-    if (((size_t)pDevice % sizeof(pDevice)) != 0) {
+    if (((mal_uintptr)pDevice % sizeof(pDevice)) != 0) {
         if (pContext->config.logCallback) {
             pContext->config.logCallback(pContext, pDevice, MAL_LOG_LEVEL_WARNING, "WARNING: mal_device_init() called for a device that is not properly aligned. Thread safety is not supported.");
         }
     }
 
-    if (config.pDeviceID == NULL) {
+    /* TODO: This is only used in Core Audio. Move this to the Core Audio backend. Also, this logic does not handle full-duplex devices properly */
+    if (config.pPlaybackDeviceID == NULL || config.pCaptureDeviceID == NULL) {
         pDevice->isDefaultDevice = MAL_TRUE;
     }
 
@@ -20650,22 +20856,14 @@ mal_result mal_device_init(mal_context* pContext, const mal_device_config* pConf
     mal_device__post_init_setup(pDevice);
 
 
-    // If the backend did not fill out a name for the device, try a generic method.
+    // If the backend did not fill out a name for the device, try a generic method. TODO: Update this to support full-duplex devices. Need to split "name" out into "playbackDeviceName" and "captureDeviceName".
     if (pDevice->name[0] == '\0') {
-        if (mal_context__try_get_device_name_by_id(pContext, config.deviceType, config.pDeviceID, pDevice->name, sizeof(pDevice->name)) != MAL_SUCCESS) {
+        if (mal_context__try_get_device_name_by_id(pContext, config.deviceType, (config.deviceType == mal_device_type_playback) ? config.pPlaybackDeviceID : config.pCaptureDeviceID, pDevice->name, sizeof(pDevice->name)) != MAL_SUCCESS) {
             // We failed to get the device name, so fall back to some generic names.
-            if (config.pDeviceID == NULL) {
-                if (config.deviceType == mal_device_type_playback) {
-                    mal_strncpy_s(pDevice->name, sizeof(pDevice->name), MAL_DEFAULT_PLAYBACK_DEVICE_NAME, (size_t)-1);
-                } else {
-                    mal_strncpy_s(pDevice->name, sizeof(pDevice->name), MAL_DEFAULT_CAPTURE_DEVICE_NAME, (size_t)-1);
-                }
+            if (config.deviceType == mal_device_type_playback) {
+                mal_strncpy_s(pDevice->name, sizeof(pDevice->name), (config.pPlaybackDeviceID == NULL) ? MAL_DEFAULT_PLAYBACK_DEVICE_NAME : "Playback Device", (size_t)-1);
             } else {
-                if (config.deviceType == mal_device_type_playback) {
-                    mal_strncpy_s(pDevice->name, sizeof(pDevice->name), "Playback Device", (size_t)-1);
-                } else {
-                    mal_strncpy_s(pDevice->name, sizeof(pDevice->name), "Capture Device", (size_t)-1);
-                }
+                mal_strncpy_s(pDevice->name, sizeof(pDevice->name), (config.pCaptureDeviceID == NULL)  ? MAL_DEFAULT_CAPTURE_DEVICE_NAME : "Capture Device", (size_t)-1);
             }
         }
     }

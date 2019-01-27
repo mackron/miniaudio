@@ -2117,7 +2117,8 @@ int do_backend_test(mal_backend backend)
     // Context.
     printf("  Creating Context... ");
     {
-        mal_context_config contextConfig = mal_context_config_init(on_log);
+        mal_context_config contextConfig = mal_context_config_init();
+        contextConfig.logCallback = on_log;
 
         result = mal_context_init(&backend, 1, &contextConfig, &context);
         if (result == MAL_SUCCESS) {
@@ -2285,7 +2286,9 @@ int do_playback_test(mal_backend backend)
     // Device.
     printf("  Opening Device... ");
     {
-        mal_context_config contextConfig = mal_context_config_init(on_log);
+        mal_context_config contextConfig = mal_context_config_init();
+        contextConfig.logCallback = on_log;
+
         mal_device_config deviceConfig = mal_device_config_init(mal_device_type_playback);
         deviceConfig.pUserData = &callbackData;
         deviceConfig.dataCallback = on_send__playback_test;

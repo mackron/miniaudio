@@ -32,7 +32,9 @@ int main(int argc, char** argv)
 
     mal_backend backend = mal_backend_wasapi;
 
-    mal_context_config contextConfig = mal_context_config_init(log_callback);
+    mal_context_config contextConfig = mal_context_config_init();
+    contextConfig.logCallback = log_callback;
+
     mal_context context;
     result = mal_context_init(&backend, 1, &contextConfig, &context);
     if (result != MAL_SUCCESS) {
@@ -41,7 +43,7 @@ int main(int argc, char** argv)
     }
 
     mal_device_config deviceConfig = mal_device_config_init(mal_device_type_duplex);
-    deviceConfig.pDeviceID = NULL;
+    deviceConfig.pPlaybackDeviceID = NULL;
     deviceConfig.format = mal_format_f32;
     deviceConfig.channels = 2;
     deviceConfig.sampleRate = 44100;
