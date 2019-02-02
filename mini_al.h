@@ -1575,8 +1575,6 @@ typedef struct
 typedef struct
 {
     mal_device_type deviceType;
-    mal_device_id* pPlaybackDeviceID;
-    mal_device_id* pCaptureDeviceID;
     mal_format format;
     mal_uint32 channels;
     mal_uint32 sampleRate;
@@ -1584,11 +1582,27 @@ typedef struct
     mal_uint32 bufferSizeInFrames;
     mal_uint32 bufferSizeInMilliseconds;
     mal_uint32 periods;
-    mal_share_mode shareMode;
     mal_performance_profile performanceProfile;
     mal_device_callback_proc dataCallback;
     mal_stop_proc stopCallback;
     void* pUserData;
+    struct
+    {
+        mal_device_id* pDeviceID;
+        mal_format format;
+        mal_uint32 channels;
+        mal_channel channelMap[MAL_MAX_CHANNELS];
+        mal_share_mode shareMode;
+    } playback;
+    struct
+    {
+        mal_device_id* pDeviceID;
+        mal_format format;
+        mal_uint32 channels;
+        mal_channel channelMap[MAL_MAX_CHANNELS];
+        mal_share_mode shareMode;
+    } capture;
+
     struct
     {
         mal_bool32 noMMap;  // Disables MMap mode.
@@ -1996,7 +2010,6 @@ MAL_ALIGNED_STRUCT(MAL_SIMD_ALIGNMENT) mal_device
     mal_device_callback_proc onData;
     mal_stop_proc onStop;
     void* pUserData;                // Application defined data.
-    mal_device_config initConfig;   // TODO: Get rid of this. The configuration passed in to mal_device_init(). Mainly used for reinitializing the backend device.
     mal_mutex lock;
     mal_event wakeupEvent;
     mal_event startEvent;
@@ -2022,6 +2035,7 @@ MAL_ALIGNED_STRUCT(MAL_SIMD_ALIGNMENT) mal_device
     struct
     {
         char name[256]; /* Maybe temporary. Likely to be replaced with a query API. */
+        mal_share_mode shareMode;       /* Set to whatever was passed in when the device was initialized. */
         mal_bool32 usingDefaultFormat     : 1;
         mal_bool32 usingDefaultChannels   : 1;
         mal_bool32 usingDefaultSampleRate : 1;
@@ -2041,6 +2055,7 @@ MAL_ALIGNED_STRUCT(MAL_SIMD_ALIGNMENT) mal_device
     struct
     {
         char name[256]; /* Maybe temporary. Likely to be replaced with a query API. */
+        mal_share_mode shareMode;       /* Set to whatever was passed in when the device was initialized. */
         mal_bool32 usingDefaultFormat     : 1;
         mal_bool32 usingDefaultChannels   : 1;
         mal_bool32 usingDefaultSampleRate : 1;
@@ -6125,7 +6140,8 @@ HRESULT STDMETHODCALLTYPE mal_IMMNotificationClient_OnDefaultDeviceChanged(mal_I
     // Not currently supporting automatic stream routing in exclusive mode. This is not working correctly on my machine due to
     // AUDCLNT_E_DEVICE_IN_USE errors when reinitializing the device. If this is a bug in mini_al, we can try re-enabling this once
     // it's fixed.
-    if (pThis->pDevice->initConfig.shareMode == mal_share_mode_exclusive) {
+    if (dataFlow == mal_eRender  && pThis->pDevice->playback.shareMode == mal_share_mode_exclusive ||
+        dataFlow == mal_eCapture && pThis->pDevice->capture.shareMode  == mal_share_mode_exclusive) {
         return S_OK;
     }
 
@@ -7027,7 +7043,7 @@ mal_result mal_device_reinit__wasapi(mal_device* pDevice, mal_device_type device
     data.usingDefaultChannels       = pDevice->usingDefaultChannels;
     data.usingDefaultSampleRate     = pDevice->usingDefaultSampleRate;
     data.usingDefaultChannelMap     = pDevice->usingDefaultChannelMap;
-    data.shareMode                  = pDevice->initConfig.shareMode;
+    data.shareMode                  = (deviceType == mal_device_type_playback) ? pDevice->playback.shareMode : pDevice->capture.shareMode;
     data.bufferSizeInMillisecondsIn = pDevice->bufferSizeInMilliseconds;
     data.periodsIn                  = pDevice->periods;
     mal_result result = mal_device_init_internal__wasapi(pDevice->pContext, deviceType, NULL, &data);
@@ -7137,7 +7153,7 @@ mal_result mal_device_init__wasapi(mal_context* pContext, const mal_device_confi
         data.bufferSizeInMillisecondsIn = pConfig->bufferSizeInMilliseconds;
         data.periodsIn                  = pConfig->periods;
 
-        result = mal_device_init_internal__wasapi(pDevice->pContext, mal_device_type_capture, pConfig->pCaptureDeviceID, &data);
+        result = mal_device_init_internal__wasapi(pDevice->pContext, mal_device_type_capture, pConfig->capture.pDeviceID, &data);
         if (result != MAL_SUCCESS) {
             return result;
         }
@@ -7195,7 +7211,7 @@ mal_result mal_device_init__wasapi(mal_context* pContext, const mal_device_confi
             data.periodsIn                  = pConfig->periods;
         }
 
-        result = mal_device_init_internal__wasapi(pDevice->pContext, mal_device_type_playback, pConfig->pPlaybackDeviceID, &data);
+        result = mal_device_init_internal__wasapi(pDevice->pContext, mal_device_type_playback, pConfig->playback.pDeviceID, &data);
         if (result != MAL_SUCCESS) {
             if (pConfig->deviceType == mal_device_type_duplex) {
                 if (pDevice->wasapi.pCaptureClient != NULL) {
@@ -7409,7 +7425,8 @@ mal_result mal_device__get_available_frames__wasapi(mal_device* pDevice, mal_IAu
     }
 
     // Slightly different rules for exclusive and shared modes.
-    if (pDevice->initConfig.shareMode == mal_share_mode_exclusive) {
+    mal_share_mode shareMode = ((mal_ptr)pAudioClient == pDevice->wasapi.pAudioClientPlayback) ? pDevice->playback.shareMode : pDevice->capture.shareMode;
+    if (shareMode == mal_share_mode_exclusive) {
         *pFrameCount = paddingFramesCount;
     } else {
         if ((mal_ptr)pAudioClient == pDevice->wasapi.pAudioClientPlayback) {
@@ -8594,7 +8611,7 @@ mal_result mal_device_init__dsound(mal_context* pContext, const mal_device_confi
 
     // Unfortunately DirectSound uses different APIs and data structures for playback and catpure devices :(
     if (pConfig->deviceType == mal_device_type_playback) {
-        mal_result result = mal_context_create_IDirectSound__dsound(pContext, pConfig->shareMode, pConfig->pPlaybackDeviceID, (mal_IDirectSound**)&pDevice->dsound.pPlayback);
+        mal_result result = mal_context_create_IDirectSound__dsound(pContext, pConfig->shareMode, pConfig->playback.pDeviceID, (mal_IDirectSound**)&pDevice->dsound.pPlayback);
         if (result != MAL_SUCCESS) {
             mal_device_uninit__dsound(pDevice);
             return result;
@@ -8708,7 +8725,7 @@ mal_result mal_device_init__dsound(mal_context* pContext, const mal_device_confi
             return mal_post_error(pDevice, MAL_LOG_LEVEL_ERROR, "[DirectSound] IDirectSound_CreateSoundBuffer() failed for playback device's secondary buffer.", MAL_FAILED_TO_OPEN_BACKEND_DEVICE);
         }
     } else {
-        mal_result result = mal_context_create_IDirectSoundCapture__dsound(pContext, pConfig->shareMode, pConfig->pCaptureDeviceID, (mal_IDirectSoundCapture**)&pDevice->dsound.pCapture);
+        mal_result result = mal_context_create_IDirectSoundCapture__dsound(pContext, pConfig->shareMode, pConfig->capture.pDeviceID, (mal_IDirectSoundCapture**)&pDevice->dsound.pCapture);
         if (result != MAL_SUCCESS) {
             mal_device_uninit__dsound(pDevice);
             return result;
@@ -9573,11 +9590,11 @@ mal_result mal_device_init__winmm(mal_context* pContext, const mal_device_config
 
     UINT winMMDeviceIDPlayback = 0;
     UINT winMMDeviceIDCapture  = 0;
-    if (pConfig->pPlaybackDeviceID != NULL) {
-        winMMDeviceIDPlayback = (UINT)pConfig->pPlaybackDeviceID->winmm;
+    if (pConfig->playback.pDeviceID != NULL) {
+        winMMDeviceIDPlayback = (UINT)pConfig->playback.pDeviceID->winmm;
     }
-    if (pConfig->pCaptureDeviceID != NULL) {
-        winMMDeviceIDCapture = (UINT)pConfig->pCaptureDeviceID->winmm;
+    if (pConfig->capture.pDeviceID != NULL) {
+        winMMDeviceIDCapture = (UINT)pConfig->capture.pDeviceID->winmm;
     }
 
     const char* errorMsg = "";
@@ -11299,7 +11316,7 @@ mal_result mal_device_init__alsa(mal_context* pContext, const mal_device_config*
 
     mal_snd_pcm_format_t formatALSA = mal_convert_mal_format_to_alsa_format(pConfig->format);
 
-    mal_result result = mal_context_open_pcm__alsa(pContext, pConfig->shareMode, pConfig->deviceType, (pConfig->deviceType == mal_device_type_playback) ? pConfig->pPlaybackDeviceID : pConfig->pCaptureDeviceID, (mal_snd_pcm_t**)&pDevice->alsa.pPCM);
+    mal_result result = mal_context_open_pcm__alsa(pContext, pConfig->shareMode, pConfig->deviceType, (pConfig->deviceType == mal_device_type_playback) ? pConfig->playback.pDeviceID : pConfig->capture.pDeviceID, (mal_snd_pcm_t**)&pDevice->alsa.pPCM);
     if (result != MAL_SUCCESS) {
         return result;
     }
@@ -13229,11 +13246,11 @@ mal_result mal_device_init__pulse(mal_context* pContext, const mal_device_config
         return MAL_SHARE_MODE_NOT_SUPPORTED;
     }
 
-    if ((pConfig->deviceType == mal_device_type_playback || pConfig->deviceType == mal_device_type_duplex) && pConfig->pPlaybackDeviceID != NULL) {
-        devPlayback = pConfig->pPlaybackDeviceID->pulse;
+    if ((pConfig->deviceType == mal_device_type_playback || pConfig->deviceType == mal_device_type_duplex) && pConfig->playback.pDeviceID != NULL) {
+        devPlayback = pConfig->playback.pDeviceID->pulse;
     }
-    if ((pConfig->deviceType == mal_device_type_capture || pConfig->deviceType == mal_device_type_duplex) && pConfig->pCaptureDeviceID != NULL) {
-        devCapture = pConfig->pCaptureDeviceID->pulse;
+    if ((pConfig->deviceType == mal_device_type_capture || pConfig->deviceType == mal_device_type_duplex) && pConfig->capture.pDeviceID != NULL) {
+        devCapture = pConfig->capture.pDeviceID->pulse;
     }
 
     mal_uint32 bufferSizeInFrames = pConfig->bufferSizeInFrames;
@@ -14104,8 +14121,8 @@ mal_result mal_device_init__jack(mal_context* pContext, const mal_device_config*
     }
 
     /* Only supporting default devices with JACK. */
-    if (((pConfig->deviceType == mal_device_type_playback || pConfig->deviceType == mal_device_type_duplex) && pConfig->pPlaybackDeviceID != NULL && pConfig->pPlaybackDeviceID->jack != 0) ||
-        ((pConfig->deviceType == mal_device_type_capture  || pConfig->deviceType == mal_device_type_duplex) && pConfig->pCaptureDeviceID  != NULL && pConfig->pCaptureDeviceID->jack  != 0)) {
+    if (((pConfig->deviceType == mal_device_type_playback || pConfig->deviceType == mal_device_type_duplex) && pConfig->playback.pDeviceID != NULL && pConfig->playback.pDeviceID->jack != 0) ||
+        ((pConfig->deviceType == mal_device_type_capture  || pConfig->deviceType == mal_device_type_duplex) && pConfig->capture.pDeviceID  != NULL && pConfig->capture.pDeviceID->jack  != 0)) {
         return MAL_NO_DEVICE;
     }
 
@@ -16413,7 +16430,7 @@ mal_result mal_device_init__coreaudio(mal_context* pContext, const mal_device_co
     data.usingDefaultChannelMap = pDevice->usingDefaultChannelMap;
     data.shareMode = pDevice->initConfig.shareMode;
 
-    mal_result result = mal_device_init_internal__coreaudio(pDevice->pContext, pConfig->deviceType, pConfig->pPlaybackDeviceID, pConfig->pCaptureDeviceID, &data, (void*)pDevice);
+    mal_result result = mal_device_init_internal__coreaudio(pDevice->pContext, pConfig->deviceType, pConfig->playback.pDeviceID, pConfig->capture.pDeviceID, &data, (void*)pDevice);
     if (result != MAL_SUCCESS) {
         return result;
     }
@@ -17079,11 +17096,11 @@ mal_result mal_device_init__sndio(mal_context* pContext, const mal_device_config
     const char* deviceNamePlayback = MAL_SIO_DEVANY;
     const char* deviceNameCapture  = MAL_SIO_DEVANY;
 
-    if (pConfig->pPlaybackDeviceID != NULL) {
-        deviceNamePlayback = pConfig->pPlaybackDeviceID->sndio;
+    if (pConfig->playback.pDeviceID != NULL) {
+        deviceNamePlayback = pConfig->playback.pDeviceID->sndio;
     }
-    if (pConfig->pCaptureDeviceID != NULL) {
-        deviceNameCapture = pConfig->pCaptureDeviceID->sndio;
+    if (pConfig->capture.pDeviceID != NULL) {
+        deviceNameCapture = pConfig->capture.pDeviceID->sndio;
     }
     
     if (pConfig->deviceType == mal_device_type_playback) {
@@ -17719,11 +17736,11 @@ mal_result mal_device_init__audio4(mal_context* pContext, const mal_device_confi
     // The first thing to do is open the file.
     const char* deviceNamePlayback = "/dev/audio";
     const char* deviceNameCapture  = "/dev/audio";
-    if (pConfig->pPlaybackDeviceID != NULL) {
-        deviceNamePlayback = pConfig->pPlaybackDeviceID->audio4;
+    if (pConfig->playback.pDeviceID != NULL) {
+        deviceNamePlayback = pConfig->playback.pDeviceID->audio4;
     }
-    if (pConfig->pCaptureDeviceID != NULL) {
-        deviceNameCapture = pConfig->pCaptureDeviceID->audio4;
+    if (pConfig->capture.pDeviceID != NULL) {
+        deviceNameCapture = pConfig->capture.pDeviceID->audio4;
     }
     
     if (pConfig->deviceType == mal_device_type_playback) {
@@ -18012,7 +18029,7 @@ int mal_open_temp_device__oss()
     return -1;
 }
 
-mal_result mal_context_open_device__oss(mal_context* pContext, mal_device_type deviceType, const mal_device_id* pPlaybackDeviceID, const mal_device_id* pCaptureDevice, int* pfd)
+mal_result mal_context_open_device__oss(mal_context* pContext, mal_device_type deviceType, const mal_device_id* pDeviceID, int* pfd)
 {
     mal_assert(pContext != NULL);
     mal_assert(pfd != NULL);
@@ -18020,28 +18037,17 @@ mal_result mal_context_open_device__oss(mal_context* pContext, mal_device_type d
 
     *pfd = -1;
 
-    const char* deviceNamePlayback = "/dev/dsp";
-    const char* deviceNameCapture  = "/dev/dsp";
-    if (pPlaybackDeviceID != NULL) {
-        deviceNamePlayback = pPlaybackDeviceID->oss;
-    }
-    if (pCaptureDeviceID != NULL) {
-        deviceNameCapture = pCaptureDeviceID->oss;
-    }
-
-    if (deviceType == mal_device_type_playback) {
-        *pfd = open(deviceNamePlayback, O_WRONLY, 0);
-    } else if (deviceType == mal_device_type_capture) {
-        *pfd = open(deviceNameCapture, O_RDONLY, 0);
-    } else if (deviceType == mal_device_type_duplex) {
-        /* TODO: Implement me. */
-        mal_assert(MAL_FALSE);
-        return MAL_INVALID_ARGS;
-    } else {
-        mal_assert(MAL_FALSE);  /* Should never hit this. */
+    /* This function should only be called for playback or capture, not duplex. */
+    if (deviceType == mal_device_type_duplex) {
         return MAL_INVALID_ARGS;
     }
 
+    const char* deviceName = "/dev/dsp";
+    if (pDeviceID != NULL) {
+        deviceName = pDeviceID->oss;
+    }
+
+    *pfd = open(deviceName, (deviceType == mal_device_type_playback) ? O_WRONLY : O_RDONLY, 0);
     if (*pfd == -1) {
         return MAL_FAILED_TO_OPEN_BACKEND_DEVICE;
     }
@@ -18230,7 +18236,7 @@ mal_result mal_device_init__oss(mal_context* pContext, const mal_device_config* 
         return MAL_INVALID_ARGS;
     }
 
-    mal_result result = mal_context_open_device__oss(pContext, pConfig->deviceType, pConfig->pPlaybackDeviceID, pConfig->pCaptureDeviceID, &pDevice->oss.fd);
+    mal_result result = mal_context_open_device__oss(pContext, pConfig->deviceType, (pConfig->deviceType == mal_device_type_playback) ? pConfig->playback.pDeviceID : pConfig->capture.pDeviceID, &pDevice->oss.fd);
     if (result != MAL_SUCCESS) {
         return mal_post_error(pDevice, MAL_LOG_LEVEL_ERROR, "[OSS] Failed to open device.", MAL_FAILED_TO_OPEN_BACKEND_DEVICE);
     }
@@ -20960,7 +20966,6 @@ mal_result mal_device_init(mal_context* pContext, const mal_device_config* pConf
 
     mal_zero_object(pDevice);
     pDevice->pContext = pContext;
-    pDevice->initConfig = config;
 
     // Set the user data and log callback ASAP to ensure it is available for the entire initialization process.
     pDevice->pUserData = config.pUserData;
@@ -20973,8 +20978,9 @@ mal_result mal_device_init(mal_context* pContext, const mal_device_config* pConf
         }
     }
 
+
     /* TODO: This is only used in Core Audio. Move this to the Core Audio backend. Also, this logic does not handle full-duplex devices properly */
-    if (config.pPlaybackDeviceID == NULL || config.pCaptureDeviceID == NULL) {
+    if (config.playback.pDeviceID == NULL || config.capture.pDeviceID == NULL) {
         pDevice->isDefaultDevice = MAL_TRUE;
     }
 
@@ -21062,15 +21068,15 @@ mal_result mal_device_init(mal_context* pContext, const mal_device_config* pConf
     // If the backend did not fill out a name for the device, try a generic method.
     if (pDevice->type == mal_device_type_capture || pDevice->type == mal_device_type_duplex) {
         if (pDevice->capture.name[0] == '\0') {
-            if (mal_context__try_get_device_name_by_id(pContext, mal_device_type_capture, config.pCaptureDeviceID, pDevice->capture.name, sizeof(pDevice->capture.name)) != MAL_SUCCESS) {
-                mal_strncpy_s(pDevice->capture.name, sizeof(pDevice->capture.name), (config.pCaptureDeviceID == NULL)  ? MAL_DEFAULT_CAPTURE_DEVICE_NAME : "Capture Device", (size_t)-1);
+            if (mal_context__try_get_device_name_by_id(pContext, mal_device_type_capture, config.capture.pDeviceID, pDevice->capture.name, sizeof(pDevice->capture.name)) != MAL_SUCCESS) {
+                mal_strncpy_s(pDevice->capture.name, sizeof(pDevice->capture.name), (config.capture.pDeviceID == NULL)  ? MAL_DEFAULT_CAPTURE_DEVICE_NAME : "Capture Device", (size_t)-1);
             }
         }
     }
     if (pDevice->type == mal_device_type_playback || pDevice->type == mal_device_type_duplex) {
         if (pDevice->playback.name[0] == '\0') {
-            if (mal_context__try_get_device_name_by_id(pContext, mal_device_type_playback, config.pPlaybackDeviceID, pDevice->playback.name, sizeof(pDevice->playback.name)) != MAL_SUCCESS) {
-                mal_strncpy_s(pDevice->playback.name, sizeof(pDevice->playback.name), (config.pPlaybackDeviceID == NULL)  ? MAL_DEFAULT_PLAYBACK_DEVICE_NAME : "Playback Device", (size_t)-1);
+            if (mal_context__try_get_device_name_by_id(pContext, mal_device_type_playback, config.playback.pDeviceID, pDevice->playback.name, sizeof(pDevice->playback.name)) != MAL_SUCCESS) {
+                mal_strncpy_s(pDevice->playback.name, sizeof(pDevice->playback.name), (config.playback.pDeviceID == NULL)  ? MAL_DEFAULT_PLAYBACK_DEVICE_NAME : "Playback Device", (size_t)-1);
             }
         }
     }
