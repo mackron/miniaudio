@@ -1997,7 +1997,7 @@ MAL_ALIGNED_STRUCT(MAL_SIMD_ALIGNMENT) mal_device
     mal_stop_proc onStop;
     void* pUserData;                // Application defined data.
     char name[256];
-    mal_device_config initConfig;   // The configuration passed in to mal_device_init(). Mainly used for reinitializing the backend device.
+    mal_device_config initConfig;   // TODO: Get rid of this. The configuration passed in to mal_device_init(). Mainly used for reinitializing the backend device.
     mal_mutex lock;
     mal_event wakeupEvent;
     mal_event startEvent;
@@ -2020,26 +2020,68 @@ MAL_ALIGNED_STRUCT(MAL_SIMD_ALIGNMENT) mal_device
     mal_uint32 _dspFrameCount;      // Internal use only. Used when running the device -> DSP -> client pipeline. See mal_device__on_read_from_device().
     const mal_uint8* _dspFrames;    // ^^^ AS ABOVE ^^^
 
+    struct
+    {
+        char name[256]; /* Maybe temporary. Likely to be replaced with a query API. */
+        mal_bool32 usingDefaultFormat     : 1;
+        mal_bool32 usingDefaultChannels   : 1;
+        mal_bool32 usingDefaultSampleRate : 1;
+        mal_bool32 usingDefaultChannelMap : 1;
+        mal_format format;
+        mal_uint32 channels;
+        mal_uint32 sampleRate;
+        mal_channel channelMap[MAL_MAX_CHANNELS];
+        mal_format internalFormat;
+        mal_uint32 internalChannels;
+        mal_uint32 internalSampleRate;
+        mal_channel internalChannelMap[MAL_MAX_CHANNELS];
+        mal_uint32 internalBufferSizeInFrames;
+        mal_uint32 internalPeriods;
+        mal_pcm_converter converter;
+    } playback;
+    struct
+    {
+        char name[256]; /* Maybe temporary. Likely to be replaced with a query API. */
+        mal_bool32 usingDefaultFormat     : 1;
+        mal_bool32 usingDefaultChannels   : 1;
+        mal_bool32 usingDefaultSampleRate : 1;
+        mal_bool32 usingDefaultChannelMap : 1;
+        mal_format format;
+        mal_uint32 channels;
+        mal_uint32 sampleRate;
+        mal_channel channelMap[MAL_MAX_CHANNELS];
+        mal_format internalFormat;
+        mal_uint32 internalChannels;
+        mal_uint32 internalSampleRate;
+        mal_channel internalChannelMap[MAL_MAX_CHANNELS];
+        mal_uint32 internalBufferSizeInFrames;
+        mal_uint32 internalPeriods;
+        mal_pcm_converter converter;
+    } capture;
+
     union
     {
 #ifdef MAL_SUPPORT_WASAPI
         struct
         {
-            /*IAudioClient**/ mal_ptr pAudioClient;
+            /*IAudioClient**/ mal_ptr pAudioClientPlayback;
+            /*IAudioClient**/ mal_ptr pAudioClientCapture;
             /*IAudioRenderClient**/ mal_ptr pRenderClient;
             /*IAudioCaptureClient**/ mal_ptr pCaptureClient;
-            /*IMMDeviceEnumerator**/ mal_ptr pDeviceEnumerator; /* <-- Used for IMMNotificationClient notifications. Required for detecting default device changes. */
+            /*IMMDeviceEnumerator**/ mal_ptr pDeviceEnumerator; /* Used for IMMNotificationClient notifications. Required for detecting default device changes. */
             mal_IMMNotificationClient notificationClient;
-            /*HANDLE*/ mal_handle hEventPlayback;   /* Used with the blocking API. Manual reset. Initialized to signaled. */
-            /*HANDLE*/ mal_handle hEventCapture;    /* Used with the blocking API. Manual reset. Initialized to unsignaled. */
+            /*HANDLE*/ mal_handle hEventPlayback;               /* Used with the blocking API. Manual reset. Initialized to signaled. */
+            /*HANDLE*/ mal_handle hEventCapture;                /* Used with the blocking API. Manual reset. Initialized to unsignaled. */
             void* pDeviceBufferPlayback;
             void* pDeviceBufferCapture;
             mal_uint32 deviceBufferFramesRemainingPlayback;
             mal_uint32 deviceBufferFramesRemainingCapture;
             mal_uint32 deviceBufferFramesCapacityPlayback;
             mal_uint32 deviceBufferFramesCapacityCapture;
+            mal_bool32 hasDefaultPlaybackDeviceChanged;         /* <-- Make sure this is always a whole 32-bits because we use atomic assignments. */
+            mal_bool32 hasDefaultCaptureDeviceChanged;          /* <-- Make sure this is always a whole 32-bits because we use atomic assignments. */
             mal_bool32 isStarted;
-            mal_bool32 hasDefaultDeviceChanged; /* <-- Make sure this is always a whole 32-bits because we use atomic assignments. */
+            
         } wasapi;
 #endif
 #ifdef MAL_SUPPORT_DSOUND
@@ -6074,8 +6116,8 @@ HRESULT STDMETHODCALLTYPE mal_IMMNotificationClient_OnDefaultDeviceChanged(mal_I
     }
 
     // We only care about devices with the same data flow and role as the current device.
-    if ((pThis->pDevice->type == mal_device_type_playback && dataFlow != mal_eRender ) ||
-        (pThis->pDevice->type == mal_device_type_capture  && dataFlow != mal_eCapture)) {
+    if (((pThis->pDevice->type == mal_device_type_playback || pThis->pDevice->type == mal_device_type_duplex) && dataFlow != mal_eRender ) ||
+        ((pThis->pDevice->type == mal_device_type_capture  || pThis->pDevice->type == mal_device_type_duplex) && dataFlow != mal_eCapture)) {
         return S_OK;
     }
 
@@ -6086,9 +6128,14 @@ HRESULT STDMETHODCALLTYPE mal_IMMNotificationClient_OnDefaultDeviceChanged(mal_I
         return S_OK;
     }
 
-    // We don't change the device here - we change it in the worker thread to keep synchronization simple. To this I'm just setting a flag to
+    // We don't change the device here - we change it in the worker thread to keep synchronization simple. To do this I'm just setting a flag to
     // indicate that the default device has changed.
-    mal_atomic_exchange_32(&pThis->pDevice->wasapi.hasDefaultDeviceChanged, MAL_TRUE);
+    if (dataFlow == mal_eRender) {
+        mal_atomic_exchange_32(&pThis->pDevice->wasapi.hasDefaultPlaybackDeviceChanged, MAL_TRUE);
+    }
+    if (dataFlow == mal_eCapture) {
+        mal_atomic_exchange_32(&pThis->pDevice->wasapi.hasDefaultCaptureDeviceChanged,  MAL_TRUE);
+    }
 
 #if 0
     SetEvent(pThis->pDevice->wasapi.hBreakEvent);   // <-- The main loop will be waiting on some events. We want to break from this wait ASAP so we can change the device as quickly as possible.
@@ -6611,8 +6658,12 @@ void mal_device_uninit__wasapi(mal_device* pDevice)
     if (pDevice->wasapi.pCaptureClient) {
         mal_IAudioCaptureClient_Release((mal_IAudioCaptureClient*)pDevice->wasapi.pCaptureClient);
     }
-    if (pDevice->wasapi.pAudioClient) {
-        mal_IAudioClient_Release((mal_IAudioClient*)pDevice->wasapi.pAudioClient);
+
+    if (pDevice->wasapi.pAudioClientPlayback) {
+        mal_IAudioClient_Release((mal_IAudioClient*)pDevice->wasapi.pAudioClientPlayback);
+    }
+    if (pDevice->wasapi.pAudioClientCapture) {
+        mal_IAudioClient_Release((mal_IAudioClient*)pDevice->wasapi.pAudioClientCapture);
     }
 
     if (pDevice->wasapi.hEventPlayback) {
@@ -6653,14 +6704,14 @@ typedef struct
     char deviceName[256];
 } mal_device_init_internal_data__wasapi;
 
-mal_result mal_device_init_internal__wasapi(mal_context* pContext, mal_device_type deviceType, const mal_device_id* pPlaybackDeviceID, const mal_device_id* pCaptureDeviceID, mal_device_init_internal_data__wasapi* pData)
+mal_result mal_device_init_internal__wasapi(mal_context* pContext, mal_device_type deviceType, const mal_device_id* pDeviceID, mal_device_init_internal_data__wasapi* pData)
 {
     (void)pContext;
 
     mal_assert(pContext != NULL);
     mal_assert(pData != NULL);
 
-    /* Not currently supporting full-duplex. */
+    /* This function is only used to initialize one device type: either playback or capture. Never full-duplex. */
     if (deviceType == mal_device_type_duplex) {
         return MAL_INVALID_ARGS;
     }
@@ -6677,55 +6728,9 @@ mal_result mal_device_init_internal__wasapi(mal_context* pContext, mal_device_ty
     MAL_REFERENCE_TIME bufferDurationInMicroseconds;
     mal_bool32 wasInitializedUsingIAudioClient3 = MAL_FALSE;
     WAVEFORMATEXTENSIBLE wf;
-    //mal_WASAPIDeviceInterface* pDeviceInterfacePlayback = NULL;
-    //mal_WASAPIDeviceInterface* pDeviceInterfaceCapture = NULL;
-    mal_WASAPIDeviceInterface* pDeviceInterface = NULL;    // TEMP: Will be split between playback and capture when full-duplex support is implemented.
+    mal_WASAPIDeviceInterface* pDeviceInterface = NULL;
 
-#if 0
-    /*
-    We first try initializing the capture device if applicable. If the device is full-duplex we will try re-using the capture audio client, but
-    if that fails we'll need to initialize a separate playback audio client.
-    */
-    if (deviceType == mal_device_type_capture || deviceType == mal_device_type_duplex) {
-
-    }
-
-    /* We may need a playback render client. If it's a duplex device we want to try re-using the same audio client. Otherwise we need a separate one. */
-    if (deviceType == mal_device_type_playback || deviceType == mal_device_type_duplex) {
-        if (deviceType == mal_device_type_duplex) {
-            if (pPlaybackDeviceID != NULL && pCaptureDeviceID != NULL && mal_context_is_device_id_equal__wasapi(pContext, pPlaybackDeviceID, pCaptureDeviceID)) {
-
-            }
-        }
-
-        /* Getting here means we need to initialize a separate playback audio client. */
-
-    }
-#endif
-
-#if 0
-#ifdef MAL_WIN32_DESKTOP
-    result = mal_context_get_MMDevice__wasapi(pContext, deviceType, (deviceType == mal_device_type_playback) ? pPlaybackDeviceID : pCaptureDeviceID, &pMMDevice);
-    if (result != MAL_SUCCESS) {
-        goto done;
-    }
-
-    hr = mal_IMMDevice_Activate(pMMDevice, &MAL_IID_IAudioClient, CLSCTX_ALL, NULL, (void**)&pData->pAudioClient);
-    if (FAILED(hr)) {
-        errorMsg = "[WASAPI] Failed to activate device.", result = MAL_FAILED_TO_OPEN_BACKEND_DEVICE;
-        goto done;
-    }
-#else
-    mal_IUnknown* pActivatedInterface = NULL;
-    result = mal_context_get_IAudioClient_UWP__wasapi(pContext, deviceType, pDeviceID, &pData->pAudioClient, &pActivatedInterface);
-    if (result != MAL_SUCCESS) {
-        goto done;
-    }
-#endif
-#endif
-
-    /* TEMP: Will be replaced when full-duplex is added. */
-    result = mal_context_get_IAudioClient__wasapi(pContext, deviceType, (deviceType == mal_device_type_playback) ? pPlaybackDeviceID : pCaptureDeviceID, &pData->pAudioClient, &pDeviceInterface);
+    result = mal_context_get_IAudioClient__wasapi(pContext, deviceType, pDeviceID, &pData->pAudioClient, &pDeviceInterface);
     if (result != MAL_SUCCESS) {
         goto done;
     }
@@ -7002,104 +7007,281 @@ done:
     }
 }
 
-mal_result mal_device_reinit__wasapi(mal_device* pDevice)
+mal_result mal_device_reinit__wasapi(mal_device* pDevice, mal_device_type deviceType)
 {
+    mal_assert(pDevice != NULL);
+
+    // We only re-initialize the playback or capture device. Never a full-duplex device.
+    if (deviceType == mal_device_type_duplex) {
+        return MAL_INVALID_ARGS;
+    }
+
     mal_device_init_internal_data__wasapi data;
-    data.formatIn = pDevice->format;
-    data.channelsIn = pDevice->channels;
-    data.sampleRateIn = pDevice->sampleRate;
+    data.formatIn                   = pDevice->format;
+    data.channelsIn                 = pDevice->channels;
+    data.sampleRateIn               = pDevice->sampleRate;
     mal_copy_memory(data.channelMapIn, pDevice->channelMap, sizeof(pDevice->channelMap));
-    data.bufferSizeInFramesIn = pDevice->bufferSizeInFrames;
+    data.bufferSizeInFramesIn       = pDevice->bufferSizeInFrames;
+    data.usingDefaultFormat         = pDevice->usingDefaultFormat;
+    data.usingDefaultChannels       = pDevice->usingDefaultChannels;
+    data.usingDefaultSampleRate     = pDevice->usingDefaultSampleRate;
+    data.usingDefaultChannelMap     = pDevice->usingDefaultChannelMap;
+    data.shareMode                  = pDevice->initConfig.shareMode;
     data.bufferSizeInMillisecondsIn = pDevice->bufferSizeInMilliseconds;
-    data.periodsIn = pDevice->periods;
-    data.usingDefaultFormat = pDevice->usingDefaultFormat;
-    data.usingDefaultChannels = pDevice->usingDefaultChannels;
-    data.usingDefaultSampleRate = pDevice->usingDefaultSampleRate;
-    data.usingDefaultChannelMap = pDevice->usingDefaultChannelMap;
-    data.shareMode = pDevice->initConfig.shareMode;
-    mal_result result = mal_device_init_internal__wasapi(pDevice->pContext, pDevice->type, NULL, NULL, &data);
+    data.periodsIn                  = pDevice->periods;
+    mal_result result = mal_device_init_internal__wasapi(pDevice->pContext, deviceType, NULL, &data);
     if (result != MAL_SUCCESS) {
         return result;
     }
 
     // At this point we have some new objects ready to go. We need to uninitialize the previous ones and then set the new ones.
-    if (pDevice->wasapi.pRenderClient) {
-        mal_IAudioRenderClient_Release((mal_IAudioRenderClient*)pDevice->wasapi.pRenderClient);
-        pDevice->wasapi.pRenderClient = NULL;
-    }
-    if (pDevice->wasapi.pCaptureClient) {
-        mal_IAudioCaptureClient_Release((mal_IAudioCaptureClient*)pDevice->wasapi.pCaptureClient);
-        pDevice->wasapi.pCaptureClient = NULL;
-    }
-    if (pDevice->wasapi.pAudioClient) {
-        mal_IAudioClient_Release((mal_IAudioClient*)pDevice->wasapi.pAudioClient);
-        pDevice->wasapi.pAudioClient = NULL;
+    if (deviceType == mal_device_type_capture) {
+        if (pDevice->wasapi.pCaptureClient) {
+            mal_IAudioCaptureClient_Release((mal_IAudioCaptureClient*)pDevice->wasapi.pCaptureClient);
+            pDevice->wasapi.pCaptureClient = NULL;
+        }
+
+        if (pDevice->wasapi.pAudioClientCapture) {
+            mal_IAudioClient_Release((mal_IAudioClient*)pDevice->wasapi.pAudioClientCapture);
+            pDevice->wasapi.pAudioClientCapture = NULL;
+        }
+
+        pDevice->wasapi.pAudioClientCapture         = data.pAudioClient;
+        pDevice->wasapi.pCaptureClient              = data.pCaptureClient;
+
+        pDevice->capture.internalFormat             = data.formatOut;
+        pDevice->capture.internalChannels           = data.channelsOut;
+        pDevice->capture.internalSampleRate         = data.sampleRateOut;
+        mal_copy_memory(pDevice->capture.internalChannelMap, data.channelMapOut, sizeof(data.channelMapOut));
+        pDevice->capture.internalBufferSizeInFrames = data.bufferSizeInFramesOut;
+        pDevice->capture.internalPeriods            = data.periodsOut;
+        mal_strcpy_s(pDevice->capture.name, sizeof(pDevice->capture.name), data.deviceName);
+
+        mal_IAudioClient_SetEventHandle((mal_IAudioClient*)pDevice->wasapi.pAudioClientCapture,  pDevice->wasapi.hEventCapture);
     }
 
-    pDevice->wasapi.pAudioClient = data.pAudioClient;
-    pDevice->wasapi.pRenderClient = data.pRenderClient;
-    pDevice->wasapi.pCaptureClient = data.pCaptureClient;
+    if (deviceType == mal_device_type_playback) {
+        if (pDevice->wasapi.pRenderClient) {
+            mal_IAudioRenderClient_Release((mal_IAudioRenderClient*)pDevice->wasapi.pRenderClient);
+            pDevice->wasapi.pRenderClient = NULL;
+        }
+
+        if (pDevice->wasapi.pAudioClientPlayback) {
+            mal_IAudioClient_Release((mal_IAudioClient*)pDevice->wasapi.pAudioClientPlayback);
+            pDevice->wasapi.pAudioClientPlayback = NULL;
+        }
+
+        pDevice->wasapi.pAudioClientPlayback         = data.pAudioClient;
+        pDevice->wasapi.pRenderClient                = data.pRenderClient;
+
+        pDevice->playback.internalFormat             = data.formatOut;
+        pDevice->playback.internalChannels           = data.channelsOut;
+        pDevice->playback.internalSampleRate         = data.sampleRateOut;
+        mal_copy_memory(pDevice->playback.internalChannelMap, data.channelMapOut, sizeof(data.channelMapOut));
+        pDevice->playback.internalBufferSizeInFrames = data.bufferSizeInFramesOut;
+        pDevice->playback.internalPeriods            = data.periodsOut;
+        mal_strcpy_s(pDevice->playback.name, sizeof(pDevice->playback.name), data.deviceName);
+
+        mal_IAudioClient_SetEventHandle((mal_IAudioClient*)pDevice->wasapi.pAudioClientPlayback, pDevice->wasapi.hEventPlayback);
+    }
+
+    
+
+    // BACKWARDS COMPATIBILITY. TEMP.
+    if (pDevice->type == mal_device_type_capture || pDevice->type == mal_device_type_duplex) {
+        pDevice->internalFormat = pDevice->capture.internalFormat;
+        pDevice->internalChannels = pDevice->capture.internalChannels;
+        pDevice->internalSampleRate = pDevice->capture.internalSampleRate;
+        mal_copy_memory(pDevice->internalChannelMap, pDevice->capture.internalChannelMap, sizeof(pDevice->capture.internalChannelMap));
+        pDevice->bufferSizeInFrames = pDevice->capture.internalBufferSizeInFrames;
+        pDevice->periods = pDevice->capture.internalChannels;
+        mal_strcpy_s(pDevice->name, sizeof(pDevice->name), pDevice->capture.name);
+    } else {
+        pDevice->internalFormat = pDevice->playback.internalFormat;
+        pDevice->internalChannels = pDevice->playback.internalChannels;
+        pDevice->internalSampleRate = pDevice->playback.internalSampleRate;
+        mal_copy_memory(pDevice->internalChannelMap, pDevice->playback.internalChannelMap, sizeof(pDevice->playback.internalChannelMap));
+        pDevice->bufferSizeInFrames = pDevice->playback.internalBufferSizeInFrames;
+        pDevice->periods = pDevice->playback.internalChannels;
+        mal_strcpy_s(pDevice->name, sizeof(pDevice->name), pDevice->playback.name);
+    }
+
     mal_atomic_exchange_32(&pDevice->wasapi.isStarted, MAL_FALSE);
-
-    pDevice->internalFormat = data.formatOut;
-    pDevice->internalChannels = data.channelsOut;
-    pDevice->internalSampleRate = data.sampleRateOut;
-    mal_copy_memory(pDevice->internalChannelMap, data.channelMapOut, sizeof(data.channelMapOut));
-    pDevice->bufferSizeInFrames = data.bufferSizeInFramesOut;
-    pDevice->periods = data.periodsOut;
-    mal_strcpy_s(pDevice->name, sizeof(pDevice->name), data.deviceName);
-
-    if (pDevice->type == mal_device_type_playback) {
-        mal_IAudioClient_SetEventHandle((mal_IAudioClient*)pDevice->wasapi.pAudioClient, pDevice->wasapi.hEventPlayback);
-    }
-    if (pDevice->type == mal_device_type_capture) {
-        mal_IAudioClient_SetEventHandle((mal_IAudioClient*)pDevice->wasapi.pAudioClient, pDevice->wasapi.hEventCapture);
-    }
 
     return MAL_SUCCESS;
 }
 
 mal_result mal_device_init__wasapi(mal_context* pContext, const mal_device_config* pConfig, mal_device* pDevice)
 {
-    (void)pContext;
-
-    mal_assert(pDevice != NULL);
-    mal_zero_object(&pDevice->wasapi);
-
     mal_result result = MAL_SUCCESS;
     const char* errorMsg = "";
 
-    mal_device_init_internal_data__wasapi data;
-    data.formatIn = pConfig->format;
-    data.channelsIn = pConfig->channels;
-    data.sampleRateIn = pConfig->sampleRate;
-    mal_copy_memory(data.channelMapIn, pConfig->channelMap, sizeof(pConfig->channelMap));
-    data.bufferSizeInFramesIn = pConfig->bufferSizeInFrames;
-    data.bufferSizeInMillisecondsIn = pConfig->bufferSizeInMilliseconds;
-    data.periodsIn = pConfig->periods;
-    data.usingDefaultFormat = pDevice->usingDefaultFormat;
-    data.usingDefaultChannels = pDevice->usingDefaultChannels;
-    data.usingDefaultSampleRate = pDevice->usingDefaultSampleRate;
-    data.usingDefaultChannelMap = pDevice->usingDefaultChannelMap;
-    data.shareMode = pConfig->shareMode;
-    result = mal_device_init_internal__wasapi(pDevice->pContext, pConfig->deviceType, pConfig->pPlaybackDeviceID, pConfig->pCaptureDeviceID, &data);
-    if (result != MAL_SUCCESS) {
-        return result;
+    (void)pContext;
+
+    mal_assert(pContext != NULL);
+    mal_assert(pDevice != NULL);
+
+    mal_zero_object(&pDevice->wasapi);
+
+    if (pConfig->deviceType == mal_device_type_capture || pConfig->deviceType == mal_device_type_duplex) {
+        mal_device_init_internal_data__wasapi data;
+        data.formatIn                   = pConfig->format;
+        data.channelsIn                 = pConfig->channels;
+        data.sampleRateIn               = pConfig->sampleRate;
+        mal_copy_memory(data.channelMapIn, pConfig->channelMap, sizeof(pConfig->channelMap));
+        data.usingDefaultFormat         = pDevice->usingDefaultFormat;
+        data.usingDefaultChannels       = pDevice->usingDefaultChannels;
+        data.usingDefaultSampleRate     = pDevice->usingDefaultSampleRate;
+        data.usingDefaultChannelMap     = pDevice->usingDefaultChannelMap;
+        data.shareMode                  = pConfig->shareMode;
+        data.bufferSizeInFramesIn       = pConfig->bufferSizeInFrames;
+        data.bufferSizeInMillisecondsIn = pConfig->bufferSizeInMilliseconds;
+        data.periodsIn                  = pConfig->periods;
+
+        result = mal_device_init_internal__wasapi(pDevice->pContext, mal_device_type_capture, pConfig->pCaptureDeviceID, &data);
+        if (result != MAL_SUCCESS) {
+            return result;
+        }
+
+        pDevice->wasapi.pAudioClientCapture         = data.pAudioClient;
+        pDevice->wasapi.pCaptureClient              = data.pCaptureClient;
+
+        pDevice->capture.internalFormat             = data.formatOut;
+        pDevice->capture.internalChannels           = data.channelsOut;
+        pDevice->capture.internalSampleRate         = data.sampleRateOut;
+        mal_copy_memory(pDevice->capture.internalChannelMap, data.channelMapOut, sizeof(data.channelMapOut));
+        pDevice->capture.internalBufferSizeInFrames = data.bufferSizeInFramesOut;
+        pDevice->capture.internalPeriods            = data.periodsOut;
+        mal_strcpy_s(pDevice->capture.name, sizeof(pDevice->capture.name), data.deviceName);
+
+        /*
+        The event for capture needs to be manual reset for the same reason as playback. We keep the initial state set to unsignaled,
+        however, because we want to block until we actually have something for the first call to mal_device_read().
+        */
+        pDevice->wasapi.hEventCapture = CreateEventA(NULL, TRUE, FALSE, NULL);  /* Manual reset, unsignaled by default. */
+        if (pDevice->wasapi.hEventCapture == NULL) {
+            if (pDevice->wasapi.pCaptureClient != NULL) {
+                mal_IAudioCaptureClient_Release((mal_IAudioCaptureClient*)pDevice->wasapi.pCaptureClient);
+                pDevice->wasapi.pCaptureClient = NULL;
+            }
+            if (pDevice->wasapi.pAudioClientCapture != NULL) {
+                mal_IAudioClient_Release((mal_IAudioClient*)pDevice->wasapi.pAudioClientCapture);
+                pDevice->wasapi.pAudioClientCapture = NULL;
+            }
+
+            return mal_post_error(pDevice, MAL_LOG_LEVEL_ERROR, "[WASAPI] Failed to create event for capture.", MAL_FAILED_TO_CREATE_EVENT);
+        }
+        mal_IAudioClient_SetEventHandle((mal_IAudioClient*)pDevice->wasapi.pAudioClientCapture, pDevice->wasapi.hEventCapture);
     }
 
-    pDevice->wasapi.pAudioClient = data.pAudioClient;
-    pDevice->wasapi.pRenderClient = data.pRenderClient;
-    pDevice->wasapi.pCaptureClient = data.pCaptureClient;
-    mal_atomic_exchange_32(&pDevice->wasapi.isStarted, MAL_FALSE);
-    
-    pDevice->internalFormat = data.formatOut;
-    pDevice->internalChannels = data.channelsOut;
-    pDevice->internalSampleRate = data.sampleRateOut;
-    mal_copy_memory(pDevice->internalChannelMap, data.channelMapOut, sizeof(data.channelMapOut));
-    pDevice->bufferSizeInFrames = data.bufferSizeInFramesOut;
-    pDevice->periods = data.periodsOut;
-    mal_strcpy_s(pDevice->name, sizeof(pDevice->name), data.deviceName);
+    if (pConfig->deviceType == mal_device_type_playback || pConfig->deviceType == mal_device_type_duplex) {
+        mal_device_init_internal_data__wasapi data;
+        data.formatIn               = pConfig->format;
+        data.channelsIn             = pConfig->channels;
+        data.sampleRateIn           = pConfig->sampleRate;
+        mal_copy_memory(data.channelMapIn, pConfig->channelMap, sizeof(pConfig->channelMap));
+        data.usingDefaultFormat     = pDevice->usingDefaultFormat;
+        data.usingDefaultChannels   = pDevice->usingDefaultChannels;
+        data.usingDefaultSampleRate = pDevice->usingDefaultSampleRate;
+        data.usingDefaultChannelMap = pDevice->usingDefaultChannelMap;
+        data.shareMode              = pConfig->shareMode;
 
+        // In duplex mode we want the playback device to have the same buffer size and period count as the capture device.
+        if (pConfig->deviceType == mal_device_type_duplex) {
+            data.bufferSizeInFramesIn       = pDevice->capture.internalBufferSizeInFrames;
+            data.periodsIn                  = pDevice->capture.internalPeriods;
+        } else {
+            data.bufferSizeInFramesIn       = pConfig->bufferSizeInFrames;
+            data.bufferSizeInMillisecondsIn = pConfig->bufferSizeInMilliseconds;
+            data.periodsIn                  = pConfig->periods;
+        }
+
+        result = mal_device_init_internal__wasapi(pDevice->pContext, mal_device_type_playback, pConfig->pPlaybackDeviceID, &data);
+        if (result != MAL_SUCCESS) {
+            if (pConfig->deviceType == mal_device_type_duplex) {
+                if (pDevice->wasapi.pCaptureClient != NULL) {
+                    mal_IAudioCaptureClient_Release((mal_IAudioCaptureClient*)pDevice->wasapi.pCaptureClient);
+                    pDevice->wasapi.pCaptureClient = NULL;
+                }
+                if (pDevice->wasapi.pAudioClientCapture != NULL) {
+                    mal_IAudioClient_Release((mal_IAudioClient*)pDevice->wasapi.pAudioClientCapture);
+                    pDevice->wasapi.pAudioClientCapture = NULL;
+                }
+
+                CloseHandle(pDevice->wasapi.hEventCapture);
+                pDevice->wasapi.hEventCapture = NULL;
+            }
+            return result;
+        }
+
+        pDevice->wasapi.pAudioClientPlayback         = data.pAudioClient;
+        pDevice->wasapi.pRenderClient                = data.pRenderClient;
+
+        pDevice->playback.internalFormat             = data.formatOut;
+        pDevice->playback.internalChannels           = data.channelsOut;
+        pDevice->playback.internalSampleRate         = data.sampleRateOut;
+        mal_copy_memory(pDevice->playback.internalChannelMap, data.channelMapOut, sizeof(data.channelMapOut));
+        pDevice->playback.internalBufferSizeInFrames = data.bufferSizeInFramesOut;
+        pDevice->playback.internalPeriods            = data.periodsOut;
+        mal_strcpy_s(pDevice->playback.name, sizeof(pDevice->playback.name), data.deviceName);
+
+        /*
+        The event for playback is needs to be manual reset because we want to explicitly control the fact that it becomes signalled
+        only after the whole available space has been filled, never before.
+
+        The playback event also needs to be initially set to a signaled state so that the first call to mal_device_write() is able
+        to get passed WaitForMultipleObjects().
+        */
+        pDevice->wasapi.hEventPlayback = CreateEventA(NULL, TRUE, TRUE, NULL);  /* Manual reset, signaled by default. */
+        if (pDevice->wasapi.hEventPlayback == NULL) {
+            if (pConfig->deviceType == mal_device_type_duplex) {
+                if (pDevice->wasapi.pCaptureClient != NULL) {
+                    mal_IAudioCaptureClient_Release((mal_IAudioCaptureClient*)pDevice->wasapi.pCaptureClient);
+                    pDevice->wasapi.pCaptureClient = NULL;
+                }
+                if (pDevice->wasapi.pAudioClientCapture != NULL) {
+                    mal_IAudioClient_Release((mal_IAudioClient*)pDevice->wasapi.pAudioClientCapture);
+                    pDevice->wasapi.pAudioClientCapture = NULL;
+                }
+
+                CloseHandle(pDevice->wasapi.hEventCapture);
+                pDevice->wasapi.hEventCapture = NULL;
+            }
+
+            if (pDevice->wasapi.pRenderClient != NULL) {
+                mal_IAudioRenderClient_Release((mal_IAudioRenderClient*)pDevice->wasapi.pRenderClient);
+                pDevice->wasapi.pRenderClient = NULL;
+            }
+            if (pDevice->wasapi.pAudioClientPlayback != NULL) {
+                mal_IAudioClient_Release((mal_IAudioClient*)pDevice->wasapi.pAudioClientPlayback);
+                pDevice->wasapi.pAudioClientPlayback = NULL;
+            }
+
+            return mal_post_error(pDevice, MAL_LOG_LEVEL_ERROR, "[WASAPI] Failed to create event for playback.", MAL_FAILED_TO_CREATE_EVENT);
+        }
+        mal_IAudioClient_SetEventHandle((mal_IAudioClient*)pDevice->wasapi.pAudioClientPlayback, pDevice->wasapi.hEventPlayback);
+    }
+
+
+    // BACKWARDS COMPATIBILITY. TEMP.
+    if (pConfig->deviceType == mal_device_type_capture || pConfig->deviceType == mal_device_type_duplex) {
+        pDevice->internalFormat = pDevice->capture.internalFormat;
+        pDevice->internalChannels = pDevice->capture.internalChannels;
+        pDevice->internalSampleRate = pDevice->capture.internalSampleRate;
+        mal_copy_memory(pDevice->internalChannelMap, pDevice->capture.internalChannelMap, sizeof(pDevice->capture.internalChannelMap));
+        pDevice->bufferSizeInFrames = pDevice->capture.internalBufferSizeInFrames;
+        pDevice->periods = pDevice->capture.internalChannels;
+        mal_strcpy_s(pDevice->name, sizeof(pDevice->name), pDevice->capture.name);
+    } else {
+        pDevice->internalFormat = pDevice->playback.internalFormat;
+        pDevice->internalChannels = pDevice->playback.internalChannels;
+        pDevice->internalSampleRate = pDevice->playback.internalSampleRate;
+        mal_copy_memory(pDevice->internalChannelMap, pDevice->playback.internalChannelMap, sizeof(pDevice->playback.internalChannelMap));
+        pDevice->bufferSizeInFrames = pDevice->playback.internalBufferSizeInFrames;
+        pDevice->periods = pDevice->playback.internalChannels;
+        mal_strcpy_s(pDevice->name, sizeof(pDevice->name), pDevice->playback.name);
+    }
+    
 
 
     // We need to get notifications of when the default device changes. We do this through a device enumerator by
@@ -7125,38 +7307,7 @@ mal_result mal_device_init__wasapi(mal_context* pContext, const mal_device_confi
     }
 #endif
 
-    /* Events. */
-
-    /*
-    The event for playback is needs to be manual reset because we want to explicitly control the fact that it becomes signalled
-    only after the whole available space has been filled, never before.
-
-    The playback event also needs to be initially set to a signaled state so that the first call to mal_device_write() is able
-    to get passed WaitForMultipleObjects().
-    */
-    if (pConfig->deviceType == mal_device_type_playback) {
-        pDevice->wasapi.hEventPlayback = CreateEventA(NULL, TRUE, TRUE, NULL);  /* Manual reset, signaled by default. */
-        if (pDevice->wasapi.hEventPlayback == NULL) {
-            errorMsg = "[WASAPI] Failed to create event for playback."; result = MAL_FAILED_TO_CREATE_EVENT;
-            goto done;
-        }
-
-        mal_IAudioClient_SetEventHandle((mal_IAudioClient*)pDevice->wasapi.pAudioClient, pDevice->wasapi.hEventPlayback);
-    }
-
-    /*
-    The event for capture needs to be manual reset for the same reason as playback. We keep the initial state set to unsignaled,
-    however, because we want to block until we actually have something for the first call to mal_device_read().
-    */
-    if (pConfig->deviceType == mal_device_type_capture) {
-        pDevice->wasapi.hEventCapture = CreateEventA(NULL, TRUE, FALSE, NULL);  /* Manual reset, unsignaled by default. */
-        if (pDevice->wasapi.hEventCapture == NULL) {
-            errorMsg = "[WASAPI] Failed to create event for capture."; result = MAL_FAILED_TO_CREATE_EVENT;
-            goto done;
-        }
-
-        mal_IAudioClient_SetEventHandle((mal_IAudioClient*)pDevice->wasapi.pAudioClient, pDevice->wasapi.hEventCapture);
-    }
+    mal_atomic_exchange_32(&pDevice->wasapi.isStarted, MAL_FALSE);
 
     result = MAL_SUCCESS;
 
@@ -7174,9 +7325,24 @@ mal_result mal_device_start__wasapi(mal_device* pDevice)
 {
     mal_assert(pDevice != NULL);
 
-    HRESULT hr = mal_IAudioClient_Start((mal_IAudioClient*)pDevice->wasapi.pAudioClient);
-    if (FAILED(hr)) {
-        return mal_post_error(pDevice, MAL_LOG_LEVEL_ERROR, "[WASAPI] Failed to start internal device.", MAL_FAILED_TO_START_BACKEND_DEVICE);
+    HRESULT hr;
+
+    if (pDevice->type == mal_device_type_capture || pDevice->type == mal_device_type_duplex) {
+        hr = mal_IAudioClient_Start((mal_IAudioClient*)pDevice->wasapi.pAudioClientCapture);
+        if (FAILED(hr)) {
+            return mal_post_error(pDevice, MAL_LOG_LEVEL_ERROR, "[WASAPI] Failed to start internal capture device.", MAL_FAILED_TO_START_BACKEND_DEVICE);
+        }
+    }
+
+    if (pDevice->type == mal_device_type_playback || pDevice->type == mal_device_type_duplex) {
+        hr = mal_IAudioClient_Start((mal_IAudioClient*)pDevice->wasapi.pAudioClientPlayback);
+        if (FAILED(hr)) {
+            if (pDevice->type == mal_device_type_duplex) {
+                mal_IAudioClient_Stop((mal_IAudioClient*)pDevice->wasapi.pAudioClientCapture);
+                mal_IAudioClient_Reset((mal_IAudioClient*)pDevice->wasapi.pAudioClientCapture);
+            }
+            return mal_post_error(pDevice, MAL_LOG_LEVEL_ERROR, "[WASAPI] Failed to start internal playback device.", MAL_FAILED_TO_START_BACKEND_DEVICE);
+        }
     }
 
     mal_atomic_exchange_32(&pDevice->wasapi.isStarted, MAL_TRUE);
@@ -7187,21 +7353,40 @@ mal_result mal_device_stop__wasapi(mal_device* pDevice)
 {
     mal_assert(pDevice != NULL);
 
-    if (pDevice->wasapi.pAudioClient == NULL) {
-        return MAL_DEVICE_NOT_INITIALIZED;
+    if (pDevice->type == mal_device_type_capture || pDevice->type == mal_device_type_duplex) {
+        if (pDevice->wasapi.pAudioClientCapture == NULL) {
+            return MAL_DEVICE_NOT_INITIALIZED;
+        }
+
+        HRESULT hr = mal_IAudioClient_Stop((mal_IAudioClient*)pDevice->wasapi.pAudioClientCapture);
+        if (FAILED(hr)) {
+            return mal_post_error(pDevice, MAL_LOG_LEVEL_ERROR, "[WASAPI] Failed to stop internal capture device.", MAL_FAILED_TO_STOP_BACKEND_DEVICE);
+        }
+
+        /* The audio client needs to be reset otherwise restarting will fail. */
+        hr = mal_IAudioClient_Reset((mal_IAudioClient*)pDevice->wasapi.pAudioClientCapture);
+        if (FAILED(hr)) {
+            return mal_post_error(pDevice, MAL_LOG_LEVEL_ERROR, "[WASAPI] Failed to reset internal capture device.", MAL_FAILED_TO_STOP_BACKEND_DEVICE);
+        }
     }
 
-    /* TODO: Wait until every sample that was written by the callback has been processed. */
+    if (pDevice->type == mal_device_type_playback || pDevice->type == mal_device_type_duplex) {
+        if (pDevice->wasapi.pAudioClientPlayback == NULL) {
+            return MAL_DEVICE_NOT_INITIALIZED;
+        }
 
-    HRESULT hr = mal_IAudioClient_Stop((mal_IAudioClient*)pDevice->wasapi.pAudioClient);
-    if (FAILED(hr)) {
-        return mal_post_error(pDevice, MAL_LOG_LEVEL_ERROR, "[WASAPI] Failed to stop internal device.", MAL_FAILED_TO_STOP_BACKEND_DEVICE);
-    }
+        /* TODO: Wait until every sample that was written by the callback has been processed. */
 
-    /* The audio client needs to be reset otherwise restarting will fail. */
-    hr = mal_IAudioClient_Reset((mal_IAudioClient*)pDevice->wasapi.pAudioClient);
-    if (FAILED(hr)) {
-        return mal_post_error(pDevice, MAL_LOG_LEVEL_ERROR, "[WASAPI] Failed to reset internal device.", MAL_FAILED_TO_STOP_BACKEND_DEVICE);
+        HRESULT hr = mal_IAudioClient_Stop((mal_IAudioClient*)pDevice->wasapi.pAudioClientPlayback);
+        if (FAILED(hr)) {
+            return mal_post_error(pDevice, MAL_LOG_LEVEL_ERROR, "[WASAPI] Failed to stop internal playback device.", MAL_FAILED_TO_STOP_BACKEND_DEVICE);
+        }
+
+        /* The audio client needs to be reset otherwise restarting will fail. */
+        hr = mal_IAudioClient_Reset((mal_IAudioClient*)pDevice->wasapi.pAudioClientPlayback);
+        if (FAILED(hr)) {
+            return mal_post_error(pDevice, MAL_LOG_LEVEL_ERROR, "[WASAPI] Failed to reset internal playback device.", MAL_FAILED_TO_STOP_BACKEND_DEVICE);
+        }
     }
 
     mal_atomic_exchange_32(&pDevice->wasapi.isStarted, MAL_FALSE);
@@ -7209,15 +7394,19 @@ mal_result mal_device_stop__wasapi(mal_device* pDevice)
 }
 
 
-mal_result mal_device__get_available_frames__wasapi(mal_device* pDevice, mal_uint32* pFrameCount)
+mal_result mal_device__get_available_frames__wasapi(mal_device* pDevice, mal_IAudioClient* pAudioClient, mal_uint32* pFrameCount)
 {
     mal_assert(pDevice != NULL);
     mal_assert(pFrameCount != NULL);
     
     *pFrameCount = 0;
 
+    if ((mal_ptr)pAudioClient != pDevice->wasapi.pAudioClientPlayback && (mal_ptr)pAudioClient != pDevice->wasapi.pAudioClientCapture) {
+        return MAL_INVALID_OPERATION;
+    }
+
     mal_uint32 paddingFramesCount;
-    HRESULT hr = mal_IAudioClient_GetCurrentPadding((mal_IAudioClient*)pDevice->wasapi.pAudioClient, &paddingFramesCount);
+    HRESULT hr = mal_IAudioClient_GetCurrentPadding(pAudioClient, &paddingFramesCount);
     if (FAILED(hr)) {
         return MAL_DEVICE_UNAVAILABLE;
     }
@@ -7226,7 +7415,7 @@ mal_result mal_device__get_available_frames__wasapi(mal_device* pDevice, mal_uin
     if (pDevice->initConfig.shareMode == mal_share_mode_exclusive) {
         *pFrameCount = paddingFramesCount;
     } else {
-        if (pDevice->type == mal_device_type_playback) {
+        if ((mal_ptr)pAudioClient == pDevice->wasapi.pAudioClientPlayback) {
             *pFrameCount = pDevice->bufferSizeInFrames - paddingFramesCount;
         } else {
             *pFrameCount = paddingFramesCount;
@@ -7236,21 +7425,40 @@ mal_result mal_device__get_available_frames__wasapi(mal_device* pDevice, mal_uin
     return MAL_SUCCESS;
 }
 
-mal_bool32 mal_device_is_reroute_required__wasapi(mal_device* pDevice)
+mal_bool32 mal_device_is_reroute_required__wasapi(mal_device* pDevice, mal_device_type deviceType)
 {
     mal_assert(pDevice != NULL);
-    return pDevice->wasapi.hasDefaultDeviceChanged;
+
+    if (deviceType == mal_device_type_playback) {
+        return pDevice->wasapi.hasDefaultPlaybackDeviceChanged;
+    }
+
+    if (deviceType == mal_device_type_capture) {
+        return pDevice->wasapi.hasDefaultCaptureDeviceChanged;
+    }
+    
+    return MAL_FALSE;
 }
 
-mal_result mal_device_reroute__wasapi(mal_device* pDevice)
+mal_result mal_device_reroute__wasapi(mal_device* pDevice, mal_device_type deviceType)
 {
-    mal_atomic_exchange_32(&pDevice->wasapi.hasDefaultDeviceChanged, MAL_FALSE);
+    if (deviceType == mal_device_type_duplex) {
+        return MAL_INVALID_ARGS;
+    }
+
+    if (deviceType == mal_device_type_playback) {
+        mal_atomic_exchange_32(&pDevice->wasapi.hasDefaultPlaybackDeviceChanged, MAL_FALSE);
+    }
+    if (deviceType == mal_device_type_capture) {
+        mal_atomic_exchange_32(&pDevice->wasapi.hasDefaultCaptureDeviceChanged,  MAL_FALSE);
+    }
+    
 
     #ifdef MAL_DEBUG_OUTPUT
         printf("=== CHANGING DEVICE ===\n");
     #endif
 
-    mal_result result = mal_device_reinit__wasapi(pDevice);
+    mal_result result = mal_device_reinit__wasapi(pDevice, deviceType);
     if (result != MAL_SUCCESS) {
         return result;
     }
@@ -7339,15 +7547,15 @@ mal_result mal_device_write__wasapi(mal_device* pDevice, const void* pPCMFrames,
         }
 
         /* We may need to reroute the device. */
-        if (mal_device_is_reroute_required__wasapi(pDevice)) {
-            result = mal_device_reroute__wasapi(pDevice);
+        if (mal_device_is_reroute_required__wasapi(pDevice, mal_device_type_capture)) {
+            result = mal_device_reroute__wasapi(pDevice, mal_device_type_capture);
             if (result != MAL_SUCCESS) {
                 break;
             }
         }
 
         /* The device buffer has become available, so now we need to get a pointer to it. */
-        result = mal_device__get_available_frames__wasapi(pDevice, &pDevice->wasapi.deviceBufferFramesCapacityPlayback);
+        result = mal_device__get_available_frames__wasapi(pDevice, (mal_IAudioClient*)pDevice->wasapi.pAudioClientPlayback, &pDevice->wasapi.deviceBufferFramesCapacityPlayback);
         if (result != MAL_SUCCESS) {
             break;
         }
@@ -7435,15 +7643,15 @@ mal_result mal_device_read__wasapi(mal_device* pDevice, void* pPCMFrames, mal_ui
         }
 
         /* We may need to reroute the device. */
-        if (mal_device_is_reroute_required__wasapi(pDevice)) {
-            result = mal_device_reroute__wasapi(pDevice);
+        if (mal_device_is_reroute_required__wasapi(pDevice, mal_device_type_capture)) {
+            result = mal_device_reroute__wasapi(pDevice, mal_device_type_capture);
             if (result != MAL_SUCCESS) {
                 break;
             }
         }
 
         /* The device buffer has become available, so now we need to get a pointer to it. */
-        result = mal_device__get_available_frames__wasapi(pDevice, &pDevice->wasapi.deviceBufferFramesCapacityCapture);
+        result = mal_device__get_available_frames__wasapi(pDevice, (mal_IAudioClient*)pDevice->wasapi.pAudioClientCapture, &pDevice->wasapi.deviceBufferFramesCapacityCapture);
         if (result != MAL_SUCCESS) {
             break;
         }
