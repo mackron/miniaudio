@@ -1996,7 +1996,6 @@ MAL_ALIGNED_STRUCT(MAL_SIMD_ALIGNMENT) mal_device
     mal_device_callback_proc onData;
     mal_stop_proc onStop;
     void* pUserData;                // Application defined data.
-    char name[256];
     mal_device_config initConfig;   // TODO: Get rid of this. The configuration passed in to mal_device_init(). Mainly used for reinitializing the backend device.
     mal_mutex lock;
     mal_event wakeupEvent;
@@ -4939,14 +4938,16 @@ mal_result mal_device_init__null(mal_context* pContext, const mal_device_config*
     mal_result result;
 
     mal_assert(pDevice != NULL);
+
     mal_zero_object(&pDevice->null_device);
 
-    if (pConfig->deviceType == mal_device_type_playback) {
-        mal_strncpy_s(pDevice->name, sizeof(pDevice->name), "NULL Playback Device", (size_t)-1);
-    } else {
-        mal_strncpy_s(pDevice->name, sizeof(pDevice->name), "NULL Capture Device", (size_t)-1);
+    if (pConfig->deviceType == mal_device_type_capture || pConfig->deviceType == mal_device_type_duplex) {
+        mal_strncpy_s(pDevice->capture.name,  sizeof(pDevice->capture.name),  "NULL Capture Device",  (size_t)-1);
     }
-
+    if (pConfig->deviceType == mal_device_type_playback || pConfig->deviceType == mal_device_type_duplex) {
+        mal_strncpy_s(pDevice->playback.name, sizeof(pDevice->playback.name), "NULL Playback Device", (size_t)-1);
+    }
+    
     mal_uint32 bufferSizeInFrames = pConfig->bufferSizeInFrames;
     if (bufferSizeInFrames == 0) {
         bufferSizeInFrames = mal_calculate_buffer_size_in_frames_from_milliseconds(pConfig->bufferSizeInMilliseconds, pConfig->sampleRate);
@@ -7095,7 +7096,6 @@ mal_result mal_device_reinit__wasapi(mal_device* pDevice, mal_device_type device
         mal_copy_memory(pDevice->internalChannelMap, pDevice->capture.internalChannelMap, sizeof(pDevice->capture.internalChannelMap));
         pDevice->bufferSizeInFrames = pDevice->capture.internalBufferSizeInFrames;
         pDevice->periods = pDevice->capture.internalChannels;
-        mal_strcpy_s(pDevice->name, sizeof(pDevice->name), pDevice->capture.name);
     } else {
         pDevice->internalFormat = pDevice->playback.internalFormat;
         pDevice->internalChannels = pDevice->playback.internalChannels;
@@ -7103,7 +7103,6 @@ mal_result mal_device_reinit__wasapi(mal_device* pDevice, mal_device_type device
         mal_copy_memory(pDevice->internalChannelMap, pDevice->playback.internalChannelMap, sizeof(pDevice->playback.internalChannelMap));
         pDevice->bufferSizeInFrames = pDevice->playback.internalBufferSizeInFrames;
         pDevice->periods = pDevice->playback.internalChannels;
-        mal_strcpy_s(pDevice->name, sizeof(pDevice->name), pDevice->playback.name);
     }
 
     mal_atomic_exchange_32(&pDevice->wasapi.isStarted, MAL_FALSE);
@@ -7271,7 +7270,6 @@ mal_result mal_device_init__wasapi(mal_context* pContext, const mal_device_confi
         mal_copy_memory(pDevice->internalChannelMap, pDevice->capture.internalChannelMap, sizeof(pDevice->capture.internalChannelMap));
         pDevice->bufferSizeInFrames = pDevice->capture.internalBufferSizeInFrames;
         pDevice->periods = pDevice->capture.internalChannels;
-        mal_strcpy_s(pDevice->name, sizeof(pDevice->name), pDevice->capture.name);
     } else {
         pDevice->internalFormat = pDevice->playback.internalFormat;
         pDevice->internalChannels = pDevice->playback.internalChannels;
@@ -7279,7 +7277,6 @@ mal_result mal_device_init__wasapi(mal_context* pContext, const mal_device_confi
         mal_copy_memory(pDevice->internalChannelMap, pDevice->playback.internalChannelMap, sizeof(pDevice->playback.internalChannelMap));
         pDevice->bufferSizeInFrames = pDevice->playback.internalBufferSizeInFrames;
         pDevice->periods = pDevice->playback.internalChannels;
-        mal_strcpy_s(pDevice->name, sizeof(pDevice->name), pDevice->playback.name);
     }
     
 
@@ -13181,7 +13178,7 @@ void mal_device_sink_name_callback(mal_pa_context* pPulseContext, const mal_pa_s
     mal_device* pDevice = (mal_device*)pUserData;
     mal_assert(pDevice != NULL);
 
-    mal_strncpy_s(pDevice->name, sizeof(pDevice->name), pInfo->description, (size_t)-1);
+    mal_strncpy_s(pDevice->playback.name, sizeof(pDevice->playback.name), pInfo->description, (size_t)-1);
 }
 
 void mal_device_source_name_callback(mal_pa_context* pPulseContext, const mal_pa_source_info* pInfo, int endOfList, void* pUserData)
@@ -13193,7 +13190,7 @@ void mal_device_source_name_callback(mal_pa_context* pPulseContext, const mal_pa
     mal_device* pDevice = (mal_device*)pUserData;
     mal_assert(pDevice != NULL);
 
-    mal_strncpy_s(pDevice->name, sizeof(pDevice->name), pInfo->description, (size_t)-1);
+    mal_strncpy_s(pDevice->capture.name, sizeof(pDevice->capture.name), pInfo->description, (size_t)-1);
 }
 
 void mal_device_uninit__pulse(mal_device* pDevice)
@@ -16005,15 +16002,15 @@ typedef struct
     char deviceName[256];
 } mal_device_init_internal_data__coreaudio;
 
-mal_result mal_device_init_internal__coreaudio(mal_context* pContext, mal_device_type deviceType, const mal_device_id* pPlaybackDeviceID, const mal_device_id* pCaptureDeviceID, mal_device_init_internal_data__coreaudio* pData, void* pDevice_DoNotReference)   /* <-- pDevice is typed as void* intentionally so as to avoid accidentally referencing it. */
+mal_result mal_device_init_internal__coreaudio(mal_context* pContext, mal_device_type deviceType, const mal_device_id* pkDeviceID, mal_device_init_internal_data__coreaudio* pData, void* pDevice_DoNotReference)   /* <-- pDevice is typed as void* intentionally so as to avoid accidentally referencing it. */
 {
-    /* Not currently supporting full-duplex. */
+    /* This API should only be used for a single device type: playback or capture. No full-duplex mode. */
     if (deviceType == mal_device_type_duplex) {
         return MAL_INVALID_ARGS;
     }
 
     mal_assert(pContext != NULL);
-    mal_assert(deviceType == mal_device_type_playback || deviceType == mal_device_type_capture || deviceType == mal_device_type_duplex);
+    mal_assert(deviceType == mal_device_type_playback || deviceType == mal_device_type_capture);
 
 #if defined(MAL_APPLE_DESKTOP)
     pData->deviceObjectID = 0;
@@ -16026,7 +16023,7 @@ mal_result mal_device_init_internal__coreaudio(mal_context* pContext, mal_device
     
 #if defined(MAL_APPLE_DESKTOP)
     AudioObjectID deviceObjectID;
-    result = mal_find_AudioObjectID(pContext, deviceType, (deviceType == mal_device_type_playback) ? pPlaybackDeviceID : pCaptureDeviceID, &deviceObjectID);
+    result = mal_find_AudioObjectID(pContext, deviceType, pDeviceID, &deviceObjectID);
     if (result != MAL_SUCCESS) {
         return result;
     }
@@ -16384,7 +16381,6 @@ mal_result mal_device_reinit_internal__coreaudio(mal_device* pDevice, mal_bool32
     mal_copy_memory(pDevice->internalChannelMap, data.channelMapOut, sizeof(data.channelMapOut));
     pDevice->bufferSizeInFrames = data.bufferSizeInFramesOut;
     pDevice->periods = data.periodsOut;
-    mal_strcpy_s(pDevice->name, sizeof(pDevice->name), data.deviceName);
     
     return MAL_SUCCESS;
 }
@@ -16442,7 +16438,6 @@ mal_result mal_device_init__coreaudio(mal_context* pContext, const mal_device_co
     mal_copy_memory(pDevice->internalChannelMap, data.channelMapOut, sizeof(data.channelMapOut));
     pDevice->bufferSizeInFrames = data.bufferSizeInFramesOut;
     pDevice->periods = data.periodsOut;
-    mal_strcpy_s(pDevice->name, sizeof(pDevice->name), data.deviceName);
     
 #if defined(MAL_APPLE_DESKTOP)
     // If we are using the default device we'll need to listen for changes to the system's default device so we can seemlessly
@@ -21064,14 +21059,18 @@ mal_result mal_device_init(mal_context* pContext, const mal_device_config* pConf
     mal_device__post_init_setup(pDevice);
 
 
-    // If the backend did not fill out a name for the device, try a generic method. TODO: Update this to support full-duplex devices. Need to split "name" out into "playbackDeviceName" and "captureDeviceName".
-    if (pDevice->name[0] == '\0') {
-        if (mal_context__try_get_device_name_by_id(pContext, config.deviceType, (config.deviceType == mal_device_type_playback) ? config.pPlaybackDeviceID : config.pCaptureDeviceID, pDevice->name, sizeof(pDevice->name)) != MAL_SUCCESS) {
-            // We failed to get the device name, so fall back to some generic names.
-            if (config.deviceType == mal_device_type_playback) {
-                mal_strncpy_s(pDevice->name, sizeof(pDevice->name), (config.pPlaybackDeviceID == NULL) ? MAL_DEFAULT_PLAYBACK_DEVICE_NAME : "Playback Device", (size_t)-1);
-            } else {
-                mal_strncpy_s(pDevice->name, sizeof(pDevice->name), (config.pCaptureDeviceID == NULL)  ? MAL_DEFAULT_CAPTURE_DEVICE_NAME : "Capture Device", (size_t)-1);
+    // If the backend did not fill out a name for the device, try a generic method.
+    if (pDevice->type == mal_device_type_capture || pDevice->type == mal_device_type_duplex) {
+        if (pDevice->capture.name[0] == '\0') {
+            if (mal_context__try_get_device_name_by_id(pContext, mal_device_type_capture, config.pCaptureDeviceID, pDevice->capture.name, sizeof(pDevice->capture.name)) != MAL_SUCCESS) {
+                mal_strncpy_s(pDevice->capture.name, sizeof(pDevice->capture.name), (config.pCaptureDeviceID == NULL)  ? MAL_DEFAULT_CAPTURE_DEVICE_NAME : "Capture Device", (size_t)-1);
+            }
+        }
+    }
+    if (pDevice->type == mal_device_type_playback || pDevice->type == mal_device_type_duplex) {
+        if (pDevice->playback.name[0] == '\0') {
+            if (mal_context__try_get_device_name_by_id(pContext, mal_device_type_playback, config.pPlaybackDeviceID, pDevice->playback.name, sizeof(pDevice->playback.name)) != MAL_SUCCESS) {
+                mal_strncpy_s(pDevice->playback.name, sizeof(pDevice->playback.name), (config.pPlaybackDeviceID == NULL)  ? MAL_DEFAULT_PLAYBACK_DEVICE_NAME : "Playback Device", (size_t)-1);
             }
         }
     }
@@ -21093,17 +21092,33 @@ mal_result mal_device_init(mal_context* pContext, const mal_device_config* pConf
 
 
 #ifdef MAL_DEBUG_OUTPUT
-    printf("[%s] %s (%s)\n", mal_get_backend_name(pDevice->pContext->backend), pDevice->name, (pDevice->type == mal_device_type_playback) ? "Playback" : "Capture");
-    printf("  Format:      %s -> %s\n", mal_get_format_name(pDevice->format), mal_get_format_name(pDevice->internalFormat));
-    printf("  Channels:    %d -> %d\n", pDevice->channels, pDevice->internalChannels);
-    printf("  Sample Rate: %d -> %d\n", pDevice->sampleRate, pDevice->internalSampleRate);
-    printf("  Conversion:\n");
-    printf("    Pre Format Conversion:    %s\n", pDevice->dsp.isPreFormatConversionRequired  ? "YES" : "NO");
-    printf("    Post Format Conversion:   %s\n", pDevice->dsp.isPostFormatConversionRequired ? "YES" : "NO");
-    printf("    Channel Routing:          %s\n", pDevice->dsp.isChannelRoutingRequired       ? "YES" : "NO");
-    printf("    SRC:                      %s\n", pDevice->dsp.isSRCRequired                  ? "YES" : "NO");
-    printf("    Channel Routing at Start: %s\n", pDevice->dsp.isChannelRoutingAtStart        ? "YES" : "NO");
-    printf("    Passthrough:              %s\n", pDevice->dsp.isPassthrough                  ? "YES" : "NO");
+    printf("[%s]\n", mal_get_backend_name(pDevice->pContext->backend));
+    if (pDevice->type == mal_device_type_capture || pDevice->type == mal_device_type_duplex) {
+        printf("  %s (%s)\n", pDevice->capture.name, "Capture");
+        printf("    Format:      %s -> %s\n", mal_get_format_name(pDevice->capture.format), mal_get_format_name(pDevice->capture.internalFormat));
+        printf("    Channels:    %d -> %d\n", pDevice->capture.channels, pDevice->capture.internalChannels);
+        printf("    Sample Rate: %d -> %d\n", pDevice->capture.sampleRate, pDevice->capture.internalSampleRate);
+        printf("    Conversion:\n");
+        printf("      Pre Format Conversion:    %s\n", pDevice->capture.converter.isPreFormatConversionRequired  ? "YES" : "NO");
+        printf("      Post Format Conversion:   %s\n", pDevice->capture.converter.isPostFormatConversionRequired ? "YES" : "NO");
+        printf("      Channel Routing:          %s\n", pDevice->capture.converter.isChannelRoutingRequired       ? "YES" : "NO");
+        printf("      SRC:                      %s\n", pDevice->capture.converter.isSRCRequired                  ? "YES" : "NO");
+        printf("      Channel Routing at Start: %s\n", pDevice->capture.converter.isChannelRoutingAtStart        ? "YES" : "NO");
+        printf("      Passthrough:              %s\n", pDevice->capture.converter.isPassthrough                  ? "YES" : "NO");
+    }
+    if (pDevice->type == mal_device_type_playback || pDevice->type == mal_device_type_duplex) {
+        printf("  %s (%s)\n", pDevice->playback.name, "Playback");
+        printf("    Format:      %s -> %s\n", mal_get_format_name(pDevice->playback.format), mal_get_format_name(pDevice->playback.internalFormat));
+        printf("    Channels:    %d -> %d\n", pDevice->playback.channels, pDevice->playback.internalChannels);
+        printf("    Sample Rate: %d -> %d\n", pDevice->playback.sampleRate, pDevice->playback.internalSampleRate);
+        printf("    Conversion:\n");
+        printf("      Pre Format Conversion:    %s\n", pDevice->playback.converter.isPreFormatConversionRequired  ? "YES" : "NO");
+        printf("      Post Format Conversion:   %s\n", pDevice->playback.converter.isPostFormatConversionRequired ? "YES" : "NO");
+        printf("      Channel Routing:          %s\n", pDevice->playback.converter.isChannelRoutingRequired       ? "YES" : "NO");
+        printf("      SRC:                      %s\n", pDevice->playback.converter.isSRCRequired                  ? "YES" : "NO");
+        printf("      Channel Routing at Start: %s\n", pDevice->playback.converter.isChannelRoutingAtStart        ? "YES" : "NO");
+        printf("      Passthrough:              %s\n", pDevice->playback.converter.isPassthrough                  ? "YES" : "NO");
+    }
 #endif
 
 
