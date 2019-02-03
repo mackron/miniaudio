@@ -35,15 +35,16 @@ int main(int argc, char** argv)
         return -2;
     }
 
-    mal_device_config config = mal_device_config_init(
-        decoder.outputFormat,
-        decoder.outputChannels,
-        decoder.outputSampleRate,
-        on_send_frames_to_device,
-        &decoder);
+    mal_device_config config = mal_device_config_init(mal_device_type_playback);
+    config.playback.pDeviceID = NULL;
+    config.format = decoder.outputFormat;
+    config.channels = decoder.outputChannels;
+    config.sampleRate = decoder.outputSampleRate;
+    config.dataCallback = on_send_frames_to_device;
+    config.pUserData = &decoder;
 
     mal_device device;
-    if (mal_device_init(NULL, mal_device_type_playback, NULL, &config, &device) != MAL_SUCCESS) {
+    if (mal_device_init(NULL, &config, &device) != MAL_SUCCESS) {
         printf("Failed to open playback device.\n");
         mal_decoder_uninit(&decoder);
         return -3;

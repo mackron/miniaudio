@@ -1859,6 +1859,8 @@ struct mal_context
             mal_proc AudioUnitSetProperty;
             mal_proc AudioUnitInitialize;
             mal_proc AudioUnitRender;
+            
+            /*AudioComponent*/ mal_ptr component;
         } coreaudio;
 #endif
 #ifdef MAL_SUPPORT_SNDIO
@@ -2023,7 +2025,6 @@ MAL_ALIGNED_STRUCT(MAL_SIMD_ALIGNMENT) mal_device
     mal_bool32 usingDefaultBufferSize : 1;
     mal_bool32 usingDefaultPeriods    : 1;
     mal_bool32 isOwnerOfContext       : 1;  // When set to true, uninitializing the device will also uninitialize the context. Set to true when NULL is passed into mal_device_init().
-    mal_bool32 isDefaultDevice        : 1;  // Used to determine if the backend should try reinitializing if the default device is unplugged.
     mal_format internalFormat;
     mal_uint32 internalChannels;
     mal_uint32 internalSampleRate;
@@ -2164,12 +2165,16 @@ MAL_ALIGNED_STRUCT(MAL_SIMD_ALIGNMENT) mal_device
 #ifdef MAL_SUPPORT_COREAUDIO
         struct
         {
-            mal_uint32 deviceObjectID;
-            /*AudioComponent*/ mal_ptr component;   // <-- Can this be per-context?
-            /*AudioUnit*/ mal_ptr audioUnit;
+            mal_uint32 deviceObjectIDPlayback;
+            mal_uint32 deviceObjectIDCapture;
+            /*AudioUnit*/ mal_ptr audioUnitPlayback;
+            /*AudioUnit*/ mal_ptr audioUnitCapture;
             /*AudioBufferList**/ mal_ptr pAudioBufferList;  // Only used for input devices.
             mal_event stopEvent;
-            mal_bool32 isSwitchingDevice;   /* <-- Set to true when the default device has changed and mini_al is in the process of switching. */
+            mal_bool32 isDefaultPlaybackDevice;
+            mal_bool32 isDefaultCaptureDevice;
+            mal_bool32 isSwitchingPlaybackDevice;   /* <-- Set to true when the default device has changed and mini_al is in the process of switching. */
+            mal_bool32 isSwitchingCaptureDevice;    /* <-- Set to true when the default device has changed and mini_al is in the process of switching. */
         } coreaudio;
 #endif
 #ifdef MAL_SUPPORT_SNDIO
@@ -2507,7 +2512,7 @@ mal_uint32 mal_device_get_buffer_size_in_bytes(mal_device* pDevice);
 
 
 // Helper function for initializing a mal_context_config object.
-mal_context_config mal_context_config_init();
+mal_context_config mal_context_config_init(void);
 
 // Initializes a device config.
 //
@@ -4768,7 +4773,7 @@ mal_uint32 mal_get_format_priority_index(mal_format format) // Lower = better.
     return (mal_uint32)-1;
 }
 
-void mal_device__post_init_setup(mal_device* pDevice);
+void mal_device__post_init_setup(mal_device* pDevice, mal_device_type deviceType);
 
 ///////////////////////////////////////////////////////////////////////////////
 //
@@ -14450,7 +14455,7 @@ typedef OSStatus (* mal_AudioUnitRender_proc)(AudioUnit inUnit, AudioUnitRenderA
 #define MAL_COREAUDIO_OUTPUT_BUS    0
 #define MAL_COREAUDIO_INPUT_BUS     1
 
-mal_result mal_device_reinit_internal__coreaudio(mal_device* pDevice, mal_bool32 disposePreviousAudioUnit);
+mal_result mal_device_reinit_internal__coreaudio(mal_device* pDevice, mal_device_type deviceType, mal_bool32 disposePreviousAudioUnit);
 
 
 // Core Audio
@@ -15714,7 +15719,12 @@ void mal_device_uninit__coreaudio(mal_device* pDevice)
     mal_assert(pDevice != NULL);
     mal_assert(mal_device__get_state(pDevice) == MAL_STATE_UNINITIALIZED);
     
-    ((mal_AudioComponentInstanceDispose_proc)pDevice->pContext->coreaudio.AudioComponentInstanceDispose)((AudioUnit)pDevice->coreaudio.audioUnit);
+    if (pDevice->coreaudio.audioUnitCapture != NULL) {
+        ((mal_AudioComponentInstanceDispose_proc)pDevice->pContext->coreaudio.AudioComponentInstanceDispose)((AudioUnit)pDevice->coreaudio.audioUnitCapture);
+    }
+    if (pDevice->coreaudio.audioUnitPlayback != NULL) {
+        ((mal_AudioComponentInstanceDispose_proc)pDevice->pContext->coreaudio.AudioComponentInstanceDispose)((AudioUnit)pDevice->coreaudio.audioUnitPlayback);
+    }
     
     if (pDevice->coreaudio.pAudioBufferList) {
         mal_free(pDevice->coreaudio.pAudioBufferList);
@@ -15821,7 +15831,7 @@ OSStatus mal_on_input__coreaudio(void* pUserData, AudioUnitRenderActionFlags* pA
     printf("INFO: Input Callback: busNumber=%d, frameCount=%d, mNumberBuffers=%d\n", busNumber, frameCount, pRenderedBufferList->mNumberBuffers);
 #endif
     
-    OSStatus status = ((mal_AudioUnitRender_proc)pDevice->pContext->coreaudio.AudioUnitRender)((AudioUnit)pDevice->coreaudio.audioUnit, pActionFlags, pTimeStamp, busNumber, frameCount, pRenderedBufferList);
+    OSStatus status = ((mal_AudioUnitRender_proc)pDevice->pContext->coreaudio.AudioUnitRender)((AudioUnit)pDevice->coreaudio.audioUnitCapture, pActionFlags, pTimeStamp, busNumber, frameCount, pRenderedBufferList);
     if (status != noErr) {
     #if defined(MAL_DEBUG_OUTPUT)
         printf("  ERROR: AudioUnitRender() failed with %d\n", status);
@@ -15898,7 +15908,7 @@ void on_start_stop__coreaudio(void* pUserData, AudioUnit audioUnit, AudioUnitPro
     // AudioUnitGetProprty (called below) and AudioComponentInstanceDispose (called in mal_device_uninit)
     // can try waiting on the same lock. I'm going to try working around this by not calling any Core
     // Audio APIs in the callback when the device has been stopped or uninitialized.
-    if (mal_device__get_state(pDevice) == MAL_STATE_UNINITIALIZED || mal_device__get_state(pDevice) == MAL_STATE_STOPPING) {
+    if (mal_device__get_state(pDevice) == MAL_STATE_UNINITIALIZED || mal_device__get_state(pDevice) == MAL_STATE_STOPPING || mal_device__get_state(pDevice) == MAL_STATE_STOPPED) {
         mal_stop_proc onStop = pDevice->onStop;
         if (onStop) {
             onStop(pDevice);
@@ -15920,12 +15930,14 @@ void on_start_stop__coreaudio(void* pUserData, AudioUnit audioUnit, AudioUnitPro
             // 2) When the device is changed via the default device change notification, this will be called _after_ the switch.
             //
             // For case #1, we just check if there's a new default device available. If so, we just ignore the stop event. For case #2 we check a flag.
-            if (pDevice->isDefaultDevice && mal_device__get_state(pDevice) != MAL_STATE_STOPPING && mal_device__get_state(pDevice) != MAL_STATE_STOPPED) {
+            if (((audioUnit == pDevice->coreaudio.audioUnitPlayback) && pDevice->coreaudio.isDefaultPlaybackDevice) ||
+                ((audioUnit == pDevice->coreaudio.audioUnitCapture)  && pDevice->coreaudio.isDefaultCaptureDevice)) {
                 // It looks like the device is switching through an external event, such as the user unplugging the device or changing the default device
                 // via the operating system's sound settings. If we're re-initializing the device, we just terminate because we want the stopping of the
                 // device to be seamless to the client (we don't want them receiving the onStop event and thinking that the device has stopped when it
                 // hasn't!).
-                if (pDevice->coreaudio.isSwitchingDevice) {
+                if (((audioUnit == pDevice->coreaudio.audioUnitPlayback) && pDevice->coreaudio.isSwitchingPlaybackDevice) ||
+                    ((audioUnit == pDevice->coreaudio.audioUnitCapture)  && pDevice->coreaudio.isSwitchingCaptureDevice)) {
                     return;
                 }
                 
@@ -15947,37 +15959,55 @@ void on_start_stop__coreaudio(void* pUserData, AudioUnit audioUnit, AudioUnitPro
 }
 
 #if defined(MAL_APPLE_DESKTOP)
-OSStatus mal_default_output_device_changed__coreaudio(AudioObjectID objectID, UInt32 addressCount, const AudioObjectPropertyAddress* pAddresses, void* pUserData)
+OSStatus mal_default_device_changed__coreaudio(AudioObjectID objectID, UInt32 addressCount, const AudioObjectPropertyAddress* pAddresses, void* pUserData)
 {
     (void)objectID;
 
     mal_device* pDevice = (mal_device*)pUserData;
     mal_assert(pDevice != NULL);
     
-    if (pDevice->isDefaultDevice) {
-        // Not sure if I really need to check this, but it makes me feel better.
-        if (addressCount == 0) {
-            return noErr;
-        }
+    // Not sure if I really need to check this, but it makes me feel better.
+    if (addressCount == 0) {
+        return noErr;
+    }
     
-        if ((pDevice->type == mal_device_type_playback && pAddresses[0].mSelector == kAudioHardwarePropertyDefaultOutputDevice) ||
-            (pDevice->type == mal_device_type_capture  && pAddresses[0].mSelector == kAudioHardwarePropertyDefaultInputDevice)) {
-#ifdef MAL_DEBUG_OUTPUT
-            printf("Device Changed: addressCount=%d, pAddresses[0].mElement=%d\n", addressCount, pAddresses[0].mElement);
-#endif
-            pDevice->coreaudio.isSwitchingDevice = MAL_TRUE;
-            mal_result reinitResult = mal_device_reinit_internal__coreaudio(pDevice, MAL_TRUE);
-            pDevice->coreaudio.isSwitchingDevice = MAL_FALSE;
+    if (pAddresses[0].mSelector == kAudioHardwarePropertyDefaultOutputDevice) {
+        pDevice->coreaudio.isSwitchingPlaybackDevice = MAL_TRUE;
+        mal_result reinitResult = mal_device_reinit_internal__coreaudio(pDevice, mal_device_type_playback, MAL_TRUE);
+        pDevice->coreaudio.isSwitchingPlaybackDevice = MAL_FALSE;
+        
+        if (reinitResult == MAL_SUCCESS) {
+            mal_device__post_init_setup(pDevice, mal_device_type_playback);
             
-            if (reinitResult == MAL_SUCCESS) {
-                mal_device__post_init_setup(pDevice);
-                
-                // Make sure we resume the device if applicable.
-                if (mal_device__get_state(pDevice) == MAL_STATE_STARTED) {
-                    mal_result startResult = pDevice->pContext->onDeviceStart(pDevice);
-                    if (startResult != MAL_SUCCESS) {
-                        mal_device__set_state(pDevice, MAL_STATE_STOPPED);
+            // Restart the device if required. If this fails we need to stop the device entirely.
+            if (mal_device__get_state(pDevice) == MAL_STATE_STARTED) {
+                OSStatus status = ((mal_AudioOutputUnitStart_proc)pDevice->pContext->coreaudio.AudioOutputUnitStart)((AudioUnit)pDevice->coreaudio.audioUnitPlayback);
+                if (status != noErr) {
+                    if (pDevice->type == mal_device_type_duplex) {
+                        ((mal_AudioOutputUnitStop_proc)pDevice->pContext->coreaudio.AudioOutputUnitStop)((AudioUnit)pDevice->coreaudio.audioUnitCapture);
                     }
+                    mal_device__set_state(pDevice, MAL_STATE_STOPPED);
+                }
+            }
+        }
+    }
+    
+    if (pAddresses[0].mSelector == kAudioHardwarePropertyDefaultInputDevice) {
+        pDevice->coreaudio.isSwitchingPlaybackDevice = MAL_TRUE;
+        mal_result reinitResult = mal_device_reinit_internal__coreaudio(pDevice, mal_device_type_capture, MAL_TRUE);
+        pDevice->coreaudio.isSwitchingPlaybackDevice = MAL_FALSE;
+        
+        if (reinitResult == MAL_SUCCESS) {
+            mal_device__post_init_setup(pDevice, mal_device_type_capture);
+            
+            // Restart the device if required. If this fails we need to stop the device entirely.
+            if (mal_device__get_state(pDevice) == MAL_STATE_STARTED) {
+                OSStatus status = ((mal_AudioOutputUnitStart_proc)pDevice->pContext->coreaudio.AudioOutputUnitStart)((AudioUnit)pDevice->coreaudio.audioUnitCapture);
+                if (status != noErr) {
+                    if (pDevice->type == mal_device_type_duplex) {
+                        ((mal_AudioOutputUnitStop_proc)pDevice->pContext->coreaudio.AudioOutputUnitStop)((AudioUnit)pDevice->coreaudio.audioUnitPlayback);
+                    }
+                    mal_device__set_state(pDevice, MAL_STATE_STOPPED);
                 }
             }
         }
@@ -16002,6 +16032,7 @@ typedef struct
     mal_bool32 usingDefaultSampleRate;
     mal_bool32 usingDefaultChannelMap;
     mal_share_mode shareMode;
+    mal_bool32 registerStopEvent;
 
     // Output.
 #if defined(MAL_APPLE_DESKTOP)
@@ -16019,7 +16050,7 @@ typedef struct
     char deviceName[256];
 } mal_device_init_internal_data__coreaudio;
 
-mal_result mal_device_init_internal__coreaudio(mal_context* pContext, mal_device_type deviceType, const mal_device_id* pkDeviceID, mal_device_init_internal_data__coreaudio* pData, void* pDevice_DoNotReference)   /* <-- pDevice is typed as void* intentionally so as to avoid accidentally referencing it. */
+mal_result mal_device_init_internal__coreaudio(mal_context* pContext, mal_device_type deviceType, const mal_device_id* pDeviceID, mal_device_init_internal_data__coreaudio* pData, void* pDevice_DoNotReference)   /* <-- pDevice is typed as void* intentionally so as to avoid accidentally referencing it. */
 {
     /* This API should only be used for a single device type: playback or capture. No full-duplex mode. */
     if (deviceType == mal_device_type_duplex) {
@@ -16057,27 +16088,9 @@ mal_result mal_device_init_internal__coreaudio(mal_context* pContext, mal_device
         pData->periodsOut = 16;
     }
     
-
-    // Audio component.
-    AudioComponentDescription desc;
-    desc.componentType = kAudioUnitType_Output;
-#if defined(MAL_APPLE_DESKTOP)
-    desc.componentSubType = kAudioUnitSubType_HALOutput;
-#else
-    desc.componentSubType = kAudioUnitSubType_RemoteIO;
-#endif
-    desc.componentManufacturer = kAudioUnitManufacturer_Apple;
-    desc.componentFlags = 0;
-    desc.componentFlagsMask = 0;
-    
-    pData->component = ((mal_AudioComponentFindNext_proc)pContext->coreaudio.AudioComponentFindNext)(NULL, &desc);
-    if (pData->component == NULL) {
-        return MAL_FAILED_TO_INIT_BACKEND;
-    }
-    
     
     // Audio unit.
-    OSStatus status = ((mal_AudioComponentInstanceNew_proc)pContext->coreaudio.AudioComponentInstanceNew)(pData->component, (AudioUnit*)&pData->audioUnit);
+    OSStatus status = ((mal_AudioComponentInstanceNew_proc)pContext->coreaudio.AudioComponentInstanceNew)(pContext->coreaudio.component, (AudioUnit*)&pData->audioUnit);
     if (status != noErr) {
         return mal_result_from_OSStatus(status);
     }
@@ -16326,10 +16339,12 @@ mal_result mal_device_init_internal__coreaudio(mal_context* pContext, mal_device
     }
     
     // We need to listen for stop events.
-    status = ((mal_AudioUnitAddPropertyListener_proc)pContext->coreaudio.AudioUnitAddPropertyListener)(pData->audioUnit, kAudioOutputUnitProperty_IsRunning, on_start_stop__coreaudio, pDevice_DoNotReference);
-    if (status != noErr) {
-        ((mal_AudioComponentInstanceDispose_proc)pContext->coreaudio.AudioComponentInstanceDispose)(pData->audioUnit);
-        return mal_result_from_OSStatus(status);
+    if (pData->registerStopEvent) {
+        status = ((mal_AudioUnitAddPropertyListener_proc)pContext->coreaudio.AudioUnitAddPropertyListener)(pData->audioUnit, kAudioOutputUnitProperty_IsRunning, on_start_stop__coreaudio, pDevice_DoNotReference);
+        if (status != noErr) {
+            ((mal_AudioComponentInstanceDispose_proc)pContext->coreaudio.AudioComponentInstanceDispose)(pData->audioUnit);
+            return mal_result_from_OSStatus(status);
+        }
     }
     
     // Initialize the audio unit.
@@ -16355,49 +16370,86 @@ mal_result mal_device_init_internal__coreaudio(mal_context* pContext, mal_device
     return result;
 }
 
-mal_result mal_device_reinit_internal__coreaudio(mal_device* pDevice, mal_bool32 disposePreviousAudioUnit)
+mal_result mal_device_reinit_internal__coreaudio(mal_device* pDevice, mal_device_type deviceType, mal_bool32 disposePreviousAudioUnit)
 {
-    mal_device_init_internal_data__coreaudio data;
-    data.formatIn = pDevice->format;
-    data.channelsIn = pDevice->channels;
-    data.sampleRateIn = pDevice->sampleRate;
-    mal_copy_memory(data.channelMapIn, pDevice->channelMap, sizeof(pDevice->channelMap));
-    data.bufferSizeInFramesIn = pDevice->bufferSizeInFrames;
-    data.bufferSizeInMillisecondsIn = pDevice->bufferSizeInMilliseconds;
-    data.periodsIn = pDevice->periods;
-    data.usingDefaultFormat = pDevice->usingDefaultFormat;
-    data.usingDefaultChannels = pDevice->usingDefaultChannels;
-    data.usingDefaultSampleRate = pDevice->usingDefaultSampleRate;
-    data.usingDefaultChannelMap = pDevice->usingDefaultChannelMap;
-    data.shareMode = pDevice->initConfig.shareMode;
+    /* This should only be called for playback or capture, not duplex. */
+    if (deviceType == mal_device_type_duplex) {
+        return MAL_INVALID_ARGS;
+    }
 
-    mal_result result = mal_device_init_internal__coreaudio(pDevice->pContext, pDevice->type, NULL, NULL, &data, (void*)pDevice);
+    mal_device_init_internal_data__coreaudio data;
+    if (deviceType == mal_device_type_capture) {
+        data.formatIn               = pDevice->capture.format;
+        data.channelsIn             = pDevice->capture.channels;
+        data.sampleRateIn           = pDevice->capture.sampleRate;
+        mal_copy_memory(data.channelMapIn, pDevice->capture.channelMap, sizeof(pDevice->capture.channelMap));
+        data.usingDefaultFormat     = pDevice->capture.usingDefaultFormat;
+        data.usingDefaultChannels   = pDevice->capture.usingDefaultChannels;
+        data.usingDefaultSampleRate = pDevice->capture.usingDefaultSampleRate;
+        data.usingDefaultChannelMap = pDevice->capture.usingDefaultChannelMap;
+        data.shareMode              = pDevice->capture.shareMode;
+        data.registerStopEvent      = MAL_TRUE;
+        
+        if (disposePreviousAudioUnit) {
+            ((mal_AudioOutputUnitStop_proc)pDevice->pContext->coreaudio.AudioOutputUnitStop)((AudioUnit)pDevice->coreaudio.audioUnitCapture);
+            ((mal_AudioComponentInstanceDispose_proc)pDevice->pContext->coreaudio.AudioComponentInstanceDispose)((AudioUnit)pDevice->coreaudio.audioUnitCapture);
+        }
+        if (pDevice->coreaudio.pAudioBufferList) {
+            mal_free(pDevice->coreaudio.pAudioBufferList);
+        }
+        
+    #if defined(MAL_APPLE_DESKTOP)
+        pDevice->coreaudio.deviceObjectIDCapture = (mal_uint32)data.deviceObjectID;
+    #endif
+        pDevice->coreaudio.audioUnitCapture = (mal_ptr)data.audioUnit;
+        pDevice->coreaudio.pAudioBufferList = (mal_ptr)data.pAudioBufferList;
+    }
+    if (deviceType == mal_device_type_playback) {
+        data.formatIn               = pDevice->playback.format;
+        data.channelsIn             = pDevice->playback.channels;
+        data.sampleRateIn           = pDevice->playback.sampleRate;
+        mal_copy_memory(data.channelMapIn, pDevice->playback.channelMap, sizeof(pDevice->playback.channelMap));
+        data.usingDefaultFormat     = pDevice->playback.usingDefaultFormat;
+        data.usingDefaultChannels   = pDevice->playback.usingDefaultChannels;
+        data.usingDefaultSampleRate = pDevice->playback.usingDefaultSampleRate;
+        data.usingDefaultChannelMap = pDevice->playback.usingDefaultChannelMap;
+        data.shareMode              = pDevice->playback.shareMode;
+        data.registerStopEvent      = (pDevice->type != mal_device_type_duplex);
+        
+        if (disposePreviousAudioUnit) {
+            ((mal_AudioOutputUnitStop_proc)pDevice->pContext->coreaudio.AudioOutputUnitStop)((AudioUnit)pDevice->coreaudio.audioUnitPlayback);
+            ((mal_AudioComponentInstanceDispose_proc)pDevice->pContext->coreaudio.AudioComponentInstanceDispose)((AudioUnit)pDevice->coreaudio.audioUnitPlayback);
+        }
+        
+    #if defined(MAL_APPLE_DESKTOP)
+        pDevice->coreaudio.deviceObjectIDPlayback = (mal_uint32)data.deviceObjectID;
+    #endif
+        pDevice->coreaudio.audioUnitPlayback = (mal_ptr)data.audioUnit;
+    }
+    data.bufferSizeInFramesIn = pDevice->bufferSizeInFrames;
+    data.periodsIn            = pDevice->periods;
+
+    mal_result result = mal_device_init_internal__coreaudio(pDevice->pContext, deviceType, NULL, &data, (void*)pDevice);
     if (result != MAL_SUCCESS) {
         return result;
     }
     
-    // We have successfully initialized the new objects. We now need to uninitialize the previous objects and re-set them.
-    if (disposePreviousAudioUnit) {
-        pDevice->pContext->onDeviceStop(pDevice);
-        ((mal_AudioComponentInstanceDispose_proc)pDevice->pContext->coreaudio.AudioComponentInstanceDispose)((AudioUnit)pDevice->coreaudio.audioUnit);
+    // TEMP. BACKWARDS COMPATIBILITY.
+    if (pDevice->type == mal_device_type_capture || pDevice->type == mal_device_type_duplex) {
+        pDevice->internalFormat     = pDevice->capture.internalFormat;
+        pDevice->internalChannels   = pDevice->capture.internalChannels;
+        pDevice->internalSampleRate = pDevice->capture.internalSampleRate;
+        mal_copy_memory(pDevice->internalChannelMap, pDevice->capture.channelMap, sizeof(pDevice->capture.channelMap));
+        pDevice->bufferSizeInFrames = pDevice->capture.internalBufferSizeInFrames;
+        pDevice->periods            = pDevice->capture.internalPeriods;
+    } else {
+        pDevice->internalFormat     = pDevice->playback.internalFormat;
+        pDevice->internalChannels   = pDevice->playback.internalChannels;
+        pDevice->internalSampleRate = pDevice->playback.internalSampleRate;
+        mal_copy_memory(pDevice->internalChannelMap, pDevice->playback.channelMap, sizeof(pDevice->playback.channelMap));
+        pDevice->bufferSizeInFrames = pDevice->playback.internalBufferSizeInFrames;
+        pDevice->periods            = pDevice->playback.internalPeriods;
     }
-    if (pDevice->coreaudio.pAudioBufferList) {
-        mal_free(pDevice->coreaudio.pAudioBufferList);
-    }
-    
-#if defined(MAL_APPLE_DESKTOP)
-    pDevice->coreaudio.deviceObjectID = (mal_uint32)data.deviceObjectID;
-#endif
-    pDevice->coreaudio.component = (mal_ptr)data.component;
-    pDevice->coreaudio.audioUnit = (mal_ptr)data.audioUnit;
-    pDevice->coreaudio.pAudioBufferList = (mal_ptr)data.pAudioBufferList;
-    
-    pDevice->internalFormat = data.formatOut;
-    pDevice->internalChannels = data.channelsOut;
-    pDevice->internalSampleRate = data.sampleRateOut;
-    mal_copy_memory(pDevice->internalChannelMap, data.channelMapOut, sizeof(data.channelMapOut));
-    pDevice->bufferSizeInFrames = data.bufferSizeInFramesOut;
-    pDevice->periods = data.periodsOut;
     
     return MAL_SUCCESS;
 }
@@ -16412,60 +16464,136 @@ mal_result mal_device_init__coreaudio(mal_context* pContext, const mal_device_co
     mal_assert(pDevice != NULL);
 
     /* No exclusive mode with the Core Audio backend for now. */
-    if (pConfig->shareMode == mal_share_mode_exclusive) {
+    if (((pConfig->deviceType == mal_device_type_capture  || pConfig->deviceType == mal_device_type_duplex) && pConfig->capture.shareMode  == mal_share_mode_exclusive) ||
+        ((pConfig->deviceType == mal_device_type_playback || pConfig->deviceType == mal_device_type_duplex) && pConfig->playback.shareMode == mal_share_mode_exclusive)) {
         return MAL_SHARE_MODE_NOT_SUPPORTED;
     }
     
-    mal_device_init_internal_data__coreaudio data;
-    data.formatIn = pDevice->format;
-    data.channelsIn = pDevice->channels;
-    data.sampleRateIn = pDevice->sampleRate;
-    mal_copy_memory(data.channelMapIn, pDevice->channelMap, sizeof(pDevice->channelMap));
-    data.bufferSizeInFramesIn = pDevice->bufferSizeInFrames;
-    data.bufferSizeInMillisecondsIn = pDevice->bufferSizeInMilliseconds;
-    data.periodsIn = pDevice->periods;
-    data.usingDefaultFormat = pDevice->usingDefaultFormat;
-    data.usingDefaultChannels = pDevice->usingDefaultChannels;
-    data.usingDefaultSampleRate = pDevice->usingDefaultSampleRate;
-    data.usingDefaultChannelMap = pDevice->usingDefaultChannelMap;
-    data.shareMode = pDevice->initConfig.shareMode;
-
-    mal_result result = mal_device_init_internal__coreaudio(pDevice->pContext, pConfig->deviceType, pConfig->playback.pDeviceID, pConfig->capture.pDeviceID, &data, (void*)pDevice);
-    if (result != MAL_SUCCESS) {
-        return result;
+    /* Capture needs to be initialized first. */
+    if (pConfig->deviceType == mal_device_type_capture || pConfig->deviceType == mal_device_type_duplex) {
+        mal_device_init_internal_data__coreaudio data;
+        data.formatIn                   = pConfig->capture.format;
+        data.channelsIn                 = pConfig->capture.channels;
+        data.sampleRateIn               = pConfig->sampleRate;
+        mal_copy_memory(data.channelMapIn, pConfig->capture.channelMap, sizeof(pConfig->capture.channelMap));
+        data.usingDefaultFormat         = pDevice->capture.usingDefaultFormat;
+        data.usingDefaultChannels       = pDevice->capture.usingDefaultChannels;
+        data.usingDefaultSampleRate     = pDevice->capture.usingDefaultSampleRate;
+        data.usingDefaultChannelMap     = pDevice->capture.usingDefaultChannelMap;
+        data.shareMode                  = pConfig->capture.shareMode;
+        data.bufferSizeInFramesIn       = pConfig->bufferSizeInFrames;
+        data.bufferSizeInMillisecondsIn = pConfig->bufferSizeInMilliseconds;
+        
+        mal_result result = mal_device_init_internal__coreaudio(pDevice->pContext, mal_device_type_capture, pConfig->capture.pDeviceID, &data, (void*)pDevice);
+        if (result != MAL_SUCCESS) {
+            return result;
+        }
+        
+        pDevice->coreaudio.isDefaultCaptureDevice   = (pConfig->capture.pDeviceID == NULL);
+    #if defined(MAL_APPLE_DESKTOP)
+        pDevice->coreaudio.deviceObjectIDCapture    = (mal_uint32)data.deviceObjectID;
+    #endif
+        pDevice->coreaudio.audioUnitCapture         = (mal_ptr)data.audioUnit;
+        pDevice->coreaudio.pAudioBufferList         = (mal_ptr)data.pAudioBufferList;
+        
+        pDevice->capture.internalFormat             = data.formatOut;
+        pDevice->capture.internalChannels           = data.channelsOut;
+        pDevice->capture.internalSampleRate         = data.sampleRateOut;
+        mal_copy_memory(pDevice->capture.internalChannelMap, data.channelMapOut, sizeof(data.channelMapOut));
+        pDevice->capture.internalBufferSizeInFrames = data.bufferSizeInFramesOut;
+        pDevice->capture.internalPeriods            = data.periodsOut;
+        
+        // TODO: This needs to be made global.
+    #if defined(MAL_APPLE_DESKTOP)
+        // If we are using the default device we'll need to listen for changes to the system's default device so we can seemlessly
+        // switch the device in the background.
+        if (pConfig->capture.pDeviceID == NULL) {
+            AudioObjectPropertyAddress propAddress;
+            propAddress.mSelector = kAudioHardwarePropertyDefaultInputDevice;
+            propAddress.mScope    = kAudioObjectPropertyScopeGlobal;
+            propAddress.mElement  = kAudioObjectPropertyElementMaster;
+            ((mal_AudioObjectAddPropertyListener_proc)pDevice->pContext->coreaudio.AudioObjectAddPropertyListener)(kAudioObjectSystemObject, &propAddress, &mal_default_device_changed__coreaudio, pDevice);
+        }
+    #endif
     }
     
-    // We have successfully initialized the new objects. We now need to uninitialize the previous objects and re-set them.
-    pDevice->pContext->onDeviceStop(pDevice);
-    ((mal_AudioComponentInstanceDispose_proc)pDevice->pContext->coreaudio.AudioComponentInstanceDispose)((AudioUnit)pDevice->coreaudio.audioUnit);
-    if (pDevice->coreaudio.pAudioBufferList) {
-        mal_free(pDevice->coreaudio.pAudioBufferList);
+    /* Playback. */
+    if (pConfig->deviceType == mal_device_type_playback || pConfig->deviceType == mal_device_type_duplex) {
+        mal_device_init_internal_data__coreaudio data;
+        data.formatIn                   = pConfig->playback.format;
+        data.channelsIn                 = pConfig->playback.channels;
+        data.sampleRateIn               = pConfig->sampleRate;
+        mal_copy_memory(data.channelMapIn, pConfig->playback.channelMap, sizeof(pConfig->playback.channelMap));
+        data.usingDefaultFormat         = pDevice->playback.usingDefaultFormat;
+        data.usingDefaultChannels       = pDevice->playback.usingDefaultChannels;
+        data.usingDefaultSampleRate     = pDevice->playback.usingDefaultSampleRate;
+        data.usingDefaultChannelMap     = pDevice->playback.usingDefaultChannelMap;
+        data.shareMode                  = pConfig->playback.shareMode;
+        
+        /* In full-duplex mode we want the playback buffer to be the same size as the capture buffer. */
+        if (pConfig->deviceType == mal_device_type_duplex) {
+            data.bufferSizeInFramesIn       = pDevice->capture.internalBufferSizeInFrames;
+            data.periodsIn                  = pDevice->capture.internalPeriods;
+        } else {
+            data.bufferSizeInFramesIn       = pConfig->bufferSizeInFrames;
+            data.bufferSizeInMillisecondsIn = pConfig->bufferSizeInMilliseconds;
+            data.periodsIn                  = pConfig->periods;
+        }
+        
+        mal_result result = mal_device_init_internal__coreaudio(pDevice->pContext, mal_device_type_playback, pConfig->playback.pDeviceID, &data, (void*)pDevice);
+        if (result != MAL_SUCCESS) {
+            if (pConfig->deviceType == mal_device_type_duplex) {
+                ((mal_AudioComponentInstanceDispose_proc)pDevice->pContext->coreaudio.AudioComponentInstanceDispose)((AudioUnit)pDevice->coreaudio.audioUnitCapture);
+                if (pDevice->coreaudio.pAudioBufferList) {
+                    mal_free(pDevice->coreaudio.pAudioBufferList);
+                }
+            }
+            return result;
+        }
+        
+        pDevice->coreaudio.isDefaultPlaybackDevice   = (pConfig->playback.pDeviceID == NULL);
+    #if defined(MAL_APPLE_DESKTOP)
+        pDevice->coreaudio.deviceObjectIDPlayback    = (mal_uint32)data.deviceObjectID;
+    #endif
+        pDevice->coreaudio.audioUnitPlayback         = (mal_ptr)data.audioUnit;
+        
+        pDevice->playback.internalFormat             = data.formatOut;
+        pDevice->playback.internalChannels           = data.channelsOut;
+        pDevice->playback.internalSampleRate         = data.sampleRateOut;
+        mal_copy_memory(pDevice->playback.internalChannelMap, data.channelMapOut, sizeof(data.channelMapOut));
+        pDevice->playback.internalBufferSizeInFrames = data.bufferSizeInFramesOut;
+        pDevice->playback.internalPeriods            = data.periodsOut;
+        
+        // TODO: This needs to be made global.
+    #if defined(MAL_APPLE_DESKTOP)
+        // If we are using the default device we'll need to listen for changes to the system's default device so we can seemlessly
+        // switch the device in the background.
+        if (pConfig->playback.pDeviceID == NULL) {
+            AudioObjectPropertyAddress propAddress;
+            propAddress.mSelector = kAudioHardwarePropertyDefaultOutputDevice;
+            propAddress.mScope    = kAudioObjectPropertyScopeGlobal;
+            propAddress.mElement  = kAudioObjectPropertyElementMaster;
+            ((mal_AudioObjectAddPropertyListener_proc)pDevice->pContext->coreaudio.AudioObjectAddPropertyListener)(kAudioObjectSystemObject, &propAddress, &mal_default_device_changed__coreaudio, pDevice);
+        }
+    #endif
     }
     
-#if defined(MAL_APPLE_DESKTOP)
-    pDevice->coreaudio.deviceObjectID = (mal_uint32)data.deviceObjectID;
-#endif
-    pDevice->coreaudio.component = (mal_ptr)data.component;
-    pDevice->coreaudio.audioUnit = (mal_ptr)data.audioUnit;
-    pDevice->coreaudio.pAudioBufferList = (mal_ptr)data.pAudioBufferList;
+    if (pDevice->type == mal_device_type_capture || pDevice->type == mal_device_type_duplex) {
+        pDevice->internalFormat     = pDevice->capture.internalFormat;
+        pDevice->internalChannels   = pDevice->capture.internalChannels;
+        pDevice->internalSampleRate = pDevice->capture.internalSampleRate;
+        mal_copy_memory(pDevice->internalChannelMap, pDevice->capture.channelMap, sizeof(pDevice->capture.channelMap));
+        pDevice->bufferSizeInFrames = pDevice->capture.internalBufferSizeInFrames;
+        pDevice->periods            = pDevice->capture.internalPeriods;
+    } else {
+        pDevice->internalFormat     = pDevice->playback.internalFormat;
+        pDevice->internalChannels   = pDevice->playback.internalChannels;
+        pDevice->internalSampleRate = pDevice->playback.internalSampleRate;
+        mal_copy_memory(pDevice->internalChannelMap, pDevice->playback.channelMap, sizeof(pDevice->playback.channelMap));
+        pDevice->bufferSizeInFrames = pDevice->playback.internalBufferSizeInFrames;
+        pDevice->periods            = pDevice->playback.internalPeriods;
+    }
     
-    pDevice->internalFormat = data.formatOut;
-    pDevice->internalChannels = data.channelsOut;
-    pDevice->internalSampleRate = data.sampleRateOut;
-    mal_copy_memory(pDevice->internalChannelMap, data.channelMapOut, sizeof(data.channelMapOut));
-    pDevice->bufferSizeInFrames = data.bufferSizeInFramesOut;
-    pDevice->periods = data.periodsOut;
-    
-#if defined(MAL_APPLE_DESKTOP)
-    // If we are using the default device we'll need to listen for changes to the system's default device so we can seemlessly
-    // switch the device in the background.
-    AudioObjectPropertyAddress propAddress;
-    propAddress.mSelector = (deviceType == mal_device_type_playback) ? kAudioHardwarePropertyDefaultOutputDevice : kAudioHardwarePropertyDefaultInputDevice;
-    propAddress.mScope    = kAudioObjectPropertyScopeGlobal;
-    propAddress.mElement  = kAudioObjectPropertyElementMaster;
-    ((mal_AudioObjectAddPropertyListener_proc)pDevice->pContext->coreaudio.AudioObjectAddPropertyListener)(kAudioObjectSystemObject, &propAddress, &mal_default_output_device_changed__coreaudio, pDevice);
-#endif
-
     /*
     When stopping the device, a callback is called on another thread. We need to wait for this callback
     before returning from mal_device_stop(). This event is used for this.
@@ -16480,9 +16608,21 @@ mal_result mal_device_start__coreaudio(mal_device* pDevice)
 {
     mal_assert(pDevice != NULL);
     
-    OSStatus status = ((mal_AudioOutputUnitStart_proc)pDevice->pContext->coreaudio.AudioOutputUnitStart)((AudioUnit)pDevice->coreaudio.audioUnit);
-    if (status != noErr) {
-        return mal_result_from_OSStatus(status);
+    if (pDevice->type == mal_device_type_capture || pDevice->type == mal_device_type_duplex) {
+        OSStatus status = ((mal_AudioOutputUnitStart_proc)pDevice->pContext->coreaudio.AudioOutputUnitStart)((AudioUnit)pDevice->coreaudio.audioUnitCapture);
+        if (status != noErr) {
+            return mal_result_from_OSStatus(status);
+        }
+    }
+    
+    if (pDevice->type == mal_device_type_playback || pDevice->type == mal_device_type_duplex) {
+        OSStatus status = ((mal_AudioOutputUnitStart_proc)pDevice->pContext->coreaudio.AudioOutputUnitStart)((AudioUnit)pDevice->coreaudio.audioUnitPlayback);
+        if (status != noErr) {
+            if (pDevice->type == mal_device_type_duplex) {
+                ((mal_AudioOutputUnitStop_proc)pDevice->pContext->coreaudio.AudioOutputUnitStop)((AudioUnit)pDevice->coreaudio.audioUnitCapture);
+            }
+            return mal_result_from_OSStatus(status);
+        }
     }
     
     return MAL_SUCCESS;
@@ -16492,9 +16632,18 @@ mal_result mal_device_stop__coreaudio(mal_device* pDevice)
 {
     mal_assert(pDevice != NULL);
     
-    OSStatus status = ((mal_AudioOutputUnitStop_proc)pDevice->pContext->coreaudio.AudioOutputUnitStop)((AudioUnit)pDevice->coreaudio.audioUnit);
-    if (status != noErr) {
-        return mal_result_from_OSStatus(status);
+    if (pDevice->type == mal_device_type_capture || pDevice->type == mal_device_type_duplex) {
+        OSStatus status = ((mal_AudioOutputUnitStop_proc)pDevice->pContext->coreaudio.AudioOutputUnitStop)((AudioUnit)pDevice->coreaudio.audioUnitCapture);
+        if (status != noErr) {
+            return mal_result_from_OSStatus(status);
+        }
+    }
+    
+    if (pDevice->type == mal_device_type_playback || pDevice->type == mal_device_type_duplex) {
+        OSStatus status = ((mal_AudioOutputUnitStop_proc)pDevice->pContext->coreaudio.AudioOutputUnitStop)((AudioUnit)pDevice->coreaudio.audioUnitPlayback);
+        if (status != noErr) {
+            return mal_result_from_OSStatus(status);
+        }
     }
     
     /* We need to wait for the callback to finish before returning. */
@@ -16625,6 +16774,28 @@ mal_result mal_context_init__coreaudio(mal_context* pContext)
     pContext->onDeviceUninit  = mal_device_uninit__coreaudio;
     pContext->onDeviceStart   = mal_device_start__coreaudio;
     pContext->onDeviceStop    = mal_device_stop__coreaudio;
+    
+    // Audio component.
+    AudioComponentDescription desc;
+    desc.componentType         = kAudioUnitType_Output;
+#if defined(MAL_APPLE_DESKTOP)
+    desc.componentSubType      = kAudioUnitSubType_HALOutput;
+#else
+    desc.componentSubType      = kAudioUnitSubType_RemoteIO;
+#endif
+    desc.componentManufacturer = kAudioUnitManufacturer_Apple;
+    desc.componentFlags        = 0;
+    desc.componentFlagsMask    = 0;
+    
+    pContext->coreaudio.component = ((mal_AudioComponentFindNext_proc)pContext->coreaudio.AudioComponentFindNext)(NULL, &desc);
+    if (pContext->coreaudio.component == NULL) {
+#if !defined(MAL_NO_RUNTIME_LINKING) && !defined(MAL_APPLE_MOBILE)
+        mal_dlclose(pContext->coreaudio.hAudioUnit);
+        mal_dlclose(pContext->coreaudio.hCoreAudio);
+        mal_dlclose(pContext->coreaudio.hCoreFoundation);
+#endif
+        return MAL_FAILED_TO_INIT_BACKEND;
+    }
 
     return MAL_SUCCESS;
 }
@@ -20279,9 +20450,14 @@ mal_bool32 mal__is_channel_map_valid(const mal_channel* channelMap, mal_uint32 c
 }
 
 
-void mal_device__post_init_setup(mal_device* pDevice)
+void mal_device__post_init_setup(mal_device* pDevice, mal_device_type deviceType)
 {
     mal_assert(pDevice != NULL);
+    
+    // TODO: This needs to be updated to support full duplex:
+    //   - When deviceType = mal_device_type_capture then update the capture PCM converter.
+    //   - When deviceType = mal_device_type_playback then update the playback PCM converter.
+    //   - When deviceType = mal_device_type_duplex then update both the capture and playback PCM converters.
 
     // Make sure the internal channel map was set correctly by the backend. If it's not valid, just fall back to defaults.
     if (!mal_channel_map_valid(pDevice->internalChannels, pDevice->internalChannelMap)) {
@@ -20978,13 +21154,6 @@ mal_result mal_device_init(mal_context* pContext, const mal_device_config* pConf
         }
     }
 
-
-    /* TODO: This is only used in Core Audio. Move this to the Core Audio backend. Also, this logic does not handle full-duplex devices properly */
-    if (config.playback.pDeviceID == NULL || config.capture.pDeviceID == NULL) {
-        pDevice->isDefaultDevice = MAL_TRUE;
-    }
-
-
     // When passing in 0 for the format/channels/rate/chmap it means the device will be using whatever is chosen by the backend. If everything is set
     // to defaults it means the format conversion pipeline will run on a fast path where data transfer is just passed straight through to the backend.
     if (config.format == mal_format_unknown) {
@@ -21062,7 +21231,7 @@ mal_result mal_device_init(mal_context* pContext, const mal_device_config* pConf
         return MAL_NO_BACKEND;  // The error message will have been posted with mal_post_error() by the source of the error so don't bother calling it here.
     }
 
-    mal_device__post_init_setup(pDevice);
+    mal_device__post_init_setup(pDevice, pConfig->deviceType);
 
 
     // If the backend did not fill out a name for the device, try a generic method.
