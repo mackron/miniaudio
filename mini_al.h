@@ -8558,30 +8558,10 @@ void mal_device_uninit__dsound(mal_device* pDevice)
     }
 }
 
-mal_result mal_device_init__dsound(mal_context* pContext, const mal_device_config* pConfig, mal_device* pDevice)
+mal_result mal_config_to_WAVEFORMATEXTENSIBLE(mal_format format, mal_uint32 channels, mal_uint32 sampleRate, const mal_channel* pChannelMap, WAVEFORMATEXTENSIBLE* pWF)
 {
-    (void)pContext;
-
-    mal_assert(pDevice != NULL);
-    mal_zero_object(&pDevice->dsound);
-
-    /* Full-duplex is not yet implemented. */
-    if (pConfig->deviceType == mal_device_type_duplex) {
-        return MAL_INVALID_ARGS;
-    }
-
-    /* DirectSound should use a latency of about 20ms per period for low latency mode. */
-    if (pDevice->usingDefaultBufferSize) {
-        if (pConfig->performanceProfile == mal_performance_profile_low_latency) {
-            pDevice->bufferSizeInMilliseconds = 20 * pDevice->periods;
-        } else {
-            pDevice->bufferSizeInMilliseconds = 200 * pDevice->periods;
-        }
-    }
-
-    // Check that we have a valid format.
     GUID subformat;
-    switch (pConfig->format)
+    switch (format)
     {
         case mal_format_u8:
         case mal_format_s16:
@@ -8601,22 +8581,135 @@ mal_result mal_device_init__dsound(mal_context* pContext, const mal_device_confi
         return MAL_FORMAT_NOT_SUPPORTED;
     }
 
-    WAVEFORMATEXTENSIBLE wf;
-    mal_zero_object(&wf);
-    wf.Format.cbSize               = sizeof(wf);
-    wf.Format.wFormatTag           = WAVE_FORMAT_EXTENSIBLE;
-    wf.Format.nChannels            = (WORD)pConfig->channels;
-    wf.Format.nSamplesPerSec       = (DWORD)pConfig->sampleRate;
-    wf.Format.wBitsPerSample       = (WORD)mal_get_bytes_per_sample(pConfig->format)*8;
-    wf.Format.nBlockAlign          = (wf.Format.nChannels * wf.Format.wBitsPerSample) / 8;
-    wf.Format.nAvgBytesPerSec      = wf.Format.nBlockAlign * wf.Format.nSamplesPerSec;
-    wf.Samples.wValidBitsPerSample = wf.Format.wBitsPerSample;
-    wf.dwChannelMask               = mal_channel_map_to_channel_mask__win32(pConfig->channelMap, pConfig->channels);
-    wf.SubFormat                   = subformat;
+    mal_zero_object(pWF);
+    pWF->Format.cbSize               = sizeof(*pWF);
+    pWF->Format.wFormatTag           = WAVE_FORMAT_EXTENSIBLE;
+    pWF->Format.nChannels            = (WORD)channels;
+    pWF->Format.nSamplesPerSec       = (DWORD)sampleRate;
+    pWF->Format.wBitsPerSample       = (WORD)mal_get_bytes_per_sample(format)*8;
+    pWF->Format.nBlockAlign          = (pWF->Format.nChannels * pWF->Format.wBitsPerSample) / 8;
+    pWF->Format.nAvgBytesPerSec      = pWF->Format.nBlockAlign * pWF->Format.nSamplesPerSec;
+    pWF->Samples.wValidBitsPerSample = pWF->Format.wBitsPerSample;
+    pWF->dwChannelMask               = mal_channel_map_to_channel_mask__win32(pChannelMap, channels);
+    pWF->SubFormat                   = subformat;
 
-    // Unfortunately DirectSound uses different APIs and data structures for playback and catpure devices :(
-    if (pConfig->deviceType == mal_device_type_playback) {
-        mal_result result = mal_context_create_IDirectSound__dsound(pContext, pConfig->playback.shareMode, pConfig->playback.pDeviceID, (mal_IDirectSound**)&pDevice->dsound.pPlayback);
+    return MAL_SUCCESS;
+}
+
+mal_result mal_device_init__dsound(mal_context* pContext, const mal_device_config* pConfig, mal_device* pDevice)
+{
+    mal_result result;
+
+    (void)pContext;
+
+    mal_assert(pDevice != NULL);
+    mal_zero_object(&pDevice->dsound);
+
+    /* Full-duplex is not yet implemented. */
+    if (pConfig->deviceType == mal_device_type_duplex) {
+        return MAL_INVALID_ARGS;
+    }
+
+    /* DirectSound should use a latency of about 20ms per period for low latency mode. */
+    if (pDevice->usingDefaultBufferSize) {
+        if (pConfig->performanceProfile == mal_performance_profile_low_latency) {
+            pDevice->bufferSizeInMilliseconds = 20 * pDevice->periods;
+        } else {
+            pDevice->bufferSizeInMilliseconds = 200 * pDevice->periods;
+        }
+    }
+
+    // Unfortunately DirectSound uses different APIs and data structures for playback and catpure devices. We need to initialize
+    // the capture device first because we'll want to match it's buffer size and period count on the playback side if we're using
+    // full-duplex mode.
+    if (pConfig->deviceType == mal_device_type_capture || pConfig->deviceType == mal_device_type_duplex) {
+        WAVEFORMATEXTENSIBLE wf;
+        result = mal_config_to_WAVEFORMATEXTENSIBLE(pConfig->capture.format, pConfig->capture.channels, pConfig->sampleRate, pConfig->capture.channelMap, &wf);
+        if (result != MAL_SUCCESS) {
+            return result;
+        }
+
+        result = mal_context_create_IDirectSoundCapture__dsound(pContext, pConfig->capture.shareMode, pConfig->capture.pDeviceID, (mal_IDirectSoundCapture**)&pDevice->dsound.pCapture);
+        if (result != MAL_SUCCESS) {
+            mal_device_uninit__dsound(pDevice);
+            return result;
+        }
+
+        result = mal_context_get_format_info_for_IDirectSoundCapture__dsound(pContext, (mal_IDirectSoundCapture*)pDevice->dsound.pCapture, &wf.Format.nChannels, &wf.Format.wBitsPerSample, &wf.Format.nSamplesPerSec);
+        if (result != MAL_SUCCESS) {
+            mal_device_uninit__dsound(pDevice);
+            return result;
+        }
+
+        wf.Format.nBlockAlign          = (wf.Format.nChannels * wf.Format.wBitsPerSample) / 8;
+        wf.Format.nAvgBytesPerSec      = wf.Format.nBlockAlign * wf.Format.nSamplesPerSec;
+        wf.Samples.wValidBitsPerSample = wf.Format.wBitsPerSample;
+        wf.SubFormat                   = MAL_GUID_KSDATAFORMAT_SUBTYPE_PCM;
+
+        if (pDevice->bufferSizeInFrames == 0) {
+            pDevice->bufferSizeInFrames = mal_calculate_buffer_size_in_frames_from_milliseconds(pDevice->bufferSizeInMilliseconds, wf.Format.nSamplesPerSec);
+        }
+
+        /* The size of the buffer must be a clean multiple of the period count. */
+        pDevice->bufferSizeInFrames = (mal_uint32)(pDevice->bufferSizeInFrames/pDevice->periods) * pDevice->periods;
+
+        MAL_DSCBUFFERDESC descDS;
+        mal_zero_object(&descDS);
+        descDS.dwSize = sizeof(descDS);
+        descDS.dwFlags = 0;
+        descDS.dwBufferBytes = pDevice->bufferSizeInFrames * mal_get_bytes_per_frame(pDevice->internalFormat, wf.Format.nChannels);
+        descDS.lpwfxFormat = (WAVEFORMATEX*)&wf;
+        if (FAILED(mal_IDirectSoundCapture_CreateCaptureBuffer((mal_IDirectSoundCapture*)pDevice->dsound.pCapture, &descDS, (mal_IDirectSoundCaptureBuffer**)&pDevice->dsound.pCaptureBuffer, NULL))) {
+            mal_device_uninit__dsound(pDevice);
+            return mal_post_error(pDevice, MAL_LOG_LEVEL_ERROR, "[DirectSound] IDirectSoundCapture_CreateCaptureBuffer() failed for capture device.", MAL_FAILED_TO_OPEN_BACKEND_DEVICE);
+        }
+
+        // Get the _actual_ properties of the buffer.
+        char rawdata[1024];
+        WAVEFORMATEXTENSIBLE* pActualFormat = (WAVEFORMATEXTENSIBLE*)rawdata;
+        if (FAILED(mal_IDirectSoundCaptureBuffer_GetFormat((mal_IDirectSoundCaptureBuffer*)pDevice->dsound.pCaptureBuffer, (WAVEFORMATEX*)pActualFormat, sizeof(rawdata), NULL))) {
+            mal_device_uninit__dsound(pDevice);
+            return mal_post_error(pDevice, MAL_LOG_LEVEL_ERROR, "[DirectSound] Failed to retrieve the actual format of the capture device's buffer.", MAL_FORMAT_NOT_SUPPORTED);
+        }
+
+        pDevice->capture.internalFormat = mal_format_from_WAVEFORMATEX((WAVEFORMATEX*)pActualFormat);
+        pDevice->capture.internalChannels = pActualFormat->Format.nChannels;
+        pDevice->capture.internalSampleRate = pActualFormat->Format.nSamplesPerSec;
+
+        // Get the internal channel map based on the channel mask.
+        if (pActualFormat->Format.wFormatTag == WAVE_FORMAT_EXTENSIBLE) {
+            mal_channel_mask_to_channel_map__win32(pActualFormat->dwChannelMask, pDevice->capture.internalChannels, pDevice->capture.internalChannelMap);
+        } else {
+            mal_channel_mask_to_channel_map__win32(wf.dwChannelMask, pDevice->capture.internalChannels, pDevice->capture.internalChannelMap);
+        }
+
+        /*
+        After getting the actual format the size of the buffer in frames may have actually changed. However, we want this to be as close to what the
+        user has asked for as possible, so let's go ahead and release the old capture buffer and create a new one in this case.
+        */
+        if (pDevice->bufferSizeInFrames != (descDS.dwBufferBytes / mal_get_bytes_per_frame(pDevice->capture.internalFormat, pDevice->capture.internalChannels))) {
+            descDS.dwBufferBytes = pDevice->bufferSizeInFrames * mal_get_bytes_per_frame(pDevice->capture.internalFormat, wf.Format.nChannels);
+            mal_IDirectSoundCaptureBuffer_Release((mal_IDirectSoundCaptureBuffer*)pDevice->dsound.pCaptureBuffer);
+
+            if (FAILED(mal_IDirectSoundCapture_CreateCaptureBuffer((mal_IDirectSoundCapture*)pDevice->dsound.pCapture, &descDS, (mal_IDirectSoundCaptureBuffer**)&pDevice->dsound.pCaptureBuffer, NULL))) {
+                mal_device_uninit__dsound(pDevice);
+                return mal_post_error(pDevice, MAL_LOG_LEVEL_ERROR, "[DirectSound] Second attempt at IDirectSoundCapture_CreateCaptureBuffer() failed for capture device.", MAL_FAILED_TO_OPEN_BACKEND_DEVICE);
+            }
+        }
+
+        /* DirectSound should give us a buffer exactly the size we asked for. */
+        pDevice->capture.internalBufferSizeInFrames = pDevice->bufferSizeInFrames;
+        pDevice->capture.internalPeriods            = pDevice->periods;
+    }
+
+    if (pConfig->deviceType == mal_device_type_playback || pConfig->deviceType == mal_device_type_duplex) {
+        WAVEFORMATEXTENSIBLE wf;
+        result = mal_config_to_WAVEFORMATEXTENSIBLE(pConfig->playback.format, pConfig->playback.channels, pConfig->sampleRate, pConfig->playback.channelMap, &wf);
+        if (result != MAL_SUCCESS) {
+            return result;
+        }
+
+        result = mal_context_create_IDirectSound__dsound(pContext, pConfig->playback.shareMode, pConfig->playback.pDeviceID, (mal_IDirectSound**)&pDevice->dsound.pPlayback);
         if (result != MAL_SUCCESS) {
             mal_device_uninit__dsound(pDevice);
             return result;
@@ -8687,24 +8780,32 @@ mal_result mal_device_init__dsound(mal_context* pContext, const mal_device_confi
             return mal_post_error(pDevice, MAL_LOG_LEVEL_ERROR, "[DirectSound] Failed to retrieve the actual format of the playback device's primary buffer.", MAL_FORMAT_NOT_SUPPORTED);
         }
 
-        pDevice->internalFormat = mal_format_from_WAVEFORMATEX((WAVEFORMATEX*)pActualFormat);
-        pDevice->internalChannels = pActualFormat->Format.nChannels;
-        pDevice->internalSampleRate = pActualFormat->Format.nSamplesPerSec;
+        pDevice->playback.internalFormat = mal_format_from_WAVEFORMATEX((WAVEFORMATEX*)pActualFormat);
+        pDevice->playback.internalChannels = pActualFormat->Format.nChannels;
+        pDevice->playback.internalSampleRate = pActualFormat->Format.nSamplesPerSec;
 
         // Get the internal channel map based on the channel mask.
         if (pActualFormat->Format.wFormatTag == WAVE_FORMAT_EXTENSIBLE) {
-            mal_channel_mask_to_channel_map__win32(pActualFormat->dwChannelMask, pDevice->internalChannels, pDevice->internalChannelMap);
+            mal_channel_mask_to_channel_map__win32(pActualFormat->dwChannelMask, pDevice->playback.internalChannels, pDevice->playback.internalChannelMap);
         } else {
-            mal_channel_mask_to_channel_map__win32(wf.dwChannelMask, pDevice->internalChannels, pDevice->internalChannelMap);
+            mal_channel_mask_to_channel_map__win32(wf.dwChannelMask, pDevice->playback.internalChannels, pDevice->playback.internalChannelMap);
         }
 
-        // We need to wait until we know the sample rate before we can calculate the buffer size.
-        if (pDevice->bufferSizeInFrames == 0) {
-            pDevice->bufferSizeInFrames = mal_calculate_buffer_size_in_frames_from_milliseconds(pDevice->bufferSizeInMilliseconds, pDevice->internalSampleRate);
-        }
 
-        /* The size of the buffer must be a clean multiple of the period count. */
-        pDevice->bufferSizeInFrames = (mal_uint32)(pDevice->bufferSizeInFrames/pDevice->periods) * pDevice->periods;
+        /*
+        When deciding on the buffer size we must leave this unchanged if we are using a full-duplex device. The capture side will have set these and we want the playback
+        side to use the same buffer size.
+        */
+        if (pConfig->deviceType != mal_device_type_duplex) {
+            /* We need to wait until we know the sample rate before we can calculate the buffer size. */
+            if (pDevice->bufferSizeInFrames == 0) {
+                pDevice->bufferSizeInFrames = mal_calculate_buffer_size_in_frames_from_milliseconds(pDevice->bufferSizeInMilliseconds, pDevice->internalSampleRate);
+            }
+
+            /* The size of the buffer must be a clean multiple of the period count. */
+            pDevice->bufferSizeInFrames = (mal_uint32)(pDevice->bufferSizeInFrames/pDevice->periods) * pDevice->periods;
+        }
+        
 
         // Meaning of dwFlags (from MSDN):
         //
@@ -8729,74 +8830,23 @@ mal_result mal_device_init__dsound(mal_context* pContext, const mal_device_confi
             mal_device_uninit__dsound(pDevice);
             return mal_post_error(pDevice, MAL_LOG_LEVEL_ERROR, "[DirectSound] IDirectSound_CreateSoundBuffer() failed for playback device's secondary buffer.", MAL_FAILED_TO_OPEN_BACKEND_DEVICE);
         }
+
+        /* DirectSound should give us a buffer exactly the size we asked for. */
+        pDevice->playback.internalBufferSizeInFrames = pDevice->bufferSizeInFrames;
+        pDevice->playback.internalPeriods            = pDevice->periods;
+    }
+
+    // TEMP. FOR BACKWARDS COMPATIBILITY.
+    if (pConfig->deviceType == mal_device_type_capture || pConfig->deviceType == mal_device_type_duplex) {
+        pDevice->internalFormat = pDevice->capture.internalFormat;
+        pDevice->internalChannels = pDevice->capture.internalChannels;
+        pDevice->internalSampleRate = pDevice->capture.internalSampleRate;
+        mal_channel_map_copy(pDevice->internalChannelMap, pDevice->capture.internalChannelMap, pDevice->capture.internalChannels);
     } else {
-        mal_result result = mal_context_create_IDirectSoundCapture__dsound(pContext, pConfig->capture.shareMode, pConfig->capture.pDeviceID, (mal_IDirectSoundCapture**)&pDevice->dsound.pCapture);
-        if (result != MAL_SUCCESS) {
-            mal_device_uninit__dsound(pDevice);
-            return result;
-        }
-
-        result = mal_context_get_format_info_for_IDirectSoundCapture__dsound(pContext, (mal_IDirectSoundCapture*)pDevice->dsound.pCapture, &wf.Format.nChannels, &wf.Format.wBitsPerSample, &wf.Format.nSamplesPerSec);
-        if (result != MAL_SUCCESS) {
-            mal_device_uninit__dsound(pDevice);
-            return result;
-        }
-
-        wf.Format.nBlockAlign          = (wf.Format.nChannels * wf.Format.wBitsPerSample) / 8;
-        wf.Format.nAvgBytesPerSec      = wf.Format.nBlockAlign * wf.Format.nSamplesPerSec;
-        wf.Samples.wValidBitsPerSample = wf.Format.wBitsPerSample;
-        wf.SubFormat                   = MAL_GUID_KSDATAFORMAT_SUBTYPE_PCM;
-
-        if (pDevice->bufferSizeInFrames == 0) {
-            pDevice->bufferSizeInFrames = mal_calculate_buffer_size_in_frames_from_milliseconds(pDevice->bufferSizeInMilliseconds, wf.Format.nSamplesPerSec);
-        }
-
-        /* The size of the buffer must be a clean multiple of the period count. */
-        pDevice->bufferSizeInFrames = (mal_uint32)(pDevice->bufferSizeInFrames/pDevice->periods) * pDevice->periods;
-
-        MAL_DSCBUFFERDESC descDS;
-        mal_zero_object(&descDS);
-        descDS.dwSize = sizeof(descDS);
-        descDS.dwFlags = 0;
-        descDS.dwBufferBytes = pDevice->bufferSizeInFrames * mal_get_bytes_per_frame(pDevice->internalFormat, wf.Format.nChannels);
-        descDS.lpwfxFormat = (WAVEFORMATEX*)&wf;
-        if (FAILED(mal_IDirectSoundCapture_CreateCaptureBuffer((mal_IDirectSoundCapture*)pDevice->dsound.pCapture, &descDS, (mal_IDirectSoundCaptureBuffer**)&pDevice->dsound.pCaptureBuffer, NULL))) {
-            mal_device_uninit__dsound(pDevice);
-            return mal_post_error(pDevice, MAL_LOG_LEVEL_ERROR, "[DirectSound] IDirectSoundCapture_CreateCaptureBuffer() failed for capture device.", MAL_FAILED_TO_OPEN_BACKEND_DEVICE);
-        }
-
-        // Get the _actual_ properties of the buffer.
-        char rawdata[1024];
-        WAVEFORMATEXTENSIBLE* pActualFormat = (WAVEFORMATEXTENSIBLE*)rawdata;
-        if (FAILED(mal_IDirectSoundCaptureBuffer_GetFormat((mal_IDirectSoundCaptureBuffer*)pDevice->dsound.pCaptureBuffer, (WAVEFORMATEX*)pActualFormat, sizeof(rawdata), NULL))) {
-            mal_device_uninit__dsound(pDevice);
-            return mal_post_error(pDevice, MAL_LOG_LEVEL_ERROR, "[DirectSound] Failed to retrieve the actual format of the capture device's buffer.", MAL_FORMAT_NOT_SUPPORTED);
-        }
-
-        pDevice->internalFormat = mal_format_from_WAVEFORMATEX((WAVEFORMATEX*)pActualFormat);
-        pDevice->internalChannels = pActualFormat->Format.nChannels;
-        pDevice->internalSampleRate = pActualFormat->Format.nSamplesPerSec;
-
-        // Get the internal channel map based on the channel mask.
-        if (pActualFormat->Format.wFormatTag == WAVE_FORMAT_EXTENSIBLE) {
-            mal_channel_mask_to_channel_map__win32(pActualFormat->dwChannelMask, pDevice->internalChannels, pDevice->internalChannelMap);
-        } else {
-            mal_channel_mask_to_channel_map__win32(wf.dwChannelMask, pDevice->internalChannels, pDevice->internalChannelMap);
-        }
-
-        /*
-        After getting the actual format the size of the buffer in frames may have actually changed. However, we want this to be as close to what the
-        user has asked for as possible, so let's go ahead and release the old capture buffer and create a new one in this case.
-        */
-        if (pDevice->bufferSizeInFrames != (descDS.dwBufferBytes / mal_get_bytes_per_frame(pDevice->internalFormat, pDevice->internalChannels))) {
-            descDS.dwBufferBytes = pDevice->bufferSizeInFrames * mal_get_bytes_per_frame(pDevice->internalFormat, wf.Format.nChannels);
-            mal_IDirectSoundCaptureBuffer_Release((mal_IDirectSoundCaptureBuffer*)pDevice->dsound.pCaptureBuffer);
-
-            if (FAILED(mal_IDirectSoundCapture_CreateCaptureBuffer((mal_IDirectSoundCapture*)pDevice->dsound.pCapture, &descDS, (mal_IDirectSoundCaptureBuffer**)&pDevice->dsound.pCaptureBuffer, NULL))) {
-                mal_device_uninit__dsound(pDevice);
-                return mal_post_error(pDevice, MAL_LOG_LEVEL_ERROR, "[DirectSound] Second attempt at IDirectSoundCapture_CreateCaptureBuffer() failed for capture device.", MAL_FAILED_TO_OPEN_BACKEND_DEVICE);
-            }
-        }
+        pDevice->internalFormat = pDevice->playback.internalFormat;
+        pDevice->internalChannels = pDevice->playback.internalChannels;
+        pDevice->internalSampleRate = pDevice->playback.internalSampleRate;
+        mal_channel_map_copy(pDevice->internalChannelMap, pDevice->playback.internalChannelMap, pDevice->playback.internalChannels);
     }
 
     return MAL_SUCCESS;
@@ -8807,13 +8857,16 @@ mal_result mal_device_start__dsound(mal_device* pDevice)
 {
     mal_assert(pDevice != NULL);
 
-    if (pDevice->type == mal_device_type_playback) {
-        if (FAILED(mal_IDirectSoundBuffer_Play((mal_IDirectSoundBuffer*)pDevice->dsound.pPlaybackBuffer, 0, 0, MAL_DSBPLAY_LOOPING))) {
-            return mal_post_error(pDevice, MAL_LOG_LEVEL_ERROR, "[DirectSound] IDirectSoundBuffer_Play() failed.", MAL_FAILED_TO_START_BACKEND_DEVICE);
-        }
-    } else {
+    if (pDevice->type == mal_device_type_capture || pDevice->type == mal_device_type_duplex) {
         if (FAILED(mal_IDirectSoundCaptureBuffer_Start((mal_IDirectSoundCaptureBuffer*)pDevice->dsound.pCaptureBuffer, MAL_DSCBSTART_LOOPING))) {
             return mal_post_error(pDevice, MAL_LOG_LEVEL_ERROR, "[DirectSound] IDirectSoundCaptureBuffer_Start() failed.", MAL_FAILED_TO_START_BACKEND_DEVICE);
+        }
+    }
+
+    if (pDevice->type == mal_device_type_playback || pDevice->type == mal_device_type_duplex) {
+        if (FAILED(mal_IDirectSoundBuffer_Play((mal_IDirectSoundBuffer*)pDevice->dsound.pPlaybackBuffer, 0, 0, MAL_DSBPLAY_LOOPING))) {
+            mal_IDirectSoundCaptureBuffer_Stop((mal_IDirectSoundCaptureBuffer*)pDevice->dsound.pCaptureBuffer);
+            return mal_post_error(pDevice, MAL_LOG_LEVEL_ERROR, "[DirectSound] IDirectSoundBuffer_Play() failed.", MAL_FAILED_TO_START_BACKEND_DEVICE);
         }
     }
 
@@ -8829,13 +8882,15 @@ mal_result mal_device_stop__dsound(mal_device* pDevice)
         return MAL_DEVICE_NOT_STARTED;
     }
 
-    if (pDevice->type == mal_device_type_playback) {
-        if (FAILED(mal_IDirectSoundBuffer_Stop((mal_IDirectSoundBuffer*)pDevice->dsound.pPlaybackBuffer))) {
-            return mal_post_error(pDevice, MAL_LOG_LEVEL_ERROR, "[DirectSound] IDirectSoundBuffer_Stop() failed.", MAL_FAILED_TO_STOP_BACKEND_DEVICE);
-        }
-    } else {
+    if (pDevice->type == mal_device_type_capture || pDevice->type == mal_device_type_duplex) {
         if (FAILED(mal_IDirectSoundCaptureBuffer_Stop((mal_IDirectSoundCaptureBuffer*)pDevice->dsound.pCaptureBuffer))) {
             return mal_post_error(pDevice, MAL_LOG_LEVEL_ERROR, "[DirectSound] IDirectSoundCaptureBuffer_Stop() failed.", MAL_FAILED_TO_STOP_BACKEND_DEVICE);
+        }
+    }
+
+    if (pDevice->type == mal_device_type_playback || pDevice->type == mal_device_type_duplex) {
+        if (FAILED(mal_IDirectSoundBuffer_Stop((mal_IDirectSoundBuffer*)pDevice->dsound.pPlaybackBuffer))) {
+            return mal_post_error(pDevice, MAL_LOG_LEVEL_ERROR, "[DirectSound] IDirectSoundBuffer_Stop() failed.", MAL_FAILED_TO_STOP_BACKEND_DEVICE);
         }
     }
 
@@ -8843,30 +8898,33 @@ mal_result mal_device_stop__dsound(mal_device* pDevice)
     return MAL_SUCCESS;
 }
 
-mal_result mal_device_get_current_frame__dsound(mal_device* pDevice, mal_uint32* pCurrentPos)
+mal_result mal_device_get_current_frame__dsound(mal_device* pDevice, mal_device_type deviceType, mal_uint32* pCurrentPos)
 {
     mal_assert(pDevice != NULL);
     mal_assert(pCurrentPos != NULL);
+    mal_assert(deviceType != mal_device_type_duplex);   /* This function should never be called with a duplex device type. */
+
     *pCurrentPos = 0;
 
     DWORD dwCurrentPosition;
-    if (pDevice->type == mal_device_type_playback) {
+    if (deviceType == mal_device_type_playback) {
         if (FAILED(mal_IDirectSoundBuffer_GetCurrentPosition((mal_IDirectSoundBuffer*)pDevice->dsound.pPlaybackBuffer, NULL, &dwCurrentPosition))) {
             return MAL_ERROR;
         }
+        *pCurrentPos = (mal_uint32)dwCurrentPosition / mal_get_bytes_per_frame(pDevice->playback.internalFormat, pDevice->playback.internalChannels);
     } else {
         if (FAILED(mal_IDirectSoundCaptureBuffer_GetCurrentPosition((mal_IDirectSoundCaptureBuffer*)pDevice->dsound.pCaptureBuffer, &dwCurrentPosition, NULL))) {
             return MAL_ERROR;
         }
+        *pCurrentPos = (mal_uint32)dwCurrentPosition / mal_get_bytes_per_frame(pDevice->capture.internalFormat, pDevice->capture.internalChannels);
     }
-
-    *pCurrentPos = (mal_uint32)dwCurrentPosition / mal_get_bytes_per_frame(pDevice->internalFormat, pDevice->internalChannels);
+    
     return MAL_SUCCESS;
 }
 
 mal_result mal_device_map_next_playback_buffer__dsound(mal_device* pDevice)
 {
-    DWORD periodSizeInBytes = (pDevice->bufferSizeInFrames / pDevice->periods) * mal_get_bytes_per_frame(pDevice->internalFormat, pDevice->internalChannels);
+    DWORD periodSizeInBytes = (pDevice->bufferSizeInFrames / pDevice->periods) * mal_get_bytes_per_frame(pDevice->playback.internalFormat, pDevice->playback.internalChannels);
     DWORD lockOffset = (pDevice->dsound.iNextPeriod * periodSizeInBytes);
     DWORD mappedSizeInBytes;
     HRESULT hr = mal_IDirectSoundBuffer_Lock((mal_IDirectSoundBuffer*)pDevice->dsound.pPlaybackBuffer, lockOffset, periodSizeInBytes, &pDevice->dsound.pMappedBufferPlayback, &mappedSizeInBytes, NULL, NULL, 0);
@@ -8874,8 +8932,8 @@ mal_result mal_device_map_next_playback_buffer__dsound(mal_device* pDevice)
         return mal_post_error(pDevice, MAL_LOG_LEVEL_ERROR, "[DirectSound] Failed to map buffer from playback device in preparation for writing to the device.", MAL_FAILED_TO_MAP_DEVICE_BUFFER);
     }
 
-    pDevice->dsound.mappedBufferFramesCapacityPlayback  = (mal_uint32)mappedSizeInBytes / mal_get_bytes_per_frame(pDevice->internalFormat, pDevice->internalChannels);
-    pDevice->dsound.mappedBufferFramesRemainingPlayback = (mal_uint32)mappedSizeInBytes / mal_get_bytes_per_frame(pDevice->internalFormat, pDevice->internalChannels);
+    pDevice->dsound.mappedBufferFramesCapacityPlayback  = (mal_uint32)mappedSizeInBytes / mal_get_bytes_per_frame(pDevice->playback.internalFormat, pDevice->playback.internalChannels);
+    pDevice->dsound.mappedBufferFramesRemainingPlayback = (mal_uint32)mappedSizeInBytes / mal_get_bytes_per_frame(pDevice->playback.internalFormat, pDevice->playback.internalChannels);
 
     return MAL_SUCCESS;
 }
@@ -8904,7 +8962,7 @@ mal_result mal_device_write__dsound(mal_device* pDevice, const void* pPCMFrames,
     while (totalFramesWritten < frameCount) {
         /* If a buffer is mapped we need to write to that first. Once it's consumed we reset the event and unmap it. */
         if (pDevice->dsound.pMappedBufferPlayback != NULL && pDevice->dsound.mappedBufferFramesRemainingPlayback > 0) {
-            mal_uint32 bpf = mal_get_bytes_per_frame(pDevice->internalFormat, pDevice->internalChannels);
+            mal_uint32 bpf = mal_get_bytes_per_frame(pDevice->playback.internalFormat, pDevice->playback.internalChannels);
             mal_uint32 mappedBufferFramesConsumed = pDevice->dsound.mappedBufferFramesCapacityPlayback - pDevice->dsound.mappedBufferFramesRemainingPlayback;
 
             void* pDst = (mal_uint8*)pDevice->dsound.pMappedBufferPlayback + (mappedBufferFramesConsumed * bpf);
@@ -8958,7 +9016,7 @@ mal_result mal_device_write__dsound(mal_device* pDevice, const void* pPCMFrames,
 
             /* We've woken up, so now we need to poll the current position. If there are enough frames for a whole period we can be done with the wait. */
             mal_uint32 currentPos;
-            result = mal_device_get_current_frame__dsound(pDevice, &currentPos);
+            result = mal_device_get_current_frame__dsound(pDevice, mal_device_type_playback, &currentPos);
             if (result != MAL_SUCCESS) {
                 break;  /* Failed to get the current frame. */
             }
@@ -8996,15 +9054,7 @@ mal_result mal_device_write__dsound(mal_device* pDevice, const void* pPCMFrames,
 
 mal_result mal_device_map_next_capture_buffer__dsound(mal_device* pDevice)
 {
-#if 0
-    DWORD dwCapturePosition, dwReadPosition;
-    if (FAILED(mal_IDirectSoundCaptureBuffer_GetCurrentPosition((mal_IDirectSoundCaptureBuffer*)pDevice->dsound.pCaptureBuffer, &dwCapturePosition, &dwReadPosition))) {
-        return MAL_ERROR;
-    }
-    printf("dwCapturePosition=%d, dwReadPosition=%d\n", dwCapturePosition, dwReadPosition);
-#endif
-
-    DWORD periodSizeInBytes = (pDevice->bufferSizeInFrames / pDevice->periods) * mal_get_bytes_per_frame(pDevice->internalFormat, pDevice->internalChannels);
+    DWORD periodSizeInBytes = (pDevice->bufferSizeInFrames / pDevice->periods) * mal_get_bytes_per_frame(pDevice->capture.internalFormat, pDevice->capture.internalChannels);
     DWORD lockOffset = (pDevice->dsound.iNextPeriod * periodSizeInBytes);
     DWORD mappedSizeInBytes;
     HRESULT hr = mal_IDirectSoundCaptureBuffer_Lock((mal_IDirectSoundCaptureBuffer*)pDevice->dsound.pCaptureBuffer, lockOffset, periodSizeInBytes, &pDevice->dsound.pMappedBufferCapture, &mappedSizeInBytes, NULL, NULL, 0);
@@ -9012,8 +9062,8 @@ mal_result mal_device_map_next_capture_buffer__dsound(mal_device* pDevice)
         return mal_post_error(pDevice, MAL_LOG_LEVEL_ERROR, "[DirectSound] Failed to map buffer from capture device in preparation for writing to the device.", MAL_FAILED_TO_MAP_DEVICE_BUFFER);
     }
 
-    pDevice->dsound.mappedBufferFramesCapacityCapture  = (mal_uint32)mappedSizeInBytes / mal_get_bytes_per_frame(pDevice->internalFormat, pDevice->internalChannels);
-    pDevice->dsound.mappedBufferFramesRemainingCapture = (mal_uint32)mappedSizeInBytes / mal_get_bytes_per_frame(pDevice->internalFormat, pDevice->internalChannels);
+    pDevice->dsound.mappedBufferFramesCapacityCapture  = (mal_uint32)mappedSizeInBytes / mal_get_bytes_per_frame(pDevice->capture.internalFormat, pDevice->capture.internalChannels);
+    pDevice->dsound.mappedBufferFramesRemainingCapture = (mal_uint32)mappedSizeInBytes / mal_get_bytes_per_frame(pDevice->capture.internalFormat, pDevice->capture.internalChannels);
 
     return MAL_SUCCESS;
 }
@@ -9039,7 +9089,7 @@ mal_result mal_device_read__dsound(mal_device* pDevice, void* pPCMFrames, mal_ui
     while (totalFramesRead < frameCount) {
         /* If a buffer is mapped we need to write to that first. Once it's consumed we reset the event and unmap it. */
         if (pDevice->dsound.pMappedBufferCapture != NULL && pDevice->dsound.mappedBufferFramesRemainingCapture > 0) {
-            mal_uint32 bpf = mal_get_bytes_per_frame(pDevice->internalFormat, pDevice->internalChannels);
+            mal_uint32 bpf = mal_get_bytes_per_frame(pDevice->capture.internalFormat, pDevice->capture.internalChannels);
             mal_uint32 mappedBufferFramesConsumed = pDevice->dsound.mappedBufferFramesCapacityCapture - pDevice->dsound.mappedBufferFramesRemainingCapture;
 
             void* pDst = (mal_uint8*)pPCMFrames + (totalFramesRead * bpf);
@@ -9078,7 +9128,7 @@ mal_result mal_device_read__dsound(mal_device* pDevice, void* pPCMFrames, mal_ui
 
             /* We've woken up, so now we need to poll the current position. If there are enough frames for a whole period we can be done with the wait. */
             mal_uint32 currentPos;
-            result = mal_device_get_current_frame__dsound(pDevice, &currentPos);
+            result = mal_device_get_current_frame__dsound(pDevice, mal_device_type_capture, &currentPos);
             if (result != MAL_SUCCESS) {
                 break;  /* Failed to get the current frame. */
             }
@@ -21172,12 +21222,38 @@ mal_result mal_device_init(mal_context* pContext, const mal_device_config* pConf
         config.channels = MAL_DEFAULT_CHANNELS;
         pDevice->usingDefaultChannels = MAL_TRUE;
     }
+    if (config.channelMap[0] == MAL_CHANNEL_NONE) {
+        pDevice->usingDefaultChannelMap = MAL_TRUE;
+    }
+
+
     if (config.sampleRate == 0) {
         config.sampleRate = MAL_DEFAULT_SAMPLE_RATE;
         pDevice->usingDefaultSampleRate = MAL_TRUE;
     }
-    if (config.channelMap[0] == MAL_CHANNEL_NONE) {
-        pDevice->usingDefaultChannelMap = MAL_TRUE;
+
+    if (config.capture.format == mal_format_unknown) {
+        config.capture.format = MAL_DEFAULT_FORMAT;
+        pDevice->capture.usingDefaultFormat = MAL_TRUE;
+    }
+    if (config.capture.channels == 0) {
+        config.capture.channels = MAL_DEFAULT_CHANNELS;
+        pDevice->capture.usingDefaultChannels = MAL_TRUE;
+    }
+    if (config.capture.channelMap[0] == MAL_CHANNEL_NONE) {
+        pDevice->capture.usingDefaultChannelMap = MAL_TRUE;
+    }
+
+    if (config.playback.format == mal_format_unknown) {
+        config.playback.format = MAL_DEFAULT_FORMAT;
+        pDevice->playback.usingDefaultFormat = MAL_TRUE;
+    }
+    if (config.playback.channels == 0) {
+        config.playback.channels = MAL_DEFAULT_CHANNELS;
+        pDevice->playback.usingDefaultChannels = MAL_TRUE;
+    }
+    if (config.playback.channelMap[0] == MAL_CHANNEL_NONE) {
+        pDevice->playback.usingDefaultChannelMap = MAL_TRUE;
     }
 
 
@@ -21194,19 +21270,45 @@ mal_result mal_device_init(mal_context* pContext, const mal_device_config* pConf
     }
 
     pDevice->type = config.deviceType;
+    pDevice->bufferSizeInFrames = config.bufferSizeInFrames;
+    pDevice->bufferSizeInMilliseconds = config.bufferSizeInMilliseconds;
+    pDevice->periods = config.periods;
+
+
     pDevice->format = config.format;
     pDevice->channels = config.channels;
     pDevice->sampleRate = config.sampleRate;
     mal_copy_memory(pDevice->channelMap, config.channelMap, sizeof(config.channelMap[0]) * config.channels);
-    pDevice->bufferSizeInFrames = config.bufferSizeInFrames;
-    pDevice->bufferSizeInMilliseconds = config.bufferSizeInMilliseconds;
-    pDevice->periods = config.periods;
+
+    pDevice->capture.shareMode   = config.capture.shareMode;
+    pDevice->capture.format      = config.capture.format;
+    pDevice->capture.channels    = config.capture.channels;
+    pDevice->capture.sampleRate  = config.sampleRate;
+    mal_channel_map_copy(pDevice->capture.channelMap, config.capture.channelMap, config.capture.channels);
+
+    pDevice->playback.shareMode  = config.playback.shareMode;
+    pDevice->playback.format     = config.playback.format;
+    pDevice->playback.channels   = config.playback.channels;
+    pDevice->playback.sampleRate = config.sampleRate;
+    mal_channel_map_copy(pDevice->playback.channelMap, config.playback.channelMap, config.playback.channels);
+
 
     // The internal format, channel count and sample rate can be modified by the backend.
     pDevice->internalFormat = pDevice->format;
     pDevice->internalChannels = pDevice->channels;
     pDevice->internalSampleRate = pDevice->sampleRate;
     mal_copy_memory(pDevice->internalChannelMap, pDevice->channelMap, sizeof(pDevice->channelMap));
+
+    pDevice->capture.internalFormat      = pDevice->capture.format;
+    pDevice->capture.internalChannels    = pDevice->capture.channels;
+    pDevice->capture.internalSampleRate  = pDevice->sampleRate;
+    mal_channel_map_copy(pDevice->capture.internalChannelMap, pDevice->capture.channelMap, pDevice->capture.channels);
+
+    pDevice->playback.internalFormat     = pDevice->playback.format;
+    pDevice->playback.internalChannels   = pDevice->playback.channels;
+    pDevice->playback.internalSampleRate = pDevice->sampleRate;
+    mal_channel_map_copy(pDevice->playback.internalChannelMap, pDevice->playback.channelMap, pDevice->playback.channels);
+    
 
     if (mal_mutex_init(pContext, &pDevice->lock) != MAL_SUCCESS) {
         return mal_post_error(pDevice, MAL_LOG_LEVEL_ERROR, "Failed to create mutex.", MAL_FAILED_TO_CREATE_MUTEX);
