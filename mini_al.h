@@ -7153,7 +7153,7 @@ mal_result mal_device_init__wasapi(mal_context* pContext, const mal_device_confi
         data.usingDefaultChannels       = pDevice->usingDefaultChannels;
         data.usingDefaultSampleRate     = pDevice->usingDefaultSampleRate;
         data.usingDefaultChannelMap     = pDevice->usingDefaultChannelMap;
-        data.shareMode                  = pConfig->shareMode;
+        data.shareMode                  = pConfig->capture.shareMode;
         data.bufferSizeInFramesIn       = pConfig->bufferSizeInFrames;
         data.bufferSizeInMillisecondsIn = pConfig->bufferSizeInMilliseconds;
         data.periodsIn                  = pConfig->periods;
@@ -7204,7 +7204,7 @@ mal_result mal_device_init__wasapi(mal_context* pContext, const mal_device_confi
         data.usingDefaultChannels   = pDevice->usingDefaultChannels;
         data.usingDefaultSampleRate = pDevice->usingDefaultSampleRate;
         data.usingDefaultChannelMap = pDevice->usingDefaultChannelMap;
-        data.shareMode              = pConfig->shareMode;
+        data.shareMode              = pConfig->playback.shareMode;
 
         // In duplex mode we want the playback device to have the same buffer size and period count as the capture device.
         if (pConfig->deviceType == mal_device_type_duplex) {
@@ -7482,7 +7482,7 @@ mal_result mal_device_reroute__wasapi(mal_device* pDevice, mal_device_type devic
         return result;
     }
 
-    mal_device__post_init_setup(pDevice);
+    mal_device__post_init_setup(pDevice, deviceType);
 
     return MAL_SUCCESS;
 }
@@ -8616,7 +8616,7 @@ mal_result mal_device_init__dsound(mal_context* pContext, const mal_device_confi
 
     // Unfortunately DirectSound uses different APIs and data structures for playback and catpure devices :(
     if (pConfig->deviceType == mal_device_type_playback) {
-        mal_result result = mal_context_create_IDirectSound__dsound(pContext, pConfig->shareMode, pConfig->playback.pDeviceID, (mal_IDirectSound**)&pDevice->dsound.pPlayback);
+        mal_result result = mal_context_create_IDirectSound__dsound(pContext, pConfig->playback.shareMode, pConfig->playback.pDeviceID, (mal_IDirectSound**)&pDevice->dsound.pPlayback);
         if (result != MAL_SUCCESS) {
             mal_device_uninit__dsound(pDevice);
             return result;
@@ -8730,7 +8730,7 @@ mal_result mal_device_init__dsound(mal_context* pContext, const mal_device_confi
             return mal_post_error(pDevice, MAL_LOG_LEVEL_ERROR, "[DirectSound] IDirectSound_CreateSoundBuffer() failed for playback device's secondary buffer.", MAL_FAILED_TO_OPEN_BACKEND_DEVICE);
         }
     } else {
-        mal_result result = mal_context_create_IDirectSoundCapture__dsound(pContext, pConfig->shareMode, pConfig->capture.pDeviceID, (mal_IDirectSoundCapture**)&pDevice->dsound.pCapture);
+        mal_result result = mal_context_create_IDirectSoundCapture__dsound(pContext, pConfig->capture.shareMode, pConfig->capture.pDeviceID, (mal_IDirectSoundCapture**)&pDevice->dsound.pCapture);
         if (result != MAL_SUCCESS) {
             mal_device_uninit__dsound(pDevice);
             return result;
@@ -9580,7 +9580,8 @@ mal_result mal_device_init__winmm(mal_context* pContext, const mal_device_config
     }
 
     /* No exlusive mode with WinMM. */
-    if (pConfig->shareMode == mal_share_mode_exclusive) {
+    if (((pConfig->deviceType == mal_device_type_playback || pConfig->deviceType == mal_device_type_duplex) && pConfig->playback.shareMode == mal_share_mode_exclusive) ||
+        ((pConfig->deviceType == mal_device_type_capture  || pConfig->deviceType == mal_device_type_duplex) && pConfig->capture.shareMode  == mal_share_mode_exclusive)) {
         return MAL_SHARE_MODE_NOT_SUPPORTED;
     }
 
@@ -13247,7 +13248,8 @@ mal_result mal_device_init__pulse(mal_context* pContext, const mal_device_config
     }
 
     /* No exclusive mode with the PulseAudio backend. */
-    if (pConfig->shareMode == mal_share_mode_exclusive) {
+    if (((pConfig->deviceType == mal_device_type_playback || pConfig->deviceType == mal_device_type_duplex) && pConfig->playback.shareMode == mal_share_mode_exclusive) ||
+        ((pConfig->deviceType == mal_device_type_capture  || pConfig->deviceType == mal_device_type_duplex) && pConfig->capture.shareMode  == mal_share_mode_exclusive)) {
         return MAL_SHARE_MODE_NOT_SUPPORTED;
     }
 
@@ -14132,7 +14134,8 @@ mal_result mal_device_init__jack(mal_context* pContext, const mal_device_config*
     }
 
     /* No exclusive mode with the JACK backend. */
-    if (pConfig->shareMode == mal_share_mode_exclusive) {
+    if (((pConfig->deviceType == mal_device_type_playback || pConfig->deviceType == mal_device_type_duplex) && pConfig->playback.shareMode == mal_share_mode_exclusive) ||
+        ((pConfig->deviceType == mal_device_type_capture  || pConfig->deviceType == mal_device_type_duplex) && pConfig->capture.shareMode  == mal_share_mode_exclusive)) {
         return MAL_SHARE_MODE_NOT_SUPPORTED;
     }
 
@@ -17897,7 +17900,8 @@ mal_result mal_device_init__audio4(mal_context* pContext, const mal_device_confi
     // I'm aware.
 #if defined(__NetBSD_Version__) && __NetBSD_Version__ >= 800000000
     /* NetBSD 8.0+ */
-    if (pConfig->shareMode == mal_share_mode_exclusive) {
+    if (((pConfig->deviceType == mal_device_type_playback || pConfig->deviceType == mal_device_type_duplex) && pConfig->playback.shareMode == mal_share_mode_exclusive) ||
+        ((pConfig->deviceType == mal_device_type_capture  || pConfig->deviceType == mal_device_type_duplex) && pConfig->capture.shareMode  == mal_share_mode_exclusive)) {
         return MAL_SHARE_MODE_NOT_SUPPORTED;
     }
 #else
@@ -18925,7 +18929,8 @@ mal_result mal_device_init__aaudio(mal_context* pContext, const mal_device_confi
     }
 
     /* No exclusive mode with AAudio. */
-    if (pConfig->shareMode == mal_share_mode_exclusive) {
+    if (((pConfig->deviceType == mal_device_type_playback || pConfig->deviceType == mal_device_type_duplex) && pConfig->playback.shareMode == mal_share_mode_exclusive) ||
+        ((pConfig->deviceType == mal_device_type_capture  || pConfig->deviceType == mal_device_type_duplex) && pConfig->capture.shareMode  == mal_share_mode_exclusive)) {
         return MAL_SHARE_MODE_NOT_SUPPORTED;
     }
 
@@ -19558,7 +19563,8 @@ mal_result mal_device_init__opensl(mal_context* pContext, const mal_device_confi
     }
 
     /* No exclusive mode with OpenSL|ES. */
-    if (pConfig->shareMode == mal_share_mode_exclusive) {
+    if (((pConfig->deviceType == mal_device_type_playback || pConfig->deviceType == mal_device_type_duplex) && pConfig->playback.shareMode == mal_share_mode_exclusive) ||
+        ((pConfig->deviceType == mal_device_type_capture  || pConfig->deviceType == mal_device_type_duplex) && pConfig->capture.shareMode  == mal_share_mode_exclusive)) {
         return MAL_SHARE_MODE_NOT_SUPPORTED;
     }
 
@@ -20117,7 +20123,8 @@ void mal_device_uninit__webaudio(mal_device* pDevice)
 mal_result mal_device_init__webaudio(mal_context* pContext, mal_device_type deviceType, const mal_device_id* pDeviceID, const mal_device_config* pConfig, mal_device* pDevice)
 {
     /* No exclusive mode with Web Audio. */
-    if (pConfig->shareMode == mal_share_mode_exclusive) {
+    if (((pConfig->deviceType == mal_device_type_playback || pConfig->deviceType == mal_device_type_duplex) && pConfig->playback.shareMode == mal_share_mode_exclusive) ||
+        ((pConfig->deviceType == mal_device_type_capture  || pConfig->deviceType == mal_device_type_duplex) && pConfig->capture.shareMode  == mal_share_mode_exclusive)) {
         return MAL_SHARE_MODE_NOT_SUPPORTED;
     }
 
@@ -20458,6 +20465,7 @@ void mal_device__post_init_setup(mal_device* pDevice, mal_device_type deviceType
     //   - When deviceType = mal_device_type_capture then update the capture PCM converter.
     //   - When deviceType = mal_device_type_playback then update the playback PCM converter.
     //   - When deviceType = mal_device_type_duplex then update both the capture and playback PCM converters.
+    (void)deviceType;
 
     // Make sure the internal channel map was set correctly by the backend. If it's not valid, just fall back to defaults.
     if (!mal_channel_map_valid(pDevice->internalChannels, pDevice->internalChannelMap)) {
