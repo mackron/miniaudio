@@ -2120,15 +2120,20 @@ MAL_ALIGNED_STRUCT(MAL_SIMD_ALIGNMENT) mal_device
 #ifdef MAL_SUPPORT_WINMM
         struct
         {
-            /*HWAVEOUT, HWAVEIN*/ mal_handle hDevice;
-            /*HANDLE*/ mal_handle hEvent;
+            /*HWAVEOUT*/ mal_handle hDevicePlayback;
+            /*HWAVEIN*/ mal_handle hDeviceCapture;
+            /*HANDLE*/ mal_handle hEventPlayback;
+            /*HANDLE*/ mal_handle hEventCapture;
             mal_uint32 fragmentSizeInFrames;
             mal_uint32 fragmentSizeInBytes;
-            mal_uint32 iNextHeader;                     /* [0,periods). Used as an index into pWAVEHDR. */
+            mal_uint32 iNextHeaderPlayback;             /* [0,periods). Used as an index into pWAVEHDRPlayback. */
+            mal_uint32 iNextHeaderCapture;              /* [0,periods). Used as an index into pWAVEHDRCapture. */
             mal_uint32 headerFramesConsumedPlayback;    /* The number of PCM frames consumed in the buffer in pWAVEHEADER[iNextHeader]. */
             mal_uint32 headerFramesConsumedCapture;     /* ^^^ */
-            /*WAVEHDR**/ mal_uint8* pWAVEHDR;           /* One instantiation for each period. */
-            mal_uint8* pIntermediaryBuffer;
+            /*WAVEHDR**/ mal_uint8* pWAVEHDRPlayback;   /* One instantiation for each period. */
+            /*WAVEHDR**/ mal_uint8* pWAVEHDRCapture;    /* One instantiation for each period. */
+            mal_uint8* pIntermediaryBufferPlayback;
+            mal_uint8* pIntermediaryBufferCapture;
             mal_uint8* _pHeapData;                      /* Used internally and is used for the heap allocated data for the intermediary buffer and the WAVEHDR structures. */
             mal_bool32 isStarted;
         } winmm;
@@ -4514,6 +4519,12 @@ mal_uint32 mal_get_default_buffer_size_in_frames(mal_performance_profile perform
     }
 
     return bufferSizeInMilliseconds * sampleRateMS;
+}
+
+mal_uint32 mal_get_fragment_size_in_bytes(mal_uint32 bufferSizeInFrames, mal_uint32 periods, mal_format format, mal_uint32 channels)
+{
+    mal_uint32 fragmentSizeInFrames = bufferSizeInFrames / periods;
+    return fragmentSizeInFrames * mal_get_bytes_per_frame(format, channels);
 }
 
 
@@ -9384,6 +9395,82 @@ mal_result mal_get_best_info_from_formats_flags__winmm(DWORD dwFormats, WORD cha
     return MAL_SUCCESS;
 }
 
+mal_result mal_formats_flags_to_WAVEFORMATEX__winmm(DWORD dwFormats, WORD channels, WAVEFORMATEX* pWF)
+{
+    mal_assert(pWF != NULL);
+
+    mal_zero_object(pWF);
+    pWF->cbSize     = sizeof(*pWF);
+    pWF->wFormatTag = WAVE_FORMAT_PCM;
+    pWF->nChannels  = (WORD)channels;
+    if (pWF->nChannels > 2) {
+        pWF->nChannels = 2;
+    }
+
+    if (channels == 1) {
+        pWF->wBitsPerSample = 16;
+        if ((dwFormats & WAVE_FORMAT_48M16) != 0) {
+            pWF->nSamplesPerSec = 48000;
+        } else if ((dwFormats & WAVE_FORMAT_44M16) != 0) {
+            pWF->nSamplesPerSec = 44100;
+        } else if ((dwFormats & WAVE_FORMAT_2M16) != 0) {
+            pWF->nSamplesPerSec = 22050;
+        } else if ((dwFormats & WAVE_FORMAT_1M16) != 0) {
+            pWF->nSamplesPerSec = 11025;
+        } else if ((dwFormats & WAVE_FORMAT_96M16) != 0) {
+            pWF->nSamplesPerSec = 96000;
+        } else {
+            pWF->wBitsPerSample = 8;
+            if ((dwFormats & WAVE_FORMAT_48M08) != 0) {
+                pWF->nSamplesPerSec = 48000;
+            } else if ((dwFormats & WAVE_FORMAT_44M08) != 0) {
+                pWF->nSamplesPerSec = 44100;
+            } else if ((dwFormats & WAVE_FORMAT_2M08) != 0) {
+                pWF->nSamplesPerSec = 22050;
+            } else if ((dwFormats & WAVE_FORMAT_1M08) != 0) {
+                pWF->nSamplesPerSec = 11025;
+            } else if ((dwFormats & WAVE_FORMAT_96M08) != 0) {
+                pWF->nSamplesPerSec = 96000;
+            } else {
+                return MAL_FORMAT_NOT_SUPPORTED;
+            }
+        }
+    } else {
+        pWF->wBitsPerSample = 16;
+        if ((dwFormats & WAVE_FORMAT_48S16) != 0) {
+            pWF->nSamplesPerSec = 48000;
+        } else if ((dwFormats & WAVE_FORMAT_44S16) != 0) {
+            pWF->nSamplesPerSec = 44100;
+        } else if ((dwFormats & WAVE_FORMAT_2S16) != 0) {
+            pWF->nSamplesPerSec = 22050;
+        } else if ((dwFormats & WAVE_FORMAT_1S16) != 0) {
+            pWF->nSamplesPerSec = 11025;
+        } else if ((dwFormats & WAVE_FORMAT_96S16) != 0) {
+            pWF->nSamplesPerSec = 96000;
+        } else {
+            pWF->wBitsPerSample = 8;
+            if ((dwFormats & WAVE_FORMAT_48S08) != 0) {
+                pWF->nSamplesPerSec = 48000;
+            } else if ((dwFormats & WAVE_FORMAT_44S08) != 0) {
+                pWF->nSamplesPerSec = 44100;
+            } else if ((dwFormats & WAVE_FORMAT_2S08) != 0) {
+                pWF->nSamplesPerSec = 22050;
+            } else if ((dwFormats & WAVE_FORMAT_1S08) != 0) {
+                pWF->nSamplesPerSec = 11025;
+            } else if ((dwFormats & WAVE_FORMAT_96S08) != 0) {
+                pWF->nSamplesPerSec = 96000;
+            } else {
+                return MAL_FORMAT_NOT_SUPPORTED;
+            }
+        }
+    }
+
+    pWF->nBlockAlign     = (pWF->nChannels * pWF->wBitsPerSample) / 8;
+    pWF->nAvgBytesPerSec = pWF->nBlockAlign * pWF->nSamplesPerSec;
+
+    return MAL_SUCCESS;
+}
+
 mal_result mal_context_get_device_info_from_WAVECAPS(mal_context* pContext, MAL_WAVECAPSA* pCaps, mal_device_info* pDeviceInfo)
 {
     mal_assert(pContext != NULL);
@@ -9603,23 +9690,29 @@ void mal_device_uninit__winmm(mal_device* pDevice)
 
     ((MAL_PFN_waveOutReset)pDevice->pContext->winmm.waveOutReset);
 
+    if (pDevice->type == mal_device_type_capture || pDevice->type == mal_device_type_duplex) {
+        ((MAL_PFN_waveInClose)pDevice->pContext->winmm.waveInClose)((HWAVEIN)pDevice->winmm.hDeviceCapture);
+        CloseHandle((HANDLE)pDevice->winmm.hEventCapture);
+    }
+
     if (pDevice->type == mal_device_type_playback) {
-        ((MAL_PFN_waveOutClose)pDevice->pContext->winmm.waveOutClose)((HWAVEOUT)pDevice->winmm.hDevice);
-    } else {
-        ((MAL_PFN_waveInClose)pDevice->pContext->winmm.waveInClose)((HWAVEIN)pDevice->winmm.hDevice);
+        ((MAL_PFN_waveOutClose)pDevice->pContext->winmm.waveOutClose)((HWAVEOUT)pDevice->winmm.hDevicePlayback);
+        CloseHandle((HANDLE)pDevice->winmm.hEventPlayback);
     }
 
     mal_free(pDevice->winmm._pHeapData);
-    CloseHandle((HANDLE)pDevice->winmm.hEvent);
 
     mal_zero_object(&pDevice->winmm);   // Safety.
 }
 
 mal_result mal_device_init__winmm(mal_context* pContext, const mal_device_config* pConfig, mal_device* pDevice)
 {
-    (void)pContext;
-
+    const char* errorMsg = "";
+    mal_result errorCode = MAL_ERROR;
+    mal_result result = MAL_SUCCESS;
     mal_uint32 heapSize;
+    UINT winMMDeviceIDPlayback = 0;
+    UINT winMMDeviceIDCapture  = 0;
 
     mal_assert(pDevice != NULL);
     mal_zero_object(&pDevice->winmm);
@@ -9644,8 +9737,6 @@ mal_result mal_device_init__winmm(mal_context* pContext, const mal_device_config
         }
     }
 
-    UINT winMMDeviceIDPlayback = 0;
-    UINT winMMDeviceIDCapture  = 0;
     if (pConfig->playback.pDeviceID != NULL) {
         winMMDeviceIDPlayback = (UINT)pConfig->playback.pDeviceID->winmm;
     }
@@ -9653,230 +9744,227 @@ mal_result mal_device_init__winmm(mal_context* pContext, const mal_device_config
         winMMDeviceIDCapture = (UINT)pConfig->capture.pDeviceID->winmm;
     }
 
-    const char* errorMsg = "";
-    mal_result errorCode = MAL_ERROR;
-    mal_result result = MAL_SUCCESS;
-
-    // WinMM doesn't seem to have a good way to query the format of the device. Therefore, we'll restrict the formats to the
-    // standard formats documented here https://msdn.microsoft.com/en-us/library/windows/desktop/dd743855(v=vs.85).aspx. If
-    // that link goes stale, just look up the documentation for WAVEOUTCAPS or WAVEINCAPS.
-    WAVEFORMATEX wf;
-    mal_zero_object(&wf);
-    wf.cbSize          = sizeof(wf);
-    wf.wFormatTag      = WAVE_FORMAT_PCM;
-    wf.nChannels       = (WORD)pConfig->channels;
-    wf.nSamplesPerSec  = (DWORD)pConfig->sampleRate;
-    wf.wBitsPerSample  = (WORD)mal_get_bytes_per_sample(pConfig->format)*8;
-
-    if (wf.nChannels > 2) {
-        wf.nChannels = 2;
-    }
-
-    if (wf.wBitsPerSample != 8 && wf.wBitsPerSample != 16) {
-        if (wf.wBitsPerSample <= 8) {
-            wf.wBitsPerSample = 8;
-        } else {
-            wf.wBitsPerSample = 16;
-        }
-    }
-
-    if (wf.nSamplesPerSec <= 11025) {
-        wf.nSamplesPerSec = 11025;
-    } else if (wf.nSamplesPerSec <= 22050) {
-        wf.nSamplesPerSec = 22050;
-    } else if (wf.nSamplesPerSec <= 44100) {
-        wf.nSamplesPerSec = 44100;
-    } else if (wf.nSamplesPerSec <= 48000) {
-        wf.nSamplesPerSec = 48000;
-    } else {
-        wf.nSamplesPerSec = 96000;
-    }
-
-
-    // Change the format based on the closest match of the supported standard formats.
-    DWORD dwFormats = 0;
-    WORD wChannels = 0;
-    if (pConfig->deviceType == mal_device_type_playback) {
-        WAVEOUTCAPSA caps;
-        if (((MAL_PFN_waveOutGetDevCapsA)pContext->winmm.waveOutGetDevCapsA)(winMMDeviceIDPlayback, &caps, sizeof(caps)) == MMSYSERR_NOERROR) {
-            dwFormats = caps.dwFormats;
-            wChannels = caps.wChannels;
-        } else {
-            errorMsg = "[WinMM] Failed to retrieve internal device caps.", errorCode = MAL_FORMAT_NOT_SUPPORTED;
-            goto on_error;
-        }
-    } else {
+    // The capture device needs to be initialized first.
+    if (pConfig->deviceType == mal_device_type_capture || pConfig->deviceType == mal_device_type_duplex) {
         WAVEINCAPSA caps;
-        if (((MAL_PFN_waveInGetDevCapsA)pContext->winmm.waveInGetDevCapsA)(winMMDeviceIDCapture, &caps, sizeof(caps)) == MMSYSERR_NOERROR) {
-            dwFormats = caps.dwFormats;
-            wChannels = caps.wChannels;
-        } else {
+        WAVEFORMATEX wf;
+        MMRESULT resultMM;
+
+        // We use an event to know when a new fragment needs to be enqueued.
+        pDevice->winmm.hEventCapture = (mal_handle)CreateEvent(NULL, TRUE, TRUE, NULL);
+        if (pDevice->winmm.hEventCapture == NULL) {
+            errorMsg = "[WinMM] Failed to create event for fragment enqueing for the capture device.", errorCode = MAL_FAILED_TO_CREATE_EVENT;
+            goto on_error;
+        }
+
+        // The format should be based on the device's actual format.
+        if (((MAL_PFN_waveInGetDevCapsA)pContext->winmm.waveInGetDevCapsA)(winMMDeviceIDCapture, &caps, sizeof(caps)) != MMSYSERR_NOERROR) {
             errorMsg = "[WinMM] Failed to retrieve internal device caps.", errorCode = MAL_FORMAT_NOT_SUPPORTED;
             goto on_error;
         }
-    }
 
-    if (dwFormats == 0) {
-        errorMsg = "[WinMM] Failed to retrieve the supported formats for the internal device.", errorCode = MAL_FORMAT_NOT_SUPPORTED;
-        goto on_error;
-    }
-
-    wf.nChannels = wChannels;
-
-    result = mal_get_best_info_from_formats_flags__winmm(dwFormats, wChannels, &wf.wBitsPerSample, &wf.nSamplesPerSec);
-    if (result != MAL_SUCCESS) {
-        errorMsg = "[WinMM] Could not find appropriate format for internal device.", errorCode = result;
-        goto on_error;
-    }
-
-    wf.nBlockAlign     = (wf.nChannels * wf.wBitsPerSample) / 8;
-    wf.nAvgBytesPerSec = wf.nBlockAlign * wf.nSamplesPerSec;
-
-
-    // We use an event to know when a new fragment needs to be enqueued.
-    pDevice->winmm.hEvent = (mal_handle)CreateEvent(NULL, TRUE, TRUE, NULL);
-    if (pDevice->winmm.hEvent == NULL) {
-        errorMsg = "[WinMM] Failed to create event for fragment enqueing.", errorCode = MAL_FAILED_TO_CREATE_EVENT;
-        goto on_error;
-    }
-
-
-    if (pConfig->deviceType == mal_device_type_playback) {
-        MMRESULT resultMM = ((MAL_PFN_waveOutOpen)pContext->winmm.waveOutOpen)((LPHWAVEOUT)&pDevice->winmm.hDevice, winMMDeviceIDPlayback, &wf, (DWORD_PTR)pDevice->winmm.hEvent, (DWORD_PTR)pDevice, CALLBACK_EVENT | WAVE_ALLOWSYNC);
-        if (resultMM != MMSYSERR_NOERROR) {
-            errorMsg = "[WinMM] Failed to open playback device.", errorCode = MAL_FAILED_TO_OPEN_BACKEND_DEVICE;
+        result = mal_formats_flags_to_WAVEFORMATEX__winmm(caps.dwFormats, caps.wChannels, &wf);
+        if (result != MAL_SUCCESS) {
+            errorMsg = "[WinMM] Could not find appropriate format for internal device.", errorCode = result;
             goto on_error;
         }
-    } else {
-        MMRESULT resultMM = ((MAL_PFN_waveInOpen)pDevice->pContext->winmm.waveInOpen)((LPHWAVEIN)&pDevice->winmm.hDevice, winMMDeviceIDCapture, &wf, (DWORD_PTR)pDevice->winmm.hEvent, (DWORD_PTR)pDevice, CALLBACK_EVENT | WAVE_ALLOWSYNC);
+
+        resultMM = ((MAL_PFN_waveInOpen)pDevice->pContext->winmm.waveInOpen)((LPHWAVEIN)&pDevice->winmm.hDeviceCapture, winMMDeviceIDCapture, &wf, (DWORD_PTR)pDevice->winmm.hEventCapture, (DWORD_PTR)pDevice, CALLBACK_EVENT | WAVE_ALLOWSYNC);
         if (resultMM != MMSYSERR_NOERROR) {
             errorMsg = "[WinMM] Failed to open capture device.", errorCode = MAL_FAILED_TO_OPEN_BACKEND_DEVICE;
             goto on_error;
         }
-    }
 
+        pDevice->capture.internalFormat     = mal_format_from_WAVEFORMATEX(&wf);
+        pDevice->capture.internalChannels   = wf.nChannels;
+        pDevice->capture.internalSampleRate = wf.nSamplesPerSec;
+        mal_get_standard_channel_map(mal_standard_channel_map_microsoft, pDevice->capture.internalChannels, pDevice->capture.internalChannelMap);
 
-    // The internal formats need to be set based on the wf object.
-    if (wf.wFormatTag == WAVE_FORMAT_PCM) {
-        switch (wf.wBitsPerSample) {
-            case 8:  pDevice->internalFormat = mal_format_u8;  break;
-            case 16: pDevice->internalFormat = mal_format_s16; break;
-            case 24: pDevice->internalFormat = mal_format_s24; break;
-            case 32: pDevice->internalFormat = mal_format_s32; break;
-            default: mal_post_error(pDevice, MAL_LOG_LEVEL_ERROR, "[WinMM] The device's internal format is not supported by mini_al.", MAL_FORMAT_NOT_SUPPORTED);
+        pDevice->capture.internalPeriods = pDevice->periods;
+        pDevice->capture.internalBufferSizeInFrames = pDevice->bufferSizeInFrames;
+        if (pDevice->capture.internalBufferSizeInFrames == 0) {
+            pDevice->capture.internalBufferSizeInFrames = mal_calculate_buffer_size_in_frames_from_milliseconds(pDevice->bufferSizeInMilliseconds, pDevice->capture.internalSampleRate);
         }
+    }
+
+    if (pConfig->deviceType == mal_device_type_playback || pConfig->deviceType == mal_device_type_duplex) {
+        WAVEOUTCAPSA caps;
+        WAVEFORMATEX wf;
+        MMRESULT resultMM;
+
+        // We use an event to know when a new fragment needs to be enqueued.
+        pDevice->winmm.hEventPlayback = (mal_handle)CreateEvent(NULL, TRUE, TRUE, NULL);
+        if (pDevice->winmm.hEventPlayback == NULL) {
+            errorMsg = "[WinMM] Failed to create event for fragment enqueing for the playback device.", errorCode = MAL_FAILED_TO_CREATE_EVENT;
+            goto on_error;
+        }
+
+        // The format should be based on the device's actual format.
+        if (((MAL_PFN_waveOutGetDevCapsA)pContext->winmm.waveOutGetDevCapsA)(winMMDeviceIDPlayback, &caps, sizeof(caps)) != MMSYSERR_NOERROR) {
+            errorMsg = "[WinMM] Failed to retrieve internal device caps.", errorCode = MAL_FORMAT_NOT_SUPPORTED;
+            goto on_error;
+        }
+
+        result = mal_formats_flags_to_WAVEFORMATEX__winmm(caps.dwFormats, caps.wChannels, &wf);
+        if (result != MAL_SUCCESS) {
+            errorMsg = "[WinMM] Could not find appropriate format for internal device.", errorCode = result;
+            goto on_error;
+        }
+
+        resultMM = ((MAL_PFN_waveOutOpen)pContext->winmm.waveOutOpen)((LPHWAVEOUT)&pDevice->winmm.hDevicePlayback, winMMDeviceIDPlayback, &wf, (DWORD_PTR)pDevice->winmm.hEventPlayback, (DWORD_PTR)pDevice, CALLBACK_EVENT | WAVE_ALLOWSYNC);
+        if (resultMM != MMSYSERR_NOERROR) {
+            errorMsg = "[WinMM] Failed to open playback device.", errorCode = MAL_FAILED_TO_OPEN_BACKEND_DEVICE;
+            goto on_error;
+        }
+
+        pDevice->playback.internalFormat     = mal_format_from_WAVEFORMATEX(&wf);
+        pDevice->playback.internalChannels   = wf.nChannels;
+        pDevice->playback.internalSampleRate = wf.nSamplesPerSec;
+        mal_get_standard_channel_map(mal_standard_channel_map_microsoft, pDevice->playback.internalChannels, pDevice->playback.internalChannelMap);
+
+        pDevice->playback.internalPeriods = pDevice->periods;
+        pDevice->playback.internalBufferSizeInFrames = pDevice->bufferSizeInFrames;
+        if (pDevice->playback.internalBufferSizeInFrames == 0) {
+            pDevice->playback.internalBufferSizeInFrames = mal_calculate_buffer_size_in_frames_from_milliseconds(pDevice->bufferSizeInMilliseconds, pDevice->playback.internalSampleRate);
+        }
+    }
+
+
+    // TEMP. FOR BACKWARDS COMPATIBILITY.
+    if (pConfig->deviceType == mal_device_type_capture || pConfig->deviceType == mal_device_type_duplex) {
+        pDevice->internalFormat = pDevice->capture.internalFormat;
+        pDevice->internalChannels = pDevice->capture.internalChannels;
+        pDevice->internalSampleRate = pDevice->capture.internalSampleRate;
+        mal_channel_map_copy(pDevice->internalChannelMap, pDevice->capture.internalChannelMap, pDevice->capture.internalChannels);
+        pDevice->bufferSizeInFrames = pDevice->capture.internalBufferSizeInFrames;
+        pDevice->periods = pDevice->capture.internalPeriods;
     } else {
-        errorMsg = "[WinMM] The device's internal format is not supported by mini_al.", errorCode = MAL_FORMAT_NOT_SUPPORTED;
-        goto on_error;
+        pDevice->internalFormat = pDevice->playback.internalFormat;
+        pDevice->internalChannels = pDevice->playback.internalChannels;
+        pDevice->internalSampleRate = pDevice->playback.internalSampleRate;
+        mal_channel_map_copy(pDevice->internalChannelMap, pDevice->playback.internalChannelMap, pDevice->playback.internalChannels);
+        pDevice->bufferSizeInFrames = pDevice->playback.internalBufferSizeInFrames;
+        pDevice->periods = pDevice->playback.internalPeriods;
     }
 
-    pDevice->internalChannels = wf.nChannels;
-    pDevice->internalSampleRate = wf.nSamplesPerSec;
 
-
-    // Just use the default channel mapping. WinMM only supports mono or stereo anyway so it'll reliably be left/right order for stereo.
-    mal_get_standard_channel_map(mal_standard_channel_map_microsoft, pDevice->internalChannels, pDevice->internalChannelMap);
-
-
-    if (pDevice->bufferSizeInFrames == 0) {
-        pDevice->bufferSizeInFrames = mal_calculate_buffer_size_in_frames_from_milliseconds(pDevice->bufferSizeInMilliseconds, pDevice->internalSampleRate);
+    // The heap allocated data is allocated like so:
+    //
+    // [Capture WAVEHDRs][Playback WAVEHDRs][Capture Intermediary Buffer][Playback Intermediary Buffer]
+    heapSize = 0;
+    if (pConfig->deviceType == mal_device_type_capture || pConfig->deviceType == mal_device_type_duplex) {
+        heapSize += sizeof(WAVEHDR)*pDevice->capture.internalPeriods + (pDevice->capture.internalBufferSizeInFrames*mal_get_bytes_per_frame(pDevice->capture.internalFormat, pDevice->capture.internalChannels));
+    }
+    if (pConfig->deviceType == mal_device_type_playback || pConfig->deviceType == mal_device_type_duplex) {
+        heapSize += sizeof(WAVEHDR)*pDevice->playback.internalPeriods + (pDevice->playback.internalBufferSizeInFrames*mal_get_bytes_per_frame(pDevice->playback.internalFormat, pDevice->playback.internalChannels));
     }
 
-    // The size of the intermediary buffer needs to be able to fit every fragment.
-    pDevice->winmm.fragmentSizeInFrames = pDevice->bufferSizeInFrames / pDevice->periods;
-    pDevice->winmm.fragmentSizeInBytes = pDevice->winmm.fragmentSizeInFrames * mal_get_bytes_per_frame(pDevice->internalFormat, pDevice->internalChannels);
-
-    heapSize = (sizeof(WAVEHDR) * pDevice->periods) + (pDevice->winmm.fragmentSizeInBytes * pDevice->periods);
     pDevice->winmm._pHeapData = (mal_uint8*)mal_malloc(heapSize);
     if (pDevice->winmm._pHeapData == NULL) {
         errorMsg = "[WinMM] Failed to allocate memory for the intermediary buffer.", errorCode = MAL_OUT_OF_MEMORY;
         goto on_error;
     }
 
-    mal_zero_memory(pDevice->winmm._pHeapData, pDevice->winmm.fragmentSizeInBytes * pDevice->periods);
+    mal_zero_memory(pDevice->winmm._pHeapData, heapSize);
 
-    pDevice->winmm.pWAVEHDR = pDevice->winmm._pHeapData;
-    pDevice->winmm.pIntermediaryBuffer = pDevice->winmm._pHeapData + (sizeof(WAVEHDR) * pDevice->periods);
+    if (pConfig->deviceType == mal_device_type_capture || pConfig->deviceType == mal_device_type_duplex) {
+        pDevice->winmm.pWAVEHDRCapture            = pDevice->winmm._pHeapData;
+        pDevice->winmm.pIntermediaryBufferCapture = pDevice->winmm._pHeapData + (sizeof(WAVEHDR)*pDevice->capture.internalPeriods);
 
+        /* Prepare headers. */
+        for (mal_uint32 iPeriod = 0; iPeriod < pDevice->capture.internalPeriods; ++iPeriod) {
+            mal_uint32 fragmentSizeInBytes = mal_get_fragment_size_in_bytes(pDevice->capture.internalBufferSizeInFrames, pDevice->capture.internalPeriods, pDevice->capture.internalFormat, pDevice->capture.internalChannels);
 
-    /* Prepare headers. */
-    for (mal_uint32 iPeriod = 0; iPeriod < pDevice->periods; ++iPeriod) {
-        ((WAVEHDR*)pDevice->winmm.pWAVEHDR)[iPeriod].lpData         = (LPSTR)(pDevice->winmm.pIntermediaryBuffer + (pDevice->winmm.fragmentSizeInBytes * iPeriod));
-        ((WAVEHDR*)pDevice->winmm.pWAVEHDR)[iPeriod].dwBufferLength = pDevice->winmm.fragmentSizeInBytes;
-        ((WAVEHDR*)pDevice->winmm.pWAVEHDR)[iPeriod].dwFlags        = 0L;
-        ((WAVEHDR*)pDevice->winmm.pWAVEHDR)[iPeriod].dwLoops        = 0L;
-        if (pDevice->type == mal_device_type_playback) {
-            ((MAL_PFN_waveOutPrepareHeader)pContext->winmm.waveOutPrepareHeader)((HWAVEOUT)pDevice->winmm.hDevice, &((WAVEHDR*)pDevice->winmm.pWAVEHDR)[iPeriod], sizeof(WAVEHDR));
+            ((WAVEHDR*)pDevice->winmm.pWAVEHDRCapture)[iPeriod].lpData         = (LPSTR)(pDevice->winmm.pIntermediaryBufferCapture + (fragmentSizeInBytes*iPeriod));
+            ((WAVEHDR*)pDevice->winmm.pWAVEHDRCapture)[iPeriod].dwBufferLength = fragmentSizeInBytes;
+            ((WAVEHDR*)pDevice->winmm.pWAVEHDRCapture)[iPeriod].dwFlags        = 0L;
+            ((WAVEHDR*)pDevice->winmm.pWAVEHDRCapture)[iPeriod].dwLoops        = 0L;
+            ((MAL_PFN_waveInPrepareHeader)pContext->winmm.waveInPrepareHeader)((HWAVEIN)pDevice->winmm.hDeviceCapture, &((WAVEHDR*)pDevice->winmm.pWAVEHDRCapture)[iPeriod], sizeof(WAVEHDR));
+
+            /*
+            The user data of the WAVEHDR structure is a single flag the controls whether or not it is ready for writing. Consider it to be named "isLocked". A value of 0 means
+            it's unlocked and available for writing. A value of 1 means it's locked.
+            */
+            ((WAVEHDR*)pDevice->winmm.pWAVEHDRCapture)[iPeriod].dwUser = 0;
+        }
+    }
+    if (pConfig->deviceType == mal_device_type_playback || pConfig->deviceType == mal_device_type_duplex) {
+        if (pConfig->deviceType == mal_device_type_playback) {
+            pDevice->winmm.pWAVEHDRPlayback            = pDevice->winmm._pHeapData;
+            pDevice->winmm.pIntermediaryBufferPlayback = pDevice->winmm._pHeapData + (sizeof(WAVEHDR)*pDevice->playback.internalPeriods);
         } else {
-            ((MAL_PFN_waveInPrepareHeader)pContext->winmm.waveInPrepareHeader)((HWAVEIN)pDevice->winmm.hDevice, &((WAVEHDR*)pDevice->winmm.pWAVEHDR)[iPeriod], sizeof(WAVEHDR));
+            pDevice->winmm.pWAVEHDRPlayback            = pDevice->winmm._pHeapData + (sizeof(WAVEHDR)*(pDevice->playback.internalPeriods));
+            pDevice->winmm.pIntermediaryBufferPlayback = pDevice->winmm._pHeapData + (sizeof(WAVEHDR)*(pDevice->playback.internalPeriods + pDevice->playback.internalPeriods)) + (pDevice->playback.internalBufferSizeInFrames*mal_get_bytes_per_frame(pDevice->playback.internalFormat, pDevice->playback.internalChannels));
         }
 
-        /*
-        The user data of the WAVEHDR structure is a single flag the controls whether or not it is ready for writing. Consider it to be named "isLocked". A value of 0 means
-        it's unlocked and available for writing. A value of 1 means it's locked.
-        */
-        ((WAVEHDR*)pDevice->winmm.pWAVEHDR)[iPeriod].dwUser = 0;
-    }
+        /* Prepare headers. */
+        for (mal_uint32 iPeriod = 0; iPeriod < pDevice->playback.internalPeriods; ++iPeriod) {
+            mal_uint32 fragmentSizeInBytes = mal_get_fragment_size_in_bytes(pDevice->playback.internalBufferSizeInFrames, pDevice->playback.internalPeriods, pDevice->playback.internalFormat, pDevice->playback.internalChannels);
 
+            ((WAVEHDR*)pDevice->winmm.pWAVEHDRPlayback)[iPeriod].lpData         = (LPSTR)(pDevice->winmm.pIntermediaryBufferPlayback + (fragmentSizeInBytes*iPeriod));
+            ((WAVEHDR*)pDevice->winmm.pWAVEHDRPlayback)[iPeriod].dwBufferLength = fragmentSizeInBytes;
+            ((WAVEHDR*)pDevice->winmm.pWAVEHDRPlayback)[iPeriod].dwFlags        = 0L;
+            ((WAVEHDR*)pDevice->winmm.pWAVEHDRPlayback)[iPeriod].dwLoops        = 0L;
+            ((MAL_PFN_waveOutPrepareHeader)pContext->winmm.waveOutPrepareHeader)((HWAVEOUT)pDevice->winmm.hDevicePlayback, &((WAVEHDR*)pDevice->winmm.pWAVEHDRPlayback)[iPeriod], sizeof(WAVEHDR));
+
+            /*
+            The user data of the WAVEHDR structure is a single flag the controls whether or not it is ready for writing. Consider it to be named "isLocked". A value of 0 means
+            it's unlocked and available for writing. A value of 1 means it's locked.
+            */
+            ((WAVEHDR*)pDevice->winmm.pWAVEHDRPlayback)[iPeriod].dwUser = 0;
+        }
+    }
 
     return MAL_SUCCESS;
 
 on_error:
-    if (pDevice->winmm.pWAVEHDR != NULL) {
-        for (mal_uint32 iPeriod = 0; iPeriod < pDevice->periods; ++iPeriod) {
-            if (pDevice->type == mal_device_type_playback) {
-                ((MAL_PFN_waveOutUnprepareHeader)pContext->winmm.waveOutUnprepareHeader)((HWAVEOUT)pDevice->winmm.hDevice, &((WAVEHDR*)pDevice->winmm.pWAVEHDR)[iPeriod], sizeof(WAVEHDR));
-            } else {
-                ((MAL_PFN_waveInUnprepareHeader)pContext->winmm.waveInUnprepareHeader)((HWAVEIN)pDevice->winmm.hDevice, &((WAVEHDR*)pDevice->winmm.pWAVEHDR)[iPeriod], sizeof(WAVEHDR));
+    if (pDevice->type == mal_device_type_capture || pDevice->type == mal_device_type_duplex) {
+        if (pDevice->winmm.pWAVEHDRCapture != NULL) {
+            for (mal_uint32 iPeriod = 0; iPeriod < pDevice->capture.internalPeriods; ++iPeriod) {
+                ((MAL_PFN_waveInUnprepareHeader)pContext->winmm.waveInUnprepareHeader)((HWAVEIN)pDevice->winmm.hDeviceCapture, &((WAVEHDR*)pDevice->winmm.pWAVEHDRCapture)[iPeriod], sizeof(WAVEHDR));
             }
         }
+
+        ((MAL_PFN_waveInClose)pContext->winmm.waveInClose)((HWAVEIN)pDevice->winmm.hDeviceCapture);
     }
 
-    if (pDevice->type == mal_device_type_playback) {
-        ((MAL_PFN_waveOutClose)pContext->winmm.waveOutClose)((HWAVEOUT)pDevice->winmm.hDevice);
-    } else {
-        ((MAL_PFN_waveInClose)pContext->winmm.waveInClose)((HWAVEIN)pDevice->winmm.hDevice);
+    if (pDevice->type == mal_device_type_playback || pDevice->type == mal_device_type_duplex) {
+        if (pDevice->winmm.pWAVEHDRCapture != NULL) {
+            for (mal_uint32 iPeriod = 0; iPeriod < pDevice->playback.internalPeriods; ++iPeriod) {
+                ((MAL_PFN_waveOutUnprepareHeader)pContext->winmm.waveOutUnprepareHeader)((HWAVEOUT)pDevice->winmm.hDevicePlayback, &((WAVEHDR*)pDevice->winmm.pWAVEHDRPlayback)[iPeriod], sizeof(WAVEHDR));
+            }
+        }
+
+        ((MAL_PFN_waveOutClose)pContext->winmm.waveOutClose)((HWAVEOUT)pDevice->winmm.hDevicePlayback);
     }
 
     mal_free(pDevice->winmm._pHeapData);
     return mal_post_error(pDevice, MAL_LOG_LEVEL_ERROR, errorMsg, errorCode);
 }
 
-#if 0
-mal_result mal_device_start__winmm(mal_device* pDevice)
-{
-    mal_assert(pDevice != NULL);
-
-    /* We don't do anything except mark the device as started. */
-
-    if (pDevice->winmm.hDevice == NULL) {
-        return MAL_INVALID_ARGS;
-    }
-
-    pDevice->winmm.iNextHeader = 0;
-    mal_atomic_exchange_32(&pDevice->winmm.isStarted, MAL_TRUE);
-
-    return MAL_SUCCESS;
-}
-#endif
-
 mal_result mal_device_stop__winmm(mal_device* pDevice)
 {
     mal_assert(pDevice != NULL);
 
-    if (pDevice->winmm.hDevice == NULL) {
-        return MAL_INVALID_ARGS;
-    }
-
-    if (pDevice->type == mal_device_type_playback) {
-        MMRESULT resultMM = ((MAL_PFN_waveOutReset)pDevice->pContext->winmm.waveOutReset)((HWAVEOUT)pDevice->winmm.hDevice);
-        if (resultMM != MMSYSERR_NOERROR) {
-            mal_post_error(pDevice, MAL_LOG_LEVEL_ERROR, "[WinMM] WARNING: Failed to reset playback device.", mal_result_from_MMRESULT(resultMM));
+    if (pDevice->type == mal_device_type_capture || pDevice->type == mal_device_type_duplex) {
+        if (pDevice->winmm.hDeviceCapture == NULL) {
+            return MAL_INVALID_ARGS;
         }
-    } else {
-        MMRESULT resultMM = ((MAL_PFN_waveInReset)pDevice->pContext->winmm.waveInReset)((HWAVEIN)pDevice->winmm.hDevice);
+
+        MMRESULT resultMM = ((MAL_PFN_waveInReset)pDevice->pContext->winmm.waveInReset)((HWAVEIN)pDevice->winmm.hDeviceCapture);
         if (resultMM != MMSYSERR_NOERROR) {
             mal_post_error(pDevice, MAL_LOG_LEVEL_ERROR, "[WinMM] WARNING: Failed to reset capture device.", mal_result_from_MMRESULT(resultMM));
+        }
+    }
+
+    if (pDevice->type == mal_device_type_playback || pDevice->type == mal_device_type_duplex) {
+        if (pDevice->winmm.hDevicePlayback == NULL) {
+            return MAL_INVALID_ARGS;
+        }
+
+        MMRESULT resultMM = ((MAL_PFN_waveOutReset)pDevice->pContext->winmm.waveOutReset)((HWAVEOUT)pDevice->winmm.hDevicePlayback);
+        if (resultMM != MMSYSERR_NOERROR) {
+            mal_post_error(pDevice, MAL_LOG_LEVEL_ERROR, "[WinMM] WARNING: Failed to reset playback device.", mal_result_from_MMRESULT(resultMM));
         }
     }
 
@@ -9889,7 +9977,7 @@ mal_result mal_device_write__winmm(mal_device* pDevice, const void* pPCMFrames, 
     mal_result result = MAL_SUCCESS;
     MMRESULT resultMM;
     mal_uint32 totalFramesWritten;
-    WAVEHDR* pWAVEHDR = (WAVEHDR*)pDevice->winmm.pWAVEHDR;
+    WAVEHDR* pWAVEHDR = (WAVEHDR*)pDevice->winmm.pWAVEHDRPlayback;
 
     mal_assert(pDevice != NULL);
     mal_assert(pPCMFrames != NULL);
@@ -9898,32 +9986,32 @@ mal_result mal_device_write__winmm(mal_device* pDevice, const void* pPCMFrames, 
     totalFramesWritten = 0;
     while (totalFramesWritten < frameCount) {
         /* If the current header has some space available we need to write part of it. */
-        if (pWAVEHDR[pDevice->winmm.iNextHeader].dwUser == 0) { /* 0 = unlocked. */
+        if (pWAVEHDR[pDevice->winmm.iNextHeaderPlayback].dwUser == 0) { /* 0 = unlocked. */
             /*
             This header has room in it. We copy as much of it as we can. If we end up fully consuming the buffer we need to
             write it out and move on to the next iteration.
             */
             mal_uint32 bpf = mal_get_bytes_per_frame(pDevice->internalFormat, pDevice->internalChannels);
-            mal_uint32 framesRemainingInHeader = (pWAVEHDR[pDevice->winmm.iNextHeader].dwBufferLength/bpf) - pDevice->winmm.headerFramesConsumedPlayback;
+            mal_uint32 framesRemainingInHeader = (pWAVEHDR[pDevice->winmm.iNextHeaderPlayback].dwBufferLength/bpf) - pDevice->winmm.headerFramesConsumedPlayback;
 
             mal_uint32 framesToCopy = mal_min(framesRemainingInHeader, (frameCount - totalFramesWritten));
             const void* pSrc = mal_offset_ptr(pPCMFrames, totalFramesWritten*bpf);
-            void* pDst = mal_offset_ptr(pWAVEHDR[pDevice->winmm.iNextHeader].lpData, pDevice->winmm.headerFramesConsumedPlayback*bpf);
+            void* pDst = mal_offset_ptr(pWAVEHDR[pDevice->winmm.iNextHeaderPlayback].lpData, pDevice->winmm.headerFramesConsumedPlayback*bpf);
             mal_copy_memory(pDst, pSrc, framesToCopy*bpf);
 
             pDevice->winmm.headerFramesConsumedPlayback += framesToCopy;
             totalFramesWritten += framesToCopy;
 
             /* If we've consumed the buffer entirely we need to write it out to the device. */
-            if (pDevice->winmm.headerFramesConsumedPlayback == (pWAVEHDR[pDevice->winmm.iNextHeader].dwBufferLength/bpf)) {
-                pWAVEHDR[pDevice->winmm.iNextHeader].dwUser = 1;            /* 1 = locked. */
-                pWAVEHDR[pDevice->winmm.iNextHeader].dwFlags &= ~WHDR_DONE; /* <-- Need to make sure the WHDR_DONE flag is unset. */
+            if (pDevice->winmm.headerFramesConsumedPlayback == (pWAVEHDR[pDevice->winmm.iNextHeaderPlayback].dwBufferLength/bpf)) {
+                pWAVEHDR[pDevice->winmm.iNextHeaderPlayback].dwUser = 1;            /* 1 = locked. */
+                pWAVEHDR[pDevice->winmm.iNextHeaderPlayback].dwFlags &= ~WHDR_DONE; /* <-- Need to make sure the WHDR_DONE flag is unset. */
 
                 /* Make sure the event is reset to a non-signaled state to ensure we don't prematurely return from WaitForSingleObject(). */
-                ResetEvent((HANDLE)pDevice->winmm.hEvent);
+                ResetEvent((HANDLE)pDevice->winmm.hEventPlayback);
 
                 /* The device will be started here. */
-                resultMM = ((MAL_PFN_waveOutWrite)pDevice->pContext->winmm.waveOutWrite)((HWAVEOUT)pDevice->winmm.hDevice, &pWAVEHDR[pDevice->winmm.iNextHeader], sizeof(WAVEHDR));
+                resultMM = ((MAL_PFN_waveOutWrite)pDevice->pContext->winmm.waveOutWrite)((HWAVEOUT)pDevice->winmm.hDevicePlayback, &pWAVEHDR[pDevice->winmm.iNextHeaderPlayback], sizeof(WAVEHDR));
                 if (resultMM != MMSYSERR_NOERROR) {
                     result = mal_result_from_MMRESULT(resultMM);
                     mal_post_error(pDevice, MAL_LOG_LEVEL_ERROR, "[WinMM] waveOutWrite() failed.", result);
@@ -9932,7 +10020,7 @@ mal_result mal_device_write__winmm(mal_device* pDevice, const void* pPCMFrames, 
                 mal_atomic_exchange_32(&pDevice->winmm.isStarted, MAL_TRUE);
 
                 /* Make sure we move to the next header. */
-                pDevice->winmm.iNextHeader = (pDevice->winmm.iNextHeader + 1) % pDevice->periods;
+                pDevice->winmm.iNextHeaderPlayback = (pDevice->winmm.iNextHeaderPlayback + 1) % pDevice->periods;
                 pDevice->winmm.headerFramesConsumedPlayback = 0;
             }
 
@@ -9947,14 +10035,14 @@ mal_result mal_device_write__winmm(mal_device* pDevice, const void* pPCMFrames, 
         }
 
         /* Getting here means there isn't enough room in the buffer and we need to wait for one to become available. */
-        if (WaitForSingleObject((HANDLE)pDevice->winmm.hEvent, INFINITE) != WAIT_OBJECT_0) {
+        if (WaitForSingleObject((HANDLE)pDevice->winmm.hEventPlayback, INFINITE) != WAIT_OBJECT_0) {
             result = MAL_ERROR;
             break;
         }
 
         /* Something happened. If the next buffer has been marked as done we need to reset a bit of state. */
-        if ((pWAVEHDR[pDevice->winmm.iNextHeader].dwFlags & WHDR_DONE) != 0) {
-            pWAVEHDR[pDevice->winmm.iNextHeader].dwUser = 0;    /* 0 = unlocked (make it available for writing). */
+        if ((pWAVEHDR[pDevice->winmm.iNextHeaderPlayback].dwFlags & WHDR_DONE) != 0) {
+            pWAVEHDR[pDevice->winmm.iNextHeaderPlayback].dwUser = 0;    /* 0 = unlocked (make it available for writing). */
             pDevice->winmm.headerFramesConsumedPlayback = 0;
         }
 
@@ -9975,16 +10063,16 @@ mal_result mal_device_read__winmm(mal_device* pDevice, void* pPCMFrames, mal_uin
     mal_result result = MAL_SUCCESS;
     MMRESULT resultMM;
     mal_uint32 totalFramesRead;
-    WAVEHDR* pWAVEHDR = (WAVEHDR*)pDevice->winmm.pWAVEHDR;
+    WAVEHDR* pWAVEHDR = (WAVEHDR*)pDevice->winmm.pWAVEHDRCapture;
 
     /* We want to start the device immediately. */
     if (!pDevice->winmm.isStarted) {
         /* Make sure the event is reset to a non-signaled state to ensure we don't prematurely return from WaitForSingleObject(). */
-        ResetEvent((HANDLE)pDevice->winmm.hEvent);
+        ResetEvent((HANDLE)pDevice->winmm.hEventCapture);
 
         /* To start the device we attach all of the buffers and then start it. As the buffers are filled with data we will get notifications. */
         for (mal_uint32 iPeriod = 0; iPeriod < pDevice->periods; ++iPeriod) {
-            resultMM = ((MAL_PFN_waveInAddBuffer)pDevice->pContext->winmm.waveInAddBuffer)((HWAVEIN)pDevice->winmm.hDevice, &((LPWAVEHDR)pDevice->winmm.pWAVEHDR)[iPeriod], sizeof(WAVEHDR));
+            resultMM = ((MAL_PFN_waveInAddBuffer)pDevice->pContext->winmm.waveInAddBuffer)((HWAVEIN)pDevice->winmm.hDeviceCapture, &((LPWAVEHDR)pDevice->winmm.pWAVEHDRCapture)[iPeriod], sizeof(WAVEHDR));
             if (resultMM != MMSYSERR_NOERROR) {
                 return mal_post_error(pDevice, MAL_LOG_LEVEL_ERROR, "[WinMM] Failed to attach input buffers to capture device in preparation for capture.", mal_result_from_MMRESULT(resultMM));
             }
@@ -9994,7 +10082,7 @@ mal_result mal_device_read__winmm(mal_device* pDevice, void* pPCMFrames, mal_uin
         }
 
         /* Capture devices need to be explicitly started, unlike playback devices. */
-        resultMM = ((MAL_PFN_waveInStart)pDevice->pContext->winmm.waveInStart)((HWAVEIN)pDevice->winmm.hDevice);
+        resultMM = ((MAL_PFN_waveInStart)pDevice->pContext->winmm.waveInStart)((HWAVEIN)pDevice->winmm.hDeviceCapture);
         if (resultMM != MMSYSERR_NOERROR) {
             return mal_post_error(pDevice, MAL_LOG_LEVEL_ERROR, "[WinMM] Failed to start backend device.", mal_result_from_MMRESULT(resultMM));
         }
@@ -10006,13 +10094,13 @@ mal_result mal_device_read__winmm(mal_device* pDevice, void* pPCMFrames, mal_uin
     totalFramesRead = 0;
     while (totalFramesRead < frameCount) {
         /* If the current header has some space available we need to write part of it. */
-        if (pWAVEHDR[pDevice->winmm.iNextHeader].dwUser == 0) { /* 0 = unlocked. */
+        if (pWAVEHDR[pDevice->winmm.iNextHeaderCapture].dwUser == 0) { /* 0 = unlocked. */
             /* The buffer is available for reading. If we fully consume it we need to add it back to the buffer. */
             mal_uint32 bpf = mal_get_bytes_per_frame(pDevice->internalFormat, pDevice->internalChannels);
-            mal_uint32 framesRemainingInHeader = (pWAVEHDR[pDevice->winmm.iNextHeader].dwBufferLength/bpf) - pDevice->winmm.headerFramesConsumedCapture;
+            mal_uint32 framesRemainingInHeader = (pWAVEHDR[pDevice->winmm.iNextHeaderCapture].dwBufferLength/bpf) - pDevice->winmm.headerFramesConsumedCapture;
 
             mal_uint32 framesToCopy = mal_min(framesRemainingInHeader, (frameCount - totalFramesRead));
-            const void* pSrc = mal_offset_ptr(pWAVEHDR[pDevice->winmm.iNextHeader].lpData, pDevice->winmm.headerFramesConsumedCapture*bpf);
+            const void* pSrc = mal_offset_ptr(pWAVEHDR[pDevice->winmm.iNextHeaderCapture].lpData, pDevice->winmm.headerFramesConsumedCapture*bpf);
             void* pDst = mal_offset_ptr(pPCMFrames, totalFramesRead*bpf);
             mal_copy_memory(pDst, pSrc, framesToCopy*bpf);
 
@@ -10020,15 +10108,15 @@ mal_result mal_device_read__winmm(mal_device* pDevice, void* pPCMFrames, mal_uin
             totalFramesRead += framesToCopy;
 
             /* If we've consumed the buffer entirely we need to add it back to the device. */
-            if (pDevice->winmm.headerFramesConsumedCapture == (pWAVEHDR[pDevice->winmm.iNextHeader].dwBufferLength/bpf)) {
-                pWAVEHDR[pDevice->winmm.iNextHeader].dwUser = 1;            /* 1 = locked. */
-                pWAVEHDR[pDevice->winmm.iNextHeader].dwFlags &= ~WHDR_DONE; /* <-- Need to make sure the WHDR_DONE flag is unset. */
+            if (pDevice->winmm.headerFramesConsumedCapture == (pWAVEHDR[pDevice->winmm.iNextHeaderCapture].dwBufferLength/bpf)) {
+                pWAVEHDR[pDevice->winmm.iNextHeaderCapture].dwUser = 1;            /* 1 = locked. */
+                pWAVEHDR[pDevice->winmm.iNextHeaderCapture].dwFlags &= ~WHDR_DONE; /* <-- Need to make sure the WHDR_DONE flag is unset. */
 
                 /* Make sure the event is reset to a non-signaled state to ensure we don't prematurely return from WaitForSingleObject(). */
-                ResetEvent((HANDLE)pDevice->winmm.hEvent);
+                ResetEvent((HANDLE)pDevice->winmm.hEventCapture);
 
                 /* The device will be started here. */
-                resultMM = ((MAL_PFN_waveInAddBuffer)pDevice->pContext->winmm.waveInAddBuffer)((HWAVEIN)pDevice->winmm.hDevice, &((LPWAVEHDR)pDevice->winmm.pWAVEHDR)[pDevice->winmm.iNextHeader], sizeof(WAVEHDR));
+                resultMM = ((MAL_PFN_waveInAddBuffer)pDevice->pContext->winmm.waveInAddBuffer)((HWAVEIN)pDevice->winmm.hDeviceCapture, &((LPWAVEHDR)pDevice->winmm.pWAVEHDRCapture)[pDevice->winmm.iNextHeaderCapture], sizeof(WAVEHDR));
                 if (resultMM != MMSYSERR_NOERROR) {
                     result = mal_result_from_MMRESULT(resultMM);
                     mal_post_error(pDevice, MAL_LOG_LEVEL_ERROR, "[WinMM] waveInAddBuffer() failed.", result);
@@ -10036,7 +10124,7 @@ mal_result mal_device_read__winmm(mal_device* pDevice, void* pPCMFrames, mal_uin
                 }
 
                 /* Make sure we move to the next header. */
-                pDevice->winmm.iNextHeader = (pDevice->winmm.iNextHeader + 1) % pDevice->periods;
+                pDevice->winmm.iNextHeaderCapture = (pDevice->winmm.iNextHeaderCapture + 1) % pDevice->periods;
                 pDevice->winmm.headerFramesConsumedCapture = 0;
             }
 
@@ -10051,14 +10139,14 @@ mal_result mal_device_read__winmm(mal_device* pDevice, void* pPCMFrames, mal_uin
         }
 
         /* Getting here means there isn't enough any data left to send to the client which means we need to wait for more. */
-        if (WaitForSingleObject((HANDLE)pDevice->winmm.hEvent, INFINITE) != WAIT_OBJECT_0) {
+        if (WaitForSingleObject((HANDLE)pDevice->winmm.hEventCapture, INFINITE) != WAIT_OBJECT_0) {
             result = MAL_ERROR;
             break;
         }
 
         /* Something happened. If the next buffer has been marked as done we need to reset a bit of state. */
-        if ((pWAVEHDR[pDevice->winmm.iNextHeader].dwFlags & WHDR_DONE) != 0) {
-            pWAVEHDR[pDevice->winmm.iNextHeader].dwUser = 0;    /* 0 = unlocked (make it available for reading). */
+        if ((pWAVEHDR[pDevice->winmm.iNextHeaderCapture].dwFlags & WHDR_DONE) != 0) {
+            pWAVEHDR[pDevice->winmm.iNextHeaderCapture].dwUser = 0;    /* 0 = unlocked (make it available for reading). */
             pDevice->winmm.headerFramesConsumedCapture = 0;
         }
 
@@ -29072,7 +29160,7 @@ Context
 
 Device
 ------
-- If a full-duplex device is requested and the backend does not support full duplex devices have mal_device_init__[backend]()
+- If a full-duplex device is requested and the backend does not support full duplex devices, have mal_device_init__[backend]()
   return MAL_DEVICE_TYPE_NOT_SUPPORTED.
 - If exclusive mode is requested, but the backend does not support it, return MAL_SHARE_MODE_NOT_SUPPORTED. If practical, try
   not to fall back to a different share mode - give the client exactly what they asked for. Some backends, such as ALSA, may
