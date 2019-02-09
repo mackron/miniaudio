@@ -38,10 +38,10 @@ int main(int argc, char** argv)
 
     drwav_data_format wavFormat;
     wavFormat.container     = drwav_container_riff;
-    wavFormat.format        = DR_WAVE_FORMAT_IEEE_FLOAT;
+    wavFormat.format        = DR_WAVE_FORMAT_PCM;
     wavFormat.channels      = 2;
     wavFormat.sampleRate    = 44100;
-    wavFormat.bitsPerSample = 32;
+    wavFormat.bitsPerSample = 16;
 
     drwav wav;
     if (drwav_init_file_write(&wav, "output.wav", &wavFormat) == DRWAV_FALSE) {
@@ -64,14 +64,14 @@ int main(int argc, char** argv)
 
     mal_device_config deviceConfig = mal_device_config_init(mal_device_type_duplex);
     deviceConfig.capture.pDeviceID  = NULL;
-    deviceConfig.capture.format     = mal_format_f32;
+    deviceConfig.capture.format     = mal_format_s16;
     deviceConfig.capture.channels   = 2;
     deviceConfig.playback.pDeviceID = NULL;
-    deviceConfig.playback.format    = mal_format_f32;
+    deviceConfig.playback.format    = mal_format_s16;
     deviceConfig.playback.channels  = 2;
     deviceConfig.sampleRate         = 44100;
-    deviceConfig.bufferSizeInMilliseconds = 50;
-    deviceConfig.periods            = 3;
+    deviceConfig.bufferSizeInMilliseconds = 100;
+    deviceConfig.periods            = 2;
     deviceConfig.dataCallback       = data_callback;
     deviceConfig.stopCallback       = stop_callback;
     deviceConfig.pUserData          = &wav;

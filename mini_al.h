@@ -2089,7 +2089,8 @@ MAL_ALIGNED_STRUCT(MAL_SIMD_ALIGNMENT) mal_device
             /*LPDIRECTSOUNDBUFFER*/ mal_ptr pPlaybackBuffer;
             /*LPDIRECTSOUNDCAPTURE*/ mal_ptr pCapture;
             /*LPDIRECTSOUNDCAPTUREBUFFER*/ mal_ptr pCaptureBuffer;
-            mal_uint32 iNextPeriod; /* Circular. Keeps track of the next period that's due for an update. */
+            mal_uint32 iNextPeriodPlayback; /* Circular. Keeps track of the next period that's due for an update. */
+            mal_uint32 iNextPeriodCapture;
             void* pMappedBufferPlayback;
             void* pMappedBufferCapture;
             mal_uint32 mappedBufferFramesRemainingPlayback;
@@ -8912,7 +8913,7 @@ mal_result mal_device_get_current_frame__dsound(mal_device* pDevice, mal_device_
 mal_result mal_device_map_next_playback_buffer__dsound(mal_device* pDevice)
 {
     DWORD periodSizeInBytes = (pDevice->bufferSizeInFrames / pDevice->periods) * mal_get_bytes_per_frame(pDevice->playback.internalFormat, pDevice->playback.internalChannels);
-    DWORD lockOffset = (pDevice->dsound.iNextPeriod * periodSizeInBytes);
+    DWORD lockOffset = (pDevice->dsound.iNextPeriodPlayback * periodSizeInBytes);
     DWORD mappedSizeInBytes;
     HRESULT hr = mal_IDirectSoundBuffer_Lock((mal_IDirectSoundBuffer*)pDevice->dsound.pPlaybackBuffer, lockOffset, periodSizeInBytes, &pDevice->dsound.pMappedBufferPlayback, &mappedSizeInBytes, NULL, NULL, 0);
     if (FAILED(hr)) {
@@ -8967,7 +8968,7 @@ mal_result mal_device_write__dsound(mal_device* pDevice, const void* pPCMFrames,
             pDevice->dsound.pMappedBufferPlayback = NULL;
             pDevice->dsound.mappedBufferFramesRemainingPlayback = 0;
             pDevice->dsound.mappedBufferFramesCapacityPlayback = 0;
-            pDevice->dsound.iNextPeriod = (pDevice->dsound.iNextPeriod + 1) % pDevice->periods;
+            pDevice->dsound.iNextPeriodPlayback = (pDevice->dsound.iNextPeriodPlayback + 1) % pDevice->periods;
 
             if (FAILED(hr)) {
                 result = MAL_FAILED_TO_UNMAP_DEVICE_BUFFER;
@@ -9008,8 +9009,8 @@ mal_result mal_device_write__dsound(mal_device* pDevice, const void* pPCMFrames,
                 break;  /* Failed to get the current frame. */
             }
 
-            mal_uint32 periodSizeInFrames = pDevice->bufferSizeInFrames/pDevice->periods;
-            if ((currentPos - (pDevice->dsound.iNextPeriod * periodSizeInFrames)) >= periodSizeInFrames) {
+            mal_uint32 periodSizeInFrames = pDevice->playback.internalBufferSizeInFrames / pDevice->playback.internalPeriods;
+            if ((currentPos - (pDevice->dsound.iNextPeriodPlayback * periodSizeInFrames)) >= periodSizeInFrames) {
                 break;  /* There's enough room. */
             }
 
@@ -9042,7 +9043,7 @@ mal_result mal_device_write__dsound(mal_device* pDevice, const void* pPCMFrames,
 mal_result mal_device_map_next_capture_buffer__dsound(mal_device* pDevice)
 {
     DWORD periodSizeInBytes = (pDevice->bufferSizeInFrames / pDevice->periods) * mal_get_bytes_per_frame(pDevice->capture.internalFormat, pDevice->capture.internalChannels);
-    DWORD lockOffset = (pDevice->dsound.iNextPeriod * periodSizeInBytes);
+    DWORD lockOffset = (pDevice->dsound.iNextPeriodCapture * periodSizeInBytes);
     DWORD mappedSizeInBytes;
     HRESULT hr = mal_IDirectSoundCaptureBuffer_Lock((mal_IDirectSoundCaptureBuffer*)pDevice->dsound.pCaptureBuffer, lockOffset, periodSizeInBytes, &pDevice->dsound.pMappedBufferCapture, &mappedSizeInBytes, NULL, NULL, 0);
     if (FAILED(hr)) {
@@ -9094,7 +9095,7 @@ mal_result mal_device_read__dsound(mal_device* pDevice, void* pPCMFrames, mal_ui
             pDevice->dsound.pMappedBufferCapture = NULL;
             pDevice->dsound.mappedBufferFramesRemainingCapture = 0;
             pDevice->dsound.mappedBufferFramesCapacityCapture = 0;
-            pDevice->dsound.iNextPeriod = (pDevice->dsound.iNextPeriod + 1) % pDevice->periods;
+            pDevice->dsound.iNextPeriodCapture = (pDevice->dsound.iNextPeriodCapture + 1) % pDevice->periods;
 
             if (FAILED(hr)) {
                 result = MAL_FAILED_TO_UNMAP_DEVICE_BUFFER;
@@ -9120,8 +9121,8 @@ mal_result mal_device_read__dsound(mal_device* pDevice, void* pPCMFrames, mal_ui
                 break;  /* Failed to get the current frame. */
             }
 
-            mal_uint32 periodSizeInFrames = pDevice->bufferSizeInFrames/pDevice->periods;
-            if ((currentPos - (pDevice->dsound.iNextPeriod * periodSizeInFrames)) >= periodSizeInFrames) {
+            mal_uint32 periodSizeInFrames = pDevice->capture.internalBufferSizeInFrames / pDevice->capture.internalPeriods;
+            if ((currentPos - (pDevice->dsound.iNextPeriodCapture * periodSizeInFrames)) >= periodSizeInFrames) {
                 break;  /* There's enough room. */
             }
 
@@ -9831,8 +9832,13 @@ mal_result mal_device_init__winmm(mal_context* pContext, const mal_device_config
     mal_zero_memory(pDevice->winmm._pHeapData, heapSize);
 
     if (pConfig->deviceType == mal_device_type_capture || pConfig->deviceType == mal_device_type_duplex) {
-        pDevice->winmm.pWAVEHDRCapture            = pDevice->winmm._pHeapData;
-        pDevice->winmm.pIntermediaryBufferCapture = pDevice->winmm._pHeapData + (sizeof(WAVEHDR)*pDevice->capture.internalPeriods);
+        if (pConfig->deviceType == mal_device_type_capture) {
+            pDevice->winmm.pWAVEHDRCapture            = pDevice->winmm._pHeapData;
+            pDevice->winmm.pIntermediaryBufferCapture = pDevice->winmm._pHeapData + (sizeof(WAVEHDR)*(pDevice->capture.internalPeriods));
+        } else {
+            pDevice->winmm.pWAVEHDRCapture            = pDevice->winmm._pHeapData;
+            pDevice->winmm.pIntermediaryBufferCapture = pDevice->winmm._pHeapData + (sizeof(WAVEHDR)*(pDevice->capture.internalPeriods + pDevice->playback.internalPeriods));
+        }
 
         /* Prepare headers. */
         for (mal_uint32 iPeriod = 0; iPeriod < pDevice->capture.internalPeriods; ++iPeriod) {
@@ -9856,8 +9862,8 @@ mal_result mal_device_init__winmm(mal_context* pContext, const mal_device_config
             pDevice->winmm.pWAVEHDRPlayback            = pDevice->winmm._pHeapData;
             pDevice->winmm.pIntermediaryBufferPlayback = pDevice->winmm._pHeapData + (sizeof(WAVEHDR)*pDevice->playback.internalPeriods);
         } else {
-            pDevice->winmm.pWAVEHDRPlayback            = pDevice->winmm._pHeapData + (sizeof(WAVEHDR)*(pDevice->playback.internalPeriods));
-            pDevice->winmm.pIntermediaryBufferPlayback = pDevice->winmm._pHeapData + (sizeof(WAVEHDR)*(pDevice->playback.internalPeriods + pDevice->playback.internalPeriods)) + (pDevice->playback.internalBufferSizeInFrames*mal_get_bytes_per_frame(pDevice->playback.internalFormat, pDevice->playback.internalChannels));
+            pDevice->winmm.pWAVEHDRPlayback            = pDevice->winmm._pHeapData + (sizeof(WAVEHDR)*(pDevice->capture.internalPeriods));
+            pDevice->winmm.pIntermediaryBufferPlayback = pDevice->winmm._pHeapData + (sizeof(WAVEHDR)*(pDevice->capture.internalPeriods + pDevice->playback.internalPeriods)) + (pDevice->playback.internalBufferSizeInFrames*mal_get_bytes_per_frame(pDevice->playback.internalFormat, pDevice->playback.internalChannels));
         }
 
         /* Prepare headers. */
@@ -20784,6 +20790,10 @@ mal_thread_result MAL_THREADCALL mal_worker_thread(void* pData)
                                 if (result != MAL_SUCCESS) {
                                     break;
                                 }
+
+                                if (playbackDeviceFramesCount < playbackDeviceDataCapInFrames) {
+                                    break;
+                                }
                             }
 
                             if (capturedFramesToProcess < capturedFramesToTryProcessing) {
@@ -20801,7 +20811,7 @@ mal_thread_result MAL_THREADCALL mal_worker_thread(void* pData)
                 }
             } else {
                 mal_uint8  buffer[4096];
-                mal_uint32 bufferSizeInFrames;// = sizeof(buffer) / mal_get_bytes_per_frame(pDevice->internalFormat, pDevice->internalChannels);
+                mal_uint32 bufferSizeInFrames;
                 if (pDevice->type == mal_device_type_capture) {
                     bufferSizeInFrames = sizeof(buffer) / mal_get_bytes_per_frame(pDevice->capture.internalFormat, pDevice->capture.internalChannels);
                 } else {
@@ -27950,7 +27960,6 @@ mal_uint32 mal_decoder_internal_on_read_pcm_frames__flac(mal_pcm_converter* pDSP
 
     mal_decoder* pDecoder = (mal_decoder*)pUserData;
     mal_assert(pDecoder != NULL);
-    mal_assert(pDecoder->internalFormat == mal_format_s32);
 
     drflac* pFlac = (drflac*)pDecoder->pInternalDecoder;
     mal_assert(pFlac != NULL);
