@@ -68,5 +68,8 @@
     <ClInclude Include="..\research\mal_resampler.h">
       <Filter>Source Files</Filter>
     </ClInclude>
+    <ClInclude Include="..\research\mal_ring_buffer.h">
+      <Filter>Source Files</Filter>
+    </ClInclude>
   </ItemGroup>
 </Project>
