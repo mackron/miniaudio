@@ -1575,10 +1575,7 @@ typedef struct
 typedef struct
 {
     mal_device_type deviceType;
-    mal_format format;
-    mal_uint32 channels;
     mal_uint32 sampleRate;
-    mal_channel channelMap[MAL_MAX_CHANNELS];
     mal_uint32 bufferSizeInFrames;
     mal_uint32 bufferSizeInMilliseconds;
     mal_uint32 periods;
@@ -2001,12 +1998,9 @@ MAL_ALIGNED_STRUCT(MAL_SIMD_ALIGNMENT) mal_device
 {
     mal_context* pContext;
     mal_device_type type;
-    mal_format format;
-    mal_uint32 channels;
     mal_uint32 sampleRate;
-    mal_channel channelMap[MAL_MAX_CHANNELS];
     mal_uint32 bufferSizeInFrames;
-    mal_uint32 bufferSizeInMilliseconds;
+    mal_uint32 bufferSizeInMilliseconds;    /* Does this need to exist? */
     mal_uint32 periods;
     mal_uint32 state;
     mal_device_callback_proc onData;
@@ -2018,32 +2012,19 @@ MAL_ALIGNED_STRUCT(MAL_SIMD_ALIGNMENT) mal_device
     mal_event stopEvent;
     mal_thread thread;
     mal_result workResult;          // This is set by the worker thread after it's finished doing a job.
-    mal_bool32 usingDefaultFormat     : 1;
-    mal_bool32 usingDefaultChannels   : 1;
     mal_bool32 usingDefaultSampleRate : 1;
-    mal_bool32 usingDefaultChannelMap : 1;
     mal_bool32 usingDefaultBufferSize : 1;
     mal_bool32 usingDefaultPeriods    : 1;
     mal_bool32 isOwnerOfContext       : 1;  // When set to true, uninitializing the device will also uninitialize the context. Set to true when NULL is passed into mal_device_init().
-    mal_format internalFormat;
-    mal_uint32 internalChannels;
-    mal_uint32 internalSampleRate;
-    mal_channel internalChannelMap[MAL_MAX_CHANNELS];
-    mal_pcm_converter dsp;                    // Samples run through this to convert samples to a format suitable for use by the backend.
-    mal_uint32 _dspFrameCount;      // Internal use only. Used when running the device -> DSP -> client pipeline. See mal_device__on_read_from_device().
-    const mal_uint8* _dspFrames;    // ^^^ AS ABOVE ^^^
-
     struct
     {
         char name[256]; /* Maybe temporary. Likely to be replaced with a query API. */
         mal_share_mode shareMode;       /* Set to whatever was passed in when the device was initialized. */
         mal_bool32 usingDefaultFormat     : 1;
         mal_bool32 usingDefaultChannels   : 1;
-        mal_bool32 usingDefaultSampleRate : 1;
         mal_bool32 usingDefaultChannelMap : 1;
         mal_format format;
         mal_uint32 channels;
-        mal_uint32 sampleRate;
         mal_channel channelMap[MAL_MAX_CHANNELS];
         mal_format internalFormat;
         mal_uint32 internalChannels;
@@ -2061,11 +2042,9 @@ MAL_ALIGNED_STRUCT(MAL_SIMD_ALIGNMENT) mal_device
         mal_share_mode shareMode;       /* Set to whatever was passed in when the device was initialized. */
         mal_bool32 usingDefaultFormat     : 1;
         mal_bool32 usingDefaultChannels   : 1;
-        mal_bool32 usingDefaultSampleRate : 1;
         mal_bool32 usingDefaultChannelMap : 1;
         mal_format format;
         mal_uint32 channels;
-        mal_uint32 sampleRate;
         mal_channel channelMap[MAL_MAX_CHANNELS];
         mal_format internalFormat;
         mal_uint32 internalChannels;
@@ -2100,7 +2079,6 @@ MAL_ALIGNED_STRUCT(MAL_SIMD_ALIGNMENT) mal_device
             mal_bool32 hasDefaultPlaybackDeviceChanged;         /* <-- Make sure this is always a whole 32-bits because we use atomic assignments. */
             mal_bool32 hasDefaultCaptureDeviceChanged;          /* <-- Make sure this is always a whole 32-bits because we use atomic assignments. */
             mal_bool32 isStarted;
-            
         } wasapi;
 #endif
 #ifdef MAL_SUPPORT_DSOUND
@@ -2167,8 +2145,10 @@ MAL_ALIGNED_STRUCT(MAL_SIMD_ALIGNMENT) mal_device
         struct
         {
             /*jack_client_t**/ mal_ptr pClient;
-            /*jack_port_t**/ mal_ptr pPorts[MAL_MAX_CHANNELS];
-            float* pIntermediaryBuffer; // Typed as a float because JACK is always floating point.
+            /*jack_port_t**/ mal_ptr pPortsPlayback[MAL_MAX_CHANNELS];
+            /*jack_port_t**/ mal_ptr pPortsCapture[MAL_MAX_CHANNELS];
+            float* pIntermediaryBufferPlayback; // Typed as a float because JACK is always floating point.
+            float* pIntermediaryBufferCapture;
         } jack;
 #endif
 #ifdef MAL_SUPPORT_COREAUDIO
@@ -2510,14 +2490,6 @@ mal_result mal_device_stop(mal_device* pDevice);
 //   If another thread calls mal_device_start() or mal_device_stop() at this same time as this function
 //   is called, there's a very small chance the return value will be out of sync.
 mal_bool32 mal_device_is_started(mal_device* pDevice);
-
-// Retrieves the size of the buffer in bytes for the given device.
-//
-// This API is efficient and is implemented with just a few 32-bit integer multiplications.
-//
-// Thread Safety: SAFE
-//   This is calculated from constant values which are set at initialization time and never change.
-mal_uint32 mal_device_get_buffer_size_in_bytes(mal_device* pDevice);
 
 
 // Helper function for initializing a mal_context_config object.
@@ -4602,31 +4574,6 @@ mal_uint32 mal_device__on_read_from_client(mal_pcm_converter* pDSP, mal_uint32 f
     return 0;
 }
 
-// The callback for reading from the device -> DSP -> client.
-mal_uint32 mal_device__on_read_from_device(mal_pcm_converter* pDSP, mal_uint32 frameCount, void* pFramesOut, void* pUserData)
-{
-    (void)pDSP;
-
-    mal_device* pDevice = (mal_device*)pUserData;
-    mal_assert(pDevice != NULL);
-
-    if (pDevice->_dspFrameCount == 0) {
-        return 0;   // Nothing left.
-    }
-
-    mal_uint32 framesToRead = frameCount;
-    if (framesToRead > pDevice->_dspFrameCount) {
-        framesToRead = pDevice->_dspFrameCount;
-    }
-
-    mal_uint32 bytesToRead = framesToRead * mal_get_bytes_per_frame(pDevice->internalFormat, pDevice->internalChannels);
-    mal_copy_memory(pFramesOut, pDevice->_dspFrames, bytesToRead);
-    pDevice->_dspFrameCount -= framesToRead;
-    pDevice->_dspFrames += bytesToRead;
-
-    return framesToRead;
-}
-
 /* The PCM converter callback for reading from a buffer. */
 mal_uint32 mal_device__pcm_converter__on_read_from_buffer_capture(mal_pcm_converter* pConverter, mal_uint32 frameCount, void* pFramesOut, void* pUserData)
 {
@@ -4682,11 +4629,11 @@ static MAL_INLINE mal_uint32 mal_device__read_frames_from_client(mal_device* pDe
     mal_assert(frameCount > 0);
     mal_assert(pSamples != NULL);
 
-    mal_uint32 framesRead     = (mal_uint32)mal_pcm_converter_read(&pDevice->dsp, frameCount, pSamples, pDevice->dsp.pUserData);
-    mal_uint32 samplesRead    = framesRead * pDevice->internalChannels;
-    mal_uint32 sampleSize     = mal_get_bytes_per_sample(pDevice->internalFormat);
+    mal_uint32 framesRead     = (mal_uint32)mal_pcm_converter_read(&pDevice->playback.converter, frameCount, pSamples, pDevice->playback.converter.pUserData);
+    mal_uint32 samplesRead    = framesRead * pDevice->playback.internalChannels;
+    mal_uint32 sampleSize     = mal_get_bytes_per_sample(pDevice->playback.internalFormat);
     mal_uint32 consumedBytes  = samplesRead*sampleSize;
-    mal_uint32 remainingBytes = ((frameCount * pDevice->internalChannels) - samplesRead)*sampleSize;
+    mal_uint32 remainingBytes = ((frameCount * pDevice->playback.internalChannels) - samplesRead)*sampleSize;
     mal_zero_memory((mal_uint8*)pSamples + consumedBytes, remainingBytes);
 
     return samplesRead;
@@ -4701,14 +4648,14 @@ static MAL_INLINE void mal_device__send_frames_to_client(mal_device* pDevice, ma
 
     mal_device_callback_proc onData = pDevice->onData;
     if (onData) {
-        pDevice->_dspFrameCount = frameCount;
-        pDevice->_dspFrames = (const mal_uint8*)pSamples;
+        pDevice->capture._dspFrameCount = frameCount;
+        pDevice->capture._dspFrames = (const mal_uint8*)pSamples;
 
         mal_uint8 chunkBuffer[4096];
-        mal_uint32 chunkFrameCount = sizeof(chunkBuffer) / mal_get_bytes_per_frame(pDevice->format, pDevice->channels);
+        mal_uint32 chunkFrameCount = sizeof(chunkBuffer) / mal_get_bytes_per_frame(pDevice->capture.format, pDevice->capture.channels);
 
         for (;;) {
-            mal_uint32 framesJustRead = (mal_uint32)mal_pcm_converter_read(&pDevice->dsp, chunkFrameCount, chunkBuffer, pDevice->dsp.pUserData);
+            mal_uint32 framesJustRead = (mal_uint32)mal_pcm_converter_read(&pDevice->capture.converter, chunkFrameCount, chunkBuffer, pDevice->capture.converter.pUserData);
             if (framesJustRead == 0) {
                 break;
             }
@@ -4928,7 +4875,15 @@ mal_result mal_device_do_operation__null(mal_device* pDevice, mal_uint32 operati
 
 mal_uint64 mal_device_get_total_run_time_in_frames__null(mal_device* pDevice)
 {
-    return (mal_uint64)((pDevice->null_device.priorRunTime + mal_timer_get_time_in_seconds(&pDevice->null_device.timer)) * pDevice->internalSampleRate);
+    mal_uint32 internalSampleRate;
+    if (pDevice->type == mal_device_type_capture || pDevice->type == mal_device_type_duplex) {
+        internalSampleRate = pDevice->capture.internalSampleRate;
+    } else {
+        internalSampleRate = pDevice->playback.internalSampleRate;
+    }
+
+
+    return (mal_uint64)((pDevice->null_device.priorRunTime + mal_timer_get_time_in_seconds(&pDevice->null_device.timer)) * internalSampleRate);
 }
 
 mal_bool32 mal_context_is_device_id_equal__null(mal_context* pContext, const mal_device_id* pID0, const mal_device_id* pID1)
@@ -5165,7 +5120,7 @@ mal_result mal_device_read__null(mal_device* pDevice, void* pPCMFrames, mal_uint
     while (totalPCMFramesProcessed < frameCount) {
         /* If there are any frames remaining in the current period, consume those first. */
         if (pDevice->null_device.currentPeriodFramesRemainingCapture > 0) {
-            mal_uint32 bpf = mal_get_bytes_per_frame(pDevice->internalFormat, pDevice->internalChannels);
+            mal_uint32 bpf = mal_get_bytes_per_frame(pDevice->capture.internalFormat, pDevice->capture.internalChannels);
             mal_uint32 framesRemaining = (frameCount - totalPCMFramesProcessed);
             mal_uint32 framesToProcess = pDevice->null_device.currentPeriodFramesRemainingCapture;
             if (framesToProcess > framesRemaining) {
@@ -7101,16 +7056,27 @@ mal_result mal_device_reinit__wasapi(mal_device* pDevice, mal_device_type device
     }
 
     mal_device_init_internal_data__wasapi data;
-    data.formatIn                   = pDevice->format;
-    data.channelsIn                 = pDevice->channels;
+    if (deviceType == mal_device_type_capture) {
+        data.formatIn               = pDevice->capture.format;
+        data.channelsIn             = pDevice->capture.channels;
+        mal_copy_memory(data.channelMapIn, pDevice->capture.channelMap, sizeof(pDevice->capture.channelMap));
+        data.shareMode              = pDevice->capture.shareMode;
+        data.usingDefaultFormat     = pDevice->capture.usingDefaultFormat;
+        data.usingDefaultChannels   = pDevice->capture.usingDefaultChannels;
+        data.usingDefaultChannelMap = pDevice->capture.usingDefaultChannelMap;
+    } else {
+        data.formatIn               = pDevice->playback.format;
+        data.channelsIn             = pDevice->playback.channels;
+        mal_copy_memory(data.channelMapIn, pDevice->playback.channelMap, sizeof(pDevice->playback.channelMap));
+        data.shareMode              = pDevice->playback.shareMode;
+        data.usingDefaultFormat     = pDevice->playback.usingDefaultFormat;
+        data.usingDefaultChannels   = pDevice->playback.usingDefaultChannels;
+        data.usingDefaultChannelMap = pDevice->playback.usingDefaultChannelMap;
+    }
+    
     data.sampleRateIn               = pDevice->sampleRate;
-    mal_copy_memory(data.channelMapIn, pDevice->channelMap, sizeof(pDevice->channelMap));
-    data.bufferSizeInFramesIn       = pDevice->bufferSizeInFrames;
-    data.usingDefaultFormat         = pDevice->usingDefaultFormat;
-    data.usingDefaultChannels       = pDevice->usingDefaultChannels;
     data.usingDefaultSampleRate     = pDevice->usingDefaultSampleRate;
-    data.usingDefaultChannelMap     = pDevice->usingDefaultChannelMap;
-    data.shareMode                  = (deviceType == mal_device_type_playback) ? pDevice->playback.shareMode : pDevice->capture.shareMode;
+    data.bufferSizeInFramesIn       = pDevice->bufferSizeInFrames;
     data.bufferSizeInMillisecondsIn = pDevice->bufferSizeInMilliseconds;
     data.periodsIn                  = pDevice->periods;
     mal_result result = mal_device_init_internal__wasapi(pDevice->pContext, deviceType, NULL, &data);
@@ -7173,17 +7139,9 @@ mal_result mal_device_reinit__wasapi(mal_device* pDevice, mal_device_type device
 
     // BACKWARDS COMPATIBILITY. TEMP.
     if (pDevice->type == mal_device_type_capture || pDevice->type == mal_device_type_duplex) {
-        pDevice->internalFormat = pDevice->capture.internalFormat;
-        pDevice->internalChannels = pDevice->capture.internalChannels;
-        pDevice->internalSampleRate = pDevice->capture.internalSampleRate;
-        mal_copy_memory(pDevice->internalChannelMap, pDevice->capture.internalChannelMap, sizeof(pDevice->capture.internalChannelMap));
         pDevice->bufferSizeInFrames = pDevice->capture.internalBufferSizeInFrames;
         pDevice->periods = pDevice->capture.internalChannels;
     } else {
-        pDevice->internalFormat = pDevice->playback.internalFormat;
-        pDevice->internalChannels = pDevice->playback.internalChannels;
-        pDevice->internalSampleRate = pDevice->playback.internalSampleRate;
-        mal_copy_memory(pDevice->internalChannelMap, pDevice->playback.internalChannelMap, sizeof(pDevice->playback.internalChannelMap));
         pDevice->bufferSizeInFrames = pDevice->playback.internalBufferSizeInFrames;
         pDevice->periods = pDevice->playback.internalChannels;
     }
@@ -7211,10 +7169,10 @@ mal_result mal_device_init__wasapi(mal_context* pContext, const mal_device_confi
         data.channelsIn                 = pConfig->capture.channels;
         data.sampleRateIn               = pConfig->sampleRate;
         mal_copy_memory(data.channelMapIn, pConfig->capture.channelMap, sizeof(pConfig->capture.channelMap));
-        data.usingDefaultFormat         = pDevice->usingDefaultFormat;
-        data.usingDefaultChannels       = pDevice->usingDefaultChannels;
+        data.usingDefaultFormat         = pDevice->capture.usingDefaultFormat;
+        data.usingDefaultChannels       = pDevice->capture.usingDefaultChannels;
         data.usingDefaultSampleRate     = pDevice->usingDefaultSampleRate;
-        data.usingDefaultChannelMap     = pDevice->usingDefaultChannelMap;
+        data.usingDefaultChannelMap     = pDevice->capture.usingDefaultChannelMap;
         data.shareMode                  = pConfig->capture.shareMode;
         data.bufferSizeInFramesIn       = pConfig->bufferSizeInFrames;
         data.bufferSizeInMillisecondsIn = pConfig->bufferSizeInMilliseconds;
@@ -7261,11 +7219,11 @@ mal_result mal_device_init__wasapi(mal_context* pContext, const mal_device_confi
         data.formatIn                   = pConfig->playback.format;
         data.channelsIn                 = pConfig->playback.channels;
         data.sampleRateIn               = pConfig->sampleRate;
-        mal_copy_memory(data.channelMapIn, pConfig->channelMap, sizeof(pConfig->channelMap));
-        data.usingDefaultFormat         = pDevice->usingDefaultFormat;
-        data.usingDefaultChannels       = pDevice->usingDefaultChannels;
+        mal_copy_memory(data.channelMapIn, pConfig->playback.channelMap, sizeof(pConfig->playback.channelMap));
+        data.usingDefaultFormat         = pDevice->playback.usingDefaultFormat;
+        data.usingDefaultChannels       = pDevice->playback.usingDefaultChannels;
         data.usingDefaultSampleRate     = pDevice->usingDefaultSampleRate;
-        data.usingDefaultChannelMap     = pDevice->usingDefaultChannelMap;
+        data.usingDefaultChannelMap     = pDevice->playback.usingDefaultChannelMap;
         data.shareMode                  = pConfig->playback.shareMode;
         data.bufferSizeInFramesIn       = pConfig->bufferSizeInFrames;
         data.bufferSizeInMillisecondsIn = pConfig->bufferSizeInMilliseconds;
@@ -7340,17 +7298,9 @@ mal_result mal_device_init__wasapi(mal_context* pContext, const mal_device_confi
 
     // BACKWARDS COMPATIBILITY. TEMP.
     if (pConfig->deviceType == mal_device_type_capture || pConfig->deviceType == mal_device_type_duplex) {
-        pDevice->internalFormat = pDevice->capture.internalFormat;
-        pDevice->internalChannels = pDevice->capture.internalChannels;
-        pDevice->internalSampleRate = pDevice->capture.internalSampleRate;
-        mal_copy_memory(pDevice->internalChannelMap, pDevice->capture.internalChannelMap, sizeof(pDevice->capture.internalChannelMap));
         pDevice->bufferSizeInFrames = pDevice->capture.internalBufferSizeInFrames;
         pDevice->periods = pDevice->capture.internalChannels;
     } else {
-        pDevice->internalFormat = pDevice->playback.internalFormat;
-        pDevice->internalChannels = pDevice->playback.internalChannels;
-        pDevice->internalSampleRate = pDevice->playback.internalSampleRate;
-        mal_copy_memory(pDevice->internalChannelMap, pDevice->playback.internalChannelMap, sizeof(pDevice->playback.internalChannelMap));
         pDevice->bufferSizeInFrames = pDevice->playback.internalBufferSizeInFrames;
         pDevice->periods = pDevice->playback.internalChannels;
     }
@@ -7560,7 +7510,7 @@ mal_result mal_device_write__wasapi(mal_device* pDevice, const void* pPCMFrames,
         the event and set the cached pointer to NULL.
         */
         if (pDevice->wasapi.pDeviceBufferPlayback != NULL && pDevice->wasapi.deviceBufferFramesRemainingPlayback > 0) {
-            mal_uint32 bpf = mal_get_bytes_per_frame(pDevice->internalFormat, pDevice->internalChannels);
+            mal_uint32 bpf = mal_get_bytes_per_frame(pDevice->playback.internalFormat, pDevice->playback.internalChannels);
             mal_uint32 deviceBufferFramesConsumed = pDevice->wasapi.deviceBufferFramesCapacityPlayback - pDevice->wasapi.deviceBufferFramesRemainingPlayback;
 
             void* pDst = (mal_uint8*)pDevice->wasapi.pDeviceBufferPlayback + (deviceBufferFramesConsumed * bpf);
@@ -7671,7 +7621,7 @@ mal_result mal_device_read__wasapi(mal_device* pDevice, void* pPCMFrames, mal_ui
     while (totalFramesRead < frameCount) {
         /* Make sure we consume any cached data before waiting for more. */
         if (pDevice->wasapi.pDeviceBufferCapture != NULL && pDevice->wasapi.deviceBufferFramesRemainingCapture > 0) {
-            mal_uint32 bpf = mal_get_bytes_per_frame(pDevice->internalFormat, pDevice->internalChannels);
+            mal_uint32 bpf = mal_get_bytes_per_frame(pDevice->capture.internalFormat, pDevice->capture.internalChannels);
             mal_uint32 deviceBufferFramesConsumed = pDevice->wasapi.deviceBufferFramesCapacityCapture - pDevice->wasapi.deviceBufferFramesRemainingCapture;
 
             void* pDst = (mal_uint8*)pPCMFrames + (totalFramesRead * bpf);
@@ -8707,7 +8657,7 @@ mal_result mal_device_init__dsound(mal_context* pContext, const mal_device_confi
         mal_zero_object(&descDS);
         descDS.dwSize = sizeof(descDS);
         descDS.dwFlags = 0;
-        descDS.dwBufferBytes = pDevice->bufferSizeInFrames * mal_get_bytes_per_frame(pDevice->internalFormat, wf.Format.nChannels);
+        descDS.dwBufferBytes = pDevice->bufferSizeInFrames * mal_get_bytes_per_frame(pDevice->capture.internalFormat, wf.Format.nChannels);
         descDS.lpwfxFormat = (WAVEFORMATEX*)&wf;
         if (FAILED(mal_IDirectSoundCapture_CreateCaptureBuffer((mal_IDirectSoundCapture*)pDevice->dsound.pCapture, &descDS, (mal_IDirectSoundCaptureBuffer**)&pDevice->dsound.pCaptureBuffer, NULL))) {
             mal_device_uninit__dsound(pDevice);
@@ -8784,7 +8734,7 @@ mal_result mal_device_init__dsound(mal_context* pContext, const mal_device_confi
             return mal_post_error(pDevice, MAL_LOG_LEVEL_ERROR, "[DirectSound] IDirectSound_GetCaps() failed for playback device.", MAL_FAILED_TO_OPEN_BACKEND_DEVICE);
         }
 
-        if (pDevice->usingDefaultChannels) {
+        if (pDevice->playback.usingDefaultChannels) {
             if ((caps.dwFlags & MAL_DSCAPS_PRIMARYSTEREO) != 0) {
                 // It supports at least stereo, but could support more.
                 wf.Format.nChannels = 2;
@@ -8849,7 +8799,7 @@ mal_result mal_device_init__dsound(mal_context* pContext, const mal_device_confi
         if (pConfig->deviceType != mal_device_type_duplex) {
             /* We need to wait until we know the sample rate before we can calculate the buffer size. */
             if (pDevice->bufferSizeInFrames == 0) {
-                pDevice->bufferSizeInFrames = mal_calculate_buffer_size_in_frames_from_milliseconds(pDevice->bufferSizeInMilliseconds, pDevice->internalSampleRate);
+                pDevice->bufferSizeInFrames = mal_calculate_buffer_size_in_frames_from_milliseconds(pDevice->bufferSizeInMilliseconds, pDevice->playback.internalSampleRate);
             }
 
             /* The size of the buffer must be a clean multiple of the period count. */
@@ -8874,7 +8824,7 @@ mal_result mal_device_init__dsound(mal_context* pContext, const mal_device_confi
         mal_zero_object(&descDS);
         descDS.dwSize = sizeof(descDS);
         descDS.dwFlags = MAL_DSBCAPS_CTRLPOSITIONNOTIFY | MAL_DSBCAPS_GLOBALFOCUS | MAL_DSBCAPS_GETCURRENTPOSITION2;
-        descDS.dwBufferBytes = pDevice->bufferSizeInFrames * mal_get_bytes_per_frame(pDevice->internalFormat, pDevice->internalChannels);
+        descDS.dwBufferBytes = pDevice->bufferSizeInFrames * mal_get_bytes_per_frame(pDevice->playback.internalFormat, pDevice->playback.internalChannels);
         descDS.lpwfxFormat = (WAVEFORMATEX*)&wf;
         if (FAILED(mal_IDirectSound_CreateSoundBuffer((mal_IDirectSound*)pDevice->dsound.pPlayback, &descDS, (mal_IDirectSoundBuffer**)&pDevice->dsound.pPlaybackBuffer, NULL))) {
             mal_device_uninit__dsound(pDevice);
@@ -8884,19 +8834,6 @@ mal_result mal_device_init__dsound(mal_context* pContext, const mal_device_confi
         /* DirectSound should give us a buffer exactly the size we asked for. */
         pDevice->playback.internalBufferSizeInFrames = pDevice->bufferSizeInFrames;
         pDevice->playback.internalPeriods            = pDevice->periods;
-    }
-
-    // TEMP. FOR BACKWARDS COMPATIBILITY.
-    if (pConfig->deviceType == mal_device_type_capture || pConfig->deviceType == mal_device_type_duplex) {
-        pDevice->internalFormat = pDevice->capture.internalFormat;
-        pDevice->internalChannels = pDevice->capture.internalChannels;
-        pDevice->internalSampleRate = pDevice->capture.internalSampleRate;
-        mal_channel_map_copy(pDevice->internalChannelMap, pDevice->capture.internalChannelMap, pDevice->capture.internalChannels);
-    } else {
-        pDevice->internalFormat = pDevice->playback.internalFormat;
-        pDevice->internalChannels = pDevice->playback.internalChannels;
-        pDevice->internalSampleRate = pDevice->playback.internalSampleRate;
-        mal_channel_map_copy(pDevice->internalChannelMap, pDevice->playback.internalChannelMap, pDevice->playback.internalChannels);
     }
 
     return MAL_SUCCESS;
@@ -9866,17 +9803,9 @@ mal_result mal_device_init__winmm(mal_context* pContext, const mal_device_config
 
     // TEMP. FOR BACKWARDS COMPATIBILITY.
     if (pConfig->deviceType == mal_device_type_capture || pConfig->deviceType == mal_device_type_duplex) {
-        pDevice->internalFormat = pDevice->capture.internalFormat;
-        pDevice->internalChannels = pDevice->capture.internalChannels;
-        pDevice->internalSampleRate = pDevice->capture.internalSampleRate;
-        mal_channel_map_copy(pDevice->internalChannelMap, pDevice->capture.internalChannelMap, pDevice->capture.internalChannels);
         pDevice->bufferSizeInFrames = pDevice->capture.internalBufferSizeInFrames;
         pDevice->periods = pDevice->capture.internalPeriods;
     } else {
-        pDevice->internalFormat = pDevice->playback.internalFormat;
-        pDevice->internalChannels = pDevice->playback.internalChannels;
-        pDevice->internalSampleRate = pDevice->playback.internalSampleRate;
-        mal_channel_map_copy(pDevice->internalChannelMap, pDevice->playback.internalChannelMap, pDevice->playback.internalChannels);
         pDevice->bufferSizeInFrames = pDevice->playback.internalBufferSizeInFrames;
         pDevice->periods = pDevice->playback.internalPeriods;
     }
@@ -10025,7 +9954,7 @@ mal_result mal_device_write__winmm(mal_device* pDevice, const void* pPCMFrames, 
             This header has room in it. We copy as much of it as we can. If we end up fully consuming the buffer we need to
             write it out and move on to the next iteration.
             */
-            mal_uint32 bpf = mal_get_bytes_per_frame(pDevice->internalFormat, pDevice->internalChannels);
+            mal_uint32 bpf = mal_get_bytes_per_frame(pDevice->playback.internalFormat, pDevice->playback.internalChannels);
             mal_uint32 framesRemainingInHeader = (pWAVEHDR[pDevice->winmm.iNextHeaderPlayback].dwBufferLength/bpf) - pDevice->winmm.headerFramesConsumedPlayback;
 
             mal_uint32 framesToCopy = mal_min(framesRemainingInHeader, (frameCount - totalFramesWritten));
@@ -10130,7 +10059,7 @@ mal_result mal_device_read__winmm(mal_device* pDevice, void* pPCMFrames, mal_uin
         /* If the current header has some space available we need to write part of it. */
         if (pWAVEHDR[pDevice->winmm.iNextHeaderCapture].dwUser == 0) { /* 0 = unlocked. */
             /* The buffer is available for reading. If we fully consume it we need to add it back to the buffer. */
-            mal_uint32 bpf = mal_get_bytes_per_frame(pDevice->internalFormat, pDevice->internalChannels);
+            mal_uint32 bpf = mal_get_bytes_per_frame(pDevice->capture.internalFormat, pDevice->capture.internalChannels);
             mal_uint32 framesRemainingInHeader = (pWAVEHDR[pDevice->winmm.iNextHeaderCapture].dwBufferLength/bpf) - pDevice->winmm.headerFramesConsumedCapture;
 
             mal_uint32 framesToCopy = mal_min(framesRemainingInHeader, (frameCount - totalFramesRead));
@@ -14230,14 +14159,27 @@ int mal_device__jack_buffer_size_callback(mal_jack_nframes_t frameCount, void* p
     mal_device* pDevice = (mal_device*)pUserData;
     mal_assert(pDevice != NULL);
 
-    float* pNewBuffer = (float*)mal_realloc(pDevice->jack.pIntermediaryBuffer, frameCount * (pDevice->internalChannels*mal_get_bytes_per_sample(pDevice->internalFormat)));
-    if (pNewBuffer == NULL) {
-        return MAL_OUT_OF_MEMORY;
+    if (pDevice->type == mal_device_type_capture || pDevice->type == mal_device_type_duplex) {
+        float* pNewBuffer = (float*)mal_realloc(pDevice->jack.pIntermediaryBufferCapture, frameCount * (pDevice->capture.internalChannels * mal_get_bytes_per_sample(pDevice->capture.internalFormat)));
+        if (pNewBuffer == NULL) {
+            return MAL_OUT_OF_MEMORY;
+        }
+
+        pDevice->jack.pIntermediaryBufferCapture = pNewBuffer;
+        pDevice->playback.internalBufferSizeInFrames = frameCount * pDevice->periods;
     }
 
-    pDevice->jack.pIntermediaryBuffer = pNewBuffer;
-    pDevice->bufferSizeInFrames = frameCount * pDevice->periods;
+    if (pDevice->type == mal_device_type_playback || pDevice->type == mal_device_type_duplex) {
+        float* pNewBuffer = (float*)mal_realloc(pDevice->jack.pIntermediaryBufferPlayback, frameCount * (pDevice->playback.internalChannels * mal_get_bytes_per_sample(pDevice->playback.internalFormat)));
+        if (pNewBuffer == NULL) {
+            return MAL_OUT_OF_MEMORY;
+        }
 
+        pDevice->jack.pIntermediaryBufferPlayback = pNewBuffer;
+        pDevice->playback.internalBufferSizeInFrames = frameCount * pDevice->periods;
+    }
+
+    pDevice->bufferSizeInFrames = frameCount * pDevice->periods;
     return 0;
 }
 
@@ -14248,39 +14190,43 @@ int mal_device__jack_process_callback(mal_jack_nframes_t frameCount, void* pUser
 
     mal_context* pContext = pDevice->pContext;
     mal_assert(pContext != NULL);
-
-    if (pDevice->type == mal_device_type_playback) {
-        mal_device__read_frames_from_client(pDevice, frameCount, pDevice->jack.pIntermediaryBuffer);
-
-        // Channels need to be deinterleaved.
-        for (mal_uint32 iChannel = 0; iChannel < pDevice->internalChannels; ++iChannel) {
-            float* pDst = (float*)((mal_jack_port_get_buffer_proc)pContext->jack.jack_port_get_buffer)((mal_jack_port_t*)pDevice->jack.pPorts[iChannel], frameCount);
-            if (pDst != NULL) {
-                const float* pSrc = pDevice->jack.pIntermediaryBuffer + iChannel;
-                for (mal_jack_nframes_t iFrame = 0; iFrame < frameCount; ++iFrame) {
-                    *pDst = *pSrc;
-
-                    pDst += 1;
-                    pSrc += pDevice->internalChannels;
-                }
-            }
-        }
+    
+    if (pDevice->type == mal_device_type_duplex) {
+        // TODO: Implement me.
     } else {
-        // Channels need to be interleaved.
-        for (mal_uint32 iChannel = 0; iChannel < pDevice->internalChannels; ++iChannel) {
-            const float* pSrc = (const float*)((mal_jack_port_get_buffer_proc)pContext->jack.jack_port_get_buffer)((mal_jack_port_t*)pDevice->jack.pPorts[iChannel], frameCount);
-            if (pSrc != NULL) {
-                float* pDst = pDevice->jack.pIntermediaryBuffer + iChannel;
-                for (mal_jack_nframes_t iFrame = 0; iFrame < frameCount; ++iFrame) {
-                    *pDst = *pSrc;
+        if (pDevice->type == mal_device_type_playback) {
+            mal_device__read_frames_from_client(pDevice, frameCount, pDevice->jack.pIntermediaryBufferPlayback);
 
-                    pDst += pDevice->internalChannels;
-                    pSrc += 1;
+            // Channels need to be deinterleaved.
+            for (mal_uint32 iChannel = 0; iChannel < pDevice->playback.internalChannels; ++iChannel) {
+                float* pDst = (float*)((mal_jack_port_get_buffer_proc)pContext->jack.jack_port_get_buffer)((mal_jack_port_t*)pDevice->jack.pPortsPlayback[iChannel], frameCount);
+                if (pDst != NULL) {
+                    const float* pSrc = pDevice->jack.pIntermediaryBufferPlayback + iChannel;
+                    for (mal_jack_nframes_t iFrame = 0; iFrame < frameCount; ++iFrame) {
+                        *pDst = *pSrc;
+
+                        pDst += 1;
+                        pSrc += pDevice->playback.internalChannels;
+                    }
                 }
             }
-        }
+        } else {
+            // Channels need to be interleaved.
+            for (mal_uint32 iChannel = 0; iChannel < pDevice->capture.internalChannels; ++iChannel) {
+                const float* pSrc = (const float*)((mal_jack_port_get_buffer_proc)pContext->jack.jack_port_get_buffer)((mal_jack_port_t*)pDevice->jack.pPortsCapture[iChannel], frameCount);
+                if (pSrc != NULL) {
+                    float* pDst = pDevice->jack.pIntermediaryBufferCapture + iChannel;
+                    for (mal_jack_nframes_t iFrame = 0; iFrame < frameCount; ++iFrame) {
+                        *pDst = *pSrc;
 
-        mal_device__send_frames_to_client(pDevice, frameCount, pDevice->jack.pIntermediaryBuffer);
+                        pDst += pDevice->capture.internalChannels;
+                        pSrc += 1;
+                    }
+                }
+            }
+
+            mal_device__send_frames_to_client(pDevice, frameCount, pDevice->jack.pIntermediaryBufferCapture);
+        }
     }
 
     return 0;
@@ -14293,11 +14239,6 @@ mal_result mal_device_init__jack(mal_context* pContext, const mal_device_config*
     mal_assert(pDevice != NULL);
 
     (void)pContext;
-
-    /* Full-duplex is not yet implemented. */
-    if (pConfig->deviceType == mal_device_type_duplex) {
-        return MAL_INVALID_ARGS;
-    }
 
     /* Only supporting default devices with JACK. */
     if (((pConfig->deviceType == mal_device_type_playback || pConfig->deviceType == mal_device_type_duplex) && pConfig->playback.pDeviceID != NULL && pConfig->playback.pDeviceID->jack != 0) ||
@@ -14328,64 +14269,89 @@ mal_result mal_device_init__jack(mal_context* pContext, const mal_device_config*
     ((mal_jack_on_shutdown_proc)pContext->jack.jack_on_shutdown)((mal_jack_client_t*)pDevice->jack.pClient, mal_device__jack_shutdown_callback, pDevice);
 
 
-    // The format is always f32.
-    pDevice->internalFormat = mal_format_f32;
-
-    // A port is a channel.
-    unsigned long serverPortFlags;
-    unsigned long clientPortFlags;
-    if (pConfig->deviceType == mal_device_type_playback) {
-        serverPortFlags = mal_JackPortIsInput;
-        clientPortFlags = mal_JackPortIsOutput;
-    } else {
-        serverPortFlags = mal_JackPortIsOutput;
-        clientPortFlags = mal_JackPortIsInput;
-    }
-
-    const char** ppPorts = ((mal_jack_get_ports_proc)pContext->jack.jack_get_ports)((mal_jack_client_t*)pDevice->jack.pClient, NULL, NULL, mal_JackPortIsPhysical | serverPortFlags);
-    if (ppPorts == NULL) {
-        return mal_post_error(pDevice, MAL_LOG_LEVEL_ERROR, "[JACK] Failed to query physical ports.", MAL_FAILED_TO_OPEN_BACKEND_DEVICE);
-    }
-
-    pDevice->internalChannels = 0;
-    while (ppPorts[pDevice->internalChannels] != NULL) {
-        char name[64];
-        if (pConfig->deviceType == mal_device_type_playback) {
-            mal_strcpy_s(name, sizeof(name), "playback");
-            mal_itoa_s((int)pDevice->internalChannels, name+8, sizeof(name)-8, 10); // 8 = length of "playback"
-        } else {
-            mal_strcpy_s(name, sizeof(name), "capture");
-            mal_itoa_s((int)pDevice->internalChannels, name+7, sizeof(name)-7, 10); // 7 = length of "capture"
-        }
-
-        pDevice->jack.pPorts[pDevice->internalChannels] = ((mal_jack_port_register_proc)pContext->jack.jack_port_register)((mal_jack_client_t*)pDevice->jack.pClient, name, MAL_JACK_DEFAULT_AUDIO_TYPE, clientPortFlags, 0);
-        if (pDevice->jack.pPorts[pDevice->internalChannels] == NULL) {
-            ((mal_jack_free_proc)pContext->jack.jack_free)((void*)ppPorts);
-            mal_device_uninit__jack(pDevice);
-            return mal_post_error(pDevice, MAL_LOG_LEVEL_ERROR, "[JACK] Failed to register ports.", MAL_FAILED_TO_OPEN_BACKEND_DEVICE);
-        }
-
-        pDevice->internalChannels += 1;
-    }
-
-    ((mal_jack_free_proc)pContext->jack.jack_free)((void*)ppPorts);
-    ppPorts = NULL;
-
-    // We set the sample rate here, but apparently this can change. This is incompatible with mini_al, so changing sample rates will not be supported.
-    pDevice->internalSampleRate = ((mal_jack_get_sample_rate_proc)pContext->jack.jack_get_sample_rate)((mal_jack_client_t*)pDevice->jack.pClient);
-
-    // I don't think the channel map can be queried, so just use defaults for now.
-    mal_get_standard_channel_map(mal_standard_channel_map_alsa, pDevice->internalChannels, pDevice->internalChannelMap);
-
-    // The buffer size in frames can change.
-    pDevice->periods = 2;
+    /* The buffer size in frames can change. */
+    pDevice->periods            = 2;
     pDevice->bufferSizeInFrames = ((mal_jack_get_buffer_size_proc)pContext->jack.jack_get_buffer_size)((mal_jack_client_t*)pDevice->jack.pClient) * pDevice->periods;
 
-    // Initial allocation for the intermediary buffer.
-    pDevice->jack.pIntermediaryBuffer = (float*)mal_malloc((pDevice->bufferSizeInFrames/pDevice->periods)*(pDevice->internalChannels*mal_get_bytes_per_sample(pDevice->internalFormat)));
-    if (pDevice->jack.pIntermediaryBuffer == NULL) {
-        mal_device_uninit__jack(pDevice);
-        return MAL_OUT_OF_MEMORY;
+
+    if (pConfig->deviceType == mal_device_type_capture || pConfig->deviceType == mal_device_type_duplex) {
+        const char** ppPorts;
+
+        pDevice->capture.internalFormat = mal_format_f32;
+        pDevice->capture.internalChannels = 0;
+        pDevice->capture.internalSampleRate = ((mal_jack_get_sample_rate_proc)pContext->jack.jack_get_sample_rate)((mal_jack_client_t*)pDevice->jack.pClient);
+        mal_get_standard_channel_map(mal_standard_channel_map_alsa, pDevice->capture.internalChannels, pDevice->capture.internalChannelMap);
+
+        ppPorts = ((mal_jack_get_ports_proc)pContext->jack.jack_get_ports)((mal_jack_client_t*)pDevice->jack.pClient, NULL, NULL, mal_JackPortIsPhysical | mal_JackPortIsOutput);
+        if (ppPorts == NULL) {
+            return mal_post_error(pDevice, MAL_LOG_LEVEL_ERROR, "[JACK] Failed to query physical ports.", MAL_FAILED_TO_OPEN_BACKEND_DEVICE);
+        }
+
+        while (ppPorts[pDevice->capture.internalChannels] != NULL) {
+            char name[64];
+            mal_strcpy_s(name, sizeof(name), "capture");
+            mal_itoa_s((int)pDevice->capture.internalChannels, name+7, sizeof(name)-7, 10); // 7 = length of "capture"
+
+            pDevice->jack.pPortsCapture[pDevice->capture.internalChannels] = ((mal_jack_port_register_proc)pContext->jack.jack_port_register)((mal_jack_client_t*)pDevice->jack.pClient, name, MAL_JACK_DEFAULT_AUDIO_TYPE, mal_JackPortIsInput, 0);
+            if (pDevice->jack.pPortsCapture[pDevice->capture.internalChannels] == NULL) {
+                ((mal_jack_free_proc)pContext->jack.jack_free)((void*)ppPorts);
+                mal_device_uninit__jack(pDevice);
+                return mal_post_error(pDevice, MAL_LOG_LEVEL_ERROR, "[JACK] Failed to register ports.", MAL_FAILED_TO_OPEN_BACKEND_DEVICE);
+            }
+
+            pDevice->capture.internalChannels += 1;
+        }
+
+        ((mal_jack_free_proc)pContext->jack.jack_free)((void*)ppPorts);
+
+        pDevice->capture.internalBufferSizeInFrames = pDevice->bufferSizeInFrames;
+        pDevice->capture.internalPeriods            = pDevice->periods;
+
+        pDevice->jack.pIntermediaryBufferCapture = (float*)mal_malloc((pDevice->capture.internalBufferSizeInFrames/pDevice->capture.internalPeriods) * (pDevice->capture.internalChannels * mal_get_bytes_per_sample(pDevice->capture.internalFormat)));
+        if (pDevice->jack.pIntermediaryBufferCapture == NULL) {
+            mal_device_uninit__jack(pDevice);
+            return MAL_OUT_OF_MEMORY;
+        }
+    }
+
+    if (pConfig->deviceType == mal_device_type_playback || pConfig->deviceType == mal_device_type_duplex) {
+        const char** ppPorts;
+
+        pDevice->playback.internalFormat = mal_format_f32;
+        pDevice->playback.internalChannels = 0;
+        pDevice->playback.internalSampleRate = ((mal_jack_get_sample_rate_proc)pContext->jack.jack_get_sample_rate)((mal_jack_client_t*)pDevice->jack.pClient);
+        mal_get_standard_channel_map(mal_standard_channel_map_alsa, pDevice->playback.internalChannels, pDevice->playback.internalChannelMap);
+
+        ppPorts = ((mal_jack_get_ports_proc)pContext->jack.jack_get_ports)((mal_jack_client_t*)pDevice->jack.pClient, NULL, NULL, mal_JackPortIsPhysical | mal_JackPortIsInput);
+        if (ppPorts == NULL) {
+            return mal_post_error(pDevice, MAL_LOG_LEVEL_ERROR, "[JACK] Failed to query physical ports.", MAL_FAILED_TO_OPEN_BACKEND_DEVICE);
+        }
+
+        while (ppPorts[pDevice->playback.internalChannels] != NULL) {
+            char name[64];
+            mal_strcpy_s(name, sizeof(name), "playback");
+            mal_itoa_s((int)pDevice->playback.internalChannels, name+8, sizeof(name)-8, 10); // 8 = length of "playback"
+
+            pDevice->jack.pPortsPlayback[pDevice->playback.internalChannels] = ((mal_jack_port_register_proc)pContext->jack.jack_port_register)((mal_jack_client_t*)pDevice->jack.pClient, name, MAL_JACK_DEFAULT_AUDIO_TYPE, mal_JackPortIsOutput, 0);
+            if (pDevice->jack.pPortsPlayback[pDevice->playback.internalChannels] == NULL) {
+                ((mal_jack_free_proc)pContext->jack.jack_free)((void*)ppPorts);
+                mal_device_uninit__jack(pDevice);
+                return mal_post_error(pDevice, MAL_LOG_LEVEL_ERROR, "[JACK] Failed to register ports.", MAL_FAILED_TO_OPEN_BACKEND_DEVICE);
+            }
+
+            pDevice->playback.internalChannels += 1;
+        }
+
+        ((mal_jack_free_proc)pContext->jack.jack_free)((void*)ppPorts);
+
+        pDevice->playback.internalBufferSizeInFrames = pDevice->bufferSizeInFrames;
+        pDevice->playback.internalPeriods            = pDevice->periods;
+
+        pDevice->jack.pIntermediaryBufferPlayback = (float*)mal_malloc((pDevice->playback.internalBufferSizeInFrames/pDevice->playback.internalPeriods) * (pDevice->playback.internalChannels * mal_get_bytes_per_sample(pDevice->playback.internalFormat)));
+        if (pDevice->jack.pIntermediaryBufferPlayback == NULL) {
+            mal_device_uninit__jack(pDevice);
+            return MAL_OUT_OF_MEMORY;
+        }
     }
 
     return MAL_SUCCESS;
@@ -14404,39 +14370,49 @@ mal_result mal_device_start__jack(mal_device* pDevice)
         return mal_post_error(pDevice, MAL_LOG_LEVEL_ERROR, "[JACK] Failed to activate the JACK client.", MAL_FAILED_TO_START_BACKEND_DEVICE);
     }
 
-    const char** ppServerPorts;
-    if (pDevice->type == mal_device_type_playback) {
-        ppServerPorts = ((mal_jack_get_ports_proc)pContext->jack.jack_get_ports)((mal_jack_client_t*)pDevice->jack.pClient, NULL, NULL, mal_JackPortIsPhysical | mal_JackPortIsInput);
-    } else {
-        ppServerPorts = ((mal_jack_get_ports_proc)pContext->jack.jack_get_ports)((mal_jack_client_t*)pDevice->jack.pClient, NULL, NULL, mal_JackPortIsPhysical | mal_JackPortIsOutput);
-    }
-
-    if (ppServerPorts == NULL) {
-        ((mal_jack_deactivate_proc)pContext->jack.jack_deactivate)((mal_jack_client_t*)pDevice->jack.pClient);
-        return mal_post_error(pDevice, MAL_LOG_LEVEL_ERROR, "[JACK] Failed to retrieve physical ports.", MAL_ERROR);
-    }
-
-    for (size_t i = 0; ppServerPorts[i] != NULL; ++i) {
-        const char* pServerPort = ppServerPorts[i];
-        mal_assert(pServerPort != NULL);
-
-        const char* pClientPort = ((mal_jack_port_name_proc)pContext->jack.jack_port_name)((mal_jack_port_t*)pDevice->jack.pPorts[i]);
-        mal_assert(pClientPort != NULL);
-
-        if (pDevice->type == mal_device_type_playback) {
-            resultJACK = ((mal_jack_connect_proc)pContext->jack.jack_connect)((mal_jack_client_t*)pDevice->jack.pClient, pClientPort, pServerPort);
-        } else {
-            resultJACK = ((mal_jack_connect_proc)pContext->jack.jack_connect)((mal_jack_client_t*)pDevice->jack.pClient, pServerPort, pClientPort);
-        }
-
-        if (resultJACK != 0) {
-            ((mal_jack_free_proc)pContext->jack.jack_free)((void*)ppServerPorts);
+    if (pDevice->type == mal_device_type_capture || pDevice->type == mal_device_type_duplex) {
+        const char** ppServerPorts = ((mal_jack_get_ports_proc)pContext->jack.jack_get_ports)((mal_jack_client_t*)pDevice->jack.pClient, NULL, NULL, mal_JackPortIsPhysical | mal_JackPortIsOutput);
+        if (ppServerPorts == NULL) {
             ((mal_jack_deactivate_proc)pContext->jack.jack_deactivate)((mal_jack_client_t*)pDevice->jack.pClient);
-            return mal_post_error(pDevice, MAL_LOG_LEVEL_ERROR, "[JACK] Failed to connect ports.", MAL_ERROR);
+            return mal_post_error(pDevice, MAL_LOG_LEVEL_ERROR, "[JACK] Failed to retrieve physical ports.", MAL_ERROR);
         }
-    }
 
-    ((mal_jack_free_proc)pContext->jack.jack_free)((void*)ppServerPorts);
+        for (size_t i = 0; ppServerPorts[i] != NULL; ++i) {
+            const char* pServerPort = ppServerPorts[i];
+            const char* pClientPort = ((mal_jack_port_name_proc)pContext->jack.jack_port_name)((mal_jack_port_t*)pDevice->jack.pPortsCapture[i]);
+
+            resultJACK = ((mal_jack_connect_proc)pContext->jack.jack_connect)((mal_jack_client_t*)pDevice->jack.pClient, pServerPort, pClientPort);
+            if (resultJACK != 0) {
+                ((mal_jack_free_proc)pContext->jack.jack_free)((void*)ppServerPorts);
+                ((mal_jack_deactivate_proc)pContext->jack.jack_deactivate)((mal_jack_client_t*)pDevice->jack.pClient);
+                return mal_post_error(pDevice, MAL_LOG_LEVEL_ERROR, "[JACK] Failed to connect ports.", MAL_ERROR);
+            }
+        }
+
+        ((mal_jack_free_proc)pContext->jack.jack_free)((void*)ppServerPorts);
+    }
+    
+    if (pDevice->type == mal_device_type_playback || pDevice->type == mal_device_type_duplex) {
+        const char** ppServerPorts = ((mal_jack_get_ports_proc)pContext->jack.jack_get_ports)((mal_jack_client_t*)pDevice->jack.pClient, NULL, NULL, mal_JackPortIsPhysical | mal_JackPortIsInput);
+        if (ppServerPorts == NULL) {
+            ((mal_jack_deactivate_proc)pContext->jack.jack_deactivate)((mal_jack_client_t*)pDevice->jack.pClient);
+            return mal_post_error(pDevice, MAL_LOG_LEVEL_ERROR, "[JACK] Failed to retrieve physical ports.", MAL_ERROR);
+        }
+
+        for (size_t i = 0; ppServerPorts[i] != NULL; ++i) {
+            const char* pServerPort = ppServerPorts[i];
+            const char* pClientPort = ((mal_jack_port_name_proc)pContext->jack.jack_port_name)((mal_jack_port_t*)pDevice->jack.pPortsPlayback[i]);
+
+            resultJACK = ((mal_jack_connect_proc)pContext->jack.jack_connect)((mal_jack_client_t*)pDevice->jack.pClient, pClientPort, pServerPort);
+            if (resultJACK != 0) {
+                ((mal_jack_free_proc)pContext->jack.jack_free)((void*)ppServerPorts);
+                ((mal_jack_deactivate_proc)pContext->jack.jack_deactivate)((mal_jack_client_t*)pDevice->jack.pClient);
+                return mal_post_error(pDevice, MAL_LOG_LEVEL_ERROR, "[JACK] Failed to connect ports.", MAL_ERROR);
+            }
+        }
+
+        ((mal_jack_free_proc)pContext->jack.jack_free)((void*)ppServerPorts);
+    }
 
     return MAL_SUCCESS;
 }
@@ -20632,66 +20608,21 @@ mal_bool32 mal__is_channel_map_valid(const mal_channel* channelMap, mal_uint32 c
 void mal_device__post_init_setup(mal_device* pDevice, mal_device_type deviceType)
 {
     mal_assert(pDevice != NULL);
-    
-    // TODO: This needs to be updated to support full duplex:
-    //   - When deviceType = mal_device_type_capture then update the capture PCM converter.
-    //   - When deviceType = mal_device_type_playback then update the playback PCM converter.
-    //   - When deviceType = mal_device_type_duplex then update both the capture and playback PCM converters.
-    (void)deviceType;
 
-    // Make sure the internal channel map was set correctly by the backend. If it's not valid, just fall back to defaults.
-    if (!mal_channel_map_valid(pDevice->internalChannels, pDevice->internalChannelMap)) {
-        mal_get_standard_channel_map(mal_standard_channel_map_default, pDevice->internalChannels, pDevice->internalChannelMap);
-    }
-
-
-    // If the format/channels/rate is using defaults we need to set these to be the same as the internal config.
-    if (pDevice->usingDefaultFormat) {
-        pDevice->format = pDevice->internalFormat;
-    }
-    if (pDevice->usingDefaultChannels) {
-        pDevice->channels = pDevice->internalChannels;
-    }
     if (pDevice->usingDefaultSampleRate) {
-        pDevice->sampleRate = pDevice->internalSampleRate;
-    }
-    if (pDevice->usingDefaultChannelMap) {
-        mal_copy_memory(pDevice->channelMap, pDevice->internalChannelMap, sizeof(pDevice->channelMap));
+        if (deviceType == mal_device_type_capture || deviceType == mal_device_type_duplex) {
+            pDevice->sampleRate = pDevice->capture.internalSampleRate;
+        } else {
+            pDevice->sampleRate = pDevice->playback.internalSampleRate;
+        }
     }
 
     // Buffer size. The backend will have set bufferSizeInFrames. We need to calculate bufferSizeInMilliseconds here.
-    pDevice->bufferSizeInMilliseconds = pDevice->bufferSizeInFrames / (pDevice->internalSampleRate/1000);
-
-
-    // We need a DSP object which is where samples are moved through in order to convert them to the
-    // format required by the backend.
-    mal_pcm_converter_config dspConfig = mal_pcm_converter_config_init_new();
-    dspConfig.neverConsumeEndOfInput = MAL_TRUE;
-    dspConfig.pUserData = pDevice;
-    if (pDevice->type == mal_device_type_playback) {
-        dspConfig.formatIn      = pDevice->format;
-        dspConfig.channelsIn    = pDevice->channels;
-        dspConfig.sampleRateIn  = pDevice->sampleRate;
-        mal_copy_memory(dspConfig.channelMapIn, pDevice->channelMap, sizeof(dspConfig.channelMapIn));
-        dspConfig.formatOut     = pDevice->internalFormat;
-        dspConfig.channelsOut   = pDevice->internalChannels;
-        dspConfig.sampleRateOut = pDevice->internalSampleRate;
-        mal_copy_memory(dspConfig.channelMapOut, pDevice->internalChannelMap, sizeof(dspConfig.channelMapOut));
-        dspConfig.onRead = mal_device__on_read_from_client;
-        mal_pcm_converter_init(&dspConfig, &pDevice->dsp);
+    if (deviceType == mal_device_type_capture || deviceType == mal_device_type_duplex) {
+        pDevice->bufferSizeInMilliseconds = pDevice->bufferSizeInFrames / (pDevice->capture.internalSampleRate/1000);
     } else {
-        dspConfig.formatIn      = pDevice->internalFormat;
-        dspConfig.channelsIn    = pDevice->internalChannels;
-        dspConfig.sampleRateIn  = pDevice->internalSampleRate;
-        mal_copy_memory(dspConfig.channelMapIn, pDevice->internalChannelMap, sizeof(dspConfig.channelMapIn));
-        dspConfig.formatOut     = pDevice->format;
-        dspConfig.channelsOut   = pDevice->channels;
-        dspConfig.sampleRateOut = pDevice->sampleRate;
-        mal_copy_memory(dspConfig.channelMapOut, pDevice->channelMap, sizeof(dspConfig.channelMapOut));
-        dspConfig.onRead = mal_device__on_read_from_device;
-        mal_pcm_converter_init(&dspConfig, &pDevice->dsp);
+        pDevice->bufferSizeInMilliseconds = pDevice->bufferSizeInFrames / (pDevice->playback.internalSampleRate/1000);
     }
-
 
     /* PCM converters. */
     if (deviceType == mal_device_type_capture || deviceType == mal_device_type_duplex) {
@@ -20707,11 +20638,7 @@ void mal_device__post_init_setup(mal_device* pDevice, mal_device_type deviceType
         converterConfig.channelsOut            = pDevice->capture.channels;
         converterConfig.sampleRateOut          = pDevice->sampleRate;
         mal_channel_map_copy(converterConfig.channelMapOut, pDevice->capture.channelMap, pDevice->capture.channels);
-        if (deviceType == mal_device_type_capture) {
-            converterConfig.onRead = mal_device__on_read_from_device;
-        } else {
-            converterConfig.onRead = mal_device__pcm_converter__on_read_from_buffer_capture;
-        }
+        converterConfig.onRead = mal_device__pcm_converter__on_read_from_buffer_capture;
         mal_pcm_converter_init(&converterConfig, &pDevice->capture.converter);
     }
 
@@ -20874,7 +20801,12 @@ mal_thread_result MAL_THREADCALL mal_worker_thread(void* pData)
                 }
             } else {
                 mal_uint8  buffer[4096];
-                mal_uint32 bufferSizeInFrames = sizeof(buffer) / mal_get_bytes_per_frame(pDevice->internalFormat, pDevice->internalChannels);
+                mal_uint32 bufferSizeInFrames;// = sizeof(buffer) / mal_get_bytes_per_frame(pDevice->internalFormat, pDevice->internalChannels);
+                if (pDevice->type == mal_device_type_capture) {
+                    bufferSizeInFrames = sizeof(buffer) / mal_get_bytes_per_frame(pDevice->capture.internalFormat, pDevice->capture.internalChannels);
+                } else {
+                    bufferSizeInFrames = sizeof(buffer) / mal_get_bytes_per_frame(pDevice->playback.internalFormat, pDevice->playback.internalChannels);
+                }
 
                 while (totalFramesProcessed < periodSizeInFrames) {
                     mal_uint32 framesRemaining = periodSizeInFrames - totalFramesProcessed;
@@ -21434,12 +21366,26 @@ mal_result mal_device_init(mal_context* pContext, const mal_device_config* pConf
     if (config.deviceType != mal_device_type_playback && config.deviceType != mal_device_type_capture && config.deviceType != mal_device_type_duplex) {
         return mal_post_error(pDevice, MAL_LOG_LEVEL_ERROR, "mal_device_init() called with an invalid config. Device type is invalid. Make sure the device type has been set in the config.", MAL_INVALID_DEVICE_CONFIG);
     }
-    if (config.channels > MAL_MAX_CHANNELS) {
-        return mal_post_error(pDevice, MAL_LOG_LEVEL_ERROR, "mal_device_init() called with an invalid config. Channel count cannot exceed 32.", MAL_INVALID_DEVICE_CONFIG);
+
+    if (config.deviceType == mal_device_type_capture || config.deviceType == mal_device_type_duplex) {
+        if (config.capture.channels > MAL_MAX_CHANNELS) {
+            return mal_post_error(pDevice, MAL_LOG_LEVEL_ERROR, "mal_device_init() called with an invalid config. Capture channel count cannot exceed 32.", MAL_INVALID_DEVICE_CONFIG);
+        }
+        if (!mal__is_channel_map_valid(config.capture.channelMap, config.capture.channels)) {
+            return mal_post_error(pDevice, MAL_LOG_LEVEL_ERROR, "mal_device_init() called with invalid config. Capture channel map is invalid.", MAL_INVALID_DEVICE_CONFIG);
+        }
     }
-    if (!mal__is_channel_map_valid(config.channelMap, config.channels)) {
-        return mal_post_error(pDevice, MAL_LOG_LEVEL_ERROR, "mal_device_init() called with invalid config. Channel map is invalid.", MAL_INVALID_DEVICE_CONFIG);
+
+    if (config.deviceType == mal_device_type_playback || config.deviceType == mal_device_type_duplex) {
+        if (config.playback.channels > MAL_MAX_CHANNELS) {
+            return mal_post_error(pDevice, MAL_LOG_LEVEL_ERROR, "mal_device_init() called with an invalid config. Playback channel count cannot exceed 32.", MAL_INVALID_DEVICE_CONFIG);
+        }
+        if (!mal__is_channel_map_valid(config.playback.channelMap, config.playback.channels)) {
+            return mal_post_error(pDevice, MAL_LOG_LEVEL_ERROR, "mal_device_init() called with invalid config. Playback channel map is invalid.", MAL_INVALID_DEVICE_CONFIG);
+        }
     }
+
+    
 
 
     mal_zero_object(pDevice);
@@ -21458,19 +21404,6 @@ mal_result mal_device_init(mal_context* pContext, const mal_device_config* pConf
 
     // When passing in 0 for the format/channels/rate/chmap it means the device will be using whatever is chosen by the backend. If everything is set
     // to defaults it means the format conversion pipeline will run on a fast path where data transfer is just passed straight through to the backend.
-    if (config.format == mal_format_unknown) {
-        config.format = MAL_DEFAULT_FORMAT;
-        pDevice->usingDefaultFormat = MAL_TRUE;
-    }
-    if (config.channels == 0) {
-        config.channels = MAL_DEFAULT_CHANNELS;
-        pDevice->usingDefaultChannels = MAL_TRUE;
-    }
-    if (config.channelMap[0] == MAL_CHANNEL_NONE) {
-        pDevice->usingDefaultChannelMap = MAL_TRUE;
-    }
-
-
     if (config.sampleRate == 0) {
         config.sampleRate = MAL_DEFAULT_SAMPLE_RATE;
         pDevice->usingDefaultSampleRate = MAL_TRUE;
@@ -21518,31 +21451,20 @@ mal_result mal_device_init(mal_context* pContext, const mal_device_config* pConf
     pDevice->bufferSizeInMilliseconds = config.bufferSizeInMilliseconds;
     pDevice->periods = config.periods;
 
-
-    pDevice->format = config.format;
-    pDevice->channels = config.channels;
     pDevice->sampleRate = config.sampleRate;
-    mal_copy_memory(pDevice->channelMap, config.channelMap, sizeof(config.channelMap[0]) * config.channels);
 
     pDevice->capture.shareMode   = config.capture.shareMode;
     pDevice->capture.format      = config.capture.format;
     pDevice->capture.channels    = config.capture.channels;
-    pDevice->capture.sampleRate  = config.sampleRate;
     mal_channel_map_copy(pDevice->capture.channelMap, config.capture.channelMap, config.capture.channels);
 
     pDevice->playback.shareMode  = config.playback.shareMode;
     pDevice->playback.format     = config.playback.format;
     pDevice->playback.channels   = config.playback.channels;
-    pDevice->playback.sampleRate = config.sampleRate;
     mal_channel_map_copy(pDevice->playback.channelMap, config.playback.channelMap, config.playback.channels);
 
 
     // The internal format, channel count and sample rate can be modified by the backend.
-    pDevice->internalFormat = pDevice->format;
-    pDevice->internalChannels = pDevice->channels;
-    pDevice->internalSampleRate = pDevice->sampleRate;
-    mal_copy_memory(pDevice->internalChannelMap, pDevice->channelMap, sizeof(pDevice->channelMap));
-
     pDevice->capture.internalFormat      = pDevice->capture.format;
     pDevice->capture.internalChannels    = pDevice->capture.channels;
     pDevice->capture.internalSampleRate  = pDevice->sampleRate;
@@ -21755,7 +21677,7 @@ mal_result mal_device_write(mal_device* pDevice, const void* pPCMFrames, mal_uin
     }
 
     /* If it's a passthrough we can call the backend directly, otherwise we need a data conversion into an intermediary buffer. */
-    if (pDevice->dsp.isPassthrough) {
+    if (pDevice->playback.converter.isPassthrough) {
         /* Fast path. Write directly to the device. */
         result = pDevice->pContext->onDeviceWrite(pDevice, pPCMFrames, frameCount);
     } else {
@@ -21766,7 +21688,7 @@ mal_result mal_device_write(mal_device* pDevice, const void* pPCMFrames, mal_uin
 
         /* NOTE: Only doing format conversion for now just while testing. */
         mal_uint8 buffer[4096];
-        mal_uint32 bufferSizeInFrames = sizeof(buffer) / mal_get_bytes_per_frame(pDevice->internalFormat, pDevice->internalChannels);
+        mal_uint32 bufferSizeInFrames = sizeof(buffer) / mal_get_bytes_per_frame(pDevice->playback.internalFormat, pDevice->playback.internalChannels);
 
         while (totalFramesWritten < frameCount) {
             mal_uint32 framesRemaining = (frameCount - totalFramesWritten);
@@ -21775,7 +21697,13 @@ mal_result mal_device_write(mal_device* pDevice, const void* pPCMFrames, mal_uin
                 framesToProcess = bufferSizeInFrames;
             }
 
-            mal_pcm_convert(buffer, pDevice->internalFormat, mal_offset_ptr(pPCMFrames, totalFramesWritten * mal_get_bytes_per_frame(pDevice->format, pDevice->channels)), pDevice->format, framesToProcess*pDevice->channels, mal_dither_mode_none);
+            mal_pcm_convert(
+                buffer,
+                pDevice->playback.internalFormat,
+                mal_offset_ptr(pPCMFrames, totalFramesWritten * mal_get_bytes_per_frame(pDevice->playback.format, pDevice->playback.channels)),
+                pDevice->playback.format,
+                framesToProcess*pDevice->playback.channels,
+                mal_dither_mode_none);
 
             result = pDevice->pContext->onDeviceWrite(pDevice, buffer, framesToProcess);
             totalFramesWritten += framesToProcess;
@@ -21812,7 +21740,7 @@ mal_result mal_device_read(mal_device* pDevice, void* pPCMFrames, mal_uint32 fra
     }
 
     /* If it's a passthrough we can call the backend directly, otherwise we need a data conversion into an intermediary buffer. */
-    if (pDevice->dsp.isPassthrough) {
+    if (pDevice->capture.converter.isPassthrough) {
         /* Fast path. Write directly to the device. */
         result = pDevice->pContext->onDeviceRead(pDevice, pPCMFrames, frameCount);
     } else {
@@ -21823,7 +21751,7 @@ mal_result mal_device_read(mal_device* pDevice, void* pPCMFrames, mal_uint32 fra
 
         /* NOTE: Only doing format conversion for now just while testing. */
         mal_uint8 buffer[4096];
-        mal_uint32 bufferSizeInFrames = sizeof(buffer) / mal_get_bytes_per_frame(pDevice->internalFormat, pDevice->internalChannels);
+        mal_uint32 bufferSizeInFrames = sizeof(buffer) / mal_get_bytes_per_frame(pDevice->capture.internalFormat, pDevice->capture.internalChannels);
 
         while (totalFramesRead < frameCount) {
             mal_uint32 framesRemaining = (frameCount - totalFramesRead);
@@ -21834,7 +21762,13 @@ mal_result mal_device_read(mal_device* pDevice, void* pPCMFrames, mal_uint32 fra
 
             result = pDevice->pContext->onDeviceRead(pDevice, buffer, framesToProcess);
 
-            mal_pcm_convert(mal_offset_ptr(pPCMFrames, totalFramesRead * mal_get_bytes_per_frame(pDevice->format, pDevice->channels)), pDevice->format, buffer, pDevice->internalFormat, framesToProcess*pDevice->channels, mal_dither_mode_none);
+            mal_pcm_convert(
+                mal_offset_ptr(pPCMFrames, totalFramesRead * mal_get_bytes_per_frame(pDevice->capture.format, pDevice->capture.channels)),
+                pDevice->capture.format,
+                buffer,
+                pDevice->capture.internalFormat,
+                framesToProcess*pDevice->capture.channels,
+                mal_dither_mode_none);
 
             totalFramesRead += framesToProcess;
             if (result != MAL_SUCCESS) {
@@ -21953,11 +21887,6 @@ mal_bool32 mal_device_is_started(mal_device* pDevice)
     return mal_device__get_state(pDevice) == MAL_STATE_STARTED;
 }
 
-mal_uint32 mal_device_get_buffer_size_in_bytes(mal_device* pDevice)
-{
-    if (pDevice == NULL) return 0;
-    return pDevice->bufferSizeInFrames * pDevice->channels * mal_get_bytes_per_sample(pDevice->format);
-}
 
 mal_context_config mal_context_config_init()
 {

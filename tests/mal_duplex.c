@@ -23,7 +23,7 @@ void stop_callback(mal_device* pDevice)
 void data_callback(mal_device* pDevice, void* pOutput, const void* pInput, mal_uint32 frameCount)
 {
     /* In this test the format and channel count are the same for both input and output which means we can just memcpy(). */
-    mal_copy_memory(pOutput, pInput, frameCount * mal_get_bytes_per_frame(pDevice->format, pDevice->channels));
+    mal_copy_memory(pOutput, pInput, frameCount * mal_get_bytes_per_frame(pDevice->capture.format, pDevice->capture.channels));
 
     /* Also write to a wav file for debugging. */
     drwav* pWav = (drwav*)pDevice->pUserData;
@@ -50,7 +50,7 @@ int main(int argc, char** argv)
     }
     
 
-    mal_backend backend = mal_backend_wasapi;
+    mal_backend backend = mal_backend_dsound;
 
     mal_context_config contextConfig = mal_context_config_init();
     contextConfig.logCallback = log_callback;
@@ -70,7 +70,7 @@ int main(int argc, char** argv)
     deviceConfig.playback.format    = mal_format_f32;
     deviceConfig.playback.channels  = 2;
     deviceConfig.sampleRate         = 44100;
-    deviceConfig.bufferSizeInMilliseconds = 1000;
+    deviceConfig.bufferSizeInMilliseconds = 50;
     deviceConfig.periods            = 3;
     deviceConfig.dataCallback       = data_callback;
     deviceConfig.stopCallback       = stop_callback;
