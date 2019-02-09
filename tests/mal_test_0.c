@@ -2315,8 +2315,8 @@ int do_playback_test(mal_backend backend)
         }
         haveDevice = MAL_TRUE;
 
-        printf("    Is Passthrough: %s\n", (device.dsp.isPassthrough) ? "YES" : "NO");
-        printf("    Buffer Size in Frames: %d\n", device.bufferSizeInFrames);
+        printf("    Is Passthrough: %s\n", (device.playback.converter.isPassthrough) ? "YES" : "NO");
+        printf("    Buffer Size in Frames: %d\n", device.playback.internalBufferSizeInFrames);
     }
 
     printf("  Opening Decoder... ");
@@ -2328,7 +2328,7 @@ int do_playback_test(mal_backend backend)
         }
         
 #if !defined(__EMSCRIPTEN__)
-        mal_decoder_config decoderConfig = mal_decoder_config_init(device.format, device.channels, device.sampleRate);
+        mal_decoder_config decoderConfig = mal_decoder_config_init(device.playback.format, device.playback.channels, device.sampleRate);
         result = mal_decoder_init_file("res/sine_s16_mono_48000.wav", &decoderConfig, &decoder);
         if (result == MAL_SUCCESS) {
             printf("Done\n");

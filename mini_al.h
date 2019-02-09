@@ -1999,9 +1999,6 @@ MAL_ALIGNED_STRUCT(MAL_SIMD_ALIGNMENT) mal_device
     mal_context* pContext;
     mal_device_type type;
     mal_uint32 sampleRate;
-    mal_uint32 bufferSizeInFrames;
-    mal_uint32 bufferSizeInMilliseconds;    /* Does this need to exist? */
-    mal_uint32 periods;
     mal_uint32 state;
     mal_device_callback_proc onData;
     mal_stop_proc onStop;
@@ -2076,6 +2073,9 @@ MAL_ALIGNED_STRUCT(MAL_SIMD_ALIGNMENT) mal_device
             mal_uint32 deviceBufferFramesRemainingCapture;
             mal_uint32 deviceBufferFramesCapacityPlayback;
             mal_uint32 deviceBufferFramesCapacityCapture;
+            mal_uint32 originalBufferSizeInFrames;
+            mal_uint32 originalBufferSizeInMilliseconds;
+            mal_uint32 originalPeriods;
             mal_bool32 hasDefaultPlaybackDeviceChanged;         /* <-- Make sure this is always a whole 32-bits because we use atomic assignments. */
             mal_bool32 hasDefaultCaptureDeviceChanged;          /* <-- Make sure this is always a whole 32-bits because we use atomic assignments. */
             mal_bool32 isStarted;
@@ -4979,19 +4979,27 @@ mal_result mal_device_init__null(mal_context* pContext, const mal_device_config*
 
     mal_zero_object(&pDevice->null_device);
 
-    if (pConfig->deviceType == mal_device_type_capture || pConfig->deviceType == mal_device_type_duplex) {
-        mal_strncpy_s(pDevice->capture.name,  sizeof(pDevice->capture.name),  "NULL Capture Device",  (size_t)-1);
-    }
-    if (pConfig->deviceType == mal_device_type_playback || pConfig->deviceType == mal_device_type_duplex) {
-        mal_strncpy_s(pDevice->playback.name, sizeof(pDevice->playback.name), "NULL Playback Device", (size_t)-1);
-    }
-    
     mal_uint32 bufferSizeInFrames = pConfig->bufferSizeInFrames;
     if (bufferSizeInFrames == 0) {
         bufferSizeInFrames = mal_calculate_buffer_size_in_frames_from_milliseconds(pConfig->bufferSizeInMilliseconds, pConfig->sampleRate);
     }
 
-    pDevice->bufferSizeInFrames = bufferSizeInFrames;
+    if (pConfig->deviceType == mal_device_type_capture || pConfig->deviceType == mal_device_type_duplex) {
+        mal_strncpy_s(pDevice->capture.name,  sizeof(pDevice->capture.name),  "NULL Capture Device",  (size_t)-1);
+        pDevice->capture.internalFormat             = pConfig->capture.format;
+        pDevice->capture.internalChannels           = pConfig->capture.channels;
+        mal_channel_map_copy(pDevice->capture.internalChannelMap, pConfig->capture.channelMap, pConfig->capture.channels);
+        pDevice->capture.internalBufferSizeInFrames = bufferSizeInFrames;
+        pDevice->capture.internalPeriods            = pConfig->periods;
+    }
+    if (pConfig->deviceType == mal_device_type_playback || pConfig->deviceType == mal_device_type_duplex) {
+        mal_strncpy_s(pDevice->playback.name, sizeof(pDevice->playback.name), "NULL Playback Device", (size_t)-1);
+        pDevice->playback.internalFormat             = pConfig->playback.format;
+        pDevice->playback.internalChannels           = pConfig->playback.channels;
+        mal_channel_map_copy(pDevice->playback.internalChannelMap, pConfig->playback.channelMap, pConfig->playback.channels);
+        pDevice->playback.internalBufferSizeInFrames = bufferSizeInFrames;
+        pDevice->playback.internalPeriods            = pConfig->periods;
+    }
 
     /*
     In order to get timing right, we need to create a thread that does nothing but keeps track of the timer. This timer is started when the
@@ -5096,8 +5104,8 @@ mal_result mal_device_write__null(mal_device* pDevice, const void* pPCMFrames, m
             mal_sleep(10);
         }
 
-        pDevice->null_device.lastProcessedFramePlayback += pDevice->bufferSizeInFrames/pDevice->periods;
-        pDevice->null_device.currentPeriodFramesRemainingPlayback = pDevice->bufferSizeInFrames/pDevice->periods;
+        pDevice->null_device.lastProcessedFramePlayback          += pDevice->playback.internalBufferSizeInFrames / pDevice->playback.internalPeriods;
+        pDevice->null_device.currentPeriodFramesRemainingPlayback = pDevice->playback.internalBufferSizeInFrames / pDevice->playback.internalPeriods;
     }
 
     return result;
@@ -5147,7 +5155,7 @@ mal_result mal_device_read__null(mal_device* pDevice, void* pPCMFrames, mal_uint
         }
 
         /* Getting here means we've still got more frames to consume, we but need to wait for it to become available. */
-        mal_uint64 targetFrame = pDevice->null_device.lastProcessedFrameCapture + (pDevice->bufferSizeInFrames/pDevice->periods);
+        mal_uint64 targetFrame = pDevice->null_device.lastProcessedFrameCapture + (pDevice->capture.internalBufferSizeInFrames / pDevice->capture.internalPeriods);
         for (;;) {
             /* Stop waiting if the device has been stopped. */
             if (!pDevice->null_device.isStarted) {
@@ -5163,8 +5171,8 @@ mal_result mal_device_read__null(mal_device* pDevice, void* pPCMFrames, mal_uint
             mal_sleep(10);
         }
 
-        pDevice->null_device.lastProcessedFrameCapture          += pDevice->bufferSizeInFrames/pDevice->periods;
-        pDevice->null_device.currentPeriodFramesRemainingCapture = pDevice->bufferSizeInFrames/pDevice->periods;
+        pDevice->null_device.lastProcessedFrameCapture          += pDevice->capture.internalBufferSizeInFrames / pDevice->capture.internalPeriods;
+        pDevice->null_device.currentPeriodFramesRemainingCapture = pDevice->capture.internalBufferSizeInFrames / pDevice->capture.internalPeriods;
     }
 
     return result;
@@ -7077,9 +7085,9 @@ mal_result mal_device_reinit__wasapi(mal_device* pDevice, mal_device_type device
     
     data.sampleRateIn               = pDevice->sampleRate;
     data.usingDefaultSampleRate     = pDevice->usingDefaultSampleRate;
-    data.bufferSizeInFramesIn       = pDevice->bufferSizeInFrames;
-    data.bufferSizeInMillisecondsIn = pDevice->bufferSizeInMilliseconds;
-    data.periodsIn                  = pDevice->periods;
+    data.bufferSizeInFramesIn       = pDevice->wasapi.originalBufferSizeInFrames;
+    data.bufferSizeInMillisecondsIn = pDevice->wasapi.originalBufferSizeInMilliseconds;
+    data.periodsIn                  = pDevice->wasapi.originalPeriods;
     mal_result result = mal_device_init_internal__wasapi(pDevice->pContext, deviceType, NULL, &data);
     if (result != MAL_SUCCESS) {
         return result;
@@ -7136,17 +7144,6 @@ mal_result mal_device_reinit__wasapi(mal_device* pDevice, mal_device_type device
         mal_IAudioClient_SetEventHandle((mal_IAudioClient*)pDevice->wasapi.pAudioClientPlayback, pDevice->wasapi.hEventPlayback);
     }
 
-    
-
-    // BACKWARDS COMPATIBILITY. TEMP.
-    if (pDevice->type == mal_device_type_capture || pDevice->type == mal_device_type_duplex) {
-        pDevice->bufferSizeInFrames = pDevice->capture.internalBufferSizeInFrames;
-        pDevice->periods = pDevice->capture.internalChannels;
-    } else {
-        pDevice->bufferSizeInFrames = pDevice->playback.internalBufferSizeInFrames;
-        pDevice->periods = pDevice->playback.internalChannels;
-    }
-
     mal_atomic_exchange_32(&pDevice->wasapi.isStarted, MAL_FALSE);
 
     return MAL_SUCCESS;
@@ -7163,6 +7160,9 @@ mal_result mal_device_init__wasapi(mal_context* pContext, const mal_device_confi
     mal_assert(pDevice != NULL);
 
     mal_zero_object(&pDevice->wasapi);
+    pDevice->wasapi.originalBufferSizeInFrames       = pConfig->bufferSizeInFrames;
+    pDevice->wasapi.originalBufferSizeInMilliseconds = pConfig->bufferSizeInMilliseconds;
+    pDevice->wasapi.originalPeriods                  = pConfig->periods;
 
     if (pConfig->deviceType == mal_device_type_capture || pConfig->deviceType == mal_device_type_duplex) {
         mal_device_init_internal_data__wasapi data;
@@ -7295,17 +7295,6 @@ mal_result mal_device_init__wasapi(mal_context* pContext, const mal_device_confi
         }
         mal_IAudioClient_SetEventHandle((mal_IAudioClient*)pDevice->wasapi.pAudioClientPlayback, pDevice->wasapi.hEventPlayback);
     }
-
-
-    // BACKWARDS COMPATIBILITY. TEMP.
-    if (pConfig->deviceType == mal_device_type_capture || pConfig->deviceType == mal_device_type_duplex) {
-        pDevice->bufferSizeInFrames = pDevice->capture.internalBufferSizeInFrames;
-        pDevice->periods = pDevice->capture.internalChannels;
-    } else {
-        pDevice->bufferSizeInFrames = pDevice->playback.internalBufferSizeInFrames;
-        pDevice->periods = pDevice->playback.internalChannels;
-    }
-    
 
 
     // We need to get notifications of when the default device changes. We do this through a device enumerator by
@@ -8611,14 +8600,20 @@ mal_result mal_device_init__dsound(mal_context* pContext, const mal_device_confi
     mal_assert(pDevice != NULL);
     mal_zero_object(&pDevice->dsound);
 
+    mal_uint32 bufferSizeInMilliseconds = pConfig->bufferSizeInMilliseconds;
+    if (bufferSizeInMilliseconds == 0) {
+        bufferSizeInMilliseconds = mal_calculate_buffer_size_in_milliseconds_from_frames(pConfig->bufferSizeInFrames, pConfig->sampleRate);
+    }
+    
     /* DirectSound should use a latency of about 20ms per period for low latency mode. */
     if (pDevice->usingDefaultBufferSize) {
         if (pConfig->performanceProfile == mal_performance_profile_low_latency) {
-            pDevice->bufferSizeInMilliseconds = 20 * pDevice->periods;
+            bufferSizeInMilliseconds =  20 * pConfig->periods;
         } else {
-            pDevice->bufferSizeInMilliseconds = 200 * pDevice->periods;
+            bufferSizeInMilliseconds = 200 * pConfig->periods;
         }
     }
+
 
     // Unfortunately DirectSound uses different APIs and data structures for playback and catpure devices. We need to initialize
     // the capture device first because we'll want to match it's buffer size and period count on the playback side if we're using
@@ -8647,18 +8642,14 @@ mal_result mal_device_init__dsound(mal_context* pContext, const mal_device_confi
         wf.Samples.wValidBitsPerSample = wf.Format.wBitsPerSample;
         wf.SubFormat                   = MAL_GUID_KSDATAFORMAT_SUBTYPE_PCM;
 
-        if (pDevice->bufferSizeInFrames == 0) {
-            pDevice->bufferSizeInFrames = mal_calculate_buffer_size_in_frames_from_milliseconds(pDevice->bufferSizeInMilliseconds, wf.Format.nSamplesPerSec);
-        }
-
         /* The size of the buffer must be a clean multiple of the period count. */
-        pDevice->bufferSizeInFrames = (mal_uint32)(pDevice->bufferSizeInFrames/pDevice->periods) * pDevice->periods;
+        mal_uint32 bufferSizeInFrames = (mal_calculate_buffer_size_in_frames_from_milliseconds(bufferSizeInMilliseconds, wf.Format.nSamplesPerSec) / pConfig->periods) * pConfig->periods;
 
         MAL_DSCBUFFERDESC descDS;
         mal_zero_object(&descDS);
         descDS.dwSize = sizeof(descDS);
         descDS.dwFlags = 0;
-        descDS.dwBufferBytes = pDevice->bufferSizeInFrames * mal_get_bytes_per_frame(pDevice->capture.internalFormat, wf.Format.nChannels);
+        descDS.dwBufferBytes = bufferSizeInFrames * mal_get_bytes_per_frame(pDevice->capture.internalFormat, wf.Format.nChannels);
         descDS.lpwfxFormat = (WAVEFORMATEX*)&wf;
         if (FAILED(mal_IDirectSoundCapture_CreateCaptureBuffer((mal_IDirectSoundCapture*)pDevice->dsound.pCapture, &descDS, (mal_IDirectSoundCaptureBuffer**)&pDevice->dsound.pCaptureBuffer, NULL))) {
             mal_device_uninit__dsound(pDevice);
@@ -8688,8 +8679,8 @@ mal_result mal_device_init__dsound(mal_context* pContext, const mal_device_confi
         After getting the actual format the size of the buffer in frames may have actually changed. However, we want this to be as close to what the
         user has asked for as possible, so let's go ahead and release the old capture buffer and create a new one in this case.
         */
-        if (pDevice->bufferSizeInFrames != (descDS.dwBufferBytes / mal_get_bytes_per_frame(pDevice->capture.internalFormat, pDevice->capture.internalChannels))) {
-            descDS.dwBufferBytes = pDevice->bufferSizeInFrames * mal_get_bytes_per_frame(pDevice->capture.internalFormat, wf.Format.nChannels);
+        if (bufferSizeInFrames != (descDS.dwBufferBytes / mal_get_bytes_per_frame(pDevice->capture.internalFormat, pDevice->capture.internalChannels))) {
+            descDS.dwBufferBytes = bufferSizeInFrames * mal_get_bytes_per_frame(pDevice->capture.internalFormat, wf.Format.nChannels);
             mal_IDirectSoundCaptureBuffer_Release((mal_IDirectSoundCaptureBuffer*)pDevice->dsound.pCaptureBuffer);
 
             if (FAILED(mal_IDirectSoundCapture_CreateCaptureBuffer((mal_IDirectSoundCapture*)pDevice->dsound.pCapture, &descDS, (mal_IDirectSoundCaptureBuffer**)&pDevice->dsound.pCaptureBuffer, NULL))) {
@@ -8699,8 +8690,8 @@ mal_result mal_device_init__dsound(mal_context* pContext, const mal_device_confi
         }
 
         /* DirectSound should give us a buffer exactly the size we asked for. */
-        pDevice->capture.internalBufferSizeInFrames = pDevice->bufferSizeInFrames;
-        pDevice->capture.internalPeriods            = pDevice->periods;
+        pDevice->capture.internalBufferSizeInFrames = bufferSizeInFrames;
+        pDevice->capture.internalPeriods            = pConfig->periods;
     }
 
     if (pConfig->deviceType == mal_device_type_playback || pConfig->deviceType == mal_device_type_duplex) {
@@ -8792,21 +8783,8 @@ mal_result mal_device_init__dsound(mal_context* pContext, const mal_device_confi
             mal_channel_mask_to_channel_map__win32(wf.dwChannelMask, pDevice->playback.internalChannels, pDevice->playback.internalChannelMap);
         }
 
-
-        /*
-        When deciding on the buffer size we must leave this unchanged if we are using a full-duplex device. The capture side will have set these and we want the playback
-        side to use the same buffer size.
-        */
-        if (pConfig->deviceType != mal_device_type_duplex) {
-            /* We need to wait until we know the sample rate before we can calculate the buffer size. */
-            if (pDevice->bufferSizeInFrames == 0) {
-                pDevice->bufferSizeInFrames = mal_calculate_buffer_size_in_frames_from_milliseconds(pDevice->bufferSizeInMilliseconds, pDevice->playback.internalSampleRate);
-            }
-
-            /* The size of the buffer must be a clean multiple of the period count. */
-            pDevice->bufferSizeInFrames = (mal_uint32)(pDevice->bufferSizeInFrames/pDevice->periods) * pDevice->periods;
-        }
-        
+        /* The size of the buffer must be a clean multiple of the period count. */
+        mal_uint32 bufferSizeInFrames = (mal_calculate_buffer_size_in_frames_from_milliseconds(bufferSizeInMilliseconds, pDevice->playback.internalSampleRate) / pConfig->periods) * pConfig->periods;
 
         // Meaning of dwFlags (from MSDN):
         //
@@ -8825,7 +8803,7 @@ mal_result mal_device_init__dsound(mal_context* pContext, const mal_device_confi
         mal_zero_object(&descDS);
         descDS.dwSize = sizeof(descDS);
         descDS.dwFlags = MAL_DSBCAPS_CTRLPOSITIONNOTIFY | MAL_DSBCAPS_GLOBALFOCUS | MAL_DSBCAPS_GETCURRENTPOSITION2;
-        descDS.dwBufferBytes = pDevice->bufferSizeInFrames * mal_get_bytes_per_frame(pDevice->playback.internalFormat, pDevice->playback.internalChannels);
+        descDS.dwBufferBytes = bufferSizeInFrames * mal_get_bytes_per_frame(pDevice->playback.internalFormat, pDevice->playback.internalChannels);
         descDS.lpwfxFormat = (WAVEFORMATEX*)&wf;
         if (FAILED(mal_IDirectSound_CreateSoundBuffer((mal_IDirectSound*)pDevice->dsound.pPlayback, &descDS, (mal_IDirectSoundBuffer**)&pDevice->dsound.pPlaybackBuffer, NULL))) {
             mal_device_uninit__dsound(pDevice);
@@ -8833,8 +8811,8 @@ mal_result mal_device_init__dsound(mal_context* pContext, const mal_device_confi
         }
 
         /* DirectSound should give us a buffer exactly the size we asked for. */
-        pDevice->playback.internalBufferSizeInFrames = pDevice->bufferSizeInFrames;
-        pDevice->playback.internalPeriods            = pDevice->periods;
+        pDevice->playback.internalBufferSizeInFrames = bufferSizeInFrames;
+        pDevice->playback.internalPeriods            = pConfig->periods;
     }
 
     return MAL_SUCCESS;
@@ -8912,7 +8890,7 @@ mal_result mal_device_get_current_frame__dsound(mal_device* pDevice, mal_device_
 
 mal_result mal_device_map_next_playback_buffer__dsound(mal_device* pDevice)
 {
-    DWORD periodSizeInBytes = (pDevice->bufferSizeInFrames / pDevice->periods) * mal_get_bytes_per_frame(pDevice->playback.internalFormat, pDevice->playback.internalChannels);
+    DWORD periodSizeInBytes = (pDevice->playback.internalBufferSizeInFrames / pDevice->playback.internalPeriods) * mal_get_bytes_per_frame(pDevice->playback.internalFormat, pDevice->playback.internalChannels);
     DWORD lockOffset = (pDevice->dsound.iNextPeriodPlayback * periodSizeInBytes);
     DWORD mappedSizeInBytes;
     HRESULT hr = mal_IDirectSoundBuffer_Lock((mal_IDirectSoundBuffer*)pDevice->dsound.pPlaybackBuffer, lockOffset, periodSizeInBytes, &pDevice->dsound.pMappedBufferPlayback, &mappedSizeInBytes, NULL, NULL, 0);
@@ -8968,7 +8946,7 @@ mal_result mal_device_write__dsound(mal_device* pDevice, const void* pPCMFrames,
             pDevice->dsound.pMappedBufferPlayback = NULL;
             pDevice->dsound.mappedBufferFramesRemainingPlayback = 0;
             pDevice->dsound.mappedBufferFramesCapacityPlayback = 0;
-            pDevice->dsound.iNextPeriodPlayback = (pDevice->dsound.iNextPeriodPlayback + 1) % pDevice->periods;
+            pDevice->dsound.iNextPeriodPlayback = (pDevice->dsound.iNextPeriodPlayback + 1) % pDevice->playback.internalPeriods;
 
             if (FAILED(hr)) {
                 result = MAL_FAILED_TO_UNMAP_DEVICE_BUFFER;
@@ -9042,7 +9020,7 @@ mal_result mal_device_write__dsound(mal_device* pDevice, const void* pPCMFrames,
 
 mal_result mal_device_map_next_capture_buffer__dsound(mal_device* pDevice)
 {
-    DWORD periodSizeInBytes = (pDevice->bufferSizeInFrames / pDevice->periods) * mal_get_bytes_per_frame(pDevice->capture.internalFormat, pDevice->capture.internalChannels);
+    DWORD periodSizeInBytes = (pDevice->capture.internalBufferSizeInFrames / pDevice->capture.internalPeriods) * mal_get_bytes_per_frame(pDevice->capture.internalFormat, pDevice->capture.internalChannels);
     DWORD lockOffset = (pDevice->dsound.iNextPeriodCapture * periodSizeInBytes);
     DWORD mappedSizeInBytes;
     HRESULT hr = mal_IDirectSoundCaptureBuffer_Lock((mal_IDirectSoundCaptureBuffer*)pDevice->dsound.pCaptureBuffer, lockOffset, periodSizeInBytes, &pDevice->dsound.pMappedBufferCapture, &mappedSizeInBytes, NULL, NULL, 0);
@@ -9095,7 +9073,7 @@ mal_result mal_device_read__dsound(mal_device* pDevice, void* pPCMFrames, mal_ui
             pDevice->dsound.pMappedBufferCapture = NULL;
             pDevice->dsound.mappedBufferFramesRemainingCapture = 0;
             pDevice->dsound.mappedBufferFramesCapacityCapture = 0;
-            pDevice->dsound.iNextPeriodCapture = (pDevice->dsound.iNextPeriodCapture + 1) % pDevice->periods;
+            pDevice->dsound.iNextPeriodCapture = (pDevice->dsound.iNextPeriodCapture + 1) % pDevice->capture.internalPeriods;
 
             if (FAILED(hr)) {
                 result = MAL_FAILED_TO_UNMAP_DEVICE_BUFFER;
@@ -9700,14 +9678,20 @@ mal_result mal_device_init__winmm(mal_context* pContext, const mal_device_config
         return MAL_SHARE_MODE_NOT_SUPPORTED;
     }
 
+    mal_uint32 bufferSizeInMilliseconds = pConfig->bufferSizeInMilliseconds;
+    if (bufferSizeInMilliseconds == 0) {
+        bufferSizeInMilliseconds = mal_calculate_buffer_size_in_milliseconds_from_frames(pConfig->bufferSizeInFrames, pConfig->sampleRate);
+    }
+    
     /* WinMM has horrible latency. */
     if (pDevice->usingDefaultBufferSize) {
         if (pConfig->performanceProfile == mal_performance_profile_low_latency) {
-            pDevice->bufferSizeInMilliseconds = 40 * pDevice->periods;
+            bufferSizeInMilliseconds =  40 * pConfig->periods;
         } else {
-            pDevice->bufferSizeInMilliseconds = 400 * pDevice->periods;
+            bufferSizeInMilliseconds = 400 * pConfig->periods;
         }
     }
+
 
     if (pConfig->playback.pDeviceID != NULL) {
         winMMDeviceIDPlayback = (UINT)pConfig->playback.pDeviceID->winmm;
@@ -9751,12 +9735,8 @@ mal_result mal_device_init__winmm(mal_context* pContext, const mal_device_config
         pDevice->capture.internalChannels   = wf.nChannels;
         pDevice->capture.internalSampleRate = wf.nSamplesPerSec;
         mal_get_standard_channel_map(mal_standard_channel_map_microsoft, pDevice->capture.internalChannels, pDevice->capture.internalChannelMap);
-
-        pDevice->capture.internalPeriods = pDevice->periods;
-        pDevice->capture.internalBufferSizeInFrames = pDevice->bufferSizeInFrames;
-        if (pDevice->capture.internalBufferSizeInFrames == 0) {
-            pDevice->capture.internalBufferSizeInFrames = mal_calculate_buffer_size_in_frames_from_milliseconds(pDevice->bufferSizeInMilliseconds, pDevice->capture.internalSampleRate);
-        }
+        pDevice->capture.internalPeriods = pConfig->periods;
+        pDevice->capture.internalBufferSizeInFrames = mal_calculate_buffer_size_in_frames_from_milliseconds(bufferSizeInMilliseconds, pDevice->capture.internalSampleRate);
     }
 
     if (pConfig->deviceType == mal_device_type_playback || pConfig->deviceType == mal_device_type_duplex) {
@@ -9793,24 +9773,9 @@ mal_result mal_device_init__winmm(mal_context* pContext, const mal_device_config
         pDevice->playback.internalChannels   = wf.nChannels;
         pDevice->playback.internalSampleRate = wf.nSamplesPerSec;
         mal_get_standard_channel_map(mal_standard_channel_map_microsoft, pDevice->playback.internalChannels, pDevice->playback.internalChannelMap);
-
-        pDevice->playback.internalPeriods = pDevice->periods;
-        pDevice->playback.internalBufferSizeInFrames = pDevice->bufferSizeInFrames;
-        if (pDevice->playback.internalBufferSizeInFrames == 0) {
-            pDevice->playback.internalBufferSizeInFrames = mal_calculate_buffer_size_in_frames_from_milliseconds(pDevice->bufferSizeInMilliseconds, pDevice->playback.internalSampleRate);
-        }
+        pDevice->playback.internalPeriods = pConfig->periods;
+        pDevice->playback.internalBufferSizeInFrames = mal_calculate_buffer_size_in_frames_from_milliseconds(bufferSizeInMilliseconds, pDevice->playback.internalSampleRate);
     }
-
-
-    // TEMP. FOR BACKWARDS COMPATIBILITY.
-    if (pConfig->deviceType == mal_device_type_capture || pConfig->deviceType == mal_device_type_duplex) {
-        pDevice->bufferSizeInFrames = pDevice->capture.internalBufferSizeInFrames;
-        pDevice->periods = pDevice->capture.internalPeriods;
-    } else {
-        pDevice->bufferSizeInFrames = pDevice->playback.internalBufferSizeInFrames;
-        pDevice->periods = pDevice->playback.internalPeriods;
-    }
-
 
     // The heap allocated data is allocated like so:
     //
@@ -9989,7 +9954,7 @@ mal_result mal_device_write__winmm(mal_device* pDevice, const void* pPCMFrames, 
                 mal_atomic_exchange_32(&pDevice->winmm.isStarted, MAL_TRUE);
 
                 /* Make sure we move to the next header. */
-                pDevice->winmm.iNextHeaderPlayback = (pDevice->winmm.iNextHeaderPlayback + 1) % pDevice->periods;
+                pDevice->winmm.iNextHeaderPlayback = (pDevice->winmm.iNextHeaderPlayback + 1) % pDevice->playback.internalPeriods;
                 pDevice->winmm.headerFramesConsumedPlayback = 0;
             }
 
@@ -10040,7 +10005,7 @@ mal_result mal_device_read__winmm(mal_device* pDevice, void* pPCMFrames, mal_uin
         ResetEvent((HANDLE)pDevice->winmm.hEventCapture);
 
         /* To start the device we attach all of the buffers and then start it. As the buffers are filled with data we will get notifications. */
-        for (mal_uint32 iPeriod = 0; iPeriod < pDevice->periods; ++iPeriod) {
+        for (mal_uint32 iPeriod = 0; iPeriod < pDevice->capture.internalPeriods; ++iPeriod) {
             resultMM = ((MAL_PFN_waveInAddBuffer)pDevice->pContext->winmm.waveInAddBuffer)((HWAVEIN)pDevice->winmm.hDeviceCapture, &((LPWAVEHDR)pDevice->winmm.pWAVEHDRCapture)[iPeriod], sizeof(WAVEHDR));
             if (resultMM != MMSYSERR_NOERROR) {
                 return mal_post_error(pDevice, MAL_LOG_LEVEL_ERROR, "[WinMM] Failed to attach input buffers to capture device in preparation for capture.", mal_result_from_MMRESULT(resultMM));
@@ -10093,7 +10058,7 @@ mal_result mal_device_read__winmm(mal_device* pDevice, void* pPCMFrames, mal_uin
                 }
 
                 /* Make sure we move to the next header. */
-                pDevice->winmm.iNextHeaderCapture = (pDevice->winmm.iNextHeaderCapture + 1) % pDevice->periods;
+                pDevice->winmm.iNextHeaderCapture = (pDevice->winmm.iNextHeaderCapture + 1) % pDevice->capture.internalPeriods;
                 pDevice->winmm.headerFramesConsumedCapture = 0;
             }
 
@@ -13570,7 +13535,12 @@ mal_result mal_device_init__pulse(mal_context* pContext, const mal_device_config
         attr = *pActualAttr;
     }
 
-    pDevice->bufferSizeInFrames = attr.maxlength / (mal_get_bytes_per_sample(pDevice->internalFormat)*pDevice->internalChannels);
+    pDevice->bufferSizeInFrames;
+    if (pConfig->deviceType == mal_device_type_capture || pConfig->deviceType == mal_device_type_duplex) {
+        pDevice->bufferSizeInFrames = attr.maxlength / (mal_get_bytes_per_sample(pDevice->capture.internalFormat)*pDevice->capture.internalChannels);
+    } else {
+        pDevice->bufferSizeInFrames = attr.maxlength / (mal_get_bytes_per_sample(pDevice->capture.internalFormat)*pDevice->capture.internalChannels);
+    }
     pDevice->periods = attr.maxlength / attr.tlength;
 
 #ifdef MAL_DEBUG_OUTPUT
@@ -14172,7 +14142,7 @@ int mal_device__jack_buffer_size_callback(mal_jack_nframes_t frameCount, void* p
         }
 
         pDevice->jack.pIntermediaryBufferCapture = pNewBuffer;
-        pDevice->playback.internalBufferSizeInFrames = frameCount * pDevice->periods;
+        pDevice->playback.internalBufferSizeInFrames = frameCount * pDevice->capture.internalPeriods;
     }
 
     if (pDevice->type == mal_device_type_playback || pDevice->type == mal_device_type_duplex) {
@@ -14182,10 +14152,9 @@ int mal_device__jack_buffer_size_callback(mal_jack_nframes_t frameCount, void* p
         }
 
         pDevice->jack.pIntermediaryBufferPlayback = pNewBuffer;
-        pDevice->playback.internalBufferSizeInFrames = frameCount * pDevice->periods;
+        pDevice->playback.internalBufferSizeInFrames = frameCount * pDevice->playback.internalPeriods;
     }
 
-    pDevice->bufferSizeInFrames = frameCount * pDevice->periods;
     return 0;
 }
 
@@ -14276,10 +14245,9 @@ mal_result mal_device_init__jack(mal_context* pContext, const mal_device_config*
 
 
     /* The buffer size in frames can change. */
-    pDevice->periods            = 2;
-    pDevice->bufferSizeInFrames = ((mal_jack_get_buffer_size_proc)pContext->jack.jack_get_buffer_size)((mal_jack_client_t*)pDevice->jack.pClient) * pDevice->periods;
-
-
+    mal_uint32 periods            = 2;
+    mal_uint32 bufferSizeInFrames = ((mal_jack_get_buffer_size_proc)pContext->jack.jack_get_buffer_size)((mal_jack_client_t*)pDevice->jack.pClient) * periods;
+    
     if (pConfig->deviceType == mal_device_type_capture || pConfig->deviceType == mal_device_type_duplex) {
         const char** ppPorts;
 
@@ -14310,8 +14278,8 @@ mal_result mal_device_init__jack(mal_context* pContext, const mal_device_config*
 
         ((mal_jack_free_proc)pContext->jack.jack_free)((void*)ppPorts);
 
-        pDevice->capture.internalBufferSizeInFrames = pDevice->bufferSizeInFrames;
-        pDevice->capture.internalPeriods            = pDevice->periods;
+        pDevice->capture.internalBufferSizeInFrames = bufferSizeInFrames;
+        pDevice->capture.internalPeriods            = periods;
 
         pDevice->jack.pIntermediaryBufferCapture = (float*)mal_malloc((pDevice->capture.internalBufferSizeInFrames/pDevice->capture.internalPeriods) * (pDevice->capture.internalChannels * mal_get_bytes_per_sample(pDevice->capture.internalFormat)));
         if (pDevice->jack.pIntermediaryBufferCapture == NULL) {
@@ -14350,8 +14318,8 @@ mal_result mal_device_init__jack(mal_context* pContext, const mal_device_config*
 
         ((mal_jack_free_proc)pContext->jack.jack_free)((void*)ppPorts);
 
-        pDevice->playback.internalBufferSizeInFrames = pDevice->bufferSizeInFrames;
-        pDevice->playback.internalPeriods            = pDevice->periods;
+        pDevice->playback.internalBufferSizeInFrames = bufferSizeInFrames;
+        pDevice->playback.internalPeriods            = periods;
 
         pDevice->jack.pIntermediaryBufferPlayback = (float*)mal_malloc((pDevice->playback.internalBufferSizeInFrames/pDevice->playback.internalPeriods) * (pDevice->playback.internalChannels * mal_get_bytes_per_sample(pDevice->playback.internalFormat)));
         if (pDevice->jack.pIntermediaryBufferPlayback == NULL) {
@@ -20623,13 +20591,6 @@ void mal_device__post_init_setup(mal_device* pDevice, mal_device_type deviceType
         }
     }
 
-    // Buffer size. The backend will have set bufferSizeInFrames. We need to calculate bufferSizeInMilliseconds here.
-    if (deviceType == mal_device_type_capture || deviceType == mal_device_type_duplex) {
-        pDevice->bufferSizeInMilliseconds = pDevice->bufferSizeInFrames / (pDevice->capture.internalSampleRate/1000);
-    } else {
-        pDevice->bufferSizeInMilliseconds = pDevice->bufferSizeInFrames / (pDevice->playback.internalSampleRate/1000);
-    }
-
     /* PCM converters. */
     if (deviceType == mal_device_type_capture || deviceType == mal_device_type_duplex) {
         /* Converting from internal device format to public format. */
@@ -20713,8 +20674,12 @@ mal_thread_result MAL_THREADCALL mal_worker_thread(void* pData)
 
         mal_uint32 periodSizeInFrames;
         if (pDevice->type == mal_device_type_capture || pDevice->type == mal_device_type_duplex) {
+            mal_assert(pDevice->capture.internalPeriods >= 2);
+            mal_assert(pDevice->capture.internalBufferSizeInFrames >= pDevice->capture.internalPeriods);
             periodSizeInFrames = pDevice->capture.internalBufferSizeInFrames / pDevice->capture.internalPeriods;
         } else {
+            mal_assert(pDevice->playback.internalPeriods >= 2);
+            mal_assert(pDevice->playback.internalBufferSizeInFrames >= pDevice->playback.internalPeriods);
             periodSizeInFrames = pDevice->playback.internalBufferSizeInFrames / pDevice->playback.internalPeriods;
         }
         
@@ -20723,8 +20688,6 @@ mal_thread_result MAL_THREADCALL mal_worker_thread(void* pData)
         With the blocking API, the device is started automatically in read()/write(). All we need to do is enter the loop and just keep reading
         or writing based on the period size.
         */
-        mal_assert(pDevice->periods >= 2);
-        mal_assert(pDevice->bufferSizeInFrames >= pDevice->periods);
 
         /* Make sure the state is set appropriately. */
         mal_device__set_state(pDevice, MAL_STATE_STARTED);
@@ -21395,8 +21358,6 @@ mal_result mal_device_init(mal_context* pContext, const mal_device_config* pConf
         }
     }
 
-    
-
 
     mal_zero_object(pDevice);
     pDevice->pContext = pContext;
@@ -21457,10 +21418,6 @@ mal_result mal_device_init(mal_context* pContext, const mal_device_config* pConf
     }
 
     pDevice->type = config.deviceType;
-    pDevice->bufferSizeInFrames = config.bufferSizeInFrames;
-    pDevice->bufferSizeInMilliseconds = config.bufferSizeInMilliseconds;
-    pDevice->periods = config.periods;
-
     pDevice->sampleRate = config.sampleRate;
 
     pDevice->capture.shareMode   = config.capture.shareMode;
