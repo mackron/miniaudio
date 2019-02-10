@@ -1606,7 +1606,8 @@ typedef struct
     } alsa;
     struct
     {
-        const char* pStreamName;
+        const char* pStreamNamePlayback;
+        const char* pStreamNameCapture;
     } pulse;
 } mal_device_config;
 
@@ -1802,12 +1803,15 @@ struct mal_context
             mal_proc pa_stream_set_read_callback;
             mal_proc pa_stream_flush;
             mal_proc pa_stream_drain;
+            mal_proc pa_stream_is_corked;
             mal_proc pa_stream_cork;
             mal_proc pa_stream_trigger;
             mal_proc pa_stream_begin_write;
             mal_proc pa_stream_write;
             mal_proc pa_stream_peek;
             mal_proc pa_stream_drop;
+            mal_proc pa_stream_writable_size;
+            mal_proc pa_stream_readable_size;
         } pulse;
 #endif
 #ifdef MAL_SUPPORT_JACK
@@ -2136,9 +2140,17 @@ MAL_ALIGNED_STRUCT(MAL_SIMD_ALIGNMENT) mal_device
             /*pa_mainloop**/ mal_ptr pMainLoop;
             /*pa_mainloop_api**/ mal_ptr pAPI;
             /*pa_context**/ mal_ptr pPulseContext;
-            /*pa_stream**/ mal_ptr pStream;
+            /*pa_stream**/ mal_ptr pStreamPlayback;
+            /*pa_stream**/ mal_ptr pStreamCapture;
             /*pa_context_state*/ mal_uint32 pulseContextState;
-            mal_uint32 fragmentSizeInBytes;
+            void* pMappedBufferPlayback;
+            const void* pMappedBufferCapture;
+            mal_uint32 mappedBufferFramesRemainingPlayback;
+            mal_uint32 mappedBufferFramesRemainingCapture;
+            mal_uint32 mappedBufferFramesCapacityPlayback;
+            mal_uint32 mappedBufferFramesCapacityCapture;
+            mal_event readEvent;
+            mal_event writeEvent;
             mal_bool32 breakFromMainLoop : 1;
         } pulse;
 #endif
@@ -12620,12 +12632,15 @@ typedef void                      (* mal_pa_stream_set_write_callback_proc)     
 typedef void                      (* mal_pa_stream_set_read_callback_proc)       (mal_pa_stream* s, mal_pa_stream_request_cb_t cb, void* userdata);
 typedef mal_pa_operation*         (* mal_pa_stream_flush_proc)                   (mal_pa_stream* s, mal_pa_stream_success_cb_t cb, void* userdata);
 typedef mal_pa_operation*         (* mal_pa_stream_drain_proc)                   (mal_pa_stream* s, mal_pa_stream_success_cb_t cb, void* userdata);
+typedef int                       (* mal_pa_stream_is_corked_proc)               (mal_pa_stream* s);
 typedef mal_pa_operation*         (* mal_pa_stream_cork_proc)                    (mal_pa_stream* s, int b, mal_pa_stream_success_cb_t cb, void* userdata);
 typedef mal_pa_operation*         (* mal_pa_stream_trigger_proc)                 (mal_pa_stream* s, mal_pa_stream_success_cb_t cb, void* userdata);
 typedef int                       (* mal_pa_stream_begin_write_proc)             (mal_pa_stream* s, void** data, size_t* nbytes);
 typedef int                       (* mal_pa_stream_write_proc)                   (mal_pa_stream* s, const void* data, size_t nbytes, mal_pa_free_cb_t free_cb, int64_t offset, mal_pa_seek_mode_t seek);
 typedef int                       (* mal_pa_stream_peek_proc)                    (mal_pa_stream* s, const void** data, size_t* nbytes);
 typedef int                       (* mal_pa_stream_drop_proc)                    (mal_pa_stream* s);
+typedef size_t                    (* mal_pa_stream_writable_size_proc)           (mal_pa_stream* s);
+typedef size_t                    (* mal_pa_stream_readable_size_proc)           (mal_pa_stream* s);
 
 typedef struct
 {
@@ -13136,18 +13151,28 @@ void mal_pulse_device_write_callback(mal_pa_stream* pStream, size_t sizeInBytes,
     mal_device* pDevice = (mal_device*)pUserData;
     mal_assert(pDevice != NULL);
 
+    (void)sizeInBytes;
+
+#if 0
     mal_context* pContext = pDevice->pContext;
     mal_assert(pContext != NULL);
+#endif
 
 #ifdef MAL_DEBUG_OUTPUT
     printf("[PulseAudio] write_callback: sizeInBytes=%d\n", (int)sizeInBytes);
 #endif
+
+    printf("TRACE: Enter write callback.\n");
 
     /* Don't do anything if the device is stopping. Not doing this will result in draining never completing. */
     if (mal_device__get_state(pDevice) == MAL_STATE_STOPPING) {
         return;
     }
 
+    printf("TRACE: write callback signal.\n");
+    mal_event_signal(&pDevice->pulse.writeEvent);
+
+#if 0
     size_t bytesRemaining = sizeInBytes;
     while (bytesRemaining > 0) {
         size_t bytesToReadFromClient = bytesRemaining;
@@ -13195,6 +13220,7 @@ void mal_pulse_device_write_callback(mal_pa_stream* pStream, size_t sizeInBytes,
             break;
         }
     }
+#endif
 }
 
 void mal_pulse_device_read_callback(mal_pa_stream* pStream, size_t sizeInBytes, void* pUserData)
@@ -13202,14 +13228,19 @@ void mal_pulse_device_read_callback(mal_pa_stream* pStream, size_t sizeInBytes, 
     mal_device* pDevice = (mal_device*)pUserData;
     mal_assert(pDevice != NULL);
 
+#if 0
     mal_context* pContext = pDevice->pContext;
     mal_assert(pContext != NULL);
+#endif
 
     /* Don't do anything if the device is stopping. */
     if (mal_device__get_state(pDevice) == MAL_STATE_STOPPING) {
         return;
     }
 
+    mal_event_signal(&pDevice->pulse.readEvent);
+
+#if 0
     size_t bytesRemaining = sizeInBytes;
     while (bytesRemaining > 0) {
         size_t bytesToSendToClient = bytesRemaining;
@@ -13238,6 +13269,7 @@ void mal_pulse_device_read_callback(mal_pa_stream* pStream, size_t sizeInBytes, 
 
         bytesRemaining -= bytesToSendToClient;
     }
+#endif
 }
 
 void mal_device_sink_info_callback(mal_pa_context* pPulseContext, const mal_pa_sink_info* pInfo, int endOfList, void* pUserData)
@@ -13295,11 +13327,49 @@ void mal_device_uninit__pulse(mal_device* pDevice)
     mal_context* pContext = pDevice->pContext;
     mal_assert(pContext != NULL);
 
-    ((mal_pa_stream_disconnect_proc)pContext->pulse.pa_stream_disconnect)((mal_pa_stream*)pDevice->pulse.pStream);
-    ((mal_pa_stream_unref_proc)pContext->pulse.pa_stream_unref)((mal_pa_stream*)pDevice->pulse.pStream);
+    if (pDevice->type == mal_device_type_capture || pDevice->type == mal_device_type_duplex) {
+        ((mal_pa_stream_disconnect_proc)pContext->pulse.pa_stream_disconnect)((mal_pa_stream*)pDevice->pulse.pStreamCapture);
+        ((mal_pa_stream_unref_proc)pContext->pulse.pa_stream_unref)((mal_pa_stream*)pDevice->pulse.pStreamCapture);
+    }
+    if (pDevice->type == mal_device_type_playback || pDevice->type == mal_device_type_duplex) {
+        ((mal_pa_stream_disconnect_proc)pContext->pulse.pa_stream_disconnect)((mal_pa_stream*)pDevice->pulse.pStreamPlayback);
+        ((mal_pa_stream_unref_proc)pContext->pulse.pa_stream_unref)((mal_pa_stream*)pDevice->pulse.pStreamPlayback);
+    }
+
     ((mal_pa_context_disconnect_proc)pContext->pulse.pa_context_disconnect)((mal_pa_context*)pDevice->pulse.pPulseContext);
     ((mal_pa_context_unref_proc)pContext->pulse.pa_context_unref)((mal_pa_context*)pDevice->pulse.pPulseContext);
     ((mal_pa_mainloop_free_proc)pContext->pulse.pa_mainloop_free)((mal_pa_mainloop*)pDevice->pulse.pMainLoop);
+
+    mal_event_uninit(&pDevice->pulse.readEvent);
+    mal_event_uninit(&pDevice->pulse.writeEvent);
+}
+
+mal_pa_buffer_attr mal_device__pa_buffer_attr_new(mal_uint32 bufferSizeInFrames, mal_uint32 periods, const mal_pa_sample_spec* ss)
+{
+    mal_pa_buffer_attr attr;
+    attr.maxlength = bufferSizeInFrames * mal_get_bytes_per_sample(mal_format_from_pulse(ss->format)) * ss->channels;
+    attr.tlength   = attr.maxlength / periods;
+    attr.prebuf    = (mal_uint32)-1;
+    attr.minreq    = attr.maxlength / periods;
+    attr.fragsize  = attr.maxlength / periods;
+
+    return attr;
+}
+
+mal_pa_stream* mal_device__pa_stream_new__pulse(mal_device* pDevice, const char* pStreamName, const mal_pa_sample_spec* ss, const mal_pa_channel_map* cmap)
+{
+    static int g_StreamCounter = 0;
+
+    char actualStreamName[256];
+    if (pStreamName != NULL) {
+        mal_strncpy_s(actualStreamName, sizeof(actualStreamName), pStreamName, (size_t)-1);
+    } else {
+        mal_strcpy_s(actualStreamName, sizeof(actualStreamName), "mini_al:");
+        mal_itoa_s(g_StreamCounter, actualStreamName + 8, sizeof(actualStreamName)-8, 10);  // 8 = strlen("mini_al:")
+    }
+    g_StreamCounter += 1;
+
+    return ((mal_pa_stream_new_proc)pDevice->pContext->pulse.pa_stream_new)((mal_pa_context*)pDevice->pulse.pPulseContext, actualStreamName, ss, cmap);
 }
 
 mal_result mal_device_init__pulse(mal_context* pContext, const mal_device_config* pConfig, mal_device* pDevice)
@@ -13309,15 +13379,13 @@ mal_result mal_device_init__pulse(mal_context* pContext, const mal_device_config
     mal_assert(pDevice != NULL);
     mal_zero_object(&pDevice->pulse);
 
+    mal_event_init(pDevice->pContext, &pDevice->pulse.readEvent);
+    mal_event_init(pDevice->pContext, &pDevice->pulse.writeEvent);
+
     mal_result result = MAL_SUCCESS;
     int error = 0;
     const char* devPlayback = NULL;
     const char* devCapture  = NULL;
-
-    /* Full-duplex is not yet implemented. */
-    if (pConfig->deviceType == mal_device_type_duplex) {
-        return MAL_INVALID_ARGS;
-    }
 
     /* No exclusive mode with the PulseAudio backend. */
     if (((pConfig->deviceType == mal_device_type_playback || pConfig->deviceType == mal_device_type_duplex) && pConfig->playback.shareMode == mal_share_mode_exclusive) ||
@@ -13332,7 +13400,10 @@ mal_result mal_device_init__pulse(mal_context* pContext, const mal_device_config
         devCapture = pConfig->capture.pDeviceID->pulse;
     }
 
-    mal_uint32 bufferSizeInFrames = pConfig->bufferSizeInFrames;
+    mal_uint32 bufferSizeInMilliseconds = pConfig->bufferSizeInMilliseconds;
+    if (bufferSizeInMilliseconds == 0) {
+        bufferSizeInMilliseconds = mal_calculate_buffer_size_in_milliseconds_from_frames(pConfig->bufferSizeInFrames, pConfig->sampleRate);
+    }
 
     mal_pa_sink_info sinkInfo;
     mal_pa_source_info sourceInfo;
@@ -13341,7 +13412,6 @@ mal_result mal_device_init__pulse(mal_context* pContext, const mal_device_config
     mal_pa_sample_spec ss;
     mal_pa_channel_map cmap;
     mal_pa_buffer_attr attr;
-    mal_pa_stream_flags_t streamFlags;
 
     const mal_pa_sample_spec* pActualSS   = NULL;
     const mal_pa_channel_map* pActualCMap = NULL;
@@ -13403,163 +13473,95 @@ mal_result mal_device_init__pulse(mal_context* pContext, const mal_device_config
         }
     }
 
-
-    if (pConfig->deviceType == mal_device_type_playback) {
-        pOP = ((mal_pa_context_get_sink_info_by_name_proc)pContext->pulse.pa_context_get_sink_info_by_name)((mal_pa_context*)pDevice->pulse.pPulseContext, devPlayback, mal_device_sink_info_callback, &sinkInfo);
-    } else {
+    if (pConfig->deviceType == mal_device_type_capture || pConfig->deviceType == mal_device_type_duplex) {
         pOP = ((mal_pa_context_get_source_info_by_name_proc)pContext->pulse.pa_context_get_source_info_by_name)((mal_pa_context*)pDevice->pulse.pPulseContext, devCapture, mal_device_source_info_callback, &sourceInfo);
-    }
+        if (pOP != NULL) {
+            mal_device__wait_for_operation__pulse(pDevice, pOP);
+            ((mal_pa_operation_unref_proc)pContext->pulse.pa_operation_unref)(pOP);
+        } else {
+            result = mal_post_error(pDevice, MAL_LOG_LEVEL_ERROR, "[PulseAudio] Failed to retrieve source info for capture device.", mal_result_from_pulse(error));
+            goto on_error3;
+        }
 
-    if (pOP != NULL) {
-        mal_device__wait_for_operation__pulse(pDevice, pOP);
-        ((mal_pa_operation_unref_proc)pContext->pulse.pa_operation_unref)(pOP);
-    }
-
-    if (pConfig->deviceType == mal_device_type_playback) {
-        ss = sinkInfo.sample_spec;
-        cmap = sinkInfo.channel_map;
-    } else {
         ss = sourceInfo.sample_spec;
         cmap = sourceInfo.channel_map;
-    }
 
+        pDevice->capture.internalBufferSizeInFrames = mal_calculate_buffer_size_in_frames_from_milliseconds(bufferSizeInMilliseconds, ss.rate);
+        pDevice->capture.internalPeriods            = pConfig->periods;
 
-    // Buffer size.
-    bufferSizeInFrames = pDevice->bufferSizeInFrames;
-    if (bufferSizeInFrames == 0) {
-        bufferSizeInFrames = mal_calculate_buffer_size_in_frames_from_milliseconds(pDevice->bufferSizeInMilliseconds, ss.rate);
+        attr = mal_device__pa_buffer_attr_new(pDevice->capture.internalBufferSizeInFrames, pConfig->periods, &ss);
+    #ifdef MAL_DEBUG_OUTPUT
+        printf("[PulseAudio] Capture attr: maxlength=%d, tlength=%d, prebuf=%d, minreq=%d, fragsize=%d; internalBufferSizeInFrames=%d\n", attr.maxlength, attr.tlength, attr.prebuf, attr.minreq, attr.fragsize, pDevice->capture.internalBufferSizeInFrames);
+    #endif
 
-        if (pDevice->usingDefaultBufferSize) {
-            float bufferSizeScaleFactor = 1.0f;
-            if (pConfig->deviceType == mal_device_type_capture) {
-                bufferSizeScaleFactor = 2.0f;
-            }
-
-            bufferSizeInFrames = mal_scale_buffer_size(bufferSizeInFrames, bufferSizeScaleFactor);
+        pDevice->pulse.pStreamCapture = mal_device__pa_stream_new__pulse(pDevice, pConfig->pulse.pStreamNameCapture, &ss, &cmap);
+        if (pDevice->pulse.pStreamCapture == NULL) {
+            result = mal_post_error(pDevice, MAL_LOG_LEVEL_ERROR, "[PulseAudio] Failed to create PulseAudio capture stream.", MAL_FAILED_TO_OPEN_BACKEND_DEVICE);
+            goto on_error3;
         }
-    }
 
-    attr.maxlength = bufferSizeInFrames * mal_get_bytes_per_sample(mal_format_from_pulse(ss.format))*ss.channels;
-    attr.tlength   = attr.maxlength;
-    attr.prebuf    = (mal_uint32)-1;
-    attr.minreq    = attr.maxlength / pConfig->periods;
-    attr.fragsize  = attr.maxlength / pConfig->periods;
-
-#ifdef MAL_DEBUG_OUTPUT
-    printf("[PulseAudio] attr: maxlength=%d, tlength=%d, prebuf=%d, minreq=%d, fragsize=%d; bufferSizeInFrames=%d\n", attr.maxlength, attr.tlength, attr.prebuf, attr.minreq, attr.fragsize, bufferSizeInFrames);
-#endif
-
-    char streamName[256];
-    if (pConfig->pulse.pStreamName != NULL) {
-        mal_strncpy_s(streamName, sizeof(streamName), pConfig->pulse.pStreamName, (size_t)-1);
-    } else {
-        static int g_StreamCounter = 0;
-        mal_strcpy_s(streamName, sizeof(streamName), "mini_al:");
-        mal_itoa_s(g_StreamCounter, streamName + 8, sizeof(streamName)-8, 10);  // 8 = strlen("mini_al:")
-        g_StreamCounter += 1;
-    }
-
-    pDevice->pulse.pStream = ((mal_pa_stream_new_proc)pContext->pulse.pa_stream_new)((mal_pa_context*)pDevice->pulse.pPulseContext, streamName, &ss, &cmap);
-    if (pDevice->pulse.pStream == NULL) {
-        result = mal_post_error(pDevice, MAL_LOG_LEVEL_ERROR, "[PulseAudio] Failed to create PulseAudio stream.", MAL_FAILED_TO_OPEN_BACKEND_DEVICE);
-        goto on_error3;
-    }
-
-
-    streamFlags = MAL_PA_STREAM_START_CORKED;
-    if (((pConfig->deviceType == mal_device_type_playback) && devPlayback != NULL) ||
-        ((pConfig->deviceType == mal_device_type_capture)  && devCapture  != NULL)) {
-        streamFlags |= MAL_PA_STREAM_DONT_MOVE | MAL_PA_STREAM_FIX_FORMAT | MAL_PA_STREAM_FIX_RATE | MAL_PA_STREAM_FIX_CHANNELS;
-    }
-    
-    if (pConfig->deviceType == mal_device_type_playback) {
-        error = ((mal_pa_stream_connect_playback_proc)pContext->pulse.pa_stream_connect_playback)((mal_pa_stream*)pDevice->pulse.pStream, devPlayback, &attr, streamFlags, NULL, NULL);
-    } else {
-        error = ((mal_pa_stream_connect_record_proc)pContext->pulse.pa_stream_connect_record)((mal_pa_stream*)pDevice->pulse.pStream, devCapture, &attr, streamFlags);
-    }
-
-    if (error != MAL_PA_OK) {
-        result = mal_post_error(pDevice, MAL_LOG_LEVEL_ERROR, "[PulseAudio] Failed to connect PulseAudio stream.", mal_result_from_pulse(error));
-        goto on_error4;
-    }
-
-    while (((mal_pa_stream_get_state_proc)pContext->pulse.pa_stream_get_state)((mal_pa_stream*)pDevice->pulse.pStream) != MAL_PA_STREAM_READY) {
-        error = ((mal_pa_mainloop_iterate_proc)pContext->pulse.pa_mainloop_iterate)((mal_pa_mainloop*)pDevice->pulse.pMainLoop, 1, NULL);
-        if (error < 0) {
-            result = mal_post_error(pDevice, MAL_LOG_LEVEL_ERROR, "[PulseAudio] The PulseAudio main loop returned an error while connecting the PulseAudio stream.", mal_result_from_pulse(error));
-            goto on_error5;
+        mal_pa_stream_flags_t streamFlags = MAL_PA_STREAM_START_CORKED | MAL_PA_STREAM_FIX_FORMAT | MAL_PA_STREAM_FIX_RATE | MAL_PA_STREAM_FIX_CHANNELS;
+        if (devCapture != NULL) {
+            streamFlags |= MAL_PA_STREAM_DONT_MOVE;
         }
-    }
 
+        error = ((mal_pa_stream_connect_record_proc)pContext->pulse.pa_stream_connect_record)((mal_pa_stream*)pDevice->pulse.pStreamCapture, devCapture, &attr, streamFlags);
+        if (error != MAL_PA_OK) {
+            result = mal_post_error(pDevice, MAL_LOG_LEVEL_ERROR, "[PulseAudio] Failed to connect PulseAudio capture stream.", mal_result_from_pulse(error));
+            goto on_error4;
+        }
 
-    // Internal format.
-    pActualSS = ((mal_pa_stream_get_sample_spec_proc)pContext->pulse.pa_stream_get_sample_spec)((mal_pa_stream*)pDevice->pulse.pStream);
-    if (pActualSS != NULL) {
-        // If anything has changed between the requested and the actual sample spec, we need to update the buffer.
-        if (ss.format != pActualSS->format || ss.channels != pActualSS->channels || ss.rate != pActualSS->rate) {
-            attr.maxlength = bufferSizeInFrames * mal_get_bytes_per_sample(mal_format_from_pulse(pActualSS->format))*pActualSS->channels;
-            attr.tlength   = attr.maxlength;
-            attr.prebuf    = (mal_uint32)-1;
-            attr.minreq    = attr.maxlength / pConfig->periods;
-            attr.fragsize  = attr.maxlength / pConfig->periods;
-
-            pOP = ((mal_pa_stream_set_buffer_attr_proc)pContext->pulse.pa_stream_set_buffer_attr)((mal_pa_stream*)pDevice->pulse.pStream, &attr, NULL, NULL);
-            if (pOP != NULL) {
-                mal_device__wait_for_operation__pulse(pDevice, pOP);
-                ((mal_pa_operation_unref_proc)pContext->pulse.pa_operation_unref)(pOP);
+        while (((mal_pa_stream_get_state_proc)pContext->pulse.pa_stream_get_state)((mal_pa_stream*)pDevice->pulse.pStreamCapture) != MAL_PA_STREAM_READY) {
+            error = ((mal_pa_mainloop_iterate_proc)pContext->pulse.pa_mainloop_iterate)((mal_pa_mainloop*)pDevice->pulse.pMainLoop, 1, NULL);
+            if (error < 0) {
+                result = mal_post_error(pDevice, MAL_LOG_LEVEL_ERROR, "[PulseAudio] The PulseAudio main loop returned an error while connecting the PulseAudio capture stream.", mal_result_from_pulse(error));
+                goto on_error5;
             }
         }
 
-        ss = *pActualSS;
-    }
+        /* Internal format. */
+        pActualSS = ((mal_pa_stream_get_sample_spec_proc)pContext->pulse.pa_stream_get_sample_spec)((mal_pa_stream*)pDevice->pulse.pStreamCapture);
+        if (pActualSS != NULL) {
+            /* If anything has changed between the requested and the actual sample spec, we need to update the buffer. */
+            if (ss.format != pActualSS->format || ss.channels != pActualSS->channels || ss.rate != pActualSS->rate) {
+                attr = mal_device__pa_buffer_attr_new(pDevice->capture.internalBufferSizeInFrames, pConfig->periods, pActualSS);
 
-    pDevice->internalFormat = mal_format_from_pulse(ss.format);
-    pDevice->internalChannels = ss.channels;
-    pDevice->internalSampleRate = ss.rate;
-
-
-    // Internal channel map.
-    pActualCMap = ((mal_pa_stream_get_channel_map_proc)pContext->pulse.pa_stream_get_channel_map)((mal_pa_stream*)pDevice->pulse.pStream);
-    if (pActualCMap != NULL) {
-        cmap = *pActualCMap;
-    }
-
-    for (mal_uint32 iChannel = 0; iChannel < pDevice->internalChannels; ++iChannel) {
-        pDevice->internalChannelMap[iChannel] = mal_channel_position_from_pulse(cmap.map[iChannel]);
-    }
-
-
-    // Buffer size.
-    pActualAttr = ((mal_pa_stream_get_buffer_attr_proc)pContext->pulse.pa_stream_get_buffer_attr)((mal_pa_stream*)pDevice->pulse.pStream);
-    if (pActualAttr != NULL) {
-        attr = *pActualAttr;
-    }
-
-    pDevice->bufferSizeInFrames;
-    if (pConfig->deviceType == mal_device_type_capture || pConfig->deviceType == mal_device_type_duplex) {
-        pDevice->bufferSizeInFrames = attr.maxlength / (mal_get_bytes_per_sample(pDevice->capture.internalFormat)*pDevice->capture.internalChannels);
-    } else {
-        pDevice->bufferSizeInFrames = attr.maxlength / (mal_get_bytes_per_sample(pDevice->capture.internalFormat)*pDevice->capture.internalChannels);
-    }
-    pDevice->periods = attr.maxlength / attr.tlength;
-
-#ifdef MAL_DEBUG_OUTPUT
-    printf("[PulseAudio] actual attr: maxlength=%d, tlength=%d, prebuf=%d, minreq=%d, fragsize=%d; pDevice->bufferSizeInFrames=%d\n", attr.maxlength, attr.tlength, attr.prebuf, attr.minreq, attr.fragsize, pDevice->bufferSizeInFrames);
-#endif
-
-
-    // Grab the name of the device if we can.
-    if (pDevice->type == mal_device_type_playback) {
-        devPlayback = ((mal_pa_stream_get_device_name_proc)pContext->pulse.pa_stream_get_device_name)((mal_pa_stream*)pDevice->pulse.pStream);
-        if (devPlayback != NULL) {
-            mal_pa_operation* pOP = ((mal_pa_context_get_sink_info_by_name_proc)pContext->pulse.pa_context_get_sink_info_by_name)((mal_pa_context*)pDevice->pulse.pPulseContext, devPlayback, mal_device_sink_name_callback, pDevice);
-            if (pOP != NULL) {
-                mal_device__wait_for_operation__pulse(pDevice, pOP);
-                ((mal_pa_operation_unref_proc)pContext->pulse.pa_operation_unref)(pOP);
+                pOP = ((mal_pa_stream_set_buffer_attr_proc)pContext->pulse.pa_stream_set_buffer_attr)((mal_pa_stream*)pDevice->pulse.pStreamCapture, &attr, NULL, NULL);
+                if (pOP != NULL) {
+                    mal_device__wait_for_operation__pulse(pDevice, pOP);
+                    ((mal_pa_operation_unref_proc)pContext->pulse.pa_operation_unref)(pOP);
+                }
             }
+
+            ss = *pActualSS;
         }
-    } else {
-        devCapture = ((mal_pa_stream_get_device_name_proc)pContext->pulse.pa_stream_get_device_name)((mal_pa_stream*)pDevice->pulse.pStream);
+
+        pDevice->capture.internalFormat     = mal_format_from_pulse(ss.format);
+        pDevice->capture.internalChannels   = ss.channels;
+        pDevice->capture.internalSampleRate = ss.rate;
+
+        /* Internal channel map. */
+        pActualCMap = ((mal_pa_stream_get_channel_map_proc)pContext->pulse.pa_stream_get_channel_map)((mal_pa_stream*)pDevice->pulse.pStreamCapture);
+        if (pActualCMap != NULL) {
+            cmap = *pActualCMap;
+        }
+        for (mal_uint32 iChannel = 0; iChannel < pDevice->capture.internalChannels; ++iChannel) {
+            pDevice->capture.internalChannelMap[iChannel] = mal_channel_position_from_pulse(cmap.map[iChannel]);
+        }
+
+        /* Buffer. */
+        pActualAttr = ((mal_pa_stream_get_buffer_attr_proc)pContext->pulse.pa_stream_get_buffer_attr)((mal_pa_stream*)pDevice->pulse.pStreamCapture);
+        if (pActualAttr != NULL) {
+            attr = *pActualAttr;
+        }
+        pDevice->capture.internalBufferSizeInFrames = attr.maxlength / (mal_get_bytes_per_sample(pDevice->capture.internalFormat) * pDevice->capture.internalChannels);
+        pDevice->capture.internalPeriods            = attr.maxlength / attr.fragsize;
+    #ifdef MAL_DEBUG_OUTPUT
+        printf("[PulseAudio] Capture actual attr: maxlength=%d, tlength=%d, prebuf=%d, minreq=%d, fragsize=%d; internalBufferSizeInFrames=%d\n", attr.maxlength, attr.tlength, attr.prebuf, attr.minreq, attr.fragsize, pDevice->capture.internalBufferSizeInFrames);
+    #endif
+
+        /* Name. */
+        devCapture = ((mal_pa_stream_get_device_name_proc)pContext->pulse.pa_stream_get_device_name)((mal_pa_stream*)pDevice->pulse.pStreamCapture);
         if (devCapture != NULL) {
             mal_pa_operation* pOP = ((mal_pa_context_get_source_info_by_name_proc)pContext->pulse.pa_context_get_source_info_by_name)((mal_pa_context*)pDevice->pulse.pPulseContext, devCapture, mal_device_source_name_callback, pDevice);
             if (pOP != NULL) {
@@ -13567,24 +13569,131 @@ mal_result mal_device_init__pulse(mal_context* pContext, const mal_device_config
                 ((mal_pa_operation_unref_proc)pContext->pulse.pa_operation_unref)(pOP);
             }
         }
+
+        /* Callback. */
+        //((mal_pa_stream_set_read_callback_proc)pContext->pulse.pa_stream_set_read_callback)((mal_pa_stream*)pDevice->pulse.pStreamCapture, mal_pulse_device_read_callback, pDevice);
     }
 
+    if (pConfig->deviceType == mal_device_type_playback || pConfig->deviceType == mal_device_type_duplex) {
+        pOP = ((mal_pa_context_get_sink_info_by_name_proc)pContext->pulse.pa_context_get_sink_info_by_name)((mal_pa_context*)pDevice->pulse.pPulseContext, devPlayback, mal_device_sink_info_callback, &sinkInfo);
+        if (pOP != NULL) {
+            mal_device__wait_for_operation__pulse(pDevice, pOP);
+            ((mal_pa_operation_unref_proc)pContext->pulse.pa_operation_unref)(pOP);
+        } else {
+            result = mal_post_error(pDevice, MAL_LOG_LEVEL_ERROR, "[PulseAudio] Failed to retrieve sink info for playback device.", mal_result_from_pulse(error));
+            goto on_error3;
+        }
 
-    // Set callbacks for reading and writing data to/from the PulseAudio stream.
-    if (pConfig->deviceType == mal_device_type_playback) {
-        ((mal_pa_stream_set_write_callback_proc)pContext->pulse.pa_stream_set_write_callback)((mal_pa_stream*)pDevice->pulse.pStream, mal_pulse_device_write_callback, pDevice);
-    } else {
-        ((mal_pa_stream_set_read_callback_proc)pContext->pulse.pa_stream_set_read_callback)((mal_pa_stream*)pDevice->pulse.pStream, mal_pulse_device_read_callback, pDevice);
+        ss = sinkInfo.sample_spec;
+        cmap = sinkInfo.channel_map;
+
+        pDevice->playback.internalBufferSizeInFrames = mal_calculate_buffer_size_in_frames_from_milliseconds(bufferSizeInMilliseconds, ss.rate);
+        pDevice->playback.internalPeriods            = pConfig->periods;
+
+        attr = mal_device__pa_buffer_attr_new(pDevice->playback.internalBufferSizeInFrames, pConfig->periods, &ss);
+    #ifdef MAL_DEBUG_OUTPUT
+        printf("[PulseAudio] Playback attr: maxlength=%d, tlength=%d, prebuf=%d, minreq=%d, fragsize=%d; internalBufferSizeInFrames=%d\n", attr.maxlength, attr.tlength, attr.prebuf, attr.minreq, attr.fragsize, pDevice->playback.internalBufferSizeInFrames);
+    #endif
+
+        pDevice->pulse.pStreamPlayback = mal_device__pa_stream_new__pulse(pDevice, pConfig->pulse.pStreamNamePlayback, &ss, &cmap);
+        if (pDevice->pulse.pStreamPlayback == NULL) {
+            result = mal_post_error(pDevice, MAL_LOG_LEVEL_ERROR, "[PulseAudio] Failed to create PulseAudio playback stream.", MAL_FAILED_TO_OPEN_BACKEND_DEVICE);
+            goto on_error3;
+        }
+
+        mal_pa_stream_flags_t streamFlags = MAL_PA_STREAM_START_CORKED | MAL_PA_STREAM_FIX_FORMAT | MAL_PA_STREAM_FIX_RATE | MAL_PA_STREAM_FIX_CHANNELS;
+        if (devPlayback != NULL) {
+            streamFlags |= MAL_PA_STREAM_DONT_MOVE;
+        }
+
+        error = ((mal_pa_stream_connect_playback_proc)pContext->pulse.pa_stream_connect_playback)((mal_pa_stream*)pDevice->pulse.pStreamPlayback, devPlayback, &attr, streamFlags, NULL, NULL);
+        if (error != MAL_PA_OK) {
+            result = mal_post_error(pDevice, MAL_LOG_LEVEL_ERROR, "[PulseAudio] Failed to connect PulseAudio playback stream.", mal_result_from_pulse(error));
+            goto on_error6;
+        }
+
+        while (((mal_pa_stream_get_state_proc)pContext->pulse.pa_stream_get_state)((mal_pa_stream*)pDevice->pulse.pStreamPlayback) != MAL_PA_STREAM_READY) {
+            error = ((mal_pa_mainloop_iterate_proc)pContext->pulse.pa_mainloop_iterate)((mal_pa_mainloop*)pDevice->pulse.pMainLoop, 1, NULL);
+            if (error < 0) {
+                result = mal_post_error(pDevice, MAL_LOG_LEVEL_ERROR, "[PulseAudio] The PulseAudio main loop returned an error while connecting the PulseAudio playback stream.", mal_result_from_pulse(error));
+                goto on_error7;
+            }
+        }
+
+        /* Internal format. */
+        pActualSS = ((mal_pa_stream_get_sample_spec_proc)pContext->pulse.pa_stream_get_sample_spec)((mal_pa_stream*)pDevice->pulse.pStreamPlayback);
+        if (pActualSS != NULL) {
+            /* If anything has changed between the requested and the actual sample spec, we need to update the buffer. */
+            if (ss.format != pActualSS->format || ss.channels != pActualSS->channels || ss.rate != pActualSS->rate) {
+                attr = mal_device__pa_buffer_attr_new(pDevice->playback.internalBufferSizeInFrames, pConfig->periods, pActualSS);
+
+                pOP = ((mal_pa_stream_set_buffer_attr_proc)pContext->pulse.pa_stream_set_buffer_attr)((mal_pa_stream*)pDevice->pulse.pStreamPlayback, &attr, NULL, NULL);
+                if (pOP != NULL) {
+                    mal_device__wait_for_operation__pulse(pDevice, pOP);
+                    ((mal_pa_operation_unref_proc)pContext->pulse.pa_operation_unref)(pOP);
+                }
+            }
+
+            ss = *pActualSS;
+        }
+
+        pDevice->playback.internalFormat     = mal_format_from_pulse(ss.format);
+        pDevice->playback.internalChannels   = ss.channels;
+        pDevice->playback.internalSampleRate = ss.rate;
+
+        /* Internal channel map. */
+        pActualCMap = ((mal_pa_stream_get_channel_map_proc)pContext->pulse.pa_stream_get_channel_map)((mal_pa_stream*)pDevice->pulse.pStreamPlayback);
+        if (pActualCMap != NULL) {
+            cmap = *pActualCMap;
+        }
+        for (mal_uint32 iChannel = 0; iChannel < pDevice->playback.internalChannels; ++iChannel) {
+            pDevice->playback.internalChannelMap[iChannel] = mal_channel_position_from_pulse(cmap.map[iChannel]);
+        }
+
+        /* Buffer. */
+        pActualAttr = ((mal_pa_stream_get_buffer_attr_proc)pContext->pulse.pa_stream_get_buffer_attr)((mal_pa_stream*)pDevice->pulse.pStreamPlayback);
+        if (pActualAttr != NULL) {
+            attr = *pActualAttr;
+        }
+        pDevice->playback.internalBufferSizeInFrames = attr.maxlength / (mal_get_bytes_per_sample(pDevice->playback.internalFormat) * pDevice->playback.internalChannels);
+        pDevice->playback.internalPeriods            = attr.maxlength / attr.tlength;
+    #ifdef MAL_DEBUG_OUTPUT
+        printf("[PulseAudio] Playback actual attr: maxlength=%d, tlength=%d, prebuf=%d, minreq=%d, fragsize=%d; internalBufferSizeInFrames=%d\n", attr.maxlength, attr.tlength, attr.prebuf, attr.minreq, attr.fragsize, pDevice->playback.internalBufferSizeInFrames);
+    #endif
+
+        /* Name. */
+        devPlayback = ((mal_pa_stream_get_device_name_proc)pContext->pulse.pa_stream_get_device_name)((mal_pa_stream*)pDevice->pulse.pStreamPlayback);
+        if (devPlayback != NULL) {
+            mal_pa_operation* pOP = ((mal_pa_context_get_sink_info_by_name_proc)pContext->pulse.pa_context_get_sink_info_by_name)((mal_pa_context*)pDevice->pulse.pPulseContext, devPlayback, mal_device_sink_name_callback, pDevice);
+            if (pOP != NULL) {
+                mal_device__wait_for_operation__pulse(pDevice, pOP);
+                ((mal_pa_operation_unref_proc)pContext->pulse.pa_operation_unref)(pOP);
+            }
+        }
+
+        /* Callback. */
+        //((mal_pa_stream_set_write_callback_proc)pContext->pulse.pa_stream_set_write_callback)((mal_pa_stream*)pDevice->pulse.pStreamPlayback, mal_pulse_device_write_callback, pDevice);
     }
-
-
-    pDevice->pulse.fragmentSizeInBytes = attr.tlength;
 
     return MAL_SUCCESS;
 
 
-on_error5: ((mal_pa_stream_disconnect_proc)pContext->pulse.pa_stream_disconnect)((mal_pa_stream*)pDevice->pulse.pStream);
-on_error4: ((mal_pa_stream_unref_proc)pContext->pulse.pa_stream_unref)((mal_pa_stream*)pDevice->pulse.pStream);
+on_error7:
+    if (pConfig->deviceType == mal_device_type_playback || pConfig->deviceType == mal_device_type_duplex) {
+        ((mal_pa_stream_disconnect_proc)pContext->pulse.pa_stream_disconnect)((mal_pa_stream*)pDevice->pulse.pStreamPlayback);
+    }
+on_error6:
+    if (pConfig->deviceType == mal_device_type_playback || pConfig->deviceType == mal_device_type_duplex) {
+        ((mal_pa_stream_unref_proc)pContext->pulse.pa_stream_unref)((mal_pa_stream*)pDevice->pulse.pStreamPlayback);
+    }
+on_error5:
+    if (pConfig->deviceType == mal_device_type_capture || pConfig->deviceType == mal_device_type_duplex) {
+        ((mal_pa_stream_disconnect_proc)pContext->pulse.pa_stream_disconnect)((mal_pa_stream*)pDevice->pulse.pStreamCapture);
+    }
+on_error4:
+    if (pConfig->deviceType == mal_device_type_capture || pConfig->deviceType == mal_device_type_duplex) {
+        ((mal_pa_stream_unref_proc)pContext->pulse.pa_stream_unref)((mal_pa_stream*)pDevice->pulse.pStreamCapture);
+    }
 on_error3: ((mal_pa_context_disconnect_proc)pContext->pulse.pa_context_disconnect)((mal_pa_context*)pDevice->pulse.pPulseContext);
 on_error2: ((mal_pa_context_unref_proc)pContext->pulse.pa_context_unref)((mal_pa_context*)pDevice->pulse.pPulseContext);
 on_error1: ((mal_pa_mainloop_free_proc)pContext->pulse.pa_mainloop_free)((mal_pa_mainloop*)pDevice->pulse.pMainLoop);
@@ -13601,13 +13710,24 @@ void mal_pulse_operation_complete_callback(mal_pa_stream* pStream, int success, 
     *pIsSuccessful = (mal_bool32)success;
 }
 
-mal_result mal_device__cork_stream__pulse(mal_device* pDevice, int cork)
+mal_result mal_device__cork_stream__pulse(mal_device* pDevice, mal_device_type deviceType, int cork)
 {
     mal_context* pContext = pDevice->pContext;
     mal_assert(pContext != NULL);
 
+    printf("TRACE: Corking: %d\n", cork);
+
+    /* This should not be called with a duplex device type. */
+    if (deviceType == mal_device_type_duplex) {
+        return MAL_INVALID_ARGS;
+    }
+
     mal_bool32 wasSuccessful = MAL_FALSE;
-    mal_pa_operation* pOP = ((mal_pa_stream_cork_proc)pContext->pulse.pa_stream_cork)((mal_pa_stream*)pDevice->pulse.pStream, cork, mal_pulse_operation_complete_callback, &wasSuccessful);
+
+    mal_pa_stream* pStream = (mal_pa_stream*)((deviceType == mal_device_type_capture) ? pDevice->pulse.pStreamCapture : pDevice->pulse.pStreamPlayback);
+    mal_assert(pStream != NULL);
+
+    mal_pa_operation* pOP = ((mal_pa_stream_cork_proc)pContext->pulse.pa_stream_cork)(pStream, cork, mal_pulse_operation_complete_callback, &wasSuccessful);
     if (pOP == NULL) {
         return mal_post_error(pDevice, MAL_LOG_LEVEL_ERROR, "[PulseAudio] Failed to cork PulseAudio stream.", (cork == 0) ? MAL_FAILED_TO_START_BACKEND_DEVICE : MAL_FAILED_TO_STOP_BACKEND_DEVICE);
     }
@@ -13630,12 +13750,28 @@ mal_result mal_device__cork_stream__pulse(mal_device* pDevice, int cork)
     return MAL_SUCCESS;
 }
 
+#if 0
 mal_result mal_device_start__pulse(mal_device* pDevice)
 {
     mal_assert(pDevice != NULL);
 
     mal_context* pContext = pDevice->pContext;
     mal_assert(pContext != NULL);
+
+    if (pDevice->type == mal_device_type_capture || pDevice->type == mal_device_type_duplex) {
+        mal_result result = mal_device__cork_stream__pulse(pDevice, mal_device_type_capture, 0);
+        if (result != MAL_SUCCESS) {
+            return result;
+        }
+    }
+
+    if (pDevice->type == mal_device_type_playback || pDevice->type == mal_device_type_duplex) {
+        mal_result result = mal_device__cork_stream__pulse(pDevice, mal_device_type_playback, 0);
+        if (result != MAL_SUCCESS) {
+            return result;
+        }
+    }
+
 
     // For both playback and capture we need to uncork the stream. Afterwards, for playback we need to fill in an initial chunk
     // of data, equal to the trigger length. That should then start actual playback.
@@ -13661,6 +13797,7 @@ mal_result mal_device_start__pulse(mal_device* pDevice)
 
     return MAL_SUCCESS;
 }
+#endif
 
 mal_result mal_device_stop__pulse(mal_device* pDevice)
 {
@@ -13670,23 +13807,250 @@ mal_result mal_device_stop__pulse(mal_device* pDevice)
 
     mal_assert(pDevice != NULL);
 
-    /* The stream needs to be drained if it's a playback device. */
-    if (pDevice->type == mal_device_type_playback) {
-        pOP = ((mal_pa_stream_drain_proc)pDevice->pContext->pulse.pa_stream_drain)((mal_pa_stream*)pDevice->pulse.pStream, mal_pulse_operation_complete_callback, &wasSuccessful);
+    if (pDevice->type == mal_device_type_capture || pDevice->type == mal_device_type_duplex) {
+        result = mal_device__cork_stream__pulse(pDevice, mal_device_type_capture, 1);
+        if (result != MAL_SUCCESS) {
+            return result;
+        }
+    }
+
+    if (pDevice->type == mal_device_type_playback || pDevice->type == mal_device_type_duplex) {
+        /* The stream needs to be drained if it's a playback device. */
+        pOP = ((mal_pa_stream_drain_proc)pDevice->pContext->pulse.pa_stream_drain)((mal_pa_stream*)pDevice->pulse.pStreamPlayback, mal_pulse_operation_complete_callback, &wasSuccessful);
         if (pOP != NULL) {
             mal_device__wait_for_operation__pulse(pDevice, pOP);
             ((mal_pa_operation_unref_proc)pDevice->pContext->pulse.pa_operation_unref)(pOP);
         }
+
+        result = mal_device__cork_stream__pulse(pDevice, mal_device_type_playback, 1);
+        if (result != MAL_SUCCESS) {
+            return result;
+        }
     }
-    
-    result = mal_device__cork_stream__pulse(pDevice, 1);
-    if (result != MAL_SUCCESS) {
-        return result;
+
+    /* After corking we need to make sure any blocking reads and writes are able to return. */
+    mal_event_signal(&pDevice->pulse.readEvent);
+    mal_event_signal(&pDevice->pulse.writeEvent);
+
+    return MAL_SUCCESS;
+}
+
+mal_result mal_device_write__pulse(mal_device* pDevice, const void* pPCMFrames, mal_uint32 frameCount)
+{
+    mal_assert(pDevice != NULL);
+    mal_assert(pPCMFrames != NULL);
+    mal_assert(frameCount > 0);
+
+    /* The stream needs to be uncorked first. */
+    if (((mal_pa_stream_is_corked_proc)pDevice->pContext->pulse.pa_stream_is_corked)(pDevice->pulse.pStreamPlayback)) {
+        mal_result result = mal_device__cork_stream__pulse(pDevice, mal_device_type_playback, 0);
+        if (result != MAL_SUCCESS) {
+            return result;
+        }
+    }
+
+    mal_uint32 totalFramesWritten = 0;
+    while (totalFramesWritten < frameCount) {
+        //printf("TRACE: Outer loop.\n");
+
+        /* Place the data into the mapped buffer if we have one. */
+        if (pDevice->pulse.pMappedBufferPlayback != NULL && pDevice->pulse.mappedBufferFramesRemainingPlayback > 0) {
+            //printf("TRACE: Copying data.\n");
+
+            mal_uint32 bpf = mal_get_bytes_per_frame(pDevice->playback.internalFormat, pDevice->playback.internalChannels);
+            mal_uint32 mappedBufferFramesConsumed = pDevice->pulse.mappedBufferFramesCapacityPlayback - pDevice->pulse.mappedBufferFramesRemainingPlayback;
+
+            void* pDst = (mal_uint8*)pDevice->pulse.pMappedBufferPlayback + (mappedBufferFramesConsumed * bpf);
+            const void* pSrc = (const mal_uint8*)pPCMFrames + (totalFramesWritten * bpf);
+            mal_uint32  framesToCopy = mal_min(pDevice->pulse.mappedBufferFramesRemainingPlayback, (frameCount - totalFramesWritten));
+            mal_copy_memory(pDst, pSrc, framesToCopy * bpf);
+
+            pDevice->pulse.mappedBufferFramesRemainingPlayback -= framesToCopy;
+            totalFramesWritten += framesToCopy;
+        }
+
+        /*
+        Getting here means we've run out of data in the currently mapped chunk. We need to write this to the device and then try
+        mapping another chunk. If this fails we need to wait for space to become available.
+        */
+        if (pDevice->pulse.mappedBufferFramesCapacityPlayback > 0 && pDevice->pulse.mappedBufferFramesRemainingPlayback == 0) {
+            size_t nbytes = pDevice->pulse.mappedBufferFramesCapacityPlayback * mal_get_bytes_per_frame(pDevice->playback.internalFormat, pDevice->playback.internalChannels);
+            //printf("TRACE: Submitting data. %d\n", nbytes);
+
+            int error = ((mal_pa_stream_write_proc)pDevice->pContext->pulse.pa_stream_write)((mal_pa_stream*)pDevice->pulse.pStreamPlayback, pDevice->pulse.pMappedBufferPlayback, nbytes, NULL, 0, MAL_PA_SEEK_RELATIVE);
+            if (error < 0) {
+                return mal_post_error(pDevice, MAL_LOG_LEVEL_ERROR, "[PulseAudio] Failed to write data to the PulseAudio stream.", mal_result_from_pulse(error));
+            }
+
+            pDevice->pulse.pMappedBufferPlayback = NULL;
+            pDevice->pulse.mappedBufferFramesRemainingPlayback = 0;
+            pDevice->pulse.mappedBufferFramesCapacityPlayback = 0;
+        }
+
+        mal_assert(totalFramesWritten <= frameCount);
+        if (totalFramesWritten == frameCount) {
+            break;
+        }
+
+        /* Getting here means we need to map a new buffer. If we don't have enough space we need to wait for more. */
+        for (;;) {
+            //printf("TRACE: Inner loop.\n");
+
+            /* If the device has been corked, don't try to continue. */
+            if (((mal_pa_stream_is_corked_proc)pDevice->pContext->pulse.pa_stream_is_corked)(pDevice->pulse.pStreamPlayback)) {
+                break;
+            }
+
+            size_t writableSizeInBytes = ((mal_pa_stream_writable_size_proc)pDevice->pContext->pulse.pa_stream_writable_size)((mal_pa_stream*)pDevice->pulse.pStreamPlayback);
+            if (writableSizeInBytes != (size_t)-1) {
+                size_t periodSizeInBytes = (pDevice->playback.internalBufferSizeInFrames / pDevice->playback.internalPeriods) * mal_get_bytes_per_frame(pDevice->playback.internalFormat, pDevice->playback.internalChannels);
+                if (writableSizeInBytes >= periodSizeInBytes) {
+                    //printf("TRACE: Data available.\n");
+
+                    /* Data is avaialable. */
+                    size_t bytesToMap = periodSizeInBytes;
+                    int error = ((mal_pa_stream_begin_write_proc)pDevice->pContext->pulse.pa_stream_begin_write)((mal_pa_stream*)pDevice->pulse.pStreamPlayback, &pDevice->pulse.pMappedBufferPlayback, &bytesToMap);
+                    if (error < 0) {
+                        return mal_post_error(pDevice, MAL_LOG_LEVEL_ERROR, "[PulseAudio] Failed to map write buffer.", mal_result_from_pulse(error));
+                    }
+
+                    pDevice->pulse.mappedBufferFramesCapacityPlayback  = bytesToMap / mal_get_bytes_per_frame(pDevice->playback.internalFormat, pDevice->playback.internalChannels);
+                    pDevice->pulse.mappedBufferFramesRemainingPlayback = pDevice->pulse.mappedBufferFramesCapacityPlayback;
+
+                    break;
+                } else {
+                    /* No data available. Need to wait for more. */
+                    printf("TRACE: Playback: pa_mainloop_iterate(). writableSizeInBytes=%d, periodSizeInBytes=%d\n", writableSizeInBytes, periodSizeInBytes);
+
+                    int error = ((mal_pa_mainloop_iterate_proc)pDevice->pContext->pulse.pa_mainloop_iterate)(pDevice->pulse.pMainLoop, 1, NULL);
+                    if (error < 0) {
+                        return mal_result_from_pulse(error);
+                    }
+
+                    continue;
+                }
+            } else {
+                return mal_post_error(pDevice, MAL_LOG_LEVEL_ERROR, "[PulseAudio] Failed to query the stream's writable size.", MAL_ERROR);
+            }
+        }
     }
 
     return MAL_SUCCESS;
 }
 
+mal_result mal_device_read__pulse(mal_device* pDevice, void* pPCMFrames, mal_uint32 frameCount)
+{
+    mal_assert(pDevice != NULL);
+    mal_assert(pPCMFrames != NULL);
+    mal_assert(frameCount > 0);
+
+    /* The stream needs to be uncorked first. */
+    if (((mal_pa_stream_is_corked_proc)pDevice->pContext->pulse.pa_stream_is_corked)(pDevice->pulse.pStreamCapture)) {
+        mal_result result = mal_device__cork_stream__pulse(pDevice, mal_device_type_capture, 0);
+        if (result != MAL_SUCCESS) {
+            return result;
+        }
+    }
+
+    mal_uint32 totalFramesRead = 0;
+    while (totalFramesRead < frameCount) {
+        /* If a buffer is mapped we need to write to that first. Once it's consumed we reset the event and unmap it. */
+        if (pDevice->pulse.mappedBufferFramesRemainingCapture > 0) {
+            mal_uint32 bpf = mal_get_bytes_per_frame(pDevice->capture.internalFormat, pDevice->capture.internalChannels);
+            mal_uint32 mappedBufferFramesConsumed = pDevice->pulse.mappedBufferFramesCapacityCapture - pDevice->pulse.mappedBufferFramesRemainingCapture;
+
+            mal_uint32  framesToCopy = mal_min(pDevice->pulse.mappedBufferFramesRemainingCapture, (frameCount - totalFramesRead));
+            void* pDst = (mal_uint8*)pPCMFrames + (totalFramesRead * bpf);
+
+            /*
+            This little bit of logic here is specifically for PulseAudio and it's hole management. The buffer pointer will be set to NULL
+            when the current fragment is a hole. For a hole we just output silence.
+            */
+            if (pDevice->pulse.pMappedBufferCapture != NULL) {
+                const void* pSrc = (const mal_uint8*)pDevice->pulse.pMappedBufferCapture + (mappedBufferFramesConsumed * bpf);
+                mal_copy_memory(pDst, pSrc, framesToCopy * bpf);
+            } else {
+                mal_zero_memory(pDst, framesToCopy * bpf);
+            }
+
+            pDevice->pulse.mappedBufferFramesRemainingCapture -= framesToCopy;
+            totalFramesRead += framesToCopy;
+        }
+
+        /*
+        Getting here means we've run out of data in the currently mapped chunk. We need to drop this from the device and then try
+        mapping another chunk. If this fails we need to wait for data to become available.
+        */
+        if (pDevice->pulse.mappedBufferFramesCapacityCapture > 0 && pDevice->pulse.mappedBufferFramesRemainingCapture == 0) {
+            //printf("TRACE: Dropping fragment. %d\n", nbytes);
+
+            int error = ((mal_pa_stream_drop_proc)pDevice->pContext->pulse.pa_stream_drop)((mal_pa_stream*)pDevice->pulse.pStreamCapture);
+            if (error != 0) {
+                return mal_post_error(pDevice, MAL_LOG_LEVEL_ERROR, "[PulseAudio] Failed to drop fragment.", mal_result_from_pulse(error));
+            }
+
+            pDevice->pulse.pMappedBufferCapture = NULL;
+            pDevice->pulse.mappedBufferFramesRemainingCapture = 0;
+            pDevice->pulse.mappedBufferFramesCapacityCapture = 0;
+        }
+
+        mal_assert(totalFramesRead <= frameCount);
+        if (totalFramesRead == frameCount) {
+            break;
+        }
+
+        /* Getting here means we need to map a new buffer. If we don't have enough data we wait for more. */
+        for (;;) {
+            //printf("TRACE: Inner loop.\n");
+
+            /* If the device has been corked, don't try to continue. */
+            if (((mal_pa_stream_is_corked_proc)pDevice->pContext->pulse.pa_stream_is_corked)(pDevice->pulse.pStreamCapture)) {
+                break;
+            }
+
+            size_t readableSizeInBytes = ((mal_pa_stream_readable_size_proc)pDevice->pContext->pulse.pa_stream_readable_size)((mal_pa_stream*)pDevice->pulse.pStreamCapture);
+            if (readableSizeInBytes != (size_t)-1) {
+                size_t periodSizeInBytes = (pDevice->capture.internalBufferSizeInFrames / pDevice->capture.internalPeriods) * mal_get_bytes_per_frame(pDevice->capture.internalFormat, pDevice->capture.internalChannels);
+                if (readableSizeInBytes >= periodSizeInBytes) {
+                    //printf("TRACE: Data available.\n");
+
+                    /* Data is avaialable. */
+                    size_t bytesMapped = periodSizeInBytes;
+                    int error = ((mal_pa_stream_peek_proc)pDevice->pContext->pulse.pa_stream_peek)((mal_pa_stream*)pDevice->pulse.pStreamCapture, &pDevice->pulse.pMappedBufferCapture, &bytesMapped);
+                    if (error < 0) {
+                        return mal_post_error(pDevice, MAL_LOG_LEVEL_ERROR, "[PulseAudio] Failed to peek capture buffer.", mal_result_from_pulse(error));
+                    }
+
+                    if (pDevice->pulse.pMappedBufferCapture == NULL && bytesMapped == 0) {
+                        /* Nothing available. This shouldn't happen because we checked earlier with pa_stream_readable_size(). I'm going to throw an error in this case. */
+                        return mal_post_error(pDevice, MAL_LOG_LEVEL_ERROR, "[PulseAudio] Nothing available after peeking capture buffer.", MAL_ERROR);
+                    }
+
+                    pDevice->pulse.mappedBufferFramesCapacityCapture  = bytesMapped / mal_get_bytes_per_frame(pDevice->capture.internalFormat, pDevice->capture.internalChannels);
+                    pDevice->pulse.mappedBufferFramesRemainingCapture = pDevice->pulse.mappedBufferFramesCapacityCapture;
+
+                    break;
+                } else {
+                    /* No data available. Need to wait for more. */
+                    printf("TRACE: Capture: pa_mainloop_iterate(). readableSizeInBytes=%d, periodSizeInBytes=%d\n", readableSizeInBytes, periodSizeInBytes);
+
+                    int error = ((mal_pa_mainloop_iterate_proc)pDevice->pContext->pulse.pa_mainloop_iterate)(pDevice->pulse.pMainLoop, 1, NULL);
+                    if (error < 0) {
+                        return mal_result_from_pulse(error);
+                    }
+
+                    continue;
+                }
+            } else {
+                return mal_post_error(pDevice, MAL_LOG_LEVEL_ERROR, "[PulseAudio] Failed to query the stream's readable size.", MAL_ERROR);
+            }
+        }
+    }
+
+    return MAL_SUCCESS;
+}
+
+#if 0
 mal_result mal_device_break_main_loop__pulse(mal_device* pDevice)
 {
     mal_assert(pDevice != NULL);
@@ -13723,6 +14087,7 @@ mal_result mal_device_main_loop__pulse(mal_device* pDevice)
 
     return MAL_SUCCESS;
 }
+#endif
 
 
 mal_result mal_context_uninit__pulse(mal_context* pContext)
@@ -13794,12 +14159,15 @@ mal_result mal_context_init__pulse(mal_context* pContext)
     pContext->pulse.pa_stream_set_read_callback        = (mal_proc)mal_dlsym(pContext->pulse.pulseSO, "pa_stream_set_read_callback");
     pContext->pulse.pa_stream_flush                    = (mal_proc)mal_dlsym(pContext->pulse.pulseSO, "pa_stream_flush");
     pContext->pulse.pa_stream_drain                    = (mal_proc)mal_dlsym(pContext->pulse.pulseSO, "pa_stream_drain");
+    pContext->pulse.pa_stream_is_corked                = (mal_proc)mal_dlsym(pContext->pulse.pulseSO, "pa_stream_is_corked");
     pContext->pulse.pa_stream_cork                     = (mal_proc)mal_dlsym(pContext->pulse.pulseSO, "pa_stream_cork");
     pContext->pulse.pa_stream_trigger                  = (mal_proc)mal_dlsym(pContext->pulse.pulseSO, "pa_stream_trigger");
     pContext->pulse.pa_stream_begin_write              = (mal_proc)mal_dlsym(pContext->pulse.pulseSO, "pa_stream_begin_write");
     pContext->pulse.pa_stream_write                    = (mal_proc)mal_dlsym(pContext->pulse.pulseSO, "pa_stream_write");
     pContext->pulse.pa_stream_peek                     = (mal_proc)mal_dlsym(pContext->pulse.pulseSO, "pa_stream_peek");
     pContext->pulse.pa_stream_drop                     = (mal_proc)mal_dlsym(pContext->pulse.pulseSO, "pa_stream_drop");
+    pContext->pulse.pa_stream_writable_size            = (mal_proc)mal_dlsym(pContext->pulse.pulseSO, "pa_stream_writable_size");
+    pContext->pulse.pa_stream_readable_size            = (mal_proc)mal_dlsym(pContext->pulse.pulseSO, "pa_stream_readable_size");
 #else
     // This strange assignment system is just for type safety.
     mal_pa_mainloop_new_proc                    _pa_mainloop_new                   = pa_mainloop_new;
@@ -13837,12 +14205,15 @@ mal_result mal_context_init__pulse(mal_context* pContext)
     mal_pa_stream_set_read_callback_proc        _pa_stream_set_read_callback       = pa_stream_set_read_callback;
     mal_pa_stream_flush_proc                    _pa_stream_flush                   = pa_stream_flush;
     mal_pa_stream_drain_proc                    _pa_stream_drain                   = pa_stream_drain;
+    mal_pa_stream_ic_corked_proc                _pa_stream_is_corked               = pa_stream_is_corked;
     mal_pa_stream_cork_proc                     _pa_stream_cork                    = pa_stream_cork;
     mal_pa_stream_trigger_proc                  _pa_stream_trigger                 = pa_stream_trigger;
     mal_pa_stream_begin_write_proc              _pa_stream_begin_write             = pa_stream_begin_write;
     mal_pa_stream_write_proc                    _pa_stream_write                   = pa_stream_write;
     mal_pa_stream_peek_proc                     _pa_stream_peek                    = pa_stream_peek;
     mal_pa_stream_drop_proc                     _pa_stream_drop                    = pa_stream_drop;
+    mal_pa_stream_writable_size_proc            _pa_stream_writable_size           = pa_stream_writable_size;
+    mal_pa_stream_readable_size_proc            _pa_stream_readable_size           = pa_stream_readable_size;
 
     pContext->pulse.pa_mainloop_new                    = (mal_proc)_pa_mainloop_new;
     pContext->pulse.pa_mainloop_free                   = (mal_proc)_pa_mainloop_free;
@@ -13879,12 +14250,15 @@ mal_result mal_context_init__pulse(mal_context* pContext)
     pContext->pulse.pa_stream_set_read_callback        = (mal_proc)_pa_stream_set_read_callback;
     pContext->pulse.pa_stream_flush                    = (mal_proc)_pa_stream_flush;
     pContext->pulse.pa_stream_drain                    = (mal_proc)_pa_stream_drain;
+    pContext->pulse.pa_stream_is_corked                = (mal_proc)_pa_stream_is_corked;
     pContext->pulse.pa_stream_cork                     = (mal_proc)_pa_stream_cork;
     pContext->pulse.pa_stream_trigger                  = (mal_proc)_pa_stream_trigger;
     pContext->pulse.pa_stream_begin_write              = (mal_proc)_pa_stream_begin_write;
     pContext->pulse.pa_stream_write                    = (mal_proc)_pa_stream_write;
     pContext->pulse.pa_stream_peek                     = (mal_proc)_pa_stream_peek;
     pContext->pulse.pa_stream_drop                     = (mal_proc)_pa_stream_drop;
+    pContext->pulse.pa_stream_writable_size            = (mal_proc)_pa_stream_writable_size;
+    pContext->pulse.pa_stream_readable_size            = (mal_proc)_pa_stream_readable_size;
 #endif
 
     pContext->onUninit         = mal_context_uninit__pulse;
@@ -13893,9 +14267,10 @@ mal_result mal_context_init__pulse(mal_context* pContext)
     pContext->onGetDeviceInfo  = mal_context_get_device_info__pulse;
     pContext->onDeviceInit     = mal_device_init__pulse;
     pContext->onDeviceUninit   = mal_device_uninit__pulse;
-    pContext->onDeviceStart    = mal_device_start__pulse;
+    pContext->onDeviceStart    = NULL;
     pContext->onDeviceStop     = mal_device_stop__pulse;
-    pContext->onDeviceMainLoop = mal_device_main_loop__pulse;
+    pContext->onDeviceWrite    = mal_device_write__pulse;
+    pContext->onDeviceRead     = mal_device_read__pulse;
 
     
     // Although we have found the libpulse library, it doesn't necessarily mean PulseAudio is useable. We need to initialize
@@ -20674,11 +21049,11 @@ mal_thread_result MAL_THREADCALL mal_worker_thread(void* pData)
 
         mal_uint32 periodSizeInFrames;
         if (pDevice->type == mal_device_type_capture || pDevice->type == mal_device_type_duplex) {
-            mal_assert(pDevice->capture.internalPeriods >= 2);
+            //mal_assert(pDevice->capture.internalPeriods >= 2);
             mal_assert(pDevice->capture.internalBufferSizeInFrames >= pDevice->capture.internalPeriods);
             periodSizeInFrames = pDevice->capture.internalBufferSizeInFrames / pDevice->capture.internalPeriods;
         } else {
-            mal_assert(pDevice->playback.internalPeriods >= 2);
+            //mal_assert(pDevice->playback.internalPeriods >= 2);
             mal_assert(pDevice->playback.internalBufferSizeInFrames >= pDevice->playback.internalPeriods);
             periodSizeInFrames = pDevice->playback.internalBufferSizeInFrames / pDevice->playback.internalPeriods;
         }
@@ -21515,7 +21890,7 @@ mal_result mal_device_init(mal_context* pContext, const mal_device_config* pConf
         printf("  %s (%s)\n", pDevice->capture.name, "Capture");
         printf("    Format:      %s -> %s\n", mal_get_format_name(pDevice->capture.format), mal_get_format_name(pDevice->capture.internalFormat));
         printf("    Channels:    %d -> %d\n", pDevice->capture.channels, pDevice->capture.internalChannels);
-        printf("    Sample Rate: %d -> %d\n", pDevice->capture.sampleRate, pDevice->capture.internalSampleRate);
+        printf("    Sample Rate: %d -> %d\n", pDevice->sampleRate, pDevice->capture.internalSampleRate);
         printf("    Conversion:\n");
         printf("      Pre Format Conversion:    %s\n", pDevice->capture.converter.isPreFormatConversionRequired  ? "YES" : "NO");
         printf("      Post Format Conversion:   %s\n", pDevice->capture.converter.isPostFormatConversionRequired ? "YES" : "NO");
@@ -21528,7 +21903,7 @@ mal_result mal_device_init(mal_context* pContext, const mal_device_config* pConf
         printf("  %s (%s)\n", pDevice->playback.name, "Playback");
         printf("    Format:      %s -> %s\n", mal_get_format_name(pDevice->playback.format), mal_get_format_name(pDevice->playback.internalFormat));
         printf("    Channels:    %d -> %d\n", pDevice->playback.channels, pDevice->playback.internalChannels);
-        printf("    Sample Rate: %d -> %d\n", pDevice->playback.sampleRate, pDevice->playback.internalSampleRate);
+        printf("    Sample Rate: %d -> %d\n", pDevice->sampleRate, pDevice->playback.internalSampleRate);
         printf("    Conversion:\n");
         printf("      Pre Format Conversion:    %s\n", pDevice->playback.converter.isPreFormatConversionRequired  ? "YES" : "NO");
         printf("      Post Format Conversion:   %s\n", pDevice->playback.converter.isPostFormatConversionRequired ? "YES" : "NO");
