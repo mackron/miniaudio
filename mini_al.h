@@ -2203,7 +2203,8 @@ MAL_ALIGNED_STRUCT(MAL_SIMD_ALIGNMENT) mal_device
 #ifdef MAL_SUPPORT_AAUDIO
         struct
         {
-            /*AAudioStream**/ mal_ptr pStream;
+            /*AAudioStream**/ mal_ptr pStreamPlayback;
+            /*AAudioStream**/ mal_ptr pStreamCapture;
         } aaudio;
 #endif
 #ifdef MAL_SUPPORT_OPENSL
@@ -19073,19 +19074,35 @@ mal_result mal_result_from_aaudio(mal_aaudio_result_t resultAA)
     return MAL_ERROR;
 }
 
-mal_aaudio_data_callback_result_t mal_stream_data_callback__aaudio(mal_AAudioStream* pStream, void* pUserData, void* pAudioData, int32_t frameCount)
+mal_aaudio_data_callback_result_t mal_stream_data_callback_capture__aaudio(mal_AAudioStream* pStream, void* pUserData, void* pAudioData, int32_t frameCount)
 {
     mal_device* pDevice = (mal_device*)pUserData;
     mal_assert(pDevice != NULL);
 
-    (void)pStream;
-
-    if (pDevice->type == mal_device_type_playback) {
-        mal_device__read_frames_from_client(pDevice, frameCount, pAudioData);
+    if (pDevice->type == mal_device_type_duplex) {
+        /* TODO: Write to ring buffer. The client callback will be called from AAudio's playback callback. */
     } else {
+        /* Send directly to the client. */
         mal_device__send_frames_to_client(pDevice, frameCount, pAudioData);
     }
 
+    (void)pStream;
+    return MAL_AAUDIO_CALLBACK_RESULT_CONTINUE;
+}
+
+mal_aaudio_data_callback_result_t mal_stream_data_callback_playback__aaudio(mal_AAudioStream* pStream, void* pUserData, void* pAudioData, int32_t frameCount)
+{
+    mal_device* pDevice = (mal_device*)pUserData;
+    mal_assert(pDevice != NULL);
+
+    if (pDevice->type == mal_device_type_duplex) {
+        /* TODO: Map input samples from the ring buffer and use that as the input buffer for the data callback. */
+    } else {
+        /* Read directly from the client. */
+        mal_device__read_frames_from_client(pDevice, frameCount, pAudioData);
+    }
+
+    (void)pStream;
     return MAL_AAUDIO_CALLBACK_RESULT_CONTINUE;
 }
 
@@ -19094,7 +19111,8 @@ mal_result mal_open_stream__aaudio(mal_context* pContext, mal_device_type device
     mal_AAudioStreamBuilder* pBuilder;
     mal_aaudio_result_t resultAA;
 
-    (void)pContext;
+    mal_assert(deviceType != mal_device_type_duplex);   /* This function should not be called for a full-duplex device type. */
+
     *ppStream = NULL;
 
     resultAA = ((MAL_PFN_AAudio_createStreamBuilder)pContext->aaudio.AAudio_createStreamBuilder)(&pBuilder);
@@ -19113,11 +19131,21 @@ mal_result mal_open_stream__aaudio(mal_context* pContext, mal_device_type device
         if (pDevice == NULL || !pDevice->usingDefaultSampleRate) {
             ((MAL_PFN_AAudioStreamBuilder_setSampleRate)pContext->aaudio.AAudioStreamBuilder_setSampleRate)(pBuilder, pConfig->sampleRate);
         }
-        if (pDevice == NULL || !pDevice->usingDefaultChannels) {
-            ((MAL_PFN_AAudioStreamBuilder_setChannelCount)pContext->aaudio.AAudioStreamBuilder_setChannelCount)(pBuilder, pConfig->channels);
-        }
-        if (pDevice == NULL || !pDevice->usingDefaultFormat) {
-            ((MAL_PFN_AAudioStreamBuilder_setFormat)pContext->aaudio.AAudioStreamBuilder_setFormat)(pBuilder, (pConfig->format == mal_format_s16) ? MAL_AAUDIO_FORMAT_PCM_I16 : MAL_AAUDIO_FORMAT_PCM_FLOAT);
+
+        if (deviceType == mal_device_type_capture) {
+            if (pDevice == NULL || !pDevice->capture.usingDefaultChannels) {
+                ((MAL_PFN_AAudioStreamBuilder_setChannelCount)pContext->aaudio.AAudioStreamBuilder_setChannelCount)(pBuilder, pConfig->capture.channels);
+            }
+            if (pDevice == NULL || !pDevice->capture.usingDefaultFormat) {
+                ((MAL_PFN_AAudioStreamBuilder_setFormat)pContext->aaudio.AAudioStreamBuilder_setFormat)(pBuilder, (pConfig->capture.format == mal_format_s16) ? MAL_AAUDIO_FORMAT_PCM_I16 : MAL_AAUDIO_FORMAT_PCM_FLOAT);
+            }
+        } else {
+            if (pDevice == NULL || !pDevice->playback.usingDefaultChannels) {
+                ((MAL_PFN_AAudioStreamBuilder_setChannelCount)pContext->aaudio.AAudioStreamBuilder_setChannelCount)(pBuilder, pConfig->playback.channels);
+            }
+            if (pDevice == NULL || !pDevice->playback.usingDefaultFormat) {
+                ((MAL_PFN_AAudioStreamBuilder_setFormat)pContext->aaudio.AAudioStreamBuilder_setFormat)(pBuilder, (pConfig->playback.format == mal_format_s16) ? MAL_AAUDIO_FORMAT_PCM_I16 : MAL_AAUDIO_FORMAT_PCM_FLOAT);
+            }
         }
 
         mal_uint32 bufferCapacityInFrames = pConfig->bufferSizeInFrames;
@@ -19128,7 +19156,12 @@ mal_result mal_open_stream__aaudio(mal_context* pContext, mal_device_type device
 
         /* TODO: Don't set the data callback when synchronous reading and writing is being used. */
         ((MAL_PFN_AAudioStreamBuilder_setFramesPerDataCallback)pContext->aaudio.AAudioStreamBuilder_setFramesPerDataCallback)(pBuilder, bufferCapacityInFrames / pConfig->periods);
-        ((MAL_PFN_AAudioStreamBuilder_setDataCallback)pContext->aaudio.AAudioStreamBuilder_setDataCallback)(pBuilder, mal_stream_data_callback__aaudio, (void*)pDevice);
+
+        if (deviceType == mal_device_type_capture) {
+            ((MAL_PFN_AAudioStreamBuilder_setDataCallback)pContext->aaudio.AAudioStreamBuilder_setDataCallback)(pBuilder, mal_stream_data_callback_capture__aaudio, (void*)pDevice);
+        } else {
+            ((MAL_PFN_AAudioStreamBuilder_setDataCallback)pContext->aaudio.AAudioStreamBuilder_setDataCallback)(pBuilder, mal_stream_data_callback_playback__aaudio, (void*)pDevice);
+        }
 
         /* Not sure how this affects things, but since there's a mapping between mini_al's performance profiles and AAudio's performance modes, let go ahead and set it. */
         ((MAL_PFN_AAudioStreamBuilder_setPerformanceMode)pContext->aaudio.AAudioStreamBuilder_setPerformanceMode)(pBuilder, (pConfig->performanceProfile == mal_performance_profile_low_latency) ? MAL_AAUDIO_PERFORMANCE_MODE_LOW_LATENCY : MAL_AAUDIO_PERFORMANCE_MODE_NONE);
@@ -19280,8 +19313,15 @@ void mal_device_uninit__aaudio(mal_device* pDevice)
 {
     mal_assert(pDevice != NULL);
 
-    mal_close_stream__aaudio(pDevice->pContext, (mal_AAudioStream*)pDevice->aaudio.pStream);
-    pDevice->aaudio.pStream = NULL;
+    if (pDevice->type == mal_device_type_capture || pDevice->type == mal_device_type_duplex) {
+        mal_close_stream__aaudio(pDevice->pContext, (mal_AAudioStream*)pDevice->aaudio.pStreamCapture);
+        pDevice->aaudio.pStreamCapture = NULL;
+    }
+
+    if (pDevice->type == mal_device_type_playback || pDevice->type == mal_device_type_duplex) {
+        mal_close_stream__aaudio(pDevice->pContext, (mal_AAudioStream*)pDevice->aaudio.pStreamPlayback);
+        pDevice->aaudio.pStreamPlayback = NULL;
+    }
 }
 
 mal_result mal_device_init__aaudio(mal_context* pContext, const mal_device_config* pConfig, mal_device* pDevice)
@@ -19290,11 +19330,6 @@ mal_result mal_device_init__aaudio(mal_context* pContext, const mal_device_confi
 
     mal_assert(pDevice != NULL);
 
-    /* Full-duplex is not yet implemented. */
-    if (pConfig->deviceType == mal_device_type_duplex) {
-        return MAL_INVALID_ARGS;
-    }
-
     /* No exclusive mode with AAudio. */
     if (((pConfig->deviceType == mal_device_type_playback || pConfig->deviceType == mal_device_type_duplex) && pConfig->playback.shareMode == mal_share_mode_exclusive) ||
         ((pConfig->deviceType == mal_device_type_capture  || pConfig->deviceType == mal_device_type_duplex) && pConfig->capture.shareMode  == mal_share_mode_exclusive)) {
@@ -19302,36 +19337,60 @@ mal_result mal_device_init__aaudio(mal_context* pContext, const mal_device_confi
     }
 
     /* We first need to try opening the stream. */
-    result = mal_open_stream__aaudio(pContext, pConfig->deviceType, pConfig->pDeviceID, pConfig->shareMode, pConfig, pDevice, (mal_AAudioStream**)&pDevice->aaudio.pStream);
-    if (result != MAL_SUCCESS) {
-        return result;  /* Failed to open the AAudio stream. */
+    if (pConfig->deviceType == mal_device_type_capture || pConfig->deviceType == mal_device_type_duplex) {
+        result = mal_open_stream__aaudio(pContext, mal_device_type_capture, pConfig->capture.pDeviceID, pConfig->capture.shareMode, pConfig, pDevice, (mal_AAudioStream**)&pDevice->aaudio.pStreamCapture);
+        if (result != MAL_SUCCESS) {
+            return result;  /* Failed to open the AAudio stream. */
+        }
+
+        pDevice->capture.internalFormat     = (((MAL_PFN_AAudioStream_getFormat)pContext->aaudio.AAudioStream_getFormat)((mal_AAudioStream*)pDevice->aaudio.pStreamCapture) == MAL_AAUDIO_FORMAT_PCM_I16) ? mal_format_s16 : mal_format_f32;
+        pDevice->capture.internalChannels   = ((MAL_PFN_AAudioStream_getChannelCount)pContext->aaudio.AAudioStream_getChannelCount)((mal_AAudioStream*)pDevice->aaudio.pStreamCapture);
+        pDevice->capture.internalSampleRate = ((MAL_PFN_AAudioStream_getSampleRate)pContext->aaudio.AAudioStream_getSampleRate)((mal_AAudioStream*)pDevice->aaudio.pStreamCapture);
+        mal_get_standard_channel_map(mal_standard_channel_map_default, pDevice->capture.internalChannels, pDevice->capture.internalChannelMap); /* <-- Cannot find info on channel order, so assuming a default. */
+        pDevice->capture.internalBufferSizeInFrames = ((MAL_PFN_AAudioStream_getBufferCapacityInFrames)pContext->aaudio.AAudioStream_getBufferCapacityInFrames)((mal_AAudioStream*)pDevice->aaudio.pStreamCapture);
+
+        /* TODO: When synchronous reading and writing is supported, use AAudioStream_getFramesPerBurst() instead of AAudioStream_getFramesPerDataCallback(). Keep
+         * using AAudioStream_getFramesPerDataCallback() for asynchronous mode, though. */
+        int32_t framesPerPeriod = ((MAL_PFN_AAudioStream_getFramesPerDataCallback)pContext->aaudio.AAudioStream_getFramesPerDataCallback)((mal_AAudioStream*)pDevice->aaudio.pStreamCapture);
+        if (framesPerPeriod > 0) {
+            pDevice->capture.internalPeriods = 1;
+        } else {
+            pDevice->capture.internalPeriods = pDevice->capture.internalBufferSizeInFrames / framesPerPeriod;
+        }
     }
 
-    pDevice->internalFormat     = (((MAL_PFN_AAudioStream_getFormat)pContext->aaudio.AAudioStream_getFormat)((mal_AAudioStream*)pDevice->aaudio.pStream) == MAL_AAUDIO_FORMAT_PCM_I16) ? mal_format_s16 : mal_format_f32;
-    pDevice->internalChannels   = ((MAL_PFN_AAudioStream_getChannelCount)pContext->aaudio.AAudioStream_getChannelCount)((mal_AAudioStream*)pDevice->aaudio.pStream);
-    pDevice->internalSampleRate = ((MAL_PFN_AAudioStream_getSampleRate)pContext->aaudio.AAudioStream_getSampleRate)((mal_AAudioStream*)pDevice->aaudio.pStream);
-    mal_get_standard_channel_map(mal_standard_channel_map_default, pDevice->internalChannels, pDevice->internalChannelMap); /* <-- Cannot find info on channel order, so assuming a default. */
-    pDevice->bufferSizeInFrames = ((MAL_PFN_AAudioStream_getBufferCapacityInFrames)pContext->aaudio.AAudioStream_getBufferCapacityInFrames)((mal_AAudioStream*)pDevice->aaudio.pStream);
+    if (pConfig->deviceType == mal_device_type_playback || pConfig->deviceType == mal_device_type_duplex) {
+        result = mal_open_stream__aaudio(pContext, mal_device_type_capture, pConfig->capture.pDeviceID, pConfig->capture.shareMode, pConfig, pDevice, (mal_AAudioStream**)&pDevice->aaudio.pStreamCapture);
+        if (result != MAL_SUCCESS) {
+            return result;  /* Failed to open the AAudio stream. */
+        }
 
-    /* TODO: When synchronous reading and writing is supported, use AAudioStream_getFramesPerBurst() instead of AAudioStream_getFramesPerDataCallback(). Keep
-     * using AAudioStream_getFramesPerDataCallback() for asynchronous mode, though. */
-    int32_t framesPerPeriod = ((MAL_PFN_AAudioStream_getFramesPerDataCallback)pContext->aaudio.AAudioStream_getFramesPerDataCallback)((mal_AAudioStream*)pDevice->aaudio.pStream);
-    if (framesPerPeriod > 0) {
-        pDevice->periods = 1;
-    } else {
-        pDevice->periods = pDevice->bufferSizeInFrames / framesPerPeriod;
+        pDevice->playback.internalFormat     = (((MAL_PFN_AAudioStream_getFormat)pContext->aaudio.AAudioStream_getFormat)((mal_AAudioStream*)pDevice->aaudio.pStreamPlayback) == MAL_AAUDIO_FORMAT_PCM_I16) ? mal_format_s16 : mal_format_f32;
+        pDevice->playback.internalChannels   = ((MAL_PFN_AAudioStream_getChannelCount)pContext->aaudio.AAudioStream_getChannelCount)((mal_AAudioStream*)pDevice->aaudio.pStreamPlayback);
+        pDevice->playback.internalSampleRate = ((MAL_PFN_AAudioStream_getSampleRate)pContext->aaudio.AAudioStream_getSampleRate)((mal_AAudioStream*)pDevice->aaudio.pStreamPlayback);
+        mal_get_standard_channel_map(mal_standard_channel_map_default, pDevice->playback.internalChannels, pDevice->playback.internalChannelMap); /* <-- Cannot find info on channel order, so assuming a default. */
+        pDevice->playback.internalBufferSizeInFrames = ((MAL_PFN_AAudioStream_getBufferCapacityInFrames)pContext->aaudio.AAudioStream_getBufferCapacityInFrames)((mal_AAudioStream*)pDevice->aaudio.pStreamPlayback);
+
+        /* TODO: When synchronous reading and writing is supported, use AAudioStream_getFramesPerBurst() instead of AAudioStream_getFramesPerDataCallback(). Keep
+         * using AAudioStream_getFramesPerDataCallback() for asynchronous mode, though. */
+        int32_t framesPerPeriod = ((MAL_PFN_AAudioStream_getFramesPerDataCallback)pContext->aaudio.AAudioStream_getFramesPerDataCallback)((mal_AAudioStream*)pDevice->aaudio.pStreamPlayback);
+        if (framesPerPeriod > 0) {
+            pDevice->playback.internalPeriods = 1;
+        } else {
+            pDevice->playback.internalPeriods = pDevice->playback.internalBufferSizeInFrames / framesPerPeriod;
+        }
     }
 
     return MAL_SUCCESS;
 }
 
-mal_result mal_device_start__aaudio(mal_device* pDevice)
+mal_result mal_device_start_stream__aaudio(mal_device* pDevice, mal_AAudioStream* pStream)
 {
     mal_aaudio_result_t resultAA;
 
     mal_assert(pDevice != NULL);
 
-    resultAA = ((MAL_PFN_AAudioStream_requestStart)pDevice->pContext->aaudio.AAudioStream_requestStart)((mal_AAudioStream*)pDevice->aaudio.pStream);
+    resultAA = ((MAL_PFN_AAudioStream_requestStart)pDevice->pContext->aaudio.AAudioStream_requestStart)(pStream);
     if (resultAA != MAL_AAUDIO_OK) {
         return mal_result_from_aaudio(resultAA);
     }
@@ -19339,7 +19398,7 @@ mal_result mal_device_start__aaudio(mal_device* pDevice)
     /* Do we actually need to wait for the device to transition into it's started state? */
 
     /* The device should be in either a starting or started state. If it's not set to started we need to wait for it to transition. It should go from starting to started. */
-    mal_aaudio_stream_state_t currentState = ((MAL_PFN_AAudioStream_getState)pDevice->pContext->aaudio.AAudioStream_getState)((mal_AAudioStream*)pDevice->aaudio.pStream);
+    mal_aaudio_stream_state_t currentState = ((MAL_PFN_AAudioStream_getState)pDevice->pContext->aaudio.AAudioStream_getState)(pStream);
     if (currentState != MAL_AAUDIO_STREAM_STATE_STARTED) {
         mal_result result;
 
@@ -19347,8 +19406,61 @@ mal_result mal_device_start__aaudio(mal_device* pDevice)
             return MAL_ERROR;   /* Expecting the stream to be a starting or started state. */
         }
 
-        result = mal_wait_for_simple_state_transition__aaudio(pDevice->pContext, (mal_AAudioStream*)pDevice->aaudio.pStream, currentState, MAL_AAUDIO_STREAM_STATE_STARTED);
+        result = mal_wait_for_simple_state_transition__aaudio(pDevice->pContext, pStream, currentState, MAL_AAUDIO_STREAM_STATE_STARTED);
         if (result != MAL_SUCCESS) {
+            return result;
+        }
+    }
+
+    return MAL_SUCCESS;
+}
+
+mal_result mal_device_stop_stream__aaudio(mal_device* pDevice, mal_AAudioStream* pStream)
+{
+    mal_aaudio_result_t resultAA;
+
+    mal_assert(pDevice != NULL);
+
+    resultAA = ((MAL_PFN_AAudioStream_requestStop)pDevice->pContext->aaudio.AAudioStream_requestStop)(pStream);
+    if (resultAA != MAL_AAUDIO_OK) {
+        return mal_result_from_aaudio(resultAA);
+    }
+
+    /* The device should be in either a stopping or stopped state. If it's not set to started we need to wait for it to transition. It should go from stopping to stopped. */
+    mal_aaudio_stream_state_t currentState = ((MAL_PFN_AAudioStream_getState)pDevice->pContext->aaudio.AAudioStream_getState)(pStream);
+    if (currentState != MAL_AAUDIO_STREAM_STATE_STOPPED) {
+        mal_result result;
+
+        if (currentState != MAL_AAUDIO_STREAM_STATE_STOPPING) {
+            return MAL_ERROR;   /* Expecting the stream to be a stopping or stopped state. */
+        }
+
+        result = mal_wait_for_simple_state_transition__aaudio(pDevice->pContext, pStream, currentState, MAL_AAUDIO_STREAM_STATE_STOPPED);
+        if (result != MAL_SUCCESS) {
+            return result;
+        }
+    }
+
+    return MAL_SUCCESS;
+}
+
+mal_result mal_device_start__aaudio(mal_device* pDevice)
+{
+    mal_assert(pDevice != NULL);
+
+    if (pDevice->type == mal_device_type_capture || pDevice->type == mal_device_type_duplex) {
+        mal_result result = mal_device_start_stream__aaudio(pDevice, (mal_AAudioStream*)pDevice->aaudio.pStreamCapture);
+        if (result != MAL_SUCCESS) {
+            return result;
+        }
+    }
+
+    if (pDevice->type == mal_device_type_playback || pDevice->type == mal_device_type_duplex) {
+        mal_result result = mal_device_start_stream__aaudio(pDevice, (mal_AAudioStream*)pDevice->aaudio.pStreamPlayback);
+        if (result != MAL_SUCCESS) {
+            if (pDevice->type == mal_device_type_duplex) {
+                mal_device_stop_stream__aaudio(pDevice, (mal_AAudioStream*)pDevice->aaudio.pStreamCapture);
+            }
             return result;
         }
     }
@@ -19358,25 +19470,17 @@ mal_result mal_device_start__aaudio(mal_device* pDevice)
 
 mal_result mal_device_stop__aaudio(mal_device* pDevice)
 {
-    mal_aaudio_result_t resultAA;
-
     mal_assert(pDevice != NULL);
 
-    resultAA = ((MAL_PFN_AAudioStream_requestStop)pDevice->pContext->aaudio.AAudioStream_requestStop)((mal_AAudioStream*)pDevice->aaudio.pStream);
-    if (resultAA != MAL_AAUDIO_OK) {
-        return mal_result_from_aaudio(resultAA);
+    if (pDevice->type == mal_device_type_capture || pDevice->type == mal_device_type_duplex) {
+        mal_result result = mal_device_stop_stream__aaudio(pDevice, (mal_AAudioStream*)pDevice->aaudio.pStreamCapture);
+        if (result != MAL_SUCCESS) {
+            return result;
+        }
     }
 
-    /* The device should be in either a stopping or stopped state. If it's not set to started we need to wait for it to transition. It should go from stopping to stopped. */
-    mal_aaudio_stream_state_t currentState = ((MAL_PFN_AAudioStream_getState)pDevice->pContext->aaudio.AAudioStream_getState)((mal_AAudioStream*)pDevice->aaudio.pStream);
-    if (currentState != MAL_AAUDIO_STREAM_STATE_STOPPED) {
-        mal_result result;
-
-        if (currentState != MAL_AAUDIO_STREAM_STATE_STOPPING) {
-            return MAL_ERROR;   /* Expecting the stream to be a stopping or stopped state. */
-        }
-
-        result = mal_wait_for_simple_state_transition__aaudio(pDevice->pContext, (mal_AAudioStream*)pDevice->aaudio.pStream, currentState, MAL_AAUDIO_STREAM_STATE_STOPPED);
+    if (pDevice->type == mal_device_type_playback || pDevice->type == mal_device_type_duplex) {
+        mal_result result = mal_device_stop_stream__aaudio(pDevice, (mal_AAudioStream*)pDevice->aaudio.pStreamPlayback);
         if (result != MAL_SUCCESS) {
             return result;
         }
