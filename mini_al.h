@@ -2216,10 +2216,12 @@ MAL_ALIGNED_STRUCT(MAL_SIMD_ALIGNMENT) mal_device
             /*SLPlayItf*/ mal_ptr pAudioPlayer;
             /*SLObjectItf*/ mal_ptr pAudioRecorderObj;
             /*SLRecordItf*/ mal_ptr pAudioRecorder;
-            /*SLAndroidSimpleBufferQueueItf*/ mal_ptr pBufferQueue;
-            mal_uint32 periodSizeInFrames;
-            mal_uint32 currentBufferIndex;
-            mal_uint8* pBuffer;                 // This is malloc()'d and is used for storing audio data. Typed as mal_uint8 for easy offsetting.
+            /*SLAndroidSimpleBufferQueueItf*/ mal_ptr pBufferQueuePlayback;
+            /*SLAndroidSimpleBufferQueueItf*/ mal_ptr pBufferQueueCapture;
+            mal_uint32 currentBufferIndexPlayback;
+            mal_uint32 currentBufferIndexCapture;
+            mal_uint8* pBufferPlayback;     // This is malloc()'d and is used for storing audio data. Typed as mal_uint8 for easy offsetting.
+            mal_uint8* pBufferCapture;
         } opensl;
 #endif
 #ifdef MAL_SUPPORT_WEBAUDIO
@@ -19939,20 +19941,13 @@ return_detailed_info:
 
 
 #ifdef MAL_ANDROID
-//void mal_buffer_queue_callback__opensl_android(SLAndroidSimpleBufferQueueItf pBufferQueue, SLuint32 eventFlags, const void* pBuffer, SLuint32 bufferSize, SLuint32 dataUsed, void* pContext)
-void mal_buffer_queue_callback__opensl_android(SLAndroidSimpleBufferQueueItf pBufferQueue, void* pUserData)
+//void mal_buffer_queue_callback_capture__opensl_android(SLAndroidSimpleBufferQueueItf pBufferQueue, SLuint32 eventFlags, const void* pBuffer, SLuint32 bufferSize, SLuint32 dataUsed, void* pContext)
+void mal_buffer_queue_callback_capture__opensl_android(SLAndroidSimpleBufferQueueItf pBufferQueue, void* pUserData)
 {
-    (void)pBufferQueue;
-
-    // For now, only supporting Android implementations of OpenSL|ES since that's the only one I've
-    // been able to test with and I currently depend on Android-specific extensions (simple buffer
-    // queues).
-#ifndef MAL_ANDROID
-    return MAL_NO_BACKEND;
-#endif
-
     mal_device* pDevice = (mal_device*)pUserData;
     mal_assert(pDevice != NULL);
+
+    (void)pBufferQueue;
 
     // For now, don't do anything unless the buffer was fully processed. From what I can tell, it looks like
     // OpenSL|ES 1.1 improves on buffer queues to the point that we could much more intelligently handle this,
@@ -19963,26 +19958,50 @@ void mal_buffer_queue_callback__opensl_android(SLAndroidSimpleBufferQueueItf pBu
         return;
     }
 
-    size_t periodSizeInBytes = pDevice->opensl.periodSizeInFrames * mal_get_bytes_per_frame(pDevice->internalFormat, pDevice->internalChannels);
-    mal_uint8* pBuffer = pDevice->opensl.pBuffer + (pDevice->opensl.currentBufferIndex * periodSizeInBytes);
+    size_t periodSizeInBytes = (pDevice->capture.internalBufferSizeInFrames / pDevice->capture.internalPeriods) * mal_get_bytes_per_frame(pDevice->capture.internalFormat, pDevice->capture.internalChannels);
+    mal_uint8* pBuffer = pDevice->opensl.pBufferCapture + (pDevice->opensl.currentBufferIndexCapture * periodSizeInBytes);
 
-    if (pDevice->type == mal_device_type_playback) {
-        mal_device__read_frames_from_client(pDevice, pDevice->opensl.periodSizeInFrames, pBuffer);
-
-        SLresult resultSL = MAL_OPENSL_BUFFERQUEUE(pDevice->opensl.pBufferQueue)->Enqueue((SLAndroidSimpleBufferQueueItf)pDevice->opensl.pBufferQueue, pBuffer, periodSizeInBytes);
-        if (resultSL != SL_RESULT_SUCCESS) {
-            return;
-        }
+    if (pDevice->type == mal_device_type_duplex) {
+        /* TODO: Write data to the ring buffer. */
     } else {
-        mal_device__send_frames_to_client(pDevice, pDevice->opensl.periodSizeInFrames, pBuffer);
-
-        SLresult resultSL = MAL_OPENSL_BUFFERQUEUE(pDevice->opensl.pBufferQueue)->Enqueue((SLAndroidSimpleBufferQueueItf)pDevice->opensl.pBufferQueue, pBuffer, periodSizeInBytes);
-        if (resultSL != SL_RESULT_SUCCESS) {
-            return;
-        }
+        mal_device__send_frames_to_client(pDevice, (pDevice->capture.internalBufferSizeInFrames / pDevice->capture.internalPeriods), pBuffer);
     }
 
-    pDevice->opensl.currentBufferIndex = (pDevice->opensl.currentBufferIndex + 1) % pDevice->periods;
+    SLresult resultSL = MAL_OPENSL_BUFFERQUEUE(pDevice->opensl.pBufferQueueCapture)->Enqueue((SLAndroidSimpleBufferQueueItf)pDevice->opensl.pBufferQueueCapture, pBuffer, periodSizeInBytes);
+    if (resultSL != SL_RESULT_SUCCESS) {
+        return;
+    }
+
+    pDevice->opensl.currentBufferIndexCapture = (pDevice->opensl.currentBufferIndexCapture + 1) % pDevice->capture.internalPeriods;
+}
+
+void mal_buffer_queue_callback_playback__opensl_android(SLAndroidSimpleBufferQueueItf pBufferQueue, void* pUserData)
+{
+    mal_device* pDevice = (mal_device*)pUserData;
+    mal_assert(pDevice != NULL);
+
+    (void)pBufferQueue;
+
+    /* Don't do anything if the device is not started. */
+    if (pDevice->state != MAL_STATE_STARTED) {
+        return;
+    }
+
+    size_t periodSizeInBytes = (pDevice->playback.internalBufferSizeInFrames / pDevice->playback.internalPeriods) * mal_get_bytes_per_frame(pDevice->playback.internalFormat, pDevice->playback.internalChannels);
+    mal_uint8* pBuffer = pDevice->opensl.pBufferPlayback + (pDevice->opensl.currentBufferIndexPlayback * periodSizeInBytes);
+
+    if (pDevice->type == mal_device_type_duplex) {
+        /* TOOD: Read from the ring buffer and fire the callback. */
+    } else {
+        mal_device__read_frames_from_client(pDevice, (pDevice->playback.internalBufferSizeInFrames / pDevice->playback.internalPeriods), pBuffer);
+    }
+
+    SLresult resultSL = MAL_OPENSL_BUFFERQUEUE(pDevice->opensl.pBufferQueuePlayback)->Enqueue((SLAndroidSimpleBufferQueueItf)pDevice->opensl.pBufferQueuePlayback, pBuffer, periodSizeInBytes);
+    if (resultSL != SL_RESULT_SUCCESS) {
+        return;
+    }
+
+    pDevice->opensl.currentBufferIndexPlayback = (pDevice->opensl.currentBufferIndexPlayback + 1) % pDevice->playback.internalPeriods;
 }
 #endif
 
@@ -19995,21 +20014,118 @@ void mal_device_uninit__opensl(mal_device* pDevice)
         return;
     }
 
-    // Uninit device.
-    if (pDevice->type == mal_device_type_playback) {
+    if (pDevice->type == mal_device_type_capture || pDevice->type == mal_device_type_duplex) {
+        if (pDevice->opensl.pAudioRecorderObj) {
+            MAL_OPENSL_OBJ(pDevice->opensl.pAudioRecorderObj)->Destroy((SLObjectItf)pDevice->opensl.pAudioRecorderObj);
+        }
+
+        mal_free(pDevice->opensl.pBufferCapture);
+    }
+
+    if (pDevice->type == mal_device_type_playback || pDevice->type == mal_device_type_duplex) {
         if (pDevice->opensl.pAudioPlayerObj) {
             MAL_OPENSL_OBJ(pDevice->opensl.pAudioPlayerObj)->Destroy((SLObjectItf)pDevice->opensl.pAudioPlayerObj);
         }
         if (pDevice->opensl.pOutputMixObj) {
             MAL_OPENSL_OBJ(pDevice->opensl.pOutputMixObj)->Destroy((SLObjectItf)pDevice->opensl.pOutputMixObj);
         }
+
+        mal_free(pDevice->opensl.pBufferPlayback);
+    }
+}
+
+#if defined(MAL_ANDROID) && __ANDROID_API__ >= 21
+typedef SLAndroidDataFormat_PCM_EX  mal_SLDataFormat_PCM;
+#else
+typedef SLDataFormat_PCM            mal_SLDataFormat_PCM;
+#endif
+
+mal_result mal_SLDataFormat_PCM_init__opensl(mal_format format, mal_uint32 channels, mal_uint32 sampleRate, const mal_channel* channelMap, mal_SLDataFormat_PCM* pDataFormat)
+{
+#if defined(MAL_ANDROID) && __ANDROID_API__ >= 21
+    if (format == mal_format_f32) {
+        pDataFormat->formatType     = SL_ANDROID_DATAFORMAT_PCM_EX;
+        pDataFormat->representation = SL_ANDROID_PCM_REPRESENTATION_FLOAT;
     } else {
-        if (pDevice->opensl.pAudioRecorderObj) {
-            MAL_OPENSL_OBJ(pDevice->opensl.pAudioRecorderObj)->Destroy((SLObjectItf)pDevice->opensl.pAudioRecorderObj);
+        pDataFormat->formatType = SL_DATAFORMAT_PCM;
+    }
+#else
+    pDataFormat->formatType = SL_DATAFORMAT_PCM;
+#endif
+
+    pDataFormat->numChannels   = channels;
+    ((SLDataFormat_PCM*)pDataFormat)->samplesPerSec = mal_round_to_standard_sample_rate__opensl(sampleRate * 1000);  /* In millihertz. Annoyingly, the sample rate variable is named differently between SLAndroidDataFormat_PCM_EX and SLDataFormat_PCM */
+    pDataFormat->bitsPerSample = mal_get_bytes_per_sample(format)*8;
+    pDataFormat->channelMask   = mal_channel_map_to_channel_mask__opensl(channelMap, channels);
+    pDataFormat->endianness    = (mal_is_little_endian()) ? SL_BYTEORDER_LITTLEENDIAN : SL_BYTEORDER_BIGENDIAN;
+
+    /*
+    Android has a few restrictions on the format as documented here: https://developer.android.com/ndk/guides/audio/opensl-for-android.html
+     - Only mono and stereo is supported.
+     - Only u8 and s16 formats are supported.
+     - Maximum sample rate of 48000.
+    */
+#ifdef MAL_ANDROID
+    if (pDataFormat->numChannels > 2) {
+        pDataFormat->numChannels = 2;
+    }
+#if __ANDROID_API__ >= 21
+    if (pDataFormat->formatType == SL_ANDROID_DATAFORMAT_PCM_EX) {
+        /* It's floating point. */
+        mal_assert(pDataFormat->representation == SL_ANDROID_PCM_REPRESENTATION_FLOAT);
+        if (pDataFormat->bitsPerSample > 32) {
+            pDataFormat->bitsPerSample = 32;
+        }
+    } else {
+        if (pDataFormat->bitsPerSample > 16) {
+            pDataFormat->bitsPerSample = 16;
+        }
+    }
+#else
+    if (pDataFormat->bitsPerSample > 16) {
+        pDataFormat->bitsPerSample = 16;
+    }
+#endif
+    if (((SLDataFormat_PCM*)pDataFormat)->samplesPerSec > SL_SAMPLINGRATE_48) {
+        ((SLDataFormat_PCM*)pDataFormat)->samplesPerSec = SL_SAMPLINGRATE_48;
+    }
+#endif
+
+    pDataFormat->containerSize = pDataFormat->bitsPerSample;  /* Always tightly packed for now. */
+
+    return MAL_SUCCESS;
+}
+
+mal_result mal_deconstruct_SLDataFormat_PCM__opensl(mal_SLDataFormat_PCM* pDataFormat, mal_format* pFormat, mal_uint32* pChannels, mal_uint32* pSampleRate, mal_channel* pChannelMap)
+{
+    mal_bool32 isFloatingPoint = MAL_FALSE;
+#if defined(MAL_ANDROID) && __ANDROID_API__ >= 21
+    if (pDataFormat->formatType == SL_ANDROID_DATAFORMAT_PCM_EX) {
+        mal_assert(pDataFormat->representation == SL_ANDROID_PCM_REPRESENTATION_FLOAT);
+        isFloatingPoint = MAL_TRUE;
+    }
+#endif
+    if (isFloatingPoint) {
+        if (pDataFormat->bitsPerSample == 32) {
+            *pFormat = mal_format_f32;
+        }
+    } else {
+        if (pDataFormat->bitsPerSample == 8) {
+            *pFormat = mal_format_u8;
+        } else if (pDataFormat->bitsPerSample == 16) {
+            *pFormat = mal_format_s16;
+        } else if (pDataFormat->bitsPerSample == 24) {
+            *pFormat = mal_format_s24;
+        } else if (pDataFormat->bitsPerSample == 32) {
+            *pFormat = mal_format_s32;
         }
     }
 
-    mal_free(pDevice->opensl.pBuffer);
+    *pChannels   = pDataFormat->numChannels;
+    *pSampleRate = ((SLDataFormat_PCM*)pDataFormat)->samplesPerSec / 1000;
+    mal_channel_mask_to_channel_map__opensl(pDataFormat->channelMask, pDataFormat->numChannels, pChannelMap);
+
+    return MAL_SUCCESS;
 }
 
 mal_result mal_device_init__opensl(mal_context* pContext, const mal_device_config* pConfig, mal_device* pDevice)
@@ -20021,17 +20137,14 @@ mal_result mal_device_init__opensl(mal_context* pContext, const mal_device_confi
         return MAL_INVALID_OPERATION;
     }
 
-    // For now, only supporting Android implementations of OpenSL|ES since that's the only one I've
-    // been able to test with and I currently depend on Android-specific extensions (simple buffer
-    // queues).
+    /*
+    For now, only supporting Android implementations of OpenSL|ES since that's the only one I've
+    been able to test with and I currently depend on Android-specific extensions (simple buffer
+    queues).
+    */
 #ifndef MAL_ANDROID
     return MAL_NO_BACKEND;
 #endif
-
-    /* Full-duplex is not yet implemented. */
-    if (pConfig->deviceType == mal_device_type_duplex) {
-        return MAL_INVALID_ARGS;
-    }
 
     /* No exclusive mode with OpenSL|ES. */
     if (((pConfig->deviceType == mal_device_type_playback || pConfig->deviceType == mal_device_type_duplex) && pConfig->playback.shareMode == mal_share_mode_exclusive) ||
@@ -20039,12 +20152,7 @@ mal_result mal_device_init__opensl(mal_context* pContext, const mal_device_confi
         return MAL_SHARE_MODE_NOT_SUPPORTED;
     }
 
-    // Use s32 as the internal format for when floating point is specified.
-    if (pConfig->format == mal_format_f32) {
-        pDevice->internalFormat = mal_format_s32;
-    }
-
-    // Now we can start initializing the device properly.
+    /* Now we can start initializing the device properly. */
     mal_assert(pDevice != NULL);
     mal_zero_object(&pDevice->opensl);
 
@@ -20052,162 +20160,36 @@ mal_result mal_device_init__opensl(mal_context* pContext, const mal_device_confi
     queue.locatorType = SL_DATALOCATOR_ANDROIDSIMPLEBUFFERQUEUE;
     queue.numBuffers = pConfig->periods;
 
-    SLDataFormat_PCM* pFormat = NULL;
 
-#if defined(MAL_ANDROID) && __ANDROID_API__ >= 21
-    SLAndroidDataFormat_PCM_EX pcmEx;
-    if (pDevice->format == mal_format_f32 /*|| pDevice->format == mal_format_f64*/) {
-        pcmEx.formatType = SL_ANDROID_DATAFORMAT_PCM_EX;
-        pcmEx.representation = SL_ANDROID_PCM_REPRESENTATION_FLOAT;
-    } else {
-        pcmEx.formatType = SL_DATAFORMAT_PCM;
-    }
-    pFormat = (SLDataFormat_PCM*)&pcmEx;
-#else
-    SLDataFormat_PCM pcm;
-    pcm.formatType = SL_DATAFORMAT_PCM;
-    pFormat = &pcm;
-#endif
+    if (pConfig->deviceType == mal_device_type_capture || pConfig->deviceType == mal_device_type_duplex) {
+        mal_SLDataFormat_PCM pcm;
+        mal_SLDataFormat_PCM_init__opensl(pConfig->capture.format, pConfig->capture.channels, pConfig->sampleRate, pConfig->capture.channelMap, &pcm);
 
-    pFormat->numChannels   = pDevice->channels;
-    pFormat->samplesPerSec = mal_round_to_standard_sample_rate__opensl(pDevice->sampleRate * 1000);  // In millihertz.
-    pFormat->bitsPerSample = mal_get_bytes_per_sample(pDevice->format)*8;
-    pFormat->containerSize = pFormat->bitsPerSample;  // Always tightly packed for now.
-    pFormat->channelMask   = mal_channel_map_to_channel_mask__opensl(pConfig->channelMap, pFormat->numChannels);
-    pFormat->endianness    = (mal_is_little_endian()) ? SL_BYTEORDER_LITTLEENDIAN : SL_BYTEORDER_BIGENDIAN;
-
-    // Android has a few restrictions on the format as documented here: https://developer.android.com/ndk/guides/audio/opensl-for-android.html
-    //  - Only mono and stereo is supported.
-    //  - Only u8 and s16 formats are supported.
-    //  - Maximum sample rate of 48000.
-#ifdef MAL_ANDROID
-    if (pFormat->numChannels > 2) {
-        pFormat->numChannels = 2;
-    }
-#if __ANDROID_API__ >= 21
-    if (pFormat->formatType == SL_ANDROID_DATAFORMAT_PCM_EX) {
-        // It's floating point.
-        mal_assert(pcmEx.representation == SL_ANDROID_PCM_REPRESENTATION_FLOAT);
-        if (pFormat->bitsPerSample > 32) {
-            pFormat->bitsPerSample = 32;
-        }
-    } else {
-        if (pFormat->bitsPerSample > 16) {
-            pFormat->bitsPerSample = 16;
-        }
-    }
-#else
-    if (pFormat->bitsPerSample > 16) {
-        pFormat->bitsPerSample = 16;
-    }
-#endif
-    pFormat->containerSize = pFormat->bitsPerSample;  // Always tightly packed for now.
-
-    if (pFormat->samplesPerSec > SL_SAMPLINGRATE_48) {
-        pFormat->samplesPerSec = SL_SAMPLINGRATE_48;
-    }
-#endif
-
-    if (pConfig->deviceType == mal_device_type_playback) {
-        SLresult resultSL = (*g_malEngineSL)->CreateOutputMix(g_malEngineSL, (SLObjectItf*)&pDevice->opensl.pOutputMixObj, 0, NULL, NULL);
-        if (resultSL != SL_RESULT_SUCCESS) {
-            mal_device_uninit__opensl(pDevice);
-            return mal_post_error(pDevice, MAL_LOG_LEVEL_ERROR, "[OpenSL] Failed to create output mix.", MAL_FAILED_TO_OPEN_BACKEND_DEVICE);
-        }
-
-        if (MAL_OPENSL_OBJ(pDevice->opensl.pOutputMixObj)->Realize((SLObjectItf)pDevice->opensl.pOutputMixObj, SL_BOOLEAN_FALSE)) {
-            mal_device_uninit__opensl(pDevice);
-            return mal_post_error(pDevice, MAL_LOG_LEVEL_ERROR, "[OpenSL] Failed to realize output mix object.", MAL_FAILED_TO_OPEN_BACKEND_DEVICE);
-        }
-
-        if (MAL_OPENSL_OBJ(pDevice->opensl.pOutputMixObj)->GetInterface((SLObjectItf)pDevice->opensl.pOutputMixObj, SL_IID_OUTPUTMIX, &pDevice->opensl.pOutputMix) != SL_RESULT_SUCCESS) {
-            mal_device_uninit__opensl(pDevice);
-            return mal_post_error(pDevice, MAL_LOG_LEVEL_ERROR, "[OpenSL] Failed to retrieve SL_IID_OUTPUTMIX interface.", MAL_FAILED_TO_OPEN_BACKEND_DEVICE);
-        }
-
-        // Set the output device.
-        if (pConfig->pDeviceID != NULL) {
-            SLuint32 deviceID_OpenSL = pConfig->pDeviceID->opensl;
-            MAL_OPENSL_OUTPUTMIX(pDevice->opensl.pOutputMix)->ReRoute((SLOutputMixItf)pDevice->opensl.pOutputMix, 1, &deviceID_OpenSL);
-        }
-
-        SLDataSource source;
-        source.pLocator = &queue;
-        source.pFormat = pFormat;
-
-        SLDataLocator_OutputMix outmixLocator;
-        outmixLocator.locatorType = SL_DATALOCATOR_OUTPUTMIX;
-        outmixLocator.outputMix = (SLObjectItf)pDevice->opensl.pOutputMixObj;
-
-        SLDataSink sink;
-        sink.pLocator = &outmixLocator;
-        sink.pFormat = NULL;
-
-        const SLInterfaceID itfIDs1[] = {SL_IID_ANDROIDSIMPLEBUFFERQUEUE};
-        const SLboolean itfIDsRequired1[] = {SL_BOOLEAN_TRUE};
-        resultSL = (*g_malEngineSL)->CreateAudioPlayer(g_malEngineSL, (SLObjectItf*)&pDevice->opensl.pAudioPlayerObj, &source, &sink, 1, itfIDs1, itfIDsRequired1);
-        if (resultSL == SL_RESULT_CONTENT_UNSUPPORTED) {
-            // Unsupported format. Fall back to something safer and try again. If this fails, just abort.
-            pFormat->formatType = SL_DATAFORMAT_PCM;
-            pFormat->numChannels = 2;
-            pFormat->samplesPerSec = SL_SAMPLINGRATE_16;
-            pFormat->bitsPerSample = 16;
-            pFormat->containerSize = pFormat->bitsPerSample;  // Always tightly packed for now.
-            pFormat->channelMask = SL_SPEAKER_FRONT_LEFT | SL_SPEAKER_FRONT_RIGHT;
-            resultSL = (*g_malEngineSL)->CreateAudioPlayer(g_malEngineSL, (SLObjectItf*)&pDevice->opensl.pAudioPlayerObj, &source, &sink, 1, itfIDs1, itfIDsRequired1);
-        }
-
-        if (resultSL != SL_RESULT_SUCCESS) {
-            mal_device_uninit__opensl(pDevice);
-            return mal_post_error(pDevice, MAL_LOG_LEVEL_ERROR, "[OpenSL] Failed to create audio player.", MAL_FAILED_TO_OPEN_BACKEND_DEVICE);
-        }
-
-
-        if (MAL_OPENSL_OBJ(pDevice->opensl.pAudioPlayerObj)->Realize((SLObjectItf)pDevice->opensl.pAudioPlayerObj, SL_BOOLEAN_FALSE) != SL_RESULT_SUCCESS) {
-            mal_device_uninit__opensl(pDevice);
-            return mal_post_error(pDevice, MAL_LOG_LEVEL_ERROR, "[OpenSL] Failed to realize audio player.", MAL_FAILED_TO_OPEN_BACKEND_DEVICE);
-        }
-
-        if (MAL_OPENSL_OBJ(pDevice->opensl.pAudioPlayerObj)->GetInterface((SLObjectItf)pDevice->opensl.pAudioPlayerObj, SL_IID_PLAY, &pDevice->opensl.pAudioPlayer) != SL_RESULT_SUCCESS) {
-            mal_device_uninit__opensl(pDevice);
-            return mal_post_error(pDevice, MAL_LOG_LEVEL_ERROR, "[OpenSL] Failed to retrieve SL_IID_PLAY interface.", MAL_FAILED_TO_OPEN_BACKEND_DEVICE);
-        }
-
-        if (MAL_OPENSL_OBJ(pDevice->opensl.pAudioPlayerObj)->GetInterface((SLObjectItf)pDevice->opensl.pAudioPlayerObj, SL_IID_ANDROIDSIMPLEBUFFERQUEUE, &pDevice->opensl.pBufferQueue) != SL_RESULT_SUCCESS) {
-            mal_device_uninit__opensl(pDevice);
-            return mal_post_error(pDevice, MAL_LOG_LEVEL_ERROR, "[OpenSL] Failed to retrieve SL_IID_ANDROIDSIMPLEBUFFERQUEUE interface.", MAL_FAILED_TO_OPEN_BACKEND_DEVICE);
-        }
-
-        if (MAL_OPENSL_BUFFERQUEUE(pDevice->opensl.pBufferQueue)->RegisterCallback((SLAndroidSimpleBufferQueueItf)pDevice->opensl.pBufferQueue, mal_buffer_queue_callback__opensl_android, pDevice) != SL_RESULT_SUCCESS) {
-            mal_device_uninit__opensl(pDevice);
-            return mal_post_error(pDevice, MAL_LOG_LEVEL_ERROR, "[OpenSL] Failed to register buffer queue callback.", MAL_FAILED_TO_OPEN_BACKEND_DEVICE);
-        }
-    } else {
         SLDataLocator_IODevice locatorDevice;
         locatorDevice.locatorType = SL_DATALOCATOR_IODEVICE;
-        locatorDevice.deviceType = SL_IODEVICE_AUDIOINPUT;
-        locatorDevice.deviceID = (pConfig->pDeviceID == NULL) ? SL_DEFAULTDEVICEID_AUDIOINPUT : pConfig->pDeviceID->opensl;
-        locatorDevice.device = NULL;
+        locatorDevice.deviceType  = SL_IODEVICE_AUDIOINPUT;
+        locatorDevice.deviceID    = (pConfig->capture.pDeviceID == NULL) ? SL_DEFAULTDEVICEID_AUDIOINPUT : pConfig->capture.pDeviceID->opensl;
+        locatorDevice.device      = NULL;
 
         SLDataSource source;
         source.pLocator = &locatorDevice;
-        source.pFormat = NULL;
+        source.pFormat  = NULL;
 
         SLDataSink sink;
         sink.pLocator = &queue;
-        sink.pFormat = pFormat;
+        sink.pFormat  = (SLDataFormat_PCM*)&pcm;
 
         const SLInterfaceID itfIDs1[] = {SL_IID_ANDROIDSIMPLEBUFFERQUEUE};
         const SLboolean itfIDsRequired1[] = {SL_BOOLEAN_TRUE};
         SLresult resultSL = (*g_malEngineSL)->CreateAudioRecorder(g_malEngineSL, (SLObjectItf*)&pDevice->opensl.pAudioRecorderObj, &source, &sink, 1, itfIDs1, itfIDsRequired1);
         if (resultSL == SL_RESULT_CONTENT_UNSUPPORTED) {
-            // Unsupported format. Fall back to something safer and try again. If this fails, just abort.
-            pFormat->formatType = SL_DATAFORMAT_PCM;
-            pFormat->numChannels = 1;
-            pFormat->samplesPerSec = SL_SAMPLINGRATE_16;
-            pFormat->bitsPerSample = 16;
-            pFormat->containerSize = pFormat->bitsPerSample;  // Always tightly packed for now.
-            pFormat->channelMask = SL_SPEAKER_FRONT_LEFT | SL_SPEAKER_FRONT_RIGHT;
+            /* Unsupported format. Fall back to something safer and try again. If this fails, just abort. */
+            pcm.formatType    = SL_DATAFORMAT_PCM;
+            pcm.numChannels   = 1;
+            ((SLDataFormat_PCM*)&pcm)->samplesPerSec = SL_SAMPLINGRATE_16;  /* The name of the sample rate variable is different between SLAndroidDataFormat_PCM_EX and SLDataFormat_PCM. */
+            pcm.bitsPerSample = 16;
+            pcm.containerSize = pcm.bitsPerSample;  /* Always tightly packed for now. */
+            pcm.channelMask   = SL_SPEAKER_FRONT_LEFT | SL_SPEAKER_FRONT_RIGHT;
             resultSL = (*g_malEngineSL)->CreateAudioRecorder(g_malEngineSL, (SLObjectItf*)&pDevice->opensl.pAudioRecorderObj, &source, &sink, 1, itfIDs1, itfIDsRequired1);
         }
 
@@ -20226,68 +20208,134 @@ mal_result mal_device_init__opensl(mal_context* pContext, const mal_device_confi
             return mal_post_error(pDevice, MAL_LOG_LEVEL_ERROR, "[OpenSL] Failed to retrieve SL_IID_RECORD interface.", MAL_FAILED_TO_OPEN_BACKEND_DEVICE);
         }
 
-        if (MAL_OPENSL_OBJ(pDevice->opensl.pAudioRecorderObj)->GetInterface((SLObjectItf)pDevice->opensl.pAudioRecorderObj, SL_IID_ANDROIDSIMPLEBUFFERQUEUE, &pDevice->opensl.pBufferQueue) != SL_RESULT_SUCCESS) {
+        if (MAL_OPENSL_OBJ(pDevice->opensl.pAudioRecorderObj)->GetInterface((SLObjectItf)pDevice->opensl.pAudioRecorderObj, SL_IID_ANDROIDSIMPLEBUFFERQUEUE, &pDevice->opensl.pBufferQueueCapture) != SL_RESULT_SUCCESS) {
             mal_device_uninit__opensl(pDevice);
             return mal_post_error(pDevice, MAL_LOG_LEVEL_ERROR, "[OpenSL] Failed to retrieve SL_IID_ANDROIDSIMPLEBUFFERQUEUE interface.", MAL_FAILED_TO_OPEN_BACKEND_DEVICE);
         }
 
-        if (MAL_OPENSL_BUFFERQUEUE(pDevice->opensl.pBufferQueue)->RegisterCallback((SLAndroidSimpleBufferQueueItf)pDevice->opensl.pBufferQueue, mal_buffer_queue_callback__opensl_android, pDevice) != SL_RESULT_SUCCESS) {
+        if (MAL_OPENSL_BUFFERQUEUE(pDevice->opensl.pBufferQueueCapture)->RegisterCallback((SLAndroidSimpleBufferQueueItf)pDevice->opensl.pBufferQueueCapture, mal_buffer_queue_callback_capture__opensl_android, pDevice) != SL_RESULT_SUCCESS) {
             mal_device_uninit__opensl(pDevice);
             return mal_post_error(pDevice, MAL_LOG_LEVEL_ERROR, "[OpenSL] Failed to register buffer queue callback.", MAL_FAILED_TO_OPEN_BACKEND_DEVICE);
         }
-    }
 
+        /* The internal format is determined by the "pcm" object. */
+        mal_deconstruct_SLDataFormat_PCM__opensl(&pcm, &pDevice->capture.internalFormat, &pDevice->capture.internalChannels, &pDevice->capture.internalSampleRate, pDevice->capture.internalChannelMap);
 
-    // The internal format is determined by the pFormat object.
-    mal_bool32 isFloatingPoint = MAL_FALSE;
-#if defined(MAL_ANDROID) && __ANDROID_API__ >= 21
-    if (pFormat->formatType == SL_ANDROID_DATAFORMAT_PCM_EX) {
-        mal_assert(pcmEx.representation == SL_ANDROID_PCM_REPRESENTATION_FLOAT);
-        isFloatingPoint = MAL_TRUE;
-    }
-#endif
-    if (isFloatingPoint) {
-        if (pFormat->bitsPerSample == 32) {
-            pDevice->internalFormat = mal_format_f32;
+        /* Buffer. */
+        mal_uint32 bufferSizeInFrames = pConfig->bufferSizeInFrames;
+        if (bufferSizeInFrames == 0) {
+            bufferSizeInFrames = mal_calculate_buffer_size_in_frames_from_milliseconds(pConfig->bufferSizeInMilliseconds, pDevice->capture.internalSampleRate);
         }
-#if 0
-        if (pFormat->bitsPerSample == 64) {
-            pDevice->internalFormat = mal_format_f64;
+        pDevice->capture.internalPeriods            = pConfig->periods;
+        pDevice->capture.internalBufferSizeInFrames = (bufferSizeInFrames / pDevice->capture.internalPeriods) * pDevice->capture.internalPeriods;
+        pDevice->opensl.currentBufferIndexCapture   = 0;
+
+        size_t bufferSizeInBytes = pDevice->capture.internalBufferSizeInFrames * mal_get_bytes_per_frame(pDevice->capture.internalFormat, pDevice->capture.internalChannels);
+        pDevice->opensl.pBufferCapture = (mal_uint8*)mal_malloc(bufferSizeInBytes);
+        if (pDevice->opensl.pBufferCapture == NULL) {
+            mal_device_uninit__opensl(pDevice);
+            return mal_post_error(pDevice, MAL_LOG_LEVEL_ERROR, "[OpenSL] Failed to allocate memory for data buffer.", MAL_OUT_OF_MEMORY);
         }
-#endif
-    } else {
-        if (pFormat->bitsPerSample == 8) {
-            pDevice->internalFormat = mal_format_u8;
-        } else if (pFormat->bitsPerSample == 16) {
-            pDevice->internalFormat = mal_format_s16;
-        } else if (pFormat->bitsPerSample == 24) {
-            pDevice->internalFormat = mal_format_s24;
-        } else if (pFormat->bitsPerSample == 32) {
-            pDevice->internalFormat = mal_format_s32;
+        MAL_ZERO_MEMORY(pDevice->opensl.pBufferCapture, bufferSizeInBytes);
+    }
+
+    if (pConfig->deviceType == mal_device_type_playback || pConfig->deviceType == mal_device_type_duplex) {
+        mal_SLDataFormat_PCM pcm;
+        mal_SLDataFormat_PCM_init__opensl(pConfig->playback.format, pConfig->playback.channels, pConfig->sampleRate, pConfig->playback.channelMap, &pcm);
+
+        SLresult resultSL = (*g_malEngineSL)->CreateOutputMix(g_malEngineSL, (SLObjectItf*)&pDevice->opensl.pOutputMixObj, 0, NULL, NULL);
+        if (resultSL != SL_RESULT_SUCCESS) {
+            mal_device_uninit__opensl(pDevice);
+            return mal_post_error(pDevice, MAL_LOG_LEVEL_ERROR, "[OpenSL] Failed to create output mix.", MAL_FAILED_TO_OPEN_BACKEND_DEVICE);
         }
+
+        if (MAL_OPENSL_OBJ(pDevice->opensl.pOutputMixObj)->Realize((SLObjectItf)pDevice->opensl.pOutputMixObj, SL_BOOLEAN_FALSE)) {
+            mal_device_uninit__opensl(pDevice);
+            return mal_post_error(pDevice, MAL_LOG_LEVEL_ERROR, "[OpenSL] Failed to realize output mix object.", MAL_FAILED_TO_OPEN_BACKEND_DEVICE);
+        }
+
+        if (MAL_OPENSL_OBJ(pDevice->opensl.pOutputMixObj)->GetInterface((SLObjectItf)pDevice->opensl.pOutputMixObj, SL_IID_OUTPUTMIX, &pDevice->opensl.pOutputMix) != SL_RESULT_SUCCESS) {
+            mal_device_uninit__opensl(pDevice);
+            return mal_post_error(pDevice, MAL_LOG_LEVEL_ERROR, "[OpenSL] Failed to retrieve SL_IID_OUTPUTMIX interface.", MAL_FAILED_TO_OPEN_BACKEND_DEVICE);
+        }
+
+        /* Set the output device. */
+        if (pConfig->playback.pDeviceID != NULL) {
+            SLuint32 deviceID_OpenSL = pConfig->playback.pDeviceID->opensl;
+            MAL_OPENSL_OUTPUTMIX(pDevice->opensl.pOutputMix)->ReRoute((SLOutputMixItf)pDevice->opensl.pOutputMix, 1, &deviceID_OpenSL);
+        }
+
+        SLDataSource source;
+        source.pLocator = &queue;
+        source.pFormat  = (SLDataFormat_PCM*)&pcm;
+
+        SLDataLocator_OutputMix outmixLocator;
+        outmixLocator.locatorType = SL_DATALOCATOR_OUTPUTMIX;
+        outmixLocator.outputMix   = (SLObjectItf)pDevice->opensl.pOutputMixObj;
+
+        SLDataSink sink;
+        sink.pLocator = &outmixLocator;
+        sink.pFormat  = NULL;
+
+        const SLInterfaceID itfIDs1[] = {SL_IID_ANDROIDSIMPLEBUFFERQUEUE};
+        const SLboolean itfIDsRequired1[] = {SL_BOOLEAN_TRUE};
+        resultSL = (*g_malEngineSL)->CreateAudioPlayer(g_malEngineSL, (SLObjectItf*)&pDevice->opensl.pAudioPlayerObj, &source, &sink, 1, itfIDs1, itfIDsRequired1);
+        if (resultSL == SL_RESULT_CONTENT_UNSUPPORTED) {
+            /* Unsupported format. Fall back to something safer and try again. If this fails, just abort. */
+            pcm.formatType = SL_DATAFORMAT_PCM;
+            pcm.numChannels = 2;
+            ((SLDataFormat_PCM*)&pcm)->samplesPerSec = SL_SAMPLINGRATE_16;
+            pcm.bitsPerSample = 16;
+            pcm.containerSize = pcm.bitsPerSample;  /* Always tightly packed for now. */
+            pcm.channelMask = SL_SPEAKER_FRONT_LEFT | SL_SPEAKER_FRONT_RIGHT;
+            resultSL = (*g_malEngineSL)->CreateAudioPlayer(g_malEngineSL, (SLObjectItf*)&pDevice->opensl.pAudioPlayerObj, &source, &sink, 1, itfIDs1, itfIDsRequired1);
+        }
+
+        if (resultSL != SL_RESULT_SUCCESS) {
+            mal_device_uninit__opensl(pDevice);
+            return mal_post_error(pDevice, MAL_LOG_LEVEL_ERROR, "[OpenSL] Failed to create audio player.", MAL_FAILED_TO_OPEN_BACKEND_DEVICE);
+        }
+
+        if (MAL_OPENSL_OBJ(pDevice->opensl.pAudioPlayerObj)->Realize((SLObjectItf)pDevice->opensl.pAudioPlayerObj, SL_BOOLEAN_FALSE) != SL_RESULT_SUCCESS) {
+            mal_device_uninit__opensl(pDevice);
+            return mal_post_error(pDevice, MAL_LOG_LEVEL_ERROR, "[OpenSL] Failed to realize audio player.", MAL_FAILED_TO_OPEN_BACKEND_DEVICE);
+        }
+
+        if (MAL_OPENSL_OBJ(pDevice->opensl.pAudioPlayerObj)->GetInterface((SLObjectItf)pDevice->opensl.pAudioPlayerObj, SL_IID_PLAY, &pDevice->opensl.pAudioPlayer) != SL_RESULT_SUCCESS) {
+            mal_device_uninit__opensl(pDevice);
+            return mal_post_error(pDevice, MAL_LOG_LEVEL_ERROR, "[OpenSL] Failed to retrieve SL_IID_PLAY interface.", MAL_FAILED_TO_OPEN_BACKEND_DEVICE);
+        }
+
+        if (MAL_OPENSL_OBJ(pDevice->opensl.pAudioPlayerObj)->GetInterface((SLObjectItf)pDevice->opensl.pAudioPlayerObj, SL_IID_ANDROIDSIMPLEBUFFERQUEUE, &pDevice->opensl.pBufferQueuePlayback) != SL_RESULT_SUCCESS) {
+            mal_device_uninit__opensl(pDevice);
+            return mal_post_error(pDevice, MAL_LOG_LEVEL_ERROR, "[OpenSL] Failed to retrieve SL_IID_ANDROIDSIMPLEBUFFERQUEUE interface.", MAL_FAILED_TO_OPEN_BACKEND_DEVICE);
+        }
+
+        if (MAL_OPENSL_BUFFERQUEUE(pDevice->opensl.pBufferQueuePlayback)->RegisterCallback((SLAndroidSimpleBufferQueueItf)pDevice->opensl.pBufferQueuePlayback, mal_buffer_queue_callback_playback__opensl_android, pDevice) != SL_RESULT_SUCCESS) {
+            mal_device_uninit__opensl(pDevice);
+            return mal_post_error(pDevice, MAL_LOG_LEVEL_ERROR, "[OpenSL] Failed to register buffer queue callback.", MAL_FAILED_TO_OPEN_BACKEND_DEVICE);
+        }
+
+        /* The internal format is determined by the "pcm" object. */
+        mal_deconstruct_SLDataFormat_PCM__opensl(&pcm, &pDevice->playback.internalFormat, &pDevice->playback.internalChannels, &pDevice->playback.internalSampleRate, pDevice->playback.internalChannelMap);
+
+        /* Buffer. */
+        mal_uint32 bufferSizeInFrames = pConfig->bufferSizeInFrames;
+        if (bufferSizeInFrames == 0) {
+            bufferSizeInFrames = mal_calculate_buffer_size_in_frames_from_milliseconds(pConfig->bufferSizeInMilliseconds, pDevice->playback.internalSampleRate);
+        }
+        pDevice->playback.internalPeriods            = pConfig->periods;
+        pDevice->playback.internalBufferSizeInFrames = (bufferSizeInFrames / pDevice->playback.internalPeriods) * pDevice->playback.internalPeriods;
+        pDevice->opensl.currentBufferIndexPlayback   = 0;
+
+        size_t bufferSizeInBytes = pDevice->playback.internalBufferSizeInFrames * mal_get_bytes_per_frame(pDevice->playback.internalFormat, pDevice->playback.internalChannels);
+        pDevice->opensl.pBufferPlayback = (mal_uint8*)mal_malloc(bufferSizeInBytes);
+        if (pDevice->opensl.pBufferPlayback == NULL) {
+            mal_device_uninit__opensl(pDevice);
+            return mal_post_error(pDevice, MAL_LOG_LEVEL_ERROR, "[OpenSL] Failed to allocate memory for data buffer.", MAL_OUT_OF_MEMORY);
+        }
+        MAL_ZERO_MEMORY(pDevice->opensl.pBufferPlayback, bufferSizeInBytes);
     }
-
-    pDevice->internalChannels = pFormat->numChannels;
-    pDevice->internalSampleRate = pFormat->samplesPerSec / 1000;
-    mal_channel_mask_to_channel_map__opensl(pFormat->channelMask, pDevice->internalChannels, pDevice->internalChannelMap);
-
-    // Try calculating an appropriate default buffer size.
-    if (pDevice->bufferSizeInFrames == 0) {
-        pDevice->bufferSizeInFrames = mal_calculate_buffer_size_in_frames_from_milliseconds(pDevice->bufferSizeInMilliseconds, pDevice->internalSampleRate);
-    }
-
-    pDevice->opensl.currentBufferIndex = 0;
-    pDevice->opensl.periodSizeInFrames = pDevice->bufferSizeInFrames / pConfig->periods;
-    pDevice->bufferSizeInFrames = pDevice->opensl.periodSizeInFrames * pConfig->periods;
-
-    size_t bufferSizeInBytes = pDevice->bufferSizeInFrames * pDevice->internalChannels * mal_get_bytes_per_sample(pDevice->internalFormat);
-    pDevice->opensl.pBuffer = (mal_uint8*)mal_malloc(bufferSizeInBytes);
-    if (pDevice->opensl.pBuffer == NULL) {
-        mal_device_uninit__opensl(pDevice);
-        return mal_post_error(pDevice, MAL_LOG_LEVEL_ERROR, "[OpenSL] Failed to allocate memory for data buffer.", MAL_OUT_OF_MEMORY);
-    }
-
-    mal_zero_memory(pDevice->opensl.pBuffer, bufferSizeInBytes);
 
     return MAL_SUCCESS;
 }
@@ -20301,35 +20349,41 @@ mal_result mal_device_start__opensl(mal_device* pDevice)
         return MAL_INVALID_OPERATION;
     }
 
-    if (pDevice->type == mal_device_type_playback) {
-        SLresult resultSL = MAL_OPENSL_PLAY(pDevice->opensl.pAudioPlayer)->SetPlayState((SLPlayItf)pDevice->opensl.pAudioPlayer, SL_PLAYSTATE_PLAYING);
-        if (resultSL != SL_RESULT_SUCCESS) {
-            return mal_post_error(pDevice, MAL_LOG_LEVEL_ERROR, "[OpenSL] Failed to start internal playback device.", MAL_FAILED_TO_START_BACKEND_DEVICE);
-        }
-
-        // We need to enqueue a buffer for each period.
-        mal_device__read_frames_from_client(pDevice, pDevice->bufferSizeInFrames, pDevice->opensl.pBuffer);
-
-        size_t periodSizeInBytes = pDevice->opensl.periodSizeInFrames * pDevice->internalChannels * mal_get_bytes_per_sample(pDevice->internalFormat);
-        for (mal_uint32 iPeriod = 0; iPeriod < pDevice->periods; ++iPeriod) {
-            resultSL = MAL_OPENSL_BUFFERQUEUE(pDevice->opensl.pBufferQueue)->Enqueue((SLAndroidSimpleBufferQueueItf)pDevice->opensl.pBufferQueue, pDevice->opensl.pBuffer + (periodSizeInBytes * iPeriod), periodSizeInBytes);
-            if (resultSL != SL_RESULT_SUCCESS) {
-                MAL_OPENSL_PLAY(pDevice->opensl.pAudioPlayer)->SetPlayState((SLPlayItf)pDevice->opensl.pAudioPlayer, SL_PLAYSTATE_STOPPED);
-                return mal_post_error(pDevice, MAL_LOG_LEVEL_ERROR, "[OpenSL] Failed to enqueue buffer for playback device.", MAL_FAILED_TO_START_BACKEND_DEVICE);
-            }
-        }
-    } else {
+    if (pDevice->type == mal_device_type_capture || pDevice->type == mal_device_type_duplex) {
         SLresult resultSL = MAL_OPENSL_RECORD(pDevice->opensl.pAudioRecorder)->SetRecordState((SLRecordItf)pDevice->opensl.pAudioRecorder, SL_RECORDSTATE_RECORDING);
         if (resultSL != SL_RESULT_SUCCESS) {
             return mal_post_error(pDevice, MAL_LOG_LEVEL_ERROR, "[OpenSL] Failed to start internal capture device.", MAL_FAILED_TO_START_BACKEND_DEVICE);
         }
 
-        size_t periodSizeInBytes = pDevice->opensl.periodSizeInFrames * pDevice->internalChannels * mal_get_bytes_per_sample(pDevice->internalFormat);
-        for (mal_uint32 iPeriod = 0; iPeriod < pDevice->periods; ++iPeriod) {
-            resultSL = MAL_OPENSL_BUFFERQUEUE(pDevice->opensl.pBufferQueue)->Enqueue((SLAndroidSimpleBufferQueueItf)pDevice->opensl.pBufferQueue, pDevice->opensl.pBuffer + (periodSizeInBytes * iPeriod), periodSizeInBytes);
+        size_t periodSizeInBytes = (pDevice->capture.internalBufferSizeInFrames / pDevice->capture.internalPeriods) * mal_get_bytes_per_frame(pDevice->capture.internalFormat, pDevice->capture.internalChannels);
+        for (mal_uint32 iPeriod = 0; iPeriod < pDevice->capture.internalPeriods; ++iPeriod) {
+            resultSL = MAL_OPENSL_BUFFERQUEUE(pDevice->opensl.pBufferQueuePlayback)->Enqueue((SLAndroidSimpleBufferQueueItf)pDevice->opensl.pBufferQueueCapture, pDevice->opensl.pBufferCapture + (periodSizeInBytes * iPeriod), periodSizeInBytes);
             if (resultSL != SL_RESULT_SUCCESS) {
                 MAL_OPENSL_RECORD(pDevice->opensl.pAudioRecorder)->SetRecordState((SLRecordItf)pDevice->opensl.pAudioRecorder, SL_RECORDSTATE_STOPPED);
                 return mal_post_error(pDevice, MAL_LOG_LEVEL_ERROR, "[OpenSL] Failed to enqueue buffer for capture device.", MAL_FAILED_TO_START_BACKEND_DEVICE);
+            }
+        }
+    }
+
+    if (pDevice->type == mal_device_type_playback || pDevice->type == mal_device_type_duplex) {
+        SLresult resultSL = MAL_OPENSL_PLAY(pDevice->opensl.pAudioPlayer)->SetPlayState((SLPlayItf)pDevice->opensl.pAudioPlayer, SL_PLAYSTATE_PLAYING);
+        if (resultSL != SL_RESULT_SUCCESS) {
+            return mal_post_error(pDevice, MAL_LOG_LEVEL_ERROR, "[OpenSL] Failed to start internal playback device.", MAL_FAILED_TO_START_BACKEND_DEVICE);
+        }
+
+        /* In playback mode (no duplex) we need to load some initial buffers. In duplex mode we need to enqueu silent buffers. */
+        if (pDevice->type == mal_device_type_duplex) {
+            MAL_ZERO_MEMORY(pDevice->opensl.pBufferPlayback, pDevice->playback.internalBufferSizeInFrames * mal_get_bytes_per_frame(pDevice->playback.internalFormat, pDevice->playback.internalChannels));
+        } else {
+            mal_device__read_frames_from_client(pDevice, pDevice->playback.internalBufferSizeInFrames, pDevice->opensl.pBufferPlayback);   
+        }
+
+        size_t periodSizeInBytes = (pDevice->playback.internalBufferSizeInFrames / pDevice->playback.internalPeriods) * mal_get_bytes_per_frame(pDevice->playback.internalFormat, pDevice->playback.internalChannels);
+        for (mal_uint32 iPeriod = 0; iPeriod < pDevice->playback.internalPeriods; ++iPeriod) {
+            resultSL = MAL_OPENSL_BUFFERQUEUE(pDevice->opensl.pBufferQueuePlayback)->Enqueue((SLAndroidSimpleBufferQueueItf)pDevice->opensl.pBufferQueuePlayback, pDevice->opensl.pBufferPlayback + (periodSizeInBytes * iPeriod), periodSizeInBytes);
+            if (resultSL != SL_RESULT_SUCCESS) {
+                MAL_OPENSL_PLAY(pDevice->opensl.pAudioPlayer)->SetPlayState((SLPlayItf)pDevice->opensl.pAudioPlayer, SL_PLAYSTATE_STOPPED);
+                return mal_post_error(pDevice, MAL_LOG_LEVEL_ERROR, "[OpenSL] Failed to enqueue buffer for playback device.", MAL_FAILED_TO_START_BACKEND_DEVICE);
             }
         }
     }
@@ -20348,22 +20402,25 @@ mal_result mal_device_stop__opensl(mal_device* pDevice)
 
     /* TODO: Wait until all buffers have been processed. Hint: Maybe SLAndroidSimpleBufferQueue::GetState() could be used in a loop? */
 
-    if (pDevice->type == mal_device_type_playback) {
+    if (pDevice->type == mal_device_type_capture || pDevice->type == mal_device_type_duplex) {
         SLresult resultSL = MAL_OPENSL_PLAY(pDevice->opensl.pAudioPlayer)->SetPlayState((SLPlayItf)pDevice->opensl.pAudioPlayer, SL_PLAYSTATE_STOPPED);
         if (resultSL != SL_RESULT_SUCCESS) {
             return mal_post_error(pDevice, MAL_LOG_LEVEL_ERROR, "[OpenSL] Failed to stop internal playback device.", MAL_FAILED_TO_STOP_BACKEND_DEVICE);
         }
-    } else {
+
+        MAL_OPENSL_BUFFERQUEUE(pDevice->opensl.pBufferQueueCapture)->Clear((SLAndroidSimpleBufferQueueItf)pDevice->opensl.pBufferQueueCapture);
+    }
+
+    if (pDevice->type == mal_device_type_playback || pDevice->type == mal_device_type_duplex) {
         SLresult resultSL = MAL_OPENSL_RECORD(pDevice->opensl.pAudioRecorder)->SetRecordState((SLRecordItf)pDevice->opensl.pAudioRecorder, SL_RECORDSTATE_STOPPED);
         if (resultSL != SL_RESULT_SUCCESS) {
             return mal_post_error(pDevice, MAL_LOG_LEVEL_ERROR, "[OpenSL] Failed to stop internal capture device.", MAL_FAILED_TO_STOP_BACKEND_DEVICE);
         }
+
+        MAL_OPENSL_BUFFERQUEUE(pDevice->opensl.pBufferQueuePlayback)->Clear((SLAndroidSimpleBufferQueueItf)pDevice->opensl.pBufferQueuePlayback);
     }
 
-    // Make sure any queued buffers are cleared.
-    MAL_OPENSL_BUFFERQUEUE(pDevice->opensl.pBufferQueue)->Clear((SLAndroidSimpleBufferQueueItf)pDevice->opensl.pBufferQueue);
-
-    // Make sure the client is aware that the device has stopped. There may be an OpenSL|ES callback for this, but I haven't found it.
+    /* Make sure the client is aware that the device has stopped. There may be an OpenSL|ES callback for this, but I haven't found it. */
     mal_stop_proc onStop = pDevice->onStop;
     if (onStop) {
         onStop(pDevice);
@@ -20379,7 +20436,7 @@ mal_result mal_context_uninit__opensl(mal_context* pContext)
     mal_assert(pContext->backend == mal_backend_opensl);
     (void)pContext;
 
-    // Uninit global data.
+    /* Uninit global data. */
     if (g_malOpenSLInitCounter > 0) {
         if (mal_atomic_decrement_32(&g_malOpenSLInitCounter) == 0) {
             (*g_malEngineObjectSL)->Destroy(g_malEngineObjectSL);
@@ -20394,7 +20451,7 @@ mal_result mal_context_init__opensl(mal_context* pContext)
     mal_assert(pContext != NULL);
     (void)pContext;
 
-    // Initialize global data first if applicable.
+    /* Initialize global data first if applicable. */
     if (mal_atomic_increment_32(&g_malOpenSLInitCounter) == 1) {
         SLresult resultSL = slCreateEngine(&g_malEngineObjectSL, 0, NULL, 0, NULL, NULL);
         if (resultSL != SL_RESULT_SUCCESS) {
@@ -20425,7 +20482,7 @@ mal_result mal_context_init__opensl(mal_context* pContext)
 
     return MAL_SUCCESS;
 }
-#endif  // OpenSL|ES
+#endif  /* OpenSL|ES */
 
 
 ///////////////////////////////////////////////////////////////////////////////
