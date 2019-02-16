@@ -2197,7 +2197,8 @@ MAL_ALIGNED_STRUCT(MAL_SIMD_ALIGNMENT) mal_device
 #ifdef MAL_SUPPORT_OSS
         struct
         {
-            int fd;
+            int fdPlayback;
+            int fdCapture;
         } oss;
 #endif
 #ifdef MAL_SUPPORT_AAUDIO
@@ -18574,7 +18575,7 @@ int mal_open_temp_device__oss()
     return -1;
 }
 
-mal_result mal_context_open_device__oss(mal_context* pContext, mal_device_type deviceType, const mal_device_id* pDeviceID, int* pfd)
+mal_result mal_context_open_device__oss(mal_context* pContext, mal_device_type deviceType, const mal_device_id* pDeviceID, mal_share_mode shareMode, int* pfd)
 {
     mal_assert(pContext != NULL);
     mal_assert(pfd != NULL);
@@ -18592,7 +18593,12 @@ mal_result mal_context_open_device__oss(mal_context* pContext, mal_device_type d
         deviceName = pDeviceID->oss;
     }
 
-    *pfd = open(deviceName, (deviceType == mal_device_type_playback) ? O_WRONLY : O_RDONLY, 0);
+    int flags = (deviceType == mal_device_type_playback) ? O_WRONLY : O_RDONLY;
+    if (shareMode == mal_share_mode_exclusive) {
+        flags |= O_EXCL;
+    }
+
+    *pfd = open(deviceName, flags, 0);
     if (*pfd == -1) {
         return MAL_FAILED_TO_OPEN_BACKEND_DEVICE;
     }
@@ -18766,34 +18772,19 @@ void mal_device_uninit__oss(mal_device* pDevice)
 {
     mal_assert(pDevice != NULL);
 
-    close(pDevice->oss.fd);
+    if (pDevice->type == mal_device_type_capture || pDevice->type == mal_device_type_duplex) {
+        close(pDevice->oss.fdCapture);
+    }
+    
+    if (pDevice->type == mal_device_type_playback || pDevice->type == mal_device_type_duplex) {
+        close(pDevice->oss.fdPlayback);
+    }
 }
 
-mal_result mal_device_init__oss(mal_context* pContext, const mal_device_config* pConfig, mal_device* pDevice)
+int mal_format_to_oss(mal_format format)
 {
-    (void)pContext;
-
-    mal_assert(pDevice != NULL);
-    mal_zero_object(&pDevice->oss);
-
-    /* Full-duplex is not yet implemented. */
-    if (pConfig->deviceType == mal_device_type_duplex) {
-        return MAL_INVALID_ARGS;
-    }
-
-    mal_result result = mal_context_open_device__oss(pContext, pConfig->deviceType, (pConfig->deviceType == mal_device_type_playback) ? pConfig->playback.pDeviceID : pConfig->capture.pDeviceID, &pDevice->oss.fd);
-    if (result != MAL_SUCCESS) {
-        return mal_post_error(pDevice, MAL_LOG_LEVEL_ERROR, "[OSS] Failed to open device.", MAL_FAILED_TO_OPEN_BACKEND_DEVICE);
-    }
-
-    // The OSS documantation is very clear about the order we should be initializing the device's properties:
-    //   1) Format
-    //   2) Channels
-    //   3) Sample rate.
-
-    // Format.
     int ossFormat = AFMT_U8;
-    switch (pDevice->format) {
+    switch (format) {
         case mal_format_s16: ossFormat = (mal_is_little_endian()) ? AFMT_S16_LE : AFMT_S16_BE; break;
         case mal_format_s24: ossFormat = (mal_is_little_endian()) ? AFMT_S32_LE : AFMT_S32_BE; break;
         case mal_format_s32: ossFormat = (mal_is_little_endian()) ? AFMT_S32_LE : AFMT_S32_BE; break;
@@ -18801,87 +18792,188 @@ mal_result mal_device_init__oss(mal_context* pContext, const mal_device_config* 
         case mal_format_u8:
         default: ossFormat = AFMT_U8; break;
     }
-    int ossResult = ioctl(pDevice->oss.fd, SNDCTL_DSP_SETFMT, &ossFormat);
-    if (ossResult == -1) {
-        close(pDevice->oss.fd);
-        return mal_post_error(pDevice, MAL_LOG_LEVEL_ERROR, "[OSS] Failed to set format.", MAL_FORMAT_NOT_SUPPORTED);
-    }
 
+    return ossFormat;
+}
+
+mal_format mal_format_from_oss(int ossFormat)
+{
     if (ossFormat == AFMT_U8) {
-        pDevice->internalFormat = mal_format_u8;
+        return mal_format_u8;
     } else {
         if (mal_is_little_endian()) {
             switch (ossFormat) {
-                case AFMT_S16_LE: pDevice->internalFormat = mal_format_s16; break;
-                case AFMT_S32_LE: pDevice->internalFormat = mal_format_s32; break;
-                default: mal_post_error(pDevice, MAL_LOG_LEVEL_ERROR, "[OSS] The device's internal format is not supported by mini_al.", MAL_FORMAT_NOT_SUPPORTED);
+                case AFMT_S16_LE: return mal_format_s16;
+                case AFMT_S32_LE: return mal_format_s32;
+                default: return mal_format_unknown;
             }
         } else {
             switch (ossFormat) {
-                case AFMT_S16_BE: pDevice->internalFormat = mal_format_s16; break;
-                case AFMT_S32_BE: pDevice->internalFormat = mal_format_s32; break;
-                default: mal_post_error(pDevice, MAL_LOG_LEVEL_ERROR, "[OSS] The device's internal format is not supported by mini_al.", MAL_FORMAT_NOT_SUPPORTED);
+                case AFMT_S16_BE: return mal_format_s16;
+                case AFMT_S32_BE: return mal_format_s32;
+                default: return mal_format_unknown;
             }
         }
     }
 
-    // Channels.
-    int ossChannels = (int)pConfig->channels;
-    ossResult = ioctl(pDevice->oss.fd, SNDCTL_DSP_CHANNELS, &ossChannels);
+    return mal_format_unknown;
+}
+
+mal_result mal_device_init_fd__oss(mal_context* pContext, const mal_device_config* pConfig, mal_device_type deviceType, mal_device* pDevice)
+{
+    mal_result result;
+    int ossResult;
+    int fd;
+    const mal_device_id* pDeviceID = NULL;
+    mal_share_mode shareMode;
+    int ossFormat;
+    int ossChannels;
+    int ossSampleRate;
+    int ossFragment;
+
+    mal_assert(pContext != NULL);
+    mal_assert(pConfig != NULL);
+    mal_assert(deviceType != mal_device_type_duplex);
+    mal_assert(pDevice != NULL);
+
+    (void)pContext;
+
+    if (deviceType == mal_device_type_capture) {
+        pDeviceID     = pConfig->capture.pDeviceID;
+        shareMode     = pConfig->capture.shareMode;
+        ossFormat     = mal_format_to_oss(pConfig->capture.format);
+        ossChannels   = (int)pConfig->capture.channels;
+        ossSampleRate = (int)pConfig->sampleRate;
+    } else {
+        pDeviceID     = pConfig->playback.pDeviceID;
+        shareMode     = pConfig->playback.shareMode;
+        ossFormat     = mal_format_to_oss(pConfig->playback.format);
+        ossChannels   = (int)pConfig->playback.channels;
+        ossSampleRate = (int)pConfig->sampleRate;
+    }
+
+    result = mal_context_open_device__oss(pContext, deviceType, pDeviceID, shareMode, &fd);
+    if (result != MAL_SUCCESS) {
+        return mal_post_error(pDevice, MAL_LOG_LEVEL_ERROR, "[OSS] Failed to open device.", MAL_FAILED_TO_OPEN_BACKEND_DEVICE);
+    }
+
+    /*
+    The OSS documantation is very clear about the order we should be initializing the device's properties:
+      1) Format
+      2) Channels
+      3) Sample rate.
+    */
+
+    /* Format. */
+    ossResult = ioctl(fd, SNDCTL_DSP_SETFMT, &ossFormat);
     if (ossResult == -1) {
-        close(pDevice->oss.fd);
+        close(fd);
+        return mal_post_error(pDevice, MAL_LOG_LEVEL_ERROR, "[OSS] Failed to set format.", MAL_FORMAT_NOT_SUPPORTED);
+    }
+
+    /* Channels. */
+    ossResult = ioctl(fd, SNDCTL_DSP_CHANNELS, &ossChannels);
+    if (ossResult == -1) {
+        close(fd);
         return mal_post_error(pDevice, MAL_LOG_LEVEL_ERROR, "[OSS] Failed to set channel count.", MAL_FORMAT_NOT_SUPPORTED);
     }
 
-    pDevice->internalChannels = ossChannels;
-
-
-    // Sample rate.
-    int ossSampleRate = (int)pConfig->sampleRate;
-    ossResult = ioctl(pDevice->oss.fd, SNDCTL_DSP_SPEED, &ossSampleRate);
+    /* Sample Rate. */
+    ossResult = ioctl(fd, SNDCTL_DSP_SPEED, &ossSampleRate);
     if (ossResult == -1) {
-        close(pDevice->oss.fd);
+        close(fd);
         return mal_post_error(pDevice, MAL_LOG_LEVEL_ERROR, "[OSS] Failed to set sample rate.", MAL_FORMAT_NOT_SUPPORTED);
     }
 
-    pDevice->internalSampleRate = ossSampleRate;
+    /*
+    Buffer.
 
+    The documentation says that the fragment settings should be set as soon as possible, but I'm not sure if
+    it should be done before or after format/channels/rate.
+    
+    OSS wants the fragment size in bytes and a power of 2. When setting, we specify the power, not the actual
+    value.
+    */
+    {
+        mal_uint32 fragmentSizeInBytes;
+        mal_uint32 bufferSizeInFrames;
+        mal_uint32 ossFragmentSizePower;
+        
+        bufferSizeInFrames = pConfig->bufferSizeInFrames;
+        if (bufferSizeInFrames == 0) {
+            bufferSizeInFrames = mal_calculate_buffer_size_in_frames_from_milliseconds(pConfig->bufferSizeInMilliseconds, (mal_uint32)ossSampleRate);
+        }
 
-    // Try calculating an appropriate default buffer size.
-    if (pDevice->bufferSizeInFrames == 0) {
-        pDevice->bufferSizeInFrames = mal_calculate_buffer_size_in_frames_from_milliseconds(pDevice->bufferSizeInMilliseconds, pDevice->internalSampleRate);
+        fragmentSizeInBytes = mal_round_to_power_of_2((bufferSizeInFrames / pConfig->periods) * mal_get_bytes_per_frame(mal_format_from_oss(ossFormat), ossChannels));
+        if (fragmentSizeInBytes < 16) {
+            fragmentSizeInBytes = 16;
+        }
+
+        ossFragmentSizePower = 4;
+        fragmentSizeInBytes >>= 4;
+        while (fragmentSizeInBytes >>= 1) {
+            ossFragmentSizePower += 1;
+        }
+
+        ossFragment = (int)((pDevice->periods << 16) | ossFragmentSizePower);
+        ossResult = ioctl(pDevice->oss.fd, SNDCTL_DSP_SETFRAGMENT, &ossFragment);
+        if (ossResult == -1) {
+            close(fd);
+            return mal_post_error(pDevice, MAL_LOG_LEVEL_ERROR, "[OSS] Failed to set fragment size and period count.", MAL_FORMAT_NOT_SUPPORTED);
+        }
     }
 
-    // The documentation says that the fragment settings should be set as soon as possible, but I'm not sure if
-    // it should be done before or after format/channels/rate.
-    //
-    // OSS wants the fragment size in bytes and a power of 2. When setting, we specify the power, not the actual
-    // value.
-    mal_uint32 fragmentSizeInBytes = mal_round_to_power_of_2(pDevice->bufferSizeInFrames * pDevice->internalChannels * mal_get_bytes_per_sample(pDevice->internalFormat));
-    if (fragmentSizeInBytes < 16) {
-        fragmentSizeInBytes = 16;
+    /* Internal settings. */
+    if (deviceType == mal_device_type_capture) {
+        pDevice->oss.fdCapture                       = fd;
+        pDevice->capture.internalFormat              = mal_format_from_oss(ossFormat);
+        pDevice->capture.internalChannels            = ossChannels;
+        pDevice->capture.internalSampleRate          = ossSampleRate;
+        mal_get_standard_channel_map(mal_standard_channel_map_sound4, pDevice->capture.internalChannels, pDevice->capture.internalChannelMap);
+        pDevice->capture.internalPeriods             = (mal_uint32)(ossFragment >> 16);
+        pDevice->capture.internalBufferSizeInFrames  = (((mal_uint32)(1 << (ossFragment & 0xFFFF))) * pDevice->capture.internalPeriods) / mal_get_bytes_per_frame(pDevice->capture.internalFormat, pDevice->capture.internalChannels);
+
+        if (pDevice->capture.internalFormat == mal_format_unknown) {
+            return mal_post_error(pDevice, MAL_LOG_LEVEL_ERROR, "[OSS] The device's internal format is not supported by mini_al.", MAL_FORMAT_NOT_SUPPORTED);
+        }
+    } else {
+        pDevice->oss.fdPlayback                      = fd;
+        pDevice->playback.internalFormat             = mal_format_from_oss(ossFormat);
+        pDevice->playback.internalChannels           = ossChannels;
+        pDevice->playback.internalSampleRate         = ossSampleRate;
+        mal_get_standard_channel_map(mal_standard_channel_map_sound4, pDevice->playback.internalChannels, pDevice->playback.internalChannelMap);
+        pDevice->playback.internalPeriods            = (mal_uint32)(ossFragment >> 16);
+        pDevice->playback.internalBufferSizeInFrames = (((mal_uint32)(1 << (ossFragment & 0xFFFF))) * pDevice->playback.internalPeriods) / mal_get_bytes_per_frame(pDevice->playback.internalFormat, pDevice->playback.internalChannels);
+
+        if (pDevice->playback.internalFormat == mal_format_unknown) {
+            return mal_post_error(pDevice, MAL_LOG_LEVEL_ERROR, "[OSS] The device's internal format is not supported by mini_al.", MAL_FORMAT_NOT_SUPPORTED);
+        }
     }
 
-    mal_uint32 ossFragmentSizePower = 4;
-    fragmentSizeInBytes >>= 4;
-    while (fragmentSizeInBytes >>= 1) {
-        ossFragmentSizePower += 1;
+    return MAL_SUCCESS;
+}
+
+mal_result mal_device_init__oss(mal_context* pContext, const mal_device_config* pConfig, mal_device* pDevice)
+{
+    mal_assert(pContext != NULL);
+    mal_assert(pConfig  != NULL);
+    mal_assert(pDevice  != NULL);
+
+    mal_zero_object(&pDevice->oss);
+
+    if (pConfig->deviceType == mal_device_type_capture || pConfig->deviceType == mal_device_type_duplex) {
+        mal_result result = mal_device_init_fd__oss(pContext, pConfig, mal_device_type_capture, pDevice);
+        if (result != MAL_SUCCESS) {
+            return mal_post_error(pDevice, MAL_LOG_LEVEL_ERROR, "[OSS] Failed to open device.", MAL_FAILED_TO_OPEN_BACKEND_DEVICE);
+        }
     }
 
-    int ossFragment = (int)((pDevice->periods << 16) | ossFragmentSizePower);
-    ossResult = ioctl(pDevice->oss.fd, SNDCTL_DSP_SETFRAGMENT, &ossFragment);
-    if (ossResult == -1) {
-        close(pDevice->oss.fd);
-        return mal_post_error(pDevice, MAL_LOG_LEVEL_ERROR, "[OSS] Failed to set fragment size and period count.", MAL_FORMAT_NOT_SUPPORTED);
+    if (pConfig->deviceType == mal_device_type_playback || pConfig->deviceType == mal_device_type_duplex) {
+        mal_result result = mal_device_init_fd__oss(pContext, pConfig, mal_device_type_playback, pDevice);
+        if (result != MAL_SUCCESS) {
+            return mal_post_error(pDevice, MAL_LOG_LEVEL_ERROR, "[OSS] Failed to open device.", MAL_FAILED_TO_OPEN_BACKEND_DEVICE);
+        }
     }
-
-    int actualFragmentSizeInBytes = 1 << (ossFragment & 0xFFFF);
-
-    pDevice->periods = (mal_uint32)(ossFragment >> 16);
-    pDevice->bufferSizeInFrames = (mal_uint32)(actualFragmentSizeInBytes/mal_get_bytes_per_frame(pDevice->internalFormat, pDevice->internalChannels) * pDevice->periods);
-
-    // Set the internal channel map. Not sure if this can be queried. For now just using the channel layouts defined in FreeBSD's sound(4) man page.
-    mal_get_standard_channel_map(mal_standard_channel_map_sound4, pDevice->internalChannels, pDevice->internalChannelMap);
 
     return MAL_SUCCESS;
 }
@@ -18890,20 +18982,31 @@ mal_result mal_device_stop__oss(mal_device* pDevice)
 {
     mal_assert(pDevice != NULL);
 
-    // We want to use SNDCTL_DSP_HALT. From the documentation:
-    //
-    //   In multithreaded applications SNDCTL_DSP_HALT (SNDCTL_DSP_RESET) must only be called by the thread
-    //   that actually reads/writes the audio device. It must not be called by some master thread to kill the
-    //   audio thread. The audio thread will not stop or get any kind of notification that the device was
-    //   stopped by the master thread. The device gets stopped but the next read or write call will silently
-    //   restart the device.
-    //
-    // This is actually safe in our case, because this function is only ever called from within our worker
-    // thread anyway. Just keep this in mind, though...
+    /*
+    We want to use SNDCTL_DSP_HALT. From the documentation:
+    
+      In multithreaded applications SNDCTL_DSP_HALT (SNDCTL_DSP_RESET) must only be called by the thread
+      that actually reads/writes the audio device. It must not be called by some master thread to kill the
+      audio thread. The audio thread will not stop or get any kind of notification that the device was
+      stopped by the master thread. The device gets stopped but the next read or write call will silently
+      restart the device.
+    
+    This is actually safe in our case, because this function is only ever called from within our worker
+    thread anyway. Just keep this in mind, though...
+    */
 
-    int result = ioctl(pDevice->oss.fd, SNDCTL_DSP_HALT, 0);
-    if (result == -1) {
-        return mal_post_error(pDevice, MAL_LOG_LEVEL_ERROR, "[OSS] Failed to stop device. SNDCTL_DSP_HALT failed.", MAL_FAILED_TO_STOP_BACKEND_DEVICE);
+    if (pDevice->type == mal_device_type_capture || pDevice->type == mal_device_type_duplex) {
+        int result = ioctl(pDevice->oss.fdCapture, SNDCTL_DSP_HALT, 0);
+        if (result == -1) {
+            return mal_post_error(pDevice, MAL_LOG_LEVEL_ERROR, "[OSS] Failed to stop device. SNDCTL_DSP_HALT failed.", MAL_FAILED_TO_STOP_BACKEND_DEVICE);
+        }
+    }
+
+    if (pDevice->type == mal_device_type_playback || pDevice->type == mal_device_type_duplex) {
+        int result = ioctl(pDevice->oss.fdPlayback, SNDCTL_DSP_HALT, 0);
+        if (result == -1) {
+            return mal_post_error(pDevice, MAL_LOG_LEVEL_ERROR, "[OSS] Failed to stop device. SNDCTL_DSP_HALT failed.", MAL_FAILED_TO_STOP_BACKEND_DEVICE);
+        }
     }
 
     return MAL_SUCCESS;
@@ -18911,7 +19014,7 @@ mal_result mal_device_stop__oss(mal_device* pDevice)
 
 mal_result mal_device_write__oss(mal_device* pDevice, const void* pPCMFrames, mal_uint32 frameCount)
 {
-    int resultOSS = write(pDevice->oss.fd, pPCMFrames, frameCount * mal_get_bytes_per_frame(pDevice->internalFormat, pDevice->internalChannels));
+    int resultOSS = write(pDevice->oss.fdPlayback, pPCMFrames, frameCount * mal_get_bytes_per_frame(pDevice->playback.internalFormat, pDevice->playback.internalChannels));
     if (resultOSS < 0) {
         return mal_post_error(pDevice, MAL_LOG_LEVEL_ERROR, "[OSS] Failed to send data from the client to the device.", MAL_FAILED_TO_SEND_DATA_TO_DEVICE);
     }
@@ -18921,7 +19024,7 @@ mal_result mal_device_write__oss(mal_device* pDevice, const void* pPCMFrames, ma
 
 mal_result mal_device_read__oss(mal_device* pDevice, void* pPCMFrames, mal_uint32 frameCount)
 {
-    int resultOSS = read(pDevice->oss.fd, pPCMFrames, frameCount * mal_get_bytes_per_frame(pDevice->internalFormat, pDevice->internalChannels));
+    int resultOSS = read(pDevice->oss.fdCapture, pPCMFrames, frameCount * mal_get_bytes_per_frame(pDevice->capture.internalFormat, pDevice->capture.internalChannels));
     if (resultOSS < 0) {
         return mal_post_error(pDevice, MAL_LOG_LEVEL_ERROR, "[OSS] Failed to read data from the device to be sent to the client.", MAL_FAILED_TO_READ_DATA_FROM_DEVICE);
     }
