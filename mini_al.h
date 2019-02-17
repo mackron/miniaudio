@@ -2181,8 +2181,10 @@ MAL_ALIGNED_STRUCT(MAL_SIMD_ALIGNMENT) mal_device
 #ifdef MAL_SUPPORT_SNDIO
         struct
         {
-            mal_ptr handle;
-            mal_bool32 isStarted;
+            mal_ptr handlePlayback;
+            mal_ptr handleCapture;
+            mal_bool32 isStartedPlayback;
+            mal_bool32 isStartedCapture;
         } sndio;
 #endif
 #ifdef MAL_SUPPORT_AUDIO4
@@ -17621,111 +17623,106 @@ void mal_device_uninit__sndio(mal_device* pDevice)
 {
     mal_assert(pDevice != NULL);
 
-    ((mal_sio_close_proc)pDevice->pContext->sndio.sio_close)((struct mal_sio_hdl*)pDevice->sndio.handle);
+    if (pDevice->type == mal_device_type_capture || pDevice->type == mal_device_type_duplex) {
+        ((mal_sio_close_proc)pDevice->pContext->sndio.sio_close)((struct mal_sio_hdl*)pDevice->sndio.handleCapture);
+    }
+
+    if (pDevice->type == mal_device_type_capture || pDevice->type == mal_device_type_duplex) {
+        ((mal_sio_close_proc)pDevice->pContext->sndio.sio_close)((struct mal_sio_hdl*)pDevice->sndio.handlePlayback);
+    }
 }
 
-mal_result mal_device_init__sndio(mal_context* pContext, const mal_device_config* pConfig, mal_device* pDevice)
+mal_result mal_device_init_handle__sndio(mal_context* pContext, const mal_device_config* pConfig, mal_device_type deviceType, mal_device* pDevice)
 {
-    (void)pContext;
+    mal_result result;
+    const char* pDeviceName;
+    mal_ptr handle;
+    int openFlags = 0;
+    struct mal_sio_cap caps;
+    struct mal_sio_par par;
+    mal_device_id* pDeviceID;
+    mal_format format;
+    mal_uint32 channels;
+    mal_uint32 sampleRate;
+    mal_format internalFormat;
+    mal_uint32 internalChannels;
+    mal_uint32 internalSampleRate;
+    mal_uint32 internalBufferSizeInFrames;
+    mal_uint32 internalPeriods;
 
-    mal_assert(pDevice != NULL);
-    mal_zero_object(&pDevice->sndio);
+    mal_assert(pContext   != NULL);
+    mal_assert(pConfig    != NULL);
+    mal_assert(deviceType != mal_device_type_duplex);
+    mal_assert(pDevice    != NULL);
 
-    /* Full-duplex is not yet implemented. */
-    if (pConfig->deviceType == mal_device_type_duplex) {
-        return MAL_INVALID_ARGS;
-    }
-    
-    const char* deviceNamePlayback = MAL_SIO_DEVANY;
-    const char* deviceNameCapture  = MAL_SIO_DEVANY;
-
-    if (pConfig->playback.pDeviceID != NULL) {
-        deviceNamePlayback = pConfig->playback.pDeviceID->sndio;
-    }
-    if (pConfig->capture.pDeviceID != NULL) {
-        deviceNameCapture = pConfig->capture.pDeviceID->sndio;
-    }
-    
-    if (pConfig->deviceType == mal_device_type_playback) {
-        pDevice->sndio.handle = (mal_ptr)((mal_sio_open_proc)pContext->sndio.sio_open)(deviceNamePlayback, MAL_SIO_PLAY, 0);
-    } else if (pConfig->deviceType == mal_device_type_capture) {
-        pDevice->sndio.handle = (mal_ptr)((mal_sio_open_proc)pContext->sndio.sio_open)(deviceNameCapture, MAL_SIO_REC, 0);
-    } else if (pConfig->deviceType == mal_device_type_duplex) {
-        /*
-        TODO: Handle this case.
-
-        - If the device names are the same, try opening in MAL_SIO_PLAY | MAL_SIO_REC mode.
-        - If the device names are different or MAL_SIO_PLAY | MAL_SIO_REC mode fails, fall back to separate device handles.
-        */
-        mal_assert(MAL_FALSE);
-        return MAL_INVALID_ARGS;
+    if (deviceType == mal_device_type_capture) {
+        openFlags  = MAL_SIO_REC;
+        pDeviceID  = pConfig->capture.pDeviceID;
+        format     = pConfig->capture.format;
+        channels   = pConfig->capture.channels;
+        sampleRate = pConfig->sampleRate;
     } else {
-        mal_assert(MAL_FALSE);  /* Should never hit this. */
-        return MAL_INVALID_ARGS;
+        openFlags = MAL_SIO_PLAY;
+        pDeviceID  = pConfig->playback.pDeviceID;
+        format     = pConfig->playback.format;
+        channels   = pConfig->playback.channels;
+        sampleRate = pConfig->sampleRate;
     }
-    
-    if (pDevice->sndio.handle == NULL) {
+
+    pDeviceName = MAL_SIO_DEVANY;
+    if (pDeviceID != NULL) {
+        pDeviceName = pDeviceID->sndio;
+    }
+
+    handle = (mal_ptr)((mal_sio_open_proc)pContext->sndio.sio_open)(pDeviceName, openFlags, 0);
+    if (handle == NULL) {
         return mal_post_error(pDevice, MAL_LOG_LEVEL_ERROR, "[sndio] Failed to open device.", MAL_FAILED_TO_OPEN_BACKEND_DEVICE);
     }
-    
-    // We need to retrieve the device caps to determine the most appropriate format to use.
-    struct mal_sio_cap caps;
-    if (((mal_sio_getcap_proc)pContext->sndio.sio_getcap)((struct mal_sio_hdl*)pDevice->sndio.handle, &caps) == 0) {
-        ((mal_sio_close_proc)pContext->sndio.sio_close)((struct mal_sio_hdl*)pDevice->sndio.handle);
+
+    /* We need to retrieve the device caps to determine the most appropriate format to use. */
+    if (((mal_sio_getcap_proc)pContext->sndio.sio_getcap)((struct mal_sio_hdl*)handle, &caps) == 0) {
+        ((mal_sio_close_proc)pContext->sndio.sio_close)((struct mal_sio_hdl*)handle);
         return mal_post_error(pDevice, MAL_LOG_LEVEL_ERROR, "[sndio] Failed to retrieve device caps.", MAL_ERROR);
     }
-    
-    mal_format desiredFormat = pDevice->format;
-    if (pDevice->usingDefaultFormat) {
-        desiredFormat = mal_find_best_format_from_sio_cap__sndio(&caps);
-    }
-    
-    if (desiredFormat == mal_format_unknown) {
-        desiredFormat = pDevice->format;
-    }
-    
 
-    // Note: sndio reports a huge range of available channels. This is inconvenient for us because there's no real
-    // way, as far as I can tell, to get the _actual_ channel count of the device. I'm therefore restricting this
-    // to the requested channels, regardless of whether or not the default channel count is requested.
-    //
-    // For hardware devices, I'm suspecting only a single channel count will be reported and we can safely use the
-    // value returned by mal_find_best_channels_from_sio_cap__sndio().
-    mal_uint32 desiredChannels = pDevice->channels;
-    if (pDevice->usingDefaultChannels) {
-        const char* deviceName;
-        if (pConfig->deviceType == mal_device_type_playback) {
-            deviceName = deviceNamePlayback;
-        } else {
-            deviceName = deviceNameCapture;
+    /*
+    Note: sndio reports a huge range of available channels. This is inconvenient for us because there's no real
+    way, as far as I can tell, to get the _actual_ channel count of the device. I'm therefore restricting this
+    to the requested channels, regardless of whether or not the default channel count is requested.
+    
+    For hardware devices, I'm suspecting only a single channel count will be reported and we can safely use the
+    value returned by mal_find_best_channels_from_sio_cap__sndio().
+    */
+    if (deviceType == mal_device_type_capture) {
+        if (pDevice->capture.usingDefaultFormat) {
+            format = mal_find_best_format_from_sio_cap__sndio(&caps);
         }
-
-        if (strlen(deviceName) > strlen("rsnd/") && strncmp(deviceName, "rsnd/", strlen("rsnd/")) == 0) {
-            desiredChannels = mal_find_best_channels_from_sio_cap__sndio(&caps, pConfig->deviceType, desiredFormat);
+        if (pDevice->capture.usingDefaultChannels) {
+            if (strlen(pDeviceName) > strlen("rsnd/") && strncmp(pDeviceName, "rsnd/", strlen("rsnd/")) == 0) {
+                channels = mal_find_best_channels_from_sio_cap__sndio(&caps, deviceType, format);
+            }
+        }
+    } else {
+        if (pDevice->playback.usingDefaultFormat) {
+            format = mal_find_best_format_from_sio_cap__sndio(&caps);
+        }
+        if (pDevice->playback.usingDefaultChannels) {
+            if (strlen(pDeviceName) > strlen("rsnd/") && strncmp(pDeviceName, "rsnd/", strlen("rsnd/")) == 0) {
+                channels = mal_find_best_channels_from_sio_cap__sndio(&caps, deviceType, format);
+            }
         }
     }
-
-    if (desiredChannels == 0) {
-        desiredChannels = pDevice->channels;
-    }
-
     
-    mal_uint32 desiredSampleRate = pDevice->sampleRate;
     if (pDevice->usingDefaultSampleRate) {
-        desiredSampleRate = mal_find_best_sample_rate_from_sio_cap__sndio(&caps, pConfig->deviceType, desiredFormat, desiredChannels);
+        sampleRate = mal_find_best_sample_rate_from_sio_cap__sndio(&caps, pConfig->deviceType, format, channels);
     }
-    
-    if (desiredSampleRate == 0) {
-        desiredSampleRate = pDevice->sampleRate;
-    }
-    
-    
-    struct mal_sio_par par;
+
+
     ((mal_sio_initpar_proc)pDevice->pContext->sndio.sio_initpar)(&par);
     par.msb = 0;
     par.le  = mal_is_little_endian();
     
-    switch (desiredFormat) {
+    switch (format) {
         case mal_format_u8:
         {
             par.bits = 8;
@@ -17757,74 +17754,87 @@ mal_result mal_device_init__sndio(mal_context* pContext, const mal_device_config
         } break;
     }
     
-    if (pConfig->deviceType == mal_device_type_playback) {
-        par.pchan = desiredChannels;
+    if (deviceType == mal_device_type_capture) {
+        par.rchan = channels;
     } else {
-        par.rchan = desiredChannels;
+        par.pchan = channels;
     }
 
-    par.rate = desiredSampleRate;
-    
-    // Try calculating an appropriate default buffer size after we have the sample rate.
-    mal_uint32 desiredBufferSizeInFrames = pDevice->bufferSizeInFrames;
-    if (desiredBufferSizeInFrames == 0) {
-        desiredBufferSizeInFrames = mal_calculate_buffer_size_in_frames_from_milliseconds(pDevice->bufferSizeInMilliseconds, par.rate);
+    par.rate = sampleRate;
+
+    internalBufferSizeInFrames = pConfig->bufferSizeInFrames;
+    if (internalBufferSizeInFrames == 0) {
+        internalBufferSizeInFrames = mal_calculate_buffer_size_in_frames_from_milliseconds(pConfig->bufferSizeInMilliseconds, par.rate);
     }
 
-    par.round = desiredBufferSizeInFrames / pDevice->periods;
-    par.appbufsz = par.round * pDevice->periods;
+    par.round    = internalBufferSizeInFrames / pConfig->periods;
+    par.appbufsz = par.round * pConfig->periods;
     
-    if (((mal_sio_setpar_proc)pContext->sndio.sio_setpar)((struct mal_sio_hdl*)pDevice->sndio.handle, &par) == 0) {
-        ((mal_sio_close_proc)pContext->sndio.sio_close)((struct mal_sio_hdl*)pDevice->sndio.handle);
+    if (((mal_sio_setpar_proc)pContext->sndio.sio_setpar)((struct mal_sio_hdl*)handle, &par) == 0) {
+        ((mal_sio_close_proc)pContext->sndio.sio_close)((struct mal_sio_hdl*)handle);
         return mal_post_error(pDevice, MAL_LOG_LEVEL_ERROR, "[sndio] Failed to set buffer size.", MAL_FORMAT_NOT_SUPPORTED);
     }
-    if (((mal_sio_getpar_proc)pContext->sndio.sio_getpar)((struct mal_sio_hdl*)pDevice->sndio.handle, &par) == 0) {
-        ((mal_sio_close_proc)pContext->sndio.sio_close)((struct mal_sio_hdl*)pDevice->sndio.handle);
+    if (((mal_sio_getpar_proc)pContext->sndio.sio_getpar)((struct mal_sio_hdl*)handle, &par) == 0) {
+        ((mal_sio_close_proc)pContext->sndio.sio_close)((struct mal_sio_hdl*)handle);
         return mal_post_error(pDevice, MAL_LOG_LEVEL_ERROR, "[sndio] Failed to retrieve buffer size.", MAL_FORMAT_NOT_SUPPORTED);
     }
-    
-    pDevice->internalFormat = mal_format_from_sio_enc__sndio(par.bits, par.bps, par.sig, par.le, par.msb);
-    
-    if (pConfig->deviceType == mal_device_type_playback) {
-        pDevice->internalChannels = par.pchan;
-    } else {
-        pDevice->internalChannels = par.rchan;
-    }
-    
-    pDevice->internalSampleRate = par.rate;
 
-    pDevice->periods = par.appbufsz / par.round;
-    if (pDevice->periods < 2) {
-        pDevice->periods = 2;
+    internalFormat             = mal_format_from_sio_enc__sndio(par.bits, par.bps, par.sig, par.le, par.msb);
+    internalChannels           = (deviceType == mal_device_type_capture) ? par.rchan : par.pchan;
+    internalSampleRate         = par.rate;
+    internalPeriods            = par.appbufsz / par.round;
+    internalBufferSizeInFrames = par.appbufsz;
+
+    if (deviceType == mal_device_type_capture) {
+        pDevice->capture.internalFormat              = internalFormat;
+        pDevice->capture.internalChannels            = internalChannels;
+        pDevice->capture.internalSampleRate          = internalSampleRate;
+        mal_get_standard_channel_map(mal_standard_channel_map_sndio, pDevice->capture.internalChannels, pDevice->capture.internalChannelMap);
+        pDevice->capture.internalBufferSizeInFrames  = internalBufferSizeInFrames;
+        pDevice->capture.internalPeriods             = internalPeriods;
+    } else {
+        pDevice->playback.internalFormat             = internalFormat;
+        pDevice->playback.internalChannels           = internalChannels;
+        pDevice->playback.internalSampleRate         = internalSampleRate;
+        mal_get_standard_channel_map(mal_standard_channel_map_sndio, pDevice->playback.internalChannels, pDevice->playback.internalChannelMap);
+        pDevice->playback.internalBufferSizeInFrames = internalBufferSizeInFrames;
+        pDevice->playback.internalPeriods            = internalPeriods;
     }
-    pDevice->bufferSizeInFrames = par.round * pDevice->periods;
-    
-    mal_get_standard_channel_map(mal_standard_channel_map_sndio, pDevice->internalChannels, pDevice->internalChannelMap);
-    
+
 #ifdef MAL_DEBUG_OUTPUT
     printf("DEVICE INFO\n");
-    printf("    Format:      %s\n", mal_get_format_name(pDevice->internalFormat));
-    printf("    Channels:    %d\n", pDevice->internalChannels);
-    printf("    Sample Rate: %d\n", pDevice->internalSampleRate);
-    printf("    Buffer Size: %d\n", pDevice->bufferSizeInFrames);
-    printf("    Periods:     %d\n", pDevice->periods);
+    printf("    Format:      %s\n", mal_get_format_name(internalFormat));
+    printf("    Channels:    %d\n", internalChannels);
+    printf("    Sample Rate: %d\n", internalSampleRate);
+    printf("    Buffer Size: %d\n", internalBufferSizeInFrames);
+    printf("    Periods:     %d\n", internalPeriods);
     printf("    appbufsz:    %d\n", par.appbufsz);
     printf("    round:       %d\n", par.round);
 #endif
-    
+
     return MAL_SUCCESS;
 }
 
-mal_result mal_device_start__sndio(mal_device* pDevice)
+mal_result mal_device_init__sndio(mal_context* pContext, const mal_device_config* pConfig, mal_device* pDevice)
 {
     mal_assert(pDevice != NULL);
-    
-    if (((mal_sio_start_proc)pDevice->pContext->sndio.sio_start)((struct mal_sio_hdl*)pDevice->sndio.handle) == 0) {
-        return mal_post_error(pDevice, MAL_LOG_LEVEL_ERROR, "[sndio] Failed to start backend device.", MAL_FAILED_TO_START_BACKEND_DEVICE);
+
+    mal_zero_object(&pDevice->sndio);
+
+    if (pConfig->deviceType == mal_device_type_capture || pConfig->deviceType == mal_device_type_duplex) {
+        mal_result result = mal_device_init_handle__sndio(pContext, pConfig, mal_device_type_capture, pDevice);
+        if (result != MAL_SUCCESS) {
+            return result;
+        }
     }
 
-    mal_atomic_exchange_32(&pDevice->sndio.isStarted, MAL_TRUE);
-    
+    if (pConfig->deviceType == mal_device_type_playback || pConfig->deviceType == mal_device_type_duplex) {
+        mal_result result = mal_device_init_handle__sndio(pContext, pConfig, mal_device_type_playback, pDevice);
+        if (result != MAL_SUCCESS) {
+            return result;
+        }
+    }
+
     return MAL_SUCCESS;
 }
 
@@ -17832,19 +17842,29 @@ mal_result mal_device_stop__sndio(mal_device* pDevice)
 {
     mal_assert(pDevice != NULL);
 
-    ((mal_sio_stop_proc)pDevice->pContext->sndio.sio_stop)((struct mal_sio_hdl*)pDevice->sndio.handle);
-    mal_atomic_exchange_32(&pDevice->sndio.isStarted, MAL_FALSE);
-    
+    if (pDevice->type == mal_device_type_capture || pDevice->type == mal_device_type_duplex) {
+        ((mal_sio_stop_proc)pDevice->pContext->sndio.sio_stop)((struct mal_sio_hdl*)pDevice->sndio.handleCapture);
+        mal_atomic_exchange_32(&pDevice->sndio.isStartedCapture, MAL_FALSE);
+    }
+
+    if (pDevice->type == mal_device_type_playback || pDevice->type == mal_device_type_duplex) {
+        ((mal_sio_stop_proc)pDevice->pContext->sndio.sio_stop)((struct mal_sio_hdl*)pDevice->sndio.handlePlayback);
+        mal_atomic_exchange_32(&pDevice->sndio.isStartedPlayback, MAL_FALSE);
+    }
+
     return MAL_SUCCESS;
 }
 
 mal_result mal_device_write__sndio(mal_device* pDevice, const void* pPCMFrames, mal_uint32 frameCount)
 {
-    if (!pDevice->sndio.isStarted) {
-        mal_device_start__sndio(pDevice); /* <-- Doesn't actually playback until data is written. */
+    int result;
+
+    if (!pDevice->sndio.isStartedPlayback) {
+        ((mal_sio_start_proc)pDevice->pContext->sndio.sio_start)((struct mal_sio_hdl*)pDevice->sndio.handlePlayback);   /* <-- Doesn't actually playback until data is written. */
+        mal_atomic_exchange_32(&pDevice->sndio.isStartedPlayback, MAL_TRUE);
     }
 
-    int result = ((mal_sio_write_proc)pDevice->pContext->sndio.sio_write)((struct mal_sio_hdl*)pDevice->sndio.handle, pPCMFrames, frameCount * mal_get_bytes_per_frame(pDevice->internalFormat, pDevice->internalChannels));
+    result = ((mal_sio_write_proc)pDevice->pContext->sndio.sio_write)((struct mal_sio_hdl*)pDevice->sndio.handlePlayback, pPCMFrames, frameCount * mal_get_bytes_per_frame(pDevice->playback.internalFormat, pDevice->playback.internalChannels));
     if (result == 0) {
         return mal_post_error(pDevice, MAL_LOG_LEVEL_ERROR, "[sndio] Failed to send data from the client to the device.", MAL_FAILED_TO_SEND_DATA_TO_DEVICE);
     }
@@ -17854,11 +17874,14 @@ mal_result mal_device_write__sndio(mal_device* pDevice, const void* pPCMFrames, 
 
 mal_result mal_device_read__sndio(mal_device* pDevice, void* pPCMFrames, mal_uint32 frameCount)
 {
-    if (!pDevice->sndio.isStarted) {
-        mal_device_start__sndio(pDevice);
+    int result;
+
+    if (!pDevice->sndio.isStartedCapture) {
+        ((mal_sio_start_proc)pDevice->pContext->sndio.sio_start)((struct mal_sio_hdl*)pDevice->sndio.handleCapture);   /* <-- Doesn't actually playback until data is written. */
+        mal_atomic_exchange_32(&pDevice->sndio.isStartedCapture, MAL_TRUE);
     }
     
-    int result = ((mal_sio_read_proc)pDevice->pContext->sndio.sio_read)((struct mal_sio_hdl*)pDevice->sndio.handle, pPCMFrames, frameCount * mal_get_bytes_per_frame(pDevice->internalFormat, pDevice->internalChannels));
+    result = ((mal_sio_read_proc)pDevice->pContext->sndio.sio_read)((struct mal_sio_hdl*)pDevice->sndio.handleCapture, pPCMFrames, frameCount * mal_get_bytes_per_frame(pDevice->capture.internalFormat, pDevice->capture.internalChannels));
     if (result == 0) {
         return mal_post_error(pDevice, MAL_LOG_LEVEL_ERROR, "[sndio] Failed to read data from the device to be sent to the device.", MAL_FAILED_TO_SEND_DATA_TO_DEVICE);
     }
@@ -18320,11 +18343,15 @@ mal_result mal_device_init_fd__audio4(mal_context* pContext, const mal_device_co
     /* The first thing to do is open the file. */
     pDeviceName = "/dev/audio";
     if (deviceType == mal_device_type_capture) {
-        pDeviceName = pConfig->capture.pDeviceID->audio4;
         fdFlags = O_RDONLY;
+        if (pConfig->capture.pDeviceID != NULL) {
+            pDeviceName = pConfig->capture.pDeviceID->audio4;
+        }
     } else {
-        pDeviceName = pConfig->playback.pDeviceID->audio4;
         fdFlags = O_WRONLY;
+        if (pConfig->playback.pDeviceID != NULL) {
+            pDeviceName = pConfig->playback.pDeviceID->audio4;
+        }
     }
     fdFlags |= O_NONBLOCK;
 
@@ -18629,7 +18656,7 @@ mal_result mal_context_init__audio4(mal_context* pContext)
 
     return MAL_SUCCESS;
 }
-#endif  // audio4
+#endif  /* audio4 */
 
 
 ///////////////////////////////////////////////////////////////////////////////
