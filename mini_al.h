@@ -2188,10 +2188,8 @@ MAL_ALIGNED_STRUCT(MAL_SIMD_ALIGNMENT) mal_device
 #ifdef MAL_SUPPORT_AUDIO4
         struct
         {
-            int fd;
-            mal_uint32 fragmentSizeInFrames;
-            mal_bool32 breakFromMainLoop;
-            void* pIntermediaryBuffer;
+            int fdPlayback;
+            int fdCapture;
         } audio4;
 #endif
 #ifdef MAL_SUPPORT_OSS
@@ -18010,7 +18008,7 @@ mal_bool32 mal_context_is_device_id_equal__audio4(mal_context* pContext, const m
     return mal_strcmp(pID0->audio4, pID1->audio4) == 0;
 }
 
-#if !defined(MAL_AUDIO4_USE_NEW_API)
+#if !defined(MAL_AUDIO4_USE_NEW_API)    /* Old API */
 mal_format mal_format_from_encoding__audio4(unsigned int encoding, unsigned int precision)
 {
     if (precision == 8 && (encoding == AUDIO_ENCODING_ULINEAR || encoding == AUDIO_ENCODING_ULINEAR || encoding == AUDIO_ENCODING_ULINEAR_LE || encoding == AUDIO_ENCODING_ULINEAR_BE)) {
@@ -18036,6 +18034,42 @@ mal_format mal_format_from_encoding__audio4(unsigned int encoding, unsigned int 
     }
 
     return mal_format_unknown;  // Encoding not supported.
+}
+
+void mal_encoding_from_format__audio4(mal_format format, unsigned int* pEncoding, unsigned int* pPrecision)
+{
+    mal_assert(format     != mal_format_unknown);
+    mal_assert(pEncoding  != NULL);
+    mal_assert(pPrecision != NULL);
+
+    switch (format)
+    {
+        case mal_format_u8:
+        {
+            *pEncoding = AUDIO_ENCODING_ULINEAR;
+            *pPrecision = 8;
+        } break;
+
+        case mal_format_s24:
+        {
+            *pEncoding = (mal_is_little_endian()) ? AUDIO_ENCODING_SLINEAR_LE : AUDIO_ENCODING_SLINEAR_BE;
+            *pPrecision = 24;
+        } break;
+
+        case mal_format_s32:
+        {
+            *pEncoding = (mal_is_little_endian()) ? AUDIO_ENCODING_SLINEAR_LE : AUDIO_ENCODING_SLINEAR_BE;
+            *pPrecision = 32;
+        } break;
+
+        case mal_format_s16:
+        case mal_format_f32:
+        default:
+        {
+            *pEncoding = (mal_is_little_endian()) ? AUDIO_ENCODING_SLINEAR_LE : AUDIO_ENCODING_SLINEAR_BE;
+            *pPrecision = 16;
+        } break;
+    }
 }
 
 mal_format mal_format_from_prinfo__audio4(struct audio_prinfo* prinfo)
@@ -18249,22 +18283,213 @@ void mal_device_uninit__audio4(mal_device* pDevice)
 {
     mal_assert(pDevice != NULL);
 
-    close(pDevice->audio4.fd);
-    mal_free(pDevice->audio4.pIntermediaryBuffer);
+    if (pDevice->type == mal_device_type_capture || pDevice->type == mal_device_type_duplex) {
+        close(pDevice->audio4.fdCapture);
+    }
+
+    if (pDevice->type == mal_device_type_playback || pDevice->type == mal_device_type_duplex) {
+        close(pDevice->audio4.fdPlayback);
+    }
+}
+
+mal_result mal_device_init_fd__audio4(mal_context* pContext, const mal_device_config* pConfig, mal_device_type deviceType, mal_device* pDevice)
+{
+    mal_result result;
+    const char* pDeviceName;
+    int fd;
+    int fdFlags = 0;
+#if !defined(MAL_AUDIO4_USE_NEW_API)    /* Old API */
+    audio_info_t fdInfo;
+    mal_device_info nativeInfo;
+#else
+    struct audio_swpar fdPar;
+#endif
+    mal_format internalFormat;
+    mal_uint32 internalChannels;
+    mal_uint32 internalSampleRate;
+    mal_uint32 internalBufferSizeInFrames;
+    mal_uint32 internalPeriods;
+
+    mal_assert(pContext   != NULL);
+    mal_assert(pConfig    != NULL);
+    mal_assert(deviceType != mal_device_type_duplex);
+    mal_assert(pDevice    != NULL);
+
+    (void)pContext;
+
+    /* The first thing to do is open the file. */
+    pDeviceName = "/dev/audio";
+    if (deviceType == mal_device_type_capture) {
+        pDeviceName = pConfig->capture.pDeviceID->audio4;
+        fdFlags = O_RDONLY;
+    } else {
+        pDeviceName = pConfig->playback.pDeviceID->audio4;
+        fdFlags = O_WRONLY;
+    }
+    fdFlags |= O_NONBLOCK;
+
+    fd = open(pDeviceName, fdFlags, 0);
+    if (fd == -1) {
+        return mal_post_error(pDevice, MAL_LOG_LEVEL_ERROR, "[audio4] Failed to open device.", MAL_FAILED_TO_OPEN_BACKEND_DEVICE);
+    }
+
+#if !defined(MAL_AUDIO4_USE_NEW_API)    /* Old API */
+    AUDIO_INITINFO(&fdInfo);
+
+    /* We get the driver to do as much of the data conversion as possible. */
+    if (deviceType == mal_device_type_capture) {
+        fdInfo.mode = AUMODE_RECORD;
+        mal_encoding_from_format__audio4(pConfig->capture.format, &fdInfo.record.encoding, &fdInfo.record.precision);
+        fdInfo.record.channels    = pConfig->capture.channels;
+        fdInfo.record.sample_rate = pConfig->sampleRate;
+    } else {
+        fdInfo.mode = AUMODE_PLAY;
+        mal_encoding_from_format__audio4(pConfig->playback.format, &fdInfo.play.encoding, &fdInfo.play.precision);
+        fdInfo.play.channels    = pConfig->playback.channels;
+        fdInfo.play.sample_rate = pConfig->sampleRate;
+    }
+
+    if (fd, AUDIO_SETINFO, &fdInfo) < 0) {
+        close(fd);
+        return mal_post_error(pDevice, MAL_LOG_LEVEL_ERROR, "[audio4] Failed to set device format. AUDIO_SETINFO failed.", MAL_FORMAT_NOT_SUPPORTED);
+    }
+    
+    if (ioctl(fd, AUDIO_GETINFO, &fdInfo) < 0) {
+        close(fd);
+        return mal_post_error(pDevice, MAL_LOG_LEVEL_ERROR, "[audio4] AUDIO_GETINFO failed.", MAL_FORMAT_NOT_SUPPORTED);
+    }
+
+    if (deviceType == mal_device_type_capture) {
+        internalFormat     = mal_format_from_prinfo__audio4(&fdInfo.record);
+        internalChannels   = fdInfo.record.channels;
+        internalSampleRate = fdInfo.record.sample_rate;
+    } else {
+        internalFormat     = mal_format_from_prinfo__audio4(&fdInfo.play);
+        internalChannels   = fdInfo.play.channels;
+        internalSampleRate = fdInfo.play.sample_rate;
+    }
+
+    if (internalFormat == mal_format_unknown) {
+        close(fd);
+        return mal_post_error(pDevice, MAL_LOG_LEVEL_ERROR, "[audio4] The device's internal device format is not supported by mini_al. The device is unusable.", MAL_FORMAT_NOT_SUPPORTED);
+    }
+
+    /* Buffer. */
+    {
+        mal_uint32 internalBufferSizeInBytes;
+
+        internalBufferSizeInFrames = pConfig->bufferSizeInFrames;
+        if (internalBufferSizeInFrames == 0) {
+            internalBufferSizeInFrames = mal_calculate_buffer_size_in_frames_from_milliseconds(pConfig->bufferSizeInMilliseconds, internalSampleRate);
+        }
+
+        internalBufferSizeInBytes = internalBufferSizeInFrames * mal_get_bytes_per_frame(internalFormat, internalChannels);
+        if (internalBufferSizeInBytes < 16) {
+            internalBufferSizeInBytes = 16;
+        }
+
+        internalPeriods = pConfig->periods;
+        if (internalPeriods < 2) {
+            internalPeriods = 2;
+        }
+
+        /* What mini_al calls a fragment, audio4 calls a block. */
+        AUDIO_INITINFO(&fdInfo);
+        fdInfo.hiwat     = internalPeriods;
+        fdInfo.lowat     = internalPeriods-1;
+        fdInfo.blocksize = internalBufferSizeInBytes / internalPeriods;
+        if (ioctl(fd, AUDIO_SETINFO, &fdInfo) < 0) {
+            close(fd);
+            return mal_post_error(pDevice, MAL_LOG_LEVEL_ERROR, "[audio4] Failed to set internal buffer size. AUDIO_SETINFO failed.", MAL_FORMAT_NOT_SUPPORTED);
+        }
+
+        internalPeriods            = fdInfo.hiwat;
+        internalBufferSizeInFrames = (fdInfo.blocksize * fdInfo.hiwat) / mal_get_bytes_per_frame(internalFormat, internalChannels);
+    }
+#else
+    /* We need to retrieve the format of the device so we can know the channel count and sample rate. Then we can calculate the buffer size. */
+    if (ioctl(fd, AUDIO_GETPAR, &fdPar) < 0) {
+        close(fd);
+        return mal_post_error(pDevice, MAL_LOG_LEVEL_ERROR, "[audio4] Failed to retrieve initial device parameters.", MAL_FORMAT_NOT_SUPPORTED);
+    }
+
+    internalFormat     = mal_format_from_swpar__audio4(&fdPar);
+    internalChannels   = (deviceType == mal_device_type_capture) ? fdPar.rchan : fdPar.pchan;
+    internalSampleRate = fdPar.rate;
+
+    if (internalFormat == mal_format_unknown) {
+        close(fd);
+        return mal_post_error(pDevice, MAL_LOG_LEVEL_ERROR, "[audio4] The device's internal device format is not supported by mini_al. The device is unusable.", MAL_FORMAT_NOT_SUPPORTED);
+    }
+
+    /* Buffer. */
+    {
+        mal_uint32 internalBufferSizeInBytes;
+
+        internalBufferSizeInFrames = pDevice->bufferSizeInFrames;
+        if (internalBufferSizeInFrames == 0) {
+            internalBufferSizeInFrames = mal_calculate_buffer_size_in_frames_from_milliseconds(pDevice->bufferSizeInMilliseconds, internalSampleRate);
+        }
+
+        /* What mini_al calls a fragment, audio4 calls a block. */
+        internalBufferSizeInBytes = internalBufferSizeInFrames * mal_get_bytes_per_frame(internalFormat, internalChannels);
+        if (internalBufferSizeInBytes < 16) {
+            internalBufferSizeInBytes = 16;
+        }
+    
+        fdPar.nblks = pConfig->periods;
+        fdPar.round = internalBufferSizeInBytes / fdPar.nblks;
+    
+        if (ioctl(fd, AUDIO_SETPAR, &fdPar) < 0) {
+            close(fd);
+            return mal_post_error(pDevice, MAL_LOG_LEVEL_ERROR, "[audio4] Failed to set device parameters.", MAL_FORMAT_NOT_SUPPORTED);
+        }
+
+        if (ioctl(fd, AUDIO_GETPAR, &fdPar) < 0) {
+            close(fd);
+            return mal_post_error(pDevice, MAL_LOG_LEVEL_ERROR, "[audio4] Failed to retrieve actual device parameters.", MAL_FORMAT_NOT_SUPPORTED);
+        }
+    }
+
+    internalFormat             = mal_format_from_swpar__audio4(&fdPar);
+    internalChannels           = (deviceType == mal_device_type_capture) ? fdPar.rchan : fdPar.pchan;
+    internalSampleRate         = fdPar.rate;
+    internalPeriods            = fdPar.nblks;
+    internalBufferSizeInFrames = (fdPar.nblks * fdPar.round) / mal_get_bytes_per_frame(internalFormat, internalChannels);
+#endif
+
+    if (internalFormat == mal_format_unknown) {
+        close(fd);
+        return mal_post_error(pDevice, MAL_LOG_LEVEL_ERROR, "[audio4] The device's internal device format is not supported by mini_al. The device is unusable.", MAL_FORMAT_NOT_SUPPORTED);
+    }
+
+    if (deviceType == mal_device_type_capture) {
+        pDevice->capture.internalFormat             = internalFormat;
+        pDevice->capture.internalChannels           = internalChannels;
+        pDevice->capture.internalSampleRate         = internalSampleRate;
+        mal_get_standard_channel_map(mal_standard_channel_map_sound4, internalChannels, pDevice->capture.internalChannelMap);
+        pDevice->capture.internalBufferSizeInFrames = internalBufferSizeInFrames;
+        pDevice->capture.internalPeriods            = internalPeriods;
+    } else {
+        pDevice->playback.internalFormat             = internalFormat;
+        pDevice->playback.internalChannels           = internalChannels;
+        pDevice->playback.internalSampleRate         = internalSampleRate;
+        mal_get_standard_channel_map(mal_standard_channel_map_sound4, internalChannels, pDevice->playback.internalChannelMap);
+        pDevice->playback.internalBufferSizeInFrames = internalBufferSizeInFrames;
+        pDevice->playback.internalPeriods            = internalPeriods;
+    }
+
+    return MAL_SUCCESS;
 }
 
 mal_result mal_device_init__audio4(mal_context* pContext, const mal_device_config* pConfig, mal_device* pDevice)
 {
-    (void)pContext;
-
     mal_assert(pDevice != NULL);
-    mal_zero_object(&pDevice->audio4);
-    pDevice->audio4.fd = -1;
 
-    /* Full-duplex is not yet implemented. */
-    if (pConfig->deviceType == mal_device_type_duplex) {
-        return MAL_INVALID_ARGS;
-    }
+    mal_zero_object(&pDevice->audio4);
+    
+    pDevice->audio4.fdCapture  = -1;
+    pDevice->audio4.fdPlayback = -1;
 
     // The version of the operating system dictates whether or not the device is exclusive or shared. NetBSD
     // introduced in-kernel mixing which means it's shared. All other BSD flavours are exclusive as far as
@@ -18278,231 +18503,89 @@ mal_result mal_device_init__audio4(mal_context* pContext, const mal_device_confi
 #else
     /* All other flavors. */
 #endif
-    
-    // The first thing to do is open the file.
-    const char* deviceNamePlayback = "/dev/audio";
-    const char* deviceNameCapture  = "/dev/audio";
-    if (pConfig->playback.pDeviceID != NULL) {
-        deviceNamePlayback = pConfig->playback.pDeviceID->audio4;
-    }
-    if (pConfig->capture.pDeviceID != NULL) {
-        deviceNameCapture = pConfig->capture.pDeviceID->audio4;
-    }
-    
-    if (pConfig->deviceType == mal_device_type_playback) {
-        pDevice->audio4.fd = open(deviceNamePlayback, O_WRONLY | O_NONBLOCK, 0);
-    } else if (pConfig->deviceType == mal_device_type_capture) {
-        pDevice->audio4.fd = open(deviceNameCapture, O_RDONLY | O_NONBLOCK, 0);
-    } else if (pConfig->deviceType == mal_device_type_duplex) {
-        /* TOOD: Implement me. */
-        mal_assert(MAL_FALSE);
-        return MAL_INVALID_ARGS;
-    } else {
-        mal_assert(MAL_FALSE);
-        return MAL_INVALID_ARGS;
-    }
-    
-    if (pDevice->audio4.fd == -1) {
-        return mal_post_error(pDevice, MAL_LOG_LEVEL_ERROR, "[audio4] Failed to open device.", MAL_FAILED_TO_OPEN_BACKEND_DEVICE);
+
+    if (pConfig->deviceType == mal_device_type_capture || pConfig->deviceType == mal_device_type_duplex) {
+        mal_result result = mal_device_init_fd__audio4(pContext, pConfig, mal_device_type_capture, pDevice);
+        if (result != MAL_SUCCESS) {
+            return result;
+        }
     }
 
-#if !defined(MAL_AUDIO4_USE_NEW_API)
-    audio_info_t fdInfo;
-    AUDIO_INITINFO(&fdInfo);
-
-    struct audio_prinfo* prinfo;
-    if (pConfig->deviceType == mal_device_type_playback) {
-        prinfo = &fdInfo.play;
-        fdInfo.mode = AUMODE_PLAY;
-    } else {
-        prinfo = &fdInfo.record;
-        fdInfo.mode = AUMODE_RECORD;
+    if (pConfig->deviceType == mal_device_type_playback || pConfig->deviceType == mal_device_type_duplex) {
+        mal_result result = mal_device_init_fd__audio4(pContext, pConfig, mal_device_type_playback, pDevice);
+        if (result != MAL_SUCCESS) {
+            if (pConfig->deviceType == mal_device_type_duplex) {
+                close(pDevice->audio4.fdCapture);
+            }
+            return result;
+        }
     }
 
-    // Format. Note that it looks like audio4 does not support floating point formats. In this case
-    // we just fall back to s16.
-    switch (pDevice->format)
-    {
-        case mal_format_u8:
-        {
-            prinfo->encoding = AUDIO_ENCODING_ULINEAR;
-            prinfo->precision = 8;
-        } break;
-
-        case mal_format_s24:
-        {
-            prinfo->encoding = (mal_is_little_endian()) ? AUDIO_ENCODING_SLINEAR_LE : AUDIO_ENCODING_SLINEAR_BE;
-            prinfo->precision = 24;
-        } break;
-
-        case mal_format_s32:
-        {
-            prinfo->encoding = (mal_is_little_endian()) ? AUDIO_ENCODING_SLINEAR_LE : AUDIO_ENCODING_SLINEAR_BE;
-            prinfo->precision = 32;
-        } break;
-
-        case mal_format_s16:
-        case mal_format_f32:
-        default:
-        {
-            prinfo->encoding = (mal_is_little_endian()) ? AUDIO_ENCODING_SLINEAR_LE : AUDIO_ENCODING_SLINEAR_BE;
-            prinfo->precision = 16;
-        } break;
-    }
-
-    // We always want to the use the devices native channel count and sample rate.
-    mal_device_info nativeInfo;
-    mal_result result = mal_context_get_device_info(pContext, pConfig->deviceType, pConfig->pDeviceID, pConfig->shareMode, &nativeInfo);
-    if (result != MAL_SUCCESS) {
-        close(pDevice->audio4.fd);
-        return mal_post_error(pDevice, MAL_LOG_LEVEL_ERROR, "[audio4] Failed to retrieve device format.", result);
-    }
-
-    prinfo->channels = nativeInfo.maxChannels;
-    prinfo->sample_rate = nativeInfo.maxSampleRate;
-    
-    // We need to apply the settings so far so we can get back the actual sample rate which we need for calculating
-    // the default buffer size below.
-    if (ioctl(pDevice->audio4.fd, AUDIO_SETINFO, &fdInfo) < 0) {
-        close(pDevice->audio4.fd);
-        return mal_post_error(pDevice, MAL_LOG_LEVEL_ERROR, "[audio4] Failed to set device format. AUDIO_SETINFO failed.", MAL_FORMAT_NOT_SUPPORTED);
-    }
-    
-    if (ioctl(pDevice->audio4.fd, AUDIO_GETINFO, &fdInfo) < 0) {
-        close(pDevice->audio4.fd);
-        return mal_post_error(pDevice, MAL_LOG_LEVEL_ERROR, "[audio4] AUDIO_GETINFO failed.", MAL_FORMAT_NOT_SUPPORTED);
-    }
-    
-    pDevice->internalFormat = mal_format_from_prinfo__audio4(prinfo);
-    if (pDevice->internalFormat == mal_format_unknown) {
-        close(pDevice->audio4.fd);
-        return mal_post_error(pDevice, MAL_LOG_LEVEL_ERROR, "[audio4] The device's internal device format is not supported by mini_al. The device is unusable.", MAL_FORMAT_NOT_SUPPORTED);
-    }
-
-    pDevice->internalChannels = prinfo->channels;
-    pDevice->internalSampleRate = prinfo->sample_rate;
-
-
-
-    // Try calculating an appropriate default buffer size.
-    if (pDevice->bufferSizeInFrames == 0) {
-        pDevice->bufferSizeInFrames = mal_calculate_buffer_size_in_frames_from_milliseconds(pDevice->bufferSizeInMilliseconds, pDevice->internalSampleRate);
-    }
-
-    // What mini_al calls a fragment, audio4 calls a block.
-    mal_uint32 bufferSizeInBytes = pDevice->bufferSizeInFrames * mal_get_bytes_per_frame(pDevice->internalFormat, pDevice->internalChannels);
-    if (bufferSizeInBytes < 16) {
-        bufferSizeInBytes = 16;
-    }
-
-    
-    AUDIO_INITINFO(&fdInfo);
-    fdInfo.hiwat = pDevice->periods;
-    fdInfo.lowat = pDevice->periods-1;
-    fdInfo.blocksize = bufferSizeInBytes / pDevice->periods;
-    if (ioctl(pDevice->audio4.fd, AUDIO_SETINFO, &fdInfo) < 0) {
-        close(pDevice->audio4.fd);
-        return mal_post_error(pDevice, MAL_LOG_LEVEL_ERROR, "[audio4] Failed to set internal buffer size. AUDIO_SETINFO failed.", MAL_FORMAT_NOT_SUPPORTED);
-    }
-    
-    pDevice->periods = fdInfo.hiwat;
-    pDevice->bufferSizeInFrames = (fdInfo.blocksize * fdInfo.hiwat) / mal_get_bytes_per_frame(pDevice->internalFormat, pDevice->internalChannels);
-#else
-    // We need to retrieve the format of the device so we can know the channel count and sample rate. Then we
-    // can calculate the buffer size.
-    struct audio_swpar fdPar;
-    if (ioctl(pDevice->audio4.fd, AUDIO_GETPAR, &fdPar) < 0) {
-        close(pDevice->audio4.fd);
-        return mal_post_error(pDevice, MAL_LOG_LEVEL_ERROR, "[audio4] Failed to retrieve initial device parameters.", MAL_FORMAT_NOT_SUPPORTED);
-    }
-    
-    // Set the initial internal formats so we can do calculations below.
-    pDevice->internalFormat = mal_format_from_swpar__audio4(&fdPar);
-    if (pConfig->deviceType == mal_device_type_playback) {
-        pDevice->internalChannels = fdPar.pchan;
-    } else {
-        pDevice->internalChannels = fdPar.rchan;
-    }
-    pDevice->internalSampleRate = fdPar.rate;
-    
-    if (pDevice->bufferSizeInFrames == 0) {
-        pDevice->bufferSizeInFrames = mal_calculate_buffer_size_in_frames_from_milliseconds(pDevice->bufferSizeInMilliseconds, pDevice->internalSampleRate);
-    }
-    
-    // What mini_al calls a fragment, audio4 calls a block.
-    mal_uint32 bufferSizeInBytes = pDevice->bufferSizeInFrames * mal_get_bytes_per_frame(pDevice->internalFormat, pDevice->internalChannels);
-    if (bufferSizeInBytes < 16) {
-        bufferSizeInBytes = 16;
-    }
-    
-    fdPar.nblks = pDevice->periods;
-    fdPar.round = bufferSizeInBytes / fdPar.nblks;
-    
-    if (ioctl(pDevice->audio4.fd, AUDIO_SETPAR, &fdPar) < 0) {
-        close(pDevice->audio4.fd);
-        return mal_post_error(pDevice, MAL_LOG_LEVEL_ERROR, "[audio4] Failed to set device parameters.", MAL_FORMAT_NOT_SUPPORTED);
-    }
-    
-    if (ioctl(pDevice->audio4.fd, AUDIO_GETPAR, &fdPar) < 0) {
-        close(pDevice->audio4.fd);
-        return mal_post_error(pDevice, MAL_LOG_LEVEL_ERROR, "[audio4] Failed to retrieve actual device parameters.", MAL_FORMAT_NOT_SUPPORTED);
-    }
-    
-    pDevice->internalFormat = mal_format_from_swpar__audio4(&fdPar);
-    if (pConfig->deviceType == mal_device_type_playback) {
-        pDevice->internalChannels = fdPar.pchan;
-    } else {
-        pDevice->internalChannels = fdPar.rchan;
-    }
-    pDevice->internalSampleRate = fdPar.rate; 
-
-    pDevice->periods = fdPar.nblks;
-    pDevice->bufferSizeInFrames = (fdPar.nblks * fdPar.round) / mal_get_bytes_per_frame(pDevice->internalFormat, pDevice->internalChannels);
-#endif
-
-
-    // For the channel map, I'm not sure how to query the channel map (or if it's even possible). I'm just
-    // using the channels defined in FreeBSD's sound(4) man page.
-    mal_get_standard_channel_map(mal_standard_channel_map_sound4, pDevice->internalChannels, pDevice->internalChannelMap);
-    
     return MAL_SUCCESS;
 }
 
+#if 0
 mal_result mal_device_start__audio4(mal_device* pDevice)
 {
     mal_assert(pDevice != NULL);
 
-    if (pDevice->audio4.fd == -1) {
-        return MAL_INVALID_ARGS;
+    if (pDevice->type == mal_device_type_capture || pDevice->type == mal_device_type_duplex) {
+        if (pDevice->audio4.fdCapture == -1) {
+            return MAL_INVALID_ARGS;
+        }
+    }
+
+    if (pDevice->type == mal_device_type_playback || pDevice->type == mal_device_type_duplex) {
+        if (pDevice->audio4.fdPlayback == -1) {
+            return MAL_INVALID_ARGS;
+        }
     }
 
     return MAL_SUCCESS;
+}
+#endif
+
+mal_result mal_device_stop_fd__audio4(int fd)
+{
+    if (pDevice->audio4.fdCapture == -1) {
+        return MAL_INVALID_ARGS;
+    }
+
+#if !defined(MAL_AUDIO4_USE_NEW_API)
+    if (ioctl(pDevice->audio4.fdCapture, AUDIO_FLUSH, 0) < 0) {
+        return mal_post_error(pDevice, MAL_LOG_LEVEL_ERROR, "[audio4] Failed to stop device. AUDIO_FLUSH failed.", MAL_FAILED_TO_STOP_BACKEND_DEVICE);
+    }
+#else
+    if (ioctl(pDevice->audio4.fdCapture, AUDIO_STOP, 0) < 0) {
+        return mal_post_error(pDevice, MAL_LOG_LEVEL_ERROR, "[audio4] Failed to stop device. AUDIO_STOP failed.", MAL_FAILED_TO_STOP_BACKEND_DEVICE);
+    }
+#endif
 }
 
 mal_result mal_device_stop__audio4(mal_device* pDevice)
 {
     mal_assert(pDevice != NULL);
 
-    if (pDevice->audio4.fd == -1) {
-        return MAL_INVALID_ARGS;
+    if (pDevice->type == mal_device_type_capture || pDevice->type == mal_device_type_duplex) {
+        mal_result result = mal_device_stop_fd__audio4(pDevice->audio4.fdCapture);
+        if (result != MAL_SUCCESS) {
+            return result;
+        }
     }
 
-#if !defined(MAL_AUDIO4_USE_NEW_API)
-    if (ioctl(pDevice->audio4.fd, AUDIO_FLUSH, 0) < 0) {
-        return mal_post_error(pDevice, MAL_LOG_LEVEL_ERROR, "[audio4] Failed to stop device. AUDIO_FLUSH failed.", MAL_FAILED_TO_STOP_BACKEND_DEVICE);
+    if (pDevice->type == mal_device_type_playback || pDevice->type == mal_device_type_duplex) {
+        mal_result result = mal_device_stop_fd__audio4(pDevice->audio4.fdPlayback);
+        if (result != MAL_SUCCESS) {
+            return result;
+        }
     }
-#else
-    if (ioctl(pDevice->audio4.fd, AUDIO_STOP, 0) < 0) {
-        return mal_post_error(pDevice, MAL_LOG_LEVEL_ERROR, "[audio4] Failed to stop device. AUDIO_STOP failed.", MAL_FAILED_TO_STOP_BACKEND_DEVICE);
-    }
-#endif
 
     return MAL_SUCCESS;
 }
 
 mal_result mal_device_write__audio4(mal_device* pDevice, const void* pPCMFrames, mal_uint32 frameCount)
 {
-    int result = write(pDevice->audio4.fd, pPCMFrames, frameCount * mal_get_bytes_per_frame(pDevice->internalFormat, pDevice->internalChannels));
+    int result = write(pDevice->audio4.fdPlayback, pPCMFrames, frameCount * mal_get_bytes_per_frame(pDevice->playback.internalFormat, pDevice->playback.internalChannels));
     if (result < 0) {
         return mal_post_error(pDevice, MAL_LOG_LEVEL_ERROR, "[audio4] Failed to write data to the device.", MAL_FAILED_TO_SEND_DATA_TO_DEVICE);
     }
@@ -18512,7 +18595,7 @@ mal_result mal_device_write__audio4(mal_device* pDevice, const void* pPCMFrames,
 
 mal_result mal_device_read__audio4(mal_device* pDevice, void* pPCMFrames, mal_uint32 frameCount)
 {
-    int result = read(pDevice->audio4.fd, pPCMFrames, frameCount * mal_get_bytes_per_frame(pDevice->internalFormat, pDevice->internalChannels));
+    int result = read(pDevice->audio4.fdCapture, pPCMFrames, frameCount * mal_get_bytes_per_frame(pDevice->capture.internalFormat, pDevice->capture.internalChannels));
     if (result < 0) {
         return mal_post_error(pDevice, MAL_LOG_LEVEL_ERROR, "[audio4] Failed to read data from the device.", MAL_FAILED_TO_READ_DATA_FROM_DEVICE);
     }
@@ -18539,7 +18622,7 @@ mal_result mal_context_init__audio4(mal_context* pContext)
     pContext->onGetDeviceInfo       = mal_context_get_device_info__audio4;
     pContext->onDeviceInit          = mal_device_init__audio4;
     pContext->onDeviceUninit        = mal_device_uninit__audio4;
-    pContext->onDeviceStart         = mal_device_start__audio4;
+    pContext->onDeviceStart         = NULL;
     pContext->onDeviceStop          = mal_device_stop__audio4;
     pContext->onDeviceWrite         = mal_device_write__audio4;
     pContext->onDeviceRead          = mal_device_read__audio4;
