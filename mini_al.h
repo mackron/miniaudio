@@ -19025,8 +19025,8 @@ mal_result mal_device_init_fd__oss(mal_context* pContext, const mal_device_confi
             ossFragmentSizePower += 1;
         }
 
-        ossFragment = (int)((pDevice->periods << 16) | ossFragmentSizePower);
-        ossResult = ioctl(pDevice->oss.fd, SNDCTL_DSP_SETFRAGMENT, &ossFragment);
+        ossFragment = (int)((pConfig->periods << 16) | ossFragmentSizePower);
+        ossResult = ioctl(fd, SNDCTL_DSP_SETFRAGMENT, &ossFragment);
         if (ossResult == -1) {
             close(fd);
             return mal_post_error(pDevice, MAL_LOG_LEVEL_ERROR, "[OSS] Failed to set fragment size and period count.", MAL_FORMAT_NOT_SUPPORTED);
