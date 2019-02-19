@@ -18451,9 +18451,9 @@ mal_result mal_device_init_fd__audio4(mal_context* pContext, const mal_device_co
     {
         mal_uint32 internalBufferSizeInBytes;
 
-        internalBufferSizeInFrames = pDevice->bufferSizeInFrames;
+        internalBufferSizeInFrames = pConfig->bufferSizeInFrames;
         if (internalBufferSizeInFrames == 0) {
-            internalBufferSizeInFrames = mal_calculate_buffer_size_in_frames_from_milliseconds(pDevice->bufferSizeInMilliseconds, internalSampleRate);
+            internalBufferSizeInFrames = mal_calculate_buffer_size_in_frames_from_milliseconds(pConfig->bufferSizeInMilliseconds, internalSampleRate);
         }
 
         /* What mini_al calls a fragment, audio4 calls a block. */
@@ -21204,7 +21204,7 @@ void mal_device__post_init_setup(mal_device* pDevice, mal_device_type deviceType
 {
     mal_assert(pDevice != NULL);
 
-    if (deviceType == mal_device_type_capture || mal_device_type_duplex) {
+    if (deviceType == mal_device_type_capture || deviceType == mal_device_type_duplex) {
         if (pDevice->capture.usingDefaultFormat) {
             pDevice->capture.format = pDevice->capture.internalFormat;
         }
@@ -21216,7 +21216,7 @@ void mal_device__post_init_setup(mal_device* pDevice, mal_device_type deviceType
         }
     }
 
-    if (deviceType == mal_device_type_playback || mal_device_type_duplex) {
+    if (deviceType == mal_device_type_playback || deviceType == mal_device_type_duplex) {
         if (pDevice->playback.usingDefaultFormat) {
             pDevice->playback.format = pDevice->playback.internalFormat;
         }
