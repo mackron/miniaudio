@@ -6,6 +6,14 @@
 #define MINI_AL_IMPLEMENTATION
 #include "../mini_al.h"
 
+void on_log(mal_context* pContext, mal_device* pDevice, mal_uint32 logLevel, const char* message)
+{
+    (void)pContext;
+    (void)pDevice;
+    (void)logLevel;
+    printf("%s\n", message);
+}
+
 int main(int argc, char** argv)
 {
     (void)argc;
@@ -13,6 +21,9 @@ int main(int argc, char** argv)
 
     mal_result result;
     mal_backend backend = mal_backend_audio4;
+
+    mal_context_config contextConfig = mal_context_config_init();
+    contextConfig.logCallback = on_log;
 
     mal_device_config deviceConfig = mal_device_config_init(mal_device_type_playback);
     deviceConfig.playback.format = mal_format_f32;
@@ -53,7 +64,6 @@ int main(int argc, char** argv)
         float buffer[1024*32]; float* pBuffer = buffer;
         //mal_uint32 frameCount = (mal_uint32)mal_sine_wave_read_f32_ex(&sineWave, mal_countof(buffer) / device.playback.channels, device.playback.channels, mal_stream_layout_interleaved, &pBuffer);
         mal_uint32 frameCount = (mal_uint32)mal_decoder_read_pcm_frames(&decoder, mal_countof(buffer) / device.playback.channels, pBuffer);
-        
         result = mal_device_write(&device, pBuffer, frameCount);
         if (result != MAL_SUCCESS) {
             printf("Error occurred while writing to the device.\n");
