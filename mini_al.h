@@ -18319,7 +18319,10 @@ void mal_device_uninit__audio4(mal_device* pDevice)
 
 mal_result mal_device_init_fd__audio4(mal_context* pContext, const mal_device_config* pConfig, mal_device_type deviceType, mal_device* pDevice)
 {
-    const char* pDeviceName;
+    const char* pDefaultDeviceNames[] = {
+        "/dev/audio",
+	"/dev/audio0"
+    };
     int fd;
     int fdFlags = 0;
 #if !defined(MAL_AUDIO4_USE_NEW_API)    /* Old API */
@@ -18341,21 +18344,26 @@ mal_result mal_device_init_fd__audio4(mal_context* pContext, const mal_device_co
     (void)pContext;
 
     /* The first thing to do is open the file. */
-    pDeviceName = "/dev/audio";
     if (deviceType == mal_device_type_capture) {
         fdFlags = O_RDONLY;
-        if (pConfig->capture.pDeviceID != NULL) {
-            pDeviceName = pConfig->capture.pDeviceID->audio4;
-        }
     } else {
         fdFlags = O_WRONLY;
-        if (pConfig->playback.pDeviceID != NULL) {
-            pDeviceName = pConfig->playback.pDeviceID->audio4;
-        }
     }
     fdFlags |= O_NONBLOCK;
 
-    fd = open(pDeviceName, fdFlags, 0);
+    if ((deviceType == mal_device_type_capture && pConfig->capture.pDeviceID == NULL) || (deviceType == mal_device_type_playback && pConfig->playback.pDeviceID == NULL)) {
+        /* Default device. */
+        for (size_t iDevice = 0; iDevice < mal_countof(pDefaultDeviceNames); ++iDevice) {
+            fd = open(pDefaultDeviceNames[iDevice], fdFlags, 0);
+            if (fd != -1) {
+                break;
+            }
+        }
+    } else {
+        /* Specific device. */
+        fd = open((deviceType == mal_device_type_capture) ? pConfig->capture.pDeviceID->audio4 : pConfig->playback.pDeviceID->audio4, fdFlags, 0);
+    }
+
     if (fd == -1) {
         return mal_post_error(pDevice, MAL_LOG_LEVEL_ERROR, "[audio4] Failed to open device.", MAL_FAILED_TO_OPEN_BACKEND_DEVICE);
     }
@@ -18491,15 +18499,15 @@ mal_result mal_device_init_fd__audio4(mal_context* pContext, const mal_device_co
     }
 
     if (deviceType == mal_device_type_capture) {
-        pDevice->audio4.fdCapture                  = fd;
-        pDevice->capture.internalFormat             = internalFormat;
-        pDevice->capture.internalChannels           = internalChannels;
-        pDevice->capture.internalSampleRate         = internalSampleRate;
+        pDevice->audio4.fdCapture                    = fd;
+        pDevice->capture.internalFormat              = internalFormat;
+        pDevice->capture.internalChannels            = internalChannels;
+        pDevice->capture.internalSampleRate          = internalSampleRate;
         mal_get_standard_channel_map(mal_standard_channel_map_sound4, internalChannels, pDevice->capture.internalChannelMap);
-        pDevice->capture.internalBufferSizeInFrames = internalBufferSizeInFrames;
-        pDevice->capture.internalPeriods            = internalPeriods;
+        pDevice->capture.internalBufferSizeInFrames  = internalBufferSizeInFrames;
+        pDevice->capture.internalPeriods             = internalPeriods;
     } else {
-        pDevice->audio4.fdPlayback                 = fd;
+        pDevice->audio4.fdPlayback                   = fd;
         pDevice->playback.internalFormat             = internalFormat;
         pDevice->playback.internalChannels           = internalChannels;
         pDevice->playback.internalSampleRate         = internalSampleRate;
