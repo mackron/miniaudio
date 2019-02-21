@@ -74,6 +74,29 @@ size_t mal_rb_get_subbuffer_stride(mal_rb* pRB);
 size_t mal_rb_get_subbuffer_offset(mal_rb* pRB, size_t subbufferIndex);
 void* mal_rb_get_subbuffer_ptr(mal_rb* pRB, size_t subbufferIndex, void* pBuffer);
 
+
+typedef struct
+{
+    mal_rb rb;
+    mal_format format;
+    mal_uint32 channels;
+} mal_pcm_rb;
+
+mal_result mal_pcm_rb_init_ex(mal_format format, mal_uint32 channels, size_t subbufferSizeInFrames, size_t subbufferCount, size_t subbufferStrideInFrames, void* pOptionalPreallocatedBuffer, mal_pcm_rb* pRB);
+mal_result mal_pcm_rb_init(mal_format format, mal_uint32 channels, size_t bufferSizeInFrames, void* pOptionalPreallocatedBuffer, mal_pcm_rb* pRB);
+void mal_pcm_rb_uninit(mal_pcm_rb* pRB);
+mal_result mal_pcm_rb_acquire_read(mal_pcm_rb* pRB, size_t* pSizeInFrames, void** ppBufferOut);
+mal_result mal_pcm_rb_commit_read(mal_pcm_rb* pRB, size_t sizeInFrames, void* pBufferOut);
+mal_result mal_pcm_rb_acquire_write(mal_pcm_rb* pRB, size_t* pSizeInFrames, void** ppBufferOut);
+mal_result mal_pcm_rb_commit_write(mal_pcm_rb* pRB, size_t sizeInFrames, void* pBufferOut);
+mal_result mal_pcm_rb_seek_read(mal_pcm_rb* pRB, size_t offsetInFrames);
+mal_result mal_pcm_rb_seek_write(mal_pcm_rb* pRB, size_t offsetInFrames);
+mal_int32 mal_pcm_rb_pointer_disance(mal_pcm_rb* pRB); /* Return value is in frames. */
+size_t mal_pcm_rb_get_subbuffer_stride(mal_pcm_rb* pRB);
+size_t mal_pcm_rb_get_subbuffer_offset(mal_pcm_rb* pRB, size_t subbufferIndex);
+void* mal_pcm_rb_get_subbuffer_ptr(mal_pcm_rb* pRB, size_t subbufferIndex, void* pBuffer);
+
+
 #endif  // mal_ring_buffer_h
 
 #ifdef MINI_AL_IMPLEMENTATION
@@ -450,4 +473,165 @@ void* mal_rb_get_subbuffer_ptr(mal_rb* pRB, size_t subbufferIndex, void* pBuffer
 
     return mal_offset_ptr(pBuffer, mal_rb_get_subbuffer_offset(pRB, subbufferIndex));
 }
+
+
+/* mal_pcm_rb */
+
+mal_uint32 mal_pcm_rb_get_bpf(mal_pcm_rb* pRB)
+{
+    mal_assert(pRB != NULL);
+
+    return mal_get_bytes_per_frame(pRB->format, pRB->channels);
+}
+
+mal_result mal_pcm_rb_init_ex(mal_format format, mal_uint32 channels, size_t subbufferSizeInFrames, size_t subbufferCount, size_t subbufferStrideInFrames, void* pOptionalPreallocatedBuffer, mal_pcm_rb* pRB)
+{
+    if (pRB == NULL) {
+        return MAL_INVALID_ARGS;
+    }
+
+    mal_zero_object(pRB);
+
+    mal_uint32 bpf = mal_get_bytes_per_frame(format, channels);
+    if (bpf == 0) {
+        return MAL_INVALID_ARGS;
+    }
+
+    mal_result result = mal_rb_init_ex(subbufferSizeInFrames*bpf, subbufferCount, subbufferStrideInFrames*bpf, pOptionalPreallocatedBuffer, &pRB->rb);
+    if (result != MAL_SUCCESS) {
+        return result;
+    }
+
+    pRB->format   = format;
+    pRB->channels = channels;
+
+    return MAL_SUCCESS;
+}
+
+mal_result mal_pcm_rb_init(mal_format format, mal_uint32 channels, size_t bufferSizeInFrames, void* pOptionalPreallocatedBuffer, mal_pcm_rb* pRB)
+{
+    return mal_pcm_rb_init_ex(format, channels, bufferSizeInFrames, 1, 0, pOptionalPreallocatedBuffer, pRB);
+}
+
+void mal_pcm_rb_uninit(mal_pcm_rb* pRB)
+{
+    if (pRB == NULL) {
+        return;
+    }
+
+    mal_rb_uninit(&pRB->rb);
+}
+
+mal_result mal_pcm_rb_acquire_read(mal_pcm_rb* pRB, size_t* pSizeInFrames, void** ppBufferOut)
+{
+    size_t sizeInBytes;
+    mal_result result;
+
+    if (pRB == NULL || pSizeInFrames == NULL) {
+        return MAL_INVALID_ARGS;
+    }
+
+    sizeInBytes = *pSizeInFrames * mal_pcm_rb_get_bpf(pRB);
+
+    result = mal_rb_acquire_read(&pRB->rb, &sizeInBytes, ppBufferOut);
+    if (result != MAL_SUCCESS) {
+        return result;
+    }
+
+    *pSizeInFrames = sizeInBytes / mal_pcm_rb_get_bpf(pRB);
+    return MAL_SUCCESS;
+}
+
+mal_result mal_pcm_rb_commit_read(mal_pcm_rb* pRB, size_t sizeInFrames, void* pBufferOut)
+{
+    if (pRB == NULL) {
+        return MAL_INVALID_ARGS;
+    }
+
+    return mal_rb_commit_read(&pRB->rb, sizeInFrames * mal_pcm_rb_get_bpf(pRB), pBufferOut);
+}
+
+mal_result mal_pcm_rb_acquire_write(mal_pcm_rb* pRB, size_t* pSizeInFrames, void** ppBufferOut)
+{
+    size_t sizeInBytes;
+    mal_result result;
+
+    if (pRB == NULL) {
+        return MAL_INVALID_ARGS;
+    }
+
+    sizeInBytes = *pSizeInFrames * mal_pcm_rb_get_bpf(pRB);
+
+    result = mal_rb_acquire_write(&pRB->rb, &sizeInBytes, ppBufferOut);
+    if (result != MAL_SUCCESS) {
+        return result;
+    }
+
+    *pSizeInFrames = sizeInBytes / mal_pcm_rb_get_bpf(pRB);
+    return MAL_SUCCESS;
+}
+
+mal_result mal_pcm_rb_commit_write(mal_pcm_rb* pRB, size_t sizeInFrames, void* pBufferOut)
+{
+    if (pRB == NULL) {
+        return MAL_INVALID_ARGS;
+    }
+
+    return mal_rb_commit_write(&pRB->rb, sizeInFrames * mal_pcm_rb_get_bpf(pRB), pBufferOut);
+}
+
+mal_result mal_pcm_rb_seek_read(mal_pcm_rb* pRB, size_t offsetInFrames)
+{
+    if (pRB == NULL) {
+        return MAL_INVALID_ARGS;
+    }
+
+    return mal_rb_seek_read(&pRB->rb, offsetInFrames * mal_pcm_rb_get_bpf(pRB));
+}
+
+mal_result mal_pcm_rb_seek_write(mal_pcm_rb* pRB, size_t offsetInFrames)
+{
+    if (pRB == NULL) {
+        return MAL_INVALID_ARGS;
+    }
+
+    return mal_rb_seek_write(&pRB->rb, offsetInFrames * mal_pcm_rb_get_bpf(pRB));
+}
+
+mal_int32 mal_pcm_rb_pointer_disance(mal_pcm_rb* pRB)
+{
+    if (pRB == NULL) {
+        return MAL_INVALID_ARGS;
+    }
+
+    return mal_rb_pointer_distance(&pRB->rb) / mal_pcm_rb_get_bpf(pRB);
+}
+
+size_t mal_pcm_rb_get_subbuffer_stride(mal_pcm_rb* pRB)
+{
+    if (pRB == NULL) {
+        return 0;
+    }
+
+    return mal_rb_get_subbuffer_stride(&pRB->rb) / mal_pcm_rb_get_bpf(pRB);
+}
+
+size_t mal_pcm_rb_get_subbuffer_offset(mal_pcm_rb* pRB, size_t subbufferIndex)
+{
+    if (pRB == NULL) {
+        return 0;
+    }
+
+    return mal_rb_get_subbuffer_offset(&pRB->rb, subbufferIndex) / mal_pcm_rb_get_bpf(pRB);
+}
+
+void* mal_pcm_rb_get_subbuffer_ptr(mal_pcm_rb* pRB, size_t subbufferIndex, void* pBuffer)
+{
+    if (pRB == NULL) {
+        return NULL;
+    }
+
+    return mal_rb_get_subbuffer_ptr(&pRB->rb, subbufferIndex, pBuffer);
+}
+
 #endif  // MINI_AL_IMPLEMENTATION
