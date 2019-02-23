@@ -2244,13 +2244,13 @@ void on_send__playback_test(mal_device* pDevice, void* pOutput, const void* pInp
         mal_event_signal(&pData->endOfPlaybackEvent);
     }
 #else
-    if (pDevice->format == mal_format_f32) {
+    if (pDevice->playback.format == mal_format_f32) {
         for (mal_uint32 iFrame = 0; iFrame < frameCount; ++iFrame) {
             float sample;
             mal_sine_wave_read_f32(pData->pSineWave, 1, &sample);
 
-            for (mal_uint32 iChannel = 0; iChannel < pDevice->channels; ++iChannel) {
-                ((float*)pFrames)[iFrame*pDevice->channels + iChannel] = sample;
+            for (mal_uint32 iChannel = 0; iChannel < pDevice->playback.channels; ++iChannel) {
+                ((float*)pOutput)[iFrame*pDevice->playback.channels + iChannel] = sample;
             }
         }
     }
@@ -2296,7 +2296,7 @@ int do_playback_test(mal_backend backend)
         
 
     #if defined(__EMSCRIPTEN__)
-        deviceConfig.format = mal_format_f32;
+        deviceConfig.playback.format = mal_format_f32;
     #endif
 
         result = mal_device_init_ex(&backend, 1, &contextConfig, &deviceConfig, &device);

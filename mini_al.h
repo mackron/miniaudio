@@ -2330,7 +2330,8 @@ MAL_ALIGNED_STRUCT(MAL_SIMD_ALIGNMENT) mal_device
 #ifdef MAL_SUPPORT_WEBAUDIO
         struct
         {
-            int index;  /* We use a factory on the JavaScript side to manage devices and use an index for JS/C interop. */
+            int indexPlayback;  /* We use a factory on the JavaScript side to manage devices and use an index for JS/C interop. */
+            int indexCapture;
         } webaudio;
 #endif
 #ifdef MAL_SUPPORT_NULL
@@ -20830,14 +20831,21 @@ mal_bool32 mal_is_capture_supported__webaudio()
 #ifdef __cplusplus
 extern "C" {
 #endif
-EMSCRIPTEN_KEEPALIVE void mal_device_process_pcm_frames__webaudio(mal_device* pDevice, int frameCount, float* pFrames)
+EMSCRIPTEN_KEEPALIVE void mal_device_process_pcm_frames_capture__webaudio(mal_device* pDevice, int frameCount, float* pFrames)
 {
-    if (pDevice->type == mal_device_type_playback) {
-        /* Playback. Write to pFrames. */
-        mal_device__read_frames_from_client(pDevice, (mal_uint32)frameCount, pFrames);
+    if (pDevice->type == mal_device_type_duplex) {
+        /* TODO: Write to the ring buffer. */
     } else {
-        /* Capture. Read from pFrames. */
-        mal_device__send_frames_to_client(pDevice, (mal_uint32)frameCount, pFrames);
+        mal_device__send_frames_to_client(pDevice, (mal_uint32)frameCount, pFrames);    /* Send directly to the client. */
+    }
+}
+
+EMSCRIPTEN_KEEPALIVE void mal_device_process_pcm_frames_playback__webaudio(mal_device* pDevice, int frameCount, float* pFrames)
+{
+    if (pDevice->type == mal_device_type_duplex) {
+        /* TODO: Write to the ring buffer. */
+    } else {
+        mal_device__read_frames_from_client(pDevice, (mal_uint32)frameCount, pFrames);  /* Read directly from the device. */
     }
 }
 #ifdef __cplusplus
@@ -20937,7 +20945,7 @@ mal_result mal_context_get_device_info__webaudio(mal_context* pContext, mal_devi
 }
 
 
-void mal_device_uninit__webaudio(mal_device* pDevice)
+void mal_device_uninit_by_index__webaudio(mal_device* pDevice, mal_device_type deviceType, int deviceIndex)
 {
     mal_assert(pDevice != NULL);
 
@@ -20972,45 +20980,57 @@ void mal_device_uninit__webaudio(mal_device* pDevice)
 
         /* Make sure the device is untracked so the slot can be reused later. */
         mal.untrack_device_by_index($0);
-    }, pDevice->webaudio.index, pDevice->type == mal_device_type_playback);
+    }, deviceIndex, deviceType);
 }
 
-mal_result mal_device_init__webaudio(mal_context* pContext, mal_device_type deviceType, const mal_device_id* pDeviceID, const mal_device_config* pConfig, mal_device* pDevice)
+void mal_device_uninit__webaudio(mal_device* pDevice)
 {
-    /* No exclusive mode with Web Audio. */
-    if (((pConfig->deviceType == mal_device_type_playback || pConfig->deviceType == mal_device_type_duplex) && pConfig->playback.shareMode == mal_share_mode_exclusive) ||
-        ((pConfig->deviceType == mal_device_type_capture  || pConfig->deviceType == mal_device_type_duplex) && pConfig->capture.shareMode  == mal_share_mode_exclusive)) {
-        return MAL_SHARE_MODE_NOT_SUPPORTED;
+    mal_assert(pDevice != NULL);
+
+    if (pDevice->type == mal_device_type_capture || pDevice->type == mal_device_type_duplex) {
+        mal_device_uninit_by_index__webaudio(pDevice, mal_device_type_capture, pDevice->webaudio.indexCapture);
     }
+
+    if (pDevice->type == mal_device_type_playback || pDevice->type == mal_device_type_duplex) {
+        mal_device_uninit_by_index__webaudio(pDevice, mal_device_type_playback, pDevice->webaudio.indexPlayback);
+    }
+}
+
+mal_result mal_device_init_by_type__webaudio(mal_context* pContext, const mal_device_config* pConfig, mal_device_type deviceType, mal_device* pDevice)
+{
+    int deviceIndex;
+    mal_uint32 internalBufferSizeInFrames;
+
+    mal_assert(pContext   != NULL);
+    mal_assert(pConfig    != NULL);
+    mal_assert(deviceType != mal_device_type_duplex);
+    mal_assert(pDevice    != NULL);
 
     if (deviceType == mal_device_type_capture && !mal_is_capture_supported__webaudio()) {
         return MAL_NO_DEVICE;
     }
 
-    /* Try calculating an appropriate default buffer size. */
-    if (pDevice->bufferSizeInFrames == 0) {
-        pDevice->bufferSizeInFrames = mal_calculate_buffer_size_in_frames_from_milliseconds(pDevice->bufferSizeInMilliseconds, pDevice->sampleRate);
-        if (pDevice->usingDefaultBufferSize) {
-            float bufferSizeScaleFactor = 1;
-            pDevice->bufferSizeInFrames = mal_scale_buffer_size(pDevice->bufferSizeInFrames, bufferSizeScaleFactor);
-        }
+    /* Try calculating an appropriate buffer size. */
+    internalBufferSizeInFrames = pConfig->bufferSizeInFrames;
+    if (internalBufferSizeInFrames == 0) {
+        internalBufferSizeInFrames = mal_calculate_buffer_size_in_frames_from_milliseconds(pConfig->bufferSizeInMilliseconds, pConfig->sampleRate);
     }
 
     /* The size of the buffer must be a power of 2 and between 256 and 16384. */
-    if (pDevice->bufferSizeInFrames < 256) {
-        pDevice->bufferSizeInFrames = 256;
-    } else if (pDevice->bufferSizeInFrames > 16384) {
-        pDevice->bufferSizeInFrames = 16384;
+    if (internalBufferSizeInFrames < 256) {
+        internalBufferSizeInFrames = 256;
+    } else if (internalBufferSizeInFrames > 16384) {
+        internalBufferSizeInFrames = 16384;
     } else {
-        pDevice->bufferSizeInFrames = mal_next_power_of_2(pDevice->bufferSizeInFrames);
+        internalBufferSizeInFrames = mal_next_power_of_2(internalBufferSizeInFrames);
     }
-    
+
     /* We create the device on the JavaScript side and reference it using an index. We use this to make it possible to reference the device between JavaScript and C. */
-    pDevice->webaudio.index = EM_ASM_INT({
+    deviceIndex = EM_ASM_INT({
         var channels   = $0;
         var sampleRate = $1;
         var bufferSize = $2;    /* In PCM frames. */
-        var isPlayback = $3;
+        var isCapture  = $3;
         var pDevice    = $4;
 
         if (typeof(mal) === 'undefined') {
@@ -21049,52 +21069,7 @@ mal_result mal_device_init__webaudio(mal_context* pContext, mal_device_type devi
         */
         device.scriptNode = device.webaudio.createScriptProcessor(bufferSize, channels, channels);
 
-        if (isPlayback) {
-            device.scriptNode.onaudioprocess = function(e) {
-                if (device.intermediaryBuffer === undefined) {
-                    return; /* This means the device has been uninitialized. */
-                }
-
-                var outputSilence = false;
-
-                /* Sanity check. This will never happen, right? */
-                if (e.outputBuffer.numberOfChannels != channels) {
-                    console.log("Playback: Channel count mismatch. " + e.outputBufer.numberOfChannels + " != " + channels + ". Outputting silence.");
-                    outputSilence = true;
-                    return;
-                }
-
-                /* This looped design guards against the situation where e.outputBuffer is a different size to the original buffer size. Should never happen in practice. */
-                var totalFramesProcessed = 0;
-                while (totalFramesProcessed < e.outputBuffer.length) {
-                    var framesRemaining = e.outputBuffer.length - totalFramesProcessed;
-                    var framesToProcess = framesRemaining;
-                    if (framesToProcess > (device.intermediaryBufferSizeInBytes/channels/4)) {
-                        framesToProcess = (device.intermediaryBufferSizeInBytes/channels/4);
-                    }
-
-                    /* Read data from the client into our intermediary buffer. */
-                    ccall("mal_device_process_pcm_frames__webaudio", "undefined", ["number", "number", "number"], [pDevice, framesToProcess, device.intermediaryBuffer]);
-
-                    /* At this point we'll have data in our intermediary buffer which we now need to deinterleave and copy over to the output buffers. */
-                    if (outputSilence) {
-                        for (var iChannel = 0; iChannel < e.outputBuffer.numberOfChannels; ++iChannel) {
-                            e.outputBuffer.getChannelData(iChannel).fill(0.0);
-                        }
-                    } else {
-                        for (var iChannel = 0; iChannel < e.outputBuffer.numberOfChannels; ++iChannel) {
-                            for (var iFrame = 0; iFrame < framesToProcess; ++iFrame) {
-                                e.outputBuffer.getChannelData(iChannel)[totalFramesProcessed + iFrame] = device.intermediaryBufferView[iFrame*channels + iChannel];
-                            }
-                        }
-                    }
-
-                    totalFramesProcessed += framesToProcess;
-                }
-            };
-
-            device.scriptNode.connect(device.webaudio.destination);
-        } else {
+        if (isCapture) {
             device.scriptNode.onaudioprocess = function(e) {
                 if (device.intermediaryBuffer === undefined) {
                     return; /* This means the device has been uninitialized. */
@@ -21138,7 +21113,7 @@ mal_result mal_device_init__webaudio(mal_context* pContext, mal_device_type devi
                     }
 
                     /* Send data to the client from our intermediary buffer. */
-                    ccall("mal_device_process_pcm_frames__webaudio", "undefined", ["number", "number", "number"], [pDevice, framesToProcess, device.intermediaryBuffer]);
+                    ccall("mal_device_process_pcm_frames_capture__webaudio", "undefined", ["number", "number", "number"], [pDevice, framesToProcess, device.intermediaryBuffer]);
 
                     totalFramesProcessed += framesToProcess;
                 }
@@ -21154,20 +21129,102 @@ mal_result mal_device_init__webaudio(mal_context* pContext, mal_device_type devi
                     /* I think this should output silence... */
                     device.scriptNode.connect(device.webaudio.destination);
                 });
+        } else {
+            device.scriptNode.onaudioprocess = function(e) {
+                if (device.intermediaryBuffer === undefined) {
+                    return; /* This means the device has been uninitialized. */
+                }
+
+                var outputSilence = false;
+
+                /* Sanity check. This will never happen, right? */
+                if (e.outputBuffer.numberOfChannels != channels) {
+                    console.log("Playback: Channel count mismatch. " + e.outputBufer.numberOfChannels + " != " + channels + ". Outputting silence.");
+                    outputSilence = true;
+                    return;
+                }
+
+                /* This looped design guards against the situation where e.outputBuffer is a different size to the original buffer size. Should never happen in practice. */
+                var totalFramesProcessed = 0;
+                while (totalFramesProcessed < e.outputBuffer.length) {
+                    var framesRemaining = e.outputBuffer.length - totalFramesProcessed;
+                    var framesToProcess = framesRemaining;
+                    if (framesToProcess > (device.intermediaryBufferSizeInBytes/channels/4)) {
+                        framesToProcess = (device.intermediaryBufferSizeInBytes/channels/4);
+                    }
+
+                    /* Read data from the client into our intermediary buffer. */
+                    ccall("mal_device_process_pcm_frames_playback__webaudio", "undefined", ["number", "number", "number"], [pDevice, framesToProcess, device.intermediaryBuffer]);
+
+                    /* At this point we'll have data in our intermediary buffer which we now need to deinterleave and copy over to the output buffers. */
+                    if (outputSilence) {
+                        for (var iChannel = 0; iChannel < e.outputBuffer.numberOfChannels; ++iChannel) {
+                            e.outputBuffer.getChannelData(iChannel).fill(0.0);
+                        }
+                    } else {
+                        for (var iChannel = 0; iChannel < e.outputBuffer.numberOfChannels; ++iChannel) {
+                            for (var iFrame = 0; iFrame < framesToProcess; ++iFrame) {
+                                e.outputBuffer.getChannelData(iChannel)[totalFramesProcessed + iFrame] = device.intermediaryBufferView[iFrame*channels + iChannel];
+                            }
+                        }
+                    }
+
+                    totalFramesProcessed += framesToProcess;
+                }
+            };
+
+            device.scriptNode.connect(device.webaudio.destination);
         }
 
         return mal.track_device(device);
-    }, pConfig->channels, pConfig->sampleRate, pDevice->bufferSizeInFrames, deviceType == mal_device_type_playback, pDevice);
+    }, (deviceType == mal_device_type_capture) ? pConfig->capture.channels : pConfig->playback.channels, pConfig->sampleRate, internalBufferSizeInFrames, deviceType == mal_device_type_capture, pDevice);
 
-    if (pDevice->webaudio.index < 0) {
+    if (deviceIndex < 0) {
         return MAL_FAILED_TO_OPEN_BACKEND_DEVICE;
     }
 
-    pDevice->internalFormat     = mal_format_f32;
-    pDevice->internalChannels   = pConfig->channels;
-    pDevice->internalSampleRate = EM_ASM_INT({ return mal.get_device_by_index($0).webaudio.sampleRate; }, pDevice->webaudio.index);
-    mal_get_standard_channel_map(mal_standard_channel_map_webaudio, pDevice->internalChannels, pDevice->internalChannelMap);
-    pDevice->periods            = 1;
+    if (deviceType == mal_device_type_capture) {
+        pDevice->webaudio.indexCapture               = deviceIndex;
+        pDevice->capture.internalFormat              = mal_format_f32;
+        pDevice->capture.internalChannels            = pConfig->capture.channels;
+        mal_get_standard_channel_map(mal_standard_channel_map_webaudio, pDevice->capture.internalChannels, pDevice->capture.internalChannelMap);
+        pDevice->capture.internalSampleRate          = EM_ASM_INT({ return mal.get_device_by_index($0).webaudio.sampleRate; }, deviceIndex);
+        pDevice->capture.internalBufferSizeInFrames  = internalBufferSizeInFrames;
+        pDevice->capture.internalPeriods             = 1;
+    } else {
+        pDevice->webaudio.indexPlayback              = deviceIndex;
+        pDevice->playback.internalFormat             = mal_format_f32;
+        pDevice->playback.internalChannels           = pConfig->playback.channels;
+        mal_get_standard_channel_map(mal_standard_channel_map_webaudio, pDevice->playback.internalChannels, pDevice->playback.internalChannelMap);
+        pDevice->playback.internalSampleRate         = EM_ASM_INT({ return mal.get_device_by_index($0).webaudio.sampleRate; }, deviceIndex);
+        pDevice->playback.internalBufferSizeInFrames = internalBufferSizeInFrames;
+        pDevice->playback.internalPeriods            = 1;
+    }
+
+    return MAL_SUCCESS;
+}
+
+mal_result mal_device_init__webaudio(mal_context* pContext, const mal_device_config* pConfig, mal_device* pDevice)
+{
+    /* No exclusive mode with Web Audio. */
+    if (((pConfig->deviceType == mal_device_type_playback || pConfig->deviceType == mal_device_type_duplex) && pConfig->playback.shareMode == mal_share_mode_exclusive) ||
+        ((pConfig->deviceType == mal_device_type_capture  || pConfig->deviceType == mal_device_type_duplex) && pConfig->capture.shareMode  == mal_share_mode_exclusive)) {
+        return MAL_SHARE_MODE_NOT_SUPPORTED;
+    }
+
+    if (pConfig->deviceType == mal_device_type_capture || pConfig->deviceType == mal_device_type_duplex) {
+        mal_result result = mal_device_init_by_type__webaudio(pContext, pConfig, mal_device_type_capture, pDevice);
+        if (result != MAL_SUCCESS) {
+            return result;
+        }
+    }
+
+    if (pConfig->deviceType == mal_device_type_playback || pConfig->deviceType == mal_device_type_duplex) {
+        mal_result result = mal_device_init_by_type__webaudio(pContext, pConfig, mal_device_type_playback, pDevice);
+        if (result != MAL_SUCCESS) {
+            return result;
+        }
+    }
 
     return MAL_SUCCESS;
 }
@@ -21176,9 +21233,17 @@ mal_result mal_device_start__webaudio(mal_device* pDevice)
 {
     mal_assert(pDevice != NULL);
 
-    EM_ASM({
-        mal.get_device_by_index($0).webaudio.resume();
-    }, pDevice->webaudio.index);
+    if (pDevice->type == mal_device_type_capture || pDevice->type == mal_device_type_duplex) {
+        EM_ASM({
+            mal.get_device_by_index($0).webaudio.resume();
+        }, pDevice->webaudio.indexCapture);
+    }
+
+    if (pDevice->type == mal_device_type_playback || pDevice->type == mal_device_type_duplex) {
+        EM_ASM({
+            mal.get_device_by_index($0).webaudio.resume();
+        }, pDevice->webaudio.indexPlayback);
+    }
 
     return MAL_SUCCESS;
 }
@@ -21187,9 +21252,17 @@ mal_result mal_device_stop__webaudio(mal_device* pDevice)
 {
     mal_assert(pDevice != NULL);
 
-    EM_ASM({
-        mal.get_device_by_index($0).webaudio.suspend();
-    }, pDevice->webaudio.index);
+    if (pDevice->type == mal_device_type_capture || pDevice->type == mal_device_type_duplex) {
+        EM_ASM({
+            mal.get_device_by_index($0).webaudio.suspend();
+        }, pDevice->webaudio.indexCapture);
+    }
+
+    if (pDevice->type == mal_device_type_playback || pDevice->type == mal_device_type_duplex) {
+        EM_ASM({
+            mal.get_device_by_index($0).webaudio.suspend();
+        }, pDevice->webaudio.indexPlayback);
+    }
 
     mal_stop_proc onStop = pDevice->onStop;
     if (onStop) {
