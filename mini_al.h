@@ -29178,7 +29178,7 @@ mal_uint32 mal_pcm_rb_get_subbuffer_size(mal_pcm_rb* pRB)
         return 0;
     }
 
-    return mal_rb_get_subbuffer_size(&pRB->rb) / mal_pcm_rb_get_bpf(pRB);
+    return (mal_uint32)(mal_rb_get_subbuffer_size(&pRB->rb) / mal_pcm_rb_get_bpf(pRB));
 }
 
 mal_uint32 mal_pcm_rb_get_subbuffer_stride(mal_pcm_rb* pRB)
@@ -29187,7 +29187,7 @@ mal_uint32 mal_pcm_rb_get_subbuffer_stride(mal_pcm_rb* pRB)
         return 0;
     }
 
-    return mal_rb_get_subbuffer_stride(&pRB->rb) / mal_pcm_rb_get_bpf(pRB);
+    return (mal_uint32)(mal_rb_get_subbuffer_stride(&pRB->rb) / mal_pcm_rb_get_bpf(pRB));
 }
 
 mal_uint32 mal_pcm_rb_get_subbuffer_offset(mal_pcm_rb* pRB, mal_uint32 subbufferIndex)
@@ -29196,7 +29196,7 @@ mal_uint32 mal_pcm_rb_get_subbuffer_offset(mal_pcm_rb* pRB, mal_uint32 subbuffer
         return 0;
     }
 
-    return mal_rb_get_subbuffer_offset(&pRB->rb, subbufferIndex) / mal_pcm_rb_get_bpf(pRB);
+    return (mal_uint32)(mal_rb_get_subbuffer_offset(&pRB->rb, subbufferIndex) / mal_pcm_rb_get_bpf(pRB));
 }
 
 void* mal_pcm_rb_get_subbuffer_ptr(mal_pcm_rb* pRB, mal_uint32 subbufferIndex, void* pBuffer)
