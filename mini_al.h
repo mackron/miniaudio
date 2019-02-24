@@ -50,24 +50,29 @@ of capture.
 
 Playback Example
 ----------------
-  mal_uint32 on_send_samples(mal_device* pDevice, mal_uint32 frameCount, void* pSamples)
+  void data_callback(mal_device* pDevice, void* pOutput, const void* pInput, mal_uint32 frameCount)
   {
-      // This callback is set at initialization time and will be called when a playback device needs more
-      // data. You need to write as many frames as you can to pSamples (but no more than frameCount) and
-      // then return the number of frames you wrote.
-      //
-      // The user data (pDevice->pUserData) is set by mal_device_init().
-      return (mal_uint32)mal_decoder_read_pcm_frames((mal_decoder*)pDevice->pUserData, frameCount, pSamples);
+      mal_decoder* pDecoder = (mal_decoder*)pDevice->pUserData;
+      if (pDecoder == NULL) {
+          return;
+      }
+  
+      mal_decoder_read_pcm_frames(pDecoder, frameCount, pOutput);
   }
 
   ...
 
-  mal_device_config config = mal_device_config_init_playback(decoder.outputFormat, decoder.outputChannels, decoder.outputSampleRate, on_send_frames_to_device, &decoder);
+  mal_device_config config = mal_device_config_init(mal_device_type_playback);
+  config.playback.pDeviceID = NULL;
+  config.playback.format    = decoder.outputFormat;
+  config.playback.channels  = decoder.outputChannels;
+  config.sampleRate         = decoder.outputSampleRate;
+  config.dataCallback       = data_callback;
+  config.pUserData          = &decoder;
 
   mal_device device;
-  mal_result result = mal_device_init(NULL, mal_device_type_playback, NULL, &config, &device);
-  if (result != MAL_SUCCESS) {
-      return -1;
+  if (mal_device_init(NULL, &config, &device) != MAL_SUCCESS) {
+      ... An error occurred ...
   }
 
   mal_device_start(&device);     // The device is sleeping by default so you'll need to start it manually.

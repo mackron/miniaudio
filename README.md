@@ -9,7 +9,7 @@ Features
 - A simple build system.
   - It should Just Work out of the box, without the need to download and install any dependencies.
 - A simple API.
-- Supports both playback and capture on all backends.
+- Supports playback, capture and full-duplex.
 - Data conversion.
   - Sample format conversion, with optional dithering.
   - Sample rate conversion.
@@ -74,15 +74,16 @@ Simple Playback Example
 
 #include <stdio.h>
 
-// This is the function that's used for sending more data to the device for playback.
-mal_uint32 on_send_frames_to_device(mal_device* pDevice, mal_uint32 frameCount, void* pSamples)
+void data_callback(mal_device* pDevice, void* pOutput, const void* pInput, mal_uint32 frameCount)
 {
     mal_decoder* pDecoder = (mal_decoder*)pDevice->pUserData;
     if (pDecoder == NULL) {
-        return 0;
+        return;
     }
 
-    return (mal_uint32)mal_decoder_read_pcm_frames(pDecoder, frameCount, pSamples);
+    mal_decoder_read_pcm_frames(pDecoder, frameCount, pOutput);
+
+    (void)pInput;
 }
 
 int main(int argc, char** argv)
@@ -98,15 +99,16 @@ int main(int argc, char** argv)
         return -2;
     }
 
-   mal_device_config config = mal_device_config_init_playback(
-        decoder.outputFormat,
-        decoder.outputChannels,
-        decoder.outputSampleRate,
-        on_send_frames_to_device,
-        &decoder);
+    mal_device_config config = mal_device_config_init(mal_device_type_playback);
+    config.playback.pDeviceID = NULL;
+    config.playback.format    = decoder.outputFormat;
+    config.playback.channels  = decoder.outputChannels;
+    config.sampleRate         = decoder.outputSampleRate;
+    config.dataCallback       = data_callback;
+    config.pUserData          = &decoder;
 
     mal_device device;
-    if (mal_device_init(NULL, mal_device_type_playback, NULL, &config, &device) != MAL_SUCCESS) {
+    if (mal_device_init(NULL, &config, &device) != MAL_SUCCESS) {
         printf("Failed to open playback device.\n");
         mal_decoder_uninit(&decoder);
         return -3;
@@ -126,7 +128,7 @@ int main(int argc, char** argv)
     mal_decoder_uninit(&decoder);
 
     return 0;
-}
+}}
 ```
 
 

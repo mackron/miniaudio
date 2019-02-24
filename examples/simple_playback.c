@@ -10,7 +10,7 @@
 
 #include <stdio.h>
 
-void on_send_frames_to_device(mal_device* pDevice, void* pOutput, const void* pInput, mal_uint32 frameCount)
+void data_callback(mal_device* pDevice, void* pOutput, const void* pInput, mal_uint32 frameCount)
 {
     mal_decoder* pDecoder = (mal_decoder*)pDevice->pUserData;
     if (pDecoder == NULL) {
@@ -37,11 +37,11 @@ int main(int argc, char** argv)
 
     mal_device_config config = mal_device_config_init(mal_device_type_playback);
     config.playback.pDeviceID = NULL;
-    config.playback.format = decoder.outputFormat;
-    config.playback.channels = decoder.outputChannels;
-    config.sampleRate = decoder.outputSampleRate;
-    config.dataCallback = on_send_frames_to_device;
-    config.pUserData = &decoder;
+    config.playback.format    = decoder.outputFormat;
+    config.playback.channels  = decoder.outputChannels;
+    config.sampleRate         = decoder.outputSampleRate;
+    config.dataCallback       = data_callback;
+    config.pUserData          = &decoder;
 
     mal_device device;
     if (mal_device_init(NULL, &config, &device) != MAL_SUCCESS) {
