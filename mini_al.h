@@ -2308,6 +2308,7 @@ MAL_ALIGNED_STRUCT(MAL_SIMD_ALIGNMENT) mal_device
         {
             /*AAudioStream**/ mal_ptr pStreamPlayback;
             /*AAudioStream**/ mal_ptr pStreamCapture;
+            mal_pcm_rb duplexRB;
         } aaudio;
 #endif
 #ifdef MAL_SUPPORT_OPENSL
@@ -2325,6 +2326,7 @@ MAL_ALIGNED_STRUCT(MAL_SIMD_ALIGNMENT) mal_device
             mal_uint32 currentBufferIndexCapture;
             mal_uint8* pBufferPlayback;     // This is malloc()'d and is used for storing audio data. Typed as mal_uint8 for easy offsetting.
             mal_uint8* pBufferCapture;
+            mal_pcm_rb duplexRB;
         } opensl;
 #endif
 #ifdef MAL_SUPPORT_WEBAUDIO
@@ -19532,10 +19534,9 @@ mal_aaudio_data_callback_result_t mal_stream_data_callback_capture__aaudio(mal_A
     mal_assert(pDevice != NULL);
 
     if (pDevice->type == mal_device_type_duplex) {
-        /* TODO: Write to ring buffer. The client callback will be called from AAudio's playback callback. */
+        mal_device__handle_duplex_callback_capture(pDevice, frameCount, pAudioData, &pDevice->aaudio.duplexRB);
     } else {
-        /* Send directly to the client. */
-        mal_device__send_frames_to_client(pDevice, frameCount, pAudioData);
+        mal_device__send_frames_to_client(pDevice, frameCount, pAudioData);     /* Send directly to the client. */
     }
 
     (void)pStream;
@@ -19548,10 +19549,9 @@ mal_aaudio_data_callback_result_t mal_stream_data_callback_playback__aaudio(mal_
     mal_assert(pDevice != NULL);
 
     if (pDevice->type == mal_device_type_duplex) {
-        /* TODO: Map input samples from the ring buffer and use that as the input buffer for the data callback. */
+        mal_device__handle_duplex_callback_playback(pDevice, frameCount, pAudioData, &pDevice->aaudio.duplexRB);
     } else {
-        /* Read directly from the client. */
-        mal_device__read_frames_from_client(pDevice, frameCount, pAudioData);
+        mal_device__read_frames_from_client(pDevice, frameCount, pAudioData);   /* Read directly from the client. */
     }
 
     (void)pStream;
@@ -19774,6 +19774,10 @@ void mal_device_uninit__aaudio(mal_device* pDevice)
         mal_close_stream__aaudio(pDevice->pContext, (mal_AAudioStream*)pDevice->aaudio.pStreamPlayback);
         pDevice->aaudio.pStreamPlayback = NULL;
     }
+
+    if (pDevice->type == mal_device_type_duplex) {
+        mal_pcm_rb_uninit(&pDevice->aaudio.duplexRB);
+    }
 }
 
 mal_result mal_device_init__aaudio(mal_context* pContext, const mal_device_config* pConfig, mal_device* pDevice)
@@ -19830,6 +19834,20 @@ mal_result mal_device_init__aaudio(mal_context* pContext, const mal_device_confi
             pDevice->playback.internalPeriods = 1;
         } else {
             pDevice->playback.internalPeriods = pDevice->playback.internalBufferSizeInFrames / framesPerPeriod;
+        }
+    }
+
+    if (pConfig->deviceType == mal_device_type_duplex) {
+        mal_uint32 rbSizeInFrames = mal_calculate_frame_count_after_src(pDevice->sampleRate, pDevice->capture.internalSampleRate, pDevice->capture.internalBufferSizeInFrames);
+        mal_result result = mal_pcm_rb_init(pDevice->capture.format, pDevice->capture.channels, rbSizeInFrames, NULL, &pDevice->aaudio.duplexRB);
+        if (result != MAL_SUCCESS) {
+            if (pDevice->type == mal_device_type_capture || pDevice->type == mal_device_type_duplex) {
+                mal_close_stream__aaudio(pDevice->pContext, (mal_AAudioStream*)pDevice->aaudio.pStreamCapture);
+            }
+            if (pDevice->type == mal_device_type_playback || pDevice->type == mal_device_type_duplex) {
+                mal_close_stream__aaudio(pDevice->pContext, (mal_AAudioStream*)pDevice->aaudio.pStreamPlayback);
+            }
+            return mal_post_error(pDevice, MAL_LOG_LEVEL_ERROR, "[AAudio] Failed to initialize ring buffer.", result);
         }
     }
 
@@ -20412,7 +20430,7 @@ void mal_buffer_queue_callback_capture__opensl_android(SLAndroidSimpleBufferQueu
     mal_uint8* pBuffer = pDevice->opensl.pBufferCapture + (pDevice->opensl.currentBufferIndexCapture * periodSizeInBytes);
 
     if (pDevice->type == mal_device_type_duplex) {
-        /* TODO: Write data to the ring buffer. */
+        mal_device__handle_duplex_callback_capture(pDevice, (pDevice->capture.internalBufferSizeInFrames / pDevice->capture.internalPeriods), pBuffer, &pDevice->opensl.duplexRB);
     } else {
         mal_device__send_frames_to_client(pDevice, (pDevice->capture.internalBufferSizeInFrames / pDevice->capture.internalPeriods), pBuffer);
     }
@@ -20441,7 +20459,7 @@ void mal_buffer_queue_callback_playback__opensl_android(SLAndroidSimpleBufferQue
     mal_uint8* pBuffer = pDevice->opensl.pBufferPlayback + (pDevice->opensl.currentBufferIndexPlayback * periodSizeInBytes);
 
     if (pDevice->type == mal_device_type_duplex) {
-        /* TOOD: Read from the ring buffer and fire the callback. */
+        mal_device__handle_duplex_callback_playback(pDevice, (pDevice->playback.internalBufferSizeInFrames / pDevice->playback.internalPeriods), pBuffer, &pDevice->opensl.duplexRB);
     } else {
         mal_device__read_frames_from_client(pDevice, (pDevice->playback.internalBufferSizeInFrames / pDevice->playback.internalPeriods), pBuffer);
     }
@@ -20481,6 +20499,10 @@ void mal_device_uninit__opensl(mal_device* pDevice)
         }
 
         mal_free(pDevice->opensl.pBufferPlayback);
+    }
+
+    if (pDevice->type == mal_device_type_duplex) {
+        mal_pcm_rb_uninit(&pDevice->opensl.duplexRB);
     }
 }
 
@@ -20785,6 +20807,15 @@ mal_result mal_device_init__opensl(mal_context* pContext, const mal_device_confi
             return mal_post_error(pDevice, MAL_LOG_LEVEL_ERROR, "[OpenSL] Failed to allocate memory for data buffer.", MAL_OUT_OF_MEMORY);
         }
         MAL_ZERO_MEMORY(pDevice->opensl.pBufferPlayback, bufferSizeInBytes);
+    }
+
+    if (pConfig->deviceType == mal_device_type_duplex) {
+        mal_uint32 rbSizeInFrames = mal_calculate_frame_count_after_src(pDevice->sampleRate, pDevice->capture.internalSampleRate, pDevice->capture.internalBufferSizeInFrames);
+        mal_result result = mal_pcm_rb_init(pDevice->capture.format, pDevice->capture.channels, rbSizeInFrames, NULL, &pDevice->opensl.duplexRB);
+        if (result != MAL_SUCCESS) {
+            mal_device_uninit__opensl(pDevice);
+            return mal_post_error(pDevice, MAL_LOG_LEVEL_ERROR, "[OpenSL] Failed to initialize ring buffer.", result);
+        }
     }
 
     return MAL_SUCCESS;
