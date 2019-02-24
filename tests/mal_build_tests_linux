@@ -7,3 +7,5 @@ c++ mal_profiling.c -o ./bin/mal_profiling_cpp -Wall -ldl -lpthread -lm
 
 cc  mal_dithering.c -o ./bin/mal_dithering     -Wall -ldl -lpthread -lm
 c++ mal_dithering.c -o ./bin/mal_dithering_cpp -Wall -ldl -lpthread -lm
+
+cc  mal_duplex.c    -o ./bin/mal_duplex        -Wall -ldl -lpthread -lm
