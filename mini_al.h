@@ -2275,6 +2275,9 @@ MAL_ALIGNED_STRUCT(MAL_SIMD_ALIGNMENT) mal_device
             /*AudioUnit*/ mal_ptr audioUnitCapture;
             /*AudioBufferList**/ mal_ptr pAudioBufferList;  // Only used for input devices.
             mal_event stopEvent;
+            mal_uint32 originalBufferSizeInFrames;
+            mal_uint32 originalBufferSizeInMilliseconds;
+            mal_uint32 originalPeriods;
             mal_bool32 isDefaultPlaybackDevice;
             mal_bool32 isDefaultCaptureDevice;
             mal_bool32 isSwitchingPlaybackDevice;   /* <-- Set to true when the default device has changed and mini_al is in the process of switching. */
@@ -16382,15 +16385,15 @@ OSStatus mal_on_output__coreaudio(void* pUserData, AudioUnitRenderActionFlags* p
     // We need to check whether or not we are outputting interleaved or non-interleaved samples. The
     // way we do this is slightly different for each type.
     mal_stream_layout layout = mal_stream_layout_interleaved;
-    if (pBufferList->mBuffers[0].mNumberChannels != pDevice->internalChannels) {
+    if (pBufferList->mBuffers[0].mNumberChannels != pDevice->playback.internalChannels) {
         layout = mal_stream_layout_deinterleaved;
     }
     
     if (layout == mal_stream_layout_interleaved) {
         // For now we can assume everything is interleaved.
         for (UInt32 iBuffer = 0; iBuffer < pBufferList->mNumberBuffers; ++iBuffer) {
-            if (pBufferList->mBuffers[iBuffer].mNumberChannels == pDevice->internalChannels) {
-                mal_uint32 frameCountForThisBuffer = pBufferList->mBuffers[iBuffer].mDataByteSize / mal_get_bytes_per_frame(pDevice->internalFormat, pDevice->internalChannels);
+            if (pBufferList->mBuffers[iBuffer].mNumberChannels == pDevice->playback.internalChannels) {
+                mal_uint32 frameCountForThisBuffer = pBufferList->mBuffers[iBuffer].mDataByteSize / mal_get_bytes_per_frame(pDevice->playback.internalFormat, pDevice->playback.internalChannels);
                 if (frameCountForThisBuffer > 0) {
                     if (pDevice->type == mal_device_type_duplex) {
                         mal_device__handle_duplex_callback_playback(pDevice, frameCountForThisBuffer, pBufferList->mBuffers[iBuffer].mData, &pDevice->coreaudio.duplexRB);
@@ -16417,12 +16420,12 @@ OSStatus mal_on_output__coreaudio(void* pUserData, AudioUnitRenderActionFlags* p
         // This is the deinterleaved case. We need to update each buffer in groups of internalChannels. This
         // assumes each buffer is the same size.
         mal_uint8 tempBuffer[4096];
-        for (UInt32 iBuffer = 0; iBuffer < pBufferList->mNumberBuffers; iBuffer += pDevice->internalChannels) {
-            mal_uint32 frameCountPerBuffer = pBufferList->mBuffers[iBuffer].mDataByteSize / mal_get_bytes_per_sample(pDevice->internalFormat);
+        for (UInt32 iBuffer = 0; iBuffer < pBufferList->mNumberBuffers; iBuffer += pDevice->playback.internalChannels) {
+            mal_uint32 frameCountPerBuffer = pBufferList->mBuffers[iBuffer].mDataByteSize / mal_get_bytes_per_sample(pDevice->playback.internalFormat);
             
             mal_uint32 framesRemaining = frameCountPerBuffer;
             while (framesRemaining > 0) {
-                mal_uint32 framesToRead = sizeof(tempBuffer) / mal_get_bytes_per_frame(pDevice->internalFormat, pDevice->internalChannels);
+                mal_uint32 framesToRead = sizeof(tempBuffer) / mal_get_bytes_per_frame(pDevice->playback.internalFormat, pDevice->playback.internalChannels);
                 if (framesToRead > framesRemaining) {
                     framesToRead = framesRemaining;
                 }
@@ -16434,11 +16437,11 @@ OSStatus mal_on_output__coreaudio(void* pUserData, AudioUnitRenderActionFlags* p
                 }
                 
                 void* ppDeinterleavedBuffers[MAL_MAX_CHANNELS];
-                for (mal_uint32 iChannel = 0; iChannel < pDevice->internalChannels; ++iChannel) {
-                    ppDeinterleavedBuffers[iChannel] = (void*)mal_offset_ptr(pBufferList->mBuffers[iBuffer].mData, (frameCountPerBuffer - framesRemaining) * mal_get_bytes_per_sample(pDevice->internalFormat));
+                for (mal_uint32 iChannel = 0; iChannel < pDevice->playback.internalChannels; ++iChannel) {
+                    ppDeinterleavedBuffers[iChannel] = (void*)mal_offset_ptr(pBufferList->mBuffers[iBuffer].mData, (frameCountPerBuffer - framesRemaining) * mal_get_bytes_per_sample(pDevice->playback.internalFormat));
                 }
                 
-                mal_deinterleave_pcm_frames(pDevice->internalFormat, pDevice->internalChannels, framesToRead, tempBuffer, ppDeinterleavedBuffers);
+                mal_deinterleave_pcm_frames(pDevice->playback.internalFormat, pDevice->playback.internalChannels, framesToRead, tempBuffer, ppDeinterleavedBuffers);
                 
                 framesRemaining -= framesToRead;
             }
@@ -16465,7 +16468,7 @@ OSStatus mal_on_input__coreaudio(void* pUserData, AudioUnitRenderActionFlags* pA
     // We need to check whether or not we are outputting interleaved or non-interleaved samples. The
     // way we do this is slightly different for each type.
     mal_stream_layout layout = mal_stream_layout_interleaved;
-    if (pRenderedBufferList->mBuffers[0].mNumberChannels != pDevice->internalChannels) {
+    if (pRenderedBufferList->mBuffers[0].mNumberChannels != pDevice->capture.internalChannels) {
         layout = mal_stream_layout_deinterleaved;
     }
     
@@ -16483,7 +16486,7 @@ OSStatus mal_on_input__coreaudio(void* pUserData, AudioUnitRenderActionFlags* pA
     
     if (layout == mal_stream_layout_interleaved) {
         for (UInt32 iBuffer = 0; iBuffer < pRenderedBufferList->mNumberBuffers; ++iBuffer) {
-            if (pRenderedBufferList->mBuffers[iBuffer].mNumberChannels == pDevice->internalChannels) {
+            if (pRenderedBufferList->mBuffers[iBuffer].mNumberChannels == pDevice->capture.internalChannels) {
                 if (pDevice->type == mal_device_type_duplex) {
                     mal_device__handle_duplex_callback_capture(pDevice, frameCount, pRenderedBufferList->mBuffers[iBuffer].mData, &pDevice->coreaudio.duplexRB);
                 } else {
@@ -16501,7 +16504,7 @@ OSStatus mal_on_input__coreaudio(void* pUserData, AudioUnitRenderActionFlags* pA
                 
                 mal_uint32 framesRemaining = frameCount;
                 while (framesRemaining > 0) {
-                    mal_uint32 framesToSend = sizeof(silentBuffer) / mal_get_bytes_per_frame(pDevice->internalFormat, pDevice->internalChannels);
+                    mal_uint32 framesToSend = sizeof(silentBuffer) / mal_get_bytes_per_frame(pDevice->capture.internalFormat, pDevice->capture.internalChannels);
                     if (framesToSend > framesRemaining) {
                         framesToSend = framesRemaining;
                     }
@@ -16519,20 +16522,20 @@ OSStatus mal_on_input__coreaudio(void* pUserData, AudioUnitRenderActionFlags* pA
         // This is the deinterleaved case. We need to interleave the audio data before sending it to the client. This
         // assumes each buffer is the same size.
         mal_uint8 tempBuffer[4096];
-        for (UInt32 iBuffer = 0; iBuffer < pRenderedBufferList->mNumberBuffers; iBuffer += pDevice->internalChannels) {
+        for (UInt32 iBuffer = 0; iBuffer < pRenderedBufferList->mNumberBuffers; iBuffer += pDevice->capture.internalChannels) {
             mal_uint32 framesRemaining = frameCount;
             while (framesRemaining > 0) {
-                mal_uint32 framesToSend = sizeof(tempBuffer) / mal_get_bytes_per_sample(pDevice->internalFormat);
+                mal_uint32 framesToSend = sizeof(tempBuffer) / mal_get_bytes_per_sample(pDevice->capture.internalFormat);
                 if (framesToSend > framesRemaining) {
                     framesToSend = framesRemaining;
                 }
                 
                 void* ppDeinterleavedBuffers[MAL_MAX_CHANNELS];
-                for (mal_uint32 iChannel = 0; iChannel < pDevice->internalChannels; ++iChannel) {
-                    ppDeinterleavedBuffers[iChannel] = (void*)mal_offset_ptr(pRenderedBufferList->mBuffers[iBuffer].mData, (frameCount - framesRemaining) * mal_get_bytes_per_sample(pDevice->internalFormat));
+                for (mal_uint32 iChannel = 0; iChannel < pDevice->capture.internalChannels; ++iChannel) {
+                    ppDeinterleavedBuffers[iChannel] = (void*)mal_offset_ptr(pRenderedBufferList->mBuffers[iBuffer].mData, (frameCount - framesRemaining) * mal_get_bytes_per_sample(pDevice->capture.internalFormat));
                 }
                 
-                mal_interleave_pcm_frames(pDevice->internalFormat, pDevice->internalChannels, framesToSend, (const void**)ppDeinterleavedBuffers, tempBuffer);
+                mal_interleave_pcm_frames(pDevice->capture.internalFormat, pDevice->capture.internalChannels, framesToSend, (const void**)ppDeinterleavedBuffers, tempBuffer);
 
                 if (pDevice->type == mal_device_type_duplex) {
                     mal_device__handle_duplex_callback_capture(pDevice, framesToSend, tempBuffer, &pDevice->coreaudio.duplexRB);
@@ -17032,11 +17035,11 @@ mal_result mal_device_reinit_internal__coreaudio(mal_device* pDevice, mal_device
     if (deviceType == mal_device_type_capture) {
         data.formatIn               = pDevice->capture.format;
         data.channelsIn             = pDevice->capture.channels;
-        data.sampleRateIn           = pDevice->capture.sampleRate;
+        data.sampleRateIn           = pDevice->sampleRate;
         mal_copy_memory(data.channelMapIn, pDevice->capture.channelMap, sizeof(pDevice->capture.channelMap));
         data.usingDefaultFormat     = pDevice->capture.usingDefaultFormat;
         data.usingDefaultChannels   = pDevice->capture.usingDefaultChannels;
-        data.usingDefaultSampleRate = pDevice->capture.usingDefaultSampleRate;
+        data.usingDefaultSampleRate = pDevice->usingDefaultSampleRate;
         data.usingDefaultChannelMap = pDevice->capture.usingDefaultChannelMap;
         data.shareMode              = pDevice->capture.shareMode;
         data.registerStopEvent      = MAL_TRUE;
@@ -17058,11 +17061,11 @@ mal_result mal_device_reinit_internal__coreaudio(mal_device* pDevice, mal_device
     if (deviceType == mal_device_type_playback) {
         data.formatIn               = pDevice->playback.format;
         data.channelsIn             = pDevice->playback.channels;
-        data.sampleRateIn           = pDevice->playback.sampleRate;
+        data.sampleRateIn           = pDevice->sampleRate;
         mal_copy_memory(data.channelMapIn, pDevice->playback.channelMap, sizeof(pDevice->playback.channelMap));
         data.usingDefaultFormat     = pDevice->playback.usingDefaultFormat;
         data.usingDefaultChannels   = pDevice->playback.usingDefaultChannels;
-        data.usingDefaultSampleRate = pDevice->playback.usingDefaultSampleRate;
+        data.usingDefaultSampleRate = pDevice->usingDefaultSampleRate;
         data.usingDefaultChannelMap = pDevice->playback.usingDefaultChannelMap;
         data.shareMode              = pDevice->playback.shareMode;
         data.registerStopEvent      = (pDevice->type != mal_device_type_duplex);
@@ -17077,8 +17080,9 @@ mal_result mal_device_reinit_internal__coreaudio(mal_device* pDevice, mal_device
     #endif
         pDevice->coreaudio.audioUnitPlayback = (mal_ptr)data.audioUnit;
     }
-    data.bufferSizeInFramesIn = pDevice->bufferSizeInFrames;
-    data.periodsIn            = pDevice->periods;
+    data.bufferSizeInFramesIn       = pDevice->coreaudio.originalBufferSizeInFrames;
+    data.bufferSizeInMillisecondsIn = pDevice->coreaudio.originalBufferSizeInMilliseconds;
+    data.periodsIn                  = pDevice->coreaudio.originalPeriods;
 
     mal_result result = mal_device_init_internal__coreaudio(pDevice->pContext, deviceType, NULL, &data, (void*)pDevice);
     if (result != MAL_SUCCESS) {
@@ -17112,7 +17116,7 @@ mal_result mal_device_init__coreaudio(mal_context* pContext, const mal_device_co
         mal_copy_memory(data.channelMapIn, pConfig->capture.channelMap, sizeof(pConfig->capture.channelMap));
         data.usingDefaultFormat         = pDevice->capture.usingDefaultFormat;
         data.usingDefaultChannels       = pDevice->capture.usingDefaultChannels;
-        data.usingDefaultSampleRate     = pDevice->capture.usingDefaultSampleRate;
+        data.usingDefaultSampleRate     = pDevice->usingDefaultSampleRate;
         data.usingDefaultChannelMap     = pDevice->capture.usingDefaultChannelMap;
         data.shareMode                  = pConfig->capture.shareMode;
         data.bufferSizeInFramesIn       = pConfig->bufferSizeInFrames;
@@ -17160,7 +17164,7 @@ mal_result mal_device_init__coreaudio(mal_context* pContext, const mal_device_co
         mal_copy_memory(data.channelMapIn, pConfig->playback.channelMap, sizeof(pConfig->playback.channelMap));
         data.usingDefaultFormat         = pDevice->playback.usingDefaultFormat;
         data.usingDefaultChannels       = pDevice->playback.usingDefaultChannels;
-        data.usingDefaultSampleRate     = pDevice->playback.usingDefaultSampleRate;
+        data.usingDefaultSampleRate     = pDevice->usingDefaultSampleRate;
         data.usingDefaultChannelMap     = pDevice->playback.usingDefaultChannelMap;
         data.shareMode                  = pConfig->playback.shareMode;
         
@@ -17211,6 +17215,10 @@ mal_result mal_device_init__coreaudio(mal_context* pContext, const mal_device_co
         }
     #endif
     }
+    
+    pDevice->coreaudio.originalBufferSizeInFrames       = pConfig->bufferSizeInFrames;
+    pDevice->coreaudio.originalBufferSizeInMilliseconds = pConfig->bufferSizeInMilliseconds;
+    pDevice->coreaudio.originalPeriods                  = pConfig->periods;
     
     /*
     When stopping the device, a callback is called on another thread. We need to wait for this callback
@@ -29068,7 +29076,7 @@ mal_result mal_pcm_rb_acquire_read(mal_pcm_rb* pRB, mal_uint32* pSizeInFrames, v
         return result;
     }
 
-    *pSizeInFrames = sizeInBytes / mal_pcm_rb_get_bpf(pRB);
+    *pSizeInFrames = (mal_uint32)(sizeInBytes / (size_t)mal_pcm_rb_get_bpf(pRB));
     return MAL_SUCCESS;
 }
 
@@ -29097,7 +29105,7 @@ mal_result mal_pcm_rb_acquire_write(mal_pcm_rb* pRB, mal_uint32* pSizeInFrames, 
         return result;
     }
 
-    *pSizeInFrames = sizeInBytes / mal_pcm_rb_get_bpf(pRB);
+    *pSizeInFrames = (mal_uint32)(sizeInBytes / mal_pcm_rb_get_bpf(pRB));
     return MAL_SUCCESS;
 }
 

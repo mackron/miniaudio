@@ -37,8 +37,8 @@ int main(int argc, char** argv)
 
     mal_device_config config = mal_device_config_init(mal_device_type_playback);
     config.playback.pDeviceID = NULL;
-    config.format = decoder.outputFormat;
-    config.channels = decoder.outputChannels;
+    config.playback.format = decoder.outputFormat;
+    config.playback.channels = decoder.outputChannels;
     config.sampleRate = decoder.outputSampleRate;
     config.dataCallback = on_send_frames_to_device;
     config.pUserData = &decoder;
