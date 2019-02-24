@@ -2849,6 +2849,9 @@ mal_uint64 mal_sine_wave_read_f32_ex(mal_sine_wave* pSineWave, mal_uint64 frameC
 
 #ifdef MAL_WIN32
 #include <windows.h>
+#include <objbase.h>
+#include <mmreg.h>
+#include <mmsystem.h>
 #else
 #include <stdlib.h> // For malloc()/free()
 #include <string.h> // For memset()
@@ -5471,7 +5474,6 @@ mal_result mal_context_init__null(mal_context* pContext)
 //
 ///////////////////////////////////////////////////////////////////////////////
 #if defined(MAL_WIN32)
-#include "objbase.h"
 #if defined(MAL_WIN32_DESKTOP)
     #define mal_CoInitializeEx(pContext, pvReserved, dwCoInit)                          ((MAL_PFN_CoInitializeEx)pContext->win32.CoInitializeEx)(pvReserved, dwCoInit)
     #define mal_CoUninitialize(pContext)                                                ((MAL_PFN_CoUninitialize)pContext->win32.CoUninitialize)()
@@ -5485,12 +5487,6 @@ mal_result mal_context_init__null(mal_context* pContext)
     #define mal_CoTaskMemFree(pContext, pv)                                             CoTaskMemFree(pv)
     #define mal_PropVariantClear(pContext, pvar)                                        PropVariantClear(pvar)
 #endif
-
-// There's a few common headers for Win32 backends which include here for simplicity. Note that we should never
-// include any files that do not come standard with modern compilers, and we may need to manually define a few
-// symbols.
-#include <mmreg.h>
-#include <mmsystem.h>
 
 #if !defined(MAXULONG_PTR)
 typedef size_t DWORD_PTR;
