@@ -25,6 +25,14 @@ Requirements:
 - Must have different modes on how to handle the last of the input samples. Certain situations (streaming) requires
   the last input samples to be cached in the internal structure for the windowing algorithm. Other situations require
   all of the input samples to be consumed in order to output the correct total sample count.
+- Need to support converting input samples directly passed in as parameters without using a callback.
+  - mal_resampler_read(pResampler, &inputFrameCount, pInputFrames, &outputFrameCount, pOutputFrames). Returns a
+    result code. inputFrameCount and outputFrameCount are both input and output.
+- Need to support using a ring buffer as the backing data.
+  - mal_resampler_read_from_pcm_rb(pResampler, frameCount, pFramesOut, &ringBuffer). May need an option to control
+    how to handle underruns - should it stop processing or should it pad with zeroes?
+- Need to support reading from a callback.
+  - mal_resampler_read_from_callback(pResampler, frameCount, pFramesOut, resampler_callback, pUserData)
 
 
 Other Notes:
