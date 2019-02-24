@@ -14829,7 +14829,7 @@ mal_result mal_device_init__jack(mal_context* pContext, const mal_device_config*
         result = mal_pcm_rb_init(pDevice->capture.format, pDevice->capture.channels, rbSizeInFrames, NULL, &pDevice->jack.duplexRB);
         if (result != MAL_SUCCESS) {
             mal_device_uninit__jack(pDevice);
-            return mal_post_error(pDevice, MAL_LOG_LEVEL_ERROR, "[AAudio] Failed to initialize ring buffer.", result);
+            return mal_post_error(pDevice, MAL_LOG_LEVEL_ERROR, "[JACK] Failed to initialize ring buffer.", result);
         }
     }
 
@@ -16359,6 +16359,10 @@ void mal_device_uninit__coreaudio(mal_device* pDevice)
     if (pDevice->coreaudio.pAudioBufferList) {
         mal_free(pDevice->coreaudio.pAudioBufferList);
     }
+
+    if (pDevice->type == mal_device_type_duplex) {
+        mal_pcm_rb_uninit(&pDevice->coreaudio.duplexRB);
+    }
 }
 
 
@@ -16388,7 +16392,11 @@ OSStatus mal_on_output__coreaudio(void* pUserData, AudioUnitRenderActionFlags* p
             if (pBufferList->mBuffers[iBuffer].mNumberChannels == pDevice->internalChannels) {
                 mal_uint32 frameCountForThisBuffer = pBufferList->mBuffers[iBuffer].mDataByteSize / mal_get_bytes_per_frame(pDevice->internalFormat, pDevice->internalChannels);
                 if (frameCountForThisBuffer > 0) {
-                    mal_device__read_frames_from_client(pDevice, frameCountForThisBuffer, pBufferList->mBuffers[iBuffer].mData);
+                    if (pDevice->type == mal_device_type_duplex) {
+                        mal_device__handle_duplex_callback_playback(pDevice, frameCountForThisBuffer, pBufferList->mBuffers[iBuffer].mData, &pDevice->coreaudio.duplexRB);
+                    } else {
+                        mal_device__read_frames_from_client(pDevice, frameCountForThisBuffer, pBufferList->mBuffers[iBuffer].mData);
+                    }
                 }
                 
             #if defined(MAL_DEBUG_OUTPUT)
@@ -16419,7 +16427,11 @@ OSStatus mal_on_output__coreaudio(void* pUserData, AudioUnitRenderActionFlags* p
                     framesToRead = framesRemaining;
                 }
                 
-                mal_device__read_frames_from_client(pDevice, framesToRead, tempBuffer);
+                if (pDevice->type == mal_device_type_duplex) {
+                    mal_device__handle_duplex_callback_playback(pDevice, framesToRead, tempBuffer, &pDevice->coreaudio.duplexRB);
+                } else {
+                    mal_device__read_frames_from_client(pDevice, framesToRead, tempBuffer);
+                }
                 
                 void* ppDeinterleavedBuffers[MAL_MAX_CHANNELS];
                 for (mal_uint32 iChannel = 0; iChannel < pDevice->internalChannels; ++iChannel) {
@@ -16472,7 +16484,11 @@ OSStatus mal_on_input__coreaudio(void* pUserData, AudioUnitRenderActionFlags* pA
     if (layout == mal_stream_layout_interleaved) {
         for (UInt32 iBuffer = 0; iBuffer < pRenderedBufferList->mNumberBuffers; ++iBuffer) {
             if (pRenderedBufferList->mBuffers[iBuffer].mNumberChannels == pDevice->internalChannels) {
-                mal_device__send_frames_to_client(pDevice, frameCount, pRenderedBufferList->mBuffers[iBuffer].mData);
+                if (pDevice->type == mal_device_type_duplex) {
+                    mal_device__handle_duplex_callback_capture(pDevice, frameCount, pRenderedBufferList->mBuffers[iBuffer].mData, &pDevice->coreaudio.duplexRB);
+                } else {
+                    mal_device__send_frames_to_client(pDevice, frameCount, pRenderedBufferList->mBuffers[iBuffer].mData);
+                }
             #if defined(MAL_DEBUG_OUTPUT)
                 printf("  mDataByteSize=%d\n", pRenderedBufferList->mBuffers[iBuffer].mDataByteSize);
             #endif
@@ -16517,7 +16533,12 @@ OSStatus mal_on_input__coreaudio(void* pUserData, AudioUnitRenderActionFlags* pA
                 }
                 
                 mal_interleave_pcm_frames(pDevice->internalFormat, pDevice->internalChannels, framesToSend, (const void**)ppDeinterleavedBuffers, tempBuffer);
-                mal_device__send_frames_to_client(pDevice, framesToSend, tempBuffer);
+
+                if (pDevice->type == mal_device_type_duplex) {
+                    mal_device__handle_duplex_callback_capture(pDevice, framesToSend, tempBuffer, &pDevice->coreaudio.duplexRB);
+                } else {
+                    mal_device__send_frames_to_client(pDevice, framesToSend, tempBuffer);
+                }
 
                 framesRemaining -= framesToSend;
             }
@@ -17064,23 +17085,6 @@ mal_result mal_device_reinit_internal__coreaudio(mal_device* pDevice, mal_device
         return result;
     }
     
-    // TEMP. BACKWARDS COMPATIBILITY.
-    if (pDevice->type == mal_device_type_capture || pDevice->type == mal_device_type_duplex) {
-        pDevice->internalFormat     = pDevice->capture.internalFormat;
-        pDevice->internalChannels   = pDevice->capture.internalChannels;
-        pDevice->internalSampleRate = pDevice->capture.internalSampleRate;
-        mal_copy_memory(pDevice->internalChannelMap, pDevice->capture.channelMap, sizeof(pDevice->capture.channelMap));
-        pDevice->bufferSizeInFrames = pDevice->capture.internalBufferSizeInFrames;
-        pDevice->periods            = pDevice->capture.internalPeriods;
-    } else {
-        pDevice->internalFormat     = pDevice->playback.internalFormat;
-        pDevice->internalChannels   = pDevice->playback.internalChannels;
-        pDevice->internalSampleRate = pDevice->playback.internalSampleRate;
-        mal_copy_memory(pDevice->internalChannelMap, pDevice->playback.channelMap, sizeof(pDevice->playback.channelMap));
-        pDevice->bufferSizeInFrames = pDevice->playback.internalBufferSizeInFrames;
-        pDevice->periods            = pDevice->playback.internalPeriods;
-    }
-    
     return MAL_SUCCESS;
 }
 
@@ -17208,27 +17212,20 @@ mal_result mal_device_init__coreaudio(mal_context* pContext, const mal_device_co
     #endif
     }
     
-    if (pDevice->type == mal_device_type_capture || pDevice->type == mal_device_type_duplex) {
-        pDevice->internalFormat     = pDevice->capture.internalFormat;
-        pDevice->internalChannels   = pDevice->capture.internalChannels;
-        pDevice->internalSampleRate = pDevice->capture.internalSampleRate;
-        mal_copy_memory(pDevice->internalChannelMap, pDevice->capture.channelMap, sizeof(pDevice->capture.channelMap));
-        pDevice->bufferSizeInFrames = pDevice->capture.internalBufferSizeInFrames;
-        pDevice->periods            = pDevice->capture.internalPeriods;
-    } else {
-        pDevice->internalFormat     = pDevice->playback.internalFormat;
-        pDevice->internalChannels   = pDevice->playback.internalChannels;
-        pDevice->internalSampleRate = pDevice->playback.internalSampleRate;
-        mal_copy_memory(pDevice->internalChannelMap, pDevice->playback.channelMap, sizeof(pDevice->playback.channelMap));
-        pDevice->bufferSizeInFrames = pDevice->playback.internalBufferSizeInFrames;
-        pDevice->periods            = pDevice->playback.internalPeriods;
-    }
-    
     /*
     When stopping the device, a callback is called on another thread. We need to wait for this callback
     before returning from mal_device_stop(). This event is used for this.
     */
     mal_event_init(pContext, &pDevice->coreaudio.stopEvent);
+
+    /* Need a ring buffer for duplex mode. */
+    if (pConfig->deviceType == mal_device_type_duplex) {
+        mal_uint32 rbSizeInFrames = (mal_uint32)mal_calculate_frame_count_after_src(pDevice->sampleRate, pDevice->capture.internalSampleRate, pDevice->capture.internalBufferSizeInFrames);
+        mal_result result = mal_pcm_rb_init(pDevice->capture.format, pDevice->capture.channels, rbSizeInFrames, NULL, &pDevice->coreaudio.duplexRB);
+        if (result != MAL_SUCCESS) {
+            return mal_post_error(pDevice, MAL_LOG_LEVEL_ERROR, "[Core Audio] Failed to initialize ring buffer.", result);
+        }
+    }
 
     return MAL_SUCCESS;
 }
