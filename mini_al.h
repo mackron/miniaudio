@@ -2263,6 +2263,7 @@ MAL_ALIGNED_STRUCT(MAL_SIMD_ALIGNMENT) mal_device
             /*jack_port_t**/ mal_ptr pPortsCapture[MAL_MAX_CHANNELS];
             float* pIntermediaryBufferPlayback; // Typed as a float because JACK is always floating point.
             float* pIntermediaryBufferCapture;
+            mal_pcm_rb duplexRB;
         } jack;
 #endif
 #ifdef MAL_SUPPORT_COREAUDIO
@@ -2278,6 +2279,7 @@ MAL_ALIGNED_STRUCT(MAL_SIMD_ALIGNMENT) mal_device
             mal_bool32 isDefaultCaptureDevice;
             mal_bool32 isSwitchingPlaybackDevice;   /* <-- Set to true when the default device has changed and mini_al is in the process of switching. */
             mal_bool32 isSwitchingCaptureDevice;    /* <-- Set to true when the default device has changed and mini_al is in the process of switching. */
+            mal_pcm_rb duplexRB;
         } coreaudio;
 #endif
 #ifdef MAL_SUPPORT_SNDIO
@@ -14595,6 +14597,18 @@ void mal_device_uninit__jack(mal_device* pDevice)
     if (pDevice->jack.pClient != NULL) {
         ((mal_jack_client_close_proc)pContext->jack.jack_client_close)((mal_jack_client_t*)pDevice->jack.pClient);
     }
+
+    if (pDevice->type == mal_device_type_capture || pDevice->type == mal_device_type_duplex) {
+        mal_free(pDevice->jack.pIntermediaryBufferCapture);
+    }
+
+    if (pDevice->type == mal_device_type_playback || pDevice->type == mal_device_type_duplex) {
+        mal_free(pDevice->jack.pIntermediaryBufferPlayback);
+    }
+
+    if (pDevice->type == mal_device_type_duplex) {
+        mal_pcm_rb_uninit(&pDevice->jack.duplexRB);
+    }
 }
 
 void mal_device__jack_shutdown_callback(void* pUserData)
@@ -14641,42 +14655,48 @@ int mal_device__jack_process_callback(mal_jack_nframes_t frameCount, void* pUser
 
     mal_context* pContext = pDevice->pContext;
     mal_assert(pContext != NULL);
-    
-    if (pDevice->type == mal_device_type_duplex) {
-        // TODO: Implement me.
-    } else {
-        if (pDevice->type == mal_device_type_playback) {
-            mal_device__read_frames_from_client(pDevice, frameCount, pDevice->jack.pIntermediaryBufferPlayback);
 
-            // Channels need to be deinterleaved.
-            for (mal_uint32 iChannel = 0; iChannel < pDevice->playback.internalChannels; ++iChannel) {
-                float* pDst = (float*)((mal_jack_port_get_buffer_proc)pContext->jack.jack_port_get_buffer)((mal_jack_port_t*)pDevice->jack.pPortsPlayback[iChannel], frameCount);
-                if (pDst != NULL) {
-                    const float* pSrc = pDevice->jack.pIntermediaryBufferPlayback + iChannel;
-                    for (mal_jack_nframes_t iFrame = 0; iFrame < frameCount; ++iFrame) {
-                        *pDst = *pSrc;
+    if (pDevice->type == mal_device_type_capture || pDevice->type == mal_device_type_duplex) {
+        // Channels need to be interleaved.
+        for (mal_uint32 iChannel = 0; iChannel < pDevice->capture.internalChannels; ++iChannel) {
+            const float* pSrc = (const float*)((mal_jack_port_get_buffer_proc)pContext->jack.jack_port_get_buffer)((mal_jack_port_t*)pDevice->jack.pPortsCapture[iChannel], frameCount);
+            if (pSrc != NULL) {
+                float* pDst = pDevice->jack.pIntermediaryBufferCapture + iChannel;
+                for (mal_jack_nframes_t iFrame = 0; iFrame < frameCount; ++iFrame) {
+                    *pDst = *pSrc;
 
-                        pDst += 1;
-                        pSrc += pDevice->playback.internalChannels;
-                    }
+                    pDst += pDevice->capture.internalChannels;
+                    pSrc += 1;
                 }
             }
+        }
+
+        if (pDevice->type == mal_device_type_duplex) {
+            mal_device__handle_duplex_callback_capture(pDevice, frameCount, pDevice->jack.pIntermediaryBufferCapture, &pDevice->jack.duplexRB);
         } else {
-            // Channels need to be interleaved.
-            for (mal_uint32 iChannel = 0; iChannel < pDevice->capture.internalChannels; ++iChannel) {
-                const float* pSrc = (const float*)((mal_jack_port_get_buffer_proc)pContext->jack.jack_port_get_buffer)((mal_jack_port_t*)pDevice->jack.pPortsCapture[iChannel], frameCount);
-                if (pSrc != NULL) {
-                    float* pDst = pDevice->jack.pIntermediaryBufferCapture + iChannel;
-                    for (mal_jack_nframes_t iFrame = 0; iFrame < frameCount; ++iFrame) {
-                        *pDst = *pSrc;
+            mal_device__send_frames_to_client(pDevice, frameCount, pDevice->jack.pIntermediaryBufferCapture);
+        }
+    }
 
-                        pDst += pDevice->capture.internalChannels;
-                        pSrc += 1;
-                    }
+    if (pDevice->type == mal_device_type_playback || pDevice->type == mal_device_type_duplex) {
+        if (pDevice->type == mal_device_type_duplex) {
+            mal_device__handle_duplex_callback_playback(pDevice, frameCount, pDevice->jack.pIntermediaryBufferPlayback, &pDevice->jack.duplexRB);
+        } else {
+            mal_device__read_frames_from_client(pDevice, frameCount, pDevice->jack.pIntermediaryBufferPlayback);
+        }
+
+        // Channels need to be deinterleaved.
+        for (mal_uint32 iChannel = 0; iChannel < pDevice->playback.internalChannels; ++iChannel) {
+            float* pDst = (float*)((mal_jack_port_get_buffer_proc)pContext->jack.jack_port_get_buffer)((mal_jack_port_t*)pDevice->jack.pPortsPlayback[iChannel], frameCount);
+            if (pDst != NULL) {
+                const float* pSrc = pDevice->jack.pIntermediaryBufferPlayback + iChannel;
+                for (mal_jack_nframes_t iFrame = 0; iFrame < frameCount; ++iFrame) {
+                    *pDst = *pSrc;
+
+                    pDst += 1;
+                    pSrc += pDevice->playback.internalChannels;
                 }
             }
-
-            mal_device__send_frames_to_client(pDevice, frameCount, pDevice->jack.pIntermediaryBufferCapture);
         }
     }
 
@@ -14801,6 +14821,15 @@ mal_result mal_device_init__jack(mal_context* pContext, const mal_device_config*
         if (pDevice->jack.pIntermediaryBufferPlayback == NULL) {
             mal_device_uninit__jack(pDevice);
             return MAL_OUT_OF_MEMORY;
+        }
+    }
+
+    if (pDevice->type == mal_device_type_duplex) {
+        mal_uint32 rbSizeInFrames = (mal_uint32)mal_calculate_frame_count_after_src(pDevice->sampleRate, pDevice->capture.internalSampleRate, pDevice->capture.internalBufferSizeInFrames);
+        result = mal_pcm_rb_init(pDevice->capture.format, pDevice->capture.channels, rbSizeInFrames, NULL, &pDevice->jack.duplexRB);
+        if (result != MAL_SUCCESS) {
+            mal_device_uninit__jack(pDevice);
+            return mal_post_error(pDevice, MAL_LOG_LEVEL_ERROR, "[AAudio] Failed to initialize ring buffer.", result);
         }
     }
 
@@ -19838,7 +19867,7 @@ mal_result mal_device_init__aaudio(mal_context* pContext, const mal_device_confi
     }
 
     if (pConfig->deviceType == mal_device_type_duplex) {
-        mal_uint32 rbSizeInFrames = mal_calculate_frame_count_after_src(pDevice->sampleRate, pDevice->capture.internalSampleRate, pDevice->capture.internalBufferSizeInFrames);
+        mal_uint32 rbSizeInFrames = (mal_uint32)mal_calculate_frame_count_after_src(pDevice->sampleRate, pDevice->capture.internalSampleRate, pDevice->capture.internalBufferSizeInFrames);
         mal_result result = mal_pcm_rb_init(pDevice->capture.format, pDevice->capture.channels, rbSizeInFrames, NULL, &pDevice->aaudio.duplexRB);
         if (result != MAL_SUCCESS) {
             if (pDevice->type == mal_device_type_capture || pDevice->type == mal_device_type_duplex) {
@@ -20810,7 +20839,7 @@ mal_result mal_device_init__opensl(mal_context* pContext, const mal_device_confi
     }
 
     if (pConfig->deviceType == mal_device_type_duplex) {
-        mal_uint32 rbSizeInFrames = mal_calculate_frame_count_after_src(pDevice->sampleRate, pDevice->capture.internalSampleRate, pDevice->capture.internalBufferSizeInFrames);
+        mal_uint32 rbSizeInFrames = (mal_uint32)mal_calculate_frame_count_after_src(pDevice->sampleRate, pDevice->capture.internalSampleRate, pDevice->capture.internalBufferSizeInFrames);
         mal_result result = mal_pcm_rb_init(pDevice->capture.format, pDevice->capture.channels, rbSizeInFrames, NULL, &pDevice->opensl.duplexRB);
         if (result != MAL_SUCCESS) {
             mal_device_uninit__opensl(pDevice);
@@ -21396,7 +21425,7 @@ mal_result mal_device_init__webaudio(mal_context* pContext, const mal_device_con
     the external sample rate.
     */
     if (pConfig->deviceType == mal_device_type_duplex) {
-        mal_uint32 rbSizeInFrames = mal_calculate_frame_count_after_src(pDevice->sampleRate, pDevice->capture.internalSampleRate, pDevice->capture.internalBufferSizeInFrames);
+        mal_uint32 rbSizeInFrames = (mal_uint32)mal_calculate_frame_count_after_src(pDevice->sampleRate, pDevice->capture.internalSampleRate, pDevice->capture.internalBufferSizeInFrames);
         result = mal_pcm_rb_init(pDevice->capture.format, pDevice->capture.channels, rbSizeInFrames, NULL, &pDevice->webaudio.duplexRB);
         if (result != MAL_SUCCESS) {
             if (pDevice->type == mal_device_type_capture || pDevice->type == mal_device_type_duplex) {
