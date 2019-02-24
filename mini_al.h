@@ -28730,7 +28730,7 @@ void mal_rb_uninit(mal_rb* pRB)
     }
 
     if (pRB->ownsBuffer) {
-        mal_free(pRB->pBuffer);
+        mal_aligned_free(pRB->pBuffer);
     }
 }
 
