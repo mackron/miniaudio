@@ -1248,19 +1248,19 @@ typedef struct
     mal_uint32 channels;
 } mal_pcm_rb;
 
-mal_result mal_pcm_rb_init_ex(mal_format format, mal_uint32 channels, size_t subbufferSizeInFrames, size_t subbufferCount, size_t subbufferStrideInFrames, void* pOptionalPreallocatedBuffer, mal_pcm_rb* pRB);
-mal_result mal_pcm_rb_init(mal_format format, mal_uint32 channels, size_t bufferSizeInFrames, void* pOptionalPreallocatedBuffer, mal_pcm_rb* pRB);
+mal_result mal_pcm_rb_init_ex(mal_format format, mal_uint32 channels, mal_uint32 subbufferSizeInFrames, mal_uint32 subbufferCount, mal_uint32 subbufferStrideInFrames, void* pOptionalPreallocatedBuffer, mal_pcm_rb* pRB);
+mal_result mal_pcm_rb_init(mal_format format, mal_uint32 channels, mal_uint32 bufferSizeInFrames, void* pOptionalPreallocatedBuffer, mal_pcm_rb* pRB);
 void mal_pcm_rb_uninit(mal_pcm_rb* pRB);
-mal_result mal_pcm_rb_acquire_read(mal_pcm_rb* pRB, size_t* pSizeInFrames, void** ppBufferOut);
-mal_result mal_pcm_rb_commit_read(mal_pcm_rb* pRB, size_t sizeInFrames, void* pBufferOut);
-mal_result mal_pcm_rb_acquire_write(mal_pcm_rb* pRB, size_t* pSizeInFrames, void** ppBufferOut);
-mal_result mal_pcm_rb_commit_write(mal_pcm_rb* pRB, size_t sizeInFrames, void* pBufferOut);
-mal_result mal_pcm_rb_seek_read(mal_pcm_rb* pRB, size_t offsetInFrames);
-mal_result mal_pcm_rb_seek_write(mal_pcm_rb* pRB, size_t offsetInFrames);
+mal_result mal_pcm_rb_acquire_read(mal_pcm_rb* pRB, mal_uint32* pSizeInFrames, void** ppBufferOut);
+mal_result mal_pcm_rb_commit_read(mal_pcm_rb* pRB, mal_uint32 sizeInFrames, void* pBufferOut);
+mal_result mal_pcm_rb_acquire_write(mal_pcm_rb* pRB, mal_uint32* pSizeInFrames, void** ppBufferOut);
+mal_result mal_pcm_rb_commit_write(mal_pcm_rb* pRB, mal_uint32 sizeInFrames, void* pBufferOut);
+mal_result mal_pcm_rb_seek_read(mal_pcm_rb* pRB, mal_uint32 offsetInFrames);
+mal_result mal_pcm_rb_seek_write(mal_pcm_rb* pRB, mal_uint32 offsetInFrames);
 mal_int32 mal_pcm_rb_pointer_disance(mal_pcm_rb* pRB); /* Return value is in frames. */
 size_t mal_pcm_rb_get_subbuffer_stride(mal_pcm_rb* pRB);
-size_t mal_pcm_rb_get_subbuffer_offset(mal_pcm_rb* pRB, size_t subbufferIndex);
-void* mal_pcm_rb_get_subbuffer_ptr(mal_pcm_rb* pRB, size_t subbufferIndex, void* pBuffer);
+size_t mal_pcm_rb_get_subbuffer_offset(mal_pcm_rb* pRB, mal_uint32 subbufferIndex);
+void* mal_pcm_rb_get_subbuffer_ptr(mal_pcm_rb* pRB, mal_uint32 subbufferIndex, void* pBuffer);
 
 
 //////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -2332,6 +2332,7 @@ MAL_ALIGNED_STRUCT(MAL_SIMD_ALIGNMENT) mal_device
         {
             int indexPlayback;  /* We use a factory on the JavaScript side to manage devices and use an index for JS/C interop. */
             int indexCapture;
+            mal_pcm_rb duplexRB;    /* In external capture format. */
         } webaudio;
 #endif
 #ifdef MAL_SUPPORT_NULL
@@ -4676,6 +4677,22 @@ mal_result mal_post_error(mal_device* pDevice, mal_uint32 logLevel, const char* 
 }
 
 
+mal_uint64 mal_calculate_frame_count_after_src(mal_uint32 sampleRateOut, mal_uint32 sampleRateIn, mal_uint64 frameCountIn)
+{
+    double srcRatio = (double)sampleRateOut / sampleRateIn;
+    double frameCountOutF = frameCountIn * srcRatio;
+
+    mal_uint64 frameCountOut = (mal_uint64)frameCountOutF;
+
+    // If the output frame count is fractional, make sure we add an extra frame to ensure there's enough room for that last sample.
+    if ((frameCountOutF - frameCountOut) > 0.0) {
+        frameCountOut += 1;
+    }
+
+    return frameCountOut;
+}
+
+
 // The callback for reading from the client -> DSP -> device.
 mal_uint32 mal_device__on_read_from_client(mal_pcm_converter* pDSP, mal_uint32 frameCount, void* pFramesOut, void* pUserData)
 {
@@ -4786,6 +4803,111 @@ static MAL_INLINE void mal_device__send_frames_to_client(mal_device* pDevice, ma
             }
         }
     }
+}
+
+static mal_result mal_device__handle_duplex_callback_capture(mal_device* pDevice, mal_uint32 frameCount, const void* pFramesInInternalFormat, mal_pcm_rb* pRB)
+{
+    mal_assert(pDevice != NULL);
+    mal_assert(frameCount > 0);
+    mal_assert(pFramesInInternalFormat != NULL);
+    mal_assert(pRB != NULL);
+
+    mal_result result;
+
+    pDevice->capture._dspFrameCount = (mal_uint32)frameCount;
+    pDevice->capture._dspFrames     = (const mal_uint8*)pFramesInInternalFormat;
+
+    /* Write to the ring buffer. The ring buffer is in the external format. */
+    for (;;) {
+        mal_uint32 framesProcessed;
+        mal_uint32 framesToProcess = 256;
+        void* pFramesInExternalFormat;
+        result = mal_pcm_rb_acquire_write(pRB, &framesToProcess, &pFramesInExternalFormat);
+        if (result != MAL_SUCCESS) {
+            mal_post_error(pDevice, MAL_LOG_LEVEL_ERROR, "Failed to acquire capture PCM frames from ring buffer.", result);
+            break;
+        }
+
+        if (framesToProcess == 0) {
+            break;  /* Overrun. Not enough room in the ring buffer for input frame. Excess frames are dropped. */
+        }
+
+        /* Convert. */
+        framesProcessed = (mal_uint32)mal_pcm_converter_read(&pDevice->capture.converter, framesToProcess, pFramesInExternalFormat, pDevice->capture.converter.pUserData);
+
+        result = mal_pcm_rb_commit_write(pRB, framesProcessed, pFramesInExternalFormat);
+        if (result != MAL_SUCCESS) {
+            mal_post_error(pDevice, MAL_LOG_LEVEL_ERROR, "Failed to commit capture PCM frames to ring buffer.", result);
+            break;
+        }
+
+        if (framesProcessed < framesToProcess) {
+            break;  /* Done. */
+        }
+    }
+
+    return MAL_SUCCESS;
+}
+
+static mal_result mal_device__handle_duplex_callback_playback(mal_device* pDevice, mal_uint32 frameCount, void* pFramesInInternalFormat, mal_pcm_rb* pRB)
+{
+    mal_assert(pDevice != NULL);
+    mal_assert(frameCount > 0);
+    mal_assert(pFramesInInternalFormat != NULL);
+    mal_assert(pRB != NULL);
+
+    /*
+    Sitting in the ring buffer should be captured data from the capture callback in external format. If there's not enough data in there for
+    the whole frameCount frames we just use silence instead for the input data.
+    */
+    mal_result result;
+    mal_uint8 playbackFramesInExternalFormat[4096];
+    mal_uint8 silentInputFrames[4096];
+    mal_zero_memory(silentInputFrames, sizeof(silentInputFrames));
+
+    /* We need to calculate how many output frames are required to be read from the client to completely fill frameCount internal frames. */
+    mal_uint32 totalFramesToReadFromClient = (mal_uint32)mal_calculate_frame_count_after_src(pDevice->sampleRate, pDevice->playback.internalSampleRate, frameCount); // mal_pcm_converter_get_required_input_frame_count(&pDevice->playback.converter, (mal_uint32)frameCount);
+    mal_uint32 totalFramesReadFromClient = 0;
+    while (totalFramesReadFromClient < totalFramesToReadFromClient) {
+        mal_uint32 framesRemainingFromClient = (totalFramesToReadFromClient - totalFramesReadFromClient);
+        mal_uint32 framesToProcessFromClient = sizeof(playbackFramesInExternalFormat) / mal_get_bytes_per_frame(pDevice->playback.format, pDevice->playback.channels);
+        if (framesToProcessFromClient > framesRemainingFromClient) {
+            framesToProcessFromClient = framesRemainingFromClient;
+        }
+
+        /* We need to grab captured samples before firing the callback. If there's not enough input samples we just pass silence. */
+        mal_uint32 inputFrameCount = framesToProcessFromClient;
+        void* pInputFrames;
+        result = mal_pcm_rb_acquire_read(pRB, &inputFrameCount, &pInputFrames);
+        if (result == MAL_SUCCESS && inputFrameCount > 0) {
+            /* Use actual input frames. */
+            pDevice->onData(pDevice, playbackFramesInExternalFormat, pInputFrames, inputFrameCount);
+
+            /* We're done with the captured samples. */
+            result = mal_pcm_rb_commit_read(pRB, inputFrameCount, pInputFrames);
+            if (result != MAL_SUCCESS) {
+                break; /* Don't know what to do here... Just abandon ship. */
+            }
+        } else {
+            /* Use silent input frames. */
+            inputFrameCount = mal_min(
+                sizeof(playbackFramesInExternalFormat) / mal_get_bytes_per_frame(pDevice->playback.format, pDevice->playback.channels),
+                sizeof(silentInputFrames)              / mal_get_bytes_per_frame(pDevice->capture.format,  pDevice->capture.channels)
+            );
+
+            pDevice->onData(pDevice, playbackFramesInExternalFormat, silentInputFrames, inputFrameCount);
+        }
+
+        /* We have samples in external format so now we need to convert to internal format and output to the device. */
+        pDevice->playback._dspFrameCount = inputFrameCount;
+        pDevice->playback._dspFrames     = (const mal_uint8*)playbackFramesInExternalFormat;
+        mal_pcm_converter_read(&pDevice->playback.converter, inputFrameCount, pFramesInInternalFormat, pDevice->playback.converter.pUserData);
+
+        totalFramesReadFromClient += inputFrameCount;
+        pFramesInInternalFormat = mal_offset_ptr(pFramesInInternalFormat, inputFrameCount * mal_get_bytes_per_frame(pDevice->playback.internalFormat, pDevice->playback.internalChannels));
+    }
+
+    return MAL_SUCCESS;
 }
 
 // A helper for changing the state of the device.
@@ -6236,7 +6358,7 @@ ULONG STDMETHODCALLTYPE mal_IMMNotificationClient_Release(mal_IMMNotificationCli
 HRESULT STDMETHODCALLTYPE mal_IMMNotificationClient_OnDeviceStateChanged(mal_IMMNotificationClient* pThis, LPCWSTR pDeviceID, DWORD dwNewState)
 {
 #ifdef MAL_DEBUG_OUTPUT
-    printf("IMMNotificationClient_OnDeviceStateChanged(pDeviceID=%S, dwNewState=%u)\n", pDeviceID, (unsigned int)dwNewState);
+    printf("IMMNotificationClient_OnDeviceStateChanged(pDeviceID=%S, dwNewState=%u)\n", (pDeviceID != NULL) ? pDeviceID : L"(NULL)", (unsigned int)dwNewState);
 #endif
 
     (void)pThis;
@@ -6248,7 +6370,7 @@ HRESULT STDMETHODCALLTYPE mal_IMMNotificationClient_OnDeviceStateChanged(mal_IMM
 HRESULT STDMETHODCALLTYPE mal_IMMNotificationClient_OnDeviceAdded(mal_IMMNotificationClient* pThis, LPCWSTR pDeviceID)
 {
 #ifdef MAL_DEBUG_OUTPUT
-    printf("IMMNotificationClient_OnDeviceAdded(pDeviceID=%S)\n", pDeviceID);
+    printf("IMMNotificationClient_OnDeviceAdded(pDeviceID=%S)\n", (pDeviceID != NULL) ? pDeviceID : L"(NULL)");
 #endif
 
     // We don't need to worry about this event for our purposes.
@@ -6260,7 +6382,7 @@ HRESULT STDMETHODCALLTYPE mal_IMMNotificationClient_OnDeviceAdded(mal_IMMNotific
 HRESULT STDMETHODCALLTYPE mal_IMMNotificationClient_OnDeviceRemoved(mal_IMMNotificationClient* pThis, LPCWSTR pDeviceID)
 {
 #ifdef MAL_DEBUG_OUTPUT
-    printf("IMMNotificationClient_OnDeviceRemoved(pDeviceID=%S)\n", pDeviceID);
+    printf("IMMNotificationClient_OnDeviceRemoved(pDeviceID=%S)\n", (pDeviceID != NULL) ? pDeviceID : L"(NULL)");
 #endif
 
     // We don't need to worry about this event for our purposes.
@@ -6272,7 +6394,7 @@ HRESULT STDMETHODCALLTYPE mal_IMMNotificationClient_OnDeviceRemoved(mal_IMMNotif
 HRESULT STDMETHODCALLTYPE mal_IMMNotificationClient_OnDefaultDeviceChanged(mal_IMMNotificationClient* pThis, mal_EDataFlow dataFlow, mal_ERole role, LPCWSTR pDefaultDeviceID)
 {
 #ifdef MAL_DEBUG_OUTPUT
-    printf("IMMNotificationClient_OnDefaultDeviceChanged(dataFlow=%d, role=%d, pDefaultDeviceID=%S)\n", dataFlow, role, pDefaultDeviceID);
+    printf("IMMNotificationClient_OnDefaultDeviceChanged(dataFlow=%d, role=%d, pDefaultDeviceID=%S)\n", dataFlow, role, (pDefaultDeviceID != NULL) ? pDefaultDeviceID : L"(NULL)");
 #endif
 
     // We only ever use the eConsole role in mini_al.
@@ -6314,7 +6436,7 @@ HRESULT STDMETHODCALLTYPE mal_IMMNotificationClient_OnDefaultDeviceChanged(mal_I
 HRESULT STDMETHODCALLTYPE mal_IMMNotificationClient_OnPropertyValueChanged(mal_IMMNotificationClient* pThis, LPCWSTR pDeviceID, const PROPERTYKEY key)
 {
 #ifdef MAL_DEBUG_OUTPUT
-    printf("IMMNotificationClient_OnPropertyValueChanged(pDeviceID=%S)\n", pDeviceID);
+    printf("IMMNotificationClient_OnPropertyValueChanged(pDeviceID=%S)\n", (pDeviceID != NULL) ? pDeviceID : L"(NULL)");
 #endif
 
     (void)pThis;
@@ -20833,8 +20955,10 @@ extern "C" {
 #endif
 EMSCRIPTEN_KEEPALIVE void mal_device_process_pcm_frames_capture__webaudio(mal_device* pDevice, int frameCount, float* pFrames)
 {
+    mal_result result;
+
     if (pDevice->type == mal_device_type_duplex) {
-        /* TODO: Write to the ring buffer. */
+        mal_device__handle_duplex_callback_capture(pDevice, (mal_uint32)frameCount, pFrames, &pDevice->webaudio.duplexRB);
     } else {
         mal_device__send_frames_to_client(pDevice, (mal_uint32)frameCount, pFrames);    /* Send directly to the client. */
     }
@@ -20843,7 +20967,7 @@ EMSCRIPTEN_KEEPALIVE void mal_device_process_pcm_frames_capture__webaudio(mal_de
 EMSCRIPTEN_KEEPALIVE void mal_device_process_pcm_frames_playback__webaudio(mal_device* pDevice, int frameCount, float* pFrames)
 {
     if (pDevice->type == mal_device_type_duplex) {
-        /* TODO: Write to the ring buffer. */
+        mal_device__handle_duplex_callback_playback(pDevice, (mal_uint32)frameCount, pFrames, &pDevice->webaudio.duplexRB);
     } else {
         mal_device__read_frames_from_client(pDevice, (mal_uint32)frameCount, pFrames);  /* Read directly from the device. */
     }
@@ -20993,6 +21117,10 @@ void mal_device_uninit__webaudio(mal_device* pDevice)
 
     if (pDevice->type == mal_device_type_playback || pDevice->type == mal_device_type_duplex) {
         mal_device_uninit_by_index__webaudio(pDevice, mal_device_type_playback, pDevice->webaudio.indexPlayback);
+    }
+
+    if (pDevice->type == mal_device_type_duplex) {
+        mal_pcm_rb_uninit(&pDevice->webaudio.duplexRB);
     }
 }
 
@@ -21206,6 +21334,8 @@ mal_result mal_device_init_by_type__webaudio(mal_context* pContext, const mal_de
 
 mal_result mal_device_init__webaudio(mal_context* pContext, const mal_device_config* pConfig, mal_device* pDevice)
 {
+    mal_result result;
+
     /* No exclusive mode with Web Audio. */
     if (((pConfig->deviceType == mal_device_type_playback || pConfig->deviceType == mal_device_type_duplex) && pConfig->playback.shareMode == mal_share_mode_exclusive) ||
         ((pConfig->deviceType == mal_device_type_capture  || pConfig->deviceType == mal_device_type_duplex) && pConfig->capture.shareMode  == mal_share_mode_exclusive)) {
@@ -21213,15 +21343,37 @@ mal_result mal_device_init__webaudio(mal_context* pContext, const mal_device_con
     }
 
     if (pConfig->deviceType == mal_device_type_capture || pConfig->deviceType == mal_device_type_duplex) {
-        mal_result result = mal_device_init_by_type__webaudio(pContext, pConfig, mal_device_type_capture, pDevice);
+        result = mal_device_init_by_type__webaudio(pContext, pConfig, mal_device_type_capture, pDevice);
         if (result != MAL_SUCCESS) {
             return result;
         }
     }
 
     if (pConfig->deviceType == mal_device_type_playback || pConfig->deviceType == mal_device_type_duplex) {
-        mal_result result = mal_device_init_by_type__webaudio(pContext, pConfig, mal_device_type_playback, pDevice);
+        result = mal_device_init_by_type__webaudio(pContext, pConfig, mal_device_type_playback, pDevice);
         if (result != MAL_SUCCESS) {
+            if (pConfig->deviceType == mal_device_type_duplex) {
+                mal_device_uninit_by_index__webaudio(pDevice, mal_device_type_capture, pDevice->webaudio.indexCapture);
+            }
+            return result;
+        }
+    }
+
+    /*
+    We need a ring buffer for moving data from the capture device to the playback device. The capture callback is the producer
+    and the playback callback is the consumer. The buffer needs to be large enough to hold internalBufferSizeInFrames based on
+    the external sample rate.
+    */
+    if (pConfig->deviceType == mal_device_type_duplex) {
+        mal_uint32 rbSizeInFrames = mal_calculate_frame_count_after_src(pDevice->sampleRate, pDevice->capture.internalSampleRate, pDevice->capture.internalBufferSizeInFrames);
+        result = mal_pcm_rb_init(pDevice->capture.format, pDevice->capture.channels, rbSizeInFrames, NULL, &pDevice->webaudio.duplexRB);
+        if (result != MAL_SUCCESS) {
+            if (pDevice->type == mal_device_type_capture || pDevice->type == mal_device_type_duplex) {
+                mal_device_uninit_by_index__webaudio(pDevice, mal_device_type_capture, pDevice->webaudio.indexCapture);
+            }
+            if (pDevice->type == mal_device_type_playback || pDevice->type == mal_device_type_duplex) {
+                mal_device_uninit_by_index__webaudio(pDevice, mal_device_type_playback, pDevice->webaudio.indexPlayback);
+            }
             return result;
         }
     }
@@ -26830,21 +26982,6 @@ static MAL_INLINE double mal_sinc(double x)
 
 #define mal_sincf(x) ((float)mal_sinc((double)(x)))
 
-mal_uint64 mal_calculate_frame_count_after_src(mal_uint32 sampleRateOut, mal_uint32 sampleRateIn, mal_uint64 frameCountIn)
-{
-    double srcRatio = (double)sampleRateOut / sampleRateIn;
-    double frameCountOutF = frameCountIn * srcRatio;
-
-    mal_uint64 frameCountOut = (mal_uint64)frameCountOutF;
-
-    // If the output frame count is fractional, make sure we add an extra frame to ensure there's enough room for that last sample.
-    if ((frameCountOutF - frameCountOut) > 0.0) {
-        frameCountOut += 1;
-    }
-
-    return frameCountOut;
-}
-
 
 mal_uint64 mal_src_read_deinterleaved__passthrough(mal_src* pSRC, mal_uint64 frameCount, void** ppSamplesOut, void* pUserData);
 mal_uint64 mal_src_read_deinterleaved__linear(mal_src* pSRC, mal_uint64 frameCount, void** ppSamplesOut, void* pUserData);
@@ -28820,7 +28957,7 @@ MAL_INLINE mal_uint32 mal_pcm_rb_get_bpf(mal_pcm_rb* pRB)
     return mal_get_bytes_per_frame(pRB->format, pRB->channels);
 }
 
-mal_result mal_pcm_rb_init_ex(mal_format format, mal_uint32 channels, size_t subbufferSizeInFrames, size_t subbufferCount, size_t subbufferStrideInFrames, void* pOptionalPreallocatedBuffer, mal_pcm_rb* pRB)
+mal_result mal_pcm_rb_init_ex(mal_format format, mal_uint32 channels, mal_uint32 subbufferSizeInFrames, mal_uint32 subbufferCount, mal_uint32 subbufferStrideInFrames, void* pOptionalPreallocatedBuffer, mal_pcm_rb* pRB)
 {
     if (pRB == NULL) {
         return MAL_INVALID_ARGS;
@@ -28844,7 +28981,7 @@ mal_result mal_pcm_rb_init_ex(mal_format format, mal_uint32 channels, size_t sub
     return MAL_SUCCESS;
 }
 
-mal_result mal_pcm_rb_init(mal_format format, mal_uint32 channels, size_t bufferSizeInFrames, void* pOptionalPreallocatedBuffer, mal_pcm_rb* pRB)
+mal_result mal_pcm_rb_init(mal_format format, mal_uint32 channels, mal_uint32 bufferSizeInFrames, void* pOptionalPreallocatedBuffer, mal_pcm_rb* pRB)
 {
     return mal_pcm_rb_init_ex(format, channels, bufferSizeInFrames, 1, 0, pOptionalPreallocatedBuffer, pRB);
 }
@@ -28858,7 +28995,7 @@ void mal_pcm_rb_uninit(mal_pcm_rb* pRB)
     mal_rb_uninit(&pRB->rb);
 }
 
-mal_result mal_pcm_rb_acquire_read(mal_pcm_rb* pRB, size_t* pSizeInFrames, void** ppBufferOut)
+mal_result mal_pcm_rb_acquire_read(mal_pcm_rb* pRB, mal_uint32* pSizeInFrames, void** ppBufferOut)
 {
     size_t sizeInBytes;
     mal_result result;
@@ -28878,7 +29015,7 @@ mal_result mal_pcm_rb_acquire_read(mal_pcm_rb* pRB, size_t* pSizeInFrames, void*
     return MAL_SUCCESS;
 }
 
-mal_result mal_pcm_rb_commit_read(mal_pcm_rb* pRB, size_t sizeInFrames, void* pBufferOut)
+mal_result mal_pcm_rb_commit_read(mal_pcm_rb* pRB, mal_uint32 sizeInFrames, void* pBufferOut)
 {
     if (pRB == NULL) {
         return MAL_INVALID_ARGS;
@@ -28887,7 +29024,7 @@ mal_result mal_pcm_rb_commit_read(mal_pcm_rb* pRB, size_t sizeInFrames, void* pB
     return mal_rb_commit_read(&pRB->rb, sizeInFrames * mal_pcm_rb_get_bpf(pRB), pBufferOut);
 }
 
-mal_result mal_pcm_rb_acquire_write(mal_pcm_rb* pRB, size_t* pSizeInFrames, void** ppBufferOut)
+mal_result mal_pcm_rb_acquire_write(mal_pcm_rb* pRB, mal_uint32* pSizeInFrames, void** ppBufferOut)
 {
     size_t sizeInBytes;
     mal_result result;
@@ -28907,7 +29044,7 @@ mal_result mal_pcm_rb_acquire_write(mal_pcm_rb* pRB, size_t* pSizeInFrames, void
     return MAL_SUCCESS;
 }
 
-mal_result mal_pcm_rb_commit_write(mal_pcm_rb* pRB, size_t sizeInFrames, void* pBufferOut)
+mal_result mal_pcm_rb_commit_write(mal_pcm_rb* pRB, mal_uint32 sizeInFrames, void* pBufferOut)
 {
     if (pRB == NULL) {
         return MAL_INVALID_ARGS;
@@ -28916,7 +29053,7 @@ mal_result mal_pcm_rb_commit_write(mal_pcm_rb* pRB, size_t sizeInFrames, void* p
     return mal_rb_commit_write(&pRB->rb, sizeInFrames * mal_pcm_rb_get_bpf(pRB), pBufferOut);
 }
 
-mal_result mal_pcm_rb_seek_read(mal_pcm_rb* pRB, size_t offsetInFrames)
+mal_result mal_pcm_rb_seek_read(mal_pcm_rb* pRB, mal_uint32 offsetInFrames)
 {
     if (pRB == NULL) {
         return MAL_INVALID_ARGS;
@@ -28925,7 +29062,7 @@ mal_result mal_pcm_rb_seek_read(mal_pcm_rb* pRB, size_t offsetInFrames)
     return mal_rb_seek_read(&pRB->rb, offsetInFrames * mal_pcm_rb_get_bpf(pRB));
 }
 
-mal_result mal_pcm_rb_seek_write(mal_pcm_rb* pRB, size_t offsetInFrames)
+mal_result mal_pcm_rb_seek_write(mal_pcm_rb* pRB, mal_uint32 offsetInFrames)
 {
     if (pRB == NULL) {
         return MAL_INVALID_ARGS;
@@ -28952,7 +29089,7 @@ size_t mal_pcm_rb_get_subbuffer_stride(mal_pcm_rb* pRB)
     return mal_rb_get_subbuffer_stride(&pRB->rb) / mal_pcm_rb_get_bpf(pRB);
 }
 
-size_t mal_pcm_rb_get_subbuffer_offset(mal_pcm_rb* pRB, size_t subbufferIndex)
+size_t mal_pcm_rb_get_subbuffer_offset(mal_pcm_rb* pRB, mal_uint32 subbufferIndex)
 {
     if (pRB == NULL) {
         return 0;
@@ -28961,7 +29098,7 @@ size_t mal_pcm_rb_get_subbuffer_offset(mal_pcm_rb* pRB, size_t subbufferIndex)
     return mal_rb_get_subbuffer_offset(&pRB->rb, subbufferIndex) / mal_pcm_rb_get_bpf(pRB);
 }
 
-void* mal_pcm_rb_get_subbuffer_ptr(mal_pcm_rb* pRB, size_t subbufferIndex, void* pBuffer)
+void* mal_pcm_rb_get_subbuffer_ptr(mal_pcm_rb* pRB, mal_uint32 subbufferIndex, void* pBuffer)
 {
     if (pRB == NULL) {
         return NULL;
