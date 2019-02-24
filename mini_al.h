@@ -4820,7 +4820,7 @@ static mal_result mal_device__handle_duplex_callback_capture(mal_device* pDevice
     mal_assert(pRB != NULL);
 
     mal_result result;
-
+    
     pDevice->capture._dspFrameCount = (mal_uint32)frameCount;
     pDevice->capture._dspFrames     = (const mal_uint8*)pFramesInInternalFormat;
 
@@ -4836,7 +4836,9 @@ static mal_result mal_device__handle_duplex_callback_capture(mal_device* pDevice
         }
 
         if (framesToProcess == 0) {
-            break;  /* Overrun. Not enough room in the ring buffer for input frame. Excess frames are dropped. */
+            if (mal_pcm_rb_pointer_disance(pRB) == 0) {
+                break;  /* Overrun. Not enough room in the ring buffer for input frame. Excess frames are dropped. */
+            }
         }
 
         /* Convert. */
@@ -4862,7 +4864,7 @@ static mal_result mal_device__handle_duplex_callback_playback(mal_device* pDevic
     mal_assert(frameCount > 0);
     mal_assert(pFramesInInternalFormat != NULL);
     mal_assert(pRB != NULL);
-
+    
     /*
     Sitting in the ring buffer should be captured data from the capture callback in external format. If there's not enough data in there for
     the whole frameCount frames we just use silence instead for the input data.
@@ -4875,7 +4877,7 @@ static mal_result mal_device__handle_duplex_callback_playback(mal_device* pDevic
     /* We need to calculate how many output frames are required to be read from the client to completely fill frameCount internal frames. */
     mal_uint32 totalFramesToReadFromClient = (mal_uint32)mal_calculate_frame_count_after_src(pDevice->sampleRate, pDevice->playback.internalSampleRate, frameCount); // mal_pcm_converter_get_required_input_frame_count(&pDevice->playback.converter, (mal_uint32)frameCount);
     mal_uint32 totalFramesReadFromClient = 0;
-    while (totalFramesReadFromClient < totalFramesToReadFromClient) {
+    while (totalFramesReadFromClient < totalFramesToReadFromClient && mal_device_is_started(pDevice)) {
         mal_uint32 framesRemainingFromClient = (totalFramesToReadFromClient - totalFramesReadFromClient);
         mal_uint32 framesToProcessFromClient = sizeof(playbackFramesInExternalFormat) / mal_get_bytes_per_frame(pDevice->playback.format, pDevice->playback.channels);
         if (framesToProcessFromClient > framesRemainingFromClient) {
@@ -4886,10 +4888,12 @@ static mal_result mal_device__handle_duplex_callback_playback(mal_device* pDevic
         mal_uint32 inputFrameCount = framesToProcessFromClient;
         void* pInputFrames;
         result = mal_pcm_rb_acquire_read(pRB, &inputFrameCount, &pInputFrames);
-        if (result == MAL_SUCCESS && inputFrameCount > 0) {
-            /* Use actual input frames. */
-            pDevice->onData(pDevice, playbackFramesInExternalFormat, pInputFrames, inputFrameCount);
-
+        if (result == MAL_SUCCESS) {
+            if (inputFrameCount > 0) {
+                /* Use actual input frames. */
+                pDevice->onData(pDevice, playbackFramesInExternalFormat, pInputFrames, inputFrameCount);
+            }
+            
             /* We're done with the captured samples. */
             result = mal_pcm_rb_commit_read(pRB, inputFrameCount, pInputFrames);
             if (result != MAL_SUCCESS) {
@@ -16509,7 +16513,12 @@ OSStatus mal_on_input__coreaudio(void* pUserData, AudioUnitRenderActionFlags* pA
                         framesToSend = framesRemaining;
                     }
                     
-                    mal_device__send_frames_to_client(pDevice, framesToSend, silentBuffer);
+                    if (pDevice->type == mal_device_type_duplex) {
+                        mal_device__handle_duplex_callback_capture(pDevice, framesToSend, silentBuffer, &pDevice->coreaudio.duplexRB);
+                    } else {
+                        mal_device__send_frames_to_client(pDevice, framesToSend, silentBuffer);
+                    }
+                    
                     framesRemaining -= framesToSend;
                 }
                 
@@ -17121,6 +17130,7 @@ mal_result mal_device_init__coreaudio(mal_context* pContext, const mal_device_co
         data.shareMode                  = pConfig->capture.shareMode;
         data.bufferSizeInFramesIn       = pConfig->bufferSizeInFrames;
         data.bufferSizeInMillisecondsIn = pConfig->bufferSizeInMilliseconds;
+        data.registerStopEvent          = MAL_TRUE;
         
         mal_result result = mal_device_init_internal__coreaudio(pDevice->pContext, mal_device_type_capture, pConfig->capture.pDeviceID, &data, (void*)pDevice);
         if (result != MAL_SUCCESS) {
@@ -17172,10 +17182,12 @@ mal_result mal_device_init__coreaudio(mal_context* pContext, const mal_device_co
         if (pConfig->deviceType == mal_device_type_duplex) {
             data.bufferSizeInFramesIn       = pDevice->capture.internalBufferSizeInFrames;
             data.periodsIn                  = pDevice->capture.internalPeriods;
+            data.registerStopEvent          = MAL_FALSE;
         } else {
             data.bufferSizeInFramesIn       = pConfig->bufferSizeInFrames;
             data.bufferSizeInMillisecondsIn = pConfig->bufferSizeInMilliseconds;
             data.periodsIn                  = pConfig->periods;
+            data.registerStopEvent          = MAL_TRUE;
         }
         
         mal_result result = mal_device_init_internal__coreaudio(pDevice->pContext, mal_device_type_playback, pConfig->playback.pDeviceID, &data, (void*)pDevice);

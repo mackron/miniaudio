@@ -31,7 +31,7 @@ void data_callback(mal_device* pDevice, void* pOutput, const void* pInput, mal_u
     /* In this test the format and channel count are the same for both input and output which means we can just memcpy(). */
     mal_copy_memory(pOutput, pInput, frameCount * mal_get_bytes_per_frame(pDevice->capture.format, pDevice->capture.channels));
 
-#if 0
+#if 1
     /* Also write to a wav file for debugging. */
     drwav* pWav = (drwav*)pDevice->pUserData;
     mal_assert(pWav != NULL);
@@ -44,7 +44,7 @@ int main(int argc, char** argv)
 {
     mal_result result;
 
-#if 0
+#if 1
     drwav_data_format wavFormat;
     wavFormat.container     = drwav_container_riff;
     wavFormat.format        = DR_WAVE_FORMAT_PCM;
@@ -60,7 +60,7 @@ int main(int argc, char** argv)
 #endif
     
 
-    mal_backend backend = mal_backend_webaudio;
+    mal_backend backend = mal_backend_coreaudio;
 
     mal_context_config contextConfig = mal_context_config_init();
     contextConfig.logCallback = log_callback;
@@ -84,7 +84,7 @@ int main(int argc, char** argv)
     deviceConfig.periods            = 2;
     deviceConfig.dataCallback       = data_callback;
     deviceConfig.stopCallback       = stop_callback;
-    deviceConfig.pUserData          = NULL; /*&wav;*/
+    deviceConfig.pUserData          = &wav;
 
     mal_device device;
     result = mal_device_init(&context, &deviceConfig, &device);
@@ -106,7 +106,7 @@ int main(int argc, char** argv)
 #endif
 
     mal_device_uninit(&device);
-    /*drwav_uninit(&wav);*/
+    drwav_uninit(&wav);
 
     (void)argc;
     (void)argv;
