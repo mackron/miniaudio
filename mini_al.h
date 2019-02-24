@@ -1236,6 +1236,7 @@ mal_result mal_rb_commit_write(mal_rb* pRB, size_t sizeInBytes, void* pBufferOut
 mal_result mal_rb_seek_read(mal_rb* pRB, size_t offsetInBytes);
 mal_result mal_rb_seek_write(mal_rb* pRB, size_t offsetInBytes);
 mal_int32 mal_rb_pointer_distance(mal_rb* pRB);    /* Returns the distance between the write pointer and the read pointer. Should never be negative for a correct program. */
+size_t mal_rb_get_subbuffer_size(mal_rb* pRB);
 size_t mal_rb_get_subbuffer_stride(mal_rb* pRB);
 size_t mal_rb_get_subbuffer_offset(mal_rb* pRB, size_t subbufferIndex);
 void* mal_rb_get_subbuffer_ptr(mal_rb* pRB, size_t subbufferIndex, void* pBuffer);
@@ -1258,8 +1259,9 @@ mal_result mal_pcm_rb_commit_write(mal_pcm_rb* pRB, mal_uint32 sizeInFrames, voi
 mal_result mal_pcm_rb_seek_read(mal_pcm_rb* pRB, mal_uint32 offsetInFrames);
 mal_result mal_pcm_rb_seek_write(mal_pcm_rb* pRB, mal_uint32 offsetInFrames);
 mal_int32 mal_pcm_rb_pointer_disance(mal_pcm_rb* pRB); /* Return value is in frames. */
-size_t mal_pcm_rb_get_subbuffer_stride(mal_pcm_rb* pRB);
-size_t mal_pcm_rb_get_subbuffer_offset(mal_pcm_rb* pRB, mal_uint32 subbufferIndex);
+mal_uint32 mal_pcm_rb_get_subbuffer_size(mal_pcm_rb* pRB);
+mal_uint32 mal_pcm_rb_get_subbuffer_stride(mal_pcm_rb* pRB);
+mal_uint32 mal_pcm_rb_get_subbuffer_offset(mal_pcm_rb* pRB, mal_uint32 subbufferIndex);
 void* mal_pcm_rb_get_subbuffer_ptr(mal_pcm_rb* pRB, mal_uint32 subbufferIndex, void* pBuffer);
 
 
@@ -4836,7 +4838,7 @@ static mal_result mal_device__handle_duplex_callback_capture(mal_device* pDevice
         }
 
         if (framesToProcess == 0) {
-            if (mal_pcm_rb_pointer_disance(pRB) == 0) {
+            if (mal_pcm_rb_pointer_disance(pRB) == (mal_int32)mal_pcm_rb_get_subbuffer_size(pRB)) {
                 break;  /* Overrun. Not enough room in the ring buffer for input frame. Excess frames are dropped. */
             }
         }
@@ -4892,6 +4894,10 @@ static mal_result mal_device__handle_duplex_callback_playback(mal_device* pDevic
             if (inputFrameCount > 0) {
                 /* Use actual input frames. */
                 pDevice->onData(pDevice, playbackFramesInExternalFormat, pInputFrames, inputFrameCount);
+            } else {
+                if (mal_pcm_rb_pointer_disance(pRB) == 0) {
+                    break;  /* Underrun. */
+                }
             }
             
             /* We're done with the captured samples. */
@@ -21442,7 +21448,7 @@ mal_result mal_device_init__webaudio(mal_context* pContext, const mal_device_con
     the external sample rate.
     */
     if (pConfig->deviceType == mal_device_type_duplex) {
-        mal_uint32 rbSizeInFrames = (mal_uint32)mal_calculate_frame_count_after_src(pDevice->sampleRate, pDevice->capture.internalSampleRate, pDevice->capture.internalBufferSizeInFrames);
+        mal_uint32 rbSizeInFrames = (mal_uint32)mal_calculate_frame_count_after_src(pDevice->sampleRate, pDevice->capture.internalSampleRate, pDevice->capture.internalBufferSizeInFrames) * 2;
         result = mal_pcm_rb_init(pDevice->capture.format, pDevice->capture.channels, rbSizeInFrames, NULL, &pDevice->webaudio.duplexRB);
         if (result != MAL_SUCCESS) {
             if (pDevice->type == mal_device_type_capture || pDevice->type == mal_device_type_duplex) {
@@ -28995,6 +29001,15 @@ mal_int32 mal_rb_pointer_distance(mal_rb* pRB)
     }
 }
 
+size_t mal_rb_get_subbuffer_size(mal_rb* pRB)
+{
+    if (pRB == NULL) {
+        return 0;
+    }
+
+    return pRB->subbufferSizeInBytes;
+}
+
 size_t mal_rb_get_subbuffer_stride(mal_rb* pRB)
 {
     if (pRB == NULL) {
@@ -29157,7 +29172,16 @@ mal_int32 mal_pcm_rb_pointer_disance(mal_pcm_rb* pRB)
     return mal_rb_pointer_distance(&pRB->rb) / mal_pcm_rb_get_bpf(pRB);
 }
 
-size_t mal_pcm_rb_get_subbuffer_stride(mal_pcm_rb* pRB)
+mal_uint32 mal_pcm_rb_get_subbuffer_size(mal_pcm_rb* pRB)
+{
+    if (pRB == NULL) {
+        return 0;
+    }
+
+    return mal_rb_get_subbuffer_size(&pRB->rb) / mal_pcm_rb_get_bpf(pRB);
+}
+
+mal_uint32 mal_pcm_rb_get_subbuffer_stride(mal_pcm_rb* pRB)
 {
     if (pRB == NULL) {
         return 0;
@@ -29166,7 +29190,7 @@ size_t mal_pcm_rb_get_subbuffer_stride(mal_pcm_rb* pRB)
     return mal_rb_get_subbuffer_stride(&pRB->rb) / mal_pcm_rb_get_bpf(pRB);
 }
 
-size_t mal_pcm_rb_get_subbuffer_offset(mal_pcm_rb* pRB, mal_uint32 subbufferIndex)
+mal_uint32 mal_pcm_rb_get_subbuffer_offset(mal_pcm_rb* pRB, mal_uint32 subbufferIndex)
 {
     if (pRB == NULL) {
         return 0;
