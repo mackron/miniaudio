@@ -60,7 +60,7 @@ int main(int argc, char** argv)
 #endif
     
 
-    mal_backend backend = mal_backend_webaudio;
+    mal_backend backend = mal_backend_wasapi;
 
     mal_context_config contextConfig = mal_context_config_init();
     contextConfig.logCallback = log_callback;

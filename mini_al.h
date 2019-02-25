@@ -7687,7 +7687,11 @@ mal_result mal_device__get_available_frames__wasapi(mal_device* pDevice, mal_IAu
         *pFrameCount = paddingFramesCount;
     } else {
         if ((mal_ptr)pAudioClient == pDevice->wasapi.pAudioClientPlayback) {
-            *pFrameCount = (pDevice->playback.internalBufferSizeInFrames/pDevice->playback.internalPeriods) - paddingFramesCount;
+            if (pDevice->type == mal_device_type_duplex) {
+                *pFrameCount = pDevice->playback.internalBufferSizeInFrames - paddingFramesCount;
+            } else {
+                *pFrameCount = (pDevice->playback.internalBufferSizeInFrames/pDevice->playback.internalPeriods) - paddingFramesCount;
+            }
         } else {
             *pFrameCount = paddingFramesCount;
         }
