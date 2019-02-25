@@ -81,7 +81,7 @@ void data_callback(mal_device* pDevice, void* pOutput, const void* pInput, mal_u
         return;
     }
 
-    mal_decoder_read_pcm_frames(pDecoder, frameCount, pOutput);
+    mal_decoder_read_pcm_frames(pDecoder, pOutput, frameCount);
 
     (void)pInput;
 }
@@ -189,7 +189,7 @@ decoding backend.
 Data is read from the decoder as PCM frames:
 
 ```
-mal_uint64 framesRead = mal_decoder_read_pcm_frames(pDecoder, framesToRead, pFrames);
+mal_uint64 framesRead = mal_decoder_read_pcm_frames(pDecoder, pFrames, framesToRead);
 ```
 
 You can also seek to a specific frame like so:

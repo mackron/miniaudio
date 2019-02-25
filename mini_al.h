@@ -732,7 +732,6 @@ struct mal_channel_router
 
 
 typedef struct mal_src mal_src;
-//typedef mal_uint32 (* mal_src_read_proc)(mal_src* pSRC, mal_uint32 frameCount, void* pFramesOut, void* pUserData); // Returns the number of frames that were read.
 typedef mal_uint32 (* mal_src_read_deinterleaved_proc)(mal_src* pSRC, mal_uint32 frameCount, void** ppSamplesOut, void* pUserData); // Returns the number of frames that were read.
 
 typedef enum
@@ -805,7 +804,7 @@ MAL_ALIGNED_STRUCT(MAL_SIMD_ALIGNMENT) mal_src
 };
 
 typedef struct mal_pcm_converter mal_pcm_converter;
-typedef mal_uint32 (* mal_pcm_converter_read_proc)(mal_pcm_converter* pDSP, mal_uint32 frameCount, void* pSamplesOut, void* pUserData);
+typedef mal_uint32 (* mal_pcm_converter_read_proc)(mal_pcm_converter* pDSP, void* pSamplesOut, mal_uint32 frameCount, void* pUserData);
 
 typedef struct
 {
@@ -1147,7 +1146,7 @@ mal_result mal_pcm_converter_set_sample_rate(mal_pcm_converter* pDSP, mal_uint32
 
 
 // Reads a number of frames and runs them through the DSP processor.
-mal_uint64 mal_pcm_converter_read(mal_pcm_converter* pDSP, mal_uint64 frameCount, void* pFramesOut, void* pUserData);
+mal_uint64 mal_pcm_converter_read(mal_pcm_converter* pDSP, void* pFramesOut, mal_uint64 frameCount);
 
 // Helper for initializing a mal_pcm_converter_config object.
 mal_pcm_converter_config mal_pcm_converter_config_init_new(void);
@@ -2797,7 +2796,7 @@ mal_result mal_decoder_init_file_wav(const char* pFilePath, const mal_decoder_co
 
 mal_result mal_decoder_uninit(mal_decoder* pDecoder);
 
-mal_uint64 mal_decoder_read_pcm_frames(mal_decoder* pDecoder, mal_uint64 frameCount, void* pFramesOut);
+mal_uint64 mal_decoder_read_pcm_frames(mal_decoder* pDecoder, void* pFramesOut, mal_uint64 frameCount);
 mal_result mal_decoder_seek_to_pcm_frame(mal_decoder* pDecoder, mal_uint64 frameIndex);
 
 
@@ -4711,7 +4710,7 @@ mal_uint64 mal_calculate_frame_count_after_src(mal_uint32 sampleRateOut, mal_uin
 
 
 // The callback for reading from the client -> DSP -> device.
-mal_uint32 mal_device__on_read_from_client(mal_pcm_converter* pDSP, mal_uint32 frameCount, void* pFramesOut, void* pUserData)
+mal_uint32 mal_device__on_read_from_client(mal_pcm_converter* pDSP, void* pFramesOut, mal_uint32 frameCount, void* pUserData)
 {
     (void)pDSP;
 
@@ -4728,7 +4727,7 @@ mal_uint32 mal_device__on_read_from_client(mal_pcm_converter* pDSP, mal_uint32 f
 }
 
 /* The PCM converter callback for reading from a buffer. */
-mal_uint32 mal_device__pcm_converter__on_read_from_buffer_capture(mal_pcm_converter* pConverter, mal_uint32 frameCount, void* pFramesOut, void* pUserData)
+mal_uint32 mal_device__pcm_converter__on_read_from_buffer_capture(mal_pcm_converter* pConverter, void* pFramesOut, mal_uint32 frameCount, void* pUserData)
 {
     mal_device* pDevice = (mal_device*)pUserData;
     mal_assert(pDevice != NULL);
@@ -4750,7 +4749,7 @@ mal_uint32 mal_device__pcm_converter__on_read_from_buffer_capture(mal_pcm_conver
     return framesToRead;
 }
 
-mal_uint32 mal_device__pcm_converter__on_read_from_buffer_playback(mal_pcm_converter* pConverter, mal_uint32 frameCount, void* pFramesOut, void* pUserData)
+mal_uint32 mal_device__pcm_converter__on_read_from_buffer_playback(mal_pcm_converter* pConverter, void* pFramesOut, mal_uint32 frameCount, void* pUserData)
 {
     mal_device* pDevice = (mal_device*)pUserData;
     mal_assert(pDevice != NULL);
@@ -4782,7 +4781,7 @@ static MAL_INLINE mal_uint32 mal_device__read_frames_from_client(mal_device* pDe
     mal_assert(frameCount > 0);
     mal_assert(pSamples != NULL);
 
-    mal_uint32 framesRead     = (mal_uint32)mal_pcm_converter_read(&pDevice->playback.converter, frameCount, pSamples, pDevice->playback.converter.pUserData);
+    mal_uint32 framesRead     = (mal_uint32)mal_pcm_converter_read(&pDevice->playback.converter, pSamples, frameCount);
     mal_uint32 samplesRead    = framesRead * pDevice->playback.internalChannels;
     mal_uint32 sampleSize     = mal_get_bytes_per_sample(pDevice->playback.internalFormat);
     mal_uint32 consumedBytes  = samplesRead*sampleSize;
@@ -4808,7 +4807,7 @@ static MAL_INLINE void mal_device__send_frames_to_client(mal_device* pDevice, ma
         mal_uint32 chunkFrameCount = sizeof(chunkBuffer) / mal_get_bytes_per_frame(pDevice->capture.format, pDevice->capture.channels);
 
         for (;;) {
-            mal_uint32 framesJustRead = (mal_uint32)mal_pcm_converter_read(&pDevice->capture.converter, chunkFrameCount, chunkBuffer, pDevice->capture.converter.pUserData);
+            mal_uint32 framesJustRead = (mal_uint32)mal_pcm_converter_read(&pDevice->capture.converter, chunkBuffer, chunkFrameCount);
             if (framesJustRead == 0) {
                 break;
             }
@@ -4852,7 +4851,7 @@ static mal_result mal_device__handle_duplex_callback_capture(mal_device* pDevice
         }
 
         /* Convert. */
-        framesProcessed = (mal_uint32)mal_pcm_converter_read(&pDevice->capture.converter, framesToProcess, pFramesInExternalFormat, pDevice->capture.converter.pUserData);
+        framesProcessed = (mal_uint32)mal_pcm_converter_read(&pDevice->capture.converter, pFramesInExternalFormat, framesToProcess);
 
         result = mal_pcm_rb_commit_write(pRB, framesProcessed, pFramesInExternalFormat);
         if (result != MAL_SUCCESS) {
@@ -4926,7 +4925,7 @@ static mal_result mal_device__handle_duplex_callback_playback(mal_device* pDevic
         /* We have samples in external format so now we need to convert to internal format and output to the device. */
         pDevice->playback._dspFrameCount = inputFrameCount;
         pDevice->playback._dspFrames     = (const mal_uint8*)playbackFramesInExternalFormat;
-        mal_pcm_converter_read(&pDevice->playback.converter, inputFrameCount, pFramesInInternalFormat, pDevice->playback.converter.pUserData);
+        mal_pcm_converter_read(&pDevice->playback.converter, pFramesInInternalFormat, inputFrameCount);
 
         totalFramesReadFromClient += inputFrameCount;
         pFramesInInternalFormat = mal_offset_ptr(pFramesInInternalFormat, inputFrameCount * mal_get_bytes_per_frame(pDevice->playback.internalFormat, pDevice->playback.internalChannels));
@@ -21794,7 +21793,7 @@ mal_thread_result MAL_THREADCALL mal_worker_thread(void* pData)
                             mal_uint32 playbackDataCapInFrames = sizeof(playbackData) / mal_get_bytes_per_frame(pDevice->playback.format, pDevice->playback.channels);
 
                             mal_uint32 capturedFramesToTryProcessing = mal_min(capturedDataCapInFrames, playbackDataCapInFrames);
-                            mal_uint32 capturedFramesToProcess = (mal_uint32)mal_pcm_converter_read(&pDevice->capture.converter, capturedFramesToTryProcessing, capturedData, pDevice->capture.converter.pUserData);
+                            mal_uint32 capturedFramesToProcess = (mal_uint32)mal_pcm_converter_read(&pDevice->capture.converter, capturedData, capturedFramesToTryProcessing);
                             if (capturedFramesToProcess == 0) {
                                 break;  /* Don't fire the data callback with zero frames. */
                             }
@@ -21808,7 +21807,7 @@ mal_thread_result MAL_THREADCALL mal_worker_thread(void* pData)
                                 mal_uint8 playbackDeviceData[4096];
 
                                 mal_uint32 playbackDeviceDataCapInFrames = sizeof(playbackDeviceData) / mal_get_bytes_per_frame(pDevice->playback.internalFormat, pDevice->playback.internalChannels);
-                                mal_uint32 playbackDeviceFramesCount = (mal_uint32)mal_pcm_converter_read(&pDevice->playback.converter, playbackDeviceDataCapInFrames, playbackDeviceData, pDevice->playback.converter.pUserData);
+                                mal_uint32 playbackDeviceFramesCount = (mal_uint32)mal_pcm_converter_read(&pDevice->playback.converter, playbackDeviceData, playbackDeviceDataCapInFrames);
                                 if (playbackDeviceFramesCount == 0) {
                                     break;
                                 }
@@ -28100,7 +28099,7 @@ mal_uint32 mal_pcm_converter__pre_format_converter_on_read(mal_format_converter*
     mal_pcm_converter* pDSP = pData->pDSP;
     mal_assert(pDSP != NULL);
 
-    return pDSP->onRead(pDSP, frameCount, pFramesOut, pData->pUserDataForClient);
+    return pDSP->onRead(pDSP, pFramesOut, frameCount, pData->pUserDataForClient);
 }
 
 mal_uint32 mal_pcm_converter__post_format_converter_on_read(mal_format_converter* pConverter, mal_uint32 frameCount, void* pFramesOut, void* pUserData)
@@ -28118,7 +28117,7 @@ mal_uint32 mal_pcm_converter__post_format_converter_on_read(mal_format_converter
     mal_assert(pDSP->isChannelRoutingRequired == MAL_FALSE);
     mal_assert(pDSP->isSRCRequired == MAL_FALSE);
 
-    return pDSP->onRead(pDSP, frameCount, pFramesOut, pData->pUserDataForClient);
+    return pDSP->onRead(pDSP, pFramesOut, frameCount, pData->pUserDataForClient);
 }
 
 mal_uint32 mal_pcm_converter__post_format_converter_on_read_deinterleaved(mal_format_converter* pConverter, mal_uint32 frameCount, void** ppSamplesOut, void* pUserData)
@@ -28443,14 +28442,16 @@ mal_result mal_pcm_converter_set_sample_rate(mal_pcm_converter* pDSP, mal_uint32
     return mal_pcm_converter_refresh_sample_rate(pDSP);
 }
 
-mal_uint64 mal_pcm_converter_read(mal_pcm_converter* pDSP, mal_uint64 frameCount, void* pFramesOut, void* pUserData)
+mal_uint64 mal_pcm_converter_read(mal_pcm_converter* pDSP, void* pFramesOut, mal_uint64 frameCount)
 {
-    if (pDSP == NULL || pFramesOut == NULL) return 0;
+    if (pDSP == NULL || pFramesOut == NULL) {
+        return 0;
+    }
 
     // Fast path.
     if (pDSP->isPassthrough) {
         if (frameCount <= 0xFFFFFFFF) {
-            return (mal_uint32)pDSP->onRead(pDSP, (mal_uint32)frameCount, pFramesOut, pUserData);
+            return (mal_uint32)pDSP->onRead(pDSP, pFramesOut, (mal_uint32)frameCount, pDSP->pUserData);
         } else {
             mal_uint8* pNextFramesOut = (mal_uint8*)pFramesOut;
 
@@ -28462,7 +28463,7 @@ mal_uint64 mal_pcm_converter_read(mal_pcm_converter* pDSP, mal_uint64 frameCount
                     framesToReadRightNow = 0xFFFFFFFF;
                 }
 
-                mal_uint32 framesRead = pDSP->onRead(pDSP, (mal_uint32)framesToReadRightNow, pNextFramesOut, pUserData);
+                mal_uint32 framesRead = pDSP->onRead(pDSP, pNextFramesOut, (mal_uint32)framesToReadRightNow, pDSP->pUserData);
                 if (framesRead == 0) {
                     break;
                 }
@@ -28480,7 +28481,7 @@ mal_uint64 mal_pcm_converter_read(mal_pcm_converter* pDSP, mal_uint64 frameCount
 
     mal_pcm_converter_callback_data data;
     data.pDSP = pDSP;
-    data.pUserDataForClient = pUserData;
+    data.pUserDataForClient = pDSP->pUserData;
     return mal_format_converter_read(&pDSP->formatConverterOut, frameCount, pFramesOut, &data);
 }
 
@@ -28495,7 +28496,7 @@ typedef struct
     mal_bool32 isFeedingZeros;  // When set to true, feeds the DSP zero samples.
 } mal_convert_frames__data;
 
-mal_uint32 mal_convert_frames__on_read(mal_pcm_converter* pDSP, mal_uint32 frameCount, void* pFramesOut, void* pUserData)
+mal_uint32 mal_convert_frames__on_read(mal_pcm_converter* pDSP, void* pFramesOut, mal_uint32 frameCount, void* pUserData)
 {
     (void)pDSP;
 
@@ -28620,7 +28621,7 @@ mal_uint64 mal_convert_frames_ex(void* pOut, mal_format formatOut, mal_uint32 ch
     // Always output our computed frame count. There is a chance the sample rate conversion routine may not output the last sample
     // due to precision issues with 32-bit floats, in which case we should feed the DSP zero samples so it can generate that last
     // frame.
-    mal_uint64 totalFramesRead = mal_pcm_converter_read(&dsp, frameCountOut, pOut, dsp.pUserData);
+    mal_uint64 totalFramesRead = mal_pcm_converter_read(&dsp, pOut, frameCountOut);
     if (totalFramesRead < frameCountOut) {
         mal_uint32 bpf = mal_get_bytes_per_frame(formatIn, channelsIn);
 
@@ -28632,7 +28633,7 @@ mal_uint64 mal_convert_frames_ex(void* pOut, mal_format formatOut, mal_uint32 ch
             mal_uint64 framesToRead = (frameCountOut - totalFramesRead);
             mal_assert(framesToRead > 0);
 
-            mal_uint64 framesJustRead = mal_pcm_converter_read(&dsp, framesToRead, mal_offset_ptr(pOut, totalFramesRead * bpf), dsp.pUserData);
+            mal_uint64 framesJustRead = mal_pcm_converter_read(&dsp, mal_offset_ptr(pOut, totalFramesRead * bpf), framesToRead);
             totalFramesRead += framesJustRead;
 
             if (framesJustRead < framesToRead) {
@@ -29392,7 +29393,7 @@ drwav_bool32 mal_decoder_internal_on_seek__wav(void* pUserData, int offset, drwa
     return pDecoder->onSeek(pDecoder, offset, (origin == drwav_seek_origin_start) ? mal_seek_origin_start : mal_seek_origin_current);
 }
 
-mal_uint32 mal_decoder_internal_on_read_pcm_frames__wav(mal_pcm_converter* pDSP, mal_uint32 frameCount, void* pSamplesOut, void* pUserData)
+mal_uint32 mal_decoder_internal_on_read_pcm_frames__wav(mal_pcm_converter* pDSP, void* pSamplesOut, mal_uint32 frameCount, void* pUserData)
 {
     (void)pDSP;
 
@@ -29519,7 +29520,7 @@ drflac_bool32 mal_decoder_internal_on_seek__flac(void* pUserData, int offset, dr
     return pDecoder->onSeek(pDecoder, offset, (origin == drflac_seek_origin_start) ? mal_seek_origin_start : mal_seek_origin_current);
 }
 
-mal_uint32 mal_decoder_internal_on_read_pcm_frames__flac(mal_pcm_converter* pDSP, mal_uint32 frameCount, void* pSamplesOut, void* pUserData)
+mal_uint32 mal_decoder_internal_on_read_pcm_frames__flac(mal_pcm_converter* pDSP, void* pSamplesOut, mal_uint32 frameCount, void* pUserData)
 {
     (void)pDSP;
 
@@ -29898,7 +29899,7 @@ drmp3_bool32 mal_decoder_internal_on_seek__mp3(void* pUserData, int offset, drmp
     return pDecoder->onSeek(pDecoder, offset, (origin == drmp3_seek_origin_start) ? mal_seek_origin_start : mal_seek_origin_current);
 }
 
-mal_uint32 mal_decoder_internal_on_read_pcm_frames__mp3(mal_pcm_converter* pDSP, mal_uint32 frameCount, void* pSamplesOut, void* pUserData)
+mal_uint32 mal_decoder_internal_on_read_pcm_frames__mp3(mal_pcm_converter* pDSP, void* pSamplesOut, mal_uint32 frameCount, void* pUserData)
 {
     (void)pDSP;
 
@@ -29981,7 +29982,7 @@ mal_result mal_decoder_init_mp3__internal(const mal_decoder_config* pConfig, mal
 #endif
 
 // Raw
-mal_uint32 mal_decoder_internal_on_read_pcm_frames__raw(mal_pcm_converter* pDSP, mal_uint32 frameCount, void* pSamplesOut, void* pUserData)
+mal_uint32 mal_decoder_internal_on_read_pcm_frames__raw(mal_pcm_converter* pDSP, void* pSamplesOut, mal_uint32 frameCount, void* pUserData)
 {
     (void)pDSP;
 
@@ -30594,11 +30595,11 @@ mal_result mal_decoder_uninit(mal_decoder* pDecoder)
     return MAL_SUCCESS;
 }
 
-mal_uint64 mal_decoder_read_pcm_frames(mal_decoder* pDecoder, mal_uint64 frameCount, void* pFramesOut)
+mal_uint64 mal_decoder_read_pcm_frames(mal_decoder* pDecoder, void* pFramesOut, mal_uint64 frameCount)
 {
     if (pDecoder == NULL) return 0;
 
-    return mal_pcm_converter_read(&pDecoder->dsp, frameCount, pFramesOut, pDecoder->dsp.pUserData);
+    return mal_pcm_converter_read(&pDecoder->dsp, pFramesOut, frameCount);
 }
 
 mal_result mal_decoder_seek_to_pcm_frame(mal_decoder* pDecoder, mal_uint64 frameIndex)
@@ -30651,7 +30652,7 @@ mal_result mal_decoder__full_decode_and_uninit(mal_decoder* pDecoder, mal_decode
         mal_uint64 frameCountToTryReading = dataCapInFrames - totalFrameCount;
         mal_assert(frameCountToTryReading > 0);
 
-        mal_uint64 framesJustRead = mal_decoder_read_pcm_frames(pDecoder, frameCountToTryReading, (mal_uint8*)pPCMFramesOut + (totalFrameCount * bpf));
+        mal_uint64 framesJustRead = mal_decoder_read_pcm_frames(pDecoder, (mal_uint8*)pPCMFramesOut + (totalFrameCount * bpf), frameCountToTryReading);
         totalFrameCount += framesJustRead;
 
         if (framesJustRead < frameCountToTryReading) {

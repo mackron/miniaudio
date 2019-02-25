@@ -17,7 +17,7 @@ void data_callback(mal_device* pDevice, void* pOutput, const void* pInput, mal_u
         return;
     }
 
-    mal_decoder_read_pcm_frames(pDecoder, frameCount, pOutput);
+    mal_decoder_read_pcm_frames(pDecoder, pOutput, frameCount);
 
     (void)pInput;
 }
