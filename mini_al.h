@@ -7855,8 +7855,11 @@ mal_result mal_device_write__wasapi(mal_device* pDevice, const void* pPCMFrames,
 
         //printf("TRACE 1: capacity playback: %d, %d\n", pDevice->wasapi.deviceBufferFramesCapacityPlayback, pDevice->wasapi.periodSizeInFramesPlayback);
 
-        if (pDevice->wasapi.deviceBufferFramesCapacityPlayback > pDevice->wasapi.periodSizeInFramesPlayback) {
-            pDevice->wasapi.deviceBufferFramesCapacityPlayback = pDevice->wasapi.periodSizeInFramesPlayback;
+        /* In exclusive mode, the frame count needs to exactly match the value returned by GetCurrentPadding(). */
+        if (pDevice->playback.shareMode != mal_share_mode_exclusive) {
+            if (pDevice->wasapi.deviceBufferFramesCapacityPlayback > pDevice->wasapi.periodSizeInFramesPlayback) {
+                pDevice->wasapi.deviceBufferFramesCapacityPlayback = pDevice->wasapi.periodSizeInFramesPlayback;
+            }
         }
 
         hr = mal_IAudioRenderClient_GetBuffer((mal_IAudioRenderClient*)pDevice->wasapi.pRenderClient, pDevice->wasapi.deviceBufferFramesCapacityPlayback, (BYTE**)&pDevice->wasapi.pDeviceBufferPlayback);
@@ -7978,8 +7981,11 @@ mal_result mal_device_read__wasapi(mal_device* pDevice, void* pPCMFrames, mal_ui
 
         //printf("TRACE 1: capacity capture: %d, %d\n", pDevice->wasapi.deviceBufferFramesCapacityCapture, pDevice->wasapi.periodSizeInFramesCapture);
 
-        if (pDevice->wasapi.deviceBufferFramesCapacityCapture > pDevice->wasapi.periodSizeInFramesCapture) {
-            pDevice->wasapi.deviceBufferFramesCapacityCapture = pDevice->wasapi.periodSizeInFramesCapture;
+        /* In exclusive mode, the frame count needs to exactly match the value returned by GetCurrentPadding(). */
+        if (pDevice->playback.shareMode != mal_share_mode_exclusive) {
+            if (pDevice->wasapi.deviceBufferFramesCapacityCapture > pDevice->wasapi.periodSizeInFramesCapture) {
+                pDevice->wasapi.deviceBufferFramesCapacityCapture = pDevice->wasapi.periodSizeInFramesCapture;
+            }
         }
 
         hr = mal_IAudioCaptureClient_GetBuffer((mal_IAudioCaptureClient*)pDevice->wasapi.pCaptureClient, (BYTE**)&pDevice->wasapi.pDeviceBufferCapture, &pDevice->wasapi.deviceBufferFramesCapacityCapture, &flags, NULL, NULL);

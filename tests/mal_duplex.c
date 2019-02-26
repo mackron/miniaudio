@@ -79,6 +79,7 @@ int main(int argc, char** argv)
     deviceConfig.playback.pDeviceID = NULL;
     deviceConfig.playback.format    = mal_format_s16;
     deviceConfig.playback.channels  = 2;
+    deviceConfig.playback.shareMode = mal_share_mode_shared;
     deviceConfig.sampleRate         = 44100;
     deviceConfig.bufferSizeInMilliseconds = 100;
     deviceConfig.periods            = 2;
