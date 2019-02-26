@@ -2188,6 +2188,8 @@ MAL_ALIGNED_STRUCT(MAL_SIMD_ALIGNMENT) mal_device
             mal_uint32 deviceBufferFramesCapacityCapture;
             mal_uint32 periodSizeInFramesPlayback;
             mal_uint32 periodSizeInFramesCapture;
+            mal_uint32 actualBufferSizeInFramesPlayback;        /* Value from GetBufferSize(). internalBufferSizeInFrames is not set to the _actual_ buffer size when low-latency shared mode is being used due to the way the IAudioClient3 API works. */
+            mal_uint32 actualBufferSizeInFramesCapture;
             mal_uint32 originalBufferSizeInFrames;
             mal_uint32 originalBufferSizeInMilliseconds;
             mal_uint32 originalPeriods;
@@ -7259,9 +7261,7 @@ mal_result mal_device_init_internal__wasapi(mal_context* pContext, mal_device_ty
             errorMsg = "[WASAPI] Failed to get audio client's actual buffer size.", result = MAL_FAILED_TO_OPEN_BACKEND_DEVICE;
             goto done;
         }
-    }
 
-    if (!wasInitializedUsingIAudioClient3) {
         pData->periodSizeInFramesOut = pData->bufferSizeInFramesOut / pData->periodsOut;
     }
 
@@ -7390,6 +7390,7 @@ mal_result mal_device_reinit__wasapi(mal_device* pDevice, mal_device_type device
         mal_IAudioClient_SetEventHandle((mal_IAudioClient*)pDevice->wasapi.pAudioClientCapture,  pDevice->wasapi.hEventCapture);
 
         pDevice->wasapi.periodSizeInFramesCapture = data.periodSizeInFramesOut;
+        mal_IAudioClient_GetBufferSize((mal_IAudioClient*)pDevice->wasapi.pAudioClientCapture, &pDevice->wasapi.actualBufferSizeInFramesCapture);
     }
 
     if (deviceType == mal_device_type_playback) {
@@ -7417,6 +7418,7 @@ mal_result mal_device_reinit__wasapi(mal_device* pDevice, mal_device_type device
         mal_IAudioClient_SetEventHandle((mal_IAudioClient*)pDevice->wasapi.pAudioClientPlayback, pDevice->wasapi.hEventPlayback);
 
         pDevice->wasapi.periodSizeInFramesPlayback = data.periodSizeInFramesOut;
+        mal_IAudioClient_GetBufferSize((mal_IAudioClient*)pDevice->wasapi.pAudioClientPlayback, &pDevice->wasapi.actualBufferSizeInFramesPlayback);
     }
 
     mal_atomic_exchange_32(&pDevice->wasapi.isStarted, MAL_FALSE);
@@ -7490,6 +7492,7 @@ mal_result mal_device_init__wasapi(mal_context* pContext, const mal_device_confi
         mal_IAudioClient_SetEventHandle((mal_IAudioClient*)pDevice->wasapi.pAudioClientCapture, pDevice->wasapi.hEventCapture);
 
         pDevice->wasapi.periodSizeInFramesCapture = data.periodSizeInFramesOut;
+        mal_IAudioClient_GetBufferSize((mal_IAudioClient*)pDevice->wasapi.pAudioClientCapture, &pDevice->wasapi.actualBufferSizeInFramesCapture);
     }
 
     if (pConfig->deviceType == mal_device_type_playback || pConfig->deviceType == mal_device_type_duplex) {
@@ -7573,6 +7576,7 @@ mal_result mal_device_init__wasapi(mal_context* pContext, const mal_device_confi
         mal_IAudioClient_SetEventHandle((mal_IAudioClient*)pDevice->wasapi.pAudioClientPlayback, pDevice->wasapi.hEventPlayback);
 
         pDevice->wasapi.periodSizeInFramesPlayback = data.periodSizeInFramesOut;
+        mal_IAudioClient_GetBufferSize((mal_IAudioClient*)pDevice->wasapi.pAudioClientPlayback, &pDevice->wasapi.actualBufferSizeInFramesPlayback);
     }
 
 
@@ -7709,7 +7713,7 @@ mal_result mal_device__get_available_frames__wasapi(mal_device* pDevice, mal_IAu
         *pFrameCount = paddingFramesCount;
     } else {
         if ((mal_ptr)pAudioClient == pDevice->wasapi.pAudioClientPlayback) {
-            *pFrameCount = pDevice->playback.internalBufferSizeInFrames - paddingFramesCount;
+            *pFrameCount = pDevice->wasapi.actualBufferSizeInFramesPlayback - paddingFramesCount;
         } else {
             *pFrameCount = paddingFramesCount;
         }
@@ -7857,8 +7861,10 @@ mal_result mal_device_write__wasapi(mal_device* pDevice, const void* pPCMFrames,
 
         /* In exclusive mode, the frame count needs to exactly match the value returned by GetCurrentPadding(). */
         if (pDevice->playback.shareMode != mal_share_mode_exclusive) {
-            if (pDevice->wasapi.deviceBufferFramesCapacityPlayback > pDevice->wasapi.periodSizeInFramesPlayback) {
-                pDevice->wasapi.deviceBufferFramesCapacityPlayback = pDevice->wasapi.periodSizeInFramesPlayback;
+            if (pDevice->type != mal_device_type_duplex) {  /* Full-duplex mode should also require the whole buffer be mapped at a time. */
+                if (pDevice->wasapi.deviceBufferFramesCapacityPlayback > pDevice->wasapi.periodSizeInFramesPlayback) {
+                    pDevice->wasapi.deviceBufferFramesCapacityPlayback = pDevice->wasapi.periodSizeInFramesPlayback;
+                }
             }
         }
 
@@ -11978,7 +11984,7 @@ mal_result mal_device_init_by_type__alsa(mal_context* pContext, const mal_device
         Subtle detail here with the start threshold. When in playback-only mode (no full-duplex) we can set the start threshold to
         the size of a period. But for full-duplex we need to set it such that it is at least two periods.
         */
-        if (((mal_snd_pcm_sw_params_set_start_threshold_proc)pContext->alsa.snd_pcm_sw_params_set_start_threshold)(pPCM, pSWParams, (internalBufferSizeInFrames / internalPeriods) * 2 /*internalBufferSizeInFrames*/) != 0) {
+        if (((mal_snd_pcm_sw_params_set_start_threshold_proc)pContext->alsa.snd_pcm_sw_params_set_start_threshold)(pPCM, pSWParams, internalBufferSizeInFrames) != 0) {
             ((mal_snd_pcm_close_proc)pDevice->pContext->alsa.snd_pcm_close)(pPCM);
             return mal_post_error(pDevice, MAL_LOG_LEVEL_ERROR, "[ALSA] Failed to set start threshold for playback device. snd_pcm_sw_params_set_start_threshold() failed.", MAL_FAILED_TO_CONFIGURE_BACKEND_DEVICE);
         }
