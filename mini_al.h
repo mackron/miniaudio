@@ -7925,7 +7925,7 @@ mal_result mal_device_read__wasapi(mal_device* pDevice, void* pPCMFrames, mal_ui
             If we're running in full-duplex mode and there's too much data in the buffer we need to discard some to ensure we don't get stuck stradling the
             edge of the buffer and causing endless glitching.
             */
-            {
+            if (pDevice->type == mal_device_type_duplex) {
                 mal_uint32 framesAvailable;
                 result = mal_device__get_available_frames__wasapi(pDevice, (mal_IAudioClient*)pDevice->wasapi.pAudioClientCapture, &framesAvailable);
                 if (result == MAL_SUCCESS) {
