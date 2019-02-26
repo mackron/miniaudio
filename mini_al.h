@@ -2186,6 +2186,8 @@ MAL_ALIGNED_STRUCT(MAL_SIMD_ALIGNMENT) mal_device
             mal_uint32 deviceBufferFramesRemainingCapture;
             mal_uint32 deviceBufferFramesCapacityPlayback;
             mal_uint32 deviceBufferFramesCapacityCapture;
+            mal_uint32 periodSizeInFramesPlayback;
+            mal_uint32 periodSizeInFramesCapture;
             mal_uint32 originalBufferSizeInFrames;
             mal_uint32 originalBufferSizeInMilliseconds;
             mal_uint32 originalPeriods;
@@ -7005,6 +7007,7 @@ typedef struct
     mal_uint32 sampleRateOut;
     mal_channel channelMapOut[MAL_MAX_CHANNELS];
     mal_uint32 bufferSizeInFramesOut;
+    mal_uint32 periodSizeInFramesOut;
     mal_uint32 periodsOut;
     char deviceName[256];
 } mal_device_init_internal_data__wasapi;
@@ -7195,7 +7198,8 @@ mal_result mal_device_init_internal__wasapi(mal_context* pContext, mal_device_ty
     }
 
     if (shareMode == MAL_AUDCLNT_SHAREMODE_SHARED) {
-        // Low latency shared mode via IAudioClient3.
+        /* Low latency shared mode via IAudioClient3. */
+#ifndef MAL_WASAPI_NO_LOW_LATENCY_SHARED_MODE
         mal_IAudioClient3* pAudioClient3 = NULL;
         hr = mal_IAudioClient_QueryInterface(pData->pAudioClient, &MAL_IID_IAudioClient3, (void**)&pAudioClient3);
         if (SUCCEEDED(hr)) {
@@ -7206,24 +7210,30 @@ mal_result mal_device_init_internal__wasapi(mal_context* pContext, mal_device_ty
             hr = mal_IAudioClient3_GetSharedModeEnginePeriod(pAudioClient3, (WAVEFORMATEX*)&wf, &defaultPeriodInFrames, &fundamentalPeriodInFrames, &minPeriodInFrames, &maxPeriodInFrames);
             if (SUCCEEDED(hr)) {
                 UINT32 desiredPeriodInFrames = pData->bufferSizeInFramesOut / pData->periodsOut;
-                
-                // Make sure the period size is a multiple of fundamentalPeriodInFrames.
-                desiredPeriodInFrames = desiredPeriodInFrames / fundamentalPeriodInFrames;
-                desiredPeriodInFrames = desiredPeriodInFrames * fundamentalPeriodInFrames;
+                UINT32 actualPeriodInFrames  = desiredPeriodInFrames;
 
-                // The period needs to be clamped between minPeriodInFrames and maxPeriodInFrames.
-                desiredPeriodInFrames = mal_clamp(desiredPeriodInFrames, minPeriodInFrames, maxPeriodInFrames);
-                
-                hr = mal_IAudioClient3_InitializeSharedAudioStream(pAudioClient3, MAL_AUDCLNT_STREAMFLAGS_EVENTCALLBACK, desiredPeriodInFrames, (WAVEFORMATEX*)&wf, NULL);
-                if (SUCCEEDED(hr)) {
-                    wasInitializedUsingIAudioClient3 = MAL_TRUE;
-                    pData->bufferSizeInFramesOut = desiredPeriodInFrames * pData->periodsOut;
+                /* Make sure the period size is a multiple of fundamentalPeriodInFrames. */
+                actualPeriodInFrames = actualPeriodInFrames / fundamentalPeriodInFrames;
+                actualPeriodInFrames = actualPeriodInFrames * fundamentalPeriodInFrames;
+
+                /* The period needs to be clamped between minPeriodInFrames and maxPeriodInFrames. */
+                actualPeriodInFrames = mal_clamp(actualPeriodInFrames, minPeriodInFrames, maxPeriodInFrames);
+
+                /* If the client requested a largish buffer than we don't actually want to use low latency shared mode because it forces small buffers. */
+                if (actualPeriodInFrames >= desiredPeriodInFrames) {
+                    hr = mal_IAudioClient3_InitializeSharedAudioStream(pAudioClient3, MAL_AUDCLNT_STREAMFLAGS_EVENTCALLBACK, actualPeriodInFrames, (WAVEFORMATEX*)&wf, NULL);
+                    if (SUCCEEDED(hr)) {
+                        wasInitializedUsingIAudioClient3 = MAL_TRUE;
+                        pData->periodSizeInFramesOut = actualPeriodInFrames;
+                        pData->bufferSizeInFramesOut = actualPeriodInFrames * pData->periodsOut;
+                    }
                 }
             }
 
             mal_IAudioClient3_Release(pAudioClient3);
             pAudioClient3 = NULL;
         }
+#endif
 
         // If we don't have an IAudioClient3 then we need to use the normal initialization routine.
         if (!wasInitializedUsingIAudioClient3) {
@@ -7249,6 +7259,10 @@ mal_result mal_device_init_internal__wasapi(mal_context* pContext, mal_device_ty
             errorMsg = "[WASAPI] Failed to get audio client's actual buffer size.", result = MAL_FAILED_TO_OPEN_BACKEND_DEVICE;
             goto done;
         }
+    }
+
+    if (!wasInitializedUsingIAudioClient3) {
+        pData->periodSizeInFramesOut = pData->bufferSizeInFramesOut / pData->periodsOut;
     }
 
     if (deviceType == mal_device_type_playback) {
@@ -7374,6 +7388,8 @@ mal_result mal_device_reinit__wasapi(mal_device* pDevice, mal_device_type device
         mal_strcpy_s(pDevice->capture.name, sizeof(pDevice->capture.name), data.deviceName);
 
         mal_IAudioClient_SetEventHandle((mal_IAudioClient*)pDevice->wasapi.pAudioClientCapture,  pDevice->wasapi.hEventCapture);
+
+        pDevice->wasapi.periodSizeInFramesCapture = data.periodSizeInFramesOut;
     }
 
     if (deviceType == mal_device_type_playback) {
@@ -7399,6 +7415,8 @@ mal_result mal_device_reinit__wasapi(mal_device* pDevice, mal_device_type device
         mal_strcpy_s(pDevice->playback.name, sizeof(pDevice->playback.name), data.deviceName);
 
         mal_IAudioClient_SetEventHandle((mal_IAudioClient*)pDevice->wasapi.pAudioClientPlayback, pDevice->wasapi.hEventPlayback);
+
+        pDevice->wasapi.periodSizeInFramesPlayback = data.periodSizeInFramesOut;
     }
 
     mal_atomic_exchange_32(&pDevice->wasapi.isStarted, MAL_FALSE);
@@ -7470,6 +7488,8 @@ mal_result mal_device_init__wasapi(mal_context* pContext, const mal_device_confi
             return mal_post_error(pDevice, MAL_LOG_LEVEL_ERROR, "[WASAPI] Failed to create event for capture.", MAL_FAILED_TO_CREATE_EVENT);
         }
         mal_IAudioClient_SetEventHandle((mal_IAudioClient*)pDevice->wasapi.pAudioClientCapture, pDevice->wasapi.hEventCapture);
+
+        pDevice->wasapi.periodSizeInFramesCapture = data.periodSizeInFramesOut;
     }
 
     if (pConfig->deviceType == mal_device_type_playback || pConfig->deviceType == mal_device_type_duplex) {
@@ -7551,6 +7571,8 @@ mal_result mal_device_init__wasapi(mal_context* pContext, const mal_device_confi
             return mal_post_error(pDevice, MAL_LOG_LEVEL_ERROR, "[WASAPI] Failed to create event for playback.", MAL_FAILED_TO_CREATE_EVENT);
         }
         mal_IAudioClient_SetEventHandle((mal_IAudioClient*)pDevice->wasapi.pAudioClientPlayback, pDevice->wasapi.hEventPlayback);
+
+        pDevice->wasapi.periodSizeInFramesPlayback = data.periodSizeInFramesOut;
     }
 
 
@@ -7687,11 +7709,7 @@ mal_result mal_device__get_available_frames__wasapi(mal_device* pDevice, mal_IAu
         *pFrameCount = paddingFramesCount;
     } else {
         if ((mal_ptr)pAudioClient == pDevice->wasapi.pAudioClientPlayback) {
-            if (pDevice->type == mal_device_type_duplex) {
-                *pFrameCount = pDevice->playback.internalBufferSizeInFrames - paddingFramesCount;
-            } else {
-                *pFrameCount = (pDevice->playback.internalBufferSizeInFrames/pDevice->playback.internalPeriods) - paddingFramesCount;
-            }
+            *pFrameCount = pDevice->playback.internalBufferSizeInFrames - paddingFramesCount;
         } else {
             *pFrameCount = paddingFramesCount;
         }
@@ -7835,6 +7853,12 @@ mal_result mal_device_write__wasapi(mal_device* pDevice, const void* pPCMFrames,
             break;
         }
 
+        //printf("TRACE 1: capacity playback: %d, %d\n", pDevice->wasapi.deviceBufferFramesCapacityPlayback, pDevice->wasapi.periodSizeInFramesPlayback);
+
+        if (pDevice->wasapi.deviceBufferFramesCapacityPlayback > pDevice->wasapi.periodSizeInFramesPlayback) {
+            pDevice->wasapi.deviceBufferFramesCapacityPlayback = pDevice->wasapi.periodSizeInFramesPlayback;
+        }
+
         hr = mal_IAudioRenderClient_GetBuffer((mal_IAudioRenderClient*)pDevice->wasapi.pRenderClient, pDevice->wasapi.deviceBufferFramesCapacityPlayback, (BYTE**)&pDevice->wasapi.pDeviceBufferPlayback);
         if (FAILED(hr)) {
             result = MAL_FAILED_TO_MAP_DEVICE_BUFFER;
@@ -7897,6 +7921,27 @@ mal_result mal_device_read__wasapi(mal_device* pDevice, void* pPCMFrames, mal_ui
                 break;
             }
 
+            /*
+            If we're running in full-duplex mode and there's too much data in the buffer we need to discard some to ensure we don't get stuck stradling the
+            edge of the buffer and causing endless glitching.
+            */
+            {
+                mal_uint32 framesAvailable;
+                result = mal_device__get_available_frames__wasapi(pDevice, (mal_IAudioClient*)pDevice->wasapi.pAudioClientCapture, &framesAvailable);
+                if (result == MAL_SUCCESS) {
+                    if (framesAvailable > pDevice->wasapi.periodSizeInFramesCapture) {
+                        mal_uint32 framesToDiscard = framesAvailable;// - pDevice->wasapi.periodSizeInFramesCapture;
+                        if (framesToDiscard > 0) {
+                            BYTE* pUnused;
+                            hr = mal_IAudioCaptureClient_GetBuffer((mal_IAudioCaptureClient*)pDevice->wasapi.pCaptureClient, &pUnused, &framesToDiscard, &flags, NULL, NULL);
+                            if (SUCCEEDED(hr)) {
+                                mal_IAudioCaptureClient_ReleaseBuffer((mal_IAudioCaptureClient*)pDevice->wasapi.pCaptureClient, framesToDiscard);
+                            }
+                        }
+                    }
+                }
+            }
+
             ResetEvent(pDevice->wasapi.hEventCapture);
         }
 
@@ -7931,10 +7976,16 @@ mal_result mal_device_read__wasapi(mal_device* pDevice, void* pPCMFrames, mal_ui
             break;
         }
 
+        //printf("TRACE 1: capacity capture: %d, %d\n", pDevice->wasapi.deviceBufferFramesCapacityCapture, pDevice->wasapi.periodSizeInFramesCapture);
+
+        if (pDevice->wasapi.deviceBufferFramesCapacityCapture > pDevice->wasapi.periodSizeInFramesCapture) {
+            pDevice->wasapi.deviceBufferFramesCapacityCapture = pDevice->wasapi.periodSizeInFramesCapture;
+        }
+
         hr = mal_IAudioCaptureClient_GetBuffer((mal_IAudioCaptureClient*)pDevice->wasapi.pCaptureClient, (BYTE**)&pDevice->wasapi.pDeviceBufferCapture, &pDevice->wasapi.deviceBufferFramesCapacityCapture, &flags, NULL, NULL);
         if (FAILED(hr)) {
             result = MAL_FAILED_TO_MAP_DEVICE_BUFFER;
-            mal_post_error(pDevice, MAL_LOG_LEVEL_ERROR, "[WASAPI] Failed to retrieve internal buffer from playback device in preparation for writing to the device.", result);
+            mal_post_error(pDevice, MAL_LOG_LEVEL_ERROR, "[WASAPI] Failed to retrieve internal buffer from capture device in preparation for writing to the device.", result);
             break;
         }
 
