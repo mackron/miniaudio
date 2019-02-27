@@ -29138,7 +29138,7 @@ void* mal_rb_get_subbuffer_ptr(mal_rb* pRB, size_t subbufferIndex, void* pBuffer
 }
 
 
-MAL_INLINE mal_uint32 mal_pcm_rb_get_bpf(mal_pcm_rb* pRB)
+static MAL_INLINE mal_uint32 mal_pcm_rb_get_bpf(mal_pcm_rb* pRB)
 {
     mal_assert(pRB != NULL);
 
