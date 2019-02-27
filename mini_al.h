@@ -9216,14 +9216,17 @@ mal_result mal_device_map_next_playback_buffer__dsound(mal_device* pDevice)
 {
     DWORD periodSizeInBytes = (pDevice->playback.internalBufferSizeInFrames / pDevice->playback.internalPeriods) * mal_get_bytes_per_frame(pDevice->playback.internalFormat, pDevice->playback.internalChannels);
     DWORD lockOffset = (pDevice->dsound.iNextPeriodPlayback * periodSizeInBytes);
+    DWORD lockSizeInBytes = periodSizeInBytes;
     DWORD mappedSizeInBytes;
-    HRESULT hr = mal_IDirectSoundBuffer_Lock((mal_IDirectSoundBuffer*)pDevice->dsound.pPlaybackBuffer, lockOffset, periodSizeInBytes, &pDevice->dsound.pMappedBufferPlayback, &mappedSizeInBytes, NULL, NULL, 0);
+    HRESULT hr = mal_IDirectSoundBuffer_Lock((mal_IDirectSoundBuffer*)pDevice->dsound.pPlaybackBuffer, lockOffset, lockSizeInBytes, &pDevice->dsound.pMappedBufferPlayback, &mappedSizeInBytes, NULL, NULL, 0);
     if (FAILED(hr)) {
         return mal_post_error(pDevice, MAL_LOG_LEVEL_ERROR, "[DirectSound] Failed to map buffer from playback device in preparation for writing to the device.", MAL_FAILED_TO_MAP_DEVICE_BUFFER);
     }
 
     pDevice->dsound.mappedBufferFramesCapacityPlayback  = (mal_uint32)mappedSizeInBytes / mal_get_bytes_per_frame(pDevice->playback.internalFormat, pDevice->playback.internalChannels);
     pDevice->dsound.mappedBufferFramesRemainingPlayback = (mal_uint32)mappedSizeInBytes / mal_get_bytes_per_frame(pDevice->playback.internalFormat, pDevice->playback.internalChannels);
+
+    //printf("TRACE 1: Playback: iNextPeriod=%d, internalBufferSizeInFrames=%d, periodSizeInBytes=%d, mappedSizeInBytes=%d\n", pDevice->dsound.iNextPeriodPlayback, pDevice->playback.internalBufferSizeInFrames, periodSizeInBytes, mappedSizeInBytes);
 
     return MAL_SUCCESS;
 }
@@ -9346,14 +9349,17 @@ mal_result mal_device_map_next_capture_buffer__dsound(mal_device* pDevice)
 {
     DWORD periodSizeInBytes = (pDevice->capture.internalBufferSizeInFrames / pDevice->capture.internalPeriods) * mal_get_bytes_per_frame(pDevice->capture.internalFormat, pDevice->capture.internalChannels);
     DWORD lockOffset = (pDevice->dsound.iNextPeriodCapture * periodSizeInBytes);
+    DWORD lockSizeInBytes = periodSizeInBytes;
     DWORD mappedSizeInBytes;
-    HRESULT hr = mal_IDirectSoundCaptureBuffer_Lock((mal_IDirectSoundCaptureBuffer*)pDevice->dsound.pCaptureBuffer, lockOffset, periodSizeInBytes, &pDevice->dsound.pMappedBufferCapture, &mappedSizeInBytes, NULL, NULL, 0);
+    HRESULT hr = mal_IDirectSoundCaptureBuffer_Lock((mal_IDirectSoundCaptureBuffer*)pDevice->dsound.pCaptureBuffer, lockOffset, lockSizeInBytes, &pDevice->dsound.pMappedBufferCapture, &mappedSizeInBytes, NULL, NULL, 0);
     if (FAILED(hr)) {
         return mal_post_error(pDevice, MAL_LOG_LEVEL_ERROR, "[DirectSound] Failed to map buffer from capture device in preparation for writing to the device.", MAL_FAILED_TO_MAP_DEVICE_BUFFER);
     }
 
     pDevice->dsound.mappedBufferFramesCapacityCapture  = (mal_uint32)mappedSizeInBytes / mal_get_bytes_per_frame(pDevice->capture.internalFormat, pDevice->capture.internalChannels);
     pDevice->dsound.mappedBufferFramesRemainingCapture = (mal_uint32)mappedSizeInBytes / mal_get_bytes_per_frame(pDevice->capture.internalFormat, pDevice->capture.internalChannels);
+
+    //printf("TRACE 1: Capture: internalBufferSizeInFrames=%d, periodSizeInBytes=%d, mappedSizeInBytes=%d\n", pDevice->capture.internalBufferSizeInFrames, periodSizeInBytes, mappedSizeInBytes);
 
     return MAL_SUCCESS;
 }
@@ -21805,12 +21811,19 @@ mal_thread_result MAL_THREADCALL mal_worker_thread(void* pData)
         );
 
         mal_uint32 periodSizeInFrames;
-        if (pDevice->type == mal_device_type_capture || pDevice->type == mal_device_type_duplex) {
+        if (pDevice->type == mal_device_type_capture) {
             mal_assert(pDevice->capture.internalBufferSizeInFrames >= pDevice->capture.internalPeriods);
             periodSizeInFrames = pDevice->capture.internalBufferSizeInFrames / pDevice->capture.internalPeriods;
-        } else {
+        } else if (pDevice->type == mal_device_type_playback) {
             mal_assert(pDevice->playback.internalBufferSizeInFrames >= pDevice->playback.internalPeriods);
             periodSizeInFrames = pDevice->playback.internalBufferSizeInFrames / pDevice->playback.internalPeriods;
+        } else {
+            mal_assert(pDevice->capture.internalBufferSizeInFrames >= pDevice->capture.internalPeriods);
+            mal_assert(pDevice->playback.internalBufferSizeInFrames >= pDevice->playback.internalPeriods);
+            periodSizeInFrames = mal_min(
+                pDevice->capture.internalBufferSizeInFrames / pDevice->capture.internalPeriods,
+                pDevice->playback.internalBufferSizeInFrames / pDevice->playback.internalPeriods
+            );
         }
         
 
