@@ -6424,8 +6424,8 @@ HRESULT STDMETHODCALLTYPE mal_IMMNotificationClient_OnDefaultDeviceChanged(mal_I
     }
 
     // We only care about devices with the same data flow and role as the current device.
-    if (((pThis->pDevice->type == mal_device_type_playback || pThis->pDevice->type == mal_device_type_duplex) && dataFlow != mal_eRender ) ||
-        ((pThis->pDevice->type == mal_device_type_capture  || pThis->pDevice->type == mal_device_type_duplex) && dataFlow != mal_eCapture)) {
+    if (pThis->pDevice->type == mal_device_type_playback && dataFlow != mal_eRender ||
+        pThis->pDevice->type == mal_device_type_capture  && dataFlow != mal_eCapture) {
         return S_OK;
     }
 
@@ -6446,10 +6446,6 @@ HRESULT STDMETHODCALLTYPE mal_IMMNotificationClient_OnDefaultDeviceChanged(mal_I
         mal_atomic_exchange_32(&pThis->pDevice->wasapi.hasDefaultCaptureDeviceChanged,  MAL_TRUE);
     }
 
-#if 0
-    SetEvent(pThis->pDevice->wasapi.hBreakEvent);   // <-- The main loop will be waiting on some events. We want to break from this wait ASAP so we can change the device as quickly as possible.
-#endif
-    
     (void)pDefaultDeviceID;
     return S_OK;
 }
@@ -7391,6 +7387,14 @@ mal_result mal_device_reinit__wasapi(mal_device* pDevice, mal_device_type device
 
         pDevice->wasapi.periodSizeInFramesCapture = data.periodSizeInFramesOut;
         mal_IAudioClient_GetBufferSize((mal_IAudioClient*)pDevice->wasapi.pAudioClientCapture, &pDevice->wasapi.actualBufferSizeInFramesCapture);
+
+        /* The device may be in a started state. If so we need to immediately restart it. */
+        if (pDevice->wasapi.isStarted) {
+            HRESULT hr = mal_IAudioClient_Start((mal_IAudioClient*)pDevice->wasapi.pAudioClientCapture);
+            if (FAILED(hr)) {
+                return mal_post_error(pDevice, MAL_LOG_LEVEL_ERROR, "[WASAPI] Failed to start internal capture device after reinitialization.", MAL_FAILED_TO_START_BACKEND_DEVICE);
+            }
+        }
     }
 
     if (deviceType == mal_device_type_playback) {
@@ -7419,9 +7423,15 @@ mal_result mal_device_reinit__wasapi(mal_device* pDevice, mal_device_type device
 
         pDevice->wasapi.periodSizeInFramesPlayback = data.periodSizeInFramesOut;
         mal_IAudioClient_GetBufferSize((mal_IAudioClient*)pDevice->wasapi.pAudioClientPlayback, &pDevice->wasapi.actualBufferSizeInFramesPlayback);
-    }
 
-    mal_atomic_exchange_32(&pDevice->wasapi.isStarted, MAL_FALSE);
+        /* The device may be in a started state. If so we need to immediately restart it. */
+        if (pDevice->wasapi.isStarted) {
+            HRESULT hr = mal_IAudioClient_Start((mal_IAudioClient*)pDevice->wasapi.pAudioClientPlayback);
+            if (FAILED(hr)) {
+                return mal_post_error(pDevice, MAL_LOG_LEVEL_ERROR, "[WASAPI] Failed to start internal playback device after reinitialization.", MAL_FAILED_TO_START_BACKEND_DEVICE);
+            }
+        }
+    }
 
     return MAL_SUCCESS;
 }
@@ -7844,8 +7854,8 @@ mal_result mal_device_write__wasapi(mal_device* pDevice, const void* pPCMFrames,
         }
 
         /* We may need to reroute the device. */
-        if (mal_device_is_reroute_required__wasapi(pDevice, mal_device_type_capture)) {
-            result = mal_device_reroute__wasapi(pDevice, mal_device_type_capture);
+        if (mal_device_is_reroute_required__wasapi(pDevice, mal_device_type_playback)) {
+            result = mal_device_reroute__wasapi(pDevice, mal_device_type_playback);
             if (result != MAL_SUCCESS) {
                 break;
             }
@@ -21761,7 +21771,11 @@ void mal_device__post_init_setup(mal_device* pDevice, mal_device_type deviceType
         converterConfig.sampleRateOut          = pDevice->playback.internalSampleRate;
         mal_channel_map_copy(converterConfig.channelMapOut, pDevice->playback.internalChannelMap, pDevice->playback.internalChannels);
         if (deviceType == mal_device_type_playback) {
-            converterConfig.onRead = mal_device__on_read_from_client;
+            if (pDevice->type == mal_device_type_playback) {
+                converterConfig.onRead = mal_device__on_read_from_client;
+            } else {
+                converterConfig.onRead = mal_device__pcm_converter__on_read_from_buffer_playback;
+            }
         } else {
             converterConfig.onRead = mal_device__pcm_converter__on_read_from_buffer_playback;
         }

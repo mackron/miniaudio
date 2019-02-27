@@ -1,5 +1,6 @@
 #include <stdio.h>
 
+#define MAL_DEBUG_OUTPUT
 #define MINI_AL_IMPLEMENTATION
 #include "../mini_al.h"
 
@@ -60,7 +61,7 @@ int main(int argc, char** argv)
 #endif
     
 
-    mal_backend backend = mal_backend_dsound;
+    mal_backend backend = mal_backend_wasapi;
 
     mal_context_config contextConfig = mal_context_config_init();
     contextConfig.logCallback = log_callback;
