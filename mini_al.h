@@ -29714,7 +29714,7 @@ typedef struct
     float** ppPacketData;
 } mal_vorbis_decoder;
 
-mal_uint32 mal_vorbis_decoder_read_pcm_frames(mal_vorbis_decoder* pVorbis, mal_decoder* pDecoder, mal_uint32 frameCount, void* pSamplesOut)
+mal_uint32 mal_vorbis_decoder_read_pcm_frames(mal_vorbis_decoder* pVorbis, mal_decoder* pDecoder, void* pSamplesOut, mal_uint32 frameCount)
 {
     mal_assert(pVorbis != NULL);
     mal_assert(pDecoder != NULL);
@@ -29816,7 +29816,7 @@ mal_result mal_vorbis_decoder_seek_to_pcm_frame(mal_vorbis_decoder* pVorbis, mal
             framesToRead = (mal_uint32)frameIndex;
         }
 
-        mal_uint32 framesRead = mal_vorbis_decoder_read_pcm_frames(pVorbis, pDecoder, framesToRead, buffer);
+        mal_uint32 framesRead = mal_vorbis_decoder_read_pcm_frames(pVorbis, pDecoder, buffer, framesToRead);
         if (framesRead == 0) {
             return MAL_ERROR;
         }
@@ -29852,7 +29852,7 @@ mal_result mal_decoder_internal_on_uninit__vorbis(mal_decoder* pDecoder)
     return MAL_SUCCESS;
 }
 
-mal_uint32 mal_decoder_internal_on_read_pcm_frames__vorbis(mal_pcm_converter* pDSP, mal_uint32 frameCount, void* pSamplesOut, void* pUserData)
+mal_uint32 mal_decoder_internal_on_read_pcm_frames__vorbis(mal_pcm_converter* pDSP, void* pSamplesOut, mal_uint32 frameCount, void* pUserData)
 {
     (void)pDSP;
 
@@ -29865,7 +29865,7 @@ mal_uint32 mal_decoder_internal_on_read_pcm_frames__vorbis(mal_pcm_converter* pD
     mal_vorbis_decoder* pVorbis = (mal_vorbis_decoder*)pDecoder->pInternalDecoder;
     mal_assert(pVorbis != NULL);
 
-    return mal_vorbis_decoder_read_pcm_frames(pVorbis, pDecoder, frameCount, pSamplesOut);
+    return mal_vorbis_decoder_read_pcm_frames(pVorbis, pDecoder, pSamplesOut, frameCount);
 }
 
 mal_result mal_decoder_init_vorbis__internal(const mal_decoder_config* pConfig, mal_decoder* pDecoder)
