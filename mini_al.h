@@ -9213,7 +9213,7 @@ mal_result mal_device_get_current_frame__dsound(mal_device* pDevice, mal_device_
         }
         *pCurrentPos = (mal_uint32)dwCurrentPosition / mal_get_bytes_per_frame(pDevice->playback.internalFormat, pDevice->playback.internalChannels);
     } else {
-        if (FAILED(mal_IDirectSoundCaptureBuffer_GetCurrentPosition((mal_IDirectSoundCaptureBuffer*)pDevice->dsound.pCaptureBuffer, &dwCurrentPosition, NULL))) {
+        if (FAILED(mal_IDirectSoundCaptureBuffer_GetCurrentPosition((mal_IDirectSoundCaptureBuffer*)pDevice->dsound.pCaptureBuffer, NULL, &dwCurrentPosition))) {
             return MAL_ERROR;
         }
         *pCurrentPos = (mal_uint32)dwCurrentPosition / mal_get_bytes_per_frame(pDevice->capture.internalFormat, pDevice->capture.internalChannels);
@@ -9438,6 +9438,8 @@ mal_result mal_device_read__dsound(mal_device* pDevice, void* pPCMFrames, mal_ui
             if (result != MAL_SUCCESS) {
                 break;  /* Failed to get the current frame. */
             }
+
+            //printf("TRACE: Capture Position: %d\n", (int)currentPos);
 
             mal_uint32 periodSizeInFrames = pDevice->capture.internalBufferSizeInFrames / pDevice->capture.internalPeriods;
             if ((currentPos - (pDevice->dsound.iNextPeriodCapture * periodSizeInFrames)) >= periodSizeInFrames) {
