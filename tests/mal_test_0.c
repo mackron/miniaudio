@@ -2239,7 +2239,7 @@ void on_send__playback_test(mal_device* pDevice, void* pOutput, const void* pInp
     mal_assert(pData != NULL);
 
 #if !defined(__EMSCRIPTEN__)
-    mal_uint64 framesRead = mal_decoder_read_pcm_frames(pData->pDecoder, frameCount, pOutput);
+    mal_uint64 framesRead = mal_decoder_read_pcm_frames(pData->pDecoder, pOutput, frameCount);
     if (framesRead == 0) {
         mal_event_signal(&pData->endOfPlaybackEvent);
     }
