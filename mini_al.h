@@ -9681,14 +9681,22 @@ mal_result mal_device_main_loop__dsound(mal_device* pDevice)
                         }
 
                     #ifdef MAL_DEBUG_OUTPUT
-                        //printf("[DirectSound] (Duplex/Playback) playCursorInBytes=%d, availableBytes=%d\n", playCursorInBytes, availableBytes);
+                        printf("[DirectSound] (Duplex/Playback) physicalPlayCursorInBytes=%d, availableBytes=%d\n", physicalPlayCursorInBytes, availableBytes);
                     #endif
 
                         /* If there's no room available for writing we need to wait for more. */
-                        if (availableBytes == 0) {
+                        if (availableBytes < ((pDevice->playback.internalBufferSizeInFrames/pDevice->playback.internalPeriods)*bpfPlayback)) {
                             mal_sleep(waitTimeInMilliseconds);
                             continue;
                         }
+
+                    #ifdef MAL_DEBUG_OUTPUT
+                        if (isPlaybackDeviceStarted) {
+                            if (availableBytes > (((pDevice->playback.internalBufferSizeInFrames/pDevice->playback.internalPeriods)*(pDevice->playback.internalPeriods-1)) * bpfPlayback)) {
+                                printf("[DirectSound] (Duplex/Playback) Playback buffer starved. availableBytes=%d\n", availableBytes);
+                            }
+                        }
+                    #endif
 
 
                         /* Getting here means there room available somewhere. We limit this to either the end of the buffer or the physical play cursor, whichever is closest. */
@@ -9711,7 +9719,7 @@ mal_result mal_device_main_loop__dsound(mal_device* pDevice)
                         /* At this point we have a buffer for output. */
                         framesWrittenThisIteration = (mal_uint32)mal_pcm_converter_read(&pDevice->playback.converter, pMappedBufferPlayback, mappedSizeInBytesPlayback/bpfPlayback);
 
-                        hr = mal_IDirectSoundBuffer_Unlock((mal_IDirectSoundBuffer*)pDevice->dsound.pPlaybackBuffer, pMappedBufferPlayback, framesWrittenThisIteration * bpfPlayback, NULL, 0);
+                        hr = mal_IDirectSoundBuffer_Unlock((mal_IDirectSoundBuffer*)pDevice->dsound.pPlaybackBuffer, pMappedBufferPlayback, framesWrittenThisIteration*bpfPlayback, NULL, 0);
                         if (FAILED(hr)) {
                             result = mal_post_error(pDevice, MAL_LOG_LEVEL_ERROR, "[DirectSound] Failed to unlock internal buffer from playback device after writing to the device.", MAL_FAILED_TO_UNMAP_DEVICE_BUFFER);
                             break;
@@ -9723,9 +9731,12 @@ mal_result mal_device_main_loop__dsound(mal_device* pDevice)
                             virtualWriteCursorLoopFlagPlayback = !virtualWriteCursorLoopFlagPlayback;
                         }
                         
-                        /* We may need to start the device. */
+                        /*
+                        We may need to start the device. We want two full periods to be written before starting the playback device. Having an extra period adds
+                        a bit of a buffer to prevent the playback buffer from getting starved.
+                        */
                         framesWrittenToPlaybackDevice += framesWrittenThisIteration;
-                        if (!isPlaybackDeviceStarted && framesWrittenToPlaybackDevice >= ((pDevice->playback.internalBufferSizeInFrames/pDevice->playback.internalPeriods)*2)) {
+                        if (!isPlaybackDeviceStarted && framesWrittenToPlaybackDevice >= ((pDevice->playback.internalBufferSizeInFrames/pDevice->playback.internalPeriods)*(pDevice->playback.internalPeriods-1))) {
                             if (FAILED(mal_IDirectSoundBuffer_Play((mal_IDirectSoundBuffer*)pDevice->dsound.pPlaybackBuffer, 0, 0, MAL_DSBPLAY_LOOPING))) {
                                 mal_IDirectSoundCaptureBuffer_Stop((mal_IDirectSoundCaptureBuffer*)pDevice->dsound.pCaptureBuffer);
                                 return mal_post_error(pDevice, MAL_LOG_LEVEL_ERROR, "[DirectSound] IDirectSoundBuffer_Play() failed.", MAL_FAILED_TO_START_BACKEND_DEVICE);
@@ -9775,7 +9786,9 @@ mal_result mal_device_main_loop__dsound(mal_device* pDevice)
         }
     }
 
-    /* Before returning we should drain the playback device. */
+    /* Getting here means the device is being stopped. */
+
+    /* The playback device should be drained before stopping. */
     if (isPlaybackDeviceStarted) {
         /* TODO: Drain the playback device. */
     }
