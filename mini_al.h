@@ -3264,7 +3264,7 @@ static MAL_INLINE mal_bool32 mal_is_big_endian()
 
 // Default periods when none is specified in mal_device_init(). More periods means more work on the CPU.
 #ifndef MAL_DEFAULT_PERIODS
-#define MAL_DEFAULT_PERIODS                                 2
+#define MAL_DEFAULT_PERIODS                                 3
 #endif
 
 // The base buffer size in milliseconds for low latency mode.
@@ -4665,7 +4665,7 @@ void mal_log(mal_context* pContext, mal_device* pDevice, mal_uint32 logLevel, co
     if (logLevel <= MAL_LOG_LEVEL) {
     #if defined(MAL_DEBUG_OUTPUT)
         if (logLevel <= MAL_LOG_LEVEL) {
-            printf("%s: %s", mal_log_level_to_string(logLevel), message);
+            printf("%s: %s\n", mal_log_level_to_string(logLevel), message);
         }
     #endif
     
@@ -7138,7 +7138,7 @@ mal_result mal_device_init_internal__wasapi(mal_context* pContext, mal_device_ty
 
     // Slightly different initialization for shared and exclusive modes. We try exclusive mode first, and if it fails, fall back to shared mode.
     if (shareMode == MAL_AUDCLNT_SHAREMODE_EXCLUSIVE) {
-        MAL_REFERENCE_TIME bufferDuration = bufferDurationInMicroseconds*10;
+        MAL_REFERENCE_TIME bufferDuration = (bufferDurationInMicroseconds / pData->periodsOut) * 10;
 
         // If the periodicy is too small, Initialize() will fail with AUDCLNT_E_INVALID_DEVICE_PERIOD. In this case we should just keep increasing
         // it and trying it again.
@@ -7672,6 +7672,9 @@ mal_result mal_device_stop__wasapi(mal_device* pDevice)
         /* The audio client needs to be reset otherwise restarting will fail. */
         hr = mal_IAudioClient_Reset((mal_IAudioClient*)pDevice->wasapi.pAudioClientCapture);
         if (FAILED(hr)) {
+#ifdef MAL_DEBUG_OUTPUT
+            printf("IAudioClient_Reset (Capture) Returned %d\n", (int)hr);
+#endif
             return mal_post_error(pDevice, MAL_LOG_LEVEL_ERROR, "[WASAPI] Failed to reset internal capture device.", MAL_FAILED_TO_STOP_BACKEND_DEVICE);
         }
     }
@@ -7779,6 +7782,7 @@ mal_result mal_device_write__wasapi(mal_device* pDevice, const void* pPCMFrames,
 {
     mal_result result = MAL_SUCCESS;
     mal_bool32 wasStartedOnEntry;
+    mal_bool32 exitOuterLoop = MAL_FALSE;
     mal_uint32 totalFramesWritten;
     HRESULT hr;
     DWORD waitResult;
@@ -7840,42 +7844,73 @@ mal_result mal_device_write__wasapi(mal_device* pDevice, const void* pPCMFrames,
             break;
         }
 
-        
-        /* Wait for data. */
-        waitResult = WaitForSingleObject(pDevice->wasapi.hEventPlayback, INFINITE);
-        if (waitResult == WAIT_FAILED) {
-            result = MAL_ERROR;
-            break;  /* An error occurred while waiting for the event. */
-        }
-
-        /* If the device has been stopped don't continue. */
-        if (!pDevice->wasapi.isStarted && wasStartedOnEntry) {
-            break;
-        }
-
-        /* We may need to reroute the device. */
-        if (mal_device_is_reroute_required__wasapi(pDevice, mal_device_type_playback)) {
-            result = mal_device_reroute__wasapi(pDevice, mal_device_type_playback);
-            if (result != MAL_SUCCESS) {
-                break;
-            }
-        }
-
-        /* The device buffer has become available, so now we need to get a pointer to it. */
-        result = mal_device__get_available_frames__wasapi(pDevice, (mal_IAudioClient*)pDevice->wasapi.pAudioClientPlayback, &pDevice->wasapi.deviceBufferFramesCapacityPlayback);
-        if (result != MAL_SUCCESS) {
-            break;
-        }
-
-        //printf("TRACE 1: capacity playback: %d, %d\n", pDevice->wasapi.deviceBufferFramesCapacityPlayback, pDevice->wasapi.periodSizeInFramesPlayback);
-
-        /* In exclusive mode, the frame count needs to exactly match the value returned by GetCurrentPadding(). */
-        if (pDevice->playback.shareMode != mal_share_mode_exclusive) {
-            if (pDevice->type != mal_device_type_duplex) {  /* Full-duplex mode should also require the whole buffer be mapped at a time. */
-                if (pDevice->wasapi.deviceBufferFramesCapacityPlayback > pDevice->wasapi.periodSizeInFramesPlayback) {
-                    pDevice->wasapi.deviceBufferFramesCapacityPlayback = pDevice->wasapi.periodSizeInFramesPlayback;
+        /* Wait for data to become available. Exclusive mode is slightly different. We always wait and then use the exact frame count returned by GetCurrentPadding(). */
+        for (;;) {
+            if (pDevice->playback.shareMode == mal_share_mode_exclusive) {
+                waitResult = WaitForSingleObject(pDevice->wasapi.hEventPlayback, INFINITE);
+                if (waitResult == WAIT_FAILED) {
+                    result = MAL_ERROR;
+                    exitOuterLoop = MAL_TRUE;
+                    break;  /* An error occurred while waiting for the event. */
                 }
             }
+
+            /* If the device has been stopped don't continue. */
+            if (!pDevice->wasapi.isStarted && wasStartedOnEntry) {
+                exitOuterLoop = MAL_TRUE;
+                break;
+            }
+
+            /* We may need to reroute the device. */
+            if (mal_device_is_reroute_required__wasapi(pDevice, mal_device_type_playback)) {
+                result = mal_device_reroute__wasapi(pDevice, mal_device_type_playback);
+                if (result != MAL_SUCCESS) {
+                    exitOuterLoop = MAL_TRUE;
+                    break;
+                }
+            }
+
+            /*
+            Check what's available. If there's not enough data available we need to wait. How much data must be available depends on whether or not the
+            device is in playback-only mode or duplex mode. In playback-only mode we only care about a period being available. In duplex mode we want at
+            least a whole period in the buffer ready for playback in addition to a whole period being available.
+            */
+            result = mal_device__get_available_frames__wasapi(pDevice, (mal_IAudioClient*)pDevice->wasapi.pAudioClientPlayback, &pDevice->wasapi.deviceBufferFramesCapacityPlayback);
+            if (result != MAL_SUCCESS) {
+                exitOuterLoop = MAL_TRUE;
+                break;
+            }
+
+            /* In exclusive mode, the frame count needs to exactly match the value returned by GetCurrentPadding(). */
+            if (pDevice->playback.shareMode == mal_share_mode_exclusive && pDevice->wasapi.deviceBufferFramesCapacityPlayback > 0) {
+                break;
+            }
+
+            mal_uint32 minAvailableFrames = pDevice->wasapi.periodSizeInFramesPlayback;
+            if (pDevice->type == mal_device_type_duplex) {
+                if (!pDevice->wasapi.isStarted) {
+                    minAvailableFrames = pDevice->wasapi.periodSizeInFramesPlayback*2;
+                }
+            }
+
+            if (pDevice->wasapi.deviceBufferFramesCapacityPlayback >= minAvailableFrames) {
+                pDevice->wasapi.deviceBufferFramesCapacityPlayback  = minAvailableFrames;
+                break;
+            }
+
+            //printf("TRACE: WAITING\n");
+
+            /* Getting here means we need to wait for more data. */
+            waitResult = WaitForSingleObject(pDevice->wasapi.hEventPlayback, INFINITE);
+            if (waitResult == WAIT_FAILED) {
+                result = MAL_ERROR;
+                exitOuterLoop = MAL_TRUE;
+                break;  /* An error occurred while waiting for the event. */
+            }
+        }
+
+        if (exitOuterLoop) {
+            break;
         }
 
         hr = mal_IAudioRenderClient_GetBuffer((mal_IAudioRenderClient*)pDevice->wasapi.pRenderClient, pDevice->wasapi.deviceBufferFramesCapacityPlayback, (BYTE**)&pDevice->wasapi.pDeviceBufferPlayback);
@@ -7886,6 +7921,7 @@ mal_result mal_device_write__wasapi(mal_device* pDevice, const void* pPCMFrames,
         }
 
         pDevice->wasapi.deviceBufferFramesRemainingPlayback = pDevice->wasapi.deviceBufferFramesCapacityPlayback;
+        //printf("TRACE 1: Playback: %d, %d\n", pDevice->wasapi.deviceBufferFramesCapacityPlayback, pDevice->wasapi.periodSizeInFramesPlayback);
     }
 
     return result;
@@ -7948,12 +7984,15 @@ mal_result mal_device_read__wasapi(mal_device* pDevice, void* pPCMFrames, mal_ui
                 mal_uint32 framesAvailable;
                 result = mal_device__get_available_frames__wasapi(pDevice, (mal_IAudioClient*)pDevice->wasapi.pAudioClientCapture, &framesAvailable);
                 if (result == MAL_SUCCESS) {
-                    if (framesAvailable > pDevice->wasapi.periodSizeInFramesCapture) {
-                        mal_uint32 framesToDiscard = framesAvailable;// - pDevice->wasapi.periodSizeInFramesCapture;
+                    if (framesAvailable > (pDevice->wasapi.periodSizeInFramesCapture*(pDevice->capture.internalPeriods-1))) {
+                        mal_uint32 framesToDiscard = framesAvailable - pDevice->wasapi.periodSizeInFramesCapture;
                         if (framesToDiscard > 0) {
                             BYTE* pUnused;
                             hr = mal_IAudioCaptureClient_GetBuffer((mal_IAudioCaptureClient*)pDevice->wasapi.pCaptureClient, &pUnused, &framesToDiscard, &flags, NULL, NULL);
                             if (SUCCEEDED(hr)) {
+                            #ifdef MAL_DEBUG_OUTPUT
+                                printf("[WASAPI] (Duplex/Capture) Discarding %d frames...\n", framesToDiscard);
+                            #endif
                                 mal_IAudioCaptureClient_ReleaseBuffer((mal_IAudioCaptureClient*)pDevice->wasapi.pCaptureClient, framesToDiscard);
                             }
                         }
@@ -7970,7 +8009,15 @@ mal_result mal_device_read__wasapi(mal_device* pDevice, void* pPCMFrames, mal_ui
         }
 
         /* Wait for data. */
-        waitResult = WaitForSingleObject(pDevice->wasapi.hEventCapture, INFINITE);
+        if (pDevice->type == mal_device_type_capture) {
+            waitResult = WaitForSingleObject(pDevice->wasapi.hEventCapture, INFINITE);
+        } else {
+            if (pDevice->playback.shareMode == mal_share_mode_shared) {
+                waitResult = WaitForSingleObject(pDevice->wasapi.hEventCapture, INFINITE);
+            } else {
+                waitResult = WaitForSingleObject(pDevice->wasapi.hEventPlayback, INFINITE); /* Wait on the exclusive-mode playback event instead. */
+            }
+        }
         if (waitResult == WAIT_FAILED) {
             result = MAL_ERROR;
             break;  /* An error occurred while waiting for the event. */
@@ -22575,6 +22622,15 @@ mal_result mal_device_init(mal_context* pContext, const mal_device_config* pConf
         config.periods = MAL_DEFAULT_PERIODS;
         pDevice->usingDefaultPeriods = MAL_TRUE;
     }
+
+    /*
+    Must have at least 3 periods for full-duplex mode. The idea is that the playback and capture positions hang out in the middle period, with the surrounding
+    periods acting as a buffer in case the capture and playback devices get's slightly out of sync.
+    */
+    if (config.deviceType == mal_device_type_duplex && config.periods < 3) {
+        config.periods = 3;
+    }
+
 
     pDevice->type = config.deviceType;
     pDevice->sampleRate = config.sampleRate;
