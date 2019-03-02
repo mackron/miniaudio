@@ -2206,6 +2206,8 @@ MAL_ALIGNED_STRUCT(MAL_SIMD_ALIGNMENT) mal_device
             /*LPDIRECTSOUNDBUFFER*/ mal_ptr pPlaybackBuffer;
             /*LPDIRECTSOUNDCAPTURE*/ mal_ptr pCapture;
             /*LPDIRECTSOUNDCAPTUREBUFFER*/ mal_ptr pCaptureBuffer;
+            
+
             mal_uint32 iNextPeriodPlayback; /* Circular. Keeps track of the next period that's due for an update. */
             mal_uint32 iNextPeriodCapture;
             void* pMappedBufferPlayback;
@@ -9518,6 +9520,269 @@ mal_result mal_device_read__dsound(mal_device* pDevice, void* pPCMFrames, mal_ui
     return result;
 }
 
+
+mal_result mal_device_main_loop__dsound(mal_device* pDevice)
+{
+    mal_result result = MAL_SUCCESS;
+    mal_uint32 currentFramePosCapture;
+    //mal_uint32 currentFramePosPlayback;
+    mal_uint32 prevFramePosCapture = 0;
+    //mal_uint32 prevFramePosPlayback = 0;
+    mal_uint32 bpfCapture  = mal_get_bytes_per_frame(pDevice->capture.internalFormat, pDevice->capture.internalChannels);
+    mal_uint32 bpfPlayback = mal_get_bytes_per_frame(pDevice->playback.internalFormat, pDevice->playback.internalChannels);
+    HRESULT hr;
+    DWORD lockOffsetInBytesCapture;
+    DWORD lockSizeInBytesCapture;
+    DWORD mappedSizeInBytesCapture;
+    void* pMappedBufferCapture;
+    DWORD lockOffsetInBytesPlayback;
+    DWORD lockSizeInBytesPlayback;
+    DWORD mappedSizeInBytesPlayback;
+    void* pMappedBufferPlayback;
+    mal_bool32 isPlaybackDeviceStarted = MAL_FALSE;
+    mal_uint32 framesWrittenToPlaybackDevice = 0;   /* For knowing whether or not the playback device needs to be started. */
+    mal_uint32 waitTimeInMilliseconds = 1;
+
+    DWORD prevPlayCursorInBytesPlayback = 0;
+    //DWORD prevWriteCursorInBytesPlayback = 0;
+    mal_bool32 physicalPlayCursorLoopFlagPlayback = 0;
+    //mal_bool32 physicalWriteCursorLoopFlagPlayback = 0;
+    
+    //DWORD virtualPlayCursorInBytesPlayback = 0;
+    DWORD virtualWriteCursorInBytesPlayback = 0;
+    //mal_bool32 virtualPlayCursorLoopFlagPlayback = 0;
+    mal_bool32 virtualWriteCursorLoopFlagPlayback = 0;
+
+    mal_assert(pDevice != NULL);
+
+    /* The first thing to do is start the capture device. The playback device is only started after the first period is written. */
+    if (pDevice->type == mal_device_type_capture || pDevice->type == mal_device_type_duplex) {
+        if (FAILED(mal_IDirectSoundCaptureBuffer_Start((mal_IDirectSoundCaptureBuffer*)pDevice->dsound.pCaptureBuffer, MAL_DSCBSTART_LOOPING))) {
+            return mal_post_error(pDevice, MAL_LOG_LEVEL_ERROR, "[DirectSound] IDirectSoundCaptureBuffer_Start() failed.", MAL_FAILED_TO_START_BACKEND_DEVICE);
+        }
+    }
+    
+    while (mal_device__get_state(pDevice) == MAL_STATE_STARTED) {
+        switch (pDevice->type)
+        {
+            case mal_device_type_duplex:
+            {
+                result = mal_device_get_current_frame__dsound(pDevice, mal_device_type_capture, &currentFramePosCapture);
+                if (result != MAL_SUCCESS) {
+                    return result;
+                }
+
+                /* If nothing is available we just sleep for a bit and return from this iteration. */
+                if (currentFramePosCapture == prevFramePosCapture) {
+                    mal_sleep(waitTimeInMilliseconds);
+                    continue; /* Nothing is available in the capture buffer. */
+                }
+
+                /*
+                The current position has moved. We need to map all of the captured samples and write them to the playback device, making sure
+                we don't return until every frame has been copied over.
+                */
+                if (prevFramePosCapture < currentFramePosCapture) {
+                    /* The capture position has not looped. This is the simple case. */
+                    lockOffsetInBytesCapture = prevFramePosCapture * bpfCapture;
+                    lockSizeInBytesCapture   = (currentFramePosCapture - prevFramePosCapture) * bpfCapture;
+                } else {
+                    /*
+                    The capture position has looped. This is the more complex case. Map to the end of the buffer. If this does not return anything,
+                    do it again from the start.
+                    */
+                    if (prevFramePosCapture < pDevice->capture.internalBufferSizeInFrames) {
+                        /* Lock up to the end of the buffer. */
+                        lockOffsetInBytesCapture = prevFramePosCapture * bpfCapture;
+                        lockSizeInBytesCapture   = (pDevice->capture.internalBufferSizeInFrames - prevFramePosCapture) * bpfCapture;
+                    } else {
+                        /* Lock starting from the start of the buffer. */
+                        lockOffsetInBytesCapture = 0;
+                        lockSizeInBytesCapture   = currentFramePosCapture * bpfCapture;
+                    }
+                }
+
+                if (lockSizeInBytesCapture == 0) {
+                    mal_sleep(waitTimeInMilliseconds);
+                    continue; /* Nothing is available in the capture buffer. */
+                }
+
+                hr = mal_IDirectSoundCaptureBuffer_Lock((mal_IDirectSoundCaptureBuffer*)pDevice->dsound.pCaptureBuffer, lockOffsetInBytesCapture, lockSizeInBytesCapture, &pMappedBufferCapture, &mappedSizeInBytesCapture, NULL, NULL, 0);
+                if (FAILED(hr)) {
+                    return mal_post_error(pDevice, MAL_LOG_LEVEL_ERROR, "[DirectSound] Failed to map buffer from capture device in preparation for writing to the device.", MAL_FAILED_TO_MAP_DEVICE_BUFFER);
+                }
+
+
+                /* At this point we have some input data that we need to output. We do not return until every mapped frame of the input data is written to the playback device. */
+                pDevice->capture._dspFrameCount = mappedSizeInBytesCapture / bpfCapture;
+                pDevice->capture._dspFrames     = (const mal_uint8*)pMappedBufferCapture;
+                for (;;) {  /* Keep writing to the playback device. */
+                    mal_uint8  inputFramesInExternalFormat[4096];
+                    mal_uint32 inputFramesInExternalFormatCap = sizeof(inputFramesInExternalFormat) / mal_get_bytes_per_frame(pDevice->capture.format, pDevice->capture.channels);
+                    mal_uint32 inputFramesInExternalFormatCount;
+                    mal_uint8  outputFramesInExternalFormat[4096];
+                    mal_uint32 outputFramesInExternalFormatCap = sizeof(outputFramesInExternalFormat) / mal_get_bytes_per_frame(pDevice->playback.format, pDevice->playback.channels);
+
+                    inputFramesInExternalFormatCount = (mal_uint32)mal_pcm_converter_read(&pDevice->capture.converter, inputFramesInExternalFormat, mal_min(inputFramesInExternalFormatCap, outputFramesInExternalFormatCap));
+                    if (inputFramesInExternalFormatCount == 0) {
+                        break;  /* No more input data. */
+                    }
+
+                    pDevice->onData(pDevice, outputFramesInExternalFormat, inputFramesInExternalFormat, inputFramesInExternalFormatCount);
+
+                    /* At this point we have input and output data in external format. All we need to do now is convert it to the output format. This may take a few passes. */
+                    pDevice->playback._dspFrameCount = inputFramesInExternalFormatCount;
+                    pDevice->playback._dspFrames     = (const mal_uint8*)outputFramesInExternalFormat;
+                    for (;;) {
+                        mal_uint32 framesWrittenThisIteration;
+                        DWORD physicalPlayCursorInBytes;
+                        DWORD physicalWriteCursorInBytes;
+                        DWORD availableBytes;
+
+                        /* We need the physical play and write cursors. */
+                        if (FAILED(mal_IDirectSoundBuffer_GetCurrentPosition((mal_IDirectSoundBuffer*)pDevice->dsound.pPlaybackBuffer, &physicalPlayCursorInBytes, &physicalWriteCursorInBytes))) {
+                            break;
+                        }
+
+                        if (physicalPlayCursorInBytes < prevPlayCursorInBytesPlayback) {
+                            physicalPlayCursorLoopFlagPlayback = !physicalPlayCursorLoopFlagPlayback;
+                        }
+                        //if (physicalWriteCursorInBytes < prevWriteCursorInBytesPlayback) {
+                        //    physicalWriteCursorLoopFlagPlayback = !physicalWriteCursorLoopFlagPlayback;
+                        //}
+
+                        prevPlayCursorInBytesPlayback  = physicalPlayCursorInBytes;
+                        //prevWriteCursorInBytesPlayback = physicalWriteCursorInBytes;
+
+                        /* If there's any bytes available for writing we can do that now. The space between the virtual cursor position and play cursor. */
+                        if (physicalPlayCursorLoopFlagPlayback == virtualWriteCursorLoopFlagPlayback) {
+                            /* Same loop iteration. The available bytes wraps all the way around from the virtual write cursor to the physical play cursor. */
+                            if (physicalPlayCursorInBytes <= virtualWriteCursorInBytesPlayback) {
+                                availableBytes  = (pDevice->playback.internalBufferSizeInFrames*bpfPlayback) - virtualWriteCursorInBytesPlayback;
+                                availableBytes += physicalPlayCursorInBytes;    /* Wrap around. */
+                            } else {
+                                /* This is an error. */
+                            #ifdef MAL_DEBUG_OUTPUT
+                                printf("[DirectSound] (Duplex/Playback) WARNING: Play cursor has moved in front of the write cursor (same loop iterations). physicalPlayCursorInBytes=%d, virtualWriteCursorInBytes=%d.\n", physicalPlayCursorInBytes, virtualWriteCursorInBytesPlayback);
+                            #endif
+                                availableBytes = 0;
+                            }
+                        } else {
+                            /* Different loop iterations. The available bytes only goes from the virtual write cursor to the physical play cursor. */
+                            if (physicalPlayCursorInBytes >= virtualWriteCursorInBytesPlayback) {
+                                availableBytes = physicalPlayCursorInBytes - virtualWriteCursorInBytesPlayback;
+                            } else {
+                                /* This is an error. */
+                            #ifdef MAL_DEBUG_OUTPUT
+                                printf("[DirectSound] (Duplex/Playback) WARNING: Write cursor has moved behind the play cursor (different loop iterations). physicalPlayCursorInBytes=%d, virtualWriteCursorInBytes=%d.\n", physicalPlayCursorInBytes, virtualWriteCursorInBytesPlayback);
+                            #endif
+                                availableBytes = 0;
+                            }
+                        }
+
+                    #ifdef MAL_DEBUG_OUTPUT
+                        //printf("[DirectSound] (Duplex/Playback) playCursorInBytes=%d, availableBytes=%d\n", playCursorInBytes, availableBytes);
+                    #endif
+
+                        /* If there's no room available for writing we need to wait for more. */
+                        if (availableBytes == 0) {
+                            mal_sleep(waitTimeInMilliseconds);
+                            continue;
+                        }
+
+
+                        /* Getting here means there room available somewhere. We limit this to either the end of the buffer or the physical play cursor, whichever is closest. */
+                        lockOffsetInBytesPlayback = virtualWriteCursorInBytesPlayback;
+                        if (physicalPlayCursorLoopFlagPlayback == virtualWriteCursorLoopFlagPlayback) {
+                            /* Same loop iteration. Go up to the end of the buffer. */
+                            lockSizeInBytesPlayback = (pDevice->playback.internalBufferSizeInFrames*bpfPlayback) - virtualWriteCursorInBytesPlayback;
+                        } else {
+                            /* Different loop iterations. Go up to the physical play cursor. */
+                            lockSizeInBytesPlayback = physicalPlayCursorInBytes - virtualWriteCursorInBytesPlayback;
+                        }
+
+                        hr = mal_IDirectSoundBuffer_Lock((mal_IDirectSoundBuffer*)pDevice->dsound.pPlaybackBuffer, lockOffsetInBytesPlayback, lockSizeInBytesPlayback, &pMappedBufferPlayback, &mappedSizeInBytesPlayback, NULL, NULL, 0);
+                        if (FAILED(hr)) {
+                            result = mal_post_error(pDevice, MAL_LOG_LEVEL_ERROR, "[DirectSound] Failed to map buffer from playback device in preparation for writing to the device.", MAL_FAILED_TO_MAP_DEVICE_BUFFER);
+                            break;
+                        }
+
+
+                        /* At this point we have a buffer for output. */
+                        framesWrittenThisIteration = (mal_uint32)mal_pcm_converter_read(&pDevice->playback.converter, pMappedBufferPlayback, mappedSizeInBytesPlayback/bpfPlayback);
+
+                        hr = mal_IDirectSoundBuffer_Unlock((mal_IDirectSoundBuffer*)pDevice->dsound.pPlaybackBuffer, pMappedBufferPlayback, framesWrittenThisIteration * bpfPlayback, NULL, 0);
+                        if (FAILED(hr)) {
+                            result = mal_post_error(pDevice, MAL_LOG_LEVEL_ERROR, "[DirectSound] Failed to unlock internal buffer from playback device after writing to the device.", MAL_FAILED_TO_UNMAP_DEVICE_BUFFER);
+                            break;
+                        }
+
+                        virtualWriteCursorInBytesPlayback += framesWrittenThisIteration*bpfPlayback;
+                        if ((virtualWriteCursorInBytesPlayback/bpfPlayback) == pDevice->playback.internalBufferSizeInFrames) {
+                            virtualWriteCursorInBytesPlayback  = 0;
+                            virtualWriteCursorLoopFlagPlayback = !virtualWriteCursorLoopFlagPlayback;
+                        }
+                        
+                        /* We may need to start the device. */
+                        framesWrittenToPlaybackDevice += framesWrittenThisIteration;
+                        if (!isPlaybackDeviceStarted && framesWrittenToPlaybackDevice >= ((pDevice->playback.internalBufferSizeInFrames/pDevice->playback.internalPeriods)*2)) {
+                            if (FAILED(mal_IDirectSoundBuffer_Play((mal_IDirectSoundBuffer*)pDevice->dsound.pPlaybackBuffer, 0, 0, MAL_DSBPLAY_LOOPING))) {
+                                mal_IDirectSoundCaptureBuffer_Stop((mal_IDirectSoundCaptureBuffer*)pDevice->dsound.pCaptureBuffer);
+                                return mal_post_error(pDevice, MAL_LOG_LEVEL_ERROR, "[DirectSound] IDirectSoundBuffer_Play() failed.", MAL_FAILED_TO_START_BACKEND_DEVICE);
+                            }
+                            isPlaybackDeviceStarted = MAL_TRUE;
+                        }
+
+                        if (framesWrittenThisIteration < mappedSizeInBytesPlayback/bpfPlayback) {
+                            break;  /* We're finished with the output data.*/
+                        }
+                    }
+
+                    if (inputFramesInExternalFormatCount < inputFramesInExternalFormatCap) {
+                        break;  /* We just consumed every input sample. */
+                    }
+                }
+
+
+                /* At this point we're done with the mapped portion of the capture buffer. */
+                hr = mal_IDirectSoundCaptureBuffer_Unlock((mal_IDirectSoundCaptureBuffer*)pDevice->dsound.pCaptureBuffer, pMappedBufferCapture, mappedSizeInBytesCapture, NULL, 0);
+                if (FAILED(hr)) {
+                    return mal_post_error(pDevice, MAL_LOG_LEVEL_ERROR, "[DirectSound] Failed to unlock internal buffer from capture device after reading from the device.", MAL_FAILED_TO_UNMAP_DEVICE_BUFFER);
+                }
+                prevFramePosCapture = (lockOffsetInBytesCapture + mappedSizeInBytesCapture) / bpfCapture;
+            } break;
+
+
+
+            case mal_device_type_capture:
+            {
+                /* Not yet implemented. */
+            } break;
+
+
+
+            case mal_device_type_playback:
+            {
+                /* Not yet implemented. */
+            } break;
+
+
+            default: return MAL_INVALID_ARGS;   /* Invalid device type. */
+        }
+
+        if (result != MAL_SUCCESS) {
+            return result;
+        }
+    }
+
+    /* Before returning we should drain the playback device. */
+    if (isPlaybackDeviceStarted) {
+        /* TODO: Drain the playback device. */
+    }
+
+    return MAL_SUCCESS;
+}
+
 mal_result mal_context_uninit__dsound(mal_context* pContext)
 {
     mal_assert(pContext != NULL);
@@ -9542,16 +9807,17 @@ mal_result mal_context_init__dsound(mal_context* pContext)
     pContext->dsound.DirectSoundCaptureCreate     = mal_dlsym(pContext->dsound.hDSoundDLL, "DirectSoundCaptureCreate");
     pContext->dsound.DirectSoundCaptureEnumerateA = mal_dlsym(pContext->dsound.hDSoundDLL, "DirectSoundCaptureEnumerateA");
 
-    pContext->onUninit              = mal_context_uninit__dsound;
-    pContext->onDeviceIDEqual       = mal_context_is_device_id_equal__dsound;
-    pContext->onEnumDevices         = mal_context_enumerate_devices__dsound;
-    pContext->onGetDeviceInfo       = mal_context_get_device_info__dsound;
-    pContext->onDeviceInit          = mal_device_init__dsound;
-    pContext->onDeviceUninit        = mal_device_uninit__dsound;
-    pContext->onDeviceStart         = NULL; /* Not used. Started in onDeviceWrite/onDeviceRead. */
-    pContext->onDeviceStop          = mal_device_stop__dsound;
-    pContext->onDeviceWrite         = mal_device_write__dsound;
-    pContext->onDeviceRead          = mal_device_read__dsound;
+    pContext->onUninit         = mal_context_uninit__dsound;
+    pContext->onDeviceIDEqual  = mal_context_is_device_id_equal__dsound;
+    pContext->onEnumDevices    = mal_context_enumerate_devices__dsound;
+    pContext->onGetDeviceInfo  = mal_context_get_device_info__dsound;
+    pContext->onDeviceInit     = mal_device_init__dsound;
+    pContext->onDeviceUninit   = mal_device_uninit__dsound;
+    pContext->onDeviceStart    = NULL; /* Not used. Started in onDeviceWrite/onDeviceRead. */
+    pContext->onDeviceStop     = mal_device_stop__dsound;
+    pContext->onDeviceWrite    = mal_device_write__dsound;
+    pContext->onDeviceRead     = mal_device_read__dsound;
+    pContext->onDeviceMainLoop = mal_device_main_loop__dsound;
 
     return MAL_SUCCESS;
 }
@@ -21866,151 +22132,155 @@ mal_thread_result MAL_THREADCALL mal_worker_thread(void* pData)
         // in both the success and error case. It's important that the state of the device is set _before_ signaling the event.
         mal_assert(mal_device__get_state(pDevice) == MAL_STATE_STARTING);
 
-        /* When a device is using mini_al's generic worker thread they must implement onDeviceRead or onDeviceWrite, depending on the device type. */
-        mal_assert(
-            (pDevice->type == mal_device_type_playback && pDevice->pContext->onDeviceWrite != NULL) ||
-            (pDevice->type == mal_device_type_capture  && pDevice->pContext->onDeviceRead  != NULL) ||
-            (pDevice->type == mal_device_type_duplex   && pDevice->pContext->onDeviceWrite != NULL && pDevice->pContext->onDeviceRead != NULL)
-        );
-
-        mal_uint32 periodSizeInFrames;
-        if (pDevice->type == mal_device_type_capture) {
-            mal_assert(pDevice->capture.internalBufferSizeInFrames >= pDevice->capture.internalPeriods);
-            periodSizeInFrames = pDevice->capture.internalBufferSizeInFrames / pDevice->capture.internalPeriods;
-        } else if (pDevice->type == mal_device_type_playback) {
-            mal_assert(pDevice->playback.internalBufferSizeInFrames >= pDevice->playback.internalPeriods);
-            periodSizeInFrames = pDevice->playback.internalBufferSizeInFrames / pDevice->playback.internalPeriods;
-        } else {
-            mal_assert(pDevice->capture.internalBufferSizeInFrames >= pDevice->capture.internalPeriods);
-            mal_assert(pDevice->playback.internalBufferSizeInFrames >= pDevice->playback.internalPeriods);
-            periodSizeInFrames = mal_min(
-                pDevice->capture.internalBufferSizeInFrames / pDevice->capture.internalPeriods,
-                pDevice->playback.internalBufferSizeInFrames / pDevice->playback.internalPeriods
-            );
-        }
-        
-
-        /*
-        With the blocking API, the device is started automatically in read()/write(). All we need to do is enter the loop and just keep reading
-        or writing based on the period size.
-        */
-
         /* Make sure the state is set appropriately. */
         mal_device__set_state(pDevice, MAL_STATE_STARTED);
         mal_event_signal(&pDevice->startEvent);
+
+        if (pDevice->pContext->onDeviceMainLoop != NULL) {
+            pDevice->pContext->onDeviceMainLoop(pDevice);
+        } else {
+            /* When a device is using mini_al's generic worker thread they must implement onDeviceRead or onDeviceWrite, depending on the device type. */
+            mal_assert(
+                (pDevice->type == mal_device_type_playback && pDevice->pContext->onDeviceWrite != NULL) ||
+                (pDevice->type == mal_device_type_capture  && pDevice->pContext->onDeviceRead  != NULL) ||
+                (pDevice->type == mal_device_type_duplex   && pDevice->pContext->onDeviceWrite != NULL && pDevice->pContext->onDeviceRead != NULL)
+            );
+
+            mal_uint32 periodSizeInFrames;
+            if (pDevice->type == mal_device_type_capture) {
+                mal_assert(pDevice->capture.internalBufferSizeInFrames >= pDevice->capture.internalPeriods);
+                periodSizeInFrames = pDevice->capture.internalBufferSizeInFrames / pDevice->capture.internalPeriods;
+            } else if (pDevice->type == mal_device_type_playback) {
+                mal_assert(pDevice->playback.internalBufferSizeInFrames >= pDevice->playback.internalPeriods);
+                periodSizeInFrames = pDevice->playback.internalBufferSizeInFrames / pDevice->playback.internalPeriods;
+            } else {
+                mal_assert(pDevice->capture.internalBufferSizeInFrames >= pDevice->capture.internalPeriods);
+                mal_assert(pDevice->playback.internalBufferSizeInFrames >= pDevice->playback.internalPeriods);
+                periodSizeInFrames = mal_min(
+                    pDevice->capture.internalBufferSizeInFrames / pDevice->capture.internalPeriods,
+                    pDevice->playback.internalBufferSizeInFrames / pDevice->playback.internalPeriods
+                );
+            }
+
+            /*
+            With the blocking API, the device is started automatically in read()/write(). All we need to do is enter the loop and just keep reading
+            or writing based on the period size.
+            */
             
-        /* Main Loop */
-        mal_assert(periodSizeInFrames >= 1);
-        while (mal_device__get_state(pDevice) == MAL_STATE_STARTED) {
-            mal_result result = MAL_SUCCESS;
-            mal_uint32 totalFramesProcessed = 0;
+            /* Main Loop */
+            mal_assert(periodSizeInFrames >= 1);
+            while (mal_device__get_state(pDevice) == MAL_STATE_STARTED) {
+                mal_result result = MAL_SUCCESS;
+                mal_uint32 totalFramesProcessed = 0;
 
-            if (pDevice->type == mal_device_type_duplex) {
-                /* The process is device_read -> convert -> callback -> convert -> device_write. */
-                mal_uint8  captureDeviceData[4096];
-                mal_uint32 captureDeviceDataCapInFrames = sizeof(captureDeviceData) / mal_get_bytes_per_frame(pDevice->capture.internalFormat, pDevice->capture.internalChannels);
+                if (pDevice->type == mal_device_type_duplex) {
+                    /* The process is device_read -> convert -> callback -> convert -> device_write. */
+                    mal_uint8  captureDeviceData[4096];
+                    mal_uint32 captureDeviceDataCapInFrames = sizeof(captureDeviceData) / mal_get_bytes_per_frame(pDevice->capture.internalFormat, pDevice->capture.internalChannels);
 
-                while (totalFramesProcessed < periodSizeInFrames) {
-                    mal_uint32 framesRemaining = periodSizeInFrames - totalFramesProcessed;
-                    mal_uint32 framesToProcess = framesRemaining;
-                    if (framesToProcess > captureDeviceDataCapInFrames) {
-                        framesToProcess = captureDeviceDataCapInFrames;
-                    }
+                    while (totalFramesProcessed < periodSizeInFrames) {
+                        mal_uint32 framesRemaining = periodSizeInFrames - totalFramesProcessed;
+                        mal_uint32 framesToProcess = framesRemaining;
+                        if (framesToProcess > captureDeviceDataCapInFrames) {
+                            framesToProcess = captureDeviceDataCapInFrames;
+                        }
 
-                    result = pDevice->pContext->onDeviceRead(pDevice, captureDeviceData, framesToProcess);
-                    if (result != MAL_SUCCESS) {
-                        break;
-                    }
+                        result = pDevice->pContext->onDeviceRead(pDevice, captureDeviceData, framesToProcess);
+                        if (result != MAL_SUCCESS) {
+                            break;
+                        }
                     
-                    mal_device_callback_proc onData = pDevice->onData;
-                    if (onData != NULL) {
-                        pDevice->capture._dspFrameCount = framesToProcess;
-                        pDevice->capture._dspFrames     = captureDeviceData;
+                        mal_device_callback_proc onData = pDevice->onData;
+                        if (onData != NULL) {
+                            pDevice->capture._dspFrameCount = framesToProcess;
+                            pDevice->capture._dspFrames     = captureDeviceData;
 
-                        /* We need to process every input frame. */
-                        for (;;) {
-                            mal_uint8 capturedData[4096];   // In capture.format/channels format
-                            mal_uint8 playbackData[4096];   // In playback.format/channels format
-
-                            mal_uint32 capturedDataCapInFrames = sizeof(capturedData) / mal_get_bytes_per_frame(pDevice->capture.format, pDevice->capture.channels);
-                            mal_uint32 playbackDataCapInFrames = sizeof(playbackData) / mal_get_bytes_per_frame(pDevice->playback.format, pDevice->playback.channels);
-
-                            mal_uint32 capturedFramesToTryProcessing = mal_min(capturedDataCapInFrames, playbackDataCapInFrames);
-                            mal_uint32 capturedFramesToProcess = (mal_uint32)mal_pcm_converter_read(&pDevice->capture.converter, capturedData, capturedFramesToTryProcessing);
-                            if (capturedFramesToProcess == 0) {
-                                break;  /* Don't fire the data callback with zero frames. */
-                            }
-                            
-                            onData(pDevice, playbackData, capturedData, capturedFramesToProcess);
-
-                            /* At this point the playbackData buffer should be holding data that needs to be written to the device. */
-                            pDevice->playback._dspFrameCount = capturedFramesToProcess;
-                            pDevice->playback._dspFrames     = playbackData;
+                            /* We need to process every input frame. */
                             for (;;) {
-                                mal_uint8 playbackDeviceData[4096];
+                                mal_uint8 capturedData[4096];   // In capture.format/channels format
+                                mal_uint8 playbackData[4096];   // In playback.format/channels format
 
-                                mal_uint32 playbackDeviceDataCapInFrames = sizeof(playbackDeviceData) / mal_get_bytes_per_frame(pDevice->playback.internalFormat, pDevice->playback.internalChannels);
-                                mal_uint32 playbackDeviceFramesCount = (mal_uint32)mal_pcm_converter_read(&pDevice->playback.converter, playbackDeviceData, playbackDeviceDataCapInFrames);
-                                if (playbackDeviceFramesCount == 0) {
+                                mal_uint32 capturedDataCapInFrames = sizeof(capturedData) / mal_get_bytes_per_frame(pDevice->capture.format, pDevice->capture.channels);
+                                mal_uint32 playbackDataCapInFrames = sizeof(playbackData) / mal_get_bytes_per_frame(pDevice->playback.format, pDevice->playback.channels);
+
+                                mal_uint32 capturedFramesToTryProcessing = mal_min(capturedDataCapInFrames, playbackDataCapInFrames);
+                                mal_uint32 capturedFramesToProcess = (mal_uint32)mal_pcm_converter_read(&pDevice->capture.converter, capturedData, capturedFramesToTryProcessing);
+                                if (capturedFramesToProcess == 0) {
+                                    break;  /* Don't fire the data callback with zero frames. */
+                                }
+                            
+                                onData(pDevice, playbackData, capturedData, capturedFramesToProcess);
+
+                                /* At this point the playbackData buffer should be holding data that needs to be written to the device. */
+                                pDevice->playback._dspFrameCount = capturedFramesToProcess;
+                                pDevice->playback._dspFrames     = playbackData;
+                                for (;;) {
+                                    mal_uint8 playbackDeviceData[4096];
+
+                                    mal_uint32 playbackDeviceDataCapInFrames = sizeof(playbackDeviceData) / mal_get_bytes_per_frame(pDevice->playback.internalFormat, pDevice->playback.internalChannels);
+                                    mal_uint32 playbackDeviceFramesCount = (mal_uint32)mal_pcm_converter_read(&pDevice->playback.converter, playbackDeviceData, playbackDeviceDataCapInFrames);
+                                    if (playbackDeviceFramesCount == 0) {
+                                        break;
+                                    }
+
+                                    result = pDevice->pContext->onDeviceWrite(pDevice, playbackDeviceData, playbackDeviceFramesCount);
+                                    if (result != MAL_SUCCESS) {
+                                        break;
+                                    }
+
+                                    if (playbackDeviceFramesCount < playbackDeviceDataCapInFrames) {
+                                        break;
+                                    }
+                                }
+
+                                if (capturedFramesToProcess < capturedFramesToTryProcessing) {
                                     break;
                                 }
 
-                                result = pDevice->pContext->onDeviceWrite(pDevice, playbackDeviceData, playbackDeviceFramesCount);
+                                /* In case an error happened from onDeviceWrite()... */
                                 if (result != MAL_SUCCESS) {
                                     break;
                                 }
-
-                                if (playbackDeviceFramesCount < playbackDeviceDataCapInFrames) {
-                                    break;
-                                }
-                            }
-
-                            if (capturedFramesToProcess < capturedFramesToTryProcessing) {
-                                break;
-                            }
-
-                            /* In case an error happened from onDeviceWrite()... */
-                            if (result != MAL_SUCCESS) {
-                                break;
                             }
                         }
-                    }
 
-                    totalFramesProcessed += framesToProcess;
-                }
-            } else {
-                mal_uint8  buffer[4096];
-                mal_uint32 bufferSizeInFrames;
-                if (pDevice->type == mal_device_type_capture) {
-                    bufferSizeInFrames = sizeof(buffer) / mal_get_bytes_per_frame(pDevice->capture.internalFormat, pDevice->capture.internalChannels);
+                        totalFramesProcessed += framesToProcess;
+                    }
                 } else {
-                    bufferSizeInFrames = sizeof(buffer) / mal_get_bytes_per_frame(pDevice->playback.internalFormat, pDevice->playback.internalChannels);
-                }
-
-                while (totalFramesProcessed < periodSizeInFrames) {
-                    mal_uint32 framesRemaining = periodSizeInFrames - totalFramesProcessed;
-                    mal_uint32 framesToProcess = framesRemaining;
-                    if (framesToProcess > bufferSizeInFrames) {
-                        framesToProcess = bufferSizeInFrames;
-                    }
-
-                    if (pDevice->type == mal_device_type_playback) {
-                        mal_device__read_frames_from_client(pDevice, framesToProcess, buffer);
-                        result = pDevice->pContext->onDeviceWrite(pDevice, buffer, framesToProcess);
+                    mal_uint8  buffer[4096];
+                    mal_uint32 bufferSizeInFrames;
+                    if (pDevice->type == mal_device_type_capture) {
+                        bufferSizeInFrames = sizeof(buffer) / mal_get_bytes_per_frame(pDevice->capture.internalFormat, pDevice->capture.internalChannels);
                     } else {
-                        result = pDevice->pContext->onDeviceRead(pDevice, buffer, framesToProcess);
-                        mal_device__send_frames_to_client(pDevice, framesToProcess, buffer);
+                        bufferSizeInFrames = sizeof(buffer) / mal_get_bytes_per_frame(pDevice->playback.internalFormat, pDevice->playback.internalChannels);
                     }
 
-                    totalFramesProcessed += framesToProcess;
-                }
-            }
+                    while (totalFramesProcessed < periodSizeInFrames) {
+                        mal_uint32 framesRemaining = periodSizeInFrames - totalFramesProcessed;
+                        mal_uint32 framesToProcess = framesRemaining;
+                        if (framesToProcess > bufferSizeInFrames) {
+                            framesToProcess = bufferSizeInFrames;
+                        }
 
-            /* Get out of the loop if read()/write() returned an error. It probably means the device has been stopped. */
-            if (result != MAL_SUCCESS) {
-                break;
+                        if (pDevice->type == mal_device_type_playback) {
+                            mal_device__read_frames_from_client(pDevice, framesToProcess, buffer);
+                            result = pDevice->pContext->onDeviceWrite(pDevice, buffer, framesToProcess);
+                        } else {
+                            result = pDevice->pContext->onDeviceRead(pDevice, buffer, framesToProcess);
+                            mal_device__send_frames_to_client(pDevice, framesToProcess, buffer);
+                        }
+
+                        totalFramesProcessed += framesToProcess;
+                    }
+                }
+
+                /* Get out of the loop if read()/write() returned an error. It probably means the device has been stopped. */
+                if (result != MAL_SUCCESS) {
+                    break;
+                }
             }
         }
+
 
         // Getting here means we have broken from the main loop which happens the application has requested that device be stopped. Note that this
         // may have actually already happened above if the device was lost and mini_al has attempted to re-initialize the device. In this case we
