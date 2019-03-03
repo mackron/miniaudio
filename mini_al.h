@@ -9847,7 +9847,106 @@ mal_result mal_device_main_loop__dsound(mal_device* pDevice)
 
             case mal_device_type_playback:
             {
-                /* Not yet implemented. */
+                DWORD availableBytesPlayback;
+                DWORD physicalPlayCursorInBytes;
+                DWORD physicalWriteCursorInBytes;
+                if (FAILED(mal_IDirectSoundBuffer_GetCurrentPosition((mal_IDirectSoundBuffer*)pDevice->dsound.pPlaybackBuffer, &physicalPlayCursorInBytes, &physicalWriteCursorInBytes))) {
+                    break;
+                }
+
+                if (physicalPlayCursorInBytes < prevPlayCursorInBytesPlayback) {
+                    physicalPlayCursorLoopFlagPlayback = !physicalPlayCursorLoopFlagPlayback;
+                }
+                prevPlayCursorInBytesPlayback  = physicalPlayCursorInBytes;
+
+                /* If there's any bytes available for writing we can do that now. The space between the virtual cursor position and play cursor. */
+                if (physicalPlayCursorLoopFlagPlayback == virtualWriteCursorLoopFlagPlayback) {
+                    /* Same loop iteration. The available bytes wraps all the way around from the virtual write cursor to the physical play cursor. */
+                    if (physicalPlayCursorInBytes <= virtualWriteCursorInBytesPlayback) {
+                        availableBytesPlayback  = (pDevice->playback.internalBufferSizeInFrames*bpfPlayback) - virtualWriteCursorInBytesPlayback;
+                        availableBytesPlayback += physicalPlayCursorInBytes;    /* Wrap around. */
+                    } else {
+                        /* This is an error. */
+                    #ifdef MAL_DEBUG_OUTPUT
+                        printf("[DirectSound] (Playback) WARNING: Play cursor has moved in front of the write cursor (same loop iterations). physicalPlayCursorInBytes=%d, virtualWriteCursorInBytes=%d.\n", physicalPlayCursorInBytes, virtualWriteCursorInBytesPlayback);
+                    #endif
+                        availableBytesPlayback = 0;
+                    }
+                } else {
+                    /* Different loop iterations. The available bytes only goes from the virtual write cursor to the physical play cursor. */
+                    if (physicalPlayCursorInBytes >= virtualWriteCursorInBytesPlayback) {
+                        availableBytesPlayback = physicalPlayCursorInBytes - virtualWriteCursorInBytesPlayback;
+                    } else {
+                        /* This is an error. */
+                    #ifdef MAL_DEBUG_OUTPUT
+                        printf("[DirectSound] (Playback) WARNING: Write cursor has moved behind the play cursor (different loop iterations). physicalPlayCursorInBytes=%d, virtualWriteCursorInBytes=%d.\n", physicalPlayCursorInBytes, virtualWriteCursorInBytesPlayback);
+                    #endif
+                        availableBytesPlayback = 0;
+                    }
+                }
+
+            #ifdef MAL_DEBUG_OUTPUT
+                printf("[DirectSound] (Playback) physicalPlayCursorInBytes=%d, availableBytesPlayback=%d\n", physicalPlayCursorInBytes, availableBytesPlayback);
+            #endif
+
+                /* If there's no room available for writing we need to wait for more. */
+                if (availableBytesPlayback == 0) {
+                    mal_sleep(waitTimeInMilliseconds);
+                    continue;
+                }
+
+                /* Getting here means there room available somewhere. We limit this to either the end of the buffer or the physical play cursor, whichever is closest. */
+                lockOffsetInBytesPlayback = virtualWriteCursorInBytesPlayback;
+                if (physicalPlayCursorLoopFlagPlayback == virtualWriteCursorLoopFlagPlayback) {
+                    /* Same loop iteration. Go up to the end of the buffer. */
+                    lockSizeInBytesPlayback = (pDevice->playback.internalBufferSizeInFrames*bpfPlayback) - virtualWriteCursorInBytesPlayback;
+                } else {
+                    /* Different loop iterations. Go up to the physical play cursor. */
+                    lockSizeInBytesPlayback = physicalPlayCursorInBytes - virtualWriteCursorInBytesPlayback;
+                }
+
+                hr = mal_IDirectSoundBuffer_Lock((mal_IDirectSoundBuffer*)pDevice->dsound.pPlaybackBuffer, lockOffsetInBytesPlayback, lockSizeInBytesPlayback, &pMappedBufferPlayback, &mappedSizeInBytesPlayback, NULL, NULL, 0);
+                if (FAILED(hr)) {
+                    result = mal_post_error(pDevice, MAL_LOG_LEVEL_ERROR, "[DirectSound] Failed to map buffer from playback device in preparation for writing to the device.", MAL_FAILED_TO_MAP_DEVICE_BUFFER);
+                    break;
+                }
+
+                /*
+                At this point we have a buffer for output. If we don't need to do any data conversion we can pass the mapped pointer to the buffer directly. Otherwise
+                we need to convert the data.
+                */
+                if (pDevice->playback.converter.isPassthrough) {
+                    /* Passthrough. */
+                    pDevice->onData(pDevice, pMappedBufferPlayback, NULL, (mappedSizeInBytesPlayback/bpfPlayback));
+                } else {
+                    /* Conversion. */
+                    mal_device__read_frames_from_client(pDevice, (mappedSizeInBytesPlayback/bpfPlayback), pMappedBufferPlayback);
+                }
+
+                hr = mal_IDirectSoundBuffer_Unlock((mal_IDirectSoundBuffer*)pDevice->dsound.pPlaybackBuffer, pMappedBufferPlayback, mappedSizeInBytesPlayback, NULL, 0);
+                if (FAILED(hr)) {
+                    result = mal_post_error(pDevice, MAL_LOG_LEVEL_ERROR, "[DirectSound] Failed to unlock internal buffer from playback device after writing to the device.", MAL_FAILED_TO_UNMAP_DEVICE_BUFFER);
+                    break;
+                }
+
+                virtualWriteCursorInBytesPlayback += mappedSizeInBytesPlayback;
+                if (virtualWriteCursorInBytesPlayback == pDevice->playback.internalBufferSizeInFrames*bpfPlayback) {
+                    virtualWriteCursorInBytesPlayback  = 0;
+                    virtualWriteCursorLoopFlagPlayback = !virtualWriteCursorLoopFlagPlayback;
+                }
+                        
+                /*
+                We may need to start the device. We want two full periods to be written before starting the playback device. Having an extra period adds
+                a bit of a buffer to prevent the playback buffer from getting starved.
+                */
+                framesWrittenToPlaybackDevice += mappedSizeInBytesPlayback/bpfPlayback;
+                if (!isPlaybackDeviceStarted && framesWrittenToPlaybackDevice >= (pDevice->playback.internalBufferSizeInFrames/pDevice->playback.internalPeriods)) {
+                    if (FAILED(mal_IDirectSoundBuffer_Play((mal_IDirectSoundBuffer*)pDevice->dsound.pPlaybackBuffer, 0, 0, MAL_DSBPLAY_LOOPING))) {
+                        mal_IDirectSoundCaptureBuffer_Stop((mal_IDirectSoundCaptureBuffer*)pDevice->dsound.pCaptureBuffer);
+                        return mal_post_error(pDevice, MAL_LOG_LEVEL_ERROR, "[DirectSound] IDirectSoundBuffer_Play() failed.", MAL_FAILED_TO_START_BACKEND_DEVICE);
+                    }
+                    isPlaybackDeviceStarted = MAL_TRUE;
+                }
             } break;
 
 
