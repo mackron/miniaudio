@@ -2206,17 +2206,6 @@ MAL_ALIGNED_STRUCT(MAL_SIMD_ALIGNMENT) mal_device
             /*LPDIRECTSOUNDBUFFER*/ mal_ptr pPlaybackBuffer;
             /*LPDIRECTSOUNDCAPTURE*/ mal_ptr pCapture;
             /*LPDIRECTSOUNDCAPTUREBUFFER*/ mal_ptr pCaptureBuffer;
-            
-
-            mal_uint32 iNextPeriodPlayback; /* Circular. Keeps track of the next period that's due for an update. */
-            mal_uint32 iNextPeriodCapture;
-            void* pMappedBufferPlayback;
-            void* pMappedBufferCapture;
-            mal_uint32 mappedBufferFramesRemainingPlayback;
-            mal_uint32 mappedBufferFramesRemainingCapture;
-            mal_uint32 mappedBufferFramesCapacityPlayback;
-            mal_uint32 mappedBufferFramesCapacityCapture;
-            mal_bool32 isStarted;
         } dsound;
 #endif
 #ifdef MAL_SUPPORT_WINMM
@@ -9202,325 +9191,6 @@ mal_result mal_device_init__dsound(mal_context* pContext, const mal_device_confi
 }
 
 
-mal_result mal_device_start__dsound(mal_device* pDevice)
-{
-    mal_assert(pDevice != NULL);
-
-    if (pDevice->type == mal_device_type_capture || pDevice->type == mal_device_type_duplex) {
-        if (FAILED(mal_IDirectSoundCaptureBuffer_Start((mal_IDirectSoundCaptureBuffer*)pDevice->dsound.pCaptureBuffer, MAL_DSCBSTART_LOOPING))) {
-            return mal_post_error(pDevice, MAL_LOG_LEVEL_ERROR, "[DirectSound] IDirectSoundCaptureBuffer_Start() failed.", MAL_FAILED_TO_START_BACKEND_DEVICE);
-        }
-    }
-
-    if (pDevice->type == mal_device_type_playback || pDevice->type == mal_device_type_duplex) {
-        if (FAILED(mal_IDirectSoundBuffer_Play((mal_IDirectSoundBuffer*)pDevice->dsound.pPlaybackBuffer, 0, 0, MAL_DSBPLAY_LOOPING))) {
-            mal_IDirectSoundCaptureBuffer_Stop((mal_IDirectSoundCaptureBuffer*)pDevice->dsound.pCaptureBuffer);
-            return mal_post_error(pDevice, MAL_LOG_LEVEL_ERROR, "[DirectSound] IDirectSoundBuffer_Play() failed.", MAL_FAILED_TO_START_BACKEND_DEVICE);
-        }
-    }
-
-    mal_atomic_exchange_32(&pDevice->dsound.isStarted, MAL_TRUE);
-    return MAL_SUCCESS;
-}
-
-mal_result mal_device_stop__dsound(mal_device* pDevice)
-{
-    mal_assert(pDevice != NULL);
-
-    if (!pDevice->dsound.isStarted) {
-        return MAL_DEVICE_NOT_STARTED;
-    }
-
-    if (pDevice->type == mal_device_type_capture || pDevice->type == mal_device_type_duplex) {
-        if (FAILED(mal_IDirectSoundCaptureBuffer_Stop((mal_IDirectSoundCaptureBuffer*)pDevice->dsound.pCaptureBuffer))) {
-            return mal_post_error(pDevice, MAL_LOG_LEVEL_ERROR, "[DirectSound] IDirectSoundCaptureBuffer_Stop() failed.", MAL_FAILED_TO_STOP_BACKEND_DEVICE);
-        }
-    }
-
-    if (pDevice->type == mal_device_type_playback || pDevice->type == mal_device_type_duplex) {
-        if (FAILED(mal_IDirectSoundBuffer_Stop((mal_IDirectSoundBuffer*)pDevice->dsound.pPlaybackBuffer))) {
-            return mal_post_error(pDevice, MAL_LOG_LEVEL_ERROR, "[DirectSound] IDirectSoundBuffer_Stop() failed.", MAL_FAILED_TO_STOP_BACKEND_DEVICE);
-        }
-    }
-
-    mal_atomic_exchange_32(&pDevice->dsound.isStarted, MAL_FALSE);
-    return MAL_SUCCESS;
-}
-
-mal_result mal_device_get_current_frame__dsound(mal_device* pDevice, mal_device_type deviceType, mal_uint32* pCurrentPos)
-{
-    mal_assert(pDevice != NULL);
-    mal_assert(pCurrentPos != NULL);
-    mal_assert(deviceType != mal_device_type_duplex);   /* This function should never be called with a duplex device type. */
-
-    *pCurrentPos = 0;
-
-    DWORD dwCurrentPosition;
-    if (deviceType == mal_device_type_playback) {
-        if (FAILED(mal_IDirectSoundBuffer_GetCurrentPosition((mal_IDirectSoundBuffer*)pDevice->dsound.pPlaybackBuffer, NULL, &dwCurrentPosition))) {
-            return MAL_ERROR;
-        }
-        *pCurrentPos = (mal_uint32)dwCurrentPosition / mal_get_bytes_per_frame(pDevice->playback.internalFormat, pDevice->playback.internalChannels);
-    } else {
-        if (FAILED(mal_IDirectSoundCaptureBuffer_GetCurrentPosition((mal_IDirectSoundCaptureBuffer*)pDevice->dsound.pCaptureBuffer, NULL, &dwCurrentPosition))) {
-            return MAL_ERROR;
-        }
-        *pCurrentPos = (mal_uint32)dwCurrentPosition / mal_get_bytes_per_frame(pDevice->capture.internalFormat, pDevice->capture.internalChannels);
-    }
-    
-    return MAL_SUCCESS;
-}
-
-mal_result mal_device_map_next_playback_buffer__dsound(mal_device* pDevice)
-{
-    DWORD periodSizeInBytes = (pDevice->playback.internalBufferSizeInFrames / pDevice->playback.internalPeriods) * mal_get_bytes_per_frame(pDevice->playback.internalFormat, pDevice->playback.internalChannels);
-    DWORD lockOffset = (pDevice->dsound.iNextPeriodPlayback * periodSizeInBytes);
-    DWORD lockSizeInBytes = periodSizeInBytes;
-    DWORD mappedSizeInBytes;
-    HRESULT hr = mal_IDirectSoundBuffer_Lock((mal_IDirectSoundBuffer*)pDevice->dsound.pPlaybackBuffer, lockOffset, lockSizeInBytes, &pDevice->dsound.pMappedBufferPlayback, &mappedSizeInBytes, NULL, NULL, 0);
-    if (FAILED(hr)) {
-        return mal_post_error(pDevice, MAL_LOG_LEVEL_ERROR, "[DirectSound] Failed to map buffer from playback device in preparation for writing to the device.", MAL_FAILED_TO_MAP_DEVICE_BUFFER);
-    }
-
-    pDevice->dsound.mappedBufferFramesCapacityPlayback  = (mal_uint32)mappedSizeInBytes / mal_get_bytes_per_frame(pDevice->playback.internalFormat, pDevice->playback.internalChannels);
-    pDevice->dsound.mappedBufferFramesRemainingPlayback = (mal_uint32)mappedSizeInBytes / mal_get_bytes_per_frame(pDevice->playback.internalFormat, pDevice->playback.internalChannels);
-
-    //printf("TRACE 1: Playback: iNextPeriod=%d, internalBufferSizeInFrames=%d, periodSizeInBytes=%d, mappedSizeInBytes=%d\n", pDevice->dsound.iNextPeriodPlayback, pDevice->playback.internalBufferSizeInFrames, periodSizeInBytes, mappedSizeInBytes);
-
-    return MAL_SUCCESS;
-}
-
-mal_result mal_device_write__dsound(mal_device* pDevice, const void* pPCMFrames, mal_uint32 frameCount)
-{
-    mal_result result = MAL_SUCCESS;
-    mal_bool32 wasStartedOnEntry;
-    mal_uint32 totalFramesWritten;
-    HRESULT hr;
-
-    mal_assert(pDevice != NULL);
-    mal_assert(pPCMFrames != NULL);
-
-    wasStartedOnEntry = pDevice->dsound.isStarted;
-
-    /* If the device is not started we do not have a mapped buffer, we'll need to map the first period so we can fill it. */
-    if (!pDevice->dsound.isStarted && pDevice->dsound.pMappedBufferPlayback == NULL) {
-        result = mal_device_map_next_playback_buffer__dsound(pDevice);
-        if (result != MAL_SUCCESS) {
-            return result;
-        }
-    }
-
-    totalFramesWritten = 0;
-    while (totalFramesWritten < frameCount) {
-        /* If a buffer is mapped we need to write to that first. Once it's consumed we reset the event and unmap it. */
-        if (pDevice->dsound.pMappedBufferPlayback != NULL && pDevice->dsound.mappedBufferFramesRemainingPlayback > 0) {
-            mal_uint32 bpf = mal_get_bytes_per_frame(pDevice->playback.internalFormat, pDevice->playback.internalChannels);
-            mal_uint32 mappedBufferFramesConsumed = pDevice->dsound.mappedBufferFramesCapacityPlayback - pDevice->dsound.mappedBufferFramesRemainingPlayback;
-
-            void* pDst = (mal_uint8*)pDevice->dsound.pMappedBufferPlayback + (mappedBufferFramesConsumed * bpf);
-            const void* pSrc = (const mal_uint8*)pPCMFrames + (totalFramesWritten * bpf);
-            mal_uint32  framesToCopy = mal_min(pDevice->dsound.mappedBufferFramesRemainingPlayback, (frameCount - totalFramesWritten));
-            mal_copy_memory(pDst, pSrc, framesToCopy * bpf);
-
-            pDevice->dsound.mappedBufferFramesRemainingPlayback -= framesToCopy;
-            totalFramesWritten += framesToCopy;
-        }
-
-        /* Getting here means we've consumed the device buffer and need to wait for more to become available. */
-        if (pDevice->dsound.mappedBufferFramesCapacityPlayback > 0 && pDevice->dsound.mappedBufferFramesRemainingPlayback == 0) {
-            hr = mal_IDirectSoundBuffer_Unlock((mal_IDirectSoundBuffer*)pDevice->dsound.pPlaybackBuffer, pDevice->dsound.pMappedBufferPlayback, pDevice->dsound.mappedBufferFramesCapacityPlayback, NULL, 0);
-            pDevice->dsound.pMappedBufferPlayback = NULL;
-            pDevice->dsound.mappedBufferFramesRemainingPlayback = 0;
-            pDevice->dsound.mappedBufferFramesCapacityPlayback = 0;
-            pDevice->dsound.iNextPeriodPlayback = (pDevice->dsound.iNextPeriodPlayback + 1) % pDevice->playback.internalPeriods;
-
-            if (FAILED(hr)) {
-                result = MAL_FAILED_TO_UNMAP_DEVICE_BUFFER;
-                mal_post_error(pDevice, MAL_LOG_LEVEL_ERROR, "[DirectSound] Failed to unlock internal buffer from playback device after writing to the device.", result);
-                break;
-            }
-
-            if (!pDevice->dsound.isStarted && !wasStartedOnEntry) {
-                result = mal_device_start__dsound(pDevice);
-                if (result != MAL_SUCCESS) {
-                    break;
-                }
-            }
-        }
-
-        mal_assert(totalFramesWritten <= frameCount);
-        if (totalFramesWritten == frameCount) {
-            break;
-        }
-
-        /*
-        Relying exclusively on the notification events turns out to be horribly slow. It looks like by the time the event is signaled, the cursor
-        has already progressed way beyond the notification point. It's better to instead poll the position, only returning when a whole period is
-        available.
-
-        This loop just crudely sleeps for a bit and then queries the current position. If there's enough room for a whole period, we will fill it
-        with data from the client. Otherwise we just wait a bit longer. It's crude, but it's simple and it works _much_ better than the notification
-        system.
-        */
-        for (;;) {
-            DWORD timeoutInMilliseconds = 1;
-            mal_sleep((mal_uint32)timeoutInMilliseconds);
-
-            /* We've woken up, so now we need to poll the current position. If there are enough frames for a whole period we can be done with the wait. */
-            mal_uint32 currentPos;
-            result = mal_device_get_current_frame__dsound(pDevice, mal_device_type_playback, &currentPos);
-            if (result != MAL_SUCCESS) {
-                break;  /* Failed to get the current frame. */
-            }
-
-            mal_uint32 periodSizeInFrames = pDevice->playback.internalBufferSizeInFrames / pDevice->playback.internalPeriods;
-            if ((currentPos - (pDevice->dsound.iNextPeriodPlayback * periodSizeInFrames)) >= periodSizeInFrames) {
-                break;  /* There's enough room. */
-            }
-
-            /* Don't keep waiting if the device has stopped. */
-            if (!pDevice->dsound.isStarted && wasStartedOnEntry) {
-                break;
-            }
-        }
-        
-        if (result != MAL_SUCCESS) {
-            break;
-        }
-
-        /* If the device has been stopped don't continue. */
-        if (!pDevice->dsound.isStarted && wasStartedOnEntry) {
-            break;
-        }
-
-        /* Getting here means we can map the next period. */
-        result = mal_device_map_next_playback_buffer__dsound(pDevice);
-        if (result != MAL_SUCCESS) {
-            mal_post_error(pDevice, MAL_LOG_LEVEL_ERROR, "[DirectSound] Failed to map buffer from playback device in preparation for writing to the device.", result);
-            break;
-        }
-    }
-
-    return result;
-}
-
-mal_result mal_device_map_next_capture_buffer__dsound(mal_device* pDevice)
-{
-    DWORD periodSizeInBytes = (pDevice->capture.internalBufferSizeInFrames / pDevice->capture.internalPeriods) * mal_get_bytes_per_frame(pDevice->capture.internalFormat, pDevice->capture.internalChannels);
-    DWORD lockOffset = (pDevice->dsound.iNextPeriodCapture * periodSizeInBytes);
-    DWORD lockSizeInBytes = periodSizeInBytes;
-    DWORD mappedSizeInBytes;
-    HRESULT hr = mal_IDirectSoundCaptureBuffer_Lock((mal_IDirectSoundCaptureBuffer*)pDevice->dsound.pCaptureBuffer, lockOffset, lockSizeInBytes, &pDevice->dsound.pMappedBufferCapture, &mappedSizeInBytes, NULL, NULL, 0);
-    if (FAILED(hr)) {
-        return mal_post_error(pDevice, MAL_LOG_LEVEL_ERROR, "[DirectSound] Failed to map buffer from capture device in preparation for writing to the device.", MAL_FAILED_TO_MAP_DEVICE_BUFFER);
-    }
-
-    pDevice->dsound.mappedBufferFramesCapacityCapture  = (mal_uint32)mappedSizeInBytes / mal_get_bytes_per_frame(pDevice->capture.internalFormat, pDevice->capture.internalChannels);
-    pDevice->dsound.mappedBufferFramesRemainingCapture = (mal_uint32)mappedSizeInBytes / mal_get_bytes_per_frame(pDevice->capture.internalFormat, pDevice->capture.internalChannels);
-
-    //printf("TRACE 1: Capture: internalBufferSizeInFrames=%d, periodSizeInBytes=%d, mappedSizeInBytes=%d\n", pDevice->capture.internalBufferSizeInFrames, periodSizeInBytes, mappedSizeInBytes);
-
-    return MAL_SUCCESS;
-}
-
-mal_result mal_device_read__dsound(mal_device* pDevice, void* pPCMFrames, mal_uint32 frameCount)
-{
-    mal_result result = MAL_SUCCESS;
-    mal_uint32 totalFramesRead;
-    HRESULT hr;
-
-    mal_assert(pDevice != NULL);
-    mal_assert(pPCMFrames != NULL);
-
-    /* The device needs to be started immediately if it's not already. */
-    if (!pDevice->dsound.isStarted) {
-        result = mal_device_start__dsound(pDevice);
-        if (result != MAL_SUCCESS) {
-            return result;
-        }
-    }
-
-    totalFramesRead = 0;
-    while (totalFramesRead < frameCount) {
-        /* If a buffer is mapped we need to write to that first. Once it's consumed we reset the event and unmap it. */
-        if (pDevice->dsound.pMappedBufferCapture != NULL && pDevice->dsound.mappedBufferFramesRemainingCapture > 0) {
-            mal_uint32 bpf = mal_get_bytes_per_frame(pDevice->capture.internalFormat, pDevice->capture.internalChannels);
-            mal_uint32 mappedBufferFramesConsumed = pDevice->dsound.mappedBufferFramesCapacityCapture - pDevice->dsound.mappedBufferFramesRemainingCapture;
-
-            void* pDst = (mal_uint8*)pPCMFrames + (totalFramesRead * bpf);
-            const void* pSrc = (const mal_uint8*)pDevice->dsound.pMappedBufferCapture + (mappedBufferFramesConsumed * bpf);
-            mal_uint32  framesToCopy = mal_min(pDevice->dsound.mappedBufferFramesRemainingCapture, (frameCount - totalFramesRead));
-            mal_copy_memory(pDst, pSrc, framesToCopy * bpf);
-
-            pDevice->dsound.mappedBufferFramesRemainingCapture -= framesToCopy;
-            totalFramesRead += framesToCopy;
-        }
-
-        /* Getting here means we've consumed the device buffer and need to wait for more to become available. */
-        if (pDevice->dsound.mappedBufferFramesCapacityCapture > 0 && pDevice->dsound.mappedBufferFramesRemainingCapture == 0) {
-            hr = mal_IDirectSoundCaptureBuffer_Unlock((mal_IDirectSoundCaptureBuffer*)pDevice->dsound.pCaptureBuffer, pDevice->dsound.pMappedBufferCapture, pDevice->dsound.mappedBufferFramesCapacityCapture, NULL, 0);
-            pDevice->dsound.pMappedBufferCapture = NULL;
-            pDevice->dsound.mappedBufferFramesRemainingCapture = 0;
-            pDevice->dsound.mappedBufferFramesCapacityCapture = 0;
-            pDevice->dsound.iNextPeriodCapture = (pDevice->dsound.iNextPeriodCapture + 1) % pDevice->capture.internalPeriods;
-
-            if (FAILED(hr)) {
-                result = MAL_FAILED_TO_UNMAP_DEVICE_BUFFER;
-                mal_post_error(pDevice, MAL_LOG_LEVEL_ERROR, "[DirectSound] Failed to unlock internal buffer from capture device after reading from the device.", result);
-                break;
-            }
-        }
-
-        mal_assert(totalFramesRead <= frameCount);
-        if (totalFramesRead == frameCount) {
-            break;
-        }
-
-        /* Just like in the playback case we just use a simple wait-and-poll to know when a chunk of data is available. */
-        for (;;) {
-            DWORD timeoutInMilliseconds = 1;
-            mal_sleep((mal_uint32)timeoutInMilliseconds);
-
-            /* We've woken up, so now we need to poll the current position. If there are enough frames for a whole period we can be done with the wait. */
-            mal_uint32 currentPos;
-            result = mal_device_get_current_frame__dsound(pDevice, mal_device_type_capture, &currentPos);
-            if (result != MAL_SUCCESS) {
-                break;  /* Failed to get the current frame. */
-            }
-
-            //printf("TRACE: Capture Position: %d\n", (int)currentPos);
-
-            mal_uint32 periodSizeInFrames = pDevice->capture.internalBufferSizeInFrames / pDevice->capture.internalPeriods;
-            if ((currentPos - (pDevice->dsound.iNextPeriodCapture * periodSizeInFrames)) >= periodSizeInFrames) {
-                break;  /* There's enough room. */
-            }
-
-            /* Don't keep waiting if the device has stopped. */
-            if (!pDevice->dsound.isStarted) {
-                break;
-            }
-        }
-
-        if (result != MAL_SUCCESS) {
-            break;
-        }
-
-        /* Don't keep waiting if the device has stopped. */
-        if (!pDevice->dsound.isStarted) {
-            break;
-        }
-
-        result = mal_device_map_next_capture_buffer__dsound(pDevice);
-        if (result != MAL_SUCCESS) {
-            mal_post_error(pDevice, MAL_LOG_LEVEL_ERROR, "[DirectSound] Failed to map buffer from capture device in preparation for writing to the device.", result);
-            break;
-        }
-    }
-
-    return result;
-}
-
-
 mal_result mal_device_main_loop__dsound(mal_device* pDevice)
 {
     mal_result result = MAL_SUCCESS;
@@ -9672,7 +9342,7 @@ mal_result mal_device_main_loop__dsound(mal_device* pDevice)
                     #endif
 
                         /* If there's no room available for writing we need to wait for more. */
-                        if (availableBytesPlayback < ((pDevice->playback.internalBufferSizeInFrames/pDevice->playback.internalPeriods)*bpfPlayback)) {
+                        if (availableBytesPlayback == 0) {
                             mal_sleep(waitTimeInMilliseconds);
                             continue;
                         }
@@ -9950,6 +9620,17 @@ mal_result mal_device_main_loop__dsound(mal_device* pDevice)
         /* TODO: Drain the playback device. */
     }
 
+    if (pDevice->type == mal_device_type_capture || pDevice->type == mal_device_type_duplex) {
+        if (FAILED(mal_IDirectSoundCaptureBuffer_Stop((mal_IDirectSoundCaptureBuffer*)pDevice->dsound.pCaptureBuffer))) {
+            return mal_post_error(pDevice, MAL_LOG_LEVEL_ERROR, "[DirectSound] IDirectSoundCaptureBuffer_Stop() failed.", MAL_FAILED_TO_STOP_BACKEND_DEVICE);
+        }
+    }
+    if (pDevice->type == mal_device_type_playback || pDevice->type == mal_device_type_duplex) {
+        if (FAILED(mal_IDirectSoundBuffer_Stop((mal_IDirectSoundBuffer*)pDevice->dsound.pPlaybackBuffer))) {
+            return mal_post_error(pDevice, MAL_LOG_LEVEL_ERROR, "[DirectSound] IDirectSoundBuffer_Stop() failed.", MAL_FAILED_TO_STOP_BACKEND_DEVICE);
+        }
+    }
+
     return MAL_SUCCESS;
 }
 
@@ -9983,10 +9664,10 @@ mal_result mal_context_init__dsound(mal_context* pContext)
     pContext->onGetDeviceInfo  = mal_context_get_device_info__dsound;
     pContext->onDeviceInit     = mal_device_init__dsound;
     pContext->onDeviceUninit   = mal_device_uninit__dsound;
-    pContext->onDeviceStart    = NULL; /* Not used. Started in onDeviceWrite/onDeviceRead. */
-    pContext->onDeviceStop     = mal_device_stop__dsound;
-    pContext->onDeviceWrite    = mal_device_write__dsound;
-    pContext->onDeviceRead     = mal_device_read__dsound;
+    pContext->onDeviceStart    = NULL;  /* Not used. Started in onDeviceMainLoop. */
+    pContext->onDeviceStop     = NULL;  /* Not used. Stopped in onDeviceMainLoop. */
+    pContext->onDeviceWrite    = NULL;
+    pContext->onDeviceRead     = NULL;
     pContext->onDeviceMainLoop = mal_device_main_loop__dsound;
 
     return MAL_SUCCESS;
@@ -22456,7 +22137,9 @@ mal_thread_result MAL_THREADCALL mal_worker_thread(void* pData)
         // may have actually already happened above if the device was lost and mini_al has attempted to re-initialize the device. In this case we
         // don't want to be doing this a second time.
         if (mal_device__get_state(pDevice) != MAL_STATE_UNINITIALIZED) {
-            pDevice->pContext->onDeviceStop(pDevice);
+            if (pDevice->pContext->onDeviceStop) {
+                pDevice->pContext->onDeviceStop(pDevice);
+            }
         }
 
         // After the device has stopped, make sure an event is posted.
@@ -23474,7 +23157,9 @@ mal_result mal_device_stop(mal_device* pDevice)
     stopping in synchronous mode does not require state checking.
     */
     if (!mal_device__is_async(pDevice)) {
-        return pDevice->pContext->onDeviceStop(pDevice);
+        if (pDevice->pContext->onDeviceStop) {
+            return pDevice->pContext->onDeviceStop(pDevice);
+        }
     }
 
     mal_result result = MAL_ERROR;
@@ -23489,7 +23174,12 @@ mal_result mal_device_stop(mal_device* pDevice)
 
         // Asynchronous backends need to be handled differently.
         if (mal_context_is_backend_asynchronous(pDevice->pContext)) {
-            result = pDevice->pContext->onDeviceStop(pDevice);
+            if (pDevice->pContext->onDeviceStop) {
+                result = pDevice->pContext->onDeviceStop(pDevice);
+            } else {
+                result = MAL_SUCCESS;
+            }
+
             mal_device__set_state(pDevice, MAL_STATE_STOPPED);
         } else {
             // Synchronous backends.
