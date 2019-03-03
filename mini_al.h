@@ -9613,7 +9613,6 @@ mal_result mal_device_main_loop__dsound(mal_device* pDevice)
                 framesWrittenToPlaybackDevice += mappedSizeInBytesPlayback/bpfPlayback;
                 if (!isPlaybackDeviceStarted && framesWrittenToPlaybackDevice >= (pDevice->playback.internalBufferSizeInFrames/pDevice->playback.internalPeriods)) {
                     if (FAILED(mal_IDirectSoundBuffer_Play((mal_IDirectSoundBuffer*)pDevice->dsound.pPlaybackBuffer, 0, 0, MAL_DSBPLAY_LOOPING))) {
-                        mal_IDirectSoundCaptureBuffer_Stop((mal_IDirectSoundCaptureBuffer*)pDevice->dsound.pCaptureBuffer);
                         return mal_post_error(pDevice, MAL_LOG_LEVEL_ERROR, "[DirectSound] IDirectSoundBuffer_Play() failed.", MAL_FAILED_TO_START_BACKEND_DEVICE);
                     }
                     isPlaybackDeviceStarted = MAL_TRUE;
