@@ -9300,6 +9300,7 @@ mal_result mal_device_main_loop__dsound(mal_device* pDevice)
                         DWORD physicalPlayCursorInBytes;
                         DWORD physicalWriteCursorInBytes;
                         DWORD availableBytesPlayback;
+                        DWORD silentPaddingInBytes = 0; /* <-- Must be initialized to 0. */
 
                         /* We need the physical play and write cursors. */
                         if (FAILED(mal_IDirectSoundBuffer_GetCurrentPosition((mal_IDirectSoundBuffer*)pDevice->dsound.pPlaybackBuffer, &physicalPlayCursorInBytes, &physicalWriteCursorInBytes))) {
@@ -9347,14 +9348,6 @@ mal_result mal_device_main_loop__dsound(mal_device* pDevice)
                             continue;
                         }
 
-                    #ifdef MAL_DEBUG_OUTPUT
-                        if (isPlaybackDeviceStarted) {
-                            if (availableBytesPlayback > (((pDevice->playback.internalBufferSizeInFrames/pDevice->playback.internalPeriods)*(pDevice->playback.internalPeriods-1)) * bpfPlayback)) {
-                                printf("[DirectSound] (Duplex/Playback) Playback buffer starved. availableBytesPlayback=%d\n", availableBytesPlayback);
-                            }
-                        }
-                    #endif
-
 
                         /* Getting here means there room available somewhere. We limit this to either the end of the buffer or the physical play cursor, whichever is closest. */
                         lockOffsetInBytesPlayback = virtualWriteCursorInBytesPlayback;
@@ -9372,9 +9365,32 @@ mal_result mal_device_main_loop__dsound(mal_device* pDevice)
                             break;
                         }
 
+                        /*
+                        Experiment: If the playback buffer is being starved, pad it with some silence to get it back in sync. This will cause a glitch, but it may prevent
+                        endless glitching due to it constantly running out of data.
+                        */
+                        if (isPlaybackDeviceStarted) {
+                            DWORD bytesQueuedForPlayback = (pDevice->playback.internalBufferSizeInFrames*bpfPlayback) - availableBytesPlayback;
+                            if (bytesQueuedForPlayback < ((pDevice->playback.internalBufferSizeInFrames/pDevice->playback.internalPeriods)*bpfPlayback)) {
+                                silentPaddingInBytes = ((pDevice->playback.internalBufferSizeInFrames/pDevice->playback.internalPeriods)*2*bpfPlayback) - bytesQueuedForPlayback;
+                                if (silentPaddingInBytes > lockSizeInBytesPlayback) {
+                                    silentPaddingInBytes = lockSizeInBytesPlayback;
+                                }
+
+                        #ifdef MAL_DEBUG_OUTPUT
+                                printf("[DirectSound] (Duplex/Playback) Playback buffer starved. availableBytesPlayback=%d, silentPaddingInBytes=%d\n", availableBytesPlayback, silentPaddingInBytes);
+                        #endif
+                            }
+                        }
 
                         /* At this point we have a buffer for output. */
-                        framesWrittenThisIteration = (mal_uint32)mal_pcm_converter_read(&pDevice->playback.converter, pMappedBufferPlayback, mappedSizeInBytesPlayback/bpfPlayback);
+                        if (silentPaddingInBytes > 0) {
+                            mal_zero_memory(pMappedBufferPlayback, silentPaddingInBytes);
+                            framesWrittenThisIteration = silentPaddingInBytes/bpfPlayback;
+                        } else {
+                            framesWrittenThisIteration = (mal_uint32)mal_pcm_converter_read(&pDevice->playback.converter, pMappedBufferPlayback, mappedSizeInBytesPlayback/bpfPlayback);
+                        }
+                        
 
                         hr = mal_IDirectSoundBuffer_Unlock((mal_IDirectSoundBuffer*)pDevice->dsound.pPlaybackBuffer, pMappedBufferPlayback, framesWrittenThisIteration*bpfPlayback, NULL, 0);
                         if (FAILED(hr)) {
@@ -9393,7 +9409,7 @@ mal_result mal_device_main_loop__dsound(mal_device* pDevice)
                         a bit of a buffer to prevent the playback buffer from getting starved.
                         */
                         framesWrittenToPlaybackDevice += framesWrittenThisIteration;
-                        if (!isPlaybackDeviceStarted && framesWrittenToPlaybackDevice >= ((pDevice->playback.internalBufferSizeInFrames/pDevice->playback.internalPeriods)*(pDevice->playback.internalPeriods-1))) {
+                        if (!isPlaybackDeviceStarted && framesWrittenToPlaybackDevice >= ((pDevice->playback.internalBufferSizeInFrames/pDevice->playback.internalPeriods)*2)) {
                             if (FAILED(mal_IDirectSoundBuffer_Play((mal_IDirectSoundBuffer*)pDevice->dsound.pPlaybackBuffer, 0, 0, MAL_DSBPLAY_LOOPING))) {
                                 mal_IDirectSoundCaptureBuffer_Stop((mal_IDirectSoundCaptureBuffer*)pDevice->dsound.pCaptureBuffer);
                                 return mal_post_error(pDevice, MAL_LOG_LEVEL_ERROR, "[DirectSound] IDirectSoundBuffer_Play() failed.", MAL_FAILED_TO_START_BACKEND_DEVICE);
