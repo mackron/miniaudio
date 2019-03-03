@@ -8197,6 +8197,13 @@ mal_result mal_device_main_loop__wasapi(mal_device* pDevice)
                             break;
                         }
 
+                        /* TODO: How do we handle the capture flags returned by GetBuffer()? In particular, AUDCLNT_BUFFERFLAGS_SILENT (1). */
+                    #ifdef MAL_DEBUG_OUTPUT
+                        if (flagsCapture != 0) {
+                            printf("[WASAPI] Capture Flags: %d\n", flagsCapture);
+                        }
+                    #endif
+
                         mappedBufferFramesRemainingCapture = mappedBufferSizeInFramesCapture;
 
                         pDevice->capture._dspFrameCount = mappedBufferSizeInFramesCapture;
@@ -8380,6 +8387,11 @@ mal_result mal_device_main_loop__wasapi(mal_device* pDevice)
 
     /* Here is where the device needs to be stopped. */
     if (pDevice->type == mal_device_type_capture || pDevice->type == mal_device_type_duplex) {
+        /* Any mapped buffers need to be released. */
+        if (pMappedBufferCapture != NULL) {
+            hr = mal_IAudioCaptureClient_ReleaseBuffer((mal_IAudioCaptureClient*)pDevice->wasapi.pCaptureClient, mappedBufferSizeInFramesCapture);
+        }
+
         hr = mal_IAudioClient_Stop((mal_IAudioClient*)pDevice->wasapi.pAudioClientCapture);
         if (FAILED(hr)) {
             return mal_post_error(pDevice, MAL_LOG_LEVEL_ERROR, "[WASAPI] Failed to stop internal capture device.", MAL_FAILED_TO_STOP_BACKEND_DEVICE);
@@ -8388,16 +8400,34 @@ mal_result mal_device_main_loop__wasapi(mal_device* pDevice)
         /* The audio client needs to be reset otherwise restarting will fail. */
         hr = mal_IAudioClient_Reset((mal_IAudioClient*)pDevice->wasapi.pAudioClientCapture);
         if (FAILED(hr)) {
-#ifdef MAL_DEBUG_OUTPUT
-            printf("IAudioClient_Reset (Capture) Returned %d\n", (int)hr);
-#endif
             return mal_post_error(pDevice, MAL_LOG_LEVEL_ERROR, "[WASAPI] Failed to reset internal capture device.", MAL_FAILED_TO_STOP_BACKEND_DEVICE);
         }
     }
 
     if (pDevice->type == mal_device_type_playback || pDevice->type == mal_device_type_duplex) {
+        /* Any mapped buffers need to be released. */
+        if (pMappedBufferPlayback != NULL) {
+            hr = mal_IAudioRenderClient_ReleaseBuffer((mal_IAudioRenderClient*)pDevice->wasapi.pRenderClient, mappedBufferSizeInFramesPlayback, 0);
+        }
+
         if (isPlaybackDeviceStarted) {
-            /* TODO: Drain the playback device.*/
+            if (pDevice->playback.shareMode == mal_share_mode_exclusive) {
+                WaitForSingleObject(pDevice->wasapi.hEventPlayback, INFINITE);
+            } else {
+                for (;;) {
+                    mal_uint32 framesAvailablePlayback;
+                    result = mal_device__get_available_frames__wasapi(pDevice, (mal_IAudioClient*)pDevice->wasapi.pAudioClientPlayback, &framesAvailablePlayback);
+                    if (result != MAL_SUCCESS) {
+                        break;
+                    }
+
+                    if (framesAvailablePlayback >= pDevice->playback.internalBufferSizeInFrames) {
+                        break;
+                    }
+
+                    WaitForSingleObject(pDevice->wasapi.hEventPlayback, INFINITE);
+                }
+            }
         }
 
         hr = mal_IAudioClient_Stop((mal_IAudioClient*)pDevice->wasapi.pAudioClientPlayback);
