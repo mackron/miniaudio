@@ -9553,6 +9553,8 @@ mal_result mal_device_main_loop__dsound(mal_device* pDevice)
     //mal_bool32 virtualPlayCursorLoopFlagPlayback = 0;
     mal_bool32 virtualWriteCursorLoopFlagPlayback = 0;
 
+    DWORD prevReadCursorInBytesCapture = 0;
+
     mal_assert(pDevice != NULL);
 
     /* The first thing to do is start the capture device. The playback device is only started after the first period is written. */
@@ -9637,7 +9639,7 @@ mal_result mal_device_main_loop__dsound(mal_device* pDevice)
                         mal_uint32 framesWrittenThisIteration;
                         DWORD physicalPlayCursorInBytes;
                         DWORD physicalWriteCursorInBytes;
-                        DWORD availableBytes;
+                        DWORD availableBytesPlayback;
 
                         /* We need the physical play and write cursors. */
                         if (FAILED(mal_IDirectSoundBuffer_GetCurrentPosition((mal_IDirectSoundBuffer*)pDevice->dsound.pPlaybackBuffer, &physicalPlayCursorInBytes, &physicalWriteCursorInBytes))) {
@@ -9658,42 +9660,42 @@ mal_result mal_device_main_loop__dsound(mal_device* pDevice)
                         if (physicalPlayCursorLoopFlagPlayback == virtualWriteCursorLoopFlagPlayback) {
                             /* Same loop iteration. The available bytes wraps all the way around from the virtual write cursor to the physical play cursor. */
                             if (physicalPlayCursorInBytes <= virtualWriteCursorInBytesPlayback) {
-                                availableBytes  = (pDevice->playback.internalBufferSizeInFrames*bpfPlayback) - virtualWriteCursorInBytesPlayback;
-                                availableBytes += physicalPlayCursorInBytes;    /* Wrap around. */
+                                availableBytesPlayback  = (pDevice->playback.internalBufferSizeInFrames*bpfPlayback) - virtualWriteCursorInBytesPlayback;
+                                availableBytesPlayback += physicalPlayCursorInBytes;    /* Wrap around. */
                             } else {
                                 /* This is an error. */
                             #ifdef MAL_DEBUG_OUTPUT
                                 printf("[DirectSound] (Duplex/Playback) WARNING: Play cursor has moved in front of the write cursor (same loop iterations). physicalPlayCursorInBytes=%d, virtualWriteCursorInBytes=%d.\n", physicalPlayCursorInBytes, virtualWriteCursorInBytesPlayback);
                             #endif
-                                availableBytes = 0;
+                                availableBytesPlayback = 0;
                             }
                         } else {
                             /* Different loop iterations. The available bytes only goes from the virtual write cursor to the physical play cursor. */
                             if (physicalPlayCursorInBytes >= virtualWriteCursorInBytesPlayback) {
-                                availableBytes = physicalPlayCursorInBytes - virtualWriteCursorInBytesPlayback;
+                                availableBytesPlayback = physicalPlayCursorInBytes - virtualWriteCursorInBytesPlayback;
                             } else {
                                 /* This is an error. */
                             #ifdef MAL_DEBUG_OUTPUT
                                 printf("[DirectSound] (Duplex/Playback) WARNING: Write cursor has moved behind the play cursor (different loop iterations). physicalPlayCursorInBytes=%d, virtualWriteCursorInBytes=%d.\n", physicalPlayCursorInBytes, virtualWriteCursorInBytesPlayback);
                             #endif
-                                availableBytes = 0;
+                                availableBytesPlayback = 0;
                             }
                         }
 
                     #ifdef MAL_DEBUG_OUTPUT
-                        printf("[DirectSound] (Duplex/Playback) physicalPlayCursorInBytes=%d, availableBytes=%d\n", physicalPlayCursorInBytes, availableBytes);
+                        printf("[DirectSound] (Duplex/Playback) physicalPlayCursorInBytes=%d, availableBytesPlayback=%d\n", physicalPlayCursorInBytes, availableBytesPlayback);
                     #endif
 
                         /* If there's no room available for writing we need to wait for more. */
-                        if (availableBytes < ((pDevice->playback.internalBufferSizeInFrames/pDevice->playback.internalPeriods)*bpfPlayback)) {
+                        if (availableBytesPlayback < ((pDevice->playback.internalBufferSizeInFrames/pDevice->playback.internalPeriods)*bpfPlayback)) {
                             mal_sleep(waitTimeInMilliseconds);
                             continue;
                         }
 
                     #ifdef MAL_DEBUG_OUTPUT
                         if (isPlaybackDeviceStarted) {
-                            if (availableBytes > (((pDevice->playback.internalBufferSizeInFrames/pDevice->playback.internalPeriods)*(pDevice->playback.internalPeriods-1)) * bpfPlayback)) {
-                                printf("[DirectSound] (Duplex/Playback) Playback buffer starved. availableBytes=%d\n", availableBytes);
+                            if (availableBytesPlayback > (((pDevice->playback.internalBufferSizeInFrames/pDevice->playback.internalPeriods)*(pDevice->playback.internalPeriods-1)) * bpfPlayback)) {
+                                printf("[DirectSound] (Duplex/Playback) Playback buffer starved. availableBytesPlayback=%d\n", availableBytesPlayback);
                             }
                         }
                     #endif
@@ -9767,7 +9769,78 @@ mal_result mal_device_main_loop__dsound(mal_device* pDevice)
 
             case mal_device_type_capture:
             {
-                /* Not yet implemented. */
+                DWORD physicalCaptureCursorInBytes;
+                DWORD physicalReadCursorInBytes;
+                if (FAILED(mal_IDirectSoundCaptureBuffer_GetCurrentPosition((mal_IDirectSoundCaptureBuffer*)pDevice->dsound.pCaptureBuffer, &physicalCaptureCursorInBytes, &physicalReadCursorInBytes))) {
+                    return MAL_ERROR;
+                }
+
+                /* If the previous capture position is the same as the current position we need to wait a bit longer. */
+                if (prevReadCursorInBytesCapture == physicalReadCursorInBytes) {
+                    mal_sleep(waitTimeInMilliseconds);
+                    continue;
+                }
+
+                /* Getting here means we have capture data available. */
+                if (prevReadCursorInBytesCapture < physicalReadCursorInBytes) {
+                    /* The capture position has not looped. This is the simple case. */
+                    lockOffsetInBytesCapture = prevReadCursorInBytesCapture;
+                    lockSizeInBytesCapture   = (physicalReadCursorInBytes - prevReadCursorInBytesCapture);
+                } else {
+                    /*
+                    The capture position has looped. This is the more complex case. Map to the end of the buffer. If this does not return anything,
+                    do it again from the start.
+                    */
+                    if (prevReadCursorInBytesCapture < pDevice->capture.internalBufferSizeInFrames*bpfCapture) {
+                        /* Lock up to the end of the buffer. */
+                        lockOffsetInBytesCapture = prevReadCursorInBytesCapture;
+                        lockSizeInBytesCapture   = (pDevice->capture.internalBufferSizeInFrames*bpfCapture) - prevReadCursorInBytesCapture;
+                    } else {
+                        /* Lock starting from the start of the buffer. */
+                        lockOffsetInBytesCapture = 0;
+                        lockSizeInBytesCapture   = physicalReadCursorInBytes;
+                    }
+                }
+
+            #ifdef MAL_DEBUG_OUTPUT
+                //printf("[DirectSound] (Capture) physicalCaptureCursorInBytes=%d, physicalReadCursorInBytes=%d\n", physicalCaptureCursorInBytes, physicalReadCursorInBytes);
+                //printf("[DirectSound] (Capture) lockOffsetInBytesCapture=%d, lockSizeInBytesCapture=%d\n", lockOffsetInBytesCapture, lockSizeInBytesCapture);
+            #endif
+
+                if (lockSizeInBytesCapture == 0) {
+                    mal_sleep(waitTimeInMilliseconds);
+                    continue; /* Nothing is available in the capture buffer. */
+                }
+
+                hr = mal_IDirectSoundCaptureBuffer_Lock((mal_IDirectSoundCaptureBuffer*)pDevice->dsound.pCaptureBuffer, lockOffsetInBytesCapture, lockSizeInBytesCapture, &pMappedBufferCapture, &mappedSizeInBytesCapture, NULL, NULL, 0);
+                if (FAILED(hr)) {
+                    return mal_post_error(pDevice, MAL_LOG_LEVEL_ERROR, "[DirectSound] Failed to map buffer from capture device in preparation for writing to the device.", MAL_FAILED_TO_MAP_DEVICE_BUFFER);
+                }
+
+            #ifdef MAL_DEBUG_OUTPUT
+                if (lockSizeInBytesCapture != mappedSizeInBytesCapture) {
+                    printf("[DirectSound] (Capture) lockSizeInBytesCapture=%d != mappedSizeInBytesCapture=%d\n", lockSizeInBytesCapture, mappedSizeInBytesCapture);
+                }
+            #endif
+
+                /* Optimization: If we are running as a passthrough we can pass the mapped pointer to the callback directly. */
+                if (pDevice->capture.converter.isPassthrough) {
+                    /* Passthrough. */
+                    pDevice->onData(pDevice, NULL, pMappedBufferCapture, mappedSizeInBytesCapture/bpfCapture);
+                } else {
+                    /* Not a passthrough. */
+                    mal_device__send_frames_to_client(pDevice, mappedSizeInBytesCapture/bpfCapture, pMappedBufferCapture);
+                }
+
+                hr = mal_IDirectSoundCaptureBuffer_Unlock((mal_IDirectSoundCaptureBuffer*)pDevice->dsound.pCaptureBuffer, pMappedBufferCapture, mappedSizeInBytesCapture, NULL, 0);
+                if (FAILED(hr)) {
+                    return mal_post_error(pDevice, MAL_LOG_LEVEL_ERROR, "[DirectSound] Failed to unlock internal buffer from capture device after reading from the device.", MAL_FAILED_TO_UNMAP_DEVICE_BUFFER);
+                }
+                prevReadCursorInBytesCapture = lockOffsetInBytesCapture + mappedSizeInBytesCapture;
+
+                if (prevReadCursorInBytesCapture == (pDevice->capture.internalBufferSizeInFrames*bpfCapture)) {
+                    prevReadCursorInBytesCapture = 0;
+                }
             } break;
 
 
