@@ -9524,10 +9524,6 @@ mal_result mal_device_read__dsound(mal_device* pDevice, void* pPCMFrames, mal_ui
 mal_result mal_device_main_loop__dsound(mal_device* pDevice)
 {
     mal_result result = MAL_SUCCESS;
-    mal_uint32 currentFramePosCapture;
-    //mal_uint32 currentFramePosPlayback;
-    mal_uint32 prevFramePosCapture = 0;
-    //mal_uint32 prevFramePosPlayback = 0;
     mal_uint32 bpfCapture  = mal_get_bytes_per_frame(pDevice->capture.internalFormat, pDevice->capture.internalChannels);
     mal_uint32 bpfPlayback = mal_get_bytes_per_frame(pDevice->playback.internalFormat, pDevice->playback.internalChannels);
     HRESULT hr;
@@ -9539,21 +9535,14 @@ mal_result mal_device_main_loop__dsound(mal_device* pDevice)
     DWORD lockSizeInBytesPlayback;
     DWORD mappedSizeInBytesPlayback;
     void* pMappedBufferPlayback;
+    DWORD prevReadCursorInBytesCapture = 0;
+    DWORD prevPlayCursorInBytesPlayback = 0;
+    mal_bool32 physicalPlayCursorLoopFlagPlayback = 0;
+    DWORD virtualWriteCursorInBytesPlayback = 0;
+    mal_bool32 virtualWriteCursorLoopFlagPlayback = 0;
     mal_bool32 isPlaybackDeviceStarted = MAL_FALSE;
     mal_uint32 framesWrittenToPlaybackDevice = 0;   /* For knowing whether or not the playback device needs to be started. */
     mal_uint32 waitTimeInMilliseconds = 1;
-
-    DWORD prevPlayCursorInBytesPlayback = 0;
-    //DWORD prevWriteCursorInBytesPlayback = 0;
-    mal_bool32 physicalPlayCursorLoopFlagPlayback = 0;
-    //mal_bool32 physicalWriteCursorLoopFlagPlayback = 0;
-    
-    //DWORD virtualPlayCursorInBytesPlayback = 0;
-    DWORD virtualWriteCursorInBytesPlayback = 0;
-    //mal_bool32 virtualPlayCursorLoopFlagPlayback = 0;
-    mal_bool32 virtualWriteCursorLoopFlagPlayback = 0;
-
-    DWORD prevReadCursorInBytesCapture = 0;
 
     mal_assert(pDevice != NULL);
 
@@ -9569,13 +9558,14 @@ mal_result mal_device_main_loop__dsound(mal_device* pDevice)
         {
             case mal_device_type_duplex:
             {
-                result = mal_device_get_current_frame__dsound(pDevice, mal_device_type_capture, &currentFramePosCapture);
-                if (result != MAL_SUCCESS) {
-                    return result;
+                DWORD physicalCaptureCursorInBytes;
+                DWORD physicalReadCursorInBytes;
+                if (FAILED(mal_IDirectSoundCaptureBuffer_GetCurrentPosition((mal_IDirectSoundCaptureBuffer*)pDevice->dsound.pCaptureBuffer, &physicalCaptureCursorInBytes, &physicalReadCursorInBytes))) {
+                    return MAL_ERROR;
                 }
 
                 /* If nothing is available we just sleep for a bit and return from this iteration. */
-                if (currentFramePosCapture == prevFramePosCapture) {
+                if (physicalReadCursorInBytes == prevReadCursorInBytesCapture) {
                     mal_sleep(waitTimeInMilliseconds);
                     continue; /* Nothing is available in the capture buffer. */
                 }
@@ -9584,23 +9574,23 @@ mal_result mal_device_main_loop__dsound(mal_device* pDevice)
                 The current position has moved. We need to map all of the captured samples and write them to the playback device, making sure
                 we don't return until every frame has been copied over.
                 */
-                if (prevFramePosCapture < currentFramePosCapture) {
+                if (prevReadCursorInBytesCapture < physicalReadCursorInBytes) {
                     /* The capture position has not looped. This is the simple case. */
-                    lockOffsetInBytesCapture = prevFramePosCapture * bpfCapture;
-                    lockSizeInBytesCapture   = (currentFramePosCapture - prevFramePosCapture) * bpfCapture;
+                    lockOffsetInBytesCapture = prevReadCursorInBytesCapture;
+                    lockSizeInBytesCapture   = (physicalReadCursorInBytes - prevReadCursorInBytesCapture);
                 } else {
                     /*
                     The capture position has looped. This is the more complex case. Map to the end of the buffer. If this does not return anything,
                     do it again from the start.
                     */
-                    if (prevFramePosCapture < pDevice->capture.internalBufferSizeInFrames) {
+                    if (prevReadCursorInBytesCapture < pDevice->capture.internalBufferSizeInFrames*bpfCapture) {
                         /* Lock up to the end of the buffer. */
-                        lockOffsetInBytesCapture = prevFramePosCapture * bpfCapture;
-                        lockSizeInBytesCapture   = (pDevice->capture.internalBufferSizeInFrames - prevFramePosCapture) * bpfCapture;
+                        lockOffsetInBytesCapture = prevReadCursorInBytesCapture;
+                        lockSizeInBytesCapture   = (pDevice->capture.internalBufferSizeInFrames*bpfCapture) - prevReadCursorInBytesCapture;
                     } else {
                         /* Lock starting from the start of the buffer. */
                         lockOffsetInBytesCapture = 0;
-                        lockSizeInBytesCapture   = currentFramePosCapture * bpfCapture;
+                        lockSizeInBytesCapture   = physicalReadCursorInBytes;
                     }
                 }
 
@@ -9649,12 +9639,7 @@ mal_result mal_device_main_loop__dsound(mal_device* pDevice)
                         if (physicalPlayCursorInBytes < prevPlayCursorInBytesPlayback) {
                             physicalPlayCursorLoopFlagPlayback = !physicalPlayCursorLoopFlagPlayback;
                         }
-                        //if (physicalWriteCursorInBytes < prevWriteCursorInBytesPlayback) {
-                        //    physicalWriteCursorLoopFlagPlayback = !physicalWriteCursorLoopFlagPlayback;
-                        //}
-
                         prevPlayCursorInBytesPlayback  = physicalPlayCursorInBytes;
-                        //prevWriteCursorInBytesPlayback = physicalWriteCursorInBytes;
 
                         /* If there's any bytes available for writing we can do that now. The space between the virtual cursor position and play cursor. */
                         if (physicalPlayCursorLoopFlagPlayback == virtualWriteCursorLoopFlagPlayback) {
@@ -9762,7 +9747,7 @@ mal_result mal_device_main_loop__dsound(mal_device* pDevice)
                 if (FAILED(hr)) {
                     return mal_post_error(pDevice, MAL_LOG_LEVEL_ERROR, "[DirectSound] Failed to unlock internal buffer from capture device after reading from the device.", MAL_FAILED_TO_UNMAP_DEVICE_BUFFER);
                 }
-                prevFramePosCapture = (lockOffsetInBytesCapture + mappedSizeInBytesCapture) / bpfCapture;
+                prevReadCursorInBytesCapture = (lockOffsetInBytesCapture + mappedSizeInBytesCapture);
             } break;
 
 
