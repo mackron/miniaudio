@@ -9630,53 +9630,53 @@ mal_result mal_device_main_loop__dsound(mal_device* pDevice)
     }
 
     /* Getting here means the device is being stopped. */
-
-    /* The playback device should be drained before stopping. All we do is wait until the available bytes is equal to the size of the buffer. */
-    if (isPlaybackDeviceStarted) {
-        for (;;) {
-            DWORD availableBytesPlayback = 0;
-            DWORD physicalPlayCursorInBytes;
-            DWORD physicalWriteCursorInBytes;
-            if (FAILED(mal_IDirectSoundBuffer_GetCurrentPosition((mal_IDirectSoundBuffer*)pDevice->dsound.pPlaybackBuffer, &physicalPlayCursorInBytes, &physicalWriteCursorInBytes))) {
-                break;
-            }
-
-            if (physicalPlayCursorInBytes < prevPlayCursorInBytesPlayback) {
-                physicalPlayCursorLoopFlagPlayback = !physicalPlayCursorLoopFlagPlayback;
-            }
-            prevPlayCursorInBytesPlayback  = physicalPlayCursorInBytes;
-
-            if (physicalPlayCursorLoopFlagPlayback == virtualWriteCursorLoopFlagPlayback) {
-                /* Same loop iteration. The available bytes wraps all the way around from the virtual write cursor to the physical play cursor. */
-                if (physicalPlayCursorInBytes <= virtualWriteCursorInBytesPlayback) {
-                    availableBytesPlayback  = (pDevice->playback.internalBufferSizeInFrames*bpfPlayback) - virtualWriteCursorInBytesPlayback;
-                    availableBytesPlayback += physicalPlayCursorInBytes;    /* Wrap around. */
-                } else {
-                    break;
-                }
-            } else {
-                /* Different loop iterations. The available bytes only goes from the virtual write cursor to the physical play cursor. */
-                if (physicalPlayCursorInBytes >= virtualWriteCursorInBytesPlayback) {
-                    availableBytesPlayback = physicalPlayCursorInBytes - virtualWriteCursorInBytesPlayback;
-                } else {
-                    break;
-                }
-            }
-
-            if (availableBytesPlayback >= (pDevice->playback.internalBufferSizeInFrames*bpfPlayback)) {
-                break;
-            }
-
-            mal_sleep(waitTimeInMilliseconds);
-        }
-    }
-
     if (pDevice->type == mal_device_type_capture || pDevice->type == mal_device_type_duplex) {
         if (FAILED(mal_IDirectSoundCaptureBuffer_Stop((mal_IDirectSoundCaptureBuffer*)pDevice->dsound.pCaptureBuffer))) {
             return mal_post_error(pDevice, MAL_LOG_LEVEL_ERROR, "[DirectSound] IDirectSoundCaptureBuffer_Stop() failed.", MAL_FAILED_TO_STOP_BACKEND_DEVICE);
         }
     }
+
     if (pDevice->type == mal_device_type_playback || pDevice->type == mal_device_type_duplex) {
+        /* The playback device should be drained before stopping. All we do is wait until the available bytes is equal to the size of the buffer. */
+        if (isPlaybackDeviceStarted) {
+            for (;;) {
+                DWORD availableBytesPlayback = 0;
+                DWORD physicalPlayCursorInBytes;
+                DWORD physicalWriteCursorInBytes;
+                if (FAILED(mal_IDirectSoundBuffer_GetCurrentPosition((mal_IDirectSoundBuffer*)pDevice->dsound.pPlaybackBuffer, &physicalPlayCursorInBytes, &physicalWriteCursorInBytes))) {
+                    break;
+                }
+
+                if (physicalPlayCursorInBytes < prevPlayCursorInBytesPlayback) {
+                    physicalPlayCursorLoopFlagPlayback = !physicalPlayCursorLoopFlagPlayback;
+                }
+                prevPlayCursorInBytesPlayback  = physicalPlayCursorInBytes;
+
+                if (physicalPlayCursorLoopFlagPlayback == virtualWriteCursorLoopFlagPlayback) {
+                    /* Same loop iteration. The available bytes wraps all the way around from the virtual write cursor to the physical play cursor. */
+                    if (physicalPlayCursorInBytes <= virtualWriteCursorInBytesPlayback) {
+                        availableBytesPlayback  = (pDevice->playback.internalBufferSizeInFrames*bpfPlayback) - virtualWriteCursorInBytesPlayback;
+                        availableBytesPlayback += physicalPlayCursorInBytes;    /* Wrap around. */
+                    } else {
+                        break;
+                    }
+                } else {
+                    /* Different loop iterations. The available bytes only goes from the virtual write cursor to the physical play cursor. */
+                    if (physicalPlayCursorInBytes >= virtualWriteCursorInBytesPlayback) {
+                        availableBytesPlayback = physicalPlayCursorInBytes - virtualWriteCursorInBytesPlayback;
+                    } else {
+                        break;
+                    }
+                }
+
+                if (availableBytesPlayback >= (pDevice->playback.internalBufferSizeInFrames*bpfPlayback)) {
+                    break;
+                }
+
+                mal_sleep(waitTimeInMilliseconds);
+            }
+        }
+
         if (FAILED(mal_IDirectSoundBuffer_Stop((mal_IDirectSoundBuffer*)pDevice->dsound.pPlaybackBuffer))) {
             return mal_post_error(pDevice, MAL_LOG_LEVEL_ERROR, "[DirectSound] IDirectSoundBuffer_Stop() failed.", MAL_FAILED_TO_STOP_BACKEND_DEVICE);
         }
