@@ -2180,14 +2180,6 @@ MAL_ALIGNED_STRUCT(MAL_SIMD_ALIGNMENT) mal_device
             mal_IMMNotificationClient notificationClient;
             /*HANDLE*/ mal_handle hEventPlayback;               /* Auto reset. Initialized to signaled. */
             /*HANDLE*/ mal_handle hEventCapture;                /* Auto reset. Initialized to unsignaled. */
-            void* pDeviceBufferPlayback;
-            void* pDeviceBufferCapture;
-            mal_uint32 deviceBufferFramesRemainingPlayback;
-            mal_uint32 deviceBufferFramesRemainingCapture;
-            mal_uint32 deviceBufferFramesCapacityPlayback;
-            mal_uint32 deviceBufferFramesCapacityCapture;
-            mal_uint32 periodSizeInFramesPlayback;
-            mal_uint32 periodSizeInFramesCapture;
             mal_uint32 actualBufferSizeInFramesPlayback;        /* Value from GetBufferSize(). internalBufferSizeInFrames is not set to the _actual_ buffer size when low-latency shared mode is being used due to the way the IAudioClient3 API works. */
             mal_uint32 actualBufferSizeInFramesCapture;
             mal_uint32 originalBufferSizeInFrames;
@@ -2195,7 +2187,10 @@ MAL_ALIGNED_STRUCT(MAL_SIMD_ALIGNMENT) mal_device
             mal_uint32 originalPeriods;
             mal_bool32 hasDefaultPlaybackDeviceChanged;         /* <-- Make sure this is always a whole 32-bits because we use atomic assignments. */
             mal_bool32 hasDefaultCaptureDeviceChanged;          /* <-- Make sure this is always a whole 32-bits because we use atomic assignments. */
-            mal_bool32 isStarted;
+            mal_uint32 periodSizeInFramesPlayback;
+            mal_uint32 periodSizeInFramesCapture;
+            mal_bool32 isStartedCapture;
+            mal_bool32 isStartedPlayback;
         } wasapi;
 #endif
 #ifdef MAL_SUPPORT_DSOUND
@@ -7380,7 +7375,7 @@ mal_result mal_device_reinit__wasapi(mal_device* pDevice, mal_device_type device
         mal_IAudioClient_GetBufferSize((mal_IAudioClient*)pDevice->wasapi.pAudioClientCapture, &pDevice->wasapi.actualBufferSizeInFramesCapture);
 
         /* The device may be in a started state. If so we need to immediately restart it. */
-        if (pDevice->wasapi.isStarted) {
+        if (pDevice->wasapi.isStartedCapture) {
             HRESULT hr = mal_IAudioClient_Start((mal_IAudioClient*)pDevice->wasapi.pAudioClientCapture);
             if (FAILED(hr)) {
                 return mal_post_error(pDevice, MAL_LOG_LEVEL_ERROR, "[WASAPI] Failed to start internal capture device after reinitialization.", MAL_FAILED_TO_START_BACKEND_DEVICE);
@@ -7416,7 +7411,7 @@ mal_result mal_device_reinit__wasapi(mal_device* pDevice, mal_device_type device
         mal_IAudioClient_GetBufferSize((mal_IAudioClient*)pDevice->wasapi.pAudioClientPlayback, &pDevice->wasapi.actualBufferSizeInFramesPlayback);
 
         /* The device may be in a started state. If so we need to immediately restart it. */
-        if (pDevice->wasapi.isStarted) {
+        if (pDevice->wasapi.isStartedPlayback) {
             HRESULT hr = mal_IAudioClient_Start((mal_IAudioClient*)pDevice->wasapi.pAudioClientPlayback);
             if (FAILED(hr)) {
                 return mal_post_error(pDevice, MAL_LOG_LEVEL_ERROR, "[WASAPI] Failed to start internal playback device after reinitialization.", MAL_FAILED_TO_START_BACKEND_DEVICE);
@@ -7604,7 +7599,8 @@ mal_result mal_device_init__wasapi(mal_context* pContext, const mal_device_confi
     }
 #endif
 
-    mal_atomic_exchange_32(&pDevice->wasapi.isStarted, MAL_FALSE);
+    mal_atomic_exchange_32(&pDevice->wasapi.isStartedCapture,  MAL_FALSE);
+    mal_atomic_exchange_32(&pDevice->wasapi.isStartedPlayback, MAL_FALSE);
 
     result = MAL_SUCCESS;
 
@@ -7617,84 +7613,6 @@ done:
         return MAL_SUCCESS;
     }
 }
-
-#if 0
-mal_result mal_device_start__wasapi(mal_device* pDevice)
-{
-    mal_assert(pDevice != NULL);
-
-    HRESULT hr;
-
-    if (pDevice->type == mal_device_type_capture || pDevice->type == mal_device_type_duplex) {
-        hr = mal_IAudioClient_Start((mal_IAudioClient*)pDevice->wasapi.pAudioClientCapture);
-        if (FAILED(hr)) {
-            return mal_post_error(pDevice, MAL_LOG_LEVEL_ERROR, "[WASAPI] Failed to start internal capture device.", MAL_FAILED_TO_START_BACKEND_DEVICE);
-        }
-    }
-
-    if (pDevice->type == mal_device_type_playback || pDevice->type == mal_device_type_duplex) {
-        hr = mal_IAudioClient_Start((mal_IAudioClient*)pDevice->wasapi.pAudioClientPlayback);
-        if (FAILED(hr)) {
-            if (pDevice->type == mal_device_type_duplex) {
-                mal_IAudioClient_Stop((mal_IAudioClient*)pDevice->wasapi.pAudioClientCapture);
-                mal_IAudioClient_Reset((mal_IAudioClient*)pDevice->wasapi.pAudioClientCapture);
-            }
-            return mal_post_error(pDevice, MAL_LOG_LEVEL_ERROR, "[WASAPI] Failed to start internal playback device.", MAL_FAILED_TO_START_BACKEND_DEVICE);
-        }
-    }
-
-    mal_atomic_exchange_32(&pDevice->wasapi.isStarted, MAL_TRUE);
-    return MAL_SUCCESS;
-}
-
-mal_result mal_device_stop__wasapi(mal_device* pDevice)
-{
-    mal_assert(pDevice != NULL);
-
-    if (pDevice->type == mal_device_type_capture || pDevice->type == mal_device_type_duplex) {
-        if (pDevice->wasapi.pAudioClientCapture == NULL) {
-            return MAL_DEVICE_NOT_INITIALIZED;
-        }
-
-        HRESULT hr = mal_IAudioClient_Stop((mal_IAudioClient*)pDevice->wasapi.pAudioClientCapture);
-        if (FAILED(hr)) {
-            return mal_post_error(pDevice, MAL_LOG_LEVEL_ERROR, "[WASAPI] Failed to stop internal capture device.", MAL_FAILED_TO_STOP_BACKEND_DEVICE);
-        }
-
-        /* The audio client needs to be reset otherwise restarting will fail. */
-        hr = mal_IAudioClient_Reset((mal_IAudioClient*)pDevice->wasapi.pAudioClientCapture);
-        if (FAILED(hr)) {
-#ifdef MAL_DEBUG_OUTPUT
-            printf("IAudioClient_Reset (Capture) Returned %d\n", (int)hr);
-#endif
-            return mal_post_error(pDevice, MAL_LOG_LEVEL_ERROR, "[WASAPI] Failed to reset internal capture device.", MAL_FAILED_TO_STOP_BACKEND_DEVICE);
-        }
-    }
-
-    if (pDevice->type == mal_device_type_playback || pDevice->type == mal_device_type_duplex) {
-        if (pDevice->wasapi.pAudioClientPlayback == NULL) {
-            return MAL_DEVICE_NOT_INITIALIZED;
-        }
-
-        /* TODO: Wait until every sample that was written by the callback has been processed. */
-
-        HRESULT hr = mal_IAudioClient_Stop((mal_IAudioClient*)pDevice->wasapi.pAudioClientPlayback);
-        if (FAILED(hr)) {
-            return mal_post_error(pDevice, MAL_LOG_LEVEL_ERROR, "[WASAPI] Failed to stop internal playback device.", MAL_FAILED_TO_STOP_BACKEND_DEVICE);
-        }
-
-        /* The audio client needs to be reset otherwise restarting will fail. */
-        hr = mal_IAudioClient_Reset((mal_IAudioClient*)pDevice->wasapi.pAudioClientPlayback);
-        if (FAILED(hr)) {
-            return mal_post_error(pDevice, MAL_LOG_LEVEL_ERROR, "[WASAPI] Failed to reset internal playback device.", MAL_FAILED_TO_STOP_BACKEND_DEVICE);
-        }
-    }
-
-    mal_atomic_exchange_32(&pDevice->wasapi.isStarted, MAL_FALSE);
-    return MAL_SUCCESS;
-}
-#endif
-
 
 mal_result mal_device__get_available_frames__wasapi(mal_device* pDevice, mal_IAudioClient* pAudioClient, mal_uint32* pFrameCount)
 {
@@ -7771,299 +7689,11 @@ mal_result mal_device_reroute__wasapi(mal_device* pDevice, mal_device_type devic
     return MAL_SUCCESS;
 }
 
-#if 0
-mal_result mal_device_write__wasapi(mal_device* pDevice, const void* pPCMFrames, mal_uint32 frameCount)
-{
-    mal_result result = MAL_SUCCESS;
-    mal_bool32 wasStartedOnEntry;
-    mal_bool32 exitOuterLoop = MAL_FALSE;
-    mal_uint32 totalFramesWritten;
-    HRESULT hr;
-    DWORD waitResult;
-
-    wasStartedOnEntry = pDevice->wasapi.isStarted;
-
-    /* Try to write every frame. */
-    totalFramesWritten = 0;
-    while (totalFramesWritten < frameCount) {
-        /*
-        If we've already got a pointer to the device buffer we will want to fill that up first. Once it's consumed we'll want to reset
-        the event and set the cached pointer to NULL.
-        */
-        if (pDevice->wasapi.pDeviceBufferPlayback != NULL && pDevice->wasapi.deviceBufferFramesRemainingPlayback > 0) {
-            mal_uint32 bpf = mal_get_bytes_per_frame(pDevice->playback.internalFormat, pDevice->playback.internalChannels);
-            mal_uint32 deviceBufferFramesConsumed = pDevice->wasapi.deviceBufferFramesCapacityPlayback - pDevice->wasapi.deviceBufferFramesRemainingPlayback;
-
-            void* pDst = (mal_uint8*)pDevice->wasapi.pDeviceBufferPlayback + (deviceBufferFramesConsumed * bpf);
-            const void* pSrc = (const mal_uint8*)pPCMFrames + (totalFramesWritten * bpf);
-            mal_uint32  framesToCopy = mal_min(pDevice->wasapi.deviceBufferFramesRemainingPlayback, (frameCount - totalFramesWritten));
-            mal_copy_memory(pDst, pSrc, framesToCopy * bpf);
-
-            pDevice->wasapi.deviceBufferFramesRemainingPlayback -= framesToCopy;
-            totalFramesWritten += framesToCopy;
-        }
-
-        /* Getting here means we've consumed the device buffer and need to wait for more to become available. */
-        if (pDevice->wasapi.deviceBufferFramesCapacityPlayback > 0 && pDevice->wasapi.deviceBufferFramesRemainingPlayback == 0) {
-            hr = mal_IAudioRenderClient_ReleaseBuffer((mal_IAudioRenderClient*)pDevice->wasapi.pRenderClient, pDevice->wasapi.deviceBufferFramesCapacityPlayback, 0);
-            pDevice->wasapi.pDeviceBufferPlayback = NULL;
-            pDevice->wasapi.deviceBufferFramesRemainingPlayback = 0;
-            pDevice->wasapi.deviceBufferFramesCapacityPlayback = 0;
-
-            if (FAILED(hr)) {
-                result = MAL_FAILED_TO_UNMAP_DEVICE_BUFFER;
-                mal_post_error(pDevice, MAL_LOG_LEVEL_ERROR, "[WASAPI] Failed to release internal buffer from playback device after writing to the device.", result);
-                break;
-            }
-
-            ResetEvent(pDevice->wasapi.hEventPlayback);
-
-            /*
-            After releasing the buffer, if the device is not started we need to do so. Note from MSDN:
-
-                The event handle should be in the nonsignaled state at the time that the client calls the Start method.
-
-            This means we should start the device only after setting the event to non-signaled (after the call to ResetEvent()).
-            */
-            if (!pDevice->wasapi.isStarted && !wasStartedOnEntry) {
-                result = mal_device_start__wasapi(pDevice);
-                if (result != MAL_SUCCESS) {
-                    break;
-                }
-            }
-        }
-
-        mal_assert(totalFramesWritten <= frameCount);
-        if (totalFramesWritten == frameCount) {
-            break;
-        }
-
-        /* Wait for data to become available. Exclusive mode is slightly different. We always wait and then use the exact frame count returned by GetCurrentPadding(). */
-        for (;;) {
-            if (pDevice->playback.shareMode == mal_share_mode_exclusive) {
-                waitResult = WaitForSingleObject(pDevice->wasapi.hEventPlayback, INFINITE);
-                if (waitResult == WAIT_FAILED) {
-                    result = MAL_ERROR;
-                    exitOuterLoop = MAL_TRUE;
-                    break;  /* An error occurred while waiting for the event. */
-                }
-            }
-
-            /* If the device has been stopped don't continue. */
-            if (!pDevice->wasapi.isStarted && wasStartedOnEntry) {
-                exitOuterLoop = MAL_TRUE;
-                break;
-            }
-
-            /* We may need to reroute the device. */
-            if (mal_device_is_reroute_required__wasapi(pDevice, mal_device_type_playback)) {
-                result = mal_device_reroute__wasapi(pDevice, mal_device_type_playback);
-                if (result != MAL_SUCCESS) {
-                    exitOuterLoop = MAL_TRUE;
-                    break;
-                }
-            }
-
-            /*
-            Check what's available. If there's not enough data available we need to wait. How much data must be available depends on whether or not the
-            device is in playback-only mode or duplex mode. In playback-only mode we only care about a period being available. In duplex mode we want at
-            least a whole period in the buffer ready for playback in addition to a whole period being available.
-            */
-            result = mal_device__get_available_frames__wasapi(pDevice, (mal_IAudioClient*)pDevice->wasapi.pAudioClientPlayback, &pDevice->wasapi.deviceBufferFramesCapacityPlayback);
-            if (result != MAL_SUCCESS) {
-                exitOuterLoop = MAL_TRUE;
-                break;
-            }
-
-            /* In exclusive mode, the frame count needs to exactly match the value returned by GetCurrentPadding(). */
-            if (pDevice->playback.shareMode == mal_share_mode_exclusive && pDevice->wasapi.deviceBufferFramesCapacityPlayback > 0) {
-                break;
-            }
-
-            mal_uint32 minAvailableFrames = pDevice->wasapi.periodSizeInFramesPlayback;
-            if (pDevice->type == mal_device_type_duplex) {
-                if (!pDevice->wasapi.isStarted) {
-                    minAvailableFrames = pDevice->wasapi.periodSizeInFramesPlayback*2;
-                }
-            }
-
-            if (pDevice->wasapi.deviceBufferFramesCapacityPlayback >= minAvailableFrames) {
-                pDevice->wasapi.deviceBufferFramesCapacityPlayback  = minAvailableFrames;
-                break;
-            }
-
-            //printf("TRACE: WAITING\n");
-
-            /* Getting here means we need to wait for more data. */
-            waitResult = WaitForSingleObject(pDevice->wasapi.hEventPlayback, INFINITE);
-            if (waitResult == WAIT_FAILED) {
-                result = MAL_ERROR;
-                exitOuterLoop = MAL_TRUE;
-                break;  /* An error occurred while waiting for the event. */
-            }
-        }
-
-        if (exitOuterLoop) {
-            break;
-        }
-
-        hr = mal_IAudioRenderClient_GetBuffer((mal_IAudioRenderClient*)pDevice->wasapi.pRenderClient, pDevice->wasapi.deviceBufferFramesCapacityPlayback, (BYTE**)&pDevice->wasapi.pDeviceBufferPlayback);
-        if (FAILED(hr)) {
-            result = MAL_FAILED_TO_MAP_DEVICE_BUFFER;
-            mal_post_error(pDevice, MAL_LOG_LEVEL_ERROR, "[WASAPI] Failed to retrieve internal buffer from playback device in preparation for writing to the device.", result);
-            break;
-        }
-
-        pDevice->wasapi.deviceBufferFramesRemainingPlayback = pDevice->wasapi.deviceBufferFramesCapacityPlayback;
-        //printf("TRACE 1: Playback: %d, %d\n", pDevice->wasapi.deviceBufferFramesCapacityPlayback, pDevice->wasapi.periodSizeInFramesPlayback);
-    }
-
-    return result;
-}
-
-mal_result mal_device_read__wasapi(mal_device* pDevice, void* pPCMFrames, mal_uint32 frameCount)
-{
-    mal_result result = MAL_SUCCESS;
-    mal_uint32 totalFramesRead;
-    HRESULT hr;
-    DWORD waitResult;
-    DWORD flags;    /* Passed to IAudioCaptureClient_GetBuffer(). */
-
-    /*
-    This is mostly the same as mal_device_write__wasapi() with only a few exceptions:
-        - If the device is not already started, it's started immediately.
-    */
-    if (!pDevice->wasapi.isStarted) {
-        result = mal_device_start__wasapi(pDevice);
-        if (result != MAL_SUCCESS) {
-            return result;  /* Failed to auto-start device. */
-        }
-    }
-
-    /* Try to read every frame. */
-    totalFramesRead = 0;
-    while (totalFramesRead < frameCount) {
-        /* Make sure we consume any cached data before waiting for more. */
-        if (pDevice->wasapi.pDeviceBufferCapture != NULL && pDevice->wasapi.deviceBufferFramesRemainingCapture > 0) {
-            mal_uint32 bpf = mal_get_bytes_per_frame(pDevice->capture.internalFormat, pDevice->capture.internalChannels);
-            mal_uint32 deviceBufferFramesConsumed = pDevice->wasapi.deviceBufferFramesCapacityCapture - pDevice->wasapi.deviceBufferFramesRemainingCapture;
-
-            void* pDst = (mal_uint8*)pPCMFrames + (totalFramesRead * bpf);
-            const void* pSrc = (const mal_uint8*)pDevice->wasapi.pDeviceBufferCapture + (deviceBufferFramesConsumed * bpf);
-            mal_uint32  framesToCopy = mal_min(pDevice->wasapi.deviceBufferFramesRemainingCapture, (frameCount - totalFramesRead));
-            mal_copy_memory(pDst, pSrc, framesToCopy * bpf);
-
-            pDevice->wasapi.deviceBufferFramesRemainingCapture -= framesToCopy;
-            totalFramesRead += framesToCopy;
-        }
-
-        /* Getting here means we've consumed the device buffer and need to wait for more to become available. */
-        if (pDevice->wasapi.deviceBufferFramesCapacityCapture > 0 && pDevice->wasapi.deviceBufferFramesRemainingCapture == 0) {
-            hr = mal_IAudioCaptureClient_ReleaseBuffer((mal_IAudioCaptureClient*)pDevice->wasapi.pCaptureClient, pDevice->wasapi.deviceBufferFramesCapacityCapture);
-            pDevice->wasapi.pDeviceBufferCapture = NULL;
-            pDevice->wasapi.deviceBufferFramesRemainingCapture = 0;
-            pDevice->wasapi.deviceBufferFramesCapacityCapture = 0;
-
-            if (FAILED(hr)) {
-                result = MAL_FAILED_TO_UNMAP_DEVICE_BUFFER;
-                mal_post_error(pDevice, MAL_LOG_LEVEL_ERROR, "[WASAPI] Failed to release internal buffer from capture device after reading from the device.", result);
-                break;
-            }
-
-            /*
-            If we're running in full-duplex mode and there's too much data in the buffer we need to discard some to ensure we don't get stuck stradling the
-            edge of the buffer and causing endless glitching.
-            */
-            if (pDevice->type == mal_device_type_duplex) {
-                mal_uint32 framesAvailable;
-                result = mal_device__get_available_frames__wasapi(pDevice, (mal_IAudioClient*)pDevice->wasapi.pAudioClientCapture, &framesAvailable);
-                if (result == MAL_SUCCESS) {
-                    if (framesAvailable > (pDevice->wasapi.periodSizeInFramesCapture*(pDevice->capture.internalPeriods-1))) {
-                        mal_uint32 framesToDiscard = framesAvailable - pDevice->wasapi.periodSizeInFramesCapture;
-                        if (framesToDiscard > 0) {
-                            BYTE* pUnused;
-                            hr = mal_IAudioCaptureClient_GetBuffer((mal_IAudioCaptureClient*)pDevice->wasapi.pCaptureClient, &pUnused, &framesToDiscard, &flags, NULL, NULL);
-                            if (SUCCEEDED(hr)) {
-                            #ifdef MAL_DEBUG_OUTPUT
-                                printf("[WASAPI] (Duplex/Capture) Discarding %d frames...\n", framesToDiscard);
-                            #endif
-                                mal_IAudioCaptureClient_ReleaseBuffer((mal_IAudioCaptureClient*)pDevice->wasapi.pCaptureClient, framesToDiscard);
-                            }
-                        }
-                    }
-                }
-            }
-
-            ResetEvent(pDevice->wasapi.hEventCapture);
-        }
-
-        mal_assert(totalFramesRead <= frameCount);
-        if (totalFramesRead == frameCount) {
-            break;
-        }
-
-        /* Wait for data. */
-        if (pDevice->type == mal_device_type_capture) {
-            waitResult = WaitForSingleObject(pDevice->wasapi.hEventCapture, INFINITE);
-        } else {
-            if (pDevice->playback.shareMode == mal_share_mode_shared) {
-                waitResult = WaitForSingleObject(pDevice->wasapi.hEventCapture, INFINITE);
-            } else {
-                waitResult = WaitForSingleObject(pDevice->wasapi.hEventPlayback, INFINITE); /* Wait on the exclusive-mode playback event instead. */
-            }
-        }
-        if (waitResult == WAIT_FAILED) {
-            result = MAL_ERROR;
-            break;  /* An error occurred while waiting for the event. */
-        }
-
-        /* If the device has been stopped don't continue. */
-        if (!pDevice->wasapi.isStarted) {
-            break;
-        }
-
-        /* We may need to reroute the device. */
-        if (mal_device_is_reroute_required__wasapi(pDevice, mal_device_type_capture)) {
-            result = mal_device_reroute__wasapi(pDevice, mal_device_type_capture);
-            if (result != MAL_SUCCESS) {
-                break;
-            }
-        }
-
-        /* The device buffer has become available, so now we need to get a pointer to it. */
-        result = mal_device__get_available_frames__wasapi(pDevice, (mal_IAudioClient*)pDevice->wasapi.pAudioClientCapture, &pDevice->wasapi.deviceBufferFramesCapacityCapture);
-        if (result != MAL_SUCCESS) {
-            break;
-        }
-
-        //printf("TRACE 1: capacity capture: %d, %d\n", pDevice->wasapi.deviceBufferFramesCapacityCapture, pDevice->wasapi.periodSizeInFramesCapture);
-
-        /* In exclusive mode, the frame count needs to exactly match the value returned by GetCurrentPadding(). */
-        if (pDevice->playback.shareMode != mal_share_mode_exclusive) {
-            if (pDevice->wasapi.deviceBufferFramesCapacityCapture > pDevice->wasapi.periodSizeInFramesCapture) {
-                pDevice->wasapi.deviceBufferFramesCapacityCapture = pDevice->wasapi.periodSizeInFramesCapture;
-            }
-        }
-
-        hr = mal_IAudioCaptureClient_GetBuffer((mal_IAudioCaptureClient*)pDevice->wasapi.pCaptureClient, (BYTE**)&pDevice->wasapi.pDeviceBufferCapture, &pDevice->wasapi.deviceBufferFramesCapacityCapture, &flags, NULL, NULL);
-        if (FAILED(hr)) {
-            result = MAL_FAILED_TO_MAP_DEVICE_BUFFER;
-            mal_post_error(pDevice, MAL_LOG_LEVEL_ERROR, "[WASAPI] Failed to retrieve internal buffer from capture device in preparation for writing to the device.", result);
-            break;
-        }
-
-        pDevice->wasapi.deviceBufferFramesRemainingCapture = pDevice->wasapi.deviceBufferFramesCapacityCapture;
-    }
-
-    return result;
-}
-#endif
 
 mal_result mal_device_main_loop__wasapi(mal_device* pDevice)
 {
     mal_result result;
     HRESULT hr;
-    mal_bool32 isPlaybackDeviceStarted = MAL_FALSE;
     mal_bool32 exitLoop = MAL_FALSE;
     mal_uint32 framesWrittenToPlaybackDevice = 0;
     mal_uint32 mappedBufferSizeInFramesCapture = 0;
@@ -8087,9 +7717,26 @@ mal_result mal_device_main_loop__wasapi(mal_device* pDevice)
         if (FAILED(hr)) {
             return mal_post_error(pDevice, MAL_LOG_LEVEL_ERROR, "[WASAPI] Failed to start internal capture device.", MAL_FAILED_TO_START_BACKEND_DEVICE);
         }
+        mal_atomic_exchange_32(&pDevice->wasapi.isStartedCapture, MAL_TRUE);
     }
 
     while (mal_device__get_state(pDevice) == MAL_STATE_STARTED && !exitLoop) {
+        /* We may need to reroute the device. */
+        if (mal_device_is_reroute_required__wasapi(pDevice, mal_device_type_playback)) {
+            result = mal_device_reroute__wasapi(pDevice, mal_device_type_playback);
+            if (result != MAL_SUCCESS) {
+                exitLoop = MAL_TRUE;
+                break;
+            }
+        }
+        if (mal_device_is_reroute_required__wasapi(pDevice, mal_device_type_capture)) {
+            result = mal_device_reroute__wasapi(pDevice, mal_device_type_capture);
+            if (result != MAL_SUCCESS) {
+                exitLoop = MAL_TRUE;
+                break;
+            }
+        }
+
         switch (pDevice->type)
         {
             case mal_device_type_duplex:
@@ -8097,22 +7744,6 @@ mal_result mal_device_main_loop__wasapi(mal_device* pDevice)
                 mal_uint32 framesAvailableCapture;
                 mal_uint32 framesAvailablePlayback;
                 DWORD flagsCapture;    /* Passed to IAudioCaptureClient_GetBuffer(). */
-
-                /* We may need to reroute the device. */
-                if (mal_device_is_reroute_required__wasapi(pDevice, mal_device_type_playback)) {
-                    result = mal_device_reroute__wasapi(pDevice, mal_device_type_playback);
-                    if (result != MAL_SUCCESS) {
-                        exitLoop = MAL_TRUE;
-                        break;
-                    }
-                }
-                if (mal_device_is_reroute_required__wasapi(pDevice, mal_device_type_capture)) {
-                    result = mal_device_reroute__wasapi(pDevice, mal_device_type_capture);
-                    if (result != MAL_SUCCESS) {
-                        exitLoop = MAL_TRUE;
-                        break;
-                    }
-                }
 
                 /* The process is to map the playback buffer and fill it as quickly as possible from input data. */
                 if (pMappedBufferPlayback == NULL) {
@@ -8354,7 +7985,7 @@ mal_result mal_device_main_loop__wasapi(mal_device* pDevice)
                     mappedBufferSizeInFramesPlayback = 0;
                 }
 
-                if (!isPlaybackDeviceStarted) {
+                if (!pDevice->wasapi.isStartedPlayback) {
                     if (pDevice->playback.shareMode == mal_share_mode_exclusive || framesWrittenToPlaybackDevice >= (pDevice->playback.internalBufferSizeInFrames/pDevice->playback.internalPeriods)*2) {
                         hr = mal_IAudioClient_Start((mal_IAudioClient*)pDevice->wasapi.pAudioClientPlayback);
                         if (FAILED(hr)) {
@@ -8362,7 +7993,7 @@ mal_result mal_device_main_loop__wasapi(mal_device* pDevice)
                             mal_IAudioClient_Reset((mal_IAudioClient*)pDevice->wasapi.pAudioClientCapture);
                             return mal_post_error(pDevice, MAL_LOG_LEVEL_ERROR, "[WASAPI] Failed to start internal playback device.", MAL_FAILED_TO_START_BACKEND_DEVICE);
                         }
-                        isPlaybackDeviceStarted = MAL_TRUE;
+                        mal_atomic_exchange_32(&pDevice->wasapi.isStartedPlayback, MAL_TRUE);
                     }
                 }
             } break;
@@ -8467,7 +8098,7 @@ mal_result mal_device_main_loop__wasapi(mal_device* pDevice)
                 }
 
                 framesWrittenToPlaybackDevice += framesAvailablePlayback;
-                if (!isPlaybackDeviceStarted) {
+                if (!pDevice->wasapi.isStartedPlayback) {
                     if (pDevice->playback.shareMode == mal_share_mode_exclusive || framesWrittenToPlaybackDevice >= (pDevice->playback.internalBufferSizeInFrames/pDevice->playback.internalPeriods)*1) {
                         hr = mal_IAudioClient_Start((mal_IAudioClient*)pDevice->wasapi.pAudioClientPlayback);
                         if (FAILED(hr)) {
@@ -8475,7 +8106,7 @@ mal_result mal_device_main_loop__wasapi(mal_device* pDevice)
                             exitLoop = MAL_TRUE;
                             break;
                         }
-                        isPlaybackDeviceStarted = MAL_TRUE;
+                        mal_atomic_exchange_32(&pDevice->wasapi.isStartedPlayback, MAL_TRUE);
                     }
                 }
             } break;
@@ -8513,7 +8144,7 @@ mal_result mal_device_main_loop__wasapi(mal_device* pDevice)
         The buffer needs to be drained before stopping the device. Not doing this will result in the last few frames not getting output to
         the speakers. This is a problem for very short sounds because it'll result in a significant potion of it not getting played.
         */
-        if (isPlaybackDeviceStarted) {
+        if (pDevice->wasapi.isStartedPlayback) {
             if (pDevice->playback.shareMode == mal_share_mode_exclusive) {
                 WaitForSingleObject(pDevice->wasapi.hEventPlayback, INFINITE);
             } else {
