@@ -8410,22 +8410,37 @@ mal_result mal_device_main_loop__wasapi(mal_device* pDevice)
             hr = mal_IAudioRenderClient_ReleaseBuffer((mal_IAudioRenderClient*)pDevice->wasapi.pRenderClient, mappedBufferSizeInFramesPlayback, 0);
         }
 
+        /*
+        The buffer needs to be drained before stopping the device. Not doing this will result in the last few frames not getting output to
+        the speakers. This is a problem for very short sounds because it'll result in a significant potion of it not getting played.
+        */
         if (isPlaybackDeviceStarted) {
             if (pDevice->playback.shareMode == mal_share_mode_exclusive) {
                 WaitForSingleObject(pDevice->wasapi.hEventPlayback, INFINITE);
             } else {
                 for (;;) {
+                    mal_uint32 prevFramesAvaialablePlayback = (size_t)-1;
                     mal_uint32 framesAvailablePlayback;
                     result = mal_device__get_available_frames__wasapi(pDevice, (mal_IAudioClient*)pDevice->wasapi.pAudioClientPlayback, &framesAvailablePlayback);
                     if (result != MAL_SUCCESS) {
                         break;
                     }
 
-                    if (framesAvailablePlayback >= pDevice->playback.internalBufferSizeInFrames) {
+                    if (framesAvailablePlayback >= pDevice->wasapi.actualBufferSizeInFramesPlayback) {
                         break;
                     }
 
+                    /*
+                    Just a safety check to avoid an infinite loop. If this iteration results in a situation where the number of available frames
+                    has not changed, get out of the loop. I don't think this should ever happen, but I think it's nice to have just in case.
+                    */
+                    if (framesAvailablePlayback == prevFramesAvaialablePlayback) {
+                        break;
+                    }
+                    prevFramesAvaialablePlayback = framesAvailablePlayback;
+
                     WaitForSingleObject(pDevice->wasapi.hEventPlayback, INFINITE);
+                    ResetEvent(pDevice->wasapi.hEventPlayback); /* Manual reset. */
                 }
             }
         }
