@@ -2178,8 +2178,8 @@ MAL_ALIGNED_STRUCT(MAL_SIMD_ALIGNMENT) mal_device
             /*IAudioCaptureClient**/ mal_ptr pCaptureClient;
             /*IMMDeviceEnumerator**/ mal_ptr pDeviceEnumerator; /* Used for IMMNotificationClient notifications. Required for detecting default device changes. */
             mal_IMMNotificationClient notificationClient;
-            /*HANDLE*/ mal_handle hEventPlayback;               /* Used with the blocking API. Manual reset. Initialized to signaled. */
-            /*HANDLE*/ mal_handle hEventCapture;                /* Used with the blocking API. Manual reset. Initialized to unsignaled. */
+            /*HANDLE*/ mal_handle hEventPlayback;               /* Auto reset. Initialized to signaled. */
+            /*HANDLE*/ mal_handle hEventCapture;                /* Auto reset. Initialized to unsignaled. */
             void* pDeviceBufferPlayback;
             void* pDeviceBufferCapture;
             mal_uint32 deviceBufferFramesRemainingPlayback;
@@ -7477,7 +7477,7 @@ mal_result mal_device_init__wasapi(mal_context* pContext, const mal_device_confi
         The event for capture needs to be manual reset for the same reason as playback. We keep the initial state set to unsignaled,
         however, because we want to block until we actually have something for the first call to mal_device_read().
         */
-        pDevice->wasapi.hEventCapture = CreateEventA(NULL, TRUE, FALSE, NULL);  /* Manual reset, unsignaled by default. */
+        pDevice->wasapi.hEventCapture = CreateEventA(NULL, FALSE, FALSE, NULL);  /* Auto reset, unsignaled by default. */
         if (pDevice->wasapi.hEventCapture == NULL) {
             if (pDevice->wasapi.pCaptureClient != NULL) {
                 mal_IAudioCaptureClient_Release((mal_IAudioCaptureClient*)pDevice->wasapi.pCaptureClient);
@@ -7547,7 +7547,7 @@ mal_result mal_device_init__wasapi(mal_context* pContext, const mal_device_confi
         The playback event also needs to be initially set to a signaled state so that the first call to mal_device_write() is able
         to get passed WaitForMultipleObjects().
         */
-        pDevice->wasapi.hEventPlayback = CreateEventA(NULL, TRUE, TRUE, NULL);  /* Manual reset, signaled by default. */
+        pDevice->wasapi.hEventPlayback = CreateEventA(NULL, FALSE, TRUE, NULL);  /* Auto reset, signaled by default. */
         if (pDevice->wasapi.hEventPlayback == NULL) {
             if (pConfig->deviceType == mal_device_type_duplex) {
                 if (pDevice->wasapi.pCaptureClient != NULL) {
@@ -7618,6 +7618,7 @@ done:
     }
 }
 
+#if 0
 mal_result mal_device_start__wasapi(mal_device* pDevice)
 {
     mal_assert(pDevice != NULL);
@@ -7692,6 +7693,7 @@ mal_result mal_device_stop__wasapi(mal_device* pDevice)
     mal_atomic_exchange_32(&pDevice->wasapi.isStarted, MAL_FALSE);
     return MAL_SUCCESS;
 }
+#endif
 
 
 mal_result mal_device__get_available_frames__wasapi(mal_device* pDevice, mal_IAudioClient* pAudioClient, mal_uint32* pFrameCount)
@@ -7769,6 +7771,7 @@ mal_result mal_device_reroute__wasapi(mal_device* pDevice, mal_device_type devic
     return MAL_SUCCESS;
 }
 
+#if 0
 mal_result mal_device_write__wasapi(mal_device* pDevice, const void* pPCMFrames, mal_uint32 frameCount)
 {
     mal_result result = MAL_SUCCESS;
@@ -8054,6 +8057,7 @@ mal_result mal_device_read__wasapi(mal_device* pDevice, void* pPCMFrames, mal_ui
 
     return result;
 }
+#endif
 
 mal_result mal_device_main_loop__wasapi(mal_device* pDevice)
 {
@@ -8321,8 +8325,6 @@ mal_result mal_device_main_loop__wasapi(mal_device* pDevice)
 
                         //printf("TRACE: Released capture buffer\n");
 
-                        ResetEvent(pDevice->wasapi.hEventCapture);
-
                         pMappedBufferCapture = NULL;
                         mappedBufferFramesRemainingCapture = 0;
                         mappedBufferSizeInFramesCapture = 0;
@@ -8345,8 +8347,6 @@ mal_result mal_device_main_loop__wasapi(mal_device* pDevice)
                     }
 
                     //printf("TRACE: Released playback buffer\n");
-
-                    ResetEvent(pDevice->wasapi.hEventPlayback);
                     framesWrittenToPlaybackDevice += mappedBufferSizeInFramesPlayback;
 
                     pMappedBufferPlayback = NULL;
@@ -8371,7 +8371,50 @@ mal_result mal_device_main_loop__wasapi(mal_device* pDevice)
 
             case mal_device_type_capture:
             {
-                /* Not yet implemented. */
+                mal_uint32 framesAvailableCapture;
+                DWORD flagsCapture;    /* Passed to IAudioCaptureClient_GetBuffer(). */
+
+                /* Wait for data to become available first. */
+                if (WaitForSingleObject(pDevice->wasapi.hEventCapture, INFINITE) == WAIT_FAILED) {
+                    return MAL_ERROR;   /* Wait failed. */
+                }
+
+                /* See how many frames are available. Since we waited at the top, I don't think this should ever return 0. I'm checking for this anyway. */
+                result = mal_device__get_available_frames__wasapi(pDevice, (mal_IAudioClient*)pDevice->wasapi.pAudioClientCapture, &framesAvailableCapture);
+                if (result != MAL_SUCCESS) {
+                    exitLoop = MAL_TRUE;
+                    break;
+                }
+
+                if (framesAvailableCapture == 0) {
+                    continue;   /* Nothing available. Keep waiting. */
+                }
+
+                /* Map a the data buffer in preparation for sending to the client. */
+                mappedBufferSizeInFramesCapture = framesAvailableCapture;
+                hr = mal_IAudioCaptureClient_GetBuffer((mal_IAudioCaptureClient*)pDevice->wasapi.pCaptureClient, (BYTE**)&pMappedBufferCapture, &mappedBufferSizeInFramesCapture, &flagsCapture, NULL, NULL);
+                if (FAILED(hr)) {
+                    mal_post_error(pDevice, MAL_LOG_LEVEL_ERROR, "[WASAPI] Failed to retrieve internal buffer from capture device in preparation for writing to the device.", MAL_FAILED_TO_MAP_DEVICE_BUFFER);
+                    exitLoop = MAL_TRUE;
+                    break;
+                }
+
+                /* We should have a buffer at this point. If we are running a passthrough pipeline we can send it straight to the callback. Otherwise we need to convert. */
+                if (pDevice->capture.converter.isPassthrough) {
+                    pDevice->onData(pDevice, NULL, pMappedBufferCapture, mappedBufferSizeInFramesCapture);
+                } else {
+                    mal_device__send_frames_to_client(pDevice, mappedBufferSizeInFramesCapture, pMappedBufferCapture);
+                }
+
+                /* At this point we're done with the buffer. */
+                hr = mal_IAudioCaptureClient_ReleaseBuffer((mal_IAudioCaptureClient*)pDevice->wasapi.pCaptureClient, mappedBufferSizeInFramesCapture);
+                pMappedBufferCapture = NULL;    /* <-- Important. Not doing this can result in an error once we leave this loop because it will use this to know whether or not a final ReleaseBuffer() needs to be called. */
+                mappedBufferSizeInFramesCapture = 0;
+                if (FAILED(hr)) {
+                    mal_post_error(pDevice, MAL_LOG_LEVEL_ERROR, "[WASAPI] Failed to release internal buffer from capture device after reading from the device.", MAL_FAILED_TO_UNMAP_DEVICE_BUFFER);
+                    exitLoop = MAL_TRUE;
+                    break;
+                }
             } break;
 
 
