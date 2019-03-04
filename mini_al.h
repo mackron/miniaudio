@@ -9122,6 +9122,10 @@ mal_result mal_device_init__dsound(mal_context* pContext, const mal_device_confi
         }
     }
 
+    /* DirectSound breaks down with tiny buffer sizes (bad glitching and silent output). I am therefore restricting the size of the buffer to a minimum of 20 milliseconds. */
+    if ((bufferSizeInMilliseconds/pConfig->periods) < 20) {
+        bufferSizeInMilliseconds = pConfig->periods * 20;
+    }
 
     // Unfortunately DirectSound uses different APIs and data structures for playback and catpure devices. We need to initialize
     // the capture device first because we'll want to match it's buffer size and period count on the playback side if we're using
