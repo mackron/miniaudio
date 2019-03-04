@@ -9745,7 +9745,7 @@ mal_result mal_device_main_loop__dsound(mal_device* pDevice)
                         }
 
                     #ifdef MAL_DEBUG_OUTPUT
-                        printf("[DirectSound] (Duplex/Playback) physicalPlayCursorInBytes=%d, availableBytesPlayback=%d\n", physicalPlayCursorInBytes, availableBytesPlayback);
+                        //printf("[DirectSound] (Duplex/Playback) physicalPlayCursorInBytes=%d, availableBytesPlayback=%d\n", physicalPlayCursorInBytes, availableBytesPlayback);
                     #endif
 
                         /* If there's no room available for writing we need to wait for more. */
