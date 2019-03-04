@@ -8376,7 +8376,8 @@ mal_result mal_device_main_loop__wasapi(mal_device* pDevice)
 
                 /* Wait for data to become available first. */
                 if (WaitForSingleObject(pDevice->wasapi.hEventCapture, INFINITE) == WAIT_FAILED) {
-                    return MAL_ERROR;   /* Wait failed. */
+                    exitLoop = MAL_TRUE;
+                    break;   /* Wait failed. */
                 }
 
                 /* See how many frames are available. Since we waited at the top, I don't think this should ever return 0. I'm checking for this anyway. */
@@ -8421,7 +8422,62 @@ mal_result mal_device_main_loop__wasapi(mal_device* pDevice)
 
             case mal_device_type_playback:
             {
-                /* Not yet implemented. */
+                mal_uint32 framesAvailablePlayback;
+
+                /* Wait for space to become available first. */
+                if (WaitForSingleObject(pDevice->wasapi.hEventPlayback, INFINITE) == WAIT_FAILED) {
+                    exitLoop = MAL_TRUE;
+                    break;   /* Wait failed. */
+                }
+
+                /* Check how much space is available. If this returns 0 we just keep waiting. */
+                result = mal_device__get_available_frames__wasapi(pDevice, (mal_IAudioClient*)pDevice->wasapi.pAudioClientPlayback, &framesAvailablePlayback);
+                if (result != MAL_SUCCESS) {
+                    exitLoop = MAL_TRUE;
+                    break;
+                }
+
+                if (framesAvailablePlayback == 0) {
+                    continue;   /* No space available. */
+                }
+
+                /* Map a the data buffer in preparation for the callback. */
+                hr = mal_IAudioRenderClient_GetBuffer((mal_IAudioRenderClient*)pDevice->wasapi.pRenderClient, framesAvailablePlayback, &pMappedBufferPlayback);
+                if (FAILED(hr)) {
+                    mal_post_error(pDevice, MAL_LOG_LEVEL_ERROR, "[WASAPI] Failed to retrieve internal buffer from playback device in preparation for writing to the device.", MAL_FAILED_TO_MAP_DEVICE_BUFFER);
+                    exitLoop = MAL_TRUE;
+                    break;
+                }
+
+                if (pDevice->playback.converter.isPassthrough) {
+                    pDevice->onData(pDevice, pMappedBufferPlayback, NULL, framesAvailablePlayback);
+                } else {
+                    mal_device__read_frames_from_client(pDevice, framesAvailablePlayback, pMappedBufferPlayback);
+                }
+
+                /* At this point we're done writing to the device and we just need to release the buffer. */
+                hr = mal_IAudioRenderClient_ReleaseBuffer((mal_IAudioRenderClient*)pDevice->wasapi.pRenderClient, framesAvailablePlayback, 0);
+                pMappedBufferPlayback = NULL;    /* <-- Important. Not doing this can result in an error once we leave this loop because it will use this to know whether or not a final ReleaseBuffer() needs to be called. */
+                mappedBufferSizeInFramesPlayback = 0;
+
+                if (FAILED(hr)) {
+                    mal_post_error(pDevice, MAL_LOG_LEVEL_ERROR, "[WASAPI] Failed to release internal buffer from playback device after writing to the device.", MAL_FAILED_TO_UNMAP_DEVICE_BUFFER);
+                    exitLoop = MAL_TRUE;
+                    break;
+                }
+
+                framesWrittenToPlaybackDevice += framesAvailablePlayback;
+                if (!isPlaybackDeviceStarted) {
+                    if (pDevice->playback.shareMode == mal_share_mode_exclusive || framesWrittenToPlaybackDevice >= (pDevice->playback.internalBufferSizeInFrames/pDevice->playback.internalPeriods)*1) {
+                        hr = mal_IAudioClient_Start((mal_IAudioClient*)pDevice->wasapi.pAudioClientPlayback);
+                        if (FAILED(hr)) {
+                            mal_post_error(pDevice, MAL_LOG_LEVEL_ERROR, "[WASAPI] Failed to start internal playback device.", MAL_FAILED_TO_START_BACKEND_DEVICE);
+                            exitLoop = MAL_TRUE;
+                            break;
+                        }
+                        isPlaybackDeviceStarted = MAL_TRUE;
+                    }
+                }
             } break;
 
             default: MAL_INVALID_ARGS;
