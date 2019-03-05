@@ -6,6 +6,118 @@ David Reid - davidreidsoftware@gmail.com
 */
 
 /*
+MAJOR CHANGES IN VERSION 0.9
+============================
+Version 0.9 includes major API changes, centered mostly around full-duplex. Before I go into detail about the major changes I
+would like to apologize. I know it's annoying dealing with breaking API changes, but I think it's best to get these changes
+out of the way now while the library is still relatively young and unknown.
+
+Full-Duplex Support
+-------------------
+The major feature added to version 0.9 is full-duplex. This has necessitated a few API changes.
+
+1) The data callback has now changed. Previously there was one type of callback for playback and another for capture. I wanted
+   to avoid a third callback just for full-duplex so the decision was made to break this API and unify the callbacks. Now,
+   there is just one callback which is the same for all three modes (playback, capture, duplex). The new callback looks like
+   the following:
+
+       void data_callback(mal_device* pDevice, void* pOutput, const void* pInput, mal_uint32 frameCount);
+
+   This callback allows you to move data straight out of the input buffer and into the output buffer in full-duplex mode. In
+   playback-only mode, pInput will be null. Likewise, pOutput will be null in capture-only mode. The sample count is no longer
+   returned from the callback since it's not necessary for mini_al anymore.
+
+2) The device config needed to change in order to support full-duplex. Full-duplex requires the ability to allow the client
+   to choose a different PCM format for the playback and capture sides. The old mal_device_config object simply did not allow
+   this and needed to change. With these changes you now specify the device ID, format, channels, channel map and share mode
+   on a per-playback and per-capture basis (see example below). The sample rate must be the same for playback and capture.
+
+   Since the device config API has changed I have also decided to take the opportunity to simplify device initialization. Now,
+   the device ID, device type and callback user data are set in the config. mal_device_init() is now simplified down to taking
+   just the context, device config and a pointer to the device object being initialized. The rationale for this change is that
+   it just makes more sense to me that these are set as part of the config like everything else.
+
+   Example device initialization:
+
+       mal_device_config config = mal_device_config_init(mal_device_type_duplex);   // Or mal_device_type_playback or mal_device_type_capture.
+       config.playback.pDeviceID = &myPlaybackDeviceID; // Or NULL for the default playback device.
+       config.playback.format    = mal_format_f32;
+       config.playback.channels  = 2;
+       config.capture.pDeviceID  = &myCaptureDeviceID;  // Or NULL for the default capture device.
+       config.capture.format     = mal_format_s16;
+       config.capture.channels   = 1;
+       config.sampleRate         = 44100;
+       config.dataCallback       = data_callback;
+       config.pUserData          = &myUserData;
+
+       result = mal_device_init(&myContext, &config, &device);
+       if (result != MAL_SUCCESS) {
+           ... handle error ...
+       }
+
+   Note that the "onDataCallback" member of mal_device_config has been renamed to "dataCallback". Also, "onStopCallback" has
+   been renamed to "stopCallback".
+
+This is the first pass for full-duplex and there is a known bug. You will hear crackling on the following backends when sample
+rate conversion is required for the playback device:
+  - Core Audio
+  - JACK
+  - AAudio
+  - OpenSL
+  - WebAudio
+
+In addition to the above, not all platforms have been absolutely thoroughly tested simply because I lack the hardware for such
+thorough testing. If you experience a bug, an issue report on GitHub or an email would be greatly appreciated (and a sample
+program that reproduces the issue if possible).
+
+
+Other API Changes
+-----------------
+In addition to the above, the following API changes have been made:
+
+- The log callback is no longer passed to mal_context_config_init(). Instead you need to set it manually after initialization.
+- The onLogCallback member of mal_context_config has been renamed to "logCallback".
+- The log callback now takes a logLevel parameter. The new callback looks like: void log_callback(mal_context* pContext, mal_device* pDevice, mal_uint32 logLevel, const char* message)
+  - You can use mal_log_level_to_string() to convert the logLevel to human readable text if you want to log it.
+- Some APIs have been renamed:
+  - mal_decoder_read()          -> mal_decoder_read_pcm_frames()
+  - mal_decoder_seek_to_frame() -> mal_decoder_seek_to_pcm_frame()
+  - mal_sine_wave_read()        -> mal_sine_wave_read_f32()
+  - mal_sine_wave_read_ex()     -> mal_sine_wave_read_f32_ex()
+- Some APIs have been removed:
+  - mal_device_get_buffer_size_in_bytes()
+  - mal_device_set_recv_callback()
+  - mal_device_set_send_callback()
+  - mal_src_set_input_sample_rate()
+  - mal_src_set_output_sample_rate()
+- Error codes have been rearranged. If you're a binding maintainer you will need to update.
+- The mal_backend enums have been rearranged to priority order. The rationale for this is to simplify automatic backend selection
+  and to make it easier to see the priority. If you're a binding maintainer you will need to update.
+- mal_dsp has been renamed to mal_pcm_converter. The rationale for this change is that I'm expecting "mal_dsp" to conflict with
+  some future planned high-level APIs.
+- For functions that take a pointer/count combo, such as mal_decoder_read_pcm_frames(), the parameter order has changed so that
+  the pointer comes before the count. The rationale for this is to keep it consistent with things like memcpy().
+
+
+Miscellaneous Changes
+---------------------
+The following miscellaneous changes have also been made.
+
+- The AAudio backend has been added for Android 8 and above. This is Androids new "High-Performance Audio" API. (For the
+  record, this is one of the nicest audio APIs out there, just behind the BSD audio APIs).
+- The WebAudio backend has been added. This is based on ScriptProcessorNode. This removes the need for SDL.
+- The SDL and OpenAL backends have been removed. These were originally implemented to add support for platforms for which mini_al
+  was not explicitly supported. These are no longer needed and have therefore been removed.
+- Device initialization now fails if the requested share mode is not supported. If you ask for exclusive mode, you either get an
+  exclusive mode device, or an error. The rationale for this change is to give the client more control over how to handle cases
+  when the desired shared mode is unavailable.
+- A lock-free ring buffer API has been added. There are two varients of this. "mal_rb" operates on bytes, whereas "mal_pcm_rb"
+  operates on PCM frames.
+- The library is now licensed as a choice of Public Domain (Unlicense) _or_ MIT-0 (No Attribution) which is the same as MIT, but
+  removes the attribution requirement. The rationale for this is to support countries that don't recognize public domain.
+*/
+
+/*
 ABOUT
 =====
 mini_al is a single file library for audio playback and capture. It's written in C (compilable as
@@ -63,12 +175,11 @@ Playback Example
   ...
 
   mal_device_config config = mal_device_config_init(mal_device_type_playback);
-  config.playback.pDeviceID = NULL;
-  config.playback.format    = decoder.outputFormat;
-  config.playback.channels  = decoder.outputChannels;
-  config.sampleRate         = decoder.outputSampleRate;
-  config.dataCallback       = data_callback;
-  config.pUserData          = &decoder;
+  config.playback.format   = decoder.outputFormat;
+  config.playback.channels = decoder.outputChannels;
+  config.sampleRate        = decoder.outputSampleRate;
+  config.dataCallback      = data_callback;
+  config.pUserData         = &decoder;
 
   mal_device device;
   if (mal_device_init(NULL, &config, &device) != MAL_SUCCESS) {
