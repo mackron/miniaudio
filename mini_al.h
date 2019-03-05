@@ -20097,7 +20097,6 @@ mal_result mal_open_stream__aaudio(mal_context* pContext, mal_device_type device
         }
         ((MAL_PFN_AAudioStreamBuilder_setBufferCapacityInFrames)pContext->aaudio.AAudioStreamBuilder_setBufferCapacityInFrames)(pBuilder, bufferCapacityInFrames);
 
-        /* TODO: Don't set the data callback when synchronous reading and writing is being used. */
         ((MAL_PFN_AAudioStreamBuilder_setFramesPerDataCallback)pContext->aaudio.AAudioStreamBuilder_setFramesPerDataCallback)(pBuilder, bufferCapacityInFrames / pConfig->periods);
 
         if (deviceType == mal_device_type_capture) {
@@ -20318,8 +20317,6 @@ mal_result mal_device_init__aaudio(mal_context* pContext, const mal_device_confi
         mal_get_standard_channel_map(mal_standard_channel_map_default, pDevice->playback.internalChannels, pDevice->playback.internalChannelMap); /* <-- Cannot find info on channel order, so assuming a default. */
         pDevice->playback.internalBufferSizeInFrames = ((MAL_PFN_AAudioStream_getBufferCapacityInFrames)pContext->aaudio.AAudioStream_getBufferCapacityInFrames)((mal_AAudioStream*)pDevice->aaudio.pStreamPlayback);
 
-        /* TODO: When synchronous reading and writing is supported, use AAudioStream_getFramesPerBurst() instead of AAudioStream_getFramesPerDataCallback(). Keep
-         * using AAudioStream_getFramesPerDataCallback() for asynchronous mode, though. */
         int32_t framesPerPeriod = ((MAL_PFN_AAudioStream_getFramesPerDataCallback)pContext->aaudio.AAudioStream_getFramesPerDataCallback)((mal_AAudioStream*)pDevice->aaudio.pStreamPlayback);
         if (framesPerPeriod > 0) {
             pDevice->playback.internalPeriods = 1;
