@@ -9547,13 +9547,9 @@ mal_result mal_device_main_loop__dsound(mal_device* pDevice)
                         /*
                         We may need to start the device. We want two full periods to be written before starting the playback device. Having an extra period adds
                         a bit of a buffer to prevent the playback buffer from getting starved.
-
-                        UPDATE: After testing, it looks like something weird is going on where it's as if waiting for two periods instead of one is too late and
-                        instead we should wait until only a single period is written. I don't fully understand why this is happening, but since switching it to
-                        one period instead of two makes it consistent with WASAPI I'm going to go ahead with that.
                         */
                         framesWrittenToPlaybackDevice += framesWrittenThisIteration;
-                        if (!isPlaybackDeviceStarted && framesWrittenToPlaybackDevice >= ((pDevice->playback.internalBufferSizeInFrames/pDevice->playback.internalPeriods)*1)) {
+                        if (!isPlaybackDeviceStarted && framesWrittenToPlaybackDevice >= ((pDevice->playback.internalBufferSizeInFrames/pDevice->playback.internalPeriods)*2)) {
                             if (FAILED(mal_IDirectSoundBuffer_Play((mal_IDirectSoundBuffer*)pDevice->dsound.pPlaybackBuffer, 0, 0, MAL_DSBPLAY_LOOPING))) {
                                 mal_IDirectSoundCaptureBuffer_Stop((mal_IDirectSoundCaptureBuffer*)pDevice->dsound.pCaptureBuffer);
                                 return mal_post_error(pDevice, MAL_LOG_LEVEL_ERROR, "[DirectSound] IDirectSoundBuffer_Play() failed.", MAL_FAILED_TO_START_BACKEND_DEVICE);
