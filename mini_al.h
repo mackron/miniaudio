@@ -1,6 +1,6 @@
 /*
 Audio playback and capture library. Choice of public domain or MIT-0. See license statements at the end of this file.
-mini_al - v0.8.15 - 201x-xx-xx
+mini_al - v0.9 - 2019-03-xx
 
 David Reid - davidreidsoftware@gmail.com
 */
@@ -11,6 +11,10 @@ MAJOR CHANGES IN VERSION 0.9
 Version 0.9 includes major API changes, centered mostly around full-duplex. Before I go into detail about the major changes I
 would like to apologize. I know it's annoying dealing with breaking API changes, but I think it's best to get these changes
 out of the way now while the library is still relatively young and unknown.
+
+There's been a lot of refactoring with this release so there's a good chance a few bugs have been introduced. I apologize in
+advance for this. You may want to hold off on upgrading for the short term if you're worried.
+
 
 Full-Duplex Support
 -------------------
@@ -31304,13 +31308,62 @@ Device
 REVISION HISTORY
 ================
 
-v0.8.15 - 201x-xx-xx
+v0.9 - 2019-03-xx
+  - API CHANGE: mal_device_init() and mal_device_config_init() have changed significantly:
+    - The device type, device ID and user data pointer have moved from mal_device_init() to the config.
+    - All variations of mal_device_config_init_*() have been removed in favor of just mal_device_config_init().
+    - mal_device_config_init() now takes only one parameter which is the device type. All other properties need
+      to be set on the returned object directly.
+    - The onDataCallback and onStopCallback members of mal_device_config have been renamed to "dataCallback"
+      and "stopCallback".
+    - The ID of the physical device is now split into two: one for the playback device and the other for the
+      capture device. This is required for full-duplex. These are named "pPlaybackDeviceID" and "pCaptureDeviceID".
+  - API CHANGE: The data callback has changed. It now uses a unified callback for all device types rather than
+    being separate for each. It now takes two pointers - one containing input data and the other output data. This
+    design in required for full-duplex. The return value is now void instead of the number of frames written. The
+    new callback looks like the following:
+        void data_callback(mal_device* pDevice, void* pOutput, const void* pInput, mal_uint32 frameCount);
+  - API CHANGE: Remove the log callback parameter from mal_context_config_init(). With this change,
+    mal_context_config_init() now takes no parameters and the log callback is set via the structure directly. The
+    new policy for config initialization is that only mandatory settings are passed in to *_config_init(). The
+    "onLog" member of mal_context_config has been renamed to "logCallback".
+  - API CHANGE: Remove mal_device_get_buffer_size_in_bytes().
+  - API CHANGE: Rename decoding APIs to "pcm_frames" convention.
+    - mal_decoder_read()          -> mal_decoder_read_pcm_frames()
+    - mal_decoder_seek_to_frame() -> mal_decoder_seek_to_pcm_frame()
+  - API CHANGE: Rename sine wave reading APIs to f32 convention.
+    - mal_sine_wave_read()    -> mal_sine_wave_read_f32()
+    - mal_sine_wave_read_ex() -> mal_sine_wave_read_f32_ex()
+  - API CHANGE: Remove some deprecated APIs
+    - mal_device_set_recv_callback()
+    - mal_device_set_send_callback()
+    - mal_src_set_input_sample_rate()
+    - mal_src_set_output_sample_rate()
+  - API CHANGE: Add log level to the log callback. New signature:
+    - void on_log(mal_context* pContext, mal_device* pDevice, mal_uint32 logLevel, const char* message)
+  - API CHANGE: Changes to result codes. Constants have changed and unused codes have been removed. If you're
+    a binding mainainer you will need to update your result code constants.
+  - API CHANGE: Change the order of the mal_backend enums to priority order. If you are a binding maintainer, you
+    will need to update.
+  - API CHANGE: Rename mal_dsp to mal_pcm_converter. All functions have been renamed from mal_dsp_*() to
+    mal_pcm_converter_*(). All structures have been renamed from mal_dsp* to mal_pcm_converter*.
+  - API CHANGE: Reorder parameters of mal_decoder_read_pcm_frames() to be consistent with the new parameter order scheme.
+  - The resampling algorithm has been changed from sinc to linear. The rationale for this is that the sinc implementation
+    is too inefficient right now. This will hopefully be improved at a later date.
+  - Device initialization will no longer fall back to shared mode if exclusive mode is requested but is unusable.
+    With this change, if you request an device in exclusive mode, but exclusive mode is not supported, it will not
+    automatically fall back to shared mode. The client will need to reinitialize the device in shared mode if that's
+    what they want.
+  - Add ring buffer API. This is mal_rb and mal_pcm_rb, the difference being that mal_rb operates on bytes and
+    mal_pcm_rb operates on PCM frames.
   - Add Web Audio backend. This is used when compiling with Emscripten. The SDL backend, which was previously
     used for web support, will be removed in a future version.
   - Add AAudio backend (Android Audio). This is the new priority backend for Android. Support for AAudio starts
     with Android 8. OpenSL|ES is used as a fallback for older versions of Android.
-  - Deprecate the OpenAL backend.
-  - Deprecate the SDL backend.
+  - Remove OpenAL and SDL backends.
+  - Fix a possible deadlock when rapidly stopping the device after it has started.
+  - Update documentation.
+  - Change licensing to a choice of public domain _or_ MIT-0 (No Attribution).
 
 v0.8.14 - 2018-12-16
   - Core Audio: Fix a bug where the device state is not set correctly after stopping.
