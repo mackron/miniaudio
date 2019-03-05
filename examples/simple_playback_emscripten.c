@@ -15,15 +15,15 @@ void main_loop__em()
 #define DEVICE_CHANNELS     1
 #define DEVICE_SAMPLE_RATE  48000
 
-// This is the function that's used for sending more data to the device for playback.
-mal_uint32 on_send_frames_to_device(mal_device* pDevice, mal_uint32 frameCount, void* pSamples)
+void data_callback(mal_device* pDevice, void* pOutput, const void* pInput, mal_uint32 frameCount)
 {
-    mal_assert(pDevice->channels == DEVICE_CHANNELS);
+    (void)pInput;   /* Unused. */
+    mal_assert(pDevice->playback.channels == DEVICE_CHANNELS);
 
     mal_sine_wave* pSineWave = (mal_sine_wave*)pDevice->pUserData;
     mal_assert(pSineWave != NULL);
 
-    return mal_sine_wave_read(pSineWave, frameCount, (float*)pSamples);
+    mal_sine_wave_read_f32(pSineWave, frameCount, (float*)pOutput);
 }
 
 int main(int argc, char** argv)
@@ -34,14 +34,20 @@ int main(int argc, char** argv)
     mal_sine_wave sineWave;
     mal_sine_wave_init(0.2, 400, DEVICE_SAMPLE_RATE, &sineWave);
     
-    mal_device_config config = mal_device_config_init_playback(DEVICE_FORMAT, DEVICE_CHANNELS, DEVICE_SAMPLE_RATE, on_send_frames_to_device, &sineWave);
+    mal_device_config config = mal_device_config_init(mal_device_type_playback);
+    config.playback.format   = DEVICE_FORMAT;
+    config.playback.channels = DEVICE_CHANNELS;
+    config.sampleRate        = DEVICE_SAMPLE_RATE;
+    config.dataCallback      = data_callback;
+    config.pUserData         = &sineWave;
+
     mal_device device;
-    if (mal_device_init(NULL, mal_device_type_playback, NULL, &config, &device) != MAL_SUCCESS) {
+    if (mal_device_init(NULL, &config, &device) != MAL_SUCCESS) {
         printf("Failed to open playback device.\n");
         return -4;
     }
 
-    printf("Device Name: %s\n", device.name);
+    printf("Device Name: %s\n", device.playback.name);
 
     if (mal_device_start(&device) != MAL_SUCCESS) {
         printf("Failed to start playback device.\n");
