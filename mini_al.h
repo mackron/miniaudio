@@ -3259,12 +3259,12 @@ static MAL_INLINE mal_bool32 mal_is_big_endian()
 
 // The base buffer size in milliseconds for low latency mode.
 #ifndef MAL_BASE_BUFFER_SIZE_IN_MILLISECONDS_LOW_LATENCY
-#define MAL_BASE_BUFFER_SIZE_IN_MILLISECONDS_LOW_LATENCY    25
+#define MAL_BASE_BUFFER_SIZE_IN_MILLISECONDS_LOW_LATENCY    (10*MAL_DEFAULT_PERIODS)
 #endif
 
 // The base buffer size in milliseconds for conservative mode.
 #ifndef MAL_BASE_BUFFER_SIZE_IN_MILLISECONDS_CONSERVATIVE
-#define MAL_BASE_BUFFER_SIZE_IN_MILLISECONDS_CONSERVATIVE   150
+#define MAL_BASE_BUFFER_SIZE_IN_MILLISECONDS_CONSERVATIVE   (100*MAL_DEFAULT_PERIODS)
 #endif
 
 
