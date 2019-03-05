@@ -3,22 +3,23 @@
 
 #include <stdio.h>
 
-void on_log(mal_context* pContext, mal_device* pDevice, const char* message)
+void log_callback(mal_context* pContext, mal_device* pDevice, mal_uint32 logLevel, const char* message)
 {
     (void)pContext;
     (void)pDevice;
-    printf("mini_al: %s\n", message);
+    printf("mini_al: [%s] %s\n", mal_log_level_to_string(logLevel), message);
 }
 
-mal_uint32 on_send_frames_to_device(mal_device* pDevice, mal_uint32 frameCount, void* pSamples)
+void data_callback(mal_device* pDevice, void* pOutput, const void* pInput, mal_uint32 frameCount)
 {
     (void)pDevice;
+    (void)pOutput;
+    (void)pInput;
     (void)frameCount;
-    (void)pSamples;
-    return 0;   // Just output silence for this example.
+    return;   // Just output silence for this example.
 }
 
-void on_device_stop(mal_device* pDevice)
+void stop_callback(mal_device* pDevice)
 {
     (void)pDevice;
     printf("Device stopped\n");
@@ -32,7 +33,8 @@ int main(int argc, char** argv)
     // When initializing a context, you can pass in an optional configuration object that allows you to control
     // context-level configuration. The mal_context_config_init() function will initialize a config object with
     // common configuration settings, but you can set other members for more detailed control.
-    mal_context_config contextConfig = mal_context_config_init(on_log);
+    mal_context_config contextConfig = mal_context_config_init();
+    contextConfig.logCallback = log_callback;
 
     // The priority of the worker thread can be set with the following. The default priority is
     // mal_thread_priority_highest.
@@ -91,7 +93,7 @@ int main(int argc, char** argv)
         mal_backend_pulseaudio,
         mal_backend_alsa,
         mal_backend_jack,
-        mal_backend_aaudio
+        mal_backend_aaudio,
         mal_backend_opensl,
         mal_backend_webaudio,
         mal_backend_null    // Lowest priority.
@@ -131,23 +133,29 @@ int main(int argc, char** argv)
     // Open the device.
     //
     // Unlike context configs, device configs are required. Similar to context configs, an API exists to help you
-    // initialize a config object called mal_device_config_init(). There are an additional two helper APIs to make
-    // it easy for you to initialize playback or capture configs specifically: mal_device_config_init_playback()
-    // and mal_device_config_init_capture().
-    mal_device_config deviceConfig = mal_device_config_init(mal_format_s16, 2, 48000, NULL, on_send_frames_to_device, NULL);
+    // initialize a config object called mal_device_config_init().
+    //
+    // When using full-duplex you may want to use a different sample format, channel count and channel map. To
+    // support this, the device configuration splits these into "playback" and "capture" as shown below.
+    mal_device_config deviceConfig = mal_device_config_init(mal_device_type_playback);
+    deviceConfig.playback.format   = mal_format_s16;
+    deviceConfig.playback.channels = 2;
+    deviceConfig.sampleRate        = 48000;
+    deviceConfig.dataCallback      = data_callback;
+    deviceConfig.pUserData         = NULL;
 
     // Applications can specify a callback for when a device is stopped.
-    deviceConfig.onStopCallback = on_device_stop;
+    deviceConfig.stopCallback = stop_callback;
 
     // Applications can request exclusive control of the device using the config variable below. Note that not all
     // backends support this feature, so this is actually just a hint.
-    deviceConfig.shareMode = mal_share_mode_exclusive;
+    deviceConfig.playback.shareMode = mal_share_mode_exclusive;
 
     // mini_al allows applications to control the mapping of channels. The config below swaps the left and right
     // channels. Normally in an interleaved audio stream, the left channel comes first, but we can change that
     // like the following:
-    deviceConfig.channelMap[0] = MAL_CHANNEL_FRONT_RIGHT;
-    deviceConfig.channelMap[1] = MAL_CHANNEL_FRONT_LEFT;
+    deviceConfig.playback.channelMap[0] = MAL_CHANNEL_FRONT_RIGHT;
+    deviceConfig.playback.channelMap[1] = MAL_CHANNEL_FRONT_LEFT;
 
     // The ALSA backend has two ways of delivering data to and from a device: memory mapping and read/write. By
     // default memory mapping will be used over read/write because it avoids a single point of data movement
@@ -174,7 +182,7 @@ int main(int argc, char** argv)
 #endif
 
     mal_device playbackDevice;
-    if (mal_device_init(&context, mal_device_type_playback, NULL, &deviceConfig, &playbackDevice) != MAL_SUCCESS) {
+    if (mal_device_init(&context, &deviceConfig, &playbackDevice) != MAL_SUCCESS) {
         printf("Failed to initialize playback device.\n");
         mal_context_uninit(&context);
         return -7;

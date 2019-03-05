@@ -60,6 +60,9 @@
     <ClCompile Include="..\examples\simple_capture.c">
       <Filter>Source Files</Filter>
     </ClCompile>
+    <ClCompile Include="..\examples\advanced_config.c">
+      <Filter>Source Files</Filter>
+    </ClCompile>
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="..\mini_al.h">
