@@ -2698,6 +2698,10 @@ mal_uint32 mal_get_default_buffer_size_in_milliseconds(mal_performance_profile p
 // Calculates a buffer size in frames for the specified performance profile and scale factor.
 mal_uint32 mal_get_default_buffer_size_in_frames(mal_performance_profile performanceProfile, mal_uint32 sampleRate);
 
+
+// Copies silent frames into the given buffer.
+void mal_zero_pcm_frames(void* p, mal_uint32 frameCount, mal_format format, mal_uint32 channels);
+
 #endif  // MAL_NO_DEVICE_IO
 
 
@@ -4629,6 +4633,11 @@ mal_uint32 mal_get_fragment_size_in_bytes(mal_uint32 bufferSizeInFrames, mal_uin
     return fragmentSizeInFrames * mal_get_bytes_per_frame(format, channels);
 }
 
+void mal_zero_pcm_frames(void* p, mal_uint32 frameCount, mal_format format, mal_uint32 channels)
+{
+    mal_zero_memory(p, frameCount * mal_get_bytes_per_frame(format, channels));
+}
+
 
 const char* mal_log_level_to_string(mal_uint32 logLevel)
 {
@@ -4707,6 +4716,8 @@ mal_uint32 mal_device__on_read_from_client(mal_pcm_converter* pDSP, void* pFrame
     mal_device* pDevice = (mal_device*)pUserData;
     mal_assert(pDevice != NULL);
 
+    mal_zero_pcm_frames(pFramesOut, frameCount, pDevice->playback.format, pDevice->playback.channels);
+
     mal_device_callback_proc onData = pDevice->onData;
     if (onData) {
         onData(pDevice, pFramesOut, NULL, frameCount);
@@ -4763,22 +4774,14 @@ mal_uint32 mal_device__pcm_converter__on_read_from_buffer_playback(mal_pcm_conve
 
 
 
-// A helper function for reading sample data from the client. Returns the number of samples read from the client. Remaining samples
-// are filled with silence.
-static MAL_INLINE mal_uint32 mal_device__read_frames_from_client(mal_device* pDevice, mal_uint32 frameCount, void* pSamples)
+// A helper function for reading sample data from the client.
+static MAL_INLINE void mal_device__read_frames_from_client(mal_device* pDevice, mal_uint32 frameCount, void* pSamples)
 {
     mal_assert(pDevice != NULL);
     mal_assert(frameCount > 0);
     mal_assert(pSamples != NULL);
 
-    mal_uint32 framesRead     = (mal_uint32)mal_pcm_converter_read(&pDevice->playback.converter, pSamples, frameCount);
-    mal_uint32 samplesRead    = framesRead * pDevice->playback.internalChannels;
-    mal_uint32 sampleSize     = mal_get_bytes_per_sample(pDevice->playback.internalFormat);
-    mal_uint32 consumedBytes  = samplesRead*sampleSize;
-    mal_uint32 remainingBytes = ((frameCount * pDevice->playback.internalChannels) - samplesRead)*sampleSize;
-    mal_zero_memory((mal_uint8*)pSamples + consumedBytes, remainingBytes);
-
-    return samplesRead;
+    mal_pcm_converter_read(&pDevice->playback.converter, pSamples, frameCount);
 }
 
 // A helper for sending sample data to the client.
