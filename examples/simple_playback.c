@@ -36,12 +36,11 @@ int main(int argc, char** argv)
     }
 
     mal_device_config config = mal_device_config_init(mal_device_type_playback);
-    config.playback.pDeviceID = NULL;
-    config.playback.format    = decoder.outputFormat;
-    config.playback.channels  = decoder.outputChannels;
-    config.sampleRate         = decoder.outputSampleRate;
-    config.dataCallback       = data_callback;
-    config.pUserData          = &decoder;
+    config.playback.format   = decoder.outputFormat;
+    config.playback.channels = decoder.outputChannels;
+    config.sampleRate        = decoder.outputSampleRate;
+    config.dataCallback      = data_callback;
+    config.pUserData         = &decoder;
 
     mal_device device;
     if (mal_device_init(NULL, &config, &device) != MAL_SUCCESS) {
