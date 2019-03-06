@@ -8250,6 +8250,8 @@ mal_result mal_device_main_loop__wasapi(mal_device* pDevice)
         if (FAILED(hr)) {
             return mal_post_error(pDevice, MAL_LOG_LEVEL_ERROR, "[WASAPI] Failed to reset internal capture device.", MAL_FAILED_TO_STOP_BACKEND_DEVICE);
         }
+
+        mal_atomic_exchange_32(&pDevice->wasapi.isStartedCapture, MAL_FALSE);
     }
 
     if (pDevice->type == mal_device_type_playback || pDevice->type == mal_device_type_duplex) {
@@ -8266,9 +8268,9 @@ mal_result mal_device_main_loop__wasapi(mal_device* pDevice)
             if (pDevice->playback.shareMode == mal_share_mode_exclusive) {
                 WaitForSingleObject(pDevice->wasapi.hEventPlayback, INFINITE);
             } else {
+                mal_uint32 prevFramesAvaialablePlayback = (size_t)-1;
+                mal_uint32 framesAvailablePlayback;
                 for (;;) {
-                    mal_uint32 prevFramesAvaialablePlayback = (size_t)-1;
-                    mal_uint32 framesAvailablePlayback;
                     result = mal_device__get_available_frames__wasapi(pDevice, (mal_IAudioClient*)pDevice->wasapi.pAudioClientPlayback, &framesAvailablePlayback);
                     if (result != MAL_SUCCESS) {
                         break;
@@ -8303,6 +8305,8 @@ mal_result mal_device_main_loop__wasapi(mal_device* pDevice)
         if (FAILED(hr)) {
             return mal_post_error(pDevice, MAL_LOG_LEVEL_ERROR, "[WASAPI] Failed to reset internal playback device.", MAL_FAILED_TO_STOP_BACKEND_DEVICE);
         }
+
+        mal_atomic_exchange_32(&pDevice->wasapi.isStartedPlayback, MAL_FALSE);
     }
 
     return MAL_SUCCESS;
@@ -9602,8 +9606,17 @@ mal_result mal_device_main_loop__dsound(mal_device* pDevice)
 
                         /* If there's no room available for writing we need to wait for more. */
                         if (availableBytesPlayback == 0) {
-                            mal_sleep(waitTimeInMilliseconds);
-                            continue;
+                            /* If we haven't started the device yet, this will never get beyond 0. In this case we need to get the device started. */
+                            if (!isPlaybackDeviceStarted) {
+                                if (FAILED(mal_IDirectSoundBuffer_Play((mal_IDirectSoundBuffer*)pDevice->dsound.pPlaybackBuffer, 0, 0, MAL_DSBPLAY_LOOPING))) {
+                                    mal_IDirectSoundCaptureBuffer_Stop((mal_IDirectSoundCaptureBuffer*)pDevice->dsound.pCaptureBuffer);
+                                    return mal_post_error(pDevice, MAL_LOG_LEVEL_ERROR, "[DirectSound] IDirectSoundBuffer_Play() failed.", MAL_FAILED_TO_START_BACKEND_DEVICE);
+                                }
+                                isPlaybackDeviceStarted = MAL_TRUE;
+                            } else {
+                                mal_sleep(waitTimeInMilliseconds);
+                                continue;
+                            }
                         }
 
 
@@ -9820,8 +9833,16 @@ mal_result mal_device_main_loop__dsound(mal_device* pDevice)
 
                 /* If there's no room available for writing we need to wait for more. */
                 if (availableBytesPlayback == 0) {
-                    mal_sleep(waitTimeInMilliseconds);
-                    continue;
+                    /* If we haven't started the device yet, this will never get beyond 0. In this case we need to get the device started. */
+                    if (!isPlaybackDeviceStarted) {
+                        if (FAILED(mal_IDirectSoundBuffer_Play((mal_IDirectSoundBuffer*)pDevice->dsound.pPlaybackBuffer, 0, 0, MAL_DSBPLAY_LOOPING))) {
+                            return mal_post_error(pDevice, MAL_LOG_LEVEL_ERROR, "[DirectSound] IDirectSoundBuffer_Play() failed.", MAL_FAILED_TO_START_BACKEND_DEVICE);
+                        }
+                        isPlaybackDeviceStarted = MAL_TRUE;
+                    } else {
+                        mal_sleep(waitTimeInMilliseconds);
+                        continue;
+                    }
                 }
 
                 /* Getting here means there room available somewhere. We limit this to either the end of the buffer or the physical play cursor, whichever is closest. */
@@ -9937,6 +9958,8 @@ mal_result mal_device_main_loop__dsound(mal_device* pDevice)
         if (FAILED(mal_IDirectSoundBuffer_Stop((mal_IDirectSoundBuffer*)pDevice->dsound.pPlaybackBuffer))) {
             return mal_post_error(pDevice, MAL_LOG_LEVEL_ERROR, "[DirectSound] IDirectSoundBuffer_Stop() failed.", MAL_FAILED_TO_STOP_BACKEND_DEVICE);
         }
+
+        mal_IDirectSoundBuffer_SetCurrentPosition((mal_IDirectSoundBuffer*)pDevice->dsound.pPlaybackBuffer, 0);
     }
 
     return MAL_SUCCESS;
