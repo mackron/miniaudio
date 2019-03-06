@@ -40,7 +40,7 @@ mal_uint32 srcNextSampleIndex = mal_countof(srcInput);
 
 void reload_src_input()
 {
-    mal_sine_wave_read(&sineWave, mal_countof(srcInput), srcInput);
+    mal_sine_wave_read_f32(&sineWave, mal_countof(srcInput), srcInput);
     srcNextSampleIndex = 0;
 }
 
@@ -64,13 +64,15 @@ mal_uint32 on_src(mal_src* pSRC, mal_uint32 frameCount, void** ppSamplesOut, voi
     return framesToRead;
 }
 
-mal_uint32 on_send_to_device(mal_device* pDevice, mal_uint32 frameCount, void* pFrames)
+void on_send_to_device(mal_device* pDevice, void* pOutput, const void* pInput, mal_uint32 frameCount)
 {
     (void)pDevice;
-    mal_assert(pDevice->format == mal_format_f32);
-    mal_assert(pDevice->channels == 1);
+    (void)pInput;
 
-    float* pFramesF32 = (float*)pFrames;
+    mal_assert(pDevice->playback.format == mal_format_f32);
+    mal_assert(pDevice->playback.channels == 1);
+
+    float* pFramesF32 = (float*)pOutput;
 
     // To reproduce the case we are needing to test, we need to read from the SRC in a very specific way. We keep looping
     // until we've read the requested frame count, however we have an inner loop that keeps running until mal_src_read()
@@ -95,7 +97,6 @@ mal_uint32 on_send_to_device(mal_device* pDevice, mal_uint32 frameCount, void* p
     }
 
     mal_assert(totalFramesRead == frameCount);
-    return frameCount;
 }
 
 int main(int argc, char** argv)
@@ -104,14 +105,18 @@ int main(int argc, char** argv)
     (void)argv;
 
 
-    mal_device_config config = mal_device_config_init_playback(mal_format_f32, 1, 0, on_send_to_device);
+    mal_device_config config = mal_device_config_init(mal_device_type_playback);
+    config.playback.format = mal_format_f32;
+    config.playback.channels = 1;
+    config.dataCallback = on_send_to_device;
+
     mal_device device;
     mal_result result;
 
     config.bufferSizeInFrames = 8192*1;
 
     // We first play the sound the way it's meant to be played.
-    result = mal_device_init(NULL, mal_device_type_playback, NULL, &config, NULL, &device);
+    result = mal_device_init(NULL, &config, &device);
     if (result != MAL_SUCCESS) {
         return -1;
     }

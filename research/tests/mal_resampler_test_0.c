@@ -17,7 +17,7 @@ mal_uint32 on_read(mal_resampler* pResampler, mal_uint32 frameCount, void** ppFr
 {
     mal_assert(pResampler->config.format == mal_format_f32);
 
-    return (mal_uint32)mal_sine_wave_read_ex(&sineWave, frameCount, pResampler->config.channels, pResampler->config.layout, (float**)ppFramesOut);
+    return (mal_uint32)mal_sine_wave_read_f32_ex(&sineWave, frameCount, pResampler->config.channels, pResampler->config.layout, (float**)ppFramesOut);
 }
 
 int main(int argc, char** argv)

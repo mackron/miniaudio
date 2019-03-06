@@ -45,9 +45,6 @@
     <ClCompile Include="..\debugging\source\mal_router_1.c">
       <Filter>Source Files</Filter>
     </ClCompile>
-    <ClCompile Include="mal_blocking.c">
-      <Filter>Source Files</Filter>
-    </ClCompile>
     <ClCompile Include="..\examples\simple_enumeration.c">
       <Filter>Source Files</Filter>
     </ClCompile>
