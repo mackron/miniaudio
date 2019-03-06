@@ -21821,7 +21821,7 @@ ma_result ma_device_init_by_type__webaudio(ma_context* pContext, const ma_device
         var isCapture  = $3;
         var pDevice    = $4;
 
-        if (typeof(mal) === 'undefined') {
+        if (typeof(miniaudio) === 'undefined') {
             return -1;  /* Context not initialized. */
         }
 
