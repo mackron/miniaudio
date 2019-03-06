@@ -5,7 +5,7 @@
 #include "../extras/dr_wav.h"
 
 #define MAL_NO_DEVICE_IO
-#define MINI_AL_IMPLEMENTATION
+#define MINIAUDIO_IMPLEMENTATION
 #include "../miniaudio.h"
 
 int main(int argc, char** argv)

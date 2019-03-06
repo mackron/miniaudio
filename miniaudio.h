@@ -154,7 +154,7 @@ Supported Formats:
 USAGE
 =====
 miniaudio is a single-file library. To use it, do something like the following in one .c file.
-  #define MINI_AL_IMPLEMENTATION
+  #define MINIAUDIO_IMPLEMENTATION
   #include "miniaudio.h"
 
 You can then #include this file in other parts of the program as you would with any other header file.
@@ -2951,7 +2951,7 @@ mal_uint64 mal_sine_wave_read_f32_ex(mal_sine_wave* pSineWave, mal_uint64 frameC
 //
 //////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 //////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-#if defined(MINI_AL_IMPLEMENTATION) || defined(MAL_IMPLEMENTATION)
+#if defined(MINIAUDIO_IMPLEMENTATION)
 #include <assert.h>
 #include <limits.h> // For INT_MAX
 #include <math.h>   // sin(), etc.
@@ -31305,7 +31305,7 @@ mal_uint64 mal_sine_wave_read_f32_ex(mal_sine_wave* pSineWave, mal_uint64 frameC
     #pragma warning(pop)
 #endif
 
-#endif  /* MINI_AL_IMPLEMENTATION */
+#endif  /* MINIAUDIO_IMPLEMENTATION */
 
 /*
 BACKEND IMPLEMENTATION GUIDLINES

@@ -220,7 +220,7 @@ window are not included in the calculation.
 mal_uint64 mal_resampler_get_expected_output_frame_count(mal_resampler* pResampler, mal_uint64 inputFrameCount);
 #endif
 
-#ifdef MINI_AL_IMPLEMENTATION
+#ifdef MINIAUDIO_IMPLEMENTATION
 
 #ifndef MAL_RESAMPLER_MIN_RATIO
 #define MAL_RESAMPLER_MIN_RATIO 0.02083333

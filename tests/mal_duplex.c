@@ -1,7 +1,7 @@
 #include <stdio.h>
 
 #define MAL_DEBUG_OUTPUT
-#define MINI_AL_IMPLEMENTATION
+#define MINIAUDIO_IMPLEMENTATION
 #include "../miniaudio.h"
 
 #define DR_WAV_IMPLEMENTATION

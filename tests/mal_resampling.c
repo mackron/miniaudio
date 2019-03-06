@@ -5,7 +5,7 @@
 #define MAL_NO_AVX2
 
 #ifdef NO_SIGVIS
-    #define MINI_AL_IMPLEMENTATION
+    #define MINIAUDIO_IMPLEMENTATION
     #include "../miniaudio.h"
 #else
     #define MINI_SIGVIS_IMPLEMENTATION

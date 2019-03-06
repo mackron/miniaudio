@@ -2,7 +2,7 @@
 #include "../../../../dr_libs/dr_wav.h"
 
 #define MAL_DEBUG_OUTPUT
-#define MINI_AL_IMPLEMENTATION
+#define MINIAUDIO_IMPLEMENTATION
 #include "../../miniaudio.h"
 #include "../mal_resampler.h"
 

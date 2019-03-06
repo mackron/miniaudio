@@ -1,6 +1,6 @@
 #include <stdio.h>
 
-#define MINI_AL_IMPLEMENTATION
+#define MINIAUDIO_IMPLEMENTATION
 #include "../miniaudio.h"
 
 mal_sine_wave sineWave;

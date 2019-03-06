@@ -1,6 +1,6 @@
 // This example simply captures data from your default microphone until you press Enter. The output is saved to the file specified on the command line.
 
-#define MINI_AL_IMPLEMENTATION
+#define MINIAUDIO_IMPLEMENTATION
 #include "../miniaudio.h"
 
 #define DR_WAV_IMPLEMENTATION

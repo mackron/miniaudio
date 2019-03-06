@@ -5,7 +5,7 @@
 #define DR_WAV_IMPLEMENTATION
 #include "../extras/dr_wav.h"   // Enables WAV decoding.
 
-#define MINI_AL_IMPLEMENTATION
+#define MINIAUDIO_IMPLEMENTATION
 #include "../miniaudio.h"
 
 #include <stdio.h>

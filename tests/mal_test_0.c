@@ -11,7 +11,7 @@
 #endif
 
 //#define MAL_DEBUG_OUTPUT
-#define MINI_AL_IMPLEMENTATION
+#define MINIAUDIO_IMPLEMENTATION
 #include "../miniaudio.h"
 
 #ifdef __EMSCRIPTEN__

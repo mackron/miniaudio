@@ -99,7 +99,7 @@ void* mal_pcm_rb_get_subbuffer_ptr(mal_pcm_rb* pRB, size_t subbufferIndex, void*
 
 #endif  // mal_ring_buffer_h
 
-#ifdef MINI_AL_IMPLEMENTATION
+#ifdef MINIAUDIO_IMPLEMENTATION
 MAL_INLINE mal_uint32 mal_rb__extract_offset_in_bytes(mal_uint32 encodedOffset)
 {
     return encodedOffset & 0x7FFFFFFF;
@@ -634,4 +634,4 @@ void* mal_pcm_rb_get_subbuffer_ptr(mal_pcm_rb* pRB, size_t subbufferIndex, void*
     return mal_rb_get_subbuffer_ptr(&pRB->rb, subbufferIndex, pBuffer);
 }
 
-#endif  // MINI_AL_IMPLEMENTATION
+#endif  // MINIAUDIO_IMPLEMENTATION
