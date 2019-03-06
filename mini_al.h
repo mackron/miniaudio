@@ -4929,7 +4929,7 @@ static MAL_INLINE void mal_device__send_frames_to_client(mal_device* pDevice, ma
     }
 }
 
-static mal_result mal_device__handle_duplex_callback_capture(mal_device* pDevice, mal_uint32 frameCount, const void* pFramesInInternalFormat, mal_pcm_rb* pRB)
+static MAL_INLINE mal_result mal_device__handle_duplex_callback_capture(mal_device* pDevice, mal_uint32 frameCount, const void* pFramesInInternalFormat, mal_pcm_rb* pRB)
 {
     mal_assert(pDevice != NULL);
     mal_assert(frameCount > 0);
@@ -4975,7 +4975,7 @@ static mal_result mal_device__handle_duplex_callback_capture(mal_device* pDevice
     return MAL_SUCCESS;
 }
 
-static mal_result mal_device__handle_duplex_callback_playback(mal_device* pDevice, mal_uint32 frameCount, void* pFramesInInternalFormat, mal_pcm_rb* pRB)
+static MAL_INLINE mal_result mal_device__handle_duplex_callback_playback(mal_device* pDevice, mal_uint32 frameCount, void* pFramesInInternalFormat, mal_pcm_rb* pRB)
 {
     mal_assert(pDevice != NULL);
     mal_assert(frameCount > 0);
