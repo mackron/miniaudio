@@ -217,47 +217,47 @@
             
                 if (typeof(mal) === 'undefined') {
                     mal = {};
-                    mal.devices = [];   // Device cache for mapping devices to indexes for JavaScript/C interop.
+                    miniaudio.devices = [];   // Device cache for mapping devices to indexes for JavaScript/C interop.
                     
                     // Returns the index of the device. Throws an exception on error.
-                    mal.track_device = function(device) {
+                    miniaudio.track_device = function(device) {
                         // Try inserting into a free slot first.
-                        for (var iDevice = 0; iDevice < mal.devices.length; ++iDevice) {
-                            if (mal.devices[iDevice] == null) {
-                                mal.devices[iDevice] = device;
+                        for (var iDevice = 0; iDevice < miniaudio.devices.length; ++iDevice) {
+                            if (miniaudio.devices[iDevice] == null) {
+                                miniaudio.devices[iDevice] = device;
                                 return iDevice;
                             }
                         }
                         
                         // Getting here means there is no empty slots in the array so we just push to the end.
-                        mal.devices.push(device);
-                        return mal.devices.length - 1;
+                        miniaudio.devices.push(device);
+                        return miniaudio.devices.length - 1;
                     };
                     
-                    mal.untrack_device_by_index = function(deviceIndex) {
+                    miniaudio.untrack_device_by_index = function(deviceIndex) {
                         // We just set the device's slot to null. The slot will get reused in the next call to ma_track_device.
-                        mal.devices[iDevice] = null;
+                        miniaudio.devices[iDevice] = null;
                         
                         // Trim the array if possible.
-                        while (mal.devices.length > 0) {
-                            if (mal.devices[mal.devices.length-1] == null) {
-                                mal.devices.pop();
+                        while (miniaudio.devices.length > 0) {
+                            if (miniaudio.devices[miniaudio.devices.length-1] == null) {
+                                miniaudio.devices.pop();
                             } else {
                                 break;
                             }
                         }
                     };
                     
-                    mal.untrack_device = function(device) {
-                        for (var iDevice = 0; iDevice < mal.devices.length; ++iDevice) {
-                            if (mal.devices[iDevice] == device) {
-                                return mal.untrack_device_by_index(iDevice);
+                    miniaudio.untrack_device = function(device) {
+                        for (var iDevice = 0; iDevice < miniaudio.devices.length; ++iDevice) {
+                            if (miniaudio.devices[iDevice] == device) {
+                                return miniaudio.untrack_device_by_index(iDevice);
                             }
                         }
                     };
                     
-                    mal.get_device_by_index = function(deviceIndex) {
-                        return mal.devices[deviceIndex];
+                    miniaudio.get_device_by_index = function(deviceIndex) {
+                        return miniaudio.devices[deviceIndex];
                     };
                 }
                 

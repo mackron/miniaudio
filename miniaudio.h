@@ -21734,7 +21734,7 @@ void ma_device_uninit_by_index__webaudio(ma_device* pDevice, ma_device_type devi
     ma_assert(pDevice != NULL);
 
     EM_ASM({
-        var device = mal.get_device_by_index($0);
+        var device = miniaudio.get_device_by_index($0);
 
         /* Make sure all nodes are disconnected and marked for collection. */
         if (device.scriptNode !== undefined) {
@@ -21763,7 +21763,7 @@ void ma_device_uninit_by_index__webaudio(ma_device* pDevice, ma_device_type devi
         }
 
         /* Make sure the device is untracked so the slot can be reused later. */
-        mal.untrack_device_by_index($0);
+        miniaudio.untrack_device_by_index($0);
     }, deviceIndex, deviceType);
 }
 
@@ -21964,7 +21964,7 @@ ma_result ma_device_init_by_type__webaudio(ma_context* pContext, const ma_device
             device.scriptNode.connect(device.webaudio.destination);
         }
 
-        return mal.track_device(device);
+        return miniaudio.track_device(device);
     }, (deviceType == ma_device_type_capture) ? pConfig->capture.channels : pConfig->playback.channels, pConfig->sampleRate, internalBufferSizeInFrames, deviceType == ma_device_type_capture, pDevice);
 
     if (deviceIndex < 0) {
@@ -21976,7 +21976,7 @@ ma_result ma_device_init_by_type__webaudio(ma_context* pContext, const ma_device
         pDevice->capture.internalFormat              = ma_format_f32;
         pDevice->capture.internalChannels            = pConfig->capture.channels;
         ma_get_standard_channel_map(ma_standard_channel_map_webaudio, pDevice->capture.internalChannels, pDevice->capture.internalChannelMap);
-        pDevice->capture.internalSampleRate          = EM_ASM_INT({ return mal.get_device_by_index($0).webaudio.sampleRate; }, deviceIndex);
+        pDevice->capture.internalSampleRate          = EM_ASM_INT({ return miniaudio.get_device_by_index($0).webaudio.sampleRate; }, deviceIndex);
         pDevice->capture.internalBufferSizeInFrames  = internalBufferSizeInFrames;
         pDevice->capture.internalPeriods             = 1;
     } else {
@@ -21984,7 +21984,7 @@ ma_result ma_device_init_by_type__webaudio(ma_context* pContext, const ma_device
         pDevice->playback.internalFormat             = ma_format_f32;
         pDevice->playback.internalChannels           = pConfig->playback.channels;
         ma_get_standard_channel_map(ma_standard_channel_map_webaudio, pDevice->playback.internalChannels, pDevice->playback.internalChannelMap);
-        pDevice->playback.internalSampleRate         = EM_ASM_INT({ return mal.get_device_by_index($0).webaudio.sampleRate; }, deviceIndex);
+        pDevice->playback.internalSampleRate         = EM_ASM_INT({ return miniaudio.get_device_by_index($0).webaudio.sampleRate; }, deviceIndex);
         pDevice->playback.internalBufferSizeInFrames = internalBufferSizeInFrames;
         pDevice->playback.internalPeriods            = 1;
     }
@@ -22047,13 +22047,13 @@ ma_result ma_device_start__webaudio(ma_device* pDevice)
 
     if (pDevice->type == ma_device_type_capture || pDevice->type == ma_device_type_duplex) {
         EM_ASM({
-            mal.get_device_by_index($0).webaudio.resume();
+            miniaudio.get_device_by_index($0).webaudio.resume();
         }, pDevice->webaudio.indexCapture);
     }
 
     if (pDevice->type == ma_device_type_playback || pDevice->type == ma_device_type_duplex) {
         EM_ASM({
-            mal.get_device_by_index($0).webaudio.resume();
+            miniaudio.get_device_by_index($0).webaudio.resume();
         }, pDevice->webaudio.indexPlayback);
     }
 
@@ -22066,13 +22066,13 @@ ma_result ma_device_stop__webaudio(ma_device* pDevice)
 
     if (pDevice->type == ma_device_type_capture || pDevice->type == ma_device_type_duplex) {
         EM_ASM({
-            mal.get_device_by_index($0).webaudio.suspend();
+            miniaudio.get_device_by_index($0).webaudio.suspend();
         }, pDevice->webaudio.indexCapture);
     }
 
     if (pDevice->type == ma_device_type_playback || pDevice->type == ma_device_type_duplex) {
         EM_ASM({
-            mal.get_device_by_index($0).webaudio.suspend();
+            miniaudio.get_device_by_index($0).webaudio.suspend();
         }, pDevice->webaudio.indexPlayback);
     }
 
@@ -22106,47 +22106,47 @@ ma_result ma_context_init__webaudio(ma_context* pContext)
         }
 
         if (typeof(mal) === 'undefined') {
-            mal = {};
-            mal.devices = [];   /* Device cache for mapping devices to indexes for JavaScript/C interop. */
+            miniaudio = {};
+            miniaudio.devices = [];   /* Device cache for mapping devices to indexes for JavaScript/C interop. */
                     
-            mal.track_device = function(device) {
+            miniaudio.track_device = function(device) {
                 /* Try inserting into a free slot first. */
-                for (var iDevice = 0; iDevice < mal.devices.length; ++iDevice) {
-                    if (mal.devices[iDevice] == null) {
-                        mal.devices[iDevice] = device;
+                for (var iDevice = 0; iDevice < miniaudio.devices.length; ++iDevice) {
+                    if (miniaudio.devices[iDevice] == null) {
+                        miniaudio.devices[iDevice] = device;
                         return iDevice;
                     }
                 }
                         
                 /* Getting here means there is no empty slots in the array so we just push to the end. */
-                mal.devices.push(device);
-                return mal.devices.length - 1;
+                miniaudio.devices.push(device);
+                return miniaudio.devices.length - 1;
             };
                     
-            mal.untrack_device_by_index = function(deviceIndex) {
+            miniaudio.untrack_device_by_index = function(deviceIndex) {
                 /* We just set the device's slot to null. The slot will get reused in the next call to ma_track_device. */
-                mal.devices[deviceIndex] = null;
+                miniaudio.devices[deviceIndex] = null;
                         
                 /* Trim the array if possible. */
-                while (mal.devices.length > 0) {
-                    if (mal.devices[mal.devices.length-1] == null) {
-                        mal.devices.pop();
+                while (miniaudio.devices.length > 0) {
+                    if (miniaudio.devices[miniaudio.devices.length-1] == null) {
+                        miniaudio.devices.pop();
                     } else {
                         break;
                     }
                 }
             };
                     
-            mal.untrack_device = function(device) {
-                for (var iDevice = 0; iDevice < mal.devices.length; ++iDevice) {
-                    if (mal.devices[iDevice] == device) {
-                        return mal.untrack_device_by_index(iDevice);
+            miniaudio.untrack_device = function(device) {
+                for (var iDevice = 0; iDevice < miniaudio.devices.length; ++iDevice) {
+                    if (miniaudio.devices[iDevice] == device) {
+                        return miniaudio.untrack_device_by_index(iDevice);
                     }
                 }
             };
                     
-            mal.get_device_by_index = function(deviceIndex) {
-                return mal.devices[deviceIndex];
+            miniaudio.get_device_by_index = function(deviceIndex) {
+                return miniaudio.devices[deviceIndex];
             };
         }
                 
