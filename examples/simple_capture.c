@@ -50,13 +50,13 @@ int main(int argc, char** argv)
 
     mal_device device;
     result = mal_device_init(NULL, &config, &device);
-    if (result != MAL_SUCCESS) {
+    if (result != MA_SUCCESS) {
         printf("Failed to initialize capture device.\n");
         return -2;
     }
 
     result = mal_device_start(&device);
-    if (result != MAL_SUCCESS) {
+    if (result != MA_SUCCESS) {
         mal_device_uninit(&device);
         printf("Failed to start device.\n");
         return -3;

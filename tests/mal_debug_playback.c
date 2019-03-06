@@ -1,12 +1,12 @@
 
-#define MAL_LOG_LEVEL MAL_LOG_LEVEL_VERBOSE
-#define MAL_DEBUG_OUTPUT
+#define MA_LOG_LEVEL MA_LOG_LEVEL_VERBOSE
+#define MA_DEBUG_OUTPUT
 #define MINIAUDIO_IMPLEMENTATION
 #include "../miniaudio.h"
 
 int print_context_info(mal_context* pContext)
 {
-    mal_result result = MAL_SUCCESS;
+    mal_result result = MA_SUCCESS;
     mal_device_info* pPlaybackDeviceInfos;
     mal_uint32 playbackDeviceCount;
     mal_device_info* pCaptureDeviceInfos;
@@ -18,7 +18,7 @@ int print_context_info(mal_context* pContext)
     printf("  Enumerating Devices... ");
     {
         result = mal_context_get_devices(pContext, &pPlaybackDeviceInfos, &playbackDeviceCount, &pCaptureDeviceInfos, &captureDeviceCount);
-        if (result == MAL_SUCCESS) {
+        if (result == MA_SUCCESS) {
             printf("Done\n");
         } else {
             printf("Failed\n");
@@ -44,7 +44,7 @@ int print_context_info(mal_context* pContext)
             printf("      %d: %s\n", iDevice, pPlaybackDeviceInfos[iDevice].name);
             
             result = mal_context_get_device_info(pContext, mal_device_type_playback, &pPlaybackDeviceInfos[iDevice].id, mal_share_mode_shared, &pPlaybackDeviceInfos[iDevice]);
-            if (result == MAL_SUCCESS) {
+            if (result == MA_SUCCESS) {
                 printf("        Name:            %s\n", pPlaybackDeviceInfos[iDevice].name);
                 printf("        Min Channels:    %d\n", pPlaybackDeviceInfos[iDevice].minChannels);
                 printf("        Max Channels:    %d\n", pPlaybackDeviceInfos[iDevice].maxChannels);
@@ -64,7 +64,7 @@ int print_context_info(mal_context* pContext)
             printf("      %d: %s\n", iDevice, pCaptureDeviceInfos[iDevice].name);
             
             result = mal_context_get_device_info(pContext, mal_device_type_capture, &pCaptureDeviceInfos[iDevice].id, mal_share_mode_shared, &pCaptureDeviceInfos[iDevice]);
-            if (result == MAL_SUCCESS) {
+            if (result == MA_SUCCESS) {
                 printf("        Name:            %s\n", pCaptureDeviceInfos[iDevice].name);
                 printf("        Min Channels:    %d\n", pCaptureDeviceInfos[iDevice].minChannels);
                 printf("        Max Channels:    %d\n", pCaptureDeviceInfos[iDevice].maxChannels);
@@ -82,7 +82,7 @@ int print_context_info(mal_context* pContext)
 
 done:
     printf("\n");
-    return (result == MAL_SUCCESS) ? 0 : -1;
+    return (result == MA_SUCCESS) ? 0 : -1;
 }
 
 int print_device_info(mal_device* pDevice)
@@ -123,7 +123,7 @@ int main(int argc, char** argv)
     
     mal_sine_wave sineWave;
     result = mal_sine_wave_init(0.2, 400, 44100, &sineWave);
-    if (result != MAL_SUCCESS) {
+    if (result != MA_SUCCESS) {
         printf("Failed to initialize sine wave.\n");
         return -1;
     }
@@ -132,7 +132,7 @@ int main(int argc, char** argv)
     mal_context_config contextConfig = mal_context_config_init(NULL);   // <-- Don't need a log callback because we're using debug output instead.
     mal_context context;
     result = mal_context_init(NULL, 0, &contextConfig, &context);
-    if (result != MAL_SUCCESS) {
+    if (result != MA_SUCCESS) {
         printf("Failed to initialize context.\n");
         return -1;
     }
@@ -146,7 +146,7 @@ int main(int argc, char** argv)
     
     mal_device device;
     result = mal_device_init(&context, mal_device_type_playback, NULL, &deviceConfig, &sineWave, &device);
-    if (result != MAL_SUCCESS) {
+    if (result != MA_SUCCESS) {
         mal_context_uninit(&context);
         printf("Failed to initialize device.\n");
         return -1;
@@ -157,7 +157,7 @@ int main(int argc, char** argv)
     
     // Start playback.
     result = mal_device_start(&device);
-    if (result != MAL_SUCCESS) {
+    if (result != MA_SUCCESS) {
         mal_device_uninit(&device);
         mal_context_uninit(&context);
         printf("Failed to start device.\n");

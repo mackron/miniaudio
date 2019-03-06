@@ -1,16 +1,16 @@
 // Uncomment this to include Vorbis decoding tests, albeit with some annoying warnings with MinGW.
-//#define MAL_INCLUDE_VORBIS_TESTS
+//#define MA_INCLUDE_VORBIS_TESTS
 
 #include "../extras/dr_flac.h"
 #include "../extras/dr_mp3.h"
 #include "../extras/dr_wav.h"
 
-#ifdef MAL_INCLUDE_VORBIS_TESTS
+#ifdef MA_INCLUDE_VORBIS_TESTS
     #define STB_VORBIS_HEADER_ONLY
     #include "../extras/stb_vorbis.c"
 #endif
 
-//#define MAL_DEBUG_OUTPUT
+//#define MA_DEBUG_OUTPUT
 #define MINIAUDIO_IMPLEMENTATION
 #include "../miniaudio.h"
 
@@ -88,7 +88,7 @@ void* open_and_read_file_data(const char* filePath, size_t* pSizeOut)
     mal_uint64 fileSize = ftell(pFile);
     fseek(pFile, 0, SEEK_SET);
 
-    if (fileSize > MAL_SIZE_MAX) {
+    if (fileSize > MA_SIZE_MAX) {
         fclose(pFile);
         return NULL;
     }
@@ -225,7 +225,7 @@ int do_aligned_malloc_tests()
     // We just do a whole bunch of malloc's and check them. This can probably be made more exhaustive.
     void* p[1024];
     for (mal_uint32 i = 0; i < mal_countof(p); ++i) {
-        mal_uintptr alignment = MAL_SIMD_ALIGNMENT;
+        mal_uintptr alignment = MA_SIMD_ALIGNMENT;
 
         p[i] = mal_aligned_malloc(1024, alignment);
         if (((mal_uintptr)p[i] & (alignment-1)) != 0) {
@@ -597,7 +597,7 @@ int do_format_conversion_test(mal_format formatIn, mal_format formatOut)
     // We need to allow a very small amount of difference to each sample because the software that generated our testing benchmarks can use slightly
     // different (but still correct) algorithms which produce slightly different results. I'm allowing for this variability in my basic comparison
     // tests, but testing things like dithering will require more detailed testing which I'll probably do separate to this test project.
-    mal_bool32 allowSmallDifference = MAL_TRUE;
+    mal_bool32 allowSmallDifference = MA_TRUE;
     float allowedDifference = 0;
     if (allowSmallDifference) {
         if (formatOut == mal_format_f32) {
@@ -863,11 +863,11 @@ int do_interleaving_test(mal_format format)
     {
         case mal_format_u8:
         {
-            mal_uint8 src [MAL_MAX_CHANNELS][64];
-            mal_uint8 dst [MAL_MAX_CHANNELS][64];
-            mal_uint8 dsti[MAL_MAX_CHANNELS*64];
-            void* ppSrc[MAL_MAX_CHANNELS];
-            void* ppDst[MAL_MAX_CHANNELS];
+            mal_uint8 src [MA_MAX_CHANNELS][64];
+            mal_uint8 dst [MA_MAX_CHANNELS][64];
+            mal_uint8 dsti[MA_MAX_CHANNELS*64];
+            void* ppSrc[MA_MAX_CHANNELS];
+            void* ppDst[MA_MAX_CHANNELS];
 
             mal_uint32 frameCount = mal_countof(src[0]);
             mal_uint32 channelCount = mal_countof(src);
@@ -904,11 +904,11 @@ int do_interleaving_test(mal_format format)
 
         case mal_format_s16:
         {
-            mal_int16 src [MAL_MAX_CHANNELS][64];
-            mal_int16 dst [MAL_MAX_CHANNELS][64];
-            mal_int16 dsti[MAL_MAX_CHANNELS*64];
-            void* ppSrc[MAL_MAX_CHANNELS];
-            void* ppDst[MAL_MAX_CHANNELS];
+            mal_int16 src [MA_MAX_CHANNELS][64];
+            mal_int16 dst [MA_MAX_CHANNELS][64];
+            mal_int16 dsti[MA_MAX_CHANNELS*64];
+            void* ppSrc[MA_MAX_CHANNELS];
+            void* ppDst[MA_MAX_CHANNELS];
 
             mal_uint32 frameCount = mal_countof(src[0]);
             mal_uint32 channelCount = mal_countof(src);
@@ -945,11 +945,11 @@ int do_interleaving_test(mal_format format)
 
         case mal_format_s24:
         {
-            mal_uint8 src [MAL_MAX_CHANNELS][64*3];
-            mal_uint8 dst [MAL_MAX_CHANNELS][64*3];
-            mal_uint8 dsti[MAL_MAX_CHANNELS*64*3];
-            void* ppSrc[MAL_MAX_CHANNELS];
-            void* ppDst[MAL_MAX_CHANNELS];
+            mal_uint8 src [MA_MAX_CHANNELS][64*3];
+            mal_uint8 dst [MA_MAX_CHANNELS][64*3];
+            mal_uint8 dsti[MA_MAX_CHANNELS*64*3];
+            void* ppSrc[MA_MAX_CHANNELS];
+            void* ppDst[MA_MAX_CHANNELS];
 
             mal_uint32 frameCount = mal_countof(src[0])/3;
             mal_uint32 channelCount = mal_countof(src);
@@ -988,11 +988,11 @@ int do_interleaving_test(mal_format format)
 
         case mal_format_s32:
         {
-            mal_int32 src [MAL_MAX_CHANNELS][64];
-            mal_int32 dst [MAL_MAX_CHANNELS][64];
-            mal_int32 dsti[MAL_MAX_CHANNELS*64];
-            void* ppSrc[MAL_MAX_CHANNELS];
-            void* ppDst[MAL_MAX_CHANNELS];
+            mal_int32 src [MA_MAX_CHANNELS][64];
+            mal_int32 dst [MA_MAX_CHANNELS][64];
+            mal_int32 dsti[MA_MAX_CHANNELS*64];
+            void* ppSrc[MA_MAX_CHANNELS];
+            void* ppDst[MA_MAX_CHANNELS];
 
             mal_uint32 frameCount = mal_countof(src[0]);
             mal_uint32 channelCount = mal_countof(src);
@@ -1029,11 +1029,11 @@ int do_interleaving_test(mal_format format)
 
         case mal_format_f32:
         {
-            float src [MAL_MAX_CHANNELS][64];
-            float dst [MAL_MAX_CHANNELS][64];
-            float dsti[MAL_MAX_CHANNELS*64];
-            void* ppSrc[MAL_MAX_CHANNELS];
-            void* ppDst[MAL_MAX_CHANNELS];
+            float src [MA_MAX_CHANNELS][64];
+            float dst [MA_MAX_CHANNELS][64];
+            float dsti[MA_MAX_CHANNELS*64];
+            void* ppSrc[MA_MAX_CHANNELS];
+            void* ppDst[MA_MAX_CHANNELS];
 
             mal_uint32 frameCount = mal_countof(src[0]);
             mal_uint32 channelCount = mal_countof(src);
@@ -1156,7 +1156,7 @@ int do_format_converter_tests()
     double periodsPerSecond = 400;
     mal_uint32 sampleRate = 48000;
 
-    mal_result result = MAL_SUCCESS;
+    mal_result result = MA_SUCCESS;
 
     mal_sine_wave sineWave;
     mal_format_converter converter;
@@ -1179,12 +1179,12 @@ int do_format_converter_tests()
     {
         mal_sine_wave_init(amplitude, periodsPerSecond, sampleRate, &sineWave);
         result = mal_format_converter_init(&config, &converter);
-        if (result != MAL_SUCCESS) {
+        if (result != MA_SUCCESS) {
             printf("Failed to initialize converter.\n");
             return -1;
         }
 
-        mal_int16 interleavedFrames[MAL_MAX_CHANNELS * 1024];
+        mal_int16 interleavedFrames[MA_MAX_CHANNELS * 1024];
         mal_uint64 framesRead = mal_format_converter_read(&converter, 1024, interleavedFrames, converter.config.pUserData);
         if (framesRead != 1024) {
             printf("Failed to read interleaved data from converter.\n");
@@ -1205,13 +1205,13 @@ int do_format_converter_tests()
     {
         mal_sine_wave_init(amplitude, periodsPerSecond, sampleRate, &sineWave);
         result = mal_format_converter_init(&config, &converter);
-        if (result != MAL_SUCCESS) {
+        if (result != MA_SUCCESS) {
             printf("Failed to initialize converter.\n");
             return -1;
         }
 
-        mal_int16 deinterleavedFrames[MAL_MAX_CHANNELS][1024];
-        void* ppDeinterleavedFrames[MAL_MAX_CHANNELS];
+        mal_int16 deinterleavedFrames[MA_MAX_CHANNELS][1024];
+        void* ppDeinterleavedFrames[MA_MAX_CHANNELS];
         for (mal_uint32 iChannel = 0; iChannel < converter.config.channels; iChannel += 1) {
             ppDeinterleavedFrames[iChannel] = &deinterleavedFrames[iChannel];
         }
@@ -1246,12 +1246,12 @@ int do_format_converter_tests()
     {
         mal_sine_wave_init(amplitude, periodsPerSecond, sampleRate, &sineWave);
         result = mal_format_converter_init(&config, &converter);
-        if (result != MAL_SUCCESS) {
+        if (result != MA_SUCCESS) {
             printf("Failed to initialize converter.\n");
             return -1;
         }
 
-        mal_int16 interleavedFrames[MAL_MAX_CHANNELS * 1024];
+        mal_int16 interleavedFrames[MA_MAX_CHANNELS * 1024];
         mal_uint64 framesRead = mal_format_converter_read(&converter, 1024, interleavedFrames, converter.config.pUserData);
         if (framesRead != 1024) {
             printf("Failed to read interleaved data from converter.\n");
@@ -1272,13 +1272,13 @@ int do_format_converter_tests()
     {
         mal_sine_wave_init(amplitude, periodsPerSecond, sampleRate, &sineWave);
         result = mal_format_converter_init(&config, &converter);
-        if (result != MAL_SUCCESS) {
+        if (result != MA_SUCCESS) {
             printf("Failed to initialize converter.\n");
             return -1;
         }
 
-        mal_int16 deinterleavedFrames[MAL_MAX_CHANNELS][1024];
-        void* ppDeinterleavedFrames[MAL_MAX_CHANNELS];
+        mal_int16 deinterleavedFrames[MA_MAX_CHANNELS][1024];
+        void* ppDeinterleavedFrames[MA_MAX_CHANNELS];
         for (mal_uint32 iChannel = 0; iChannel < converter.config.channels; iChannel += 1) {
             ppDeinterleavedFrames[iChannel] = &deinterleavedFrames[iChannel];
         }
@@ -1314,12 +1314,12 @@ int do_format_converter_tests()
     {
         mal_sine_wave_init(amplitude, periodsPerSecond, sampleRate, &sineWave);
         result = mal_format_converter_init(&config, &converter);
-        if (result != MAL_SUCCESS) {
+        if (result != MA_SUCCESS) {
             printf("Failed to initialize converter.\n");
             return -1;
         }
 
-        float interleavedFrames[MAL_MAX_CHANNELS * 1024];
+        float interleavedFrames[MA_MAX_CHANNELS * 1024];
         mal_uint64 framesRead = mal_format_converter_read(&converter, 1024, interleavedFrames, converter.config.pUserData);
         if (framesRead != 1024) {
             printf("Failed to read interleaved data from converter.\n");
@@ -1340,13 +1340,13 @@ int do_format_converter_tests()
     {
         mal_sine_wave_init(amplitude, periodsPerSecond, sampleRate, &sineWave);
         result = mal_format_converter_init(&config, &converter);
-        if (result != MAL_SUCCESS) {
+        if (result != MA_SUCCESS) {
             printf("Failed to initialize converter.\n");
             return -1;
         }
 
-        float deinterleavedFrames[MAL_MAX_CHANNELS][1024];
-        void* ppDeinterleavedFrames[MAL_MAX_CHANNELS];
+        float deinterleavedFrames[MA_MAX_CHANNELS][1024];
+        void* ppDeinterleavedFrames[MA_MAX_CHANNELS];
         for (mal_uint32 iChannel = 0; iChannel < converter.config.channels; iChannel += 1) {
             ppDeinterleavedFrames[iChannel] = &deinterleavedFrames[iChannel];
         }
@@ -1381,12 +1381,12 @@ int do_format_converter_tests()
     {
         mal_sine_wave_init(amplitude, periodsPerSecond, sampleRate, &sineWave);
         result = mal_format_converter_init(&config, &converter);
-        if (result != MAL_SUCCESS) {
+        if (result != MA_SUCCESS) {
             printf("Failed to initialize converter.\n");
             return -1;
         }
 
-        float interleavedFrames[MAL_MAX_CHANNELS * 1024];
+        float interleavedFrames[MA_MAX_CHANNELS * 1024];
         mal_uint64 framesRead = mal_format_converter_read(&converter, 1024, interleavedFrames, converter.config.pUserData);
         if (framesRead != 1024) {
             printf("Failed to read interleaved data from converter.\n");
@@ -1407,13 +1407,13 @@ int do_format_converter_tests()
     {
         mal_sine_wave_init(amplitude, periodsPerSecond, sampleRate, &sineWave);
         result = mal_format_converter_init(&config, &converter);
-        if (result != MAL_SUCCESS) {
+        if (result != MA_SUCCESS) {
             printf("Failed to initialize converter.\n");
             return -1;
         }
 
-        float deinterleavedFrames[MAL_MAX_CHANNELS][1024];
-        void* ppDeinterleavedFrames[MAL_MAX_CHANNELS];
+        float deinterleavedFrames[MA_MAX_CHANNELS][1024];
+        void* ppDeinterleavedFrames[MA_MAX_CHANNELS];
         for (mal_uint32 iChannel = 0; iChannel < converter.config.channels; iChannel += 1) {
             ppDeinterleavedFrames[iChannel] = &deinterleavedFrames[iChannel];
         }
@@ -1460,7 +1460,7 @@ mal_uint32 channel_router_callback__passthrough_test(mal_channel_router* pRouter
 
 int do_channel_routing_tests()
 {
-    mal_bool32 hasError = MAL_FALSE;
+    mal_bool32 hasError = MA_FALSE;
 
     printf("Passthrough... ");
     {
@@ -1471,19 +1471,19 @@ int do_channel_routing_tests()
         routerConfig.mixingMode = mal_channel_mix_mode_planar_blend;
         routerConfig.channelsIn = 6;
         routerConfig.channelsOut = routerConfig.channelsIn;
-        routerConfig.noSSE2 = MAL_TRUE;
-        routerConfig.noAVX2 = MAL_TRUE;
-        routerConfig.noAVX512 = MAL_TRUE;
-        routerConfig.noNEON = MAL_TRUE;
+        routerConfig.noSSE2 = MA_TRUE;
+        routerConfig.noAVX2 = MA_TRUE;
+        routerConfig.noAVX512 = MA_TRUE;
+        routerConfig.noNEON = MA_TRUE;
         mal_get_standard_channel_map(mal_standard_channel_map_microsoft, routerConfig.channelsIn, routerConfig.channelMapIn);
         mal_get_standard_channel_map(mal_standard_channel_map_microsoft, routerConfig.channelsOut, routerConfig.channelMapOut);
         
         mal_channel_router router;
         mal_result result = mal_channel_router_init(&routerConfig, &router);
-        if (result == MAL_SUCCESS) {
+        if (result == MA_SUCCESS) {
             if (!router.isPassthrough) {
                 printf("Failed to init router as passthrough.\n");
-                hasError = MAL_TRUE;
+                hasError = MA_TRUE;
             }
             
             // Expecting the weights to all be equal to 1 for each channel.
@@ -1496,21 +1496,21 @@ int do_channel_routing_tests()
 
                     if (router.config.weights[iChannelIn][iChannelOut] != expectedWeight) {
                         printf("Failed. Channel weight incorrect: %f\n", expectedWeight);
-                        hasError = MAL_TRUE;
+                        hasError = MA_TRUE;
                     }
                 }
             }
         } else {
             printf("Failed to init router.\n");
-            hasError = MAL_TRUE;
+            hasError = MA_TRUE;
         }
 
 
         // Here is where we check that the passthrough optimization works correctly. What we do is compare the output of the passthrough
         // optimization with the non-passthrough output. We don't use a real sound here, but instead use values that makes it easier for
         // us to check results. Each channel is given a value equal to it's index, plus 1.
-        float testData[MAL_MAX_CHANNELS][MAL_SIMD_ALIGNMENT * 2];
-        float* ppTestData[MAL_MAX_CHANNELS];
+        float testData[MA_MAX_CHANNELS][MA_SIMD_ALIGNMENT * 2];
+        float* ppTestData[MA_MAX_CHANNELS];
         for (mal_uint32 iChannel = 0; iChannel < routerConfig.channelsIn; ++iChannel) {
             ppTestData[iChannel] = testData[iChannel];
             for (mal_uint32 iFrame = 0; iFrame < mal_countof(testData[0]); ++iFrame) {
@@ -1521,10 +1521,10 @@ int do_channel_routing_tests()
         routerConfig.pUserData = ppTestData;
         mal_channel_router_init(&routerConfig, &router);
 
-        MAL_ALIGN(MAL_SIMD_ALIGNMENT) float outputA[MAL_MAX_CHANNELS][MAL_SIMD_ALIGNMENT * 2];
-        MAL_ALIGN(MAL_SIMD_ALIGNMENT) float outputB[MAL_MAX_CHANNELS][MAL_SIMD_ALIGNMENT * 2];
-        float* ppOutputA[MAL_MAX_CHANNELS];
-        float* ppOutputB[MAL_MAX_CHANNELS];
+        MA_ALIGN(MA_SIMD_ALIGNMENT) float outputA[MA_MAX_CHANNELS][MA_SIMD_ALIGNMENT * 2];
+        MA_ALIGN(MA_SIMD_ALIGNMENT) float outputB[MA_MAX_CHANNELS][MA_SIMD_ALIGNMENT * 2];
+        float* ppOutputA[MA_MAX_CHANNELS];
+        float* ppOutputB[MA_MAX_CHANNELS];
         for (mal_uint32 iChannel = 0; iChannel < routerConfig.channelsOut; ++iChannel) {
             ppOutputA[iChannel] = outputA[iChannel];
             ppOutputB[iChannel] = outputB[iChannel];
@@ -1534,16 +1534,16 @@ int do_channel_routing_tests()
         mal_uint64 framesRead = mal_channel_router_read_deinterleaved(&router, mal_countof(outputA[0]), (void**)ppOutputA, router.config.pUserData);
         if (framesRead != mal_countof(outputA[0])) {
             printf("Returned frame count for optimized incorrect.");
-            hasError = MAL_TRUE;
+            hasError = MA_TRUE;
         }
 
         // Without optimizations.
-        router.isPassthrough = MAL_FALSE;
-        router.isSimpleShuffle = MAL_FALSE;
+        router.isPassthrough = MA_FALSE;
+        router.isSimpleShuffle = MA_FALSE;
         framesRead = mal_channel_router_read_deinterleaved(&router, mal_countof(outputA[0]), (void**)ppOutputB, router.config.pUserData);
         if (framesRead != mal_countof(outputA[0])) {
             printf("Returned frame count for unoptimized path incorrect.");
-            hasError = MAL_TRUE;
+            hasError = MA_TRUE;
         }
 
         // Compare.
@@ -1551,7 +1551,7 @@ int do_channel_routing_tests()
             for (mal_uint32 iFrame = 0; iFrame < mal_countof(outputA[0]); ++iFrame) {
                 if (ppOutputA[iChannel][iFrame] != ppOutputB[iChannel][iFrame]) {
                     printf("Sample incorrect [%d][%d]\n", iChannel, iFrame);
-                    hasError = MAL_TRUE;
+                    hasError = MA_TRUE;
                 }
             }
         }
@@ -1574,10 +1574,10 @@ int do_channel_routing_tests()
         routerConfig.mixingMode = mal_channel_mix_mode_planar_blend;
         routerConfig.channelsIn = 6;
         routerConfig.channelsOut = routerConfig.channelsIn;
-        routerConfig.noSSE2 = MAL_TRUE;
-        routerConfig.noAVX2 = MAL_TRUE;
-        routerConfig.noAVX512 = MAL_TRUE;
-        routerConfig.noNEON = MAL_TRUE;
+        routerConfig.noSSE2 = MA_TRUE;
+        routerConfig.noAVX2 = MA_TRUE;
+        routerConfig.noAVX512 = MA_TRUE;
+        routerConfig.noNEON = MA_TRUE;
         mal_get_standard_channel_map(mal_standard_channel_map_microsoft, routerConfig.channelsIn, routerConfig.channelMapIn);
         for (mal_uint32 iChannel = 0; iChannel < routerConfig.channelsIn; ++iChannel) {
             routerConfig.channelMapOut[iChannel] = routerConfig.channelMapIn[routerConfig.channelsIn - iChannel - 1];
@@ -1585,14 +1585,14 @@ int do_channel_routing_tests()
 
         mal_channel_router router;
         mal_result result = mal_channel_router_init(&routerConfig, &router);
-        if (result == MAL_SUCCESS) {
+        if (result == MA_SUCCESS) {
             if (router.isPassthrough) {
                 printf("Router incorrectly configured as a passthrough.\n");
-                hasError = MAL_TRUE;
+                hasError = MA_TRUE;
             }
             if (!router.isSimpleShuffle) {
                 printf("Router not configured as a simple shuffle.\n");
-                hasError = MAL_TRUE;
+                hasError = MA_TRUE;
             }
             
             // Expecting the weights to all be equal to 1 for each channel.
@@ -1605,21 +1605,21 @@ int do_channel_routing_tests()
 
                     if (router.config.weights[iChannelIn][iChannelOut] != expectedWeight) {
                         printf("Failed. Channel weight incorrect: %f\n", expectedWeight);
-                        hasError = MAL_TRUE;
+                        hasError = MA_TRUE;
                     }
                 }
             }
         } else {
             printf("Failed to init router.\n");
-            hasError = MAL_TRUE;
+            hasError = MA_TRUE;
         }
 
 
         // Here is where we check that the shuffle optimization works correctly. What we do is compare the output of the shuffle
         // optimization with the non-shuffle output. We don't use a real sound here, but instead use values that makes it easier
         // for us to check results. Each channel is given a value equal to it's index, plus 1.
-        float testData[MAL_MAX_CHANNELS][100];
-        float* ppTestData[MAL_MAX_CHANNELS];
+        float testData[MA_MAX_CHANNELS][100];
+        float* ppTestData[MA_MAX_CHANNELS];
         for (mal_uint32 iChannel = 0; iChannel < routerConfig.channelsIn; ++iChannel) {
             ppTestData[iChannel] = testData[iChannel];
             for (mal_uint32 iFrame = 0; iFrame < 100; ++iFrame) {
@@ -1630,10 +1630,10 @@ int do_channel_routing_tests()
         routerConfig.pUserData = ppTestData;
         mal_channel_router_init(&routerConfig, &router);
 
-        float outputA[MAL_MAX_CHANNELS][100];
-        float outputB[MAL_MAX_CHANNELS][100];
-        float* ppOutputA[MAL_MAX_CHANNELS];
-        float* ppOutputB[MAL_MAX_CHANNELS];
+        float outputA[MA_MAX_CHANNELS][100];
+        float outputB[MA_MAX_CHANNELS][100];
+        float* ppOutputA[MA_MAX_CHANNELS];
+        float* ppOutputB[MA_MAX_CHANNELS];
         for (mal_uint32 iChannel = 0; iChannel < routerConfig.channelsOut; ++iChannel) {
             ppOutputA[iChannel] = outputA[iChannel];
             ppOutputB[iChannel] = outputB[iChannel];
@@ -1643,16 +1643,16 @@ int do_channel_routing_tests()
         mal_uint64 framesRead = mal_channel_router_read_deinterleaved(&router, 100, (void**)ppOutputA, router.config.pUserData);
         if (framesRead != 100) {
             printf("Returned frame count for optimized incorrect.");
-            hasError = MAL_TRUE;
+            hasError = MA_TRUE;
         }
 
         // Without optimizations.
-        router.isPassthrough = MAL_FALSE;
-        router.isSimpleShuffle = MAL_FALSE;
+        router.isPassthrough = MA_FALSE;
+        router.isSimpleShuffle = MA_FALSE;
         framesRead = mal_channel_router_read_deinterleaved(&router, 100, (void**)ppOutputB, router.config.pUserData);
         if (framesRead != 100) {
             printf("Returned frame count for unoptimized path incorrect.");
-            hasError = MAL_TRUE;
+            hasError = MA_TRUE;
         }
 
         // Compare.
@@ -1660,7 +1660,7 @@ int do_channel_routing_tests()
             for (mal_uint32 iFrame = 0; iFrame < 100; ++iFrame) {
                 if (ppOutputA[iChannel][iFrame] != ppOutputB[iChannel][iFrame]) {
                     printf("Sample incorrect [%d][%d]\n", iChannel, iFrame);
-                    hasError = MAL_TRUE;
+                    hasError = MA_TRUE;
                 }
             }
         }
@@ -1683,23 +1683,23 @@ int do_channel_routing_tests()
         routerConfig.mixingMode = mal_channel_mix_mode_simple;
         routerConfig.channelsIn = 2;
         routerConfig.channelsOut = 6;
-        routerConfig.noSSE2 = MAL_TRUE;
-        routerConfig.noAVX2 = MAL_TRUE;
-        routerConfig.noAVX512 = MAL_TRUE;
-        routerConfig.noNEON = MAL_TRUE;
+        routerConfig.noSSE2 = MA_TRUE;
+        routerConfig.noAVX2 = MA_TRUE;
+        routerConfig.noAVX512 = MA_TRUE;
+        routerConfig.noNEON = MA_TRUE;
         mal_get_standard_channel_map(mal_standard_channel_map_microsoft, routerConfig.channelsIn, routerConfig.channelMapIn);
         mal_get_standard_channel_map(mal_standard_channel_map_microsoft, routerConfig.channelsOut, routerConfig.channelMapOut);
 
         mal_channel_router router;
         mal_result result = mal_channel_router_init(&routerConfig, &router);
-        if (result == MAL_SUCCESS) {
+        if (result == MA_SUCCESS) {
             if (router.isPassthrough) {
                 printf("Router incorrectly configured as a passthrough.\n");
-                hasError = MAL_TRUE;
+                hasError = MA_TRUE;
             }
             if (router.isSimpleShuffle) {
                 printf("Router incorrectly configured as a simple shuffle.\n");
-                hasError = MAL_TRUE;
+                hasError = MA_TRUE;
             }
             
             // Expecting the weights to all be equal to 1 for each channel.
@@ -1712,13 +1712,13 @@ int do_channel_routing_tests()
 
                     if (router.config.weights[iChannelIn][iChannelOut] != expectedWeight) {
                         printf("Failed. Channel weight incorrect: %f\n", expectedWeight);
-                        hasError = MAL_TRUE;
+                        hasError = MA_TRUE;
                     }
                 }
             }
         } else {
             printf("Failed to init router.\n");
-            hasError = MAL_TRUE;
+            hasError = MA_TRUE;
         }
 
         if (!hasError) {
@@ -1735,23 +1735,23 @@ int do_channel_routing_tests()
         routerConfig.mixingMode = mal_channel_mix_mode_simple;
         routerConfig.channelsIn = 6;
         routerConfig.channelsOut = 2;
-        routerConfig.noSSE2 = MAL_TRUE;
-        routerConfig.noAVX2 = MAL_TRUE;
-        routerConfig.noAVX512 = MAL_TRUE;
-        routerConfig.noNEON = MAL_TRUE;
+        routerConfig.noSSE2 = MA_TRUE;
+        routerConfig.noAVX2 = MA_TRUE;
+        routerConfig.noAVX512 = MA_TRUE;
+        routerConfig.noNEON = MA_TRUE;
         mal_get_standard_channel_map(mal_standard_channel_map_microsoft, routerConfig.channelsIn, routerConfig.channelMapIn);
         mal_get_standard_channel_map(mal_standard_channel_map_microsoft, routerConfig.channelsOut, routerConfig.channelMapOut);
 
         mal_channel_router router;
         mal_result result = mal_channel_router_init(&routerConfig, &router);
-        if (result == MAL_SUCCESS) {
+        if (result == MA_SUCCESS) {
             if (router.isPassthrough) {
                 printf("Router incorrectly configured as a passthrough.\n");
-                hasError = MAL_TRUE;
+                hasError = MA_TRUE;
             }
             if (router.isSimpleShuffle) {
                 printf("Router incorrectly configured as a simple shuffle.\n");
-                hasError = MAL_TRUE;
+                hasError = MA_TRUE;
             }
             
             // Expecting the weights to all be equal to 1 for each channel.
@@ -1764,13 +1764,13 @@ int do_channel_routing_tests()
 
                     if (router.config.weights[iChannelIn][iChannelOut] != expectedWeight) {
                         printf("Failed. Channel weight incorrect: %f\n", expectedWeight);
-                        hasError = MAL_TRUE;
+                        hasError = MA_TRUE;
                     }
                 }
             }
         } else {
             printf("Failed to init router.\n");
-            hasError = MAL_TRUE;
+            hasError = MA_TRUE;
         }
 
         if (!hasError) {
@@ -1785,39 +1785,39 @@ int do_channel_routing_tests()
         routerConfig.onReadDeinterleaved = channel_router_callback__passthrough_test;
         routerConfig.pUserData = NULL;
         routerConfig.mixingMode = mal_channel_mix_mode_planar_blend;
-        routerConfig.noSSE2 = MAL_TRUE;
-        routerConfig.noAVX2 = MAL_TRUE;
-        routerConfig.noAVX512 = MAL_TRUE;
-        routerConfig.noNEON = MAL_TRUE;
+        routerConfig.noSSE2 = MA_TRUE;
+        routerConfig.noAVX2 = MA_TRUE;
+        routerConfig.noAVX512 = MA_TRUE;
+        routerConfig.noNEON = MA_TRUE;
         
         // Use very specific mappings for this test.
         routerConfig.channelsIn = 2;
-        routerConfig.channelMapIn[0] = MAL_CHANNEL_FRONT_LEFT;
-        routerConfig.channelMapIn[1] = MAL_CHANNEL_FRONT_RIGHT;
+        routerConfig.channelMapIn[0] = MA_CHANNEL_FRONT_LEFT;
+        routerConfig.channelMapIn[1] = MA_CHANNEL_FRONT_RIGHT;
 
         routerConfig.channelsOut = 8;
-        routerConfig.channelMapOut[0] = MAL_CHANNEL_FRONT_LEFT;
-        routerConfig.channelMapOut[1] = MAL_CHANNEL_FRONT_RIGHT;
-        routerConfig.channelMapOut[2] = MAL_CHANNEL_FRONT_CENTER;
-        routerConfig.channelMapOut[3] = MAL_CHANNEL_LFE;
-        routerConfig.channelMapOut[4] = MAL_CHANNEL_BACK_LEFT;
-        routerConfig.channelMapOut[5] = MAL_CHANNEL_BACK_RIGHT;
-        routerConfig.channelMapOut[6] = MAL_CHANNEL_SIDE_LEFT;
-        routerConfig.channelMapOut[7] = MAL_CHANNEL_SIDE_RIGHT;
+        routerConfig.channelMapOut[0] = MA_CHANNEL_FRONT_LEFT;
+        routerConfig.channelMapOut[1] = MA_CHANNEL_FRONT_RIGHT;
+        routerConfig.channelMapOut[2] = MA_CHANNEL_FRONT_CENTER;
+        routerConfig.channelMapOut[3] = MA_CHANNEL_LFE;
+        routerConfig.channelMapOut[4] = MA_CHANNEL_BACK_LEFT;
+        routerConfig.channelMapOut[5] = MA_CHANNEL_BACK_RIGHT;
+        routerConfig.channelMapOut[6] = MA_CHANNEL_SIDE_LEFT;
+        routerConfig.channelMapOut[7] = MA_CHANNEL_SIDE_RIGHT;
 
         mal_channel_router router;
         mal_result result = mal_channel_router_init(&routerConfig, &router);
-        if (result == MAL_SUCCESS) {
+        if (result == MA_SUCCESS) {
             if (router.isPassthrough) {
                 printf("Router incorrectly configured as a passthrough.\n");
-                hasError = MAL_TRUE;
+                hasError = MA_TRUE;
             }
             if (router.isSimpleShuffle) {
                 printf("Router incorrectly configured as a simple shuffle.\n");
-                hasError = MAL_TRUE;
+                hasError = MA_TRUE;
             }
             
-            float expectedWeights[MAL_MAX_CHANNELS][MAL_MAX_CHANNELS];
+            float expectedWeights[MA_MAX_CHANNELS][MA_MAX_CHANNELS];
             mal_zero_memory(expectedWeights, sizeof(expectedWeights));
             expectedWeights[0][0] = 1.0f;   // FRONT_LEFT  -> FRONT_LEFT
             expectedWeights[0][1] = 0.0f;   // FRONT_LEFT  -> FRONT_RIGHT
@@ -1840,19 +1840,19 @@ int do_channel_routing_tests()
                 for (mal_uint32 iChannelOut = 0; iChannelOut < routerConfig.channelsOut; ++iChannelOut) {
                     if (router.config.weights[iChannelIn][iChannelOut] != expectedWeights[iChannelIn][iChannelOut]) {
                         printf("Failed. Channel weight incorrect for [%d][%d]. Expected %f, got %f\n", iChannelIn, iChannelOut, expectedWeights[iChannelIn][iChannelOut], router.config.weights[iChannelIn][iChannelOut]);
-                        hasError = MAL_TRUE;
+                        hasError = MA_TRUE;
                     }
                 }
             }
         } else {
             printf("Failed to init router.\n");
-            hasError = MAL_TRUE;
+            hasError = MA_TRUE;
         }
 
 
         // Test the actual conversion. The test data is set to +1 for the left channel, and -1 for the right channel.
-        float testData[MAL_MAX_CHANNELS][100];
-        float* ppTestData[MAL_MAX_CHANNELS];
+        float testData[MA_MAX_CHANNELS][100];
+        float* ppTestData[MA_MAX_CHANNELS];
         for (mal_uint32 iChannel = 0; iChannel < routerConfig.channelsIn; ++iChannel) {
             ppTestData[iChannel] = testData[iChannel];
         }
@@ -1865,8 +1865,8 @@ int do_channel_routing_tests()
         routerConfig.pUserData = ppTestData;
         mal_channel_router_init(&routerConfig, &router);
 
-        float output[MAL_MAX_CHANNELS][100];
-        float* ppOutput[MAL_MAX_CHANNELS];
+        float output[MA_MAX_CHANNELS][100];
+        float* ppOutput[MA_MAX_CHANNELS];
         for (mal_uint32 iChannel = 0; iChannel < routerConfig.channelsOut; ++iChannel) {
             ppOutput[iChannel] = output[iChannel];
         }
@@ -1874,10 +1874,10 @@ int do_channel_routing_tests()
         mal_uint64 framesRead = mal_channel_router_read_deinterleaved(&router, 100, (void**)ppOutput, router.config.pUserData);
         if (framesRead != 100) {
             printf("Returned frame count for optimized incorrect.\n");
-            hasError = MAL_TRUE;
+            hasError = MA_TRUE;
         }
 
-        float expectedOutput[MAL_MAX_CHANNELS];
+        float expectedOutput[MA_MAX_CHANNELS];
         expectedOutput[0] = -1.0f;  // FRONT_LEFT
         expectedOutput[1] = +1.0f;  // FRONT_RIGHT
         expectedOutput[2] =  0.0f;  // FRONT_CENTER (left and right should cancel out, totalling 0).
@@ -1890,7 +1890,7 @@ int do_channel_routing_tests()
             for (mal_uint32 iFrame = 0; iFrame < framesRead; ++iFrame) {
                 if (output[iChannel][iFrame] != expectedOutput[iChannel]) {
                     printf("Incorrect sample [%d][%d]. Expecting %f, got %f\n", iChannel, iFrame, expectedOutput[iChannel], output[iChannel][iFrame]);
-                    hasError = MAL_TRUE;
+                    hasError = MA_TRUE;
                 }
             }
         }
@@ -1907,39 +1907,39 @@ int do_channel_routing_tests()
         routerConfig.onReadDeinterleaved = channel_router_callback__passthrough_test;
         routerConfig.pUserData = NULL;
         routerConfig.mixingMode = mal_channel_mix_mode_planar_blend;
-        routerConfig.noSSE2 = MAL_TRUE;
-        routerConfig.noAVX2 = MAL_TRUE;
-        routerConfig.noAVX512 = MAL_TRUE;
-        routerConfig.noNEON = MAL_TRUE;
+        routerConfig.noSSE2 = MA_TRUE;
+        routerConfig.noAVX2 = MA_TRUE;
+        routerConfig.noAVX512 = MA_TRUE;
+        routerConfig.noNEON = MA_TRUE;
         
         // Use very specific mappings for this test.
         routerConfig.channelsIn = 8;
-        routerConfig.channelMapIn[0] = MAL_CHANNEL_FRONT_LEFT;
-        routerConfig.channelMapIn[1] = MAL_CHANNEL_FRONT_RIGHT;
-        routerConfig.channelMapIn[2] = MAL_CHANNEL_FRONT_CENTER;
-        routerConfig.channelMapIn[3] = MAL_CHANNEL_LFE;
-        routerConfig.channelMapIn[4] = MAL_CHANNEL_BACK_LEFT;
-        routerConfig.channelMapIn[5] = MAL_CHANNEL_BACK_RIGHT;
-        routerConfig.channelMapIn[6] = MAL_CHANNEL_SIDE_LEFT;
-        routerConfig.channelMapIn[7] = MAL_CHANNEL_SIDE_RIGHT;
+        routerConfig.channelMapIn[0] = MA_CHANNEL_FRONT_LEFT;
+        routerConfig.channelMapIn[1] = MA_CHANNEL_FRONT_RIGHT;
+        routerConfig.channelMapIn[2] = MA_CHANNEL_FRONT_CENTER;
+        routerConfig.channelMapIn[3] = MA_CHANNEL_LFE;
+        routerConfig.channelMapIn[4] = MA_CHANNEL_BACK_LEFT;
+        routerConfig.channelMapIn[5] = MA_CHANNEL_BACK_RIGHT;
+        routerConfig.channelMapIn[6] = MA_CHANNEL_SIDE_LEFT;
+        routerConfig.channelMapIn[7] = MA_CHANNEL_SIDE_RIGHT;
 
         routerConfig.channelsOut = 2;
-        routerConfig.channelMapOut[0] = MAL_CHANNEL_FRONT_LEFT;
-        routerConfig.channelMapOut[1] = MAL_CHANNEL_FRONT_RIGHT;
+        routerConfig.channelMapOut[0] = MA_CHANNEL_FRONT_LEFT;
+        routerConfig.channelMapOut[1] = MA_CHANNEL_FRONT_RIGHT;
 
         mal_channel_router router;
         mal_result result = mal_channel_router_init(&routerConfig, &router);
-        if (result == MAL_SUCCESS) {
+        if (result == MA_SUCCESS) {
             if (router.isPassthrough) {
                 printf("Router incorrectly configured as a passthrough.\n");
-                hasError = MAL_TRUE;
+                hasError = MA_TRUE;
             }
             if (router.isSimpleShuffle) {
                 printf("Router incorrectly configured as a simple shuffle.\n");
-                hasError = MAL_TRUE;
+                hasError = MA_TRUE;
             }
             
-            float expectedWeights[MAL_MAX_CHANNELS][MAL_MAX_CHANNELS];
+            float expectedWeights[MA_MAX_CHANNELS][MA_MAX_CHANNELS];
             mal_zero_memory(expectedWeights, sizeof(expectedWeights));
             expectedWeights[0][0] = 1.0f;   // FRONT_LEFT   -> FRONT_LEFT
             expectedWeights[1][0] = 0.0f;   // FRONT_RIGHT  -> FRONT_LEFT
@@ -1962,13 +1962,13 @@ int do_channel_routing_tests()
                 for (mal_uint32 iChannelOut = 0; iChannelOut < routerConfig.channelsOut; ++iChannelOut) {
                     if (router.config.weights[iChannelIn][iChannelOut] != expectedWeights[iChannelIn][iChannelOut]) {
                         printf("Failed. Channel weight incorrect for [%d][%d]. Expected %f, got %f\n", iChannelIn, iChannelOut, expectedWeights[iChannelIn][iChannelOut], router.config.weights[iChannelIn][iChannelOut]);
-                        hasError = MAL_TRUE;
+                        hasError = MA_TRUE;
                     }
                 }
             }
         } else {
             printf("Failed to init router.\n");
-            hasError = MAL_TRUE;
+            hasError = MA_TRUE;
         }
 
         if (!hasError) {
@@ -1983,34 +1983,34 @@ int do_channel_routing_tests()
         routerConfig.onReadDeinterleaved = channel_router_callback__passthrough_test;
         routerConfig.pUserData = NULL;
         routerConfig.mixingMode = mal_channel_mix_mode_planar_blend;
-        routerConfig.noSSE2 = MAL_TRUE;
-        routerConfig.noAVX2 = MAL_TRUE;
-        routerConfig.noAVX512 = MAL_TRUE;
-        routerConfig.noNEON = MAL_TRUE;
+        routerConfig.noSSE2 = MA_TRUE;
+        routerConfig.noAVX2 = MA_TRUE;
+        routerConfig.noAVX512 = MA_TRUE;
+        routerConfig.noNEON = MA_TRUE;
         
         // Use very specific mappings for this test.
         routerConfig.channelsIn = 1;
-        routerConfig.channelMapIn[0] = MAL_CHANNEL_MONO;
+        routerConfig.channelMapIn[0] = MA_CHANNEL_MONO;
 
         routerConfig.channelsOut = 4;
-        routerConfig.channelMapOut[0] = MAL_CHANNEL_FRONT_LEFT;
-        routerConfig.channelMapOut[1] = MAL_CHANNEL_FRONT_RIGHT;
-        routerConfig.channelMapOut[2] = MAL_CHANNEL_NONE;
-        routerConfig.channelMapOut[3] = MAL_CHANNEL_LFE;
+        routerConfig.channelMapOut[0] = MA_CHANNEL_FRONT_LEFT;
+        routerConfig.channelMapOut[1] = MA_CHANNEL_FRONT_RIGHT;
+        routerConfig.channelMapOut[2] = MA_CHANNEL_NONE;
+        routerConfig.channelMapOut[3] = MA_CHANNEL_LFE;
 
         mal_channel_router router;
         mal_result result = mal_channel_router_init(&routerConfig, &router);
-        if (result == MAL_SUCCESS) {
+        if (result == MA_SUCCESS) {
             if (router.isPassthrough) {
                 printf("Router incorrectly configured as a passthrough.\n");
-                hasError = MAL_TRUE;
+                hasError = MA_TRUE;
             }
             if (router.isSimpleShuffle) {
                 printf("Router incorrectly configured as a simple shuffle.\n");
-                hasError = MAL_TRUE;
+                hasError = MA_TRUE;
             }
             
-            float expectedWeights[MAL_MAX_CHANNELS][MAL_MAX_CHANNELS];
+            float expectedWeights[MA_MAX_CHANNELS][MA_MAX_CHANNELS];
             mal_zero_memory(expectedWeights, sizeof(expectedWeights));
             expectedWeights[0][0] = 1.0f;   // MONO -> FRONT_LEFT
             expectedWeights[0][1] = 1.0f;   // MONO -> FRONT_RIGHT
@@ -2021,13 +2021,13 @@ int do_channel_routing_tests()
                 for (mal_uint32 iChannelOut = 0; iChannelOut < routerConfig.channelsOut; ++iChannelOut) {
                     if (router.config.weights[iChannelIn][iChannelOut] != expectedWeights[iChannelIn][iChannelOut]) {
                         printf("Failed. Channel weight incorrect for [%d][%d]. Expected %f, got %f\n", iChannelIn, iChannelOut, expectedWeights[iChannelIn][iChannelOut], router.config.weights[iChannelIn][iChannelOut]);
-                        hasError = MAL_TRUE;
+                        hasError = MA_TRUE;
                     }
                 }
             }
         } else {
             printf("Failed to init router.\n");
-            hasError = MAL_TRUE;
+            hasError = MA_TRUE;
         }
 
         if (!hasError) {
@@ -2042,34 +2042,34 @@ int do_channel_routing_tests()
         routerConfig.onReadDeinterleaved = channel_router_callback__passthrough_test;
         routerConfig.pUserData = NULL;
         routerConfig.mixingMode = mal_channel_mix_mode_planar_blend;
-        routerConfig.noSSE2 = MAL_TRUE;
-        routerConfig.noAVX2 = MAL_TRUE;
-        routerConfig.noAVX512 = MAL_TRUE;
-        routerConfig.noNEON = MAL_TRUE;
+        routerConfig.noSSE2 = MA_TRUE;
+        routerConfig.noAVX2 = MA_TRUE;
+        routerConfig.noAVX512 = MA_TRUE;
+        routerConfig.noNEON = MA_TRUE;
         
         // Use very specific mappings for this test.
         routerConfig.channelsIn = 4;
-        routerConfig.channelMapIn[0] = MAL_CHANNEL_FRONT_LEFT;
-        routerConfig.channelMapIn[1] = MAL_CHANNEL_FRONT_RIGHT;
-        routerConfig.channelMapIn[2] = MAL_CHANNEL_NONE;
-        routerConfig.channelMapIn[3] = MAL_CHANNEL_LFE;
+        routerConfig.channelMapIn[0] = MA_CHANNEL_FRONT_LEFT;
+        routerConfig.channelMapIn[1] = MA_CHANNEL_FRONT_RIGHT;
+        routerConfig.channelMapIn[2] = MA_CHANNEL_NONE;
+        routerConfig.channelMapIn[3] = MA_CHANNEL_LFE;
 
         routerConfig.channelsOut = 1;
-        routerConfig.channelMapOut[0] = MAL_CHANNEL_MONO;
+        routerConfig.channelMapOut[0] = MA_CHANNEL_MONO;
 
         mal_channel_router router;
         mal_result result = mal_channel_router_init(&routerConfig, &router);
-        if (result == MAL_SUCCESS) {
+        if (result == MA_SUCCESS) {
             if (router.isPassthrough) {
                 printf("Router incorrectly configured as a passthrough.\n");
-                hasError = MAL_TRUE;
+                hasError = MA_TRUE;
             }
             if (router.isSimpleShuffle) {
                 printf("Router incorrectly configured as a simple shuffle.\n");
-                hasError = MAL_TRUE;
+                hasError = MA_TRUE;
             }
             
-            float expectedWeights[MAL_MAX_CHANNELS][MAL_MAX_CHANNELS];
+            float expectedWeights[MA_MAX_CHANNELS][MA_MAX_CHANNELS];
             mal_zero_memory(expectedWeights, sizeof(expectedWeights));
             expectedWeights[0][0] = 0.5f;   // FRONT_LEFT  -> MONO
             expectedWeights[1][0] = 0.5f;   // FRONT_RIGHT -> MONO
@@ -2080,13 +2080,13 @@ int do_channel_routing_tests()
                 for (mal_uint32 iChannelOut = 0; iChannelOut < routerConfig.channelsOut; ++iChannelOut) {
                     if (router.config.weights[iChannelIn][iChannelOut] != expectedWeights[iChannelIn][iChannelOut]) {
                         printf("Failed. Channel weight incorrect for [%d][%d]. Expected %f, got %f\n", iChannelIn, iChannelOut, expectedWeights[iChannelIn][iChannelOut], router.config.weights[iChannelIn][iChannelOut]);
-                        hasError = MAL_TRUE;
+                        hasError = MA_TRUE;
                     }
                 }
             }
         } else {
             printf("Failed to init router.\n");
-            hasError = MAL_TRUE;
+            hasError = MA_TRUE;
         }
 
         if (!hasError) {
@@ -2105,7 +2105,7 @@ int do_channel_routing_tests()
 
 int do_backend_test(mal_backend backend)
 {
-    mal_result result = MAL_SUCCESS;
+    mal_result result = MA_SUCCESS;
     mal_context context;
     mal_device_info* pPlaybackDeviceInfos;
     mal_uint32 playbackDeviceCount;
@@ -2121,10 +2121,10 @@ int do_backend_test(mal_backend backend)
         contextConfig.logCallback = on_log;
 
         result = mal_context_init(&backend, 1, &contextConfig, &context);
-        if (result == MAL_SUCCESS) {
+        if (result == MA_SUCCESS) {
             printf(" Done\n");
         } else {
-            if (result == MAL_NO_BACKEND) {
+            if (result == MA_NO_BACKEND) {
                 printf(" Not supported\n");
                 printf("--- End %s ---\n", mal_get_backend_name(backend));
                 printf("\n");
@@ -2140,7 +2140,7 @@ int do_backend_test(mal_backend backend)
     printf("  Enumerating Devices... ");
     {
         result = mal_context_get_devices(&context, &pPlaybackDeviceInfos, &playbackDeviceCount, &pCaptureDeviceInfos, &captureDeviceCount);
-        if (result == MAL_SUCCESS) {
+        if (result == MA_SUCCESS) {
             printf("Done\n");
         } else {
             printf("Failed\n");
@@ -2166,7 +2166,7 @@ int do_backend_test(mal_backend backend)
             printf("      %d: %s\n", iDevice, pPlaybackDeviceInfos[iDevice].name);
             
             result = mal_context_get_device_info(&context, mal_device_type_playback, &pPlaybackDeviceInfos[iDevice].id, mal_share_mode_shared, &pPlaybackDeviceInfos[iDevice]);
-            if (result == MAL_SUCCESS) {
+            if (result == MA_SUCCESS) {
                 printf("        Name:            %s\n", pPlaybackDeviceInfos[iDevice].name);
                 printf("        Min Channels:    %d\n", pPlaybackDeviceInfos[iDevice].minChannels);
                 printf("        Max Channels:    %d\n", pPlaybackDeviceInfos[iDevice].maxChannels);
@@ -2186,7 +2186,7 @@ int do_backend_test(mal_backend backend)
             printf("      %d: %s\n", iDevice, pCaptureDeviceInfos[iDevice].name);
             
             result = mal_context_get_device_info(&context, mal_device_type_capture, &pCaptureDeviceInfos[iDevice].id, mal_share_mode_shared, &pCaptureDeviceInfos[iDevice]);
-            if (result == MAL_SUCCESS) {
+            if (result == MA_SUCCESS) {
                 printf("        Name:            %s\n", pCaptureDeviceInfos[iDevice].name);
                 printf("        Min Channels:    %d\n", pCaptureDeviceInfos[iDevice].minChannels);
                 printf("        Max Channels:    %d\n", pCaptureDeviceInfos[iDevice].maxChannels);
@@ -2207,18 +2207,18 @@ done:
     printf("\n");
     
     mal_context_uninit(&context);
-    return (result == MAL_SUCCESS) ? 0 : -1;
+    return (result == MA_SUCCESS) ? 0 : -1;
 }
 
 int do_backend_tests()
 {
-    mal_bool32 hasErrorOccurred = MAL_FALSE;
+    mal_bool32 hasErrorOccurred = MA_FALSE;
 
     // Tests are performed on a per-backend basis.
     for (size_t iBackend = 0; iBackend < mal_countof(g_Backends); ++iBackend) {
         int result = do_backend_test(g_Backends[iBackend]);
         if (result < 0) {
-            hasErrorOccurred = MAL_TRUE;
+            hasErrorOccurred = MA_TRUE;
         }
     }
 
@@ -2270,12 +2270,12 @@ void on_stop__playback_test(mal_device* pDevice)
 
 int do_playback_test(mal_backend backend)
 {
-    mal_result result = MAL_SUCCESS;
+    mal_result result = MA_SUCCESS;
     mal_device device;
     mal_decoder decoder;
     mal_sine_wave sineWave;
-    mal_bool32 haveDevice = MAL_FALSE;
-    mal_bool32 haveDecoder = MAL_FALSE;
+    mal_bool32 haveDevice = MA_FALSE;
+    mal_bool32 haveDecoder = MA_FALSE;
 
     playback_test_callback_data callbackData;
     callbackData.pDecoder = &decoder;
@@ -2300,10 +2300,10 @@ int do_playback_test(mal_backend backend)
     #endif
 
         result = mal_device_init_ex(&backend, 1, &contextConfig, &deviceConfig, &device);
-        if (result == MAL_SUCCESS) {
+        if (result == MA_SUCCESS) {
             printf("Done\n");
         } else {
-            if (result == MAL_NO_BACKEND) {
+            if (result == MA_NO_BACKEND) {
                 printf(" Not supported\n");
                 printf("--- End %s ---\n", mal_get_backend_name(backend));
                 printf("\n");
@@ -2313,7 +2313,7 @@ int do_playback_test(mal_backend backend)
                 goto done;
             }
         }
-        haveDevice = MAL_TRUE;
+        haveDevice = MA_TRUE;
 
         printf("    Is Passthrough: %s\n", (device.playback.converter.isPassthrough) ? "YES" : "NO");
         printf("    Buffer Size in Frames: %d\n", device.playback.internalBufferSizeInFrames);
@@ -2322,7 +2322,7 @@ int do_playback_test(mal_backend backend)
     printf("  Opening Decoder... ");
     {
         result = mal_event_init(device.pContext, &callbackData.endOfPlaybackEvent);
-        if (result != MAL_SUCCESS) {
+        if (result != MA_SUCCESS) {
             printf("Failed to init event.\n");
             goto done;
         }
@@ -2330,16 +2330,16 @@ int do_playback_test(mal_backend backend)
 #if !defined(__EMSCRIPTEN__)
         mal_decoder_config decoderConfig = mal_decoder_config_init(device.playback.format, device.playback.channels, device.sampleRate);
         result = mal_decoder_init_file("res/sine_s16_mono_48000.wav", &decoderConfig, &decoder);
-        if (result == MAL_SUCCESS) {
+        if (result == MA_SUCCESS) {
             printf("Done\n");
         } else {
             printf("Failed to init decoder.\n");
             goto done;
         }
-        haveDecoder = MAL_TRUE;
+        haveDecoder = MA_TRUE;
 #else
         result = mal_sine_wave_init(0.5f, 400, device.sampleRate, &sineWave);
-        if (result == MAL_SUCCESS) {
+        if (result == MA_SUCCESS) {
             printf("Done\n");
         } else {
             printf("Failed to init sine wave.\n");
@@ -2354,7 +2354,7 @@ int do_playback_test(mal_backend backend)
     getchar();
     {
         result = mal_device_start(&device);
-        if (result != MAL_SUCCESS) {
+        if (result != MA_SUCCESS) {
             printf("Failed to start device.\n");
             goto done;
         }
@@ -2381,17 +2381,17 @@ done:
     if (haveDecoder) {
         mal_decoder_uninit(&decoder);
     }
-    return (result == MAL_SUCCESS) ? 0 : -1;
+    return (result == MA_SUCCESS) ? 0 : -1;
 }
 
 int do_playback_tests()
 {
-    mal_bool32 hasErrorOccurred = MAL_FALSE;
+    mal_bool32 hasErrorOccurred = MA_FALSE;
 
     for (size_t iBackend = 0; iBackend < mal_countof(g_Backends); ++iBackend) {
         int result = do_playback_test(g_Backends[iBackend]);
         if (result < 0) {
-            hasErrorOccurred = MAL_TRUE;
+            hasErrorOccurred = MA_TRUE;
         }
     }
 
@@ -2403,7 +2403,7 @@ int main(int argc, char** argv)
     (void)argc;
     (void)argv;
 
-    mal_bool32 hasErrorOccurred = MAL_FALSE;
+    mal_bool32 hasErrorOccurred = MA_FALSE;
     int result = 0;
 
     // Print the compiler.
@@ -2450,7 +2450,7 @@ int main(int argc, char** argv)
     printf("=== TESTING CORE ===\n");
     result = do_core_tests();
     if (result < 0) {
-        hasErrorOccurred = MAL_TRUE;
+        hasErrorOccurred = MA_TRUE;
     }
     printf("=== END TESTING CORE ===\n");
     
@@ -2460,7 +2460,7 @@ int main(int argc, char** argv)
     printf("=== TESTING FORMAT CONVERSION ===\n");
     result = do_format_conversion_tests();
     if (result < 0) {
-        hasErrorOccurred = MAL_TRUE;
+        hasErrorOccurred = MA_TRUE;
     }
     printf("=== END TESTING FORMAT CONVERSION ===\n");
     
@@ -2470,7 +2470,7 @@ int main(int argc, char** argv)
     printf("=== TESTING INTERLEAVING/DEINTERLEAVING ===\n");
     result = do_interleaving_tests();
     if (result < 0) {
-        hasErrorOccurred = MAL_TRUE;
+        hasErrorOccurred = MA_TRUE;
     }
     printf("=== END TESTING INTERLEAVING/DEINTERLEAVING ===\n");
 
@@ -2480,7 +2480,7 @@ int main(int argc, char** argv)
     printf("=== TESTING FORMAT CONVERTER ===\n");
     result = do_format_converter_tests();
     if (result < 0) {
-        hasErrorOccurred = MAL_TRUE;
+        hasErrorOccurred = MA_TRUE;
     }
     printf("=== END TESTING FORMAT CONVERTER ===\n");
     
@@ -2490,7 +2490,7 @@ int main(int argc, char** argv)
     printf("=== TESTING CHANNEL ROUTING ===\n");
     result = do_channel_routing_tests();
     if (result < 0) {
-        hasErrorOccurred = MAL_TRUE;
+        hasErrorOccurred = MA_TRUE;
     }
     printf("=== END TESTING CHANNEL ROUTING ===\n");
     
@@ -2500,7 +2500,7 @@ int main(int argc, char** argv)
     printf("=== TESTING BACKENDS ===\n");
     result = do_backend_tests();
     if (result < 0) {
-        hasErrorOccurred = MAL_TRUE;
+        hasErrorOccurred = MA_TRUE;
     }
     printf("=== END TESTING BACKENDS ===\n");
 
@@ -2510,7 +2510,7 @@ int main(int argc, char** argv)
     printf("=== TESTING DEFAULT PLAYBACK DEVICES ===\n");
     result = do_playback_tests();
     if (result < 0) {
-        hasErrorOccurred = MAL_TRUE;
+        hasErrorOccurred = MA_TRUE;
     }
     printf("=== END TESTING DEFAULT PLAYBACK DEVICES ===\n");
 
@@ -2524,7 +2524,7 @@ int main(int argc, char** argv)
 #define DR_WAV_IMPLEMENTATION
 #include "../extras/dr_wav.h"
 
-#ifdef MAL_INCLUDE_VORBIS_TESTS
+#ifdef MA_INCLUDE_VORBIS_TESTS
     #if defined(_MSC_VER)
         #pragma warning(push)
         #pragma warning(disable:4456)

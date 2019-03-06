@@ -31,7 +31,7 @@ int main(int argc, char** argv)
 
     mal_decoder decoder;
     mal_result result = mal_decoder_init_file(argv[1], NULL, &decoder);
-    if (result != MAL_SUCCESS) {
+    if (result != MA_SUCCESS) {
         return -2;
     }
 
@@ -43,13 +43,13 @@ int main(int argc, char** argv)
     config.pUserData         = &decoder;
 
     mal_device device;
-    if (mal_device_init(NULL, &config, &device) != MAL_SUCCESS) {
+    if (mal_device_init(NULL, &config, &device) != MA_SUCCESS) {
         printf("Failed to open playback device.\n");
         mal_decoder_uninit(&decoder);
         return -3;
     }
 
-    if (mal_device_start(&device) != MAL_SUCCESS) {
+    if (mal_device_start(&device) != MA_SUCCESS) {
         printf("Failed to start playback device.\n");
         mal_device_uninit(&device);
         mal_decoder_uninit(&decoder);

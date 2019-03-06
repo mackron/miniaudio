@@ -4,7 +4,7 @@
 // - Lock free (assuming single producer, single consumer)
 // - Support for interleaved and deinterleaved streams
 // - Must allow the caller to allocate their own block of memory
-//   - Buffers allocated internally must be aligned to MAL_SIMD_ALIGNMENT
+//   - Buffers allocated internally must be aligned to MA_SIMD_ALIGNMENT
 
 // USAGE
 //
@@ -43,7 +43,7 @@
 //   consumer is the only one allowed to move the read pointer.
 // - Thread safety not fully tested - may even be completely broken.
 // - Operates on bytes. May end up adding to higher level helpers for doing everything per audio frame.
-// - Maximum buffer size is 0x7FFFFFFF-(MAL_SIMD_ALIGNMENT-1) because of reasons.
+// - Maximum buffer size is 0x7FFFFFFF-(MA_SIMD_ALIGNMENT-1) because of reasons.
 
 #ifndef mal_ring_buffer_h
 #define mal_ring_buffer_h
@@ -100,34 +100,34 @@ void* mal_pcm_rb_get_subbuffer_ptr(mal_pcm_rb* pRB, size_t subbufferIndex, void*
 #endif  // mal_ring_buffer_h
 
 #ifdef MINIAUDIO_IMPLEMENTATION
-MAL_INLINE mal_uint32 mal_rb__extract_offset_in_bytes(mal_uint32 encodedOffset)
+MA_INLINE mal_uint32 mal_rb__extract_offset_in_bytes(mal_uint32 encodedOffset)
 {
     return encodedOffset & 0x7FFFFFFF;
 }
 
-MAL_INLINE mal_uint32 mal_rb__extract_offset_loop_flag(mal_uint32 encodedOffset)
+MA_INLINE mal_uint32 mal_rb__extract_offset_loop_flag(mal_uint32 encodedOffset)
 {
     return encodedOffset & 0x80000000;
 }
 
-MAL_INLINE void* mal_rb__get_read_ptr(mal_rb* pRB)
+MA_INLINE void* mal_rb__get_read_ptr(mal_rb* pRB)
 {
     mal_assert(pRB != NULL);
     return mal_offset_ptr(pRB->pBuffer, mal_rb__extract_offset_in_bytes(pRB->encodedReadOffset));
 }
 
-MAL_INLINE void* mal_rb__get_write_ptr(mal_rb* pRB)
+MA_INLINE void* mal_rb__get_write_ptr(mal_rb* pRB)
 {
     mal_assert(pRB != NULL);
     return mal_offset_ptr(pRB->pBuffer, mal_rb__extract_offset_in_bytes(pRB->encodedWriteOffset));
 }
 
-MAL_INLINE mal_uint32 mal_rb__construct_offset(mal_uint32 offsetInBytes, mal_uint32 offsetLoopFlag)
+MA_INLINE mal_uint32 mal_rb__construct_offset(mal_uint32 offsetInBytes, mal_uint32 offsetLoopFlag)
 {
     return offsetLoopFlag | offsetInBytes;
 }
 
-MAL_INLINE void mal_rb__deconstruct_offset(mal_uint32 encodedOffset, mal_uint32* pOffsetInBytes, mal_uint32* pOffsetLoopFlag)
+MA_INLINE void mal_rb__deconstruct_offset(mal_uint32 encodedOffset, mal_uint32* pOffsetInBytes, mal_uint32* pOffsetLoopFlag)
 {
     mal_assert(pOffsetInBytes != NULL);
     mal_assert(pOffsetLoopFlag != NULL);
@@ -140,16 +140,16 @@ MAL_INLINE void mal_rb__deconstruct_offset(mal_uint32 encodedOffset, mal_uint32*
 mal_result mal_rb_init_ex(size_t subbufferSizeInBytes, size_t subbufferCount, size_t subbufferStrideInBytes, void* pOptionalPreallocatedBuffer, mal_rb* pRB)
 {
     if (pRB == NULL) {
-        return MAL_INVALID_ARGS;
+        return MA_INVALID_ARGS;
     }
 
     if (subbufferSizeInBytes == 0 || subbufferCount == 0) {
-        return MAL_INVALID_ARGS;
+        return MA_INVALID_ARGS;
     }
 
-    const mal_uint32 maxSubBufferSize = 0x7FFFFFFF - (MAL_SIMD_ALIGNMENT-1);
+    const mal_uint32 maxSubBufferSize = 0x7FFFFFFF - (MA_SIMD_ALIGNMENT-1);
     if (subbufferSizeInBytes > maxSubBufferSize) {
-        return MAL_INVALID_ARGS;    // Maximum buffer size is ~2GB. The most significant bit is a flag for use internally.
+        return MA_INVALID_ARGS;    // Maximum buffer size is ~2GB. The most significant bit is a flag for use internally.
     }
 
 
@@ -161,21 +161,21 @@ mal_result mal_rb_init_ex(size_t subbufferSizeInBytes, size_t subbufferCount, si
         pRB->subbufferStrideInBytes = (mal_uint32)subbufferStrideInBytes;
         pRB->pBuffer = pOptionalPreallocatedBuffer;
     } else {
-        // Here is where we allocate our own buffer. We always want to align this to MAL_SIMD_ALIGNMENT for future SIMD optimization opportunity. To do this
-        // we need to make sure the stride is a multiple of MAL_SIMD_ALIGNMENT.
-        pRB->subbufferStrideInBytes = (pRB->subbufferSizeInBytes + (MAL_SIMD_ALIGNMENT-1)) & ~MAL_SIMD_ALIGNMENT;
+        // Here is where we allocate our own buffer. We always want to align this to MA_SIMD_ALIGNMENT for future SIMD optimization opportunity. To do this
+        // we need to make sure the stride is a multiple of MA_SIMD_ALIGNMENT.
+        pRB->subbufferStrideInBytes = (pRB->subbufferSizeInBytes + (MA_SIMD_ALIGNMENT-1)) & ~MA_SIMD_ALIGNMENT;
 
         size_t bufferSizeInBytes = (size_t)pRB->subbufferCount*pRB->subbufferStrideInBytes;
-        pRB->pBuffer = mal_aligned_malloc(bufferSizeInBytes, MAL_SIMD_ALIGNMENT);
+        pRB->pBuffer = mal_aligned_malloc(bufferSizeInBytes, MA_SIMD_ALIGNMENT);
         if (pRB->pBuffer == NULL) {
-            return MAL_OUT_OF_MEMORY;
+            return MA_OUT_OF_MEMORY;
         }
 
         mal_zero_memory(pRB->pBuffer, bufferSizeInBytes);
-        pRB->ownsBuffer = MAL_TRUE;
+        pRB->ownsBuffer = MA_TRUE;
     }
 
-    return MAL_SUCCESS;
+    return MA_SUCCESS;
 }
 
 mal_result mal_rb_init(size_t bufferSizeInBytes, void* pOptionalPreallocatedBuffer, mal_rb* pRB)
@@ -197,7 +197,7 @@ void mal_rb_uninit(mal_rb* pRB)
 mal_result mal_rb_acquire_read(mal_rb* pRB, size_t* pSizeInBytes, void** ppBufferOut)
 {
     if (pRB == NULL || pSizeInBytes == NULL || ppBufferOut == NULL) {
-        return MAL_INVALID_ARGS;
+        return MA_INVALID_ARGS;
     }
 
     // The returned buffer should never move ahead of the write pointer.
@@ -228,18 +228,18 @@ mal_result mal_rb_acquire_read(mal_rb* pRB, size_t* pSizeInBytes, void** ppBuffe
     *pSizeInBytes = bytesRequested;
     (*ppBufferOut) = mal_rb__get_read_ptr(pRB);
 
-    return MAL_SUCCESS;
+    return MA_SUCCESS;
 }
 
 mal_result mal_rb_commit_read(mal_rb* pRB, size_t sizeInBytes, void* pBufferOut)
 {
     if (pRB == NULL) {
-        return MAL_INVALID_ARGS;
+        return MA_INVALID_ARGS;
     }
 
     // Validate the buffer.
     if (pBufferOut != mal_rb__get_read_ptr(pRB)) {
-        return MAL_INVALID_ARGS;
+        return MA_INVALID_ARGS;
     }
 
     mal_uint32 readOffset = pRB->encodedReadOffset;
@@ -250,7 +250,7 @@ mal_result mal_rb_commit_read(mal_rb* pRB, size_t sizeInBytes, void* pBufferOut)
     // Check that sizeInBytes is correct. It should never go beyond the end of the buffer.
     mal_uint32 newReadOffsetInBytes = (mal_uint32)(readOffsetInBytes + sizeInBytes);
     if (newReadOffsetInBytes > pRB->subbufferSizeInBytes) {
-        return MAL_INVALID_ARGS;    // <-- sizeInBytes will cause the read offset to overflow.
+        return MA_INVALID_ARGS;    // <-- sizeInBytes will cause the read offset to overflow.
     }
 
     // Move the read pointer back to the start if necessary.
@@ -261,13 +261,13 @@ mal_result mal_rb_commit_read(mal_rb* pRB, size_t sizeInBytes, void* pBufferOut)
     }
 
     mal_atomic_exchange_32(&pRB->encodedReadOffset, mal_rb__construct_offset(newReadOffsetLoopFlag, newReadOffsetInBytes));
-    return MAL_SUCCESS;
+    return MA_SUCCESS;
 }
 
 mal_result mal_rb_acquire_write(mal_rb* pRB, size_t* pSizeInBytes, void** ppBufferOut)
 {
     if (pRB == NULL || pSizeInBytes == NULL || ppBufferOut == NULL) {
-        return MAL_INVALID_ARGS;
+        return MA_INVALID_ARGS;
     }
 
     // The returned buffer should never overtake the read buffer.
@@ -304,18 +304,18 @@ mal_result mal_rb_acquire_write(mal_rb* pRB, size_t* pSizeInBytes, void** ppBuff
         mal_zero_memory(*ppBufferOut, *pSizeInBytes);
     }
 
-    return MAL_SUCCESS;
+    return MA_SUCCESS;
 }
 
 mal_result mal_rb_commit_write(mal_rb* pRB, size_t sizeInBytes, void* pBufferOut)
 {
     if (pRB == NULL) {
-        return MAL_INVALID_ARGS;
+        return MA_INVALID_ARGS;
     }
 
     // Validate the buffer.
     if (pBufferOut != mal_rb__get_write_ptr(pRB)) {
-        return MAL_INVALID_ARGS;
+        return MA_INVALID_ARGS;
     }
 
     mal_uint32 writeOffset = pRB->encodedWriteOffset;
@@ -326,7 +326,7 @@ mal_result mal_rb_commit_write(mal_rb* pRB, size_t sizeInBytes, void* pBufferOut
     // Check that sizeInBytes is correct. It should never go beyond the end of the buffer.
     mal_uint32 newWriteOffsetInBytes = (mal_uint32)(writeOffsetInBytes + sizeInBytes);
     if (newWriteOffsetInBytes > pRB->subbufferSizeInBytes) {
-        return MAL_INVALID_ARGS;    // <-- sizeInBytes will cause the read offset to overflow.
+        return MA_INVALID_ARGS;    // <-- sizeInBytes will cause the read offset to overflow.
     }
 
     // Move the read pointer back to the start if necessary.
@@ -337,13 +337,13 @@ mal_result mal_rb_commit_write(mal_rb* pRB, size_t sizeInBytes, void* pBufferOut
     }
 
     mal_atomic_exchange_32(&pRB->encodedWriteOffset, mal_rb__construct_offset(newWriteOffsetLoopFlag, newWriteOffsetInBytes));
-    return MAL_SUCCESS;
+    return MA_SUCCESS;
 }
 
 mal_result mal_rb_seek_read(mal_rb* pRB, size_t offsetInBytes)
 {
     if (pRB == NULL || offsetInBytes > pRB->subbufferSizeInBytes) {
-        return MAL_INVALID_ARGS;
+        return MA_INVALID_ARGS;
     }
 
     mal_uint32 readOffset = pRB->encodedReadOffset;
@@ -377,13 +377,13 @@ mal_result mal_rb_seek_read(mal_rb* pRB, size_t offsetInBytes)
     }
 
     mal_atomic_exchange_32(&pRB->encodedReadOffset, mal_rb__construct_offset(newReadOffsetInBytes, newReadOffsetLoopFlag));
-    return MAL_SUCCESS;
+    return MA_SUCCESS;
 }
 
 mal_result mal_rb_seek_write(mal_rb* pRB, size_t offsetInBytes)
 {
     if (pRB == NULL) {
-        return MAL_INVALID_ARGS;
+        return MA_INVALID_ARGS;
     }
 
     mal_uint32 readOffset = pRB->encodedReadOffset;
@@ -417,7 +417,7 @@ mal_result mal_rb_seek_write(mal_rb* pRB, size_t offsetInBytes)
     }
 
     mal_atomic_exchange_32(&pRB->encodedWriteOffset, mal_rb__construct_offset(newWriteOffsetInBytes, newWriteOffsetLoopFlag));
-    return MAL_SUCCESS;
+    return MA_SUCCESS;
 }
 
 mal_int32 mal_rb_pointer_distance(mal_rb* pRB)
@@ -487,25 +487,25 @@ mal_uint32 mal_pcm_rb_get_bpf(mal_pcm_rb* pRB)
 mal_result mal_pcm_rb_init_ex(mal_format format, mal_uint32 channels, size_t subbufferSizeInFrames, size_t subbufferCount, size_t subbufferStrideInFrames, void* pOptionalPreallocatedBuffer, mal_pcm_rb* pRB)
 {
     if (pRB == NULL) {
-        return MAL_INVALID_ARGS;
+        return MA_INVALID_ARGS;
     }
 
     mal_zero_object(pRB);
 
     mal_uint32 bpf = mal_get_bytes_per_frame(format, channels);
     if (bpf == 0) {
-        return MAL_INVALID_ARGS;
+        return MA_INVALID_ARGS;
     }
 
     mal_result result = mal_rb_init_ex(subbufferSizeInFrames*bpf, subbufferCount, subbufferStrideInFrames*bpf, pOptionalPreallocatedBuffer, &pRB->rb);
-    if (result != MAL_SUCCESS) {
+    if (result != MA_SUCCESS) {
         return result;
     }
 
     pRB->format   = format;
     pRB->channels = channels;
 
-    return MAL_SUCCESS;
+    return MA_SUCCESS;
 }
 
 mal_result mal_pcm_rb_init(mal_format format, mal_uint32 channels, size_t bufferSizeInFrames, void* pOptionalPreallocatedBuffer, mal_pcm_rb* pRB)
@@ -528,24 +528,24 @@ mal_result mal_pcm_rb_acquire_read(mal_pcm_rb* pRB, size_t* pSizeInFrames, void*
     mal_result result;
 
     if (pRB == NULL || pSizeInFrames == NULL) {
-        return MAL_INVALID_ARGS;
+        return MA_INVALID_ARGS;
     }
 
     sizeInBytes = *pSizeInFrames * mal_pcm_rb_get_bpf(pRB);
 
     result = mal_rb_acquire_read(&pRB->rb, &sizeInBytes, ppBufferOut);
-    if (result != MAL_SUCCESS) {
+    if (result != MA_SUCCESS) {
         return result;
     }
 
     *pSizeInFrames = sizeInBytes / mal_pcm_rb_get_bpf(pRB);
-    return MAL_SUCCESS;
+    return MA_SUCCESS;
 }
 
 mal_result mal_pcm_rb_commit_read(mal_pcm_rb* pRB, size_t sizeInFrames, void* pBufferOut)
 {
     if (pRB == NULL) {
-        return MAL_INVALID_ARGS;
+        return MA_INVALID_ARGS;
     }
 
     return mal_rb_commit_read(&pRB->rb, sizeInFrames * mal_pcm_rb_get_bpf(pRB), pBufferOut);
@@ -557,24 +557,24 @@ mal_result mal_pcm_rb_acquire_write(mal_pcm_rb* pRB, size_t* pSizeInFrames, void
     mal_result result;
 
     if (pRB == NULL) {
-        return MAL_INVALID_ARGS;
+        return MA_INVALID_ARGS;
     }
 
     sizeInBytes = *pSizeInFrames * mal_pcm_rb_get_bpf(pRB);
 
     result = mal_rb_acquire_write(&pRB->rb, &sizeInBytes, ppBufferOut);
-    if (result != MAL_SUCCESS) {
+    if (result != MA_SUCCESS) {
         return result;
     }
 
     *pSizeInFrames = sizeInBytes / mal_pcm_rb_get_bpf(pRB);
-    return MAL_SUCCESS;
+    return MA_SUCCESS;
 }
 
 mal_result mal_pcm_rb_commit_write(mal_pcm_rb* pRB, size_t sizeInFrames, void* pBufferOut)
 {
     if (pRB == NULL) {
-        return MAL_INVALID_ARGS;
+        return MA_INVALID_ARGS;
     }
 
     return mal_rb_commit_write(&pRB->rb, sizeInFrames * mal_pcm_rb_get_bpf(pRB), pBufferOut);
@@ -583,7 +583,7 @@ mal_result mal_pcm_rb_commit_write(mal_pcm_rb* pRB, size_t sizeInFrames, void* p
 mal_result mal_pcm_rb_seek_read(mal_pcm_rb* pRB, size_t offsetInFrames)
 {
     if (pRB == NULL) {
-        return MAL_INVALID_ARGS;
+        return MA_INVALID_ARGS;
     }
 
     return mal_rb_seek_read(&pRB->rb, offsetInFrames * mal_pcm_rb_get_bpf(pRB));
@@ -592,7 +592,7 @@ mal_result mal_pcm_rb_seek_read(mal_pcm_rb* pRB, size_t offsetInFrames)
 mal_result mal_pcm_rb_seek_write(mal_pcm_rb* pRB, size_t offsetInFrames)
 {
     if (pRB == NULL) {
-        return MAL_INVALID_ARGS;
+        return MA_INVALID_ARGS;
     }
 
     return mal_rb_seek_write(&pRB->rb, offsetInFrames * mal_pcm_rb_get_bpf(pRB));
@@ -601,7 +601,7 @@ mal_result mal_pcm_rb_seek_write(mal_pcm_rb* pRB, size_t offsetInFrames)
 mal_int32 mal_pcm_rb_pointer_disance(mal_pcm_rb* pRB)
 {
     if (pRB == NULL) {
-        return MAL_INVALID_ARGS;
+        return MA_INVALID_ARGS;
     }
 
     return mal_rb_pointer_distance(&pRB->rb) / mal_pcm_rb_get_bpf(pRB);

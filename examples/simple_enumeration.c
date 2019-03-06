@@ -9,7 +9,7 @@ int main(int argc, char** argv)
     (void)argv;
 
     mal_context context;
-    if (mal_context_init(NULL, 0, NULL, &context) != MAL_SUCCESS) {
+    if (mal_context_init(NULL, 0, NULL, &context) != MA_SUCCESS) {
         printf("Failed to initialize context.\n");
         return -2;
     }
@@ -19,7 +19,7 @@ int main(int argc, char** argv)
     mal_device_info* pCaptureDeviceInfos;
     mal_uint32 captureDeviceCount;
     mal_result result = mal_context_get_devices(&context, &pPlaybackDeviceInfos, &playbackDeviceCount, &pCaptureDeviceInfos, &captureDeviceCount);
-    if (result != MAL_SUCCESS) {
+    if (result != MA_SUCCESS) {
         printf("Failed to retrieve device information.\n");
         return -3;
     }

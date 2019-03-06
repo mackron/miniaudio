@@ -1,7 +1,7 @@
 #define DR_WAV_IMPLEMENTATION
 #include "../../../../dr_libs/dr_wav.h"
 
-#define MAL_DEBUG_OUTPUT
+#define MA_DEBUG_OUTPUT
 #define MINIAUDIO_IMPLEMENTATION
 #include "../../miniaudio.h"
 #include "../mal_resampler.h"
@@ -38,7 +38,7 @@ int main(int argc, char** argv)
     resamplerConfig.pUserData = NULL;
 
     result = mal_resampler_init(&resamplerConfig, &resampler);
-    if (result != MAL_SUCCESS) {
+    if (result != MA_SUCCESS) {
         printf("Failed to initialize resampler.\n");
         return -1;
     }

@@ -42,14 +42,14 @@ int main(int argc, char** argv)
     config.pUserData         = &sineWave;
 
     mal_device device;
-    if (mal_device_init(NULL, &config, &device) != MAL_SUCCESS) {
+    if (mal_device_init(NULL, &config, &device) != MA_SUCCESS) {
         printf("Failed to open playback device.\n");
         return -4;
     }
 
     printf("Device Name: %s\n", device.playback.name);
 
-    if (mal_device_start(&device) != MAL_SUCCESS) {
+    if (mal_device_start(&device) != MA_SUCCESS) {
         printf("Failed to start playback device.\n");
         mal_device_uninit(&device);
         return -5;

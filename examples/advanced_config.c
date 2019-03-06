@@ -55,7 +55,7 @@ int main(int argc, char** argv)
     // During initialization, PulseAudio can try to automatically start the PulseAudio daemon. This does not
     // suit miniaudio's trial and error backend initialization architecture so it's disabled by default, but you
     // can enable it like so:
-    contextConfig.pulse.tryAutoSpawn = MAL_TRUE;
+    contextConfig.pulse.tryAutoSpawn = MA_TRUE;
 
 
     // ALSA
@@ -65,7 +65,7 @@ int main(int argc, char** argv)
     // combat this, miniaudio will include only unique card/device pairs by default. The problem with this is that
     // you lose a bit of flexibility and control. Setting alsa.useVerboseDeviceEnumeration makes it so the ALSA
     // backend includes all devices (and there's a lot of them!).
-    contextConfig.alsa.useVerboseDeviceEnumeration = MAL_TRUE;
+    contextConfig.alsa.useVerboseDeviceEnumeration = MA_TRUE;
 
 
     // JACK
@@ -75,7 +75,7 @@ int main(int argc, char** argv)
     contextConfig.jack.pClientName = "My Application";
 
     // Also like PulseAudio, you can have JACK try to automatically start using the following:
-    contextConfig.jack.tryStartServer = MAL_TRUE;
+    contextConfig.jack.tryStartServer = MA_TRUE;
 
 
 
@@ -100,7 +100,7 @@ int main(int argc, char** argv)
     };
 
     mal_context context;
-    if (mal_context_init(backends, sizeof(backends)/sizeof(backends[0]), &contextConfig, &context) != MAL_SUCCESS) {
+    if (mal_context_init(backends, sizeof(backends)/sizeof(backends[0]), &contextConfig, &context) != MA_SUCCESS) {
         printf("Failed to initialize context.");
         return -2;
     }
@@ -112,7 +112,7 @@ int main(int argc, char** argv)
     mal_device_info* pCaptureDeviceInfos;
     mal_uint32 captureDeviceCount;
     mal_result result = mal_context_get_devices(&context, &pPlaybackDeviceInfos, &playbackDeviceCount, &pCaptureDeviceInfos, &captureDeviceCount);
-    if (result != MAL_SUCCESS) {
+    if (result != MA_SUCCESS) {
         printf("Failed to retrieve device information.\n");
         return -3;
     }
@@ -154,21 +154,21 @@ int main(int argc, char** argv)
     // miniaudio allows applications to control the mapping of channels. The config below swaps the left and right
     // channels. Normally in an interleaved audio stream, the left channel comes first, but we can change that
     // like the following:
-    deviceConfig.playback.channelMap[0] = MAL_CHANNEL_FRONT_RIGHT;
-    deviceConfig.playback.channelMap[1] = MAL_CHANNEL_FRONT_LEFT;
+    deviceConfig.playback.channelMap[0] = MA_CHANNEL_FRONT_RIGHT;
+    deviceConfig.playback.channelMap[1] = MA_CHANNEL_FRONT_LEFT;
 
     // The ALSA backend has two ways of delivering data to and from a device: memory mapping and read/write. By
     // default memory mapping will be used over read/write because it avoids a single point of data movement
     // internally and is thus, theoretically, more efficient. In testing, however, this has been less stable than
     // read/write mode so an option exists to disable it if need be. This is mainly for debugging, but is left
     // here in case it might be useful for others. If you find a bug specific to mmap mode, please report it!
-    deviceConfig.alsa.noMMap = MAL_TRUE;
+    deviceConfig.alsa.noMMap = MA_TRUE;
 
     // This is not used in this example, but miniaudio allows you to directly control the device ID that's used
     // for device selection by mal_device_init(). Below is an example for ALSA. In this example it forces
     // mal_device_init() to try opening the "hw:0,0" device. This is useful for debugging in case you have
     // audio glitches or whatnot with specific devices.
-#ifdef MAL_SUPPORT_ALSA
+#ifdef MA_SUPPORT_ALSA
     mal_device_id customDeviceID;
     if (context.backend == mal_backend_alsa) {
         strcpy(customDeviceID.alsa, "hw:0,0");
@@ -182,13 +182,13 @@ int main(int argc, char** argv)
 #endif
 
     mal_device playbackDevice;
-    if (mal_device_init(&context, &deviceConfig, &playbackDevice) != MAL_SUCCESS) {
+    if (mal_device_init(&context, &deviceConfig, &playbackDevice) != MA_SUCCESS) {
         printf("Failed to initialize playback device.\n");
         mal_context_uninit(&context);
         return -7;
     }
 
-    if (mal_device_start(&playbackDevice) != MAL_SUCCESS) {
+    if (mal_device_start(&playbackDevice) != MA_SUCCESS) {
         printf("Failed to start playback device.\n");
         mal_device_uninit(&playbackDevice);
         mal_context_uninit(&context);

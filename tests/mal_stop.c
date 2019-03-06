@@ -6,7 +6,7 @@
 mal_sine_wave sineWave;
 mal_uint32 framesWritten;
 mal_event stopEvent;
-mal_bool32 isInitialRun = MAL_TRUE;
+mal_bool32 isInitialRun = MA_TRUE;
 
 void on_stop(mal_device* pDevice)
 {
@@ -35,7 +35,7 @@ void on_data(mal_device* pDevice, void* pOutput, const void* pInput, mal_uint32 
         if (isInitialRun) {
             printf("STOPPING [AUDIO THREAD]...\n");
             mal_event_signal(&stopEvent);
-            isInitialRun = MAL_FALSE;
+            isInitialRun = MA_FALSE;
         }
     }
 }
@@ -61,13 +61,13 @@ int main(int argc, char** argv)
 
     mal_device device;
     result = mal_device_init_ex(&backend, 1, NULL, &config, &device);
-    if (result != MAL_SUCCESS) {
+    if (result != MA_SUCCESS) {
         printf("Failed to initialize device.\n");
         return result;
     }
 
     result = mal_event_init(device.pContext, &stopEvent);
-    if (result != MAL_SUCCESS) {
+    if (result != MA_SUCCESS) {
         printf("Failed to initialize stop event.\n");
         return result;
     }
@@ -84,7 +84,7 @@ int main(int argc, char** argv)
     getchar();
 
     result = mal_device_start(&device);
-    if (result != MAL_SUCCESS) {
+    if (result != MA_SUCCESS) {
         printf("Failed to restart the device.\n");
         mal_device_uninit(&device);
         return -1;

@@ -1,8 +1,8 @@
 // We're using sigvis for visualizations. This will include miniaudio for us, so no need to include miniaudio in this file.
 #define NO_SIGVIS
 
-#define MAL_NO_SSE2
-#define MAL_NO_AVX2
+#define MA_NO_SSE2
+#define MA_NO_AVX2
 
 #ifdef NO_SIGVIS
     #define MINIAUDIO_IMPLEMENTATION
@@ -117,7 +117,7 @@ int main(int argc, char** argv)
 
     // We first play the sound the way it's meant to be played.
     result = mal_device_init(NULL, &config, &device);
-    if (result != MAL_SUCCESS) {
+    if (result != MA_SUCCESS) {
         return -1;
     }
 
@@ -129,10 +129,10 @@ int main(int argc, char** argv)
 
     mal_src_config srcConfig = mal_src_config_init(sampleRateIn, sampleRateOut, 1, on_src, NULL);
     srcConfig.algorithm = mal_src_algorithm_sinc;
-    srcConfig.neverConsumeEndOfInput = MAL_TRUE;
+    srcConfig.neverConsumeEndOfInput = MA_TRUE;
 
     result = mal_src_init(&srcConfig, &src);
-    if (result != MAL_SUCCESS) {
+    if (result != MA_SUCCESS) {
         printf("Failed to create SRC.\n");
         return -1;
     }
@@ -142,14 +142,14 @@ int main(int argc, char** argv)
 #ifndef NO_SIGVIS
     msigvis_context sigvis;
     result = msigvis_init(&sigvis);
-    if (result != MAL_SUCCESS) {
+    if (result != MA_SUCCESS) {
         printf("Failed to initialize mini_sigvis context.\n");
         return -1;
     }
 
     msigvis_screen screen;
     result = msigvis_screen_init(&sigvis, 1280, 720, &screen);
-    if (result != MAL_SUCCESS) {
+    if (result != MA_SUCCESS) {
         printf("Failed to initialize mini_sigvis screen.\n");
         return -2;
     }
@@ -159,7 +159,7 @@ int main(int argc, char** argv)
 
     msigvis_channel channelSineWave;
     result = msigvis_channel_init(&sigvis, mal_format_f32, sampleRateOut, &channelSineWave);
-    if (result != MAL_SUCCESS) {
+    if (result != MA_SUCCESS) {
         printf("Failed to initialize mini_sigvis channel.\n");
         return -3;
     }
@@ -198,7 +198,7 @@ int main(int argc, char** argv)
 #else
 
     result = mal_device_start(&device);
-    if (result != MAL_SUCCESS) {
+    if (result != MA_SUCCESS) {
         return -2;
     }
 

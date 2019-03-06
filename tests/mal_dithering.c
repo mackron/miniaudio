@@ -1,5 +1,5 @@
-#define MAL_DEBUG_OUTPUT
-#define MAL_USE_REFERENCE_CONVERSION_APIS
+#define MA_DEBUG_OUTPUT
+#define MA_USE_REFERENCE_CONVERSION_APIS
 #define MINIAUDIO_IMPLEMENTATION
 #include "../miniaudio.h"
 
@@ -68,14 +68,14 @@ int do_dithering_test()
 
     // We first play the sound the way it's meant to be played.
     result = mal_device_init(NULL, &config, &device);
-    if (result != MAL_SUCCESS) {
+    if (result != MA_SUCCESS) {
         return -1;
     }
 
     mal_sine_wave_init(0.5, 400, device.sampleRate, &sineWave);
 
     result = mal_device_start(&device);
-    if (result != MAL_SUCCESS) {
+    if (result != MA_SUCCESS) {
         return -2;
     }
 
@@ -96,7 +96,7 @@ int do_dithering_test()
     converterInConfig.onRead = on_convert_samples_in;
     converterInConfig.pUserData = &sineWave;
     result = mal_format_converter_init(&converterInConfig, &converterIn);
-    if (result != MAL_SUCCESS) {
+    if (result != MA_SUCCESS) {
         return -3;
     }
 
@@ -108,7 +108,7 @@ int do_dithering_test()
     converterOutConfig.onRead = on_convert_samples_out;
     converterOutConfig.pUserData = &converterIn;
     result = mal_format_converter_init(&converterOutConfig, &converterOut);
-    if (result != MAL_SUCCESS) {
+    if (result != MA_SUCCESS) {
         return -3;
     }
 
@@ -117,7 +117,7 @@ int do_dithering_test()
     config.pUserData = &converterOut;
 
     result = mal_device_init(NULL, &config, &device);
-    if (result != MAL_SUCCESS) {
+    if (result != MA_SUCCESS) {
         return -1;
     }
 
@@ -125,7 +125,7 @@ int do_dithering_test()
     mal_sine_wave_init(0.5, 400, device.sampleRate, &sineWave);
 
     result = mal_device_start(&device);
-    if (result != MAL_SUCCESS) {
+    if (result != MA_SUCCESS) {
         return -2;
     }
 

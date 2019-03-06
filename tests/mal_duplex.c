@@ -1,6 +1,6 @@
 #include <stdio.h>
 
-#define MAL_DEBUG_OUTPUT
+#define MA_DEBUG_OUTPUT
 #define MINIAUDIO_IMPLEMENTATION
 #include "../miniaudio.h"
 
@@ -68,7 +68,7 @@ int main(int argc, char** argv)
 
     mal_context context;
     result = mal_context_init(&backend, 1, &contextConfig, &context);
-    if (result != MAL_SUCCESS) {
+    if (result != MA_SUCCESS) {
         printf("Failed to initialize context.\n");
         return result;
     }
@@ -91,7 +91,7 @@ int main(int argc, char** argv)
 
     mal_device device;
     result = mal_device_init(&context, &deviceConfig, &device);
-    if (result != MAL_SUCCESS) {
+    if (result != MA_SUCCESS) {
         return result;
     }
 

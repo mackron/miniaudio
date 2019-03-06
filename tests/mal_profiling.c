@@ -196,7 +196,7 @@ void pcm_convert__optimized(void* pOut, mal_format formatOut, const void* pIn, m
     }
 }
 
-#if defined(MAL_SUPPORT_SSE2)
+#if defined(MA_SUPPORT_SSE2)
 void pcm_convert__sse2(void* pOut, mal_format formatOut, const void* pIn, mal_format formatIn, mal_uint64 sampleCount, mal_dither_mode ditherMode)
 {
     switch (formatIn)
@@ -266,7 +266,7 @@ void pcm_convert__sse2(void* pOut, mal_format formatOut, const void* pIn, mal_fo
 }
 #endif
 
-#if defined(MAL_SUPPORT_AVX2)
+#if defined(MA_SUPPORT_AVX2)
 void pcm_convert__avx(void* pOut, mal_format formatOut, const void* pIn, mal_format formatIn, mal_uint64 sampleCount, mal_dither_mode ditherMode)
 {
     switch (formatIn)
@@ -336,7 +336,7 @@ void pcm_convert__avx(void* pOut, mal_format formatOut, const void* pIn, mal_for
 }
 #endif
 
-#if defined(MAL_SUPPORT_AVX512)
+#if defined(MA_SUPPORT_AVX512)
 void pcm_convert__avx512(void* pOut, mal_format formatOut, const void* pIn, mal_format formatIn, mal_uint64 sampleCount, mal_dither_mode ditherMode)
 {
     switch (formatIn)
@@ -406,7 +406,7 @@ void pcm_convert__avx512(void* pOut, mal_format formatOut, const void* pIn, mal_
 }
 #endif
 
-#if defined(MAL_SUPPORT_NEON)
+#if defined(MA_SUPPORT_NEON)
 void pcm_convert__neon(void* pOut, mal_format formatOut, const void* pIn, mal_format formatIn, mal_uint64 sampleCount, mal_dither_mode ditherMode)
 {
     switch (formatIn)
@@ -488,28 +488,28 @@ void pcm_convert(void* pOut, mal_format formatOut, const void* pIn, mal_format f
             pcm_convert__optimized(pOut, formatOut, pIn, formatIn, sampleCount, ditherMode);
         } break;
 
-#if defined(MAL_SUPPORT_SSE2)
+#if defined(MA_SUPPORT_SSE2)
         case simd_mode_sse2:
         {
             pcm_convert__sse2(pOut, formatOut, pIn, formatIn, sampleCount, ditherMode);
         } break;
 #endif
         
-#if defined(MAL_SUPPORT_AVX2)
+#if defined(MA_SUPPORT_AVX2)
         case simd_mode_avx2:
         {
             pcm_convert__avx(pOut, formatOut, pIn, formatIn, sampleCount, ditherMode);
         } break;
 #endif
 
-#if defined(MAL_SUPPORT_AVX512)
+#if defined(MA_SUPPORT_AVX512)
         case simd_mode_avx512:
         {
             pcm_convert__avx512(pOut, formatOut, pIn, formatIn, sampleCount, ditherMode);
         } break;
 #endif
         
-#if defined(MAL_SUPPORT_NEON)
+#if defined(MA_SUPPORT_NEON)
         case simd_mode_neon:
         {
             pcm_convert__neon(pOut, formatOut, pIn, formatIn, sampleCount, ditherMode);
@@ -523,7 +523,7 @@ void pcm_convert(void* pOut, mal_format formatOut, const void* pIn, mal_format f
 
 int do_profiling__format_conversion__profile_individual(mal_format formatIn, mal_format formatOut, mal_dither_mode ditherMode, const void* pBaseData, mal_uint64 sampleCount, simd_mode mode, const void* pReferenceData, double referenceTime)
 {
-    void* pTestData = mal_aligned_malloc((size_t)(sampleCount * mal_get_bytes_per_sample(formatOut)), MAL_SIMD_ALIGNMENT);
+    void* pTestData = mal_aligned_malloc((size_t)(sampleCount * mal_get_bytes_per_sample(formatOut)), MA_SIMD_ALIGNMENT);
     if (pTestData == NULL) {
         printf("Out of memory.\n");
         return -1;
@@ -539,7 +539,7 @@ int do_profiling__format_conversion__profile_individual(mal_format formatIn, mal
 
 
     // Compare with the reference for correctness.
-    mal_bool32 passed = MAL_TRUE;
+    mal_bool32 passed = MA_TRUE;
     for (mal_uint64 iSample = 0; iSample < sampleCount; ++iSample) {
         mal_uint32 bps = mal_get_bytes_per_sample(formatOut);
 
@@ -552,7 +552,7 @@ int do_profiling__format_conversion__profile_individual(mal_format formatIn, mal
                 mal_int16 b = ((const mal_int16*)pTestData)[iSample];
                 if (abs(a-b) > 0) {
                     printf("Incorrect Sample: (%d) %d != %d\n", (int)iSample, a, b);
-                    passed = MAL_FALSE;
+                    passed = MA_FALSE;
                 }
             } break;
 
@@ -560,7 +560,7 @@ int do_profiling__format_conversion__profile_individual(mal_format formatIn, mal
             {
                 if (memcmp(mal_offset_ptr(pReferenceData, iSample*bps), mal_offset_ptr(pTestData, iSample*bps), bps) != 0) {
                     printf("Incorrect Sample: (%d)\n", (int)iSample);
-                    passed = MAL_FALSE;
+                    passed = MA_FALSE;
                 }
             } break;
         }
@@ -582,7 +582,7 @@ int do_profiling__format_conversion__profile_set(mal_format formatIn, mal_format
     // Generate our base data to begin with. This is generated from an f32 sine wave which is converted to formatIn. That then becomes our base data.
     mal_uint32 sampleCount = 10000000;
 
-    float* pSourceData = (float*)mal_aligned_malloc(sampleCount*sizeof(*pSourceData), MAL_SIMD_ALIGNMENT);
+    float* pSourceData = (float*)mal_aligned_malloc(sampleCount*sizeof(*pSourceData), MA_SIMD_ALIGNMENT);
     if (pSourceData == NULL) {
         printf("Out of memory.\n");
         return -1;
@@ -592,12 +592,12 @@ int do_profiling__format_conversion__profile_set(mal_format formatIn, mal_format
     mal_sine_wave_init(1.0, 400, 48000, &sineWave);
     mal_sine_wave_read_f32(&sineWave, sampleCount, pSourceData);
 
-    void* pBaseData = mal_aligned_malloc(sampleCount * mal_get_bytes_per_sample(formatIn), MAL_SIMD_ALIGNMENT);
+    void* pBaseData = mal_aligned_malloc(sampleCount * mal_get_bytes_per_sample(formatIn), MA_SIMD_ALIGNMENT);
     mal_pcm_convert(pBaseData, formatIn, pSourceData, mal_format_f32, sampleCount, mal_dither_mode_none);
 
 
     // Reference first so we can get a benchmark.
-    void* pReferenceData = mal_aligned_malloc(sampleCount * mal_get_bytes_per_sample(formatOut), MAL_SIMD_ALIGNMENT);
+    void* pReferenceData = mal_aligned_malloc(sampleCount * mal_get_bytes_per_sample(formatOut), MA_SIMD_ALIGNMENT);
     mal_timer timer;
     mal_timer_init(&timer);
     double referenceTime = mal_timer_get_time_in_seconds(&timer);
@@ -664,12 +664,12 @@ mal_bool32 channel_router_test(mal_uint32 channels, mal_uint64 frameCount, float
     for (mal_uint32 iChannel = 0; iChannel < channels; ++iChannel) {
         for (mal_uint32 iFrame = 0; iFrame < frameCount; ++iFrame) {
             if (ppFramesA[iChannel][iFrame] != ppFramesB[iChannel][iFrame]) {
-                return MAL_FALSE;
+                return MA_FALSE;
             }
         }
     }
 
-    return MAL_TRUE;
+    return MA_TRUE;
 }
 
 mal_uint32 channel_router_on_read(mal_channel_router* pRouter, mal_uint32 frameCount, void** ppSamplesOut, void* pUserData)
@@ -694,26 +694,26 @@ int do_profiling__channel_routing()
     // When profiling we need to compare against a benchmark to ensure the optimization is implemented correctly. We always
     // use the reference implementation for our benchmark.
     mal_uint32 channels = mal_countof(g_ChannelRouterProfilingOutputBenchmark);
-    mal_channel channelMapIn[MAL_MAX_CHANNELS];
+    mal_channel channelMapIn[MA_MAX_CHANNELS];
     mal_get_standard_channel_map(mal_standard_channel_map_default, channels, channelMapIn);
-    mal_channel channelMapOut[MAL_MAX_CHANNELS];
+    mal_channel channelMapOut[MA_MAX_CHANNELS];
     mal_get_standard_channel_map(mal_standard_channel_map_default, channels, channelMapOut);
 
     mal_channel_router_config routerConfig = mal_channel_router_config_init(channels, channelMapIn, channels, channelMapOut, mal_channel_mix_mode_planar_blend, channel_router_on_read, NULL);
 
     mal_channel_router router;
     result = mal_channel_router_init(&routerConfig, &router);
-    if (result != MAL_SUCCESS) {
+    if (result != MA_SUCCESS) {
         return -1;
     }
 
     // Disable optimizations for our tests.
-    router.isPassthrough = MAL_FALSE;
-    router.isSimpleShuffle = MAL_FALSE;
-    router.useSSE2 = MAL_FALSE;
-    router.useAVX2 = MAL_FALSE;
-    router.useAVX512 = MAL_FALSE;
-    router.useNEON = MAL_FALSE;
+    router.isPassthrough = MA_FALSE;
+    router.isSimpleShuffle = MA_FALSE;
+    router.useSSE2 = MA_FALSE;
+    router.useAVX2 = MA_FALSE;
+    router.useAVX512 = MA_FALSE;
+    router.useNEON = MA_FALSE;
 
     mal_uint64 framesToRead = mal_countof(g_ChannelRouterProfilingOutputBenchmark[0]);
 
@@ -761,7 +761,7 @@ int do_profiling__channel_routing()
 
     // SSE2
     if (mal_has_sse2()) {
-        router.useSSE2 = MAL_TRUE;
+        router.useSSE2 = MA_TRUE;
         mal_timer timer;
         mal_timer_init(&timer);
         double startTime = mal_timer_get_time_in_seconds(&timer);
@@ -772,7 +772,7 @@ int do_profiling__channel_routing()
         }
 
         g_ChannelRouterTime_SSE2 = mal_timer_get_time_in_seconds(&timer) - startTime;
-        router.useSSE2 = MAL_FALSE;
+        router.useSSE2 = MA_FALSE;
 
         if (!channel_router_test(channels, framesRead, (float**)ppOutBenchmark, (float**)ppOut)) {
             printf("  [ERROR] ");
@@ -785,7 +785,7 @@ int do_profiling__channel_routing()
 
     // AVX2
     if (mal_has_avx2()) {
-        router.useAVX2 = MAL_TRUE;
+        router.useAVX2 = MA_TRUE;
         mal_timer timer;
         mal_timer_init(&timer);
         double startTime = mal_timer_get_time_in_seconds(&timer);
@@ -796,7 +796,7 @@ int do_profiling__channel_routing()
         }
 
         g_ChannelRouterTime_AVX2 = mal_timer_get_time_in_seconds(&timer) - startTime;
-        router.useAVX2 = MAL_FALSE;
+        router.useAVX2 = MA_FALSE;
 
         if (!channel_router_test(channels, framesRead, (float**)ppOutBenchmark, (float**)ppOut)) {
             printf("  [ERROR] ");
@@ -809,7 +809,7 @@ int do_profiling__channel_routing()
 
     // NEON
     if (mal_has_neon()) {
-        router.useNEON = MAL_TRUE;
+        router.useNEON = MA_TRUE;
         mal_timer timer;
         mal_timer_init(&timer);
         double startTime = mal_timer_get_time_in_seconds(&timer);
@@ -820,7 +820,7 @@ int do_profiling__channel_routing()
         }
 
         g_ChannelRouterTime_NEON = mal_timer_get_time_in_seconds(&timer) - startTime;
-        router.useNEON = MAL_FALSE;
+        router.useNEON = MA_FALSE;
 
         if (!channel_router_test(channels, framesRead, (float**)ppOutBenchmark, (float**)ppOut)) {
             printf("  [ERROR] ");
@@ -843,7 +843,7 @@ int do_profiling__channel_routing()
 
 typedef struct
 {
-    float* pFrameData[MAL_MAX_CHANNELS];
+    float* pFrameData[MA_MAX_CHANNELS];
     mal_uint64 frameCount;
     mal_uint32 channels;
     double timeTaken;
@@ -851,7 +851,7 @@ typedef struct
 
 typedef struct
 {
-    float* pFrameData[MAL_MAX_CHANNELS];
+    float* pFrameData[MA_MAX_CHANNELS];
     mal_uint64 frameCount;
     mal_uint64 iNextFrame;
     mal_uint32 channels;
@@ -888,21 +888,21 @@ mal_result init_src(src_data* pBaseData, mal_uint32 sampleRateIn, mal_uint32 sam
     mal_src_config srcConfig = mal_src_config_init(sampleRateIn, sampleRateOut, pBaseData->channels, do_profiling__src__on_read, pBaseData);
     srcConfig.sinc.windowWidth = 17;    // <-- Make this an odd number to test unaligned section in the SIMD implementations.
     srcConfig.algorithm = algorithm;
-    srcConfig.noSSE2    = MAL_TRUE;
-    srcConfig.noAVX2    = MAL_TRUE;
-    srcConfig.noAVX512  = MAL_TRUE;
-    srcConfig.noNEON    = MAL_TRUE;
+    srcConfig.noSSE2    = MA_TRUE;
+    srcConfig.noAVX2    = MA_TRUE;
+    srcConfig.noAVX512  = MA_TRUE;
+    srcConfig.noNEON    = MA_TRUE;
     switch (mode) {
-        case simd_mode_sse2:   srcConfig.noSSE2   = MAL_FALSE; break;
-        case simd_mode_avx2:   srcConfig.noAVX2   = MAL_FALSE; break;
-        case simd_mode_avx512: srcConfig.noAVX512 = MAL_FALSE; break;
-        case simd_mode_neon:   srcConfig.noNEON   = MAL_FALSE; break;
+        case simd_mode_sse2:   srcConfig.noSSE2   = MA_FALSE; break;
+        case simd_mode_avx2:   srcConfig.noAVX2   = MA_FALSE; break;
+        case simd_mode_avx512: srcConfig.noAVX512 = MA_FALSE; break;
+        case simd_mode_neon:   srcConfig.noNEON   = MA_FALSE; break;
         case simd_mode_scalar:
         default: break;
     }
 
     mal_result result = mal_src_init(&srcConfig, pSRC);
-    if (result != MAL_SUCCESS) {
+    if (result != MA_SUCCESS) {
         printf("Failed to initialize sample rate converter.\n");
         return (int)result;
     }
@@ -915,14 +915,14 @@ int do_profiling__src__profile_individual(src_data* pBaseData, mal_uint32 sample
     mal_assert(pBaseData != NULL);
     mal_assert(pReferenceData != NULL);
 
-    mal_result result = MAL_ERROR;
+    mal_result result = MA_ERROR;
 
     // Make sure the base data is moved back to the start.
     pBaseData->iNextFrame = 0;
 
     mal_src src;
     result = init_src(pBaseData, sampleRateIn, sampleRateOut, algorithm, mode, &src);
-    if (result != MAL_SUCCESS) {
+    if (result != MA_SUCCESS) {
         return (int)result;
     }
 
@@ -931,9 +931,9 @@ int do_profiling__src__profile_individual(src_data* pBaseData, mal_uint32 sample
     mal_uint64 sz = pReferenceData->frameCount * sizeof(float);
     mal_assert(sz <= SIZE_MAX);
 
-    float* pFrameData[MAL_MAX_CHANNELS];
+    float* pFrameData[MA_MAX_CHANNELS];
     for (mal_uint32 iChannel = 0; iChannel < pBaseData->channels; iChannel += 1) {
-        pFrameData[iChannel] = (float*)mal_aligned_malloc((size_t)sz, MAL_SIMD_ALIGNMENT);
+        pFrameData[iChannel] = (float*)mal_aligned_malloc((size_t)sz, MA_SIMD_ALIGNMENT);
         if (pFrameData[iChannel] == NULL) {
             printf("Out of memory.\n");
             return -2;
@@ -951,7 +951,7 @@ int do_profiling__src__profile_individual(src_data* pBaseData, mal_uint32 sample
 
 
     // Correctness test.
-    mal_bool32 passed = MAL_TRUE;
+    mal_bool32 passed = MA_TRUE;
     for (mal_uint32 iChannel = 0; iChannel < pReferenceData->channels; iChannel += 1) {
         for (mal_uint32 iFrame = 0; iFrame < pReferenceData->frameCount; iFrame += 1) {
             float s0 = pReferenceData->pFrameData[iChannel][iFrame];
@@ -959,7 +959,7 @@ int do_profiling__src__profile_individual(src_data* pBaseData, mal_uint32 sample
             //if (s0 != s1) {
             if (fabs(s0 - s1) > 0.000001) {
                 printf("(Channel %d, Sample %d) %f != %f\n", iChannel, iFrame, s0, s1);
-                passed = MAL_FALSE;
+                passed = MA_FALSE;
             }
         }
     }
@@ -1004,7 +1004,7 @@ int do_profiling__src__profile_set(src_data* pBaseData, mal_uint32 sampleRateIn,
     mal_assert(sz <= SIZE_MAX);
 
     for (mal_uint32 iChannel = 0; iChannel < referenceData.channels; iChannel += 1) {
-        referenceData.pFrameData[iChannel] = (float*)mal_aligned_malloc((size_t)sz, MAL_SIMD_ALIGNMENT);
+        referenceData.pFrameData[iChannel] = (float*)mal_aligned_malloc((size_t)sz, MA_SIMD_ALIGNMENT);
         if (referenceData.pFrameData[iChannel] == NULL) {
             printf("Out of memory.\n");
             return -2;
@@ -1016,7 +1016,7 @@ int do_profiling__src__profile_set(src_data* pBaseData, mal_uint32 sampleRateIn,
     // Generate the reference data.
     mal_src src;
     mal_result result = init_src(pBaseData, sampleRateIn, sampleRateOut, algorithm, simd_mode_scalar, &src);
-    if (result != MAL_SUCCESS) {
+    if (result != MA_SUCCESS) {
         return (int)result;
     }
 
@@ -1063,7 +1063,7 @@ int do_profiling__src()
     baseData.channels = 8;
     baseData.frameCount = 100000;
     for (mal_uint32 iChannel = 0; iChannel < baseData.channels; ++iChannel) {
-        baseData.pFrameData[iChannel] = (float*)mal_aligned_malloc((size_t)(baseData.frameCount * sizeof(float)), MAL_SIMD_ALIGNMENT);
+        baseData.pFrameData[iChannel] = (float*)mal_aligned_malloc((size_t)(baseData.frameCount * sizeof(float)), MA_SIMD_ALIGNMENT);
         if (baseData.pFrameData[iChannel] == NULL) {
             printf("Out of memory.\n");
             return -1;
