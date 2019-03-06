@@ -20424,7 +20424,7 @@ mal_result mal_device_init__aaudio(mal_context* pContext, const mal_device_confi
     }
 
     if (pConfig->deviceType == mal_device_type_playback || pConfig->deviceType == mal_device_type_duplex) {
-        result = mal_open_stream__aaudio(pContext, mal_device_type_capture, pConfig->capture.pDeviceID, pConfig->capture.shareMode, pConfig, pDevice, (mal_AAudioStream**)&pDevice->aaudio.pStreamCapture);
+        result = mal_open_stream__aaudio(pContext, mal_device_type_playback, pConfig->playback.pDeviceID, pConfig->playback.shareMode, pConfig, pDevice, (mal_AAudioStream**)&pDevice->aaudio.pStreamPlayback);
         if (result != MAL_SUCCESS) {
             return result;  /* Failed to open the AAudio stream. */
         }
@@ -21490,18 +21490,18 @@ mal_result mal_device_stop__opensl(mal_device* pDevice)
     /* TODO: Wait until all buffers have been processed. Hint: Maybe SLAndroidSimpleBufferQueue::GetState() could be used in a loop? */
 
     if (pDevice->type == mal_device_type_capture || pDevice->type == mal_device_type_duplex) {
-        SLresult resultSL = MAL_OPENSL_PLAY(pDevice->opensl.pAudioPlayer)->SetPlayState((SLPlayItf)pDevice->opensl.pAudioPlayer, SL_PLAYSTATE_STOPPED);
+        SLresult resultSL = MAL_OPENSL_RECORD(pDevice->opensl.pAudioRecorder)->SetRecordState((SLRecordItf)pDevice->opensl.pAudioRecorder, SL_RECORDSTATE_STOPPED);
         if (resultSL != SL_RESULT_SUCCESS) {
-            return mal_post_error(pDevice, MAL_LOG_LEVEL_ERROR, "[OpenSL] Failed to stop internal playback device.", MAL_FAILED_TO_STOP_BACKEND_DEVICE);
+            return mal_post_error(pDevice, MAL_LOG_LEVEL_ERROR, "[OpenSL] Failed to stop internal capture device.", MAL_FAILED_TO_STOP_BACKEND_DEVICE);
         }
 
         MAL_OPENSL_BUFFERQUEUE(pDevice->opensl.pBufferQueueCapture)->Clear((SLAndroidSimpleBufferQueueItf)pDevice->opensl.pBufferQueueCapture);
     }
 
     if (pDevice->type == mal_device_type_playback || pDevice->type == mal_device_type_duplex) {
-        SLresult resultSL = MAL_OPENSL_RECORD(pDevice->opensl.pAudioRecorder)->SetRecordState((SLRecordItf)pDevice->opensl.pAudioRecorder, SL_RECORDSTATE_STOPPED);
+        SLresult resultSL = MAL_OPENSL_PLAY(pDevice->opensl.pAudioPlayer)->SetPlayState((SLPlayItf)pDevice->opensl.pAudioPlayer, SL_PLAYSTATE_STOPPED);
         if (resultSL != SL_RESULT_SUCCESS) {
-            return mal_post_error(pDevice, MAL_LOG_LEVEL_ERROR, "[OpenSL] Failed to stop internal capture device.", MAL_FAILED_TO_STOP_BACKEND_DEVICE);
+            return mal_post_error(pDevice, MAL_LOG_LEVEL_ERROR, "[OpenSL] Failed to stop internal playback device.", MAL_FAILED_TO_STOP_BACKEND_DEVICE);
         }
 
         MAL_OPENSL_BUFFERQUEUE(pDevice->opensl.pBufferQueuePlayback)->Clear((SLAndroidSimpleBufferQueueItf)pDevice->opensl.pBufferQueuePlayback);
