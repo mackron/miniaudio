@@ -6542,16 +6542,16 @@ HRESULT STDMETHODCALLTYPE ma_IMMNotificationClient_OnDefaultDeviceChanged(ma_IMM
     }
 
     // We only care about devices with the same data flow and role as the current device.
-    if (pThis->pDevice->type == ma_device_type_playback && dataFlow != ma_eRender ||
-        pThis->pDevice->type == ma_device_type_capture  && dataFlow != ma_eCapture) {
+    if ((pThis->pDevice->type == ma_device_type_playback && dataFlow != ma_eRender) ||
+        (pThis->pDevice->type == ma_device_type_capture  && dataFlow != ma_eCapture)) {
         return S_OK;
     }
 
     // Not currently supporting automatic stream routing in exclusive mode. This is not working correctly on my machine due to
     // AUDCLNT_E_DEVICE_IN_USE errors when reinitializing the device. If this is a bug in miniaudio, we can try re-enabling this once
     // it's fixed.
-    if (dataFlow == ma_eRender  && pThis->pDevice->playback.shareMode == ma_share_mode_exclusive ||
-        dataFlow == ma_eCapture && pThis->pDevice->capture.shareMode  == ma_share_mode_exclusive) {
+    if ((dataFlow == ma_eRender  && pThis->pDevice->playback.shareMode == ma_share_mode_exclusive) ||
+        (dataFlow == ma_eCapture && pThis->pDevice->capture.shareMode  == ma_share_mode_exclusive)) {
         return S_OK;
     }
 
@@ -8243,7 +8243,7 @@ ma_result ma_device_main_loop__wasapi(ma_device* pDevice)
                 }
             } break;
 
-            default: MA_INVALID_ARGS;
+            default: return MA_INVALID_ARGS;
         }
     }
 
@@ -10494,14 +10494,13 @@ void ma_device_uninit__winmm(ma_device* pDevice)
 {
     ma_assert(pDevice != NULL);
 
-    ((MA_PFN_waveOutReset)pDevice->pContext->winmm.waveOutReset);
-
     if (pDevice->type == ma_device_type_capture || pDevice->type == ma_device_type_duplex) {
         ((MA_PFN_waveInClose)pDevice->pContext->winmm.waveInClose)((HWAVEIN)pDevice->winmm.hDeviceCapture);
         CloseHandle((HANDLE)pDevice->winmm.hEventCapture);
     }
 
-    if (pDevice->type == ma_device_type_playback) {
+    if (pDevice->type == ma_device_type_playback || pDevice->type == ma_device_type_duplex) {
+        ((MA_PFN_waveOutReset)pDevice->pContext->winmm.waveOutReset)((HWAVEOUT)pDevice->winmm.hDevicePlayback);
         ((MA_PFN_waveOutClose)pDevice->pContext->winmm.waveOutClose)((HWAVEOUT)pDevice->winmm.hDevicePlayback);
         CloseHandle((HANDLE)pDevice->winmm.hEventPlayback);
     }
