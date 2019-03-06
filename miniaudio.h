@@ -19,10 +19,10 @@ you, and you don't need full-duplex support, you can avoid upgrading (though you
 
 Rebranding to "miniaudio"
 -------------------------
-The decision was made to rename mini_al to miniaudio. The reason for this is simple:
+The decision was made to rename mini_al to miniaudio. Don't worry, it's the same project. The reason for this is simple:
 
-2) Having the word "audio" in the title makes it immediately clear that the library is related to audio; and
-1) I don't like the look of the underscore.
+1) Having the word "audio" in the title makes it immediately clear that the library is related to audio; and
+2) I don't like the look of the underscore.
 
 This rebrand has necessitated a change in namespace from "mal" to "ma". I know this is annoying, and I apologize, but it's
 better to get this out of the road now rather than later. Also, since there are necessary API changes for full-duplex support
@@ -101,16 +101,16 @@ In addition to the above, the following API changes have been made:
 - The log callback now takes a logLevel parameter. The new callback looks like: void log_callback(ma_context* pContext, ma_device* pDevice, ma_uint32 logLevel, const char* message)
   - You can use ma_log_level_to_string() to convert the logLevel to human readable text if you want to log it.
 - Some APIs have been renamed:
-  - ma_decoder_read()          -> ma_decoder_read_pcm_frames()
-  - ma_decoder_seek_to_frame() -> ma_decoder_seek_to_pcm_frame()
-  - ma_sine_wave_read()        -> ma_sine_wave_read_f32()
-  - ma_sine_wave_read_ex()     -> ma_sine_wave_read_f32_ex()
+  - mal_decoder_read()          -> ma_decoder_read_pcm_frames()
+  - mal_decoder_seek_to_frame() -> ma_decoder_seek_to_pcm_frame()
+  - mal_sine_wave_read()        -> ma_sine_wave_read_f32()
+  - mal_sine_wave_read_ex()     -> ma_sine_wave_read_f32_ex()
 - Some APIs have been removed:
-  - ma_device_get_buffer_size_in_bytes()
-  - ma_device_set_recv_callback()
-  - ma_device_set_send_callback()
-  - ma_src_set_input_sample_rate()
-  - ma_src_set_output_sample_rate()
+  - mal_device_get_buffer_size_in_bytes()
+  - mal_device_set_recv_callback()
+  - mal_device_set_send_callback()
+  - mal_src_set_input_sample_rate()
+  - mal_src_set_output_sample_rate()
 - Error codes have been rearranged. If you're a binding maintainer you will need to update.
 - The ma_backend enums have been rearranged to priority order. The rationale for this is to simplify automatic backend selection
   and to make it easier to see the priority. If you're a binding maintainer you will need to update.
