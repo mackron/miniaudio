@@ -3953,6 +3953,21 @@ mal_uint32 mal_get_standard_sample_rate_priority_index(mal_uint32 sampleRate)   
     return (mal_uint32)-1;
 }
 
+mal_uint64 mal_calculate_frame_count_after_src(mal_uint32 sampleRateOut, mal_uint32 sampleRateIn, mal_uint64 frameCountIn)
+{
+    double srcRatio = (double)sampleRateOut / sampleRateIn;
+    double frameCountOutF = frameCountIn * srcRatio;
+
+    mal_uint64 frameCountOut = (mal_uint64)frameCountOutF;
+
+    // If the output frame count is fractional, make sure we add an extra frame to ensure there's enough room for that last sample.
+    if ((frameCountOutF - frameCountOut) > 0.0) {
+        frameCountOut += 1;
+    }
+
+    return frameCountOut;
+}
+
 
 //////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 //////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -4806,21 +4821,6 @@ mal_result mal_post_error(mal_device* pDevice, mal_uint32 logLevel, const char* 
     return mal_context_post_error(NULL, pDevice, logLevel, message, resultCode);
 }
 
-
-mal_uint64 mal_calculate_frame_count_after_src(mal_uint32 sampleRateOut, mal_uint32 sampleRateIn, mal_uint64 frameCountIn)
-{
-    double srcRatio = (double)sampleRateOut / sampleRateIn;
-    double frameCountOutF = frameCountIn * srcRatio;
-
-    mal_uint64 frameCountOut = (mal_uint64)frameCountOutF;
-
-    // If the output frame count is fractional, make sure we add an extra frame to ensure there's enough room for that last sample.
-    if ((frameCountOutF - frameCountOut) > 0.0) {
-        frameCountOut += 1;
-    }
-
-    return frameCountOut;
-}
 
 
 // The callback for reading from the client -> DSP -> device.

@@ -15,9 +15,9 @@ int main(int argc, char** argv)
 
     mal_result result = MAL_ERROR;
 
-    mal_dsp_config dspConfig = mal_dsp_config_init_new();
-    mal_dsp dsp;
-    result = mal_dsp_init(&dspConfig, &dsp);
+    mal_pcm_converter_config dspConfig = mal_pcm_converter_config_init_new();
+    mal_pcm_converter converter;
+    result = mal_pcm_converter_init(&dspConfig, &converter);
     
     mal_decoder_config decoderConfig = mal_decoder_config_init(mal_format_unknown, 0, 0);
     mal_decoder decoder;
