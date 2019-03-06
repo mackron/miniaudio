@@ -3384,7 +3384,7 @@ static MA_INLINE ma_bool32 ma_is_big_endian()
 
 
 // Standard sample rates, in order of priority.
-ma_uint32 g_malStandardSampleRatePriorities[] = {
+ma_uint32 g_maStandardSampleRatePriorities[] = {
     MA_SAMPLE_RATE_48000,  // Most common
     MA_SAMPLE_RATE_44100,
 
@@ -3405,7 +3405,7 @@ ma_uint32 g_malStandardSampleRatePriorities[] = {
     MA_SAMPLE_RATE_384000
 };
 
-ma_format g_malFormatPriorities[] = {
+ma_format g_maFormatPriorities[] = {
     ma_format_s16,         // Most common
     ma_format_f32,
     
@@ -3800,18 +3800,18 @@ static MA_INLINE float ma_scale_to_range_f32(float x, float lo, float hi)
 #define MA_LCG_M   4294967296
 #define MA_LCG_A   1103515245
 #define MA_LCG_C   12345
-static ma_int32 g_malLCG;
+static ma_int32 g_maLCG;
 
 void ma_seed(ma_int32 seed)
 {
-    g_malLCG = seed;
+    g_maLCG = seed;
 }
 
 ma_int32 ma_rand_s32()
 {
-    ma_int32 lcg = g_malLCG;
+    ma_int32 lcg = g_maLCG;
     ma_int32 r = (MA_LCG_A * lcg + MA_LCG_C) % MA_LCG_M;
-    g_malLCG = r;
+    g_maLCG = r;
     return r;
 }
 
@@ -3944,8 +3944,8 @@ void ma_split_buffer(void* pBuffer, size_t bufferSize, size_t splitCount, size_t
 
 ma_uint32 ma_get_standard_sample_rate_priority_index(ma_uint32 sampleRate)   // Lower = higher priority
 {
-    for (ma_uint32 i = 0; i < ma_countof(g_malStandardSampleRatePriorities); ++i) {
-        if (g_malStandardSampleRatePriorities[i] == sampleRate) {
+    for (ma_uint32 i = 0; i < ma_countof(g_maStandardSampleRatePriorities); ++i) {
+        if (g_maStandardSampleRatePriorities[i] == sampleRate) {
             return i;
         }
     }
@@ -4676,8 +4676,8 @@ ma_uint32 ma_get_best_sample_rate_within_range(ma_uint32 sampleRateMin, ma_uint3
     if (sampleRateMin == sampleRateMax) {
         return sampleRateMax;
     } else {
-        for (size_t iStandardRate = 0; iStandardRate < ma_countof(g_malStandardSampleRatePriorities); ++iStandardRate) {
-            ma_uint32 standardRate = g_malStandardSampleRatePriorities[iStandardRate];
+        for (size_t iStandardRate = 0; iStandardRate < ma_countof(g_maStandardSampleRatePriorities); ++iStandardRate) {
+            ma_uint32 standardRate = g_maStandardSampleRatePriorities[iStandardRate];
             if (standardRate >= sampleRateMin && standardRate <= sampleRateMax) {
                 return standardRate;
             }
@@ -4694,8 +4694,8 @@ ma_uint32 ma_get_closest_standard_sample_rate(ma_uint32 sampleRateIn)
     ma_uint32 closestRate = 0;
     ma_uint32 closestDiff = 0xFFFFFFFF;
 
-    for (size_t iStandardRate = 0; iStandardRate < ma_countof(g_malStandardSampleRatePriorities); ++iStandardRate) {
-        ma_uint32 standardRate = g_malStandardSampleRatePriorities[iStandardRate];
+    for (size_t iStandardRate = 0; iStandardRate < ma_countof(g_maStandardSampleRatePriorities); ++iStandardRate) {
+        ma_uint32 standardRate = g_maStandardSampleRatePriorities[iStandardRate];
 
         ma_uint32 diff;
         if (sampleRateIn > standardRate) {
@@ -5145,8 +5145,8 @@ ma_result ma_context__try_get_device_name_by_id(ma_context* pContext, ma_device_
 
 ma_uint32 ma_get_format_priority_index(ma_format format) // Lower = better.
 {
-    for (ma_uint32 i = 0; i < ma_countof(g_malFormatPriorities); ++i) {
-        if (g_malFormatPriorities[i] == format) {
+    for (ma_uint32 i = 0; i < ma_countof(g_maFormatPriorities); ++i) {
+        if (g_maFormatPriorities[i] == format) {
             return i;
         }
     }
@@ -6412,7 +6412,7 @@ HRESULT STDMETHODCALLTYPE ma_completion_handler_uwp_ActivateCompleted(ma_complet
 }
 
 
-static ma_completion_handler_uwp_vtbl g_malCompletionHandlerVtblInstance = {
+static ma_completion_handler_uwp_vtbl g_maCompletionHandlerVtblInstance = {
     ma_completion_handler_uwp_QueryInterface,
     ma_completion_handler_uwp_AddRef,
     ma_completion_handler_uwp_Release,
@@ -6424,7 +6424,7 @@ ma_result ma_completion_handler_uwp_init(ma_completion_handler_uwp* pHandler)
     ma_assert(pHandler != NULL);
     ma_zero_object(pHandler);
 
-    pHandler->lpVtbl = &g_malCompletionHandlerVtblInstance;
+    pHandler->lpVtbl = &g_maCompletionHandlerVtblInstance;
     pHandler->counter = 1;
     pHandler->hEvent = CreateEventA(NULL, FALSE, FALSE, NULL);
     if (pHandler->hEvent == NULL) {
@@ -6566,7 +6566,7 @@ HRESULT STDMETHODCALLTYPE ma_IMMNotificationClient_OnPropertyValueChanged(ma_IMM
     return S_OK;
 }
 
-static ma_IMMNotificationClientVtbl g_malNotificationCientVtbl = {
+static ma_IMMNotificationClientVtbl g_maNotificationCientVtbl = {
     ma_IMMNotificationClient_QueryInterface,
     ma_IMMNotificationClient_AddRef,
     ma_IMMNotificationClient_Release,
@@ -6684,8 +6684,8 @@ ma_result ma_context_get_device_info_from_IAudioClient__wasapi(ma_context* pCont
                             wf.SubFormat = MA_GUID_KSDATAFORMAT_SUBTYPE_PCM;
                         }
 
-                        for (ma_uint32 iSampleRate = 0; iSampleRate < ma_countof(g_malStandardSampleRatePriorities); ++iSampleRate) {
-                            wf.Format.nSamplesPerSec = g_malStandardSampleRatePriorities[iSampleRate];
+                        for (ma_uint32 iSampleRate = 0; iSampleRate < ma_countof(g_maStandardSampleRatePriorities); ++iSampleRate) {
+                            wf.Format.nSamplesPerSec = g_maStandardSampleRatePriorities[iSampleRate];
 
                             hr = ma_IAudioClient_IsFormatSupported((ma_IAudioClient*)pAudioClient, MA_AUDCLNT_SHAREMODE_EXCLUSIVE, (WAVEFORMATEX*)&wf, NULL);
                             if (SUCCEEDED(hr)) {
@@ -7704,7 +7704,7 @@ ma_result ma_device_init__wasapi(ma_context* pContext, const ma_device_config* p
         goto done;
     }
 
-    pDevice->wasapi.notificationClient.lpVtbl  = (void*)&g_malNotificationCientVtbl;
+    pDevice->wasapi.notificationClient.lpVtbl  = (void*)&g_maNotificationCientVtbl;
     pDevice->wasapi.notificationClient.counter = 1;
     pDevice->wasapi.notificationClient.pDevice = pDevice;
 
@@ -11244,7 +11244,7 @@ typedef const char*           (* ma_snd_pcm_info_get_name_proc)                 
 typedef int                   (* ma_snd_config_update_free_global_proc)         ();
 
 // This array specifies each of the common devices that can be used for both playback and capture.
-const char* g_malCommonDeviceNamesALSA[] = {
+const char* g_maCommonDeviceNamesALSA[] = {
     "default",
     "null",
     "pulse",
@@ -11252,12 +11252,12 @@ const char* g_malCommonDeviceNamesALSA[] = {
 };
 
 // This array allows us to blacklist specific playback devices.
-const char* g_malBlacklistedPlaybackDeviceNamesALSA[] = {
+const char* g_maBlacklistedPlaybackDeviceNamesALSA[] = {
     ""
 };
 
 // This array allows us to blacklist specific capture devices.
-const char* g_malBlacklistedCaptureDeviceNamesALSA[] = {
+const char* g_maBlacklistedCaptureDeviceNamesALSA[] = {
     ""
 };
 
@@ -11268,7 +11268,7 @@ static struct
 {
     const char* name;
     float scale;
-} g_malDefaultBufferSizeScalesALSA[] = {
+} g_maDefaultBufferSizeScalesALSA[] = {
     {"bcm2835 IEC958/HDMI", 2.0f},
     {"bcm2835 ALSA",        2.0f}
 };
@@ -11279,9 +11279,9 @@ float ma_find_default_buffer_size_scale__alsa(const char* deviceName)
         return 1;
     }
 
-    for (size_t i = 0; i < ma_countof(g_malDefaultBufferSizeScalesALSA); ++i) {
-        if (strstr(g_malDefaultBufferSizeScalesALSA[i].name, deviceName) != NULL) {
-            return g_malDefaultBufferSizeScalesALSA[i].scale;
+    for (size_t i = 0; i < ma_countof(g_maDefaultBufferSizeScalesALSA); ++i) {
+        if (strstr(g_maDefaultBufferSizeScalesALSA[i].name, deviceName) != NULL) {
+            return g_maDefaultBufferSizeScalesALSA[i].scale;
         }
     }
 
@@ -11377,8 +11377,8 @@ ma_channel ma_convert_alsa_channel_position_to_ma_channel(unsigned int alsaChann
 
 ma_bool32 ma_is_common_device_name__alsa(const char* name)
 {
-    for (size_t iName = 0; iName < ma_countof(g_malCommonDeviceNamesALSA); ++iName) {
-        if (ma_strcmp(name, g_malCommonDeviceNamesALSA[iName]) == 0) {
+    for (size_t iName = 0; iName < ma_countof(g_maCommonDeviceNamesALSA); ++iName) {
+        if (ma_strcmp(name, g_maCommonDeviceNamesALSA[iName]) == 0) {
             return MA_TRUE;
         }
     }
@@ -11389,8 +11389,8 @@ ma_bool32 ma_is_common_device_name__alsa(const char* name)
 
 ma_bool32 ma_is_playback_device_blacklisted__alsa(const char* name)
 {
-    for (size_t iName = 0; iName < ma_countof(g_malBlacklistedPlaybackDeviceNamesALSA); ++iName) {
-        if (ma_strcmp(name, g_malBlacklistedPlaybackDeviceNamesALSA[iName]) == 0) {
+    for (size_t iName = 0; iName < ma_countof(g_maBlacklistedPlaybackDeviceNamesALSA); ++iName) {
+        if (ma_strcmp(name, g_maBlacklistedPlaybackDeviceNamesALSA[iName]) == 0) {
             return MA_TRUE;
         }
     }
@@ -11400,8 +11400,8 @@ ma_bool32 ma_is_playback_device_blacklisted__alsa(const char* name)
 
 ma_bool32 ma_is_capture_device_blacklisted__alsa(const char* name)
 {
-    for (size_t iName = 0; iName < ma_countof(g_malBlacklistedCaptureDeviceNamesALSA); ++iName) {
-        if (ma_strcmp(name, g_malBlacklistedCaptureDeviceNamesALSA[iName]) == 0) {
+    for (size_t iName = 0; iName < ma_countof(g_maBlacklistedCaptureDeviceNamesALSA); ++iName) {
+        if (ma_strcmp(name, g_maBlacklistedCaptureDeviceNamesALSA[iName]) == 0) {
             return MA_TRUE;
         }
     }
@@ -16312,8 +16312,8 @@ ma_result ma_get_AudioObject_get_closest_sample_rate(ma_context* pContext, Audio
     
     if (sampleRateIn == 0) {
         // Search in order of miniaudio's preferred priority.
-        for (UInt32 iMALSampleRate = 0; iMALSampleRate < ma_countof(g_malStandardSampleRatePriorities); ++iMALSampleRate) {
-            ma_uint32 malSampleRate = g_malStandardSampleRatePriorities[iMALSampleRate];
+        for (UInt32 iMALSampleRate = 0; iMALSampleRate < ma_countof(g_maStandardSampleRatePriorities); ++iMALSampleRate) {
+            ma_uint32 malSampleRate = g_maStandardSampleRatePriorities[iMALSampleRate];
             for (UInt32 iCASampleRate = 0; iCASampleRate < sampleRateRangeCount; ++iCASampleRate) {
                 AudioValueRange caSampleRate = pSampleRateRanges[iCASampleRate];
                 if (caSampleRate.mMinimum <= malSampleRate && caSampleRate.mMaximum >= malSampleRate) {
@@ -16508,8 +16508,8 @@ ma_result ma_find_best_format__coreaudio(ma_context* pContext, AudioObjectID dev
     if (usingDefaultSampleRate) {
         // When using the device's default sample rate, we get the highest priority standard rate supported by the device. Otherwise
         // we just use the pre-set rate.
-        for (ma_uint32 iStandardRate = 0; iStandardRate < ma_countof(g_malStandardSampleRatePriorities); ++iStandardRate) {
-            ma_uint32 standardRate = g_malStandardSampleRatePriorities[iStandardRate];
+        for (ma_uint32 iStandardRate = 0; iStandardRate < ma_countof(g_maStandardSampleRatePriorities); ++iStandardRate) {
+            ma_uint32 standardRate = g_maStandardSampleRatePriorities[iStandardRate];
             
             ma_bool32 foundRate = MA_FALSE;
             for (UInt32 iDeviceRate = 0; iDeviceRate < deviceFormatDescriptionCount; ++iDeviceRate) {
@@ -16535,7 +16535,7 @@ ma_result ma_find_best_format__coreaudio(ma_context* pContext, AudioObjectID dev
     
     ma_format desiredFormat = format;
     if (usingDefaultFormat) {
-        desiredFormat = g_malFormatPriorities[0];
+        desiredFormat = g_maFormatPriorities[0];
     }
     
     // If we get here it means we don't have an exact match to what the client is asking for. We'll need to find the closest one. The next
@@ -20678,9 +20678,9 @@ ma_result ma_context_init__aaudio(ma_context* pContext)
 #endif
 
 // OpenSL|ES has one-per-application objects :(
-SLObjectItf g_malEngineObjectSL = NULL;
-SLEngineItf g_malEngineSL = NULL;
-ma_uint32 g_malOpenSLInitCounter = 0;
+SLObjectItf g_maEngineObjectSL = NULL;
+SLEngineItf g_maEngineSL = NULL;
+ma_uint32 g_maOpenSLInitCounter = 0;
 
 #define MA_OPENSL_OBJ(p)         (*((SLObjectItf)(p)))
 #define MA_OPENSL_OUTPUTMIX(p)   (*((SLOutputMixItf)(p)))
@@ -20850,8 +20850,8 @@ ma_result ma_context_enumerate_devices__opensl(ma_context* pContext, ma_enum_dev
     ma_assert(pContext != NULL);
     ma_assert(callback != NULL);
 
-    ma_assert(g_malOpenSLInitCounter > 0); /* <-- If you trigger this it means you've either not initialized the context, or you've uninitialized it and then attempted to enumerate devices. */
-    if (g_malOpenSLInitCounter == 0) {
+    ma_assert(g_maOpenSLInitCounter > 0); /* <-- If you trigger this it means you've either not initialized the context, or you've uninitialized it and then attempted to enumerate devices. */
+    if (g_maOpenSLInitCounter == 0) {
         return MA_INVALID_OPERATION;
     }
 
@@ -20865,7 +20865,7 @@ ma_result ma_context_enumerate_devices__opensl(ma_context* pContext, ma_enum_dev
     SLint32 deviceCount = sizeof(pDeviceIDs) / sizeof(pDeviceIDs[0]);
 
     SLAudioIODeviceCapabilitiesItf deviceCaps;
-    SLresult resultSL = (*g_malEngineObjectSL)->GetInterface(g_malEngineObjectSL, SL_IID_AUDIOIODEVICECAPABILITIES, &deviceCaps);
+    SLresult resultSL = (*g_maEngineObjectSL)->GetInterface(g_maEngineObjectSL, SL_IID_AUDIOIODEVICECAPABILITIES, &deviceCaps);
     if (resultSL != SL_RESULT_SUCCESS) {
         // The interface may not be supported so just report a default device.
         goto return_default_device;
@@ -20954,8 +20954,8 @@ ma_result ma_context_get_device_info__opensl(ma_context* pContext, ma_device_typ
 {
     ma_assert(pContext != NULL);
 
-    ma_assert(g_malOpenSLInitCounter > 0); /* <-- If you trigger this it means you've either not initialized the context, or you've uninitialized it and then attempted to get device info. */
-    if (g_malOpenSLInitCounter == 0) {
+    ma_assert(g_maOpenSLInitCounter > 0); /* <-- If you trigger this it means you've either not initialized the context, or you've uninitialized it and then attempted to get device info. */
+    if (g_maOpenSLInitCounter == 0) {
         return MA_INVALID_OPERATION;
     }
 
@@ -20969,7 +20969,7 @@ ma_result ma_context_get_device_info__opensl(ma_context* pContext, ma_device_typ
     // This is currently untested, so for now we are just returning default devices.
 #if 0 && !defined(MA_ANDROID)
     SLAudioIODeviceCapabilitiesItf deviceCaps;
-    SLresult resultSL = (*g_malEngineObjectSL)->GetInterface(g_malEngineObjectSL, SL_IID_AUDIOIODEVICECAPABILITIES, &deviceCaps);
+    SLresult resultSL = (*g_maEngineObjectSL)->GetInterface(g_maEngineObjectSL, SL_IID_AUDIOIODEVICECAPABILITIES, &deviceCaps);
     if (resultSL != SL_RESULT_SUCCESS) {
         // The interface may not be supported so just report a default device.
         goto return_default_device;
@@ -21106,8 +21106,8 @@ void ma_device_uninit__opensl(ma_device* pDevice)
 {
     ma_assert(pDevice != NULL);
 
-    ma_assert(g_malOpenSLInitCounter > 0); /* <-- If you trigger this it means you've either not initialized the context, or you've uninitialized it before uninitializing the device. */
-    if (g_malOpenSLInitCounter == 0) {
+    ma_assert(g_maOpenSLInitCounter > 0); /* <-- If you trigger this it means you've either not initialized the context, or you've uninitialized it before uninitializing the device. */
+    if (g_maOpenSLInitCounter == 0) {
         return;
     }
 
@@ -21233,8 +21233,8 @@ ma_result ma_device_init__opensl(ma_context* pContext, const ma_device_config* p
 {
     (void)pContext;
 
-    ma_assert(g_malOpenSLInitCounter > 0); /* <-- If you trigger this it means you've either not initialized the context, or you've uninitialized it and then attempted to initialize a new device. */
-    if (g_malOpenSLInitCounter == 0) {
+    ma_assert(g_maOpenSLInitCounter > 0); /* <-- If you trigger this it means you've either not initialized the context, or you've uninitialized it and then attempted to initialize a new device. */
+    if (g_maOpenSLInitCounter == 0) {
         return MA_INVALID_OPERATION;
     }
 
@@ -21282,7 +21282,7 @@ ma_result ma_device_init__opensl(ma_context* pContext, const ma_device_config* p
 
         const SLInterfaceID itfIDs1[] = {SL_IID_ANDROIDSIMPLEBUFFERQUEUE};
         const SLboolean itfIDsRequired1[] = {SL_BOOLEAN_TRUE};
-        SLresult resultSL = (*g_malEngineSL)->CreateAudioRecorder(g_malEngineSL, (SLObjectItf*)&pDevice->opensl.pAudioRecorderObj, &source, &sink, 1, itfIDs1, itfIDsRequired1);
+        SLresult resultSL = (*g_maEngineSL)->CreateAudioRecorder(g_maEngineSL, (SLObjectItf*)&pDevice->opensl.pAudioRecorderObj, &source, &sink, 1, itfIDs1, itfIDsRequired1);
         if (resultSL == SL_RESULT_CONTENT_UNSUPPORTED) {
             /* Unsupported format. Fall back to something safer and try again. If this fails, just abort. */
             pcm.formatType    = SL_DATAFORMAT_PCM;
@@ -21291,7 +21291,7 @@ ma_result ma_device_init__opensl(ma_context* pContext, const ma_device_config* p
             pcm.bitsPerSample = 16;
             pcm.containerSize = pcm.bitsPerSample;  /* Always tightly packed for now. */
             pcm.channelMask   = SL_SPEAKER_FRONT_LEFT | SL_SPEAKER_FRONT_RIGHT;
-            resultSL = (*g_malEngineSL)->CreateAudioRecorder(g_malEngineSL, (SLObjectItf*)&pDevice->opensl.pAudioRecorderObj, &source, &sink, 1, itfIDs1, itfIDsRequired1);
+            resultSL = (*g_maEngineSL)->CreateAudioRecorder(g_maEngineSL, (SLObjectItf*)&pDevice->opensl.pAudioRecorderObj, &source, &sink, 1, itfIDs1, itfIDsRequired1);
         }
 
         if (resultSL != SL_RESULT_SUCCESS) {
@@ -21344,7 +21344,7 @@ ma_result ma_device_init__opensl(ma_context* pContext, const ma_device_config* p
         ma_SLDataFormat_PCM pcm;
         ma_SLDataFormat_PCM_init__opensl(pConfig->playback.format, pConfig->playback.channels, pConfig->sampleRate, pConfig->playback.channelMap, &pcm);
 
-        SLresult resultSL = (*g_malEngineSL)->CreateOutputMix(g_malEngineSL, (SLObjectItf*)&pDevice->opensl.pOutputMixObj, 0, NULL, NULL);
+        SLresult resultSL = (*g_maEngineSL)->CreateOutputMix(g_maEngineSL, (SLObjectItf*)&pDevice->opensl.pOutputMixObj, 0, NULL, NULL);
         if (resultSL != SL_RESULT_SUCCESS) {
             ma_device_uninit__opensl(pDevice);
             return ma_post_error(pDevice, MA_LOG_LEVEL_ERROR, "[OpenSL] Failed to create output mix.", MA_FAILED_TO_OPEN_BACKEND_DEVICE);
@@ -21380,7 +21380,7 @@ ma_result ma_device_init__opensl(ma_context* pContext, const ma_device_config* p
 
         const SLInterfaceID itfIDs1[] = {SL_IID_ANDROIDSIMPLEBUFFERQUEUE};
         const SLboolean itfIDsRequired1[] = {SL_BOOLEAN_TRUE};
-        resultSL = (*g_malEngineSL)->CreateAudioPlayer(g_malEngineSL, (SLObjectItf*)&pDevice->opensl.pAudioPlayerObj, &source, &sink, 1, itfIDs1, itfIDsRequired1);
+        resultSL = (*g_maEngineSL)->CreateAudioPlayer(g_maEngineSL, (SLObjectItf*)&pDevice->opensl.pAudioPlayerObj, &source, &sink, 1, itfIDs1, itfIDsRequired1);
         if (resultSL == SL_RESULT_CONTENT_UNSUPPORTED) {
             /* Unsupported format. Fall back to something safer and try again. If this fails, just abort. */
             pcm.formatType = SL_DATAFORMAT_PCM;
@@ -21389,7 +21389,7 @@ ma_result ma_device_init__opensl(ma_context* pContext, const ma_device_config* p
             pcm.bitsPerSample = 16;
             pcm.containerSize = pcm.bitsPerSample;  /* Always tightly packed for now. */
             pcm.channelMask = SL_SPEAKER_FRONT_LEFT | SL_SPEAKER_FRONT_RIGHT;
-            resultSL = (*g_malEngineSL)->CreateAudioPlayer(g_malEngineSL, (SLObjectItf*)&pDevice->opensl.pAudioPlayerObj, &source, &sink, 1, itfIDs1, itfIDsRequired1);
+            resultSL = (*g_maEngineSL)->CreateAudioPlayer(g_maEngineSL, (SLObjectItf*)&pDevice->opensl.pAudioPlayerObj, &source, &sink, 1, itfIDs1, itfIDsRequired1);
         }
 
         if (resultSL != SL_RESULT_SUCCESS) {
@@ -21454,8 +21454,8 @@ ma_result ma_device_start__opensl(ma_device* pDevice)
 {
     ma_assert(pDevice != NULL);
 
-    ma_assert(g_malOpenSLInitCounter > 0); /* <-- If you trigger this it means you've either not initialized the context, or you've uninitialized it and then attempted to start the device. */
-    if (g_malOpenSLInitCounter == 0) {
+    ma_assert(g_maOpenSLInitCounter > 0); /* <-- If you trigger this it means you've either not initialized the context, or you've uninitialized it and then attempted to start the device. */
+    if (g_maOpenSLInitCounter == 0) {
         return MA_INVALID_OPERATION;
     }
 
@@ -21505,8 +21505,8 @@ ma_result ma_device_stop__opensl(ma_device* pDevice)
 {
     ma_assert(pDevice != NULL);
 
-    ma_assert(g_malOpenSLInitCounter > 0); /* <-- If you trigger this it means you've either not initialized the context, or you've uninitialized it before stopping/uninitializing the device. */
-    if (g_malOpenSLInitCounter == 0) {
+    ma_assert(g_maOpenSLInitCounter > 0); /* <-- If you trigger this it means you've either not initialized the context, or you've uninitialized it before stopping/uninitializing the device. */
+    if (g_maOpenSLInitCounter == 0) {
         return MA_INVALID_OPERATION;
     }
 
@@ -21547,9 +21547,9 @@ ma_result ma_context_uninit__opensl(ma_context* pContext)
     (void)pContext;
 
     /* Uninit global data. */
-    if (g_malOpenSLInitCounter > 0) {
-        if (ma_atomic_decrement_32(&g_malOpenSLInitCounter) == 0) {
-            (*g_malEngineObjectSL)->Destroy(g_malEngineObjectSL);
+    if (g_maOpenSLInitCounter > 0) {
+        if (ma_atomic_decrement_32(&g_maOpenSLInitCounter) == 0) {
+            (*g_maEngineObjectSL)->Destroy(g_maEngineObjectSL);
         }
     }
 
@@ -21562,19 +21562,19 @@ ma_result ma_context_init__opensl(ma_context* pContext)
     (void)pContext;
 
     /* Initialize global data first if applicable. */
-    if (ma_atomic_increment_32(&g_malOpenSLInitCounter) == 1) {
-        SLresult resultSL = slCreateEngine(&g_malEngineObjectSL, 0, NULL, 0, NULL, NULL);
+    if (ma_atomic_increment_32(&g_maOpenSLInitCounter) == 1) {
+        SLresult resultSL = slCreateEngine(&g_maEngineObjectSL, 0, NULL, 0, NULL, NULL);
         if (resultSL != SL_RESULT_SUCCESS) {
-            ma_atomic_decrement_32(&g_malOpenSLInitCounter);
+            ma_atomic_decrement_32(&g_maOpenSLInitCounter);
             return MA_NO_BACKEND;
         }
 
-        (*g_malEngineObjectSL)->Realize(g_malEngineObjectSL, SL_BOOLEAN_FALSE);
+        (*g_maEngineObjectSL)->Realize(g_maEngineObjectSL, SL_BOOLEAN_FALSE);
 
-        resultSL = (*g_malEngineObjectSL)->GetInterface(g_malEngineObjectSL, SL_IID_ENGINE, &g_malEngineSL);
+        resultSL = (*g_maEngineObjectSL)->GetInterface(g_maEngineObjectSL, SL_IID_ENGINE, &g_maEngineSL);
         if (resultSL != SL_RESULT_SUCCESS) {
-            (*g_malEngineObjectSL)->Destroy(g_malEngineObjectSL);
-            ma_atomic_decrement_32(&g_malOpenSLInitCounter);
+            (*g_maEngineObjectSL)->Destroy(g_maEngineObjectSL);
+            ma_atomic_decrement_32(&g_maOpenSLInitCounter);
             return MA_NO_BACKEND;
         }
     }
@@ -22105,7 +22105,7 @@ ma_result ma_context_init__webaudio(ma_context* pContext)
             return 0;   /* Web Audio not supported. */
         }
 
-        if (typeof(mal) === 'undefined') {
+        if (typeof(miniaudio) === 'undefined') {
             miniaudio = {};
             miniaudio.devices = [];   /* Device cache for mapping devices to indexes for JavaScript/C interop. */
                     
@@ -26969,7 +26969,7 @@ static MA_INLINE float ma_vec3_distance(ma_vec3 a, ma_vec3 b)
 #define MA_PLANE_BOTTOM    4
 #define MA_PLANE_TOP       5
 
-float g_malChannelPlaneRatios[MA_CHANNEL_POSITION_COUNT][6] = {
+float g_maChannelPlaneRatios[MA_CHANNEL_POSITION_COUNT][6] = {
     { 0.0f,  0.0f,  0.0f,  0.0f,  0.0f,  0.0f},  // MA_CHANNEL_NONE
     { 0.0f,  0.0f,  0.0f,  0.0f,  0.0f,  0.0f},  // MA_CHANNEL_MONO
     { 0.5f,  0.0f,  0.5f,  0.0f,  0.0f,  0.0f},  // MA_CHANNEL_FRONT_LEFT
@@ -27055,12 +27055,12 @@ float ma_calculate_channel_position_planar_weight(ma_channel channelPositionA, m
 
     // Contribution = Sum(Volume to Give * Volume to Take)
     float contribution = 
-        g_malChannelPlaneRatios[channelPositionA][0] * g_malChannelPlaneRatios[channelPositionB][0] +
-        g_malChannelPlaneRatios[channelPositionA][1] * g_malChannelPlaneRatios[channelPositionB][1] +
-        g_malChannelPlaneRatios[channelPositionA][2] * g_malChannelPlaneRatios[channelPositionB][2] +
-        g_malChannelPlaneRatios[channelPositionA][3] * g_malChannelPlaneRatios[channelPositionB][3] +
-        g_malChannelPlaneRatios[channelPositionA][4] * g_malChannelPlaneRatios[channelPositionB][4] +
-        g_malChannelPlaneRatios[channelPositionA][5] * g_malChannelPlaneRatios[channelPositionB][5];
+        g_maChannelPlaneRatios[channelPositionA][0] * g_maChannelPlaneRatios[channelPositionB][0] +
+        g_maChannelPlaneRatios[channelPositionA][1] * g_maChannelPlaneRatios[channelPositionB][1] +
+        g_maChannelPlaneRatios[channelPositionA][2] * g_maChannelPlaneRatios[channelPositionB][2] +
+        g_maChannelPlaneRatios[channelPositionA][3] * g_maChannelPlaneRatios[channelPositionB][3] +
+        g_maChannelPlaneRatios[channelPositionA][4] * g_maChannelPlaneRatios[channelPositionB][4] +
+        g_maChannelPlaneRatios[channelPositionA][5] * g_maChannelPlaneRatios[channelPositionB][5];
 
     return contribution;
 }
@@ -27083,7 +27083,7 @@ ma_bool32 ma_channel_router__is_spatial_channel_position(const ma_channel_router
     }
 
     for (int i = 0; i < 6; ++i) {
-        if (g_malChannelPlaneRatios[channelPosition][i] != 0) {
+        if (g_maChannelPlaneRatios[channelPosition][i] != 0) {
             return MA_TRUE;
         }
     }
