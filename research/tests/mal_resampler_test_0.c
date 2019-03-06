@@ -3,7 +3,7 @@
 
 #define MAL_DEBUG_OUTPUT
 #define MINI_AL_IMPLEMENTATION
-#include "../../mini_al.h"
+#include "../../miniaudio.h"
 #include "../mal_resampler.h"
 
 #define SAMPLE_RATE_IN  44100

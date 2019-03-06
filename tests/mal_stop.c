@@ -1,7 +1,7 @@
 #include <stdio.h>
 
 #define MINI_AL_IMPLEMENTATION
-#include "../mini_al.h"
+#include "../miniaudio.h"
 
 mal_sine_wave sineWave;
 mal_uint32 framesWritten;

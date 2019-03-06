@@ -1,7 +1,7 @@
 #define MAL_DEBUG_OUTPUT
 #define MAL_USE_REFERENCE_CONVERSION_APIS
 #define MINI_AL_IMPLEMENTATION
-#include "../mini_al.h"
+#include "../miniaudio.h"
 
 // Two converters are needed here. One for converting f32 samples from the sine wave generator to the input format,
 // and another for converting the input format to the output format for device output.

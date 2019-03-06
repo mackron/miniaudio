@@ -1,7 +1,7 @@
-![mini_al](http://dred.io/img/minial_wide.png)
+![miniaudio](http://dred.io/img/miniaudio_wide.png)
 
-mini_al is a single file library for audio playback and capture. It's written in C (compilable as C++)
-and released into the public domain.
+miniaudio (formally mini_al) is a single file library for audio playback and capture. It's written
+in C (compilable as C++) and released into the public domain.
 
 
 Features
@@ -52,7 +52,7 @@ Building
 Do the following in one source file:
 ```
 #define MINI_AL_IMPLEMENTATION
-#include "mini_al.h"
+#include "miniaudio.h"
 ```
 Then just compile. There's no need to install any dependencies. On Windows and macOS there's no need to link
 to anything. On Linux and BSD, just link to -lpthread, -lm and -ldl.
@@ -70,7 +70,7 @@ Simple Playback Example
 #include "../extras/dr_wav.h"   // Enables WAV decoding.
 
 #define MINI_AL_IMPLEMENTATION
-#include "../mini_al.h"
+#include "../miniaudio.h"
 
 #include <stdio.h>
 
@@ -133,21 +133,21 @@ int main(int argc, char** argv)
 
 MP3/Vorbis/FLAC/WAV Decoding
 ============================
-mini_al includes a decoding API which supports the following backends:
+miniaudio includes a decoding API which supports the following backends:
 - FLAC via [dr_flac](https://github.com/mackron/dr_libs/blob/master/dr_flac.h)
 - MP3 via [dr_mp3](https://github.com/mackron/dr_libs/blob/master/dr_mp3.h)
 - WAV via [dr_wav](https://github.com/mackron/dr_libs/blob/master/dr_wav.h)
 - Vorbis via [stb_vorbis](https://github.com/nothings/stb/blob/master/stb_vorbis.c)
 
 Copies of these libraries can be found in the "extras" folder. You may also want to look at the
-libraries below, but they are not supported by the mini_al decoder API. If you know of any other
+libraries below, but they are not supported by the miniaudio decoder API. If you know of any other
 single file libraries I can add to this list, let me know. Preferably public domain or MIT.
 - [minimp3](https://github.com/lieff/minimp3)
 - [jar_mod](https://github.com/kd7tck/jar/blob/master/jar_mod.h)
 - [jar_xm](https://github.com/kd7tck/jar/blob/master/jar_xm.h)
 
 To enable support for a decoding backend, all you need to do is #include the header section of the
-relevant backend library before the implementation of mini_al, like so:
+relevant backend library before the implementation of miniaudio, like so:
 
 ```
 #include "dr_flac.h"    // Enables FLAC decoding.
@@ -155,7 +155,7 @@ relevant backend library before the implementation of mini_al, like so:
 #include "dr_wav.h"     // Enables WAV decoding.
 
 #define MINI_AL_IMPLEMENTATION
-#include "mini_al.h"
+#include "miniaudio.h"
 ```
 
 A decoder can be initialized from a file with `mal_decoder_init_file()`, a block of memory with
@@ -200,7 +200,7 @@ if (result != MAL_SUCCESS) {
 }
 ```
 
-When loading a decoder, mini_al uses a trial and error technique to find the appropriate decoding
+When loading a decoder, miniaudio uses a trial and error technique to find the appropriate decoding
 backend. This can be unnecessarily inefficient if the type is already known. In this case you can
 use the `_wav`, `_mp3`, etc. varients of the aforementioned initialization APIs:
 

@@ -95,7 +95,7 @@
                     latencyHint: 'interactive',
                     sampleRate: sampleRate,
                 });
-                device.webaudioContext.suspend();  // mini_al always starts it's devices in a stopped state.
+                device.webaudioContext.suspend();  // miniaudio always starts it's devices in a stopped state.
                 console.log("Sample Rate: " + device.webaudioContext.sampleRate);
                 
                 device.intermediaryBufferSizeInBytes = channelCount * bufferSizeInFrames * 4;

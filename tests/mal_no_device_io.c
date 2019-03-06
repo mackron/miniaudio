@@ -6,7 +6,7 @@
 
 #define MAL_NO_DEVICE_IO
 #define MINI_AL_IMPLEMENTATION
-#include "../mini_al.h"
+#include "../miniaudio.h"
 
 int main(int argc, char** argv)
 {

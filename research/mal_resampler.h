@@ -1,7 +1,7 @@
 /*
 Consider this code public domain.
 
-This is research into a new resampler for mini_al. Not yet complete.
+This is research into a new resampler for miniaudio. Not yet complete.
 
 Requirements:
 - Selection of different algorithms. The following at a minimum:
@@ -46,7 +46,7 @@ Random Notes:
 - You cannot change the algorithm after initialization.
 - It is recommended to keep the mal_resampler object aligned to MAL_SIMD_ALIGNMENT, though it is not necessary.
 - Ratios need to be in the range of MAL_RESAMPLER_MIN_RATIO and MAL_RESAMPLER_MAX_RATIO. This is enough to convert
-  to and from 8000 and 384000, which is the smallest and largest standard rates supported by mini_al. If you need
+  to and from 8000 and 384000, which is the smallest and largest standard rates supported by miniaudio. If you need
   extreme ratios then you will need to chain resamplers together.
 */
 #ifndef mal_resampler_h

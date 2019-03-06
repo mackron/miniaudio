@@ -56,7 +56,7 @@ typedef struct
     mal_uint32 subbufferStrideInBytes;
     volatile mal_uint32 encodedReadOffset;  /* Most significant bit is the loop flag. Lower 31 bits contains the actual offset in bytes. */
     volatile mal_uint32 encodedWriteOffset; /* Most significant bit is the loop flag. Lower 31 bits contains the actual offset in bytes. */
-    mal_bool32 ownsBuffer          : 1;     /* Used to know whether or not mini_al is responsible for free()-ing the buffer. */
+    mal_bool32 ownsBuffer          : 1;     /* Used to know whether or not miniaudio is responsible for free()-ing the buffer. */
     mal_bool32 clearOnWriteAcquire : 1;     /* When set, clears the acquired write buffer before returning from mal_rb_acquire_write(). */
 } mal_rb;
 

@@ -376,7 +376,7 @@
     </ClCompile>
   </ItemGroup>
   <ItemGroup>
-    <ClInclude Include="..\mini_al.h" />
+    <ClInclude Include="..\miniaudio.h" />
     <ClInclude Include="..\research\mal_resampler.h" />
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />

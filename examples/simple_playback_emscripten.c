@@ -1,5 +1,5 @@
 #define MINI_AL_IMPLEMENTATION
-#include "../mini_al.h"
+#include "../miniaudio.h"
 
 #include <stdio.h>
 

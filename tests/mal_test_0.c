@@ -12,7 +12,7 @@
 
 //#define MAL_DEBUG_OUTPUT
 #define MINI_AL_IMPLEMENTATION
-#include "../mini_al.h"
+#include "../miniaudio.h"
 
 #ifdef __EMSCRIPTEN__
 #include <emscripten.h>

@@ -2,7 +2,7 @@
 #define MAL_LOG_LEVEL MAL_LOG_LEVEL_VERBOSE
 #define MAL_DEBUG_OUTPUT
 #define MINI_AL_IMPLEMENTATION
-#include "../mini_al.h"
+#include "../miniaudio.h"
 
 int print_context_info(mal_context* pContext)
 {

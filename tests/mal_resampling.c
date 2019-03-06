@@ -1,4 +1,4 @@
-// We're using sigvis for visualizations. This will include mini_al for us, so no need to include mini_al in this file.
+// We're using sigvis for visualizations. This will include miniaudio for us, so no need to include miniaudio in this file.
 #define NO_SIGVIS
 
 #define MAL_NO_SSE2
@@ -6,13 +6,13 @@
 
 #ifdef NO_SIGVIS
     #define MINI_AL_IMPLEMENTATION
-    #include "../mini_al.h"
+    #include "../miniaudio.h"
 #else
     #define MINI_SIGVIS_IMPLEMENTATION
-    #include "../tools/mini_sigvis/mini_sigvis.h" // <-- Includes mini_al.
+    #include "../tools/mini_sigvis/mini_sigvis.h" // <-- Includes miniaudio.
 #endif
 
-// There is a usage pattern for resampling that mini_al does not properly support which is where the client continuously
+// There is a usage pattern for resampling that miniaudio does not properly support which is where the client continuously
 // reads samples until mal_src_read() returns 0. The problem with this pattern is that is consumes the samples sitting
 // in the window which are needed to compute the next samples in future calls to mal_src_read() (assuming the client
 // has re-filled the resampler's input data).

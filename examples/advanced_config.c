@@ -1,5 +1,5 @@
 #define MINI_AL_IMPLEMENTATION
-#include "../mini_al.h"
+#include "../miniaudio.h"
 
 #include <stdio.h>
 
@@ -7,7 +7,7 @@ void log_callback(mal_context* pContext, mal_device* pDevice, mal_uint32 logLeve
 {
     (void)pContext;
     (void)pDevice;
-    printf("mini_al: [%s] %s\n", mal_log_level_to_string(logLevel), message);
+    printf("miniaudio: [%s] %s\n", mal_log_level_to_string(logLevel), message);
 }
 
 void data_callback(mal_device* pDevice, void* pOutput, const void* pInput, mal_uint32 frameCount)
@@ -44,7 +44,7 @@ int main(int argc, char** argv)
     // PulseAudio
     // ----------
     
-    // PulseAudio allows you to set the name of the application. mini_al exposes this through the following
+    // PulseAudio allows you to set the name of the application. miniaudio exposes this through the following
     // config.
     contextConfig.pulse.pApplicationName = "My Application";
 
@@ -53,7 +53,7 @@ int main(int argc, char** argv)
     contextConfig.pulse.pServerName = "my_server";
 
     // During initialization, PulseAudio can try to automatically start the PulseAudio daemon. This does not
-    // suit mini_al's trial and error backend initialization architecture so it's disabled by default, but you
+    // suit miniaudio's trial and error backend initialization architecture so it's disabled by default, but you
     // can enable it like so:
     contextConfig.pulse.tryAutoSpawn = MAL_TRUE;
 
@@ -62,7 +62,7 @@ int main(int argc, char** argv)
     // ----
 
     // Typically, ALSA enumerates many devices, which unfortunately is not very friendly for the end user. To
-    // combat this, mini_al will include only unique card/device pairs by default. The problem with this is that
+    // combat this, miniaudio will include only unique card/device pairs by default. The problem with this is that
     // you lose a bit of flexibility and control. Setting alsa.useVerboseDeviceEnumeration makes it so the ALSA
     // backend includes all devices (and there's a lot of them!).
     contextConfig.alsa.useVerboseDeviceEnumeration = MAL_TRUE;
@@ -151,7 +151,7 @@ int main(int argc, char** argv)
     // backends support this feature, so this is actually just a hint.
     deviceConfig.playback.shareMode = mal_share_mode_exclusive;
 
-    // mini_al allows applications to control the mapping of channels. The config below swaps the left and right
+    // miniaudio allows applications to control the mapping of channels. The config below swaps the left and right
     // channels. Normally in an interleaved audio stream, the left channel comes first, but we can change that
     // like the following:
     deviceConfig.playback.channelMap[0] = MAL_CHANNEL_FRONT_RIGHT;
@@ -164,7 +164,7 @@ int main(int argc, char** argv)
     // here in case it might be useful for others. If you find a bug specific to mmap mode, please report it!
     deviceConfig.alsa.noMMap = MAL_TRUE;
 
-    // This is not used in this example, but mini_al allows you to directly control the device ID that's used
+    // This is not used in this example, but miniaudio allows you to directly control the device ID that's used
     // for device selection by mal_device_init(). Below is an example for ALSA. In this example it forces
     // mal_device_init() to try opening the "hw:0,0" device. This is useful for debugging in case you have
     // audio glitches or whatnot with specific devices.
@@ -173,8 +173,8 @@ int main(int argc, char** argv)
     if (context.backend == mal_backend_alsa) {
         strcpy(customDeviceID.alsa, "hw:0,0");
 
-        // The ALSA backend also supports a mini_al-specific format which looks like this: ":0,0". In this case,
-        // mini_al will try different plugins depending on the shareMode setting. When using shared mode it will
+        // The ALSA backend also supports a miniaudio-specific format which looks like this: ":0,0". In this case,
+        // miniaudio will try different plugins depending on the shareMode setting. When using shared mode it will
         // convert ":0,0" to "dmix:0,0"/"dsnoop:0,0". For exclusive mode (or if dmix/dsnoop fails) it will convert
         // it to "hw:0,0". This is how the ALSA backend honors the shareMode hint.
         strcpy(customDeviceID.alsa, ":0,0");

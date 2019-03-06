@@ -1,6 +1,6 @@
 /*
 Audio playback and capture library. Choice of public domain or MIT-0. See license statements at the end of this file.
-mini_al - v0.9 - 2019-03-xx
+miniaudio - v0.9 - 2019-03-xx
 
 David Reid - davidreidsoftware@gmail.com
 */
@@ -29,7 +29,7 @@ The major feature added to version 0.9 is full-duplex. This has necessitated a f
 
    This callback allows you to move data straight out of the input buffer and into the output buffer in full-duplex mode. In
    playback-only mode, pInput will be null. Likewise, pOutput will be null in capture-only mode. The sample count is no longer
-   returned from the callback since it's not necessary for mini_al anymore.
+   returned from the callback since it's not necessary for miniaudio anymore.
 
 2) The device config needed to change in order to support full-duplex. Full-duplex requires the ability to allow the client
    to choose a different PCM format for the playback and capture sides. The old mal_device_config object simply did not allow
@@ -110,7 +110,7 @@ The following miscellaneous changes have also been made.
 - The AAudio backend has been added for Android 8 and above. This is Androids new "High-Performance Audio" API. (For the
   record, this is one of the nicest audio APIs out there, just behind the BSD audio APIs).
 - The WebAudio backend has been added. This is based on ScriptProcessorNode. This removes the need for SDL.
-- The SDL and OpenAL backends have been removed. These were originally implemented to add support for platforms for which mini_al
+- The SDL and OpenAL backends have been removed. These were originally implemented to add support for platforms for which miniaudio
   was not explicitly supported. These are no longer needed and have therefore been removed.
 - Device initialization now fails if the requested share mode is not supported. If you ask for exclusive mode, you either get an
   exclusive mode device, or an error. The rationale for this change is to give the client more control over how to handle cases
@@ -124,7 +124,7 @@ The following miscellaneous changes have also been made.
 /*
 ABOUT
 =====
-mini_al is a single file library for audio playback and capture. It's written in C (compilable as
+miniaudio is a single file library for audio playback and capture. It's written in C (compilable as
 C++) and released into the public domain.
 
 Supported Backends:
@@ -153,13 +153,13 @@ Supported Formats:
 
 USAGE
 =====
-mini_al is a single-file library. To use it, do something like the following in one .c file.
+miniaudio is a single-file library. To use it, do something like the following in one .c file.
   #define MINI_AL_IMPLEMENTATION
-  #include "mini_al.h"
+  #include "miniaudio.h"
 
 You can then #include this file in other parts of the program as you would with any other header file.
 
-mini_al uses an asynchronous, callback based API. You initialize a device with a configuration (sample rate,
+miniaudio uses an asynchronous, callback based API. You initialize a device with a configuration (sample rate,
 channel count, etc.) which includes the callback you want to use to handle data transmission to/from the
 device. In the callback you either read from a data pointer in the case of playback or write to it in the case
 of capture.
@@ -199,7 +199,7 @@ Playback Example
 
 BUILDING
 ========
-mini_al should Just Work by adding it to your project's source tree. You do not need to download or install
+miniaudio should Just Work by adding it to your project's source tree. You do not need to download or install
 any dependencies. See below for platform-specific details.
 
 If you want to disable a specific backend, #define the appropriate MAL_NO_* option before the implementation.
@@ -271,7 +271,7 @@ Android
 - With AAudio, only default devices are enumerated. This is due to AAudio not having an enumeration API (devices are
   enumerated through Java). You can however perform your own device enumeration through Java and then set the ID in the
   mal_device_id structure (mal_device_id.aaudio) and pass it to mal_device_init().
-- The backend API will perform resampling where possible. The reason for this as opposed to using mini_al's built-in
+- The backend API will perform resampling where possible. The reason for this as opposed to using miniaudio's built-in
   resampler is to take advantage of any potential device-specific optimizations the driver may implement.
 
 UWP
@@ -354,7 +354,7 @@ OPTIONS
 
 #define MAL_NO_DEVICE_IO
   Disables playback and recording. This will disable mal_context and mal_device APIs. This is useful if you only want to
-  use mini_al's data conversion and/or decoding APIs. 
+  use miniaudio's data conversion and/or decoding APIs. 
 
 #define MAL_NO_STDIO
   Disables file IO APIs.
@@ -387,8 +387,8 @@ OPTIONS
 
 DEFINITIONS
 ===========
-This section defines common terms used throughout mini_al. Unfortunately there is often ambiguity in the use of terms
-throughout the audio space, so this section is intended to clarify how mini_al uses each term.
+This section defines common terms used throughout miniaudio. Unfortunately there is often ambiguity in the use of terms
+throughout the audio space, so this section is intended to clarify how miniaudio uses each term.
 
 Sample
 ------
@@ -398,7 +398,7 @@ Frame / PCM Frame
 -----------------
 A frame is a groups of samples equal to the number of channels. For a stereo stream a frame is 2 samples, a mono frame
 is 1 sample, a 5.1 surround sound frame is 6 samples, etc. The terms "frame" and "PCM frame" are the same thing in
-mini_al. Note that this is different to a compressed frame. If ever mini_al needs to refer to a compressed frame, such
+miniaudio. Note that this is different to a compressed frame. If ever miniaudio needs to refer to a compressed frame, such
 as a FLAC frame, it will always clarify what it's referring to with something like "FLAC frame" or whatnot.
 
 Channel
@@ -406,17 +406,17 @@ Channel
 A stream of monaural audio that is emitted from an individual speaker in a speaker system, or received from an individual
 microphone in a microphone system. A stereo stream has two channels (a left channel, and a right channel), a 5.1 surround
 sound system has 6 channels, etc. Some audio systems refer to a channel as a complex audio stream that's mixed with other
-channels to produce the final mix - this is completely different to mini_al's use of the term "channel" and should not be
+channels to produce the final mix - this is completely different to miniaudio's use of the term "channel" and should not be
 confused.
 
 Sample Rate
 -----------
-The sample rate in mini_al is always expressed in Hz, such as 44100, 48000, etc. It's the number of PCM frames that are
+The sample rate in miniaudio is always expressed in Hz, such as 44100, 48000, etc. It's the number of PCM frames that are
 processed per second.
 
 Formats
 -------
-Throughout mini_al you will see references to different sample formats:
+Throughout miniaudio you will see references to different sample formats:
     u8  - Unsigned 8-bit integer
     s16 - Signed 16-bit integer
     s24 - Signed 24-bit integer (tightly packed).
@@ -424,8 +424,8 @@ Throughout mini_al you will see references to different sample formats:
     f32 - 32-bit floating point
 */
 
-#ifndef mini_al_h
-#define mini_al_h
+#ifndef miniaudio_h
+#define miniaudio_h
 
 #ifdef __cplusplus
 extern "C" {
@@ -658,7 +658,7 @@ typedef int mal_result;
 #define MAL_TOO_LARGE                                   -6
 #define MAL_TIMEOUT                                     -7
 
-/* General mini_al-specific errors. */
+/* General miniaudio-specific errors. */
 #define MAL_FORMAT_NOT_SUPPORTED                        -100
 #define MAL_DEVICE_TYPE_NOT_SUPPORTED                   -101
 #define MAL_SHARE_MODE_NOT_SUPPORTED                    -102
@@ -706,7 +706,7 @@ typedef int mal_result;
 #define MAL_SAMPLE_RATE_352800                          352800
 #define MAL_SAMPLE_RATE_384000                          384000
 
-#define MAL_MIN_PCM_SAMPLE_SIZE_IN_BYTES                1   // For simplicity, mini_al does not support PCM samples that are not byte aligned.
+#define MAL_MIN_PCM_SAMPLE_SIZE_IN_BYTES                1   // For simplicity, miniaudio does not support PCM samples that are not byte aligned.
 #define MAL_MAX_PCM_SAMPLE_SIZE_IN_BYTES                8
 #define MAL_MIN_CHANNELS                                1
 #define MAL_MAX_CHANNELS                                32
@@ -1341,7 +1341,7 @@ typedef struct
     mal_uint32 subbufferStrideInBytes;
     volatile mal_uint32 encodedReadOffset;  /* Most significant bit is the loop flag. Lower 31 bits contains the actual offset in bytes. */
     volatile mal_uint32 encodedWriteOffset; /* Most significant bit is the loop flag. Lower 31 bits contains the actual offset in bytes. */
-    mal_bool32 ownsBuffer          : 1;     /* Used to know whether or not mini_al is responsible for free()-ing the buffer. */
+    mal_bool32 ownsBuffer          : 1;     /* Used to know whether or not miniaudio is responsible for free()-ing the buffer. */
     mal_bool32 clearOnWriteAcquire : 1;     /* When set, clears the acquired write buffer before returning from mal_rb_acquire_write(). */
 } mal_rb;
 
@@ -1678,7 +1678,7 @@ null for a playback device.
 frameCount is the number of PCM frames to process. If an output buffer is provided (pOutput is not null), applications should write out
 to the entire output buffer.
 
-Do _not_ call any mini_al APIs from the callback. Attempting the stop the device can result in a deadlock. The proper way to stop the
+Do _not_ call any miniaudio APIs from the callback. Attempting the stop the device can result in a deadlock. The proper way to stop the
 device is to call mal_device_stop() from a different thread, normally the main application thread.
 */
 typedef void (* mal_device_callback_proc)(mal_device* pDevice, void* pOutput, const void* pInput, mal_uint32 frameCount);
@@ -1773,7 +1773,7 @@ typedef struct
     char name[256];
 
     // Detailed info. As much of this is filled as possible with mal_context_get_device_info(). Note that you are allowed to initialize
-    // a device with settings outside of this range, but it just means the data will be converted using mini_al's data conversion
+    // a device with settings outside of this range, but it just means the data will be converted using miniaudio's data conversion
     // pipeline before sending the data to/from the device. Most programs will need to not worry about these values, but it's provided
     // here mainly for informational purposes or in the rare case that someone might find it useful.
     //
@@ -2391,8 +2391,8 @@ MAL_ALIGNED_STRUCT(MAL_SIMD_ALIGNMENT) mal_device
             mal_uint32 originalPeriods;
             mal_bool32 isDefaultPlaybackDevice;
             mal_bool32 isDefaultCaptureDevice;
-            mal_bool32 isSwitchingPlaybackDevice;   /* <-- Set to true when the default device has changed and mini_al is in the process of switching. */
-            mal_bool32 isSwitchingCaptureDevice;    /* <-- Set to true when the default device has changed and mini_al is in the process of switching. */
+            mal_bool32 isSwitchingPlaybackDevice;   /* <-- Set to true when the default device has changed and miniaudio is in the process of switching. */
+            mal_bool32 isSwitchingCaptureDevice;    /* <-- Set to true when the default device has changed and miniaudio is in the process of switching. */
             mal_pcm_rb duplexRB;
         } coreaudio;
 #endif
@@ -2624,15 +2624,15 @@ mal_result mal_context_get_device_info(mal_context* pContext, mal_device_type de
 // leave it unset in the config) which is the most reliable option. Some backends do not have a
 // practical way of choosing whether or not the device should be exclusive or not (ALSA, for example)
 // in which case it just acts as a hint. Unless you have special requirements you should try avoiding
-// exclusive mode as it's intrusive to the user. Starting with Windows 10, mini_al will use low-latency
+// exclusive mode as it's intrusive to the user. Starting with Windows 10, miniaudio will use low-latency
 // shared mode where possible which may make exclusive mode unnecessary.
 //
-// When sending or receiving data to/from a device, mini_al will internally perform a format
+// When sending or receiving data to/from a device, miniaudio will internally perform a format
 // conversion to convert between the format specified by pConfig and the format used internally by
 // the backend. If you pass in NULL for pConfig or 0 for the sample format, channel count,
 // sample rate _and_ channel map, data transmission will run on an optimized pass-through fast path.
 //
-// The buffer size should be treated as a hint. mini_al will try it's best to use exactly what you
+// The buffer size should be treated as a hint. miniaudio will try it's best to use exactly what you
 // ask for, but it may differ. You should not assume the number of frames specified in each call to
 // the data callback is exactly what you originally specified.
 //
@@ -2747,16 +2747,16 @@ mal_context_config mal_context_config_init(void);
 //     config.channels = 2;
 //     config.sampleRate = 44100;
 //
-// In this case mini_al will perform all of the necessary data conversion for you behind the scenes.
+// In this case miniaudio will perform all of the necessary data conversion for you behind the scenes.
 //
-// Currently mini_al only supports asynchronous, callback based data delivery which means you must specify callback. A
+// Currently miniaudio only supports asynchronous, callback based data delivery which means you must specify callback. A
 // pointer to user data can also be specified which is set in the pUserData member of the mal_device object.
 //
 // To specify a channel map you can use mal_get_standard_channel_map():
 //
 //     mal_get_standard_channel_map(mal_standard_channel_map_default, config.channels, config.channelMap);
 //
-// Alternatively you can set the channel map manually if you need something specific or something that isn't one of mini_al's
+// Alternatively you can set the channel map manually if you need something specific or something that isn't one of miniaudio's
 // stock channel maps.
 //
 // By default the system's default device will be used. Set the pDeviceID member to a pointer to a mal_device_id object to 
@@ -2941,7 +2941,7 @@ mal_uint64 mal_sine_wave_read_f32_ex(mal_sine_wave* pSineWave, mal_uint64 frameC
 #ifdef __cplusplus
 }
 #endif
-#endif  //mini_al_h
+#endif  //miniaudio_h
 
 
 //////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -3792,11 +3792,11 @@ static MAL_INLINE float mal_scale_to_range_f32(float x, float lo, float hi)
 
 // Random Number Generation
 //
-// mini_al uses the LCG random number generation algorithm. This is good enough for audio.
+// miniaudio uses the LCG random number generation algorithm. This is good enough for audio.
 //
-// Note that mini_al's LCG implementation uses global state which is _not_ thread-local. When this is called across
+// Note that miniaudio's LCG implementation uses global state which is _not_ thread-local. When this is called across
 // multiple threads, results will be unpredictable. However, it won't crash and results will still be random enough
-// for mini_al's purposes.
+// for miniaudio's purposes.
 #define MAL_LCG_M   4294967296
 #define MAL_LCG_A   1103515245
 #define MAL_LCG_C   12345
@@ -4394,7 +4394,7 @@ mal_bool32 mal_thread_create__posix(mal_context* pContext, mal_thread* pThread, 
         if (scheduler != -1) {
             int priorityMin = sched_get_priority_min(scheduler);
             int priorityMax = sched_get_priority_max(scheduler);
-            int priorityStep = (priorityMax - priorityMin) / 7;  // 7 = number of priorities supported by mini_al.
+            int priorityStep = (priorityMax - priorityMin) / 7;  // 7 = number of priorities supported by miniaudio.
 
             struct sched_param sched;
             if (((mal_pthread_attr_getschedparam_proc)pContext->posix.pthread_attr_getschedparam)(&attr, &sched) == 0) {
@@ -5222,7 +5222,7 @@ mal_thread_result MAL_THREADCALL mal_device_thread__null(void* pData)
 
         /* Getting a signal on a "none" operation probably means an error. Return invalid operation. */
         if (pDevice->null_device.operation == MAL_DEVICE_OP_NONE__NULL) {
-            mal_assert(MAL_FALSE);  /* <-- Trigger this in debug mode to ensure developers are aware they're doing something wrong (or there's a bug in a mini_al). */
+            mal_assert(MAL_FALSE);  /* <-- Trigger this in debug mode to ensure developers are aware they're doing something wrong (or there's a bug in a miniaudio). */
             mal_atomic_exchange_32(&pDevice->null_device.operationResult, MAL_INVALID_OPERATION);
             mal_event_signal(&pDevice->null_device.operationCompletionEvent);
             continue;   /* Continue the loop. Don't terminate. */
@@ -5667,7 +5667,7 @@ typedef struct
 
 GUID MAL_GUID_NULL = {0x00000000, 0x0000, 0x0000, {0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00}};
 
-// Converts an individual Win32-style channel identifier (SPEAKER_FRONT_LEFT, etc.) to mini_al.
+// Converts an individual Win32-style channel identifier (SPEAKER_FRONT_LEFT, etc.) to miniaudio.
 mal_uint8 mal_channel_id_to_mal__win32(DWORD id)
 {
     switch (id)
@@ -5694,7 +5694,7 @@ mal_uint8 mal_channel_id_to_mal__win32(DWORD id)
     }
 }
 
-// Converts an individual mini_al channel identifier (MAL_CHANNEL_FRONT_LEFT, etc.) to Win32-style.
+// Converts an individual miniaudio channel identifier (MAL_CHANNEL_FRONT_LEFT, etc.) to Win32-style.
 DWORD mal_channel_id_to_win32(DWORD id)
 {
     switch (id)
@@ -5733,7 +5733,7 @@ DWORD mal_channel_map_to_channel_mask__win32(const mal_channel channelMap[MAL_MA
     return dwChannelMask;
 }
 
-// Converts a Win32-style channel mask to a mini_al channel map.
+// Converts a Win32-style channel mask to a miniaudio channel map.
 void mal_channel_mask_to_channel_map__win32(DWORD dwChannelMask, mal_uint32 channels, mal_channel channelMap[MAL_MAX_CHANNELS])
 {
     if (channels == 1 && dwChannelMask == 0) {
@@ -5983,7 +5983,7 @@ typedef enum
 
 typedef enum
 {
-    MAL_AudioCategory_Other = 0,    // <-- mini_al is only caring about Other.
+    MAL_AudioCategory_Other = 0,    // <-- miniaudio is only caring about Other.
 } MAL_AUDIO_STREAM_CATEGORY;
 
 typedef struct
@@ -6522,7 +6522,7 @@ HRESULT STDMETHODCALLTYPE mal_IMMNotificationClient_OnDefaultDeviceChanged(mal_I
     printf("IMMNotificationClient_OnDefaultDeviceChanged(dataFlow=%d, role=%d, pDefaultDeviceID=%S)\n", dataFlow, role, (pDefaultDeviceID != NULL) ? pDefaultDeviceID : L"(NULL)");
 #endif
 
-    // We only ever use the eConsole role in mini_al.
+    // We only ever use the eConsole role in miniaudio.
     if (role != mal_eConsole) {
         return S_OK;
     }
@@ -6534,7 +6534,7 @@ HRESULT STDMETHODCALLTYPE mal_IMMNotificationClient_OnDefaultDeviceChanged(mal_I
     }
 
     // Not currently supporting automatic stream routing in exclusive mode. This is not working correctly on my machine due to
-    // AUDCLNT_E_DEVICE_IN_USE errors when reinitializing the device. If this is a bug in mini_al, we can try re-enabling this once
+    // AUDCLNT_E_DEVICE_IN_USE errors when reinitializing the device. If this is a bug in miniaudio, we can try re-enabling this once
     // it's fixed.
     if (dataFlow == mal_eRender  && pThis->pDevice->playback.shareMode == mal_share_mode_exclusive ||
         dataFlow == mal_eCapture && pThis->pDevice->capture.shareMode  == mal_share_mode_exclusive) {
@@ -8374,7 +8374,7 @@ mal_result mal_context_init__wasapi(mal_context* pContext)
 
 GUID MAL_GUID_IID_DirectSoundNotify = {0xb0210783, 0x89cd, 0x11d0, {0xaf, 0x08, 0x00, 0xa0, 0xc9, 0x25, 0xcd, 0x16}};
 
-// mini_al only uses priority or exclusive modes.
+// miniaudio only uses priority or exclusive modes.
 #define MAL_DSSCL_NORMAL                 1
 #define MAL_DSSCL_PRIORITY               2
 #define MAL_DSSCL_EXCLUSIVE              3
@@ -8436,7 +8436,7 @@ typedef struct
     DWORD dwReserved;
     WAVEFORMATEX* lpwfxFormat;
     DWORD dwFXCount;
-    void* lpDSCFXDesc;  // <-- mini_al doesn't use this, so set to void*.
+    void* lpDSCFXDesc;  // <-- miniaudio doesn't use this, so set to void*.
 } MAL_DSCBUFFERDESC;
 
 typedef struct
@@ -11262,7 +11262,7 @@ const char* g_malBlacklistedCaptureDeviceNamesALSA[] = {
 };
 
 
-// This array allows mini_al to control device-specific default buffer sizes. This uses a scaling factor. Order is important. If
+// This array allows miniaudio to control device-specific default buffer sizes. This uses a scaling factor. Order is important. If
 // any part of the string is present in the device's name, the associated scale will be used.
 static struct
 {
@@ -11614,8 +11614,8 @@ mal_result mal_context_open_pcm__alsa(mal_context* pContext, mal_share_mode shar
     } else {
         // We're trying to open a specific device. There's a few things to consider here:
         //
-        // mini_al recongnizes a special format of device id that excludes the "hw", "dmix", etc. prefix. It looks like this: ":0,0", ":0,1", etc. When
-        // an ID of this format is specified, it indicates to mini_al that it can try different combinations of plugins ("hw", "dmix", etc.) until it
+        // miniaudio recongnizes a special format of device id that excludes the "hw", "dmix", etc. prefix. It looks like this: ":0,0", ":0,1", etc. When
+        // an ID of this format is specified, it indicates to miniaudio that it can try different combinations of plugins ("hw", "dmix", etc.) until it
         // finds an appropriate one that works. This comes in very handy when trying to open a device in shared mode ("dmix"), vs exclusive mode ("hw").
 
         // May end up needing to make small adjustments to the ID, so make a copy.
@@ -12376,7 +12376,7 @@ mal_result mal_device_init_by_type__alsa(mal_context* pContext, const mal_device
 
             if (formatALSA == MAL_SND_PCM_FORMAT_UNKNOWN) {
                 ((mal_snd_pcm_close_proc)pDevice->pContext->alsa.snd_pcm_close)(pPCM);
-                return mal_post_error(pDevice, MAL_LOG_LEVEL_ERROR, "[ALSA] Format not supported. The device does not support any mini_al formats.", MAL_FORMAT_NOT_SUPPORTED);
+                return mal_post_error(pDevice, MAL_LOG_LEVEL_ERROR, "[ALSA] Format not supported. The device does not support any miniaudio formats.", MAL_FORMAT_NOT_SUPPORTED);
             }
         }
 
@@ -12388,7 +12388,7 @@ mal_result mal_device_init_by_type__alsa(mal_context* pContext, const mal_device
         internalFormat = mal_convert_alsa_format_to_mal_format(formatALSA);
         if (internalFormat == mal_format_unknown) {
             ((mal_snd_pcm_close_proc)pDevice->pContext->alsa.snd_pcm_close)(pPCM);
-            return mal_post_error(pDevice, MAL_LOG_LEVEL_ERROR, "[ALSA] The chosen format is not supported by mini_al.", MAL_FORMAT_NOT_SUPPORTED);
+            return mal_post_error(pDevice, MAL_LOG_LEVEL_ERROR, "[ALSA] The chosen format is not supported by miniaudio.", MAL_FORMAT_NOT_SUPPORTED);
         }
     }
 
@@ -12416,9 +12416,9 @@ mal_result mal_device_init_by_type__alsa(mal_context* pContext, const mal_device
         doesn't work properly - but only with MMAP access mode. You will notice skipping/crackling in the audio, and it'll run at a slightly
         faster rate.
         
-        mini_al has built-in support for sample rate conversion (albeit low quality at the moment), so disabling resampling should be fine
+        miniaudio has built-in support for sample rate conversion (albeit low quality at the moment), so disabling resampling should be fine
         for us. The only problem is that it won't be taking advantage of any kind of hardware-accelerated resampling and it won't be very
-        good quality until I get a chance to improve the quality of mini_al's software sample rate conversion.
+        good quality until I get a chance to improve the quality of miniaudio's software sample rate conversion.
         
         I don't currently know if the dmix plugin is the only one with this error. Indeed, this is the only one I've been able to reproduce
         this error with. In the future, we may want to restrict the disabling of resampling to only known bad plugins.
@@ -13803,12 +13803,12 @@ void mal_context_enumerate_devices_sink_callback__pulse(mal_pa_context* pPulseCo
     mal_device_info deviceInfo;
     mal_zero_object(&deviceInfo);
 
-    // The name from PulseAudio is the ID for mini_al.
+    // The name from PulseAudio is the ID for miniaudio.
     if (pSinkInfo->name != NULL) {
         mal_strncpy_s(deviceInfo.id.pulse, sizeof(deviceInfo.id.pulse), pSinkInfo->name, (size_t)-1);
     }
 
-    // The description from PulseAudio is the name for mini_al.
+    // The description from PulseAudio is the name for miniaudio.
     if (pSinkInfo->description != NULL) {
         mal_strncpy_s(deviceInfo.name, sizeof(deviceInfo.name), pSinkInfo->description, (size_t)-1);
     }
@@ -13828,12 +13828,12 @@ void mal_context_enumerate_devices_source_callback__pulse(mal_pa_context* pPulse
     mal_device_info deviceInfo;
     mal_zero_object(&deviceInfo);
 
-    // The name from PulseAudio is the ID for mini_al.
+    // The name from PulseAudio is the ID for miniaudio.
     if (pSinkInfo->name != NULL) {
         mal_strncpy_s(deviceInfo.id.pulse, sizeof(deviceInfo.id.pulse), pSinkInfo->name, (size_t)-1);
     }
 
-    // The description from PulseAudio is the name for mini_al.
+    // The description from PulseAudio is the name for miniaudio.
     if (pSinkInfo->description != NULL) {
         mal_strncpy_s(deviceInfo.name, sizeof(deviceInfo.name), pSinkInfo->description, (size_t)-1);
     }
@@ -14163,8 +14163,8 @@ mal_pa_stream* mal_device__pa_stream_new__pulse(mal_device* pDevice, const char*
     if (pStreamName != NULL) {
         mal_strncpy_s(actualStreamName, sizeof(actualStreamName), pStreamName, (size_t)-1);
     } else {
-        mal_strcpy_s(actualStreamName, sizeof(actualStreamName), "mini_al:");
-        mal_itoa_s(g_StreamCounter, actualStreamName + 8, sizeof(actualStreamName)-8, 10);  // 8 = strlen("mini_al:")
+        mal_strcpy_s(actualStreamName, sizeof(actualStreamName), "miniaudio:");
+        mal_itoa_s(g_StreamCounter, actualStreamName + 8, sizeof(actualStreamName)-8, 10);  // 8 = strlen("miniaudio:")
     }
     g_StreamCounter += 1;
 
@@ -15072,7 +15072,7 @@ mal_result mal_context_open_client__jack(mal_context* pContext, mal_jack_client_
     size_t maxClientNameSize = ((mal_jack_client_name_size_proc)pContext->jack.jack_client_name_size)(); // Includes null terminator.
 
     char clientName[256];
-    mal_strncpy_s(clientName, mal_min(sizeof(clientName), maxClientNameSize), (pContext->config.jack.pClientName != NULL) ? pContext->config.jack.pClientName : "mini_al", (size_t)-1);
+    mal_strncpy_s(clientName, mal_min(sizeof(clientName), maxClientNameSize), (pContext->config.jack.pClientName != NULL) ? pContext->config.jack.pClientName : "miniaudio", (size_t)-1);
 
     mal_jack_status_t status;
     mal_jack_client_t* pClient = ((mal_jack_client_open_proc)pContext->jack.jack_client_open)(clientName, (pContext->config.jack.tryStartServer) ? 0 : mal_JackNoStartServer, &status, NULL);
@@ -15564,7 +15564,7 @@ mal_result mal_context_init__jack(mal_context* pContext)
     pContext->jack.jack_port_get_buffer          = (mal_proc)mal_dlsym(pContext->jack.jackSO, "jack_port_get_buffer");
     pContext->jack.jack_free                     = (mal_proc)mal_dlsym(pContext->jack.jackSO, "jack_free");
 #else
-    // This strange assignment system is here just to ensure type safety of mini_al's function pointer
+    // This strange assignment system is here just to ensure type safety of miniaudio's function pointer
     // types. If anything differs slightly the compiler should throw a warning.
     mal_jack_client_open_proc              _jack_client_open              = jack_client_open;
     mal_jack_client_close_proc             _jack_client_close             = jack_client_close;
@@ -15687,11 +15687,11 @@ mal_result mal_device_reinit_internal__coreaudio(mal_device* pDevice, mal_device
 // apart from comments in the headers (which admittedly are quite good). For my own purposes, and for anybody out there whose
 // needing to figure out how this darn thing works, I'm going to outline a few things here.
 //
-// Since mini_al is a fairly low-level API, one of the things it needs is control over specific devices, and it needs to be
+// Since miniaudio is a fairly low-level API, one of the things it needs is control over specific devices, and it needs to be
 // able to identify whether or not it can be used as playback and/or capture. The AudioObject API is the only one I've seen
 // that supports this level of detail. There was some public domain sample code I stumbled across that used the AudioComponent
 // and AudioUnit APIs, but I couldn't see anything that gave low-level control over device selection and capabilities (the
-// distinction between playback and capture in particular). Therefore, mini_al is using the AudioObject API.
+// distinction between playback and capture in particular). Therefore, miniaudio is using the AudioObject API.
 //
 // Most (all?) functions in the AudioObject API take a AudioObjectID as it's input. This is the device identifier. When
 // retrieving global information, such as the device list, you use kAudioObjectSystemObject. When retrieving device-specific
@@ -15704,7 +15704,7 @@ mal_result mal_device_reinit_internal__coreaudio(mal_device* pDevice, mal_device
 // which is basically the specific property that you're wanting to retrieve or set. The second is the "scope", which is
 // typically set to kAudioObjectPropertyScopeGlobal, kAudioObjectPropertyScopeInput for input-specific properties and
 // kAudioObjectPropertyScopeOutput for output-specific properties. The last is the "element" which is always set to
-// kAudioObjectPropertyElementMaster in mini_al's case. I don't know of any cases where this would be set to anything different.
+// kAudioObjectPropertyElementMaster in miniaudio's case. I don't know of any cases where this would be set to anything different.
 //
 // Back to the earlier issue of device retrieval, you first use the AudioObjectGetPropertyDataSize() API to retrieve the size
 // of the raw data which is just a list of AudioDeviceID's. You use the kAudioObjectSystemObject AudioObjectID, and a property
@@ -15863,7 +15863,7 @@ mal_result mal_format_from_AudioStreamBasicDescription(const AudioStreamBasicDes
     
     *pFormatOut = mal_format_unknown;   // Safety.
     
-    // There's a few things mini_al doesn't support.
+    // There's a few things miniaudio doesn't support.
     if (pDescription->mFormatID != kAudioFormatLinearPCM) {
         return MAL_FORMAT_NOT_SUPPORTED;
     }
@@ -15878,7 +15878,7 @@ mal_result mal_format_from_AudioStreamBasicDescription(const AudioStreamBasicDes
         return MAL_FORMAT_NOT_SUPPORTED;
     }
     
-    // We are not currently supporting non-interleaved formats (this will be added in a future version of mini_al).
+    // We are not currently supporting non-interleaved formats (this will be added in a future version of miniaudio).
     //if ((pDescription->mFormatFlags & kAudioFormatFlagIsNonInterleaved) != 0) {
     //    return MAL_FORMAT_NOT_SUPPORTED;
     //}
@@ -16147,7 +16147,7 @@ mal_result mal_get_AudioObject_stream_descriptions(mal_context* pContext, AudioO
     mal_assert(ppDescriptions != NULL);
     
     // TODO: Experiment with kAudioStreamPropertyAvailablePhysicalFormats instead of (or in addition to) kAudioStreamPropertyAvailableVirtualFormats. My
-    //       MacBook Pro uses s24/32 format, however, which mini_al does not currently support.
+    //       MacBook Pro uses s24/32 format, however, which miniaudio does not currently support.
     AudioObjectPropertyAddress propAddress;
     propAddress.mSelector = kAudioStreamPropertyAvailableVirtualFormats; //kAudioStreamPropertyAvailablePhysicalFormats;
     propAddress.mScope    = (deviceType == mal_device_type_playback) ? kAudioObjectPropertyScopeOutput : kAudioObjectPropertyScopeInput;
@@ -16311,7 +16311,7 @@ mal_result mal_get_AudioObject_get_closest_sample_rate(mal_context* pContext, Au
     }
     
     if (sampleRateIn == 0) {
-        // Search in order of mini_al's preferred priority.
+        // Search in order of miniaudio's preferred priority.
         for (UInt32 iMALSampleRate = 0; iMALSampleRate < mal_countof(g_malStandardSampleRatePriorities); ++iMALSampleRate) {
             mal_uint32 malSampleRate = g_malStandardSampleRatePriorities[iMALSampleRate];
             for (UInt32 iCASampleRate = 0; iCASampleRate < sampleRateRangeCount; ++iCASampleRate) {
@@ -16324,7 +16324,7 @@ mal_result mal_get_AudioObject_get_closest_sample_rate(mal_context* pContext, Au
             }
         }
         
-        // If we get here it means none of mini_al's standard sample rates matched any of the supported sample rates from the device. In this
+        // If we get here it means none of miniaudio's standard sample rates matched any of the supported sample rates from the device. In this
         // case we just fall back to the first one reported by Core Audio.
         mal_assert(sampleRateRangeCount > 0);
         
@@ -16562,18 +16562,18 @@ mal_result mal_find_best_format__coreaudio(mal_context* pContext, AudioObjectID 
     for (UInt32 iFormat = 0; iFormat < deviceFormatDescriptionCount; ++iFormat) {
         AudioStreamBasicDescription thisDeviceFormat = pDeviceFormatDescriptions[iFormat].mFormat;
     
-        // If the format is not supported by mini_al we need to skip this one entirely.
+        // If the format is not supported by miniaudio we need to skip this one entirely.
         mal_format thisSampleFormat;
         mal_result formatResult = mal_format_from_AudioStreamBasicDescription(&pDeviceFormatDescriptions[iFormat].mFormat, &thisSampleFormat);
         if (formatResult != MAL_SUCCESS || thisSampleFormat == mal_format_unknown) {
-            continue;   // The format is not supported by mini_al. Skip.
+            continue;   // The format is not supported by miniaudio. Skip.
         }
         
         mal_format bestSampleFormatSoFar;
         mal_format_from_AudioStreamBasicDescription(&bestDeviceFormatSoFar, &bestSampleFormatSoFar);
         
     
-        // Getting here means the format is supported by mini_al which makes this format a candidate.
+        // Getting here means the format is supported by miniaudio which makes this format a candidate.
         if (thisDeviceFormat.mSampleRate != desiredSampleRate) {
             // The sample rate does not match, but this format could still be usable, although it's a very low priority. If the best format
             // so far has an equal sample rate we can just ignore this one.
@@ -16632,7 +16632,7 @@ mal_result mal_find_best_format__coreaudio(mal_context* pContext, AudioObjectID 
                             bestDeviceFormatSoFar = thisDeviceFormat;
                             break;  // Found the exact match.
                         } else {
-                            // The formats are different. The new best format is the one with the highest priority format according to mini_al.
+                            // The formats are different. The new best format is the one with the highest priority format according to miniaudio.
                             if (mal_get_format_priority_index(thisSampleFormat) < mal_get_format_priority_index(bestSampleFormatSoFar)) {
                                 bestDeviceFormatSoFar = thisDeviceFormat;
                                 continue;
@@ -16997,7 +16997,7 @@ OSStatus mal_on_output__coreaudio(void* pUserData, AudioUnitRenderActionFlags* p
             #endif
             } else {
                 // This case is where the number of channels in the output buffer do not match our internal channels. It could mean that it's
-                // not interleaved, in which case we can't handle right now since mini_al does not yet support non-interleaved streams. We just
+                // not interleaved, in which case we can't handle right now since miniaudio does not yet support non-interleaved streams. We just
                 // output silence here.
                 mal_zero_memory(pBufferList->mBuffers[iBuffer].mData, pBufferList->mBuffers[iBuffer].mDataByteSize);
 
@@ -17087,7 +17087,7 @@ OSStatus mal_on_input__coreaudio(void* pUserData, AudioUnitRenderActionFlags* pA
             #endif
             } else {
                 // This case is where the number of channels in the output buffer do not match our internal channels. It could mean that it's
-                // not interleaved, in which case we can't handle right now since mini_al does not yet support non-interleaved streams.
+                // not interleaved, in which case we can't handle right now since miniaudio does not yet support non-interleaved streams.
                 
                 mal_uint8 silentBuffer[4096];
                 mal_zero_memory(silentBuffer, sizeof(silentBuffer));
@@ -17376,12 +17376,12 @@ mal_result mal_device_init_internal__coreaudio(mal_context* pContext, mal_device
     
     // Format. This is the hardest part of initialization because there's a few variables to take into account.
     //   1) The format must be supported by the device.
-    //   2) The format must be supported mini_al.
-    //   3) There's a priority that mini_al prefers.
+    //   2) The format must be supported miniaudio.
+    //   3) There's a priority that miniaudio prefers.
     //
     // Ideally we would like to use a format that's as close to the hardware as possible so we can get as close to a passthrough as possible. The
-    // most important property is the sample rate. mini_al can do format conversion for any sample rate and channel count, but cannot do the same
-    // for the sample data format. If the sample data format is not supported by mini_al it must be ignored completely.
+    // most important property is the sample rate. miniaudio can do format conversion for any sample rate and channel count, but cannot do the same
+    // for the sample data format. If the sample data format is not supported by miniaudio it must be ignored completely.
     //
     // On mobile platforms this is a bit different. We just force the use of whatever the audio unit's current format is set to.
     AudioStreamBasicDescription bestFormat;
@@ -17911,7 +17911,7 @@ mal_result mal_context_init__coreaudio(mal_context* pContext)
 
         [pAudioSession setCategory: AVAudioSessionCategoryPlayAndRecord error:nil];
         
-        // By default we want mini_al to use the speakers instead of the receiver. In the future this may
+        // By default we want miniaudio to use the speakers instead of the receiver. In the future this may
         // be customizable.
         mal_bool32 useSpeakers = MAL_TRUE;
         if (useSpeakers) {
@@ -18046,7 +18046,7 @@ mal_result mal_context_init__coreaudio(mal_context* pContext)
 #include <sys/stat.h>
 
 // Only supporting OpenBSD. This did not work very well at all on FreeBSD when I tried it. Not sure if this is due
-// to mini_al's implementation or if it's some kind of system configuration issue, but basically the default device
+// to miniaudio's implementation or if it's some kind of system configuration issue, but basically the default device
 // just doesn't emit any sound, or at times you'll hear tiny pieces. I will consider enabling this when there's
 // demand for it or if I can get it tested and debugged more thoroughly.
 
@@ -18401,7 +18401,7 @@ mal_result mal_context_get_device_info__sndio(mal_context* pContext, mal_device_
     }
     
     for (unsigned int iConfig = 0; iConfig < caps.nconf; iConfig += 1) {
-        // The main thing we care about is that the encoding is supported by mini_al. If it is, we want to give
+        // The main thing we care about is that the encoding is supported by miniaudio. If it is, we want to give
         // preference to some formats over others.
         for (unsigned int iEncoding = 0; iEncoding < MAL_SIO_NENC; iEncoding += 1) {
             if ((caps.confs[iConfig].enc & (1UL << iEncoding)) == 0) {
@@ -19265,7 +19265,7 @@ mal_result mal_device_init_fd__audio4(mal_context* pContext, const mal_device_co
 
     if (internalFormat == mal_format_unknown) {
         close(fd);
-        return mal_post_error(pDevice, MAL_LOG_LEVEL_ERROR, "[audio4] The device's internal device format is not supported by mini_al. The device is unusable.", MAL_FORMAT_NOT_SUPPORTED);
+        return mal_post_error(pDevice, MAL_LOG_LEVEL_ERROR, "[audio4] The device's internal device format is not supported by miniaudio. The device is unusable.", MAL_FORMAT_NOT_SUPPORTED);
     }
 
     /* Buffer. */
@@ -19287,7 +19287,7 @@ mal_result mal_device_init_fd__audio4(mal_context* pContext, const mal_device_co
             internalPeriods = 2;
         }
 
-        /* What mini_al calls a fragment, audio4 calls a block. */
+        /* What miniaudio calls a fragment, audio4 calls a block. */
         AUDIO_INITINFO(&fdInfo);
         fdInfo.hiwat     = internalPeriods;
         fdInfo.lowat     = internalPeriods-1;
@@ -19313,7 +19313,7 @@ mal_result mal_device_init_fd__audio4(mal_context* pContext, const mal_device_co
 
     if (internalFormat == mal_format_unknown) {
         close(fd);
-        return mal_post_error(pDevice, MAL_LOG_LEVEL_ERROR, "[audio4] The device's internal device format is not supported by mini_al. The device is unusable.", MAL_FORMAT_NOT_SUPPORTED);
+        return mal_post_error(pDevice, MAL_LOG_LEVEL_ERROR, "[audio4] The device's internal device format is not supported by miniaudio. The device is unusable.", MAL_FORMAT_NOT_SUPPORTED);
     }
 
     /* Buffer. */
@@ -19325,7 +19325,7 @@ mal_result mal_device_init_fd__audio4(mal_context* pContext, const mal_device_co
             internalBufferSizeInFrames = mal_calculate_buffer_size_in_frames_from_milliseconds(pConfig->bufferSizeInMilliseconds, internalSampleRate);
         }
 
-        /* What mini_al calls a fragment, audio4 calls a block. */
+        /* What miniaudio calls a fragment, audio4 calls a block. */
         internalBufferSizeInBytes = internalBufferSizeInFrames * mal_get_bytes_per_frame(internalFormat, internalChannels);
         if (internalBufferSizeInBytes < 16) {
             internalBufferSizeInBytes = 16;
@@ -19354,7 +19354,7 @@ mal_result mal_device_init_fd__audio4(mal_context* pContext, const mal_device_co
 
     if (internalFormat == mal_format_unknown) {
         close(fd);
-        return mal_post_error(pDevice, MAL_LOG_LEVEL_ERROR, "[audio4] The device's internal device format is not supported by mini_al. The device is unusable.", MAL_FORMAT_NOT_SUPPORTED);
+        return mal_post_error(pDevice, MAL_LOG_LEVEL_ERROR, "[audio4] The device's internal device format is not supported by miniaudio. The device is unusable.", MAL_FORMAT_NOT_SUPPORTED);
     }
 
     if (deviceType == mal_device_type_capture) {
@@ -19915,7 +19915,7 @@ mal_result mal_device_init_fd__oss(mal_context* pContext, const mal_device_confi
         pDevice->capture.internalBufferSizeInFrames  = (((mal_uint32)(1 << (ossFragment & 0xFFFF))) * pDevice->capture.internalPeriods) / mal_get_bytes_per_frame(pDevice->capture.internalFormat, pDevice->capture.internalChannels);
 
         if (pDevice->capture.internalFormat == mal_format_unknown) {
-            return mal_post_error(pDevice, MAL_LOG_LEVEL_ERROR, "[OSS] The device's internal format is not supported by mini_al.", MAL_FORMAT_NOT_SUPPORTED);
+            return mal_post_error(pDevice, MAL_LOG_LEVEL_ERROR, "[OSS] The device's internal format is not supported by miniaudio.", MAL_FORMAT_NOT_SUPPORTED);
         }
     } else {
         pDevice->oss.fdPlayback                      = fd;
@@ -19927,7 +19927,7 @@ mal_result mal_device_init_fd__oss(mal_context* pContext, const mal_device_confi
         pDevice->playback.internalBufferSizeInFrames = (((mal_uint32)(1 << (ossFragment & 0xFFFF))) * pDevice->playback.internalPeriods) / mal_get_bytes_per_frame(pDevice->playback.internalFormat, pDevice->playback.internalChannels);
 
         if (pDevice->playback.internalFormat == mal_format_unknown) {
-            return mal_post_error(pDevice, MAL_LOG_LEVEL_ERROR, "[OSS] The device's internal format is not supported by mini_al.", MAL_FORMAT_NOT_SUPPORTED);
+            return mal_post_error(pDevice, MAL_LOG_LEVEL_ERROR, "[OSS] The device's internal format is not supported by miniaudio.", MAL_FORMAT_NOT_SUPPORTED);
         }
     }
 
@@ -20078,7 +20078,7 @@ typedef int32_t mal_aaudio_stream_state_t;
 typedef int32_t mal_aaudio_performance_mode_t;
 typedef int32_t mal_aaudio_data_callback_result_t;
 
-/* Result codes. mini_al only cares about the success code. */
+/* Result codes. miniaudio only cares about the success code. */
 #define MAL_AAUDIO_OK                               0
 
 /* Directions. */
@@ -20246,7 +20246,7 @@ mal_result mal_open_stream__aaudio(mal_context* pContext, mal_device_type device
             ((MAL_PFN_AAudioStreamBuilder_setDataCallback)pContext->aaudio.AAudioStreamBuilder_setDataCallback)(pBuilder, mal_stream_data_callback_playback__aaudio, (void*)pDevice);
         }
 
-        /* Not sure how this affects things, but since there's a mapping between mini_al's performance profiles and AAudio's performance modes, let go ahead and set it. */
+        /* Not sure how this affects things, but since there's a mapping between miniaudio's performance profiles and AAudio's performance modes, let go ahead and set it. */
         ((MAL_PFN_AAudioStreamBuilder_setPerformanceMode)pContext->aaudio.AAudioStreamBuilder_setPerformanceMode)(pBuilder, (pConfig->performanceProfile == mal_performance_profile_low_latency) ? MAL_AAUDIO_PERFORMANCE_MODE_LOW_LATENCY : MAL_AAUDIO_PERFORMANCE_MODE_NONE);
     }
 
@@ -20693,7 +20693,7 @@ mal_uint32 g_malOpenSLInitCounter = 0;
 #define MAL_OPENSL_BUFFERQUEUE(p) (*((SLBufferQueueItf)(p)))
 #endif
 
-// Converts an individual OpenSL-style channel identifier (SL_SPEAKER_FRONT_LEFT, etc.) to mini_al.
+// Converts an individual OpenSL-style channel identifier (SL_SPEAKER_FRONT_LEFT, etc.) to miniaudio.
 mal_uint8 mal_channel_id_to_mal__opensl(SLuint32 id)
 {
     switch (id)
@@ -20720,7 +20720,7 @@ mal_uint8 mal_channel_id_to_mal__opensl(SLuint32 id)
     }
 }
 
-// Converts an individual mini_al channel identifier (MAL_CHANNEL_FRONT_LEFT, etc.) to OpenSL-style.
+// Converts an individual miniaudio channel identifier (MAL_CHANNEL_FRONT_LEFT, etc.) to OpenSL-style.
 SLuint32 mal_channel_id_to_opensl(mal_uint8 id)
 {
     switch (id)
@@ -20759,7 +20759,7 @@ SLuint32 mal_channel_map_to_channel_mask__opensl(const mal_channel channelMap[MA
     return channelMask;
 }
 
-// Converts an OpenSL-style channel mask to a mini_al channel map.
+// Converts an OpenSL-style channel mask to a miniaudio channel map.
 void mal_channel_mask_to_channel_map__opensl(SLuint32 channelMask, mal_uint32 channels, mal_channel channelMap[MAL_MAX_CHANNELS])
 {
     if (channels == 1 && channelMask == 0) {
@@ -22296,8 +22296,8 @@ mal_thread_result MAL_THREADCALL mal_worker_thread(void* pData)
 #endif
 
     // When the device is being initialized it's initial state is set to MAL_STATE_UNINITIALIZED. Before returning from
-    // mal_device_init(), the state needs to be set to something valid. In mini_al the device's default state immediately
-    // after initialization is stopped, so therefore we need to mark the device as such. mini_al will wait on the worker
+    // mal_device_init(), the state needs to be set to something valid. In miniaudio the device's default state immediately
+    // after initialization is stopped, so therefore we need to mark the device as such. miniaudio will wait on the worker
     // thread to signal an event to know when the worker thread is ready for action.
     mal_device__set_state(pDevice, MAL_STATE_STOPPED);
     mal_event_signal(&pDevice->stopEvent);
@@ -22326,7 +22326,7 @@ mal_thread_result MAL_THREADCALL mal_worker_thread(void* pData)
         if (pDevice->pContext->onDeviceMainLoop != NULL) {
             pDevice->pContext->onDeviceMainLoop(pDevice);
         } else {
-            /* When a device is using mini_al's generic worker thread they must implement onDeviceRead or onDeviceWrite, depending on the device type. */
+            /* When a device is using miniaudio's generic worker thread they must implement onDeviceRead or onDeviceWrite, depending on the device type. */
             mal_assert(
                 (pDevice->type == mal_device_type_playback && pDevice->pContext->onDeviceWrite != NULL) ||
                 (pDevice->type == mal_device_type_capture  && pDevice->pContext->onDeviceRead  != NULL) ||
@@ -22470,7 +22470,7 @@ mal_thread_result MAL_THREADCALL mal_worker_thread(void* pData)
 
 
         // Getting here means we have broken from the main loop which happens the application has requested that device be stopped. Note that this
-        // may have actually already happened above if the device was lost and mini_al has attempted to re-initialize the device. In this case we
+        // may have actually already happened above if the device was lost and miniaudio has attempted to re-initialize the device. In this case we
         // don't want to be doing this a second time.
         if (mal_device__get_state(pDevice) != MAL_STATE_UNINITIALIZED) {
             if (pDevice->pContext->onDeviceStop) {
@@ -22806,11 +22806,11 @@ mal_result mal_context_init(const mal_backend backends[], mal_uint32 backendCoun
             }
 
 #ifdef MAL_DEBUG_OUTPUT
-            printf("[mini_al] Endian:  %s\n", mal_is_little_endian() ? "LE" : "BE");
-            printf("[mini_al] SSE2:    %s\n", mal_has_sse2()    ? "YES" : "NO");
-            printf("[mini_al] AVX2:    %s\n", mal_has_avx2()    ? "YES" : "NO");
-            printf("[mini_al] AVX512F: %s\n", mal_has_avx512f() ? "YES" : "NO");
-            printf("[mini_al] NEON:    %s\n", mal_has_neon()    ? "YES" : "NO");
+            printf("[miniaudio] Endian:  %s\n", mal_is_little_endian() ? "LE" : "BE");
+            printf("[miniaudio] SSE2:    %s\n", mal_has_sse2()    ? "YES" : "NO");
+            printf("[miniaudio] AVX2:    %s\n", mal_has_avx2()    ? "YES" : "NO");
+            printf("[miniaudio] AVX512F: %s\n", mal_has_avx512f() ? "YES" : "NO");
+            printf("[miniaudio] NEON:    %s\n", mal_has_neon()    ? "YES" : "NO");
 #endif
 
             pContext->backend = backend;
@@ -27637,7 +27637,7 @@ mal_result mal_src_init(const mal_src_config* pConfig, mal_src* pSRC)
         switch (pSRC->config.sinc.windowFunction) {
             case mal_src_sinc_window_function_hann:        mal_src__build_sinc_table__hann(pSRC);        break;
             case mal_src_sinc_window_function_rectangular: mal_src__build_sinc_table__rectangular(pSRC); break;
-            default: return MAL_INVALID_ARGS;   // <-- Hitting this means the window function is unknown to mini_al.
+            default: return MAL_INVALID_ARGS;   // <-- Hitting this means the window function is unknown to miniaudio.
         }
     }
 
@@ -27909,7 +27909,7 @@ mal_src_config mal_src_config_init(mal_uint32 sampleRateIn, mal_uint32 sampleRat
 // Sinc Sample Rate Conversion
 // ===========================
 //
-// The sinc SRC algorithm uses a windowed sinc to perform interpolation of samples. Currently, mini_al's implementation supports rectangular and Hann window
+// The sinc SRC algorithm uses a windowed sinc to perform interpolation of samples. Currently, miniaudio's implementation supports rectangular and Hann window
 // methods.
 //
 // Whenever an output sample is being computed, it looks at a sub-section of the input samples. I've called this sub-section in the code below the "window",
@@ -29947,7 +29947,7 @@ mal_result mal_decoder_init_wav__internal(const mal_decoder_config* pConfig, mal
     pDecoder->onUninit = mal_decoder_internal_on_uninit__wav;
     pDecoder->pInternalDecoder = pWav;
 
-    // Try to be as optimal as possible for the internal format. If mini_al does not support a format we will fall back to f32.
+    // Try to be as optimal as possible for the internal format. If miniaudio does not support a format we will fall back to f32.
     pDecoder->internalFormat = mal_format_unknown;
     switch (pWav->translatedFormatTag) {
         case DR_WAVE_FORMAT_PCM:
@@ -31434,7 +31434,7 @@ v0.8.6 - 2018-08-26
     device switch when changed from the operating system's audio preferences (unless the backend itself handles
     this automatically). This is not supported in exclusive mode.
   - WASAPI and Core Audio: Add support for stream routing. When the application is using a default device and the
-    user switches the default device via the operating system's audio preferences, mini_al will automatically switch
+    user switches the default device via the operating system's audio preferences, miniaudio will automatically switch
     the internal device to the new default. This is not supported in exclusive mode.
   - WASAPI: Add support for hardware offloading via IAudioClient2. Only supported on Windows 8 and newer.
   - WASAPI: Add support for low-latency shared mode via IAudioClient3. Only supported on Windows 10 and newer.
@@ -31502,7 +31502,7 @@ v0.8 - 2018-07-05
       "pulse" ALSA plugin (which is what the "default" ALSA device is likely set to).
   - Add support for JACK.
   - Remove dependency on asound.h for the ALSA backend. This means the ALSA development packages are no
-    longer required to build mini_al.
+    longer required to build miniaudio.
   - Remove dependency on dsound.h for the DirectSound backend. This fixes build issues with some
     distributions of MinGW.
   - Remove dependency on audioclient.h for the WASAPI backend. This fixes build issues with some

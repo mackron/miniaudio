@@ -6,7 +6,7 @@
 #ifndef mini_sigvis_h
 #define mini_sigvis_h
 
-#include "../../mini_al.h"
+#include "../../miniaudio.h"
 #include "../external/dred/source/dred/dtk/dtk.h"
 
 #ifdef __cplusplus
@@ -83,7 +83,7 @@ float msigvis_channel_get_sample_f32(msigvis_channel* pChannel, mal_uint32 iSamp
 //////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 #ifdef MINI_SIGVIS_IMPLEMENTATION
 #define MINI_AL_IMPLEMENTATION
-#include "../../mini_al.h"
+#include "../../miniaudio.h"
 #include "../external/dred/source/dred/dtk/dtk.c"
 
 mal_result msigvis_result_from_dtk(dtk_result resultDTK)
