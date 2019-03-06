@@ -9815,7 +9815,7 @@ mal_result mal_device_main_loop__dsound(mal_device* pDevice)
                 }
 
             #ifdef MAL_DEBUG_OUTPUT
-                printf("[DirectSound] (Playback) physicalPlayCursorInBytes=%d, availableBytesPlayback=%d\n", physicalPlayCursorInBytes, availableBytesPlayback);
+                //printf("[DirectSound] (Playback) physicalPlayCursorInBytes=%d, availableBytesPlayback=%d\n", physicalPlayCursorInBytes, availableBytesPlayback);
             #endif
 
                 /* If there's no room available for writing we need to wait for more. */
@@ -22186,7 +22186,11 @@ void mal_device__post_init_setup(mal_device* pDevice, mal_device_type deviceType
             pDevice->capture.channels = pDevice->capture.internalChannels;
         }
         if (pDevice->capture.usingDefaultChannelMap) {
-            mal_channel_map_copy(pDevice->capture.channelMap, pDevice->capture.internalChannelMap, pDevice->capture.channels);
+            if (pDevice->capture.internalChannels == pDevice->capture.channels) {
+                mal_channel_map_copy(pDevice->capture.channelMap, pDevice->capture.internalChannelMap, pDevice->capture.channels);
+            } else {
+                mal_get_standard_channel_map(mal_standard_channel_map_default, pDevice->capture.channels, pDevice->capture.channelMap);
+            }
         }
     }
 
@@ -22198,7 +22202,11 @@ void mal_device__post_init_setup(mal_device* pDevice, mal_device_type deviceType
             pDevice->playback.channels = pDevice->playback.internalChannels;
         }
         if (pDevice->playback.usingDefaultChannelMap) {
-            mal_channel_map_copy(pDevice->playback.channelMap, pDevice->playback.internalChannelMap, pDevice->playback.channels);
+            if (pDevice->playback.internalChannels == pDevice->playback.channels) {
+                mal_channel_map_copy(pDevice->playback.channelMap, pDevice->playback.internalChannelMap, pDevice->playback.channels);
+            } else {
+                mal_get_standard_channel_map(mal_standard_channel_map_default, pDevice->playback.channels, pDevice->playback.channelMap);
+            }
         }
     }
 
