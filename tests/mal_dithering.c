@@ -32,8 +32,8 @@ mal_uint32 on_convert_samples_out(mal_format_converter* pConverter, mal_uint32 f
 
 void on_send_to_device__original(mal_device* pDevice, void* pOutput, const void* pInput, mal_uint32 frameCount)
 {
-    mal_assert(pDevice->format == mal_format_f32);
-    mal_assert(pDevice->channels == 1);
+    mal_assert(pDevice->playback.format == mal_format_f32);
+    mal_assert(pDevice->playback.channels == 1);
 
     mal_sine_wave_read_f32(&sineWave, frameCount, (float*)pOutput);
 
@@ -43,11 +43,11 @@ void on_send_to_device__original(mal_device* pDevice, void* pOutput, const void*
 
 void on_send_to_device__dithered(mal_device* pDevice, void* pOutput, const void* pInput, mal_uint32 frameCount)
 {
-    mal_assert(pDevice->channels == 1);
+    mal_assert(pDevice->playback.channels == 1);
 
     mal_format_converter* pConverter = (mal_format_converter*)pDevice->pUserData;
     mal_assert(pConverter != NULL);
-    mal_assert(pDevice->format == pConverter->config.formatOut);
+    mal_assert(pDevice->playback.format == pConverter->config.formatOut);
 
     mal_format_converter_read(pConverter, frameCount, pOutput, NULL);
 
@@ -61,8 +61,8 @@ int do_dithering_test()
     mal_result result;
 
     config = mal_device_config_init(mal_device_type_playback);
-    config.format = mal_format_f32;
-    config.channels = 1;
+    config.playback.format = mal_format_f32;
+    config.playback.channels = 1;
     config.sampleRate = 0;
     config.dataCallback = on_send_to_device__original;
 
@@ -91,7 +91,7 @@ int do_dithering_test()
     mal_format_converter_config converterInConfig = mal_format_converter_config_init_new();
     converterInConfig.formatIn = mal_format_f32;  // <-- From the sine wave generator.
     converterInConfig.formatOut = srcFormat;
-    converterInConfig.channels = config.channels;
+    converterInConfig.channels = config.playback.channels;
     converterInConfig.ditherMode = mal_dither_mode_none;
     converterInConfig.onRead = on_convert_samples_in;
     converterInConfig.pUserData = &sineWave;
@@ -103,7 +103,7 @@ int do_dithering_test()
     mal_format_converter_config converterOutConfig = mal_format_converter_config_init_new();
     converterOutConfig.formatIn = srcFormat;
     converterOutConfig.formatOut = dstFormat;
-    converterOutConfig.channels = config.channels;
+    converterOutConfig.channels = config.playback.channels;
     converterOutConfig.ditherMode = ditherMode;
     converterOutConfig.onRead = on_convert_samples_out;
     converterOutConfig.pUserData = &converterIn;
@@ -112,7 +112,7 @@ int do_dithering_test()
         return -3;
     }
 
-
+    config.playback.format = dstFormat;
     config.dataCallback = on_send_to_device__dithered;
     config.pUserData = &converterOut;
 
