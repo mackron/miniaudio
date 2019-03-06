@@ -14590,7 +14590,7 @@ ma_result ma_device_write__pulse(ma_device* pDevice, const void* pPCMFrames, ma_
     ma_assert(frameCount > 0);
 
     /* The stream needs to be uncorked first. */
-    if (((ma_pa_stream_is_corked_proc)pDevice->pContext->pulse.pa_stream_is_corked)(pDevice->pulse.pStreamPlayback)) {
+    if (((ma_pa_stream_is_corked_proc)pDevice->pContext->pulse.pa_stream_is_corked)((ma_pa_stream*)pDevice->pulse.pStreamPlayback)) {
         ma_result result = ma_device__cork_stream__pulse(pDevice, ma_device_type_playback, 0);
         if (result != MA_SUCCESS) {
             return result;
@@ -14645,7 +14645,7 @@ ma_result ma_device_write__pulse(ma_device* pDevice, const void* pPCMFrames, ma_
             //printf("TRACE: Inner loop.\n");
 
             /* If the device has been corked, don't try to continue. */
-            if (((ma_pa_stream_is_corked_proc)pDevice->pContext->pulse.pa_stream_is_corked)(pDevice->pulse.pStreamPlayback)) {
+            if (((ma_pa_stream_is_corked_proc)pDevice->pContext->pulse.pa_stream_is_corked)((ma_pa_stream*)pDevice->pulse.pStreamPlayback)) {
                 break;
             }
 
@@ -14670,7 +14670,7 @@ ma_result ma_device_write__pulse(ma_device* pDevice, const void* pPCMFrames, ma_
                     /* No data available. Need to wait for more. */
                     //printf("TRACE: Playback: pa_mainloop_iterate(). writableSizeInBytes=%d, periodSizeInBytes=%d\n", writableSizeInBytes, periodSizeInBytes);
 
-                    int error = ((ma_pa_mainloop_iterate_proc)pDevice->pContext->pulse.pa_mainloop_iterate)(pDevice->pulse.pMainLoop, 1, NULL);
+                    int error = ((ma_pa_mainloop_iterate_proc)pDevice->pContext->pulse.pa_mainloop_iterate)((ma_pa_mainloop*)pDevice->pulse.pMainLoop, 1, NULL);
                     if (error < 0) {
                         return ma_result_from_pulse(error);
                     }
@@ -14693,7 +14693,7 @@ ma_result ma_device_read__pulse(ma_device* pDevice, void* pPCMFrames, ma_uint32 
     ma_assert(frameCount > 0);
 
     /* The stream needs to be uncorked first. */
-    if (((ma_pa_stream_is_corked_proc)pDevice->pContext->pulse.pa_stream_is_corked)(pDevice->pulse.pStreamCapture)) {
+    if (((ma_pa_stream_is_corked_proc)pDevice->pContext->pulse.pa_stream_is_corked)((ma_pa_stream*)pDevice->pulse.pStreamCapture)) {
         ma_result result = ma_device__cork_stream__pulse(pDevice, ma_device_type_capture, 0);
         if (result != MA_SUCCESS) {
             return result;
@@ -14752,7 +14752,7 @@ ma_result ma_device_read__pulse(ma_device* pDevice, void* pPCMFrames, ma_uint32 
             //printf("TRACE: Inner loop.\n");
 
             /* If the device has been corked, don't try to continue. */
-            if (((ma_pa_stream_is_corked_proc)pDevice->pContext->pulse.pa_stream_is_corked)(pDevice->pulse.pStreamCapture)) {
+            if (((ma_pa_stream_is_corked_proc)pDevice->pContext->pulse.pa_stream_is_corked)((ma_pa_stream*)pDevice->pulse.pStreamCapture)) {
                 break;
             }
 
@@ -14782,7 +14782,7 @@ ma_result ma_device_read__pulse(ma_device* pDevice, void* pPCMFrames, ma_uint32 
                     /* No data available. Need to wait for more. */
                     //printf("TRACE: Capture: pa_mainloop_iterate(). readableSizeInBytes=%d, periodSizeInBytes=%d\n", readableSizeInBytes, periodSizeInBytes);
 
-                    int error = ((ma_pa_mainloop_iterate_proc)pDevice->pContext->pulse.pa_mainloop_iterate)(pDevice->pulse.pMainLoop, 1, NULL);
+                    int error = ((ma_pa_mainloop_iterate_proc)pDevice->pContext->pulse.pa_mainloop_iterate)((ma_pa_mainloop*)pDevice->pulse.pMainLoop, 1, NULL);
                     if (error < 0) {
                         return ma_result_from_pulse(error);
                     }
