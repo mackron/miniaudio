@@ -29,6 +29,9 @@ better to get this out of the road now rather than later. Also, since there are 
 I think it's better to just get the namespace change over and done with at the same time as the full-duplex changes. I'm hoping
 this will be the last of the major API changes. Fingers crossed!
 
+The implementation define is now "#define MINIAUDIO_IMPLEMENTATION". You can also use "#define MA_IMPLEMENTATION" if that'
+your preference.
+
 
 Full-Duplex Support
 -------------------
