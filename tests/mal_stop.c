@@ -18,9 +18,6 @@ void on_data(mal_device* pDevice, void* pOutput, const void* pInput, mal_uint32 
 {
     (void)pInput;   /* Not used yet. */
 
-    /* It's important to initialize the buffer with silence to ensure exactly a second worth of data is actually output to the speakers. */
-    mal_zero_memory(pOutput, frameCount * mal_get_bytes_per_frame(pDevice->format, pDevice->channels));
-
     /* Output exactly one second of data. Pad the end with silence. */
     mal_uint32 framesRemaining = pDevice->sampleRate - framesWritten;
     mal_uint32 framesToProcess = frameCount;
@@ -28,7 +25,7 @@ void on_data(mal_device* pDevice, void* pOutput, const void* pInput, mal_uint32 
         framesToProcess = framesRemaining;
     }
 
-    mal_sine_wave_read_f32_ex(&sineWave, framesToProcess, pDevice->channels, mal_stream_layout_interleaved, (float**)&pOutput);
+    mal_sine_wave_read_f32_ex(&sineWave, framesToProcess, pDevice->playback.channels, mal_stream_layout_interleaved, (float**)&pOutput);
     if (isInitialRun) {
         framesWritten += framesToProcess;
     }
@@ -55,12 +52,12 @@ int main(int argc, char** argv)
     mal_sine_wave_init(0.25, 400, 44100, &sineWave);
 
     mal_device_config config = mal_device_config_init(mal_device_type_playback);
-    config.format = mal_format_f32;
-    config.channels = 2;
+    config.playback.format = mal_format_f32;
+    config.playback.channels = 2;
     config.sampleRate = 44100;
     config.dataCallback = on_data;
     config.stopCallback = on_stop;
-    config.bufferSizeInFrames = 16384*4;
+    config.bufferSizeInFrames = 16384;
 
     mal_device device;
     result = mal_device_init_ex(&backend, 1, NULL, &config, &device);
