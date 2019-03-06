@@ -1,6 +1,6 @@
 /*
 Audio playback and capture library. Choice of public domain or MIT-0. See license statements at the end of this file.
-miniaudio - v0.9 - 2019-03-xx
+miniaudio (formerly mini_al) - v0.9 - 2019-03-06
 
 David Reid - davidreidsoftware@gmail.com
 */
@@ -8,12 +8,26 @@ David Reid - davidreidsoftware@gmail.com
 /*
 MAJOR CHANGES IN VERSION 0.9
 ============================
-Version 0.9 includes major API changes, centered mostly around full-duplex. Before I go into detail about the major changes I
-would like to apologize. I know it's annoying dealing with breaking API changes, but I think it's best to get these changes
-out of the way now while the library is still relatively young and unknown.
+Version 0.9 includes major API changes, centered mostly around full-duplex and the rebrand to "miniaudio". Before I go into
+detail about the major changes I would like to apologize. I know it's annoying dealing with breaking API changes, but I think
+it's best to get these changes out of the way now while the library is still relatively young and unknown.
 
 There's been a lot of refactoring with this release so there's a good chance a few bugs have been introduced. I apologize in
-advance for this. You may want to hold off on upgrading for the short term if you're worried.
+advance for this. You may want to hold off on upgrading for the short term if you're worried. If mini_al v0.8.14 works for
+you, and you don't need full-duplex support, you can avoid upgrading (though you won't be getting future bug fixes).
+
+
+Rebranding to "miniaudio"
+-------------------------
+The decision was made to rename mini_al to miniaudio. The reason for this is simple:
+
+2) Having the word "audio" in the title makes it immediately clear that the library is related to audio; and
+1) I don't like the look of the underscore.
+
+This rebrand has necessitated a change in namespace from "mal" to "ma". I know this is annoying, and I apologize, but it's
+better to get this out of the road now rather than later. Also, since there are necessary API changes for full-duplex support
+I think it's better to just get the namespace change over and done with at the same time as the full-duplex changes. I'm hoping
+this will be the last of the major API changes. Fingers crossed!
 
 
 Full-Duplex Support
@@ -31339,7 +31353,8 @@ Device
 REVISION HISTORY
 ================
 
-v0.9 - 2019-03-xx
+v0.9 - 2019-03-06
+  - Rebranded to "miniaudio". All namespaces have been renamed from "mal" to "ma".
   - API CHANGE: ma_device_init() and ma_device_config_init() have changed significantly:
     - The device type, device ID and user data pointer have moved from ma_device_init() to the config.
     - All variations of ma_device_config_init_*() have been removed in favor of just ma_device_config_init().
@@ -31360,24 +31375,24 @@ v0.9 - 2019-03-xx
     "onLog" member of ma_context_config has been renamed to "logCallback".
   - API CHANGE: Remove ma_device_get_buffer_size_in_bytes().
   - API CHANGE: Rename decoding APIs to "pcm_frames" convention.
-    - ma_decoder_read()          -> ma_decoder_read_pcm_frames()
-    - ma_decoder_seek_to_frame() -> ma_decoder_seek_to_pcm_frame()
+    - mal_decoder_read()          -> ma_decoder_read_pcm_frames()
+    - mal_decoder_seek_to_frame() -> ma_decoder_seek_to_pcm_frame()
   - API CHANGE: Rename sine wave reading APIs to f32 convention.
-    - ma_sine_wave_read()    -> ma_sine_wave_read_f32()
-    - ma_sine_wave_read_ex() -> ma_sine_wave_read_f32_ex()
+    - mal_sine_wave_read()    -> ma_sine_wave_read_f32()
+    - mal_sine_wave_read_ex() -> ma_sine_wave_read_f32_ex()
   - API CHANGE: Remove some deprecated APIs
-    - ma_device_set_recv_callback()
-    - ma_device_set_send_callback()
-    - ma_src_set_input_sample_rate()
-    - ma_src_set_output_sample_rate()
+    - mal_device_set_recv_callback()
+    - mal_device_set_send_callback()
+    - mal_src_set_input_sample_rate()
+    - mal_src_set_output_sample_rate()
   - API CHANGE: Add log level to the log callback. New signature:
     - void on_log(ma_context* pContext, ma_device* pDevice, ma_uint32 logLevel, const char* message)
   - API CHANGE: Changes to result codes. Constants have changed and unused codes have been removed. If you're
     a binding mainainer you will need to update your result code constants.
   - API CHANGE: Change the order of the ma_backend enums to priority order. If you are a binding maintainer, you
     will need to update.
-  - API CHANGE: Rename ma_dsp to ma_pcm_converter. All functions have been renamed from ma_dsp_*() to
-    ma_pcm_converter_*(). All structures have been renamed from ma_dsp* to ma_pcm_converter*.
+  - API CHANGE: Rename mal_dsp to ma_pcm_converter. All functions have been renamed from mal_dsp_*() to
+    ma_pcm_converter_*(). All structures have been renamed from mal_dsp* to ma_pcm_converter*.
   - API CHANGE: Reorder parameters of ma_decoder_read_pcm_frames() to be consistent with the new parameter order scheme.
   - The resampling algorithm has been changed from sinc to linear. The rationale for this is that the sinc implementation
     is too inefficient right now. This will hopefully be improved at a later date.
@@ -31439,8 +31454,8 @@ v0.8.6 - 2018-08-26
   - WASAPI: Add support for hardware offloading via IAudioClient2. Only supported on Windows 8 and newer.
   - WASAPI: Add support for low-latency shared mode via IAudioClient3. Only supported on Windows 10 and newer.
   - Add support for compiling the UWP build as C.
-  - ma_device_set_recv_callback() and ma_device_set_send_callback() have been deprecated. You must now set this
-    when the device is initialized with ma_device_init*(). These will be removed in version 0.9.0.
+  - mal_device_set_recv_callback() and mal_device_set_send_callback() have been deprecated. You must now set this
+    when the device is initialized with mal_device_init*(). These will be removed in version 0.9.0.
 
 v0.8.5 - 2018-08-12
   - Add support for specifying the size of a device's buffer in milliseconds. You can still set the buffer size in
@@ -31459,8 +31474,8 @@ v0.8.4 - 2018-08-06
   - Drop support for the OSS backend on everything except FreeBSD and DragonFly BSD.
   - Formats are now native-endian (were previously little-endian).
   - Mark some APIs as deprecated:
-    - ma_src_set_input_sample_rate() and ma_src_set_output_sample_rate() are replaced with ma_src_set_sample_rate().
-    - ma_dsp_set_input_sample_rate() and ma_dsp_set_output_sample_rate() are replaced with ma_dsp_set_sample_rate().
+    - mal_src_set_input_sample_rate() and mal_src_set_output_sample_rate() are replaced with mal_src_set_sample_rate().
+    - mal_dsp_set_input_sample_rate() and mal_dsp_set_output_sample_rate() are replaced with mal_dsp_set_sample_rate().
   - Fix a bug when capturing using the WASAPI backend.
   - Fix some aliasing issues with resampling, specifically when increasing the sample rate.
   - Fix warnings.
@@ -31469,8 +31484,8 @@ v0.8.3 - 2018-07-15
   - Fix a crackling bug when resampling in capture mode.
   - Core Audio: Fix a bug where capture does not work.
   - ALSA: Fix a bug where the worker thread can get stuck in an infinite loop.
-  - PulseAudio: Fix a bug where ma_context_init() succeeds when PulseAudio is unusable.
-  - JACK: Fix a bug where ma_context_init() succeeds when JACK is unusable.
+  - PulseAudio: Fix a bug where mal_context_init() succeeds when PulseAudio is unusable.
+  - JACK: Fix a bug where mal_context_init() succeeds when JACK is unusable.
 
 v0.8.2 - 2018-07-07
   - Fix a bug on macOS with Core Audio where the internal callback is not called.
@@ -31481,18 +31496,18 @@ v0.8.1 - 2018-07-06
 v0.8 - 2018-07-05
   - Changed MA_IMPLEMENTATION to MINI_AL_IMPLEMENTATION for consistency with other libraries. The old
     way is still supported for now, but you should update as it may be removed in the future.
-  - API CHANGE: Replace device enumeration APIs. ma_enumerate_devices() has been replaced with
-    ma_context_get_devices(). An additional low-level device enumration API has been introduced called
-    ma_context_enumerate_devices() which uses a callback to report devices.
-  - API CHANGE: Rename ma_get_sample_size_in_bytes() to ma_get_bytes_per_sample() and add
-    ma_get_bytes_per_frame().
-  - API CHANGE: Replace ma_device_config.preferExclusiveMode with ma_device_config.shareMode.
-    - This new config can be set to ma_share_mode_shared (default) or ma_share_mode_exclusive.
-  - API CHANGE: Remove excludeNullDevice from ma_context_config.alsa.
+  - API CHANGE: Replace device enumeration APIs. mal_enumerate_devices() has been replaced with
+    mal_context_get_devices(). An additional low-level device enumration API has been introduced called
+    mal_context_enumerate_devices() which uses a callback to report devices.
+  - API CHANGE: Rename mal_get_sample_size_in_bytes() to mal_get_bytes_per_sample() and add
+    mal_get_bytes_per_frame().
+  - API CHANGE: Replace mal_device_config.preferExclusiveMode with ma_device_config.shareMode.
+    - This new config can be set to mal_share_mode_shared (default) or ma_share_mode_exclusive.
+  - API CHANGE: Remove excludeNullDevice from mal_context_config.alsa.
   - API CHANGE: Rename MA_MAX_SAMPLE_SIZE_IN_BYTES to MA_MAX_PCM_SAMPLE_SIZE_IN_BYTES.
   - API CHANGE: Change the default channel mapping to the standard Microsoft mapping.
   - API CHANGE: Remove backend-specific result codes.
-  - API CHANGE: Changes to the format conversion APIs (ma_pcm_f32_to_s16(), etc.)
+  - API CHANGE: Changes to the format conversion APIs (mal_pcm_f32_to_s16(), etc.)
   - Add support for Core Audio (Apple).
   - Add support for PulseAudio.
     - This is the highest priority backend on Linux (higher priority than ALSA) since it is commonly
@@ -31511,13 +31526,13 @@ v0.8 - 2018-07-05
   - Add support for configuring the priority of the worker thread.
   - Add a sine wave generator.
   - Improve efficiency of sample rate conversion.
-  - Introduce the notion of standard channel maps. Use ma_get_standard_channel_map().
+  - Introduce the notion of standard channel maps. Use mal_get_standard_channel_map().
   - Introduce the notion of default device configurations. A default config uses the same configuration
     as the backend's internal device, and as such results in a pass-through data transmission pipeline.
-  - Add support for passing in NULL for the device config in ma_device_init(), which uses a default
-    config. This requires manually calling ma_device_set_send/recv_callback().
-  - Add support for decoding from raw PCM data (ma_decoder_init_raw(), etc.)
-  - Make ma_device_init_ex() more robust.
+  - Add support for passing in NULL for the device config in mal_device_init(), which uses a default
+    config. This requires manually calling mal_device_set_send/recv_callback().
+  - Add support for decoding from raw PCM data (mal_decoder_init_raw(), etc.)
+  - Make mal_device_init_ex() more robust.
   - Make some APIs more const-correct.
   - Fix errors with SDL detection on Apple platforms.
   - Fix errors with OpenAL detection.
@@ -31528,7 +31543,7 @@ v0.8 - 2018-07-05
   - Documentation updates.
 
 v0.7 - 2018-02-25
-  - API CHANGE: Change ma_src_read_frames() and ma_dsp_read_frames() to use 64-bit sample counts.
+  - API CHANGE: Change mal_src_read_frames() and mal_dsp_read_frames() to use 64-bit sample counts.
   - Add decoder APIs for loading WAV, FLAC, Vorbis and MP3 files.
   - Allow opening of devices without a context.
     - In this case the context is created and managed internally by the device.
@@ -31549,22 +31564,22 @@ v0.6a - 2018-01-26
 v0.6 - 2017-12-08
   - API CHANGE: Expose and improve mutex APIs. If you were using the mutex APIs before this version you'll
     need to update.
-  - API CHANGE: SRC and DSP callbacks now take a pointer to a ma_src and ma_dsp object respectively.
+  - API CHANGE: SRC and DSP callbacks now take a pointer to a mal_src and ma_dsp object respectively.
   - API CHANGE: Improvements to event and thread APIs. These changes make these APIs more consistent.
   - Add support for SDL and Emscripten.
   - Simplify the build system further for when development packages for various backends are not installed.
     With this change, when the compiler supports __has_include, backends without the relevant development
     packages installed will be ignored. This fixes the build for old versions of MinGW.
   - Fixes to the Android build.
-  - Add ma_convert_frames(). This is a high-level helper API for performing a one-time, bulk conversion of
+  - Add mal_convert_frames(). This is a high-level helper API for performing a one-time, bulk conversion of
     audio data to a different format.
   - Improvements to f32 -> u8/s16/s24/s32 conversion routines.
-  - Fix a bug where the wrong value is returned from ma_device_start() for the OpenSL backend.
+  - Fix a bug where the wrong value is returned from mal_device_start() for the OpenSL backend.
   - Fixes and improvements for Raspberry Pi.
   - Warning fixes.
 
 v0.5 - 2017-11-11
-  - API CHANGE: The ma_context_init() function now takes a pointer to a ma_context_config object for
+  - API CHANGE: The mal_context_init() function now takes a pointer to a ma_context_config object for
     configuring the context. The works in the same kind of way as the device config. The rationale for this
     change is to give applications better control over context-level properties, add support for backend-
     specific configurations, and support extensibility without breaking the API.
@@ -31584,9 +31599,9 @@ v0.5 - 2017-11-11
 
 v0.4 - 2017-11-05
   - API CHANGE: The log callback is now per-context rather than per-device and as is thus now passed to
-    ma_context_init(). The rationale for this change is that it allows applications to capture diagnostic
+    mal_context_init(). The rationale for this change is that it allows applications to capture diagnostic
     messages at the context level. Previously this was only available at the device level.
-  - API CHANGE: The device config passed to ma_device_init() is now const.
+  - API CHANGE: The device config passed to mal_device_init() is now const.
   - Added support for OSS which enables support on BSD platforms.
   - Added support for WinMM (waveOut/waveIn).
   - Added support for UWP (Universal Windows Platform) applications. Currently C++ only.
@@ -31610,7 +31625,7 @@ v0.3 - 2017-06-19
     tied to the same backend. In addition, some backends are better suited to this design.
   - API CHANGE: Removed the rewinding APIs because they're too inconsistent across the different backends, hard
     to test and maintain, and just generally unreliable.
-  - Added helper APIs for initializing ma_device_config objects.
+  - Added helper APIs for initializing mal_device_config objects.
   - Null Backend: Fixed a crash when recording.
   - Fixed build for UWP.
   - Added support for f32 formats to the OpenSL|ES backend.
@@ -31620,9 +31635,9 @@ v0.3 - 2017-06-19
   - Added early support for basic channel mapping.
 
 v0.2 - 2016-10-28
-  - API CHANGE: Add user data pointer as the last parameter to ma_device_init(). The rationale for this
+  - API CHANGE: Add user data pointer as the last parameter to mal_device_init(). The rationale for this
     change is to ensure the logging callback has access to the user data during initialization.
-  - API CHANGE: Have device configuration properties be passed to ma_device_init() via a structure. Rationale:
+  - API CHANGE: Have device configuration properties be passed to mal_device_init() via a structure. Rationale:
     1) The number of parameters is just getting too much.
     2) It makes it a bit easier to add new configuration properties in the future. In particular, there's a
        chance there will be support added for backend-specific properties.
