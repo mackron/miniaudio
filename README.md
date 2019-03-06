@@ -74,14 +74,14 @@ Simple Playback Example
 
 #include <stdio.h>
 
-void data_callback(mal_device* pDevice, void* pOutput, const void* pInput, mal_uint32 frameCount)
+void data_callback(ma_device* pDevice, void* pOutput, const void* pInput, ma_uint32 frameCount)
 {
-    mal_decoder* pDecoder = (mal_decoder*)pDevice->pUserData;
+    ma_decoder* pDecoder = (ma_decoder*)pDevice->pUserData;
     if (pDecoder == NULL) {
         return;
     }
 
-    mal_decoder_read_pcm_frames(pDecoder, pOutput, frameCount);
+    ma_decoder_read_pcm_frames(pDecoder, pOutput, frameCount);
 
     (void)pInput;
 }
@@ -93,38 +93,38 @@ int main(int argc, char** argv)
         return -1;
     }
 
-    mal_decoder decoder;
-    mal_result result = mal_decoder_init_file(argv[1], NULL, &decoder);
+    ma_decoder decoder;
+    ma_result result = ma_decoder_init_file(argv[1], NULL, &decoder);
     if (result != MA_SUCCESS) {
         return -2;
     }
 
-    mal_device_config config = mal_device_config_init(mal_device_type_playback);
+    ma_device_config config = ma_device_config_init(ma_device_type_playback);
     config.playback.format   = decoder.outputFormat;
     config.playback.channels = decoder.outputChannels;
     config.sampleRate        = decoder.outputSampleRate;
     config.dataCallback      = data_callback;
     config.pUserData         = &decoder;
 
-    mal_device device;
-    if (mal_device_init(NULL, &config, &device) != MA_SUCCESS) {
+    ma_device device;
+    if (ma_device_init(NULL, &config, &device) != MA_SUCCESS) {
         printf("Failed to open playback device.\n");
-        mal_decoder_uninit(&decoder);
+        ma_decoder_uninit(&decoder);
         return -3;
     }
 
-    if (mal_device_start(&device) != MA_SUCCESS) {
+    if (ma_device_start(&device) != MA_SUCCESS) {
         printf("Failed to start playback device.\n");
-        mal_device_uninit(&device);
-        mal_decoder_uninit(&decoder);
+        ma_device_uninit(&device);
+        ma_decoder_uninit(&decoder);
         return -4;
     }
 
     printf("Press Enter to quit...");
     getchar();
 
-    mal_device_uninit(&device);
-    mal_decoder_uninit(&decoder);
+    ma_device_uninit(&device);
+    ma_decoder_uninit(&decoder);
 
     return 0;
 }
@@ -158,28 +158,28 @@ relevant backend library before the implementation of miniaudio, like so:
 #include "miniaudio.h"
 ```
 
-A decoder can be initialized from a file with `mal_decoder_init_file()`, a block of memory with
-`mal_decoder_init_memory()`, or from data delivered via callbacks with `mal_decoder_init()`. Here
+A decoder can be initialized from a file with `ma_decoder_init_file()`, a block of memory with
+`ma_decoder_init_memory()`, or from data delivered via callbacks with `ma_decoder_init()`. Here
 is an example for loading a decoder from a file:
 
 ```
-mal_decoder decoder;
-mal_result result = mal_decoder_init_file("MySong.mp3", NULL, &decoder);
+ma_decoder decoder;
+ma_result result = ma_decoder_init_file("MySong.mp3", NULL, &decoder);
 if (result != MA_SUCCESS) {
     return false;   // An error occurred.
 }
 
 ...
 
-mal_decoder_uninit(&decoder);
+ma_decoder_uninit(&decoder);
 ```
 
-When initializing a decoder, you can optionally pass in a pointer to a `mal_decoder_config` object
+When initializing a decoder, you can optionally pass in a pointer to a `ma_decoder_config` object
 (the `NULL` argument in the example above) which allows you to configure the output format, channel
 count, sample rate and channel map:
 
 ```
-mal_decoder_config config = mal_decoder_config_init(mal_format_f32, 2, 48000);
+ma_decoder_config config = ma_decoder_config_init(ma_format_f32, 2, 48000);
 ```
 
 When passing in NULL for this parameter, the output format will be the same as that defined by the
@@ -188,13 +188,13 @@ decoding backend.
 Data is read from the decoder as PCM frames:
 
 ```
-mal_uint64 framesRead = mal_decoder_read_pcm_frames(pDecoder, pFrames, framesToRead);
+ma_uint64 framesRead = ma_decoder_read_pcm_frames(pDecoder, pFrames, framesToRead);
 ```
 
 You can also seek to a specific frame like so:
 
 ```
-mal_result result = mal_decoder_seek_to_pcm_frame(pDecoder, targetFrame);
+ma_result result = ma_decoder_seek_to_pcm_frame(pDecoder, targetFrame);
 if (result != MA_SUCCESS) {
     return false;   // An error occurred.
 }
@@ -205,14 +205,14 @@ backend. This can be unnecessarily inefficient if the type is already known. In 
 use the `_wav`, `_mp3`, etc. varients of the aforementioned initialization APIs:
 
 ```
-mal_decoder_init_wav()
-mal_decoder_init_mp3()
-mal_decoder_init_memory_wav()
-mal_decoder_init_memory_mp3()
-mal_decoder_init_file_wav()
-mal_decoder_init_file_mp3()
+ma_decoder_init_wav()
+ma_decoder_init_mp3()
+ma_decoder_init_memory_wav()
+ma_decoder_init_memory_mp3()
+ma_decoder_init_file_wav()
+ma_decoder_init_file_mp3()
 etc.
 ```
 
-The `mal_decoder_init_file()` API will try using the file extension to determine which decoding
+The `ma_decoder_init_file()` API will try using the file extension to determine which decoding
 backend to prefer.

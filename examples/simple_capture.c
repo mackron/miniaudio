@@ -9,12 +9,12 @@
 #include <stdlib.h>
 #include <stdio.h>
 
-void data_callback(mal_device* pDevice, void* pOutput, const void* pInput, mal_uint32 frameCount)
+void data_callback(ma_device* pDevice, void* pOutput, const void* pInput, ma_uint32 frameCount)
 {
     (void)pOutput;
     
     drwav* pWav = (drwav*)pDevice->pUserData;
-    mal_assert(pWav != NULL);
+    ma_assert(pWav != NULL);
 
     drwav_write_pcm_frames(pWav, frameCount, pInput);
 }
@@ -26,7 +26,7 @@ int main(int argc, char** argv)
         return -1;
     }
 
-    mal_result result;
+    ma_result result;
 
     drwav_data_format wavFormat;
     wavFormat.container     = drwav_container_riff;
@@ -41,23 +41,23 @@ int main(int argc, char** argv)
         return -1;
     }
 
-    mal_device_config config = mal_device_config_init(mal_device_type_capture);
-    config.capture.format   = mal_format_f32;
+    ma_device_config config = ma_device_config_init(ma_device_type_capture);
+    config.capture.format   = ma_format_f32;
     config.capture.channels = wavFormat.channels;
     config.sampleRate       = wavFormat.sampleRate;
     config.dataCallback     = data_callback;
     config.pUserData        = &wav;
 
-    mal_device device;
-    result = mal_device_init(NULL, &config, &device);
+    ma_device device;
+    result = ma_device_init(NULL, &config, &device);
     if (result != MA_SUCCESS) {
         printf("Failed to initialize capture device.\n");
         return -2;
     }
 
-    result = mal_device_start(&device);
+    result = ma_device_start(&device);
     if (result != MA_SUCCESS) {
-        mal_device_uninit(&device);
+        ma_device_uninit(&device);
         printf("Failed to start device.\n");
         return -3;
     }
@@ -65,7 +65,7 @@ int main(int argc, char** argv)
     printf("Press Enter to stop recording...\n");
     getchar();
     
-    mal_device_uninit(&device);
+    ma_device_uninit(&device);
     drwav_uninit(&wav);
 
     return 0;

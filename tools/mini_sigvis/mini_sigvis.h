@@ -36,37 +36,37 @@ struct msigvis_screen
 
 struct msigvis_channel
 {
-    mal_format format;
-    mal_uint32 sampleRate;
+    ma_format format;
+    ma_uint32 sampleRate;
     dtk_color color;
-    mal_uint32 sampleCount;
-    mal_uint32 bufferCapInSamples;
-    mal_uint8* pBuffer; // The buffer containing the sample to visualize.
+    ma_uint32 sampleCount;
+    ma_uint32 bufferCapInSamples;
+    ma_uint8* pBuffer; // The buffer containing the sample to visualize.
 };
 
 
 // Context
-mal_result msigvis_init(msigvis_context* pContext);
+ma_result msigvis_init(msigvis_context* pContext);
 void msigvis_uninit(msigvis_context* pContext);
 int msigvis_run(msigvis_context* pContext);
 
 // Screen
-mal_result msigvis_screen_init(msigvis_context* pContext, mal_uint32 screenWidth, mal_uint32 screenHeight, msigvis_screen* pScreen);
+ma_result msigvis_screen_init(msigvis_context* pContext, ma_uint32 screenWidth, ma_uint32 screenHeight, msigvis_screen* pScreen);
 void msigvis_screen_uninit(msigvis_screen* pScreen);
-mal_result msigvis_screen_show(msigvis_screen* pScreen);
-mal_result msigvis_screen_hide(msigvis_screen* pScreen);
-mal_result msigvis_screen_add_channel(msigvis_screen* pScreen, msigvis_channel* pChannel);
-mal_result msigvis_screen_remove_channel(msigvis_screen* pScreen, msigvis_channel* pChannel);
-mal_result msigvis_screen_remove_channel_by_index(msigvis_screen* pScreen, mal_uint32 iChannel);
-mal_result msigvis_screen_find_channel_index(msigvis_screen* pScreen, msigvis_channel* pChannel, mal_uint32* pIndex);
-mal_result msigvis_screen_redraw(msigvis_screen* pScreen);
+ma_result msigvis_screen_show(msigvis_screen* pScreen);
+ma_result msigvis_screen_hide(msigvis_screen* pScreen);
+ma_result msigvis_screen_add_channel(msigvis_screen* pScreen, msigvis_channel* pChannel);
+ma_result msigvis_screen_remove_channel(msigvis_screen* pScreen, msigvis_channel* pChannel);
+ma_result msigvis_screen_remove_channel_by_index(msigvis_screen* pScreen, ma_uint32 iChannel);
+ma_result msigvis_screen_find_channel_index(msigvis_screen* pScreen, msigvis_channel* pChannel, ma_uint32* pIndex);
+ma_result msigvis_screen_redraw(msigvis_screen* pScreen);
 
 // Channel
-mal_result msigvis_channel_init(msigvis_context* pContext, mal_format format, mal_uint32 sampleRate, msigvis_channel* pChannel);
+ma_result msigvis_channel_init(msigvis_context* pContext, ma_format format, ma_uint32 sampleRate, msigvis_channel* pChannel);
 void msigvis_channel_uninit(msigvis_channel* pChannel);
-mal_result msigvis_channel_push_samples(msigvis_channel* pChannel, mal_uint32 sampleCount, const void* pSamples);
-mal_result msigvis_channel_pop_samples(msigvis_channel* pChannel, mal_uint32 sampleCount);
-float msigvis_channel_get_sample_f32(msigvis_channel* pChannel, mal_uint32 iSample);
+ma_result msigvis_channel_push_samples(msigvis_channel* pChannel, ma_uint32 sampleCount, const void* pSamples);
+ma_result msigvis_channel_pop_samples(msigvis_channel* pChannel, ma_uint32 sampleCount);
+float msigvis_channel_get_sample_f32(msigvis_channel* pChannel, ma_uint32 iSample);
 
 #ifdef __cplusplus
 }
@@ -86,19 +86,19 @@ float msigvis_channel_get_sample_f32(msigvis_channel* pChannel, mal_uint32 iSamp
 #include "../../miniaudio.h"
 #include "../external/dred/source/dred/dtk/dtk.c"
 
-mal_result msigvis_result_from_dtk(dtk_result resultDTK)
+ma_result msigvis_result_from_dtk(dtk_result resultDTK)
 {
-    return (mal_result)resultDTK;
+    return (ma_result)resultDTK;
 }
 
 
-mal_result msigvis_init(msigvis_context* pContext)
+ma_result msigvis_init(msigvis_context* pContext)
 {
     if (pContext == NULL) {
         return MA_INVALID_ARGS;
     }
 
-    mal_zero_object(pContext);
+    ma_zero_object(pContext);
 
     // DTK context.
     dtk_result resultDTK = dtk_init(&pContext->tk, NULL, pContext);
@@ -188,23 +188,23 @@ dtk_bool32 msigvis_window_event_handler(dtk_event* pEvent)
             float baseSampleSpacingX = (screenSizeX / (float)(pScreen->sampleRate/10)) * pScreen->zoomX;
             float baseSampleSpacingY = ((screenSizeY/1) / 2.0f) * pScreen->zoomY;
             
-            for (mal_uint32 iChannel = 0; iChannel < pScreen->channelCount; ++iChannel) {
+            for (ma_uint32 iChannel = 0; iChannel < pScreen->channelCount; ++iChannel) {
                 msigvis_channel* pChannel = pScreen->ppChannels[iChannel];
                 float spacingFactorX = pScreen->sampleRate / (float)pChannel->sampleRate;
                 float sampleSpacingX = baseSampleSpacingX * spacingFactorX;
                 float sampleSpacingY = baseSampleSpacingY;
 
-                mal_uint32 sampleInterval = 1;
+                ma_uint32 sampleInterval = 1;
                 if (sampleSpacingX < 1) {
-                    sampleInterval = (mal_uint32)(1/sampleSpacingX);
+                    sampleInterval = (ma_uint32)(1/sampleSpacingX);
                 }
 
                 if (sampleInterval == 0) {
                     sampleInterval = 1; // Safety.
                 }
 
-                mal_uint32 iFirstSample = 0;
-                for (mal_uint32 iSample = iFirstSample; iSample < pChannel->sampleCount; iSample += sampleInterval) {
+                ma_uint32 iFirstSample = 0;
+                for (ma_uint32 iSample = iFirstSample; iSample < pChannel->sampleCount; iSample += sampleInterval) {
                     float samplePosX = iSample * sampleSpacingX;
                     float samplePosY = msigvis_channel_get_sample_f32(pChannel, iSample) * sampleSpacingY * -1; // Invert the Y axis for graphics output.
 
@@ -226,13 +226,13 @@ dtk_bool32 msigvis_window_event_handler(dtk_event* pEvent)
     return dtk_window_default_event_handler(pEvent);
 }
 
-mal_result msigvis_screen_init(msigvis_context* pContext, mal_uint32 screenWidth, mal_uint32 screenHeight, msigvis_screen* pScreen)
+ma_result msigvis_screen_init(msigvis_context* pContext, ma_uint32 screenWidth, ma_uint32 screenHeight, msigvis_screen* pScreen)
 {
     if (pScreen == NULL) {
         return DTK_INVALID_ARGS;
     }
 
-    mal_zero_object(pScreen);
+    ma_zero_object(pScreen);
 
     dtk_result resultDTK = dtk_window_init(&pContext->tk, msigvis_window_event_handler, NULL, dtk_window_type_toplevel, "mini_sigvis", screenWidth, screenHeight, &pScreen->window);
     if (resultDTK != DTK_SUCCESS) {
@@ -258,7 +258,7 @@ void msigvis_screen_uninit(msigvis_screen* pScreen)
     dtk_window_uninit(&pScreen->window);
 }
 
-mal_result msigvis_screen_show(msigvis_screen* pScreen)
+ma_result msigvis_screen_show(msigvis_screen* pScreen)
 {
     if (pScreen == NULL) {
         return MA_INVALID_ARGS;
@@ -267,7 +267,7 @@ mal_result msigvis_screen_show(msigvis_screen* pScreen)
     return msigvis_result_from_dtk(dtk_window_show(&pScreen->window, DTK_SHOW_NORMAL));
 }
 
-mal_result msigvis_screen_hide(msigvis_screen* pScreen)
+ma_result msigvis_screen_hide(msigvis_screen* pScreen)
 {
     if (pScreen == NULL) {
         return MA_INVALID_ARGS;
@@ -276,7 +276,7 @@ mal_result msigvis_screen_hide(msigvis_screen* pScreen)
     return msigvis_result_from_dtk(dtk_window_hide(&pScreen->window));
 }
 
-mal_result msigvis_screen_add_channel(msigvis_screen* pScreen, msigvis_channel* pChannel)
+ma_result msigvis_screen_add_channel(msigvis_screen* pScreen, msigvis_channel* pChannel)
 {
     if (pScreen == NULL || pChannel == NULL) {
         return MA_INVALID_ARGS;
@@ -284,12 +284,12 @@ mal_result msigvis_screen_add_channel(msigvis_screen* pScreen, msigvis_channel* 
 
     // Expand if necessary.
     if (pScreen->channelCap == pScreen->channelCount) {
-        mal_uint32 newCap = pScreen->channelCap*2;
+        ma_uint32 newCap = pScreen->channelCap*2;
         if (newCap == 0) {
             newCap = 1;
         }
 
-        msigvis_channel** ppNewBuffer = (msigvis_channel**)mal_realloc(pScreen->ppChannels, sizeof(*pScreen->ppChannels)*newCap);
+        msigvis_channel** ppNewBuffer = (msigvis_channel**)ma_realloc(pScreen->ppChannels, sizeof(*pScreen->ppChannels)*newCap);
         if (ppNewBuffer == NULL) {
             return MA_OUT_OF_MEMORY;
         }
@@ -305,14 +305,14 @@ mal_result msigvis_screen_add_channel(msigvis_screen* pScreen, msigvis_channel* 
     return MA_SUCCESS;
 }
 
-mal_result msigvis_screen_remove_channel(msigvis_screen* pScreen, msigvis_channel* pChannel)
+ma_result msigvis_screen_remove_channel(msigvis_screen* pScreen, msigvis_channel* pChannel)
 {
     if (pScreen == NULL || pChannel == NULL) {
         return MA_INVALID_ARGS;
     }
 
-    mal_uint32 iChannel;
-    mal_result result = msigvis_screen_find_channel_index(pScreen, pChannel, &iChannel);
+    ma_uint32 iChannel;
+    ma_result result = msigvis_screen_find_channel_index(pScreen, pChannel, &iChannel);
     if (result != MA_SUCCESS) {
         return result;
     }
@@ -320,7 +320,7 @@ mal_result msigvis_screen_remove_channel(msigvis_screen* pScreen, msigvis_channe
     return msigvis_screen_remove_channel_by_index(pScreen, iChannel);
 }
 
-mal_result msigvis_screen_remove_channel_by_index(msigvis_screen* pScreen, mal_uint32 iChannel)
+ma_result msigvis_screen_remove_channel_by_index(msigvis_screen* pScreen, ma_uint32 iChannel)
 {
     if (pScreen == NULL || iChannel > pScreen->channelCount) {
         return MA_INVALID_ARGS;
@@ -340,13 +340,13 @@ mal_result msigvis_screen_remove_channel_by_index(msigvis_screen* pScreen, mal_u
     return MA_SUCCESS;
 }
 
-mal_result msigvis_screen_find_channel_index(msigvis_screen* pScreen, msigvis_channel* pChannel, mal_uint32* pIndex)
+ma_result msigvis_screen_find_channel_index(msigvis_screen* pScreen, msigvis_channel* pChannel, ma_uint32* pIndex)
 {
     if (pScreen == NULL || pChannel == NULL) {
         return MA_INVALID_ARGS;
     }
 
-    for (mal_uint32 iChannel = 0; iChannel < pScreen->channelCount; ++iChannel) {
+    for (ma_uint32 iChannel = 0; iChannel < pScreen->channelCount; ++iChannel) {
         if (pScreen->ppChannels[iChannel] == pChannel) {
             *pIndex = iChannel;
             return MA_SUCCESS;
@@ -356,7 +356,7 @@ mal_result msigvis_screen_find_channel_index(msigvis_screen* pScreen, msigvis_ch
     return MA_ERROR;
 }
 
-mal_result msigvis_screen_redraw(msigvis_screen* pScreen)
+ma_result msigvis_screen_redraw(msigvis_screen* pScreen)
 {
     if (pScreen == NULL) {
         return MA_INVALID_ARGS;
@@ -371,7 +371,7 @@ mal_result msigvis_screen_redraw(msigvis_screen* pScreen)
 // Channel
 //
 ///////////////////////////////////////////////////////////////////////////////
-mal_result msigvis_channel_init(msigvis_context* pContext, mal_format format, mal_uint32 sampleRate, msigvis_channel* pChannel)
+ma_result msigvis_channel_init(msigvis_context* pContext, ma_format format, ma_uint32 sampleRate, msigvis_channel* pChannel)
 {
     (void)pContext;
 
@@ -379,9 +379,9 @@ mal_result msigvis_channel_init(msigvis_context* pContext, mal_format format, ma
         return MA_INVALID_ARGS;
     }
 
-    mal_zero_object(pChannel);
+    ma_zero_object(pChannel);
 
-    if (format == mal_format_unknown || sampleRate == 0) {
+    if (format == ma_format_unknown || sampleRate == 0) {
         return MA_INVALID_ARGS;
     }
 
@@ -398,25 +398,25 @@ void msigvis_channel_uninit(msigvis_channel* pChannel)
         return;
     }
 
-    mal_free(pChannel->pBuffer);
+    ma_free(pChannel->pBuffer);
 }
 
-mal_result msigvis_channel_push_samples(msigvis_channel* pChannel, mal_uint32 sampleCount, const void* pSamples)
+ma_result msigvis_channel_push_samples(msigvis_channel* pChannel, ma_uint32 sampleCount, const void* pSamples)
 {
     if (pChannel == NULL) {
         return MA_INVALID_ARGS;
     }
 
-    mal_uint32 bps = mal_get_bytes_per_sample(pChannel->format);
+    ma_uint32 bps = ma_get_bytes_per_sample(pChannel->format);
 
     // Resize the buffer if necessary.
     if (pChannel->sampleCount + sampleCount >= pChannel->bufferCapInSamples) {
-        mal_uint32 newBufferCapInSamples = mal_max(pChannel->sampleCount + sampleCount, pChannel->bufferCapInSamples*2);
+        ma_uint32 newBufferCapInSamples = ma_max(pChannel->sampleCount + sampleCount, pChannel->bufferCapInSamples*2);
         if (newBufferCapInSamples == 0) {
             newBufferCapInSamples = 32;
         }
 
-        mal_uint8* pNewBuffer = (mal_uint8*)mal_realloc(pChannel->pBuffer, newBufferCapInSamples*bps);
+        ma_uint8* pNewBuffer = (ma_uint8*)ma_realloc(pChannel->pBuffer, newBufferCapInSamples*bps);
         if (pNewBuffer == NULL) {
             return MA_OUT_OF_MEMORY;
         }
@@ -425,13 +425,13 @@ mal_result msigvis_channel_push_samples(msigvis_channel* pChannel, mal_uint32 sa
         pChannel->bufferCapInSamples = newBufferCapInSamples;
     }
 
-    mal_copy_memory(pChannel->pBuffer + pChannel->sampleCount*bps, pSamples, sampleCount*bps);
+    ma_copy_memory(pChannel->pBuffer + pChannel->sampleCount*bps, pSamples, sampleCount*bps);
     pChannel->sampleCount += sampleCount;
     
     return MA_SUCCESS;
 }
 
-mal_result msigvis_channel_pop_samples(msigvis_channel* pChannel, mal_uint32 sampleCount)
+ma_result msigvis_channel_pop_samples(msigvis_channel* pChannel, ma_uint32 sampleCount)
 {
     if (pChannel == NULL) {
         return MA_INVALID_ARGS;
@@ -441,11 +441,11 @@ mal_result msigvis_channel_pop_samples(msigvis_channel* pChannel, mal_uint32 sam
         sampleCount = pChannel->sampleCount;
     }
 
-    mal_uint32 bps = mal_get_bytes_per_sample(pChannel->format);
+    ma_uint32 bps = ma_get_bytes_per_sample(pChannel->format);
 
     // This is just a dumb "move everything down" type of data movement. Need to change this to a circular buffer to make this more efficient.
-    mal_uint32 bytesToRemove = sampleCount*bps;
-    mal_assert(bytesToRemove > 0);
+    ma_uint32 bytesToRemove = sampleCount*bps;
+    ma_assert(bytesToRemove > 0);
 
     memmove(pChannel->pBuffer, pChannel->pBuffer + bytesToRemove, pChannel->sampleCount*bps - bytesToRemove);
     pChannel->sampleCount -= sampleCount;
@@ -453,11 +453,11 @@ mal_result msigvis_channel_pop_samples(msigvis_channel* pChannel, mal_uint32 sam
     return MA_SUCCESS;
 }
 
-float msigvis_channel_get_sample_f32(msigvis_channel* pChannel, mal_uint32 iSample)
+float msigvis_channel_get_sample_f32(msigvis_channel* pChannel, ma_uint32 iSample)
 {
     switch (pChannel->format)
     {
-        case mal_format_f32: return *((float*)pChannel->pBuffer + iSample);
+        case ma_format_f32: return *((float*)pChannel->pBuffer + iSample);
         default: return 0;
     }
 }

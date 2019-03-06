@@ -42,7 +42,7 @@
         <script>
             var runningTime = 0.0;
         
-            function mal_enum_devices(deviceType) {
+            function ma_enum_devices(deviceType) {
                 if (deviceType !== 'audiooutput' && deviceType !== 'audioinput') {
                     alert("Invalid device type: " + deviceType);
                     return null;
@@ -71,7 +71,7 @@
                 return promise;
             }
         
-            function mal_device_new(deviceType, deviceID) {
+            function ma_device_new(deviceType, deviceID) {
                 if (typeof(mal) === 'undefined') {
                     return null;   // Context not initialized.
                 }
@@ -202,11 +202,11 @@
                 return device;
             }
             
-            function mal_device_delete(device) {
+            function ma_device_delete(device) {
                 Module._free(device.intermediaryBuffer);
             }
         
-            function mal_context_init() {
+            function ma_context_init() {
                 if ((window.AudioContext || window.webkitAudioContext) === undefined) {
                     return 0;   // Web Audio not supported.
                 }
@@ -235,7 +235,7 @@
                     };
                     
                     mal.untrack_device_by_index = function(deviceIndex) {
-                        // We just set the device's slot to null. The slot will get reused in the next call to mal_track_device.
+                        // We just set the device's slot to null. The slot will get reused in the next call to ma_track_device.
                         mal.devices[iDevice] = null;
                         
                         // Trim the array if possible.
@@ -265,14 +265,14 @@
             }
         
             window.onload = function() {
-                if (mal_context_init() != 1) {
+                if (ma_context_init() != 1) {
                     alert("Failed to initialize context.");
                     return;
                 }
                 
 
-                // Unfortunately this doesn't seem to work too well. See comment in mal_enum_devices().
-                mal_enum_devices('audiooutput').then(function(outputDevices) {
+                // Unfortunately this doesn't seem to work too well. See comment in ma_enum_devices().
+                ma_enum_devices('audiooutput').then(function(outputDevices) {
                     for (var iDevice = 0; iDevice < outputDevices.length; ++iDevice) {
                         console.log("Output Device: ", JSON.stringify(outputDevices[iDevice]));
                     }
@@ -280,7 +280,7 @@
                     console.log("Failed to retrieve output devices: ", error);
                 });
                 
-                mal_enum_devices('audioinput').then(function(inputDevices) {
+                ma_enum_devices('audioinput').then(function(inputDevices) {
                     for (var iDevice = 0; iDevice < inputDevices.length; ++iDevice) {
                         console.log("Input Device: ", JSON.stringify(inputDevices[iDevice]));
                     }
@@ -289,8 +289,8 @@
                 });
                 
                 
-                var outputDevice = mal_device_new('audiooutput', null);
-                var inputDevice = mal_device_new('audioinput', null);
+                var outputDevice = ma_device_new('audiooutput', null);
+                var inputDevice = ma_device_new('audioinput', null);
 
                 var btnStartPlayback = document.getElementById("btnStartPlayback");
                 btnStartPlayback.addEventListener('click', function() {

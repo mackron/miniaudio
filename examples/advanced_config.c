@@ -3,14 +3,14 @@
 
 #include <stdio.h>
 
-void log_callback(mal_context* pContext, mal_device* pDevice, mal_uint32 logLevel, const char* message)
+void log_callback(ma_context* pContext, ma_device* pDevice, ma_uint32 logLevel, const char* message)
 {
     (void)pContext;
     (void)pDevice;
-    printf("miniaudio: [%s] %s\n", mal_log_level_to_string(logLevel), message);
+    printf("miniaudio: [%s] %s\n", ma_log_level_to_string(logLevel), message);
 }
 
-void data_callback(mal_device* pDevice, void* pOutput, const void* pInput, mal_uint32 frameCount)
+void data_callback(ma_device* pDevice, void* pOutput, const void* pInput, ma_uint32 frameCount)
 {
     (void)pDevice;
     (void)pOutput;
@@ -19,7 +19,7 @@ void data_callback(mal_device* pDevice, void* pOutput, const void* pInput, mal_u
     return;   // Just output silence for this example.
 }
 
-void stop_callback(mal_device* pDevice)
+void stop_callback(ma_device* pDevice)
 {
     (void)pDevice;
     printf("Device stopped\n");
@@ -31,14 +31,14 @@ int main(int argc, char** argv)
     (void)argv;
 
     // When initializing a context, you can pass in an optional configuration object that allows you to control
-    // context-level configuration. The mal_context_config_init() function will initialize a config object with
+    // context-level configuration. The ma_context_config_init() function will initialize a config object with
     // common configuration settings, but you can set other members for more detailed control.
-    mal_context_config contextConfig = mal_context_config_init();
+    ma_context_config contextConfig = ma_context_config_init();
     contextConfig.logCallback = log_callback;
 
     // The priority of the worker thread can be set with the following. The default priority is
-    // mal_thread_priority_highest.
-    contextConfig.threadPriority = mal_thread_priority_normal;
+    // ma_thread_priority_highest.
+    contextConfig.threadPriority = ma_thread_priority_normal;
 
 
     // PulseAudio
@@ -80,52 +80,52 @@ int main(int argc, char** argv)
 
 
     // The prioritization of backends can be controlled by the application. You need only specify the backends
-    // you care about. If the context cannot be initialized for any of the specified backends mal_context_init()
+    // you care about. If the context cannot be initialized for any of the specified backends ma_context_init()
     // will fail.
-    mal_backend backends[] = {
-        mal_backend_wasapi, // Higest priority.
-        mal_backend_dsound,
-        mal_backend_winmm,
-        mal_backend_coreaudio,
-        mal_backend_sndio,
-        mal_backend_audio4,
-        mal_backend_oss,
-        mal_backend_pulseaudio,
-        mal_backend_alsa,
-        mal_backend_jack,
-        mal_backend_aaudio,
-        mal_backend_opensl,
-        mal_backend_webaudio,
-        mal_backend_null    // Lowest priority.
+    ma_backend backends[] = {
+        ma_backend_wasapi, // Higest priority.
+        ma_backend_dsound,
+        ma_backend_winmm,
+        ma_backend_coreaudio,
+        ma_backend_sndio,
+        ma_backend_audio4,
+        ma_backend_oss,
+        ma_backend_pulseaudio,
+        ma_backend_alsa,
+        ma_backend_jack,
+        ma_backend_aaudio,
+        ma_backend_opensl,
+        ma_backend_webaudio,
+        ma_backend_null    // Lowest priority.
     };
 
-    mal_context context;
-    if (mal_context_init(backends, sizeof(backends)/sizeof(backends[0]), &contextConfig, &context) != MA_SUCCESS) {
+    ma_context context;
+    if (ma_context_init(backends, sizeof(backends)/sizeof(backends[0]), &contextConfig, &context) != MA_SUCCESS) {
         printf("Failed to initialize context.");
         return -2;
     }
 
     
     // Enumerate devices.
-    mal_device_info* pPlaybackDeviceInfos;
-    mal_uint32 playbackDeviceCount;
-    mal_device_info* pCaptureDeviceInfos;
-    mal_uint32 captureDeviceCount;
-    mal_result result = mal_context_get_devices(&context, &pPlaybackDeviceInfos, &playbackDeviceCount, &pCaptureDeviceInfos, &captureDeviceCount);
+    ma_device_info* pPlaybackDeviceInfos;
+    ma_uint32 playbackDeviceCount;
+    ma_device_info* pCaptureDeviceInfos;
+    ma_uint32 captureDeviceCount;
+    ma_result result = ma_context_get_devices(&context, &pPlaybackDeviceInfos, &playbackDeviceCount, &pCaptureDeviceInfos, &captureDeviceCount);
     if (result != MA_SUCCESS) {
         printf("Failed to retrieve device information.\n");
         return -3;
     }
 
     printf("Playback Devices (%d)\n", playbackDeviceCount);
-    for (mal_uint32 iDevice = 0; iDevice < playbackDeviceCount; ++iDevice) {
+    for (ma_uint32 iDevice = 0; iDevice < playbackDeviceCount; ++iDevice) {
         printf("    %u: %s\n", iDevice, pPlaybackDeviceInfos[iDevice].name);
     }
 
     printf("\n");
 
     printf("Capture Devices (%d)\n", captureDeviceCount);
-    for (mal_uint32 iDevice = 0; iDevice < captureDeviceCount; ++iDevice) {
+    for (ma_uint32 iDevice = 0; iDevice < captureDeviceCount; ++iDevice) {
         printf("    %u: %s\n", iDevice, pCaptureDeviceInfos[iDevice].name);
     }
 
@@ -133,12 +133,12 @@ int main(int argc, char** argv)
     // Open the device.
     //
     // Unlike context configs, device configs are required. Similar to context configs, an API exists to help you
-    // initialize a config object called mal_device_config_init().
+    // initialize a config object called ma_device_config_init().
     //
     // When using full-duplex you may want to use a different sample format, channel count and channel map. To
     // support this, the device configuration splits these into "playback" and "capture" as shown below.
-    mal_device_config deviceConfig = mal_device_config_init(mal_device_type_playback);
-    deviceConfig.playback.format   = mal_format_s16;
+    ma_device_config deviceConfig = ma_device_config_init(ma_device_type_playback);
+    deviceConfig.playback.format   = ma_format_s16;
     deviceConfig.playback.channels = 2;
     deviceConfig.sampleRate        = 48000;
     deviceConfig.dataCallback      = data_callback;
@@ -149,7 +149,7 @@ int main(int argc, char** argv)
 
     // Applications can request exclusive control of the device using the config variable below. Note that not all
     // backends support this feature, so this is actually just a hint.
-    deviceConfig.playback.shareMode = mal_share_mode_exclusive;
+    deviceConfig.playback.shareMode = ma_share_mode_exclusive;
 
     // miniaudio allows applications to control the mapping of channels. The config below swaps the left and right
     // channels. Normally in an interleaved audio stream, the left channel comes first, but we can change that
@@ -165,12 +165,12 @@ int main(int argc, char** argv)
     deviceConfig.alsa.noMMap = MA_TRUE;
 
     // This is not used in this example, but miniaudio allows you to directly control the device ID that's used
-    // for device selection by mal_device_init(). Below is an example for ALSA. In this example it forces
-    // mal_device_init() to try opening the "hw:0,0" device. This is useful for debugging in case you have
+    // for device selection by ma_device_init(). Below is an example for ALSA. In this example it forces
+    // ma_device_init() to try opening the "hw:0,0" device. This is useful for debugging in case you have
     // audio glitches or whatnot with specific devices.
 #ifdef MA_SUPPORT_ALSA
-    mal_device_id customDeviceID;
-    if (context.backend == mal_backend_alsa) {
+    ma_device_id customDeviceID;
+    if (context.backend == ma_backend_alsa) {
         strcpy(customDeviceID.alsa, "hw:0,0");
 
         // The ALSA backend also supports a miniaudio-specific format which looks like this: ":0,0". In this case,
@@ -181,26 +181,26 @@ int main(int argc, char** argv)
     }
 #endif
 
-    mal_device playbackDevice;
-    if (mal_device_init(&context, &deviceConfig, &playbackDevice) != MA_SUCCESS) {
+    ma_device playbackDevice;
+    if (ma_device_init(&context, &deviceConfig, &playbackDevice) != MA_SUCCESS) {
         printf("Failed to initialize playback device.\n");
-        mal_context_uninit(&context);
+        ma_context_uninit(&context);
         return -7;
     }
 
-    if (mal_device_start(&playbackDevice) != MA_SUCCESS) {
+    if (ma_device_start(&playbackDevice) != MA_SUCCESS) {
         printf("Failed to start playback device.\n");
-        mal_device_uninit(&playbackDevice);
-        mal_context_uninit(&context);
+        ma_device_uninit(&playbackDevice);
+        ma_context_uninit(&context);
         return -8;
     }
 
     printf("Press Enter to quit...");
     getchar();
 
-    mal_device_uninit(&playbackDevice);
+    ma_device_uninit(&playbackDevice);
 
 
-    mal_context_uninit(&context);
+    ma_context_uninit(&context);
     return 0;
 }

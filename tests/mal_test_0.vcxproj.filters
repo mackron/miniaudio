@@ -15,40 +15,40 @@
     </Filter>
   </ItemGroup>
   <ItemGroup>
-    <ClCompile Include="mal_test_0.c">
+    <ClCompile Include="ma_test_0.c">
       <Filter>Source Files</Filter>
     </ClCompile>
-    <ClCompile Include="mal_test_0.cpp">
+    <ClCompile Include="ma_test_0.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
-    <ClCompile Include="mal_profiling.c">
+    <ClCompile Include="ma_profiling.c">
       <Filter>Source Files</Filter>
     </ClCompile>
-    <ClCompile Include="mal_dithering.c">
+    <ClCompile Include="ma_dithering.c">
       <Filter>Source Files</Filter>
     </ClCompile>
-    <ClCompile Include="mal_resampling.c">
+    <ClCompile Include="ma_resampling.c">
       <Filter>Source Files</Filter>
     </ClCompile>
-    <ClCompile Include="mal_no_device_io.c">
+    <ClCompile Include="ma_no_device_io.c">
       <Filter>Source Files</Filter>
     </ClCompile>
-    <ClCompile Include="..\research\tests\mal_resampler_test_0.c">
+    <ClCompile Include="..\research\tests\ma_resampler_test_0.c">
       <Filter>Source Files</Filter>
     </ClCompile>
     <ClCompile Include="..\examples\simple_playback.c">
       <Filter>Source Files</Filter>
     </ClCompile>
-    <ClCompile Include="..\debugging\source\mal_router_1.c">
+    <ClCompile Include="..\debugging\source\ma_router_1.c">
       <Filter>Source Files</Filter>
     </ClCompile>
     <ClCompile Include="..\examples\simple_enumeration.c">
       <Filter>Source Files</Filter>
     </ClCompile>
-    <ClCompile Include="mal_duplex.c">
+    <ClCompile Include="ma_duplex.c">
       <Filter>Source Files</Filter>
     </ClCompile>
-    <ClCompile Include="mal_stop.c">
+    <ClCompile Include="ma_stop.c">
       <Filter>Source Files</Filter>
     </ClCompile>
     <ClCompile Include="..\examples\simple_capture.c">
@@ -62,7 +62,7 @@
     <ClInclude Include="..\miniaudio.h">
       <Filter>Source Files</Filter>
     </ClInclude>
-    <ClInclude Include="..\research\mal_resampler.h">
+    <ClInclude Include="..\research\ma_resampler.h">
       <Filter>Source Files</Filter>
     </ClInclude>
   </ItemGroup>

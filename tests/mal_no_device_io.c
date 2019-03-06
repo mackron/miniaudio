@@ -13,15 +13,15 @@ int main(int argc, char** argv)
     (void)argc;
     (void)argv;
 
-    mal_result result = MA_ERROR;
+    ma_result result = MA_ERROR;
 
-    mal_pcm_converter_config dspConfig = mal_pcm_converter_config_init_new();
-    mal_pcm_converter converter;
-    result = mal_pcm_converter_init(&dspConfig, &converter);
+    ma_pcm_converter_config dspConfig = ma_pcm_converter_config_init_new();
+    ma_pcm_converter converter;
+    result = ma_pcm_converter_init(&dspConfig, &converter);
     
-    mal_decoder_config decoderConfig = mal_decoder_config_init(mal_format_unknown, 0, 0);
-    mal_decoder decoder;
-    result = mal_decoder_init_file("res/sine_s16_mono_48000.wav", &decoderConfig, &decoder);
+    ma_decoder_config decoderConfig = ma_decoder_config_init(ma_format_unknown, 0, 0);
+    ma_decoder decoder;
+    result = ma_decoder_init_file("res/sine_s16_mono_48000.wav", &decoderConfig, &decoder);
 
     return result;
 }

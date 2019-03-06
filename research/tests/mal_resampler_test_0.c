@@ -4,46 +4,46 @@
 #define MA_DEBUG_OUTPUT
 #define MINIAUDIO_IMPLEMENTATION
 #include "../../miniaudio.h"
-#include "../mal_resampler.h"
+#include "../ma_resampler.h"
 
 #define SAMPLE_RATE_IN  44100
 #define SAMPLE_RATE_OUT 44100
 #define CHANNELS        1
 #define OUTPUT_FILE     "output.wav"
 
-mal_sine_wave sineWave;
+ma_sine_wave sineWave;
 
-mal_uint32 on_read(mal_resampler* pResampler, mal_uint32 frameCount, void** ppFramesOut)
+ma_uint32 on_read(ma_resampler* pResampler, ma_uint32 frameCount, void** ppFramesOut)
 {
-    mal_assert(pResampler->config.format == mal_format_f32);
+    ma_assert(pResampler->config.format == ma_format_f32);
 
-    return (mal_uint32)mal_sine_wave_read_f32_ex(&sineWave, frameCount, pResampler->config.channels, pResampler->config.layout, (float**)ppFramesOut);
+    return (ma_uint32)ma_sine_wave_read_f32_ex(&sineWave, frameCount, pResampler->config.channels, pResampler->config.layout, (float**)ppFramesOut);
 }
 
 int main(int argc, char** argv)
 {
-    mal_result result;
-    mal_resampler_config resamplerConfig;
-    mal_resampler resampler;
+    ma_result result;
+    ma_resampler_config resamplerConfig;
+    ma_resampler resampler;
 
-    mal_zero_object(&resamplerConfig);
-    resamplerConfig.format = mal_format_f32;
+    ma_zero_object(&resamplerConfig);
+    resamplerConfig.format = ma_format_f32;
     resamplerConfig.channels = CHANNELS;
     resamplerConfig.sampleRateIn = SAMPLE_RATE_IN;
     resamplerConfig.sampleRateOut = SAMPLE_RATE_OUT;
-    resamplerConfig.algorithm = mal_resampler_algorithm_linear;
-    resamplerConfig.endOfInputMode = mal_resampler_end_of_input_mode_consume;
-    resamplerConfig.layout = mal_stream_layout_interleaved;
+    resamplerConfig.algorithm = ma_resampler_algorithm_linear;
+    resamplerConfig.endOfInputMode = ma_resampler_end_of_input_mode_consume;
+    resamplerConfig.layout = ma_stream_layout_interleaved;
     resamplerConfig.onRead = on_read;
     resamplerConfig.pUserData = NULL;
 
-    result = mal_resampler_init(&resamplerConfig, &resampler);
+    result = ma_resampler_init(&resamplerConfig, &resampler);
     if (result != MA_SUCCESS) {
         printf("Failed to initialize resampler.\n");
         return -1;
     }
 
-    mal_sine_wave_init(0.5, 400, resamplerConfig.sampleRateIn, &sineWave);
+    ma_sine_wave_init(0.5, 400, resamplerConfig.sampleRateIn, &sineWave);
 
 
     // Write to a WAV file. We'll do about 10 seconds worth, making sure we read in chunks to make sure everything is seamless.
@@ -57,10 +57,10 @@ int main(int argc, char** argv)
 
     float buffer[SAMPLE_RATE_IN*CHANNELS];
     float* pBuffer = buffer;
-    mal_uint32 iterations = 10;
-    mal_uint32 framesToReadPerIteration = mal_countof(buffer)/CHANNELS;
-    for (mal_uint32 i = 0; i < iterations; ++i) {
-        mal_uint32 framesRead = (mal_uint32)mal_resampler_read(&resampler, framesToReadPerIteration, &pBuffer);
+    ma_uint32 iterations = 10;
+    ma_uint32 framesToReadPerIteration = ma_countof(buffer)/CHANNELS;
+    for (ma_uint32 i = 0; i < iterations; ++i) {
+        ma_uint32 framesRead = (ma_uint32)ma_resampler_read(&resampler, framesToReadPerIteration, &pBuffer);
         drwav_write(pWavWriter, framesRead*CHANNELS, buffer);
     }
 
