@@ -2854,7 +2854,7 @@ typedef enum
     ma_seek_origin_current
 } ma_seek_origin;
 
-typedef size_t     (* ma_decoder_read_proc)             (ma_decoder* pDecoder, void* pBufferOut, size_t bytesToRead); // Returns the number of bytes read.
+typedef size_t    (* ma_decoder_read_proc)             (ma_decoder* pDecoder, void* pBufferOut, size_t bytesToRead); // Returns the number of bytes read.
 typedef ma_bool32 (* ma_decoder_seek_proc)             (ma_decoder* pDecoder, int byteOffset, ma_seek_origin origin);
 typedef ma_result (* ma_decoder_seek_to_pcm_frame_proc)(ma_decoder* pDecoder, ma_uint64 frameIndex);
 typedef ma_result (* ma_decoder_uninit_proc)           (ma_decoder* pDecoder);
@@ -2879,6 +2879,7 @@ struct ma_decoder
     ma_decoder_read_proc onRead;
     ma_decoder_seek_proc onSeek;
     void* pUserData;
+    ma_uint64  readPointer; /* Used for returning back to a previous position after analysing the stream or whatnot. */
     ma_format  internalFormat;
     ma_uint32  internalChannels;
     ma_uint32  internalSampleRate;
@@ -29807,6 +29808,68 @@ ma_uint32 ma_get_bytes_per_sample(ma_format format)
 //////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 #ifndef MA_NO_DECODING
 
+size_t ma_decoder_read_bytes(ma_decoder* pDecoder, void* pBufferOut, size_t bytesToRead)
+{
+    ma_assert(pDecoder != NULL);
+    ma_assert(pBufferOut != NULL);
+
+    size_t bytesRead = pDecoder->onRead(pDecoder, pBufferOut, bytesToRead);
+    pDecoder->readPointer += bytesRead;
+
+    return bytesRead;
+}
+
+ma_bool32 ma_decoder_seek_bytes(ma_decoder* pDecoder, int byteOffset, ma_seek_origin origin)
+{
+    ma_assert(pDecoder != NULL);
+
+    ma_bool32 wasSuccessful = pDecoder->onSeek(pDecoder, byteOffset, origin);
+    if (wasSuccessful) {
+        if (origin == ma_seek_origin_start) {
+            pDecoder->readPointer = (ma_uint64)byteOffset;
+        } else {
+            pDecoder->readPointer += byteOffset;
+        }
+    }
+
+    return wasSuccessful;
+}
+
+ma_bool32 ma_decoder_seek_bytes_64(ma_decoder* pDecoder, ma_uint64 byteOffset, ma_seek_origin origin)
+{
+    ma_assert(pDecoder != NULL);
+
+    if (origin == ma_seek_origin_start) {
+        ma_uint64 bytesToSeekThisIteration = 0x7FFFFFFF;
+        if (bytesToSeekThisIteration > byteOffset) {
+            bytesToSeekThisIteration = byteOffset;
+        }
+
+        if (!ma_decoder_seek_bytes(pDecoder, (int)bytesToSeekThisIteration, ma_seek_origin_start)) {
+            return MA_FALSE;
+        }
+
+        byteOffset -= bytesToSeekThisIteration;
+    }
+
+    /* Getting here means we need to seek relative to the current position. */
+    while (byteOffset > 0) {
+        ma_uint64 bytesToSeekThisIteration = 0x7FFFFFFF;
+        if (bytesToSeekThisIteration > byteOffset) {
+            bytesToSeekThisIteration = byteOffset;
+        }
+
+        if (!ma_decoder_seek_bytes(pDecoder, (int)bytesToSeekThisIteration, ma_seek_origin_current)) {
+            return MA_FALSE;
+        }
+
+        byteOffset -= bytesToSeekThisIteration;
+    }
+
+    return MA_TRUE;
+}
+
+
 ma_decoder_config ma_decoder_config_init(ma_format outputFormat, ma_uint32 outputChannels, ma_uint32 outputSampleRate)
 {
     ma_decoder_config config;
@@ -29882,18 +29945,16 @@ size_t ma_decoder_internal_on_read__wav(void* pUserData, void* pBufferOut, size_
 {
     ma_decoder* pDecoder = (ma_decoder*)pUserData;
     ma_assert(pDecoder != NULL);
-    ma_assert(pDecoder->onRead != NULL);
 
-    return pDecoder->onRead(pDecoder, pBufferOut, bytesToRead);
+    return ma_decoder_read_bytes(pDecoder, pBufferOut, bytesToRead);
 }
 
 drwav_bool32 ma_decoder_internal_on_seek__wav(void* pUserData, int offset, drwav_seek_origin origin)
 {
     ma_decoder* pDecoder = (ma_decoder*)pUserData;
     ma_assert(pDecoder != NULL);
-    ma_assert(pDecoder->onSeek != NULL);
 
-    return pDecoder->onSeek(pDecoder, offset, (origin == drwav_seek_origin_start) ? ma_seek_origin_start : ma_seek_origin_current);
+    return ma_decoder_seek_bytes(pDecoder, offset, (origin == drwav_seek_origin_start) ? ma_seek_origin_start : ma_seek_origin_current);
 }
 
 ma_uint32 ma_decoder_internal_on_read_pcm_frames__wav(ma_pcm_converter* pDSP, void* pSamplesOut, ma_uint32 frameCount, void* pUserData)
@@ -30009,18 +30070,16 @@ size_t ma_decoder_internal_on_read__flac(void* pUserData, void* pBufferOut, size
 {
     ma_decoder* pDecoder = (ma_decoder*)pUserData;
     ma_assert(pDecoder != NULL);
-    ma_assert(pDecoder->onRead != NULL);
 
-    return pDecoder->onRead(pDecoder, pBufferOut, bytesToRead);
+    return ma_decoder_read_bytes(pDecoder, pBufferOut, bytesToRead);
 }
 
 drflac_bool32 ma_decoder_internal_on_seek__flac(void* pUserData, int offset, drflac_seek_origin origin)
 {
     ma_decoder* pDecoder = (ma_decoder*)pUserData;
     ma_assert(pDecoder != NULL);
-    ma_assert(pDecoder->onSeek != NULL);
 
-    return pDecoder->onSeek(pDecoder, offset, (origin == drflac_seek_origin_start) ? ma_seek_origin_start : ma_seek_origin_current);
+    return ma_decoder_seek_bytes(pDecoder, offset, (origin == drflac_seek_origin_start) ? ma_seek_origin_start : ma_seek_origin_current);
 }
 
 ma_uint32 ma_decoder_internal_on_read_pcm_frames__flac(ma_pcm_converter* pDSP, void* pSamplesOut, ma_uint32 frameCount, void* pUserData)
@@ -30125,8 +30184,6 @@ ma_uint32 ma_vorbis_decoder_read_pcm_frames(ma_vorbis_decoder* pVorbis, ma_decod
 {
     ma_assert(pVorbis != NULL);
     ma_assert(pDecoder != NULL);
-    ma_assert(pDecoder->onRead != NULL);
-    ma_assert(pDecoder->onSeek != NULL);
 
     float* pSamplesOutF = (float*)pSamplesOut;
 
@@ -30184,7 +30241,7 @@ ma_uint32 ma_vorbis_decoder_read_pcm_frames(ma_vorbis_decoder* pVorbis, ma_decod
                 }
 
                 // Fill in a chunk.
-                size_t bytesRead = pDecoder->onRead(pDecoder, pVorbis->pData + pVorbis->dataSize, (pVorbis->dataCapacity - pVorbis->dataSize));
+                size_t bytesRead = ma_decoder_read_bytes(pDecoder, pVorbis->pData + pVorbis->dataSize, (pVorbis->dataCapacity - pVorbis->dataSize));
                 if (bytesRead == 0) {
                     return totalFramesRead; // Error reading more data.
                 }
@@ -30201,13 +30258,11 @@ ma_result ma_vorbis_decoder_seek_to_pcm_frame(ma_vorbis_decoder* pVorbis, ma_dec
 {
     ma_assert(pVorbis != NULL);
     ma_assert(pDecoder != NULL);
-    ma_assert(pDecoder->onRead != NULL);
-    ma_assert(pDecoder->onSeek != NULL);
 
     // This is terribly inefficient because stb_vorbis does not have a good seeking solution with it's push API. Currently this just performs
     // a full decode right from the start of the stream. Later on I'll need to write a layer that goes through all of the Ogg pages until we
     // find the one containing the sample we need. Then we know exactly where to seek for stb_vorbis.
-    if (!pDecoder->onSeek(pDecoder, 0, ma_seek_origin_start)) {
+    if (!ma_decoder_seek_bytes(pDecoder, 0, ma_seek_origin_start)) {
         return MA_ERROR;
     }
 
@@ -30238,8 +30293,6 @@ ma_result ma_vorbis_decoder_seek_to_pcm_frame(ma_vorbis_decoder* pVorbis, ma_dec
 ma_result ma_decoder_internal_on_seek_to_pcm_frame__vorbis(ma_decoder* pDecoder, ma_uint64 frameIndex)
 {
     ma_assert(pDecoder != NULL);
-    ma_assert(pDecoder->onRead != NULL);
-    ma_assert(pDecoder->onSeek != NULL);
 
     ma_vorbis_decoder* pVorbis = (ma_vorbis_decoder*)pDecoder->pInternalDecoder;
     ma_assert(pVorbis != NULL);
@@ -30266,8 +30319,6 @@ ma_uint32 ma_decoder_internal_on_read_pcm_frames__vorbis(ma_pcm_converter* pDSP,
     ma_decoder* pDecoder = (ma_decoder*)pUserData;
     ma_assert(pDecoder != NULL);
     ma_assert(pDecoder->internalFormat == ma_format_f32);
-    ma_assert(pDecoder->onRead != NULL);
-    ma_assert(pDecoder->onSeek != NULL);
 
     ma_vorbis_decoder* pVorbis = (ma_vorbis_decoder*)pDecoder->pInternalDecoder;
     ma_assert(pVorbis != NULL);
@@ -30279,8 +30330,6 @@ ma_result ma_decoder_init_vorbis__internal(const ma_decoder_config* pConfig, ma_
 {
     ma_assert(pConfig != NULL);
     ma_assert(pDecoder != NULL);
-    ma_assert(pDecoder->onRead != NULL);
-    ma_assert(pDecoder->onSeek != NULL);
 
     stb_vorbis* pInternalVorbis = NULL;
 
@@ -30301,7 +30350,7 @@ ma_result ma_decoder_init_vorbis__internal(const ma_decoder_config* pConfig, ma_
         pData = pNewData;
 
         // Fill in a chunk.
-        size_t bytesRead = pDecoder->onRead(pDecoder, pData + dataSize, (dataCapacity - dataSize));
+        size_t bytesRead = ma_decoder_read_bytes(pDecoder, pData + dataSize, (dataCapacity - dataSize));
         if (bytesRead == 0) {
             return MA_ERROR;
         }
@@ -30388,18 +30437,16 @@ size_t ma_decoder_internal_on_read__mp3(void* pUserData, void* pBufferOut, size_
 {
     ma_decoder* pDecoder = (ma_decoder*)pUserData;
     ma_assert(pDecoder != NULL);
-    ma_assert(pDecoder->onRead != NULL);
 
-    return pDecoder->onRead(pDecoder, pBufferOut, bytesToRead);
+    return ma_decoder_read_bytes(pDecoder, pBufferOut, bytesToRead);
 }
 
 drmp3_bool32 ma_decoder_internal_on_seek__mp3(void* pUserData, int offset, drmp3_seek_origin origin)
 {
     ma_decoder* pDecoder = (ma_decoder*)pUserData;
     ma_assert(pDecoder != NULL);
-    ma_assert(pDecoder->onSeek != NULL);
 
-    return pDecoder->onSeek(pDecoder, offset, (origin == drmp3_seek_origin_start) ? ma_seek_origin_start : ma_seek_origin_current);
+    return ma_decoder_seek_bytes(pDecoder, offset, (origin == drmp3_seek_origin_start) ? ma_seek_origin_start : ma_seek_origin_current);
 }
 
 ma_uint32 ma_decoder_internal_on_read_pcm_frames__mp3(ma_pcm_converter* pDSP, void* pSamplesOut, ma_uint32 frameCount, void* pUserData)
@@ -30494,7 +30541,7 @@ ma_uint32 ma_decoder_internal_on_read_pcm_frames__raw(ma_pcm_converter* pDSP, vo
 
     // For raw decoding we just read directly from the decoder's callbacks.
     ma_uint32 bpf = ma_get_bytes_per_frame(pDecoder->internalFormat, pDecoder->internalChannels);
-    return (ma_uint32)pDecoder->onRead(pDecoder, pSamplesOut, frameCount * bpf) / bpf;
+    return (ma_uint32)ma_decoder_read_bytes(pDecoder, pSamplesOut, frameCount * bpf) / bpf;
 }
 
 ma_result ma_decoder_internal_on_seek_to_pcm_frame__raw(ma_decoder* pDecoder, ma_uint64 frameIndex)
@@ -30511,10 +30558,10 @@ ma_result ma_decoder_internal_on_seek_to_pcm_frame__raw(ma_decoder* pDecoder, ma
     ma_uint64 totalBytesToSeek = frameIndex * ma_get_bytes_per_frame(pDecoder->internalFormat, pDecoder->internalChannels);
     if (totalBytesToSeek < 0x7FFFFFFF) {
         // Simple case.
-        result = pDecoder->onSeek(pDecoder, (int)(frameIndex * ma_get_bytes_per_frame(pDecoder->internalFormat, pDecoder->internalChannels)), ma_seek_origin_start);
+        result = ma_decoder_seek_bytes(pDecoder, (int)(frameIndex * ma_get_bytes_per_frame(pDecoder->internalFormat, pDecoder->internalChannels)), ma_seek_origin_start);
     } else {
         // Complex case. Start by doing a seek relative to the start. Then keep looping using offset seeking.
-        result = pDecoder->onSeek(pDecoder, 0x7FFFFFFF, ma_seek_origin_start);
+        result = ma_decoder_seek_bytes(pDecoder, 0x7FFFFFFF, ma_seek_origin_start);
         if (result == MA_TRUE) {
             totalBytesToSeek -= 0x7FFFFFFF;
 
@@ -30524,7 +30571,7 @@ ma_result ma_decoder_internal_on_seek_to_pcm_frame__raw(ma_decoder* pDecoder, ma
                     bytesToSeekThisIteration = 0x7FFFFFFF;
                 }
 
-                result = pDecoder->onSeek(pDecoder, (int)bytesToSeekThisIteration, ma_seek_origin_current);
+                result = ma_decoder_seek_bytes(pDecoder, (int)bytesToSeekThisIteration, ma_seek_origin_current);
                 if (result != MA_TRUE) {
                     break;
                 }
