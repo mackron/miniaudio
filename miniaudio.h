@@ -8144,7 +8144,7 @@ ma_result ma_device_main_loop__wasapi(ma_device* pDevice)
                     break;
                 }
 
-                if (framesAvailableCapture == 0) {
+                if (framesAvailableCapture < pDevice->wasapi.periodSizeInFramesCapture) {
                     continue;   /* Nothing available. Keep waiting. */
                 }
 
@@ -8194,7 +8194,7 @@ ma_result ma_device_main_loop__wasapi(ma_device* pDevice)
                     break;
                 }
 
-                if (framesAvailablePlayback == 0) {
+                if (framesAvailablePlayback < pDevice->wasapi.periodSizeInFramesPlayback) {
                     continue;   /* No space available. */
                 }
 
@@ -29773,7 +29773,7 @@ const char* ma_get_format_name(ma_format format)
         case ma_format_s24:     return "24-bit Signed Integer (Tightly Packed)";
         case ma_format_s32:     return "32-bit Signed Integer";
         case ma_format_f32:     return "32-bit IEEE Floating Point";
-        default:                 return "Invalid";
+        default:                return "Invalid";
     }
 }
 
