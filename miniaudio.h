@@ -29,7 +29,7 @@ better to get this out of the road now rather than later. Also, since there are 
 I think it's better to just get the namespace change over and done with at the same time as the full-duplex changes. I'm hoping
 this will be the last of the major API changes. Fingers crossed!
 
-The implementation define is now "#define MINIAUDIO_IMPLEMENTATION". You can also use "#define MA_IMPLEMENTATION" if that'
+The implementation define is now "#define MINIAUDIO_IMPLEMENTATION". You can also use "#define MA_IMPLEMENTATION" if that's
 your preference.
 
 
@@ -124,7 +124,7 @@ Miscellaneous Changes
 ---------------------
 The following miscellaneous changes have also been made.
 
-- The AAudio backend has been added for Android 8 and above. This is Androids new "High-Performance Audio" API. (For the
+- The AAudio backend has been added for Android 8 and above. This is Android's new "High-Performance Audio" API. (For the
   record, this is one of the nicest audio APIs out there, just behind the BSD audio APIs).
 - The WebAudio backend has been added. This is based on ScriptProcessorNode. This removes the need for SDL.
 - The SDL and OpenAL backends have been removed. These were originally implemented to add support for platforms for which miniaudio
