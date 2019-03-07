@@ -9757,7 +9757,7 @@ ma_result ma_device_main_loop__dsound(ma_device* pDevice)
                 //printf("[DirectSound] (Capture) lockOffsetInBytesCapture=%d, lockSizeInBytesCapture=%d\n", lockOffsetInBytesCapture, lockSizeInBytesCapture);
             #endif
 
-                if (lockSizeInBytesCapture == 0) {
+                if (lockSizeInBytesCapture < (pDevice->capture.internalBufferSizeInFrames/pDevice->capture.internalPeriods)) {
                     ma_sleep(waitTimeInMilliseconds);
                     continue; /* Nothing is available in the capture buffer. */
                 }
@@ -9840,9 +9840,9 @@ ma_result ma_device_main_loop__dsound(ma_device* pDevice)
             #endif
 
                 /* If there's no room available for writing we need to wait for more. */
-                if (availableBytesPlayback == 0) {
+                if (availableBytesPlayback < (pDevice->playback.internalBufferSizeInFrames/pDevice->playback.internalPeriods)) {
                     /* If we haven't started the device yet, this will never get beyond 0. In this case we need to get the device started. */
-                    if (!isPlaybackDeviceStarted) {
+                    if (availableBytesPlayback == 0 && !isPlaybackDeviceStarted) {
                         if (FAILED(ma_IDirectSoundBuffer_Play((ma_IDirectSoundBuffer*)pDevice->dsound.pPlaybackBuffer, 0, 0, MA_DSBPLAY_LOOPING))) {
                             return ma_post_error(pDevice, MA_LOG_LEVEL_ERROR, "[DirectSound] IDirectSoundBuffer_Play() failed.", MA_FAILED_TO_START_BACKEND_DEVICE);
                         }
