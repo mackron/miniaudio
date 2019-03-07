@@ -7560,7 +7560,6 @@ ma_result ma_device_reinit__wasapi(ma_device* pDevice, ma_device_type deviceType
 ma_result ma_device_init__wasapi(ma_context* pContext, const ma_device_config* pConfig, ma_device* pDevice)
 {
     ma_result result = MA_SUCCESS;
-    const char* errorMsg = "";
 
     (void)pContext;
 
@@ -7717,8 +7716,8 @@ ma_result ma_device_init__wasapi(ma_context* pContext, const ma_device_config* p
     ma_IMMDeviceEnumerator* pDeviceEnumerator;
     HRESULT hr = ma_CoCreateInstance(pContext, MA_CLSID_MMDeviceEnumerator, NULL, CLSCTX_ALL, MA_IID_IMMDeviceEnumerator, (void**)&pDeviceEnumerator);
     if (FAILED(hr)) {
-        errorMsg = "[WASAPI] Failed to create device enumerator.", result = MA_FAILED_TO_OPEN_BACKEND_DEVICE;
-        goto done;
+        ma_device_uninit__wasapi(pDevice);
+        return ma_post_error(pDevice, MA_LOG_LEVEL_ERROR, "[WASAPI] Failed to create device enumerator.", MA_FAILED_TO_OPEN_BACKEND_DEVICE);
     }
 
     pDevice->wasapi.notificationClient.lpVtbl  = (void*)&g_maNotificationCientVtbl;
@@ -7737,16 +7736,7 @@ ma_result ma_device_init__wasapi(ma_context* pContext, const ma_device_config* p
     ma_atomic_exchange_32(&pDevice->wasapi.isStartedCapture,  MA_FALSE);
     ma_atomic_exchange_32(&pDevice->wasapi.isStartedPlayback, MA_FALSE);
 
-    result = MA_SUCCESS;
-
-done:
-    // Clean up.
-    if (result != MA_SUCCESS) {
-        ma_device_uninit__wasapi(pDevice);
-        return ma_post_error(pDevice, MA_LOG_LEVEL_ERROR, errorMsg, result);
-    } else {
-        return MA_SUCCESS;
-    }
+    return MA_SUCCESS;
 }
 
 ma_result ma_device__get_available_frames__wasapi(ma_device* pDevice, ma_IAudioClient* pAudioClient, ma_uint32* pFrameCount)
