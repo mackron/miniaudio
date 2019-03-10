@@ -1437,6 +1437,9 @@ void ma_blend_f32(float* pOut, float* pInA, float* pInB, float factor, ma_uint32
 ma_uint32 ma_get_bytes_per_sample(ma_format format);
 static MA_INLINE ma_uint32 ma_get_bytes_per_frame(ma_format format, ma_uint32 channels) { return ma_get_bytes_per_sample(format) * channels; }
 
+// Converts a log level to a string.
+const char* ma_log_level_to_string(ma_uint32 logLevel);
+
 
 //////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 //
