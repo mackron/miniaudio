@@ -1,6 +1,6 @@
 /*
 Audio playback and capture library. Choice of public domain or MIT-0. See license statements at the end of this file.
-miniaudio (formerly mini_al) - v0.9 - 2019-03-06
+miniaudio (formerly mini_al) - v0.9.1 - 2019-03-17
 
 David Reid - davidreidsoftware@gmail.com
 */
@@ -4917,7 +4917,15 @@ static MA_INLINE void ma_device__read_frames_from_client(ma_device* pDevice, ma_
     ma_assert(frameCount > 0);
     ma_assert(pSamples != NULL);
 
-    ma_pcm_converter_read(&pDevice->playback.converter, pSamples, frameCount);
+    ma_device_callback_proc onData = pDevice->onData;
+    if (onData) {
+        if (pDevice->playback.converter.isPassthrough) {
+            ma_zero_pcm_frames(pSamples, frameCount, pDevice->playback.format, pDevice->playback.channels);
+            onData(pDevice, pSamples, NULL, frameCount);
+        } else {
+            ma_pcm_converter_read(&pDevice->playback.converter, pSamples, frameCount);
+        }
+    }
 }
 
 // A helper for sending sample data to the client.
@@ -4929,22 +4937,26 @@ static MA_INLINE void ma_device__send_frames_to_client(ma_device* pDevice, ma_ui
 
     ma_device_callback_proc onData = pDevice->onData;
     if (onData) {
-        pDevice->capture._dspFrameCount = frameCount;
-        pDevice->capture._dspFrames = (const ma_uint8*)pSamples;
+        if (pDevice->capture.converter.isPassthrough) {
+            onData(pDevice, NULL, pSamples, frameCount);
+        } else {
+            pDevice->capture._dspFrameCount = frameCount;
+            pDevice->capture._dspFrames = (const ma_uint8*)pSamples;
 
-        ma_uint8 chunkBuffer[4096];
-        ma_uint32 chunkFrameCount = sizeof(chunkBuffer) / ma_get_bytes_per_frame(pDevice->capture.format, pDevice->capture.channels);
+            ma_uint8 chunkBuffer[4096];
+            ma_uint32 chunkFrameCount = sizeof(chunkBuffer) / ma_get_bytes_per_frame(pDevice->capture.format, pDevice->capture.channels);
 
-        for (;;) {
-            ma_uint32 framesJustRead = (ma_uint32)ma_pcm_converter_read(&pDevice->capture.converter, chunkBuffer, chunkFrameCount);
-            if (framesJustRead == 0) {
-                break;
-            }
+            for (;;) {
+                ma_uint32 framesJustRead = (ma_uint32)ma_pcm_converter_read(&pDevice->capture.converter, chunkBuffer, chunkFrameCount);
+                if (framesJustRead == 0) {
+                    break;
+                }
 
-            onData(pDevice, NULL, chunkBuffer, framesJustRead);
+                onData(pDevice, NULL, chunkBuffer, framesJustRead);
 
-            if (framesJustRead < chunkFrameCount) {
-                break;
+                if (framesJustRead < chunkFrameCount) {
+                    break;
+                }
             }
         }
     }
@@ -8160,12 +8172,8 @@ ma_result ma_device_main_loop__wasapi(ma_device* pDevice)
                     break;
                 }
 
-                /* We should have a buffer at this point. If we are running a passthrough pipeline we can send it straight to the callback. Otherwise we need to convert. */
-                if (pDevice->capture.converter.isPassthrough) {
-                    pDevice->onData(pDevice, NULL, pMappedBufferCapture, mappedBufferSizeInFramesCapture);
-                } else {
-                    ma_device__send_frames_to_client(pDevice, mappedBufferSizeInFramesCapture, pMappedBufferCapture);
-                }
+                /* We should have a buffer at this point. */
+                ma_device__send_frames_to_client(pDevice, mappedBufferSizeInFramesCapture, pMappedBufferCapture);
 
                 /* At this point we're done with the buffer. */
                 hr = ma_IAudioCaptureClient_ReleaseBuffer((ma_IAudioCaptureClient*)pDevice->wasapi.pCaptureClient, mappedBufferSizeInFramesCapture);
@@ -8209,11 +8217,8 @@ ma_result ma_device_main_loop__wasapi(ma_device* pDevice)
                     break;
                 }
 
-                if (pDevice->playback.converter.isPassthrough) {
-                    pDevice->onData(pDevice, pMappedBufferPlayback, NULL, framesAvailablePlayback);
-                } else {
-                    ma_device__read_frames_from_client(pDevice, framesAvailablePlayback, pMappedBufferPlayback);
-                }
+                /* We should have a buffer at this point. */
+                ma_device__read_frames_from_client(pDevice, framesAvailablePlayback, pMappedBufferPlayback);
 
                 /* At this point we're done writing to the device and we just need to release the buffer. */
                 hr = ma_IAudioRenderClient_ReleaseBuffer((ma_IAudioRenderClient*)pDevice->wasapi.pRenderClient, framesAvailablePlayback, 0);
@@ -9776,14 +9781,7 @@ ma_result ma_device_main_loop__dsound(ma_device* pDevice)
                 }
             #endif
 
-                /* Optimization: If we are running as a passthrough we can pass the mapped pointer to the callback directly. */
-                if (pDevice->capture.converter.isPassthrough) {
-                    /* Passthrough. */
-                    pDevice->onData(pDevice, NULL, pMappedBufferCapture, mappedSizeInBytesCapture/bpfCapture);
-                } else {
-                    /* Not a passthrough. */
-                    ma_device__send_frames_to_client(pDevice, mappedSizeInBytesCapture/bpfCapture, pMappedBufferCapture);
-                }
+                ma_device__send_frames_to_client(pDevice, mappedSizeInBytesCapture/bpfCapture, pMappedBufferCapture);
 
                 hr = ma_IDirectSoundCaptureBuffer_Unlock((ma_IDirectSoundCaptureBuffer*)pDevice->dsound.pCaptureBuffer, pMappedBufferCapture, mappedSizeInBytesCapture, NULL, 0);
                 if (FAILED(hr)) {
@@ -9872,17 +9870,8 @@ ma_result ma_device_main_loop__dsound(ma_device* pDevice)
                     break;
                 }
 
-                /*
-                At this point we have a buffer for output. If we don't need to do any data conversion we can pass the mapped pointer to the buffer directly. Otherwise
-                we need to convert the data.
-                */
-                if (pDevice->playback.converter.isPassthrough) {
-                    /* Passthrough. */
-                    pDevice->onData(pDevice, pMappedBufferPlayback, NULL, (mappedSizeInBytesPlayback/bpfPlayback));
-                } else {
-                    /* Conversion. */
-                    ma_device__read_frames_from_client(pDevice, (mappedSizeInBytesPlayback/bpfPlayback), pMappedBufferPlayback);
-                }
+                /* At this point we have a buffer for output. */
+                ma_device__read_frames_from_client(pDevice, (mappedSizeInBytesPlayback/bpfPlayback), pMappedBufferPlayback);
 
                 hr = ma_IDirectSoundBuffer_Unlock((ma_IDirectSoundBuffer*)pDevice->dsound.pPlaybackBuffer, pMappedBufferPlayback, mappedSizeInBytesPlayback, NULL, 0);
                 if (FAILED(hr)) {
@@ -31394,6 +31383,13 @@ Device
 /*
 REVISION HISTORY
 ================
+
+v0.9.1 - 2019-03-17
+  - Fix a bug where the output buffer is not getting zeroed out before calling the data callback. This happens when
+    the device is running in passthrough mode (not doing any data conversion).
+  - Fix an issue where the data callback is getting called too frequently on the WASAPI and DirectSound backends.
+  - Fix error on the UWP build.
+  - Fix a build error on Apple platforms.
 
 v0.9 - 2019-03-06
   - Rebranded to "miniaudio". All namespaces have been renamed from "mal" to "ma".
