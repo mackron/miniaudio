@@ -17338,7 +17338,7 @@ ma_result ma_device_init_internal__coreaudio(ma_context* pContext, ma_device_typ
     
     
     // Audio unit.
-    OSStatus status = ((ma_AudioComponentInstanceNew_proc)pContext->coreaudio.AudioComponentInstanceNew)(pContext->coreaudio.component, (AudioUnit*)&pData->audioUnit);
+    OSStatus status = ((ma_AudioComponentInstanceNew_proc)pContext->coreaudio.AudioComponentInstanceNew)((AudioComponent)pContext->coreaudio.component, (AudioUnit*)&pData->audioUnit);
     if (status != noErr) {
         return ma_result_from_OSStatus(status);
     }
