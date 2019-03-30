@@ -1,6 +1,6 @@
 /*
 Audio playback and capture library. Choice of public domain or MIT-0. See license statements at the end of this file.
-miniaudio (formerly mini_al) - v0.9.1 - 2019-03-17
+miniaudio (formerly mini_al) - v0.9.2-dev - 2019-xx-xx
 
 David Reid - davidreidsoftware@gmail.com
 */
@@ -1882,7 +1882,9 @@ typedef ma_bool32 (* ma_enum_devices_callback_proc)(ma_context* pContext, ma_dev
 struct ma_context
 {
     ma_backend backend;                    // DirectSound, ALSA, etc.
-    ma_context_config config;
+    ma_log_proc logCallback;
+    ma_thread_priority threadPriority;
+    void* pUserData;
     ma_mutex deviceEnumLock;               // Used to make ma_context_get_devices() thread safe.
     ma_mutex deviceInfoLock;               // Used to make ma_context_get_device_info() thread safe.
     ma_uint32 deviceInfoCapacity;          // Total capacity of pDeviceInfos.
@@ -2005,6 +2007,7 @@ struct ma_context
             ma_proc snd_config_update_free_global;
 
             ma_mutex internalDeviceEnumLock;
+            ma_bool32 useVerboseDeviceEnumeration;
         } alsa;
 #endif
 #ifdef MA_SUPPORT_PULSEAUDIO
@@ -2055,6 +2058,10 @@ struct ma_context
             ma_proc pa_stream_drop;
             ma_proc pa_stream_writable_size;
             ma_proc pa_stream_readable_size;
+
+            char* pApplicationName;
+            char* pServerName;
+            ma_bool32 tryAutoSpawn;
         } pulse;
 #endif
 #ifdef MA_SUPPORT_JACK
@@ -2077,6 +2084,9 @@ struct ma_context
             ma_proc jack_port_name;
             ma_proc jack_port_get_buffer;
             ma_proc jack_free;
+
+            char* pClientName;
+            ma_bool32 tryStartServer;
         } jack;
 #endif
 #ifdef MA_SUPPORT_COREAUDIO
@@ -3701,6 +3711,19 @@ int ma_strcmp(const char* str1, const char* str2)
     return ((unsigned char*)str1)[0] - ((unsigned char*)str2)[0];
 }
 
+char* ma_copy_string(const char* src)
+{
+    size_t sz = strlen(src)+1;
+    char* dst = (char*)ma_malloc(sz);
+    if (dst == NULL) {
+        return NULL;
+    }
+
+    ma_strcpy_s(dst, sz, src);
+
+    return dst;
+}
+
 
 // Thanks to good old Bit Twiddling Hacks for this one: http://graphics.stanford.edu/~seander/bithacks.html#RoundUpPowerOf2
 static MA_INLINE unsigned int ma_next_power_of_2(unsigned int x)
@@ -4299,7 +4322,7 @@ ma_result ma_thread_create__win32(ma_context* pContext, ma_thread* pThread, ma_t
         return MA_FAILED_TO_CREATE_THREAD;
     }
 
-    SetThreadPriority((HANDLE)pThread->win32.hThread, ma_thread_priority_to_win32(pContext->config.threadPriority));
+    SetThreadPriority((HANDLE)pThread->win32.hThread, ma_thread_priority_to_win32(pContext->threadPriority));
 
     return MA_SUCCESS;
 }
@@ -4400,13 +4423,13 @@ ma_bool32 ma_thread_create__posix(ma_context* pContext, ma_thread* pThread, ma_t
     pthread_attr_t attr;
     if (((ma_pthread_attr_init_proc)pContext->posix.pthread_attr_init)(&attr) == 0) {
         int scheduler = -1;
-        if (pContext->config.threadPriority == ma_thread_priority_idle) {
+        if (pContext->threadPriority == ma_thread_priority_idle) {
 #ifdef SCHED_IDLE
             if (((ma_pthread_attr_setschedpolicy_proc)pContext->posix.pthread_attr_setschedpolicy)(&attr, SCHED_IDLE) == 0) {
                 scheduler = SCHED_IDLE;
             }
 #endif
-        } else if (pContext->config.threadPriority == ma_thread_priority_realtime) {
+        } else if (pContext->threadPriority == ma_thread_priority_realtime) {
 #ifdef SCHED_FIFO
             if (((ma_pthread_attr_setschedpolicy_proc)pContext->posix.pthread_attr_setschedpolicy)(&attr, SCHED_FIFO) == 0) {
                 scheduler = SCHED_FIFO;
@@ -4425,12 +4448,12 @@ ma_bool32 ma_thread_create__posix(ma_context* pContext, ma_thread* pThread, ma_t
 
             struct sched_param sched;
             if (((ma_pthread_attr_getschedparam_proc)pContext->posix.pthread_attr_getschedparam)(&attr, &sched) == 0) {
-                if (pContext->config.threadPriority == ma_thread_priority_idle) {
+                if (pContext->threadPriority == ma_thread_priority_idle) {
                     sched.sched_priority = priorityMin;
-                } else if (pContext->config.threadPriority == ma_thread_priority_realtime) {
+                } else if (pContext->threadPriority == ma_thread_priority_realtime) {
                     sched.sched_priority = priorityMax;
                 } else {
-                    sched.sched_priority += ((int)pContext->config.threadPriority + 5) * priorityStep;  // +5 because the lowest priority is -5.
+                    sched.sched_priority += ((int)pContext->threadPriority + 5) * priorityStep;  // +5 because the lowest priority is -5.
                     if (sched.sched_priority < priorityMin) {
                         sched.sched_priority = priorityMin;
                     }
@@ -4821,7 +4844,7 @@ void ma_log(ma_context* pContext, ma_device* pDevice, ma_uint32 logLevel, const 
         }
     #endif
     
-        ma_log_proc onLog = pContext->config.logCallback;
+        ma_log_proc onLog = pContext->logCallback;
         if (onLog) {
             onLog(pContext, pDevice, logLevel, message);
         }
@@ -5598,9 +5621,11 @@ ma_result ma_context_uninit__null(ma_context* pContext)
     return MA_SUCCESS;
 }
 
-ma_result ma_context_init__null(ma_context* pContext)
+ma_result ma_context_init__null(const ma_context_config* pConfig, ma_context* pContext)
 {
     ma_assert(pContext != NULL);
+
+    (void)pConfig;
 
     pContext->onUninit              = ma_context_uninit__null;
     pContext->onDeviceIDEqual       = ma_context_is_device_id_equal__null;
@@ -8343,10 +8368,12 @@ ma_result ma_context_uninit__wasapi(ma_context* pContext)
     return MA_SUCCESS;
 }
 
-ma_result ma_context_init__wasapi(ma_context* pContext)
+ma_result ma_context_init__wasapi(const ma_context_config* pConfig, ma_context* pContext)
 {
     ma_assert(pContext != NULL);
+
     (void)pContext;
+    (void)pConfig;
 
     ma_result result = MA_SUCCESS;
 
@@ -9981,9 +10008,11 @@ ma_result ma_context_uninit__dsound(ma_context* pContext)
     return MA_SUCCESS;
 }
 
-ma_result ma_context_init__dsound(ma_context* pContext)
+ma_result ma_context_init__dsound(const ma_context_config* pConfig, ma_context* pContext)
 {
     ma_assert(pContext != NULL);
+
+    (void)pConfig;
 
     pContext->dsound.hDSoundDLL = ma_dlopen("dsound.dll");
     if (pContext->dsound.hDSoundDLL == NULL) {
@@ -10944,9 +10973,11 @@ ma_result ma_context_uninit__winmm(ma_context* pContext)
     return MA_SUCCESS;
 }
 
-ma_result ma_context_init__winmm(ma_context* pContext)
+ma_result ma_context_init__winmm(const ma_context_config* pConfig, ma_context* pContext)
 {
     ma_assert(pContext != NULL);
+
+    (void)pConfig;
 
     pContext->winmm.hWinMM = ma_dlopen("winmm.dll");
     if (pContext->winmm.hWinMM == NULL) {
@@ -11729,7 +11760,7 @@ ma_result ma_context_enumerate_devices__alsa(ma_context* pContext, ma_enum_devic
 
         char hwid[sizeof(pUniqueIDs->alsa)];
         if (NAME != NULL) {
-            if (pContext->config.alsa.useVerboseDeviceEnumeration) {
+            if (pContext->alsa.useVerboseDeviceEnumeration) {
                 // Verbose mode. Use the name exactly as-is.
                 ma_strncpy_s(hwid, sizeof(hwid), NAME, (size_t)-1);
             } else {
@@ -11784,7 +11815,7 @@ ma_result ma_context_enumerate_devices__alsa(ma_context* pContext, ma_enum_devic
             if (line2 != NULL) {
                 line2 += 1; // Skip past the new-line character.
 
-                if (pContext->config.alsa.useVerboseDeviceEnumeration) {
+                if (pContext->alsa.useVerboseDeviceEnumeration) {
                     // Verbose mode. Put the second line in brackets.
                     ma_strncpy_s(deviceInfo.name, sizeof(deviceInfo.name), DESC, lfPos);
                     ma_strcat_s (deviceInfo.name, sizeof(deviceInfo.name), " (");
@@ -12822,7 +12853,7 @@ ma_result ma_context_uninit__alsa(ma_context* pContext)
     return MA_SUCCESS;
 }
 
-ma_result ma_context_init__alsa(ma_context* pContext)
+ma_result ma_context_init__alsa(const ma_context_config* pConfig, ma_context* pContext)
 {
     ma_assert(pContext != NULL);
 
@@ -13013,6 +13044,8 @@ ma_result ma_context_init__alsa(ma_context* pContext)
     pContext->alsa.snd_pcm_info_get_name                  = (ma_proc)_snd_pcm_info_get_name;
     pContext->alsa.snd_config_update_free_global          = (ma_proc)_snd_config_update_free_global;
 #endif
+
+    pContext->alsa.useVerboseDeviceEnumeration = pConfig->alsa.useVerboseDeviceEnumeration;
 
     if (ma_mutex_init(pContext, &pContext->alsa.internalDeviceEnumLock) != MA_SUCCESS) {
         ma_context_post_error(pContext, NULL, MA_LOG_LEVEL_ERROR, "[ALSA] WARNING: Failed to initialize mutex for internal device enumeration.", MA_ERROR);
@@ -13872,13 +13905,13 @@ ma_result ma_context_enumerate_devices__pulse(ma_context* pContext, ma_enum_devi
         return MA_FAILED_TO_INIT_BACKEND;
     }
 
-    ma_pa_context* pPulseContext = ((ma_pa_context_new_proc)pContext->pulse.pa_context_new)(pAPI, pContext->config.pulse.pApplicationName);
+    ma_pa_context* pPulseContext = ((ma_pa_context_new_proc)pContext->pulse.pa_context_new)(pAPI, pContext->pulse.pApplicationName);
     if (pPulseContext == NULL) {
         ((ma_pa_mainloop_free_proc)pContext->pulse.pa_mainloop_free)(pMainLoop);
         return MA_FAILED_TO_INIT_BACKEND;
     }
 
-    int error = ((ma_pa_context_connect_proc)pContext->pulse.pa_context_connect)(pPulseContext, pContext->config.pulse.pServerName, 0, NULL);
+    int error = ((ma_pa_context_connect_proc)pContext->pulse.pa_context_connect)(pPulseContext, pContext->pulse.pServerName, 0, NULL);
     if (error != MA_PA_OK) {
         ((ma_pa_context_unref_proc)pContext->pulse.pa_context_unref)(pPulseContext);
         ((ma_pa_mainloop_free_proc)pContext->pulse.pa_mainloop_free)(pMainLoop);
@@ -14019,13 +14052,13 @@ ma_result ma_context_get_device_info__pulse(ma_context* pContext, ma_device_type
         return MA_FAILED_TO_INIT_BACKEND;
     }
 
-    ma_pa_context* pPulseContext = ((ma_pa_context_new_proc)pContext->pulse.pa_context_new)(pAPI, pContext->config.pulse.pApplicationName);
+    ma_pa_context* pPulseContext = ((ma_pa_context_new_proc)pContext->pulse.pa_context_new)(pAPI, pContext->pulse.pApplicationName);
     if (pPulseContext == NULL) {
         ((ma_pa_mainloop_free_proc)pContext->pulse.pa_mainloop_free)(pMainLoop);
         return MA_FAILED_TO_INIT_BACKEND;
     }
 
-    int error = ((ma_pa_context_connect_proc)pContext->pulse.pa_context_connect)(pPulseContext, pContext->config.pulse.pServerName, 0, NULL);
+    int error = ((ma_pa_context_connect_proc)pContext->pulse.pa_context_connect)(pPulseContext, pContext->pulse.pServerName, 0, NULL);
     if (error != MA_PA_OK) {
         ((ma_pa_context_unref_proc)pContext->pulse.pa_context_unref)(pPulseContext);
         ((ma_pa_mainloop_free_proc)pContext->pulse.pa_mainloop_free)(pMainLoop);
@@ -14232,13 +14265,13 @@ ma_result ma_device_init__pulse(ma_context* pContext, const ma_device_config* pC
         goto on_error1;
     }
 
-    pDevice->pulse.pPulseContext = ((ma_pa_context_new_proc)pContext->pulse.pa_context_new)((ma_pa_mainloop_api*)pDevice->pulse.pAPI, pContext->config.pulse.pApplicationName);
+    pDevice->pulse.pPulseContext = ((ma_pa_context_new_proc)pContext->pulse.pa_context_new)((ma_pa_mainloop_api*)pDevice->pulse.pAPI, pContext->pulse.pApplicationName);
     if (pDevice->pulse.pPulseContext == NULL) {
         result = ma_post_error(pDevice, MA_LOG_LEVEL_ERROR, "[PulseAudio] Failed to create PulseAudio context for device.", MA_FAILED_TO_INIT_BACKEND);
         goto on_error1;
     }
 
-    error = ((ma_pa_context_connect_proc)pContext->pulse.pa_context_connect)((ma_pa_context*)pDevice->pulse.pPulseContext, pContext->config.pulse.pServerName, (pContext->config.pulse.tryAutoSpawn) ? 0 : MA_PA_CONTEXT_NOAUTOSPAWN, NULL);
+    error = ((ma_pa_context_connect_proc)pContext->pulse.pa_context_connect)((ma_pa_context*)pDevice->pulse.pPulseContext, pContext->pulse.pServerName, (pContext->pulse.tryAutoSpawn) ? 0 : MA_PA_CONTEXT_NOAUTOSPAWN, NULL);
     if (error != MA_PA_OK) {
         result = ma_post_error(pDevice, MA_LOG_LEVEL_ERROR, "[PulseAudio] Failed to connect PulseAudio context.", ma_result_from_pulse(error));
         goto on_error2;
@@ -14796,6 +14829,12 @@ ma_result ma_context_uninit__pulse(ma_context* pContext)
     ma_assert(pContext != NULL);
     ma_assert(pContext->backend == ma_backend_pulseaudio);
 
+    ma_free(pContext->pulse.pServerName);
+    pContext->pulse.pServerName = NULL;
+
+    ma_free(pContext->pulse.pApplicationName);
+    pContext->pulse.pApplicationName = NULL;
+
 #ifndef MA_NO_RUNTIME_LINKING
     ma_dlclose(pContext->pulse.pulseSO);
 #endif
@@ -14803,7 +14842,7 @@ ma_result ma_context_uninit__pulse(ma_context* pContext)
     return MA_SUCCESS;
 }
 
-ma_result ma_context_init__pulse(ma_context* pContext)
+ma_result ma_context_init__pulse(const ma_context_config* pConfig, ma_context* pContext)
 {
     ma_assert(pContext != NULL);
 
@@ -14973,28 +15012,43 @@ ma_result ma_context_init__pulse(ma_context* pContext)
     pContext->onDeviceWrite    = ma_device_write__pulse;
     pContext->onDeviceRead     = ma_device_read__pulse;
 
+    if (pConfig->pulse.pApplicationName) {
+        pContext->pulse.pApplicationName = ma_copy_string(pConfig->pulse.pApplicationName);
+    }
+    if (pConfig->pulse.pServerName) {
+        pContext->pulse.pServerName = ma_copy_string(pConfig->pulse.pServerName);
+    }
+    pContext->pulse.tryAutoSpawn = pConfig->pulse.tryAutoSpawn;
     
     // Although we have found the libpulse library, it doesn't necessarily mean PulseAudio is useable. We need to initialize
     // and connect a dummy PulseAudio context to test PulseAudio's usability.
     ma_pa_mainloop* pMainLoop = ((ma_pa_mainloop_new_proc)pContext->pulse.pa_mainloop_new)();
     if (pMainLoop == NULL) {
+        ma_free(pContext->pulse.pServerName);
+        ma_free(pContext->pulse.pApplicationName);
         return MA_NO_BACKEND;
     }
 
     ma_pa_mainloop_api* pAPI = ((ma_pa_mainloop_get_api_proc)pContext->pulse.pa_mainloop_get_api)(pMainLoop);
     if (pAPI == NULL) {
+        ma_free(pContext->pulse.pServerName);
+        ma_free(pContext->pulse.pApplicationName);
         ((ma_pa_mainloop_free_proc)pContext->pulse.pa_mainloop_free)(pMainLoop);
         return MA_NO_BACKEND;
     }
 
-    ma_pa_context* pPulseContext = ((ma_pa_context_new_proc)pContext->pulse.pa_context_new)(pAPI, pContext->config.pulse.pApplicationName);
+    ma_pa_context* pPulseContext = ((ma_pa_context_new_proc)pContext->pulse.pa_context_new)(pAPI, pContext->pulse.pApplicationName);
     if (pPulseContext == NULL) {
+        ma_free(pContext->pulse.pServerName);
+        ma_free(pContext->pulse.pApplicationName);
         ((ma_pa_mainloop_free_proc)pContext->pulse.pa_mainloop_free)(pMainLoop);
         return MA_NO_BACKEND;
     }
 
-    int error = ((ma_pa_context_connect_proc)pContext->pulse.pa_context_connect)(pPulseContext, pContext->config.pulse.pServerName, 0, NULL);
+    int error = ((ma_pa_context_connect_proc)pContext->pulse.pa_context_connect)(pPulseContext, pContext->pulse.pServerName, 0, NULL);
     if (error != MA_PA_OK) {
+        ma_free(pContext->pulse.pServerName);
+        ma_free(pContext->pulse.pApplicationName);
         ((ma_pa_context_unref_proc)pContext->pulse.pa_context_unref)(pPulseContext);
         ((ma_pa_mainloop_free_proc)pContext->pulse.pa_mainloop_free)(pMainLoop);
         return MA_NO_BACKEND;
@@ -15077,10 +15131,10 @@ ma_result ma_context_open_client__jack(ma_context* pContext, ma_jack_client_t** 
     size_t maxClientNameSize = ((ma_jack_client_name_size_proc)pContext->jack.jack_client_name_size)(); // Includes null terminator.
 
     char clientName[256];
-    ma_strncpy_s(clientName, ma_min(sizeof(clientName), maxClientNameSize), (pContext->config.jack.pClientName != NULL) ? pContext->config.jack.pClientName : "miniaudio", (size_t)-1);
+    ma_strncpy_s(clientName, ma_min(sizeof(clientName), maxClientNameSize), (pContext->jack.pClientName != NULL) ? pContext->jack.pClientName : "miniaudio", (size_t)-1);
 
     ma_jack_status_t status;
-    ma_jack_client_t* pClient = ((ma_jack_client_open_proc)pContext->jack.jack_client_open)(clientName, (pContext->config.jack.tryStartServer) ? 0 : ma_JackNoStartServer, &status, NULL);
+    ma_jack_client_t* pClient = ((ma_jack_client_open_proc)pContext->jack.jack_client_open)(clientName, (pContext->jack.tryStartServer) ? 0 : ma_JackNoStartServer, &status, NULL);
     if (pClient == NULL) {
         return MA_FAILED_TO_OPEN_BACKEND_DEVICE;
     }
@@ -15519,6 +15573,9 @@ ma_result ma_context_uninit__jack(ma_context* pContext)
     ma_assert(pContext != NULL);
     ma_assert(pContext->backend == ma_backend_jack);
 
+    ma_free(pContext->jack.pClientName);
+    pContext->jack.pClientName = NULL;
+
 #ifndef MA_NO_RUNTIME_LINKING
     ma_dlclose(pContext->jack.jackSO);
 #endif
@@ -15526,7 +15583,7 @@ ma_result ma_context_uninit__jack(ma_context* pContext)
     return MA_SUCCESS;
 }
 
-ma_result ma_context_init__jack(ma_context* pContext)
+ma_result ma_context_init__jack(const ma_context_config* pConfig, ma_context* pContext)
 {
     ma_assert(pContext != NULL);
 
@@ -15617,12 +15674,17 @@ ma_result ma_context_init__jack(ma_context* pContext)
     pContext->onDeviceStart   = ma_device_start__jack;
     pContext->onDeviceStop    = ma_device_stop__jack;
 
+    if (pConfig->jack.pClientName != NULL) {
+        pContext->jack.pClientName = ma_copy_string(pConfig->jack.pClientName);
+    }
+    pContext->jack.tryStartServer = pConfig->jack.tryStartServer;
 
     // Getting here means the JACK library is installed, but it doesn't necessarily mean it's usable. We need to quickly test this by connecting
     // a temporary client.
     ma_jack_client_t* pDummyClient;
     ma_result result = ma_context_open_client__jack(pContext, &pDummyClient);
     if (result != MA_SUCCESS) {
+        ma_free(pContext->jack.pClientName);
         return MA_NO_BACKEND;
     }
 
@@ -17905,9 +17967,11 @@ ma_result ma_context_uninit__coreaudio(ma_context* pContext)
     return MA_SUCCESS;
 }
 
-ma_result ma_context_init__coreaudio(ma_context* pContext)
+ma_result ma_context_init__coreaudio(const ma_context_config* pConfig, ma_context* pContext)
 {
     ma_assert(pContext != NULL);
+
+    (void)pConfig;
 
 #if defined(MA_APPLE_MOBILE)
     @autoreleasepool {
@@ -18764,10 +18828,12 @@ ma_result ma_context_uninit__sndio(ma_context* pContext)
     return MA_SUCCESS;
 }
 
-ma_result ma_context_init__sndio(ma_context* pContext)
+ma_result ma_context_init__sndio(const ma_context_config* pConfig, ma_context* pContext)
 {
     ma_assert(pContext != NULL);
     
+    (void)pConfig;
+
 #ifndef MA_NO_RUNTIME_LINKING
     // libpulse.so
     const char* libsndioNames[] = {
@@ -19515,9 +19581,11 @@ ma_result ma_context_uninit__audio4(ma_context* pContext)
     return MA_SUCCESS;
 }
 
-ma_result ma_context_init__audio4(ma_context* pContext)
+ma_result ma_context_init__audio4(const ma_context_config* pConfig, ma_context* pContext)
 {
     ma_assert(pContext != NULL);
+
+    (void)pConfig;
 
     pContext->onUninit              = ma_context_uninit__audio4;
     pContext->onDeviceIDEqual       = ma_context_is_device_id_equal__audio4;
@@ -20027,9 +20095,11 @@ ma_result ma_context_uninit__oss(ma_context* pContext)
     return MA_SUCCESS;
 }
 
-ma_result ma_context_init__oss(ma_context* pContext)
+ma_result ma_context_init__oss(const ma_context_config* pConfig, ma_context* pContext)
 {
     ma_assert(pContext != NULL);
+
+    (void)pConfig;
 
     /* Try opening a temporary device first so we can get version information. This is closed at the end. */
     int fd = ma_open_temp_device__oss();
@@ -20610,10 +20680,11 @@ ma_result ma_context_uninit__aaudio(ma_context* pContext)
     return MA_SUCCESS;
 }
 
-ma_result ma_context_init__aaudio(ma_context* pContext)
+ma_result ma_context_init__aaudio(const ma_context_config* pConfig, ma_context* pContext)
 {
     ma_assert(pContext != NULL);
-    (void)pContext;
+
+    (void)pConfig;
 
     const char* libNames[] = {
         "libaaudio.so"
@@ -21561,10 +21632,11 @@ ma_result ma_context_uninit__opensl(ma_context* pContext)
     return MA_SUCCESS;
 }
 
-ma_result ma_context_init__opensl(ma_context* pContext)
+ma_result ma_context_init__opensl(const ma_context_config* pConfig, ma_context* pContext)
 {
     ma_assert(pContext != NULL);
-    (void)pContext;
+
+    (void)pConfig;
 
     /* Initialize global data first if applicable. */
     if (ma_atomic_increment_32(&g_maOpenSLInitCounter) == 1) {
@@ -22100,9 +22172,11 @@ ma_result ma_context_uninit__webaudio(ma_context* pContext)
     return MA_SUCCESS;
 }
 
-ma_result ma_context_init__webaudio(ma_context* pContext)
+ma_result ma_context_init__webaudio(const ma_context_config* pConfig, ma_context* pContext)
 {
     ma_assert(pContext != NULL);
+    
+    (void)pConfig;
 
     /* Here is where our global JavaScript object is initialized. */
     int resultFromJS = EM_ASM_INT({
@@ -22680,11 +22754,16 @@ ma_result ma_context_init(const ma_backend backends[], ma_uint32 backendCount, c
     ma_zero_object(pContext);
 
     // Always make sure the config is set first to ensure properties are available as soon as possible.
+    ma_context_config config;
     if (pConfig != NULL) {
-        pContext->config = *pConfig;
+        config = *pConfig;
     } else {
-        pContext->config = ma_context_config_init();
+        config = ma_context_config_init();
     }
+
+    pContext->logCallback = config.logCallback;
+    pContext->threadPriority = config.threadPriority;
+    pContext->pUserData = config.pUserData;
 
     // Backend APIs need to be initialized first. This is where external libraries will be loaded and linked.
     ma_result result = ma_context_init_backend_apis(pContext);
@@ -22714,85 +22793,85 @@ ma_result ma_context_init(const ma_backend backends[], ma_uint32 backendCount, c
         #ifdef MA_HAS_WASAPI
             case ma_backend_wasapi:
             {
-                result = ma_context_init__wasapi(pContext);
+                result = ma_context_init__wasapi(&config, pContext);
             } break;
         #endif
         #ifdef MA_HAS_DSOUND
             case ma_backend_dsound:
             {
-                result = ma_context_init__dsound(pContext);
+                result = ma_context_init__dsound(&config, pContext);
             } break;
         #endif
         #ifdef MA_HAS_WINMM
             case ma_backend_winmm:
             {
-                result = ma_context_init__winmm(pContext);
+                result = ma_context_init__winmm(&config, pContext);
             } break;
         #endif
         #ifdef MA_HAS_ALSA
             case ma_backend_alsa:
             {
-                result = ma_context_init__alsa(pContext);
+                result = ma_context_init__alsa(&config, pContext);
             } break;
         #endif
         #ifdef MA_HAS_PULSEAUDIO
             case ma_backend_pulseaudio:
             {
-                result = ma_context_init__pulse(pContext);
+                result = ma_context_init__pulse(&config, pContext);
             } break;
         #endif
         #ifdef MA_HAS_JACK
             case ma_backend_jack:
             {
-                result = ma_context_init__jack(pContext);
+                result = ma_context_init__jack(&config, pContext);
             } break;
         #endif
         #ifdef MA_HAS_COREAUDIO
             case ma_backend_coreaudio:
             {
-                result = ma_context_init__coreaudio(pContext);
+                result = ma_context_init__coreaudio(&config, pContext);
             } break;
         #endif
         #ifdef MA_HAS_SNDIO
             case ma_backend_sndio:
             {
-                result = ma_context_init__sndio(pContext);
+                result = ma_context_init__sndio(&config, pContext);
             } break;
         #endif
         #ifdef MA_HAS_AUDIO4
             case ma_backend_audio4:
             {
-                result = ma_context_init__audio4(pContext);
+                result = ma_context_init__audio4(&config, pContext);
             } break;
         #endif
         #ifdef MA_HAS_OSS
             case ma_backend_oss:
             {
-                result = ma_context_init__oss(pContext);
+                result = ma_context_init__oss(&config, pContext);
             } break;
         #endif
         #ifdef MA_HAS_AAUDIO
             case ma_backend_aaudio:
             {
-                result = ma_context_init__aaudio(pContext);
+                result = ma_context_init__aaudio(&config, pContext);
             } break;
         #endif
         #ifdef MA_HAS_OPENSL
             case ma_backend_opensl:
             {
-                result = ma_context_init__opensl(pContext);
+                result = ma_context_init__opensl(&config, pContext);
             } break;
         #endif
         #ifdef MA_HAS_WEBAUDIO
             case ma_backend_webaudio:
             {
-                result = ma_context_init__webaudio(pContext);
+                result = ma_context_init__webaudio(&config, pContext);
             } break;
         #endif
         #ifdef MA_HAS_NULL
             case ma_backend_null:
             {
-                result = ma_context_init__null(pContext);
+                result = ma_context_init__null(&config, pContext);
             } break;
         #endif
 
@@ -23038,8 +23117,8 @@ ma_result ma_device_init(ma_context* pContext, const ma_device_config* pConfig, 
     pDevice->onStop = config.stopCallback;
 
     if (((ma_uintptr)pDevice % sizeof(pDevice)) != 0) {
-        if (pContext->config.logCallback) {
-            pContext->config.logCallback(pContext, pDevice, MA_LOG_LEVEL_WARNING, "WARNING: ma_device_init() called for a device that is not properly aligned. Thread safety is not supported.");
+        if (pContext->logCallback) {
+            pContext->logCallback(pContext, pDevice, MA_LOG_LEVEL_WARNING, "WARNING: ma_device_init() called for a device that is not properly aligned. Thread safety is not supported.");
         }
     }
 
@@ -31389,6 +31468,10 @@ Device
 /*
 REVISION HISTORY
 ================
+
+v0.9.2-dev - 2019-xx-xx
+  - Add support for per-context user data.
+  - Fix a potential bug with context configs.
 
 v0.9.1 - 2019-03-17
   - Fix a bug where the output buffer is not getting zeroed out before calling the data callback. This happens when
