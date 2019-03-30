@@ -1898,7 +1898,7 @@ struct ma_context
     ma_result (* onEnumDevices   )(ma_context* pContext, ma_enum_devices_callback_proc callback, void* pUserData);    // Return false from the callback to stop enumeration.
     ma_result (* onGetDeviceInfo )(ma_context* pContext, ma_device_type deviceType, const ma_device_id* pDeviceID, ma_share_mode shareMode, ma_device_info* pDeviceInfo);
     ma_result (* onDeviceInit    )(ma_context* pContext, const ma_device_config* pConfig, ma_device* pDevice);
-    void       (* onDeviceUninit  )(ma_device* pDevice);
+    void      (* onDeviceUninit  )(ma_device* pDevice);
     ma_result (* onDeviceStart   )(ma_device* pDevice);
     ma_result (* onDeviceStop    )(ma_device* pDevice);
     ma_result (* onDeviceWrite   )(ma_device* pDevice, const void* pPCMFrames, ma_uint32 frameCount);    /* Data is in internal device format. */
