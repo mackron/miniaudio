@@ -1858,19 +1858,18 @@ typedef struct
 {
     ma_log_proc logCallback;
     ma_thread_priority threadPriority;
+    void* pUserData;
 
     struct
     {
         ma_bool32 useVerboseDeviceEnumeration;
     } alsa;
-
     struct
     {
         const char* pApplicationName;
         const char* pServerName;
         ma_bool32 tryAutoSpawn; // Enables autospawning of the PulseAudio daemon if necessary.
     } pulse;
-
     struct
     {
         const char* pClientName;
