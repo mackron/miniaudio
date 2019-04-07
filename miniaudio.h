@@ -14721,7 +14721,7 @@ ma_result ma_device_write__pulse(ma_device* pDevice, const void* pPCMFrames, ma_
 
             size_t writableSizeInBytes = ((ma_pa_stream_writable_size_proc)pDevice->pContext->pulse.pa_stream_writable_size)((ma_pa_stream*)pDevice->pulse.pStreamPlayback);
             if (writableSizeInBytes != (size_t)-1) {
-                size_t periodSizeInBytes = (pDevice->playback.internalBufferSizeInFrames / pDevice->playback.internalPeriods) * ma_get_bytes_per_frame(pDevice->playback.internalFormat, pDevice->playback.internalChannels);
+                //size_t periodSizeInBytes = (pDevice->playback.internalBufferSizeInFrames / pDevice->playback.internalPeriods) * ma_get_bytes_per_frame(pDevice->playback.internalFormat, pDevice->playback.internalChannels);
                 if (writableSizeInBytes > 0) {
                 #if defined(MA_DEBUG_OUTPUT)
                     //printf("TRACE: Data available: %ld\n", writableSizeInBytes);
@@ -14832,7 +14832,7 @@ ma_result ma_device_read__pulse(ma_device* pDevice, void* pPCMFrames, ma_uint32 
 
             size_t readableSizeInBytes = ((ma_pa_stream_readable_size_proc)pDevice->pContext->pulse.pa_stream_readable_size)((ma_pa_stream*)pDevice->pulse.pStreamCapture);
             if (readableSizeInBytes != (size_t)-1) {
-                size_t periodSizeInBytes = (pDevice->capture.internalBufferSizeInFrames / pDevice->capture.internalPeriods) * ma_get_bytes_per_frame(pDevice->capture.internalFormat, pDevice->capture.internalChannels);
+                //size_t periodSizeInBytes = (pDevice->capture.internalBufferSizeInFrames / pDevice->capture.internalPeriods) * ma_get_bytes_per_frame(pDevice->capture.internalFormat, pDevice->capture.internalChannels);
                 if (readableSizeInBytes > 0) {
                     /* Data is avaialable. */
                     size_t bytesMapped = (size_t)-1;
@@ -14841,7 +14841,9 @@ ma_result ma_device_read__pulse(ma_device* pDevice, void* pPCMFrames, ma_uint32 
                         return ma_post_error(pDevice, MA_LOG_LEVEL_ERROR, "[PulseAudio] Failed to peek capture buffer.", ma_result_from_pulse(error));
                     }
 
-                    //printf("TRACE: Data available: bytesMapped=%d, readableSizeInBytes=%d, periodSizeInBytes=%d.\n", bytesMapped, readableSizeInBytes, periodSizeInBytes);
+                #if defined(MA_DEBUG_OUTPUT)
+                    printf("TRACE: Data available: bytesMapped=%ld, readableSizeInBytes=%ld.\n", bytesMapped, readableSizeInBytes);
+                #endif
 
                     if (pDevice->pulse.pMappedBufferCapture == NULL && bytesMapped == 0) {
                         /* Nothing available. This shouldn't happen because we checked earlier with pa_stream_readable_size(). I'm going to throw an error in this case. */
@@ -14854,7 +14856,9 @@ ma_result ma_device_read__pulse(ma_device* pDevice, void* pPCMFrames, ma_uint32 
                     break;
                 } else {
                     /* No data available. Need to wait for more. */
-                    //printf("TRACE: Capture: pa_mainloop_iterate(). readableSizeInBytes=%d, periodSizeInBytes=%d\n", readableSizeInBytes, periodSizeInBytes);
+                #if defined(MA_DEBUG_OUTPUT)
+                    printf("TRACE: Capture: pa_mainloop_iterate(). readableSizeInBytes=%ld\n", readableSizeInBytes);
+                #endif
 
                     int error = ((ma_pa_mainloop_iterate_proc)pDevice->pContext->pulse.pa_mainloop_iterate)((ma_pa_mainloop*)pDevice->pulse.pMainLoop, 1, NULL);
                     if (error < 0) {
