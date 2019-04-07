@@ -14833,7 +14833,7 @@ ma_result ma_device_read__pulse(ma_device* pDevice, void* pPCMFrames, ma_uint32 
             size_t readableSizeInBytes = ((ma_pa_stream_readable_size_proc)pDevice->pContext->pulse.pa_stream_readable_size)((ma_pa_stream*)pDevice->pulse.pStreamCapture);
             if (readableSizeInBytes != (size_t)-1) {
                 size_t periodSizeInBytes = (pDevice->capture.internalBufferSizeInFrames / pDevice->capture.internalPeriods) * ma_get_bytes_per_frame(pDevice->capture.internalFormat, pDevice->capture.internalChannels);
-                if (readableSizeInBytes >= periodSizeInBytes) {
+                if (readableSizeInBytes > 0) {
                     /* Data is avaialable. */
                     size_t bytesMapped = (size_t)-1;
                     int error = ((ma_pa_stream_peek_proc)pDevice->pContext->pulse.pa_stream_peek)((ma_pa_stream*)pDevice->pulse.pStreamCapture, &pDevice->pulse.pMappedBufferCapture, &bytesMapped);
