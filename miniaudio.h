@@ -14090,11 +14090,28 @@ ma_result ma_context_get_device_info__pulse(ma_context* pContext, ma_device_type
         return ma_result_from_pulse(error);
     }
 
-    while (((ma_pa_context_get_state_proc)pContext->pulse.pa_context_get_state)(pPulseContext) != MA_PA_CONTEXT_READY) {
-        error = ((ma_pa_mainloop_iterate_proc)pContext->pulse.pa_mainloop_iterate)(pMainLoop, 1, NULL);
-        if (error < 0) {
-            result = ma_result_from_pulse(error);
-            goto done;
+    for (;;) {
+        ma_pa_context_state_t state = ((ma_pa_context_get_state_proc)pContext->pulse.pa_context_get_state)(pPulseContext);
+        if (state == MA_PA_CONTEXT_READY) {
+            break;  /* Success. */
+        }
+        if (state == MA_PA_CONTEXT_CONNECTING || state == MA_PA_CONTEXT_AUTHORIZING || state == MA_PA_CONTEXT_SETTING_NAME) {
+            error = ((ma_pa_mainloop_iterate_proc)pContext->pulse.pa_mainloop_iterate)(pMainLoop, 1, NULL);
+            if (error < 0) {
+                result = ma_result_from_pulse(error);
+                goto done;
+            }
+
+#ifdef MA_DEBUG_OUTPUT
+            printf("[PulseAudio] pa_context_get_state() returned %d. Waiting.\n", state);
+#endif
+            continue;   /* Keep trying. */
+        }
+        if (state == MA_PA_CONTEXT_UNCONNECTED || state == MA_PA_CONTEXT_FAILED || state == MA_PA_CONTEXT_TERMINATED) {
+#ifdef MA_DEBUG_OUTPUT
+            printf("[PulseAudio] pa_context_get_state() returned %d. Failed.\n", state);
+#endif
+            goto done;  /* Failed. */
         }
     }
 
