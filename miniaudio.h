@@ -13915,18 +13915,35 @@ ma_result ma_context_enumerate_devices__pulse(ma_context* pContext, ma_enum_devi
         return MA_FAILED_TO_INIT_BACKEND;
     }
 
-    int error = ((ma_pa_context_connect_proc)pContext->pulse.pa_context_connect)(pPulseContext, pContext->pulse.pServerName, 0, NULL);
+    int error = ((ma_pa_context_connect_proc)pContext->pulse.pa_context_connect)(pPulseContext, pContext->pulse.pServerName, (pContext->pulse.tryAutoSpawn) ? 0 : MA_PA_CONTEXT_NOAUTOSPAWN, NULL);
     if (error != MA_PA_OK) {
         ((ma_pa_context_unref_proc)pContext->pulse.pa_context_unref)(pPulseContext);
         ((ma_pa_mainloop_free_proc)pContext->pulse.pa_mainloop_free)(pMainLoop);
         return ma_result_from_pulse(error);
     }
 
-    while (((ma_pa_context_get_state_proc)pContext->pulse.pa_context_get_state)(pPulseContext) != MA_PA_CONTEXT_READY) {
-        error = ((ma_pa_mainloop_iterate_proc)pContext->pulse.pa_mainloop_iterate)(pMainLoop, 1, NULL);
-        if (error < 0) {
-            result = ma_result_from_pulse(error);
-            goto done;
+    for (;;) {
+        ma_pa_context_state_t state = ((ma_pa_context_get_state_proc)pContext->pulse.pa_context_get_state)(pPulseContext);
+        if (state == MA_PA_CONTEXT_READY) {
+            break;  /* Success. */
+        }
+        if (state == MA_PA_CONTEXT_CONNECTING || state == MA_PA_CONTEXT_AUTHORIZING || state == MA_PA_CONTEXT_SETTING_NAME) {
+            error = ((ma_pa_mainloop_iterate_proc)pContext->pulse.pa_mainloop_iterate)(pMainLoop, 1, NULL);
+            if (error < 0) {
+                result = ma_result_from_pulse(error);
+                goto done;
+            }
+
+#ifdef MA_DEBUG_OUTPUT
+            printf("[PulseAudio] pa_context_get_state() returned %d. Waiting.\n", state);
+#endif
+            continue;   /* Keep trying. */
+        }
+        if (state == MA_PA_CONTEXT_UNCONNECTED || state == MA_PA_CONTEXT_FAILED || state == MA_PA_CONTEXT_TERMINATED) {
+#ifdef MA_DEBUG_OUTPUT
+            printf("[PulseAudio] pa_context_get_state() returned %d. Failed.\n", state);
+#endif
+            goto done;  /* Failed. */
         }
     }
 
@@ -14301,16 +14318,9 @@ ma_result ma_device_init__pulse(ma_context* pContext, const ma_device_config* pC
     for (;;) {
         if (pDevice->pulse.pulseContextState == MA_PA_CONTEXT_READY) {
             break;
-        } else {
-            error = ((ma_pa_mainloop_iterate_proc)pContext->pulse.pa_mainloop_iterate)((ma_pa_mainloop*)pDevice->pulse.pMainLoop, 1, NULL);    // 1 = block.
-            if (error < 0) {
-                result = ma_post_error(pDevice, MA_LOG_LEVEL_ERROR, "[PulseAudio] The PulseAudio main loop returned an error while connecting the PulseAudio context.", ma_result_from_pulse(error));
-                goto on_error3;
-            }
-            continue;
         }
 
-        // An error may have occurred.
+        /* An error may have occurred. */
         if (pDevice->pulse.pulseContextState == MA_PA_CONTEXT_FAILED || pDevice->pulse.pulseContextState == MA_PA_CONTEXT_TERMINATED) {
             result = ma_post_error(pDevice, MA_LOG_LEVEL_ERROR, "[PulseAudio] An error occurred while connecting the PulseAudio context.", MA_ERROR);
             goto on_error3;
@@ -14695,11 +14705,13 @@ ma_result ma_device_write__pulse(ma_device* pDevice, const void* pPCMFrames, ma_
             size_t writableSizeInBytes = ((ma_pa_stream_writable_size_proc)pDevice->pContext->pulse.pa_stream_writable_size)((ma_pa_stream*)pDevice->pulse.pStreamPlayback);
             if (writableSizeInBytes != (size_t)-1) {
                 size_t periodSizeInBytes = (pDevice->playback.internalBufferSizeInFrames / pDevice->playback.internalPeriods) * ma_get_bytes_per_frame(pDevice->playback.internalFormat, pDevice->playback.internalChannels);
-                if (writableSizeInBytes >= periodSizeInBytes) {
-                    //printf("TRACE: Data available.\n");
+                if (writableSizeInBytes > 0) {
+                #if defined(MA_DEBUG_OUTPUT)
+                    printf("TRACE: Data available: %ld\n", writableSizeInBytes);
+                #endif
 
                     /* Data is avaialable. */
-                    size_t bytesToMap = periodSizeInBytes;
+                    size_t bytesToMap = writableSizeInBytes;
                     int error = ((ma_pa_stream_begin_write_proc)pDevice->pContext->pulse.pa_stream_begin_write)((ma_pa_stream*)pDevice->pulse.pStreamPlayback, &pDevice->pulse.pMappedBufferPlayback, &bytesToMap);
                     if (error < 0) {
                         return ma_post_error(pDevice, MA_LOG_LEVEL_ERROR, "[PulseAudio] Failed to map write buffer.", ma_result_from_pulse(error));
@@ -14711,7 +14723,9 @@ ma_result ma_device_write__pulse(ma_device* pDevice, const void* pPCMFrames, ma_
                     break;
                 } else {
                     /* No data available. Need to wait for more. */
-                    //printf("TRACE: Playback: pa_mainloop_iterate(). writableSizeInBytes=%d, periodSizeInBytes=%d\n", writableSizeInBytes, periodSizeInBytes);
+                #if defined(MA_DEBUG_OUTPUT)
+                    printf("TRACE: Playback: pa_mainloop_iterate(). writableSizeInBytes=%ld, periodSizeInBytes=%ld\n", writableSizeInBytes, periodSizeInBytes);
+                #endif
 
                     int error = ((ma_pa_mainloop_iterate_proc)pDevice->pContext->pulse.pa_mainloop_iterate)((ma_pa_mainloop*)pDevice->pulse.pMainLoop, 1, NULL);
                     if (error < 0) {
