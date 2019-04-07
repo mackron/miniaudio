@@ -14724,7 +14724,7 @@ ma_result ma_device_write__pulse(ma_device* pDevice, const void* pPCMFrames, ma_
                 size_t periodSizeInBytes = (pDevice->playback.internalBufferSizeInFrames / pDevice->playback.internalPeriods) * ma_get_bytes_per_frame(pDevice->playback.internalFormat, pDevice->playback.internalChannels);
                 if (writableSizeInBytes > 0) {
                 #if defined(MA_DEBUG_OUTPUT)
-                    printf("TRACE: Data available: %ld\n", writableSizeInBytes);
+                    //printf("TRACE: Data available: %ld\n", writableSizeInBytes);
                 #endif
 
                     /* Data is avaialable. */
@@ -14741,7 +14741,7 @@ ma_result ma_device_write__pulse(ma_device* pDevice, const void* pPCMFrames, ma_
                 } else {
                     /* No data available. Need to wait for more. */
                 #if defined(MA_DEBUG_OUTPUT)
-                    printf("TRACE: Playback: pa_mainloop_iterate(). writableSizeInBytes=%ld, periodSizeInBytes=%ld\n", writableSizeInBytes, periodSizeInBytes);
+                    //printf("TRACE: Playback: pa_mainloop_iterate(). writableSizeInBytes=%ld, periodSizeInBytes=%ld\n", writableSizeInBytes, periodSizeInBytes);
                 #endif
 
                     int error = ((ma_pa_mainloop_iterate_proc)pDevice->pContext->pulse.pa_mainloop_iterate)((ma_pa_mainloop*)pDevice->pulse.pMainLoop, 1, NULL);
