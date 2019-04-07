@@ -14776,6 +14776,10 @@ ma_result ma_device_read__pulse(ma_device* pDevice, void* pPCMFrames, ma_uint32 
 
     ma_uint32 totalFramesRead = 0;
     while (totalFramesRead < frameCount) {
+        if (ma_device__get_state(pDevice) != MA_STATE_STARTED) {
+            break;
+        }
+
         /* If a buffer is mapped we need to write to that first. Once it's consumed we reset the event and unmap it. */
         if (pDevice->pulse.pMappedBufferCapture != NULL && pDevice->pulse.mappedBufferFramesRemainingCapture > 0) {
             ma_uint32 bpf = ma_get_bytes_per_frame(pDevice->capture.internalFormat, pDevice->capture.internalChannels);
@@ -14825,6 +14829,10 @@ ma_result ma_device_read__pulse(ma_device* pDevice, void* pPCMFrames, ma_uint32 
         for (;;) {
             //printf("TRACE: Inner loop.\n");
 
+            if (ma_device__get_state(pDevice) != MA_STATE_STARTED) {
+                break;
+            }
+
             /* If the device has been corked, don't try to continue. */
             if (((ma_pa_stream_is_corked_proc)pDevice->pContext->pulse.pa_stream_is_corked)((ma_pa_stream*)pDevice->pulse.pStreamCapture)) {
                 break;
@@ -14860,9 +14868,19 @@ ma_result ma_device_read__pulse(ma_device* pDevice, void* pPCMFrames, ma_uint32 
                     printf("TRACE: Capture: pa_mainloop_iterate(). readableSizeInBytes=%ld\n", readableSizeInBytes);
                 #endif
 
-                    int error = ((ma_pa_mainloop_iterate_proc)pDevice->pContext->pulse.pa_mainloop_iterate)((ma_pa_mainloop*)pDevice->pulse.pMainLoop, 1, NULL);
+                    /*
+                    I have had reports of a deadlock in this part of the code. I have reproduced this when using the "Built-in Audio Analogue Stereo" device without
+                    an actual microphone connected. I'm experimenting here by not blocking in pa_mainloop_iterate() and instead sleep for a bit when there are not
+                    dispatches.
+                    */
+                    int error = ((ma_pa_mainloop_iterate_proc)pDevice->pContext->pulse.pa_mainloop_iterate)((ma_pa_mainloop*)pDevice->pulse.pMainLoop, 0, NULL);
                     if (error < 0) {
                         return ma_result_from_pulse(error);
+                    }
+
+                    /* Sleep for a bit if nothing was dispatched. */
+                    if (error == 0) {
+                        ma_sleep(1);
                     }
 
                     continue;
