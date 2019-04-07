@@ -13792,6 +13792,8 @@ typedef struct
 
 void ma_context_enumerate_devices_sink_callback__pulse(ma_pa_context* pPulseContext, const ma_pa_sink_info* pSinkInfo, int endOfList, void* pUserData)
 {
+    (void)pPulseContext;
+
     ma_context_enumerate_devices_callback_data__pulse* pData = (ma_context_enumerate_devices_callback_data__pulse*)pUserData;
     ma_assert(pData != NULL);
 
@@ -13817,6 +13819,8 @@ void ma_context_enumerate_devices_sink_callback__pulse(ma_pa_context* pPulseCont
 
 void ma_context_enumerate_devices_source_callback__pulse(ma_pa_context* pPulseContext, const ma_pa_source_info* pSinkInfo, int endOfList, void* pUserData)
 {
+    (void)pPulseContext;
+
     ma_context_enumerate_devices_callback_data__pulse* pData = (ma_context_enumerate_devices_callback_data__pulse*)pUserData;
     ma_assert(pData != NULL);
 
@@ -13935,6 +13939,8 @@ typedef struct
 
 void ma_context_get_device_info_sink_callback__pulse(ma_pa_context* pPulseContext, const ma_pa_sink_info* pInfo, int endOfList, void* pUserData)
 {
+    (void)pPulseContext;
+
     if (endOfList > 0) {
         return;
     }
@@ -13961,6 +13967,8 @@ void ma_context_get_device_info_sink_callback__pulse(ma_pa_context* pPulseContex
 
 void ma_context_get_device_info_source_callback__pulse(ma_pa_context* pPulseContext, const ma_pa_source_info* pInfo, int endOfList, void* pUserData)
 {
+    (void)pPulseContext;
+
     if (endOfList > 0) {
         return;
     }
@@ -14075,6 +14083,8 @@ void ma_pulse_device_state_callback(ma_pa_context* pPulseContext, void* pUserDat
 
 void ma_device_sink_info_callback(ma_pa_context* pPulseContext, const ma_pa_sink_info* pInfo, int endOfList, void* pUserData)
 {
+    (void)pPulseContext;
+
     if (endOfList > 0) {
         return;
     }
@@ -14087,6 +14097,8 @@ void ma_device_sink_info_callback(ma_pa_context* pPulseContext, const ma_pa_sink
 
 void ma_device_source_info_callback(ma_pa_context* pPulseContext, const ma_pa_source_info* pInfo, int endOfList, void* pUserData)
 {
+    (void)pPulseContext;
+
     if (endOfList > 0) {
         return;
     }
@@ -14099,6 +14111,8 @@ void ma_device_source_info_callback(ma_pa_context* pPulseContext, const ma_pa_so
 
 void ma_device_sink_name_callback(ma_pa_context* pPulseContext, const ma_pa_sink_info* pInfo, int endOfList, void* pUserData)
 {
+    (void)pPulseContext;
+
     if (endOfList > 0) {
         return;
     }
@@ -14111,6 +14125,8 @@ void ma_device_sink_name_callback(ma_pa_context* pPulseContext, const ma_pa_sink
 
 void ma_device_source_name_callback(ma_pa_context* pPulseContext, const ma_pa_source_info* pInfo, int endOfList, void* pUserData)
 {
+    (void)pPulseContext;
+
     if (endOfList > 0) {
         return;
     }
@@ -14493,6 +14509,8 @@ on_error0:
 
 void ma_pulse_operation_complete_callback(ma_pa_stream* pStream, int success, void* pUserData)
 {
+    (void)pStream;
+
     ma_bool32* pIsSuccessful = (ma_bool32*)pUserData;
     ma_assert(pIsSuccessful != NULL);
 
