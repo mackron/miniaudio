@@ -1,5 +1,5 @@
 // FLAC audio decoder. Public domain. See "unlicense" statement at the end of this file.
-// dr_flac - v0.11.0 - 2018-12-16
+// dr_flac - v0.11.3 - 2018-04-07
 //
 // David Reid - mackron@gmail.com
 
@@ -778,6 +778,15 @@ DRFLAC_DEPRECATED float* drflac_open_and_decode_memory_f32(const void* data, siz
 //
 ///////////////////////////////////////////////////////////////////////////////
 #ifdef DR_FLAC_IMPLEMENTATION
+
+/* Disable some annoying warnings. */
+#if defined(__GNUC__)
+    #pragma GCC diagnostic push
+    #if __GNUC__ >= 7
+    #pragma GCC diagnostic ignored "-Wimplicit-fallthrough"
+    #endif
+#endif
+
 #ifdef __linux__
     #ifndef _BSD_SOURCE
         #define _BSD_SOURCE
@@ -1298,10 +1307,10 @@ static DRFLAC_INLINE drflac_uint8 drflac_crc8(drflac_uint8 crc, drflac_uint32 da
     drflac_uint64 leftoverDataMask = leftoverDataMaskTable[leftoverBits];
 
     switch (wholeBytes) {
-        case 4: crc = drflac_crc8_byte(crc, (drflac_uint8)((data & (0xFF000000UL << leftoverBits)) >> (24 + leftoverBits))); // fall through
-        case 3: crc = drflac_crc8_byte(crc, (drflac_uint8)((data & (0x00FF0000UL << leftoverBits)) >> (16 + leftoverBits))); // fall through
-        case 2: crc = drflac_crc8_byte(crc, (drflac_uint8)((data & (0x0000FF00UL << leftoverBits)) >> ( 8 + leftoverBits))); // fall through
-        case 1: crc = drflac_crc8_byte(crc, (drflac_uint8)((data & (0x000000FFUL << leftoverBits)) >> ( 0 + leftoverBits))); // fall through
+        case 4: crc = drflac_crc8_byte(crc, (drflac_uint8)((data & (0xFF000000UL << leftoverBits)) >> (24 + leftoverBits)));
+        case 3: crc = drflac_crc8_byte(crc, (drflac_uint8)((data & (0x00FF0000UL << leftoverBits)) >> (16 + leftoverBits)));
+        case 2: crc = drflac_crc8_byte(crc, (drflac_uint8)((data & (0x0000FF00UL << leftoverBits)) >> ( 8 + leftoverBits)));
+        case 1: crc = drflac_crc8_byte(crc, (drflac_uint8)((data & (0x000000FFUL << leftoverBits)) >> ( 0 + leftoverBits)));
         case 0: if (leftoverBits > 0) crc = (crc << leftoverBits) ^ drflac__crc8_table[(crc >> (8 - leftoverBits)) ^ (data & leftoverDataMask)];
     }
     return crc;
@@ -1319,15 +1328,14 @@ static DRFLAC_INLINE drflac_uint16 drflac_crc16_bytes(drflac_uint16 crc, drflac_
     switch (byteCount)
     {
 #ifdef DRFLAC_64BIT
-    case 8: crc = drflac_crc16_byte(crc, (drflac_uint8)((data >> 56) & 0xFF)); // fall through
-    case 7: crc = drflac_crc16_byte(crc, (drflac_uint8)((data >> 48) & 0xFF)); // fall through
-    case 6: crc = drflac_crc16_byte(crc, (drflac_uint8)((data >> 40) & 0xFF)); // fall through
+    case 8: crc = drflac_crc16_byte(crc, (drflac_uint8)((data >> 56) & 0xFF));
+    case 7: crc = drflac_crc16_byte(crc, (drflac_uint8)((data >> 48) & 0xFF));
+    case 6: crc = drflac_crc16_byte(crc, (drflac_uint8)((data >> 40) & 0xFF));
     case 5: crc = drflac_crc16_byte(crc, (drflac_uint8)((data >> 32) & 0xFF));
 #endif
-        // fall through
-    case 4: crc = drflac_crc16_byte(crc, (drflac_uint8)((data >> 24) & 0xFF)); // fall through
-    case 3: crc = drflac_crc16_byte(crc, (drflac_uint8)((data >> 16) & 0xFF)); // fall through
-    case 2: crc = drflac_crc16_byte(crc, (drflac_uint8)((data >>  8) & 0xFF)); // fall through
+    case 4: crc = drflac_crc16_byte(crc, (drflac_uint8)((data >> 24) & 0xFF));
+    case 3: crc = drflac_crc16_byte(crc, (drflac_uint8)((data >> 16) & 0xFF));
+    case 2: crc = drflac_crc16_byte(crc, (drflac_uint8)((data >>  8) & 0xFF));
     case 1: crc = drflac_crc16_byte(crc, (drflac_uint8)((data >>  0) & 0xFF));
     }
 
@@ -2115,37 +2123,37 @@ static DRFLAC_INLINE drflac_int32 drflac__calculate_prediction_32(drflac_uint32 
 
     switch (order)
     {
-    case 32: prediction += coefficients[31] * pDecodedSamples[-32]; // fall through
-    case 31: prediction += coefficients[30] * pDecodedSamples[-31]; // fall through
-    case 30: prediction += coefficients[29] * pDecodedSamples[-30]; // fall through
-    case 29: prediction += coefficients[28] * pDecodedSamples[-29]; // fall through
-    case 28: prediction += coefficients[27] * pDecodedSamples[-28]; // fall through
-    case 27: prediction += coefficients[26] * pDecodedSamples[-27]; // fall through
-    case 26: prediction += coefficients[25] * pDecodedSamples[-26]; // fall through
-    case 25: prediction += coefficients[24] * pDecodedSamples[-25]; // fall through
-    case 24: prediction += coefficients[23] * pDecodedSamples[-24]; // fall through
-    case 23: prediction += coefficients[22] * pDecodedSamples[-23]; // fall through
-    case 22: prediction += coefficients[21] * pDecodedSamples[-22]; // fall through
-    case 21: prediction += coefficients[20] * pDecodedSamples[-21]; // fall through
-    case 20: prediction += coefficients[19] * pDecodedSamples[-20]; // fall through
-    case 19: prediction += coefficients[18] * pDecodedSamples[-19]; // fall through
-    case 18: prediction += coefficients[17] * pDecodedSamples[-18]; // fall through
-    case 17: prediction += coefficients[16] * pDecodedSamples[-17]; // fall through
-    case 16: prediction += coefficients[15] * pDecodedSamples[-16]; // fall through
-    case 15: prediction += coefficients[14] * pDecodedSamples[-15]; // fall through
-    case 14: prediction += coefficients[13] * pDecodedSamples[-14]; // fall through
-    case 13: prediction += coefficients[12] * pDecodedSamples[-13]; // fall through
-    case 12: prediction += coefficients[11] * pDecodedSamples[-12]; // fall through
-    case 11: prediction += coefficients[10] * pDecodedSamples[-11]; // fall through
-    case 10: prediction += coefficients[ 9] * pDecodedSamples[-10]; // fall through
-    case  9: prediction += coefficients[ 8] * pDecodedSamples[- 9]; // fall through
-    case  8: prediction += coefficients[ 7] * pDecodedSamples[- 8]; // fall through
-    case  7: prediction += coefficients[ 6] * pDecodedSamples[- 7]; // fall through
-    case  6: prediction += coefficients[ 5] * pDecodedSamples[- 6]; // fall through
-    case  5: prediction += coefficients[ 4] * pDecodedSamples[- 5]; // fall through
-    case  4: prediction += coefficients[ 3] * pDecodedSamples[- 4]; // fall through
-    case  3: prediction += coefficients[ 2] * pDecodedSamples[- 3]; // fall through
-    case  2: prediction += coefficients[ 1] * pDecodedSamples[- 2]; // fall through
+    case 32: prediction += coefficients[31] * pDecodedSamples[-32];
+    case 31: prediction += coefficients[30] * pDecodedSamples[-31];
+    case 30: prediction += coefficients[29] * pDecodedSamples[-30];
+    case 29: prediction += coefficients[28] * pDecodedSamples[-29];
+    case 28: prediction += coefficients[27] * pDecodedSamples[-28];
+    case 27: prediction += coefficients[26] * pDecodedSamples[-27];
+    case 26: prediction += coefficients[25] * pDecodedSamples[-26];
+    case 25: prediction += coefficients[24] * pDecodedSamples[-25];
+    case 24: prediction += coefficients[23] * pDecodedSamples[-24];
+    case 23: prediction += coefficients[22] * pDecodedSamples[-23];
+    case 22: prediction += coefficients[21] * pDecodedSamples[-22];
+    case 21: prediction += coefficients[20] * pDecodedSamples[-21];
+    case 20: prediction += coefficients[19] * pDecodedSamples[-20];
+    case 19: prediction += coefficients[18] * pDecodedSamples[-19];
+    case 18: prediction += coefficients[17] * pDecodedSamples[-18];
+    case 17: prediction += coefficients[16] * pDecodedSamples[-17];
+    case 16: prediction += coefficients[15] * pDecodedSamples[-16];
+    case 15: prediction += coefficients[14] * pDecodedSamples[-15];
+    case 14: prediction += coefficients[13] * pDecodedSamples[-14];
+    case 13: prediction += coefficients[12] * pDecodedSamples[-13];
+    case 12: prediction += coefficients[11] * pDecodedSamples[-12];
+    case 11: prediction += coefficients[10] * pDecodedSamples[-11];
+    case 10: prediction += coefficients[ 9] * pDecodedSamples[-10];
+    case  9: prediction += coefficients[ 8] * pDecodedSamples[- 9];
+    case  8: prediction += coefficients[ 7] * pDecodedSamples[- 8];
+    case  7: prediction += coefficients[ 6] * pDecodedSamples[- 7];
+    case  6: prediction += coefficients[ 5] * pDecodedSamples[- 6];
+    case  5: prediction += coefficients[ 4] * pDecodedSamples[- 5];
+    case  4: prediction += coefficients[ 3] * pDecodedSamples[- 4];
+    case  3: prediction += coefficients[ 2] * pDecodedSamples[- 3];
+    case  2: prediction += coefficients[ 1] * pDecodedSamples[- 2];
     case  1: prediction += coefficients[ 0] * pDecodedSamples[- 1];
     }
 
@@ -2291,37 +2299,37 @@ static DRFLAC_INLINE drflac_int32 drflac__calculate_prediction_64(drflac_uint32 
 
     switch (order)
     {
-    case 32: prediction += coefficients[31] * (drflac_int64)pDecodedSamples[-32]; // fall through
-    case 31: prediction += coefficients[30] * (drflac_int64)pDecodedSamples[-31]; // fall through
-    case 30: prediction += coefficients[29] * (drflac_int64)pDecodedSamples[-30]; // fall through
-    case 29: prediction += coefficients[28] * (drflac_int64)pDecodedSamples[-29]; // fall through
-    case 28: prediction += coefficients[27] * (drflac_int64)pDecodedSamples[-28]; // fall through
-    case 27: prediction += coefficients[26] * (drflac_int64)pDecodedSamples[-27]; // fall through
-    case 26: prediction += coefficients[25] * (drflac_int64)pDecodedSamples[-26]; // fall through
-    case 25: prediction += coefficients[24] * (drflac_int64)pDecodedSamples[-25]; // fall through
-    case 24: prediction += coefficients[23] * (drflac_int64)pDecodedSamples[-24]; // fall through
-    case 23: prediction += coefficients[22] * (drflac_int64)pDecodedSamples[-23]; // fall through
-    case 22: prediction += coefficients[21] * (drflac_int64)pDecodedSamples[-22]; // fall through
-    case 21: prediction += coefficients[20] * (drflac_int64)pDecodedSamples[-21]; // fall through
-    case 20: prediction += coefficients[19] * (drflac_int64)pDecodedSamples[-20]; // fall through
-    case 19: prediction += coefficients[18] * (drflac_int64)pDecodedSamples[-19]; // fall through
-    case 18: prediction += coefficients[17] * (drflac_int64)pDecodedSamples[-18]; // fall through
-    case 17: prediction += coefficients[16] * (drflac_int64)pDecodedSamples[-17]; // fall through
-    case 16: prediction += coefficients[15] * (drflac_int64)pDecodedSamples[-16]; // fall through
-    case 15: prediction += coefficients[14] * (drflac_int64)pDecodedSamples[-15]; // fall through
-    case 14: prediction += coefficients[13] * (drflac_int64)pDecodedSamples[-14]; // fall through
-    case 13: prediction += coefficients[12] * (drflac_int64)pDecodedSamples[-13]; // fall through
-    case 12: prediction += coefficients[11] * (drflac_int64)pDecodedSamples[-12]; // fall through
-    case 11: prediction += coefficients[10] * (drflac_int64)pDecodedSamples[-11]; // fall through
-    case 10: prediction += coefficients[ 9] * (drflac_int64)pDecodedSamples[-10]; // fall through
-    case  9: prediction += coefficients[ 8] * (drflac_int64)pDecodedSamples[- 9]; // fall through
-    case  8: prediction += coefficients[ 7] * (drflac_int64)pDecodedSamples[- 8]; // fall through
-    case  7: prediction += coefficients[ 6] * (drflac_int64)pDecodedSamples[- 7]; // fall through
-    case  6: prediction += coefficients[ 5] * (drflac_int64)pDecodedSamples[- 6]; // fall through
-    case  5: prediction += coefficients[ 4] * (drflac_int64)pDecodedSamples[- 5]; // fall through
-    case  4: prediction += coefficients[ 3] * (drflac_int64)pDecodedSamples[- 4]; // fall through
-    case  3: prediction += coefficients[ 2] * (drflac_int64)pDecodedSamples[- 3]; // fall through
-    case  2: prediction += coefficients[ 1] * (drflac_int64)pDecodedSamples[- 2]; // fall through
+    case 32: prediction += coefficients[31] * (drflac_int64)pDecodedSamples[-32];
+    case 31: prediction += coefficients[30] * (drflac_int64)pDecodedSamples[-31];
+    case 30: prediction += coefficients[29] * (drflac_int64)pDecodedSamples[-30];
+    case 29: prediction += coefficients[28] * (drflac_int64)pDecodedSamples[-29];
+    case 28: prediction += coefficients[27] * (drflac_int64)pDecodedSamples[-28];
+    case 27: prediction += coefficients[26] * (drflac_int64)pDecodedSamples[-27];
+    case 26: prediction += coefficients[25] * (drflac_int64)pDecodedSamples[-26];
+    case 25: prediction += coefficients[24] * (drflac_int64)pDecodedSamples[-25];
+    case 24: prediction += coefficients[23] * (drflac_int64)pDecodedSamples[-24];
+    case 23: prediction += coefficients[22] * (drflac_int64)pDecodedSamples[-23];
+    case 22: prediction += coefficients[21] * (drflac_int64)pDecodedSamples[-22];
+    case 21: prediction += coefficients[20] * (drflac_int64)pDecodedSamples[-21];
+    case 20: prediction += coefficients[19] * (drflac_int64)pDecodedSamples[-20];
+    case 19: prediction += coefficients[18] * (drflac_int64)pDecodedSamples[-19];
+    case 18: prediction += coefficients[17] * (drflac_int64)pDecodedSamples[-18];
+    case 17: prediction += coefficients[16] * (drflac_int64)pDecodedSamples[-17];
+    case 16: prediction += coefficients[15] * (drflac_int64)pDecodedSamples[-16];
+    case 15: prediction += coefficients[14] * (drflac_int64)pDecodedSamples[-15];
+    case 14: prediction += coefficients[13] * (drflac_int64)pDecodedSamples[-14];
+    case 13: prediction += coefficients[12] * (drflac_int64)pDecodedSamples[-13];
+    case 12: prediction += coefficients[11] * (drflac_int64)pDecodedSamples[-12];
+    case 11: prediction += coefficients[10] * (drflac_int64)pDecodedSamples[-11];
+    case 10: prediction += coefficients[ 9] * (drflac_int64)pDecodedSamples[-10];
+    case  9: prediction += coefficients[ 8] * (drflac_int64)pDecodedSamples[- 9];
+    case  8: prediction += coefficients[ 7] * (drflac_int64)pDecodedSamples[- 8];
+    case  7: prediction += coefficients[ 6] * (drflac_int64)pDecodedSamples[- 7];
+    case  6: prediction += coefficients[ 5] * (drflac_int64)pDecodedSamples[- 6];
+    case  5: prediction += coefficients[ 4] * (drflac_int64)pDecodedSamples[- 5];
+    case  4: prediction += coefficients[ 3] * (drflac_int64)pDecodedSamples[- 4];
+    case  3: prediction += coefficients[ 2] * (drflac_int64)pDecodedSamples[- 3];
+    case  2: prediction += coefficients[ 1] * (drflac_int64)pDecodedSamples[- 2];
     case  1: prediction += coefficients[ 0] * (drflac_int64)pDecodedSamples[- 1];
     }
 #endif
@@ -4291,7 +4299,7 @@ static void drflac__get_current_frame_sample_range(drflac* pFlac, drflac_uint64*
 
     unsigned int channelCount = drflac__get_channel_count_from_channel_assignment(pFlac->currentFrame.header.channelAssignment);
 
-    drflac_uint64 firstSampleInFrame = pFlac->currentFrame.header.sampleNumber;
+    drflac_uint64 firstSampleInFrame = pFlac->currentFrame.header.sampleNumber*channelCount;
     if (firstSampleInFrame == 0) {
         firstSampleInFrame = pFlac->currentFrame.header.frameNumber * pFlac->maxBlockSize*channelCount;
     }
@@ -4304,6 +4312,31 @@ static void drflac__get_current_frame_sample_range(drflac* pFlac, drflac_uint64*
     if (pFirstSampleInFrameOut) *pFirstSampleInFrameOut = firstSampleInFrame;
     if (pLastSampleInFrameOut) *pLastSampleInFrameOut = lastSampleInFrame;
 }
+
+/* This function will be replacing drflac__get_current_frame_sample_range(), but it's not currently used so I have commented it out to silence a compiler warning. */
+#if 0
+static void drflac__get_pcm_frame_range_of_current_flac_frame(drflac* pFlac, drflac_uint64* pFirstPCMFrame, drflac_uint64* pLastPCMFrame)
+{
+    drflac_assert(pFlac != NULL);
+
+    drflac_uint64 firstPCMFrame = pFlac->currentFrame.header.sampleNumber;
+    if (firstPCMFrame == 0) {
+        firstPCMFrame = pFlac->currentFrame.header.frameNumber * pFlac->maxBlockSize;
+    }
+
+    drflac_uint64 lastPCMFrame = firstPCMFrame + (pFlac->currentFrame.header.blockSize);
+    if (lastPCMFrame > 0) {
+        lastPCMFrame -= 1; // Needs to be zero based.
+    }
+
+    if (pFirstPCMFrame) {
+        *pFirstPCMFrame = firstPCMFrame;
+    }
+    if (pLastPCMFrame) {
+        *pLastPCMFrame = lastPCMFrame;
+    }
+}
+#endif
 
 static drflac_bool32 drflac__seek_to_first_frame(drflac* pFlac)
 {
@@ -7954,10 +7987,23 @@ drflac_bool32 drflac_next_cuesheet_track(drflac_cuesheet_track_iterator* pIter, 
     if (pCuesheetTrack) *pCuesheetTrack = cuesheetTrack;
     return DRFLAC_TRUE;
 }
+
+#if defined(__GNUC__)
+    #pragma GCC diagnostic pop
+#endif
 #endif  //DR_FLAC_IMPLEMENTATION
 
 
 // REVISION HISTORY
+//
+// v0.11.3 - 2018-04-07
+//   - Silence warnings with GCC.
+//
+// v0.11.2 - 2018-03-10
+//   - Fix a warning.
+//
+// v0.11.1 - 2018-02-17
+//   - Fix a potential bug with seeking.
 //
 // v0.11.0 - 2018-12-16
 //   - API CHANGE: Deprecated drflac_read_s32(), drflac_read_s16() and drflac_read_f32() and replaced them with 
