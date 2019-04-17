@@ -1806,13 +1806,10 @@ typedef struct
     ma_uint32 maxSampleRate;
 } ma_device_info;
 
-typedef struct
+typedef union
 {
-    union
-    {
-        ma_int64 counter;
-        double counterD;
-    };
+    ma_int64 counter;
+    double counterD;
 } ma_timer;
 
 typedef struct
