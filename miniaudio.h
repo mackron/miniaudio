@@ -3006,6 +3006,8 @@ ma_uint64 ma_sine_wave_read_f32_ex(ma_sine_wave* pSineWave, ma_uint64 frameCount
 #endif
 
 #ifdef MA_POSIX
+#include <sys/time.h>
+#include <sys/types.h>
 #include <unistd.h>
 #include <dlfcn.h>
 #endif
@@ -4492,7 +4494,17 @@ void ma_sleep__posix(ma_uint32 milliseconds)
     (void)milliseconds;
     ma_assert(MA_FALSE);  /* The Emscripten build should never sleep. */
 #else
-    usleep(milliseconds * 1000);    /* <-- usleep is in microseconds. */
+    #if _POSIX_C_SOURCE >= 199309L
+        struct timespec ts;
+        ts.tv_sec  = milliseconds / 1000000;
+        ts.tv_nsec = milliseconds % 1000000 * 1000000;
+        nanosleep(&ts, NULL);
+    #else
+        struct timeval tv;
+        tv.tv_sec  = milliseconds / 1000;
+        tv.tv_usec = milliseconds % 1000 * 1000;
+        select(0, NULL, NULL, NULL, &tv);
+    #endif
 #endif
 }
 
