@@ -11930,8 +11930,10 @@ ma_result ma_context_get_device_info__alsa(ma_context* pContext, ma_device_type 
     }
 
     // We need to initialize a HW parameters object in order to know what formats are supported.
-    ma_snd_pcm_hw_params_t* pHWParams = (ma_snd_pcm_hw_params_t*)alloca(((ma_snd_pcm_hw_params_sizeof_proc)pContext->alsa.snd_pcm_hw_params_sizeof)());
-    ma_zero_memory(pHWParams, ((ma_snd_pcm_hw_params_sizeof_proc)pContext->alsa.snd_pcm_hw_params_sizeof)());
+    ma_snd_pcm_hw_params_t* pHWParams = (ma_snd_pcm_hw_params_t*)calloc(1, ((ma_snd_pcm_hw_params_sizeof_proc)pContext->alsa.snd_pcm_hw_params_sizeof)());
+    if (pHWParams == NULL) {
+        return MA_OUT_OF_MEMORY;
+    }
 
     if (((ma_snd_pcm_hw_params_any_proc)pContext->alsa.snd_pcm_hw_params_any)(pPCM, pHWParams) < 0) {
         return ma_context_post_error(pContext, NULL, MA_LOG_LEVEL_ERROR, "[ALSA] Failed to initialize hardware parameters. snd_pcm_hw_params_any() failed.", MA_FAILED_TO_CONFIGURE_BACKEND_DEVICE);
@@ -11945,8 +11947,11 @@ ma_result ma_context_get_device_info__alsa(ma_context* pContext, ma_device_type 
     ((ma_snd_pcm_hw_params_get_rate_max_proc)pContext->alsa.snd_pcm_hw_params_get_rate_max)(pHWParams, &pDeviceInfo->maxSampleRate, &sampleRateDir);
 
     // Formats.
-    ma_snd_pcm_format_mask_t* pFormatMask = (ma_snd_pcm_format_mask_t*)alloca(((ma_snd_pcm_format_mask_sizeof_proc)pContext->alsa.snd_pcm_format_mask_sizeof)());
-    ma_zero_memory(pFormatMask, ((ma_snd_pcm_format_mask_sizeof_proc)pContext->alsa.snd_pcm_format_mask_sizeof)());
+    ma_snd_pcm_format_mask_t* pFormatMask = (ma_snd_pcm_format_mask_t*)calloc(1, ((ma_snd_pcm_format_mask_sizeof_proc)pContext->alsa.snd_pcm_format_mask_sizeof)());
+    if (pFormatMask == NULL) {
+        return MA_OUT_OF_MEMORY;
+    }
+
     ((ma_snd_pcm_hw_params_get_format_mask_proc)pContext->alsa.snd_pcm_hw_params_get_format_mask)(pHWParams, pFormatMask);
 
     pDeviceInfo->formatCount = 0;
@@ -11965,6 +11970,9 @@ ma_result ma_context_get_device_info__alsa(ma_context* pContext, ma_device_type 
     if (((ma_snd_pcm_format_mask_test_proc)pContext->alsa.snd_pcm_format_mask_test)(pFormatMask, MA_SND_PCM_FORMAT_FLOAT_LE)) {
         pDeviceInfo->formats[pDeviceInfo->formatCount++] = ma_format_f32;
     }
+
+    ma_free(pFormatMask);
+    ma_free(pHWParams);
 
     ((ma_snd_pcm_close_proc)pContext->alsa.snd_pcm_close)(pPCM);
     return MA_SUCCESS;
@@ -12284,8 +12292,10 @@ ma_result ma_device_init_by_type__alsa(ma_context* pContext, const ma_device_con
     /* If using the default buffer size we may want to apply some device-specific scaling for known devices that have peculiar latency characteristics */
     float bufferSizeScaleFactor = 1;
     if (pDevice->usingDefaultBufferSize) {
-        ma_snd_pcm_info_t* pInfo = (ma_snd_pcm_info_t*)alloca(((ma_snd_pcm_info_sizeof_proc)pContext->alsa.snd_pcm_info_sizeof)());
-        ma_zero_memory(pInfo, ((ma_snd_pcm_info_sizeof_proc)pContext->alsa.snd_pcm_info_sizeof)());
+        ma_snd_pcm_info_t* pInfo = (ma_snd_pcm_info_t*)calloc(1, ((ma_snd_pcm_info_sizeof_proc)pContext->alsa.snd_pcm_info_sizeof)());
+        if (pInfo == NULL) {
+            return MA_OUT_OF_MEMORY;
+        }
 
         /* We may need to scale the size of the buffer depending on the device. */
         if (((ma_snd_pcm_info_proc)pContext->alsa.snd_pcm_info)(pPCM, pInfo) == 0) {
@@ -12297,6 +12307,7 @@ ma_result ma_device_init_by_type__alsa(ma_context* pContext, const ma_device_con
 
                     /* It's the default device. We need to use DESC from snd_device_name_hint(). */
                     if (((ma_snd_device_name_hint_proc)pContext->alsa.snd_device_name_hint)(-1, "pcm", (void***)&ppDeviceHints) < 0) {
+                        ma_free(pInfo);
                         return MA_NO_BACKEND;
                     }
 
@@ -12331,14 +12342,19 @@ ma_result ma_device_init_by_type__alsa(ma_context* pContext, const ma_device_con
                 }
             }
         }
+
+        ma_free(pInfo);
     }
 
 
     /* Hardware parameters. */
-    pHWParams = (ma_snd_pcm_hw_params_t*)alloca(((ma_snd_pcm_hw_params_sizeof_proc)pContext->alsa.snd_pcm_hw_params_sizeof)());
-    ma_zero_memory(pHWParams, ((ma_snd_pcm_hw_params_sizeof_proc)pContext->alsa.snd_pcm_hw_params_sizeof)());
+    pHWParams = (ma_snd_pcm_hw_params_t*)calloc(1, ((ma_snd_pcm_hw_params_sizeof_proc)pContext->alsa.snd_pcm_hw_params_sizeof)());
+    if (pHWParams == NULL) {
+        return MA_OUT_OF_MEMORY;
+    }
 
     if (((ma_snd_pcm_hw_params_any_proc)pContext->alsa.snd_pcm_hw_params_any)(pPCM, pHWParams) < 0) {
+        ma_free(pHWParams);
         ((ma_snd_pcm_close_proc)pDevice->pContext->alsa.snd_pcm_close)(pPCM);
         return ma_post_error(pDevice, MA_LOG_LEVEL_ERROR, "[ALSA] Failed to initialize hardware parameters. snd_pcm_hw_params_any() failed.", MA_FAILED_TO_CONFIGURE_BACKEND_DEVICE);
     }
@@ -12356,7 +12372,8 @@ ma_result ma_device_init_by_type__alsa(ma_context* pContext, const ma_device_con
 #endif
 
     if (!isUsingMMap) {
-        if (((ma_snd_pcm_hw_params_set_access_proc)pContext->alsa.snd_pcm_hw_params_set_access)(pPCM, pHWParams, MA_SND_PCM_ACCESS_RW_INTERLEAVED) < 0) {;
+        if (((ma_snd_pcm_hw_params_set_access_proc)pContext->alsa.snd_pcm_hw_params_set_access)(pPCM, pHWParams, MA_SND_PCM_ACCESS_RW_INTERLEAVED) < 0) {
+            ma_free(pHWParams);
             ((ma_snd_pcm_close_proc)pDevice->pContext->alsa.snd_pcm_close)(pPCM);
             return ma_post_error(pDevice, MA_LOG_LEVEL_ERROR, "[ALSA] Failed to set access mode to neither SND_PCM_ACCESS_MMAP_INTERLEAVED nor SND_PCM_ACCESS_RW_INTERLEAVED. snd_pcm_hw_params_set_access() failed.", MA_FORMAT_NOT_SUPPORTED);
         }
@@ -12372,8 +12389,12 @@ ma_result ma_device_init_by_type__alsa(ma_context* pContext, const ma_device_con
         ma_snd_pcm_format_mask_t* pFormatMask;
 
         /* Try getting every supported format first. */
-        pFormatMask = (ma_snd_pcm_format_mask_t*)alloca(((ma_snd_pcm_format_mask_sizeof_proc)pContext->alsa.snd_pcm_format_mask_sizeof)());
-        ma_zero_memory(pFormatMask, ((ma_snd_pcm_format_mask_sizeof_proc)pContext->alsa.snd_pcm_format_mask_sizeof)());
+        pFormatMask = (ma_snd_pcm_format_mask_t*)calloc(1, ((ma_snd_pcm_format_mask_sizeof_proc)pContext->alsa.snd_pcm_format_mask_sizeof)());
+        if (pFormatMask == NULL) {
+            ma_free(pHWParams);
+            ((ma_snd_pcm_close_proc)pDevice->pContext->alsa.snd_pcm_close)(pPCM);
+            return MA_OUT_OF_MEMORY;
+        }
 
         ((ma_snd_pcm_hw_params_get_format_mask_proc)pContext->alsa.snd_pcm_hw_params_get_format_mask)(pHWParams, pFormatMask);
 
@@ -12408,18 +12429,24 @@ ma_result ma_device_init_by_type__alsa(ma_context* pContext, const ma_device_con
             }
 
             if (formatALSA == MA_SND_PCM_FORMAT_UNKNOWN) {
+                ma_free(pHWParams);
                 ((ma_snd_pcm_close_proc)pDevice->pContext->alsa.snd_pcm_close)(pPCM);
                 return ma_post_error(pDevice, MA_LOG_LEVEL_ERROR, "[ALSA] Format not supported. The device does not support any miniaudio formats.", MA_FORMAT_NOT_SUPPORTED);
             }
         }
 
+        ma_free(pFormatMask);
+        pFormatMask = NULL;
+
         if (((ma_snd_pcm_hw_params_set_format_proc)pContext->alsa.snd_pcm_hw_params_set_format)(pPCM, pHWParams, formatALSA) < 0) {
+            ma_free(pHWParams);
             ((ma_snd_pcm_close_proc)pDevice->pContext->alsa.snd_pcm_close)(pPCM);
             return ma_post_error(pDevice, MA_LOG_LEVEL_ERROR, "[ALSA] Format not supported. snd_pcm_hw_params_set_format() failed.", MA_FORMAT_NOT_SUPPORTED);
         }
         
         internalFormat = ma_convert_alsa_format_to_ma_format(formatALSA);
         if (internalFormat == ma_format_unknown) {
+            ma_free(pHWParams);
             ((ma_snd_pcm_close_proc)pDevice->pContext->alsa.snd_pcm_close)(pPCM);
             return ma_post_error(pDevice, MA_LOG_LEVEL_ERROR, "[ALSA] The chosen format is not supported by miniaudio.", MA_FORMAT_NOT_SUPPORTED);
         }
@@ -12429,6 +12456,7 @@ ma_result ma_device_init_by_type__alsa(ma_context* pContext, const ma_device_con
     {
         unsigned int channels = (deviceType == ma_device_type_capture) ? pConfig->capture.channels : pConfig->playback.channels;
         if (((ma_snd_pcm_hw_params_set_channels_near_proc)pContext->alsa.snd_pcm_hw_params_set_channels_near)(pPCM, pHWParams, &channels) < 0) {
+            ma_free(pHWParams);
             ((ma_snd_pcm_close_proc)pDevice->pContext->alsa.snd_pcm_close)(pPCM);
             return ma_post_error(pDevice, MA_LOG_LEVEL_ERROR, "[ALSA] Failed to set channel count. snd_pcm_hw_params_set_channels_near() failed.", MA_FORMAT_NOT_SUPPORTED);
         }
@@ -12460,6 +12488,7 @@ ma_result ma_device_init_by_type__alsa(ma_context* pContext, const ma_device_con
 
         sampleRate = pConfig->sampleRate;
         if (((ma_snd_pcm_hw_params_set_rate_near_proc)pContext->alsa.snd_pcm_hw_params_set_rate_near)(pPCM, pHWParams, &sampleRate, 0) < 0) {
+            ma_free(pHWParams);
             ((ma_snd_pcm_close_proc)pDevice->pContext->alsa.snd_pcm_close)(pPCM);
             return ma_post_error(pDevice, MA_LOG_LEVEL_ERROR, "[ALSA] Sample rate not supported. snd_pcm_hw_params_set_rate_near() failed.", MA_FORMAT_NOT_SUPPORTED);
         }
@@ -12474,6 +12503,7 @@ ma_result ma_device_init_by_type__alsa(ma_context* pContext, const ma_device_con
         }
 
         if (((ma_snd_pcm_hw_params_set_buffer_size_near_proc)pContext->alsa.snd_pcm_hw_params_set_buffer_size_near)(pPCM, pHWParams, &actualBufferSizeInFrames) < 0) {
+            ma_free(pHWParams);
             ((ma_snd_pcm_close_proc)pDevice->pContext->alsa.snd_pcm_close)(pPCM);
             return ma_post_error(pDevice, MA_LOG_LEVEL_ERROR, "[ALSA] Failed to set buffer size for device. snd_pcm_hw_params_set_buffer_size() failed.", MA_FORMAT_NOT_SUPPORTED);
         }
@@ -12484,6 +12514,7 @@ ma_result ma_device_init_by_type__alsa(ma_context* pContext, const ma_device_con
     {
         ma_uint32 periods = pConfig->periods;
         if (((ma_snd_pcm_hw_params_set_periods_near_proc)pContext->alsa.snd_pcm_hw_params_set_periods_near)(pPCM, pHWParams, &periods, NULL) < 0) {
+            ma_free(pHWParams);
             ((ma_snd_pcm_close_proc)pDevice->pContext->alsa.snd_pcm_close)(pPCM);
             return ma_post_error(pDevice, MA_LOG_LEVEL_ERROR, "[ALSA] Failed to set period count. snd_pcm_hw_params_set_periods_near() failed.", MA_FORMAT_NOT_SUPPORTED);
         }
@@ -12492,27 +12523,37 @@ ma_result ma_device_init_by_type__alsa(ma_context* pContext, const ma_device_con
 
     /* Apply hardware parameters. */
     if (((ma_snd_pcm_hw_params_proc)pContext->alsa.snd_pcm_hw_params)(pPCM, pHWParams) < 0) {
+        ma_free(pHWParams);
         ((ma_snd_pcm_close_proc)pDevice->pContext->alsa.snd_pcm_close)(pPCM);
         return ma_post_error(pDevice, MA_LOG_LEVEL_ERROR, "[ALSA] Failed to set hardware parameters. snd_pcm_hw_params() failed.", MA_FAILED_TO_CONFIGURE_BACKEND_DEVICE);
     }
 
+    ma_free(pHWParams);
+    pHWParams = NULL;
+
 
     /* Software parameters. */
-    pSWParams = (ma_snd_pcm_sw_params_t*)alloca(((ma_snd_pcm_sw_params_sizeof_proc)pContext->alsa.snd_pcm_sw_params_sizeof)());
-    ma_zero_memory(pSWParams, ((ma_snd_pcm_sw_params_sizeof_proc)pContext->alsa.snd_pcm_sw_params_sizeof)());
+    pSWParams = (ma_snd_pcm_sw_params_t*)calloc(1, ((ma_snd_pcm_sw_params_sizeof_proc)pContext->alsa.snd_pcm_sw_params_sizeof)());
+    if (pSWParams == NULL) {
+        ((ma_snd_pcm_close_proc)pDevice->pContext->alsa.snd_pcm_close)(pPCM);
+        return MA_OUT_OF_MEMORY;
+    }
 
     if (((ma_snd_pcm_sw_params_current_proc)pContext->alsa.snd_pcm_sw_params_current)(pPCM, pSWParams) != 0) {
+        ma_free(pSWParams);
         ((ma_snd_pcm_close_proc)pDevice->pContext->alsa.snd_pcm_close)(pPCM);
         return ma_post_error(pDevice, MA_LOG_LEVEL_ERROR, "[ALSA] Failed to initialize software parameters. snd_pcm_sw_params_current() failed.", MA_FAILED_TO_CONFIGURE_BACKEND_DEVICE);
     }
 
     if (deviceType == ma_device_type_capture) {
         if (((ma_snd_pcm_sw_params_set_avail_min_proc)pContext->alsa.snd_pcm_sw_params_set_avail_min)(pPCM, pSWParams, 1) != 0) {
+            ma_free(pSWParams);
             ((ma_snd_pcm_close_proc)pDevice->pContext->alsa.snd_pcm_close)(pPCM);
             return ma_post_error(pDevice, MA_LOG_LEVEL_ERROR, "[ALSA] snd_pcm_sw_params_set_avail_min() failed.", MA_FORMAT_NOT_SUPPORTED);
         }
     } else {
         if (((ma_snd_pcm_sw_params_set_avail_min_proc)pContext->alsa.snd_pcm_sw_params_set_avail_min)(pPCM, pSWParams, 1) != 0) {
+            ma_free(pSWParams);
             ((ma_snd_pcm_close_proc)pDevice->pContext->alsa.snd_pcm_close)(pPCM);
             return ma_post_error(pDevice, MA_LOG_LEVEL_ERROR, "[ALSA] snd_pcm_sw_params_set_avail_min() failed.", MA_FORMAT_NOT_SUPPORTED);
         }
@@ -12531,19 +12572,25 @@ ma_result ma_device_init_by_type__alsa(ma_context* pContext, const ma_device_con
         the size of a period. But for full-duplex we need to set it such that it is at least two periods.
         */
         if (((ma_snd_pcm_sw_params_set_start_threshold_proc)pContext->alsa.snd_pcm_sw_params_set_start_threshold)(pPCM, pSWParams, internalBufferSizeInFrames) != 0) {
+            ma_free(pSWParams);
             ((ma_snd_pcm_close_proc)pDevice->pContext->alsa.snd_pcm_close)(pPCM);
             return ma_post_error(pDevice, MA_LOG_LEVEL_ERROR, "[ALSA] Failed to set start threshold for playback device. snd_pcm_sw_params_set_start_threshold() failed.", MA_FAILED_TO_CONFIGURE_BACKEND_DEVICE);
         }
         if (((ma_snd_pcm_sw_params_set_stop_threshold_proc)pContext->alsa.snd_pcm_sw_params_set_stop_threshold)(pPCM, pSWParams, bufferBoundary) != 0) { /* Set to boundary to loop instead of stop in the event of an xrun. */
+            ma_free(pSWParams);
             ((ma_snd_pcm_close_proc)pDevice->pContext->alsa.snd_pcm_close)(pPCM);
             return ma_post_error(pDevice, MA_LOG_LEVEL_ERROR, "[ALSA] Failed to set stop threshold for playback device. snd_pcm_sw_params_set_stop_threshold() failed.", MA_FAILED_TO_CONFIGURE_BACKEND_DEVICE);
         }
     }
 
     if (((ma_snd_pcm_sw_params_proc)pContext->alsa.snd_pcm_sw_params)(pPCM, pSWParams) != 0) {
+        ma_free(pSWParams);
         ((ma_snd_pcm_close_proc)pDevice->pContext->alsa.snd_pcm_close)(pPCM);
         return ma_post_error(pDevice, MA_LOG_LEVEL_ERROR, "[ALSA] Failed to set software parameters. snd_pcm_sw_params() failed.", MA_FAILED_TO_CONFIGURE_BACKEND_DEVICE);
     }
+
+    ma_free(pSWParams);
+    pSWParams = NULL;
 
 
     /* Grab the internal channel map. For now we're not going to bother trying to change the channel map and instead just do it ourselves. */
