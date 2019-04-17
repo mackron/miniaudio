@@ -1,5 +1,5 @@
 // FLAC audio decoder. Public domain. See "unlicense" statement at the end of this file.
-// dr_flac - v0.11.3 - 2018-04-07
+// dr_flac - v0.11.4 - 2018-04-17
 //
 // David Reid - mackron@gmail.com
 
@@ -1085,6 +1085,8 @@ static DRFLAC_INLINE drflac_bool32 drflac__is_little_endian()
 {
 #if defined(DRFLAC_X86) || defined(DRFLAC_X64)
     return DRFLAC_TRUE;
+#elif defined(__BYTE_ORDER) && defined(__LITTLE_ENDIAN) && __BYTE_ORDER == __LITTLE_ENDIAN
+    return DRFLAC_TRUE;
 #else
     int n = 1;
     return (*(char*)&n) == 1;
@@ -1150,55 +1152,39 @@ static DRFLAC_INLINE drflac_uint64 drflac__swap_endian_uint64(drflac_uint64 n)
 
 static DRFLAC_INLINE drflac_uint16 drflac__be2host_16(drflac_uint16 n)
 {
-#ifdef __linux__
-    return be16toh(n);
-#else
     if (drflac__is_little_endian()) {
         return drflac__swap_endian_uint16(n);
     }
 
     return n;
-#endif
 }
 
 static DRFLAC_INLINE drflac_uint32 drflac__be2host_32(drflac_uint32 n)
 {
-#ifdef __linux__
-    return be32toh(n);
-#else
     if (drflac__is_little_endian()) {
         return drflac__swap_endian_uint32(n);
     }
 
     return n;
-#endif
 }
 
 static DRFLAC_INLINE drflac_uint64 drflac__be2host_64(drflac_uint64 n)
 {
-#ifdef __linux__
-    return be64toh(n);
-#else
     if (drflac__is_little_endian()) {
         return drflac__swap_endian_uint64(n);
     }
 
     return n;
-#endif
 }
 
 
 static DRFLAC_INLINE drflac_uint32 drflac__le2host_32(drflac_uint32 n)
 {
-#ifdef __linux__
-    return le32toh(n);
-#else
     if (!drflac__is_little_endian()) {
         return drflac__swap_endian_uint32(n);
     }
 
     return n;
-#endif
 }
 
 
@@ -7995,6 +7981,9 @@ drflac_bool32 drflac_next_cuesheet_track(drflac_cuesheet_track_iterator* pIter, 
 
 
 // REVISION HISTORY
+//
+// v0.11.4 - 2018-04-17
+//   - Fix some warnings with GCC when compiling with -std=c99.
 //
 // v0.11.3 - 2018-04-07
 //   - Silence warnings with GCC.
