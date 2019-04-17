@@ -4221,6 +4221,7 @@ double ma_timer_get_time_in_seconds(ma_timer* pTimer)
     return (emscripten_get_now() - pTimer->counterD) / 1000;    /* Emscripten is in milliseconds. */
 }
 #else
+#if _POSIX_C_SOURCE >= 199309L
 #if defined(CLOCK_MONOTONIC)
     #define MA_CLOCK_ID CLOCK_MONOTONIC
 #else
@@ -4245,6 +4246,26 @@ double ma_timer_get_time_in_seconds(ma_timer* pTimer)
 
     return (newTimeCounter - oldTimeCounter) / 1000000000.0;
 }
+#else
+void ma_timer_init(ma_timer* pTimer)
+{
+    struct timeval newTime;
+    gettimeofday(&newTime, NULL);
+
+    pTimer->counter = (newTime.tv_sec * 1000000) + newTime.tv_usec;
+}
+
+double ma_timer_get_time_in_seconds(ma_timer* pTimer)
+{
+    struct timeval newTime;
+    gettimeofday(&newTime, NULL);
+
+    ma_uint64 newTimeCounter = (newTime.tv_sec * 1000000) + newTime.tv_usec;
+    ma_uint64 oldTimeCounter = pTimer->counter;
+
+    return (newTimeCounter - oldTimeCounter) / 1000000.0;
+}
+#endif
 #endif
 
 
