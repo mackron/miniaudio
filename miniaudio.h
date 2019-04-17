@@ -452,6 +452,9 @@ extern "C" {
     #pragma warning(push)
     #pragma warning(disable:4201)   // nonstandard extension used: nameless struct/union
     #pragma warning(disable:4324)   // structure was padded due to alignment specifier
+#else
+    #pragma GCC diagnostic push
+    #pragma GCC diagnostic ignored "-Wpedantic" /* For ISO C99 doesn't support unnamed structs/unions [-Wpedantic] */
 #endif
 
 // Platform/backend detection.
@@ -2500,6 +2503,8 @@ MA_ALIGNED_STRUCT(MA_SIMD_ALIGNMENT) ma_device
 };
 #if defined(_MSC_VER)
     #pragma warning(pop)
+#else
+    #pragma GCC diagnostic pop  /* For ISO C99 doesn't support unnamed structs/unions [-Wpedantic] */
 #endif
 
 // Initializes a context.
@@ -2963,7 +2968,6 @@ typedef struct
 ma_result ma_sine_wave_init(double amplitude, double period, ma_uint32 sampleRate, ma_sine_wave* pSineWave);
 ma_uint64 ma_sine_wave_read_f32(ma_sine_wave* pSineWave, ma_uint64 count, float* pSamples);
 ma_uint64 ma_sine_wave_read_f32_ex(ma_sine_wave* pSineWave, ma_uint64 frameCount, ma_uint32 channels, ma_stream_layout layout, float** ppFrames);
-
 
 #ifdef __cplusplus
 }
