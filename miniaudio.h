@@ -14898,7 +14898,7 @@ ma_result ma_device_read__pulse(ma_device* pDevice, void* pPCMFrames, ma_uint32 
                     }
 
                 #if defined(MA_DEBUG_OUTPUT)
-                    printf("TRACE: Data available: bytesMapped=%ld, readableSizeInBytes=%ld.\n", bytesMapped, readableSizeInBytes);
+                    //printf("TRACE: Data available: bytesMapped=%ld, readableSizeInBytes=%ld.\n", bytesMapped, readableSizeInBytes);
                 #endif
 
                     if (pDevice->pulse.pMappedBufferCapture == NULL && bytesMapped == 0) {
@@ -14913,7 +14913,7 @@ ma_result ma_device_read__pulse(ma_device* pDevice, void* pPCMFrames, ma_uint32 
                 } else {
                     /* No data available. Need to wait for more. */
                 #if defined(MA_DEBUG_OUTPUT)
-                    printf("TRACE: Capture: pa_mainloop_iterate(). readableSizeInBytes=%ld\n", readableSizeInBytes);
+                    //printf("TRACE: Capture: pa_mainloop_iterate(). readableSizeInBytes=%ld\n", readableSizeInBytes);
                 #endif
 
                     /*
