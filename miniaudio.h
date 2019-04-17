@@ -10999,16 +10999,16 @@ ma_result ma_context_init__winmm(const ma_context_config* pConfig, ma_context* p
     pContext->winmm.waveInStart            = ma_dlsym(pContext->winmm.hWinMM, "waveInStart");
     pContext->winmm.waveInReset            = ma_dlsym(pContext->winmm.hWinMM, "waveInReset");
 
-    pContext->onUninit              = ma_context_uninit__winmm;
-    pContext->onDeviceIDEqual       = ma_context_is_device_id_equal__winmm;
-    pContext->onEnumDevices         = ma_context_enumerate_devices__winmm;
-    pContext->onGetDeviceInfo       = ma_context_get_device_info__winmm;
-    pContext->onDeviceInit          = ma_device_init__winmm;
-    pContext->onDeviceUninit        = ma_device_uninit__winmm;
-    pContext->onDeviceStart         = NULL; /* Not used. Started in onDeviceWrite/onDeviceRead. */
-    pContext->onDeviceStop          = ma_device_stop__winmm;
-    pContext->onDeviceWrite         = ma_device_write__winmm;
-    pContext->onDeviceRead          = ma_device_read__winmm;
+    pContext->onUninit        = ma_context_uninit__winmm;
+    pContext->onDeviceIDEqual = ma_context_is_device_id_equal__winmm;
+    pContext->onEnumDevices   = ma_context_enumerate_devices__winmm;
+    pContext->onGetDeviceInfo = ma_context_get_device_info__winmm;
+    pContext->onDeviceInit    = ma_device_init__winmm;
+    pContext->onDeviceUninit  = ma_device_uninit__winmm;
+    pContext->onDeviceStart   = NULL; /* Not used. Started in onDeviceWrite/onDeviceRead. */
+    pContext->onDeviceStop    = ma_device_stop__winmm;
+    pContext->onDeviceWrite   = ma_device_write__winmm;
+    pContext->onDeviceRead    = ma_device_read__winmm;
 
     return MA_SUCCESS;
 }
