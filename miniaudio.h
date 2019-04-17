@@ -11040,77 +11040,77 @@ typedef snd_pcm_channel_area_t                  ma_snd_pcm_channel_area_t;
 typedef snd_pcm_chmap_t                         ma_snd_pcm_chmap_t;
 
 // snd_pcm_stream_t
-#define MA_SND_PCM_STREAM_PLAYBACK             SND_PCM_STREAM_PLAYBACK
-#define MA_SND_PCM_STREAM_CAPTURE              SND_PCM_STREAM_CAPTURE
+#define MA_SND_PCM_STREAM_PLAYBACK              SND_PCM_STREAM_PLAYBACK
+#define MA_SND_PCM_STREAM_CAPTURE               SND_PCM_STREAM_CAPTURE
 
 // snd_pcm_format_t
-#define MA_SND_PCM_FORMAT_UNKNOWN              SND_PCM_FORMAT_UNKNOWN
-#define MA_SND_PCM_FORMAT_U8                   SND_PCM_FORMAT_U8
-#define MA_SND_PCM_FORMAT_S16_LE               SND_PCM_FORMAT_S16_LE
-#define MA_SND_PCM_FORMAT_S16_BE               SND_PCM_FORMAT_S16_BE
-#define MA_SND_PCM_FORMAT_S24_LE               SND_PCM_FORMAT_S24_LE
-#define MA_SND_PCM_FORMAT_S24_BE               SND_PCM_FORMAT_S24_BE
-#define MA_SND_PCM_FORMAT_S32_LE               SND_PCM_FORMAT_S32_LE
-#define MA_SND_PCM_FORMAT_S32_BE               SND_PCM_FORMAT_S32_BE
-#define MA_SND_PCM_FORMAT_FLOAT_LE             SND_PCM_FORMAT_FLOAT_LE
-#define MA_SND_PCM_FORMAT_FLOAT_BE             SND_PCM_FORMAT_FLOAT_BE
-#define MA_SND_PCM_FORMAT_FLOAT64_LE           SND_PCM_FORMAT_FLOAT64_LE
-#define MA_SND_PCM_FORMAT_FLOAT64_BE           SND_PCM_FORMAT_FLOAT64_BE
-#define MA_SND_PCM_FORMAT_MU_LAW               SND_PCM_FORMAT_MU_LAW
-#define MA_SND_PCM_FORMAT_A_LAW                SND_PCM_FORMAT_A_LAW
-#define MA_SND_PCM_FORMAT_S24_3LE              SND_PCM_FORMAT_S24_3LE
-#define MA_SND_PCM_FORMAT_S24_3BE              SND_PCM_FORMAT_S24_3BE
+#define MA_SND_PCM_FORMAT_UNKNOWN               SND_PCM_FORMAT_UNKNOWN
+#define MA_SND_PCM_FORMAT_U8                    SND_PCM_FORMAT_U8
+#define MA_SND_PCM_FORMAT_S16_LE                SND_PCM_FORMAT_S16_LE
+#define MA_SND_PCM_FORMAT_S16_BE                SND_PCM_FORMAT_S16_BE
+#define MA_SND_PCM_FORMAT_S24_LE                SND_PCM_FORMAT_S24_LE
+#define MA_SND_PCM_FORMAT_S24_BE                SND_PCM_FORMAT_S24_BE
+#define MA_SND_PCM_FORMAT_S32_LE                SND_PCM_FORMAT_S32_LE
+#define MA_SND_PCM_FORMAT_S32_BE                SND_PCM_FORMAT_S32_BE
+#define MA_SND_PCM_FORMAT_FLOAT_LE              SND_PCM_FORMAT_FLOAT_LE
+#define MA_SND_PCM_FORMAT_FLOAT_BE              SND_PCM_FORMAT_FLOAT_BE
+#define MA_SND_PCM_FORMAT_FLOAT64_LE            SND_PCM_FORMAT_FLOAT64_LE
+#define MA_SND_PCM_FORMAT_FLOAT64_BE            SND_PCM_FORMAT_FLOAT64_BE
+#define MA_SND_PCM_FORMAT_MU_LAW                SND_PCM_FORMAT_MU_LAW
+#define MA_SND_PCM_FORMAT_A_LAW                 SND_PCM_FORMAT_A_LAW
+#define MA_SND_PCM_FORMAT_S24_3LE               SND_PCM_FORMAT_S24_3LE
+#define MA_SND_PCM_FORMAT_S24_3BE               SND_PCM_FORMAT_S24_3BE
 
 // ma_snd_pcm_access_t
-#define MA_SND_PCM_ACCESS_MMAP_INTERLEAVED     SND_PCM_ACCESS_MMAP_INTERLEAVED
-#define MA_SND_PCM_ACCESS_MMAP_NONINTERLEAVED  SND_PCM_ACCESS_MMAP_NONINTERLEAVED
-#define MA_SND_PCM_ACCESS_MMAP_COMPLEX         SND_PCM_ACCESS_MMAP_COMPLEX
-#define MA_SND_PCM_ACCESS_RW_INTERLEAVED       SND_PCM_ACCESS_RW_INTERLEAVED
-#define MA_SND_PCM_ACCESS_RW_NONINTERLEAVED    SND_PCM_ACCESS_RW_NONINTERLEAVED
+#define MA_SND_PCM_ACCESS_MMAP_INTERLEAVED      SND_PCM_ACCESS_MMAP_INTERLEAVED
+#define MA_SND_PCM_ACCESS_MMAP_NONINTERLEAVED   SND_PCM_ACCESS_MMAP_NONINTERLEAVED
+#define MA_SND_PCM_ACCESS_MMAP_COMPLEX          SND_PCM_ACCESS_MMAP_COMPLEX
+#define MA_SND_PCM_ACCESS_RW_INTERLEAVED        SND_PCM_ACCESS_RW_INTERLEAVED
+#define MA_SND_PCM_ACCESS_RW_NONINTERLEAVED     SND_PCM_ACCESS_RW_NONINTERLEAVED
 
 // Channel positions.
-#define MA_SND_CHMAP_UNKNOWN                   SND_CHMAP_UNKNOWN
-#define MA_SND_CHMAP_NA                        SND_CHMAP_NA
-#define MA_SND_CHMAP_MONO                      SND_CHMAP_MONO
-#define MA_SND_CHMAP_FL                        SND_CHMAP_FL
-#define MA_SND_CHMAP_FR                        SND_CHMAP_FR
-#define MA_SND_CHMAP_RL                        SND_CHMAP_RL
-#define MA_SND_CHMAP_RR                        SND_CHMAP_RR
-#define MA_SND_CHMAP_FC                        SND_CHMAP_FC
-#define MA_SND_CHMAP_LFE                       SND_CHMAP_LFE
-#define MA_SND_CHMAP_SL                        SND_CHMAP_SL
-#define MA_SND_CHMAP_SR                        SND_CHMAP_SR
-#define MA_SND_CHMAP_RC                        SND_CHMAP_RC
-#define MA_SND_CHMAP_FLC                       SND_CHMAP_FLC
-#define MA_SND_CHMAP_FRC                       SND_CHMAP_FRC
-#define MA_SND_CHMAP_RLC                       SND_CHMAP_RLC
-#define MA_SND_CHMAP_RRC                       SND_CHMAP_RRC
-#define MA_SND_CHMAP_FLW                       SND_CHMAP_FLW
-#define MA_SND_CHMAP_FRW                       SND_CHMAP_FRW
-#define MA_SND_CHMAP_FLH                       SND_CHMAP_FLH
-#define MA_SND_CHMAP_FCH                       SND_CHMAP_FCH
-#define MA_SND_CHMAP_FRH                       SND_CHMAP_FRH
-#define MA_SND_CHMAP_TC                        SND_CHMAP_TC
-#define MA_SND_CHMAP_TFL                       SND_CHMAP_TFL
-#define MA_SND_CHMAP_TFR                       SND_CHMAP_TFR
-#define MA_SND_CHMAP_TFC                       SND_CHMAP_TFC
-#define MA_SND_CHMAP_TRL                       SND_CHMAP_TRL
-#define MA_SND_CHMAP_TRR                       SND_CHMAP_TRR
-#define MA_SND_CHMAP_TRC                       SND_CHMAP_TRC
-#define MA_SND_CHMAP_TFLC                      SND_CHMAP_TFLC
-#define MA_SND_CHMAP_TFRC                      SND_CHMAP_TFRC
-#define MA_SND_CHMAP_TSL                       SND_CHMAP_TSL
-#define MA_SND_CHMAP_TSR                       SND_CHMAP_TSR
-#define MA_SND_CHMAP_LLFE                      SND_CHMAP_LLFE
-#define MA_SND_CHMAP_RLFE                      SND_CHMAP_RLFE
-#define MA_SND_CHMAP_BC                        SND_CHMAP_BC
-#define MA_SND_CHMAP_BLC                       SND_CHMAP_BLC
-#define MA_SND_CHMAP_BRC                       SND_CHMAP_BRC
+#define MA_SND_CHMAP_UNKNOWN                    SND_CHMAP_UNKNOWN
+#define MA_SND_CHMAP_NA                         SND_CHMAP_NA
+#define MA_SND_CHMAP_MONO                       SND_CHMAP_MONO
+#define MA_SND_CHMAP_FL                         SND_CHMAP_FL
+#define MA_SND_CHMAP_FR                         SND_CHMAP_FR
+#define MA_SND_CHMAP_RL                         SND_CHMAP_RL
+#define MA_SND_CHMAP_RR                         SND_CHMAP_RR
+#define MA_SND_CHMAP_FC                         SND_CHMAP_FC
+#define MA_SND_CHMAP_LFE                        SND_CHMAP_LFE
+#define MA_SND_CHMAP_SL                         SND_CHMAP_SL
+#define MA_SND_CHMAP_SR                         SND_CHMAP_SR
+#define MA_SND_CHMAP_RC                         SND_CHMAP_RC
+#define MA_SND_CHMAP_FLC                        SND_CHMAP_FLC
+#define MA_SND_CHMAP_FRC                        SND_CHMAP_FRC
+#define MA_SND_CHMAP_RLC                        SND_CHMAP_RLC
+#define MA_SND_CHMAP_RRC                        SND_CHMAP_RRC
+#define MA_SND_CHMAP_FLW                        SND_CHMAP_FLW
+#define MA_SND_CHMAP_FRW                        SND_CHMAP_FRW
+#define MA_SND_CHMAP_FLH                        SND_CHMAP_FLH
+#define MA_SND_CHMAP_FCH                        SND_CHMAP_FCH
+#define MA_SND_CHMAP_FRH                        SND_CHMAP_FRH
+#define MA_SND_CHMAP_TC                         SND_CHMAP_TC
+#define MA_SND_CHMAP_TFL                        SND_CHMAP_TFL
+#define MA_SND_CHMAP_TFR                        SND_CHMAP_TFR
+#define MA_SND_CHMAP_TFC                        SND_CHMAP_TFC
+#define MA_SND_CHMAP_TRL                        SND_CHMAP_TRL
+#define MA_SND_CHMAP_TRR                        SND_CHMAP_TRR
+#define MA_SND_CHMAP_TRC                        SND_CHMAP_TRC
+#define MA_SND_CHMAP_TFLC                       SND_CHMAP_TFLC
+#define MA_SND_CHMAP_TFRC                       SND_CHMAP_TFRC
+#define MA_SND_CHMAP_TSL                        SND_CHMAP_TSL
+#define MA_SND_CHMAP_TSR                        SND_CHMAP_TSR
+#define MA_SND_CHMAP_LLFE                       SND_CHMAP_LLFE
+#define MA_SND_CHMAP_RLFE                       SND_CHMAP_RLFE
+#define MA_SND_CHMAP_BC                         SND_CHMAP_BC
+#define MA_SND_CHMAP_BLC                        SND_CHMAP_BLC
+#define MA_SND_CHMAP_BRC                        SND_CHMAP_BRC
 
 // Open mode flags.
-#define MA_SND_PCM_NO_AUTO_RESAMPLE            SND_PCM_NO_AUTO_RESAMPLE
-#define MA_SND_PCM_NO_AUTO_CHANNELS            SND_PCM_NO_AUTO_CHANNELS
-#define MA_SND_PCM_NO_AUTO_FORMAT              SND_PCM_NO_AUTO_FORMAT
+#define MA_SND_PCM_NO_AUTO_RESAMPLE             SND_PCM_NO_AUTO_RESAMPLE
+#define MA_SND_PCM_NO_AUTO_CHANNELS             SND_PCM_NO_AUTO_CHANNELS
+#define MA_SND_PCM_NO_AUTO_FORMAT               SND_PCM_NO_AUTO_FORMAT
 #else
 #include <errno.h>  // For EPIPE, etc.
 typedef unsigned long                           ma_snd_pcm_uframes_t;
@@ -11118,11 +11118,11 @@ typedef long                                    ma_snd_pcm_sframes_t;
 typedef int                                     ma_snd_pcm_stream_t;
 typedef int                                     ma_snd_pcm_format_t;
 typedef int                                     ma_snd_pcm_access_t;
-typedef struct ma_snd_pcm_t                    ma_snd_pcm_t;
-typedef struct ma_snd_pcm_hw_params_t          ma_snd_pcm_hw_params_t;
-typedef struct ma_snd_pcm_sw_params_t          ma_snd_pcm_sw_params_t;
-typedef struct ma_snd_pcm_format_mask_t        ma_snd_pcm_format_mask_t;
-typedef struct ma_snd_pcm_info_t               ma_snd_pcm_info_t;
+typedef struct ma_snd_pcm_t                     ma_snd_pcm_t;
+typedef struct ma_snd_pcm_hw_params_t           ma_snd_pcm_hw_params_t;
+typedef struct ma_snd_pcm_sw_params_t           ma_snd_pcm_sw_params_t;
+typedef struct ma_snd_pcm_format_mask_t         ma_snd_pcm_format_mask_t;
+typedef struct ma_snd_pcm_info_t                ma_snd_pcm_info_t;
 typedef struct
 {
     void* addr;
@@ -11132,7 +11132,7 @@ typedef struct
 typedef struct
 {
     unsigned int channels;
-    unsigned int pos[0];
+    unsigned int pos[1];
 } ma_snd_pcm_chmap_t;
 
 // snd_pcm_state_t
@@ -11220,61 +11220,61 @@ typedef struct
 #define MA_SND_PCM_NO_AUTO_FORMAT              0x00040000
 #endif
 
-typedef int                   (* ma_snd_pcm_open_proc)                          (ma_snd_pcm_t **pcm, const char *name, ma_snd_pcm_stream_t stream, int mode);
-typedef int                   (* ma_snd_pcm_close_proc)                         (ma_snd_pcm_t *pcm);
-typedef size_t                (* ma_snd_pcm_hw_params_sizeof_proc)              (void);
-typedef int                   (* ma_snd_pcm_hw_params_any_proc)                 (ma_snd_pcm_t *pcm, ma_snd_pcm_hw_params_t *params);
-typedef int                   (* ma_snd_pcm_hw_params_set_format_proc)          (ma_snd_pcm_t *pcm, ma_snd_pcm_hw_params_t *params, ma_snd_pcm_format_t val);
-typedef int                   (* ma_snd_pcm_hw_params_set_format_first_proc)    (ma_snd_pcm_t *pcm, ma_snd_pcm_hw_params_t *params, ma_snd_pcm_format_t *format);
-typedef void                  (* ma_snd_pcm_hw_params_get_format_mask_proc)     (ma_snd_pcm_hw_params_t *params, ma_snd_pcm_format_mask_t *mask);
-typedef int                   (* ma_snd_pcm_hw_params_set_channels_near_proc)   (ma_snd_pcm_t *pcm, ma_snd_pcm_hw_params_t *params, unsigned int *val);
-typedef int                   (* ma_snd_pcm_hw_params_set_rate_resample_proc)   (ma_snd_pcm_t *pcm, ma_snd_pcm_hw_params_t *params, unsigned int val);
-typedef int                   (* ma_snd_pcm_hw_params_set_rate_near_proc)       (ma_snd_pcm_t *pcm, ma_snd_pcm_hw_params_t *params, unsigned int *val, int *dir);
-typedef int                   (* ma_snd_pcm_hw_params_set_buffer_size_near_proc)(ma_snd_pcm_t *pcm, ma_snd_pcm_hw_params_t *params, ma_snd_pcm_uframes_t *val);
-typedef int                   (* ma_snd_pcm_hw_params_set_periods_near_proc)    (ma_snd_pcm_t *pcm, ma_snd_pcm_hw_params_t *params, unsigned int *val, int *dir);
-typedef int                   (* ma_snd_pcm_hw_params_set_access_proc)          (ma_snd_pcm_t *pcm, ma_snd_pcm_hw_params_t *params, ma_snd_pcm_access_t _access);
-typedef int                   (* ma_snd_pcm_hw_params_get_format_proc)          (const ma_snd_pcm_hw_params_t *params, ma_snd_pcm_format_t *format);
-typedef int                   (* ma_snd_pcm_hw_params_get_channels_proc)        (const ma_snd_pcm_hw_params_t *params, unsigned int *val);
-typedef int                   (* ma_snd_pcm_hw_params_get_channels_min_proc)    (const ma_snd_pcm_hw_params_t *params, unsigned int *val);
-typedef int                   (* ma_snd_pcm_hw_params_get_channels_max_proc)    (const ma_snd_pcm_hw_params_t *params, unsigned int *val);
-typedef int                   (* ma_snd_pcm_hw_params_get_rate_proc)            (const ma_snd_pcm_hw_params_t *params, unsigned int *rate, int *dir);
-typedef int                   (* ma_snd_pcm_hw_params_get_rate_min_proc)        (const ma_snd_pcm_hw_params_t *params, unsigned int *rate, int *dir);
-typedef int                   (* ma_snd_pcm_hw_params_get_rate_max_proc)        (const ma_snd_pcm_hw_params_t *params, unsigned int *rate, int *dir);
-typedef int                   (* ma_snd_pcm_hw_params_get_buffer_size_proc)     (const ma_snd_pcm_hw_params_t *params, ma_snd_pcm_uframes_t *val);
-typedef int                   (* ma_snd_pcm_hw_params_get_periods_proc)         (const ma_snd_pcm_hw_params_t *params, unsigned int *val, int *dir);
-typedef int                   (* ma_snd_pcm_hw_params_get_access_proc)          (const ma_snd_pcm_hw_params_t *params, ma_snd_pcm_access_t *_access);
-typedef int                   (* ma_snd_pcm_hw_params_proc)                     (ma_snd_pcm_t *pcm, ma_snd_pcm_hw_params_t *params);
-typedef size_t                (* ma_snd_pcm_sw_params_sizeof_proc)              (void);
-typedef int                   (* ma_snd_pcm_sw_params_current_proc)             (ma_snd_pcm_t *pcm, ma_snd_pcm_sw_params_t *params);
-typedef int                   (* ma_snd_pcm_sw_params_get_boundary_proc)        (ma_snd_pcm_sw_params_t *params, ma_snd_pcm_uframes_t* val);
-typedef int                   (* ma_snd_pcm_sw_params_set_avail_min_proc)       (ma_snd_pcm_t *pcm, ma_snd_pcm_sw_params_t *params, ma_snd_pcm_uframes_t val);
-typedef int                   (* ma_snd_pcm_sw_params_set_start_threshold_proc) (ma_snd_pcm_t *pcm, ma_snd_pcm_sw_params_t *params, ma_snd_pcm_uframes_t val);
-typedef int                   (* ma_snd_pcm_sw_params_set_stop_threshold_proc)  (ma_snd_pcm_t *pcm, ma_snd_pcm_sw_params_t *params, ma_snd_pcm_uframes_t val);
-typedef int                   (* ma_snd_pcm_sw_params_proc)                     (ma_snd_pcm_t *pcm, ma_snd_pcm_sw_params_t *params);
-typedef size_t                (* ma_snd_pcm_format_mask_sizeof_proc)            (void);
-typedef int                   (* ma_snd_pcm_format_mask_test_proc)              (const ma_snd_pcm_format_mask_t *mask, ma_snd_pcm_format_t val);
+typedef int                  (* ma_snd_pcm_open_proc)                          (ma_snd_pcm_t **pcm, const char *name, ma_snd_pcm_stream_t stream, int mode);
+typedef int                  (* ma_snd_pcm_close_proc)                         (ma_snd_pcm_t *pcm);
+typedef size_t               (* ma_snd_pcm_hw_params_sizeof_proc)              (void);
+typedef int                  (* ma_snd_pcm_hw_params_any_proc)                 (ma_snd_pcm_t *pcm, ma_snd_pcm_hw_params_t *params);
+typedef int                  (* ma_snd_pcm_hw_params_set_format_proc)          (ma_snd_pcm_t *pcm, ma_snd_pcm_hw_params_t *params, ma_snd_pcm_format_t val);
+typedef int                  (* ma_snd_pcm_hw_params_set_format_first_proc)    (ma_snd_pcm_t *pcm, ma_snd_pcm_hw_params_t *params, ma_snd_pcm_format_t *format);
+typedef void                 (* ma_snd_pcm_hw_params_get_format_mask_proc)     (ma_snd_pcm_hw_params_t *params, ma_snd_pcm_format_mask_t *mask);
+typedef int                  (* ma_snd_pcm_hw_params_set_channels_near_proc)   (ma_snd_pcm_t *pcm, ma_snd_pcm_hw_params_t *params, unsigned int *val);
+typedef int                  (* ma_snd_pcm_hw_params_set_rate_resample_proc)   (ma_snd_pcm_t *pcm, ma_snd_pcm_hw_params_t *params, unsigned int val);
+typedef int                  (* ma_snd_pcm_hw_params_set_rate_near_proc)       (ma_snd_pcm_t *pcm, ma_snd_pcm_hw_params_t *params, unsigned int *val, int *dir);
+typedef int                  (* ma_snd_pcm_hw_params_set_buffer_size_near_proc)(ma_snd_pcm_t *pcm, ma_snd_pcm_hw_params_t *params, ma_snd_pcm_uframes_t *val);
+typedef int                  (* ma_snd_pcm_hw_params_set_periods_near_proc)    (ma_snd_pcm_t *pcm, ma_snd_pcm_hw_params_t *params, unsigned int *val, int *dir);
+typedef int                  (* ma_snd_pcm_hw_params_set_access_proc)          (ma_snd_pcm_t *pcm, ma_snd_pcm_hw_params_t *params, ma_snd_pcm_access_t _access);
+typedef int                  (* ma_snd_pcm_hw_params_get_format_proc)          (const ma_snd_pcm_hw_params_t *params, ma_snd_pcm_format_t *format);
+typedef int                  (* ma_snd_pcm_hw_params_get_channels_proc)        (const ma_snd_pcm_hw_params_t *params, unsigned int *val);
+typedef int                  (* ma_snd_pcm_hw_params_get_channels_min_proc)    (const ma_snd_pcm_hw_params_t *params, unsigned int *val);
+typedef int                  (* ma_snd_pcm_hw_params_get_channels_max_proc)    (const ma_snd_pcm_hw_params_t *params, unsigned int *val);
+typedef int                  (* ma_snd_pcm_hw_params_get_rate_proc)            (const ma_snd_pcm_hw_params_t *params, unsigned int *rate, int *dir);
+typedef int                  (* ma_snd_pcm_hw_params_get_rate_min_proc)        (const ma_snd_pcm_hw_params_t *params, unsigned int *rate, int *dir);
+typedef int                  (* ma_snd_pcm_hw_params_get_rate_max_proc)        (const ma_snd_pcm_hw_params_t *params, unsigned int *rate, int *dir);
+typedef int                  (* ma_snd_pcm_hw_params_get_buffer_size_proc)     (const ma_snd_pcm_hw_params_t *params, ma_snd_pcm_uframes_t *val);
+typedef int                  (* ma_snd_pcm_hw_params_get_periods_proc)         (const ma_snd_pcm_hw_params_t *params, unsigned int *val, int *dir);
+typedef int                  (* ma_snd_pcm_hw_params_get_access_proc)          (const ma_snd_pcm_hw_params_t *params, ma_snd_pcm_access_t *_access);
+typedef int                  (* ma_snd_pcm_hw_params_proc)                     (ma_snd_pcm_t *pcm, ma_snd_pcm_hw_params_t *params);
+typedef size_t               (* ma_snd_pcm_sw_params_sizeof_proc)              (void);
+typedef int                  (* ma_snd_pcm_sw_params_current_proc)             (ma_snd_pcm_t *pcm, ma_snd_pcm_sw_params_t *params);
+typedef int                  (* ma_snd_pcm_sw_params_get_boundary_proc)        (ma_snd_pcm_sw_params_t *params, ma_snd_pcm_uframes_t* val);
+typedef int                  (* ma_snd_pcm_sw_params_set_avail_min_proc)       (ma_snd_pcm_t *pcm, ma_snd_pcm_sw_params_t *params, ma_snd_pcm_uframes_t val);
+typedef int                  (* ma_snd_pcm_sw_params_set_start_threshold_proc) (ma_snd_pcm_t *pcm, ma_snd_pcm_sw_params_t *params, ma_snd_pcm_uframes_t val);
+typedef int                  (* ma_snd_pcm_sw_params_set_stop_threshold_proc)  (ma_snd_pcm_t *pcm, ma_snd_pcm_sw_params_t *params, ma_snd_pcm_uframes_t val);
+typedef int                  (* ma_snd_pcm_sw_params_proc)                     (ma_snd_pcm_t *pcm, ma_snd_pcm_sw_params_t *params);
+typedef size_t               (* ma_snd_pcm_format_mask_sizeof_proc)            (void);
+typedef int                  (* ma_snd_pcm_format_mask_test_proc)              (const ma_snd_pcm_format_mask_t *mask, ma_snd_pcm_format_t val);
 typedef ma_snd_pcm_chmap_t * (* ma_snd_pcm_get_chmap_proc)                     (ma_snd_pcm_t *pcm);
-typedef int                   (* ma_snd_pcm_state_proc)                         (ma_snd_pcm_t *pcm);
-typedef int                   (* ma_snd_pcm_prepare_proc)                       (ma_snd_pcm_t *pcm);
-typedef int                   (* ma_snd_pcm_start_proc)                         (ma_snd_pcm_t *pcm);
-typedef int                   (* ma_snd_pcm_drop_proc)                          (ma_snd_pcm_t *pcm);
-typedef int                   (* ma_snd_pcm_drain_proc)                         (ma_snd_pcm_t *pcm);
-typedef int                   (* ma_snd_device_name_hint_proc)                  (int card, const char *iface, void ***hints);
-typedef char *                (* ma_snd_device_name_get_hint_proc)              (const void *hint, const char *id);
-typedef int                   (* ma_snd_card_get_index_proc)                    (const char *name);
-typedef int                   (* ma_snd_device_name_free_hint_proc)             (void **hints);
-typedef int                   (* ma_snd_pcm_mmap_begin_proc)                    (ma_snd_pcm_t *pcm, const ma_snd_pcm_channel_area_t **areas, ma_snd_pcm_uframes_t *offset, ma_snd_pcm_uframes_t *frames);
+typedef int                  (* ma_snd_pcm_state_proc)                         (ma_snd_pcm_t *pcm);
+typedef int                  (* ma_snd_pcm_prepare_proc)                       (ma_snd_pcm_t *pcm);
+typedef int                  (* ma_snd_pcm_start_proc)                         (ma_snd_pcm_t *pcm);
+typedef int                  (* ma_snd_pcm_drop_proc)                          (ma_snd_pcm_t *pcm);
+typedef int                  (* ma_snd_pcm_drain_proc)                         (ma_snd_pcm_t *pcm);
+typedef int                  (* ma_snd_device_name_hint_proc)                  (int card, const char *iface, void ***hints);
+typedef char *               (* ma_snd_device_name_get_hint_proc)              (const void *hint, const char *id);
+typedef int                  (* ma_snd_card_get_index_proc)                    (const char *name);
+typedef int                  (* ma_snd_device_name_free_hint_proc)             (void **hints);
+typedef int                  (* ma_snd_pcm_mmap_begin_proc)                    (ma_snd_pcm_t *pcm, const ma_snd_pcm_channel_area_t **areas, ma_snd_pcm_uframes_t *offset, ma_snd_pcm_uframes_t *frames);
 typedef ma_snd_pcm_sframes_t (* ma_snd_pcm_mmap_commit_proc)                   (ma_snd_pcm_t *pcm, ma_snd_pcm_uframes_t offset, ma_snd_pcm_uframes_t frames);
-typedef int                   (* ma_snd_pcm_recover_proc)                       (ma_snd_pcm_t *pcm, int err, int silent);
+typedef int                  (* ma_snd_pcm_recover_proc)                       (ma_snd_pcm_t *pcm, int err, int silent);
 typedef ma_snd_pcm_sframes_t (* ma_snd_pcm_readi_proc)                         (ma_snd_pcm_t *pcm, void *buffer, ma_snd_pcm_uframes_t size);
 typedef ma_snd_pcm_sframes_t (* ma_snd_pcm_writei_proc)                        (ma_snd_pcm_t *pcm, const void *buffer, ma_snd_pcm_uframes_t size);
 typedef ma_snd_pcm_sframes_t (* ma_snd_pcm_avail_proc)                         (ma_snd_pcm_t *pcm);
 typedef ma_snd_pcm_sframes_t (* ma_snd_pcm_avail_update_proc)                  (ma_snd_pcm_t *pcm);
-typedef int                   (* ma_snd_pcm_wait_proc)                          (ma_snd_pcm_t *pcm, int timeout);
-typedef int                   (* ma_snd_pcm_info_proc)                          (ma_snd_pcm_t *pcm, ma_snd_pcm_info_t* info);
-typedef size_t                (* ma_snd_pcm_info_sizeof_proc)                   ();
-typedef const char*           (* ma_snd_pcm_info_get_name_proc)                 (const ma_snd_pcm_info_t* info);
-typedef int                   (* ma_snd_config_update_free_global_proc)         ();
+typedef int                  (* ma_snd_pcm_wait_proc)                          (ma_snd_pcm_t *pcm, int timeout);
+typedef int                  (* ma_snd_pcm_info_proc)                          (ma_snd_pcm_t *pcm, ma_snd_pcm_info_t* info);
+typedef size_t               (* ma_snd_pcm_info_sizeof_proc)                   ();
+typedef const char*          (* ma_snd_pcm_info_get_name_proc)                 (const ma_snd_pcm_info_t* info);
+typedef int                  (* ma_snd_config_update_free_global_proc)         ();
 
 // This array specifies each of the common devices that can be used for both playback and capture.
 const char* g_maCommonDeviceNamesALSA[] = {
