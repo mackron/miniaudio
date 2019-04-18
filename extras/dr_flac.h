@@ -1,5 +1,5 @@
 // FLAC audio decoder. Public domain. See "unlicense" statement at the end of this file.
-// dr_flac - v0.11.4 - 2018-04-17
+// dr_flac - v0.11.5-rc - 2018-04-19
 //
 // David Reid - mackron@gmail.com
 
@@ -138,14 +138,18 @@ typedef drflac_uint32    drflac_bool32;
 #define DRFLAC_TRUE      1
 #define DRFLAC_FALSE     0
 
-#if defined(_MSC_VER) && _MSC_VER >= 1700 // Visual Studio 2012
-#define DRFLAC_DEPRECATED   __declspec(deprecated)
-#elif (defined(__GNUC__) && __GNUC__ >= 4)
-#define DRFLAC_DEPRECATED   __attribute__((deprecated))
-#elif (defined(__clang__) && __has_feature(attribute_deprecated))
-#define DRFLAC_DEPRECATED   __attribute__((deprecated))
+#if defined(_MSC_VER) && _MSC_VER >= 1700   /* Visual Studio 2012 */
+    #define DRFLAC_DEPRECATED       __declspec(deprecated)
+#elif (defined(__GNUC__) && __GNUC__ >= 4)  /* GCC 4 */
+    #define DRFLAC_DEPRECATED       __attribute__((deprecated))
+#elif defined(__has_feature)                /* Clang */
+    #if defined(__has_feature(attribute_deprecated))
+        #define DRFLAC_DEPRECATED   __attribute__((deprecated))
+    #else
+        #define DRFLAC_DEPRECATED
+    #endif
 #else
-#define DRFLAC_DEPRECATED
+    #define DRFLAC_DEPRECATED
 #endif
 
 // As data is read from the client it is placed into an internal buffer for fast access. This controls the
@@ -7981,6 +7985,9 @@ drflac_bool32 drflac_next_cuesheet_track(drflac_cuesheet_track_iterator* pIter, 
 
 
 // REVISION HISTORY
+//
+// v0.11.5 - 2018-04-19
+//   - Fix a compiler error with GCC. 
 //
 // v0.11.4 - 2018-04-17
 //   - Fix some warnings with GCC when compiling with -std=c99.
