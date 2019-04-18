@@ -18335,15 +18335,15 @@ struct ma_sio_cap
 };
 
 typedef struct ma_sio_hdl* (* ma_sio_open_proc)   (const char*, unsigned int, int);
-typedef void                (* ma_sio_close_proc)  (struct ma_sio_hdl*);
-typedef int                 (* ma_sio_setpar_proc) (struct ma_sio_hdl*, struct ma_sio_par*);
-typedef int                 (* ma_sio_getpar_proc) (struct ma_sio_hdl*, struct ma_sio_par*);
-typedef int                 (* ma_sio_getcap_proc) (struct ma_sio_hdl*, struct ma_sio_cap*);
-typedef size_t              (* ma_sio_write_proc)  (struct ma_sio_hdl*, const void*, size_t);
-typedef size_t              (* ma_sio_read_proc)   (struct ma_sio_hdl*, void*, size_t);
-typedef int                 (* ma_sio_start_proc)  (struct ma_sio_hdl*);
-typedef int                 (* ma_sio_stop_proc)   (struct ma_sio_hdl*);
-typedef int                 (* ma_sio_initpar_proc)(struct ma_sio_par*);
+typedef void               (* ma_sio_close_proc)  (struct ma_sio_hdl*);
+typedef int                (* ma_sio_setpar_proc) (struct ma_sio_hdl*, struct ma_sio_par*);
+typedef int                (* ma_sio_getpar_proc) (struct ma_sio_hdl*, struct ma_sio_par*);
+typedef int                (* ma_sio_getcap_proc) (struct ma_sio_hdl*, struct ma_sio_cap*);
+typedef size_t             (* ma_sio_write_proc)  (struct ma_sio_hdl*, const void*, size_t);
+typedef size_t             (* ma_sio_read_proc)   (struct ma_sio_hdl*, void*, size_t);
+typedef int                (* ma_sio_start_proc)  (struct ma_sio_hdl*);
+typedef int                (* ma_sio_stop_proc)   (struct ma_sio_hdl*);
+typedef int                (* ma_sio_initpar_proc)(struct ma_sio_par*);
 
 ma_format ma_format_from_sio_enc__sndio(unsigned int bits, unsigned int bps, unsigned int sig, unsigned int le, unsigned int msb)
 {
