@@ -18714,7 +18714,6 @@ void ma_device_uninit__sndio(ma_device* pDevice)
 
 ma_result ma_device_init_handle__sndio(ma_context* pContext, const ma_device_config* pConfig, ma_device_type deviceType, ma_device* pDevice)
 {
-    ma_result result;
     const char* pDeviceName;
     ma_ptr handle;
     int openFlags = 0;
