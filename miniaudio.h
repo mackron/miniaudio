@@ -18278,13 +18278,13 @@ ma_result ma_context_init__coreaudio(const ma_context_config* pConfig, ma_contex
 //#include <sys/soundcard.h>
 //#endif
 
-#define MA_SIO_DEVANY	"default"
-#define MA_SIO_PLAY	1
-#define MA_SIO_REC		2
-#define MA_SIO_NENC	8
-#define MA_SIO_NCHAN	8
-#define MA_SIO_NRATE	16
-#define MA_SIO_NCONF	4
+#define MA_SIO_DEVANY   "default"
+#define MA_SIO_PLAY     1
+#define MA_SIO_REC      2
+#define MA_SIO_NENC     8
+#define MA_SIO_NCHAN    8
+#define MA_SIO_NRATE    16
+#define MA_SIO_NCONF    4
 
 struct ma_sio_hdl; // <-- Opaque
 
@@ -18326,12 +18326,12 @@ struct ma_sio_conf
 struct ma_sio_cap
 {
     struct ma_sio_enc enc[MA_SIO_NENC];
-	unsigned int rchan[MA_SIO_NCHAN];
-	unsigned int pchan[MA_SIO_NCHAN];
-	unsigned int rate[MA_SIO_NRATE];
-	int __pad[7];
-	unsigned int nconf;
-	struct ma_sio_conf confs[MA_SIO_NCONF];
+    unsigned int rchan[MA_SIO_NCHAN];
+    unsigned int pchan[MA_SIO_NCHAN];
+    unsigned int rate[MA_SIO_NRATE];
+    int __pad[7];
+    unsigned int nconf;
+    struct ma_sio_conf confs[MA_SIO_NCONF];
 };
 
 typedef struct ma_sio_hdl* (* ma_sio_open_proc)   (const char*, unsigned int, int);
@@ -18865,7 +18865,7 @@ ma_result ma_device_init_handle__sndio(ma_context* pContext, const ma_device_con
     internalBufferSizeInFrames = par.appbufsz;
 
     if (deviceType == ma_device_type_capture) {
-	pDevice->sndio.handleCapture                 = handle;
+        pDevice->sndio.handleCapture                 = handle;
         pDevice->capture.internalFormat              = internalFormat;
         pDevice->capture.internalChannels            = internalChannels;
         pDevice->capture.internalSampleRate          = internalSampleRate;
@@ -18873,7 +18873,7 @@ ma_result ma_device_init_handle__sndio(ma_context* pContext, const ma_device_con
         pDevice->capture.internalBufferSizeInFrames  = internalBufferSizeInFrames;
         pDevice->capture.internalPeriods             = internalPeriods;
     } else {
-	pDevice->sndio.handlePlayback                = handle;
+        pDevice->sndio.handlePlayback                = handle;
         pDevice->playback.internalFormat             = internalFormat;
         pDevice->playback.internalChannels           = internalChannels;
         pDevice->playback.internalSampleRate         = internalSampleRate;
@@ -19402,7 +19402,7 @@ ma_result ma_device_init_fd__audio4(ma_context* pContext, const ma_device_config
 {
     const char* pDefaultDeviceNames[] = {
         "/dev/audio",
-	"/dev/audio0"
+        "/dev/audio0"
     };
     int fd;
     int fdFlags = 0;
