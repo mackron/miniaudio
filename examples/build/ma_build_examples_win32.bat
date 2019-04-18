@@ -1,7 +1,7 @@
 @echo off
 SET c_compiler=gcc
 SET cpp_compiler=g++
-SET options=-Wall
+SET options=-Wall -Wpedantic -std=c99
 @echo on
 
 %c_compiler% ../simple_playback.c    -o ../bin/simple_playback.exe    %options%
