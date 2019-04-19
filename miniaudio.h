@@ -1,6 +1,6 @@
 /*
 Audio playback and capture library. Choice of public domain or MIT-0. See license statements at the end of this file.
-miniaudio (formerly mini_al) - v0.9.2 - 2019-04-08
+miniaudio (formerly mini_al) - v0.9.3 - 2019-04-19
 
 David Reid - davidreidsoftware@gmail.com
 */
@@ -31619,6 +31619,9 @@ Device
 /*
 REVISION HISTORY
 ================
+
+v0.9.3 - 2019-04-19
+  - Fix compiler errors on GCC when compiling with -std=c99.
 
 v0.9.2 - 2019-04-08
   - Add support for per-context user data.
