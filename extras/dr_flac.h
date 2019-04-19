@@ -1,5 +1,5 @@
 // FLAC audio decoder. Public domain. See "unlicense" statement at the end of this file.
-// dr_flac - v0.11.5-rc - 2018-04-19
+// dr_flac - v0.11.5 - 2018-04-19
 //
 // David Reid - mackron@gmail.com
 
