@@ -15233,15 +15233,15 @@ typedef jack_port_t                 ma_jack_port_t;
 typedef JackProcessCallback         ma_JackProcessCallback;
 typedef JackBufferSizeCallback      ma_JackBufferSizeCallback;
 typedef JackShutdownCallback        ma_JackShutdownCallback;
-#define MA_JACK_DEFAULT_AUDIO_TYPE JACK_DEFAULT_AUDIO_TYPE
-#define ma_JackNoStartServer       JackNoStartServer
-#define ma_JackPortIsInput         JackPortIsInput
-#define ma_JackPortIsOutput        JackPortIsOutput
-#define ma_JackPortIsPhysical      JackPortIsPhysical
+#define MA_JACK_DEFAULT_AUDIO_TYPE  JACK_DEFAULT_AUDIO_TYPE
+#define ma_JackNoStartServer        JackNoStartServer
+#define ma_JackPortIsInput          JackPortIsInput
+#define ma_JackPortIsOutput         JackPortIsOutput
+#define ma_JackPortIsPhysical       JackPortIsPhysical
 #else
 typedef ma_uint32               ma_jack_nframes_t;
-typedef int                      ma_jack_options_t;
-typedef int                      ma_jack_status_t;
+typedef int                     ma_jack_options_t;
+typedef int                     ma_jack_status_t;
 typedef struct ma_jack_client_t ma_jack_client_t;
 typedef struct ma_jack_port_t   ma_jack_port_t;
 typedef int  (* ma_JackProcessCallback)   (ma_jack_nframes_t nframes, void* arg);
@@ -15255,21 +15255,21 @@ typedef void (* ma_JackShutdownCallback)  (void* arg);
 #endif
 
 typedef ma_jack_client_t* (* ma_jack_client_open_proc)             (const char* client_name, ma_jack_options_t options, ma_jack_status_t* status, ...);
-typedef int                (* ma_jack_client_close_proc)            (ma_jack_client_t* client);
-typedef int                (* ma_jack_client_name_size_proc)        ();
-typedef int                (* ma_jack_set_process_callback_proc)    (ma_jack_client_t* client, ma_JackProcessCallback process_callback, void* arg);
-typedef int                (* ma_jack_set_buffer_size_callback_proc)(ma_jack_client_t* client, ma_JackBufferSizeCallback bufsize_callback, void* arg);
-typedef void               (* ma_jack_on_shutdown_proc)             (ma_jack_client_t* client, ma_JackShutdownCallback function, void* arg);
+typedef int               (* ma_jack_client_close_proc)            (ma_jack_client_t* client);
+typedef int               (* ma_jack_client_name_size_proc)        ();
+typedef int               (* ma_jack_set_process_callback_proc)    (ma_jack_client_t* client, ma_JackProcessCallback process_callback, void* arg);
+typedef int               (* ma_jack_set_buffer_size_callback_proc)(ma_jack_client_t* client, ma_JackBufferSizeCallback bufsize_callback, void* arg);
+typedef void              (* ma_jack_on_shutdown_proc)             (ma_jack_client_t* client, ma_JackShutdownCallback function, void* arg);
 typedef ma_jack_nframes_t (* ma_jack_get_sample_rate_proc)         (ma_jack_client_t* client);
 typedef ma_jack_nframes_t (* ma_jack_get_buffer_size_proc)         (ma_jack_client_t* client);
-typedef const char**       (* ma_jack_get_ports_proc)               (ma_jack_client_t* client, const char* port_name_pattern, const char* type_name_pattern, unsigned long flags);
-typedef int                (* ma_jack_activate_proc)                (ma_jack_client_t* client);
-typedef int                (* ma_jack_deactivate_proc)              (ma_jack_client_t* client);
-typedef int                (* ma_jack_connect_proc)                 (ma_jack_client_t* client, const char* source_port, const char* destination_port);
+typedef const char**      (* ma_jack_get_ports_proc)               (ma_jack_client_t* client, const char* port_name_pattern, const char* type_name_pattern, unsigned long flags);
+typedef int               (* ma_jack_activate_proc)                (ma_jack_client_t* client);
+typedef int               (* ma_jack_deactivate_proc)              (ma_jack_client_t* client);
+typedef int               (* ma_jack_connect_proc)                 (ma_jack_client_t* client, const char* source_port, const char* destination_port);
 typedef ma_jack_port_t*   (* ma_jack_port_register_proc)           (ma_jack_client_t* client, const char* port_name, const char* port_type, unsigned long flags, unsigned long buffer_size);
-typedef const char*        (* ma_jack_port_name_proc)               (const ma_jack_port_t* port);
-typedef void*              (* ma_jack_port_get_buffer_proc)         (ma_jack_port_t* port, ma_jack_nframes_t nframes);
-typedef void               (* ma_jack_free_proc)                    (void* ptr);
+typedef const char*       (* ma_jack_port_name_proc)               (const ma_jack_port_t* port);
+typedef void*             (* ma_jack_port_get_buffer_proc)         (ma_jack_port_t* port, ma_jack_nframes_t nframes);
+typedef void              (* ma_jack_free_proc)                    (void* ptr);
 
 ma_result ma_context_open_client__jack(ma_context* pContext, ma_jack_client_t** ppClient)
 {
