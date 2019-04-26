@@ -4438,7 +4438,7 @@ typedef int (* ma_pthread_attr_setschedpolicy_proc)(pthread_attr_t *attr, int po
 typedef int (* ma_pthread_attr_getschedparam_proc)(const pthread_attr_t *attr, struct sched_param *param);
 typedef int (* ma_pthread_attr_setschedparam_proc)(pthread_attr_t *attr, const struct sched_param *param);
 
-ma_bool32 ma_thread_create__posix(ma_context* pContext, ma_thread* pThread, ma_thread_entry_proc entryProc, void* pData)
+ma_result ma_thread_create__posix(ma_context* pContext, ma_thread* pThread, ma_thread_entry_proc entryProc, void* pData)
 {
     pthread_attr_t* pAttr = NULL;
 
