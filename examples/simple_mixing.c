@@ -43,7 +43,7 @@ ma_uint32 read_and_mix_pcm_frames_f32(ma_decoder* pDecoder, float* pOutputF32, m
 {
     /*
     The way mixing works is that we just read into a temporary buffer, then take the contents of that buffer and mix it with the
-    contents of the output buffer by simply adding the sample together. You could also clip the samples to -1..+1, but I'm not
+    contents of the output buffer by simply adding the samples together. You could also clip the samples to -1..+1, but I'm not
     doing that in this example.
     */
     float temp[4096];
@@ -95,7 +95,7 @@ void data_callback(ma_device* pDevice, void* pOutput, const void* pInput, ma_uin
 
     /*
     If at the end all of our decoders are at the end we need to stop. We cannot stop the device in the callback. Instead we need to
-    signal an event to indicate that it's stopped. The main thread will be waiting on the event, after which it will stop the event.
+    signal an event to indicate that it's stopped. The main thread will be waiting on the event, after which it will stop the device.
     */
     if (are_all_decoders_at_end()) {
         ma_event_signal(&g_stopEvent);
