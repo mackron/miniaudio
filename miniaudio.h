@@ -17125,6 +17125,7 @@ ma_result ma_get_AudioObject_closest_buffer_size_in_frames(ma_context* pContext,
 
 ma_result ma_set_AudioObject_buffer_size_in_frames(ma_context* pContext, AudioObjectID deviceObjectID, ma_device_type deviceType, ma_uint32* pBufferSizeInOut)
 {
+    ma_result result;
     ma_uint32 chosenBufferSizeInFrames;
     AudioObjectPropertyAddress propAddress;
     UInt32 dataSize;
@@ -17132,7 +17133,7 @@ ma_result ma_set_AudioObject_buffer_size_in_frames(ma_context* pContext, AudioOb
 
     ma_assert(pContext != NULL);
 
-    ma_result result = ma_get_AudioObject_closest_buffer_size_in_frames(pContext, deviceObjectID, deviceType, *pBufferSizeInOut, &chosenBufferSizeInFrames);
+    result = ma_get_AudioObject_closest_buffer_size_in_frames(pContext, deviceObjectID, deviceType, *pBufferSizeInOut, &chosenBufferSizeInFrames);
     if (result != MA_SUCCESS) {
         return result;
     }
@@ -17584,6 +17585,7 @@ ma_result ma_context_get_device_info__coreaudio(ma_context* pContext, ma_device_
         for (iStreamDescription = 0; iStreamDescription < streamDescriptionCount; ++iStreamDescription) {
             ma_format format;
             ma_bool32 formatExists = MA_FALSE;
+            ma_uint32 iOutputFormat;
 
             result = ma_format_from_AudioStreamBasicDescription(&pStreamDescriptions[iStreamDescription].mFormat, &format);
             if (result != MA_SUCCESS) {
@@ -17593,7 +17595,7 @@ ma_result ma_context_get_device_info__coreaudio(ma_context* pContext, ma_device_
             ma_assert(format != ma_format_unknown);
         
             /* Make sure the format isn't already in the output list. */
-            for (ma_uint32 iOutputFormat = 0; iOutputFormat < pDeviceInfo->formatCount; ++iOutputFormat) {
+            for (iOutputFormat = 0; iOutputFormat < pDeviceInfo->formatCount; ++iOutputFormat) {
                 if (pDeviceInfo->formats[iOutputFormat] == format) {
                     formatExists = MA_TRUE;
                     break;
@@ -17623,9 +17625,10 @@ ma_result ma_context_get_device_info__coreaudio(ma_context* pContext, ma_device_
         }
     
         if (sampleRateRangeCount > 0) {
+            UInt32 iSampleRate;
             pDeviceInfo->minSampleRate = UINT32_MAX;
             pDeviceInfo->maxSampleRate = 0;
-            for (UInt32 iSampleRate = 0; iSampleRate < sampleRateRangeCount; ++iSampleRate) {
+            for (iSampleRate = 0; iSampleRate < sampleRateRangeCount; ++iSampleRate) {
                 if (pDeviceInfo->minSampleRate > pSampleRateRanges[iSampleRate].mMinimum) {
                     pDeviceInfo->minSampleRate = pSampleRateRanges[iSampleRate].mMinimum;
                 }
@@ -17795,6 +17798,7 @@ OSStatus ma_on_output__coreaudio(void* pUserData, AudioUnitRenderActionFlags* pA
 
             while (framesRemaining > 0) {
                 void* ppDeinterleavedBuffers[MA_MAX_CHANNELS];
+                ma_uint32 iChannel;
                 ma_uint32 framesToRead = sizeof(tempBuffer) / ma_get_bytes_per_frame(pDevice->playback.internalFormat, pDevice->playback.internalChannels);
                 if (framesToRead > framesRemaining) {
                     framesToRead = framesRemaining;
@@ -17806,7 +17810,7 @@ OSStatus ma_on_output__coreaudio(void* pUserData, AudioUnitRenderActionFlags* pA
                     ma_device__read_frames_from_client(pDevice, framesToRead, tempBuffer);
                 }
                 
-                for (ma_uint32 iChannel = 0; iChannel < pDevice->playback.internalChannels; ++iChannel) {
+                for (iChannel = 0; iChannel < pDevice->playback.internalChannels; ++iChannel) {
                     ppDeinterleavedBuffers[iChannel] = (void*)ma_offset_ptr(pBufferList->mBuffers[iBuffer].mData, (frameCountPerBuffer - framesRemaining) * ma_get_bytes_per_sample(pDevice->playback.internalFormat));
                 }
                 
@@ -17905,12 +17909,13 @@ OSStatus ma_on_input__coreaudio(void* pUserData, AudioUnitRenderActionFlags* pAc
             ma_uint32 framesRemaining = frameCount;
             while (framesRemaining > 0) {
                 void* ppDeinterleavedBuffers[MA_MAX_CHANNELS];
+                ma_uint32 iChannel;
                 ma_uint32 framesToSend = sizeof(tempBuffer) / ma_get_bytes_per_sample(pDevice->capture.internalFormat);
                 if (framesToSend > framesRemaining) {
                     framesToSend = framesRemaining;
                 }
                 
-                for (ma_uint32 iChannel = 0; iChannel < pDevice->capture.internalChannels; ++iChannel) {
+                for (iChannel = 0; iChannel < pDevice->capture.internalChannels; ++iChannel) {
                     ppDeinterleavedBuffers[iChannel] = (void*)ma_offset_ptr(pRenderedBufferList->mBuffers[iBuffer].mData, (frameCount - framesRemaining) * ma_get_bytes_per_sample(pDevice->capture.internalFormat));
                 }
                 
@@ -18128,8 +18133,6 @@ ma_result ma_device_init_internal__coreaudio(ma_context* pContext, ma_device_typ
     pData->component = NULL;
     pData->audioUnit = NULL;
     pData->pAudioBufferList = NULL;
-    
-    ma_result result;
     
 #if defined(MA_APPLE_DESKTOP)
     result = ma_find_AudioObjectID(pContext, deviceType, pDeviceID, &deviceObjectID);
@@ -18378,8 +18381,9 @@ ma_result ma_device_init_internal__coreaudio(ma_context* pContext, ma_device_typ
             pBufferList->mBuffers[0].mDataByteSize = actualBufferSizeInFrames * ma_get_bytes_per_frame(pData->formatOut, pData->channelsOut);
             pBufferList->mBuffers[0].mData = (ma_uint8*)pBufferList + sizeof(AudioBufferList);
         } else {
+            ma_uint32 iBuffer;
             pBufferList->mNumberBuffers = pData->channelsOut;
-            for (ma_uint32 iBuffer = 0; iBuffer < pBufferList->mNumberBuffers; ++iBuffer) {
+            for (iBuffer = 0; iBuffer < pBufferList->mNumberBuffers; ++iBuffer) {
                 pBufferList->mBuffers[iBuffer].mNumberChannels = 1;
                 pBufferList->mBuffers[iBuffer].mDataByteSize = actualBufferSizeInFrames * ma_get_bytes_per_sample(pData->formatOut);
                 pBufferList->mBuffers[iBuffer].mData = (ma_uint8*)pBufferList + ((sizeof(AudioBufferList) - sizeof(AudioBuffer)) + (sizeof(AudioBuffer) * pData->channelsOut)) + (actualBufferSizeInFrames * ma_get_bytes_per_sample(pData->formatOut) * iBuffer);
