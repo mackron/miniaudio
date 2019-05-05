@@ -1,6 +1,6 @@
 /*
 FLAC audio decoder. Choice of public domain or MIT-0. See license statements at the end of this file.
-dr_flac - v0.11.6 - 2019-05-05
+dr_flac - v0.11.7 - 2019-05-06
 
 David Reid - mackron@gmail.com
 */
@@ -1485,14 +1485,14 @@ static DRFLAC_INLINE drflac_uint16 drflac_crc16__64bit(drflac_uint16 crc, drflac
 
     switch (wholeBytes) {
         default:
-        case 8: crc = drflac_crc16_byte(crc, (drflac_uint8)((data & (((drflac_uint64)0xFF000000 << 16 << 16) << leftoverBits)) >> (56 + leftoverBits)));    /* Weird "16 << 16" bitshift is required for C89 because it doesn't support 64-bit constants. Should be optimized out by a good compiler. */
-        case 7: crc = drflac_crc16_byte(crc, (drflac_uint8)((data & (((drflac_uint64)0x00FF0000 << 16 << 16) << leftoverBits)) >> (48 + leftoverBits)));
-        case 6: crc = drflac_crc16_byte(crc, (drflac_uint8)((data & (((drflac_uint64)0x0000FF00 << 16 << 16) << leftoverBits)) >> (40 + leftoverBits)));
-        case 5: crc = drflac_crc16_byte(crc, (drflac_uint8)((data & (((drflac_uint64)0x000000FF << 16 << 16) << leftoverBits)) >> (32 + leftoverBits)));
-        case 4: crc = drflac_crc16_byte(crc, (drflac_uint8)((data & (((drflac_uint64)0xFF000000            ) << leftoverBits)) >> (24 + leftoverBits)));
-        case 3: crc = drflac_crc16_byte(crc, (drflac_uint8)((data & (((drflac_uint64)0x00FF0000            ) << leftoverBits)) >> (16 + leftoverBits)));
-        case 2: crc = drflac_crc16_byte(crc, (drflac_uint8)((data & (((drflac_uint64)0x0000FF00            ) << leftoverBits)) >> ( 8 + leftoverBits)));
-        case 1: crc = drflac_crc16_byte(crc, (drflac_uint8)((data & (((drflac_uint64)0x000000FF            ) << leftoverBits)) >> ( 0 + leftoverBits)));
+        case 8: crc = drflac_crc16_byte(crc, (drflac_uint8)((data & (((drflac_uint64)0xFF000000 << 32) << leftoverBits)) >> (56 + leftoverBits)));    /* Weird "<< 32" bitshift is required for C89 because it doesn't support 64-bit constants. Should be optimized out by a good compiler. */
+        case 7: crc = drflac_crc16_byte(crc, (drflac_uint8)((data & (((drflac_uint64)0x00FF0000 << 32) << leftoverBits)) >> (48 + leftoverBits)));
+        case 6: crc = drflac_crc16_byte(crc, (drflac_uint8)((data & (((drflac_uint64)0x0000FF00 << 32) << leftoverBits)) >> (40 + leftoverBits)));
+        case 5: crc = drflac_crc16_byte(crc, (drflac_uint8)((data & (((drflac_uint64)0x000000FF << 32) << leftoverBits)) >> (32 + leftoverBits)));
+        case 4: crc = drflac_crc16_byte(crc, (drflac_uint8)((data & (((drflac_uint64)0xFF000000      ) << leftoverBits)) >> (24 + leftoverBits)));
+        case 3: crc = drflac_crc16_byte(crc, (drflac_uint8)((data & (((drflac_uint64)0x00FF0000      ) << leftoverBits)) >> (16 + leftoverBits)));
+        case 2: crc = drflac_crc16_byte(crc, (drflac_uint8)((data & (((drflac_uint64)0x0000FF00      ) << leftoverBits)) >> ( 8 + leftoverBits)));
+        case 1: crc = drflac_crc16_byte(crc, (drflac_uint8)((data & (((drflac_uint64)0x000000FF      ) << leftoverBits)) >> ( 0 + leftoverBits)));
         case 0: if (leftoverBits > 0) crc = (crc << leftoverBits) ^ drflac__crc16_table[(crc >> (16 - leftoverBits)) ^ (data & leftoverDataMask)];
     }
     return crc;
@@ -2010,10 +2010,10 @@ static DRFLAC_INLINE drflac_uint32 drflac__clz_software(drflac_cache_t x)
     n = clz_table_4[x >> (sizeof(x)*8 - 4)];
     if (n == 0) {
 #ifdef DRFLAC_64BIT
-        if ((x & 0xFFFFFFFF00000000ULL) == 0) { n  = 32; x <<= 32; }
-        if ((x & 0xFFFF000000000000ULL) == 0) { n += 16; x <<= 16; }
-        if ((x & 0xFF00000000000000ULL) == 0) { n += 8;  x <<= 8;  }
-        if ((x & 0xF000000000000000ULL) == 0) { n += 4;  x <<= 4;  }
+        if ((x & ((drflac_uint64)0xFFFFFFFF << 32)) == 0) { n  = 32; x <<= 32; }
+        if ((x & ((drflac_uint64)0xFFFF0000 << 32)) == 0) { n += 16; x <<= 16; }
+        if ((x & ((drflac_uint64)0xFF000000 << 32)) == 0) { n += 8;  x <<= 8;  }
+        if ((x & ((drflac_uint64)0xF0000000 << 32)) == 0) { n += 4;  x <<= 4;  }
 #else
         if ((x & 0xFFFF0000) == 0) { n  = 16; x <<= 16; }
         if ((x & 0xFF000000) == 0) { n += 8;  x <<= 8;  }
@@ -2050,9 +2050,9 @@ static DRFLAC_INLINE drflac_uint32 drflac__clz_lzcnt(drflac_cache_t x)
             return sizeof(x)*8;
         }
         #ifdef DRFLAC_64BIT
-            return (drflac_uint32)__builtin_clzll((unsigned long long)x);
+            return (drflac_uint32)__builtin_clzll((drflac_uint64)x);
         #else
-            return (drflac_uint32)__builtin_clzl((unsigned long)x);
+            return (drflac_uint32)__builtin_clzl((drflac_uint32)x);
         #endif
     #else
         /* Unsupported compiler. */
@@ -7491,6 +7491,7 @@ static DRFLAC_INLINE void drflac_read_pcm_frames_f32__decode_mid_side__sse2(drfl
     drflac_uint64 i;
     drflac_uint64 frameCount4;
     float factor;
+    int shift;
     __m128 factor128;
 
     drflac_assert(pFlac->bitsPerSample <= 24);
@@ -7500,9 +7501,14 @@ static DRFLAC_INLINE void drflac_read_pcm_frames_f32__decode_mid_side__sse2(drfl
     factor = 1.0f / 8388608.0f;
     factor128 = _mm_set1_ps(1.0f / 8388608.0f);
 
-    int shift = unusedBitsPerSample - 8;
+    shift = unusedBitsPerSample - 8;
     if (shift == 0) {
         for (i = 0; i < frameCount4; ++i) {
+            __m128i tempL;
+            __m128i tempR;
+            __m128  leftf;
+            __m128  rightf;
+
             __m128i inputSample0 = _mm_loadu_si128((const __m128i*)pInputSamples0 + i);
             __m128i inputSample1 = _mm_loadu_si128((const __m128i*)pInputSamples1 + i);
 
@@ -7511,15 +7517,15 @@ static DRFLAC_INLINE void drflac_read_pcm_frames_f32__decode_mid_side__sse2(drfl
 
             mid = _mm_or_si128(_mm_slli_epi32(mid, 1), _mm_and_si128(side, _mm_set1_epi32(0x01)));
 
-            __m128i tempL = _mm_add_epi32(mid, side);
-            __m128i tempR = _mm_sub_epi32(mid, side);
+            tempL = _mm_add_epi32(mid, side);
+            tempR = _mm_sub_epi32(mid, side);
 
             /* Signed bit shift. */
             tempL = _mm_or_si128(_mm_srli_epi32(tempL, 1), _mm_and_si128(tempL, _mm_set1_epi32(0x80000000)));
             tempR = _mm_or_si128(_mm_srli_epi32(tempR, 1), _mm_and_si128(tempR, _mm_set1_epi32(0x80000000)));
 
-            __m128 leftf  = _mm_mul_ps(_mm_cvtepi32_ps(tempL), factor128);
-            __m128 rightf = _mm_mul_ps(_mm_cvtepi32_ps(tempR), factor128);
+            leftf  = _mm_mul_ps(_mm_cvtepi32_ps(tempL), factor128);
+            rightf = _mm_mul_ps(_mm_cvtepi32_ps(tempR), factor128);
 
             pOutputSamples[i*8+0] = ((float*)&leftf)[0];
             pOutputSamples[i*8+1] = ((float*)&rightf)[0];
@@ -8643,6 +8649,9 @@ drflac_bool32 drflac_next_cuesheet_track(drflac_cuesheet_track_iterator* pIter, 
 /*
 REVISION HISTORY
 ================
+v0.11.7 - 2019-05-06
+  - C89 fixes.
+
 v0.11.6 - 2019-05-05
   - Add support for C89.
   - Fix a compiler warning when CRC is disabled.
