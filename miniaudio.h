@@ -577,12 +577,15 @@ typedef ma_uint16 wchar_t;
 #endif
 #endif
 
-#ifdef _MSC_VER
-#define MA_ALIGN(alignment) __declspec(align(alignment))
+#if defined(_MSC_VER)
+    #if _MSC_VER >= 1400
+        #define MA_ALIGN(alignment) __declspec(align(alignment))
+    #endif
 #elif !defined(__DMC__)
-#define MA_ALIGN(alignment) __attribute__((aligned(alignment)))
-#else
-#define MA_ALIGN(alignment)
+    #define MA_ALIGN(alignment) __attribute__((aligned(alignment)))
+#endif
+#ifndef MA_ALIGN
+    #define MA_ALIGN(alignment)
 #endif
 
 #ifdef _MSC_VER
@@ -3183,7 +3186,7 @@ IMPLEMENTATION
 #if defined(MA_X64) || defined(MA_X86)
     #if defined(_MSC_VER) && !defined(__clang__)
         /* MSVC. */
-        #if !defined(MA_NO_SSE2)   /* Assume all MSVC compilers support SSE2 intrinsics. */
+        #if _MSC_VER >= 1400 && !defined(MA_NO_SSE2)   /* 2005 */
             #define MA_SUPPORT_SSE2
         #endif
         /*#if _MSC_VER >= 1600 && !defined(MA_NO_AVX)*/    /* 2010 */
@@ -4142,11 +4145,11 @@ ma_uint32 ma_get_standard_sample_rate_priority_index(ma_uint32 sampleRate)   /* 
 ma_uint64 ma_calculate_frame_count_after_src(ma_uint32 sampleRateOut, ma_uint32 sampleRateIn, ma_uint64 frameCountIn)
 {
     double    srcRatio       = (double)sampleRateOut / sampleRateIn;
-    double    frameCountOutF = frameCountIn * srcRatio;
+    double    frameCountOutF = (ma_int64)frameCountIn * srcRatio; /* Cast to int64 required for VC6. */
     ma_uint64 frameCountOut  = (ma_uint64)frameCountOutF;
 
     /* If the output frame count is fractional, make sure we add an extra frame to ensure there's enough room for that last sample. */
-    if ((frameCountOutF - frameCountOut) > 0.0) {
+    if ((frameCountOutF - (ma_int64)frameCountOut) > 0.0) {
         frameCountOut += 1;
     }
 
@@ -6169,12 +6172,11 @@ WASAPI Backend
 
 
 /* Some compilers don't define VerifyVersionInfoW. Need to write this ourselves. */
-#if defined(__DMC__)
-#define _WIN32_WINNT_VISTA      0x0600
-#define VER_MINORVERSION        0x01
-#define VER_MAJORVERSION        0x02
-#define VER_SERVICEPACKMAJOR    0x20
-#define VER_GREATER_EQUAL       0x03
+#define MA_WIN32_WINNT_VISTA    0x0600
+#define MA_VER_MINORVERSION     0x01
+#define MA_VER_MAJORVERSION     0x02
+#define MA_VER_SERVICEPACKMAJOR 0x20
+#define MA_VER_GREATER_EQUAL    0x03
 
 typedef struct  {
     DWORD dwOSVersionInfoSize;
@@ -6190,11 +6192,8 @@ typedef struct  {
     BYTE  wReserved;
 } ma_OSVERSIONINFOEXW;
 
-BOOL WINAPI VerifyVersionInfoW(ma_OSVERSIONINFOEXW* lpVersionInfo, DWORD dwTypeMask, DWORDLONG dwlConditionMask);
-ULONGLONG WINAPI VerSetConditionMask(ULONGLONG dwlConditionMask, DWORD dwTypeBitMask, BYTE dwConditionMask);
-#else
-typedef OSVERSIONINFOEXW ma_OSVERSIONINFOEXW;
-#endif
+typedef BOOL      (WINAPI * ma_PFNVerifyVersionInfoW) (ma_OSVERSIONINFOEXW* lpVersionInfo, DWORD dwTypeMask, DWORDLONG dwlConditionMask);
+typedef ULONGLONG (WINAPI * ma_PFNVerSetConditionMask)(ULONGLONG dwlConditionMask, DWORD dwTypeBitMask, BYTE dwConditionMask);
 
 
 #ifndef PROPERTYKEY_DEFINED
@@ -8680,15 +8679,33 @@ ma_result ma_context_init__wasapi(const ma_context_config* pConfig, ma_context* 
     /*
     WASAPI is only supported in Vista SP1 and newer. The reason for SP1 and not the base version of Vista is that event-driven
     exclusive mode does not work until SP1.
+
+    Unfortunately older compilers don't define these functions so we need to dynamically load them in order to avoid a lin error.
     */
     {
         ma_OSVERSIONINFOEXW osvi;
+        ma_handle kernel32DLL;
+        ma_PFNVerifyVersionInfoW _VerifyVersionInfoW;
+        ma_PFNVerSetConditionMask _VerSetConditionMask;
+
+        kernel32DLL = ma_dlopen("kernel32.dll");
+        if (kernel32DLL == NULL) {
+            return MA_NO_BACKEND;
+        }
+
+        _VerifyVersionInfoW = (ma_PFNVerifyVersionInfoW)ma_dlsym(kernel32DLL, "VerifyVersionInfoW");
+        _VerSetConditionMask = (ma_PFNVerSetConditionMask)ma_dlsym(kernel32DLL, "VerSetConditionMask");
+        if (_VerifyVersionInfoW == NULL || _VerSetConditionMask == NULL) {
+            ma_dlclose(kernel32DLL);
+            return MA_NO_BACKEND;
+        }
+
         ma_zero_object(&osvi);
         osvi.dwOSVersionInfoSize = sizeof(osvi);
-        osvi.dwMajorVersion = HIBYTE(_WIN32_WINNT_VISTA);
-        osvi.dwMinorVersion = LOBYTE(_WIN32_WINNT_VISTA);
+        osvi.dwMajorVersion = HIBYTE(MA_WIN32_WINNT_VISTA);
+        osvi.dwMinorVersion = LOBYTE(MA_WIN32_WINNT_VISTA);
         osvi.wServicePackMajor = 1;
-        if (VerifyVersionInfoW(&osvi, VER_MAJORVERSION | VER_MINORVERSION | VER_SERVICEPACKMAJOR, VerSetConditionMask(VerSetConditionMask(VerSetConditionMask(0, VER_MAJORVERSION, VER_GREATER_EQUAL), VER_MINORVERSION, VER_GREATER_EQUAL), VER_SERVICEPACKMAJOR, VER_GREATER_EQUAL))) {
+        if (_VerifyVersionInfoW(&osvi, MA_VER_MAJORVERSION | MA_VER_MINORVERSION | MA_VER_SERVICEPACKMAJOR, _VerSetConditionMask(_VerSetConditionMask(_VerSetConditionMask(0, MA_VER_MAJORVERSION, MA_VER_GREATER_EQUAL), MA_VER_MINORVERSION, MA_VER_GREATER_EQUAL), MA_VER_SERVICEPACKMAJOR, MA_VER_GREATER_EQUAL))) {
             result = MA_SUCCESS;
         } else {
             result = MA_NO_BACKEND;
@@ -28913,7 +28930,7 @@ ma_uint64 ma_src_read_deinterleaved__linear(ma_src* pSRC, ma_uint64 frameCount, 
 
         /* Read Input Data */
         tBeg = pSRC->linear.timeIn;
-        tEnd = tBeg + (framesToRead*factor);
+        tEnd = tBeg + ((ma_int64)framesToRead*factor); /* Cast to int64 required for VC6. */
 
         framesToReadFromClient = (ma_uint32)(tEnd) + 1 + 1;   /* +1 to make tEnd 1-based and +1 because we always need to an extra sample for interpolation. */
         if (framesToReadFromClient >= maxFrameCountPerChunkIn) {
@@ -29540,7 +29557,7 @@ ma_uint64 ma_src_read_deinterleaved__sinc(ma_src* pSRC, ma_uint64 frameCount, vo
 
         prevWindowPosInSamples = pSRC->sinc.windowPosInSamples;
 
-        pSRC->sinc.timeIn            += (outputFramesToRead * factor);
+        pSRC->sinc.timeIn            += ((ma_int64)outputFramesToRead * factor); /* Cast to int64 required for VC6. */
         pSRC->sinc.windowPosInSamples = (ma_uint32)pSRC->sinc.timeIn;
         pSRC->sinc.inputFrameCount   -= pSRC->sinc.windowPosInSamples - prevWindowPosInSamples;
 
@@ -32775,7 +32792,7 @@ ma_uint64 ma_sine_wave_read_f32_ex(ma_sine_wave* pSineWave, ma_uint64 frameCount
             }
         }
     } else {
-        pSineWave->time += pSineWave->delta * frameCount;
+        pSineWave->time += pSineWave->delta * (ma_int64)frameCount; /* Cast to int64 required for VC6. */
     }
 
     return frameCount;

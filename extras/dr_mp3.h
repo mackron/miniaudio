@@ -1,6 +1,6 @@
 /*
 MP3 audio decoder. Choice of public domain or MIT-0. See license statements at the end of this file.
-dr_mp3 - v0.4.3 - 2019-05-05
+dr_mp3 - v0.4.4 - 2019-05-06
 
 David Reid - mackron@gmail.com
 
@@ -409,7 +409,6 @@ void drmp3_free(void* p);
 #ifdef DR_MP3_IMPLEMENTATION
 #include <stdlib.h>
 #include <string.h>
-#include <stdint.h>
 #include <limits.h> /* For INT_MAX */
 
 /* Disable SIMD when compiling with TCC for now. */
@@ -464,7 +463,7 @@ void drmp3_free(void* p);
 #define DR_MP3_ONLY_SIMD
 #endif
 
-#if (defined(_MSC_VER) && (defined(_M_IX86) || defined(_M_X64))) || ((defined(__i386__) || defined(__x86_64__)) && defined(__SSE2__))
+#if ((defined(_MSC_VER) && _MSC_VER >= 1400) && (defined(_M_IX86) || defined(_M_X64))) || ((defined(__i386__) || defined(__x86_64__)) && defined(__SSE2__))
 #if defined(_MSC_VER)
 #include <intrin.h>
 #endif
@@ -1169,7 +1168,7 @@ static void drmp3_L3_huffman(float *dst, drmp3_bs *bs, const drmp3_L3_gr_info *g
                         lsb += DRMP3_PEEK_BITS(linbits);
                         DRMP3_FLUSH_BITS(linbits);
                         DRMP3_CHECK_BITS;
-                        *dst = one*drmp3_L3_pow_43(lsb)*((int32_t)bs_cache < 0 ? -1: 1);
+                        *dst = one*drmp3_L3_pow_43(lsb)*((drmp3_int32)bs_cache < 0 ? -1: 1);
                     } else
                     {
                         *dst = g_drmp3_pow43[16 + lsb - 16*(bs_cache >> 31)]*one;
@@ -3259,7 +3258,7 @@ drmp3_bool32 drmp3_seek_to_pcm_frame__seek_table(drmp3* pMP3, drmp3_uint64 frame
     the sample rate is being reduced in my testing. Should work fine when the input and output sample rate is the same
     or a clean multiple.
     */
-    pMP3->src.algo.linear.alpha = pMP3->currentPCMFrame * ((double)pMP3->src.config.sampleRateIn / pMP3->src.config.sampleRateOut);
+    pMP3->src.algo.linear.alpha = (drmp3_int64)pMP3->currentPCMFrame * ((double)pMP3->src.config.sampleRateIn / pMP3->src.config.sampleRateOut); /* <-- Cast to int64 is required for VC6. */
     pMP3->src.algo.linear.alpha = pMP3->src.algo.linear.alpha - (drmp3_uint32)(pMP3->src.algo.linear.alpha);
     if (pMP3->src.algo.linear.alpha > 0) {
         pMP3->src.algo.linear.isPrevFramesLoaded = 1;
@@ -3780,6 +3779,9 @@ DIFFERENCES BETWEEN minimp3 AND dr_mp3
 /*
 REVISION HISTORY
 ================
+v0.4.4 - 2019-05-06
+  - Fixes to the VC6 build.
+
 v0.4.3 - 2019-05-05
   - Use the channel count and/or sample rate of the first MP3 frame instead of DR_MP3_DEFAULT_CHANNELS and
     DR_MP3_DEFAULT_SAMPLE_RATE when they are set to 0. To use the old behaviour, just set the relevant property to

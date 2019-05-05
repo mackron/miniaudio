@@ -900,7 +900,7 @@ DRFLAC_DEPRECATED float* drflac_open_and_decode_memory_f32(const void* data, siz
     #if defined(DRFLAC_X64) || defined(DRFLAC_X86)
         #if defined(_MSC_VER) && !defined(__clang__)
             /* MSVC. */
-            #if !defined(DRFLAC_NO_SSE2)   /* Assume all MSVC compilers support SSE2 intrinsics. */
+            #if _MSC_VER >= 1400 && !defined(DRFLAC_NO_SSE2)    /* 2005 */
                 #define DRFLAC_SUPPORT_SSE2
             #endif
             #if _MSC_VER >= 1600 && !defined(DRFLAC_NO_SSE41)   /* 2010 */
@@ -6521,7 +6521,7 @@ static drflac_bool32 drflac__on_seek_stdio(void* pUserData, int offset, drflac_s
 static FILE* drflac__fopen(const char* filename)
 {
     FILE* pFile;
-#ifdef _MSC_VER
+#if defined(_MSC_VER) && _MSC_VER >= 1400
     if (fopen_s(&pFile, filename, "rb") != 0) {
         return NULL;
     }
