@@ -4,11 +4,11 @@ Example: simple_mixing file1.wav file2.flac
 */
 
 #define DR_FLAC_IMPLEMENTATION
-#include "../extras/dr_flac.h"  // Enables FLAC decoding.
+#include "../extras/dr_flac.h"  /* Enables FLAC decoding. */
 #define DR_MP3_IMPLEMENTATION
-#include "../extras/dr_mp3.h"   // Enables MP3 decoding.
+#include "../extras/dr_mp3.h"   /* Enables MP3 decoding. */
 #define DR_WAV_IMPLEMENTATION
-#include "../extras/dr_wav.h"   // Enables WAV decoding.
+#include "../extras/dr_wav.h"   /* Enables WAV decoding. */
 
 #define MINIAUDIO_IMPLEMENTATION
 #include "../miniaudio.h"
@@ -30,7 +30,8 @@ ma_event g_stopEvent; /* <-- Signaled by the audio thread, waited on by the main
 
 ma_bool32 are_all_decoders_at_end()
 {
-    for (ma_uint32 iDecoder = 0; iDecoder < g_decoderCount; ++iDecoder) {
+    ma_uint32 iDecoder;
+    for (iDecoder = 0; iDecoder < g_decoderCount; ++iDecoder) {
         if (g_pDecodersAtEnd[iDecoder] == MA_FALSE) {
             return MA_FALSE;
         }
@@ -51,6 +52,7 @@ ma_uint32 read_and_mix_pcm_frames_f32(ma_decoder* pDecoder, float* pOutputF32, m
     ma_uint32 totalFramesRead = 0;
 
     while (totalFramesRead < frameCount) {
+        ma_uint32 iSample;
         ma_uint32 framesReadThisIteration;
         ma_uint32 totalFramesRemaining = frameCount - totalFramesRead;
         ma_uint32 framesToReadThisIteration = tempCapInFrames;
@@ -64,7 +66,7 @@ ma_uint32 read_and_mix_pcm_frames_f32(ma_decoder* pDecoder, float* pOutputF32, m
         }
 
         /* Mix the frames together. */
-        for (ma_uint32 iSample = 0; iSample < framesReadThisIteration*CHANNEL_COUNT; ++iSample) {
+        for (iSample = 0; iSample < framesReadThisIteration*CHANNEL_COUNT; ++iSample) {
             pOutputF32[totalFramesRead*CHANNEL_COUNT + iSample] += temp[iSample];
         }
 
@@ -81,10 +83,11 @@ ma_uint32 read_and_mix_pcm_frames_f32(ma_decoder* pDecoder, float* pOutputF32, m
 void data_callback(ma_device* pDevice, void* pOutput, const void* pInput, ma_uint32 frameCount)
 {
     float* pOutputF32 = (float*)pOutput;
+    ma_uint32 iDecoder;
 
     ma_assert(pDevice->playback.format == SAMPLE_FORMAT);   /* <-- Important for this example. */
 
-    for (ma_uint32 iDecoder = 0; iDecoder < g_decoderCount; ++iDecoder) {
+    for (iDecoder = 0; iDecoder < g_decoderCount; ++iDecoder) {
         if (!g_pDecodersAtEnd[iDecoder]) {
             ma_uint32 framesRead = read_and_mix_pcm_frames_f32(&g_pDecoders[iDecoder], pOutputF32, frameCount);
             if (framesRead < frameCount) {
@@ -108,6 +111,9 @@ int main(int argc, char** argv)
 {
     ma_result result;
     ma_decoder_config decoderConfig;
+    ma_device_config deviceConfig;
+    ma_device device;
+    ma_uint32 iDecoder;
 
     if (argc < 2) {
         printf("No input files.\n");
@@ -120,10 +126,11 @@ int main(int argc, char** argv)
 
     /* In this example, all decoders need to have the same output format. */
     decoderConfig = ma_decoder_config_init(SAMPLE_FORMAT, CHANNEL_COUNT, SAMPLE_RATE);
-    for (ma_uint32 iDecoder = 0; iDecoder < g_decoderCount; ++iDecoder) {
+    for (iDecoder = 0; iDecoder < g_decoderCount; ++iDecoder) {
         result = ma_decoder_init_file(argv[1+iDecoder], &decoderConfig, &g_pDecoders[iDecoder]);
         if (result != MA_SUCCESS) {
-            for (ma_uint32 iDecoder2 = 0; iDecoder2 < iDecoder; ++iDecoder2) {
+            ma_uint32 iDecoder2;
+            for (iDecoder2 = 0; iDecoder2 < iDecoder; ++iDecoder2) {
                 ma_decoder_uninit(&g_pDecoders[iDecoder2]);
             }
             free(g_pDecoders);
@@ -136,16 +143,15 @@ int main(int argc, char** argv)
     }
 
     /* Create only a single device. The decoders will be mixed together in the callback. In this example the data format needs to be the same as the decoders. */
-    ma_device_config config = ma_device_config_init(ma_device_type_playback);
-    config.playback.format   = SAMPLE_FORMAT;
-    config.playback.channels = CHANNEL_COUNT;
-    config.sampleRate        = SAMPLE_RATE;
-    config.dataCallback      = data_callback;
-    config.pUserData         = NULL;
+    deviceConfig = ma_device_config_init(ma_device_type_playback);
+    deviceConfig.playback.format   = SAMPLE_FORMAT;
+    deviceConfig.playback.channels = CHANNEL_COUNT;
+    deviceConfig.sampleRate        = SAMPLE_RATE;
+    deviceConfig.dataCallback      = data_callback;
+    deviceConfig.pUserData         = NULL;
 
-    ma_device device;
-    if (ma_device_init(NULL, &config, &device) != MA_SUCCESS) {
-        for (ma_uint32 iDecoder = 0; iDecoder < g_decoderCount; ++iDecoder) {
+    if (ma_device_init(NULL, &deviceConfig, &device) != MA_SUCCESS) {
+        for (iDecoder = 0; iDecoder < g_decoderCount; ++iDecoder) {
             ma_decoder_uninit(&g_pDecoders[iDecoder]);
         }
         free(g_pDecoders);
@@ -165,7 +171,7 @@ int main(int argc, char** argv)
     /* Now we start playback and wait for the audio thread to tell us to stop. */
     if (ma_device_start(&device) != MA_SUCCESS) {
         ma_device_uninit(&device);
-        for (ma_uint32 iDecoder = 0; iDecoder < g_decoderCount; ++iDecoder) {
+        for (iDecoder = 0; iDecoder < g_decoderCount; ++iDecoder) {
             ma_decoder_uninit(&g_pDecoders[iDecoder]);
         }
         free(g_pDecoders);
@@ -181,7 +187,7 @@ int main(int argc, char** argv)
     /* Getting here means the audio thread has signaled that the device should be stopped. */
     ma_device_uninit(&device);
     
-    for (ma_uint32 iDecoder = 0; iDecoder < g_decoderCount; ++iDecoder) {
+    for (iDecoder = 0; iDecoder < g_decoderCount; ++iDecoder) {
         ma_decoder_uninit(&g_pDecoders[iDecoder]);
     }
     free(g_pDecoders);

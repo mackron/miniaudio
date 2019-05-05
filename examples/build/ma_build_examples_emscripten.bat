@@ -1,1 +1,1 @@
-emcc ../simple_playback_emscripten.c -o ../bin/simple_playback_emscripten.html
+emcc ../simple_playback_emscripten.c -o ../bin/simple_playback_emscripten.html -std=c89 -ansi -Wall

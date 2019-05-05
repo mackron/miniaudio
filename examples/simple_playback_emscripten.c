@@ -17,32 +17,34 @@ void main_loop__em()
 
 void data_callback(ma_device* pDevice, void* pOutput, const void* pInput, ma_uint32 frameCount)
 {
-    (void)pInput;   /* Unused. */
+    ma_sine_wave* pSineWave;
+
     ma_assert(pDevice->playback.channels == DEVICE_CHANNELS);
 
-    ma_sine_wave* pSineWave = (ma_sine_wave*)pDevice->pUserData;
+    pSineWave = (ma_sine_wave*)pDevice->pUserData;
     ma_assert(pSineWave != NULL);
 
     ma_sine_wave_read_f32(pSineWave, frameCount, (float*)pOutput);
+
+    (void)pInput;   /* Unused. */
 }
 
 int main(int argc, char** argv)
 {
-    (void)argc;
-    (void)argv;
-
     ma_sine_wave sineWave;
+    ma_device_config deviceConfig;
+    ma_device device;
+
     ma_sine_wave_init(0.2, 400, DEVICE_SAMPLE_RATE, &sineWave);
     
-    ma_device_config config = ma_device_config_init(ma_device_type_playback);
-    config.playback.format   = DEVICE_FORMAT;
-    config.playback.channels = DEVICE_CHANNELS;
-    config.sampleRate        = DEVICE_SAMPLE_RATE;
-    config.dataCallback      = data_callback;
-    config.pUserData         = &sineWave;
+    deviceConfig = ma_device_config_init(ma_device_type_playback);
+    deviceConfig.playback.format   = DEVICE_FORMAT;
+    deviceConfig.playback.channels = DEVICE_CHANNELS;
+    deviceConfig.sampleRate        = DEVICE_SAMPLE_RATE;
+    deviceConfig.dataCallback      = data_callback;
+    deviceConfig.pUserData         = &sineWave;
 
-    ma_device device;
-    if (ma_device_init(NULL, &config, &device) != MA_SUCCESS) {
+    if (ma_device_init(NULL, &deviceConfig, &device) != MA_SUCCESS) {
         printf("Failed to open playback device.\n");
         return -4;
     }
@@ -64,5 +66,7 @@ int main(int argc, char** argv)
     
     ma_device_uninit(&device);
     
+    (void)argc;
+    (void)argv;
     return 0;
 }

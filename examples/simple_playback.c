@@ -26,7 +26,7 @@ int main(int argc, char** argv)
 {
     ma_result result;
     ma_decoder decoder;
-    ma_device_config config;
+    ma_device_config deviceConfig;
     ma_device device;
 
     if (argc < 2) {
@@ -39,14 +39,14 @@ int main(int argc, char** argv)
         return -2;
     }
 
-    config = ma_device_config_init(ma_device_type_playback);
-    config.playback.format   = decoder.outputFormat;
-    config.playback.channels = decoder.outputChannels;
-    config.sampleRate        = decoder.outputSampleRate;
-    config.dataCallback      = data_callback;
-    config.pUserData         = &decoder;
+    deviceConfig = ma_device_config_init(ma_device_type_playback);
+    deviceConfig.playback.format   = decoder.outputFormat;
+    deviceConfig.playback.channels = decoder.outputChannels;
+    deviceConfig.sampleRate        = decoder.outputSampleRate;
+    deviceConfig.dataCallback      = data_callback;
+    deviceConfig.pUserData         = &decoder;
 
-    if (ma_device_init(NULL, &config, &device) != MA_SUCCESS) {
+    if (ma_device_init(NULL, &deviceConfig, &device) != MA_SUCCESS) {
         printf("Failed to open playback device.\n");
         ma_decoder_uninit(&decoder);
         return -3;

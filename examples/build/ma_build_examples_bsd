@@ -1,6 +1,6 @@
-cc ../simple_playback.c            -o ../bin/simple_playback            -Wall -Wpedantic -std=c99 -lpthread -lm
-cc ../simple_capture.c             -o ../bin/simple_capture             -Wall -Wpedantic -std=c99 -lpthread -lm
-cc ../simple_enumeration.c         -o ../bin/simple_enumeration         -Wall -Wpedantic -std=c99 -lpthread -lm
-cc ../simple_mixing.c              -o ../bin/simple_mixing              -Wall -Wpedantic -std=c99 -lpthread -lm
-cc ../simple_playback_emscripten.c -o ../bin/simple_playback_emscripten -Wall -Wpedantic -std=c99 -lpthread -lm
-cc ../advanced_config.c            -o ../bin/advanced_config            -Wall -Wpedantic -std=c99 -lpthread -lm
+cc ../simple_playback.c            -o ../bin/simple_playback            -Wall -Wpedantic -std=c89 -ansi -pedantic -lpthread -lm
+cc ../simple_capture.c             -o ../bin/simple_capture             -Wall -Wpedantic -std=c89 -ansi -pedantic -lpthread -lm
+cc ../simple_enumeration.c         -o ../bin/simple_enumeration         -Wall -Wpedantic -std=c89 -ansi -pedantic -lpthread -lm
+cc ../simple_mixing.c              -o ../bin/simple_mixing              -Wall -Wpedantic -std=c89 -ansi -pedantic -lpthread -lm
+cc ../simple_playback_emscripten.c -o ../bin/simple_playback_emscripten -Wall -Wpedantic -std=c89 -ansi -pedantic -lpthread -lm
+cc ../advanced_config.c            -o ../bin/advanced_config            -Wall -Wpedantic -std=c89 -ansi -pedantic -lpthread -lm
