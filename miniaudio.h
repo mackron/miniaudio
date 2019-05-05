@@ -1,6 +1,6 @@
 /*
 Audio playback and capture library. Choice of public domain or MIT-0. See license statements at the end of this file.
-miniaudio (formerly mini_al) - v0.9.4 - 2019-05-xx
+miniaudio (formerly mini_al) - v0.9.4 - 2019-05-06
 
 David Reid - davidreidsoftware@gmail.com
 */
@@ -32841,6 +32841,9 @@ Device
 /*
 REVISION HISTORY
 ================
+v0.9.4 - 2019-05-06
+  - Add support for C89. With this change, miniaudio should compile clean with GCC/Clang with "-std=c89 -ansi -pedantic" and
+    Microsoft copmilers back to VC6. Other compilers should also work, but have not been tested.
 
 v0.9.3 - 2019-04-19
   - Fix compiler errors on GCC when compiling with -std=c99.
