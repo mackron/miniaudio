@@ -207,7 +207,7 @@ When loading a decoder, miniaudio uses a trial and error technique to find the a
 backend. This can be unnecessarily inefficient if the type is already known. In this case you can
 use the `_wav`, `_mp3`, etc. varients of the aforementioned initialization APIs:
 
-```c
+```
 ma_decoder_init_wav()
 ma_decoder_init_mp3()
 ma_decoder_init_memory_wav()
