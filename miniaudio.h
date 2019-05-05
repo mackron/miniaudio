@@ -8710,6 +8710,8 @@ ma_result ma_context_init__wasapi(const ma_context_config* pConfig, ma_context* 
         } else {
             result = MA_NO_BACKEND;
         }
+
+        ma_dlclose(kernel32DLL);
     }
 #endif
 
