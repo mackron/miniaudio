@@ -19022,7 +19022,7 @@ ma_uint32 ma_find_best_channels_from_sio_cap__sndio(struct ma_sio_cap* caps, ma_
     for (iConfig = 0; iConfig < caps->nconf; iConfig += 1) {
         /* The encoding should be of requiredFormat. */
         unsigned int iEncoding;
-        for (unsigned int iEncoding = 0; iEncoding < MA_SIO_NENC; iEncoding += 1) {
+        for (iEncoding = 0; iEncoding < MA_SIO_NENC; iEncoding += 1) {
             unsigned int iChannel;
             unsigned int bits;
             unsigned int bps;
