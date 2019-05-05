@@ -1,7 +1,7 @@
 ![miniaudio](http://dred.io/img/miniaudio_wide.png)
 
 miniaudio (formerly mini_al) is a single file library for audio playback and capture. It's written
-in C (compilable as C++) and released into the public domain.
+in C89 (compilable as C++) and released into the public domain.
 
 
 Features
@@ -50,7 +50,7 @@ Backends
 Building
 ======
 Do the following in one source file:
-```
+```c
 #define MINIAUDIO_IMPLEMENTATION
 #include "miniaudio.h"
 ```
@@ -63,11 +63,11 @@ Simple Playback Example
 
 ```c
 #define DR_FLAC_IMPLEMENTATION
-#include "../extras/dr_flac.h"  // Enables FLAC decoding.
+#include "../extras/dr_flac.h"  /* Enables FLAC decoding. */
 #define DR_MP3_IMPLEMENTATION
-#include "../extras/dr_mp3.h"   // Enables MP3 decoding.
+#include "../extras/dr_mp3.h"   /* Enables MP3 decoding. */
 #define DR_WAV_IMPLEMENTATION
-#include "../extras/dr_wav.h"   // Enables WAV decoding.
+#include "../extras/dr_wav.h"   /* Enables WAV decoding. */
 
 #define MINIAUDIO_IMPLEMENTATION
 #include "../miniaudio.h"
@@ -88,26 +88,29 @@ void data_callback(ma_device* pDevice, void* pOutput, const void* pInput, ma_uin
 
 int main(int argc, char** argv)
 {
+    ma_result result;
+    ma_decoder decoder;
+    ma_device_config deviceConfig;
+    ma_device device;
+
     if (argc < 2) {
         printf("No input file.\n");
         return -1;
     }
 
-    ma_decoder decoder;
-    ma_result result = ma_decoder_init_file(argv[1], NULL, &decoder);
+    result = ma_decoder_init_file(argv[1], NULL, &decoder);
     if (result != MA_SUCCESS) {
         return -2;
     }
 
-    ma_device_config config = ma_device_config_init(ma_device_type_playback);
-    config.playback.format   = decoder.outputFormat;
-    config.playback.channels = decoder.outputChannels;
-    config.sampleRate        = decoder.outputSampleRate;
-    config.dataCallback      = data_callback;
-    config.pUserData         = &decoder;
+    deviceConfig = ma_device_config_init(ma_device_type_playback);
+    deviceConfig.playback.format   = decoder.outputFormat;
+    deviceConfig.playback.channels = decoder.outputChannels;
+    deviceConfig.sampleRate        = decoder.outputSampleRate;
+    deviceConfig.dataCallback      = data_callback;
+    deviceConfig.pUserData         = &decoder;
 
-    ma_device device;
-    if (ma_device_init(NULL, &config, &device) != MA_SUCCESS) {
+    if (ma_device_init(NULL, &deviceConfig, &device) != MA_SUCCESS) {
         printf("Failed to open playback device.\n");
         ma_decoder_uninit(&decoder);
         return -3;
@@ -149,7 +152,7 @@ single file libraries I can add to this list, let me know. Preferably public dom
 To enable support for a decoding backend, all you need to do is #include the header section of the
 relevant backend library before the implementation of miniaudio, like so:
 
-```
+```c
 #include "dr_flac.h"    // Enables FLAC decoding.
 #include "dr_mp3.h"     // Enables MP3 decoding.
 #include "dr_wav.h"     // Enables WAV decoding.
@@ -162,7 +165,7 @@ A decoder can be initialized from a file with `ma_decoder_init_file()`, a block 
 `ma_decoder_init_memory()`, or from data delivered via callbacks with `ma_decoder_init()`. Here
 is an example for loading a decoder from a file:
 
-```
+```c
 ma_decoder decoder;
 ma_result result = ma_decoder_init_file("MySong.mp3", NULL, &decoder);
 if (result != MA_SUCCESS) {
@@ -178,7 +181,7 @@ When initializing a decoder, you can optionally pass in a pointer to a `ma_decod
 (the `NULL` argument in the example above) which allows you to configure the output format, channel
 count, sample rate and channel map:
 
-```
+```c
 ma_decoder_config config = ma_decoder_config_init(ma_format_f32, 2, 48000);
 ```
 
@@ -187,13 +190,13 @@ decoding backend.
 
 Data is read from the decoder as PCM frames:
 
-```
+```c
 ma_uint64 framesRead = ma_decoder_read_pcm_frames(pDecoder, pFrames, framesToRead);
 ```
 
 You can also seek to a specific frame like so:
 
-```
+```c
 ma_result result = ma_decoder_seek_to_pcm_frame(pDecoder, targetFrame);
 if (result != MA_SUCCESS) {
     return false;   // An error occurred.
@@ -204,7 +207,7 @@ When loading a decoder, miniaudio uses a trial and error technique to find the a
 backend. This can be unnecessarily inefficient if the type is already known. In this case you can
 use the `_wav`, `_mp3`, etc. varients of the aforementioned initialization APIs:
 
-```
+```c
 ma_decoder_init_wav()
 ma_decoder_init_mp3()
 ma_decoder_init_memory_wav()
