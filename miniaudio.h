@@ -19018,7 +19018,7 @@ ma_uint32 ma_find_best_channels_from_sio_cap__sndio(struct ma_sio_cap* caps, ma_
     ma_assert(requiredFormat != ma_format_unknown);
     
     /* Just pick whatever configuration has the most channels. */
-    ma_uint32 maxChannels = 0;
+    maxChannels = 0;
     for (iConfig = 0; iConfig < caps->nconf; iConfig += 1) {
         /* The encoding should be of requiredFormat. */
         unsigned int iEncoding;
@@ -19304,7 +19304,7 @@ ma_result ma_context_get_device_info__sndio(ma_context* pContext, ma_device_type
         }
         
         /* Channels. */
-        for (unsigned int iChannel = 0; iChannel < MA_SIO_NCHAN; iChannel += 1) {
+        for (iChannel = 0; iChannel < MA_SIO_NCHAN; iChannel += 1) {
             unsigned int chan = 0;
             unsigned int channels;
 
@@ -20103,7 +20103,8 @@ ma_result ma_device_init_fd__audio4(ma_context* pContext, const ma_device_config
 
     if ((deviceType == ma_device_type_capture && pConfig->capture.pDeviceID == NULL) || (deviceType == ma_device_type_playback && pConfig->playback.pDeviceID == NULL)) {
         /* Default device. */
-        for (size_t iDevice = 0; iDevice < ma_countof(pDefaultDeviceNames); ++iDevice) {
+        size_t iDevice;
+        for (iDevice = 0; iDevice < ma_countof(pDefaultDeviceNames); ++iDevice) {
             fd = open(pDefaultDeviceNames[iDevice], fdFlags, 0);
             if (fd != -1) {
                 break;
