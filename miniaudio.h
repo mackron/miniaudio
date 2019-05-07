@@ -1,6 +1,6 @@
 /*
 Audio playback and capture library. Choice of public domain or MIT-0. See license statements at the end of this file.
-miniaudio (formerly mini_al) - v0.9.4 - 2019-05-06
+miniaudio (formerly mini_al) - v0.9.5 - 2019-xx-xx
 
 David Reid - davidreidsoftware@gmail.com
 */
@@ -4587,6 +4587,7 @@ ma_handle ma_dlopen(ma_context* pContext, const char* filename)
     }
 #endif
 
+    (void)pContext; /* It's possible for pContext to be unused. */
     return handle;
 }
 
@@ -4634,6 +4635,7 @@ ma_proc ma_dlsym(ma_context* pContext, ma_handle handle, const char* symbol)
     }
 #endif
 
+    (void)pContext; /* It's possible for pContext to be unused. */
     return proc;
 }
 
@@ -32949,6 +32951,9 @@ Device
 /*
 REVISION HISTORY
 ================
+v0.9.5 - 2019-xx-xx
+  - Add logging to ma_dlopen() and ma_dlsym().
+
 v0.9.4 - 2019-05-06
   - Add support for C89. With this change, miniaudio should compile clean with GCC/Clang with "-std=c89 -ansi -pedantic" and
     Microsoft copmilers back to VC6. Other compilers should also work, but have not been tested.
