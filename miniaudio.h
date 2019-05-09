@@ -2723,7 +2723,8 @@ initialization of other devices.
 The device's configuration is controlled with pConfig. This allows you to configure the sample
 format, channel count, sample rate, etc. Before calling ma_device_init(), you will need to
 initialize a ma_device_config object using ma_device_config_init(). You must set the callback in
-the device config.
+the device config. Once initialized, the device's config is immutable. If you need to change the
+config you will need to initialize a new device.
 
 Passing in 0 to any property in pConfig will force the use of a default value. In the case of
 sample format, channel count, sample rate and channel map it will default to the values used by
