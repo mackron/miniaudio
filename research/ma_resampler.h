@@ -100,7 +100,7 @@ struct ma_resampler
 {
     union
     {
-        float     f32[MA_RESAMPLER_CACHE_SIZE_IN_BYTES/sizeof(float)];
+        float    f32[MA_RESAMPLER_CACHE_SIZE_IN_BYTES/sizeof(float)];
         ma_int16 s16[MA_RESAMPLER_CACHE_SIZE_IN_BYTES/sizeof(ma_int16)];
     } cache;   /* Keep this as the first member of this structure for SIMD alignment purposes. */
     ma_uint32 cacheStrideInFrames; /* The number of the samples between channels in the cache. The first sample for channel 0 is cacheStrideInFrames*0. The first sample for channel 1 is cacheStrideInFrames*1, etc. */
@@ -137,11 +137,34 @@ The ratio is in/out.
 ma_result ma_resampler_set_rate_ratio(ma_resampler* pResampler, double ratio);
 
 /*
+Converts the given input data.
+
+On input, [pFrameCountOut] contains the number of output frames to process. On output it contains the number of output frames that
+were actually processed, which may be less than the requested amount which will happen if there's not enough input data. You can use
+ma_resampler_get_expected_output_frame_count() to know how many output frames will be processed for a given number of input frames.
+
+On input, [pFrameCountIn] contains the number of input frames contained in [ppFramesIn]. On output it contains the number of whole
+input frames that were actually processed. You can use ma_resampler_get_required_input_frame_count() to know how many input frames
+you should provide for a given number of output frames.
+
+You can pass NULL to [ppFramesOut], in which case a seek will be performed. When [pFrameCountOut] is not NULL, it will seek past that
+number of output frames. Otherwise, if [pFrameCountOut] is NULL and [pFrameCountIn] is not NULL, it will seek by the specified number
+of input frames. When seeking, [ppFramesIn] is allowed to NULL, in which case the internal timing state will be updated, but not input
+will be processed.
+
+It is an error for both [pFrameCountOut] and [pFrameCountIn] to be NULL.
+*/
+ma_result ma_resampler_process(ma_resampler* pResampler, ma_uint64* pFrameCountOut, void** ppFramesOut, ma_uint64* pFrameCountIn, void** ppFramesIn);
+ma_result ma_resampler_process_callback(ma_resampler* pResampler, ma_uint64* pFrameCountOut, void** ppFramesOut, ma_resampler_read_from_client_proc onRead, void* pUserData);
+
+
+/*
 Reads a number of PCM frames from the resampler.
 
 Passing in NULL for ppFrames is equivalent to calling ma_resampler_seek(pResampler, frameCount, 0).
 */
 ma_uint64 ma_resampler_read(ma_resampler* pResampler, ma_uint64 frameCount, void** ppFrames);
+ma_uint64 ma_resampler_read_callbacks(ma_resampler* pResampler, ma_uint64 frameCount, void** pFrames, ma_resampler_read_from_client_proc onRead, void* pUserData);
 
 /*
 Seeks forward by the specified number of PCM frames.
@@ -530,6 +553,8 @@ void ma_resampler_uninit(ma_resampler* pResampler)
 
 ma_result ma_resampler_set_rate(ma_resampler* pResampler, ma_uint32 sampleRateIn, ma_uint32 sampleRateOut)
 {
+    double ratio;
+
     if (pResampler == NULL) {
         return MA_INVALID_ARGS;
     }
@@ -538,7 +563,7 @@ ma_result ma_resampler_set_rate(ma_resampler* pResampler, ma_uint32 sampleRateIn
         return MA_INVALID_ARGS;
     }
 
-    double ratio = (double)pResampler->config.sampleRateIn / (double)pResampler->config.sampleRateOut;
+    ratio = (double)pResampler->config.sampleRateIn / (double)pResampler->config.sampleRateOut;
     if (ratio < MA_RESAMPLER_MIN_RATIO || ratio > MA_RESAMPLER_MAX_RATIO) {
         return MA_INVALID_ARGS;    /* Ratio is too extreme. */
     }
@@ -564,6 +589,79 @@ ma_result ma_resampler_set_rate_ratio(ma_resampler* pResampler, double ratio)
 
     return MA_SUCCESS;
 }
+
+
+ma_result ma_resampler_process(ma_resampler* pResampler, ma_uint64* pFrameCountOut, void** ppFramesOut, ma_uint64* pFrameCountIn, void** ppFramesIn)
+{
+    if (pResampler == NULL) {
+        return MA_INVALID_ARGS;
+    }
+
+    if (ppFramesOut != NULL) {
+        /* Normal processing. */
+        if (pFrameCountOut == NULL) {
+            return MA_INVALID_ARGS; /* Don't have any output frames to process. */
+        }
+        if (pFrameCountIn == NULL || ppFramesIn == NULL) {
+            return MA_INVALID_ARGS; /* Cannot process without any input data. */
+        }
+
+
+    } else {
+        /* Seeking. */
+        if (pFrameCountOut != NULL) {
+            /* Seeking by output frames. */
+
+        } else {
+            /* Seeking by input frames. */
+            if (pFrameCountIn == NULL) {
+                return MA_INVALID_ARGS; /* Don't have any input frames to process. */
+            }
+
+
+        }
+    }
+
+    return MA_SUCCESS;
+}
+
+ma_result ma_resampler_process_callback(ma_resampler* pResampler, ma_uint64* pFrameCountOut, void** ppFramesOut, ma_resampler_read_from_client_proc onRead, void* pUserData)
+{
+    union
+    {
+        float    f32[1024];
+        ma_int16 s16[2048];
+    } buffer;
+    ma_uint64 bufferSizeInFrames;
+    ma_uint64 outputFramesRemaining;
+
+    if (onRead == NULL) {
+        return MA_INVALID_ARGS; /* Does not make sense to call this API without a callback... */
+    }
+
+    /* This API always requires an output frame count. */
+    if (pFrameCountOut == NULL) {
+        return MA_INVALID_ARGS;
+    }
+    
+    bufferSizeInFrames = sizeof(buffer)/ma_get_bytes_per_frame(pResampler->config.format, pResampler->config.channels);
+    outputFramesRemaining = *pFrameCountOut;
+
+    /* Keep reading until every output frame has been processed. */
+    for (;;) {
+        ma_uint64 inputFrameCount = ma_resampler_get_required_input_frame_count(pResampler, outputFramesRemaining);
+        if (inputFrameCount > bufferSizeInFrames) {
+            inputFrameCount = bufferSizeInFrames;
+        }
+
+
+    }
+
+    return MA_SUCCESS;
+}
+
+
+
 
 ma_uint64 ma_resampler_read(ma_resampler* pResampler, ma_uint64 frameCount, void** ppFrames)
 {
