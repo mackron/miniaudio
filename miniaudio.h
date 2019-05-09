@@ -2691,8 +2691,8 @@ Retrieves information about a device with the given ID.
 
 Do _not_ call this from within the ma_context_enumerate_devices() callback.
 
-It's possible for a device to have different information and capabilities depending on wether or
-not it's opened in shared or exclusive mode. For example, in shared mode, WASAPI always uses
+It's possible for a device to have different information and capabilities depending on whether
+or not it's opened in shared or exclusive mode. For example, in shared mode, WASAPI always uses
 floating point samples for mixing, but in exclusive mode it can be anything. Therefore, this
 function allows you to specify which share mode you want information for. Note that not all
 backends and devices support shared or exclusive mode, in which case this function will fail
