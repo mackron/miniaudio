@@ -2997,10 +2997,11 @@ typedef enum
     ma_seek_origin_current
 } ma_seek_origin;
 
-typedef size_t    (* ma_decoder_read_proc)             (ma_decoder* pDecoder, void* pBufferOut, size_t bytesToRead); /* Returns the number of bytes read. */
-typedef ma_bool32 (* ma_decoder_seek_proc)             (ma_decoder* pDecoder, int byteOffset, ma_seek_origin origin);
-typedef ma_result (* ma_decoder_seek_to_pcm_frame_proc)(ma_decoder* pDecoder, ma_uint64 frameIndex);
-typedef ma_result (* ma_decoder_uninit_proc)           (ma_decoder* pDecoder);
+typedef size_t    (* ma_decoder_read_proc)                    (ma_decoder* pDecoder, void* pBufferOut, size_t bytesToRead); /* Returns the number of bytes read. */
+typedef ma_bool32 (* ma_decoder_seek_proc)                    (ma_decoder* pDecoder, int byteOffset, ma_seek_origin origin);
+typedef ma_result (* ma_decoder_seek_to_pcm_frame_proc)       (ma_decoder* pDecoder, ma_uint64 frameIndex);
+typedef ma_result (* ma_decoder_uninit_proc)                  (ma_decoder* pDecoder);
+typedef ma_uint64 (* ma_decoder_get_length_in_pcm_frames_proc)(ma_decoder* pDecoder);
 
 typedef struct
 {
@@ -3034,6 +3035,7 @@ struct ma_decoder
     ma_pcm_converter dsp;   /* <-- Format conversion is achieved by running frames through this. */
     ma_decoder_seek_to_pcm_frame_proc onSeekToPCMFrame;
     ma_decoder_uninit_proc onUninit;
+    ma_decoder_get_length_in_pcm_frames_proc onGetLengthInPCMFrames;
     void* pInternalDecoder; /* <-- The drwav/drflac/stb_vorbis/etc. objects. */
     struct
     {
@@ -3065,6 +3067,20 @@ ma_result ma_decoder_init_file_wav(const char* pFilePath, const ma_decoder_confi
 #endif
 
 ma_result ma_decoder_uninit(ma_decoder* pDecoder);
+
+/*
+Retrieves the length of the decoder in PCM frames.
+
+Do not call this on streams of an undefined length, such as internet radio.
+
+If the length is unknown or an error occurs, 0 will be returned.
+
+This will always return 0 for Vorbis decoders. This is due to a limitation with stb_vorbis in push mode which is what miniaudio
+uses internally.
+
+This will run in linear time for MP3 decoders. Do not call this in time critical scenarios.
+*/
+ma_uint64 ma_decoder_get_length_in_pcm_frames(ma_decoder* pDecoder);
 
 ma_uint64 ma_decoder_read_pcm_frames(ma_decoder* pDecoder, void* pFramesOut, ma_uint64 frameCount);
 ma_result ma_decoder_seek_to_pcm_frame(ma_decoder* pDecoder, ma_uint64 frameIndex);
@@ -31440,6 +31456,11 @@ ma_result ma_decoder_internal_on_uninit__wav(ma_decoder* pDecoder)
     return MA_SUCCESS;
 }
 
+ma_uint64 ma_decoder_internal_on_get_length_in_pcm_frames__wav(ma_decoder* pDecoder)
+{
+    return ((drwav*)pDecoder->pInternalDecoder)->totalPCMFrameCount;
+}
+
 ma_result ma_decoder_init_wav__internal(const ma_decoder_config* pConfig, ma_decoder* pDecoder)
 {
     drwav* pWav;
@@ -31457,6 +31478,7 @@ ma_result ma_decoder_init_wav__internal(const ma_decoder_config* pConfig, ma_dec
     /* If we get here it means we successfully initialized the WAV decoder. We can now initialize the rest of the ma_decoder. */
     pDecoder->onSeekToPCMFrame = ma_decoder_internal_on_seek_to_pcm_frame__wav;
     pDecoder->onUninit = ma_decoder_internal_on_uninit__wav;
+    pDecoder->onGetLengthInPCMFrames = ma_decoder_internal_on_get_length_in_pcm_frames__wav;
     pDecoder->pInternalDecoder = pWav;
 
     /* Try to be as optimal as possible for the internal format. If miniaudio does not support a format we will fall back to f32. */
@@ -31574,6 +31596,11 @@ ma_result ma_decoder_internal_on_uninit__flac(ma_decoder* pDecoder)
     return MA_SUCCESS;
 }
 
+ma_uint64 ma_decoder_internal_on_get_length_in_pcm_frames__flac(ma_decoder* pDecoder)
+{
+    return ((drflac*)pDecoder->pInternalDecoder)->totalPCMFrameCount;
+}
+
 ma_result ma_decoder_init_flac__internal(const ma_decoder_config* pConfig, ma_decoder* pDecoder)
 {
     drflac* pFlac;
@@ -31591,6 +31618,7 @@ ma_result ma_decoder_init_flac__internal(const ma_decoder_config* pConfig, ma_de
     /* If we get here it means we successfully initialized the FLAC decoder. We can now initialize the rest of the ma_decoder. */
     pDecoder->onSeekToPCMFrame = ma_decoder_internal_on_seek_to_pcm_frame__flac;
     pDecoder->onUninit = ma_decoder_internal_on_uninit__flac;
+    pDecoder->onGetLengthInPCMFrames = ma_decoder_internal_on_get_length_in_pcm_frames__flac;
     pDecoder->pInternalDecoder = pFlac;
 
     /*
@@ -31799,6 +31827,13 @@ ma_uint32 ma_decoder_internal_on_read_pcm_frames__vorbis(ma_pcm_converter* pDSP,
     return ma_vorbis_decoder_read_pcm_frames(pVorbis, pDecoder, pSamplesOut, frameCount);
 }
 
+ma_uint64 ma_decoder_internal_on_get_length_in_pcm_frames__vorbis(ma_decoder* pDecoder)
+{
+    /* No good way to do this with Vorbis. */
+    (void)pDecoder;
+    return 0;
+}
+
 ma_result ma_decoder_init_vorbis__internal(const ma_decoder_config* pConfig, ma_decoder* pDecoder)
 {
     ma_result result;
@@ -31892,6 +31927,7 @@ ma_result ma_decoder_init_vorbis__internal(const ma_decoder_config* pConfig, ma_
 
     pDecoder->onSeekToPCMFrame = ma_decoder_internal_on_seek_to_pcm_frame__vorbis;
     pDecoder->onUninit = ma_decoder_internal_on_uninit__vorbis;
+    pDecoder->onGetLengthInPCMFrames = ma_decoder_internal_on_get_length_in_pcm_frames__vorbis;
     pDecoder->pInternalDecoder = pVorbis;
 
     /* The internal format is always f32. */
@@ -31972,6 +32008,11 @@ ma_result ma_decoder_internal_on_uninit__mp3(ma_decoder* pDecoder)
     return MA_SUCCESS;
 }
 
+ma_uint64 ma_decoder_internal_on_get_length_in_pcm_frames__mp3(ma_decoder* pDecoder)
+{
+    return drmp3_get_pcm_frame_count((drmp3*)pDecoder->pInternalDecoder);
+}
+
 ma_result ma_decoder_init_mp3__internal(const ma_decoder_config* pConfig, ma_decoder* pDecoder)
 {
     drmp3* pMP3;
@@ -32007,6 +32048,7 @@ ma_result ma_decoder_init_mp3__internal(const ma_decoder_config* pConfig, ma_dec
     /* If we get here it means we successfully initialized the MP3 decoder. We can now initialize the rest of the ma_decoder. */
     pDecoder->onSeekToPCMFrame = ma_decoder_internal_on_seek_to_pcm_frame__mp3;
     pDecoder->onUninit = ma_decoder_internal_on_uninit__mp3;
+    pDecoder->onGetLengthInPCMFrames = ma_decoder_internal_on_get_length_in_pcm_frames__mp3;
     pDecoder->pInternalDecoder = pMP3;
 
     /* Internal format. */
@@ -32092,6 +32134,12 @@ ma_result ma_decoder_internal_on_uninit__raw(ma_decoder* pDecoder)
     return MA_SUCCESS;
 }
 
+ma_uint64 ma_decoder_internal_on_get_length_in_pcm_frames__raw(ma_decoder* pDecoder)
+{
+    (void)pDecoder;
+    return 0;
+}
+
 ma_result ma_decoder_init_raw__internal(const ma_decoder_config* pConfigIn, const ma_decoder_config* pConfigOut, ma_decoder* pDecoder)
 {
     ma_result result;
@@ -32102,6 +32150,7 @@ ma_result ma_decoder_init_raw__internal(const ma_decoder_config* pConfigIn, cons
 
     pDecoder->onSeekToPCMFrame = ma_decoder_internal_on_seek_to_pcm_frame__raw;
     pDecoder->onUninit = ma_decoder_internal_on_uninit__raw;
+    pDecoder->onGetLengthInPCMFrames = ma_decoder_internal_on_get_length_in_pcm_frames__raw;
 
     /* Internal format. */
     pDecoder->internalFormat = pConfigIn->format;
@@ -32693,6 +32742,19 @@ ma_result ma_decoder_uninit(ma_decoder* pDecoder)
     return MA_SUCCESS;
 }
 
+ma_uint64 ma_decoder_get_length_in_pcm_frames(ma_decoder* pDecoder)
+{
+    if (pDecoder == NULL) {
+        return 0;
+    }
+
+    if (pDecoder->onGetLengthInPCMFrames) {
+        return pDecoder->onGetLengthInPCMFrames(pDecoder);
+    }
+
+    return 0;
+}
+
 ma_uint64 ma_decoder_read_pcm_frames(ma_decoder* pDecoder, void* pFramesOut, ma_uint64 frameCount)
 {
     if (pDecoder == NULL) {
@@ -32960,6 +33022,7 @@ REVISION HISTORY
 ================
 v0.9.5 - 2019-xx-xx
   - Add logging to ma_dlopen() and ma_dlsym().
+  - Add ma_decoder_get_length_in_pcm_frames().
 
 v0.9.4 - 2019-05-06
   - Add support for C89. With this change, miniaudio should compile clean with GCC/Clang with "-std=c89 -ansi -pedantic" and
