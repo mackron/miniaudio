@@ -395,7 +395,7 @@ OPTIONS
     MA_LOG_LEVEL_WARNING
     MA_LOG_LEVEL_ERROR
 
-#define MA_DEBUT_OUTPUT
+#define MA_DEBUG_OUTPUT
   Enable printf() debug output.
 
 #define MA_COINIT_VALUE
@@ -22583,7 +22583,7 @@ ma_result ma_device_start__opensl(ma_device* pDevice)
 
         periodSizeInBytes = (pDevice->capture.internalBufferSizeInFrames / pDevice->capture.internalPeriods) * ma_get_bytes_per_frame(pDevice->capture.internalFormat, pDevice->capture.internalChannels);
         for (iPeriod = 0; iPeriod < pDevice->capture.internalPeriods; ++iPeriod) {
-            resultSL = MA_OPENSL_BUFFERQUEUE(pDevice->opensl.pBufferQueuePlayback)->Enqueue((SLAndroidSimpleBufferQueueItf)pDevice->opensl.pBufferQueueCapture, pDevice->opensl.pBufferCapture + (periodSizeInBytes * iPeriod), periodSizeInBytes);
+            resultSL = MA_OPENSL_BUFFERQUEUE(pDevice->opensl.pBufferQueueCapture)->Enqueue((SLAndroidSimpleBufferQueueItf)pDevice->opensl.pBufferQueueCapture, pDevice->opensl.pBufferCapture + (periodSizeInBytes * iPeriod), periodSizeInBytes);
             if (resultSL != SL_RESULT_SUCCESS) {
                 MA_OPENSL_RECORD(pDevice->opensl.pAudioRecorder)->SetRecordState((SLRecordItf)pDevice->opensl.pAudioRecorder, SL_RECORDSTATE_STOPPED);
                 return ma_post_error(pDevice, MA_LOG_LEVEL_ERROR, "[OpenSL] Failed to enqueue buffer for capture device.", MA_FAILED_TO_START_BACKEND_DEVICE);
