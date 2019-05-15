@@ -33023,6 +33023,7 @@ REVISION HISTORY
 v0.9.5 - 2019-xx-xx
   - Add logging to ma_dlopen() and ma_dlsym().
   - Add ma_decoder_get_length_in_pcm_frames().
+  - Fix a bug with capture on the OpenSL|ES backend.
 
 v0.9.4 - 2019-05-06
   - Add support for C89. With this change, miniaudio should compile clean with GCC/Clang with "-std=c89 -ansi -pedantic" and
