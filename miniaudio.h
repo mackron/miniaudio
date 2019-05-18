@@ -3783,13 +3783,13 @@ int ma_strncat_s(char* dst, size_t dstSizeInBytes, const char* src, size_t count
     char* dstorig;
 
     if (dst == 0) {
-        return EINVAL;
+        return 22;
     }
     if (dstSizeInBytes == 0) {
-        return ERANGE;
+        return 34;
     }
     if (src == 0) {
-        return EINVAL;
+        return 22;
     }
 
     dstorig = dst;
@@ -3800,7 +3800,7 @@ int ma_strncat_s(char* dst, size_t dstSizeInBytes, const char* src, size_t count
     }
 
     if (dstSizeInBytes == 0) {
-        return EINVAL;  /* Unterminated. */
+        return 22;  /* Unterminated. */
     }
 
 
@@ -3818,7 +3818,7 @@ int ma_strncat_s(char* dst, size_t dstSizeInBytes, const char* src, size_t count
         dst[0] = '\0';
     } else {
         dstorig[0] = '\0';
-        return ERANGE;
+        return 34;
     }
 
     return 0;
@@ -13322,13 +13322,28 @@ ma_result ma_device_stop__alsa(ma_device* pDevice)
 
     if (pDevice->type == ma_device_type_capture || pDevice->type == ma_device_type_duplex) {
         ((ma_snd_pcm_drain_proc)pDevice->pContext->alsa.snd_pcm_drain)((ma_snd_pcm_t*)pDevice->alsa.pPCMCapture);
+
+        /* We need to prepare the device again, otherwise we won't be able to restart the device. */
+        if (((ma_snd_pcm_prepare_proc)pDevice->pContext->alsa.snd_pcm_prepare)((ma_snd_pcm_t*)pDevice->alsa.pPCMCapture) < 0) {
+    #ifdef MA_DEBUG_OUTPUT
+            printf("[ALSA] Failed to prepare capture device after stopping.\n");
+    #endif
+        }
     }
 
     if (pDevice->type == ma_device_type_playback || pDevice->type == ma_device_type_duplex) {
         /* Using drain instead of drop because ma_device_stop() is defined such that pending frames are processed before returning. */
         ((ma_snd_pcm_drain_proc)pDevice->pContext->alsa.snd_pcm_drain)((ma_snd_pcm_t*)pDevice->alsa.pPCMPlayback);
+
+        /* We need to prepare the device again, otherwise we won't be able to restart the device. */
+        if (((ma_snd_pcm_prepare_proc)pDevice->pContext->alsa.snd_pcm_prepare)((ma_snd_pcm_t*)pDevice->alsa.pPCMPlayback) < 0) {
+    #ifdef MA_DEBUG_OUTPUT
+            printf("[ALSA] Failed to prepare playback device after stopping.\n");
+    #endif
+        }
     }
 
+    
     
     return MA_SUCCESS;
 }
