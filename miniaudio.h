@@ -24501,6 +24501,10 @@ ma_result ma_device_start(ma_device* pDevice)
         return ma_post_error(pDevice, MA_LOG_LEVEL_ERROR, "ma_device_start() called for an uninitialized device.", MA_DEVICE_NOT_INITIALIZED);
     }
 
+    if (ma_device__get_state(pDevice) == MA_STATE_STARTED) {
+        return ma_post_error(pDevice, MA_LOG_LEVEL_WARNING, "ma_device_start() called when the device is already started.", MA_INVALID_OPERATION);  /* Already started. Returning an error to let the application know because it probably means they're doing something wrong. */
+    }
+
     result = MA_ERROR;
     ma_mutex_lock(&pDevice->lock);
     {
@@ -24545,6 +24549,10 @@ ma_result ma_device_stop(ma_device* pDevice)
 
     if (ma_device__get_state(pDevice) == MA_STATE_UNINITIALIZED) {
         return ma_post_error(pDevice, MA_LOG_LEVEL_ERROR, "ma_device_stop() called for an uninitialized device.", MA_DEVICE_NOT_INITIALIZED);
+    }
+
+    if (ma_device__get_state(pDevice) == MA_STATE_STOPPED) {
+        return ma_post_error(pDevice, MA_LOG_LEVEL_WARNING, "ma_device_stop() called when the device is already stopped.", MA_INVALID_OPERATION);   /* Already stopped. Returning an error to let the application know because it probably means they're doing something wrong. */
     }
 
     result = MA_ERROR;
