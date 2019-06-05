@@ -5486,12 +5486,6 @@ static MA_INLINE ma_uint32 ma_device__get_state(ma_device* pDevice)
     return pDevice->state;
 }
 
-/* A helper for determining whether or not the device is running in async mode. */
-static MA_INLINE ma_bool32 ma_device__is_async(ma_device* pDevice)
-{
-    return pDevice->onData != NULL;
-}
-
 
 #ifdef MA_WIN32
     GUID MA_GUID_KSDATAFORMAT_SUBTYPE_PCM        = {0x00000001, 0x0000, 0x0010, {0x80, 0x00, 0x00, 0xaa, 0x00, 0x38, 0x9b, 0x71}};
@@ -24507,15 +24501,6 @@ ma_result ma_device_start(ma_device* pDevice)
         return ma_post_error(pDevice, MA_LOG_LEVEL_ERROR, "ma_device_start() called for an uninitialized device.", MA_DEVICE_NOT_INITIALIZED);
     }
 
-    /*
-    Starting the device doesn't do anything in synchronous mode because in that case it's started automatically with
-    ma_device_write() and ma_device_read(). It's best to return an error so that the application can be aware that
-    it's not doing it right.
-    */
-    if (!ma_device__is_async(pDevice)) {
-        return ma_post_error(pDevice, MA_LOG_LEVEL_ERROR, "ma_device_start() called in synchronous mode. This should only be used in asynchronous/callback mode.", MA_DEVICE_NOT_INITIALIZED);
-    }
-
     result = MA_ERROR;
     ma_mutex_lock(&pDevice->lock);
     {
@@ -24560,16 +24545,6 @@ ma_result ma_device_stop(ma_device* pDevice)
 
     if (ma_device__get_state(pDevice) == MA_STATE_UNINITIALIZED) {
         return ma_post_error(pDevice, MA_LOG_LEVEL_ERROR, "ma_device_stop() called for an uninitialized device.", MA_DEVICE_NOT_INITIALIZED);
-    }
-
-    /*
-    Stopping is slightly different for synchronous mode. In this case it just tells the driver to stop the internal processing of the device. Also,
-    stopping in synchronous mode does not require state checking.
-    */
-    if (!ma_device__is_async(pDevice)) {
-        if (pDevice->pContext->onDeviceStop) {
-            return pDevice->pContext->onDeviceStop(pDevice);
-        }
     }
 
     result = MA_ERROR;
