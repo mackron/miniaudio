@@ -1,6 +1,6 @@
 /*
 MP3 audio decoder. Choice of public domain or MIT-0. See license statements at the end of this file.
-dr_mp3 - v0.4.4 - 2019-05-06
+dr_mp3 - v0.4.5 - 2019-06-06
 
 David Reid - mackron@gmail.com
 
@@ -1143,41 +1143,72 @@ static void drmp3_L3_huffman(float *dst, drmp3_bs *bs, const drmp3_L3_gr_info *g
         int sfb_cnt = gr_info->region_count[ireg++];
         const drmp3_int16 *codebook = tabs + tabindex[tab_num];
         int linbits = g_linbits[tab_num];
-        do
+        if (linbits)
         {
-            np = *sfb++ / 2;
-            pairs_to_decode = DRMP3_MIN(big_val_cnt, np);
-            one = *scf++;
             do
             {
-                int j, w = 5;
-                int leaf = codebook[DRMP3_PEEK_BITS(w)];
-                while (leaf < 0)
+                np = *sfb++ / 2;
+                pairs_to_decode = DRMP3_MIN(big_val_cnt, np);
+                one = *scf++;
+                do
                 {
-                    DRMP3_FLUSH_BITS(w);
-                    w = leaf & 7;
-                    leaf = codebook[DRMP3_PEEK_BITS(w) - (leaf >> 3)];
-                }
-                DRMP3_FLUSH_BITS(leaf >> 8);
-
-                for (j = 0; j < 2; j++, dst++, leaf >>= 4)
-                {
-                    int lsb = leaf & 0x0F;
-                    if (lsb == 15 && linbits)
+                    int j, w = 5;
+                    int leaf = codebook[DRMP3_PEEK_BITS(w)];
+                    while (leaf < 0)
                     {
-                        lsb += DRMP3_PEEK_BITS(linbits);
-                        DRMP3_FLUSH_BITS(linbits);
-                        DRMP3_CHECK_BITS;
-                        *dst = one*drmp3_L3_pow_43(lsb)*((drmp3_int32)bs_cache < 0 ? -1: 1);
-                    } else
-                    {
-                        *dst = g_drmp3_pow43[16 + lsb - 16*(bs_cache >> 31)]*one;
+                        DRMP3_FLUSH_BITS(w);
+                        w = leaf & 7;
+                        leaf = codebook[DRMP3_PEEK_BITS(w) - (leaf >> 3)];
                     }
-                    DRMP3_FLUSH_BITS(lsb ? 1 : 0);
-                }
-                DRMP3_CHECK_BITS;
-            } while (--pairs_to_decode);
-        } while ((big_val_cnt -= np) > 0 && --sfb_cnt >= 0);
+                    DRMP3_FLUSH_BITS(leaf >> 8);
+
+                    for (j = 0; j < 2; j++, dst++, leaf >>= 4)
+                    {
+                        int lsb = leaf & 0x0F;
+                        if (lsb == 15)
+                        {
+                            lsb += DRMP3_PEEK_BITS(linbits);
+                            DRMP3_FLUSH_BITS(linbits);
+                            DRMP3_CHECK_BITS;
+                            *dst = one*drmp3_L3_pow_43(lsb)*((int32_t)bs_cache < 0 ? -1: 1);
+                        } else
+                        {
+                            *dst = g_drmp3_pow43[16 + lsb - 16*(bs_cache >> 31)]*one;
+                        }
+                        DRMP3_FLUSH_BITS(lsb ? 1 : 0);
+                    }
+                    DRMP3_CHECK_BITS;
+                } while (--pairs_to_decode);
+            } while ((big_val_cnt -= np) > 0 && --sfb_cnt >= 0);
+        } else
+        {
+            do
+            {
+                np = *sfb++ / 2;
+                pairs_to_decode = DRMP3_MIN(big_val_cnt, np);
+                one = *scf++;
+                do
+                {
+                    int j, w = 5;
+                    int leaf = codebook[DRMP3_PEEK_BITS(w)];
+                    while (leaf < 0)
+                    {
+                        DRMP3_FLUSH_BITS(w);
+                        w = leaf & 7;
+                        leaf = codebook[DRMP3_PEEK_BITS(w) - (leaf >> 3)];
+                    }
+                    DRMP3_FLUSH_BITS(leaf >> 8);
+
+                    for (j = 0; j < 2; j++, dst++, leaf >>= 4)
+                    {
+                        int lsb = leaf & 0x0F;
+                        *dst = g_drmp3_pow43[16 + lsb - 16*(bs_cache >> 31)]*one;
+                        DRMP3_FLUSH_BITS(lsb ? 1 : 0);
+                    }
+                    DRMP3_CHECK_BITS;
+                } while (--pairs_to_decode);
+            } while ((big_val_cnt -= np) > 0 && --sfb_cnt >= 0);
+        }
     }
 
     for (np = 1 - big_val_cnt;; dst += 4)
@@ -3779,6 +3810,9 @@ DIFFERENCES BETWEEN minimp3 AND dr_mp3
 /*
 REVISION HISTORY
 ================
+v0.4.5 - 2019-06-06
+  - Bring up to date with minimp3.
+
 v0.4.4 - 2019-05-06
   - Fixes to the VC6 build.
 
