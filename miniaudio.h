@@ -1,6 +1,6 @@
 /*
 Audio playback and capture library. Choice of public domain or MIT-0. See license statements at the end of this file.
-miniaudio (formerly mini_al) - v0.9.5 - 2019-05-21
+miniaudio (formerly mini_al) - v0.9.6 - 2019-xx-xx
 
 David Reid - davidreidsoftware@gmail.com
 */
@@ -33018,6 +33018,10 @@ Device
 /*
 REVISION HISTORY
 ================
+v0.9.6 - 2019-xx-xx
+  - Don't trigger an assert when ma_device_start() is called on a device that is already started. This will now log a warning
+    and return MA_INVALID_OPERATION. The same applies for ma_device_stop().
+
 v0.9.5 - 2019-05-21
   - Add logging to ma_dlopen() and ma_dlsym().
   - Add ma_decoder_get_length_in_pcm_frames().
