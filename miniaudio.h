@@ -304,7 +304,7 @@ UWP
 
 Web Audio / Emscripten
 ----------------------
-- The first time a context is initialized it will create a global object called "mal" whose primary purpose is to act
+- The first time a context is initialized it will create a global object called "miniaudio" whose primary purpose is to act
   as a factory for device objects.
 - Currently the Web Audio backend uses ScriptProcessorNode's, but this may need to change later as they've been deprecated.
 - Google is implementing a policy in their browsers that prevent automatic media output without first receiving some kind
