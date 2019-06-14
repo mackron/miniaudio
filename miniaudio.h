@@ -1770,7 +1770,9 @@ pInput is a pointer to a buffer containing input data from the device. This will
 null for a playback device.
 
 frameCount is the number of PCM frames to process. If an output buffer is provided (pOutput is not null), applications should write out
-to the entire output buffer.
+to the entire output buffer. Note that frameCount will not necessarily be exactly what you asked for when you initialized the deviced.
+The bufferSizeInFrames and bufferSizeInMilliseconds members of the device config are just hints, and are not necessarily exactly what
+you'll get.
 
 Do _not_ call any miniaudio APIs from the callback. Attempting the stop the device can result in a deadlock. The proper way to stop the
 device is to call ma_device_stop() from a different thread, normally the main application thread.
