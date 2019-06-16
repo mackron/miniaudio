@@ -1,6 +1,6 @@
 /*
 FLAC audio decoder. Choice of public domain or MIT-0. See license statements at the end of this file.
-dr_flac - v0.11.8 - 2019-05-21
+dr_flac - v0.11.9 - 2019-06-16
 
 David Reid - mackron@gmail.com
 */
@@ -149,7 +149,7 @@ typedef drflac_uint32    drflac_bool32;
 #elif (defined(__GNUC__) && __GNUC__ >= 4)  /* GCC 4 */
     #define DRFLAC_DEPRECATED       __attribute__((deprecated))
 #elif defined(__has_feature)                /* Clang */
-    #if defined(__has_feature(attribute_deprecated))
+    #if __has_feature(attribute_deprecated)
         #define DRFLAC_DEPRECATED   __attribute__((deprecated))
     #else
         #define DRFLAC_DEPRECATED
@@ -1141,9 +1141,24 @@ reference excess prior samples.
 /* CPU caps. */
 static drflac_bool32 drflac__gIsLZCNTSupported = DRFLAC_FALSE;
 #ifndef DRFLAC_NO_CPUID
+/*
+I've had a bug report that Clang's ThreadSanitizer presents a warning in this function. Having reviewed this, this does
+actually make sense. However, since CPU caps should never differ for a running process, I don't think the trade off of
+complicating internal API's by passing around CPU caps versus just disabling the warnings is worthwhile. I'm therefore
+just going to disable these warnings.
+*/
+#if defined(__has_feature)
+    #if __has_feature(thread_sanitizer)
+        #define DRFLAC_NO_THREAD_SANITIZE __attribute__((no_sanitize("thread")))
+    #else
+        #define DRFLAC_NO_THREAD_SANITIZE
+    #endif
+#else
+    #define DRFLAC_NO_THREAD_SANITIZE
+#endif
 static drflac_bool32 drflac__gIsSSE2Supported  = DRFLAC_FALSE;
 static drflac_bool32 drflac__gIsSSE41Supported = DRFLAC_FALSE;
-static void drflac__init_cpu_caps()
+DRFLAC_NO_THREAD_SANITIZE static void drflac__init_cpu_caps()
 {
     static drflac_bool32 isCPUCapsInitialized = DRFLAC_FALSE;
 
@@ -8656,6 +8671,9 @@ drflac_bool32 drflac_next_cuesheet_track(drflac_cuesheet_track_iterator* pIter, 
 /*
 REVISION HISTORY
 ================
+v0.11.9 - 2019-06-16
+  - Silence some ThreadSanitizer warnings.
+
 v0.11.8 - 2019-05-21
   - Fix warnings.
 
