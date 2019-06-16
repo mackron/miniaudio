@@ -1,6 +1,6 @@
 /*
 MP3 audio decoder. Choice of public domain or MIT-0. See license statements at the end of this file.
-dr_mp3 - v0.4.5 - 2019-06-06
+dr_mp3 - v0.4.6 - 2019-06-14
 
 David Reid - mackron@gmail.com
 
@@ -2164,14 +2164,14 @@ void drmp3dec_f32_to_s16(const float *in, drmp3_int16 *out, int num_samples)
         int aligned_count = num_samples & ~7;
         for(; i < aligned_count; i+=8)
         {
-            static const drmp3_f4 g_scale = { 32768.0f, 32768.0f, 32768.0f, 32768.0f };
-            drmp3_f4 a = DRMP3_VMUL(DRMP3_VLD(&in[i  ]), g_scale);
-            drmp3_f4 b = DRMP3_VMUL(DRMP3_VLD(&in[i+4]), g_scale);
+            drmp3_f4 scale = DRMP3_VSET(32768.0f);
+            drmp3_f4 a = DRMP3_VMUL(DRMP3_VLD(&in[i  ]), scale);
+            drmp3_f4 b = DRMP3_VMUL(DRMP3_VLD(&in[i+4]), scale);
 #if DRMP3_HAVE_SSE
-            static const drmp3_f4 g_max = { 32767.0f, 32767.0f, 32767.0f, 32767.0f };
-            static const drmp3_f4 g_min = { -32768.0f, -32768.0f, -32768.0f, -32768.0f };
-            __m128i pcm8 = _mm_packs_epi32(_mm_cvtps_epi32(_mm_max_ps(_mm_min_ps(a, g_max), g_min)),
-                                           _mm_cvtps_epi32(_mm_max_ps(_mm_min_ps(b, g_max), g_min)));
+            drmp3_f4 s16max = DRMP3_VSET( 32767.0f);
+            drmp3_f4 s16min = DRMP3_VSET(-32768.0f);
+            __m128i pcm8 = _mm_packs_epi32(_mm_cvtps_epi32(_mm_max_ps(_mm_min_ps(a, s16max), s16min)),
+                                           _mm_cvtps_epi32(_mm_max_ps(_mm_min_ps(b, s16max), s16min)));
             out[i  ] = (drmp3_int16)_mm_extract_epi16(pcm8, 0);
             out[i+1] = (drmp3_int16)_mm_extract_epi16(pcm8, 1);
             out[i+2] = (drmp3_int16)_mm_extract_epi16(pcm8, 2);
@@ -3810,6 +3810,9 @@ DIFFERENCES BETWEEN minimp3 AND dr_mp3
 /*
 REVISION HISTORY
 ================
+v0.4.6 - 2019-06-14
+  - Fix a compiler error.
+
 v0.4.5 - 2019-06-06
   - Bring up to date with minimp3.
 
