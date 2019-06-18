@@ -3,6 +3,8 @@ Audio playback and capture library. Choice of public domain or MIT-0. See licens
 miniaudio (formerly mini_al) - v0.9.6 - 2019-xx-xx
 
 David Reid - davidreidsoftware@gmail.com
+
+https://github.com/dr-soft/miniaudio
 */
 
 /*
