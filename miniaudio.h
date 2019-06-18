@@ -5488,7 +5488,10 @@ static MA_INLINE void ma_device__set_state(ma_device* pDevice, ma_uint32 newStat
 /* A helper for getting the state of the device. */
 static MA_INLINE ma_uint32 ma_device__get_state(ma_device* pDevice)
 {
-    return pDevice->state;
+    ma_uint32 state;
+    ma_atomic_exchange_32(&state, pDevice->state);
+
+    return state;
 }
 
 
