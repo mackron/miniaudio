@@ -1,6 +1,6 @@
 /*
 FLAC audio decoder. Choice of public domain or MIT-0. See license statements at the end of this file.
-dr_flac - v0.11.9 - 2019-06-16
+dr_flac - v0.11.10 - 2019-06-26
 
 David Reid - mackron@gmail.com
 */
@@ -1008,7 +1008,7 @@ static DRFLAC_INLINE drflac_bool32 drflac_has_sse2()
                 return DRFLAC_FALSE;
             #else
                 int info[4];
-                drflac_cpuid(info, 1);
+                drflac__cpuid(info, 1);
                 return (info[3] & (1 << 26)) != 0;
             #endif
         #endif
@@ -1033,7 +1033,7 @@ static DRFLAC_INLINE drflac_bool32 drflac_has_sse41()
                 return DRFLAC_FALSE;
             #else
                 int info[4];
-                drflac_cpuid(info, 1);
+                drflac__cpuid(info, 1);
                 return (info[2] & (1 << 19)) != 0;
             #endif
         #endif
@@ -8671,6 +8671,9 @@ drflac_bool32 drflac_next_cuesheet_track(drflac_cuesheet_track_iterator* pIter, 
 /*
 REVISION HISTORY
 ================
+v0.11.10 - 2019-06-26
+  - Fix a compiler error.
+
 v0.11.9 - 2019-06-16
   - Silence some ThreadSanitizer warnings.
 
