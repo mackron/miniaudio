@@ -14910,7 +14910,7 @@ ma_pa_buffer_attr ma_device__pa_buffer_attr_new(ma_uint32 bufferSizeInFrames, ma
     attr.maxlength = bufferSizeInFrames * ma_get_bytes_per_sample(ma_format_from_pulse(ss->format)) * ss->channels;
     attr.tlength   = attr.maxlength / periods;
     attr.prebuf    = (ma_uint32)-1;
-    attr.minreq    = attr.maxlength / periods;
+    attr.minreq    = (ma_uint32)-1;
     attr.fragsize  = attr.maxlength / periods;
 
     return attr;
@@ -33031,6 +33031,7 @@ REVISION HISTORY
 v0.9.6 - 2019-xx-xx
   - Don't trigger an assert when ma_device_start() is called on a device that is already started. This will now log a warning
     and return MA_INVALID_OPERATION. The same applies for ma_device_stop().
+  - Try fixing an issue with PulseAudio taking a long time to start playback.
 
 v0.9.5 - 2019-05-21
   - Add logging to ma_dlopen() and ma_dlsym().
