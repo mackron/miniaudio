@@ -544,10 +544,10 @@ extern "C" {
     #endif
 #endif
 
-typedef ma_uint8                   ma_bool8;
-typedef ma_uint32                  ma_bool32;
-#define MA_TRUE                    1
-#define MA_FALSE                   0
+typedef ma_uint8    ma_bool8;
+typedef ma_uint32   ma_bool32;
+#define MA_TRUE     1
+#define MA_FALSE    0
 
 typedef void* ma_handle;
 typedef void* ma_ptr;
