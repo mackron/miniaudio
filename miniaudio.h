@@ -30539,7 +30539,7 @@ ma_uint64 ma_convert_frames_ex(void* pOut, ma_format formatOut, ma_uint32 channe
     */
     totalFramesRead = ma_pcm_converter_read(&converter, pOut, frameCountOut);
     if (totalFramesRead < frameCountOut) {
-        ma_uint32 bpf = ma_get_bytes_per_frame(formatIn, channelsIn);
+        ma_uint32 bpfOut = ma_get_bytes_per_frame(formatOut, channelsOut);
 
         data.isFeedingZeros = MA_TRUE;
         data.totalFrameCount = ((ma_uint64)0xFFFFFFFF << 32) | 0xFFFFFFFF; /* C89 does not support 64-bit constants so need to instead construct it like this. Annoying... */ /*data.totalFrameCount = 0xFFFFFFFFFFFFFFFF;*/
@@ -30552,7 +30552,7 @@ ma_uint64 ma_convert_frames_ex(void* pOut, ma_format formatOut, ma_uint32 channe
             framesToRead = (frameCountOut - totalFramesRead);
             ma_assert(framesToRead > 0);
 
-            framesJustRead = ma_pcm_converter_read(&converter, ma_offset_ptr(pOut, totalFramesRead * bpf), framesToRead);
+            framesJustRead = ma_pcm_converter_read(&converter, ma_offset_ptr(pOut, totalFramesRead * bpfOut), framesToRead);
             totalFramesRead += framesJustRead;
 
             if (framesJustRead < framesToRead) {
@@ -30562,7 +30562,7 @@ ma_uint64 ma_convert_frames_ex(void* pOut, ma_format formatOut, ma_uint32 channe
 
         /* At this point we should have output every sample, but just to be super duper sure, just fill the rest with zeros. */
         if (totalFramesRead < frameCountOut) {
-            ma_zero_memory_64(ma_offset_ptr(pOut, totalFramesRead * bpf), ((frameCountOut - totalFramesRead) * bpf));
+            ma_zero_memory_64(ma_offset_ptr(pOut, totalFramesRead * bpfOut), ((frameCountOut - totalFramesRead) * bpfOut));
             totalFramesRead = frameCountOut;
         }
     }
