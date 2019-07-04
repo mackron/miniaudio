@@ -33032,6 +33032,7 @@ v0.9.6 - 2019-xx-xx
   - Don't trigger an assert when ma_device_start() is called on a device that is already started. This will now log a warning
     and return MA_INVALID_OPERATION. The same applies for ma_device_stop().
   - Try fixing an issue with PulseAudio taking a long time to start playback.
+  - Fix a bug in ma_convert_frames() and ma_convert_frames_ex().
 
 v0.9.5 - 2019-05-21
   - Add logging to ma_dlopen() and ma_dlsym().
