@@ -946,7 +946,7 @@ MA_ALIGNED_STRUCT(MA_SIMD_ALIGNMENT) ma_src
 };
 
 typedef struct ma_pcm_converter ma_pcm_converter;
-typedef ma_uint32 (* ma_pcm_converter_read_proc)(ma_pcm_converter* pDSP, void* pSamplesOut, ma_uint32 frameCount, void* pUserData);
+typedef ma_uint32 (* ma_pcm_converter_read_proc)(ma_pcm_converter* pDSP, void* pFramesOut, ma_uint32 frameCount, void* pUserData);
 
 typedef struct
 {
