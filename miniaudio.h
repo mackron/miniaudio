@@ -3071,6 +3071,12 @@ ma_result ma_decoder_init_file_wav(const char* pFilePath, const ma_decoder_confi
 ma_result ma_decoder_init_file_flac(const char* pFilePath, const ma_decoder_config* pConfig, ma_decoder* pDecoder);
 ma_result ma_decoder_init_file_vorbis(const char* pFilePath, const ma_decoder_config* pConfig, ma_decoder* pDecoder);
 ma_result ma_decoder_init_file_mp3(const char* pFilePath, const ma_decoder_config* pConfig, ma_decoder* pDecoder);
+
+ma_result ma_decoder_init_file_w(const wchar_t* pFilePath, const ma_decoder_config* pConfig, ma_decoder* pDecoder);
+ma_result ma_decoder_init_file_wav_w(const wchar_t* pFilePath, const ma_decoder_config* pConfig, ma_decoder* pDecoder);
+ma_result ma_decoder_init_file_flac_w(const wchar_t* pFilePath, const ma_decoder_config* pConfig, ma_decoder* pDecoder);
+ma_result ma_decoder_init_file_vorbis_w(const wchar_t* pFilePath, const ma_decoder_config* pConfig, ma_decoder* pDecoder);
+ma_result ma_decoder_init_file_mp3_w(const wchar_t* pFilePath, const ma_decoder_config* pConfig, ma_decoder* pDecoder);
 #endif
 
 ma_result ma_decoder_uninit(ma_decoder* pDecoder);
@@ -3150,7 +3156,7 @@ IMPLEMENTATION
 #include <mmreg.h>
 #include <mmsystem.h>
 #else
-#include <stdlib.h> /* For malloc()/free() */
+#include <stdlib.h> /* For malloc(), free(), wcstombs(). */
 #include <string.h> /* For memset() */
 #endif
 
@@ -7754,7 +7760,7 @@ ma_result ma_device_init_internal__wasapi(ma_context* pContext, ma_device_type d
         }
         
         if (hr == MA_AUDCLNT_E_BUFFER_SIZE_NOT_ALIGNED) {
-            UINT bufferSizeInFrames;
+            ma_uint32 bufferSizeInFrames;
             hr = ma_IAudioClient_GetBufferSize((ma_IAudioClient*)pData->pAudioClient, &bufferSizeInFrames);
             if (SUCCEEDED(hr)) {
                 bufferDuration = (MA_REFERENCE_TIME)((10000.0 * 1000 / wf.Format.nSamplesPerSec * bufferSizeInFrames) + 0.5);
@@ -32533,6 +32539,7 @@ ma_result ma_decoder_init_memory_raw(const void* pData, size_t dataSize, const m
 #include <stdio.h>
 #if !defined(_MSC_VER) && !defined(__DMC__)
 #include <strings.h>    /* For strcasecmp(). */
+#include <wchar.h>      /* For wcsrtombs() */
 #endif
 
 const char* ma_path_file_name(const char* path)
@@ -32648,6 +32655,75 @@ ma_result ma_decoder__preinit_file(const char* pFilePath, const ma_decoder_confi
     return MA_SUCCESS;
 }
 
+ma_result ma_decoder__preinit_file_w(const wchar_t* pFilePath, const ma_decoder_config* pConfig, ma_decoder* pDecoder)
+{
+    FILE* pFile;
+
+    if (pDecoder == NULL) {
+        return MA_INVALID_ARGS;
+    }
+
+    ma_zero_object(pDecoder);
+
+    if (pFilePath == NULL || pFilePath[0] == '\0') {
+        return MA_INVALID_ARGS;
+    }
+
+#if defined(_WIN32)
+    /* Use _wfopen() on Windows. */
+    #if defined(_MSC_VER) && _MSC_VER >= 1400
+        if (_wfopen_s(&pFile, pFilePath, L"rb") != 0) {
+            return MA_ERROR;
+        }
+    #else
+        pFile = _wfopen(pFilePath, L"rb");
+        if (pFile == NULL) {
+            return MA_ERROR;
+        }
+    #endif
+#else
+    /*
+    Use fopen() on anything other than Windows. Requires a conversion. This is annoying because fopen() is locale specific. The only real way I can
+    think of to do this is with wcsrtombs(). Note that wcstombs() is apparently not thread-safe because it uses a static global mbstate_t object for
+    maintaining state. I've checked this with -std=c89 and it works, but if somebody get's a compiler error I'll look into improving compatibility.
+    */
+    {
+        mbstate_t mbs;
+        size_t lenMB;
+        const wchar_t* pFilePathTemp = pFilePath;
+        char* pFilePathMB = NULL;
+
+        /* Get the length first. */
+        lenMB = wcsrtombs(NULL, &pFilePathTemp, 0, &mbs);
+        if (lenMB == (size_t)-1) {
+            return MA_ERROR;
+        }
+
+        pFilePathMB = (char*)MA_MALLOC(lenMB + 1);
+        if (pFilePathMB == NULL) {
+            return MA_OUT_OF_MEMORY;
+        }
+
+        pFilePathTemp = pFilePath;
+        wcsrtombs(pFilePathMB, &pFilePathTemp, lenMB + 1, &mbs);
+
+        pFile = fopen(pFilePathMB, "rb");
+
+        MA_FREE(pFilePathMB);
+    }
+
+    if (pFile == NULL) {
+        return MA_ERROR;
+    }
+#endif
+
+    /* We need to manually set the user data so the calls to ma_decoder__on_seek_stdio() succeed. */
+    pDecoder->pUserData = pFile;
+
+    (void)pConfig;
+    return MA_SUCCESS;
+}
+
 ma_result ma_decoder_init_file(const char* pFilePath, const ma_decoder_config* pConfig, ma_decoder* pDecoder)
 {
     ma_result result = ma_decoder__preinit_file(pFilePath, pConfig, pDecoder);    /* This sets pDecoder->pUserData to a FILE*. */
@@ -32722,6 +32798,58 @@ ma_result ma_decoder_init_file_vorbis(const char* pFilePath, const ma_decoder_co
 ma_result ma_decoder_init_file_mp3(const char* pFilePath, const ma_decoder_config* pConfig, ma_decoder* pDecoder)
 {
     ma_result result = ma_decoder__preinit_file(pFilePath, pConfig, pDecoder);
+    if (result != MA_SUCCESS) {
+        return result;
+    }
+
+    return ma_decoder_init_mp3(ma_decoder__on_read_stdio, ma_decoder__on_seek_stdio, pDecoder->pUserData, pConfig, pDecoder);
+}
+
+
+ma_result ma_decoder_init_file_w(const wchar_t* pFilePath, const ma_decoder_config* pConfig, ma_decoder* pDecoder)
+{
+    ma_result result = ma_decoder__preinit_file_w(pFilePath, pConfig, pDecoder);    /* This sets pDecoder->pUserData to a FILE*. */
+    if (result != MA_SUCCESS) {
+        return result;
+    }
+
+    /* Straight to trial and error. This is different to the char* version because we don't have an API for checking the extension of a wchar_t* path. */
+    return ma_decoder_init(ma_decoder__on_read_stdio, ma_decoder__on_seek_stdio, pDecoder->pUserData, pConfig, pDecoder);
+}
+
+ma_result ma_decoder_init_file_wav_w(const wchar_t* pFilePath, const ma_decoder_config* pConfig, ma_decoder* pDecoder)
+{
+    ma_result result = ma_decoder__preinit_file_w(pFilePath, pConfig, pDecoder);
+    if (result != MA_SUCCESS) {
+        return result;
+    }
+
+    return ma_decoder_init_wav(ma_decoder__on_read_stdio, ma_decoder__on_seek_stdio, pDecoder->pUserData, pConfig, pDecoder);
+}
+
+ma_result ma_decoder_init_file_flac_w(const wchar_t* pFilePath, const ma_decoder_config* pConfig, ma_decoder* pDecoder)
+{
+    ma_result result = ma_decoder__preinit_file_w(pFilePath, pConfig, pDecoder);
+    if (result != MA_SUCCESS) {
+        return result;
+    }
+
+    return ma_decoder_init_flac(ma_decoder__on_read_stdio, ma_decoder__on_seek_stdio, pDecoder->pUserData, pConfig, pDecoder);
+}
+
+ma_result ma_decoder_init_file_vorbis_w(const wchar_t* pFilePath, const ma_decoder_config* pConfig, ma_decoder* pDecoder)
+{
+    ma_result result = ma_decoder__preinit_file_w(pFilePath, pConfig, pDecoder);
+    if (result != MA_SUCCESS) {
+        return result;
+    }
+
+    return ma_decoder_init_vorbis(ma_decoder__on_read_stdio, ma_decoder__on_seek_stdio, pDecoder->pUserData, pConfig, pDecoder);
+}
+
+ma_result ma_decoder_init_file_mp3_w(const wchar_t* pFilePath, const ma_decoder_config* pConfig, ma_decoder* pDecoder)
+{
+    ma_result result = ma_decoder__preinit_file_w(pFilePath, pConfig, pDecoder);
     if (result != MA_SUCCESS) {
         return result;
     }
