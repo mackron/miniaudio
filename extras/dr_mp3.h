@@ -1,6 +1,6 @@
 /*
 MP3 audio decoder. Choice of public domain or MIT-0. See license statements at the end of this file.
-dr_mp3 - v0.4.6 - 2019-06-14
+dr_mp3 - v0.4.7 - 2019-07-28
 
 David Reid - mackron@gmail.com
 
@@ -1170,7 +1170,7 @@ static void drmp3_L3_huffman(float *dst, drmp3_bs *bs, const drmp3_L3_gr_info *g
                             lsb += DRMP3_PEEK_BITS(linbits);
                             DRMP3_FLUSH_BITS(linbits);
                             DRMP3_CHECK_BITS;
-                            *dst = one*drmp3_L3_pow_43(lsb)*((int32_t)bs_cache < 0 ? -1: 1);
+                            *dst = one*drmp3_L3_pow_43(lsb)*((drmp3_int32)bs_cache < 0 ? -1: 1);
                         } else
                         {
                             *dst = g_drmp3_pow43[16 + lsb - 16*(bs_cache >> 31)]*one;
@@ -3810,6 +3810,9 @@ DIFFERENCES BETWEEN minimp3 AND dr_mp3
 /*
 REVISION HISTORY
 ================
+v0.4.7 - 2019-07-28
+  - Fix a compiler error.
+
 v0.4.6 - 2019-06-14
   - Fix a compiler error.
 
