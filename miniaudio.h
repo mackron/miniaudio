@@ -3303,7 +3303,7 @@ IMPLEMENTATION
             #define MA_NO_CPUID
         #endif
 
-        #if _MSC_VER >= 1600
+        #if _MSC_VER >= 1600 && (defined(_MSC_FULL_VER) && _MSC_FULL_VER >= 160040219)
             static MA_INLINE unsigned __int64 ma_xgetbv(int reg)
             {
                 return _xgetbv(reg);
