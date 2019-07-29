@@ -32569,6 +32569,34 @@ const char* ma_path_file_name(const char* path)
     return fileName;
 }
 
+const wchar_t* ma_path_file_name_w(const wchar_t* path)
+{
+    const wchar_t* fileName;
+
+    if (path == NULL) {
+        return NULL;
+    }
+
+    fileName = path;
+
+    /* We just loop through the path until we find the last slash. */
+    while (path[0] != '\0') {
+        if (path[0] == '/' || path[0] == '\\') {
+            fileName = path;
+        }
+
+        path += 1;
+    }
+
+    /* At this point the file name is sitting on a slash, so just move forward. */
+    while (fileName[0] != '\0' && (fileName[0] == '/' || fileName[0] == '\\')) {
+        fileName += 1;
+    }
+
+    return fileName;
+}
+
+
 const char* ma_path_extension(const char* path)
 {
     const char* extension;
@@ -32594,6 +32622,32 @@ const char* ma_path_extension(const char* path)
     return (lastOccurance != NULL) ? lastOccurance : extension;
 }
 
+const wchar_t* ma_path_extension_w(const wchar_t* path)
+{
+    const wchar_t* extension;
+    const wchar_t* lastOccurance;
+
+    if (path == NULL) {
+        path = L"";
+    }
+
+    extension = ma_path_file_name_w(path);
+    lastOccurance = NULL;
+
+    /* Just find the last '.' and return. */
+    while (extension[0] != '\0') {
+        if (extension[0] == '.') {
+            extension += 1;
+            lastOccurance = extension;
+        }
+
+        extension += 1;
+    }
+
+    return (lastOccurance != NULL) ? lastOccurance : extension;
+}
+
+
 ma_bool32 ma_path_extension_equal(const char* path, const char* extension)
 {
     const char* ext1;
@@ -32612,6 +32666,49 @@ ma_bool32 ma_path_extension_equal(const char* path, const char* extension)
     return strcasecmp(ext1, ext2) == 0;
 #endif
 }
+
+ma_bool32 ma_path_extension_equal_w(const wchar_t* path, const wchar_t* extension)
+{
+    const wchar_t* ext1;
+    const wchar_t* ext2;
+
+    if (path == NULL || extension == NULL) {
+        return MA_FALSE;
+    }
+
+    ext1 = extension;
+    ext2 = ma_path_extension_w(path);
+
+#if defined(_MSC_VER) || defined(__DMC__)
+    return _wcsicmp(ext1, ext2) == 0;
+#else
+    /*
+    I'm not aware of a wide character version of strcasecmp(). I'm therefore converting the extensions to multibyte strings and comparing those. This
+    isn't the most efficient way to do it, but it should work OK.
+    */
+    {
+        char ext1MB[4096];
+        char ext2MB[4096];
+        const wchar_t* pext1 = ext1;
+        const wchar_t* pext2 = ext2;
+        mbstate_t mbs1;
+        mbstate_t mbs2;
+
+        ma_zero_object(&mbs1);
+        ma_zero_object(&mbs2);
+
+        if (wcsrtombs(ext1MB, &pext1, sizeof(ext1MB), &mbs1) == (size_t)-1) {
+            return MA_FALSE;
+        }
+        if (wcsrtombs(ext2MB, &pext2, sizeof(ext2MB), &mbs2) == (size_t)-1) {
+            return MA_FALSE;
+        }
+
+        return strcasecmp(ext1MB, ext2MB) == 0;
+    }
+#endif
+}
+
 
 size_t ma_decoder__on_read_stdio(ma_decoder* pDecoder, void* pBufferOut, size_t bytesToRead)
 {
@@ -32694,6 +32791,7 @@ ma_result ma_decoder__preinit_file_w(const wchar_t* pFilePath, const ma_decoder_
         char* pFilePathMB = NULL;
 
         /* Get the length first. */
+        ma_zero_object(&mbs);
         lenMB = wcsrtombs(NULL, &pFilePathTemp, 0, &mbs);
         if (lenMB == (size_t)-1) {
             return MA_ERROR;
@@ -32705,6 +32803,7 @@ ma_result ma_decoder__preinit_file_w(const wchar_t* pFilePath, const ma_decoder_
         }
 
         pFilePathTemp = pFilePath;
+        ma_zero_object(&mbs);
         wcsrtombs(pFilePathMB, &pFilePathTemp, lenMB + 1, &mbs);
 
         pFile = fopen(pFilePathMB, "rb");
@@ -32813,7 +32912,37 @@ ma_result ma_decoder_init_file_w(const wchar_t* pFilePath, const ma_decoder_conf
         return result;
     }
 
-    /* Straight to trial and error. This is different to the char* version because we don't have an API for checking the extension of a wchar_t* path. */
+    /* WAV */
+    if (ma_path_extension_equal_w(pFilePath, L"wav")) {
+        result =  ma_decoder_init_wav(ma_decoder__on_read_stdio, ma_decoder__on_seek_stdio, pDecoder->pUserData, pConfig, pDecoder);
+        if (result == MA_SUCCESS) {
+            return MA_SUCCESS;
+        }
+
+        ma_decoder__on_seek_stdio(pDecoder, 0, ma_seek_origin_start);
+    }
+
+    /* FLAC */
+    if (ma_path_extension_equal_w(pFilePath, L"flac")) {
+        result =  ma_decoder_init_flac(ma_decoder__on_read_stdio, ma_decoder__on_seek_stdio, pDecoder->pUserData, pConfig, pDecoder);
+        if (result == MA_SUCCESS) {
+            return MA_SUCCESS;
+        }
+
+        ma_decoder__on_seek_stdio(pDecoder, 0, ma_seek_origin_start);
+    }
+
+    /* MP3 */
+    if (ma_path_extension_equal_w(pFilePath, L"mp3")) {
+        result =  ma_decoder_init_mp3(ma_decoder__on_read_stdio, ma_decoder__on_seek_stdio, pDecoder->pUserData, pConfig, pDecoder);
+        if (result == MA_SUCCESS) {
+            return MA_SUCCESS;
+        }
+
+        ma_decoder__on_seek_stdio(pDecoder, 0, ma_seek_origin_start);
+    }
+
+    /* Trial and error. */
     return ma_decoder_init(ma_decoder__on_read_stdio, ma_decoder__on_seek_stdio, pDecoder->pUserData, pConfig, pDecoder);
 }
 
