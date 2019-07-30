@@ -7188,6 +7188,8 @@ ma_result ma_context_get_device_info_from_IAudioClient__wasapi(ma_context* pCont
                 ma_IPropertyStore_Release(pProperties);
                 return ma_context_post_error(pContext, NULL, MA_LOG_LEVEL_ERROR, "[WASAPI] Failed to retrieve device format for device info retrieval.", MA_FAILED_TO_OPEN_BACKEND_DEVICE);
             }
+
+            ma_IPropertyStore_Release(pProperties);
         } else {
             return ma_context_post_error(pContext, NULL, MA_LOG_LEVEL_ERROR, "[WASAPI] Failed to open property store for device info retrieval.", MA_FAILED_TO_OPEN_BACKEND_DEVICE);
         }
@@ -7650,6 +7652,8 @@ ma_result ma_device_init_internal__wasapi(ma_context* pContext, ma_device_type d
             clientProperties.eCategory = MA_AudioCategory_Other;
             ma_IAudioClient2_SetClientProperties(pAudioClient2, &clientProperties);
         }
+
+        pAudioClient2->lpVtbl->Release(pAudioClient2);
     }
 
 
