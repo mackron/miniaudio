@@ -1063,18 +1063,18 @@ Below is the channel map used by ma_standard_channel_map_default:
 
 ************************************************************************************************************************************************************/
 
-/*
+/**
 Helper for retrieving a standard channel map.
 */
 void ma_get_standard_channel_map(ma_standard_channel_map standardChannelMap, ma_uint32 channels, ma_channel channelMap[MA_MAX_CHANNELS]);
 
-/*
+/**
 Copies a channel map.
 */
 void ma_channel_map_copy(ma_channel* pOut, const ma_channel* pIn, ma_uint32 channels);
 
 
-/*
+/**
 Determines whether or not a channel map is valid.
 
 A blank channel map is valid (all channels set to MA_CHANNEL_NONE). The way a blank channel map is handled is context specific, but
@@ -1086,19 +1086,19 @@ Invalid channel maps:
 */
 ma_bool32 ma_channel_map_valid(ma_uint32 channels, const ma_channel channelMap[MA_MAX_CHANNELS]);
 
-/*
+/**
 Helper for comparing two channel maps for equality.
 
 This assumes the channel count is the same between the two.
 */
 ma_bool32 ma_channel_map_equal(ma_uint32 channels, const ma_channel channelMapA[MA_MAX_CHANNELS], const ma_channel channelMapB[MA_MAX_CHANNELS]);
 
-/*
+/**
 Helper for determining if a channel map is blank (all channels set to MA_CHANNEL_NONE).
 */
 ma_bool32 ma_channel_map_blank(ma_uint32 channels, const ma_channel channelMap[MA_MAX_CHANNELS]);
 
-/*
+/**
 Helper for determining whether or not a channel is present in the given channel map.
 */
 ma_bool32 ma_channel_map_contains_channel_position(ma_uint32 channels, const ma_channel channelMap[MA_MAX_CHANNELS], ma_channel channelPosition);
@@ -1143,22 +1143,22 @@ Note that it is not an error to pass something other than ma_dither_mode_none fo
 
 ************************************************************************************************************************************************************/
 
-/*
+/**
 Initializes a format converter.
 */
 ma_result ma_format_converter_init(const ma_format_converter_config* pConfig, ma_format_converter* pConverter);
 
-/*
+/**
 Reads data from the format converter as interleaved channels.
 */
 ma_uint64 ma_format_converter_read(ma_format_converter* pConverter, ma_uint64 frameCount, void* pFramesOut, void* pUserData);
 
-/*
+/**
 Reads data from the format converter as deinterleaved channels.
 */
 ma_uint64 ma_format_converter_read_deinterleaved(ma_format_converter* pConverter, ma_uint64 frameCount, void** ppSamplesOut, void* pUserData);
 
-/*
+/**
 Helper for initializing a format converter config.
 */
 ma_format_converter_config ma_format_converter_config_init_new(void);
@@ -1232,17 +1232,17 @@ Read data from the channel router with ma_channel_router_read_deinterleaved(). O
 
 ************************************************************************************************************************************************************/
 
-/*
+/**
 Initializes a channel router where it is assumed that the input data is non-interleaved.
 */
 ma_result ma_channel_router_init(const ma_channel_router_config* pConfig, ma_channel_router* pRouter);
 
-/*
+/**
 Reads data from the channel router as deinterleaved channels.
 */
 ma_uint64 ma_channel_router_read_deinterleaved(ma_channel_router* pRouter, ma_uint64 frameCount, void** ppSamplesOut, void* pUserData);
 
-/*
+/**
 Helper for initializing a channel router config.
 */
 ma_channel_router_config ma_channel_router_config_init(ma_uint32 channelsIn, const ma_channel channelMapIn[MA_MAX_CHANNELS], ma_uint32 channelsOut, const ma_channel channelMapOut[MA_MAX_CHANNELS], ma_channel_mix_mode mixingMode, ma_channel_router_read_deinterleaved_proc onRead, void* pUserData);
@@ -1255,12 +1255,12 @@ Sample Rate Conversion
 
 ************************************************************************************************************************************************************/
 
-/*
+/**
 Initializes a sample rate conversion object.
 */
 ma_result ma_src_init(const ma_src_config* pConfig, ma_src* pSRC);
 
-/*
+/**
 Dynamically adjusts the sample rate.
 
 This is useful for dynamically adjust pitch. Keep in mind, however, that this will speed up or slow down the sound. If this
@@ -1268,7 +1268,7 @@ is not acceptable you will need to use your own algorithm.
 */
 ma_result ma_src_set_sample_rate(ma_src* pSRC, ma_uint32 sampleRateIn, ma_uint32 sampleRateOut);
 
-/*
+/**
 Reads a number of frames.
 
 Returns the number of frames actually read.
@@ -1336,7 +1336,7 @@ ma_pcm_converter_config ma_pcm_converter_config_init_new(void);
 ma_pcm_converter_config ma_pcm_converter_config_init(ma_format formatIn, ma_uint32 channelsIn, ma_uint32 sampleRateIn, ma_format formatOut, ma_uint32 channelsOut, ma_uint32 sampleRateOut, ma_pcm_converter_read_proc onRead, void* pUserData);
 ma_pcm_converter_config ma_pcm_converter_config_init_ex(ma_format formatIn, ma_uint32 channelsIn, ma_uint32 sampleRateIn, ma_channel channelMapIn[MA_MAX_CHANNELS], ma_format formatOut, ma_uint32 channelsOut, ma_uint32 sampleRateOut,  ma_channel channelMapOut[MA_MAX_CHANNELS], ma_pcm_converter_read_proc onRead, void* pUserData);
 
-/*
+/**
 High-level helper for doing a full format conversion in one go. Returns the number of output frames. Call this with pOut set to NULL to
 determine the required size of the output buffer.
 
@@ -2580,7 +2580,7 @@ MA_ALIGNED_STRUCT(MA_SIMD_ALIGNMENT) ma_device
     #pragma GCC diagnostic pop  /* For ISO C99 doesn't support unnamed structs/unions [-Wpedantic] */
 #endif
 
-/*
+/**
 Initializes a context.
 
 The context is used for selecting and initializing the relevant backends.
@@ -2619,7 +2619,7 @@ Thread Safety: UNSAFE
 */
 ma_result ma_context_init(const ma_backend backends[], ma_uint32 backendCount, const ma_context_config* pConfig, ma_context* pContext);
 
-/*
+/**
 Uninitializes a context.
 
 Results are undefined if you call this while any device created by this context is still active.
@@ -2631,7 +2631,7 @@ Thread Safety: UNSAFE
 */
 ma_result ma_context_uninit(ma_context* pContext);
 
-/*
+/**
 Enumerates over every device (both playback and capture).
 
 This is a lower-level enumeration function to the easier to use ma_context_get_devices(). Use
@@ -2663,7 +2663,7 @@ Thread Safety: SAFE
 */
 ma_result ma_context_enumerate_devices(ma_context* pContext, ma_enum_devices_callback_proc callback, void* pUserData);
 
-/*
+/**
 Retrieves basic information about every active playback and/or capture device.
 
 You can pass in NULL for the playback or capture lists in which case they'll be ignored.
@@ -2686,7 +2686,7 @@ Thread Safety: SAFE
 */
 ma_result ma_context_get_devices(ma_context* pContext, ma_device_info** ppPlaybackDeviceInfos, ma_uint32* pPlaybackDeviceCount, ma_device_info** ppCaptureDeviceInfos, ma_uint32* pCaptureDeviceCount);
 
-/*
+/**
 Retrieves information about a device with the given ID.
 
 Do _not_ call this from within the ma_context_enumerate_devices() callback.
@@ -2708,7 +2708,7 @@ Thread Safety: SAFE
 */
 ma_result ma_context_get_device_info(ma_context* pContext, ma_device_type deviceType, const ma_device_id* pDeviceID, ma_share_mode shareMode, ma_device_info* pDeviceInfo);
 
-/*
+/**
 Initializes a device.
 
 The context can be null in which case it uses the default. This is equivalent to passing in a
@@ -2774,7 +2774,7 @@ Thread Safety: UNSAFE
 */
 ma_result ma_device_init(ma_context* pContext, const ma_device_config* pConfig, ma_device* pDevice);
 
-/*
+/**
 Initializes a device without a context, with extra parameters for controlling the configuration
 of the internal self-managed context.
 
@@ -2782,7 +2782,7 @@ See ma_device_init() and ma_context_init().
 */
 ma_result ma_device_init_ex(const ma_backend backends[], ma_uint32 backendCount, const ma_context_config* pContextConfig, const ma_device_config* pConfig, ma_device* pDevice);
 
-/*
+/**
 Uninitializes a device.
 
 This will explicitly stop the device. You do not need to call ma_device_stop() beforehand, but it's
@@ -2799,7 +2799,7 @@ Thread Safety: UNSAFE
 */
 void ma_device_uninit(ma_device* pDevice);
 
-/*
+/**
 Sets the callback to use when the device has stopped, either explicitly or as a result of an error.
 
 Thread Safety: SAFE
@@ -2807,7 +2807,7 @@ Thread Safety: SAFE
 */
 void ma_device_set_stop_callback(ma_device* pDevice, ma_stop_proc proc);
 
-/*
+/**
 Activates the device. For playback devices this begins playback. For capture devices it begins
 recording.
 
@@ -2827,7 +2827,7 @@ Thread Safety: SAFE
 */
 ma_result ma_device_start(ma_device* pDevice);
 
-/*
+/**
 Puts the device to sleep, but does not uninitialize it. Use ma_device_start() to start it up again.
 
 This API needs to wait on the worker thread to stop the backend device properly before returning. It
@@ -2850,7 +2850,7 @@ Thread Safety: SAFE
 */
 ma_result ma_device_stop(ma_device* pDevice);
 
-/*
+/**
 Determines whether or not the device is started.
 
 This is implemented as a simple accessor.
@@ -2865,12 +2865,12 @@ Thread Safety: SAFE
 ma_bool32 ma_device_is_started(ma_device* pDevice);
 
 
-/*
+/**
 Helper function for initializing a ma_context_config object.
 */
 ma_context_config ma_context_config_init(void);
 
-/*
+/**
 Initializes a device config.
 
 By default, the device config will use native device settings (format, channels, sample rate, etc.). Using native
@@ -2917,62 +2917,62 @@ Utiltities
 
 ************************************************************************************************************************************************************/
 
-/*
+/**
 Creates a mutex.
 
 A mutex must be created from a valid context. A mutex is initially unlocked.
 */
 ma_result ma_mutex_init(ma_context* pContext, ma_mutex* pMutex);
 
-/*
+/**
 Deletes a mutex.
 */
 void ma_mutex_uninit(ma_mutex* pMutex);
 
-/*
+/**
 Locks a mutex with an infinite timeout.
 */
 void ma_mutex_lock(ma_mutex* pMutex);
 
-/*
+/**
 Unlocks a mutex.
 */
 void ma_mutex_unlock(ma_mutex* pMutex);
 
 
-/*
+/**
 Retrieves a friendly name for a backend.
 */
 const char* ma_get_backend_name(ma_backend backend);
 
-/*
+/**
 Adjust buffer size based on a scaling factor.
 
 This just multiplies the base size by the scaling factor, making sure it's a size of at least 1.
 */
 ma_uint32 ma_scale_buffer_size(ma_uint32 baseBufferSize, float scale);
 
-/*
+/**
 Calculates a buffer size in milliseconds from the specified number of frames and sample rate.
 */
 ma_uint32 ma_calculate_buffer_size_in_milliseconds_from_frames(ma_uint32 bufferSizeInFrames, ma_uint32 sampleRate);
 
-/*
+/**
 Calculates a buffer size in frames from the specified number of milliseconds and sample rate.
 */
 ma_uint32 ma_calculate_buffer_size_in_frames_from_milliseconds(ma_uint32 bufferSizeInMilliseconds, ma_uint32 sampleRate);
 
-/*
+/**
 Retrieves the default buffer size in milliseconds based on the specified performance profile.
 */
 ma_uint32 ma_get_default_buffer_size_in_milliseconds(ma_performance_profile performanceProfile);
 
-/*
+/**
 Calculates a buffer size in frames for the specified performance profile and scale factor.
 */
 ma_uint32 ma_get_default_buffer_size_in_frames(ma_performance_profile performanceProfile, ma_uint32 sampleRate);
 
-/*
+/**
 Copies silent frames into the given buffer.
 */
 void ma_zero_pcm_frames(void* p, ma_uint32 frameCount, ma_format format, ma_uint32 channels);
