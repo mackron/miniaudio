@@ -1809,7 +1809,8 @@ typedef enum
 {
     ma_device_type_playback = 1,
     ma_device_type_capture  = 2,
-    ma_device_type_duplex   = ma_device_type_playback | ma_device_type_capture,
+    ma_device_type_duplex   = ma_device_type_playback | ma_device_type_capture, /* 3 */
+    ma_device_type_loopback = 4
 } ma_device_type;
 
 typedef enum
@@ -5798,6 +5799,10 @@ ma_result ma_device_init__null(ma_context* pContext, const ma_device_config* pCo
 
     ma_zero_object(&pDevice->null_device);
 
+    if (pConfig->deviceType == ma_device_type_loopback) {
+        return MA_DEVICE_TYPE_NOT_SUPPORTED;
+    }
+
     bufferSizeInFrames = pConfig->bufferSizeInFrames;
     if (bufferSizeInFrames == 0) {
         bufferSizeInFrames = ma_calculate_buffer_size_in_frames_from_milliseconds(pConfig->bufferSizeInMilliseconds, pConfig->sampleRate);
@@ -9773,6 +9778,10 @@ ma_result ma_device_init__dsound(ma_context* pContext, const ma_device_config* p
     ma_assert(pDevice != NULL);
     ma_zero_object(&pDevice->dsound);
 
+    if (pConfig->deviceType == ma_device_type_loopback) {
+        return MA_DEVICE_TYPE_NOT_SUPPORTED;
+    }
+
     bufferSizeInMilliseconds = pConfig->bufferSizeInMilliseconds;
     if (bufferSizeInMilliseconds == 0) {
         bufferSizeInMilliseconds = ma_calculate_buffer_size_in_milliseconds_from_frames(pConfig->bufferSizeInFrames, pConfig->sampleRate);
@@ -11086,6 +11095,10 @@ ma_result ma_device_init__winmm(ma_context* pContext, const ma_device_config* pC
 
     ma_assert(pDevice != NULL);
     ma_zero_object(&pDevice->winmm);
+
+    if (pConfig->deviceType == ma_device_type_loopback) {
+        return MA_DEVICE_TYPE_NOT_SUPPORTED;
+    }
 
     /* No exlusive mode with WinMM. */
     if (((pConfig->deviceType == ma_device_type_playback || pConfig->deviceType == ma_device_type_duplex) && pConfig->playback.shareMode == ma_share_mode_exclusive) ||
@@ -13278,6 +13291,10 @@ ma_result ma_device_init__alsa(ma_context* pContext, const ma_device_config* pCo
 
     ma_zero_object(&pDevice->alsa);
 
+    if (pConfig->deviceType == ma_device_type_loopback) {
+        return MA_DEVICE_TYPE_NOT_SUPPORTED;
+    }
+
     if (pConfig->deviceType == ma_device_type_capture || pConfig->deviceType == ma_device_type_duplex) {
         ma_result result = ma_device_init_by_type__alsa(pContext, pConfig, ma_device_type_capture, pDevice);
         if (result != MA_SUCCESS) {
@@ -14964,6 +14981,10 @@ ma_result ma_device_init__pulse(ma_context* pContext, const ma_device_config* pC
     ma_assert(pDevice != NULL);
     ma_zero_object(&pDevice->pulse);
 
+    if (pConfig->deviceType == ma_device_type_loopback) {
+        return MA_DEVICE_TYPE_NOT_SUPPORTED;
+    }
+
     /* No exclusive mode with the PulseAudio backend. */
     if (((pConfig->deviceType == ma_device_type_playback || pConfig->deviceType == ma_device_type_duplex) && pConfig->playback.shareMode == ma_share_mode_exclusive) ||
         ((pConfig->deviceType == ma_device_type_capture  || pConfig->deviceType == ma_device_type_duplex) && pConfig->capture.shareMode  == ma_share_mode_exclusive)) {
@@ -16131,6 +16152,10 @@ ma_result ma_device_init__jack(ma_context* pContext, const ma_device_config* pCo
     ma_assert(pContext != NULL);
     ma_assert(pConfig != NULL);
     ma_assert(pDevice != NULL);
+
+    if (pConfig->deviceType == ma_device_type_loopback) {
+        return MA_DEVICE_TYPE_NOT_SUPPORTED;
+    }
 
     /* Only supporting default devices with JACK. */
     if (((pConfig->deviceType == ma_device_type_playback || pConfig->deviceType == ma_device_type_duplex) && pConfig->playback.pDeviceID != NULL && pConfig->playback.pDeviceID->jack != 0) ||
@@ -18684,6 +18709,10 @@ ma_result ma_device_init__coreaudio(ma_context* pContext, const ma_device_config
     ma_assert(pConfig != NULL);
     ma_assert(pDevice != NULL);
 
+    if (pConfig->deviceType == ma_device_type_loopback) {
+        return MA_DEVICE_TYPE_NOT_SUPPORTED;
+    }
+
     /* No exclusive mode with the Core Audio backend for now. */
     if (((pConfig->deviceType == ma_device_type_capture  || pConfig->deviceType == ma_device_type_duplex) && pConfig->capture.shareMode  == ma_share_mode_exclusive) ||
         ((pConfig->deviceType == ma_device_type_playback || pConfig->deviceType == ma_device_type_duplex) && pConfig->playback.shareMode == ma_share_mode_exclusive)) {
@@ -19738,6 +19767,10 @@ ma_result ma_device_init__sndio(ma_context* pContext, const ma_device_config* pC
 
     ma_zero_object(&pDevice->sndio);
 
+    if (pConfig->deviceType == ma_device_type_loopback) {
+        return MA_DEVICE_TYPE_NOT_SUPPORTED;
+    }
+
     if (pConfig->deviceType == ma_device_type_capture || pConfig->deviceType == ma_device_type_duplex) {
         ma_result result = ma_device_init_handle__sndio(pContext, pConfig, ma_device_type_capture, pDevice);
         if (result != MA_SUCCESS) {
@@ -20460,6 +20493,10 @@ ma_result ma_device_init__audio4(ma_context* pContext, const ma_device_config* p
     ma_assert(pDevice != NULL);
 
     ma_zero_object(&pDevice->audio4);
+
+    if (pConfig->deviceType == ma_device_type_loopback) {
+        return MA_DEVICE_TYPE_NOT_SUPPORTED;
+    }
     
     pDevice->audio4.fdCapture  = -1;
     pDevice->audio4.fdPlayback = -1;
@@ -21040,6 +21077,10 @@ ma_result ma_device_init__oss(ma_context* pContext, const ma_device_config* pCon
 
     ma_zero_object(&pDevice->oss);
 
+    if (pConfig->deviceType == ma_device_type_loopback) {
+        return MA_DEVICE_TYPE_NOT_SUPPORTED;
+    }
+
     if (pConfig->deviceType == ma_device_type_capture || pConfig->deviceType == ma_device_type_duplex) {
         ma_result result = ma_device_init_fd__oss(pContext, pConfig, ma_device_type_capture, pDevice);
         if (result != MA_SUCCESS) {
@@ -21522,6 +21563,10 @@ ma_result ma_device_init__aaudio(ma_context* pContext, const ma_device_config* p
     ma_result result;
 
     ma_assert(pDevice != NULL);
+
+    if (pConfig->deviceType == ma_device_type_loopback) {
+        return MA_DEVICE_TYPE_NOT_SUPPORTED;
+    }
 
     /* No exclusive mode with AAudio. */
     if (((pConfig->deviceType == ma_device_type_playback || pConfig->deviceType == ma_device_type_duplex) && pConfig->playback.shareMode == ma_share_mode_exclusive) ||
@@ -22382,6 +22427,10 @@ ma_result ma_device_init__opensl(ma_context* pContext, const ma_device_config* p
         return MA_INVALID_OPERATION;
     }
 
+    if (pConfig->deviceType == ma_device_type_loopback) {
+        return MA_DEVICE_TYPE_NOT_SUPPORTED;
+    }
+
     /*
     For now, only supporting Android implementations of OpenSL|ES since that's the only one I've
     been able to test with and I currently depend on Android-specific extensions (simple buffer
@@ -23143,6 +23192,10 @@ ma_result ma_device_init_by_type__webaudio(ma_context* pContext, const ma_device
 ma_result ma_device_init__webaudio(ma_context* pContext, const ma_device_config* pConfig, ma_device* pDevice)
 {
     ma_result result;
+
+    if (pConfig->deviceType == ma_device_type_loopback) {
+        return MA_DEVICE_TYPE_NOT_SUPPORTED;
+    }
 
     /* No exclusive mode with Web Audio. */
     if (((pConfig->deviceType == ma_device_type_playback || pConfig->deviceType == ma_device_type_duplex) && pConfig->playback.shareMode == ma_share_mode_exclusive) ||
