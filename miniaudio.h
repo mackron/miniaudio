@@ -29426,8 +29426,8 @@ static MA_INLINE float32x4_t ma_src_sinc__interpolation_factor__neon(const ma_sr
 {
     float32x4_t xabs;
     int32x4_t   ixabs;
-    float32x4_t a
-    float32x4_t r
+    float32x4_t a;
+    float32x4_t r;
     int* ixabsv;
     float lo[4];
     float hi[4];
@@ -33306,7 +33306,7 @@ v0.9.5 - 2019-05-21
 
 v0.9.4 - 2019-05-06
   - Add support for C89. With this change, miniaudio should compile clean with GCC/Clang with "-std=c89 -ansi -pedantic" and
-    Microsoft copmilers back to VC6. Other compilers should also work, but have not been tested.
+    Microsoft compilers back to VC6. Other compilers should also work, but have not been tested.
 
 v0.9.3 - 2019-04-19
   - Fix compiler errors on GCC when compiling with -std=c99.
