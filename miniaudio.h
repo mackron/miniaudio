@@ -24243,7 +24243,7 @@ ma_result ma_device_init(ma_context* pContext, const ma_device_config* pConfig, 
     config = *pConfig;
 
     /* Basic config validation. */
-    if (config.deviceType != ma_device_type_playback && config.deviceType != ma_device_type_capture && config.deviceType != ma_device_type_duplex) {
+    if (config.deviceType != ma_device_type_playback && config.deviceType != ma_device_type_capture && config.deviceType != ma_device_type_duplex && config.deviceType != ma_device_type_loopback) {
         return ma_context_post_error(pContext, NULL, MA_LOG_LEVEL_ERROR, "ma_device_init() called with an invalid config. Device type is invalid. Make sure the device type has been set in the config.", MA_INVALID_DEVICE_CONFIG);
     }
 
@@ -24256,7 +24256,7 @@ ma_result ma_device_init(ma_context* pContext, const ma_device_config* pConfig, 
         }
     }
 
-    if (config.deviceType == ma_device_type_playback || config.deviceType == ma_device_type_duplex) {
+    if (config.deviceType == ma_device_type_playback || config.deviceType == ma_device_type_duplex || config.deviceType == ma_device_type_loopback) {
         if (config.playback.channels > MA_MAX_CHANNELS) {
             return ma_context_post_error(pContext, NULL, MA_LOG_LEVEL_ERROR, "ma_device_init() called with an invalid config. Playback channel count cannot exceed 32.", MA_INVALID_DEVICE_CONFIG);
         }
