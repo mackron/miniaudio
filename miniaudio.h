@@ -24233,10 +24233,10 @@ ma_result ma_device_init(ma_context* pContext, const ma_device_config* pConfig, 
         return ma_device_init_ex(NULL, 0, NULL, pConfig, pDevice);
     }
     if (pDevice == NULL) {
-        return ma_post_error(pDevice, MA_LOG_LEVEL_ERROR, "ma_device_init() called with invalid arguments (pDevice == NULL).", MA_INVALID_ARGS);
+        return ma_context_post_error(pContext, NULL, MA_LOG_LEVEL_ERROR, "ma_device_init() called with invalid arguments (pDevice == NULL).", MA_INVALID_ARGS);
     }
     if (pConfig == NULL) {
-        return ma_post_error(pDevice, MA_LOG_LEVEL_ERROR, "ma_device_init() called with invalid arguments (pConfig == NULL).", MA_INVALID_ARGS);
+        return ma_context_post_error(pContext, NULL, MA_LOG_LEVEL_ERROR, "ma_device_init() called with invalid arguments (pConfig == NULL).", MA_INVALID_ARGS);
     }
 
     /* We need to make a copy of the config so we can set default values if they were left unset in the input config. */
@@ -24244,24 +24244,24 @@ ma_result ma_device_init(ma_context* pContext, const ma_device_config* pConfig, 
 
     /* Basic config validation. */
     if (config.deviceType != ma_device_type_playback && config.deviceType != ma_device_type_capture && config.deviceType != ma_device_type_duplex) {
-        return ma_post_error(pDevice, MA_LOG_LEVEL_ERROR, "ma_device_init() called with an invalid config. Device type is invalid. Make sure the device type has been set in the config.", MA_INVALID_DEVICE_CONFIG);
+        return ma_context_post_error(pContext, NULL, MA_LOG_LEVEL_ERROR, "ma_device_init() called with an invalid config. Device type is invalid. Make sure the device type has been set in the config.", MA_INVALID_DEVICE_CONFIG);
     }
 
     if (config.deviceType == ma_device_type_capture || config.deviceType == ma_device_type_duplex) {
         if (config.capture.channels > MA_MAX_CHANNELS) {
-            return ma_post_error(pDevice, MA_LOG_LEVEL_ERROR, "ma_device_init() called with an invalid config. Capture channel count cannot exceed 32.", MA_INVALID_DEVICE_CONFIG);
+            return ma_context_post_error(pContext, NULL, MA_LOG_LEVEL_ERROR, "ma_device_init() called with an invalid config. Capture channel count cannot exceed 32.", MA_INVALID_DEVICE_CONFIG);
         }
         if (!ma__is_channel_map_valid(config.capture.channelMap, config.capture.channels)) {
-            return ma_post_error(pDevice, MA_LOG_LEVEL_ERROR, "ma_device_init() called with invalid config. Capture channel map is invalid.", MA_INVALID_DEVICE_CONFIG);
+            return ma_context_post_error(pContext, NULL, MA_LOG_LEVEL_ERROR, "ma_device_init() called with invalid config. Capture channel map is invalid.", MA_INVALID_DEVICE_CONFIG);
         }
     }
 
     if (config.deviceType == ma_device_type_playback || config.deviceType == ma_device_type_duplex) {
         if (config.playback.channels > MA_MAX_CHANNELS) {
-            return ma_post_error(pDevice, MA_LOG_LEVEL_ERROR, "ma_device_init() called with an invalid config. Playback channel count cannot exceed 32.", MA_INVALID_DEVICE_CONFIG);
+            return ma_context_post_error(pContext, NULL, MA_LOG_LEVEL_ERROR, "ma_device_init() called with an invalid config. Playback channel count cannot exceed 32.", MA_INVALID_DEVICE_CONFIG);
         }
         if (!ma__is_channel_map_valid(config.playback.channelMap, config.playback.channels)) {
-            return ma_post_error(pDevice, MA_LOG_LEVEL_ERROR, "ma_device_init() called with invalid config. Playback channel map is invalid.", MA_INVALID_DEVICE_CONFIG);
+            return ma_context_post_error(pContext, NULL, MA_LOG_LEVEL_ERROR, "ma_device_init() called with invalid config. Playback channel map is invalid.", MA_INVALID_DEVICE_CONFIG);
         }
     }
 
@@ -24362,7 +24362,7 @@ ma_result ma_device_init(ma_context* pContext, const ma_device_config* pConfig, 
     
 
     if (ma_mutex_init(pContext, &pDevice->lock) != MA_SUCCESS) {
-        return ma_post_error(pDevice, MA_LOG_LEVEL_ERROR, "Failed to create mutex.", MA_FAILED_TO_CREATE_MUTEX);
+        return ma_context_post_error(pContext, NULL, MA_LOG_LEVEL_ERROR, "Failed to create mutex.", MA_FAILED_TO_CREATE_MUTEX);
     }
 
     /*
@@ -24374,18 +24374,18 @@ ma_result ma_device_init(ma_context* pContext, const ma_device_config* pConfig, 
     */
     if (ma_event_init(pContext, &pDevice->wakeupEvent) != MA_SUCCESS) {
         ma_mutex_uninit(&pDevice->lock);
-        return ma_post_error(pDevice, MA_LOG_LEVEL_ERROR, "Failed to create worker thread wakeup event.", MA_FAILED_TO_CREATE_EVENT);
+        return ma_context_post_error(pContext, NULL, MA_LOG_LEVEL_ERROR, "Failed to create worker thread wakeup event.", MA_FAILED_TO_CREATE_EVENT);
     }
     if (ma_event_init(pContext, &pDevice->startEvent) != MA_SUCCESS) {
         ma_event_uninit(&pDevice->wakeupEvent);
         ma_mutex_uninit(&pDevice->lock);
-        return ma_post_error(pDevice, MA_LOG_LEVEL_ERROR, "Failed to create worker thread start event.", MA_FAILED_TO_CREATE_EVENT);
+        return ma_context_post_error(pContext, NULL, MA_LOG_LEVEL_ERROR, "Failed to create worker thread start event.", MA_FAILED_TO_CREATE_EVENT);
     }
     if (ma_event_init(pContext, &pDevice->stopEvent) != MA_SUCCESS) {
         ma_event_uninit(&pDevice->startEvent);
         ma_event_uninit(&pDevice->wakeupEvent);
         ma_mutex_uninit(&pDevice->lock);
-        return ma_post_error(pDevice, MA_LOG_LEVEL_ERROR, "Failed to create worker thread stop event.", MA_FAILED_TO_CREATE_EVENT);
+        return ma_context_post_error(pContext, NULL, MA_LOG_LEVEL_ERROR, "Failed to create worker thread stop event.", MA_FAILED_TO_CREATE_EVENT);
     }
 
 
@@ -24419,7 +24419,7 @@ ma_result ma_device_init(ma_context* pContext, const ma_device_config* pConfig, 
         /* The worker thread. */
         if (ma_thread_create(pContext, &pDevice->thread, ma_worker_thread, pDevice) != MA_SUCCESS) {
             ma_device_uninit(pDevice);
-            return ma_post_error(pDevice, MA_LOG_LEVEL_ERROR, "Failed to create worker thread.", MA_FAILED_TO_CREATE_THREAD);
+            return ma_context_post_error(pContext, NULL, MA_LOG_LEVEL_ERROR, "Failed to create worker thread.", MA_FAILED_TO_CREATE_THREAD);
         }
 
         /* Wait for the worker thread to put the device into it's stopped state for real. */
