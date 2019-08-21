@@ -20,7 +20,6 @@ void data_callback(ma_device* pDevice, void* pOutput, const void* pInput, ma_uin
     drwav* pWav = (drwav*)pDevice->pUserData;
     ma_assert(pWav != NULL);
 
-    printf("Callback: %d\n", frameCount);
     drwav_write_pcm_frames(pWav, frameCount, pInput);
 
     (void)pOutput;
