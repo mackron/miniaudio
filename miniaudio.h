@@ -7222,7 +7222,7 @@ ma_result ma_context_get_MMDevice__wasapi(ma_context* pContext, ma_device_type d
     }
 
     if (pDeviceID == NULL) {
-        hr = ma_IMMDeviceEnumerator_GetDefaultAudioEndpoint(pDeviceEnumerator, (deviceType == ma_device_type_playback) ? ma_eRender : ma_eCapture, ma_eConsole, ppMMDevice);
+        hr = ma_IMMDeviceEnumerator_GetDefaultAudioEndpoint(pDeviceEnumerator, (deviceType == ma_device_type_capture) ? ma_eCapture : ma_eRender, ma_eConsole, ppMMDevice);
     } else {
         hr = ma_IMMDeviceEnumerator_GetDevice(pDeviceEnumerator, pDeviceID->wasapi, ppMMDevice);
     }
@@ -7620,6 +7620,7 @@ ma_result ma_device_init_internal__wasapi(ma_context* pContext, ma_device_type d
     ma_result result = MA_SUCCESS;
     const char* errorMsg = "";
     MA_AUDCLNT_SHAREMODE shareMode = MA_AUDCLNT_SHAREMODE_SHARED;
+    DWORD streamFlags = 0;
     MA_REFERENCE_TIME bufferDurationInMicroseconds;
     ma_bool32 wasInitializedUsingIAudioClient3 = MA_FALSE;
     WAVEFORMATEXTENSIBLE wf;
@@ -7629,7 +7630,7 @@ ma_result ma_device_init_internal__wasapi(ma_context* pContext, ma_device_type d
     ma_assert(pContext != NULL);
     ma_assert(pData != NULL);
 
-    /* This function is only used to initialize one device type: either playback or capture. Never full-duplex. */
+    /* This function is only used to initialize one device type: either playback, capture or loopback. Never full-duplex. */
     if (deviceType == ma_device_type_duplex) {
         return MA_INVALID_ARGS;
     }
@@ -7637,6 +7638,11 @@ ma_result ma_device_init_internal__wasapi(ma_context* pContext, ma_device_type d
     pData->pAudioClient = NULL;
     pData->pRenderClient = NULL;
     pData->pCaptureClient = NULL;
+
+    streamFlags = MA_AUDCLNT_STREAMFLAGS_EVENTCALLBACK;
+    if (deviceType == ma_device_type_loopback) {
+        streamFlags |= MA_AUDCLNT_STREAMFLAGS_LOOPBACK;
+    }
 
     result = ma_context_get_IAudioClient__wasapi(pContext, deviceType, pDeviceID, &pData->pAudioClient, &pDeviceInterface);
     if (result != MA_SUCCESS) {
@@ -7751,7 +7757,7 @@ ma_result ma_device_init_internal__wasapi(ma_context* pContext, ma_device_type d
         */
         hr = E_FAIL;
         for (;;) {
-            hr = ma_IAudioClient_Initialize((ma_IAudioClient*)pData->pAudioClient, shareMode, MA_AUDCLNT_STREAMFLAGS_EVENTCALLBACK, bufferDuration, bufferDuration, (WAVEFORMATEX*)&wf, NULL);
+            hr = ma_IAudioClient_Initialize((ma_IAudioClient*)pData->pAudioClient, shareMode, streamFlags, bufferDuration, bufferDuration, (WAVEFORMATEX*)&wf, NULL);
             if (hr == MA_AUDCLNT_E_INVALID_DEVICE_PERIOD) {
                 if (bufferDuration > 500*10000) {
                     break;
@@ -7784,7 +7790,7 @@ ma_result ma_device_init_internal__wasapi(ma_context* pContext, ma_device_type d
             #endif
 
                 if (SUCCEEDED(hr)) {
-                    hr = ma_IAudioClient_Initialize((ma_IAudioClient*)pData->pAudioClient, shareMode, MA_AUDCLNT_STREAMFLAGS_EVENTCALLBACK, bufferDuration, bufferDuration, (WAVEFORMATEX*)&wf, NULL);
+                    hr = ma_IAudioClient_Initialize((ma_IAudioClient*)pData->pAudioClient, shareMode, streamFlags, bufferDuration, bufferDuration, (WAVEFORMATEX*)&wf, NULL);
                 }
             }
         }
@@ -7826,7 +7832,7 @@ ma_result ma_device_init_internal__wasapi(ma_context* pContext, ma_device_type d
 
                 /* If the client requested a largish buffer than we don't actually want to use low latency shared mode because it forces small buffers. */
                 if (actualPeriodInFrames >= desiredPeriodInFrames) {
-                    hr = ma_IAudioClient3_InitializeSharedAudioStream(pAudioClient3, MA_AUDCLNT_STREAMFLAGS_EVENTCALLBACK, actualPeriodInFrames, (WAVEFORMATEX*)&wf, NULL);
+                    hr = ma_IAudioClient3_InitializeSharedAudioStream(pAudioClient3, streamFlags, actualPeriodInFrames, (WAVEFORMATEX*)&wf, NULL);
                     if (SUCCEEDED(hr)) {
                         wasInitializedUsingIAudioClient3 = MA_TRUE;
                         pData->periodSizeInFramesOut = actualPeriodInFrames;
@@ -7843,7 +7849,7 @@ ma_result ma_device_init_internal__wasapi(ma_context* pContext, ma_device_type d
         /* If we don't have an IAudioClient3 then we need to use the normal initialization routine. */
         if (!wasInitializedUsingIAudioClient3) {
             MA_REFERENCE_TIME bufferDuration = bufferDurationInMicroseconds*10;
-            hr = ma_IAudioClient_Initialize((ma_IAudioClient*)pData->pAudioClient, shareMode, MA_AUDCLNT_STREAMFLAGS_EVENTCALLBACK, bufferDuration, 0, (WAVEFORMATEX*)&wf, NULL);
+            hr = ma_IAudioClient_Initialize((ma_IAudioClient*)pData->pAudioClient, shareMode, streamFlags, bufferDuration, 0, (WAVEFORMATEX*)&wf, NULL);
             if (FAILED(hr)) {
                 if (hr == E_ACCESSDENIED) {
                     errorMsg = "[WASAPI] Failed to initialize device. Access denied.", result = MA_ACCESS_DENIED;
@@ -7943,15 +7949,7 @@ ma_result ma_device_reinit__wasapi(ma_device* pDevice, ma_device_type deviceType
         return MA_INVALID_ARGS;
     }
 
-    if (deviceType == ma_device_type_capture) {
-        data.formatIn               = pDevice->capture.format;
-        data.channelsIn             = pDevice->capture.channels;
-        ma_copy_memory(data.channelMapIn, pDevice->capture.channelMap, sizeof(pDevice->capture.channelMap));
-        data.shareMode              = pDevice->capture.shareMode;
-        data.usingDefaultFormat     = pDevice->capture.usingDefaultFormat;
-        data.usingDefaultChannels   = pDevice->capture.usingDefaultChannels;
-        data.usingDefaultChannelMap = pDevice->capture.usingDefaultChannelMap;
-    } else {
+    if (deviceType == ma_device_type_playback) {
         data.formatIn               = pDevice->playback.format;
         data.channelsIn             = pDevice->playback.channels;
         ma_copy_memory(data.channelMapIn, pDevice->playback.channelMap, sizeof(pDevice->playback.channelMap));
@@ -7959,6 +7957,14 @@ ma_result ma_device_reinit__wasapi(ma_device* pDevice, ma_device_type deviceType
         data.usingDefaultFormat     = pDevice->playback.usingDefaultFormat;
         data.usingDefaultChannels   = pDevice->playback.usingDefaultChannels;
         data.usingDefaultChannelMap = pDevice->playback.usingDefaultChannelMap;
+    } else {
+        data.formatIn               = pDevice->capture.format;
+        data.channelsIn             = pDevice->capture.channels;
+        ma_copy_memory(data.channelMapIn, pDevice->capture.channelMap, sizeof(pDevice->capture.channelMap));
+        data.shareMode              = pDevice->capture.shareMode;
+        data.usingDefaultFormat     = pDevice->capture.usingDefaultFormat;
+        data.usingDefaultChannels   = pDevice->capture.usingDefaultChannels;
+        data.usingDefaultChannelMap = pDevice->capture.usingDefaultChannelMap;
     }
     
     data.sampleRateIn               = pDevice->sampleRate;
@@ -7972,7 +7978,7 @@ ma_result ma_device_reinit__wasapi(ma_device* pDevice, ma_device_type deviceType
     }
 
     /* At this point we have some new objects ready to go. We need to uninitialize the previous ones and then set the new ones. */
-    if (deviceType == ma_device_type_capture) {
+    if (deviceType == ma_device_type_capture || deviceType == ma_device_type_loopback) {
         if (pDevice->wasapi.pCaptureClient) {
             ma_IAudioCaptureClient_Release((ma_IAudioCaptureClient*)pDevice->wasapi.pCaptureClient);
             pDevice->wasapi.pCaptureClient = NULL;
@@ -8061,7 +8067,12 @@ ma_result ma_device_init__wasapi(ma_context* pContext, const ma_device_config* p
     pDevice->wasapi.originalBufferSizeInMilliseconds = pConfig->bufferSizeInMilliseconds;
     pDevice->wasapi.originalPeriods                  = pConfig->periods;
 
-    if (pConfig->deviceType == ma_device_type_capture || pConfig->deviceType == ma_device_type_duplex) {
+    /* Exclusive mode is not allowed with loopback. */
+    if (pConfig->deviceType == ma_device_type_loopback && pConfig->playback.shareMode == ma_share_mode_exclusive) {
+        return MA_INVALID_DEVICE_CONFIG;
+    }
+
+    if (pConfig->deviceType == ma_device_type_capture || pConfig->deviceType == ma_device_type_duplex || pConfig->deviceType == ma_device_type_loopback) {
         ma_device_init_internal_data__wasapi data;
         data.formatIn                   = pConfig->capture.format;
         data.channelsIn                 = pConfig->capture.channels;
@@ -8076,7 +8087,7 @@ ma_result ma_device_init__wasapi(ma_context* pContext, const ma_device_config* p
         data.bufferSizeInMillisecondsIn = pConfig->bufferSizeInMilliseconds;
         data.periodsIn                  = pConfig->periods;
 
-        result = ma_device_init_internal__wasapi(pDevice->pContext, ma_device_type_capture, pConfig->capture.pDeviceID, &data);
+        result = ma_device_init_internal__wasapi(pDevice->pContext, (pConfig->deviceType == ma_device_type_loopback) ? ma_device_type_loopback : ma_device_type_capture, pConfig->capture.pDeviceID, &data);
         if (result != MA_SUCCESS) {
             return result;
         }
@@ -8271,7 +8282,7 @@ ma_bool32 ma_device_is_reroute_required__wasapi(ma_device* pDevice, ma_device_ty
 {
     ma_assert(pDevice != NULL);
 
-    if (deviceType == ma_device_type_playback) {
+    if (deviceType == ma_device_type_playback || deviceType == ma_device_type_loopback) {
         return pDevice->wasapi.hasDefaultPlaybackDeviceChanged;
     }
 
@@ -8290,7 +8301,7 @@ ma_result ma_device_reroute__wasapi(ma_device* pDevice, ma_device_type deviceTyp
         return MA_INVALID_ARGS;
     }
 
-    if (deviceType == ma_device_type_playback) {
+    if (deviceType == ma_device_type_playback || deviceType == ma_device_type_loopback) {
         ma_atomic_exchange_32(&pDevice->wasapi.hasDefaultPlaybackDeviceChanged, MA_FALSE);
     }
     if (deviceType == ma_device_type_capture) {
@@ -8334,8 +8345,8 @@ ma_result ma_device_main_loop__wasapi(ma_device* pDevice)
 
     ma_assert(pDevice != NULL);
 
-    /* The playback device needs to be started immediately. */
-    if (pDevice->type == ma_device_type_capture || pDevice->type == ma_device_type_duplex) {
+    /* The capture device needs to be started immediately. */
+    if (pDevice->type == ma_device_type_capture || pDevice->type == ma_device_type_duplex || pDevice->type == ma_device_type_loopback) {
         hr = ma_IAudioClient_Start((ma_IAudioClient*)pDevice->wasapi.pAudioClientCapture);
         if (FAILED(hr)) {
             return ma_post_error(pDevice, MA_LOG_LEVEL_ERROR, "[WASAPI] Failed to start internal capture device.", MA_FAILED_TO_START_BACKEND_DEVICE);
@@ -8624,6 +8635,7 @@ ma_result ma_device_main_loop__wasapi(ma_device* pDevice)
 
 
             case ma_device_type_capture:
+            case ma_device_type_loopback:
             {
                 ma_uint32 framesAvailableCapture;
                 DWORD flagsCapture;    /* Passed to IAudioCaptureClient_GetBuffer(). */
@@ -8732,7 +8744,7 @@ ma_result ma_device_main_loop__wasapi(ma_device* pDevice)
     }
 
     /* Here is where the device needs to be stopped. */
-    if (pDevice->type == ma_device_type_capture || pDevice->type == ma_device_type_duplex) {
+    if (pDevice->type == ma_device_type_capture || pDevice->type == ma_device_type_duplex || pDevice->type == ma_device_type_loopback) {
         /* Any mapped buffers need to be released. */
         if (pMappedBufferCapture != NULL) {
             hr = ma_IAudioCaptureClient_ReleaseBuffer((ma_IAudioCaptureClient*)pDevice->wasapi.pCaptureClient, mappedBufferSizeInFramesCapture);
@@ -8760,7 +8772,7 @@ ma_result ma_device_main_loop__wasapi(ma_device* pDevice)
 
         /*
         The buffer needs to be drained before stopping the device. Not doing this will result in the last few frames not getting output to
-        the speakers. This is a problem for very short sounds because it'll result in a significant potion of it not getting played.
+        the speakers. This is a problem for very short sounds because it'll result in a significant portion of it not getting played.
         */
         if (pDevice->wasapi.isStartedPlayback) {
             if (pDevice->playback.shareMode == ma_share_mode_exclusive) {
@@ -23449,7 +23461,7 @@ void ma_device__post_init_setup(ma_device* pDevice, ma_device_type deviceType)
     }
 
     /* PCM converters. */
-    if (deviceType == ma_device_type_capture || deviceType == ma_device_type_duplex) {
+    if (deviceType == ma_device_type_capture || deviceType == ma_device_type_duplex || deviceType == ma_device_type_loopback) {
         /* Converting from internal device format to public format. */
         ma_pcm_converter_config converterConfig = ma_pcm_converter_config_init_new();
         converterConfig.neverConsumeEndOfInput = MA_TRUE;
@@ -24405,7 +24417,7 @@ ma_result ma_device_init(ma_context* pContext, const ma_device_config* pConfig, 
             }
         }
     }
-    if (pDevice->type == ma_device_type_playback || pDevice->type == ma_device_type_duplex) {
+    if (pDevice->type == ma_device_type_playback || pDevice->type == ma_device_type_duplex || pDevice->type == ma_device_type_loopback) {
         if (pDevice->playback.name[0] == '\0') {
             if (ma_context__try_get_device_name_by_id(pContext, ma_device_type_playback, config.playback.pDeviceID, pDevice->playback.name, sizeof(pDevice->playback.name)) != MA_SUCCESS) {
                 ma_strncpy_s(pDevice->playback.name, sizeof(pDevice->playback.name), (config.playback.pDeviceID == NULL)  ? MA_DEFAULT_PLAYBACK_DEVICE_NAME : "Playback Device", (size_t)-1);
