@@ -2714,6 +2714,11 @@ Thread Safety: SAFE
 ma_result ma_context_get_device_info(ma_context* pContext, ma_device_type deviceType, const ma_device_id* pDeviceID, ma_share_mode shareMode, ma_device_info* pDeviceInfo);
 
 /*
+Determines if the given context supports loopback mode.
+*/
+ma_bool32 ma_context_is_loopback_supported(ma_context* pContext);
+
+/*
 Initializes a device.
 
 The context can be null in which case it uses the default. This is equivalent to passing in a
@@ -2949,6 +2954,12 @@ void ma_mutex_unlock(ma_mutex* pMutex);
 Retrieves a friendly name for a backend.
 */
 const char* ma_get_backend_name(ma_backend backend);
+
+/*
+Determines whether or not loopback mode is support by a backend.
+*/
+ma_bool32 ma_is_loopback_supported(ma_backend backend);
+
 
 /*
 Adjust buffer size based on a scaling factor.
@@ -4368,7 +4379,29 @@ const char* ma_get_backend_name(ma_backend backend)
         case ma_backend_opensl:     return "OpenSL|ES";
         case ma_backend_webaudio:   return "Web Audio";
         case ma_backend_null:       return "Null";
-        default:                     return "Unknown";
+        default:                    return "Unknown";
+    }
+}
+
+ma_bool32 ma_is_loopback_supported(ma_backend backend)
+{
+    switch (backend)
+    {
+        case ma_backend_wasapi:     return MA_TRUE;
+        case ma_backend_dsound:     return MA_FALSE;
+        case ma_backend_winmm:      return MA_FALSE;
+        case ma_backend_coreaudio:  return MA_FALSE;
+        case ma_backend_sndio:      return MA_FALSE;
+        case ma_backend_audio4:     return MA_FALSE;
+        case ma_backend_oss:        return MA_FALSE;
+        case ma_backend_pulseaudio: return MA_FALSE;
+        case ma_backend_alsa:       return MA_FALSE;
+        case ma_backend_jack:       return MA_FALSE;
+        case ma_backend_aaudio:     return MA_FALSE;
+        case ma_backend_opensl:     return MA_FALSE;
+        case ma_backend_webaudio:   return MA_FALSE;
+        case ma_backend_null:       return MA_FALSE;
+        default:                    return MA_FALSE;
     }
 }
 
@@ -24233,6 +24266,15 @@ ma_result ma_context_get_device_info(ma_context* pContext, ma_device_type device
 
     /* Getting here means onGetDeviceInfo has not been set. */
     return MA_ERROR;
+}
+
+ma_bool32 ma_context_is_loopback_supported(ma_context* pContext)
+{
+    if (pContext == NULL) {
+        return MA_FALSE;
+    }
+
+    return ma_is_loopback_supported(pContext->backend);
 }
 
 
