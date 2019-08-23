@@ -1,6 +1,6 @@
 /*
 Audio playback and capture library. Choice of public domain or MIT-0. See license statements at the end of this file.
-miniaudio (formerly mini_al) - v0.9.6 - 2019-08-04
+miniaudio (formerly mini_al) - v0.9.7 - 2019-xx-xx
 
 David Reid - davidreidsoftware@gmail.com
 
@@ -33397,6 +33397,13 @@ Device
 /*
 REVISION HISTORY
 ================
+v0.9.7 - 2019-xx-xx
+  - Add support for loopback mode (WASAPI only).
+    - To use this, set the device type to ma_device_type_loopback, and then fill out the capture section of the device config.
+    - If you need to capture from a specific output device, set the capture device ID to that of a playback device.
+  - Fix a crash when an error is posted in ma_device_init().
+  - Fix a compilation error when compiling for ARM architectures.
+
 v0.9.6 - 2019-08-04
   - Add support for loading decoders using a wchar_t string for file paths.
   - Don't trigger an assert when ma_device_start() is called on a device that is already started. This will now log a warning
