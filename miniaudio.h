@@ -7050,12 +7050,13 @@ HRESULT STDMETHODCALLTYPE ma_IMMNotificationClient_OnDefaultDeviceChanged(ma_IMM
 
     /*
     We don't change the device here - we change it in the worker thread to keep synchronization simple. To do this I'm just setting a flag to
-    indicate that the default device has changed.
+    indicate that the default device has changed. Loopback devices are treated as capture devices so we need to do a bit of a dance to handle
+    that properly.
     */
-    if (dataFlow == ma_eRender) {
+    if (dataFlow == ma_eRender  && pThis->pDevice->type != ma_device_type_loopback) {
         ma_atomic_exchange_32(&pThis->pDevice->wasapi.hasDefaultPlaybackDeviceChanged, MA_TRUE);
     }
-    if (dataFlow == ma_eCapture) {
+    if (dataFlow == ma_eCapture || pThis->pDevice->type == ma_device_type_loopback) {
         ma_atomic_exchange_32(&pThis->pDevice->wasapi.hasDefaultCaptureDeviceChanged,  MA_TRUE);
     }
 
@@ -8315,11 +8316,11 @@ ma_bool32 ma_device_is_reroute_required__wasapi(ma_device* pDevice, ma_device_ty
 {
     ma_assert(pDevice != NULL);
 
-    if (deviceType == ma_device_type_playback || deviceType == ma_device_type_loopback) {
+    if (deviceType == ma_device_type_playback) {
         return pDevice->wasapi.hasDefaultPlaybackDeviceChanged;
     }
 
-    if (deviceType == ma_device_type_capture) {
+    if (deviceType == ma_device_type_capture || deviceType == ma_device_type_loopback) {
         return pDevice->wasapi.hasDefaultCaptureDeviceChanged;
     }
     
@@ -8334,10 +8335,10 @@ ma_result ma_device_reroute__wasapi(ma_device* pDevice, ma_device_type deviceTyp
         return MA_INVALID_ARGS;
     }
 
-    if (deviceType == ma_device_type_playback || deviceType == ma_device_type_loopback) {
+    if (deviceType == ma_device_type_playback) {
         ma_atomic_exchange_32(&pDevice->wasapi.hasDefaultPlaybackDeviceChanged, MA_FALSE);
     }
-    if (deviceType == ma_device_type_capture) {
+    if (deviceType == ma_device_type_capture || deviceType == ma_device_type_loopback) {
         ma_atomic_exchange_32(&pDevice->wasapi.hasDefaultCaptureDeviceChanged,  MA_FALSE);
     }
     
@@ -8397,7 +8398,7 @@ ma_result ma_device_main_loop__wasapi(ma_device* pDevice)
             }
         }
         if (ma_device_is_reroute_required__wasapi(pDevice, ma_device_type_capture)) {
-            result = ma_device_reroute__wasapi(pDevice, ma_device_type_capture);
+            result = ma_device_reroute__wasapi(pDevice, (pDevice->type == ma_device_type_loopback) ? ma_device_type_loopback : ma_device_type_capture);
             if (result != MA_SUCCESS) {
                 exitLoop = MA_TRUE;
                 break;
