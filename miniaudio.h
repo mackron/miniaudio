@@ -8514,7 +8514,7 @@ ma_result ma_device_main_loop__wasapi(ma_device* pDevice)
                     }
 
 
-                    /* At this point we should have both input and output data available. We now need to post it to the convert the data and post it to the client. */
+                    /* At this point we should have both input and output data available. We now need to convert the data and post it to the client. */
                     for (;;) {
                         BYTE* pRunningBufferCapture;
                         BYTE* pRunningBufferPlayback;
@@ -13559,6 +13559,310 @@ ma_result ma_device_main_loop__alsa(ma_device* pDevice)
 }
 #endif /* 0 */
 
+ma_result ma_device_read2__alsa(ma_device* pDevice, void* pFramesOut, ma_uint32 frameCount, ma_uint32* pFramesRead)
+{
+    ma_snd_pcm_sframes_t resultALSA;
+
+    ma_assert(pDevice != NULL);
+    ma_assert(pFramesOut != NULL);
+
+    if (pFramesRead != NULL) {
+        *pFramesRead = 0;
+    }
+
+    for (;;) {
+        resultALSA = ((ma_snd_pcm_readi_proc)pDevice->pContext->alsa.snd_pcm_readi)((ma_snd_pcm_t*)pDevice->alsa.pPCMCapture, pFramesOut, frameCount);
+        if (resultALSA >= 0) {
+            break;  /* Success. */
+        } else {
+            if (resultALSA == -EAGAIN) {
+                /*printf("TRACE: EGAIN (read)\n");*/
+                continue;   /* Try again. */
+            } else if (resultALSA == -EPIPE) {
+                /*printf("TRACE: EPIPE (read)\n");*/
+
+                /* Overrun. Recover and try again. If this fails we need to return an error. */
+                if (((ma_snd_pcm_recover_proc)pDevice->pContext->alsa.snd_pcm_recover)((ma_snd_pcm_t*)pDevice->alsa.pPCMCapture, resultALSA, MA_TRUE) < 0) {
+                    return ma_post_error(pDevice, MA_LOG_LEVEL_ERROR, "[ALSA] Failed to recover device after overrun.", MA_FAILED_TO_START_BACKEND_DEVICE);
+                }
+
+                if (((ma_snd_pcm_start_proc)pDevice->pContext->alsa.snd_pcm_start)((ma_snd_pcm_t*)pDevice->alsa.pPCMCapture) < 0) {
+                    return ma_post_error(pDevice, MA_LOG_LEVEL_ERROR, "[ALSA] Failed to start device after underrun.", MA_FAILED_TO_START_BACKEND_DEVICE);
+                }
+
+                resultALSA = ((ma_snd_pcm_readi_proc)pDevice->pContext->alsa.snd_pcm_readi)((ma_snd_pcm_t*)pDevice->alsa.pPCMCapture, pFramesOut, frameCount);
+                if (resultALSA < 0) {
+                    return ma_post_error(pDevice, MA_LOG_LEVEL_ERROR, "[ALSA] Failed to read data from the internal device.", MA_FAILED_TO_READ_DATA_FROM_DEVICE);
+                }
+            }
+        }
+    }
+
+    if (pFramesRead != NULL) {
+        *pFramesRead = resultALSA;
+    }
+
+    return MA_SUCCESS;
+}
+
+ma_result ma_device_write2__alsa(ma_device* pDevice, const void* pFrames, ma_uint32 frameCount, ma_uint32* pFramesWritten)
+{
+    ma_snd_pcm_sframes_t resultALSA;
+
+    ma_assert(pDevice != NULL);
+    ma_assert(pFrames != NULL);
+
+    if (pFramesWritten != NULL) {
+        *pFramesWritten = 0;
+    }
+
+    for (;;) {
+        resultALSA = ((ma_snd_pcm_writei_proc)pDevice->pContext->alsa.snd_pcm_writei)((ma_snd_pcm_t*)pDevice->alsa.pPCMPlayback, pFrames, frameCount);
+        if (resultALSA >= 0) {
+            break;  /* Success. */
+        } else {
+            if (resultALSA == -EAGAIN) {
+                /*printf("TRACE: EGAIN (write)\n");*/
+                continue;   /* Try again. */
+            } else if (resultALSA == -EPIPE) {
+                /*printf("TRACE: EPIPE (write)\n");*/
+
+                /* Underrun. Recover and try again. If this fails we need to return an error. */
+                if (((ma_snd_pcm_recover_proc)pDevice->pContext->alsa.snd_pcm_recover)((ma_snd_pcm_t*)pDevice->alsa.pPCMPlayback, resultALSA, MA_TRUE) < 0) { /* MA_TRUE=silent (don't print anything on error). */
+                    return ma_post_error(pDevice, MA_LOG_LEVEL_ERROR, "[ALSA] Failed to recover device after underrun.", MA_FAILED_TO_START_BACKEND_DEVICE);
+                }
+
+                /*
+                In my testing I have had a situation where writei() does not automatically restart the device even though I've set it
+                up as such in the software parameters. What will happen is writei() will block indefinitely even though the number of
+                frames is well beyond the auto-start threshold. To work around this I've needed to add an explicit start here. Not sure
+                if this is me just being stupid and not recovering the device properly, but this definitely feels like something isn't
+                quite right here.
+                */
+                if (((ma_snd_pcm_start_proc)pDevice->pContext->alsa.snd_pcm_start)((ma_snd_pcm_t*)pDevice->alsa.pPCMPlayback) < 0) {
+                    return ma_post_error(pDevice, MA_LOG_LEVEL_ERROR, "[ALSA] Failed to start device after underrun.", MA_FAILED_TO_START_BACKEND_DEVICE);
+                }
+
+                resultALSA = ((ma_snd_pcm_writei_proc)pDevice->pContext->alsa.snd_pcm_writei)((ma_snd_pcm_t*)pDevice->alsa.pPCMPlayback, pFrames, frameCount);
+                if (resultALSA < 0) {
+                    return ma_post_error(pDevice, MA_LOG_LEVEL_ERROR, "[ALSA] Failed to write data to device after underrun.", MA_FAILED_TO_START_BACKEND_DEVICE);
+                }
+            }
+        }
+    }
+
+    if (pFramesWritten != NULL) {
+        *pFramesWritten = resultALSA;
+    }
+
+    return MA_SUCCESS;
+}
+
+ma_result ma_device_main_loop__alsa(ma_device* pDevice)
+{
+    ma_result result = MA_SUCCESS;
+    ma_bool32 exitLoop = MA_FALSE;
+
+    ma_assert(pDevice != NULL);
+
+    /* Capture devices need to be started immediately. */
+    if (pDevice->type == ma_device_type_capture || pDevice->type == ma_device_type_duplex) {
+        if (((ma_snd_pcm_start_proc)pDevice->pContext->alsa.snd_pcm_start)((ma_snd_pcm_t*)pDevice->alsa.pPCMCapture) < 0) {
+            return ma_post_error(pDevice, MA_LOG_LEVEL_ERROR, "[ALSA] Failed to start device in preparation for reading.", MA_FAILED_TO_START_BACKEND_DEVICE);
+        }
+    }
+
+    while (ma_device__get_state(pDevice) == MA_STATE_STARTED && !exitLoop) {
+        switch (pDevice->type)
+        {
+            case ma_device_type_duplex:
+            {
+                if (pDevice->alsa.isUsingMMapCapture || pDevice->alsa.isUsingMMapPlayback) {
+                    /* MMAP */
+                    return MA_INVALID_OPERATION;    /* Not yet implemented. */
+                } else {
+                    /* readi() and writei() */
+
+                    /* The process is: device_read -> convert -> callback -> convert -> device_write */
+                    ma_uint8  capturedDeviceData[8192];
+                    ma_uint8  playbackDeviceData[8192];
+                    ma_uint32 capturedDeviceDataCapInFrames = sizeof(capturedDeviceData) / ma_get_bytes_per_frame(pDevice->capture.internalFormat,  pDevice->capture.internalChannels);
+                    ma_uint32 playbackDeviceDataCapInFrames = sizeof(playbackDeviceData) / ma_get_bytes_per_frame(pDevice->playback.internalFormat, pDevice->playback.internalChannels);
+
+                    ma_uint32 totalFramesProcessed = 0;
+                    ma_uint32 periodSizeInFrames = ma_min(pDevice->capture.internalBufferSizeInFrames/pDevice->capture.internalPeriods, pDevice->playback.internalBufferSizeInFrames/pDevice->playback.internalPeriods);
+                    
+                    while (totalFramesProcessed < periodSizeInFrames) {
+                        ma_device_callback_proc onData;
+                        ma_uint32 framesRemaining = periodSizeInFrames - totalFramesProcessed;
+                        ma_uint32 framesProcessed;
+                        ma_uint32 framesToProcess = framesRemaining;
+                        if (framesToProcess > capturedDeviceDataCapInFrames) {
+                            framesToProcess = capturedDeviceDataCapInFrames;
+                        }
+
+                        result = ma_device_read2__alsa(pDevice, capturedDeviceData, framesToProcess, &framesProcessed);
+                        if (result != MA_SUCCESS) {
+                            exitLoop = MA_TRUE;
+                            break;
+                        }
+
+                        onData = pDevice->onData;
+                        if (onData != NULL) {
+                            pDevice->capture._dspFrameCount = framesToProcess;
+                            pDevice->capture._dspFrames     = capturedDeviceData;
+
+                            for (;;) {
+                                ma_uint8 capturedData[8192];
+                                ma_uint8 playbackData[8192];
+                                ma_uint32 capturedDataCapInFrames = sizeof(capturedData) / ma_get_bytes_per_frame(pDevice->capture.format, pDevice->capture.channels);
+                                ma_uint32 playbackDataCapInFrames = sizeof(playbackData) / ma_get_bytes_per_frame(pDevice->playback.format, pDevice->playback.channels);
+
+                                ma_uint32 capturedFramesToTryProcessing = ma_min(capturedDataCapInFrames, playbackDataCapInFrames);
+                                ma_uint32 capturedFramesToProcess = (ma_uint32)ma_pcm_converter_read(&pDevice->capture.converter, capturedData, capturedFramesToTryProcessing);
+                                if (capturedFramesToProcess == 0) {
+                                    break;  /* Don't fire the data callback with zero frames. */
+                                }
+
+                                onData(pDevice, playbackData, capturedData, capturedFramesToProcess);
+
+                                /* At this point the playbackData buffer should be holding data that needs to be written to the device. */
+                                pDevice->playback._dspFrameCount = capturedFramesToProcess;
+                                pDevice->playback._dspFrames     = playbackData;
+                                for (;;) {
+                                    ma_uint32 playbackDeviceFramesCount = (ma_uint32)ma_pcm_converter_read(&pDevice->playback.converter, playbackDeviceData, playbackDeviceDataCapInFrames);
+                                    if (playbackDeviceFramesCount == 0) {
+                                        break;
+                                    }
+
+                                    result = ma_device_write2__alsa(pDevice, playbackDeviceData, playbackDeviceFramesCount, NULL);
+                                    if (result != MA_SUCCESS) {
+                                        exitLoop = MA_TRUE;
+                                        break;
+                                    }
+
+                                    if (playbackDeviceFramesCount < playbackDeviceDataCapInFrames) {
+                                        break;
+                                    }
+                                }
+
+                                if (capturedFramesToProcess < capturedFramesToTryProcessing) {
+                                    break;
+                                }
+
+                                /* In case an error happened from ma_device_write2__alsa()... */
+                                if (result != MA_SUCCESS) {
+                                    exitLoop = MA_TRUE;
+                                    break;
+                                }
+                            }
+                        }
+
+                        totalFramesProcessed += framesProcessed;
+                    }
+                }
+            } break;
+
+            case ma_device_type_capture:
+            {
+                if (pDevice->alsa.isUsingMMapCapture) {
+                    /* MMAP */
+                    return MA_INVALID_OPERATION;    /* Not yet implemented. */
+                } else {
+                    /* readi() */
+
+                    /* We read in chunks of the period size, but use a stack allocated buffer for the intermediary. */
+                    ma_uint8 intermediaryBuffer[8192];
+                    ma_uint32 intermediaryBufferSizeInFrames = sizeof(intermediaryBuffer) / ma_get_bytes_per_frame(pDevice->capture.internalFormat, pDevice->capture.internalChannels);
+                    ma_uint32 periodSizeInFrames = pDevice->capture.internalBufferSizeInFrames / pDevice->capture.internalPeriods;
+                    ma_uint32 framesReadThisPeriod = 0;
+                    while (framesReadThisPeriod < periodSizeInFrames) {
+                        ma_uint32 framesRemainingInPeriod = periodSizeInFrames - framesReadThisPeriod;
+                        ma_uint32 framesProcessed;
+                        ma_uint32 framesToReadThisIteration = framesRemainingInPeriod;
+                        if (framesToReadThisIteration > intermediaryBufferSizeInFrames) {
+                            framesToReadThisIteration = intermediaryBufferSizeInFrames;
+                        }
+
+                        result = ma_device_read2__alsa(pDevice, intermediaryBuffer, framesToReadThisIteration, &framesProcessed);
+                        if (result != MA_SUCCESS) {
+                            exitLoop = MA_TRUE;
+                            break;
+                        }
+
+                        ma_device__send_frames_to_client(pDevice, framesProcessed, intermediaryBuffer);
+
+                        framesReadThisPeriod += framesProcessed;
+                    }
+                }
+            } break;
+
+            case ma_device_type_playback:
+            {
+                if (pDevice->alsa.isUsingMMapPlayback) {
+                    /* MMAP */
+                    return MA_INVALID_OPERATION;    /* Not yet implemented. */
+                } else {
+                    /* writei() */
+
+                    /* We write in chunks of the period size, but use a stack allocated buffer for the intermediary. */
+                    ma_uint8 intermediaryBuffer[8192];
+                    ma_uint32 intermediaryBufferSizeInFrames = sizeof(intermediaryBuffer) / ma_get_bytes_per_frame(pDevice->playback.internalFormat, pDevice->playback.internalChannels);
+                    ma_uint32 periodSizeInFrames = pDevice->playback.internalBufferSizeInFrames / pDevice->playback.internalPeriods;
+                    ma_uint32 framesWrittenThisPeriod = 0;
+                    while (framesWrittenThisPeriod < periodSizeInFrames) {
+                        ma_uint32 framesRemainingInPeriod = periodSizeInFrames - framesWrittenThisPeriod;
+                        ma_uint32 framesProcessed;
+                        ma_uint32 framesToWriteThisIteration = framesRemainingInPeriod;
+                        if (framesToWriteThisIteration > intermediaryBufferSizeInFrames) {
+                            framesToWriteThisIteration = intermediaryBufferSizeInFrames;
+                        }
+
+                        ma_device__read_frames_from_client(pDevice, framesToWriteThisIteration, intermediaryBuffer);
+
+                        result = ma_device_write2__alsa(pDevice, intermediaryBuffer, framesToWriteThisIteration, &framesProcessed);
+                        if (result != MA_SUCCESS) {
+                            exitLoop = MA_TRUE;
+                            break;
+                        }
+
+                        framesWrittenThisPeriod += framesProcessed;
+                    }
+                }
+            } break;
+
+            /* To silence a warning. Will never hit this. */
+            case ma_device_type_loopback:
+            default: break;
+        } 
+    }
+
+    /* Here is where the device needs to be stopped. */
+    if (pDevice->type == ma_device_type_capture || pDevice->type == ma_device_type_duplex) {
+        ((ma_snd_pcm_drain_proc)pDevice->pContext->alsa.snd_pcm_drain)((ma_snd_pcm_t*)pDevice->alsa.pPCMCapture);
+
+        /* We need to prepare the device again, otherwise we won't be able to restart the device. */
+        if (((ma_snd_pcm_prepare_proc)pDevice->pContext->alsa.snd_pcm_prepare)((ma_snd_pcm_t*)pDevice->alsa.pPCMCapture) < 0) {
+    #ifdef MA_DEBUG_OUTPUT
+            printf("[ALSA] Failed to prepare capture device after stopping.\n");
+    #endif
+        }
+    }
+
+    if (pDevice->type == ma_device_type_playback || pDevice->type == ma_device_type_duplex) {
+        ((ma_snd_pcm_drain_proc)pDevice->pContext->alsa.snd_pcm_drain)((ma_snd_pcm_t*)pDevice->alsa.pPCMPlayback);
+
+        /* We need to prepare the device again, otherwise we won't be able to restart the device. */
+        if (((ma_snd_pcm_prepare_proc)pDevice->pContext->alsa.snd_pcm_prepare)((ma_snd_pcm_t*)pDevice->alsa.pPCMPlayback) < 0) {
+    #ifdef MA_DEBUG_OUTPUT
+            printf("[ALSA] Failed to prepare playback device after stopping.\n");
+    #endif
+        }
+    }
+
+    return result;
+}
+
 ma_result ma_context_uninit__alsa(ma_context* pContext)
 {
     ma_assert(pContext != NULL);
@@ -13773,16 +14077,17 @@ ma_result ma_context_init__alsa(const ma_context_config* pConfig, ma_context* pC
         ma_context_post_error(pContext, NULL, MA_LOG_LEVEL_ERROR, "[ALSA] WARNING: Failed to initialize mutex for internal device enumeration.", MA_ERROR);
     }
 
-    pContext->onUninit              = ma_context_uninit__alsa;
-    pContext->onDeviceIDEqual       = ma_context_is_device_id_equal__alsa;
-    pContext->onEnumDevices         = ma_context_enumerate_devices__alsa;
-    pContext->onGetDeviceInfo       = ma_context_get_device_info__alsa;
-    pContext->onDeviceInit          = ma_device_init__alsa;
-    pContext->onDeviceUninit        = ma_device_uninit__alsa;
-    pContext->onDeviceStart         = NULL; /*ma_device_start__alsa;*/
-    pContext->onDeviceStop          = ma_device_stop__alsa;
-    pContext->onDeviceWrite         = ma_device_write__alsa;
-    pContext->onDeviceRead          = ma_device_read__alsa;
+    pContext->onUninit         = ma_context_uninit__alsa;
+    pContext->onDeviceIDEqual  = ma_context_is_device_id_equal__alsa;
+    pContext->onEnumDevices    = ma_context_enumerate_devices__alsa;
+    pContext->onGetDeviceInfo  = ma_context_get_device_info__alsa;
+    pContext->onDeviceInit     = ma_device_init__alsa;
+    pContext->onDeviceUninit   = ma_device_uninit__alsa;
+    pContext->onDeviceStart    = NULL; /* Not used. Started in the main loop. */
+    pContext->onDeviceStop     = NULL; /* Not used. Started in the main loop. */
+    pContext->onDeviceWrite    = NULL;
+    pContext->onDeviceRead     = NULL;
+    pContext->onDeviceMainLoop = ma_device_main_loop__alsa;
 
     return MA_SUCCESS;
 }

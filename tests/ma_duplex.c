@@ -61,7 +61,7 @@ int main(int argc, char** argv)
 #endif
     
 
-    ma_backend backend = ma_backend_wasapi;
+    ma_backend backend = ma_backend_alsa;
 
     ma_context_config contextConfig = ma_context_config_init();
     contextConfig.logCallback = log_callback;
