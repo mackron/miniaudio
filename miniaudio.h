@@ -13391,147 +13391,7 @@ ma_result ma_device_start__alsa(ma_device* pDevice)
 
     return MA_SUCCESS;
 }
-#endif /* 0 */
 
-ma_result ma_device_stop__alsa(ma_device* pDevice)
-{
-    ma_assert(pDevice != NULL);
-
-    if (pDevice->type == ma_device_type_capture || pDevice->type == ma_device_type_duplex) {
-        ((ma_snd_pcm_drain_proc)pDevice->pContext->alsa.snd_pcm_drain)((ma_snd_pcm_t*)pDevice->alsa.pPCMCapture);
-
-        /* We need to prepare the device again, otherwise we won't be able to restart the device. */
-        if (((ma_snd_pcm_prepare_proc)pDevice->pContext->alsa.snd_pcm_prepare)((ma_snd_pcm_t*)pDevice->alsa.pPCMCapture) < 0) {
-    #ifdef MA_DEBUG_OUTPUT
-            printf("[ALSA] Failed to prepare capture device after stopping.\n");
-    #endif
-        }
-    }
-
-    if (pDevice->type == ma_device_type_playback || pDevice->type == ma_device_type_duplex) {
-        /* Using drain instead of drop because ma_device_stop() is defined such that pending frames are processed before returning. */
-        ((ma_snd_pcm_drain_proc)pDevice->pContext->alsa.snd_pcm_drain)((ma_snd_pcm_t*)pDevice->alsa.pPCMPlayback);
-
-        /* We need to prepare the device again, otherwise we won't be able to restart the device. */
-        if (((ma_snd_pcm_prepare_proc)pDevice->pContext->alsa.snd_pcm_prepare)((ma_snd_pcm_t*)pDevice->alsa.pPCMPlayback) < 0) {
-    #ifdef MA_DEBUG_OUTPUT
-            printf("[ALSA] Failed to prepare playback device after stopping.\n");
-    #endif
-        }
-    }
-
-    
-    
-    return MA_SUCCESS;
-}
-
-ma_result ma_device_write__alsa(ma_device* pDevice, const void* pPCMFrames, ma_uint32 frameCount)
-{
-    ma_snd_pcm_sframes_t resultALSA;
-    ma_uint32 totalPCMFramesProcessed;
-
-    ma_assert(pDevice != NULL);
-    ma_assert(pPCMFrames != NULL);
-
-    /*printf("TRACE: Enter write()\n");*/
-
-    totalPCMFramesProcessed = 0;
-    while (totalPCMFramesProcessed < frameCount) {
-        const void* pSrc = ma_offset_ptr(pPCMFrames, totalPCMFramesProcessed * ma_get_bytes_per_frame(pDevice->playback.internalFormat, pDevice->playback.internalChannels));
-        ma_uint32 framesRemaining = (frameCount - totalPCMFramesProcessed);
-
-        /*printf("TRACE: Writing %d frames (frameCount=%d)\n", framesRemaining, frameCount);*/
-
-        resultALSA = ((ma_snd_pcm_writei_proc)pDevice->pContext->alsa.snd_pcm_writei)((ma_snd_pcm_t*)pDevice->alsa.pPCMPlayback, pSrc, framesRemaining);
-        if (resultALSA < 0) {
-            if (resultALSA == -EAGAIN) {
-                /*printf("TRACE: EGAIN (write)\n");*/
-                continue;   /* Try again. */
-            } else if (resultALSA == -EPIPE) {
-                /*printf("TRACE: EPIPE (write)\n");*/
-
-                /* Underrun. Recover and try again. If this fails we need to return an error. */
-                if (((ma_snd_pcm_recover_proc)pDevice->pContext->alsa.snd_pcm_recover)((ma_snd_pcm_t*)pDevice->alsa.pPCMPlayback, resultALSA, MA_TRUE) < 0) { /* MA_TRUE=silent (don't print anything on error). */
-                    return ma_post_error(pDevice, MA_LOG_LEVEL_ERROR, "[ALSA] Failed to recover device after underrun.", MA_FAILED_TO_START_BACKEND_DEVICE);
-                }
-
-                /*
-                In my testing I have had a situation where writei() does not automatically restart the device even though I've set it
-                up as such in the software parameters. What will happen is writei() will block indefinitely even though the number of
-                frames is well beyond the auto-start threshold. To work around this I've needed to add an explicit start here. Not sure
-                if this is me just being stupid and not recovering the device properly, but this definitely feels like something isn't
-                quite right here.
-                */
-                if (((ma_snd_pcm_start_proc)pDevice->pContext->alsa.snd_pcm_start)((ma_snd_pcm_t*)pDevice->alsa.pPCMPlayback) < 0) {
-                    return ma_post_error(pDevice, MA_LOG_LEVEL_ERROR, "[ALSA] Failed to start device after underrun.", MA_FAILED_TO_START_BACKEND_DEVICE);
-                }
-
-                resultALSA = ((ma_snd_pcm_writei_proc)pDevice->pContext->alsa.snd_pcm_writei)((ma_snd_pcm_t*)pDevice->alsa.pPCMPlayback, pSrc, framesRemaining);
-                if (resultALSA < 0) {
-                    return ma_post_error(pDevice, MA_LOG_LEVEL_ERROR, "[ALSA] Failed to write data to device after underrun.", MA_FAILED_TO_START_BACKEND_DEVICE);
-                }
-            }
-        }
-
-        totalPCMFramesProcessed += resultALSA;
-    }
-
-    return MA_SUCCESS;
-}
-
-ma_result ma_device_read__alsa(ma_device* pDevice, void* pPCMFrames, ma_uint32 frameCount)
-{
-    ma_snd_pcm_sframes_t resultALSA;
-    ma_uint32 totalPCMFramesProcessed;
-
-    ma_assert(pDevice != NULL);
-    ma_assert(pPCMFrames != NULL);
-
-    /* We need to explicitly start the device if it isn't already. */
-    if (((ma_snd_pcm_state_proc)pDevice->pContext->alsa.snd_pcm_state)((ma_snd_pcm_t*)pDevice->alsa.pPCMCapture) != MA_SND_PCM_STATE_RUNNING) {
-        if (((ma_snd_pcm_start_proc)pDevice->pContext->alsa.snd_pcm_start)((ma_snd_pcm_t*)pDevice->alsa.pPCMCapture) < 0) {
-            return ma_post_error(pDevice, MA_LOG_LEVEL_ERROR, "[ALSA] Failed to start device in preparation for reading.", MA_FAILED_TO_START_BACKEND_DEVICE);
-        }
-    }
-
-    totalPCMFramesProcessed = 0;
-    while (totalPCMFramesProcessed < frameCount) {
-        void* pDst = ma_offset_ptr(pPCMFrames, totalPCMFramesProcessed * ma_get_bytes_per_frame(pDevice->capture.internalFormat, pDevice->capture.internalChannels));
-        ma_uint32 framesRemaining = (frameCount - totalPCMFramesProcessed);
-
-        /*printf("TRACE: snd_pcm_readi(framesRemaining=%d)\n", framesRemaining);*/
-
-        resultALSA = ((ma_snd_pcm_readi_proc)pDevice->pContext->alsa.snd_pcm_readi)((ma_snd_pcm_t*)pDevice->alsa.pPCMCapture, pDst, framesRemaining);
-        if (resultALSA < 0) {
-            if (resultALSA == -EAGAIN) {
-                /*printf("TRACE: EGAIN (read)\n");*/
-                continue;
-            } else if (resultALSA == -EPIPE) {
-                /*printf("TRACE: EPIPE (read)\n");*/
-
-                /* Overrun. Recover and try again. If this fails we need to return an error. */
-                if (((ma_snd_pcm_recover_proc)pDevice->pContext->alsa.snd_pcm_recover)((ma_snd_pcm_t*)pDevice->alsa.pPCMCapture, resultALSA, MA_TRUE) < 0) {
-                    return ma_post_error(pDevice, MA_LOG_LEVEL_ERROR, "[ALSA] Failed to recover device after overrun.", MA_FAILED_TO_START_BACKEND_DEVICE);
-                }
-
-                if (((ma_snd_pcm_start_proc)pDevice->pContext->alsa.snd_pcm_start)((ma_snd_pcm_t*)pDevice->alsa.pPCMCapture) < 0) {
-                    return ma_post_error(pDevice, MA_LOG_LEVEL_ERROR, "[ALSA] Failed to start device after underrun.", MA_FAILED_TO_START_BACKEND_DEVICE);
-                }
-
-                resultALSA = ((ma_snd_pcm_readi_proc)pDevice->pContext->alsa.snd_pcm_readi)((ma_snd_pcm_t*)pDevice->alsa.pPCMCapture, pDst, framesRemaining);
-                if (resultALSA < 0) {
-                    return ma_post_error(pDevice, MA_LOG_LEVEL_ERROR, "[ALSA] Failed to read data from the internal device.", MA_FAILED_TO_READ_DATA_FROM_DEVICE);
-                }
-            }
-        }
-
-        totalPCMFramesProcessed += resultALSA;
-    }
-
-    return MA_SUCCESS;
-}
-
-#if 0
 ma_result ma_device_break_main_loop__alsa(ma_device* pDevice)
 {
     ma_assert(pDevice != NULL);
@@ -13559,7 +13419,7 @@ ma_result ma_device_main_loop__alsa(ma_device* pDevice)
 }
 #endif /* 0 */
 
-ma_result ma_device_read2__alsa(ma_device* pDevice, void* pFramesOut, ma_uint32 frameCount, ma_uint32* pFramesRead)
+ma_result ma_device_read__alsa(ma_device* pDevice, void* pFramesOut, ma_uint32 frameCount, ma_uint32* pFramesRead)
 {
     ma_snd_pcm_sframes_t resultALSA;
 
@@ -13605,7 +13465,7 @@ ma_result ma_device_read2__alsa(ma_device* pDevice, void* pFramesOut, ma_uint32 
     return MA_SUCCESS;
 }
 
-ma_result ma_device_write2__alsa(ma_device* pDevice, const void* pFrames, ma_uint32 frameCount, ma_uint32* pFramesWritten)
+ma_result ma_device_write__alsa(ma_device* pDevice, const void* pFrames, ma_uint32 frameCount, ma_uint32* pFramesWritten)
 {
     ma_snd_pcm_sframes_t resultALSA;
 
@@ -13701,7 +13561,7 @@ ma_result ma_device_main_loop__alsa(ma_device* pDevice)
                             framesToProcess = capturedDeviceDataCapInFrames;
                         }
 
-                        result = ma_device_read2__alsa(pDevice, capturedDeviceData, framesToProcess, &framesProcessed);
+                        result = ma_device_read__alsa(pDevice, capturedDeviceData, framesToProcess, &framesProcessed);
                         if (result != MA_SUCCESS) {
                             exitLoop = MA_TRUE;
                             break;
@@ -13735,7 +13595,7 @@ ma_result ma_device_main_loop__alsa(ma_device* pDevice)
                                         break;
                                     }
 
-                                    result = ma_device_write2__alsa(pDevice, playbackDeviceData, playbackDeviceFramesCount, NULL);
+                                    result = ma_device_write__alsa(pDevice, playbackDeviceData, playbackDeviceFramesCount, NULL);
                                     if (result != MA_SUCCESS) {
                                         exitLoop = MA_TRUE;
                                         break;
@@ -13784,7 +13644,7 @@ ma_result ma_device_main_loop__alsa(ma_device* pDevice)
                             framesToReadThisIteration = intermediaryBufferSizeInFrames;
                         }
 
-                        result = ma_device_read2__alsa(pDevice, intermediaryBuffer, framesToReadThisIteration, &framesProcessed);
+                        result = ma_device_read__alsa(pDevice, intermediaryBuffer, framesToReadThisIteration, &framesProcessed);
                         if (result != MA_SUCCESS) {
                             exitLoop = MA_TRUE;
                             break;
@@ -13820,7 +13680,7 @@ ma_result ma_device_main_loop__alsa(ma_device* pDevice)
 
                         ma_device__read_frames_from_client(pDevice, framesToWriteThisIteration, intermediaryBuffer);
 
-                        result = ma_device_write2__alsa(pDevice, intermediaryBuffer, framesToWriteThisIteration, &framesProcessed);
+                        result = ma_device_write__alsa(pDevice, intermediaryBuffer, framesToWriteThisIteration, &framesProcessed);
                         if (result != MA_SUCCESS) {
                             exitLoop = MA_TRUE;
                             break;
