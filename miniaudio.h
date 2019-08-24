@@ -20299,7 +20299,7 @@ ma_result ma_device_main_loop__sndio(ma_device* pDevice)
                                     break;
                                 }
 
-                                result = ma_device_write__alsa(pDevice, playbackDeviceData, playbackDeviceFramesCount, NULL);
+                                result = ma_device_write__sndio(pDevice, playbackDeviceData, playbackDeviceFramesCount, NULL);
                                 if (result != MA_SUCCESS) {
                                     exitLoop = MA_TRUE;
                                     break;
@@ -21254,7 +21254,7 @@ ma_result ma_device_main_loop__audio4(ma_device* pDevice)
                                     break;
                                 }
 
-                                result = ma_device_write__alsa(pDevice, playbackDeviceData, playbackDeviceFramesCount, NULL);
+                                result = ma_device_write__audio4(pDevice, playbackDeviceData, playbackDeviceFramesCount, NULL);
                                 if (result != MA_SUCCESS) {
                                     exitLoop = MA_TRUE;
                                     break;
@@ -21966,7 +21966,7 @@ ma_result ma_device_main_loop__oss(ma_device* pDevice)
                                     break;
                                 }
 
-                                result = ma_device_write__alsa(pDevice, playbackDeviceData, playbackDeviceFramesCount, NULL);
+                                result = ma_device_write__oss(pDevice, playbackDeviceData, playbackDeviceFramesCount, NULL);
                                 if (result != MA_SUCCESS) {
                                     exitLoop = MA_TRUE;
                                     break;
