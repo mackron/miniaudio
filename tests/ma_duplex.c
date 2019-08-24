@@ -7,6 +7,8 @@
 #define DR_WAV_IMPLEMENTATION
 #include "../extras/dr_wav.h"
 
+#define OUTPUT_WAV 1
+
 #ifdef __EMSCRIPTEN__
 void main_loop__em()
 {
@@ -32,7 +34,7 @@ void data_callback(ma_device* pDevice, void* pOutput, const void* pInput, ma_uin
     /* In this test the format and channel count are the same for both input and output which means we can just memcpy(). */
     ma_copy_memory(pOutput, pInput, frameCount * ma_get_bytes_per_frame(pDevice->capture.format, pDevice->capture.channels));
 
-#if 1
+#if defined(OUTPUT_WAV) && OUTPUT_WAV==1
     /* Also write to a wav file for debugging. */
     drwav* pWav = (drwav*)pDevice->pUserData;
     ma_assert(pWav != NULL);
@@ -45,7 +47,7 @@ int main(int argc, char** argv)
 {
     ma_result result;
 
-#if 1
+#if defined(OUTPUT_WAV) && OUTPUT_WAV==1
     drwav_data_format wavFormat;
     wavFormat.container     = drwav_container_riff;
     wavFormat.format        = DR_WAVE_FORMAT_PCM;
@@ -65,6 +67,7 @@ int main(int argc, char** argv)
 
     ma_context_config contextConfig = ma_context_config_init();
     contextConfig.logCallback = log_callback;
+    contextConfig.alsa.useVerboseDeviceEnumeration = MA_TRUE;
 
     ma_context context;
     result = ma_context_init(&backend, 1, &contextConfig, &context);
@@ -73,15 +76,36 @@ int main(int argc, char** argv)
         return result;
     }
 
+
+    /* ALSA debugging. */
+    if (backend == ma_backend_alsa) {
+        ma_device_info* pPlaybackDevices;
+        ma_uint32 playbackDeviceCount;
+        ma_device_info* pCaptureDevices;
+        ma_uint32 captureDeviceCount;
+        ma_context_get_devices(&context, &pPlaybackDevices, &playbackDeviceCount, &pCaptureDevices, &captureDeviceCount);
+
+        printf("Playback Devices:\n");
+        for (ma_uint32 iDevice = 0; iDevice < playbackDeviceCount; iDevice += 1) {
+            printf("    ALSA Device ID: %s\n", pPlaybackDevices[iDevice].id.alsa);
+        }
+        printf("Capture Devices:\n");
+        for (ma_uint32 iDevice = 0; iDevice < captureDeviceCount; iDevice += 1) {
+            printf("    ALSA Device ID: %s\n", pCaptureDevices[iDevice].id.alsa);
+        }
+    }
+
+
     ma_device_config deviceConfig = ma_device_config_init(ma_device_type_duplex);
     deviceConfig.capture.pDeviceID  = NULL;
     deviceConfig.capture.format     = ma_format_s16;
     deviceConfig.capture.channels   = 2;
+    deviceConfig.capture.shareMode  = ma_share_mode_exclusive;
     deviceConfig.playback.pDeviceID = NULL;
     deviceConfig.playback.format    = ma_format_s16;
     deviceConfig.playback.channels  = 2;
-    deviceConfig.playback.shareMode = ma_share_mode_shared;
-    deviceConfig.sampleRate         = 44100;
+    deviceConfig.playback.shareMode = ma_share_mode_exclusive;
+    deviceConfig.sampleRate         = 50000;
     //deviceConfig.bufferSizeInMilliseconds = 60;
     deviceConfig.bufferSizeInFrames = 4096;
     //deviceConfig.periods            = 3;
