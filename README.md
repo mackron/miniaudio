@@ -219,3 +219,16 @@ etc.
 
 The `ma_decoder_init_file()` API will try using the file extension to determine which decoding
 backend to prefer.
+
+
+Unofficial Bindings
+===================
+The projects below offer bindings for other languages which you may be interested in. Note that these
+are unofficial and are not maintained as part of this repository. If you encounter a binding-specific
+bug, please post a bug report to the specific project. If you've written your own bindings let me know
+and I'll consider adding it to this list.
+
+Language | Project
+---------|--------
+Python   | [pyminiaudio](https://github.com/irmen/pyminiaudio)
+
