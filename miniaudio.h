@@ -33568,6 +33568,7 @@ v0.9.7 - 2019-xx-xx
     - If you need to capture from a specific output device, set the capture device ID to that of a playback device.
   - Fix a crash when an error is posted in ma_device_init().
   - Fix a compilation error when compiling for ARM architectures.
+  - Minor refactoring to the ALSA backend.
 
 v0.9.6 - 2019-08-04
   - Add support for loading decoders using a wchar_t string for file paths.
