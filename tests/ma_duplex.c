@@ -63,7 +63,7 @@ int main(int argc, char** argv)
 #endif
     
 
-    ma_backend backend = ma_backend_pulseaudio;
+    ma_backend backend = ma_backend_winmm;
 
     ma_context_config contextConfig = ma_context_config_init();
     contextConfig.logCallback = log_callback;
@@ -78,6 +78,7 @@ int main(int argc, char** argv)
 
 
     /* ALSA debugging. */
+#if defined(MA_SUPPORT_ALSA)
     if (backend == ma_backend_alsa) {
         ma_device_info* pPlaybackDevices;
         ma_uint32 playbackDeviceCount;
@@ -94,6 +95,7 @@ int main(int argc, char** argv)
             printf("    ALSA Device ID: %s\n", pCaptureDevices[iDevice].id.alsa);
         }
     }
+#endif
 
 
     ma_device_config deviceConfig = ma_device_config_init(ma_device_type_duplex);

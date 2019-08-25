@@ -2443,7 +2443,6 @@ MA_ALIGNED_STRUCT(MA_SIMD_ALIGNMENT) ma_device
             ma_uint8* pIntermediaryBufferPlayback;
             ma_uint8* pIntermediaryBufferCapture;
             ma_uint8* _pHeapData;                      /* Used internally and is used for the heap allocated data for the intermediary buffer and the WAVEHDR structures. */
-            ma_bool32 isStarted;
         } winmm;
 #endif
 #ifdef MA_SUPPORT_ALSA
@@ -11386,11 +11385,10 @@ ma_result ma_device_stop__winmm(ma_device* pDevice)
         }
     }
 
-    ma_atomic_exchange_32(&pDevice->winmm.isStarted, MA_FALSE);
     return MA_SUCCESS;
 }
 
-ma_result ma_device_write__winmm(ma_device* pDevice, const void* pPCMFrames, ma_uint32 frameCount)
+ma_result ma_device_write__winmm(ma_device* pDevice, const void* pPCMFrames, ma_uint32 frameCount, ma_uint32* pFramesWritten)
 {
     ma_result result = MA_SUCCESS;
     MMRESULT resultMM;
@@ -11399,6 +11397,10 @@ ma_result ma_device_write__winmm(ma_device* pDevice, const void* pPCMFrames, ma_
 
     ma_assert(pDevice != NULL);
     ma_assert(pPCMFrames != NULL);
+
+    if (pFramesWritten != NULL) {
+        *pFramesWritten = 0;
+    }
 
     pWAVEHDR = (WAVEHDR*)pDevice->winmm.pWAVEHDRPlayback;
 
@@ -11437,7 +11439,6 @@ ma_result ma_device_write__winmm(ma_device* pDevice, const void* pPCMFrames, ma_
                     ma_post_error(pDevice, MA_LOG_LEVEL_ERROR, "[WinMM] waveOutWrite() failed.", result);
                     break;
                 }
-                ma_atomic_exchange_32(&pDevice->winmm.isStarted, MA_TRUE);
 
                 /* Make sure we move to the next header. */
                 pDevice->winmm.iNextHeaderPlayback = (pDevice->winmm.iNextHeaderPlayback + 1) % pDevice->playback.internalPeriods;
@@ -11467,15 +11468,19 @@ ma_result ma_device_write__winmm(ma_device* pDevice, const void* pPCMFrames, ma_
         }
 
         /* If the device has been stopped we need to break. */
-        if (!pDevice->winmm.isStarted) {
+        if (ma_device__get_state(pDevice) != MA_STATE_STARTED) {
             break;
         }
+    }
+
+    if (pFramesWritten != NULL) {
+        *pFramesWritten = totalFramesWritten;
     }
 
     return result;
 }
 
-ma_result ma_device_read__winmm(ma_device* pDevice, void* pPCMFrames, ma_uint32 frameCount)
+ma_result ma_device_read__winmm(ma_device* pDevice, void* pPCMFrames, ma_uint32 frameCount, ma_uint32* pFramesRead)
 {
     ma_result result = MA_SUCCESS;
     MMRESULT resultMM;
@@ -11485,34 +11490,11 @@ ma_result ma_device_read__winmm(ma_device* pDevice, void* pPCMFrames, ma_uint32 
     ma_assert(pDevice != NULL);
     ma_assert(pPCMFrames != NULL);
 
-    pWAVEHDR = (WAVEHDR*)pDevice->winmm.pWAVEHDRCapture;
-
-    /* We want to start the device immediately. */
-    if (!pDevice->winmm.isStarted) {
-        ma_uint32 iPeriod;
-
-        /* Make sure the event is reset to a non-signaled state to ensure we don't prematurely return from WaitForSingleObject(). */
-        ResetEvent((HANDLE)pDevice->winmm.hEventCapture);
-
-        /* To start the device we attach all of the buffers and then start it. As the buffers are filled with data we will get notifications. */
-        for (iPeriod = 0; iPeriod < pDevice->capture.internalPeriods; ++iPeriod) {
-            resultMM = ((MA_PFN_waveInAddBuffer)pDevice->pContext->winmm.waveInAddBuffer)((HWAVEIN)pDevice->winmm.hDeviceCapture, &((LPWAVEHDR)pDevice->winmm.pWAVEHDRCapture)[iPeriod], sizeof(WAVEHDR));
-            if (resultMM != MMSYSERR_NOERROR) {
-                return ma_post_error(pDevice, MA_LOG_LEVEL_ERROR, "[WinMM] Failed to attach input buffers to capture device in preparation for capture.", ma_result_from_MMRESULT(resultMM));
-            }
-
-            /* Make sure all of the buffers start out locked. We don't want to access them until the backend tells us we can. */
-            pWAVEHDR[iPeriod].dwUser = 1;   /* 1 = locked. */
-        }
-
-        /* Capture devices need to be explicitly started, unlike playback devices. */
-        resultMM = ((MA_PFN_waveInStart)pDevice->pContext->winmm.waveInStart)((HWAVEIN)pDevice->winmm.hDeviceCapture);
-        if (resultMM != MMSYSERR_NOERROR) {
-            return ma_post_error(pDevice, MA_LOG_LEVEL_ERROR, "[WinMM] Failed to start backend device.", ma_result_from_MMRESULT(resultMM));
-        }
-
-        ma_atomic_exchange_32(&pDevice->winmm.isStarted, MA_TRUE);
+    if (pFramesRead != NULL) {
+        *pFramesRead = 0;
     }
+
+    pWAVEHDR = (WAVEHDR*)pDevice->winmm.pWAVEHDRCapture;
 
     /* Keep processing as much data as possible. */
     totalFramesRead = 0;
@@ -11575,10 +11557,202 @@ ma_result ma_device_read__winmm(ma_device* pDevice, void* pPCMFrames, ma_uint32 
         }
 
         /* If the device has been stopped we need to break. */
-        if (!pDevice->winmm.isStarted) {
+        if (ma_device__get_state(pDevice) != MA_STATE_STARTED) {
             break;
         }
     }
+
+    if (pFramesRead != NULL) {
+        *pFramesRead = totalFramesRead;
+    }
+
+    return result;
+}
+
+ma_result ma_device_main_loop__winmm(ma_device* pDevice)
+{
+    ma_result result = MA_SUCCESS;
+    ma_bool32 exitLoop = MA_FALSE;
+    
+    ma_assert(pDevice != NULL);
+
+    /* The capture device needs to be started immediately. */
+    if (pDevice->type == ma_device_type_capture || pDevice->type == ma_device_type_duplex) {
+        MMRESULT resultMM;
+        WAVEHDR* pWAVEHDR;
+        ma_uint32 iPeriod;
+
+        pWAVEHDR = (WAVEHDR*)pDevice->winmm.pWAVEHDRCapture;
+
+        /* Make sure the event is reset to a non-signaled state to ensure we don't prematurely return from WaitForSingleObject(). */
+        ResetEvent((HANDLE)pDevice->winmm.hEventCapture);
+
+        /* To start the device we attach all of the buffers and then start it. As the buffers are filled with data we will get notifications. */
+        for (iPeriod = 0; iPeriod < pDevice->capture.internalPeriods; ++iPeriod) {
+            resultMM = ((MA_PFN_waveInAddBuffer)pDevice->pContext->winmm.waveInAddBuffer)((HWAVEIN)pDevice->winmm.hDeviceCapture, &((LPWAVEHDR)pDevice->winmm.pWAVEHDRCapture)[iPeriod], sizeof(WAVEHDR));
+            if (resultMM != MMSYSERR_NOERROR) {
+                return ma_post_error(pDevice, MA_LOG_LEVEL_ERROR, "[WinMM] Failed to attach input buffers to capture device in preparation for capture.", ma_result_from_MMRESULT(resultMM));
+            }
+
+            /* Make sure all of the buffers start out locked. We don't want to access them until the backend tells us we can. */
+            pWAVEHDR[iPeriod].dwUser = 1;   /* 1 = locked. */
+        }
+
+        /* Capture devices need to be explicitly started, unlike playback devices. */
+        resultMM = ((MA_PFN_waveInStart)pDevice->pContext->winmm.waveInStart)((HWAVEIN)pDevice->winmm.hDeviceCapture);
+        if (resultMM != MMSYSERR_NOERROR) {
+            return ma_post_error(pDevice, MA_LOG_LEVEL_ERROR, "[WinMM] Failed to start backend device.", ma_result_from_MMRESULT(resultMM));
+        }
+    }
+
+
+    while (ma_device__get_state(pDevice) == MA_STATE_STARTED && !exitLoop) {
+        switch (pDevice->type)
+        {
+            case ma_device_type_duplex:
+            {
+                /* The process is: device_read -> convert -> callback -> convert -> device_write */
+                ma_uint8  capturedDeviceData[8192];
+                ma_uint8  playbackDeviceData[8192];
+                ma_uint32 capturedDeviceDataCapInFrames = sizeof(capturedDeviceData) / ma_get_bytes_per_frame(pDevice->capture.internalFormat,  pDevice->capture.internalChannels);
+                ma_uint32 playbackDeviceDataCapInFrames = sizeof(playbackDeviceData) / ma_get_bytes_per_frame(pDevice->playback.internalFormat, pDevice->playback.internalChannels);
+
+                ma_uint32 totalFramesProcessed = 0;
+                ma_uint32 periodSizeInFrames = ma_min(pDevice->capture.internalBufferSizeInFrames/pDevice->capture.internalPeriods, pDevice->playback.internalBufferSizeInFrames/pDevice->playback.internalPeriods);
+                    
+                while (totalFramesProcessed < periodSizeInFrames) {
+                    ma_device_callback_proc onData;
+                    ma_uint32 framesRemaining = periodSizeInFrames - totalFramesProcessed;
+                    ma_uint32 framesProcessed;
+                    ma_uint32 framesToProcess = framesRemaining;
+                    if (framesToProcess > capturedDeviceDataCapInFrames) {
+                        framesToProcess = capturedDeviceDataCapInFrames;
+                    }
+
+                    result = ma_device_read__winmm(pDevice, capturedDeviceData, framesToProcess, &framesProcessed);
+                    if (result != MA_SUCCESS) {
+                        exitLoop = MA_TRUE;
+                        break;
+                    }
+
+                    onData = pDevice->onData;
+                    if (onData != NULL) {
+                        pDevice->capture._dspFrameCount = framesToProcess;
+                        pDevice->capture._dspFrames     = capturedDeviceData;
+
+                        for (;;) {
+                            ma_uint8 capturedData[8192];
+                            ma_uint8 playbackData[8192];
+                            ma_uint32 capturedDataCapInFrames = sizeof(capturedData) / ma_get_bytes_per_frame(pDevice->capture.format, pDevice->capture.channels);
+                            ma_uint32 playbackDataCapInFrames = sizeof(playbackData) / ma_get_bytes_per_frame(pDevice->playback.format, pDevice->playback.channels);
+
+                            ma_uint32 capturedFramesToTryProcessing = ma_min(capturedDataCapInFrames, playbackDataCapInFrames);
+                            ma_uint32 capturedFramesToProcess = (ma_uint32)ma_pcm_converter_read(&pDevice->capture.converter, capturedData, capturedFramesToTryProcessing);
+                            if (capturedFramesToProcess == 0) {
+                                break;  /* Don't fire the data callback with zero frames. */
+                            }
+
+                            onData(pDevice, playbackData, capturedData, capturedFramesToProcess);
+
+                            /* At this point the playbackData buffer should be holding data that needs to be written to the device. */
+                            pDevice->playback._dspFrameCount = capturedFramesToProcess;
+                            pDevice->playback._dspFrames     = playbackData;
+                            for (;;) {
+                                ma_uint32 playbackDeviceFramesCount = (ma_uint32)ma_pcm_converter_read(&pDevice->playback.converter, playbackDeviceData, playbackDeviceDataCapInFrames);
+                                if (playbackDeviceFramesCount == 0) {
+                                    break;
+                                }
+
+                                result = ma_device_write__winmm(pDevice, playbackDeviceData, playbackDeviceFramesCount, NULL);
+                                if (result != MA_SUCCESS) {
+                                    exitLoop = MA_TRUE;
+                                    break;
+                                }
+
+                                if (playbackDeviceFramesCount < playbackDeviceDataCapInFrames) {
+                                    break;
+                                }
+                            }
+
+                            if (capturedFramesToProcess < capturedFramesToTryProcessing) {
+                                break;
+                            }
+
+                            /* In case an error happened from ma_device_write2__alsa()... */
+                            if (result != MA_SUCCESS) {
+                                exitLoop = MA_TRUE;
+                                break;
+                            }
+                        }
+                    }
+
+                    totalFramesProcessed += framesProcessed;
+                }
+            } break;
+
+            case ma_device_type_capture:
+            {
+                /* We read in chunks of the period size, but use a stack allocated buffer for the intermediary. */
+                ma_uint8 intermediaryBuffer[8192];
+                ma_uint32 intermediaryBufferSizeInFrames = sizeof(intermediaryBuffer) / ma_get_bytes_per_frame(pDevice->capture.internalFormat, pDevice->capture.internalChannels);
+                ma_uint32 periodSizeInFrames = pDevice->capture.internalBufferSizeInFrames / pDevice->capture.internalPeriods;
+                ma_uint32 framesReadThisPeriod = 0;
+                while (framesReadThisPeriod < periodSizeInFrames) {
+                    ma_uint32 framesRemainingInPeriod = periodSizeInFrames - framesReadThisPeriod;
+                    ma_uint32 framesProcessed;
+                    ma_uint32 framesToReadThisIteration = framesRemainingInPeriod;
+                    if (framesToReadThisIteration > intermediaryBufferSizeInFrames) {
+                        framesToReadThisIteration = intermediaryBufferSizeInFrames;
+                    }
+
+                    result = ma_device_read__winmm(pDevice, intermediaryBuffer, framesToReadThisIteration, &framesProcessed);
+                    if (result != MA_SUCCESS) {
+                        exitLoop = MA_TRUE;
+                        break;
+                    }
+
+                    ma_device__send_frames_to_client(pDevice, framesProcessed, intermediaryBuffer);
+
+                    framesReadThisPeriod += framesProcessed;
+                }
+            } break;
+
+            case ma_device_type_playback:
+            {
+                /* We write in chunks of the period size, but use a stack allocated buffer for the intermediary. */
+                ma_uint8 intermediaryBuffer[8192];
+                ma_uint32 intermediaryBufferSizeInFrames = sizeof(intermediaryBuffer) / ma_get_bytes_per_frame(pDevice->playback.internalFormat, pDevice->playback.internalChannels);
+                ma_uint32 periodSizeInFrames = pDevice->playback.internalBufferSizeInFrames / pDevice->playback.internalPeriods;
+                ma_uint32 framesWrittenThisPeriod = 0;
+                while (framesWrittenThisPeriod < periodSizeInFrames) {
+                    ma_uint32 framesRemainingInPeriod = periodSizeInFrames - framesWrittenThisPeriod;
+                    ma_uint32 framesProcessed;
+                    ma_uint32 framesToWriteThisIteration = framesRemainingInPeriod;
+                    if (framesToWriteThisIteration > intermediaryBufferSizeInFrames) {
+                        framesToWriteThisIteration = intermediaryBufferSizeInFrames;
+                    }
+
+                    ma_device__read_frames_from_client(pDevice, framesToWriteThisIteration, intermediaryBuffer);
+
+                    result = ma_device_write__winmm(pDevice, intermediaryBuffer, framesToWriteThisIteration, &framesProcessed);
+                    if (result != MA_SUCCESS) {
+                        exitLoop = MA_TRUE;
+                        break;
+                    }
+
+                    framesWrittenThisPeriod += framesProcessed;
+                }
+            } break;
+
+            /* To silence a warning. Will never hit this. */
+            case ma_device_type_loopback:
+            default: break;
+        }
+    }
+
+
+    /* Here is where the device is started. */
+    ma_device_stop__winmm(pDevice);
 
     return result;
 }
@@ -11621,16 +11795,15 @@ ma_result ma_context_init__winmm(const ma_context_config* pConfig, ma_context* p
     pContext->winmm.waveInStart            = ma_dlsym(pContext, pContext->winmm.hWinMM, "waveInStart");
     pContext->winmm.waveInReset            = ma_dlsym(pContext, pContext->winmm.hWinMM, "waveInReset");
 
-    pContext->onUninit        = ma_context_uninit__winmm;
-    pContext->onDeviceIDEqual = ma_context_is_device_id_equal__winmm;
-    pContext->onEnumDevices   = ma_context_enumerate_devices__winmm;
-    pContext->onGetDeviceInfo = ma_context_get_device_info__winmm;
-    pContext->onDeviceInit    = ma_device_init__winmm;
-    pContext->onDeviceUninit  = ma_device_uninit__winmm;
-    pContext->onDeviceStart   = NULL; /* Not used. Started in onDeviceWrite/onDeviceRead. */
-    pContext->onDeviceStop    = ma_device_stop__winmm;
-    pContext->onDeviceWrite   = ma_device_write__winmm;
-    pContext->onDeviceRead    = ma_device_read__winmm;
+    pContext->onUninit         = ma_context_uninit__winmm;
+    pContext->onDeviceIDEqual  = ma_context_is_device_id_equal__winmm;
+    pContext->onEnumDevices    = ma_context_enumerate_devices__winmm;
+    pContext->onGetDeviceInfo  = ma_context_get_device_info__winmm;
+    pContext->onDeviceInit     = ma_device_init__winmm;
+    pContext->onDeviceUninit   = ma_device_uninit__winmm;
+    pContext->onDeviceStart    = NULL; /* Not used with synchronous backends. */
+    pContext->onDeviceStop     = NULL; /* Not used with synchronous backends. */
+    pContext->onDeviceMainLoop = ma_device_main_loop__winmm;
 
     return MA_SUCCESS;
 }
@@ -34265,7 +34438,7 @@ v0.9.7 - 2019-xx-xx
   - Fix a crash when an error is posted in ma_device_init().
   - Fix a compilation error when compiling for ARM architectures.
   - Fix a bug with the audio(4) backend where the device is incorrectly being opened in non-blocking mode.
-  - Minor refactoring to the ALSA, PulseAudio, OSS, audio(4) and sndio backends.
+  - Minor refactoring to the WinMM, ALSA, PulseAudio, OSS, audio(4) and sndio backends.
 
 v0.9.6 - 2019-08-04
   - Add support for loading decoders using a wchar_t string for file paths.
