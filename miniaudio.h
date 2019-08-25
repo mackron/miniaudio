@@ -34264,7 +34264,8 @@ v0.9.7 - 2019-xx-xx
     - If you need to capture from a specific output device, set the capture device ID to that of a playback device.
   - Fix a crash when an error is posted in ma_device_init().
   - Fix a compilation error when compiling for ARM architectures.
-  - Minor refactoring to the ALSA and PulseAudio backends.
+  - Fix a bug with the audio(4) backend where the device is incorrectly being opened in non-blocking mode.
+  - Minor refactoring to the ALSA, PulseAudio, OSS, audio(4) and sndio backends.
 
 v0.9.6 - 2019-08-04
   - Add support for loading decoders using a wchar_t string for file paths.
