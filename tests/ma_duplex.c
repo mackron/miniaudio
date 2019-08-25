@@ -63,7 +63,7 @@ int main(int argc, char** argv)
 #endif
     
 
-    ma_backend backend = ma_backend_alsa;
+    ma_backend backend = ma_backend_pulseaudio;
 
     ma_context_config contextConfig = ma_context_config_init();
     contextConfig.logCallback = log_callback;
@@ -100,11 +100,11 @@ int main(int argc, char** argv)
     deviceConfig.capture.pDeviceID  = NULL;
     deviceConfig.capture.format     = ma_format_s16;
     deviceConfig.capture.channels   = 2;
-    deviceConfig.capture.shareMode  = ma_share_mode_exclusive;
+    deviceConfig.capture.shareMode  = ma_share_mode_shared;
     deviceConfig.playback.pDeviceID = NULL;
     deviceConfig.playback.format    = ma_format_s16;
     deviceConfig.playback.channels  = 2;
-    deviceConfig.playback.shareMode = ma_share_mode_exclusive;
+    deviceConfig.playback.shareMode = ma_share_mode_shared;
     deviceConfig.sampleRate         = 50000;
     //deviceConfig.bufferSizeInMilliseconds = 60;
     deviceConfig.bufferSizeInFrames = 4096;
