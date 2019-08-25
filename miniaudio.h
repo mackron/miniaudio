@@ -1979,8 +1979,6 @@ struct ma_context
     void      (* onDeviceUninit  )(ma_device* pDevice);
     ma_result (* onDeviceStart   )(ma_device* pDevice);
     ma_result (* onDeviceStop    )(ma_device* pDevice);
-    ma_result (* onDeviceWrite   )(ma_device* pDevice, const void* pPCMFrames, ma_uint32 frameCount);    /* Data is in internal device format. */
-    ma_result (* onDeviceRead    )(ma_device* pDevice,       void* pPCMFrames, ma_uint32 frameCount);    /* Data is in internal device format. */
     ma_result (* onDeviceMainLoop)(ma_device* pDevice);
 
     union
@@ -5342,44 +5340,44 @@ ma_uint32 ma_device__pcm_converter__on_read_from_buffer_playback(ma_pcm_converte
 
 
 /* A helper function for reading sample data from the client. */
-static MA_INLINE void ma_device__read_frames_from_client(ma_device* pDevice, ma_uint32 frameCount, void* pSamples)
+static MA_INLINE void ma_device__read_frames_from_client(ma_device* pDevice, ma_uint32 frameCount, void* pFramesOut)
 {
     ma_device_callback_proc onData;
 
     ma_assert(pDevice != NULL);
     ma_assert(frameCount > 0);
-    ma_assert(pSamples != NULL);
+    ma_assert(pFramesOut != NULL);
 
     onData = pDevice->onData;
     if (onData) {
         if (pDevice->playback.converter.isPassthrough) {
-            ma_zero_pcm_frames(pSamples, frameCount, pDevice->playback.format, pDevice->playback.channels);
-            onData(pDevice, pSamples, NULL, frameCount);
+            ma_zero_pcm_frames(pFramesOut, frameCount, pDevice->playback.format, pDevice->playback.channels);
+            onData(pDevice, pFramesOut, NULL, frameCount);
         } else {
-            ma_pcm_converter_read(&pDevice->playback.converter, pSamples, frameCount);
+            ma_pcm_converter_read(&pDevice->playback.converter, pFramesOut, frameCount);
         }
     }
 }
 
 /* A helper for sending sample data to the client. */
-static MA_INLINE void ma_device__send_frames_to_client(ma_device* pDevice, ma_uint32 frameCount, const void* pSamples)
+static MA_INLINE void ma_device__send_frames_to_client(ma_device* pDevice, ma_uint32 frameCount, const void* pFrames)
 {
     ma_device_callback_proc onData;
 
     ma_assert(pDevice != NULL);
     ma_assert(frameCount > 0);
-    ma_assert(pSamples != NULL);
+    ma_assert(pFrames != NULL);
 
     onData = pDevice->onData;
     if (onData) {
         if (pDevice->capture.converter.isPassthrough) {
-            onData(pDevice, NULL, pSamples, frameCount);
+            onData(pDevice, NULL, pFrames, frameCount);
         } else {
             ma_uint8 chunkBuffer[4096];
             ma_uint32 chunkFrameCount;
 
             pDevice->capture._dspFrameCount = frameCount;
-            pDevice->capture._dspFrames = (const ma_uint8*)pSamples;
+            pDevice->capture._dspFrames = (const ma_uint8*)pFrames;
 
             chunkFrameCount = sizeof(chunkBuffer) / ma_get_bytes_per_frame(pDevice->capture.format, pDevice->capture.channels);
 
@@ -9097,8 +9095,6 @@ ma_result ma_context_init__wasapi(const ma_context_config* pConfig, ma_context* 
     pContext->onDeviceUninit   = ma_device_uninit__wasapi;
     pContext->onDeviceStart    = NULL; /* Not used. Started in onDeviceMainLoop. */
     pContext->onDeviceStop     = NULL; /* Not used. Stopped in onDeviceMainLoop. */
-    pContext->onDeviceWrite    = NULL;
-    pContext->onDeviceRead     = NULL;
     pContext->onDeviceMainLoop = ma_device_main_loop__wasapi;
 
     return result;
@@ -10767,8 +10763,6 @@ ma_result ma_context_init__dsound(const ma_context_config* pConfig, ma_context* 
     pContext->onDeviceUninit   = ma_device_uninit__dsound;
     pContext->onDeviceStart    = NULL;  /* Not used. Started in onDeviceMainLoop. */
     pContext->onDeviceStop     = NULL;  /* Not used. Stopped in onDeviceMainLoop. */
-    pContext->onDeviceWrite    = NULL;
-    pContext->onDeviceRead     = NULL;
     pContext->onDeviceMainLoop = ma_device_main_loop__dsound;
 
     return MA_SUCCESS;
@@ -14291,8 +14285,6 @@ ma_result ma_context_init__alsa(const ma_context_config* pConfig, ma_context* pC
     pContext->onDeviceUninit   = ma_device_uninit__alsa;
     pContext->onDeviceStart    = NULL; /* Not used. Started in the main loop. */
     pContext->onDeviceStop     = NULL; /* Not used. Started in the main loop. */
-    pContext->onDeviceWrite    = NULL;
-    pContext->onDeviceRead     = NULL;
     pContext->onDeviceMainLoop = ma_device_main_loop__alsa;
 
     return MA_SUCCESS;
@@ -16494,8 +16486,6 @@ ma_result ma_context_init__pulse(const ma_context_config* pConfig, ma_context* p
     pContext->onDeviceUninit   = ma_device_uninit__pulse;
     pContext->onDeviceStart    = NULL;
     pContext->onDeviceStop     = NULL;
-    pContext->onDeviceWrite    = NULL;
-    pContext->onDeviceRead     = NULL;
     pContext->onDeviceMainLoop = ma_device_main_loop__pulse;
 
     if (pConfig->pulse.pApplicationName) {
@@ -24792,148 +24782,7 @@ ma_thread_result MA_THREADCALL ma_worker_thread(void* pData)
         if (pDevice->pContext->onDeviceMainLoop != NULL) {
             pDevice->pContext->onDeviceMainLoop(pDevice);
         } else {
-            ma_uint32 periodSizeInFrames;
-
-            /* When a device is using miniaudio's generic worker thread they must implement onDeviceRead or onDeviceWrite, depending on the device type. */
-            ma_assert(
-                (pDevice->type == ma_device_type_playback && pDevice->pContext->onDeviceWrite != NULL) ||
-                (pDevice->type == ma_device_type_capture  && pDevice->pContext->onDeviceRead  != NULL) ||
-                (pDevice->type == ma_device_type_duplex   && pDevice->pContext->onDeviceWrite != NULL && pDevice->pContext->onDeviceRead != NULL)
-            );
-
-            if (pDevice->type == ma_device_type_capture) {
-                ma_assert(pDevice->capture.internalBufferSizeInFrames >= pDevice->capture.internalPeriods);
-                periodSizeInFrames = pDevice->capture.internalBufferSizeInFrames / pDevice->capture.internalPeriods;
-            } else if (pDevice->type == ma_device_type_playback) {
-                ma_assert(pDevice->playback.internalBufferSizeInFrames >= pDevice->playback.internalPeriods);
-                periodSizeInFrames = pDevice->playback.internalBufferSizeInFrames / pDevice->playback.internalPeriods;
-            } else {
-                ma_assert(pDevice->capture.internalBufferSizeInFrames >= pDevice->capture.internalPeriods);
-                ma_assert(pDevice->playback.internalBufferSizeInFrames >= pDevice->playback.internalPeriods);
-                periodSizeInFrames = ma_min(
-                    pDevice->capture.internalBufferSizeInFrames / pDevice->capture.internalPeriods,
-                    pDevice->playback.internalBufferSizeInFrames / pDevice->playback.internalPeriods
-                );
-            }
-
-            /*
-            With the blocking API, the device is started automatically in read()/write(). All we need to do is enter the loop and just keep reading
-            or writing based on the period size.
-            */
-            
-            /* Main Loop */
-            ma_assert(periodSizeInFrames >= 1);
-            while (ma_device__get_state(pDevice) == MA_STATE_STARTED) {
-                ma_result result = MA_SUCCESS;
-                ma_uint32 totalFramesProcessed = 0;
-
-                if (pDevice->type == ma_device_type_duplex) {
-                    /* The process is device_read -> convert -> callback -> convert -> device_write. */
-                    ma_uint8  captureDeviceData[4096];
-                    ma_uint32 captureDeviceDataCapInFrames = sizeof(captureDeviceData) / ma_get_bytes_per_frame(pDevice->capture.internalFormat, pDevice->capture.internalChannels);
-
-                    while (totalFramesProcessed < periodSizeInFrames) {
-                        ma_device_callback_proc onData;
-                        ma_uint32 framesRemaining = periodSizeInFrames - totalFramesProcessed;
-                        ma_uint32 framesToProcess = framesRemaining;
-                        if (framesToProcess > captureDeviceDataCapInFrames) {
-                            framesToProcess = captureDeviceDataCapInFrames;
-                        }
-
-                        result = pDevice->pContext->onDeviceRead(pDevice, captureDeviceData, framesToProcess);
-                        if (result != MA_SUCCESS) {
-                            break;
-                        }
-                    
-                        onData = pDevice->onData;
-                        if (onData != NULL) {
-                            pDevice->capture._dspFrameCount = framesToProcess;
-                            pDevice->capture._dspFrames     = captureDeviceData;
-
-                            /* We need to process every input frame. */
-                            for (;;) {
-                                ma_uint8 capturedData[4096];   /* In capture.format/channels format */
-                                ma_uint8 playbackData[4096];   /* In playback.format/channels format */
-
-                                ma_uint32 capturedDataCapInFrames = sizeof(capturedData) / ma_get_bytes_per_frame(pDevice->capture.format, pDevice->capture.channels);
-                                ma_uint32 playbackDataCapInFrames = sizeof(playbackData) / ma_get_bytes_per_frame(pDevice->playback.format, pDevice->playback.channels);
-
-                                ma_uint32 capturedFramesToTryProcessing = ma_min(capturedDataCapInFrames, playbackDataCapInFrames);
-                                ma_uint32 capturedFramesToProcess = (ma_uint32)ma_pcm_converter_read(&pDevice->capture.converter, capturedData, capturedFramesToTryProcessing);
-                                if (capturedFramesToProcess == 0) {
-                                    break;  /* Don't fire the data callback with zero frames. */
-                                }
-                            
-                                onData(pDevice, playbackData, capturedData, capturedFramesToProcess);
-
-                                /* At this point the playbackData buffer should be holding data that needs to be written to the device. */
-                                pDevice->playback._dspFrameCount = capturedFramesToProcess;
-                                pDevice->playback._dspFrames     = playbackData;
-                                for (;;) {
-                                    ma_uint8 playbackDeviceData[4096];
-
-                                    ma_uint32 playbackDeviceDataCapInFrames = sizeof(playbackDeviceData) / ma_get_bytes_per_frame(pDevice->playback.internalFormat, pDevice->playback.internalChannels);
-                                    ma_uint32 playbackDeviceFramesCount = (ma_uint32)ma_pcm_converter_read(&pDevice->playback.converter, playbackDeviceData, playbackDeviceDataCapInFrames);
-                                    if (playbackDeviceFramesCount == 0) {
-                                        break;
-                                    }
-
-                                    result = pDevice->pContext->onDeviceWrite(pDevice, playbackDeviceData, playbackDeviceFramesCount);
-                                    if (result != MA_SUCCESS) {
-                                        break;
-                                    }
-
-                                    if (playbackDeviceFramesCount < playbackDeviceDataCapInFrames) {
-                                        break;
-                                    }
-                                }
-
-                                if (capturedFramesToProcess < capturedFramesToTryProcessing) {
-                                    break;
-                                }
-
-                                /* In case an error happened from onDeviceWrite()... */
-                                if (result != MA_SUCCESS) {
-                                    break;
-                                }
-                            }
-                        }
-
-                        totalFramesProcessed += framesToProcess;
-                    }
-                } else {
-                    ma_uint8  buffer[4096];
-                    ma_uint32 bufferSizeInFrames;
-                    if (pDevice->type == ma_device_type_capture) {
-                        bufferSizeInFrames = sizeof(buffer) / ma_get_bytes_per_frame(pDevice->capture.internalFormat, pDevice->capture.internalChannels);
-                    } else {
-                        bufferSizeInFrames = sizeof(buffer) / ma_get_bytes_per_frame(pDevice->playback.internalFormat, pDevice->playback.internalChannels);
-                    }
-
-                    while (totalFramesProcessed < periodSizeInFrames) {
-                        ma_uint32 framesRemaining = periodSizeInFrames - totalFramesProcessed;
-                        ma_uint32 framesToProcess = framesRemaining;
-                        if (framesToProcess > bufferSizeInFrames) {
-                            framesToProcess = bufferSizeInFrames;
-                        }
-
-                        if (pDevice->type == ma_device_type_playback) {
-                            ma_device__read_frames_from_client(pDevice, framesToProcess, buffer);
-                            result = pDevice->pContext->onDeviceWrite(pDevice, buffer, framesToProcess);
-                        } else {
-                            result = pDevice->pContext->onDeviceRead(pDevice, buffer, framesToProcess);
-                            ma_device__send_frames_to_client(pDevice, framesToProcess, buffer);
-                        }
-
-                        totalFramesProcessed += framesToProcess;
-                    }
-                }
-
-                /* Get out of the loop if read()/write() returned an error. It probably means the device has been stopped. */
-                if (result != MA_SUCCESS) {
-                    break;
-                }
-            }
+            ma_post_error(pDevice, MA_LOG_LEVEL_ERROR, "No main loop implementation.", MA_API_NOT_FOUND);
         }
 
         /*
@@ -32742,7 +32591,7 @@ drwav_bool32 ma_decoder_internal_on_seek__wav(void* pUserData, int offset, drwav
     return ma_decoder_seek_bytes(pDecoder, offset, (origin == drwav_seek_origin_start) ? ma_seek_origin_start : ma_seek_origin_current);
 }
 
-ma_uint32 ma_decoder_internal_on_read_pcm_frames__wav(ma_pcm_converter* pDSP, void* pSamplesOut, ma_uint32 frameCount, void* pUserData)
+ma_uint32 ma_decoder_internal_on_read_pcm_frames__wav(ma_pcm_converter* pDSP, void* pFramesOut, ma_uint32 frameCount, void* pUserData)
 {
     ma_decoder* pDecoder;
     drwav* pWav;
@@ -32756,9 +32605,9 @@ ma_uint32 ma_decoder_internal_on_read_pcm_frames__wav(ma_pcm_converter* pDSP, vo
     ma_assert(pWav != NULL);
 
     switch (pDecoder->internalFormat) {
-        case ma_format_s16: return (ma_uint32)drwav_read_pcm_frames_s16(pWav, frameCount, (drwav_int16*)pSamplesOut);
-        case ma_format_s32: return (ma_uint32)drwav_read_pcm_frames_s32(pWav, frameCount, (drwav_int32*)pSamplesOut);
-        case ma_format_f32: return (ma_uint32)drwav_read_pcm_frames_f32(pWav, frameCount,       (float*)pSamplesOut);
+        case ma_format_s16: return (ma_uint32)drwav_read_pcm_frames_s16(pWav, frameCount, (drwav_int16*)pFramesOut);
+        case ma_format_s32: return (ma_uint32)drwav_read_pcm_frames_s32(pWav, frameCount, (drwav_int32*)pFramesOut);
+        case ma_format_f32: return (ma_uint32)drwav_read_pcm_frames_f32(pWav, frameCount,       (float*)pFramesOut);
         default: break;
     }
 
@@ -32882,7 +32731,7 @@ drflac_bool32 ma_decoder_internal_on_seek__flac(void* pUserData, int offset, drf
     return ma_decoder_seek_bytes(pDecoder, offset, (origin == drflac_seek_origin_start) ? ma_seek_origin_start : ma_seek_origin_current);
 }
 
-ma_uint32 ma_decoder_internal_on_read_pcm_frames__flac(ma_pcm_converter* pDSP, void* pSamplesOut, ma_uint32 frameCount, void* pUserData)
+ma_uint32 ma_decoder_internal_on_read_pcm_frames__flac(ma_pcm_converter* pDSP, void* pFramesOut, ma_uint32 frameCount, void* pUserData)
 {
     ma_decoder* pDecoder;
     drflac* pFlac;
@@ -32896,9 +32745,9 @@ ma_uint32 ma_decoder_internal_on_read_pcm_frames__flac(ma_pcm_converter* pDSP, v
     ma_assert(pFlac != NULL);
 
     switch (pDecoder->internalFormat) {
-        case ma_format_s16: return (ma_uint32)drflac_read_pcm_frames_s16(pFlac, frameCount, (drflac_int16*)pSamplesOut);
-        case ma_format_s32: return (ma_uint32)drflac_read_pcm_frames_s32(pFlac, frameCount, (drflac_int32*)pSamplesOut);
-        case ma_format_f32: return (ma_uint32)drflac_read_pcm_frames_f32(pFlac, frameCount,        (float*)pSamplesOut);
+        case ma_format_s16: return (ma_uint32)drflac_read_pcm_frames_s16(pFlac, frameCount, (drflac_int16*)pFramesOut);
+        case ma_format_s32: return (ma_uint32)drflac_read_pcm_frames_s32(pFlac, frameCount, (drflac_int32*)pFramesOut);
+        case ma_format_f32: return (ma_uint32)drflac_read_pcm_frames_f32(pFlac, frameCount,        (float*)pFramesOut);
         default: break;
     }
 
@@ -32997,15 +32846,15 @@ typedef struct
     float** ppPacketData;
 } ma_vorbis_decoder;
 
-ma_uint32 ma_vorbis_decoder_read_pcm_frames(ma_vorbis_decoder* pVorbis, ma_decoder* pDecoder, void* pSamplesOut, ma_uint32 frameCount)
+ma_uint32 ma_vorbis_decoder_read_pcm_frames(ma_vorbis_decoder* pVorbis, ma_decoder* pDecoder, void* pFramesOut, ma_uint32 frameCount)
 {
-    float* pSamplesOutF;
+    float* pFramesOutF;
     ma_uint32 totalFramesRead;
 
     ma_assert(pVorbis != NULL);
     ma_assert(pDecoder != NULL);
 
-    pSamplesOutF = (float*)pSamplesOut;
+    pFramesOutF = (float*)pFramesOut;
 
     totalFramesRead = 0;
     while (frameCount > 0) {
@@ -33013,8 +32862,8 @@ ma_uint32 ma_vorbis_decoder_read_pcm_frames(ma_vorbis_decoder* pVorbis, ma_decod
         while (pVorbis->framesRemaining > 0 && frameCount > 0) {
             ma_uint32 iChannel;
             for (iChannel = 0; iChannel < pDecoder->internalChannels; ++iChannel) {
-                pSamplesOutF[0] = pVorbis->ppPacketData[iChannel][pVorbis->framesConsumed];
-                pSamplesOutF += 1;
+                pFramesOutF[0] = pVorbis->ppPacketData[iChannel][pVorbis->framesConsumed];
+                pFramesOutF += 1;
             }
 
             pVorbis->framesConsumed += 1;
@@ -33143,7 +32992,7 @@ ma_result ma_decoder_internal_on_uninit__vorbis(ma_decoder* pDecoder)
     return MA_SUCCESS;
 }
 
-ma_uint32 ma_decoder_internal_on_read_pcm_frames__vorbis(ma_pcm_converter* pDSP, void* pSamplesOut, ma_uint32 frameCount, void* pUserData)
+ma_uint32 ma_decoder_internal_on_read_pcm_frames__vorbis(ma_pcm_converter* pDSP, void* pFramesOut, ma_uint32 frameCount, void* pUserData)
 {
     ma_decoder* pDecoder;
     ma_vorbis_decoder* pVorbis;
@@ -33157,7 +33006,7 @@ ma_uint32 ma_decoder_internal_on_read_pcm_frames__vorbis(ma_pcm_converter* pDSP,
     pVorbis = (ma_vorbis_decoder*)pDecoder->pInternalDecoder;
     ma_assert(pVorbis != NULL);
 
-    return ma_vorbis_decoder_read_pcm_frames(pVorbis, pDecoder, pSamplesOut, frameCount);
+    return ma_vorbis_decoder_read_pcm_frames(pVorbis, pDecoder, pFramesOut, frameCount);
 }
 
 ma_uint64 ma_decoder_internal_on_get_length_in_pcm_frames__vorbis(ma_decoder* pDecoder)
@@ -33301,7 +33150,7 @@ drmp3_bool32 ma_decoder_internal_on_seek__mp3(void* pUserData, int offset, drmp3
     return ma_decoder_seek_bytes(pDecoder, offset, (origin == drmp3_seek_origin_start) ? ma_seek_origin_start : ma_seek_origin_current);
 }
 
-ma_uint32 ma_decoder_internal_on_read_pcm_frames__mp3(ma_pcm_converter* pDSP, void* pSamplesOut, ma_uint32 frameCount, void* pUserData)
+ma_uint32 ma_decoder_internal_on_read_pcm_frames__mp3(ma_pcm_converter* pDSP, void* pFramesOut, ma_uint32 frameCount, void* pUserData)
 {
     ma_decoder* pDecoder;
     drmp3* pMP3;
@@ -33315,7 +33164,7 @@ ma_uint32 ma_decoder_internal_on_read_pcm_frames__mp3(ma_pcm_converter* pDSP, vo
     pMP3 = (drmp3*)pDecoder->pInternalDecoder;
     ma_assert(pMP3 != NULL);
 
-    return (ma_uint32)drmp3_read_pcm_frames_f32(pMP3, frameCount, (float*)pSamplesOut);
+    return (ma_uint32)drmp3_read_pcm_frames_f32(pMP3, frameCount, (float*)pFramesOut);
 }
 
 ma_result ma_decoder_internal_on_seek_to_pcm_frame__mp3(ma_decoder* pDecoder, ma_uint64 frameIndex)
@@ -33401,7 +33250,7 @@ ma_result ma_decoder_init_mp3__internal(const ma_decoder_config* pConfig, ma_dec
 #endif
 
 /* Raw */
-ma_uint32 ma_decoder_internal_on_read_pcm_frames__raw(ma_pcm_converter* pDSP, void* pSamplesOut, ma_uint32 frameCount, void* pUserData)
+ma_uint32 ma_decoder_internal_on_read_pcm_frames__raw(ma_pcm_converter* pDSP, void* pFramesOut, ma_uint32 frameCount, void* pUserData)
 {
     ma_decoder* pDecoder;
     ma_uint32 bpf;
@@ -33413,7 +33262,7 @@ ma_uint32 ma_decoder_internal_on_read_pcm_frames__raw(ma_pcm_converter* pDSP, vo
 
     /* For raw decoding we just read directly from the decoder's callbacks. */
     bpf = ma_get_bytes_per_frame(pDecoder->internalFormat, pDecoder->internalChannels);
-    return (ma_uint32)ma_decoder_read_bytes(pDecoder, pSamplesOut, frameCount * bpf) / bpf;
+    return (ma_uint32)ma_decoder_read_bytes(pDecoder, pFramesOut, frameCount * bpf) / bpf;
 }
 
 ma_result ma_decoder_internal_on_seek_to_pcm_frame__raw(ma_decoder* pDecoder, ma_uint64 frameIndex)
