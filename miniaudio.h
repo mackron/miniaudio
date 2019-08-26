@@ -13538,20 +13538,11 @@ ma_result ma_device_init_by_type__alsa(ma_context* pContext, const ma_device_con
         return ma_post_error(pDevice, MA_LOG_LEVEL_ERROR, "[ALSA] Failed to initialize software parameters. snd_pcm_sw_params_current() failed.", MA_FAILED_TO_CONFIGURE_BACKEND_DEVICE);
     }
 
-    if (deviceType == ma_device_type_capture) {
-        if (((ma_snd_pcm_sw_params_set_avail_min_proc)pContext->alsa.snd_pcm_sw_params_set_avail_min)(pPCM, pSWParams, 1) != 0) {
-            ma_free(pSWParams);
-            ((ma_snd_pcm_close_proc)pDevice->pContext->alsa.snd_pcm_close)(pPCM);
-            return ma_post_error(pDevice, MA_LOG_LEVEL_ERROR, "[ALSA] snd_pcm_sw_params_set_avail_min() failed.", MA_FORMAT_NOT_SUPPORTED);
-        }
-    } else {
-        if (((ma_snd_pcm_sw_params_set_avail_min_proc)pContext->alsa.snd_pcm_sw_params_set_avail_min)(pPCM, pSWParams, 1) != 0) {
-            ma_free(pSWParams);
-            ((ma_snd_pcm_close_proc)pDevice->pContext->alsa.snd_pcm_close)(pPCM);
-            return ma_post_error(pDevice, MA_LOG_LEVEL_ERROR, "[ALSA] snd_pcm_sw_params_set_avail_min() failed.", MA_FORMAT_NOT_SUPPORTED);
-        }
+    if (((ma_snd_pcm_sw_params_set_avail_min_proc)pContext->alsa.snd_pcm_sw_params_set_avail_min)(pPCM, pSWParams, ma_prev_power_of_2(internalBufferSizeInFrames/internalPeriods)) != 0) {
+        ma_free(pSWParams);
+        ((ma_snd_pcm_close_proc)pDevice->pContext->alsa.snd_pcm_close)(pPCM);
+        return ma_post_error(pDevice, MA_LOG_LEVEL_ERROR, "[ALSA] snd_pcm_sw_params_set_avail_min() failed.", MA_FORMAT_NOT_SUPPORTED);
     }
-    
 
     if (((ma_snd_pcm_sw_params_get_boundary_proc)pContext->alsa.snd_pcm_sw_params_get_boundary)(pSWParams, &bufferBoundary) < 0) {
         bufferBoundary = internalBufferSizeInFrames;
@@ -13564,7 +13555,7 @@ ma_result ma_device_init_by_type__alsa(ma_context* pContext, const ma_device_con
         Subtle detail here with the start threshold. When in playback-only mode (no full-duplex) we can set the start threshold to
         the size of a period. But for full-duplex we need to set it such that it is at least two periods.
         */
-        if (((ma_snd_pcm_sw_params_set_start_threshold_proc)pContext->alsa.snd_pcm_sw_params_set_start_threshold)(pPCM, pSWParams, internalBufferSizeInFrames) != 0) {
+        if (((ma_snd_pcm_sw_params_set_start_threshold_proc)pContext->alsa.snd_pcm_sw_params_set_start_threshold)(pPCM, pSWParams, (internalBufferSizeInFrames/internalPeriods)*2) != 0) {
             ma_free(pSWParams);
             ((ma_snd_pcm_close_proc)pDevice->pContext->alsa.snd_pcm_close)(pPCM);
             return ma_post_error(pDevice, MA_LOG_LEVEL_ERROR, "[ALSA] Failed to set start threshold for playback device. snd_pcm_sw_params_set_start_threshold() failed.", MA_FAILED_TO_CONFIGURE_BACKEND_DEVICE);

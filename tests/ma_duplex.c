@@ -7,7 +7,7 @@
 #define DR_WAV_IMPLEMENTATION
 #include "../extras/dr_wav.h"
 
-#define OUTPUT_WAV 1
+#define OUTPUT_WAV 0
 
 #ifdef __EMSCRIPTEN__
 void main_loop__em()
@@ -63,11 +63,12 @@ int main(int argc, char** argv)
 #endif
     
 
-    ma_backend backend = ma_backend_winmm;
+    ma_backend backend = ma_backend_alsa;
 
     ma_context_config contextConfig = ma_context_config_init();
     contextConfig.logCallback = log_callback;
     contextConfig.alsa.useVerboseDeviceEnumeration = MA_TRUE;
+    contextConfig.threadPriority = ma_thread_priority_realtime;
 
     ma_context context;
     result = ma_context_init(&backend, 1, &contextConfig, &context);
@@ -107,13 +108,15 @@ int main(int argc, char** argv)
     deviceConfig.playback.format    = ma_format_s16;
     deviceConfig.playback.channels  = 2;
     deviceConfig.playback.shareMode = ma_share_mode_shared;
-    deviceConfig.sampleRate         = 50000;
+    deviceConfig.sampleRate         = 0;
     //deviceConfig.bufferSizeInMilliseconds = 60;
     deviceConfig.bufferSizeInFrames = 4096;
     //deviceConfig.periods            = 3;
     deviceConfig.dataCallback       = data_callback;
     deviceConfig.stopCallback       = stop_callback;
+#if defined(OUTPUT_WAV) && OUTPUT_WAV==1
     deviceConfig.pUserData          = &wav;
+#endif
 
     ma_device device;
     result = ma_device_init(&context, &deviceConfig, &device);
@@ -135,7 +138,10 @@ int main(int argc, char** argv)
 #endif
 
     ma_device_uninit(&device);
+
+#if defined(OUTPUT_WAV) && OUTPUT_WAV==1
     drwav_uninit(&wav);
+#endif
 
     (void)argc;
     (void)argv;
