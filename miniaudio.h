@@ -2171,6 +2171,7 @@ struct ma_context
         {
             ma_handle hCoreFoundation;
             ma_proc CFStringGetCString;
+            ma_proc CFRelease;
             
             ma_handle hCoreAudio;
             ma_proc AudioObjectGetPropertyData;
@@ -16493,6 +16494,7 @@ Core Audio Backend
 
 /* CoreFoundation */
 typedef Boolean (* ma_CFStringGetCString_proc)(CFStringRef theString, char* buffer, CFIndex bufferSize, CFStringEncoding encoding);
+typedef void (* ma_CFRelease_proc)(CFTypeRef cf);
 
 /* CoreAudio */
 #if defined(MA_APPLE_DESKTOP)
@@ -16921,6 +16923,7 @@ ma_result ma_get_AudioObject_uid(ma_context* pContext, AudioObjectID objectID, s
         return MA_ERROR;
     }
     
+    ((ma_CFRelease_proc)pContext->coreaudio.CFRelease)(uid);
     return MA_SUCCESS;
 }
 
@@ -16947,6 +16950,7 @@ ma_result ma_get_AudioObject_name(ma_context* pContext, AudioObjectID objectID, 
         return MA_ERROR;
     }
     
+    ((ma_CFRelease_proc)pContext->coreaudio.CFRelease)(deviceName);
     return MA_SUCCESS;
 }
 
@@ -17372,6 +17376,7 @@ ma_result ma_find_AudioObjectID(ma_context* pContext, ma_device_type deviceType,
                 if (ma_does_AudioObject_support_playback(pContext, deviceObjectID)) {
                     if (strcmp(uid, pDeviceID->coreaudio) == 0) {
                         *pDeviceObjectID = deviceObjectID;
+                        ma_free(pDeviceObjectIDs);
                         return MA_SUCCESS;
                     }
                 }
@@ -17379,11 +17384,14 @@ ma_result ma_find_AudioObjectID(ma_context* pContext, ma_device_type deviceType,
                 if (ma_does_AudioObject_support_capture(pContext, deviceObjectID)) {
                     if (strcmp(uid, pDeviceID->coreaudio) == 0) {
                         *pDeviceObjectID = deviceObjectID;
+                        ma_free(pDeviceObjectIDs);
                         return MA_SUCCESS;
                     }
                 }
             }
         }
+
+        ma_free(pDeviceObjectIDs);
     }
     
     /* If we get here it means we couldn't find the device. */
@@ -17464,6 +17472,7 @@ ma_result ma_find_best_format__coreaudio(ma_context* pContext, AudioObjectID dev
     }
     
     if (!hasSupportedFormat) {
+        ma_free(pDeviceFormatDescriptions);
         return MA_FORMAT_NOT_SUPPORTED;
     }
     
@@ -17585,6 +17594,8 @@ ma_result ma_find_best_format__coreaudio(ma_context* pContext, AudioObjectID dev
     }
     
     *pFormat = bestDeviceFormatSoFar;
+
+    ma_free(pDeviceFormatDescriptions);
     return MA_SUCCESS;
 }
 #endif
@@ -18920,6 +18931,7 @@ ma_result ma_context_init__coreaudio(const ma_context_config* pConfig, ma_contex
     }
     
     pContext->coreaudio.CFStringGetCString             = ma_dlsym(pContext, pContext->coreaudio.hCoreFoundation, "CFStringGetCString");
+    pContext->coreaudio.CFRelease                      = ma_dlsym(pContext, pContext->coreaudio.hCoreFoundation, "CFRelease");
     
     
     pContext->coreaudio.hCoreAudio = ma_dlopen(pContext, "CoreAudio.framework/CoreAudio");
@@ -18970,6 +18982,7 @@ ma_result ma_context_init__coreaudio(const ma_context_config* pConfig, ma_contex
     pContext->coreaudio.AudioUnitRender                = ma_dlsym(pContext, pContext->coreaudio.hAudioUnit, "AudioUnitRender");
 #else
     pContext->coreaudio.CFStringGetCString             = (ma_proc)CFStringGetCString;
+    pContext->coreaudio.CFRelease                      = (ma_proc)CFRelease;
     
     #if defined(MA_APPLE_DESKTOP)
     pContext->coreaudio.AudioObjectGetPropertyData     = (ma_proc)AudioObjectGetPropertyData;
