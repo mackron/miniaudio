@@ -34480,6 +34480,7 @@ v0.9.7 - 2019-xx-xx
   - Fix a crash when an error is posted in ma_device_init().
   - Fix a compilation error when compiling for ARM architectures.
   - Fix a bug with the audio(4) backend where the device is incorrectly being opened in non-blocking mode.
+  - Fix memory leaks in the Core Audio backend.
   - Minor refactoring to the WinMM, ALSA, PulseAudio, OSS, audio(4), sndio and null backends.
 
 v0.9.6 - 2019-08-04
