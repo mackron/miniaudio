@@ -63,6 +63,9 @@
     <ClCompile Include="..\examples\simple_loopback.c">
       <Filter>Source Files</Filter>
     </ClCompile>
+    <ClCompile Include="..\examples\simple_playback_emscripten.c">
+      <Filter>Source Files</Filter>
+    </ClCompile>
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="..\miniaudio.h">
