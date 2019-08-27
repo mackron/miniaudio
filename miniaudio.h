@@ -8528,6 +8528,22 @@ ma_result ma_device_reroute__wasapi(ma_device* pDevice, ma_device_type deviceTyp
 }
 
 
+ma_result ma_device_stop__wasapi(ma_device* pDevice)
+{
+    ma_assert(pDevice != NULL);
+
+    /*
+    We need to explicitly signal the capture event in loopback mode to ensure we return from WaitForSingleObject() when nothing is being played. When nothing
+    is being played, the event is never signalled internally by WASAPI which means we will deadlock when stopping the device.
+    */
+    if (pDevice->type == ma_device_type_loopback) {
+        SetEvent((HANDLE)pDevice->wasapi.hEventCapture);
+    }
+
+    return MA_SUCCESS;
+}
+
+
 ma_result ma_device_main_loop__wasapi(ma_device* pDevice)
 {
     ma_result result;
@@ -9093,8 +9109,8 @@ ma_result ma_context_init__wasapi(const ma_context_config* pConfig, ma_context* 
     pContext->onGetDeviceInfo  = ma_context_get_device_info__wasapi;
     pContext->onDeviceInit     = ma_device_init__wasapi;
     pContext->onDeviceUninit   = ma_device_uninit__wasapi;
-    pContext->onDeviceStart    = NULL; /* Not used. Started in onDeviceMainLoop. */
-    pContext->onDeviceStop     = NULL; /* Not used. Stopped in onDeviceMainLoop. */
+    pContext->onDeviceStart    = NULL;                      /* Not used. Started in onDeviceMainLoop. */
+    pContext->onDeviceStop     = ma_device_stop__wasapi;    /* Required to ensure the capture event is signalled when stopping a loopback device while nothing is playing. */
     pContext->onDeviceMainLoop = ma_device_main_loop__wasapi;
 
     return result;
@@ -25740,14 +25756,14 @@ ma_result ma_device_stop(ma_device* pDevice)
 
         /* There's no need to wake up the thread like we do when starting. */
 
+        if (pDevice->pContext->onDeviceStop) {
+            result = pDevice->pContext->onDeviceStop(pDevice);
+        } else {
+            result = MA_SUCCESS;
+        }
+
         /* Asynchronous backends need to be handled differently. */
         if (ma_context_is_backend_asynchronous(pDevice->pContext)) {
-            if (pDevice->pContext->onDeviceStop) {
-                result = pDevice->pContext->onDeviceStop(pDevice);
-            } else {
-                result = MA_SUCCESS;
-            }
-
             ma_device__set_state(pDevice, MA_STATE_STOPPED);
         } else {
             /* Synchronous backends. */
