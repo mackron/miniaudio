@@ -1,6 +1,6 @@
 /*
 Audio playback and capture library. Choice of public domain or MIT-0. See license statements at the end of this file.
-miniaudio (formerly mini_al) - v0.9.7 - 2019-xx-xx
+miniaudio (formerly mini_al) - v0.9.7 - 2019-08-28
 
 David Reid - davidreidsoftware@gmail.com
 
@@ -34473,7 +34473,7 @@ Device
 /*
 REVISION HISTORY
 ================
-v0.9.7 - 2019-xx-xx
+v0.9.7 - 2019-08-28
   - Add support for loopback mode (WASAPI only).
     - To use this, set the device type to ma_device_type_loopback, and then fill out the capture section of the device config.
     - If you need to capture from a specific output device, set the capture device ID to that of a playback device.
