@@ -862,12 +862,14 @@ typedef struct
 struct ma_channel_router
 {
     ma_channel_router_config config;
-    ma_bool32 isPassthrough   : 1;
-    ma_bool32 isSimpleShuffle : 1;
-    ma_bool32 useSSE2         : 1;
-    ma_bool32 useAVX2         : 1;
-    ma_bool32 useAVX512       : 1;
-    ma_bool32 useNEON         : 1;
+    ma_bool32 isPassthrough         : 1;
+    ma_bool32 isSimpleShuffle       : 1;
+    ma_bool32 isSimpleMonoExpansion : 1;
+    ma_bool32 isStereoToMono        : 1;
+    ma_bool32 useSSE2               : 1;
+    ma_bool32 useAVX2               : 1;
+    ma_bool32 useAVX512             : 1;
+    ma_bool32 useNEON               : 1;
     ma_uint8 shuffleTable[MA_MAX_CHANNELS];
 };
 
@@ -29606,6 +29608,31 @@ ma_result ma_channel_router_init(const ma_channel_router_config* pConfig, ma_cha
     }
 
     /*
+    We can use a simple case for expanding the mono channel. This will when expanding a mono input into any output so long
+    as no LFE is present in the output.
+    */
+    if (!pRouter->isPassthrough) {
+        if (pRouter->config.channelsIn == 1 && pRouter->config.channelMapIn[0] == MA_CHANNEL_MONO) {
+            /* Optimal case if no LFE is in the output channel map. */
+            pRouter->isSimpleMonoExpansion = MA_TRUE;
+            if (ma_channel_map_contains_channel_position(pRouter->config.channelsOut, pRouter->config.channelMapOut, MA_CHANNEL_LFE)) {
+                pRouter->isSimpleMonoExpansion = MA_FALSE;
+            }
+        }
+    }
+
+    /* Another optimized case is stereo to mono. */
+    if (!pRouter->isPassthrough) {
+        if (pRouter->config.channelsOut == 1 && pRouter->config.channelMapOut[0] == MA_CHANNEL_MONO && pRouter->config.channelsIn == 2) {
+            /* Optimal case if no LFE is in the input channel map. */
+            pRouter->isStereoToMono = MA_TRUE;
+            if (ma_channel_map_contains_channel_position(pRouter->config.channelsIn, pRouter->config.channelMapIn, MA_CHANNEL_LFE)) {
+                pRouter->isStereoToMono = MA_FALSE;
+            }
+        }
+    }
+
+    /*
     Here is where we do a bit of pre-processing to know how each channel should be combined to make up the output. Rules:
     
     1) If it's a passthrough, do nothing - it's just a simple memcpy().
@@ -29823,6 +29850,31 @@ void ma_channel_router__do_routing(ma_channel_router* pRouter, ma_uint64 frameCo
         for (iChannelIn = 0; iChannelIn < pRouter->config.channelsIn; ++iChannelIn) {
             iChannelOut = pRouter->shuffleTable[iChannelIn];
             ma_copy_memory_64(ppSamplesOut[iChannelOut], ppSamplesIn[iChannelIn], frameCount * sizeof(float));
+        }
+    } else if (pRouter->isSimpleMonoExpansion) {
+        /* Simple case for expanding from mono. */
+        if (pRouter->config.channelsOut == 2) {
+            ma_uint64 iFrame;
+            for (iFrame = 0; iFrame < frameCount; ++iFrame) {
+                ppSamplesOut[0][iFrame] = ppSamplesIn[0][iFrame];
+                ppSamplesOut[1][iFrame] = ppSamplesIn[0][iFrame];
+            }
+        } else {
+            for (iChannelOut = 0; iChannelOut < pRouter->config.channelsOut; ++iChannelOut) {
+                ma_uint64 iFrame;
+                for (iFrame = 0; iFrame < frameCount; ++iFrame) {
+                    ppSamplesOut[iChannelOut][iFrame] = ppSamplesIn[0][iFrame];
+                }
+            }
+        }
+    } else if (pRouter->isStereoToMono) {
+        /* Simple case for going from stereo to mono. */
+        ma_assert(pRouter->config.channelsIn == 2);
+        ma_assert(pRouter->config.channelsOut == 1);
+
+        ma_uint64 iFrame;
+        for (iFrame = 0; iFrame < frameCount; ++iFrame) {
+            ppSamplesOut[0][iFrame] = (ppSamplesIn[0][iFrame] + ppSamplesIn[1][iFrame]) * 0.5f;
         }
     } else {
         /* This is the more complicated case. Each of the output channels is accumulated with 0 or more input channels. */

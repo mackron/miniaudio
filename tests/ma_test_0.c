@@ -1672,6 +1672,222 @@ int do_channel_routing_tests()
         }
     }
 
+    printf("Simple Mono Expansion (Mono -> Stereo)... ");
+    {
+        // The simple mono expansion case will be activated when a mono channel map is converted to anything without an LFE. 
+        ma_channel_router_config routerConfig;
+        ma_zero_object(&routerConfig);
+        routerConfig.onReadDeinterleaved = channel_router_callback__passthrough_test;
+        routerConfig.pUserData = NULL;
+        routerConfig.mixingMode = ma_channel_mix_mode_planar_blend;
+        routerConfig.channelsIn = 1;
+        routerConfig.channelsOut = 2;
+        routerConfig.noSSE2 = MA_TRUE;
+        routerConfig.noAVX2 = MA_TRUE;
+        routerConfig.noAVX512 = MA_TRUE;
+        routerConfig.noNEON = MA_TRUE;
+        ma_get_standard_channel_map(ma_standard_channel_map_microsoft, routerConfig.channelsIn, routerConfig.channelMapIn);
+        ma_get_standard_channel_map(ma_standard_channel_map_microsoft, routerConfig.channelsOut, routerConfig.channelMapOut);
+
+        ma_channel_router router;
+        ma_result result = ma_channel_router_init(&routerConfig, &router);
+        if (result == MA_SUCCESS) {
+            if (router.isPassthrough) {
+                printf("Router incorrectly configured as a passthrough.\n");
+                hasError = MA_TRUE;
+            }
+            if (router.isSimpleShuffle) {
+                printf("Router incorrectly configured as a simple shuffle.\n");
+                hasError = MA_TRUE;
+            }
+            if (!router.isSimpleMonoExpansion) {
+                printf("Router not configured as simple mono expansion.\n");
+                hasError = MA_TRUE;
+            }
+            
+            // Expecting the weights to all be equal to 1 for each channel.
+            for (ma_uint32 iChannelIn = 0; iChannelIn < routerConfig.channelsIn; ++iChannelIn) {
+                for (ma_uint32 iChannelOut = 0; iChannelOut < routerConfig.channelsOut; ++iChannelOut) {
+                    float expectedWeight = 1;
+
+                    if (router.config.weights[iChannelIn][iChannelOut] != expectedWeight) {
+                        printf("Failed. Channel weight incorrect: %f\n", expectedWeight);
+                        hasError = MA_TRUE;
+                    }
+                }
+            }
+        } else {
+            printf("Failed to init router.\n");
+            hasError = MA_TRUE;
+        }
+
+
+        // Here is where we check that the shuffle optimization works correctly. What we do is compare the output of the shuffle
+        // optimization with the non-shuffle output. We don't use a real sound here, but instead use values that makes it easier
+        // for us to check results. Each channel is given a value equal to it's index, plus 1.
+        float testData[MA_MAX_CHANNELS][100];
+        float* ppTestData[MA_MAX_CHANNELS];
+        for (ma_uint32 iChannel = 0; iChannel < routerConfig.channelsIn; ++iChannel) {
+            ppTestData[iChannel] = testData[iChannel];
+            for (ma_uint32 iFrame = 0; iFrame < 100; ++iFrame) {
+                ppTestData[iChannel][iFrame] = (float)(iChannel + 1);
+            }
+        }
+
+        routerConfig.pUserData = ppTestData;
+        ma_channel_router_init(&routerConfig, &router);
+
+        float outputA[MA_MAX_CHANNELS][100];
+        float outputB[MA_MAX_CHANNELS][100];
+        float* ppOutputA[MA_MAX_CHANNELS];
+        float* ppOutputB[MA_MAX_CHANNELS];
+        for (ma_uint32 iChannel = 0; iChannel < routerConfig.channelsOut; ++iChannel) {
+            ppOutputA[iChannel] = outputA[iChannel];
+            ppOutputB[iChannel] = outputB[iChannel];
+        }
+
+        // With optimizations.
+        ma_uint64 framesRead = ma_channel_router_read_deinterleaved(&router, 100, (void**)ppOutputA, router.config.pUserData);
+        if (framesRead != 100) {
+            printf("Returned frame count for optimized incorrect.");
+            hasError = MA_TRUE;
+        }
+
+        // Without optimizations.
+        router.isPassthrough = MA_FALSE;
+        router.isSimpleShuffle = MA_FALSE;
+        framesRead = ma_channel_router_read_deinterleaved(&router, 100, (void**)ppOutputB, router.config.pUserData);
+        if (framesRead != 100) {
+            printf("Returned frame count for unoptimized path incorrect.");
+            hasError = MA_TRUE;
+        }
+
+        // Compare.
+        for (ma_uint32 iChannel = 0; iChannel < routerConfig.channelsOut; ++iChannel) {
+            for (ma_uint32 iFrame = 0; iFrame < 100; ++iFrame) {
+                if (ppOutputA[iChannel][iFrame] != ppOutputB[iChannel][iFrame]) {
+                    printf("Sample incorrect [%d][%d]\n", iChannel, iFrame);
+                    hasError = MA_TRUE;
+                }
+            }
+        }
+
+
+        if (!hasError) {
+            printf("PASSED\n");
+        }
+    }
+
+    printf("Simple Stereo to Mono... ");
+    {
+        // The simple mono expansion case will be activated when a mono channel map is converted to anything without an LFE. 
+        ma_channel_router_config routerConfig;
+        ma_zero_object(&routerConfig);
+        routerConfig.onReadDeinterleaved = channel_router_callback__passthrough_test;
+        routerConfig.pUserData = NULL;
+        routerConfig.mixingMode = ma_channel_mix_mode_planar_blend;
+        routerConfig.channelsIn = 2;
+        routerConfig.channelsOut = 1;
+        routerConfig.noSSE2 = MA_TRUE;
+        routerConfig.noAVX2 = MA_TRUE;
+        routerConfig.noAVX512 = MA_TRUE;
+        routerConfig.noNEON = MA_TRUE;
+        ma_get_standard_channel_map(ma_standard_channel_map_microsoft, routerConfig.channelsIn, routerConfig.channelMapIn);
+        ma_get_standard_channel_map(ma_standard_channel_map_microsoft, routerConfig.channelsOut, routerConfig.channelMapOut);
+
+        ma_channel_router router;
+        ma_result result = ma_channel_router_init(&routerConfig, &router);
+        if (result == MA_SUCCESS) {
+            if (router.isPassthrough) {
+                printf("Router incorrectly configured as a passthrough.\n");
+                hasError = MA_TRUE;
+            }
+            if (router.isSimpleShuffle) {
+                printf("Router incorrectly configured as a simple shuffle.\n");
+                hasError = MA_TRUE;
+            }
+            if (router.isSimpleMonoExpansion) {
+                printf("Router incorrectly configured as simple mono expansion.\n");
+                hasError = MA_TRUE;
+            }
+            if (!router.isStereoToMono) {
+                printf("Router not configured as stereo to mono.\n");
+                hasError = MA_TRUE;
+            }
+            
+            // Expecting the weights to all be equal to 1 for each channel.
+            for (ma_uint32 iChannelIn = 0; iChannelIn < routerConfig.channelsIn; ++iChannelIn) {
+                for (ma_uint32 iChannelOut = 0; iChannelOut < routerConfig.channelsOut; ++iChannelOut) {
+                    float expectedWeight = 0.5f;
+
+                    if (router.config.weights[iChannelIn][iChannelOut] != expectedWeight) {
+                        printf("Failed. Channel weight incorrect: %f\n", expectedWeight);
+                        hasError = MA_TRUE;
+                    }
+                }
+            }
+        } else {
+            printf("Failed to init router.\n");
+            hasError = MA_TRUE;
+        }
+
+
+        // Here is where we check that the shuffle optimization works correctly. What we do is compare the output of the shuffle
+        // optimization with the non-shuffle output. We don't use a real sound here, but instead use values that makes it easier
+        // for us to check results. Each channel is given a value equal to it's index, plus 1.
+        float testData[MA_MAX_CHANNELS][100];
+        float* ppTestData[MA_MAX_CHANNELS];
+        for (ma_uint32 iChannel = 0; iChannel < routerConfig.channelsIn; ++iChannel) {
+            ppTestData[iChannel] = testData[iChannel];
+            for (ma_uint32 iFrame = 0; iFrame < 100; ++iFrame) {
+                ppTestData[iChannel][iFrame] = (float)(iChannel + 1);
+            }
+        }
+
+        routerConfig.pUserData = ppTestData;
+        ma_channel_router_init(&routerConfig, &router);
+
+        float outputA[MA_MAX_CHANNELS][100];
+        float outputB[MA_MAX_CHANNELS][100];
+        float* ppOutputA[MA_MAX_CHANNELS];
+        float* ppOutputB[MA_MAX_CHANNELS];
+        for (ma_uint32 iChannel = 0; iChannel < routerConfig.channelsOut; ++iChannel) {
+            ppOutputA[iChannel] = outputA[iChannel];
+            ppOutputB[iChannel] = outputB[iChannel];
+        }
+
+        // With optimizations.
+        ma_uint64 framesRead = ma_channel_router_read_deinterleaved(&router, 100, (void**)ppOutputA, router.config.pUserData);
+        if (framesRead != 100) {
+            printf("Returned frame count for optimized incorrect.");
+            hasError = MA_TRUE;
+        }
+
+        // Without optimizations.
+        router.isPassthrough = MA_FALSE;
+        router.isSimpleShuffle = MA_FALSE;
+        framesRead = ma_channel_router_read_deinterleaved(&router, 100, (void**)ppOutputB, router.config.pUserData);
+        if (framesRead != 100) {
+            printf("Returned frame count for unoptimized path incorrect.");
+            hasError = MA_TRUE;
+        }
+
+        // Compare.
+        for (ma_uint32 iChannel = 0; iChannel < routerConfig.channelsOut; ++iChannel) {
+            for (ma_uint32 iFrame = 0; iFrame < 100; ++iFrame) {
+                if (ppOutputA[iChannel][iFrame] != ppOutputB[iChannel][iFrame]) {
+                    printf("Sample incorrect [%d][%d]\n", iChannel, iFrame);
+                    hasError = MA_TRUE;
+                }
+            }
+        }
+
+
+        if (!hasError) {
+            printf("PASSED\n");
+        }
+    }
+
     printf("Simple Conversion (Stereo -> 5.1)... ");
     {
         // This tests takes a Stereo to 5.1 conversion using the simple mixing mode. We should expect 0 and 1 (front/left, front/right) to have
