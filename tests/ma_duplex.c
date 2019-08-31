@@ -63,7 +63,7 @@ int main(int argc, char** argv)
 #endif
     
 
-    ma_backend backend = ma_backend_alsa;
+    ma_backend backend = ma_backend_wasapi;
 
     ma_context_config contextConfig = ma_context_config_init();
     contextConfig.logCallback = log_callback;
@@ -100,20 +100,20 @@ int main(int argc, char** argv)
 
 
     ma_device_config deviceConfig = ma_device_config_init(ma_device_type_duplex);
-    deviceConfig.capture.pDeviceID  = NULL;
-    deviceConfig.capture.format     = ma_format_s16;
-    deviceConfig.capture.channels   = 2;
-    deviceConfig.capture.shareMode  = ma_share_mode_shared;
-    deviceConfig.playback.pDeviceID = NULL;
-    deviceConfig.playback.format    = ma_format_s16;
-    deviceConfig.playback.channels  = 2;
-    deviceConfig.playback.shareMode = ma_share_mode_shared;
-    deviceConfig.sampleRate         = 0;
-    //deviceConfig.bufferSizeInMilliseconds = 60;
-    deviceConfig.bufferSizeInFrames = 4096;
-    //deviceConfig.periods            = 3;
-    deviceConfig.dataCallback       = data_callback;
-    deviceConfig.stopCallback       = stop_callback;
+    deviceConfig.capture.pDeviceID        = NULL;
+    deviceConfig.capture.format           = ma_format_s16;
+    deviceConfig.capture.channels         = 2;
+    deviceConfig.capture.shareMode        = ma_share_mode_shared;
+    deviceConfig.playback.pDeviceID       = NULL;
+    deviceConfig.playback.format          = ma_format_s16;
+    deviceConfig.playback.channels        = 2;
+    deviceConfig.playback.shareMode       = ma_share_mode_shared;
+    deviceConfig.sampleRate               = 0;
+    deviceConfig.bufferSizeInFrames       = 0;
+    deviceConfig.bufferSizeInMilliseconds = 60;
+    deviceConfig.periods                  = 3;
+    deviceConfig.dataCallback             = data_callback;
+    deviceConfig.stopCallback             = stop_callback;
 #if defined(OUTPUT_WAV) && OUTPUT_WAV==1
     deviceConfig.pUserData          = &wav;
 #endif
@@ -123,6 +123,13 @@ int main(int argc, char** argv)
     if (result != MA_SUCCESS) {
         return result;
     }
+
+    /* For debugging. */
+    printf("device.playback.internalBufferSizeInFrames = %d\n", device.playback.internalBufferSizeInFrames);
+    printf("device.playback.internalPeriods            = %d\n", device.playback.internalPeriods);
+    printf("device.capture.internalBufferSizeInFrames  = %d\n", device.capture.internalBufferSizeInFrames);
+    printf("device.capture.internalPeriods             = %d\n", device.capture.internalPeriods);
+
 
 #ifdef __EMSCRIPTEN__
     getchar();
