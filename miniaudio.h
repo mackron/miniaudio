@@ -8990,7 +8990,7 @@ ma_result ma_device_main_loop__wasapi(ma_device* pDevice)
         if (pMappedBufferPlayback != NULL) {
             hr = ma_IAudioRenderClient_ReleaseBuffer((ma_IAudioRenderClient*)pDevice->wasapi.pRenderClient, mappedBufferSizeInFramesPlayback, 0);
         }
-
+		 
         /*
         The buffer needs to be drained before stopping the device. Not doing this will result in the last few frames not getting output to
         the speakers. This is a problem for very short sounds because it'll result in a significant portion of it not getting played.
@@ -32703,7 +32703,10 @@ ma_result ma_decoder_init_wav__internal(const ma_decoder_config* pConfig, ma_dec
                 pDecoder->internalFormat = ma_format_f32;
             }
         } break;
-
+		case DR_WAVE_FORMAT_GSM:
+		{
+			pDecoder->internalFormat = ma_format_s32;
+		}break;
         case DR_WAVE_FORMAT_ALAW:
         case DR_WAVE_FORMAT_MULAW:
         case DR_WAVE_FORMAT_ADPCM:
@@ -34181,8 +34184,8 @@ ma_result ma_decoder_uninit(ma_decoder* pDecoder)
         return MA_INVALID_ARGS;
     }
 
-    if (pDecoder->onUninit) {
-        pDecoder->onUninit(pDecoder);
+    if (pDecoder->onUninit) {	
+		pDecoder->onUninit(pDecoder);
     }
 
 #ifndef MA_NO_STDIO

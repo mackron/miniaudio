@@ -192,6 +192,7 @@ typedef drwav_uint32     drwav_bool32;
 #ifdef __cplusplus
 extern "C" {
 #endif
+#include <gsm.h>
 
 typedef drwav_int32 drwav_result;
 #define DRWAV_SUCCESS                0
@@ -208,6 +209,7 @@ typedef drwav_int32 drwav_result;
 #define DR_WAVE_FORMAT_ALAW         0x6
 #define DR_WAVE_FORMAT_MULAW        0x7
 #define DR_WAVE_FORMAT_DVI_ADPCM    0x11
+#define DR_WAVE_FORMAT_GSM			0x31
 #define DR_WAVE_FORMAT_EXTENSIBLE   0xFFFE
 
 /* Constants. */
@@ -372,6 +374,8 @@ typedef struct
 
     /* The sub-format, exactly as specified by the wave file. */
     drwav_uint8 subFormat[16];
+
+	drwav_uint16 samplesPerBlock;
 } drwav_fmt;
 
 typedef struct
@@ -490,6 +494,14 @@ typedef struct
         drwav_int32  cachedFrames[16]; /* Samples are stored in this cache during decoding. */
         drwav_uint32 cachedFrameCount;
     } ima;
+
+	struct  
+	{
+		gsm            gsmhandle;
+		gsm_signal     *gsmsample;
+		int            gsmindex;
+		size_t			gsmbytecount;
+	} gsm;
 } drwav;
 
 
@@ -972,7 +984,8 @@ static DRWAV_INLINE drwav_bool32 drwav__is_compressed_format_tag(drwav_uint16 fo
 {
     return
         formatTag == DR_WAVE_FORMAT_ADPCM ||
-        formatTag == DR_WAVE_FORMAT_DVI_ADPCM;
+        formatTag == DR_WAVE_FORMAT_DVI_ADPCM ||
+		formatTag == DR_WAVE_FORMAT_GSM;
 }
 
 static unsigned int drwav__chunk_padding_size_riff(drwav_uint64 chunkSize)
@@ -987,6 +1000,7 @@ static unsigned int drwav__chunk_padding_size_w64(drwav_uint64 chunkSize)
 
 drwav_uint64 drwav_read_pcm_frames_s16__msadpcm(drwav* pWav, drwav_uint64 samplesToRead, drwav_int16* pBufferOut);
 drwav_uint64 drwav_read_pcm_frames_s16__ima(drwav* pWav, drwav_uint64 samplesToRead, drwav_int16* pBufferOut);
+drwav_uint64 drwav_read_pcm_frames_s32__gsm(drwav* pWav, drwav_uint64 samplesToRead, drwav_int32* pBufferOut);
 drwav_bool32 drwav_init_write__internal(drwav* pWav, const drwav_data_format* pFormat, drwav_uint64 totalSampleCount, drwav_bool32 isSequential, drwav_write_proc onWrite, drwav_seek_proc onSeek, void* pUserData);
 drwav* drwav_open_write__internal(const drwav_data_format* pFormat, drwav_uint64 totalSampleCount, drwav_bool32 isSequential, drwav_write_proc onWrite, drwav_seek_proc onSeek, void* pUserData);
 
@@ -1155,7 +1169,18 @@ static drwav_bool32 drwav__read_fmt(drwav_read_proc onRead, drwav_seek_proc onSe
                 fmtOut->validBitsPerSample = drwav__bytes_to_u16(fmtext + 0);
                 fmtOut->channelMask        = drwav__bytes_to_u32(fmtext + 2);
                 drwav__bytes_to_guid(fmtext + 6, fmtOut->subFormat);
-            } else {
+			}
+			else if (fmtOut->formatTag == DR_WAVE_FORMAT_GSM) {
+				assert(fmtOut->extendedSize == 2);
+				unsigned char fmtext[2];
+				if (onRead(pUserData, fmtext, fmtOut->extendedSize) != fmtOut->extendedSize) {
+					return DRWAV_FALSE; 
+				}
+				fmtOut->samplesPerBlock = drwav__bytes_to_u16(fmtext + 0);
+				assert(fmtOut->samplesPerBlock == 320);
+				fmtOut->bitsPerSample = 2;
+			}
+			else {
                 if (!onSeek(pUserData, fmtOut->extendedSize, drwav_seek_origin_current)) {
                     return DRWAV_FALSE;
                 }
@@ -2047,16 +2072,34 @@ drwav_bool32 drwav_init_ex(drwav* pWav, drwav_read_proc onRead, drwav_seek_proc 
     if (sampleCountFromFactChunk != 0) {
         pWav->totalPCMFrameCount = sampleCountFromFactChunk;
     } else {
-        pWav->totalPCMFrameCount = dataChunkSize / drwav_get_bytes_per_pcm_frame(pWav);
-
         if (pWav->translatedFormatTag == DR_WAVE_FORMAT_ADPCM) {
             drwav_uint64 blockCount = dataChunkSize / fmt.blockAlign;
             pWav->totalPCMFrameCount = (((blockCount * (fmt.blockAlign - (6*pWav->channels))) * 2)) / fmt.channels;  /* x2 because two samples per byte. */
         }
-        if (pWav->translatedFormatTag == DR_WAVE_FORMAT_DVI_ADPCM) {
+        else if (pWav->translatedFormatTag == DR_WAVE_FORMAT_DVI_ADPCM) {
             drwav_uint64 blockCount = dataChunkSize / fmt.blockAlign;
             pWav->totalPCMFrameCount = (((blockCount * (fmt.blockAlign - (4*pWav->channels))) * 2) + (blockCount * pWav->channels)) / fmt.channels;
-        }
+		}
+		else if (pWav->translatedFormatTag == DR_WAVE_FORMAT_GSM) {
+			drwav_uint64 blockCount = dataChunkSize / fmt.blockAlign;
+			pWav->totalPCMFrameCount = blockCount* fmt.samplesPerBlock;
+
+			pWav->gsm.gsmbytecount = 0;
+			pWav->gsm.gsmhandle = gsm_create();
+			if (!pWav->gsm.gsmhandle)
+			{
+				return DRWAV_FALSE;
+			}
+			int valueP = 1;
+			if (gsm_option(pWav->gsm.gsmhandle, GSM_OPT_WAV49, &valueP) == -1) {
+				return DRWAV_FALSE;
+			}
+			pWav->gsm.gsmsample = (gsm_signal*)DRWAV_MALLOC(sizeof(gsm_signal) * 160 * 2);
+			pWav->gsm.gsmindex = 0;
+		}
+		else {
+			pWav->totalPCMFrameCount = dataChunkSize / drwav_get_bytes_per_pcm_frame(pWav);
+		}
     }
 
     /* Some formats only support a certain number of channels. */
@@ -2292,80 +2335,82 @@ drwav_uint64 drwav_target_write_size_bytes(drwav_data_format const *format, drwa
 
 drwav_result drwav_uninit(drwav* pWav)
 {
-    drwav_result result = DRWAV_SUCCESS;
+	drwav_result result = DRWAV_SUCCESS;
 
-    if (pWav == NULL) {
-        return DRWAV_INVALID_ARGS;
-    }
+	if (pWav == NULL) {
+		return DRWAV_INVALID_ARGS;
+	}
 
-    /*
-    If the drwav object was opened in write mode we'll need to finalize a few things:
-      - Make sure the "data" chunk is aligned to 16-bits for RIFF containers, or 64 bits for W64 containers.
-      - Set the size of the "data" chunk.
-    */
-    if (pWav->onWrite != NULL) {
-        drwav_uint32 paddingSize = 0;
+	/*
+	If the drwav object was opened in write mode we'll need to finalize a few things:
+	  - Make sure the "data" chunk is aligned to 16-bits for RIFF containers, or 64 bits for W64 containers.
+	  - Set the size of the "data" chunk.
+	*/
+	if (pWav->onWrite != NULL) {
+		drwav_uint32 paddingSize = 0;
 
-        /* Padding. Do not adjust pWav->dataChunkDataSize - this should not include the padding. */
-        if (pWav->container == drwav_container_riff) {
-            paddingSize = drwav__chunk_padding_size_riff(pWav->dataChunkDataSize);
-        } else {
-            paddingSize = drwav__chunk_padding_size_w64(pWav->dataChunkDataSize);
-        }
-        
-        if (paddingSize > 0) {
-            drwav_uint64 paddingData = 0;
-            pWav->onWrite(pWav->pUserData, &paddingData, paddingSize);
-        }
+		/* Padding. Do not adjust pWav->dataChunkDataSize - this should not include the padding. */
+		if (pWav->container == drwav_container_riff) {
+			paddingSize = drwav__chunk_padding_size_riff(pWav->dataChunkDataSize);
+		} else {
+			paddingSize = drwav__chunk_padding_size_w64(pWav->dataChunkDataSize);
+		}
 
-        /*
-        Chunk sizes. When using sequential mode, these will have been filled in at initialization time. We only need
-        to do this when using non-sequential mode.
-        */
-        if (pWav->onSeek && !pWav->isSequentialWrite) {
-            if (pWav->container == drwav_container_riff) {
-                /* The "RIFF" chunk size. */
-                if (pWav->onSeek(pWav->pUserData, 4, drwav_seek_origin_start)) {
-                    drwav_uint32 riffChunkSize = drwav__riff_chunk_size_riff(pWav->dataChunkDataSize);
-                    pWav->onWrite(pWav->pUserData, &riffChunkSize, 4);
-                }
+		if (paddingSize > 0) {
+			drwav_uint64 paddingData = 0;
+			pWav->onWrite(pWav->pUserData, &paddingData, paddingSize);
+		}
 
-                /* the "data" chunk size. */
-                if (pWav->onSeek(pWav->pUserData, (int)pWav->dataChunkDataPos + 4, drwav_seek_origin_start)) {
-                    drwav_uint32 dataChunkSize = drwav__data_chunk_size_riff(pWav->dataChunkDataSize);
-                    pWav->onWrite(pWav->pUserData, &dataChunkSize, 4);
-                }
-            } else {
-                /* The "RIFF" chunk size. */
-                if (pWav->onSeek(pWav->pUserData, 16, drwav_seek_origin_start)) {
-                    drwav_uint64 riffChunkSize = drwav__riff_chunk_size_w64(pWav->dataChunkDataSize);
-                    pWav->onWrite(pWav->pUserData, &riffChunkSize, 8);
-                }
+		/*
+		Chunk sizes. When using sequential mode, these will have been filled in at initialization time. We only need
+		to do this when using non-sequential mode.
+		*/
+		if (pWav->onSeek && !pWav->isSequentialWrite) {
+			if (pWav->container == drwav_container_riff) {
+				/* The "RIFF" chunk size. */
+				if (pWav->onSeek(pWav->pUserData, 4, drwav_seek_origin_start)) {
+					drwav_uint32 riffChunkSize = drwav__riff_chunk_size_riff(pWav->dataChunkDataSize);
+					pWav->onWrite(pWav->pUserData, &riffChunkSize, 4);
+				}
 
-                /* The "data" chunk size. */
-                if (pWav->onSeek(pWav->pUserData, (int)pWav->dataChunkDataPos + 16, drwav_seek_origin_start)) {
-                    drwav_uint64 dataChunkSize = drwav__data_chunk_size_w64(pWav->dataChunkDataSize);
-                    pWav->onWrite(pWav->pUserData, &dataChunkSize, 8);
-                }
-            }
-        }
+				/* the "data" chunk size. */
+				if (pWav->onSeek(pWav->pUserData, (int)pWav->dataChunkDataPos + 4, drwav_seek_origin_start)) {
+					drwav_uint32 dataChunkSize = drwav__data_chunk_size_riff(pWav->dataChunkDataSize);
+					pWav->onWrite(pWav->pUserData, &dataChunkSize, 4);
+				}
+			} else {
+				/* The "RIFF" chunk size. */
+				if (pWav->onSeek(pWav->pUserData, 16, drwav_seek_origin_start)) {
+					drwav_uint64 riffChunkSize = drwav__riff_chunk_size_w64(pWav->dataChunkDataSize);
+					pWav->onWrite(pWav->pUserData, &riffChunkSize, 8);
+				}
 
-        /* Validation for sequential mode. */
-        if (pWav->isSequentialWrite) {
-            if (pWav->dataChunkDataSize != pWav->dataChunkDataSizeTargetWrite) {
-                result = DRWAV_INVALID_FILE;
-            }
-        }
-    }
+				/* The "data" chunk size. */
+				if (pWav->onSeek(pWav->pUserData, (int)pWav->dataChunkDataPos + 16, drwav_seek_origin_start)) {
+					drwav_uint64 dataChunkSize = drwav__data_chunk_size_w64(pWav->dataChunkDataSize);
+					pWav->onWrite(pWav->pUserData, &dataChunkSize, 8);
+				}
+			}
+		}
 
+		/* Validation for sequential mode. */
+		if (pWav->isSequentialWrite) {
+			if (pWav->dataChunkDataSize != pWav->dataChunkDataSizeTargetWrite) {
+				result = DRWAV_INVALID_FILE;
+			}
+		}
+	}
+
+	gsm_destroy(pWav->gsm.gsmhandle);
+	DRWAV_FREE(pWav->gsm.gsmsample);
 #ifndef DR_WAV_NO_STDIO
-    /*
-    If we opened the file with drwav_open_file() we will want to close the file handle. We can know whether or not drwav_open_file()
-    was used by looking at the onRead and onSeek callbacks.
-    */
-    if (pWav->onRead == drwav__on_read_stdio || pWav->onWrite == drwav__on_write_stdio) {
-        fclose((FILE*)pWav->pUserData);
-    }
+	/*
+	If we opened the file with drwav_open_file() we will want to close the file handle. We can know whether or not drwav_open_file()
+	was used by looking at the onRead and onSeek callbacks.
+	*/
+	if (pWav->onRead == drwav__on_read_stdio || pWav->onWrite == drwav__on_write_stdio) {
+		fclose((FILE*)pWav->pUserData);
+	}
 #endif
 
     return result;
@@ -2540,10 +2585,10 @@ drwav_bool32 drwav_seek_to_pcm_frame(drwav* pWav, drwav_uint64 targetFrameIndex)
                 }
 
                 if (pWav->translatedFormatTag == DR_WAVE_FORMAT_ADPCM) {
-                    framesRead = drwav_read_pcm_frames_s16__msadpcm(pWav, framesToRead, devnull);
-                } else if (pWav->translatedFormatTag == DR_WAVE_FORMAT_DVI_ADPCM) {
-                    framesRead = drwav_read_pcm_frames_s16__ima(pWav, framesToRead, devnull);
-                } else {
+					framesRead = drwav_read_pcm_frames_s16__msadpcm(pWav, framesToRead, devnull);
+				} else if (pWav->translatedFormatTag == DR_WAVE_FORMAT_DVI_ADPCM) {
+					framesRead = drwav_read_pcm_frames_s16__ima(pWav, framesToRead, devnull);
+				} else {
                     assert(DRWAV_FALSE);    /* If this assertion is triggered it means I've implemented a new compressed format but forgot to add a branch for it here. */
                 }
 
@@ -2819,6 +2864,51 @@ drwav_uint64 drwav_read_pcm_frames_s16__msadpcm(drwav* pWav, drwav_uint64 frames
     }
 
     return totalFramesRead;
+}
+
+
+#define SOX_SIGNED_TO_SAMPLE(d)((int)(d)<<(32-16))
+drwav_uint64 drwav_read_pcm_frames_s32__gsm(drwav* pWav, drwav_uint64 framesToRead, drwav_int32* pBufferOut)
+{
+	drwav_assert(pWav != NULL);
+	drwav_assert(framesToRead > 0);
+	drwav_assert(pBufferOut != NULL);
+
+	size_t len = framesToRead * pWav->channels;
+	size_t done = 0;
+	size_t bytes;
+	gsm_byte    frame[65];
+	while (pWav->gsm.gsmindex && (pWav->gsm.gsmindex < 160 * 2) && (done < len))
+		pBufferOut[done++] = SOX_SIGNED_TO_SAMPLE(pWav->gsm.gsmsample[pWav->gsm.gsmindex++]);
+
+	
+	while (done < len) {
+		pWav->gsm.gsmindex = 0;
+		bytes = drwav_read_raw(pWav, sizeof(frame), frame);
+		if (bytes <= 0)
+			return done;
+		if (bytes < 65) {
+			//printf("invalid wav gsm frame size: %d bytes\n", bytes);
+			return done;
+		}
+		/* decode the long 33 byte half */
+		if (gsm_decode(pWav->gsm.gsmhandle, frame, pWav->gsm.gsmsample) < 0)
+		{
+			printf("error during gsm decode\n");
+			return 0;
+		}
+		/* decode the short 32 byte half */
+		if (gsm_decode(pWav->gsm.gsmhandle, frame + 33, pWav->gsm.gsmsample + 160) < 0)
+		{
+			printf("error during gsm decode\n");
+			return 0;
+		}
+
+		while ((pWav->gsm.gsmindex < 160 * 2) && (done < len)) {
+			pBufferOut[done++] = SOX_SIGNED_TO_SAMPLE(pWav->gsm.gsmsample[(pWav->gsm.gsmindex)++]);
+		}
+	}
+	return done;
 }
 
 
@@ -3947,6 +4037,10 @@ drwav_uint64 drwav_read_pcm_frames_s32(drwav* pWav, drwav_uint64 framesToRead, d
     if (pWav->translatedFormatTag == DR_WAVE_FORMAT_PCM) {
         return drwav_read_pcm_frames_s32__pcm(pWav, framesToRead, pBufferOut);
     }
+	
+	if (pWav->translatedFormatTag == DR_WAVE_FORMAT_GSM) {
+		return drwav_read_pcm_frames_s32__gsm(pWav, framesToRead, pBufferOut);
+	}
 
     if (pWav->translatedFormatTag == DR_WAVE_FORMAT_ADPCM) {
         return drwav_read_pcm_frames_s32__msadpcm(pWav, framesToRead, pBufferOut);
