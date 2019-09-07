@@ -34647,7 +34647,7 @@ v0.8.11 - 2018-11-21
 
 v0.8.10 - 2018-10-21
   - Core Audio: Fix a hang when uninitializing a device.
-  - Fix a bug where an incorrect value is returned from ma_device_stop().
+  - Fix a bug where an incorrect value is returned from mal_device_stop().
 
 v0.8.9 - 2018-09-28
   - Fix a bug with the SDL backend where device initialization fails.
@@ -34710,17 +34710,17 @@ v0.8.1 - 2018-07-06
   - Fix compilation errors and warnings.
 
 v0.8 - 2018-07-05
-  - Changed MA_IMPLEMENTATION to MINI_AL_IMPLEMENTATION for consistency with other libraries. The old
+  - Changed MAL_IMPLEMENTATION to MINI_AL_IMPLEMENTATION for consistency with other libraries. The old
     way is still supported for now, but you should update as it may be removed in the future.
   - API CHANGE: Replace device enumeration APIs. mal_enumerate_devices() has been replaced with
     mal_context_get_devices(). An additional low-level device enumration API has been introduced called
     mal_context_enumerate_devices() which uses a callback to report devices.
   - API CHANGE: Rename mal_get_sample_size_in_bytes() to mal_get_bytes_per_sample() and add
     mal_get_bytes_per_frame().
-  - API CHANGE: Replace mal_device_config.preferExclusiveMode with ma_device_config.shareMode.
-    - This new config can be set to mal_share_mode_shared (default) or ma_share_mode_exclusive.
+  - API CHANGE: Replace mal_device_config.preferExclusiveMode with mal_device_config.shareMode.
+    - This new config can be set to mal_share_mode_shared (default) or mal_share_mode_exclusive.
   - API CHANGE: Remove excludeNullDevice from mal_context_config.alsa.
-  - API CHANGE: Rename MA_MAX_SAMPLE_SIZE_IN_BYTES to MA_MAX_PCM_SAMPLE_SIZE_IN_BYTES.
+  - API CHANGE: Rename MAL_MAX_SAMPLE_SIZE_IN_BYTES to MAL_MAX_PCM_SAMPLE_SIZE_IN_BYTES.
   - API CHANGE: Change the default channel mapping to the standard Microsoft mapping.
   - API CHANGE: Remove backend-specific result codes.
   - API CHANGE: Changes to the format conversion APIs (mal_pcm_f32_to_s16(), etc.)
@@ -34780,7 +34780,7 @@ v0.6a - 2018-01-26
 v0.6 - 2017-12-08
   - API CHANGE: Expose and improve mutex APIs. If you were using the mutex APIs before this version you'll
     need to update.
-  - API CHANGE: SRC and DSP callbacks now take a pointer to a mal_src and ma_dsp object respectively.
+  - API CHANGE: SRC and DSP callbacks now take a pointer to a mal_src and mal_dsp object respectively.
   - API CHANGE: Improvements to event and thread APIs. These changes make these APIs more consistent.
   - Add support for SDL and Emscripten.
   - Simplify the build system further for when development packages for various backends are not installed.
@@ -34795,7 +34795,7 @@ v0.6 - 2017-12-08
   - Warning fixes.
 
 v0.5 - 2017-11-11
-  - API CHANGE: The mal_context_init() function now takes a pointer to a ma_context_config object for
+  - API CHANGE: The mal_context_init() function now takes a pointer to a mal_context_config object for
     configuring the context. The works in the same kind of way as the device config. The rationale for this
     change is to give applications better control over context-level properties, add support for backend-
     specific configurations, and support extensibility without breaking the API.
