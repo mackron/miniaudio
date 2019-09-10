@@ -1421,13 +1421,16 @@ typedef struct
 ma_result ma_rb_init_ex(size_t subbufferSizeInBytes, size_t subbufferCount, size_t subbufferStrideInBytes, void* pOptionalPreallocatedBuffer, ma_rb* pRB);
 ma_result ma_rb_init(size_t bufferSizeInBytes, void* pOptionalPreallocatedBuffer, ma_rb* pRB);
 void ma_rb_uninit(ma_rb* pRB);
+void ma_rb_reset(ma_rb* pRB);
 ma_result ma_rb_acquire_read(ma_rb* pRB, size_t* pSizeInBytes, void** ppBufferOut);
 ma_result ma_rb_commit_read(ma_rb* pRB, size_t sizeInBytes, void* pBufferOut);
 ma_result ma_rb_acquire_write(ma_rb* pRB, size_t* pSizeInBytes, void** ppBufferOut);
 ma_result ma_rb_commit_write(ma_rb* pRB, size_t sizeInBytes, void* pBufferOut);
 ma_result ma_rb_seek_read(ma_rb* pRB, size_t offsetInBytes);
 ma_result ma_rb_seek_write(ma_rb* pRB, size_t offsetInBytes);
-ma_int32 ma_rb_pointer_distance(ma_rb* pRB);    /* Returns the distance between the write pointer and the read pointer. Should never be negative for a correct program. */
+ma_int32 ma_rb_pointer_distance(ma_rb* pRB);    /* Returns the distance between the write pointer and the read pointer. Should never be negative for a correct program. Will return the number of bytes that can be read before the read pointer hits the write pointer. */
+ma_uint32 ma_rb_available_read(ma_rb* pRB);
+ma_uint32 ma_rb_available_write(ma_rb* pRB);
 size_t ma_rb_get_subbuffer_size(ma_rb* pRB);
 size_t ma_rb_get_subbuffer_stride(ma_rb* pRB);
 size_t ma_rb_get_subbuffer_offset(ma_rb* pRB, size_t subbufferIndex);
@@ -1444,6 +1447,7 @@ typedef struct
 ma_result ma_pcm_rb_init_ex(ma_format format, ma_uint32 channels, ma_uint32 subbufferSizeInFrames, ma_uint32 subbufferCount, ma_uint32 subbufferStrideInFrames, void* pOptionalPreallocatedBuffer, ma_pcm_rb* pRB);
 ma_result ma_pcm_rb_init(ma_format format, ma_uint32 channels, ma_uint32 bufferSizeInFrames, void* pOptionalPreallocatedBuffer, ma_pcm_rb* pRB);
 void ma_pcm_rb_uninit(ma_pcm_rb* pRB);
+void ma_pcm_rb_reset(ma_pcm_rb* pRB);
 ma_result ma_pcm_rb_acquire_read(ma_pcm_rb* pRB, ma_uint32* pSizeInFrames, void** ppBufferOut);
 ma_result ma_pcm_rb_commit_read(ma_pcm_rb* pRB, ma_uint32 sizeInFrames, void* pBufferOut);
 ma_result ma_pcm_rb_acquire_write(ma_pcm_rb* pRB, ma_uint32* pSizeInFrames, void** ppBufferOut);
@@ -1451,6 +1455,8 @@ ma_result ma_pcm_rb_commit_write(ma_pcm_rb* pRB, ma_uint32 sizeInFrames, void* p
 ma_result ma_pcm_rb_seek_read(ma_pcm_rb* pRB, ma_uint32 offsetInFrames);
 ma_result ma_pcm_rb_seek_write(ma_pcm_rb* pRB, ma_uint32 offsetInFrames);
 ma_int32 ma_pcm_rb_pointer_disance(ma_pcm_rb* pRB); /* Return value is in frames. */
+ma_uint32 ma_pcm_rb_available_read(ma_pcm_rb* pRB);
+ma_uint32 ma_pcm_rb_available_write(ma_pcm_rb* pRB);
 ma_uint32 ma_pcm_rb_get_subbuffer_size(ma_pcm_rb* pRB);
 ma_uint32 ma_pcm_rb_get_subbuffer_stride(ma_pcm_rb* pRB);
 ma_uint32 ma_pcm_rb_get_subbuffer_offset(ma_pcm_rb* pRB, ma_uint32 subbufferIndex);
@@ -31922,6 +31928,16 @@ void ma_rb_uninit(ma_rb* pRB)
     }
 }
 
+void ma_rb_reset(ma_rb* pRB)
+{
+    if (pRB == NULL) {
+        return;
+    }
+
+    pRB->encodedReadOffset  = 0;
+    pRB->encodedWriteOffset = 0;
+}
+
 ma_result ma_rb_acquire_read(ma_rb* pRB, size_t* pSizeInBytes, void** ppBufferOut)
 {
     ma_uint32 writeOffset;
@@ -32204,6 +32220,31 @@ ma_int32 ma_rb_pointer_distance(ma_rb* pRB)
     }
 }
 
+ma_uint32 ma_rb_available_read(ma_rb* pRB)
+{
+    ma_int32 dist;
+
+    if (pRB == NULL) {
+        return 0;
+    }
+
+    dist = ma_rb_pointer_distance(pRB);
+    if (dist < 0) {
+        return 0;
+    }
+
+    return dist;
+}
+
+ma_uint32 ma_rb_available_write(ma_rb* pRB)
+{
+    if (pRB == NULL) {
+        return 0;
+    }
+
+    return (ma_uint32)(ma_rb_get_subbuffer_size(pRB) - ma_rb_pointer_distance(pRB));
+}
+
 size_t ma_rb_get_subbuffer_size(ma_rb* pRB)
 {
     if (pRB == NULL) {
@@ -32293,6 +32334,15 @@ void ma_pcm_rb_uninit(ma_pcm_rb* pRB)
     ma_rb_uninit(&pRB->rb);
 }
 
+void ma_pcm_rb_reset(ma_pcm_rb* pRB)
+{
+    if (pRB == NULL) {
+        return;
+    }
+
+    ma_rb_reset(&pRB->rb);
+}
+
 ma_result ma_pcm_rb_acquire_read(ma_pcm_rb* pRB, ma_uint32* pSizeInFrames, void** ppBufferOut)
 {
     size_t sizeInBytes;
@@ -32372,10 +32422,28 @@ ma_result ma_pcm_rb_seek_write(ma_pcm_rb* pRB, ma_uint32 offsetInFrames)
 ma_int32 ma_pcm_rb_pointer_disance(ma_pcm_rb* pRB)
 {
     if (pRB == NULL) {
-        return MA_INVALID_ARGS;
+        return 0;
     }
 
     return ma_rb_pointer_distance(&pRB->rb) / ma_pcm_rb_get_bpf(pRB);
+}
+
+ma_uint32 ma_pcm_rb_available_read(ma_pcm_rb* pRB)
+{
+    if (pRB == NULL) {
+        return 0;
+    }
+
+    return ma_rb_available_read(&pRB->rb) / ma_pcm_rb_get_bpf(pRB);
+}
+
+ma_uint32 ma_pcm_rb_available_write(ma_pcm_rb* pRB)
+{
+    if (pRB == NULL) {
+        return 0;
+    }
+
+    return ma_rb_available_write(&pRB->rb) / ma_pcm_rb_get_bpf(pRB);
 }
 
 ma_uint32 ma_pcm_rb_get_subbuffer_size(ma_pcm_rb* pRB)
