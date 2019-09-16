@@ -7824,6 +7824,7 @@ typedef struct
     ma_uint32 bufferSizeInFramesOut;
     ma_uint32 periodSizeInFramesOut;
     ma_uint32 periodsOut;
+    ma_bool32 usingAudioClient3;
     char deviceName[256];
 } ma_device_init_internal_data__wasapi;
 
@@ -8044,7 +8045,7 @@ ma_result ma_device_init_internal__wasapi(ma_context* pContext, ma_device_type d
                 actualPeriodInFrames = ma_clamp(actualPeriodInFrames, minPeriodInFrames, maxPeriodInFrames);
 
             #if defined(MA_DEBUG_OUTPUT)
-                printf("[WASAPI] Trying IAudioClient3_InitializeSharedAudioStream(actualPeriodInFrames=%d)", actualPeriodInFrames);
+                printf("[WASAPI] Trying IAudioClient3_InitializeSharedAudioStream(actualPeriodInFrames=%d)\n", actualPeriodInFrames);
                 printf("    defaultPeriodInFrames=%d\n", defaultPeriodInFrames);
                 printf("    fundamentalPeriodInFrames=%d\n", fundamentalPeriodInFrames);
                 printf("    minPeriodInFrames=%d\n", minPeriodInFrames);
@@ -8115,6 +8116,8 @@ ma_result ma_device_init_internal__wasapi(ma_context* pContext, ma_device_type d
 
         pData->periodSizeInFramesOut = pData->bufferSizeInFramesOut / pData->periodsOut;
     }
+
+    pData->usingAudioClient3 = wasInitializedUsingIAudioClient3;
 
     if (deviceType == ma_device_type_playback) {
         hr = ma_IAudioClient_GetService((ma_IAudioClient*)pData->pAudioClient, &MA_IID_IAudioRenderClient, (void**)&pData->pRenderClient);
@@ -8878,7 +8881,14 @@ ma_result ma_device_main_loop__wasapi(ma_device* pDevice)
                 }
 
                 if (!pDevice->wasapi.isStartedPlayback) {
-                    if (pDevice->playback.shareMode == ma_share_mode_exclusive || framesWrittenToPlaybackDevice >= (pDevice->playback.internalBufferSizeInFrames/pDevice->playback.internalPeriods)*2) {
+                    ma_uint32 startThreshold = pDevice->playback.internalBufferSizeInFrames / pDevice->playback.internalPeriods * 2;
+
+                    /* Prevent a deadlock. If we don't clamp against the actual buffer size we'll never end up starting the playback device which will result in a deadlock. */
+                    if (startThreshold > pDevice->wasapi.actualBufferSizeInFramesPlayback) {
+                        startThreshold = pDevice->wasapi.actualBufferSizeInFramesPlayback;
+                    }
+
+                    if (pDevice->playback.shareMode == ma_share_mode_exclusive || framesWrittenToPlaybackDevice >= startThreshold) {
                         hr = ma_IAudioClient_Start((ma_IAudioClient*)pDevice->wasapi.pAudioClientPlayback);
                         if (FAILED(hr)) {
                             ma_IAudioClient_Stop((ma_IAudioClient*)pDevice->wasapi.pAudioClientCapture);
