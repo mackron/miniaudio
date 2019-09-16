@@ -8043,6 +8043,14 @@ ma_result ma_device_init_internal__wasapi(ma_context* pContext, ma_device_type d
                 /* The period needs to be clamped between minPeriodInFrames and maxPeriodInFrames. */
                 actualPeriodInFrames = ma_clamp(actualPeriodInFrames, minPeriodInFrames, maxPeriodInFrames);
 
+            #if defined(MA_DEBUG_OUTPUT)
+                printf("[WASAPI] Trying IAudioClient3_InitializeSharedAudioStream(actualPeriodInFrames=%d)", actualPeriodInFrames);
+                printf("    defaultPeriodInFrames=%d\n", defaultPeriodInFrames);
+                printf("    fundamentalPeriodInFrames=%d\n", fundamentalPeriodInFrames);
+                printf("    minPeriodInFrames=%d\n", minPeriodInFrames);
+                printf("    maxPeriodInFrames=%d\n", maxPeriodInFrames);
+            #endif
+
                 /* If the client requested a largish buffer than we don't actually want to use low latency shared mode because it forces small buffers. */
                 if (actualPeriodInFrames >= desiredPeriodInFrames) {
                     hr = ma_IAudioClient3_InitializeSharedAudioStream(pAudioClient3, streamFlags, actualPeriodInFrames, (WAVEFORMATEX*)&wf, NULL);
@@ -8050,6 +8058,15 @@ ma_result ma_device_init_internal__wasapi(ma_context* pContext, ma_device_type d
                         wasInitializedUsingIAudioClient3 = MA_TRUE;
                         pData->periodSizeInFramesOut = actualPeriodInFrames;
                         pData->bufferSizeInFramesOut = actualPeriodInFrames * pData->periodsOut;
+                    #if defined(MA_DEBUG_OUTPUT)
+                        printf("[WASAPI] Using IAudioClient3\n");
+                        printf("    periodSizeInFramesOut=%d\n", pData->periodSizeInFramesOut);
+                        printf("    bufferSizeInFramesOut=%d\n", pData->bufferSizeInFramesOut);
+                    #endif
+                    } else {
+                    #if defined(MA_DEBUG_OUTPUT)
+                        printf("[WASAPI] IAudioClient3_InitializeSharedAudioStream failed. Falling back to IAudioClient. \n");
+                    #endif    
                     }
                 }
             }
