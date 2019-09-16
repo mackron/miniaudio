@@ -8065,15 +8065,23 @@ ma_result ma_device_init_internal__wasapi(ma_context* pContext, ma_device_type d
                     #endif
                     } else {
                     #if defined(MA_DEBUG_OUTPUT)
-                        printf("[WASAPI] IAudioClient3_InitializeSharedAudioStream failed. Falling back to IAudioClient. \n");
+                        printf("[WASAPI] IAudioClient3_InitializeSharedAudioStream failed. Falling back to IAudioClient.\n");
                     #endif    
                     }
                 }
+            } else {
+            #if defined(MA_DEBUG_OUTPUT)
+                printf("[WASAPI] IAudioClient3_GetSharedModeEnginePeriod failed. Falling back to IAudioClient.\n");
+            #endif
             }
 
             ma_IAudioClient3_Release(pAudioClient3);
             pAudioClient3 = NULL;
         }
+#else
+    #if defined(MA_DEBUG_OUTPUT)
+        printf("[WASAPI] Not using IAudioClient3 because MA_WASAPI_NO_LOW_LATENCY_SHARED_MODE is enabled.\n");
+    #endif
 #endif
 
         /* If we don't have an IAudioClient3 then we need to use the normal initialization routine. */
