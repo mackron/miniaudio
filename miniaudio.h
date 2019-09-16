@@ -8068,6 +8068,10 @@ ma_result ma_device_init_internal__wasapi(ma_context* pContext, ma_device_type d
                         printf("[WASAPI] IAudioClient3_InitializeSharedAudioStream failed. Falling back to IAudioClient.\n");
                     #endif    
                     }
+                } else {
+                #if defined(MA_DEBUG_OUTPUT)
+                    printf("[WASAPI] Not using IAudioClient3 because the desired period size is larger than the maximum supported by IAudioClient3.\n");
+                #endif
                 }
             } else {
             #if defined(MA_DEBUG_OUTPUT)
