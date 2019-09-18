@@ -7953,8 +7953,13 @@ ma_result ma_device_init_internal__wasapi(ma_context* pContext, ma_device_type d
         goto done;
     }
 
-    /* Override the native sample rate with the one requested by the caller. We'll use WASAPI to perform the sample rate conversion. */
-    wf.Format.nSamplesPerSec = pData->sampleRateIn;
+    /*
+    Override the native sample rate with the one requested by the caller, but only if we're not using the default sample rate. We'll use
+    WASAPI to perform the sample rate conversion.
+    */
+    if (!pData->usingDefaultSampleRate) {
+        wf.Format.nSamplesPerSec = pData->sampleRateIn;
+    }
 
     pData->formatOut = ma_format_from_WAVEFORMATEX((WAVEFORMATEX*)&wf);
     pData->channelsOut = wf.Format.nChannels;
