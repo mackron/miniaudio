@@ -7862,7 +7862,7 @@ ma_result ma_device_init_internal__wasapi(ma_context* pContext, ma_device_type d
     pData->pRenderClient = NULL;
     pData->pCaptureClient = NULL;
 
-    streamFlags = MA_AUDCLNT_STREAMFLAGS_EVENTCALLBACK;
+    streamFlags = MA_AUDCLNT_STREAMFLAGS_EVENTCALLBACK | MA_AUDCLNT_STREAMFLAGS_AUTOCONVERTPCM | MA_AUDCLNT_STREAMFLAGS_SRC_DEFAULT_QUALITY;
     if (deviceType == ma_device_type_loopback) {
         streamFlags |= MA_AUDCLNT_STREAMFLAGS_LOOPBACK;
     }
@@ -7952,6 +7952,9 @@ ma_result ma_device_init_internal__wasapi(ma_context* pContext, ma_device_type d
         errorMsg = "[WASAPI] Failed to find best device mix format.";
         goto done;
     }
+
+    /* Override the native sample rate with the one requested by the caller. We'll use WASAPI to perform the sample rate conversion. */
+    wf.Format.nSamplesPerSec = pData->sampleRateIn;
 
     pData->formatOut = ma_format_from_WAVEFORMATEX((WAVEFORMATEX*)&wf);
     pData->channelsOut = wf.Format.nChannels;
