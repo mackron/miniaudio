@@ -7875,7 +7875,7 @@ ma_result ma_device_init_internal__wasapi(ma_context* pContext, ma_device_type d
     if (!pData->noAutoConvertSRC && !pData->usingDefaultSampleRate) {
         streamFlags |= MA_AUDCLNT_STREAMFLAGS_AUTOCONVERTPCM;
     }
-    if (!pData->noDefaultQualitySRC && !pData->usingDefaultSampleRate) {
+    if (!pData->noDefaultQualitySRC && !pData->noAutoConvertSRC && !pData->usingDefaultSampleRate) {
         streamFlags |= MA_AUDCLNT_STREAMFLAGS_SRC_DEFAULT_QUALITY;
     }
     if (deviceType == ma_device_type_loopback) {
