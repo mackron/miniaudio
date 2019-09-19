@@ -1940,6 +1940,11 @@ typedef struct
 
     struct
     {
+        ma_bool32 noAutoConvertSRC;     /* When set to true, disables the use of AUDCLNT_STREAMFLAGS_AUTOCONVERTPCM. */
+        ma_bool32 noDefaultQualitySRC;  /* When set to true, disables the use of AUDCLNT_STREAMFLAGS_SRC_DEFAULT_QUALITY. */
+    } wasapi;
+    struct
+    {
         ma_bool32 noMMap;  /* Disables MMap mode. */
     } alsa;
     struct
@@ -2429,6 +2434,8 @@ MA_ALIGNED_STRUCT(MA_SIMD_ALIGNMENT) ma_device
             ma_uint32 periodSizeInFramesCapture;
             ma_bool32 isStartedCapture;
             ma_bool32 isStartedPlayback;
+            ma_bool32 noAutoConvertSRC;     /* When set to true, disables the use of AUDCLNT_STREAMFLAGS_AUTOCONVERTPCM. */
+            ma_bool32 noDefaultQualitySRC;  /* When set to true, disables the use of AUDCLNT_STREAMFLAGS_SRC_DEFAULT_QUALITY. */
         } wasapi;
 #endif
 #ifdef MA_SUPPORT_DSOUND
@@ -7821,6 +7828,8 @@ typedef struct
     ma_bool32 usingDefaultSampleRate;
     ma_bool32 usingDefaultChannelMap;
     ma_share_mode shareMode;
+    ma_bool32 noAutoConvertSRC;
+    ma_bool32 noDefaultQualitySRC;
 
     /* Output. */
     ma_IAudioClient* pAudioClient;
@@ -7862,7 +7871,13 @@ ma_result ma_device_init_internal__wasapi(ma_context* pContext, ma_device_type d
     pData->pRenderClient = NULL;
     pData->pCaptureClient = NULL;
 
-    streamFlags = MA_AUDCLNT_STREAMFLAGS_EVENTCALLBACK | MA_AUDCLNT_STREAMFLAGS_AUTOCONVERTPCM | MA_AUDCLNT_STREAMFLAGS_SRC_DEFAULT_QUALITY;
+    streamFlags = MA_AUDCLNT_STREAMFLAGS_EVENTCALLBACK;
+    if (!pData->noAutoConvertSRC && !pData->usingDefaultSampleRate) {
+        streamFlags |= MA_AUDCLNT_STREAMFLAGS_AUTOCONVERTPCM;
+    }
+    if (!pData->noDefaultQualitySRC && !pData->usingDefaultSampleRate) {
+        streamFlags |= MA_AUDCLNT_STREAMFLAGS_SRC_DEFAULT_QUALITY;
+    }
     if (deviceType == ma_device_type_loopback) {
         streamFlags |= MA_AUDCLNT_STREAMFLAGS_LOOPBACK;
     }
@@ -7957,7 +7972,7 @@ ma_result ma_device_init_internal__wasapi(ma_context* pContext, ma_device_type d
     Override the native sample rate with the one requested by the caller, but only if we're not using the default sample rate. We'll use
     WASAPI to perform the sample rate conversion.
     */
-    if (!pData->usingDefaultSampleRate) {
+    if (streamFlags & MA_AUDCLNT_STREAMFLAGS_AUTOCONVERTPCM) {
         wf.Format.nSamplesPerSec = pData->sampleRateIn;
     }
 
@@ -8234,6 +8249,8 @@ ma_result ma_device_reinit__wasapi(ma_device* pDevice, ma_device_type deviceType
     data.bufferSizeInFramesIn       = pDevice->wasapi.originalBufferSizeInFrames;
     data.bufferSizeInMillisecondsIn = pDevice->wasapi.originalBufferSizeInMilliseconds;
     data.periodsIn                  = pDevice->wasapi.originalPeriods;
+    data.noAutoConvertSRC           = pDevice->wasapi.noAutoConvertSRC;
+    data.noDefaultQualitySRC        = pDevice->wasapi.noDefaultQualitySRC;
     result = ma_device_init_internal__wasapi(pDevice->pContext, deviceType, NULL, &data);
     if (result != MA_SUCCESS) {
         return result;
@@ -8328,6 +8345,8 @@ ma_result ma_device_init__wasapi(ma_context* pContext, const ma_device_config* p
     pDevice->wasapi.originalBufferSizeInFrames       = pConfig->bufferSizeInFrames;
     pDevice->wasapi.originalBufferSizeInMilliseconds = pConfig->bufferSizeInMilliseconds;
     pDevice->wasapi.originalPeriods                  = pConfig->periods;
+    pDevice->wasapi.noAutoConvertSRC                 = pDevice->wasapi.noAutoConvertSRC;
+    pDevice->wasapi.noDefaultQualitySRC              = pDevice->wasapi.noDefaultQualitySRC;
 
     /* Exclusive mode is not allowed with loopback. */
     if (pConfig->deviceType == ma_device_type_loopback && pConfig->playback.shareMode == ma_share_mode_exclusive) {
@@ -8348,6 +8367,8 @@ ma_result ma_device_init__wasapi(ma_context* pContext, const ma_device_config* p
         data.bufferSizeInFramesIn       = pConfig->bufferSizeInFrames;
         data.bufferSizeInMillisecondsIn = pConfig->bufferSizeInMilliseconds;
         data.periodsIn                  = pConfig->periods;
+        data.noAutoConvertSRC           = pConfig->wasapi.noAutoConvertSRC;
+        data.noDefaultQualitySRC        = pConfig->wasapi.noDefaultQualitySRC;
 
         result = ma_device_init_internal__wasapi(pDevice->pContext, (pConfig->deviceType == ma_device_type_loopback) ? ma_device_type_loopback : ma_device_type_capture, pConfig->capture.pDeviceID, &data);
         if (result != MA_SUCCESS) {
@@ -8402,6 +8423,8 @@ ma_result ma_device_init__wasapi(ma_context* pContext, const ma_device_config* p
         data.bufferSizeInFramesIn       = pConfig->bufferSizeInFrames;
         data.bufferSizeInMillisecondsIn = pConfig->bufferSizeInMilliseconds;
         data.periodsIn                  = pConfig->periods;
+        data.noAutoConvertSRC           = pConfig->wasapi.noAutoConvertSRC;
+        data.noDefaultQualitySRC        = pConfig->wasapi.noDefaultQualitySRC;
 
         result = ma_device_init_internal__wasapi(pDevice->pContext, ma_device_type_playback, pConfig->playback.pDeviceID, &data);
         if (result != MA_SUCCESS) {
