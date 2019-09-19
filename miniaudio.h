@@ -34674,6 +34674,8 @@ REVISION HISTORY
 ================
 v0.9.8 - 2019-xx-xx
   - WASAPI: Fix a potential deadlock when starting a full-duplex device.
+  - WASAPI: Enable automatic resampling by default. Disable with config.wasapi.noAutoConvertSRC.
+  - Fix some uncommon warnings emitted by GCC when `__inline__` is undefined or defined as nothing.
 
 v0.9.7 - 2019-08-28
   - Add support for loopback mode (WASAPI only).
