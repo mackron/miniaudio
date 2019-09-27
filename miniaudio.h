@@ -34642,8 +34642,8 @@ ma_uint64 ma_sine_wave_read_f32_ex(ma_sine_wave* pSineWave, ma_uint64 frameCount
 #endif  /* MINIAUDIO_IMPLEMENTATION */
 
 /*
-BACKEND IMPLEMENTATION GUIDLINES
-================================
+BACKEND IMPLEMENTATION GUIDELINES
+=================================
 Context
 -------
 - Run-time linking if possible.
