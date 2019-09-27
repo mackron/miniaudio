@@ -33011,7 +33011,7 @@ ma_result ma_decoder_init_flac__internal(const ma_decoder_config* pConfig, ma_de
     ma_assert(pDecoder != NULL);
 
     /* Try opening the decoder first. */
-    pFlac = drflac_open(ma_decoder_internal_on_read__flac, ma_decoder_internal_on_seek__flac, pDecoder);
+    pFlac = drflac_open(ma_decoder_internal_on_read__flac, ma_decoder_internal_on_seek__flac, pDecoder, NULL);
     if (pFlac == NULL) {
         return MA_ERROR;
     }
