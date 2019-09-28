@@ -19311,8 +19311,8 @@ ma_result ma_device_init_internal__coreaudio(ma_context* pContext, ma_device_typ
     
     /* Core audio doesn't really use the notion of a period so we can leave this unmodified, but not too over the top. */
     pData->periodsOut = pData->periodsIn;
-    if (pData->periodsOut < 1) {
-        pData->periodsOut = 1;
+    if (pData->periodsOut == 0) {
+        pData->periodsOut = MA_DEFAULT_PERIODS;
     }
     if (pData->periodsOut > 16) {
         pData->periodsOut = 16;
@@ -19659,6 +19659,11 @@ ma_result ma_device_reinit_internal__coreaudio(ma_device* pDevice, ma_device_typ
     data.bufferSizeInMillisecondsIn = pDevice->coreaudio.originalBufferSizeInMilliseconds;
     data.periodsIn                  = pDevice->coreaudio.originalPeriods;
 
+    /* Need at least 3 periods for duplex. */
+    if (data.periodsIn < 3 && pDevice->type == ma_device_type_duplex) {
+        data.periodsIn = 3;
+    }
+
     result = ma_device_init_internal__coreaudio(pDevice->pContext, deviceType, NULL, &data, (void*)pDevice);
     if (result != MA_SUCCESS) {
         return result;
@@ -19727,7 +19732,13 @@ ma_result ma_device_init__coreaudio(ma_context* pContext, const ma_device_config
         data.shareMode                  = pConfig->capture.shareMode;
         data.bufferSizeInFramesIn       = pConfig->bufferSizeInFrames;
         data.bufferSizeInMillisecondsIn = pConfig->bufferSizeInMilliseconds;
+        data.periodsIn                  = pConfig->periods;
         data.registerStopEvent          = MA_TRUE;
+
+        /* Need at least 3 periods for duplex. */
+        if (data.periodsIn < 3 && pConfig->deviceType == ma_device_type_duplex) {
+            data.periodsIn = 3;
+        }
         
         result = ma_device_init_internal__coreaudio(pDevice->pContext, ma_device_type_capture, pConfig->capture.pDeviceID, &data, (void*)pDevice);
         if (result != MA_SUCCESS) {
@@ -19835,6 +19846,17 @@ ma_result ma_device_init__coreaudio(ma_context* pContext, const ma_device_config
         ma_result result = ma_pcm_rb_init(pDevice->capture.format, pDevice->capture.channels, rbSizeInFrames, NULL, &pDevice->coreaudio.duplexRB);
         if (result != MA_SUCCESS) {
             return ma_post_error(pDevice, MA_LOG_LEVEL_ERROR, "[Core Audio] Failed to initialize ring buffer.", result);
+        }
+
+        /* We need a period to act as a buffer for cases where the playback and capture device's end up desyncing. */
+        {
+            ma_uint32 bufferSizeInFrames = rbSizeInFrames / pDevice->capture.internalPeriods;
+            void* pBufferData;
+            ma_pcm_rb_acquire_write(&pDevice->coreaudio.duplexRB, &bufferSizeInFrames, &pBufferData);
+            {
+                ma_zero_memory(pBufferData, bufferSizeInFrames * ma_get_bytes_per_frame(pDevice->capture.format, pDevice->capture.channels));
+            }
+            ma_pcm_rb_commit_write(&pDevice->coreaudio.duplexRB, bufferSizeInFrames, pBufferData);
         }
     }
 
