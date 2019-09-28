@@ -142,12 +142,7 @@ miniaudio includes a decoding API which supports the following backends:
 - WAV via [dr_wav](https://github.com/mackron/dr_libs/blob/master/dr_wav.h)
 - Vorbis via [stb_vorbis](https://github.com/nothings/stb/blob/master/stb_vorbis.c)
 
-Copies of these libraries can be found in the "extras" folder. You may also want to look at the
-libraries below, but they are not supported by the miniaudio decoder API. If you know of any other
-single file libraries I can add to this list, let me know. Preferably public domain or MIT.
-- [minimp3](https://github.com/lieff/minimp3)
-- [jar_mod](https://github.com/kd7tck/jar/blob/master/jar_mod.h)
-- [jar_xm](https://github.com/kd7tck/jar/blob/master/jar_xm.h)
+Copies of these libraries can be found in the "extras" folder.
 
 To enable support for a decoding backend, all you need to do is #include the header section of the
 relevant backend library before the implementation of miniaudio, like so:
