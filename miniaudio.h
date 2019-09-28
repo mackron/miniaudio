@@ -17005,7 +17005,7 @@ ma_result ma_device_init__jack(ma_context* pContext, const ma_device_config* pCo
 
 
     /* The buffer size in frames can change. */
-    periods            = 2;
+    periods            = pConfig->periods;
     bufferSizeInFrames = ((ma_jack_get_buffer_size_proc)pContext->jack.jack_get_buffer_size)((ma_jack_client_t*)pDevice->jack.pClient) * periods;
     
     if (pConfig->deviceType == ma_device_type_capture || pConfig->deviceType == ma_device_type_duplex) {
@@ -17094,6 +17094,17 @@ ma_result ma_device_init__jack(ma_context* pContext, const ma_device_config* pCo
         if (result != MA_SUCCESS) {
             ma_device_uninit__jack(pDevice);
             return ma_post_error(pDevice, MA_LOG_LEVEL_ERROR, "[JACK] Failed to initialize ring buffer.", result);
+        }
+
+        /* We need a period to act as a buffer for cases where the playback and capture device's end up desyncing. */
+        {
+            ma_uint32 marginSizeInFrames = rbSizeInFrames / pDevice->capture.internalPeriods;
+            void* pMarginData;
+            ma_pcm_rb_acquire_write(&pDevice->jack.duplexRB, &marginSizeInFrames, &pMarginData);
+            {
+                ma_zero_memory(pMarginData, marginSizeInFrames * ma_get_bytes_per_frame(pDevice->capture.format, pDevice->capture.channels));
+            }
+            ma_pcm_rb_commit_write(&pDevice->jack.duplexRB, marginSizeInFrames, pMarginData);
         }
     }
 
@@ -22914,6 +22925,7 @@ ma_result ma_open_stream__aaudio(ma_context* pContext, ma_device_type deviceType
         if (bufferCapacityInFrames == 0) {
             bufferCapacityInFrames = ma_calculate_buffer_size_in_frames_from_milliseconds(pConfig->bufferSizeInMilliseconds, pConfig->sampleRate);
         }
+        bufferCapacityInFrames = (bufferCapacityInFrames / pConfig->periods) * pConfig->periods;  /* <-- Make sure the buffer capacity is an even multiple of a period. */
         ((MA_PFN_AAudioStreamBuilder_setBufferCapacityInFrames)pContext->aaudio.AAudioStreamBuilder_setBufferCapacityInFrames)(pBuilder, bufferCapacityInFrames);
 
         ((MA_PFN_AAudioStreamBuilder_setFramesPerDataCallback)pContext->aaudio.AAudioStreamBuilder_setFramesPerDataCallback)(pBuilder, bufferCapacityInFrames / pConfig->periods);
@@ -23120,15 +23132,11 @@ ma_result ma_device_init__aaudio(ma_context* pContext, const ma_device_config* p
         ma_get_standard_channel_map(ma_standard_channel_map_default, pDevice->capture.internalChannels, pDevice->capture.internalChannelMap); /* <-- Cannot find info on channel order, so assuming a default. */
         pDevice->capture.internalBufferSizeInFrames = ((MA_PFN_AAudioStream_getBufferCapacityInFrames)pContext->aaudio.AAudioStream_getBufferCapacityInFrames)((ma_AAudioStream*)pDevice->aaudio.pStreamCapture);
 
-        /*
-        TODO: When synchronous reading and writing is supported, use AAudioStream_getFramesPerBurst() instead of AAudioStream_getFramesPerDataCallback(). Keep
-        using AAudioStream_getFramesPerDataCallback() for asynchronous mode, though.
-        */
         framesPerPeriod = ((MA_PFN_AAudioStream_getFramesPerDataCallback)pContext->aaudio.AAudioStream_getFramesPerDataCallback)((ma_AAudioStream*)pDevice->aaudio.pStreamCapture);
         if (framesPerPeriod > 0) {
-            pDevice->capture.internalPeriods = 1;
-        } else {
             pDevice->capture.internalPeriods = pDevice->capture.internalBufferSizeInFrames / framesPerPeriod;
+        } else {
+            pDevice->capture.internalPeriods = 1;
         }
     }
 
@@ -23148,9 +23156,9 @@ ma_result ma_device_init__aaudio(ma_context* pContext, const ma_device_config* p
 
         framesPerPeriod = ((MA_PFN_AAudioStream_getFramesPerDataCallback)pContext->aaudio.AAudioStream_getFramesPerDataCallback)((ma_AAudioStream*)pDevice->aaudio.pStreamPlayback);
         if (framesPerPeriod > 0) {
-            pDevice->playback.internalPeriods = 1;
-        } else {
             pDevice->playback.internalPeriods = pDevice->playback.internalBufferSizeInFrames / framesPerPeriod;
+        } else {
+            pDevice->playback.internalPeriods = 1;
         }
     }
 
@@ -23165,6 +23173,17 @@ ma_result ma_device_init__aaudio(ma_context* pContext, const ma_device_config* p
                 ma_close_stream__aaudio(pDevice->pContext, (ma_AAudioStream*)pDevice->aaudio.pStreamPlayback);
             }
             return ma_post_error(pDevice, MA_LOG_LEVEL_ERROR, "[AAudio] Failed to initialize ring buffer.", result);
+        }
+
+        /* We need a period to act as a buffer for cases where the playback and capture device's end up desyncing. */
+        {
+            ma_uint32 marginSizeInFrames = rbSizeInFrames / pDevice->capture.internalPeriods;
+            void* pMarginData;
+            ma_pcm_rb_acquire_write(&pDevice->aaudio.duplexRB, &marginSizeInFrames, &pMarginData);
+            {
+                ma_zero_memory(pMarginData, marginSizeInFrames * ma_get_bytes_per_frame(pDevice->capture.format, pDevice->capture.channels));
+            }
+            ma_pcm_rb_commit_write(&pDevice->aaudio.duplexRB, marginSizeInFrames, pMarginData);
         }
     }
 
@@ -24163,6 +24182,17 @@ ma_result ma_device_init__opensl(ma_context* pContext, const ma_device_config* p
             ma_device_uninit__opensl(pDevice);
             return ma_post_error(pDevice, MA_LOG_LEVEL_ERROR, "[OpenSL] Failed to initialize ring buffer.", result);
         }
+
+        /* We need a period to act as a buffer for cases where the playback and capture device's end up desyncing. */
+        {
+            ma_uint32 marginSizeInFrames = rbSizeInFrames / pDevice->capture.internalPeriods;
+            void* pMarginData;
+            ma_pcm_rb_acquire_write(&pDevice->opensl.duplexRB, &marginSizeInFrames, &pMarginData);
+            {
+                ma_zero_memory(pMarginData, marginSizeInFrames * ma_get_bytes_per_frame(pDevice->capture.format, pDevice->capture.channels));
+            }
+            ma_pcm_rb_commit_write(&pDevice->opensl.duplexRB, marginSizeInFrames, pMarginData);
+        }
     }
 
     return MA_SUCCESS;
@@ -24767,6 +24797,17 @@ ma_result ma_device_init__webaudio(ma_context* pContext, const ma_device_config*
                 ma_device_uninit_by_index__webaudio(pDevice, ma_device_type_playback, pDevice->webaudio.indexPlayback);
             }
             return result;
+        }
+
+        /* We need a period to act as a buffer for cases where the playback and capture device's end up desyncing. */
+        {
+            ma_uint32 marginSizeInFrames = rbSizeInFrames / 3;  /* <-- Dividing by 3 because internalPeriods is always set to 1 for WebAudio. */
+            void* pMarginData;
+            ma_pcm_rb_acquire_write(&pDevice->webaudio.duplexRB, &marginSizeInFrames, &pMarginData);
+            {
+                ma_zero_memory(pMarginData, marginSizeInFrames * ma_get_bytes_per_frame(pDevice->capture.format, pDevice->capture.channels));
+            }
+            ma_pcm_rb_commit_write(&pDevice->webaudio.duplexRB, marginSizeInFrames, pMarginData);
         }
     }
 
