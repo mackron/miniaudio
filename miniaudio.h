@@ -2199,6 +2199,7 @@ struct ma_context
             ma_proc AudioObjectGetPropertyDataSize;
             ma_proc AudioObjectSetPropertyData;
             ma_proc AudioObjectAddPropertyListener;
+            ma_proc AudioObjectRemovePropertyListener;
             
             ma_handle hAudioUnit;  /* Could possibly be set to AudioToolbox on later versions of macOS. */
             ma_proc AudioComponentFindNext;
@@ -17343,6 +17344,7 @@ typedef OSStatus (* ma_AudioObjectGetPropertyData_proc)(AudioObjectID inObjectID
 typedef OSStatus (* ma_AudioObjectGetPropertyDataSize_proc)(AudioObjectID inObjectID, const AudioObjectPropertyAddress* inAddress, UInt32 inQualifierDataSize, const void* inQualifierData, UInt32* outDataSize);
 typedef OSStatus (* ma_AudioObjectSetPropertyData_proc)(AudioObjectID inObjectID, const AudioObjectPropertyAddress* inAddress, UInt32 inQualifierDataSize, const void* inQualifierData, UInt32 inDataSize, const void* inData);
 typedef OSStatus (* ma_AudioObjectAddPropertyListener_proc)(AudioObjectID inObjectID, const AudioObjectPropertyAddress* inAddress, AudioObjectPropertyListenerProc inListener, void* inClientData);
+typedef OSStatus (* ma_AudioObjectRemovePropertyListener_proc)(AudioObjectID inObjectID, const AudioObjectPropertyAddress* inAddress, AudioObjectPropertyListenerProc inListener, void* inClientData);
 #endif
 
 /* AudioToolbox */
@@ -18733,28 +18735,6 @@ ma_result ma_context_get_device_info__coreaudio(ma_context* pContext, ma_device_
 }
 
 
-void ma_device_uninit__coreaudio(ma_device* pDevice)
-{
-    ma_assert(pDevice != NULL);
-    ma_assert(ma_device__get_state(pDevice) == MA_STATE_UNINITIALIZED);
-    
-    if (pDevice->coreaudio.audioUnitCapture != NULL) {
-        ((ma_AudioComponentInstanceDispose_proc)pDevice->pContext->coreaudio.AudioComponentInstanceDispose)((AudioUnit)pDevice->coreaudio.audioUnitCapture);
-    }
-    if (pDevice->coreaudio.audioUnitPlayback != NULL) {
-        ((ma_AudioComponentInstanceDispose_proc)pDevice->pContext->coreaudio.AudioComponentInstanceDispose)((AudioUnit)pDevice->coreaudio.audioUnitPlayback);
-    }
-    
-    if (pDevice->coreaudio.pAudioBufferList) {
-        ma_free(pDevice->coreaudio.pAudioBufferList);
-    }
-
-    if (pDevice->type == ma_device_type_duplex) {
-        ma_pcm_rb_uninit(&pDevice->coreaudio.duplexRB);
-    }
-}
-
-
 OSStatus ma_on_output__coreaudio(void* pUserData, AudioUnitRenderActionFlags* pActionFlags, const AudioTimeStamp* pTimeStamp, UInt32 busNumber, UInt32 frameCount, AudioBufferList* pBufferList)
 {
     ma_device* pDevice = (ma_device*)pUserData;
@@ -19027,10 +19007,15 @@ void on_start_stop__coreaudio(void* pUserData, AudioUnit audioUnit, AudioUnitPro
 }
 
 #if defined(MA_APPLE_DESKTOP)
+static ma_uint32   g_DeviceTrackingInitCounter_CoreAudio = 0;
+static ma_mutex    g_DeviceTrackingMutex_CoreAudio;
+static ma_device** g_ppTrackedDevices_CoreAudio = NULL;
+static ma_uint32   g_TrackedDeviceCap_CoreAudio = 0;
+static ma_uint32   g_TrackedDeviceCount_CoreAudio = 0;
+
 OSStatus ma_default_device_changed__coreaudio(AudioObjectID objectID, UInt32 addressCount, const AudioObjectPropertyAddress* pAddresses, void* pUserData)
 {
-    ma_device* pDevice = (ma_device*)pUserData;
-    ma_assert(pDevice != NULL);
+    ma_device_type deviceType;
     
     /* Not sure if I really need to check this, but it makes me feel better. */
     if (addressCount == 0) {
@@ -19038,55 +19023,222 @@ OSStatus ma_default_device_changed__coreaudio(AudioObjectID objectID, UInt32 add
     }
     
     if (pAddresses[0].mSelector == kAudioHardwarePropertyDefaultOutputDevice) {
-        ma_result reinitResult;
-
-        pDevice->coreaudio.isSwitchingPlaybackDevice = MA_TRUE;
-        reinitResult = ma_device_reinit_internal__coreaudio(pDevice, ma_device_type_playback, MA_TRUE);
-        pDevice->coreaudio.isSwitchingPlaybackDevice = MA_FALSE;
-        
-        if (reinitResult == MA_SUCCESS) {
-            ma_device__post_init_setup(pDevice, ma_device_type_playback);
-            
-            /* Restart the device if required. If this fails we need to stop the device entirely. */
-            if (ma_device__get_state(pDevice) == MA_STATE_STARTED) {
-                OSStatus status = ((ma_AudioOutputUnitStart_proc)pDevice->pContext->coreaudio.AudioOutputUnitStart)((AudioUnit)pDevice->coreaudio.audioUnitPlayback);
-                if (status != noErr) {
-                    if (pDevice->type == ma_device_type_duplex) {
-                        ((ma_AudioOutputUnitStop_proc)pDevice->pContext->coreaudio.AudioOutputUnitStop)((AudioUnit)pDevice->coreaudio.audioUnitCapture);
-                    }
-                    ma_device__set_state(pDevice, MA_STATE_STOPPED);
-                }
-            }
-        }
+        deviceType = ma_device_type_playback;
+    } else if (pAddresses[0].mSelector == kAudioHardwarePropertyDefaultInputDevice) {
+        deviceType = ma_device_type_capture;
+    } else {
+        return noErr;   /* Should never hit this. */
     }
     
-    if (pAddresses[0].mSelector == kAudioHardwarePropertyDefaultInputDevice) {
-        ma_result reinitResult;
-
-        pDevice->coreaudio.isSwitchingPlaybackDevice = MA_TRUE;
-        reinitResult = ma_device_reinit_internal__coreaudio(pDevice, ma_device_type_capture, MA_TRUE);
-        pDevice->coreaudio.isSwitchingPlaybackDevice = MA_FALSE;
-        
-        if (reinitResult == MA_SUCCESS) {
-            ma_device__post_init_setup(pDevice, ma_device_type_capture);
+    ma_mutex_lock(&g_DeviceTrackingMutex_CoreAudio);
+    {
+        ma_uint32 iDevice;
+        for (iDevice = 0; iDevice < g_TrackedDeviceCount_CoreAudio; iDevice += 1) {
+            ma_result reinitResult;
+            ma_device* pDevice;
             
-            /* Restart the device if required. If this fails we need to stop the device entirely. */
-            if (ma_device__get_state(pDevice) == MA_STATE_STARTED) {
-                OSStatus status = ((ma_AudioOutputUnitStart_proc)pDevice->pContext->coreaudio.AudioOutputUnitStart)((AudioUnit)pDevice->coreaudio.audioUnitCapture);
-                if (status != noErr) {
-                    if (pDevice->type == ma_device_type_duplex) {
-                        ((ma_AudioOutputUnitStop_proc)pDevice->pContext->coreaudio.AudioOutputUnitStop)((AudioUnit)pDevice->coreaudio.audioUnitPlayback);
+            pDevice = g_ppTrackedDevices_CoreAudio[iDevice];
+            if (pDevice->type == deviceType || pDevice->type == ma_device_type_duplex) {
+                if (deviceType == ma_device_type_playback) {
+                    pDevice->coreaudio.isSwitchingPlaybackDevice = MA_TRUE;
+                    reinitResult = ma_device_reinit_internal__coreaudio(pDevice, deviceType, MA_TRUE);
+                    pDevice->coreaudio.isSwitchingPlaybackDevice = MA_FALSE;
+                } else {
+                    pDevice->coreaudio.isSwitchingCaptureDevice = MA_TRUE;
+                    reinitResult = ma_device_reinit_internal__coreaudio(pDevice, deviceType, MA_TRUE);
+                    pDevice->coreaudio.isSwitchingCaptureDevice = MA_FALSE;
+                }
+                
+                if (reinitResult == MA_SUCCESS) {
+                    ma_device__post_init_setup(pDevice, deviceType);
+            
+                    /* Restart the device if required. If this fails we need to stop the device entirely. */
+                    if (ma_device__get_state(pDevice) == MA_STATE_STARTED) {
+                        OSStatus status;
+                        if (deviceType == ma_device_type_playback) {
+                            status = ((ma_AudioOutputUnitStart_proc)pDevice->pContext->coreaudio.AudioOutputUnitStart)((AudioUnit)pDevice->coreaudio.audioUnitPlayback);
+                            if (status != noErr) {
+                                if (pDevice->type == ma_device_type_duplex) {
+                                    ((ma_AudioOutputUnitStop_proc)pDevice->pContext->coreaudio.AudioOutputUnitStop)((AudioUnit)pDevice->coreaudio.audioUnitCapture);
+                                }
+                                ma_device__set_state(pDevice, MA_STATE_STOPPED);
+                            }
+                        } else if (deviceType == ma_device_type_capture) {
+                            status = ((ma_AudioOutputUnitStart_proc)pDevice->pContext->coreaudio.AudioOutputUnitStart)((AudioUnit)pDevice->coreaudio.audioUnitCapture);
+                            if (status != noErr) {
+                                if (pDevice->type == ma_device_type_duplex) {
+                                    ((ma_AudioOutputUnitStop_proc)pDevice->pContext->coreaudio.AudioOutputUnitStop)((AudioUnit)pDevice->coreaudio.audioUnitPlayback);
+                                }
+                                ma_device__set_state(pDevice, MA_STATE_STOPPED);
+                            }
+                        }
                     }
-                    ma_device__set_state(pDevice, MA_STATE_STOPPED);
                 }
             }
         }
     }
+    ma_mutex_unlock(&g_DeviceTrackingMutex_CoreAudio);
     
     (void)objectID; /* Unused. */
     return noErr;
 }
+
+static ma_result ma_context__init_device_tracking__coreaudio(ma_context* pContext)
+{
+    ma_assert(pContext != NULL);
+    
+    if (ma_atomic_increment_32(&g_DeviceTrackingInitCounter_CoreAudio) == 1) {
+        AudioObjectPropertyAddress propAddress;
+        propAddress.mScope    = kAudioObjectPropertyScopeGlobal;
+        propAddress.mElement  = kAudioObjectPropertyElementMaster;
+        
+        ma_mutex_init(pContext, &g_DeviceTrackingMutex_CoreAudio);
+        
+        propAddress.mSelector = kAudioHardwarePropertyDefaultInputDevice;
+        ((ma_AudioObjectAddPropertyListener_proc)pContext->coreaudio.AudioObjectAddPropertyListener)(kAudioObjectSystemObject, &propAddress, &ma_default_device_changed__coreaudio, NULL);
+        
+        propAddress.mSelector = kAudioHardwarePropertyDefaultOutputDevice;
+        ((ma_AudioObjectAddPropertyListener_proc)pContext->coreaudio.AudioObjectAddPropertyListener)(kAudioObjectSystemObject, &propAddress, &ma_default_device_changed__coreaudio, NULL);
+    }
+    
+    return MA_SUCCESS;
+}
+
+static ma_result ma_context__uninit_device_tracking__coreaudio(ma_context* pContext)
+{
+    ma_assert(pContext != NULL);
+    
+    if (ma_atomic_decrement_32(&g_DeviceTrackingInitCounter_CoreAudio) == 0) {
+        AudioObjectPropertyAddress propAddress;
+        propAddress.mScope    = kAudioObjectPropertyScopeGlobal;
+        propAddress.mElement  = kAudioObjectPropertyElementMaster;
+        
+        propAddress.mSelector = kAudioHardwarePropertyDefaultInputDevice;
+        ((ma_AudioObjectRemovePropertyListener_proc)pContext->coreaudio.AudioObjectRemovePropertyListener)(kAudioObjectSystemObject, &propAddress, &ma_default_device_changed__coreaudio, NULL);
+        
+        propAddress.mSelector = kAudioHardwarePropertyDefaultOutputDevice;
+        ((ma_AudioObjectRemovePropertyListener_proc)pContext->coreaudio.AudioObjectRemovePropertyListener)(kAudioObjectSystemObject, &propAddress, &ma_default_device_changed__coreaudio, NULL);
+        
+        /* At this point there should be no tracked devices. If so there's an error somewhere. */
+        ma_assert(g_ppTrackedDevices_CoreAudio == NULL);
+        ma_assert(g_TrackedDeviceCount_CoreAudio == 0);
+        
+        ma_mutex_uninit(&g_DeviceTrackingMutex_CoreAudio);
+    }
+    
+    return MA_SUCCESS;
+}
+
+static ma_result ma_device__track__coreaudio(ma_device* pDevice)
+{
+    ma_result result;
+
+    ma_assert(pDevice != NULL);
+    
+    result = ma_context__init_device_tracking__coreaudio(pDevice->pContext);
+    if (result != MA_SUCCESS) {
+        return result;
+    }
+    
+    ma_mutex_lock(&g_DeviceTrackingMutex_CoreAudio);
+    {
+        /* Allocate memory if required. */
+        if (g_TrackedDeviceCap_CoreAudio <= g_TrackedDeviceCount_CoreAudio) {
+            ma_uint32 newCap;
+            ma_device** ppNewDevices;
+            
+            newCap = g_TrackedDeviceCap_CoreAudio * 2;
+            if (newCap == 0) {
+                newCap = 1;
+            }
+            
+            ppNewDevices = (ma_device**)ma_realloc(g_ppTrackedDevices_CoreAudio, sizeof(*g_ppTrackedDevices_CoreAudio) * newCap);
+            if (ppNewDevices == NULL) {
+                ma_mutex_unlock(&g_DeviceTrackingMutex_CoreAudio);
+                return MA_OUT_OF_MEMORY;
+            }
+            
+            g_ppTrackedDevices_CoreAudio = ppNewDevices;
+            g_TrackedDeviceCap_CoreAudio = newCap;
+        }
+        
+        g_ppTrackedDevices_CoreAudio[g_TrackedDeviceCount_CoreAudio] = pDevice;
+        g_TrackedDeviceCount_CoreAudio += 1;
+    }
+    ma_mutex_unlock(&g_DeviceTrackingMutex_CoreAudio);
+    
+    return MA_SUCCESS;
+}
+
+static ma_result ma_device__untrack__coreaudio(ma_device* pDevice)
+{
+    ma_result result;
+    
+    ma_assert(pDevice != NULL);
+    
+    ma_mutex_lock(&g_DeviceTrackingMutex_CoreAudio);
+    {
+        ma_uint32 iDevice;
+        for (iDevice = 0; iDevice < g_TrackedDeviceCount_CoreAudio; iDevice += 1) {
+            if (g_ppTrackedDevices_CoreAudio[iDevice] == pDevice) {
+                /* We've found the device. We now need to remove it from the list. */
+                ma_uint32 jDevice;
+                for (jDevice = iDevice; jDevice < g_TrackedDeviceCount_CoreAudio-1; jDevice += 1) {
+                    g_ppTrackedDevices_CoreAudio[jDevice] = g_ppTrackedDevices_CoreAudio[jDevice+1];
+                }
+                
+                g_TrackedDeviceCount_CoreAudio -= 1;
+                
+                /* If there's nothing else in the list we need to free memory. */
+                if (g_TrackedDeviceCount_CoreAudio == 0) {
+                    ma_free(g_ppTrackedDevices_CoreAudio);
+                    g_ppTrackedDevices_CoreAudio = NULL;
+                    g_TrackedDeviceCap_CoreAudio = 0;
+                }
+            
+                break;
+            }
+        }
+    }
+    ma_mutex_unlock(&g_DeviceTrackingMutex_CoreAudio);
+
+    result = ma_context__uninit_device_tracking__coreaudio(pDevice->pContext);
+    if (result != MA_SUCCESS) {
+        return result;
+    }
+    
+    return MA_SUCCESS;
+}
 #endif
+
+void ma_device_uninit__coreaudio(ma_device* pDevice)
+{
+    ma_assert(pDevice != NULL);
+    ma_assert(ma_device__get_state(pDevice) == MA_STATE_UNINITIALIZED);
+    
+#if defined(MA_APPLE_DESKTOP)
+    /*
+    Make sure we're no longer tracking the device. It doesn't matter if we call this for a non-default device because it'll
+    just gracefully ignore it.
+    */
+    ma_device__untrack__coreaudio(pDevice);
+#endif
+    
+    if (pDevice->coreaudio.audioUnitCapture != NULL) {
+        ((ma_AudioComponentInstanceDispose_proc)pDevice->pContext->coreaudio.AudioComponentInstanceDispose)((AudioUnit)pDevice->coreaudio.audioUnitCapture);
+    }
+    if (pDevice->coreaudio.audioUnitPlayback != NULL) {
+        ((ma_AudioComponentInstanceDispose_proc)pDevice->pContext->coreaudio.AudioComponentInstanceDispose)((AudioUnit)pDevice->coreaudio.audioUnitPlayback);
+    }
+    
+    if (pDevice->coreaudio.pAudioBufferList) {
+        ma_free(pDevice->coreaudio.pAudioBufferList);
+    }
+
+    if (pDevice->type == ma_device_type_duplex) {
+        ma_pcm_rb_uninit(&pDevice->coreaudio.duplexRB);
+    }
+}
 
 typedef struct
 {
@@ -19486,14 +19638,7 @@ ma_result ma_device_reinit_internal__coreaudio(ma_device* pDevice, ma_device_typ
         if (pDevice->coreaudio.pAudioBufferList) {
             ma_free(pDevice->coreaudio.pAudioBufferList);
         }
-        
-    #if defined(MA_APPLE_DESKTOP)
-        pDevice->coreaudio.deviceObjectIDCapture = (ma_uint32)data.deviceObjectID;
-    #endif
-        pDevice->coreaudio.audioUnitCapture = (ma_ptr)data.audioUnit;
-        pDevice->coreaudio.pAudioBufferList = (ma_ptr)data.pAudioBufferList;
-    }
-    if (deviceType == ma_device_type_playback) {
+    } else if (deviceType == ma_device_type_playback) {
         data.formatIn               = pDevice->playback.format;
         data.channelsIn             = pDevice->playback.channels;
         data.sampleRateIn           = pDevice->sampleRate;
@@ -19509,11 +19654,6 @@ ma_result ma_device_reinit_internal__coreaudio(ma_device* pDevice, ma_device_typ
             ((ma_AudioOutputUnitStop_proc)pDevice->pContext->coreaudio.AudioOutputUnitStop)((AudioUnit)pDevice->coreaudio.audioUnitPlayback);
             ((ma_AudioComponentInstanceDispose_proc)pDevice->pContext->coreaudio.AudioComponentInstanceDispose)((AudioUnit)pDevice->coreaudio.audioUnitPlayback);
         }
-        
-    #if defined(MA_APPLE_DESKTOP)
-        pDevice->coreaudio.deviceObjectIDPlayback = (ma_uint32)data.deviceObjectID;
-    #endif
-        pDevice->coreaudio.audioUnitPlayback = (ma_ptr)data.audioUnit;
     }
     data.bufferSizeInFramesIn       = pDevice->coreaudio.originalBufferSizeInFrames;
     data.bufferSizeInMillisecondsIn = pDevice->coreaudio.originalBufferSizeInMilliseconds;
@@ -19522,6 +19662,33 @@ ma_result ma_device_reinit_internal__coreaudio(ma_device* pDevice, ma_device_typ
     result = ma_device_init_internal__coreaudio(pDevice->pContext, deviceType, NULL, &data, (void*)pDevice);
     if (result != MA_SUCCESS) {
         return result;
+    }
+    
+    if (deviceType == ma_device_type_capture) {
+    #if defined(MA_APPLE_DESKTOP)
+        pDevice->coreaudio.deviceObjectIDCapture = (ma_uint32)data.deviceObjectID;
+    #endif
+        pDevice->coreaudio.audioUnitCapture = (ma_ptr)data.audioUnit;
+        pDevice->coreaudio.pAudioBufferList = (ma_ptr)data.pAudioBufferList;
+        
+        pDevice->capture.internalFormat             = data.formatOut;
+        pDevice->capture.internalChannels           = data.channelsOut;
+        pDevice->capture.internalSampleRate         = data.sampleRateOut;
+        ma_copy_memory(pDevice->capture.internalChannelMap, data.channelMapOut, sizeof(data.channelMapOut));
+        pDevice->capture.internalBufferSizeInFrames = data.bufferSizeInFramesOut;
+        pDevice->capture.internalPeriods            = data.periodsOut;
+    } else if (deviceType == ma_device_type_playback) {
+    #if defined(MA_APPLE_DESKTOP)
+        pDevice->coreaudio.deviceObjectIDPlayback = (ma_uint32)data.deviceObjectID;
+    #endif
+        pDevice->coreaudio.audioUnitPlayback = (ma_ptr)data.audioUnit;
+        
+        pDevice->playback.internalFormat             = data.formatOut;
+        pDevice->playback.internalChannels           = data.channelsOut;
+        pDevice->playback.internalSampleRate         = data.sampleRateOut;
+        ma_copy_memory(pDevice->playback.internalChannelMap, data.channelMapOut, sizeof(data.channelMapOut));
+        pDevice->playback.internalBufferSizeInFrames = data.bufferSizeInFramesOut;
+        pDevice->playback.internalPeriods            = data.periodsOut;
     }
     
     return MA_SUCCESS;
@@ -19581,18 +19748,13 @@ ma_result ma_device_init__coreaudio(ma_context* pContext, const ma_device_config
         pDevice->capture.internalBufferSizeInFrames = data.bufferSizeInFramesOut;
         pDevice->capture.internalPeriods            = data.periodsOut;
         
-        /* TODO: This needs to be made global. */
     #if defined(MA_APPLE_DESKTOP)
         /*
         If we are using the default device we'll need to listen for changes to the system's default device so we can seemlessly
         switch the device in the background.
         */
         if (pConfig->capture.pDeviceID == NULL) {
-            AudioObjectPropertyAddress propAddress;
-            propAddress.mSelector = kAudioHardwarePropertyDefaultInputDevice;
-            propAddress.mScope    = kAudioObjectPropertyScopeGlobal;
-            propAddress.mElement  = kAudioObjectPropertyElementMaster;
-            ((ma_AudioObjectAddPropertyListener_proc)pDevice->pContext->coreaudio.AudioObjectAddPropertyListener)(kAudioObjectSystemObject, &propAddress, &ma_default_device_changed__coreaudio, pDevice);
+            ma_device__track__coreaudio(pDevice);
         }
     #endif
     }
@@ -19646,18 +19808,13 @@ ma_result ma_device_init__coreaudio(ma_context* pContext, const ma_device_config
         pDevice->playback.internalBufferSizeInFrames = data.bufferSizeInFramesOut;
         pDevice->playback.internalPeriods            = data.periodsOut;
         
-        /* TODO: This needs to be made global. */
     #if defined(MA_APPLE_DESKTOP)
         /*
         If we are using the default device we'll need to listen for changes to the system's default device so we can seemlessly
         switch the device in the background.
         */
-        if (pConfig->playback.pDeviceID == NULL) {
-            AudioObjectPropertyAddress propAddress;
-            propAddress.mSelector = kAudioHardwarePropertyDefaultOutputDevice;
-            propAddress.mScope    = kAudioObjectPropertyScopeGlobal;
-            propAddress.mElement  = kAudioObjectPropertyElementMaster;
-            ((ma_AudioObjectAddPropertyListener_proc)pDevice->pContext->coreaudio.AudioObjectAddPropertyListener)(kAudioObjectSystemObject, &propAddress, &ma_default_device_changed__coreaudio, pDevice);
+        if (pConfig->playback.pDeviceID == NULL && (pConfig->deviceType != ma_device_type_duplex || pConfig->capture.pDeviceID != NULL)) {
+            ma_device__track__coreaudio(pDevice);
         }
     #endif
     }
@@ -19785,10 +19942,11 @@ ma_result ma_context_init__coreaudio(const ma_context_config* pConfig, ma_contex
         return MA_API_NOT_FOUND;
     }
     
-    pContext->coreaudio.AudioObjectGetPropertyData     = ma_dlsym(pContext, pContext->coreaudio.hCoreAudio, "AudioObjectGetPropertyData");
-    pContext->coreaudio.AudioObjectGetPropertyDataSize = ma_dlsym(pContext, pContext->coreaudio.hCoreAudio, "AudioObjectGetPropertyDataSize");
-    pContext->coreaudio.AudioObjectSetPropertyData     = ma_dlsym(pContext, pContext->coreaudio.hCoreAudio, "AudioObjectSetPropertyData");
-    pContext->coreaudio.AudioObjectAddPropertyListener = ma_dlsym(pContext, pContext->coreaudio.hCoreAudio, "AudioObjectAddPropertyListener");
+    pContext->coreaudio.AudioObjectGetPropertyData        = ma_dlsym(pContext, pContext->coreaudio.hCoreAudio, "AudioObjectGetPropertyData");
+    pContext->coreaudio.AudioObjectGetPropertyDataSize    = ma_dlsym(pContext, pContext->coreaudio.hCoreAudio, "AudioObjectGetPropertyDataSize");
+    pContext->coreaudio.AudioObjectSetPropertyData        = ma_dlsym(pContext, pContext->coreaudio.hCoreAudio, "AudioObjectSetPropertyData");
+    pContext->coreaudio.AudioObjectAddPropertyListener    = ma_dlsym(pContext, pContext->coreaudio.hCoreAudio, "AudioObjectAddPropertyListener");
+    pContext->coreaudio.AudioObjectRemovePropertyListener = ma_dlsym(pContext, pContext->coreaudio.hCoreAudio, "AudioObjectRemovePropertyListener");
 
     /*
     It looks like Apple has moved some APIs from AudioUnit into AudioToolbox on more recent versions of macOS. They are still
@@ -19814,39 +19972,40 @@ ma_result ma_context_init__coreaudio(const ma_context_config* pConfig, ma_contex
         }
     }
     
-    pContext->coreaudio.AudioComponentFindNext         = ma_dlsym(pContext, pContext->coreaudio.hAudioUnit, "AudioComponentFindNext");
-    pContext->coreaudio.AudioComponentInstanceDispose  = ma_dlsym(pContext, pContext->coreaudio.hAudioUnit, "AudioComponentInstanceDispose");
-    pContext->coreaudio.AudioComponentInstanceNew      = ma_dlsym(pContext, pContext->coreaudio.hAudioUnit, "AudioComponentInstanceNew");
-    pContext->coreaudio.AudioOutputUnitStart           = ma_dlsym(pContext, pContext->coreaudio.hAudioUnit, "AudioOutputUnitStart");
-    pContext->coreaudio.AudioOutputUnitStop            = ma_dlsym(pContext, pContext->coreaudio.hAudioUnit, "AudioOutputUnitStop");
-    pContext->coreaudio.AudioUnitAddPropertyListener   = ma_dlsym(pContext, pContext->coreaudio.hAudioUnit, "AudioUnitAddPropertyListener");
-    pContext->coreaudio.AudioUnitGetPropertyInfo       = ma_dlsym(pContext, pContext->coreaudio.hAudioUnit, "AudioUnitGetPropertyInfo");
-    pContext->coreaudio.AudioUnitGetProperty           = ma_dlsym(pContext, pContext->coreaudio.hAudioUnit, "AudioUnitGetProperty");
-    pContext->coreaudio.AudioUnitSetProperty           = ma_dlsym(pContext, pContext->coreaudio.hAudioUnit, "AudioUnitSetProperty");
-    pContext->coreaudio.AudioUnitInitialize            = ma_dlsym(pContext, pContext->coreaudio.hAudioUnit, "AudioUnitInitialize");
-    pContext->coreaudio.AudioUnitRender                = ma_dlsym(pContext, pContext->coreaudio.hAudioUnit, "AudioUnitRender");
+    pContext->coreaudio.AudioComponentFindNext            = ma_dlsym(pContext, pContext->coreaudio.hAudioUnit, "AudioComponentFindNext");
+    pContext->coreaudio.AudioComponentInstanceDispose     = ma_dlsym(pContext, pContext->coreaudio.hAudioUnit, "AudioComponentInstanceDispose");
+    pContext->coreaudio.AudioComponentInstanceNew         = ma_dlsym(pContext, pContext->coreaudio.hAudioUnit, "AudioComponentInstanceNew");
+    pContext->coreaudio.AudioOutputUnitStart              = ma_dlsym(pContext, pContext->coreaudio.hAudioUnit, "AudioOutputUnitStart");
+    pContext->coreaudio.AudioOutputUnitStop               = ma_dlsym(pContext, pContext->coreaudio.hAudioUnit, "AudioOutputUnitStop");
+    pContext->coreaudio.AudioUnitAddPropertyListener      = ma_dlsym(pContext, pContext->coreaudio.hAudioUnit, "AudioUnitAddPropertyListener");
+    pContext->coreaudio.AudioUnitGetPropertyInfo          = ma_dlsym(pContext, pContext->coreaudio.hAudioUnit, "AudioUnitGetPropertyInfo");
+    pContext->coreaudio.AudioUnitGetProperty              = ma_dlsym(pContext, pContext->coreaudio.hAudioUnit, "AudioUnitGetProperty");
+    pContext->coreaudio.AudioUnitSetProperty              = ma_dlsym(pContext, pContext->coreaudio.hAudioUnit, "AudioUnitSetProperty");
+    pContext->coreaudio.AudioUnitInitialize               = ma_dlsym(pContext, pContext->coreaudio.hAudioUnit, "AudioUnitInitialize");
+    pContext->coreaudio.AudioUnitRender                   = ma_dlsym(pContext, pContext->coreaudio.hAudioUnit, "AudioUnitRender");
 #else
-    pContext->coreaudio.CFStringGetCString             = (ma_proc)CFStringGetCString;
-    pContext->coreaudio.CFRelease                      = (ma_proc)CFRelease;
+    pContext->coreaudio.CFStringGetCString                = (ma_proc)CFStringGetCString;
+    pContext->coreaudio.CFRelease                         = (ma_proc)CFRelease;
     
     #if defined(MA_APPLE_DESKTOP)
-    pContext->coreaudio.AudioObjectGetPropertyData     = (ma_proc)AudioObjectGetPropertyData;
-    pContext->coreaudio.AudioObjectGetPropertyDataSize = (ma_proc)AudioObjectGetPropertyDataSize;
-    pContext->coreaudio.AudioObjectSetPropertyData     = (ma_proc)AudioObjectSetPropertyData;
-    pContext->coreaudio.AudioObjectAddPropertyListener = (ma_proc)AudioObjectAddPropertyListener;
+    pContext->coreaudio.AudioObjectGetPropertyData        = (ma_proc)AudioObjectGetPropertyData;
+    pContext->coreaudio.AudioObjectGetPropertyDataSize    = (ma_proc)AudioObjectGetPropertyDataSize;
+    pContext->coreaudio.AudioObjectSetPropertyData        = (ma_proc)AudioObjectSetPropertyData;
+    pContext->coreaudio.AudioObjectAddPropertyListener    = (ma_proc)AudioObjectAddPropertyListener;
+    pContext->coreaudio.AudioObjectRemovePropertyListener = (ma_proc)AudioObjectRemovePropertyListener;
     #endif
     
-    pContext->coreaudio.AudioComponentFindNext         = (ma_proc)AudioComponentFindNext;
-    pContext->coreaudio.AudioComponentInstanceDispose  = (ma_proc)AudioComponentInstanceDispose;
-    pContext->coreaudio.AudioComponentInstanceNew      = (ma_proc)AudioComponentInstanceNew;
-    pContext->coreaudio.AudioOutputUnitStart           = (ma_proc)AudioOutputUnitStart;
-    pContext->coreaudio.AudioOutputUnitStop            = (ma_proc)AudioOutputUnitStop;
-    pContext->coreaudio.AudioUnitAddPropertyListener   = (ma_proc)AudioUnitAddPropertyListener;
-    pContext->coreaudio.AudioUnitGetPropertyInfo       = (ma_proc)AudioUnitGetPropertyInfo;
-    pContext->coreaudio.AudioUnitGetProperty           = (ma_proc)AudioUnitGetProperty;
-    pContext->coreaudio.AudioUnitSetProperty           = (ma_proc)AudioUnitSetProperty;
-    pContext->coreaudio.AudioUnitInitialize            = (ma_proc)AudioUnitInitialize;
-    pContext->coreaudio.AudioUnitRender                = (ma_proc)AudioUnitRender;
+    pContext->coreaudio.AudioComponentFindNext            = (ma_proc)AudioComponentFindNext;
+    pContext->coreaudio.AudioComponentInstanceDispose     = (ma_proc)AudioComponentInstanceDispose;
+    pContext->coreaudio.AudioComponentInstanceNew         = (ma_proc)AudioComponentInstanceNew;
+    pContext->coreaudio.AudioOutputUnitStart              = (ma_proc)AudioOutputUnitStart;
+    pContext->coreaudio.AudioOutputUnitStop               = (ma_proc)AudioOutputUnitStop;
+    pContext->coreaudio.AudioUnitAddPropertyListener      = (ma_proc)AudioUnitAddPropertyListener;
+    pContext->coreaudio.AudioUnitGetPropertyInfo          = (ma_proc)AudioUnitGetPropertyInfo;
+    pContext->coreaudio.AudioUnitGetProperty              = (ma_proc)AudioUnitGetProperty;
+    pContext->coreaudio.AudioUnitSetProperty              = (ma_proc)AudioUnitSetProperty;
+    pContext->coreaudio.AudioUnitInitialize               = (ma_proc)AudioUnitInitialize;
+    pContext->coreaudio.AudioUnitRender                   = (ma_proc)AudioUnitRender;
 #endif
 
     pContext->isBackendAsynchronous = MA_TRUE;
@@ -34675,6 +34834,7 @@ REVISION HISTORY
 v0.9.8 - 2019-xx-xx
   - WASAPI: Fix a potential deadlock when starting a full-duplex device.
   - WASAPI: Enable automatic resampling by default. Disable with config.wasapi.noAutoConvertSRC.
+  - Core Audio: Fix bugs with automatic stream routing.
   - Fix some uncommon warnings emitted by GCC when `__inline__` is undefined or defined as nothing.
 
 v0.9.7 - 2019-08-28
