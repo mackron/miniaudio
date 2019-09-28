@@ -439,11 +439,16 @@ processed per second.
 Formats
 -------
 Throughout miniaudio you will see references to different sample formats:
-    u8  - Unsigned 8-bit integer
-    s16 - Signed 16-bit integer
-    s24 - Signed 24-bit integer (tightly packed).
-    s32 - Signed 32-bit integer
-    f32 - 32-bit floating point
+
+    Symbol | Description                            | Range
+    -------|----------------------------------------|---------------------------
+    u8     | Unsigned 8-bit integer                 | [0, 255]
+    s16    | Signed 16-bit integer                  | [-32768, 32767]
+    s24    | Signed 24-bit integer (tightly packed) | [-8388608, 8388607]
+    s32    | Signed 32-bit integer                  | [-2147483648, 2147483647]
+    f32    | 32-bit floating point                  | [-1, 1]
+
+All formats are native-endian.
 */
 
 #ifndef miniaudio_h
