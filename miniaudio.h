@@ -4360,18 +4360,38 @@ void ma_split_buffer(void* pBuffer, size_t bufferSize, size_t splitCount, size_t
 Atomics
 
 ******************************************************************************/
+#if defined(__clang__)
+    #if defined(__has_builtin)
+        #if __has_builtin(__sync_swap)
+            #define MA_HAS_SYNC_SWAP
+        #endif
+    #endif
+#elif defined(__GNUC__)
+    #if __GNUC__ > 4 || (__GNUC__ == 4 && __GNUC__ >= 7)
+        #define MA_HAS_GNUC_ATOMICS
+    #endif
+#endif
+
 #if defined(_WIN32) && !defined(__GNUC__) && !defined(__clang__)
-#define ma_memory_barrier()            MemoryBarrier()
-#define ma_atomic_exchange_32(a, b)    InterlockedExchange((LONG*)a, (LONG)b)
-#define ma_atomic_exchange_64(a, b)    InterlockedExchange64((LONGLONG*)a, (LONGLONG)b)
-#define ma_atomic_increment_32(a)      InterlockedIncrement((LONG*)a)
-#define ma_atomic_decrement_32(a)      InterlockedDecrement((LONG*)a)
+#define ma_memory_barrier()             MemoryBarrier()
+#define ma_atomic_exchange_32(a, b)     InterlockedExchange((LONG*)a, (LONG)b)
+#define ma_atomic_exchange_64(a, b)     InterlockedExchange64((LONGLONG*)a, (LONGLONG)b)
+#define ma_atomic_increment_32(a)       InterlockedIncrement((LONG*)a)
+#define ma_atomic_decrement_32(a)       InterlockedDecrement((LONG*)a)
 #else
-#define ma_memory_barrier()            __sync_synchronize()
-#define ma_atomic_exchange_32(a, b)    (void)__sync_lock_test_and_set(a, b); __sync_synchronize()
-#define ma_atomic_exchange_64(a, b)    (void)__sync_lock_test_and_set(a, b); __sync_synchronize()
-#define ma_atomic_increment_32(a)      __sync_add_and_fetch(a, 1)
-#define ma_atomic_decrement_32(a)      __sync_sub_and_fetch(a, 1)
+#define ma_memory_barrier()             __sync_synchronize()
+#if defined(MA_HAS_SYNC_SWAP)
+    #define ma_atomic_exchange_32(a, b) __sync_swap(a, b)
+    #define ma_atomic_exchange_64(a, b) __sync_swap(a, b)
+#elif defined(MA_HAS_GNUC_ATOMICS)
+    #define ma_atomic_exchange_32(a, b) (void)__atomic_exchange_n(a, b, __ATOMIC_ACQ_REL)
+    #define ma_atomic_exchange_64(a, b) (void)__atomic_exchange_n(a, b, __ATOMIC_ACQ_REL)
+#else
+    #define ma_atomic_exchange_32(a, b) __sync_synchronize(); (void)__sync_lock_test_and_set(a, b)
+    #define ma_atomic_exchange_64(a, b) __sync_synchronize(); (void)__sync_lock_test_and_set(a, b)
+#endif
+#define ma_atomic_increment_32(a)       __sync_add_and_fetch(a, 1)
+#define ma_atomic_decrement_32(a)       __sync_sub_and_fetch(a, 1)
 #endif
 
 #ifdef MA_64BIT
