@@ -2385,6 +2385,7 @@ MA_ALIGNED_STRUCT(MA_SIMD_ALIGNMENT) ma_device
     ma_bool32 isOwnerOfContext        : 1;  /* When set to true, uninitializing the device will also uninitialize the context. Set to true when NULL is passed into ma_device_init(). */
     ma_bool32 noPreZeroedOutputBuffer : 1;
     ma_bool32 noClip                  : 1;
+    float masterVolumeFactor;
     struct
     {
         char name[256];                     /* Maybe temporary. Likely to be replaced with a query API. */
@@ -2912,6 +2913,59 @@ Thread Safety: SAFE
 */
 ma_bool32 ma_device_is_started(ma_device* pDevice);
 
+/*
+Sets the master volume factor for the device.
+
+The volume factor must be between 0 (silence) and 1 (full volume). Use ma_device_set_master_gain_db() to
+use decibel notation, where 0 is full volume.
+
+This applies the volume factor across all channels.
+
+Return Value
+------------
+MA_SUCCESS if the volume was set successfully.
+MA_INVALID_ARGS if pDevice is NULL.
+MA_INVALID_ARGS if the volume factor is not within the range of [0, 1].
+*/
+ma_result ma_device_set_master_volume(ma_device* pDevice, float volume);
+
+/*
+Retrieves the master volume factor for the device.
+
+Return Value
+------------
+MA_SUCCESS if successful.
+MA_INVALID_ARGS if pDevice is NULL.
+MA_INVALID_ARGS if pVolume is NULL.
+*/
+ma_result ma_device_get_master_volume(ma_device* pDevice, float* pVolume);
+
+/*
+Sets the master volume for the device as gain in decibels.
+
+A gain of 0 is full volume, whereas a gain of < 0 will decrease the volume.
+
+This applies the gain across all channels.
+
+Return Value
+------------
+MA_SUCCESS if the volume was set successfully.
+MA_INVALID_ARGS if pDevice is NULL.
+MA_INVALID_ARGS if the gain is > 0.
+*/
+ma_result ma_device_set_master_gain_db(ma_device* pDevice, float gainDB);
+
+/*
+Retrieves the master gain in decibels.
+
+Return Value
+------------
+MA_SUCCESS if successful.
+MA_INVALID_ARGS if pDevice is NULL.
+MA_INVALID_ARGS if pGainDB is NULL.
+*/
+ma_result ma_device_get_master_gain_db(ma_device* pDevice, float* pGainDB);
+
 
 /*
 Helper function for initializing a ma_context_config object.
@@ -3036,6 +3090,48 @@ Clips f32 samples.
 */
 void ma_clip_samples_f32(float* p, ma_uint32 sampleCount);
 MA_INLINE void ma_clip_pcm_frames_f32(float* p, ma_uint32 frameCount, ma_uint32 channels) { ma_clip_samples_f32(p, frameCount*channels); }
+
+/*
+Helper for applying a volume factor to samples.
+
+Note that the source and destination buffers can be the same, in which case it'll perform the operation in-place.
+*/
+void ma_copy_and_apply_volume_factor_u8(ma_uint8* pSamplesOut, const ma_uint8* pSamplesIn, ma_uint32 sampleCount, float factor);
+void ma_copy_and_apply_volume_factor_s16(ma_int16* pSamplesOut, const ma_int16* pSamplesIn, ma_uint32 sampleCount, float factor);
+void ma_copy_and_apply_volume_factor_s24(void* pSamplesOut, const void* pSamplesIn, ma_uint32 sampleCount, float factor);
+void ma_copy_and_apply_volume_factor_s32(ma_int32* pSamplesOut, const ma_int32* pSamplesIn, ma_uint32 sampleCount, float factor);
+void ma_copy_and_apply_volume_factor_f32(float* pSamplesOut, const float* pSamplesIn, ma_uint32 sampleCount, float factor);
+
+void ma_apply_volume_factor_u8(ma_uint8* pSamples, ma_uint32 sampleCount, float factor);
+void ma_apply_volume_factor_s16(ma_int16* pSamples, ma_uint32 sampleCount, float factor);
+void ma_apply_volume_factor_s24(void* pSamples, ma_uint32 sampleCount, float factor);
+void ma_apply_volume_factor_s32(ma_int32* pSamples, ma_uint32 sampleCount, float factor);
+void ma_apply_volume_factor_f32(float* pSamples, ma_uint32 sampleCount, float factor);
+
+void ma_copy_and_apply_volume_factor_pcm_frames_u8(ma_uint8* pPCMFramesOut, const ma_uint8* pPCMFramesIn, ma_uint32 frameCount, ma_uint32 channels, float factor);
+void ma_copy_and_apply_volume_factor_pcm_frames_s16(ma_int16* pPCMFramesOut, const ma_int16* pPCMFramesIn, ma_uint32 frameCount, ma_uint32 channels, float factor);
+void ma_copy_and_apply_volume_factor_pcm_frames_s24(void* pPCMFramesOut, const void* pPCMFramesIn, ma_uint32 frameCount, ma_uint32 channels, float factor);
+void ma_copy_and_apply_volume_factor_pcm_frames_s32(ma_int32* pPCMFramesOut, const ma_int32* pPCMFramesIn, ma_uint32 frameCount, ma_uint32 channels, float factor);
+void ma_copy_and_apply_volume_factor_pcm_frames_f32(float* pPCMFramesOut, const float* pPCMFramesIn, ma_uint32 frameCount, ma_uint32 channels, float factor);
+void ma_copy_and_apply_volume_factor_pcm_frames(void* pFramesOut, const void* pFramesIn, ma_uint32 frameCount, ma_format format, ma_uint32 channels, float factor);
+
+void ma_apply_volume_factor_pcm_frames_u8(ma_uint8* pFrames, ma_uint32 frameCount, ma_uint32 channels, float factor);
+void ma_apply_volume_factor_pcm_frames_s16(ma_int16* pFrames, ma_uint32 frameCount, ma_uint32 channels, float factor);
+void ma_apply_volume_factor_pcm_frames_s24(void* pFrames, ma_uint32 frameCount, ma_uint32 channels, float factor);
+void ma_apply_volume_factor_pcm_frames_s32(ma_int32* pFrames, ma_uint32 frameCount, ma_uint32 channels, float factor);
+void ma_apply_volume_factor_pcm_frames_f32(float* pFrames, ma_uint32 frameCount, ma_uint32 channels, float factor);
+void ma_apply_volume_factor_pcm_frames(void* pFrames, ma_uint32 frameCount, ma_format format, ma_uint32 channels, float factor);
+
+
+/*
+Helper for converting a linear factor to gain in decibels.
+*/
+float ma_factor_to_gain_db(float factor);
+
+/*
+Helper for converting gain in decibels to a linear factor.
+*/
+float ma_gain_db_to_factor(float gain);
 
 #endif  /* MA_NO_DEVICE_IO */
 
@@ -5322,6 +5418,188 @@ void ma_clip_samples_f32(float* p, ma_uint32 sampleCount)
 }
 
 
+void ma_copy_and_apply_volume_factor_u8(ma_uint8* pSamplesOut, const ma_uint8* pSamplesIn, ma_uint32 sampleCount, float factor)
+{
+    ma_uint32 iSample;
+
+    if (pSamplesOut == NULL || pSamplesIn == NULL) {
+        return;
+    }
+
+    for (iSample = 0; iSample < sampleCount; iSample += 1) {
+        pSamplesOut[iSample] = (ma_uint8)(pSamplesIn[iSample] * factor);
+    }
+}
+
+void ma_copy_and_apply_volume_factor_s16(ma_int16* pSamplesOut, const ma_int16* pSamplesIn, ma_uint32 sampleCount, float factor)
+{
+    ma_uint32 iSample;
+
+    if (pSamplesOut == NULL || pSamplesIn == NULL) {
+        return;
+    }
+
+    for (iSample = 0; iSample < sampleCount; iSample += 1) {
+        pSamplesOut[iSample] = (ma_int16)(pSamplesIn[iSample] * factor);
+    }
+}
+
+void ma_copy_and_apply_volume_factor_s24(void* pSamplesOut, const void* pSamplesIn, ma_uint32 sampleCount, float factor)
+{
+    ma_uint32 iSample;
+    ma_uint8* pSamplesOut8;
+    ma_uint8* pSamplesIn8;
+
+    if (pSamplesOut == NULL || pSamplesIn == NULL) {
+        return;
+    }
+
+    pSamplesOut8 = (ma_uint8*)pSamplesOut;
+    pSamplesIn8  = (ma_uint8*)pSamplesIn;
+
+    for (iSample = 0; iSample < sampleCount; iSample += 1) {
+        ma_int32 sampleS32;
+
+        sampleS32 = (ma_int32)(((ma_uint32)(pSamplesIn8[iSample*3+0]) << 8) | ((ma_uint32)(pSamplesIn8[iSample*3+1]) << 16) | ((ma_uint32)(pSamplesIn8[iSample*3+2])) << 24);
+        sampleS32 = (ma_int32)(sampleS32 * factor);
+
+        pSamplesOut8[iSample*3+0] = (ma_uint8)(((ma_uint32)sampleS32 & 0x0000FF00) >>  8);
+        pSamplesOut8[iSample*3+1] = (ma_uint8)(((ma_uint32)sampleS32 & 0x00FF0000) >> 16);
+        pSamplesOut8[iSample*3+2] = (ma_uint8)(((ma_uint32)sampleS32 & 0xFF000000) >> 24);
+    }
+}
+
+void ma_copy_and_apply_volume_factor_s32(ma_int32* pSamplesOut, const ma_int32* pSamplesIn, ma_uint32 sampleCount, float factor)
+{
+    ma_uint32 iSample;
+
+    if (pSamplesOut == NULL || pSamplesIn == NULL) {
+        return;
+    }
+
+    for (iSample = 0; iSample < sampleCount; iSample += 1) {
+        pSamplesOut[iSample] = (ma_int32)(pSamplesIn[iSample] * factor);
+    }
+}
+
+void ma_copy_and_apply_volume_factor_f32(float* pSamplesOut, const float* pSamplesIn, ma_uint32 sampleCount, float factor)
+{
+    ma_uint32 iSample;
+
+    if (pSamplesOut == NULL || pSamplesIn == NULL) {
+        return;
+    }
+
+    for (iSample = 0; iSample < sampleCount; iSample += 1) {
+        pSamplesOut[iSample] = pSamplesIn[iSample] * factor;
+    }
+}
+
+void ma_apply_volume_factor_u8(ma_uint8* pSamples, ma_uint32 sampleCount, float factor)
+{
+    ma_copy_and_apply_volume_factor_u8(pSamples, pSamples, sampleCount, factor);
+}
+
+void ma_apply_volume_factor_s16(ma_int16* pSamples, ma_uint32 sampleCount, float factor)
+{
+    ma_copy_and_apply_volume_factor_s16(pSamples, pSamples, sampleCount, factor);
+}
+
+void ma_apply_volume_factor_s24(void* pSamples, ma_uint32 sampleCount, float factor)
+{
+    ma_copy_and_apply_volume_factor_s24(pSamples, pSamples, sampleCount, factor);
+}
+
+void ma_apply_volume_factor_s32(ma_int32* pSamples, ma_uint32 sampleCount, float factor)
+{
+    ma_copy_and_apply_volume_factor_s32(pSamples, pSamples, sampleCount, factor);
+}
+
+void ma_apply_volume_factor_f32(float* pSamples, ma_uint32 sampleCount, float factor)
+{
+    ma_copy_and_apply_volume_factor_f32(pSamples, pSamples, sampleCount, factor);
+}
+
+void ma_copy_and_apply_volume_factor_pcm_frames_u8(ma_uint8* pPCMFramesOut, const ma_uint8* pPCMFramesIn, ma_uint32 frameCount, ma_uint32 channels, float factor)
+{
+    ma_copy_and_apply_volume_factor_u8(pPCMFramesOut, pPCMFramesIn, frameCount*channels, factor);
+}
+
+void ma_copy_and_apply_volume_factor_pcm_frames_s16(ma_int16* pPCMFramesOut, const ma_int16* pPCMFramesIn, ma_uint32 frameCount, ma_uint32 channels, float factor)
+{
+    ma_copy_and_apply_volume_factor_s16(pPCMFramesOut, pPCMFramesIn, frameCount*channels, factor);
+}
+
+void ma_copy_and_apply_volume_factor_pcm_frames_s24(void* pPCMFramesOut, const void* pPCMFramesIn, ma_uint32 frameCount, ma_uint32 channels, float factor)
+{
+    ma_copy_and_apply_volume_factor_s24(pPCMFramesOut, pPCMFramesIn, frameCount*channels, factor);
+}
+
+void ma_copy_and_apply_volume_factor_pcm_frames_s32(ma_int32* pPCMFramesOut, const ma_int32* pPCMFramesIn, ma_uint32 frameCount, ma_uint32 channels, float factor)
+{
+    ma_copy_and_apply_volume_factor_s32(pPCMFramesOut, pPCMFramesIn, frameCount*channels, factor);
+}
+
+void ma_copy_and_apply_volume_factor_pcm_frames_f32(float* pPCMFramesOut, const float* pPCMFramesIn, ma_uint32 frameCount, ma_uint32 channels, float factor)
+{
+    ma_copy_and_apply_volume_factor_f32(pPCMFramesOut, pPCMFramesIn, frameCount*channels, factor);
+}
+
+void ma_copy_and_apply_volume_factor_pcm_frames(void* pPCMFramesOut, const void* pPCMFramesIn, ma_uint32 frameCount, ma_format format, ma_uint32 channels, float factor)
+{
+    switch (format)
+    {
+    case ma_format_u8:  ma_copy_and_apply_volume_factor_pcm_frames_u8 ((ma_uint8*)pPCMFramesOut, (const ma_uint8*)pPCMFramesIn, frameCount, channels, factor); return;
+    case ma_format_s16: ma_copy_and_apply_volume_factor_pcm_frames_s16((ma_int16*)pPCMFramesOut, (const ma_int16*)pPCMFramesIn, frameCount, channels, factor); return;
+    case ma_format_s24: ma_copy_and_apply_volume_factor_pcm_frames_s24(           pPCMFramesOut,                  pPCMFramesIn, frameCount, channels, factor); return;
+    case ma_format_s32: ma_copy_and_apply_volume_factor_pcm_frames_s32((ma_int32*)pPCMFramesOut, (const ma_int32*)pPCMFramesIn, frameCount, channels, factor); return;
+    case ma_format_f32: ma_copy_and_apply_volume_factor_pcm_frames_f32(   (float*)pPCMFramesOut,    (const float*)pPCMFramesIn, frameCount, channels, factor); return;
+    default: return;    /* Do nothing. */
+    }
+}
+
+void ma_apply_volume_factor_pcm_frames_u8(ma_uint8* pPCMFrames, ma_uint32 frameCount, ma_uint32 channels, float factor)
+{
+    ma_copy_and_apply_volume_factor_pcm_frames_u8(pPCMFrames, pPCMFrames, frameCount, channels, factor);
+}
+
+void ma_apply_volume_factor_pcm_frames_s16(ma_int16* pPCMFrames, ma_uint32 frameCount, ma_uint32 channels, float factor)
+{
+    ma_copy_and_apply_volume_factor_pcm_frames_s16(pPCMFrames, pPCMFrames, frameCount, channels, factor);
+}
+
+void ma_apply_volume_factor_pcm_frames_s24(void* pPCMFrames, ma_uint32 frameCount, ma_uint32 channels, float factor)
+{
+    ma_copy_and_apply_volume_factor_pcm_frames_s24(pPCMFrames, pPCMFrames, frameCount, channels, factor);
+}
+
+void ma_apply_volume_factor_pcm_frames_s32(ma_int32* pPCMFrames, ma_uint32 frameCount, ma_uint32 channels, float factor)
+{
+    ma_copy_and_apply_volume_factor_pcm_frames_s32(pPCMFrames, pPCMFrames, frameCount, channels, factor);
+}
+
+void ma_apply_volume_factor_pcm_frames_f32(float* pPCMFrames, ma_uint32 frameCount, ma_uint32 channels, float factor)
+{
+    ma_copy_and_apply_volume_factor_pcm_frames_f32(pPCMFrames, pPCMFrames, frameCount, channels, factor);
+}
+
+void ma_apply_volume_factor_pcm_frames(void* pPCMFrames, ma_uint32 frameCount, ma_format format, ma_uint32 channels, float factor)
+{
+    ma_copy_and_apply_volume_factor_pcm_frames(pPCMFrames, pPCMFrames, frameCount, format, channels, factor);
+}
+
+
+float ma_factor_to_gain_db(float factor)
+{
+    return (float)(20*log10(factor));
+}
+
+float ma_gain_db_to_factor(float gain)
+{
+    return (float)pow(10, gain/20.0);
+}
+
+
 static MA_INLINE void ma_device__on_data(ma_device* pDevice, void* pFramesOut, const void* pFramesIn, ma_uint32 frameCount)
 {
     ma_device_callback_proc onData;
@@ -5332,10 +5610,39 @@ static MA_INLINE void ma_device__on_data(ma_device* pDevice, void* pFramesOut, c
             ma_zero_pcm_frames(pFramesOut, frameCount, pDevice->playback.format, pDevice->playback.channels);
         }
 
-        onData(pDevice, pFramesOut, pFramesIn, frameCount);
+        /* Volume control of input makes things a bit awkward because the input buffer is read-only. We'll need to use a temp buffer and loop in this case. */
+        if (pFramesIn != NULL && pDevice->masterVolumeFactor < 1) {
+            ma_uint8 tempFramesIn[8192];
+            ma_uint32 bpfCapture  = ma_get_bytes_per_frame(pDevice->capture.format, pDevice->capture.channels);
+            ma_uint32 bpfPlayback = ma_get_bytes_per_frame(pDevice->playback.format, pDevice->playback.channels);
+            ma_uint32 totalFramesProcessed = 0;
+            while (totalFramesProcessed < frameCount) {
+                ma_uint32 framesToProcessThisIteration = frameCount - totalFramesProcessed;
+                if (framesToProcessThisIteration > sizeof(tempFramesIn)/bpfCapture) {
+                    framesToProcessThisIteration = sizeof(tempFramesIn)/bpfCapture;
+                }
 
-        if (!pDevice->noClip && pFramesOut != NULL && pDevice->playback.format == ma_format_f32) {
-            ma_clip_pcm_frames_f32((float*)pFramesOut, frameCount, pDevice->playback.channels);
+                ma_copy_and_apply_volume_factor_pcm_frames(tempFramesIn, ma_offset_ptr(pFramesIn, totalFramesProcessed*bpfCapture), framesToProcessThisIteration, pDevice->capture.format, pDevice->capture.channels, pDevice->masterVolumeFactor);
+
+                onData(pDevice, ma_offset_ptr(pFramesOut, totalFramesProcessed*bpfPlayback), tempFramesIn, framesToProcessThisIteration);
+
+                totalFramesProcessed += framesToProcessThisIteration;
+            }
+        } else {
+            onData(pDevice, pFramesOut, pFramesIn, frameCount);
+        }
+
+        /* Volume control and clipping for playback devices. */
+        if (pFramesOut != NULL) {
+            if (pDevice->masterVolumeFactor < 1) {
+                if (pFramesIn == NULL) {    /* <-- In full-duplex situations, the volume will have been applied to the input samples before the data callback. Applying it again post-callback will incorrectly compound it. */
+                    ma_apply_volume_factor_pcm_frames(pFramesOut, frameCount, pDevice->playback.format, pDevice->playback.channels, pDevice->masterVolumeFactor);
+                }
+            }
+
+            if (!pDevice->noClip && pDevice->playback.format == ma_format_f32) {
+                ma_clip_pcm_frames_f32((float*)pFramesOut, frameCount, pDevice->playback.channels);
+            }
         }
     }
 }
@@ -25725,6 +26032,7 @@ ma_result ma_device_init(ma_context* pContext, const ma_device_config* pConfig, 
 
     pDevice->noPreZeroedOutputBuffer = config.noPreZeroedOutputBuffer;
     pDevice->noClip = config.noClip;
+    pDevice->masterVolumeFactor = 1;
 
     /*
     When passing in 0 for the format/channels/rate/chmap it means the device will be using whatever is chosen by the backend. If everything is set
@@ -26116,6 +26424,60 @@ ma_bool32 ma_device_is_started(ma_device* pDevice)
     }
 
     return ma_device__get_state(pDevice) == MA_STATE_STARTED;
+}
+
+ma_result ma_device_set_master_volume(ma_device* pDevice, float volume)
+{
+    if (pDevice == NULL) {
+        return MA_INVALID_ARGS;
+    }
+
+    if (volume < 0.0f || volume > 1.0f) {
+        return MA_INVALID_ARGS;
+    }
+
+    pDevice->masterVolumeFactor = volume;
+
+    return MA_SUCCESS;
+}
+
+ma_result ma_device_get_master_volume(ma_device* pDevice, float* pVolume)
+{
+    if (pDevice == NULL || pVolume == NULL) {
+        return MA_INVALID_ARGS;
+    }
+
+    *pVolume = pDevice->masterVolumeFactor;
+
+    return MA_SUCCESS;
+}
+
+ma_result ma_device_set_master_gain_db(ma_device* pDevice, float gainDB)
+{
+    if (gainDB > 0) {
+        return MA_INVALID_ARGS;
+    }
+
+    return ma_device_set_master_volume(pDevice, ma_gain_db_to_factor(gainDB));
+}
+
+ma_result ma_device_get_master_gain_db(ma_device* pDevice, float* pGainDB)
+{
+    float factor;
+    ma_result result;
+
+    if (pGainDB == NULL) {
+        return MA_INVALID_ARGS;
+    }
+
+    result = ma_device_get_master_volume(pDevice, &factor);
+    if (result != MA_SUCCESS) {
+        return result;
+    }
+
+    *pGainDB = ma_factor_to_gain_db(factor);
+
+    return MA_SUCCESS;
 }
 
 
@@ -34910,6 +35272,9 @@ v0.9.8 - 2019-xx-xx
   - Add support for clipping samples after the data callback has returned. This only applies when the playback sample format is
     configured as ma_format_f32. If you are doing clipping yourself, you can disable this overhead by setting noClip to true in
     the device config.
+  - Add support for master volume control for devices.
+    - Use ma_device_set_master_volume() to set the volume to a factor between 0 and 1, where 0 is silence and 1 is full volume.
+    - Use ma_device_set_master_gain_db() to set the volume in decibels where 0 is full volume and < 0 reduces the volume.
   - Fix warnings emitted by GCC when `__inline__` is undefined or defined as nothing.
 
 v0.9.7 - 2019-08-28
