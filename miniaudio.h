@@ -4232,7 +4232,7 @@ for miniaudio's purposes.
 #define MA_LCG_M   2147483647
 #define MA_LCG_A   48271
 #define MA_LCG_C   0
-static ma_int32 g_maLCG;
+static ma_int32 g_maLCG = 4321; /* Non-zero initial seed. Use ma_seed() to use an explicit seed. */
 
 void ma_seed(ma_int32 seed)
 {
@@ -4247,9 +4247,14 @@ ma_int32 ma_rand_s32()
     return r;
 }
 
+ma_uint32 ma_rand_u32()
+{
+    return (ma_uint32)ma_rand_s32();
+}
+
 double ma_rand_f64()
 {
-    return (ma_rand_s32() + 0x80000000) / (double)0x7FFFFFFF;
+    return ma_rand_s32() / (double)0x7FFFFFFF;
 }
 
 float ma_rand_f32()
@@ -4257,15 +4262,18 @@ float ma_rand_f32()
     return (float)ma_rand_f64();
 }
 
-static MA_INLINE float ma_rand_range_f32(float lo, float hi)
+float ma_rand_range_f32(float lo, float hi)
 {
     return ma_scale_to_range_f32(ma_rand_f32(), lo, hi);
 }
 
-static MA_INLINE ma_int32 ma_rand_range_s32(ma_int32 lo, ma_int32 hi)
+ma_int32 ma_rand_range_s32(ma_int32 lo, ma_int32 hi)
 {
-    double x = ma_rand_f64();
-    return lo + (ma_int32)(x*(hi-lo));
+    if (lo == hi) {
+        return lo;
+    }
+
+    return lo + ma_rand_u32() / (0xFFFFFFFF / (hi - lo + 1) + 1);
 }
 
 
