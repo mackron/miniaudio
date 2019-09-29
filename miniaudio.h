@@ -2922,6 +2922,9 @@ use decibel notation, where 0 is full volume.
 
 This applies the volume factor across all channels.
 
+This does not change the operating system's volume. It only affects the volume for the given ma_device
+object's audio stream.
+
 Return Value
 ------------
 MA_SUCCESS if the volume was set successfully.
@@ -2947,6 +2950,9 @@ Sets the master volume for the device as gain in decibels.
 A gain of 0 is full volume, whereas a gain of < 0 will decrease the volume.
 
 This applies the gain across all channels.
+
+This does not change the operating system's volume. It only affects the volume for the given ma_device
+object's audio stream.
 
 Return Value
 ------------
