@@ -461,13 +461,16 @@ All formats are native-endian.
 extern "C" {
 #endif
 
-#if defined(_MSC_VER)
+#if defined(_MSC_VER) && !defined(__clang__)
     #pragma warning(push)
     #pragma warning(disable:4201)   /* nonstandard extension used: nameless struct/union */
     #pragma warning(disable:4324)   /* structure was padded due to alignment specifier */
 #else
     #pragma GCC diagnostic push
     #pragma GCC diagnostic ignored "-Wpedantic" /* For ISO C99 doesn't support unnamed structs/unions [-Wpedantic] */
+    #if defined(__clang__)
+        #pragma GCC diagnostic ignored "-Wc11-extensions"   /* anonymous unions are a C11 extension */
+    #endif
 #endif
 
 /* Platform/backend detection. */
@@ -509,6 +512,7 @@ extern "C" {
     #if defined(__clang__)
         #pragma GCC diagnostic push
         #pragma GCC diagnostic ignored "-Wlanguage-extension-token"
+        #pragma GCC diagnostic ignored "-Wlong-long"        
         #pragma GCC diagnostic ignored "-Wc++11-long-long"
     #endif
     typedef   signed __int8  ma_int8;
@@ -765,7 +769,7 @@ typedef int ma_result;
 
 typedef enum
 {
-    ma_stream_format_pcm = 0,
+    ma_stream_format_pcm = 0
 } ma_stream_format;
 
 typedef enum
@@ -932,10 +936,7 @@ typedef struct
     ma_bool32 noNEON   : 1;
     ma_src_read_deinterleaved_proc onReadDeinterleaved;
     void* pUserData;
-    union
-    {
-        ma_src_config_sinc sinc;
-    };
+    ma_src_config_sinc sinc;
 } ma_src_config;
 
 MA_ALIGNED_STRUCT(MA_SIMD_ALIGNMENT) ma_src
@@ -1844,7 +1845,7 @@ typedef enum
 typedef enum
 {
     ma_share_mode_shared = 0,
-    ma_share_mode_exclusive,
+    ma_share_mode_exclusive
 } ma_share_mode;
 
 typedef union
@@ -2618,7 +2619,7 @@ MA_ALIGNED_STRUCT(MA_SIMD_ALIGNMENT) ma_device
 #endif
     };
 };
-#if defined(_MSC_VER)
+#if defined(_MSC_VER) && !defined(__clang__)
     #pragma warning(pop)
 #else
     #pragma GCC diagnostic pop  /* For ISO C99 doesn't support unnamed structs/unions [-Wpedantic] */
@@ -4359,7 +4360,7 @@ void ma_split_buffer(void* pBuffer, size_t bufferSize, size_t splitCount, size_t
 Atomics
 
 ******************************************************************************/
-#if defined(_WIN32) && !defined(__GNUC__)
+#if defined(_WIN32) && !defined(__GNUC__) && !defined(__clang__)
 #define ma_memory_barrier()            MemoryBarrier()
 #define ma_atomic_exchange_32(a, b)    InterlockedExchange((LONG*)a, (LONG)b)
 #define ma_atomic_exchange_64(a, b)    InterlockedExchange64((LONGLONG*)a, (LONGLONG)b)
@@ -9421,7 +9422,7 @@ ma_result ma_device_main_loop__wasapi(ma_device* pDevice)
             if (pDevice->playback.shareMode == ma_share_mode_exclusive) {
                 WaitForSingleObject(pDevice->wasapi.hEventPlayback, INFINITE);
             } else {
-                ma_uint32 prevFramesAvaialablePlayback = (size_t)-1;
+                ma_uint32 prevFramesAvaialablePlayback = (ma_uint32)-1;
                 ma_uint32 framesAvailablePlayback;
                 for (;;) {
                     result = ma_device__get_available_frames__wasapi(pDevice, (ma_IAudioClient*)pDevice->wasapi.pAudioClientPlayback, &framesAvailablePlayback);
@@ -30543,11 +30544,12 @@ void ma_channel_router__do_routing(ma_channel_router* pRouter, ma_uint64 frameCo
             }
         }
     } else if (pRouter->isStereoToMono) {
+        ma_uint64 iFrame;
+
         /* Simple case for going from stereo to mono. */
         ma_assert(pRouter->config.channelsIn == 2);
         ma_assert(pRouter->config.channelsOut == 1);
 
-        ma_uint64 iFrame;
         for (iFrame = 0; iFrame < frameCount; ++iFrame) {
             ppSamplesOut[0][iFrame] = (ppSamplesIn[0][iFrame] + ppSamplesIn[1][iFrame]) * 0.5f;
         }
