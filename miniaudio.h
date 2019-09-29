@@ -274,6 +274,9 @@ NOTES
 - The contents of the output buffer passed into the data callback will always be pre-initialized to zero
   unless the noPreZeroedOutputBuffer config variable in ma_device_config is set to true, in which case
   it'll be undefined which will require you to write something to the entire buffer.
+- By default miniaudio will automatically clip samples. This only applies when the playback sample format
+  is configured as ma_format_f32. If you are doing clipping yourself, you can disable this overhead by
+  setting noClip to true in the device config.
 
 
 BACKEND NUANCES
@@ -1927,6 +1930,7 @@ typedef struct
     ma_uint32 periods;
     ma_performance_profile performanceProfile;
     ma_bool32 noPreZeroedOutputBuffer;  /* When set to true, the contents of the output buffer passed into the data callback will be left undefined rather than initialized to zero. */
+    ma_bool32 noClip;                   /* When set to true, the contents of the output buffer passed into the data callback will be clipped after returning. Only applies when the playback sample format is f32. */
     ma_device_callback_proc dataCallback;
     ma_stop_proc stopCallback;
     void* pUserData;
@@ -2380,6 +2384,7 @@ MA_ALIGNED_STRUCT(MA_SIMD_ALIGNMENT) ma_device
     ma_bool32 usingDefaultPeriods     : 1;
     ma_bool32 isOwnerOfContext        : 1;  /* When set to true, uninitializing the device will also uninitialize the context. Set to true when NULL is passed into ma_device_init(). */
     ma_bool32 noPreZeroedOutputBuffer : 1;
+    ma_bool32 noClip                  : 1;
     struct
     {
         char name[256];                     /* Maybe temporary. Likely to be replaced with a query API. */
@@ -3025,6 +3030,12 @@ ma_uint32 ma_get_default_buffer_size_in_frames(ma_performance_profile performanc
 Copies silent frames into the given buffer.
 */
 void ma_zero_pcm_frames(void* p, ma_uint32 frameCount, ma_format format, ma_uint32 channels);
+
+/*
+Clips f32 samples.
+*/
+void ma_clip_samples_f32(float* p, ma_uint32 sampleCount);
+MA_INLINE void ma_clip_pcm_frames_f32(float* p, ma_uint32 frameCount, ma_uint32 channels) { ma_clip_samples_f32(p, frameCount*channels); }
 
 #endif  /* MA_NO_DEVICE_IO */
 
@@ -5300,6 +5311,16 @@ void ma_zero_pcm_frames(void* p, ma_uint32 frameCount, ma_format format, ma_uint
     ma_zero_memory(p, frameCount * ma_get_bytes_per_frame(format, channels));
 }
 
+void ma_clip_samples_f32(float* p, ma_uint32 sampleCount)
+{
+    ma_uint32 iSample;
+
+    /* TODO: Research a branchless SSE implementation. */
+    for (iSample = 0; iSample < sampleCount; iSample += 1) {
+        p[iSample] = ma_clip_f32(p[iSample]);
+    }
+}
+
 
 static MA_INLINE void ma_device__on_data(ma_device* pDevice, void* pFramesOut, const void* pFramesIn, ma_uint32 frameCount)
 {
@@ -5312,6 +5333,10 @@ static MA_INLINE void ma_device__on_data(ma_device* pDevice, void* pFramesOut, c
         }
 
         onData(pDevice, pFramesOut, pFramesIn, frameCount);
+
+        if (!pDevice->noClip && pFramesOut != NULL && pDevice->playback.format == ma_format_f32) {
+            ma_clip_pcm_frames_f32((float*)pFramesOut, frameCount, pDevice->playback.channels);
+        }
     }
 }
 
@@ -25699,6 +25724,7 @@ ma_result ma_device_init(ma_context* pContext, const ma_device_config* pConfig, 
     }
 
     pDevice->noPreZeroedOutputBuffer = config.noPreZeroedOutputBuffer;
+    pDevice->noClip = config.noClip;
 
     /*
     When passing in 0 for the format/channels/rate/chmap it means the device will be using whatever is chosen by the backend. If everything is set
@@ -34881,6 +34907,9 @@ v0.9.8 - 2019-xx-xx
   - Add support for controlling whether or not the content of the output buffer passed in to the data callback is pre-initialized
     to zero. By default it will be initialized to zero, but this can be changed by setting noPreZeroedOutputBuffer in the device
     config. Setting noPreZeroedOutputBuffer to true will leave the contents undefined.
+  - Add support for clipping samples after the data callback has returned. This only applies when the playback sample format is
+    configured as ma_format_f32. If you are doing clipping yourself, you can disable this overhead by setting noClip to true in
+    the device config.
   - Fix warnings emitted by GCC when `__inline__` is undefined or defined as nothing.
 
 v0.9.7 - 2019-08-28
