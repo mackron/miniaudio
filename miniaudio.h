@@ -9158,19 +9158,19 @@ ma_result ma_device_main_loop__wasapi(ma_device* pDevice)
                             break;
                         }
 
-                        /*
-                        Debug output for IAudioCaptureClient_GetBuffer(). The flagsCapture variable will contain information. A glitch will occur when
-                        AUDCLNT_BUFFERFLAGS_DATA_DISCONTINUITY (1) is set.
-                        */
-                    #ifdef MA_DEBUG_OUTPUT
-                        if (flagsCapture != 0) {
-                            printf("[WASAPI] Capture Flags: %d\n", flagsCapture);
-                        }
-                    #endif
 
+                        /* Overrun detection. */
                         if ((flagsCapture & MA_AUDCLNT_BUFFERFLAGS_DATA_DISCONTINUITY) == 0) {
                             /* Glitched. Probably due to an overrun. */
-                            
+                        #ifdef MA_DEBUG_OUTPUT
+                            printf("[WASAPI] Overrun.\n");
+                        #endif
+                        } else {
+                        #ifdef MA_DEBUG_OUTPUT
+                            if (flagsCapture != 0) {
+                                printf("[WASAPI] Capture Flags: %d\n", flagsCapture);
+                            }
+                        #endif
                         }
 
                         mappedBufferFramesRemainingCapture = mappedBufferSizeInFramesCapture;
