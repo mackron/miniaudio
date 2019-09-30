@@ -9090,8 +9090,8 @@ ma_result ma_device_main_loop__wasapi(ma_device* pDevice)
 
                     /* In exclusive mode, the frame count needs to exactly match the value returned by GetCurrentPadding(). */
                     if (pDevice->playback.shareMode != ma_share_mode_exclusive) {
-                        if (framesAvailablePlayback >= pDevice->wasapi.periodSizeInFramesPlayback) {
-                            framesAvailablePlayback  = pDevice->wasapi.periodSizeInFramesPlayback;
+                        if (framesAvailablePlayback > pDevice->wasapi.periodSizeInFramesPlayback) {
+                            framesAvailablePlayback = pDevice->wasapi.periodSizeInFramesPlayback;
                         }
                     }
 
@@ -9325,7 +9325,7 @@ ma_result ma_device_main_loop__wasapi(ma_device* pDevice)
                 }
 
                 if (!pDevice->wasapi.isStartedPlayback) {
-                    ma_uint32 startThreshold = pDevice->playback.internalBufferSizeInFrames / pDevice->playback.internalPeriods * 2;
+                    ma_uint32 startThreshold = pDevice->playback.internalBufferSizeInFrames / pDevice->playback.internalPeriods * 1;
 
                     /* Prevent a deadlock. If we don't clamp against the actual buffer size we'll never end up starting the playback device which will result in a deadlock. */
                     if (startThreshold > pDevice->wasapi.actualBufferSizeInFramesPlayback) {
@@ -9369,7 +9369,7 @@ ma_result ma_device_main_loop__wasapi(ma_device* pDevice)
                     continue;   /* Nothing available. Keep waiting. */
                 }
 
-                /* Map a the data buffer in preparation for sending to the client. */
+                /* Map the data buffer in preparation for sending to the client. */
                 mappedBufferSizeInFramesCapture = framesAvailableCapture;
                 hr = ma_IAudioCaptureClient_GetBuffer((ma_IAudioCaptureClient*)pDevice->wasapi.pCaptureClient, (BYTE**)&pMappedBufferCapture, &mappedBufferSizeInFramesCapture, &flagsCapture, NULL, NULL);
                 if (FAILED(hr)) {
