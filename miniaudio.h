@@ -9160,7 +9160,7 @@ ma_result ma_device_main_loop__wasapi(ma_device* pDevice)
 
 
                         /* Overrun detection. */
-                        if ((flagsCapture & MA_AUDCLNT_BUFFERFLAGS_DATA_DISCONTINUITY) == 0) {
+                        if ((flagsCapture & MA_AUDCLNT_BUFFERFLAGS_DATA_DISCONTINUITY) != 0) {
                             /* Glitched. Probably due to an overrun. */
                         #ifdef MA_DEBUG_OUTPUT
                             printf("[WASAPI] Overrun.\n");
