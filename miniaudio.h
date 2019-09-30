@@ -5715,10 +5715,17 @@ ma_uint32 ma_device__pcm_converter__on_read_from_buffer_capture(ma_pcm_converter
     }
 
     bytesToRead = framesToRead * ma_get_bytes_per_frame(pConverter->formatConverterIn.config.formatIn, pConverter->channelRouter.config.channelsIn);
-    ma_copy_memory(pFramesOut, pDevice->capture._dspFrames, bytesToRead);
-    pDevice->capture._dspFrameCount -= framesToRead;
-    pDevice->capture._dspFrames     += bytesToRead;
 
+    /* pDevice->capture._dspFrames can be null in which case it should be treated as silence. */
+    if (pDevice->capture._dspFrames != NULL) {
+        ma_copy_memory(pFramesOut, pDevice->capture._dspFrames, bytesToRead);
+        pDevice->capture._dspFrames += bytesToRead;
+    } else {
+        ma_zero_memory(pFramesOut, bytesToRead);
+    }
+    
+    pDevice->capture._dspFrameCount -= framesToRead;
+    
     return framesToRead;
 }
 
@@ -5740,10 +5747,17 @@ ma_uint32 ma_device__pcm_converter__on_read_from_buffer_playback(ma_pcm_converte
     }
 
     bytesToRead = framesToRead * ma_get_bytes_per_frame(pConverter->formatConverterIn.config.formatIn, pConverter->channelRouter.config.channelsIn);
-    ma_copy_memory(pFramesOut, pDevice->playback._dspFrames, bytesToRead);
-    pDevice->playback._dspFrameCount -= framesToRead;
-    pDevice->playback._dspFrames     += bytesToRead;
 
+    /* pDevice->playback._dspFrames can be null in which case it should be treated as silence. */
+    if (pDevice->playback._dspFrames != NULL) {
+        ma_copy_memory(pFramesOut, pDevice->playback._dspFrames, bytesToRead);
+        pDevice->playback._dspFrames += bytesToRead;
+    } else {
+        ma_zero_memory(pFramesOut, bytesToRead);
+    }
+
+    pDevice->playback._dspFrameCount -= framesToRead;
+    
     return framesToRead;
 }
 
@@ -6918,6 +6932,8 @@ WASAPI Backend
 #endif  /* 0 */
 
 
+
+
 /* Some compilers don't define VerifyVersionInfoW. Need to write this ourselves. */
 #define MA_WIN32_WINNT_VISTA    0x0600
 #define MA_VER_MINORVERSION     0x01
@@ -7026,6 +7042,11 @@ typedef ma_int64                                           MA_REFERENCE_TIME;
 #define MA_AUDCLNT_E_BUFFER_SIZE_NOT_ALIGNED               (-2004287463)
 #define MA_AUDCLNT_S_BUFFER_EMPTY                          (143196161)
 #define MA_AUDCLNT_E_DEVICE_IN_USE                         (-2004287478)
+
+/* Buffer flags. */
+#define MA_AUDCLNT_BUFFERFLAGS_DATA_DISCONTINUITY          1
+#define MA_AUDCLNT_BUFFERFLAGS_SILENT                      2
+#define MA_AUDCLNT_BUFFERFLAGS_TIMESTAMP_ERROR             4
 
 typedef enum
 {
@@ -9137,17 +9158,30 @@ ma_result ma_device_main_loop__wasapi(ma_device* pDevice)
                             break;
                         }
 
-                        /* TODO: How do we handle the capture flags returned by GetBuffer()? In particular, AUDCLNT_BUFFERFLAGS_SILENT (1). */
+                        /*
+                        Debug output for IAudioCaptureClient_GetBuffer(). The flagsCapture variable will contain information. A glitch will occur when
+                        AUDCLNT_BUFFERFLAGS_DATA_DISCONTINUITY (1) is set.
+                        */
                     #ifdef MA_DEBUG_OUTPUT
                         if (flagsCapture != 0) {
                             printf("[WASAPI] Capture Flags: %d\n", flagsCapture);
                         }
                     #endif
 
+                        if ((flagsCapture & MA_AUDCLNT_BUFFERFLAGS_DATA_DISCONTINUITY) == 0) {
+                            /* Glitched. Probably due to an overrun. */
+                            
+                        }
+
                         mappedBufferFramesRemainingCapture = mappedBufferSizeInFramesCapture;
 
                         pDevice->capture._dspFrameCount = mappedBufferSizeInFramesCapture;
-                        pDevice->capture._dspFrames     = (const ma_uint8*)pMappedBufferCapture;
+
+                        if ((flagsCapture & MA_AUDCLNT_BUFFERFLAGS_SILENT) == 0) {
+                            pDevice->capture._dspFrames = (const ma_uint8*)pMappedBufferCapture;
+                        } else {
+                            pDevice->capture._dspFrames = NULL;
+                        }
                     }
 
 
