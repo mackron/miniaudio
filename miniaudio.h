@@ -9034,6 +9034,7 @@ ma_result ma_device_main_loop__wasapi(ma_device* pDevice)
     ma_uint32 inputDataInExternalFormatCap = sizeof(inputDataInExternalFormat) / bpfCapture;
     ma_uint8  outputDataInExternalFormat[4096];
     ma_uint32 outputDataInExternalFormatCap = sizeof(outputDataInExternalFormat) / bpfPlayback;
+    ma_uint32 periodSizeInFramesCapture = (pDevice->capture.internalBufferSizeInFrames / pDevice->capture.internalPeriods);
 
     ma_assert(pDevice != NULL);
 
@@ -9150,7 +9151,7 @@ ma_result ma_device_main_loop__wasapi(ma_device* pDevice)
                         }
 
                         /* Getting here means there's data available for writing to the output device. */
-                        mappedBufferSizeInFramesCapture = framesAvailableCapture;
+                        mappedBufferSizeInFramesCapture = ma_min(framesAvailableCapture, periodSizeInFramesCapture);
                         hr = ma_IAudioCaptureClient_GetBuffer((ma_IAudioCaptureClient*)pDevice->wasapi.pCaptureClient, (BYTE**)&pMappedBufferCapture, &mappedBufferSizeInFramesCapture, &flagsCapture, NULL, NULL);
                         if (FAILED(hr)) {
                             ma_post_error(pDevice, MA_LOG_LEVEL_ERROR, "[WASAPI] Failed to retrieve internal buffer from capture device in preparation for writing to the device.", MA_FAILED_TO_MAP_DEVICE_BUFFER);
@@ -9163,8 +9164,44 @@ ma_result ma_device_main_loop__wasapi(ma_device* pDevice)
                         if ((flagsCapture & MA_AUDCLNT_BUFFERFLAGS_DATA_DISCONTINUITY) != 0) {
                             /* Glitched. Probably due to an overrun. */
                         #ifdef MA_DEBUG_OUTPUT
-                            printf("[WASAPI] Overrun.\n");
+                            printf("[WASAPI] Data discontinuity (possible overrun). framesAvailableCapture=%d, mappedBufferSizeInFramesCapture=%d\n", framesAvailableCapture, mappedBufferSizeInFramesCapture);
                         #endif
+
+                            /*
+                            Exeriment: If we get an overrun it probably means we're straddling the end of the buffer. In order to prevent a never-ending sequence of glitches let's experiment
+                            by dropping every frame until we're left with only a single period. To do this we just keep retrieving and immediately releasing buffers until we're down to the
+                            last period.
+                            */
+                            if (framesAvailableCapture >= pDevice->wasapi.actualBufferSizeInFramesCapture /*(pDevice->playback.internalBufferSizeInFrames / pDevice->playback.internalPeriods)*/) {
+                            #ifdef MA_DEBUG_OUTPUT
+                                printf("[WASAPI] Synchronizing capture stream. ");
+                            #endif
+                                do
+                                {
+                                    hr = ma_IAudioCaptureClient_ReleaseBuffer((ma_IAudioCaptureClient*)pDevice->wasapi.pCaptureClient, mappedBufferSizeInFramesCapture);
+                                    if (FAILED(hr)) {
+                                        break;
+                                    }
+
+                                    framesAvailableCapture -= mappedBufferSizeInFramesCapture;
+                                    
+                                    if (framesAvailableCapture > 0) {
+                                        mappedBufferSizeInFramesCapture = ma_min(framesAvailableCapture, periodSizeInFramesCapture);
+                                        hr = ma_IAudioCaptureClient_GetBuffer((ma_IAudioCaptureClient*)pDevice->wasapi.pCaptureClient, (BYTE**)&pMappedBufferCapture, &mappedBufferSizeInFramesCapture, &flagsCapture, NULL, NULL);
+                                        if (FAILED(hr)) {
+                                            ma_post_error(pDevice, MA_LOG_LEVEL_ERROR, "[WASAPI] Failed to retrieve internal buffer from capture device in preparation for writing to the device.", MA_FAILED_TO_MAP_DEVICE_BUFFER);
+                                            exitLoop = MA_TRUE;
+                                            break;
+                                        }
+                                    } else {
+                                        pMappedBufferCapture = NULL;
+                                        mappedBufferSizeInFramesCapture = 0;
+                                    }
+                                } while (framesAvailableCapture > periodSizeInFramesCapture);
+                            #ifdef MA_DEBUG_OUTPUT
+                                printf("framesAvailableCapture=%d, mappedBufferSizeInFramesCapture=%d\n", framesAvailableCapture, mappedBufferSizeInFramesCapture);
+                            #endif
+                            }
                         } else {
                         #ifdef MA_DEBUG_OUTPUT
                             if (flagsCapture != 0) {
@@ -9176,7 +9213,6 @@ ma_result ma_device_main_loop__wasapi(ma_device* pDevice)
                         mappedBufferFramesRemainingCapture = mappedBufferSizeInFramesCapture;
 
                         pDevice->capture._dspFrameCount = mappedBufferSizeInFramesCapture;
-
                         if ((flagsCapture & MA_AUDCLNT_BUFFERFLAGS_SILENT) == 0) {
                             pDevice->capture._dspFrames = (const ma_uint8*)pMappedBufferCapture;
                         } else {
