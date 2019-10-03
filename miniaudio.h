@@ -282,6 +282,14 @@ NOTES
 BACKEND NUANCES
 ===============
 
+WASAPI
+------
+- Low-latency shared mode will be disabled when using an application-defined sample rate which is different to the
+  device's native sample rate. To work around this, set wasapi.noAutoConvertSRC to true in the device config. This
+  is due to IAudioClient3_InitializeSharedAudioStream() failing when the AUDCLNT_STREAMFLAGS_AUTOCONVERTPCM flag is
+  specified. Setting wasapi.noAutoConvertSRC will result in miniaudio's lower quality internal resampler being used
+  instead which will in turn enable the use of low-latency shared mode.
+
 PulseAudio
 ----------
 - If you experience bad glitching/noise on Arch Linux, consider this fix from the Arch wiki:
@@ -8246,7 +8254,7 @@ ma_result ma_device_init_internal__wasapi(ma_context* pContext, ma_device_type d
     DWORD streamFlags = 0;
     MA_REFERENCE_TIME bufferDurationInMicroseconds;
     ma_bool32 wasInitializedUsingIAudioClient3 = MA_FALSE;
-    WAVEFORMATEXTENSIBLE wf;
+    WAVEFORMATEXTENSIBLE wf = {0};
     ma_WASAPIDeviceInterface* pDeviceInterface = NULL;
     ma_IAudioClient2* pAudioClient2;
 
@@ -8263,10 +8271,10 @@ ma_result ma_device_init_internal__wasapi(ma_context* pContext, ma_device_type d
     pData->pCaptureClient = NULL;
 
     streamFlags = MA_AUDCLNT_STREAMFLAGS_EVENTCALLBACK;
-    if (!pData->noAutoConvertSRC && !pData->usingDefaultSampleRate) {
+    if (!pData->noAutoConvertSRC && !pData->usingDefaultSampleRate && pData->shareMode != ma_share_mode_exclusive) {    /* <-- Exclusive streams must use the native sample rate. */
         streamFlags |= MA_AUDCLNT_STREAMFLAGS_AUTOCONVERTPCM;
     }
-    if (!pData->noDefaultQualitySRC && !pData->noAutoConvertSRC && !pData->usingDefaultSampleRate) {
+    if (!pData->noDefaultQualitySRC && !pData->usingDefaultSampleRate && (streamFlags & MA_AUDCLNT_STREAMFLAGS_AUTOCONVERTPCM) != 0) {
         streamFlags |= MA_AUDCLNT_STREAMFLAGS_SRC_DEFAULT_QUALITY;
     }
     if (deviceType == ma_device_type_loopback) {
@@ -8295,7 +8303,6 @@ ma_result ma_device_init_internal__wasapi(ma_context* pContext, ma_device_type d
 
         pAudioClient2->lpVtbl->Release(pAudioClient2);
     }
-
 
     /* Here is where we try to determine the best format to use with the device. If the client if wanting exclusive mode, first try finding the best format for that. If this fails, fall back to shared mode. */
     result = MA_FORMAT_NOT_SUPPORTED;
@@ -8365,6 +8372,7 @@ ma_result ma_device_init_internal__wasapi(ma_context* pContext, ma_device_type d
     */
     if (streamFlags & MA_AUDCLNT_STREAMFLAGS_AUTOCONVERTPCM) {
         wf.Format.nSamplesPerSec = pData->sampleRateIn;
+        wf.Format.nAvgBytesPerSec = wf.Format.nSamplesPerSec * wf.Format.nBlockAlign;
     }
 
     pData->formatOut = ma_format_from_WAVEFORMATEX((WAVEFORMATEX*)&wf);
@@ -8378,10 +8386,10 @@ ma_result ma_device_init_internal__wasapi(ma_context* pContext, ma_device_type d
     pData->periodsOut = pData->periodsIn;
     pData->bufferSizeInFramesOut = pData->bufferSizeInFramesIn;
     if (pData->bufferSizeInFramesOut == 0) {
-        pData->bufferSizeInFramesOut = ma_calculate_buffer_size_in_frames_from_milliseconds(pData->bufferSizeInMillisecondsIn, pData->sampleRateOut);
+        pData->bufferSizeInFramesOut = ma_calculate_buffer_size_in_frames_from_milliseconds(pData->bufferSizeInMillisecondsIn, wf.Format.nSamplesPerSec);
     }
 
-    bufferDurationInMicroseconds = ((ma_uint64)pData->bufferSizeInFramesOut * 1000 * 1000) / pData->sampleRateOut;
+    bufferDurationInMicroseconds = ((ma_uint64)pData->bufferSizeInFramesOut * 1000 * 1000) / wf.Format.nSamplesPerSec;
 
 
     /* Slightly different initialization for shared and exclusive modes. We try exclusive mode first, and if it fails, fall back to shared mode. */
@@ -8446,65 +8454,76 @@ ma_result ma_device_init_internal__wasapi(ma_context* pContext, ma_device_type d
     }
 
     if (shareMode == MA_AUDCLNT_SHAREMODE_SHARED) {
-        /* Low latency shared mode via IAudioClient3. */
+        /*
+        Low latency shared mode via IAudioClient3.
+
+        NOTE
+        ====
+        Contrary to the documentation on MSDN (https://docs.microsoft.com/en-us/windows/win32/api/audioclient/nf-audioclient-iaudioclient3-initializesharedaudiostream), the
+        use of AUDCLNT_STREAMFLAGS_AUTOCONVERTPCM and AUDCLNT_STREAMFLAGS_SRC_DEFAULT_QUALITY with IAudioClient3_InitializeSharedAudioStream() absolutely does not work. Using
+        any of these flags will result in HRESULT code 0x88890021. The other problem is that calling IAudioClient3_GetSharedModeEnginePeriod() with a sample rate different to
+        that returned by IAudioClient_GetMixFormat() also results in an error. I'm therefore disabling low-latency shared mode with AUDCLNT_STREAMFLAGS_AUTOCONVERTPCM.
+        */
 #ifndef MA_WASAPI_NO_LOW_LATENCY_SHARED_MODE
-        ma_IAudioClient3* pAudioClient3 = NULL;
-        hr = ma_IAudioClient_QueryInterface(pData->pAudioClient, &MA_IID_IAudioClient3, (void**)&pAudioClient3);
-        if (SUCCEEDED(hr)) {
-            UINT32 defaultPeriodInFrames;
-            UINT32 fundamentalPeriodInFrames;
-            UINT32 minPeriodInFrames;
-            UINT32 maxPeriodInFrames;
-            hr = ma_IAudioClient3_GetSharedModeEnginePeriod(pAudioClient3, (WAVEFORMATEX*)&wf, &defaultPeriodInFrames, &fundamentalPeriodInFrames, &minPeriodInFrames, &maxPeriodInFrames);
+        if ((streamFlags & MA_AUDCLNT_STREAMFLAGS_AUTOCONVERTPCM) == 0) {
+            ma_IAudioClient3* pAudioClient3 = NULL;
+            hr = ma_IAudioClient_QueryInterface(pData->pAudioClient, &MA_IID_IAudioClient3, (void**)&pAudioClient3);
             if (SUCCEEDED(hr)) {
-                UINT32 desiredPeriodInFrames = pData->bufferSizeInFramesOut / pData->periodsOut;
-                UINT32 actualPeriodInFrames  = desiredPeriodInFrames;
+                UINT32 defaultPeriodInFrames;
+                UINT32 fundamentalPeriodInFrames;
+                UINT32 minPeriodInFrames;
+                UINT32 maxPeriodInFrames;
+                hr = ma_IAudioClient3_GetSharedModeEnginePeriod(pAudioClient3, (WAVEFORMATEX*)&wf, &defaultPeriodInFrames, &fundamentalPeriodInFrames, &minPeriodInFrames, &maxPeriodInFrames);
+                if (SUCCEEDED(hr)) {
+                    UINT32 desiredPeriodInFrames = pData->bufferSizeInFramesOut / pData->periodsOut;
+                    UINT32 actualPeriodInFrames  = desiredPeriodInFrames;
 
-                /* Make sure the period size is a multiple of fundamentalPeriodInFrames. */
-                actualPeriodInFrames = actualPeriodInFrames / fundamentalPeriodInFrames;
-                actualPeriodInFrames = actualPeriodInFrames * fundamentalPeriodInFrames;
+                    /* Make sure the period size is a multiple of fundamentalPeriodInFrames. */
+                    actualPeriodInFrames = actualPeriodInFrames / fundamentalPeriodInFrames;
+                    actualPeriodInFrames = actualPeriodInFrames * fundamentalPeriodInFrames;
 
-                /* The period needs to be clamped between minPeriodInFrames and maxPeriodInFrames. */
-                actualPeriodInFrames = ma_clamp(actualPeriodInFrames, minPeriodInFrames, maxPeriodInFrames);
+                    /* The period needs to be clamped between minPeriodInFrames and maxPeriodInFrames. */
+                    actualPeriodInFrames = ma_clamp(actualPeriodInFrames, minPeriodInFrames, maxPeriodInFrames);
 
-            #if defined(MA_DEBUG_OUTPUT)
-                printf("[WASAPI] Trying IAudioClient3_InitializeSharedAudioStream(actualPeriodInFrames=%d)\n", actualPeriodInFrames);
-                printf("    defaultPeriodInFrames=%d\n", defaultPeriodInFrames);
-                printf("    fundamentalPeriodInFrames=%d\n", fundamentalPeriodInFrames);
-                printf("    minPeriodInFrames=%d\n", minPeriodInFrames);
-                printf("    maxPeriodInFrames=%d\n", maxPeriodInFrames);
-            #endif
+                #if defined(MA_DEBUG_OUTPUT)
+                    printf("[WASAPI] Trying IAudioClient3_InitializeSharedAudioStream(actualPeriodInFrames=%d)\n", actualPeriodInFrames);
+                    printf("    defaultPeriodInFrames=%d\n", defaultPeriodInFrames);
+                    printf("    fundamentalPeriodInFrames=%d\n", fundamentalPeriodInFrames);
+                    printf("    minPeriodInFrames=%d\n", minPeriodInFrames);
+                    printf("    maxPeriodInFrames=%d\n", maxPeriodInFrames);
+                #endif
 
-                /* If the client requested a largish buffer than we don't actually want to use low latency shared mode because it forces small buffers. */
-                if (actualPeriodInFrames >= desiredPeriodInFrames) {
-                    hr = ma_IAudioClient3_InitializeSharedAudioStream(pAudioClient3, streamFlags, actualPeriodInFrames, (WAVEFORMATEX*)&wf, NULL);
-                    if (SUCCEEDED(hr)) {
-                        wasInitializedUsingIAudioClient3 = MA_TRUE;
-                        pData->periodSizeInFramesOut = actualPeriodInFrames;
-                        pData->bufferSizeInFramesOut = actualPeriodInFrames * pData->periodsOut;
-                    #if defined(MA_DEBUG_OUTPUT)
-                        printf("[WASAPI] Using IAudioClient3\n");
-                        printf("    periodSizeInFramesOut=%d\n", pData->periodSizeInFramesOut);
-                        printf("    bufferSizeInFramesOut=%d\n", pData->bufferSizeInFramesOut);
-                    #endif
+                    /* If the client requested a largish buffer than we don't actually want to use low latency shared mode because it forces small buffers. */
+                    if (actualPeriodInFrames >= desiredPeriodInFrames) {
+                        hr = ma_IAudioClient3_InitializeSharedAudioStream(pAudioClient3, streamFlags, actualPeriodInFrames, (WAVEFORMATEX*)&wf, NULL);
+                        if (SUCCEEDED(hr)) {
+                            wasInitializedUsingIAudioClient3 = MA_TRUE;
+                            pData->periodSizeInFramesOut = actualPeriodInFrames;
+                            pData->bufferSizeInFramesOut = actualPeriodInFrames * pData->periodsOut;
+                        #if defined(MA_DEBUG_OUTPUT)
+                            printf("[WASAPI] Using IAudioClient3\n");
+                            printf("    periodSizeInFramesOut=%d\n", pData->periodSizeInFramesOut);
+                            printf("    bufferSizeInFramesOut=%d\n", pData->bufferSizeInFramesOut);
+                        #endif
+                        } else {
+                        #if defined(MA_DEBUG_OUTPUT)
+                            printf("[WASAPI] IAudioClient3_InitializeSharedAudioStream failed. Falling back to IAudioClient.\n");
+                        #endif    
+                        }
                     } else {
                     #if defined(MA_DEBUG_OUTPUT)
-                        printf("[WASAPI] IAudioClient3_InitializeSharedAudioStream failed. Falling back to IAudioClient.\n");
-                    #endif    
+                        printf("[WASAPI] Not using IAudioClient3 because the desired period size is larger than the maximum supported by IAudioClient3.\n");
+                    #endif
                     }
                 } else {
                 #if defined(MA_DEBUG_OUTPUT)
-                    printf("[WASAPI] Not using IAudioClient3 because the desired period size is larger than the maximum supported by IAudioClient3.\n");
+                    printf("[WASAPI] IAudioClient3_GetSharedModeEnginePeriod failed. Falling back to IAudioClient.\n");
                 #endif
                 }
-            } else {
-            #if defined(MA_DEBUG_OUTPUT)
-                printf("[WASAPI] IAudioClient3_GetSharedModeEnginePeriod failed. Falling back to IAudioClient.\n");
-            #endif
-            }
 
-            ma_IAudioClient3_Release(pAudioClient3);
-            pAudioClient3 = NULL;
+                ma_IAudioClient3_Release(pAudioClient3);
+                pAudioClient3 = NULL;
+            }
         }
 #else
     #if defined(MA_DEBUG_OUTPUT)
@@ -9034,12 +9053,14 @@ ma_result ma_device_main_loop__wasapi(ma_device* pDevice)
     ma_uint32 inputDataInExternalFormatCap = sizeof(inputDataInExternalFormat) / bpfCapture;
     ma_uint8  outputDataInExternalFormat[4096];
     ma_uint32 outputDataInExternalFormatCap = sizeof(outputDataInExternalFormat) / bpfPlayback;
-    ma_uint32 periodSizeInFramesCapture = (pDevice->capture.internalBufferSizeInFrames / pDevice->capture.internalPeriods);
+    ma_uint32 periodSizeInFramesCapture = 0;
 
     ma_assert(pDevice != NULL);
 
     /* The capture device needs to be started immediately. */
     if (pDevice->type == ma_device_type_capture || pDevice->type == ma_device_type_duplex || pDevice->type == ma_device_type_loopback) {
+        periodSizeInFramesCapture = (pDevice->capture.internalBufferSizeInFrames / pDevice->capture.internalPeriods);
+
         hr = ma_IAudioClient_Start((ma_IAudioClient*)pDevice->wasapi.pAudioClientCapture);
         if (FAILED(hr)) {
             return ma_post_error(pDevice, MA_LOG_LEVEL_ERROR, "[WASAPI] Failed to start internal capture device.", MA_FAILED_TO_START_BACKEND_DEVICE);
