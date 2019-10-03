@@ -8257,6 +8257,7 @@ ma_result ma_device_init_internal__wasapi(ma_context* pContext, ma_device_type d
     WAVEFORMATEXTENSIBLE wf = {0};
     ma_WASAPIDeviceInterface* pDeviceInterface = NULL;
     ma_IAudioClient2* pAudioClient2;
+    ma_uint32 nativeSampleRate;
 
     ma_assert(pContext != NULL);
     ma_assert(pData != NULL);
@@ -8370,6 +8371,7 @@ ma_result ma_device_init_internal__wasapi(ma_context* pContext, ma_device_type d
     Override the native sample rate with the one requested by the caller, but only if we're not using the default sample rate. We'll use
     WASAPI to perform the sample rate conversion.
     */
+    nativeSampleRate = wf.Format.nSamplesPerSec;
     if (streamFlags & MA_AUDCLNT_STREAMFLAGS_AUTOCONVERTPCM) {
         wf.Format.nSamplesPerSec = pData->sampleRateIn;
         wf.Format.nAvgBytesPerSec = wf.Format.nSamplesPerSec * wf.Format.nBlockAlign;
@@ -8465,7 +8467,7 @@ ma_result ma_device_init_internal__wasapi(ma_context* pContext, ma_device_type d
         that returned by IAudioClient_GetMixFormat() also results in an error. I'm therefore disabling low-latency shared mode with AUDCLNT_STREAMFLAGS_AUTOCONVERTPCM.
         */
 #ifndef MA_WASAPI_NO_LOW_LATENCY_SHARED_MODE
-        if ((streamFlags & MA_AUDCLNT_STREAMFLAGS_AUTOCONVERTPCM) == 0) {
+        if ((streamFlags & MA_AUDCLNT_STREAMFLAGS_AUTOCONVERTPCM) == 0 || nativeSampleRate == wf.Format.nSamplesPerSec) {
             ma_IAudioClient3* pAudioClient3 = NULL;
             hr = ma_IAudioClient_QueryInterface(pData->pAudioClient, &MA_IID_IAudioClient3, (void**)&pAudioClient3);
             if (SUCCEEDED(hr)) {
@@ -8495,7 +8497,11 @@ ma_result ma_device_init_internal__wasapi(ma_context* pContext, ma_device_type d
 
                     /* If the client requested a largish buffer than we don't actually want to use low latency shared mode because it forces small buffers. */
                     if (actualPeriodInFrames >= desiredPeriodInFrames) {
-                        hr = ma_IAudioClient3_InitializeSharedAudioStream(pAudioClient3, streamFlags, actualPeriodInFrames, (WAVEFORMATEX*)&wf, NULL);
+                        /*
+                        MA_AUDCLNT_STREAMFLAGS_AUTOCONVERTPCM | MA_AUDCLNT_STREAMFLAGS_SRC_DEFAULT_QUALITY must not be in the stream flags. If either of these are specified,
+                        IAudioClient3_InitializeSharedAudioStream() will fail.
+                        */
+                        hr = ma_IAudioClient3_InitializeSharedAudioStream(pAudioClient3, streamFlags & ~(MA_AUDCLNT_STREAMFLAGS_AUTOCONVERTPCM | MA_AUDCLNT_STREAMFLAGS_SRC_DEFAULT_QUALITY), actualPeriodInFrames, (WAVEFORMATEX*)&wf, NULL);
                         if (SUCCEEDED(hr)) {
                             wasInitializedUsingIAudioClient3 = MA_TRUE;
                             pData->periodSizeInFramesOut = actualPeriodInFrames;
