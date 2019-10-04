@@ -18802,7 +18802,7 @@ ma_result ma_find_best_format__coreaudio(ma_context* pContext, AudioObjectID dev
         /* Getting here means the format is supported by miniaudio which makes this format a candidate. */
         if (thisDeviceFormat.mSampleRate != desiredSampleRate) {
             /*
-            The sample rate does not match, but this format could still be usable, although it's a very low priority. If the best format
+            The sample rate does not match, but this format could still be usable, although it's a very low priority. If the best format
             so far has an equal sample rate we can just ignore this one.
             */
             if (bestDeviceFormatSoFar.mSampleRate == desiredSampleRate) {
