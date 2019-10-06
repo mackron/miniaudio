@@ -33576,7 +33576,8 @@ ma_result ma_decoder_internal_on_seek_to_pcm_frame__wav(ma_decoder* pDecoder, ma
 
 ma_result ma_decoder_internal_on_uninit__wav(ma_decoder* pDecoder)
 {
-    drwav_close((drwav*)pDecoder->pInternalDecoder);
+    drwav_uninit((drwav*)pDecoder->pInternalDecoder);
+    ma_free(pDecoder->pInternalDecoder);
     return MA_SUCCESS;
 }
 
@@ -33593,9 +33594,14 @@ ma_result ma_decoder_init_wav__internal(const ma_decoder_config* pConfig, ma_dec
     ma_assert(pConfig != NULL);
     ma_assert(pDecoder != NULL);
 
-    /* Try opening the decoder first. */
-    pWav = drwav_open(ma_decoder_internal_on_read__wav, ma_decoder_internal_on_seek__wav, pDecoder);
+    pWav = (drwav*)ma_malloc(sizeof(*pWav));
     if (pWav == NULL) {
+        return MA_OUT_OF_MEMORY;
+    }
+
+    /* Try opening the decoder first. */
+    if (!drwav_init(pWav, ma_decoder_internal_on_read__wav, ma_decoder_internal_on_seek__wav, pDecoder, NULL)) {
+        ma_free(pWav);
         return MA_ERROR;
     }
 
@@ -33645,7 +33651,8 @@ ma_result ma_decoder_init_wav__internal(const ma_decoder_config* pConfig, ma_dec
 
     result = ma_decoder__init_dsp(pDecoder, pConfig, ma_decoder_internal_on_read_pcm_frames__wav);
     if (result != MA_SUCCESS) {
-        drwav_close(pWav);
+        drwav_uninit(pWav);
+        ma_free(pWav);
         return result;
     }
 
@@ -34166,6 +34173,7 @@ ma_result ma_decoder_init_mp3__internal(const ma_decoder_config* pConfig, ma_dec
     mp3Config.outputChannels = 2;
     mp3Config.outputSampleRate = (pConfig->sampleRate != 0) ? pConfig->sampleRate : 44100;
     if (!drmp3_init(pMP3, ma_decoder_internal_on_read__mp3, ma_decoder_internal_on_seek__mp3, pDecoder, &mp3Config)) {
+        ma_free(pMP3);
         return MA_ERROR;
     }
 
@@ -34183,6 +34191,7 @@ ma_result ma_decoder_init_mp3__internal(const ma_decoder_config* pConfig, ma_dec
 
     result = ma_decoder__init_dsp(pDecoder, pConfig, ma_decoder_internal_on_read_pcm_frames__mp3);
     if (result != MA_SUCCESS) {
+        drmp3_uninit(pMP3);
         ma_free(pMP3);
         return result;
     }
