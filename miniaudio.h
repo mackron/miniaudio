@@ -34172,7 +34172,7 @@ ma_result ma_decoder_init_mp3__internal(const ma_decoder_config* pConfig, ma_dec
     ma_zero_object(&mp3Config);
     mp3Config.outputChannels = 2;
     mp3Config.outputSampleRate = (pConfig->sampleRate != 0) ? pConfig->sampleRate : 44100;
-    if (!drmp3_init(pMP3, ma_decoder_internal_on_read__mp3, ma_decoder_internal_on_seek__mp3, pDecoder, &mp3Config)) {
+    if (!drmp3_init(pMP3, ma_decoder_internal_on_read__mp3, ma_decoder_internal_on_seek__mp3, pDecoder, &mp3Config, NULL)) {
         ma_free(pMP3);
         return MA_ERROR;
     }

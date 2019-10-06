@@ -1,6 +1,6 @@
 /*
 WAV audio loader and writer. Choice of public domain or MIT-0. See license statements at the end of this file.
-dr_wav - v0.11.0 - 2019-10-06
+dr_wav - v0.11.1 - 2019-10-07
 
 David Reid - mackron@gmail.com
 */
@@ -16,7 +16,7 @@ The main change with this release is the addition of a more flexible way of impl
 existing system of DRWAV_MALLOC, DRWAV_REALLOC and DRWAV_FREE are still in place and will be used by default when no custom
 allocation callbacks are specified.
 
-To use the new system, you pass in a pointer to a drwav_allocation_callbacks object to drwav_open() and family, like this:
+To use the new system, you pass in a pointer to a drwav_allocation_callbacks object to drwav_init() and family, like this:
 
     void* my_malloc(size_t sz, void* pUserData)
     {
@@ -1010,10 +1010,6 @@ void drwav_free(void* p, const drwav_allocation_callbacks* pAllocationCallbacks)
 #define drwav_max(a, b)                    (((a) > (b)) ? (a) : (b))
 #define drwav_clamp(x, lo, hi)             (drwav_max((lo), drwav_min((hi), (x))))
 
-#define drwav_assert                       DRWAV_ASSERT
-#define drwav_copy_memory                  DRWAV_COPY_MEMORY
-#define drwav_zero_memory                  DRWAV_ZERO_MEMORY
-
 #define DRWAV_MAX_SIMD_VECTOR_SIZE         64  /* 64 for AVX-512 in the future. */
 
 /* CPU architecture. */
@@ -1706,8 +1702,8 @@ size_t drwav__on_read(drwav_read_proc onRead, void* pUserData, void* pBufferOut,
 {
     size_t bytesRead;
 
-    drwav_assert(onRead != NULL);
-    drwav_assert(pCursor != NULL);
+    DRWAV_ASSERT(onRead != NULL);
+    DRWAV_ASSERT(pCursor != NULL);
 
     bytesRead = onRead(pUserData, pBufferOut, bytesToRead);
     *pCursor += bytesRead;
@@ -1716,8 +1712,8 @@ size_t drwav__on_read(drwav_read_proc onRead, void* pUserData, void* pBufferOut,
 
 drwav_bool32 drwav__on_seek(drwav_seek_proc onSeek, void* pUserData, int offset, drwav_seek_origin origin, drwav_uint64* pCursor)
 {
-    drwav_assert(onSeek != NULL);
-    drwav_assert(pCursor != NULL);
+    DRWAV_ASSERT(onSeek != NULL);
+    DRWAV_ASSERT(pCursor != NULL);
 
     if (!onSeek(pUserData, offset, origin)) {
         return DRWAV_FALSE;
@@ -2580,8 +2576,8 @@ static size_t drwav__on_read_memory(void* pUserData, void* pBufferOut, size_t by
     drwav* pWav = (drwav*)pUserData;
     size_t bytesRemaining;
 
-    drwav_assert(pWav != NULL);
-    drwav_assert(pWav->memoryStream.dataSize >= pWav->memoryStream.currentReadPos);
+    DRWAV_ASSERT(pWav != NULL);
+    DRWAV_ASSERT(pWav->memoryStream.dataSize >= pWav->memoryStream.currentReadPos);
 
     bytesRemaining = pWav->memoryStream.dataSize - pWav->memoryStream.currentReadPos;
     if (bytesToRead > bytesRemaining) {
@@ -2599,7 +2595,7 @@ static size_t drwav__on_read_memory(void* pUserData, void* pBufferOut, size_t by
 static drwav_bool32 drwav__on_seek_memory(void* pUserData, int offset, drwav_seek_origin origin)
 {
     drwav* pWav = (drwav*)pUserData;
-    drwav_assert(pWav != NULL);
+    DRWAV_ASSERT(pWav != NULL);
 
     if (origin == drwav_seek_origin_current) {
         if (offset > 0) {
@@ -2630,8 +2626,8 @@ static size_t drwav__on_write_memory(void* pUserData, const void* pDataIn, size_
     drwav* pWav = (drwav*)pUserData;
     size_t bytesRemaining;
 
-    drwav_assert(pWav != NULL);
-    drwav_assert(pWav->memoryStreamWrite.dataCapacity >= pWav->memoryStreamWrite.currentWritePos);
+    DRWAV_ASSERT(pWav != NULL);
+    DRWAV_ASSERT(pWav->memoryStreamWrite.dataCapacity >= pWav->memoryStreamWrite.currentWritePos);
 
     bytesRemaining = pWav->memoryStreamWrite.dataCapacity - pWav->memoryStreamWrite.currentWritePos;
     if (bytesRemaining < bytesToWrite) {
@@ -2668,7 +2664,7 @@ static size_t drwav__on_write_memory(void* pUserData, const void* pDataIn, size_
 static drwav_bool32 drwav__on_seek_memory_write(void* pUserData, int offset, drwav_seek_origin origin)
 {
     drwav* pWav = (drwav*)pUserData;
-    drwav_assert(pWav != NULL);
+    DRWAV_ASSERT(pWav != NULL);
 
     if (origin == drwav_seek_origin_current) {
         if (offset > 0) {
@@ -2998,7 +2994,7 @@ drwav_bool32 drwav_seek_to_pcm_frame(drwav* pWav, drwav_uint64 targetFrameIndex)
         drwav_uint64 offset;
 
         totalSizeInBytes = pWav->totalPCMFrameCount * drwav_get_bytes_per_pcm_frame(pWav);
-        drwav_assert(totalSizeInBytes >= pWav->bytesRemaining);
+        DRWAV_ASSERT(totalSizeInBytes >= pWav->bytesRemaining);
 
         currentBytePos = totalSizeInBytes - pWav->bytesRemaining;
         targetBytePos  = targetFrameIndex * drwav_get_bytes_per_pcm_frame(pWav);
@@ -3154,9 +3150,9 @@ drwav_uint64 drwav_read_pcm_frames_s16__msadpcm(drwav* pWav, drwav_uint64 frames
 {
     drwav_uint64 totalFramesRead = 0;
 
-    drwav_assert(pWav != NULL);
-    drwav_assert(framesToRead > 0);
-    drwav_assert(pBufferOut != NULL);
+    DRWAV_ASSERT(pWav != NULL);
+    DRWAV_ASSERT(framesToRead > 0);
+    DRWAV_ASSERT(pBufferOut != NULL);
 
     /* TODO: Lots of room for optimization here. */
 
@@ -3332,9 +3328,9 @@ drwav_uint64 drwav_read_pcm_frames_s16__ima(drwav* pWav, drwav_uint64 framesToRe
 {
     drwav_uint64 totalFramesRead = 0;
 
-    drwav_assert(pWav != NULL);
-    drwav_assert(framesToRead > 0);
-    drwav_assert(pBufferOut != NULL);
+    DRWAV_ASSERT(pWav != NULL);
+    DRWAV_ASSERT(framesToRead > 0);
+    DRWAV_ASSERT(pBufferOut != NULL);
 
     /* TODO: Lots of room for optimization here. */
 
@@ -3553,7 +3549,7 @@ static void drwav__pcm_to_s16(drwav_int16* pOut, const unsigned char* pIn, size_
 
     /* Anything more than 64 bits per sample is not supported. */
     if (bytesPerSample > 8) {
-        drwav_zero_memory(pOut, totalSampleCount * sizeof(*pOut));
+        DRWAV_ZERO_MEMORY(pOut, totalSampleCount * sizeof(*pOut));
         return;
     }
 
@@ -3584,7 +3580,7 @@ static void drwav__ieee_to_s16(drwav_int16* pOut, const unsigned char* pIn, size
         return;
     } else {
         /* Only supporting 32- and 64-bit float. Output silence in all other cases. Contributions welcome for 16-bit float. */
-        drwav_zero_memory(pOut, totalSampleCount * sizeof(*pOut));
+        DRWAV_ZERO_MEMORY(pOut, totalSampleCount * sizeof(*pOut));
         return;
     }
 }
@@ -3875,7 +3871,7 @@ static void drwav__pcm_to_f32(float* pOut, const unsigned char* pIn, size_t samp
 
     /* Anything more than 64 bits per sample is not supported. */
     if (bytesPerSample > 8) {
-        drwav_zero_memory(pOut, sampleCount * sizeof(*pOut));
+        DRWAV_ZERO_MEMORY(pOut, sampleCount * sizeof(*pOut));
         return;
     }
 
@@ -3909,7 +3905,7 @@ static void drwav__ieee_to_f32(float* pOut, const unsigned char* pIn, size_t sam
         return;
     } else {
         /* Only supporting 32- and 64-bit float. Output silence in all other cases. Contributions welcome for 16-bit float. */
-        drwav_zero_memory(pOut, sampleCount * sizeof(*pOut));
+        DRWAV_ZERO_MEMORY(pOut, sampleCount * sizeof(*pOut));
         return;
     }
 }
@@ -4277,7 +4273,7 @@ static void drwav__pcm_to_s32(drwav_int32* pOut, const unsigned char* pIn, size_
 
     /* Anything more than 64 bits per sample is not supported. */
     if (bytesPerSample > 8) {
-        drwav_zero_memory(pOut, totalSampleCount * sizeof(*pOut));
+        DRWAV_ZERO_MEMORY(pOut, totalSampleCount * sizeof(*pOut));
         return;
     }
 
@@ -4308,7 +4304,7 @@ static void drwav__ieee_to_s32(drwav_int32* pOut, const unsigned char* pIn, size
         return;
     } else {
         /* Only supporting 32- and 64-bit float. Output silence in all other cases. Contributions welcome for 16-bit float. */
-        drwav_zero_memory(pOut, totalSampleCount * sizeof(*pOut));
+        DRWAV_ZERO_MEMORY(pOut, totalSampleCount * sizeof(*pOut));
         return;
     }
 }
@@ -4644,7 +4640,7 @@ drwav_int16* drwav__read_pcm_frames_and_close_s16(drwav* pWav, unsigned int* cha
     drwav_int16* pSampleData;
     drwav_uint64 framesRead;
 
-    drwav_assert(pWav != NULL);
+    DRWAV_ASSERT(pWav != NULL);
 
     sampleDataSize = pWav->totalPCMFrameCount * pWav->channels * sizeof(drwav_int16);
     if (sampleDataSize > DRWAV_SIZE_MAX) {
@@ -4686,7 +4682,7 @@ float* drwav__read_pcm_frames_and_close_f32(drwav* pWav, unsigned int* channels,
     float* pSampleData;
     drwav_uint64 framesRead;
 
-    drwav_assert(pWav != NULL);
+    DRWAV_ASSERT(pWav != NULL);
 
     sampleDataSize = pWav->totalPCMFrameCount * pWav->channels * sizeof(float);
     if (sampleDataSize > DRWAV_SIZE_MAX) {
@@ -4728,7 +4724,7 @@ drwav_int32* drwav__read_pcm_frames_and_close_s32(drwav* pWav, unsigned int* cha
     drwav_int32* pSampleData;
     drwav_uint64 framesRead;
 
-    drwav_assert(pWav != NULL);
+    DRWAV_ASSERT(pWav != NULL);
 
     sampleDataSize = pWav->totalPCMFrameCount * pWav->channels * sizeof(drwav_int32);
     if (sampleDataSize > DRWAV_SIZE_MAX) {
@@ -5037,8 +5033,11 @@ void drwav_free(void* p, const drwav_allocation_callbacks* pAllocationCallbacks)
 /*
 REVISION HISTORY
 ================
+v0.11.1 - 2019-10-07
+  - Internal code clean up.
+
 v0.11.0 - 2019-10-06
-- API CHANGE: Add support for user defined memory allocation routines. This system allows the program to specify their own memory allocation
+  - API CHANGE: Add support for user defined memory allocation routines. This system allows the program to specify their own memory allocation
     routines with a user data pointer for client-specific contextual data. This adds an extra parameter to the end of the following APIs:
     - drwav_init()
     - drwav_init_ex()
