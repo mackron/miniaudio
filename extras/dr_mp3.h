@@ -1,6 +1,6 @@
 /*
 MP3 audio decoder. Choice of public domain or MIT-0. See license statements at the end of this file.
-dr_mp3 - v0.5.0 - 2019-10-07
+dr_mp3 - v0.5.1 - 2019-10-08
 
 David Reid - mackron@gmail.com
 
@@ -2382,6 +2382,7 @@ static void drmp3__free_default(void* p, void* pUserData)
 }
 
 
+#if 0   /* Unused, but leaving here in case I need to add it again later. */
 static void* drmp3__malloc_from_callbacks(size_t sz, const drmp3_allocation_callbacks* pAllocationCallbacks)
 {
     if (pAllocationCallbacks == NULL) {
@@ -2399,6 +2400,7 @@ static void* drmp3__malloc_from_callbacks(size_t sz, const drmp3_allocation_call
 
     return NULL;
 }
+#endif
 
 static void* drmp3__realloc_from_callbacks(void* p, size_t szNew, size_t szOld, const drmp3_allocation_callbacks* pAllocationCallbacks)
 {
@@ -4003,6 +4005,9 @@ DIFFERENCES BETWEEN minimp3 AND dr_mp3
 /*
 REVISION HISTORY
 ================
+v0.5.1 - 2019-10-08
+  - Fix a warning with GCC.
+
 v0.5.0 - 2019-10-07
   - API CHANGE: Add support for user defined memory allocation routines. This system allows the program to specify their own memory allocation
     routines with a user data pointer for client-specific contextual data. This adds an extra parameter to the end of the following APIs:
