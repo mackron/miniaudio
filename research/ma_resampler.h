@@ -1,3 +1,200 @@
+/* Resampling research. Public domain. */
+
+#ifndef ma_resampler_h
+#define ma_resampler_h
+
+typedef enum
+{
+    ma_resample_algorithm_linear = 0,   /* Default. Fastest. */
+    ma_resample_algorithm_sinc          /* Slower. */
+} ma_resample_algorithm;
+
+/*
+Simple high-level API for resampling 32-bit floating point samples.
+
+Use ma_calculate_frame_count_after_src() to determine the required output buffer size.
+*/
+ma_result ma_resample_f32(ma_resample_algorithm algorithm, ma_uint32 sampleRateOut, ma_uint32 sampleRateIn, ma_uint64 sampleCountOut, float* pSamplesOut, ma_uint64 sampleCountIn, float* pSamplesIn);
+
+#endif  /* ma_resampler_h */
+
+/*
+Implementation
+*/
+#ifdef MINIAUDIO_IMPLEMENTATION
+
+#ifndef MA_RESAMPLER_MIN_RATIO
+#define MA_RESAMPLER_MIN_RATIO 0.02083333
+#endif
+#ifndef MA_RESAMPLER_MAX_RATIO
+#define MA_RESAMPLER_MAX_RATIO 48.0
+#endif
+
+ma_result ma_resample_f32__linear(ma_uint32 sampleRateOut, ma_uint32 sampleRateIn, ma_uint64 sampleCountOut, float* pSamplesOut, ma_uint64 sampleCountIn, float* pSamplesIn)
+{
+    double ratio = (double)sampleRateIn / (double)sampleRateOut;
+    double timeIn  = 0;
+    double timeOut = 0;
+
+    /* Fast path if the sample rates are the same. */
+    if (sampleRateOut == sampleRateIn) {
+        MA_COPY_MEMORY(pSamplesOut, pSamplesIn, (size_t)ma_min(sampleCountOut, sampleCountIn) * sizeof(float));
+        return MA_SUCCESS;
+    }
+
+    /* Do nothing if there's no input. */
+    if (sampleCountOut == 0 || sampleCountIn == 0) {
+        return MA_SUCCESS;
+    }
+
+
+    /* The first output sample should always be the same as the input sample. */
+    pSamplesOut[0] = pSamplesIn[0];
+    timeIn  += ratio;
+    timeOut += 1;
+
+    for (;;) {
+        ma_uint64 iTimeIn;
+        ma_uint64 iTimeOut;
+
+        iTimeIn = (ma_uint64)timeIn;
+        if (iTimeIn >= sampleCountIn) {
+            break;
+        }
+
+        iTimeOut = (ma_uint64)timeOut;
+        if (iTimeOut >= sampleCountOut) {
+            break;
+        }
+
+        /* To linearly interpolate we need the previous and next input samples. */
+        {
+            ma_uint64 iTimeInPrev = iTimeIn;
+            ma_uint64 iTimeInNext = (ma_uint64)ceil(timeIn);
+
+            if (iTimeInNext >= sampleCountIn) {
+                iTimeInNext = iTimeInPrev;  /* <-- We could instead terminate here which would make the output a few samples shorter. */
+            }
+
+            pSamplesOut[iTimeOut] = ma_mix_f32_fast(pSamplesIn[iTimeInPrev], pSamplesIn[iTimeInNext], (float)(timeIn - iTimeIn));
+
+            /* Try some kind of low-pass filter. */
+        #if 1
+            {
+                double cutoff = ma_min(sampleRateIn, sampleRateOut) * 0.5;
+                double RC = 1.0/(cutoff*MA_TAU_D); 
+                double dt = 1.0/sampleRateOut;
+                float alpha = (float)(dt/(RC+dt));
+                pSamplesOut[iTimeOut] = pSamplesOut[iTimeOut-1] + (alpha*(pSamplesOut[iTimeOut] - pSamplesOut[iTimeOut-1]));
+            }
+        #endif
+        }
+
+        timeIn  += ratio;
+        timeOut += 1;
+    }
+
+    return MA_INVALID_ARGS;
+}
+
+
+double ma_sinc_hann(double n, int N)
+{
+    double s = sin(MA_PI_D*n/N);
+    return s*s;
+}
+
+ma_result ma_resample_f32__sinc(ma_uint32 sampleRateOut, ma_uint32 sampleRateIn, ma_uint64 sampleCountOut, float* pSamplesOut, ma_uint64 sampleCountIn, float* pSamplesIn)
+{
+    double ratio = (double)sampleRateIn / (double)sampleRateOut;
+    double timeIn  = 0;
+    double timeOut = 0;
+    double samplingPeriodIn = 1.0/sampleRateIn;
+    int windowWidth = 32;
+
+    /* Fast path if the sample rates are the same. */
+    if (sampleRateOut == sampleRateIn) {
+        MA_COPY_MEMORY(pSamplesOut, pSamplesIn, (size_t)ma_min(sampleCountOut, sampleCountIn) * sizeof(float));
+        return MA_SUCCESS;
+    }
+
+    /* Do nothing if there's no input. */
+    if (sampleCountOut == 0 || sampleCountIn == 0) {
+        return MA_SUCCESS;
+    }
+
+
+    /* The first output sample should always be the same as the input sample. */
+    pSamplesOut[0] = pSamplesIn[0];
+    timeIn  += ratio;
+    timeOut += 1;
+
+    for (;;) {
+        ma_uint64 iTimeIn;
+        ma_uint64 iTimeOut;
+
+        iTimeIn = (ma_uint64)timeIn;
+        if (iTimeIn >= sampleCountIn) {
+            break;
+        }
+
+        iTimeOut = (ma_uint64)timeOut;
+        if (iTimeOut >= sampleCountOut) {
+            break;
+        }
+
+        /* To linearly interpolate we need the previous and next input samples. */
+        {
+            ma_uint64 iTimeInPrev = iTimeIn;
+            ma_uint64 iTimeInNext = (ma_uint64)ceil(timeIn);
+
+            if (iTimeInNext >= sampleCountIn) {
+                iTimeInNext = iTimeInPrev;  /* <-- We could instead terminate here which would make the output a few samples shorter. */
+            }
+
+
+
+        #if 0
+            pSamplesOut[iTimeOut] = ma_mix_f32_fast(pSamplesIn[iTimeInPrev], pSamplesIn[iTimeInNext], (float)(timeIn - iTimeIn));
+        #else
+            pSamplesOut[iTimeOut] = 0;
+            for (int i = -windowWidth; i < windowWidth; i += 1) {
+                if ((i < 0 && -i < iTimeIn) || i > 0 && i < sampleCountIn) {
+#if 0
+                    double t = (iTimeIn+n);
+                    double s = ma_sinc(sampleRateIn*t);
+                    pSamplesOut[iTimeOut] += pSamplesIn[(ma_uint64)(iTimeIn+n)] * s;
+#endif
+                }
+            }
+        #endif
+        }
+
+        timeIn  += ratio;
+        timeOut += 1;
+    }
+
+    return MA_INVALID_ARGS;
+}
+
+ma_result ma_resample_f32(ma_resample_algorithm algorithm, ma_uint32 sampleRateOut, ma_uint32 sampleRateIn, ma_uint64 sampleCountOut, float* pSamplesOut, ma_uint64 sampleCountIn, float* pSamplesIn)
+{
+    if (pSamplesOut == NULL || pSamplesIn == NULL) {
+        return MA_INVALID_ARGS;
+    }
+
+    switch (algorithm)
+    {
+        case ma_resample_algorithm_linear: return ma_resample_f32__linear(sampleRateOut, sampleRateIn, sampleCountOut, pSamplesOut, sampleCountIn, pSamplesIn);
+        case ma_resample_algorithm_sinc:   return ma_resample_f32__sinc  (sampleRateOut, sampleRateIn, sampleCountOut, pSamplesOut, sampleCountIn, pSamplesIn);
+        default: return MA_INVALID_ARGS;
+    }
+}
+
+#endif  /* MINIAUDIO_IMPLEMENTATION */
+
+
+#if 0
 /*
 Consider this code public domain.
 
@@ -1204,3 +1401,4 @@ ma_uint64 ma_resampler_seek__sinc(ma_resampler* pResampler, ma_uint64 frameCount
 }
 
 #endif
+#endif  /* 0 (Old Implementation)*/
