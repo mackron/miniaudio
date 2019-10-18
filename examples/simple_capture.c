@@ -38,7 +38,7 @@ int main(int argc, char** argv)
     wavFormat.sampleRate    = 44100;
     wavFormat.bitsPerSample = 32;
 
-    if (drwav_init_file_write(&wav, argv[1], &wavFormat) == DRWAV_FALSE) {
+    if (drwav_init_file_write(&wav, argv[1], &wavFormat, NULL) == DRWAV_FALSE) {
         printf("Failed to initialize output file.\n");
         return -1;
     }
