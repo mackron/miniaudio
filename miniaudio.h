@@ -26277,7 +26277,7 @@ ma_result ma_device_init(ma_context* pContext, const ma_device_config* pConfig, 
 
     result = pContext->onDeviceInit(pContext, &config, pDevice);
     if (result != MA_SUCCESS) {
-        return MA_NO_BACKEND;  /* The error message will have been posted with ma_post_error() by the source of the error so don't bother calling it here. */
+        return result;
     }
 
     ma_device__post_init_setup(pDevice, pConfig->deviceType);
