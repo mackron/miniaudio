@@ -43,6 +43,6 @@ Before You Ask:
 * No, I'm not switching away from C89.
 * No, I'm not adding a third license option.
 * No, I'm not adding you to any kind of credit list.
-* No, I'm splitting the project out into multiple files.
+* No, I'm not splitting the project out into multiple files.
 * No, I'm not adding support for CMake nor any other kind of build system.
 * No, there's no Code of Conduct and I'm not adding one. Just don't be unpleasant.
