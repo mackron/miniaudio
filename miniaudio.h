@@ -19890,6 +19890,17 @@ ma_result ma_device_init_internal__coreaudio(ma_context* pContext, ma_device_typ
             
             [pAudioSession setPreferredSampleRate:(double)pData->sampleRateIn error:nil];
             bestFormat.mSampleRate = pAudioSession.sampleRate;
+
+            /*
+            I've had a report that the channel count returned by AudioUnitGetProperty above is inconsistent with
+            AVAudioSession outputNumberOfChannels. I'm going to try using the AVAudioSession values instead.
+            */
+            if (deviceType == ma_device_type_playback) {
+                bestFormat.mChannelsPerFrame = pAudioSession.outputNumberOfChannels;
+            }
+            if (deviceType == ma_device_type_capture) {
+                bestFormat.mChannelsPerFrame = pAudioSession.inputNumberOfChannels;
+            }
         }
         
         status = ((ma_AudioUnitSetProperty_proc)pContext->coreaudio.AudioUnitSetProperty)(pData->audioUnit, kAudioUnitProperty_StreamFormat, formatScope, formatElement, &bestFormat, sizeof(bestFormat));
