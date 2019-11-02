@@ -1994,6 +1994,10 @@ typedef struct
     } pulse;
     struct
     {
+        ma_bool32 noBluetoothRouting;
+    } coreaudio;
+    struct
+    {
         const char* pClientName;
         ma_bool32 tryStartServer;
     } jack;
@@ -20401,9 +20405,21 @@ ma_result ma_context_init__coreaudio(const ma_context_config* pConfig, ma_contex
 #if defined(MA_APPLE_MOBILE)
     @autoreleasepool {
         AVAudioSession* pAudioSession = [AVAudioSession sharedInstance];
+        AVAudioSessionCategoryOptions options = 0;
+
         ma_assert(pAudioSession != NULL);
 
-        [pAudioSession setCategory: AVAudioSessionCategoryPlayAndRecord error:nil];
+        /*
+        Try enabling routing to Bluetooth devices. The AVAudioSessionCategoryOptionAllowBluetoothA2DP is only available
+        starting from iOS 10 so I'm doing a version check before enabling this.
+        */
+        if (!pConfig->coreaudio.noBluetoothRouting) {
+            if ([[[UIDevice currentDevice] systemVersion] compare:@"10.0" options:NSNumericSearch] != NSOrderedAscending) {
+                options = 0x20; /* 0x20 = AVAudioSessionCategoryOptionAllowBluetoothA2DP */
+            }
+        }
+
+        [pAudioSession setCategory: AVAudioSessionCategoryPlayAndRecord withOptions:options error:nil];
         
         /* By default we want miniaudio to use the speakers instead of the receiver. In the future this may be customizable. */
         ma_bool32 useSpeakers = MA_TRUE;
