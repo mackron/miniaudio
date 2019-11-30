@@ -5,9 +5,78 @@
 
 typedef enum
 {
-    ma_resample_algorithm_linear = 0,   /* Default. Fastest. */
-    ma_resample_algorithm_sinc          /* Slower. */
+    ma_resample_algorithm_linear = 0,   /* Fastest, lowest quality. */
+    ma_resample_algorithm_linear_lpf,   /* Linear with a biquad low pass filter. */
 } ma_resample_algorithm;
+
+typedef struct
+{
+    ma_resample_algorithm algorithm;
+    ma_uint32 sampleRateIn;
+    ma_uint32 sampleRateOut;
+    ma_uint32 channels;
+    ma_format format;   /* Must be either ma_format_f32 or ma_format_s16. */
+    struct
+    {
+        int _unused;
+    } linear;
+    struct
+    {
+        int _unused;
+    } linearLPF;
+} ma_resampler_config;
+
+typedef struct
+{
+    ma_resampler_config config;
+    union
+    {
+        struct
+        {
+            float timeX;    /* Input time. */
+            float timeY;    /* Output time. */
+            struct
+            {
+                float yprev1;   /* y-1 */
+                float yprev2;   /* y-2 */
+                float a0;
+                float a1;
+                float a2;
+                float b0;
+                float b1;
+                float b2;
+            } lpf;
+        } linear;
+    } state;
+} ma_resampler;
+
+/*
+Initializes a new resampler object from a config.
+*/
+ma_result ma_resampler_init(const ma_resampler_config* pConfig, ma_resampler* pResampler);
+
+/*
+Converts the given input data.
+
+On input, [pFrameCountOut] contains the number of output frames to process. On output it contains the number of output frames that
+were actually processed, which may be less than the requested amount which will happen if there's not enough input data. You can use
+ma_resampler_get_expected_output_frame_count() to know how many output frames will be processed for a given number of input frames.
+
+On input, [pFrameCountIn] contains the number of input frames contained in [pFramesIn]. On output it contains the number of whole
+input frames that were actually processed. You can use ma_resampler_get_required_input_frame_count() to know how many input frames
+you should provide for a given number of output frames. [pFramesIn] can be NULL, in which case zeroes will be used instead.
+
+If [pFramesOut] is NULL, a seek is performed. In this case, if [pFrameCountOut] is not NULL it will seek by the specified number of
+output frames. Otherwise, if [pFramesCountOut] is NULL and [pFrameCountIn] is not NULL, it will seek by the specified number of input
+frames. When seeking, [pFramesIn] is allowed to NULL, in which case the internal timing state will be updated, but no input will be
+processed. In this case, any internal filter state will be updated as if zeroes were passed in.
+
+It is an error for [pFramesOut] to be non-NULL and [pFrameCountOut] to be NULL.
+
+It is an error for both [pFrameCountOut] and [pFrameCountIn] to be NULL.
+*/
+ma_result ma_resampler_process(ma_resampler* pResampler, ma_uint64* pFrameCountOut, void* pFramesOut, ma_uint64* pFrameCountIn, void* pFramesIn);
+
 
 /*
 Simple high-level API for resampling 32-bit floating point samples.
@@ -29,6 +98,165 @@ Implementation
 #ifndef MA_RESAMPLER_MAX_RATIO
 #define MA_RESAMPLER_MAX_RATIO 48.0
 #endif
+
+ma_result ma_resampler_init(const ma_resampler_config* pConfig, ma_resampler* pResampler)
+{
+    if (pConfig == NULL || pResampler == NULL) {
+        return MA_INVALID_ARGS;
+    }
+
+    MA_ZERO_OBJECT(pResampler);
+    pResampler->config = *pConfig;
+
+    switch (pConfig->algorithm)
+    {
+        case ma_resample_algorithm_linear:
+        {
+            pResampler->state.linear.timeX = 0.0f;
+            pResampler->state.linear.timeY = 0.0f;
+        } break;
+
+        case ma_resample_algorithm_linear_lpf:
+        {
+            pResampler->state.linear.timeX = 0.0f;
+            pResampler->state.linear.timeY = 0.0f;
+            pResampler->state.linear.lpf.yprev1 = 0.0f;
+            pResampler->state.linear.lpf.yprev2 = 0.0f;
+
+            /* TODO: Biquad LPF filter coefficients. */
+            pResampler->state.linear.lpf.a0 = 0.0f;
+            pResampler->state.linear.lpf.a1 = 0.0f;
+            pResampler->state.linear.lpf.a2 = 0.0f;
+            pResampler->state.linear.lpf.b0 = 0.0f;
+            pResampler->state.linear.lpf.b1 = 0.0f;
+            pResampler->state.linear.lpf.b2 = 0.0f;
+        } break;
+
+        default: return MA_INVALID_ARGS;
+    }
+
+    return MA_SUCCESS;
+}
+
+static ma_result ma_resampler_process__seek__linear(ma_resampler* pResampler, ma_uint64* pFrameCountOut, ma_uint64* pFrameCountIn, void* pFramesIn)
+{
+    MA_ASSERT(pResampler != NULL);
+
+    if (pFrameCountOut != NULL) {
+        /* Seek by output frames. */
+        if (pFramesIn != NULL) {
+            /* Read input data. */
+        } else {
+            /* Don't read input data - just update timing and filter state as if zeroes were passed in. */
+        }
+    } else {
+        /* Seek by input frames. */
+        MA_ASSERT(pFrameCountIn != NULL);
+
+        if (pFramesIn != NULL) {
+            /* Read input data. */
+        } else {
+            /* Don't read input data - just update timing and filter state as if zeroes were passed in. */
+        }
+    }
+
+    return MA_SUCCESS;
+}
+
+static ma_result ma_resampler_process__seek__linear_lpf(ma_resampler* pResampler, ma_uint64* pFrameCountOut, ma_uint64* pFrameCountIn, void* pFramesIn)
+{
+    /* TODO: Proper linear LPF implementation. */
+    return ma_resampler_process__seek__linear(pResampler, pFrameCountOut, pFrameCountIn, pFramesIn);
+}
+
+static ma_result ma_resampler_process__seek(ma_resampler* pResampler, ma_uint64* pFrameCountOut, ma_uint64* pFrameCountIn, void* pFramesIn)
+{
+    MA_ASSERT(pResampler != NULL);
+
+    switch (pResampler->config.algorithm)
+    {
+        case ma_resample_algorithm_linear:
+        {
+            return ma_resampler_process__seek__linear(pResampler, pFrameCountOut, pFrameCountIn, pFramesIn);
+        } break;
+
+        case ma_resample_algorithm_linear_lpf:
+        {
+            return ma_resampler_process__seek__linear_lpf(pResampler, pFrameCountOut, pFrameCountIn, pFramesIn);
+        } break;
+
+        default: return MA_INVALID_ARGS;    /* Should never hit this. */
+    }
+}
+
+
+static ma_result ma_resampler_process__read__linear(ma_resampler* pResampler, ma_uint64* pFrameCountOut, void* pFramesOut, ma_uint64* pFrameCountIn, void* pFramesIn)
+{
+    MA_ASSERT(pResampler     != NULL);
+    MA_ASSERT(pFramesOut     != NULL);
+    MA_ASSERT(pFrameCountOut != NULL);
+
+    if (pFramesIn != NULL) {
+        /* Pass in data from the input buffer. */
+    } else {
+        /* Pass in zeroes. */
+    }
+
+    return MA_SUCCESS;
+}
+
+static ma_result ma_resampler_process__read__linear_lpf(ma_resampler* pResampler, ma_uint64* pFrameCountOut, void* pFramesOut, ma_uint64* pFrameCountIn, void* pFramesIn)
+{
+    /* TODO: Proper linear LPF implementation. */
+    return ma_resampler_process__read__linear(pResampler, pFrameCountOut, pFramesOut, pFrameCountIn, pFramesIn);
+}
+
+static ma_result ma_resampler_process__read(ma_resampler* pResampler, ma_uint64* pFrameCountOut, void* pFramesOut, ma_uint64* pFrameCountIn, void* pFramesIn)
+{
+    MA_ASSERT(pResampler != NULL);
+    MA_ASSERT(pFramesOut != NULL);
+
+    /* ppFramesOut is not NULL, which means we must have a capacity. */
+    if (pFrameCountOut == NULL) {
+        return MA_INVALID_ARGS;
+    }
+
+    switch (pResampler->config.algorithm)
+    {
+        case ma_resample_algorithm_linear:
+        {
+            return ma_resampler_process__read__linear(pResampler, pFrameCountOut, pFramesOut, pFrameCountIn, pFramesIn);
+        } break;
+
+        case ma_resample_algorithm_linear_lpf:
+        {
+            return ma_resampler_process__read__linear_lpf(pResampler, pFrameCountOut, pFramesOut, pFrameCountIn, pFramesIn);
+        } break;
+
+        default: return MA_INVALID_ARGS;    /* Should never hit this. */
+    }
+}
+
+ma_result ma_resampler_process(ma_resampler* pResampler, ma_uint64* pFrameCountOut, void* pFramesOut, ma_uint64* pFrameCountIn, void* pFramesIn)
+{
+    if (pResampler == NULL) {
+        return MA_INVALID_ARGS;
+    }
+
+    if (pFrameCountOut != NULL && pFrameCountIn == NULL) {
+        return MA_INVALID_ARGS;
+    }
+
+    if (pFramesOut != NULL) {
+        /* Reading. */
+        return ma_resampler_process__read(pResampler, pFrameCountOut, pFramesOut, pFrameCountIn, pFramesIn);
+    } else {
+        /* Seeking. */
+        return ma_resampler_process__seek(pResampler, pFrameCountOut, pFrameCountIn, pFramesIn);
+    }
+}
+
+
 
 ma_result ma_resample_f32__linear(ma_uint32 sampleRateOut, ma_uint32 sampleRateIn, ma_uint64 sampleCountOut, float* pSamplesOut, ma_uint64 sampleCountIn, float* pSamplesIn)
 {
@@ -143,7 +371,6 @@ ma_result ma_resample_f32__sinc(ma_uint32 sampleRateOut, ma_uint32 sampleRateIn,
             break;
         }
 
-        /* To linearly interpolate we need the previous and next input samples. */
         {
             ma_uint64 iTimeInPrev = iTimeIn;
             ma_uint64 iTimeInNext = (ma_uint64)ceil(timeIn);
