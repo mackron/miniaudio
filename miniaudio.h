@@ -2294,6 +2294,7 @@ struct ma_context
             ma_proc AAudioStreamBuilder_setBufferCapacityInFrames;
             ma_proc AAudioStreamBuilder_setFramesPerDataCallback;
             ma_proc AAudioStreamBuilder_setDataCallback;
+            ma_proc AAudioStreamBuilder_setErrorCallback;
             ma_proc AAudioStreamBuilder_setPerformanceMode;
             ma_proc AAudioStreamBuilder_openStream;
             ma_proc AAudioStream_close;
@@ -23278,7 +23279,8 @@ typedef int32_t ma_aaudio_data_callback_result_t;
 typedef struct ma_AAudioStreamBuilder_t* ma_AAudioStreamBuilder;
 typedef struct ma_AAudioStream_t*        ma_AAudioStream;
 
-typedef ma_aaudio_data_callback_result_t (*ma_AAudioStream_dataCallback)(ma_AAudioStream* pStream, void* pUserData, void* pAudioData, int32_t numFrames);
+typedef ma_aaudio_data_callback_result_t (* ma_AAudioStream_dataCallback) (ma_AAudioStream* pStream, void* pUserData, void* pAudioData, int32_t numFrames);
+typedef void                             (* ma_AAudioStream_errorCallback)(ma_AAudioStream *pStream, void *pUserData, ma_aaudio_result_t error);
 
 typedef ma_aaudio_result_t       (* MA_PFN_AAudio_createStreamBuilder)                   (ma_AAudioStreamBuilder** ppBuilder);
 typedef ma_aaudio_result_t       (* MA_PFN_AAudioStreamBuilder_delete)                   (ma_AAudioStreamBuilder* pBuilder);
@@ -23291,6 +23293,7 @@ typedef void                     (* MA_PFN_AAudioStreamBuilder_setSampleRate)   
 typedef void                     (* MA_PFN_AAudioStreamBuilder_setBufferCapacityInFrames)(ma_AAudioStreamBuilder* pBuilder, int32_t numFrames);
 typedef void                     (* MA_PFN_AAudioStreamBuilder_setFramesPerDataCallback) (ma_AAudioStreamBuilder* pBuilder, int32_t numFrames);
 typedef void                     (* MA_PFN_AAudioStreamBuilder_setDataCallback)          (ma_AAudioStreamBuilder* pBuilder, ma_AAudioStream_dataCallback callback, void* pUserData);
+typedef void                     (* MA_PFN_AAudioStreamBuilder_setErrorCallback)         (ma_AAudioStreamBuilder* pBuilder, ma_AAudioStream_errorCallback callback, void* pUserData);
 typedef void                     (* MA_PFN_AAudioStreamBuilder_setPerformanceMode)       (ma_AAudioStreamBuilder* pBuilder, ma_aaudio_performance_mode_t mode);
 typedef ma_aaudio_result_t       (* MA_PFN_AAudioStreamBuilder_openStream)               (ma_AAudioStreamBuilder* pBuilder, ma_AAudioStream** ppStream);
 typedef ma_aaudio_result_t       (* MA_PFN_AAudioStream_close)                           (ma_AAudioStream* pStream);
@@ -23314,6 +23317,28 @@ ma_result ma_result_from_aaudio(ma_aaudio_result_t resultAA)
     }
 
     return MA_ERROR;
+}
+
+void ma_stream_error_callback__aaudio(ma_AAudioStream* pStream, void* pUserData, ma_aaudio_result_t error)
+{
+    ma_device* pDevice = (ma_device*)pUserData;
+    ma_assert(pDevice != NULL);
+
+    (void)error;
+
+#if defined(MA_DEBUG_OUTPUT)
+    printf("[AAudio] ERROR CALLBACK: error=%d, AAudioStream_getState()=%d\n", error, ((MA_PFN_AAudioStream_getState)pDevice->pContext->aaudio.AAudioStream_getState)(pStream));
+#endif
+
+    /*
+    From the documentation for AAudio, when a device is disconnected all we can do is stop it. However, we cannot stop it from the callback - we need
+    to do it from another thread. Therefore we are going to use an event thread for the AAudio backend to do this cleanly and safely.
+    */
+    if (((MA_PFN_AAudioStream_getState)pDevice->pContext->aaudio.AAudioStream_getState)(pStream) == MA_AAUDIO_STREAM_STATE_DISCONNECTED) {
+#if defined(MA_DEBUG_OUTPUT)
+        printf("[AAudio] Device Disconnected.\n");
+#endif
+    }
 }
 
 ma_aaudio_data_callback_result_t ma_stream_data_callback_capture__aaudio(ma_AAudioStream* pStream, void* pUserData, void* pAudioData, int32_t frameCount)
@@ -23408,6 +23433,8 @@ ma_result ma_open_stream__aaudio(ma_context* pContext, ma_device_type deviceType
         /* Not sure how this affects things, but since there's a mapping between miniaudio's performance profiles and AAudio's performance modes, let go ahead and set it. */
         ((MA_PFN_AAudioStreamBuilder_setPerformanceMode)pContext->aaudio.AAudioStreamBuilder_setPerformanceMode)(pBuilder, (pConfig->performanceProfile == ma_performance_profile_low_latency) ? MA_AAUDIO_PERFORMANCE_MODE_LOW_LATENCY : MA_AAUDIO_PERFORMANCE_MODE_NONE);
     }
+
+    ((MA_PFN_AAudioStreamBuilder_setErrorCallback)pContext->aaudio.AAudioStreamBuilder_setErrorCallback)(pBuilder, ma_stream_error_callback__aaudio, (void*)pDevice);
 
     resultAA = ((MA_PFN_AAudioStreamBuilder_openStream)pContext->aaudio.AAudioStreamBuilder_openStream)(pBuilder, ppStream);
     if (resultAA != MA_AAUDIO_OK) {
@@ -23814,6 +23841,7 @@ ma_result ma_context_init__aaudio(const ma_context_config* pConfig, ma_context* 
     pContext->aaudio.AAudioStreamBuilder_setBufferCapacityInFrames = (ma_proc)ma_dlsym(pContext, pContext->aaudio.hAAudio, "AAudioStreamBuilder_setBufferCapacityInFrames");
     pContext->aaudio.AAudioStreamBuilder_setFramesPerDataCallback  = (ma_proc)ma_dlsym(pContext, pContext->aaudio.hAAudio, "AAudioStreamBuilder_setFramesPerDataCallback");
     pContext->aaudio.AAudioStreamBuilder_setDataCallback           = (ma_proc)ma_dlsym(pContext, pContext->aaudio.hAAudio, "AAudioStreamBuilder_setDataCallback");
+    pContext->aaudio.AAudioStreamBuilder_setErrorCallback          = (ma_proc)ma_dlsym(pContext, pContext->aaudio.hAAudio, "AAudioStreamBuilder_setErrorCallback");
     pContext->aaudio.AAudioStreamBuilder_setPerformanceMode        = (ma_proc)ma_dlsym(pContext, pContext->aaudio.hAAudio, "AAudioStreamBuilder_setPerformanceMode");
     pContext->aaudio.AAudioStreamBuilder_openStream                = (ma_proc)ma_dlsym(pContext, pContext->aaudio.hAAudio, "AAudioStreamBuilder_openStream");
     pContext->aaudio.AAudioStream_close                            = (ma_proc)ma_dlsym(pContext, pContext->aaudio.hAAudio, "AAudioStream_close");
