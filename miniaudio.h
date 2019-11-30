@@ -492,6 +492,7 @@ extern "C" {
 #else
     #define MA_POSIX
     #include <pthread.h>    /* Unfortunate #include, but needed for pthread_t, pthread_mutex_t and pthread_cond_t types. */
+    #include <semaphore.h>
 
     #ifdef __unix__
         #define MA_UNIX
@@ -744,7 +745,8 @@ typedef int ma_result;
 #define MA_FAILED_TO_CONFIGURE_BACKEND_DEVICE          -310
 #define MA_FAILED_TO_CREATE_MUTEX                      -311
 #define MA_FAILED_TO_CREATE_EVENT                      -312
-#define MA_FAILED_TO_CREATE_THREAD                     -313
+#define MA_FAILED_TO_CREATE_SEMAPHORE                  -313
+#define MA_FAILED_TO_CREATE_THREAD                     -314
 
 
 /* Standard sample rates. */
@@ -1797,6 +1799,28 @@ typedef struct
         int _unused;
     };
 } ma_event;
+
+typedef struct
+{
+    ma_context* pContext;
+
+    union
+    {
+#ifdef MA_WIN32
+        struct
+        {
+            /*HANDLE*/ ma_handle hSemaphore;
+        } win32;
+#endif
+#ifdef MA_POSIX
+        struct
+        {
+            sem_t semaphore;
+        } posix;
+#endif
+        int _unused;
+    };
+} ma_semaphore;
 
 
 /*
@@ -3838,11 +3862,13 @@ Standard Library Stuff
 #endif
 #endif
 
+#define MA_ZERO_OBJECT(p) MA_ZERO_MEMORY((p), sizeof(*(p)))
+
 #define ma_zero_memory MA_ZERO_MEMORY
+#define ma_zero_object MA_ZERO_OBJECT
 #define ma_copy_memory MA_COPY_MEMORY
 #define ma_assert      MA_ASSERT
 
-#define ma_zero_object(p)          ma_zero_memory((p), sizeof(*(p)))
 #define ma_countof(x)              (sizeof(x) / sizeof(x[0]))
 #define ma_max(x, y)               (((x) > (y)) ? (x) : (y))
 #define ma_min(x, y)               (((x) < (y)) ? (x) : (y))
@@ -4995,6 +5021,34 @@ ma_bool32 ma_event_signal__win32(ma_event* pEvent)
 {
     return SetEvent(pEvent->win32.hEvent);
 }
+
+
+ma_result ma_semaphore_init__win32(ma_context* pContext, int initialValue, ma_semaphore* pSemaphore)
+{
+    (void)pContext;
+
+    pSemaphore->win32.hSemaphore = CreateSemaphoreA(NULL, (LONG)initialValue, LONG_MAX, NULL);
+    if (pSemaphore->win32.hSemaphore == NULL) {
+        return MA_FAILED_TO_CREATE_SEMAPHORE;
+    }
+
+    return MA_SUCCESS;
+}
+
+void ma_semaphore_uninit__win32(ma_semaphore* pSemaphore)
+{
+    CloseHandle((HANDLE)pSemaphore->win32.hSemaphore);
+}
+
+ma_bool32 ma_semaphore_wait__win32(ma_semaphore* pSemaphore)
+{
+    return WaitForSingleObject((HANDLE)pSemaphore->win32.hSemaphore, INFINITE) == WAIT_OBJECT_0;
+}
+
+ma_bool32 ma_semaphore_release__win32(ma_semaphore* pSemaphore)
+{
+    return ReleaseSemaphore((HANDLE)pSemaphore->win32.hSemaphore, 1, NULL) != 0;
+}
 #endif
 
 
@@ -5181,6 +5235,33 @@ ma_bool32 ma_event_signal__posix(ma_event* pEvent)
 
     return MA_TRUE;
 }
+
+
+ma_result ma_semaphore_init__posix(ma_context* pContext, int initialValue, ma_semaphore* pSemaphore)
+{
+    (void)pContext;
+
+    if (sem_init(&pSemaphore->posix.semaphore, 0, (unsigned int)initialValue) == 0) {
+        return MA_FAILED_TO_CREATE_SEMAPHORE;
+    }
+
+    return MA_SUCCESS;
+}
+
+void ma_semaphore_uninit__posix(ma_semaphore* pSemaphore)
+{
+    sem_close(&pSemaphore->posix.semaphore);
+}
+
+ma_bool32 ma_semaphore_wait__posix(ma_semaphore* pSemaphore)
+{
+    return sem_wait(&pSemaphore->posix.semaphore) != -1;
+}
+
+ma_bool32 ma_semaphore_release__posix(ma_semaphore* pSemaphore)
+{
+    return sem_post(&pSemaphore->posix.semaphore) != -1;
+}
 #endif
 
 ma_result ma_thread_create(ma_context* pContext, ma_thread* pThread, ma_thread_entry_proc entryProc, void* pData)
@@ -5338,6 +5419,63 @@ ma_bool32 ma_event_signal(ma_event* pEvent)
 #endif
 #ifdef MA_POSIX
     return ma_event_signal__posix(pEvent);
+#endif
+}
+
+
+ma_result ma_semaphore_init(ma_context* pContext, int initialValue, ma_semaphore* pSemaphore)
+{
+    if (pContext == NULL || pSemaphore == NULL) {
+        return MA_INVALID_ARGS;
+    }
+
+#ifdef MA_WIN32
+    return ma_semaphore_init__win32(pContext, initialValue, pSemaphore);
+#endif
+#ifdef MA_POSIX
+    return ma_semaphore_init__posix(pContext, initialValue, pSemaphore);
+#endif
+}
+
+void ma_semaphore_uninit(ma_semaphore* pSemaphore)
+{
+    if (pSemaphore == NULL) {
+        return;
+    }
+
+#ifdef MA_WIN32
+    ma_semaphore_uninit__win32(pSemaphore);
+#endif
+#ifdef MA_POSIX
+    ma_semaphore_uninit__posix(pSemaphore);
+#endif
+}
+
+ma_bool32 ma_semaphore_wait(ma_semaphore* pSemaphore)
+{
+    if (pSemaphore == NULL) {
+        return MA_FALSE;
+    }
+
+#ifdef MA_WIN32
+    return ma_semaphore_wait__win32(pSemaphore);
+#endif
+#ifdef MA_POSIX
+    return ma_semaphore_wait__posix(pSemaphore);
+#endif
+}
+
+ma_bool32 ma_semaphore_release(ma_semaphore* pSemaphore)
+{
+    if (pSemaphore == NULL) {
+        return MA_FALSE;
+    }
+
+#ifdef MA_WIN32
+    return ma_semaphore_release__win32(pSemaphore);
+#endif
+#ifdef MA_POSIX
+    return ma_semaphore_release__posix(pSemaphore);
 #endif
 }
 
