@@ -1,6 +1,6 @@
 /*
 MP3 audio decoder. Choice of public domain or MIT-0. See license statements at the end of this file.
-dr_mp3 - v0.5.1 - 2019-10-08
+dr_mp3 - v0.5.4 - 2019-12-02
 
 David Reid - mackron@gmail.com
 
@@ -41,11 +41,11 @@ To use the new system, you pass in a pointer to a drmp3_allocation_callbacks obj
     allocationCallbacks.onMalloc  = my_malloc;
     allocationCallbacks.onRealloc = my_realloc;
     allocationCallbacks.onFree    = my_free;
-    drmp3_init_file(&mp3, "my_file.wav", NULL, &allocationCallbacks);
+    drmp3_init_file(&mp3, "my_file.mp3", NULL, &allocationCallbacks);
 
 The advantage of this new system is that it allows you to specify user data which will be passed in to the allocation routines.
 
-Passing in null for the allocation callbacks object will cause dr_wav to use defaults which is the same as DRMP3_MALLOC,
+Passing in null for the allocation callbacks object will cause dr_mp3 to use defaults which is the same as DRMP3_MALLOC,
 DRMP3_REALLOC and DRMP3_FREE and the equivalent of how it worked in previous versions.
 
 Every API that opens a drmp3 object now takes this extra parameter. These include the following:
@@ -619,6 +619,7 @@ end:
 }
 #elif defined(__ARM_NEON) || defined(__aarch64__)
 #include <arm_neon.h>
+#define DRMP3_HAVE_SSE 0
 #define DRMP3_HAVE_SIMD 1
 #define DRMP3_VSTORE vst1q_f32
 #define DRMP3_VLD vld1q_f32
@@ -636,6 +637,7 @@ static int drmp3_have_simd()
     return 1;
 }
 #else
+#define DRMP3_HAVE_SSE 0
 #define DRMP3_HAVE_SIMD 0
 #ifdef DR_MP3_ONLY_SIMD
 #error DR_MP3_ONLY_SIMD used, but SSE/NEON not enabled
@@ -2421,8 +2423,10 @@ static void* drmp3__realloc_from_callbacks(void* p, size_t szNew, size_t szOld, 
             return NULL;
         }
 
-        DRMP3_COPY_MEMORY(p2, p, szOld);
-        pAllocationCallbacks->onFree(p, pAllocationCallbacks->pUserData);
+        if (p != NULL) {
+            DRMP3_COPY_MEMORY(p2, p, szOld);
+            pAllocationCallbacks->onFree(p, pAllocationCallbacks->pUserData);
+        }
 
         return p2;
     }
@@ -4005,6 +4009,15 @@ DIFFERENCES BETWEEN minimp3 AND dr_mp3
 /*
 REVISION HISTORY
 ================
+v0.5.4 - 2019-12-02
+  - Fix a possible null pointer dereference when using custom memory allocators for realloc().
+
+v0.5.3 - 2019-11-14
+  - Fix typos in documentation.
+
+v0.5.2 - 2019-11-02
+  - Bring up to date with minimp3.
+
 v0.5.1 - 2019-10-08
   - Fix a warning with GCC.
 
