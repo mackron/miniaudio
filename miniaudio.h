@@ -1,6 +1,6 @@
 /*
 Audio playback and capture library. Choice of public domain or MIT-0. See license statements at the end of this file.
-miniaudio (formerly mini_al) - v0.9.8 - 2019-10-07
+miniaudio (formerly mini_al) - v0.9.9 - 20xx-xx-xx
 
 David Reid - davidreidsoftware@gmail.com
 
@@ -35612,6 +35612,9 @@ Device
 /*
 REVISION HISTORY
 ================
+v0.9.9 - 20xx-xx-xx
+  - Core Audio: Fix bugs in the case where the internal device uses deinterleaved buffers.
+
 v0.9.8 - 2019-10-07
   - WASAPI: Fix a potential deadlock when starting a full-duplex device.
   - WASAPI: Enable automatic resampling by default. Disable with config.wasapi.noAutoConvertSRC.
