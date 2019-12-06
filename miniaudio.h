@@ -19532,7 +19532,7 @@ OSStatus ma_on_input__coreaudio(void* pUserData, AudioUnitRenderActionFlags* pAc
                     }
                     
                     for (iChannel = 0; iChannel < pDevice->capture.internalChannels; ++iChannel) {
-                        ppDeinterleavedBuffers[iChannel] = (void*)ma_offset_ptr(pRenderedBufferList->mBuffers[iBuffer].mData, (frameCount - framesRemaining) * ma_get_bytes_per_sample(pDevice->capture.internalFormat));
+                        ppDeinterleavedBuffers[iChannel] = (void*)ma_offset_ptr(pRenderedBufferList->mBuffers[iBuffer+iChannel].mData, (frameCount - framesRemaining) * ma_get_bytes_per_sample(pDevice->capture.internalFormat));
                     }
                     
                     ma_interleave_pcm_frames(pDevice->capture.internalFormat, pDevice->capture.internalChannels, framesToSend, (const void**)ppDeinterleavedBuffers, tempBuffer);
