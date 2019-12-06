@@ -19392,33 +19392,41 @@ OSStatus ma_on_output__coreaudio(void* pUserData, AudioUnitRenderActionFlags* pA
         }
     } else {
         /* This is the deinterleaved case. We need to update each buffer in groups of internalChannels. This assumes each buffer is the same size. */
-        ma_uint8 tempBuffer[4096];
-        UInt32 iBuffer;
-        for (iBuffer = 0; iBuffer < pBufferList->mNumberBuffers; iBuffer += pDevice->playback.internalChannels) {
-            ma_uint32 frameCountPerBuffer = pBufferList->mBuffers[iBuffer].mDataByteSize / ma_get_bytes_per_sample(pDevice->playback.internalFormat);
-            ma_uint32 framesRemaining = frameCountPerBuffer;
+        
+        /*
+        For safety we'll check that the internal channels is a multiple of the buffer count. If it's not it means something
+        very strange has happened and we're not going to support it.
+        */
+        if ((pBufferList->mNumberBuffers % pDevice->playback.internalChannels) == 0) {
+            ma_uint8 tempBuffer[4096];
+            UInt32 iBuffer;
+        
+            for (iBuffer = 0; iBuffer < pBufferList->mNumberBuffers; iBuffer += pDevice->playback.internalChannels) {
+                ma_uint32 frameCountPerBuffer = pBufferList->mBuffers[iBuffer].mDataByteSize / ma_get_bytes_per_sample(pDevice->playback.internalFormat);
+                ma_uint32 framesRemaining = frameCountPerBuffer;
 
-            while (framesRemaining > 0) {
-                void* ppDeinterleavedBuffers[MA_MAX_CHANNELS];
-                ma_uint32 iChannel;
-                ma_uint32 framesToRead = sizeof(tempBuffer) / ma_get_bytes_per_frame(pDevice->playback.internalFormat, pDevice->playback.internalChannels);
-                if (framesToRead > framesRemaining) {
-                    framesToRead = framesRemaining;
+                while (framesRemaining > 0) {
+                    void* ppDeinterleavedBuffers[MA_MAX_CHANNELS];
+                    ma_uint32 iChannel;
+                    ma_uint32 framesToRead = sizeof(tempBuffer) / ma_get_bytes_per_frame(pDevice->playback.internalFormat, pDevice->playback.internalChannels);
+                    if (framesToRead > framesRemaining) {
+                        framesToRead = framesRemaining;
+                    }
+                    
+                    if (pDevice->type == ma_device_type_duplex) {
+                        ma_device__handle_duplex_callback_playback(pDevice, framesToRead, tempBuffer, &pDevice->coreaudio.duplexRB);
+                    } else {
+                        ma_device__read_frames_from_client(pDevice, framesToRead, tempBuffer);
+                    }
+                    
+                    for (iChannel = 0; iChannel < pDevice->playback.internalChannels; ++iChannel) {
+                        ppDeinterleavedBuffers[iChannel] = (void*)ma_offset_ptr(pBufferList->mBuffers[iBuffer+iChannel].mData, (frameCountPerBuffer - framesRemaining) * ma_get_bytes_per_sample(pDevice->playback.internalFormat));
+                    }
+                    
+                    ma_deinterleave_pcm_frames(pDevice->playback.internalFormat, pDevice->playback.internalChannels, framesToRead, tempBuffer, ppDeinterleavedBuffers);
+                    
+                    framesRemaining -= framesToRead;
                 }
-                
-                if (pDevice->type == ma_device_type_duplex) {
-                    ma_device__handle_duplex_callback_playback(pDevice, framesToRead, tempBuffer, &pDevice->coreaudio.duplexRB);
-                } else {
-                    ma_device__read_frames_from_client(pDevice, framesToRead, tempBuffer);
-                }
-                
-                for (iChannel = 0; iChannel < pDevice->playback.internalChannels; ++iChannel) {
-                    ppDeinterleavedBuffers[iChannel] = (void*)ma_offset_ptr(pBufferList->mBuffers[iBuffer].mData, (frameCountPerBuffer - framesRemaining) * ma_get_bytes_per_sample(pDevice->playback.internalFormat));
-                }
-                
-                ma_deinterleave_pcm_frames(pDevice->playback.internalFormat, pDevice->playback.internalChannels, framesToRead, tempBuffer, ppDeinterleavedBuffers);
-                
-                framesRemaining -= framesToRead;
             }
         }
     }
@@ -19505,31 +19513,38 @@ OSStatus ma_on_input__coreaudio(void* pUserData, AudioUnitRenderActionFlags* pAc
         }
     } else {
         /* This is the deinterleaved case. We need to interleave the audio data before sending it to the client. This assumes each buffer is the same size. */
-        ma_uint8 tempBuffer[4096];
-        UInt32 iBuffer;
-        for (iBuffer = 0; iBuffer < pRenderedBufferList->mNumberBuffers; iBuffer += pDevice->capture.internalChannels) {
-            ma_uint32 framesRemaining = frameCount;
-            while (framesRemaining > 0) {
-                void* ppDeinterleavedBuffers[MA_MAX_CHANNELS];
-                ma_uint32 iChannel;
-                ma_uint32 framesToSend = sizeof(tempBuffer) / ma_get_bytes_per_sample(pDevice->capture.internalFormat);
-                if (framesToSend > framesRemaining) {
-                    framesToSend = framesRemaining;
-                }
-                
-                for (iChannel = 0; iChannel < pDevice->capture.internalChannels; ++iChannel) {
-                    ppDeinterleavedBuffers[iChannel] = (void*)ma_offset_ptr(pRenderedBufferList->mBuffers[iBuffer].mData, (frameCount - framesRemaining) * ma_get_bytes_per_sample(pDevice->capture.internalFormat));
-                }
-                
-                ma_interleave_pcm_frames(pDevice->capture.internalFormat, pDevice->capture.internalChannels, framesToSend, (const void**)ppDeinterleavedBuffers, tempBuffer);
+        
+        /*
+        For safety we'll check that the internal channels is a multiple of the buffer count. If it's not it means something
+        very strange has happened and we're not going to support it.
+        */
+        if ((pRenderedBufferList->mNumberBuffers % pDevice->capture.internalChannels) == 0) {
+            ma_uint8 tempBuffer[4096];
+            UInt32 iBuffer;
+            for (iBuffer = 0; iBuffer < pRenderedBufferList->mNumberBuffers; iBuffer += pDevice->capture.internalChannels) {
+                ma_uint32 framesRemaining = frameCount;
+                while (framesRemaining > 0) {
+                    void* ppDeinterleavedBuffers[MA_MAX_CHANNELS];
+                    ma_uint32 iChannel;
+                    ma_uint32 framesToSend = sizeof(tempBuffer) / ma_get_bytes_per_sample(pDevice->capture.internalFormat);
+                    if (framesToSend > framesRemaining) {
+                        framesToSend = framesRemaining;
+                    }
+                    
+                    for (iChannel = 0; iChannel < pDevice->capture.internalChannels; ++iChannel) {
+                        ppDeinterleavedBuffers[iChannel] = (void*)ma_offset_ptr(pRenderedBufferList->mBuffers[iBuffer].mData, (frameCount - framesRemaining) * ma_get_bytes_per_sample(pDevice->capture.internalFormat));
+                    }
+                    
+                    ma_interleave_pcm_frames(pDevice->capture.internalFormat, pDevice->capture.internalChannels, framesToSend, (const void**)ppDeinterleavedBuffers, tempBuffer);
 
-                if (pDevice->type == ma_device_type_duplex) {
-                    ma_device__handle_duplex_callback_capture(pDevice, framesToSend, tempBuffer, &pDevice->coreaudio.duplexRB);
-                } else {
-                    ma_device__send_frames_to_client(pDevice, framesToSend, tempBuffer);
-                }
+                    if (pDevice->type == ma_device_type_duplex) {
+                        ma_device__handle_duplex_callback_capture(pDevice, framesToSend, tempBuffer, &pDevice->coreaudio.duplexRB);
+                    } else {
+                        ma_device__send_frames_to_client(pDevice, framesToSend, tempBuffer);
+                    }
 
-                framesRemaining -= framesToSend;
+                    framesRemaining -= framesToSend;
+                }
             }
         }
     }
