@@ -35626,6 +35626,7 @@ Device
 REVISION HISTORY
 ================
 v0.9.9 - 20xx-xx-xx
+  - Fix compilation errors with MinGW.
   - Core Audio: Fix bugs in the case where the internal device uses deinterleaved buffers.
 
 v0.9.8 - 2019-10-07
