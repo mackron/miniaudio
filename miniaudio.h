@@ -3342,8 +3342,11 @@ IMPLEMENTATION
 #include <limits.h> /* For INT_MAX */
 #include <math.h>   /* sin(), etc. */
 
-#if defined(MA_DEBUG_OUTPUT)
-#include <stdio.h>  /* for printf() for debug output */
+#if !defined(MA_NO_STDIO) || defined(MA_DEBUG_OUTPUT)
+#include <stdio.h>
+#if !defined(_MSC_VER) && !defined(__DMC__)
+#include <strings.h>    /* For strcasecmp(). */
+#include <wchar.h>      /* For wcslen(), wcsrtombs() */
 #endif
 
 #ifdef MA_WIN32
@@ -34862,13 +34865,6 @@ ma_result ma_decoder_init_memory_raw(const void* pData, size_t dataSize, const m
     return ma_decoder_init_raw__internal(pConfigIn, &config, pDecoder);
 }
 
-#ifndef MA_NO_STDIO
-#include <stdio.h>
-#if !defined(_MSC_VER) && !defined(__DMC__)
-#include <strings.h>    /* For strcasecmp(). */
-#include <wchar.h>      /* For wcsrtombs() */
-#endif
-
 const char* ma_path_file_name(const char* path)
 {
     const char* fileName;
@@ -35079,6 +35075,23 @@ ma_result ma_decoder__preinit_file(const char* pFilePath, const ma_decoder_confi
     return MA_SUCCESS;
 }
 
+/*
+_wfopen() isn't always available in all compilation environments.
+
+    * Windows only.
+    * MSVC seems to support it universally as far back as VC6 from what I can tell (haven't checked further back).
+    * MinGW-64 (both 32- and 64-bit) seems to support it.
+    * MinGW wraps it in !defined(__STRICT_ANSI__).
+
+This can be reviewed as compatibility issues arise. The preference is to use _wfopen_s() and _wfopen() as opposed to the wcsrtombs()
+fallback, so if you notice your compiler not detecting this properly I'm happy to look at adding support.
+*/
+#if defined(_WIN32)
+    #if defined(_MSC_VER) || defined(__MINGW64__) || !defined(__STRICT_ANSI__)
+        #define MA_HAS_WFOPEN
+    #endif
+#endif
+
 ma_result ma_decoder__preinit_file_w(const wchar_t* pFilePath, const ma_decoder_config* pConfig, ma_decoder* pDecoder)
 {
     FILE* pFile;
@@ -35093,7 +35106,7 @@ ma_result ma_decoder__preinit_file_w(const wchar_t* pFilePath, const ma_decoder_
         return MA_INVALID_ARGS;
     }
 
-#if defined(_WIN32)
+#if defined(MA_HAS_WFOPEN)
     /* Use _wfopen() on Windows. */
     #if defined(_MSC_VER) && _MSC_VER >= 1400
         if (_wfopen_s(&pFile, pFilePath, L"rb") != 0) {
