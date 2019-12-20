@@ -5244,9 +5244,14 @@ ma_result ma_semaphore_init__posix(ma_context* pContext, int initialValue, ma_se
 {
     (void)pContext;
 
+#if defined(MA_APPLE)
+    /* Not yet implemented for Apple platforms since sem_init() is deprecated. Need to use a named semaphore via sem_open() instead. */
+    return MA_INVALID_OPERATION;
+#else
     if (sem_init(&pSemaphore->posix.semaphore, 0, (unsigned int)initialValue) == 0) {
         return MA_FAILED_TO_CREATE_SEMAPHORE;
     }
+#endif
 
     return MA_SUCCESS;
 }
