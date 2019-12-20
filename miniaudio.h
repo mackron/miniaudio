@@ -20058,10 +20058,10 @@ ma_result ma_device_init_internal__coreaudio(ma_context* pContext, ma_device_typ
             AVAudioSession outputNumberOfChannels. I'm going to try using the AVAudioSession values instead.
             */
             if (deviceType == ma_device_type_playback) {
-                bestFormat.mChannelsPerFrame = pAudioSession.outputNumberOfChannels;
+                bestFormat.mChannelsPerFrame = (UInt32)pAudioSession.outputNumberOfChannels;
             }
             if (deviceType == ma_device_type_capture) {
-                bestFormat.mChannelsPerFrame = pAudioSession.inputNumberOfChannels;
+                bestFormat.mChannelsPerFrame = (UInt32)pAudioSession.inputNumberOfChannels;
             }
         }
         
