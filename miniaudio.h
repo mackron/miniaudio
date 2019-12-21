@@ -1880,6 +1880,31 @@ typedef enum
     ma_share_mode_exclusive
 } ma_share_mode;
 
+/* iOS/tvOS/watchOS session categories. */
+typedef enum
+{
+    ma_ios_session_category_default = 0,        /* AVAudioSessionCategoryPlayAndRecord with AVAudioSessionCategoryOptionDefaultToSpeaker. */
+    ma_ios_session_category_none,               /* Leave the session category unchanged. */
+    ma_ios_session_category_ambient,            /* AVAudioSessionCategoryAmbient */
+    ma_ios_session_category_solo_ambient,       /* AVAudioSessionCategorySoloAmbient */
+    ma_ios_session_category_playback,           /* AVAudioSessionCategoryPlayback */
+    ma_ios_session_category_record,             /* AVAudioSessionCategoryRecord */
+    ma_ios_session_category_play_and_record,    /* AVAudioSessionCategoryPlayAndRecord */
+    ma_ios_session_category_multi_route         /* AVAudioSessionCategoryMultiRoute */
+} ma_ios_session_category;
+
+/* iOS/tvOS/watchOS session category options */
+typedef enum
+{
+    ma_ios_session_category_option_mix_with_others                            = 0x01,   /* AVAudioSessionCategoryOptionMixWithOthers */
+    ma_ios_session_category_option_duck_others                                = 0x02,   /* AVAudioSessionCategoryOptionDuckOthers */
+    ma_ios_session_category_option_allow_bluetooth                            = 0x04,   /* AVAudioSessionCategoryOptionAllowBluetooth */
+    ma_ios_session_category_option_default_to_speaker                         = 0x08,   /* AVAudioSessionCategoryOptionDefaultToSpeaker */
+    ma_ios_session_category_option_interrupt_spoken_audio_and_mix_with_others = 0x11,   /* AVAudioSessionCategoryOptionInterruptSpokenAudioAndMixWithOthers */
+    ma_ios_session_category_option_allow_bluetooth_a2dp                       = 0x20,   /* AVAudioSessionCategoryOptionAllowBluetoothA2DP */
+    ma_ios_session_category_option_allow_air_play                             = 0x40,   /* AVAudioSessionCategoryOptionAllowAirPlay */
+} ma_ios_session_category_option;
+
 typedef union
 {
 #ifdef MA_SUPPORT_WASAPI
@@ -2018,7 +2043,8 @@ typedef struct
     } pulse;
     struct
     {
-        ma_bool32 noBluetoothRouting;
+        ma_ios_session_category sessionCategory;
+        ma_uint32 sessionCategoryOptions;
     } coreaudio;
     struct
     {
@@ -17952,7 +17978,6 @@ Core Audio Backend
 #include <CoreAudio/CoreAudio.h>
 #else
 #include <AVFoundation/AVFoundation.h>
-#include <UIKit/UIKit.h>  /* For [UIDevice currentDevice] */
 #endif
 
 #include <AudioToolbox/AudioToolbox.h>
@@ -20576,39 +20601,62 @@ ma_result ma_context_uninit__coreaudio(ma_context* pContext)
     return MA_SUCCESS;
 }
 
+static AVAudioSessionCategory ma_to_AVAudioSessionCategory(ma_ios_session_category category)
+{
+    /* The "default" and "none" categories are treated different and should not be used as an input into this function. */
+    ma_assert(category != ma_ios_session_category_default);
+    ma_assert(category != ma_ios_session_category_none);
+
+    switch (category) {
+        case ma_ios_session_category_ambient:         return AVAudioSessionCategoryAmbient;
+        case ma_ios_session_category_solo_ambient:    return AVAudioSessionCategorySoloAmbient;
+        case ma_ios_session_category_playback:        return AVAudioSessionCategoryPlayback;
+        case ma_ios_session_category_record:          return AVAudioSessionCategoryRecord;
+        case ma_ios_session_category_play_and_record: return AVAudioSessionCategoryPlayAndRecord;
+        case ma_ios_session_category_multi_route:     return AVAudioSessionCategoryMultiRoute;
+        case ma_ios_session_category_none:            return AVAudioSessionCategoryAmbient;
+        case ma_ios_session_category_default:         return AVAudioSessionCategoryAmbient;
+        default:                                      return AVAudioSessionCategoryAmbient;
+    }
+}
+
 ma_result ma_context_init__coreaudio(const ma_context_config* pConfig, ma_context* pContext)
 {
+    ma_assert(pConfig != NULL);
     ma_assert(pContext != NULL);
-
-    (void)pConfig;
 
 #if defined(MA_APPLE_MOBILE)
     @autoreleasepool {
         AVAudioSession* pAudioSession = [AVAudioSession sharedInstance];
-        AVAudioSessionCategoryOptions options = 0;
+        AVAudioSessionCategoryOptions options = pConfig->coreaudio.sessionCategoryOptions;
 
         ma_assert(pAudioSession != NULL);
 
-        /*
-        Try enabling routing to Bluetooth devices. The AVAudioSessionCategoryOptionAllowBluetoothA2DP is only available
-        starting from iOS 10 so I'm doing a version check before enabling this.
-        */
-        if (!pConfig->coreaudio.noBluetoothRouting) {
-            if ([[[UIDevice currentDevice] systemVersion] compare:@"10.0" options:NSNumericSearch] != NSOrderedAscending) {
-                options = 0x20; /* 0x20 = AVAudioSessionCategoryOptionAllowBluetoothA2DP */
+        if (pConfig->coreaudio.sessionCategory == ma_ios_session_category_default) {
+            /*
+            I'm going to use trial and error to determine our default session category. First we'll try PlayAndRecord. If that fails
+            we'll try Playback and if that fails we'll try record. If all of these fail we'll just not set the category.
+            */
+        #if !defined(MA_APPLE_TV) && !defined(MA_APPLE_WATCH)
+            options |= AVAudioSessionCategoryOptionDefaultToSpeaker;
+        #endif
+
+            if ([pAudioSession setCategory: AVAudioSessionCategoryPlayAndRecord withOptions:options error:nil]) {
+                /* Using PlayAndRecord */
+            } else if ([pAudioSession setCategory: AVAudioSessionCategoryPlayback withOptions:options error:nil]) {
+                /* Using Playback */
+            } else if ([pAudioSession setCategory: AVAudioSessionCategoryRecord withOptions:options error:nil]) {
+                /* Using Record */
+            } else {
+                /* Leave as default? */
+            }
+        } else {
+            if (pConfig->coreaudio.sessionCategory != ma_ios_session_category_none) {
+                if (![pAudioSession setCategory: ma_to_AVAudioSessionCategory(pConfig->coreaudio.sessionCategory) withOptions:options error:nil]) {
+                    return MA_INVALID_OPERATION;    /* Failed to set session category. */
+                }
             }
         }
-
-        [pAudioSession setCategory: AVAudioSessionCategoryPlayAndRecord withOptions:options error:nil];
-        
-        /* AVAudioSessionPortOverrideSpeaker is not available on Apple TV OS nor Apple Watch OS. */
-    #if !defined(MA_APPLE_TV) && !defined(MA_APPLE_WATCH)
-        /* By default we want miniaudio to use the speakers instead of the receiver. In the future this may be customizable. */
-        ma_bool32 useSpeakers = MA_TRUE;
-        if (useSpeakers) {
-            [pAudioSession overrideOutputAudioPort:AVAudioSessionPortOverrideSpeaker error:nil];
-        }
-    #endif
     }
 #endif
     
@@ -20618,8 +20666,8 @@ ma_result ma_context_init__coreaudio(const ma_context_config* pConfig, ma_contex
         return MA_API_NOT_FOUND;
     }
     
-    pContext->coreaudio.CFStringGetCString             = ma_dlsym(pContext, pContext->coreaudio.hCoreFoundation, "CFStringGetCString");
-    pContext->coreaudio.CFRelease                      = ma_dlsym(pContext, pContext->coreaudio.hCoreFoundation, "CFRelease");
+    pContext->coreaudio.CFStringGetCString = ma_dlsym(pContext, pContext->coreaudio.hCoreFoundation, "CFStringGetCString");
+    pContext->coreaudio.CFRelease          = ma_dlsym(pContext, pContext->coreaudio.hCoreFoundation, "CFRelease");
     
     
     pContext->coreaudio.hCoreAudio = ma_dlopen(pContext, "CoreAudio.framework/CoreAudio");
