@@ -16787,6 +16787,10 @@ ma_result ma_device_read__pulse(ma_device* pDevice, void* pPCMFrames, ma_uint32 
                 return ma_post_error(pDevice, MA_LOG_LEVEL_ERROR, "[PulseAudio] Failed to drop fragment.", ma_result_from_pulse(error));
             }
 
+        #if defined(MA_DEBUG_OUTPUT)
+            printf("[PulseAudio] ma_device_read__pulse: Call pa_stream_drop()\n");
+        #endif
+
             pDevice->pulse.pMappedBufferCapture = NULL;
             pDevice->pulse.mappedBufferFramesRemainingCapture = 0;
             pDevice->pulse.mappedBufferFramesCapacityCapture = 0;
@@ -16821,6 +16825,10 @@ ma_result ma_device_read__pulse(ma_device* pDevice, void* pPCMFrames, ma_uint32 
                         return ma_post_error(pDevice, MA_LOG_LEVEL_ERROR, "[PulseAudio] Failed to peek capture buffer.", ma_result_from_pulse(error));
                     }
 
+                #if defined(MA_DEBUG_OUTPUT)
+                    printf("[PulseAudio] ma_device_read__pulse: Call pa_stream_peek(). bytesMapped=%d\n", (int)bytesMapped);
+                #endif
+
                     if (pDevice->pulse.pMappedBufferCapture == NULL && bytesMapped == 0) {
                         /* Nothing available. This shouldn't happen because we checked earlier with pa_stream_readable_size(). I'm going to throw an error in this case. */
                         return ma_post_error(pDevice, MA_LOG_LEVEL_ERROR, "[PulseAudio] Nothing available after peeking capture buffer.", MA_ERROR);
@@ -16842,6 +16850,10 @@ ma_result ma_device_read__pulse(ma_device* pDevice, void* pPCMFrames, ma_uint32 
                     if (error < 0) {
                         return ma_result_from_pulse(error);
                     }
+
+                #if defined(MA_DEBUG_OUTPUT)
+                    printf("[PulseAudio] ma_device_read__pulse: No data available. Waiting.\n");
+                #endif
 
                     /* Sleep for a bit if nothing was dispatched. */
                     if (error == 0) {
