@@ -17938,6 +17938,12 @@ Core Audio Backend
 
 #if defined(TARGET_OS_IPHONE) && TARGET_OS_IPHONE == 1
     #define MA_APPLE_MOBILE
+    #if defined(TARGET_OS_TV) && TARGET_OS_TV == 1
+        #define MA_APPLE_TV
+    #endif
+    #if defined(TARGET_OS_WATCH) && TARGET_OS_WATCH == 1
+        #define MA_APPLE_WATCH
+    #endif
 #else
     #define MA_APPLE_DESKTOP
 #endif
@@ -20595,11 +20601,14 @@ ma_result ma_context_init__coreaudio(const ma_context_config* pConfig, ma_contex
 
         [pAudioSession setCategory: AVAudioSessionCategoryPlayAndRecord withOptions:options error:nil];
         
+        /* AVAudioSessionPortOverrideSpeaker is not available on Apple TV OS nor Apple Watch OS. */
+    #if !defined(MA_APPLE_TV) && !defined(MA_APPLE_WATCH)
         /* By default we want miniaudio to use the speakers instead of the receiver. In the future this may be customizable. */
         ma_bool32 useSpeakers = MA_TRUE;
         if (useSpeakers) {
             [pAudioSession overrideOutputAudioPort:AVAudioSessionPortOverrideSpeaker error:nil];
         }
+    #endif
     }
 #endif
     
