@@ -17946,6 +17946,7 @@ Core Audio Backend
 #include <CoreAudio/CoreAudio.h>
 #else
 #include <AVFoundation/AVFoundation.h>
+#include <UIKit/UIKit.h>  /* For [UIDevice currentDevice] */
 #endif
 
 #include <AudioToolbox/AudioToolbox.h>
