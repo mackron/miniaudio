@@ -3211,6 +3211,10 @@ float ma_gain_db_to_factor(float gain);
 /************************************************************************************************************************************************************
 
 Decoding
+========
+
+Decoders are independent of the main device API. Decoding APIs can be called freely inside the device's data callback, but they are not thread safe unless
+you do your own synchronization.
 
 ************************************************************************************************************************************************************/
 #ifndef MA_NO_DECODING
@@ -3313,11 +3317,24 @@ If the length is unknown or an error occurs, 0 will be returned.
 This will always return 0 for Vorbis decoders. This is due to a limitation with stb_vorbis in push mode which is what miniaudio
 uses internally.
 
-This will run in linear time for MP3 decoders. Do not call this in time critical scenarios.
+For MP3's, this will decode the entire file. Do not call this in time critical scenarios.
+
+This function is not thread safe without your own synchronization.
 */
 ma_uint64 ma_decoder_get_length_in_pcm_frames(ma_decoder* pDecoder);
 
+/*
+Reads PCM frames from the given decoder.
+
+This is not thread safe without your own synchronization.
+*/
 ma_uint64 ma_decoder_read_pcm_frames(ma_decoder* pDecoder, void* pFramesOut, ma_uint64 frameCount);
+
+/*
+Seeks to a PCM frame based on it's absolute index.
+
+This is not thread safe without your own synchronization.
+*/
 ma_result ma_decoder_seek_to_pcm_frame(ma_decoder* pDecoder, ma_uint64 frameIndex);
 
 /*
