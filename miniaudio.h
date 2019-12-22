@@ -2604,6 +2604,7 @@ MA_ALIGNED_STRUCT(MA_SIMD_ALIGNMENT) ma_device
             ma_bool32 isSwitchingPlaybackDevice;   /* <-- Set to true when the default device has changed and miniaudio is in the process of switching. */
             ma_bool32 isSwitchingCaptureDevice;    /* <-- Set to true when the default device has changed and miniaudio is in the process of switching. */
             ma_pcm_rb duplexRB;
+            void* pRouteChangeHandler;             /* Only used on mobile platforms. Obj-C object for handling route changes. */
         } coreaudio;
 #endif
 #ifdef MA_SUPPORT_SNDIO
@@ -19903,6 +19904,105 @@ static ma_result ma_device__untrack__coreaudio(ma_device* pDevice)
 }
 #endif
 
+#if defined(MA_APPLE_MOBILE)
+@interface ma_router_change_handler:NSObject {
+    ma_device* m_pDevice;
+}
+@end
+
+@implementation ma_router_change_handler
+-(id)init:(ma_device*)pDevice
+{
+    self = [super init];
+    m_pDevice = pDevice;
+
+    [[NSNotificationCenter defaultCenter] addObserver:self selector:@selector(handle_route_change:) name:AVAudioSessionRouteChangeNotification object:[AVAudioSession sharedInstance]];
+
+    return self;
+}
+
+-(void)dealloc
+{
+    [self remove_handler];
+}
+
+-(void)remove_handler
+{
+    [[NSNotificationCenter defaultCenter] removeObserver:self name:@"AVAudioSessionRouteChangeNotification" object:nil];
+}
+
+-(void)handle_route_change:(NSNotification*)pNotification
+{
+    AVAudioSession* pSession = [AVAudioSession sharedInstance];
+
+    NSInteger reason = [[[pNotification userInfo] objectForKey:AVAudioSessionRouteChangeReasonKey] integerValue];
+    switch (reason)
+    {
+        case AVAudioSessionRouteChangeReasonOldDeviceUnavailable:
+        {
+        #if defined(MA_DEBUG_OUTPUT)
+            printf("[Core Audio] Route Changed: AVAudioSessionRouteChangeReasonOldDeviceUnavailable\n");
+        #endif
+        } break;
+
+        case AVAudioSessionRouteChangeReasonNewDeviceAvailable:
+        {
+        #if defined(MA_DEBUG_OUTPUT)
+            printf("[Core Audio] Route Changed: AVAudioSessionRouteChangeReasonNewDeviceAvailable\n");
+        #endif
+        } break;
+
+        case AVAudioSessionRouteChangeReasonNoSuitableRouteForCategory:
+        {
+        #if defined(MA_DEBUG_OUTPUT)
+            printf("[Core Audio] Route Changed: AVAudioSessionRouteChangeReasonNoSuitableRouteForCategory\n");
+        #endif
+        } break;
+
+        case AVAudioSessionRouteChangeReasonWakeFromSleep:
+        {
+        #if defined(MA_DEBUG_OUTPUT)
+            printf("[Core Audio] Route Changed: AVAudioSessionRouteChangeReasonWakeFromSleep\n");
+        #endif
+        } break;
+
+        case AVAudioSessionRouteChangeReasonOverride:
+        {
+        #if defined(MA_DEBUG_OUTPUT)
+            printf("[Core Audio] Route Changed: AVAudioSessionRouteChangeReasonOverride\n");
+        #endif
+        } break;
+
+        case AVAudioSessionRouteChangeReasonCategoryChange:
+        {
+        #if defined(MA_DEBUG_OUTPUT)
+            printf("[Core Audio] Route Changed: AVAudioSessionRouteChangeReasonCategoryChange\n");
+        #endif
+        } break;
+
+        case AVAudioSessionRouteChangeReasonUnknown:
+        default:
+        {
+        #if defined(MA_DEBUG_OUTPUT)
+            printf("[Core Audio] Route Changed: AVAudioSessionRouteChangeReasonUnknown\n");
+        #endif
+        } break;
+    }
+
+    m_pDevice->sampleRate = (ma_uint32)pSession.sampleRate;
+
+    if (m_pDevice->type == ma_device_type_capture || m_pDevice->type == ma_device_type_duplex) {
+        m_pDevice->capture.channels = pSession.inputNumberOfChannels;
+        ma_device__post_init_setup(m_pDevice, ma_device_type_capture);
+    }
+    if (m_pDevice->type == ma_device_type_playback || m_pDevice->type == ma_device_type_duplex) {
+        m_pDevice->playback.channels = pSession.outputNumberOfChannels;
+        ma_device__post_init_setup(m_pDevice, ma_device_type_playback);
+    }
+}
+@end
+#endif
+
 void ma_device_uninit__coreaudio(ma_device* pDevice)
 {
     ma_assert(pDevice != NULL);
@@ -19914,6 +20014,12 @@ void ma_device_uninit__coreaudio(ma_device* pDevice)
     just gracefully ignore it.
     */
     ma_device__untrack__coreaudio(pDevice);
+#endif
+#if defined(MA_APPLE_MOBILE)
+    if (pDevice->coreaudio.pRouteChangeHandler != NULL) {
+        ma_router_change_handler* pRouteChangeHandler = (__bridge ma_router_change_handler*)pDevice->coreaudio.pRouteChangeHandler;
+        [pRouteChangeHandler remove_handler];
+    }
 #endif
     
     if (pDevice->coreaudio.audioUnitCapture != NULL) {
@@ -20562,6 +20668,14 @@ ma_result ma_device_init__coreaudio(ma_context* pContext, const ma_device_config
             ma_pcm_rb_commit_write(&pDevice->coreaudio.duplexRB, bufferSizeInFrames, pBufferData);
         }
     }
+
+    /*
+    We need to detect when a route has changed so we can update the data conversion pipeline accordingly. This is done
+    differently on non-Desktop Apple platforms.
+    */
+#if defined(MA_APPLE_MOBILE)
+    pDevice->coreaudio.pRouteChangeHandler = (__bridge void*)[[ma_router_change_handler alloc] init:pDevice];
+#endif
 
     return MA_SUCCESS;
 }
