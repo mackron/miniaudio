@@ -20744,6 +20744,7 @@ ma_result ma_context_uninit__coreaudio(ma_context* pContext)
     return MA_SUCCESS;
 }
 
+#if defined(MA_APPLE_MOBILE)
 static AVAudioSessionCategory ma_to_AVAudioSessionCategory(ma_ios_session_category category)
 {
     /* The "default" and "none" categories are treated different and should not be used as an input into this function. */
@@ -20762,6 +20763,7 @@ static AVAudioSessionCategory ma_to_AVAudioSessionCategory(ma_ios_session_catego
         default:                                      return AVAudioSessionCategoryAmbient;
     }
 }
+#endif
 
 ma_result ma_context_init__coreaudio(const ma_context_config* pConfig, ma_context* pContext)
 {
