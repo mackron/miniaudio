@@ -17479,7 +17479,7 @@ ma_result ma_context_get_device_info__jack(ma_context* pContext, ma_device_type 
     pDeviceInfo->minChannels = 0;
     pDeviceInfo->maxChannels = 0;
 
-    ppPorts = ((ma_jack_get_ports_proc)pContext->jack.jack_get_ports)((ma_jack_client_t*)pClient, NULL, NULL, ma_JackPortIsPhysical | ((deviceType == ma_device_type_playback) ? ma_JackPortIsInput : ma_JackPortIsOutput));
+    ppPorts = ((ma_jack_get_ports_proc)pContext->jack.jack_get_ports)((ma_jack_client_t*)pClient, NULL, MA_JACK_DEFAULT_AUDIO_TYPE, ma_JackPortIsPhysical | ((deviceType == ma_device_type_playback) ? ma_JackPortIsInput : ma_JackPortIsOutput));
     if (ppPorts == NULL) {
         ((ma_jack_client_close_proc)pContext->jack.jack_client_close)((ma_jack_client_t*)pClient);
         return ma_context_post_error(pContext, NULL, MA_LOG_LEVEL_ERROR, "[JACK] Failed to query physical ports.", MA_FAILED_TO_OPEN_BACKEND_DEVICE);
@@ -17677,7 +17677,7 @@ ma_result ma_device_init__jack(ma_context* pContext, const ma_device_config* pCo
         pDevice->capture.internalSampleRate = ((ma_jack_get_sample_rate_proc)pContext->jack.jack_get_sample_rate)((ma_jack_client_t*)pDevice->jack.pClient);
         ma_get_standard_channel_map(ma_standard_channel_map_alsa, pDevice->capture.internalChannels, pDevice->capture.internalChannelMap);
 
-        ppPorts = ((ma_jack_get_ports_proc)pContext->jack.jack_get_ports)((ma_jack_client_t*)pDevice->jack.pClient, NULL, NULL, ma_JackPortIsPhysical | ma_JackPortIsOutput);
+        ppPorts = ((ma_jack_get_ports_proc)pContext->jack.jack_get_ports)((ma_jack_client_t*)pDevice->jack.pClient, NULL, MA_JACK_DEFAULT_AUDIO_TYPE, ma_JackPortIsPhysical | ma_JackPortIsOutput);
         if (ppPorts == NULL) {
             return ma_post_error(pDevice, MA_LOG_LEVEL_ERROR, "[JACK] Failed to query physical ports.", MA_FAILED_TO_OPEN_BACKEND_DEVICE);
         }
@@ -17717,7 +17717,7 @@ ma_result ma_device_init__jack(ma_context* pContext, const ma_device_config* pCo
         pDevice->playback.internalSampleRate = ((ma_jack_get_sample_rate_proc)pContext->jack.jack_get_sample_rate)((ma_jack_client_t*)pDevice->jack.pClient);
         ma_get_standard_channel_map(ma_standard_channel_map_alsa, pDevice->playback.internalChannels, pDevice->playback.internalChannelMap);
 
-        ppPorts = ((ma_jack_get_ports_proc)pContext->jack.jack_get_ports)((ma_jack_client_t*)pDevice->jack.pClient, NULL, NULL, ma_JackPortIsPhysical | ma_JackPortIsInput);
+        ppPorts = ((ma_jack_get_ports_proc)pContext->jack.jack_get_ports)((ma_jack_client_t*)pDevice->jack.pClient, NULL, MA_JACK_DEFAULT_AUDIO_TYPE, ma_JackPortIsPhysical | ma_JackPortIsInput);
         if (ppPorts == NULL) {
             return ma_post_error(pDevice, MA_LOG_LEVEL_ERROR, "[JACK] Failed to query physical ports.", MA_FAILED_TO_OPEN_BACKEND_DEVICE);
         }
@@ -17785,7 +17785,7 @@ ma_result ma_device_start__jack(ma_device* pDevice)
     }
 
     if (pDevice->type == ma_device_type_capture || pDevice->type == ma_device_type_duplex) {
-        const char** ppServerPorts = ((ma_jack_get_ports_proc)pContext->jack.jack_get_ports)((ma_jack_client_t*)pDevice->jack.pClient, NULL, NULL, ma_JackPortIsPhysical | ma_JackPortIsOutput);
+        const char** ppServerPorts = ((ma_jack_get_ports_proc)pContext->jack.jack_get_ports)((ma_jack_client_t*)pDevice->jack.pClient, NULL, MA_JACK_DEFAULT_AUDIO_TYPE, ma_JackPortIsPhysical | ma_JackPortIsOutput);
         if (ppServerPorts == NULL) {
             ((ma_jack_deactivate_proc)pContext->jack.jack_deactivate)((ma_jack_client_t*)pDevice->jack.pClient);
             return ma_post_error(pDevice, MA_LOG_LEVEL_ERROR, "[JACK] Failed to retrieve physical ports.", MA_ERROR);
@@ -17807,7 +17807,7 @@ ma_result ma_device_start__jack(ma_device* pDevice)
     }
     
     if (pDevice->type == ma_device_type_playback || pDevice->type == ma_device_type_duplex) {
-        const char** ppServerPorts = ((ma_jack_get_ports_proc)pContext->jack.jack_get_ports)((ma_jack_client_t*)pDevice->jack.pClient, NULL, NULL, ma_JackPortIsPhysical | ma_JackPortIsInput);
+        const char** ppServerPorts = ((ma_jack_get_ports_proc)pContext->jack.jack_get_ports)((ma_jack_client_t*)pDevice->jack.pClient, NULL, MA_JACK_DEFAULT_AUDIO_TYPE, ma_JackPortIsPhysical | ma_JackPortIsInput);
         if (ppServerPorts == NULL) {
             ((ma_jack_deactivate_proc)pContext->jack.jack_deactivate)((ma_jack_client_t*)pDevice->jack.pClient);
             return ma_post_error(pDevice, MA_LOG_LEVEL_ERROR, "[JACK] Failed to retrieve physical ports.", MA_ERROR);
