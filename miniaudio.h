@@ -35836,6 +35836,7 @@ REVISION HISTORY
 v0.9.9 - 20xx-xx-xx
   - Fix compilation errors with MinGW.
   - Core Audio: Fix bugs in the case where the internal device uses deinterleaved buffers.
+  - JACK: Fix bug where incorrect ports are connected.
 
 v0.9.8 - 2019-10-07
   - WASAPI: Fix a potential deadlock when starting a full-duplex device.
