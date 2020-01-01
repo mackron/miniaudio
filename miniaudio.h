@@ -2013,6 +2013,7 @@ typedef struct
     {
         ma_bool32 noAutoConvertSRC;     /* When set to true, disables the use of AUDCLNT_STREAMFLAGS_AUTOCONVERTPCM. */
         ma_bool32 noDefaultQualitySRC;  /* When set to true, disables the use of AUDCLNT_STREAMFLAGS_SRC_DEFAULT_QUALITY. */
+        ma_bool32 noAutoStreamRouting;  /* Disables automatic stream routing. */
     } wasapi;
     struct
     {
@@ -9111,7 +9112,7 @@ ma_result ma_device_init__wasapi(ma_context* pContext, const ma_device_config* p
     registering a IMMNotificationClient with it. We only care about this if it's the default device.
     */
 #ifdef MA_WIN32_DESKTOP
-    {
+    if (pConfig->wasapi.noAutoStreamRouting == MA_FALSE) {
         ma_IMMDeviceEnumerator* pDeviceEnumerator;
         HRESULT hr = ma_CoCreateInstance(pContext, MA_CLSID_MMDeviceEnumerator, NULL, CLSCTX_ALL, MA_IID_IMMDeviceEnumerator, (void**)&pDeviceEnumerator);
         if (FAILED(hr)) {
