@@ -2014,6 +2014,7 @@ typedef struct
         ma_bool32 noAutoConvertSRC;     /* When set to true, disables the use of AUDCLNT_STREAMFLAGS_AUTOCONVERTPCM. */
         ma_bool32 noDefaultQualitySRC;  /* When set to true, disables the use of AUDCLNT_STREAMFLAGS_SRC_DEFAULT_QUALITY. */
         ma_bool32 noAutoStreamRouting;  /* Disables automatic stream routing. */
+        ma_bool32 noHardwareOffloading; /* Disables WASAPI's hardware offloading feature. */
     } wasapi;
     struct
     {
@@ -2518,6 +2519,7 @@ MA_ALIGNED_STRUCT(MA_SIMD_ALIGNMENT) ma_device
             ma_bool32 isStartedPlayback;
             ma_bool32 noAutoConvertSRC;     /* When set to true, disables the use of AUDCLNT_STREAMFLAGS_AUTOCONVERTPCM. */
             ma_bool32 noDefaultQualitySRC;  /* When set to true, disables the use of AUDCLNT_STREAMFLAGS_SRC_DEFAULT_QUALITY. */
+            ma_bool32 noHardwareOffloading;
         } wasapi;
 #endif
 #ifdef MA_SUPPORT_DSOUND
@@ -8425,6 +8427,7 @@ typedef struct
     ma_share_mode shareMode;
     ma_bool32 noAutoConvertSRC;
     ma_bool32 noDefaultQualitySRC;
+    ma_bool32 noHardwareOffloading;
 
     /* Output. */
     ma_IAudioClient* pAudioClient;
@@ -8485,20 +8488,22 @@ ma_result ma_device_init_internal__wasapi(ma_context* pContext, ma_device_type d
 
 
     /* Try enabling hardware offloading. */
-    hr = ma_IAudioClient_QueryInterface(pData->pAudioClient, &MA_IID_IAudioClient2, (void**)&pAudioClient2);
-    if (SUCCEEDED(hr)) {
-        BOOL isHardwareOffloadingSupported = 0;
-        hr = ma_IAudioClient2_IsOffloadCapable(pAudioClient2, MA_AudioCategory_Other, &isHardwareOffloadingSupported);
-        if (SUCCEEDED(hr) && isHardwareOffloadingSupported) {
-            ma_AudioClientProperties clientProperties;
-            ma_zero_object(&clientProperties);
-            clientProperties.cbSize = sizeof(clientProperties);
-            clientProperties.bIsOffload = 1;
-            clientProperties.eCategory = MA_AudioCategory_Other;
-            ma_IAudioClient2_SetClientProperties(pAudioClient2, &clientProperties);
-        }
+    if (!pData->noHardwareOffloading) {
+        hr = ma_IAudioClient_QueryInterface(pData->pAudioClient, &MA_IID_IAudioClient2, (void**)&pAudioClient2);
+        if (SUCCEEDED(hr)) {
+            BOOL isHardwareOffloadingSupported = 0;
+            hr = ma_IAudioClient2_IsOffloadCapable(pAudioClient2, MA_AudioCategory_Other, &isHardwareOffloadingSupported);
+            if (SUCCEEDED(hr) && isHardwareOffloadingSupported) {
+                ma_AudioClientProperties clientProperties;
+                ma_zero_object(&clientProperties);
+                clientProperties.cbSize = sizeof(clientProperties);
+                clientProperties.bIsOffload = 1;
+                clientProperties.eCategory = MA_AudioCategory_Other;
+                ma_IAudioClient2_SetClientProperties(pAudioClient2, &clientProperties);
+            }
 
-        pAudioClient2->lpVtbl->Release(pAudioClient2);
+            pAudioClient2->lpVtbl->Release(pAudioClient2);
+        }
     }
 
     /* Here is where we try to determine the best format to use with the device. If the client if wanting exclusive mode, first try finding the best format for that. If this fails, fall back to shared mode. */
@@ -8863,6 +8868,7 @@ ma_result ma_device_reinit__wasapi(ma_device* pDevice, ma_device_type deviceType
     data.periodsIn                  = pDevice->wasapi.originalPeriods;
     data.noAutoConvertSRC           = pDevice->wasapi.noAutoConvertSRC;
     data.noDefaultQualitySRC        = pDevice->wasapi.noDefaultQualitySRC;
+    data.noHardwareOffloading       = pDevice->wasapi.noHardwareOffloading;
     result = ma_device_init_internal__wasapi(pDevice->pContext, deviceType, NULL, &data);
     if (result != MA_SUCCESS) {
         return result;
@@ -8957,8 +8963,9 @@ ma_result ma_device_init__wasapi(ma_context* pContext, const ma_device_config* p
     pDevice->wasapi.originalBufferSizeInFrames       = pConfig->bufferSizeInFrames;
     pDevice->wasapi.originalBufferSizeInMilliseconds = pConfig->bufferSizeInMilliseconds;
     pDevice->wasapi.originalPeriods                  = pConfig->periods;
-    pDevice->wasapi.noAutoConvertSRC                 = pDevice->wasapi.noAutoConvertSRC;
-    pDevice->wasapi.noDefaultQualitySRC              = pDevice->wasapi.noDefaultQualitySRC;
+    pDevice->wasapi.noAutoConvertSRC                 = pConfig->wasapi.noAutoConvertSRC;
+    pDevice->wasapi.noDefaultQualitySRC              = pConfig->wasapi.noDefaultQualitySRC;
+    pDevice->wasapi.noHardwareOffloading             = pConfig->wasapi.noHardwareOffloading;
 
     /* Exclusive mode is not allowed with loopback. */
     if (pConfig->deviceType == ma_device_type_loopback && pConfig->playback.shareMode == ma_share_mode_exclusive) {
@@ -8981,6 +8988,7 @@ ma_result ma_device_init__wasapi(ma_context* pContext, const ma_device_config* p
         data.periodsIn                  = pConfig->periods;
         data.noAutoConvertSRC           = pConfig->wasapi.noAutoConvertSRC;
         data.noDefaultQualitySRC        = pConfig->wasapi.noDefaultQualitySRC;
+        data.noHardwareOffloading       = pConfig->wasapi.noHardwareOffloading;
 
         result = ma_device_init_internal__wasapi(pDevice->pContext, (pConfig->deviceType == ma_device_type_loopback) ? ma_device_type_loopback : ma_device_type_capture, pConfig->capture.pDeviceID, &data);
         if (result != MA_SUCCESS) {
@@ -9037,6 +9045,7 @@ ma_result ma_device_init__wasapi(ma_context* pContext, const ma_device_config* p
         data.periodsIn                  = pConfig->periods;
         data.noAutoConvertSRC           = pConfig->wasapi.noAutoConvertSRC;
         data.noDefaultQualitySRC        = pConfig->wasapi.noDefaultQualitySRC;
+        data.noHardwareOffloading       = pConfig->wasapi.noHardwareOffloading;
 
         result = ma_device_init_internal__wasapi(pDevice->pContext, ma_device_type_playback, pConfig->playback.pDeviceID, &data);
         if (result != MA_SUCCESS) {
