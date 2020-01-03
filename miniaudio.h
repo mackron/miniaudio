@@ -261,13 +261,8 @@ NOTES
 =====
 - This library uses an asynchronous API for delivering and requesting audio data. Each device will have
   it's own worker thread which is managed by the library.
-- If ma_device_init() is called with a device that's not aligned to the 4 bytes on 32-bit or 8 bytes on
-  64-bit it will _not_ be thread-safe. The reason for this is that it depends on members of ma_device being
-  correctly aligned for atomic assignments.
 - Sample data is always native-endian and interleaved. For example, ma_format_s16 means signed 16-bit
-  integer samples, interleaved. Let me know if you need non-interleaved and I'll look into it.
-- The sndio backend is currently only enabled on OpenBSD builds.
-- The audio(4) backend is supported on OpenBSD, but you may need to disable sndiod before you can use it.
+  integer samples, interleaved.
 - Automatic stream routing is enabled on a per-backend basis. Support is explicitly enabled for WASAPI
   and Core Audio, however other backends such as PulseAudio may naturally support it, though not all have
   been tested.
@@ -277,6 +272,11 @@ NOTES
 - By default miniaudio will automatically clip samples. This only applies when the playback sample format
   is configured as ma_format_f32. If you are doing clipping yourself, you can disable this overhead by
   setting noClip to true in the device config.
+- If ma_device_init() is called with a device that's not aligned to the 4 bytes on 32-bit or 8 bytes on
+  64-bit it will _not_ be thread-safe. The reason for this is that it depends on members of ma_device being
+  correctly aligned for atomic assignments.
+- The sndio backend is currently only enabled on OpenBSD builds.
+- The audio(4) backend is supported on OpenBSD, but you may need to disable sndiod before you can use it.
 
 
 BACKEND NUANCES
