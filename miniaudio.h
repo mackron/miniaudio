@@ -16782,8 +16782,11 @@ ma_result ma_device_read__pulse(ma_device* pDevice, void* pPCMFrames, ma_uint32 
             return MA_DEVICE_NOT_STARTED;
         }
 
-        /* If a buffer is mapped we need to write to that first. Once it's consumed we reset the event and unmap it. */
-        if (/*pDevice->pulse.pMappedBufferCapture != NULL && */pDevice->pulse.mappedBufferFramesRemainingCapture > 0) {
+        /*
+        If a buffer is mapped we need to read from that first. Once it's consumed we need to drop it. Note that pDevice->pulse.pMappedBufferCapture can be null in which
+        case it could be a hole. In this case we just write zeros into the output buffer.
+        */
+        if (pDevice->pulse.mappedBufferFramesRemainingCapture > 0) {
             ma_uint32 bpf = ma_get_bytes_per_frame(pDevice->capture.internalFormat, pDevice->capture.internalChannels);
             ma_uint32 mappedBufferFramesConsumed = pDevice->pulse.mappedBufferFramesCapacityCapture - pDevice->pulse.mappedBufferFramesRemainingCapture;
 
