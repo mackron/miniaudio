@@ -3773,7 +3773,7 @@ static MA_INLINE ma_bool32 ma_is_big_endian()
 
 
 #ifndef MA_COINIT_VALUE
-#define MA_COINIT_VALUE    0   /* 0 = COINIT_MULTITHREADED*/
+#define MA_COINIT_VALUE    0   /* 0 = COINIT_MULTITHREADED */
 #endif
 
 
@@ -16783,7 +16783,7 @@ ma_result ma_device_read__pulse(ma_device* pDevice, void* pPCMFrames, ma_uint32 
         }
 
         /* If a buffer is mapped we need to write to that first. Once it's consumed we reset the event and unmap it. */
-        if (pDevice->pulse.pMappedBufferCapture != NULL && pDevice->pulse.mappedBufferFramesRemainingCapture > 0) {
+        if (/*pDevice->pulse.pMappedBufferCapture != NULL && */pDevice->pulse.mappedBufferFramesRemainingCapture > 0) {
             ma_uint32 bpf = ma_get_bytes_per_frame(pDevice->capture.internalFormat, pDevice->capture.internalChannels);
             ma_uint32 mappedBufferFramesConsumed = pDevice->pulse.mappedBufferFramesCapacityCapture - pDevice->pulse.mappedBufferFramesRemainingCapture;
 
@@ -16799,6 +16799,9 @@ ma_result ma_device_read__pulse(ma_device* pDevice, void* pPCMFrames, ma_uint32 
                 ma_copy_memory(pDst, pSrc, framesToCopy * bpf);
             } else {
                 ma_zero_memory(pDst, framesToCopy * bpf);
+            #if defined(MA_DEBUG_OUTPUT)
+                printf("[PulseAudio] ma_device_read__pulse: Filling hole with silence.\n");
+            #endif
             }
 
             pDevice->pulse.mappedBufferFramesRemainingCapture -= framesToCopy;
@@ -16831,7 +16834,9 @@ ma_result ma_device_read__pulse(ma_device* pDevice, void* pPCMFrames, ma_uint32 
 
         /* Getting here means we need to map a new buffer. If we don't have enough data we wait for more. */
         for (;;) {
+            int error;
             size_t readableSizeInBytes;
+            size_t bytesMapped;
 
             if (ma_device__get_state(pDevice) != MA_STATE_STARTED) {
                 break;
@@ -16839,60 +16844,58 @@ ma_result ma_device_read__pulse(ma_device* pDevice, void* pPCMFrames, ma_uint32 
 
             /* If the device has been corked, don't try to continue. */
             if (((ma_pa_stream_is_corked_proc)pDevice->pContext->pulse.pa_stream_is_corked)((ma_pa_stream*)pDevice->pulse.pStreamCapture)) {
+            #if defined(MA_DEBUG_OUTPUT)
+                printf("[PulseAudio] ma_device_read__pulse: Corked.\n");
+            #endif
                 break;
             }
 
-            readableSizeInBytes = ((ma_pa_stream_readable_size_proc)pDevice->pContext->pulse.pa_stream_readable_size)((ma_pa_stream*)pDevice->pulse.pStreamCapture);
-            if (readableSizeInBytes != (size_t)-1) {
-                /*size_t periodSizeInBytes = (pDevice->capture.internalBufferSizeInFrames / pDevice->capture.internalPeriods) * ma_get_bytes_per_frame(pDevice->capture.internalFormat, pDevice->capture.internalChannels);*/
-                if (readableSizeInBytes > 0) {
-                    /* Data is avaialable. */
-                    size_t bytesMapped = (size_t)-1;
-                    int error = ((ma_pa_stream_peek_proc)pDevice->pContext->pulse.pa_stream_peek)((ma_pa_stream*)pDevice->pulse.pStreamCapture, &pDevice->pulse.pMappedBufferCapture, &bytesMapped);
-                    if (error < 0) {
-                        return ma_post_error(pDevice, MA_LOG_LEVEL_ERROR, "[PulseAudio] Failed to peek capture buffer.", ma_result_from_pulse(error));
-                    }
+            ma_assert(pDevice->pulse.pMappedBufferCapture == NULL); /* <-- We're about to map a buffer which means we shouldn't have an existing mapping. */
 
-                #if defined(MA_DEBUG_OUTPUT)
-                    printf("[PulseAudio] ma_device_read__pulse: Call pa_stream_peek(). bytesMapped=%d\n", (int)bytesMapped);
-                #endif
+            error = ((ma_pa_stream_peek_proc)pDevice->pContext->pulse.pa_stream_peek)((ma_pa_stream*)pDevice->pulse.pStreamCapture, &pDevice->pulse.pMappedBufferCapture, &bytesMapped);
+            if (error < 0) {
+                return ma_post_error(pDevice, MA_LOG_LEVEL_ERROR, "[PulseAudio] Failed to peek capture buffer.", ma_result_from_pulse(error));
+            }
+        #if defined(MA_DEBUG_OUTPUT)
+            printf("[PulseAudio] ma_device_read__pulse: Call pa_stream_peek(). bytesMapped=%d\n", (int)bytesMapped);
+        #endif
 
-                    if (pDevice->pulse.pMappedBufferCapture == NULL && bytesMapped == 0) {
-                        /* Nothing available. This shouldn't happen because we checked earlier with pa_stream_readable_size(). I'm going to throw an error in this case. */
-                        return ma_post_error(pDevice, MA_LOG_LEVEL_ERROR, "[PulseAudio] Nothing available after peeking capture buffer.", MA_ERROR);
-                    }
-
-                    pDevice->pulse.mappedBufferFramesCapacityCapture  = bytesMapped / ma_get_bytes_per_frame(pDevice->capture.internalFormat, pDevice->capture.internalChannels);
-                    pDevice->pulse.mappedBufferFramesRemainingCapture = pDevice->pulse.mappedBufferFramesCapacityCapture;
-
-                    break;
-                } else {
-                    /* No data available. Need to wait for more. */
+            if (pDevice->pulse.pMappedBufferCapture == NULL) {
+                if (bytesMapped == 0) {
+                    /* Nothing available yet. Need to wait for more. */
 
                     /*
                     I have had reports of a deadlock in this part of the code. I have reproduced this when using the "Built-in Audio Analogue Stereo" device without
                     an actual microphone connected. I'm experimenting here by not blocking in pa_mainloop_iterate() and instead sleep for a bit when there are no
                     dispatches.
                     */
-                    int error = ((ma_pa_mainloop_iterate_proc)pDevice->pContext->pulse.pa_mainloop_iterate)((ma_pa_mainloop*)pDevice->pulse.pMainLoop, 0, NULL);
+                    error = ((ma_pa_mainloop_iterate_proc)pDevice->pContext->pulse.pa_mainloop_iterate)((ma_pa_mainloop*)pDevice->pulse.pMainLoop, 0, NULL);
                     if (error < 0) {
                         return ma_result_from_pulse(error);
                     }
-
-                #if defined(MA_DEBUG_OUTPUT)
-                    printf("[PulseAudio] ma_device_read__pulse: No data available. Waiting.\n");
-                #endif
 
                     /* Sleep for a bit if nothing was dispatched. */
                     if (error == 0) {
                         ma_sleep(1);
                     }
 
+                #if defined(MA_DEBUG_OUTPUT)
+                    printf("[PulseAudio] ma_device_read__pulse: No data available. Waiting. mappedBufferFramesCapacityCapture=%d, mappedBufferFramesRemainingCapture%d\n", pDevice->pulse.mappedBufferFramesCapacityCapture, pDevice->pulse.mappedBufferFramesRemainingCapture);
+                #endif
+
                     continue;
+                } else {
+                    /* It's a hole. */
+                #if defined(MA_DEBUG_OUTPUT)
+                    printf("[PulseAudio] ma_device_read__pulse: Call pa_stream_peek(). Hole.\n");
+                #endif
                 }
-            } else {
-                return ma_post_error(pDevice, MA_LOG_LEVEL_ERROR, "[PulseAudio] Failed to query the stream's readable size.", MA_ERROR);
             }
+
+            pDevice->pulse.mappedBufferFramesCapacityCapture  = bytesMapped / ma_get_bytes_per_frame(pDevice->capture.internalFormat, pDevice->capture.internalChannels);
+            pDevice->pulse.mappedBufferFramesRemainingCapture = pDevice->pulse.mappedBufferFramesCapacityCapture;
+
+            break;
         }
     }
 
