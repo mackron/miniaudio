@@ -16816,14 +16816,16 @@ ma_result ma_device_read__pulse(ma_device* pDevice, void* pPCMFrames, ma_uint32 
         mapping another chunk. If this fails we need to wait for data to become available.
         */
         if (pDevice->pulse.mappedBufferFramesCapacityCapture > 0 && pDevice->pulse.mappedBufferFramesRemainingCapture == 0) {
-            int error = ((ma_pa_stream_drop_proc)pDevice->pContext->pulse.pa_stream_drop)((ma_pa_stream*)pDevice->pulse.pStreamCapture);
-            if (error != 0) {
-                return ma_post_error(pDevice, MA_LOG_LEVEL_ERROR, "[PulseAudio] Failed to drop fragment.", ma_result_from_pulse(error));
-            }
+            int error;
 
         #if defined(MA_DEBUG_OUTPUT)
             printf("[PulseAudio] ma_device_read__pulse: Call pa_stream_drop()\n");
         #endif
+
+            error = ((ma_pa_stream_drop_proc)pDevice->pContext->pulse.pa_stream_drop)((ma_pa_stream*)pDevice->pulse.pStreamCapture);
+            if (error != 0) {
+                return ma_post_error(pDevice, MA_LOG_LEVEL_ERROR, "[PulseAudio] Failed to drop fragment.", ma_result_from_pulse(error));
+            }
 
             pDevice->pulse.pMappedBufferCapture = NULL;
             pDevice->pulse.mappedBufferFramesRemainingCapture = 0;
@@ -16838,7 +16840,6 @@ ma_result ma_device_read__pulse(ma_device* pDevice, void* pPCMFrames, ma_uint32 
         /* Getting here means we need to map a new buffer. If we don't have enough data we wait for more. */
         for (;;) {
             int error;
-            size_t readableSizeInBytes;
             size_t bytesMapped;
 
             if (ma_device__get_state(pDevice) != MA_STATE_STARTED) {
@@ -16859,12 +16860,25 @@ ma_result ma_device_read__pulse(ma_device* pDevice, void* pPCMFrames, ma_uint32 
             if (error < 0) {
                 return ma_post_error(pDevice, MA_LOG_LEVEL_ERROR, "[PulseAudio] Failed to peek capture buffer.", ma_result_from_pulse(error));
             }
-        #if defined(MA_DEBUG_OUTPUT)
-            printf("[PulseAudio] ma_device_read__pulse: Call pa_stream_peek(). bytesMapped=%d\n", (int)bytesMapped);
-        #endif
 
-            if (pDevice->pulse.pMappedBufferCapture == NULL) {
-                if (bytesMapped == 0) {
+            if (bytesMapped > 0) {
+                pDevice->pulse.mappedBufferFramesCapacityCapture  = bytesMapped / ma_get_bytes_per_frame(pDevice->capture.internalFormat, pDevice->capture.internalChannels);
+                pDevice->pulse.mappedBufferFramesRemainingCapture = pDevice->pulse.mappedBufferFramesCapacityCapture;
+
+                #if defined(MA_DEBUG_OUTPUT)
+                    printf("[PulseAudio] ma_device_read__pulse: Mapped. mappedBufferFramesCapacityCapture=%d, mappedBufferFramesRemainingCapture=%d\n", pDevice->pulse.mappedBufferFramesCapacityCapture, pDevice->pulse.mappedBufferFramesRemainingCapture);
+                #endif
+
+                if (pDevice->pulse.pMappedBufferCapture == NULL) {
+                    /* It's a hole. */
+                    #if defined(MA_DEBUG_OUTPUT)
+                        printf("[PulseAudio] ma_device_read__pulse: Call pa_stream_peek(). Hole.\n");
+                    #endif
+                }
+
+                break;
+            } else {
+                if (pDevice->pulse.pMappedBufferCapture == NULL) {
                     /* Nothing available yet. Need to wait for more. */
 
                     /*
@@ -16883,22 +16897,13 @@ ma_result ma_device_read__pulse(ma_device* pDevice, void* pPCMFrames, ma_uint32 
                     }
 
                 #if defined(MA_DEBUG_OUTPUT)
-                    printf("[PulseAudio] ma_device_read__pulse: No data available. Waiting. mappedBufferFramesCapacityCapture=%d, mappedBufferFramesRemainingCapture%d\n", pDevice->pulse.mappedBufferFramesCapacityCapture, pDevice->pulse.mappedBufferFramesRemainingCapture);
+                    printf("[PulseAudio] ma_device_read__pulse: No data available. Waiting. mappedBufferFramesCapacityCapture=%d, mappedBufferFramesRemainingCapture=%d\n", pDevice->pulse.mappedBufferFramesCapacityCapture, pDevice->pulse.mappedBufferFramesRemainingCapture);
                 #endif
-
-                    continue;
                 } else {
-                    /* It's a hole. */
-                #if defined(MA_DEBUG_OUTPUT)
-                    printf("[PulseAudio] ma_device_read__pulse: Call pa_stream_peek(). Hole.\n");
-                #endif
+                    /* Getting here means we mapped 0 bytes, but have a non-NULL buffer. I don't think this should ever happen. */
+                    MA_ASSERT(MA_FALSE);
                 }
             }
-
-            pDevice->pulse.mappedBufferFramesCapacityCapture  = bytesMapped / ma_get_bytes_per_frame(pDevice->capture.internalFormat, pDevice->capture.internalChannels);
-            pDevice->pulse.mappedBufferFramesRemainingCapture = pDevice->pulse.mappedBufferFramesCapacityCapture;
-
-            break;
         }
     }
 
