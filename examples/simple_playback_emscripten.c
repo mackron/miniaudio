@@ -12,7 +12,7 @@ void main_loop__em()
 #endif
 
 #define DEVICE_FORMAT       ma_format_f32
-#define DEVICE_CHANNELS     1
+#define DEVICE_CHANNELS     2
 #define DEVICE_SAMPLE_RATE  48000
 
 void data_callback(ma_device* pDevice, void* pOutput, const void* pInput, ma_uint32 frameCount)
@@ -24,7 +24,7 @@ void data_callback(ma_device* pDevice, void* pOutput, const void* pInput, ma_uin
     pSineWave = (ma_sine_wave*)pDevice->pUserData;
     ma_assert(pSineWave != NULL);
 
-    ma_sine_wave_read_f32(pSineWave, frameCount, (float*)pOutput);
+    ma_sine_wave_read_f32_ex(pSineWave, frameCount, DEVICE_CHANNELS, ma_stream_layout_interleaved, (float**)&pOutput);
 
     (void)pInput;   /* Unused. */
 }
@@ -36,7 +36,7 @@ int main(int argc, char** argv)
     ma_device device;
 
     ma_sine_wave_init(0.2, 400, DEVICE_SAMPLE_RATE, &sineWave);
-    
+
     deviceConfig = ma_device_config_init(ma_device_type_playback);
     deviceConfig.playback.format   = DEVICE_FORMAT;
     deviceConfig.playback.channels = DEVICE_CHANNELS;
