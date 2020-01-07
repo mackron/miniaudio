@@ -20013,11 +20013,11 @@ static ma_result ma_device__untrack__coreaudio(ma_device* pDevice)
     m_pDevice->sampleRate = (ma_uint32)pSession.sampleRate;
 
     if (m_pDevice->type == ma_device_type_capture || m_pDevice->type == ma_device_type_duplex) {
-        m_pDevice->capture.channels = pSession.inputNumberOfChannels;
+        m_pDevice->capture.channels = (ma_uint32)pSession.inputNumberOfChannels;
         ma_device__post_init_setup(m_pDevice, ma_device_type_capture);
     }
     if (m_pDevice->type == ma_device_type_playback || m_pDevice->type == ma_device_type_duplex) {
-        m_pDevice->playback.channels = pSession.outputNumberOfChannels;
+        m_pDevice->playback.channels = (ma_uint32)pSession.outputNumberOfChannels;
         ma_device__post_init_setup(m_pDevice, ma_device_type_playback);
     }
 }
