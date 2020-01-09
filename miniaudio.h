@@ -20038,7 +20038,7 @@ void ma_device_uninit__coreaudio(ma_device* pDevice)
 #endif
 #if defined(MA_APPLE_MOBILE)
     if (pDevice->coreaudio.pRouteChangeHandler != NULL) {
-        ma_router_change_handler* pRouteChangeHandler = (__bridge ma_router_change_handler*)pDevice->coreaudio.pRouteChangeHandler;
+        ma_router_change_handler* pRouteChangeHandler = (__bridge_transfer ma_router_change_handler*)pDevice->coreaudio.pRouteChangeHandler;
         [pRouteChangeHandler remove_handler];
     }
 #endif
@@ -20695,7 +20695,7 @@ ma_result ma_device_init__coreaudio(ma_context* pContext, const ma_device_config
     differently on non-Desktop Apple platforms.
     */
 #if defined(MA_APPLE_MOBILE)
-    pDevice->coreaudio.pRouteChangeHandler = (__bridge void*)[[ma_router_change_handler alloc] init:pDevice];
+    pDevice->coreaudio.pRouteChangeHandler = (__bridge_retained void*)[[ma_router_change_handler alloc] init:pDevice];
 #endif
 
     return MA_SUCCESS;
