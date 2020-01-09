@@ -69,12 +69,18 @@
     <ClCompile Include="..\examples\fixed_size_callback.c">
       <Filter>Source Files</Filter>
     </ClCompile>
+    <ClCompile Include="..\research\tests\ma_lpf_test_0.c">
+      <Filter>Source Files</Filter>
+    </ClCompile>
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="..\miniaudio.h">
       <Filter>Source Files</Filter>
     </ClInclude>
     <ClInclude Include="..\research\ma_resampler.h">
+      <Filter>Source Files</Filter>
+    </ClInclude>
+    <ClInclude Include="..\research\ma_lpf.h">
       <Filter>Source Files</Filter>
     </ClInclude>
   </ItemGroup>

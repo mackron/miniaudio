@@ -3,49 +3,43 @@
 #ifndef ma_resampler_h
 #define ma_resampler_h
 
+#include "ma_lpf.h"
+
 typedef enum
 {
-    ma_resample_algorithm_linear = 0,   /* Fastest, lowest quality. */
-    ma_resample_algorithm_linear_lpf,   /* Linear with a biquad low pass filter. */
+    ma_resample_algorithm_linear_lpf = 0,   /* Linear with a biquad low pass filter. Default. */
+    ma_resample_algorithm_linear,           /* Fastest, lowest quality. */
 } ma_resample_algorithm;
 
 typedef struct
 {
-    ma_resample_algorithm algorithm;
+    ma_format format;   /* Must be either ma_format_f32 or ma_format_s16. */
+    ma_uint32 channels;
     ma_uint32 sampleRateIn;
     ma_uint32 sampleRateOut;
-    ma_uint32 channels;
-    ma_format format;   /* Must be either ma_format_f32 or ma_format_s16. */
+    ma_resample_algorithm algorithm;
     struct
     {
         int _unused;
     } linear;
     struct
     {
-        int _unused;
+        ma_uint32 cutoffFrequency;
     } linearLPF;
 } ma_resampler_config;
+
+ma_resampler_config ma_resampler_config_init(ma_format format, ma_uint32 channels, ma_uint32 sampleRateIn, ma_uint32 sampleRateOut, ma_resample_algorithm algorithm);
 
 typedef struct
 {
     ma_resampler_config config;
+    float timeX;    /* Input time. */
+    float timeY;    /* Output time. */
     union
     {
         struct
         {
-            float timeX;    /* Input time. */
-            float timeY;    /* Output time. */
-            struct
-            {
-                float yprev1;   /* y-1 */
-                float yprev2;   /* y-2 */
-                float a0;
-                float a1;
-                float a2;
-                float b0;
-                float b1;
-                float b2;
-            } lpf;
+            ma_lpf lpf;
         } linear;
     } state;
 } ma_resampler;
@@ -75,7 +69,7 @@ It is an error for [pFramesOut] to be non-NULL and [pFrameCountOut] to be NULL.
 
 It is an error for both [pFrameCountOut] and [pFrameCountIn] to be NULL.
 */
-ma_result ma_resampler_process(ma_resampler* pResampler, ma_uint64* pFrameCountOut, void* pFramesOut, ma_uint64* pFrameCountIn, void* pFramesIn);
+ma_result ma_resampler_process(ma_resampler* pResampler, ma_uint64* pFrameCountOut, void* pFramesOut, ma_uint64* pFrameCountIn, const void* pFramesIn);
 
 
 /*
@@ -99,37 +93,52 @@ Implementation
 #define MA_RESAMPLER_MAX_RATIO 48.0
 #endif
 
+ma_resampler_config ma_resampler_config_init(ma_format format, ma_uint32 channels, ma_uint32 sampleRateIn, ma_uint32 sampleRateOut, ma_resample_algorithm algorithm)
+{
+    ma_resampler_config config;
+
+    MA_ZERO_OBJECT(&config);
+    config.format = format;
+    config.channels = channels;
+    config.sampleRateIn = sampleRateIn;
+    config.sampleRateOut = sampleRateOut;
+    config.algorithm = algorithm;
+
+    return config;
+}
+
 ma_result ma_resampler_init(const ma_resampler_config* pConfig, ma_resampler* pResampler)
 {
+    ma_result result;
+
     if (pConfig == NULL || pResampler == NULL) {
         return MA_INVALID_ARGS;
     }
 
     MA_ZERO_OBJECT(pResampler);
     pResampler->config = *pConfig;
+    pResampler->timeX = 0.0f;
+    pResampler->timeY = 0.0f;
 
     switch (pConfig->algorithm)
     {
         case ma_resample_algorithm_linear:
         {
-            pResampler->state.linear.timeX = 0.0f;
-            pResampler->state.linear.timeY = 0.0f;
         } break;
 
         case ma_resample_algorithm_linear_lpf:
         {
-            pResampler->state.linear.timeX = 0.0f;
-            pResampler->state.linear.timeY = 0.0f;
-            pResampler->state.linear.lpf.yprev1 = 0.0f;
-            pResampler->state.linear.lpf.yprev2 = 0.0f;
+            ma_lpf_config lpfConfig;
+            
+            lpfConfig = ma_lpf_config_init(pConfig->format, pConfig->channels, pConfig->sampleRateOut, pConfig->linearLPF.cutoffFrequency);
+            if (lpfConfig.cutoffFrequency == 0) {
+                lpfConfig.cutoffFrequency = ma_min(pConfig->sampleRateIn, pConfig->sampleRateOut) / 2;
+            }
 
-            /* TODO: Biquad LPF filter coefficients. */
-            pResampler->state.linear.lpf.a0 = 0.0f;
-            pResampler->state.linear.lpf.a1 = 0.0f;
-            pResampler->state.linear.lpf.a2 = 0.0f;
-            pResampler->state.linear.lpf.b0 = 0.0f;
-            pResampler->state.linear.lpf.b1 = 0.0f;
-            pResampler->state.linear.lpf.b2 = 0.0f;
+            result = ma_lpf_init(&lpfConfig, &pResampler->state.linear.lpf);
+            if (result != MA_SUCCESS) {
+                return result;
+            }
         } break;
 
         default: return MA_INVALID_ARGS;
@@ -138,7 +147,7 @@ ma_result ma_resampler_init(const ma_resampler_config* pConfig, ma_resampler* pR
     return MA_SUCCESS;
 }
 
-static ma_result ma_resampler_process__seek__linear(ma_resampler* pResampler, ma_uint64* pFrameCountOut, ma_uint64* pFrameCountIn, void* pFramesIn)
+static ma_result ma_resampler_process__seek__linear(ma_resampler* pResampler, ma_uint64* pFrameCountOut, ma_uint64* pFrameCountIn, const void* pFramesIn)
 {
     MA_ASSERT(pResampler != NULL);
 
@@ -163,13 +172,13 @@ static ma_result ma_resampler_process__seek__linear(ma_resampler* pResampler, ma
     return MA_SUCCESS;
 }
 
-static ma_result ma_resampler_process__seek__linear_lpf(ma_resampler* pResampler, ma_uint64* pFrameCountOut, ma_uint64* pFrameCountIn, void* pFramesIn)
+static ma_result ma_resampler_process__seek__linear_lpf(ma_resampler* pResampler, ma_uint64* pFrameCountOut, ma_uint64* pFrameCountIn, const void* pFramesIn)
 {
     /* TODO: Proper linear LPF implementation. */
     return ma_resampler_process__seek__linear(pResampler, pFrameCountOut, pFrameCountIn, pFramesIn);
 }
 
-static ma_result ma_resampler_process__seek(ma_resampler* pResampler, ma_uint64* pFrameCountOut, ma_uint64* pFrameCountIn, void* pFramesIn)
+static ma_result ma_resampler_process__seek(ma_resampler* pResampler, ma_uint64* pFrameCountOut, ma_uint64* pFrameCountIn, const void* pFramesIn)
 {
     MA_ASSERT(pResampler != NULL);
 
@@ -190,7 +199,7 @@ static ma_result ma_resampler_process__seek(ma_resampler* pResampler, ma_uint64*
 }
 
 
-static ma_result ma_resampler_process__read__linear(ma_resampler* pResampler, ma_uint64* pFrameCountOut, void* pFramesOut, ma_uint64* pFrameCountIn, void* pFramesIn)
+static ma_result ma_resampler_process__read__linear(ma_resampler* pResampler, ma_uint64* pFrameCountOut, void* pFramesOut, ma_uint64* pFrameCountIn, const void* pFramesIn)
 {
     MA_ASSERT(pResampler     != NULL);
     MA_ASSERT(pFramesOut     != NULL);
@@ -205,13 +214,13 @@ static ma_result ma_resampler_process__read__linear(ma_resampler* pResampler, ma
     return MA_SUCCESS;
 }
 
-static ma_result ma_resampler_process__read__linear_lpf(ma_resampler* pResampler, ma_uint64* pFrameCountOut, void* pFramesOut, ma_uint64* pFrameCountIn, void* pFramesIn)
+static ma_result ma_resampler_process__read__linear_lpf(ma_resampler* pResampler, ma_uint64* pFrameCountOut, void* pFramesOut, ma_uint64* pFrameCountIn, const void* pFramesIn)
 {
     /* TODO: Proper linear LPF implementation. */
     return ma_resampler_process__read__linear(pResampler, pFrameCountOut, pFramesOut, pFrameCountIn, pFramesIn);
 }
 
-static ma_result ma_resampler_process__read(ma_resampler* pResampler, ma_uint64* pFrameCountOut, void* pFramesOut, ma_uint64* pFrameCountIn, void* pFramesIn)
+static ma_result ma_resampler_process__read(ma_resampler* pResampler, ma_uint64* pFrameCountOut, void* pFramesOut, ma_uint64* pFrameCountIn, const void* pFramesIn)
 {
     MA_ASSERT(pResampler != NULL);
     MA_ASSERT(pFramesOut != NULL);
@@ -237,13 +246,13 @@ static ma_result ma_resampler_process__read(ma_resampler* pResampler, ma_uint64*
     }
 }
 
-ma_result ma_resampler_process(ma_resampler* pResampler, ma_uint64* pFrameCountOut, void* pFramesOut, ma_uint64* pFrameCountIn, void* pFramesIn)
+ma_result ma_resampler_process(ma_resampler* pResampler, ma_uint64* pFrameCountOut, void* pFramesOut, ma_uint64* pFrameCountIn, const void* pFramesIn)
 {
     if (pResampler == NULL) {
         return MA_INVALID_ARGS;
     }
 
-    if (pFrameCountOut != NULL && pFrameCountIn == NULL) {
+    if (pFrameCountOut == NULL && pFrameCountIn == NULL) {
         return MA_INVALID_ARGS;
     }
 
