@@ -1,6 +1,6 @@
 /*
 Audio playback and capture library. Choice of public domain or MIT-0. See license statements at the end of this file.
-miniaudio (formerly mini_al) - v0.9.9 - 20xx-xx-xx
+miniaudio (formerly mini_al) - v0.9.9 - 2020-01-09
 
 David Reid - davidreidsoftware@gmail.com
 
@@ -35854,9 +35854,13 @@ Device
 /*
 REVISION HISTORY
 ================
-v0.9.9 - 20xx-xx-xx
+v0.9.9 - 2020-01-09
   - Fix compilation errors with MinGW.
+  - Fix compilation errors when compiling on Apple platforms.
+  - WASAPI: Add support for disabling hardware offloading.
+  - WASAPI: Add support for disabling automatic stream routing.
   - Core Audio: Fix bugs in the case where the internal device uses deinterleaved buffers.
+  - Core Audio: Add support for controlling the session category (AVAudioSessionCategory) and options (AVAudioSessionCategoryOptions).
   - JACK: Fix bug where incorrect ports are connected.
 
 v0.9.8 - 2019-10-07
@@ -36248,7 +36252,7 @@ For more information, please refer to <http://unlicense.org/>
 ===============================================================================
 ALTERNATIVE 2 - MIT No Attribution
 ===============================================================================
-Copyright 2019 David Reid
+Copyright 2020 David Reid
 
 Permission is hereby granted, free of charge, to any person obtaining a copy of
 this software and associated documentation files (the "Software"), to deal in
