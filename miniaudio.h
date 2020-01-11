@@ -28298,7 +28298,7 @@ void ma_pcm_s16_to_f32__reference(void* dst, const void* src, ma_uint64 count, m
 #if 0
         /* The accurate way. */
         x = x + 32768.0f;                   /* -32768..32767 to 0..65535 */
-        x = x * 0.00003051804379339284f;    /* 0..65536 to 0..2 */
+        x = x * 0.00003051804379339284f;    /* 0..65535 to 0..2 */
         x = x - 1;                          /* 0..2 to -1..1 */
 #else
         /* The fast way. */
