@@ -1,6 +1,6 @@
 /*
 WAV audio loader and writer. Choice of public domain or MIT-0. See license statements at the end of this file.
-dr_wav - v0.11.2 - 2019-12-02
+dr_wav - v0.11.3 - 2020-01-12
 
 David Reid - mackron@gmail.com
 */
@@ -3440,6 +3440,7 @@ drwav_uint64 drwav_read_pcm_frames_s16__ima(drwav* pWav, drwav_uint64 framesToRe
                     drwav_uint32 iByte;
                     drwav_uint8 nibbles[4];
                     if (pWav->onRead(pWav->pUserData, &nibbles, 4) != 4) {
+                        pWav->ima.cachedFrameCount = 0;
                         return totalFramesRead;
                     }
                     pWav->ima.bytesRemainingInBlock -= 4;
@@ -4173,7 +4174,11 @@ void drwav_u8_to_f32(float* pOut, const drwav_uint8* pIn, size_t sampleCount)
     }
 #else
     for (i = 0; i < sampleCount; ++i) {
-        *pOut++ = (pIn[i] / 255.0f) * 2 - 1;
+        float x = pIn[i];
+        x = x * 0.00784313725490196078f;    /* 0..255 to 0..2 */
+        x = x - 1;                          /* 0..2 to -1..1 */
+
+        *pOut++ = x;
     }
 #endif
 }
@@ -4187,7 +4192,7 @@ void drwav_s16_to_f32(float* pOut, const drwav_int16* pIn, size_t sampleCount)
     }
 
     for (i = 0; i < sampleCount; ++i) {
-        *pOut++ = pIn[i] / 32768.0f;
+        *pOut++ = pIn[i] * 0.000030517578125f;
     }
 }
 
@@ -4200,12 +4205,8 @@ void drwav_s24_to_f32(float* pOut, const drwav_uint8* pIn, size_t sampleCount)
     }
 
     for (i = 0; i < sampleCount; ++i) {
-        unsigned int s0 = pIn[i*3 + 0];
-        unsigned int s1 = pIn[i*3 + 1];
-        unsigned int s2 = pIn[i*3 + 2];
-
-        int sample32 = (int)((s0 << 8) | (s1 << 16) | (s2 << 24));
-        *pOut++ = (float)(sample32 / 2147483648.0);
+        double x = (double)(((drwav_int32)(((drwav_uint32)(pIn[i*3+0]) << 8) | ((drwav_uint32)(pIn[i*3+1]) << 16) | ((drwav_uint32)(pIn[i*3+2])) << 24)) >> 8);
+        *pOut++ = (float)(x * 0.00000011920928955078125);
     }
 }
 
@@ -5051,6 +5052,10 @@ void drwav_free(void* p, const drwav_allocation_callbacks* pAllocationCallbacks)
 /*
 REVISION HISTORY
 ================
+v0.11.3 - 2020-01-12
+  - Minor changes to some f32 format conversion routines.
+  - Minor bug fix for ADPCM conversion when end of file is reached.
+
 v0.11.2 - 2019-12-02
   - Fix a possible crash when using custom memory allocators without a custom realloc() implementation.
   - Fix an integer overflow bug.
@@ -5339,7 +5344,7 @@ For more information, please refer to <http://unlicense.org/>
 ===============================================================================
 ALTERNATIVE 2 - MIT No Attribution
 ===============================================================================
-Copyright 2018 David Reid
+Copyright 2020 David Reid
 
 Permission is hereby granted, free of charge, to any person obtaining a copy of
 this software and associated documentation files (the "Software"), to deal in
