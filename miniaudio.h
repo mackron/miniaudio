@@ -9135,7 +9135,7 @@ ma_result ma_device_init__wasapi(ma_context* pContext, const ma_device_config* p
         if ((pConfig->deviceType == ma_device_type_capture || pConfig->deviceType == ma_device_type_duplex) && pConfig->capture.pDeviceID == NULL) {
             pDevice->wasapi.allowCaptureAutoStreamRouting = MA_TRUE;
         }
-        if ((pConfig->deviceType == ma_device_type_playback || pConfig->deviceType == ma_device_type_duplex) && pConfig->playback.pDeviceID != NULL) {
+        if ((pConfig->deviceType == ma_device_type_playback || pConfig->deviceType == ma_device_type_duplex) && pConfig->playback.pDeviceID == NULL) {
             pDevice->wasapi.allowPlaybackAutoStreamRouting = MA_TRUE;
         }
 
