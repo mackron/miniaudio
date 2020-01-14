@@ -2516,11 +2516,13 @@ MA_ALIGNED_STRUCT(MA_SIMD_ALIGNMENT) ma_device
             ma_bool32 hasDefaultCaptureDeviceChanged;          /* <-- Make sure this is always a whole 32-bits because we use atomic assignments. */
             ma_uint32 periodSizeInFramesPlayback;
             ma_uint32 periodSizeInFramesCapture;
-            ma_bool32 isStartedCapture;
-            ma_bool32 isStartedPlayback;
-            ma_bool32 noAutoConvertSRC;     /* When set to true, disables the use of AUDCLNT_STREAMFLAGS_AUTOCONVERTPCM. */
-            ma_bool32 noDefaultQualitySRC;  /* When set to true, disables the use of AUDCLNT_STREAMFLAGS_SRC_DEFAULT_QUALITY. */
-            ma_bool32 noHardwareOffloading;
+            ma_bool32 isStartedCapture;                        /* <-- Make sure this is always a whole 32-bits because we use atomic assignments. */
+            ma_bool32 isStartedPlayback;                       /* <-- Make sure this is always a whole 32-bits because we use atomic assignments. */
+            ma_bool32 noAutoConvertSRC               : 1;      /* When set to true, disables the use of AUDCLNT_STREAMFLAGS_AUTOCONVERTPCM. */
+            ma_bool32 noDefaultQualitySRC            : 1;      /* When set to true, disables the use of AUDCLNT_STREAMFLAGS_SRC_DEFAULT_QUALITY. */
+            ma_bool32 noHardwareOffloading           : 1;
+            ma_bool32 allowCaptureAutoStreamRouting  : 1;
+            ma_bool32 allowPlaybackAutoStreamRouting : 1;
         } wasapi;
 #endif
 #ifdef MA_SUPPORT_DSOUND
@@ -7832,6 +7834,12 @@ HRESULT STDMETHODCALLTYPE ma_IMMNotificationClient_OnDefaultDeviceChanged(ma_IMM
         return S_OK;
     }
 
+    /* Don't do automatic stream routing if we're not allowed. */
+    if ((dataFlow == ma_eRender  && pThis->pDevice->wasapi.allowPlaybackAutoStreamRouting == MA_FALSE) ||
+        (dataFlow == ma_eCapture && pThis->pDevice->wasapi.allowCaptureAutoStreamRouting  == MA_FALSE)) {
+        return S_OK;
+    }
+
     /*
     Not currently supporting automatic stream routing in exclusive mode. This is not working correctly on my machine due to
     AUDCLNT_E_DEVICE_IN_USE errors when reinitializing the device. If this is a bug in miniaudio, we can try re-enabling this once
@@ -9124,23 +9132,32 @@ ma_result ma_device_init__wasapi(ma_context* pContext, const ma_device_config* p
     */
 #ifdef MA_WIN32_DESKTOP
     if (pConfig->wasapi.noAutoStreamRouting == MA_FALSE) {
-        ma_IMMDeviceEnumerator* pDeviceEnumerator;
-        HRESULT hr = ma_CoCreateInstance(pContext, MA_CLSID_MMDeviceEnumerator, NULL, CLSCTX_ALL, MA_IID_IMMDeviceEnumerator, (void**)&pDeviceEnumerator);
-        if (FAILED(hr)) {
-            ma_device_uninit__wasapi(pDevice);
-            return ma_post_error(pDevice, MA_LOG_LEVEL_ERROR, "[WASAPI] Failed to create device enumerator.", MA_FAILED_TO_OPEN_BACKEND_DEVICE);
+        if ((pConfig->deviceType == ma_device_type_capture || pConfig->deviceType == ma_device_type_duplex) && pConfig->capture.pDeviceID == NULL) {
+            pDevice->wasapi.allowCaptureAutoStreamRouting = MA_TRUE;
+        }
+        if ((pConfig->deviceType == ma_device_type_playback || pConfig->deviceType == ma_device_type_duplex) && pConfig->playback.pDeviceID != NULL) {
+            pDevice->wasapi.allowPlaybackAutoStreamRouting = MA_TRUE;
         }
 
-        pDevice->wasapi.notificationClient.lpVtbl  = (void*)&g_maNotificationCientVtbl;
-        pDevice->wasapi.notificationClient.counter = 1;
-        pDevice->wasapi.notificationClient.pDevice = pDevice;
+        if (pDevice->wasapi.allowCaptureAutoStreamRouting || pDevice->wasapi.allowPlaybackAutoStreamRouting) {
+            ma_IMMDeviceEnumerator* pDeviceEnumerator;
+            HRESULT hr = ma_CoCreateInstance(pContext, MA_CLSID_MMDeviceEnumerator, NULL, CLSCTX_ALL, MA_IID_IMMDeviceEnumerator, (void**)&pDeviceEnumerator);
+            if (FAILED(hr)) {
+                ma_device_uninit__wasapi(pDevice);
+                return ma_post_error(pDevice, MA_LOG_LEVEL_ERROR, "[WASAPI] Failed to create device enumerator.", MA_FAILED_TO_OPEN_BACKEND_DEVICE);
+            }
 
-        hr = pDeviceEnumerator->lpVtbl->RegisterEndpointNotificationCallback(pDeviceEnumerator, &pDevice->wasapi.notificationClient);
-        if (SUCCEEDED(hr)) {
-            pDevice->wasapi.pDeviceEnumerator = (ma_ptr)pDeviceEnumerator;
-        } else {
-            /* Not the end of the world if we fail to register the notification callback. We just won't support automatic stream routing. */
-            ma_IMMDeviceEnumerator_Release(pDeviceEnumerator);
+            pDevice->wasapi.notificationClient.lpVtbl  = (void*)&g_maNotificationCientVtbl;
+            pDevice->wasapi.notificationClient.counter = 1;
+            pDevice->wasapi.notificationClient.pDevice = pDevice;
+
+            hr = pDeviceEnumerator->lpVtbl->RegisterEndpointNotificationCallback(pDeviceEnumerator, &pDevice->wasapi.notificationClient);
+            if (SUCCEEDED(hr)) {
+                pDevice->wasapi.pDeviceEnumerator = (ma_ptr)pDeviceEnumerator;
+            } else {
+                /* Not the end of the world if we fail to register the notification callback. We just won't support automatic stream routing. */
+                ma_IMMDeviceEnumerator_Release(pDeviceEnumerator);
+            }
         }
     }
 #endif
@@ -35859,6 +35876,7 @@ REVISION HISTORY
 ================
 v0.9.10 - 2020-01-xx
   - Fix compilation errors due to #if/#endif mismatches.
+  - WASAPI: Fix a bug where automatic stream routing is being performed for devices that are initialized with an explicit device ID.
   - iOS: Fix a crash on device uninitialization.
 
 v0.9.9 - 2020-01-09
