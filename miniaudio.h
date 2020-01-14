@@ -1,6 +1,6 @@
 /*
 Audio playback and capture library. Choice of public domain or MIT-0. See license statements at the end of this file.
-miniaudio (formerly mini_al) - v0.9.9 - 2020-01-09
+miniaudio (formerly mini_al) - v0.9.10 - 2020-01-xx
 
 David Reid - davidreidsoftware@gmail.com
 
@@ -3390,10 +3390,11 @@ IMPLEMENTATION
 #include <math.h>   /* sin(), etc. */
 
 #if !defined(MA_NO_STDIO) || defined(MA_DEBUG_OUTPUT)
-#include <stdio.h>
-#if !defined(_MSC_VER) && !defined(__DMC__)
-#include <strings.h>    /* For strcasecmp(). */
-#include <wchar.h>      /* For wcslen(), wcsrtombs() */
+    #include <stdio.h>
+    #if !defined(_MSC_VER) && !defined(__DMC__)
+        #include <strings.h>    /* For strcasecmp(). */
+        #include <wchar.h>      /* For wcslen(), wcsrtombs() */
+    #endif
 #endif
 
 #ifdef MA_WIN32
@@ -34098,7 +34099,7 @@ ma_result ma_decoder_init_wav__internal(const ma_decoder_config* pConfig, ma_dec
 
     return MA_SUCCESS;
 }
-#endif
+#endif  /* dr_wav_h */
 
 /* FLAC */
 #ifdef dr_flac_h
@@ -34215,7 +34216,7 @@ ma_result ma_decoder_init_flac__internal(const ma_decoder_config* pConfig, ma_de
 
     return MA_SUCCESS;
 }
-#endif
+#endif  /* dr_flac_h */
 
 /* Vorbis */
 #ifdef STB_VORBIS_INCLUDE_STB_VORBIS_H
@@ -34517,7 +34518,7 @@ ma_result ma_decoder_init_vorbis__internal(const ma_decoder_config* pConfig, ma_
 
     return MA_SUCCESS;
 }
-#endif
+#endif  /* STB_VORBIS_INCLUDE_STB_VORBIS_H */
 
 /* MP3 */
 #ifdef dr_mp3_h
@@ -34638,7 +34639,7 @@ ma_result ma_decoder_init_mp3__internal(const ma_decoder_config* pConfig, ma_dec
 
     return MA_SUCCESS;
 }
-#endif
+#endif  /* dr_mp3_h */
 
 /* Raw */
 ma_uint32 ma_decoder_internal_on_read_pcm_frames__raw(ma_pcm_converter* pDSP, void* pFramesOut, ma_uint32 frameCount, void* pUserData)
@@ -35094,6 +35095,7 @@ ma_result ma_decoder_init_memory_raw(const void* pData, size_t dataSize, const m
     return ma_decoder_init_raw__internal(pConfigIn, &config, pDecoder);
 }
 
+#ifndef MA_NO_STDIO
 const char* ma_path_file_name(const char* path)
 {
     const char* fileName;
@@ -35554,7 +35556,7 @@ ma_result ma_decoder_init_file_mp3_w(const wchar_t* pFilePath, const ma_decoder_
 
     return ma_decoder_init_mp3(ma_decoder__on_read_stdio, ma_decoder__on_seek_stdio, pDecoder->pUserData, pConfig, pDecoder);
 }
-#endif
+#endif  /* MA_NO_STDIO */
 
 ma_result ma_decoder_uninit(ma_decoder* pDecoder)
 {
@@ -35854,6 +35856,9 @@ Device
 /*
 REVISION HISTORY
 ================
+v0.9.10 - 2020-01-xx
+  - Fix compilation errors due to #if/#endif mismatches.
+
 v0.9.9 - 2020-01-09
   - Fix compilation errors with MinGW.
   - Fix compilation errors when compiling on Apple platforms.
