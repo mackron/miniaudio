@@ -35858,6 +35858,7 @@ REVISION HISTORY
 ================
 v0.9.10 - 2020-01-xx
   - Fix compilation errors due to #if/#endif mismatches.
+  - iOS: Fix a crash on device uninitialization.
 
 v0.9.9 - 2020-01-09
   - Fix compilation errors with MinGW.
