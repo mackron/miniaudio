@@ -1,1 +1,1 @@
-emcc ../simple_playback_emscripten.c -o ../bin/simple_playback_emscripten.html -s WASM=0 -std=c89 -ansi -Wall
+emcc ../simple_playback_emscripten.c -o ../bin/simple_playback_emscripten.html -s WASM=0 -Wall

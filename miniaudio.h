@@ -320,6 +320,7 @@ UWP
 
 Web Audio / Emscripten
 ----------------------
+- You cannot use -std=c* compiler flags, nor -ansi. This only applies to the Emscripten build.
 - The first time a context is initialized it will create a global object called "miniaudio" whose primary purpose is to act
   as a factory for device objects.
 - Currently the Web Audio backend uses ScriptProcessorNode's, but this may need to change later as they've been deprecated.
