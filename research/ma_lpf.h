@@ -133,9 +133,14 @@ ma_result ma_biquad_process(ma_biquad* pBQ, void* pFramesOut, const void* pFrame
 
     /* Fast path for passthrough. */
     if (pBQ->isPassthrough) {
-        ma_copy_memory_64(pFramesOut, pFramesIn, frameCount * ma_get_bytes_per_frame(pBQ->config.format, pBQ->config.channels));
+        if (pFramesOut != pFramesIn) {  /* <-- The output buffer is allowed to be the same as the input buffer. */
+            ma_copy_memory_64(pFramesOut, pFramesIn, frameCount * ma_get_bytes_per_frame(pBQ->config.format, pBQ->config.channels));
+        }
+
         return MA_SUCCESS;
     }
+
+    /* Note that the logic below needs to support in-place filtering. That is, it must support the case where pFramesOut and pFramesIn are the same. */
 
     /* Currently only supporting f32. */
     if (pBQ->config.format == ma_format_f32) {

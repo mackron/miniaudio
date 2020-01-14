@@ -39,6 +39,9 @@ typedef struct
     {
         struct
         {
+            float t;                    /* Input time, relative to x0. */
+            float x0[MA_MAX_CHANNELS];  /* The previous input frame. */
+            float x1[MA_MAX_CHANNELS];  /* The next input frame. */
             ma_lpf lpf;
         } linear;
     } state;
@@ -117,19 +120,16 @@ ma_result ma_resampler_init(const ma_resampler_config* pConfig, ma_resampler* pR
 
     MA_ZERO_OBJECT(pResampler);
     pResampler->config = *pConfig;
-    pResampler->timeX = 0.0f;
-    pResampler->timeY = 0.0f;
 
     switch (pConfig->algorithm)
     {
         case ma_resample_algorithm_linear:
-        {
-        } break;
-
         case ma_resample_algorithm_linear_lpf:
         {
             ma_lpf_config lpfConfig;
-            
+
+            pResampler->state.linear.t = -1;    /* This must be set to -1 for the linear backend. It's used to indicate that the first frame needs to be loaded. */
+
             lpfConfig = ma_lpf_config_init(pConfig->format, pConfig->channels, pConfig->sampleRateOut, pConfig->linearLPF.cutoffFrequency);
             if (lpfConfig.cutoffFrequency == 0) {
                 lpfConfig.cutoffFrequency = ma_min(pConfig->sampleRateIn, pConfig->sampleRateOut) / 2;
@@ -201,14 +201,91 @@ static ma_result ma_resampler_process__seek(ma_resampler* pResampler, ma_uint64*
 
 static ma_result ma_resampler_process__read__linear(ma_resampler* pResampler, ma_uint64* pFrameCountOut, void* pFramesOut, ma_uint64* pFrameCountIn, const void* pFramesIn)
 {
+    ma_uint64 frameCountOut;
+    ma_uint64 frameCountIn;
+    float ratioInOut;
+
     MA_ASSERT(pResampler     != NULL);
     MA_ASSERT(pFramesOut     != NULL);
     MA_ASSERT(pFrameCountOut != NULL);
+    MA_ASSERT(pFrameCountIn  != NULL);
+
+    frameCountOut = *pFrameCountOut;
+    frameCountIn  = *pFrameCountIn;
+
+    ratioInOut = (float)pResampler->config.sampleRateIn / (float)pResampler->config.sampleRateOut;
 
     if (pFramesIn != NULL) {
         /* Pass in data from the input buffer. */
+        ma_uint64 iFrameOut;
+        ma_uint64 iFrameIn;
+        ma_uint64 iChannel;
+
+        iFrameOut = 0;
+        iFrameIn  = 0;
+
+        if (pResampler->config.format == ma_format_f32) {
+                  float* pY = (      float*)pFramesOut;
+            const float* pX = (const float*)pFramesIn;
+
+            /*
+            We need to do an initial load of input data so that the first output frame is the same as the input frame. We can know whether or not to do this by
+            checking whether or not the current time is < 0 (it will be initialized to -1).
+            */
+            if (pResampler->state.linear.t < 0) {
+                if (frameCountIn > 0) {
+                    for (iChannel = 0; iChannel < pResampler->config.channels; iChannel += 1) {
+                        pResampler->state.linear.x1[iChannel] = pX[iChannel];
+                    }
+                    iFrameIn += 1;
+
+                    pResampler->state.linear.t = 1; /* Important that we set this to 1. This will cause the logic below to load the _second_ frame so we can do correct interpolation. */
+                }
+            }
+
+            for (;;) {
+                float t0;
+                float t1;
+                float y;
+
+                if (iFrameOut >= frameCountOut || iFrameIn >= frameCountIn) {
+                    break;
+                }
+
+                for (iChannel = 0; iChannel < pResampler->config.channels; iChannel += 1) {
+                    y = ma_mix_f32_fast(pResampler->state.linear.x0[iChannel], pResampler->state.linear.x1[iChannel], pResampler->state.linear.t);
+                }
+
+                t0 = pResampler->state.linear.t;
+                t1 = t0 + ratioInOut;
+
+                if (t1 >= 1) {
+                    /* Need to load the next input frame. */
+                    iFrameIn += (ma_uint64)t1;
+                    if (iFrameIn > 0) {
+                        for (iChannel = 0; iChannel < pResampler->config.channels; iChannel += 1) {
+                            pResampler->state.linear.x0[iChannel] = pX[(iFrameIn-1)*pResampler->config.channels + iChannel];
+                            pResampler->state.linear.x1[iChannel] = pX[(iFrameIn-0)*pResampler->config.channels + iChannel];
+                        }
+                    } else {
+                        for (iChannel = 0; iChannel < pResampler->config.channels; iChannel += 1) {
+                            pResampler->state.linear.x0[iChannel] = pResampler->state.linear.x1[iChannel];
+                            pResampler->state.linear.x1[iChannel] = pX[iFrameIn*pResampler->config.channels + iChannel];
+                        }
+                    }
+                }
+
+                pResampler->state.linear.t = t1 - floorf(t1);   /* The time should always be relative to x0, and should not be greater than 1. */
+
+                iFrameOut += 1;
+            }
+        } else {
+            /* Format not supported. */
+            return MA_INVALID_OPERATION;
+        }
     } else {
         /* Pass in zeroes. */
+        return MA_INVALID_OPERATION;
     }
 
     return MA_SUCCESS;
@@ -216,8 +293,25 @@ static ma_result ma_resampler_process__read__linear(ma_resampler* pResampler, ma
 
 static ma_result ma_resampler_process__read__linear_lpf(ma_resampler* pResampler, ma_uint64* pFrameCountOut, void* pFramesOut, ma_uint64* pFrameCountIn, const void* pFramesIn)
 {
-    /* TODO: Proper linear LPF implementation. */
-    return ma_resampler_process__read__linear(pResampler, pFrameCountOut, pFramesOut, pFrameCountIn, pFramesIn);
+    /* To do this we just read using the non-filtered linear pipeline, and then do an in-place filter on the output buffer. */
+    ma_result result;
+
+    MA_ASSERT(pResampler     != NULL);
+    MA_ASSERT(pFramesOut     != NULL);
+    MA_ASSERT(pFrameCountOut != NULL);
+    MA_ASSERT(pFrameCountIn  != NULL);
+
+    result = ma_resampler_process__read__linear(pResampler, pFrameCountOut, pFramesOut, pFrameCountIn, pFramesIn);
+    if (result != MA_SUCCESS) {
+        return result;
+    }
+
+    /* Now just do an in-place low-pass filter. No need to spend time filtering if the sample rates are the same. */
+    if (pResampler->config.sampleRateIn != pResampler->config.sampleRateOut) {
+        return ma_lpf_process(&pResampler->state.linear.lpf, pFramesOut, pFramesOut, *pFrameCountOut);
+    } else {
+        return MA_SUCCESS;
+    }
 }
 
 static ma_result ma_resampler_process__read(ma_resampler* pResampler, ma_uint64* pFrameCountOut, void* pFramesOut, ma_uint64* pFrameCountIn, const void* pFramesIn)
@@ -334,85 +428,6 @@ ma_result ma_resample_f32__linear(ma_uint32 sampleRateOut, ma_uint32 sampleRateI
     return MA_INVALID_ARGS;
 }
 
-
-double ma_sinc_hann(double n, int N)
-{
-    double s = sin(MA_PI_D*n/N);
-    return s*s;
-}
-
-ma_result ma_resample_f32__sinc(ma_uint32 sampleRateOut, ma_uint32 sampleRateIn, ma_uint64 sampleCountOut, float* pSamplesOut, ma_uint64 sampleCountIn, float* pSamplesIn)
-{
-    double ratio = (double)sampleRateIn / (double)sampleRateOut;
-    double timeIn  = 0;
-    double timeOut = 0;
-    double samplingPeriodIn = 1.0/sampleRateIn;
-    int windowWidth = 32;
-
-    /* Fast path if the sample rates are the same. */
-    if (sampleRateOut == sampleRateIn) {
-        MA_COPY_MEMORY(pSamplesOut, pSamplesIn, (size_t)ma_min(sampleCountOut, sampleCountIn) * sizeof(float));
-        return MA_SUCCESS;
-    }
-
-    /* Do nothing if there's no input. */
-    if (sampleCountOut == 0 || sampleCountIn == 0) {
-        return MA_SUCCESS;
-    }
-
-
-    /* The first output sample should always be the same as the input sample. */
-    pSamplesOut[0] = pSamplesIn[0];
-    timeIn  += ratio;
-    timeOut += 1;
-
-    for (;;) {
-        ma_uint64 iTimeIn;
-        ma_uint64 iTimeOut;
-
-        iTimeIn = (ma_uint64)timeIn;
-        if (iTimeIn >= sampleCountIn) {
-            break;
-        }
-
-        iTimeOut = (ma_uint64)timeOut;
-        if (iTimeOut >= sampleCountOut) {
-            break;
-        }
-
-        {
-            ma_uint64 iTimeInPrev = iTimeIn;
-            ma_uint64 iTimeInNext = (ma_uint64)ceil(timeIn);
-
-            if (iTimeInNext >= sampleCountIn) {
-                iTimeInNext = iTimeInPrev;  /* <-- We could instead terminate here which would make the output a few samples shorter. */
-            }
-
-
-
-        #if 0
-            pSamplesOut[iTimeOut] = ma_mix_f32_fast(pSamplesIn[iTimeInPrev], pSamplesIn[iTimeInNext], (float)(timeIn - iTimeIn));
-        #else
-            pSamplesOut[iTimeOut] = 0;
-            for (int i = -windowWidth; i < windowWidth; i += 1) {
-                if ((i < 0 && -i < iTimeIn) || i > 0 && i < sampleCountIn) {
-#if 0
-                    double t = (iTimeIn+n);
-                    double s = ma_sinc(sampleRateIn*t);
-                    pSamplesOut[iTimeOut] += pSamplesIn[(ma_uint64)(iTimeIn+n)] * s;
-#endif
-                }
-            }
-        #endif
-        }
-
-        timeIn  += ratio;
-        timeOut += 1;
-    }
-
-    return MA_INVALID_ARGS;
-}
-
 ma_result ma_resample_f32(ma_resample_algorithm algorithm, ma_uint32 sampleRateOut, ma_uint32 sampleRateIn, ma_uint64 sampleCountOut, float* pSamplesOut, ma_uint64 sampleCountIn, float* pSamplesIn)
 {
     if (pSamplesOut == NULL || pSamplesIn == NULL) {
@@ -422,7 +437,6 @@ ma_result ma_resample_f32(ma_resample_algorithm algorithm, ma_uint32 sampleRateO
     switch (algorithm)
     {
         case ma_resample_algorithm_linear: return ma_resample_f32__linear(sampleRateOut, sampleRateIn, sampleCountOut, pSamplesOut, sampleCountIn, pSamplesIn);
-        case ma_resample_algorithm_sinc:   return ma_resample_f32__sinc  (sampleRateOut, sampleRateIn, sampleCountOut, pSamplesOut, sampleCountIn, pSamplesIn);
         default: return MA_INVALID_ARGS;
     }
 }
