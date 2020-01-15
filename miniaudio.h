@@ -1,6 +1,6 @@
 /*
 Audio playback and capture library. Choice of public domain or MIT-0. See license statements at the end of this file.
-miniaudio (formerly mini_al) - v0.9.10 - 2020-01-xx
+miniaudio (formerly mini_al) - v0.9.10 - 2020-01-15
 
 David Reid - davidreidsoftware@gmail.com
 
@@ -35874,7 +35874,7 @@ Device
 /*
 REVISION HISTORY
 ================
-v0.9.10 - 2020-01-xx
+v0.9.10 - 2020-01-15
   - Fix compilation errors due to #if/#endif mismatches.
   - WASAPI: Fix a bug where automatic stream routing is being performed for devices that are initialized with an explicit device ID.
   - iOS: Fix a crash on device uninitialization.
