@@ -4332,6 +4332,25 @@ static MA_INLINE float ma_scale_to_range_f32(float x, float lo, float hi)
 
 
 /*
+Greatest common factor using Euclid's algorithm iteratively.
+*/
+static MA_INLINE ma_uint32 ma_gcf_u32(ma_uint32 a, ma_uint32 b)
+{
+    for (;;) {
+        if (b == 0) {
+            break;
+        } else {
+            ma_uint32 t = a;
+            a = b;
+            b = t % a;
+        }
+    }
+
+    return a;
+}
+
+
+/*
 Random Number Generation
 
 miniaudio uses the LCG random number generation algorithm. This is good enough for audio.
