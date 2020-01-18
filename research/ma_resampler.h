@@ -89,7 +89,7 @@ It is an error for [pFramesOut] to be non-NULL and [pFrameCountOut] to be NULL.
 
 It is an error for both [pFrameCountOut] and [pFrameCountIn] to be NULL.
 */
-ma_result ma_resampler_process(ma_resampler* pResampler, void* pFramesOut, ma_uint64* pFrameCountOut, const void* pFramesIn, ma_uint64* pFrameCountIn);
+ma_result ma_resampler_process(ma_resampler* pResampler, const void* pFramesIn, ma_uint64* pFrameCountIn, void* pFramesOut, ma_uint64* pFrameCountOut);
 
 #endif  /* ma_resampler_h */
 
@@ -202,7 +202,7 @@ void ma_resampler_uninit(ma_resampler* pResampler)
 #endif
 }
 
-static ma_result ma_resampler_process__seek__linear(ma_resampler* pResampler, ma_uint64* pFrameCountOut, const void* pFramesIn, ma_uint64* pFrameCountIn)
+static ma_result ma_resampler_process__seek__linear(ma_resampler* pResampler, const void* pFramesIn, ma_uint64* pFrameCountIn, ma_uint64* pFrameCountOut)
 {
     MA_ASSERT(pResampler != NULL);
 
@@ -227,13 +227,13 @@ static ma_result ma_resampler_process__seek__linear(ma_resampler* pResampler, ma
     return MA_SUCCESS;
 }
 
-static ma_result ma_resampler_process__seek__linear_lpf(ma_resampler* pResampler, ma_uint64* pFrameCountOut, const void* pFramesIn, ma_uint64* pFrameCountIn)
+static ma_result ma_resampler_process__seek__linear_lpf(ma_resampler* pResampler, const void* pFramesIn, ma_uint64* pFrameCountIn, ma_uint64* pFrameCountOut)
 {
     /* TODO: Proper linear LPF implementation. */
-    return ma_resampler_process__seek__linear(pResampler, pFrameCountOut, pFramesIn, pFrameCountIn);
+    return ma_resampler_process__seek__linear(pResampler, pFramesIn, pFrameCountIn, pFrameCountOut);
 }
 
-static ma_result ma_resampler_process__seek(ma_resampler* pResampler, ma_uint64* pFrameCountOut, const void* pFramesIn, ma_uint64* pFrameCountIn)
+static ma_result ma_resampler_process__seek(ma_resampler* pResampler, const void* pFramesIn, ma_uint64* pFrameCountIn, ma_uint64* pFrameCountOut)
 {
     MA_ASSERT(pResampler != NULL);
 
@@ -241,19 +241,19 @@ static ma_result ma_resampler_process__seek(ma_resampler* pResampler, ma_uint64*
     {
         case ma_resample_algorithm_linear:
         {
-            return ma_resampler_process__seek__linear(pResampler, pFrameCountOut, pFramesIn, pFrameCountIn);
+            return ma_resampler_process__seek__linear(pResampler, pFramesIn, pFrameCountIn, pFrameCountOut);
         } break;
 
         case ma_resample_algorithm_linear_lpf:
         {
-            return ma_resampler_process__seek__linear_lpf(pResampler, pFrameCountOut, pFramesIn, pFrameCountIn);
+            return ma_resampler_process__seek__linear_lpf(pResampler, pFramesIn, pFrameCountIn, pFrameCountOut);
         } break;
 
         default: return MA_INVALID_ARGS;    /* Should never hit this. */
     }
 }
 
-static ma_result ma_resampler_process__read__linear(ma_resampler* pResampler, void* pFramesOut, ma_uint64* pFrameCountOut, const void* pFramesIn, ma_uint64* pFrameCountIn)
+static ma_result ma_resampler_process__read__linear(ma_resampler* pResampler, const void* pFramesIn, ma_uint64* pFrameCountIn, void* pFramesOut, ma_uint64* pFrameCountOut)
 {
     ma_uint64 frameCountOut;
     ma_uint64 frameCountIn;
@@ -390,7 +390,7 @@ static ma_result ma_resampler_process__read__linear(ma_resampler* pResampler, vo
     return MA_SUCCESS;
 }
 
-static ma_result ma_resampler_process__read__linear_lpf(ma_resampler* pResampler, void* pFramesOut, ma_uint64* pFrameCountOut, const void* pFramesIn, ma_uint64* pFrameCountIn)
+static ma_result ma_resampler_process__read__linear_lpf(ma_resampler* pResampler, const void* pFramesIn, ma_uint64* pFrameCountIn, void* pFramesOut, ma_uint64* pFrameCountOut)
 {
     /* To do this we just read using the non-filtered linear pipeline, and then do an in-place filter on the output buffer. */
     ma_result result;
@@ -401,7 +401,7 @@ static ma_result ma_resampler_process__read__linear_lpf(ma_resampler* pResampler
     MA_ASSERT(pFramesIn      != NULL);
     MA_ASSERT(pFrameCountIn  != NULL);
 
-    result = ma_resampler_process__read__linear(pResampler, pFramesOut, pFrameCountOut, pFramesIn, pFrameCountIn);
+    result = ma_resampler_process__read__linear(pResampler, pFramesIn, pFrameCountIn, pFramesOut, pFrameCountOut);
     if (result != MA_SUCCESS) {
         return result;
     }
@@ -415,7 +415,7 @@ static ma_result ma_resampler_process__read__linear_lpf(ma_resampler* pResampler
 }
 
 #if defined(MA_HAS_SPEEX_RESAMPLER)
-static ma_result ma_resampler_process__read__speex(ma_resampler* pResampler, void* pFramesOut, ma_uint64* pFrameCountOut, const void* pFramesIn, ma_uint64* pFrameCountIn)
+static ma_result ma_resampler_process__read__speex(ma_resampler* pResampler, const void* pFramesIn, ma_uint64* pFrameCountIn, void* pFramesOut, ma_uint64* pFrameCountOut)
 {
     /* To do this we just read using the non-filtered linear pipeline, and then do an in-place filter on the output buffer. */
     int speexErr;
@@ -480,7 +480,7 @@ static ma_result ma_resampler_process__read__speex(ma_resampler* pResampler, voi
 }
 #endif
 
-static ma_result ma_resampler_process__read(ma_resampler* pResampler, void* pFramesOut, ma_uint64* pFrameCountOut, const void* pFramesIn, ma_uint64* pFrameCountIn)
+static ma_result ma_resampler_process__read(ma_resampler* pResampler, const void* pFramesIn, ma_uint64* pFrameCountIn, void* pFramesOut, ma_uint64* pFrameCountOut)
 {
     MA_ASSERT(pResampler != NULL);
     MA_ASSERT(pFramesOut != NULL);
@@ -499,18 +499,18 @@ static ma_result ma_resampler_process__read(ma_resampler* pResampler, void* pFra
     {
         case ma_resample_algorithm_linear:
         {
-            return ma_resampler_process__read__linear(pResampler, pFramesOut, pFrameCountOut, pFramesIn, pFrameCountIn);
+            return ma_resampler_process__read__linear(pResampler, pFramesIn, pFrameCountIn, pFramesOut, pFrameCountOut);
         } break;
 
         case ma_resample_algorithm_linear_lpf:
         {
-            return ma_resampler_process__read__linear_lpf(pResampler, pFramesOut, pFrameCountOut, pFramesIn, pFrameCountIn);
+            return ma_resampler_process__read__linear_lpf(pResampler, pFramesIn, pFrameCountIn, pFramesOut, pFrameCountOut);
         } break;
 
         case ma_resample_algorithm_speex:
         {
         #if defined(MA_HAS_SPEEX_RESAMPLER)
-            return ma_resampler_process__read__speex(pResampler, pFramesOut, pFrameCountOut, pFramesIn, pFrameCountIn);
+            return ma_resampler_process__read__speex(pResampler, pFramesIn, pFrameCountIn, pFramesOut, pFrameCountOut);
         #endif
         } break;
     
@@ -522,7 +522,7 @@ static ma_result ma_resampler_process__read(ma_resampler* pResampler, void* pFra
     return MA_INVALID_ARGS;
 }
 
-ma_result ma_resampler_process(ma_resampler* pResampler, void* pFramesOut, ma_uint64* pFrameCountOut, const void* pFramesIn, ma_uint64* pFrameCountIn)
+ma_result ma_resampler_process(ma_resampler* pResampler, const void* pFramesIn, ma_uint64* pFrameCountIn, void* pFramesOut, ma_uint64* pFrameCountOut)
 {
     if (pResampler == NULL) {
         return MA_INVALID_ARGS;
@@ -534,10 +534,10 @@ ma_result ma_resampler_process(ma_resampler* pResampler, void* pFramesOut, ma_ui
 
     if (pFramesOut != NULL) {
         /* Reading. */
-        return ma_resampler_process__read(pResampler, pFramesOut, pFrameCountOut, pFramesIn, pFrameCountIn);
+        return ma_resampler_process__read(pResampler, pFramesIn, pFrameCountIn, pFramesOut, pFrameCountOut);
     } else {
         /* Seeking. */
-        return ma_resampler_process__seek(pResampler, pFrameCountOut, pFramesIn, pFrameCountIn);
+        return ma_resampler_process__seek(pResampler, pFramesIn, pFrameCountIn, pFrameCountOut);
     }
 }
 #endif  /* MINIAUDIO_IMPLEMENTATION */
