@@ -38,8 +38,6 @@ ma_resampler_config ma_resampler_config_init(ma_format format, ma_uint32 channel
 typedef struct
 {
     ma_resampler_config config;
-    float timeX;    /* Input time. */
-    float timeY;    /* Output time. */
     union
     {
         struct
@@ -65,6 +63,11 @@ typedef struct
 Initializes a new resampler object from a config.
 */
 ma_result ma_resampler_init(const ma_resampler_config* pConfig, ma_resampler* pResampler);
+
+/*
+Uninitializes a resampler.
+*/
+void ma_resampler_uninit(ma_resampler* pResampler);
 
 /*
 Converts the given input data.
@@ -184,6 +187,19 @@ ma_result ma_resampler_init(const ma_resampler_config* pConfig, ma_resampler* pR
     }
 
     return MA_SUCCESS;
+}
+
+void ma_resampler_uninit(ma_resampler* pResampler)
+{
+    if (pResampler == NULL) {
+        return;
+    }
+
+#if defined(MA_HAS_SPEEX_RESAMPLER)
+    if (pResampler->config.algorithm == ma_resample_algorithm_speex) {
+        speex_resampler_destroy(pResampler->state.pSpeex);
+    }
+#endif
 }
 
 static ma_result ma_resampler_process__seek__linear(ma_resampler* pResampler, ma_uint64* pFrameCountOut, const void* pFramesIn, ma_uint64* pFrameCountIn)
@@ -398,6 +414,7 @@ static ma_result ma_resampler_process__read__linear_lpf(ma_resampler* pResampler
     }
 }
 
+#if defined(MA_HAS_SPEEX_RESAMPLER)
 static ma_result ma_resampler_process__read__speex(ma_resampler* pResampler, void* pFramesOut, ma_uint64* pFrameCountOut, const void* pFramesIn, ma_uint64* pFrameCountIn)
 {
     /* To do this we just read using the non-filtered linear pipeline, and then do an in-place filter on the output buffer. */
@@ -461,6 +478,7 @@ static ma_result ma_resampler_process__read__speex(ma_resampler* pResampler, voi
 
     return MA_SUCCESS;
 }
+#endif
 
 static ma_result ma_resampler_process__read(ma_resampler* pResampler, void* pFramesOut, ma_uint64* pFrameCountOut, const void* pFramesIn, ma_uint64* pFrameCountIn)
 {
@@ -491,11 +509,17 @@ static ma_result ma_resampler_process__read(ma_resampler* pResampler, void* pFra
 
         case ma_resample_algorithm_speex:
         {
+        #if defined(MA_HAS_SPEEX_RESAMPLER)
             return ma_resampler_process__read__speex(pResampler, pFramesOut, pFrameCountOut, pFramesIn, pFrameCountIn);
+        #endif
         } break;
-
+    
         default: return MA_INVALID_ARGS;    /* Should never hit this. */
     }
+
+    /* Should never get here. */
+    MA_ASSERT(MA_FALSE);
+    return MA_INVALID_ARGS;
 }
 
 ma_result ma_resampler_process(ma_resampler* pResampler, void* pFramesOut, ma_uint64* pFrameCountOut, const void* pFramesIn, ma_uint64* pFrameCountIn)
