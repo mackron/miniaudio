@@ -44,9 +44,17 @@ typedef struct
     {
         struct
         {
-            float t;                    /* Input time, relative to x0. */
-            float x0[MA_MAX_CHANNELS];  /* The previous input frame. */
-            float x1[MA_MAX_CHANNELS];  /* The next input frame. */
+            float t;    /* Input time, relative to x0. */
+            union
+            {
+                float    f32[MA_MAX_CHANNELS];
+                ma_int16 s16[MA_MAX_CHANNELS];
+            } x0; /* The previous input frame. */
+            union
+            {
+                float    f32[MA_MAX_CHANNELS];
+                ma_int16 s16[MA_MAX_CHANNELS];
+            } x1; /* The next input frame. */
             ma_lpf lpf;
         } linear;
         void* pSpeex;   /* SpeexResamplerState* */
@@ -79,14 +87,6 @@ It is an error for [pFramesOut] to be non-NULL and [pFrameCountOut] to be NULL.
 It is an error for both [pFrameCountOut] and [pFrameCountIn] to be NULL.
 */
 ma_result ma_resampler_process(ma_resampler* pResampler, void* pFramesOut, ma_uint64* pFrameCountOut, const void* pFramesIn, ma_uint64* pFrameCountIn);
-
-
-/*
-Simple high-level API for resampling 32-bit floating point samples.
-
-Use ma_calculate_frame_count_after_src() to determine the required output buffer size.
-*/
-ma_result ma_resample_f32(ma_resample_algorithm algorithm, ma_uint32 sampleRateOut, ma_uint32 sampleRateIn, ma_uint64 sampleCountOut, float* pSamplesOut, ma_uint64 sampleCountIn, float* pSamplesIn);
 
 #endif  /* ma_resampler_h */
 
@@ -176,7 +176,7 @@ ma_result ma_resampler_init(const ma_resampler_config* pConfig, ma_resampler* pR
             }
         #else
             /* Speex resampler not available. */
-            return MA_INVALID_ARGS;
+            return MA_NO_BACKEND;
         #endif
         } break;
 
@@ -237,7 +237,6 @@ static ma_result ma_resampler_process__seek(ma_resampler* pResampler, ma_uint64*
     }
 }
 
-
 static ma_result ma_resampler_process__read__linear(ma_resampler* pResampler, void* pFramesOut, ma_uint64* pFrameCountOut, const void* pFramesIn, ma_uint64* pFrameCountIn)
 {
     ma_uint64 frameCountOut;
@@ -246,6 +245,12 @@ static ma_result ma_resampler_process__read__linear(ma_resampler* pResampler, vo
     ma_uint64 iFrameIn;
     ma_uint64 iChannel;
     float ratioInOut;
+
+    /* */ float* pYF32 = (      float*)pFramesOut;
+    const float* pXF32 = (const float*)pFramesIn;
+
+    /* */ ma_int16* pYS16 = (      ma_int16*)pFramesOut;
+    const ma_int16* pXS16 = (const ma_int16*)pFramesIn;
 
     MA_ASSERT(pResampler     != NULL);
     MA_ASSERT(pFramesOut     != NULL);
@@ -265,83 +270,106 @@ static ma_result ma_resampler_process__read__linear(ma_resampler* pResampler, vo
     iFrameOut = 0;
     iFrameIn  = 0;
 
-    if (pResampler->config.format == ma_format_f32) {
-              float* pY = (      float*)pFramesOut;
-        const float* pX = (const float*)pFramesIn;
-
-        /*
-        We need to do an initial load of input data so that the first output frame is the same as the input frame. We can know whether or not to do this by
-        checking whether or not the current time is < 0 (it will be initialized to -1).
-        */
-        if (pResampler->state.linear.t < 0) {
-            if (frameCountIn > 0) {
-                for (iChannel = 0; iChannel < pResampler->config.channels; iChannel += 1) {
-                    pResampler->state.linear.x1[iChannel] = pX[iChannel];
+    /*
+    We need to do an initial load of input data so that the first output frame is the same as the input frame. We can know whether or not to do this by
+    checking whether or not the current time is < 0 (it will be initialized to -1).
+    */
+    if (pResampler->state.linear.t < 0) {
+        if (frameCountIn > 0) {
+            for (iChannel = 0; iChannel < pResampler->config.channels; iChannel += 1) {
+                if (pResampler->config.format == ma_format_f32) {
+                    pResampler->state.linear.x1.f32[iChannel] = pXF32[iChannel];
+                } else {
+                    pResampler->state.linear.x1.s16[iChannel] = pXS16[iChannel];
                 }
-                iFrameIn += 1;
-
-                pResampler->state.linear.t = 1; /* Important that we set this to 1. This will cause the logic below to load the _second_ frame so we can do correct interpolation. */
             }
+            iFrameIn += 1;
+
+            pResampler->state.linear.t = 1; /* Important that we set this to 1. This will cause the logic below to load the _second_ frame so we can do correct interpolation. */
+        }
+    }
+
+    for (;;) {
+        if (iFrameOut >= frameCountOut || iFrameIn >= frameCountIn) {
+            break;
         }
 
-        for (;;) {
-            if (iFrameOut >= frameCountOut || iFrameIn >= frameCountIn) {
-                break;
-            }
+        /* We can't interpolate if our interpolation factor (time relative to x0) is greater than 1. */
+        if (pResampler->state.linear.t > 1) {
+            /* Need to load the next input frame. */
+            iFrameIn += (ma_uint64)pResampler->state.linear.t;
+            if (iFrameIn < frameCountIn) {
+                /* We have enough input frames remaining to bring the time down to 0..1. */
+                MA_ASSERT(iFrameIn > 0);
 
-            /* We can't interpolate if our interpolation factor (time relative to x0) is greater than 1. */
-            if (pResampler->state.linear.t > 1) {
-                /* Need to load the next input frame. */
-                iFrameIn += (ma_uint64)pResampler->state.linear.t;
-                if (iFrameIn < frameCountIn) {
-                    /* We have enough input frames remaining to bring the time down to 0..1. */
-                    MA_ASSERT(iFrameIn > 0);
-
+                if (pResampler->config.format == ma_format_f32) {
                     for (iChannel = 0; iChannel < pResampler->config.channels; iChannel += 1) {
-                        pResampler->state.linear.x0[iChannel] = pX[(iFrameIn-1)*pResampler->config.channels + iChannel];
-                        pResampler->state.linear.x1[iChannel] = pX[(iFrameIn-0)*pResampler->config.channels + iChannel];
+                        pResampler->state.linear.x0.f32[iChannel] = pXF32[(iFrameIn-1)*pResampler->config.channels + iChannel];
+                        pResampler->state.linear.x1.f32[iChannel] = pXF32[(iFrameIn-0)*pResampler->config.channels + iChannel];
                     }
-
-                    /* The time should always be relative to x0, and should not be greater than 1. */
-                    pResampler->state.linear.t -= floorf(pResampler->state.linear.t);
-                    MA_ASSERT(pResampler->state.linear.t >= 0 && pResampler->state.linear.t <= 1);
                 } else {
-                    /* Ran out of input frames. Make sure we consume the rest of the input frames by adjusting our input time appropriately. */
+                    for (iChannel = 0; iChannel < pResampler->config.channels; iChannel += 1) {
+                        pResampler->state.linear.x0.s16[iChannel] = pXS16[(iFrameIn-1)*pResampler->config.channels + iChannel];
+                        pResampler->state.linear.x1.s16[iChannel] = pXS16[(iFrameIn-0)*pResampler->config.channels + iChannel];
+                    }
+                }
+
+                /* The time should always be relative to x0, and should not be greater than 1. */
+                pResampler->state.linear.t -= floorf(pResampler->state.linear.t);
+                MA_ASSERT(pResampler->state.linear.t >= 0 && pResampler->state.linear.t <= 1);
+            } else {
+                /* Ran out of input frames. Make sure we consume the rest of the input frames by adjusting our input time appropriately. */
+                if (pResampler->config.format == ma_format_f32) {
                     if (frameCountIn > 1) {
                         for (iChannel = 0; iChannel < pResampler->config.channels; iChannel += 1) {
-                            pResampler->state.linear.x0[iChannel] = pX[(frameCountIn-2)*pResampler->config.channels + iChannel];
-                            pResampler->state.linear.x1[iChannel] = pX[(frameCountIn-1)*pResampler->config.channels + iChannel];
+                            pResampler->state.linear.x0.f32[iChannel] = pXF32[(frameCountIn-2)*pResampler->config.channels + iChannel];
+                            pResampler->state.linear.x1.f32[iChannel] = pXF32[(frameCountIn-1)*pResampler->config.channels + iChannel];
                         }
                     } else {
                         for (iChannel = 0; iChannel < pResampler->config.channels; iChannel += 1) {
-                            pResampler->state.linear.x0[iChannel] = pResampler->state.linear.x1[iChannel];
-                            pResampler->state.linear.x1[iChannel] = pX[(frameCountIn-1)*pResampler->config.channels + iChannel];
+                            pResampler->state.linear.x0.f32[iChannel] = pResampler->state.linear.x1.f32[iChannel];
+                            pResampler->state.linear.x1.f32[iChannel] = pXF32[(frameCountIn-1)*pResampler->config.channels + iChannel];
                         }
                     }
-
-                    pResampler->state.linear.t -= (iFrameIn - frameCountIn) + 1;
-                    iFrameIn = frameCountIn;
-
-                    break;
+                } else {
+                    if (frameCountIn > 1) {
+                        for (iChannel = 0; iChannel < pResampler->config.channels; iChannel += 1) {
+                            pResampler->state.linear.x0.s16[iChannel] = pXS16[(frameCountIn-2)*pResampler->config.channels + iChannel];
+                            pResampler->state.linear.x1.s16[iChannel] = pXS16[(frameCountIn-1)*pResampler->config.channels + iChannel];
+                        }
+                    } else {
+                        for (iChannel = 0; iChannel < pResampler->config.channels; iChannel += 1) {
+                            pResampler->state.linear.x0.s16[iChannel] = pResampler->state.linear.x1.s16[iChannel];
+                            pResampler->state.linear.x1.s16[iChannel] = pXS16[(frameCountIn-1)*pResampler->config.channels + iChannel];
+                        }
+                    }
                 }
-            }
 
-            for (iChannel = 0; iChannel < pResampler->config.channels; iChannel += 1) {
-                pY[iFrameOut*pResampler->config.channels + iChannel] = ma_mix_f32_fast(pResampler->state.linear.x0[iChannel], pResampler->state.linear.x1[iChannel], pResampler->state.linear.t);
-            }
+                pResampler->state.linear.t -= (iFrameIn - frameCountIn) + 1;
+                iFrameIn = frameCountIn;
 
-            /* Move time forward. */
-            pResampler->state.linear.t += ratioInOut;
-            iFrameOut += 1;
+                break;
+            }
         }
 
-        /* Here is where we set the number of frames that were consumed. */
-        *pFrameCountOut = iFrameOut;
-        *pFrameCountIn  = iFrameIn;
-    } else {
-        /* Format not supported. */
-        return MA_INVALID_OPERATION;
+        if (pResampler->config.format == ma_format_f32) {
+            for (iChannel = 0; iChannel < pResampler->config.channels; iChannel += 1) {
+                pYF32[iFrameOut*pResampler->config.channels + iChannel] = ma_mix_f32_fast(pResampler->state.linear.x0.f32[iChannel], pResampler->state.linear.x1.f32[iChannel], pResampler->state.linear.t);
+            }
+        } else {
+            for (iChannel = 0; iChannel < pResampler->config.channels; iChannel += 1) {
+                pYS16[iFrameOut*pResampler->config.channels + iChannel] = ma_mix_s16_fast(pResampler->state.linear.x0.s16[iChannel], pResampler->state.linear.x1.s16[iChannel], pResampler->state.linear.t);
+            }
+        }
+
+        /* Move time forward. */
+        pResampler->state.linear.t += ratioInOut;
+        iFrameOut += 1;
     }
+
+    /* Here is where we set the number of frames that were consumed. */
+    *pFrameCountOut = iFrameOut;
+    *pFrameCountIn  = iFrameIn;
 
     return MA_SUCCESS;
 }
@@ -488,89 +516,6 @@ ma_result ma_resampler_process(ma_resampler* pResampler, void* pFramesOut, ma_ui
         return ma_resampler_process__seek(pResampler, pFrameCountOut, pFramesIn, pFrameCountIn);
     }
 }
-
-
-
-ma_result ma_resample_f32__linear(ma_uint32 sampleRateOut, ma_uint32 sampleRateIn, ma_uint64 sampleCountOut, float* pSamplesOut, ma_uint64 sampleCountIn, float* pSamplesIn)
-{
-    double ratio = (double)sampleRateIn / (double)sampleRateOut;
-    double timeIn  = 0;
-    double timeOut = 0;
-
-    /* Fast path if the sample rates are the same. */
-    if (sampleRateOut == sampleRateIn) {
-        MA_COPY_MEMORY(pSamplesOut, pSamplesIn, (size_t)ma_min(sampleCountOut, sampleCountIn) * sizeof(float));
-        return MA_SUCCESS;
-    }
-
-    /* Do nothing if there's no input. */
-    if (sampleCountOut == 0 || sampleCountIn == 0) {
-        return MA_SUCCESS;
-    }
-
-
-    /* The first output sample should always be the same as the input sample. */
-    pSamplesOut[0] = pSamplesIn[0];
-    timeIn  += ratio;
-    timeOut += 1;
-
-    for (;;) {
-        ma_uint64 iTimeIn;
-        ma_uint64 iTimeOut;
-
-        iTimeIn = (ma_uint64)timeIn;
-        if (iTimeIn >= sampleCountIn) {
-            break;
-        }
-
-        iTimeOut = (ma_uint64)timeOut;
-        if (iTimeOut >= sampleCountOut) {
-            break;
-        }
-
-        /* To linearly interpolate we need the previous and next input samples. */
-        {
-            ma_uint64 iTimeInPrev = iTimeIn;
-            ma_uint64 iTimeInNext = (ma_uint64)ceil(timeIn);
-
-            if (iTimeInNext >= sampleCountIn) {
-                iTimeInNext = iTimeInPrev;  /* <-- We could instead terminate here which would make the output a few samples shorter. */
-            }
-
-            pSamplesOut[iTimeOut] = ma_mix_f32_fast(pSamplesIn[iTimeInPrev], pSamplesIn[iTimeInNext], (float)(timeIn - iTimeIn));
-
-            /* Try some kind of low-pass filter. */
-        #if 1
-            {
-                double cutoff = ma_min(sampleRateIn, sampleRateOut) * 0.5;
-                double RC = 1.0/(cutoff*MA_TAU_D); 
-                double dt = 1.0/sampleRateOut;
-                float alpha = (float)(dt/(RC+dt));
-                pSamplesOut[iTimeOut] = pSamplesOut[iTimeOut-1] + (alpha*(pSamplesOut[iTimeOut] - pSamplesOut[iTimeOut-1]));
-            }
-        #endif
-        }
-
-        timeIn  += ratio;
-        timeOut += 1;
-    }
-
-    return MA_INVALID_ARGS;
-}
-
-ma_result ma_resample_f32(ma_resample_algorithm algorithm, ma_uint32 sampleRateOut, ma_uint32 sampleRateIn, ma_uint64 sampleCountOut, float* pSamplesOut, ma_uint64 sampleCountIn, float* pSamplesIn)
-{
-    if (pSamplesOut == NULL || pSamplesIn == NULL) {
-        return MA_INVALID_ARGS;
-    }
-
-    switch (algorithm)
-    {
-        case ma_resample_algorithm_linear: return ma_resample_f32__linear(sampleRateOut, sampleRateIn, sampleCountOut, pSamplesOut, sampleCountIn, pSamplesIn);
-        default: return MA_INVALID_ARGS;
-    }
-}
-
 #endif  /* MINIAUDIO_IMPLEMENTATION */
 
 

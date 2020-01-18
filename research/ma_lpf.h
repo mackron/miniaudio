@@ -119,8 +119,8 @@ ma_result ma_biquad_init(const ma_biquad_config* pConfig, ma_biquad* pBQ)
         return MA_INVALID_ARGS; /* Division by zero. */
     }
 
-    /* Currently only supporting f32, but support for other formats will be added later. */
-    if (pConfig->format != ma_format_f32) {
+    /* Currently only supporting f32 and s16, but support for other formats will be added later. */
+    if (pConfig->format != ma_format_f32 && pConfig->format != ma_format_s16) {
         return MA_INVALID_ARGS;
     }
 
@@ -243,7 +243,7 @@ ma_result ma_lpf_init(const ma_lpf_config* pConfig, ma_lpf* pLPF)
     bqConfig.b1 = (double)( 1 - c);
     bqConfig.b2 = (double)((1 - c) / 2);
 
-    bqConfig.format = pConfig->format;
+    bqConfig.format   = pConfig->format;
     bqConfig.channels = pConfig->channels;
 
     result = ma_biquad_init(&bqConfig, &pLPF->bq);
