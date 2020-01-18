@@ -9,6 +9,7 @@ typedef enum
 {
     ma_resample_algorithm_linear_lpf = 0,   /* Linear with a biquad low pass filter. Default. */
     ma_resample_algorithm_linear,           /* Fastest, lowest quality. */
+    ma_resample_algorithm_speex
 } ma_resample_algorithm;
 
 typedef struct
@@ -26,6 +27,10 @@ typedef struct
     {
         ma_uint32 cutoffFrequency;
     } linearLPF;
+    struct
+    {
+        int quality;    /* 0 to 10. Defaults to 3. */
+    } speex;
 } ma_resampler_config;
 
 ma_resampler_config ma_resampler_config_init(ma_format format, ma_uint32 channels, ma_uint32 sampleRateIn, ma_uint32 sampleRateOut, ma_resample_algorithm algorithm);
@@ -44,6 +49,7 @@ typedef struct
             float x1[MA_MAX_CHANNELS];  /* The next input frame. */
             ma_lpf lpf;
         } linear;
+        void* pSpeex;   /* SpeexResamplerState* */
     } state;
 } ma_resampler;
 
@@ -72,7 +78,7 @@ It is an error for [pFramesOut] to be non-NULL and [pFrameCountOut] to be NULL.
 
 It is an error for both [pFrameCountOut] and [pFrameCountIn] to be NULL.
 */
-ma_result ma_resampler_process(ma_resampler* pResampler, ma_uint64* pFrameCountOut, void* pFramesOut, ma_uint64* pFrameCountIn, const void* pFramesIn);
+ma_result ma_resampler_process(ma_resampler* pResampler, void* pFramesOut, ma_uint64* pFrameCountOut, const void* pFramesIn, ma_uint64* pFrameCountIn);
 
 
 /*
@@ -96,6 +102,24 @@ Implementation
 #define MA_RESAMPLER_MAX_RATIO 48.0
 #endif
 
+#if defined(SPEEX_RESAMPLER_H)
+#define MA_HAS_SPEEX_RESAMPLER
+
+static ma_result ma_result_from_speex_err(int err)
+{
+    switch (err)
+    {
+        case RESAMPLER_ERR_SUCCESS:      return MA_SUCCESS;
+        case RESAMPLER_ERR_ALLOC_FAILED: return MA_OUT_OF_MEMORY;
+        case RESAMPLER_ERR_BAD_STATE:    return MA_ERROR;
+        case RESAMPLER_ERR_INVALID_ARG:  return MA_INVALID_ARGS;
+        case RESAMPLER_ERR_PTR_OVERLAP:  return MA_INVALID_ARGS;
+        case RESAMPLER_ERR_OVERFLOW:     return MA_ERROR;
+        default: return MA_ERROR;
+    }
+}
+#endif
+
 ma_resampler_config ma_resampler_config_init(ma_format format, ma_uint32 channels, ma_uint32 sampleRateIn, ma_uint32 sampleRateOut, ma_resample_algorithm algorithm)
 {
     ma_resampler_config config;
@@ -106,6 +130,7 @@ ma_resampler_config ma_resampler_config_init(ma_format format, ma_uint32 channel
     config.sampleRateIn = sampleRateIn;
     config.sampleRateOut = sampleRateOut;
     config.algorithm = algorithm;
+    config.speex.quality = 3;   /* Cannot leave this as 0 as that is actually a valid value for Speex resampling quality. */
 
     return config;
 }
@@ -141,13 +166,27 @@ ma_result ma_resampler_init(const ma_resampler_config* pConfig, ma_resampler* pR
             }
         } break;
 
+        case ma_resample_algorithm_speex:
+        {
+        #if defined(MA_HAS_SPEEX_RESAMPLER)
+            int speexErr;
+            pResampler->state.pSpeex = speex_resampler_init(pConfig->channels, pConfig->sampleRateIn, pConfig->sampleRateOut, pConfig->speex.quality, &speexErr);
+            if (pResampler->state.pSpeex == NULL) {
+                return ma_result_from_speex_err(speexErr);
+            }
+        #else
+            /* Speex resampler not available. */
+            return MA_INVALID_ARGS;
+        #endif
+        } break;
+
         default: return MA_INVALID_ARGS;
     }
 
     return MA_SUCCESS;
 }
 
-static ma_result ma_resampler_process__seek__linear(ma_resampler* pResampler, ma_uint64* pFrameCountOut, ma_uint64* pFrameCountIn, const void* pFramesIn)
+static ma_result ma_resampler_process__seek__linear(ma_resampler* pResampler, ma_uint64* pFrameCountOut, const void* pFramesIn, ma_uint64* pFrameCountIn)
 {
     MA_ASSERT(pResampler != NULL);
 
@@ -172,13 +211,13 @@ static ma_result ma_resampler_process__seek__linear(ma_resampler* pResampler, ma
     return MA_SUCCESS;
 }
 
-static ma_result ma_resampler_process__seek__linear_lpf(ma_resampler* pResampler, ma_uint64* pFrameCountOut, ma_uint64* pFrameCountIn, const void* pFramesIn)
+static ma_result ma_resampler_process__seek__linear_lpf(ma_resampler* pResampler, ma_uint64* pFrameCountOut, const void* pFramesIn, ma_uint64* pFrameCountIn)
 {
     /* TODO: Proper linear LPF implementation. */
-    return ma_resampler_process__seek__linear(pResampler, pFrameCountOut, pFrameCountIn, pFramesIn);
+    return ma_resampler_process__seek__linear(pResampler, pFrameCountOut, pFramesIn, pFrameCountIn);
 }
 
-static ma_result ma_resampler_process__seek(ma_resampler* pResampler, ma_uint64* pFrameCountOut, ma_uint64* pFrameCountIn, const void* pFramesIn)
+static ma_result ma_resampler_process__seek(ma_resampler* pResampler, ma_uint64* pFrameCountOut, const void* pFramesIn, ma_uint64* pFrameCountIn)
 {
     MA_ASSERT(pResampler != NULL);
 
@@ -186,12 +225,12 @@ static ma_result ma_resampler_process__seek(ma_resampler* pResampler, ma_uint64*
     {
         case ma_resample_algorithm_linear:
         {
-            return ma_resampler_process__seek__linear(pResampler, pFrameCountOut, pFrameCountIn, pFramesIn);
+            return ma_resampler_process__seek__linear(pResampler, pFrameCountOut, pFramesIn, pFrameCountIn);
         } break;
 
         case ma_resample_algorithm_linear_lpf:
         {
-            return ma_resampler_process__seek__linear_lpf(pResampler, pFrameCountOut, pFrameCountIn, pFramesIn);
+            return ma_resampler_process__seek__linear_lpf(pResampler, pFrameCountOut, pFramesIn, pFrameCountIn);
         } break;
 
         default: return MA_INVALID_ARGS;    /* Should never hit this. */
@@ -199,7 +238,7 @@ static ma_result ma_resampler_process__seek(ma_resampler* pResampler, ma_uint64*
 }
 
 
-static ma_result ma_resampler_process__read__linear(ma_resampler* pResampler, ma_uint64* pFrameCountOut, void* pFramesOut, ma_uint64* pFrameCountIn, const void* pFramesIn)
+static ma_result ma_resampler_process__read__linear(ma_resampler* pResampler, void* pFramesOut, ma_uint64* pFrameCountOut, const void* pFramesIn, ma_uint64* pFrameCountIn)
 {
     ma_uint64 frameCountOut;
     ma_uint64 frameCountIn;
@@ -307,7 +346,7 @@ static ma_result ma_resampler_process__read__linear(ma_resampler* pResampler, ma
     return MA_SUCCESS;
 }
 
-static ma_result ma_resampler_process__read__linear_lpf(ma_resampler* pResampler, ma_uint64* pFrameCountOut, void* pFramesOut, ma_uint64* pFrameCountIn, const void* pFramesIn)
+static ma_result ma_resampler_process__read__linear_lpf(ma_resampler* pResampler, void* pFramesOut, ma_uint64* pFrameCountOut, const void* pFramesIn, ma_uint64* pFrameCountIn)
 {
     /* To do this we just read using the non-filtered linear pipeline, and then do an in-place filter on the output buffer. */
     ma_result result;
@@ -318,7 +357,7 @@ static ma_result ma_resampler_process__read__linear_lpf(ma_resampler* pResampler
     MA_ASSERT(pFramesIn      != NULL);
     MA_ASSERT(pFrameCountIn  != NULL);
 
-    result = ma_resampler_process__read__linear(pResampler, pFrameCountOut, pFramesOut, pFrameCountIn, pFramesIn);
+    result = ma_resampler_process__read__linear(pResampler, pFramesOut, pFrameCountOut, pFramesIn, pFrameCountIn);
     if (result != MA_SUCCESS) {
         return result;
     }
@@ -331,7 +370,71 @@ static ma_result ma_resampler_process__read__linear_lpf(ma_resampler* pResampler
     }
 }
 
-static ma_result ma_resampler_process__read(ma_resampler* pResampler, ma_uint64* pFrameCountOut, void* pFramesOut, ma_uint64* pFrameCountIn, const void* pFramesIn)
+static ma_result ma_resampler_process__read__speex(ma_resampler* pResampler, void* pFramesOut, ma_uint64* pFrameCountOut, const void* pFramesIn, ma_uint64* pFrameCountIn)
+{
+    /* To do this we just read using the non-filtered linear pipeline, and then do an in-place filter on the output buffer. */
+    int speexErr;
+    ma_uint64 frameCountOut;
+    ma_uint64 frameCountIn;
+    ma_uint64 framesProcessedOut;
+    ma_uint64 framesProcessedIn;
+
+    MA_ASSERT(pResampler     != NULL);
+    MA_ASSERT(pFramesOut     != NULL);
+    MA_ASSERT(pFrameCountOut != NULL);
+    MA_ASSERT(pFramesIn      != NULL);
+    MA_ASSERT(pFrameCountIn  != NULL);
+
+    /* Speex uses unsigned int counts, whereas miniaudio uses 64-bit. We'll need to process in a loop. */
+    frameCountOut      = *pFrameCountOut;
+    frameCountIn       = *pFrameCountIn;
+    framesProcessedOut = 0;
+    framesProcessedIn  = 0;
+
+    while (framesProcessedOut < frameCountOut && framesProcessedIn < frameCountIn) {
+        unsigned int frameCountInThisIteration;
+        unsigned int frameCountOutThisIteration;
+        const void* pFramesInThisIteration;
+        void* pFramesOutThisIteration;
+
+        frameCountInThisIteration = UINT_MAX;
+        if ((ma_uint64)frameCountInThisIteration > (frameCountIn - framesProcessedIn)) {
+            frameCountInThisIteration = (unsigned int)(frameCountIn - framesProcessedIn);
+        }
+
+        frameCountOutThisIteration = UINT_MAX;
+        if ((ma_uint64)frameCountOutThisIteration > (frameCountOut - framesProcessedOut)) {
+            frameCountOutThisIteration = (unsigned int)(frameCountOut - framesProcessedOut);
+        }
+
+        pFramesInThisIteration  = ma_offset_ptr(pFramesIn,  framesProcessedIn  * ma_get_bytes_per_frame(pResampler->config.format, pResampler->config.channels));
+        pFramesOutThisIteration = ma_offset_ptr(pFramesOut, framesProcessedOut * ma_get_bytes_per_frame(pResampler->config.format, pResampler->config.channels));
+
+        if (pResampler->config.format == ma_format_f32) {
+            speexErr = speex_resampler_process_interleaved_float((SpeexResamplerState*)pResampler->state.pSpeex, pFramesInThisIteration, &frameCountInThisIteration, pFramesOutThisIteration, &frameCountOutThisIteration);
+        } else if (pResampler->config.format == ma_format_s16) {
+            speexErr = speex_resampler_process_interleaved_int((SpeexResamplerState*)pResampler->state.pSpeex, pFramesInThisIteration, &frameCountInThisIteration, pFramesOutThisIteration, &frameCountOutThisIteration);
+        } else {
+            /* Format not supported. Should never get here. */
+            MA_ASSERT(MA_FALSE);
+            return MA_INVALID_OPERATION;
+        }
+
+        if (speexErr != RESAMPLER_ERR_SUCCESS) {
+            return ma_result_from_speex_err(speexErr);
+        }
+
+        framesProcessedIn  += frameCountInThisIteration;
+        framesProcessedOut += frameCountOutThisIteration;
+    }
+
+    *pFrameCountOut = framesProcessedOut;
+    *pFrameCountIn  = framesProcessedIn;
+
+    return MA_SUCCESS;
+}
+
+static ma_result ma_resampler_process__read(ma_resampler* pResampler, void* pFramesOut, ma_uint64* pFrameCountOut, const void* pFramesIn, ma_uint64* pFrameCountIn)
 {
     MA_ASSERT(pResampler != NULL);
     MA_ASSERT(pFramesOut != NULL);
@@ -350,19 +453,24 @@ static ma_result ma_resampler_process__read(ma_resampler* pResampler, ma_uint64*
     {
         case ma_resample_algorithm_linear:
         {
-            return ma_resampler_process__read__linear(pResampler, pFrameCountOut, pFramesOut, pFrameCountIn, pFramesIn);
+            return ma_resampler_process__read__linear(pResampler, pFramesOut, pFrameCountOut, pFramesIn, pFrameCountIn);
         } break;
 
         case ma_resample_algorithm_linear_lpf:
         {
-            return ma_resampler_process__read__linear_lpf(pResampler, pFrameCountOut, pFramesOut, pFrameCountIn, pFramesIn);
+            return ma_resampler_process__read__linear_lpf(pResampler, pFramesOut, pFrameCountOut, pFramesIn, pFrameCountIn);
+        } break;
+
+        case ma_resample_algorithm_speex:
+        {
+            return ma_resampler_process__read__speex(pResampler, pFramesOut, pFrameCountOut, pFramesIn, pFrameCountIn);
         } break;
 
         default: return MA_INVALID_ARGS;    /* Should never hit this. */
     }
 }
 
-ma_result ma_resampler_process(ma_resampler* pResampler, ma_uint64* pFrameCountOut, void* pFramesOut, ma_uint64* pFrameCountIn, const void* pFramesIn)
+ma_result ma_resampler_process(ma_resampler* pResampler, void* pFramesOut, ma_uint64* pFrameCountOut, const void* pFramesIn, ma_uint64* pFrameCountIn)
 {
     if (pResampler == NULL) {
         return MA_INVALID_ARGS;
@@ -374,10 +482,10 @@ ma_result ma_resampler_process(ma_resampler* pResampler, ma_uint64* pFrameCountO
 
     if (pFramesOut != NULL) {
         /* Reading. */
-        return ma_resampler_process__read(pResampler, pFrameCountOut, pFramesOut, pFrameCountIn, pFramesIn);
+        return ma_resampler_process__read(pResampler, pFramesOut, pFrameCountOut, pFramesIn, pFrameCountIn);
     } else {
         /* Seeking. */
-        return ma_resampler_process__seek(pResampler, pFrameCountOut, pFrameCountIn, pFramesIn);
+        return ma_resampler_process__seek(pResampler, pFrameCountOut, pFramesIn, pFrameCountIn);
     }
 }
 
