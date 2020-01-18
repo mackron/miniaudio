@@ -18,29 +18,6 @@ typedef struct
     double b0;
     double b1;
     double b2;
-#if 0
-    union
-    {
-        struct
-        {
-            double a0;
-            double a1;
-            double a2;
-            double b0;
-            double b1;
-            double b2;
-        } f32;
-        struct
-        {
-            ma_int32 a0;
-            ma_int32 a1;
-            ma_int32 a2;
-            ma_int32 b0;
-            ma_int32 b1;
-            ma_int32 b2;
-        } s16;
-    } constants;
-#endif
 } ma_biquad_config;
 
 ma_biquad_config ma_biquad_config_init(ma_format format, ma_uint32 channels, double a0, double a1, double a2, double b0, double b1, double b2);
@@ -187,7 +164,28 @@ ma_result ma_biquad_process(ma_biquad* pBQ, void* pFramesOut, const void* pFrame
                 pBQ->y1[c] = (float)y0;
             }
         }
+    } else if (pBQ->config.format == ma_format_s16) {
+        /* */ ma_int16* pY = (      ma_int16*)pFramesOut;
+        const ma_int16* pX = (const ma_int16*)pFramesIn;
+
+        for (n = 0; n < frameCount; n += 1) {
+            for (c = 0; c < pBQ->config.channels; c += 1) {
+                double x2 = pBQ->x2[c];
+                double x1 = pBQ->x1[c];
+                double x0 = pX[n*pBQ->config.channels + c] * 0.000030517578125; /* s16 -> f32 */
+                double y2 = pBQ->y2[c];
+                double y1 = pBQ->y1[c];
+                double y0 = b0*x0 + b1*x1 + b2*x2 - a1*y1 - a2*y2;
+                
+                pY[n*pBQ->config.channels + c] = (ma_int16)(y0 * 32767.0);      /* f32 -> s16 */
+                pBQ->x2[c] = (float)x1;
+                pBQ->x1[c] = (float)x0;
+                pBQ->y2[c] = (float)y1;
+                pBQ->y1[c] = (float)y0;
+            }
+        }
     } else {
+        MA_ASSERT(MA_FALSE);
         return MA_INVALID_ARGS; /* Format not supported. Should never hit this because it's checked in ma_biquad_init(). */
     }
 
