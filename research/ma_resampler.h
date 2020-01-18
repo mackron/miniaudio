@@ -203,88 +203,104 @@ static ma_result ma_resampler_process__read__linear(ma_resampler* pResampler, ma
 {
     ma_uint64 frameCountOut;
     ma_uint64 frameCountIn;
+    ma_uint64 iFrameOut;
+    ma_uint64 iFrameIn;
+    ma_uint64 iChannel;
     float ratioInOut;
 
     MA_ASSERT(pResampler     != NULL);
     MA_ASSERT(pFramesOut     != NULL);
     MA_ASSERT(pFrameCountOut != NULL);
+    MA_ASSERT(pFramesIn      != NULL);
     MA_ASSERT(pFrameCountIn  != NULL);
 
     frameCountOut = *pFrameCountOut;
     frameCountIn  = *pFrameCountIn;
 
+    if (frameCountOut == 0 || frameCountIn == 0) {
+        return MA_INVALID_ARGS; /* Nothing to do. */
+    }
+
     ratioInOut = (float)pResampler->config.sampleRateIn / (float)pResampler->config.sampleRateOut;
 
-    if (pFramesIn != NULL) {
-        /* Pass in data from the input buffer. */
-        ma_uint64 iFrameOut;
-        ma_uint64 iFrameIn;
-        ma_uint64 iChannel;
+    iFrameOut = 0;
+    iFrameIn  = 0;
 
-        iFrameOut = 0;
-        iFrameIn  = 0;
+    if (pResampler->config.format == ma_format_f32) {
+              float* pY = (      float*)pFramesOut;
+        const float* pX = (const float*)pFramesIn;
 
-        if (pResampler->config.format == ma_format_f32) {
-                  float* pY = (      float*)pFramesOut;
-            const float* pX = (const float*)pFramesIn;
-
-            /*
-            We need to do an initial load of input data so that the first output frame is the same as the input frame. We can know whether or not to do this by
-            checking whether or not the current time is < 0 (it will be initialized to -1).
-            */
-            if (pResampler->state.linear.t < 0) {
-                if (frameCountIn > 0) {
-                    for (iChannel = 0; iChannel < pResampler->config.channels; iChannel += 1) {
-                        pResampler->state.linear.x1[iChannel] = pX[iChannel];
-                    }
-                    iFrameIn += 1;
-
-                    pResampler->state.linear.t = 1; /* Important that we set this to 1. This will cause the logic below to load the _second_ frame so we can do correct interpolation. */
+        /*
+        We need to do an initial load of input data so that the first output frame is the same as the input frame. We can know whether or not to do this by
+        checking whether or not the current time is < 0 (it will be initialized to -1).
+        */
+        if (pResampler->state.linear.t < 0) {
+            if (frameCountIn > 0) {
+                for (iChannel = 0; iChannel < pResampler->config.channels; iChannel += 1) {
+                    pResampler->state.linear.x1[iChannel] = pX[iChannel];
                 }
+                iFrameIn += 1;
+
+                pResampler->state.linear.t = 1; /* Important that we set this to 1. This will cause the logic below to load the _second_ frame so we can do correct interpolation. */
+            }
+        }
+
+        for (;;) {
+            if (iFrameOut >= frameCountOut || iFrameIn >= frameCountIn) {
+                break;
             }
 
-            for (;;) {
-                float t0;
-                float t1;
-                float y;
+            /* We can't interpolate if our interpolation factor (time relative to x0) is greater than 1. */
+            if (pResampler->state.linear.t > 1) {
+                /* Need to load the next input frame. */
+                iFrameIn += (ma_uint64)pResampler->state.linear.t;
+                if (iFrameIn < frameCountIn) {
+                    /* We have enough input frames remaining to bring the time down to 0..1. */
+                    MA_ASSERT(iFrameIn > 0);
 
-                if (iFrameOut >= frameCountOut || iFrameIn >= frameCountIn) {
-                    break;
-                }
+                    for (iChannel = 0; iChannel < pResampler->config.channels; iChannel += 1) {
+                        pResampler->state.linear.x0[iChannel] = pX[(iFrameIn-1)*pResampler->config.channels + iChannel];
+                        pResampler->state.linear.x1[iChannel] = pX[(iFrameIn-0)*pResampler->config.channels + iChannel];
+                    }
 
-                for (iChannel = 0; iChannel < pResampler->config.channels; iChannel += 1) {
-                    y = ma_mix_f32_fast(pResampler->state.linear.x0[iChannel], pResampler->state.linear.x1[iChannel], pResampler->state.linear.t);
-                }
-
-                t0 = pResampler->state.linear.t;
-                t1 = t0 + ratioInOut;
-
-                if (t1 >= 1) {
-                    /* Need to load the next input frame. */
-                    iFrameIn += (ma_uint64)t1;
-                    if (iFrameIn > 0) {
+                    /* The time should always be relative to x0, and should not be greater than 1. */
+                    pResampler->state.linear.t -= floorf(pResampler->state.linear.t);
+                    MA_ASSERT(pResampler->state.linear.t >= 0 && pResampler->state.linear.t <= 1);
+                } else {
+                    /* Ran out of input frames. Make sure we consume the rest of the input frames by adjusting our input time appropriately. */
+                    if (frameCountIn > 1) {
                         for (iChannel = 0; iChannel < pResampler->config.channels; iChannel += 1) {
-                            pResampler->state.linear.x0[iChannel] = pX[(iFrameIn-1)*pResampler->config.channels + iChannel];
-                            pResampler->state.linear.x1[iChannel] = pX[(iFrameIn-0)*pResampler->config.channels + iChannel];
+                            pResampler->state.linear.x0[iChannel] = pX[(frameCountIn-2)*pResampler->config.channels + iChannel];
+                            pResampler->state.linear.x1[iChannel] = pX[(frameCountIn-1)*pResampler->config.channels + iChannel];
                         }
                     } else {
                         for (iChannel = 0; iChannel < pResampler->config.channels; iChannel += 1) {
                             pResampler->state.linear.x0[iChannel] = pResampler->state.linear.x1[iChannel];
-                            pResampler->state.linear.x1[iChannel] = pX[iFrameIn*pResampler->config.channels + iChannel];
+                            pResampler->state.linear.x1[iChannel] = pX[(frameCountIn-1)*pResampler->config.channels + iChannel];
                         }
                     }
+
+                    pResampler->state.linear.t -= (iFrameIn - frameCountIn) + 1;
+                    iFrameIn = frameCountIn;
+
+                    break;
                 }
-
-                pResampler->state.linear.t = t1 - floorf(t1);   /* The time should always be relative to x0, and should not be greater than 1. */
-
-                iFrameOut += 1;
             }
-        } else {
-            /* Format not supported. */
-            return MA_INVALID_OPERATION;
+
+            for (iChannel = 0; iChannel < pResampler->config.channels; iChannel += 1) {
+                pY[iFrameOut*pResampler->config.channels + iChannel] = ma_mix_f32_fast(pResampler->state.linear.x0[iChannel], pResampler->state.linear.x1[iChannel], pResampler->state.linear.t);
+            }
+
+            /* Move time forward. */
+            pResampler->state.linear.t += ratioInOut;
+            iFrameOut += 1;
         }
+
+        /* Here is where we set the number of frames that were consumed. */
+        *pFrameCountOut = iFrameOut;
+        *pFrameCountIn  = iFrameIn;
     } else {
-        /* Pass in zeroes. */
+        /* Format not supported. */
         return MA_INVALID_OPERATION;
     }
 
@@ -299,6 +315,7 @@ static ma_result ma_resampler_process__read__linear_lpf(ma_resampler* pResampler
     MA_ASSERT(pResampler     != NULL);
     MA_ASSERT(pFramesOut     != NULL);
     MA_ASSERT(pFrameCountOut != NULL);
+    MA_ASSERT(pFramesIn      != NULL);
     MA_ASSERT(pFrameCountIn  != NULL);
 
     result = ma_resampler_process__read__linear(pResampler, pFrameCountOut, pFramesOut, pFrameCountIn, pFramesIn);
@@ -319,8 +336,13 @@ static ma_result ma_resampler_process__read(ma_resampler* pResampler, ma_uint64*
     MA_ASSERT(pResampler != NULL);
     MA_ASSERT(pFramesOut != NULL);
 
-    /* ppFramesOut is not NULL, which means we must have a capacity. */
+    /* pFramesOut is not NULL, which means we must have a capacity. */
     if (pFrameCountOut == NULL) {
+        return MA_INVALID_ARGS;
+    }
+
+    /* It doesn't make sense to not have any input frames to process. */
+    if (pFrameCountIn == NULL || pFramesIn == NULL) {
         return MA_INVALID_ARGS;
     }
 

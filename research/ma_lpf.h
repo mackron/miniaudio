@@ -5,21 +5,45 @@
 TODO:
   - Document passthrough behaviour of the biquad filter and how it doesn't update previous inputs and outputs.
   - Document how changing biquad constants requires reinitialization of the filter (due to issue above).
+  - Document how ma_biquad_process() and ma_lpf_process() supports in-place filtering by passing in the same buffer for both the input and output.
 */
 
 typedef struct
 {
     ma_format format;
     ma_uint32 channels;
-    float a0;
-    float a1;
-    float a2;
-    float b0;
-    float b1;
-    float b2;
+    double a0;
+    double a1;
+    double a2;
+    double b0;
+    double b1;
+    double b2;
+#if 0
+    union
+    {
+        struct
+        {
+            double a0;
+            double a1;
+            double a2;
+            double b0;
+            double b1;
+            double b2;
+        } f32;
+        struct
+        {
+            ma_int32 a0;
+            ma_int32 a1;
+            ma_int32 a2;
+            ma_int32 b0;
+            ma_int32 b1;
+            ma_int32 b2;
+        } s16;
+    } constants;
+#endif
 } ma_biquad_config;
 
-ma_biquad_config ma_biquad_config_init(ma_format format, ma_uint32 channels, float a0, float a1, float a2, float b0, float b1, float b2);
+ma_biquad_config ma_biquad_config_init(ma_format format, ma_uint32 channels, double a0, double a1, double a2, double b0, double b1, double b2);
 
 typedef struct
 {
@@ -62,7 +86,7 @@ ma_result ma_lpf_process(ma_lpf* pLPF, void* pFramesOut, const void* pFramesIn, 
 
 #if defined(MINIAUDIO_IMPLEMENTATION)
 
-ma_biquad_config ma_biquad_config_init(ma_format format, ma_uint32 channels, float a0, float a1, float a2, float b0, float b1, float b2)
+ma_biquad_config ma_biquad_config_init(ma_format format, ma_uint32 channels, double a0, double a1, double a2, double b0, double b1, double b2)
 {
     ma_biquad_config config;
 
@@ -121,11 +145,11 @@ ma_result ma_biquad_process(ma_biquad* pBQ, void* pFramesOut, const void* pFrame
 {
     ma_uint32 n;
     ma_uint32 c;
-    float a1 = pBQ->config.a1;
-    float a2 = pBQ->config.a2;
-    float b0 = pBQ->config.b0;
-    float b1 = pBQ->config.b1;
-    float b2 = pBQ->config.b2;
+    double a1 = pBQ->config.a1;
+    double a2 = pBQ->config.a2;
+    double b0 = pBQ->config.b0;
+    double b1 = pBQ->config.b1;
+    double b2 = pBQ->config.b2;
 
     if (pBQ == NULL || pFramesOut == NULL || pFramesIn == NULL) {
         return MA_INVALID_ARGS;
@@ -149,18 +173,18 @@ ma_result ma_biquad_process(ma_biquad* pBQ, void* pFramesOut, const void* pFrame
 
         for (n = 0; n < frameCount; n += 1) {
             for (c = 0; c < pBQ->config.channels; c += 1) {
-                float x2 = pBQ->x2[c];
-                float x1 = pBQ->x1[c];
-                float x0 = pX[n*pBQ->config.channels + c];
-                float y2 = pBQ->y2[c];
-                float y1 = pBQ->y1[c];
-                float y0 = b0*x0 + b1*x1 + b2*x2 - a1*y1 - a2*y2;
+                double x2 = pBQ->x2[c];
+                double x1 = pBQ->x1[c];
+                double x0 = pX[n*pBQ->config.channels + c];
+                double y2 = pBQ->y2[c];
+                double y1 = pBQ->y1[c];
+                double y0 = b0*x0 + b1*x1 + b2*x2 - a1*y1 - a2*y2;
                 
-                pY[n*pBQ->config.channels + c] = y0;
-                pBQ->x2[c] = x1;
-                pBQ->x1[c] = x0;
-                pBQ->y2[c] = y1;
-                pBQ->y1[c] = y0;
+                pY[n*pBQ->config.channels + c] = (float)y0;
+                pBQ->x2[c] = (float)x1;
+                pBQ->x1[c] = (float)x0;
+                pBQ->y2[c] = (float)y1;
+                pBQ->y1[c] = (float)y0;
             }
         }
     } else {
@@ -212,12 +236,12 @@ ma_result ma_lpf_init(const ma_lpf_config* pConfig, ma_lpf* pLPF)
     c = cos(w);
     a = s / (2*q);
 
-    bqConfig.a0 = (float)( 1 + a);
-    bqConfig.a1 = (float)(-2 * c);
-    bqConfig.a2 = (float)( 1 - a);
-    bqConfig.b0 = (float)((1 - c) / 2);
-    bqConfig.b1 = (float)( 1 - c);
-    bqConfig.b2 = (float)((1 - c) / 2);
+    bqConfig.a0 = (double)( 1 + a);
+    bqConfig.a1 = (double)(-2 * c);
+    bqConfig.a2 = (double)( 1 - a);
+    bqConfig.b0 = (double)((1 - c) / 2);
+    bqConfig.b1 = (double)( 1 - c);
+    bqConfig.b2 = (double)((1 - c) / 2);
 
     bqConfig.format = pConfig->format;
     bqConfig.channels = pConfig->channels;
