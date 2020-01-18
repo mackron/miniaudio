@@ -233,6 +233,17 @@ static ma_result ma_resampler_process__seek__linear_lpf(ma_resampler* pResampler
     return ma_resampler_process__seek__linear(pResampler, pFramesIn, pFrameCountIn, pFrameCountOut);
 }
 
+static ma_result ma_resampler_process__seek__linear_lpf(ma_resampler* pResampler, const void* pFramesIn, ma_uint64* pFrameCountIn, ma_uint64* pFrameCountOut)
+{
+    /* TODO: Implement me. */
+    (void)pResampler;
+    (void)pFramesIn;
+    (void)pFrameCountIn;
+    (void)pFrameCountOut;
+
+    return MA_INVALID_OPERATION;
+}
+
 static ma_result ma_resampler_process__seek(ma_resampler* pResampler, const void* pFramesIn, ma_uint64* pFrameCountIn, ma_uint64* pFrameCountOut)
 {
     MA_ASSERT(pResampler != NULL);
@@ -247,6 +258,13 @@ static ma_result ma_resampler_process__seek(ma_resampler* pResampler, const void
         case ma_resample_algorithm_linear_lpf:
         {
             return ma_resampler_process__seek__linear_lpf(pResampler, pFramesIn, pFrameCountIn, pFrameCountOut);
+        } break;
+
+        case ma_resample_algorithm_speex:
+        {
+        #if defined(MA_HAS_SPEEX_RESAMPLER)
+            return ma_resampler_process__seek__speex(pResampler, pFramesIn, pFrameCountIn, pFrameCountOut);
+        #endif
         } break;
 
         default: return MA_INVALID_ARGS;    /* Should never hit this. */
@@ -271,7 +289,6 @@ static ma_result ma_resampler_process__read__linear(ma_resampler* pResampler, co
     MA_ASSERT(pResampler     != NULL);
     MA_ASSERT(pFramesOut     != NULL);
     MA_ASSERT(pFrameCountOut != NULL);
-    MA_ASSERT(pFramesIn      != NULL);
     MA_ASSERT(pFrameCountIn  != NULL);
 
     frameCountOut = *pFrameCountOut;
@@ -294,9 +311,17 @@ static ma_result ma_resampler_process__read__linear(ma_resampler* pResampler, co
         if (frameCountIn > 0) {
             for (iChannel = 0; iChannel < pResampler->config.channels; iChannel += 1) {
                 if (pResampler->config.format == ma_format_f32) {
-                    pResampler->state.linear.x1.f32[iChannel] = pXF32[iChannel];
+                    if (pXF32 != NULL) {
+                        pResampler->state.linear.x1.f32[iChannel] = pXF32[iChannel];
+                    } else {
+                        pResampler->state.linear.x1.f32[iChannel] = 0;
+                    }
                 } else {
-                    pResampler->state.linear.x1.s16[iChannel] = pXS16[iChannel];
+                    if (pXS16 != NULL) {
+                        pResampler->state.linear.x1.s16[iChannel] = pXS16[iChannel];
+                    } else {
+                        pResampler->state.linear.x1.s16[iChannel] = 0;
+                    }
                 }
             }
             iFrameIn += 1;
@@ -320,13 +345,23 @@ static ma_result ma_resampler_process__read__linear(ma_resampler* pResampler, co
 
                 if (pResampler->config.format == ma_format_f32) {
                     for (iChannel = 0; iChannel < pResampler->config.channels; iChannel += 1) {
-                        pResampler->state.linear.x0.f32[iChannel] = pXF32[(iFrameIn-1)*pResampler->config.channels + iChannel];
-                        pResampler->state.linear.x1.f32[iChannel] = pXF32[(iFrameIn-0)*pResampler->config.channels + iChannel];
+                        if (pXF32 != NULL) {
+                            pResampler->state.linear.x0.f32[iChannel] = pXF32[(iFrameIn-1)*pResampler->config.channels + iChannel];
+                            pResampler->state.linear.x1.f32[iChannel] = pXF32[(iFrameIn-0)*pResampler->config.channels + iChannel];
+                        } else {
+                            pResampler->state.linear.x0.f32[iChannel] = 0;
+                            pResampler->state.linear.x1.f32[iChannel] = 0;
+                        }
                     }
                 } else {
                     for (iChannel = 0; iChannel < pResampler->config.channels; iChannel += 1) {
-                        pResampler->state.linear.x0.s16[iChannel] = pXS16[(iFrameIn-1)*pResampler->config.channels + iChannel];
-                        pResampler->state.linear.x1.s16[iChannel] = pXS16[(iFrameIn-0)*pResampler->config.channels + iChannel];
+                        if (pXS16 != NULL) {
+                            pResampler->state.linear.x0.s16[iChannel] = pXS16[(iFrameIn-1)*pResampler->config.channels + iChannel];
+                            pResampler->state.linear.x1.s16[iChannel] = pXS16[(iFrameIn-0)*pResampler->config.channels + iChannel];
+                        } else {
+                            pResampler->state.linear.x0.s16[iChannel] = 0;
+                            pResampler->state.linear.x1.s16[iChannel] = 0;
+                        }
                     }
                 }
 
@@ -338,25 +373,45 @@ static ma_result ma_resampler_process__read__linear(ma_resampler* pResampler, co
                 if (pResampler->config.format == ma_format_f32) {
                     if (frameCountIn > 1) {
                         for (iChannel = 0; iChannel < pResampler->config.channels; iChannel += 1) {
-                            pResampler->state.linear.x0.f32[iChannel] = pXF32[(frameCountIn-2)*pResampler->config.channels + iChannel];
-                            pResampler->state.linear.x1.f32[iChannel] = pXF32[(frameCountIn-1)*pResampler->config.channels + iChannel];
+                            if (pXF32 != NULL) {
+                                pResampler->state.linear.x0.f32[iChannel] = pXF32[(frameCountIn-2)*pResampler->config.channels + iChannel];
+                                pResampler->state.linear.x1.f32[iChannel] = pXF32[(frameCountIn-1)*pResampler->config.channels + iChannel];
+                            } else {
+                                pResampler->state.linear.x0.f32[iChannel] = 0;
+                                pResampler->state.linear.x1.f32[iChannel] = 0;
+                            }
                         }
                     } else {
                         for (iChannel = 0; iChannel < pResampler->config.channels; iChannel += 1) {
-                            pResampler->state.linear.x0.f32[iChannel] = pResampler->state.linear.x1.f32[iChannel];
-                            pResampler->state.linear.x1.f32[iChannel] = pXF32[(frameCountIn-1)*pResampler->config.channels + iChannel];
+                            if (pXF32 != NULL) {
+                                pResampler->state.linear.x0.f32[iChannel] = pResampler->state.linear.x1.f32[iChannel];
+                                pResampler->state.linear.x1.f32[iChannel] = pXF32[(frameCountIn-1)*pResampler->config.channels + iChannel];
+                            } else {
+                                pResampler->state.linear.x0.f32[iChannel] = pResampler->state.linear.x1.f32[iChannel];
+                                pResampler->state.linear.x1.f32[iChannel] = 0;
+                            }
                         }
                     }
                 } else {
                     if (frameCountIn > 1) {
                         for (iChannel = 0; iChannel < pResampler->config.channels; iChannel += 1) {
-                            pResampler->state.linear.x0.s16[iChannel] = pXS16[(frameCountIn-2)*pResampler->config.channels + iChannel];
-                            pResampler->state.linear.x1.s16[iChannel] = pXS16[(frameCountIn-1)*pResampler->config.channels + iChannel];
+                            if (pXS16 != NULL) {
+                                pResampler->state.linear.x0.s16[iChannel] = pXS16[(frameCountIn-2)*pResampler->config.channels + iChannel];
+                                pResampler->state.linear.x1.s16[iChannel] = pXS16[(frameCountIn-1)*pResampler->config.channels + iChannel];
+                            } else {
+                                pResampler->state.linear.x0.s16[iChannel] = 0;
+                                pResampler->state.linear.x1.s16[iChannel] = 0;
+                            }
                         }
                     } else {
                         for (iChannel = 0; iChannel < pResampler->config.channels; iChannel += 1) {
-                            pResampler->state.linear.x0.s16[iChannel] = pResampler->state.linear.x1.s16[iChannel];
-                            pResampler->state.linear.x1.s16[iChannel] = pXS16[(frameCountIn-1)*pResampler->config.channels + iChannel];
+                            if (pXS16 != NULL) {
+                                pResampler->state.linear.x0.s16[iChannel] = pResampler->state.linear.x1.s16[iChannel];
+                                pResampler->state.linear.x1.s16[iChannel] = pXS16[(frameCountIn-1)*pResampler->config.channels + iChannel];
+                            } else {
+                                pResampler->state.linear.x0.s16[iChannel] = pResampler->state.linear.x1.s16[iChannel];
+                                pResampler->state.linear.x1.s16[iChannel] = 0;
+                            }
                         }
                     }
                 }
@@ -398,7 +453,6 @@ static ma_result ma_resampler_process__read__linear_lpf(ma_resampler* pResampler
     MA_ASSERT(pResampler     != NULL);
     MA_ASSERT(pFramesOut     != NULL);
     MA_ASSERT(pFrameCountOut != NULL);
-    MA_ASSERT(pFramesIn      != NULL);
     MA_ASSERT(pFrameCountIn  != NULL);
 
     result = ma_resampler_process__read__linear(pResampler, pFramesIn, pFrameCountIn, pFramesOut, pFrameCountOut);
@@ -427,7 +481,6 @@ static ma_result ma_resampler_process__read__speex(ma_resampler* pResampler, con
     MA_ASSERT(pResampler     != NULL);
     MA_ASSERT(pFramesOut     != NULL);
     MA_ASSERT(pFrameCountOut != NULL);
-    MA_ASSERT(pFramesIn      != NULL);
     MA_ASSERT(pFrameCountIn  != NULL);
 
     /* Speex uses unsigned int counts, whereas miniaudio uses 64-bit. We'll need to process in a loop. */
