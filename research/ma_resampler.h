@@ -236,13 +236,6 @@ Implementation
 */
 #ifdef MINIAUDIO_IMPLEMENTATION
 
-#ifndef MA_RESAMPLER_MIN_RATIO
-#define MA_RESAMPLER_MIN_RATIO 0.02083333
-#endif
-#ifndef MA_RESAMPLER_MAX_RATIO
-#define MA_RESAMPLER_MAX_RATIO 48.0
-#endif
-
 #if defined(ma_speex_resampler_h)
 #define MA_HAS_SPEEX_RESAMPLER
 
@@ -259,7 +252,7 @@ static ma_result ma_result_from_speex_err(int err)
         default: return MA_ERROR;
     }
 }
-#endif
+#endif  /* ma_speex_resampler_h */
 
 ma_resampler_config ma_resampler_config_init(ma_format format, ma_uint32 channels, ma_uint32 sampleRateIn, ma_uint32 sampleRateOut, ma_resample_algorithm algorithm)
 {
@@ -837,12 +830,12 @@ ma_result ma_resampler_set_rate_ratio(ma_resampler* pResampler, float ratio)
     ma_uint32 d;
     ma_uint32 gcf;
 
-    if (ratio < MA_RESAMPLER_MIN_RATIO || ratio > MA_RESAMPLER_MAX_RATIO) {
-        return MA_INVALID_ARGS;
-    }
-
     d = 1000000;
     n = (ma_uint32)(ratio * d);
+
+    if (n == 0) {
+        return MA_INVALID_ARGS; /* Ratio too small. */
+    }
 
     MA_ASSERT(n != 0);
     
