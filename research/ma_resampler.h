@@ -59,6 +59,9 @@ typedef struct
         struct
         {
             void* pSpeexResamplerState;   /* SpeexResamplerState* */
+            ma_uint64 runningTimeIn;
+            ma_uint64 runningTimeOut;
+            double t;    /* For tracking the input time so we can query required input and expected output frame counts. */
         } speex;
     } state;
 } ma_resampler;
@@ -137,7 +140,7 @@ Implementation
 #define MA_RESAMPLER_MAX_RATIO 48.0
 #endif
 
-#if defined(SPEEX_RESAMPLER_H)
+#if defined(ma_speex_resampler_h)
 #define MA_HAS_SPEEX_RESAMPLER
 
 static ma_result ma_result_from_speex_err(int err)
@@ -497,23 +500,31 @@ static ma_result ma_resampler_process__read__linear(ma_resampler* pResampler, co
 #if defined(MA_HAS_SPEEX_RESAMPLER)
 static ma_result ma_resampler_process__read__speex(ma_resampler* pResampler, const void* pFramesIn, ma_uint64* pFrameCountIn, void* pFramesOut, ma_uint64* pFrameCountOut)
 {
-    /* To do this we just read using the non-filtered linear pipeline, and then do an in-place filter on the output buffer. */
     int speexErr;
     ma_uint64 frameCountOut;
     ma_uint64 frameCountIn;
     ma_uint64 framesProcessedOut;
     ma_uint64 framesProcessedIn;
+    unsigned int framesPerIteration = 32768;
+    double ratioInOut;
 
     MA_ASSERT(pResampler     != NULL);
     MA_ASSERT(pFramesOut     != NULL);
     MA_ASSERT(pFrameCountOut != NULL);
     MA_ASSERT(pFrameCountIn  != NULL);
 
-    /* Speex uses unsigned int counts, whereas miniaudio uses 64-bit. We'll need to process in a loop. */
+    /*
+    Reading from the Speex resampler requires a bit of dancing around for a few reasons. The first thing is that it's frame counts
+    are in unsigned int's whereas ours is in ma_uint64. We therefore need to run the conversion in a loop. The other, more complicated
+    problem, is that we need to keep track of the input time, similar to what we do with the linear resampler. The reason we need to
+    do this is for ma_resampler_get_required_input_frame_count() and ma_resampler_get_expected_output_frame_count().
+    */
     frameCountOut      = *pFrameCountOut;
     frameCountIn       = *pFrameCountIn;
     framesProcessedOut = 0;
     framesProcessedIn  = 0;
+
+    ratioInOut = (double)pResampler->config.sampleRateIn / (double)pResampler->config.sampleRateOut;
 
     while (framesProcessedOut < frameCountOut && framesProcessedIn < frameCountIn) {
         unsigned int frameCountInThisIteration;
@@ -521,12 +532,12 @@ static ma_result ma_resampler_process__read__speex(ma_resampler* pResampler, con
         const void* pFramesInThisIteration;
         void* pFramesOutThisIteration;
 
-        frameCountInThisIteration = UINT_MAX;
+        frameCountInThisIteration = framesPerIteration;
         if ((ma_uint64)frameCountInThisIteration > (frameCountIn - framesProcessedIn)) {
             frameCountInThisIteration = (unsigned int)(frameCountIn - framesProcessedIn);
         }
 
-        frameCountOutThisIteration = UINT_MAX;
+        frameCountOutThisIteration = framesPerIteration;
         if ((ma_uint64)frameCountOutThisIteration > (frameCountOut - framesProcessedOut)) {
             frameCountOutThisIteration = (unsigned int)(frameCountOut - framesProcessedOut);
         }
@@ -550,7 +561,13 @@ static ma_result ma_resampler_process__read__speex(ma_resampler* pResampler, con
 
         framesProcessedIn  += frameCountInThisIteration;
         framesProcessedOut += frameCountOutThisIteration;
+
+        pResampler->state.speex.t += frameCountOutThisIteration * ratioInOut;
+        //pResampler->state.speex.t  = pResampler->state.speex.t - floor(pResampler->state.speex.t);
     }
+
+    pResampler->state.speex.runningTimeOut += framesProcessedOut;
+    pResampler->state.speex.runningTimeIn  += framesProcessedIn;
 
     *pFrameCountOut = framesProcessedOut;
     *pFrameCountIn  = framesProcessedIn;
@@ -726,7 +743,22 @@ ma_uint64 ma_resampler_get_required_input_frame_count(ma_resampler* pResampler, 
         case ma_resample_algorithm_speex:
         {
         #if defined(MA_HAS_SPEEX_RESAMPLER)
-            return 0;
+#if 0
+            ma_uint64 count;
+            double t = pResampler->state.speex.t;
+
+        #if 0
+            count = (ma_uint64)floor(t + (outputFrameCount * ratioInOut) + 0.00000001);
+        #else
+            count = (ma_uint64)(floor(t + (outputFrameCount * ratioInOut)) - floor(t));
+        #endif
+            return count;
+#endif
+
+            ma_uint32 count;
+            ma_speex_resampler_get_required_input_frame_count((SpeexResamplerState*)pResampler->state.speex.pSpeexResamplerState, (unsigned int)outputFrameCount, &count);
+
+            return count;
         #else
             break;
         #endif
@@ -774,6 +806,7 @@ ma_uint64 ma_resampler_get_expected_output_frame_count(ma_resampler* pResampler,
         {
         #if defined(MA_HAS_SPEEX_RESAMPLER)
             /* TODO: Implement me. */
+            return 0;
         #else
             break;
         #endif
