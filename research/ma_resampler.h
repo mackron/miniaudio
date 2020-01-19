@@ -802,8 +802,13 @@ ma_uint64 ma_resampler_get_expected_output_frame_count(ma_resampler* pResampler,
         case ma_resample_algorithm_speex:
         {
         #if defined(MA_HAS_SPEEX_RESAMPLER)
-            /* TODO: Implement me. */
-            return 0;
+            ma_uint64 count;
+            int speexErr = ma_speex_resampler_get_expected_output_frame_count((SpeexResamplerState*)pResampler->state.speex.pSpeexResamplerState, inputFrameCount, &count);
+            if (speexErr != RESAMPLER_ERR_SUCCESS) {
+                return 0;
+            }
+
+            return count;
         #else
             break;
         #endif

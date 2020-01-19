@@ -9,6 +9,7 @@
 #define spx_uint64_t unsigned long long
 
 int ma_speex_resampler_get_required_input_frame_count(SpeexResamplerState* st, spx_uint64_t out_len, spx_uint64_t* in_len);
+int ma_speex_resampler_get_expected_output_frame_count(SpeexResamplerState* st, spx_uint64_t in_len, spx_uint64_t* out_len);
 
 #endif  /* ma_speex_resampler_h */
 
@@ -51,6 +52,47 @@ EXPORT int ma_speex_resampler_get_required_input_frame_count(SpeexResamplerState
     count += (st->samp_frac_num[0] + (out_len * st->frac_advance)) / st->den_rate;
 
     *in_len = count;
+
+    return RESAMPLER_ERR_SUCCESS;
+}
+
+EXPORT int ma_speex_resampler_get_expected_output_frame_count(SpeexResamplerState* st, spx_uint64_t in_len, spx_uint64_t* out_len)
+{
+    spx_uint64_t count;
+    spx_uint64_t last_sample;
+    spx_uint32_t samp_frac_num;
+
+    if (st == NULL || out_len == NULL) {
+        return RESAMPLER_ERR_INVALID_ARG;
+    }
+
+    *out_len = 0;
+
+    if (out_len == 0) {
+        return RESAMPLER_ERR_SUCCESS;   /* Nothing to do. */
+    }
+
+    /* miniaudio only uses interleaved APIs so we can safely just use channel index 0 for the calculations. */
+    if (st->nb_channels == 0) {
+        return RESAMPLER_ERR_BAD_STATE;
+    }
+
+    count         = 0;
+    last_sample   = st->last_sample[0];
+    samp_frac_num = st->samp_frac_num[0];
+
+    while (!(last_sample >= in_len)) {
+        count += 1;
+
+        last_sample   += st->int_advance;
+        samp_frac_num += st->frac_advance;
+        if (samp_frac_num >= st->den_rate) {
+            samp_frac_num -= st->den_rate;
+            last_sample += 1;
+        }
+    }
+
+    *out_len = count;
 
     return RESAMPLER_ERR_SUCCESS;
 }
