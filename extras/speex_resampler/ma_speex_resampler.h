@@ -13,6 +13,7 @@
     #pragma warning(push)
     #pragma warning(disable:4244)   /* conversion from 'x' to 'y', possible loss of data */
     #pragma warning(disable:4018)   /* signed/unsigned mismatch */
+    #pragma warning(disable:4706)   /* assignment within conditional expression */
 #else
     #pragma GCC diagnostic push
 #endif

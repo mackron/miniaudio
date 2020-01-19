@@ -587,7 +587,7 @@ static ma_result ma_resampler_process__read(ma_resampler* pResampler, const void
         #endif
         }
     
-        default: return MA_INVALID_ARGS;    /* Should never hit this. */
+        default: break;
     }
 
     /* Should never get here. */
@@ -723,7 +723,7 @@ ma_uint64 ma_resampler_get_required_input_frame_count(ma_resampler* pResampler, 
         case ma_resample_algorithm_speex:
         {
         #if defined(MA_HAS_SPEEX_RESAMPLER)
-            /* TODO: Implement me. */
+            return 0;
         #else
             break;
         #endif
