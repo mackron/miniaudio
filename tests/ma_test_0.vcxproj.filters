@@ -13,6 +13,9 @@
       <UniqueIdentifier>{67DA6AB6-F800-4c08-8B7A-83BB121AAD01}</UniqueIdentifier>
       <Extensions>rc;ico;cur;bmp;dlg;rc2;rct;bin;rgs;gif;jpg;jpeg;jpe;resx;tiff;tif;png;wav;mfcribbon-ms</Extensions>
     </Filter>
+    <Filter Include="Source Files\speex_resampler">
+      <UniqueIdentifier>{7a8cc5ec-bdc2-4721-b0e8-e21796ec6b9a}</UniqueIdentifier>
+    </Filter>
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="ma_test_0.c">
@@ -72,6 +75,12 @@
     <ClCompile Include="..\research\tests\ma_lpf_test_0.c">
       <Filter>Source Files</Filter>
     </ClCompile>
+    <ClCompile Include="..\research\tests\ma_resampler_test_1.c">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="..\extras\speex_resampler\thirdparty\resample.c">
+      <Filter>Source Files\speex_resampler</Filter>
+    </ClCompile>
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="..\miniaudio.h">
@@ -82,6 +91,15 @@
     </ClInclude>
     <ClInclude Include="..\research\ma_lpf.h">
       <Filter>Source Files</Filter>
+    </ClInclude>
+    <ClInclude Include="..\extras\speex_resampler\thirdparty\arch.h">
+      <Filter>Source Files\speex_resampler</Filter>
+    </ClInclude>
+    <ClInclude Include="..\extras\speex_resampler\thirdparty\resample_sse.h">
+      <Filter>Source Files\speex_resampler</Filter>
+    </ClInclude>
+    <ClInclude Include="..\extras\speex_resampler\thirdparty\speex_resampler.h">
+      <Filter>Source Files\speex_resampler</Filter>
     </ClInclude>
   </ItemGroup>
 </Project>

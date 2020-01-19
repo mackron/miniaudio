@@ -249,72 +249,6 @@ void ma_resampler_uninit(ma_resampler* pResampler)
 #endif
 }
 
-static ma_result ma_resampler_process__seek__linear(ma_resampler* pResampler, const void* pFramesIn, ma_uint64* pFrameCountIn, ma_uint64* pFrameCountOut)
-{
-    MA_ASSERT(pResampler != NULL);
-
-    if (pFrameCountOut != NULL) {
-        /* Seek by output frames. */
-        if (pFramesIn != NULL) {
-            /* Read input data. */
-        } else {
-            /* Don't read input data - just update timing and filter state as if zeroes were passed in. */
-        }
-    } else {
-        /* Seek by input frames. */
-        MA_ASSERT(pFrameCountIn != NULL);
-
-        if (pFramesIn != NULL) {
-            /* Read input data. */
-        } else {
-            /* Don't read input data - just update timing and filter state as if zeroes were passed in. */
-        }
-    }
-
-    return MA_SUCCESS;
-}
-
-#if defined(MA_HAS_SPEEX_RESAMPLER)
-static ma_result ma_resampler_process__seek__speex(ma_resampler* pResampler, const void* pFramesIn, ma_uint64* pFrameCountIn, ma_uint64* pFrameCountOut)
-{
-    /* TODO: Implement me. */
-    (void)pResampler;
-    (void)pFramesIn;
-    (void)pFrameCountIn;
-    (void)pFrameCountOut;
-
-    return MA_INVALID_OPERATION;
-}
-#endif
-
-static ma_result ma_resampler_process__seek(ma_resampler* pResampler, const void* pFramesIn, ma_uint64* pFrameCountIn, ma_uint64* pFrameCountOut)
-{
-    MA_ASSERT(pResampler != NULL);
-
-    switch (pResampler->config.algorithm)
-    {
-        case ma_resample_algorithm_linear:
-        {
-            return ma_resampler_process__seek__linear(pResampler, pFramesIn, pFrameCountIn, pFrameCountOut);
-        } break;
-
-        case ma_resample_algorithm_speex:
-        {
-        #if defined(MA_HAS_SPEEX_RESAMPLER)
-            return ma_resampler_process__seek__speex(pResampler, pFramesIn, pFrameCountIn, pFrameCountOut);
-        #else
-            break;
-        #endif
-        };
-
-        default: break;
-    }
-
-    /* Should never hit this. */
-    MA_ASSERT(MA_FALSE);
-    return MA_INVALID_ARGS;
-}
-
 static ma_result ma_resampler_process__read__linear(ma_resampler* pResampler, const void* pFramesIn, ma_uint64* pFrameCountIn, void* pFramesOut, ma_uint64* pFrameCountOut)
 {
     ma_uint64 frameCountOut;
@@ -602,6 +536,125 @@ static ma_result ma_resampler_process__read(ma_resampler* pResampler, const void
     MA_ASSERT(MA_FALSE);
     return MA_INVALID_ARGS;
 }
+
+
+static ma_result ma_resampler_process__seek__generic(ma_resampler* pResampler, const void* pFramesIn, ma_uint64* pFrameCountIn, ma_uint64* pFrameCountOut)
+{
+    /* The generic seek method is implemented in on top of ma_resampler_process__read() by just processing into a dummy buffer. */
+    float devnull[8192];
+    ma_uint64 totalOutputFramesToProcess;
+    ma_uint64 totalOutputFramesProcessed;
+    ma_uint64 totalInputFramesProcessed;
+    ma_uint32 bpf;
+    ma_result result;
+
+    MA_ASSERT(pResampler != NULL);
+
+    totalOutputFramesProcessed = 0;
+    totalInputFramesProcessed = 0;
+    bpf = ma_get_bytes_per_frame(pResampler->config.format, pResampler->config.channels);
+
+    if (pFrameCountOut != NULL) {
+        /* Seek by output frames. */
+        totalOutputFramesToProcess = *pFrameCountOut;
+    } else {
+        /* Seek by input frames. */
+        MA_ASSERT(pFrameCountIn != NULL);
+        totalOutputFramesToProcess = ma_resampler_get_expected_output_frame_count(pResampler, *pFrameCountIn);
+    }
+
+    if (pFramesIn != NULL) {
+        /* Process input data. */
+        MA_ASSERT(pFrameCountIn != NULL);
+        while (totalOutputFramesProcessed < totalOutputFramesToProcess && totalInputFramesProcessed < *pFrameCountIn) {
+            ma_uint64 inputFramesToProcessThisIteration  = (*pFrameCountIn - totalInputFramesProcessed);
+            ma_uint64 outputFramesToProcessThisIteration = (totalOutputFramesToProcess - totalOutputFramesProcessed);
+            if (outputFramesToProcessThisIteration > sizeof(devnull) / bpf) {
+                outputFramesToProcessThisIteration = sizeof(devnull) / bpf;
+            }
+
+            result = ma_resampler_process__read(pResampler, ma_offset_ptr(pFramesIn, totalInputFramesProcessed*bpf), &inputFramesToProcessThisIteration, ma_offset_ptr(devnull, totalOutputFramesProcessed*bpf), &outputFramesToProcessThisIteration);
+            if (result != MA_SUCCESS) {
+                return result;
+            }
+
+            totalOutputFramesProcessed += outputFramesToProcessThisIteration;
+            totalInputFramesProcessed  += inputFramesToProcessThisIteration;
+        }
+    } else {
+        /* Don't process input data - just update timing and filter state as if zeroes were passed in. */
+        while (totalOutputFramesProcessed < totalOutputFramesToProcess) {
+            ma_uint64 inputFramesToProcessThisIteration  = 16384;
+            ma_uint64 outputFramesToProcessThisIteration = (totalOutputFramesToProcess - totalOutputFramesProcessed);
+            if (outputFramesToProcessThisIteration > sizeof(devnull) / bpf) {
+                outputFramesToProcessThisIteration = sizeof(devnull) / bpf;
+            }
+
+            result = ma_resampler_process__read(pResampler, NULL, &inputFramesToProcessThisIteration, ma_offset_ptr(devnull, totalOutputFramesProcessed*bpf), &outputFramesToProcessThisIteration);
+            if (result != MA_SUCCESS) {
+                return result;
+            }
+
+            totalOutputFramesProcessed += outputFramesToProcessThisIteration;
+            totalInputFramesProcessed  += inputFramesToProcessThisIteration;
+        }
+    }
+
+
+    if (pFrameCountIn != NULL) {
+        *pFrameCountIn = totalInputFramesProcessed;
+    }
+    if (pFrameCountOut != NULL) {
+        *pFrameCountOut = totalOutputFramesProcessed;
+    }
+
+    return MA_SUCCESS;
+}
+
+static ma_result ma_resampler_process__seek__linear(ma_resampler* pResampler, const void* pFramesIn, ma_uint64* pFrameCountIn, ma_uint64* pFrameCountOut)
+{
+    MA_ASSERT(pResampler != NULL);
+
+    return ma_resampler_process__seek__generic(pResampler, pFramesIn, pFrameCountIn, pFrameCountOut);
+}
+
+#if defined(MA_HAS_SPEEX_RESAMPLER)
+static ma_result ma_resampler_process__seek__speex(ma_resampler* pResampler, const void* pFramesIn, ma_uint64* pFrameCountIn, ma_uint64* pFrameCountOut)
+{
+    MA_ASSERT(pResampler != NULL);
+
+    return ma_resampler_process__seek__generic(pResampler, pFramesIn, pFrameCountIn, pFrameCountOut);
+}
+#endif
+
+static ma_result ma_resampler_process__seek(ma_resampler* pResampler, const void* pFramesIn, ma_uint64* pFrameCountIn, ma_uint64* pFrameCountOut)
+{
+    MA_ASSERT(pResampler != NULL);
+
+    switch (pResampler->config.algorithm)
+    {
+        case ma_resample_algorithm_linear:
+        {
+            return ma_resampler_process__seek__linear(pResampler, pFramesIn, pFrameCountIn, pFrameCountOut);
+        } break;
+
+        case ma_resample_algorithm_speex:
+        {
+        #if defined(MA_HAS_SPEEX_RESAMPLER)
+            return ma_resampler_process__seek__speex(pResampler, pFramesIn, pFrameCountIn, pFrameCountOut);
+        #else
+            break;
+        #endif
+        };
+
+        default: break;
+    }
+
+    /* Should never hit this. */
+    MA_ASSERT(MA_FALSE);
+    return MA_INVALID_ARGS;
+}
+
 
 ma_result ma_resampler_process(ma_resampler* pResampler, const void* pFramesIn, ma_uint64* pFrameCountIn, void* pFramesOut, ma_uint64* pFrameCountOut)
 {
