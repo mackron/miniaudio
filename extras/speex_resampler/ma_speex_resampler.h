@@ -6,7 +6,9 @@
 #define RANDOM_PREFIX   ma_speex
 #include "thirdparty/speex_resampler.h"
 
-int ma_speex_resampler_get_required_input_frame_count(SpeexResamplerState* st, spx_uint32_t out_len, spx_uint32_t* in_len);
+#define spx_uint64_t unsigned long long
+
+int ma_speex_resampler_get_required_input_frame_count(SpeexResamplerState* st, spx_uint64_t out_len, spx_uint64_t* in_len);
 
 #endif  /* ma_speex_resampler_h */
 
@@ -26,9 +28,9 @@ int ma_speex_resampler_get_required_input_frame_count(SpeexResamplerState* st, s
     #pragma GCC diagnostic pop
 #endif
 
-EXPORT int ma_speex_resampler_get_required_input_frame_count(SpeexResamplerState* st, spx_uint32_t out_len, spx_uint32_t* in_len)
+EXPORT int ma_speex_resampler_get_required_input_frame_count(SpeexResamplerState* st, spx_uint64_t out_len, spx_uint64_t* in_len)
 {
-    spx_uint32_t count;
+    spx_uint64_t count;
 
     if (st == NULL || in_len == NULL) {
         return RESAMPLER_ERR_INVALID_ARG;

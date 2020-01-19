@@ -59,9 +59,6 @@ typedef struct
         struct
         {
             void* pSpeexResamplerState;   /* SpeexResamplerState* */
-            ma_uint64 runningTimeIn;
-            ma_uint64 runningTimeOut;
-            double t;    /* For tracking the input time so we can query required input and expected output frame counts. */
         } speex;
     } state;
 } ma_resampler;
@@ -505,8 +502,7 @@ static ma_result ma_resampler_process__read__speex(ma_resampler* pResampler, con
     ma_uint64 frameCountIn;
     ma_uint64 framesProcessedOut;
     ma_uint64 framesProcessedIn;
-    unsigned int framesPerIteration = 32768;
-    double ratioInOut;
+    unsigned int framesPerIteration = UINT_MAX;
 
     MA_ASSERT(pResampler     != NULL);
     MA_ASSERT(pFramesOut     != NULL);
@@ -523,8 +519,6 @@ static ma_result ma_resampler_process__read__speex(ma_resampler* pResampler, con
     frameCountIn       = *pFrameCountIn;
     framesProcessedOut = 0;
     framesProcessedIn  = 0;
-
-    ratioInOut = (double)pResampler->config.sampleRateIn / (double)pResampler->config.sampleRateOut;
 
     while (framesProcessedOut < frameCountOut && framesProcessedIn < frameCountIn) {
         unsigned int frameCountInThisIteration;
@@ -561,13 +555,7 @@ static ma_result ma_resampler_process__read__speex(ma_resampler* pResampler, con
 
         framesProcessedIn  += frameCountInThisIteration;
         framesProcessedOut += frameCountOutThisIteration;
-
-        pResampler->state.speex.t += frameCountOutThisIteration * ratioInOut;
-        //pResampler->state.speex.t  = pResampler->state.speex.t - floor(pResampler->state.speex.t);
     }
-
-    pResampler->state.speex.runningTimeOut += framesProcessedOut;
-    pResampler->state.speex.runningTimeIn  += framesProcessedIn;
 
     *pFrameCountOut = framesProcessedOut;
     *pFrameCountIn  = framesProcessedIn;
@@ -743,20 +731,11 @@ ma_uint64 ma_resampler_get_required_input_frame_count(ma_resampler* pResampler, 
         case ma_resample_algorithm_speex:
         {
         #if defined(MA_HAS_SPEEX_RESAMPLER)
-#if 0
             ma_uint64 count;
-            double t = pResampler->state.speex.t;
-
-        #if 0
-            count = (ma_uint64)floor(t + (outputFrameCount * ratioInOut) + 0.00000001);
-        #else
-            count = (ma_uint64)(floor(t + (outputFrameCount * ratioInOut)) - floor(t));
-        #endif
-            return count;
-#endif
-
-            ma_uint32 count;
-            ma_speex_resampler_get_required_input_frame_count((SpeexResamplerState*)pResampler->state.speex.pSpeexResamplerState, (unsigned int)outputFrameCount, &count);
+            int speexErr = ma_speex_resampler_get_required_input_frame_count((SpeexResamplerState*)pResampler->state.speex.pSpeexResamplerState, outputFrameCount, &count);
+            if (speexErr != RESAMPLER_ERR_SUCCESS) {
+                return 0;
+            }
 
             return count;
         #else
@@ -790,16 +769,34 @@ ma_uint64 ma_resampler_get_expected_output_frame_count(ma_resampler* pResampler,
     {
         case ma_resample_algorithm_linear:
         {
-            /*
-            The linear backend initializes t to -1 at start up to trigger the initial load of the first sample. In this case we will always load at
-            least two whole input frames before outputting the first output frame.
-            */
+            ma_uint64 outputFrameCount = 0;
             double t = pResampler->state.linear.t;
+
             if (t < 0) {
-                t = 2;
+                t = 1;
+                inputFrameCount -= 1;
             }
 
-            return (ma_uint64)ceil((t + inputFrameCount) / ratioInOut) - 1;
+            for (;;) {
+                if (t > 1) {
+                    if (inputFrameCount  > (ma_uint64)t) {
+                        inputFrameCount -= (ma_uint64)t;
+                        t -= (ma_uint64)t;
+                    } else {
+                        inputFrameCount = 0;
+                        break;
+                    }
+                }
+
+                t += ratioInOut;
+                outputFrameCount += 1;
+
+                if (inputFrameCount == 0) {
+                    break;
+                }
+            }
+
+            return outputFrameCount;
         }
 
         case ma_resample_algorithm_speex:
