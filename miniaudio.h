@@ -4285,7 +4285,7 @@ static MA_INLINE ma_int32 ma_mix_s32_fast(ma_int32 x, ma_int32 y, float a)
     return x + r1;
 }
 
-static MA_INLINE ma_int32 ma_mix_s16_fast(ma_int32 x, ma_int32 y, float a)
+static MA_INLINE ma_int16 ma_mix_s16_fast(ma_int32 x, ma_int32 y, float a)
 {
     return (ma_int16)ma_mix_s32_fast(x, y, a);
 }

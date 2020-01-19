@@ -1,5 +1,10 @@
 /* Resampling research. Public domain. */
 
+/*
+TODO:
+    - Add documentation about Speex and how initialization will fail if it's unavailable.
+*/
+
 #ifndef ma_resampler_h
 #define ma_resampler_h
 
@@ -7,8 +12,7 @@
 
 typedef enum
 {
-    ma_resample_algorithm_linear_lpf = 0,   /* Linear with a biquad low pass filter. Default. */
-    ma_resample_algorithm_linear,           /* Fastest, lowest quality. */
+    ma_resample_algorithm_linear,   /* Fastest, lowest quality. Optional low-pass filtering. Default. */
     ma_resample_algorithm_speex
 } ma_resample_algorithm;
 
@@ -21,12 +25,9 @@ typedef struct
     ma_resample_algorithm algorithm;
     struct
     {
-        int _unused;
+        ma_bool32 enableLPF;
+        ma_uint32 lpfCutoffFrequency;
     } linear;
-    struct
-    {
-        ma_uint32 cutoffFrequency;
-    } linearLPF;
     struct
     {
         int quality;    /* 0 to 10. Defaults to 3. */
@@ -110,24 +111,12 @@ number of output frames.
 
 The returned value does not include cached input frames. It only returns the number of extra frames that would need to be
 read from the client in order to output the specified number of output frames.
-
-When the end of input mode is set to ma_resampler_end_of_input_mode_no_consume, the input frames sitting in the filter
-window are not included in the calculation.
 */
 ma_uint64 ma_resampler_get_required_input_frame_count(ma_resampler* pResampler, ma_uint64 outputFrameCount);
 
 /*
 Calculates the number of whole output frames that would be output after fully reading and consuming the specified number of
 input frames from the client.
-
-A detail to keep in mind is how cached input frames are handled. This function calculates the output frame count based on
-inputFrameCount + ma_resampler_get_cached_input_time(). It essentially calcualtes how many output frames will be returned
-if an additional inputFrameCount frames were read from the client and consumed by the resampler. You can adjust the return
-value by ma_resampler_get_cached_output_frame_count() which calculates the number of output frames that can be output from
-the currently cached input.
-
-When the end of input mode is set to ma_resampler_end_of_input_mode_no_consume, the input frames sitting in the filter
-window are not included in the calculation.
 */
 ma_uint64 ma_resampler_get_expected_output_frame_count(ma_resampler* pResampler, ma_uint64 inputFrameCount);
 
@@ -185,7 +174,7 @@ static ma_result ma_resampler__init_lpf(ma_resampler* pResampler)
 
     pResampler->state.linear.t = -1;    /* This must be set to -1 for the linear backend. It's used to indicate that the first frame needs to be loaded. */
 
-    lpfConfig = ma_lpf_config_init(pResampler->config.format, pResampler->config.channels, pResampler->config.sampleRateOut, pResampler->config.linearLPF.cutoffFrequency);
+    lpfConfig = ma_lpf_config_init(pResampler->config.format, pResampler->config.channels, pResampler->config.sampleRateOut, pResampler->config.linear.lpfCutoffFrequency);
     if (lpfConfig.cutoffFrequency == 0) {
         lpfConfig.cutoffFrequency = ma_min(pResampler->config.sampleRateIn, pResampler->config.sampleRateOut) / 2;
     }
@@ -212,11 +201,15 @@ ma_result ma_resampler_init(const ma_resampler_config* pConfig, ma_resampler* pR
     switch (pConfig->algorithm)
     {
         case ma_resample_algorithm_linear:
-        case ma_resample_algorithm_linear_lpf:
         {
-            result = ma_resampler__init_lpf(pResampler);
-            if (result != MA_SUCCESS) {
-                return result;
+            /* We need to initialize the time to -1 so that ma_resampler_process() can know that it needs to load the buffer with an initial frame. */
+            pResampler->state.linear.t = -1;
+
+            if (pConfig->linear.enableLPF) {
+                result = ma_resampler__init_lpf(pResampler);
+                if (result != MA_SUCCESS) {
+                    return result;
+                }
             }
         } break;
 
@@ -278,12 +271,6 @@ static ma_result ma_resampler_process__seek__linear(ma_resampler* pResampler, co
     return MA_SUCCESS;
 }
 
-static ma_result ma_resampler_process__seek__linear_lpf(ma_resampler* pResampler, const void* pFramesIn, ma_uint64* pFrameCountIn, ma_uint64* pFrameCountOut)
-{
-    /* TODO: Proper linear LPF implementation. */
-    return ma_resampler_process__seek__linear(pResampler, pFramesIn, pFrameCountIn, pFrameCountOut);
-}
-
 #if defined(MA_HAS_SPEEX_RESAMPLER)
 static ma_result ma_resampler_process__seek__speex(ma_resampler* pResampler, const void* pFramesIn, ma_uint64* pFrameCountIn, ma_uint64* pFrameCountOut)
 {
@@ -308,20 +295,21 @@ static ma_result ma_resampler_process__seek(ma_resampler* pResampler, const void
             return ma_resampler_process__seek__linear(pResampler, pFramesIn, pFrameCountIn, pFrameCountOut);
         } break;
 
-        case ma_resample_algorithm_linear_lpf:
-        {
-            return ma_resampler_process__seek__linear_lpf(pResampler, pFramesIn, pFrameCountIn, pFrameCountOut);
-        } break;
-
         case ma_resample_algorithm_speex:
         {
         #if defined(MA_HAS_SPEEX_RESAMPLER)
             return ma_resampler_process__seek__speex(pResampler, pFramesIn, pFrameCountIn, pFrameCountOut);
+        #else
+            break;
         #endif
-        } break;
+        };
 
-        default: return MA_INVALID_ARGS;    /* Should never hit this. */
+        default: break;
     }
+
+    /* Should never hit this. */
+    MA_ASSERT(MA_FALSE);
+    return MA_INVALID_ARGS;
 }
 
 static ma_result ma_resampler_process__read__linear(ma_resampler* pResampler, const void* pFramesIn, ma_uint64* pFrameCountIn, void* pFramesOut, ma_uint64* pFrameCountOut)
@@ -347,7 +335,7 @@ static ma_result ma_resampler_process__read__linear(ma_resampler* pResampler, co
     frameCountOut = *pFrameCountOut;
     frameCountIn  = *pFrameCountIn;
 
-    if (frameCountOut == 0 || frameCountIn == 0) {
+    if (frameCountOut == 0) {
         return MA_INVALID_ARGS; /* Nothing to do. */
     }
 
@@ -384,10 +372,6 @@ static ma_result ma_resampler_process__read__linear(ma_resampler* pResampler, co
     }
 
     for (;;) {
-        if (iFrameOut >= frameCountOut || iFrameIn >= frameCountIn) {
-            break;
-        }
-
         /* We can't interpolate if our interpolation factor (time relative to x0) is greater than 1. */
         if (pResampler->state.linear.t > 1) {
             /* Need to load the next input frame. */
@@ -489,32 +473,18 @@ static ma_result ma_resampler_process__read__linear(ma_resampler* pResampler, co
         /* Move time forward. */
         pResampler->state.linear.t += ratioInOut;
         iFrameOut += 1;
+
+        if (iFrameOut >= frameCountOut || iFrameIn >= frameCountIn) {
+            break;
+        }
     }
 
     /* Here is where we set the number of frames that were consumed. */
     *pFrameCountOut = iFrameOut;
     *pFrameCountIn  = iFrameIn;
 
-    return MA_SUCCESS;
-}
-
-static ma_result ma_resampler_process__read__linear_lpf(ma_resampler* pResampler, const void* pFramesIn, ma_uint64* pFrameCountIn, void* pFramesOut, ma_uint64* pFrameCountOut)
-{
-    /* To do this we just read using the non-filtered linear pipeline, and then do an in-place filter on the output buffer. */
-    ma_result result;
-
-    MA_ASSERT(pResampler     != NULL);
-    MA_ASSERT(pFramesOut     != NULL);
-    MA_ASSERT(pFrameCountOut != NULL);
-    MA_ASSERT(pFrameCountIn  != NULL);
-
-    result = ma_resampler_process__read__linear(pResampler, pFramesIn, pFrameCountIn, pFramesOut, pFrameCountOut);
-    if (result != MA_SUCCESS) {
-        return result;
-    }
-
-    /* Now just do an in-place low-pass filter. No need to spend time filtering if the sample rates are the same. */
-    if (pResampler->config.sampleRateIn != pResampler->config.sampleRateOut) {
+    /* Low-pass filter if it's enabled. */
+    if (pResampler->config.linear.enableLPF && pResampler->config.sampleRateIn != pResampler->config.sampleRateOut) {
         return ma_lpf_process(&pResampler->state.linear.lpf, pFramesOut, pFramesOut, *pFrameCountOut);
     } else {
         return MA_SUCCESS;
@@ -608,11 +578,6 @@ static ma_result ma_resampler_process__read(ma_resampler* pResampler, const void
             return ma_resampler_process__read__linear(pResampler, pFramesIn, pFrameCountIn, pFramesOut, pFrameCountOut);
         }
 
-        case ma_resample_algorithm_linear_lpf:
-        {
-            return ma_resampler_process__read__linear_lpf(pResampler, pFramesIn, pFrameCountIn, pFramesOut, pFrameCountOut);
-        }
-
         case ma_resample_algorithm_speex:
         {
         #if defined(MA_HAS_SPEEX_RESAMPLER)
@@ -666,12 +631,10 @@ ma_result ma_resampler_set_rate(ma_resampler* pResampler, ma_uint32 sampleRateIn
     {
         case ma_resample_algorithm_linear:
         {
-        } break;
-
-        case ma_resample_algorithm_linear_lpf:
-        {
-            /* We need to reinitialize the low-pass filter. */
-            ma_resampler__init_lpf(pResampler);
+            /* If we are using low-pass filtering we need to reinitialize the filter since it depends on the sample rate. */
+            if (pResampler->config.linear.enableLPF) {
+                ma_resampler__init_lpf(pResampler);
+            }
         } break;
 
         case ma_resample_algorithm_speex:
@@ -732,23 +695,29 @@ ma_uint64 ma_resampler_get_required_input_frame_count(ma_resampler* pResampler, 
     switch (pResampler->config.algorithm)
     {
         case ma_resample_algorithm_linear:
-        case ma_resample_algorithm_linear_lpf:
         {
             /*
-            All we're doing is calculating the number of whole input frames that'll be processed after outputFrameCount frames are returned. We can
-            determine this by just looking at where the input time will be at the end of it.
+            The first output frame is treated a little different to the rest because it is never interpolated - the first output frame is always the
+            same as the first input frame. We can know if we're loading the first frame by checking if the input time is < 0.
             */
-
-            /*
-            The linear backend initializes t to -1 at start up to trigger the initial load of the first sample. In this case we will always load at
-            least two whole input frames before outputting the first output frame.
-            */
+            ma_uint64 count = 0;
             double t = pResampler->state.linear.t;
             if (t < 0) {
-                t = 2;
+                count = 1;
+                t = 1;
             }
 
-            return (ma_uint64)ceil(pResampler->state.linear.t + (outputFrameCount * ratioInOut)) - 1;
+            /* If the input time is greater than 1 we consume any whole input frames. */
+            if (t > 1) {
+                count = (ma_uint64)t;
+                t -= count;
+            }
+
+            /* At this point we are guaranteed to get at least one output frame from the cached input (not requiring an additional input). */
+            outputFrameCount -= 1;
+
+            count += (ma_uint64)ceil(t + (outputFrameCount * ratioInOut)) - 1;
+            return count;
         }
 
         case ma_resample_algorithm_speex:
@@ -785,7 +754,6 @@ ma_uint64 ma_resampler_get_expected_output_frame_count(ma_resampler* pResampler,
     switch (pResampler->config.algorithm)
     {
         case ma_resample_algorithm_linear:
-        case ma_resample_algorithm_linear_lpf:
         {
             /*
             The linear backend initializes t to -1 at start up to trigger the initial load of the first sample. In this case we will always load at
@@ -796,7 +764,7 @@ ma_uint64 ma_resampler_get_expected_output_frame_count(ma_resampler* pResampler,
                 t = 2;
             }
 
-            return (ma_uint64)ceil((pResampler->state.linear.t + inputFrameCount) / ratioInOut) - 1;
+            return (ma_uint64)ceil((t + inputFrameCount) / ratioInOut) - 1;
         }
 
         case ma_resample_algorithm_speex:
