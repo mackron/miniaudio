@@ -56,7 +56,10 @@ typedef struct
             } x1; /* The next input frame. */
             ma_lpf lpf;
         } linear;
-        void* pSpeex;   /* SpeexResamplerState* */
+        struct
+        {
+            void* pSpeexResamplerState;   /* SpeexResamplerState* */
+        } speex;
     } state;
 } ma_resampler;
 
@@ -217,8 +220,8 @@ ma_result ma_resampler_init(const ma_resampler_config* pConfig, ma_resampler* pR
         {
         #if defined(MA_HAS_SPEEX_RESAMPLER)
             int speexErr;
-            pResampler->state.pSpeex = speex_resampler_init(pConfig->channels, pConfig->sampleRateIn, pConfig->sampleRateOut, pConfig->speex.quality, &speexErr);
-            if (pResampler->state.pSpeex == NULL) {
+            pResampler->state.speex.pSpeexResamplerState = speex_resampler_init(pConfig->channels, pConfig->sampleRateIn, pConfig->sampleRateOut, pConfig->speex.quality, &speexErr);
+            if (pResampler->state.speex.pSpeexResamplerState == NULL) {
                 return ma_result_from_speex_err(speexErr);
             }
         #else
@@ -241,7 +244,7 @@ void ma_resampler_uninit(ma_resampler* pResampler)
 
 #if defined(MA_HAS_SPEEX_RESAMPLER)
     if (pResampler->config.algorithm == ma_resample_algorithm_speex) {
-        speex_resampler_destroy(pResampler->state.pSpeex);
+        speex_resampler_destroy(pResampler->state.speex.pSpeexResamplerState);
     }
 #endif
 }
@@ -532,9 +535,9 @@ static ma_result ma_resampler_process__read__speex(ma_resampler* pResampler, con
         pFramesOutThisIteration = ma_offset_ptr(pFramesOut, framesProcessedOut * ma_get_bytes_per_frame(pResampler->config.format, pResampler->config.channels));
 
         if (pResampler->config.format == ma_format_f32) {
-            speexErr = speex_resampler_process_interleaved_float((SpeexResamplerState*)pResampler->state.pSpeex, pFramesInThisIteration, &frameCountInThisIteration, pFramesOutThisIteration, &frameCountOutThisIteration);
+            speexErr = speex_resampler_process_interleaved_float((SpeexResamplerState*)pResampler->state.speex.pSpeexResamplerState, pFramesInThisIteration, &frameCountInThisIteration, pFramesOutThisIteration, &frameCountOutThisIteration);
         } else if (pResampler->config.format == ma_format_s16) {
-            speexErr = speex_resampler_process_interleaved_int((SpeexResamplerState*)pResampler->state.pSpeex, pFramesInThisIteration, &frameCountInThisIteration, pFramesOutThisIteration, &frameCountOutThisIteration);
+            speexErr = speex_resampler_process_interleaved_int((SpeexResamplerState*)pResampler->state.speex.pSpeexResamplerState, pFramesInThisIteration, &frameCountInThisIteration, pFramesOutThisIteration, &frameCountOutThisIteration);
         } else {
             /* Format not supported. Should never get here. */
             MA_ASSERT(MA_FALSE);
@@ -640,7 +643,7 @@ ma_result ma_resampler_set_rate(ma_resampler* pResampler, ma_uint32 sampleRateIn
         case ma_resample_algorithm_speex:
         {
         #if defined(MA_HAS_SPEEX_RESAMPLER)
-            return ma_result_from_speex_err(speex_resampler_set_rate((SpeexResamplerState*)pResampler->state.pSpeex, sampleRateIn, sampleRateOut));
+            return ma_result_from_speex_err(speex_resampler_set_rate((SpeexResamplerState*)pResampler->state.speex.pSpeexResamplerState, sampleRateIn, sampleRateOut));
         #else
             break;
         #endif
