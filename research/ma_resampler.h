@@ -1,18 +1,109 @@
 /* Resampling research. Public domain. */
 
-/*
-TODO:
-    - Add documentation about Speex and how initialization will fail if it's unavailable.
-*/
-
 #ifndef ma_resampler_h
 #define ma_resampler_h
 
 #include "ma_lpf.h"
 
+
+/**************************************************************************************************************************************************************
+
+Resampling
+==========
+Resampling is achieved with the `ma_resampler` object. To create a resampler object, do something like the following:
+
+    ```c
+    ma_resampler_config config = ma_resampler_config_init(ma_format_s16, channels, sampleRateIn, sampleRateOut, ma_resample_algorithm_linear);
+    ma_resampler resampler;
+    ma_result result = ma_resampler_init(&config, &resampler);
+    if (result != MA_SUCCESS) {
+        // An error occurred...
+    }
+    ```
+
+Do the following to uninitialize the resampler:
+
+    ```c
+    ma_resampler_uninit(&resampler);
+    ```
+
+The following example shows how data can be processed
+
+    ```c
+    ma_uint64 frameCountIn  = 1000;
+    ma_uint64 frameCountOut = 2000;
+    ma_result result = ma_resampler_process_pcm_frames(&resampler, pFramesIn, &frameCountIn, pFramesOut, &frameCountOut);
+    if (result != MA_SUCCESS) {
+        // An error occurred...
+    }
+
+    // At this point, frameCountIn contains the number of input frames that were consumed and frameCountOut contains the number of output frames written.
+    ```
+
+To initialize the resampler you first need to set up a config (`ma_resampler_config`) with `ma_resampler_config_init()`. You need to specify the sample format
+you want to use, the number of channels, the input and output sample rate, and the algorithm.
+
+The sample format can be one of the following:
+  - ma_format_s16
+  - ma_format_f32
+
+If you need a different format you will need to perform pre- and post-conversions yourself where necessary. Note that the format is the same for both input
+and output. The format cannot be changed after initialization.
+
+The resampler supports multiple channels and is always interleaved (both input and output). The channel count cannot be changed after initialization.
+
+The sample rates can be anything other than zero, and are always specified in hertz. They should be set to something like 44100, etc. The sample rate is the
+only configuration property that can be changed after initialization.
+
+The miniaudio resampler supports multiple algorithms:
+  - Linear: ma_resample_algorithm_linear
+  - Speex:  ma_resample_algorithm_speex
+
+Because Speex is not public domain it is opt-in and the code is stored in separate files. To enable the Speex backend, you must first #include the following
+file before the implementation of miniaudio.h:
+
+    #include "extras/speex_resampler/ma_speex_resampler.h"
+
+Both the header and implementation is contained within the same file. To implementation can be included in your program like so:
+
+    #define MINIAUDIO_SPEEX_RESAMPLER_IMPLEMENTATION
+    #include "extras/speex_resampler/ma_speex_resampler.h"
+
+Note that if you opt-in to the Speex backend it will be used by default for all internal data conversion by miniaudio. Otherwise the linear implementation will
+be used. To use a different backend, even when you have opted in to the Speex resampler, you can change the algorithm in the respective config of the object
+you are initializating. If you try to use the Speex resampler without opting in, initialization of the `ma_resampler` object will fail with `MA_NO_BACKEND`.
+
+Note that if you opt-in to the Speex backend you will need to consider it's license, the text of which can be found in the files in "extras/speex_resampler".
+
+The algorithm cannot be changed after initialization.
+
+Processing always happens on a per PCM frame basis and always assumed interleaved input and output. De-interleaved processing is not supported. To process
+frames, use `ma_resampler_process_pcm_frames_pcm_frames()`. On input, this function takes the number of output frames you can fit in the output buffer and
+the number of input frames contained in the input buffer. On output these variables contain the number of output frames that were written to the output buffer
+and the number of input frames that were consumed in the process. You can pass in NULL for the input buffer in which case it will be treated as an infinitely
+large buffer of zeros. The output buffer can also be NULL, in which case the processing will be treated as seek.
+
+The sample rate can be changed dynamically on the fly. You can change this with explicit sample rates with `ma_resampler_set_rate()` and also with a decimal
+ratio with `ma_resampler_set_rate_ratio()`. The ratio is in/out.
+
+Sometimes it's useful to know exactly how many input frames will be required to output a specific number of frames. You can calculate this with
+`ma_resampler_get_required_input_frame_count()`. Likewise, it's sometimes useful to know exactly how many frames would be output given a certain number of
+input frames. You can do this with `ma_resampler_get_expected_output_frame_count()`.
+
+Due to the nature of how resampling works, the resampler introduces some latency. This can be retrieved in terms of both the input rate and the output rate
+with `ma_resampler_get_input_latency()` and `ma_resampler_get_output_latency()`.
+
+
+Resampling Algorithms
+---------------------
+The choice of resampling algorithm depends on your situation and requirements. The linear resampler is poor quality, but fast with extremely low latency. The
+Speex resampler is higher quality, but slower with more latency. It also performs a malloc() internally for memory management.
+
+**************************************************************************************************************************************************************/
+
 typedef enum
 {
-    ma_resample_algorithm_linear,   /* Fastest, lowest quality. Optional low-pass filtering. Default. */
+    ma_resample_algorithm_linear,   /* Fastest, lowest quality. Optional low-pass filtering. */
     ma_resample_algorithm_speex
 } ma_resample_algorithm;
 
@@ -76,6 +167,8 @@ void ma_resampler_uninit(ma_resampler* pResampler);
 /*
 Converts the given input data.
 
+Both the input and output frames must be in the format specified in the config when the resampler was initilized.
+
 On input, [pFrameCountOut] contains the number of output frames to process. On output it contains the number of output frames that
 were actually processed, which may be less than the requested amount which will happen if there's not enough input data. You can use
 ma_resampler_get_expected_output_frame_count() to know how many output frames will be processed for a given number of input frames.
@@ -93,7 +186,8 @@ It is an error for [pFramesOut] to be non-NULL and [pFrameCountOut] to be NULL.
 
 It is an error for both [pFrameCountOut] and [pFrameCountIn] to be NULL.
 */
-ma_result ma_resampler_process(ma_resampler* pResampler, const void* pFramesIn, ma_uint64* pFrameCountIn, void* pFramesOut, ma_uint64* pFrameCountOut);
+ma_result ma_resampler_process_pcm_frames(ma_resampler* pResampler, const void* pFramesIn, ma_uint64* pFrameCountIn, void* pFramesOut, ma_uint64* pFrameCountOut);
+
 
 /*
 Sets the input and output sample sample rate.
@@ -113,15 +207,27 @@ Calculates the number of whole input frames that would need to be read from the 
 number of output frames.
 
 The returned value does not include cached input frames. It only returns the number of extra frames that would need to be
-read from the client in order to output the specified number of output frames.
+read from the input buffer in order to output the specified number of output frames.
 */
 ma_uint64 ma_resampler_get_required_input_frame_count(ma_resampler* pResampler, ma_uint64 outputFrameCount);
 
 /*
 Calculates the number of whole output frames that would be output after fully reading and consuming the specified number of
-input frames from the client.
+input frames.
 */
 ma_uint64 ma_resampler_get_expected_output_frame_count(ma_resampler* pResampler, ma_uint64 inputFrameCount);
+
+
+/*
+Retrieves the latency introduced by the resampler in input frames.
+*/
+ma_uint64 ma_resampler_get_input_latency(ma_resampler* pResampler);
+
+/*
+Retrieves the latency introduced by the resampler in output frames.
+*/
+ma_uint64 ma_resampler_get_output_latency(ma_resampler* pResampler);
+
 
 #endif  /* ma_resampler_h */
 
@@ -194,18 +300,27 @@ ma_result ma_resampler_init(const ma_resampler_config* pConfig, ma_resampler* pR
 {
     ma_result result;
 
-    if (pConfig == NULL || pResampler == NULL) {
+    if (pResampler == NULL) {
         return MA_INVALID_ARGS;
     }
 
     MA_ZERO_OBJECT(pResampler);
+
+    if (pConfig == NULL) {
+        return MA_INVALID_ARGS;
+    }
+
+    if (pConfig->format != ma_format_f32 && pConfig->format != ma_format_s16) {
+        return MA_INVALID_ARGS;
+    }
+
     pResampler->config = *pConfig;
 
     switch (pConfig->algorithm)
     {
         case ma_resample_algorithm_linear:
         {
-            /* We need to initialize the time to -1 so that ma_resampler_process() can know that it needs to load the buffer with an initial frame. */
+            /* We need to initialize the time to -1 so that ma_resampler_process_pcm_frames() can know that it needs to load the buffer with an initial frame. */
             pResampler->state.linear.t = -1;
 
             if (pConfig->linear.enableLPF) {
@@ -249,7 +364,7 @@ void ma_resampler_uninit(ma_resampler* pResampler)
 #endif
 }
 
-static ma_result ma_resampler_process__read__linear(ma_resampler* pResampler, const void* pFramesIn, ma_uint64* pFrameCountIn, void* pFramesOut, ma_uint64* pFrameCountOut)
+static ma_result ma_resampler_process_pcm_frames__read__linear(ma_resampler* pResampler, const void* pFramesIn, ma_uint64* pFrameCountIn, void* pFramesOut, ma_uint64* pFrameCountOut)
 {
     ma_uint64 frameCountOut;
     ma_uint64 frameCountIn;
@@ -429,7 +544,7 @@ static ma_result ma_resampler_process__read__linear(ma_resampler* pResampler, co
 }
 
 #if defined(MA_HAS_SPEEX_RESAMPLER)
-static ma_result ma_resampler_process__read__speex(ma_resampler* pResampler, const void* pFramesIn, ma_uint64* pFrameCountIn, void* pFramesOut, ma_uint64* pFrameCountOut)
+static ma_result ma_resampler_process_pcm_frames__read__speex(ma_resampler* pResampler, const void* pFramesIn, ma_uint64* pFrameCountIn, void* pFramesOut, ma_uint64* pFrameCountOut)
 {
     int speexErr;
     ma_uint64 frameCountOut;
@@ -498,7 +613,7 @@ static ma_result ma_resampler_process__read__speex(ma_resampler* pResampler, con
 }
 #endif
 
-static ma_result ma_resampler_process__read(ma_resampler* pResampler, const void* pFramesIn, ma_uint64* pFrameCountIn, void* pFramesOut, ma_uint64* pFrameCountOut)
+static ma_result ma_resampler_process_pcm_frames__read(ma_resampler* pResampler, const void* pFramesIn, ma_uint64* pFrameCountIn, void* pFramesOut, ma_uint64* pFrameCountOut)
 {
     MA_ASSERT(pResampler != NULL);
     MA_ASSERT(pFramesOut != NULL);
@@ -517,13 +632,13 @@ static ma_result ma_resampler_process__read(ma_resampler* pResampler, const void
     {
         case ma_resample_algorithm_linear:
         {
-            return ma_resampler_process__read__linear(pResampler, pFramesIn, pFrameCountIn, pFramesOut, pFrameCountOut);
+            return ma_resampler_process_pcm_frames__read__linear(pResampler, pFramesIn, pFrameCountIn, pFramesOut, pFrameCountOut);
         }
 
         case ma_resample_algorithm_speex:
         {
         #if defined(MA_HAS_SPEEX_RESAMPLER)
-            return ma_resampler_process__read__speex(pResampler, pFramesIn, pFrameCountIn, pFramesOut, pFrameCountOut);
+            return ma_resampler_process_pcm_frames__read__speex(pResampler, pFramesIn, pFrameCountIn, pFramesOut, pFrameCountOut);
         #else
             break;
         #endif
@@ -538,9 +653,9 @@ static ma_result ma_resampler_process__read(ma_resampler* pResampler, const void
 }
 
 
-static ma_result ma_resampler_process__seek__generic(ma_resampler* pResampler, const void* pFramesIn, ma_uint64* pFrameCountIn, ma_uint64* pFrameCountOut)
+static ma_result ma_resampler_process_pcm_frames__seek__generic(ma_resampler* pResampler, const void* pFramesIn, ma_uint64* pFrameCountIn, ma_uint64* pFrameCountOut)
 {
-    /* The generic seek method is implemented in on top of ma_resampler_process__read() by just processing into a dummy buffer. */
+    /* The generic seek method is implemented in on top of ma_resampler_process_pcm_frames__read() by just processing into a dummy buffer. */
     float devnull[8192];
     ma_uint64 totalOutputFramesToProcess;
     ma_uint64 totalOutputFramesProcessed;
@@ -573,7 +688,7 @@ static ma_result ma_resampler_process__seek__generic(ma_resampler* pResampler, c
                 outputFramesToProcessThisIteration = sizeof(devnull) / bpf;
             }
 
-            result = ma_resampler_process__read(pResampler, ma_offset_ptr(pFramesIn, totalInputFramesProcessed*bpf), &inputFramesToProcessThisIteration, ma_offset_ptr(devnull, totalOutputFramesProcessed*bpf), &outputFramesToProcessThisIteration);
+            result = ma_resampler_process_pcm_frames__read(pResampler, ma_offset_ptr(pFramesIn, totalInputFramesProcessed*bpf), &inputFramesToProcessThisIteration, ma_offset_ptr(devnull, totalOutputFramesProcessed*bpf), &outputFramesToProcessThisIteration);
             if (result != MA_SUCCESS) {
                 return result;
             }
@@ -590,7 +705,7 @@ static ma_result ma_resampler_process__seek__generic(ma_resampler* pResampler, c
                 outputFramesToProcessThisIteration = sizeof(devnull) / bpf;
             }
 
-            result = ma_resampler_process__read(pResampler, NULL, &inputFramesToProcessThisIteration, ma_offset_ptr(devnull, totalOutputFramesProcessed*bpf), &outputFramesToProcessThisIteration);
+            result = ma_resampler_process_pcm_frames__read(pResampler, NULL, &inputFramesToProcessThisIteration, ma_offset_ptr(devnull, totalOutputFramesProcessed*bpf), &outputFramesToProcessThisIteration);
             if (result != MA_SUCCESS) {
                 return result;
             }
@@ -611,23 +726,23 @@ static ma_result ma_resampler_process__seek__generic(ma_resampler* pResampler, c
     return MA_SUCCESS;
 }
 
-static ma_result ma_resampler_process__seek__linear(ma_resampler* pResampler, const void* pFramesIn, ma_uint64* pFrameCountIn, ma_uint64* pFrameCountOut)
+static ma_result ma_resampler_process_pcm_frames__seek__linear(ma_resampler* pResampler, const void* pFramesIn, ma_uint64* pFrameCountIn, ma_uint64* pFrameCountOut)
 {
     MA_ASSERT(pResampler != NULL);
 
-    return ma_resampler_process__seek__generic(pResampler, pFramesIn, pFrameCountIn, pFrameCountOut);
+    return ma_resampler_process_pcm_frames__seek__generic(pResampler, pFramesIn, pFrameCountIn, pFrameCountOut);
 }
 
 #if defined(MA_HAS_SPEEX_RESAMPLER)
-static ma_result ma_resampler_process__seek__speex(ma_resampler* pResampler, const void* pFramesIn, ma_uint64* pFrameCountIn, ma_uint64* pFrameCountOut)
+static ma_result ma_resampler_process_pcm_frames__seek__speex(ma_resampler* pResampler, const void* pFramesIn, ma_uint64* pFrameCountIn, ma_uint64* pFrameCountOut)
 {
     MA_ASSERT(pResampler != NULL);
 
-    return ma_resampler_process__seek__generic(pResampler, pFramesIn, pFrameCountIn, pFrameCountOut);
+    return ma_resampler_process_pcm_frames__seek__generic(pResampler, pFramesIn, pFrameCountIn, pFrameCountOut);
 }
 #endif
 
-static ma_result ma_resampler_process__seek(ma_resampler* pResampler, const void* pFramesIn, ma_uint64* pFrameCountIn, ma_uint64* pFrameCountOut)
+static ma_result ma_resampler_process_pcm_frames__seek(ma_resampler* pResampler, const void* pFramesIn, ma_uint64* pFrameCountIn, ma_uint64* pFrameCountOut)
 {
     MA_ASSERT(pResampler != NULL);
 
@@ -635,13 +750,13 @@ static ma_result ma_resampler_process__seek(ma_resampler* pResampler, const void
     {
         case ma_resample_algorithm_linear:
         {
-            return ma_resampler_process__seek__linear(pResampler, pFramesIn, pFrameCountIn, pFrameCountOut);
+            return ma_resampler_process_pcm_frames__seek__linear(pResampler, pFramesIn, pFrameCountIn, pFrameCountOut);
         } break;
 
         case ma_resample_algorithm_speex:
         {
         #if defined(MA_HAS_SPEEX_RESAMPLER)
-            return ma_resampler_process__seek__speex(pResampler, pFramesIn, pFrameCountIn, pFrameCountOut);
+            return ma_resampler_process_pcm_frames__seek__speex(pResampler, pFramesIn, pFrameCountIn, pFrameCountOut);
         #else
             break;
         #endif
@@ -656,7 +771,7 @@ static ma_result ma_resampler_process__seek(ma_resampler* pResampler, const void
 }
 
 
-ma_result ma_resampler_process(ma_resampler* pResampler, const void* pFramesIn, ma_uint64* pFrameCountIn, void* pFramesOut, ma_uint64* pFrameCountOut)
+ma_result ma_resampler_process_pcm_frames(ma_resampler* pResampler, const void* pFramesIn, ma_uint64* pFrameCountIn, void* pFramesOut, ma_uint64* pFrameCountOut)
 {
     if (pResampler == NULL) {
         return MA_INVALID_ARGS;
@@ -668,10 +783,10 @@ ma_result ma_resampler_process(ma_resampler* pResampler, const void* pFramesIn, 
 
     if (pFramesOut != NULL) {
         /* Reading. */
-        return ma_resampler_process__read(pResampler, pFramesIn, pFrameCountIn, pFramesOut, pFrameCountOut);
+        return ma_resampler_process_pcm_frames__read(pResampler, pFramesIn, pFrameCountIn, pFramesOut, pFrameCountOut);
     } else {
         /* Seeking. */
-        return ma_resampler_process__seek(pResampler, pFramesIn, pFrameCountIn, pFrameCountOut);
+        return ma_resampler_process_pcm_frames__seek(pResampler, pFramesIn, pFrameCountIn, pFrameCountOut);
     }
 }
 
@@ -874,6 +989,66 @@ ma_uint64 ma_resampler_get_expected_output_frame_count(ma_resampler* pResampler,
     MA_ASSERT(MA_FALSE);
     return 0;
 }
+
+ma_uint64 ma_resampler_get_input_latency(ma_resampler* pResampler)
+{
+    if (pResampler == NULL) {
+        return 0;
+    }
+
+    switch (pResampler->config.algorithm)
+    {
+        case ma_resample_algorithm_linear:
+        {
+            return 1;
+        }
+
+        case ma_resample_algorithm_speex:
+        {
+        #if defined(MA_HAS_SPEEX_RESAMPLER)
+            return (ma_uint64)ma_speex_resampler_get_input_latency((SpeexResamplerState*)pResampler->state.speex.pSpeexResamplerState);
+        #else
+            break;
+        #endif
+        }
+
+        default: break;
+    }
+
+    /* Should never get here. */
+    MA_ASSERT(MA_FALSE);
+    return 0;
+}
+
+ma_uint64 ma_resampler_get_output_latency(ma_resampler* pResampler)
+{
+    if (pResampler == NULL) {
+        return 0;
+    }
+
+    switch (pResampler->config.algorithm)
+    {
+        case ma_resample_algorithm_linear:
+        {
+            return 1;
+        }
+
+        case ma_resample_algorithm_speex:
+        {
+        #if defined(MA_HAS_SPEEX_RESAMPLER)
+            return (ma_uint64)ma_speex_resampler_get_output_latency((SpeexResamplerState*)pResampler->state.speex.pSpeexResamplerState);
+        #else
+            break;
+        #endif
+        }
+
+        default: break;
+    }
+
+    /* Should never get here. */
+    MA_ASSERT(MA_FALSE);
+    return 0;
+}
 #endif  /* MINIAUDIO_IMPLEMENTATION */
 
 
@@ -955,7 +1130,7 @@ typedef ma_uint32 (* ma_resampler_read_from_client_proc)(ma_resampler* pResample
 
 /* Backend functions. */
 typedef ma_result (* ma_resampler_init_proc)    (ma_resampler* pResampler);
-typedef ma_result (* ma_resampler_process_proc) (ma_resampler* pResampler, ma_uint64* pFrameCountOut, void** ppFramesOut, ma_uint64* pFrameCountIn, void** ppFramesIn, ma_resampler_seek_mode seekMode);
+typedef ma_result (* ma_resampler_process_pcm_frames_proc) (ma_resampler* pResampler, ma_uint64* pFrameCountOut, void** ppFramesOut, ma_uint64* pFrameCountIn, void** ppFramesIn, ma_resampler_seek_mode seekMode);
 
 typedef ma_uint64 (* ma_resampler_read_f32_proc)(ma_resampler* pResampler, ma_uint64 frameCount, float** ppFrames);
 typedef ma_uint64 (* ma_resampler_read_s16_proc)(ma_resampler* pResampler, ma_uint64 frameCount, ma_int16** ppFrames);
@@ -1007,7 +1182,7 @@ struct ma_resampler
     double windowTime;              /* By input rate. Relative to the start of the cache. */
     ma_resampler_config config;
     ma_resampler_init_proc init;
-    ma_resampler_process_proc process;
+    ma_resampler_process_pcm_frames_proc process;
     ma_resampler_read_f32_proc readF32;
     ma_resampler_read_s16_proc readS16;
     ma_resampler_seek_proc seek;
@@ -1053,8 +1228,8 @@ will be processed.
 
 It is an error for both [pFrameCountOut] and [pFrameCountIn] to be NULL.
 */
-ma_result ma_resampler_process(ma_resampler* pResampler, ma_uint64* pFrameCountOut, void** ppFramesOut, ma_uint64* pFrameCountIn, void** ppFramesIn);
-ma_result ma_resampler_process_callback(ma_resampler* pResampler, ma_uint64* pFrameCountOut, void** ppFramesOut, ma_resampler_read_from_client_proc onRead, void* pUserData);
+ma_result ma_resampler_process_pcm_frames(ma_resampler* pResampler, ma_uint64* pFrameCountOut, void** ppFramesOut, ma_uint64* pFrameCountIn, void** ppFramesIn);
+ma_result ma_resampler_process_pcm_frames_callback(ma_resampler* pResampler, ma_uint64* pFrameCountOut, void** ppFramesOut, ma_resampler_read_from_client_proc onRead, void* pUserData);
 
 
 /*
@@ -1152,13 +1327,13 @@ ma_uint64 ma_resampler_get_expected_output_frame_count(ma_resampler* pResampler,
 #endif
 
 ma_result ma_resampler_init__linear(ma_resampler* pResampler);
-ma_result ma_resampler_process__linear(ma_resampler* pResampler, ma_uint64* pFrameCountOut, void** ppFramesOut, ma_uint64* pFrameCountIn, void** ppFramesIn, ma_resampler_seek_mode seekMode);
+ma_result ma_resampler_process_pcm_frames__linear(ma_resampler* pResampler, ma_uint64* pFrameCountOut, void** ppFramesOut, ma_uint64* pFrameCountIn, void** ppFramesIn, ma_resampler_seek_mode seekMode);
 ma_uint64 ma_resampler_read_f32__linear(ma_resampler* pResampler, ma_uint64 frameCount, float** ppFrames);
 ma_uint64 ma_resampler_read_s16__linear(ma_resampler* pResampler, ma_uint64 frameCount, ma_int16** ppFrames);
 ma_uint64 ma_resampler_seek__linear(ma_resampler* pResampler, ma_uint64 frameCount, ma_uint32 options);
 
 ma_result ma_resampler_init__sinc(ma_resampler* pResampler);
-ma_result ma_resampler_process__sinc(ma_resampler* pResampler, ma_uint64* pFrameCountOut, void** ppFramesOut, ma_uint64* pFrameCountIn, void** ppFramesIn, ma_resampler_seek_mode seekMode);
+ma_result ma_resampler_process_pcm_frames__sinc(ma_resampler* pResampler, ma_uint64* pFrameCountOut, void** ppFramesOut, ma_uint64* pFrameCountIn, void** ppFramesIn, ma_resampler_seek_mode seekMode);
 ma_uint64 ma_resampler_read_f32__sinc(ma_resampler* pResampler, ma_uint64 frameCount, float** ppFrames);
 ma_uint64 ma_resampler_read_s16__sinc(ma_resampler* pResampler, ma_uint64 frameCount, ma_int16** ppFrames);
 ma_uint64 ma_resampler_seek__sinc(ma_resampler* pResampler, ma_uint64 frameCount, ma_uint32 options);
@@ -1411,7 +1586,7 @@ ma_result ma_resampler_init(const ma_resampler_config* pConfig, ma_resampler* pR
         case ma_resampler_algorithm_linear:
         {
             pResampler->init    = ma_resampler_init__linear;
-            pResampler->process = ma_resampler_process__linear;
+            pResampler->process = ma_resampler_process_pcm_frames__linear;
             pResampler->readF32 = ma_resampler_read_f32__linear;
             pResampler->readS16 = ma_resampler_read_s16__linear;
             pResampler->seek    = ma_resampler_seek__linear;
@@ -1420,7 +1595,7 @@ ma_result ma_resampler_init(const ma_resampler_config* pConfig, ma_resampler* pR
         case ma_resampler_algorithm_sinc:
         {
             pResampler->init    = ma_resampler_init__sinc;
-            pResampler->process = ma_resampler_process__sinc;
+            pResampler->process = ma_resampler_process_pcm_frames__sinc;
             pResampler->readF32 = ma_resampler_read_f32__sinc;
             pResampler->readS16 = ma_resampler_read_s16__sinc;
             pResampler->seek    = ma_resampler_seek__sinc;
@@ -1494,7 +1669,7 @@ ma_result ma_resampler_set_rate_ratio(ma_resampler* pResampler, double ratio)
 }
 
 
-ma_result ma_resampler_process(ma_resampler* pResampler, ma_uint64* pFrameCountOut, void** ppFramesOut, ma_uint64* pFrameCountIn, void** ppFramesIn)
+ma_result ma_resampler_process_pcm_frames(ma_resampler* pResampler, ma_uint64* pFrameCountOut, void** ppFramesOut, ma_uint64* pFrameCountIn, void** ppFramesIn)
 {
     ma_resampler_seek_mode seekMode;
 
@@ -1530,7 +1705,7 @@ ma_result ma_resampler_process(ma_resampler* pResampler, ma_uint64* pFrameCountO
     return pResampler->process(pResampler, pFrameCountOut, ppFramesOut, pFrameCountIn, ppFramesIn, seekMode);
 }
 
-ma_result ma_resampler_process_callback(ma_resampler* pResampler, ma_uint64* pFrameCountOut, void** ppFramesOut, ma_resampler_read_from_client_proc onRead, void* pUserData)
+ma_result ma_resampler_process_pcm_frames_callback(ma_resampler* pResampler, ma_uint64* pFrameCountOut, void** ppFramesOut, ma_resampler_read_from_client_proc onRead, void* pUserData)
 {
     union
     {
@@ -1583,7 +1758,7 @@ ma_result ma_resampler_process_callback(ma_resampler* pResampler, ma_uint64* pFr
 
         inputFrameCount = onRead(pResampler, targetInputFrameCount, &ppInputFrames[0]); /* Don't check if inputFrameCount is 0 and break from the loop. May want to extract the last bit that's sitting in the window. */
 
-        result = ma_resampler_process(pResampler, &outputFrameCount, &ppRunningFramesOut[0], &inputFrameCount, &ppInputFrames[0]);
+        result = ma_resampler_process_pcm_frames(pResampler, &outputFrameCount, &ppRunningFramesOut[0], &inputFrameCount, &ppInputFrames[0]);
         if (result != MA_SUCCESS) {
             break;
         }
@@ -1933,7 +2108,7 @@ ma_result ma_resampler_init__linear(ma_resampler* pResampler)
     return MA_SUCCESS;
 }
 
-ma_result ma_resampler_process__linear(ma_resampler* pResampler, ma_uint64* pFrameCountOut, void** ppFramesOut, ma_uint64* pFrameCountIn, void** ppFramesIn, ma_resampler_seek_mode seekMode)
+ma_result ma_resampler_process_pcm_frames__linear(ma_resampler* pResampler, ma_uint64* pFrameCountOut, void** ppFramesOut, ma_uint64* pFrameCountIn, void** ppFramesIn, ma_resampler_seek_mode seekMode)
 {
     ma_assert(pResampler != NULL);
 
@@ -2024,7 +2199,7 @@ ma_result ma_resampler_init__sinc(ma_resampler* pResampler)
     return MA_SUCCESS;
 }
 
-ma_result ma_resampler_process__sinc(ma_resampler* pResampler, ma_uint64* pFrameCountOut, void** ppFramesOut, ma_uint64* pFrameCountIn, void** ppFramesIn, ma_resampler_seek_mode seekMode)
+ma_result ma_resampler_process_pcm_frames__sinc(ma_resampler* pResampler, ma_uint64* pFrameCountOut, void** ppFramesOut, ma_uint64* pFrameCountIn, void** ppFramesIn, ma_resampler_seek_mode seekMode)
 {
     ma_assert(pResampler != NULL);
 

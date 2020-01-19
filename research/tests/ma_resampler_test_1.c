@@ -45,7 +45,7 @@ int do_count_query_test__required_input__fixed_interval(ma_resampler* pResampler
 
         outputFrameCount = frameCountPerIteration;
         inputFrameCount = ma_countof(input);
-        result = ma_resampler_process(pResampler, input, &inputFrameCount, output, &outputFrameCount);
+        result = ma_resampler_process_pcm_frames(pResampler, input, &inputFrameCount, output, &outputFrameCount);
         if (result != MA_SUCCESS) {
             printf("Failed to process frames.");
             return result;
@@ -177,7 +177,7 @@ int do_count_query_test__expected_output__fixed_interval(ma_resampler* pResample
 
         outputFrameCount = ma_countof(output);
         inputFrameCount = frameCountPerIteration;
-        result = ma_resampler_process(pResampler, input, &inputFrameCount, output, &outputFrameCount);
+        result = ma_resampler_process_pcm_frames(pResampler, input, &inputFrameCount, output, &outputFrameCount);
         if (result != MA_SUCCESS) {
             printf("Failed to process frames.");
             return result;
