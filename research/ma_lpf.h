@@ -4,7 +4,7 @@
 /*
 TODO:
   - Document passthrough behaviour of the biquad filter and how it doesn't update previous inputs and outputs.
-  - Document how changing biquad constants requires reinitialization of the filter (due to issue above).
+  - Document how changing biquad constants requires reinitialization of the filter (due to issue above). ma_biquad_reinit().
   - Document how ma_biquad_process() and ma_lpf_process() supports in-place filtering by passing in the same buffer for both the input and output.
 */
 
@@ -34,6 +34,7 @@ typedef struct
 } ma_biquad;
 
 ma_result ma_biquad_init(const ma_biquad_config* pConfig, ma_biquad* pBQ);
+ma_result ma_biquad_reinit(const ma_biquad_config* pConfig, ma_biquad* pBQ);
 ma_result ma_biquad_process(ma_biquad* pBQ, void* pFramesOut, const void* pFramesIn, ma_uint64 frameCount);
 
 
@@ -54,6 +55,7 @@ typedef struct
 } ma_lpf;
 
 ma_result ma_lpf_init(const ma_lpf_config* pConfig, ma_lpf* pLPF);
+ma_result ma_lpf_reinit(const ma_lpf_config* pConfig, ma_lpf* pLPF);
 ma_result ma_lpf_process(ma_lpf* pLPF, void* pFramesOut, const void* pFramesIn, ma_uint64 frameCount);
 
 #endif  /* ma_lpf_h */
@@ -89,6 +91,15 @@ ma_result ma_biquad_init(const ma_biquad_config* pConfig, ma_biquad* pBQ)
     MA_ZERO_OBJECT(pBQ);
 
     if (pConfig == NULL) {
+        return MA_INVALID_ARGS;
+    }
+
+    return ma_biquad_reinit(pConfig, pBQ);
+}
+
+ma_result ma_biquad_reinit(const ma_biquad_config* pConfig, ma_biquad* pBQ)
+{
+    if (pBQ == NULL || pConfig == NULL) {
         return MA_INVALID_ARGS;
     }
 
@@ -206,9 +217,8 @@ ma_lpf_config ma_lpf_config_init(ma_format format, ma_uint32 channels, ma_uint32
     return config;
 }
 
-ma_result ma_lpf_init(const ma_lpf_config* pConfig, ma_lpf* pLPF)
+static MA_INLINE ma_biquad_config ma_lpf__get_biquad_config(const ma_lpf_config* pConfig)
 {
-    ma_result result;
     ma_biquad_config bqConfig;
     double q;
     double w;
@@ -216,17 +226,7 @@ ma_result ma_lpf_init(const ma_lpf_config* pConfig, ma_lpf* pLPF)
     double c;
     double a;
 
-    if (pLPF == NULL) {
-        return MA_INVALID_ARGS;
-    }
-
-    MA_ZERO_OBJECT(pLPF);
-
-    if (pConfig == NULL) {
-        return MA_INVALID_ARGS;
-    }
-
-    pLPF->config = *pConfig;
+    MA_ASSERT(pConfig != NULL);
 
     q = 1 / sqrt(2);
     w = 2 * MA_PI_D * pConfig->cutoffFrequency / pConfig->sampleRate;
@@ -244,7 +244,48 @@ ma_result ma_lpf_init(const ma_lpf_config* pConfig, ma_lpf* pLPF)
     bqConfig.format   = pConfig->format;
     bqConfig.channels = pConfig->channels;
 
+    return bqConfig;
+}
+
+ma_result ma_lpf_init(const ma_lpf_config* pConfig, ma_lpf* pLPF)
+{
+    ma_result result;
+    ma_biquad_config bqConfig;
+
+    if (pLPF == NULL) {
+        return MA_INVALID_ARGS;
+    }
+
+    MA_ZERO_OBJECT(pLPF);
+
+    if (pConfig == NULL) {
+        return MA_INVALID_ARGS;
+    }
+
+    pLPF->config = *pConfig;
+
+    bqConfig = ma_lpf__get_biquad_config(pConfig);
     result = ma_biquad_init(&bqConfig, &pLPF->bq);
+    if (result != MA_SUCCESS) {
+        return result;
+    }
+
+    return MA_SUCCESS;
+}
+
+ma_result ma_lpf_reinit(const ma_lpf_config* pConfig, ma_lpf* pLPF)
+{
+    ma_result result;
+    ma_biquad_config bqConfig;
+
+    if (pLPF == NULL || pConfig == NULL) {
+        return MA_INVALID_ARGS;
+    }
+
+    pLPF->config = *pConfig;
+
+    bqConfig = ma_lpf__get_biquad_config(pConfig);
+    result = ma_biquad_reinit(&bqConfig, &pLPF->bq);
     if (result != MA_SUCCESS) {
         return result;
     }

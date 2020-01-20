@@ -269,24 +269,18 @@ ma_resampler_config ma_resampler_config_init(ma_format format, ma_uint32 channel
     return config;
 }
 
-static ma_result ma_resampler__init_lpf(ma_resampler* pResampler)
+static ma_lpf_config ma_resampler_create_lpf_config(ma_resampler* pResampler)
 {
-    ma_result result;
-    ma_lpf_config lpfConfig;
+    ma_lpf_config config;
 
-    pResampler->state.linear.t = -1;    /* This must be set to -1 for the linear backend. It's used to indicate that the first frame needs to be loaded. */
+    MA_ASSERT(pResampler != NULL);
 
-    lpfConfig = ma_lpf_config_init(pResampler->config.format, pResampler->config.channels, pResampler->config.sampleRateOut, pResampler->config.linear.lpfCutoffFrequency);
-    if (lpfConfig.cutoffFrequency == 0) {
-        lpfConfig.cutoffFrequency = ma_min(pResampler->config.sampleRateIn, pResampler->config.sampleRateOut) / 2;
+    config = ma_lpf_config_init(pResampler->config.format, pResampler->config.channels, pResampler->config.sampleRateOut, pResampler->config.linear.lpfCutoffFrequency);
+    if (config.cutoffFrequency == 0) {
+        config.cutoffFrequency = ma_min(pResampler->config.sampleRateIn, pResampler->config.sampleRateOut) / 2;
     }
 
-    result = ma_lpf_init(&lpfConfig, &pResampler->state.linear.lpf);
-    if (result != MA_SUCCESS) {
-        return result;
-    }
-
-    return MA_SUCCESS;
+    return config;
 }
 
 ma_result ma_resampler_init(const ma_resampler_config* pConfig, ma_resampler* pResampler)
@@ -317,7 +311,8 @@ ma_result ma_resampler_init(const ma_resampler_config* pConfig, ma_resampler* pR
             pResampler->state.linear.t = -1;
 
             if (pConfig->linear.enableLPF) {
-                result = ma_resampler__init_lpf(pResampler);
+                ma_lpf_config lpfConfig = ma_resampler_create_lpf_config(pResampler);
+                result = ma_lpf_init(&lpfConfig, &pResampler->state.linear.lpf);
                 if (result != MA_SUCCESS) {
                     return result;
                 }
@@ -802,7 +797,11 @@ ma_result ma_resampler_set_rate(ma_resampler* pResampler, ma_uint32 sampleRateIn
         {
             /* If we are using low-pass filtering we need to reinitialize the filter since it depends on the sample rate. */
             if (pResampler->config.linear.enableLPF) {
-                ma_resampler__init_lpf(pResampler);
+                ma_lpf_config lpfConfig = ma_resampler_create_lpf_config(pResampler);
+                ma_result result = ma_lpf_reinit(&lpfConfig, &pResampler->state.linear.lpf);
+                if (result != MA_SUCCESS) {
+                    return result;  /* Failed to reinitialize the low-pass filter. */
+                }
             }
         } break;
 
