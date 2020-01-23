@@ -1,6 +1,6 @@
 /*
 Audio playback and capture library. Choice of public domain or MIT-0. See license statements at the end of this file.
-miniaudio (formerly mini_al) - v0.9.10 - 2020-01-15
+miniaudio (formerly mini_al) - v0.xx.xx - 2020-xx-xx
 
 David Reid - davidreidsoftware@gmail.com
 
@@ -624,12 +624,6 @@ typedef ma_uint16 wchar_t;
     #define MA_ALIGN(alignment)
 #endif
 
-#ifdef _MSC_VER
-#define MA_ALIGNED_STRUCT(alignment) MA_ALIGN(alignment) struct
-#else
-#define MA_ALIGNED_STRUCT(alignment) struct MA_ALIGN(alignment)
-#endif
-
 /* SIMD alignment in bytes. Currently set to 64 bytes in preparation for future AVX-512 optimizations. */
 #define MA_SIMD_ALIGNMENT  64
 
@@ -950,7 +944,7 @@ typedef struct
     ma_src_config_sinc sinc;
 } ma_src_config;
 
-MA_ALIGNED_STRUCT(MA_SIMD_ALIGNMENT) ma_src
+struct ma_src
 {
     union
     {
@@ -1009,7 +1003,7 @@ typedef struct
     };
 } ma_pcm_converter_config;
 
-MA_ALIGNED_STRUCT(MA_SIMD_ALIGNMENT) ma_pcm_converter
+struct ma_pcm_converter
 {
     ma_pcm_converter_read_proc onRead;
     void* pUserData;
@@ -2431,7 +2425,7 @@ struct ma_context
     };
 };
 
-MA_ALIGNED_STRUCT(MA_SIMD_ALIGNMENT) ma_device
+struct ma_device
 {
     ma_context* pContext;
     ma_device_type type;
@@ -35905,6 +35899,9 @@ Device
 /*
 REVISION HISTORY
 ================
+v0.xx.xx - 2020-xx-xx
+  - Fix potential crash when ma_device object's are not aligned to MA_SIMD_ALIGNMENT.
+
 v0.9.10 - 2020-01-15
   - Fix compilation errors due to #if/#endif mismatches.
   - WASAPI: Fix a bug where automatic stream routing is being performed for devices that are initialized with an explicit device ID.
