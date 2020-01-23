@@ -35869,34 +35869,6 @@ ma_uint64 ma_sine_wave_read_f32_ex(ma_sine_wave* pSineWave, ma_uint64 frameCount
 #endif  /* MINIAUDIO_IMPLEMENTATION */
 
 /*
-BACKEND IMPLEMENTATION GUIDELINES
-=================================
-Context
--------
-- Run-time linking if possible.
-- Set whether or not it's an asynchronous backend
-
-Device
-------
-- If a full-duplex device is requested and the backend does not support full duplex devices, have ma_device_init__[backend]()
-  return MA_DEVICE_TYPE_NOT_SUPPORTED.
-- If exclusive mode is requested, but the backend does not support it, return MA_SHARE_MODE_NOT_SUPPORTED. If practical, try
-  not to fall back to a different share mode - give the client exactly what they asked for. Some backends, such as ALSA, may
-  not have a practical way to distinguish between the two.
-- If pDevice->usingDefault* is set, prefer the device's native value if the backend supports it. Otherwise use the relevant
-  value from the config.
-- If the configs buffer size in frames is 0, set it based on the buffer size in milliseconds, keeping in mind to handle the
-  case when the default sample rate is being used where practical.
-- Backends must set the following members of pDevice before returning successfully from ma_device_init__[backend]():
-  - internalFormat
-  - internalChannels
-  - internalSampleRate
-  - internalChannelMap
-  - bufferSizeInFrames
-  - periods
-*/
-
-/*
 REVISION HISTORY
 ================
 v0.xx.xx - 2020-xx-xx
