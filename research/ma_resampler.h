@@ -439,7 +439,6 @@ static ma_result ma_linear_resampler_process_pcm_frames_s16_downsample(ma_linear
     ma_uint64 framesProcessedOut;
 
     MA_ASSERT(pResampler     != NULL);
-    MA_ASSERT(pFramesIn      != NULL);
     MA_ASSERT(pFrameCountIn  != NULL);
     MA_ASSERT(pFramesOut     != NULL);
     MA_ASSERT(pFrameCountOut != NULL);
@@ -461,24 +460,24 @@ static ma_result ma_linear_resampler_process_pcm_frames_s16_downsample(ma_linear
             ma_uint32 iFilter;
             ma_uint32 iChannel;
 
-            for (iChannel = 0; iChannel < pResampler->config.channels; iChannel += 1) {
-                pResampler->x0.s16[iChannel] = pResampler->x1.s16[iChannel];
-            }
-
-            if (pResampler->config.lpfCount > 0) {
-                /* Filtering. */
-                ma_lpf_process_pcm_frame_s16(&pResampler->lpf[0], pResampler->x1.s16, pFramesInS16);
-                for (iFilter = 1; iFilter < pResampler->config.lpfCount; iFilter += 1) {
-                    ma_lpf_process_pcm_frame_s16(&pResampler->lpf[iFilter], pResampler->x1.s16, pResampler->x1.s16);
-                }
-            } else {
-                /* No filtering. */
+            if (pFramesInS16 != NULL) {
                 for (iChannel = 0; iChannel < pResampler->config.channels; iChannel += 1) {
+                    pResampler->x0.s16[iChannel] = pResampler->x1.s16[iChannel];
                     pResampler->x1.s16[iChannel] = pFramesInS16[iChannel];
                 }
+                pFramesInS16 += pResampler->config.channels;
+            } else {
+                for (iChannel = 0; iChannel < pResampler->config.channels; iChannel += 1) {
+                    pResampler->x0.s16[iChannel] = pResampler->x1.s16[iChannel];
+                    pResampler->x1.s16[iChannel] = 0;
+                }
             }
 
-            pFramesInS16          += pResampler->config.channels;
+            /* Filter. */
+            for (iFilter = 0; iFilter < pResampler->config.lpfCount; iFilter += 1) {
+                ma_lpf_process_pcm_frame_s16(&pResampler->lpf[iFilter], pResampler->x1.s16, pResampler->x1.s16);
+            }
+
             frameCountIn          -= 1;
             framesProcessedIn     += 1;
             pResampler->inTimeInt -= 1;
@@ -520,7 +519,6 @@ static ma_result ma_linear_resampler_process_pcm_frames_s16_upsample(ma_linear_r
     ma_uint64 framesProcessedOut;
 
     MA_ASSERT(pResampler     != NULL);
-    MA_ASSERT(pFramesIn      != NULL);
     MA_ASSERT(pFrameCountIn  != NULL);
     MA_ASSERT(pFramesOut     != NULL);
     MA_ASSERT(pFrameCountOut != NULL);
@@ -543,12 +541,19 @@ static ma_result ma_linear_resampler_process_pcm_frames_s16_upsample(ma_linear_r
         while (pResampler->inTimeInt > 0 && frameCountIn > 0) {
             ma_uint32 iChannel;
 
-            for (iChannel = 0; iChannel < pResampler->config.channels; iChannel += 1) {
-                pResampler->x0.s16[iChannel] = pResampler->x1.s16[iChannel];
-                pResampler->x1.s16[iChannel] = pFramesInS16[iChannel];
+            if (pFramesInS16 != NULL) {
+                for (iChannel = 0; iChannel < pResampler->config.channels; iChannel += 1) {
+                    pResampler->x0.s16[iChannel] = pResampler->x1.s16[iChannel];
+                    pResampler->x1.s16[iChannel] = pFramesInS16[iChannel];
+                }
+                pFramesInS16 += pResampler->config.channels;
+            } else {
+                for (iChannel = 0; iChannel < pResampler->config.channels; iChannel += 1) {
+                    pResampler->x0.s16[iChannel] = pResampler->x1.s16[iChannel];
+                    pResampler->x1.s16[iChannel] = 0;
+                }
             }
 
-            pFramesInS16          += pResampler->config.channels;
             frameCountIn          -= 1;
             framesProcessedIn     += 1;
             pResampler->inTimeInt -= 1;
@@ -609,7 +614,6 @@ static ma_result ma_linear_resampler_process_pcm_frames_f32_downsample(ma_linear
     ma_uint64 framesProcessedOut;
 
     MA_ASSERT(pResampler     != NULL);
-    MA_ASSERT(pFramesIn      != NULL);
     MA_ASSERT(pFrameCountIn  != NULL);
     MA_ASSERT(pFramesOut     != NULL);
     MA_ASSERT(pFrameCountOut != NULL);
@@ -631,24 +635,24 @@ static ma_result ma_linear_resampler_process_pcm_frames_f32_downsample(ma_linear
             ma_uint32 iFilter;
             ma_uint32 iChannel;
 
-            for (iChannel = 0; iChannel < pResampler->config.channels; iChannel += 1) {
-                pResampler->x0.f32[iChannel] = pResampler->x1.f32[iChannel];
-            }
-
-            if (pResampler->config.lpfCount > 0) {
-                /* Filtering. */
-                ma_lpf_process_pcm_frame_f32(&pResampler->lpf[0], pResampler->x1.f32, pFramesInF32);
-                for (iFilter = 1; iFilter < pResampler->config.lpfCount; iFilter += 1) {
-                    ma_lpf_process_pcm_frame_f32(&pResampler->lpf[iFilter], pResampler->x1.f32, pResampler->x1.f32);
-                }
-            } else {
-                /* No filtering. */
+            if (pFramesInF32 != NULL) {
                 for (iChannel = 0; iChannel < pResampler->config.channels; iChannel += 1) {
+                    pResampler->x0.f32[iChannel] = pResampler->x1.f32[iChannel];
                     pResampler->x1.f32[iChannel] = pFramesInF32[iChannel];
                 }
+                pFramesInF32 += pResampler->config.channels;
+            } else {
+                for (iChannel = 0; iChannel < pResampler->config.channels; iChannel += 1) {
+                    pResampler->x0.f32[iChannel] = pResampler->x1.f32[iChannel];
+                    pResampler->x1.f32[iChannel] = 0;
+                }
             }
 
-            pFramesInF32          += pResampler->config.channels;
+            /* Filter. */
+            for (iFilter = 0; iFilter < pResampler->config.lpfCount; iFilter += 1) {
+                ma_lpf_process_pcm_frame_f32(&pResampler->lpf[iFilter], pResampler->x1.f32, pResampler->x1.f32);
+            }
+
             frameCountIn          -= 1;
             framesProcessedIn     += 1;
             pResampler->inTimeInt -= 1;
@@ -690,7 +694,6 @@ static ma_result ma_linear_resampler_process_pcm_frames_f32_upsample(ma_linear_r
     ma_uint64 framesProcessedOut;
 
     MA_ASSERT(pResampler     != NULL);
-    MA_ASSERT(pFramesIn      != NULL);
     MA_ASSERT(pFrameCountIn  != NULL);
     MA_ASSERT(pFramesOut     != NULL);
     MA_ASSERT(pFrameCountOut != NULL);
@@ -713,12 +716,19 @@ static ma_result ma_linear_resampler_process_pcm_frames_f32_upsample(ma_linear_r
         while (pResampler->inTimeInt > 0 && frameCountIn > 0) {
             ma_uint32 iChannel;
 
-            for (iChannel = 0; iChannel < pResampler->config.channels; iChannel += 1) {
-                pResampler->x0.f32[iChannel] = pResampler->x1.f32[iChannel];
-                pResampler->x1.f32[iChannel] = pFramesInF32[iChannel];
+            if (pFramesInF32 != NULL) {
+                for (iChannel = 0; iChannel < pResampler->config.channels; iChannel += 1) {
+                    pResampler->x0.f32[iChannel] = pResampler->x1.f32[iChannel];
+                    pResampler->x1.f32[iChannel] = pFramesInF32[iChannel];
+                }
+                pFramesInF32 += pResampler->config.channels;
+            } else {
+                for (iChannel = 0; iChannel < pResampler->config.channels; iChannel += 1) {
+                    pResampler->x0.f32[iChannel] = pResampler->x1.f32[iChannel];
+                    pResampler->x1.f32[iChannel] = 0;
+                }
             }
 
-            pFramesInF32          += pResampler->config.channels;
             frameCountIn          -= 1;
             framesProcessedIn     += 1;
             pResampler->inTimeInt -= 1;
