@@ -30773,7 +30773,7 @@ float g_maChannelPlaneRatios[MA_CHANNEL_POSITION_COUNT][6] = {
     { 0.0f,  0.0f,  0.0f,  0.0f,  0.0f,  0.0f},  /* MA_CHANNEL_AUX_31 */
 };
 
-float ma_calculate_channel_position_planar_weight(ma_channel channelPositionA, ma_channel channelPositionB)
+float ma_calculate_channel_position_rectangular_weight(ma_channel channelPositionA, ma_channel channelPositionB)
 {
     /*
     Imagine the following simplified example: You have a single input speaker which is the front/left speaker which you want to convert to
@@ -30821,7 +30821,7 @@ float ma_channel_router__calculate_input_channel_planar_weight(const ma_channel_
     ma_assert(pRouter != NULL);
     (void)pRouter;
 
-    return ma_calculate_channel_position_planar_weight(channelPositionIn, channelPositionOut);
+    return ma_calculate_channel_position_rectangular_weight(channelPositionIn, channelPositionOut);
 }
 
 ma_bool32 ma_channel_router__is_spatial_channel_position(const ma_channel_router* pRouter, ma_channel channelPosition)
