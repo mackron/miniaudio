@@ -1224,7 +1224,8 @@ static ma_result ma_resampler_process_pcm_frames__seek__linear(ma_resampler* pRe
 {
     MA_ASSERT(pResampler != NULL);
 
-    return ma_resampler_process_pcm_frames__seek__generic(pResampler, pFramesIn, pFrameCountIn, pFrameCountOut);
+    /* Seeking is supported natively by the linear resampler. */
+    return ma_linear_resampler_process_pcm_frames(pResampler, pFramesIn, pFrameCountIn, NULL, pFrameCountOut);
 }
 
 #if defined(MA_HAS_SPEEX_RESAMPLER)
