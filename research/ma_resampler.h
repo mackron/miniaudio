@@ -348,6 +348,7 @@ static ma_result ma_linear_resampler_set_rate_internal(ma_linear_resampler* pRes
         If the resampler is alreay initialized we don't want to do a fresh initialization of the low-pass filter because it will result in the cached frames
         getting cleared. Instead we re-initialize the filter which will maintain any cached frames.
         */
+        result = MA_SUCCESS;
         for (iFilter = 0; iFilter < pResampler->config.lpfCount; iFilter += 1) {
             if (isResamplerAlreadyInitialized) {
                 result = ma_lpf_reinit(&lpfConfig, &pResampler->lpf[iFilter]);
@@ -633,8 +634,6 @@ static ma_result ma_linear_resampler_process_pcm_frames_s16(ma_linear_resampler*
     } else {
         return ma_linear_resampler_process_pcm_frames_s16_upsample(pResampler, pFramesIn, pFrameCountIn, pFramesOut, pFrameCountOut);
     }
-
-    return MA_SUCCESS;
 }
 
 
@@ -812,8 +811,6 @@ static ma_result ma_linear_resampler_process_pcm_frames_f32(ma_linear_resampler*
     } else {
         return ma_linear_resampler_process_pcm_frames_f32_upsample(pResampler, pFramesIn, pFrameCountIn, pFramesOut, pFrameCountOut);
     }
-
-    return MA_SUCCESS;
 }
 
 
@@ -866,7 +863,16 @@ ma_uint64 ma_linear_resampler_get_required_input_frame_count(ma_linear_resampler
         return 0;
     }
 
-    count  = outputFrameCount * pResampler->inAdvanceInt;
+    if (outputFrameCount == 0) {
+        return 0;
+    }
+
+    /* Any whole input frames are consumed before the first output frame is generated. */
+    count = pResampler->inTimeInt;
+    outputFrameCount -= 1;
+
+    /* The rest of the output frames can be calculated in constant time. */
+    count += outputFrameCount * pResampler->inAdvanceInt;
     count += (pResampler->inTimeFrac + (outputFrameCount * pResampler->inAdvanceFrac)) / pResampler->config.sampleRateOut;
 
     return count;
