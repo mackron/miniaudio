@@ -59,29 +59,17 @@ The miniaudio resampler supports multiple algorithms:
   - Linear: ma_resample_algorithm_linear
   - Speex:  ma_resample_algorithm_speex
 
-Because Speex is not public domain it is opt-in and the code is stored in separate files. To enable the Speex backend, you must first #include the following
-file before the implementation of miniaudio.h:
-
-    #include "extras/speex_resampler/ma_speex_resampler.h"
-
-Both the header and implementation is contained within the same file. To implementation can be included in your program like so:
-
-    #define MINIAUDIO_SPEEX_RESAMPLER_IMPLEMENTATION
-    #include "extras/speex_resampler/ma_speex_resampler.h"
-
-Note that if you opt-in to the Speex backend it will be used by default for all internal data conversion by miniaudio. Otherwise the linear implementation will
-be used. To use a different backend, even when you have opted in to the Speex resampler, you can change the algorithm in the respective config of the object
-you are initializating. If you try to use the Speex resampler without opting in, initialization of the `ma_resampler` object will fail with `MA_NO_BACKEND`.
-
-Note that if you opt-in to the Speex backend you will need to consider it's license, the text of which can be found in the files in "extras/speex_resampler".
+Because Speex is not public domain it is strictly opt-in and the code is stored in separate files. if you opt-in to the Speex backend you will need to consider
+it's license, the text of which can be found in it's source files in "extras/speex_resampler". Details on how to opt-in to the Speex resampler is explained in
+the Speex Resampler section below.
 
 The algorithm cannot be changed after initialization.
 
 Processing always happens on a per PCM frame basis and always assumed interleaved input and output. De-interleaved processing is not supported. To process
-frames, use `ma_resampler_process_pcm_frames_pcm_frames()`. On input, this function takes the number of output frames you can fit in the output buffer and
-the number of input frames contained in the input buffer. On output these variables contain the number of output frames that were written to the output buffer
-and the number of input frames that were consumed in the process. You can pass in NULL for the input buffer in which case it will be treated as an infinitely
-large buffer of zeros. The output buffer can also be NULL, in which case the processing will be treated as seek.
+frames, use `ma_resampler_process_pcm_frames()`. On input, this function takes the number of output frames you can fit in the output buffer and the number of
+input frames contained in the input buffer. On output these variables contain the number of output frames that were written to the output buffer and the
+number of input frames that were consumed in the process. You can pass in NULL for the input buffer in which case it will be treated as an infinitely large
+buffer of zeros. The output buffer can also be NULL, in which case the processing will be treated as seek.
 
 The sample rate can be changed dynamically on the fly. You can change this with explicit sample rates with `ma_resampler_set_rate()` and also with a decimal
 ratio with `ma_resampler_set_rate_ratio()`. The ratio is in/out.
@@ -96,8 +84,49 @@ with `ma_resampler_get_input_latency()` and `ma_resampler_get_output_latency()`.
 
 Resampling Algorithms
 ---------------------
-The choice of resampling algorithm depends on your situation and requirements. The linear resampler is poor quality, but fast with extremely low latency. The
-Speex resampler is higher quality, but slower with more latency. It also performs a malloc() internally for memory management.
+The choice of resampling algorithm depends on your situation and requirements. The linear resampler is the most efficient and has the least amount of latency,
+but at the expense of poorer quality. The Speex resampler is higher quality, but slower with more latency. It also performs several heap applications
+internally for memory management.
+
+
+Linear Resampling
+-----------------
+The linear resampler is the fastest, but comes at the expense of poorer quality. There is, however, some control over the quality of the linear resampler which
+may make it a suitable option depending on your requirements.
+
+The linear resampler performs low-pass filtering before or after downsampling or upsampling, depending on the sample rates you're converting between. When
+decreasing the sample rate, the low-pass filter will be applied before downsampling. When increasing the rate it will be performed after upsampling. By default
+a second order low-pass filter will be applied. To improve quality you can chain low-pass filters together, up to a maximum of `MA_MAX_RESAMPLER_LPF_FILTERS`.
+This comes at the expense of increased computational cost and latency. You can also disable filtering altogether by setting the filter count to 0. The filter
+count is controlled with the `lpfCount` config variable.
+
+The low-pass filter has a cutoff frequency which defaults to half the sample rate of the lowest of the input and output sample rates (Nyquist Frequency). This
+can be controlled with the `lpfNyquistFactor` config variable. This defaults to 1, and should be in the range of 0..1, although a value of 0 does not make
+sense and should be avoided. A value of 1 will use the Nyquist Frequency as the cutoff. A value of 0.5 will use half the Nyquist Frequency as the cutoff, etc.
+Values less than 1 will result in more washed out sound due to more of the higher frequencies being removed. This config variable has no impact on performance
+and is a purely perceptual configuration.
+
+The API for the linear resampler is the same as the main resampler API, only it's called `ma_linear_resampler`.
+
+
+Speex Resampling
+----------------
+The Speex resampler is made up of third party code which is released under the BSD license. Because it is licensed differently to miniaudio, which is public
+domain, it is strictly opt-in and all of it's code is stored in separate files. If you opt-in to the Speex resampler you must consider the license text in it's
+source files. To opt-in, you must first #include the following file before the implementation of miniaudio.h:
+
+    #include "extras/speex_resampler/ma_speex_resampler.h"
+
+Both the header and implementation is contained within the same file. To implementation can be included in your program like so:
+
+    #define MINIAUDIO_SPEEX_RESAMPLER_IMPLEMENTATION
+    #include "extras/speex_resampler/ma_speex_resampler.h"
+
+Note that even if you opt-in to the Speex backend, miniaudio won't use it unless you explicitly ask for it in the respective config of the object you are
+initializing. If you try to use the Speex resampler without opting in, initialization of the `ma_resampler` object will fail with `MA_NO_BACKEND`.
+
+The only configuration option to consider with the Speex resampler is the `speex.quality` config variable. This is a value between 0 and 10, with 0 being
+the worst/fastest and 10 being the best/slowest. The default value is 3.
 
 **************************************************************************************************************************************************************/
 
@@ -440,7 +469,6 @@ static ma_result ma_linear_resampler_process_pcm_frames_s16_downsample(ma_linear
 
     MA_ASSERT(pResampler     != NULL);
     MA_ASSERT(pFrameCountIn  != NULL);
-    MA_ASSERT(pFramesOut     != NULL);
     MA_ASSERT(pFrameCountOut != NULL);
 
     pFramesInS16       = (const ma_int16*)pFramesIn;
@@ -488,10 +516,13 @@ static ma_result ma_linear_resampler_process_pcm_frames_s16_downsample(ma_linear
         }
 
         /* Getting here means the frames have been loaded and filtered and we can generate the next output frame. */
-        MA_ASSERT(pResampler->inTimeInt == 0);
-        ma_linear_resampler_interpolate_frame_s16(pResampler, pFramesOutS16);
+        if (pFramesOutS16 != NULL) {
+            MA_ASSERT(pResampler->inTimeInt == 0);
+            ma_linear_resampler_interpolate_frame_s16(pResampler, pFramesOutS16);
 
-        pFramesOutS16      += 1;
+            pFramesOutS16 += 1;
+        }
+
         framesProcessedOut += 1;
 
         /* Advance time forward. */
@@ -520,7 +551,6 @@ static ma_result ma_linear_resampler_process_pcm_frames_s16_upsample(ma_linear_r
 
     MA_ASSERT(pResampler     != NULL);
     MA_ASSERT(pFrameCountIn  != NULL);
-    MA_ASSERT(pFramesOut     != NULL);
     MA_ASSERT(pFrameCountOut != NULL);
 
     pFramesInS16       = (const ma_int16*)pFramesIn;
@@ -564,15 +594,18 @@ static ma_result ma_linear_resampler_process_pcm_frames_s16_upsample(ma_linear_r
         }
 
         /* Getting here means the frames have been loaded and we can generate the next output frame. */
-        MA_ASSERT(pResampler->inTimeInt == 0);
-        ma_linear_resampler_interpolate_frame_s16(pResampler, pFramesOutS16);
+        if (pFramesOutS16 != NULL) {
+            MA_ASSERT(pResampler->inTimeInt == 0);
+            ma_linear_resampler_interpolate_frame_s16(pResampler, pFramesOutS16);
 
-        /* Filter. */
-        for (iFilter = 0; iFilter < pResampler->config.lpfCount; iFilter += 1) {
-            ma_lpf_process_pcm_frame_s16(&pResampler->lpf[iFilter], pFramesOutS16, pFramesOutS16);
+            /* Filter. */
+            for (iFilter = 0; iFilter < pResampler->config.lpfCount; iFilter += 1) {
+                ma_lpf_process_pcm_frame_s16(&pResampler->lpf[iFilter], pFramesOutS16, pFramesOutS16);
+            }
+
+            pFramesOutS16 += 1;
         }
 
-        pFramesOutS16      += 1;
         framesProcessedOut += 1;
 
         /* Advance time forward. */
@@ -615,7 +648,6 @@ static ma_result ma_linear_resampler_process_pcm_frames_f32_downsample(ma_linear
 
     MA_ASSERT(pResampler     != NULL);
     MA_ASSERT(pFrameCountIn  != NULL);
-    MA_ASSERT(pFramesOut     != NULL);
     MA_ASSERT(pFrameCountOut != NULL);
 
     pFramesInF32       = (const float*)pFramesIn;
@@ -663,10 +695,13 @@ static ma_result ma_linear_resampler_process_pcm_frames_f32_downsample(ma_linear
         }
 
         /* Getting here means the frames have been loaded and filtered and we can generate the next output frame. */
-        MA_ASSERT(pResampler->inTimeInt == 0);
-        ma_linear_resampler_interpolate_frame_f32(pResampler, pFramesOutF32);
+        if (pFramesOutF32 != NULL) {
+            MA_ASSERT(pResampler->inTimeInt == 0);
+            ma_linear_resampler_interpolate_frame_f32(pResampler, pFramesOutF32);
 
-        pFramesOutF32      += 1;
+            pFramesOutF32 += 1;
+        }
+
         framesProcessedOut += 1;
 
         /* Advance time forward. */
@@ -695,7 +730,6 @@ static ma_result ma_linear_resampler_process_pcm_frames_f32_upsample(ma_linear_r
 
     MA_ASSERT(pResampler     != NULL);
     MA_ASSERT(pFrameCountIn  != NULL);
-    MA_ASSERT(pFramesOut     != NULL);
     MA_ASSERT(pFrameCountOut != NULL);
 
     pFramesInF32       = (const float*)pFramesIn;
@@ -739,15 +773,18 @@ static ma_result ma_linear_resampler_process_pcm_frames_f32_upsample(ma_linear_r
         }
 
         /* Getting here means the frames have been loaded and we can generate the next output frame. */
-        MA_ASSERT(pResampler->inTimeInt == 0);
-        ma_linear_resampler_interpolate_frame_f32(pResampler, pFramesOutF32);
+        if (pFramesOutF32 != NULL) {
+            MA_ASSERT(pResampler->inTimeInt == 0);
+            ma_linear_resampler_interpolate_frame_f32(pResampler, pFramesOutF32);
 
-        /* Filter. */
-        for (iFilter = 0; iFilter < pResampler->config.lpfCount; iFilter += 1) {
-            ma_lpf_process_pcm_frame_f32(&pResampler->lpf[iFilter], pFramesOutF32, pFramesOutF32);
+            /* Filter. */
+            for (iFilter = 0; iFilter < pResampler->config.lpfCount; iFilter += 1) {
+                ma_lpf_process_pcm_frame_f32(&pResampler->lpf[iFilter], pFramesOutF32, pFramesOutF32);
+            }
+
+            pFramesOutF32 += 1;
         }
 
-        pFramesOutF32      += 1;
         framesProcessedOut += 1;
 
         /* Advance time forward. */
@@ -790,6 +827,8 @@ ma_result ma_linear_resampler_process_pcm_frames(ma_linear_resampler* pResampler
     } else if (pResampler->config.format == ma_format_f32) {
         return ma_linear_resampler_process_pcm_frames_f32(pResampler, pFramesIn, pFrameCountIn, pFramesOut, pFrameCountOut);
     } else {
+        /* Should never get here. Getting here means the format is not supported and you didn't check the return value of ma_linear_resampler_init(). */
+        MA_ASSERT(MA_FALSE);
         return MA_INVALID_ARGS;
     }
 }
