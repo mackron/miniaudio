@@ -170,6 +170,7 @@ ma_result ma_linear_resampler_init(const ma_linear_resampler_config* pConfig, ma
 void ma_linear_resampler_uninit(ma_linear_resampler* pResampler);
 ma_result ma_linear_resampler_process_pcm_frames(ma_linear_resampler* pResampler, const void* pFramesIn, ma_uint64* pFrameCountIn, void* pFramesOut, ma_uint64* pFrameCountOut);
 ma_result ma_linear_resampler_set_rate(ma_linear_resampler* pResampler, ma_uint32 sampleRateIn, ma_uint32 sampleRateOut);
+ma_result ma_linear_resampler_set_rate_ratio(ma_linear_resampler* pResampler, float ratioInOut);
 ma_uint64 ma_linear_resampler_get_required_input_frame_count(ma_linear_resampler* pResampler, ma_uint64 outputFrameCount);
 ma_uint64 ma_linear_resampler_get_expected_output_frame_count(ma_linear_resampler* pResampler, ma_uint64 inputFrameCount);
 ma_uint64 ma_linear_resampler_get_input_latency(ma_linear_resampler* pResampler);
@@ -839,6 +840,23 @@ ma_result ma_linear_resampler_set_rate(ma_linear_resampler* pResampler, ma_uint3
     return ma_linear_resampler_set_rate_internal(pResampler, sampleRateIn, sampleRateOut, /* isResamplerAlreadyInitialized = */ MA_TRUE);
 }
 
+ma_result ma_linear_resampler_set_rate_ratio(ma_linear_resampler* pResampler, float ratioInOut)
+{
+    ma_uint32 n;
+    ma_uint32 d;
+
+    d = 1000000;    /* We use up to 6 decimal places. */
+    n = (ma_uint32)(ratioInOut * d);
+
+    if (n == 0) {
+        return MA_INVALID_ARGS; /* Ratio too small. */
+    }
+
+    MA_ASSERT(n != 0);
+    
+    return ma_linear_resampler_set_rate(pResampler, n, d);
+}
+
 
 ma_uint64 ma_linear_resampler_get_required_input_frame_count(ma_linear_resampler* pResampler, ma_uint64 outputFrameCount)
 {
@@ -1225,7 +1243,7 @@ static ma_result ma_resampler_process_pcm_frames__seek__linear(ma_resampler* pRe
     MA_ASSERT(pResampler != NULL);
 
     /* Seeking is supported natively by the linear resampler. */
-    return ma_linear_resampler_process_pcm_frames(pResampler, pFramesIn, pFrameCountIn, NULL, pFrameCountOut);
+    return ma_linear_resampler_process_pcm_frames(&pResampler->state.linear, pFramesIn, pFrameCountIn, NULL, pFrameCountOut);
 }
 
 #if defined(MA_HAS_SPEEX_RESAMPLER)
@@ -1324,20 +1342,28 @@ ma_result ma_resampler_set_rate(ma_resampler* pResampler, ma_uint32 sampleRateIn
 
 ma_result ma_resampler_set_rate_ratio(ma_resampler* pResampler, float ratio)
 {
-    /* We use up to 6 decimal places. */
-    ma_uint32 n;
-    ma_uint32 d;
-
-    d = 1000000;
-    n = (ma_uint32)(ratio * d);
-
-    if (n == 0) {
-        return MA_INVALID_ARGS; /* Ratio too small. */
+    if (pResampler == NULL) {
+        return MA_INVALID_ARGS;
     }
 
-    MA_ASSERT(n != 0);
+    if (pResampler->config.algorithm == ma_resample_algorithm_linear) {
+        return ma_linear_resampler_set_rate_ratio(&pResampler->state.linear, ratio);
+    } else {
+        /* Getting here means the backend does not have native support for setting the rate as a ratio so we just do it generically. */
+        ma_uint32 n;
+        ma_uint32 d;
+
+        d = 1000000;    /* We use up to 6 decimal places. */
+        n = (ma_uint32)(ratio * d);
+
+        if (n == 0) {
+            return MA_INVALID_ARGS; /* Ratio too small. */
+        }
+
+        MA_ASSERT(n != 0);
     
-    return ma_resampler_set_rate(pResampler, n, d);
+        return ma_resampler_set_rate(pResampler, n, d);
+    }
 }
 
 ma_uint64 ma_resampler_get_required_input_frame_count(ma_resampler* pResampler, ma_uint64 outputFrameCount)
