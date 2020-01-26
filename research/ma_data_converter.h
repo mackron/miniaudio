@@ -16,7 +16,7 @@ typedef struct
     float weights[MA_MAX_CHANNELS][MA_MAX_CHANNELS];  /* [in][out]. Only used when mixingMode is set to ma_channel_mix_mode_custom_weights. */
 } ma_channel_converter_config;
 
-ma_channel_converter_config ma_channel_converter_config_init(ma_format format, ma_uint32 channelsIn, const ma_channel channelMapIn[MA_MAX_CHANNELS], ma_uint32 channelsOut, const ma_channel channelMapOut[MA_MAX_CHANNELS], ma_channel_mix_mode mixingMode);
+ma_channel_converter_config ma_channel_converter_config_init(ma_format format, ma_uint32 channelsIn, const ma_channel channelMapIn[MA_MAX_CHANNELS], ma_uint32 channelsOut, const ma_channel channelMapOut[MA_MAX_CHANNELS], ma_channel_mix_mode mixingMode, const float weights[MA_MAX_CHANNELS][MA_MAX_CHANNELS]);
 
 typedef struct
 {
@@ -51,9 +51,13 @@ typedef struct
     ma_uint32 channelsOut;
     ma_uint32 sampleRateIn;
     ma_uint32 sampleRateOut;
+    ma_channel channelMapIn[MA_MAX_CHANNELS];
+    ma_channel channelMapOut[MA_MAX_CHANNELS];
     ma_dither_mode ditherMode;
     ma_resample_algorithm resampleAlgorithm;
-    ma_bool32 dynamicSampleRate;
+    ma_bool32 allowDynamicSampleRate;
+    ma_channel_mix_mode channelMixMode;
+    float channelWeights[MA_MAX_CHANNELS][MA_MAX_CHANNELS];  /* [in][out]. Only used when channelMixMode is set to ma_channel_mix_mode_custom_weights. */
     struct
     {
         struct
@@ -73,10 +77,11 @@ ma_data_converter_config ma_data_converter_config_init(ma_format formatIn, ma_fo
 typedef struct
 {
     ma_data_converter_config config;
+    ma_channel_converter channelConverter;
     ma_resampler resampler;
     ma_bool32 hasPreFormatConversion  : 1;
     ma_bool32 hasPostFormatConversion : 1;
-    ma_bool32 hasChannelRouter        : 1;
+    ma_bool32 hasChannelConverter     : 1;
     ma_bool32 hasResampler            : 1;
     ma_bool32 isPassthrough           : 1;
 } ma_data_converter;
@@ -103,7 +108,7 @@ ma_uint64 ma_data_converter_get_output_latency(ma_data_converter* pConverter);
 #define MA_CHANNEL_CONVERTER_FIXED_POINT_SHIFT  12
 #endif
 
-ma_channel_converter_config ma_channel_converter_config_init(ma_format format, ma_uint32 channelsIn, const ma_channel channelMapIn[MA_MAX_CHANNELS], ma_uint32 channelsOut, const ma_channel channelMapOut[MA_MAX_CHANNELS], ma_channel_mix_mode mixingMode)
+ma_channel_converter_config ma_channel_converter_config_init(ma_format format, ma_uint32 channelsIn, const ma_channel channelMapIn[MA_MAX_CHANNELS], ma_uint32 channelsOut, const ma_channel channelMapOut[MA_MAX_CHANNELS], ma_channel_mix_mode mixingMode, const float weights[MA_MAX_CHANNELS][MA_MAX_CHANNELS])
 {
     ma_channel_converter_config config;
     MA_ZERO_OBJECT(&config);
@@ -113,6 +118,17 @@ ma_channel_converter_config ma_channel_converter_config_init(ma_format format, m
     ma_channel_map_copy(config.channelMapIn,  channelMapIn,  channelsIn);
     ma_channel_map_copy(config.channelMapOut, channelMapOut, channelsOut);
     config.mixingMode  = mixingMode;
+
+    if (weights != NULL) {
+        ma_uint32 iChannelIn;
+        ma_uint32 iChannelOut;
+
+        for (iChannelIn = 0; iChannelIn < channelsIn; iChannelIn += 1) {
+            for (iChannelOut = 0; iChannelOut < channelsOut; iChannelOut += 1) {
+                config.weights[iChannelIn][iChannelOut] = weights[iChannelIn][iChannelOut];
+            }
+        }
+    }
 
     return config;
 }
@@ -638,15 +654,15 @@ ma_data_converter_config ma_data_converter_config_init(ma_format formatIn, ma_fo
 {
     ma_data_converter_config config;
     MA_ZERO_OBJECT(&config);
-    config.formatIn          = formatIn;
-    config.formatOut         = formatOut;
-    config.channelsIn        = channelsIn;
-    config.channelsOut       = channelsOut;
-    config.sampleRateIn      = sampleRateIn;
-    config.sampleRateOut     = sampleRateOut;
-    config.ditherMode        = ma_dither_mode_none;
-    config.resampleAlgorithm = ma_resample_algorithm_linear;
-    config.dynamicSampleRate = MA_TRUE; /* Enable dynamic sample rates by default. An optimization is to disable this when the sample rate is the same, but that will disable ma_data_converter_set_rate(). */
+    config.formatIn               = formatIn;
+    config.formatOut              = formatOut;
+    config.channelsIn             = channelsIn;
+    config.channelsOut            = channelsOut;
+    config.sampleRateIn           = sampleRateIn;
+    config.sampleRateOut          = sampleRateOut;
+    config.ditherMode             = ma_dither_mode_none;
+    config.resampleAlgorithm      = ma_resample_algorithm_linear;
+    config.allowDynamicSampleRate = MA_TRUE; /* Enable dynamic sample rates by default. An optimization is to disable this when the sample rate is the same, but that will disable ma_data_converter_set_rate(). */
 
     /* Linear resampling defaults. */
     config.resampling.linear.lpfCount = 1;
@@ -683,19 +699,37 @@ ma_result ma_data_converter_init(const ma_data_converter_config* pConfig, ma_dat
     }
 
 
-    /* Channel router. */
-    if (pConverter->config.channelsIn != pConverter->config.channelsOut) {
-        pConverter->hasChannelRouter = MA_TRUE;
+    /* Channel converter. We always initialize this, but we check if it configures itself as a passthrough to determine whether or not it's needed. */
+    {
+        ma_channel_converter_config channelConverterConfig;
+        ma_format channelConverterFormat;
+        
+        if (pConverter->config.formatIn == ma_format_s16) {
+            channelConverterFormat = ma_format_s16;
+        } else {
+            channelConverterFormat = ma_format_f32;
+        }
+
+        channelConverterConfig = ma_channel_converter_config_init(channelConverterFormat, pConverter->config.channelsIn, pConverter->config.channelMapIn, pConverter->config.channelsOut, pConverter->config.channelMapOut, pConverter->config.channelMixMode, pConverter->config.channelWeights);
+        result = ma_channel_converter_init(&channelConverterConfig, &pConverter->channelConverter);
+        if (result != MA_SUCCESS) {
+            return result;
+        }
+
+        /* If the channel converter is not a passthrough we need to enable it. Otherwise we can skip it. */
+        if (pConverter->channelConverter.isPassthrough == MA_FALSE) {
+            pConverter->hasChannelConverter = MA_TRUE;
+        }
     }
 
 
     /* Always enable dynamic sample rates if the input sample rate is different because we're always going to need a resampler in this case anyway. */
-    if (pConverter->config.dynamicSampleRate == MA_FALSE) {
-        pConverter->config.dynamicSampleRate = pConverter->config.sampleRateIn != pConverter->config.sampleRateOut;
+    if (pConverter->config.allowDynamicSampleRate == MA_FALSE) {
+        pConverter->config.allowDynamicSampleRate = pConverter->config.sampleRateIn != pConverter->config.sampleRateOut;
     }
 
     /* Resampler. */
-    if (pConverter->config.dynamicSampleRate) {
+    if (pConverter->config.allowDynamicSampleRate) {
         ma_resampler_config resamplerConfig;
         ma_format resamplerFormat;
         ma_uint32 resamplerChannels;
@@ -729,7 +763,7 @@ ma_result ma_data_converter_init(const ma_data_converter_config* pConfig, ma_dat
     /* We can enable passthrough optimizations if applicable. Note that we'll only be able to do this if the sample rate is static. */
     if (pConverter->hasPreFormatConversion  == MA_FALSE &&
         pConverter->hasPostFormatConversion == MA_FALSE &&
-        pConverter->hasChannelRouter        == MA_FALSE &&
+        pConverter->hasChannelConverter     == MA_FALSE &&
         pConverter->hasResampler            == MA_FALSE) {
         pConverter->isPassthrough = MA_TRUE;
     }
@@ -1004,7 +1038,7 @@ ma_result ma_data_converter_process_pcm_frames(ma_data_converter* pConverter, co
     */
     if (pConverter->config.channelsIn < pConverter->config.channelsOut) {
         /* Do resampling first, if necessary. */
-        MA_ASSERT(pConverter->hasChannelRouter == MA_TRUE);
+        MA_ASSERT(pConverter->hasChannelConverter == MA_TRUE);
 
         if (pConverter->hasResampler) {
             /* Channel routing first. */
@@ -1015,7 +1049,7 @@ ma_result ma_data_converter_process_pcm_frames(ma_data_converter* pConverter, co
         }
     } else {
         /* Do channel conversion first, if necessary. */
-        if (pConverter->hasChannelRouter) {
+        if (pConverter->hasChannelConverter) {
             if (pConverter->hasResampler) {
                 /* Resampling first. */
                 return ma_data_converter_process_pcm_frames__resampling_first(pConverter, pFramesIn, pFrameCountIn, pFramesOut, pFrameCountOut);
