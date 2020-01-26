@@ -891,7 +891,7 @@ static ma_result ma_data_converter_process_pcm_frames__resample_with_format_conv
         ma_uint64 frameCountOutThisIteration;
 
         if (pFramesIn != NULL) {
-            pFramesInThisIteration = ma_offset_ptr(pFramesIn, framesProcessedIn * ma_get_bytes_per_frame(pConverter->resampler.config.format, pConverter->resampler.config.channels));
+            pFramesInThisIteration = ma_offset_ptr(pFramesIn, framesProcessedIn * ma_get_bytes_per_frame(pConverter->config.formatIn, pConverter->config.channelsIn));
         } else {
             pFramesInThisIteration = NULL;
         }
@@ -912,6 +912,12 @@ static ma_result ma_data_converter_process_pcm_frames__resample_with_format_conv
                 frameCountInThisIteration = tempBufferInCap;
             }
 
+            if (pConverter->hasPostFormatConversion) {
+               if (frameCountOutThisIteration > tempBufferOutCap) {
+                   frameCountOutThisIteration = tempBufferOutCap;
+               }
+            }
+
             if (pFramesInThisIteration != NULL) {
                 ma_pcm_convert(pTempBufferIn, pConverter->resampler.config.format, pFramesInThisIteration, pConverter->config.formatIn, frameCountInThisIteration, pConverter->config.ditherMode);
             } else {
@@ -922,10 +928,6 @@ static ma_result ma_data_converter_process_pcm_frames__resample_with_format_conv
 
             if (pConverter->hasPostFormatConversion) {
                 /* Both input and output conversion required. Output to the temp buffer. */
-                if (frameCountOutThisIteration > tempBufferOutCap) {
-                    frameCountOutThisIteration = tempBufferOutCap;
-                }
-
                 result = ma_resampler_process_pcm_frames(&pConverter->resampler, pTempBufferIn, &frameCountInThisIteration, pTempBufferOut, &frameCountOutThisIteration);
             } else {
                 /* Only pre-format required. Output straight to the output buffer. */
@@ -987,38 +989,359 @@ static ma_result ma_data_converter_process_pcm_frames__resample_only(ma_data_con
 
 static ma_result ma_data_converter_process_pcm_frames__channels_only(ma_data_converter* pConverter, const void* pFramesIn, ma_uint64* pFrameCountIn, void* pFramesOut, ma_uint64* pFrameCountOut)
 {
+    ma_result result;
+    ma_uint64 frameCountIn;
+    ma_uint64 frameCountOut;
+    ma_uint64 frameCount;
+
     MA_ASSERT(pConverter != NULL);
 
-    (void)pConverter;
-    (void)pFramesIn;
-    (void)pFrameCountIn;
-    (void)pFramesOut;
-    (void)pFrameCountOut;
-    return MA_INVALID_OPERATION;
+    frameCountIn = 0;
+    if (pFrameCountIn != NULL) {
+        frameCountIn = *pFrameCountIn;
+    }
+
+    frameCountOut = 0;
+    if (pFrameCountOut != NULL) {
+        frameCountOut = *pFrameCountOut;
+    }
+
+    frameCount = ma_min(frameCountIn, frameCountOut);
+
+    if (pConverter->hasPreFormatConversion == MA_FALSE && pConverter->hasPostFormatConversion == MA_FALSE) {
+        /* No format conversion required. */
+        result = ma_channel_converter_process_pcm_frames(&pConverter->channelConverter, pFramesOut, pFramesIn, frameCount);
+        if (result != MA_SUCCESS) {
+            return result;
+        }
+    } else {
+        /* Format conversion required. */
+        ma_uint64 framesProcessed = 0;
+
+        while (framesProcessed < frameCount) {
+            ma_uint8 pTempBufferOut[MA_DATA_CONVERTER_STACK_BUFFER_SIZE];
+            const ma_uint32 tempBufferOutCap = sizeof(pTempBufferOut) / ma_get_bytes_per_frame(pConverter->channelConverter.format, pConverter->channelConverter.channelsOut);
+            const void* pFramesInThisIteration;
+            /* */ void* pFramesOutThisIteration;
+            ma_uint64 frameCountThisIteration;
+
+            if (pFramesIn != NULL) {
+                pFramesInThisIteration = ma_offset_ptr(pFramesIn, framesProcessed * ma_get_bytes_per_frame(pConverter->config.formatIn, pConverter->config.channelsIn));
+            } else {
+                pFramesInThisIteration = NULL;
+            }
+
+            if (pFramesOut != NULL) {
+                pFramesOutThisIteration = ma_offset_ptr(pFramesOut, framesProcessed * ma_get_bytes_per_frame(pConverter->config.formatOut, pConverter->config.channelsOut));
+            } else {
+                pFramesOutThisIteration = NULL;
+            }
+
+            /* Do a pre format conversion if necessary. */
+            if (pConverter->hasPreFormatConversion) {
+                ma_uint8 pTempBufferIn[MA_DATA_CONVERTER_STACK_BUFFER_SIZE];
+                const ma_uint32 tempBufferInCap = sizeof(pTempBufferIn) / ma_get_bytes_per_frame(pConverter->channelConverter.format, pConverter->channelConverter.channelsIn);
+
+                frameCountThisIteration = (frameCount - framesProcessed);
+                if (frameCountThisIteration > tempBufferInCap) {
+                    frameCountThisIteration = tempBufferInCap;
+                }
+
+                if (pConverter->hasPostFormatConversion) {
+                    if (frameCountThisIteration > tempBufferOutCap) {
+                        frameCountThisIteration = tempBufferOutCap;
+                    }
+                }
+
+                if (pFramesInThisIteration != NULL) {
+                    ma_pcm_convert(pTempBufferIn, pConverter->channelConverter.format, pFramesInThisIteration, pConverter->config.formatIn, frameCountThisIteration, pConverter->config.ditherMode);
+                } else {
+                    MA_ZERO_MEMORY(pTempBufferIn, sizeof(pTempBufferIn));
+                }
+
+                if (pConverter->hasPostFormatConversion) {
+                    /* Both input and output conversion required. Output to the temp buffer. */
+                    result = ma_channel_converter_process_pcm_frames(&pConverter->channelConverter, pTempBufferOut, pTempBufferIn, frameCountThisIteration);
+                } else {
+                    /* Only pre-format required. Output straight to the output buffer. */
+                    result = ma_channel_converter_process_pcm_frames(&pConverter->channelConverter, pFramesOutThisIteration, pTempBufferIn, frameCountThisIteration);
+                }
+
+                if (result != MA_SUCCESS) {
+                    break;
+                }
+            } else {
+                /* No pre-format required. Just read straight from the input buffer. */
+                MA_ASSERT(pConverter->hasPostFormatConversion == MA_TRUE);
+
+                frameCountThisIteration = (frameCount - framesProcessed);
+                if (frameCountThisIteration > tempBufferOutCap) {
+                    frameCountThisIteration = tempBufferOutCap;
+                }
+
+                result = ma_channel_converter_process_pcm_frames(&pConverter->channelConverter, pTempBufferOut, pFramesInThisIteration, frameCountThisIteration);
+                if (result != MA_SUCCESS) {
+                    break;
+                }
+            }
+
+            /* If we are doing a post format conversion we need to do that now. */
+            if (pConverter->hasPostFormatConversion) {
+                if (pFramesOutThisIteration != NULL) {
+                    ma_pcm_convert(pFramesOutThisIteration, pConverter->config.formatOut, pTempBufferOut, pConverter->channelConverter.format, frameCountThisIteration * pConverter->channelConverter.channelsOut, pConverter->config.ditherMode);
+                }
+            }
+
+            framesProcessed += frameCountThisIteration;
+        }
+    }
+
+    if (pFrameCountIn != NULL) {
+        *pFrameCountIn = frameCount;
+    }
+    if (pFrameCountOut != NULL) {
+        *pFrameCountOut = frameCount;
+    }
+
+    return MA_SUCCESS;
 }
 
 static ma_result ma_data_converter_process_pcm_frames__resampling_first(ma_data_converter* pConverter, const void* pFramesIn, ma_uint64* pFrameCountIn, void* pFramesOut, ma_uint64* pFrameCountOut)
 {
-    MA_ASSERT(pConverter != NULL);
+    ma_result result;
+    ma_uint64 frameCountIn;
+    ma_uint64 frameCountOut;
+    ma_uint64 framesProcessedIn;
+    ma_uint64 framesProcessedOut;
+    ma_uint8  pTempBufferIn[MA_DATA_CONVERTER_STACK_BUFFER_SIZE];   /* In resampler format. */
+    ma_uint64 tempBufferInCap;
+    ma_uint8  pTempBufferMid[MA_DATA_CONVERTER_STACK_BUFFER_SIZE];  /* In resampler format, channel converter input format. */
+    ma_uint64 tempBufferMidCap;
+    ma_uint8  pTempBufferOut[MA_DATA_CONVERTER_STACK_BUFFER_SIZE];  /* In channel converter output format. */
+    ma_uint64 tempBufferOutCap;
 
-    (void)pConverter;
-    (void)pFramesIn;
-    (void)pFrameCountIn;
-    (void)pFramesOut;
-    (void)pFrameCountOut;
-    return MA_INVALID_OPERATION;
+    MA_ASSERT(pConverter != NULL);
+    MA_ASSERT(pConverter->resampler.config.format   == pConverter->channelConverter.format);
+    MA_ASSERT(pConverter->resampler.config.channels == pConverter->channelConverter.channelsIn);
+    MA_ASSERT(pConverter->resampler.config.channels <  pConverter->channelConverter.channelsOut);
+
+    frameCountIn = 0;
+    if (pFrameCountIn != NULL) {
+        frameCountIn = *pFrameCountIn;
+    }
+
+    frameCountOut = 0;
+    if (pFrameCountOut != NULL) {
+        frameCountOut = *pFrameCountOut;
+    }
+
+    framesProcessedIn  = 0;
+    framesProcessedOut = 0;
+
+    tempBufferInCap  = sizeof(pTempBufferIn)  / ma_get_bytes_per_frame(pConverter->resampler.config.format, pConverter->resampler.config.channels);
+    tempBufferMidCap = sizeof(pTempBufferIn)  / ma_get_bytes_per_frame(pConverter->resampler.config.format, pConverter->resampler.config.channels);
+    tempBufferOutCap = sizeof(pTempBufferOut) / ma_get_bytes_per_frame(pConverter->channelConverter.format, pConverter->channelConverter.channelsOut);
+
+    while (framesProcessedIn < frameCountIn && framesProcessedOut < frameCountOut) {
+        ma_uint64 frameCountInThisIteration;
+        ma_uint64 frameCountOutThisIteration;
+        const void* pRunningFramesIn = NULL;
+        void* pRunningFramesOut = NULL;
+        const void* pResampleBufferIn;
+        void* pChannelsBufferOut;
+
+        if (pFramesIn != NULL) {
+            pRunningFramesIn  = ma_offset_ptr(pFramesIn,  framesProcessedIn  * ma_get_bytes_per_frame(pConverter->config.formatIn, pConverter->config.channelsIn));
+        }
+        if (pFramesOut != NULL) {
+            pRunningFramesOut = ma_offset_ptr(pFramesOut, framesProcessedOut * ma_get_bytes_per_frame(pConverter->config.formatOut, pConverter->config.channelsOut));
+        }
+
+        /* Run input data through the resampler and output it to the temporary buffer. */
+        frameCountInThisIteration = (frameCountIn - framesProcessedIn);
+
+        if (pConverter->hasPreFormatConversion) {
+            if (frameCountInThisIteration > tempBufferInCap) {
+                frameCountInThisIteration = tempBufferInCap;
+            }
+
+            if (pFramesIn != NULL) {
+                ma_pcm_convert(pTempBufferIn, pConverter->resampler.config.format, pRunningFramesIn, pConverter->config.formatIn, frameCountInThisIteration * pConverter->config.channelsIn, pConverter->config.ditherMode);
+            } else {
+                MA_ZERO_MEMORY(pTempBufferIn, sizeof(pTempBufferIn));
+            }
+
+            pResampleBufferIn = pTempBufferIn;
+        } else {
+            pResampleBufferIn = pRunningFramesIn;
+        }
+
+        frameCountOutThisIteration = (frameCountOut - framesProcessedOut);
+        if (frameCountOutThisIteration > tempBufferMidCap) {
+            frameCountOutThisIteration = tempBufferMidCap;
+        }
+
+        /* We can't read more frames than can fit in the output buffer. */
+        if (pConverter->hasPostFormatConversion) {
+            if (frameCountOutThisIteration > tempBufferOutCap) {
+                frameCountOutThisIteration = tempBufferOutCap;
+            }
+        }
+
+        result = ma_resampler_process_pcm_frames(&pConverter->resampler, pResampleBufferIn, &frameCountInThisIteration, pTempBufferMid, &frameCountOutThisIteration);
+        if (result != MA_SUCCESS) {
+            return result;
+        }
+
+
+        /*
+        The input data has been resampled so now we need to run it through the channel converter. The input data is always contained in pTempBufferMid. We only need to do
+        this part if we have an output buffer.
+        */
+        if (pFramesOut != NULL) {
+            if (pConverter->hasPostFormatConversion) {
+                pChannelsBufferOut = pTempBufferOut;
+            } else {
+                pChannelsBufferOut = pRunningFramesOut;
+            }
+
+            result = ma_channel_converter_process_pcm_frames(&pConverter->channelConverter, pChannelsBufferOut, pTempBufferMid, frameCountOutThisIteration);
+            if (result != MA_SUCCESS) {
+                return result;
+            }
+
+            /* Finally we do post format conversion. */
+            if (pConverter->hasPostFormatConversion) {
+                ma_pcm_convert(pRunningFramesOut, pConverter->config.formatOut, pTempBufferMid, pConverter->channelConverter.format, frameCountOutThisIteration * pConverter->channelConverter.channelsOut, pConverter->config.ditherMode);
+            }
+        }
+
+
+        framesProcessedIn  += frameCountInThisIteration;
+        framesProcessedOut += frameCountOutThisIteration;
+    }
+
+    return MA_SUCCESS;
 }
 
 static ma_result ma_data_converter_process_pcm_frames__channels_first(ma_data_converter* pConverter, const void* pFramesIn, ma_uint64* pFrameCountIn, void* pFramesOut, ma_uint64* pFrameCountOut)
 {
-    MA_ASSERT(pConverter != NULL);
+    ma_result result;
+    ma_uint64 frameCountIn;
+    ma_uint64 frameCountOut;
+    ma_uint64 framesProcessedIn;
+    ma_uint64 framesProcessedOut;
+    ma_uint8  pTempBufferIn[MA_DATA_CONVERTER_STACK_BUFFER_SIZE];   /* In resampler format. */
+    ma_uint64 tempBufferInCap;
+    ma_uint8  pTempBufferMid[MA_DATA_CONVERTER_STACK_BUFFER_SIZE];  /* In resampler format, channel converter input format. */
+    ma_uint64 tempBufferMidCap;
+    ma_uint8  pTempBufferOut[MA_DATA_CONVERTER_STACK_BUFFER_SIZE];  /* In channel converter output format. */
+    ma_uint64 tempBufferOutCap;
 
-    (void)pConverter;
-    (void)pFramesIn;
-    (void)pFrameCountIn;
-    (void)pFramesOut;
-    (void)pFrameCountOut;
-    return MA_INVALID_OPERATION;
+    MA_ASSERT(pConverter != NULL);
+    MA_ASSERT(pConverter->resampler.config.format   == pConverter->channelConverter.format);
+    MA_ASSERT(pConverter->resampler.config.channels == pConverter->channelConverter.channelsOut);
+    MA_ASSERT(pConverter->resampler.config.channels >  pConverter->channelConverter.channelsIn);
+
+    frameCountIn = 0;
+    if (pFrameCountIn != NULL) {
+        frameCountIn = *pFrameCountIn;
+    }
+
+    frameCountOut = 0;
+    if (pFrameCountOut != NULL) {
+        frameCountOut = *pFrameCountOut;
+    }
+
+    framesProcessedIn  = 0;
+    framesProcessedOut = 0;
+
+    tempBufferInCap  = sizeof(pTempBufferIn)  / ma_get_bytes_per_frame(pConverter->channelConverter.format, pConverter->channelConverter.channelsIn);
+    tempBufferMidCap = sizeof(pTempBufferIn)  / ma_get_bytes_per_frame(pConverter->channelConverter.format, pConverter->channelConverter.channelsOut);
+    tempBufferOutCap = sizeof(pTempBufferOut) / ma_get_bytes_per_frame(pConverter->resampler.config.format, pConverter->resampler.config.channels);
+
+    while (framesProcessedIn < frameCountIn && framesProcessedOut < frameCountOut) {
+        ma_uint64 frameCountInThisIteration;
+        ma_uint64 frameCountOutThisIteration;
+        const void* pRunningFramesIn = NULL;
+        void* pRunningFramesOut = NULL;
+        const void* pChannelsBufferIn;
+        void* pResampleBufferOut;
+
+        if (pFramesIn != NULL) {
+            pRunningFramesIn  = ma_offset_ptr(pFramesIn,  framesProcessedIn  * ma_get_bytes_per_frame(pConverter->config.formatIn, pConverter->config.channelsIn));
+        }
+        if (pFramesOut != NULL) {
+            pRunningFramesOut = ma_offset_ptr(pFramesOut, framesProcessedOut * ma_get_bytes_per_frame(pConverter->config.formatOut, pConverter->config.channelsOut));
+        }
+
+        /* Run input data through the channel converter and output it to the temporary buffer. */
+        frameCountInThisIteration = (frameCountIn - framesProcessedIn);
+
+        if (pConverter->hasPreFormatConversion) {
+            if (frameCountInThisIteration > tempBufferInCap) {
+                frameCountInThisIteration = tempBufferInCap;
+            }
+
+            if (pRunningFramesIn != NULL) {
+                ma_pcm_convert(pTempBufferIn, pConverter->channelConverter.format, pRunningFramesIn, pConverter->config.formatIn, frameCountInThisIteration * pConverter->config.channelsIn, pConverter->config.ditherMode);
+                pChannelsBufferIn = pTempBufferIn;
+            } else {
+                pChannelsBufferIn = NULL;
+            }
+        } else {
+            pChannelsBufferIn = pRunningFramesIn;
+        }
+
+        /*
+        We can't convert more frames than will fit in the output buffer. We shouldn't actually need to do this check because the channel count is always reduced
+        in this case which means we should always have capacity, but I'm leaving it here just for safety for future maintenance.
+        */
+        if (frameCountInThisIteration > tempBufferMidCap) {
+            frameCountInThisIteration = tempBufferMidCap;
+        }
+
+        result = ma_channel_converter_process_pcm_frames(&pConverter->channelConverter, pTempBufferMid, pChannelsBufferIn, frameCountInThisIteration);
+        if (result != MA_SUCCESS) {
+            return result;
+        }
+
+
+        /* At this point we have converted the channels to the output channel count which we now need to resample. */
+        frameCountOutThisIteration = (frameCountOut - framesProcessedOut);
+        if (frameCountOutThisIteration > tempBufferMidCap) {
+            frameCountOutThisIteration = tempBufferMidCap;
+        }
+
+        /* We can't read more frames than can fit in the output buffer. */
+        if (pConverter->hasPostFormatConversion) {
+            if (frameCountOutThisIteration > tempBufferOutCap) {
+                frameCountOutThisIteration = tempBufferOutCap;
+            }
+
+            pResampleBufferOut = pTempBufferOut;
+        } else {
+            pResampleBufferOut = pRunningFramesOut;
+        }
+
+        result = ma_resampler_process_pcm_frames(&pConverter->resampler, pTempBufferIn, &frameCountInThisIteration, pResampleBufferOut, &frameCountOutThisIteration);
+        if (result != MA_SUCCESS) {
+            return result;
+        }
+
+        /* Finally we can do the post format conversion. */
+        if (pConverter->hasPostFormatConversion) {
+            if (pRunningFramesOut != NULL) {
+                ma_pcm_convert(pRunningFramesOut, pConverter->config.formatOut, pResampleBufferOut, pConverter->resampler.config.format, frameCountOutThisIteration * pConverter->config.channelsOut, pConverter->config.ditherMode);
+            }
+        }
+
+
+        framesProcessedIn  += frameCountInThisIteration;
+        framesProcessedOut += frameCountOutThisIteration;
+    }
+    
+    return MA_SUCCESS;
 }
 
 ma_result ma_data_converter_process_pcm_frames(ma_data_converter* pConverter, const void* pFramesIn, ma_uint64* pFrameCountIn, void* pFramesOut, ma_uint64* pFrameCountOut)
