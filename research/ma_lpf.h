@@ -41,10 +41,10 @@ typedef struct
     ma_format format;
     ma_uint32 channels;
     ma_uint32 sampleRate;
-    ma_uint32 cutoffFrequency;
+    double cutoffFrequency;
 } ma_lpf_config;
 
-ma_lpf_config ma_lpf_config_init(ma_format format, ma_uint32 channels, ma_uint32 sampleRate, ma_uint32 cutoffFrequency);
+ma_lpf_config ma_lpf_config_init(ma_format format, ma_uint32 channels, ma_uint32 sampleRate, double cutoffFrequency);
 
 typedef struct
 {
@@ -220,7 +220,7 @@ ma_uint32 ma_biquad_get_latency(ma_biquad* pBQ)
 }
 
 
-ma_lpf_config ma_lpf_config_init(ma_format format, ma_uint32 channels, ma_uint32 sampleRate, ma_uint32 cutoffFrequency)
+ma_lpf_config ma_lpf_config_init(ma_format format, ma_uint32 channels, ma_uint32 sampleRate, double cutoffFrequency)
 {
     ma_lpf_config config;
     

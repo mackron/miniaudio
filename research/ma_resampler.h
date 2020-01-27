@@ -332,7 +332,7 @@ static ma_result ma_linear_resampler_set_rate_internal(ma_linear_resampler* pRes
         ma_result result;
         ma_uint32 iFilter;
         ma_uint32 lpfSampleRate;
-        ma_uint32 lpfCutoffFrequency;
+        double lpfCutoffFrequency;
         ma_lpf_config lpfConfig;
 
         if (pResampler->config.lpfCount > MA_MAX_RESAMPLER_LPF_FILTERS) {
@@ -340,7 +340,7 @@ static ma_result ma_linear_resampler_set_rate_internal(ma_linear_resampler* pRes
         }
 
         lpfSampleRate      = (ma_uint32)(ma_max(pResampler->config.sampleRateIn, pResampler->config.sampleRateOut));
-        lpfCutoffFrequency = (ma_uint32)(ma_min(pResampler->config.sampleRateIn, pResampler->config.sampleRateOut) * 0.5 * pResampler->config.lpfNyquistFactor);
+        lpfCutoffFrequency = (   double)(ma_min(pResampler->config.sampleRateIn, pResampler->config.sampleRateOut) * 0.5 * pResampler->config.lpfNyquistFactor);
 
         lpfConfig = ma_lpf_config_init(pResampler->config.format, pResampler->config.channels, lpfSampleRate, lpfCutoffFrequency);
 
@@ -522,7 +522,7 @@ static ma_result ma_linear_resampler_process_pcm_frames_s16_downsample(ma_linear
             MA_ASSERT(pResampler->inTimeInt == 0);
             ma_linear_resampler_interpolate_frame_s16(pResampler, pFramesOutS16);
 
-            pFramesOutS16 += 1;
+            pFramesOutS16 += pResampler->config.channels;
         }
 
         framesProcessedOut += 1;
@@ -605,7 +605,7 @@ static ma_result ma_linear_resampler_process_pcm_frames_s16_upsample(ma_linear_r
                 ma_lpf_process_pcm_frame_s16(&pResampler->lpf[iFilter], pFramesOutS16, pFramesOutS16);
             }
 
-            pFramesOutS16 += 1;
+            pFramesOutS16 += pResampler->config.channels;
         }
 
         framesProcessedOut += 1;
@@ -699,7 +699,7 @@ static ma_result ma_linear_resampler_process_pcm_frames_f32_downsample(ma_linear
             MA_ASSERT(pResampler->inTimeInt == 0);
             ma_linear_resampler_interpolate_frame_f32(pResampler, pFramesOutF32);
 
-            pFramesOutF32 += 1;
+            pFramesOutF32 += pResampler->config.channels;
         }
 
         framesProcessedOut += 1;
@@ -782,7 +782,7 @@ static ma_result ma_linear_resampler_process_pcm_frames_f32_upsample(ma_linear_r
                 ma_lpf_process_pcm_frame_f32(&pResampler->lpf[iFilter], pFramesOutF32, pFramesOutF32);
             }
 
-            pFramesOutF32 += 1;
+            pFramesOutF32 += pResampler->config.channels;
         }
 
         framesProcessedOut += 1;
