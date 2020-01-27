@@ -81,6 +81,9 @@
     <ClCompile Include="..\extras\speex_resampler\thirdparty\resample.c">
       <Filter>Source Files\speex_resampler</Filter>
     </ClCompile>
+    <ClCompile Include="..\research\tests\ma_data_converter_playback.c">
+      <Filter>Source Files</Filter>
+    </ClCompile>
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="..\miniaudio.h">
