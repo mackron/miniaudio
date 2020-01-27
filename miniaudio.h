@@ -1573,6 +1573,7 @@ void ma_pcm_f32_to_s16(void* pOut, const void* pIn, ma_uint64 count, ma_dither_m
 void ma_pcm_f32_to_s24(void* pOut, const void* pIn, ma_uint64 count, ma_dither_mode ditherMode);
 void ma_pcm_f32_to_s32(void* pOut, const void* pIn, ma_uint64 count, ma_dither_mode ditherMode);
 void ma_pcm_convert(void* pOut, ma_format formatOut, const void* pIn, ma_format formatIn, ma_uint64 sampleCount, ma_dither_mode ditherMode);
+void ma_convert_pcm_frames(void* pOut, ma_format formatOut, const void* pIn, ma_format formatIn, ma_uint64 frameCount, ma_uint32 channels, ma_dither_mode ditherMode);
 
 /*
 Deinterleaves an interleaved buffer.
@@ -3364,6 +3365,8 @@ typedef struct
 } ma_sine_wave;
 
 ma_result ma_sine_wave_init(double amplitude, double period, ma_uint32 sampleRate, ma_sine_wave* pSineWave);
+ma_uint64 ma_sine_wave_read_pcm_frames(ma_sine_wave* pSineWave, void* pFramesOut, ma_uint64 frameCount, ma_format format, ma_uint32 channels);
+
 ma_uint64 ma_sine_wave_read_f32(ma_sine_wave* pSineWave, ma_uint64 count, float* pSamples);
 ma_uint64 ma_sine_wave_read_f32_ex(ma_sine_wave* pSineWave, ma_uint64 frameCount, ma_uint32 channels, ma_stream_layout layout, float** ppFrames);
 
@@ -32394,6 +32397,11 @@ void ma_pcm_convert(void* pOut, ma_format formatOut, const void* pIn, ma_format 
     }
 }
 
+void ma_convert_pcm_frames(void* pOut, ma_format formatOut, const void* pIn, ma_format formatIn, ma_uint64 frameCount, ma_uint32 channels, ma_dither_mode ditherMode)
+{
+    ma_pcm_convert(pOut, formatOut, pIn, formatIn, frameCount * channels, ditherMode);
+}
+
 void ma_deinterleave_pcm_frames(ma_format format, ma_uint32 channels, ma_uint64 frameCount, const void* pInterleavedPCMFrames, void** ppDeinterleavedPCMFrames)
 {
     if (pInterleavedPCMFrames == NULL || ppDeinterleavedPCMFrames == NULL) {
@@ -35818,6 +35826,35 @@ ma_result ma_sine_wave_init(double amplitude, double periodsPerSecond, ma_uint32
 ma_uint64 ma_sine_wave_read_f32(ma_sine_wave* pSineWave, ma_uint64 count, float* pSamples)
 {
     return ma_sine_wave_read_f32_ex(pSineWave, count, 1, ma_stream_layout_interleaved, &pSamples);
+}
+
+ma_uint64 ma_sine_wave_read_pcm_frames(ma_sine_wave* pSineWave, void* pFramesOut, ma_uint64 frameCount, ma_format format, ma_uint32 channels)
+{
+    if (pSineWave == NULL) {
+        return 0;
+    }
+
+    if (pFramesOut != NULL) {
+        ma_uint64 iFrame;
+        for (iFrame = 0; iFrame < frameCount; iFrame += 1) {
+            ma_uint64 iChannel;
+            float s;
+
+            s = (float)(sin(pSineWave->time * pSineWave->periodsPerSecond) * pSineWave->amplitude);
+            pSineWave->time += pSineWave->delta;
+
+            for (iChannel = 0; iChannel < channels; iChannel += 1) {
+                ma_uint32 bpf = ma_get_bytes_per_frame(format, channels);
+                ma_uint32 bps = ma_get_bytes_per_sample(format);
+
+                ma_pcm_convert(ma_offset_ptr(pFramesOut, iFrame*bpf + iChannel*bps), format, &s, ma_format_f32, 1, ma_dither_mode_none);
+            }
+        }
+    } else {
+        pSineWave->time += pSineWave->delta * (ma_int64)frameCount; /* Cast to int64 required for VC6. Won't affect anything in practice. */
+    }
+
+    return frameCount;
 }
 
 ma_uint64 ma_sine_wave_read_f32_ex(ma_sine_wave* pSineWave, ma_uint64 frameCount, ma_uint32 channels, ma_stream_layout layout, float** ppFrames)
