@@ -5,6 +5,61 @@
 
 #include "ma_resampler.h"
 
+/**************************************************************************************************************************************************************
+
+Channel Conversion
+==================
+Channel conversion is used for channel rearrangement and conversion from one channel count to another. The `ma_channel_converter` API is used for channel
+conversion. Below is an example of initializing a simple channel converter which converts from mono to stereo.
+
+    ```c
+    ma_channel_converter_config config = ma_channel_converter_config_init(ma_format, 1, NULL, 2, NULL, ma_channel_mix_mode_default, NULL);
+    result = ma_channel_converter_init(&config, &converter);
+    if (result != MA_SUCCESS) {
+        // Error.
+    }
+    ```
+
+To process perform the conversion simply call `ma_channel_converter_process_pcm_frames()` like so:
+
+    ```c
+    ma_result result = ma_channel_converter_process_pcm_frames(&converter, pFramesOut, pFramesIn, frameCount);
+    if (result != MA_SUCCESS) {
+        // Error.
+    }
+    ```
+
+It is up to the caller to ensure the output buffer is large enough to accomodate the new PCM frames.
+
+The only formats supported are ma_format_s16 and ma_format_f32. If you need another format you need to convert your data manually which you can do with
+ma_pcm_convert(), etc.
+
+Input and output PCM frames are always interleaved. Deinterleaved layouts are not supported.
+
+
+Channel Mapping
+---------------
+In addition to converting from one channel count to another, like the example above, The channel converter can also be used to rearrange channels. When
+initializing the channel converter, you can optionally pass in channel maps for both the input and output frames. If the channel counts are the same, and each
+channel map contains the same channel positions with the exception that they're in a different order, a simple shuffling of the channels with be performed. If,
+however, there is not a 1:1 mapping of channel positions, or the channel counts differ, the input channels will be mixed based on a mixing
+mode which is specified when initializing the `ma_channel_converter_config` object.
+
+When converting from mono to multi-channel, the mono channel is simply copied to each output channel. When going the other way around, the audio of each output
+channel is simply averaged and copied to the mono channel.
+
+In more complicated cases blending is used. The `ma_channel_mix_mode_simple` mode will drop excess channels and silence extra channels. For example, converting
+from 4 to 2 channels, the 3rd and 4th channels will be dropped, whereas converting from 2 to 4 channels will put silence into the 3rd and 4th channels.
+
+The `ma_channel_mix_mode_rectangle` mode uses spacial locality based on a rectangle to compute a simple distribution between input and output. Imagine sitting
+in the middle of a room, with speakers on the walls representing channel positions. The MA_CHANNEL_FRONT_LEFT position can be thought of as being in the corner
+of the front and left walls.
+
+Finally, the `ma_channel_mix_mode_custom_weights` mode can be used to use custom user-defined weights. Custom weights can be passed in as the last parameter of
+`ma_channel_converter_config_init()`.
+
+**************************************************************************************************************************************************************/
+
 typedef struct
 {
     ma_format format;
