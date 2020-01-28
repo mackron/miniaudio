@@ -1,17 +1,39 @@
 #ifndef ma_lpf_h
 #define ma_lpf_h
 
-/*
-TODO:
-  - Document how changing biquad constants requires reinitialization of the filter. ma_biquad_reinit().
-  - Document how ma_biquad_process_pcm_frames() and ma_lpf_process_pcm_frames() supports in-place filtering by passing in the same buffer for both the input and output.
-*/
-
 /**************************************************************************************************************************************************************
 
 Biquad Filter
 =============
+Biquad filtering is achieved with the `ma_biquad` API. Example:
 
+    ```c
+    ma_biquad_config config = ma_biquad_config_init(ma_format_f32, channels, a0, a1, a2, b0, b1, b2);
+    ma_result result = ma_biquad_init(&config, &biquad);
+    if (result != MA_SUCCESS) {
+        // Error.
+    }
+
+    ...
+
+    ma_biquad_process_pcm_frames(&biquad, pFramesOut, pFramesIn, frameCount);
+    ```
+
+Biquad filtering is implemented using transposed direct form 2. The denominator coefficients are a0, a1 and a2, and the numerator coefficients are b0, b1 and
+b2. The a0 coefficient is required and coefficients must not be pre-normalized.
+
+Supported formats are ma_format_s16 and ma_format_f32. If you need to use a different format you need to convert it yourself beforehand. Input and output
+frames are always interleaved.
+
+Filtering can be applied in-place by passing in the same pointer for both the input and output buffers, like so:
+
+    ```c
+    ma_biquad_process_pcm_frames(&biquad, pMyData, pMyData, frameCount);
+    ```
+
+If you need to change the values of the coefficients, but maintain the values in the registers you can do so with `ma_biquad_reinit()`. This is useful if you
+need to change the properties of the filter while keeping the values of registers valid to avoid glitching or whatnot. Do not use `ma_biquad_init()` for this
+as it will do a full initialization which involves clearing the registers to 0.
 
 **************************************************************************************************************************************************************/
 
