@@ -89,7 +89,6 @@ ma_lpf_config ma_lpf_config_init(ma_format format, ma_uint32 channels, ma_uint32
 typedef struct
 {
     ma_biquad bq;   /* The low-pass filter is implemented as a biquad filter. */
-    ma_lpf_config config;
 } ma_lpf;
 
 ma_result ma_lpf_init(const ma_lpf_config* pConfig, ma_lpf* pLPF);
@@ -373,8 +372,6 @@ ma_result ma_lpf_init(const ma_lpf_config* pConfig, ma_lpf* pLPF)
         return MA_INVALID_ARGS;
     }
 
-    pLPF->config = *pConfig;
-
     bqConfig = ma_lpf__get_biquad_config(pConfig);
     result = ma_biquad_init(&bqConfig, &pLPF->bq);
     if (result != MA_SUCCESS) {
@@ -392,8 +389,6 @@ ma_result ma_lpf_reinit(const ma_lpf_config* pConfig, ma_lpf* pLPF)
     if (pLPF == NULL || pConfig == NULL) {
         return MA_INVALID_ARGS;
     }
-
-    pLPF->config = *pConfig;
 
     bqConfig = ma_lpf__get_biquad_config(pConfig);
     result = ma_biquad_reinit(&bqConfig, &pLPF->bq);
