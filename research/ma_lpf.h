@@ -242,14 +242,14 @@ static MA_INLINE void ma_biquad_process_pcm_frame_s16__direct_form_2_transposed(
     for (c = 0; c < pBQ->channels; c += 1) {
         float r1 = pBQ->r1[c].f32;
         float r2 = pBQ->r2[c].f32;
-        float x  = pX[c] / 32767.0f;                /* s16 -> f32 */
+        float x  = pX[c] / 32767.0f;    /* s16 -> f32 */
         float y;
 
         y  = b0*x        + r1;
         r1 = b1*x - a1*y + r2;
         r2 = b2*x - a2*y;
 
-        pY[c]          = (ma_int16)(y * 32767.0f);  /* f32 -> s16 */
+        pY[c]          = (ma_int16)ma_clamp((ma_int32)(y * 32767.0f), -32768, 32767);   /* f32 -> s16 */
         pBQ->r1[c].f32 = r1;
         pBQ->r2[c].f32 = r2;
     }
