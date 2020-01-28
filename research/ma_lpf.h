@@ -187,7 +187,7 @@ ma_result ma_biquad_reinit(const ma_biquad_config* pConfig, ma_biquad* pBQ)
         return MA_INVALID_ARGS; /* Division by zero. */
     }
 
-    /* Currently only supporting f32 and s16, but support for other formats will be added later. */
+    /* Only supporting f32 and s16. */
     if (pConfig->format != ma_format_f32 && pConfig->format != ma_format_s16) {
         return MA_INVALID_ARGS;
     }
@@ -265,7 +265,6 @@ ma_result ma_biquad_process_pcm_frames(ma_biquad* pBQ, void* pFramesOut, const v
 
     /* Note that the logic below needs to support in-place filtering. That is, it must support the case where pFramesOut and pFramesIn are the same. */
 
-    /* Currently only supporting f32. */
     if (pBQ->format == ma_format_f32) {
         /* */ float* pY = (      float*)pFramesOut;
         const float* pX = (const float*)pFramesIn;
@@ -286,7 +285,7 @@ ma_result ma_biquad_process_pcm_frames(ma_biquad* pBQ, void* pFramesOut, const v
         }
     } else {
         MA_ASSERT(MA_FALSE);
-        return MA_INVALID_ARGS; /* Format not supported. Should never hit this because it's checked in ma_biquad_init(). */
+        return MA_INVALID_ARGS; /* Format not supported. Should never hit this because it's checked in ma_biquad_init() and ma_biquad_reinit(). */
     }
 
     return MA_SUCCESS;
