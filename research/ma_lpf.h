@@ -7,6 +7,20 @@ TODO:
   - Document how ma_biquad_process_pcm_frames() and ma_lpf_process_pcm_frames() supports in-place filtering by passing in the same buffer for both the input and output.
 */
 
+/**************************************************************************************************************************************************************
+
+Biquad Filter
+=============
+
+
+**************************************************************************************************************************************************************/
+
+typedef union
+{
+    float    f32;
+    ma_int32 s32;
+} ma_biquad_coefficient;
+
 typedef struct
 {
     ma_format format;
@@ -23,11 +37,15 @@ ma_biquad_config ma_biquad_config_init(ma_format format, ma_uint32 channels, dou
 
 typedef struct
 {
-    ma_biquad_config config;
-    float x1[MA_MAX_CHANNELS];   /* x[n-1] */
-    float x2[MA_MAX_CHANNELS];   /* x[n-2] */
-    float y1[MA_MAX_CHANNELS];   /* y[n-1] */
-    float y2[MA_MAX_CHANNELS];   /* y[n-2] */
+    ma_format format;
+    ma_uint32 channels;
+    ma_biquad_coefficient a1;
+    ma_biquad_coefficient a2;
+    ma_biquad_coefficient b0;
+    ma_biquad_coefficient b1;
+    ma_biquad_coefficient b2;
+    ma_biquad_coefficient r1[MA_MAX_CHANNELS];
+    ma_biquad_coefficient r2[MA_MAX_CHANNELS];
 } ma_biquad;
 
 ma_result ma_biquad_init(const ma_biquad_config* pConfig, ma_biquad* pBQ);
@@ -111,19 +129,21 @@ ma_result ma_biquad_reinit(const ma_biquad_config* pConfig, ma_biquad* pBQ)
         return MA_INVALID_ARGS;
     }
 
-    pBQ->config = *pConfig;
+    pBQ->format   = pConfig->format;
+    pBQ->channels = pConfig->channels;
 
     /* Normalize. */
-    pBQ->config.a1 /= pBQ->config.a0;
-    pBQ->config.a2 /= pBQ->config.a0;
-    pBQ->config.b0 /= pBQ->config.a0;
-    pBQ->config.b1 /= pBQ->config.a0;
-    pBQ->config.b2 /= pBQ->config.a0;
+    pBQ->a1.f32 = (float)(pConfig->a1 / pConfig->a0);
+    pBQ->a2.f32 = (float)(pConfig->a2 / pConfig->a0);
+    pBQ->b0.f32 = (float)(pConfig->b0 / pConfig->a0);
+    pBQ->b1.f32 = (float)(pConfig->b1 / pConfig->a0);
+    pBQ->b2.f32 = (float)(pConfig->b2 / pConfig->a0);
 
     return MA_SUCCESS;
 }
 
-static MA_INLINE void ma_biquad_process_pcm_frame_f32(ma_biquad* pBQ, float* pY, const float* pX)
+#if 0
+static MA_INLINE void ma_biquad_process_pcm_frame_f32__direct_form_1(ma_biquad* pBQ, float* pY, const float* pX)
 {
     ma_uint32 c;
     const double a1 = pBQ->config.a1;
@@ -147,8 +167,35 @@ static MA_INLINE void ma_biquad_process_pcm_frame_f32(ma_biquad* pBQ, float* pY,
         pBQ->y1[c] = (float)y0;
     }
 }
+#endif
 
-static MA_INLINE void ma_biquad_process_pcm_frame_s16(ma_biquad* pBQ, ma_int16* pY, const ma_int16* pX)
+static MA_INLINE void ma_biquad_process_pcm_frame_f32__direct_form_2_transposed(ma_biquad* pBQ, float* pY, const float* pX)
+{
+    ma_uint32 c;
+    const float a1 = pBQ->a1.f32;
+    const float a2 = pBQ->a2.f32;
+    const float b0 = pBQ->b0.f32;
+    const float b1 = pBQ->b1.f32;
+    const float b2 = pBQ->b2.f32;
+    
+    for (c = 0; c < pBQ->channels; c += 1) {
+        float r1 = pBQ->r1[c].f32;
+        float r2 = pBQ->r2[c].f32;
+        float x  = pX[c];
+        float y;
+
+        y  = b0*x        + r1;
+        r1 = b1*x - a1*y + r2;
+        r2 = b2*x - a2*y;
+
+        pY[c]          = y;
+        pBQ->r1[c].f32 = r1;
+        pBQ->r2[c].f32 = r2;
+    }
+}
+
+#if 0
+static MA_INLINE void ma_biquad_process_pcm_frame_s16__direct_form_1(ma_biquad* pBQ, ma_int16* pY, const ma_int16* pX)
 {
     ma_uint32 c;
     const double a1 = pBQ->config.a1;
@@ -172,6 +219,32 @@ static MA_INLINE void ma_biquad_process_pcm_frame_s16(ma_biquad* pBQ, ma_int16* 
         pBQ->y1[c] = (float)y0;
     }
 }
+#endif
+
+static MA_INLINE void ma_biquad_process_pcm_frame_s16__direct_form_2_transposed(ma_biquad* pBQ, ma_int16* pY, const ma_int16* pX)
+{
+    ma_uint32 c;
+    const float a1 = pBQ->a1.f32;
+    const float a2 = pBQ->a2.f32;
+    const float b0 = pBQ->b0.f32;
+    const float b1 = pBQ->b1.f32;
+    const float b2 = pBQ->b2.f32;
+    
+    for (c = 0; c < pBQ->channels; c += 1) {
+        float r1 = pBQ->r1[c].f32;
+        float r2 = pBQ->r2[c].f32;
+        float x  = pX[c] / 32767.0f;            /* s16 -> f32 */
+        float y;
+
+        y  = b0*x        + r1;
+        r1 = b1*x - a1*y + r2;
+        r2 = b2*x - a2*y;
+
+        pY[c]          = (ma_int16)(y * 32767.0f);  /* f32 -> s16 */
+        pBQ->r1[c].f32 = r1;
+        pBQ->r2[c].f32 = r2;
+    }
+}
 
 ma_result ma_biquad_process_pcm_frames(ma_biquad* pBQ, void* pFramesOut, const void* pFramesIn, ma_uint64 frameCount)
 {
@@ -184,23 +257,23 @@ ma_result ma_biquad_process_pcm_frames(ma_biquad* pBQ, void* pFramesOut, const v
     /* Note that the logic below needs to support in-place filtering. That is, it must support the case where pFramesOut and pFramesIn are the same. */
 
     /* Currently only supporting f32. */
-    if (pBQ->config.format == ma_format_f32) {
+    if (pBQ->format == ma_format_f32) {
         /* */ float* pY = (      float*)pFramesOut;
         const float* pX = (const float*)pFramesIn;
 
         for (n = 0; n < frameCount; n += 1) {
-            ma_biquad_process_pcm_frame_f32(pBQ, pY + n*pBQ->config.channels, pX + n*pBQ->config.channels);
-            pY += pBQ->config.channels;
-            pX += pBQ->config.channels;
+            ma_biquad_process_pcm_frame_f32__direct_form_2_transposed(pBQ, pY + n*pBQ->channels, pX + n*pBQ->channels);
+            pY += pBQ->channels;
+            pX += pBQ->channels;
         }
-    } else if (pBQ->config.format == ma_format_s16) {
+    } else if (pBQ->format == ma_format_s16) {
         /* */ ma_int16* pY = (      ma_int16*)pFramesOut;
         const ma_int16* pX = (const ma_int16*)pFramesIn;
 
         for (n = 0; n < frameCount; n += 1) {
-            ma_biquad_process_pcm_frame_s16(pBQ, pY, pX);
-            pY += pBQ->config.channels;
-            pX += pBQ->config.channels;
+            ma_biquad_process_pcm_frame_s16__direct_form_2_transposed(pBQ, pY, pX);
+            pY += pBQ->channels;
+            pX += pBQ->channels;
         }
     } else {
         MA_ASSERT(MA_FALSE);
@@ -311,12 +384,12 @@ ma_result ma_lpf_reinit(const ma_lpf_config* pConfig, ma_lpf* pLPF)
 
 static MA_INLINE void ma_lpf_process_pcm_frame_s16(ma_lpf* pLPF, ma_int16* pFrameOut, const ma_int16* pFrameIn)
 {
-    ma_biquad_process_pcm_frame_s16(&pLPF->bq, pFrameOut, pFrameIn);
+    ma_biquad_process_pcm_frame_s16__direct_form_2_transposed(&pLPF->bq, pFrameOut, pFrameIn);
 }
 
 static MA_INLINE void ma_lpf_process_pcm_frame_f32(ma_lpf* pLPF, float* pFrameOut, const float* pFrameIn)
 {
-    ma_biquad_process_pcm_frame_f32(&pLPF->bq, pFrameOut, pFrameIn);
+    ma_biquad_process_pcm_frame_f32__direct_form_2_transposed(&pLPF->bq, pFrameOut, pFrameIn);
 }
 
 ma_result ma_lpf_process_pcm_frames(ma_lpf* pLPF, void* pFramesOut, const void* pFramesIn, ma_uint64 frameCount)
