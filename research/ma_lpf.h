@@ -33,7 +33,8 @@ Filtering can be applied in-place by passing in the same pointer for both the in
 
 If you need to change the values of the coefficients, but maintain the values in the registers you can do so with `ma_biquad_reinit()`. This is useful if you
 need to change the properties of the filter while keeping the values of registers valid to avoid glitching or whatnot. Do not use `ma_biquad_init()` for this
-as it will do a full initialization which involves clearing the registers to 0.
+as it will do a full initialization which involves clearing the registers to 0. Note that changing the format or channel count will result in an audible
+glitch.
 
 **************************************************************************************************************************************************************/
 
@@ -75,6 +76,47 @@ ma_result ma_biquad_reinit(const ma_biquad_config* pConfig, ma_biquad* pBQ);
 ma_result ma_biquad_process_pcm_frames(ma_biquad* pBQ, void* pFramesOut, const void* pFramesIn, ma_uint64 frameCount);
 ma_uint32 ma_biquad_get_latency(ma_biquad* pBQ);
 
+
+/**************************************************************************************************************************************************************
+
+Low-Pass Filter
+===============
+Low-pass filtering is achieved with the `ma_lpf` API. Example:
+
+    ```c
+    ma_lpf_config config = ma_lpf_config_init(ma_format_f32, channels, sampleRate, cutoffFrequency);
+    ma_result result = ma_lpf_init(&config, &lpf);
+    if (result != MA_SUCCESS) {
+        // Error.
+    }
+
+    ...
+
+    ma_lpf_process_pcm_frames(&lpf, pFramesOut, pFramesIn, frameCount);
+    ```
+
+Supported formats are ma_format_s16 and ma_format_f32. If you need to use a different format you need to convert it yourself beforehand. Input and output
+frames are always interleaved.
+
+Filtering can be applied in-place by passing in the same pointer for both the input and output buffers, like so:
+
+    ```c
+    ma_lpf_process_pcm_frames(&lpf, pMyData, pMyData, frameCount);
+    ```
+
+The low-pass filter is implemented as a biquad filter. If you need increase the filter order, simply chain multiple low-pass filters together.
+
+    ```c
+    for (iFilter = 0; iFilter < filterCount; iFilter += 1) {
+        ma_lpf_process_pcm_frames(&lpf[iFilter], pMyData, pMyData, frameCount);
+    }
+    ```
+
+If you need to change the configuration of the filter, but need to maintain the state of internal registers you can do so with `ma_lpf_reinit()`. This may be
+useful if you need to change the sample rate and/or cutoff frequency dynamically while maintaing smooth transitions. Note that changing the format or channel
+count will result in an audible glitch.
+
+**************************************************************************************************************************************************************/
 
 typedef struct
 {
@@ -200,7 +242,7 @@ static MA_INLINE void ma_biquad_process_pcm_frame_s16__direct_form_2_transposed(
     for (c = 0; c < pBQ->channels; c += 1) {
         float r1 = pBQ->r1[c].f32;
         float r2 = pBQ->r2[c].f32;
-        float x  = pX[c] / 32767.0f;            /* s16 -> f32 */
+        float x  = pX[c] / 32767.0f;                /* s16 -> f32 */
         float y;
 
         y  = b0*x        + r1;
