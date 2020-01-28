@@ -163,33 +163,6 @@ ma_result ma_biquad_reinit(const ma_biquad_config* pConfig, ma_biquad* pBQ)
     return MA_SUCCESS;
 }
 
-#if 0
-static MA_INLINE void ma_biquad_process_pcm_frame_f32__direct_form_1(ma_biquad* pBQ, float* pY, const float* pX)
-{
-    ma_uint32 c;
-    const double a1 = pBQ->config.a1;
-    const double a2 = pBQ->config.a2;
-    const double b0 = pBQ->config.b0;
-    const double b1 = pBQ->config.b1;
-    const double b2 = pBQ->config.b2;
-
-    for (c = 0; c < pBQ->config.channels; c += 1) {
-        double x2 = pBQ->x2[c];
-        double x1 = pBQ->x1[c];
-        double x0 = pX[c];
-        double y2 = pBQ->y2[c];
-        double y1 = pBQ->y1[c];
-        double y0 = b0*x0 + b1*x1 + b2*x2 - a1*y1 - a2*y2;
-                
-        pY[c] = (float)y0;
-        pBQ->x2[c] = (float)x1;
-        pBQ->x1[c] = (float)x0;
-        pBQ->y2[c] = (float)y1;
-        pBQ->y1[c] = (float)y0;
-    }
-}
-#endif
-
 static MA_INLINE void ma_biquad_process_pcm_frame_f32__direct_form_2_transposed(ma_biquad* pBQ, float* pY, const float* pX)
 {
     ma_uint32 c;
@@ -214,33 +187,6 @@ static MA_INLINE void ma_biquad_process_pcm_frame_f32__direct_form_2_transposed(
         pBQ->r2[c].f32 = r2;
     }
 }
-
-#if 0
-static MA_INLINE void ma_biquad_process_pcm_frame_s16__direct_form_1(ma_biquad* pBQ, ma_int16* pY, const ma_int16* pX)
-{
-    ma_uint32 c;
-    const double a1 = pBQ->config.a1;
-    const double a2 = pBQ->config.a2;
-    const double b0 = pBQ->config.b0;
-    const double b1 = pBQ->config.b1;
-    const double b2 = pBQ->config.b2;
-
-    for (c = 0; c < pBQ->config.channels; c += 1) {
-        double x2 = pBQ->x2[c];
-        double x1 = pBQ->x1[c];
-        double x0 = pX[c] * 0.000030517578125;  /* s16 -> f32 */
-        double y2 = pBQ->y2[c];
-        double y1 = pBQ->y1[c];
-        double y0 = b0*x0 + b1*x1 + b2*x2 - a1*y1 - a2*y2;
-                
-        pY[c] = (ma_int16)(y0 * 32767.0);       /* f32 -> s16 */
-        pBQ->x2[c] = (float)x1;
-        pBQ->x1[c] = (float)x0;
-        pBQ->y2[c] = (float)y1;
-        pBQ->y1[c] = (float)y0;
-    }
-}
-#endif
 
 static MA_INLINE void ma_biquad_process_pcm_frame_s16__direct_form_2_transposed(ma_biquad* pBQ, ma_int16* pY, const ma_int16* pX)
 {
