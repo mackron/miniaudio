@@ -145,6 +145,15 @@ ma_uint32 ma_lpf_get_latency(ma_lpf* pLPF);
 
 #if defined(MINIAUDIO_IMPLEMENTATION)
 
+#ifndef MA_BIQUAD_FIXED_POINT_SHIFT
+#define MA_BIQUAD_FIXED_POINT_SHIFT 14
+#endif
+
+static ma_int32 ma_biquad_float_to_fp(double x)
+{
+    return (ma_int32)(x * (1 << MA_BIQUAD_FIXED_POINT_SHIFT));
+}
+
 ma_biquad_config ma_biquad_config_init(ma_format format, ma_uint32 channels, double a0, double a1, double a2, double b0, double b1, double b2)
 {
     ma_biquad_config config;
@@ -196,11 +205,19 @@ ma_result ma_biquad_reinit(const ma_biquad_config* pConfig, ma_biquad* pBQ)
     pBQ->channels = pConfig->channels;
 
     /* Normalize. */
-    pBQ->a1.f32 = (float)(pConfig->a1 / pConfig->a0);
-    pBQ->a2.f32 = (float)(pConfig->a2 / pConfig->a0);
-    pBQ->b0.f32 = (float)(pConfig->b0 / pConfig->a0);
-    pBQ->b1.f32 = (float)(pConfig->b1 / pConfig->a0);
-    pBQ->b2.f32 = (float)(pConfig->b2 / pConfig->a0);
+    if (pConfig->format == ma_format_f32) {
+        pBQ->a1.f32 = (float)(pConfig->a1 / pConfig->a0);
+        pBQ->a2.f32 = (float)(pConfig->a2 / pConfig->a0);
+        pBQ->b0.f32 = (float)(pConfig->b0 / pConfig->a0);
+        pBQ->b1.f32 = (float)(pConfig->b1 / pConfig->a0);
+        pBQ->b2.f32 = (float)(pConfig->b2 / pConfig->a0);
+    } else {
+        pBQ->a1.s32 = ma_biquad_float_to_fp(pConfig->a1 / pConfig->a0);
+        pBQ->a2.s32 = ma_biquad_float_to_fp(pConfig->a2 / pConfig->a0);
+        pBQ->b0.s32 = ma_biquad_float_to_fp(pConfig->b0 / pConfig->a0);
+        pBQ->b1.s32 = ma_biquad_float_to_fp(pConfig->b1 / pConfig->a0);
+        pBQ->b2.s32 = ma_biquad_float_to_fp(pConfig->b2 / pConfig->a0);
+    }
 
     return MA_SUCCESS;
 }
@@ -233,25 +250,25 @@ static MA_INLINE void ma_biquad_process_pcm_frame_f32__direct_form_2_transposed(
 static MA_INLINE void ma_biquad_process_pcm_frame_s16__direct_form_2_transposed(ma_biquad* pBQ, ma_int16* pY, const ma_int16* pX)
 {
     ma_uint32 c;
-    const float a1 = pBQ->a1.f32;
-    const float a2 = pBQ->a2.f32;
-    const float b0 = pBQ->b0.f32;
-    const float b1 = pBQ->b1.f32;
-    const float b2 = pBQ->b2.f32;
+    const ma_int32 a1 = pBQ->a1.s32;
+    const ma_int32 a2 = pBQ->a2.s32;
+    const ma_int32 b0 = pBQ->b0.s32;
+    const ma_int32 b1 = pBQ->b1.s32;
+    const ma_int32 b2 = pBQ->b2.s32;
     
     for (c = 0; c < pBQ->channels; c += 1) {
-        float r1 = pBQ->r1[c].f32;
-        float r2 = pBQ->r2[c].f32;
-        float x  = pX[c] / 32767.0f;    /* s16 -> f32 */
-        float y;
+        ma_int32 r1 = pBQ->r1[c].s32;
+        ma_int32 r2 = pBQ->r2[c].s32;
+        ma_int32 x  = pX[c];
+        ma_int32 y;
 
-        y  = b0*x        + r1;
-        r1 = b1*x - a1*y + r2;
-        r2 = b2*x - a2*y;
+        y  = (b0*x        + r1) >> MA_BIQUAD_FIXED_POINT_SHIFT;
+        r1 = (b1*x - a1*y + r2);
+        r2 = (b2*x - a2*y);
 
-        pY[c]          = (ma_int16)ma_clamp((ma_int32)(y * 32767.0f), -32768, 32767);   /* f32 -> s16 */
-        pBQ->r1[c].f32 = r1;
-        pBQ->r2[c].f32 = r2;
+        pY[c]          = (ma_int16)ma_clamp(y, -32768, 32767);
+        pBQ->r1[c].s32 = r1;
+        pBQ->r2[c].s32 = r2;
     }
 }
 
@@ -270,7 +287,7 @@ ma_result ma_biquad_process_pcm_frames(ma_biquad* pBQ, void* pFramesOut, const v
         const float* pX = (const float*)pFramesIn;
 
         for (n = 0; n < frameCount; n += 1) {
-            ma_biquad_process_pcm_frame_f32__direct_form_2_transposed(pBQ, pY + n*pBQ->channels, pX + n*pBQ->channels);
+            ma_biquad_process_pcm_frame_f32__direct_form_2_transposed(pBQ, pY, pX);
             pY += pBQ->channels;
             pX += pBQ->channels;
         }
