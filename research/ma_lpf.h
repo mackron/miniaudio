@@ -22,8 +22,10 @@ Biquad filtering is achieved with the `ma_biquad` API. Example:
 Biquad filtering is implemented using transposed direct form 2. The denominator coefficients are a0, a1 and a2, and the numerator coefficients are b0, b1 and
 b2. The a0 coefficient is required and coefficients must not be pre-normalized.
 
-Supported formats are ma_format_s16 and ma_format_f32. If you need to use a different format you need to convert it yourself beforehand. Input and output
-frames are always interleaved.
+Supported formats are ma_format_s16 and ma_format_f32. If you need to use a different format you need to convert it yourself beforehand. When using
+ma_format_s16 the biquad filter will use fixed point arithmetic. When using ma_format_f32, floating point arithmetic will be used.
+
+Input and output frames are always interleaved.
 
 Filtering can be applied in-place by passing in the same pointer for both the input and output buffers, like so:
 
