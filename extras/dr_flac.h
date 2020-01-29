@@ -1,6 +1,6 @@
 /*
 FLAC audio decoder. Choice of public domain or MIT-0. See license statements at the end of this file.
-dr_flac - v0.12.3 - 2019-12-02
+dr_flac - v0.12.4 - 2020-01-29
 
 David Reid - mackron@gmail.com
 */
@@ -4679,6 +4679,7 @@ static drflac_bool32 drflac__read_next_flac_frame_header(drflac_bs* bs, drflac_u
         }
 
 
+        DRFLAC_ASSERT(blockSize > 0);
         if (blockSize == 1) {
             header->blockSizeInPCMFrames = 192;
         } else if (blockSize >= 2 && blockSize <= 5) {
@@ -10320,7 +10321,7 @@ drflac_bool32 drflac_seek_to_pcm_frame(drflac* pFlac, drflac_uint64 pcmFrameInde
 #endif
         {
             /* First try seeking via the seek table. If this fails, fall back to a brute force seek which is much slower. */
-            if (!wasSuccessful && !pFlac->_noSeekTableSeek) {
+            if (/*!wasSuccessful && */!pFlac->_noSeekTableSeek) {
                 wasSuccessful = drflac__seek_to_pcm_frame__seek_table(pFlac, pcmFrameIndex);
             }
 
@@ -10737,6 +10738,9 @@ drflac_bool32 drflac_next_cuesheet_track(drflac_cuesheet_track_iterator* pIter, 
 /*
 REVISION HISTORY
 ================
+v0.12.4 - 2020-01-29
+  - Silence some static analysis warnings.
+
 v0.12.3 - 2019-12-02
   - Fix some warnings when compiling with GCC and the -Og flag.
   - Fix a crash in out-of-memory situations.
@@ -11041,7 +11045,7 @@ For more information, please refer to <http://unlicense.org/>
 ===============================================================================
 ALTERNATIVE 2 - MIT No Attribution
 ===============================================================================
-Copyright 2018 David Reid
+Copyright 2020 David Reid
 
 Permission is hereby granted, free of charge, to any person obtaining a copy of
 this software and associated documentation files (the "Software"), to deal in

@@ -1,6 +1,6 @@
 /*
 MP3 audio decoder. Choice of public domain or MIT-0. See license statements at the end of this file.
-dr_mp3 - v0.5.4 - 2019-12-02
+dr_mp3 - v0.5.5 - 2020-01-29
 
 David Reid - mackron@gmail.com
 
@@ -823,7 +823,7 @@ static void drmp3_L12_read_scalefactors(drmp3_bs *bs, drmp3_uint8 *pba, drmp3_ui
             if (mask & m)
             {
                 int b = drmp3_bs_get_bits(bs, 6);
-                s = g_deq_L12[ba*3 - 6 + b % 3]*(1 << 21 >> b/3);
+                s = g_deq_L12[ba*3 - 6 + b % 3]*(int)(1 << 21 >> b/3);
             }
             *scf++ = s;
         }
@@ -3872,7 +3872,7 @@ drmp3_int16* drmp3__full_read_and_close_s16(drmp3* pMP3, drmp3_config* pConfig, 
             drmp3_uint64 newFramesCap;
             drmp3_int16* pNewFrames;
 
-           newFramesCap = framesCapacity * 2;
+            newFramesCap = framesCapacity * 2;
             if (newFramesCap < totalFramesRead + framesJustRead) {
                 newFramesCap = totalFramesRead + framesJustRead;
             }
@@ -3890,6 +3890,7 @@ drmp3_int16* drmp3__full_read_and_close_s16(drmp3* pMP3, drmp3_config* pConfig, 
             }
 
             pFrames = pNewFrames;
+            framesCapacity = newFramesCap;
         }
 
         DRMP3_COPY_MEMORY(pFrames + totalFramesRead*pMP3->channels, temp, (size_t)(framesJustRead*pMP3->channels*sizeof(drmp3_int16)));
@@ -4009,6 +4010,9 @@ DIFFERENCES BETWEEN minimp3 AND dr_mp3
 /*
 REVISION HISTORY
 ================
+v0.5.5 - 2020-01-29
+  - Fix a memory allocation bug in high level s16 decoding APIs.
+
 v0.5.4 - 2019-12-02
   - Fix a possible null pointer dereference when using custom memory allocators for realloc().
 
@@ -4182,7 +4186,7 @@ For more information, please refer to <http://unlicense.org/>
 ===============================================================================
 ALTERNATIVE 2 - MIT No Attribution
 ===============================================================================
-Copyright 2018 David Reid
+Copyright 2020 David Reid
 
 Permission is hereby granted, free of charge, to any person obtaining a copy of
 this software and associated documentation files (the "Software"), to deal in
