@@ -2431,7 +2431,7 @@ struct ma_device
     ma_context* pContext;
     ma_device_type type;
     ma_uint32 sampleRate;
-    ma_uint32 state;
+    volatile ma_uint32 state;               /* The state of the device is variable and can change at any time on any thread, so tell the compiler as such with `volatile`. */
     ma_device_callback_proc onData;
     ma_stop_proc onStop;
     void* pUserData;                        /* Application defined data. */
@@ -6167,10 +6167,7 @@ static MA_INLINE void ma_device__set_state(ma_device* pDevice, ma_uint32 newStat
 /* A helper for getting the state of the device. */
 static MA_INLINE ma_uint32 ma_device__get_state(ma_device* pDevice)
 {
-    ma_uint32 state;
-    ma_atomic_exchange_32(&state, pDevice->state);
-
-    return state;
+    return pDevice->state;
 }
 
 
