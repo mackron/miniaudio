@@ -10531,7 +10531,7 @@ BOOL CALLBACK ma_context_get_device_info_callback__dsound(LPGUID lpGuid, LPCSTR 
         return FALSE;   /* Stop enumeration. */
     } else {
         /* Not the default device. */
-        if (lpGuid != NULL) {
+        if (lpGuid != NULL && pData->pDeviceID != NULL) {
             if (memcmp(pData->pDeviceID->dsound, lpGuid, sizeof(pData->pDeviceID->dsound)) == 0) {
                 ma_strncpy_s(pData->pDeviceInfo->name, sizeof(pData->pDeviceInfo->name), lpcstrDescription, (size_t)-1);
                 pData->found = MA_TRUE;
