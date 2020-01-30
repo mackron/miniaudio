@@ -361,12 +361,12 @@ static MA_INLINE ma_biquad_config ma_lpf__get_biquad_config(const ma_lpf_config*
     c = cos(w);
     a = s / (2*q);
 
-    bqConfig.a0 = (double)( 1 + a);
-    bqConfig.a1 = (double)(-2 * c);
-    bqConfig.a2 = (double)( 1 - a);
-    bqConfig.b0 = (double)((1 - c) / 2);
-    bqConfig.b1 = (double)( 1 - c);
-    bqConfig.b2 = (double)((1 - c) / 2);
+    bqConfig.a0 =  1 + a;
+    bqConfig.a1 = -2 * c;
+    bqConfig.a2 =  1 - a;
+    bqConfig.b0 = (1 - c) / 2;
+    bqConfig.b1 =  1 - c;
+    bqConfig.b2 = (1 - c) / 2;
 
     bqConfig.format   = pConfig->format;
     bqConfig.channels = pConfig->channels;
