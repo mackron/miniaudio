@@ -35,8 +35,8 @@ Filtering can be applied in-place by passing in the same pointer for both the in
 
 If you need to change the values of the coefficients, but maintain the values in the registers you can do so with `ma_biquad_reinit()`. This is useful if you
 need to change the properties of the filter while keeping the values of registers valid to avoid glitching or whatnot. Do not use `ma_biquad_init()` for this
-as it will do a full initialization which involves clearing the registers to 0. Note that changing the format or channel count will result in an audible
-glitch.
+as it will do a full initialization which involves clearing the registers to 0. Note that changing the format or channel count after initialization is invalid
+and will result in an error.
 
 **************************************************************************************************************************************************************/
 
@@ -116,7 +116,7 @@ The low-pass filter is implemented as a biquad filter. If you need increase the 
 
 If you need to change the configuration of the filter, but need to maintain the state of internal registers you can do so with `ma_lpf_reinit()`. This may be
 useful if you need to change the sample rate and/or cutoff frequency dynamically while maintaing smooth transitions. Note that changing the format or channel
-count will result in an audible glitch.
+count after initialization is invalid and will result in an error.
 
 **************************************************************************************************************************************************************/
 
@@ -202,6 +202,17 @@ ma_result ma_biquad_reinit(const ma_biquad_config* pConfig, ma_biquad* pBQ)
     if (pConfig->format != ma_format_f32 && pConfig->format != ma_format_s16) {
         return MA_INVALID_ARGS;
     }
+
+    /* The format cannot be changed after initialization. */
+    if (pBQ->format != pConfig->format) {
+        return MA_INVALID_OPERATION;
+    }
+
+    /* The channel count cannot be changed after initialization. */
+    if (pBQ->channels != pConfig->channels) {
+        return MA_INVALID_OPERATION;
+    }
+
 
     pBQ->format   = pConfig->format;
     pBQ->channels = pConfig->channels;
