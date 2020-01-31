@@ -834,6 +834,582 @@ typedef enum
 } ma_performance_profile;
 
 
+
+/**************************************************************************************************************************************************************
+
+Biquad Filtering
+================
+Biquad filtering is achieved with the `ma_biquad` API. Example:
+
+    ```c
+    ma_biquad_config config = ma_biquad_config_init(ma_format_f32, channels, a0, a1, a2, b0, b1, b2);
+    ma_result result = ma_biquad_init(&config, &biquad);
+    if (result != MA_SUCCESS) {
+        // Error.
+    }
+
+    ...
+
+    ma_biquad_process_pcm_frames(&biquad, pFramesOut, pFramesIn, frameCount);
+    ```
+
+Biquad filtering is implemented using transposed direct form 2. The denominator coefficients are a0, a1 and a2, and the numerator coefficients are b0, b1 and
+b2. The a0 coefficient is required and coefficients must not be pre-normalized.
+
+Supported formats are ma_format_s16 and ma_format_f32. If you need to use a different format you need to convert it yourself beforehand. When using
+ma_format_s16 the biquad filter will use fixed point arithmetic. When using ma_format_f32, floating point arithmetic will be used.
+
+Input and output frames are always interleaved.
+
+Filtering can be applied in-place by passing in the same pointer for both the input and output buffers, like so:
+
+    ```c
+    ma_biquad_process_pcm_frames(&biquad, pMyData, pMyData, frameCount);
+    ```
+
+If you need to change the values of the coefficients, but maintain the values in the registers you can do so with `ma_biquad_reinit()`. This is useful if you
+need to change the properties of the filter while keeping the values of registers valid to avoid glitching or whatnot. Do not use `ma_biquad_init()` for this
+as it will do a full initialization which involves clearing the registers to 0. Note that changing the format or channel count after initialization is invalid
+and will result in an error.
+
+**************************************************************************************************************************************************************/
+typedef union
+{
+    float    f32;
+    ma_int32 s32;
+} ma_biquad_coefficient;
+
+typedef struct
+{
+    ma_format format;
+    ma_uint32 channels;
+    double a0;
+    double a1;
+    double a2;
+    double b0;
+    double b1;
+    double b2;
+} ma_biquad_config;
+
+ma_biquad_config ma_biquad_config_init(ma_format format, ma_uint32 channels, double a0, double a1, double a2, double b0, double b1, double b2);
+
+typedef struct
+{
+    ma_format format;
+    ma_uint32 channels;
+    ma_biquad_coefficient a1;
+    ma_biquad_coefficient a2;
+    ma_biquad_coefficient b0;
+    ma_biquad_coefficient b1;
+    ma_biquad_coefficient b2;
+    ma_biquad_coefficient r1[MA_MAX_CHANNELS];
+    ma_biquad_coefficient r2[MA_MAX_CHANNELS];
+} ma_biquad;
+
+ma_result ma_biquad_init(const ma_biquad_config* pConfig, ma_biquad* pBQ);
+ma_result ma_biquad_reinit(const ma_biquad_config* pConfig, ma_biquad* pBQ);
+ma_result ma_biquad_process_pcm_frames(ma_biquad* pBQ, void* pFramesOut, const void* pFramesIn, ma_uint64 frameCount);
+ma_uint32 ma_biquad_get_latency(ma_biquad* pBQ);
+
+
+/**************************************************************************************************************************************************************
+
+Low-Pass Filtering
+==================
+Low-pass filtering is achieved with the `ma_lpf` API. Example:
+
+    ```c
+    ma_lpf_config config = ma_lpf_config_init(ma_format_f32, channels, sampleRate, cutoffFrequency);
+    ma_result result = ma_lpf_init(&config, &lpf);
+    if (result != MA_SUCCESS) {
+        // Error.
+    }
+
+    ...
+
+    ma_lpf_process_pcm_frames(&lpf, pFramesOut, pFramesIn, frameCount);
+    ```
+
+Supported formats are ma_format_s16 and ma_format_f32. If you need to use a different format you need to convert it yourself beforehand. Input and output
+frames are always interleaved.
+
+Filtering can be applied in-place by passing in the same pointer for both the input and output buffers, like so:
+
+    ```c
+    ma_lpf_process_pcm_frames(&lpf, pMyData, pMyData, frameCount);
+    ```
+
+The low-pass filter is implemented as a biquad filter. If you need increase the filter order, simply chain multiple low-pass filters together.
+
+    ```c
+    for (iFilter = 0; iFilter < filterCount; iFilter += 1) {
+        ma_lpf_process_pcm_frames(&lpf[iFilter], pMyData, pMyData, frameCount);
+    }
+    ```
+
+If you need to change the configuration of the filter, but need to maintain the state of internal registers you can do so with `ma_lpf_reinit()`. This may be
+useful if you need to change the sample rate and/or cutoff frequency dynamically while maintaing smooth transitions. Note that changing the format or channel
+count after initialization is invalid and will result in an error.
+
+**************************************************************************************************************************************************************/
+typedef struct
+{
+    ma_format format;
+    ma_uint32 channels;
+    ma_uint32 sampleRate;
+    double cutoffFrequency;
+} ma_lpf_config;
+
+ma_lpf_config ma_lpf_config_init(ma_format format, ma_uint32 channels, ma_uint32 sampleRate, double cutoffFrequency);
+
+typedef struct
+{
+    ma_biquad bq;   /* The low-pass filter is implemented as a biquad filter. */
+} ma_lpf;
+
+ma_result ma_lpf_init(const ma_lpf_config* pConfig, ma_lpf* pLPF);
+ma_result ma_lpf_reinit(const ma_lpf_config* pConfig, ma_lpf* pLPF);
+ma_result ma_lpf_process_pcm_frames(ma_lpf* pLPF, void* pFramesOut, const void* pFramesIn, ma_uint64 frameCount);
+ma_uint32 ma_lpf_get_latency(ma_lpf* pLPF);
+
+
+/**************************************************************************************************************************************************************
+
+Resampling
+==========
+Resampling is achieved with the `ma_resampler` object. To create a resampler object, do something like the following:
+
+    ```c
+    ma_resampler_config config = ma_resampler_config_init(ma_format_s16, channels, sampleRateIn, sampleRateOut, ma_resample_algorithm_linear);
+    ma_resampler resampler;
+    ma_result result = ma_resampler_init(&config, &resampler);
+    if (result != MA_SUCCESS) {
+        // An error occurred...
+    }
+    ```
+
+Do the following to uninitialize the resampler:
+
+    ```c
+    ma_resampler_uninit(&resampler);
+    ```
+
+The following example shows how data can be processed
+
+    ```c
+    ma_uint64 frameCountIn  = 1000;
+    ma_uint64 frameCountOut = 2000;
+    ma_result result = ma_resampler_process_pcm_frames(&resampler, pFramesIn, &frameCountIn, pFramesOut, &frameCountOut);
+    if (result != MA_SUCCESS) {
+        // An error occurred...
+    }
+
+    // At this point, frameCountIn contains the number of input frames that were consumed and frameCountOut contains the number of output frames written.
+    ```
+
+To initialize the resampler you first need to set up a config (`ma_resampler_config`) with `ma_resampler_config_init()`. You need to specify the sample format
+you want to use, the number of channels, the input and output sample rate, and the algorithm.
+
+The sample format can be one of the following:
+  - ma_format_s16
+  - ma_format_f32
+
+If you need a different format you will need to perform pre- and post-conversions yourself where necessary. Note that the format is the same for both input
+and output. The format cannot be changed after initialization.
+
+The resampler supports multiple channels and is always interleaved (both input and output). The channel count cannot be changed after initialization.
+
+The sample rates can be anything other than zero, and are always specified in hertz. They should be set to something like 44100, etc. The sample rate is the
+only configuration property that can be changed after initialization.
+
+The miniaudio resampler supports multiple algorithms:
+  - Linear: ma_resample_algorithm_linear
+  - Speex:  ma_resample_algorithm_speex
+
+Because Speex is not public domain it is strictly opt-in and the code is stored in separate files. if you opt-in to the Speex backend you will need to consider
+it's license, the text of which can be found in it's source files in "extras/speex_resampler". Details on how to opt-in to the Speex resampler is explained in
+the Speex Resampler section below.
+
+The algorithm cannot be changed after initialization.
+
+Processing always happens on a per PCM frame basis and always assumed interleaved input and output. De-interleaved processing is not supported. To process
+frames, use `ma_resampler_process_pcm_frames()`. On input, this function takes the number of output frames you can fit in the output buffer and the number of
+input frames contained in the input buffer. On output these variables contain the number of output frames that were written to the output buffer and the
+number of input frames that were consumed in the process. You can pass in NULL for the input buffer in which case it will be treated as an infinitely large
+buffer of zeros. The output buffer can also be NULL, in which case the processing will be treated as seek.
+
+The sample rate can be changed dynamically on the fly. You can change this with explicit sample rates with `ma_resampler_set_rate()` and also with a decimal
+ratio with `ma_resampler_set_rate_ratio()`. The ratio is in/out.
+
+Sometimes it's useful to know exactly how many input frames will be required to output a specific number of frames. You can calculate this with
+`ma_resampler_get_required_input_frame_count()`. Likewise, it's sometimes useful to know exactly how many frames would be output given a certain number of
+input frames. You can do this with `ma_resampler_get_expected_output_frame_count()`.
+
+Due to the nature of how resampling works, the resampler introduces some latency. This can be retrieved in terms of both the input rate and the output rate
+with `ma_resampler_get_input_latency()` and `ma_resampler_get_output_latency()`.
+
+
+Resampling Algorithms
+---------------------
+The choice of resampling algorithm depends on your situation and requirements. The linear resampler is the most efficient and has the least amount of latency,
+but at the expense of poorer quality. The Speex resampler is higher quality, but slower with more latency. It also performs several heap applications
+internally for memory management.
+
+
+Linear Resampling
+-----------------
+The linear resampler is the fastest, but comes at the expense of poorer quality. There is, however, some control over the quality of the linear resampler which
+may make it a suitable option depending on your requirements.
+
+The linear resampler performs low-pass filtering before or after downsampling or upsampling, depending on the sample rates you're converting between. When
+decreasing the sample rate, the low-pass filter will be applied before downsampling. When increasing the rate it will be performed after upsampling. By default
+a second order low-pass filter will be applied. To improve quality you can chain low-pass filters together, up to a maximum of `MA_MAX_RESAMPLER_LPF_FILTERS`.
+This comes at the expense of increased computational cost and latency. You can also disable filtering altogether by setting the filter count to 0. The filter
+count is controlled with the `lpfCount` config variable.
+
+The low-pass filter has a cutoff frequency which defaults to half the sample rate of the lowest of the input and output sample rates (Nyquist Frequency). This
+can be controlled with the `lpfNyquistFactor` config variable. This defaults to 1, and should be in the range of 0..1, although a value of 0 does not make
+sense and should be avoided. A value of 1 will use the Nyquist Frequency as the cutoff. A value of 0.5 will use half the Nyquist Frequency as the cutoff, etc.
+Values less than 1 will result in more washed out sound due to more of the higher frequencies being removed. This config variable has no impact on performance
+and is a purely perceptual configuration.
+
+The API for the linear resampler is the same as the main resampler API, only it's called `ma_linear_resampler`.
+
+
+Speex Resampling
+----------------
+The Speex resampler is made up of third party code which is released under the BSD license. Because it is licensed differently to miniaudio, which is public
+domain, it is strictly opt-in and all of it's code is stored in separate files. If you opt-in to the Speex resampler you must consider the license text in it's
+source files. To opt-in, you must first #include the following file before the implementation of miniaudio.h:
+
+    #include "extras/speex_resampler/ma_speex_resampler.h"
+
+Both the header and implementation is contained within the same file. To implementation can be included in your program like so:
+
+    #define MINIAUDIO_SPEEX_RESAMPLER_IMPLEMENTATION
+    #include "extras/speex_resampler/ma_speex_resampler.h"
+
+Note that even if you opt-in to the Speex backend, miniaudio won't use it unless you explicitly ask for it in the respective config of the object you are
+initializing. If you try to use the Speex resampler without opting in, initialization of the `ma_resampler` object will fail with `MA_NO_BACKEND`.
+
+The only configuration option to consider with the Speex resampler is the `speex.quality` config variable. This is a value between 0 and 10, with 0 being
+the worst/fastest and 10 being the best/slowest. The default value is 3.
+
+**************************************************************************************************************************************************************/
+#ifndef MA_MAX_RESAMPLER_LPF_FILTERS
+#define MA_MAX_RESAMPLER_LPF_FILTERS 4
+#endif
+
+typedef struct
+{
+    ma_format format;
+    ma_uint32 channels;
+    ma_uint32 sampleRateIn;
+    ma_uint32 sampleRateOut;
+    ma_uint32 lpfCount;         /* How many low-pass filters to chain together. A single low-pass filter is second order. Setting this to 0 will disable low-pass filtering. */
+    double    lpfNyquistFactor; /* 0..1. Defaults to 1. 1 = Half the sampling frequency (Nyquist Frequency), 0.5 = Quarter the sampling frequency (half Nyquest Frequency), etc. */
+} ma_linear_resampler_config;
+
+ma_linear_resampler_config ma_linear_resampler_config_init(ma_format format, ma_uint32 channels, ma_uint32 sampleRateIn, ma_uint32 sampleRateOut);
+
+typedef struct
+{
+    ma_linear_resampler_config config;
+    ma_uint32 inAdvanceInt;
+    ma_uint32 inAdvanceFrac;
+    ma_uint32 inTimeInt;
+    ma_uint32 inTimeFrac;
+    union
+    {
+        float    f32[MA_MAX_CHANNELS];
+        ma_int16 s16[MA_MAX_CHANNELS];
+    } x0; /* The previous input frame. */
+    union
+    {
+        float    f32[MA_MAX_CHANNELS];
+        ma_int16 s16[MA_MAX_CHANNELS];
+    } x1; /* The next input frame. */
+    ma_lpf lpf[MA_MAX_RESAMPLER_LPF_FILTERS];
+} ma_linear_resampler;
+
+ma_result ma_linear_resampler_init(const ma_linear_resampler_config* pConfig, ma_linear_resampler* pResampler);
+void ma_linear_resampler_uninit(ma_linear_resampler* pResampler);
+ma_result ma_linear_resampler_process_pcm_frames(ma_linear_resampler* pResampler, const void* pFramesIn, ma_uint64* pFrameCountIn, void* pFramesOut, ma_uint64* pFrameCountOut);
+ma_result ma_linear_resampler_set_rate(ma_linear_resampler* pResampler, ma_uint32 sampleRateIn, ma_uint32 sampleRateOut);
+ma_result ma_linear_resampler_set_rate_ratio(ma_linear_resampler* pResampler, float ratioInOut);
+ma_uint64 ma_linear_resampler_get_required_input_frame_count(ma_linear_resampler* pResampler, ma_uint64 outputFrameCount);
+ma_uint64 ma_linear_resampler_get_expected_output_frame_count(ma_linear_resampler* pResampler, ma_uint64 inputFrameCount);
+ma_uint64 ma_linear_resampler_get_input_latency(ma_linear_resampler* pResampler);
+ma_uint64 ma_linear_resampler_get_output_latency(ma_linear_resampler* pResampler);
+
+typedef enum
+{
+    ma_resample_algorithm_linear,   /* Fastest, lowest quality. Optional low-pass filtering. Default. */
+    ma_resample_algorithm_speex
+} ma_resample_algorithm;
+
+typedef struct
+{
+    ma_format format;   /* Must be either ma_format_f32 or ma_format_s16. */
+    ma_uint32 channels;
+    ma_uint32 sampleRateIn;
+    ma_uint32 sampleRateOut;
+    ma_resample_algorithm algorithm;
+    struct
+    {
+        ma_uint32 lpfCount;
+        double lpfNyquistFactor;
+    } linear;
+    struct
+    {
+        int quality;    /* 0 to 10. Defaults to 3. */
+    } speex;
+} ma_resampler_config;
+
+ma_resampler_config ma_resampler_config_init(ma_format format, ma_uint32 channels, ma_uint32 sampleRateIn, ma_uint32 sampleRateOut, ma_resample_algorithm algorithm);
+
+typedef struct
+{
+    ma_resampler_config config;
+    union
+    {
+        ma_linear_resampler linear;
+        struct
+        {
+            void* pSpeexResamplerState;   /* SpeexResamplerState* */
+        } speex;
+    } state;
+} ma_resampler;
+
+/*
+Initializes a new resampler object from a config.
+*/
+ma_result ma_resampler_init(const ma_resampler_config* pConfig, ma_resampler* pResampler);
+
+/*
+Uninitializes a resampler.
+*/
+void ma_resampler_uninit(ma_resampler* pResampler);
+
+/*
+Converts the given input data.
+
+Both the input and output frames must be in the format specified in the config when the resampler was initilized.
+
+On input, [pFrameCountOut] contains the number of output frames to process. On output it contains the number of output frames that
+were actually processed, which may be less than the requested amount which will happen if there's not enough input data. You can use
+ma_resampler_get_expected_output_frame_count() to know how many output frames will be processed for a given number of input frames.
+
+On input, [pFrameCountIn] contains the number of input frames contained in [pFramesIn]. On output it contains the number of whole
+input frames that were actually processed. You can use ma_resampler_get_required_input_frame_count() to know how many input frames
+you should provide for a given number of output frames. [pFramesIn] can be NULL, in which case zeroes will be used instead.
+
+If [pFramesOut] is NULL, a seek is performed. In this case, if [pFrameCountOut] is not NULL it will seek by the specified number of
+output frames. Otherwise, if [pFramesCountOut] is NULL and [pFrameCountIn] is not NULL, it will seek by the specified number of input
+frames. When seeking, [pFramesIn] is allowed to NULL, in which case the internal timing state will be updated, but no input will be
+processed. In this case, any internal filter state will be updated as if zeroes were passed in.
+
+It is an error for [pFramesOut] to be non-NULL and [pFrameCountOut] to be NULL.
+
+It is an error for both [pFrameCountOut] and [pFrameCountIn] to be NULL.
+*/
+ma_result ma_resampler_process_pcm_frames(ma_resampler* pResampler, const void* pFramesIn, ma_uint64* pFrameCountIn, void* pFramesOut, ma_uint64* pFrameCountOut);
+
+
+/*
+Sets the input and output sample sample rate.
+*/
+ma_result ma_resampler_set_rate(ma_resampler* pResampler, ma_uint32 sampleRateIn, ma_uint32 sampleRateOut);
+
+/*
+Sets the input and output sample rate as a ratio.
+
+The ration is in/out.
+*/
+ma_result ma_resampler_set_rate_ratio(ma_resampler* pResampler, float ratio);
+
+
+/*
+Calculates the number of whole input frames that would need to be read from the client in order to output the specified
+number of output frames.
+
+The returned value does not include cached input frames. It only returns the number of extra frames that would need to be
+read from the input buffer in order to output the specified number of output frames.
+*/
+ma_uint64 ma_resampler_get_required_input_frame_count(ma_resampler* pResampler, ma_uint64 outputFrameCount);
+
+/*
+Calculates the number of whole output frames that would be output after fully reading and consuming the specified number of
+input frames.
+*/
+ma_uint64 ma_resampler_get_expected_output_frame_count(ma_resampler* pResampler, ma_uint64 inputFrameCount);
+
+
+/*
+Retrieves the latency introduced by the resampler in input frames.
+*/
+ma_uint64 ma_resampler_get_input_latency(ma_resampler* pResampler);
+
+/*
+Retrieves the latency introduced by the resampler in output frames.
+*/
+ma_uint64 ma_resampler_get_output_latency(ma_resampler* pResampler);
+
+
+
+/**************************************************************************************************************************************************************
+
+Channel Conversion
+==================
+Channel conversion is used for channel rearrangement and conversion from one channel count to another. The `ma_channel_converter` API is used for channel
+conversion. Below is an example of initializing a simple channel converter which converts from mono to stereo.
+
+    ```c
+    ma_channel_converter_config config = ma_channel_converter_config_init(ma_format, 1, NULL, 2, NULL, ma_channel_mix_mode_default, NULL);
+    result = ma_channel_converter_init(&config, &converter);
+    if (result != MA_SUCCESS) {
+        // Error.
+    }
+    ```
+
+To process perform the conversion simply call `ma_channel_converter_process_pcm_frames()` like so:
+
+    ```c
+    ma_result result = ma_channel_converter_process_pcm_frames(&converter, pFramesOut, pFramesIn, frameCount);
+    if (result != MA_SUCCESS) {
+        // Error.
+    }
+    ```
+
+It is up to the caller to ensure the output buffer is large enough to accomodate the new PCM frames.
+
+The only formats supported are ma_format_s16 and ma_format_f32. If you need another format you need to convert your data manually which you can do with
+ma_pcm_convert(), etc.
+
+Input and output PCM frames are always interleaved. Deinterleaved layouts are not supported.
+
+
+Channel Mapping
+---------------
+In addition to converting from one channel count to another, like the example above, The channel converter can also be used to rearrange channels. When
+initializing the channel converter, you can optionally pass in channel maps for both the input and output frames. If the channel counts are the same, and each
+channel map contains the same channel positions with the exception that they're in a different order, a simple shuffling of the channels with be performed. If,
+however, there is not a 1:1 mapping of channel positions, or the channel counts differ, the input channels will be mixed based on a mixing
+mode which is specified when initializing the `ma_channel_converter_config` object.
+
+When converting from mono to multi-channel, the mono channel is simply copied to each output channel. When going the other way around, the audio of each output
+channel is simply averaged and copied to the mono channel.
+
+In more complicated cases blending is used. The `ma_channel_mix_mode_simple` mode will drop excess channels and silence extra channels. For example, converting
+from 4 to 2 channels, the 3rd and 4th channels will be dropped, whereas converting from 2 to 4 channels will put silence into the 3rd and 4th channels.
+
+The `ma_channel_mix_mode_rectangle` mode uses spacial locality based on a rectangle to compute a simple distribution between input and output. Imagine sitting
+in the middle of a room, with speakers on the walls representing channel positions. The MA_CHANNEL_FRONT_LEFT position can be thought of as being in the corner
+of the front and left walls.
+
+Finally, the `ma_channel_mix_mode_custom_weights` mode can be used to use custom user-defined weights. Custom weights can be passed in as the last parameter of
+`ma_channel_converter_config_init()`.
+
+**************************************************************************************************************************************************************/
+typedef struct
+{
+    ma_format format;
+    ma_uint32 channelsIn;
+    ma_uint32 channelsOut;
+    ma_channel channelMapIn[MA_MAX_CHANNELS];
+    ma_channel channelMapOut[MA_MAX_CHANNELS];
+    ma_channel_mix_mode mixingMode;
+    float weights[MA_MAX_CHANNELS][MA_MAX_CHANNELS];  /* [in][out]. Only used when mixingMode is set to ma_channel_mix_mode_custom_weights. */
+} ma_channel_converter_config;
+
+ma_channel_converter_config ma_channel_converter_config_init(ma_format format, ma_uint32 channelsIn, const ma_channel channelMapIn[MA_MAX_CHANNELS], ma_uint32 channelsOut, const ma_channel channelMapOut[MA_MAX_CHANNELS], ma_channel_mix_mode mixingMode, const float weights[MA_MAX_CHANNELS][MA_MAX_CHANNELS]);
+
+typedef struct
+{
+    ma_format format;
+    ma_uint32 channelsIn;
+    ma_uint32 channelsOut;
+    ma_channel channelMapIn[MA_MAX_CHANNELS];
+    ma_channel channelMapOut[MA_MAX_CHANNELS];
+    ma_channel_mix_mode mixingMode;
+    union
+    {
+        float    f32[MA_MAX_CHANNELS][MA_MAX_CHANNELS];
+        ma_int32 s16[MA_MAX_CHANNELS][MA_MAX_CHANNELS];
+    } weights;
+    ma_bool32 isPassthrough         : 1;
+    ma_bool32 isSimpleShuffle       : 1;
+    ma_bool32 isSimpleMonoExpansion : 1;
+    ma_bool32 isStereoToMono        : 1;
+    ma_uint8  shuffleTable[MA_MAX_CHANNELS];
+} ma_channel_converter;
+
+ma_result ma_channel_converter_init(const ma_channel_converter_config* pConfig, ma_channel_converter* pConverter);
+void ma_channel_converter_uninit(ma_channel_converter* pConverter);
+ma_result ma_channel_converter_process_pcm_frames(ma_channel_converter* pConverter, void* pFramesOut, const void* pFramesIn, ma_uint64 frameCount);
+
+
+/**************************************************************************************************************************************************************
+
+Data Conversion
+===============
+
+**************************************************************************************************************************************************************/
+typedef struct
+{
+    ma_format formatIn;
+    ma_format formatOut;
+    ma_uint32 channelsIn;
+    ma_uint32 channelsOut;
+    ma_uint32 sampleRateIn;
+    ma_uint32 sampleRateOut;
+    ma_channel channelMapIn[MA_MAX_CHANNELS];
+    ma_channel channelMapOut[MA_MAX_CHANNELS];
+    ma_dither_mode ditherMode;
+    ma_resample_algorithm resampleAlgorithm;
+    ma_bool32 allowDynamicSampleRate;
+    ma_channel_mix_mode channelMixMode;
+    float channelWeights[MA_MAX_CHANNELS][MA_MAX_CHANNELS];  /* [in][out]. Only used when channelMixMode is set to ma_channel_mix_mode_custom_weights. */
+    struct
+    {
+        struct
+        {
+            ma_uint32 lpfCount;
+            double lpfNyquistFactor;
+        } linear;
+        struct
+        {
+            int quality;
+        } speex;
+    } resampling;
+} ma_data_converter_config;
+
+ma_data_converter_config ma_data_converter_config_init(ma_format formatIn, ma_format formatOut, ma_uint32 channelsIn, ma_uint32 channelsOut, ma_uint32 sampleRateIn, ma_uint32 sampleRateOut);
+
+typedef struct
+{
+    ma_data_converter_config config;
+    ma_channel_converter channelConverter;
+    ma_resampler resampler;
+    ma_bool32 hasPreFormatConversion  : 1;
+    ma_bool32 hasPostFormatConversion : 1;
+    ma_bool32 hasChannelConverter     : 1;
+    ma_bool32 hasResampler            : 1;
+    ma_bool32 isPassthrough           : 1;
+} ma_data_converter;
+
+ma_result ma_data_converter_init(const ma_data_converter_config* pConfig, ma_data_converter* pConverter);
+void ma_data_converter_uninit(ma_data_converter* pConverter);
+ma_result ma_data_converter_process_pcm_frames(ma_data_converter* pConverter, const void* pFramesIn, ma_uint64* pFrameCountIn, void* pFramesOut, ma_uint64* pFrameCountOut);
+ma_result ma_data_converter_set_rate(ma_data_converter* pConverter, ma_uint32 sampleRateIn, ma_uint32 sampleRateOut);
+ma_result ma_data_converter_set_rate_ratio(ma_data_converter* pConverter, float ratioInOut);
+ma_uint64 ma_data_converter_get_required_input_frame_count(ma_data_converter* pConverter, ma_uint64 outputFrameCount);
+ma_uint64 ma_data_converter_get_expected_output_frame_count(ma_data_converter* pConverter, ma_uint64 inputFrameCount);
+ma_uint64 ma_data_converter_get_input_latency(ma_data_converter* pConverter);
+ma_uint64 ma_data_converter_get_output_latency(ma_data_converter* pConverter);
+
+
+
 typedef struct ma_format_converter ma_format_converter;
 typedef ma_uint32 (* ma_format_converter_read_proc)              (ma_format_converter* pConverter, ma_uint32 frameCount, void* pFramesOut, void* pUserData);
 typedef ma_uint32 (* ma_format_converter_read_deinterleaved_proc)(ma_format_converter* pConverter, ma_uint32 frameCount, void** ppSamplesOut, void* pUserData);
@@ -4206,6 +4782,46 @@ char* ma_copy_string(const char* src)
     ma_strcpy_s(dst, sz, src);
 
     return dst;
+}
+
+
+void ma_copy_memory_64(void* dst, const void* src, ma_uint64 sizeInBytes)
+{
+#if 0xFFFFFFFFFFFFFFFF <= MA_SIZE_MAX
+    ma_copy_memory(dst, src, (size_t)sizeInBytes);
+#else
+    while (sizeInBytes > 0) {
+        ma_uint64 bytesToCopyNow = sizeInBytes;
+        if (bytesToCopyNow > MA_SIZE_MAX) {
+            bytesToCopyNow = MA_SIZE_MAX;
+        }
+
+        ma_copy_memory(dst, src, (size_t)bytesToCopyNow);  /* Safe cast to size_t. */
+
+        sizeInBytes -= bytesToCopyNow;
+        dst = (      void*)((      ma_uint8*)dst + bytesToCopyNow);
+        src = (const void*)((const ma_uint8*)src + bytesToCopyNow);
+    }
+#endif
+}
+
+void ma_zero_memory_64(void* dst, ma_uint64 sizeInBytes)
+{
+#if 0xFFFFFFFFFFFFFFFF <= MA_SIZE_MAX
+    ma_zero_memory(dst, (size_t)sizeInBytes);
+#else
+    while (sizeInBytes > 0) {
+        ma_uint64 bytesToZeroNow = sizeInBytes;
+        if (bytesToZeroNow > MA_SIZE_MAX) {
+            bytesToZeroNow = MA_SIZE_MAX;
+        }
+
+        ma_zero_memory(dst, (size_t)bytesToZeroNow);  /* Safe cast to size_t. */
+
+        sizeInBytes -= bytesToZeroNow;
+        dst = (void*)((ma_uint8*)dst + bytesToZeroNow);
+    }
+#endif
 }
 
 
@@ -27105,6 +27721,3076 @@ ma_device_config ma_device_config_init(ma_device_type deviceType)
 #endif  /* MA_NO_DEVICE_IO */
 
 
+/**************************************************************************************************************************************************************
+
+Biquad Filter
+
+**************************************************************************************************************************************************************/
+#ifndef MA_BIQUAD_FIXED_POINT_SHIFT
+#define MA_BIQUAD_FIXED_POINT_SHIFT 14
+#endif
+
+static ma_int32 ma_biquad_float_to_fp(double x)
+{
+    return (ma_int32)(x * (1 << MA_BIQUAD_FIXED_POINT_SHIFT));
+}
+
+ma_biquad_config ma_biquad_config_init(ma_format format, ma_uint32 channels, double a0, double a1, double a2, double b0, double b1, double b2)
+{
+    ma_biquad_config config;
+
+    MA_ZERO_OBJECT(&config);
+    config.format = format;
+    config.channels = channels;
+    config.a0 = a0;
+    config.a1 = a1;
+    config.a2 = a2;
+    config.b0 = b0;
+    config.b1 = b1;
+    config.b2 = b2;
+
+    return config;
+}
+
+ma_result ma_biquad_init(const ma_biquad_config* pConfig, ma_biquad* pBQ)
+{
+    if (pBQ == NULL) {
+        return MA_INVALID_ARGS;
+    }
+
+    MA_ZERO_OBJECT(pBQ);
+
+    if (pConfig == NULL) {
+        return MA_INVALID_ARGS;
+    }
+
+    return ma_biquad_reinit(pConfig, pBQ);
+}
+
+ma_result ma_biquad_reinit(const ma_biquad_config* pConfig, ma_biquad* pBQ)
+{
+    if (pBQ == NULL || pConfig == NULL) {
+        return MA_INVALID_ARGS;
+    }
+
+    if (pConfig->a0 == 0) {
+        return MA_INVALID_ARGS; /* Division by zero. */
+    }
+
+    /* Only supporting f32 and s16. */
+    if (pConfig->format != ma_format_f32 && pConfig->format != ma_format_s16) {
+        return MA_INVALID_ARGS;
+    }
+
+    /* The format cannot be changed after initialization. */
+    if (pBQ->format != pConfig->format) {
+        return MA_INVALID_OPERATION;
+    }
+
+    /* The channel count cannot be changed after initialization. */
+    if (pBQ->channels != pConfig->channels) {
+        return MA_INVALID_OPERATION;
+    }
+
+
+    pBQ->format   = pConfig->format;
+    pBQ->channels = pConfig->channels;
+
+    /* Normalize. */
+    if (pConfig->format == ma_format_f32) {
+        pBQ->a1.f32 = (float)(pConfig->a1 / pConfig->a0);
+        pBQ->a2.f32 = (float)(pConfig->a2 / pConfig->a0);
+        pBQ->b0.f32 = (float)(pConfig->b0 / pConfig->a0);
+        pBQ->b1.f32 = (float)(pConfig->b1 / pConfig->a0);
+        pBQ->b2.f32 = (float)(pConfig->b2 / pConfig->a0);
+    } else {
+        pBQ->a1.s32 = ma_biquad_float_to_fp(pConfig->a1 / pConfig->a0);
+        pBQ->a2.s32 = ma_biquad_float_to_fp(pConfig->a2 / pConfig->a0);
+        pBQ->b0.s32 = ma_biquad_float_to_fp(pConfig->b0 / pConfig->a0);
+        pBQ->b1.s32 = ma_biquad_float_to_fp(pConfig->b1 / pConfig->a0);
+        pBQ->b2.s32 = ma_biquad_float_to_fp(pConfig->b2 / pConfig->a0);
+    }
+
+    return MA_SUCCESS;
+}
+
+static MA_INLINE void ma_biquad_process_pcm_frame_f32__direct_form_2_transposed(ma_biquad* pBQ, float* pY, const float* pX)
+{
+    ma_uint32 c;
+    const float a1 = pBQ->a1.f32;
+    const float a2 = pBQ->a2.f32;
+    const float b0 = pBQ->b0.f32;
+    const float b1 = pBQ->b1.f32;
+    const float b2 = pBQ->b2.f32;
+    
+    for (c = 0; c < pBQ->channels; c += 1) {
+        float r1 = pBQ->r1[c].f32;
+        float r2 = pBQ->r2[c].f32;
+        float x  = pX[c];
+        float y;
+
+        y  = b0*x        + r1;
+        r1 = b1*x - a1*y + r2;
+        r2 = b2*x - a2*y;
+
+        pY[c]          = y;
+        pBQ->r1[c].f32 = r1;
+        pBQ->r2[c].f32 = r2;
+    }
+}
+
+static MA_INLINE void ma_biquad_process_pcm_frame_f32(ma_biquad* pBQ, float* pY, const float* pX)
+{
+    ma_biquad_process_pcm_frame_f32__direct_form_2_transposed(pBQ, pY, pX);
+}
+
+static MA_INLINE void ma_biquad_process_pcm_frame_s16__direct_form_2_transposed(ma_biquad* pBQ, ma_int16* pY, const ma_int16* pX)
+{
+    ma_uint32 c;
+    const ma_int32 a1 = pBQ->a1.s32;
+    const ma_int32 a2 = pBQ->a2.s32;
+    const ma_int32 b0 = pBQ->b0.s32;
+    const ma_int32 b1 = pBQ->b1.s32;
+    const ma_int32 b2 = pBQ->b2.s32;
+    
+    for (c = 0; c < pBQ->channels; c += 1) {
+        ma_int32 r1 = pBQ->r1[c].s32;
+        ma_int32 r2 = pBQ->r2[c].s32;
+        ma_int32 x  = pX[c];
+        ma_int32 y;
+
+        y  = (b0*x        + r1) >> MA_BIQUAD_FIXED_POINT_SHIFT;
+        r1 = (b1*x - a1*y + r2);
+        r2 = (b2*x - a2*y);
+
+        pY[c]          = (ma_int16)ma_clamp(y, -32768, 32767);
+        pBQ->r1[c].s32 = r1;
+        pBQ->r2[c].s32 = r2;
+    }
+}
+
+static MA_INLINE void ma_biquad_process_pcm_frame_s16(ma_biquad* pBQ, ma_int16* pY, const ma_int16* pX)
+{
+    ma_biquad_process_pcm_frame_s16__direct_form_2_transposed(pBQ, pY, pX);
+}
+
+ma_result ma_biquad_process_pcm_frames(ma_biquad* pBQ, void* pFramesOut, const void* pFramesIn, ma_uint64 frameCount)
+{
+    ma_uint32 n;
+
+    if (pBQ == NULL || pFramesOut == NULL || pFramesIn == NULL) {
+        return MA_INVALID_ARGS;
+    }
+
+    /* Note that the logic below needs to support in-place filtering. That is, it must support the case where pFramesOut and pFramesIn are the same. */
+
+    if (pBQ->format == ma_format_f32) {
+        /* */ float* pY = (      float*)pFramesOut;
+        const float* pX = (const float*)pFramesIn;
+
+        for (n = 0; n < frameCount; n += 1) {
+            ma_biquad_process_pcm_frame_f32__direct_form_2_transposed(pBQ, pY, pX);
+            pY += pBQ->channels;
+            pX += pBQ->channels;
+        }
+    } else if (pBQ->format == ma_format_s16) {
+        /* */ ma_int16* pY = (      ma_int16*)pFramesOut;
+        const ma_int16* pX = (const ma_int16*)pFramesIn;
+
+        for (n = 0; n < frameCount; n += 1) {
+            ma_biquad_process_pcm_frame_s16__direct_form_2_transposed(pBQ, pY, pX);
+            pY += pBQ->channels;
+            pX += pBQ->channels;
+        }
+    } else {
+        MA_ASSERT(MA_FALSE);
+        return MA_INVALID_ARGS; /* Format not supported. Should never hit this because it's checked in ma_biquad_init() and ma_biquad_reinit(). */
+    }
+
+    return MA_SUCCESS;
+}
+
+ma_uint32 ma_biquad_get_latency(ma_biquad* pBQ)
+{
+    if (pBQ == NULL) {
+        return 0;
+    }
+
+    return 2;
+}
+
+
+/**************************************************************************************************************************************************************
+
+Low-Pass Filter
+
+**************************************************************************************************************************************************************/
+ma_lpf_config ma_lpf_config_init(ma_format format, ma_uint32 channels, ma_uint32 sampleRate, double cutoffFrequency)
+{
+    ma_lpf_config config;
+    
+    MA_ZERO_OBJECT(&config);
+    config.format = format;
+    config.channels = channels;
+    config.sampleRate = sampleRate;
+    config.cutoffFrequency = cutoffFrequency;
+
+    return config;
+}
+
+static MA_INLINE ma_biquad_config ma_lpf__get_biquad_config(const ma_lpf_config* pConfig)
+{
+    ma_biquad_config bqConfig;
+    double q;
+    double w;
+    double s;
+    double c;
+    double a;
+
+    MA_ASSERT(pConfig != NULL);
+
+    q = 1 / sqrt(2);
+    w = 2 * MA_PI_D * pConfig->cutoffFrequency / pConfig->sampleRate;
+    s = sin(w);
+    c = cos(w);
+    a = s / (2*q);
+
+    bqConfig.a0 =  1 + a;
+    bqConfig.a1 = -2 * c;
+    bqConfig.a2 =  1 - a;
+    bqConfig.b0 = (1 - c) / 2;
+    bqConfig.b1 =  1 - c;
+    bqConfig.b2 = (1 - c) / 2;
+
+    bqConfig.format   = pConfig->format;
+    bqConfig.channels = pConfig->channels;
+
+    return bqConfig;
+}
+
+ma_result ma_lpf_init(const ma_lpf_config* pConfig, ma_lpf* pLPF)
+{
+    ma_result result;
+    ma_biquad_config bqConfig;
+
+    if (pLPF == NULL) {
+        return MA_INVALID_ARGS;
+    }
+
+    MA_ZERO_OBJECT(pLPF);
+
+    if (pConfig == NULL) {
+        return MA_INVALID_ARGS;
+    }
+
+    bqConfig = ma_lpf__get_biquad_config(pConfig);
+    result = ma_biquad_init(&bqConfig, &pLPF->bq);
+    if (result != MA_SUCCESS) {
+        return result;
+    }
+
+    return MA_SUCCESS;
+}
+
+ma_result ma_lpf_reinit(const ma_lpf_config* pConfig, ma_lpf* pLPF)
+{
+    ma_result result;
+    ma_biquad_config bqConfig;
+
+    if (pLPF == NULL || pConfig == NULL) {
+        return MA_INVALID_ARGS;
+    }
+
+    bqConfig = ma_lpf__get_biquad_config(pConfig);
+    result = ma_biquad_reinit(&bqConfig, &pLPF->bq);
+    if (result != MA_SUCCESS) {
+        return result;
+    }
+
+    return MA_SUCCESS;
+}
+
+static MA_INLINE void ma_lpf_process_pcm_frame_s16(ma_lpf* pLPF, ma_int16* pFrameOut, const ma_int16* pFrameIn)
+{
+    ma_biquad_process_pcm_frame_s16(&pLPF->bq, pFrameOut, pFrameIn);
+}
+
+static MA_INLINE void ma_lpf_process_pcm_frame_f32(ma_lpf* pLPF, float* pFrameOut, const float* pFrameIn)
+{
+    ma_biquad_process_pcm_frame_f32(&pLPF->bq, pFrameOut, pFrameIn);
+}
+
+ma_result ma_lpf_process_pcm_frames(ma_lpf* pLPF, void* pFramesOut, const void* pFramesIn, ma_uint64 frameCount)
+{
+    if (pLPF == NULL) {
+        return MA_INVALID_ARGS;
+    }
+
+    return ma_biquad_process_pcm_frames(&pLPF->bq, pFramesOut, pFramesIn, frameCount);
+}
+
+ma_uint32 ma_lpf_get_latency(ma_lpf* pLPF)
+{
+    if (pLPF == NULL) {
+        return 0;
+    }
+
+    return ma_biquad_get_latency(&pLPF->bq);
+}
+
+
+/**************************************************************************************************************************************************************
+
+Resampling
+
+**************************************************************************************************************************************************************/
+ma_linear_resampler_config ma_linear_resampler_config_init(ma_format format, ma_uint32 channels, ma_uint32 sampleRateIn, ma_uint32 sampleRateOut)
+{
+    ma_linear_resampler_config config;
+    MA_ZERO_OBJECT(&config);
+    config.format           = format;
+    config.channels         = channels;
+    config.sampleRateIn     = sampleRateIn;
+    config.sampleRateOut    = sampleRateOut;
+    config.lpfCount         = 1;
+    config.lpfNyquistFactor = 1;
+
+    return config;
+}
+
+static ma_result ma_linear_resampler_set_rate_internal(ma_linear_resampler* pResampler, ma_uint32 sampleRateIn, ma_uint32 sampleRateOut, ma_bool32 isResamplerAlreadyInitialized)
+{
+    ma_uint32 gcf;
+
+    if (pResampler == NULL) {
+        return MA_INVALID_ARGS;
+    }
+
+    if (sampleRateIn == 0 || sampleRateOut == 0) {
+        return MA_INVALID_ARGS;
+    }
+
+    /* Simplify the sample rate. */
+    gcf = ma_gcf_u32(pResampler->config.sampleRateIn, pResampler->config.sampleRateOut);
+    pResampler->config.sampleRateIn  /= gcf;
+    pResampler->config.sampleRateOut /= gcf;
+
+    if (pResampler->config.lpfCount > 0) {
+        ma_result result;
+        ma_uint32 iFilter;
+        ma_uint32 lpfSampleRate;
+        double lpfCutoffFrequency;
+        ma_lpf_config lpfConfig;
+
+        if (pResampler->config.lpfCount > MA_MAX_RESAMPLER_LPF_FILTERS) {
+            return MA_INVALID_ARGS;
+        }
+
+        lpfSampleRate      = (ma_uint32)(ma_max(pResampler->config.sampleRateIn, pResampler->config.sampleRateOut));
+        lpfCutoffFrequency = (   double)(ma_min(pResampler->config.sampleRateIn, pResampler->config.sampleRateOut) * 0.5 * pResampler->config.lpfNyquistFactor);
+
+        lpfConfig = ma_lpf_config_init(pResampler->config.format, pResampler->config.channels, lpfSampleRate, lpfCutoffFrequency);
+
+        /*
+        If the resampler is alreay initialized we don't want to do a fresh initialization of the low-pass filter because it will result in the cached frames
+        getting cleared. Instead we re-initialize the filter which will maintain any cached frames.
+        */
+        result = MA_SUCCESS;
+        for (iFilter = 0; iFilter < pResampler->config.lpfCount; iFilter += 1) {
+            if (isResamplerAlreadyInitialized) {
+                result = ma_lpf_reinit(&lpfConfig, &pResampler->lpf[iFilter]);
+            } else {
+                result = ma_lpf_init(&lpfConfig, &pResampler->lpf[iFilter]);
+            }
+
+            if (result != MA_SUCCESS) {
+                break;
+            }
+        }
+        
+        if (result != MA_SUCCESS) {
+            return result;  /* Failed to initialize the low-pass filter. */
+        }
+    }
+
+    pResampler->inAdvanceInt  = pResampler->config.sampleRateIn / pResampler->config.sampleRateOut;
+    pResampler->inAdvanceFrac = pResampler->config.sampleRateIn % pResampler->config.sampleRateOut;
+
+    /* Make sure the fractional part is less than the output sample rate. */
+    pResampler->inTimeInt += pResampler->inTimeFrac / pResampler->config.sampleRateOut;
+    pResampler->inTimeFrac = pResampler->inTimeFrac % pResampler->config.sampleRateOut;
+
+    return MA_SUCCESS;
+}
+
+ma_result ma_linear_resampler_init(const ma_linear_resampler_config* pConfig, ma_linear_resampler* pResampler)
+{
+    ma_result result;
+
+    if (pResampler == NULL) {
+        return MA_INVALID_ARGS;
+    }
+
+    MA_ZERO_OBJECT(pResampler);
+
+    if (pConfig == NULL) {
+        return MA_INVALID_ARGS;
+    }
+
+    pResampler->config = *pConfig;
+
+    /* Setting the rate will set up the filter and time advances for us. */
+    result = ma_linear_resampler_set_rate_internal(pResampler, pConfig->sampleRateIn, pConfig->sampleRateOut, /* isResamplerAlreadyInitialized = */ MA_FALSE);
+    if (result != MA_SUCCESS) {
+        return result;
+    }
+
+    pResampler->inTimeInt  = 1;  /* Set this to one to force an input sample to always be loaded for the first output frame. */
+    pResampler->inTimeFrac = 0;
+
+    return MA_SUCCESS;
+}
+
+void ma_linear_resampler_uninit(ma_linear_resampler* pResampler)
+{
+    if (pResampler == NULL) {
+        return;
+    }
+}
+
+static MA_INLINE ma_int16 ma_linear_resampler_mix_s16(ma_int16 x, ma_int16 y, ma_int32 a, const ma_int32 shift)
+{
+    ma_int32 b;
+    ma_int32 c;
+    ma_int32 r;
+
+    MA_ASSERT(a <= (1<<shift));
+
+    b = x * ((1<<shift) - a);
+    c = y * a;
+    r = b + c;
+    
+    return (ma_int16)(r >> shift);
+}
+
+static void ma_linear_resampler_interpolate_frame_s16(ma_linear_resampler* pResampler, ma_int16* pFrameOut)
+{
+    ma_uint32 c;
+    ma_uint32 a;
+    const ma_uint32 shift = 12;
+
+    MA_ASSERT(pResampler != NULL);
+    MA_ASSERT(pFrameOut  != NULL);
+
+    a = (pResampler->inTimeFrac << shift) / pResampler->config.sampleRateOut;
+
+    for (c = 0; c < pResampler->config.channels; c += 1) {
+        ma_int16 s = ma_linear_resampler_mix_s16(pResampler->x0.s16[c], pResampler->x1.s16[c], a, shift);
+        pFrameOut[c] = s;
+    }
+}
+
+
+static void ma_linear_resampler_interpolate_frame_f32(ma_linear_resampler* pResampler, float* pFrameOut)
+{
+    ma_uint32 c;
+    float a;
+
+    MA_ASSERT(pResampler != NULL);
+    MA_ASSERT(pFrameOut  != NULL);
+
+    a = (float)pResampler->inTimeFrac / pResampler->config.sampleRateOut;
+
+    for (c = 0; c < pResampler->config.channels; c += 1) {
+        float s = ma_mix_f32_fast(pResampler->x0.f32[c], pResampler->x1.f32[c], a);
+        pFrameOut[c] = s;
+    }
+}
+
+static ma_result ma_linear_resampler_process_pcm_frames_s16_downsample(ma_linear_resampler* pResampler, const void* pFramesIn, ma_uint64* pFrameCountIn, void* pFramesOut, ma_uint64* pFrameCountOut)
+{
+    const ma_int16* pFramesInS16;
+    /* */ ma_int16* pFramesOutS16;
+    ma_uint64 frameCountIn;
+    ma_uint64 frameCountOut;
+    ma_uint64 framesProcessedIn;
+    ma_uint64 framesProcessedOut;
+
+    MA_ASSERT(pResampler     != NULL);
+    MA_ASSERT(pFrameCountIn  != NULL);
+    MA_ASSERT(pFrameCountOut != NULL);
+
+    pFramesInS16       = (const ma_int16*)pFramesIn;
+    pFramesOutS16      = (      ma_int16*)pFramesOut;
+    frameCountIn       = *pFrameCountIn;
+    frameCountOut      = *pFrameCountOut;
+    framesProcessedIn  = 0;
+    framesProcessedOut = 0;
+
+    for (;;) {
+        if (framesProcessedOut >= *pFrameCountOut) {
+            break;
+        }
+
+        /* Before interpolating we need to load the buffers. When doing this we need to ensure we run every input sample through the filter. */
+        while (pResampler->inTimeInt > 0 && frameCountIn > 0) {
+            ma_uint32 iFilter;
+            ma_uint32 iChannel;
+
+            if (pFramesInS16 != NULL) {
+                for (iChannel = 0; iChannel < pResampler->config.channels; iChannel += 1) {
+                    pResampler->x0.s16[iChannel] = pResampler->x1.s16[iChannel];
+                    pResampler->x1.s16[iChannel] = pFramesInS16[iChannel];
+                }
+                pFramesInS16 += pResampler->config.channels;
+            } else {
+                for (iChannel = 0; iChannel < pResampler->config.channels; iChannel += 1) {
+                    pResampler->x0.s16[iChannel] = pResampler->x1.s16[iChannel];
+                    pResampler->x1.s16[iChannel] = 0;
+                }
+            }
+
+            /* Filter. */
+            for (iFilter = 0; iFilter < pResampler->config.lpfCount; iFilter += 1) {
+                ma_lpf_process_pcm_frame_s16(&pResampler->lpf[iFilter], pResampler->x1.s16, pResampler->x1.s16);
+            }
+
+            frameCountIn          -= 1;
+            framesProcessedIn     += 1;
+            pResampler->inTimeInt -= 1;
+        }
+
+        if (pResampler->inTimeInt > 0) {
+            break;  /* Ran out of input data. */
+        }
+
+        /* Getting here means the frames have been loaded and filtered and we can generate the next output frame. */
+        if (pFramesOutS16 != NULL) {
+            MA_ASSERT(pResampler->inTimeInt == 0);
+            ma_linear_resampler_interpolate_frame_s16(pResampler, pFramesOutS16);
+
+            pFramesOutS16 += pResampler->config.channels;
+        }
+
+        framesProcessedOut += 1;
+
+        /* Advance time forward. */
+        pResampler->inTimeInt  += pResampler->inAdvanceInt;
+        pResampler->inTimeFrac += pResampler->inAdvanceFrac;
+        if (pResampler->inTimeFrac >= pResampler->config.sampleRateOut) {
+            pResampler->inTimeFrac -= pResampler->config.sampleRateOut;
+            pResampler->inTimeInt  += 1;
+        }
+    }
+
+    *pFrameCountIn  = framesProcessedIn;
+    *pFrameCountOut = framesProcessedOut;
+
+    return MA_SUCCESS;
+}
+
+static ma_result ma_linear_resampler_process_pcm_frames_s16_upsample(ma_linear_resampler* pResampler, const void* pFramesIn, ma_uint64* pFrameCountIn, void* pFramesOut, ma_uint64* pFrameCountOut)
+{
+    const ma_int16* pFramesInS16;
+    /* */ ma_int16* pFramesOutS16;
+    ma_uint64 frameCountIn;
+    ma_uint64 frameCountOut;
+    ma_uint64 framesProcessedIn;
+    ma_uint64 framesProcessedOut;
+
+    MA_ASSERT(pResampler     != NULL);
+    MA_ASSERT(pFrameCountIn  != NULL);
+    MA_ASSERT(pFrameCountOut != NULL);
+
+    pFramesInS16       = (const ma_int16*)pFramesIn;
+    pFramesOutS16      = (      ma_int16*)pFramesOut;
+    frameCountIn       = *pFrameCountIn;
+    frameCountOut      = *pFrameCountOut;
+    framesProcessedIn  = 0;
+    framesProcessedOut = 0;
+
+    for (;;) {
+        ma_uint32 iFilter;
+
+        if (framesProcessedOut >= *pFrameCountOut) {
+            break;
+        }
+
+        /* Before interpolating we need to load the buffers. */
+        while (pResampler->inTimeInt > 0 && frameCountIn > 0) {
+            ma_uint32 iChannel;
+
+            if (pFramesInS16 != NULL) {
+                for (iChannel = 0; iChannel < pResampler->config.channels; iChannel += 1) {
+                    pResampler->x0.s16[iChannel] = pResampler->x1.s16[iChannel];
+                    pResampler->x1.s16[iChannel] = pFramesInS16[iChannel];
+                }
+                pFramesInS16 += pResampler->config.channels;
+            } else {
+                for (iChannel = 0; iChannel < pResampler->config.channels; iChannel += 1) {
+                    pResampler->x0.s16[iChannel] = pResampler->x1.s16[iChannel];
+                    pResampler->x1.s16[iChannel] = 0;
+                }
+            }
+
+            frameCountIn          -= 1;
+            framesProcessedIn     += 1;
+            pResampler->inTimeInt -= 1;
+        }
+
+        if (pResampler->inTimeInt > 0) {
+            break;  /* Ran out of input data. */
+        }
+
+        /* Getting here means the frames have been loaded and we can generate the next output frame. */
+        if (pFramesOutS16 != NULL) {
+            MA_ASSERT(pResampler->inTimeInt == 0);
+            ma_linear_resampler_interpolate_frame_s16(pResampler, pFramesOutS16);
+
+            /* Filter. */
+            for (iFilter = 0; iFilter < pResampler->config.lpfCount; iFilter += 1) {
+                ma_lpf_process_pcm_frame_s16(&pResampler->lpf[iFilter], pFramesOutS16, pFramesOutS16);
+            }
+
+            pFramesOutS16 += pResampler->config.channels;
+        }
+
+        framesProcessedOut += 1;
+
+        /* Advance time forward. */
+        pResampler->inTimeInt  += pResampler->inAdvanceInt;
+        pResampler->inTimeFrac += pResampler->inAdvanceFrac;
+        if (pResampler->inTimeFrac >= pResampler->config.sampleRateOut) {
+            pResampler->inTimeFrac -= pResampler->config.sampleRateOut;
+            pResampler->inTimeInt  += 1;
+        }
+    }
+
+    *pFrameCountIn  = framesProcessedIn;
+    *pFrameCountOut = framesProcessedOut;
+
+    return MA_SUCCESS;
+}
+
+static ma_result ma_linear_resampler_process_pcm_frames_s16(ma_linear_resampler* pResampler, const void* pFramesIn, ma_uint64* pFrameCountIn, void* pFramesOut, ma_uint64* pFrameCountOut)
+{
+    MA_ASSERT(pResampler != NULL);
+
+    if (pResampler->config.sampleRateIn > pResampler->config.sampleRateOut) {
+        return ma_linear_resampler_process_pcm_frames_s16_downsample(pResampler, pFramesIn, pFrameCountIn, pFramesOut, pFrameCountOut);
+    } else {
+        return ma_linear_resampler_process_pcm_frames_s16_upsample(pResampler, pFramesIn, pFrameCountIn, pFramesOut, pFrameCountOut);
+    }
+}
+
+
+static ma_result ma_linear_resampler_process_pcm_frames_f32_downsample(ma_linear_resampler* pResampler, const void* pFramesIn, ma_uint64* pFrameCountIn, void* pFramesOut, ma_uint64* pFrameCountOut)
+{
+    const float* pFramesInF32;
+    /* */ float* pFramesOutF32;
+    ma_uint64 frameCountIn;
+    ma_uint64 frameCountOut;
+    ma_uint64 framesProcessedIn;
+    ma_uint64 framesProcessedOut;
+
+    MA_ASSERT(pResampler     != NULL);
+    MA_ASSERT(pFrameCountIn  != NULL);
+    MA_ASSERT(pFrameCountOut != NULL);
+
+    pFramesInF32       = (const float*)pFramesIn;
+    pFramesOutF32      = (      float*)pFramesOut;
+    frameCountIn       = *pFrameCountIn;
+    frameCountOut      = *pFrameCountOut;
+    framesProcessedIn  = 0;
+    framesProcessedOut = 0;
+
+    for (;;) {
+        if (framesProcessedOut >= *pFrameCountOut) {
+            break;
+        }
+
+        /* Before interpolating we need to load the buffers. When doing this we need to ensure we run every input sample through the filter. */
+        while (pResampler->inTimeInt > 0 && frameCountIn > 0) {
+            ma_uint32 iFilter;
+            ma_uint32 iChannel;
+
+            if (pFramesInF32 != NULL) {
+                for (iChannel = 0; iChannel < pResampler->config.channels; iChannel += 1) {
+                    pResampler->x0.f32[iChannel] = pResampler->x1.f32[iChannel];
+                    pResampler->x1.f32[iChannel] = pFramesInF32[iChannel];
+                }
+                pFramesInF32 += pResampler->config.channels;
+            } else {
+                for (iChannel = 0; iChannel < pResampler->config.channels; iChannel += 1) {
+                    pResampler->x0.f32[iChannel] = pResampler->x1.f32[iChannel];
+                    pResampler->x1.f32[iChannel] = 0;
+                }
+            }
+
+            /* Filter. */
+            for (iFilter = 0; iFilter < pResampler->config.lpfCount; iFilter += 1) {
+                ma_lpf_process_pcm_frame_f32(&pResampler->lpf[iFilter], pResampler->x1.f32, pResampler->x1.f32);
+            }
+
+            frameCountIn          -= 1;
+            framesProcessedIn     += 1;
+            pResampler->inTimeInt -= 1;
+        }
+
+        if (pResampler->inTimeInt > 0) {
+            break;  /* Ran out of input data. */
+        }
+
+        /* Getting here means the frames have been loaded and filtered and we can generate the next output frame. */
+        if (pFramesOutF32 != NULL) {
+            MA_ASSERT(pResampler->inTimeInt == 0);
+            ma_linear_resampler_interpolate_frame_f32(pResampler, pFramesOutF32);
+
+            pFramesOutF32 += pResampler->config.channels;
+        }
+
+        framesProcessedOut += 1;
+
+        /* Advance time forward. */
+        pResampler->inTimeInt  += pResampler->inAdvanceInt;
+        pResampler->inTimeFrac += pResampler->inAdvanceFrac;
+        if (pResampler->inTimeFrac >= pResampler->config.sampleRateOut) {
+            pResampler->inTimeFrac -= pResampler->config.sampleRateOut;
+            pResampler->inTimeInt  += 1;
+        }
+    }
+
+    *pFrameCountIn  = framesProcessedIn;
+    *pFrameCountOut = framesProcessedOut;
+
+    return MA_SUCCESS;
+}
+
+static ma_result ma_linear_resampler_process_pcm_frames_f32_upsample(ma_linear_resampler* pResampler, const void* pFramesIn, ma_uint64* pFrameCountIn, void* pFramesOut, ma_uint64* pFrameCountOut)
+{
+    const float* pFramesInF32;
+    /* */ float* pFramesOutF32;
+    ma_uint64 frameCountIn;
+    ma_uint64 frameCountOut;
+    ma_uint64 framesProcessedIn;
+    ma_uint64 framesProcessedOut;
+
+    MA_ASSERT(pResampler     != NULL);
+    MA_ASSERT(pFrameCountIn  != NULL);
+    MA_ASSERT(pFrameCountOut != NULL);
+
+    pFramesInF32       = (const float*)pFramesIn;
+    pFramesOutF32      = (      float*)pFramesOut;
+    frameCountIn       = *pFrameCountIn;
+    frameCountOut      = *pFrameCountOut;
+    framesProcessedIn  = 0;
+    framesProcessedOut = 0;
+
+    for (;;) {
+        ma_uint32 iFilter;
+
+        if (framesProcessedOut >= *pFrameCountOut) {
+            break;
+        }
+
+        /* Before interpolating we need to load the buffers. */
+        while (pResampler->inTimeInt > 0 && frameCountIn > 0) {
+            ma_uint32 iChannel;
+
+            if (pFramesInF32 != NULL) {
+                for (iChannel = 0; iChannel < pResampler->config.channels; iChannel += 1) {
+                    pResampler->x0.f32[iChannel] = pResampler->x1.f32[iChannel];
+                    pResampler->x1.f32[iChannel] = pFramesInF32[iChannel];
+                }
+                pFramesInF32 += pResampler->config.channels;
+            } else {
+                for (iChannel = 0; iChannel < pResampler->config.channels; iChannel += 1) {
+                    pResampler->x0.f32[iChannel] = pResampler->x1.f32[iChannel];
+                    pResampler->x1.f32[iChannel] = 0;
+                }
+            }
+
+            frameCountIn          -= 1;
+            framesProcessedIn     += 1;
+            pResampler->inTimeInt -= 1;
+        }
+
+        if (pResampler->inTimeInt > 0) {
+            break;  /* Ran out of input data. */
+        }
+
+        /* Getting here means the frames have been loaded and we can generate the next output frame. */
+        if (pFramesOutF32 != NULL) {
+            MA_ASSERT(pResampler->inTimeInt == 0);
+            ma_linear_resampler_interpolate_frame_f32(pResampler, pFramesOutF32);
+
+            /* Filter. */
+            for (iFilter = 0; iFilter < pResampler->config.lpfCount; iFilter += 1) {
+                ma_lpf_process_pcm_frame_f32(&pResampler->lpf[iFilter], pFramesOutF32, pFramesOutF32);
+            }
+
+            pFramesOutF32 += pResampler->config.channels;
+        }
+
+        framesProcessedOut += 1;
+
+        /* Advance time forward. */
+        pResampler->inTimeInt  += pResampler->inAdvanceInt;
+        pResampler->inTimeFrac += pResampler->inAdvanceFrac;
+        if (pResampler->inTimeFrac >= pResampler->config.sampleRateOut) {
+            pResampler->inTimeFrac -= pResampler->config.sampleRateOut;
+            pResampler->inTimeInt  += 1;
+        }
+    }
+
+    *pFrameCountIn  = framesProcessedIn;
+    *pFrameCountOut = framesProcessedOut;
+
+    return MA_SUCCESS;
+}
+
+static ma_result ma_linear_resampler_process_pcm_frames_f32(ma_linear_resampler* pResampler, const void* pFramesIn, ma_uint64* pFrameCountIn, void* pFramesOut, ma_uint64* pFrameCountOut)
+{
+    MA_ASSERT(pResampler != NULL);
+
+    if (pResampler->config.sampleRateIn > pResampler->config.sampleRateOut) {
+        return ma_linear_resampler_process_pcm_frames_f32_downsample(pResampler, pFramesIn, pFrameCountIn, pFramesOut, pFrameCountOut);
+    } else {
+        return ma_linear_resampler_process_pcm_frames_f32_upsample(pResampler, pFramesIn, pFrameCountIn, pFramesOut, pFrameCountOut);
+    }
+}
+
+
+ma_result ma_linear_resampler_process_pcm_frames(ma_linear_resampler* pResampler, const void* pFramesIn, ma_uint64* pFrameCountIn, void* pFramesOut, ma_uint64* pFrameCountOut)
+{
+    if (pResampler == NULL) {
+        return MA_INVALID_ARGS;
+    }
+
+    /*  */ if (pResampler->config.format == ma_format_s16) {
+        return ma_linear_resampler_process_pcm_frames_s16(pResampler, pFramesIn, pFrameCountIn, pFramesOut, pFrameCountOut);
+    } else if (pResampler->config.format == ma_format_f32) {
+        return ma_linear_resampler_process_pcm_frames_f32(pResampler, pFramesIn, pFrameCountIn, pFramesOut, pFrameCountOut);
+    } else {
+        /* Should never get here. Getting here means the format is not supported and you didn't check the return value of ma_linear_resampler_init(). */
+        MA_ASSERT(MA_FALSE);
+        return MA_INVALID_ARGS;
+    }
+}
+
+
+ma_result ma_linear_resampler_set_rate(ma_linear_resampler* pResampler, ma_uint32 sampleRateIn, ma_uint32 sampleRateOut)
+{
+    return ma_linear_resampler_set_rate_internal(pResampler, sampleRateIn, sampleRateOut, /* isResamplerAlreadyInitialized = */ MA_TRUE);
+}
+
+ma_result ma_linear_resampler_set_rate_ratio(ma_linear_resampler* pResampler, float ratioInOut)
+{
+    ma_uint32 n;
+    ma_uint32 d;
+
+    d = 1000000;    /* We use up to 6 decimal places. */
+    n = (ma_uint32)(ratioInOut * d);
+
+    if (n == 0) {
+        return MA_INVALID_ARGS; /* Ratio too small. */
+    }
+
+    MA_ASSERT(n != 0);
+    
+    return ma_linear_resampler_set_rate(pResampler, n, d);
+}
+
+
+ma_uint64 ma_linear_resampler_get_required_input_frame_count(ma_linear_resampler* pResampler, ma_uint64 outputFrameCount)
+{
+    ma_uint64 count;
+
+    if (pResampler == NULL) {
+        return 0;
+    }
+
+    if (outputFrameCount == 0) {
+        return 0;
+    }
+
+    /* Any whole input frames are consumed before the first output frame is generated. */
+    count = pResampler->inTimeInt;
+    outputFrameCount -= 1;
+
+    /* The rest of the output frames can be calculated in constant time. */
+    count += outputFrameCount * pResampler->inAdvanceInt;
+    count += (pResampler->inTimeFrac + (outputFrameCount * pResampler->inAdvanceFrac)) / pResampler->config.sampleRateOut;
+
+    return count;
+}
+
+ma_uint64 ma_linear_resampler_get_expected_output_frame_count(ma_linear_resampler* pResampler, ma_uint64 inputFrameCount)
+{
+    ma_uint64 outputFrameCount;
+    ma_uint64 inTimeInt;
+    ma_uint64 inTimeFrac;
+
+    if (pResampler == NULL) {
+        return 0;
+    }
+
+    /* TODO: Try making this run in constant time. */
+
+    outputFrameCount = 0;
+    inTimeInt  = pResampler->inTimeInt;
+    inTimeFrac = pResampler->inTimeFrac;
+
+    for (;;) {
+        while (inTimeInt > 0 && inputFrameCount > 0) {
+            inputFrameCount -= 1;
+            inTimeInt       -= 1;
+        }
+
+        if (inTimeInt > 0) {
+            break;
+        }
+
+        outputFrameCount += 1;
+
+        /* Advance time forward. */
+        inTimeInt  += pResampler->inAdvanceInt;
+        inTimeFrac += pResampler->inAdvanceFrac;
+        if (inTimeFrac >= pResampler->config.sampleRateOut) {
+            inTimeFrac -= pResampler->config.sampleRateOut;
+            inTimeInt  += 1;
+        }
+    }
+
+    return outputFrameCount;
+}
+
+ma_uint64 ma_linear_resampler_get_input_latency(ma_linear_resampler* pResampler)
+{
+    ma_uint32 latency;
+    ma_uint32 iFilter;
+
+    if (pResampler == NULL) {
+        return 0;
+    }
+
+    latency = 1;
+    for (iFilter = 0; iFilter < pResampler->config.lpfCount; iFilter += 1) {
+        latency += ma_lpf_get_latency(&pResampler->lpf[iFilter]);
+    }
+
+    return latency;
+}
+
+ma_uint64 ma_linear_resampler_get_output_latency(ma_linear_resampler* pResampler)
+{
+    if (pResampler == NULL) {
+        return 0;
+    }
+
+    return ma_linear_resampler_get_input_latency(pResampler) * pResampler->config.sampleRateOut / pResampler->config.sampleRateIn;
+}
+
+
+#if defined(ma_speex_resampler_h)
+#define MA_HAS_SPEEX_RESAMPLER
+
+static ma_result ma_result_from_speex_err(int err)
+{
+    switch (err)
+    {
+        case RESAMPLER_ERR_SUCCESS:      return MA_SUCCESS;
+        case RESAMPLER_ERR_ALLOC_FAILED: return MA_OUT_OF_MEMORY;
+        case RESAMPLER_ERR_BAD_STATE:    return MA_ERROR;
+        case RESAMPLER_ERR_INVALID_ARG:  return MA_INVALID_ARGS;
+        case RESAMPLER_ERR_PTR_OVERLAP:  return MA_INVALID_ARGS;
+        case RESAMPLER_ERR_OVERFLOW:     return MA_ERROR;
+        default: return MA_ERROR;
+    }
+}
+#endif  /* ma_speex_resampler_h */
+
+ma_resampler_config ma_resampler_config_init(ma_format format, ma_uint32 channels, ma_uint32 sampleRateIn, ma_uint32 sampleRateOut, ma_resample_algorithm algorithm)
+{
+    ma_resampler_config config;
+
+    MA_ZERO_OBJECT(&config);
+    config.format = format;
+    config.channels = channels;
+    config.sampleRateIn = sampleRateIn;
+    config.sampleRateOut = sampleRateOut;
+    config.algorithm = algorithm;
+
+    /* Linear. */
+    config.linear.lpfCount = 1;
+    config.linear.lpfNyquistFactor = 1;
+
+    /* Speex. */
+    config.speex.quality = 3;   /* Cannot leave this as 0 as that is actually a valid value for Speex resampling quality. */
+
+    return config;
+}
+
+ma_result ma_resampler_init(const ma_resampler_config* pConfig, ma_resampler* pResampler)
+{
+    ma_result result;
+
+    if (pResampler == NULL) {
+        return MA_INVALID_ARGS;
+    }
+
+    MA_ZERO_OBJECT(pResampler);
+
+    if (pConfig == NULL) {
+        return MA_INVALID_ARGS;
+    }
+
+    if (pConfig->format != ma_format_f32 && pConfig->format != ma_format_s16) {
+        return MA_INVALID_ARGS;
+    }
+
+    pResampler->config = *pConfig;
+
+    switch (pConfig->algorithm)
+    {
+        case ma_resample_algorithm_linear:
+        {
+            ma_linear_resampler_config linearConfig;
+            linearConfig = ma_linear_resampler_config_init(pConfig->format, pConfig->channels, pConfig->sampleRateIn, pConfig->sampleRateOut);
+            linearConfig.lpfCount         = pConfig->linear.lpfCount;
+            linearConfig.lpfNyquistFactor = pConfig->linear.lpfNyquistFactor;
+
+            result = ma_linear_resampler_init(&linearConfig, &pResampler->state.linear);
+            if (result != MA_SUCCESS) {
+                return result;
+            }
+        } break;
+
+        case ma_resample_algorithm_speex:
+        {
+        #if defined(MA_HAS_SPEEX_RESAMPLER)
+            int speexErr;
+            pResampler->state.speex.pSpeexResamplerState = speex_resampler_init(pConfig->channels, pConfig->sampleRateIn, pConfig->sampleRateOut, pConfig->speex.quality, &speexErr);
+            if (pResampler->state.speex.pSpeexResamplerState == NULL) {
+                return ma_result_from_speex_err(speexErr);
+            }
+        #else
+            /* Speex resampler not available. */
+            return MA_NO_BACKEND;
+        #endif
+        } break;
+
+        default: return MA_INVALID_ARGS;
+    }
+
+    return MA_SUCCESS;
+}
+
+void ma_resampler_uninit(ma_resampler* pResampler)
+{
+    if (pResampler == NULL) {
+        return;
+    }
+
+    if (pResampler->config.algorithm == ma_resample_algorithm_linear) {
+        ma_linear_resampler_uninit(&pResampler->state.linear);
+    }
+
+#if defined(MA_HAS_SPEEX_RESAMPLER)
+    if (pResampler->config.algorithm == ma_resample_algorithm_speex) {
+        speex_resampler_destroy((SpeexResamplerState*)pResampler->state.speex.pSpeexResamplerState);
+    }
+#endif
+}
+
+static ma_result ma_resampler_process_pcm_frames__read__linear(ma_resampler* pResampler, const void* pFramesIn, ma_uint64* pFrameCountIn, void* pFramesOut, ma_uint64* pFrameCountOut)
+{
+    return ma_linear_resampler_process_pcm_frames(&pResampler->state.linear, pFramesIn, pFrameCountIn, pFramesOut, pFrameCountOut);
+}
+
+#if defined(MA_HAS_SPEEX_RESAMPLER)
+static ma_result ma_resampler_process_pcm_frames__read__speex(ma_resampler* pResampler, const void* pFramesIn, ma_uint64* pFrameCountIn, void* pFramesOut, ma_uint64* pFrameCountOut)
+{
+    int speexErr;
+    ma_uint64 frameCountOut;
+    ma_uint64 frameCountIn;
+    ma_uint64 framesProcessedOut;
+    ma_uint64 framesProcessedIn;
+    unsigned int framesPerIteration = UINT_MAX;
+
+    MA_ASSERT(pResampler     != NULL);
+    MA_ASSERT(pFramesOut     != NULL);
+    MA_ASSERT(pFrameCountOut != NULL);
+    MA_ASSERT(pFrameCountIn  != NULL);
+
+    /*
+    Reading from the Speex resampler requires a bit of dancing around for a few reasons. The first thing is that it's frame counts
+    are in unsigned int's whereas ours is in ma_uint64. We therefore need to run the conversion in a loop. The other, more complicated
+    problem, is that we need to keep track of the input time, similar to what we do with the linear resampler. The reason we need to
+    do this is for ma_resampler_get_required_input_frame_count() and ma_resampler_get_expected_output_frame_count().
+    */
+    frameCountOut      = *pFrameCountOut;
+    frameCountIn       = *pFrameCountIn;
+    framesProcessedOut = 0;
+    framesProcessedIn  = 0;
+
+    while (framesProcessedOut < frameCountOut && framesProcessedIn < frameCountIn) {
+        unsigned int frameCountInThisIteration;
+        unsigned int frameCountOutThisIteration;
+        const void* pFramesInThisIteration;
+        void* pFramesOutThisIteration;
+
+        frameCountInThisIteration = framesPerIteration;
+        if ((ma_uint64)frameCountInThisIteration > (frameCountIn - framesProcessedIn)) {
+            frameCountInThisIteration = (unsigned int)(frameCountIn - framesProcessedIn);
+        }
+
+        frameCountOutThisIteration = framesPerIteration;
+        if ((ma_uint64)frameCountOutThisIteration > (frameCountOut - framesProcessedOut)) {
+            frameCountOutThisIteration = (unsigned int)(frameCountOut - framesProcessedOut);
+        }
+
+        pFramesInThisIteration  = ma_offset_ptr(pFramesIn,  framesProcessedIn  * ma_get_bytes_per_frame(pResampler->config.format, pResampler->config.channels));
+        pFramesOutThisIteration = ma_offset_ptr(pFramesOut, framesProcessedOut * ma_get_bytes_per_frame(pResampler->config.format, pResampler->config.channels));
+
+        if (pResampler->config.format == ma_format_f32) {
+            speexErr = speex_resampler_process_interleaved_float((SpeexResamplerState*)pResampler->state.speex.pSpeexResamplerState, (const float*)pFramesInThisIteration, &frameCountInThisIteration, (float*)pFramesOutThisIteration, &frameCountOutThisIteration);
+        } else if (pResampler->config.format == ma_format_s16) {
+            speexErr = speex_resampler_process_interleaved_int((SpeexResamplerState*)pResampler->state.speex.pSpeexResamplerState, (const spx_int16_t*)pFramesInThisIteration, &frameCountInThisIteration, (spx_int16_t*)pFramesOutThisIteration, &frameCountOutThisIteration);
+        } else {
+            /* Format not supported. Should never get here. */
+            MA_ASSERT(MA_FALSE);
+            return MA_INVALID_OPERATION;
+        }
+
+        if (speexErr != RESAMPLER_ERR_SUCCESS) {
+            return ma_result_from_speex_err(speexErr);
+        }
+
+        framesProcessedIn  += frameCountInThisIteration;
+        framesProcessedOut += frameCountOutThisIteration;
+    }
+
+    *pFrameCountOut = framesProcessedOut;
+    *pFrameCountIn  = framesProcessedIn;
+
+    return MA_SUCCESS;
+}
+#endif
+
+static ma_result ma_resampler_process_pcm_frames__read(ma_resampler* pResampler, const void* pFramesIn, ma_uint64* pFrameCountIn, void* pFramesOut, ma_uint64* pFrameCountOut)
+{
+    MA_ASSERT(pResampler != NULL);
+    MA_ASSERT(pFramesOut != NULL);
+
+    /* pFramesOut is not NULL, which means we must have a capacity. */
+    if (pFrameCountOut == NULL) {
+        return MA_INVALID_ARGS;
+    }
+
+    /* It doesn't make sense to not have any input frames to process. */
+    if (pFrameCountIn == NULL || pFramesIn == NULL) {
+        return MA_INVALID_ARGS;
+    }
+
+    switch (pResampler->config.algorithm)
+    {
+        case ma_resample_algorithm_linear:
+        {
+            return ma_resampler_process_pcm_frames__read__linear(pResampler, pFramesIn, pFrameCountIn, pFramesOut, pFrameCountOut);
+        }
+
+        case ma_resample_algorithm_speex:
+        {
+        #if defined(MA_HAS_SPEEX_RESAMPLER)
+            return ma_resampler_process_pcm_frames__read__speex(pResampler, pFramesIn, pFrameCountIn, pFramesOut, pFrameCountOut);
+        #else
+            break;
+        #endif
+        }
+    
+        default: break;
+    }
+
+    /* Should never get here. */
+    MA_ASSERT(MA_FALSE);
+    return MA_INVALID_ARGS;
+}
+
+
+static ma_result ma_resampler_process_pcm_frames__seek__generic(ma_resampler* pResampler, const void* pFramesIn, ma_uint64* pFrameCountIn, ma_uint64* pFrameCountOut)
+{
+    /* The generic seek method is implemented in on top of ma_resampler_process_pcm_frames__read() by just processing into a dummy buffer. */
+    float devnull[8192];
+    ma_uint64 totalOutputFramesToProcess;
+    ma_uint64 totalOutputFramesProcessed;
+    ma_uint64 totalInputFramesProcessed;
+    ma_uint32 bpf;
+    ma_result result;
+
+    MA_ASSERT(pResampler != NULL);
+
+    totalOutputFramesProcessed = 0;
+    totalInputFramesProcessed = 0;
+    bpf = ma_get_bytes_per_frame(pResampler->config.format, pResampler->config.channels);
+
+    if (pFrameCountOut != NULL) {
+        /* Seek by output frames. */
+        totalOutputFramesToProcess = *pFrameCountOut;
+    } else {
+        /* Seek by input frames. */
+        MA_ASSERT(pFrameCountIn != NULL);
+        totalOutputFramesToProcess = ma_resampler_get_expected_output_frame_count(pResampler, *pFrameCountIn);
+    }
+
+    if (pFramesIn != NULL) {
+        /* Process input data. */
+        MA_ASSERT(pFrameCountIn != NULL);
+        while (totalOutputFramesProcessed < totalOutputFramesToProcess && totalInputFramesProcessed < *pFrameCountIn) {
+            ma_uint64 inputFramesToProcessThisIteration  = (*pFrameCountIn - totalInputFramesProcessed);
+            ma_uint64 outputFramesToProcessThisIteration = (totalOutputFramesToProcess - totalOutputFramesProcessed);
+            if (outputFramesToProcessThisIteration > sizeof(devnull) / bpf) {
+                outputFramesToProcessThisIteration = sizeof(devnull) / bpf;
+            }
+
+            result = ma_resampler_process_pcm_frames__read(pResampler, ma_offset_ptr(pFramesIn, totalInputFramesProcessed*bpf), &inputFramesToProcessThisIteration, ma_offset_ptr(devnull, totalOutputFramesProcessed*bpf), &outputFramesToProcessThisIteration);
+            if (result != MA_SUCCESS) {
+                return result;
+            }
+
+            totalOutputFramesProcessed += outputFramesToProcessThisIteration;
+            totalInputFramesProcessed  += inputFramesToProcessThisIteration;
+        }
+    } else {
+        /* Don't process input data - just update timing and filter state as if zeroes were passed in. */
+        while (totalOutputFramesProcessed < totalOutputFramesToProcess) {
+            ma_uint64 inputFramesToProcessThisIteration  = 16384;
+            ma_uint64 outputFramesToProcessThisIteration = (totalOutputFramesToProcess - totalOutputFramesProcessed);
+            if (outputFramesToProcessThisIteration > sizeof(devnull) / bpf) {
+                outputFramesToProcessThisIteration = sizeof(devnull) / bpf;
+            }
+
+            result = ma_resampler_process_pcm_frames__read(pResampler, NULL, &inputFramesToProcessThisIteration, ma_offset_ptr(devnull, totalOutputFramesProcessed*bpf), &outputFramesToProcessThisIteration);
+            if (result != MA_SUCCESS) {
+                return result;
+            }
+
+            totalOutputFramesProcessed += outputFramesToProcessThisIteration;
+            totalInputFramesProcessed  += inputFramesToProcessThisIteration;
+        }
+    }
+
+
+    if (pFrameCountIn != NULL) {
+        *pFrameCountIn = totalInputFramesProcessed;
+    }
+    if (pFrameCountOut != NULL) {
+        *pFrameCountOut = totalOutputFramesProcessed;
+    }
+
+    return MA_SUCCESS;
+}
+
+static ma_result ma_resampler_process_pcm_frames__seek__linear(ma_resampler* pResampler, const void* pFramesIn, ma_uint64* pFrameCountIn, ma_uint64* pFrameCountOut)
+{
+    MA_ASSERT(pResampler != NULL);
+
+    /* Seeking is supported natively by the linear resampler. */
+    return ma_linear_resampler_process_pcm_frames(&pResampler->state.linear, pFramesIn, pFrameCountIn, NULL, pFrameCountOut);
+}
+
+#if defined(MA_HAS_SPEEX_RESAMPLER)
+static ma_result ma_resampler_process_pcm_frames__seek__speex(ma_resampler* pResampler, const void* pFramesIn, ma_uint64* pFrameCountIn, ma_uint64* pFrameCountOut)
+{
+    MA_ASSERT(pResampler != NULL);
+
+    return ma_resampler_process_pcm_frames__seek__generic(pResampler, pFramesIn, pFrameCountIn, pFrameCountOut);
+}
+#endif
+
+static ma_result ma_resampler_process_pcm_frames__seek(ma_resampler* pResampler, const void* pFramesIn, ma_uint64* pFrameCountIn, ma_uint64* pFrameCountOut)
+{
+    MA_ASSERT(pResampler != NULL);
+
+    switch (pResampler->config.algorithm)
+    {
+        case ma_resample_algorithm_linear:
+        {
+            return ma_resampler_process_pcm_frames__seek__linear(pResampler, pFramesIn, pFrameCountIn, pFrameCountOut);
+        } break;
+
+        case ma_resample_algorithm_speex:
+        {
+        #if defined(MA_HAS_SPEEX_RESAMPLER)
+            return ma_resampler_process_pcm_frames__seek__speex(pResampler, pFramesIn, pFrameCountIn, pFrameCountOut);
+        #else
+            break;
+        #endif
+        };
+
+        default: break;
+    }
+
+    /* Should never hit this. */
+    MA_ASSERT(MA_FALSE);
+    return MA_INVALID_ARGS;
+}
+
+
+ma_result ma_resampler_process_pcm_frames(ma_resampler* pResampler, const void* pFramesIn, ma_uint64* pFrameCountIn, void* pFramesOut, ma_uint64* pFrameCountOut)
+{
+    if (pResampler == NULL) {
+        return MA_INVALID_ARGS;
+    }
+
+    if (pFrameCountOut == NULL && pFrameCountIn == NULL) {
+        return MA_INVALID_ARGS;
+    }
+
+    if (pFramesOut != NULL) {
+        /* Reading. */
+        return ma_resampler_process_pcm_frames__read(pResampler, pFramesIn, pFrameCountIn, pFramesOut, pFrameCountOut);
+    } else {
+        /* Seeking. */
+        return ma_resampler_process_pcm_frames__seek(pResampler, pFramesIn, pFrameCountIn, pFrameCountOut);
+    }
+}
+
+ma_result ma_resampler_set_rate(ma_resampler* pResampler, ma_uint32 sampleRateIn, ma_uint32 sampleRateOut)
+{
+    if (pResampler == NULL) {
+        return MA_INVALID_ARGS;
+    }
+
+    if (sampleRateIn == 0 || sampleRateOut == 0) {
+        return MA_INVALID_ARGS;
+    }
+
+    pResampler->config.sampleRateIn  = sampleRateIn;
+    pResampler->config.sampleRateOut = sampleRateOut;
+
+    switch (pResampler->config.algorithm)
+    {
+        case ma_resample_algorithm_linear:
+        {
+            return ma_linear_resampler_set_rate(&pResampler->state.linear, sampleRateIn, sampleRateOut);
+        } break;
+
+        case ma_resample_algorithm_speex:
+        {
+        #if defined(MA_HAS_SPEEX_RESAMPLER)
+            return ma_result_from_speex_err(speex_resampler_set_rate((SpeexResamplerState*)pResampler->state.speex.pSpeexResamplerState, sampleRateIn, sampleRateOut));
+        #else
+            break;
+        #endif
+        };
+
+        default: break;
+    }
+
+    /* Should never get here. */
+    MA_ASSERT(MA_FALSE);
+    return MA_INVALID_OPERATION;
+}
+
+ma_result ma_resampler_set_rate_ratio(ma_resampler* pResampler, float ratio)
+{
+    if (pResampler == NULL) {
+        return MA_INVALID_ARGS;
+    }
+
+    if (pResampler->config.algorithm == ma_resample_algorithm_linear) {
+        return ma_linear_resampler_set_rate_ratio(&pResampler->state.linear, ratio);
+    } else {
+        /* Getting here means the backend does not have native support for setting the rate as a ratio so we just do it generically. */
+        ma_uint32 n;
+        ma_uint32 d;
+
+        d = 1000000;    /* We use up to 6 decimal places. */
+        n = (ma_uint32)(ratio * d);
+
+        if (n == 0) {
+            return MA_INVALID_ARGS; /* Ratio too small. */
+        }
+
+        MA_ASSERT(n != 0);
+    
+        return ma_resampler_set_rate(pResampler, n, d);
+    }
+}
+
+ma_uint64 ma_resampler_get_required_input_frame_count(ma_resampler* pResampler, ma_uint64 outputFrameCount)
+{
+    double ratioInOut;
+
+    if (pResampler == NULL) {
+        return 0;
+    }
+
+    if (outputFrameCount == 0) {
+        return 0;
+    }
+
+    ratioInOut = (double)pResampler->config.sampleRateIn / (double)pResampler->config.sampleRateOut;
+
+    switch (pResampler->config.algorithm)
+    {
+        case ma_resample_algorithm_linear:
+        {
+            return ma_linear_resampler_get_required_input_frame_count(&pResampler->state.linear, outputFrameCount);
+        }
+
+        case ma_resample_algorithm_speex:
+        {
+        #if defined(MA_HAS_SPEEX_RESAMPLER)
+            ma_uint64 count;
+            int speexErr = ma_speex_resampler_get_required_input_frame_count((SpeexResamplerState*)pResampler->state.speex.pSpeexResamplerState, outputFrameCount, &count);
+            if (speexErr != RESAMPLER_ERR_SUCCESS) {
+                return 0;
+            }
+
+            return count;
+        #else
+            break;
+        #endif
+        }
+
+        default: break;
+    }
+
+    /* Should never get here. */
+    MA_ASSERT(MA_FALSE);
+    return 0;
+}
+
+ma_uint64 ma_resampler_get_expected_output_frame_count(ma_resampler* pResampler, ma_uint64 inputFrameCount)
+{
+    double ratioInOut;
+
+    if (pResampler == NULL) {
+        return 0;   /* Invalid args. */
+    }
+
+    if (inputFrameCount == 0) {
+        return 0;
+    }
+
+    ratioInOut = (double)pResampler->config.sampleRateIn / (double)pResampler->config.sampleRateOut;
+
+    switch (pResampler->config.algorithm)
+    {
+        case ma_resample_algorithm_linear:
+        {
+            return ma_linear_resampler_get_expected_output_frame_count(&pResampler->state.linear, inputFrameCount);
+        }
+
+        case ma_resample_algorithm_speex:
+        {
+        #if defined(MA_HAS_SPEEX_RESAMPLER)
+            ma_uint64 count;
+            int speexErr = ma_speex_resampler_get_expected_output_frame_count((SpeexResamplerState*)pResampler->state.speex.pSpeexResamplerState, inputFrameCount, &count);
+            if (speexErr != RESAMPLER_ERR_SUCCESS) {
+                return 0;
+            }
+
+            return count;
+        #else
+            break;
+        #endif
+        }
+
+        default: break;
+    }
+
+    /* Should never get here. */
+    MA_ASSERT(MA_FALSE);
+    return 0;
+}
+
+ma_uint64 ma_resampler_get_input_latency(ma_resampler* pResampler)
+{
+    if (pResampler == NULL) {
+        return 0;
+    }
+
+    switch (pResampler->config.algorithm)
+    {
+        case ma_resample_algorithm_linear:
+        {
+            return ma_linear_resampler_get_input_latency(&pResampler->state.linear);
+        }
+
+        case ma_resample_algorithm_speex:
+        {
+        #if defined(MA_HAS_SPEEX_RESAMPLER)
+            return (ma_uint64)ma_speex_resampler_get_input_latency((SpeexResamplerState*)pResampler->state.speex.pSpeexResamplerState);
+        #else
+            break;
+        #endif
+        }
+
+        default: break;
+    }
+
+    /* Should never get here. */
+    MA_ASSERT(MA_FALSE);
+    return 0;
+}
+
+ma_uint64 ma_resampler_get_output_latency(ma_resampler* pResampler)
+{
+    if (pResampler == NULL) {
+        return 0;
+    }
+
+    switch (pResampler->config.algorithm)
+    {
+        case ma_resample_algorithm_linear:
+        {
+            return ma_linear_resampler_get_output_latency(&pResampler->state.linear);
+        }
+
+        case ma_resample_algorithm_speex:
+        {
+        #if defined(MA_HAS_SPEEX_RESAMPLER)
+            return (ma_uint64)ma_speex_resampler_get_output_latency((SpeexResamplerState*)pResampler->state.speex.pSpeexResamplerState);
+        #else
+            break;
+        #endif
+        }
+
+        default: break;
+    }
+
+    /* Should never get here. */
+    MA_ASSERT(MA_FALSE);
+    return 0;
+}
+
+/**************************************************************************************************************************************************************
+
+Channel Conversion
+
+**************************************************************************************************************************************************************/
+#ifndef MA_CHANNEL_CONVERTER_FIXED_POINT_SHIFT
+#define MA_CHANNEL_CONVERTER_FIXED_POINT_SHIFT  12
+#endif
+
+#define MA_PLANE_LEFT      0
+#define MA_PLANE_RIGHT     1
+#define MA_PLANE_FRONT     2
+#define MA_PLANE_BACK      3
+#define MA_PLANE_BOTTOM    4
+#define MA_PLANE_TOP       5
+
+float g_maChannelPlaneRatios[MA_CHANNEL_POSITION_COUNT][6] = {
+    { 0.0f,  0.0f,  0.0f,  0.0f,  0.0f,  0.0f},  /* MA_CHANNEL_NONE */
+    { 0.0f,  0.0f,  0.0f,  0.0f,  0.0f,  0.0f},  /* MA_CHANNEL_MONO */
+    { 0.5f,  0.0f,  0.5f,  0.0f,  0.0f,  0.0f},  /* MA_CHANNEL_FRONT_LEFT */
+    { 0.0f,  0.5f,  0.5f,  0.0f,  0.0f,  0.0f},  /* MA_CHANNEL_FRONT_RIGHT */
+    { 0.0f,  0.0f,  1.0f,  0.0f,  0.0f,  0.0f},  /* MA_CHANNEL_FRONT_CENTER */
+    { 0.0f,  0.0f,  0.0f,  0.0f,  0.0f,  0.0f},  /* MA_CHANNEL_LFE */
+    { 0.5f,  0.0f,  0.0f,  0.5f,  0.0f,  0.0f},  /* MA_CHANNEL_BACK_LEFT */
+    { 0.0f,  0.5f,  0.0f,  0.5f,  0.0f,  0.0f},  /* MA_CHANNEL_BACK_RIGHT */
+    { 0.25f, 0.0f,  0.75f, 0.0f,  0.0f,  0.0f},  /* MA_CHANNEL_FRONT_LEFT_CENTER */
+    { 0.0f,  0.25f, 0.75f, 0.0f,  0.0f,  0.0f},  /* MA_CHANNEL_FRONT_RIGHT_CENTER */
+    { 0.0f,  0.0f,  0.0f,  1.0f,  0.0f,  0.0f},  /* MA_CHANNEL_BACK_CENTER */
+    { 1.0f,  0.0f,  0.0f,  0.0f,  0.0f,  0.0f},  /* MA_CHANNEL_SIDE_LEFT */
+    { 0.0f,  1.0f,  0.0f,  0.0f,  0.0f,  0.0f},  /* MA_CHANNEL_SIDE_RIGHT */
+    { 0.0f,  0.0f,  0.0f,  0.0f,  0.0f,  1.0f},  /* MA_CHANNEL_TOP_CENTER */
+    { 0.33f, 0.0f,  0.33f, 0.0f,  0.0f,  0.34f}, /* MA_CHANNEL_TOP_FRONT_LEFT */
+    { 0.0f,  0.0f,  0.5f,  0.0f,  0.0f,  0.5f},  /* MA_CHANNEL_TOP_FRONT_CENTER */
+    { 0.0f,  0.33f, 0.33f, 0.0f,  0.0f,  0.34f}, /* MA_CHANNEL_TOP_FRONT_RIGHT */
+    { 0.33f, 0.0f,  0.0f,  0.33f, 0.0f,  0.34f}, /* MA_CHANNEL_TOP_BACK_LEFT */
+    { 0.0f,  0.0f,  0.0f,  0.5f,  0.0f,  0.5f},  /* MA_CHANNEL_TOP_BACK_CENTER */
+    { 0.0f,  0.33f, 0.0f,  0.33f, 0.0f,  0.34f}, /* MA_CHANNEL_TOP_BACK_RIGHT */
+    { 0.0f,  0.0f,  0.0f,  0.0f,  0.0f,  0.0f},  /* MA_CHANNEL_AUX_0 */
+    { 0.0f,  0.0f,  0.0f,  0.0f,  0.0f,  0.0f},  /* MA_CHANNEL_AUX_1 */
+    { 0.0f,  0.0f,  0.0f,  0.0f,  0.0f,  0.0f},  /* MA_CHANNEL_AUX_2 */
+    { 0.0f,  0.0f,  0.0f,  0.0f,  0.0f,  0.0f},  /* MA_CHANNEL_AUX_3 */
+    { 0.0f,  0.0f,  0.0f,  0.0f,  0.0f,  0.0f},  /* MA_CHANNEL_AUX_4 */
+    { 0.0f,  0.0f,  0.0f,  0.0f,  0.0f,  0.0f},  /* MA_CHANNEL_AUX_5 */
+    { 0.0f,  0.0f,  0.0f,  0.0f,  0.0f,  0.0f},  /* MA_CHANNEL_AUX_6 */
+    { 0.0f,  0.0f,  0.0f,  0.0f,  0.0f,  0.0f},  /* MA_CHANNEL_AUX_7 */
+    { 0.0f,  0.0f,  0.0f,  0.0f,  0.0f,  0.0f},  /* MA_CHANNEL_AUX_8 */
+    { 0.0f,  0.0f,  0.0f,  0.0f,  0.0f,  0.0f},  /* MA_CHANNEL_AUX_9 */
+    { 0.0f,  0.0f,  0.0f,  0.0f,  0.0f,  0.0f},  /* MA_CHANNEL_AUX_10 */
+    { 0.0f,  0.0f,  0.0f,  0.0f,  0.0f,  0.0f},  /* MA_CHANNEL_AUX_11 */
+    { 0.0f,  0.0f,  0.0f,  0.0f,  0.0f,  0.0f},  /* MA_CHANNEL_AUX_12 */
+    { 0.0f,  0.0f,  0.0f,  0.0f,  0.0f,  0.0f},  /* MA_CHANNEL_AUX_13 */
+    { 0.0f,  0.0f,  0.0f,  0.0f,  0.0f,  0.0f},  /* MA_CHANNEL_AUX_14 */
+    { 0.0f,  0.0f,  0.0f,  0.0f,  0.0f,  0.0f},  /* MA_CHANNEL_AUX_15 */
+    { 0.0f,  0.0f,  0.0f,  0.0f,  0.0f,  0.0f},  /* MA_CHANNEL_AUX_16 */
+    { 0.0f,  0.0f,  0.0f,  0.0f,  0.0f,  0.0f},  /* MA_CHANNEL_AUX_17 */
+    { 0.0f,  0.0f,  0.0f,  0.0f,  0.0f,  0.0f},  /* MA_CHANNEL_AUX_18 */
+    { 0.0f,  0.0f,  0.0f,  0.0f,  0.0f,  0.0f},  /* MA_CHANNEL_AUX_19 */
+    { 0.0f,  0.0f,  0.0f,  0.0f,  0.0f,  0.0f},  /* MA_CHANNEL_AUX_20 */
+    { 0.0f,  0.0f,  0.0f,  0.0f,  0.0f,  0.0f},  /* MA_CHANNEL_AUX_21 */
+    { 0.0f,  0.0f,  0.0f,  0.0f,  0.0f,  0.0f},  /* MA_CHANNEL_AUX_22 */
+    { 0.0f,  0.0f,  0.0f,  0.0f,  0.0f,  0.0f},  /* MA_CHANNEL_AUX_23 */
+    { 0.0f,  0.0f,  0.0f,  0.0f,  0.0f,  0.0f},  /* MA_CHANNEL_AUX_24 */
+    { 0.0f,  0.0f,  0.0f,  0.0f,  0.0f,  0.0f},  /* MA_CHANNEL_AUX_25 */
+    { 0.0f,  0.0f,  0.0f,  0.0f,  0.0f,  0.0f},  /* MA_CHANNEL_AUX_26 */
+    { 0.0f,  0.0f,  0.0f,  0.0f,  0.0f,  0.0f},  /* MA_CHANNEL_AUX_27 */
+    { 0.0f,  0.0f,  0.0f,  0.0f,  0.0f,  0.0f},  /* MA_CHANNEL_AUX_28 */
+    { 0.0f,  0.0f,  0.0f,  0.0f,  0.0f,  0.0f},  /* MA_CHANNEL_AUX_29 */
+    { 0.0f,  0.0f,  0.0f,  0.0f,  0.0f,  0.0f},  /* MA_CHANNEL_AUX_30 */
+    { 0.0f,  0.0f,  0.0f,  0.0f,  0.0f,  0.0f},  /* MA_CHANNEL_AUX_31 */
+};
+
+float ma_calculate_channel_position_rectangular_weight(ma_channel channelPositionA, ma_channel channelPositionB)
+{
+    /*
+    Imagine the following simplified example: You have a single input speaker which is the front/left speaker which you want to convert to
+    the following output configuration:
+    
+     - front/left
+     - side/left
+     - back/left
+    
+    The front/left output is easy - it the same speaker position so it receives the full contribution of the front/left input. The amount
+    of contribution to apply to the side/left and back/left speakers, however, is a bit more complicated.
+    
+    Imagine the front/left speaker as emitting audio from two planes - the front plane and the left plane. You can think of the front/left
+    speaker emitting half of it's total volume from the front, and the other half from the left. Since part of it's volume is being emitted
+    from the left side, and the side/left and back/left channels also emit audio from the left plane, one would expect that they would
+    receive some amount of contribution from front/left speaker. The amount of contribution depends on how many planes are shared between
+    the two speakers. Note that in the examples below I've added a top/front/left speaker as an example just to show how the math works
+    across 3 spatial dimensions.
+    
+    The first thing to do is figure out how each speaker's volume is spread over each of plane:
+     - front/left:     2 planes (front and left)      = 1/2 = half it's total volume on each plane
+     - side/left:      1 plane (left only)            = 1/1 = entire volume from left plane
+     - back/left:      2 planes (back and left)       = 1/2 = half it's total volume on each plane
+     - top/front/left: 3 planes (top, front and left) = 1/3 = one third it's total volume on each plane
+    
+    The amount of volume each channel contributes to each of it's planes is what controls how much it is willing to given and take to other
+    channels on the same plane. The volume that is willing to the given by one channel is multiplied by the volume that is willing to be
+    taken by the other to produce the final contribution.
+    */
+
+    /* Contribution = Sum(Volume to Give * Volume to Take) */
+    float contribution = 
+        g_maChannelPlaneRatios[channelPositionA][0] * g_maChannelPlaneRatios[channelPositionB][0] +
+        g_maChannelPlaneRatios[channelPositionA][1] * g_maChannelPlaneRatios[channelPositionB][1] +
+        g_maChannelPlaneRatios[channelPositionA][2] * g_maChannelPlaneRatios[channelPositionB][2] +
+        g_maChannelPlaneRatios[channelPositionA][3] * g_maChannelPlaneRatios[channelPositionB][3] +
+        g_maChannelPlaneRatios[channelPositionA][4] * g_maChannelPlaneRatios[channelPositionB][4] +
+        g_maChannelPlaneRatios[channelPositionA][5] * g_maChannelPlaneRatios[channelPositionB][5];
+
+    return contribution;
+}
+
+ma_channel_converter_config ma_channel_converter_config_init(ma_format format, ma_uint32 channelsIn, const ma_channel channelMapIn[MA_MAX_CHANNELS], ma_uint32 channelsOut, const ma_channel channelMapOut[MA_MAX_CHANNELS], ma_channel_mix_mode mixingMode, const float weights[MA_MAX_CHANNELS][MA_MAX_CHANNELS])
+{
+    ma_channel_converter_config config;
+    MA_ZERO_OBJECT(&config);
+    config.format      = format;
+    config.channelsIn  = channelsIn;
+    config.channelsOut = channelsOut;
+    ma_channel_map_copy(config.channelMapIn,  channelMapIn,  channelsIn);
+    ma_channel_map_copy(config.channelMapOut, channelMapOut, channelsOut);
+    config.mixingMode  = mixingMode;
+
+    if (weights != NULL) {
+        ma_uint32 iChannelIn;
+        ma_uint32 iChannelOut;
+
+        for (iChannelIn = 0; iChannelIn < channelsIn; iChannelIn += 1) {
+            for (iChannelOut = 0; iChannelOut < channelsOut; iChannelOut += 1) {
+                config.weights[iChannelIn][iChannelOut] = weights[iChannelIn][iChannelOut];
+            }
+        }
+    }
+
+    return config;
+}
+
+static ma_int32 ma_channel_converter_float_to_fp(float x)
+{
+    return (ma_int32)(x * (1<<MA_CHANNEL_CONVERTER_FIXED_POINT_SHIFT));
+}
+
+static ma_bool32 ma_is_spatial_channel_position(ma_channel channelPosition)
+{
+    int i;
+
+    if (channelPosition == MA_CHANNEL_NONE || channelPosition == MA_CHANNEL_MONO || channelPosition == MA_CHANNEL_LFE) {
+        return MA_FALSE;
+    }
+
+    for (i = 0; i < 6; ++i) {   /* Each side of a cube. */
+        if (g_maChannelPlaneRatios[channelPosition][i] != 0) {
+            return MA_TRUE;
+        }
+    }
+
+    return MA_FALSE;
+}
+
+ma_result ma_channel_converter_init(const ma_channel_converter_config* pConfig, ma_channel_converter* pConverter)
+{
+    ma_uint32 iChannelIn;
+    ma_uint32 iChannelOut;
+
+    if (pConverter == NULL) {
+        return MA_INVALID_ARGS;
+    }
+
+    MA_ZERO_OBJECT(pConverter);
+
+    if (pConfig == NULL) {
+        return MA_INVALID_ARGS;
+    }
+
+    if (!ma_channel_map_valid(pConfig->channelsIn, pConfig->channelMapIn)) {
+        return MA_INVALID_ARGS; /* Invalid input channel map. */
+    }
+    if (!ma_channel_map_valid(pConfig->channelsOut, pConfig->channelMapOut)) {
+        return MA_INVALID_ARGS; /* Invalid output channel map. */
+    }
+
+    if (pConfig->format != ma_format_s16 && pConfig->format != ma_format_f32) {
+        return MA_INVALID_ARGS; /* Invalid format. */
+    }
+
+    pConverter->format      = pConfig->format;
+    pConverter->channelsIn  = pConfig->channelsIn;
+    pConverter->channelsOut = pConfig->channelsOut;
+    ma_channel_map_copy(pConverter->channelMapIn,  pConfig->channelMapIn,  pConfig->channelsIn);
+    ma_channel_map_copy(pConverter->channelMapOut, pConfig->channelMapOut, pConfig->channelsOut);
+    pConverter->mixingMode  = pConfig->mixingMode;
+
+    for (iChannelIn = 0; iChannelIn < pConverter->channelsIn; iChannelIn += 1) {
+        for (iChannelOut = 0; iChannelOut < pConverter->channelsOut; ++iChannelOut) {
+            if (pConverter->format == ma_format_s16) {
+                pConverter->weights.f32[iChannelIn][iChannelOut] = pConfig->weights[iChannelIn][iChannelOut];
+            } else {
+                pConverter->weights.s16[iChannelIn][iChannelOut] = ma_channel_converter_float_to_fp(pConfig->weights[iChannelIn][iChannelOut]);
+            }
+        }
+    }
+    
+
+
+    /* If the input and output channels and channel maps are the same we should use a passthrough. */
+    if (pConverter->channelsIn == pConverter->channelsOut) {
+        if (ma_channel_map_equal(pConverter->channelsIn, pConverter->channelMapIn, pConverter->channelMapOut)) {
+            pConverter->isPassthrough = MA_TRUE;
+        }
+        if (ma_channel_map_blank(pConverter->channelsIn, pConverter->channelMapIn) || ma_channel_map_blank(pConverter->channelsOut, pConverter->channelMapOut)) {
+            pConverter->isPassthrough = MA_TRUE;
+        }
+    }
+
+
+    /*
+    We can use a simple case for expanding the mono channel. This will used when expanding a mono input into any output so long
+    as no LFE is present in the output.
+    */
+    if (!pConverter->isPassthrough) {
+        if (pConverter->channelsIn == 1 && pConverter->channelMapIn[0] == MA_CHANNEL_MONO) {
+            /* Optimal case if no LFE is in the output channel map. */
+            pConverter->isSimpleMonoExpansion = MA_TRUE;
+            if (ma_channel_map_contains_channel_position(pConverter->channelsOut, pConverter->channelMapOut, MA_CHANNEL_LFE)) {
+                pConverter->isSimpleMonoExpansion = MA_FALSE;
+            }
+        }
+    }
+
+    /* Another optimized case is stereo to mono. */
+    if (!pConverter->isPassthrough) {
+        if (pConverter->channelsOut == 1 && pConverter->channelMapOut[0] == MA_CHANNEL_MONO && pConverter->channelsIn == 2) {
+            /* Optimal case if no LFE is in the input channel map. */
+            pConverter->isStereoToMono = MA_TRUE;
+            if (ma_channel_map_contains_channel_position(pConverter->channelsIn, pConverter->channelMapIn, MA_CHANNEL_LFE)) {
+                pConverter->isStereoToMono = MA_FALSE;
+            }
+        }
+    }
+
+
+    /*
+    Here is where we do a bit of pre-processing to know how each channel should be combined to make up the output. Rules:
+    
+        1) If it's a passthrough, do nothing - it's just a simple memcpy().
+        2) If the channel counts are the same and every channel position in the input map is present in the output map, use a
+           simple shuffle. An example might be different 5.1 channel layouts.
+        3) Otherwise channels are blended based on spatial locality.
+    */
+    if (!pConverter->isPassthrough) {
+        if (pConverter->channelsIn == pConverter->channelsOut) {
+            ma_bool32 areAllChannelPositionsPresent = MA_TRUE;
+            for (iChannelIn = 0; iChannelIn < pConverter->channelsIn; ++iChannelIn) {
+                ma_bool32 isInputChannelPositionInOutput = MA_FALSE;
+                for (iChannelOut = 0; iChannelOut < pConverter->channelsOut; ++iChannelOut) {
+                    if (pConverter->channelMapIn[iChannelIn] == pConverter->channelMapOut[iChannelOut]) {
+                        isInputChannelPositionInOutput = MA_TRUE;
+                        break;
+                    }
+                }
+
+                if (!isInputChannelPositionInOutput) {
+                    areAllChannelPositionsPresent = MA_FALSE;
+                    break;
+                }
+            }
+
+            if (areAllChannelPositionsPresent) {
+                pConverter->isSimpleShuffle = MA_TRUE;
+
+                /*
+                All the router will be doing is rearranging channels which means all we need to do is use a shuffling table which is just
+                a mapping between the index of the input channel to the index of the output channel.
+                */
+                for (iChannelIn = 0; iChannelIn < pConverter->channelsIn; ++iChannelIn) {
+                    for (iChannelOut = 0; iChannelOut < pConverter->channelsOut; ++iChannelOut) {
+                        if (pConverter->channelMapIn[iChannelIn] == pConverter->channelMapOut[iChannelOut]) {
+                            pConverter->shuffleTable[iChannelIn] = (ma_uint8)iChannelOut;
+                            break;
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+
+    /*
+    Here is where weights are calculated. Note that we calculate the weights at all times, even when using a passthrough and simple
+    shuffling. We use different algorithms for calculating weights depending on our mixing mode.
+    
+    In simple mode we don't do any blending (except for converting between mono, which is done in a later step). Instead we just
+    map 1:1 matching channels. In this mode, if no channels in the input channel map correspond to anything in the output channel
+    map, nothing will be heard!
+    */
+
+    /* In all cases we need to make sure all channels that are present in both channel maps have a 1:1 mapping. */
+    for (iChannelIn = 0; iChannelIn < pConverter->channelsIn; ++iChannelIn) {
+        ma_channel channelPosIn = pConverter->channelMapIn[iChannelIn];
+
+        for (iChannelOut = 0; iChannelOut < pConverter->channelsOut; ++iChannelOut) {
+            ma_channel channelPosOut = pConverter->channelMapOut[iChannelOut];
+
+            if (channelPosIn == channelPosOut) {
+                if (pConverter->format == ma_format_s16) {
+                    pConverter->weights.s16[iChannelIn][iChannelOut] = (1 << MA_CHANNEL_CONVERTER_FIXED_POINT_SHIFT);
+                } else {
+                    pConverter->weights.f32[iChannelIn][iChannelOut] = 1;
+                }
+            }
+        }
+    }
+
+    /*
+    The mono channel is accumulated on all other channels, except LFE. Make sure in this loop we exclude output mono channels since
+    they were handled in the pass above.
+    */
+    for (iChannelIn = 0; iChannelIn < pConverter->channelsIn; ++iChannelIn) {
+        ma_channel channelPosIn = pConverter->channelMapIn[iChannelIn];
+
+        if (channelPosIn == MA_CHANNEL_MONO) {
+            for (iChannelOut = 0; iChannelOut < pConverter->channelsOut; ++iChannelOut) {
+                ma_channel channelPosOut = pConverter->channelMapOut[iChannelOut];
+
+                if (channelPosOut != MA_CHANNEL_NONE && channelPosOut != MA_CHANNEL_MONO && channelPosOut != MA_CHANNEL_LFE) {
+                    if (pConverter->format == ma_format_s16) {
+                        pConverter->weights.s16[iChannelIn][iChannelOut] = (1 << MA_CHANNEL_CONVERTER_FIXED_POINT_SHIFT);
+                    } else {
+                        pConverter->weights.f32[iChannelIn][iChannelOut] = 1;
+                    }
+                }
+            }
+        }
+    }
+
+    /* The output mono channel is the average of all non-none, non-mono and non-lfe input channels. */
+    {
+        ma_uint32 len = 0;
+        for (iChannelIn = 0; iChannelIn < pConverter->channelsIn; ++iChannelIn) {
+            ma_channel channelPosIn = pConverter->channelMapIn[iChannelIn];
+
+            if (channelPosIn != MA_CHANNEL_NONE && channelPosIn != MA_CHANNEL_MONO && channelPosIn != MA_CHANNEL_LFE) {
+                len += 1;
+            }
+        }
+
+        if (len > 0) {
+            float monoWeight = 1.0f / len;
+
+            for (iChannelOut = 0; iChannelOut < pConverter->channelsOut; ++iChannelOut) {
+                ma_channel channelPosOut = pConverter->channelMapOut[iChannelOut];
+
+                if (channelPosOut == MA_CHANNEL_MONO) {
+                    for (iChannelIn = 0; iChannelIn < pConverter->channelsIn; ++iChannelIn) {
+                        ma_channel channelPosIn = pConverter->channelMapIn[iChannelIn];
+
+                        if (channelPosIn != MA_CHANNEL_NONE && channelPosIn != MA_CHANNEL_MONO && channelPosIn != MA_CHANNEL_LFE) {
+                            if (pConverter->format == ma_format_s16) {
+                                pConverter->weights.s16[iChannelIn][iChannelOut] = ma_channel_converter_float_to_fp(monoWeight);
+                            } else {
+                                pConverter->weights.f32[iChannelIn][iChannelOut] = monoWeight;
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+
+    /* Input and output channels that are not present on the other side need to be blended in based on spatial locality. */
+    switch (pConverter->mixingMode)
+    {
+        case ma_channel_mix_mode_rectangular:
+        {
+            /* Unmapped input channels. */
+            for (iChannelIn = 0; iChannelIn < pConverter->channelsIn; ++iChannelIn) {
+                ma_channel channelPosIn = pConverter->channelMapIn[iChannelIn];
+
+                if (ma_is_spatial_channel_position(channelPosIn)) {
+                    if (!ma_channel_map_contains_channel_position(pConverter->channelsOut, pConverter->channelMapOut, channelPosIn)) {
+                        for (iChannelOut = 0; iChannelOut < pConverter->channelsOut; ++iChannelOut) {
+                            ma_channel channelPosOut = pConverter->channelMapOut[iChannelOut];
+
+                            if (ma_is_spatial_channel_position(channelPosOut)) {
+                                float weight = 0;
+                                if (pConverter->mixingMode == ma_channel_mix_mode_rectangular) {
+                                    weight = ma_calculate_channel_position_rectangular_weight(channelPosIn, channelPosOut);
+                                }
+
+                                /* Only apply the weight if we haven't already got some contribution from the respective channels. */
+                                if (pConverter->format == ma_format_s16) {
+                                    if (pConverter->weights.s16[iChannelIn][iChannelOut] == 0) {
+                                        pConverter->weights.s16[iChannelIn][iChannelOut] = ma_channel_converter_float_to_fp(weight);
+                                    }
+                                } else {
+                                    if (pConverter->weights.f32[iChannelIn][iChannelOut] == 0) {
+                                        pConverter->weights.f32[iChannelIn][iChannelOut] = weight;
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+
+            /* Unmapped output channels. */
+            for (iChannelOut = 0; iChannelOut < pConverter->channelsOut; ++iChannelOut) {
+                ma_channel channelPosOut = pConverter->channelMapOut[iChannelOut];
+
+                if (ma_is_spatial_channel_position(channelPosOut)) {
+                    if (!ma_channel_map_contains_channel_position(pConverter->channelsIn, pConverter->channelMapIn, channelPosOut)) {
+                        for (iChannelIn = 0; iChannelIn < pConverter->channelsIn; ++iChannelIn) {
+                            ma_channel channelPosIn = pConverter->channelMapIn[iChannelIn];
+
+                            if (ma_is_spatial_channel_position(channelPosIn)) {
+                                float weight = 0;
+                                if (pConverter->mixingMode == ma_channel_mix_mode_rectangular) {
+                                    weight = ma_calculate_channel_position_rectangular_weight(channelPosIn, channelPosOut);
+                                }
+
+                                /* Only apply the weight if we haven't already got some contribution from the respective channels. */
+                                if (pConverter->format == ma_format_s16) {
+                                    if (pConverter->weights.s16[iChannelIn][iChannelOut] == 0) {
+                                        pConverter->weights.s16[iChannelIn][iChannelOut] = ma_channel_converter_float_to_fp(weight);
+                                    }
+                                } else {
+                                    if (pConverter->weights.f32[iChannelIn][iChannelOut] == 0) {
+                                        pConverter->weights.f32[iChannelIn][iChannelOut] = weight;
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        } break;
+
+        case ma_channel_mix_mode_custom_weights:
+        case ma_channel_mix_mode_simple:
+        default:
+        {
+            /* Fallthrough. */
+        } break;
+    }
+
+
+    return MA_SUCCESS;
+}
+
+void ma_channel_converter_uninit(ma_channel_converter* pConverter)
+{
+    if (pConverter == NULL) {
+        return;
+    }
+}
+
+static ma_result ma_channel_converter_process_pcm_frames__passthrough(ma_channel_converter* pConverter, void* pFramesOut, const void* pFramesIn, ma_uint64 frameCount)
+{
+    MA_ASSERT(pConverter != NULL);
+    MA_ASSERT(pFramesOut != NULL);
+    MA_ASSERT(pFramesIn  != NULL);
+
+    ma_copy_memory_64(pFramesOut, pFramesIn, frameCount * ma_get_bytes_per_frame(pConverter->format, pConverter->channelsOut));
+    return MA_SUCCESS;
+}
+
+static ma_result ma_channel_converter_process_pcm_frames__simple_shuffle(ma_channel_converter* pConverter, void* pFramesOut, const void* pFramesIn, ma_uint64 frameCount)
+{
+    ma_uint32 iFrame;
+    ma_uint32 iChannelIn;
+
+    MA_ASSERT(pConverter != NULL);
+    MA_ASSERT(pFramesOut != NULL);
+    MA_ASSERT(pFramesIn  != NULL);
+    MA_ASSERT(pConverter->channelsIn == pConverter->channelsOut);
+
+    if (pConverter->format == ma_format_s16) {
+        /* */ ma_int16* pFramesOutS16 = (      ma_int16*)pFramesOut;
+        const ma_int16* pFramesInS16  = (const ma_int16*)pFramesIn;
+
+        for (iFrame = 0; iFrame < frameCount; iFrame += 1) {
+            for (iChannelIn = 0; iChannelIn < pConverter->channelsIn; ++iChannelIn) {
+                pFramesOutS16[pConverter->shuffleTable[iChannelIn]] = pFramesInS16[iChannelIn];
+            }
+        }
+    } else {
+        /* */ float* pFramesOutF32 = (      float*)pFramesOut;
+        const float* pFramesInF32  = (const float*)pFramesIn;
+
+        for (iFrame = 0; iFrame < frameCount; iFrame += 1) {
+            for (iChannelIn = 0; iChannelIn < pConverter->channelsIn; ++iChannelIn) {
+                pFramesOutF32[pConverter->shuffleTable[iChannelIn]] = pFramesInF32[iChannelIn];
+            }
+        }
+    }
+
+    return MA_SUCCESS;
+}
+
+static ma_result ma_channel_converter_process_pcm_frames__simple_mono_expansion(ma_channel_converter* pConverter, void* pFramesOut, const void* pFramesIn, ma_uint64 frameCount)
+{
+    ma_uint64 iFrame;
+
+    MA_ASSERT(pConverter != NULL);
+    MA_ASSERT(pFramesOut != NULL);
+    MA_ASSERT(pFramesIn  != NULL);
+
+    if (pConverter->format == ma_format_s16) {
+        /* */ ma_int16* pFramesOutS16 = (      ma_int16*)pFramesOut;
+        const ma_int16* pFramesInS16  = (const ma_int16*)pFramesIn;
+
+        if (pConverter->channelsOut == 2) {
+            for (iFrame = 0; iFrame < frameCount; ++iFrame) {
+                pFramesOutS16[iFrame*2 + 0] = pFramesInS16[iFrame];
+                pFramesOutS16[iFrame*2 + 1] = pFramesInS16[iFrame];
+            }
+        } else {
+            for (iFrame = 0; iFrame < frameCount; ++iFrame) {
+                ma_uint32 iChannel;
+                for (iChannel = 0; iChannel < pConverter->channelsOut; iChannel += 1) {
+                    pFramesOutS16[iFrame*pConverter->channelsOut + iChannel] = pFramesInS16[iFrame];
+                }
+            }
+        }
+    } else {
+        /* */ float* pFramesOutF32 = (      float*)pFramesOut;
+        const float* pFramesInF32  = (const float*)pFramesIn;
+
+        if (pConverter->channelsOut == 2) {
+            for (iFrame = 0; iFrame < frameCount; ++iFrame) {
+                pFramesOutF32[iFrame*2 + 0] = pFramesInF32[iFrame];
+                pFramesOutF32[iFrame*2 + 1] = pFramesInF32[iFrame];
+            }
+        } else {
+            for (iFrame = 0; iFrame < frameCount; ++iFrame) {
+                ma_uint32 iChannel;
+                for (iChannel = 0; iChannel < pConverter->channelsOut; iChannel += 1) {
+                    pFramesOutF32[iFrame*pConverter->channelsOut + iChannel] = pFramesInF32[iFrame];
+                }
+            }
+        }
+    }
+
+    return MA_SUCCESS;
+}
+
+static ma_result ma_channel_converter_process_pcm_frames__stereo_to_mono(ma_channel_converter* pConverter, void* pFramesOut, const void* pFramesIn, ma_uint64 frameCount)
+{
+    ma_uint64 iFrame;
+
+    MA_ASSERT(pConverter != NULL);
+    MA_ASSERT(pFramesOut != NULL);
+    MA_ASSERT(pFramesIn  != NULL);
+    MA_ASSERT(pConverter->channelsIn  == 2);
+    MA_ASSERT(pConverter->channelsOut == 1);
+
+    if (pConverter->format == ma_format_s16) {
+        /* */ ma_int16* pFramesOutS16 = (      ma_int16*)pFramesOut;
+        const ma_int16* pFramesInS16  = (const ma_int16*)pFramesIn;
+
+        for (iFrame = 0; iFrame < frameCount; ++iFrame) {
+            pFramesOutS16[iFrame] = (ma_int16)(((ma_int32)pFramesInS16[iFrame*2+0] + (ma_int32)pFramesInS16[iFrame*2+1]) / 2);
+        }
+    } else {
+        /* */ float* pFramesOutF32 = (      float*)pFramesOut;
+        const float* pFramesInF32  = (const float*)pFramesIn;
+
+        for (iFrame = 0; iFrame < frameCount; ++iFrame) {
+            pFramesOutF32[iFrame] = (pFramesInF32[iFrame*2+0] + pFramesInF32[iFrame*2+0]) * 0.5f;
+        }
+    }
+
+    return MA_SUCCESS;
+}
+
+static ma_result ma_channel_converter_process_pcm_frames__weights(ma_channel_converter* pConverter, void* pFramesOut, const void* pFramesIn, ma_uint64 frameCount)
+{
+    ma_uint32 iFrame;
+    ma_uint32 iChannelIn;
+    ma_uint32 iChannelOut;
+
+    MA_ASSERT(pConverter != NULL);
+    MA_ASSERT(pFramesOut != NULL);
+    MA_ASSERT(pFramesIn  != NULL);
+
+    /* This is the more complicated case. Each of the output channels is accumulated with 0 or more input channels. */
+
+    /* Clear. */
+    ma_zero_memory_64(pFramesOut, frameCount * ma_get_bytes_per_frame(pConverter->format, pConverter->channelsOut));
+
+    /* Accumulate. */
+    if (pConverter->format == ma_format_s16) {
+        /* */ ma_int16* pFramesOutS16 = (      ma_int16*)pFramesOut;
+        const ma_int16* pFramesInS16  = (const ma_int16*)pFramesIn;
+
+        for (iFrame = 0; iFrame < frameCount; iFrame += 1) {
+            for (iChannelIn = 0; iChannelIn < pConverter->channelsIn; ++iChannelIn) {
+                for (iChannelOut = 0; iChannelOut < pConverter->channelsOut; ++iChannelOut) {
+                    ma_int32 s = pFramesOutS16[iFrame*pConverter->channelsOut + iChannelOut];
+                    s += (pFramesInS16[iFrame*pConverter->channelsIn + iChannelIn] * pConverter->weights.s16[iChannelIn][iChannelOut]) >> MA_CHANNEL_CONVERTER_FIXED_POINT_SHIFT;
+
+                    pFramesOutS16[iFrame*pConverter->channelsOut + iChannelOut] = (ma_int16)ma_clamp(s, -32768, 32767);
+                }
+            }
+        }
+    } else {
+        /* */ float* pFramesOutF32 = (      float*)pFramesOut;
+        const float* pFramesInF32  = (const float*)pFramesIn;
+
+        for (iFrame = 0; iFrame < frameCount; iFrame += 1) {
+            for (iChannelIn = 0; iChannelIn < pConverter->channelsIn; ++iChannelIn) {
+                for (iChannelOut = 0; iChannelOut < pConverter->channelsOut; ++iChannelOut) {
+                    pFramesOutF32[iFrame*pConverter->channelsOut + iChannelOut] += pFramesInF32[iFrame*pConverter->channelsIn + iChannelIn] * pConverter->weights.f32[iChannelIn][iChannelOut];
+                }
+            }
+        }
+    }
+    
+    return MA_SUCCESS;
+}
+
+ma_result ma_channel_converter_process_pcm_frames(ma_channel_converter* pConverter, void* pFramesOut, const void* pFramesIn, ma_uint64 frameCount)
+{
+    if (pConverter == NULL) {
+        return MA_INVALID_ARGS;
+    }
+
+    if (pFramesOut == NULL) {
+        return MA_INVALID_ARGS;
+    }
+
+    if (pFramesIn == NULL) {
+        ma_zero_memory_64(pFramesOut, frameCount * ma_get_bytes_per_frame(pConverter->format, pConverter->channelsOut));
+        return MA_SUCCESS;
+    }
+
+    if (pConverter->isPassthrough) {
+        return ma_channel_converter_process_pcm_frames__passthrough(pConverter, pFramesOut, pFramesIn, frameCount);
+    } else if (pConverter->isSimpleShuffle) {
+        return ma_channel_converter_process_pcm_frames__simple_shuffle(pConverter, pFramesOut, pFramesIn, frameCount);
+    } else if (pConverter->isSimpleMonoExpansion) {
+        return ma_channel_converter_process_pcm_frames__simple_mono_expansion(pConverter, pFramesOut, pFramesIn, frameCount);
+    } else if (pConverter->isStereoToMono) {
+        return ma_channel_converter_process_pcm_frames__stereo_to_mono(pConverter, pFramesOut, pFramesIn, frameCount);
+    } else {
+        return ma_channel_converter_process_pcm_frames__weights(pConverter, pFramesOut, pFramesIn, frameCount);
+    }
+}
+
+
+/**************************************************************************************************************************************************************
+
+Data Conversion
+
+**************************************************************************************************************************************************************/
+#ifndef MA_DATA_CONVERTER_STACK_BUFFER_SIZE
+#define MA_DATA_CONVERTER_STACK_BUFFER_SIZE     4096
+#endif
+
+ma_data_converter_config ma_data_converter_config_init(ma_format formatIn, ma_format formatOut, ma_uint32 channelsIn, ma_uint32 channelsOut, ma_uint32 sampleRateIn, ma_uint32 sampleRateOut)
+{
+    ma_data_converter_config config;
+    MA_ZERO_OBJECT(&config);
+    config.formatIn               = formatIn;
+    config.formatOut              = formatOut;
+    config.channelsIn             = channelsIn;
+    config.channelsOut            = channelsOut;
+    config.sampleRateIn           = sampleRateIn;
+    config.sampleRateOut          = sampleRateOut;
+    config.ditherMode             = ma_dither_mode_none;
+    config.resampleAlgorithm      = ma_resample_algorithm_linear;
+    config.allowDynamicSampleRate = MA_FALSE; /* Disable dynamic sample rates by default because dynamic rate adjustments should be quite rare and it allows an optimization for cases when the in and out sample rates are the same. */
+
+    /* Linear resampling defaults. */
+    config.resampling.linear.lpfCount = 1;
+    config.resampling.linear.lpfNyquistFactor = 1;
+
+    /* Speex resampling defaults. */
+    config.resampling.speex.quality = 3;
+
+    return config;
+}
+
+ma_result ma_data_converter_init(const ma_data_converter_config* pConfig, ma_data_converter* pConverter)
+{
+    ma_result result;
+    ma_format midFormat;
+
+    if (pConverter == NULL) {
+        return MA_INVALID_ARGS;
+    }
+
+    MA_ZERO_OBJECT(pConverter);
+
+    if (pConfig == NULL) {
+        return MA_INVALID_ARGS;
+    }
+
+    pConverter->config = *pConfig;
+
+    /*
+    We want to avoid as much data conversion as possible. The channel converter and resampler both support s16 and f32 natively. We need to decide
+    on the format to use for this stage. We call this the mid format because it's used in the middle stage of the conversion pipeline. If the output
+    format is either s16 or f32 we use that one. If that is not the case it will do the same thing for the input format. If it's neither we just
+    use f32.
+    */
+    /*  */ if (pConverter->config.formatOut == ma_format_s16 || pConverter->config.formatOut == ma_format_f32) {
+        midFormat = pConverter->config.formatOut;
+    } else if (pConverter->config.formatIn  == ma_format_s16 || pConverter->config.formatIn  == ma_format_f32) {
+        midFormat = pConverter->config.formatIn;
+    } else {
+        midFormat = ma_format_f32;
+    }
+
+    if (pConverter->config.formatIn != midFormat) {
+        pConverter->hasPreFormatConversion = MA_TRUE;
+    }
+    if (pConverter->config.formatOut != midFormat) {
+        pConverter->hasPostFormatConversion = MA_TRUE;
+    }
+
+
+    /* Channel converter. We always initialize this, but we check if it configures itself as a passthrough to determine whether or not it's needed. */
+    {
+        ma_channel_converter_config channelConverterConfig;
+
+        channelConverterConfig = ma_channel_converter_config_init(midFormat, pConverter->config.channelsIn, pConverter->config.channelMapIn, pConverter->config.channelsOut, pConverter->config.channelMapOut, pConverter->config.channelMixMode, pConverter->config.channelWeights);
+        result = ma_channel_converter_init(&channelConverterConfig, &pConverter->channelConverter);
+        if (result != MA_SUCCESS) {
+            return result;
+        }
+
+        /* If the channel converter is not a passthrough we need to enable it. Otherwise we can skip it. */
+        if (pConverter->channelConverter.isPassthrough == MA_FALSE) {
+            pConverter->hasChannelConverter = MA_TRUE;
+        }
+    }
+
+
+    /* Always enable dynamic sample rates if the input sample rate is different because we're always going to need a resampler in this case anyway. */
+    if (pConverter->config.allowDynamicSampleRate == MA_FALSE) {
+        pConverter->config.allowDynamicSampleRate = pConverter->config.sampleRateIn != pConverter->config.sampleRateOut;
+    }
+
+    /* Resampler. */
+    if (pConverter->config.allowDynamicSampleRate) {
+        ma_resampler_config resamplerConfig;
+        ma_uint32 resamplerChannels;
+
+        /* The resampler is the most expensive part of the conversion process, so we need to do it at the stage where the channel count is at it's lowest. */
+        if (pConverter->config.channelsIn < pConverter->config.channelsOut) {
+            resamplerChannels = pConverter->config.channelsIn;
+        } else {
+            resamplerChannels = pConverter->config.channelsOut;
+        }
+
+        resamplerConfig = ma_resampler_config_init(midFormat, resamplerChannels, pConverter->config.sampleRateIn, pConverter->config.sampleRateOut, pConverter->config.resampleAlgorithm);
+        resamplerConfig.linear.lpfCount         = pConverter->config.resampling.linear.lpfCount;
+        resamplerConfig.linear.lpfNyquistFactor = pConverter->config.resampling.linear.lpfNyquistFactor;
+        resamplerConfig.speex.quality           = pConverter->config.resampling.speex.quality;
+
+        result = ma_resampler_init(&resamplerConfig, &pConverter->resampler);
+        if (result != MA_SUCCESS) {
+            return result;
+        }
+
+        pConverter->hasResampler = MA_TRUE;
+    }
+
+    /* We can enable passthrough optimizations if applicable. Note that we'll only be able to do this if the sample rate is static. */
+    if (pConverter->hasPreFormatConversion  == MA_FALSE &&
+        pConverter->hasPostFormatConversion == MA_FALSE &&
+        pConverter->hasChannelConverter     == MA_FALSE &&
+        pConverter->hasResampler            == MA_FALSE) {
+        pConverter->isPassthrough = MA_TRUE;
+    }
+
+    return MA_SUCCESS;
+}
+
+void ma_data_converter_uninit(ma_data_converter* pConverter)
+{
+    if (pConverter == NULL) {
+        return;
+    }
+
+    if (pConverter->hasResampler) {
+        ma_resampler_uninit(&pConverter->resampler);
+    }
+}
+
+static ma_result ma_data_converter_process_pcm_frames__passthrough(ma_data_converter* pConverter, const void* pFramesIn, ma_uint64* pFrameCountIn, void* pFramesOut, ma_uint64* pFrameCountOut)
+{
+    ma_uint64 frameCountIn;
+    ma_uint64 frameCountOut;
+    ma_uint64 frameCount;
+
+    MA_ASSERT(pConverter != NULL);
+    
+    frameCountIn = 0;
+    if (pFrameCountIn != NULL) {
+        frameCountIn = *pFrameCountIn;
+    }
+
+    frameCountOut = 0;
+    if (pFrameCountOut != NULL) {
+        frameCountOut = *pFrameCountOut;
+    }
+
+    frameCount = ma_min(frameCountIn, frameCountOut);
+
+    if (pFramesOut != NULL) {
+        if (pFramesIn != NULL) {
+            ma_copy_memory_64(pFramesOut, pFramesIn, frameCount * ma_get_bytes_per_frame(pConverter->config.formatOut, pConverter->config.channelsOut));
+        } else {
+            ma_zero_memory_64(pFramesOut,            frameCount * ma_get_bytes_per_frame(pConverter->config.formatOut, pConverter->config.channelsOut));
+        }
+    }
+
+    if (pFrameCountIn != NULL) {
+        *pFrameCountIn = frameCount;
+    }
+    if (pFrameCountOut != NULL) {
+        *pFrameCountOut = frameCount;
+    }
+
+    return MA_SUCCESS;
+}
+
+static ma_result ma_data_converter_process_pcm_frames__format_only(ma_data_converter* pConverter, const void* pFramesIn, ma_uint64* pFrameCountIn, void* pFramesOut, ma_uint64* pFrameCountOut)
+{
+    ma_uint64 frameCountIn;
+    ma_uint64 frameCountOut;
+    ma_uint64 frameCount;
+
+    MA_ASSERT(pConverter != NULL);
+    
+    frameCountIn = 0;
+    if (pFrameCountIn != NULL) {
+        frameCountIn = *pFrameCountIn;
+    }
+
+    frameCountOut = 0;
+    if (pFrameCountOut != NULL) {
+        frameCountOut = *pFrameCountOut;
+    }
+
+    frameCount = ma_min(frameCountIn, frameCountOut);
+
+    if (pFramesOut != NULL) {
+        if (pFramesIn != NULL) {
+            ma_convert_pcm_frames(pFramesOut, pConverter->config.formatOut, pFramesIn, pConverter->config.formatIn, frameCount, pConverter->config.channelsIn, pConverter->config.ditherMode);
+        } else {
+            ma_zero_memory_64(pFramesOut, frameCount * ma_get_bytes_per_frame(pConverter->config.formatOut, pConverter->config.channelsOut));
+        }
+    }
+
+    if (pFrameCountIn != NULL) {
+        *pFrameCountIn = frameCount;
+    }
+    if (pFrameCountOut != NULL) {
+        *pFrameCountOut = frameCount;
+    }
+
+    return MA_SUCCESS;
+}
+
+
+static ma_result ma_data_converter_process_pcm_frames__resample_with_format_conversion(ma_data_converter* pConverter, const void* pFramesIn, ma_uint64* pFrameCountIn, void* pFramesOut, ma_uint64* pFrameCountOut)
+{
+    ma_result result = MA_SUCCESS;
+    ma_uint64 frameCountIn;
+    ma_uint64 frameCountOut;
+    ma_uint64 framesProcessedIn;
+    ma_uint64 framesProcessedOut;
+
+    MA_ASSERT(pConverter != NULL);
+
+    frameCountIn = 0;
+    if (pFrameCountIn != NULL) {
+        frameCountIn = *pFrameCountIn;
+    }
+
+    frameCountOut = 0;
+    if (pFrameCountOut != NULL) {
+        frameCountOut = *pFrameCountOut;
+    }
+
+    framesProcessedIn  = 0;
+    framesProcessedOut = 0;
+
+    while (framesProcessedIn < frameCountIn && framesProcessedOut < frameCountOut) {
+        ma_uint8 pTempBufferOut[MA_DATA_CONVERTER_STACK_BUFFER_SIZE];
+        const ma_uint32 tempBufferOutCap = sizeof(pTempBufferOut) / ma_get_bytes_per_frame(pConverter->resampler.config.format, pConverter->resampler.config.channels);
+        const void* pFramesInThisIteration;
+        /* */ void* pFramesOutThisIteration;
+        ma_uint64 frameCountInThisIteration;
+        ma_uint64 frameCountOutThisIteration;
+
+        if (pFramesIn != NULL) {
+            pFramesInThisIteration = ma_offset_ptr(pFramesIn, framesProcessedIn * ma_get_bytes_per_frame(pConverter->config.formatIn, pConverter->config.channelsIn));
+        } else {
+            pFramesInThisIteration = NULL;
+        }
+
+        if (pFramesOut != NULL) {
+            pFramesOutThisIteration = ma_offset_ptr(pFramesOut, framesProcessedOut * ma_get_bytes_per_frame(pConverter->config.formatOut, pConverter->config.channelsOut));
+        } else {
+            pFramesOutThisIteration = NULL;
+        }
+
+        /* Do a pre format conversion if necessary. */
+        if (pConverter->hasPreFormatConversion) {
+            ma_uint8 pTempBufferIn[MA_DATA_CONVERTER_STACK_BUFFER_SIZE];
+            const ma_uint32 tempBufferInCap = sizeof(pTempBufferIn) / ma_get_bytes_per_frame(pConverter->resampler.config.format, pConverter->resampler.config.channels);
+
+            frameCountInThisIteration  = (frameCountIn - framesProcessedIn);
+            if (frameCountInThisIteration > tempBufferInCap) {
+                frameCountInThisIteration = tempBufferInCap;
+            }
+
+            if (pConverter->hasPostFormatConversion) {
+               if (frameCountInThisIteration > tempBufferOutCap) {
+                   frameCountInThisIteration = tempBufferOutCap;
+               }
+            }
+
+            if (pFramesInThisIteration != NULL) {
+                ma_convert_pcm_frames(pTempBufferIn, pConverter->resampler.config.format, pFramesInThisIteration, pConverter->config.formatIn, frameCountInThisIteration, pConverter->config.channelsIn, pConverter->config.ditherMode);
+            } else {
+                MA_ZERO_MEMORY(pTempBufferIn, sizeof(pTempBufferIn));
+            }
+
+            frameCountOutThisIteration = (frameCountOut - framesProcessedOut);
+
+            if (pConverter->hasPostFormatConversion) {
+                /* Both input and output conversion required. Output to the temp buffer. */
+                if (frameCountOutThisIteration > tempBufferOutCap) {
+                    frameCountOutThisIteration = tempBufferOutCap;
+                }
+
+                result = ma_resampler_process_pcm_frames(&pConverter->resampler, pTempBufferIn, &frameCountInThisIteration, pTempBufferOut, &frameCountOutThisIteration);
+            } else {
+                /* Only pre-format required. Output straight to the output buffer. */
+                result = ma_resampler_process_pcm_frames(&pConverter->resampler, pTempBufferIn, &frameCountInThisIteration, pFramesOutThisIteration, &frameCountOutThisIteration);
+            }
+
+            if (result != MA_SUCCESS) {
+                break;
+            }
+        } else {
+            /* No pre-format required. Just read straight from the input buffer. */
+            MA_ASSERT(pConverter->hasPostFormatConversion == MA_TRUE);
+
+            frameCountInThisIteration  = (frameCountIn  - framesProcessedIn);
+            frameCountOutThisIteration = (frameCountOut - framesProcessedOut);
+            if (frameCountOutThisIteration > tempBufferOutCap) {
+                frameCountOutThisIteration = tempBufferOutCap;
+            }
+
+            result = ma_resampler_process_pcm_frames(&pConverter->resampler, pFramesInThisIteration, &frameCountInThisIteration, pTempBufferOut, &frameCountOutThisIteration);
+            if (result != MA_SUCCESS) {
+                break;
+            }
+        }
+
+        /* If we are doing a post format conversion we need to do that now. */
+        if (pConverter->hasPostFormatConversion) {
+            if (pFramesOutThisIteration != NULL) {
+                ma_convert_pcm_frames(pFramesOutThisIteration, pConverter->config.formatOut, pTempBufferOut, pConverter->resampler.config.format, frameCountOutThisIteration, pConverter->resampler.config.channels, pConverter->config.ditherMode);
+            }
+        }
+
+        framesProcessedIn  += frameCountInThisIteration;
+        framesProcessedOut += frameCountOutThisIteration;
+    }
+
+    if (pFrameCountIn != NULL) {
+        *pFrameCountIn = framesProcessedIn;
+    }
+    if (pFrameCountOut != NULL) {
+        *pFrameCountOut = framesProcessedOut;
+    }
+
+    return result;
+}
+
+static ma_result ma_data_converter_process_pcm_frames__resample_only(ma_data_converter* pConverter, const void* pFramesIn, ma_uint64* pFrameCountIn, void* pFramesOut, ma_uint64* pFrameCountOut)
+{
+    MA_ASSERT(pConverter != NULL);
+
+    if (pConverter->hasPreFormatConversion == MA_FALSE && pConverter->hasPostFormatConversion == MA_FALSE) {
+        /* Neither pre- nor post-format required. This is simple case where only resampling is required. */
+        return ma_resampler_process_pcm_frames(&pConverter->resampler, pFramesIn, pFrameCountIn, pFramesOut, pFrameCountOut);
+    } else {
+        /* Format conversion required. */
+        return ma_data_converter_process_pcm_frames__resample_with_format_conversion(pConverter, pFramesIn, pFrameCountIn, pFramesOut, pFrameCountOut);
+    }
+}
+
+static ma_result ma_data_converter_process_pcm_frames__channels_only(ma_data_converter* pConverter, const void* pFramesIn, ma_uint64* pFrameCountIn, void* pFramesOut, ma_uint64* pFrameCountOut)
+{
+    ma_result result;
+    ma_uint64 frameCountIn;
+    ma_uint64 frameCountOut;
+    ma_uint64 frameCount;
+
+    MA_ASSERT(pConverter != NULL);
+
+    frameCountIn = 0;
+    if (pFrameCountIn != NULL) {
+        frameCountIn = *pFrameCountIn;
+    }
+
+    frameCountOut = 0;
+    if (pFrameCountOut != NULL) {
+        frameCountOut = *pFrameCountOut;
+    }
+
+    frameCount = ma_min(frameCountIn, frameCountOut);
+
+    if (pConverter->hasPreFormatConversion == MA_FALSE && pConverter->hasPostFormatConversion == MA_FALSE) {
+        /* No format conversion required. */
+        result = ma_channel_converter_process_pcm_frames(&pConverter->channelConverter, pFramesOut, pFramesIn, frameCount);
+        if (result != MA_SUCCESS) {
+            return result;
+        }
+    } else {
+        /* Format conversion required. */
+        ma_uint64 framesProcessed = 0;
+
+        while (framesProcessed < frameCount) {
+            ma_uint8 pTempBufferOut[MA_DATA_CONVERTER_STACK_BUFFER_SIZE];
+            const ma_uint32 tempBufferOutCap = sizeof(pTempBufferOut) / ma_get_bytes_per_frame(pConverter->channelConverter.format, pConverter->channelConverter.channelsOut);
+            const void* pFramesInThisIteration;
+            /* */ void* pFramesOutThisIteration;
+            ma_uint64 frameCountThisIteration;
+
+            if (pFramesIn != NULL) {
+                pFramesInThisIteration = ma_offset_ptr(pFramesIn, framesProcessed * ma_get_bytes_per_frame(pConverter->config.formatIn, pConverter->config.channelsIn));
+            } else {
+                pFramesInThisIteration = NULL;
+            }
+
+            if (pFramesOut != NULL) {
+                pFramesOutThisIteration = ma_offset_ptr(pFramesOut, framesProcessed * ma_get_bytes_per_frame(pConverter->config.formatOut, pConverter->config.channelsOut));
+            } else {
+                pFramesOutThisIteration = NULL;
+            }
+
+            /* Do a pre format conversion if necessary. */
+            if (pConverter->hasPreFormatConversion) {
+                ma_uint8 pTempBufferIn[MA_DATA_CONVERTER_STACK_BUFFER_SIZE];
+                const ma_uint32 tempBufferInCap = sizeof(pTempBufferIn) / ma_get_bytes_per_frame(pConverter->channelConverter.format, pConverter->channelConverter.channelsIn);
+
+                frameCountThisIteration = (frameCount - framesProcessed);
+                if (frameCountThisIteration > tempBufferInCap) {
+                    frameCountThisIteration = tempBufferInCap;
+                }
+
+                if (pConverter->hasPostFormatConversion) {
+                    if (frameCountThisIteration > tempBufferOutCap) {
+                        frameCountThisIteration = tempBufferOutCap;
+                    }
+                }
+
+                if (pFramesInThisIteration != NULL) {
+                    ma_convert_pcm_frames(pTempBufferIn, pConverter->channelConverter.format, pFramesInThisIteration, pConverter->config.formatIn, frameCountThisIteration, pConverter->config.channelsIn, pConverter->config.ditherMode);
+                } else {
+                    MA_ZERO_MEMORY(pTempBufferIn, sizeof(pTempBufferIn));
+                }
+
+                if (pConverter->hasPostFormatConversion) {
+                    /* Both input and output conversion required. Output to the temp buffer. */
+                    result = ma_channel_converter_process_pcm_frames(&pConverter->channelConverter, pTempBufferOut, pTempBufferIn, frameCountThisIteration);
+                } else {
+                    /* Only pre-format required. Output straight to the output buffer. */
+                    result = ma_channel_converter_process_pcm_frames(&pConverter->channelConverter, pFramesOutThisIteration, pTempBufferIn, frameCountThisIteration);
+                }
+
+                if (result != MA_SUCCESS) {
+                    break;
+                }
+            } else {
+                /* No pre-format required. Just read straight from the input buffer. */
+                MA_ASSERT(pConverter->hasPostFormatConversion == MA_TRUE);
+
+                frameCountThisIteration = (frameCount - framesProcessed);
+                if (frameCountThisIteration > tempBufferOutCap) {
+                    frameCountThisIteration = tempBufferOutCap;
+                }
+
+                result = ma_channel_converter_process_pcm_frames(&pConverter->channelConverter, pTempBufferOut, pFramesInThisIteration, frameCountThisIteration);
+                if (result != MA_SUCCESS) {
+                    break;
+                }
+            }
+
+            /* If we are doing a post format conversion we need to do that now. */
+            if (pConverter->hasPostFormatConversion) {
+                if (pFramesOutThisIteration != NULL) {
+                    ma_convert_pcm_frames(pFramesOutThisIteration, pConverter->config.formatOut, pTempBufferOut, pConverter->channelConverter.format, frameCountThisIteration, pConverter->channelConverter.channelsOut, pConverter->config.ditherMode);
+                }
+            }
+
+            framesProcessed += frameCountThisIteration;
+        }
+    }
+
+    if (pFrameCountIn != NULL) {
+        *pFrameCountIn = frameCount;
+    }
+    if (pFrameCountOut != NULL) {
+        *pFrameCountOut = frameCount;
+    }
+
+    return MA_SUCCESS;
+}
+
+static ma_result ma_data_converter_process_pcm_frames__resampling_first(ma_data_converter* pConverter, const void* pFramesIn, ma_uint64* pFrameCountIn, void* pFramesOut, ma_uint64* pFrameCountOut)
+{
+    ma_result result;
+    ma_uint64 frameCountIn;
+    ma_uint64 frameCountOut;
+    ma_uint64 framesProcessedIn;
+    ma_uint64 framesProcessedOut;
+    ma_uint8  pTempBufferIn[MA_DATA_CONVERTER_STACK_BUFFER_SIZE];   /* In resampler format. */
+    ma_uint64 tempBufferInCap;
+    ma_uint8  pTempBufferMid[MA_DATA_CONVERTER_STACK_BUFFER_SIZE];  /* In resampler format, channel converter input format. */
+    ma_uint64 tempBufferMidCap;
+    ma_uint8  pTempBufferOut[MA_DATA_CONVERTER_STACK_BUFFER_SIZE];  /* In channel converter output format. */
+    ma_uint64 tempBufferOutCap;
+
+    MA_ASSERT(pConverter != NULL);
+    MA_ASSERT(pConverter->resampler.config.format   == pConverter->channelConverter.format);
+    MA_ASSERT(pConverter->resampler.config.channels == pConverter->channelConverter.channelsIn);
+    MA_ASSERT(pConverter->resampler.config.channels <  pConverter->channelConverter.channelsOut);
+
+    frameCountIn = 0;
+    if (pFrameCountIn != NULL) {
+        frameCountIn = *pFrameCountIn;
+    }
+
+    frameCountOut = 0;
+    if (pFrameCountOut != NULL) {
+        frameCountOut = *pFrameCountOut;
+    }
+
+    framesProcessedIn  = 0;
+    framesProcessedOut = 0;
+
+    tempBufferInCap  = sizeof(pTempBufferIn)  / ma_get_bytes_per_frame(pConverter->resampler.config.format, pConverter->resampler.config.channels);
+    tempBufferMidCap = sizeof(pTempBufferIn)  / ma_get_bytes_per_frame(pConverter->resampler.config.format, pConverter->resampler.config.channels);
+    tempBufferOutCap = sizeof(pTempBufferOut) / ma_get_bytes_per_frame(pConverter->channelConverter.format, pConverter->channelConverter.channelsOut);
+
+    while (framesProcessedIn < frameCountIn && framesProcessedOut < frameCountOut) {
+        ma_uint64 frameCountInThisIteration;
+        ma_uint64 frameCountOutThisIteration;
+        const void* pRunningFramesIn = NULL;
+        void* pRunningFramesOut = NULL;
+        const void* pResampleBufferIn;
+        void* pChannelsBufferOut;
+
+        if (pFramesIn != NULL) {
+            pRunningFramesIn  = ma_offset_ptr(pFramesIn,  framesProcessedIn  * ma_get_bytes_per_frame(pConverter->config.formatIn, pConverter->config.channelsIn));
+        }
+        if (pFramesOut != NULL) {
+            pRunningFramesOut = ma_offset_ptr(pFramesOut, framesProcessedOut * ma_get_bytes_per_frame(pConverter->config.formatOut, pConverter->config.channelsOut));
+        }
+
+        /* Run input data through the resampler and output it to the temporary buffer. */
+        frameCountInThisIteration = (frameCountIn - framesProcessedIn);
+
+        if (pConverter->hasPreFormatConversion) {
+            if (frameCountInThisIteration > tempBufferInCap) {
+                frameCountInThisIteration = tempBufferInCap;
+            }
+        }
+
+        frameCountOutThisIteration = (frameCountOut - framesProcessedOut);
+        if (frameCountOutThisIteration > tempBufferMidCap) {
+            frameCountOutThisIteration = tempBufferMidCap;
+        }
+
+        /* We can't read more frames than can fit in the output buffer. */
+        if (pConverter->hasPostFormatConversion) {
+            if (frameCountOutThisIteration > tempBufferOutCap) {
+                frameCountOutThisIteration = tempBufferOutCap;
+            }
+        }
+
+        /* We need to ensure we don't try to process too many input frames that we run out of room in the output buffer. If this happens we'll end up glitching. */
+        {
+            ma_uint64 requiredInputFrameCount = ma_resampler_get_required_input_frame_count(&pConverter->resampler, frameCountOutThisIteration);
+            if (frameCountInThisIteration > requiredInputFrameCount) {
+                frameCountInThisIteration = requiredInputFrameCount;
+            }
+        }
+
+        if (pConverter->hasPreFormatConversion) {
+            if (pFramesIn != NULL) {
+                ma_convert_pcm_frames(pTempBufferIn, pConverter->resampler.config.format, pRunningFramesIn, pConverter->config.formatIn, frameCountInThisIteration, pConverter->config.channelsIn, pConverter->config.ditherMode);
+                pResampleBufferIn = pTempBufferIn;
+            } else {
+                pResampleBufferIn = NULL;
+            }
+        } else {
+            pResampleBufferIn = pRunningFramesIn;
+        }
+
+        result = ma_resampler_process_pcm_frames(&pConverter->resampler, pResampleBufferIn, &frameCountInThisIteration, pTempBufferMid, &frameCountOutThisIteration);
+        if (result != MA_SUCCESS) {
+            return result;
+        }
+
+
+        /*
+        The input data has been resampled so now we need to run it through the channel converter. The input data is always contained in pTempBufferMid. We only need to do
+        this part if we have an output buffer.
+        */
+        if (pFramesOut != NULL) {
+            if (pConverter->hasPostFormatConversion) {
+                pChannelsBufferOut = pTempBufferOut;
+            } else {
+                pChannelsBufferOut = pRunningFramesOut;
+            }
+
+            result = ma_channel_converter_process_pcm_frames(&pConverter->channelConverter, pChannelsBufferOut, pTempBufferMid, frameCountOutThisIteration);
+            if (result != MA_SUCCESS) {
+                return result;
+            }
+
+            /* Finally we do post format conversion. */
+            if (pConverter->hasPostFormatConversion) {
+                ma_convert_pcm_frames(pRunningFramesOut, pConverter->config.formatOut, pChannelsBufferOut, pConverter->channelConverter.format, frameCountOutThisIteration, pConverter->channelConverter.channelsOut, pConverter->config.ditherMode);
+            }
+        }
+
+
+        framesProcessedIn  += frameCountInThisIteration;
+        framesProcessedOut += frameCountOutThisIteration;
+    }
+
+    if (pFrameCountIn != NULL) {
+        *pFrameCountIn = framesProcessedIn;
+    }
+    if (pFrameCountOut != NULL) {
+        *pFrameCountOut = framesProcessedOut;
+    }
+
+    return MA_SUCCESS;
+}
+
+static ma_result ma_data_converter_process_pcm_frames__channels_first(ma_data_converter* pConverter, const void* pFramesIn, ma_uint64* pFrameCountIn, void* pFramesOut, ma_uint64* pFrameCountOut)
+{
+    ma_result result;
+    ma_uint64 frameCountIn;
+    ma_uint64 frameCountOut;
+    ma_uint64 framesProcessedIn;
+    ma_uint64 framesProcessedOut;
+    ma_uint8  pTempBufferIn[MA_DATA_CONVERTER_STACK_BUFFER_SIZE];   /* In resampler format. */
+    ma_uint64 tempBufferInCap;
+    ma_uint8  pTempBufferMid[MA_DATA_CONVERTER_STACK_BUFFER_SIZE];  /* In resampler format, channel converter input format. */
+    ma_uint64 tempBufferMidCap;
+    ma_uint8  pTempBufferOut[MA_DATA_CONVERTER_STACK_BUFFER_SIZE];  /* In channel converter output format. */
+    ma_uint64 tempBufferOutCap;
+
+    MA_ASSERT(pConverter != NULL);
+    MA_ASSERT(pConverter->resampler.config.format   == pConverter->channelConverter.format);
+    MA_ASSERT(pConverter->resampler.config.channels == pConverter->channelConverter.channelsOut);
+    MA_ASSERT(pConverter->resampler.config.channels <  pConverter->channelConverter.channelsIn);
+
+    frameCountIn = 0;
+    if (pFrameCountIn != NULL) {
+        frameCountIn = *pFrameCountIn;
+    }
+
+    frameCountOut = 0;
+    if (pFrameCountOut != NULL) {
+        frameCountOut = *pFrameCountOut;
+    }
+
+    framesProcessedIn  = 0;
+    framesProcessedOut = 0;
+
+    tempBufferInCap  = sizeof(pTempBufferIn)  / ma_get_bytes_per_frame(pConverter->channelConverter.format, pConverter->channelConverter.channelsIn);
+    tempBufferMidCap = sizeof(pTempBufferIn)  / ma_get_bytes_per_frame(pConverter->channelConverter.format, pConverter->channelConverter.channelsOut);
+    tempBufferOutCap = sizeof(pTempBufferOut) / ma_get_bytes_per_frame(pConverter->resampler.config.format, pConverter->resampler.config.channels);
+
+    while (framesProcessedIn < frameCountIn && framesProcessedOut < frameCountOut) {
+        ma_uint64 frameCountInThisIteration;
+        ma_uint64 frameCountOutThisIteration;
+        const void* pRunningFramesIn = NULL;
+        void* pRunningFramesOut = NULL;
+        const void* pChannelsBufferIn;
+        void* pResampleBufferOut;
+
+        if (pFramesIn != NULL) {
+            pRunningFramesIn  = ma_offset_ptr(pFramesIn,  framesProcessedIn  * ma_get_bytes_per_frame(pConverter->config.formatIn, pConverter->config.channelsIn));
+        }
+        if (pFramesOut != NULL) {
+            pRunningFramesOut = ma_offset_ptr(pFramesOut, framesProcessedOut * ma_get_bytes_per_frame(pConverter->config.formatOut, pConverter->config.channelsOut));
+        }
+
+        /* Run input data through the channel converter and output it to the temporary buffer. */
+        frameCountInThisIteration = (frameCountIn - framesProcessedIn);
+
+        if (pConverter->hasPreFormatConversion) {
+            if (frameCountInThisIteration > tempBufferInCap) {
+                frameCountInThisIteration = tempBufferInCap;
+            }
+
+            if (pRunningFramesIn != NULL) {
+                ma_convert_pcm_frames(pTempBufferIn, pConverter->channelConverter.format, pRunningFramesIn, pConverter->config.formatIn, frameCountInThisIteration, pConverter->config.channelsIn, pConverter->config.ditherMode);
+                pChannelsBufferIn = pTempBufferIn;
+            } else {
+                pChannelsBufferIn = NULL;
+            }
+        } else {
+            pChannelsBufferIn = pRunningFramesIn;
+        }
+
+        /*
+        We can't convert more frames than will fit in the output buffer. We shouldn't actually need to do this check because the channel count is always reduced
+        in this case which means we should always have capacity, but I'm leaving it here just for safety for future maintenance.
+        */
+        if (frameCountInThisIteration > tempBufferMidCap) {
+            frameCountInThisIteration = tempBufferMidCap;
+        }
+
+        /*
+        Make sure we don't read any more input frames than we need to fill the output frame count. If we do this we will end up in a situation where we lose some
+        input samples and will end up glitching.
+        */
+        frameCountOutThisIteration = (frameCountOut - framesProcessedOut);
+        if (frameCountOutThisIteration > tempBufferMidCap) {
+            frameCountOutThisIteration = tempBufferMidCap;
+        }
+
+        if (pConverter->hasPostFormatConversion) {
+            ma_uint64 requiredInputFrameCount;
+
+            if (frameCountOutThisIteration > tempBufferOutCap) {
+                frameCountOutThisIteration = tempBufferOutCap;
+            }
+
+            requiredInputFrameCount = ma_resampler_get_required_input_frame_count(&pConverter->resampler, frameCountOutThisIteration);
+            if (frameCountInThisIteration > requiredInputFrameCount) {
+                frameCountInThisIteration = requiredInputFrameCount;
+            }
+        }
+
+        result = ma_channel_converter_process_pcm_frames(&pConverter->channelConverter, pTempBufferMid, pChannelsBufferIn, frameCountInThisIteration);
+        if (result != MA_SUCCESS) {
+            return result;
+        }
+
+
+        /* At this point we have converted the channels to the output channel count which we now need to resample. */
+        if (pConverter->hasPostFormatConversion) {
+            pResampleBufferOut = pTempBufferOut;
+        } else {
+            pResampleBufferOut = pRunningFramesOut;
+        }
+
+        result = ma_resampler_process_pcm_frames(&pConverter->resampler, pTempBufferMid, &frameCountInThisIteration, pResampleBufferOut, &frameCountOutThisIteration);
+        if (result != MA_SUCCESS) {
+            return result;
+        }
+
+        /* Finally we can do the post format conversion. */
+        if (pConverter->hasPostFormatConversion) {
+            if (pRunningFramesOut != NULL) {
+                ma_convert_pcm_frames(pRunningFramesOut, pConverter->config.formatOut, pResampleBufferOut, pConverter->resampler.config.format, frameCountOutThisIteration, pConverter->config.channelsOut, pConverter->config.ditherMode);
+            }
+        }
+
+
+        framesProcessedIn  += frameCountInThisIteration;
+        framesProcessedOut += frameCountOutThisIteration;
+    }
+
+    if (pFrameCountIn != NULL) {
+        *pFrameCountIn = framesProcessedIn;
+    }
+    if (pFrameCountOut != NULL) {
+        *pFrameCountOut = framesProcessedOut;
+    }
+    
+    return MA_SUCCESS;
+}
+
+ma_result ma_data_converter_process_pcm_frames(ma_data_converter* pConverter, const void* pFramesIn, ma_uint64* pFrameCountIn, void* pFramesOut, ma_uint64* pFrameCountOut)
+{
+    if (pConverter == NULL) {
+        return MA_INVALID_ARGS;
+    }
+
+    if (pConverter->isPassthrough) {
+        return ma_data_converter_process_pcm_frames__passthrough(pConverter, pFramesIn, pFrameCountIn, pFramesOut, pFrameCountOut);
+    }
+
+    /*
+    Here is where the real work is done. Getting here means we're not using a passthrough and we need to move the data through each of the relevant stages. The order
+    of our stages depends on the input and output channel count. If the input channels is less than the output channels we want to do sample rate conversion first so
+    that it has less work (resampling is the most expensive part of format conversion).
+    */
+    if (pConverter->config.channelsIn < pConverter->config.channelsOut) {
+        /* Do resampling first, if necessary. */
+        MA_ASSERT(pConverter->hasChannelConverter == MA_TRUE);
+
+        if (pConverter->hasResampler) {
+            /* Resampling first. */
+            return ma_data_converter_process_pcm_frames__resampling_first(pConverter, pFramesIn, pFrameCountIn, pFramesOut, pFrameCountOut);
+        } else {
+            /* Resampling not required. */
+            return ma_data_converter_process_pcm_frames__channels_only(pConverter, pFramesIn, pFrameCountIn, pFramesOut, pFrameCountOut);
+        }
+    } else {
+        /* Do channel conversion first, if necessary. */
+        if (pConverter->hasChannelConverter) {
+            if (pConverter->hasResampler) {
+                /* Channel routing first. */
+                return ma_data_converter_process_pcm_frames__channels_first(pConverter, pFramesIn, pFrameCountIn, pFramesOut, pFrameCountOut);
+            } else {
+                /* Resampling not required. */
+                return ma_data_converter_process_pcm_frames__channels_only(pConverter, pFramesIn, pFrameCountIn, pFramesOut, pFrameCountOut);
+            }
+        } else {
+            /* Channel routing not required. */
+            if (pConverter->hasResampler) {
+                /* Resampling only. */
+                return ma_data_converter_process_pcm_frames__resample_only(pConverter, pFramesIn, pFrameCountIn, pFramesOut, pFrameCountOut);
+            } else {
+                /* No channel routing nor resampling required. Just format conversion. */
+                return ma_data_converter_process_pcm_frames__format_only(pConverter, pFramesIn, pFrameCountIn, pFramesOut, pFrameCountOut);
+            }
+        }
+    }
+}
+
+ma_result ma_data_converter_set_rate(ma_data_converter* pConverter, ma_uint32 sampleRateIn, ma_uint32 sampleRateOut)
+{
+    if (pConverter == NULL) {
+        return MA_INVALID_ARGS;
+    }
+
+    if (pConverter->hasResampler == MA_FALSE) {
+        return MA_INVALID_OPERATION;    /* Dynamic resampling not enabled. */
+    }
+
+    return ma_resampler_set_rate(&pConverter->resampler, sampleRateIn, sampleRateOut);
+}
+
+ma_result ma_data_converter_set_rate_ratio(ma_data_converter* pConverter, float ratioInOut)
+{
+    if (pConverter == NULL) {
+        return MA_INVALID_ARGS;
+    }
+
+    if (pConverter->hasResampler == MA_FALSE) {
+        return MA_INVALID_OPERATION;    /* Dynamic resampling not enabled. */
+    }
+
+    return ma_resampler_set_rate_ratio(&pConverter->resampler, ratioInOut);
+}
+
+ma_uint64 ma_data_converter_get_required_input_frame_count(ma_data_converter* pConverter, ma_uint64 outputFrameCount)
+{
+    if (pConverter == NULL) {
+        return 0;
+    }
+
+    if (pConverter->hasResampler) {
+        return ma_resampler_get_required_input_frame_count(&pConverter->resampler, outputFrameCount);
+    } else {
+        return outputFrameCount;    /* 1:1 */
+    }
+}
+
+ma_uint64 ma_data_converter_get_expected_output_frame_count(ma_data_converter* pConverter, ma_uint64 inputFrameCount)
+{
+    if (pConverter == NULL) {
+        return 0;
+    }
+
+    if (pConverter->hasResampler) {
+        return ma_resampler_get_expected_output_frame_count(&pConverter->resampler, inputFrameCount);
+    } else {
+        return inputFrameCount;     /* 1:1 */
+    }
+}
+
+ma_uint64 ma_data_converter_get_input_latency(ma_data_converter* pConverter)
+{
+    if (pConverter == NULL) {
+        return 0;
+    }
+
+    if (pConverter->hasResampler) {
+        return ma_resampler_get_input_latency(&pConverter->resampler);
+    }
+
+    return 0;   /* No latency without a resampler. */
+}
+
+ma_uint64 ma_data_converter_get_output_latency(ma_data_converter* pConverter)
+{
+    if (pConverter == NULL) {
+        return 0;
+    }
+
+    if (pConverter->hasResampler) {
+        return ma_resampler_get_output_latency(&pConverter->resampler);
+    }
+
+    return 0;   /* No latency without a resampler. */
+}
+
+
+
 void ma_get_standard_channel_map_microsoft(ma_uint32 channels, ma_channel channelMap[MA_MAX_CHANNELS])
 {
     /* Based off the speaker configurations mentioned here: https://docs.microsoft.com/en-us/windows-hardware/drivers/ddi/content/ksmedia/ns-ksmedia-ksaudio_channel_config */
@@ -27777,45 +31463,6 @@ ma_bool32 ma_channel_map_contains_channel_position(ma_uint32 channels, const ma_
 Format Conversion.
 
 **************************************************************************************************************************************************************/
-void ma_copy_memory_64(void* dst, const void* src, ma_uint64 sizeInBytes)
-{
-#if 0xFFFFFFFFFFFFFFFF <= MA_SIZE_MAX
-    ma_copy_memory(dst, src, (size_t)sizeInBytes);
-#else
-    while (sizeInBytes > 0) {
-        ma_uint64 bytesToCopyNow = sizeInBytes;
-        if (bytesToCopyNow > MA_SIZE_MAX) {
-            bytesToCopyNow = MA_SIZE_MAX;
-        }
-
-        ma_copy_memory(dst, src, (size_t)bytesToCopyNow);  /* Safe cast to size_t. */
-
-        sizeInBytes -= bytesToCopyNow;
-        dst = (      void*)((      ma_uint8*)dst + bytesToCopyNow);
-        src = (const void*)((const ma_uint8*)src + bytesToCopyNow);
-    }
-#endif
-}
-
-void ma_zero_memory_64(void* dst, ma_uint64 sizeInBytes)
-{
-#if 0xFFFFFFFFFFFFFFFF <= MA_SIZE_MAX
-    ma_zero_memory(dst, (size_t)sizeInBytes);
-#else
-    while (sizeInBytes > 0) {
-        ma_uint64 bytesToZeroNow = sizeInBytes;
-        if (bytesToZeroNow > MA_SIZE_MAX) {
-            bytesToZeroNow = MA_SIZE_MAX;
-        }
-
-        ma_zero_memory(dst, (size_t)bytesToZeroNow);  /* Safe cast to size_t. */
-
-        sizeInBytes -= bytesToZeroNow;
-        dst = (void*)((ma_uint8*)dst + bytesToZeroNow);
-    }
-#endif
-}
-
 
 /* u8 */
 void ma_pcm_u8_to_u8(void* dst, const void* src, ma_uint64 count, ma_dither_mode ditherMode)
@@ -30710,111 +34357,6 @@ static MA_INLINE float ma_vec3_distance(ma_vec3 a, ma_vec3 b)
     return ma_vec3_length(ma_vec3_sub(a, b));
 }
 
-
-#define MA_PLANE_LEFT      0
-#define MA_PLANE_RIGHT     1
-#define MA_PLANE_FRONT     2
-#define MA_PLANE_BACK      3
-#define MA_PLANE_BOTTOM    4
-#define MA_PLANE_TOP       5
-
-float g_maChannelPlaneRatios[MA_CHANNEL_POSITION_COUNT][6] = {
-    { 0.0f,  0.0f,  0.0f,  0.0f,  0.0f,  0.0f},  /* MA_CHANNEL_NONE */
-    { 0.0f,  0.0f,  0.0f,  0.0f,  0.0f,  0.0f},  /* MA_CHANNEL_MONO */
-    { 0.5f,  0.0f,  0.5f,  0.0f,  0.0f,  0.0f},  /* MA_CHANNEL_FRONT_LEFT */
-    { 0.0f,  0.5f,  0.5f,  0.0f,  0.0f,  0.0f},  /* MA_CHANNEL_FRONT_RIGHT */
-    { 0.0f,  0.0f,  1.0f,  0.0f,  0.0f,  0.0f},  /* MA_CHANNEL_FRONT_CENTER */
-    { 0.0f,  0.0f,  0.0f,  0.0f,  0.0f,  0.0f},  /* MA_CHANNEL_LFE */
-    { 0.5f,  0.0f,  0.0f,  0.5f,  0.0f,  0.0f},  /* MA_CHANNEL_BACK_LEFT */
-    { 0.0f,  0.5f,  0.0f,  0.5f,  0.0f,  0.0f},  /* MA_CHANNEL_BACK_RIGHT */
-    { 0.25f, 0.0f,  0.75f, 0.0f,  0.0f,  0.0f},  /* MA_CHANNEL_FRONT_LEFT_CENTER */
-    { 0.0f,  0.25f, 0.75f, 0.0f,  0.0f,  0.0f},  /* MA_CHANNEL_FRONT_RIGHT_CENTER */
-    { 0.0f,  0.0f,  0.0f,  1.0f,  0.0f,  0.0f},  /* MA_CHANNEL_BACK_CENTER */
-    { 1.0f,  0.0f,  0.0f,  0.0f,  0.0f,  0.0f},  /* MA_CHANNEL_SIDE_LEFT */
-    { 0.0f,  1.0f,  0.0f,  0.0f,  0.0f,  0.0f},  /* MA_CHANNEL_SIDE_RIGHT */
-    { 0.0f,  0.0f,  0.0f,  0.0f,  0.0f,  1.0f},  /* MA_CHANNEL_TOP_CENTER */
-    { 0.33f, 0.0f,  0.33f, 0.0f,  0.0f,  0.34f}, /* MA_CHANNEL_TOP_FRONT_LEFT */
-    { 0.0f,  0.0f,  0.5f,  0.0f,  0.0f,  0.5f},  /* MA_CHANNEL_TOP_FRONT_CENTER */
-    { 0.0f,  0.33f, 0.33f, 0.0f,  0.0f,  0.34f}, /* MA_CHANNEL_TOP_FRONT_RIGHT */
-    { 0.33f, 0.0f,  0.0f,  0.33f, 0.0f,  0.34f}, /* MA_CHANNEL_TOP_BACK_LEFT */
-    { 0.0f,  0.0f,  0.0f,  0.5f,  0.0f,  0.5f},  /* MA_CHANNEL_TOP_BACK_CENTER */
-    { 0.0f,  0.33f, 0.0f,  0.33f, 0.0f,  0.34f}, /* MA_CHANNEL_TOP_BACK_RIGHT */
-    { 0.0f,  0.0f,  0.0f,  0.0f,  0.0f,  0.0f},  /* MA_CHANNEL_AUX_0 */
-    { 0.0f,  0.0f,  0.0f,  0.0f,  0.0f,  0.0f},  /* MA_CHANNEL_AUX_1 */
-    { 0.0f,  0.0f,  0.0f,  0.0f,  0.0f,  0.0f},  /* MA_CHANNEL_AUX_2 */
-    { 0.0f,  0.0f,  0.0f,  0.0f,  0.0f,  0.0f},  /* MA_CHANNEL_AUX_3 */
-    { 0.0f,  0.0f,  0.0f,  0.0f,  0.0f,  0.0f},  /* MA_CHANNEL_AUX_4 */
-    { 0.0f,  0.0f,  0.0f,  0.0f,  0.0f,  0.0f},  /* MA_CHANNEL_AUX_5 */
-    { 0.0f,  0.0f,  0.0f,  0.0f,  0.0f,  0.0f},  /* MA_CHANNEL_AUX_6 */
-    { 0.0f,  0.0f,  0.0f,  0.0f,  0.0f,  0.0f},  /* MA_CHANNEL_AUX_7 */
-    { 0.0f,  0.0f,  0.0f,  0.0f,  0.0f,  0.0f},  /* MA_CHANNEL_AUX_8 */
-    { 0.0f,  0.0f,  0.0f,  0.0f,  0.0f,  0.0f},  /* MA_CHANNEL_AUX_9 */
-    { 0.0f,  0.0f,  0.0f,  0.0f,  0.0f,  0.0f},  /* MA_CHANNEL_AUX_10 */
-    { 0.0f,  0.0f,  0.0f,  0.0f,  0.0f,  0.0f},  /* MA_CHANNEL_AUX_11 */
-    { 0.0f,  0.0f,  0.0f,  0.0f,  0.0f,  0.0f},  /* MA_CHANNEL_AUX_12 */
-    { 0.0f,  0.0f,  0.0f,  0.0f,  0.0f,  0.0f},  /* MA_CHANNEL_AUX_13 */
-    { 0.0f,  0.0f,  0.0f,  0.0f,  0.0f,  0.0f},  /* MA_CHANNEL_AUX_14 */
-    { 0.0f,  0.0f,  0.0f,  0.0f,  0.0f,  0.0f},  /* MA_CHANNEL_AUX_15 */
-    { 0.0f,  0.0f,  0.0f,  0.0f,  0.0f,  0.0f},  /* MA_CHANNEL_AUX_16 */
-    { 0.0f,  0.0f,  0.0f,  0.0f,  0.0f,  0.0f},  /* MA_CHANNEL_AUX_17 */
-    { 0.0f,  0.0f,  0.0f,  0.0f,  0.0f,  0.0f},  /* MA_CHANNEL_AUX_18 */
-    { 0.0f,  0.0f,  0.0f,  0.0f,  0.0f,  0.0f},  /* MA_CHANNEL_AUX_19 */
-    { 0.0f,  0.0f,  0.0f,  0.0f,  0.0f,  0.0f},  /* MA_CHANNEL_AUX_20 */
-    { 0.0f,  0.0f,  0.0f,  0.0f,  0.0f,  0.0f},  /* MA_CHANNEL_AUX_21 */
-    { 0.0f,  0.0f,  0.0f,  0.0f,  0.0f,  0.0f},  /* MA_CHANNEL_AUX_22 */
-    { 0.0f,  0.0f,  0.0f,  0.0f,  0.0f,  0.0f},  /* MA_CHANNEL_AUX_23 */
-    { 0.0f,  0.0f,  0.0f,  0.0f,  0.0f,  0.0f},  /* MA_CHANNEL_AUX_24 */
-    { 0.0f,  0.0f,  0.0f,  0.0f,  0.0f,  0.0f},  /* MA_CHANNEL_AUX_25 */
-    { 0.0f,  0.0f,  0.0f,  0.0f,  0.0f,  0.0f},  /* MA_CHANNEL_AUX_26 */
-    { 0.0f,  0.0f,  0.0f,  0.0f,  0.0f,  0.0f},  /* MA_CHANNEL_AUX_27 */
-    { 0.0f,  0.0f,  0.0f,  0.0f,  0.0f,  0.0f},  /* MA_CHANNEL_AUX_28 */
-    { 0.0f,  0.0f,  0.0f,  0.0f,  0.0f,  0.0f},  /* MA_CHANNEL_AUX_29 */
-    { 0.0f,  0.0f,  0.0f,  0.0f,  0.0f,  0.0f},  /* MA_CHANNEL_AUX_30 */
-    { 0.0f,  0.0f,  0.0f,  0.0f,  0.0f,  0.0f},  /* MA_CHANNEL_AUX_31 */
-};
-
-float ma_calculate_channel_position_rectangular_weight(ma_channel channelPositionA, ma_channel channelPositionB)
-{
-    /*
-    Imagine the following simplified example: You have a single input speaker which is the front/left speaker which you want to convert to
-    the following output configuration:
-    
-     - front/left
-     - side/left
-     - back/left
-    
-    The front/left output is easy - it the same speaker position so it receives the full contribution of the front/left input. The amount
-    of contribution to apply to the side/left and back/left speakers, however, is a bit more complicated.
-    
-    Imagine the front/left speaker as emitting audio from two planes - the front plane and the left plane. You can think of the front/left
-    speaker emitting half of it's total volume from the front, and the other half from the left. Since part of it's volume is being emitted
-    from the left side, and the side/left and back/left channels also emit audio from the left plane, one would expect that they would
-    receive some amount of contribution from front/left speaker. The amount of contribution depends on how many planes are shared between
-    the two speakers. Note that in the examples below I've added a top/front/left speaker as an example just to show how the math works
-    across 3 spatial dimensions.
-    
-    The first thing to do is figure out how each speaker's volume is spread over each of plane:
-     - front/left:     2 planes (front and left)      = 1/2 = half it's total volume on each plane
-     - side/left:      1 plane (left only)            = 1/1 = entire volume from left plane
-     - back/left:      2 planes (back and left)       = 1/2 = half it's total volume on each plane
-     - top/front/left: 3 planes (top, front and left) = 1/3 = one third it's total volume on each plane
-    
-    The amount of volume each channel contributes to each of it's planes is what controls how much it is willing to given and take to other
-    channels on the same plane. The volume that is willing to the given by one channel is multiplied by the volume that is willing to be
-    taken by the other to produce the final contribution.
-    */
-
-    /* Contribution = Sum(Volume to Give * Volume to Take) */
-    float contribution = 
-        g_maChannelPlaneRatios[channelPositionA][0] * g_maChannelPlaneRatios[channelPositionB][0] +
-        g_maChannelPlaneRatios[channelPositionA][1] * g_maChannelPlaneRatios[channelPositionB][1] +
-        g_maChannelPlaneRatios[channelPositionA][2] * g_maChannelPlaneRatios[channelPositionB][2] +
-        g_maChannelPlaneRatios[channelPositionA][3] * g_maChannelPlaneRatios[channelPositionB][3] +
-        g_maChannelPlaneRatios[channelPositionA][4] * g_maChannelPlaneRatios[channelPositionB][4] +
-        g_maChannelPlaneRatios[channelPositionA][5] * g_maChannelPlaneRatios[channelPositionB][5];
-
-    return contribution;
-}
 
 float ma_channel_router__calculate_input_channel_planar_weight(const ma_channel_router* pRouter, ma_channel channelPositionIn, ma_channel channelPositionOut)
 {
