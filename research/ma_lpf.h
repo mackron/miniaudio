@@ -260,6 +260,11 @@ static MA_INLINE void ma_biquad_process_pcm_frame_f32__direct_form_2_transposed(
     }
 }
 
+static MA_INLINE void ma_biquad_process_pcm_frame_f32(ma_biquad* pBQ, float* pY, const float* pX)
+{
+    ma_biquad_process_pcm_frame_f32__direct_form_2_transposed(pBQ, pY, pX);
+}
+
 static MA_INLINE void ma_biquad_process_pcm_frame_s16__direct_form_2_transposed(ma_biquad* pBQ, ma_int16* pY, const ma_int16* pX)
 {
     ma_uint32 c;
@@ -283,6 +288,11 @@ static MA_INLINE void ma_biquad_process_pcm_frame_s16__direct_form_2_transposed(
         pBQ->r1[c].s32 = r1;
         pBQ->r2[c].s32 = r2;
     }
+}
+
+static MA_INLINE void ma_biquad_process_pcm_frame_s16(ma_biquad* pBQ, ma_int16* pY, const ma_int16* pX)
+{
+    ma_biquad_process_pcm_frame_s16__direct_form_2_transposed(pBQ, pY, pX);
 }
 
 ma_result ma_biquad_process_pcm_frames(ma_biquad* pBQ, void* pFramesOut, const void* pFramesIn, ma_uint64 frameCount)
@@ -418,12 +428,12 @@ ma_result ma_lpf_reinit(const ma_lpf_config* pConfig, ma_lpf* pLPF)
 
 static MA_INLINE void ma_lpf_process_pcm_frame_s16(ma_lpf* pLPF, ma_int16* pFrameOut, const ma_int16* pFrameIn)
 {
-    ma_biquad_process_pcm_frame_s16__direct_form_2_transposed(&pLPF->bq, pFrameOut, pFrameIn);
+    ma_biquad_process_pcm_frame_s16(&pLPF->bq, pFrameOut, pFrameIn);
 }
 
 static MA_INLINE void ma_lpf_process_pcm_frame_f32(ma_lpf* pLPF, float* pFrameOut, const float* pFrameIn)
 {
-    ma_biquad_process_pcm_frame_f32__direct_form_2_transposed(&pLPF->bq, pFrameOut, pFrameIn);
+    ma_biquad_process_pcm_frame_f32(&pLPF->bq, pFrameOut, pFrameIn);
 }
 
 ma_result ma_lpf_process_pcm_frames(ma_lpf* pLPF, void* pFramesOut, const void* pFramesIn, ma_uint64 frameCount)
