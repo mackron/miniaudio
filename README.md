@@ -1,4 +1,4 @@
-![miniaudio](http://dred.io/img/miniaudio_wide.png)
+![miniaudio](https://dred.io/img/miniaudio_wide.png)
 
 miniaudio (formerly mini_al) is a single file library for audio playback and capture. It's written
 in C89 (compilable as C++) and released into the public domain.
