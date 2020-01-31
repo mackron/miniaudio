@@ -842,7 +842,7 @@ Biquad Filtering
 Biquad filtering is achieved with the `ma_biquad` API. Example:
 
     ```c
-    ma_biquad_config config = ma_biquad_config_init(ma_format_f32, channels, a0, a1, a2, b0, b1, b2);
+    ma_biquad_config config = ma_biquad_config_init(ma_format_f32, channels, b0, b1, b2, a0, a1, a2);
     ma_result result = ma_biquad_init(&config, &biquad);
     if (result != MA_SUCCESS) {
         // Error.
@@ -883,25 +883,25 @@ typedef struct
 {
     ma_format format;
     ma_uint32 channels;
-    double a0;
-    double a1;
-    double a2;
     double b0;
     double b1;
     double b2;
+    double a0;
+    double a1;
+    double a2;
 } ma_biquad_config;
 
-ma_biquad_config ma_biquad_config_init(ma_format format, ma_uint32 channels, double a0, double a1, double a2, double b0, double b1, double b2);
+ma_biquad_config ma_biquad_config_init(ma_format format, ma_uint32 channels, double b0, double b1, double b2, double a0, double a1, double a2);
 
 typedef struct
 {
     ma_format format;
     ma_uint32 channels;
-    ma_biquad_coefficient a1;
-    ma_biquad_coefficient a2;
     ma_biquad_coefficient b0;
     ma_biquad_coefficient b1;
     ma_biquad_coefficient b2;
+    ma_biquad_coefficient a1;
+    ma_biquad_coefficient a2;
     ma_biquad_coefficient r1[MA_MAX_CHANNELS];
     ma_biquad_coefficient r2[MA_MAX_CHANNELS];
 } ma_biquad;
@@ -27735,19 +27735,19 @@ static ma_int32 ma_biquad_float_to_fp(double x)
     return (ma_int32)(x * (1 << MA_BIQUAD_FIXED_POINT_SHIFT));
 }
 
-ma_biquad_config ma_biquad_config_init(ma_format format, ma_uint32 channels, double a0, double a1, double a2, double b0, double b1, double b2)
+ma_biquad_config ma_biquad_config_init(ma_format format, ma_uint32 channels, double b0, double b1, double b2, double a0, double a1, double a2)
 {
     ma_biquad_config config;
 
     MA_ZERO_OBJECT(&config);
     config.format = format;
     config.channels = channels;
-    config.a0 = a0;
-    config.a1 = a1;
-    config.a2 = a2;
     config.b0 = b0;
     config.b1 = b1;
     config.b2 = b2;
+    config.a0 = a0;
+    config.a1 = a1;
+    config.a2 = a2;
 
     return config;
 }
@@ -27783,12 +27783,12 @@ ma_result ma_biquad_reinit(const ma_biquad_config* pConfig, ma_biquad* pBQ)
     }
 
     /* The format cannot be changed after initialization. */
-    if (pBQ->format != pConfig->format) {
+    if (pBQ->format != ma_format_unknown && pBQ->format != pConfig->format) {
         return MA_INVALID_OPERATION;
     }
 
     /* The channel count cannot be changed after initialization. */
-    if (pBQ->channels != pConfig->channels) {
+    if (pBQ->channels != 0 && pBQ->channels != pConfig->channels) {
         return MA_INVALID_OPERATION;
     }
 
@@ -27798,17 +27798,17 @@ ma_result ma_biquad_reinit(const ma_biquad_config* pConfig, ma_biquad* pBQ)
 
     /* Normalize. */
     if (pConfig->format == ma_format_f32) {
-        pBQ->a1.f32 = (float)(pConfig->a1 / pConfig->a0);
-        pBQ->a2.f32 = (float)(pConfig->a2 / pConfig->a0);
         pBQ->b0.f32 = (float)(pConfig->b0 / pConfig->a0);
         pBQ->b1.f32 = (float)(pConfig->b1 / pConfig->a0);
         pBQ->b2.f32 = (float)(pConfig->b2 / pConfig->a0);
+        pBQ->a1.f32 = (float)(pConfig->a1 / pConfig->a0);
+        pBQ->a2.f32 = (float)(pConfig->a2 / pConfig->a0);
     } else {
-        pBQ->a1.s32 = ma_biquad_float_to_fp(pConfig->a1 / pConfig->a0);
-        pBQ->a2.s32 = ma_biquad_float_to_fp(pConfig->a2 / pConfig->a0);
         pBQ->b0.s32 = ma_biquad_float_to_fp(pConfig->b0 / pConfig->a0);
         pBQ->b1.s32 = ma_biquad_float_to_fp(pConfig->b1 / pConfig->a0);
         pBQ->b2.s32 = ma_biquad_float_to_fp(pConfig->b2 / pConfig->a0);
+        pBQ->a1.s32 = ma_biquad_float_to_fp(pConfig->a1 / pConfig->a0);
+        pBQ->a2.s32 = ma_biquad_float_to_fp(pConfig->a2 / pConfig->a0);
     }
 
     return MA_SUCCESS;
@@ -27817,11 +27817,11 @@ ma_result ma_biquad_reinit(const ma_biquad_config* pConfig, ma_biquad* pBQ)
 static MA_INLINE void ma_biquad_process_pcm_frame_f32__direct_form_2_transposed(ma_biquad* pBQ, float* pY, const float* pX)
 {
     ma_uint32 c;
-    const float a1 = pBQ->a1.f32;
-    const float a2 = pBQ->a2.f32;
     const float b0 = pBQ->b0.f32;
     const float b1 = pBQ->b1.f32;
     const float b2 = pBQ->b2.f32;
+    const float a1 = pBQ->a1.f32;
+    const float a2 = pBQ->a2.f32;
     
     for (c = 0; c < pBQ->channels; c += 1) {
         float r1 = pBQ->r1[c].f32;
@@ -27847,11 +27847,11 @@ static MA_INLINE void ma_biquad_process_pcm_frame_f32(ma_biquad* pBQ, float* pY,
 static MA_INLINE void ma_biquad_process_pcm_frame_s16__direct_form_2_transposed(ma_biquad* pBQ, ma_int16* pY, const ma_int16* pX)
 {
     ma_uint32 c;
-    const ma_int32 a1 = pBQ->a1.s32;
-    const ma_int32 a2 = pBQ->a2.s32;
     const ma_int32 b0 = pBQ->b0.s32;
     const ma_int32 b1 = pBQ->b1.s32;
     const ma_int32 b2 = pBQ->b2.s32;
+    const ma_int32 a1 = pBQ->a1.s32;
+    const ma_int32 a2 = pBQ->a2.s32;
     
     for (c = 0; c < pBQ->channels; c += 1) {
         ma_int32 r1 = pBQ->r1[c].s32;
@@ -27955,12 +27955,12 @@ static MA_INLINE ma_biquad_config ma_lpf__get_biquad_config(const ma_lpf_config*
     c = cos(w);
     a = s / (2*q);
 
-    bqConfig.a0 =  1 + a;
-    bqConfig.a1 = -2 * c;
-    bqConfig.a2 =  1 - a;
     bqConfig.b0 = (1 - c) / 2;
     bqConfig.b1 =  1 - c;
     bqConfig.b2 = (1 - c) / 2;
+    bqConfig.a0 =  1 + a;
+    bqConfig.a1 = -2 * c;
+    bqConfig.a2 =  1 - a;
 
     bqConfig.format   = pConfig->format;
     bqConfig.channels = pConfig->channels;
