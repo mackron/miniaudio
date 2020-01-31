@@ -1,6 +1,6 @@
 /*
 FLAC audio decoder. Choice of public domain or MIT-0. See license statements at the end of this file.
-dr_flac - v0.12.4 - 2020-01-29
+dr_flac - v0.12.5 - 2020-01-30
 
 David Reid - mackron@gmail.com
 */
@@ -4697,6 +4697,7 @@ static drflac_bool32 drflac__read_next_flac_frame_header(drflac_bs* bs, drflac_u
             crc8 = drflac_crc8(crc8, header->blockSizeInPCMFrames, 16);
             header->blockSizeInPCMFrames += 1;
         } else {
+            DRFLAC_ASSERT(blockSize >= 8);
             header->blockSizeInPCMFrames = 256 * (1 << (blockSize - 8));
         }
 
@@ -10240,7 +10241,7 @@ drflac_uint64 drflac_read_pcm_frames_f32(drflac* pFlac, drflac_uint64 framesToRe
                 for (i = 0; i < frameCountThisIteration; ++i) {
                     unsigned int j;
                     for (j = 0; j < channelCount; ++j) {
-                        pBufferOut[(i*channelCount)+j] = (float)(((pFlac->currentFLACFrame.subframes[j].pSamplesS32[iFirstPCMFrame + i]) << (unusedBitsPerSample + pFlac->currentFLACFrame.subframes[j].wastedBitsPerSample)) / 2147483648.0);
+                        pBufferOut[(i*channelCount)+j] = (float)((drflac_uint64)((pFlac->currentFLACFrame.subframes[j].pSamplesS32[iFirstPCMFrame + i]) << (unusedBitsPerSample + pFlac->currentFLACFrame.subframes[j].wastedBitsPerSample)) / 2147483648.0);
                     }
                 }
             }
@@ -10738,6 +10739,9 @@ drflac_bool32 drflac_next_cuesheet_track(drflac_cuesheet_track_iterator* pIter, 
 /*
 REVISION HISTORY
 ================
+v0.12.5 - 2020-01-30
+  - Silence some static analysis warnings.
+
 v0.12.4 - 2020-01-29
   - Silence some static analysis warnings.
 
