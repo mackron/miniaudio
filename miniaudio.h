@@ -696,7 +696,7 @@ typedef ma_uint8 ma_channel;
 #define MA_CHANNEL_AUX_31                              51
 #define MA_CHANNEL_LEFT                                MA_CHANNEL_FRONT_LEFT
 #define MA_CHANNEL_RIGHT                               MA_CHANNEL_FRONT_RIGHT
-#define MA_CHANNEL_POSITION_COUNT                      MA_CHANNEL_AUX_31 + 1
+#define MA_CHANNEL_POSITION_COUNT                      (MA_CHANNEL_AUX_31 + 1)
 
 
 typedef int ma_result;
