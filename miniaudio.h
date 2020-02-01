@@ -1144,7 +1144,7 @@ ma_uint64 ma_linear_resampler_get_output_latency(ma_linear_resampler* pResampler
 
 typedef enum
 {
-    ma_resample_algorithm_linear,   /* Fastest, lowest quality. Optional low-pass filtering. Default. */
+    ma_resample_algorithm_linear = 0,   /* Fastest, lowest quality. Optional low-pass filtering. Default. */
     ma_resample_algorithm_speex
 } ma_resample_algorithm;
 
@@ -1366,12 +1366,12 @@ typedef struct
     ma_channel channelMapIn[MA_MAX_CHANNELS];
     ma_channel channelMapOut[MA_MAX_CHANNELS];
     ma_dither_mode ditherMode;
-    ma_resample_algorithm resampleAlgorithm;
-    ma_bool32 allowDynamicSampleRate;
     ma_channel_mix_mode channelMixMode;
     float channelWeights[MA_MAX_CHANNELS][MA_MAX_CHANNELS];  /* [in][out]. Only used when channelMixMode is set to ma_channel_mix_mode_custom_weights. */
     struct
     {
+        ma_resample_algorithm algorithm;
+        ma_bool32 allowDynamicSampleRate;
         struct
         {
             ma_uint32 lpfCount;
@@ -3805,8 +3805,9 @@ typedef enum
     ma_seek_origin_current
 } ma_seek_origin;
 
-typedef size_t    (* ma_decoder_read_proc)                    (ma_decoder* pDecoder, void* pBufferOut, size_t bytesToRead); /* Returns the number of bytes read. */
+typedef size_t    (* ma_decoder_read_proc)                    (ma_decoder* pDecoder, void* pBufferOut, size_t bytesToRead);     /* Returns the number of bytes read. */
 typedef ma_bool32 (* ma_decoder_seek_proc)                    (ma_decoder* pDecoder, int byteOffset, ma_seek_origin origin);
+typedef ma_uint64 (* ma_decoder_read_pcm_frames_proc)         (ma_decoder* pDecoder, void* pFramesOut, ma_uint64 frameCount);   /* Returns the number of frames read. Output data is in internal format. */
 typedef ma_result (* ma_decoder_seek_to_pcm_frame_proc)       (ma_decoder* pDecoder, ma_uint64 frameIndex);
 typedef ma_result (* ma_decoder_uninit_proc)                  (ma_decoder* pDecoder);
 typedef ma_uint64 (* ma_decoder_get_length_in_pcm_frames_proc)(ma_decoder* pDecoder);
@@ -3819,11 +3820,14 @@ typedef struct
     ma_channel channelMap[MA_MAX_CHANNELS];
     ma_channel_mix_mode channelMixMode;
     ma_dither_mode ditherMode;
-    ma_src_algorithm srcAlgorithm;
-    union
+    struct
     {
-        ma_src_config_sinc sinc;
-    } src;
+        ma_resample_algorithm algorithm;
+        struct
+        {
+            ma_uint32 lpfCount;
+        } linear;
+    } resampling;
 } ma_decoder_config;
 
 struct ma_decoder
@@ -3840,7 +3844,8 @@ struct ma_decoder
     ma_uint32  outputChannels;
     ma_uint32  outputSampleRate;
     ma_channel outputChannelMap[MA_MAX_CHANNELS];
-    ma_pcm_converter dsp;   /* <-- Format conversion is achieved by running frames through this. */
+    ma_data_converter converter;   /* <-- Data conversion is achieved by running frames through this. */
+    ma_decoder_read_pcm_frames_proc onReadPCMFrames;
     ma_decoder_seek_to_pcm_frame_proc onSeekToPCMFrame;
     ma_decoder_uninit_proc onUninit;
     ma_decoder_get_length_in_pcm_frames_proc onGetLengthInPCMFrames;
@@ -29933,15 +29938,15 @@ ma_data_converter_config ma_data_converter_config_init(ma_format formatIn, ma_fo
 {
     ma_data_converter_config config;
     MA_ZERO_OBJECT(&config);
-    config.formatIn               = formatIn;
-    config.formatOut              = formatOut;
-    config.channelsIn             = channelsIn;
-    config.channelsOut            = channelsOut;
-    config.sampleRateIn           = sampleRateIn;
-    config.sampleRateOut          = sampleRateOut;
-    config.ditherMode             = ma_dither_mode_none;
-    config.resampleAlgorithm      = ma_resample_algorithm_linear;
-    config.allowDynamicSampleRate = MA_FALSE; /* Disable dynamic sample rates by default because dynamic rate adjustments should be quite rare and it allows an optimization for cases when the in and out sample rates are the same. */
+    config.formatIn      = formatIn;
+    config.formatOut     = formatOut;
+    config.channelsIn    = channelsIn;
+    config.channelsOut   = channelsOut;
+    config.sampleRateIn  = sampleRateIn;
+    config.sampleRateOut = sampleRateOut;
+    config.ditherMode    = ma_dither_mode_none;
+    config.resampling.algorithm = ma_resample_algorithm_linear;
+    config.resampling.allowDynamicSampleRate = MA_FALSE; /* Disable dynamic sample rates by default because dynamic rate adjustments should be quite rare and it allows an optimization for cases when the in and out sample rates are the same. */
 
     /* Linear resampling defaults. */
     config.resampling.linear.lpfCount = 1;
@@ -30010,12 +30015,12 @@ ma_result ma_data_converter_init(const ma_data_converter_config* pConfig, ma_dat
 
 
     /* Always enable dynamic sample rates if the input sample rate is different because we're always going to need a resampler in this case anyway. */
-    if (pConverter->config.allowDynamicSampleRate == MA_FALSE) {
-        pConverter->config.allowDynamicSampleRate = pConverter->config.sampleRateIn != pConverter->config.sampleRateOut;
+    if (pConverter->config.resampling.allowDynamicSampleRate == MA_FALSE) {
+        pConverter->config.resampling.allowDynamicSampleRate = pConverter->config.sampleRateIn != pConverter->config.sampleRateOut;
     }
 
     /* Resampler. */
-    if (pConverter->config.allowDynamicSampleRate) {
+    if (pConverter->config.resampling.allowDynamicSampleRate) {
         ma_resampler_config resamplerConfig;
         ma_uint32 resamplerChannels;
 
@@ -30026,7 +30031,7 @@ ma_result ma_data_converter_init(const ma_data_converter_config* pConfig, ma_dat
             resamplerChannels = pConverter->config.channelsOut;
         }
 
-        resamplerConfig = ma_resampler_config_init(midFormat, resamplerChannels, pConverter->config.sampleRateIn, pConverter->config.sampleRateOut, pConverter->config.resampleAlgorithm);
+        resamplerConfig = ma_resampler_config_init(midFormat, resamplerChannels, pConverter->config.sampleRateIn, pConverter->config.sampleRateOut, pConverter->config.resampling.algorithm);
         resamplerConfig.linear.lpfCount         = pConverter->config.resampling.linear.lpfCount;
         resamplerConfig.linear.lpfNyquistFactor = pConverter->config.resampling.linear.lpfNyquistFactor;
         resamplerConfig.speex.quality           = pConverter->config.resampling.speex.quality;
@@ -30161,7 +30166,7 @@ static ma_result ma_data_converter_process_pcm_frames__resample_with_format_conv
     framesProcessedIn  = 0;
     framesProcessedOut = 0;
 
-    while (framesProcessedIn < frameCountIn && framesProcessedOut < frameCountOut) {
+    while (framesProcessedOut < frameCountOut) {
         ma_uint8 pTempBufferOut[MA_DATA_CONVERTER_STACK_BUFFER_SIZE];
         const ma_uint32 tempBufferOutCap = sizeof(pTempBufferOut) / ma_get_bytes_per_frame(pConverter->resampler.config.format, pConverter->resampler.config.channels);
         const void* pFramesInThisIteration;
@@ -30245,6 +30250,13 @@ static ma_result ma_data_converter_process_pcm_frames__resample_with_format_conv
 
         framesProcessedIn  += frameCountInThisIteration;
         framesProcessedOut += frameCountOutThisIteration;
+
+        MA_ASSERT(framesProcessedIn  <= frameCountIn);
+        MA_ASSERT(framesProcessedOut <= frameCountOut);
+
+        if (frameCountOutThisIteration == 0) {
+            break;  /* Consumed all of our input data. */
+        }
     }
 
     if (pFrameCountIn != NULL) {
@@ -30425,7 +30437,7 @@ static ma_result ma_data_converter_process_pcm_frames__resampling_first(ma_data_
     tempBufferMidCap = sizeof(pTempBufferIn)  / ma_get_bytes_per_frame(pConverter->resampler.config.format, pConverter->resampler.config.channels);
     tempBufferOutCap = sizeof(pTempBufferOut) / ma_get_bytes_per_frame(pConverter->channelConverter.format, pConverter->channelConverter.channelsOut);
 
-    while (framesProcessedIn < frameCountIn && framesProcessedOut < frameCountOut) {
+    while (framesProcessedOut < frameCountOut) {
         ma_uint64 frameCountInThisIteration;
         ma_uint64 frameCountOutThisIteration;
         const void* pRunningFramesIn = NULL;
@@ -30511,6 +30523,13 @@ static ma_result ma_data_converter_process_pcm_frames__resampling_first(ma_data_
 
         framesProcessedIn  += frameCountInThisIteration;
         framesProcessedOut += frameCountOutThisIteration;
+
+        MA_ASSERT(framesProcessedIn  <= frameCountIn);
+        MA_ASSERT(framesProcessedOut <= frameCountOut);
+
+        if (frameCountOutThisIteration == 0) {
+            break;  /* Consumed all of our input data. */
+        }
     }
 
     if (pFrameCountIn != NULL) {
@@ -30559,7 +30578,7 @@ static ma_result ma_data_converter_process_pcm_frames__channels_first(ma_data_co
     tempBufferMidCap = sizeof(pTempBufferIn)  / ma_get_bytes_per_frame(pConverter->channelConverter.format, pConverter->channelConverter.channelsOut);
     tempBufferOutCap = sizeof(pTempBufferOut) / ma_get_bytes_per_frame(pConverter->resampler.config.format, pConverter->resampler.config.channels);
 
-    while (framesProcessedIn < frameCountIn && framesProcessedOut < frameCountOut) {
+    while (framesProcessedOut < frameCountOut) {
         ma_uint64 frameCountInThisIteration;
         ma_uint64 frameCountOutThisIteration;
         const void* pRunningFramesIn = NULL;
@@ -30647,9 +30666,15 @@ static ma_result ma_data_converter_process_pcm_frames__channels_first(ma_data_co
             }
         }
 
-
         framesProcessedIn  += frameCountInThisIteration;
         framesProcessedOut += frameCountOutThisIteration;
+
+        MA_ASSERT(framesProcessedIn  <= frameCountIn);
+        MA_ASSERT(framesProcessedOut <= frameCountOut);
+
+        if (frameCountOutThisIteration == 0) {
+            break;  /* Consumed all of our input data. */
+        }
     }
 
     if (pFrameCountIn != NULL) {
@@ -37472,6 +37497,8 @@ ma_decoder_config ma_decoder_config_init(ma_format outputFormat, ma_uint32 outpu
     config.channels = outputChannels;
     config.sampleRate = outputSampleRate;
     ma_get_standard_channel_map(ma_standard_channel_map_default, config.channels, config.channelMap);
+    config.resampling.algorithm = ma_resample_algorithm_linear;
+    config.resampling.linear.lpfCount = 1;
 
     return config;
 }
@@ -37488,9 +37515,9 @@ ma_decoder_config ma_decoder_config_init_copy(const ma_decoder_config* pConfig)
     return config;
 }
 
-ma_result ma_decoder__init_dsp(ma_decoder* pDecoder, const ma_decoder_config* pConfig, ma_pcm_converter_read_proc onRead)
+ma_result ma_decoder__init_data_converter(ma_decoder* pDecoder, const ma_decoder_config* pConfig)
 {
-    ma_pcm_converter_config dspConfig;
+    ma_data_converter_config converterConfig;
 
     ma_assert(pDecoder != NULL);
 
@@ -37519,18 +37546,19 @@ ma_result ma_decoder__init_dsp(ma_decoder* pDecoder, const ma_decoder_config* pC
         ma_copy_memory(pDecoder->outputChannelMap, pConfig->channelMap, sizeof(pConfig->channelMap));
     }
 
+    
+    converterConfig = ma_data_converter_config_init(
+        pDecoder->internalFormat,     pDecoder->outputFormat, 
+        pDecoder->internalChannels,   pDecoder->outputChannels,
+        pDecoder->internalSampleRate, pDecoder->outputSampleRate
+    );
+    ma_channel_map_copy(converterConfig.channelMapIn,  pDecoder->internalChannelMap, pDecoder->internalChannels);
+    ma_channel_map_copy(converterConfig.channelMapOut, pDecoder->outputChannelMap,   pDecoder->outputChannels);
+    converterConfig.channelMixMode       = pConfig->channelMixMode;
+    converterConfig.ditherMode           = pConfig->ditherMode;
+    converterConfig.resampling.algorithm = pConfig->resampling.algorithm;
 
-    /* DSP. */
-    dspConfig = ma_pcm_converter_config_init_ex(
-        pDecoder->internalFormat, pDecoder->internalChannels, pDecoder->internalSampleRate, pDecoder->internalChannelMap,
-        pDecoder->outputFormat,   pDecoder->outputChannels,   pDecoder->outputSampleRate,   pDecoder->outputChannelMap,
-        onRead, pDecoder);
-    dspConfig.channelMixMode = pConfig->channelMixMode;
-    dspConfig.ditherMode = pConfig->ditherMode;
-    dspConfig.srcAlgorithm = pConfig->srcAlgorithm;
-    dspConfig.sinc = pConfig->src.sinc;
-
-    return ma_pcm_converter_init(&dspConfig, &pDecoder->dsp);
+    return ma_data_converter_init(&converterConfig, &pDecoder->converter);
 }
 
 /* WAV */
@@ -37553,28 +37581,25 @@ drwav_bool32 ma_decoder_internal_on_seek__wav(void* pUserData, int offset, drwav
     return ma_decoder_seek_bytes(pDecoder, offset, (origin == drwav_seek_origin_start) ? ma_seek_origin_start : ma_seek_origin_current);
 }
 
-ma_uint32 ma_decoder_internal_on_read_pcm_frames__wav(ma_pcm_converter* pDSP, void* pFramesOut, ma_uint32 frameCount, void* pUserData)
+ma_uint64 ma_decoder_internal_on_read_pcm_frames__wav(ma_decoder* pDecoder, void* pFramesOut, ma_uint64 frameCount)
 {
-    ma_decoder* pDecoder;
     drwav* pWav;
 
-    (void)pDSP;
-
-    pDecoder = (ma_decoder*)pUserData;
-    ma_assert(pDecoder != NULL);
+    MA_ASSERT(pDecoder   != NULL);
+    MA_ASSERT(pFramesOut != NULL);
 
     pWav = (drwav*)pDecoder->pInternalDecoder;
-    ma_assert(pWav != NULL);
+    MA_ASSERT(pWav != NULL);
 
     switch (pDecoder->internalFormat) {
-        case ma_format_s16: return (ma_uint32)drwav_read_pcm_frames_s16(pWav, frameCount, (drwav_int16*)pFramesOut);
-        case ma_format_s32: return (ma_uint32)drwav_read_pcm_frames_s32(pWav, frameCount, (drwav_int32*)pFramesOut);
-        case ma_format_f32: return (ma_uint32)drwav_read_pcm_frames_f32(pWav, frameCount,       (float*)pFramesOut);
+        case ma_format_s16: return drwav_read_pcm_frames_s16(pWav, frameCount, (drwav_int16*)pFramesOut);
+        case ma_format_s32: return drwav_read_pcm_frames_s32(pWav, frameCount, (drwav_int32*)pFramesOut);
+        case ma_format_f32: return drwav_read_pcm_frames_f32(pWav, frameCount,       (float*)pFramesOut);
         default: break;
     }
 
     /* Should never get here. If we do, it means the internal format was not set correctly at initialization time. */
-    ma_assert(MA_FALSE);
+    MA_ASSERT(MA_FALSE);
     return 0;
 }
 
@@ -37609,7 +37634,6 @@ ma_uint64 ma_decoder_internal_on_get_length_in_pcm_frames__wav(ma_decoder* pDeco
 ma_result ma_decoder_init_wav__internal(const ma_decoder_config* pConfig, ma_decoder* pDecoder)
 {
     drwav* pWav;
-    ma_result result;
 
     ma_assert(pConfig != NULL);
     ma_assert(pDecoder != NULL);
@@ -37626,10 +37650,11 @@ ma_result ma_decoder_init_wav__internal(const ma_decoder_config* pConfig, ma_dec
     }
 
     /* If we get here it means we successfully initialized the WAV decoder. We can now initialize the rest of the ma_decoder. */
-    pDecoder->onSeekToPCMFrame = ma_decoder_internal_on_seek_to_pcm_frame__wav;
-    pDecoder->onUninit = ma_decoder_internal_on_uninit__wav;
+    pDecoder->onReadPCMFrames        = ma_decoder_internal_on_read_pcm_frames__wav;
+    pDecoder->onSeekToPCMFrame       = ma_decoder_internal_on_seek_to_pcm_frame__wav;
+    pDecoder->onUninit               = ma_decoder_internal_on_uninit__wav;
     pDecoder->onGetLengthInPCMFrames = ma_decoder_internal_on_get_length_in_pcm_frames__wav;
-    pDecoder->pInternalDecoder = pWav;
+    pDecoder->pInternalDecoder       = pWav;
 
     /* Try to be as optimal as possible for the internal format. If miniaudio does not support a format we will fall back to f32. */
     pDecoder->internalFormat = ma_format_unknown;
@@ -37669,13 +37694,6 @@ ma_result ma_decoder_init_wav__internal(const ma_decoder_config* pConfig, ma_dec
     pDecoder->internalSampleRate = pWav->sampleRate;
     ma_get_standard_channel_map(ma_standard_channel_map_microsoft, pDecoder->internalChannels, pDecoder->internalChannelMap);
 
-    result = ma_decoder__init_dsp(pDecoder, pConfig, ma_decoder_internal_on_read_pcm_frames__wav);
-    if (result != MA_SUCCESS) {
-        drwav_uninit(pWav);
-        ma_free(pWav);
-        return result;
-    }
-
     return MA_SUCCESS;
 }
 #endif  /* dr_wav_h */
@@ -37700,28 +37718,25 @@ drflac_bool32 ma_decoder_internal_on_seek__flac(void* pUserData, int offset, drf
     return ma_decoder_seek_bytes(pDecoder, offset, (origin == drflac_seek_origin_start) ? ma_seek_origin_start : ma_seek_origin_current);
 }
 
-ma_uint32 ma_decoder_internal_on_read_pcm_frames__flac(ma_pcm_converter* pDSP, void* pFramesOut, ma_uint32 frameCount, void* pUserData)
+ma_uint64 ma_decoder_internal_on_read_pcm_frames__flac(ma_decoder* pDecoder, void* pFramesOut, ma_uint64 frameCount)
 {
-    ma_decoder* pDecoder;
     drflac* pFlac;
 
-    (void)pDSP;
-
-    pDecoder = (ma_decoder*)pUserData;
-    ma_assert(pDecoder != NULL);
+    MA_ASSERT(pDecoder   != NULL);
+    MA_ASSERT(pFramesOut != NULL);
 
     pFlac = (drflac*)pDecoder->pInternalDecoder;
-    ma_assert(pFlac != NULL);
+    MA_ASSERT(pFlac != NULL);
 
     switch (pDecoder->internalFormat) {
-        case ma_format_s16: return (ma_uint32)drflac_read_pcm_frames_s16(pFlac, frameCount, (drflac_int16*)pFramesOut);
-        case ma_format_s32: return (ma_uint32)drflac_read_pcm_frames_s32(pFlac, frameCount, (drflac_int32*)pFramesOut);
-        case ma_format_f32: return (ma_uint32)drflac_read_pcm_frames_f32(pFlac, frameCount,        (float*)pFramesOut);
+        case ma_format_s16: return drflac_read_pcm_frames_s16(pFlac, frameCount, (drflac_int16*)pFramesOut);
+        case ma_format_s32: return drflac_read_pcm_frames_s32(pFlac, frameCount, (drflac_int32*)pFramesOut);
+        case ma_format_f32: return drflac_read_pcm_frames_f32(pFlac, frameCount,        (float*)pFramesOut);
         default: break;
     }
 
     /* Should never get here. If we do, it means the internal format was not set correctly at initialization time. */
-    ma_assert(MA_FALSE);
+    MA_ASSERT(MA_FALSE);
     return 0;
 }
 
@@ -37755,7 +37770,6 @@ ma_uint64 ma_decoder_internal_on_get_length_in_pcm_frames__flac(ma_decoder* pDec
 ma_result ma_decoder_init_flac__internal(const ma_decoder_config* pConfig, ma_decoder* pDecoder)
 {
     drflac* pFlac;
-    ma_result result;
 
     ma_assert(pConfig != NULL);
     ma_assert(pDecoder != NULL);
@@ -37767,10 +37781,11 @@ ma_result ma_decoder_init_flac__internal(const ma_decoder_config* pConfig, ma_de
     }
 
     /* If we get here it means we successfully initialized the FLAC decoder. We can now initialize the rest of the ma_decoder. */
-    pDecoder->onSeekToPCMFrame = ma_decoder_internal_on_seek_to_pcm_frame__flac;
-    pDecoder->onUninit = ma_decoder_internal_on_uninit__flac;
+    pDecoder->onReadPCMFrames        = ma_decoder_internal_on_read_pcm_frames__flac;
+    pDecoder->onSeekToPCMFrame       = ma_decoder_internal_on_seek_to_pcm_frame__flac;
+    pDecoder->onUninit               = ma_decoder_internal_on_uninit__flac;
     pDecoder->onGetLengthInPCMFrames = ma_decoder_internal_on_get_length_in_pcm_frames__flac;
-    pDecoder->pInternalDecoder = pFlac;
+    pDecoder->pInternalDecoder       = pFlac;
 
     /*
     dr_flac supports reading as s32, s16 and f32. Try to do a one-to-one mapping if possible, but fall back to s32 if not. s32 is the "native" FLAC format
@@ -37786,12 +37801,6 @@ ma_result ma_decoder_init_flac__internal(const ma_decoder_config* pConfig, ma_de
     pDecoder->internalChannels = pFlac->channels;
     pDecoder->internalSampleRate = pFlac->sampleRate;
     ma_get_standard_channel_map(ma_standard_channel_map_flac, pDecoder->internalChannels, pDecoder->internalChannelMap);
-
-    result = ma_decoder__init_dsp(pDecoder, pConfig, ma_decoder_internal_on_read_pcm_frames__flac);
-    if (result != MA_SUCCESS) {
-        drflac_close(pFlac);
-        return result;
-    }
 
     return MA_SUCCESS;
 }
@@ -37815,13 +37824,13 @@ typedef struct
     float** ppPacketData;
 } ma_vorbis_decoder;
 
-ma_uint32 ma_vorbis_decoder_read_pcm_frames(ma_vorbis_decoder* pVorbis, ma_decoder* pDecoder, void* pFramesOut, ma_uint32 frameCount)
+ma_uint64 ma_vorbis_decoder_read_pcm_frames(ma_vorbis_decoder* pVorbis, ma_decoder* pDecoder, void* pFramesOut, ma_uint64 frameCount)
 {
     float* pFramesOutF;
-    ma_uint32 totalFramesRead;
+    ma_uint64 totalFramesRead;
 
-    ma_assert(pVorbis != NULL);
-    ma_assert(pDecoder != NULL);
+    MA_ASSERT(pVorbis  != NULL);
+    MA_ASSERT(pDecoder != NULL);
 
     pFramesOutF = (float*)pFramesOut;
 
@@ -37835,17 +37844,17 @@ ma_uint32 ma_vorbis_decoder_read_pcm_frames(ma_vorbis_decoder* pVorbis, ma_decod
                 pFramesOutF += 1;
             }
 
-            pVorbis->framesConsumed += 1;
+            pVorbis->framesConsumed  += 1;
             pVorbis->framesRemaining -= 1;
-            frameCount -= 1;
-            totalFramesRead += 1;
+            frameCount               -= 1;
+            totalFramesRead          += 1;
         }
 
         if (frameCount == 0) {
             break;
         }
 
-        ma_assert(pVorbis->framesRemaining == 0);
+        MA_ASSERT(pVorbis->framesRemaining == 0);
 
         /* We've run out of cached frames, so decode the next packet and continue iteration. */
         do
@@ -37918,9 +37927,9 @@ ma_result ma_vorbis_decoder_seek_to_pcm_frame(ma_vorbis_decoder* pVorbis, ma_dec
     }
 
     stb_vorbis_flush_pushdata(pVorbis->pInternalVorbis);
-    pVorbis->framesConsumed = 0;
+    pVorbis->framesConsumed  = 0;
     pVorbis->framesRemaining = 0;
-    pVorbis->dataSize = 0;
+    pVorbis->dataSize        = 0;
 
     while (frameIndex > 0) {
         ma_uint32 framesRead;
@@ -37929,7 +37938,7 @@ ma_result ma_vorbis_decoder_seek_to_pcm_frame(ma_vorbis_decoder* pVorbis, ma_dec
             framesToRead = (ma_uint32)frameIndex;
         }
 
-        framesRead = ma_vorbis_decoder_read_pcm_frames(pVorbis, pDecoder, buffer, framesToRead);
+        framesRead = (ma_uint32)ma_vorbis_decoder_read_pcm_frames(pVorbis, pDecoder, buffer, framesToRead);
         if (framesRead == 0) {
             return MA_ERROR;
         }
@@ -37961,15 +37970,12 @@ ma_result ma_decoder_internal_on_uninit__vorbis(ma_decoder* pDecoder)
     return MA_SUCCESS;
 }
 
-ma_uint32 ma_decoder_internal_on_read_pcm_frames__vorbis(ma_pcm_converter* pDSP, void* pFramesOut, ma_uint32 frameCount, void* pUserData)
+ma_uint64 ma_decoder_internal_on_read_pcm_frames__vorbis(ma_decoder* pDecoder, void* pFramesOut, ma_uint64 frameCount)
 {
-    ma_decoder* pDecoder;
     ma_vorbis_decoder* pVorbis;
 
-    (void)pDSP;
-
-    pDecoder = (ma_decoder*)pUserData;
-    ma_assert(pDecoder != NULL);
+    MA_ASSERT(pDecoder   != NULL);
+    MA_ASSERT(pFramesOut != NULL);
     ma_assert(pDecoder->internalFormat == ma_format_f32);
 
     pVorbis = (ma_vorbis_decoder*)pDecoder->pInternalDecoder;
@@ -37987,7 +37993,6 @@ ma_uint64 ma_decoder_internal_on_get_length_in_pcm_frames__vorbis(ma_decoder* pD
 
 ma_result ma_decoder_init_vorbis__internal(const ma_decoder_config* pConfig, ma_decoder* pDecoder)
 {
-    ma_result result;
     stb_vorbis* pInternalVorbis = NULL;
     size_t dataSize = 0;
     size_t dataCapacity = 0;
@@ -38076,24 +38081,17 @@ ma_result ma_decoder_init_vorbis__internal(const ma_decoder_config* pConfig, ma_
     pVorbis->dataSize = dataSize;
     pVorbis->dataCapacity = dataCapacity;
 
-    pDecoder->onSeekToPCMFrame = ma_decoder_internal_on_seek_to_pcm_frame__vorbis;
-    pDecoder->onUninit = ma_decoder_internal_on_uninit__vorbis;
+    pDecoder->onReadPCMFrames        = ma_decoder_internal_on_read_pcm_frames__vorbis;
+    pDecoder->onSeekToPCMFrame       = ma_decoder_internal_on_seek_to_pcm_frame__vorbis;
+    pDecoder->onUninit               = ma_decoder_internal_on_uninit__vorbis;
     pDecoder->onGetLengthInPCMFrames = ma_decoder_internal_on_get_length_in_pcm_frames__vorbis;
-    pDecoder->pInternalDecoder = pVorbis;
+    pDecoder->pInternalDecoder       = pVorbis;
 
     /* The internal format is always f32. */
-    pDecoder->internalFormat = ma_format_f32;
-    pDecoder->internalChannels = vorbisInfo.channels;
+    pDecoder->internalFormat     = ma_format_f32;
+    pDecoder->internalChannels   = vorbisInfo.channels;
     pDecoder->internalSampleRate = vorbisInfo.sample_rate;
     ma_get_standard_channel_map(ma_standard_channel_map_vorbis, pDecoder->internalChannels, pDecoder->internalChannelMap);
-
-    result = ma_decoder__init_dsp(pDecoder, pConfig, ma_decoder_internal_on_read_pcm_frames__vorbis);
-    if (result != MA_SUCCESS) {
-        stb_vorbis_close(pVorbis->pInternalVorbis);
-        ma_free(pVorbis->pData);
-        ma_free(pVorbis);
-        return result;
-    }
 
     return MA_SUCCESS;
 }
@@ -38119,21 +38117,18 @@ drmp3_bool32 ma_decoder_internal_on_seek__mp3(void* pUserData, int offset, drmp3
     return ma_decoder_seek_bytes(pDecoder, offset, (origin == drmp3_seek_origin_start) ? ma_seek_origin_start : ma_seek_origin_current);
 }
 
-ma_uint32 ma_decoder_internal_on_read_pcm_frames__mp3(ma_pcm_converter* pDSP, void* pFramesOut, ma_uint32 frameCount, void* pUserData)
+ma_uint64 ma_decoder_internal_on_read_pcm_frames__mp3(ma_decoder* pDecoder, void* pFramesOut, ma_uint64 frameCount)
 {
-    ma_decoder* pDecoder;
     drmp3* pMP3;
 
-    (void)pDSP;
-
-    pDecoder = (ma_decoder*)pUserData;
-    ma_assert(pDecoder != NULL);
-    ma_assert(pDecoder->internalFormat == ma_format_f32);
+    MA_ASSERT(pDecoder   != NULL);
+    MA_ASSERT(pFramesOut != NULL);
+    MA_ASSERT(pDecoder->internalFormat == ma_format_f32);
 
     pMP3 = (drmp3*)pDecoder->pInternalDecoder;
-    ma_assert(pMP3 != NULL);
+    MA_ASSERT(pMP3 != NULL);
 
-    return (ma_uint32)drmp3_read_pcm_frames_f32(pMP3, frameCount, (float*)pFramesOut);
+    return drmp3_read_pcm_frames_f32(pMP3, frameCount, (float*)pFramesOut);
 }
 
 ma_result ma_decoder_internal_on_seek_to_pcm_frame__mp3(ma_decoder* pDecoder, ma_uint64 frameIndex)
@@ -38168,7 +38163,6 @@ ma_result ma_decoder_init_mp3__internal(const ma_decoder_config* pConfig, ma_dec
 {
     drmp3* pMP3;
     drmp3_config mp3Config;
-    ma_result result;
 
     ma_assert(pConfig != NULL);
     ma_assert(pDecoder != NULL);
@@ -38198,42 +38192,57 @@ ma_result ma_decoder_init_mp3__internal(const ma_decoder_config* pConfig, ma_dec
     }
 
     /* If we get here it means we successfully initialized the MP3 decoder. We can now initialize the rest of the ma_decoder. */
-    pDecoder->onSeekToPCMFrame = ma_decoder_internal_on_seek_to_pcm_frame__mp3;
-    pDecoder->onUninit = ma_decoder_internal_on_uninit__mp3;
+    pDecoder->onReadPCMFrames        = ma_decoder_internal_on_read_pcm_frames__mp3;
+    pDecoder->onSeekToPCMFrame       = ma_decoder_internal_on_seek_to_pcm_frame__mp3;
+    pDecoder->onUninit               = ma_decoder_internal_on_uninit__mp3;
     pDecoder->onGetLengthInPCMFrames = ma_decoder_internal_on_get_length_in_pcm_frames__mp3;
-    pDecoder->pInternalDecoder = pMP3;
+    pDecoder->pInternalDecoder       = pMP3;
 
     /* Internal format. */
-    pDecoder->internalFormat = ma_format_f32;
-    pDecoder->internalChannels = pMP3->channels;
+    pDecoder->internalFormat     = ma_format_f32;
+    pDecoder->internalChannels   = pMP3->channels;
     pDecoder->internalSampleRate = pMP3->sampleRate;
     ma_get_standard_channel_map(ma_standard_channel_map_default, pDecoder->internalChannels, pDecoder->internalChannelMap);
-
-    result = ma_decoder__init_dsp(pDecoder, pConfig, ma_decoder_internal_on_read_pcm_frames__mp3);
-    if (result != MA_SUCCESS) {
-        drmp3_uninit(pMP3);
-        ma_free(pMP3);
-        return result;
-    }
 
     return MA_SUCCESS;
 }
 #endif  /* dr_mp3_h */
 
 /* Raw */
-ma_uint32 ma_decoder_internal_on_read_pcm_frames__raw(ma_pcm_converter* pDSP, void* pFramesOut, ma_uint32 frameCount, void* pUserData)
+ma_uint64 ma_decoder_internal_on_read_pcm_frames__raw(ma_decoder* pDecoder, void* pFramesOut, ma_uint64 frameCount)
 {
-    ma_decoder* pDecoder;
     ma_uint32 bpf;
+    ma_uint64 totalFramesRead;
+    void* pRunningFramesOut;
 
-    (void)pDSP;
 
-    pDecoder = (ma_decoder*)pUserData;
-    ma_assert(pDecoder != NULL);
+    MA_ASSERT(pDecoder   != NULL);
+    MA_ASSERT(pFramesOut != NULL);
 
     /* For raw decoding we just read directly from the decoder's callbacks. */
     bpf = ma_get_bytes_per_frame(pDecoder->internalFormat, pDecoder->internalChannels);
-    return (ma_uint32)ma_decoder_read_bytes(pDecoder, pFramesOut, frameCount * bpf) / bpf;
+
+    totalFramesRead   = 0;
+    pRunningFramesOut = pFramesOut;
+
+    while (totalFramesRead < frameCount) {
+        ma_uint64 framesReadThisIteration;
+        ma_uint64 framesToReadThisIteration = (frameCount - totalFramesRead);
+        if (framesToReadThisIteration > MA_SIZE_MAX) {
+            framesToReadThisIteration = MA_SIZE_MAX;
+        }
+
+        framesReadThisIteration = ma_decoder_read_bytes(pDecoder, pRunningFramesOut, (size_t)framesToReadThisIteration * bpf) / bpf;    /* Safe cast to size_t. */
+
+        totalFramesRead  += framesReadThisIteration;
+        pRunningFramesOut = ma_offset_ptr(pRunningFramesOut, framesReadThisIteration * bpf);
+
+        if (framesReadThisIteration < framesToReadThisIteration) {
+            break;  /* Done. */
+        }
+    }
+
+    return totalFramesRead;
 }
 
 ma_result ma_decoder_internal_on_seek_to_pcm_frame__raw(ma_decoder* pDecoder, ma_uint64 frameIndex)
@@ -38295,26 +38304,20 @@ ma_uint64 ma_decoder_internal_on_get_length_in_pcm_frames__raw(ma_decoder* pDeco
 
 ma_result ma_decoder_init_raw__internal(const ma_decoder_config* pConfigIn, const ma_decoder_config* pConfigOut, ma_decoder* pDecoder)
 {
-    ma_result result;
-
     ma_assert(pConfigIn != NULL);
     ma_assert(pConfigOut != NULL);
     ma_assert(pDecoder != NULL);
 
-    pDecoder->onSeekToPCMFrame = ma_decoder_internal_on_seek_to_pcm_frame__raw;
-    pDecoder->onUninit = ma_decoder_internal_on_uninit__raw;
+    pDecoder->onReadPCMFrames        = ma_decoder_internal_on_read_pcm_frames__raw;
+    pDecoder->onSeekToPCMFrame       = ma_decoder_internal_on_seek_to_pcm_frame__raw;
+    pDecoder->onUninit               = ma_decoder_internal_on_uninit__raw;
     pDecoder->onGetLengthInPCMFrames = ma_decoder_internal_on_get_length_in_pcm_frames__raw;
 
     /* Internal format. */
-    pDecoder->internalFormat = pConfigIn->format;
-    pDecoder->internalChannels = pConfigIn->channels;
+    pDecoder->internalFormat     = pConfigIn->format;
+    pDecoder->internalChannels   = pConfigIn->channels;
     pDecoder->internalSampleRate = pConfigIn->sampleRate;
     ma_channel_map_copy(pDecoder->internalChannelMap, pConfigIn->channelMap, pConfigIn->channels);
-
-    result = ma_decoder__init_dsp(pDecoder, pConfigOut, ma_decoder_internal_on_read_pcm_frames__raw);
-    if (result != MA_SUCCESS) {
-        return result;
-    }
 
     return MA_SUCCESS;
 }
@@ -38341,6 +38344,18 @@ ma_result ma_decoder__preinit(ma_decoder_read_proc onRead, ma_decoder_seek_proc 
     return MA_SUCCESS;
 }
 
+ma_result ma_decoder__postinit(const ma_decoder_config* pConfig, ma_decoder* pDecoder)
+{
+    ma_result result;
+
+    result = ma_decoder__init_data_converter(pDecoder, pConfig);
+    if (result != MA_SUCCESS) {
+        return result;
+    }
+
+    return result;
+}
+
 ma_result ma_decoder_init_wav(ma_decoder_read_proc onRead, ma_decoder_seek_proc onSeek, void* pUserData, const ma_decoder_config* pConfig, ma_decoder* pDecoder)
 {
     ma_decoder_config config;
@@ -38354,10 +38369,15 @@ ma_result ma_decoder_init_wav(ma_decoder_read_proc onRead, ma_decoder_seek_proc 
     }
 
 #ifdef MA_HAS_WAV
-    return ma_decoder_init_wav__internal(&config, pDecoder);
+    result = ma_decoder_init_wav__internal(&config, pDecoder);
 #else
-    return MA_NO_BACKEND;
+    result = MA_NO_BACKEND;
 #endif
+    if (result != MA_SUCCESS) {
+        return result;
+    }
+
+    return ma_decoder__postinit(&config, pDecoder);
 }
 
 ma_result ma_decoder_init_flac(ma_decoder_read_proc onRead, ma_decoder_seek_proc onSeek, void* pUserData, const ma_decoder_config* pConfig, ma_decoder* pDecoder)
@@ -38373,10 +38393,15 @@ ma_result ma_decoder_init_flac(ma_decoder_read_proc onRead, ma_decoder_seek_proc
     }
 
 #ifdef MA_HAS_FLAC
-    return ma_decoder_init_flac__internal(&config, pDecoder);
+    result = ma_decoder_init_flac__internal(&config, pDecoder);
 #else
-    return MA_NO_BACKEND;
+    result = MA_NO_BACKEND;
 #endif
+    if (result != MA_SUCCESS) {
+        return result;
+    }
+
+    return ma_decoder__postinit(&config, pDecoder);
 }
 
 ma_result ma_decoder_init_vorbis(ma_decoder_read_proc onRead, ma_decoder_seek_proc onSeek, void* pUserData, const ma_decoder_config* pConfig, ma_decoder* pDecoder)
@@ -38392,10 +38417,15 @@ ma_result ma_decoder_init_vorbis(ma_decoder_read_proc onRead, ma_decoder_seek_pr
     }
 
 #ifdef MA_HAS_VORBIS
-    return ma_decoder_init_vorbis__internal(&config, pDecoder);
+    result = ma_decoder_init_vorbis__internal(&config, pDecoder);
 #else
-    return MA_NO_BACKEND;
+    result = MA_NO_BACKEND;
 #endif
+    if (result != MA_SUCCESS) {
+        return result;
+    }
+
+    return ma_decoder__postinit(&config, pDecoder);
 }
 
 ma_result ma_decoder_init_mp3(ma_decoder_read_proc onRead, ma_decoder_seek_proc onSeek, void* pUserData, const ma_decoder_config* pConfig, ma_decoder* pDecoder)
@@ -38411,10 +38441,15 @@ ma_result ma_decoder_init_mp3(ma_decoder_read_proc onRead, ma_decoder_seek_proc 
     }
 
 #ifdef MA_HAS_MP3
-    return ma_decoder_init_mp3__internal(&config, pDecoder);
+    result = ma_decoder_init_mp3__internal(&config, pDecoder);
 #else
-    return MA_NO_BACKEND;
+    result = MA_NO_BACKEND;
 #endif
+    if (result != MA_SUCCESS) {
+        return result;
+    }
+
+    return ma_decoder__postinit(&config, pDecoder);
 }
 
 ma_result ma_decoder_init_raw(ma_decoder_read_proc onRead, ma_decoder_seek_proc onSeek, void* pUserData, const ma_decoder_config* pConfigIn, const ma_decoder_config* pConfigOut, ma_decoder* pDecoder)
@@ -38429,7 +38464,12 @@ ma_result ma_decoder_init_raw(ma_decoder_read_proc onRead, ma_decoder_seek_proc 
         return result;
     }
 
-    return ma_decoder_init_raw__internal(pConfigIn, &config, pDecoder);
+    result = ma_decoder_init_raw__internal(pConfigIn, &config, pDecoder);
+    if (result != MA_SUCCESS) {
+        return result;
+    }
+
+    return ma_decoder__postinit(&config, pDecoder);
 }
 
 ma_result ma_decoder_init__internal(ma_decoder_read_proc onRead, ma_decoder_seek_proc onSeek, void* pUserData, const ma_decoder_config* pConfig, ma_decoder* pDecoder)
@@ -38485,7 +38525,7 @@ ma_result ma_decoder_init__internal(ma_decoder_read_proc onRead, ma_decoder_seek
         return result;
     }
 
-    return result;
+    return ma_decoder__postinit(pConfig, pDecoder);
 }
 
 ma_result ma_decoder_init(ma_decoder_read_proc onRead, ma_decoder_seek_proc onSeek, void* pUserData, const ma_decoder_config* pConfig, ma_decoder* pDecoder)
@@ -38596,10 +38636,15 @@ ma_result ma_decoder_init_memory_wav(const void* pData, size_t dataSize, const m
     }
 
 #ifdef MA_HAS_WAV
-    return ma_decoder_init_wav__internal(&config, pDecoder);
+    result = ma_decoder_init_wav__internal(&config, pDecoder);
 #else
-    return MA_NO_BACKEND;
+    result = MA_NO_BACKEND;
 #endif
+    if (result != MA_SUCCESS) {
+        return result;
+    }
+
+    return ma_decoder__postinit(&config, pDecoder);
 }
 
 ma_result ma_decoder_init_memory_flac(const void* pData, size_t dataSize, const ma_decoder_config* pConfig, ma_decoder* pDecoder)
@@ -38615,10 +38660,15 @@ ma_result ma_decoder_init_memory_flac(const void* pData, size_t dataSize, const 
     }
 
 #ifdef MA_HAS_FLAC
-    return ma_decoder_init_flac__internal(&config, pDecoder);
+    result = ma_decoder_init_flac__internal(&config, pDecoder);
 #else
-    return MA_NO_BACKEND;
+    result = MA_NO_BACKEND;
 #endif
+    if (result != MA_SUCCESS) {
+        return result;
+    }
+
+    return ma_decoder__postinit(&config, pDecoder);
 }
 
 ma_result ma_decoder_init_memory_vorbis(const void* pData, size_t dataSize, const ma_decoder_config* pConfig, ma_decoder* pDecoder)
@@ -38634,10 +38684,15 @@ ma_result ma_decoder_init_memory_vorbis(const void* pData, size_t dataSize, cons
     }
 
 #ifdef MA_HAS_VORBIS
-    return ma_decoder_init_vorbis__internal(&config, pDecoder);
+    result = ma_decoder_init_vorbis__internal(&config, pDecoder);
 #else
-    return MA_NO_BACKEND;
+    result = MA_NO_BACKEND;
 #endif
+    if (result != MA_SUCCESS) {
+        return result;
+    }
+
+    return ma_decoder__postinit(&config, pDecoder);
 }
 
 ma_result ma_decoder_init_memory_mp3(const void* pData, size_t dataSize, const ma_decoder_config* pConfig, ma_decoder* pDecoder)
@@ -38653,10 +38708,15 @@ ma_result ma_decoder_init_memory_mp3(const void* pData, size_t dataSize, const m
     }
 
 #ifdef MA_HAS_MP3
-    return ma_decoder_init_mp3__internal(&config, pDecoder);
+    result = ma_decoder_init_mp3__internal(&config, pDecoder);
 #else
-    return MA_NO_BACKEND;
+    result = MA_NO_BACKEND;
 #endif
+    if (result != MA_SUCCESS) {
+        return result;
+    }
+
+    return ma_decoder__postinit(&config, pDecoder);
 }
 
 ma_result ma_decoder_init_memory_raw(const void* pData, size_t dataSize, const ma_decoder_config* pConfigIn, const ma_decoder_config* pConfigOut, ma_decoder* pDecoder)
@@ -38671,7 +38731,12 @@ ma_result ma_decoder_init_memory_raw(const void* pData, size_t dataSize, const m
         return result;
     }
 
-    return ma_decoder_init_raw__internal(pConfigIn, &config, pDecoder);
+    result = ma_decoder_init_raw__internal(pConfigIn, &config, pDecoder);
+    if (result != MA_SUCCESS) {
+        return result;
+    }
+
+    return ma_decoder__postinit(&config, pDecoder);
 }
 
 #ifndef MA_NO_STDIO
@@ -39154,6 +39219,8 @@ ma_result ma_decoder_uninit(ma_decoder* pDecoder)
     }
 #endif
 
+    ma_data_converter_uninit(&pDecoder->converter);
+
     return MA_SUCCESS;
 }
 
@@ -39172,11 +39239,73 @@ ma_uint64 ma_decoder_get_length_in_pcm_frames(ma_decoder* pDecoder)
 
 ma_uint64 ma_decoder_read_pcm_frames(ma_decoder* pDecoder, void* pFramesOut, ma_uint64 frameCount)
 {
+    ma_result result;
+    ma_uint64 totalFramesReadOut;
+    ma_uint64 totalFramesReadIn;
+    void* pRunningFramesOut;
+    
     if (pDecoder == NULL) {
         return 0;
     }
 
-    return ma_pcm_converter_read(&pDecoder->dsp, pFramesOut, frameCount);
+    if (pDecoder->onReadPCMFrames == NULL) {
+        return 0;
+    }
+
+    /* Fast path. */
+    if (pDecoder->converter.isPassthrough) {
+        return pDecoder->onReadPCMFrames(pDecoder, pFramesOut, frameCount);
+    }
+
+    /* Getting here means we need to do data conversion. */
+    totalFramesReadOut = 0;
+    totalFramesReadIn  = 0;
+    pRunningFramesOut  = pFramesOut;
+    
+    while (totalFramesReadOut < frameCount) {
+        ma_uint8 pIntermediaryBuffer[MA_DATA_CONVERTER_STACK_BUFFER_SIZE];  /* In internal format. */
+        ma_uint64 intermediaryBufferCap = sizeof(pIntermediaryBuffer) / ma_get_bytes_per_frame(pDecoder->internalFormat, pDecoder->internalChannels);
+        ma_uint64 framesToReadThisIterationIn;
+        ma_uint64 framesReadThisIterationIn;
+        ma_uint64 framesToReadThisIterationOut;
+        ma_uint64 framesReadThisIterationOut;
+        ma_uint64 requiredInputFrameCount;
+
+        framesToReadThisIterationOut = (frameCount - totalFramesReadOut);
+        framesToReadThisIterationIn = framesToReadThisIterationOut;
+        if (framesToReadThisIterationIn > intermediaryBufferCap) {
+            framesToReadThisIterationIn = intermediaryBufferCap;
+        }
+
+        requiredInputFrameCount = ma_data_converter_get_required_input_frame_count(&pDecoder->converter, framesToReadThisIterationOut);
+        if (framesToReadThisIterationIn > requiredInputFrameCount) {
+            framesToReadThisIterationIn = requiredInputFrameCount;
+        }
+
+        if (requiredInputFrameCount > 0) {
+            framesReadThisIterationIn = pDecoder->onReadPCMFrames(pDecoder, pIntermediaryBuffer, framesToReadThisIterationIn);
+            totalFramesReadIn += framesReadThisIterationIn;
+        }
+
+        /*
+        At this point we have our decoded data in input format and now we need to convert to output format. Note that even if we didn't read any
+        input frames, we still want to try processing frames because there may some output frames generated from cached input data.
+        */
+        framesReadThisIterationOut = framesToReadThisIterationOut;
+        result = ma_data_converter_process_pcm_frames(&pDecoder->converter, pIntermediaryBuffer, &framesReadThisIterationIn, pRunningFramesOut, &framesReadThisIterationOut);
+        if (result != MA_SUCCESS) {
+            break;
+        }
+
+        totalFramesReadOut += framesReadThisIterationOut;
+        pRunningFramesOut   = ma_offset_ptr(pRunningFramesOut, framesReadThisIterationOut * ma_get_bytes_per_frame(pDecoder->outputFormat, pDecoder->outputChannels));
+
+        if (framesReadThisIterationIn == 0 && framesReadThisIterationOut == 0) {
+            break;  /* We're done. */
+        }
+    }
+
+    return totalFramesReadOut;
 }
 
 ma_result ma_decoder_seek_to_pcm_frame(ma_decoder* pDecoder, ma_uint64 frameIndex)
