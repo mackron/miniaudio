@@ -3041,7 +3041,7 @@ struct ma_device
         ma_uint32 internalBufferSizeInFrames;
         ma_uint32 internalPeriods;
         ma_pcm_converter converter;
-        ma_uint32 _dspFrameCount;           /* Internal use only. Used as the data source when reading from the device. */
+        ma_uint32 _dspFrameCount;           /* Internal use only. Used as the data source when reading from the client. */
         const ma_uint8* _dspFrames;         /* ^^^ AS ABOVE ^^^ */
     } playback;
     struct
@@ -37515,7 +37515,7 @@ ma_decoder_config ma_decoder_config_init_copy(const ma_decoder_config* pConfig)
     return config;
 }
 
-ma_result ma_decoder__init_data_converter(ma_decoder* pDecoder, const ma_decoder_config* pConfig)
+static ma_result ma_decoder__init_data_converter(ma_decoder* pDecoder, const ma_decoder_config* pConfig)
 {
     ma_data_converter_config converterConfig;
 
@@ -37557,6 +37557,7 @@ ma_result ma_decoder__init_data_converter(ma_decoder* pDecoder, const ma_decoder
     converterConfig.channelMixMode       = pConfig->channelMixMode;
     converterConfig.ditherMode           = pConfig->ditherMode;
     converterConfig.resampling.algorithm = pConfig->resampling.algorithm;
+    converterConfig.resampling.allowDynamicSampleRate = MA_FALSE;   /* Never allow dynamic sample rate conversion. Setting this to true will disable passthrough optimizations. */
 
     return ma_data_converter_init(&converterConfig, &pDecoder->converter);
 }
