@@ -603,10 +603,10 @@ int do_format_conversion_test(ma_format formatIn, ma_format formatOut)
     if (allowSmallDifference) {
         if (formatOut == ma_format_f32) {
             switch (formatIn) {
-                case ma_format_u8:  allowedDifference = 1.0f / 255        * 2; break;
-                case ma_format_s16: allowedDifference = 1.0f / 32767      * 2; break;
-                case ma_format_s24: allowedDifference = 1.0f / 8388608    * 2; break;
-                case ma_format_s32: allowedDifference = 1.0f / 2147483647 * 2; break;
+                case ma_format_u8:  allowedDifference = (float)(1.0 / 255        * 2); break;
+                case ma_format_s16: allowedDifference = (float)(1.0 / 32767      * 2); break;
+                case ma_format_s24: allowedDifference = (float)(1.0 / 8388608    * 2); break;
+                case ma_format_s32: allowedDifference = (float)(1.0 / 2147483647 * 2); break;
                 case ma_format_f32: allowedDifference = 0; break;
                 default: break;
             }
