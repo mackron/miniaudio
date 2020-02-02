@@ -4103,7 +4103,6 @@ Standard Library Stuff
 
 #define MA_ZERO_OBJECT(p) MA_ZERO_MEMORY((p), sizeof(*(p)))
 
-#define ma_copy_memory MA_COPY_MEMORY
 #define ma_assert      MA_ASSERT
 
 #define ma_countof(x)               (sizeof(x) / sizeof(x[0]))
@@ -4402,7 +4401,7 @@ char* ma_copy_string(const char* src)
 void ma_copy_memory_64(void* dst, const void* src, ma_uint64 sizeInBytes)
 {
 #if 0xFFFFFFFFFFFFFFFF <= MA_SIZE_MAX
-    ma_copy_memory(dst, src, (size_t)sizeInBytes);
+    MA_COPY_MEMORY(dst, src, (size_t)sizeInBytes);
 #else
     while (sizeInBytes > 0) {
         ma_uint64 bytesToCopyNow = sizeInBytes;
@@ -4410,7 +4409,7 @@ void ma_copy_memory_64(void* dst, const void* src, ma_uint64 sizeInBytes)
             bytesToCopyNow = MA_SIZE_MAX;
         }
 
-        ma_copy_memory(dst, src, (size_t)bytesToCopyNow);  /* Safe cast to size_t. */
+        MA_COPY_MEMORY(dst, src, (size_t)bytesToCopyNow);  /* Safe cast to size_t. */
 
         sizeInBytes -= bytesToCopyNow;
         dst = (      void*)((      ma_uint8*)dst + bytesToCopyNow);
@@ -8347,7 +8346,7 @@ ma_result ma_context_get_device_info_from_MMDevice__wasapi(ma_context* pContext,
             return MA_ERROR;
         }
 
-        ma_copy_memory(pInfo->id.wasapi, id, idlen * sizeof(wchar_t));
+        MA_COPY_MEMORY(pInfo->id.wasapi, id, idlen * sizeof(wchar_t));
         pInfo->id.wasapi[idlen] = '\0';
 
         ma_CoTaskMemFree(pContext, id);
@@ -8464,7 +8463,7 @@ ma_result ma_context_get_IAudioClient_UWP__wasapi(ma_context* pContext, ma_devic
     ma_assert(ppAudioClient != NULL);
 
     if (pDeviceID != NULL) {
-        ma_copy_memory(&iid, pDeviceID->wasapi, sizeof(iid));
+        MA_COPY_MEMORY(&iid, pDeviceID->wasapi, sizeof(iid));
     } else {
         if (deviceType == ma_device_type_playback) {
             iid = MA_IID_DEVINTERFACE_AUDIO_RENDER;
@@ -8788,7 +8787,7 @@ ma_result ma_device_init_internal__wasapi(ma_context* pContext, ma_device_type d
                 WAVEFORMATEX* pActualFormat = (WAVEFORMATEX*)prop.blob.pBlobData;
                 hr = ma_IAudioClient_IsFormatSupported((ma_IAudioClient*)pData->pAudioClient, MA_AUDCLNT_SHAREMODE_EXCLUSIVE, pActualFormat, NULL);
                 if (SUCCEEDED(hr)) {
-                    ma_copy_memory(&wf, pActualFormat, sizeof(WAVEFORMATEXTENSIBLE));
+                    MA_COPY_MEMORY(&wf, pActualFormat, sizeof(WAVEFORMATEXTENSIBLE));
                 }
 
                 ma_PropVariantClear(pContext, &prop);
@@ -8820,7 +8819,7 @@ ma_result ma_device_init_internal__wasapi(ma_context* pContext, ma_device_type d
         if (hr != S_OK) {
             result = MA_FORMAT_NOT_SUPPORTED;
         } else {
-            ma_copy_memory(&wf, pNativeFormat, sizeof(wf));
+            MA_COPY_MEMORY(&wf, pNativeFormat, sizeof(wf));
             result = MA_SUCCESS;
         }
 
@@ -9113,7 +9112,7 @@ ma_result ma_device_reinit__wasapi(ma_device* pDevice, ma_device_type deviceType
     if (deviceType == ma_device_type_playback) {
         data.formatIn               = pDevice->playback.format;
         data.channelsIn             = pDevice->playback.channels;
-        ma_copy_memory(data.channelMapIn, pDevice->playback.channelMap, sizeof(pDevice->playback.channelMap));
+        MA_COPY_MEMORY(data.channelMapIn, pDevice->playback.channelMap, sizeof(pDevice->playback.channelMap));
         data.shareMode              = pDevice->playback.shareMode;
         data.usingDefaultFormat     = pDevice->playback.usingDefaultFormat;
         data.usingDefaultChannels   = pDevice->playback.usingDefaultChannels;
@@ -9121,7 +9120,7 @@ ma_result ma_device_reinit__wasapi(ma_device* pDevice, ma_device_type deviceType
     } else {
         data.formatIn               = pDevice->capture.format;
         data.channelsIn             = pDevice->capture.channels;
-        ma_copy_memory(data.channelMapIn, pDevice->capture.channelMap, sizeof(pDevice->capture.channelMap));
+        MA_COPY_MEMORY(data.channelMapIn, pDevice->capture.channelMap, sizeof(pDevice->capture.channelMap));
         data.shareMode              = pDevice->capture.shareMode;
         data.usingDefaultFormat     = pDevice->capture.usingDefaultFormat;
         data.usingDefaultChannels   = pDevice->capture.usingDefaultChannels;
@@ -9159,7 +9158,7 @@ ma_result ma_device_reinit__wasapi(ma_device* pDevice, ma_device_type deviceType
         pDevice->capture.internalFormat             = data.formatOut;
         pDevice->capture.internalChannels           = data.channelsOut;
         pDevice->capture.internalSampleRate         = data.sampleRateOut;
-        ma_copy_memory(pDevice->capture.internalChannelMap, data.channelMapOut, sizeof(data.channelMapOut));
+        MA_COPY_MEMORY(pDevice->capture.internalChannelMap, data.channelMapOut, sizeof(data.channelMapOut));
         pDevice->capture.internalBufferSizeInFrames = data.bufferSizeInFramesOut;
         pDevice->capture.internalPeriods            = data.periodsOut;
         ma_strcpy_s(pDevice->capture.name, sizeof(pDevice->capture.name), data.deviceName);
@@ -9195,7 +9194,7 @@ ma_result ma_device_reinit__wasapi(ma_device* pDevice, ma_device_type deviceType
         pDevice->playback.internalFormat             = data.formatOut;
         pDevice->playback.internalChannels           = data.channelsOut;
         pDevice->playback.internalSampleRate         = data.sampleRateOut;
-        ma_copy_memory(pDevice->playback.internalChannelMap, data.channelMapOut, sizeof(data.channelMapOut));
+        MA_COPY_MEMORY(pDevice->playback.internalChannelMap, data.channelMapOut, sizeof(data.channelMapOut));
         pDevice->playback.internalBufferSizeInFrames = data.bufferSizeInFramesOut;
         pDevice->playback.internalPeriods            = data.periodsOut;
         ma_strcpy_s(pDevice->playback.name, sizeof(pDevice->playback.name), data.deviceName);
@@ -9244,7 +9243,7 @@ ma_result ma_device_init__wasapi(ma_context* pContext, const ma_device_config* p
         data.formatIn                   = pConfig->capture.format;
         data.channelsIn                 = pConfig->capture.channels;
         data.sampleRateIn               = pConfig->sampleRate;
-        ma_copy_memory(data.channelMapIn, pConfig->capture.channelMap, sizeof(pConfig->capture.channelMap));
+        MA_COPY_MEMORY(data.channelMapIn, pConfig->capture.channelMap, sizeof(pConfig->capture.channelMap));
         data.usingDefaultFormat         = pDevice->capture.usingDefaultFormat;
         data.usingDefaultChannels       = pDevice->capture.usingDefaultChannels;
         data.usingDefaultSampleRate     = pDevice->usingDefaultSampleRate;
@@ -9268,7 +9267,7 @@ ma_result ma_device_init__wasapi(ma_context* pContext, const ma_device_config* p
         pDevice->capture.internalFormat             = data.formatOut;
         pDevice->capture.internalChannels           = data.channelsOut;
         pDevice->capture.internalSampleRate         = data.sampleRateOut;
-        ma_copy_memory(pDevice->capture.internalChannelMap, data.channelMapOut, sizeof(data.channelMapOut));
+        MA_COPY_MEMORY(pDevice->capture.internalChannelMap, data.channelMapOut, sizeof(data.channelMapOut));
         pDevice->capture.internalBufferSizeInFrames = data.bufferSizeInFramesOut;
         pDevice->capture.internalPeriods            = data.periodsOut;
         ma_strcpy_s(pDevice->capture.name, sizeof(pDevice->capture.name), data.deviceName);
@@ -9301,7 +9300,7 @@ ma_result ma_device_init__wasapi(ma_context* pContext, const ma_device_config* p
         data.formatIn                   = pConfig->playback.format;
         data.channelsIn                 = pConfig->playback.channels;
         data.sampleRateIn               = pConfig->sampleRate;
-        ma_copy_memory(data.channelMapIn, pConfig->playback.channelMap, sizeof(pConfig->playback.channelMap));
+        MA_COPY_MEMORY(data.channelMapIn, pConfig->playback.channelMap, sizeof(pConfig->playback.channelMap));
         data.usingDefaultFormat         = pDevice->playback.usingDefaultFormat;
         data.usingDefaultChannels       = pDevice->playback.usingDefaultChannels;
         data.usingDefaultSampleRate     = pDevice->usingDefaultSampleRate;
@@ -9338,7 +9337,7 @@ ma_result ma_device_init__wasapi(ma_context* pContext, const ma_device_config* p
         pDevice->playback.internalFormat             = data.formatOut;
         pDevice->playback.internalChannels           = data.channelsOut;
         pDevice->playback.internalSampleRate         = data.sampleRateOut;
-        ma_copy_memory(pDevice->playback.internalChannelMap, data.channelMapOut, sizeof(data.channelMapOut));
+        MA_COPY_MEMORY(pDevice->playback.internalChannelMap, data.channelMapOut, sizeof(data.channelMapOut));
         pDevice->playback.internalBufferSizeInFrames = data.bufferSizeInFramesOut;
         pDevice->playback.internalPeriods            = data.periodsOut;
         ma_strcpy_s(pDevice->playback.name, sizeof(pDevice->playback.name), data.deviceName);
@@ -10706,7 +10705,7 @@ BOOL CALLBACK ma_context_enumerate_devices_callback__dsound(LPGUID lpGuid, LPCST
 
     /* ID. */
     if (lpGuid != NULL) {
-        ma_copy_memory(deviceInfo.id.dsound, lpGuid, 16);
+        MA_COPY_MEMORY(deviceInfo.id.dsound, lpGuid, 16);
     } else {
         MA_ZERO_MEMORY(deviceInfo.id.dsound, 16);
     }
@@ -10798,7 +10797,7 @@ ma_result ma_context_get_device_info__dsound(ma_context* pContext, ma_device_typ
         ma_context_get_device_info_callback_data__dsound data;
 
         /* ID. */
-        ma_copy_memory(pDeviceInfo->id.dsound, pDeviceID->dsound, 16);
+        MA_COPY_MEMORY(pDeviceInfo->id.dsound, pDeviceID->dsound, 16);
 
         /* Name / Description. This is retrieved by enumerating over each device until we find that one that matches the input ID. */
         data.pDeviceID = pDeviceID;
@@ -10958,7 +10957,7 @@ BOOL CALLBACK ma_enum_devices_callback__dsound(LPGUID lpGuid, LPCSTR lpcstrDescr
             ma_strncpy_s(pData->pInfo->name, sizeof(pData->pInfo->name), lpcstrDescription, (size_t)-1);
 
             if (lpGuid != NULL) {
-                ma_copy_memory(pData->pInfo->id.dsound, lpGuid, 16);
+                MA_COPY_MEMORY(pData->pInfo->id.dsound, lpGuid, 16);
             } else {
                 MA_ZERO_MEMORY(pData->pInfo->id.dsound, 16);
             }
@@ -12207,7 +12206,7 @@ ma_result ma_context_get_device_info_from_WAVEOUTCAPS2(ma_context* pContext, MA_
     ma_assert(pCaps != NULL);
     ma_assert(pDeviceInfo != NULL);
 
-    ma_copy_memory(caps.szPname, pCaps->szPname, sizeof(caps.szPname));
+    MA_COPY_MEMORY(caps.szPname, pCaps->szPname, sizeof(caps.szPname));
     caps.dwFormats = pCaps->dwFormats;
     caps.wChannels = pCaps->wChannels;
     caps.NameGuid = pCaps->NameGuid;
@@ -12222,7 +12221,7 @@ ma_result ma_context_get_device_info_from_WAVEINCAPS2(ma_context* pContext, MA_W
     ma_assert(pCaps != NULL);
     ma_assert(pDeviceInfo != NULL);
 
-    ma_copy_memory(caps.szPname, pCaps->szPname, sizeof(caps.szPname));
+    MA_COPY_MEMORY(caps.szPname, pCaps->szPname, sizeof(caps.szPname));
     caps.dwFormats = pCaps->dwFormats;
     caps.wChannels = pCaps->wChannels;
     caps.NameGuid = pCaps->NameGuid;
@@ -12655,7 +12654,7 @@ ma_result ma_device_write__winmm(ma_device* pDevice, const void* pPCMFrames, ma_
             ma_uint32 framesToCopy = ma_min(framesRemainingInHeader, (frameCount - totalFramesWritten));
             const void* pSrc = ma_offset_ptr(pPCMFrames, totalFramesWritten*bpf);
             void* pDst = ma_offset_ptr(pWAVEHDR[pDevice->winmm.iNextHeaderPlayback].lpData, pDevice->winmm.headerFramesConsumedPlayback*bpf);
-            ma_copy_memory(pDst, pSrc, framesToCopy*bpf);
+            MA_COPY_MEMORY(pDst, pSrc, framesToCopy*bpf);
 
             pDevice->winmm.headerFramesConsumedPlayback += framesToCopy;
             totalFramesWritten += framesToCopy;
@@ -12744,7 +12743,7 @@ ma_result ma_device_read__winmm(ma_device* pDevice, void* pPCMFrames, ma_uint32 
             ma_uint32 framesToCopy = ma_min(framesRemainingInHeader, (frameCount - totalFramesRead));
             const void* pSrc = ma_offset_ptr(pWAVEHDR[pDevice->winmm.iNextHeaderCapture].lpData, pDevice->winmm.headerFramesConsumedCapture*bpf);
             void* pDst = ma_offset_ptr(pPCMFrames, totalFramesRead*bpf);
-            ma_copy_memory(pDst, pSrc, framesToCopy*bpf);
+            MA_COPY_MEMORY(pDst, pSrc, framesToCopy*bpf);
 
             pDevice->winmm.headerFramesConsumedCapture += framesToCopy;
             totalFramesRead += framesToCopy;
@@ -13844,7 +13843,7 @@ ma_result ma_context_enumerate_devices__alsa(ma_context* pContext, ma_enum_devic
                     }
 
                     pUniqueIDs = pNewUniqueIDs;
-                    ma_copy_memory(pUniqueIDs[uniqueIDCount].alsa, hwid, sizeof(hwid));
+                    MA_COPY_MEMORY(pUniqueIDs[uniqueIDCount].alsa, hwid, sizeof(hwid));
                     uniqueIDCount += 1;
                 }
             }
@@ -16944,7 +16943,7 @@ ma_result ma_device_write__pulse(ma_device* pDevice, const void* pPCMFrames, ma_
             void* pDst = (ma_uint8*)pDevice->pulse.pMappedBufferPlayback + (mappedBufferFramesConsumed * bpf);
             const void* pSrc = (const ma_uint8*)pPCMFrames + (totalFramesWritten * bpf);
             ma_uint32  framesToCopy = ma_min(pDevice->pulse.mappedBufferFramesRemainingPlayback, (frameCount - totalFramesWritten));
-            ma_copy_memory(pDst, pSrc, framesToCopy * bpf);
+            MA_COPY_MEMORY(pDst, pSrc, framesToCopy * bpf);
 
             pDevice->pulse.mappedBufferFramesRemainingPlayback -= framesToCopy;
             totalFramesWritten += framesToCopy;
@@ -17053,7 +17052,7 @@ ma_result ma_device_read__pulse(ma_device* pDevice, void* pPCMFrames, ma_uint32 
             */
             if (pDevice->pulse.pMappedBufferCapture != NULL) {
                 const void* pSrc = (const ma_uint8*)pDevice->pulse.pMappedBufferCapture + (mappedBufferFramesConsumed * bpf);
-                ma_copy_memory(pDst, pSrc, framesToCopy * bpf);
+                MA_COPY_MEMORY(pDst, pSrc, framesToCopy * bpf);
             } else {
                 MA_ZERO_MEMORY(pDst, framesToCopy * bpf);
             #if defined(MA_DEBUG_OUTPUT)
@@ -20718,7 +20717,7 @@ ma_result ma_device_reinit_internal__coreaudio(ma_device* pDevice, ma_device_typ
         data.formatIn               = pDevice->capture.format;
         data.channelsIn             = pDevice->capture.channels;
         data.sampleRateIn           = pDevice->sampleRate;
-        ma_copy_memory(data.channelMapIn, pDevice->capture.channelMap, sizeof(pDevice->capture.channelMap));
+        MA_COPY_MEMORY(data.channelMapIn, pDevice->capture.channelMap, sizeof(pDevice->capture.channelMap));
         data.usingDefaultFormat     = pDevice->capture.usingDefaultFormat;
         data.usingDefaultChannels   = pDevice->capture.usingDefaultChannels;
         data.usingDefaultSampleRate = pDevice->usingDefaultSampleRate;
@@ -20737,7 +20736,7 @@ ma_result ma_device_reinit_internal__coreaudio(ma_device* pDevice, ma_device_typ
         data.formatIn               = pDevice->playback.format;
         data.channelsIn             = pDevice->playback.channels;
         data.sampleRateIn           = pDevice->sampleRate;
-        ma_copy_memory(data.channelMapIn, pDevice->playback.channelMap, sizeof(pDevice->playback.channelMap));
+        MA_COPY_MEMORY(data.channelMapIn, pDevice->playback.channelMap, sizeof(pDevice->playback.channelMap));
         data.usingDefaultFormat     = pDevice->playback.usingDefaultFormat;
         data.usingDefaultChannels   = pDevice->playback.usingDefaultChannels;
         data.usingDefaultSampleRate = pDevice->usingDefaultSampleRate;
@@ -20774,7 +20773,7 @@ ma_result ma_device_reinit_internal__coreaudio(ma_device* pDevice, ma_device_typ
         pDevice->capture.internalFormat             = data.formatOut;
         pDevice->capture.internalChannels           = data.channelsOut;
         pDevice->capture.internalSampleRate         = data.sampleRateOut;
-        ma_copy_memory(pDevice->capture.internalChannelMap, data.channelMapOut, sizeof(data.channelMapOut));
+        MA_COPY_MEMORY(pDevice->capture.internalChannelMap, data.channelMapOut, sizeof(data.channelMapOut));
         pDevice->capture.internalBufferSizeInFrames = data.bufferSizeInFramesOut;
         pDevice->capture.internalPeriods            = data.periodsOut;
     } else if (deviceType == ma_device_type_playback) {
@@ -20786,7 +20785,7 @@ ma_result ma_device_reinit_internal__coreaudio(ma_device* pDevice, ma_device_typ
         pDevice->playback.internalFormat             = data.formatOut;
         pDevice->playback.internalChannels           = data.channelsOut;
         pDevice->playback.internalSampleRate         = data.sampleRateOut;
-        ma_copy_memory(pDevice->playback.internalChannelMap, data.channelMapOut, sizeof(data.channelMapOut));
+        MA_COPY_MEMORY(pDevice->playback.internalChannelMap, data.channelMapOut, sizeof(data.channelMapOut));
         pDevice->playback.internalBufferSizeInFrames = data.bufferSizeInFramesOut;
         pDevice->playback.internalPeriods            = data.periodsOut;
     }
@@ -20819,7 +20818,7 @@ ma_result ma_device_init__coreaudio(ma_context* pContext, const ma_device_config
         data.formatIn                   = pConfig->capture.format;
         data.channelsIn                 = pConfig->capture.channels;
         data.sampleRateIn               = pConfig->sampleRate;
-        ma_copy_memory(data.channelMapIn, pConfig->capture.channelMap, sizeof(pConfig->capture.channelMap));
+        MA_COPY_MEMORY(data.channelMapIn, pConfig->capture.channelMap, sizeof(pConfig->capture.channelMap));
         data.usingDefaultFormat         = pDevice->capture.usingDefaultFormat;
         data.usingDefaultChannels       = pDevice->capture.usingDefaultChannels;
         data.usingDefaultSampleRate     = pDevice->usingDefaultSampleRate;
@@ -20850,7 +20849,7 @@ ma_result ma_device_init__coreaudio(ma_context* pContext, const ma_device_config
         pDevice->capture.internalFormat             = data.formatOut;
         pDevice->capture.internalChannels           = data.channelsOut;
         pDevice->capture.internalSampleRate         = data.sampleRateOut;
-        ma_copy_memory(pDevice->capture.internalChannelMap, data.channelMapOut, sizeof(data.channelMapOut));
+        MA_COPY_MEMORY(pDevice->capture.internalChannelMap, data.channelMapOut, sizeof(data.channelMapOut));
         pDevice->capture.internalBufferSizeInFrames = data.bufferSizeInFramesOut;
         pDevice->capture.internalPeriods            = data.periodsOut;
         
@@ -20871,7 +20870,7 @@ ma_result ma_device_init__coreaudio(ma_context* pContext, const ma_device_config
         data.formatIn                   = pConfig->playback.format;
         data.channelsIn                 = pConfig->playback.channels;
         data.sampleRateIn               = pConfig->sampleRate;
-        ma_copy_memory(data.channelMapIn, pConfig->playback.channelMap, sizeof(pConfig->playback.channelMap));
+        MA_COPY_MEMORY(data.channelMapIn, pConfig->playback.channelMap, sizeof(pConfig->playback.channelMap));
         data.usingDefaultFormat         = pDevice->playback.usingDefaultFormat;
         data.usingDefaultChannels       = pDevice->playback.usingDefaultChannels;
         data.usingDefaultSampleRate     = pDevice->usingDefaultSampleRate;
@@ -20910,7 +20909,7 @@ ma_result ma_device_init__coreaudio(ma_context* pContext, const ma_device_config
         pDevice->playback.internalFormat             = data.formatOut;
         pDevice->playback.internalChannels           = data.channelsOut;
         pDevice->playback.internalSampleRate         = data.sampleRateOut;
-        ma_copy_memory(pDevice->playback.internalChannelMap, data.channelMapOut, sizeof(data.channelMapOut));
+        MA_COPY_MEMORY(pDevice->playback.internalChannelMap, data.channelMapOut, sizeof(data.channelMapOut));
         pDevice->playback.internalBufferSizeInFrames = data.bufferSizeInFramesOut;
         pDevice->playback.internalPeriods            = data.periodsOut;
         
@@ -26814,7 +26813,7 @@ ma_result ma_context_get_device_info(ma_context* pContext, ma_device_type device
 
     /* Help the backend out by copying over the device ID if we have one. */
     if (pDeviceID != NULL) {
-        ma_copy_memory(&deviceInfo.id, pDeviceID, sizeof(*pDeviceID));
+        MA_COPY_MEMORY(&deviceInfo.id, pDeviceID, sizeof(*pDeviceID));
     }
 
     /* The backend may have an optimized device info retrieval function. If so, try that first. */
@@ -33223,7 +33222,7 @@ void ma_get_standard_channel_map(ma_standard_channel_map standardChannelMap, ma_
 void ma_channel_map_copy(ma_channel* pOut, const ma_channel* pIn, ma_uint32 channels)
 {
     if (pOut != NULL && pIn != NULL && channels > 0) {
-        ma_copy_memory(pOut, pIn, sizeof(*pOut) * channels);
+        MA_COPY_MEMORY(pOut, pIn, sizeof(*pOut) * channels);
     }
 }
 
@@ -34219,7 +34218,7 @@ static ma_result ma_decoder__init_data_converter(ma_decoder* pDecoder, const ma_
     if (ma_channel_map_blank(pDecoder->outputChannels, pConfig->channelMap)) {
         ma_get_standard_channel_map(ma_standard_channel_map_default, pDecoder->outputChannels, pDecoder->outputChannelMap);
     } else {
-        ma_copy_memory(pDecoder->outputChannelMap, pConfig->channelMap, sizeof(pConfig->channelMap));
+        MA_COPY_MEMORY(pDecoder->outputChannelMap, pConfig->channelMap, sizeof(pConfig->channelMap));
     }
 
     
@@ -35235,7 +35234,7 @@ size_t ma_decoder__on_read_memory(ma_decoder* pDecoder, void* pBufferOut, size_t
     }
 
     if (bytesToRead > 0) {
-        ma_copy_memory(pBufferOut, pDecoder->memory.pData + pDecoder->memory.currentReadPos, bytesToRead);
+        MA_COPY_MEMORY(pBufferOut, pDecoder->memory.pData + pDecoder->memory.currentReadPos, bytesToRead);
         pDecoder->memory.currentReadPos += bytesToRead;
     }
 
