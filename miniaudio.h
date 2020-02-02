@@ -4103,7 +4103,6 @@ Standard Library Stuff
 
 #define MA_ZERO_OBJECT(p) MA_ZERO_MEMORY((p), sizeof(*(p)))
 
-#define ma_zero_memory MA_ZERO_MEMORY
 #define ma_zero_object MA_ZERO_OBJECT
 #define ma_copy_memory MA_COPY_MEMORY
 #define ma_assert      MA_ASSERT
@@ -4424,7 +4423,7 @@ void ma_copy_memory_64(void* dst, const void* src, ma_uint64 sizeInBytes)
 void ma_zero_memory_64(void* dst, ma_uint64 sizeInBytes)
 {
 #if 0xFFFFFFFFFFFFFFFF <= MA_SIZE_MAX
-    ma_zero_memory(dst, (size_t)sizeInBytes);
+    MA_ZERO_MEMORY(dst, (size_t)sizeInBytes);
 #else
     while (sizeInBytes > 0) {
         ma_uint64 bytesToZeroNow = sizeInBytes;
@@ -4432,7 +4431,7 @@ void ma_zero_memory_64(void* dst, ma_uint64 sizeInBytes)
             bytesToZeroNow = MA_SIZE_MAX;
         }
 
-        ma_zero_memory(dst, (size_t)bytesToZeroNow);  /* Safe cast to size_t. */
+        MA_ZERO_MEMORY(dst, (size_t)bytesToZeroNow);  /* Safe cast to size_t. */
 
         sizeInBytes -= bytesToZeroNow;
         dst = (void*)((ma_uint8*)dst + bytesToZeroNow);
@@ -5901,7 +5900,7 @@ ma_uint32 ma_get_fragment_size_in_bytes(ma_uint32 bufferSizeInFrames, ma_uint32 
 
 void ma_zero_pcm_frames(void* p, ma_uint32 frameCount, ma_format format, ma_uint32 channels)
 {
-    ma_zero_memory(p, frameCount * ma_get_bytes_per_frame(format, channels));
+    MA_ZERO_MEMORY(p, frameCount * ma_get_bytes_per_frame(format, channels));
 }
 
 void ma_clip_samples_f32(float* p, ma_uint32 sampleCount)
@@ -6331,7 +6330,7 @@ static MA_INLINE ma_result ma_device__handle_duplex_callback_playback(ma_device*
     Sitting in the ring buffer should be captured data from the capture callback in external format. If there's not enough data in there for
     the whole frameCount frames we just use silence instead for the input data.
     */
-    ma_zero_memory(silentInputFrames, sizeof(silentInputFrames));
+    MA_ZERO_MEMORY(silentInputFrames, sizeof(silentInputFrames));
 
     /* We need to calculate how many output frames are required to be read from the client to completely fill frameCount internal frames. */
     totalFramesToReadFromClient = (ma_uint32)ma_data_converter_get_required_input_frame_count(&pDevice->playback.converter, frameCount);
@@ -6871,7 +6870,7 @@ ma_result ma_device_read__null(ma_device* pDevice, void* pPCMFrames, ma_uint32 f
             }
 
             /* We need to ensured the output buffer is zeroed. */
-            ma_zero_memory(ma_offset_ptr(pPCMFrames, totalPCMFramesProcessed*bpf), framesToProcess*bpf);
+            MA_ZERO_MEMORY(ma_offset_ptr(pPCMFrames, totalPCMFramesProcessed*bpf), framesToProcess*bpf);
 
             pDevice->null_device.currentPeriodFramesRemainingCapture -= framesToProcess;
             totalPCMFramesProcessed += framesToProcess;
@@ -10710,7 +10709,7 @@ BOOL CALLBACK ma_context_enumerate_devices_callback__dsound(LPGUID lpGuid, LPCST
     if (lpGuid != NULL) {
         ma_copy_memory(deviceInfo.id.dsound, lpGuid, 16);
     } else {
-        ma_zero_memory(deviceInfo.id.dsound, 16);
+        MA_ZERO_MEMORY(deviceInfo.id.dsound, 16);
     }
 
     /* Name / Description */
@@ -10819,7 +10818,7 @@ ma_result ma_context_get_device_info__dsound(ma_context* pContext, ma_device_typ
         /* I don't think there's a way to get the name of the default device with DirectSound. In this case we just need to use defaults. */
 
         /* ID */
-        ma_zero_memory(pDeviceInfo->id.dsound, 16);
+        MA_ZERO_MEMORY(pDeviceInfo->id.dsound, 16);
 
         /* Name / Description */
         if (deviceType == ma_device_type_playback) {
@@ -10962,7 +10961,7 @@ BOOL CALLBACK ma_enum_devices_callback__dsound(LPGUID lpGuid, LPCSTR lpcstrDescr
             if (lpGuid != NULL) {
                 ma_copy_memory(pData->pInfo->id.dsound, lpGuid, 16);
             } else {
-                ma_zero_memory(pData->pInfo->id.dsound, 16);
+                MA_ZERO_MEMORY(pData->pInfo->id.dsound, 16);
             }
 
             pData->pInfo += 1;
@@ -11496,7 +11495,7 @@ ma_result ma_device_main_loop__dsound(ma_device* pDevice)
 
                         /* At this point we have a buffer for output. */
                         if (silentPaddingInBytes > 0) {
-                            ma_zero_memory(pMappedDeviceBufferPlayback, silentPaddingInBytes);
+                            MA_ZERO_MEMORY(pMappedDeviceBufferPlayback, silentPaddingInBytes);
                             framesWrittenThisIteration = silentPaddingInBytes/bpfDevicePlayback;
                         } else {
                             ma_uint64 convertedFrameCountIn  = (outputFramesInClientFormatCount - outputFramesInClientFormatConsumed);
@@ -12507,7 +12506,7 @@ ma_result ma_device_init__winmm(ma_context* pContext, const ma_device_config* pC
         goto on_error;
     }
 
-    ma_zero_memory(pDevice->winmm._pHeapData, heapSize);
+    MA_ZERO_MEMORY(pDevice->winmm._pHeapData, heapSize);
 
     if (pConfig->deviceType == ma_device_type_capture || pConfig->deviceType == ma_device_type_duplex) {
         ma_uint32 iPeriod;
@@ -13851,7 +13850,7 @@ ma_result ma_context_enumerate_devices__alsa(ma_context* pContext, ma_enum_devic
                 }
             }
         } else {
-            ma_zero_memory(hwid, sizeof(hwid));
+            MA_ZERO_MEMORY(hwid, sizeof(hwid));
         }
 
         ma_zero_object(&deviceInfo);
@@ -17057,7 +17056,7 @@ ma_result ma_device_read__pulse(ma_device* pDevice, void* pPCMFrames, ma_uint32 
                 const void* pSrc = (const ma_uint8*)pDevice->pulse.pMappedBufferCapture + (mappedBufferFramesConsumed * bpf);
                 ma_copy_memory(pDst, pSrc, framesToCopy * bpf);
             } else {
-                ma_zero_memory(pDst, framesToCopy * bpf);
+                MA_ZERO_MEMORY(pDst, framesToCopy * bpf);
             #if defined(MA_DEBUG_OUTPUT)
                 printf("[PulseAudio] ma_device_read__pulse: Filling hole with silence.\n");
             #endif
@@ -18051,7 +18050,7 @@ ma_result ma_device_init__jack(ma_context* pContext, const ma_device_config* pCo
             void* pMarginData;
             ma_pcm_rb_acquire_write(&pDevice->jack.duplexRB, &marginSizeInFrames, &pMarginData);
             {
-                ma_zero_memory(pMarginData, marginSizeInFrames * ma_get_bytes_per_frame(pDevice->capture.format, pDevice->capture.channels));
+                MA_ZERO_MEMORY(pMarginData, marginSizeInFrames * ma_get_bytes_per_frame(pDevice->capture.format, pDevice->capture.channels));
             }
             ma_pcm_rb_commit_write(&pDevice->jack.duplexRB, marginSizeInFrames, pMarginData);
         }
@@ -19741,7 +19740,7 @@ OSStatus ma_on_output__coreaudio(void* pUserData, AudioUnitRenderActionFlags* pA
                 not interleaved, in which case we can't handle right now since miniaudio does not yet support non-interleaved streams. We just
                 output silence here.
                 */
-                ma_zero_memory(pBufferList->mBuffers[iBuffer].mData, pBufferList->mBuffers[iBuffer].mDataByteSize);
+                MA_ZERO_MEMORY(pBufferList->mBuffers[iBuffer].mData, pBufferList->mBuffers[iBuffer].mDataByteSize);
 
             #if defined(MA_DEBUG_OUTPUT)
                 printf("  WARNING: Outputting silence. frameCount=%d, mNumberChannels=%d, mDataByteSize=%d\n", frameCount, pBufferList->mBuffers[iBuffer].mNumberChannels, pBufferList->mBuffers[iBuffer].mDataByteSize);
@@ -19846,7 +19845,7 @@ OSStatus ma_on_input__coreaudio(void* pUserData, AudioUnitRenderActionFlags* pAc
                 ma_uint8 silentBuffer[4096];
                 ma_uint32 framesRemaining;
                 
-                ma_zero_memory(silentBuffer, sizeof(silentBuffer));
+                MA_ZERO_MEMORY(silentBuffer, sizeof(silentBuffer));
                 
                 framesRemaining = frameCount;
                 while (framesRemaining > 0) {
@@ -20951,7 +20950,7 @@ ma_result ma_device_init__coreaudio(ma_context* pContext, const ma_device_config
             void* pBufferData;
             ma_pcm_rb_acquire_write(&pDevice->coreaudio.duplexRB, &bufferSizeInFrames, &pBufferData);
             {
-                ma_zero_memory(pBufferData, bufferSizeInFrames * ma_get_bytes_per_frame(pDevice->capture.format, pDevice->capture.channels));
+                MA_ZERO_MEMORY(pBufferData, bufferSizeInFrames * ma_get_bytes_per_frame(pDevice->capture.format, pDevice->capture.channels));
             }
             ma_pcm_rb_commit_write(&pDevice->coreaudio.duplexRB, bufferSizeInFrames, pBufferData);
         }
@@ -24362,7 +24361,7 @@ ma_result ma_device_init__aaudio(ma_context* pContext, const ma_device_config* p
             void* pMarginData;
             ma_pcm_rb_acquire_write(&pDevice->aaudio.duplexRB, &marginSizeInFrames, &pMarginData);
             {
-                ma_zero_memory(pMarginData, marginSizeInFrames * ma_get_bytes_per_frame(pDevice->capture.format, pDevice->capture.channels));
+                MA_ZERO_MEMORY(pMarginData, marginSizeInFrames * ma_get_bytes_per_frame(pDevice->capture.format, pDevice->capture.channels));
             }
             ma_pcm_rb_commit_write(&pDevice->aaudio.duplexRB, marginSizeInFrames, pMarginData);
         }
@@ -25371,7 +25370,7 @@ ma_result ma_device_init__opensl(ma_context* pContext, const ma_device_config* p
             void* pMarginData;
             ma_pcm_rb_acquire_write(&pDevice->opensl.duplexRB, &marginSizeInFrames, &pMarginData);
             {
-                ma_zero_memory(pMarginData, marginSizeInFrames * ma_get_bytes_per_frame(pDevice->capture.format, pDevice->capture.channels));
+                MA_ZERO_MEMORY(pMarginData, marginSizeInFrames * ma_get_bytes_per_frame(pDevice->capture.format, pDevice->capture.channels));
             }
             ma_pcm_rb_commit_write(&pDevice->opensl.duplexRB, marginSizeInFrames, pMarginData);
         }
@@ -25629,7 +25628,7 @@ ma_result ma_context_get_device_info__webaudio(ma_context* pContext, ma_device_t
     }
 
 
-    ma_zero_memory(pDeviceInfo->id.webaudio, sizeof(pDeviceInfo->id.webaudio));
+    MA_ZERO_MEMORY(pDeviceInfo->id.webaudio, sizeof(pDeviceInfo->id.webaudio));
 
     /* Only supporting default devices for now. */
     if (deviceType == ma_device_type_playback) {
@@ -25987,7 +25986,7 @@ ma_result ma_device_init__webaudio(ma_context* pContext, const ma_device_config*
             void* pMarginData;
             ma_pcm_rb_acquire_write(&pDevice->webaudio.duplexRB, &marginSizeInFrames, &pMarginData);
             {
-                ma_zero_memory(pMarginData, marginSizeInFrames * ma_get_bytes_per_frame(pDevice->capture.format, pDevice->capture.channels));
+                MA_ZERO_MEMORY(pMarginData, marginSizeInFrames * ma_get_bytes_per_frame(pDevice->capture.format, pDevice->capture.channels));
             }
             ma_pcm_rb_commit_write(&pDevice->webaudio.duplexRB, marginSizeInFrames, pMarginData);
         }
@@ -33429,7 +33428,7 @@ ma_result ma_rb_init_ex(size_t subbufferSizeInBytes, size_t subbufferCount, size
             return MA_OUT_OF_MEMORY;
         }
 
-        ma_zero_memory(pRB->pBuffer, bufferSizeInBytes);
+        MA_ZERO_MEMORY(pRB->pBuffer, bufferSizeInBytes);
         pRB->ownsBuffer = MA_TRUE;
     }
 
@@ -33585,7 +33584,7 @@ ma_result ma_rb_acquire_write(ma_rb* pRB, size_t* pSizeInBytes, void** ppBufferO
 
     /* Clear the buffer if desired. */
     if (pRB->clearOnWriteAcquire) {
-        ma_zero_memory(*ppBufferOut, *pSizeInBytes);
+        MA_ZERO_MEMORY(*ppBufferOut, *pSizeInBytes);
     }
 
     return MA_SUCCESS;
@@ -34756,7 +34755,7 @@ ma_result ma_decoder_init_vorbis__internal(const ma_decoder_config* pConfig, ma_
         return MA_OUT_OF_MEMORY;
     }
 
-    ma_zero_memory(pVorbis, vorbisDataSize);
+    MA_ZERO_MEMORY(pVorbis, vorbisDataSize);
     pVorbis->pInternalVorbis = pInternalVorbis;
     pVorbis->pData = pData;
     pVorbis->dataSize = dataSize;
