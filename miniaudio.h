@@ -2091,48 +2091,20 @@ typedef enum
 
 typedef union
 {
-#ifdef MA_SUPPORT_WASAPI
     wchar_t wasapi[64];             /* WASAPI uses a wchar_t string for identification. */
-#endif
-#ifdef MA_SUPPORT_DSOUND
     ma_uint8 dsound[16];            /* DirectSound uses a GUID for identification. */
-#endif
-#ifdef MA_SUPPORT_WINMM
     /*UINT_PTR*/ ma_uint32 winmm;   /* When creating a device, WinMM expects a Win32 UINT_PTR for device identification. In practice it's actually just a UINT. */
-#endif
-#ifdef MA_SUPPORT_ALSA
     char alsa[256];                 /* ALSA uses a name string for identification. */
-#endif
-#ifdef MA_SUPPORT_PULSEAUDIO
     char pulse[256];                /* PulseAudio uses a name string for identification. */
-#endif
-#ifdef MA_SUPPORT_JACK
     int jack;                       /* JACK always uses default devices. */
-#endif
-#ifdef MA_SUPPORT_COREAUDIO
     char coreaudio[256];            /* Core Audio uses a string for identification. */
-#endif
-#ifdef MA_SUPPORT_SNDIO
     char sndio[256];                /* "snd/0", etc. */
-#endif
-#ifdef MA_SUPPORT_AUDIO4
     char audio4[256];               /* "/dev/audio", etc. */
-#endif
-#ifdef MA_SUPPORT_OSS
     char oss[64];                   /* "dev/dsp0", etc. "dev/dsp" for the default device. */
-#endif
-#ifdef MA_SUPPORT_AAUDIO
     ma_int32 aaudio;                /* AAudio uses a 32-bit integer for identification. */
-#endif
-#ifdef MA_SUPPORT_OPENSL
     ma_uint32 opensl;               /* OpenSL|ES uses a 32-bit unsigned integer for identification. */
-#endif
-#ifdef MA_SUPPORT_WEBAUDIO
     char webaudio[32];              /* Web Audio always uses default devices for now, but if this changes it'll be a GUID. */
-#endif
-#ifdef MA_SUPPORT_NULL
     int nullbackend;                /* The null backend uses an integer for device IDs. */
-#endif
 } ma_device_id;
 
 typedef struct
