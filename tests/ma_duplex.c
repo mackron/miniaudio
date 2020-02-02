@@ -1,5 +1,6 @@
 #include <stdio.h>
 
+#define MA_PREFER_SSE2
 #define MA_DEBUG_OUTPUT
 #define MINIAUDIO_IMPLEMENTATION
 #include "../miniaudio.h"

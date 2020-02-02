@@ -3944,6 +3944,23 @@ static MA_INLINE ma_bool32 ma_has_neon()
 #endif
 }
 
+#define MA_SIMD_NONE    0
+#define MA_SIMD_SSE2    1
+#define MA_SIMD_AVX2    2
+#define MA_SIMD_NEON    3
+
+#ifndef MA_PREFERRED_SIMD
+    #  if defined(MA_SUPPORT_SSE2) && defined(MA_PREFER_SSE2)
+        #define MA_PREFERRED_SIMD MA_SIMD_SSE2
+    #elif defined(MA_SUPPORT_AVX2) && defined(MA_PREFER_AVX2)
+        #define MA_PREFERRED_SIMD MA_SIMD_AVX2
+    #elif defined(MA_SUPPORT_NEON) && defined(MA_PREFER_NEON)
+        #define MA_PREFERRED_SIMD MA_SIMD_NEON
+    #else
+        #define MA_PREFERRED_SIMD MA_SIMD_NONE
+    #endif
+#endif
+
 
 static MA_INLINE ma_bool32 ma_is_little_endian()
 {
@@ -30403,7 +30420,7 @@ void ma_pcm_u8_to_u8(void* dst, const void* src, ma_uint64 count, ma_dither_mode
 }
 
 
-static void ma_pcm_u8_to_s16__reference(void* dst, const void* src, ma_uint64 count, ma_dither_mode ditherMode)
+static MA_INLINE void ma_pcm_u8_to_s16__reference(void* dst, const void* src, ma_uint64 count, ma_dither_mode ditherMode)
 {
     ma_int16* dst_s16 = (ma_int16*)dst;
     const ma_uint8* src_u8 = (const ma_uint8*)src;
@@ -30419,31 +30436,25 @@ static void ma_pcm_u8_to_s16__reference(void* dst, const void* src, ma_uint64 co
     (void)ditherMode;
 }
 
-static void ma_pcm_u8_to_s16__optimized(void* dst, const void* src, ma_uint64 count, ma_dither_mode ditherMode)
+static MA_INLINE void ma_pcm_u8_to_s16__optimized(void* dst, const void* src, ma_uint64 count, ma_dither_mode ditherMode)
 {
     ma_pcm_u8_to_s16__reference(dst, src, count, ditherMode);
 }
 
 #if defined(MA_SUPPORT_SSE2)
-static void ma_pcm_u8_to_s16__sse2(void* dst, const void* src, ma_uint64 count, ma_dither_mode ditherMode)
+static MA_INLINE void ma_pcm_u8_to_s16__sse2(void* dst, const void* src, ma_uint64 count, ma_dither_mode ditherMode)
 {
     ma_pcm_u8_to_s16__optimized(dst, src, count, ditherMode);
 }
 #endif
 #if defined(MA_SUPPORT_AVX2)
-static void ma_pcm_u8_to_s16__avx2(void* dst, const void* src, ma_uint64 count, ma_dither_mode ditherMode)
+static MA_INLINE void ma_pcm_u8_to_s16__avx2(void* dst, const void* src, ma_uint64 count, ma_dither_mode ditherMode)
 {
     ma_pcm_u8_to_s16__optimized(dst, src, count, ditherMode);
 }
 #endif
-#if defined(MA_SUPPORT_AVX512)
-static void ma_pcm_u8_to_s16__avx512(void* dst, const void* src, ma_uint64 count, ma_dither_mode ditherMode)
-{
-    ma_pcm_u8_to_s16__avx2(dst, src, count, ditherMode);
-}
-#endif
 #if defined(MA_SUPPORT_NEON)
-static void ma_pcm_u8_to_s16__neon(void* dst, const void* src, ma_uint64 count, ma_dither_mode ditherMode)
+static MA_INLINE void ma_pcm_u8_to_s16__neon(void* dst, const void* src, ma_uint64 count, ma_dither_mode ditherMode)
 {
     ma_pcm_u8_to_s16__optimized(dst, src, count, ditherMode);
 }
@@ -30454,12 +30465,27 @@ void ma_pcm_u8_to_s16(void* dst, const void* src, ma_uint64 count, ma_dither_mod
 #ifdef MA_USE_REFERENCE_CONVERSION_APIS
     ma_pcm_u8_to_s16__reference(dst, src, count, ditherMode);
 #else
-    ma_pcm_u8_to_s16__optimized(dst, src, count, ditherMode);
+    #  if MA_PREFERRED_SIMD == MA_SIMD_AVX2
+        if (ma_has_avx2()) {
+            ma_pcm_u8_to_s16__avx2(dst, src, count, ditherMode);
+        } else
+    #elif MA_PREFERRED_SIMD == MA_SIMD_SSE2
+        if (ma_has_sse2()) {
+            ma_pcm_u8_to_s16__sse2(dst, src, count, ditherMode);
+        } else
+    #elif MA_PREFERRED_SIMD == MA_SIMD_NEON
+        if (ma_has_neon()) {
+            ma_pcm_u8_to_s16__neon(dst, src, count, ditherMode);
+        } else
+    #endif
+        {
+            ma_pcm_u8_to_s16__optimized(dst, src, count, ditherMode);
+        }
 #endif
 }
 
 
-static void ma_pcm_u8_to_s24__reference(void* dst, const void* src, ma_uint64 count, ma_dither_mode ditherMode)
+static MA_INLINE void ma_pcm_u8_to_s24__reference(void* dst, const void* src, ma_uint64 count, ma_dither_mode ditherMode)
 {
     ma_uint8* dst_s24 = (ma_uint8*)dst;
     const ma_uint8* src_u8 = (const ma_uint8*)src;
@@ -30477,31 +30503,25 @@ static void ma_pcm_u8_to_s24__reference(void* dst, const void* src, ma_uint64 co
     (void)ditherMode;
 }
 
-static void ma_pcm_u8_to_s24__optimized(void* dst, const void* src, ma_uint64 count, ma_dither_mode ditherMode)
+static MA_INLINE void ma_pcm_u8_to_s24__optimized(void* dst, const void* src, ma_uint64 count, ma_dither_mode ditherMode)
 {
     ma_pcm_u8_to_s24__reference(dst, src, count, ditherMode);
 }
 
 #if defined(MA_SUPPORT_SSE2)
-static void ma_pcm_u8_to_s24__sse2(void* dst, const void* src, ma_uint64 count, ma_dither_mode ditherMode)
+static MA_INLINE void ma_pcm_u8_to_s24__sse2(void* dst, const void* src, ma_uint64 count, ma_dither_mode ditherMode)
 {
     ma_pcm_u8_to_s24__optimized(dst, src, count, ditherMode);
 }
 #endif
 #if defined(MA_SUPPORT_AVX2)
-static void ma_pcm_u8_to_s24__avx2(void* dst, const void* src, ma_uint64 count, ma_dither_mode ditherMode)
+static MA_INLINE void ma_pcm_u8_to_s24__avx2(void* dst, const void* src, ma_uint64 count, ma_dither_mode ditherMode)
 {
     ma_pcm_u8_to_s24__optimized(dst, src, count, ditherMode);
 }
 #endif
-#if defined(MA_SUPPORT_AVX512)
-static void ma_pcm_u8_to_s24__avx512(void* dst, const void* src, ma_uint64 count, ma_dither_mode ditherMode)
-{
-    ma_pcm_u8_to_s24__avx2(dst, src, count, ditherMode);
-}
-#endif
 #if defined(MA_SUPPORT_NEON)
-static void ma_pcm_u8_to_s24__neon(void* dst, const void* src, ma_uint64 count, ma_dither_mode ditherMode)
+static MA_INLINE void ma_pcm_u8_to_s24__neon(void* dst, const void* src, ma_uint64 count, ma_dither_mode ditherMode)
 {
     ma_pcm_u8_to_s24__optimized(dst, src, count, ditherMode);
 }
@@ -30512,12 +30532,27 @@ void ma_pcm_u8_to_s24(void* dst, const void* src, ma_uint64 count, ma_dither_mod
 #ifdef MA_USE_REFERENCE_CONVERSION_APIS
     ma_pcm_u8_to_s24__reference(dst, src, count, ditherMode);
 #else
-    ma_pcm_u8_to_s24__optimized(dst, src, count, ditherMode);
+    #  if MA_PREFERRED_SIMD == MA_SIMD_AVX2
+        if (ma_has_avx2()) {
+            ma_pcm_u8_to_s24__avx2(dst, src, count, ditherMode);
+        } else
+    #elif MA_PREFERRED_SIMD == MA_SIMD_SSE2
+        if (ma_has_sse2()) {
+            ma_pcm_u8_to_s24__sse2(dst, src, count, ditherMode);
+        } else
+    #elif MA_PREFERRED_SIMD == MA_SIMD_NEON
+        if (ma_has_neon()) {
+            ma_pcm_u8_to_s24__neon(dst, src, count, ditherMode);
+        } else
+    #endif
+        {
+            ma_pcm_u8_to_s24__optimized(dst, src, count, ditherMode);
+        }
 #endif
 }
 
 
-static void ma_pcm_u8_to_s32__reference(void* dst, const void* src, ma_uint64 count, ma_dither_mode ditherMode)
+static MA_INLINE void ma_pcm_u8_to_s32__reference(void* dst, const void* src, ma_uint64 count, ma_dither_mode ditherMode)
 {
     ma_int32* dst_s32 = (ma_int32*)dst;
     const ma_uint8* src_u8 = (const ma_uint8*)src;
@@ -30533,31 +30568,25 @@ static void ma_pcm_u8_to_s32__reference(void* dst, const void* src, ma_uint64 co
     (void)ditherMode;
 }
 
-static void ma_pcm_u8_to_s32__optimized(void* dst, const void* src, ma_uint64 count, ma_dither_mode ditherMode)
+static MA_INLINE void ma_pcm_u8_to_s32__optimized(void* dst, const void* src, ma_uint64 count, ma_dither_mode ditherMode)
 {
     ma_pcm_u8_to_s32__reference(dst, src, count, ditherMode);
 }
 
 #if defined(MA_SUPPORT_SSE2)
-static void ma_pcm_u8_to_s32__sse2(void* dst, const void* src, ma_uint64 count, ma_dither_mode ditherMode)
+static MA_INLINE void ma_pcm_u8_to_s32__sse2(void* dst, const void* src, ma_uint64 count, ma_dither_mode ditherMode)
 {
     ma_pcm_u8_to_s32__optimized(dst, src, count, ditherMode);
 }
 #endif
 #if defined(MA_SUPPORT_AVX2)
-static void ma_pcm_u8_to_s32__avx2(void* dst, const void* src, ma_uint64 count, ma_dither_mode ditherMode)
+static MA_INLINE void ma_pcm_u8_to_s32__avx2(void* dst, const void* src, ma_uint64 count, ma_dither_mode ditherMode)
 {
     ma_pcm_u8_to_s32__optimized(dst, src, count, ditherMode);
 }
 #endif
-#if defined(MA_SUPPORT_AVX512)
-static void ma_pcm_u8_to_s32__avx512(void* dst, const void* src, ma_uint64 count, ma_dither_mode ditherMode)
-{
-    ma_pcm_u8_to_s32__avx2(dst, src, count, ditherMode);
-}
-#endif
 #if defined(MA_SUPPORT_NEON)
-static void ma_pcm_u8_to_s32__neon(void* dst, const void* src, ma_uint64 count, ma_dither_mode ditherMode)
+static MA_INLINE void ma_pcm_u8_to_s32__neon(void* dst, const void* src, ma_uint64 count, ma_dither_mode ditherMode)
 {
     ma_pcm_u8_to_s32__optimized(dst, src, count, ditherMode);
 }
@@ -30568,12 +30597,27 @@ void ma_pcm_u8_to_s32(void* dst, const void* src, ma_uint64 count, ma_dither_mod
 #ifdef MA_USE_REFERENCE_CONVERSION_APIS
     ma_pcm_u8_to_s32__reference(dst, src, count, ditherMode);
 #else
-    ma_pcm_u8_to_s32__optimized(dst, src, count, ditherMode);
+    #  if MA_PREFERRED_SIMD == MA_SIMD_AVX2
+        if (ma_has_avx2()) {
+            ma_pcm_u8_to_s32__avx2(dst, src, count, ditherMode);
+        } else
+    #elif MA_PREFERRED_SIMD == MA_SIMD_SSE2
+        if (ma_has_sse2()) {
+            ma_pcm_u8_to_s32__sse2(dst, src, count, ditherMode);
+        } else
+    #elif MA_PREFERRED_SIMD == MA_SIMD_NEON
+        if (ma_has_neon()) {
+            ma_pcm_u8_to_s32__neon(dst, src, count, ditherMode);
+        } else
+    #endif
+        {
+            ma_pcm_u8_to_s32__optimized(dst, src, count, ditherMode);
+        }
 #endif
 }
 
 
-static void ma_pcm_u8_to_f32__reference(void* dst, const void* src, ma_uint64 count, ma_dither_mode ditherMode)
+static MA_INLINE void ma_pcm_u8_to_f32__reference(void* dst, const void* src, ma_uint64 count, ma_dither_mode ditherMode)
 {
     float* dst_f32 = (float*)dst;
     const ma_uint8* src_u8 = (const ma_uint8*)src;
@@ -30590,31 +30634,25 @@ static void ma_pcm_u8_to_f32__reference(void* dst, const void* src, ma_uint64 co
     (void)ditherMode;
 }
 
-static void ma_pcm_u8_to_f32__optimized(void* dst, const void* src, ma_uint64 count, ma_dither_mode ditherMode)
+static MA_INLINE void ma_pcm_u8_to_f32__optimized(void* dst, const void* src, ma_uint64 count, ma_dither_mode ditherMode)
 {
     ma_pcm_u8_to_f32__reference(dst, src, count, ditherMode);
 }
 
 #if defined(MA_SUPPORT_SSE2)
-static void ma_pcm_u8_to_f32__sse2(void* dst, const void* src, ma_uint64 count, ma_dither_mode ditherMode)
+static MA_INLINE void ma_pcm_u8_to_f32__sse2(void* dst, const void* src, ma_uint64 count, ma_dither_mode ditherMode)
 {
     ma_pcm_u8_to_f32__optimized(dst, src, count, ditherMode);
 }
 #endif
 #if defined(MA_SUPPORT_AVX2)
-static void ma_pcm_u8_to_f32__avx2(void* dst, const void* src, ma_uint64 count, ma_dither_mode ditherMode)
+static MA_INLINE void ma_pcm_u8_to_f32__avx2(void* dst, const void* src, ma_uint64 count, ma_dither_mode ditherMode)
 {
     ma_pcm_u8_to_f32__optimized(dst, src, count, ditherMode);
 }
 #endif
-#if defined(MA_SUPPORT_AVX512)
-static void ma_pcm_u8_to_f32__avx512(void* dst, const void* src, ma_uint64 count, ma_dither_mode ditherMode)
-{
-    ma_pcm_u8_to_f32__avx2(dst, src, count, ditherMode);
-}
-#endif
 #if defined(MA_SUPPORT_NEON)
-static void ma_pcm_u8_to_f32__neon(void* dst, const void* src, ma_uint64 count, ma_dither_mode ditherMode)
+static MA_INLINE void ma_pcm_u8_to_f32__neon(void* dst, const void* src, ma_uint64 count, ma_dither_mode ditherMode)
 {
     ma_pcm_u8_to_f32__optimized(dst, src, count, ditherMode);
 }
@@ -30625,13 +30663,28 @@ void ma_pcm_u8_to_f32(void* dst, const void* src, ma_uint64 count, ma_dither_mod
 #ifdef MA_USE_REFERENCE_CONVERSION_APIS
     ma_pcm_u8_to_f32__reference(dst, src, count, ditherMode);
 #else
-    ma_pcm_u8_to_f32__optimized(dst, src, count, ditherMode);
+    #  if MA_PREFERRED_SIMD == MA_SIMD_AVX2
+        if (ma_has_avx2()) {
+            ma_pcm_u8_to_f32__avx2(dst, src, count, ditherMode);
+        } else
+    #elif MA_PREFERRED_SIMD == MA_SIMD_SSE2
+        if (ma_has_sse2()) {
+            ma_pcm_u8_to_f32__sse2(dst, src, count, ditherMode);
+        } else
+    #elif MA_PREFERRED_SIMD == MA_SIMD_NEON
+        if (ma_has_neon()) {
+            ma_pcm_u8_to_f32__neon(dst, src, count, ditherMode);
+        } else
+    #endif
+        {
+            ma_pcm_u8_to_f32__optimized(dst, src, count, ditherMode);
+        }
 #endif
 }
 
 
-
-static void ma_pcm_interleave_u8__reference(void* dst, const void** src, ma_uint64 frameCount, ma_uint32 channels)
+#ifdef MA_USE_REFERENCE_CONVERSION_APIS
+static MA_INLINE void ma_pcm_interleave_u8__reference(void* dst, const void** src, ma_uint64 frameCount, ma_uint32 channels)
 {
     ma_uint8* dst_u8 = (ma_uint8*)dst;
     const ma_uint8** src_u8 = (const ma_uint8**)src;
@@ -30644,8 +30697,8 @@ static void ma_pcm_interleave_u8__reference(void* dst, const void** src, ma_uint
         }
     }
 }
-
-static void ma_pcm_interleave_u8__optimized(void* dst, const void** src, ma_uint64 frameCount, ma_uint32 channels)
+#else
+static MA_INLINE void ma_pcm_interleave_u8__optimized(void* dst, const void** src, ma_uint64 frameCount, ma_uint32 channels)
 {
     ma_uint8* dst_u8 = (ma_uint8*)dst;
     const ma_uint8** src_u8 = (const ma_uint8**)src;
@@ -30668,6 +30721,7 @@ static void ma_pcm_interleave_u8__optimized(void* dst, const void** src, ma_uint
         }
     }
 }
+#endif
 
 void ma_pcm_interleave_u8(void* dst, const void** src, ma_uint64 frameCount, ma_uint32 channels)
 {
@@ -30679,7 +30733,7 @@ void ma_pcm_interleave_u8(void* dst, const void** src, ma_uint64 frameCount, ma_
 }
 
 
-static void ma_pcm_deinterleave_u8__reference(void** dst, const void* src, ma_uint64 frameCount, ma_uint32 channels)
+static MA_INLINE void ma_pcm_deinterleave_u8__reference(void** dst, const void* src, ma_uint64 frameCount, ma_uint32 channels)
 {
     ma_uint8** dst_u8 = (ma_uint8**)dst;
     const ma_uint8* src_u8 = (const ma_uint8*)src;
@@ -30693,7 +30747,7 @@ static void ma_pcm_deinterleave_u8__reference(void** dst, const void* src, ma_ui
     }
 }
 
-static void ma_pcm_deinterleave_u8__optimized(void** dst, const void* src, ma_uint64 frameCount, ma_uint32 channels)
+static MA_INLINE void ma_pcm_deinterleave_u8__optimized(void** dst, const void* src, ma_uint64 frameCount, ma_uint32 channels)
 {
     ma_pcm_deinterleave_u8__reference(dst, src, frameCount, channels);
 }
@@ -30709,7 +30763,7 @@ void ma_pcm_deinterleave_u8(void** dst, const void* src, ma_uint64 frameCount, m
 
 
 /* s16 */
-static void ma_pcm_s16_to_u8__reference(void* dst, const void* src, ma_uint64 count, ma_dither_mode ditherMode)
+static MA_INLINE void ma_pcm_s16_to_u8__reference(void* dst, const void* src, ma_uint64 count, ma_dither_mode ditherMode)
 {
     ma_uint8* dst_u8 = (ma_uint8*)dst;
     const ma_int16* src_s16 = (const ma_int16*)src;
@@ -30742,31 +30796,25 @@ static void ma_pcm_s16_to_u8__reference(void* dst, const void* src, ma_uint64 co
     }
 }
 
-static void ma_pcm_s16_to_u8__optimized(void* dst, const void* src, ma_uint64 count, ma_dither_mode ditherMode)
+static MA_INLINE void ma_pcm_s16_to_u8__optimized(void* dst, const void* src, ma_uint64 count, ma_dither_mode ditherMode)
 {
     ma_pcm_s16_to_u8__reference(dst, src, count, ditherMode);
 }
 
 #if defined(MA_SUPPORT_SSE2)
-static void ma_pcm_s16_to_u8__sse2(void* dst, const void* src, ma_uint64 count, ma_dither_mode ditherMode)
+static MA_INLINE void ma_pcm_s16_to_u8__sse2(void* dst, const void* src, ma_uint64 count, ma_dither_mode ditherMode)
 {
     ma_pcm_s16_to_u8__optimized(dst, src, count, ditherMode);
 }
 #endif
 #if defined(MA_SUPPORT_AVX2)
-static void ma_pcm_s16_to_u8__avx2(void* dst, const void* src, ma_uint64 count, ma_dither_mode ditherMode)
+static MA_INLINE void ma_pcm_s16_to_u8__avx2(void* dst, const void* src, ma_uint64 count, ma_dither_mode ditherMode)
 {
     ma_pcm_s16_to_u8__optimized(dst, src, count, ditherMode);
 }
 #endif
-#if defined(MA_SUPPORT_AVX512)
-static void ma_pcm_s16_to_u8__avx512(void* dst, const void* src, ma_uint64 count, ma_dither_mode ditherMode)
-{
-    ma_pcm_s16_to_u8__avx2(dst, src, count, ditherMode);
-}
-#endif
 #if defined(MA_SUPPORT_NEON)
-static void ma_pcm_s16_to_u8__neon(void* dst, const void* src, ma_uint64 count, ma_dither_mode ditherMode)
+static MA_INLINE void ma_pcm_s16_to_u8__neon(void* dst, const void* src, ma_uint64 count, ma_dither_mode ditherMode)
 {
     ma_pcm_s16_to_u8__optimized(dst, src, count, ditherMode);
 }
@@ -30777,7 +30825,22 @@ void ma_pcm_s16_to_u8(void* dst, const void* src, ma_uint64 count, ma_dither_mod
 #ifdef MA_USE_REFERENCE_CONVERSION_APIS
     ma_pcm_s16_to_u8__reference(dst, src, count, ditherMode);
 #else
-    ma_pcm_s16_to_u8__optimized(dst, src, count, ditherMode);
+    #  if MA_PREFERRED_SIMD == MA_SIMD_AVX2
+        if (ma_has_avx2()) {
+            ma_pcm_s16_to_u8__avx2(dst, src, count, ditherMode);
+        } else
+    #elif MA_PREFERRED_SIMD == MA_SIMD_SSE2
+        if (ma_has_sse2()) {
+            ma_pcm_s16_to_u8__sse2(dst, src, count, ditherMode);
+        } else
+    #elif MA_PREFERRED_SIMD == MA_SIMD_NEON
+        if (ma_has_neon()) {
+            ma_pcm_s16_to_u8__neon(dst, src, count, ditherMode);
+        } else
+    #endif
+        {
+            ma_pcm_s16_to_u8__optimized(dst, src, count, ditherMode);
+        }
 #endif
 }
 
@@ -30789,7 +30852,7 @@ void ma_pcm_s16_to_s16(void* dst, const void* src, ma_uint64 count, ma_dither_mo
 }
 
 
-static void ma_pcm_s16_to_s24__reference(void* dst, const void* src, ma_uint64 count, ma_dither_mode ditherMode)
+static MA_INLINE void ma_pcm_s16_to_s24__reference(void* dst, const void* src, ma_uint64 count, ma_dither_mode ditherMode)
 {
     ma_uint8* dst_s24 = (ma_uint8*)dst;
     const ma_int16* src_s16 = (const ma_int16*)src;
@@ -30804,31 +30867,25 @@ static void ma_pcm_s16_to_s24__reference(void* dst, const void* src, ma_uint64 c
     (void)ditherMode;
 }
 
-static void ma_pcm_s16_to_s24__optimized(void* dst, const void* src, ma_uint64 count, ma_dither_mode ditherMode)
+static MA_INLINE void ma_pcm_s16_to_s24__optimized(void* dst, const void* src, ma_uint64 count, ma_dither_mode ditherMode)
 {
     ma_pcm_s16_to_s24__reference(dst, src, count, ditherMode);
 }
 
 #if defined(MA_SUPPORT_SSE2)
-static void ma_pcm_s16_to_s24__sse2(void* dst, const void* src, ma_uint64 count, ma_dither_mode ditherMode)
+static MA_INLINE void ma_pcm_s16_to_s24__sse2(void* dst, const void* src, ma_uint64 count, ma_dither_mode ditherMode)
 {
     ma_pcm_s16_to_s24__optimized(dst, src, count, ditherMode);
 }
 #endif
 #if defined(MA_SUPPORT_AVX2)
-static void ma_pcm_s16_to_s24__avx2(void* dst, const void* src, ma_uint64 count, ma_dither_mode ditherMode)
+static MA_INLINE void ma_pcm_s16_to_s24__avx2(void* dst, const void* src, ma_uint64 count, ma_dither_mode ditherMode)
 {
     ma_pcm_s16_to_s24__optimized(dst, src, count, ditherMode);
 }
 #endif
-#if defined(MA_SUPPORT_AVX512)
-static void ma_pcm_s16_to_s24__avx512(void* dst, const void* src, ma_uint64 count, ma_dither_mode ditherMode)
-{
-    ma_pcm_s16_to_s24__avx2(dst, src, count, ditherMode);
-}
-#endif
 #if defined(MA_SUPPORT_NEON)
-void ma_pcm_s16_to_s24__neon(void* dst, const void* src, ma_uint64 count, ma_dither_mode ditherMode)
+static MA_INLINE void ma_pcm_s16_to_s24__neon(void* dst, const void* src, ma_uint64 count, ma_dither_mode ditherMode)
 {
     ma_pcm_s16_to_s24__optimized(dst, src, count, ditherMode);
 }
@@ -30839,12 +30896,27 @@ void ma_pcm_s16_to_s24(void* dst, const void* src, ma_uint64 count, ma_dither_mo
 #ifdef MA_USE_REFERENCE_CONVERSION_APIS
     ma_pcm_s16_to_s24__reference(dst, src, count, ditherMode);
 #else
-    ma_pcm_s16_to_s24__optimized(dst, src, count, ditherMode);
+    #  if MA_PREFERRED_SIMD == MA_SIMD_AVX2
+        if (ma_has_avx2()) {
+            ma_pcm_s16_to_s24__avx2(dst, src, count, ditherMode);
+        } else
+    #elif MA_PREFERRED_SIMD == MA_SIMD_SSE2
+        if (ma_has_sse2()) {
+            ma_pcm_s16_to_s24__sse2(dst, src, count, ditherMode);
+        } else
+    #elif MA_PREFERRED_SIMD == MA_SIMD_NEON
+        if (ma_has_neon()) {
+            ma_pcm_s16_to_s24__neon(dst, src, count, ditherMode);
+        } else
+    #endif
+        {
+            ma_pcm_s16_to_s24__optimized(dst, src, count, ditherMode);
+        }
 #endif
 }
 
 
-static void ma_pcm_s16_to_s32__reference(void* dst, const void* src, ma_uint64 count, ma_dither_mode ditherMode)
+static MA_INLINE void ma_pcm_s16_to_s32__reference(void* dst, const void* src, ma_uint64 count, ma_dither_mode ditherMode)
 {
     ma_int32* dst_s32 = (ma_int32*)dst;
     const ma_int16* src_s16 = (const ma_int16*)src;
@@ -30857,31 +30929,25 @@ static void ma_pcm_s16_to_s32__reference(void* dst, const void* src, ma_uint64 c
     (void)ditherMode;
 }
 
-static void ma_pcm_s16_to_s32__optimized(void* dst, const void* src, ma_uint64 count, ma_dither_mode ditherMode)
+static MA_INLINE void ma_pcm_s16_to_s32__optimized(void* dst, const void* src, ma_uint64 count, ma_dither_mode ditherMode)
 {
     ma_pcm_s16_to_s32__reference(dst, src, count, ditherMode);
 }
 
 #if defined(MA_SUPPORT_SSE2)
-static void ma_pcm_s16_to_s32__sse2(void* dst, const void* src, ma_uint64 count, ma_dither_mode ditherMode)
+static MA_INLINE void ma_pcm_s16_to_s32__sse2(void* dst, const void* src, ma_uint64 count, ma_dither_mode ditherMode)
 {
     ma_pcm_s16_to_s32__optimized(dst, src, count, ditherMode);
 }
 #endif
 #if defined(MA_SUPPORT_AVX2)
-static void ma_pcm_s16_to_s32__avx2(void* dst, const void* src, ma_uint64 count, ma_dither_mode ditherMode)
+static MA_INLINE void ma_pcm_s16_to_s32__avx2(void* dst, const void* src, ma_uint64 count, ma_dither_mode ditherMode)
 {
     ma_pcm_s16_to_s32__optimized(dst, src, count, ditherMode);
 }
 #endif
-#if defined(MA_SUPPORT_AVX512)
-static void ma_pcm_s16_to_s32__avx512(void* dst, const void* src, ma_uint64 count, ma_dither_mode ditherMode)
-{
-    ma_pcm_s16_to_s32__avx2(dst, src, count, ditherMode);
-}
-#endif
 #if defined(MA_SUPPORT_NEON)
-static void ma_pcm_s16_to_s32__neon(void* dst, const void* src, ma_uint64 count, ma_dither_mode ditherMode)
+static MA_INLINE void ma_pcm_s16_to_s32__neon(void* dst, const void* src, ma_uint64 count, ma_dither_mode ditherMode)
 {
     ma_pcm_s16_to_s32__optimized(dst, src, count, ditherMode);
 }
@@ -30892,12 +30958,27 @@ void ma_pcm_s16_to_s32(void* dst, const void* src, ma_uint64 count, ma_dither_mo
 #ifdef MA_USE_REFERENCE_CONVERSION_APIS
     ma_pcm_s16_to_s32__reference(dst, src, count, ditherMode);
 #else
-    ma_pcm_s16_to_s32__optimized(dst, src, count, ditherMode);
+    #  if MA_PREFERRED_SIMD == MA_SIMD_AVX2
+        if (ma_has_avx2()) {
+            ma_pcm_s16_to_s32__avx2(dst, src, count, ditherMode);
+        } else
+    #elif MA_PREFERRED_SIMD == MA_SIMD_SSE2
+        if (ma_has_sse2()) {
+            ma_pcm_s16_to_s32__sse2(dst, src, count, ditherMode);
+        } else
+    #elif MA_PREFERRED_SIMD == MA_SIMD_NEON
+        if (ma_has_neon()) {
+            ma_pcm_s16_to_s32__neon(dst, src, count, ditherMode);
+        } else
+    #endif
+        {
+            ma_pcm_s16_to_s32__optimized(dst, src, count, ditherMode);
+        }
 #endif
 }
 
 
-static void ma_pcm_s16_to_f32__reference(void* dst, const void* src, ma_uint64 count, ma_dither_mode ditherMode)
+static MA_INLINE void ma_pcm_s16_to_f32__reference(void* dst, const void* src, ma_uint64 count, ma_dither_mode ditherMode)
 {
     float* dst_f32 = (float*)dst;
     const ma_int16* src_s16 = (const ma_int16*)src;
@@ -30922,31 +31003,25 @@ static void ma_pcm_s16_to_f32__reference(void* dst, const void* src, ma_uint64 c
     (void)ditherMode;
 }
 
-static void ma_pcm_s16_to_f32__optimized(void* dst, const void* src, ma_uint64 count, ma_dither_mode ditherMode)
+static MA_INLINE void ma_pcm_s16_to_f32__optimized(void* dst, const void* src, ma_uint64 count, ma_dither_mode ditherMode)
 {
     ma_pcm_s16_to_f32__reference(dst, src, count, ditherMode);
 }
 
 #if defined(MA_SUPPORT_SSE2)
-static void ma_pcm_s16_to_f32__sse2(void* dst, const void* src, ma_uint64 count, ma_dither_mode ditherMode)
+static MA_INLINE void ma_pcm_s16_to_f32__sse2(void* dst, const void* src, ma_uint64 count, ma_dither_mode ditherMode)
 {
     ma_pcm_s16_to_f32__optimized(dst, src, count, ditherMode);
 }
 #endif
 #if defined(MA_SUPPORT_AVX2)
-static void ma_pcm_s16_to_f32__avx2(void* dst, const void* src, ma_uint64 count, ma_dither_mode ditherMode)
+static MA_INLINE void ma_pcm_s16_to_f32__avx2(void* dst, const void* src, ma_uint64 count, ma_dither_mode ditherMode)
 {
     ma_pcm_s16_to_f32__optimized(dst, src, count, ditherMode);
 }
 #endif
-#if defined(MA_SUPPORT_AVX512)
-static void ma_pcm_s16_to_f32__avx512(void* dst, const void* src, ma_uint64 count, ma_dither_mode ditherMode)
-{
-    ma_pcm_s16_to_f32__avx2(dst, src, count, ditherMode);
-}
-#endif
 #if defined(MA_SUPPORT_NEON)
-static void ma_pcm_s16_to_f32__neon(void* dst, const void* src, ma_uint64 count, ma_dither_mode ditherMode)
+static MA_INLINE void ma_pcm_s16_to_f32__neon(void* dst, const void* src, ma_uint64 count, ma_dither_mode ditherMode)
 {
     ma_pcm_s16_to_f32__optimized(dst, src, count, ditherMode);
 }
@@ -30957,12 +31032,27 @@ void ma_pcm_s16_to_f32(void* dst, const void* src, ma_uint64 count, ma_dither_mo
 #ifdef MA_USE_REFERENCE_CONVERSION_APIS
     ma_pcm_s16_to_f32__reference(dst, src, count, ditherMode);
 #else
-    ma_pcm_s16_to_f32__optimized(dst, src, count, ditherMode);
+    #  if MA_PREFERRED_SIMD == MA_SIMD_AVX2
+        if (ma_has_avx2()) {
+            ma_pcm_s16_to_f32__avx2(dst, src, count, ditherMode);
+        } else
+    #elif MA_PREFERRED_SIMD == MA_SIMD_SSE2
+        if (ma_has_sse2()) {
+            ma_pcm_s16_to_f32__sse2(dst, src, count, ditherMode);
+        } else
+    #elif MA_PREFERRED_SIMD == MA_SIMD_NEON
+        if (ma_has_neon()) {
+            ma_pcm_s16_to_f32__neon(dst, src, count, ditherMode);
+        } else
+    #endif
+        {
+            ma_pcm_s16_to_f32__optimized(dst, src, count, ditherMode);
+        }
 #endif
 }
 
 
-static void ma_pcm_interleave_s16__reference(void* dst, const void** src, ma_uint64 frameCount, ma_uint32 channels)
+static MA_INLINE void ma_pcm_interleave_s16__reference(void* dst, const void** src, ma_uint64 frameCount, ma_uint32 channels)
 {
     ma_int16* dst_s16 = (ma_int16*)dst;
     const ma_int16** src_s16 = (const ma_int16**)src;
@@ -30976,7 +31066,7 @@ static void ma_pcm_interleave_s16__reference(void* dst, const void** src, ma_uin
     }
 }
 
-static void ma_pcm_interleave_s16__optimized(void* dst, const void** src, ma_uint64 frameCount, ma_uint32 channels)
+static MA_INLINE void ma_pcm_interleave_s16__optimized(void* dst, const void** src, ma_uint64 frameCount, ma_uint32 channels)
 {
     ma_pcm_interleave_s16__reference(dst, src, frameCount, channels);
 }
@@ -30991,7 +31081,7 @@ void ma_pcm_interleave_s16(void* dst, const void** src, ma_uint64 frameCount, ma
 }
 
 
-static void ma_pcm_deinterleave_s16__reference(void** dst, const void* src, ma_uint64 frameCount, ma_uint32 channels)
+static MA_INLINE void ma_pcm_deinterleave_s16__reference(void** dst, const void* src, ma_uint64 frameCount, ma_uint32 channels)
 {
     ma_int16** dst_s16 = (ma_int16**)dst;
     const ma_int16* src_s16 = (const ma_int16*)src;
@@ -31005,7 +31095,7 @@ static void ma_pcm_deinterleave_s16__reference(void** dst, const void* src, ma_u
     }
 }
 
-static void ma_pcm_deinterleave_s16__optimized(void** dst, const void* src, ma_uint64 frameCount, ma_uint32 channels)
+static MA_INLINE void ma_pcm_deinterleave_s16__optimized(void** dst, const void* src, ma_uint64 frameCount, ma_uint32 channels)
 {
     ma_pcm_deinterleave_s16__reference(dst, src, frameCount, channels);
 }
@@ -31021,7 +31111,7 @@ void ma_pcm_deinterleave_s16(void** dst, const void* src, ma_uint64 frameCount, 
 
 
 /* s24 */
-static void ma_pcm_s24_to_u8__reference(void* dst, const void* src, ma_uint64 count, ma_dither_mode ditherMode)
+static MA_INLINE void ma_pcm_s24_to_u8__reference(void* dst, const void* src, ma_uint64 count, ma_dither_mode ditherMode)
 {
     ma_uint8* dst_u8 = (ma_uint8*)dst;
     const ma_uint8* src_s24 = (const ma_uint8*)src;
@@ -31052,31 +31142,25 @@ static void ma_pcm_s24_to_u8__reference(void* dst, const void* src, ma_uint64 co
     }
 }
 
-static void ma_pcm_s24_to_u8__optimized(void* dst, const void* src, ma_uint64 count, ma_dither_mode ditherMode)
+static MA_INLINE void ma_pcm_s24_to_u8__optimized(void* dst, const void* src, ma_uint64 count, ma_dither_mode ditherMode)
 {
     ma_pcm_s24_to_u8__reference(dst, src, count, ditherMode);
 }
 
 #if defined(MA_SUPPORT_SSE2)
-static void ma_pcm_s24_to_u8__sse2(void* dst, const void* src, ma_uint64 count, ma_dither_mode ditherMode)
+static MA_INLINE void ma_pcm_s24_to_u8__sse2(void* dst, const void* src, ma_uint64 count, ma_dither_mode ditherMode)
 {
     ma_pcm_s24_to_u8__optimized(dst, src, count, ditherMode);
 }
 #endif
 #if defined(MA_SUPPORT_AVX2)
-static void ma_pcm_s24_to_u8__avx2(void* dst, const void* src, ma_uint64 count, ma_dither_mode ditherMode)
+static MA_INLINE void ma_pcm_s24_to_u8__avx2(void* dst, const void* src, ma_uint64 count, ma_dither_mode ditherMode)
 {
     ma_pcm_s24_to_u8__optimized(dst, src, count, ditherMode);
 }
 #endif
-#if defined(MA_SUPPORT_AVX512)
-static void ma_pcm_s24_to_u8__avx512(void* dst, const void* src, ma_uint64 count, ma_dither_mode ditherMode)
-{
-    ma_pcm_s24_to_u8__avx2(dst, src, count, ditherMode);
-}
-#endif
 #if defined(MA_SUPPORT_NEON)
-static void ma_pcm_s24_to_u8__neon(void* dst, const void* src, ma_uint64 count, ma_dither_mode ditherMode)
+static MA_INLINE void ma_pcm_s24_to_u8__neon(void* dst, const void* src, ma_uint64 count, ma_dither_mode ditherMode)
 {
     ma_pcm_s24_to_u8__optimized(dst, src, count, ditherMode);
 }
@@ -31087,12 +31171,27 @@ void ma_pcm_s24_to_u8(void* dst, const void* src, ma_uint64 count, ma_dither_mod
 #ifdef MA_USE_REFERENCE_CONVERSION_APIS
     ma_pcm_s24_to_u8__reference(dst, src, count, ditherMode);
 #else
-    ma_pcm_s24_to_u8__optimized(dst, src, count, ditherMode);
+    #  if MA_PREFERRED_SIMD == MA_SIMD_AVX2
+        if (ma_has_avx2()) {
+            ma_pcm_s24_to_u8__avx2(dst, src, count, ditherMode);
+        } else
+    #elif MA_PREFERRED_SIMD == MA_SIMD_SSE2
+        if (ma_has_sse2()) {
+            ma_pcm_s24_to_u8__sse2(dst, src, count, ditherMode);
+        } else
+    #elif MA_PREFERRED_SIMD == MA_SIMD_NEON
+        if (ma_has_neon()) {
+            ma_pcm_s24_to_u8__neon(dst, src, count, ditherMode);
+        } else
+    #endif
+        {
+            ma_pcm_s24_to_u8__optimized(dst, src, count, ditherMode);
+        }
 #endif
 }
 
 
-static void ma_pcm_s24_to_s16__reference(void* dst, const void* src, ma_uint64 count, ma_dither_mode ditherMode)
+static MA_INLINE void ma_pcm_s24_to_s16__reference(void* dst, const void* src, ma_uint64 count, ma_dither_mode ditherMode)
 {
     ma_int16* dst_s16 = (ma_int16*)dst;
     const ma_uint8* src_s24 = (const ma_uint8*)src;
@@ -31123,31 +31222,25 @@ static void ma_pcm_s24_to_s16__reference(void* dst, const void* src, ma_uint64 c
     }
 }
 
-static void ma_pcm_s24_to_s16__optimized(void* dst, const void* src, ma_uint64 count, ma_dither_mode ditherMode)
+static MA_INLINE void ma_pcm_s24_to_s16__optimized(void* dst, const void* src, ma_uint64 count, ma_dither_mode ditherMode)
 {
     ma_pcm_s24_to_s16__reference(dst, src, count, ditherMode);
 }
 
 #if defined(MA_SUPPORT_SSE2)
-static void ma_pcm_s24_to_s16__sse2(void* dst, const void* src, ma_uint64 count, ma_dither_mode ditherMode)
+static MA_INLINE void ma_pcm_s24_to_s16__sse2(void* dst, const void* src, ma_uint64 count, ma_dither_mode ditherMode)
 {
     ma_pcm_s24_to_s16__optimized(dst, src, count, ditherMode);
 }
 #endif
 #if defined(MA_SUPPORT_AVX2)
-static void ma_pcm_s24_to_s16__avx2(void* dst, const void* src, ma_uint64 count, ma_dither_mode ditherMode)
+static MA_INLINE void ma_pcm_s24_to_s16__avx2(void* dst, const void* src, ma_uint64 count, ma_dither_mode ditherMode)
 {
     ma_pcm_s24_to_s16__optimized(dst, src, count, ditherMode);
 }
 #endif
-#if defined(MA_SUPPORT_AVX512)
-static void ma_pcm_s24_to_s16__avx512(void* dst, const void* src, ma_uint64 count, ma_dither_mode ditherMode)
-{
-    ma_pcm_s24_to_s16__avx2(dst, src, count, ditherMode);
-}
-#endif
 #if defined(MA_SUPPORT_NEON)
-static void ma_pcm_s24_to_s16__neon(void* dst, const void* src, ma_uint64 count, ma_dither_mode ditherMode)
+static MA_INLINE void ma_pcm_s24_to_s16__neon(void* dst, const void* src, ma_uint64 count, ma_dither_mode ditherMode)
 {
     ma_pcm_s24_to_s16__optimized(dst, src, count, ditherMode);
 }
@@ -31158,7 +31251,22 @@ void ma_pcm_s24_to_s16(void* dst, const void* src, ma_uint64 count, ma_dither_mo
 #ifdef MA_USE_REFERENCE_CONVERSION_APIS
     ma_pcm_s24_to_s16__reference(dst, src, count, ditherMode);
 #else
-    ma_pcm_s24_to_s16__optimized(dst, src, count, ditherMode);
+    #  if MA_PREFERRED_SIMD == MA_SIMD_AVX2
+        if (ma_has_avx2()) {
+            ma_pcm_s24_to_s16__avx2(dst, src, count, ditherMode);
+        } else
+    #elif MA_PREFERRED_SIMD == MA_SIMD_SSE2
+        if (ma_has_sse2()) {
+            ma_pcm_s24_to_s16__sse2(dst, src, count, ditherMode);
+        } else
+    #elif MA_PREFERRED_SIMD == MA_SIMD_NEON
+        if (ma_has_neon()) {
+            ma_pcm_s24_to_s16__neon(dst, src, count, ditherMode);
+        } else
+    #endif
+        {
+            ma_pcm_s24_to_s16__optimized(dst, src, count, ditherMode);
+        }
 #endif
 }
 
@@ -31171,7 +31279,7 @@ void ma_pcm_s24_to_s24(void* dst, const void* src, ma_uint64 count, ma_dither_mo
 }
 
 
-static void ma_pcm_s24_to_s32__reference(void* dst, const void* src, ma_uint64 count, ma_dither_mode ditherMode)
+static MA_INLINE void ma_pcm_s24_to_s32__reference(void* dst, const void* src, ma_uint64 count, ma_dither_mode ditherMode)
 {
     ma_int32* dst_s32 = (ma_int32*)dst;
     const ma_uint8* src_s24 = (const ma_uint8*)src;
@@ -31184,31 +31292,25 @@ static void ma_pcm_s24_to_s32__reference(void* dst, const void* src, ma_uint64 c
     (void)ditherMode;
 }
 
-static void ma_pcm_s24_to_s32__optimized(void* dst, const void* src, ma_uint64 count, ma_dither_mode ditherMode)
+static MA_INLINE void ma_pcm_s24_to_s32__optimized(void* dst, const void* src, ma_uint64 count, ma_dither_mode ditherMode)
 {
     ma_pcm_s24_to_s32__reference(dst, src, count, ditherMode);
 }
 
 #if defined(MA_SUPPORT_SSE2)
-static void ma_pcm_s24_to_s32__sse2(void* dst, const void* src, ma_uint64 count, ma_dither_mode ditherMode)
+static MA_INLINE void ma_pcm_s24_to_s32__sse2(void* dst, const void* src, ma_uint64 count, ma_dither_mode ditherMode)
 {
     ma_pcm_s24_to_s32__optimized(dst, src, count, ditherMode);
 }
 #endif
 #if defined(MA_SUPPORT_AVX2)
-static void ma_pcm_s24_to_s32__avx2(void* dst, const void* src, ma_uint64 count, ma_dither_mode ditherMode)
+static MA_INLINE void ma_pcm_s24_to_s32__avx2(void* dst, const void* src, ma_uint64 count, ma_dither_mode ditherMode)
 {
     ma_pcm_s24_to_s32__optimized(dst, src, count, ditherMode);
 }
 #endif
-#if defined(MA_SUPPORT_AVX512)
-static void ma_pcm_s24_to_s32__avx512(void* dst, const void* src, ma_uint64 count, ma_dither_mode ditherMode)
-{
-    ma_pcm_s24_to_s32__avx2(dst, src, count, ditherMode);
-}
-#endif
 #if defined(MA_SUPPORT_NEON)
-static void ma_pcm_s24_to_s32__neon(void* dst, const void* src, ma_uint64 count, ma_dither_mode ditherMode)
+static MA_INLINE void ma_pcm_s24_to_s32__neon(void* dst, const void* src, ma_uint64 count, ma_dither_mode ditherMode)
 {
     ma_pcm_s24_to_s32__optimized(dst, src, count, ditherMode);
 }
@@ -31219,12 +31321,27 @@ void ma_pcm_s24_to_s32(void* dst, const void* src, ma_uint64 count, ma_dither_mo
 #ifdef MA_USE_REFERENCE_CONVERSION_APIS
     ma_pcm_s24_to_s32__reference(dst, src, count, ditherMode);
 #else
-    ma_pcm_s24_to_s32__optimized(dst, src, count, ditherMode);
+    #  if MA_PREFERRED_SIMD == MA_SIMD_AVX2
+        if (ma_has_avx2()) {
+            ma_pcm_s24_to_s32__avx2(dst, src, count, ditherMode);
+        } else
+    #elif MA_PREFERRED_SIMD == MA_SIMD_SSE2
+        if (ma_has_sse2()) {
+            ma_pcm_s24_to_s32__sse2(dst, src, count, ditherMode);
+        } else
+    #elif MA_PREFERRED_SIMD == MA_SIMD_NEON
+        if (ma_has_neon()) {
+            ma_pcm_s24_to_s32__neon(dst, src, count, ditherMode);
+        } else
+    #endif
+        {
+            ma_pcm_s24_to_s32__optimized(dst, src, count, ditherMode);
+        }
 #endif
 }
 
 
-static void ma_pcm_s24_to_f32__reference(void* dst, const void* src, ma_uint64 count, ma_dither_mode ditherMode)
+static MA_INLINE void ma_pcm_s24_to_f32__reference(void* dst, const void* src, ma_uint64 count, ma_dither_mode ditherMode)
 {
     float* dst_f32 = (float*)dst;
     const ma_uint8* src_s24 = (const ma_uint8*)src;
@@ -31249,31 +31366,25 @@ static void ma_pcm_s24_to_f32__reference(void* dst, const void* src, ma_uint64 c
     (void)ditherMode;
 }
 
-static void ma_pcm_s24_to_f32__optimized(void* dst, const void* src, ma_uint64 count, ma_dither_mode ditherMode)
+static MA_INLINE void ma_pcm_s24_to_f32__optimized(void* dst, const void* src, ma_uint64 count, ma_dither_mode ditherMode)
 {
     ma_pcm_s24_to_f32__reference(dst, src, count, ditherMode);
 }
 
 #if defined(MA_SUPPORT_SSE2)
-static void ma_pcm_s24_to_f32__sse2(void* dst, const void* src, ma_uint64 count, ma_dither_mode ditherMode)
+static MA_INLINE void ma_pcm_s24_to_f32__sse2(void* dst, const void* src, ma_uint64 count, ma_dither_mode ditherMode)
 {
     ma_pcm_s24_to_f32__optimized(dst, src, count, ditherMode);
 }
 #endif
 #if defined(MA_SUPPORT_AVX2)
-static void ma_pcm_s24_to_f32__avx2(void* dst, const void* src, ma_uint64 count, ma_dither_mode ditherMode)
+static MA_INLINE void ma_pcm_s24_to_f32__avx2(void* dst, const void* src, ma_uint64 count, ma_dither_mode ditherMode)
 {
     ma_pcm_s24_to_f32__optimized(dst, src, count, ditherMode);
 }
 #endif
-#if defined(MA_SUPPORT_AVX512)
-static void ma_pcm_s24_to_f32__avx512(void* dst, const void* src, ma_uint64 count, ma_dither_mode ditherMode)
-{
-    ma_pcm_s24_to_f32__avx2(dst, src, count, ditherMode);
-}
-#endif
 #if defined(MA_SUPPORT_NEON)
-static void ma_pcm_s24_to_f32__neon(void* dst, const void* src, ma_uint64 count, ma_dither_mode ditherMode)
+static MA_INLINE void ma_pcm_s24_to_f32__neon(void* dst, const void* src, ma_uint64 count, ma_dither_mode ditherMode)
 {
     ma_pcm_s24_to_f32__optimized(dst, src, count, ditherMode);
 }
@@ -31284,12 +31395,27 @@ void ma_pcm_s24_to_f32(void* dst, const void* src, ma_uint64 count, ma_dither_mo
 #ifdef MA_USE_REFERENCE_CONVERSION_APIS
     ma_pcm_s24_to_f32__reference(dst, src, count, ditherMode);
 #else
-    ma_pcm_s24_to_f32__optimized(dst, src, count, ditherMode);
+    #  if MA_PREFERRED_SIMD == MA_SIMD_AVX2
+        if (ma_has_avx2()) {
+            ma_pcm_s24_to_f32__avx2(dst, src, count, ditherMode);
+        } else
+    #elif MA_PREFERRED_SIMD == MA_SIMD_SSE2
+        if (ma_has_sse2()) {
+            ma_pcm_s24_to_f32__sse2(dst, src, count, ditherMode);
+        } else
+    #elif MA_PREFERRED_SIMD == MA_SIMD_NEON
+        if (ma_has_neon()) {
+            ma_pcm_s24_to_f32__neon(dst, src, count, ditherMode);
+        } else
+    #endif
+        {
+            ma_pcm_s24_to_f32__optimized(dst, src, count, ditherMode);
+        }
 #endif
 }
 
 
-static void ma_pcm_interleave_s24__reference(void* dst, const void** src, ma_uint64 frameCount, ma_uint32 channels)
+static MA_INLINE void ma_pcm_interleave_s24__reference(void* dst, const void** src, ma_uint64 frameCount, ma_uint32 channels)
 {
     ma_uint8* dst8 = (ma_uint8*)dst;
     const ma_uint8** src8 = (const ma_uint8**)src;
@@ -31305,7 +31431,7 @@ static void ma_pcm_interleave_s24__reference(void* dst, const void** src, ma_uin
     }
 }
 
-static void ma_pcm_interleave_s24__optimized(void* dst, const void** src, ma_uint64 frameCount, ma_uint32 channels)
+static MA_INLINE void ma_pcm_interleave_s24__optimized(void* dst, const void** src, ma_uint64 frameCount, ma_uint32 channels)
 {
     ma_pcm_interleave_s24__reference(dst, src, frameCount, channels);
 }
@@ -31320,7 +31446,7 @@ void ma_pcm_interleave_s24(void* dst, const void** src, ma_uint64 frameCount, ma
 }
 
 
-static void ma_pcm_deinterleave_s24__reference(void** dst, const void* src, ma_uint64 frameCount, ma_uint32 channels)
+static MA_INLINE void ma_pcm_deinterleave_s24__reference(void** dst, const void* src, ma_uint64 frameCount, ma_uint32 channels)
 {
     ma_uint8** dst8 = (ma_uint8**)dst;
     const ma_uint8* src8 = (const ma_uint8*)src;
@@ -31336,7 +31462,7 @@ static void ma_pcm_deinterleave_s24__reference(void** dst, const void* src, ma_u
     }
 }
 
-static void ma_pcm_deinterleave_s24__optimized(void** dst, const void* src, ma_uint64 frameCount, ma_uint32 channels)
+static MA_INLINE void ma_pcm_deinterleave_s24__optimized(void** dst, const void* src, ma_uint64 frameCount, ma_uint32 channels)
 {
     ma_pcm_deinterleave_s24__reference(dst, src, frameCount, channels);
 }
@@ -31353,7 +31479,7 @@ void ma_pcm_deinterleave_s24(void** dst, const void* src, ma_uint64 frameCount, 
 
 
 /* s32 */
-static void ma_pcm_s32_to_u8__reference(void* dst, const void* src, ma_uint64 count, ma_dither_mode ditherMode)
+static MA_INLINE void ma_pcm_s32_to_u8__reference(void* dst, const void* src, ma_uint64 count, ma_dither_mode ditherMode)
 {
     ma_uint8* dst_u8 = (ma_uint8*)dst;
     const ma_int32* src_s32 = (const ma_int32*)src;
@@ -31386,31 +31512,25 @@ static void ma_pcm_s32_to_u8__reference(void* dst, const void* src, ma_uint64 co
     }
 }
 
-static void ma_pcm_s32_to_u8__optimized(void* dst, const void* src, ma_uint64 count, ma_dither_mode ditherMode)
+static MA_INLINE void ma_pcm_s32_to_u8__optimized(void* dst, const void* src, ma_uint64 count, ma_dither_mode ditherMode)
 {
     ma_pcm_s32_to_u8__reference(dst, src, count, ditherMode);
 }
 
 #if defined(MA_SUPPORT_SSE2)
-static void ma_pcm_s32_to_u8__sse2(void* dst, const void* src, ma_uint64 count, ma_dither_mode ditherMode)
+static MA_INLINE void ma_pcm_s32_to_u8__sse2(void* dst, const void* src, ma_uint64 count, ma_dither_mode ditherMode)
 {
     ma_pcm_s32_to_u8__optimized(dst, src, count, ditherMode);
 }
 #endif
 #if defined(MA_SUPPORT_AVX2)
-static void ma_pcm_s32_to_u8__avx2(void* dst, const void* src, ma_uint64 count, ma_dither_mode ditherMode)
+static MA_INLINE void ma_pcm_s32_to_u8__avx2(void* dst, const void* src, ma_uint64 count, ma_dither_mode ditherMode)
 {
     ma_pcm_s32_to_u8__optimized(dst, src, count, ditherMode);
 }
 #endif
-#if defined(MA_SUPPORT_AVX512)
-static void ma_pcm_s32_to_u8__avx512(void* dst, const void* src, ma_uint64 count, ma_dither_mode ditherMode)
-{
-    ma_pcm_s32_to_u8__avx2(dst, src, count, ditherMode);
-}
-#endif
 #if defined(MA_SUPPORT_NEON)
-static void ma_pcm_s32_to_u8__neon(void* dst, const void* src, ma_uint64 count, ma_dither_mode ditherMode)
+static MA_INLINE void ma_pcm_s32_to_u8__neon(void* dst, const void* src, ma_uint64 count, ma_dither_mode ditherMode)
 {
     ma_pcm_s32_to_u8__optimized(dst, src, count, ditherMode);
 }
@@ -31421,12 +31541,27 @@ void ma_pcm_s32_to_u8(void* dst, const void* src, ma_uint64 count, ma_dither_mod
 #ifdef MA_USE_REFERENCE_CONVERSION_APIS
     ma_pcm_s32_to_u8__reference(dst, src, count, ditherMode);
 #else
-    ma_pcm_s32_to_u8__optimized(dst, src, count, ditherMode);
+    #  if MA_PREFERRED_SIMD == MA_SIMD_AVX2
+        if (ma_has_avx2()) {
+            ma_pcm_s32_to_u8__avx2(dst, src, count, ditherMode);
+        } else
+    #elif MA_PREFERRED_SIMD == MA_SIMD_SSE2
+        if (ma_has_sse2()) {
+            ma_pcm_s32_to_u8__sse2(dst, src, count, ditherMode);
+        } else
+    #elif MA_PREFERRED_SIMD == MA_SIMD_NEON
+        if (ma_has_neon()) {
+            ma_pcm_s32_to_u8__neon(dst, src, count, ditherMode);
+        } else
+    #endif
+        {
+            ma_pcm_s32_to_u8__optimized(dst, src, count, ditherMode);
+        }
 #endif
 }
 
 
-static void ma_pcm_s32_to_s16__reference(void* dst, const void* src, ma_uint64 count, ma_dither_mode ditherMode)
+static MA_INLINE void ma_pcm_s32_to_s16__reference(void* dst, const void* src, ma_uint64 count, ma_dither_mode ditherMode)
 {
     ma_int16* dst_s16 = (ma_int16*)dst;
     const ma_int32* src_s32 = (const ma_int32*)src;
@@ -31457,31 +31592,25 @@ static void ma_pcm_s32_to_s16__reference(void* dst, const void* src, ma_uint64 c
     }
 }
 
-static void ma_pcm_s32_to_s16__optimized(void* dst, const void* src, ma_uint64 count, ma_dither_mode ditherMode)
+static MA_INLINE void ma_pcm_s32_to_s16__optimized(void* dst, const void* src, ma_uint64 count, ma_dither_mode ditherMode)
 {
     ma_pcm_s32_to_s16__reference(dst, src, count, ditherMode);
 }
 
 #if defined(MA_SUPPORT_SSE2)
-static void ma_pcm_s32_to_s16__sse2(void* dst, const void* src, ma_uint64 count, ma_dither_mode ditherMode)
+static MA_INLINE void ma_pcm_s32_to_s16__sse2(void* dst, const void* src, ma_uint64 count, ma_dither_mode ditherMode)
 {
     ma_pcm_s32_to_s16__optimized(dst, src, count, ditherMode);
 }
 #endif
 #if defined(MA_SUPPORT_AVX2)
-static void ma_pcm_s32_to_s16__avx2(void* dst, const void* src, ma_uint64 count, ma_dither_mode ditherMode)
+static MA_INLINE void ma_pcm_s32_to_s16__avx2(void* dst, const void* src, ma_uint64 count, ma_dither_mode ditherMode)
 {
     ma_pcm_s32_to_s16__optimized(dst, src, count, ditherMode);
 }
 #endif
-#if defined(MA_SUPPORT_AVX512)
-static void ma_pcm_s32_to_s16__avx512(void* dst, const void* src, ma_uint64 count, ma_dither_mode ditherMode)
-{
-    ma_pcm_s32_to_s16__avx2(dst, src, count, ditherMode);
-}
-#endif
 #if defined(MA_SUPPORT_NEON)
-static void ma_pcm_s32_to_s16__neon(void* dst, const void* src, ma_uint64 count, ma_dither_mode ditherMode)
+static MA_INLINE void ma_pcm_s32_to_s16__neon(void* dst, const void* src, ma_uint64 count, ma_dither_mode ditherMode)
 {
     ma_pcm_s32_to_s16__optimized(dst, src, count, ditherMode);
 }
@@ -31492,12 +31621,27 @@ void ma_pcm_s32_to_s16(void* dst, const void* src, ma_uint64 count, ma_dither_mo
 #ifdef MA_USE_REFERENCE_CONVERSION_APIS
     ma_pcm_s32_to_s16__reference(dst, src, count, ditherMode);
 #else
-    ma_pcm_s32_to_s16__optimized(dst, src, count, ditherMode);
+    #  if MA_PREFERRED_SIMD == MA_SIMD_AVX2
+        if (ma_has_avx2()) {
+            ma_pcm_s32_to_s16__avx2(dst, src, count, ditherMode);
+        } else
+    #elif MA_PREFERRED_SIMD == MA_SIMD_SSE2
+        if (ma_has_sse2()) {
+            ma_pcm_s32_to_s16__sse2(dst, src, count, ditherMode);
+        } else
+    #elif MA_PREFERRED_SIMD == MA_SIMD_NEON
+        if (ma_has_neon()) {
+            ma_pcm_s32_to_s16__neon(dst, src, count, ditherMode);
+        } else
+    #endif
+        {
+            ma_pcm_s32_to_s16__optimized(dst, src, count, ditherMode);
+        }
 #endif
 }
 
 
-static void ma_pcm_s32_to_s24__reference(void* dst, const void* src, ma_uint64 count, ma_dither_mode ditherMode)
+static MA_INLINE void ma_pcm_s32_to_s24__reference(void* dst, const void* src, ma_uint64 count, ma_dither_mode ditherMode)
 {
     ma_uint8* dst_s24 = (ma_uint8*)dst;
     const ma_int32* src_s32 = (const ma_int32*)src;
@@ -31513,31 +31657,25 @@ static void ma_pcm_s32_to_s24__reference(void* dst, const void* src, ma_uint64 c
     (void)ditherMode;   /* No dithering for s32 -> s24. */
 }
 
-static void ma_pcm_s32_to_s24__optimized(void* dst, const void* src, ma_uint64 count, ma_dither_mode ditherMode)
+static MA_INLINE void ma_pcm_s32_to_s24__optimized(void* dst, const void* src, ma_uint64 count, ma_dither_mode ditherMode)
 {
     ma_pcm_s32_to_s24__reference(dst, src, count, ditherMode);
 }
 
 #if defined(MA_SUPPORT_SSE2)
-static void ma_pcm_s32_to_s24__sse2(void* dst, const void* src, ma_uint64 count, ma_dither_mode ditherMode)
+static MA_INLINE void ma_pcm_s32_to_s24__sse2(void* dst, const void* src, ma_uint64 count, ma_dither_mode ditherMode)
 {
     ma_pcm_s32_to_s24__optimized(dst, src, count, ditherMode);
 }
 #endif
 #if defined(MA_SUPPORT_AVX2)
-static void ma_pcm_s32_to_s24__avx2(void* dst, const void* src, ma_uint64 count, ma_dither_mode ditherMode)
+static MA_INLINE void ma_pcm_s32_to_s24__avx2(void* dst, const void* src, ma_uint64 count, ma_dither_mode ditherMode)
 {
     ma_pcm_s32_to_s24__optimized(dst, src, count, ditherMode);
 }
 #endif
-#if defined(MA_SUPPORT_AVX512)
-static void ma_pcm_s32_to_s24__avx512(void* dst, const void* src, ma_uint64 count, ma_dither_mode ditherMode)
-{
-    ma_pcm_s32_to_s24__avx2(dst, src, count, ditherMode);
-}
-#endif
 #if defined(MA_SUPPORT_NEON)
-static void ma_pcm_s32_to_s24__neon(void* dst, const void* src, ma_uint64 count, ma_dither_mode ditherMode)
+static MA_INLINE void ma_pcm_s32_to_s24__neon(void* dst, const void* src, ma_uint64 count, ma_dither_mode ditherMode)
 {
     ma_pcm_s32_to_s24__optimized(dst, src, count, ditherMode);
 }
@@ -31548,7 +31686,22 @@ void ma_pcm_s32_to_s24(void* dst, const void* src, ma_uint64 count, ma_dither_mo
 #ifdef MA_USE_REFERENCE_CONVERSION_APIS
     ma_pcm_s32_to_s24__reference(dst, src, count, ditherMode);
 #else
-    ma_pcm_s32_to_s24__optimized(dst, src, count, ditherMode);
+    #  if MA_PREFERRED_SIMD == MA_SIMD_AVX2
+        if (ma_has_avx2()) {
+            ma_pcm_s32_to_s24__avx2(dst, src, count, ditherMode);
+        } else
+    #elif MA_PREFERRED_SIMD == MA_SIMD_SSE2
+        if (ma_has_sse2()) {
+            ma_pcm_s32_to_s24__sse2(dst, src, count, ditherMode);
+        } else
+    #elif MA_PREFERRED_SIMD == MA_SIMD_NEON
+        if (ma_has_neon()) {
+            ma_pcm_s32_to_s24__neon(dst, src, count, ditherMode);
+        } else
+    #endif
+        {
+            ma_pcm_s32_to_s24__optimized(dst, src, count, ditherMode);
+        }
 #endif
 }
 
@@ -31561,7 +31714,7 @@ void ma_pcm_s32_to_s32(void* dst, const void* src, ma_uint64 count, ma_dither_mo
 }
 
 
-static void ma_pcm_s32_to_f32__reference(void* dst, const void* src, ma_uint64 count, ma_dither_mode ditherMode)
+static MA_INLINE void ma_pcm_s32_to_f32__reference(void* dst, const void* src, ma_uint64 count, ma_dither_mode ditherMode)
 {
     float* dst_f32 = (float*)dst;
     const ma_int32* src_s32 = (const ma_int32*)src;
@@ -31584,31 +31737,25 @@ static void ma_pcm_s32_to_f32__reference(void* dst, const void* src, ma_uint64 c
     (void)ditherMode;   /* No dithering for s32 -> f32. */
 }
 
-static void ma_pcm_s32_to_f32__optimized(void* dst, const void* src, ma_uint64 count, ma_dither_mode ditherMode)
+static MA_INLINE void ma_pcm_s32_to_f32__optimized(void* dst, const void* src, ma_uint64 count, ma_dither_mode ditherMode)
 {
     ma_pcm_s32_to_f32__reference(dst, src, count, ditherMode);
 }
 
 #if defined(MA_SUPPORT_SSE2)
-static void ma_pcm_s32_to_f32__sse2(void* dst, const void* src, ma_uint64 count, ma_dither_mode ditherMode)
+static MA_INLINE void ma_pcm_s32_to_f32__sse2(void* dst, const void* src, ma_uint64 count, ma_dither_mode ditherMode)
 {
     ma_pcm_s32_to_f32__optimized(dst, src, count, ditherMode);
 }
 #endif
 #if defined(MA_SUPPORT_AVX2)
-static void ma_pcm_s32_to_f32__avx2(void* dst, const void* src, ma_uint64 count, ma_dither_mode ditherMode)
+static MA_INLINE void ma_pcm_s32_to_f32__avx2(void* dst, const void* src, ma_uint64 count, ma_dither_mode ditherMode)
 {
     ma_pcm_s32_to_f32__optimized(dst, src, count, ditherMode);
 }
 #endif
-#if defined(MA_SUPPORT_AVX512)
-static void ma_pcm_s32_to_f32__avx512(void* dst, const void* src, ma_uint64 count, ma_dither_mode ditherMode)
-{
-    ma_pcm_s32_to_f32__avx2(dst, src, count, ditherMode);
-}
-#endif
 #if defined(MA_SUPPORT_NEON)
-static void ma_pcm_s32_to_f32__neon(void* dst, const void* src, ma_uint64 count, ma_dither_mode ditherMode)
+static MA_INLINE void ma_pcm_s32_to_f32__neon(void* dst, const void* src, ma_uint64 count, ma_dither_mode ditherMode)
 {
     ma_pcm_s32_to_f32__optimized(dst, src, count, ditherMode);
 }
@@ -31619,12 +31766,27 @@ void ma_pcm_s32_to_f32(void* dst, const void* src, ma_uint64 count, ma_dither_mo
 #ifdef MA_USE_REFERENCE_CONVERSION_APIS
     ma_pcm_s32_to_f32__reference(dst, src, count, ditherMode);
 #else
-    ma_pcm_s32_to_f32__optimized(dst, src, count, ditherMode);
+    #  if MA_PREFERRED_SIMD == MA_SIMD_AVX2
+        if (ma_has_avx2()) {
+            ma_pcm_s32_to_f32__avx2(dst, src, count, ditherMode);
+        } else
+    #elif MA_PREFERRED_SIMD == MA_SIMD_SSE2
+        if (ma_has_sse2()) {
+            ma_pcm_s32_to_f32__sse2(dst, src, count, ditherMode);
+        } else
+    #elif MA_PREFERRED_SIMD == MA_SIMD_NEON
+        if (ma_has_neon()) {
+            ma_pcm_s32_to_f32__neon(dst, src, count, ditherMode);
+        } else
+    #endif
+        {
+            ma_pcm_s32_to_f32__optimized(dst, src, count, ditherMode);
+        }
 #endif
 }
 
 
-static void ma_pcm_interleave_s32__reference(void* dst, const void** src, ma_uint64 frameCount, ma_uint32 channels)
+static MA_INLINE void ma_pcm_interleave_s32__reference(void* dst, const void** src, ma_uint64 frameCount, ma_uint32 channels)
 {
     ma_int32* dst_s32 = (ma_int32*)dst;
     const ma_int32** src_s32 = (const ma_int32**)src;
@@ -31638,7 +31800,7 @@ static void ma_pcm_interleave_s32__reference(void* dst, const void** src, ma_uin
     }
 }
 
-static void ma_pcm_interleave_s32__optimized(void* dst, const void** src, ma_uint64 frameCount, ma_uint32 channels)
+static MA_INLINE void ma_pcm_interleave_s32__optimized(void* dst, const void** src, ma_uint64 frameCount, ma_uint32 channels)
 {
     ma_pcm_interleave_s32__reference(dst, src, frameCount, channels);
 }
@@ -31653,7 +31815,7 @@ void ma_pcm_interleave_s32(void* dst, const void** src, ma_uint64 frameCount, ma
 }
 
 
-static void ma_pcm_deinterleave_s32__reference(void** dst, const void* src, ma_uint64 frameCount, ma_uint32 channels)
+static MA_INLINE void ma_pcm_deinterleave_s32__reference(void** dst, const void* src, ma_uint64 frameCount, ma_uint32 channels)
 {
     ma_int32** dst_s32 = (ma_int32**)dst;
     const ma_int32* src_s32 = (const ma_int32*)src;
@@ -31667,7 +31829,7 @@ static void ma_pcm_deinterleave_s32__reference(void** dst, const void* src, ma_u
     }
 }
 
-static void ma_pcm_deinterleave_s32__optimized(void** dst, const void* src, ma_uint64 frameCount, ma_uint32 channels)
+static MA_INLINE void ma_pcm_deinterleave_s32__optimized(void** dst, const void* src, ma_uint64 frameCount, ma_uint32 channels)
 {
     ma_pcm_deinterleave_s32__reference(dst, src, frameCount, channels);
 }
@@ -31683,7 +31845,7 @@ void ma_pcm_deinterleave_s32(void** dst, const void* src, ma_uint64 frameCount, 
 
 
 /* f32 */
-static void ma_pcm_f32_to_u8__reference(void* dst, const void* src, ma_uint64 count, ma_dither_mode ditherMode)
+static MA_INLINE void ma_pcm_f32_to_u8__reference(void* dst, const void* src, ma_uint64 count, ma_dither_mode ditherMode)
 {
     ma_uint64 i;
 
@@ -31708,31 +31870,25 @@ static void ma_pcm_f32_to_u8__reference(void* dst, const void* src, ma_uint64 co
     }
 }
 
-static void ma_pcm_f32_to_u8__optimized(void* dst, const void* src, ma_uint64 count, ma_dither_mode ditherMode)
+static MA_INLINE void ma_pcm_f32_to_u8__optimized(void* dst, const void* src, ma_uint64 count, ma_dither_mode ditherMode)
 {
     ma_pcm_f32_to_u8__reference(dst, src, count, ditherMode);
 }
 
 #if defined(MA_SUPPORT_SSE2)
-static void ma_pcm_f32_to_u8__sse2(void* dst, const void* src, ma_uint64 count, ma_dither_mode ditherMode)
+static MA_INLINE void ma_pcm_f32_to_u8__sse2(void* dst, const void* src, ma_uint64 count, ma_dither_mode ditherMode)
 {
     ma_pcm_f32_to_u8__optimized(dst, src, count, ditherMode);
 }
 #endif
 #if defined(MA_SUPPORT_AVX2)
-static void ma_pcm_f32_to_u8__avx2(void* dst, const void* src, ma_uint64 count, ma_dither_mode ditherMode)
+static MA_INLINE void ma_pcm_f32_to_u8__avx2(void* dst, const void* src, ma_uint64 count, ma_dither_mode ditherMode)
 {
     ma_pcm_f32_to_u8__optimized(dst, src, count, ditherMode);
 }
 #endif
-#if defined(MA_SUPPORT_AVX512)
-static void ma_pcm_f32_to_u8__avx512(void* dst, const void* src, ma_uint64 count, ma_dither_mode ditherMode)
-{
-    ma_pcm_f32_to_u8__avx2(dst, src, count, ditherMode);
-}
-#endif
 #if defined(MA_SUPPORT_NEON)
-static void ma_pcm_f32_to_u8__neon(void* dst, const void* src, ma_uint64 count, ma_dither_mode ditherMode)
+static MA_INLINE void ma_pcm_f32_to_u8__neon(void* dst, const void* src, ma_uint64 count, ma_dither_mode ditherMode)
 {
     ma_pcm_f32_to_u8__optimized(dst, src, count, ditherMode);
 }
@@ -31743,12 +31899,27 @@ void ma_pcm_f32_to_u8(void* dst, const void* src, ma_uint64 count, ma_dither_mod
 #ifdef MA_USE_REFERENCE_CONVERSION_APIS
     ma_pcm_f32_to_u8__reference(dst, src, count, ditherMode);
 #else
-    ma_pcm_f32_to_u8__optimized(dst, src, count, ditherMode);
+    #  if MA_PREFERRED_SIMD == MA_SIMD_AVX2
+        if (ma_has_avx2()) {
+            ma_pcm_f32_to_u8__avx2(dst, src, count, ditherMode);
+        } else
+    #elif MA_PREFERRED_SIMD == MA_SIMD_SSE2
+        if (ma_has_sse2()) {
+            ma_pcm_f32_to_u8__sse2(dst, src, count, ditherMode);
+        } else
+    #elif MA_PREFERRED_SIMD == MA_SIMD_NEON
+        if (ma_has_neon()) {
+            ma_pcm_f32_to_u8__neon(dst, src, count, ditherMode);
+        } else
+    #endif
+        {
+            ma_pcm_f32_to_u8__optimized(dst, src, count, ditherMode);
+        }
 #endif
 }
 
-
-static void ma_pcm_f32_to_s16__reference(void* dst, const void* src, ma_uint64 count, ma_dither_mode ditherMode)
+#ifdef MA_USE_REFERENCE_CONVERSION_APIS
+static MA_INLINE void ma_pcm_f32_to_s16__reference(void* dst, const void* src, ma_uint64 count, ma_dither_mode ditherMode)
 {
     ma_uint64 i;
 
@@ -31780,8 +31951,8 @@ static void ma_pcm_f32_to_s16__reference(void* dst, const void* src, ma_uint64 c
         dst_s16[i] = (ma_int16)x;
     }
 }
-
-static void ma_pcm_f32_to_s16__optimized(void* dst, const void* src, ma_uint64 count, ma_dither_mode ditherMode)
+#else
+static MA_INLINE void ma_pcm_f32_to_s16__optimized(void* dst, const void* src, ma_uint64 count, ma_dither_mode ditherMode)
 {
     ma_uint64 i;
     ma_uint64 i4;
@@ -31844,9 +32015,10 @@ static void ma_pcm_f32_to_s16__optimized(void* dst, const void* src, ma_uint64 c
         dst_s16[i] = (ma_int16)x;
     }
 }
+#endif
 
 #if defined(MA_SUPPORT_SSE2)
-static void ma_pcm_f32_to_s16__sse2(void* dst, const void* src, ma_uint64 count, ma_dither_mode ditherMode)
+static MA_INLINE void ma_pcm_f32_to_s16__sse2(void* dst, const void* src, ma_uint64 count, ma_dither_mode ditherMode)
 {
     ma_uint64 i;
     ma_uint64 i8;
@@ -31940,7 +32112,7 @@ static void ma_pcm_f32_to_s16__sse2(void* dst, const void* src, ma_uint64 count,
 }
 #endif
 #if defined(MA_SUPPORT_AVX2)
-static void ma_pcm_f32_to_s16__avx2(void* dst, const void* src, ma_uint64 count, ma_dither_mode ditherMode)
+static MA_INLINE void ma_pcm_f32_to_s16__avx2(void* dst, const void* src, ma_uint64 count, ma_dither_mode ditherMode)
 {
     ma_uint64 i;
     ma_uint64 i16;
@@ -32061,15 +32233,8 @@ static void ma_pcm_f32_to_s16__avx2(void* dst, const void* src, ma_uint64 count,
     }
 }
 #endif
-#if defined(MA_SUPPORT_AVX512)
-static void ma_pcm_f32_to_s16__avx512(void* dst, const void* src, ma_uint64 count, ma_dither_mode ditherMode)
-{
-    /* TODO: Convert this from AVX to AVX-512. */
-    ma_pcm_f32_to_s16__avx2(dst, src, count, ditherMode);
-}
-#endif
 #if defined(MA_SUPPORT_NEON)
-static void ma_pcm_f32_to_s16__neon(void* dst, const void* src, ma_uint64 count, ma_dither_mode ditherMode)
+static MA_INLINE void ma_pcm_f32_to_s16__neon(void* dst, const void* src, ma_uint64 count, ma_dither_mode ditherMode)
 {
     ma_uint64 i;
     ma_uint64 i8;
@@ -32078,6 +32243,10 @@ static void ma_pcm_f32_to_s16__neon(void* dst, const void* src, ma_uint64 count,
     const float* src_f32;
     float ditherMin;
     float ditherMax;
+
+    if (!ma_has_neon()) {
+        return ma_pcm_f32_to_s16__optimized(dst, src, count, ditherMode);
+    }
 
     /* Both the input and output buffers need to be aligned to 16 bytes. */
     if ((((ma_uintptr)dst & 15) != 0) || (((ma_uintptr)src & 15) != 0)) {
@@ -32174,12 +32343,27 @@ void ma_pcm_f32_to_s16(void* dst, const void* src, ma_uint64 count, ma_dither_mo
 #ifdef MA_USE_REFERENCE_CONVERSION_APIS
     ma_pcm_f32_to_s16__reference(dst, src, count, ditherMode);
 #else
-    ma_pcm_f32_to_s16__optimized(dst, src, count, ditherMode);
+    #  if MA_PREFERRED_SIMD == MA_SIMD_AVX2
+        if (ma_has_avx2()) {
+            ma_pcm_f32_to_s16__avx2(dst, src, count, ditherMode);
+        } else
+    #elif MA_PREFERRED_SIMD == MA_SIMD_SSE2
+        if (ma_has_sse2()) {
+            ma_pcm_f32_to_s16__sse2(dst, src, count, ditherMode);
+        } else
+    #elif MA_PREFERRED_SIMD == MA_SIMD_NEON
+        if (ma_has_neon()) {
+            ma_pcm_f32_to_s16__neon(dst, src, count, ditherMode);
+        } else
+    #endif
+        {
+            ma_pcm_f32_to_s16__optimized(dst, src, count, ditherMode);
+        }
 #endif
 }
 
 
-static void ma_pcm_f32_to_s24__reference(void* dst, const void* src, ma_uint64 count, ma_dither_mode ditherMode)
+static MA_INLINE void ma_pcm_f32_to_s24__reference(void* dst, const void* src, ma_uint64 count, ma_dither_mode ditherMode)
 {
     ma_uint8* dst_s24 = (ma_uint8*)dst;
     const float* src_f32 = (const float*)src;
@@ -32209,31 +32393,25 @@ static void ma_pcm_f32_to_s24__reference(void* dst, const void* src, ma_uint64 c
     (void)ditherMode;   /* No dithering for f32 -> s24. */
 }
 
-static void ma_pcm_f32_to_s24__optimized(void* dst, const void* src, ma_uint64 count, ma_dither_mode ditherMode)
+static MA_INLINE void ma_pcm_f32_to_s24__optimized(void* dst, const void* src, ma_uint64 count, ma_dither_mode ditherMode)
 {
     ma_pcm_f32_to_s24__reference(dst, src, count, ditherMode);
 }
 
 #if defined(MA_SUPPORT_SSE2)
-static void ma_pcm_f32_to_s24__sse2(void* dst, const void* src, ma_uint64 count, ma_dither_mode ditherMode)
+static MA_INLINE void ma_pcm_f32_to_s24__sse2(void* dst, const void* src, ma_uint64 count, ma_dither_mode ditherMode)
 {
     ma_pcm_f32_to_s24__optimized(dst, src, count, ditherMode);
 }
 #endif
 #if defined(MA_SUPPORT_AVX2)
-static void ma_pcm_f32_to_s24__avx2(void* dst, const void* src, ma_uint64 count, ma_dither_mode ditherMode)
+static MA_INLINE void ma_pcm_f32_to_s24__avx2(void* dst, const void* src, ma_uint64 count, ma_dither_mode ditherMode)
 {
     ma_pcm_f32_to_s24__optimized(dst, src, count, ditherMode);
 }
 #endif
-#if defined(MA_SUPPORT_AVX512)
-static void ma_pcm_f32_to_s24__avx512(void* dst, const void* src, ma_uint64 count, ma_dither_mode ditherMode)
-{
-    ma_pcm_f32_to_s24__avx2(dst, src, count, ditherMode);
-}
-#endif
 #if defined(MA_SUPPORT_NEON)
-static void ma_pcm_f32_to_s24__neon(void* dst, const void* src, ma_uint64 count, ma_dither_mode ditherMode)
+static MA_INLINE void ma_pcm_f32_to_s24__neon(void* dst, const void* src, ma_uint64 count, ma_dither_mode ditherMode)
 {
     ma_pcm_f32_to_s24__optimized(dst, src, count, ditherMode);
 }
@@ -32244,12 +32422,27 @@ void ma_pcm_f32_to_s24(void* dst, const void* src, ma_uint64 count, ma_dither_mo
 #ifdef MA_USE_REFERENCE_CONVERSION_APIS
     ma_pcm_f32_to_s24__reference(dst, src, count, ditherMode);
 #else
-    ma_pcm_f32_to_s24__optimized(dst, src, count, ditherMode);
+    #  if MA_PREFERRED_SIMD == MA_SIMD_AVX2
+        if (ma_has_avx2()) {
+            ma_pcm_f32_to_s24__avx2(dst, src, count, ditherMode);
+        } else
+    #elif MA_PREFERRED_SIMD == MA_SIMD_SSE2
+        if (ma_has_sse2()) {
+            ma_pcm_f32_to_s24__sse2(dst, src, count, ditherMode);
+        } else
+    #elif MA_PREFERRED_SIMD == MA_SIMD_NEON
+        if (ma_has_neon()) {
+            ma_pcm_f32_to_s24__neon(dst, src, count, ditherMode);
+        } else
+    #endif
+        {
+            ma_pcm_f32_to_s24__optimized(dst, src, count, ditherMode);
+        }
 #endif
 }
 
 
-static void ma_pcm_f32_to_s32__reference(void* dst, const void* src, ma_uint64 count, ma_dither_mode ditherMode)
+static MA_INLINE void ma_pcm_f32_to_s32__reference(void* dst, const void* src, ma_uint64 count, ma_dither_mode ditherMode)
 {
     ma_int32* dst_s32 = (ma_int32*)dst;
     const float* src_f32 = (const float*)src;
@@ -32275,31 +32468,25 @@ static void ma_pcm_f32_to_s32__reference(void* dst, const void* src, ma_uint64 c
     (void)ditherMode;   /* No dithering for f32 -> s32. */
 }
 
-static void ma_pcm_f32_to_s32__optimized(void* dst, const void* src, ma_uint64 count, ma_dither_mode ditherMode)
+static MA_INLINE void ma_pcm_f32_to_s32__optimized(void* dst, const void* src, ma_uint64 count, ma_dither_mode ditherMode)
 {
     ma_pcm_f32_to_s32__reference(dst, src, count, ditherMode);
 }
 
 #if defined(MA_SUPPORT_SSE2)
-static void ma_pcm_f32_to_s32__sse2(void* dst, const void* src, ma_uint64 count, ma_dither_mode ditherMode)
+static MA_INLINE void ma_pcm_f32_to_s32__sse2(void* dst, const void* src, ma_uint64 count, ma_dither_mode ditherMode)
 {
     ma_pcm_f32_to_s32__optimized(dst, src, count, ditherMode);
 }
 #endif
 #if defined(MA_SUPPORT_AVX2)
-static void ma_pcm_f32_to_s32__avx2(void* dst, const void* src, ma_uint64 count, ma_dither_mode ditherMode)
+static MA_INLINE void ma_pcm_f32_to_s32__avx2(void* dst, const void* src, ma_uint64 count, ma_dither_mode ditherMode)
 {
     ma_pcm_f32_to_s32__optimized(dst, src, count, ditherMode);
 }
 #endif
-#if defined(MA_SUPPORT_AVX512)
-static void ma_pcm_f32_to_s32__avx512(void* dst, const void* src, ma_uint64 count, ma_dither_mode ditherMode)
-{
-    ma_pcm_f32_to_s32__avx2(dst, src, count, ditherMode);
-}
-#endif
 #if defined(MA_SUPPORT_NEON)
-static void ma_pcm_f32_to_s32__neon(void* dst, const void* src, ma_uint64 count, ma_dither_mode ditherMode)
+static MA_INLINE void ma_pcm_f32_to_s32__neon(void* dst, const void* src, ma_uint64 count, ma_dither_mode ditherMode)
 {
     ma_pcm_f32_to_s32__optimized(dst, src, count, ditherMode);
 }
@@ -32310,7 +32497,22 @@ void ma_pcm_f32_to_s32(void* dst, const void* src, ma_uint64 count, ma_dither_mo
 #ifdef MA_USE_REFERENCE_CONVERSION_APIS
     ma_pcm_f32_to_s32__reference(dst, src, count, ditherMode);
 #else
-    ma_pcm_f32_to_s32__optimized(dst, src, count, ditherMode);
+    #  if MA_PREFERRED_SIMD == MA_SIMD_AVX2
+        if (ma_has_avx2()) {
+            ma_pcm_f32_to_s32__avx2(dst, src, count, ditherMode);
+        } else
+    #elif MA_PREFERRED_SIMD == MA_SIMD_SSE2
+        if (ma_has_sse2()) {
+            ma_pcm_f32_to_s32__sse2(dst, src, count, ditherMode);
+        } else
+    #elif MA_PREFERRED_SIMD == MA_SIMD_NEON
+        if (ma_has_neon()) {
+            ma_pcm_f32_to_s32__neon(dst, src, count, ditherMode);
+        } else
+    #endif
+        {
+            ma_pcm_f32_to_s32__optimized(dst, src, count, ditherMode);
+        }
 #endif
 }
 
