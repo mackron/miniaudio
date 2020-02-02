@@ -3582,9 +3582,6 @@ typedef struct
 ma_result ma_sine_wave_init(double amplitude, double period, ma_uint32 sampleRate, ma_sine_wave* pSineWave);
 ma_uint64 ma_sine_wave_read_pcm_frames(ma_sine_wave* pSineWave, void* pFramesOut, ma_uint64 frameCount, ma_format format, ma_uint32 channels);
 
-ma_uint64 ma_sine_wave_read_f32(ma_sine_wave* pSineWave, ma_uint64 count, float* pSamples);
-ma_uint64 ma_sine_wave_read_f32_ex(ma_sine_wave* pSineWave, ma_uint64 frameCount, ma_uint32 channels, ma_stream_layout layout, float** ppFrames);
-
 #ifdef __cplusplus
 }
 #endif
@@ -36196,11 +36193,6 @@ ma_result ma_sine_wave_init(double amplitude, double periodsPerSecond, ma_uint32
     return MA_SUCCESS;
 }
 
-ma_uint64 ma_sine_wave_read_f32(ma_sine_wave* pSineWave, ma_uint64 count, float* pSamples)
-{
-    return ma_sine_wave_read_f32_ex(pSineWave, count, 1, ma_stream_layout_interleaved, &pSamples);
-}
-
 ma_uint64 ma_sine_wave_read_pcm_frames(ma_sine_wave* pSineWave, void* pFramesOut, ma_uint64 frameCount, ma_format format, ma_uint32 channels)
 {
     if (pSineWave == NULL) {
@@ -36225,37 +36217,6 @@ ma_uint64 ma_sine_wave_read_pcm_frames(ma_sine_wave* pSineWave, void* pFramesOut
         }
     } else {
         pSineWave->time += pSineWave->delta * (ma_int64)frameCount; /* Cast to int64 required for VC6. Won't affect anything in practice. */
-    }
-
-    return frameCount;
-}
-
-ma_uint64 ma_sine_wave_read_f32_ex(ma_sine_wave* pSineWave, ma_uint64 frameCount, ma_uint32 channels, ma_stream_layout layout, float** ppFrames)
-{
-    if (pSineWave == NULL) {
-        return 0;
-    }
-
-    if (ppFrames != NULL) {
-        ma_uint64 iFrame;
-        for (iFrame = 0; iFrame < frameCount; iFrame += 1) {
-            ma_uint32 iChannel;
-
-            float s = (float)(sin(pSineWave->time * pSineWave->periodsPerSecond) * pSineWave->amplitude);
-            pSineWave->time += pSineWave->delta;
-
-            if (layout == ma_stream_layout_interleaved) {
-                for (iChannel = 0; iChannel < channels; iChannel += 1) {
-                    ppFrames[0][iFrame*channels + iChannel] = s;
-                }
-            } else {
-                for (iChannel = 0; iChannel < channels; iChannel += 1) {
-                    ppFrames[iChannel][iFrame] = s;
-                }
-            }
-        }
-    } else {
-        pSineWave->time += pSineWave->delta * (ma_int64)frameCount; /* Cast to int64 required for VC6. */
     }
 
     return frameCount;
