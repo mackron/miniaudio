@@ -6314,25 +6314,6 @@ static MA_INLINE ma_uint32 ma_device__get_state(ma_device* pDevice)
 #endif
 
 
-static ma_bool32 ma_context__device_id_equal(ma_context* pContext, const ma_device_id* pID0, const ma_device_id* pID1)
-{
-    MA_ASSERT(pContext != NULL);
-
-    if (pID0 == pID1) return MA_TRUE;
-
-    if ((pID0 == NULL && pID1 != NULL) ||
-        (pID0 != NULL && pID1 == NULL)) {
-        return MA_FALSE;
-    }
-
-    if (pContext->onDeviceIDEqual) {
-        return pContext->onDeviceIDEqual(pContext, pID0, pID1);
-    }
-
-    return MA_FALSE;
-}
-
-
 typedef struct
 {
     ma_device_type deviceType;
@@ -34075,40 +34056,6 @@ static ma_bool32 ma_decoder_seek_bytes(ma_decoder* pDecoder, int byteOffset, ma_
     }
 
     return wasSuccessful;
-}
-
-static ma_bool32 ma_decoder_seek_bytes_64(ma_decoder* pDecoder, ma_uint64 byteOffset, ma_seek_origin origin)
-{
-    MA_ASSERT(pDecoder != NULL);
-
-    if (origin == ma_seek_origin_start) {
-        ma_uint64 bytesToSeekThisIteration = 0x7FFFFFFF;
-        if (bytesToSeekThisIteration > byteOffset) {
-            bytesToSeekThisIteration = byteOffset;
-        }
-
-        if (!ma_decoder_seek_bytes(pDecoder, (int)bytesToSeekThisIteration, ma_seek_origin_start)) {
-            return MA_FALSE;
-        }
-
-        byteOffset -= bytesToSeekThisIteration;
-    }
-
-    /* Getting here means we need to seek relative to the current position. */
-    while (byteOffset > 0) {
-        ma_uint64 bytesToSeekThisIteration = 0x7FFFFFFF;
-        if (bytesToSeekThisIteration > byteOffset) {
-            bytesToSeekThisIteration = byteOffset;
-        }
-
-        if (!ma_decoder_seek_bytes(pDecoder, (int)bytesToSeekThisIteration, ma_seek_origin_current)) {
-            return MA_FALSE;
-        }
-
-        byteOffset -= bytesToSeekThisIteration;
-    }
-
-    return MA_TRUE;
 }
 
 
