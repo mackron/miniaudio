@@ -3433,6 +3433,10 @@ typedef struct
         {
             ma_uint32 lpfCount;
         } linear;
+        struct
+        {
+            int quality;
+        } speex;
     } resampling;
 } ma_decoder_config;
 
@@ -34172,6 +34176,7 @@ ma_decoder_config ma_decoder_config_init(ma_format outputFormat, ma_uint32 outpu
     ma_get_standard_channel_map(ma_standard_channel_map_default, config.channels, config.channelMap);
     config.resampling.algorithm = ma_resample_algorithm_linear;
     config.resampling.linear.lpfCount = 1;
+    config.resampling.speex.quality = 3;
 
     return config;
 }
@@ -34227,10 +34232,12 @@ static ma_result ma_decoder__init_data_converter(ma_decoder* pDecoder, const ma_
     );
     ma_channel_map_copy(converterConfig.channelMapIn,  pDecoder->internalChannelMap, pDecoder->internalChannels);
     ma_channel_map_copy(converterConfig.channelMapOut, pDecoder->outputChannelMap,   pDecoder->outputChannels);
-    converterConfig.channelMixMode       = pConfig->channelMixMode;
-    converterConfig.ditherMode           = pConfig->ditherMode;
-    converterConfig.resampling.algorithm = pConfig->resampling.algorithm;
+    converterConfig.channelMixMode             = pConfig->channelMixMode;
+    converterConfig.ditherMode                 = pConfig->ditherMode;
     converterConfig.resampling.allowDynamicSampleRate = MA_FALSE;   /* Never allow dynamic sample rate conversion. Setting this to true will disable passthrough optimizations. */
+    converterConfig.resampling.algorithm       = pConfig->resampling.algorithm;
+    converterConfig.resampling.linear.lpfCount = pConfig->resampling.linear.lpfCount;
+    converterConfig.resampling.speex.quality   = pConfig->resampling.speex.quality;
 
     return ma_data_converter_init(&converterConfig, &pDecoder->converter);
 }
