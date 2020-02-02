@@ -4396,7 +4396,7 @@ char* ma_copy_string(const char* src)
 }
 
 
-void ma_copy_memory_64(void* dst, const void* src, ma_uint64 sizeInBytes)
+static MA_INLINE void ma_copy_memory_64(void* dst, const void* src, ma_uint64 sizeInBytes)
 {
 #if 0xFFFFFFFFFFFFFFFF <= MA_SIZE_MAX
     MA_COPY_MEMORY(dst, src, (size_t)sizeInBytes);
@@ -4416,7 +4416,7 @@ void ma_copy_memory_64(void* dst, const void* src, ma_uint64 sizeInBytes)
 #endif
 }
 
-void ma_zero_memory_64(void* dst, ma_uint64 sizeInBytes)
+static MA_INLINE void ma_zero_memory_64(void* dst, ma_uint64 sizeInBytes)
 {
 #if 0xFFFFFFFFFFFFFFFF <= MA_SIZE_MAX
     MA_ZERO_MEMORY(dst, (size_t)sizeInBytes);
@@ -4577,12 +4577,12 @@ for miniaudio's purposes.
 #define MA_LCG_C   0
 static ma_int32 g_maLCG = 4321; /* Non-zero initial seed. Use ma_seed() to use an explicit seed. */
 
-void ma_seed(ma_int32 seed)
+static MA_INLINE void ma_seed(ma_int32 seed)
 {
     g_maLCG = seed;
 }
 
-ma_int32 ma_rand_s32()
+static MA_INLINE ma_int32 ma_rand_s32()
 {
     ma_int32 lcg = g_maLCG;
     ma_int32 r = (MA_LCG_A * lcg + MA_LCG_C) % MA_LCG_M;
@@ -4590,27 +4590,27 @@ ma_int32 ma_rand_s32()
     return r;
 }
 
-ma_uint32 ma_rand_u32()
+static MA_INLINE ma_uint32 ma_rand_u32()
 {
     return (ma_uint32)ma_rand_s32();
 }
 
-double ma_rand_f64()
+static MA_INLINE double ma_rand_f64()
 {
     return ma_rand_s32() / (double)0x7FFFFFFF;
 }
 
-float ma_rand_f32()
+static MA_INLINE float ma_rand_f32()
 {
     return (float)ma_rand_f64();
 }
 
-float ma_rand_range_f32(float lo, float hi)
+static MA_INLINE float ma_rand_range_f32(float lo, float hi)
 {
     return ma_scale_to_range_f32(ma_rand_f32(), lo, hi);
 }
 
-ma_int32 ma_rand_range_s32(ma_int32 lo, ma_int32 hi)
+static MA_INLINE ma_int32 ma_rand_range_s32(ma_int32 lo, ma_int32 hi)
 {
     if (lo == hi) {
         return lo;
