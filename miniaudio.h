@@ -4103,8 +4103,6 @@ Standard Library Stuff
 
 #define MA_ZERO_OBJECT(p) MA_ZERO_MEMORY((p), sizeof(*(p)))
 
-#define ma_assert      MA_ASSERT
-
 #define ma_countof(x)               (sizeof(x) / sizeof(x[0]))
 #define ma_max(x, y)                (((x) > (y)) ? (x) : (y))
 #define ma_min(x, y)                (((x) < (y)) ? (x) : (y))
@@ -5450,7 +5448,7 @@ void ma_sleep__posix(ma_uint32 milliseconds)
 {
 #ifdef MA_EMSCRIPTEN
     (void)milliseconds;
-    ma_assert(MA_FALSE);  /* The Emscripten build should never sleep. */
+    MA_ASSERT(MA_FALSE);  /* The Emscripten build should never sleep. */
 #else
     #if _POSIX_C_SOURCE >= 199309L
         struct timespec ts;
@@ -5814,7 +5812,7 @@ ma_uint32 ma_get_best_sample_rate_within_range(ma_uint32 sampleRateMin, ma_uint3
     }
 
     /* Should never get here. */
-    ma_assert(MA_FALSE);
+    MA_ASSERT(MA_FALSE);
     return 0;
 }
 
@@ -6146,9 +6144,9 @@ static MA_INLINE void ma_device__on_data(ma_device* pDevice, void* pFramesOut, c
 /* A helper function for reading sample data from the client. */
 static void ma_device__read_frames_from_client(ma_device* pDevice, ma_uint32 frameCount, void* pFramesOut)
 {
-    ma_assert(pDevice != NULL);
-    ma_assert(frameCount > 0);
-    ma_assert(pFramesOut != NULL);
+    MA_ASSERT(pDevice != NULL);
+    MA_ASSERT(frameCount > 0);
+    MA_ASSERT(pFramesOut != NULL);
 
     if (pDevice->playback.converter.isPassthrough) {
         ma_device__on_data(pDevice, pFramesOut, NULL, frameCount);
@@ -6211,9 +6209,9 @@ static void ma_device__read_frames_from_client(ma_device* pDevice, ma_uint32 fra
 /* A helper for sending sample data to the client. */
 static void ma_device__send_frames_to_client(ma_device* pDevice, ma_uint32 frameCountInDeviceFormat, const void* pFramesInDeviceFormat)
 {
-    ma_assert(pDevice != NULL);
-    ma_assert(frameCountInDeviceFormat > 0);
-    ma_assert(pFramesInDeviceFormat != NULL);
+    MA_ASSERT(pDevice != NULL);
+    MA_ASSERT(frameCountInDeviceFormat > 0);
+    MA_ASSERT(pFramesInDeviceFormat != NULL);
 
     if (pDevice->capture.converter.isPassthrough) {
         ma_device__on_data(pDevice, NULL, pFramesInDeviceFormat, frameCountInDeviceFormat);
@@ -6259,10 +6257,10 @@ static MA_INLINE ma_result ma_device__handle_duplex_callback_capture(ma_device* 
     ma_uint32 totalDeviceFramesProcessed = 0;
     const void* pRunningFramesInDeviceFormat = pFramesInDeviceFormat;
 
-    ma_assert(pDevice != NULL);
-    ma_assert(frameCountInDeviceFormat > 0);
-    ma_assert(pFramesInDeviceFormat != NULL);
-    ma_assert(pRB != NULL);
+    MA_ASSERT(pDevice != NULL);
+    MA_ASSERT(frameCountInDeviceFormat > 0);
+    MA_ASSERT(pFramesInDeviceFormat != NULL);
+    MA_ASSERT(pRB != NULL);
     
     /* Write to the ring buffer. The ring buffer is in the client format which means we need to convert. */
     for (;;) {
@@ -6319,10 +6317,10 @@ static MA_INLINE ma_result ma_device__handle_duplex_callback_playback(ma_device*
     ma_uint32 totalFramesReadFromClient;
     ma_uint32 totalFramesReadOut = 0;
 
-    ma_assert(pDevice != NULL);
-    ma_assert(frameCount > 0);
-    ma_assert(pFramesInInternalFormat != NULL);
-    ma_assert(pRB != NULL);
+    MA_ASSERT(pDevice != NULL);
+    MA_ASSERT(frameCount > 0);
+    MA_ASSERT(pFramesInInternalFormat != NULL);
+    MA_ASSERT(pRB != NULL);
     
     /*
     Sitting in the ring buffer should be captured data from the capture callback in external format. If there's not enough data in there for
@@ -6411,7 +6409,7 @@ static MA_INLINE ma_uint32 ma_device__get_state(ma_device* pDevice)
 
 ma_bool32 ma_context__device_id_equal(ma_context* pContext, const ma_device_id* pID0, const ma_device_id* pID1)
 {
-    ma_assert(pContext != NULL);
+    MA_ASSERT(pContext != NULL);
 
     if (pID0 == pID1) return MA_TRUE;
 
@@ -6440,7 +6438,7 @@ typedef struct
 ma_bool32 ma_context__try_get_device_name_by_id__enum_callback(ma_context* pContext, ma_device_type deviceType, const ma_device_info* pDeviceInfo, void* pUserData)
 {
     ma_context__try_get_device_name_by_id__enum_callback_data* pData = (ma_context__try_get_device_name_by_id__enum_callback_data*)pUserData;
-    ma_assert(pData != NULL);
+    MA_ASSERT(pData != NULL);
 
     if (pData->deviceType == deviceType) {
         if (pContext->onDeviceIDEqual(pContext, pData->pDeviceID, &pDeviceInfo->id)) {
@@ -6462,8 +6460,8 @@ ma_result ma_context__try_get_device_name_by_id(ma_context* pContext, ma_device_
     ma_result result;
     ma_context__try_get_device_name_by_id__enum_callback_data data;
 
-    ma_assert(pContext != NULL);
-    ma_assert(pName != NULL);
+    MA_ASSERT(pContext != NULL);
+    MA_ASSERT(pName != NULL);
 
     if (pDeviceID == NULL) {
         return MA_NO_DEVICE;
@@ -6518,7 +6516,7 @@ Null Backend
 ma_thread_result MA_THREADCALL ma_device_thread__null(void* pData)
 {
     ma_device* pDevice = (ma_device*)pData;
-    ma_assert(pDevice != NULL);
+    MA_ASSERT(pDevice != NULL);
 
     for (;;) {  /* Keep the thread alive until the device is uninitialized. */
         /* Wait for an operation to be requested. */
@@ -6568,7 +6566,7 @@ ma_thread_result MA_THREADCALL ma_device_thread__null(void* pData)
 
         /* Getting a signal on a "none" operation probably means an error. Return invalid operation. */
         if (pDevice->null_device.operation == MA_DEVICE_OP_NONE__NULL) {
-            ma_assert(MA_FALSE);  /* <-- Trigger this in debug mode to ensure developers are aware they're doing something wrong (or there's a bug in a miniaudio). */
+            MA_ASSERT(MA_FALSE);  /* <-- Trigger this in debug mode to ensure developers are aware they're doing something wrong (or there's a bug in a miniaudio). */
             ma_atomic_exchange_32(&pDevice->null_device.operationResult, MA_INVALID_OPERATION);
             ma_event_signal(&pDevice->null_device.operationCompletionEvent);
             continue;   /* Continue the loop. Don't terminate. */
@@ -6607,9 +6605,9 @@ ma_uint64 ma_device_get_total_run_time_in_frames__null(ma_device* pDevice)
 
 ma_bool32 ma_context_is_device_id_equal__null(ma_context* pContext, const ma_device_id* pID0, const ma_device_id* pID1)
 {
-    ma_assert(pContext != NULL);
-    ma_assert(pID0 != NULL);
-    ma_assert(pID1 != NULL);
+    MA_ASSERT(pContext != NULL);
+    MA_ASSERT(pID0 != NULL);
+    MA_ASSERT(pID1 != NULL);
     (void)pContext;
 
     return pID0->nullbackend == pID1->nullbackend;
@@ -6619,8 +6617,8 @@ ma_result ma_context_enumerate_devices__null(ma_context* pContext, ma_enum_devic
 {
     ma_bool32 cbResult = MA_TRUE;
 
-    ma_assert(pContext != NULL);
-    ma_assert(callback != NULL);
+    MA_ASSERT(pContext != NULL);
+    MA_ASSERT(callback != NULL);
 
     /* Playback. */
     if (cbResult) {
@@ -6645,7 +6643,7 @@ ma_result ma_context_get_device_info__null(ma_context* pContext, ma_device_type 
 {
     ma_uint32 iFormat;
 
-    ma_assert(pContext != NULL);
+    MA_ASSERT(pContext != NULL);
 
     if (pDeviceID != NULL && pDeviceID->nullbackend != 0) {
         return MA_NO_DEVICE;   /* Don't know the device. */
@@ -6677,7 +6675,7 @@ ma_result ma_context_get_device_info__null(ma_context* pContext, ma_device_type 
 
 void ma_device_uninit__null(ma_device* pDevice)
 {
-    ma_assert(pDevice != NULL);
+    MA_ASSERT(pDevice != NULL);
 
     /* Keep it clean and wait for the device thread to finish before returning. */
     ma_device_do_operation__null(pDevice, MA_DEVICE_OP_KILL__NULL);
@@ -6692,7 +6690,7 @@ ma_result ma_device_init__null(ma_context* pContext, const ma_device_config* pCo
     ma_result result;
     ma_uint32 bufferSizeInFrames;
 
-    ma_assert(pDevice != NULL);
+    MA_ASSERT(pDevice != NULL);
 
     MA_ZERO_OBJECT(&pDevice->null_device);
 
@@ -6746,7 +6744,7 @@ ma_result ma_device_init__null(ma_context* pContext, const ma_device_config* pCo
 
 ma_result ma_device_start__null(ma_device* pDevice)
 {
-    ma_assert(pDevice != NULL);
+    MA_ASSERT(pDevice != NULL);
 
     ma_device_do_operation__null(pDevice, MA_DEVICE_OP_START__NULL);
 
@@ -6756,7 +6754,7 @@ ma_result ma_device_start__null(ma_device* pDevice)
 
 ma_result ma_device_stop__null(ma_device* pDevice)
 {
-    ma_assert(pDevice != NULL);
+    MA_ASSERT(pDevice != NULL);
 
     ma_device_do_operation__null(pDevice, MA_DEVICE_OP_SUSPEND__NULL);
 
@@ -6809,7 +6807,7 @@ ma_result ma_device_write__null(ma_device* pDevice, const void* pPCMFrames, ma_u
         }
 
         /* If we've consumed the whole buffer we can return now. */
-        ma_assert(totalPCMFramesProcessed <= frameCount);
+        MA_ASSERT(totalPCMFramesProcessed <= frameCount);
         if (totalPCMFramesProcessed == frameCount) {
             break;
         }
@@ -6880,7 +6878,7 @@ ma_result ma_device_read__null(ma_device* pDevice, void* pPCMFrames, ma_uint32 f
         }
 
         /* If we've consumed the whole buffer we can return now. */
-        ma_assert(totalPCMFramesProcessed <= frameCount);
+        MA_ASSERT(totalPCMFramesProcessed <= frameCount);
         if (totalPCMFramesProcessed == frameCount) {
             break;
         }
@@ -6920,7 +6918,7 @@ ma_result ma_device_main_loop__null(ma_device* pDevice)
     ma_result result = MA_SUCCESS;
     ma_bool32 exitLoop = MA_FALSE;
     
-    ma_assert(pDevice != NULL);
+    MA_ASSERT(pDevice != NULL);
 
     /* The capture device needs to be started immediately. */
     if (pDevice->type == ma_device_type_capture || pDevice->type == ma_device_type_duplex) {
@@ -7091,8 +7089,8 @@ ma_result ma_device_main_loop__null(ma_device* pDevice)
 
 ma_result ma_context_uninit__null(ma_context* pContext)
 {
-    ma_assert(pContext != NULL);
-    ma_assert(pContext->backend == ma_backend_null);
+    MA_ASSERT(pContext != NULL);
+    MA_ASSERT(pContext->backend == ma_backend_null);
 
     (void)pContext;
     return MA_SUCCESS;
@@ -7100,7 +7098,7 @@ ma_result ma_context_uninit__null(ma_context* pContext)
 
 ma_result ma_context_init__null(const ma_context_config* pConfig, ma_context* pContext)
 {
-    ma_assert(pContext != NULL);
+    MA_ASSERT(pContext != NULL);
 
     (void)pConfig;
 
@@ -7316,7 +7314,7 @@ ma_bool32 ma_is_guid_equal(const void* a, const void* b)
 
 ma_format ma_format_from_WAVEFORMATEX(const WAVEFORMATEX* pWF)
 {
-    ma_assert(pWF != NULL);
+    MA_ASSERT(pWF != NULL);
 
     if (pWF->wFormatTag == WAVE_FORMAT_EXTENSIBLE) {
         const WAVEFORMATEXTENSIBLE* pWFEX = (const WAVEFORMATEXTENSIBLE*)pWF;
@@ -7976,7 +7974,7 @@ static ma_completion_handler_uwp_vtbl g_maCompletionHandlerVtblInstance = {
 
 ma_result ma_completion_handler_uwp_init(ma_completion_handler_uwp* pHandler)
 {
-    ma_assert(pHandler != NULL);
+    MA_ASSERT(pHandler != NULL);
     MA_ZERO_OBJECT(pHandler);
 
     pHandler->lpVtbl = &g_maCompletionHandlerVtblInstance;
@@ -8156,9 +8154,9 @@ typedef ma_IUnknown ma_WASAPIDeviceInterface;
 
 ma_bool32 ma_context_is_device_id_equal__wasapi(ma_context* pContext, const ma_device_id* pID0, const ma_device_id* pID1)
 {
-    ma_assert(pContext != NULL);
-    ma_assert(pID0 != NULL);
-    ma_assert(pID1 != NULL);
+    MA_ASSERT(pContext != NULL);
+    MA_ASSERT(pID0 != NULL);
+    MA_ASSERT(pID1 != NULL);
     (void)pContext;
 
     return memcmp(pID0->wasapi, pID1->wasapi, sizeof(pID0->wasapi)) == 0;
@@ -8166,8 +8164,8 @@ ma_bool32 ma_context_is_device_id_equal__wasapi(ma_context* pContext, const ma_d
 
 void ma_set_device_info_from_WAVEFORMATEX(const WAVEFORMATEX* pWF, ma_device_info* pInfo)
 {
-    ma_assert(pWF != NULL);
-    ma_assert(pInfo != NULL);
+    MA_ASSERT(pWF != NULL);
+    MA_ASSERT(pInfo != NULL);
 
     pInfo->formatCount   = 1;
     pInfo->formats[0]    = ma_format_from_WAVEFORMATEX(pWF);
@@ -8179,8 +8177,8 @@ void ma_set_device_info_from_WAVEFORMATEX(const WAVEFORMATEX* pWF, ma_device_inf
 
 ma_result ma_context_get_device_info_from_IAudioClient__wasapi(ma_context* pContext, /*ma_IMMDevice**/void* pMMDevice, ma_IAudioClient* pAudioClient, ma_share_mode shareMode, ma_device_info* pInfo)
 {
-    ma_assert(pAudioClient != NULL);
-    ma_assert(pInfo != NULL);
+    MA_ASSERT(pAudioClient != NULL);
+    MA_ASSERT(pInfo != NULL);
 
     /* We use a different technique to retrieve the device information depending on whether or not we are using shared or exclusive mode. */
     if (shareMode == ma_share_mode_shared) {
@@ -8305,8 +8303,8 @@ ma_result ma_context_get_MMDevice__wasapi(ma_context* pContext, ma_device_type d
     ma_IMMDeviceEnumerator* pDeviceEnumerator;
     HRESULT hr;
 
-    ma_assert(pContext != NULL);
-    ma_assert(ppMMDevice != NULL);
+    MA_ASSERT(pContext != NULL);
+    MA_ASSERT(ppMMDevice != NULL);
 
     hr = ma_CoCreateInstance(pContext, MA_CLSID_MMDeviceEnumerator, NULL, CLSCTX_ALL, MA_IID_IMMDeviceEnumerator, (void**)&pDeviceEnumerator);
     if (FAILED(hr)) {
@@ -8332,9 +8330,9 @@ ma_result ma_context_get_device_info_from_MMDevice__wasapi(ma_context* pContext,
     LPWSTR id;
     HRESULT hr;
 
-    ma_assert(pContext != NULL);
-    ma_assert(pMMDevice != NULL);
-    ma_assert(pInfo != NULL);
+    MA_ASSERT(pContext != NULL);
+    MA_ASSERT(pMMDevice != NULL);
+    MA_ASSERT(pInfo != NULL);
 
     /* ID. */
     hr = ma_IMMDevice_GetId(pMMDevice, &id);
@@ -8342,7 +8340,7 @@ ma_result ma_context_get_device_info_from_MMDevice__wasapi(ma_context* pContext,
         size_t idlen = wcslen(id);
         if (idlen+1 > ma_countof(pInfo->id.wasapi)) {
             ma_CoTaskMemFree(pContext, id);
-            ma_assert(MA_FALSE);  /* NOTE: If this is triggered, please report it. It means the format of the ID must haved change and is too long to fit in our fixed sized buffer. */
+            MA_ASSERT(MA_FALSE);  /* NOTE: If this is triggered, please report it. It means the format of the ID must haved change and is too long to fit in our fixed sized buffer. */
             return MA_ERROR;
         }
 
@@ -8393,8 +8391,8 @@ ma_result ma_context_enumerate_device_collection__wasapi(ma_context* pContext, m
     HRESULT hr;
     ma_uint32 iDevice;
 
-    ma_assert(pContext != NULL);
-    ma_assert(callback != NULL);
+    MA_ASSERT(pContext != NULL);
+    MA_ASSERT(callback != NULL);
 
     hr = ma_IMMDeviceCollection_GetCount(pDeviceCollection, &deviceCount);
     if (FAILED(hr)) {
@@ -8431,9 +8429,9 @@ ma_result ma_context_get_IAudioClient_Desktop__wasapi(ma_context* pContext, ma_d
     ma_result result;
     HRESULT hr;
 
-    ma_assert(pContext != NULL);
-    ma_assert(ppAudioClient != NULL);
-    ma_assert(ppMMDevice != NULL);
+    MA_ASSERT(pContext != NULL);
+    MA_ASSERT(ppAudioClient != NULL);
+    MA_ASSERT(ppMMDevice != NULL);
 
     result = ma_context_get_MMDevice__wasapi(pContext, deviceType, pDeviceID, ppMMDevice);
     if (result != MA_SUCCESS) {
@@ -8459,8 +8457,8 @@ ma_result ma_context_get_IAudioClient_UWP__wasapi(ma_context* pContext, ma_devic
     HRESULT activateResult;
     ma_IUnknown* pActivatedInterface;
 
-    ma_assert(pContext != NULL);
-    ma_assert(ppAudioClient != NULL);
+    MA_ASSERT(pContext != NULL);
+    MA_ASSERT(ppAudioClient != NULL);
 
     if (pDeviceID != NULL) {
         MA_COPY_MEMORY(&iid, pDeviceID->wasapi, sizeof(iid));
@@ -8644,7 +8642,7 @@ ma_result ma_context_get_device_info__wasapi(ma_context* pContext, ma_device_typ
 
 void ma_device_uninit__wasapi(ma_device* pDevice)
 {
-    ma_assert(pDevice != NULL);
+    MA_ASSERT(pDevice != NULL);
 
 #ifdef MA_WIN32_DESKTOP
     if (pDevice->wasapi.pDeviceEnumerator) {
@@ -8724,8 +8722,8 @@ ma_result ma_device_init_internal__wasapi(ma_context* pContext, ma_device_type d
     ma_IAudioClient2* pAudioClient2;
     ma_uint32 nativeSampleRate;
 
-    ma_assert(pContext != NULL);
-    ma_assert(pData != NULL);
+    MA_ASSERT(pContext != NULL);
+    MA_ASSERT(pData != NULL);
 
     /* This function is only used to initialize one device type: either playback, capture or loopback. Never full-duplex. */
     if (deviceType == ma_device_type_duplex) {
@@ -9102,7 +9100,7 @@ ma_result ma_device_reinit__wasapi(ma_device* pDevice, ma_device_type deviceType
     ma_device_init_internal_data__wasapi data;
     ma_result result;
 
-    ma_assert(pDevice != NULL);
+    MA_ASSERT(pDevice != NULL);
 
     /* We only re-initialize the playback or capture device. Never a full-duplex device. */
     if (deviceType == ma_device_type_duplex) {
@@ -9222,8 +9220,8 @@ ma_result ma_device_init__wasapi(ma_context* pContext, const ma_device_config* p
 
     (void)pContext;
 
-    ma_assert(pContext != NULL);
-    ma_assert(pDevice != NULL);
+    MA_ASSERT(pContext != NULL);
+    MA_ASSERT(pDevice != NULL);
 
     MA_ZERO_OBJECT(&pDevice->wasapi);
     pDevice->wasapi.originalBufferSizeInFrames       = pConfig->bufferSizeInFrames;
@@ -9430,8 +9428,8 @@ ma_result ma_device__get_available_frames__wasapi(ma_device* pDevice, ma_IAudioC
     HRESULT hr;
     ma_share_mode shareMode;
 
-    ma_assert(pDevice != NULL);
-    ma_assert(pFrameCount != NULL);
+    MA_ASSERT(pDevice != NULL);
+    MA_ASSERT(pFrameCount != NULL);
     
     *pFrameCount = 0;
 
@@ -9461,7 +9459,7 @@ ma_result ma_device__get_available_frames__wasapi(ma_device* pDevice, ma_IAudioC
 
 ma_bool32 ma_device_is_reroute_required__wasapi(ma_device* pDevice, ma_device_type deviceType)
 {
-    ma_assert(pDevice != NULL);
+    MA_ASSERT(pDevice != NULL);
 
     if (deviceType == ma_device_type_playback) {
         return pDevice->wasapi.hasDefaultPlaybackDeviceChanged;
@@ -9507,7 +9505,7 @@ ma_result ma_device_reroute__wasapi(ma_device* pDevice, ma_device_type deviceTyp
 
 ma_result ma_device_stop__wasapi(ma_device* pDevice)
 {
-    ma_assert(pDevice != NULL);
+    MA_ASSERT(pDevice != NULL);
 
     /*
     We need to explicitly signal the capture event in loopback mode to ensure we return from WaitForSingleObject() when nothing is being played. When nothing
@@ -10079,8 +10077,8 @@ ma_result ma_device_main_loop__wasapi(ma_device* pDevice)
 
 ma_result ma_context_uninit__wasapi(ma_context* pContext)
 {
-    ma_assert(pContext != NULL);
-    ma_assert(pContext->backend == ma_backend_wasapi);
+    MA_ASSERT(pContext != NULL);
+    MA_ASSERT(pContext->backend == ma_backend_wasapi);
     (void)pContext;
 
     return MA_SUCCESS;
@@ -10090,7 +10088,7 @@ ma_result ma_context_init__wasapi(const ma_context_config* pConfig, ma_context* 
 {
     ma_result result = MA_SUCCESS;
 
-    ma_assert(pContext != NULL);
+    MA_ASSERT(pContext != NULL);
 
     (void)pConfig;
 
@@ -10531,8 +10529,8 @@ ma_result ma_context_create_IDirectSound__dsound(ma_context* pContext, ma_share_
     ma_IDirectSound* pDirectSound;
     HWND hWnd;
 
-    ma_assert(pContext != NULL);
-    ma_assert(ppDirectSound != NULL);
+    MA_ASSERT(pContext != NULL);
+    MA_ASSERT(ppDirectSound != NULL);
 
     *ppDirectSound = NULL;
     pDirectSound = NULL;
@@ -10558,8 +10556,8 @@ ma_result ma_context_create_IDirectSoundCapture__dsound(ma_context* pContext, ma
 {
     ma_IDirectSoundCapture* pDirectSoundCapture;
 
-    ma_assert(pContext != NULL);
-    ma_assert(ppDirectSoundCapture != NULL);
+    MA_ASSERT(pContext != NULL);
+    MA_ASSERT(ppDirectSoundCapture != NULL);
 
     /* DirectSound does not support exclusive mode for capture. */
     if (shareMode == ma_share_mode_exclusive) {
@@ -10583,8 +10581,8 @@ ma_result ma_context_get_format_info_for_IDirectSoundCapture__dsound(ma_context*
     WORD bitsPerSample;
     DWORD sampleRate;
 
-    ma_assert(pContext != NULL);
-    ma_assert(pDirectSoundCapture != NULL);
+    MA_ASSERT(pContext != NULL);
+    MA_ASSERT(pDirectSoundCapture != NULL);
 
     if (pChannels) {
         *pChannels = 0;
@@ -10678,9 +10676,9 @@ ma_result ma_context_get_format_info_for_IDirectSoundCapture__dsound(ma_context*
 
 ma_bool32 ma_context_is_device_id_equal__dsound(ma_context* pContext, const ma_device_id* pID0, const ma_device_id* pID1)
 {
-    ma_assert(pContext != NULL);
-    ma_assert(pID0 != NULL);
-    ma_assert(pID1 != NULL);
+    MA_ASSERT(pContext != NULL);
+    MA_ASSERT(pID0 != NULL);
+    MA_ASSERT(pID1 != NULL);
     (void)pContext;
 
     return memcmp(pID0->dsound, pID1->dsound, sizeof(pID0->dsound)) == 0;
@@ -10715,7 +10713,7 @@ BOOL CALLBACK ma_context_enumerate_devices_callback__dsound(LPGUID lpGuid, LPCST
 
 
     /* Call the callback function, but make sure we stop enumerating if the callee requested so. */
-    ma_assert(pData != NULL);
+    MA_ASSERT(pData != NULL);
     pData->terminated = !pData->callback(pData->pContext, pData->deviceType, &deviceInfo, pData->pUserData);
     if (pData->terminated) {
         return FALSE;   /* Stop enumeration. */
@@ -10730,8 +10728,8 @@ ma_result ma_context_enumerate_devices__dsound(ma_context* pContext, ma_enum_dev
 {
     ma_context_enumerate_devices_callback_data__dsound data;
 
-    ma_assert(pContext != NULL);
-    ma_assert(callback != NULL);
+    MA_ASSERT(pContext != NULL);
+    MA_ASSERT(callback != NULL);
 
     data.pContext = pContext;
     data.callback = callback;
@@ -10764,7 +10762,7 @@ typedef struct
 BOOL CALLBACK ma_context_get_device_info_callback__dsound(LPGUID lpGuid, LPCSTR lpcstrDescription, LPCSTR lpcstrModule, LPVOID lpContext)
 {
     ma_context_get_device_info_callback_data__dsound* pData = (ma_context_get_device_info_callback_data__dsound*)lpContext;
-    ma_assert(pData != NULL);
+    MA_ASSERT(pData != NULL);
 
     if ((pData->pDeviceID == NULL || ma_is_guid_equal(pData->pDeviceID->dsound, &MA_GUID_NULL)) && (lpGuid == NULL || ma_is_guid_equal(lpGuid, &MA_GUID_NULL))) {
         /* Default device. */
@@ -10949,7 +10947,7 @@ typedef struct
 BOOL CALLBACK ma_enum_devices_callback__dsound(LPGUID lpGuid, LPCSTR lpcstrDescription, LPCSTR lpcstrModule, LPVOID lpContext)
 {
     ma_device_enum_data__dsound* pData = (ma_device_enum_data__dsound*)lpContext;
-    ma_assert(pData != NULL);
+    MA_ASSERT(pData != NULL);
 
     if (pData->pInfo != NULL) {
         if (pData->infoCount > 0) {
@@ -10976,7 +10974,7 @@ BOOL CALLBACK ma_enum_devices_callback__dsound(LPGUID lpGuid, LPCSTR lpcstrDescr
 
 void ma_device_uninit__dsound(ma_device* pDevice)
 {
-    ma_assert(pDevice != NULL);
+    MA_ASSERT(pDevice != NULL);
 
     if (pDevice->dsound.pCaptureBuffer != NULL) {
         ma_IDirectSoundCaptureBuffer_Release((ma_IDirectSoundCaptureBuffer*)pDevice->dsound.pCaptureBuffer);
@@ -11040,7 +11038,7 @@ ma_result ma_device_init__dsound(ma_context* pContext, const ma_device_config* p
     ma_result result;
     ma_uint32 bufferSizeInMilliseconds;
 
-    ma_assert(pDevice != NULL);
+    MA_ASSERT(pDevice != NULL);
     MA_ZERO_OBJECT(&pDevice->dsound);
 
     if (pConfig->deviceType == ma_device_type_loopback) {
@@ -11308,7 +11306,7 @@ ma_result ma_device_main_loop__dsound(ma_device* pDevice)
     ma_uint32 framesWrittenToPlaybackDevice = 0;   /* For knowing whether or not the playback device needs to be started. */
     ma_uint32 waitTimeInMilliseconds = 1;
 
-    ma_assert(pDevice != NULL);
+    MA_ASSERT(pDevice != NULL);
 
     /* The first thing to do is start the capture device. The playback device is only started after the first period is written. */
     if (pDevice->type == ma_device_type_capture || pDevice->type == ma_device_type_duplex) {
@@ -11799,8 +11797,8 @@ ma_result ma_device_main_loop__dsound(ma_device* pDevice)
 
 ma_result ma_context_uninit__dsound(ma_context* pContext)
 {
-    ma_assert(pContext != NULL);
-    ma_assert(pContext->backend == ma_backend_dsound);
+    MA_ASSERT(pContext != NULL);
+    MA_ASSERT(pContext->backend == ma_backend_dsound);
 
     ma_dlclose(pContext, pContext->dsound.hDSoundDLL);
 
@@ -11809,7 +11807,7 @@ ma_result ma_context_uninit__dsound(ma_context* pContext)
 
 ma_result ma_context_init__dsound(const ma_context_config* pConfig, ma_context* pContext)
 {
-    ma_assert(pContext != NULL);
+    MA_ASSERT(pContext != NULL);
 
     (void)pConfig;
 
@@ -12027,7 +12025,7 @@ ma_result ma_get_best_info_from_formats_flags__winmm(DWORD dwFormats, WORD chann
 
 ma_result ma_formats_flags_to_WAVEFORMATEX__winmm(DWORD dwFormats, WORD channels, WAVEFORMATEX* pWF)
 {
-    ma_assert(pWF != NULL);
+    MA_ASSERT(pWF != NULL);
 
     MA_ZERO_OBJECT(pWF);
     pWF->cbSize     = sizeof(*pWF);
@@ -12107,9 +12105,9 @@ ma_result ma_context_get_device_info_from_WAVECAPS(ma_context* pContext, MA_WAVE
     DWORD sampleRate;
     ma_result result;
 
-    ma_assert(pContext != NULL);
-    ma_assert(pCaps != NULL);
-    ma_assert(pDeviceInfo != NULL);
+    MA_ASSERT(pContext != NULL);
+    MA_ASSERT(pCaps != NULL);
+    MA_ASSERT(pDeviceInfo != NULL);
 
     /*
     Name / Description
@@ -12202,9 +12200,9 @@ ma_result ma_context_get_device_info_from_WAVEOUTCAPS2(ma_context* pContext, MA_
 {
     MA_WAVECAPSA caps;
 
-    ma_assert(pContext != NULL);
-    ma_assert(pCaps != NULL);
-    ma_assert(pDeviceInfo != NULL);
+    MA_ASSERT(pContext != NULL);
+    MA_ASSERT(pCaps != NULL);
+    MA_ASSERT(pDeviceInfo != NULL);
 
     MA_COPY_MEMORY(caps.szPname, pCaps->szPname, sizeof(caps.szPname));
     caps.dwFormats = pCaps->dwFormats;
@@ -12217,9 +12215,9 @@ ma_result ma_context_get_device_info_from_WAVEINCAPS2(ma_context* pContext, MA_W
 {
     MA_WAVECAPSA caps;
 
-    ma_assert(pContext != NULL);
-    ma_assert(pCaps != NULL);
-    ma_assert(pDeviceInfo != NULL);
+    MA_ASSERT(pContext != NULL);
+    MA_ASSERT(pCaps != NULL);
+    MA_ASSERT(pDeviceInfo != NULL);
 
     MA_COPY_MEMORY(caps.szPname, pCaps->szPname, sizeof(caps.szPname));
     caps.dwFormats = pCaps->dwFormats;
@@ -12231,9 +12229,9 @@ ma_result ma_context_get_device_info_from_WAVEINCAPS2(ma_context* pContext, MA_W
 
 ma_bool32 ma_context_is_device_id_equal__winmm(ma_context* pContext, const ma_device_id* pID0, const ma_device_id* pID1)
 {
-    ma_assert(pContext != NULL);
-    ma_assert(pID0 != NULL);
-    ma_assert(pID1 != NULL);
+    MA_ASSERT(pContext != NULL);
+    MA_ASSERT(pID0 != NULL);
+    MA_ASSERT(pID1 != NULL);
     (void)pContext;
 
     return pID0->winmm == pID1->winmm;
@@ -12246,8 +12244,8 @@ ma_result ma_context_enumerate_devices__winmm(ma_context* pContext, ma_enum_devi
     UINT iPlaybackDevice;
     UINT iCaptureDevice;
 
-    ma_assert(pContext != NULL);
-    ma_assert(callback != NULL);
+    MA_ASSERT(pContext != NULL);
+    MA_ASSERT(callback != NULL);
 
     /* Playback. */
     playbackDeviceCount = ((MA_PFN_waveOutGetNumDevs)pContext->winmm.waveOutGetNumDevs)();
@@ -12304,7 +12302,7 @@ ma_result ma_context_get_device_info__winmm(ma_context* pContext, ma_device_type
 {
     UINT winMMDeviceID;
 
-    ma_assert(pContext != NULL);
+    MA_ASSERT(pContext != NULL);
 
     if (shareMode == ma_share_mode_exclusive) {
         return MA_SHARE_MODE_NOT_SUPPORTED;
@@ -12345,7 +12343,7 @@ ma_result ma_context_get_device_info__winmm(ma_context* pContext, ma_device_type
 
 void ma_device_uninit__winmm(ma_device* pDevice)
 {
-    ma_assert(pDevice != NULL);
+    MA_ASSERT(pDevice != NULL);
 
     if (pDevice->type == ma_device_type_capture || pDevice->type == ma_device_type_duplex) {
         ((MA_PFN_waveInClose)pDevice->pContext->winmm.waveInClose)((HWAVEIN)pDevice->winmm.hDeviceCapture);
@@ -12373,7 +12371,7 @@ ma_result ma_device_init__winmm(ma_context* pContext, const ma_device_config* pC
     UINT winMMDeviceIDCapture  = 0;
     ma_uint32 bufferSizeInMilliseconds;
 
-    ma_assert(pDevice != NULL);
+    MA_ASSERT(pDevice != NULL);
     MA_ZERO_OBJECT(&pDevice->winmm);
 
     if (pConfig->deviceType == ma_device_type_loopback) {
@@ -12596,7 +12594,7 @@ ma_result ma_device_stop__winmm(ma_device* pDevice)
 {
     MMRESULT resultMM;
 
-    ma_assert(pDevice != NULL);
+    MA_ASSERT(pDevice != NULL);
 
     if (pDevice->type == ma_device_type_capture || pDevice->type == ma_device_type_duplex) {
         if (pDevice->winmm.hDeviceCapture == NULL) {
@@ -12630,8 +12628,8 @@ ma_result ma_device_write__winmm(ma_device* pDevice, const void* pPCMFrames, ma_
     ma_uint32 totalFramesWritten;
     WAVEHDR* pWAVEHDR;
 
-    ma_assert(pDevice != NULL);
-    ma_assert(pPCMFrames != NULL);
+    MA_ASSERT(pDevice != NULL);
+    MA_ASSERT(pPCMFrames != NULL);
 
     if (pFramesWritten != NULL) {
         *pFramesWritten = 0;
@@ -12681,7 +12679,7 @@ ma_result ma_device_write__winmm(ma_device* pDevice, const void* pPCMFrames, ma_
             }
 
             /* If at this point we have consumed the entire input buffer we can return. */
-            ma_assert(totalFramesWritten <= frameCount);
+            MA_ASSERT(totalFramesWritten <= frameCount);
             if (totalFramesWritten == frameCount) {
                 break;
             }
@@ -12722,8 +12720,8 @@ ma_result ma_device_read__winmm(ma_device* pDevice, void* pPCMFrames, ma_uint32 
     ma_uint32 totalFramesRead;
     WAVEHDR* pWAVEHDR;
 
-    ma_assert(pDevice != NULL);
-    ma_assert(pPCMFrames != NULL);
+    MA_ASSERT(pDevice != NULL);
+    MA_ASSERT(pPCMFrames != NULL);
 
     if (pFramesRead != NULL) {
         *pFramesRead = 0;
@@ -12770,7 +12768,7 @@ ma_result ma_device_read__winmm(ma_device* pDevice, void* pPCMFrames, ma_uint32 
             }
 
             /* If at this point we have filled the entire input buffer we can return. */
-            ma_assert(totalFramesRead <= frameCount);
+            MA_ASSERT(totalFramesRead <= frameCount);
             if (totalFramesRead == frameCount) {
                 break;
             }
@@ -12809,7 +12807,7 @@ ma_result ma_device_main_loop__winmm(ma_device* pDevice)
     ma_result result = MA_SUCCESS;
     ma_bool32 exitLoop = MA_FALSE;
     
-    ma_assert(pDevice != NULL);
+    MA_ASSERT(pDevice != NULL);
 
     /* The capture device needs to be started immediately. */
     if (pDevice->type == ma_device_type_capture || pDevice->type == ma_device_type_duplex) {
@@ -13001,8 +12999,8 @@ ma_result ma_device_main_loop__winmm(ma_device* pDevice)
 
 ma_result ma_context_uninit__winmm(ma_context* pContext)
 {
-    ma_assert(pContext != NULL);
-    ma_assert(pContext->backend == ma_backend_winmm);
+    MA_ASSERT(pContext != NULL);
+    MA_ASSERT(pContext->backend == ma_backend_winmm);
 
     ma_dlclose(pContext, pContext->winmm.hWinMM);
     return MA_SUCCESS;
@@ -13010,7 +13008,7 @@ ma_result ma_context_uninit__winmm(ma_context* pContext)
 
 ma_result ma_context_init__winmm(const ma_context_config* pConfig, ma_context* pContext)
 {
-    ma_assert(pContext != NULL);
+    MA_ASSERT(pContext != NULL);
 
     (void)pConfig;
 
@@ -13629,7 +13627,7 @@ ma_bool32 ma_does_id_exist_in_list__alsa(ma_device_id* pUniqueIDs, ma_uint32 cou
 {
     ma_uint32 i;
 
-    ma_assert(pHWID != NULL);
+    MA_ASSERT(pHWID != NULL);
 
     for (i = 0; i < count; ++i) {
         if (ma_strcmp(pUniqueIDs[i].alsa, pHWID) == 0) {
@@ -13647,8 +13645,8 @@ ma_result ma_context_open_pcm__alsa(ma_context* pContext, ma_share_mode shareMod
     ma_snd_pcm_stream_t stream;
     int openMode;
 
-    ma_assert(pContext != NULL);
-    ma_assert(ppPCM != NULL);
+    MA_ASSERT(pContext != NULL);
+    MA_ASSERT(ppPCM != NULL);
 
     *ppPCM = NULL;
     pPCM = NULL;
@@ -13769,9 +13767,9 @@ ma_result ma_context_open_pcm__alsa(ma_context* pContext, ma_share_mode shareMod
 
 ma_bool32 ma_context_is_device_id_equal__alsa(ma_context* pContext, const ma_device_id* pID0, const ma_device_id* pID1)
 {
-    ma_assert(pContext != NULL);
-    ma_assert(pID0 != NULL);
-    ma_assert(pID1 != NULL);
+    MA_ASSERT(pContext != NULL);
+    MA_ASSERT(pID0 != NULL);
+    MA_ASSERT(pID1 != NULL);
     (void)pContext;
 
     return ma_strcmp(pID0->alsa, pID1->alsa) == 0;
@@ -13785,8 +13783,8 @@ ma_result ma_context_enumerate_devices__alsa(ma_context* pContext, ma_enum_devic
     ma_uint32 uniqueIDCount = 0;
     char** ppNextDeviceHint;
 
-    ma_assert(pContext != NULL);
-    ma_assert(callback != NULL);
+    MA_ASSERT(pContext != NULL);
+    MA_ASSERT(callback != NULL);
 
     ma_mutex_lock(&pContext->alsa.internalDeviceEnumLock);
 
@@ -13946,7 +13944,7 @@ typedef struct
 ma_bool32 ma_context_get_device_info_enum_callback__alsa(ma_context* pContext, ma_device_type deviceType, const ma_device_info* pDeviceInfo, void* pUserData)
 {
     ma_context_get_device_info_enum_callback_data__alsa* pData = (ma_context_get_device_info_enum_callback_data__alsa*)pUserData;
-    ma_assert(pData != NULL);
+    MA_ASSERT(pData != NULL);
 
     if (pData->pDeviceID == NULL && ma_strcmp(pDeviceInfo->id.alsa, "default") == 0) {
         ma_strncpy_s(pData->pDeviceInfo->name, sizeof(pData->pDeviceInfo->name), pDeviceInfo->name, (size_t)-1);
@@ -13971,7 +13969,7 @@ ma_result ma_context_get_device_info__alsa(ma_context* pContext, ma_device_type 
     ma_snd_pcm_format_mask_t* pFormatMask;
     int sampleRateDir = 0;
 
-    ma_assert(pContext != NULL);
+    MA_ASSERT(pContext != NULL);
 
     /* We just enumerate to find basic information about the device. */
     data.deviceType = deviceType;
@@ -14051,7 +14049,7 @@ This will return early if the main loop is broken with ma_device__break_main_loo
 */
 ma_uint32 ma_device__wait_for_frames__alsa(ma_device* pDevice, ma_bool32* pRequiresRestart)
 {
-    ma_assert(pDevice != NULL);
+    MA_ASSERT(pDevice != NULL);
 
     if (pRequiresRestart) *pRequiresRestart = MA_FALSE;
 
@@ -14111,7 +14109,7 @@ ma_uint32 ma_device__wait_for_frames__alsa(ma_device* pDevice, ma_bool32* pRequi
 
 ma_bool32 ma_device_read_from_client_and_write__alsa(ma_device* pDevice)
 {
-    ma_assert(pDevice != NULL);
+    MA_ASSERT(pDevice != NULL);
     if (!ma_device_is_started(pDevice) && ma_device__get_state(pDevice) != MA_STATE_STARTING) {
         return MA_FALSE;
     }
@@ -14212,7 +14210,7 @@ ma_bool32 ma_device_read_from_client_and_write__alsa(ma_device* pDevice)
 
 ma_bool32 ma_device_read_and_send_to_client__alsa(ma_device* pDevice)
 {
-    ma_assert(pDevice != NULL);
+    MA_ASSERT(pDevice != NULL);
     if (!ma_device_is_started(pDevice)) {
         return MA_FALSE;
     }
@@ -14311,7 +14309,7 @@ ma_bool32 ma_device_read_and_send_to_client__alsa(ma_device* pDevice)
 
 void ma_device_uninit__alsa(ma_device* pDevice)
 {
-    ma_assert(pDevice != NULL);
+    MA_ASSERT(pDevice != NULL);
 
     if ((ma_snd_pcm_t*)pDevice->alsa.pPCMCapture) {
         ((ma_snd_pcm_close_proc)pDevice->pContext->alsa.snd_pcm_close)((ma_snd_pcm_t*)pDevice->alsa.pPCMCapture);
@@ -14341,10 +14339,10 @@ ma_result ma_device_init_by_type__alsa(ma_context* pContext, const ma_device_con
     ma_snd_pcm_uframes_t bufferBoundary;
     float bufferSizeScaleFactor;
 
-    ma_assert(pContext != NULL);
-    ma_assert(pConfig != NULL);
-    ma_assert(deviceType != ma_device_type_duplex); /* This function should only be called for playback _or_ capture, never duplex. */
-    ma_assert(pDevice != NULL);
+    MA_ASSERT(pContext != NULL);
+    MA_ASSERT(pConfig != NULL);
+    MA_ASSERT(deviceType != ma_device_type_duplex); /* This function should only be called for playback _or_ capture, never duplex. */
+    MA_ASSERT(pDevice != NULL);
 
     formatALSA = ma_convert_ma_format_to_alsa_format((deviceType == ma_device_type_capture) ? pConfig->capture.format : pConfig->playback.format);
     shareMode  = (deviceType == ma_device_type_capture) ? pConfig->capture.shareMode : pConfig->playback.shareMode;
@@ -14739,7 +14737,7 @@ ma_result ma_device_init_by_type__alsa(ma_context* pContext, const ma_device_con
 
 ma_result ma_device_init__alsa(ma_context* pContext, const ma_device_config* pConfig, ma_device* pDevice)
 {
-    ma_assert(pDevice != NULL);
+    MA_ASSERT(pDevice != NULL);
 
     MA_ZERO_OBJECT(&pDevice->alsa);
 
@@ -14768,8 +14766,8 @@ ma_result ma_device_read__alsa(ma_device* pDevice, void* pFramesOut, ma_uint32 f
 {
     ma_snd_pcm_sframes_t resultALSA;
 
-    ma_assert(pDevice != NULL);
-    ma_assert(pFramesOut != NULL);
+    MA_ASSERT(pDevice != NULL);
+    MA_ASSERT(pFramesOut != NULL);
 
     if (pFramesRead != NULL) {
         *pFramesRead = 0;
@@ -14814,8 +14812,8 @@ ma_result ma_device_write__alsa(ma_device* pDevice, const void* pFrames, ma_uint
 {
     ma_snd_pcm_sframes_t resultALSA;
 
-    ma_assert(pDevice != NULL);
-    ma_assert(pFrames != NULL);
+    MA_ASSERT(pDevice != NULL);
+    MA_ASSERT(pFrames != NULL);
 
     if (pFramesWritten != NULL) {
         *pFramesWritten = 0;
@@ -14868,7 +14866,7 @@ ma_result ma_device_main_loop__alsa(ma_device* pDevice)
     ma_result result = MA_SUCCESS;
     ma_bool32 exitLoop = MA_FALSE;
 
-    ma_assert(pDevice != NULL);
+    MA_ASSERT(pDevice != NULL);
 
     /* Capture devices need to be started immediately. */
     if (pDevice->type == ma_device_type_capture || pDevice->type == ma_device_type_duplex) {
@@ -15077,8 +15075,8 @@ ma_result ma_device_main_loop__alsa(ma_device* pDevice)
 
 ma_result ma_context_uninit__alsa(ma_context* pContext)
 {
-    ma_assert(pContext != NULL);
-    ma_assert(pContext->backend == ma_backend_alsa);
+    MA_ASSERT(pContext != NULL);
+    MA_ASSERT(pContext->backend == ma_backend_alsa);
 
     /* Clean up memory for memory leak checkers. */
     ((ma_snd_config_update_free_global_proc)pContext->alsa.snd_config_update_free_global)();
@@ -16025,9 +16023,9 @@ ma_pa_channel_position_t ma_channel_position_to_pulse(ma_channel position)
 
 ma_result ma_wait_for_operation__pulse(ma_context* pContext, ma_pa_mainloop* pMainLoop, ma_pa_operation* pOP)
 {
-    ma_assert(pContext != NULL);
-    ma_assert(pMainLoop != NULL);
-    ma_assert(pOP != NULL);
+    MA_ASSERT(pContext != NULL);
+    MA_ASSERT(pMainLoop != NULL);
+    MA_ASSERT(pOP != NULL);
 
     while (((ma_pa_operation_get_state_proc)pContext->pulse.pa_operation_get_state)(pOP) == MA_PA_OPERATION_RUNNING) {
         int error = ((ma_pa_mainloop_iterate_proc)pContext->pulse.pa_mainloop_iterate)(pMainLoop, 1, NULL);
@@ -16041,8 +16039,8 @@ ma_result ma_wait_for_operation__pulse(ma_context* pContext, ma_pa_mainloop* pMa
 
 ma_result ma_device__wait_for_operation__pulse(ma_device* pDevice, ma_pa_operation* pOP)
 {
-    ma_assert(pDevice != NULL);
-    ma_assert(pOP != NULL);
+    MA_ASSERT(pDevice != NULL);
+    MA_ASSERT(pOP != NULL);
 
     return ma_wait_for_operation__pulse(pDevice->pContext, (ma_pa_mainloop*)pDevice->pulse.pMainLoop, pOP);
 }
@@ -16050,9 +16048,9 @@ ma_result ma_device__wait_for_operation__pulse(ma_device* pDevice, ma_pa_operati
 
 ma_bool32 ma_context_is_device_id_equal__pulse(ma_context* pContext, const ma_device_id* pID0, const ma_device_id* pID1)
 {
-    ma_assert(pContext != NULL);
-    ma_assert(pID0 != NULL);
-    ma_assert(pID1 != NULL);
+    MA_ASSERT(pContext != NULL);
+    MA_ASSERT(pID0 != NULL);
+    MA_ASSERT(pID1 != NULL);
     (void)pContext;
 
     return ma_strcmp(pID0->pulse, pID1->pulse) == 0;
@@ -16072,7 +16070,7 @@ void ma_context_enumerate_devices_sink_callback__pulse(ma_pa_context* pPulseCont
     ma_context_enumerate_devices_callback_data__pulse* pData = (ma_context_enumerate_devices_callback_data__pulse*)pUserData;
     ma_device_info deviceInfo;
 
-    ma_assert(pData != NULL);
+    MA_ASSERT(pData != NULL);
 
     if (endOfList || pData->isTerminated) {
         return;
@@ -16100,7 +16098,7 @@ void ma_context_enumerate_devices_source_callback__pulse(ma_pa_context* pPulseCo
     ma_context_enumerate_devices_callback_data__pulse* pData = (ma_context_enumerate_devices_callback_data__pulse*)pUserData;
     ma_device_info deviceInfo;
 
-    ma_assert(pData != NULL);
+    MA_ASSERT(pData != NULL);
 
     if (endOfList || pData->isTerminated) {
         return;
@@ -16133,8 +16131,8 @@ ma_result ma_context_enumerate_devices__pulse(ma_context* pContext, ma_enum_devi
     ma_pa_context* pPulseContext;
     int error;
 
-    ma_assert(pContext != NULL);
-    ma_assert(callback != NULL);
+    MA_ASSERT(pContext != NULL);
+    MA_ASSERT(callback != NULL);
 
     callbackData.pContext = pContext;
     callbackData.callback = callback;
@@ -16244,7 +16242,7 @@ void ma_context_get_device_info_sink_callback__pulse(ma_pa_context* pPulseContex
         return;
     }
 
-    ma_assert(pData != NULL);
+    MA_ASSERT(pData != NULL);
     pData->foundDevice = MA_TRUE;
 
     if (pInfo->name != NULL) {
@@ -16273,7 +16271,7 @@ void ma_context_get_device_info_source_callback__pulse(ma_pa_context* pPulseCont
         return;
     }
 
-    ma_assert(pData != NULL);
+    MA_ASSERT(pData != NULL);
     pData->foundDevice = MA_TRUE;
 
     if (pInfo->name != NULL) {
@@ -16304,7 +16302,7 @@ ma_result ma_context_get_device_info__pulse(ma_context* pContext, ma_device_type
     ma_pa_context* pPulseContext;
     int error;
 
-    ma_assert(pContext != NULL);
+    MA_ASSERT(pContext != NULL);
 
     /* No exclusive mode with the PulseAudio backend. */
     if (shareMode == ma_share_mode_exclusive) {
@@ -16397,10 +16395,10 @@ void ma_pulse_device_state_callback(ma_pa_context* pPulseContext, void* pUserDat
     ma_context* pContext;
 
     pDevice = (ma_device*)pUserData;
-    ma_assert(pDevice != NULL);
+    MA_ASSERT(pDevice != NULL);
 
     pContext = pDevice->pContext;
-    ma_assert(pContext != NULL);
+    MA_ASSERT(pContext != NULL);
 
     pDevice->pulse.pulseContextState = ((ma_pa_context_get_state_proc)pContext->pulse.pa_context_get_state)(pPulseContext);
 }
@@ -16414,7 +16412,7 @@ void ma_device_sink_info_callback(ma_pa_context* pPulseContext, const ma_pa_sink
     }
 
     pInfoOut = (ma_pa_sink_info*)pUserData;
-    ma_assert(pInfoOut != NULL);
+    MA_ASSERT(pInfoOut != NULL);
 
     *pInfoOut = *pInfo;
 
@@ -16430,7 +16428,7 @@ void ma_device_source_info_callback(ma_pa_context* pPulseContext, const ma_pa_so
     }
 
     pInfoOut = (ma_pa_source_info*)pUserData;
-    ma_assert(pInfoOut != NULL);
+    MA_ASSERT(pInfoOut != NULL);
 
     *pInfoOut = *pInfo;
 
@@ -16446,7 +16444,7 @@ void ma_device_sink_name_callback(ma_pa_context* pPulseContext, const ma_pa_sink
     }
 
     pDevice = (ma_device*)pUserData;
-    ma_assert(pDevice != NULL);
+    MA_ASSERT(pDevice != NULL);
 
     ma_strncpy_s(pDevice->playback.name, sizeof(pDevice->playback.name), pInfo->description, (size_t)-1);
 
@@ -16462,7 +16460,7 @@ void ma_device_source_name_callback(ma_pa_context* pPulseContext, const ma_pa_so
     }
 
     pDevice = (ma_device*)pUserData;
-    ma_assert(pDevice != NULL);
+    MA_ASSERT(pDevice != NULL);
 
     ma_strncpy_s(pDevice->capture.name, sizeof(pDevice->capture.name), pInfo->description, (size_t)-1);
 
@@ -16473,10 +16471,10 @@ void ma_device_uninit__pulse(ma_device* pDevice)
 {
     ma_context* pContext;
 
-    ma_assert(pDevice != NULL);
+    MA_ASSERT(pDevice != NULL);
 
     pContext = pDevice->pContext;
-    ma_assert(pContext != NULL);
+    MA_ASSERT(pContext != NULL);
 
     if (pDevice->type == ma_device_type_capture || pDevice->type == ma_device_type_duplex) {
         ((ma_pa_stream_disconnect_proc)pContext->pulse.pa_stream_disconnect)((ma_pa_stream*)pDevice->pulse.pStreamCapture);
@@ -16539,7 +16537,7 @@ ma_result ma_device_init__pulse(ma_context* pContext, const ma_device_config* pC
     ma_uint32 iChannel;
     ma_pa_stream_flags_t streamFlags;
 
-    ma_assert(pDevice != NULL);
+    MA_ASSERT(pDevice != NULL);
     MA_ZERO_OBJECT(&pDevice->pulse);
 
     if (pConfig->deviceType == ma_device_type_loopback) {
@@ -16837,7 +16835,7 @@ on_error0:
 void ma_pulse_operation_complete_callback(ma_pa_stream* pStream, int success, void* pUserData)
 {
     ma_bool32* pIsSuccessful = (ma_bool32*)pUserData;
-    ma_assert(pIsSuccessful != NULL);
+    MA_ASSERT(pIsSuccessful != NULL);
 
     *pIsSuccessful = (ma_bool32)success;
 
@@ -16860,7 +16858,7 @@ ma_result ma_device__cork_stream__pulse(ma_device* pDevice, ma_device_type devic
     wasSuccessful = MA_FALSE;
 
     pStream = (ma_pa_stream*)((deviceType == ma_device_type_capture) ? pDevice->pulse.pStreamCapture : pDevice->pulse.pStreamPlayback);
-    ma_assert(pStream != NULL);
+    MA_ASSERT(pStream != NULL);
 
     pOP = ((ma_pa_stream_cork_proc)pContext->pulse.pa_stream_cork)(pStream, cork, ma_pulse_operation_complete_callback, &wasSuccessful);
     if (pOP == NULL) {
@@ -16891,7 +16889,7 @@ ma_result ma_device_stop__pulse(ma_device* pDevice)
     ma_bool32 wasSuccessful;
     ma_pa_operation* pOP;
 
-    ma_assert(pDevice != NULL);
+    MA_ASSERT(pDevice != NULL);
 
     if (pDevice->type == ma_device_type_capture || pDevice->type == ma_device_type_duplex) {
         result = ma_device__cork_stream__pulse(pDevice, ma_device_type_capture, 1);
@@ -16921,9 +16919,9 @@ ma_result ma_device_write__pulse(ma_device* pDevice, const void* pPCMFrames, ma_
 {
     ma_uint32 totalFramesWritten;
 
-    ma_assert(pDevice != NULL);
-    ma_assert(pPCMFrames != NULL);
-    ma_assert(frameCount > 0);
+    MA_ASSERT(pDevice != NULL);
+    MA_ASSERT(pPCMFrames != NULL);
+    MA_ASSERT(frameCount > 0);
 
     if (pFramesWritten != NULL) {
         *pFramesWritten = 0;
@@ -16966,7 +16964,7 @@ ma_result ma_device_write__pulse(ma_device* pDevice, const void* pPCMFrames, ma_
             pDevice->pulse.mappedBufferFramesCapacityPlayback = 0;
         }
 
-        ma_assert(totalFramesWritten <= frameCount);
+        MA_ASSERT(totalFramesWritten <= frameCount);
         if (totalFramesWritten == frameCount) {
             break;
         }
@@ -17021,9 +17019,9 @@ ma_result ma_device_read__pulse(ma_device* pDevice, void* pPCMFrames, ma_uint32 
 {
     ma_uint32 totalFramesRead;
 
-    ma_assert(pDevice != NULL);
-    ma_assert(pPCMFrames != NULL);
-    ma_assert(frameCount > 0);
+    MA_ASSERT(pDevice != NULL);
+    MA_ASSERT(pPCMFrames != NULL);
+    MA_ASSERT(frameCount > 0);
 
     if (pFramesRead != NULL) {
         *pFramesRead = 0;
@@ -17085,7 +17083,7 @@ ma_result ma_device_read__pulse(ma_device* pDevice, void* pPCMFrames, ma_uint32 
             pDevice->pulse.mappedBufferFramesCapacityCapture = 0;
         }
 
-        ma_assert(totalFramesRead <= frameCount);
+        MA_ASSERT(totalFramesRead <= frameCount);
         if (totalFramesRead == frameCount) {
             break;
         }
@@ -17107,7 +17105,7 @@ ma_result ma_device_read__pulse(ma_device* pDevice, void* pPCMFrames, ma_uint32 
                 break;
             }
 
-            ma_assert(pDevice->pulse.pMappedBufferCapture == NULL); /* <-- We're about to map a buffer which means we shouldn't have an existing mapping. */
+            MA_ASSERT(pDevice->pulse.pMappedBufferCapture == NULL); /* <-- We're about to map a buffer which means we shouldn't have an existing mapping. */
 
             error = ((ma_pa_stream_peek_proc)pDevice->pContext->pulse.pa_stream_peek)((ma_pa_stream*)pDevice->pulse.pStreamCapture, &pDevice->pulse.pMappedBufferCapture, &bytesMapped);
             if (error < 0) {
@@ -17172,7 +17170,7 @@ ma_result ma_device_main_loop__pulse(ma_device* pDevice)
     ma_result result = MA_SUCCESS;
     ma_bool32 exitLoop = MA_FALSE;
 
-    ma_assert(pDevice != NULL);
+    MA_ASSERT(pDevice != NULL);
 
     /* The stream needs to be uncorked first. We do this at the top for both capture and playback for PulseAudio. */
     if (pDevice->type == ma_device_type_capture || pDevice->type == ma_device_type_duplex) {
@@ -17347,8 +17345,8 @@ ma_result ma_device_main_loop__pulse(ma_device* pDevice)
 
 ma_result ma_context_uninit__pulse(ma_context* pContext)
 {
-    ma_assert(pContext != NULL);
-    ma_assert(pContext->backend == ma_backend_pulseaudio);
+    MA_ASSERT(pContext != NULL);
+    MA_ASSERT(pContext->backend == ma_backend_pulseaudio);
 
     ma_free(pContext->pulse.pServerName);
     pContext->pulse.pServerName = NULL;
@@ -17666,8 +17664,8 @@ ma_result ma_context_open_client__jack(ma_context* pContext, ma_jack_client_t** 
     ma_jack_status_t status;
     ma_jack_client_t* pClient;
 
-    ma_assert(pContext != NULL);
-    ma_assert(ppClient != NULL);
+    MA_ASSERT(pContext != NULL);
+    MA_ASSERT(ppClient != NULL);
 
     if (ppClient) {
         *ppClient = NULL;
@@ -17690,9 +17688,9 @@ ma_result ma_context_open_client__jack(ma_context* pContext, ma_jack_client_t** 
 
 ma_bool32 ma_context_is_device_id_equal__jack(ma_context* pContext, const ma_device_id* pID0, const ma_device_id* pID1)
 {
-    ma_assert(pContext != NULL);
-    ma_assert(pID0 != NULL);
-    ma_assert(pID1 != NULL);
+    MA_ASSERT(pContext != NULL);
+    MA_ASSERT(pID0 != NULL);
+    MA_ASSERT(pID1 != NULL);
     (void)pContext;
 
     return pID0->jack == pID1->jack;
@@ -17702,8 +17700,8 @@ ma_result ma_context_enumerate_devices__jack(ma_context* pContext, ma_enum_devic
 {
     ma_bool32 cbResult = MA_TRUE;
 
-    ma_assert(pContext != NULL);
-    ma_assert(callback != NULL);
+    MA_ASSERT(pContext != NULL);
+    MA_ASSERT(callback != NULL);
 
     /* Playback. */
     if (cbResult) {
@@ -17730,7 +17728,7 @@ ma_result ma_context_get_device_info__jack(ma_context* pContext, ma_device_type 
     ma_result result;
     const char** ppPorts;
 
-    ma_assert(pContext != NULL);
+    MA_ASSERT(pContext != NULL);
 
     /* No exclusive mode with the JACK backend. */
     if (shareMode == ma_share_mode_exclusive) {
@@ -17787,10 +17785,10 @@ void ma_device_uninit__jack(ma_device* pDevice)
 {
     ma_context* pContext;
 
-    ma_assert(pDevice != NULL);
+    MA_ASSERT(pDevice != NULL);
 
     pContext = pDevice->pContext;
-    ma_assert(pContext != NULL);
+    MA_ASSERT(pContext != NULL);
 
     if (pDevice->jack.pClient != NULL) {
         ((ma_jack_client_close_proc)pContext->jack.jack_client_close)((ma_jack_client_t*)pDevice->jack.pClient);
@@ -17813,7 +17811,7 @@ void ma_device__jack_shutdown_callback(void* pUserData)
 {
     /* JACK died. Stop the device. */
     ma_device* pDevice = (ma_device*)pUserData;
-    ma_assert(pDevice != NULL);
+    MA_ASSERT(pDevice != NULL);
 
     ma_device_stop(pDevice);
 }
@@ -17821,7 +17819,7 @@ void ma_device__jack_shutdown_callback(void* pUserData)
 int ma_device__jack_buffer_size_callback(ma_jack_nframes_t frameCount, void* pUserData)
 {
     ma_device* pDevice = (ma_device*)pUserData;
-    ma_assert(pDevice != NULL);
+    MA_ASSERT(pDevice != NULL);
 
     if (pDevice->type == ma_device_type_capture || pDevice->type == ma_device_type_duplex) {
         float* pNewBuffer = (float*)ma_realloc(pDevice->jack.pIntermediaryBufferCapture, frameCount * (pDevice->capture.internalChannels * ma_get_bytes_per_sample(pDevice->capture.internalFormat)));
@@ -17853,10 +17851,10 @@ int ma_device__jack_process_callback(ma_jack_nframes_t frameCount, void* pUserDa
     ma_uint32 iChannel;
 
     pDevice = (ma_device*)pUserData;
-    ma_assert(pDevice != NULL);
+    MA_ASSERT(pDevice != NULL);
 
     pContext = pDevice->pContext;
-    ma_assert(pContext != NULL);
+    MA_ASSERT(pContext != NULL);
 
     if (pDevice->type == ma_device_type_capture || pDevice->type == ma_device_type_duplex) {
         /* Channels need to be interleaved. */
@@ -17913,9 +17911,9 @@ ma_result ma_device_init__jack(ma_context* pContext, const ma_device_config* pCo
     ma_uint32 periods;
     ma_uint32 bufferSizeInFrames;
 
-    ma_assert(pContext != NULL);
-    ma_assert(pConfig != NULL);
-    ma_assert(pDevice != NULL);
+    MA_ASSERT(pContext != NULL);
+    MA_ASSERT(pConfig != NULL);
+    MA_ASSERT(pDevice != NULL);
 
     if (pConfig->deviceType == ma_device_type_loopback) {
         return MA_DEVICE_TYPE_NOT_SUPPORTED;
@@ -18136,8 +18134,8 @@ ma_result ma_device_stop__jack(ma_device* pDevice)
 
 ma_result ma_context_uninit__jack(ma_context* pContext)
 {
-    ma_assert(pContext != NULL);
-    ma_assert(pContext->backend == ma_backend_jack);
+    MA_ASSERT(pContext != NULL);
+    MA_ASSERT(pContext->backend == ma_backend_jack);
 
     ma_free(pContext->jack.pClientName);
     pContext->jack.pClientName = NULL;
@@ -18508,8 +18506,8 @@ ma_channel ma_channel_from_AudioChannelLabel(AudioChannelLabel label)
 
 ma_result ma_format_from_AudioStreamBasicDescription(const AudioStreamBasicDescription* pDescription, ma_format* pFormatOut)
 {
-    ma_assert(pDescription != NULL);
-    ma_assert(pFormatOut != NULL);
+    MA_ASSERT(pDescription != NULL);
+    MA_ASSERT(pFormatOut != NULL);
     
     *pFormatOut = ma_format_unknown;   /* Safety. */
     
@@ -18573,7 +18571,7 @@ ma_result ma_format_from_AudioStreamBasicDescription(const AudioStreamBasicDescr
 
 ma_result ma_get_channel_map_from_AudioChannelLayout(AudioChannelLayout* pChannelLayout, ma_channel channelMap[MA_MAX_CHANNELS])
 {
-    ma_assert(pChannelLayout != NULL);
+    MA_ASSERT(pChannelLayout != NULL);
     
     if (pChannelLayout->mChannelLayoutTag == kAudioChannelLayoutTag_UseChannelDescriptions) {
         UInt32 iChannel;
@@ -18657,9 +18655,9 @@ ma_result ma_get_device_object_ids__coreaudio(ma_context* pContext, UInt32* pDev
     OSStatus status;
     AudioObjectID* pDeviceObjectIDs;
 
-    ma_assert(pContext != NULL);
-    ma_assert(pDeviceCount != NULL);
-    ma_assert(ppDeviceObjectIDs != NULL);
+    MA_ASSERT(pContext != NULL);
+    MA_ASSERT(pDeviceCount != NULL);
+    MA_ASSERT(ppDeviceObjectIDs != NULL);
 
     /* Safety. */
     *pDeviceCount = 0;
@@ -18698,7 +18696,7 @@ ma_result ma_get_AudioObject_uid_as_CFStringRef(ma_context* pContext, AudioObjec
     UInt32 dataSize;
     OSStatus status;
 
-    ma_assert(pContext != NULL);
+    MA_ASSERT(pContext != NULL);
 
     propAddress.mSelector = kAudioDevicePropertyDeviceUID;
     propAddress.mScope    = kAudioObjectPropertyScopeGlobal;
@@ -18718,7 +18716,7 @@ ma_result ma_get_AudioObject_uid(ma_context* pContext, AudioObjectID objectID, s
     CFStringRef uid;
     ma_result result;
 
-    ma_assert(pContext != NULL);
+    MA_ASSERT(pContext != NULL);
 
     result = ma_get_AudioObject_uid_as_CFStringRef(pContext, objectID, &uid);
     if (result != MA_SUCCESS) {
@@ -18740,7 +18738,7 @@ ma_result ma_get_AudioObject_name(ma_context* pContext, AudioObjectID objectID, 
     UInt32 dataSize;
     OSStatus status;
 
-    ma_assert(pContext != NULL);
+    MA_ASSERT(pContext != NULL);
 
     propAddress.mSelector = kAudioDevicePropertyDeviceNameCFString;
     propAddress.mScope    = kAudioObjectPropertyScopeGlobal;
@@ -18768,7 +18766,7 @@ ma_bool32 ma_does_AudioObject_support_scope(ma_context* pContext, AudioObjectID 
     AudioBufferList* pBufferList;
     ma_bool32 isSupported;
 
-    ma_assert(pContext != NULL);
+    MA_ASSERT(pContext != NULL);
 
     /* To know whether or not a device is an input device we need ot look at the stream configuration. If it has an output channel it's a playback device. */
     propAddress.mSelector = kAudioDevicePropertyStreamConfiguration;
@@ -18818,9 +18816,9 @@ ma_result ma_get_AudioObject_stream_descriptions(ma_context* pContext, AudioObje
     OSStatus status;
     AudioStreamRangedDescription* pDescriptions;
 
-    ma_assert(pContext != NULL);
-    ma_assert(pDescriptionCount != NULL);
-    ma_assert(ppDescriptions != NULL);
+    MA_ASSERT(pContext != NULL);
+    MA_ASSERT(pDescriptionCount != NULL);
+    MA_ASSERT(ppDescriptions != NULL);
     
     /*
     TODO: Experiment with kAudioStreamPropertyAvailablePhysicalFormats instead of (or in addition to) kAudioStreamPropertyAvailableVirtualFormats. My
@@ -18859,8 +18857,8 @@ ma_result ma_get_AudioObject_channel_layout(ma_context* pContext, AudioObjectID 
     OSStatus status;
     AudioChannelLayout* pChannelLayout;
 
-    ma_assert(pContext != NULL);
-    ma_assert(ppChannelLayout != NULL);
+    MA_ASSERT(pContext != NULL);
+    MA_ASSERT(ppChannelLayout != NULL);
     
     *ppChannelLayout = NULL;    /* Safety. */
     
@@ -18893,8 +18891,8 @@ ma_result ma_get_AudioObject_channel_count(ma_context* pContext, AudioObjectID d
     AudioChannelLayout* pChannelLayout;
     ma_result result;
 
-    ma_assert(pContext != NULL);
-    ma_assert(pChannelCount != NULL);
+    MA_ASSERT(pContext != NULL);
+    MA_ASSERT(pChannelCount != NULL);
     
     *pChannelCount = 0; /* Safety. */
 
@@ -18920,7 +18918,7 @@ ma_result ma_get_AudioObject_channel_map(ma_context* pContext, AudioObjectID dev
     AudioChannelLayout* pChannelLayout;
     ma_result result;
 
-    ma_assert(pContext != NULL);
+    MA_ASSERT(pContext != NULL);
     
     result = ma_get_AudioObject_channel_layout(pContext, deviceObjectID, deviceType, &pChannelLayout);
     if (result != MA_SUCCESS) {
@@ -18944,9 +18942,9 @@ ma_result ma_get_AudioObject_sample_rates(ma_context* pContext, AudioObjectID de
     OSStatus status;
     AudioValueRange* pSampleRateRanges;
 
-    ma_assert(pContext != NULL);
-    ma_assert(pSampleRateRangesCount != NULL);
-    ma_assert(ppSampleRateRanges != NULL);
+    MA_ASSERT(pContext != NULL);
+    MA_ASSERT(pSampleRateRangesCount != NULL);
+    MA_ASSERT(ppSampleRateRanges != NULL);
   
     /* Safety. */
     *pSampleRateRangesCount = 0;
@@ -18983,8 +18981,8 @@ ma_result ma_get_AudioObject_get_closest_sample_rate(ma_context* pContext, Audio
     AudioValueRange* pSampleRateRanges;
     ma_result result;
 
-    ma_assert(pContext != NULL);
-    ma_assert(pSampleRateOut != NULL);
+    MA_ASSERT(pContext != NULL);
+    MA_ASSERT(pSampleRateOut != NULL);
     
     *pSampleRateOut = 0;    /* Safety. */
     
@@ -19018,7 +19016,7 @@ ma_result ma_get_AudioObject_get_closest_sample_rate(ma_context* pContext, Audio
         If we get here it means none of miniaudio's standard sample rates matched any of the supported sample rates from the device. In this
         case we just fall back to the first one reported by Core Audio.
         */
-        ma_assert(sampleRateRangeCount > 0);
+        MA_ASSERT(sampleRateRangeCount > 0);
         
         *pSampleRateOut = pSampleRateRanges[0].mMinimum;
         ma_free(pSampleRateRanges);
@@ -19048,7 +19046,7 @@ ma_result ma_get_AudioObject_get_closest_sample_rate(ma_context* pContext, Audio
             }
         }
         
-        ma_assert(iCurrentClosestRange != (UInt32)-1);
+        MA_ASSERT(iCurrentClosestRange != (UInt32)-1);
         
         *pSampleRateOut = pSampleRateRanges[iCurrentClosestRange].mMinimum;
         ma_free(pSampleRateRanges);
@@ -19068,8 +19066,8 @@ ma_result ma_get_AudioObject_closest_buffer_size_in_frames(ma_context* pContext,
     UInt32 dataSize;
     OSStatus status;
 
-    ma_assert(pContext != NULL);
-    ma_assert(pBufferSizeInFramesOut != NULL);
+    MA_ASSERT(pContext != NULL);
+    MA_ASSERT(pBufferSizeInFramesOut != NULL);
     
     *pBufferSizeInFramesOut = 0;    /* Safety. */
     
@@ -19103,7 +19101,7 @@ ma_result ma_set_AudioObject_buffer_size_in_frames(ma_context* pContext, AudioOb
     UInt32 dataSize;
     OSStatus status;
 
-    ma_assert(pContext != NULL);
+    MA_ASSERT(pContext != NULL);
 
     result = ma_get_AudioObject_closest_buffer_size_in_frames(pContext, deviceObjectID, deviceType, *pBufferSizeInOut, &chosenBufferSizeInFrames);
     if (result != MA_SUCCESS) {
@@ -19131,8 +19129,8 @@ ma_result ma_set_AudioObject_buffer_size_in_frames(ma_context* pContext, AudioOb
 
 ma_result ma_find_AudioObjectID(ma_context* pContext, ma_device_type deviceType, const ma_device_id* pDeviceID, AudioObjectID* pDeviceObjectID)
 {
-    ma_assert(pContext != NULL);
-    ma_assert(pDeviceObjectID != NULL);
+    MA_ASSERT(pContext != NULL);
+    MA_ASSERT(pDeviceObjectID != NULL);
 
     /* Safety. */
     *pDeviceObjectID = 0;
@@ -19415,7 +19413,7 @@ ma_result ma_get_AudioUnit_channel_map(ma_context* pContext, AudioUnit audioUnit
     AudioChannelLayout* pChannelLayout;
     ma_result result;
 
-    ma_assert(pContext != NULL);
+    MA_ASSERT(pContext != NULL);
     
     if (deviceType == ma_device_type_playback) {
         deviceScope = kAudioUnitScope_Output;
@@ -19453,9 +19451,9 @@ ma_result ma_get_AudioUnit_channel_map(ma_context* pContext, AudioUnit audioUnit
 
 ma_bool32 ma_context_is_device_id_equal__coreaudio(ma_context* pContext, const ma_device_id* pID0, const ma_device_id* pID1)
 {
-    ma_assert(pContext != NULL);
-    ma_assert(pID0 != NULL);
-    ma_assert(pID1 != NULL);
+    MA_ASSERT(pContext != NULL);
+    MA_ASSERT(pID0 != NULL);
+    MA_ASSERT(pID1 != NULL);
     (void)pContext;
 
     return strcmp(pID0->coreaudio, pID1->coreaudio) == 0;
@@ -19523,7 +19521,7 @@ ma_result ma_context_get_device_info__coreaudio(ma_context* pContext, ma_device_
 {
     ma_result result;
 
-    ma_assert(pContext != NULL);
+    MA_ASSERT(pContext != NULL);
 
     /* No exclusive mode with the Core Audio backend for now. */
     if (shareMode == ma_share_mode_exclusive) {
@@ -19571,7 +19569,7 @@ ma_result ma_context_get_device_info__coreaudio(ma_context* pContext, ma_device_
                 continue;
             }
         
-            ma_assert(format != ma_format_unknown);
+            MA_ASSERT(format != ma_format_unknown);
         
             /* Make sure the format isn't already in the output list. */
             for (iOutputFormat = 0; iOutputFormat < pDeviceInfo->formatCount; ++iOutputFormat) {
@@ -19685,7 +19683,7 @@ ma_result ma_context_get_device_info__coreaudio(ma_context* pContext, ma_device_
         */
         @autoreleasepool {
             AVAudioSession* pAudioSession = [AVAudioSession sharedInstance];
-            ma_assert(pAudioSession != NULL);
+            MA_ASSERT(pAudioSession != NULL);
 
             pDeviceInfo->minSampleRate = (ma_uint32)pAudioSession.sampleRate;
             pDeviceInfo->maxSampleRate = pDeviceInfo->minSampleRate;
@@ -19703,7 +19701,7 @@ OSStatus ma_on_output__coreaudio(void* pUserData, AudioUnitRenderActionFlags* pA
     ma_device* pDevice = (ma_device*)pUserData;
     ma_stream_layout layout;
 
-    ma_assert(pDevice != NULL);
+    MA_ASSERT(pDevice != NULL);
 
 #if defined(MA_DEBUG_OUTPUT)
     printf("INFO: Output Callback: busNumber=%d, frameCount=%d, mNumberBuffers=%d\n", busNumber, frameCount, pBufferList->mNumberBuffers);
@@ -19800,10 +19798,10 @@ OSStatus ma_on_input__coreaudio(void* pUserData, AudioUnitRenderActionFlags* pAc
     ma_stream_layout layout;
     OSStatus status;
 
-    ma_assert(pDevice != NULL);
+    MA_ASSERT(pDevice != NULL);
     
     pRenderedBufferList = (AudioBufferList*)pDevice->coreaudio.pAudioBufferList;
-    ma_assert(pRenderedBufferList);
+    MA_ASSERT(pRenderedBufferList);
     
     /* We need to check whether or not we are outputting interleaved or non-interleaved samples. The way we do this is slightly different for each type. */
     layout = ma_stream_layout_interleaved;
@@ -19916,7 +19914,7 @@ OSStatus ma_on_input__coreaudio(void* pUserData, AudioUnitRenderActionFlags* pAc
 void on_start_stop__coreaudio(void* pUserData, AudioUnit audioUnit, AudioUnitPropertyID propertyID, AudioUnitScope scope, AudioUnitElement element)
 {
     ma_device* pDevice = (ma_device*)pUserData;
-    ma_assert(pDevice != NULL);
+    MA_ASSERT(pDevice != NULL);
     
     /*
     There's been a report of a deadlock here when triggered by ma_device_uninit(). It looks like
@@ -20063,7 +20061,7 @@ OSStatus ma_default_device_changed__coreaudio(AudioObjectID objectID, UInt32 add
 
 static ma_result ma_context__init_device_tracking__coreaudio(ma_context* pContext)
 {
-    ma_assert(pContext != NULL);
+    MA_ASSERT(pContext != NULL);
     
     if (ma_atomic_increment_32(&g_DeviceTrackingInitCounter_CoreAudio) == 1) {
         AudioObjectPropertyAddress propAddress;
@@ -20084,7 +20082,7 @@ static ma_result ma_context__init_device_tracking__coreaudio(ma_context* pContex
 
 static ma_result ma_context__uninit_device_tracking__coreaudio(ma_context* pContext)
 {
-    ma_assert(pContext != NULL);
+    MA_ASSERT(pContext != NULL);
     
     if (ma_atomic_decrement_32(&g_DeviceTrackingInitCounter_CoreAudio) == 0) {
         AudioObjectPropertyAddress propAddress;
@@ -20098,8 +20096,8 @@ static ma_result ma_context__uninit_device_tracking__coreaudio(ma_context* pCont
         ((ma_AudioObjectRemovePropertyListener_proc)pContext->coreaudio.AudioObjectRemovePropertyListener)(kAudioObjectSystemObject, &propAddress, &ma_default_device_changed__coreaudio, NULL);
         
         /* At this point there should be no tracked devices. If so there's an error somewhere. */
-        ma_assert(g_ppTrackedDevices_CoreAudio == NULL);
-        ma_assert(g_TrackedDeviceCount_CoreAudio == 0);
+        MA_ASSERT(g_ppTrackedDevices_CoreAudio == NULL);
+        MA_ASSERT(g_TrackedDeviceCount_CoreAudio == 0);
         
         ma_mutex_uninit(&g_DeviceTrackingMutex_CoreAudio);
     }
@@ -20111,7 +20109,7 @@ static ma_result ma_device__track__coreaudio(ma_device* pDevice)
 {
     ma_result result;
 
-    ma_assert(pDevice != NULL);
+    MA_ASSERT(pDevice != NULL);
     
     result = ma_context__init_device_tracking__coreaudio(pDevice->pContext);
     if (result != MA_SUCCESS) {
@@ -20152,7 +20150,7 @@ static ma_result ma_device__untrack__coreaudio(ma_device* pDevice)
 {
     ma_result result;
     
-    ma_assert(pDevice != NULL);
+    MA_ASSERT(pDevice != NULL);
     
     ma_mutex_lock(&g_DeviceTrackingMutex_CoreAudio);
     {
@@ -20290,8 +20288,8 @@ static ma_result ma_device__untrack__coreaudio(ma_device* pDevice)
 
 void ma_device_uninit__coreaudio(ma_device* pDevice)
 {
-    ma_assert(pDevice != NULL);
-    ma_assert(ma_device__get_state(pDevice) == MA_STATE_UNINITIALIZED);
+    MA_ASSERT(pDevice != NULL);
+    MA_ASSERT(ma_device__get_state(pDevice) == MA_STATE_UNINITIALIZED);
     
 #if defined(MA_APPLE_DESKTOP)
     /*
@@ -20373,8 +20371,8 @@ ma_result ma_device_init_internal__coreaudio(ma_context* pContext, ma_device_typ
         return MA_INVALID_ARGS;
     }
 
-    ma_assert(pContext != NULL);
-    ma_assert(deviceType == ma_device_type_playback || deviceType == ma_device_type_capture);
+    MA_ASSERT(pContext != NULL);
+    MA_ASSERT(deviceType == ma_device_type_playback || deviceType == ma_device_type_capture);
 
 #if defined(MA_APPLE_DESKTOP)
     pData->deviceObjectID = 0;
@@ -20500,7 +20498,7 @@ ma_result ma_device_init_internal__coreaudio(ma_context* pContext, ma_device_typ
         */
         @autoreleasepool {
             AVAudioSession* pAudioSession = [AVAudioSession sharedInstance];
-            ma_assert(pAudioSession != NULL);
+            MA_ASSERT(pAudioSession != NULL);
             
             [pAudioSession setPreferredSampleRate:(double)pData->sampleRateIn error:nil];
             bestFormat.mSampleRate = pAudioSession.sampleRate;
@@ -20798,9 +20796,9 @@ ma_result ma_device_init__coreaudio(ma_context* pContext, const ma_device_config
 {
     ma_result result;
 
-    ma_assert(pContext != NULL);
-    ma_assert(pConfig != NULL);
-    ma_assert(pDevice != NULL);
+    MA_ASSERT(pContext != NULL);
+    MA_ASSERT(pConfig != NULL);
+    MA_ASSERT(pDevice != NULL);
 
     if (pConfig->deviceType == ma_device_type_loopback) {
         return MA_DEVICE_TYPE_NOT_SUPPORTED;
@@ -20968,7 +20966,7 @@ ma_result ma_device_init__coreaudio(ma_context* pContext, const ma_device_config
 
 ma_result ma_device_start__coreaudio(ma_device* pDevice)
 {
-    ma_assert(pDevice != NULL);
+    MA_ASSERT(pDevice != NULL);
     
     if (pDevice->type == ma_device_type_capture || pDevice->type == ma_device_type_duplex) {
         OSStatus status = ((ma_AudioOutputUnitStart_proc)pDevice->pContext->coreaudio.AudioOutputUnitStart)((AudioUnit)pDevice->coreaudio.audioUnitCapture);
@@ -20992,7 +20990,7 @@ ma_result ma_device_start__coreaudio(ma_device* pDevice)
 
 ma_result ma_device_stop__coreaudio(ma_device* pDevice)
 {
-    ma_assert(pDevice != NULL);
+    MA_ASSERT(pDevice != NULL);
     
     if (pDevice->type == ma_device_type_capture || pDevice->type == ma_device_type_duplex) {
         OSStatus status = ((ma_AudioOutputUnitStop_proc)pDevice->pContext->coreaudio.AudioOutputUnitStop)((AudioUnit)pDevice->coreaudio.audioUnitCapture);
@@ -21016,8 +21014,8 @@ ma_result ma_device_stop__coreaudio(ma_device* pDevice)
 
 ma_result ma_context_uninit__coreaudio(ma_context* pContext)
 {
-    ma_assert(pContext != NULL);
-    ma_assert(pContext->backend == ma_backend_coreaudio);
+    MA_ASSERT(pContext != NULL);
+    MA_ASSERT(pContext->backend == ma_backend_coreaudio);
     
 #if !defined(MA_NO_RUNTIME_LINKING) && !defined(MA_APPLE_MOBILE)
     ma_dlclose(pContext, pContext->coreaudio.hAudioUnit);
@@ -21033,8 +21031,8 @@ ma_result ma_context_uninit__coreaudio(ma_context* pContext)
 static AVAudioSessionCategory ma_to_AVAudioSessionCategory(ma_ios_session_category category)
 {
     /* The "default" and "none" categories are treated different and should not be used as an input into this function. */
-    ma_assert(category != ma_ios_session_category_default);
-    ma_assert(category != ma_ios_session_category_none);
+    MA_ASSERT(category != ma_ios_session_category_default);
+    MA_ASSERT(category != ma_ios_session_category_none);
 
     switch (category) {
         case ma_ios_session_category_ambient:         return AVAudioSessionCategoryAmbient;
@@ -21052,15 +21050,15 @@ static AVAudioSessionCategory ma_to_AVAudioSessionCategory(ma_ios_session_catego
 
 ma_result ma_context_init__coreaudio(const ma_context_config* pConfig, ma_context* pContext)
 {
-    ma_assert(pConfig != NULL);
-    ma_assert(pContext != NULL);
+    MA_ASSERT(pConfig != NULL);
+    MA_ASSERT(pContext != NULL);
 
 #if defined(MA_APPLE_MOBILE)
     @autoreleasepool {
         AVAudioSession* pAudioSession = [AVAudioSession sharedInstance];
         AVAudioSessionCategoryOptions options = pConfig->coreaudio.sessionCategoryOptions;
 
-        ma_assert(pAudioSession != NULL);
+        MA_ASSERT(pAudioSession != NULL);
 
         if (pConfig->coreaudio.sessionCategory == ma_ios_session_category_default) {
             /*
@@ -21335,7 +21333,7 @@ ma_format ma_find_best_format_from_sio_cap__sndio(struct ma_sio_cap* caps)
     ma_format bestFormat;
     unsigned int iConfig;
 
-    ma_assert(caps != NULL);
+    MA_ASSERT(caps != NULL);
     
     bestFormat = ma_format_unknown;
     for (iConfig = 0; iConfig < caps->nconf; iConfig += 1) {
@@ -21380,8 +21378,8 @@ ma_uint32 ma_find_best_channels_from_sio_cap__sndio(struct ma_sio_cap* caps, ma_
     ma_uint32 maxChannels;
     unsigned int iConfig;
 
-    ma_assert(caps != NULL);
-    ma_assert(requiredFormat != ma_format_unknown);
+    MA_ASSERT(caps != NULL);
+    MA_ASSERT(requiredFormat != ma_format_unknown);
     
     /* Just pick whatever configuration has the most channels. */
     maxChannels = 0;
@@ -21448,10 +21446,10 @@ ma_uint32 ma_find_best_sample_rate_from_sio_cap__sndio(struct ma_sio_cap* caps, 
     ma_uint32 bestSampleRate;
     unsigned int iConfig;
 
-    ma_assert(caps != NULL);
-    ma_assert(requiredFormat != ma_format_unknown);
-    ma_assert(requiredChannels > 0);
-    ma_assert(requiredChannels <= MA_MAX_CHANNELS);
+    MA_ASSERT(caps != NULL);
+    MA_ASSERT(requiredFormat != ma_format_unknown);
+    MA_ASSERT(requiredChannels > 0);
+    MA_ASSERT(requiredChannels <= MA_MAX_CHANNELS);
     
     firstSampleRate = 0; /* <-- If the device does not support a standard rate we'll fall back to the first one that's found. */
     bestSampleRate  = 0;
@@ -21542,9 +21540,9 @@ ma_uint32 ma_find_best_sample_rate_from_sio_cap__sndio(struct ma_sio_cap* caps, 
 
 ma_bool32 ma_context_is_device_id_equal__sndio(ma_context* pContext, const ma_device_id* pID0, const ma_device_id* pID1)
 {
-    ma_assert(pContext != NULL);
-    ma_assert(pID0 != NULL);
-    ma_assert(pID1 != NULL);
+    MA_ASSERT(pContext != NULL);
+    MA_ASSERT(pID0 != NULL);
+    MA_ASSERT(pID1 != NULL);
     (void)pContext;
 
     return ma_strcmp(pID0->sndio, pID1->sndio) == 0;
@@ -21555,8 +21553,8 @@ ma_result ma_context_enumerate_devices__sndio(ma_context* pContext, ma_enum_devi
     ma_bool32 isTerminating = MA_FALSE;
     struct ma_sio_hdl* handle;
 
-    ma_assert(pContext != NULL);
-    ma_assert(callback != NULL);
+    MA_ASSERT(pContext != NULL);
+    MA_ASSERT(callback != NULL);
     
     /* sndio doesn't seem to have a good device enumeration API, so I'm therefore only enumerating over default devices for now. */
     
@@ -21602,7 +21600,7 @@ ma_result ma_context_get_device_info__sndio(ma_context* pContext, ma_device_type
     struct ma_sio_cap caps;
     unsigned int iConfig;
 
-    ma_assert(pContext != NULL);
+    MA_ASSERT(pContext != NULL);
     (void)shareMode;
     
     /* We need to open the device before we can get information about it. */
@@ -21718,7 +21716,7 @@ ma_result ma_context_get_device_info__sndio(ma_context* pContext, ma_device_type
 
 void ma_device_uninit__sndio(ma_device* pDevice)
 {
-    ma_assert(pDevice != NULL);
+    MA_ASSERT(pDevice != NULL);
 
     if (pDevice->type == ma_device_type_capture || pDevice->type == ma_device_type_duplex) {
         ((ma_sio_close_proc)pDevice->pContext->sndio.sio_close)((struct ma_sio_hdl*)pDevice->sndio.handleCapture);
@@ -21746,10 +21744,10 @@ ma_result ma_device_init_handle__sndio(ma_context* pContext, const ma_device_con
     ma_uint32 internalBufferSizeInFrames;
     ma_uint32 internalPeriods;
 
-    ma_assert(pContext   != NULL);
-    ma_assert(pConfig    != NULL);
-    ma_assert(deviceType != ma_device_type_duplex);
-    ma_assert(pDevice    != NULL);
+    MA_ASSERT(pContext   != NULL);
+    MA_ASSERT(pConfig    != NULL);
+    MA_ASSERT(deviceType != ma_device_type_duplex);
+    MA_ASSERT(pDevice    != NULL);
 
     if (deviceType == ma_device_type_capture) {
         openFlags  = MA_SIO_REC;
@@ -21915,7 +21913,7 @@ ma_result ma_device_init_handle__sndio(ma_context* pContext, const ma_device_con
 
 ma_result ma_device_init__sndio(ma_context* pContext, const ma_device_config* pConfig, ma_device* pDevice)
 {
-    ma_assert(pDevice != NULL);
+    MA_ASSERT(pDevice != NULL);
 
     MA_ZERO_OBJECT(&pDevice->sndio);
 
@@ -21942,7 +21940,7 @@ ma_result ma_device_init__sndio(ma_context* pContext, const ma_device_config* pC
 
 ma_result ma_device_stop__sndio(ma_device* pDevice)
 {
-    ma_assert(pDevice != NULL);
+    MA_ASSERT(pDevice != NULL);
 
     if (pDevice->type == ma_device_type_capture || pDevice->type == ma_device_type_duplex) {
         ((ma_sio_stop_proc)pDevice->pContext->sndio.sio_stop)((struct ma_sio_hdl*)pDevice->sndio.handleCapture);
@@ -22168,8 +22166,8 @@ ma_result ma_device_main_loop__sndio(ma_device* pDevice)
 
 ma_result ma_context_uninit__sndio(ma_context* pContext)
 {
-    ma_assert(pContext != NULL);
-    ma_assert(pContext->backend == ma_backend_sndio);
+    MA_ASSERT(pContext != NULL);
+    MA_ASSERT(pContext->backend == ma_backend_sndio);
 
     (void)pContext;
     return MA_SUCCESS;
@@ -22259,12 +22257,12 @@ void ma_construct_device_id__audio4(char* id, size_t idSize, const char* base, i
 {
     size_t baseLen;
 
-    ma_assert(id != NULL);
-    ma_assert(idSize > 0);
-    ma_assert(deviceIndex >= 0);
+    MA_ASSERT(id != NULL);
+    MA_ASSERT(idSize > 0);
+    MA_ASSERT(deviceIndex >= 0);
     
     baseLen = strlen(base);
-    ma_assert(idSize > baseLen);
+    MA_ASSERT(idSize > baseLen);
     
     ma_strcpy_s(id, idSize, base);
     ma_itoa_s(deviceIndex, id+baseLen, idSize-baseLen, 10);
@@ -22276,9 +22274,9 @@ ma_result ma_extract_device_index_from_id__audio4(const char* id, const char* ba
     size_t baseLen;
     const char* deviceIndexStr;
 
-    ma_assert(id != NULL);
-    ma_assert(base != NULL);
-    ma_assert(pIndexOut != NULL);
+    MA_ASSERT(id != NULL);
+    MA_ASSERT(base != NULL);
+    MA_ASSERT(pIndexOut != NULL);
     
     idLen = strlen(id);
     baseLen = strlen(base);
@@ -22304,9 +22302,9 @@ ma_result ma_extract_device_index_from_id__audio4(const char* id, const char* ba
 
 ma_bool32 ma_context_is_device_id_equal__audio4(ma_context* pContext, const ma_device_id* pID0, const ma_device_id* pID1)
 {
-    ma_assert(pContext != NULL);
-    ma_assert(pID0 != NULL);
-    ma_assert(pID1 != NULL);
+    MA_ASSERT(pContext != NULL);
+    MA_ASSERT(pID0 != NULL);
+    MA_ASSERT(pID1 != NULL);
     (void)pContext;
 
     return ma_strcmp(pID0->audio4, pID1->audio4) == 0;
@@ -22342,9 +22340,9 @@ ma_format ma_format_from_encoding__audio4(unsigned int encoding, unsigned int pr
 
 void ma_encoding_from_format__audio4(ma_format format, unsigned int* pEncoding, unsigned int* pPrecision)
 {
-    ma_assert(format     != ma_format_unknown);
-    ma_assert(pEncoding  != NULL);
-    ma_assert(pPrecision != NULL);
+    MA_ASSERT(format     != ma_format_unknown);
+    MA_ASSERT(pEncoding  != NULL);
+    MA_ASSERT(pPrecision != NULL);
 
     switch (format)
     {
@@ -22412,9 +22410,9 @@ ma_result ma_context_get_device_info_from_fd__audio4(ma_context* pContext, ma_de
     ma_format format;
 #endif
 
-    ma_assert(pContext != NULL);
-    ma_assert(fd >= 0);
-    ma_assert(pInfoOut != NULL);
+    MA_ASSERT(pContext != NULL);
+    MA_ASSERT(fd >= 0);
+    MA_ASSERT(pInfoOut != NULL);
     
     (void)pContext;
     (void)deviceType;
@@ -22493,8 +22491,8 @@ ma_result ma_context_enumerate_devices__audio4(ma_context* pContext, ma_enum_dev
     char devpath[256];
     int iDevice;
 
-    ma_assert(pContext != NULL);
-    ma_assert(callback != NULL);
+    MA_ASSERT(pContext != NULL);
+    MA_ASSERT(callback != NULL);
     
     /*
     Every device will be named "/dev/audioN", with a "/dev/audioctlN" equivalent. We use the "/dev/audioctlN"
@@ -22561,7 +22559,7 @@ ma_result ma_context_get_device_info__audio4(ma_context* pContext, ma_device_typ
     char ctlid[256];
     ma_result result;
 
-    ma_assert(pContext != NULL);
+    MA_ASSERT(pContext != NULL);
     (void)shareMode;
     
     /*
@@ -22600,7 +22598,7 @@ ma_result ma_context_get_device_info__audio4(ma_context* pContext, ma_device_typ
 
 void ma_device_uninit__audio4(ma_device* pDevice)
 {
-    ma_assert(pDevice != NULL);
+    MA_ASSERT(pDevice != NULL);
 
     if (pDevice->type == ma_device_type_capture || pDevice->type == ma_device_type_duplex) {
         close(pDevice->audio4.fdCapture);
@@ -22630,10 +22628,10 @@ ma_result ma_device_init_fd__audio4(ma_context* pContext, const ma_device_config
     ma_uint32 internalBufferSizeInFrames;
     ma_uint32 internalPeriods;
 
-    ma_assert(pContext   != NULL);
-    ma_assert(pConfig    != NULL);
-    ma_assert(deviceType != ma_device_type_duplex);
-    ma_assert(pDevice    != NULL);
+    MA_ASSERT(pContext   != NULL);
+    MA_ASSERT(pConfig    != NULL);
+    MA_ASSERT(deviceType != ma_device_type_duplex);
+    MA_ASSERT(pDevice    != NULL);
 
     (void)pContext;
 
@@ -22816,7 +22814,7 @@ ma_result ma_device_init_fd__audio4(ma_context* pContext, const ma_device_config
 
 ma_result ma_device_init__audio4(ma_context* pContext, const ma_device_config* pConfig, ma_device* pDevice)
 {
-    ma_assert(pDevice != NULL);
+    MA_ASSERT(pDevice != NULL);
 
     MA_ZERO_OBJECT(&pDevice->audio4);
 
@@ -22865,7 +22863,7 @@ ma_result ma_device_init__audio4(ma_context* pContext, const ma_device_config* p
 #if 0
 ma_result ma_device_start__audio4(ma_device* pDevice)
 {
-    ma_assert(pDevice != NULL);
+    MA_ASSERT(pDevice != NULL);
 
     if (pDevice->type == ma_device_type_capture || pDevice->type == ma_device_type_duplex) {
         if (pDevice->audio4.fdCapture == -1) {
@@ -22904,7 +22902,7 @@ ma_result ma_device_stop_fd__audio4(ma_device* pDevice, int fd)
 
 ma_result ma_device_stop__audio4(ma_device* pDevice)
 {
-    ma_assert(pDevice != NULL);
+    MA_ASSERT(pDevice != NULL);
 
     if (pDevice->type == ma_device_type_capture || pDevice->type == ma_device_type_duplex) {
         ma_result result = ma_device_stop_fd__audio4(pDevice, pDevice->audio4.fdCapture);
@@ -23130,8 +23128,8 @@ ma_result ma_device_main_loop__audio4(ma_device* pDevice)
 
 ma_result ma_context_uninit__audio4(ma_context* pContext)
 {
-    ma_assert(pContext != NULL);
-    ma_assert(pContext->backend == ma_backend_audio4);
+    MA_ASSERT(pContext != NULL);
+    MA_ASSERT(pContext->backend == ma_backend_audio4);
 
     (void)pContext;
     return MA_SUCCESS;
@@ -23139,7 +23137,7 @@ ma_result ma_context_uninit__audio4(ma_context* pContext)
 
 ma_result ma_context_init__audio4(const ma_context_config* pConfig, ma_context* pContext)
 {
-    ma_assert(pContext != NULL);
+    MA_ASSERT(pContext != NULL);
 
     (void)pConfig;
 
@@ -23189,8 +23187,8 @@ ma_result ma_context_open_device__oss(ma_context* pContext, ma_device_type devic
     const char* deviceName;
     int flags;
 
-    ma_assert(pContext != NULL);
-    ma_assert(pfd != NULL);
+    MA_ASSERT(pContext != NULL);
+    MA_ASSERT(pfd != NULL);
     (void)pContext;
 
     *pfd = -1;
@@ -23220,9 +23218,9 @@ ma_result ma_context_open_device__oss(ma_context* pContext, ma_device_type devic
 
 ma_bool32 ma_context_is_device_id_equal__oss(ma_context* pContext, const ma_device_id* pID0, const ma_device_id* pID1)
 {
-    ma_assert(pContext != NULL);
-    ma_assert(pID0 != NULL);
-    ma_assert(pID1 != NULL);
+    MA_ASSERT(pContext != NULL);
+    MA_ASSERT(pID0 != NULL);
+    MA_ASSERT(pID1 != NULL);
     (void)pContext;
 
     return ma_strcmp(pID0->oss, pID1->oss) == 0;
@@ -23234,8 +23232,8 @@ ma_result ma_context_enumerate_devices__oss(ma_context* pContext, ma_enum_device
     oss_sysinfo si;
     int result;
 
-    ma_assert(pContext != NULL);
-    ma_assert(callback != NULL);
+    MA_ASSERT(pContext != NULL);
+    MA_ASSERT(callback != NULL);
 
     fd = ma_open_temp_device__oss();
     if (fd == -1) {
@@ -23300,7 +23298,7 @@ ma_result ma_context_get_device_info__oss(ma_context* pContext, ma_device_type d
     oss_sysinfo si;
     int result;
 
-    ma_assert(pContext != NULL);
+    MA_ASSERT(pContext != NULL);
     (void)shareMode;
 
     /* Handle the default device a little differently. */
@@ -23396,7 +23394,7 @@ ma_result ma_context_get_device_info__oss(ma_context* pContext, ma_device_type d
 
 void ma_device_uninit__oss(ma_device* pDevice)
 {
-    ma_assert(pDevice != NULL);
+    MA_ASSERT(pDevice != NULL);
 
     if (pDevice->type == ma_device_type_capture || pDevice->type == ma_device_type_duplex) {
         close(pDevice->oss.fdCapture);
@@ -23457,10 +23455,10 @@ ma_result ma_device_init_fd__oss(ma_context* pContext, const ma_device_config* p
     int ossSampleRate;
     int ossFragment;
 
-    ma_assert(pContext != NULL);
-    ma_assert(pConfig != NULL);
-    ma_assert(deviceType != ma_device_type_duplex);
-    ma_assert(pDevice != NULL);
+    MA_ASSERT(pContext != NULL);
+    MA_ASSERT(pConfig != NULL);
+    MA_ASSERT(deviceType != ma_device_type_duplex);
+    MA_ASSERT(pDevice != NULL);
 
     (void)pContext;
 
@@ -23581,9 +23579,9 @@ ma_result ma_device_init_fd__oss(ma_context* pContext, const ma_device_config* p
 
 ma_result ma_device_init__oss(ma_context* pContext, const ma_device_config* pConfig, ma_device* pDevice)
 {
-    ma_assert(pContext != NULL);
-    ma_assert(pConfig  != NULL);
-    ma_assert(pDevice  != NULL);
+    MA_ASSERT(pContext != NULL);
+    MA_ASSERT(pConfig  != NULL);
+    MA_ASSERT(pDevice  != NULL);
 
     MA_ZERO_OBJECT(&pDevice->oss);
 
@@ -23610,7 +23608,7 @@ ma_result ma_device_init__oss(ma_context* pContext, const ma_device_config* pCon
 
 ma_result ma_device_stop__oss(ma_device* pDevice)
 {
-    ma_assert(pDevice != NULL);
+    MA_ASSERT(pDevice != NULL);
 
     /*
     We want to use SNDCTL_DSP_HALT. From the documentation:
@@ -23849,8 +23847,8 @@ ma_result ma_device_main_loop__oss(ma_device* pDevice)
 
 ma_result ma_context_uninit__oss(ma_context* pContext)
 {
-    ma_assert(pContext != NULL);
-    ma_assert(pContext->backend == ma_backend_oss);
+    MA_ASSERT(pContext != NULL);
+    MA_ASSERT(pContext->backend == ma_backend_oss);
 
     (void)pContext;
     return MA_SUCCESS;
@@ -23862,7 +23860,7 @@ ma_result ma_context_init__oss(const ma_context_config* pConfig, ma_context* pCo
     int ossVersion;
     int result;
 
-    ma_assert(pContext != NULL);
+    MA_ASSERT(pContext != NULL);
 
     (void)pConfig;
 
@@ -24004,7 +24002,7 @@ ma_result ma_result_from_aaudio(ma_aaudio_result_t resultAA)
 void ma_stream_error_callback__aaudio(ma_AAudioStream* pStream, void* pUserData, ma_aaudio_result_t error)
 {
     ma_device* pDevice = (ma_device*)pUserData;
-    ma_assert(pDevice != NULL);
+    MA_ASSERT(pDevice != NULL);
 
     (void)error;
 
@@ -24026,7 +24024,7 @@ void ma_stream_error_callback__aaudio(ma_AAudioStream* pStream, void* pUserData,
 ma_aaudio_data_callback_result_t ma_stream_data_callback_capture__aaudio(ma_AAudioStream* pStream, void* pUserData, void* pAudioData, int32_t frameCount)
 {
     ma_device* pDevice = (ma_device*)pUserData;
-    ma_assert(pDevice != NULL);
+    MA_ASSERT(pDevice != NULL);
 
     if (pDevice->type == ma_device_type_duplex) {
         ma_device__handle_duplex_callback_capture(pDevice, frameCount, pAudioData, &pDevice->aaudio.duplexRB);
@@ -24041,7 +24039,7 @@ ma_aaudio_data_callback_result_t ma_stream_data_callback_capture__aaudio(ma_AAud
 ma_aaudio_data_callback_result_t ma_stream_data_callback_playback__aaudio(ma_AAudioStream* pStream, void* pUserData, void* pAudioData, int32_t frameCount)
 {
     ma_device* pDevice = (ma_device*)pUserData;
-    ma_assert(pDevice != NULL);
+    MA_ASSERT(pDevice != NULL);
 
     if (pDevice->type == ma_device_type_duplex) {
         ma_device__handle_duplex_callback_playback(pDevice, frameCount, pAudioData, &pDevice->aaudio.duplexRB);
@@ -24058,7 +24056,7 @@ ma_result ma_open_stream__aaudio(ma_context* pContext, ma_device_type deviceType
     ma_AAudioStreamBuilder* pBuilder;
     ma_aaudio_result_t resultAA;
 
-    ma_assert(deviceType != ma_device_type_duplex);   /* This function should not be called for a full-duplex device type. */
+    MA_ASSERT(deviceType != ma_device_type_duplex);   /* This function should not be called for a full-duplex device type. */
 
     *ppStream = NULL;
 
@@ -24165,9 +24163,9 @@ ma_result ma_wait_for_simple_state_transition__aaudio(ma_context* pContext, ma_A
 
 ma_bool32 ma_context_is_device_id_equal__aaudio(ma_context* pContext, const ma_device_id* pID0, const ma_device_id* pID1)
 {
-    ma_assert(pContext != NULL);
-    ma_assert(pID0 != NULL);
-    ma_assert(pID1 != NULL);
+    MA_ASSERT(pContext != NULL);
+    MA_ASSERT(pID0 != NULL);
+    MA_ASSERT(pID1 != NULL);
     (void)pContext;
 
     return pID0->aaudio == pID1->aaudio;
@@ -24177,8 +24175,8 @@ ma_result ma_context_enumerate_devices__aaudio(ma_context* pContext, ma_enum_dev
 {
     ma_bool32 cbResult = MA_TRUE;
 
-    ma_assert(pContext != NULL);
-    ma_assert(callback != NULL);
+    MA_ASSERT(pContext != NULL);
+    MA_ASSERT(callback != NULL);
 
     /* Unfortunately AAudio does not have an enumeration API. Therefore I'm only going to report default devices, but only if it can instantiate a stream. */
 
@@ -24214,7 +24212,7 @@ ma_result ma_context_get_device_info__aaudio(ma_context* pContext, ma_device_typ
     ma_AAudioStream* pStream;
     ma_result result;
 
-    ma_assert(pContext != NULL);
+    MA_ASSERT(pContext != NULL);
 
     /* No exclusive mode with AAudio. */
     if (shareMode == ma_share_mode_exclusive) {
@@ -24262,7 +24260,7 @@ ma_result ma_context_get_device_info__aaudio(ma_context* pContext, ma_device_typ
 
 void ma_device_uninit__aaudio(ma_device* pDevice)
 {
-    ma_assert(pDevice != NULL);
+    MA_ASSERT(pDevice != NULL);
 
     if (pDevice->type == ma_device_type_capture || pDevice->type == ma_device_type_duplex) {
         ma_close_stream__aaudio(pDevice->pContext, (ma_AAudioStream*)pDevice->aaudio.pStreamCapture);
@@ -24283,7 +24281,7 @@ ma_result ma_device_init__aaudio(ma_context* pContext, const ma_device_config* p
 {
     ma_result result;
 
-    ma_assert(pDevice != NULL);
+    MA_ASSERT(pDevice != NULL);
 
     if (pConfig->deviceType == ma_device_type_loopback) {
         return MA_DEVICE_TYPE_NOT_SUPPORTED;
@@ -24373,7 +24371,7 @@ ma_result ma_device_start_stream__aaudio(ma_device* pDevice, ma_AAudioStream* pS
     ma_aaudio_result_t resultAA;
     ma_aaudio_stream_state_t currentState;
 
-    ma_assert(pDevice != NULL);
+    MA_ASSERT(pDevice != NULL);
 
     resultAA = ((MA_PFN_AAudioStream_requestStart)pDevice->pContext->aaudio.AAudioStream_requestStart)(pStream);
     if (resultAA != MA_AAUDIO_OK) {
@@ -24405,7 +24403,7 @@ ma_result ma_device_stop_stream__aaudio(ma_device* pDevice, ma_AAudioStream* pSt
     ma_aaudio_result_t resultAA;
     ma_aaudio_stream_state_t currentState;
 
-    ma_assert(pDevice != NULL);
+    MA_ASSERT(pDevice != NULL);
 
     resultAA = ((MA_PFN_AAudioStream_requestStop)pDevice->pContext->aaudio.AAudioStream_requestStop)(pStream);
     if (resultAA != MA_AAUDIO_OK) {
@@ -24432,7 +24430,7 @@ ma_result ma_device_stop_stream__aaudio(ma_device* pDevice, ma_AAudioStream* pSt
 
 ma_result ma_device_start__aaudio(ma_device* pDevice)
 {
-    ma_assert(pDevice != NULL);
+    MA_ASSERT(pDevice != NULL);
 
     if (pDevice->type == ma_device_type_capture || pDevice->type == ma_device_type_duplex) {
         ma_result result = ma_device_start_stream__aaudio(pDevice, (ma_AAudioStream*)pDevice->aaudio.pStreamCapture);
@@ -24458,7 +24456,7 @@ ma_result ma_device_stop__aaudio(ma_device* pDevice)
 {
     ma_stop_proc onStop;
 
-    ma_assert(pDevice != NULL);
+    MA_ASSERT(pDevice != NULL);
 
     if (pDevice->type == ma_device_type_capture || pDevice->type == ma_device_type_duplex) {
         ma_result result = ma_device_stop_stream__aaudio(pDevice, (ma_AAudioStream*)pDevice->aaudio.pStreamCapture);
@@ -24485,8 +24483,8 @@ ma_result ma_device_stop__aaudio(ma_device* pDevice)
 
 ma_result ma_context_uninit__aaudio(ma_context* pContext)
 {
-    ma_assert(pContext != NULL);
-    ma_assert(pContext->backend == ma_backend_aaudio);
+    MA_ASSERT(pContext != NULL);
+    MA_ASSERT(pContext->backend == ma_backend_aaudio);
     
     ma_dlclose(pContext, pContext->aaudio.hAAudio);
     pContext->aaudio.hAAudio = NULL;
@@ -24728,9 +24726,9 @@ SLuint32 ma_round_to_standard_sample_rate__opensl(SLuint32 samplesPerSec)
 
 ma_bool32 ma_context_is_device_id_equal__opensl(ma_context* pContext, const ma_device_id* pID0, const ma_device_id* pID1)
 {
-    ma_assert(pContext != NULL);
-    ma_assert(pID0 != NULL);
-    ma_assert(pID1 != NULL);
+    MA_ASSERT(pContext != NULL);
+    MA_ASSERT(pID0 != NULL);
+    MA_ASSERT(pID1 != NULL);
     (void)pContext;
 
     return pID0->opensl == pID1->opensl;
@@ -24740,10 +24738,10 @@ ma_result ma_context_enumerate_devices__opensl(ma_context* pContext, ma_enum_dev
 {
     ma_bool32 cbResult;
 
-    ma_assert(pContext != NULL);
-    ma_assert(callback != NULL);
+    MA_ASSERT(pContext != NULL);
+    MA_ASSERT(callback != NULL);
 
-    ma_assert(g_maOpenSLInitCounter > 0); /* <-- If you trigger this it means you've either not initialized the context, or you've uninitialized it and then attempted to enumerate devices. */
+    MA_ASSERT(g_maOpenSLInitCounter > 0); /* <-- If you trigger this it means you've either not initialized the context, or you've uninitialized it and then attempted to enumerate devices. */
     if (g_maOpenSLInitCounter == 0) {
         return MA_INVALID_OPERATION;
     }
@@ -24847,9 +24845,9 @@ return_default_device:;
 
 ma_result ma_context_get_device_info__opensl(ma_context* pContext, ma_device_type deviceType, const ma_device_id* pDeviceID, ma_share_mode shareMode, ma_device_info* pDeviceInfo)
 {
-    ma_assert(pContext != NULL);
+    MA_ASSERT(pContext != NULL);
 
-    ma_assert(g_maOpenSLInitCounter > 0); /* <-- If you trigger this it means you've either not initialized the context, or you've uninitialized it and then attempted to get device info. */
+    MA_ASSERT(g_maOpenSLInitCounter > 0); /* <-- If you trigger this it means you've either not initialized the context, or you've uninitialized it and then attempted to get device info. */
     if (g_maOpenSLInitCounter == 0) {
         return MA_INVALID_OPERATION;
     }
@@ -24945,7 +24943,7 @@ void ma_buffer_queue_callback_capture__opensl_android(SLAndroidSimpleBufferQueue
     ma_uint8* pBuffer;
     SLresult resultSL;
 
-    ma_assert(pDevice != NULL);
+    MA_ASSERT(pDevice != NULL);
 
     (void)pBufferQueue;
 
@@ -24984,7 +24982,7 @@ void ma_buffer_queue_callback_playback__opensl_android(SLAndroidSimpleBufferQueu
     ma_uint8* pBuffer;
     SLresult resultSL;
 
-    ma_assert(pDevice != NULL);
+    MA_ASSERT(pDevice != NULL);
 
     (void)pBufferQueue;
 
@@ -25013,9 +25011,9 @@ void ma_buffer_queue_callback_playback__opensl_android(SLAndroidSimpleBufferQueu
 
 void ma_device_uninit__opensl(ma_device* pDevice)
 {
-    ma_assert(pDevice != NULL);
+    MA_ASSERT(pDevice != NULL);
 
-    ma_assert(g_maOpenSLInitCounter > 0); /* <-- If you trigger this it means you've either not initialized the context, or you've uninitialized it before uninitializing the device. */
+    MA_ASSERT(g_maOpenSLInitCounter > 0); /* <-- If you trigger this it means you've either not initialized the context, or you've uninitialized it before uninitializing the device. */
     if (g_maOpenSLInitCounter == 0) {
         return;
     }
@@ -25082,7 +25080,7 @@ ma_result ma_SLDataFormat_PCM_init__opensl(ma_format format, ma_uint32 channels,
 #if __ANDROID_API__ >= 21
     if (pDataFormat->formatType == SL_ANDROID_DATAFORMAT_PCM_EX) {
         /* It's floating point. */
-        ma_assert(pDataFormat->representation == SL_ANDROID_PCM_REPRESENTATION_FLOAT);
+        MA_ASSERT(pDataFormat->representation == SL_ANDROID_PCM_REPRESENTATION_FLOAT);
         if (pDataFormat->bitsPerSample > 32) {
             pDataFormat->bitsPerSample = 32;
         }
@@ -25111,7 +25109,7 @@ ma_result ma_deconstruct_SLDataFormat_PCM__opensl(ma_SLDataFormat_PCM* pDataForm
     ma_bool32 isFloatingPoint = MA_FALSE;
 #if defined(MA_ANDROID) && __ANDROID_API__ >= 21
     if (pDataFormat->formatType == SL_ANDROID_DATAFORMAT_PCM_EX) {
-        ma_assert(pDataFormat->representation == SL_ANDROID_PCM_REPRESENTATION_FLOAT);
+        MA_ASSERT(pDataFormat->representation == SL_ANDROID_PCM_REPRESENTATION_FLOAT);
         isFloatingPoint = MA_TRUE;
     }
 #endif
@@ -25151,7 +25149,7 @@ ma_result ma_device_init__opensl(ma_context* pContext, const ma_device_config* p
 
     (void)pContext;
 
-    ma_assert(g_maOpenSLInitCounter > 0); /* <-- If you trigger this it means you've either not initialized the context, or you've uninitialized it and then attempted to initialize a new device. */
+    MA_ASSERT(g_maOpenSLInitCounter > 0); /* <-- If you trigger this it means you've either not initialized the context, or you've uninitialized it and then attempted to initialize a new device. */
     if (g_maOpenSLInitCounter == 0) {
         return MA_INVALID_OPERATION;
     }
@@ -25173,7 +25171,7 @@ ma_result ma_device_init__opensl(ma_context* pContext, const ma_device_config* p
     }
 
     /* Now we can start initializing the device properly. */
-    ma_assert(pDevice != NULL);
+    MA_ASSERT(pDevice != NULL);
     MA_ZERO_OBJECT(&pDevice->opensl);
 
     queue.locatorType = SL_DATALOCATOR_ANDROIDSIMPLEBUFFERQUEUE;
@@ -25386,9 +25384,9 @@ ma_result ma_device_start__opensl(ma_device* pDevice)
     size_t periodSizeInBytes;
     ma_uint32 iPeriod;
 
-    ma_assert(pDevice != NULL);
+    MA_ASSERT(pDevice != NULL);
 
-    ma_assert(g_maOpenSLInitCounter > 0); /* <-- If you trigger this it means you've either not initialized the context, or you've uninitialized it and then attempted to start the device. */
+    MA_ASSERT(g_maOpenSLInitCounter > 0); /* <-- If you trigger this it means you've either not initialized the context, or you've uninitialized it and then attempted to start the device. */
     if (g_maOpenSLInitCounter == 0) {
         return MA_INVALID_OPERATION;
     }
@@ -25440,9 +25438,9 @@ ma_result ma_device_stop__opensl(ma_device* pDevice)
     SLresult resultSL;
     ma_stop_proc onStop;
 
-    ma_assert(pDevice != NULL);
+    MA_ASSERT(pDevice != NULL);
 
-    ma_assert(g_maOpenSLInitCounter > 0); /* <-- If you trigger this it means you've either not initialized the context, or you've uninitialized it before stopping/uninitializing the device. */
+    MA_ASSERT(g_maOpenSLInitCounter > 0); /* <-- If you trigger this it means you've either not initialized the context, or you've uninitialized it before stopping/uninitializing the device. */
     if (g_maOpenSLInitCounter == 0) {
         return MA_INVALID_OPERATION;
     }
@@ -25479,8 +25477,8 @@ ma_result ma_device_stop__opensl(ma_device* pDevice)
 
 ma_result ma_context_uninit__opensl(ma_context* pContext)
 {
-    ma_assert(pContext != NULL);
-    ma_assert(pContext->backend == ma_backend_opensl);
+    MA_ASSERT(pContext != NULL);
+    MA_ASSERT(pContext->backend == ma_backend_opensl);
     (void)pContext;
 
     /* Uninit global data. */
@@ -25495,7 +25493,7 @@ ma_result ma_context_uninit__opensl(ma_context* pContext)
 
 ma_result ma_context_init__opensl(const ma_context_config* pConfig, ma_context* pContext)
 {
-    ma_assert(pContext != NULL);
+    MA_ASSERT(pContext != NULL);
 
     (void)pConfig;
 
@@ -25574,9 +25572,9 @@ EMSCRIPTEN_KEEPALIVE void ma_device_process_pcm_frames_playback__webaudio(ma_dev
 
 ma_bool32 ma_context_is_device_id_equal__webaudio(ma_context* pContext, const ma_device_id* pID0, const ma_device_id* pID1)
 {
-    ma_assert(pContext != NULL);
-    ma_assert(pID0 != NULL);
-    ma_assert(pID1 != NULL);
+    MA_ASSERT(pContext != NULL);
+    MA_ASSERT(pID0 != NULL);
+    MA_ASSERT(pID1 != NULL);
     (void)pContext;
 
     return ma_strcmp(pID0->webaudio, pID1->webaudio) == 0;
@@ -25586,8 +25584,8 @@ ma_result ma_context_enumerate_devices__webaudio(ma_context* pContext, ma_enum_d
 {
     ma_bool32 cbResult = MA_TRUE;
 
-    ma_assert(pContext != NULL);
-    ma_assert(callback != NULL);
+    MA_ASSERT(pContext != NULL);
+    MA_ASSERT(callback != NULL);
 
     /* Only supporting default devices for now. */
 
@@ -25614,7 +25612,7 @@ ma_result ma_context_enumerate_devices__webaudio(ma_context* pContext, ma_enum_d
 
 ma_result ma_context_get_device_info__webaudio(ma_context* pContext, ma_device_type deviceType, const ma_device_id* pDeviceID, ma_share_mode shareMode, ma_device_info* pDeviceInfo)
 {
-    ma_assert(pContext != NULL);
+    MA_ASSERT(pContext != NULL);
 
     /* No exclusive mode with Web Audio. */
     if (shareMode == ma_share_mode_exclusive) {
@@ -25668,7 +25666,7 @@ ma_result ma_context_get_device_info__webaudio(ma_context* pContext, ma_device_t
 
 void ma_device_uninit_by_index__webaudio(ma_device* pDevice, ma_device_type deviceType, int deviceIndex)
 {
-    ma_assert(pDevice != NULL);
+    MA_ASSERT(pDevice != NULL);
 
     EM_ASM({
         var device = miniaudio.get_device_by_index($0);
@@ -25706,7 +25704,7 @@ void ma_device_uninit_by_index__webaudio(ma_device* pDevice, ma_device_type devi
 
 void ma_device_uninit__webaudio(ma_device* pDevice)
 {
-    ma_assert(pDevice != NULL);
+    MA_ASSERT(pDevice != NULL);
 
     if (pDevice->type == ma_device_type_capture || pDevice->type == ma_device_type_duplex) {
         ma_device_uninit_by_index__webaudio(pDevice, ma_device_type_capture, pDevice->webaudio.indexCapture);
@@ -25726,10 +25724,10 @@ ma_result ma_device_init_by_type__webaudio(ma_context* pContext, const ma_device
     int deviceIndex;
     ma_uint32 internalBufferSizeInFrames;
 
-    ma_assert(pContext   != NULL);
-    ma_assert(pConfig    != NULL);
-    ma_assert(deviceType != ma_device_type_duplex);
-    ma_assert(pDevice    != NULL);
+    MA_ASSERT(pContext   != NULL);
+    MA_ASSERT(pConfig    != NULL);
+    MA_ASSERT(deviceType != ma_device_type_duplex);
+    MA_ASSERT(pDevice    != NULL);
 
     if (deviceType == ma_device_type_capture && !ma_is_capture_supported__webaudio()) {
         return MA_NO_DEVICE;
@@ -25995,7 +25993,7 @@ ma_result ma_device_init__webaudio(ma_context* pContext, const ma_device_config*
 
 ma_result ma_device_start__webaudio(ma_device* pDevice)
 {
-    ma_assert(pDevice != NULL);
+    MA_ASSERT(pDevice != NULL);
 
     if (pDevice->type == ma_device_type_capture || pDevice->type == ma_device_type_duplex) {
         EM_ASM({
@@ -26014,7 +26012,7 @@ ma_result ma_device_start__webaudio(ma_device* pDevice)
 
 ma_result ma_device_stop__webaudio(ma_device* pDevice)
 {
-    ma_assert(pDevice != NULL);
+    MA_ASSERT(pDevice != NULL);
 
     if (pDevice->type == ma_device_type_capture || pDevice->type == ma_device_type_duplex) {
         EM_ASM({
@@ -26038,8 +26036,8 @@ ma_result ma_device_stop__webaudio(ma_device* pDevice)
 
 ma_result ma_context_uninit__webaudio(ma_context* pContext)
 {
-    ma_assert(pContext != NULL);
-    ma_assert(pContext->backend == ma_backend_webaudio);
+    MA_ASSERT(pContext != NULL);
+    MA_ASSERT(pContext->backend == ma_backend_webaudio);
 
     /* Nothing needs to be done here. */
     (void)pContext;
@@ -26051,7 +26049,7 @@ ma_result ma_context_init__webaudio(const ma_context_config* pConfig, ma_context
 {
     int resultFromJS;
 
-    ma_assert(pContext != NULL);
+    MA_ASSERT(pContext != NULL);
 
     /* Here is where our global JavaScript object is initialized. */
     resultFromJS = EM_ASM_INT({
@@ -26159,7 +26157,7 @@ static ma_result ma_device__post_init_setup(ma_device* pDevice, ma_device_type d
 {
     ma_result result;
 
-    ma_assert(pDevice != NULL);
+    MA_ASSERT(pDevice != NULL);
 
     if (deviceType == ma_device_type_capture || deviceType == ma_device_type_duplex) {
         if (pDevice->capture.usingDefaultFormat) {
@@ -26253,7 +26251,7 @@ static ma_result ma_device__post_init_setup(ma_device* pDevice, ma_device_type d
 ma_thread_result MA_THREADCALL ma_worker_thread(void* pData)
 {
     ma_device* pDevice = (ma_device*)pData;
-    ma_assert(pDevice != NULL);
+    MA_ASSERT(pDevice != NULL);
 
 #ifdef MA_WIN32
     ma_CoInitializeEx(pDevice->pContext, NULL, MA_COINIT_VALUE);
@@ -26287,7 +26285,7 @@ ma_thread_result MA_THREADCALL ma_worker_thread(void* pData)
         be started will be waiting on an event (pDevice->startEvent) which means we need to make sure we signal the event
         in both the success and error case. It's important that the state of the device is set _before_ signaling the event.
         */
-        ma_assert(ma_device__get_state(pDevice) == MA_STATE_STARTING);
+        MA_ASSERT(ma_device__get_state(pDevice) == MA_STATE_STARTING);
 
         /* Make sure the state is set appropriately. */
         ma_device__set_state(pDevice, MA_STATE_STARTED);
@@ -26547,7 +26545,7 @@ ma_result ma_context_init(const ma_backend backends[], ma_uint32 backendCount, c
         backendsToIterateCount = ma_countof(defaultBackends);
     }
 
-    ma_assert(pBackendsToIterate != NULL);
+    MA_ASSERT(pBackendsToIterate != NULL);
 
     for (iBackend = 0; iBackend < backendsToIterateCount; ++iBackend) {
         ma_backend backend = pBackendsToIterate[iBackend];
@@ -27092,7 +27090,7 @@ ma_result ma_device_init(ma_context* pContext, const ma_device_config* pConfig, 
 #endif
 
 
-    ma_assert(ma_device__get_state(pDevice) == MA_STATE_STOPPED);
+    MA_ASSERT(ma_device__get_state(pDevice) == MA_STATE_STOPPED);
     return MA_SUCCESS;
 }
 
@@ -27212,7 +27210,7 @@ ma_result ma_device_start(ma_device* pDevice)
     ma_mutex_lock(&pDevice->lock);
     {
         /* Starting and stopping are wrapped in a mutex which means we can assert that the device is in a stopped or paused state. */
-        ma_assert(ma_device__get_state(pDevice) == MA_STATE_STOPPED);
+        MA_ASSERT(ma_device__get_state(pDevice) == MA_STATE_STOPPED);
 
         ma_device__set_state(pDevice, MA_STATE_STARTING);
 
@@ -27262,7 +27260,7 @@ ma_result ma_device_stop(ma_device* pDevice)
     ma_mutex_lock(&pDevice->lock);
     {
         /* Starting and stopping are wrapped in a mutex which means we can assert that the device is in a started or paused state. */
-        ma_assert(ma_device__get_state(pDevice) == MA_STATE_STARTED);
+        MA_ASSERT(ma_device__get_state(pDevice) == MA_STATE_STARTED);
 
         ma_device__set_state(pDevice, MA_STATE_STOPPING);
 
@@ -33362,13 +33360,13 @@ MA_INLINE ma_uint32 ma_rb__extract_offset_loop_flag(ma_uint32 encodedOffset)
 
 MA_INLINE void* ma_rb__get_read_ptr(ma_rb* pRB)
 {
-    ma_assert(pRB != NULL);
+    MA_ASSERT(pRB != NULL);
     return ma_offset_ptr(pRB->pBuffer, ma_rb__extract_offset_in_bytes(pRB->encodedReadOffset));
 }
 
 MA_INLINE void* ma_rb__get_write_ptr(ma_rb* pRB)
 {
-    ma_assert(pRB != NULL);
+    MA_ASSERT(pRB != NULL);
     return ma_offset_ptr(pRB->pBuffer, ma_rb__extract_offset_in_bytes(pRB->encodedWriteOffset));
 }
 
@@ -33379,8 +33377,8 @@ MA_INLINE ma_uint32 ma_rb__construct_offset(ma_uint32 offsetInBytes, ma_uint32 o
 
 MA_INLINE void ma_rb__deconstruct_offset(ma_uint32 encodedOffset, ma_uint32* pOffsetInBytes, ma_uint32* pOffsetLoopFlag)
 {
-    ma_assert(pOffsetInBytes != NULL);
-    ma_assert(pOffsetLoopFlag != NULL);
+    MA_ASSERT(pOffsetInBytes != NULL);
+    MA_ASSERT(pOffsetLoopFlag != NULL);
 
     *pOffsetInBytes  = ma_rb__extract_offset_in_bytes(encodedOffset);
     *pOffsetLoopFlag = ma_rb__extract_offset_loop_flag(encodedOffset);
@@ -33809,7 +33807,7 @@ void* ma_rb_get_subbuffer_ptr(ma_rb* pRB, size_t subbufferIndex, void* pBuffer)
 
 static MA_INLINE ma_uint32 ma_pcm_rb_get_bpf(ma_pcm_rb* pRB)
 {
-    ma_assert(pRB != NULL);
+    MA_ASSERT(pRB != NULL);
 
     return ma_get_bytes_per_frame(pRB->format, pRB->channels);
 }
@@ -34101,8 +34099,8 @@ size_t ma_decoder_read_bytes(ma_decoder* pDecoder, void* pBufferOut, size_t byte
 {
     size_t bytesRead;
 
-    ma_assert(pDecoder != NULL);
-    ma_assert(pBufferOut != NULL);
+    MA_ASSERT(pDecoder != NULL);
+    MA_ASSERT(pBufferOut != NULL);
 
     bytesRead = pDecoder->onRead(pDecoder, pBufferOut, bytesToRead);
     pDecoder->readPointer += bytesRead;
@@ -34114,7 +34112,7 @@ ma_bool32 ma_decoder_seek_bytes(ma_decoder* pDecoder, int byteOffset, ma_seek_or
 {
     ma_bool32 wasSuccessful;
 
-    ma_assert(pDecoder != NULL);
+    MA_ASSERT(pDecoder != NULL);
 
     wasSuccessful = pDecoder->onSeek(pDecoder, byteOffset, origin);
     if (wasSuccessful) {
@@ -34130,7 +34128,7 @@ ma_bool32 ma_decoder_seek_bytes(ma_decoder* pDecoder, int byteOffset, ma_seek_or
 
 ma_bool32 ma_decoder_seek_bytes_64(ma_decoder* pDecoder, ma_uint64 byteOffset, ma_seek_origin origin)
 {
-    ma_assert(pDecoder != NULL);
+    MA_ASSERT(pDecoder != NULL);
 
     if (origin == ma_seek_origin_start) {
         ma_uint64 bytesToSeekThisIteration = 0x7FFFFFFF;
@@ -34194,7 +34192,7 @@ static ma_result ma_decoder__init_data_converter(ma_decoder* pDecoder, const ma_
 {
     ma_data_converter_config converterConfig;
 
-    ma_assert(pDecoder != NULL);
+    MA_ASSERT(pDecoder != NULL);
 
     /* Output format. */
     if (pConfig->format == ma_format_unknown) {
@@ -34246,7 +34244,7 @@ static ma_result ma_decoder__init_data_converter(ma_decoder* pDecoder, const ma_
 size_t ma_decoder_internal_on_read__wav(void* pUserData, void* pBufferOut, size_t bytesToRead)
 {
     ma_decoder* pDecoder = (ma_decoder*)pUserData;
-    ma_assert(pDecoder != NULL);
+    MA_ASSERT(pDecoder != NULL);
 
     return ma_decoder_read_bytes(pDecoder, pBufferOut, bytesToRead);
 }
@@ -34254,7 +34252,7 @@ size_t ma_decoder_internal_on_read__wav(void* pUserData, void* pBufferOut, size_
 drwav_bool32 ma_decoder_internal_on_seek__wav(void* pUserData, int offset, drwav_seek_origin origin)
 {
     ma_decoder* pDecoder = (ma_decoder*)pUserData;
-    ma_assert(pDecoder != NULL);
+    MA_ASSERT(pDecoder != NULL);
 
     return ma_decoder_seek_bytes(pDecoder, offset, (origin == drwav_seek_origin_start) ? ma_seek_origin_start : ma_seek_origin_current);
 }
@@ -34287,7 +34285,7 @@ ma_result ma_decoder_internal_on_seek_to_pcm_frame__wav(ma_decoder* pDecoder, ma
     drwav_bool32 result;
 
     pWav = (drwav*)pDecoder->pInternalDecoder;
-    ma_assert(pWav != NULL);
+    MA_ASSERT(pWav != NULL);
 
     result = drwav_seek_to_pcm_frame(pWav, frameIndex);
     if (result) {
@@ -34313,8 +34311,8 @@ ma_result ma_decoder_init_wav__internal(const ma_decoder_config* pConfig, ma_dec
 {
     drwav* pWav;
 
-    ma_assert(pConfig != NULL);
-    ma_assert(pDecoder != NULL);
+    MA_ASSERT(pConfig != NULL);
+    MA_ASSERT(pDecoder != NULL);
 
     pWav = (drwav*)ma_malloc(sizeof(*pWav));
     if (pWav == NULL) {
@@ -34383,7 +34381,7 @@ ma_result ma_decoder_init_wav__internal(const ma_decoder_config* pConfig, ma_dec
 size_t ma_decoder_internal_on_read__flac(void* pUserData, void* pBufferOut, size_t bytesToRead)
 {
     ma_decoder* pDecoder = (ma_decoder*)pUserData;
-    ma_assert(pDecoder != NULL);
+    MA_ASSERT(pDecoder != NULL);
 
     return ma_decoder_read_bytes(pDecoder, pBufferOut, bytesToRead);
 }
@@ -34391,7 +34389,7 @@ size_t ma_decoder_internal_on_read__flac(void* pUserData, void* pBufferOut, size
 drflac_bool32 ma_decoder_internal_on_seek__flac(void* pUserData, int offset, drflac_seek_origin origin)
 {
     ma_decoder* pDecoder = (ma_decoder*)pUserData;
-    ma_assert(pDecoder != NULL);
+    MA_ASSERT(pDecoder != NULL);
 
     return ma_decoder_seek_bytes(pDecoder, offset, (origin == drflac_seek_origin_start) ? ma_seek_origin_start : ma_seek_origin_current);
 }
@@ -34424,7 +34422,7 @@ ma_result ma_decoder_internal_on_seek_to_pcm_frame__flac(ma_decoder* pDecoder, m
     drflac_bool32 result;
 
     pFlac = (drflac*)pDecoder->pInternalDecoder;
-    ma_assert(pFlac != NULL);
+    MA_ASSERT(pFlac != NULL);
 
     result = drflac_seek_to_pcm_frame(pFlac, frameIndex);
     if (result) {
@@ -34449,8 +34447,8 @@ ma_result ma_decoder_init_flac__internal(const ma_decoder_config* pConfig, ma_de
 {
     drflac* pFlac;
 
-    ma_assert(pConfig != NULL);
-    ma_assert(pDecoder != NULL);
+    MA_ASSERT(pConfig != NULL);
+    MA_ASSERT(pDecoder != NULL);
 
     /* Try opening the decoder first. */
     pFlac = drflac_open(ma_decoder_internal_on_read__flac, ma_decoder_internal_on_seek__flac, pDecoder, NULL);
@@ -34592,8 +34590,8 @@ ma_result ma_vorbis_decoder_seek_to_pcm_frame(ma_vorbis_decoder* pVorbis, ma_dec
 {
     float buffer[4096];
 
-    ma_assert(pVorbis != NULL);
-    ma_assert(pDecoder != NULL);
+    MA_ASSERT(pVorbis != NULL);
+    MA_ASSERT(pDecoder != NULL);
 
     /*
     This is terribly inefficient because stb_vorbis does not have a good seeking solution with it's push API. Currently this just performs
@@ -34631,7 +34629,7 @@ ma_result ma_vorbis_decoder_seek_to_pcm_frame(ma_vorbis_decoder* pVorbis, ma_dec
 ma_result ma_decoder_internal_on_seek_to_pcm_frame__vorbis(ma_decoder* pDecoder, ma_uint64 frameIndex)
 {
     ma_vorbis_decoder* pVorbis = (ma_vorbis_decoder*)pDecoder->pInternalDecoder;
-    ma_assert(pVorbis != NULL);
+    MA_ASSERT(pVorbis != NULL);
 
     return ma_vorbis_decoder_seek_to_pcm_frame(pVorbis, pDecoder, frameIndex);
 }
@@ -34639,7 +34637,7 @@ ma_result ma_decoder_internal_on_seek_to_pcm_frame__vorbis(ma_decoder* pDecoder,
 ma_result ma_decoder_internal_on_uninit__vorbis(ma_decoder* pDecoder)
 {
     ma_vorbis_decoder* pVorbis = (ma_vorbis_decoder*)pDecoder->pInternalDecoder;
-    ma_assert(pVorbis != NULL);
+    MA_ASSERT(pVorbis != NULL);
 
     stb_vorbis_close(pVorbis->pInternalVorbis);
     ma_free(pVorbis->pData);
@@ -34654,10 +34652,10 @@ ma_uint64 ma_decoder_internal_on_read_pcm_frames__vorbis(ma_decoder* pDecoder, v
 
     MA_ASSERT(pDecoder   != NULL);
     MA_ASSERT(pFramesOut != NULL);
-    ma_assert(pDecoder->internalFormat == ma_format_f32);
+    MA_ASSERT(pDecoder->internalFormat == ma_format_f32);
 
     pVorbis = (ma_vorbis_decoder*)pDecoder->pInternalDecoder;
-    ma_assert(pVorbis != NULL);
+    MA_ASSERT(pVorbis != NULL);
 
     return ma_vorbis_decoder_read_pcm_frames(pVorbis, pDecoder, pFramesOut, frameCount);
 }
@@ -34679,8 +34677,8 @@ ma_result ma_decoder_init_vorbis__internal(const ma_decoder_config* pConfig, ma_
     size_t vorbisDataSize;
     ma_vorbis_decoder* pVorbis;
 
-    ma_assert(pConfig != NULL);
-    ma_assert(pDecoder != NULL);
+    MA_ASSERT(pConfig != NULL);
+    MA_ASSERT(pDecoder != NULL);
 
     /* We grow the buffer in chunks. */
     do
@@ -34782,7 +34780,7 @@ ma_result ma_decoder_init_vorbis__internal(const ma_decoder_config* pConfig, ma_
 size_t ma_decoder_internal_on_read__mp3(void* pUserData, void* pBufferOut, size_t bytesToRead)
 {
     ma_decoder* pDecoder = (ma_decoder*)pUserData;
-    ma_assert(pDecoder != NULL);
+    MA_ASSERT(pDecoder != NULL);
 
     return ma_decoder_read_bytes(pDecoder, pBufferOut, bytesToRead);
 }
@@ -34790,7 +34788,7 @@ size_t ma_decoder_internal_on_read__mp3(void* pUserData, void* pBufferOut, size_
 drmp3_bool32 ma_decoder_internal_on_seek__mp3(void* pUserData, int offset, drmp3_seek_origin origin)
 {
     ma_decoder* pDecoder = (ma_decoder*)pUserData;
-    ma_assert(pDecoder != NULL);
+    MA_ASSERT(pDecoder != NULL);
 
     return ma_decoder_seek_bytes(pDecoder, offset, (origin == drmp3_seek_origin_start) ? ma_seek_origin_start : ma_seek_origin_current);
 }
@@ -34815,7 +34813,7 @@ ma_result ma_decoder_internal_on_seek_to_pcm_frame__mp3(ma_decoder* pDecoder, ma
     drmp3_bool32 result;
 
     pMP3 = (drmp3*)pDecoder->pInternalDecoder;
-    ma_assert(pMP3 != NULL);
+    MA_ASSERT(pMP3 != NULL);
 
     result = drmp3_seek_to_pcm_frame(pMP3, frameIndex);
     if (result) {
@@ -34842,8 +34840,8 @@ ma_result ma_decoder_init_mp3__internal(const ma_decoder_config* pConfig, ma_dec
     drmp3* pMP3;
     drmp3_config mp3Config;
 
-    ma_assert(pConfig != NULL);
-    ma_assert(pDecoder != NULL);
+    MA_ASSERT(pConfig != NULL);
+    MA_ASSERT(pDecoder != NULL);
 
     pMP3 = (drmp3*)ma_malloc(sizeof(*pMP3));
     if (pMP3 == NULL) {
@@ -34928,7 +34926,7 @@ ma_result ma_decoder_internal_on_seek_to_pcm_frame__raw(ma_decoder* pDecoder, ma
     ma_bool32 result = MA_FALSE;
     ma_uint64 totalBytesToSeek;
 
-    ma_assert(pDecoder != NULL);
+    MA_ASSERT(pDecoder != NULL);
 
     if (pDecoder->onSeek == NULL) {
         return MA_ERROR;
@@ -34982,9 +34980,9 @@ ma_uint64 ma_decoder_internal_on_get_length_in_pcm_frames__raw(ma_decoder* pDeco
 
 ma_result ma_decoder_init_raw__internal(const ma_decoder_config* pConfigIn, const ma_decoder_config* pConfigOut, ma_decoder* pDecoder)
 {
-    ma_assert(pConfigIn != NULL);
-    ma_assert(pConfigOut != NULL);
-    ma_assert(pDecoder != NULL);
+    MA_ASSERT(pConfigIn != NULL);
+    MA_ASSERT(pConfigOut != NULL);
+    MA_ASSERT(pDecoder != NULL);
 
     pDecoder->onReadPCMFrames        = ma_decoder_internal_on_read_pcm_frames__raw;
     pDecoder->onSeekToPCMFrame       = ma_decoder_internal_on_seek_to_pcm_frame__raw;
@@ -35002,7 +35000,7 @@ ma_result ma_decoder_init_raw__internal(const ma_decoder_config* pConfigIn, cons
 
 ma_result ma_decoder__preinit(ma_decoder_read_proc onRead, ma_decoder_seek_proc onSeek, void* pUserData, const ma_decoder_config* pConfig, ma_decoder* pDecoder)
 {
-    ma_assert(pConfig != NULL);
+    MA_ASSERT(pConfig != NULL);
 
     if (pDecoder == NULL) {
         return MA_INVALID_ARGS;
@@ -35154,8 +35152,8 @@ ma_result ma_decoder_init__internal(ma_decoder_read_proc onRead, ma_decoder_seek
 {
     ma_result result = MA_NO_BACKEND;
 
-    ma_assert(pConfig != NULL);
-    ma_assert(pDecoder != NULL);
+    MA_ASSERT(pConfig != NULL);
+    MA_ASSERT(pDecoder != NULL);
 
     /* Silence some warnings in the case that we don't have any decoder backends enabled. */
     (void)onRead;
@@ -35226,7 +35224,7 @@ size_t ma_decoder__on_read_memory(ma_decoder* pDecoder, void* pBufferOut, size_t
 {
     size_t bytesRemaining;
 
-    ma_assert(pDecoder->memory.dataSize >= pDecoder->memory.currentReadPos);
+    MA_ASSERT(pDecoder->memory.dataSize >= pDecoder->memory.currentReadPos);
 
     bytesRemaining = pDecoder->memory.dataSize - pDecoder->memory.currentReadPos;
     if (bytesToRead > bytesRemaining) {
@@ -36008,7 +36006,7 @@ ma_result ma_decoder__full_decode_and_uninit(ma_decoder* pDecoder, ma_decoder_co
     ma_uint64 dataCapInFrames;
     void* pPCMFramesOut;
 
-    ma_assert(pDecoder != NULL);
+    MA_ASSERT(pDecoder != NULL);
     
     totalFrameCount = 0;
     bpf = ma_get_bytes_per_frame(pDecoder->outputFormat, pDecoder->outputChannels);
@@ -36045,7 +36043,7 @@ ma_result ma_decoder__full_decode_and_uninit(ma_decoder* pDecoder, ma_decoder_co
         }
 
         frameCountToTryReading = dataCapInFrames - totalFrameCount;
-        ma_assert(frameCountToTryReading > 0);
+        MA_ASSERT(frameCountToTryReading > 0);
 
         framesJustRead = ma_decoder_read_pcm_frames(pDecoder, (ma_uint8*)pPCMFramesOut + (totalFrameCount * bpf), frameCountToTryReading);
         totalFrameCount += framesJustRead;
