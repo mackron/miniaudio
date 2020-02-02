@@ -4103,7 +4103,6 @@ Standard Library Stuff
 
 #define MA_ZERO_OBJECT(p) MA_ZERO_MEMORY((p), sizeof(*(p)))
 
-#define ma_zero_object MA_ZERO_OBJECT
 #define ma_copy_memory MA_COPY_MEMORY
 #define ma_assert      MA_ASSERT
 
@@ -6627,7 +6626,7 @@ ma_result ma_context_enumerate_devices__null(ma_context* pContext, ma_enum_devic
     /* Playback. */
     if (cbResult) {
         ma_device_info deviceInfo;
-        ma_zero_object(&deviceInfo);
+        MA_ZERO_OBJECT(&deviceInfo);
         ma_strncpy_s(deviceInfo.name, sizeof(deviceInfo.name), "NULL Playback Device", (size_t)-1);
         cbResult = callback(pContext, ma_device_type_playback, &deviceInfo, pUserData);
     }
@@ -6635,7 +6634,7 @@ ma_result ma_context_enumerate_devices__null(ma_context* pContext, ma_enum_devic
     /* Capture. */
     if (cbResult) {
         ma_device_info deviceInfo;
-        ma_zero_object(&deviceInfo);
+        MA_ZERO_OBJECT(&deviceInfo);
         ma_strncpy_s(deviceInfo.name, sizeof(deviceInfo.name), "NULL Capture Device", (size_t)-1);
         cbResult = callback(pContext, ma_device_type_capture, &deviceInfo, pUserData);
     }
@@ -6696,7 +6695,7 @@ ma_result ma_device_init__null(ma_context* pContext, const ma_device_config* pCo
 
     ma_assert(pDevice != NULL);
 
-    ma_zero_object(&pDevice->null_device);
+    MA_ZERO_OBJECT(&pDevice->null_device);
 
     if (pConfig->deviceType == ma_device_type_loopback) {
         return MA_DEVICE_TYPE_NOT_SUPPORTED;
@@ -7439,7 +7438,7 @@ typedef struct
 /* Some compilers don't define PropVariantInit(). We just do this ourselves since it's just a memset(). */
 static MA_INLINE void ma_PropVariantInit(PROPVARIANT* pProp)
 {
-    ma_zero_object(pProp);
+    MA_ZERO_OBJECT(pProp);
 }
 
 
@@ -7979,7 +7978,7 @@ static ma_completion_handler_uwp_vtbl g_maCompletionHandlerVtblInstance = {
 ma_result ma_completion_handler_uwp_init(ma_completion_handler_uwp* pHandler)
 {
     ma_assert(pHandler != NULL);
-    ma_zero_object(pHandler);
+    MA_ZERO_OBJECT(pHandler);
 
     pHandler->lpVtbl = &g_maCompletionHandlerVtblInstance;
     pHandler->counter = 1;
@@ -8241,7 +8240,7 @@ ma_result ma_context_get_device_info_from_IAudioClient__wasapi(ma_context* pCont
 
                     ma_get_standard_channel_map(ma_standard_channel_map_microsoft, channels, defaultChannelMap);
 
-                    ma_zero_object(&wf);
+                    MA_ZERO_OBJECT(&wf);
                     wf.Format.cbSize     = sizeof(wf);
                     wf.Format.wFormatTag = WAVE_FORMAT_EXTENSIBLE;
                     wf.Format.nChannels  = (WORD)channels;
@@ -8407,7 +8406,7 @@ ma_result ma_context_enumerate_device_collection__wasapi(ma_context* pContext, m
         ma_device_info deviceInfo;
         ma_IMMDevice* pMMDevice;
         
-        ma_zero_object(&deviceInfo);
+        MA_ZERO_OBJECT(&deviceInfo);
 
         hr = ma_IMMDeviceCollection_Item(pDeviceCollection, iDevice, &pMMDevice);
         if (SUCCEEDED(hr)) {
@@ -8583,7 +8582,7 @@ ma_result ma_context_enumerate_devices__wasapi(ma_context* pContext, ma_enum_dev
         /* Playback. */
         if (cbResult) {
             ma_device_info deviceInfo;
-            ma_zero_object(&deviceInfo);
+            MA_ZERO_OBJECT(&deviceInfo);
             ma_strncpy_s(deviceInfo.name, sizeof(deviceInfo.name), MA_DEFAULT_PLAYBACK_DEVICE_NAME, (size_t)-1);
             cbResult = callback(pContext, ma_device_type_playback, &deviceInfo, pUserData);
         }
@@ -8591,7 +8590,7 @@ ma_result ma_context_enumerate_devices__wasapi(ma_context* pContext, ma_enum_dev
         /* Capture. */
         if (cbResult) {
             ma_device_info deviceInfo;
-            ma_zero_object(&deviceInfo);
+            MA_ZERO_OBJECT(&deviceInfo);
             ma_strncpy_s(deviceInfo.name, sizeof(deviceInfo.name), MA_DEFAULT_CAPTURE_DEVICE_NAME, (size_t)-1);
             cbResult = callback(pContext, ma_device_type_capture, &deviceInfo, pUserData);
         }
@@ -8763,7 +8762,7 @@ ma_result ma_device_init_internal__wasapi(ma_context* pContext, ma_device_type d
             hr = ma_IAudioClient2_IsOffloadCapable(pAudioClient2, MA_AudioCategory_Other, &isHardwareOffloadingSupported);
             if (SUCCEEDED(hr) && isHardwareOffloadingSupported) {
                 ma_AudioClientProperties clientProperties;
-                ma_zero_object(&clientProperties);
+                MA_ZERO_OBJECT(&clientProperties);
                 clientProperties.cbSize = sizeof(clientProperties);
                 clientProperties.bIsOffload = 1;
                 clientProperties.eCategory = MA_AudioCategory_Other;
@@ -9227,7 +9226,7 @@ ma_result ma_device_init__wasapi(ma_context* pContext, const ma_device_config* p
     ma_assert(pContext != NULL);
     ma_assert(pDevice != NULL);
 
-    ma_zero_object(&pDevice->wasapi);
+    MA_ZERO_OBJECT(&pDevice->wasapi);
     pDevice->wasapi.originalBufferSizeInFrames       = pConfig->bufferSizeInFrames;
     pDevice->wasapi.originalBufferSizeInMilliseconds = pConfig->bufferSizeInMilliseconds;
     pDevice->wasapi.originalPeriods                  = pConfig->periods;
@@ -10121,7 +10120,7 @@ ma_result ma_context_init__wasapi(const ma_context_config* pConfig, ma_context* 
             return MA_NO_BACKEND;
         }
 
-        ma_zero_object(&osvi);
+        MA_ZERO_OBJECT(&osvi);
         osvi.dwOSVersionInfoSize = sizeof(osvi);
         osvi.dwMajorVersion = HIBYTE(MA_WIN32_WINNT_VISTA);
         osvi.dwMinorVersion = LOBYTE(MA_WIN32_WINNT_VISTA);
@@ -10598,7 +10597,7 @@ ma_result ma_context_get_format_info_for_IDirectSoundCapture__dsound(ma_context*
         *pSampleRate = 0;
     }
 
-    ma_zero_object(&caps);
+    MA_ZERO_OBJECT(&caps);
     caps.dwSize = sizeof(caps);
     if (FAILED(ma_IDirectSoundCapture_GetCaps(pDirectSoundCapture, &caps))) {
         return ma_context_post_error(pContext, NULL, MA_LOG_LEVEL_ERROR, "[DirectSound] IDirectSoundCapture_GetCaps() failed for capture device.", MA_FAILED_TO_OPEN_BACKEND_DEVICE);
@@ -10703,7 +10702,7 @@ BOOL CALLBACK ma_context_enumerate_devices_callback__dsound(LPGUID lpGuid, LPCST
     ma_context_enumerate_devices_callback_data__dsound* pData = (ma_context_enumerate_devices_callback_data__dsound*)lpContext;
     ma_device_info deviceInfo;    
 
-    ma_zero_object(&deviceInfo);
+    MA_ZERO_OBJECT(&deviceInfo);
 
     /* ID. */
     if (lpGuid != NULL) {
@@ -10841,7 +10840,7 @@ ma_result ma_context_get_device_info__dsound(ma_context* pContext, ma_device_typ
             return result;
         }
 
-        ma_zero_object(&caps);
+        MA_ZERO_OBJECT(&caps);
         caps.dwSize = sizeof(caps);
         if (FAILED(ma_IDirectSound_GetCaps(pDirectSound, &caps))) {
             return ma_context_post_error(pContext, NULL, MA_LOG_LEVEL_ERROR, "[DirectSound] IDirectSound_GetCaps() failed for playback device.", MA_FAILED_TO_OPEN_BACKEND_DEVICE);
@@ -10955,7 +10954,7 @@ BOOL CALLBACK ma_enum_devices_callback__dsound(LPGUID lpGuid, LPCSTR lpcstrDescr
 
     if (pData->pInfo != NULL) {
         if (pData->infoCount > 0) {
-            ma_zero_object(pData->pInfo);
+            MA_ZERO_OBJECT(pData->pInfo);
             ma_strncpy_s(pData->pInfo->name, sizeof(pData->pInfo->name), lpcstrDescription, (size_t)-1);
 
             if (lpGuid != NULL) {
@@ -11022,7 +11021,7 @@ ma_result ma_config_to_WAVEFORMATEXTENSIBLE(ma_format format, ma_uint32 channels
         return MA_FORMAT_NOT_SUPPORTED;
     }
 
-    ma_zero_object(pWF);
+    MA_ZERO_OBJECT(pWF);
     pWF->Format.cbSize               = sizeof(*pWF);
     pWF->Format.wFormatTag           = WAVE_FORMAT_EXTENSIBLE;
     pWF->Format.nChannels            = (WORD)channels;
@@ -11043,7 +11042,7 @@ ma_result ma_device_init__dsound(ma_context* pContext, const ma_device_config* p
     ma_uint32 bufferSizeInMilliseconds;
 
     ma_assert(pDevice != NULL);
-    ma_zero_object(&pDevice->dsound);
+    MA_ZERO_OBJECT(&pDevice->dsound);
 
     if (pConfig->deviceType == ma_device_type_loopback) {
         return MA_DEVICE_TYPE_NOT_SUPPORTED;
@@ -11105,7 +11104,7 @@ ma_result ma_device_init__dsound(ma_context* pContext, const ma_device_config* p
         /* The size of the buffer must be a clean multiple of the period count. */
         bufferSizeInFrames = (ma_calculate_buffer_size_in_frames_from_milliseconds(bufferSizeInMilliseconds, wf.Format.nSamplesPerSec) / pConfig->periods) * pConfig->periods;
 
-        ma_zero_object(&descDS);
+        MA_ZERO_OBJECT(&descDS);
         descDS.dwSize = sizeof(descDS);
         descDS.dwFlags = 0;
         descDS.dwBufferBytes = bufferSizeInFrames * ma_get_bytes_per_frame(pDevice->capture.internalFormat, wf.Format.nChannels);
@@ -11172,7 +11171,7 @@ ma_result ma_device_init__dsound(ma_context* pContext, const ma_device_config* p
             return result;
         }
 
-        ma_zero_object(&descDSPrimary);
+        MA_ZERO_OBJECT(&descDSPrimary);
         descDSPrimary.dwSize  = sizeof(MA_DSBUFFERDESC);
         descDSPrimary.dwFlags = MA_DSBCAPS_PRIMARYBUFFER | MA_DSBCAPS_CTRLVOLUME;
         if (FAILED(ma_IDirectSound_CreateSoundBuffer((ma_IDirectSound*)pDevice->dsound.pPlayback, &descDSPrimary, (ma_IDirectSoundBuffer**)&pDevice->dsound.pPlaybackPrimaryBuffer, NULL))) {
@@ -11182,7 +11181,7 @@ ma_result ma_device_init__dsound(ma_context* pContext, const ma_device_config* p
 
 
         /* We may want to make some adjustments to the format if we are using defaults. */
-        ma_zero_object(&caps);
+        MA_ZERO_OBJECT(&caps);
         caps.dwSize = sizeof(caps);
         if (FAILED(ma_IDirectSound_GetCaps((ma_IDirectSound*)pDevice->dsound.pPlayback, &caps))) {
             ma_device_uninit__dsound(pDevice);
@@ -11266,7 +11265,7 @@ ma_result ma_device_init__dsound(ma_context* pContext, const ma_device_config* p
           sound cards; it was directly behind the write cursor. Now, if the DSBCAPS_GETCURRENTPOSITION2 flag is specified, the
           application can get a more accurate play cursor.
         */
-        ma_zero_object(&descDS);
+        MA_ZERO_OBJECT(&descDS);
         descDS.dwSize = sizeof(descDS);
         descDS.dwFlags = MA_DSBCAPS_CTRLPOSITIONNOTIFY | MA_DSBCAPS_GLOBALFOCUS | MA_DSBCAPS_GETCURRENTPOSITION2;
         descDS.dwBufferBytes = bufferSizeInFrames * ma_get_bytes_per_frame(pDevice->playback.internalFormat, pDevice->playback.internalChannels);
@@ -12031,7 +12030,7 @@ ma_result ma_formats_flags_to_WAVEFORMATEX__winmm(DWORD dwFormats, WORD channels
 {
     ma_assert(pWF != NULL);
 
-    ma_zero_object(pWF);
+    MA_ZERO_OBJECT(pWF);
     pWF->cbSize     = sizeof(*pWF);
     pWF->wFormatTag = WAVE_FORMAT_PCM;
     pWF->nChannels  = (WORD)channels;
@@ -12257,13 +12256,13 @@ ma_result ma_context_enumerate_devices__winmm(ma_context* pContext, ma_enum_devi
         MMRESULT result;
         MA_WAVEOUTCAPS2A caps;
 
-        ma_zero_object(&caps);
+        MA_ZERO_OBJECT(&caps);
 
         result = ((MA_PFN_waveOutGetDevCapsA)pContext->winmm.waveOutGetDevCapsA)(iPlaybackDevice, (WAVEOUTCAPSA*)&caps, sizeof(caps));
         if (result == MMSYSERR_NOERROR) {
             ma_device_info deviceInfo;
 
-            ma_zero_object(&deviceInfo);
+            MA_ZERO_OBJECT(&deviceInfo);
             deviceInfo.id.winmm = iPlaybackDevice;
 
             if (ma_context_get_device_info_from_WAVEOUTCAPS2(pContext, &caps, &deviceInfo) == MA_SUCCESS) {
@@ -12281,13 +12280,13 @@ ma_result ma_context_enumerate_devices__winmm(ma_context* pContext, ma_enum_devi
         MMRESULT result;
         MA_WAVEINCAPS2A caps;
 
-        ma_zero_object(&caps);
+        MA_ZERO_OBJECT(&caps);
 
         result = ((MA_PFN_waveInGetDevCapsA)pContext->winmm.waveInGetDevCapsA)(iCaptureDevice, (WAVEINCAPSA*)&caps, sizeof(caps));
         if (result == MMSYSERR_NOERROR) {
             ma_device_info deviceInfo;
 
-            ma_zero_object(&deviceInfo);
+            MA_ZERO_OBJECT(&deviceInfo);
             deviceInfo.id.winmm = iCaptureDevice;
 
             if (ma_context_get_device_info_from_WAVEINCAPS2(pContext, &caps, &deviceInfo) == MA_SUCCESS) {
@@ -12323,7 +12322,7 @@ ma_result ma_context_get_device_info__winmm(ma_context* pContext, ma_device_type
         MMRESULT result;
         MA_WAVEOUTCAPS2A caps;
 
-        ma_zero_object(&caps);
+        MA_ZERO_OBJECT(&caps);
         
         result = ((MA_PFN_waveOutGetDevCapsA)pContext->winmm.waveOutGetDevCapsA)(winMMDeviceID, (WAVEOUTCAPSA*)&caps, sizeof(caps));
         if (result == MMSYSERR_NOERROR) {
@@ -12333,7 +12332,7 @@ ma_result ma_context_get_device_info__winmm(ma_context* pContext, ma_device_type
         MMRESULT result;
         MA_WAVEINCAPS2A caps;
 
-        ma_zero_object(&caps);
+        MA_ZERO_OBJECT(&caps);
         
         result = ((MA_PFN_waveInGetDevCapsA)pContext->winmm.waveInGetDevCapsA)(winMMDeviceID, (WAVEINCAPSA*)&caps, sizeof(caps));
         if (result == MMSYSERR_NOERROR) {
@@ -12362,7 +12361,7 @@ void ma_device_uninit__winmm(ma_device* pDevice)
 
     ma_free(pDevice->winmm._pHeapData);
 
-    ma_zero_object(&pDevice->winmm);   /* Safety. */
+    MA_ZERO_OBJECT(&pDevice->winmm);   /* Safety. */
 }
 
 ma_result ma_device_init__winmm(ma_context* pContext, const ma_device_config* pConfig, ma_device* pDevice)
@@ -12376,7 +12375,7 @@ ma_result ma_device_init__winmm(ma_context* pContext, const ma_device_config* pC
     ma_uint32 bufferSizeInMilliseconds;
 
     ma_assert(pDevice != NULL);
-    ma_zero_object(&pDevice->winmm);
+    MA_ZERO_OBJECT(&pDevice->winmm);
 
     if (pConfig->deviceType == ma_device_type_loopback) {
         return MA_DEVICE_TYPE_NOT_SUPPORTED;
@@ -13853,7 +13852,7 @@ ma_result ma_context_enumerate_devices__alsa(ma_context* pContext, ma_enum_devic
             MA_ZERO_MEMORY(hwid, sizeof(hwid));
         }
 
-        ma_zero_object(&deviceInfo);
+        MA_ZERO_OBJECT(&deviceInfo);
         ma_strncpy_s(deviceInfo.id.alsa, sizeof(deviceInfo.id.alsa), hwid, (size_t)-1);
 
         /*
@@ -14743,7 +14742,7 @@ ma_result ma_device_init__alsa(ma_context* pContext, const ma_device_config* pCo
 {
     ma_assert(pDevice != NULL);
 
-    ma_zero_object(&pDevice->alsa);
+    MA_ZERO_OBJECT(&pDevice->alsa);
 
     if (pConfig->deviceType == ma_device_type_loopback) {
         return MA_DEVICE_TYPE_NOT_SUPPORTED;
@@ -16080,7 +16079,7 @@ void ma_context_enumerate_devices_sink_callback__pulse(ma_pa_context* pPulseCont
         return;
     }
 
-    ma_zero_object(&deviceInfo);
+    MA_ZERO_OBJECT(&deviceInfo);
 
     /* The name from PulseAudio is the ID for miniaudio. */
     if (pSinkInfo->name != NULL) {
@@ -16108,7 +16107,7 @@ void ma_context_enumerate_devices_source_callback__pulse(ma_pa_context* pPulseCo
         return;
     }
 
-    ma_zero_object(&deviceInfo);
+    MA_ZERO_OBJECT(&deviceInfo);
 
     /* The name from PulseAudio is the ID for miniaudio. */
     if (pSinkInfo->name != NULL) {
@@ -16542,7 +16541,7 @@ ma_result ma_device_init__pulse(ma_context* pContext, const ma_device_config* pC
     ma_pa_stream_flags_t streamFlags;
 
     ma_assert(pDevice != NULL);
-    ma_zero_object(&pDevice->pulse);
+    MA_ZERO_OBJECT(&pDevice->pulse);
 
     if (pConfig->deviceType == ma_device_type_loopback) {
         return MA_DEVICE_TYPE_NOT_SUPPORTED;
@@ -17710,7 +17709,7 @@ ma_result ma_context_enumerate_devices__jack(ma_context* pContext, ma_enum_devic
     /* Playback. */
     if (cbResult) {
         ma_device_info deviceInfo;
-        ma_zero_object(&deviceInfo);
+        MA_ZERO_OBJECT(&deviceInfo);
         ma_strncpy_s(deviceInfo.name, sizeof(deviceInfo.name), MA_DEFAULT_PLAYBACK_DEVICE_NAME, (size_t)-1);
         cbResult = callback(pContext, ma_device_type_playback, &deviceInfo, pUserData);
     }
@@ -17718,7 +17717,7 @@ ma_result ma_context_enumerate_devices__jack(ma_context* pContext, ma_enum_devic
     /* Capture. */
     if (cbResult) {
         ma_device_info deviceInfo;
-        ma_zero_object(&deviceInfo);
+        MA_ZERO_OBJECT(&deviceInfo);
         ma_strncpy_s(deviceInfo.name, sizeof(deviceInfo.name), MA_DEFAULT_CAPTURE_DEVICE_NAME, (size_t)-1);
         cbResult = callback(pContext, ma_device_type_capture, &deviceInfo, pUserData);
     }
@@ -19266,7 +19265,7 @@ ma_result ma_find_best_format__coreaudio(ma_context* pContext, AudioObjectID dev
     If we get here it means we don't have an exact match to what the client is asking for. We'll need to find the closest one. The next
     loop will check for formats that have the same sample rate to what we're asking for. If there is, we prefer that one in all cases.
     */
-    ma_zero_object(&bestDeviceFormatSoFar);
+    MA_ZERO_OBJECT(&bestDeviceFormatSoFar);
     
     hasSupportedFormat = MA_FALSE;
     for (iFormat = 0; iFormat < deviceFormatDescriptionCount; ++iFormat) {
@@ -19480,7 +19479,7 @@ ma_result ma_context_enumerate_devices__coreaudio(ma_context* pContext, ma_enum_
         AudioObjectID deviceObjectID = pDeviceObjectIDs[iDevice];
         ma_device_info info;
 
-        ma_zero_object(&info);
+        MA_ZERO_OBJECT(&info);
         if (ma_get_AudioObject_uid(pContext, deviceObjectID, sizeof(info.id.coreaudio), info.id.coreaudio) != MA_SUCCESS) {
             continue;
         }
@@ -19505,13 +19504,13 @@ ma_result ma_context_enumerate_devices__coreaudio(ma_context* pContext, ma_enum_
     /* Only supporting default devices on non-Desktop platforms. */
     ma_device_info info;
     
-    ma_zero_object(&info);
+    MA_ZERO_OBJECT(&info);
     ma_strncpy_s(info.name, sizeof(info.name), MA_DEFAULT_PLAYBACK_DEVICE_NAME, (size_t)-1);
     if (!callback(pContext, ma_device_type_playback, &info, pUserData)) {
         return MA_SUCCESS;
     }
     
-    ma_zero_object(&info);
+    MA_ZERO_OBJECT(&info);
     ma_strncpy_s(info.name, sizeof(info.name), MA_DEFAULT_CAPTURE_DEVICE_NAME, (size_t)-1);
     if (!callback(pContext, ma_device_type_capture, &info, pUserData)) {
         return MA_SUCCESS;
@@ -21568,7 +21567,7 @@ ma_result ma_context_enumerate_devices__sndio(ma_context* pContext, ma_enum_devi
         if (handle != NULL) {
             /* Supports playback. */
             ma_device_info deviceInfo;
-            ma_zero_object(&deviceInfo);
+            MA_ZERO_OBJECT(&deviceInfo);
             ma_strcpy_s(deviceInfo.id.sndio, sizeof(deviceInfo.id.sndio), MA_SIO_DEVANY);
             ma_strcpy_s(deviceInfo.name, sizeof(deviceInfo.name), MA_DEFAULT_PLAYBACK_DEVICE_NAME);
             
@@ -21584,7 +21583,7 @@ ma_result ma_context_enumerate_devices__sndio(ma_context* pContext, ma_enum_devi
         if (handle != NULL) {
             /* Supports capture. */
             ma_device_info deviceInfo;
-            ma_zero_object(&deviceInfo);
+            MA_ZERO_OBJECT(&deviceInfo);
             ma_strcpy_s(deviceInfo.id.sndio, sizeof(deviceInfo.id.sndio), "default");
             ma_strcpy_s(deviceInfo.name, sizeof(deviceInfo.name), MA_DEFAULT_CAPTURE_DEVICE_NAME);
 
@@ -21919,7 +21918,7 @@ ma_result ma_device_init__sndio(ma_context* pContext, const ma_device_config* pC
 {
     ma_assert(pDevice != NULL);
 
-    ma_zero_object(&pDevice->sndio);
+    MA_ZERO_OBJECT(&pDevice->sndio);
 
     if (pConfig->deviceType == ma_device_type_loopback) {
         return MA_DEVICE_TYPE_NOT_SUPPORTED;
@@ -22434,7 +22433,7 @@ ma_result ma_context_get_device_info_from_fd__audio4(ma_context* pContext, ma_de
         audio_encoding_t encoding;
         ma_format format;
 
-        ma_zero_object(&encoding);
+        MA_ZERO_OBJECT(&encoding);
         encoding.index = counter;
         if (ioctl(fd, AUDIO_GETENC, &encoding) < 0) {
             break;
@@ -22522,7 +22521,7 @@ ma_result ma_context_enumerate_devices__audio4(ma_context* pContext, ma_enum_dev
             if (fd >= 0) {
                 /* Supports playback. */
                 ma_device_info deviceInfo;
-                ma_zero_object(&deviceInfo);
+                MA_ZERO_OBJECT(&deviceInfo);
                 ma_construct_device_id__audio4(deviceInfo.id.audio4, sizeof(deviceInfo.id.audio4), "/dev/audio", iDevice);
                 if (ma_context_get_device_info_from_fd__audio4(pContext, ma_device_type_playback, fd, &deviceInfo) == MA_SUCCESS) {
                     isTerminating = !callback(pContext, ma_device_type_playback, &deviceInfo, pUserData);
@@ -22538,7 +22537,7 @@ ma_result ma_context_enumerate_devices__audio4(ma_context* pContext, ma_enum_dev
             if (fd >= 0) {
                 /* Supports capture. */
                 ma_device_info deviceInfo;
-                ma_zero_object(&deviceInfo);
+                MA_ZERO_OBJECT(&deviceInfo);
                 ma_construct_device_id__audio4(deviceInfo.id.audio4, sizeof(deviceInfo.id.audio4), "/dev/audio", iDevice);
                 if (ma_context_get_device_info_from_fd__audio4(pContext, ma_device_type_capture, fd, &deviceInfo) == MA_SUCCESS) {
                     isTerminating = !callback(pContext, ma_device_type_capture, &deviceInfo, pUserData);
@@ -22820,7 +22819,7 @@ ma_result ma_device_init__audio4(ma_context* pContext, const ma_device_config* p
 {
     ma_assert(pDevice != NULL);
 
-    ma_zero_object(&pDevice->audio4);
+    MA_ZERO_OBJECT(&pDevice->audio4);
 
     if (pConfig->deviceType == ma_device_type_loopback) {
         return MA_DEVICE_TYPE_NOT_SUPPORTED;
@@ -23256,7 +23255,7 @@ ma_result ma_context_enumerate_devices__oss(ma_context* pContext, ma_enum_device
                     ma_device_info deviceInfo;
                     ma_bool32 isTerminating = MA_FALSE;
 
-                    ma_zero_object(&deviceInfo);
+                    MA_ZERO_OBJECT(&deviceInfo);
 
                     /* ID */
                     ma_strncpy_s(deviceInfo.id.oss, sizeof(deviceInfo.id.oss), ai.devnode, (size_t)-1);
@@ -23587,7 +23586,7 @@ ma_result ma_device_init__oss(ma_context* pContext, const ma_device_config* pCon
     ma_assert(pConfig  != NULL);
     ma_assert(pDevice  != NULL);
 
-    ma_zero_object(&pDevice->oss);
+    MA_ZERO_OBJECT(&pDevice->oss);
 
     if (pConfig->deviceType == ma_device_type_loopback) {
         return MA_DEVICE_TYPE_NOT_SUPPORTED;
@@ -24187,7 +24186,7 @@ ma_result ma_context_enumerate_devices__aaudio(ma_context* pContext, ma_enum_dev
     /* Playback. */
     if (cbResult) {
         ma_device_info deviceInfo;
-        ma_zero_object(&deviceInfo);
+        MA_ZERO_OBJECT(&deviceInfo);
         deviceInfo.id.aaudio = MA_AAUDIO_UNSPECIFIED;
         ma_strncpy_s(deviceInfo.name, sizeof(deviceInfo.name), MA_DEFAULT_PLAYBACK_DEVICE_NAME, (size_t)-1);
 
@@ -24199,7 +24198,7 @@ ma_result ma_context_enumerate_devices__aaudio(ma_context* pContext, ma_enum_dev
     /* Capture. */
     if (cbResult) {
         ma_device_info deviceInfo;
-        ma_zero_object(&deviceInfo);
+        MA_ZERO_OBJECT(&deviceInfo);
         deviceInfo.id.aaudio = MA_AAUDIO_UNSPECIFIED;
         ma_strncpy_s(deviceInfo.name, sizeof(deviceInfo.name), MA_DEFAULT_CAPTURE_DEVICE_NAME, (size_t)-1);
 
@@ -24777,7 +24776,7 @@ ma_result ma_context_enumerate_devices__opensl(ma_context* pContext, ma_enum_dev
 
         for (SLint32 iDevice = 0; iDevice < deviceCount; ++iDevice) {
             ma_device_info deviceInfo;
-            ma_zero_object(&deviceInfo);
+            MA_ZERO_OBJECT(&deviceInfo);
             deviceInfo.id.opensl = pDeviceIDs[iDevice];
 
             SLAudioOutputDescriptor desc;
@@ -24803,7 +24802,7 @@ ma_result ma_context_enumerate_devices__opensl(ma_context* pContext, ma_enum_dev
 
         for (SLint32 iDevice = 0; iDevice < deviceCount; ++iDevice) {
             ma_device_info deviceInfo;
-            ma_zero_object(&deviceInfo);
+            MA_ZERO_OBJECT(&deviceInfo);
             deviceInfo.id.opensl = pDeviceIDs[iDevice];
 
             SLAudioInputDescriptor desc;
@@ -24831,7 +24830,7 @@ return_default_device:;
     /* Playback. */
     if (cbResult) {
         ma_device_info deviceInfo;
-        ma_zero_object(&deviceInfo);
+        MA_ZERO_OBJECT(&deviceInfo);
         ma_strncpy_s(deviceInfo.name, sizeof(deviceInfo.name), MA_DEFAULT_PLAYBACK_DEVICE_NAME, (size_t)-1);
         cbResult = callback(pContext, ma_device_type_playback, &deviceInfo, pUserData);
     }
@@ -24839,7 +24838,7 @@ return_default_device:;
     /* Capture. */
     if (cbResult) {
         ma_device_info deviceInfo;
-        ma_zero_object(&deviceInfo);
+        MA_ZERO_OBJECT(&deviceInfo);
         ma_strncpy_s(deviceInfo.name, sizeof(deviceInfo.name), MA_DEFAULT_CAPTURE_DEVICE_NAME, (size_t)-1);
         cbResult = callback(pContext, ma_device_type_capture, &deviceInfo, pUserData);
     }
@@ -25176,7 +25175,7 @@ ma_result ma_device_init__opensl(ma_context* pContext, const ma_device_config* p
 
     /* Now we can start initializing the device properly. */
     ma_assert(pDevice != NULL);
-    ma_zero_object(&pDevice->opensl);
+    MA_ZERO_OBJECT(&pDevice->opensl);
 
     queue.locatorType = SL_DATALOCATOR_ANDROIDSIMPLEBUFFERQUEUE;
     queue.numBuffers = pConfig->periods;
@@ -25596,7 +25595,7 @@ ma_result ma_context_enumerate_devices__webaudio(ma_context* pContext, ma_enum_d
     /* Playback. */
     if (cbResult) {
         ma_device_info deviceInfo;
-        ma_zero_object(&deviceInfo);
+        MA_ZERO_OBJECT(&deviceInfo);
         ma_strncpy_s(deviceInfo.name, sizeof(deviceInfo.name), MA_DEFAULT_PLAYBACK_DEVICE_NAME, (size_t)-1);
         cbResult = callback(pContext, ma_device_type_playback, &deviceInfo, pUserData);
     }
@@ -25605,7 +25604,7 @@ ma_result ma_context_enumerate_devices__webaudio(ma_context* pContext, ma_enum_d
     if (cbResult) {
         if (ma_is_capture_supported__webaudio()) {
             ma_device_info deviceInfo;
-            ma_zero_object(&deviceInfo);
+            MA_ZERO_OBJECT(&deviceInfo);
             ma_strncpy_s(deviceInfo.name, sizeof(deviceInfo.name), MA_DEFAULT_CAPTURE_DEVICE_NAME, (size_t)-1);
             cbResult = callback(pContext, ma_device_type_capture, &deviceInfo, pUserData);
         }
@@ -26519,7 +26518,7 @@ ma_result ma_context_init(const ma_backend backends[], ma_uint32 backendCount, c
         return MA_INVALID_ARGS;
     }
 
-    ma_zero_object(pContext);
+    MA_ZERO_OBJECT(pContext);
 
     /* Always make sure the config is set first to ensure properties are available as soon as possible. */
     if (pConfig != NULL) {
@@ -26669,7 +26668,7 @@ ma_result ma_context_init(const ma_backend backends[], ma_uint32 backendCount, c
     }
 
     /* If we get here it means an error occurred. */
-    ma_zero_object(pContext);  /* Safety. */
+    MA_ZERO_OBJECT(pContext);  /* Safety. */
     return MA_NO_BACKEND;
 }
 
@@ -26811,7 +26810,7 @@ ma_result ma_context_get_device_info(ma_context* pContext, ma_device_type device
         return MA_INVALID_ARGS;
     }
 
-    ma_zero_object(&deviceInfo);
+    MA_ZERO_OBJECT(&deviceInfo);
 
     /* Help the backend out by copying over the device ID if we have one. */
     if (pDeviceID != NULL) {
@@ -26893,7 +26892,7 @@ ma_result ma_device_init(ma_context* pContext, const ma_device_config* pConfig, 
     }
 
 
-    ma_zero_object(pDevice);
+    MA_ZERO_OBJECT(pDevice);
     pDevice->pContext = pContext;
 
     /* Set the user data and log callback ASAP to ensure it is available for the entire initialization process. */
@@ -27182,7 +27181,7 @@ void ma_device_uninit(ma_device* pDevice)
         ma_free(pDevice->pContext);
     }
 
-    ma_zero_object(pDevice);
+    MA_ZERO_OBJECT(pDevice);
 }
 
 void ma_device_set_stop_callback(ma_device* pDevice, ma_stop_proc proc)
@@ -27362,7 +27361,7 @@ ma_result ma_device_get_master_gain_db(ma_device* pDevice, float* pGainDB)
 ma_context_config ma_context_config_init()
 {
     ma_context_config config;
-    ma_zero_object(&config);
+    MA_ZERO_OBJECT(&config);
 
     return config;
 }
@@ -27370,7 +27369,7 @@ ma_context_config ma_context_config_init()
 ma_device_config ma_device_config_init(ma_device_type deviceType)
 {
     ma_device_config config;
-    ma_zero_object(&config);
+    MA_ZERO_OBJECT(&config);
     config.deviceType = deviceType;
 
     /* Resampling defaults. We must never use the Speex backend by default because it uses licensed third party code. */
@@ -33406,7 +33405,7 @@ ma_result ma_rb_init_ex(size_t subbufferSizeInBytes, size_t subbufferCount, size
     }
 
 
-    ma_zero_object(pRB);
+    MA_ZERO_OBJECT(pRB);
     pRB->subbufferSizeInBytes = (ma_uint32)subbufferSizeInBytes;
     pRB->subbufferCount = (ma_uint32)subbufferCount;
 
@@ -33825,7 +33824,7 @@ ma_result ma_pcm_rb_init_ex(ma_format format, ma_uint32 channels, ma_uint32 subb
         return MA_INVALID_ARGS;
     }
 
-    ma_zero_object(pRB);
+    MA_ZERO_OBJECT(pRB);
 
     bpf = ma_get_bytes_per_frame(format, channels);
     if (bpf == 0) {
@@ -34168,7 +34167,7 @@ ma_bool32 ma_decoder_seek_bytes_64(ma_decoder* pDecoder, ma_uint64 byteOffset, m
 ma_decoder_config ma_decoder_config_init(ma_format outputFormat, ma_uint32 outputChannels, ma_uint32 outputSampleRate)
 {
     ma_decoder_config config;
-    ma_zero_object(&config);
+    MA_ZERO_OBJECT(&config);
     config.format = outputFormat;
     config.channels = outputChannels;
     config.sampleRate = outputSampleRate;
@@ -34186,7 +34185,7 @@ ma_decoder_config ma_decoder_config_init_copy(const ma_decoder_config* pConfig)
     if (pConfig != NULL) {
         config = *pConfig;
     } else {
-        ma_zero_object(&config);
+        MA_ZERO_OBJECT(&config);
     }
 
     return config;
@@ -34863,7 +34862,7 @@ ma_result ma_decoder_init_mp3__internal(const ma_decoder_config* pConfig, ma_dec
     
     The internal channel count is always stereo, and the internal format is always f32.
     */
-    ma_zero_object(&mp3Config);
+    MA_ZERO_OBJECT(&mp3Config);
     mp3Config.outputChannels = 2;
     mp3Config.outputSampleRate = (pConfig->sampleRate != 0) ? pConfig->sampleRate : 44100;
     if (!drmp3_init(pMP3, ma_decoder_internal_on_read__mp3, ma_decoder_internal_on_seek__mp3, pDecoder, &mp3Config, NULL)) {
@@ -35010,7 +35009,7 @@ ma_result ma_decoder__preinit(ma_decoder_read_proc onRead, ma_decoder_seek_proc 
         return MA_INVALID_ARGS;
     }
 
-    ma_zero_object(pDecoder);
+    MA_ZERO_OBJECT(pDecoder);
 
     if (onRead == NULL || onSeek == NULL) {
         return MA_INVALID_ARGS;
@@ -35572,8 +35571,8 @@ ma_bool32 ma_path_extension_equal_w(const wchar_t* path, const wchar_t* extensio
         mbstate_t mbs1;
         mbstate_t mbs2;
 
-        ma_zero_object(&mbs1);
-        ma_zero_object(&mbs2);
+        MA_ZERO_OBJECT(&mbs1);
+        MA_ZERO_OBJECT(&mbs2);
 
         if (wcsrtombs(ext1MB, &pext1, sizeof(ext1MB), &mbs1) == (size_t)-1) {
             return MA_FALSE;
@@ -35606,7 +35605,7 @@ ma_result ma_decoder__preinit_file(const char* pFilePath, const ma_decoder_confi
         return MA_INVALID_ARGS;
     }
 
-    ma_zero_object(pDecoder);
+    MA_ZERO_OBJECT(pDecoder);
 
     if (pFilePath == NULL || pFilePath[0] == '\0') {
         return MA_INVALID_ARGS;
@@ -35655,7 +35654,7 @@ ma_result ma_decoder__preinit_file_w(const wchar_t* pFilePath, const ma_decoder_
         return MA_INVALID_ARGS;
     }
 
-    ma_zero_object(pDecoder);
+    MA_ZERO_OBJECT(pDecoder);
 
     if (pFilePath == NULL || pFilePath[0] == '\0') {
         return MA_INVALID_ARGS;
@@ -35686,7 +35685,7 @@ ma_result ma_decoder__preinit_file_w(const wchar_t* pFilePath, const ma_decoder_
         char* pFilePathMB = NULL;
 
         /* Get the length first. */
-        ma_zero_object(&mbs);
+        MA_ZERO_OBJECT(&mbs);
         lenMB = wcsrtombs(NULL, &pFilePathTemp, 0, &mbs);
         if (lenMB == (size_t)-1) {
             return MA_ERROR;
@@ -35698,7 +35697,7 @@ ma_result ma_decoder__preinit_file_w(const wchar_t* pFilePath, const ma_decoder_
         }
 
         pFilePathTemp = pFilePath;
-        ma_zero_object(&mbs);
+        MA_ZERO_OBJECT(&mbs);
         wcsrtombs(pFilePathMB, &pFilePathTemp, lenMB + 1, &mbs);
 
         pFile = fopen(pFilePathMB, "rb");
@@ -36150,7 +36149,7 @@ ma_result ma_sine_wave_init(double amplitude, double periodsPerSecond, ma_uint32
     if (pSineWave == NULL) {
         return MA_INVALID_ARGS;
     }
-    ma_zero_object(pSineWave);
+    MA_ZERO_OBJECT(pSineWave);
 
     if (amplitude == 0 || periodsPerSecond == 0) {
         return MA_INVALID_ARGS;
