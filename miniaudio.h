@@ -1945,14 +1945,15 @@ ma_pcm_converter_config ma_pcm_converter_config_init_ex(ma_format formatIn, ma_u
 
 /*
 High-level helper for doing a full format conversion in one go. Returns the number of output frames. Call this with pOut set to NULL to
-determine the required size of the output buffer.
+determine the required size of the output buffer. frameCountOut should be set to the capacity of pOut. If pOut is NULL, frameCountOut is
+ignored.
 
 A return value of 0 indicates an error.
 
-This function is useful for one-off bulk conversions, but if you're streaming data you should use the ma_pcm_converter APIs instead.
+This function is useful for one-off bulk conversions, but if you're streaming data you should use the ma_data_converter APIs instead.
 */
-ma_uint64 ma_convert_frames(void* pOut, ma_format formatOut, ma_uint32 channelsOut, ma_uint32 sampleRateOut, const void* pIn, ma_format formatIn, ma_uint32 channelsIn, ma_uint32 sampleRateIn, ma_uint64 frameCount);
-ma_uint64 ma_convert_frames_ex(void* pOut, ma_format formatOut, ma_uint32 channelsOut, ma_uint32 sampleRateOut, ma_channel channelMapOut[MA_MAX_CHANNELS], const void* pIn, ma_format formatIn, ma_uint32 channelsIn, ma_uint32 sampleRateIn, ma_channel channelMapIn[MA_MAX_CHANNELS], ma_uint64 frameCount);
+ma_uint64 ma_convert_frames(void* pOut, ma_uint64 frameCountOut, ma_format formatOut, ma_uint32 channelsOut, ma_uint32 sampleRateOut, const void* pIn, ma_uint64 frameCountIn, ma_format formatIn, ma_uint32 channelsIn, ma_uint32 sampleRateIn);
+ma_uint64 ma_convert_frames_ex(void* pOut, ma_uint64 frameCountOut, const void* pIn, ma_uint64 frameCountIn, const ma_data_converter_config* pConfig);
 
 
 /************************************************************************************************************************************************************
@@ -36549,47 +36550,6 @@ ma_uint64 ma_pcm_converter_read(ma_pcm_converter* pDSP, void* pFramesOut, ma_uin
 }
 
 
-typedef struct
-{
-    const void* pDataIn;
-    ma_format formatIn;
-    ma_uint32 channelsIn;
-    ma_uint64 totalFrameCount;
-    ma_uint64 iNextFrame;
-    ma_bool32 isFeedingZeros;  /* When set to true, feeds the DSP zero samples. */
-} ma_convert_frames__data;
-
-ma_uint32 ma_convert_frames__on_read(ma_pcm_converter* pDSP, void* pFramesOut, ma_uint32 frameCount, void* pUserData)
-{
-    ma_convert_frames__data* pData;
-    ma_uint32 framesToRead;
-    ma_uint64 framesRemaining;
-    ma_uint32 frameSizeInBytes;
-
-    (void)pDSP;
-
-    pData = (ma_convert_frames__data*)pUserData;
-    ma_assert(pData != NULL);
-    ma_assert(pData->totalFrameCount >= pData->iNextFrame);
-
-    framesToRead = frameCount;
-    framesRemaining = (pData->totalFrameCount - pData->iNextFrame);
-    if (framesToRead > framesRemaining) {
-        framesToRead = (ma_uint32)framesRemaining;
-    }
-
-    frameSizeInBytes = ma_get_bytes_per_frame(pData->formatIn, pData->channelsIn);
-
-    if (!pData->isFeedingZeros) {
-        ma_copy_memory(pFramesOut, (const ma_uint8*)pData->pDataIn + (frameSizeInBytes * pData->iNextFrame), frameSizeInBytes * framesToRead);
-    } else {
-        ma_zero_memory(pFramesOut, frameSizeInBytes * framesToRead);
-    }
-
-    pData->iNextFrame += framesToRead;
-    return framesToRead;
-}
-
 ma_pcm_converter_config ma_pcm_converter_config_init_new()
 {
     ma_pcm_converter_config config;
@@ -36627,105 +36587,45 @@ ma_pcm_converter_config ma_pcm_converter_config_init_ex(ma_format formatIn, ma_u
 
 
 
-ma_uint64 ma_convert_frames(void* pOut, ma_format formatOut, ma_uint32 channelsOut, ma_uint32 sampleRateOut, const void* pIn, ma_format formatIn, ma_uint32 channelsIn, ma_uint32 sampleRateIn, ma_uint64 frameCount)
+ma_uint64 ma_convert_frames(void* pOut, ma_uint64 frameCountOut, ma_format formatOut, ma_uint32 channelsOut, ma_uint32 sampleRateOut, const void* pIn, ma_uint64 frameCountIn, ma_format formatIn, ma_uint32 channelsIn, ma_uint32 sampleRateIn)
 {
-    ma_channel channelMapOut[MA_MAX_CHANNELS];
-    ma_channel channelMapIn[MA_MAX_CHANNELS];
+    ma_data_converter_config config;
 
-    ma_get_standard_channel_map(ma_standard_channel_map_default, channelsOut, channelMapOut);
-    ma_get_standard_channel_map(ma_standard_channel_map_default, channelsIn, channelMapIn);
+    config = ma_data_converter_config_init(formatOut, formatIn, channelsOut, channelsIn, sampleRateOut, sampleRateIn);
+    ma_get_standard_channel_map(ma_standard_channel_map_default, channelsOut, config.channelMapOut);
+    ma_get_standard_channel_map(ma_standard_channel_map_default, channelsIn,  config.channelMapIn);
 
-    return ma_convert_frames_ex(pOut, formatOut, channelsOut, sampleRateOut, channelMapOut, pIn, formatIn, channelsIn, sampleRateIn, channelMapIn, frameCount);
+    /* For this we can default to the best resampling available since it's most likely going to be called in non time critical situations. */
+    config.resampling.linear.lpfCount = MA_MAX_RESAMPLER_LPF_FILTERS;
+
+    return ma_convert_frames_ex(pOut, frameCountOut, pIn, frameCountIn, &config);
 }
 
-ma_uint64 ma_convert_frames_ex(void* pOut, ma_format formatOut, ma_uint32 channelsOut, ma_uint32 sampleRateOut, ma_channel channelMapOut[MA_MAX_CHANNELS], const void* pIn, ma_format formatIn, ma_uint32 channelsIn, ma_uint32 sampleRateIn, ma_channel channelMapIn[MA_MAX_CHANNELS], ma_uint64 frameCount)
+ma_uint64 ma_convert_frames_ex(void* pOut, ma_uint64 frameCountOut, const void* pIn, ma_uint64 frameCountIn, const ma_data_converter_config* pConfig)
 {
-    ma_uint64 frameCountOut;
-    ma_convert_frames__data data;
-    ma_pcm_converter_config converterConfig;
-    ma_pcm_converter converter;
-    ma_uint64 totalFramesRead;
+    ma_result result;
+    ma_data_converter converter;
 
-    if (frameCount == 0) {
+    if (frameCountIn == 0 || pConfig == NULL) {
         return 0;
     }
 
-    frameCountOut = ma_calculate_frame_count_after_src(sampleRateOut, sampleRateIn, frameCount);
+    result = ma_data_converter_init(pConfig, &converter);
+    if (result != MA_SUCCESS) {
+        return 0;   /* Failed to initialize the data converter. */
+    }
+
     if (pOut == NULL) {
-        return frameCountOut;
-    }
-
-    data.pDataIn = pIn;
-    data.formatIn = formatIn;
-    data.channelsIn = channelsIn;
-    data.totalFrameCount = frameCount;
-    data.iNextFrame = 0;
-    data.isFeedingZeros = MA_FALSE;
-
-    ma_zero_object(&converterConfig);
-
-    converterConfig.formatIn = formatIn;
-    converterConfig.channelsIn = channelsIn;
-    converterConfig.sampleRateIn = sampleRateIn;
-    if (channelMapIn != NULL) {
-        ma_channel_map_copy(converterConfig.channelMapIn, channelMapIn, channelsIn);
+        frameCountOut = ma_data_converter_get_expected_output_frame_count(&converter, frameCountIn);
     } else {
-        ma_get_standard_channel_map(ma_standard_channel_map_default, converterConfig.channelsIn, converterConfig.channelMapIn);
-    }
-    
-    converterConfig.formatOut = formatOut;
-    converterConfig.channelsOut = channelsOut;
-    converterConfig.sampleRateOut = sampleRateOut;
-    if (channelMapOut != NULL) {
-        ma_channel_map_copy(converterConfig.channelMapOut, channelMapOut, channelsOut);
-    } else {
-        ma_get_standard_channel_map(ma_standard_channel_map_default, converterConfig.channelsOut, converterConfig.channelMapOut);
-    }
-
-    converterConfig.onRead = ma_convert_frames__on_read;
-    converterConfig.pUserData = &data;
-
-    if (ma_pcm_converter_init(&converterConfig, &converter) != MA_SUCCESS) {
-        return 0;
-    }
-
-    /*
-    Always output our computed frame count. There is a chance the sample rate conversion routine may not output the last sample
-    due to precision issues with 32-bit floats, in which case we should feed the DSP zero samples so it can generate that last
-    frame.
-    */
-    totalFramesRead = ma_pcm_converter_read(&converter, pOut, frameCountOut);
-    if (totalFramesRead < frameCountOut) {
-        ma_uint32 bpfOut = ma_get_bytes_per_frame(formatOut, channelsOut);
-
-        data.isFeedingZeros = MA_TRUE;
-        data.totalFrameCount = ((ma_uint64)0xFFFFFFFF << 32) | 0xFFFFFFFF; /* C89 does not support 64-bit constants so need to instead construct it like this. Annoying... */ /*data.totalFrameCount = 0xFFFFFFFFFFFFFFFF;*/
-        data.pDataIn = NULL;
-
-        while (totalFramesRead < frameCountOut) {
-            ma_uint64 framesToRead;
-            ma_uint64 framesJustRead;
-
-            framesToRead = (frameCountOut - totalFramesRead);
-            ma_assert(framesToRead > 0);
-
-            framesJustRead = ma_pcm_converter_read(&converter, ma_offset_ptr(pOut, totalFramesRead * bpfOut), framesToRead);
-            totalFramesRead += framesJustRead;
-
-            if (framesJustRead < framesToRead) {
-                break;
-            }
-        }
-
-        /* At this point we should have output every sample, but just to be super duper sure, just fill the rest with zeros. */
-        if (totalFramesRead < frameCountOut) {
-            ma_zero_memory_64(ma_offset_ptr(pOut, totalFramesRead * bpfOut), ((frameCountOut - totalFramesRead) * bpfOut));
-            totalFramesRead = frameCountOut;
+        result = ma_data_converter_process_pcm_frames(&converter, pIn, &frameCountIn, pOut, &frameCountOut);
+        if (result != MA_SUCCESS) {
+            frameCountOut = 0;
         }
     }
 
-    ma_assert(totalFramesRead == frameCountOut);
-    return totalFramesRead;
+    ma_data_converter_uninit(&converter);
+    return frameCountOut;
 }
 
 
