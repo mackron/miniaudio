@@ -4660,52 +4660,6 @@ static MA_INLINE ma_int32 ma_dither_s32(ma_dither_mode ditherMode, ma_int32 dith
 }
 
 
-/*
-Splits a buffer into parts of equal length and of the given alignment. The returned size of the split buffers will be a
-multiple of the alignment. The alignment must be a power of 2.
-*/
-void ma_split_buffer(void* pBuffer, size_t bufferSize, size_t splitCount, size_t alignment, void** ppBuffersOut, size_t* pSplitSizeOut)
-{
-    ma_uintptr pBufferUnaligned;
-    ma_uintptr pBufferAligned;
-    size_t unalignedBytes;
-    size_t splitSize;
-
-    if (pSplitSizeOut) {
-        *pSplitSizeOut = 0;
-    }
-
-    if (pBuffer == NULL || bufferSize == 0 || splitCount == 0) {
-        return;
-    }
-
-    if (alignment == 0) {
-        alignment = 1;
-    }
-
-    pBufferUnaligned = (ma_uintptr)pBuffer;
-    pBufferAligned   = (pBufferUnaligned + (alignment-1)) & ~(alignment-1);
-    unalignedBytes   = (size_t)(pBufferAligned - pBufferUnaligned);
-
-    splitSize = 0;
-    if (bufferSize >= unalignedBytes) {
-        splitSize = (bufferSize - unalignedBytes) / splitCount;
-        splitSize = splitSize & ~(alignment-1);
-    }
-
-    if (ppBuffersOut != NULL) {
-        size_t i;
-        for (i = 0; i < splitCount; ++i) {
-            ppBuffersOut[i] = (ma_uint8*)(pBufferAligned + (splitSize*i));
-        }
-    }
-
-    if (pSplitSizeOut) {
-        *pSplitSizeOut = splitSize;
-    }
-}
-
-
 /******************************************************************************
 
 Atomics
