@@ -31,6 +31,8 @@ void stop_callback(ma_device* pDevice)
 
 void data_callback(ma_device* pDevice, void* pOutput, const void* pInput, ma_uint32 frameCount)
 {
+    MA_ASSERT(pDevice->capture.format == pDevice->playback.format);
+
     /* In this test the format and channel count are the same for both input and output which means we can just memcpy(). */
     ma_copy_memory(pOutput, pInput, frameCount * ma_get_bytes_per_frame(pDevice->capture.format, pDevice->capture.channels));
 
@@ -117,6 +119,7 @@ int main(int argc, char** argv)
 #if defined(OUTPUT_WAV) && OUTPUT_WAV==1
     deviceConfig.pUserData          = &wav;
 #endif
+    deviceConfig.wasapi.noAutoConvertSRC = MA_TRUE;
 
     ma_device device;
     result = ma_device_init(&context, &deviceConfig, &device);

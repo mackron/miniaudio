@@ -3085,9 +3085,7 @@ struct ma_device
         ma_channel internalChannelMap[MA_MAX_CHANNELS];
         ma_uint32 internalBufferSizeInFrames;
         ma_uint32 internalPeriods;
-        ma_pcm_converter converter;
-        ma_uint32 _dspFrameCount;           /* Internal use only. Used as the data source when reading from the device. */
-        const ma_uint8* _dspFrames;         /* ^^^ AS ABOVE ^^^ */
+        ma_data_converter converter;
     } capture;
 
     union
@@ -6523,7 +6521,7 @@ static MA_INLINE void ma_device__on_data(ma_device* pDevice, void* pFramesOut, c
 
         /* Volume control of input makes things a bit awkward because the input buffer is read-only. We'll need to use a temp buffer and loop in this case. */
         if (pFramesIn != NULL && pDevice->masterVolumeFactor < 1) {
-            ma_uint8 tempFramesIn[8192];
+            ma_uint8 tempFramesIn[MA_DATA_CONVERTER_STACK_BUFFER_SIZE];
             ma_uint32 bpfCapture  = ma_get_bytes_per_frame(pDevice->capture.format, pDevice->capture.channels);
             ma_uint32 bpfPlayback = ma_get_bytes_per_frame(pDevice->playback.format, pDevice->playback.channels);
             ma_uint32 totalFramesProcessed = 0;
@@ -6558,86 +6556,6 @@ static MA_INLINE void ma_device__on_data(ma_device* pDevice, void* pFramesOut, c
     }
 }
 
-
-/* The callback for reading from the client -> DSP -> device. */
-ma_uint32 ma_device__on_read_from_client(ma_pcm_converter* pDSP, void* pFramesOut, ma_uint32 frameCount, void* pUserData)
-{
-    ma_device* pDevice = (ma_device*)pUserData;
-
-    ma_assert(pDevice != NULL);
-
-    ma_device__on_data(pDevice, pFramesOut, NULL, frameCount);
-
-    (void)pDSP;
-    return frameCount;
-}
-
-/* The PCM converter callback for reading from a buffer. */
-ma_uint32 ma_device__pcm_converter__on_read_from_buffer_capture(ma_pcm_converter* pConverter, void* pFramesOut, ma_uint32 frameCount, void* pUserData)
-{
-    ma_device* pDevice = (ma_device*)pUserData;
-    ma_uint32 framesToRead;
-    ma_uint32 bytesToRead;
-
-    ma_assert(pDevice != NULL);
-
-    if (pDevice->capture._dspFrameCount == 0) {
-        return 0;   /* Nothing left. */
-    }
-
-    framesToRead = frameCount;
-    if (framesToRead > pDevice->capture._dspFrameCount) {
-        framesToRead = pDevice->capture._dspFrameCount;
-    }
-
-    bytesToRead = framesToRead * ma_get_bytes_per_frame(pConverter->formatConverterIn.config.formatIn, pConverter->channelRouter.config.channelsIn);
-
-    /* pDevice->capture._dspFrames can be null in which case it should be treated as silence. */
-    if (pDevice->capture._dspFrames != NULL) {
-        ma_copy_memory(pFramesOut, pDevice->capture._dspFrames, bytesToRead);
-        pDevice->capture._dspFrames += bytesToRead;
-    } else {
-        ma_zero_memory(pFramesOut, bytesToRead);
-    }
-    
-    pDevice->capture._dspFrameCount -= framesToRead;
-    
-    return framesToRead;
-}
-
-#if 0
-ma_uint32 ma_device__pcm_converter__on_read_from_buffer_playback(ma_pcm_converter* pConverter, void* pFramesOut, ma_uint32 frameCount, void* pUserData)
-{
-    ma_device* pDevice = (ma_device*)pUserData;
-    ma_uint32 framesToRead;
-    ma_uint32 bytesToRead;
-
-    ma_assert(pDevice != NULL);
-
-    if (pDevice->playback._dspFrameCount == 0) {
-        return 0;   /* Nothing left. */
-    }
-
-    framesToRead = frameCount;
-    if (framesToRead > pDevice->playback._dspFrameCount) {
-        framesToRead = pDevice->playback._dspFrameCount;
-    }
-
-    bytesToRead = framesToRead * ma_get_bytes_per_frame(pConverter->formatConverterIn.config.formatIn, pConverter->channelRouter.config.channelsIn);
-
-    /* pDevice->playback._dspFrames can be null in which case it should be treated as silence. */
-    if (pDevice->playback._dspFrames != NULL) {
-        ma_copy_memory(pFramesOut, pDevice->playback._dspFrames, bytesToRead);
-        pDevice->playback._dspFrames += bytesToRead;
-    } else {
-        ma_zero_memory(pFramesOut, bytesToRead);
-    }
-
-    pDevice->playback._dspFrameCount -= framesToRead;
-    
-    return framesToRead;
-}
-#endif
 
 
 /* A helper function for reading sample data from the client. */
@@ -6706,78 +6624,100 @@ static void ma_device__read_frames_from_client(ma_device* pDevice, ma_uint32 fra
 }
 
 /* A helper for sending sample data to the client. */
-static void ma_device__send_frames_to_client(ma_device* pDevice, ma_uint32 frameCount, const void* pFrames)
+static void ma_device__send_frames_to_client(ma_device* pDevice, ma_uint32 frameCountInDeviceFormat, const void* pFramesInDeviceFormat)
 {
     ma_assert(pDevice != NULL);
-    ma_assert(frameCount > 0);
-    ma_assert(pFrames != NULL);
+    ma_assert(frameCountInDeviceFormat > 0);
+    ma_assert(pFramesInDeviceFormat != NULL);
 
     if (pDevice->capture.converter.isPassthrough) {
-        ma_device__on_data(pDevice, NULL, pFrames, frameCount);
+        ma_device__on_data(pDevice, NULL, pFramesInDeviceFormat, frameCountInDeviceFormat);
     } else {
-        ma_uint8 chunkBuffer[4096];
-        ma_uint32 chunkFrameCount;
+        ma_result result;
+        ma_uint8 pFramesInClientFormat[MA_DATA_CONVERTER_STACK_BUFFER_SIZE];
+        ma_uint64 framesInClientFormatCap = sizeof(pFramesInClientFormat) / ma_get_bytes_per_frame(pDevice->capture.format, pDevice->capture.channels);
+        ma_uint64 totalDeviceFramesProcessed = 0;
+        ma_uint64 totalClientFramesProcessed = 0;
+        const void* pRunningFramesInDeviceFormat = pFramesInDeviceFormat;
 
-        pDevice->capture._dspFrameCount = frameCount;
-        pDevice->capture._dspFrames = (const ma_uint8*)pFrames;
-
-        chunkFrameCount = sizeof(chunkBuffer) / ma_get_bytes_per_frame(pDevice->capture.format, pDevice->capture.channels);
-
+        /* We just keep going until we've exhaused all of our input frames and cannot generate any more output frames. */
         for (;;) {
-            ma_uint32 framesJustRead = (ma_uint32)ma_pcm_converter_read(&pDevice->capture.converter, chunkBuffer, chunkFrameCount);
-            if (framesJustRead == 0) {
+            ma_uint64 deviceFramesProcessedThisIteration;
+            ma_uint64 clientFramesProcessedThisIteration;
+
+            deviceFramesProcessedThisIteration = (frameCountInDeviceFormat - totalDeviceFramesProcessed);
+            clientFramesProcessedThisIteration = framesInClientFormatCap;
+
+            result = ma_data_converter_process_pcm_frames(&pDevice->capture.converter, pRunningFramesInDeviceFormat, &deviceFramesProcessedThisIteration, pFramesInClientFormat, &clientFramesProcessedThisIteration);
+            if (result != MA_SUCCESS) {
                 break;
             }
 
-            ma_device__on_data(pDevice, NULL, chunkBuffer, framesJustRead);
+            if (clientFramesProcessedThisIteration > 0) {
+                ma_device__on_data(pDevice, NULL, pFramesInClientFormat, (ma_uint32)clientFramesProcessedThisIteration);    /* Safe cast. */
+            }
 
-            if (framesJustRead < chunkFrameCount) {
-                break;
+            pRunningFramesInDeviceFormat = ma_offset_ptr(pRunningFramesInDeviceFormat, deviceFramesProcessedThisIteration * ma_get_bytes_per_frame(pDevice->capture.internalFormat, pDevice->capture.internalChannels));
+            totalDeviceFramesProcessed  += deviceFramesProcessedThisIteration;
+            totalClientFramesProcessed  += clientFramesProcessedThisIteration;
+
+            if (deviceFramesProcessedThisIteration == 0 && clientFramesProcessedThisIteration == 0) {
+                break;  /* We're done. */
             }
         }
     }
 }
 
-static MA_INLINE ma_result ma_device__handle_duplex_callback_capture(ma_device* pDevice, ma_uint32 frameCount, const void* pFramesInInternalFormat, ma_pcm_rb* pRB)
+static MA_INLINE ma_result ma_device__handle_duplex_callback_capture(ma_device* pDevice, ma_uint32 frameCountInDeviceFormat, const void* pFramesInDeviceFormat, ma_pcm_rb* pRB)
 {
     ma_result result;
+    ma_uint32 totalDeviceFramesProcessed = 0;
+    const void* pRunningFramesInDeviceFormat = pFramesInDeviceFormat;
 
     ma_assert(pDevice != NULL);
-    ma_assert(frameCount > 0);
-    ma_assert(pFramesInInternalFormat != NULL);
+    ma_assert(frameCountInDeviceFormat > 0);
+    ma_assert(pFramesInDeviceFormat != NULL);
     ma_assert(pRB != NULL);
     
-    pDevice->capture._dspFrameCount = (ma_uint32)frameCount;
-    pDevice->capture._dspFrames     = (const ma_uint8*)pFramesInInternalFormat;
-
-    /* Write to the ring buffer. The ring buffer is in the external format. */
+    /* Write to the ring buffer. The ring buffer is in the client format which means we need to convert. */
     for (;;) {
-        ma_uint32 framesProcessed;
-        ma_uint32 framesToProcess = 256;
-        void* pFramesInExternalFormat;
+        ma_uint32 framesToProcessInDeviceFormat = (frameCountInDeviceFormat - totalDeviceFramesProcessed);
+        ma_uint32 framesToProcessInClientFormat = MA_DATA_CONVERTER_STACK_BUFFER_SIZE / ma_get_bytes_per_frame(pDevice->capture.format, pDevice->capture.channels);
+        ma_uint64 framesProcessedInDeviceFormat;
+        ma_uint64 framesProcessedInClientFormat;
+        void* pFramesInClientFormat;
 
-        result = ma_pcm_rb_acquire_write(pRB, &framesToProcess, &pFramesInExternalFormat);
+        result = ma_pcm_rb_acquire_write(pRB, &framesToProcessInClientFormat, &pFramesInClientFormat);
         if (result != MA_SUCCESS) {
             ma_post_error(pDevice, MA_LOG_LEVEL_ERROR, "Failed to acquire capture PCM frames from ring buffer.", result);
             break;
         }
 
-        if (framesToProcess == 0) {
+        if (framesToProcessInClientFormat == 0) {
             if (ma_pcm_rb_pointer_disance(pRB) == (ma_int32)ma_pcm_rb_get_subbuffer_size(pRB)) {
                 break;  /* Overrun. Not enough room in the ring buffer for input frame. Excess frames are dropped. */
             }
         }
 
         /* Convert. */
-        framesProcessed = (ma_uint32)ma_pcm_converter_read(&pDevice->capture.converter, pFramesInExternalFormat, framesToProcess);
+        framesProcessedInDeviceFormat = framesToProcessInDeviceFormat;
+        framesProcessedInClientFormat = framesToProcessInClientFormat;
+        result = ma_data_converter_process_pcm_frames(&pDevice->capture.converter, pRunningFramesInDeviceFormat, &framesProcessedInDeviceFormat, pFramesInClientFormat, &framesProcessedInClientFormat);
+        if (result != MA_SUCCESS) {
+            break;
+        }
 
-        result = ma_pcm_rb_commit_write(pRB, framesProcessed, pFramesInExternalFormat);
+        result = ma_pcm_rb_commit_write(pRB, (ma_uint32)framesProcessedInDeviceFormat, pFramesInClientFormat);  /* Safe cast. */
         if (result != MA_SUCCESS) {
             ma_post_error(pDevice, MA_LOG_LEVEL_ERROR, "Failed to commit capture PCM frames to ring buffer.", result);
             break;
         }
 
-        if (framesProcessed < framesToProcess) {
+        pRunningFramesInDeviceFormat = ma_offset_ptr(pRunningFramesInDeviceFormat, framesProcessedInDeviceFormat * ma_get_bytes_per_frame(pDevice->capture.internalFormat, pDevice->capture.internalChannels));
+        totalDeviceFramesProcessed += (ma_uint32)framesProcessedInDeviceFormat; /* Safe cast. */
+
+        /* We're done when we're unable to process any client nor device frames. */
+        if (framesProcessedInClientFormat == 0 && framesProcessedInDeviceFormat == 0) {
             break;  /* Done. */
         }
     }
@@ -7411,48 +7351,63 @@ ma_result ma_device_main_loop__null(ma_device* pDevice)
             case ma_device_type_duplex:
             {
                 /* The process is: device_read -> convert -> callback -> convert -> device_write */
-                ma_uint8  capturedDeviceData[MA_DATA_CONVERTER_STACK_BUFFER_SIZE];
-                ma_uint8  playbackDeviceData[MA_DATA_CONVERTER_STACK_BUFFER_SIZE];
-                ma_uint32 capturedDeviceDataCapInFrames = sizeof(capturedDeviceData) / ma_get_bytes_per_frame(pDevice->capture.internalFormat,  pDevice->capture.internalChannels);
-                ma_uint32 playbackDeviceDataCapInFrames = sizeof(playbackDeviceData) / ma_get_bytes_per_frame(pDevice->playback.internalFormat, pDevice->playback.internalChannels);
-
-                ma_uint32 totalFramesProcessed = 0;
-                ma_uint32 periodSizeInFrames = ma_min(pDevice->capture.internalBufferSizeInFrames/pDevice->capture.internalPeriods, pDevice->playback.internalBufferSizeInFrames/pDevice->playback.internalPeriods);
+                ma_uint32 totalCapturedDeviceFramesProcessed = 0;
+                ma_uint32 capturedDevicePeriodSizeInFrames = ma_min(pDevice->capture.internalBufferSizeInFrames/pDevice->capture.internalPeriods, pDevice->playback.internalBufferSizeInFrames/pDevice->playback.internalPeriods);
                     
-                while (totalFramesProcessed < periodSizeInFrames) {
-                    ma_uint32 framesRemaining = periodSizeInFrames - totalFramesProcessed;
-                    ma_uint32 framesProcessed;
-                    ma_uint32 framesToProcess = framesRemaining;
-                    if (framesToProcess > capturedDeviceDataCapInFrames) {
-                        framesToProcess = capturedDeviceDataCapInFrames;
+                while (totalCapturedDeviceFramesProcessed < capturedDevicePeriodSizeInFrames) {
+                    ma_uint8  capturedDeviceData[MA_DATA_CONVERTER_STACK_BUFFER_SIZE];
+                    ma_uint8  playbackDeviceData[MA_DATA_CONVERTER_STACK_BUFFER_SIZE];
+                    ma_uint32 capturedDeviceDataCapInFrames = sizeof(capturedDeviceData) / ma_get_bytes_per_frame(pDevice->capture.internalFormat,  pDevice->capture.internalChannels);
+                    ma_uint32 playbackDeviceDataCapInFrames = sizeof(playbackDeviceData) / ma_get_bytes_per_frame(pDevice->playback.internalFormat, pDevice->playback.internalChannels);
+                    ma_uint32 capturedDeviceFramesRemaining;
+                    ma_uint32 capturedDeviceFramesProcessed;
+                    ma_uint32 capturedDeviceFramesToProcess;
+                    ma_uint32 capturedDeviceFramesToTryProcessing = capturedDevicePeriodSizeInFrames - totalCapturedDeviceFramesProcessed;
+                    if (capturedDeviceFramesToTryProcessing > capturedDeviceDataCapInFrames) {
+                        capturedDeviceFramesToTryProcessing = capturedDeviceDataCapInFrames;
                     }
 
-                    result = ma_device_read__null(pDevice, capturedDeviceData, framesToProcess, &framesProcessed);
+                    result = ma_device_read__null(pDevice, capturedDeviceData, capturedDeviceFramesToTryProcessing, &capturedDeviceFramesToProcess);
                     if (result != MA_SUCCESS) {
                         exitLoop = MA_TRUE;
                         break;
                     }
 
-                    pDevice->capture._dspFrameCount = framesToProcess;
-                    pDevice->capture._dspFrames     = capturedDeviceData;
+                    capturedDeviceFramesRemaining = capturedDeviceFramesToProcess;
+                    capturedDeviceFramesProcessed = 0;
 
+                    /* At this point we have our captured data in device format and we now need to convert it to client format. */
                     for (;;) {
                         ma_uint8  capturedClientData[MA_DATA_CONVERTER_STACK_BUFFER_SIZE];
                         ma_uint8  playbackClientData[MA_DATA_CONVERTER_STACK_BUFFER_SIZE];
                         ma_uint32 capturedClientDataCapInFrames = sizeof(capturedClientData) / ma_get_bytes_per_frame(pDevice->capture.format, pDevice->capture.channels);
                         ma_uint32 playbackClientDataCapInFrames = sizeof(playbackClientData) / ma_get_bytes_per_frame(pDevice->playback.format, pDevice->playback.channels);
-
-                        ma_uint32 capturedClientFramesToTryProcessing = ma_min(capturedClientDataCapInFrames, playbackClientDataCapInFrames);
-                        ma_uint32 capturedClientFramesToProcess = (ma_uint32)ma_pcm_converter_read(&pDevice->capture.converter, capturedClientData, capturedClientFramesToTryProcessing);
-                        if (capturedClientFramesToProcess == 0) {
-                            break;  /* Don't fire the data callback with zero frames. */
+                        ma_uint64 capturedClientFramesToProcessThisIteration = ma_min(capturedClientDataCapInFrames, playbackClientDataCapInFrames);
+                        ma_uint64 capturedDeviceFramesToProcessThisIteration = capturedDeviceFramesRemaining;
+                        ma_uint8* pRunningCapturedDeviceFrames = ma_offset_ptr(capturedDeviceData, capturedDeviceFramesProcessed * ma_get_bytes_per_frame(pDevice->capture.internalFormat,  pDevice->capture.internalChannels));
+                        
+                        /* Convert capture data from device format to client format. */
+                        result = ma_data_converter_process_pcm_frames(&pDevice->capture.converter, pRunningCapturedDeviceFrames, &capturedDeviceFramesToProcessThisIteration, capturedClientData, &capturedClientFramesToProcessThisIteration);
+                        if (result != MA_SUCCESS) {
+                            break;
                         }
 
-                        ma_device__on_data(pDevice, playbackClientData, capturedClientData, capturedClientFramesToProcess);
+                        /*
+                        If we weren't able to generate any output frames it must mean we've exhaused all of our input. The only time this would not be the case is if capturedClientData was too small
+                        which should never be the case when it's of the size MA_DATA_CONVERTER_STACK_BUFFER_SIZE.
+                        */
+                        if (capturedClientFramesToProcessThisIteration == 0) {
+                            break;
+                        }
 
-                        /* At this point the playbackData buffer should be holding data that needs to be written to the device. */
+                        ma_device__on_data(pDevice, playbackClientData, capturedClientData, (ma_uint32)capturedClientFramesToProcessThisIteration);    /* Safe cast .*/
+
+                        capturedDeviceFramesProcessed += (ma_uint32)capturedDeviceFramesToProcessThisIteration; /* Safe cast. */
+                        capturedDeviceFramesRemaining -= (ma_uint32)capturedDeviceFramesToProcessThisIteration; /* Safe cast. */
+
+                        /* At this point the playbackClientData buffer should be holding data that needs to be written to the device. */
                         for (;;) {
-                            ma_uint64 convertedClientFrameCount = capturedClientFramesToProcess;
+                            ma_uint64 convertedClientFrameCount = capturedClientFramesToProcessThisIteration;
                             ma_uint64 convertedDeviceFrameCount = playbackDeviceDataCapInFrames;
                             result = ma_data_converter_process_pcm_frames(&pDevice->playback.converter, playbackClientData, &convertedClientFrameCount, playbackDeviceData, &convertedDeviceFrameCount);
                             if (result != MA_SUCCESS) {
@@ -7465,14 +7420,10 @@ ma_result ma_device_main_loop__null(ma_device* pDevice)
                                 break;
                             }
 
-                            capturedClientFramesToProcess -= (ma_uint32)convertedClientFrameCount;  /* Safe cast. */
-                            if (capturedClientFramesToProcess == 0) {
+                            capturedClientFramesToProcessThisIteration -= (ma_uint32)convertedClientFrameCount;  /* Safe cast. */
+                            if (capturedClientFramesToProcessThisIteration == 0) {
                                 break;
                             }
-                        }
-
-                        if (capturedClientFramesToProcess < capturedClientFramesToTryProcessing) {
-                            break;
                         }
 
                         /* In case an error happened from ma_device_write__null()... */
@@ -7482,7 +7433,7 @@ ma_result ma_device_main_loop__null(ma_device* pDevice)
                         }
                     }
 
-                    totalFramesProcessed += framesProcessed;
+                    totalCapturedDeviceFramesProcessed += capturedDeviceFramesProcessed;
                 }
             } break;
 
@@ -10003,8 +9954,6 @@ ma_result ma_device_main_loop__wasapi(ma_device* pDevice)
     ma_uint32 bpfPlaybackClient = ma_get_bytes_per_frame(pDevice->playback.format, pDevice->playback.channels);
     ma_uint8  inputDataInClientFormat[MA_DATA_CONVERTER_STACK_BUFFER_SIZE];
     ma_uint32 inputDataInClientFormatCap = sizeof(inputDataInClientFormat) / bpfCaptureClient;
-    ma_uint32 inputDataInClientFormatCount = 0;
-    ma_uint32 inputDataInClientFormatConsumed = 0;
     ma_uint8  outputDataInClientFormat[MA_DATA_CONVERTER_STACK_BUFFER_SIZE];
     ma_uint32 outputDataInClientFormatCap = sizeof(outputDataInClientFormat) / bpfPlaybackClient;
     ma_uint32 outputDataInClientFormatCount = 0;
@@ -10012,9 +9961,6 @@ ma_result ma_device_main_loop__wasapi(ma_device* pDevice)
     ma_uint32 periodSizeInFramesCapture = 0;
 
     MA_ASSERT(pDevice != NULL);
-
-    (void)inputDataInClientFormatCount;
-    (void)inputDataInClientFormatConsumed;
 
     /* The capture device needs to be started immediately. */
     if (pDevice->type == ma_device_type_capture || pDevice->type == ma_device_type_duplex || pDevice->type == ma_device_type_loopback) {
@@ -10191,13 +10137,6 @@ ma_result ma_device_main_loop__wasapi(ma_device* pDevice)
                         }
 
                         mappedDeviceBufferFramesRemainingCapture = mappedDeviceBufferSizeInFramesCapture;
-
-                        pDevice->capture._dspFrameCount = mappedDeviceBufferSizeInFramesCapture;
-                        if ((flagsCapture & MA_AUDCLNT_BUFFERFLAGS_SILENT) == 0) {
-                            pDevice->capture._dspFrames = (const ma_uint8*)pMappedDeviceBufferCapture;
-                        } else {
-                            pDevice->capture._dspFrames = NULL;
-                        }
                     }
 
 
@@ -10257,7 +10196,7 @@ ma_result ma_device_main_loop__wasapi(ma_device* pDevice)
 
                             ma_device__on_data(pDevice, outputDataInClientFormat, pRunningDeviceBufferCapture, framesToProcess);
                             outputDataInClientFormatCount    = framesProcessed;
-                            outputDataInClientFormatConsumed = framesProcessed;
+                            outputDataInClientFormatConsumed = 0;
 
                             mappedDeviceBufferFramesRemainingCapture -= framesProcessed;
                             if (mappedDeviceBufferFramesRemainingCapture == 0) {
@@ -10265,43 +10204,40 @@ ma_result ma_device_main_loop__wasapi(ma_device* pDevice)
                             }
                         } else if (pDevice->playback.converter.isPassthrough) {
                             /* The input buffer requires conversion, the playback buffer is passthrough. */
-                            framesToProcess = ma_min(inputDataInClientFormatCap, mappedDeviceBufferFramesRemainingPlayback);
-                            framesProcessed = (ma_uint32)ma_pcm_converter_read(&pDevice->capture.converter, inputDataInClientFormat, framesToProcess);
-                            if (framesProcessed == 0) {
-                                /* Getting here means we've run out of input data. */
-                                mappedDeviceBufferFramesRemainingCapture = 0;
+                            ma_uint64 capturedDeviceFramesToProcess = mappedDeviceBufferFramesRemainingCapture;
+                            ma_uint64 capturedClientFramesToProcess = ma_min(inputDataInClientFormatCap, mappedDeviceBufferFramesRemainingPlayback);
+
+                            result = ma_data_converter_process_pcm_frames(&pDevice->capture.converter, pRunningDeviceBufferCapture, &capturedDeviceFramesToProcess, inputDataInClientFormat, &capturedClientFramesToProcess);
+                            if (result != MA_SUCCESS) {
                                 break;
                             }
 
-                            ma_device__on_data(pDevice, pRunningDeviceBufferPlayback, inputDataInClientFormat, framesProcessed);
-                            mappedDeviceBufferFramesRemainingPlayback -= framesProcessed;
-
-                            if (framesProcessed < framesToProcess) {
-                                mappedDeviceBufferFramesRemainingCapture = 0;
-                                break;  /* Exhausted input data. */
+                            if (capturedClientFramesToProcess == 0) {
+                                break;
                             }
 
-                            if (mappedDeviceBufferFramesRemainingPlayback == 0) {
-                                break;  /* Exhausted output data. */
-                            }
+                            ma_device__on_data(pDevice, pRunningDeviceBufferPlayback, inputDataInClientFormat, (ma_uint32)capturedClientFramesToProcess);   /* Safe cast. */
+
+                            mappedDeviceBufferFramesRemainingCapture  -= (ma_uint32)capturedDeviceFramesToProcess;
+                            mappedDeviceBufferFramesRemainingPlayback -= (ma_uint32)capturedClientFramesToProcess;
                         } else {
-                            framesToProcess = ma_min(inputDataInClientFormatCap, outputDataInClientFormatCap);
-                            framesProcessed = (ma_uint32)ma_pcm_converter_read(&pDevice->capture.converter, inputDataInClientFormat, framesToProcess);
-                            if (framesProcessed == 0) {
-                                /* Getting here means we've run out of input data. */
-                                mappedDeviceBufferFramesRemainingCapture = 0;
+                            ma_uint64 capturedDeviceFramesToProcess = mappedDeviceBufferFramesRemainingCapture;
+                            ma_uint64 capturedClientFramesToProcess = ma_min(inputDataInClientFormatCap, outputDataInClientFormatCap);
+
+                            result = ma_data_converter_process_pcm_frames(&pDevice->capture.converter, pRunningDeviceBufferCapture, &capturedDeviceFramesToProcess, inputDataInClientFormat, &capturedClientFramesToProcess);
+                            if (result != MA_SUCCESS) {
                                 break;
                             }
 
-                            ma_device__on_data(pDevice, outputDataInClientFormat, inputDataInClientFormat, framesProcessed);
-                            outputDataInClientFormatCount    = framesProcessed;
-                            outputDataInClientFormatConsumed = 0;
-
-                            if (framesProcessed < framesToProcess) {
-                                /* Getting here means we've run out of input data. */
-                                mappedDeviceBufferFramesRemainingCapture = 0;
+                            if (capturedClientFramesToProcess == 0) {
                                 break;
                             }
+
+                            ma_device__on_data(pDevice, outputDataInClientFormat, inputDataInClientFormat, (ma_uint32)capturedClientFramesToProcess);
+                            
+                            mappedDeviceBufferFramesRemainingCapture -= (ma_uint32)capturedDeviceFramesToProcess;
+                            outputDataInClientFormatCount             = (ma_uint32)capturedClientFramesToProcess;
+                            outputDataInClientFormatConsumed          = 0;
                         }
                     }
 
@@ -11766,17 +11702,18 @@ ma_result ma_device_init__dsound(ma_context* pContext, const ma_device_config* p
 ma_result ma_device_main_loop__dsound(ma_device* pDevice)
 {
     ma_result result = MA_SUCCESS;
-    ma_uint32 bpfCapture  = ma_get_bytes_per_frame(pDevice->capture.internalFormat, pDevice->capture.internalChannels);
-    ma_uint32 bpfPlayback = ma_get_bytes_per_frame(pDevice->playback.internalFormat, pDevice->playback.internalChannels);
+    ma_uint32 bpfDeviceCapture  = ma_get_bytes_per_frame(pDevice->capture.internalFormat, pDevice->capture.internalChannels);
+    ma_uint32 bpfDevicePlayback = ma_get_bytes_per_frame(pDevice->playback.internalFormat, pDevice->playback.internalChannels);
     HRESULT hr;
     DWORD lockOffsetInBytesCapture;
     DWORD lockSizeInBytesCapture;
     DWORD mappedSizeInBytesCapture;
-    void* pMappedBufferCapture;
+    DWORD mappedDeviceFramesProcessedCapture;
+    void* pMappedDeviceBufferCapture;
     DWORD lockOffsetInBytesPlayback;
     DWORD lockSizeInBytesPlayback;
     DWORD mappedSizeInBytesPlayback;
-    void* pMappedBufferPlayback;
+    void* pMappedDeviceBufferPlayback;
     DWORD prevReadCursorInBytesCapture = 0;
     DWORD prevPlayCursorInBytesPlayback = 0;
     ma_bool32 physicalPlayCursorLoopFlagPlayback = 0;
@@ -11825,10 +11762,10 @@ ma_result ma_device_main_loop__dsound(ma_device* pDevice)
                     The capture position has looped. This is the more complex case. Map to the end of the buffer. If this does not return anything,
                     do it again from the start.
                     */
-                    if (prevReadCursorInBytesCapture < pDevice->capture.internalBufferSizeInFrames*bpfCapture) {
+                    if (prevReadCursorInBytesCapture < pDevice->capture.internalBufferSizeInFrames*bpfDeviceCapture) {
                         /* Lock up to the end of the buffer. */
                         lockOffsetInBytesCapture = prevReadCursorInBytesCapture;
-                        lockSizeInBytesCapture   = (pDevice->capture.internalBufferSizeInFrames*bpfCapture) - prevReadCursorInBytesCapture;
+                        lockSizeInBytesCapture   = (pDevice->capture.internalBufferSizeInFrames*bpfDeviceCapture) - prevReadCursorInBytesCapture;
                     } else {
                         /* Lock starting from the start of the buffer. */
                         lockOffsetInBytesCapture = 0;
@@ -11841,36 +11778,37 @@ ma_result ma_device_main_loop__dsound(ma_device* pDevice)
                     continue; /* Nothing is available in the capture buffer. */
                 }
 
-                hr = ma_IDirectSoundCaptureBuffer_Lock((ma_IDirectSoundCaptureBuffer*)pDevice->dsound.pCaptureBuffer, lockOffsetInBytesCapture, lockSizeInBytesCapture, &pMappedBufferCapture, &mappedSizeInBytesCapture, NULL, NULL, 0);
+                hr = ma_IDirectSoundCaptureBuffer_Lock((ma_IDirectSoundCaptureBuffer*)pDevice->dsound.pCaptureBuffer, lockOffsetInBytesCapture, lockSizeInBytesCapture, &pMappedDeviceBufferCapture, &mappedSizeInBytesCapture, NULL, NULL, 0);
                 if (FAILED(hr)) {
                     return ma_post_error(pDevice, MA_LOG_LEVEL_ERROR, "[DirectSound] Failed to map buffer from capture device in preparation for writing to the device.", MA_FAILED_TO_MAP_DEVICE_BUFFER);
                 }
 
 
                 /* At this point we have some input data that we need to output. We do not return until every mapped frame of the input data is written to the playback device. */
-                pDevice->capture._dspFrameCount = mappedSizeInBytesCapture / bpfCapture;
-                pDevice->capture._dspFrames     = (const ma_uint8*)pMappedBufferCapture;
+                mappedDeviceFramesProcessedCapture = 0;
+
                 for (;;) {  /* Keep writing to the playback device. */
-                    ma_uint8  inputFramesInExternalFormat[MA_DATA_CONVERTER_STACK_BUFFER_SIZE];
-                    ma_uint32 inputFramesInExternalFormatCap = sizeof(inputFramesInExternalFormat) / ma_get_bytes_per_frame(pDevice->capture.format, pDevice->capture.channels);
-                    ma_uint32 inputFramesInExternalFormatCount;
-                    ma_uint32 inputFramesInExternalFormatConsumed = 0;
-                    ma_uint8  outputFramesInExternalFormat[MA_DATA_CONVERTER_STACK_BUFFER_SIZE];
-                    ma_uint32 outputFramesInExternalFormatCap = sizeof(outputFramesInExternalFormat) / ma_get_bytes_per_frame(pDevice->playback.format, pDevice->playback.channels);
-                    ma_uint32 outputFramesInExternalFormatCount;
-                    ma_uint32 outputFramesInExternalFormatConsumed = 0;
+                    ma_uint8  inputFramesInClientFormat[MA_DATA_CONVERTER_STACK_BUFFER_SIZE];
+                    ma_uint32 inputFramesInClientFormatCap = sizeof(inputFramesInClientFormat) / ma_get_bytes_per_frame(pDevice->capture.format, pDevice->capture.channels);
+                    ma_uint8  outputFramesInClientFormat[MA_DATA_CONVERTER_STACK_BUFFER_SIZE];
+                    ma_uint32 outputFramesInClientFormatCap = sizeof(outputFramesInClientFormat) / ma_get_bytes_per_frame(pDevice->playback.format, pDevice->playback.channels);
+                    ma_uint32 outputFramesInClientFormatCount;
+                    ma_uint32 outputFramesInClientFormatConsumed = 0;
+                    ma_uint64 clientCapturedFramesToProcess = ma_min(inputFramesInClientFormatCap, outputFramesInClientFormatCap);
+                    ma_uint64 deviceCapturedFramesToProcess = (mappedSizeInBytesCapture / bpfDeviceCapture) - mappedDeviceFramesProcessedCapture;
+                    void* pRunningMappedDeviceBufferCapture = ma_offset_ptr(pMappedDeviceBufferCapture, mappedDeviceFramesProcessedCapture * bpfDeviceCapture);
 
-                    (void)inputFramesInExternalFormatConsumed;
-
-                    inputFramesInExternalFormatCount = (ma_uint32)ma_pcm_converter_read(&pDevice->capture.converter, inputFramesInExternalFormat, ma_min(inputFramesInExternalFormatCap, outputFramesInExternalFormatCap));
-                    if (inputFramesInExternalFormatCount == 0) {
-                        break;  /* No more input data. */
+                    result = ma_data_converter_process_pcm_frames(&pDevice->capture.converter, pRunningMappedDeviceBufferCapture, &deviceCapturedFramesToProcess, inputFramesInClientFormat, &clientCapturedFramesToProcess);
+                    if (result != MA_SUCCESS) {
+                        break;
                     }
 
-                    ma_device__on_data(pDevice, outputFramesInExternalFormat, inputFramesInExternalFormat, inputFramesInExternalFormatCount);
-                    outputFramesInExternalFormatCount = inputFramesInExternalFormatCount;
+                    outputFramesInClientFormatCount     = (ma_uint32)clientCapturedFramesToProcess;
+                    mappedDeviceFramesProcessedCapture += (ma_uint32)deviceCapturedFramesToProcess;
 
-                    /* At this point we have input and output data in external format. All we need to do now is convert it to the output format. This may take a few passes. */
+                    ma_device__on_data(pDevice, outputFramesInClientFormat, inputFramesInClientFormat, (ma_uint32)clientCapturedFramesToProcess);
+
+                    /* At this point we have input and output data in client format. All we need to do now is convert it to the output device format. This may take a few passes. */
                     for (;;) {
                         ma_uint32 framesWrittenThisIteration;
                         DWORD physicalPlayCursorInBytes;
@@ -11892,7 +11830,7 @@ ma_result ma_device_main_loop__dsound(ma_device* pDevice)
                         if (physicalPlayCursorLoopFlagPlayback == virtualWriteCursorLoopFlagPlayback) {
                             /* Same loop iteration. The available bytes wraps all the way around from the virtual write cursor to the physical play cursor. */
                             if (physicalPlayCursorInBytes <= virtualWriteCursorInBytesPlayback) {
-                                availableBytesPlayback  = (pDevice->playback.internalBufferSizeInFrames*bpfPlayback) - virtualWriteCursorInBytesPlayback;
+                                availableBytesPlayback  = (pDevice->playback.internalBufferSizeInFrames*bpfDevicePlayback) - virtualWriteCursorInBytesPlayback;
                                 availableBytesPlayback += physicalPlayCursorInBytes;    /* Wrap around. */
                             } else {
                                 /* This is an error. */
@@ -11938,13 +11876,13 @@ ma_result ma_device_main_loop__dsound(ma_device* pDevice)
                         lockOffsetInBytesPlayback = virtualWriteCursorInBytesPlayback;
                         if (physicalPlayCursorLoopFlagPlayback == virtualWriteCursorLoopFlagPlayback) {
                             /* Same loop iteration. Go up to the end of the buffer. */
-                            lockSizeInBytesPlayback = (pDevice->playback.internalBufferSizeInFrames*bpfPlayback) - virtualWriteCursorInBytesPlayback;
+                            lockSizeInBytesPlayback = (pDevice->playback.internalBufferSizeInFrames*bpfDevicePlayback) - virtualWriteCursorInBytesPlayback;
                         } else {
                             /* Different loop iterations. Go up to the physical play cursor. */
                             lockSizeInBytesPlayback = physicalPlayCursorInBytes - virtualWriteCursorInBytesPlayback;
                         }
 
-                        hr = ma_IDirectSoundBuffer_Lock((ma_IDirectSoundBuffer*)pDevice->dsound.pPlaybackBuffer, lockOffsetInBytesPlayback, lockSizeInBytesPlayback, &pMappedBufferPlayback, &mappedSizeInBytesPlayback, NULL, NULL, 0);
+                        hr = ma_IDirectSoundBuffer_Lock((ma_IDirectSoundBuffer*)pDevice->dsound.pPlaybackBuffer, lockOffsetInBytesPlayback, lockSizeInBytesPlayback, &pMappedDeviceBufferPlayback, &mappedSizeInBytesPlayback, NULL, NULL, 0);
                         if (FAILED(hr)) {
                             result = ma_post_error(pDevice, MA_LOG_LEVEL_ERROR, "[DirectSound] Failed to map buffer from playback device in preparation for writing to the device.", MA_FAILED_TO_MAP_DEVICE_BUFFER);
                             break;
@@ -11955,9 +11893,9 @@ ma_result ma_device_main_loop__dsound(ma_device* pDevice)
                         endless glitching due to it constantly running out of data.
                         */
                         if (isPlaybackDeviceStarted) {
-                            DWORD bytesQueuedForPlayback = (pDevice->playback.internalBufferSizeInFrames*bpfPlayback) - availableBytesPlayback;
-                            if (bytesQueuedForPlayback < ((pDevice->playback.internalBufferSizeInFrames/pDevice->playback.internalPeriods)*bpfPlayback)) {
-                                silentPaddingInBytes = ((pDevice->playback.internalBufferSizeInFrames/pDevice->playback.internalPeriods)*2*bpfPlayback) - bytesQueuedForPlayback;
+                            DWORD bytesQueuedForPlayback = (pDevice->playback.internalBufferSizeInFrames*bpfDevicePlayback) - availableBytesPlayback;
+                            if (bytesQueuedForPlayback < ((pDevice->playback.internalBufferSizeInFrames/pDevice->playback.internalPeriods)*bpfDevicePlayback)) {
+                                silentPaddingInBytes   = ((pDevice->playback.internalBufferSizeInFrames/pDevice->playback.internalPeriods)*2*bpfDevicePlayback) - bytesQueuedForPlayback;
                                 if (silentPaddingInBytes > lockSizeInBytesPlayback) {
                                     silentPaddingInBytes = lockSizeInBytesPlayback;
                                 }
@@ -11970,32 +11908,32 @@ ma_result ma_device_main_loop__dsound(ma_device* pDevice)
 
                         /* At this point we have a buffer for output. */
                         if (silentPaddingInBytes > 0) {
-                            ma_zero_memory(pMappedBufferPlayback, silentPaddingInBytes);
-                            framesWrittenThisIteration = silentPaddingInBytes/bpfPlayback;
+                            ma_zero_memory(pMappedDeviceBufferPlayback, silentPaddingInBytes);
+                            framesWrittenThisIteration = silentPaddingInBytes/bpfDevicePlayback;
                         } else {
-                            ma_uint64 convertedFrameCountIn  = (outputFramesInExternalFormatCount - outputFramesInExternalFormatConsumed);
-                            ma_uint64 convertedFrameCountOut = mappedSizeInBytesPlayback/bpfPlayback;
-                            void* pConvertedFramesIn  = ma_offset_ptr(outputFramesInExternalFormat, outputFramesInExternalFormatConsumed * bpfPlayback);
-                            void* pConvertedFramesOut = pMappedBufferPlayback;
+                            ma_uint64 convertedFrameCountIn  = (outputFramesInClientFormatCount - outputFramesInClientFormatConsumed);
+                            ma_uint64 convertedFrameCountOut = mappedSizeInBytesPlayback/bpfDevicePlayback;
+                            void* pConvertedFramesIn  = ma_offset_ptr(outputFramesInClientFormat, outputFramesInClientFormatConsumed * bpfDevicePlayback);
+                            void* pConvertedFramesOut = pMappedDeviceBufferPlayback;
 
                             result = ma_data_converter_process_pcm_frames(&pDevice->playback.converter, pConvertedFramesIn, &convertedFrameCountIn, pConvertedFramesOut, &convertedFrameCountOut);
                             if (result != MA_SUCCESS) {
                                 break;
                             }
 
-                            outputFramesInExternalFormatConsumed += (ma_uint32)convertedFrameCountOut;
-                            framesWrittenThisIteration = (ma_uint32)convertedFrameCountOut;
+                            outputFramesInClientFormatConsumed += (ma_uint32)convertedFrameCountOut;
+                            framesWrittenThisIteration          = (ma_uint32)convertedFrameCountOut;
                         }
                         
 
-                        hr = ma_IDirectSoundBuffer_Unlock((ma_IDirectSoundBuffer*)pDevice->dsound.pPlaybackBuffer, pMappedBufferPlayback, framesWrittenThisIteration*bpfPlayback, NULL, 0);
+                        hr = ma_IDirectSoundBuffer_Unlock((ma_IDirectSoundBuffer*)pDevice->dsound.pPlaybackBuffer, pMappedDeviceBufferPlayback, framesWrittenThisIteration*bpfDevicePlayback, NULL, 0);
                         if (FAILED(hr)) {
                             result = ma_post_error(pDevice, MA_LOG_LEVEL_ERROR, "[DirectSound] Failed to unlock internal buffer from playback device after writing to the device.", MA_FAILED_TO_UNMAP_DEVICE_BUFFER);
                             break;
                         }
 
-                        virtualWriteCursorInBytesPlayback += framesWrittenThisIteration*bpfPlayback;
-                        if ((virtualWriteCursorInBytesPlayback/bpfPlayback) == pDevice->playback.internalBufferSizeInFrames) {
+                        virtualWriteCursorInBytesPlayback += framesWrittenThisIteration*bpfDevicePlayback;
+                        if ((virtualWriteCursorInBytesPlayback/bpfDevicePlayback) == pDevice->playback.internalBufferSizeInFrames) {
                             virtualWriteCursorInBytesPlayback  = 0;
                             virtualWriteCursorLoopFlagPlayback = !virtualWriteCursorLoopFlagPlayback;
                         }
@@ -12013,19 +11951,19 @@ ma_result ma_device_main_loop__dsound(ma_device* pDevice)
                             isPlaybackDeviceStarted = MA_TRUE;
                         }
 
-                        if (framesWrittenThisIteration < mappedSizeInBytesPlayback/bpfPlayback) {
+                        if (framesWrittenThisIteration < mappedSizeInBytesPlayback/bpfDevicePlayback) {
                             break;  /* We're finished with the output data.*/
                         }
                     }
 
-                    if (inputFramesInExternalFormatCount < inputFramesInExternalFormatCap) {
+                    if (clientCapturedFramesToProcess == 0) {
                         break;  /* We just consumed every input sample. */
                     }
                 }
 
 
                 /* At this point we're done with the mapped portion of the capture buffer. */
-                hr = ma_IDirectSoundCaptureBuffer_Unlock((ma_IDirectSoundCaptureBuffer*)pDevice->dsound.pCaptureBuffer, pMappedBufferCapture, mappedSizeInBytesCapture, NULL, 0);
+                hr = ma_IDirectSoundCaptureBuffer_Unlock((ma_IDirectSoundCaptureBuffer*)pDevice->dsound.pCaptureBuffer, pMappedDeviceBufferCapture, mappedSizeInBytesCapture, NULL, 0);
                 if (FAILED(hr)) {
                     return ma_post_error(pDevice, MA_LOG_LEVEL_ERROR, "[DirectSound] Failed to unlock internal buffer from capture device after reading from the device.", MA_FAILED_TO_UNMAP_DEVICE_BUFFER);
                 }
@@ -12058,10 +11996,10 @@ ma_result ma_device_main_loop__dsound(ma_device* pDevice)
                     The capture position has looped. This is the more complex case. Map to the end of the buffer. If this does not return anything,
                     do it again from the start.
                     */
-                    if (prevReadCursorInBytesCapture < pDevice->capture.internalBufferSizeInFrames*bpfCapture) {
+                    if (prevReadCursorInBytesCapture < pDevice->capture.internalBufferSizeInFrames*bpfDeviceCapture) {
                         /* Lock up to the end of the buffer. */
                         lockOffsetInBytesCapture = prevReadCursorInBytesCapture;
-                        lockSizeInBytesCapture   = (pDevice->capture.internalBufferSizeInFrames*bpfCapture) - prevReadCursorInBytesCapture;
+                        lockSizeInBytesCapture   = (pDevice->capture.internalBufferSizeInFrames*bpfDeviceCapture) - prevReadCursorInBytesCapture;
                     } else {
                         /* Lock starting from the start of the buffer. */
                         lockOffsetInBytesCapture = 0;
@@ -12079,7 +12017,7 @@ ma_result ma_device_main_loop__dsound(ma_device* pDevice)
                     continue; /* Nothing is available in the capture buffer. */
                 }
 
-                hr = ma_IDirectSoundCaptureBuffer_Lock((ma_IDirectSoundCaptureBuffer*)pDevice->dsound.pCaptureBuffer, lockOffsetInBytesCapture, lockSizeInBytesCapture, &pMappedBufferCapture, &mappedSizeInBytesCapture, NULL, NULL, 0);
+                hr = ma_IDirectSoundCaptureBuffer_Lock((ma_IDirectSoundCaptureBuffer*)pDevice->dsound.pCaptureBuffer, lockOffsetInBytesCapture, lockSizeInBytesCapture, &pMappedDeviceBufferCapture, &mappedSizeInBytesCapture, NULL, NULL, 0);
                 if (FAILED(hr)) {
                     return ma_post_error(pDevice, MA_LOG_LEVEL_ERROR, "[DirectSound] Failed to map buffer from capture device in preparation for writing to the device.", MA_FAILED_TO_MAP_DEVICE_BUFFER);
                 }
@@ -12090,15 +12028,15 @@ ma_result ma_device_main_loop__dsound(ma_device* pDevice)
                 }
             #endif
 
-                ma_device__send_frames_to_client(pDevice, mappedSizeInBytesCapture/bpfCapture, pMappedBufferCapture);
+                ma_device__send_frames_to_client(pDevice, mappedSizeInBytesCapture/bpfDeviceCapture, pMappedDeviceBufferCapture);
 
-                hr = ma_IDirectSoundCaptureBuffer_Unlock((ma_IDirectSoundCaptureBuffer*)pDevice->dsound.pCaptureBuffer, pMappedBufferCapture, mappedSizeInBytesCapture, NULL, 0);
+                hr = ma_IDirectSoundCaptureBuffer_Unlock((ma_IDirectSoundCaptureBuffer*)pDevice->dsound.pCaptureBuffer, pMappedDeviceBufferCapture, mappedSizeInBytesCapture, NULL, 0);
                 if (FAILED(hr)) {
                     return ma_post_error(pDevice, MA_LOG_LEVEL_ERROR, "[DirectSound] Failed to unlock internal buffer from capture device after reading from the device.", MA_FAILED_TO_UNMAP_DEVICE_BUFFER);
                 }
                 prevReadCursorInBytesCapture = lockOffsetInBytesCapture + mappedSizeInBytesCapture;
 
-                if (prevReadCursorInBytesCapture == (pDevice->capture.internalBufferSizeInFrames*bpfCapture)) {
+                if (prevReadCursorInBytesCapture == (pDevice->capture.internalBufferSizeInFrames*bpfDeviceCapture)) {
                     prevReadCursorInBytesCapture = 0;
                 }
             } break;
@@ -12123,7 +12061,7 @@ ma_result ma_device_main_loop__dsound(ma_device* pDevice)
                 if (physicalPlayCursorLoopFlagPlayback == virtualWriteCursorLoopFlagPlayback) {
                     /* Same loop iteration. The available bytes wraps all the way around from the virtual write cursor to the physical play cursor. */
                     if (physicalPlayCursorInBytes <= virtualWriteCursorInBytesPlayback) {
-                        availableBytesPlayback  = (pDevice->playback.internalBufferSizeInFrames*bpfPlayback) - virtualWriteCursorInBytesPlayback;
+                        availableBytesPlayback  = (pDevice->playback.internalBufferSizeInFrames*bpfDevicePlayback) - virtualWriteCursorInBytesPlayback;
                         availableBytesPlayback += physicalPlayCursorInBytes;    /* Wrap around. */
                     } else {
                         /* This is an error. */
@@ -12167,29 +12105,29 @@ ma_result ma_device_main_loop__dsound(ma_device* pDevice)
                 lockOffsetInBytesPlayback = virtualWriteCursorInBytesPlayback;
                 if (physicalPlayCursorLoopFlagPlayback == virtualWriteCursorLoopFlagPlayback) {
                     /* Same loop iteration. Go up to the end of the buffer. */
-                    lockSizeInBytesPlayback = (pDevice->playback.internalBufferSizeInFrames*bpfPlayback) - virtualWriteCursorInBytesPlayback;
+                    lockSizeInBytesPlayback = (pDevice->playback.internalBufferSizeInFrames*bpfDevicePlayback) - virtualWriteCursorInBytesPlayback;
                 } else {
                     /* Different loop iterations. Go up to the physical play cursor. */
                     lockSizeInBytesPlayback = physicalPlayCursorInBytes - virtualWriteCursorInBytesPlayback;
                 }
 
-                hr = ma_IDirectSoundBuffer_Lock((ma_IDirectSoundBuffer*)pDevice->dsound.pPlaybackBuffer, lockOffsetInBytesPlayback, lockSizeInBytesPlayback, &pMappedBufferPlayback, &mappedSizeInBytesPlayback, NULL, NULL, 0);
+                hr = ma_IDirectSoundBuffer_Lock((ma_IDirectSoundBuffer*)pDevice->dsound.pPlaybackBuffer, lockOffsetInBytesPlayback, lockSizeInBytesPlayback, &pMappedDeviceBufferPlayback, &mappedSizeInBytesPlayback, NULL, NULL, 0);
                 if (FAILED(hr)) {
                     result = ma_post_error(pDevice, MA_LOG_LEVEL_ERROR, "[DirectSound] Failed to map buffer from playback device in preparation for writing to the device.", MA_FAILED_TO_MAP_DEVICE_BUFFER);
                     break;
                 }
 
                 /* At this point we have a buffer for output. */
-                ma_device__read_frames_from_client(pDevice, (mappedSizeInBytesPlayback/bpfPlayback), pMappedBufferPlayback);
+                ma_device__read_frames_from_client(pDevice, (mappedSizeInBytesPlayback/bpfDevicePlayback), pMappedDeviceBufferPlayback);
 
-                hr = ma_IDirectSoundBuffer_Unlock((ma_IDirectSoundBuffer*)pDevice->dsound.pPlaybackBuffer, pMappedBufferPlayback, mappedSizeInBytesPlayback, NULL, 0);
+                hr = ma_IDirectSoundBuffer_Unlock((ma_IDirectSoundBuffer*)pDevice->dsound.pPlaybackBuffer, pMappedDeviceBufferPlayback, mappedSizeInBytesPlayback, NULL, 0);
                 if (FAILED(hr)) {
                     result = ma_post_error(pDevice, MA_LOG_LEVEL_ERROR, "[DirectSound] Failed to unlock internal buffer from playback device after writing to the device.", MA_FAILED_TO_UNMAP_DEVICE_BUFFER);
                     break;
                 }
 
                 virtualWriteCursorInBytesPlayback += mappedSizeInBytesPlayback;
-                if (virtualWriteCursorInBytesPlayback == pDevice->playback.internalBufferSizeInFrames*bpfPlayback) {
+                if (virtualWriteCursorInBytesPlayback == pDevice->playback.internalBufferSizeInFrames*bpfDevicePlayback) {
                     virtualWriteCursorInBytesPlayback  = 0;
                     virtualWriteCursorLoopFlagPlayback = !virtualWriteCursorLoopFlagPlayback;
                 }
@@ -12198,7 +12136,7 @@ ma_result ma_device_main_loop__dsound(ma_device* pDevice)
                 We may need to start the device. We want two full periods to be written before starting the playback device. Having an extra period adds
                 a bit of a buffer to prevent the playback buffer from getting starved.
                 */
-                framesWrittenToPlaybackDevice += mappedSizeInBytesPlayback/bpfPlayback;
+                framesWrittenToPlaybackDevice += mappedSizeInBytesPlayback/bpfDevicePlayback;
                 if (!isPlaybackDeviceStarted && framesWrittenToPlaybackDevice >= (pDevice->playback.internalBufferSizeInFrames/pDevice->playback.internalPeriods)) {
                     if (FAILED(ma_IDirectSoundBuffer_Play((ma_IDirectSoundBuffer*)pDevice->dsound.pPlaybackBuffer, 0, 0, MA_DSBPLAY_LOOPING))) {
                         return ma_post_error(pDevice, MA_LOG_LEVEL_ERROR, "[DirectSound] IDirectSoundBuffer_Play() failed.", MA_FAILED_TO_START_BACKEND_DEVICE);
@@ -12242,7 +12180,7 @@ ma_result ma_device_main_loop__dsound(ma_device* pDevice)
                 if (physicalPlayCursorLoopFlagPlayback == virtualWriteCursorLoopFlagPlayback) {
                     /* Same loop iteration. The available bytes wraps all the way around from the virtual write cursor to the physical play cursor. */
                     if (physicalPlayCursorInBytes <= virtualWriteCursorInBytesPlayback) {
-                        availableBytesPlayback  = (pDevice->playback.internalBufferSizeInFrames*bpfPlayback) - virtualWriteCursorInBytesPlayback;
+                        availableBytesPlayback  = (pDevice->playback.internalBufferSizeInFrames*bpfDevicePlayback) - virtualWriteCursorInBytesPlayback;
                         availableBytesPlayback += physicalPlayCursorInBytes;    /* Wrap around. */
                     } else {
                         break;
@@ -12256,7 +12194,7 @@ ma_result ma_device_main_loop__dsound(ma_device* pDevice)
                     }
                 }
 
-                if (availableBytesPlayback >= (pDevice->playback.internalBufferSizeInFrames*bpfPlayback)) {
+                if (availableBytesPlayback >= (pDevice->playback.internalBufferSizeInFrames*bpfDevicePlayback)) {
                     break;
                 }
 
@@ -13324,48 +13262,62 @@ ma_result ma_device_main_loop__winmm(ma_device* pDevice)
             case ma_device_type_duplex:
             {
                 /* The process is: device_read -> convert -> callback -> convert -> device_write */
-                ma_uint8  capturedDeviceData[MA_DATA_CONVERTER_STACK_BUFFER_SIZE];
-                ma_uint8  playbackDeviceData[MA_DATA_CONVERTER_STACK_BUFFER_SIZE];
-                ma_uint32 capturedDeviceDataCapInFrames = sizeof(capturedDeviceData) / ma_get_bytes_per_frame(pDevice->capture.internalFormat,  pDevice->capture.internalChannels);
-                ma_uint32 playbackDeviceDataCapInFrames = sizeof(playbackDeviceData) / ma_get_bytes_per_frame(pDevice->playback.internalFormat, pDevice->playback.internalChannels);
-
-                ma_uint32 totalFramesProcessed = 0;
-                ma_uint32 periodSizeInFrames = ma_min(pDevice->capture.internalBufferSizeInFrames/pDevice->capture.internalPeriods, pDevice->playback.internalBufferSizeInFrames/pDevice->playback.internalPeriods);
+                ma_uint32 totalCapturedDeviceFramesProcessed = 0;
+                ma_uint32 capturedDevicePeriodSizeInFrames = ma_min(pDevice->capture.internalBufferSizeInFrames/pDevice->capture.internalPeriods, pDevice->playback.internalBufferSizeInFrames/pDevice->playback.internalPeriods);
                     
-                while (totalFramesProcessed < periodSizeInFrames) {
-                    ma_uint32 framesRemaining = periodSizeInFrames - totalFramesProcessed;
-                    ma_uint32 framesProcessed;
-                    ma_uint32 framesToProcess = framesRemaining;
-                    if (framesToProcess > capturedDeviceDataCapInFrames) {
-                        framesToProcess = capturedDeviceDataCapInFrames;
+                while (totalCapturedDeviceFramesProcessed < capturedDevicePeriodSizeInFrames) {
+                    ma_uint8  capturedDeviceData[MA_DATA_CONVERTER_STACK_BUFFER_SIZE];
+                    ma_uint8  playbackDeviceData[MA_DATA_CONVERTER_STACK_BUFFER_SIZE];
+                    ma_uint32 capturedDeviceDataCapInFrames = sizeof(capturedDeviceData) / ma_get_bytes_per_frame(pDevice->capture.internalFormat,  pDevice->capture.internalChannels);
+                    ma_uint32 playbackDeviceDataCapInFrames = sizeof(playbackDeviceData) / ma_get_bytes_per_frame(pDevice->playback.internalFormat, pDevice->playback.internalChannels);
+                    ma_uint32 capturedDeviceFramesRemaining;
+                    ma_uint32 capturedDeviceFramesProcessed;
+                    ma_uint32 capturedDeviceFramesToProcess;
+                    ma_uint32 capturedDeviceFramesToTryProcessing = capturedDevicePeriodSizeInFrames - totalCapturedDeviceFramesProcessed;
+                    if (capturedDeviceFramesToTryProcessing > capturedDeviceDataCapInFrames) {
+                        capturedDeviceFramesToTryProcessing = capturedDeviceDataCapInFrames;
                     }
 
-                    result = ma_device_read__winmm(pDevice, capturedDeviceData, framesToProcess, &framesProcessed);
+                    result = ma_device_read__winmm(pDevice, capturedDeviceData, capturedDeviceFramesToTryProcessing, &capturedDeviceFramesToProcess);
                     if (result != MA_SUCCESS) {
                         exitLoop = MA_TRUE;
                         break;
                     }
 
-                    pDevice->capture._dspFrameCount = framesToProcess;
-                    pDevice->capture._dspFrames     = capturedDeviceData;
+                    capturedDeviceFramesRemaining = capturedDeviceFramesToProcess;
+                    capturedDeviceFramesProcessed = 0;
 
                     for (;;) {
                         ma_uint8  capturedClientData[MA_DATA_CONVERTER_STACK_BUFFER_SIZE];
                         ma_uint8  playbackClientData[MA_DATA_CONVERTER_STACK_BUFFER_SIZE];
                         ma_uint32 capturedClientDataCapInFrames = sizeof(capturedClientData) / ma_get_bytes_per_frame(pDevice->capture.format, pDevice->capture.channels);
                         ma_uint32 playbackClientDataCapInFrames = sizeof(playbackClientData) / ma_get_bytes_per_frame(pDevice->playback.format, pDevice->playback.channels);
+                        ma_uint64 capturedClientFramesToProcessThisIteration = ma_min(capturedClientDataCapInFrames, playbackClientDataCapInFrames);
+                        ma_uint64 capturedDeviceFramesToProcessThisIteration = capturedDeviceFramesRemaining;
+                        ma_uint8* pRunningCapturedDeviceFrames = ma_offset_ptr(capturedDeviceData, capturedDeviceFramesProcessed * ma_get_bytes_per_frame(pDevice->capture.internalFormat, pDevice->capture.internalChannels));
 
-                        ma_uint32 capturedClientFramesToTryProcessing = ma_min(capturedClientDataCapInFrames, playbackClientDataCapInFrames);
-                        ma_uint32 capturedClientFramesToProcess = (ma_uint32)ma_pcm_converter_read(&pDevice->capture.converter, capturedClientData, capturedClientFramesToTryProcessing);
-                        if (capturedClientFramesToProcess == 0) {
-                            break;  /* Don't fire the data callback with zero frames. */
+                        /* Convert capture data from device format to client format. */
+                        result = ma_data_converter_process_pcm_frames(&pDevice->capture.converter, pRunningCapturedDeviceFrames, &capturedDeviceFramesToProcessThisIteration, capturedClientData, &capturedClientFramesToProcessThisIteration);
+                        if (result != MA_SUCCESS) {
+                            break;
                         }
 
-                        ma_device__on_data(pDevice, playbackClientData, capturedClientData, capturedClientFramesToProcess);
+                        /*
+                        If we weren't able to generate any output frames it must mean we've exhaused all of our input. The only time this would not be the case is if capturedClientData was too small
+                        which should never be the case when it's of the size MA_DATA_CONVERTER_STACK_BUFFER_SIZE.
+                        */
+                        if (capturedClientFramesToProcessThisIteration == 0) {
+                            break;
+                        }
 
-                        /* At this point the playbackDeviceData buffer should be holding data that needs to be written to the device. */
+                        ma_device__on_data(pDevice, playbackClientData, capturedClientData, (ma_uint32)capturedClientFramesToProcessThisIteration);    /* Safe cast .*/
+
+                        capturedDeviceFramesProcessed += (ma_uint32)capturedDeviceFramesToProcessThisIteration; /* Safe cast. */
+                        capturedDeviceFramesRemaining -= (ma_uint32)capturedDeviceFramesToProcessThisIteration; /* Safe cast. */
+
+                        /* At this point the playbackClientData buffer should be holding data that needs to be written to the device. */
                         for (;;) {
-                            ma_uint64 convertedClientFrameCount = capturedClientFramesToProcess;
+                            ma_uint64 convertedClientFrameCount = capturedClientFramesToProcessThisIteration;
                             ma_uint64 convertedDeviceFrameCount = playbackDeviceDataCapInFrames;
                             result = ma_data_converter_process_pcm_frames(&pDevice->playback.converter, playbackClientData, &convertedClientFrameCount, playbackDeviceData, &convertedDeviceFrameCount);
                             if (result != MA_SUCCESS) {
@@ -13378,14 +13330,10 @@ ma_result ma_device_main_loop__winmm(ma_device* pDevice)
                                 break;
                             }
 
-                            capturedClientFramesToProcess -= (ma_uint32)convertedClientFrameCount;  /* Safe cast. */
-                            if (capturedClientFramesToProcess == 0) {
+                            capturedClientFramesToProcessThisIteration -= (ma_uint32)convertedClientFrameCount;  /* Safe cast. */
+                            if (capturedClientFramesToProcessThisIteration == 0) {
                                 break;
                             }
-                        }
-
-                        if (capturedClientFramesToProcess < capturedClientFramesToTryProcessing) {
-                            break;
                         }
 
                         /* In case an error happened from ma_device_write__winmm()... */
@@ -13395,7 +13343,7 @@ ma_result ma_device_main_loop__winmm(ma_device* pDevice)
                         }
                     }
 
-                    totalFramesProcessed += framesProcessed;
+                    totalCapturedDeviceFramesProcessed += capturedDeviceFramesProcessed;
                 }
             } break;
 
@@ -15356,48 +15304,62 @@ ma_result ma_device_main_loop__alsa(ma_device* pDevice)
                     /* readi() and writei() */
 
                     /* The process is: device_read -> convert -> callback -> convert -> device_write */
-                    ma_uint8  capturedDeviceData[MA_DATA_CONVERTER_STACK_BUFFER_SIZE];
-                    ma_uint8  playbackDeviceData[MA_DATA_CONVERTER_STACK_BUFFER_SIZE];
-                    ma_uint32 capturedDeviceDataCapInFrames = sizeof(capturedDeviceData) / ma_get_bytes_per_frame(pDevice->capture.internalFormat,  pDevice->capture.internalChannels);
-                    ma_uint32 playbackDeviceDataCapInFrames = sizeof(playbackDeviceData) / ma_get_bytes_per_frame(pDevice->playback.internalFormat, pDevice->playback.internalChannels);
-
-                    ma_uint32 totalFramesProcessed = 0;
-                    ma_uint32 periodSizeInFrames = ma_min(pDevice->capture.internalBufferSizeInFrames/pDevice->capture.internalPeriods, pDevice->playback.internalBufferSizeInFrames/pDevice->playback.internalPeriods);
+                    ma_uint32 totalCapturedDeviceFramesProcessed = 0;
+                    ma_uint32 capturedDevicePeriodSizeInFrames = ma_min(pDevice->capture.internalBufferSizeInFrames/pDevice->capture.internalPeriods, pDevice->playback.internalBufferSizeInFrames/pDevice->playback.internalPeriods);
                     
-                    while (totalFramesProcessed < periodSizeInFrames) {
-                        ma_uint32 framesRemaining = periodSizeInFrames - totalFramesProcessed;
-                        ma_uint32 framesProcessed;
-                        ma_uint32 framesToProcess = framesRemaining;
-                        if (framesToProcess > capturedDeviceDataCapInFrames) {
-                            framesToProcess = capturedDeviceDataCapInFrames;
+                    while (totalCapturedDeviceFramesProcessed < capturedDevicePeriodSizeInFrames) {
+                        ma_uint8  capturedDeviceData[MA_DATA_CONVERTER_STACK_BUFFER_SIZE];
+                        ma_uint8  playbackDeviceData[MA_DATA_CONVERTER_STACK_BUFFER_SIZE];
+                        ma_uint32 capturedDeviceDataCapInFrames = sizeof(capturedDeviceData) / ma_get_bytes_per_frame(pDevice->capture.internalFormat,  pDevice->capture.internalChannels);
+                        ma_uint32 playbackDeviceDataCapInFrames = sizeof(playbackDeviceData) / ma_get_bytes_per_frame(pDevice->playback.internalFormat, pDevice->playback.internalChannels);
+                        ma_uint32 capturedDeviceFramesRemaining;
+                        ma_uint32 capturedDeviceFramesProcessed;
+                        ma_uint32 capturedDeviceFramesToProcess;
+                        ma_uint32 capturedDeviceFramesToTryProcessing = capturedDevicePeriodSizeInFrames - totalCapturedDeviceFramesProcessed;
+                        if (capturedDeviceFramesToTryProcessing > capturedDeviceDataCapInFrames) {
+                            capturedDeviceFramesToTryProcessing = capturedDeviceDataCapInFrames;
                         }
 
-                        result = ma_device_read__alsa(pDevice, capturedDeviceData, framesToProcess, &framesProcessed);
+                        result = ma_device_read__alsa(pDevice, capturedDeviceData, capturedDeviceFramesToTryProcessing, &capturedDeviceFramesToProcess);
                         if (result != MA_SUCCESS) {
                             exitLoop = MA_TRUE;
                             break;
                         }
 
-                        pDevice->capture._dspFrameCount = framesToProcess;
-                        pDevice->capture._dspFrames     = capturedDeviceData;
+                        capturedDeviceFramesRemaining = capturedDeviceFramesToProcess;
+                        capturedDeviceFramesProcessed = 0;
 
                         for (;;) {
                             ma_uint8  capturedClientData[MA_DATA_CONVERTER_STACK_BUFFER_SIZE];
                             ma_uint8  playbackClientData[MA_DATA_CONVERTER_STACK_BUFFER_SIZE];
                             ma_uint32 capturedClientDataCapInFrames = sizeof(capturedClientData) / ma_get_bytes_per_frame(pDevice->capture.format, pDevice->capture.channels);
                             ma_uint32 playbackClientDataCapInFrames = sizeof(playbackClientData) / ma_get_bytes_per_frame(pDevice->playback.format, pDevice->playback.channels);
+                            ma_uint64 capturedClientFramesToProcessThisIteration = ma_min(capturedClientDataCapInFrames, playbackClientDataCapInFrames);
+                            ma_uint64 capturedDeviceFramesToProcessThisIteration = capturedDeviceFramesRemaining;
+                            ma_uint8* pRunningCapturedDeviceFrames = ma_offset_ptr(capturedDeviceData, capturedDeviceFramesProcessed * ma_get_bytes_per_frame(pDevice->capture.internalFormat, pDevice->capture.internalChannels));
 
-                            ma_uint32 capturedClientFramesToTryProcessing = ma_min(capturedClientDataCapInFrames, playbackClientDataCapInFrames);
-                            ma_uint32 capturedClientFramesToProcess = (ma_uint32)ma_pcm_converter_read(&pDevice->capture.converter, capturedClientData, capturedClientFramesToTryProcessing);
-                            if (capturedClientFramesToProcess == 0) {
-                                break;  /* Don't fire the data callback with zero frames. */
+                            /* Convert capture data from device format to client format. */
+                            result = ma_data_converter_process_pcm_frames(&pDevice->capture.converter, pRunningCapturedDeviceFrames, &capturedDeviceFramesToProcessThisIteration, capturedClientData, &capturedClientFramesToProcessThisIteration);
+                            if (result != MA_SUCCESS) {
+                                break;
                             }
 
-                            ma_device__on_data(pDevice, playbackClientData, capturedClientData, capturedClientFramesToProcess);
+                            /*
+                            If we weren't able to generate any output frames it must mean we've exhaused all of our input. The only time this would not be the case is if capturedClientData was too small
+                            which should never be the case when it's of the size MA_DATA_CONVERTER_STACK_BUFFER_SIZE.
+                            */
+                            if (capturedClientFramesToProcessThisIteration == 0) {
+                                break;
+                            }
+
+                            ma_device__on_data(pDevice, playbackClientData, capturedClientData, (ma_uint32)capturedClientFramesToProcessThisIteration);    /* Safe cast .*/
+
+                            capturedDeviceFramesProcessed += (ma_uint32)capturedDeviceFramesToProcessThisIteration; /* Safe cast. */
+                            capturedDeviceFramesRemaining -= (ma_uint32)capturedDeviceFramesToProcessThisIteration; /* Safe cast. */
 
                             /* At this point the playbackClientData buffer should be holding data that needs to be written to the device. */
                             for (;;) {
-                                ma_uint64 convertedClientFrameCount = capturedClientFramesToProcess;
+                                ma_uint64 convertedClientFrameCount = capturedClientFramesToProcessThisIteration;
                                 ma_uint64 convertedDeviceFrameCount = playbackDeviceDataCapInFrames;
                                 result = ma_data_converter_process_pcm_frames(&pDevice->playback.converter, playbackClientData, &convertedClientFrameCount, playbackDeviceData, &convertedDeviceFrameCount);
                                 if (result != MA_SUCCESS) {
@@ -15410,14 +15372,10 @@ ma_result ma_device_main_loop__alsa(ma_device* pDevice)
                                     break;
                                 }
 
-                                capturedClientFramesToProcess -= (ma_uint32)convertedClientFrameCount;  /* Safe cast. */
-                                if (capturedClientFramesToProcess == 0) {
+                                capturedClientFramesToProcessThisIteration -= (ma_uint32)convertedClientFrameCount;  /* Safe cast. */
+                                if (capturedClientFramesToProcessThisIteration == 0) {
                                     break;
                                 }
-                            }
-
-                            if (capturedClientFramesToProcess < capturedClientFramesToTryProcessing) {
-                                break;
                             }
 
                             /* In case an error happened from ma_device_write__alsa()... */
@@ -15427,7 +15385,7 @@ ma_result ma_device_main_loop__alsa(ma_device* pDevice)
                             }
                         }
 
-                        totalFramesProcessed += framesProcessed;
+                        totalCapturedDeviceFramesProcessed += capturedDeviceFramesProcessed;
                     }
                 }
             } break;
@@ -17652,48 +17610,62 @@ ma_result ma_device_main_loop__pulse(ma_device* pDevice)
             case ma_device_type_duplex:
             {
                 /* The process is: device_read -> convert -> callback -> convert -> device_write */
-                ma_uint8  capturedDeviceData[MA_DATA_CONVERTER_STACK_BUFFER_SIZE];
-                ma_uint8  playbackDeviceData[MA_DATA_CONVERTER_STACK_BUFFER_SIZE];
-                ma_uint32 capturedDeviceDataCapInFrames = sizeof(capturedDeviceData) / ma_get_bytes_per_frame(pDevice->capture.internalFormat,  pDevice->capture.internalChannels);
-                ma_uint32 playbackDeviceDataCapInFrames = sizeof(playbackDeviceData) / ma_get_bytes_per_frame(pDevice->playback.internalFormat, pDevice->playback.internalChannels);
-
-                ma_uint32 totalFramesProcessed = 0;
-                ma_uint32 periodSizeInFrames = ma_min(pDevice->capture.internalBufferSizeInFrames/pDevice->capture.internalPeriods, pDevice->playback.internalBufferSizeInFrames/pDevice->playback.internalPeriods);
+                ma_uint32 totalCapturedDeviceFramesProcessed = 0;
+                ma_uint32 capturedDevicePeriodSizeInFrames = ma_min(pDevice->capture.internalBufferSizeInFrames/pDevice->capture.internalPeriods, pDevice->playback.internalBufferSizeInFrames/pDevice->playback.internalPeriods);
                     
-                while (totalFramesProcessed < periodSizeInFrames) {
-                    ma_uint32 framesRemaining = periodSizeInFrames - totalFramesProcessed;
-                    ma_uint32 framesProcessed;
-                    ma_uint32 framesToProcess = framesRemaining;
-                    if (framesToProcess > capturedDeviceDataCapInFrames) {
-                        framesToProcess = capturedDeviceDataCapInFrames;
+                while (totalCapturedDeviceFramesProcessed < capturedDevicePeriodSizeInFrames) {
+                    ma_uint8  capturedDeviceData[MA_DATA_CONVERTER_STACK_BUFFER_SIZE];
+                    ma_uint8  playbackDeviceData[MA_DATA_CONVERTER_STACK_BUFFER_SIZE];
+                    ma_uint32 capturedDeviceDataCapInFrames = sizeof(capturedDeviceData) / ma_get_bytes_per_frame(pDevice->capture.internalFormat,  pDevice->capture.internalChannels);
+                    ma_uint32 playbackDeviceDataCapInFrames = sizeof(playbackDeviceData) / ma_get_bytes_per_frame(pDevice->playback.internalFormat, pDevice->playback.internalChannels);
+                    ma_uint32 capturedDeviceFramesRemaining;
+                    ma_uint32 capturedDeviceFramesProcessed;
+                    ma_uint32 capturedDeviceFramesToProcess;
+                    ma_uint32 capturedDeviceFramesToTryProcessing = capturedDevicePeriodSizeInFrames - totalCapturedDeviceFramesProcessed;
+                    if (capturedDeviceFramesToTryProcessing > capturedDeviceDataCapInFrames) {
+                        capturedDeviceFramesToTryProcessing = capturedDeviceDataCapInFrames;
                     }
 
-                    result = ma_device_read__pulse(pDevice, capturedDeviceData, framesToProcess, &framesProcessed);
+                    result = ma_device_read__pulse(pDevice, capturedDeviceData, capturedDeviceFramesToTryProcessing, &capturedDeviceFramesToProcess);
                     if (result != MA_SUCCESS) {
                         exitLoop = MA_TRUE;
                         break;
                     }
 
-                    pDevice->capture._dspFrameCount = framesToProcess;
-                    pDevice->capture._dspFrames     = capturedDeviceData;
+                    capturedDeviceFramesRemaining = capturedDeviceFramesToProcess;
+                    capturedDeviceFramesProcessed = 0;
 
                     for (;;) {
                         ma_uint8  capturedClientData[MA_DATA_CONVERTER_STACK_BUFFER_SIZE];
                         ma_uint8  playbackClientData[MA_DATA_CONVERTER_STACK_BUFFER_SIZE];
                         ma_uint32 capturedClientDataCapInFrames = sizeof(capturedClientData) / ma_get_bytes_per_frame(pDevice->capture.format, pDevice->capture.channels);
                         ma_uint32 playbackClientDataCapInFrames = sizeof(playbackClientData) / ma_get_bytes_per_frame(pDevice->playback.format, pDevice->playback.channels);
+                        ma_uint64 capturedClientFramesToProcessThisIteration = ma_min(capturedClientDataCapInFrames, playbackClientDataCapInFrames);
+                        ma_uint64 capturedDeviceFramesToProcessThisIteration = capturedDeviceFramesRemaining;
+                        ma_uint8* pRunningCapturedDeviceFrames = ma_offset_ptr(capturedDeviceData, capturedDeviceFramesProcessed * ma_get_bytes_per_frame(pDevice->capture.internalFormat, pDevice->capture.internalChannels));
 
-                        ma_uint32 capturedClientFramesToTryProcessing = ma_min(capturedClientDataCapInFrames, playbackClientDataCapInFrames);
-                        ma_uint32 capturedClientFramesToProcess = (ma_uint32)ma_pcm_converter_read(&pDevice->capture.converter, capturedClientData, capturedClientFramesToTryProcessing);
-                        if (capturedClientFramesToProcess == 0) {
-                            break;  /* Don't fire the data callback with zero frames. */
+                        /* Convert capture data from device format to client format. */
+                        result = ma_data_converter_process_pcm_frames(&pDevice->capture.converter, pRunningCapturedDeviceFrames, &capturedDeviceFramesToProcessThisIteration, capturedClientData, &capturedClientFramesToProcessThisIteration);
+                        if (result != MA_SUCCESS) {
+                            break;
                         }
 
-                        ma_device__on_data(pDevice, playbackClientData, capturedClientData, capturedClientFramesToProcess);
+                        /*
+                        If we weren't able to generate any output frames it must mean we've exhaused all of our input. The only time this would not be the case is if capturedClientData was too small
+                        which should never be the case when it's of the size MA_DATA_CONVERTER_STACK_BUFFER_SIZE.
+                        */
+                        if (capturedClientFramesToProcessThisIteration == 0) {
+                            break;
+                        }
+
+                        ma_device__on_data(pDevice, playbackClientData, capturedClientData, (ma_uint32)capturedClientFramesToProcessThisIteration);    /* Safe cast .*/
+
+                        capturedDeviceFramesProcessed += (ma_uint32)capturedDeviceFramesToProcessThisIteration; /* Safe cast. */
+                        capturedDeviceFramesRemaining -= (ma_uint32)capturedDeviceFramesToProcessThisIteration; /* Safe cast. */
 
                         /* At this point the playbackClientData buffer should be holding data that needs to be written to the device. */
                         for (;;) {
-                            ma_uint64 convertedClientFrameCount = capturedClientFramesToProcess;
+                            ma_uint64 convertedClientFrameCount = capturedClientFramesToProcessThisIteration;
                             ma_uint64 convertedDeviceFrameCount = playbackDeviceDataCapInFrames;
                             result = ma_data_converter_process_pcm_frames(&pDevice->playback.converter, playbackClientData, &convertedClientFrameCount, playbackDeviceData, &convertedDeviceFrameCount);
                             if (result != MA_SUCCESS) {
@@ -17706,14 +17678,10 @@ ma_result ma_device_main_loop__pulse(ma_device* pDevice)
                                 break;
                             }
 
-                            capturedClientFramesToProcess -= (ma_uint32)convertedClientFrameCount;  /* Safe cast. */
-                            if (capturedClientFramesToProcess == 0) {
+                            capturedClientFramesToProcessThisIteration -= (ma_uint32)convertedClientFrameCount;  /* Safe cast. */
+                            if (capturedClientFramesToProcessThisIteration == 0) {
                                 break;
                             }
-                        }
-
-                        if (capturedClientFramesToProcess < capturedClientFramesToTryProcessing) {
-                            break;
                         }
 
                         /* In case an error happened from ma_device_write__pulse()... */
@@ -17723,7 +17691,7 @@ ma_result ma_device_main_loop__pulse(ma_device* pDevice)
                         }
                     }
 
-                    totalFramesProcessed += framesProcessed;
+                    totalCapturedDeviceFramesProcessed += capturedDeviceFramesProcessed;
                 }
             } break;
 
@@ -22461,48 +22429,62 @@ ma_result ma_device_main_loop__sndio(ma_device* pDevice)
             case ma_device_type_duplex:
             {
                 /* The process is: device_read -> convert -> callback -> convert -> device_write */
-                ma_uint8  capturedDeviceData[MA_DATA_CONVERTER_STACK_BUFFER_SIZE];
-                ma_uint8  playbackDeviceData[MA_DATA_CONVERTER_STACK_BUFFER_SIZE];
-                ma_uint32 capturedDeviceDataCapInFrames = sizeof(capturedDeviceData) / ma_get_bytes_per_frame(pDevice->capture.internalFormat,  pDevice->capture.internalChannels);
-                ma_uint32 playbackDeviceDataCapInFrames = sizeof(playbackDeviceData) / ma_get_bytes_per_frame(pDevice->playback.internalFormat, pDevice->playback.internalChannels);
-
-                ma_uint32 totalFramesProcessed = 0;
-                ma_uint32 periodSizeInFrames = ma_min(pDevice->capture.internalBufferSizeInFrames/pDevice->capture.internalPeriods, pDevice->playback.internalBufferSizeInFrames/pDevice->playback.internalPeriods);
+                ma_uint32 totalCapturedDeviceFramesProcessed = 0;
+                ma_uint32 capturedDevicePeriodSizeInFrames = ma_min(pDevice->capture.internalBufferSizeInFrames/pDevice->capture.internalPeriods, pDevice->playback.internalBufferSizeInFrames/pDevice->playback.internalPeriods);
                     
-                while (totalFramesProcessed < periodSizeInFrames) {
-                    ma_uint32 framesRemaining = periodSizeInFrames - totalFramesProcessed;
-                    ma_uint32 framesProcessed;
-                    ma_uint32 framesToProcess = framesRemaining;
-                    if (framesToProcess > capturedDeviceDataCapInFrames) {
-                        framesToProcess = capturedDeviceDataCapInFrames;
+                while (totalCapturedDeviceFramesProcessed < capturedDevicePeriodSizeInFrames) {
+                    ma_uint8  capturedDeviceData[MA_DATA_CONVERTER_STACK_BUFFER_SIZE];
+                    ma_uint8  playbackDeviceData[MA_DATA_CONVERTER_STACK_BUFFER_SIZE];
+                    ma_uint32 capturedDeviceDataCapInFrames = sizeof(capturedDeviceData) / ma_get_bytes_per_frame(pDevice->capture.internalFormat,  pDevice->capture.internalChannels);
+                    ma_uint32 playbackDeviceDataCapInFrames = sizeof(playbackDeviceData) / ma_get_bytes_per_frame(pDevice->playback.internalFormat, pDevice->playback.internalChannels);
+                    ma_uint32 capturedDeviceFramesRemaining;
+                    ma_uint32 capturedDeviceFramesProcessed;
+                    ma_uint32 capturedDeviceFramesToProcess;
+                    ma_uint32 capturedDeviceFramesToTryProcessing = capturedDevicePeriodSizeInFrames - totalCapturedDeviceFramesProcessed;
+                    if (capturedDeviceFramesToTryProcessing > capturedDeviceDataCapInFrames) {
+                        capturedDeviceFramesToTryProcessing = capturedDeviceDataCapInFrames;
                     }
 
-                    result = ma_device_read__sndio(pDevice, capturedDeviceData, framesToProcess, &framesProcessed);
+                    result = ma_device_read__sndio(pDevice, capturedDeviceData, capturedDeviceFramesToTryProcessing, &capturedDeviceFramesToProcess);
                     if (result != MA_SUCCESS) {
                         exitLoop = MA_TRUE;
                         break;
                     }
 
-                    pDevice->capture._dspFrameCount = framesToProcess;
-                    pDevice->capture._dspFrames     = capturedDeviceData;
+                    capturedDeviceFramesRemaining = capturedDeviceFramesToProcess;
+                    capturedDeviceFramesProcessed = 0;
 
                     for (;;) {
                         ma_uint8  capturedClientData[MA_DATA_CONVERTER_STACK_BUFFER_SIZE];
                         ma_uint8  playbackClientData[MA_DATA_CONVERTER_STACK_BUFFER_SIZE];
                         ma_uint32 capturedClientDataCapInFrames = sizeof(capturedClientData) / ma_get_bytes_per_frame(pDevice->capture.format, pDevice->capture.channels);
                         ma_uint32 playbackClientDataCapInFrames = sizeof(playbackClientData) / ma_get_bytes_per_frame(pDevice->playback.format, pDevice->playback.channels);
+                        ma_uint64 capturedClientFramesToProcessThisIteration = ma_min(capturedClientDataCapInFrames, playbackClientDataCapInFrames);
+                        ma_uint64 capturedDeviceFramesToProcessThisIteration = capturedDeviceFramesRemaining;
+                        ma_uint8* pRunningCapturedDeviceFrames = ma_offset_ptr(capturedDeviceData, capturedDeviceFramesProcessed * ma_get_bytes_per_frame(pDevice->capture.internalFormat, pDevice->capture.internalChannels));
 
-                        ma_uint32 capturedClientFramesToTryProcessing = ma_min(capturedDataCapInFrames, playbackDataCapInFrames);
-                        ma_uint32 capturedClientFramesToProcess = (ma_uint32)ma_pcm_converter_read(&pDevice->capture.converter, capturedClientData, capturedClientFramesToTryProcessing);
-                        if (capturedClientFramesToProcess == 0) {
-                            break;  /* Don't fire the data callback with zero frames. */
+                        /* Convert capture data from device format to client format. */
+                        result = ma_data_converter_process_pcm_frames(&pDevice->capture.converter, pRunningCapturedDeviceFrames, &capturedDeviceFramesToProcessThisIteration, capturedClientData, &capturedClientFramesToProcessThisIteration);
+                        if (result != MA_SUCCESS) {
+                            break;
                         }
 
-                        ma_device__on_data(pDevice, playbackClientData, capturedClientData, capturedClientFramesToProcess);
+                        /*
+                        If we weren't able to generate any output frames it must mean we've exhaused all of our input. The only time this would not be the case is if capturedClientData was too small
+                        which should never be the case when it's of the size MA_DATA_CONVERTER_STACK_BUFFER_SIZE.
+                        */
+                        if (capturedClientFramesToProcessThisIteration == 0) {
+                            break;
+                        }
 
-                        /* At this point the playbackData buffer should be holding data that needs to be written to the device. */
+                        ma_device__on_data(pDevice, playbackClientData, capturedClientData, (ma_uint32)capturedClientFramesToProcessThisIteration);    /* Safe cast .*/
+
+                        capturedDeviceFramesProcessed += (ma_uint32)capturedDeviceFramesToProcessThisIteration; /* Safe cast. */
+                        capturedDeviceFramesRemaining -= (ma_uint32)capturedDeviceFramesToProcessThisIteration; /* Safe cast. */
+
+                        /* At this point the playbackClientData buffer should be holding data that needs to be written to the device. */
                         for (;;) {
-                            ma_uint64 convertedClientFrameCount = capturedClientFramesToProcess;
+                            ma_uint64 convertedClientFrameCount = capturedClientFramesToProcessThisIteration;
                             ma_uint64 convertedDeviceFrameCount = playbackDeviceDataCapInFrames;
                             result = ma_data_converter_process_pcm_frames(&pDevice->playback.converter, playbackClientData, &convertedClientFrameCount, playbackDeviceData, &convertedDeviceFrameCount);
                             if (result != MA_SUCCESS) {
@@ -22515,14 +22497,10 @@ ma_result ma_device_main_loop__sndio(ma_device* pDevice)
                                 break;
                             }
 
-                            capturedClientFramesToProcess -= (ma_uint32)convertedClientFrameCount;  /* Safe cast. */
-                            if (capturedClientFramesToProcess == 0) {
+                            capturedClientFramesToProcessThisIteration -= (ma_uint32)convertedClientFrameCount;  /* Safe cast. */
+                            if (capturedClientFramesToProcessThisIteration == 0) {
                                 break;
                             }
-                        }
-
-                        if (capturedClientFramesToProcess < capturedClientFramesToTryProcessing) {
-                            break;
                         }
 
                         /* In case an error happened from ma_device_write__sndio()... */
@@ -22532,7 +22510,7 @@ ma_result ma_device_main_loop__sndio(ma_device* pDevice)
                         }
                     }
 
-                    totalFramesProcessed += framesProcessed;
+                    totalCapturedDeviceFramesProcessed += capturedDeviceFramesProcessed;
                 }
             } break;
 
@@ -23413,48 +23391,62 @@ ma_result ma_device_main_loop__audio4(ma_device* pDevice)
             case ma_device_type_duplex:
             {
                 /* The process is: device_read -> convert -> callback -> convert -> device_write */
-                ma_uint8  capturedDeviceData[MA_DATA_CONVERTER_STACK_BUFFER_SIZE];
-                ma_uint8  playbackDeviceData[MA_DATA_CONVERTER_STACK_BUFFER_SIZE];
-                ma_uint32 capturedDeviceDataCapInFrames = sizeof(capturedDeviceData) / ma_get_bytes_per_frame(pDevice->capture.internalFormat,  pDevice->capture.internalChannels);
-                ma_uint32 playbackDeviceDataCapInFrames = sizeof(playbackDeviceData) / ma_get_bytes_per_frame(pDevice->playback.internalFormat, pDevice->playback.internalChannels);
-
-                ma_uint32 totalFramesProcessed = 0;
-                ma_uint32 periodSizeInFrames = ma_min(pDevice->capture.internalBufferSizeInFrames/pDevice->capture.internalPeriods, pDevice->playback.internalBufferSizeInFrames/pDevice->playback.internalPeriods);
+                ma_uint32 totalCapturedDeviceFramesProcessed = 0;
+                ma_uint32 capturedDevicePeriodSizeInFrames = ma_min(pDevice->capture.internalBufferSizeInFrames/pDevice->capture.internalPeriods, pDevice->playback.internalBufferSizeInFrames/pDevice->playback.internalPeriods);
                     
-                while (totalFramesProcessed < periodSizeInFrames) {
-                    ma_uint32 framesRemaining = periodSizeInFrames - totalFramesProcessed;
-                    ma_uint32 framesProcessed;
-                    ma_uint32 framesToProcess = framesRemaining;
-                    if (framesToProcess > capturedDeviceDataCapInFrames) {
-                        framesToProcess = capturedDeviceDataCapInFrames;
+                while (totalCapturedDeviceFramesProcessed < capturedDevicePeriodSizeInFrames) {
+                    ma_uint8  capturedDeviceData[MA_DATA_CONVERTER_STACK_BUFFER_SIZE];
+                    ma_uint8  playbackDeviceData[MA_DATA_CONVERTER_STACK_BUFFER_SIZE];
+                    ma_uint32 capturedDeviceDataCapInFrames = sizeof(capturedDeviceData) / ma_get_bytes_per_frame(pDevice->capture.internalFormat,  pDevice->capture.internalChannels);
+                    ma_uint32 playbackDeviceDataCapInFrames = sizeof(playbackDeviceData) / ma_get_bytes_per_frame(pDevice->playback.internalFormat, pDevice->playback.internalChannels);
+                    ma_uint32 capturedDeviceFramesRemaining;
+                    ma_uint32 capturedDeviceFramesProcessed;
+                    ma_uint32 capturedDeviceFramesToProcess;
+                    ma_uint32 capturedDeviceFramesToTryProcessing = capturedDevicePeriodSizeInFrames - totalCapturedDeviceFramesProcessed;
+                    if (capturedDeviceFramesToTryProcessing > capturedDeviceDataCapInFrames) {
+                        capturedDeviceFramesToTryProcessing = capturedDeviceDataCapInFrames;
                     }
 
-                    result = ma_device_read__audio4(pDevice, capturedDeviceData, framesToProcess, &framesProcessed);
+                    result = ma_device_read__audio4(pDevice, capturedDeviceData, capturedDeviceFramesToTryProcessing, &capturedDeviceFramesToProcess);
                     if (result != MA_SUCCESS) {
                         exitLoop = MA_TRUE;
                         break;
                     }
 
-                    pDevice->capture._dspFrameCount = framesToProcess;
-                    pDevice->capture._dspFrames     = capturedDeviceData;
+                    capturedDeviceFramesRemaining = capturedDeviceFramesToProcess;
+                    capturedDeviceFramesProcessed = 0;
 
                     for (;;) {
                         ma_uint8  capturedClientData[MA_DATA_CONVERTER_STACK_BUFFER_SIZE];
                         ma_uint8  playbackClientData[MA_DATA_CONVERTER_STACK_BUFFER_SIZE];
                         ma_uint32 capturedClientDataCapInFrames = sizeof(capturedClientData) / ma_get_bytes_per_frame(pDevice->capture.format, pDevice->capture.channels);
                         ma_uint32 playbackClientDataCapInFrames = sizeof(playbackClientData) / ma_get_bytes_per_frame(pDevice->playback.format, pDevice->playback.channels);
+                        ma_uint64 capturedClientFramesToProcessThisIteration = ma_min(capturedClientDataCapInFrames, playbackClientDataCapInFrames);
+                        ma_uint64 capturedDeviceFramesToProcessThisIteration = capturedDeviceFramesRemaining;
+                        ma_uint8* pRunningCapturedDeviceFrames = ma_offset_ptr(capturedDeviceData, capturedDeviceFramesProcessed * ma_get_bytes_per_frame(pDevice->capture.internalFormat, pDevice->capture.internalChannels));
 
-                        ma_uint32 capturedClientFramesToTryProcessing = ma_min(capturedClientDataCapInFrames, playbackClientDataCapInFrames);
-                        ma_uint32 capturedClientFramesToProcess = (ma_uint32)ma_pcm_converter_read(&pDevice->capture.converter, capturedClientData, capturedClientFramesToTryProcessing);
-                        if (capturedClientFramesToProcess == 0) {
-                            break;  /* Don't fire the data callback with zero frames. */
+                        /* Convert capture data from device format to client format. */
+                        result = ma_data_converter_process_pcm_frames(&pDevice->capture.converter, pRunningCapturedDeviceFrames, &capturedDeviceFramesToProcessThisIteration, capturedClientData, &capturedClientFramesToProcessThisIteration);
+                        if (result != MA_SUCCESS) {
+                            break;
                         }
 
-                        ma_device__on_data(pDevice, playbackClientData, capturedClientData, capturedClientFramesToProcess);
+                        /*
+                        If we weren't able to generate any output frames it must mean we've exhaused all of our input. The only time this would not be the case is if capturedClientData was too small
+                        which should never be the case when it's of the size MA_DATA_CONVERTER_STACK_BUFFER_SIZE.
+                        */
+                        if (capturedClientFramesToProcessThisIteration == 0) {
+                            break;
+                        }
+
+                        ma_device__on_data(pDevice, playbackClientData, capturedClientData, (ma_uint32)capturedClientFramesToProcessThisIteration);    /* Safe cast .*/
+
+                        capturedDeviceFramesProcessed += (ma_uint32)capturedDeviceFramesToProcessThisIteration; /* Safe cast. */
+                        capturedDeviceFramesRemaining -= (ma_uint32)capturedDeviceFramesToProcessThisIteration; /* Safe cast. */
 
                         /* At this point the playbackClientData buffer should be holding data that needs to be written to the device. */
                         for (;;) {
-                            ma_uint64 convertedClientFrameCount = capturedClientFramesToProcess;
+                            ma_uint64 convertedClientFrameCount = capturedClientFramesToProcessThisIteration;
                             ma_uint64 convertedDeviceFrameCount = playbackDeviceDataCapInFrames;
                             result = ma_data_converter_process_pcm_frames(&pDevice->playback.converter, playbackClientData, &convertedClientFrameCount, playbackDeviceData, &convertedDeviceFrameCount);
                             if (result != MA_SUCCESS) {
@@ -23467,14 +23459,10 @@ ma_result ma_device_main_loop__audio4(ma_device* pDevice)
                                 break;
                             }
 
-                            capturedClientFramesToProcess -= (ma_uint32)convertedClientFrameCount;  /* Safe cast. */
-                            if (capturedClientFramesToProcess == 0) {
+                            capturedClientFramesToProcessThisIteration -= (ma_uint32)convertedClientFrameCount;  /* Safe cast. */
+                            if (capturedClientFramesToProcessThisIteration == 0) {
                                 break;
                             }
-                        }
-
-                        if (capturedClientFramesToProcess < capturedClientFramesToTryProcessing) {
-                            break;
                         }
 
                         /* In case an error happened from ma_device_write__audio4()... */
@@ -23484,7 +23472,7 @@ ma_result ma_device_main_loop__audio4(ma_device* pDevice)
                         }
                     }
 
-                    totalFramesProcessed += framesProcessed;
+                    totalCapturedDeviceFramesProcessed += capturedDeviceFramesProcessed;
                 }
             } break;
 
@@ -24122,48 +24110,62 @@ ma_result ma_device_main_loop__oss(ma_device* pDevice)
             case ma_device_type_duplex:
             {
                 /* The process is: device_read -> convert -> callback -> convert -> device_write */
-                ma_uint8  capturedDeviceData[MA_DATA_CONVERTER_STACK_BUFFER_SIZE];
-                ma_uint8  playbackDeviceData[MA_DATA_CONVERTER_STACK_BUFFER_SIZE];
-                ma_uint32 capturedDeviceDataCapInFrames = sizeof(capturedDeviceData) / ma_get_bytes_per_frame(pDevice->capture.internalFormat,  pDevice->capture.internalChannels);
-                ma_uint32 playbackDeviceDataCapInFrames = sizeof(playbackDeviceData) / ma_get_bytes_per_frame(pDevice->playback.internalFormat, pDevice->playback.internalChannels);
-
-                ma_uint32 totalFramesProcessed = 0;
-                ma_uint32 periodSizeInFrames = ma_min(pDevice->capture.internalBufferSizeInFrames/pDevice->capture.internalPeriods, pDevice->playback.internalBufferSizeInFrames/pDevice->playback.internalPeriods);
+                ma_uint32 totalCapturedDeviceFramesProcessed = 0;
+                ma_uint32 capturedDevicePeriodSizeInFrames = ma_min(pDevice->capture.internalBufferSizeInFrames/pDevice->capture.internalPeriods, pDevice->playback.internalBufferSizeInFrames/pDevice->playback.internalPeriods);
                     
-                while (totalFramesProcessed < periodSizeInFrames) {
-                    ma_uint32 framesRemaining = periodSizeInFrames - totalFramesProcessed;
-                    ma_uint32 framesProcessed;
-                    ma_uint32 framesToProcess = framesRemaining;
-                    if (framesToProcess > capturedDeviceDataCapInFrames) {
-                        framesToProcess = capturedDeviceDataCapInFrames;
+                while (totalCapturedDeviceFramesProcessed < capturedDevicePeriodSizeInFrames) {
+                    ma_uint8  capturedDeviceData[MA_DATA_CONVERTER_STACK_BUFFER_SIZE];
+                    ma_uint8  playbackDeviceData[MA_DATA_CONVERTER_STACK_BUFFER_SIZE];
+                    ma_uint32 capturedDeviceDataCapInFrames = sizeof(capturedDeviceData) / ma_get_bytes_per_frame(pDevice->capture.internalFormat,  pDevice->capture.internalChannels);
+                    ma_uint32 playbackDeviceDataCapInFrames = sizeof(playbackDeviceData) / ma_get_bytes_per_frame(pDevice->playback.internalFormat, pDevice->playback.internalChannels);
+                    ma_uint32 capturedDeviceFramesRemaining;
+                    ma_uint32 capturedDeviceFramesProcessed;
+                    ma_uint32 capturedDeviceFramesToProcess;
+                    ma_uint32 capturedDeviceFramesToTryProcessing = capturedDevicePeriodSizeInFrames - totalCapturedDeviceFramesProcessed;
+                    if (capturedDeviceFramesToTryProcessing > capturedDeviceDataCapInFrames) {
+                        capturedDeviceFramesToTryProcessing = capturedDeviceDataCapInFrames;
                     }
 
-                    result = ma_device_read__oss(pDevice, capturedDeviceData, framesToProcess, &framesProcessed);
+                    result = ma_device_read__oss(pDevice, capturedDeviceData, capturedDeviceFramesToTryProcessing, &capturedDeviceFramesToProcess);
                     if (result != MA_SUCCESS) {
                         exitLoop = MA_TRUE;
                         break;
                     }
 
-                    pDevice->capture._dspFrameCount = framesToProcess;
-                    pDevice->capture._dspFrames     = capturedDeviceData;
+                    capturedDeviceFramesRemaining = capturedDeviceFramesToProcess;
+                    capturedDeviceFramesProcessed = 0;
 
                     for (;;) {
                         ma_uint8  capturedClientData[MA_DATA_CONVERTER_STACK_BUFFER_SIZE];
                         ma_uint8  playbackClientData[MA_DATA_CONVERTER_STACK_BUFFER_SIZE];
                         ma_uint32 capturedClientDataCapInFrames = sizeof(capturedClientData) / ma_get_bytes_per_frame(pDevice->capture.format, pDevice->capture.channels);
                         ma_uint32 playbackClientDataCapInFrames = sizeof(playbackClientData) / ma_get_bytes_per_frame(pDevice->playback.format, pDevice->playback.channels);
+                        ma_uint64 capturedClientFramesToProcessThisIteration = ma_min(capturedClientDataCapInFrames, playbackClientDataCapInFrames);
+                        ma_uint64 capturedDeviceFramesToProcessThisIteration = capturedDeviceFramesRemaining;
+                        ma_uint8* pRunningCapturedDeviceFrames = ma_offset_ptr(capturedDeviceData, capturedDeviceFramesProcessed * ma_get_bytes_per_frame(pDevice->capture.internalFormat, pDevice->capture.internalChannels));
 
-                        ma_uint32 capturedClientFramesToTryProcessing = ma_min(capturedClientDataCapInFrames, playbackClientDataCapInFrames);
-                        ma_uint32 capturedClientFramesToProcess = (ma_uint32)ma_pcm_converter_read(&pDevice->capture.converter, capturedClientData, capturedClientFramesToTryProcessing);
-                        if (capturedClientFramesToProcess == 0) {
-                            break;  /* Don't fire the data callback with zero frames. */
+                        /* Convert capture data from device format to client format. */
+                        result = ma_data_converter_process_pcm_frames(&pDevice->capture.converter, pRunningCapturedDeviceFrames, &capturedDeviceFramesToProcessThisIteration, capturedClientData, &capturedClientFramesToProcessThisIteration);
+                        if (result != MA_SUCCESS) {
+                            break;
                         }
 
-                        ma_device__on_data(pDevice, playbackClientData, capturedClientData, capturedClientFramesToProcess);
+                        /*
+                        If we weren't able to generate any output frames it must mean we've exhaused all of our input. The only time this would not be the case is if capturedClientData was too small
+                        which should never be the case when it's of the size MA_DATA_CONVERTER_STACK_BUFFER_SIZE.
+                        */
+                        if (capturedClientFramesToProcessThisIteration == 0) {
+                            break;
+                        }
+
+                        ma_device__on_data(pDevice, playbackClientData, capturedClientData, (ma_uint32)capturedClientFramesToProcessThisIteration);    /* Safe cast .*/
+
+                        capturedDeviceFramesProcessed += (ma_uint32)capturedDeviceFramesToProcessThisIteration; /* Safe cast. */
+                        capturedDeviceFramesRemaining -= (ma_uint32)capturedDeviceFramesToProcessThisIteration; /* Safe cast. */
 
                         /* At this point the playbackClientData buffer should be holding data that needs to be written to the device. */
                         for (;;) {
-                            ma_uint64 convertedClientFrameCount = capturedClientFramesToProcess;
+                            ma_uint64 convertedClientFrameCount = capturedClientFramesToProcessThisIteration;
                             ma_uint64 convertedDeviceFrameCount = playbackDeviceDataCapInFrames;
                             result = ma_data_converter_process_pcm_frames(&pDevice->playback.converter, playbackClientData, &convertedClientFrameCount, playbackDeviceData, &convertedDeviceFrameCount);
                             if (result != MA_SUCCESS) {
@@ -24176,14 +24178,10 @@ ma_result ma_device_main_loop__oss(ma_device* pDevice)
                                 break;
                             }
 
-                            capturedClientFramesToProcess -= (ma_uint32)convertedClientFrameCount;  /* Safe cast. */
-                            if (capturedClientFramesToProcess == 0) {
+                            capturedClientFramesToProcessThisIteration -= (ma_uint32)convertedClientFrameCount;  /* Safe cast. */
+                            if (capturedClientFramesToProcessThisIteration == 0) {
                                 break;
                             }
-                        }
-
-                        if (capturedClientFramesToProcess < capturedClientFramesToTryProcessing) {
-                            break;
                         }
 
                         /* In case an error happened from ma_device_write__oss()... */
@@ -24193,7 +24191,7 @@ ma_result ma_device_main_loop__oss(ma_device* pDevice)
                         }
                     }
 
-                    totalFramesProcessed += framesProcessed;
+                    totalCapturedDeviceFramesProcessed += capturedDeviceFramesProcessed;
                 }
             } break;
 
@@ -26620,24 +26618,29 @@ static ma_result ma_device__post_init_setup(ma_device* pDevice, ma_device_type d
 
     /* PCM converters. */
     if (deviceType == ma_device_type_capture || deviceType == ma_device_type_duplex || deviceType == ma_device_type_loopback) {
-        /* Converting from internal device format to public format. */
-        ma_pcm_converter_config converterConfig = ma_pcm_converter_config_init_new();
-        converterConfig.neverConsumeEndOfInput = MA_TRUE;
-        converterConfig.pUserData              = pDevice;
-        converterConfig.formatIn               = pDevice->capture.internalFormat;
-        converterConfig.channelsIn             = pDevice->capture.internalChannels;
-        converterConfig.sampleRateIn           = pDevice->capture.internalSampleRate;
+        /* Converting from internal device format to client format. */
+        ma_data_converter_config converterConfig = ma_data_converter_config_init_default();
+        converterConfig.formatIn                   = pDevice->capture.internalFormat;
+        converterConfig.channelsIn                 = pDevice->capture.internalChannels;
+        converterConfig.sampleRateIn               = pDevice->capture.internalSampleRate;
         ma_channel_map_copy(converterConfig.channelMapIn, pDevice->capture.internalChannelMap, pDevice->capture.internalChannels);
-        converterConfig.formatOut              = pDevice->capture.format;
-        converterConfig.channelsOut            = pDevice->capture.channels;
-        converterConfig.sampleRateOut          = pDevice->sampleRate;
+        converterConfig.formatOut                  = pDevice->capture.format;
+        converterConfig.channelsOut                = pDevice->capture.channels;
+        converterConfig.sampleRateOut              = pDevice->sampleRate;
         ma_channel_map_copy(converterConfig.channelMapOut, pDevice->capture.channelMap, pDevice->capture.channels);
-        converterConfig.onRead = ma_device__pcm_converter__on_read_from_buffer_capture;
-        ma_pcm_converter_init(&converterConfig, &pDevice->capture.converter);
+        converterConfig.resampling.allowDynamicSampleRate = MA_FALSE;
+        converterConfig.resampling.algorithm       = pDevice->resampling.algorithm;
+        converterConfig.resampling.linear.lpfCount = pDevice->resampling.linear.lpfCount;
+        converterConfig.resampling.speex.quality   = pDevice->resampling.speex.quality;
+
+        result = ma_data_converter_init(&converterConfig, &pDevice->capture.converter);
+        if (result != MA_SUCCESS) {
+            return result;
+        }
     }
 
     if (deviceType == ma_device_type_playback || deviceType == ma_device_type_duplex) {
-        /* Converting from public format to device format. */
+        /* Converting from client format to device format. */
         ma_data_converter_config converterConfig = ma_data_converter_config_init_default();
         converterConfig.formatIn                   = pDevice->playback.format;
         converterConfig.channelsIn                 = pDevice->playback.channels;
@@ -27482,12 +27485,11 @@ ma_result ma_device_init(ma_context* pContext, const ma_device_config* pConfig, 
         printf("    Sample Rate: %d -> %d\n", pDevice->sampleRate, pDevice->capture.internalSampleRate);
         printf("    Buffer Size: %d/%d (%d)\n", pDevice->capture.internalBufferSizeInFrames, pDevice->capture.internalPeriods, (pDevice->capture.internalBufferSizeInFrames / pDevice->capture.internalPeriods));
         printf("    Conversion:\n");
-        printf("      Pre Format Conversion:    %s\n", pDevice->capture.converter.isPreFormatConversionRequired  ? "YES" : "NO");
-        printf("      Post Format Conversion:   %s\n", pDevice->capture.converter.isPostFormatConversionRequired ? "YES" : "NO");
-        printf("      Channel Routing:          %s\n", pDevice->capture.converter.isChannelRoutingRequired       ? "YES" : "NO");
-        printf("      SRC:                      %s\n", pDevice->capture.converter.isSRCRequired                  ? "YES" : "NO");
-        printf("      Channel Routing at Start: %s\n", pDevice->capture.converter.isChannelRoutingAtStart        ? "YES" : "NO");
-        printf("      Passthrough:              %s\n", pDevice->capture.converter.isPassthrough                  ? "YES" : "NO");
+        printf("      Pre Format Conversion:    %s\n", pDevice->capture.converter.hasPreFormatConversion  ? "YES" : "NO");
+        printf("      Post Format Conversion:   %s\n", pDevice->capture.converter.hasPostFormatConversion ? "YES" : "NO");
+        printf("      Channel Routing:          %s\n", pDevice->capture.converter.hasChannelConverter     ? "YES" : "NO");
+        printf("      Resampling:               %s\n", pDevice->capture.converter.hasResampler            ? "YES" : "NO");
+        printf("      Passthrough:              %s\n", pDevice->capture.converter.isPassthrough           ? "YES" : "NO");
     }
     if (pDevice->type == ma_device_type_playback || pDevice->type == ma_device_type_duplex) {
         printf("  %s (%s)\n", pDevice->playback.name, "Playback");
