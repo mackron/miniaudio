@@ -27,16 +27,10 @@
     <ClCompile Include="ma_profiling.c">
       <Filter>Source Files</Filter>
     </ClCompile>
-    <ClCompile Include="ma_dithering.c">
-      <Filter>Source Files</Filter>
-    </ClCompile>
     <ClCompile Include="ma_resampling.c">
       <Filter>Source Files</Filter>
     </ClCompile>
     <ClCompile Include="ma_no_device_io.c">
-      <Filter>Source Files</Filter>
-    </ClCompile>
-    <ClCompile Include="..\research\tests\ma_resampler_test_0.c">
       <Filter>Source Files</Filter>
     </ClCompile>
     <ClCompile Include="..\examples\simple_playback.c">
@@ -75,14 +69,8 @@
     <ClCompile Include="..\research\tests\ma_lpf_test_0.c">
       <Filter>Source Files</Filter>
     </ClCompile>
-    <ClCompile Include="..\research\tests\ma_resampler_test_1.c">
-      <Filter>Source Files</Filter>
-    </ClCompile>
     <ClCompile Include="..\extras\speex_resampler\thirdparty\resample.c">
       <Filter>Source Files\speex_resampler</Filter>
-    </ClCompile>
-    <ClCompile Include="..\research\tests\ma_data_converter_playback.c">
-      <Filter>Source Files</Filter>
     </ClCompile>
   </ItemGroup>
   <ItemGroup>
