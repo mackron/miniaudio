@@ -4707,18 +4707,6 @@ Atomics
 #endif
 
 
-ma_uint32 ma_get_standard_sample_rate_priority_index(ma_uint32 sampleRate)   /* Lower = higher priority */
-{
-    ma_uint32 i;
-    for (i = 0; i < ma_countof(g_maStandardSampleRatePriorities); ++i) {
-        if (g_maStandardSampleRatePriorities[i] == sampleRate) {
-            return i;
-        }
-    }
-
-    return (ma_uint32)-1;
-}
-
 ma_uint64 ma_calculate_frame_count_after_src(ma_uint32 sampleRateOut, ma_uint32 sampleRateIn, ma_uint64 frameCountIn)
 {
     double    srcRatio       = (double)sampleRateOut / sampleRateIn;
@@ -4926,7 +4914,7 @@ const char* ma_log_level_to_string(ma_uint32 logLevel)
 }
 
 /* Posts a log message. */
-void ma_log(ma_context* pContext, ma_device* pDevice, ma_uint32 logLevel, const char* message)
+static void ma_log(ma_context* pContext, ma_device* pDevice, ma_uint32 logLevel, const char* message)
 {
     if (pContext == NULL) {
         return;
@@ -4951,7 +4939,7 @@ void ma_log(ma_context* pContext, ma_device* pDevice, ma_uint32 logLevel, const 
 }
 
 /* Posts an log message. Throw a breakpoint in here if you're needing to debug. The return value is always "resultCode". */
-ma_result ma_context_post_error(ma_context* pContext, ma_device* pDevice, ma_uint32 logLevel, const char* message, ma_result resultCode)
+static ma_result ma_context_post_error(ma_context* pContext, ma_device* pDevice, ma_uint32 logLevel, const char* message, ma_result resultCode)
 {
     /* Derive the context from the device if necessary. */
     if (pContext == NULL) {
@@ -4964,7 +4952,7 @@ ma_result ma_context_post_error(ma_context* pContext, ma_device* pDevice, ma_uin
     return resultCode;
 }
 
-ma_result ma_post_error(ma_device* pDevice, ma_uint32 logLevel, const char* message, ma_result resultCode)
+static ma_result ma_post_error(ma_device* pDevice, ma_uint32 logLevel, const char* message, ma_result resultCode)
 {
     return ma_context_post_error(NULL, pDevice, logLevel, message, resultCode);
 }
@@ -4977,7 +4965,7 @@ Timing
 *******************************************************************************/
 #ifdef MA_WIN32
 LARGE_INTEGER g_ma_TimerFrequency = {{0}};
-void ma_timer_init(ma_timer* pTimer)
+static void ma_timer_init(ma_timer* pTimer)
 {
     LARGE_INTEGER counter;
 
@@ -4989,7 +4977,7 @@ void ma_timer_init(ma_timer* pTimer)
     pTimer->counter = counter.QuadPart;
 }
 
-double ma_timer_get_time_in_seconds(ma_timer* pTimer)
+static double ma_timer_get_time_in_seconds(ma_timer* pTimer)
 {
     LARGE_INTEGER counter;
     if (!QueryPerformanceCounter(&counter)) {
@@ -5000,7 +4988,7 @@ double ma_timer_get_time_in_seconds(ma_timer* pTimer)
 }
 #elif defined(MA_APPLE) && (__MAC_OS_X_VERSION_MIN_REQUIRED < 101200)
 ma_uint64 g_ma_TimerFrequency = 0;
-void ma_timer_init(ma_timer* pTimer)
+static void ma_timer_init(ma_timer* pTimer)
 {
     mach_timebase_info_data_t baseTime;
     mach_timebase_info(&baseTime);
@@ -5009,7 +4997,7 @@ void ma_timer_init(ma_timer* pTimer)
     pTimer->counter = mach_absolute_time();
 }
 
-double ma_timer_get_time_in_seconds(ma_timer* pTimer)
+static double ma_timer_get_time_in_seconds(ma_timer* pTimer)
 {
     ma_uint64 newTimeCounter = mach_absolute_time();
     ma_uint64 oldTimeCounter = pTimer->counter;
@@ -5017,12 +5005,12 @@ double ma_timer_get_time_in_seconds(ma_timer* pTimer)
     return (newTimeCounter - oldTimeCounter) / g_ma_TimerFrequency;
 }
 #elif defined(MA_EMSCRIPTEN)
-void ma_timer_init(ma_timer* pTimer)
+static void ma_timer_init(ma_timer* pTimer)
 {
     pTimer->counterD = emscripten_get_now();
 }
 
-double ma_timer_get_time_in_seconds(ma_timer* pTimer)
+static double ma_timer_get_time_in_seconds(ma_timer* pTimer)
 {
     return (emscripten_get_now() - pTimer->counterD) / 1000;    /* Emscripten is in milliseconds. */
 }
@@ -5034,7 +5022,7 @@ double ma_timer_get_time_in_seconds(ma_timer* pTimer)
     #define MA_CLOCK_ID CLOCK_REALTIME
 #endif
 
-void ma_timer_init(ma_timer* pTimer)
+static void ma_timer_init(ma_timer* pTimer)
 {
     struct timespec newTime;
     clock_gettime(MA_CLOCK_ID, &newTime);
@@ -5042,7 +5030,7 @@ void ma_timer_init(ma_timer* pTimer)
     pTimer->counter = (newTime.tv_sec * 1000000000) + newTime.tv_nsec;
 }
 
-double ma_timer_get_time_in_seconds(ma_timer* pTimer)
+static double ma_timer_get_time_in_seconds(ma_timer* pTimer)
 {
     ma_uint64 newTimeCounter;
     ma_uint64 oldTimeCounter;
@@ -5056,7 +5044,7 @@ double ma_timer_get_time_in_seconds(ma_timer* pTimer)
     return (newTimeCounter - oldTimeCounter) / 1000000000.0;
 }
 #else
-void ma_timer_init(ma_timer* pTimer)
+static void ma_timer_init(ma_timer* pTimer)
 {
     struct timeval newTime;
     gettimeofday(&newTime, NULL);
@@ -5064,7 +5052,7 @@ void ma_timer_init(ma_timer* pTimer)
     pTimer->counter = (newTime.tv_sec * 1000000) + newTime.tv_usec;
 }
 
-double ma_timer_get_time_in_seconds(ma_timer* pTimer)
+static double ma_timer_get_time_in_seconds(ma_timer* pTimer)
 {
     ma_uint64 newTimeCounter;
     ma_uint64 oldTimeCounter;
@@ -5086,7 +5074,7 @@ double ma_timer_get_time_in_seconds(ma_timer* pTimer)
 Dynamic Linking
 
 *******************************************************************************/
-ma_handle ma_dlopen(ma_context* pContext, const char* filename)
+static ma_handle ma_dlopen(ma_context* pContext, const char* filename)
 {
     ma_handle handle;
 
@@ -5130,7 +5118,7 @@ ma_handle ma_dlopen(ma_context* pContext, const char* filename)
     return handle;
 }
 
-void ma_dlclose(ma_context* pContext, ma_handle handle)
+static void ma_dlclose(ma_context* pContext, ma_handle handle)
 {
 #ifdef _WIN32
     FreeLibrary((HMODULE)handle);
@@ -5141,7 +5129,7 @@ void ma_dlclose(ma_context* pContext, ma_handle handle)
     (void)pContext;
 }
 
-ma_proc ma_dlsym(ma_context* pContext, ma_handle handle, const char* symbol)
+static ma_proc ma_dlsym(ma_context* pContext, ma_handle handle, const char* symbol)
 {
     ma_proc proc;
 
@@ -5185,7 +5173,7 @@ Threading
 
 *******************************************************************************/
 #ifdef MA_WIN32
-int ma_thread_priority_to_win32(ma_thread_priority priority)
+static int ma_thread_priority_to_win32(ma_thread_priority priority)
 {
     switch (priority) {
         case ma_thread_priority_idle:     return THREAD_PRIORITY_IDLE;
@@ -5199,7 +5187,7 @@ int ma_thread_priority_to_win32(ma_thread_priority priority)
     }
 }
 
-ma_result ma_thread_create__win32(ma_context* pContext, ma_thread* pThread, ma_thread_entry_proc entryProc, void* pData)
+static ma_result ma_thread_create__win32(ma_context* pContext, ma_thread* pThread, ma_thread_entry_proc entryProc, void* pData)
 {
     pThread->win32.hThread = CreateThread(NULL, 0, entryProc, pData, 0, NULL);
     if (pThread->win32.hThread == NULL) {
@@ -5211,18 +5199,18 @@ ma_result ma_thread_create__win32(ma_context* pContext, ma_thread* pThread, ma_t
     return MA_SUCCESS;
 }
 
-void ma_thread_wait__win32(ma_thread* pThread)
+static void ma_thread_wait__win32(ma_thread* pThread)
 {
     WaitForSingleObject(pThread->win32.hThread, INFINITE);
 }
 
-void ma_sleep__win32(ma_uint32 milliseconds)
+static void ma_sleep__win32(ma_uint32 milliseconds)
 {
     Sleep((DWORD)milliseconds);
 }
 
 
-ma_result ma_mutex_init__win32(ma_context* pContext, ma_mutex* pMutex)
+static ma_result ma_mutex_init__win32(ma_context* pContext, ma_mutex* pMutex)
 {
     (void)pContext;
 
@@ -5234,23 +5222,23 @@ ma_result ma_mutex_init__win32(ma_context* pContext, ma_mutex* pMutex)
     return MA_SUCCESS;
 }
 
-void ma_mutex_uninit__win32(ma_mutex* pMutex)
+static void ma_mutex_uninit__win32(ma_mutex* pMutex)
 {
     CloseHandle(pMutex->win32.hMutex);
 }
 
-void ma_mutex_lock__win32(ma_mutex* pMutex)
+static void ma_mutex_lock__win32(ma_mutex* pMutex)
 {
     WaitForSingleObject(pMutex->win32.hMutex, INFINITE);
 }
 
-void ma_mutex_unlock__win32(ma_mutex* pMutex)
+static void ma_mutex_unlock__win32(ma_mutex* pMutex)
 {
     SetEvent(pMutex->win32.hMutex);
 }
 
 
-ma_result ma_event_init__win32(ma_context* pContext, ma_event* pEvent)
+static ma_result ma_event_init__win32(ma_context* pContext, ma_event* pEvent)
 {
     (void)pContext;
 
@@ -5262,23 +5250,23 @@ ma_result ma_event_init__win32(ma_context* pContext, ma_event* pEvent)
     return MA_SUCCESS;
 }
 
-void ma_event_uninit__win32(ma_event* pEvent)
+static void ma_event_uninit__win32(ma_event* pEvent)
 {
     CloseHandle(pEvent->win32.hEvent);
 }
 
-ma_bool32 ma_event_wait__win32(ma_event* pEvent)
+static ma_bool32 ma_event_wait__win32(ma_event* pEvent)
 {
     return WaitForSingleObject(pEvent->win32.hEvent, INFINITE) == WAIT_OBJECT_0;
 }
 
-ma_bool32 ma_event_signal__win32(ma_event* pEvent)
+static ma_bool32 ma_event_signal__win32(ma_event* pEvent)
 {
     return SetEvent(pEvent->win32.hEvent);
 }
 
 
-ma_result ma_semaphore_init__win32(ma_context* pContext, int initialValue, ma_semaphore* pSemaphore)
+static ma_result ma_semaphore_init__win32(ma_context* pContext, int initialValue, ma_semaphore* pSemaphore)
 {
     (void)pContext;
 
@@ -5290,17 +5278,17 @@ ma_result ma_semaphore_init__win32(ma_context* pContext, int initialValue, ma_se
     return MA_SUCCESS;
 }
 
-void ma_semaphore_uninit__win32(ma_semaphore* pSemaphore)
+static void ma_semaphore_uninit__win32(ma_semaphore* pSemaphore)
 {
     CloseHandle((HANDLE)pSemaphore->win32.hSemaphore);
 }
 
-ma_bool32 ma_semaphore_wait__win32(ma_semaphore* pSemaphore)
+static ma_bool32 ma_semaphore_wait__win32(ma_semaphore* pSemaphore)
 {
     return WaitForSingleObject((HANDLE)pSemaphore->win32.hSemaphore, INFINITE) == WAIT_OBJECT_0;
 }
 
-ma_bool32 ma_semaphore_release__win32(ma_semaphore* pSemaphore)
+static ma_bool32 ma_semaphore_release__win32(ma_semaphore* pSemaphore)
 {
     return ReleaseSemaphore((HANDLE)pSemaphore->win32.hSemaphore, 1, NULL) != 0;
 }
@@ -5326,7 +5314,7 @@ typedef int (* ma_pthread_attr_setschedpolicy_proc)(pthread_attr_t *attr, int po
 typedef int (* ma_pthread_attr_getschedparam_proc)(const pthread_attr_t *attr, struct sched_param *param);
 typedef int (* ma_pthread_attr_setschedparam_proc)(pthread_attr_t *attr, const struct sched_param *param);
 
-ma_result ma_thread_create__posix(ma_context* pContext, ma_thread* pThread, ma_thread_entry_proc entryProc, void* pData)
+static ma_result ma_thread_create__posix(ma_context* pContext, ma_thread* pThread, ma_thread_entry_proc entryProc, void* pData)
 {
     int result;
     pthread_attr_t* pAttr = NULL;
@@ -5393,12 +5381,12 @@ ma_result ma_thread_create__posix(ma_context* pContext, ma_thread* pThread, ma_t
     return MA_SUCCESS;
 }
 
-void ma_thread_wait__posix(ma_thread* pThread)
+static void ma_thread_wait__posix(ma_thread* pThread)
 {
     ((ma_pthread_join_proc)pThread->pContext->posix.pthread_join)(pThread->posix.thread, NULL);
 }
 
-void ma_sleep__posix(ma_uint32 milliseconds)
+static void ma_sleep__posix(ma_uint32 milliseconds)
 {
 #ifdef MA_EMSCRIPTEN
     (void)milliseconds;
@@ -5419,7 +5407,7 @@ void ma_sleep__posix(ma_uint32 milliseconds)
 }
 
 
-ma_result ma_mutex_init__posix(ma_context* pContext, ma_mutex* pMutex)
+static ma_result ma_mutex_init__posix(ma_context* pContext, ma_mutex* pMutex)
 {
     int result = ((ma_pthread_mutex_init_proc)pContext->posix.pthread_mutex_init)(&pMutex->posix.mutex, NULL);
     if (result != 0) {
@@ -5429,23 +5417,23 @@ ma_result ma_mutex_init__posix(ma_context* pContext, ma_mutex* pMutex)
     return MA_SUCCESS;
 }
 
-void ma_mutex_uninit__posix(ma_mutex* pMutex)
+static void ma_mutex_uninit__posix(ma_mutex* pMutex)
 {
     ((ma_pthread_mutex_destroy_proc)pMutex->pContext->posix.pthread_mutex_destroy)(&pMutex->posix.mutex);
 }
 
-void ma_mutex_lock__posix(ma_mutex* pMutex)
+static void ma_mutex_lock__posix(ma_mutex* pMutex)
 {
     ((ma_pthread_mutex_lock_proc)pMutex->pContext->posix.pthread_mutex_lock)(&pMutex->posix.mutex);
 }
 
-void ma_mutex_unlock__posix(ma_mutex* pMutex)
+static void ma_mutex_unlock__posix(ma_mutex* pMutex)
 {
     ((ma_pthread_mutex_unlock_proc)pMutex->pContext->posix.pthread_mutex_unlock)(&pMutex->posix.mutex);
 }
 
 
-ma_result ma_event_init__posix(ma_context* pContext, ma_event* pEvent)
+static ma_result ma_event_init__posix(ma_context* pContext, ma_event* pEvent)
 {
     if (((ma_pthread_mutex_init_proc)pContext->posix.pthread_mutex_init)(&pEvent->posix.mutex, NULL) != 0) {
         return MA_FAILED_TO_CREATE_MUTEX;
@@ -5459,13 +5447,13 @@ ma_result ma_event_init__posix(ma_context* pContext, ma_event* pEvent)
     return MA_SUCCESS;
 }
 
-void ma_event_uninit__posix(ma_event* pEvent)
+static void ma_event_uninit__posix(ma_event* pEvent)
 {
     ((ma_pthread_cond_destroy_proc)pEvent->pContext->posix.pthread_cond_destroy)(&pEvent->posix.condition);
     ((ma_pthread_mutex_destroy_proc)pEvent->pContext->posix.pthread_mutex_destroy)(&pEvent->posix.mutex);
 }
 
-ma_bool32 ma_event_wait__posix(ma_event* pEvent)
+static ma_bool32 ma_event_wait__posix(ma_event* pEvent)
 {
     ((ma_pthread_mutex_lock_proc)pEvent->pContext->posix.pthread_mutex_lock)(&pEvent->posix.mutex);
     {
@@ -5479,7 +5467,7 @@ ma_bool32 ma_event_wait__posix(ma_event* pEvent)
     return MA_TRUE;
 }
 
-ma_bool32 ma_event_signal__posix(ma_event* pEvent)
+static ma_bool32 ma_event_signal__posix(ma_event* pEvent)
 {
     ((ma_pthread_mutex_lock_proc)pEvent->pContext->posix.pthread_mutex_lock)(&pEvent->posix.mutex);
     {
@@ -5492,7 +5480,7 @@ ma_bool32 ma_event_signal__posix(ma_event* pEvent)
 }
 
 
-ma_result ma_semaphore_init__posix(ma_context* pContext, int initialValue, ma_semaphore* pSemaphore)
+static ma_result ma_semaphore_init__posix(ma_context* pContext, int initialValue, ma_semaphore* pSemaphore)
 {
     (void)pContext;
 
@@ -5508,23 +5496,23 @@ ma_result ma_semaphore_init__posix(ma_context* pContext, int initialValue, ma_se
     return MA_SUCCESS;
 }
 
-void ma_semaphore_uninit__posix(ma_semaphore* pSemaphore)
+static void ma_semaphore_uninit__posix(ma_semaphore* pSemaphore)
 {
     sem_close(&pSemaphore->posix.semaphore);
 }
 
-ma_bool32 ma_semaphore_wait__posix(ma_semaphore* pSemaphore)
+static ma_bool32 ma_semaphore_wait__posix(ma_semaphore* pSemaphore)
 {
     return sem_wait(&pSemaphore->posix.semaphore) != -1;
 }
 
-ma_bool32 ma_semaphore_release__posix(ma_semaphore* pSemaphore)
+static ma_bool32 ma_semaphore_release__posix(ma_semaphore* pSemaphore)
 {
     return sem_post(&pSemaphore->posix.semaphore) != -1;
 }
 #endif
 
-ma_result ma_thread_create(ma_context* pContext, ma_thread* pThread, ma_thread_entry_proc entryProc, void* pData)
+static ma_result ma_thread_create(ma_context* pContext, ma_thread* pThread, ma_thread_entry_proc entryProc, void* pData)
 {
     if (pContext == NULL || pThread == NULL || entryProc == NULL) {
         return MA_FALSE;
@@ -5540,7 +5528,7 @@ ma_result ma_thread_create(ma_context* pContext, ma_thread* pThread, ma_thread_e
 #endif
 }
 
-void ma_thread_wait(ma_thread* pThread)
+static void ma_thread_wait(ma_thread* pThread)
 {
     if (pThread == NULL) {
         return;
@@ -5554,7 +5542,7 @@ void ma_thread_wait(ma_thread* pThread)
 #endif
 }
 
-void ma_sleep(ma_uint32 milliseconds)
+static void ma_sleep(ma_uint32 milliseconds)
 {
 #ifdef MA_WIN32
     ma_sleep__win32(milliseconds);
@@ -21256,6 +21244,18 @@ typedef int                (* ma_sio_start_proc)  (struct ma_sio_hdl*);
 typedef int                (* ma_sio_stop_proc)   (struct ma_sio_hdl*);
 typedef int                (* ma_sio_initpar_proc)(struct ma_sio_par*);
 
+ma_uint32 ma_get_standard_sample_rate_priority_index__sndio(ma_uint32 sampleRate)   /* Lower = higher priority */
+{
+    ma_uint32 i;
+    for (i = 0; i < ma_countof(g_maStandardSampleRatePriorities); ++i) {
+        if (g_maStandardSampleRatePriorities[i] == sampleRate) {
+            return i;
+        }
+    }
+
+    return (ma_uint32)-1;
+}
+
 ma_format ma_format_from_sio_enc__sndio(unsigned int bits, unsigned int bps, unsigned int sig, unsigned int le, unsigned int msb)
 {
     /* We only support native-endian right now. */
@@ -21470,12 +21470,12 @@ ma_uint32 ma_find_best_sample_rate_from_sio_cap__sndio(struct ma_sio_cap* caps, 
                     }
                     
                     /* Disregard this rate if it's not a standard one. */
-                    ratePriority = ma_get_standard_sample_rate_priority_index(rate);
+                    ratePriority = ma_get_standard_sample_rate_priority_index__sndio(rate);
                     if (ratePriority == (ma_uint32)-1) {
                         continue;
                     }
                     
-                    if (ma_get_standard_sample_rate_priority_index(bestSampleRate) > ratePriority) {   /* Lower = better. */
+                    if (ma_get_standard_sample_rate_priority_index__sndio(bestSampleRate) > ratePriority) {   /* Lower = better. */
                         bestSampleRate = rate;
                     }
                 }
