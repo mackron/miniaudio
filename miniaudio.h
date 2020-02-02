@@ -14856,7 +14856,9 @@ static ma_result ma_device_read__alsa(ma_device* pDevice, void* pFramesOut, ma_u
                 /*printf("TRACE: EGAIN (read)\n");*/
                 continue;   /* Try again. */
             } else if (resultALSA == -EPIPE) {
-                /*printf("TRACE: EPIPE (read)\n");*/
+            #if defined(MA_DEBUG_OUTPUT)
+                printf("TRACE: EPIPE (read)\n");
+            #endif
 
                 /* Overrun. Recover and try again. If this fails we need to return an error. */
                 if (((ma_snd_pcm_recover_proc)pDevice->pContext->alsa.snd_pcm_recover)((ma_snd_pcm_t*)pDevice->alsa.pPCMCapture, resultALSA, MA_TRUE) < 0) {
@@ -14902,7 +14904,9 @@ static ma_result ma_device_write__alsa(ma_device* pDevice, const void* pFrames, 
                 /*printf("TRACE: EGAIN (write)\n");*/
                 continue;   /* Try again. */
             } else if (resultALSA == -EPIPE) {
-                /*printf("TRACE: EPIPE (write)\n");*/
+            #if defined(MA_DEBUG_OUTPUT)
+                printf("TRACE: EPIPE (write)\n");
+            #endif
 
                 /* Underrun. Recover and try again. If this fails we need to return an error. */
                 if (((ma_snd_pcm_recover_proc)pDevice->pContext->alsa.snd_pcm_recover)((ma_snd_pcm_t*)pDevice->alsa.pPCMPlayback, resultALSA, MA_TRUE) < 0) { /* MA_TRUE=silent (don't print anything on error). */
