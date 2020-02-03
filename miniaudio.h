@@ -1392,7 +1392,7 @@ typedef struct
     } resampling;
 } ma_data_converter_config;
 
-ma_data_converter_config ma_data_converter_config_init_default();
+ma_data_converter_config ma_data_converter_config_init_default(void);
 ma_data_converter_config ma_data_converter_config_init(ma_format formatIn, ma_format formatOut, ma_uint32 channelsIn, ma_uint32 channelsOut, ma_uint32 sampleRateIn, ma_uint32 sampleRateOut);
 
 typedef struct
@@ -19004,6 +19004,7 @@ static ma_result ma_get_AudioObject_channel_count(ma_context* pContext, AudioObj
     return MA_SUCCESS;
 }
 
+#if 0
 static ma_result ma_get_AudioObject_channel_map(ma_context* pContext, AudioObjectID deviceObjectID, ma_device_type deviceType, ma_channel channelMap[MA_MAX_CHANNELS])
 {
     AudioChannelLayout* pChannelLayout;
@@ -19025,6 +19026,7 @@ static ma_result ma_get_AudioObject_channel_map(ma_context* pContext, AudioObjec
     ma_free(pChannelLayout, &pContext->allocationCallbacks);
     return result;
 }
+#endif
 
 static ma_result ma_get_AudioObject_sample_rates(ma_context* pContext, AudioObjectID deviceObjectID, ma_device_type deviceType, UInt32* pSampleRateRangesCount, AudioValueRange** ppSampleRateRanges)   /* NOTE: Free the returned pointer with ma_free(). */
 {
@@ -19066,6 +19068,7 @@ static ma_result ma_get_AudioObject_sample_rates(ma_context* pContext, AudioObje
     return MA_SUCCESS;
 }
 
+#if 0
 static ma_result ma_get_AudioObject_get_closest_sample_rate(ma_context* pContext, AudioObjectID deviceObjectID, ma_device_type deviceType, ma_uint32 sampleRateIn, ma_uint32* pSampleRateOut)
 {
     UInt32 sampleRateRangeCount;
@@ -19148,7 +19151,7 @@ static ma_result ma_get_AudioObject_get_closest_sample_rate(ma_context* pContext
     /*ma_free(pSampleRateRanges, &pContext->allocationCallbacks);*/
     /*return MA_ERROR;*/
 }
-
+#endif
 
 static ma_result ma_get_AudioObject_closest_buffer_size_in_frames(ma_context* pContext, AudioObjectID deviceObjectID, ma_device_type deviceType, ma_uint32 bufferSizeInFramesIn, ma_uint32* pBufferSizeInFramesOut)
 {
