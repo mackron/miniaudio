@@ -20,12 +20,12 @@ void data_callback(ma_device* pDevice, void* pOutput, const void* pInput, ma_uin
 {
     ma_sine_wave* pSineWave;
 
-    ma_assert(pDevice->playback.channels == DEVICE_CHANNELS);
+    MA_ASSERT(pDevice->playback.channels == DEVICE_CHANNELS);
 
     pSineWave = (ma_sine_wave*)pDevice->pUserData;
-    ma_assert(pSineWave != NULL);
+    MA_ASSERT(pSineWave != NULL);
 
-    ma_sine_wave_read_f32_ex(pSineWave, frameCount, DEVICE_CHANNELS, ma_stream_layout_interleaved, (float**)&pOutput);
+    ma_sine_wave_read_pcm_frames(pSineWave, pOutput, frameCount, ma_format_f32, DEVICE_CHANNELS);
 
     (void)pInput;   /* Unused. */
 }

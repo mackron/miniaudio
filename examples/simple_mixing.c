@@ -85,7 +85,7 @@ void data_callback(ma_device* pDevice, void* pOutput, const void* pInput, ma_uin
     float* pOutputF32 = (float*)pOutput;
     ma_uint32 iDecoder;
 
-    ma_assert(pDevice->playback.format == SAMPLE_FORMAT);   /* <-- Important for this example. */
+    MA_ASSERT(pDevice->playback.format == SAMPLE_FORMAT);   /* <-- Important for this example. */
 
     for (iDecoder = 0; iDecoder < g_decoderCount; ++iDecoder) {
         if (!g_pDecodersAtEnd[iDecoder]) {
