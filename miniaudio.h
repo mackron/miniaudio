@@ -4803,7 +4803,7 @@ static void* ma__realloc_from_callbacks(void* p, size_t szNew, size_t szOld, con
     return NULL;
 }
 
-static void* ma__calloc_from_callbacks(size_t sz, const ma_allocation_callbacks* pAllocationCallbacks)
+static MA_INLINE void* ma__calloc_from_callbacks(size_t sz, const ma_allocation_callbacks* pAllocationCallbacks)
 {
     void* p = ma__malloc_from_callbacks(sz, pAllocationCallbacks);
     if (p != NULL) {
@@ -5226,7 +5226,7 @@ static double ma_timer_get_time_in_seconds(ma_timer* pTimer)
 Dynamic Linking
 
 *******************************************************************************/
-static ma_handle ma_dlopen(ma_context* pContext, const char* filename)
+ma_handle ma_dlopen(ma_context* pContext, const char* filename)
 {
     ma_handle handle;
 
@@ -5270,7 +5270,7 @@ static ma_handle ma_dlopen(ma_context* pContext, const char* filename)
     return handle;
 }
 
-static void ma_dlclose(ma_context* pContext, ma_handle handle)
+void ma_dlclose(ma_context* pContext, ma_handle handle)
 {
 #ifdef _WIN32
     FreeLibrary((HMODULE)handle);
@@ -5281,7 +5281,7 @@ static void ma_dlclose(ma_context* pContext, ma_handle handle)
     (void)pContext;
 }
 
-static ma_proc ma_dlsym(ma_context* pContext, ma_handle handle, const char* symbol)
+ma_proc ma_dlsym(ma_context* pContext, ma_handle handle, const char* symbol)
 {
     ma_proc proc;
 
