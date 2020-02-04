@@ -33617,7 +33617,7 @@ ma_uint64 ma_convert_frames(void* pOut, ma_uint64 frameCountOut, ma_format forma
 {
     ma_data_converter_config config;
 
-    config = ma_data_converter_config_init(formatOut, formatIn, channelsOut, channelsIn, sampleRateOut, sampleRateIn);
+    config = ma_data_converter_config_init(formatIn, formatOut, channelsIn, channelsOut, sampleRateIn, sampleRateOut);
     ma_get_standard_channel_map(ma_standard_channel_map_default, channelsOut, config.channelMapOut);
     ma_get_standard_channel_map(ma_standard_channel_map_default, channelsIn,  config.channelMapIn);
 
