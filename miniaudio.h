@@ -11011,40 +11011,6 @@ static ma_result ma_context_get_device_info__dsound(ma_context* pContext, ma_dev
 }
 
 
-typedef struct
-{
-    ma_uint32 deviceCount;
-    ma_uint32 infoCount;
-    ma_device_info* pInfo;
-} ma_device_enum_data__dsound;
-
-static BOOL CALLBACK ma_enum_devices_callback__dsound(LPGUID lpGuid, LPCSTR lpcstrDescription, LPCSTR lpcstrModule, LPVOID lpContext)
-{
-    ma_device_enum_data__dsound* pData = (ma_device_enum_data__dsound*)lpContext;
-    MA_ASSERT(pData != NULL);
-
-    if (pData->pInfo != NULL) {
-        if (pData->infoCount > 0) {
-            MA_ZERO_OBJECT(pData->pInfo);
-            ma_strncpy_s(pData->pInfo->name, sizeof(pData->pInfo->name), lpcstrDescription, (size_t)-1);
-
-            if (lpGuid != NULL) {
-                MA_COPY_MEMORY(pData->pInfo->id.dsound, lpGuid, 16);
-            } else {
-                MA_ZERO_MEMORY(pData->pInfo->id.dsound, 16);
-            }
-
-            pData->pInfo += 1;
-            pData->infoCount -= 1;
-            pData->deviceCount += 1;
-        }
-    } else {
-        pData->deviceCount += 1;
-    }
-
-    (void)lpcstrModule;
-    return TRUE;
-}
 
 static void ma_device_uninit__dsound(ma_device* pDevice)
 {
