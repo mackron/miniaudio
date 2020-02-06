@@ -8,136 +8,114 @@ https://github.com/dr-soft/miniaudio
 */
 
 /*
-MAJOR CHANGES IN VERSION 0.9
+RELEASE NOTES - VERSION 0.10
 ============================
-Version 0.9 includes major API changes, centered mostly around full-duplex and the rebrand to "miniaudio". Before I go into
-detail about the major changes I would like to apologize. I know it's annoying dealing with breaking API changes, but I think
-it's best to get these changes out of the way now while the library is still relatively young and unknown.
-
-There's been a lot of refactoring with this release so there's a good chance a few bugs have been introduced. I apologize in
-advance for this. You may want to hold off on upgrading for the short term if you're worried. If mini_al v0.8.14 works for
-you, and you don't need full-duplex support, you can avoid upgrading (though you won't be getting future bug fixes).
+Version 0.10 includes major API changes and refactoring, mostly concerned with the data conversion system. Data conversion
+is performed internally to convert audio data between the format requested when initializing the `ma_device` object and the
+format of the internal device used by the backend. The same applies to the `ma_decoder` object. The previous design has
+several design flaws and missing features which necessitated a complete redesign.
 
 
-Rebranding to "miniaudio"
--------------------------
-The decision was made to rename mini_al to miniaudio. Don't worry, it's the same project. The reason for this is simple:
+Changes to Data Conversion
+--------------------------
+The previous data conversion system used callbacks to deliver input data for conversion. This design works well in some
+specific situations, but in other situations it has some major readability and maintenance issues. The decision was made to
+replace this with a more iterative approach where you just pass in a pointer to the input data directly rather than dealing
+with a callback.
 
-1) Having the word "audio" in the title makes it immediately clear that the library is related to audio; and
-2) I don't like the look of the underscore.
+The following are the data conversion APIs that have been removed and their replacements:
 
-This rebrand has necessitated a change in namespace from "mal" to "ma". I know this is annoying, and I apologize, but it's
-better to get this out of the road now rather than later. Also, since there are necessary API changes for full-duplex support
-I think it's better to just get the namespace change over and done with at the same time as the full-duplex changes. I'm hoping
-this will be the last of the major API changes. Fingers crossed!
+  - ma_format_converter -> ma_convert_pcm_frames_format()
+  - ma_channel_router   -> ma_channel_converter
+  - ma_src              -> ma_resampler
+  - ma_pcm_converter    -> ma_data_converter
 
-The implementation define is now "#define MINIAUDIO_IMPLEMENTATION". You can also use "#define MA_IMPLEMENTATION" if that's
-your preference.
+The previous conversion APIs accepted a callback in their configs. There are no longer any callbacks to deal with. Instead you
+just pass the data into the `*_process_pcm_frames()` function as a pointer to a buffer.
+
+The simplest aspect of data conversion is sample format conversion. To convert between two formats, just call
+`ma_convert_pcm_frames_format()`. Channel conversion is also simple which you can do with `ma_channel_router` via
+`ma_channel_router_process_pcm_frames().
+
+Resampling is more complicated because the number of output frames that are processed is different to the number of input
+frames that are consumed. When you call `ma_resampler_process_pcm_frames()` you need to pass in the number of input frames
+available for processing and the number of output frames you want to output. Upon returning they will receive the number of
+input frames that were consumed and the number of output frames that were generated.
+
+The `ma_data_converter` API is a wrapper around format, channel and sample rate conversion and handles all of the data
+conversion you'll need which probably makes it the best option if you need to do data conversion.
+
+In addition to changes to the API design, a few other changes have been made to the data conversion pipeline:
+
+  - The sinc resampler has been removed. This was completely broken and never actually worked properly.
+  - The linear resampler can now uses low-pass filtering to remove aliasing. The quality of the low-pass filter can be
+    controlled via the resampler config with the `lpcCount` option, which has a maximum value of MA_MAX_RESAMPLER_LPF_FILTERS.
+  - Data conversion now supports s16 natively which runs through a fixed point pipeline. Previously everything needed to be
+    converted to floating point before processing, whereas now both s16 and f32 are natively supported. Other formats still
+    require conversion to either s16 or f32 prior to processing, however `ma_data_converter` will handle this for you.
 
 
-Full-Duplex Support
--------------------
-The major feature added to version 0.9 is full-duplex. This has necessitated a few API changes.
+Custom Memory Allocators
+------------------------
+miniaudio has always supported macro level customization to memory allocation via MA_MALLOC, MA_REALLOC and MA_FREE, however
+some scenarios require more flexibility by allowing a user data pointer to be passed to the custom allocation routines. Support
+for this has been added to version 0.10 via the `ma_allocation_callbacks` structure. Anything making use of heap allocations
+has been updated to accept this new structure.
 
-1) The data callback has now changed. Previously there was one type of callback for playback and another for capture. I wanted
-   to avoid a third callback just for full-duplex so the decision was made to break this API and unify the callbacks. Now,
-   there is just one callback which is the same for all three modes (playback, capture, duplex). The new callback looks like
-   the following:
+The `ma_device_config` structure has been updated with a new member called `allocationCallbacks`. Leaving this set to it's
+defaults returned by `ma_device_config_init()` will cause it to use defaults. Likewise, The `ma_decoder_config` structure has
+been updated in the same way, and leaving everything as-is after `ma_decoder_config_init()` will cause it to use defaults.
 
-       void data_callback(ma_device* pDevice, void* pOutput, const void* pInput, ma_uint32 frameCount);
+The following APIs have been updated to take a pointer to a `ma_allocation_callbacks` object. Setting this parameter to NULL
+will cause it to use defaults. Otherwise they will use the relevant callback in the structure.
 
-   This callback allows you to move data straight out of the input buffer and into the output buffer in full-duplex mode. In
-   playback-only mode, pInput will be null. Likewise, pOutput will be null in capture-only mode. The sample count is no longer
-   returned from the callback since it's not necessary for miniaudio anymore.
+  - ma_malloc()
+  - ma_realloc()
+  - ma_free()
+  - ma_aligned_malloc()
+  - ma_aligned_free()
+  - ma_rb_init() / ma_rb_init_ex()
+  - ma_pcm_rb_init() / ma_pcm_rb_init_ex()
 
-2) The device config needed to change in order to support full-duplex. Full-duplex requires the ability to allow the client
-   to choose a different PCM format for the playback and capture sides. The old ma_device_config object simply did not allow
-   this and needed to change. With these changes you now specify the device ID, format, channels, channel map and share mode
-   on a per-playback and per-capture basis (see example below). The sample rate must be the same for playback and capture.
-
-   Since the device config API has changed I have also decided to take the opportunity to simplify device initialization. Now,
-   the device ID, device type and callback user data are set in the config. ma_device_init() is now simplified down to taking
-   just the context, device config and a pointer to the device object being initialized. The rationale for this change is that
-   it just makes more sense to me that these are set as part of the config like everything else.
-
-   Example device initialization:
-
-       ma_device_config config = ma_device_config_init(ma_device_type_duplex);   // Or ma_device_type_playback or ma_device_type_capture.
-       config.playback.pDeviceID = &myPlaybackDeviceID; // Or NULL for the default playback device.
-       config.playback.format    = ma_format_f32;
-       config.playback.channels  = 2;
-       config.capture.pDeviceID  = &myCaptureDeviceID;  // Or NULL for the default capture device.
-       config.capture.format     = ma_format_s16;
-       config.capture.channels   = 1;
-       config.sampleRate         = 44100;
-       config.dataCallback       = data_callback;
-       config.pUserData          = &myUserData;
-
-       result = ma_device_init(&myContext, &config, &device);
-       if (result != MA_SUCCESS) {
-           ... handle error ...
-       }
-
-   Note that the "onDataCallback" member of ma_device_config has been renamed to "dataCallback". Also, "onStopCallback" has
-   been renamed to "stopCallback".
-
-This is the first pass for full-duplex and there is a known bug. You will hear crackling on the following backends when sample
-rate conversion is required for the playback device:
-  - Core Audio
-  - JACK
-  - AAudio
-  - OpenSL
-  - WebAudio
-
-In addition to the above, not all platforms have been absolutely thoroughly tested simply because I lack the hardware for such
-thorough testing. If you experience a bug, an issue report on GitHub or an email would be greatly appreciated (and a sample
-program that reproduces the issue if possible).
+Note that you can continue to use MA_MALLOC, MA_REALLOC and MA_FREE as per normal. These will continue to be used by default if
+you do not specify custom allocation callbacks.
 
 
 Other API Changes
 -----------------
-In addition to the above, the following API changes have been made:
+Other less major API changes have also been made in version 0.10.
 
-- The log callback is no longer passed to ma_context_config_init(). Instead you need to set it manually after initialization.
-- The onLogCallback member of ma_context_config has been renamed to "logCallback".
-- The log callback now takes a logLevel parameter. The new callback looks like: void log_callback(ma_context* pContext, ma_device* pDevice, ma_uint32 logLevel, const char* message)
-  - You can use ma_log_level_to_string() to convert the logLevel to human readable text if you want to log it.
-- Some APIs have been renamed:
-  - mal_decoder_read()          -> ma_decoder_read_pcm_frames()
-  - mal_decoder_seek_to_frame() -> ma_decoder_seek_to_pcm_frame()
-  - mal_sine_wave_read()        -> ma_sine_wave_read_f32()
-  - mal_sine_wave_read_ex()     -> ma_sine_wave_read_f32_ex()
-- Some APIs have been removed:
-  - mal_device_get_buffer_size_in_bytes()
-  - mal_device_set_recv_callback()
-  - mal_device_set_send_callback()
-  - mal_src_set_input_sample_rate()
-  - mal_src_set_output_sample_rate()
-- Error codes have been rearranged. If you're a binding maintainer you will need to update.
-- The ma_backend enums have been rearranged to priority order. The rationale for this is to simplify automatic backend selection
-  and to make it easier to see the priority. If you're a binding maintainer you will need to update.
-- ma_dsp has been renamed to ma_pcm_converter. The rationale for this change is that I'm expecting "ma_dsp" to conflict with
-  some future planned high-level APIs.
-- For functions that take a pointer/count combo, such as ma_decoder_read_pcm_frames(), the parameter order has changed so that
-  the pointer comes before the count. The rationale for this is to keep it consistent with things like memcpy().
+`ma_sine_wave_read_f32()` and `ma_sine_wave_read_f32_ex()` have been removed and replaced with `ma_sine_wave_process_pcm_frames()`
+which supports outputting PCM frames in any format (specified by a parameter).
+
+`ma_convert_frames()` and `ma_convert_frames_ex()` have been changed. Both of these functions now take a new parameter called
+`frameCountOut` which specifies the size of the output buffer in PCM frames. This has been added for safety. In addition to this,
+the parameters for `ma_convert_frames_ex()` have changed to take a pointer to a `ma_data_converter_config` object to specify the
+input and output formats to convert between. This was done to make it make it more flexible, to prevent the parameter list
+getting too long, and to prevent API breakage whenever a new conversion property is added.
+
+
+Biquad and Low-Pass Filters
+---------------------------
+A generic biquad filter has been added. This is used via the `ma_biquad` API. The biquad filter is used as the basis for the
+low-pass filter. The biquad filter supports 32-bit floating point samples which runs on a floating point pipeline and 16-bit
+signed integer samples which runs on a 32-bit fixed point pipeline. Both formats use transposed direct form 2.
+
+The low-pass filter is just a biquad filter. By itself it's a second order low-pass filter, but it can be extended to higher
+orders by chaining low-pass filters together. Low-pass filtering is achieved via the `ma_lpf` API. Since the low-pass filter
+is just a biquad filter, it supports both 32-bit floating point and 16-bit signed integer formats.
 
 
 Miscellaneous Changes
 ---------------------
-The following miscellaneous changes have also been made.
+Internal functions have all been made static where possible. If you get warnings about unused functions, please submit a bug
+report.
 
-- The AAudio backend has been added for Android 8 and above. This is Android's new "High-Performance Audio" API. (For the
-  record, this is one of the nicest audio APIs out there, just behind the BSD audio APIs).
-- The WebAudio backend has been added. This is based on ScriptProcessorNode. This removes the need for SDL.
-- The SDL and OpenAL backends have been removed. These were originally implemented to add support for platforms for which miniaudio
-  was not explicitly supported. These are no longer needed and have therefore been removed.
-- Device initialization now fails if the requested share mode is not supported. If you ask for exclusive mode, you either get an
-  exclusive mode device, or an error. The rationale for this change is to give the client more control over how to handle cases
-  when the desired shared mode is unavailable.
-- A lock-free ring buffer API has been added. There are two varients of this. "ma_rb" operates on bytes, whereas "ma_pcm_rb"
-  operates on PCM frames.
-- The library is now licensed as a choice of Public Domain (Unlicense) _or_ MIT-0 (No Attribution) which is the same as MIT, but
-  removes the attribution requirement. The rationale for this is to support countries that don't recognize public domain.
+The `ma_device` structure is no longer defined as being aligned to MA_SIMD_ALIGNMENT. This resulted in a possible crash when
+allocating a `ma_device` object on the heap, but not aligning it to MA_SIMD_ALIGNMENT. This crash would happen due to the
+compiler seeing the alignment specified on the structure and assuming it was always aligned as such and thinking it was safe
+to emit alignment-dependant SIMD instructions. Since miniaudio's philosophy is for things to just work, this has been removed
+from all structures.
 */
 
 /*
@@ -36518,6 +36496,139 @@ ma_uint64 ma_sine_wave_read_pcm_frames(ma_sine_wave* pSineWave, void* pFramesOut
 #endif
 
 #endif  /* MINIAUDIO_IMPLEMENTATION */
+
+/*
+MAJOR CHANGES IN VERSION 0.9
+============================
+Version 0.9 includes major API changes, centered mostly around full-duplex and the rebrand to "miniaudio". Before I go into
+detail about the major changes I would like to apologize. I know it's annoying dealing with breaking API changes, but I think
+it's best to get these changes out of the way now while the library is still relatively young and unknown.
+
+There's been a lot of refactoring with this release so there's a good chance a few bugs have been introduced. I apologize in
+advance for this. You may want to hold off on upgrading for the short term if you're worried. If mini_al v0.8.14 works for
+you, and you don't need full-duplex support, you can avoid upgrading (though you won't be getting future bug fixes).
+
+
+Rebranding to "miniaudio"
+-------------------------
+The decision was made to rename mini_al to miniaudio. Don't worry, it's the same project. The reason for this is simple:
+
+1) Having the word "audio" in the title makes it immediately clear that the library is related to audio; and
+2) I don't like the look of the underscore.
+
+This rebrand has necessitated a change in namespace from "mal" to "ma". I know this is annoying, and I apologize, but it's
+better to get this out of the road now rather than later. Also, since there are necessary API changes for full-duplex support
+I think it's better to just get the namespace change over and done with at the same time as the full-duplex changes. I'm hoping
+this will be the last of the major API changes. Fingers crossed!
+
+The implementation define is now "#define MINIAUDIO_IMPLEMENTATION". You can also use "#define MA_IMPLEMENTATION" if that's
+your preference.
+
+
+Full-Duplex Support
+-------------------
+The major feature added to version 0.9 is full-duplex. This has necessitated a few API changes.
+
+1) The data callback has now changed. Previously there was one type of callback for playback and another for capture. I wanted
+   to avoid a third callback just for full-duplex so the decision was made to break this API and unify the callbacks. Now,
+   there is just one callback which is the same for all three modes (playback, capture, duplex). The new callback looks like
+   the following:
+
+       void data_callback(ma_device* pDevice, void* pOutput, const void* pInput, ma_uint32 frameCount);
+
+   This callback allows you to move data straight out of the input buffer and into the output buffer in full-duplex mode. In
+   playback-only mode, pInput will be null. Likewise, pOutput will be null in capture-only mode. The sample count is no longer
+   returned from the callback since it's not necessary for miniaudio anymore.
+
+2) The device config needed to change in order to support full-duplex. Full-duplex requires the ability to allow the client
+   to choose a different PCM format for the playback and capture sides. The old ma_device_config object simply did not allow
+   this and needed to change. With these changes you now specify the device ID, format, channels, channel map and share mode
+   on a per-playback and per-capture basis (see example below). The sample rate must be the same for playback and capture.
+
+   Since the device config API has changed I have also decided to take the opportunity to simplify device initialization. Now,
+   the device ID, device type and callback user data are set in the config. ma_device_init() is now simplified down to taking
+   just the context, device config and a pointer to the device object being initialized. The rationale for this change is that
+   it just makes more sense to me that these are set as part of the config like everything else.
+
+   Example device initialization:
+
+       ma_device_config config = ma_device_config_init(ma_device_type_duplex);   // Or ma_device_type_playback or ma_device_type_capture.
+       config.playback.pDeviceID = &myPlaybackDeviceID; // Or NULL for the default playback device.
+       config.playback.format    = ma_format_f32;
+       config.playback.channels  = 2;
+       config.capture.pDeviceID  = &myCaptureDeviceID;  // Or NULL for the default capture device.
+       config.capture.format     = ma_format_s16;
+       config.capture.channels   = 1;
+       config.sampleRate         = 44100;
+       config.dataCallback       = data_callback;
+       config.pUserData          = &myUserData;
+
+       result = ma_device_init(&myContext, &config, &device);
+       if (result != MA_SUCCESS) {
+           ... handle error ...
+       }
+
+   Note that the "onDataCallback" member of ma_device_config has been renamed to "dataCallback". Also, "onStopCallback" has
+   been renamed to "stopCallback".
+
+This is the first pass for full-duplex and there is a known bug. You will hear crackling on the following backends when sample
+rate conversion is required for the playback device:
+  - Core Audio
+  - JACK
+  - AAudio
+  - OpenSL
+  - WebAudio
+
+In addition to the above, not all platforms have been absolutely thoroughly tested simply because I lack the hardware for such
+thorough testing. If you experience a bug, an issue report on GitHub or an email would be greatly appreciated (and a sample
+program that reproduces the issue if possible).
+
+
+Other API Changes
+-----------------
+In addition to the above, the following API changes have been made:
+
+- The log callback is no longer passed to ma_context_config_init(). Instead you need to set it manually after initialization.
+- The onLogCallback member of ma_context_config has been renamed to "logCallback".
+- The log callback now takes a logLevel parameter. The new callback looks like: void log_callback(ma_context* pContext, ma_device* pDevice, ma_uint32 logLevel, const char* message)
+  - You can use ma_log_level_to_string() to convert the logLevel to human readable text if you want to log it.
+- Some APIs have been renamed:
+  - mal_decoder_read()          -> ma_decoder_read_pcm_frames()
+  - mal_decoder_seek_to_frame() -> ma_decoder_seek_to_pcm_frame()
+  - mal_sine_wave_read()        -> ma_sine_wave_read_f32()
+  - mal_sine_wave_read_ex()     -> ma_sine_wave_read_f32_ex()
+- Some APIs have been removed:
+  - mal_device_get_buffer_size_in_bytes()
+  - mal_device_set_recv_callback()
+  - mal_device_set_send_callback()
+  - mal_src_set_input_sample_rate()
+  - mal_src_set_output_sample_rate()
+- Error codes have been rearranged. If you're a binding maintainer you will need to update.
+- The ma_backend enums have been rearranged to priority order. The rationale for this is to simplify automatic backend selection
+  and to make it easier to see the priority. If you're a binding maintainer you will need to update.
+- ma_dsp has been renamed to ma_pcm_converter. The rationale for this change is that I'm expecting "ma_dsp" to conflict with
+  some future planned high-level APIs.
+- For functions that take a pointer/count combo, such as ma_decoder_read_pcm_frames(), the parameter order has changed so that
+  the pointer comes before the count. The rationale for this is to keep it consistent with things like memcpy().
+
+
+Miscellaneous Changes
+---------------------
+The following miscellaneous changes have also been made.
+
+- The AAudio backend has been added for Android 8 and above. This is Android's new "High-Performance Audio" API. (For the
+  record, this is one of the nicest audio APIs out there, just behind the BSD audio APIs).
+- The WebAudio backend has been added. This is based on ScriptProcessorNode. This removes the need for SDL.
+- The SDL and OpenAL backends have been removed. These were originally implemented to add support for platforms for which miniaudio
+  was not explicitly supported. These are no longer needed and have therefore been removed.
+- Device initialization now fails if the requested share mode is not supported. If you ask for exclusive mode, you either get an
+  exclusive mode device, or an error. The rationale for this change is to give the client more control over how to handle cases
+  when the desired shared mode is unavailable.
+- A lock-free ring buffer API has been added. There are two varients of this. "ma_rb" operates on bytes, whereas "ma_pcm_rb"
+  operates on PCM frames.
+- The library is now licensed as a choice of Public Domain (Unlicense) _or_ MIT-0 (No Attribution) which is the same as MIT, but
+  removes the attribution requirement. The rationale for this is to support countries that don't recognize public domain.
+*/
 
 /*
 REVISION HISTORY
