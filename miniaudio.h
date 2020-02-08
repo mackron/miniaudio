@@ -238,7 +238,7 @@ These are the available device types and how you should handle the buffers in th
     |-------------------------|--------------------------------------------------------|
 
 You will notice in the example above that the sample format and channel count is specified separately for playback and capture. This is to support different
-data formats between the playback and capture devices in a full-duplex system. A example may be that you want to capture audio data as a monaural stream (one
+data formats between the playback and capture devices in a full-duplex system. An example may be that you want to capture audio data as a monaural stream (one
 channel), but output sound to a stereo speaker system. Note that if you use different formats between playback and capture in a full-duplex configuration you
 will need to convert the data yourself. There are functions available to help you do this which will be explained later.
 
