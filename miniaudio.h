@@ -2571,6 +2571,26 @@ typedef struct
     } jack;
 } ma_context_config;
 
+/*
+The callback for handling device enumeration. This is fired from `ma_context_enumerated_devices()`.
+
+
+Parameters
+----------
+pContext (in)
+    A pointer to the context performing the enumeration.
+
+deviceType (in)
+    The type of the device being enumerated. This will always be either `ma_device_type_playback` or `ma_device_type_capture`.
+
+pInfo (in)
+    A pointer to a `ma_device_info` containing the ID and name of the enumerated device. Note that this will not include detailed information about the device,
+    only basic information (ID and name). The reason for this is that it would otherwise require opening the backend device to probe for the information which
+    is too inefficient.
+
+pUserData (in)
+    The user data pointer passed into `ma_context_enumerate_devices()`.
+*/
 typedef ma_bool32 (* ma_enum_devices_callback_proc)(ma_context* pContext, ma_device_type deviceType, const ma_device_info* pInfo, void* pUserData);
 
 struct ma_context
@@ -3374,6 +3394,7 @@ if (result != MA_SUCCESS) {
 }
 ```
 
+
 Example 2 - Custom Configuration
 --------------------------------
 The example below shows how to initialize the context using custom backend priorities and a custom configuration. In this hypothetical example, the program
@@ -3415,96 +3436,208 @@ ma_result ma_context_init(const ma_backend backends[], ma_uint32 backendCount, c
 /*
 Uninitializes a context.
 
+
+Return Value
+------------
+MA_SUCCESS if successful; any other error code otherwise.
+
+
+Thread Safety
+-------------
+Unsafe. Do not call this function across multiple threads as some backends read and write to global state.
+
+
+Remarks
+-------
 Results are undefined if you call this while any device created by this context is still active.
 
-Return Value:
-  MA_SUCCESS if successful; any other error code otherwise.
 
-Thread Safety: UNSAFE
+See Also
+--------
+ma_context_init()
 */
 ma_result ma_context_uninit(ma_context* pContext);
 
 /*
 Enumerates over every device (both playback and capture).
 
-This is a lower-level enumeration function to the easier to use ma_context_get_devices(). Use
-ma_context_enumerate_devices() if you would rather not incur an internal heap allocation, or
-it simply suits your code better.
+This is a lower-level enumeration function to the easier to use `ma_context_get_devices()`. Use `ma_context_enumerate_devices()` if you would rather not incur
+an internal heap allocation, or it simply suits your code better.
 
+Note that this only retrieves the ID and name/description of the device. The reason for only retrieving basic information is that it would otherwise require
+opening the backend device in order to probe it for more detailed information which can be inefficient. Consider using `ma_context_get_device_info()` for this,
+but don't call it from within the enumeration callback.
+
+Returning false from the callback will stop enumeration. Returning true will continue enumeration.
+
+
+Parameters
+----------
+pContext (in)
+    A pointer to the context performing the enumeration.
+
+callback (in)
+    The callback to fire for each enumerated device.
+
+pUserData (in)
+    A pointer to application-defined data passed to the callback.
+
+
+Return Value
+------------
+MA_SUCCESS if successful; any other error code otherwise.
+
+
+Thread Safety
+-------------
+Safe. This is guarded using a simple mutex lock.
+
+
+Remarks
+-------
 Do _not_ assume the first enumerated device of a given type is the default device.
 
 Some backends and platforms may only support default playback and capture devices.
 
-Note that this only retrieves the ID and name/description of the device. The reason for only
-retrieving basic information is that it would otherwise require opening the backend device in
-order to probe it for more detailed information which can be inefficient. Consider using
-ma_context_get_device_info() for this, but don't call it from within the enumeration callback.
+In general, you should not do anything complicated from within the callback. In particular, do not try initializing a device from within the callback. Also,
+do not try to call `ma_context_get_device_info()` from within the callback.
 
-In general, you should not do anything complicated from within the callback. In particular, do
-not try initializing a device from within the callback.
+Consider using `ma_context_get_devices()` for a simpler and safer API, albeit at the expense of an internal heap allocation.
 
-Consider using ma_context_get_devices() for a simpler and safer API, albeit at the expense of
-an internal heap allocation.
 
-Returning false from the callback will stop enumeration. Returning true will continue enumeration.
+Example 1 - Simple Enumeration
+------------------------------
+ma_bool32 ma_device_enum_callback(ma_context* pContext, ma_device_type deviceType, const ma_device_info* pInfo, void* pUserData)
+{
+    printf("Device Name: %s\n", pInfo->name);
+    return MA_TRUE;
+}
 
-Return Value:
-  MA_SUCCESS if successful; any other error code otherwise.
+ma_result result = ma_context_enumerate_devices(&context, my_device_enum_callback, pMyUserData);
+if (result != MA_SUCCESS) {
+    // Error.
+}
 
-Thread Safety: SAFE
-  This is guarded using a simple mutex lock.
+
+See Also
+--------
+ma_context_get_devices()
 */
 ma_result ma_context_enumerate_devices(ma_context* pContext, ma_enum_devices_callback_proc callback, void* pUserData);
 
 /*
 Retrieves basic information about every active playback and/or capture device.
 
-You can pass in NULL for the playback or capture lists in which case they'll be ignored.
+This function will allocate memory internally for the device lists and return a pointer to them through the `ppPlaybackDeviceInfos` and `ppCaptureDeviceInfos`
+parameters. If you do not want to incur the overhead of these allocations consider using `ma_context_enumerate_devices()` which will instead use a callback.
 
+
+Parameters
+----------
+pContext (in)
+    A pointer to the context performing the enumeration.
+
+ppPlaybackDeviceInfos (out)
+    A pointer to a pointer that will receive the address of a buffer containing the list of `ma_device_info` structures for playback devices.
+
+pPlaybackDeviceCount (out)
+    A pointer to an unsigned integer that will receive the number of playback devices.
+
+ppCaptureDeviceInfos (out)
+    A pointer to a pointer that will receive the address of a buffer containing the list of `ma_device_info` structures for capture devices.
+
+pCaptureDeviceCount (out)
+    A pointer to an unsigned integer that will receive the number of capture devices.
+
+
+Return Value
+------------
+MA_SUCCESS if successful; any other error code otherwise.
+
+
+Thread Safety
+-------------
+Unsafe. Since each call to this function invalidates the pointers from the previous call, you should not be calling this simultaneously across multiple
+threads. Instead, you need to make a copy of the returned data with your own higher level synchronization.
+
+
+Remarks
+-------
 It is _not_ safe to assume the first device in the list is the default device.
 
-The returned pointers will become invalid upon the next call this this function, or when the
-context is uninitialized. Do not free the returned pointers.
+You can pass in NULL for the playback or capture lists in which case they'll be ignored.
 
-This function follows the same enumeration rules as ma_context_enumerate_devices(). See
-documentation for ma_context_enumerate_devices() for more information.
+The returned pointers will become invalid upon the next call this this function, or when the context is uninitialized. Do not free the returned pointers.
 
-Return Value:
-  MA_SUCCESS if successful; any other error code otherwise.
 
-Thread Safety: SAFE
-  Since each call to this function invalidates the pointers from the previous call, you
-  should not be calling this simultaneously across multiple threads. Instead, you need to
-  make a copy of the returned data with your own higher level synchronization.
+See Also
+--------
+ma_context_get_devices()
 */
 ma_result ma_context_get_devices(ma_context* pContext, ma_device_info** ppPlaybackDeviceInfos, ma_uint32* pPlaybackDeviceCount, ma_device_info** ppCaptureDeviceInfos, ma_uint32* pCaptureDeviceCount);
 
 /*
-Retrieves information about a device with the given ID.
+Retrieves information about a device of the given type, with the specified ID and share mode.
 
-Do _not_ call this from within the ma_context_enumerate_devices() callback.
 
-It's possible for a device to have different information and capabilities depending on whether
-or not it's opened in shared or exclusive mode. For example, in shared mode, WASAPI always uses
-floating point samples for mixing, but in exclusive mode it can be anything. Therefore, this
-function allows you to specify which share mode you want information for. Note that not all
-backends and devices support shared or exclusive mode, in which case this function will fail
-if the requested share mode is unsupported.
+Parameters
+----------
+pContext (in)
+    A pointer to the context performing the query.
+
+deviceType (in)
+    The type of the device being queried. Must be either `ma_device_type_playback` or `ma_device_type_capture`.
+
+pDeviceID (in)
+    The ID of the device being queried.
+
+shareMode (in)
+    The share mode to query for device capabilities. This should be set to whatever you're intending on using when initializing the device. If you're unsure,
+    set this to `ma_share_mode_shared`.
+
+pDeviceInfo (out)
+    A pointer to the `ma_device_info` structure that will receive the device information.
+
+
+Return Value
+------------
+MA_SUCCESS if successful; any other error code otherwise.
+
+
+Thread Safety
+-------------
+Safe. This is guarded using a simple mutex lock.
+
+
+Remarks
+-------
+Do _not_ call this from within the `ma_context_enumerate_devices()` callback.
+
+It's possible for a device to have different information and capabilities depending on whether or not it's opened in shared or exclusive mode. For example, in
+shared mode, WASAPI always uses floating point samples for mixing, but in exclusive mode it can be anything. Therefore, this function allows you to specify
+which share mode you want information for. Note that not all backends and devices support shared or exclusive mode, in which case this function will fail if
+the requested share mode is unsupported.
 
 This leaves pDeviceInfo unmodified in the result of an error.
-
-Return Value:
-  MA_SUCCESS if successful; any other error code otherwise.
-
-Thread Safety: SAFE
-  This is guarded using a simple mutex lock.
 */
 ma_result ma_context_get_device_info(ma_context* pContext, ma_device_type deviceType, const ma_device_id* pDeviceID, ma_share_mode shareMode, ma_device_info* pDeviceInfo);
 
 /*
 Determines if the given context supports loopback mode.
+
+
+Parameters
+----------
+pContext (in)
+    A pointer to the context getting queried.
+
+
+Return Value
+------------
+MA_TRUE if the context supports loopback mode; MA_FALSE otherwise.
 */
 ma_bool32 ma_context_is_loopback_supported(ma_context* pContext);
+
 
 /*
 Initializes a device.
