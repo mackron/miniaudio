@@ -24454,7 +24454,7 @@ static ma_result ma_device_init_fd__oss(ma_context* pContext, const ma_device_co
             periodSizeInFrames = ma_calculate_buffer_size_in_frames_from_milliseconds(pConfig->periodSizeInMilliseconds, (ma_uint32)ossSampleRate);
         }
 
-        periodSizeInBytes = ma_round_to_power_of_2(bufferSizeInFrames * ma_get_bytes_per_frame(ma_format_from_oss(ossFormat), ossChannels));
+        periodSizeInBytes = ma_round_to_power_of_2(periodSizeInFrames * ma_get_bytes_per_frame(ma_format_from_oss(ossFormat), ossChannels));
         if (periodSizeInBytes < 16) {
             periodSizeInBytes = 16;
         }
@@ -24462,7 +24462,7 @@ static ma_result ma_device_init_fd__oss(ma_context* pContext, const ma_device_co
         ossFragmentSizePower = 4;
         periodSizeInBytes >>= 4;
         while (periodSizeInBytes >>= 1) {
-            periodSizeInBytes += 1;
+            ossFragmentSizePower += 1;
         }
 
         ossFragment = (int)((pConfig->periods << 16) | ossFragmentSizePower);
