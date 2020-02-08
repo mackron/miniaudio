@@ -2326,6 +2326,7 @@ The data callback is fired by miniaudio whenever the device needs to have more d
 available. This is called as soon as the backend asks for more data which means it may be called with inconsistent frame counts. You cannot assume the
 callback will be fired with a consistent frame count.
 
+
 Parameters
 ----------
 pDevice (in)
@@ -2343,6 +2344,7 @@ frameCount (in)
     The number of PCM frames to process. Note that this will not necessarily be equal to what you requested when you initialized the device. The
     `bufferSizeInFrames` and `bufferSizeInMilliseconds` members of the device config are just hints, and are not necessarily exactly what you'll get. You must
     not assume this will always be the same value each time the callback is fired.
+
 
 Remarks
 -------
@@ -2365,12 +2367,22 @@ The callback for when the device has been stopped.
 This will be called when the device is stopped explicitly with `ma_device_stop()` and also called implicitly when the device is stopped through external forces
 such as being unplugged or an internal error occuring.
 
+
+Parameters
+----------
+pDevice (in)
+    A pointer to the device that has just stopped.
+
+
+Remarks
+-------
 Do not restart or uninitialize the device from the callback.
 */
 typedef void (* ma_stop_proc)(ma_device* pDevice);
 
 /*
 The callback for handling log messages.
+
 
 Parameters
 ----------
@@ -2382,13 +2394,19 @@ pDevice (in)
 
 logLevel (in)
     The log level. This can be one of the following:
-        MA_LOG_LEVEL_VERBOSE
-        MA_LOG_LEVEL_INFO
-        MA_LOG_LEVEL_WARNING
-        MA_LOG_LEVEL_ERROR
+
+    |----------------------|
+    | Log Level            |
+    |----------------------|
+    | MA_LOG_LEVEL_VERBOSE |
+    | MA_LOG_LEVEL_INFO    |
+    | MA_LOG_LEVEL_WARNING |
+    | MA_LOG_LEVEL_ERROR   |
+    |----------------------|
 
 message (in)
     The log message.
+
 
 Remarks
 -------
@@ -3240,7 +3258,25 @@ struct ma_device
 #endif
 
 /*
-Helper function for initializing a ma_context_config object.
+Initializes a `ma_context_config` object.
+
+
+Return Value
+------------
+A `ma_context_config` initialized to defaults.
+
+
+Remarks
+-------
+You must always use this to initialize the default state of the `ma_context_config` object. Not using this will result in your program breaking when miniaudio
+is updated and new members are added to `ma_context_config`. It also sets logical defaults.
+
+You can override members of the returned object by changing it's members directly.
+
+
+See Also
+--------
+ma_context_init()
 */
 ma_context_config ma_context_config_init(void);
 
