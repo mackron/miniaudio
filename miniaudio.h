@@ -1803,7 +1803,6 @@ ma_result ma_channel_converter_process_pcm_frames(ma_channel_converter* pConvert
 /**************************************************************************************************************************************************************
 
 Data Conversion
-===============
 
 **************************************************************************************************************************************************************/
 typedef struct
@@ -2323,43 +2322,77 @@ typedef struct
 /*
 The callback for processing audio data from the device.
 
-pOutput is a pointer to a buffer that will receive audio data that will later be played back through the speakers. This will be non-null
-for a playback or full-duplex device and null for a capture device.
+The data callback is fired by miniaudio whenever the device needs to have more data delivered to a playback device, or when a capture device has some data
+available. This is called as soon as the backend asks for more data which means it may be called with inconsistent frame counts. You cannot assume the
+callback will be fired with a consistent frame count.
 
-pInput is a pointer to a buffer containing input data from the device. This will be non-null for a capture or full-duplex device, and
-null for a playback device.
+Parameters
+----------
+pDevice (in)
+    A pointer to the relevant device.
 
-frameCount is the number of PCM frames to process. If an output buffer is provided (pOutput is not null), applications should write out
-to the entire output buffer. Note that frameCount will not necessarily be exactly what you asked for when you initialized the deviced.
-The bufferSizeInFrames and bufferSizeInMilliseconds members of the device config are just hints, and are not necessarily exactly what
-you'll get.
+pOutput (out)
+    A pointer to the output buffer that will receive audio data that will later be played back through the speakers. This will be non-null for a playback or
+    full-duplex device and null for a capture and loopback device.
 
-Do _not_ call any miniaudio APIs from the callback. Attempting the stop the device can result in a deadlock. The proper way to stop the
-device is to call ma_device_stop() from a different thread, normally the main application thread.
+pInput (in)
+    A pointer to the buffer containing input data from a recording device. This will be non-null for a capture, full-duplex or loopback device and null for a
+    playback device.
+
+frameCount (in)
+    The number of PCM frames to process. Note that this will not necessarily be equal to what you requested when you initialized the device. The
+    `bufferSizeInFrames` and `bufferSizeInMilliseconds` members of the device config are just hints, and are not necessarily exactly what you'll get. You must
+    not assume this will always be the same value each time the callback is fired.
+
+Remarks
+-------
+You cannot stop and start the device from inside the callback or else you'll get a deadlock. You must also not uninitialize the device from inside the
+callback. The following APIs cannot be called from inside the callback:
+
+    ma_device_init()
+    ma_device_init_ex()
+    ma_device_uninit()
+    ma_device_start()
+    ma_device_stop()
+
+The proper way to stop the device is to call `ma_device_stop()` from a different thread, normally the main application thread.
 */
 typedef void (* ma_device_callback_proc)(ma_device* pDevice, void* pOutput, const void* pInput, ma_uint32 frameCount);
 
 /*
 The callback for when the device has been stopped.
 
-This will be called when the device is stopped explicitly with ma_device_stop() and also called implicitly when the device is stopped
-through external forces such as being unplugged or an internal error occuring.
+This will be called when the device is stopped explicitly with `ma_device_stop()` and also called implicitly when the device is stopped through external forces
+such as being unplugged or an internal error occuring.
 
-Do not restart the device from the callback.
+Do not restart or uninitialize the device from the callback.
 */
 typedef void (* ma_stop_proc)(ma_device* pDevice);
 
 /*
 The callback for handling log messages.
 
-It is possible for pDevice to be null in which case the log originated from the context. If it is non-null you can assume the message
-came from the device.
+Parameters
+----------
+pContext (in)
+    A pointer to the context the log message originated from.
 
-logLevel is one of the following:
-    MA_LOG_LEVEL_VERBOSE
-    MA_LOG_LEVEL_INFO
-    MA_LOG_LEVEL_WARNING
-    MA_LOG_LEVEL_ERROR
+pDevice (in)
+    A pointer to the device the log message originate from, if any. This can be null, in which case the message came from the context.
+
+logLevel (in)
+    The log level. This can be one of the following:
+        MA_LOG_LEVEL_VERBOSE
+        MA_LOG_LEVEL_INFO
+        MA_LOG_LEVEL_WARNING
+        MA_LOG_LEVEL_ERROR
+
+message (in)
+    The log message.
+
+Remarks
+-------
+Do not modify the state of the device from inside the callback.
 */
 typedef void (* ma_log_proc)(ma_context* pContext, ma_device* pDevice, ma_uint32 logLevel, const char* message);
 
