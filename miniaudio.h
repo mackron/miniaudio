@@ -3220,41 +3220,195 @@ struct ma_device
 #endif
 
 /*
+Helper function for initializing a ma_context_config object.
+*/
+ma_context_config ma_context_config_init(void);
+
+/*
 Initializes a context.
 
-The context is used for selecting and initializing the relevant backends.
+The context is used for selecting and initializing an appropriate backend and to represent the backend at a more global level than that of an individual
+device. There is one context to many devices, and a device is created from a context. A context is required to enumerate devices.
 
-Note that the location of the context cannot change throughout it's lifetime. Consider allocating
-the ma_context object with malloc() if this is an issue. The reason for this is that a pointer
-to the context is stored in the ma_device structure.
 
-<backends> is used to allow the application to prioritize backends depending on it's specific
-requirements. This can be null in which case it uses the default priority, which is as follows:
-  - WASAPI
-  - DirectSound
-  - WinMM
-  - Core Audio (Apple)
-  - sndio
-  - audio(4)
-  - OSS
-  - PulseAudio
-  - ALSA
-  - JACK
-  - AAudio
-  - OpenSL|ES
-  - Web Audio / Emscripten
-  - Null
+Parameters
+----------
+backends (in, optional)
+    A list of backends to try initializing, in priority order. Can be NULL, in which case it uses default priority order.
 
-<pConfig> is used to configure the context. Use the logCallback config to set a callback for whenever a
-log message is posted. The priority of the worker thread can be set with the threadPriority config.
+backendCount (in, optional)
+    The number of items in `backend`. Ignored if `backend` is NULL.
 
-It is recommended that only a single context is active at any given time because it's a bulky data
-structure which performs run-time linking for the relevant backends every time it's initialized.
+pConfig (in, optional)
+    The context configuration.
 
-Return Value:
-  MA_SUCCESS if successful; any other error code otherwise.
+pContext (in)
+    A pointer to the context object being initialized.
 
-Thread Safety: UNSAFE
+
+Return Value
+------------
+MA_SUCCESS if successful; any other error code otherwise.
+
+
+Thread Safety
+-------------
+Unsafe. Do not call this function across multiple threads as some backends read and write to global state.
+
+
+Remarks
+-------
+When `backends` is NULL, the default priority order will be used. Below is a list of backends in priority order:
+
+    |-------------|-----------------------|--------------------------------------------------------|
+    | Name        | Enum Name             | Supported Operating Systems                            |
+    |-------------|-----------------------|--------------------------------------------------------|
+    | WASAPI      | ma_backend_wasapi     | Windows Vista+                                         |
+    | DirectSound | ma_backend_dsound     | Windows XP+                                            |
+    | WinMM       | ma_backend_winmm      | Windows XP+ (may work on older versions, but untested) |
+    | Core Audio  | ma_backend_coreaudio  | macOS, iOS                                             |
+    | ALSA        | ma_backend_alsa       | Linux                                                  |
+    | PulseAudio  | ma_backend_pulseaudio | Cross Platform (disabled on BSD and Android)           |
+    | JACK        | ma_backend_jack       | Cross Platform (disabled on BSD and Android)           |
+    | sndio       | ma_backend_sndio      | OpenBSD                                                |
+    | audio(4)    | ma_backend_audio4     | NetBSD, OpenBSD                                        |
+    | OSS         | ma_backend_oss        | FreeBSD                                                |
+    | AAudio      | ma_backend_aaudio     | Android 8+                                             |
+    | OpenSL|ES   | ma_backend_opensl     | Android (API level 16+)                                |
+    | Web Audio   | ma_backend_webaudio   | Web (via Emscripten)                                   |
+    | Null        | ma_backend_null       | Cross Platform (not used on Web)                       |
+    |-------------|-----------------------|--------------------------------------------------------|
+
+The context can be configured via the `pConfig` argument. The config object is initialized with `ma_context_config_init()`. Individual configuration settings
+can then be set directly on the structure. See examples below for a usage. Below are the members of the `ma_context_config` object.
+
+    logCallback
+        Callback for handling log messages from miniaudio. 
+
+    threadPriority
+        The desired priority to use for the audio thread. Allowable values include the following:
+
+        |--------------------------------------|
+        | Thread Priority                      |
+        |--------------------------------------|
+        | ma_thread_priority_idle              |
+        | ma_thread_priority_lowest            |
+        | ma_thread_priority_low               |
+        | ma_thread_priority_normal            |
+        | ma_thread_priority_high              |
+        | ma_thread_priority_highest (default) |
+        | ma_thread_priority_realtime          |
+        | ma_thread_priority_default           |
+        |--------------------------------------|
+
+    pUserData
+        A pointer to application-defined data. This can be accessed from the context object directly such as `context.pUserData`.
+
+    allocationCallbacks
+        Structure containing custom allocation callbacks. Leaving this at defaults will cause it to use MA_MALLOC, MA_REALLOC and MA_FREE. These allocation
+        callbacks will be used for anything tied to the context, including devices.
+
+    pulse.pApplicationName
+        PulseAudio only. The application name to use when initializing the PulseAudio context with `pa_context_new()`.
+
+    pulse.pServerName
+        PulseAudio only. The name of the server to connect to with `pa_context_connect()`.
+
+    pulse.tryAutoSpawn
+        PulseAudio only. Whether or not to try automatically starting the PulseAudio daemon. Defaults to false.
+
+    coreaudio.sessionCategory
+        iOS only. The session category to use for the shared AudioSession instance. Below is a list of allowable values and their Core Audio equivalents.
+
+        |-----------------------------------------|-------------------------------------|
+        | miniaudio Token                         | Core Audio Token                    |
+        |-----------------------------------------|-------------------------------------|
+        | ma_ios_session_category_ambient         | AVAudioSessionCategoryAmbient       |
+        | ma_ios_session_category_solo_ambient    | AVAudioSessionCategorySoloAmbient   |
+        | ma_ios_session_category_playback        | AVAudioSessionCategoryPlayback      |
+        | ma_ios_session_category_record          | AVAudioSessionCategoryRecord        |
+        | ma_ios_session_category_play_and_record | AVAudioSessionCategoryPlayAndRecord |
+        | ma_ios_session_category_multi_route     | AVAudioSessionCategoryMultiRoute    |
+        | ma_ios_session_category_none            | AVAudioSessionCategoryAmbient       |
+        | ma_ios_session_category_default         | AVAudioSessionCategoryAmbient       |
+        |-----------------------------------------|-------------------------------------|
+
+    coreaudio.sessionCategoryOptions
+        iOS only. Session category options to use with the shared AudioSession instance. Below is a list of allowable values and their Core Audio equivalents.
+
+        |---------------------------------------------------------------------------|------------------------------------------------------------------|
+        | miniaudio Token                                                           | Core Audio Token                                                 |
+        |---------------------------------------------------------------------------|------------------------------------------------------------------|
+        | ma_ios_session_category_option_mix_with_others                            | AVAudioSessionCategoryOptionMixWithOthers                        |
+        | ma_ios_session_category_option_duck_others                                | AVAudioSessionCategoryOptionDuckOthers                           |
+        | ma_ios_session_category_option_allow_bluetooth                            | AVAudioSessionCategoryOptionAllowBluetooth                       |
+        | ma_ios_session_category_option_default_to_speaker                         | AVAudioSessionCategoryOptionDefaultToSpeaker                     |
+        | ma_ios_session_category_option_interrupt_spoken_audio_and_mix_with_others | AVAudioSessionCategoryOptionInterruptSpokenAudioAndMixWithOthers |
+        | ma_ios_session_category_option_allow_bluetooth_a2dp                       | AVAudioSessionCategoryOptionAllowBluetoothA2DP                   |
+        | ma_ios_session_category_option_allow_air_play                             | AVAudioSessionCategoryOptionAllowAirPlay                         |
+        |---------------------------------------------------------------------------|------------------------------------------------------------------|
+
+    jack.pClientName
+        The name of the client to pass to `jack_client_open()`.
+
+    jack.tryStartServer
+        Whether or not to try auto-starting the JACK server. Defaults to false.
+
+
+It is recommended that only a single context is active at any given time because it's a bulky data structure which performs run-time linking for the
+relevant backends every time it's initialized.
+
+The location of the context cannot change throughout it's lifetime. Consider allocating the `ma_context` object with `malloc()` if this is an issue. The
+reason for this is that a pointer to the context is stored in the `ma_device` structure.
+
+
+Example 1 - Default Initialization
+----------------------------------
+The example below shows how to initialize the context using the default configuration.
+
+```c
+ma_context context;
+ma_result result = ma_context_init(NULL, 0, NULL, &context);
+if (result != MA_SUCCESS) {
+    // Error.
+}
+```
+
+Example 2 - Custom Configuration
+--------------------------------
+The example below shows how to initialize the context using custom backend priorities and a custom configuration. In this hypothetical example, the program
+wants to prioritize ALSA over PulseAudio on Linux. They also want to avoid using the WinMM backend on Windows because it's latency is too high. They also
+want an error to be returned if no valid backend is available which they achieve by excluding the Null backend.
+
+For the configuration, the program wants to capture any log messages so they can, for example, route it to a log file and user interface.
+
+```c
+ma_backend backends[] = {
+    ma_backend_alsa,
+    ma_backend_pulseaudio,
+    ma_backend_wasapi,
+    ma_backend_dsound
+};
+
+ma_context_config config = ma_context_config_init();
+config.logCallback = my_log_callback;
+config.pUserData   = pMyUserData;
+
+ma_context context;
+ma_result result = ma_context_init(backends, sizeof(backends)/sizeof(backends[0]), &config, &context);
+if (result != MA_SUCCESS) {
+    // Error.
+    if (result == MA_NO_BACKEND) {
+        // Couldn't find an appropriate backend.
+    }
+}
+```
+
+
+See Also
+--------
+ma_context_config_init()
+ma_context_uninit()
 */
 ma_result ma_context_init(const ma_backend backends[], ma_uint32 backendCount, const ma_context_config* pConfig, ma_context* pContext);
 
@@ -3584,11 +3738,6 @@ MA_INVALID_ARGS if pGainDB is NULL.
 */
 ma_result ma_device_get_master_gain_db(ma_device* pDevice, float* pGainDB);
 
-
-/*
-Helper function for initializing a ma_context_config object.
-*/
-ma_context_config ma_context_config_init(void);
 
 /*
 Initializes a device config.
@@ -26930,6 +27079,15 @@ static ma_bool32 ma_context_is_backend_asynchronous(ma_context* pContext)
     return pContext->isBackendAsynchronous;
 }
 
+
+ma_context_config ma_context_config_init()
+{
+    ma_context_config config;
+    MA_ZERO_OBJECT(&config);
+
+    return config;
+}
+
 ma_result ma_context_init(const ma_backend backends[], ma_uint32 backendCount, const ma_context_config* pConfig, ma_context* pContext)
 {
     ma_result result;
@@ -27280,6 +27438,20 @@ ma_bool32 ma_context_is_loopback_supported(ma_context* pContext)
     return ma_is_loopback_supported(pContext->backend);
 }
 
+
+ma_device_config ma_device_config_init(ma_device_type deviceType)
+{
+    ma_device_config config;
+    MA_ZERO_OBJECT(&config);
+    config.deviceType = deviceType;
+
+    /* Resampling defaults. We must never use the Speex backend by default because it uses licensed third party code. */
+    config.resampling.algorithm       = ma_resample_algorithm_linear;
+    config.resampling.linear.lpfCount = ma_min(2, MA_MAX_RESAMPLER_LPF_FILTERS);
+    config.resampling.speex.quality   = 3;
+
+    return config;
+}
 
 ma_result ma_device_init(ma_context* pContext, const ma_device_config* pConfig, ma_device* pDevice)
 {
@@ -27799,29 +27971,6 @@ ma_result ma_device_get_master_gain_db(ma_device* pDevice, float* pGainDB)
     *pGainDB = ma_factor_to_gain_db(factor);
 
     return MA_SUCCESS;
-}
-
-
-ma_context_config ma_context_config_init()
-{
-    ma_context_config config;
-    MA_ZERO_OBJECT(&config);
-
-    return config;
-}
-
-ma_device_config ma_device_config_init(ma_device_type deviceType)
-{
-    ma_device_config config;
-    MA_ZERO_OBJECT(&config);
-    config.deviceType = deviceType;
-
-    /* Resampling defaults. We must never use the Speex backend by default because it uses licensed third party code. */
-    config.resampling.algorithm       = ma_resample_algorithm_linear;
-    config.resampling.linear.lpfCount = ma_min(2, MA_MAX_RESAMPLER_LPF_FILTERS);
-    config.resampling.speex.quality   = 3;
-
-    return config;
 }
 #endif  /* MA_NO_DEVICE_IO */
 
