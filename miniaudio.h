@@ -1074,7 +1074,7 @@ The following backends are supported by miniaudio.
     | WinMM       | ma_backend_winmm      | Windows XP+ (may work on older versions, but untested) |
     | Core Audio  | ma_backend_coreaudio  | macOS, iOS                                             |
     | ALSA        | ma_backend_alsa       | Linux                                                  |
-    | PulseAudio  | ma_backend_pulseaudio | Cross Platform (disabled on BSD and Android)           |
+    | PulseAudio  | ma_backend_pulseaudio | Cross Platform (disabled on Windows, BSD and Android)  |
     | JACK        | ma_backend_jack       | Cross Platform (disabled on BSD and Android)           |
     | sndio       | ma_backend_sndio      | OpenBSD                                                |
     | audio(4)    | ma_backend_audio4     | NetBSD, OpenBSD                                        |
@@ -3337,7 +3337,7 @@ When `backends` is NULL, the default priority order will be used. Below is a lis
     | WinMM       | ma_backend_winmm      | Windows XP+ (may work on older versions, but untested) |
     | Core Audio  | ma_backend_coreaudio  | macOS, iOS                                             |
     | ALSA        | ma_backend_alsa       | Linux                                                  |
-    | PulseAudio  | ma_backend_pulseaudio | Cross Platform (disabled on BSD and Android)           |
+    | PulseAudio  | ma_backend_pulseaudio | Cross Platform (disabled on Windows, BSD and Android)  |
     | JACK        | ma_backend_jack       | Cross Platform (disabled on BSD and Android)           |
     | sndio       | ma_backend_sndio      | OpenBSD                                                |
     | audio(4)    | ma_backend_audio4     | NetBSD, OpenBSD                                        |
