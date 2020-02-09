@@ -85,7 +85,7 @@ latency, when in fact it was that value divided by the period count that determi
 `periodSizeInFrames` and `periodSizeInMilliseconds`.
 
 These new configuration variables work in the same way as their predecessors in that if one is set to 0, the other will be used, but the main difference is
-that you now set these to you desired latency rather than the size of the entire buffer. The benefit of this is that it's much easier less confusing to
+that you now set these to you desired latency rather than the size of the entire buffer. The benefit of this is that it's much easier and less confusing to
 configure latency.
 
 The following unused APIs have been removed:
