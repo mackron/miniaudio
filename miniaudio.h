@@ -2455,6 +2455,12 @@ typedef enum
 
 typedef union
 {
+    ma_int64 counter;
+    double counterD;
+} ma_timer;
+
+typedef union
+{
     wchar_t wasapi[64];             /* WASAPI uses a wchar_t string for identification. */
     ma_uint8 dsound[16];            /* DirectSound uses a GUID for identification. */
     /*UINT_PTR*/ ma_uint32 winmm;   /* When creating a device, WinMM expects a Win32 UINT_PTR for device identification. In practice it's actually just a UINT. */
@@ -2492,12 +2498,6 @@ typedef struct
     ma_uint32 minSampleRate;
     ma_uint32 maxSampleRate;
 } ma_device_info;
-
-typedef union
-{
-    ma_int64 counter;
-    double counterD;
-} ma_timer;
 
 typedef struct
 {
@@ -3877,6 +3877,67 @@ asking for permissions. Please refer to the official documentation for ActivateA
 
 ALSA Specific: When initializing the default device, requesting shared mode will try using the "dmix" device for playback and the "dsnoop" device for capture.
 If these fail it will try falling back to the "hw" device.
+
+
+Example 1 - Simple Initialization
+---------------------------------
+This example shows how to initialize a simple playback default using a standard configuration. If you are just needing to do simple playback from the default
+playback device this is usually all you need.
+
+```c
+ma_device_config config = ma_device_config_init(ma_device_type_playback);
+config.playback.format   = ma_format_f32;
+config.playback.channels = 2;
+config.sampleRate        = 48000;
+config.dataCallback      = ma_data_callback;
+config.pMyUserData       = pMyUserData;
+
+ma_device device;
+ma_result result = ma_device_init(NULL, &config, &device);
+if (result != MA_SUCCESS) {
+    // Error
+}
+```
+
+
+Example 2 - Advanced Initialization
+-----------------------------------
+This example show how you might do some more advanced initialization. In this hypothetical example we want to control the latency by setting the buffer size
+and period count. We also want to allow the user to be able to choose which device to output from which means we need a context so we can perform device
+enumeration.
+
+```c
+ma_context context;
+ma_result result = ma_context_init(NULL, 0, NULL, &context);
+if (result != MA_SUCCESS) {
+    // Error
+}
+
+ma_device_info* pPlaybackDeviceInfos;
+ma_uint32 playbackDeviceCount;
+result = ma_context_get_devices(&context, &pPlaybackDeviceInfos, &playbackDeviceCount, NULL, NULL);
+if (result != MA_SUCCESS) {
+    // Error
+}
+
+// ... choose a device from pPlaybackDeviceInfos ...
+
+ma_device_config config = ma_device_config_init(ma_device_type_playback);
+config.playback.pDeviceID       = pMyChosenDeviceID;    // <-- Get this from the `id` member of one of the `ma_device_info` objects returned by ma_context_get_devices().
+config.playback.format          = ma_format_f32;
+config.playback.channels        = 2;
+config.sampleRate               = 48000;
+config.dataCallback             = ma_data_callback;
+config.pUserData                = pMyUserData;
+config.bufferSizeInMilliseconds = 30;
+config.periods                  = 3;
+
+ma_device device;
+result = ma_device_init(&context, &config, &device);
+if (result != MA_SUCCESS) {
+    // Error
+}
+```
 
 
 See Also
