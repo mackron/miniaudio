@@ -3177,8 +3177,8 @@ struct ma_device
             /*AudioUnit*/ ma_ptr audioUnitCapture;
             /*AudioBufferList**/ ma_ptr pAudioBufferList;  /* Only used for input devices. */
             ma_event stopEvent;
-            ma_uint32 originalBufferSizeInFrames;
-            ma_uint32 originalBufferSizeInMilliseconds;
+            ma_uint32 originalPeriodSizeInFrames;
+            ma_uint32 originalPeriodSizeInMilliseconds;
             ma_uint32 originalPeriods;
             ma_bool32 isDefaultPlaybackDevice;
             ma_bool32 isDefaultCaptureDevice;
