@@ -33,7 +33,7 @@ void data_callback_fixed(ma_device* pDevice, void* pOutput, const void* pInput, 
     */
     printf("frameCount=%d\n", frameCount);
 
-    ma_sine_wave_read_f32(&g_sineWave, frameCount, (float*)pOutput);
+    ma_sine_wave_read_pcm_frames(&g_sineWave, pOutput, frameCount, ma_format_f32, pDevice->playback.channels);
 
     /* Unused in this example. */
     (void)pDevice;
@@ -48,9 +48,9 @@ void data_callback(ma_device* pDevice, void* pOutput, const void* pInput, ma_uin
     */
     ma_uint32 pcmFramesAvailableInRB;
     ma_uint32 pcmFramesProcessed = 0;
-    ma_uint8* pRunningOutput = pOutput;
+    ma_uint8* pRunningOutput = (ma_uint8*)pOutput;
 
-    ma_assert(pDevice->playback.channels == DEVICE_CHANNELS);
+    MA_ASSERT(pDevice->playback.channels == DEVICE_CHANNELS);
 
     /*
     The first thing to do is check if there's enough data available in the ring buffer. If so we can read from it. Otherwise we need to keep filling
@@ -85,7 +85,7 @@ void data_callback(ma_device* pDevice, void* pOutput, const void* pInput, ma_uin
             ma_pcm_rb_reset(&g_rb);
             ma_pcm_rb_acquire_write(&g_rb, &framesToWrite, &pWriteBuffer);
             {
-                ma_assert(framesToWrite == PCM_FRAME_CHUNK_SIZE);   /* <-- This should always work in this example because we just reset the ring buffer. */
+                MA_ASSERT(framesToWrite == PCM_FRAME_CHUNK_SIZE);   /* <-- This should always work in this example because we just reset the ring buffer. */
                 data_callback_fixed(pDevice, pWriteBuffer, NULL, framesToWrite);
             }
             ma_pcm_rb_commit_write(&g_rb, framesToWrite, pWriteBuffer);
@@ -102,7 +102,7 @@ int main(int argc, char** argv)
     ma_device device;
 
     ma_sine_wave_init(0.2, 400, DEVICE_SAMPLE_RATE, &g_sineWave);
-    ma_pcm_rb_init(DEVICE_FORMAT, DEVICE_CHANNELS, PCM_FRAME_CHUNK_SIZE, NULL, &g_rb);
+    ma_pcm_rb_init(DEVICE_FORMAT, DEVICE_CHANNELS, PCM_FRAME_CHUNK_SIZE, NULL, NULL, &g_rb);
     
     deviceConfig = ma_device_config_init(ma_device_type_playback);
     deviceConfig.playback.format   = DEVICE_FORMAT;

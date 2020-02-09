@@ -18,7 +18,7 @@ properties. The output buffer in the callback will be null whereas the input buf
 void data_callback(ma_device* pDevice, void* pOutput, const void* pInput, ma_uint32 frameCount)
 {
     drwav* pWav = (drwav*)pDevice->pUserData;
-    ma_assert(pWav != NULL);
+    MA_ASSERT(pWav != NULL);
 
     drwav_write_pcm_frames(pWav, frameCount, pInput);
 

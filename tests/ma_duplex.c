@@ -112,8 +112,8 @@ int main(int argc, char** argv)
     deviceConfig.playback.channels        = 2;
     deviceConfig.playback.shareMode       = ma_share_mode_shared;
     deviceConfig.sampleRate               = 0;
-    deviceConfig.bufferSizeInFrames       = 0;
-    deviceConfig.bufferSizeInMilliseconds = 60;
+    deviceConfig.periodSizeInFrames       = 0;
+    deviceConfig.periodSizeInMilliseconds = 10;
     deviceConfig.periods                  = 3;
     deviceConfig.dataCallback             = data_callback;
     deviceConfig.stopCallback             = stop_callback;
@@ -129,9 +129,9 @@ int main(int argc, char** argv)
     }
 
     /* For debugging. */
-    printf("device.playback.internalBufferSizeInFrames = %d\n", device.playback.internalBufferSizeInFrames);
+    printf("device.playback.internalPeriodSizeInFrames = %d\n", device.playback.internalPeriodSizeInFrames);
     printf("device.playback.internalPeriods            = %d\n", device.playback.internalPeriods);
-    printf("device.capture.internalBufferSizeInFrames  = %d\n", device.capture.internalBufferSizeInFrames);
+    printf("device.capture.internalPeriodSizeInFrames  = %d\n", device.capture.internalPeriodSizeInFrames);
     printf("device.capture.internalPeriods             = %d\n", device.capture.internalPeriods);
 
 
