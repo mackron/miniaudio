@@ -3336,7 +3336,7 @@ When `backends` is NULL, the default priority order will be used. Below is a lis
     |-------------|-----------------------|--------------------------------------------------------|
 
 The context can be configured via the `pConfig` argument. The config object is initialized with `ma_context_config_init()`. Individual configuration settings
-can then be set directly on the structure. See examples below for a usage. Below are the members of the `ma_context_config` object.
+can then be set directly on the structure. Below are the members of the `ma_context_config` object.
 
     logCallback
         Callback for handling log messages from miniaudio. 
@@ -3678,69 +3678,215 @@ ma_bool32 ma_context_is_loopback_supported(ma_context* pContext);
 /*
 Initializes a device.
 
-The context can be null in which case it uses the default. This is equivalent to passing in a
-context that was initialized like so:
+A device represents a physical audio device. The idea is you send or receive audio data from the device to either play it back through a speaker, or capture it
+from a microphone. Whether or not you should send or receive data from the device (or both) depends on the type of device you are initializing which can be
+playback, capture, full-duplex or loopback. (Note that loopback mode is only supported on select backends.) Sending and receiving audio data to and from the
+device is done via a callback which is fired by miniaudio at periodic time intervals.
 
+The frequency at which data is deilvered to and from a device depends on the size of it's period which is defined by a buffer size and a period count. The size
+of the buffer can be defined in terms of PCM frames or milliseconds, whichever is more convenient. The size of a period is the size of this buffer, divided by
+the period count. Generally speaking, the smaller the period, the lower the latency at the expense of higher CPU usage and increased risk of glitching due to
+the more frequent and granular data deliver intervals. The size of a period will depend on your requirements, but miniaudio's defaults should work fine for
+most scenarios. If you're building a game you should leave this fairly small, whereas if you're building a simple media player you can make it larger. Note
+that the period size you request is actually just a hint - miniaudio will tell the backend what you want, but the backend is ultimately responsible for what it
+gives you. You cannot assume you will get exactly what you ask for.
+
+When delivering data to and from a device you need to make sure it's in the correct format which you can set through the device configuration. You just set the
+format that you want to use and miniaudio will perform all of the necessary conversion for you internally. When delivering data to and from the callback you
+can assume the format is the same as what you requested when you initialized the device. See Remarks for more details on miniaudio's data conversion pipeline.
+
+
+Parameters
+----------
+pContext (in, optional)
+    A pointer to the context that owns the device. This can be null, in which case it creates a default context internally.
+
+pConfig (in)
+    A pointer to the device configuration. Cannot be null. See remarks for details.
+
+pDevice (out)
+    A pointer to the device object being initialized.
+
+
+Return Value
+------------
+MA_SUCCESS if successful; any other error code otherwise.
+
+
+Thread Safety
+-------------
+Unsafe. It is not safe to call this function simultaneously for different devices because some backends depend on and mutate global state. The same applies to
+calling this at the same time as `ma_device_uninit()`.
+
+
+Callback Safety
+---------------
+Unsafe. It is not safe to call this inside any callback.
+
+
+Remarks
+-------
+Setting `pContext` to NULL will result in miniaudio creating a default context internally and is equivalent to passing in a context initialized like so:
+
+    ```c
     ma_context_init(NULL, 0, NULL, &context);
+    ```
 
-Do not pass in null for the context if you are needing to open multiple devices. You can,
-however, use null when initializing the first device, and then use device.pContext for the
-initialization of other devices.
+Do not set `pContext` to NULL if you are needing to open multiple devices. You can, however, use NULL when initializing the first device, and then use
+device.pContext for the initialization of other devices.
 
-The device's configuration is controlled with pConfig. This allows you to configure the sample
-format, channel count, sample rate, etc. Before calling ma_device_init(), you will need to
-initialize a ma_device_config object using ma_device_config_init(). You must set the callback in
-the device config. Once initialized, the device's config is immutable. If you need to change the
-config you will need to initialize a new device.
+The device can be configured via the `pConfig` argument. The config object is initialized with `ma_device_config_init()`. Individual configuration settings can
+then be set directly on the structure. Below are the members of the `ma_device_config` object.
 
-Passing in 0 to any property in pConfig will force the use of a default value. In the case of
-sample format, channel count, sample rate and channel map it will default to the values used by
-the backend's internal device. For the size of the buffer you can set bufferSizeInFrames or
-bufferSizeInMilliseconds (if both are set it will prioritize bufferSizeInFrames). If both are
-set to zero, it will default to MA_BASE_BUFFER_SIZE_IN_MILLISECONDS_LOW_LATENCY or
-MA_BASE_BUFFER_SIZE_IN_MILLISECONDS_CONSERVATIVE, depending on whether or not performanceProfile
-is set to ma_performance_profile_low_latency or ma_performance_profile_conservative.
+    deviceType
+        Must be `ma_device_type_playback`, `ma_device_type_capture`, `ma_device_type_duplex` of `ma_device_type_loopback`.
 
-If you request exclusive mode and the backend does not support it an error will be returned. For
-robustness, you may want to first try initializing the device in exclusive mode, and then fall back
-to shared mode if required. Alternatively you can just request shared mode (the default if you
-leave it unset in the config) which is the most reliable option. Some backends do not have a
-practical way of choosing whether or not the device should be exclusive or not (ALSA, for example)
-in which case it just acts as a hint. Unless you have special requirements you should try avoiding
-exclusive mode as it's intrusive to the user. Starting with Windows 10, miniaudio will use low-latency
-shared mode where possible which may make exclusive mode unnecessary.
+    sampleRate
+        The sample rate, in hertz. The most common sample rates are 48000 and 44100. Setting this to 0 will use the device's native sample rate.
 
-When sending or receiving data to/from a device, miniaudio will internally perform a format
-conversion to convert between the format specified by pConfig and the format used internally by
-the backend. If you pass in NULL for pConfig or 0 for the sample format, channel count,
-sample rate _and_ channel map, data transmission will run on an optimized pass-through fast path.
+    bufferSizeInFrames
+        The total size of the buffer in PCM frames. If this is 0, `bufferSizeInMilliseconds` will be used instead. If both are 0 the default buffer size will
+        be used depending on the selected performance profile. See below for details.
 
-The buffer size should be treated as a hint. miniaudio will try it's best to use exactly what you
-ask for, but it may differ. You should not assume the number of frames specified in each call to
-the data callback is exactly what you originally specified.
+    bufferSizeInMilliseconds
+        The total size of the buffer in milliseconds. If this is 0, `bufferSizeInFrames` will be used instead. If both are 0 the default buffer size will be
+        used depending on the selected performance profile. See below for details.
 
-The <periods> property controls how frequently the background thread is woken to check for more
-data. It's tied to the buffer size, so as an example, if your buffer size is equivalent to 10
-milliseconds and you have 2 periods, the CPU will wake up approximately every 5 milliseconds.
+    periods
+        The number of periods making up the device's entire buffer. The total buffer size, defined by `bufferSizeInFrames` or `bufferSizeInMilliseconds`, will
+        be dividied by this number to determine the approximate latency. This is just a hint as backends will be the ones who ultimately decide how your
+        buffers and periods will be configured.
 
-When compiling for UWP you must ensure you call this function on the main UI thread because the
-operating system may need to present the user with a message asking for permissions. Please refer
-to the official documentation for ActivateAudioInterfaceAsync() for more information.
+    performanceProfile
+        A hint to miniaudio as to the performance requirements of your program. Can be either `ma_performance_profile_low_latency` (default) or
+        `ma_performance_profile_conservative`. This mainly affects the size of default buffers and can usually be left at it's default value.
 
-ALSA Specific: When initializing the default device, requesting shared mode will try using the
-"dmix" device for playback and the "dsnoop" device for capture. If these fail it will try falling
-back to the "hw" device.
+    noPreZeroedOutputBuffer
+        When set to true, the contents of the output buffer passed into the data callback will be left undefined. When set to false (default), the contents of
+        the output buffer will be cleared the zero. You can use this to avoid the overhead of zeroing out the buffer if you know can guarantee that your data
+        callback will write to every sample in the output buffer, or if you are doing your own clearing.
 
-Return Value:
-  MA_SUCCESS if successful; any other error code otherwise.
+    noClip
+        When set to true, the contents of the output buffer passed into the data callback will be clipped after returning. When set to false (default), the
+        contents of the output buffer are left alone after returning and it will be left up to the backend itself to decide whether or not the clip. This only
+        applies when the playback sample format is f32.
 
-Thread Safety: UNSAFE
-  It is not safe to call this function simultaneously for different devices because some backends
-  depend on and mutate global state (such as OpenSL|ES). The same applies to calling this at the
-  same time as ma_device_uninit().
+    dataCallback
+        The callback to fire whenever data is ready to be delivered to or from the device.
 
-Callback Safety: UNSAFE
-  It is not safe to call this inside any callback.
+    stopCallback
+        The callback to fire whenever the device has stopped, either explicitly via `ma_device_stop()`, or implicitly due to things like the device being
+        disconnected.
+
+    pUserData
+        The user data pointer to use with the device. You can access this directly from the device object like `device.pUserData`.
+
+    resampling.algorithm
+        The resampling algorithm to use when miniaudio needs to perform resampling between the rate specified by `sampleRate` and the device's native rate. The
+        default value is `ma_resample_algorithm_linear`, and the quality can be configured with `resampling.linear.lpfCount`.
+
+    resampling.linear.lpfCount
+        The linear resampler applies a low-pass filter as part of it's procesing for anti-aliasing. This setting controls the quality of the filter. The higher
+        the value, the better the quality. Setting this to 0 will disable low-pass filtering altogether. The maximum value is `MA_MAX_RESAMPLER_LPF_FILTERS`. 
+        The default value is `min(2, MA_MAX_RESAMPLER_LPF_FILTERS)`.
+
+    playback.pDeviceID
+        A pointer to a `ma_device_id` structure containing the ID of the playback device to initialize. Setting this NULL (default) will use the system's
+        default playback device. Retrieve the device ID from the `ma_device_info` structure, which can be retrieved using device enumeration.
+
+    playback.format
+        The sample format to use for playback. When set to `ma_format_unknown` the device's native format will be used. This can be retrieved after
+        initialization from the device object directly with `device.playback.format`.
+
+    playback.channels
+        The number of channels to use for playback. When set to 0 the device's native channel count will be used. This can be retrieved after initialization
+        from the device object directly with `device.playback.channels`.
+
+    playback.channelMap
+        The channel map to use for playback. When left empty, the device's native channel map will be used. This can be retrieved after initialization from the
+        device object direct with `device.playback.channelMap`.
+
+    playback.shareMode
+        The preferred share mode to use for playback. Can be either `ma_share_mode_shared` (default) or `ma_share_mode_exclusive`. Note that if you specify
+        exclusive mode, but it's not supported by the backend, initialization will fail. You can then fall back to shared mode if desired.
+
+    playback.pDeviceID
+        A pointer to a `ma_device_id` structure containing the ID of the playback device to initialize. Setting this NULL (default) will use the system's
+        default playback device. Retrieve the device ID from the `ma_device_info` structure, which can be retrieved using device enumeration.
+
+    capture.format
+        The sample format to use for capture. When set to `ma_format_unknown` the device's native format will be used. This can be retrieved after
+        initialization from the device object directly with `device.capture.format`.
+
+    capture.channels
+        The number of channels to use for capture. When set to 0 the device's native channel count will be used. This can be retrieved after initialization
+        from the device object directly with `device.capture.channels`.
+
+    capture.channelMap
+        The channel map to use for capture. When left empty, the device's native channel map will be used. This can be retrieved after initialization from the
+        device object direct with `device.capture.channelMap`.
+
+    capture.shareMode
+        The preferred share mode to use for capture. Can be either `ma_share_mode_shared` (default) or `ma_share_mode_exclusive`. Note that if you specify
+        exclusive mode, but it's not supported by the backend, initialization will fail. You can then fall back to shared mode if desired.
+
+    wasapi.noAutoConvertSRC
+        WASAPI only. When set to true, disables WASAPI's automatic resampling and forces the use of miniaudio's resampler. Defaults to false. 
+
+    wasapi.noDefaultQualitySRC
+        WASAPI only. Only used when `wasapi.noAutoConvertSRC` is set to false. When set to true, disables the use of `AUDCLNT_STREAMFLAGS_SRC_DEFAULT_QUALITY`.
+        You should usually leave this set to false, which is the default.
+
+    wasapi.noAutoStreamRouting
+        WASAPI only. When set to true, disables automatic stream routing on the WASAPI backend. Defaults to false.
+
+    wasapi.noHardwareOffloading
+        WASAPI only. When set to true, disables the use of WASAPI's hardware offloading feature. Defaults to false.
+
+    alsa.noMMap
+        ALSA only. When set to true, disables MMap mode. Defaults to false.
+
+    pulse.pStreamNamePlayback
+        PulseAudio only. Sets the stream name for playback.
+
+    pulse.pStreamNameCapture
+        PulseAudio only. Sets the stream name for capture.
+
+
+Once initialized, the device's config is immutable. If you need to change the config you will need to initialize a new device.
+
+If both `bufferSizeInFrames` and `bufferSizeInMilliseconds` are set to zero, it will default to `MA_BASE_BUFFER_SIZE_IN_MILLISECONDS_LOW_LATENCY` or
+`MA_BASE_BUFFER_SIZE_IN_MILLISECONDS_CONSERVATIVE`, depending on whether or not `performanceProfile` is set to `ma_performance_profile_low_latency` or
+`ma_performance_profile_conservative`.
+
+If you request exclusive mode and the backend does not support it an error will be returned. For robustness, you may want to first try initializing the device
+in exclusive mode, and then fall back to shared mode if required. Alternatively you can just request shared mode (the default if you leave it unset in the
+config) which is the most reliable option. Some backends do not have a practical way of choosing whether or not the device should be exclusive or not (ALSA,
+for example) in which case it just acts as a hint. Unless you have special requirements you should try avoiding exclusive mode as it's intrusive to the user.
+Starting with Windows 10, miniaudio will use low-latency shared mode where possible which may make exclusive mode unnecessary.
+
+After initializing the device it will be in a stopped state. To start it, use `ma_device_start()`.
+
+When sending or receiving data to/from a device, miniaudio will internally perform a format conversion to convert between the format specified by pConfig and
+the format used internally by the backend. If you pass in 0 for the sample format, channel count, sample rate _and_ channel map, data transmission will run on
+an optimized pass-through fast path. You can retrieve the format, channel count and sample rate by inspecting the `playback/capture.format`,
+`playback/capture.channels` and `sampleRate` members of the device object.
+
+When compiling for UWP you must ensure you call this function on the main UI thread because the operating system may need to present the user with a message
+asking for permissions. Please refer to the official documentation for ActivateAudioInterfaceAsync() for more information.
+
+ALSA Specific: When initializing the default device, requesting shared mode will try using the "dmix" device for playback and the "dsnoop" device for capture.
+If these fail it will try falling back to the "hw" device.
+
+
+See Also
+--------
+ma_device_config_init()
+ma_device_uninit()
+ma_device_start()
+ma_context_init()
+ma_context_get_devices()
+ma_context_enumerate_devices()
 */
 ma_result ma_device_init(ma_context* pContext, const ma_device_config* pConfig, ma_device* pDevice);
 
