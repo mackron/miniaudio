@@ -350,7 +350,8 @@ The Windows build should compile clean on all popular compilers without the need
 macOS and iOS
 -------------
 The macOS build should compile clean without the need to download any dependencies or link to any libraries or frameworks. The iOS build needs to be compiled
-as Objective-C (sorry) and will need to link the relevant frameworks but should Just Work with Xcode.
+as Objective-C (sorry) and will need to link the relevant frameworks but should Just Work with Xcode. Compiling through the command line requires linking to
+-lpthread and -lm.
 
 Linux
 -----
@@ -358,7 +359,7 @@ The Linux build only requires linking to -ldl, -lpthread and -lm. You do not nee
 
 BSD
 ---
-The BSD build only requires linking to -ldl, -lpthread and -lm. NetBSD uses audio(4), OpenBSD uses sndio and FreeBSD uses OSS.
+The BSD build only requires linking to -lpthread and -lm. NetBSD uses audio(4), OpenBSD uses sndio and FreeBSD uses OSS.
 
 Android
 -------
@@ -28567,7 +28568,7 @@ static MA_INLINE ma_biquad_config ma_lpf__get_biquad_config(const ma_lpf_config*
 
     MA_ASSERT(pConfig != NULL);
 
-    q = 1 / sqrt(2);
+    q = 0.707107;
     w = 2 * MA_PI_D * pConfig->cutoffFrequency / pConfig->sampleRate;
     s = sin(w);
     c = cos(w);
