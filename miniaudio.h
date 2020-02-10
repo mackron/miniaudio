@@ -3377,6 +3377,11 @@ can then be set directly on the structure. Below are the members of the `ma_cont
         Structure containing custom allocation callbacks. Leaving this at defaults will cause it to use MA_MALLOC, MA_REALLOC and MA_FREE. These allocation
         callbacks will be used for anything tied to the context, including devices.
 
+    alsa.useVerboseDeviceEnumeration
+        ALSA will typically enumerate many different devices which can be intrusive and unuser-friendly. To combat this, miniaudio will enumerate only unique
+        card/device pairs by default. The problem with this is that you lose a bit of flexibility and control. Setting alsa.useVerboseDeviceEnumeration makes
+        it so the ALSA backend includes all devices. Defaults to false.
+
     pulse.pApplicationName
         PulseAudio only. The application name to use when initializing the PulseAudio context with `pa_context_new()`.
 
@@ -3384,7 +3389,9 @@ can then be set directly on the structure. Below are the members of the `ma_cont
         PulseAudio only. The name of the server to connect to with `pa_context_connect()`.
 
     pulse.tryAutoSpawn
-        PulseAudio only. Whether or not to try automatically starting the PulseAudio daemon. Defaults to false.
+        PulseAudio only. Whether or not to try automatically starting the PulseAudio daemon. Defaults to false. If you set this to true, keep in mind that
+        miniaudio uses a trial and error method to find the most appropriate backend, and this will result in the PulseAudio daemon starting which may be
+        intrusive for the end user.
 
     coreaudio.sessionCategory
         iOS only. The session category to use for the shared AudioSession instance. Below is a list of allowable values and their Core Audio equivalents.
