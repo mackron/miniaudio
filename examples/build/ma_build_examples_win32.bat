@@ -9,4 +9,3 @@ SET options=-Wall -Wpedantic -std=c89 -ansi -pedantic
 %c_compiler% ../simple_enumeration.c   -o ../bin/simple_enumeration.exe   %options%
 %c_compiler% ../simple_mixing.c        -o ../bin/simple_mixing.exe        %options%
 %c_compiler% ../simple_playback_sine.c -o ../bin/simple_playback_sine.exe %options%
-%c_compiler% ../advanced_config.c      -o ../bin/advanced_config.exe      %options%

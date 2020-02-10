@@ -3,4 +3,3 @@ cc ../simple_capture.c       -o ../bin/simple_capture       -Wall -Wpedantic -st
 cc ../simple_enumeration.c   -o ../bin/simple_enumeration   -Wall -Wpedantic -std=c89 -ansi -pedantic -lpthread -ldl -lm
 cc ../simple_mixing.c        -o ../bin/simple_mixing        -Wall -Wpedantic -std=c89 -ansi -pedantic -lpthread -ldl -lm
 cc ../simple_playback_sine.c -o ../bin/simple_playback_sine -Wall -Wpedantic -std=c89 -ansi -pedantic -lpthread -ldl -lm
-cc ../advanced_config.c      -o ../bin/advanced_config      -Wall -Wpedantic -std=c89 -ansi -pedantic -lpthread -ldl -lm
