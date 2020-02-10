@@ -5027,7 +5027,6 @@ Standard Library Stuff
 #define ma_clamp(x, lo, hi)         (ma_max(lo, ma_min(x, hi)))
 #define ma_offset_ptr(p, offset)    (((ma_uint8*)(p)) + (offset))
 
-#define ma_floorf(x)                ((float)floor((double)(x)))
 #define ma_sinf(x)                  ((float)sin((double)(x)))
 #define ma_cosf(x)                  ((float)cos((double)(x)))
 
