@@ -1,1 +1,1 @@
-emcc ../simple_playback_emscripten.c -o ../bin/simple_playback_emscripten.html -s WASM=0 -Wall
+emcc ../simple_playback_sine.c -o ../bin/simple_playback_sine.html -s WASM=0 -Wall
