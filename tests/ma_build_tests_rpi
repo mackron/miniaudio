@@ -1,9 +1,0 @@
-#!/bin/bash
-cc  ma_test_0.c    -o ./bin/ma_test_0        -Wall -ldl -lpthread -lm
-c++ ma_test_0.c    -o ./bin/ma_test_0_cpp    -Wall -ldl -lpthread -lm
-
-cc  ma_profiling.c -o ./bin/ma_profiling     -Wall -ldl -lpthread -lm -mfpu=neon -O2
-c++ ma_profiling.c -o ./bin/ma_profiling_cpp -Wall -ldl -lpthread -lm -mfpu=neon -O2
-
-cc  ma_dithering.c -o ./bin/ma_dithering     -Wall -ldl -lpthread -lm
-c++ ma_dithering.c -o ./bin/ma_dithering_cpp -Wall -ldl -lpthread -lm

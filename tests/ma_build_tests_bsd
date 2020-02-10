@@ -1,8 +1,0 @@
-cc  ma_test_0.c    -o ./bin/ma_test_0        -Wall -lpthread -lm
-c++ ma_test_0.c    -o ./bin/ma_test_0_cpp    -Wall -lpthread -lm
-
-cc  ma_profiling.c -o ./bin/ma_profiling     -Wall -lpthread -lm
-c++ ma_profiling.c -o ./bin/ma_profiling_cpp -Wall -lpthread -lm
-
-cc  ma_dithering.c -o ./bin/ma_dithering     -Wall -lpthread -lm
-c++ ma_dithering.c -o ./bin/ma_dithering_cpp -Wall -lpthread -lm
