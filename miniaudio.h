@@ -5027,10 +5027,48 @@ Standard Library Stuff
 #define ma_clamp(x, lo, hi)         (ma_max(lo, ma_min(x, hi)))
 #define ma_offset_ptr(p, offset)    (((ma_uint8*)(p)) + (offset))
 
-#define ma_sinf(x)                  ((float)sin((double)(x)))
-#define ma_cosf(x)                  ((float)cos((double)(x)))
-
 #define ma_buffer_frame_capacity(buffer, channels, format) (sizeof(buffer) / ma_get_bytes_per_sample(format) / (channels))
+
+static MA_INLINE double ma_sin(double x)
+{
+    /* TODO: Implement custom sin(x). */
+    return sin(x);
+}
+
+static MA_INLINE double ma_cos(double x)
+{
+    return ma_sin((MA_PI*0.5) - x);
+}
+
+static MA_INLINE double ma_log2(double x)
+{
+    /* TODO: Implement custom log2(x). */
+    return log2(x);
+}
+
+static MA_INLINE double ma_pow(double x, double y)
+{
+    /* TODO: Implement custom pow(x, y). */
+    return pow(x, y);
+}
+
+static MA_INLINE double ma_log10(double x)
+{
+    return ma_log2(x) * 0.30102999566398119521;
+}
+
+static MA_INLINE float ma_powf(float x, float y)
+{
+    return (float)ma_pow((double)x, (double)y);
+}
+
+static MA_INLINE float ma_log10f(float x)
+{
+    return (float)ma_log10((double)x);
+}
+
+
+
 
 /*
 Return Values:
@@ -7007,12 +7045,12 @@ void ma_apply_volume_factor_pcm_frames(void* pPCMFrames, ma_uint32 frameCount, m
 
 float ma_factor_to_gain_db(float factor)
 {
-    return (float)(20*log10(factor));
+    return (float)(20*ma_log10f(factor));
 }
 
 float ma_gain_db_to_factor(float gain)
 {
-    return (float)pow(10, gain/20.0);
+    return (float)ma_powf(10, gain/20.0f);
 }
 
 
@@ -28569,8 +28607,8 @@ static MA_INLINE ma_biquad_config ma_lpf__get_biquad_config(const ma_lpf_config*
 
     q = 0.707107;
     w = 2 * MA_PI_D * pConfig->cutoffFrequency / pConfig->sampleRate;
-    s = sin(w);
-    c = cos(w);
+    s = ma_sin(w);
+    c = ma_cos(w);
     a = s / (2*q);
 
     bqConfig.b0 = (1 - c) / 2;
@@ -37363,7 +37401,7 @@ ma_uint64 ma_sine_wave_read_pcm_frames(ma_sine_wave* pSineWave, void* pFramesOut
             ma_uint64 iChannel;
             float s;
 
-            s = (float)(sin(pSineWave->time * pSineWave->periodsPerSecond) * pSineWave->amplitude);
+            s = (float)(ma_sin(pSineWave->time * pSineWave->periodsPerSecond) * pSineWave->amplitude);
             pSineWave->time += pSineWave->delta;
 
             for (iChannel = 0; iChannel < channels; iChannel += 1) {
