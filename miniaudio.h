@@ -4192,30 +4192,91 @@ ma_bool32 ma_device_is_started(ma_device* pDevice);
 /*
 Sets the master volume factor for the device.
 
-The volume factor must be between 0 (silence) and 1 (full volume). Use ma_device_set_master_gain_db() to
-use decibel notation, where 0 is full volume.
+The volume factor must be between 0 (silence) and 1 (full volume). Use `ma_device_set_master_gain_db()` to use decibel notation, where 0 is full volume and
+values less than 0 decreases the volume.
 
-This applies the volume factor across all channels.
 
-This does not change the operating system's volume. It only affects the volume for the given ma_device
-object's audio stream.
+Parameters
+----------
+pDevice (in)
+    A pointer to the device whose volume is being set.
+
+volume (in)
+    The new volume factor. Must be within the range of [0, 1].
+
 
 Return Value
 ------------
 MA_SUCCESS if the volume was set successfully.
 MA_INVALID_ARGS if pDevice is NULL.
 MA_INVALID_ARGS if the volume factor is not within the range of [0, 1].
+
+
+Thread Safety
+-------------
+Safe. This just sets a local member of the device object.
+
+
+Callback Safety
+---------------
+Safe. If you set the volume in the data callback, that data written to the output buffer will have the new volume applied.
+
+
+Remarks
+-------
+This applies the volume factor across all channels.
+
+This does not change the operating system's volume. It only affects the volume for the given `ma_device` object's audio stream.
+
+
+See Also
+--------
+ma_device_get_master_volume()
+ma_device_set_master_volume_gain_db()
+ma_device_get_master_volume_gain_db()
 */
 ma_result ma_device_set_master_volume(ma_device* pDevice, float volume);
 
 /*
 Retrieves the master volume factor for the device.
 
+
+Parameters
+----------
+pDevice (in)
+    A pointer to the device whose volume factor is being retrieved.
+
+pVolume (in)
+    A pointer to the variable that will receive the volume factor. The returned value will be in the range of [0, 1].
+
+
 Return Value
 ------------
 MA_SUCCESS if successful.
 MA_INVALID_ARGS if pDevice is NULL.
 MA_INVALID_ARGS if pVolume is NULL.
+
+
+Thread Safety
+-------------
+Safe. This just a simple member retrieval.
+
+
+Callback Safety
+---------------
+Safe.
+
+
+Remarks
+-------
+If an error occurs, `*pVolume` will be set to 0.
+
+
+See Also
+--------
+ma_device_set_master_volume()
+ma_device_set_master_volume_gain_db()
+ma_device_get_master_volume_gain_db()
 */
 ma_result ma_device_get_master_volume(ma_device* pDevice, float* pVolume);
 
@@ -4224,27 +4285,88 @@ Sets the master volume for the device as gain in decibels.
 
 A gain of 0 is full volume, whereas a gain of < 0 will decrease the volume.
 
-This applies the gain across all channels.
 
-This does not change the operating system's volume. It only affects the volume for the given ma_device
-object's audio stream.
+Parameters
+----------
+pDevice (in)
+    A pointer to the device whose gain is being set.
+
+gainDB (in)
+    The new volume as gain in decibels. Must be less than or equal to 0, where 0 is full volume and anything less than 0 decreases the volume.
+
 
 Return Value
 ------------
 MA_SUCCESS if the volume was set successfully.
 MA_INVALID_ARGS if pDevice is NULL.
 MA_INVALID_ARGS if the gain is > 0.
+
+
+Thread Safety
+-------------
+Safe. This just sets a local member of the device object.
+
+
+Callback Safety
+---------------
+Safe. If you set the volume in the data callback, that data written to the output buffer will have the new volume applied.
+
+
+Remarks
+-------
+This applies the gain across all channels.
+
+This does not change the operating system's volume. It only affects the volume for the given `ma_device` object's audio stream.
+
+
+See Also
+--------
+ma_device_get_master_volume_gain_db()
+ma_device_set_master_volume()
+ma_device_get_master_volume()
 */
 ma_result ma_device_set_master_gain_db(ma_device* pDevice, float gainDB);
 
 /*
 Retrieves the master gain in decibels.
 
+
+Parameters
+----------
+pDevice (in)
+    A pointer to the device whose gain is being retrieved.
+
+pGainDB (in)
+    A pointer to the variable that will receive the gain in decibels. The returned value will be <= 0.
+
+
 Return Value
 ------------
 MA_SUCCESS if successful.
 MA_INVALID_ARGS if pDevice is NULL.
 MA_INVALID_ARGS if pGainDB is NULL.
+
+
+Thread Safety
+-------------
+Safe. This just a simple member retrieval.
+
+
+Callback Safety
+---------------
+Safe.
+
+
+Remarks
+-------
+If an error occurs, `*pGainDB` will be set to 0.
+
+
+See Also
+--------
+ma_device_set_master_volume_gain_db()
+ma_device_set_master_volume()
+ma_device_get_master_volume()
 */
 ma_result ma_device_get_master_gain_db(ma_device* pDevice, float* pGainDB);
 
@@ -28453,7 +28575,12 @@ ma_result ma_device_set_master_volume(ma_device* pDevice, float volume)
 
 ma_result ma_device_get_master_volume(ma_device* pDevice, float* pVolume)
 {
-    if (pDevice == NULL || pVolume == NULL) {
+    if (pVolume == NULL) {
+        return MA_INVALID_ARGS;
+    }
+
+    if (pDevice == NULL) {
+        *pVolume = 0;
         return MA_INVALID_ARGS;
     }
 
@@ -28482,6 +28609,7 @@ ma_result ma_device_get_master_gain_db(ma_device* pDevice, float* pGainDB)
 
     result = ma_device_get_master_volume(pDevice, &factor);
     if (result != MA_SUCCESS) {
+        *pGainDB = 0;
         return result;
     }
 
