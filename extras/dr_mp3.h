@@ -1,6 +1,6 @@
 /*
 MP3 audio decoder. Choice of public domain or MIT-0. See license statements at the end of this file.
-dr_mp3 - v0.5.5 - 2020-01-29
+dr_mp3 - v0.5.6 - 2020-02-12
 
 David Reid - mackron@gmail.com
 
@@ -2137,7 +2137,7 @@ static int drmp3d_find_frame(const drmp3_uint8 *mp3, int mp3_bytes, int *free_fo
         }
     }
     *ptr_frame_bytes = 0;
-    return i;
+    return mp3_bytes;
 }
 
 void drmp3dec_init(drmp3dec *dec)
@@ -2242,59 +2242,56 @@ int drmp3dec_decode_frame(drmp3dec *dec, const unsigned char *mp3, int mp3_bytes
 
 void drmp3dec_f32_to_s16(const float *in, drmp3_int16 *out, int num_samples)
 {
-    if(num_samples > 0)
-    {
-        int i = 0;
+    int i = 0;
 #if DRMP3_HAVE_SIMD
-        int aligned_count = num_samples & ~7;
-        for(; i < aligned_count; i+=8)
-        {
-            drmp3_f4 scale = DRMP3_VSET(32768.0f);
-            drmp3_f4 a = DRMP3_VMUL(DRMP3_VLD(&in[i  ]), scale);
-            drmp3_f4 b = DRMP3_VMUL(DRMP3_VLD(&in[i+4]), scale);
+    int aligned_count = num_samples & ~7;
+    for(; i < aligned_count; i+=8)
+    {
+        drmp3_f4 scale = DRMP3_VSET(32768.0f);
+        drmp3_f4 a = DRMP3_VMUL(DRMP3_VLD(&in[i  ]), scale);
+        drmp3_f4 b = DRMP3_VMUL(DRMP3_VLD(&in[i+4]), scale);
 #if DRMP3_HAVE_SSE
-            drmp3_f4 s16max = DRMP3_VSET( 32767.0f);
-            drmp3_f4 s16min = DRMP3_VSET(-32768.0f);
-            __m128i pcm8 = _mm_packs_epi32(_mm_cvtps_epi32(_mm_max_ps(_mm_min_ps(a, s16max), s16min)),
-                                           _mm_cvtps_epi32(_mm_max_ps(_mm_min_ps(b, s16max), s16min)));
-            out[i  ] = (drmp3_int16)_mm_extract_epi16(pcm8, 0);
-            out[i+1] = (drmp3_int16)_mm_extract_epi16(pcm8, 1);
-            out[i+2] = (drmp3_int16)_mm_extract_epi16(pcm8, 2);
-            out[i+3] = (drmp3_int16)_mm_extract_epi16(pcm8, 3);
-            out[i+4] = (drmp3_int16)_mm_extract_epi16(pcm8, 4);
-            out[i+5] = (drmp3_int16)_mm_extract_epi16(pcm8, 5);
-            out[i+6] = (drmp3_int16)_mm_extract_epi16(pcm8, 6);
-            out[i+7] = (drmp3_int16)_mm_extract_epi16(pcm8, 7);
+        drmp3_f4 s16max = DRMP3_VSET( 32767.0f);
+        drmp3_f4 s16min = DRMP3_VSET(-32768.0f);
+        __m128i pcm8 = _mm_packs_epi32(_mm_cvtps_epi32(_mm_max_ps(_mm_min_ps(a, s16max), s16min)),
+                                        _mm_cvtps_epi32(_mm_max_ps(_mm_min_ps(b, s16max), s16min)));
+        out[i  ] = (drmp3_int16)_mm_extract_epi16(pcm8, 0);
+        out[i+1] = (drmp3_int16)_mm_extract_epi16(pcm8, 1);
+        out[i+2] = (drmp3_int16)_mm_extract_epi16(pcm8, 2);
+        out[i+3] = (drmp3_int16)_mm_extract_epi16(pcm8, 3);
+        out[i+4] = (drmp3_int16)_mm_extract_epi16(pcm8, 4);
+        out[i+5] = (drmp3_int16)_mm_extract_epi16(pcm8, 5);
+        out[i+6] = (drmp3_int16)_mm_extract_epi16(pcm8, 6);
+        out[i+7] = (drmp3_int16)_mm_extract_epi16(pcm8, 7);
 #else
-            int16x4_t pcma, pcmb;
-            a = DRMP3_VADD(a, DRMP3_VSET(0.5f));
-            b = DRMP3_VADD(b, DRMP3_VSET(0.5f));
-            pcma = vqmovn_s32(vqaddq_s32(vcvtq_s32_f32(a), vreinterpretq_s32_u32(vcltq_f32(a, DRMP3_VSET(0)))));
-            pcmb = vqmovn_s32(vqaddq_s32(vcvtq_s32_f32(b), vreinterpretq_s32_u32(vcltq_f32(b, DRMP3_VSET(0)))));
-            vst1_lane_s16(out+i  , pcma, 0);
-            vst1_lane_s16(out+i+1, pcma, 1);
-            vst1_lane_s16(out+i+2, pcma, 2);
-            vst1_lane_s16(out+i+3, pcma, 3);
-            vst1_lane_s16(out+i+4, pcmb, 0);
-            vst1_lane_s16(out+i+5, pcmb, 1);
-            vst1_lane_s16(out+i+6, pcmb, 2);
-            vst1_lane_s16(out+i+7, pcmb, 3);
+        int16x4_t pcma, pcmb;
+        a = DRMP3_VADD(a, DRMP3_VSET(0.5f));
+        b = DRMP3_VADD(b, DRMP3_VSET(0.5f));
+        pcma = vqmovn_s32(vqaddq_s32(vcvtq_s32_f32(a), vreinterpretq_s32_u32(vcltq_f32(a, DRMP3_VSET(0)))));
+        pcmb = vqmovn_s32(vqaddq_s32(vcvtq_s32_f32(b), vreinterpretq_s32_u32(vcltq_f32(b, DRMP3_VSET(0)))));
+        vst1_lane_s16(out+i  , pcma, 0);
+        vst1_lane_s16(out+i+1, pcma, 1);
+        vst1_lane_s16(out+i+2, pcma, 2);
+        vst1_lane_s16(out+i+3, pcma, 3);
+        vst1_lane_s16(out+i+4, pcmb, 0);
+        vst1_lane_s16(out+i+5, pcmb, 1);
+        vst1_lane_s16(out+i+6, pcmb, 2);
+        vst1_lane_s16(out+i+7, pcmb, 3);
 #endif
-        }
+    }
 #endif
-        for(; i < num_samples; i++)
+    for(; i < num_samples; i++)
+    {
+        float sample = in[i] * 32768.0f;
+        if (sample >=  32766.5)
+            out[i] = (drmp3_int16) 32767;
+        else if (sample <= -32767.5)
+            out[i] = (drmp3_int16)-32768;
+        else
         {
-            float sample = in[i] * 32768.0f;
-            if (sample >=  32766.5)
-                out[i] = (drmp3_int16) 32767;
-            else if (sample <= -32767.5)
-                out[i] = (drmp3_int16)-32768;
-            else
-            {
-                short s = (drmp3_int16)(sample + .5f);
-                s -= (s < 0);   /* away from zero, to be compliant */
-                out[i] = s;
-            }
+            short s = (drmp3_int16)(sample + .5f);
+            s -= (s < 0);   /* away from zero, to be compliant */
+            out[i] = s;
         }
     }
 }
@@ -4010,6 +4007,9 @@ DIFFERENCES BETWEEN minimp3 AND dr_mp3
 /*
 REVISION HISTORY
 ================
+v0.5.6 - 2020-02-12
+  - Bring up to date with minimp3.
+
 v0.5.5 - 2020-01-29
   - Fix a memory allocation bug in high level s16 decoding APIs.
 
