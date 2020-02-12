@@ -58,8 +58,8 @@ flexibility by allowing a user data pointer to be passed to the custom allocatio
 `ma_allocation_callbacks` structure. Anything making use of heap allocations has been updated to accept this new structure.
 
 The `ma_context_config` structure has been updated with a new member called `allocationCallbacks`. Leaving this set to it's defaults returned by
-`ma_context_config_init()` will cause it to use defaults. Likewise, The `ma_decoder_config` structure has been updated in the same way, and leaving everything
-as-is after `ma_decoder_config_init()` will cause it to use defaults.
+`ma_context_config_init()` will cause it to use MA_MALLOC, MA_REALLOC and MA_FREE. Likewise, The `ma_decoder_config` structure has been updated in the same
+way, and leaving everything as-is after `ma_decoder_config_init()` will cause it to use the same defaults.
 
 The following APIs have been updated to take a pointer to a `ma_allocation_callbacks` object. Setting this parameter to NULL will cause it to use defaults.
 Otherwise they will use the relevant callback in the structure.
