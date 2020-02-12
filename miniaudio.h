@@ -4976,6 +4976,15 @@ static MA_INLINE ma_bool32 ma_is_big_endian()
 #define MA_DEFAULT_PERIOD_SIZE_IN_MILLISECONDS_CONSERVATIVE 100
 #endif
 
+/* The default LPF count for linear resampling. Note that this is clamped to MA_MAX_RESAMPLER_LPF_FILTERS. */
+#ifndef MA_DEFAULT_RESAMPLER_LPF_FILTERS
+    #if MA_MAX_RESAMPLER_LPF_FILTERS >= 2
+        #define MA_DEFAULT_RESAMPLER_LPF_FILTERS    2
+    #else
+        #define MA_DEFAULT_RESAMPLER_LPF_FILTERS    MA_MAX_RESAMPLER_LPF_FILTERS
+    #endif
+#endif
+
 
 /* Standard sample rates, in order of priority. */
 ma_uint32 g_maStandardSampleRatePriorities[] = {
@@ -27896,7 +27905,7 @@ ma_device_config ma_device_config_init(ma_device_type deviceType)
 
     /* Resampling defaults. We must never use the Speex backend by default because it uses licensed third party code. */
     config.resampling.algorithm       = ma_resample_algorithm_linear;
-    config.resampling.linear.lpfCount = ma_min(2, MA_MAX_RESAMPLER_LPF_FILTERS);
+    config.resampling.linear.lpfCount = ma_min(MA_DEFAULT_RESAMPLER_LPF_FILTERS, MA_MAX_RESAMPLER_LPF_FILTERS);
     config.resampling.speex.quality   = 3;
 
     return config;
@@ -34539,9 +34548,7 @@ ma_uint64 ma_convert_frames(void* pOut, ma_uint64 frameCountOut, ma_format forma
     config = ma_data_converter_config_init(formatIn, formatOut, channelsIn, channelsOut, sampleRateIn, sampleRateOut);
     ma_get_standard_channel_map(ma_standard_channel_map_default, channelsOut, config.channelMapOut);
     ma_get_standard_channel_map(ma_standard_channel_map_default, channelsIn,  config.channelMapIn);
-
-    /* For this we can default to the best resampling available since it's most likely going to be called in non time critical situations. */
-    config.resampling.linear.lpfCount = MA_MAX_RESAMPLER_LPF_FILTERS;
+    config.resampling.linear.lpfCount = ma_min(MA_DEFAULT_RESAMPLER_LPF_FILTERS, MA_MAX_RESAMPLER_LPF_FILTERS);
 
     return ma_convert_frames_ex(pOut, frameCountOut, pIn, frameCountIn, &config);
 }
@@ -35390,7 +35397,7 @@ ma_decoder_config ma_decoder_config_init(ma_format outputFormat, ma_uint32 outpu
     config.sampleRate = outputSampleRate;
     ma_get_standard_channel_map(ma_standard_channel_map_default, config.channels, config.channelMap);
     config.resampling.algorithm = ma_resample_algorithm_linear;
-    config.resampling.linear.lpfCount = 1;
+    config.resampling.linear.lpfCount = ma_min(MA_DEFAULT_RESAMPLER_LPF_FILTERS, MA_MAX_RESAMPLER_LPF_FILTERS);
     config.resampling.speex.quality = 3;
 
     return config;
