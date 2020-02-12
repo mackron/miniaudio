@@ -4032,93 +4032,182 @@ ma_result ma_device_init_ex(const ma_backend backends[], ma_uint32 backendCount,
 /*
 Uninitializes a device.
 
-This will explicitly stop the device. You do not need to call ma_device_stop() beforehand, but it's
-harmless if you do.
+This will explicitly stop the device. You do not need to call `ma_device_stop()` beforehand, but it's harmless if you do.
 
-Do not call this in any callback.
 
-Return Value:
-  MA_SUCCESS if successful; any other error code otherwise.
+Parameters
+----------
+pDevice (in)
+    A pointer to the device to stop.
 
-Thread Safety: UNSAFE
-  As soon as this API is called the device should be considered undefined. All bets are off if you
-  try using the device at the same time as uninitializing it.
 
-Callback Safety: UNSAFE
-  It is not safe to call this inside any callback. Doing this will result in a deadlock.
+Return Value
+------------
+MA_SUCCESS if successful; any other error code otherwise.
+
+
+Thread Safety
+-------------
+Unsafe. As soon as this API is called the device should be considered undefined.
+
+
+Callback Safety
+---------------
+Unsafe. It is not safe to call this inside any callback. Doing this will result in a deadlock.
+
+
+See Also
+--------
+ma_device_init()
+ma_device_stop()
 */
 void ma_device_uninit(ma_device* pDevice);
 
 /*
 Sets the callback to use when the device has stopped, either explicitly or as a result of an error.
 
-Thread Safety: SAFE
-  This API is implemented as a simple atomic assignment.
+
+Parameters
+----------
+pDevice (in)
+    A pointer to the device whose stop callback is getting set.
+
+onStop (in, nullable)
+    The new stop callback. Can be null.
+
+
+Thread Safety
+-------------
+Safe. This API is implemented as a simple atomic assignment.
+
+
+Callback Safety
+---------------
+Safe. This is just a simple assignment.
 */
-void ma_device_set_stop_callback(ma_device* pDevice, ma_stop_proc proc);
+void ma_device_set_stop_callback(ma_device* pDevice, ma_stop_proc onStop);
 
 /*
-Activates the device. For playback devices this begins playback. For capture devices it begins
-recording.
+Starts the device. For playback devices this begins playback. For capture devices it begins recording.
 
-For a playback device, this will retrieve an initial chunk of audio data from the client before
-returning. The reason for this is to ensure there is valid audio data in the buffer, which needs
-to be done _before_ the device begins playback.
+Use `ma_device_stop()` to stop the device.
 
-This API waits until the backend device has been started for real by the worker thread. It also
-waits on a mutex for thread-safety.
+
+Parameters
+----------
+pDevice (in)
+    A pointer to the device to start.
+
+
+Return Value
+------------
+MA_SUCCESS if successful; any other error code otherwise.
+
+
+Thread Safety
+-------------
+Safe. It's safe to call this from any thread with the exception of the callback thread.
+
+
+Callback Safety
+---------------
+Unsafe. It is not safe to call this inside any callback.
+
+
+Remarks
+-------
+For a playback device, this will retrieve an initial chunk of audio data from the client before returning. The reason for this is to ensure there is valid
+audio data in the buffer, which needs to be done before the device begins playback.
+
+This API waits until the backend device has been started for real by the worker thread. It also waits on a mutex for thread-safety.
 
 Do not call this in any callback.
 
-Return Value:
-  MA_SUCCESS if successful; any other error code otherwise.
 
-Thread Safety: SAFE
-  It's safe to call this from any thread with the exception of the callback thread.
-
-Callback Safety: UNSAFE
-  It is not safe to call this inside any callback.
+See Also
+--------
+ma_device_stop()
 */
 ma_result ma_device_start(ma_device* pDevice);
 
 /*
-Puts the device to sleep, but does not uninitialize it. Use ma_device_start() to start it up again.
+Stops the device. For playback devices this stops playback. For capture devices it stops recording.
 
-This API needs to wait on the worker thread to stop the backend device properly before returning. It
-also waits on a mutex for thread-safety. In addition, some backends need to wait for the device to
-finish playback/recording of the current fragment which can take some time (usually proportionate to
-the buffer size that was specified at initialization time).
+Use `ma_device_start()` to start the device again.
 
-This should not drop unprocessed samples. Backends are required to either pause the stream in-place
-or drain the buffer if pausing is not possible. The reason for this is that stopping the device and
-the resuming it with ma_device_start() (which you might do when your program loses focus) may result
-in a situation where those samples are never output to the speakers or received from the microphone
-which can in turn result in de-syncs.
+
+Parameters
+----------
+pDevice (in)
+    A pointer to the device to stop.
+
+
+Return Value
+------------
+MA_SUCCESS if successful; any other error code otherwise.
+
+
+Thread Safety
+-------------
+Safe. It's safe to call this from any thread with the exception of the callback thread.
+
+
+Callback Safety
+---------------
+Unsafe. It is not safe to call this inside any callback. Doing this will result in a deadlock.
+
+
+Remarks
+-------
+This API needs to wait on the worker thread to stop the backend device properly before returning. It also waits on a mutex for thread-safety. In addition, some
+backends need to wait for the device to finish playback/recording of the current fragment which can take some time (usually proportionate to the buffer size
+that was specified at initialization time).
+
+Backends are required to either pause the stream in-place or drain the buffer if pausing is not possible. The reason for this is that stopping the device and
+the resuming it with ma_device_start() (which you might do when your program loses focus) may result in a situation where those samples are never output to the
+speakers or received from the microphone which can in turn result in de-syncs.
 
 Do not call this in any callback.
 
-Return Value:
-  MA_SUCCESS if successful; any other error code otherwise.
+This will be called implicitly by `ma_device_uninit()`.
 
-Thread Safety: SAFE
-  It's safe to call this from any thread with the exception of the callback thread.
 
-Callback Safety: UNSAFE
-  It is not safe to call this inside any callback. Doing this will result in a deadlock.
+See Also
+--------
+ma_device_start()
 */
 ma_result ma_device_stop(ma_device* pDevice);
 
 /*
 Determines whether or not the device is started.
 
-This is implemented as a simple accessor.
 
-Return Value:
-  True if the device is started, false otherwise.
+Parameters
+----------
+pDevice (in)
+    A pointer to the device whose start state is being retrieved.
 
-Thread Safety: SAFE
-  If another thread calls ma_device_start() or ma_device_stop() at this same time as this function
-  is called, there's a very small chance the return value will be out of sync.
+
+Return Value
+------------
+True if the device is started, false otherwise.
+
+
+Thread Safety
+-------------
+Safe. If another thread calls `ma_device_start()` or `ma_device_stop()` at this same time as this function is called, there's a very small chance the return
+value will be out of sync.
+
+
+Callback Safety
+---------------
+Safe. This is implemented as a simple accessor.
+
+
+See Also
+--------
+ma_device_start()
+ma_device_stop()
 */
 ma_bool32 ma_device_is_started(ma_device* pDevice);
 
@@ -28259,13 +28348,13 @@ void ma_device_uninit(ma_device* pDevice)
     MA_ZERO_OBJECT(pDevice);
 }
 
-void ma_device_set_stop_callback(ma_device* pDevice, ma_stop_proc proc)
+void ma_device_set_stop_callback(ma_device* pDevice, ma_stop_proc onStop)
 {
     if (pDevice == NULL) {
         return;
     }
 
-    ma_atomic_exchange_ptr(&pDevice->onStop, proc);
+    ma_atomic_exchange_ptr(&pDevice->onStop, onStop);
 }
 
 ma_result ma_device_start(ma_device* pDevice)
