@@ -103,6 +103,8 @@ Other API Changes
 -----------------
 Other less major API changes have also been made in version 0.10.
 
+`ma_device_set_stop_callback()` has been removed. You now must set the stop callback via the device config just like the data callback.
+
 `ma_sine_wave_read_f32()` and `ma_sine_wave_read_f32_ex()` have been removed and replaced with `ma_sine_wave_process_pcm_frames()` which supports outputting
 PCM frames in any format (specified by a parameter).
 
@@ -4062,30 +4064,6 @@ ma_device_init()
 ma_device_stop()
 */
 void ma_device_uninit(ma_device* pDevice);
-
-/*
-Sets the callback to use when the device has stopped, either explicitly or as a result of an error.
-
-
-Parameters
-----------
-pDevice (in)
-    A pointer to the device whose stop callback is getting set.
-
-onStop (in, nullable)
-    The new stop callback. Can be null.
-
-
-Thread Safety
--------------
-Safe. This API is implemented as a simple atomic assignment.
-
-
-Callback Safety
----------------
-Safe. This is just a simple assignment.
-*/
-void ma_device_set_stop_callback(ma_device* pDevice, ma_stop_proc onStop);
 
 /*
 Starts the device. For playback devices this begins playback. For capture devices it begins recording.
@@ -28346,15 +28324,6 @@ void ma_device_uninit(ma_device* pDevice)
     }
 
     MA_ZERO_OBJECT(pDevice);
-}
-
-void ma_device_set_stop_callback(ma_device* pDevice, ma_stop_proc onStop)
-{
-    if (pDevice == NULL) {
-        return;
-    }
-
-    ma_atomic_exchange_ptr(&pDevice->onStop, onStop);
 }
 
 ma_result ma_device_start(ma_device* pDevice)
