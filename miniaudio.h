@@ -9996,7 +9996,7 @@ static ma_result ma_device_init_internal__wasapi(ma_context* pContext, ma_device
 
         /* If we don't have an IAudioClient3 then we need to use the normal initialization routine. */
         if (!wasInitializedUsingIAudioClient3) {
-            MA_REFERENCE_TIME bufferDuration = periodDurationInMicroseconds*10;
+            MA_REFERENCE_TIME bufferDuration = periodDurationInMicroseconds * pData->periodsOut * 10;   /* <-- Multiply by 10 for microseconds to 100-nanoseconds. */
             hr = ma_IAudioClient_Initialize((ma_IAudioClient*)pData->pAudioClient, shareMode, streamFlags, bufferDuration, 0, (WAVEFORMATEX*)&wf, NULL);
             if (FAILED(hr)) {
                 if (hr == E_ACCESSDENIED) {
@@ -10013,13 +10013,14 @@ static ma_result ma_device_init_internal__wasapi(ma_context* pContext, ma_device
     }
 
     if (!wasInitializedUsingIAudioClient3) {
-        hr = ma_IAudioClient_GetBufferSize((ma_IAudioClient*)pData->pAudioClient, &pData->periodSizeInFramesOut);
+        ma_uint32 bufferSizeInFrames;
+        hr = ma_IAudioClient_GetBufferSize((ma_IAudioClient*)pData->pAudioClient, &bufferSizeInFrames);
         if (FAILED(hr)) {
             errorMsg = "[WASAPI] Failed to get audio client's actual buffer size.", result = MA_FAILED_TO_OPEN_BACKEND_DEVICE;
             goto done;
         }
 
-        pData->periodSizeInFramesOut = pData->periodSizeInFramesOut;
+        pData->periodSizeInFramesOut = bufferSizeInFrames / pData->periodsOut;
     }
 
     pData->usingAudioClient3 = wasInitializedUsingIAudioClient3;
