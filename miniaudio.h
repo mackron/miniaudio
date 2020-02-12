@@ -3698,6 +3698,74 @@ MA_TRUE if the context supports loopback mode; MA_FALSE otherwise.
 ma_bool32 ma_context_is_loopback_supported(ma_context* pContext);
 
 
+
+/*
+Initializes a device config with default settings.
+
+
+Parameters
+----------
+deviceType (in)
+    The type of the device this config is being initialized for. This must set to one of the following:
+
+    |-------------------------|
+    | Device Type             |
+    |-------------------------|
+    | ma_device_type_playback |
+    | ma_device_type_capture  |
+    | ma_device_type_duplex   |
+    | ma_device_type_loopback |
+    |-------------------------|
+
+
+Return Value
+------------
+A new device config object with default settings. You will typically want to adjust the config after this function returns. See remarks.
+
+
+Thread Safety
+-------------
+Safe.
+
+
+Callback Safety
+---------------
+Safe, but don't try initializing a device in a callback.
+
+
+Remarks
+-------
+The returned config will be initialized to defaults. You will normally want to customize a few variables before initializing the device. See Example 1 for a
+typical configuration which sets the sample format, channel count, sample rate, data callback and user data. These are usually things you will want to change
+before initializing the device.
+
+See `ma_device_init()` for details on specific configuration options.
+
+
+Example 1 - Simple Configuration
+--------------------------------
+The example below is what a program will typically want to configure for each device at a minimum. Notice how `ma_device_config_init()` is called first, and
+then the returned object is modified directly. This is important because it ensures that your program continues to work as new configuration options are added
+to the `ma_device_config` structure.
+
+```c
+ma_device_config config = ma_device_config_init(ma_device_type_playback);
+config.playback.format   = ma_format_f32;
+config.playback.channels = 2;
+config.sampleRate        = 48000;
+config.dataCallback      = ma_data_callback;
+config.pUserData         = pMyUserData;
+```
+
+
+See Also
+--------
+ma_device_init()
+ma_device_init_ex()
+*/
+ma_device_config ma_device_config_init(ma_device_type deviceType);
+
+
 /*
 Initializes a device.
 
@@ -4370,46 +4438,6 @@ ma_device_get_master_volume()
 */
 ma_result ma_device_get_master_gain_db(ma_device* pDevice, float* pGainDB);
 
-
-/*
-Initializes a device config.
-
-By default, the device config will use native device settings (format, channels, sample rate, etc.). Using native
-settings means you will get an optimized pass-through data transmission pipeline to and from the device, but you will
-need to do all format conversions manually. Normally you would want to use a known format that your program can handle
-natively, which you can do by specifying it after this function returns, like so:
-
-    ma_device_config config = ma_device_config_init(ma_device_type_playback);
-    config.callback = my_data_callback;
-    config.pUserData = pMyUserData;
-    config.format = ma_format_f32;
-    config.channels = 2;
-    config.sampleRate = 44100;
-
-In this case miniaudio will perform all of the necessary data conversion for you behind the scenes.
-
-Currently miniaudio only supports asynchronous, callback based data delivery which means you must specify callback. A
-pointer to user data can also be specified which is set in the pUserData member of the ma_device object.
-
-To specify a channel map you can use ma_get_standard_channel_map():
-
-    ma_get_standard_channel_map(ma_standard_channel_map_default, config.channels, config.channelMap);
-
-Alternatively you can set the channel map manually if you need something specific or something that isn't one of miniaudio's
-stock channel maps.
-
-By default the system's default device will be used. Set the pDeviceID member to a pointer to a ma_device_id object to 
-use a specific device. You can enumerate over the devices with ma_context_enumerate_devices() or ma_context_get_devices()
-which will give you access to the device ID. Set pDeviceID to NULL to use the default device.
-
-The device type can be one of the ma_device_type's:
-  ma_device_type_playback
-  ma_device_type_capture
-  ma_device_type_duplex
-
-Thread Safety: SAFE
-*/
-ma_device_config ma_device_config_init(ma_device_type deviceType);
 
 
 /************************************************************************************************************************************************************
