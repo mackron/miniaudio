@@ -3972,13 +3972,60 @@ ma_context_enumerate_devices()
 ma_result ma_device_init(ma_context* pContext, const ma_device_config* pConfig, ma_device* pDevice);
 
 /*
-Initializes a device without a context, with extra parameters for controlling the configuration
-of the internal self-managed context.
+Initializes a device without a context, with extra parameters for controlling the configuration of the internal self-managed context.
 
-See ma_device_init() and ma_context_init().
+This is the same as `ma_device_init()`, only instead of a context being passed in, the parameters from `ma_context_init()` are passed in instead. This function
+allows you to configure the internally created context.
 
-Callback Safety: UNSAFE
-  It is not safe to call this inside any callback.
+
+Parameters
+----------
+backends (in, optional)
+    A list of backends to try initializing, in priority order. Can be NULL, in which case it uses default priority order.
+
+backendCount (in, optional)
+    The number of items in `backend`. Ignored if `backend` is NULL.
+
+pContextConfig (in, optional)
+    The context configuration.
+
+pConfig (in)
+    A pointer to the device configuration. Cannot be null. See remarks for details.
+
+pDevice (out)
+    A pointer to the device object being initialized.
+
+
+Return Value
+------------
+MA_SUCCESS if successful; any other error code otherwise.
+
+
+Thread Safety
+-------------
+Unsafe. It is not safe to call this function simultaneously for different devices because some backends depend on and mutate global state. The same applies to
+calling this at the same time as `ma_device_uninit()`.
+
+
+Callback Safety
+---------------
+Unsafe. It is not safe to call this inside any callback.
+
+
+Remarks
+-------
+You only need to use this function if you want to configure the context differently to it's defaults. You should never use this function if you want to manage
+your own context.
+
+See the documentation for `ma_context_init()` for information on the different context configuration options.
+
+
+See Also
+--------
+ma_device_init()
+ma_device_uninit()
+ma_device_config_init()
+ma_context_init()
 */
 ma_result ma_device_init_ex(const ma_backend backends[], ma_uint32 backendCount, const ma_context_config* pContextConfig, const ma_device_config* pConfig, ma_device* pDevice);
 
