@@ -3007,8 +3007,8 @@ struct ma_device
     ma_device_type type;
     ma_uint32 sampleRate;
     volatile ma_uint32 state;               /* The state of the device is variable and can change at any time on any thread, so tell the compiler as such with `volatile`. */
-    ma_device_callback_proc onData;
-    ma_stop_proc onStop;
+    ma_device_callback_proc onData;         /* Set once at initialization time and should not be changed after. */
+    ma_stop_proc onStop;                    /* Set once at initialization time and should not be changed after. */
     void* pUserData;                        /* Application defined data. */
     ma_mutex lock;
     ma_event wakeupEvent;
@@ -3022,7 +3022,7 @@ struct ma_device
     ma_bool32 isOwnerOfContext        : 1;  /* When set to true, uninitializing the device will also uninitialize the context. Set to true when NULL is passed into ma_device_init(). */
     ma_bool32 noPreZeroedOutputBuffer : 1;
     ma_bool32 noClip                  : 1;
-    float masterVolumeFactor;
+    volatile float masterVolumeFactor;      /* Volatile so we can use some thread safety when applying volume to periods. */
     struct
     {
         ma_resample_algorithm algorithm;
@@ -7329,16 +7329,17 @@ float ma_gain_db_to_factor(float gain)
 
 static void ma_device__on_data(ma_device* pDevice, void* pFramesOut, const void* pFramesIn, ma_uint32 frameCount)
 {
-    ma_device_callback_proc onData;
+    float masterVolumeFactor;
+    
+    masterVolumeFactor = pDevice->masterVolumeFactor;
 
-    onData = pDevice->onData;
-    if (onData) {
+    if (pDevice->onData) {
         if (!pDevice->noPreZeroedOutputBuffer && pFramesOut != NULL) {
             ma_zero_pcm_frames(pFramesOut, frameCount, pDevice->playback.format, pDevice->playback.channels);
         }
 
         /* Volume control of input makes things a bit awkward because the input buffer is read-only. We'll need to use a temp buffer and loop in this case. */
-        if (pFramesIn != NULL && pDevice->masterVolumeFactor < 1) {
+        if (pFramesIn != NULL && masterVolumeFactor < 1) {
             ma_uint8 tempFramesIn[MA_DATA_CONVERTER_STACK_BUFFER_SIZE];
             ma_uint32 bpfCapture  = ma_get_bytes_per_frame(pDevice->capture.format, pDevice->capture.channels);
             ma_uint32 bpfPlayback = ma_get_bytes_per_frame(pDevice->playback.format, pDevice->playback.channels);
@@ -7349,21 +7350,21 @@ static void ma_device__on_data(ma_device* pDevice, void* pFramesOut, const void*
                     framesToProcessThisIteration = sizeof(tempFramesIn)/bpfCapture;
                 }
 
-                ma_copy_and_apply_volume_factor_pcm_frames(tempFramesIn, ma_offset_ptr(pFramesIn, totalFramesProcessed*bpfCapture), framesToProcessThisIteration, pDevice->capture.format, pDevice->capture.channels, pDevice->masterVolumeFactor);
+                ma_copy_and_apply_volume_factor_pcm_frames(tempFramesIn, ma_offset_ptr(pFramesIn, totalFramesProcessed*bpfCapture), framesToProcessThisIteration, pDevice->capture.format, pDevice->capture.channels, masterVolumeFactor);
 
-                onData(pDevice, ma_offset_ptr(pFramesOut, totalFramesProcessed*bpfPlayback), tempFramesIn, framesToProcessThisIteration);
+                pDevice->onData(pDevice, ma_offset_ptr(pFramesOut, totalFramesProcessed*bpfPlayback), tempFramesIn, framesToProcessThisIteration);
 
                 totalFramesProcessed += framesToProcessThisIteration;
             }
         } else {
-            onData(pDevice, pFramesOut, pFramesIn, frameCount);
+            pDevice->onData(pDevice, pFramesOut, pFramesIn, frameCount);
         }
 
         /* Volume control and clipping for playback devices. */
         if (pFramesOut != NULL) {
-            if (pDevice->masterVolumeFactor < 1) {
+            if (masterVolumeFactor < 1) {
                 if (pFramesIn == NULL) {    /* <-- In full-duplex situations, the volume will have been applied to the input samples before the data callback. Applying it again post-callback will incorrectly compound it. */
-                    ma_apply_volume_factor_pcm_frames(pFramesOut, frameCount, pDevice->playback.format, pDevice->playback.channels, pDevice->masterVolumeFactor);
+                    ma_apply_volume_factor_pcm_frames(pFramesOut, frameCount, pDevice->playback.format, pDevice->playback.channels, masterVolumeFactor);
                 }
             }
 
