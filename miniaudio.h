@@ -23320,6 +23320,16 @@ static ma_result ma_device_stop__sndio(ma_device* pDevice)
 {
     MA_ASSERT(pDevice != NULL);
 
+    /*
+    From the documentation:
+
+        The sio_stop() function puts the audio subsystem in the same state as before sio_start() is called. It stops recording, drains the play buffer and then
+        stops playback. If samples to play are queued but playback hasn't started yet then playback is forced immediately; playback will actually stop once the
+        buffer is drained. In no case are samples in the play buffer discarded.
+
+    Therefore, sio_stop() performs all of the necessary draining for us.
+    */
+
     if (pDevice->type == ma_device_type_capture || pDevice->type == ma_device_type_duplex) {
         ((ma_sio_stop_proc)pDevice->pContext->sndio.sio_stop)((struct ma_sio_hdl*)pDevice->sndio.handleCapture);
     }
