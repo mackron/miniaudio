@@ -2515,6 +2515,11 @@ typedef struct
     ma_uint32 maxChannels;
     ma_uint32 minSampleRate;
     ma_uint32 maxSampleRate;
+
+    struct
+    {
+        ma_bool32 isDefault;
+    } _private;
 } ma_device_info;
 
 typedef struct
@@ -9520,6 +9525,89 @@ static ma_result ma_context_get_device_info_from_IAudioClient__wasapi(ma_context
 }
 
 #ifdef MA_WIN32_DESKTOP
+static ma_EDataFlow ma_device_type_to_EDataFlow(ma_device_type deviceType)
+{
+    if (deviceType == ma_device_type_playback) {
+        return ma_eRender;
+    } else if (deviceType == ma_device_type_capture) {
+        return ma_eCapture;
+    } else {
+        MA_ASSERT(MA_FALSE);
+        return ma_eRender; /* Should never hit this. */
+    }
+}
+
+static ma_result ma_context_create_IMMDeviceEnumerator__wasapi(ma_context* pContext, ma_IMMDeviceEnumerator** ppDeviceEnumerator)
+{
+    HRESULT hr;
+    ma_IMMDeviceEnumerator* pDeviceEnumerator;
+
+    MA_ASSERT(pContext           != NULL);
+    MA_ASSERT(ppDeviceEnumerator != NULL);
+
+    hr = ma_CoCreateInstance(pContext, MA_CLSID_MMDeviceEnumerator, NULL, CLSCTX_ALL, MA_IID_IMMDeviceEnumerator, (void**)&pDeviceEnumerator);
+    if (FAILED(hr)) {
+        return ma_context_post_error(pContext, NULL, MA_LOG_LEVEL_ERROR, "[WASAPI] Failed to create device enumerator.", MA_ERROR);
+    }
+
+    *ppDeviceEnumerator = pDeviceEnumerator;
+
+    return MA_SUCCESS;
+}
+
+static LPWSTR ma_context_get_default_device_id_from_IMMDeviceEnumerator__wasapi(ma_context* pContext, ma_IMMDeviceEnumerator* pDeviceEnumerator, ma_device_type deviceType)
+{
+    HRESULT hr;
+    ma_IMMDevice* pMMDefaultDevice = NULL;
+    LPWSTR pDefaultDeviceID = NULL;
+    ma_EDataFlow dataFlow;
+    ma_ERole role;
+
+    MA_ASSERT(pContext          != NULL);
+    MA_ASSERT(pDeviceEnumerator != NULL);
+
+    /* Grab the EDataFlow type from the device type. */
+    dataFlow = ma_device_type_to_EDataFlow(deviceType);
+
+    /* The role is always eConsole, but we may make this configurable later. */
+    role = ma_eConsole;
+
+    hr = ma_IMMDeviceEnumerator_GetDefaultAudioEndpoint(pDeviceEnumerator, dataFlow, role, &pMMDefaultDevice);
+    if (FAILED(hr)) {
+        return NULL;
+    }
+
+    hr = ma_IMMDevice_GetId(pMMDefaultDevice, &pDefaultDeviceID);
+
+    ma_IMMDevice_Release(pMMDefaultDevice);
+    pMMDefaultDevice = NULL;
+
+    if (FAILED(hr)) {
+        return NULL;
+    }
+
+    return pDefaultDeviceID;
+}
+
+static LPWSTR ma_context_get_default_device_id__wasapi(ma_context* pContext, ma_device_type deviceType)    /* Free the returned pointer with ma_CoTaskMemFree() */
+{
+    ma_result result;
+    ma_IMMDeviceEnumerator* pDeviceEnumerator;
+    LPWSTR pDefaultDeviceID = NULL;
+
+    MA_ASSERT(pContext != NULL);
+
+    result = ma_context_create_IMMDeviceEnumerator__wasapi(pContext, &pDeviceEnumerator);
+    if (result != MA_SUCCESS) {
+        return NULL;
+    }
+
+    pDefaultDeviceID = ma_context_get_default_device_id_from_IMMDeviceEnumerator__wasapi(pContext, pDeviceEnumerator, deviceType);
+    
+    ma_IMMDeviceEnumerator_Release(pDeviceEnumerator);
+    return pDefaultDeviceID;
+}
+
 static ma_result ma_context_get_MMDevice__wasapi(ma_context* pContext, ma_device_type deviceType, const ma_device_id* pDeviceID, ma_IMMDevice** ppMMDevice)
 {
     ma_IMMDeviceEnumerator* pDeviceEnumerator;
@@ -9547,9 +9635,9 @@ static ma_result ma_context_get_MMDevice__wasapi(ma_context* pContext, ma_device
     return MA_SUCCESS;
 }
 
-static ma_result ma_context_get_device_info_from_MMDevice__wasapi(ma_context* pContext, ma_IMMDevice* pMMDevice, ma_share_mode shareMode, ma_bool32 onlySimpleInfo, ma_device_info* pInfo)
+static ma_result ma_context_get_device_info_from_MMDevice__wasapi(ma_context* pContext, ma_IMMDevice* pMMDevice, ma_share_mode shareMode, LPWSTR pDefaultDeviceID, ma_bool32 onlySimpleInfo, ma_device_info* pInfo)
 {
-    LPWSTR id;
+    LPWSTR pDeviceID;
     HRESULT hr;
 
     MA_ASSERT(pContext != NULL);
@@ -9557,19 +9645,26 @@ static ma_result ma_context_get_device_info_from_MMDevice__wasapi(ma_context* pC
     MA_ASSERT(pInfo != NULL);
 
     /* ID. */
-    hr = ma_IMMDevice_GetId(pMMDevice, &id);
+    hr = ma_IMMDevice_GetId(pMMDevice, &pDeviceID);
     if (SUCCEEDED(hr)) {
-        size_t idlen = wcslen(id);
+        size_t idlen = wcslen(pDeviceID);
         if (idlen+1 > ma_countof(pInfo->id.wasapi)) {
-            ma_CoTaskMemFree(pContext, id);
+            ma_CoTaskMemFree(pContext, pDeviceID);
             MA_ASSERT(MA_FALSE);  /* NOTE: If this is triggered, please report it. It means the format of the ID must haved change and is too long to fit in our fixed sized buffer. */
             return MA_ERROR;
         }
 
-        MA_COPY_MEMORY(pInfo->id.wasapi, id, idlen * sizeof(wchar_t));
+        MA_COPY_MEMORY(pInfo->id.wasapi, pDeviceID, idlen * sizeof(wchar_t));
         pInfo->id.wasapi[idlen] = '\0';
 
-        ma_CoTaskMemFree(pContext, id);
+        if (pDefaultDeviceID != NULL) {
+            if (wcscmp(pDeviceID, pDefaultDeviceID) == 0) {
+                /* It's a default device. */
+                pInfo->_private.isDefault = MA_TRUE;
+            }
+        }
+
+        ma_CoTaskMemFree(pContext, pDeviceID);
     }
 
     {
@@ -9607,45 +9702,65 @@ static ma_result ma_context_get_device_info_from_MMDevice__wasapi(ma_context* pC
     return MA_SUCCESS;
 }
 
-static ma_result ma_context_enumerate_device_collection__wasapi(ma_context* pContext, ma_IMMDeviceCollection* pDeviceCollection, ma_device_type deviceType, ma_enum_devices_callback_proc callback, void* pUserData)
+static ma_result ma_context_enumerate_devices_by_type__wasapi(ma_context* pContext, ma_IMMDeviceEnumerator* pDeviceEnumerator, ma_device_type deviceType, ma_enum_devices_callback_proc callback, void* pUserData)
 {
+    ma_result result = MA_SUCCESS;
     UINT deviceCount;
     HRESULT hr;
     ma_uint32 iDevice;
-
+    LPWSTR pDefaultDeviceID = NULL;
+    ma_IMMDeviceCollection* pDeviceCollection = NULL;
+    
     MA_ASSERT(pContext != NULL);
     MA_ASSERT(callback != NULL);
 
-    hr = ma_IMMDeviceCollection_GetCount(pDeviceCollection, &deviceCount);
-    if (FAILED(hr)) {
-        return ma_context_post_error(pContext, NULL, MA_LOG_LEVEL_ERROR, "[WASAPI] Failed to get playback device count.", MA_NO_DEVICE);
-    }
+    /* Grab the default device. We use this to know whether or not flag the returned device info as being the default. */
+    pDefaultDeviceID = ma_context_get_default_device_id_from_IMMDeviceEnumerator__wasapi(pContext, pDeviceEnumerator, deviceType);
 
-    for (iDevice = 0; iDevice < deviceCount; ++iDevice) {
-        ma_device_info deviceInfo;
-        ma_IMMDevice* pMMDevice;
+    /* We need to enumerate the devices which returns a device collection. */
+    hr = ma_IMMDeviceEnumerator_EnumAudioEndpoints(pDeviceEnumerator, ma_device_type_to_EDataFlow(deviceType), MA_MM_DEVICE_STATE_ACTIVE, &pDeviceCollection);
+    if (SUCCEEDED(hr)) {
+        hr = ma_IMMDeviceCollection_GetCount(pDeviceCollection, &deviceCount);
+        if (FAILED(hr)) {
+            result = ma_context_post_error(pContext, NULL, MA_LOG_LEVEL_ERROR, "[WASAPI] Failed to get device count.", MA_NO_DEVICE);
+            goto done;
+        }
+
+        for (iDevice = 0; iDevice < deviceCount; ++iDevice) {
+            ma_device_info deviceInfo;
+            ma_IMMDevice* pMMDevice;
         
-        MA_ZERO_OBJECT(&deviceInfo);
+            MA_ZERO_OBJECT(&deviceInfo);
 
-        hr = ma_IMMDeviceCollection_Item(pDeviceCollection, iDevice, &pMMDevice);
-        if (SUCCEEDED(hr)) {
-            ma_result result = ma_context_get_device_info_from_MMDevice__wasapi(pContext, pMMDevice, ma_share_mode_shared, MA_TRUE, &deviceInfo);   /* MA_TRUE = onlySimpleInfo. */
+            hr = ma_IMMDeviceCollection_Item(pDeviceCollection, iDevice, &pMMDevice);
+            if (SUCCEEDED(hr)) {
+                result = ma_context_get_device_info_from_MMDevice__wasapi(pContext, pMMDevice, ma_share_mode_shared, pDefaultDeviceID, MA_TRUE, &deviceInfo);   /* MA_TRUE = onlySimpleInfo. */
 
-            ma_IMMDevice_Release(pMMDevice);
-            if (result == MA_SUCCESS) {
-                ma_bool32 cbResult = callback(pContext, deviceType, &deviceInfo, pUserData);
-                if (cbResult == MA_FALSE) {
-                    break;
+                ma_IMMDevice_Release(pMMDevice);
+                if (result == MA_SUCCESS) {
+                    ma_bool32 cbResult = callback(pContext, deviceType, &deviceInfo, pUserData);
+                    if (cbResult == MA_FALSE) {
+                        break;
+                    }
                 }
             }
         }
     }
 
-    return MA_SUCCESS;
-}
-#endif
+done:
+    if (pDefaultDeviceID != NULL) {
+        ma_CoTaskMemFree(pContext, pDefaultDeviceID);
+        pDefaultDeviceID = NULL;
+    }
 
-#ifdef MA_WIN32_DESKTOP
+    if (pDeviceCollection != NULL) {
+        ma_IMMDeviceCollection_Release(pDeviceCollection);
+        pDeviceCollection = NULL;
+    }
+
+    return result;
+}
+
 static ma_result ma_context_get_IAudioClient_Desktop__wasapi(ma_context* pContext, ma_device_type deviceType, const ma_device_id* pDeviceID, ma_IAudioClient** ppAudioClient, ma_IMMDevice** ppMMDevice)
 {
     ma_result result;
@@ -9764,26 +9879,14 @@ static ma_result ma_context_enumerate_devices__wasapi(ma_context* pContext, ma_e
     /* Desktop */
     HRESULT hr;
     ma_IMMDeviceEnumerator* pDeviceEnumerator;
-    ma_IMMDeviceCollection* pDeviceCollection;
 
     hr = ma_CoCreateInstance(pContext, MA_CLSID_MMDeviceEnumerator, NULL, CLSCTX_ALL, MA_IID_IMMDeviceEnumerator, (void**)&pDeviceEnumerator);
     if (FAILED(hr)) {
         return ma_context_post_error(pContext, NULL, MA_LOG_LEVEL_ERROR, "[WASAPI] Failed to create device enumerator.", MA_FAILED_TO_OPEN_BACKEND_DEVICE);
     }
 
-    /* Playback. */
-    hr = ma_IMMDeviceEnumerator_EnumAudioEndpoints(pDeviceEnumerator, ma_eRender, MA_MM_DEVICE_STATE_ACTIVE, &pDeviceCollection);
-    if (SUCCEEDED(hr)) {
-        ma_context_enumerate_device_collection__wasapi(pContext, pDeviceCollection, ma_device_type_playback, callback, pUserData);
-        ma_IMMDeviceCollection_Release(pDeviceCollection);
-    }
-
-    /* Capture. */
-    hr = ma_IMMDeviceEnumerator_EnumAudioEndpoints(pDeviceEnumerator, ma_eCapture, MA_MM_DEVICE_STATE_ACTIVE, &pDeviceCollection);
-    if (SUCCEEDED(hr)) {
-        ma_context_enumerate_device_collection__wasapi(pContext, pDeviceCollection, ma_device_type_capture, callback, pUserData);
-        ma_IMMDeviceCollection_Release(pDeviceCollection);
-    }
+    ma_context_enumerate_devices_by_type__wasapi(pContext, pDeviceEnumerator, ma_device_type_playback, callback, pUserData);
+    ma_context_enumerate_devices_by_type__wasapi(pContext, pDeviceEnumerator, ma_device_type_capture,  callback, pUserData);
 
     ma_IMMDeviceEnumerator_Release(pDeviceEnumerator);
 #else
@@ -9803,6 +9906,7 @@ static ma_result ma_context_enumerate_devices__wasapi(ma_context* pContext, ma_e
             ma_device_info deviceInfo;
             MA_ZERO_OBJECT(&deviceInfo);
             ma_strncpy_s(deviceInfo.name, sizeof(deviceInfo.name), MA_DEFAULT_PLAYBACK_DEVICE_NAME, (size_t)-1);
+            deviceInfo._private.isDefault = MA_TRUE;
             cbResult = callback(pContext, ma_device_type_playback, &deviceInfo, pUserData);
         }
 
@@ -9811,6 +9915,7 @@ static ma_result ma_context_enumerate_devices__wasapi(ma_context* pContext, ma_e
             ma_device_info deviceInfo;
             MA_ZERO_OBJECT(&deviceInfo);
             ma_strncpy_s(deviceInfo.name, sizeof(deviceInfo.name), MA_DEFAULT_CAPTURE_DEVICE_NAME, (size_t)-1);
+            deviceInfo._private.isDefault = MA_TRUE;
             cbResult = callback(pContext, ma_device_type_capture, &deviceInfo, pUserData);
         }
     }
@@ -9822,17 +9927,27 @@ static ma_result ma_context_enumerate_devices__wasapi(ma_context* pContext, ma_e
 static ma_result ma_context_get_device_info__wasapi(ma_context* pContext, ma_device_type deviceType, const ma_device_id* pDeviceID, ma_share_mode shareMode, ma_device_info* pDeviceInfo)
 {
 #ifdef MA_WIN32_DESKTOP
-    ma_IMMDevice* pMMDevice = NULL;
     ma_result result;
+    ma_IMMDevice* pMMDevice = NULL;
+    LPWSTR pDefaultDeviceID = NULL;
     
     result = ma_context_get_MMDevice__wasapi(pContext, deviceType, pDeviceID, &pMMDevice);
     if (result != MA_SUCCESS) {
         return result;
     }
 
-    result = ma_context_get_device_info_from_MMDevice__wasapi(pContext, pMMDevice, shareMode, MA_FALSE, pDeviceInfo);   /* MA_FALSE = !onlySimpleInfo. */
+    /* We need the default device ID so we can set the isDefault flag in the device info. */
+    pDefaultDeviceID = ma_context_get_default_device_id__wasapi(pContext, deviceType);
+
+    result = ma_context_get_device_info_from_MMDevice__wasapi(pContext, pMMDevice, shareMode, pDefaultDeviceID, MA_FALSE, pDeviceInfo);   /* MA_FALSE = !onlySimpleInfo. */
+
+    if (pDefaultDeviceID != NULL) {
+        ma_CoTaskMemFree(pContext, pDefaultDeviceID);
+        pDefaultDeviceID = NULL;
+    }
 
     ma_IMMDevice_Release(pMMDevice);
+
     return result;
 #else
     ma_IAudioClient* pAudioClient;
@@ -9856,6 +9971,8 @@ static ma_result ma_context_get_device_info__wasapi(ma_context* pContext, ma_dev
     }
 
     result = ma_context_get_device_info_from_IAudioClient__wasapi(pContext, NULL, pAudioClient, shareMode, pDeviceInfo);
+
+    pDeviceInfo->_private.isDefault = MA_TRUE;  /* UWP only supports default devices. */
 
     ma_IAudioClient_Release(pAudioClient);
     return result;
