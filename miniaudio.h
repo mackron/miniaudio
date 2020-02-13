@@ -13945,8 +13945,23 @@ static ma_result ma_device_stop__winmm(ma_device* pDevice)
     }
 
     if (pDevice->type == ma_device_type_playback || pDevice->type == ma_device_type_duplex) {
+        ma_uint32 iPeriod;
+        WAVEHDR* pWAVEHDR;
+
         if (pDevice->winmm.hDevicePlayback == NULL) {
             return MA_INVALID_ARGS;
+        }
+
+        /* We need to drain the device. To do this we just loop over each header and if it's locked just wait for the event. */
+        pWAVEHDR = (WAVEHDR*)pDevice->winmm.pWAVEHDRPlayback;
+        for (iPeriod = 0; iPeriod < pDevice->playback.internalPeriods; iPeriod += 1) {
+            if (pWAVEHDR[iPeriod].dwUser == 1) { /* 1 = locked. */
+                if (WaitForSingleObject((HANDLE)pDevice->winmm.hEventPlayback, INFINITE) != WAIT_OBJECT_0) {
+                    break;  /* An error occurred so just abandon ship and stop the device without draining. */
+                }
+
+                pWAVEHDR[iPeriod].dwUser = 0;
+            }
         }
 
         resultMM = ((MA_PFN_waveOutReset)pDevice->pContext->winmm.waveOutReset)((HWAVEOUT)pDevice->winmm.hDevicePlayback);
