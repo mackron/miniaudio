@@ -24283,14 +24283,24 @@ static ma_result ma_device_stop__audio4(ma_device* pDevice)
     MA_ASSERT(pDevice != NULL);
 
     if (pDevice->type == ma_device_type_capture || pDevice->type == ma_device_type_duplex) {
-        ma_result result = ma_device_stop_fd__audio4(pDevice, pDevice->audio4.fdCapture);
+        ma_result result;
+
+        result = ma_device_stop_fd__audio4(pDevice, pDevice->audio4.fdCapture);
         if (result != MA_SUCCESS) {
             return result;
         }
     }
 
     if (pDevice->type == ma_device_type_playback || pDevice->type == ma_device_type_duplex) {
-        ma_result result = ma_device_stop_fd__audio4(pDevice, pDevice->audio4.fdPlayback);
+        ma_result result;
+
+        /* Drain the device first. If this fails we'll just need to flush without draining. Unfortunately draining isn't available on newer version of OpenBSD. */
+    #if !defined(MA_AUDIO4_USE_NEW_API)
+        ioctl(pDevice->audio4.fdPlayback, AUDIO_DRAIN, 0);
+    #endif
+
+        /* Here is where the device is stopped immediately. */
+        result = ma_device_stop_fd__audio4(pDevice, pDevice->audio4.fdPlayback);
         if (result != MA_SUCCESS) {
             return result;
         }
