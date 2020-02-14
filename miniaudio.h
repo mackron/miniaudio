@@ -4899,6 +4899,7 @@ IMPLEMENTATION
     #endif
 #endif
 
+/* Begin globally disabled warnings. */
 #if defined(_MSC_VER)
     #pragma warning(push)
     #pragma warning(disable:4752)   /* found Intel(R) Advanced Vector Extensions; consider using /arch:AVX */
@@ -37908,6 +37909,7 @@ ma_uint64 ma_sine_wave_read_pcm_frames(ma_sine_wave* pSineWave, void* pFramesOut
     return frameCount;
 }
 
+/* End globally disabled warnings. */
 #if defined(_MSC_VER)
     #pragma warning(pop)
 #endif
