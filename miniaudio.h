@@ -25810,6 +25810,14 @@ static ma_result ma_device_stop_stream__aaudio(ma_device* pDevice, ma_AAudioStre
 
     MA_ASSERT(pDevice != NULL);
 
+    /*
+    From the AAudio documentation:
+
+        The stream will stop after all of the data currently buffered has been played.
+
+    This maps with miniaudio's requirement that device's be drained which means we don't need to implement any draining logic.
+    */
+
     resultAA = ((MA_PFN_AAudioStream_requestStop)pDevice->pContext->aaudio.AAudioStream_requestStop)(pStream);
     if (resultAA != MA_AAUDIO_OK) {
         return ma_result_from_aaudio(resultAA);
