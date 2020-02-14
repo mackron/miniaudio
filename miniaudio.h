@@ -3238,6 +3238,8 @@ struct ma_device
             /*SLRecordItf*/ ma_ptr pAudioRecorder;
             /*SLAndroidSimpleBufferQueueItf*/ ma_ptr pBufferQueuePlayback;
             /*SLAndroidSimpleBufferQueueItf*/ ma_ptr pBufferQueueCapture;
+            ma_bool32 isDrainingCapture;
+            ma_bool32 isDrainingPlayback;
             ma_uint32 currentBufferIndexPlayback;
             ma_uint32 currentBufferIndexCapture;
             ma_uint8* pBufferPlayback;      /* This is malloc()'d and is used for storing audio data. Typed as ma_uint8 for easy offsetting. */
@@ -26371,6 +26373,11 @@ static void ma_buffer_queue_callback_capture__opensl_android(SLAndroidSimpleBuff
         return;
     }
 
+    /* Don't do anything if the device is being drained. */
+    if (pDevice->opensl.isDrainingCapture) {
+        return;
+    }
+
     periodSizeInBytes = pDevice->capture.internalPeriodSizeInFrames * ma_get_bytes_per_frame(pDevice->capture.internalFormat, pDevice->capture.internalChannels);
     pBuffer = pDevice->opensl.pBufferCapture + (pDevice->opensl.currentBufferIndexCapture * periodSizeInBytes);
 
@@ -26401,6 +26408,11 @@ static void ma_buffer_queue_callback_playback__opensl_android(SLAndroidSimpleBuf
 
     /* Don't do anything if the device is not started. */
     if (pDevice->state != MA_STATE_STARTED) {
+        return;
+    }
+
+    /* Don't do anything if the device is being drained. */
+    if (pDevice->opensl.isDrainingPlayback) {
         return;
     }
 
@@ -26846,6 +26858,40 @@ static ma_result ma_device_start__opensl(ma_device* pDevice)
     return MA_SUCCESS;
 }
 
+static ma_result ma_device_drain__opensl(ma_device* pDevice, ma_device_type deviceType)
+{
+    SLAndroidSimpleBufferQueueItf pBufferQueue;
+
+    MA_ASSERT(deviceType == ma_device_type_capture || deviceType == ma_device_type_playback);
+
+    if (pDevice->type == ma_device_type_capture) {
+        pBufferQueue = (SLAndroidSimpleBufferQueueItf)pDevice->opensl.pBufferQueueCapture;
+        pDevice->opensl.isDrainingCapture  = MA_TRUE;
+    } else {
+        pBufferQueue = (SLAndroidSimpleBufferQueueItf)pDevice->opensl.pBufferQueuePlayback;
+        pDevice->opensl.isDrainingPlayback = MA_TRUE;
+    }
+
+    for (;;) {
+        SLAndroidSimpleBufferQueueState state;
+
+        MA_OPENSL_BUFFERQUEUE(pBufferQueue)->GetState(pBufferQueue, &state);
+        if (state.count == 0) {
+            break;
+        }
+
+        ma_sleep(10);
+    }
+
+    if (pDevice->type == ma_device_type_capture) {
+        pDevice->opensl.isDrainingCapture  = MA_FALSE;
+    } else {
+        pDevice->opensl.isDrainingPlayback = MA_FALSE;
+    }
+
+    return MA_SUCCESS;
+}
+
 static ma_result ma_device_stop__opensl(ma_device* pDevice)
 {
     SLresult resultSL;
@@ -26858,9 +26904,9 @@ static ma_result ma_device_stop__opensl(ma_device* pDevice)
         return MA_INVALID_OPERATION;
     }
 
-    /* TODO: Wait until all buffers have been processed. Hint: Maybe SLAndroidSimpleBufferQueue::GetState() could be used in a loop? */
-
     if (pDevice->type == ma_device_type_capture || pDevice->type == ma_device_type_duplex) {
+        ma_device_drain__opensl(pDevice, ma_device_type_capture);
+
         resultSL = MA_OPENSL_RECORD(pDevice->opensl.pAudioRecorder)->SetRecordState((SLRecordItf)pDevice->opensl.pAudioRecorder, SL_RECORDSTATE_STOPPED);
         if (resultSL != SL_RESULT_SUCCESS) {
             return ma_post_error(pDevice, MA_LOG_LEVEL_ERROR, "[OpenSL] Failed to stop internal capture device.", MA_FAILED_TO_STOP_BACKEND_DEVICE);
@@ -26870,6 +26916,8 @@ static ma_result ma_device_stop__opensl(ma_device* pDevice)
     }
 
     if (pDevice->type == ma_device_type_playback || pDevice->type == ma_device_type_duplex) {
+        ma_device_drain__opensl(pDevice, ma_device_type_playback);
+
         resultSL = MA_OPENSL_PLAY(pDevice->opensl.pAudioPlayer)->SetPlayState((SLPlayItf)pDevice->opensl.pAudioPlayer, SL_PLAYSTATE_STOPPED);
         if (resultSL != SL_RESULT_SUCCESS) {
             return ma_post_error(pDevice, MA_LOG_LEVEL_ERROR, "[OpenSL] Failed to stop internal playback device.", MA_FAILED_TO_STOP_BACKEND_DEVICE);
