@@ -27475,6 +27475,16 @@ static ma_result ma_device_stop__webaudio(ma_device* pDevice)
 {
     MA_ASSERT(pDevice != NULL);
 
+    /*
+    From the WebAudio API documentation for AudioContext.suspend():
+
+        Suspends the progression of AudioContext's currentTime, allows any current context processing blocks that are already processed to be played to the
+        destination, and then allows the system to release its claim on audio hardware.
+
+    I read this to mean that "any current context processing blocks" are processed by suspend() - i.e. They they are drained. We therefore shouldn't need to
+    do any kind of explicit draining.
+    */
+
     if (pDevice->type == ma_device_type_capture || pDevice->type == ma_device_type_duplex) {
         EM_ASM({
             miniaudio.get_device_by_index($0).webaudio.suspend();
