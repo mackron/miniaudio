@@ -22359,7 +22359,9 @@ static ma_result ma_device_start__coreaudio(ma_device* pDevice)
 static ma_result ma_device_stop__coreaudio(ma_device* pDevice)
 {
     MA_ASSERT(pDevice != NULL);
-    
+
+    /* It's not clear from the documentation whether or not AudioOutputUnitStop() actually drains the device or not. */
+
     if (pDevice->type == ma_device_type_capture || pDevice->type == ma_device_type_duplex) {
         OSStatus status = ((ma_AudioOutputUnitStop_proc)pDevice->pContext->coreaudio.AudioOutputUnitStop)((AudioUnit)pDevice->coreaudio.audioUnitCapture);
         if (status != noErr) {
