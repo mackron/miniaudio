@@ -5323,10 +5323,10 @@ static MA_INLINE double ma_cos(double x)
     return ma_sin((MA_PI*0.5) - x);
 }
 
-static MA_INLINE double ma_log2(double x)
+static MA_INLINE double ma_log(double x)
 {
-    /* TODO: Implement custom log2(x). */
-    return log2(x);
+    /* TODO: Implement custom log(x). */
+    return log(x);
 }
 
 static MA_INLINE double ma_pow(double x, double y)
@@ -5337,7 +5337,7 @@ static MA_INLINE double ma_pow(double x, double y)
 
 static MA_INLINE double ma_log10(double x)
 {
-    return ma_log2(x) * 0.30102999566398119521;
+    return ma_log(x) * 0.43429448190325182765;
 }
 
 static MA_INLINE float ma_powf(float x, float y)
@@ -6281,7 +6281,7 @@ const char* ma_log_level_to_string(ma_uint32 logLevel)
 }
 
 /* Posts a log message. */
-static void ma_log(ma_context* pContext, ma_device* pDevice, ma_uint32 logLevel, const char* message)
+static void ma_post_log_message(ma_context* pContext, ma_device* pDevice, ma_uint32 logLevel, const char* message)
 {
     if (pContext == NULL) {
         return;
@@ -6315,7 +6315,7 @@ static ma_result ma_context_post_error(ma_context* pContext, ma_device* pDevice,
         }
     }
 
-    ma_log(pContext, pDevice, logLevel, message);
+    ma_post_log_message(pContext, pDevice, logLevel, message);
     return resultCode;
 }
 
@@ -6449,7 +6449,7 @@ ma_handle ma_dlopen(ma_context* pContext, const char* filename)
     if (pContext != NULL) {
         char message[256];
         ma_strappend(message, sizeof(message), "Loading library: ", filename);
-        ma_log(pContext, NULL, MA_LOG_LEVEL_VERBOSE, message);
+        ma_post_log_message(pContext, NULL, MA_LOG_LEVEL_VERBOSE, message);
     }
 #endif
 
@@ -6477,7 +6477,7 @@ ma_handle ma_dlopen(ma_context* pContext, const char* filename)
     if (handle == NULL) {
         char message[256];
         ma_strappend(message, sizeof(message), "Failed to load library: ", filename);
-        ma_log(pContext, NULL, MA_LOG_LEVEL_INFO, message);
+        ma_post_log_message(pContext, NULL, MA_LOG_LEVEL_INFO, message);
     }
 #endif
 
@@ -6504,7 +6504,7 @@ ma_proc ma_dlsym(ma_context* pContext, ma_handle handle, const char* symbol)
     if (pContext != NULL) {
         char message[256];
         ma_strappend(message, sizeof(message), "Loading symbol: ", symbol);
-        ma_log(pContext, NULL, MA_LOG_LEVEL_VERBOSE, message);
+        ma_post_log_message(pContext, NULL, MA_LOG_LEVEL_VERBOSE, message);
     }
 #endif
 
@@ -6525,7 +6525,7 @@ ma_proc ma_dlsym(ma_context* pContext, ma_handle handle, const char* symbol)
     if (handle == NULL) {
         char message[256];
         ma_strappend(message, sizeof(message), "Failed to load symbol: ", symbol);
-        ma_log(pContext, NULL, MA_LOG_LEVEL_WARNING, message);
+        ma_post_log_message(pContext, NULL, MA_LOG_LEVEL_WARNING, message);
     }
 #endif
 
