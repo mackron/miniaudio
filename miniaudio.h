@@ -6068,15 +6068,21 @@ static ma_result ma_allocation_callbacks_init_copy(ma_allocation_callbacks* pDst
 
 ma_uint64 ma_calculate_frame_count_after_src(ma_uint32 sampleRateOut, ma_uint32 sampleRateIn, ma_uint64 frameCountIn)
 {
-    double    srcRatio       = (double)sampleRateOut / sampleRateIn;
-    double    frameCountOutF = (ma_int64)frameCountIn * srcRatio; /* Cast to int64 required for VC6. */
-    ma_uint64 frameCountOut  = (ma_uint64)frameCountOutF;
+    /* For robustness we're going to use a resampler object to calculate this since that already has a way of calculating this. */
+    ma_result result;
+    ma_uint64 frameCountOut;
+    ma_resampler_config config;
+    ma_resampler resampler;
 
-    /* If the output frame count is fractional, make sure we add an extra frame to ensure there's enough room for that last sample. */
-    if ((frameCountOutF - (ma_int64)frameCountOut) > 0.0) {
-        frameCountOut += 1;
+    config = ma_resampler_config_init(ma_format_s16, 1, sampleRateIn, sampleRateOut, ma_resample_algorithm_linear);
+    result = ma_resampler_init(&config, &resampler);
+    if (result != MA_SUCCESS) {
+        return 0;
     }
 
+    frameCountOut = ma_resampler_get_expected_output_frame_count(&resampler, frameCountIn);
+
+    ma_resampler_uninit(&resampler);
     return frameCountOut;
 }
 
@@ -37619,7 +37625,12 @@ ma_uint64 ma_decoder_get_length_in_pcm_frames(ma_decoder* pDecoder)
     }
 
     if (pDecoder->onGetLengthInPCMFrames) {
-        return pDecoder->onGetLengthInPCMFrames(pDecoder);
+        ma_uint64 nativeLengthInPCMFrames = pDecoder->onGetLengthInPCMFrames(pDecoder);
+        if (pDecoder->internalSampleRate == pDecoder->outputSampleRate) {
+            return nativeLengthInPCMFrames;
+        } else {
+            return ma_calculate_frame_count_after_src(pDecoder->outputSampleRate, pDecoder->internalSampleRate, nativeLengthInPCMFrames);
+        }
     }
 
     return 0;
