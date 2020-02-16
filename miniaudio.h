@@ -1453,11 +1453,6 @@ typedef int ma_result;
 #define MA_MAX_CHANNELS                                32
 #define MA_MIN_SAMPLE_RATE                             MA_SAMPLE_RATE_8000
 #define MA_MAX_SAMPLE_RATE                             MA_SAMPLE_RATE_384000
-#define MA_SRC_SINC_MIN_WINDOW_WIDTH                   2
-#define MA_SRC_SINC_MAX_WINDOW_WIDTH                   32
-#define MA_SRC_SINC_DEFAULT_WINDOW_WIDTH               32
-#define MA_SRC_SINC_LOOKUP_TABLE_RESOLUTION            8
-#define MA_SRC_INPUT_BUFFER_SIZE_IN_SAMPLES            256
 
 typedef enum
 {
