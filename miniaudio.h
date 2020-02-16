@@ -1447,8 +1447,6 @@ typedef int ma_result;
 #define MA_SAMPLE_RATE_352800                          352800
 #define MA_SAMPLE_RATE_384000                          384000
 
-#define MA_MIN_PCM_SAMPLE_SIZE_IN_BYTES                1   /* For simplicity, miniaudio does not support PCM samples that are not byte aligned. */
-#define MA_MAX_PCM_SAMPLE_SIZE_IN_BYTES                8
 #define MA_MIN_CHANNELS                                1
 #define MA_MAX_CHANNELS                                32
 #define MA_MIN_SAMPLE_RATE                             MA_SAMPLE_RATE_8000
