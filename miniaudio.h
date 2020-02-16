@@ -113,6 +113,8 @@ the size of the output buffer in PCM frames. This has been added for safety. In 
 take a pointer to a `ma_data_converter_config` object to specify the input and output formats to convert between. This was done to make it make it more
 flexible, to prevent the parameter list getting too long, and to prevent API breakage whenever a new conversion property is added.
 
+`ma_calculate_frame_count_after_src()` has been renamed to `ma_calculate_frame_count_after_resampling()` for consistency with the new `ma_resampler` API.
+
 
 Biquad and Low-Pass Filters
 ---------------------------
@@ -6066,7 +6068,7 @@ static ma_result ma_allocation_callbacks_init_copy(ma_allocation_callbacks* pDst
 }
 
 
-ma_uint64 ma_calculate_frame_count_after_src(ma_uint32 sampleRateOut, ma_uint32 sampleRateIn, ma_uint64 frameCountIn)
+ma_uint64 ma_calculate_frame_count_after_resampling(ma_uint32 sampleRateOut, ma_uint32 sampleRateIn, ma_uint64 frameCountIn)
 {
     /* For robustness we're going to use a resampler object to calculate this since that already has a way of calculating this. */
     ma_result result;
@@ -19405,7 +19407,7 @@ static ma_result ma_device_init__jack(ma_context* pContext, const ma_device_conf
     }
 
     if (pDevice->type == ma_device_type_duplex) {
-        ma_uint32 rbSizeInFrames = (ma_uint32)ma_calculate_frame_count_after_src(pDevice->sampleRate, pDevice->capture.internalSampleRate, pDevice->capture.internalPeriodSizeInFrames * pDevice->capture.internalPeriods);
+        ma_uint32 rbSizeInFrames = (ma_uint32)ma_calculate_frame_count_after_resampling(pDevice->sampleRate, pDevice->capture.internalSampleRate, pDevice->capture.internalPeriodSizeInFrames * pDevice->capture.internalPeriods);
         result = ma_pcm_rb_init(pDevice->capture.format, pDevice->capture.channels, rbSizeInFrames, NULL, &pDevice->pContext->allocationCallbacks, &pDevice->jack.duplexRB);
         if (result != MA_SUCCESS) {
             ma_device_uninit__jack(pDevice);
@@ -22309,7 +22311,7 @@ static ma_result ma_device_init__coreaudio(ma_context* pContext, const ma_device
 
     /* Need a ring buffer for duplex mode. */
     if (pConfig->deviceType == ma_device_type_duplex) {
-        ma_uint32 rbSizeInFrames = (ma_uint32)ma_calculate_frame_count_after_src(pDevice->sampleRate, pDevice->capture.internalSampleRate, pDevice->capture.internalPeriodSizeInFrames * pDevice->capture.internalPeriods);
+        ma_uint32 rbSizeInFrames = (ma_uint32)ma_calculate_frame_count_after_resampling(pDevice->sampleRate, pDevice->capture.internalSampleRate, pDevice->capture.internalPeriodSizeInFrames * pDevice->capture.internalPeriods);
         ma_result result = ma_pcm_rb_init(pDevice->capture.format, pDevice->capture.channels, rbSizeInFrames, NULL, &pDevice->pContext->allocationCallbacks, &pDevice->coreaudio.duplexRB);
         if (result != MA_SUCCESS) {
             return ma_post_error(pDevice, MA_LOG_LEVEL_ERROR, "[Core Audio] Failed to initialize ring buffer.", result);
@@ -25755,7 +25757,7 @@ static ma_result ma_device_init__aaudio(ma_context* pContext, const ma_device_co
     }
 
     if (pConfig->deviceType == ma_device_type_duplex) {
-        ma_uint32 rbSizeInFrames = (ma_uint32)ma_calculate_frame_count_after_src(pDevice->sampleRate, pDevice->capture.internalSampleRate, pDevice->capture.internalPeriodSizeInFrames) * pDevice->capture.internalPeriods;
+        ma_uint32 rbSizeInFrames = (ma_uint32)ma_calculate_frame_count_after_resampling(pDevice->sampleRate, pDevice->capture.internalSampleRate, pDevice->capture.internalPeriodSizeInFrames) * pDevice->capture.internalPeriods;
         ma_result result = ma_pcm_rb_init(pDevice->capture.format, pDevice->capture.channels, rbSizeInFrames, NULL, &pDevice->pContext->allocationCallbacks, &pDevice->aaudio.duplexRB);
         if (result != MA_SUCCESS) {
             if (pDevice->type == ma_device_type_capture || pDevice->type == ma_device_type_duplex) {
@@ -26787,7 +26789,7 @@ static ma_result ma_device_init__opensl(ma_context* pContext, const ma_device_co
     }
 
     if (pConfig->deviceType == ma_device_type_duplex) {
-        ma_uint32 rbSizeInFrames = (ma_uint32)ma_calculate_frame_count_after_src(pDevice->sampleRate, pDevice->capture.internalSampleRate, pDevice->capture.internalPeriodSizeInFrames) * pDevice->capture.internalPeriods;
+        ma_uint32 rbSizeInFrames = (ma_uint32)ma_calculate_frame_count_after_resampling(pDevice->sampleRate, pDevice->capture.internalSampleRate, pDevice->capture.internalPeriodSizeInFrames) * pDevice->capture.internalPeriods;
         ma_result result = ma_pcm_rb_init(pDevice->capture.format, pDevice->capture.channels, rbSizeInFrames, NULL, &pDevice->pContext->allocationCallbacks, &pDevice->opensl.duplexRB);
         if (result != MA_SUCCESS) {
             ma_device_uninit__opensl(pDevice);
@@ -27434,7 +27436,7 @@ static ma_result ma_device_init__webaudio(ma_context* pContext, const ma_device_
     the external sample rate.
     */
     if (pConfig->deviceType == ma_device_type_duplex) {
-        ma_uint32 rbSizeInFrames = (ma_uint32)ma_calculate_frame_count_after_src(pDevice->sampleRate, pDevice->capture.internalSampleRate, pDevice->capture.internalPeriodSizeInFrames) * 2;
+        ma_uint32 rbSizeInFrames = (ma_uint32)ma_calculate_frame_count_after_resampling(pDevice->sampleRate, pDevice->capture.internalSampleRate, pDevice->capture.internalPeriodSizeInFrames) * 2;
         result = ma_pcm_rb_init(pDevice->capture.format, pDevice->capture.channels, rbSizeInFrames, NULL, &pDevice->pContext->allocationCallbacks, &pDevice->webaudio.duplexRB);
         if (result != MA_SUCCESS) {
             if (pDevice->type == ma_device_type_capture || pDevice->type == ma_device_type_duplex) {
@@ -37629,7 +37631,7 @@ ma_uint64 ma_decoder_get_length_in_pcm_frames(ma_decoder* pDecoder)
         if (pDecoder->internalSampleRate == pDecoder->outputSampleRate) {
             return nativeLengthInPCMFrames;
         } else {
-            return ma_calculate_frame_count_after_src(pDecoder->outputSampleRate, pDecoder->internalSampleRate, nativeLengthInPCMFrames);
+            return ma_calculate_frame_count_after_resampling(pDecoder->outputSampleRate, pDecoder->internalSampleRate, nativeLengthInPCMFrames);
         }
     }
 
