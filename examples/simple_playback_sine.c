@@ -18,25 +18,25 @@ void main_loop__em()
 
 void data_callback(ma_device* pDevice, void* pOutput, const void* pInput, ma_uint32 frameCount)
 {
-    ma_sine_wave* pSineWave;
+    ma_waveform* pSineWave;
 
     MA_ASSERT(pDevice->playback.channels == DEVICE_CHANNELS);
 
-    pSineWave = (ma_sine_wave*)pDevice->pUserData;
+    pSineWave = (ma_waveform*)pDevice->pUserData;
     MA_ASSERT(pSineWave != NULL);
 
-    ma_sine_wave_read_pcm_frames(pSineWave, pOutput, frameCount, ma_format_f32, DEVICE_CHANNELS);
+    ma_waveform_read_pcm_frames(pSineWave, pOutput, frameCount, ma_format_f32, DEVICE_CHANNELS);
 
     (void)pInput;   /* Unused. */
 }
 
 int main(int argc, char** argv)
 {
-    ma_sine_wave sineWave;
+    ma_waveform sineWave;
     ma_device_config deviceConfig;
     ma_device device;
 
-    ma_sine_wave_init(0.2, 400, DEVICE_SAMPLE_RATE, &sineWave);
+    ma_waveform_init(ma_waveform_type_sine, 0.2, 220, DEVICE_SAMPLE_RATE, &sineWave);
 
     deviceConfig = ma_device_config_init(ma_device_type_playback);
     deviceConfig.playback.format   = DEVICE_FORMAT;

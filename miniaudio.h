@@ -105,8 +105,10 @@ Other less major API changes have also been made in version 0.10.
 
 `ma_device_set_stop_callback()` has been removed. You now must set the stop callback via the device config just like the data callback.
 
-`ma_sine_wave_read_f32()` and `ma_sine_wave_read_f32_ex()` have been removed and replaced with `ma_sine_wave_process_pcm_frames()` which supports outputting
-PCM frames in any format (specified by a parameter).
+The `ma_sine_wave` API has been replaced with a more general API called `ma_waveform`. This supports generation of different types of waveforms, including
+sine, square, triangle and sawtooth. Use `ma_waveform_init()` in place of `ma_sine_wave_init()` to initialize the waveform object. This takes the same
+parameters, except an additional `ma_waveform_type` value which you would set to `ma_waveform_type_sine`. Use `ma_waveform_read_pcm_frames()` in place of
+`ma_sine_wave_read_f32()` and `ma_sine_wave_read_f32_ex()`.
 
 `ma_convert_frames()` and `ma_convert_frames_ex()` have been changed. Both of these functions now take a new parameter called `frameCountOut` which specifies
 the size of the output buffer in PCM frames. This has been added for safety. In addition to this, the parameters for `ma_convert_frames_ex()` have changed to
@@ -125,6 +127,13 @@ Both formats use transposed direct form 2.
 The low-pass filter is just a biquad filter. By itself it's a second order low-pass filter, but it can be extended to higher orders by chaining low-pass
 filters together. Low-pass filtering is achieved via the `ma_lpf` API. Since the low-pass filter is just a biquad filter, it supports both 32-bit floating
 point and 16-bit signed integer formats.
+
+
+Sine, Square, Triangle and Sawtooth Waveforms
+---------------------------------------------
+Previously miniaudio supported only sine wave generation. This has now been generalized to support sine, square, triangle and sawtooth waveforms. The old
+`ma_sine_wave` API has been removed and replaced with the `ma_waveform` API. Use `ma_waveform_init()` to initialize the waveform. Here you specify tyhe type of
+waveform you want to generated. You then read data using `ma_waveform_read_pcm_frames()`.
 
 
 Miscellaneous Changes
@@ -4714,16 +4723,25 @@ ma_result ma_decode_memory(const void* pData, size_t dataSize, ma_decoder_config
 Generation
 
 ************************************************************************************************************************************************************/
+typedef enum
+{
+    ma_waveform_type_sine,
+    ma_waveform_type_square,
+    ma_waveform_type_triangle,
+    ma_waveform_type_sawtooth
+} ma_waveform_type;
+
 typedef struct
 {
+    ma_waveform_type type;
     double amplitude;
-    double periodsPerSecond;
-    double delta;
+    double frequency;
+    double deltaTime;
     double time;
-} ma_sine_wave;
+} ma_waveform;
 
-ma_result ma_sine_wave_init(double amplitude, double period, ma_uint32 sampleRate, ma_sine_wave* pSineWave);
-ma_uint64 ma_sine_wave_read_pcm_frames(ma_sine_wave* pSineWave, void* pFramesOut, ma_uint64 frameCount, ma_format format, ma_uint32 channels);
+ma_result ma_waveform_init(ma_waveform_type type, double amplitude, double frequency, ma_uint32 sampleRate, ma_waveform* pWaveform);
+ma_uint64 ma_waveform_read_pcm_frames(ma_waveform* pWaveform, void* pFramesOut, ma_uint64 frameCount, ma_format format, ma_uint32 channels);
 
 #ifdef __cplusplus
 }
@@ -5300,6 +5318,7 @@ Standard Library Stuff
 #define ma_countof(x)               (sizeof(x) / sizeof(x[0]))
 #define ma_max(x, y)                (((x) > (y)) ? (x) : (y))
 #define ma_min(x, y)                (((x) < (y)) ? (x) : (y))
+#define ma_abs(x)                   (((x) > 0) ? (x) : -(x))
 #define ma_clamp(x, lo, hi)         (ma_max(lo, ma_min(x, hi)))
 #define ma_offset_ptr(p, offset)    (((ma_uint8*)(p)) + (offset))
 
@@ -5342,8 +5361,6 @@ static MA_INLINE float ma_log10f(float x)
 {
     return (float)ma_log10((double)x);
 }
-
-
 
 
 /*
@@ -37860,60 +37877,183 @@ ma_result ma_decode_memory(const void* pData, size_t dataSize, ma_decoder_config
 Generation
 
 **************************************************************************************************************************************************************/
-ma_result ma_sine_wave_init(double amplitude, double periodsPerSecond, ma_uint32 sampleRate, ma_sine_wave* pSineWave)
+ma_result ma_waveform_init(ma_waveform_type type, double amplitude, double frequency, ma_uint32 sampleRate, ma_waveform* pWaveform)
 {
-    if (pSineWave == NULL) {
-        return MA_INVALID_ARGS;
-    }
-    MA_ZERO_OBJECT(pSineWave);
-
-    if (amplitude == 0 || periodsPerSecond == 0) {
+    if (pWaveform == NULL) {
         return MA_INVALID_ARGS;
     }
 
-    if (amplitude > 1) {
-        amplitude = 1;
-    }
-    if (amplitude < -1) {
-        amplitude = -1;
-    }
+    MA_ZERO_OBJECT(pWaveform);
 
-    pSineWave->amplitude = amplitude;
-    pSineWave->periodsPerSecond = periodsPerSecond;
-    pSineWave->delta = MA_TAU_D / sampleRate;
-    pSineWave->time = 0;
+    pWaveform->type      = type;
+    pWaveform->amplitude = amplitude;
+    pWaveform->frequency = frequency;
+    pWaveform->deltaTime = 1.0 / sampleRate;
+    pWaveform->time      = 0;
 
     return MA_SUCCESS;
 }
 
-ma_uint64 ma_sine_wave_read_pcm_frames(ma_sine_wave* pSineWave, void* pFramesOut, ma_uint64 frameCount, ma_format format, ma_uint32 channels)
+static float ma_waveform_sine_f32(double time, double frequency, double amplitude)
 {
-    if (pSineWave == NULL) {
+    return (float)(ma_sin(MA_TAU_D * time * frequency) * amplitude);
+}
+
+static float ma_waveform_square_f32(double time, double frequency, double amplitude)
+{
+    double t = time * frequency;
+    double f = t - (ma_uint64)t;
+    double r;
+    
+    if (f < 0.5) {
+        r =  amplitude;
+    } else {
+        r = -amplitude;
+    }
+
+    return (float)r;
+}
+
+static float ma_waveform_triangle_f32(double time, double frequency, double amplitude)
+{
+    double t = time * frequency;
+    double f = t - (ma_uint64)t;
+    double r;
+
+    r = 2 * ma_abs(2 * (f - 0.5)) - 1;
+
+    return (float)(r * amplitude);
+}
+
+static float ma_waveform_sawtooth_f32(double time, double frequency, double amplitude)
+{
+    double t = time * frequency;
+    double f = t - (ma_uint64)t;
+    double r;
+
+    r = 2 * (f - 0.5);
+
+    return (float)(r * amplitude);
+}
+
+static void ma_waveform_read_pcm_frames__sine(ma_waveform* pWaveform, void* pFramesOut, ma_uint64 frameCount, ma_format format, ma_uint32 channels)
+{
+    ma_uint64 iFrame;
+    ma_uint64 iChannel;
+    ma_uint32 bpf = ma_get_bytes_per_frame(format, channels);
+    ma_uint32 bps = ma_get_bytes_per_sample(format);
+
+    MA_ASSERT(pWaveform  != NULL);
+    MA_ASSERT(pFramesOut != NULL);
+
+    for (iFrame = 0; iFrame < frameCount; iFrame += 1) {
+        float s = ma_waveform_sine_f32(pWaveform->time, pWaveform->frequency, pWaveform->amplitude);
+        pWaveform->time += pWaveform->deltaTime;
+
+        for (iChannel = 0; iChannel < channels; iChannel += 1) {
+            ma_pcm_convert(ma_offset_ptr(pFramesOut, iFrame*bpf + iChannel*bps), format, &s, ma_format_f32, 1, ma_dither_mode_none);
+        }
+    }
+}
+
+static void ma_waveform_read_pcm_frames__square(ma_waveform* pWaveform, void* pFramesOut, ma_uint64 frameCount, ma_format format, ma_uint32 channels)
+{
+    ma_uint64 iFrame;
+    ma_uint64 iChannel;
+    ma_uint32 bpf = ma_get_bytes_per_frame(format, channels);
+    ma_uint32 bps = ma_get_bytes_per_sample(format);
+
+    MA_ASSERT(pWaveform  != NULL);
+    MA_ASSERT(pFramesOut != NULL);
+
+    for (iFrame = 0; iFrame < frameCount; iFrame += 1) {
+        float s = ma_waveform_square_f32(pWaveform->time, pWaveform->frequency, pWaveform->amplitude);
+        pWaveform->time += pWaveform->deltaTime;
+
+        for (iChannel = 0; iChannel < channels; iChannel += 1) {
+            ma_pcm_convert(ma_offset_ptr(pFramesOut, iFrame*bpf + iChannel*bps), format, &s, ma_format_f32, 1, ma_dither_mode_none);
+        }
+    }
+}
+
+static void ma_waveform_read_pcm_frames__triangle(ma_waveform* pWaveform, void* pFramesOut, ma_uint64 frameCount, ma_format format, ma_uint32 channels)
+{
+    ma_uint64 iFrame;
+    ma_uint64 iChannel;
+    ma_uint32 bpf = ma_get_bytes_per_frame(format, channels);
+    ma_uint32 bps = ma_get_bytes_per_sample(format);
+
+    MA_ASSERT(pWaveform  != NULL);
+    MA_ASSERT(pFramesOut != NULL);
+
+    for (iFrame = 0; iFrame < frameCount; iFrame += 1) {
+        float s = ma_waveform_triangle_f32(pWaveform->time, pWaveform->frequency, pWaveform->amplitude);
+        pWaveform->time += pWaveform->deltaTime;
+
+        for (iChannel = 0; iChannel < channels; iChannel += 1) {
+            ma_pcm_convert(ma_offset_ptr(pFramesOut, iFrame*bpf + iChannel*bps), format, &s, ma_format_f32, 1, ma_dither_mode_none);
+        }
+    }
+}
+
+static void ma_waveform_read_pcm_frames__sawtooth(ma_waveform* pWaveform, void* pFramesOut, ma_uint64 frameCount, ma_format format, ma_uint32 channels)
+{
+    ma_uint64 iFrame;
+    ma_uint64 iChannel;
+    ma_uint32 bpf = ma_get_bytes_per_frame(format, channels);
+    ma_uint32 bps = ma_get_bytes_per_sample(format);
+
+    MA_ASSERT(pWaveform  != NULL);
+    MA_ASSERT(pFramesOut != NULL);
+
+    for (iFrame = 0; iFrame < frameCount; iFrame += 1) {
+        float s = ma_waveform_sawtooth_f32(pWaveform->time, pWaveform->frequency, pWaveform->amplitude);
+        pWaveform->time += pWaveform->deltaTime;
+
+        for (iChannel = 0; iChannel < channels; iChannel += 1) {
+            ma_pcm_convert(ma_offset_ptr(pFramesOut, iFrame*bpf + iChannel*bps), format, &s, ma_format_f32, 1, ma_dither_mode_none);
+        }
+    }
+}
+
+ma_uint64 ma_waveform_read_pcm_frames(ma_waveform* pWaveform, void* pFramesOut, ma_uint64 frameCount, ma_format format, ma_uint32 channels)
+{
+    if (pWaveform == NULL) {
         return 0;
     }
 
     if (pFramesOut != NULL) {
-        ma_uint64 iFrame;
-        for (iFrame = 0; iFrame < frameCount; iFrame += 1) {
-            ma_uint64 iChannel;
-            float s;
+        switch (pWaveform->type)
+        {
+            case ma_waveform_type_sine:
+            {
+                ma_waveform_read_pcm_frames__sine(pWaveform, pFramesOut, frameCount, format, channels);
+            } break;
 
-            s = (float)(ma_sin(pSineWave->time * pSineWave->periodsPerSecond) * pSineWave->amplitude);
-            pSineWave->time += pSineWave->delta;
+            case ma_waveform_type_square:
+            {
+                ma_waveform_read_pcm_frames__square(pWaveform, pFramesOut, frameCount, format, channels);
+            } break;
 
-            for (iChannel = 0; iChannel < channels; iChannel += 1) {
-                ma_uint32 bpf = ma_get_bytes_per_frame(format, channels);
-                ma_uint32 bps = ma_get_bytes_per_sample(format);
+            case ma_waveform_type_triangle:
+            {
+                ma_waveform_read_pcm_frames__triangle(pWaveform, pFramesOut, frameCount, format, channels);
+            } break;
 
-                ma_pcm_convert(ma_offset_ptr(pFramesOut, iFrame*bpf + iChannel*bps), format, &s, ma_format_f32, 1, ma_dither_mode_none);
-            }
+            case ma_waveform_type_sawtooth:
+            {
+                ma_waveform_read_pcm_frames__sawtooth(pWaveform, pFramesOut, frameCount, format, channels);
+            } break;
+
+            default: return 0;
         }
     } else {
-        pSineWave->time += pSineWave->delta * (ma_int64)frameCount; /* Cast to int64 required for VC6. Won't affect anything in practice. */
+        pWaveform->time += pWaveform->deltaTime * (ma_int64)frameCount; /* Cast to int64 required for VC6. Won't affect anything in practice. */
     }
 
     return frameCount;
 }
+
 
 /* End globally disabled warnings. */
 #if defined(_MSC_VER)
