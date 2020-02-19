@@ -1623,6 +1623,32 @@ ma_result ma_lpf_process_pcm_frames(ma_lpf* pLPF, void* pFramesOut, const void* 
 ma_uint32 ma_lpf_get_latency(ma_lpf* pLPF);
 
 
+/**************************************************************************************************************************************************************
+
+High-Pass Filtering
+
+**************************************************************************************************************************************************************/
+typedef struct
+{
+    ma_format format;
+    ma_uint32 channels;
+    ma_uint32 sampleRate;
+    double cutoffFrequency;
+} ma_hpf_config;
+
+ma_hpf_config ma_hpf_config_init(ma_format format, ma_uint32 channels, ma_uint32 sampleRate, double cutoffFrequency);
+
+typedef struct
+{
+    ma_biquad bq;   /* The high-pass filter is implemented as a biquad filter. */
+} ma_hpf;
+
+ma_result ma_hpf_init(const ma_hpf_config* pConfig, ma_hpf* pHPF);
+ma_result ma_hpf_reinit(const ma_hpf_config* pConfig, ma_hpf* pHPF);
+ma_result ma_hpf_process_pcm_frames(ma_hpf* pHPF, void* pFramesOut, const void* pFramesIn, ma_uint64 frameCount);
+ma_uint32 ma_hpf_get_latency(ma_hpf* pHPF);
+
+
 /************************************************************************************************************************************************************
 *************************************************************************************************************************************************************
 
@@ -29228,6 +29254,117 @@ ma_uint32 ma_lpf_get_latency(ma_lpf* pLPF)
 
     return ma_biquad_get_latency(&pLPF->bq);
 }
+
+
+/**************************************************************************************************************************************************************
+
+High-Pass Filtering
+
+**************************************************************************************************************************************************************/
+ma_hpf_config ma_hpf_config_init(ma_format format, ma_uint32 channels, ma_uint32 sampleRate, double cutoffFrequency)
+{
+    ma_hpf_config config;
+    
+    MA_ZERO_OBJECT(&config);
+    config.format = format;
+    config.channels = channels;
+    config.sampleRate = sampleRate;
+    config.cutoffFrequency = cutoffFrequency;
+
+    return config;
+}
+
+static MA_INLINE ma_biquad_config ma_hpf__get_biquad_config(const ma_hpf_config* pConfig)
+{
+    ma_biquad_config bqConfig;
+    double q;
+    double w;
+    double s;
+    double c;
+    double a;
+
+    MA_ASSERT(pConfig != NULL);
+
+    q = 0.707107;
+    w = 2 * MA_PI_D * pConfig->cutoffFrequency / pConfig->sampleRate;
+    s = ma_sin(w);
+    c = ma_cos(w);
+    a = s / (2*q);
+
+    bqConfig.b0 =  (1 + c) / 2;
+    bqConfig.b1 = -(1 + c);
+    bqConfig.b2 =  (1 + c) / 2;
+    bqConfig.a0 =   1 + a;
+    bqConfig.a1 =  -2 * c;
+    bqConfig.a2 =   1 - a;
+
+    bqConfig.format   = pConfig->format;
+    bqConfig.channels = pConfig->channels;
+
+    return bqConfig;
+}
+
+ma_result ma_hpf_init(const ma_hpf_config* pConfig, ma_hpf* pHPF)
+{
+    ma_result result;
+    ma_biquad_config bqConfig;
+
+    if (pHPF == NULL) {
+        return MA_INVALID_ARGS;
+    }
+
+    MA_ZERO_OBJECT(pHPF);
+
+    if (pConfig == NULL) {
+        return MA_INVALID_ARGS;
+    }
+
+    bqConfig = ma_hpf__get_biquad_config(pConfig);
+    result = ma_biquad_init(&bqConfig, &pHPF->bq);
+    if (result != MA_SUCCESS) {
+        return result;
+    }
+
+    return MA_SUCCESS;
+}
+
+ma_result ma_hpf_reinit(const ma_hpf_config* pConfig, ma_hpf* pHPF)
+{
+    ma_result result;
+    ma_biquad_config bqConfig;
+
+    if (pHPF == NULL || pConfig == NULL) {
+        return MA_INVALID_ARGS;
+    }
+
+    bqConfig = ma_hpf__get_biquad_config(pConfig);
+    result = ma_biquad_reinit(&bqConfig, &pHPF->bq);
+    if (result != MA_SUCCESS) {
+        return result;
+    }
+
+    return MA_SUCCESS;
+}
+
+ma_result ma_hpf_process_pcm_frames(ma_hpf* pHPF, void* pFramesOut, const void* pFramesIn, ma_uint64 frameCount)
+{
+    if (pHPF == NULL) {
+        return MA_INVALID_ARGS;
+    }
+
+    return ma_biquad_process_pcm_frames(&pHPF->bq, pFramesOut, pFramesIn, frameCount);
+}
+
+ma_uint32 ma_hpf_get_latency(ma_hpf* pHPF)
+{
+    if (pHPF == NULL) {
+        return 0;
+    }
+
+    return ma_biquad_get_latency(&pHPF->bq);
+}
+
+
 
 
 /**************************************************************************************************************************************************************
