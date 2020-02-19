@@ -1025,6 +1025,27 @@ count after initialization is invalid and will result in an error.
 
 
 
+Waveforms
+=========
+miniaudio supports generation of sine, square, triangle and sawtooth waveforms. This is achieved with the `ma_waveform` API. Example:
+
+    ```c
+    ma_waveform waveform;
+    ma_result result = ma_waveform_init(ma_waveform_type_sine, amplitude, frequency, sampleRate, &waveform);
+    if (result != MA_SUCCESS) {
+        // Error.
+    }
+
+    ...
+
+    ma_waveform_read_pcm_frames(&waveform, pOutput, frameCount, FORMAT, CHANNELS);
+    ```
+
+The amplitude, frequency and sample rate can be changed dynamically with `ma_waveform_set_amplitude()`, `ma_waveform_set_frequency()` and
+`ma_waveform_set_sample_rate()` respectively.
+
+
+
 Ring Buffers
 ============
 miniaudio supports lock free (single producer, single consumer) ring buffers which are exposed via the `ma_rb` and `ma_pcm_rb` APIs. The `ma_rb` API operates
