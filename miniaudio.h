@@ -986,9 +986,9 @@ and will result in an error.
 
 
 
-Low-Pass Filtering
-==================
-Low-pass filtering is achieved with the `ma_lpf` API. Example:
+Low-Pass, High-Pass and Band-Pass Filtering
+===========================================
+Low-pass, high-pass and band-pass filtering is achieved with the `ma_lpf`, `ma_hpf` and `ma_bpf` APIs respective. Low-pass filter example:
 
     ```c
     ma_lpf_config config = ma_lpf_config_init(ma_format_f32, channels, sampleRate, cutoffFrequency);
@@ -1011,7 +1011,7 @@ Filtering can be applied in-place by passing in the same pointer for both the in
     ma_lpf_process_pcm_frames(&lpf, pMyData, pMyData, frameCount);
     ```
 
-The low-pass filter is implemented as a biquad filter. If you need to increase the filter order, simply chain multiple low-pass filters together.
+These filters are implemented as a biquad filter. If you need to increase the filter order, simply chain multiple filters together.
 
     ```c
     for (iFilter = 0; iFilter < filterCount; iFilter += 1) {
@@ -1022,6 +1022,9 @@ The low-pass filter is implemented as a biquad filter. If you need to increase t
 If you need to change the configuration of the filter, but need to maintain the state of internal registers you can do so with `ma_lpf_reinit()`. This may be
 useful if you need to change the sample rate and/or cutoff frequency dynamically while maintaing smooth transitions. Note that changing the format or channel
 count after initialization is invalid and will result in an error.
+
+The example code above is for low-pass filters, but the same applies for high-pass and band-pass filters, only you should use the `ma_hpf` and `ma_bpf` APIs
+instead.
 
 
 
