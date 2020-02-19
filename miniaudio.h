@@ -4742,6 +4742,9 @@ typedef struct
 
 ma_result ma_waveform_init(ma_waveform_type type, double amplitude, double frequency, ma_uint32 sampleRate, ma_waveform* pWaveform);
 ma_uint64 ma_waveform_read_pcm_frames(ma_waveform* pWaveform, void* pFramesOut, ma_uint64 frameCount, ma_format format, ma_uint32 channels);
+ma_result ma_waveform_set_amplitude(ma_waveform* pWaveform, double amplitude);
+ma_result ma_waveform_set_frequency(ma_waveform* pWaveform, double frequency);
+ma_result ma_waveform_set_sample_rate(ma_waveform* pWaveform, ma_uint32 sampleRate);
 
 #ifdef __cplusplus
 }
@@ -37891,6 +37894,36 @@ ma_result ma_waveform_init(ma_waveform_type type, double amplitude, double frequ
     pWaveform->deltaTime = 1.0 / sampleRate;
     pWaveform->time      = 0;
 
+    return MA_SUCCESS;
+}
+
+ma_result ma_waveform_set_amplitude(ma_waveform* pWaveform, double amplitude)
+{
+    if (pWaveform == NULL) {
+        return MA_INVALID_ARGS;
+    }
+
+    pWaveform->amplitude = amplitude;
+    return MA_SUCCESS;
+}
+
+ma_result ma_waveform_set_frequency(ma_waveform* pWaveform, double frequency)
+{
+    if (pWaveform == NULL) {
+        return MA_INVALID_ARGS;
+    }
+
+    pWaveform->frequency = frequency;
+    return MA_SUCCESS;
+}
+
+ma_result ma_waveform_set_sample_rate(ma_waveform* pWaveform, ma_uint32 sampleRate)
+{
+    if (pWaveform == NULL) {
+        return MA_INVALID_ARGS;
+    }
+
+    pWaveform->deltaTime = 1.0 / sampleRate;
     return MA_SUCCESS;
 }
 
