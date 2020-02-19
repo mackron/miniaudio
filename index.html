@@ -216,9 +216,18 @@ a:hover {
                                     <li>Optional Speex resampling (must opt-in).</li>
                                 </ul>
                             </li>
-                            <li>Biquad and low-pass filtering.</li>
-							<li>Lock free ring buffer API (single producer, single consumer).</li>
-                            <li>Decoding of WAV, FLAC, MP3 and Vorbis via dr_wav, dr_flac, dr_mp3 and stb_vorbis.</li>
+                            <li>Biquad filter.</li>
+                            <li>Low-pass, high-pass and band-pass filters.</li>
+                            <li>Sine, square, triangle and sawtooth waveform generation.</li>
+                            <li>Lock free ring buffer API (single producer, single consumer).</li>
+                            <li>Decoding
+                                <ul>
+                                    <li>WAV via dr_wav</li>
+                                    <li>FLAC via dr_flac</li>
+                                    <li>MP3 via dr_mp3</li>
+                                    <li>Vorbis via stb_vorbis</li>
+                                </ul>
+                            </li>
                         </ul>
                     </td>
                     <td style="width:50%; vertical-align:top; text-align:left; padding:2em;">
