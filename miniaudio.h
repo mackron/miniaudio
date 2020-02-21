@@ -2116,7 +2116,7 @@ ma_result ma_pcm_rb_acquire_write(ma_pcm_rb* pRB, ma_uint32* pSizeInFrames, void
 ma_result ma_pcm_rb_commit_write(ma_pcm_rb* pRB, ma_uint32 sizeInFrames, void* pBufferOut);
 ma_result ma_pcm_rb_seek_read(ma_pcm_rb* pRB, ma_uint32 offsetInFrames);
 ma_result ma_pcm_rb_seek_write(ma_pcm_rb* pRB, ma_uint32 offsetInFrames);
-ma_int32 ma_pcm_rb_pointer_disance(ma_pcm_rb* pRB); /* Return value is in frames. */
+ma_int32 ma_pcm_rb_pointer_distance(ma_pcm_rb* pRB); /* Return value is in frames. */
 ma_uint32 ma_pcm_rb_available_read(ma_pcm_rb* pRB);
 ma_uint32 ma_pcm_rb_available_write(ma_pcm_rb* pRB);
 ma_uint32 ma_pcm_rb_get_subbuffer_size(ma_pcm_rb* pRB);
@@ -7625,7 +7625,7 @@ static ma_result ma_device__handle_duplex_callback_capture(ma_device* pDevice, m
         }
 
         if (framesToProcessInClientFormat == 0) {
-            if (ma_pcm_rb_pointer_disance(pRB) == (ma_int32)ma_pcm_rb_get_subbuffer_size(pRB)) {
+            if (ma_pcm_rb_pointer_distance(pRB) == (ma_int32)ma_pcm_rb_get_subbuffer_size(pRB)) {
                 break;  /* Overrun. Not enough room in the ring buffer for input frame. Excess frames are dropped. */
             }
         }
@@ -7699,7 +7699,7 @@ static ma_result ma_device__handle_duplex_callback_playback(ma_device* pDevice, 
                 /* Use actual input frames. */
                 ma_device__on_data(pDevice, playbackFramesInExternalFormat, pInputFrames, inputFrameCount);
             } else {
-                if (ma_pcm_rb_pointer_disance(pRB) == 0) {
+                if (ma_pcm_rb_pointer_distance(pRB) == 0) {
                     break;  /* Underrun. */
                 }
             }
@@ -35936,7 +35936,7 @@ ma_result ma_pcm_rb_seek_write(ma_pcm_rb* pRB, ma_uint32 offsetInFrames)
     return ma_rb_seek_write(&pRB->rb, offsetInFrames * ma_pcm_rb_get_bpf(pRB));
 }
 
-ma_int32 ma_pcm_rb_pointer_disance(ma_pcm_rb* pRB)
+ma_int32 ma_pcm_rb_pointer_distance(ma_pcm_rb* pRB)
 {
     if (pRB == NULL) {
         return 0;
