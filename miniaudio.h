@@ -27417,9 +27417,9 @@ static ma_result ma_device_init_by_type__webaudio(ma_context* pContext, const ma
         For capture it is a bit unintuitive. We use the ScriptProccessorNode _only_ to get the raw PCM data. It is connected to an AudioContext just like the
         playback case, however we just output silence to the AudioContext instead of passing any real data. It would make more sense to me to use the
         MediaRecorder API, but unfortunately you need to specify a MIME time (Opus, Vorbis, etc.) for the binary blob that's returned to the client, but I've
-        been unable to figure out how to get this as raw PCM. The closes I can think is to use the MIME type for WAV files and just parse it, but I don't know
+        been unable to figure out how to get this as raw PCM. The closest I can think is to use the MIME type for WAV files and just parse it, but I don't know
         how well this would work. Although ScriptProccessorNode is deprecated, in practice it seems to have pretty good browser support so I'm leaving it like
-        this for now. If anything knows how I could get raw PCM data using the MediaRecorder API please let me know!
+        this for now. If anyone knows how I could get raw PCM data using the MediaRecorder API please let me know!
         */
         device.scriptNode = device.webaudio.createScriptProcessor(bufferSize, channels, channels);
 
