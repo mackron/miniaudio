@@ -4822,6 +4822,39 @@ ma_result ma_waveform_set_amplitude(ma_waveform* pWaveform, double amplitude);
 ma_result ma_waveform_set_frequency(ma_waveform* pWaveform, double frequency);
 ma_result ma_waveform_set_sample_rate(ma_waveform* pWaveform, ma_uint32 sampleRate);
 
+
+typedef struct
+{
+    ma_int32 state;
+} ma_lcg;
+
+typedef enum
+{
+    ma_noise_type_white,
+} ma_noise_type;
+
+typedef struct
+{
+    ma_format format;
+    ma_uint32 channels;
+    ma_noise_type type;
+    ma_int32 seed;
+    double amplitude;
+    ma_bool32 duplicateChannels;
+} ma_noise_config;
+
+ma_noise_config ma_noise_config_init(ma_format format, ma_uint32 channels, ma_noise_type type, ma_int32 seed, double amplitude);
+
+typedef struct
+{
+    ma_noise_config config;
+    ma_lcg lcg;
+} ma_noise;
+
+ma_result ma_noise_init(const ma_noise_config* pConfig, ma_noise* pNoise);
+ma_uint64 ma_noise_read_pcm_frames(ma_noise* pNoise, void* pFramesOut, ma_uint64 frameCount);
+
+
 #ifdef __cplusplus
 }
 #endif
@@ -5902,48 +5935,85 @@ for miniaudio's purposes.
 #define MA_LCG_M   2147483647
 #define MA_LCG_A   48271
 #define MA_LCG_C   0
-static ma_int32 g_maLCG = 4321; /* Non-zero initial seed. Use ma_seed() to use an explicit seed. */
 
-static MA_INLINE void ma_seed(ma_int32 seed)
+static ma_lcg g_maLCG = {4321}; /* Non-zero initial seed. Use ma_seed() to use an explicit seed. */
+
+static MA_INLINE void ma_lcg_seed(ma_lcg* pLCG, ma_int32 seed)
 {
-    g_maLCG = seed;
+    MA_ASSERT(pLCG != NULL);
+    pLCG->state = seed;
 }
 
-static MA_INLINE ma_int32 ma_rand_s32()
+static MA_INLINE ma_int32 ma_lcg_rand_s32(ma_lcg* pLCG)
 {
-    ma_int32 lcg = g_maLCG;
-    ma_int32 r = (MA_LCG_A * lcg + MA_LCG_C) % MA_LCG_M;
-    g_maLCG = r;
-    return r;
+    pLCG->state = (MA_LCG_A * pLCG->state + MA_LCG_C) % MA_LCG_M;
+    return pLCG->state;
 }
 
-static MA_INLINE ma_uint32 ma_rand_u32()
+static MA_INLINE ma_uint32 ma_lcg_rand_u32(ma_lcg* pLCG)
 {
-    return (ma_uint32)ma_rand_s32();
+    return (ma_uint32)ma_lcg_rand_s32(pLCG);
 }
 
-static MA_INLINE double ma_rand_f64()
+static MA_INLINE double ma_lcg_rand_f64(ma_lcg* pLCG)
 {
-    return ma_rand_s32() / (double)0x7FFFFFFF;
+    return ma_lcg_rand_s32(pLCG) / (double)0x7FFFFFFF;
 }
 
-static MA_INLINE float ma_rand_f32()
+static MA_INLINE float ma_lcg_rand_f32(ma_lcg* pLCG)
 {
-    return (float)ma_rand_f64();
+    return (float)ma_lcg_rand_f64(pLCG);
 }
 
-static MA_INLINE float ma_rand_range_f32(float lo, float hi)
+static MA_INLINE float ma_lcg_rand_range_f32(ma_lcg* pLCG, float lo, float hi)
 {
-    return ma_scale_to_range_f32(ma_rand_f32(), lo, hi);
+    return ma_scale_to_range_f32(ma_lcg_rand_f32(pLCG), lo, hi);
 }
 
-static MA_INLINE ma_int32 ma_rand_range_s32(ma_int32 lo, ma_int32 hi)
+static MA_INLINE ma_int32 ma_lcg_rand_range_s32(ma_lcg* pLCG, ma_int32 lo, ma_int32 hi)
 {
     if (lo == hi) {
         return lo;
     }
 
-    return lo + ma_rand_u32() / (0xFFFFFFFF / (hi - lo + 1) + 1);
+    return lo + ma_lcg_rand_u32(pLCG) / (0xFFFFFFFF / (hi - lo + 1) + 1);
+}
+
+
+
+static MA_INLINE void ma_seed(ma_int32 seed)
+{
+    ma_lcg_seed(&g_maLCG, seed);
+}
+
+static MA_INLINE ma_int32 ma_rand_s32()
+{
+    return ma_lcg_rand_s32(&g_maLCG);
+}
+
+static MA_INLINE ma_uint32 ma_rand_u32()
+{
+    return ma_lcg_rand_u32(&g_maLCG);
+}
+
+static MA_INLINE double ma_rand_f64()
+{
+    return ma_lcg_rand_f64(&g_maLCG);
+}
+
+static MA_INLINE float ma_rand_f32()
+{
+    return ma_lcg_rand_f32(&g_maLCG);
+}
+
+static MA_INLINE float ma_rand_range_f32(float lo, float hi)
+{
+    return ma_lcg_rand_range_f32(&g_maLCG, lo, hi);
+}
+
+static MA_INLINE ma_int32 ma_rand_range_s32(ma_int32 lo, ma_int32 hi)
+{
+    return ma_lcg_rand_range_s32(&g_maLCG, lo, hi);
 }
 
 
@@ -38383,6 +38453,124 @@ ma_uint64 ma_waveform_read_pcm_frames(ma_waveform* pWaveform, void* pFramesOut, 
     return frameCount;
 }
 
+
+ma_noise_config ma_noise_config_init(ma_format format, ma_uint32 channels, ma_noise_type type, ma_int32 seed, double amplitude)
+{
+    ma_noise_config config;
+    MA_ZERO_OBJECT(&config);
+
+    config.format    = format;
+    config.channels  = channels;
+    config.type      = type;
+    config.seed      = seed;
+    config.amplitude = amplitude;
+
+    return config;
+}
+
+ma_result ma_noise_init(const ma_noise_config* pConfig, ma_noise* pNoise)
+{
+    if (pNoise == NULL) {
+        return MA_INVALID_ARGS;
+    }
+
+    MA_ZERO_OBJECT(pNoise);
+
+    if (pConfig == NULL) {
+        return MA_INVALID_ARGS;
+    }
+
+    pNoise->config = *pConfig;
+    ma_lcg_seed(&pNoise->lcg, pConfig->seed);
+
+    return MA_SUCCESS;
+}
+
+static MA_INLINE float ma_noise_f32_white(ma_noise* pNoise)
+{
+    return (float)(ma_lcg_rand_f64(&pNoise->lcg) * pNoise->config.amplitude);
+}
+
+static MA_INLINE ma_int16 ma_noise_s16_white(ma_noise* pNoise)
+{
+    ma_int64 s = (ma_int64)(ma_lcg_rand_s32(&pNoise->lcg) * pNoise->config.amplitude);
+    return (ma_int16)s;
+}
+
+static MA_INLINE ma_uint64 ma_noise_read_pcm_frames__white(ma_noise* pNoise, void* pFramesOut, ma_uint64 frameCount)
+{
+    ma_uint64 iFrame;
+    ma_uint64 iChannel;
+
+    if (pNoise->config.format == ma_format_f32) {
+        float* pFramesOutF32 = (float*)pFramesOut;
+        if (pNoise->config.duplicateChannels) {
+            for (iFrame = 0; iFrame < frameCount; iFrame += 1) {
+                float s = ma_noise_f32_white(pNoise);
+                for (iChannel = 0; iChannel < pNoise->config.channels; iChannel += 1) {
+                    pFramesOutF32[iFrame] = s;
+                }
+            }
+        } else {
+            for (iFrame = 0; iFrame < frameCount; iFrame += 1) {
+                for (iChannel = 0; iChannel < pNoise->config.channels; iChannel += 1) {
+                    pFramesOutF32[iFrame] = ma_noise_f32_white(pNoise);
+                }
+            }
+        }
+    } else if (pNoise->config.format == ma_format_s16) {
+        ma_int16* pFramesOutS16 = (ma_int16*)pFramesOut;
+        if (pNoise->config.duplicateChannels) {
+            for (iFrame = 0; iFrame < frameCount; iFrame += 1) {
+                ma_int16 s = ma_noise_s16_white(pNoise);
+                for (iChannel = 0; iChannel < pNoise->config.channels; iChannel += 1) {
+                    pFramesOutS16[iFrame] = s;
+                }
+            }
+        } else {
+            for (iFrame = 0; iFrame < frameCount; iFrame += 1) {
+                for (iChannel = 0; iChannel < pNoise->config.channels; iChannel += 1) {
+                    pFramesOutS16[iFrame] = ma_noise_s16_white(pNoise);
+                }
+            }
+        }
+    } else {
+        ma_uint32 bpf = ma_get_bytes_per_frame(pNoise->config.format, pNoise->config.channels);
+        ma_uint32 bps = ma_get_bytes_per_sample(pNoise->config.format);
+        if (pNoise->config.duplicateChannels) {
+            for (iFrame = 0; iFrame < frameCount; iFrame += 1) {
+                float s = ma_noise_f32_white(pNoise);
+                for (iChannel = 0; iChannel < pNoise->config.channels; iChannel += 1) {
+                    ma_pcm_convert(ma_offset_ptr(pFramesOut, iFrame*bpf + iChannel*bps), pNoise->config.format, &s, ma_format_f32, 1, ma_dither_mode_none);
+                }
+            }
+        } else {
+            for (iFrame = 0; iFrame < frameCount; iFrame += 1) {
+                for (iChannel = 0; iChannel < pNoise->config.channels; iChannel += 1) {
+                    float s = ma_noise_f32_white(pNoise);
+                    ma_pcm_convert(ma_offset_ptr(pFramesOut, iFrame*bpf + iChannel*bps), pNoise->config.format, &s, ma_format_f32, 1, ma_dither_mode_none);
+                }
+            }
+        }
+    }
+
+    return frameCount;
+}
+
+ma_uint64 ma_noise_read_pcm_frames(ma_noise* pNoise, void* pFramesOut, ma_uint64 frameCount)
+{
+    if (pNoise == NULL) {
+        return 0;
+    }
+
+    if (pNoise->config.type == ma_noise_type_white) {
+        return ma_noise_read_pcm_frames__white(pNoise, pFramesOut, frameCount);
+    }
+
+    /* Should never get here. */
+    MA_ASSERT(MA_FALSE);
+    return 0;
+}
 
 /* End globally disabled warnings. */
 #if defined(_MSC_VER)
