@@ -1028,8 +1028,11 @@ instead.
 
 
 
+Waveform and Noise Generation
+=============================
+
 Waveforms
-=========
+---------
 miniaudio supports generation of sine, square, triangle and sawtooth waveforms. This is achieved with the `ma_waveform` API. Example:
 
     ```c
@@ -1048,6 +1051,37 @@ miniaudio supports generation of sine, square, triangle and sawtooth waveforms. 
 
 The amplitude, frequency and sample rate can be changed dynamically with `ma_waveform_set_amplitude()`, `ma_waveform_set_frequency()` and
 `ma_waveform_set_sample_rate()` respectively.
+
+
+Noise
+-----
+miniaudio supports generation of white noise via the `ma_noise` API. Example:
+
+    ```c
+    ma_noise_config config = ma_noise_config_init(FORMAT, CHANNELS, ma_noise_type_white, SEED, aplitude);
+
+    ma_noise noise;
+    ma_result result = ma_noise_init(&config, &noise);
+    if (result != MA_SUCCESS) {
+        // Error.
+    }
+
+    ...
+
+    ma_noise_read_pcm_frames(&noise, pOutput, frameCount);
+    ```
+
+The noise API uses simple LCG random number generation. It supports a custom seed which is useful for things like automated testing which often requires
+reproducibility. Setting the seed to zero will default to MA_DEFAULT_LCG_SEED.
+
+By default, the noise API will use different values for different channels. So, for example, the left side in a stereo stream will be different to the right
+side. To instead have each channel use the same random value, set the `duplicateChannels` member of the noise config to true, like so:
+
+    ```c
+    config.duplicateChannels = MA_TRUE;
+    ```
+
+Currently only white noise is supported. Pink and brown noise are planned.
 
 
 
@@ -5940,15 +5974,19 @@ Random Number Generation
 
 miniaudio uses the LCG random number generation algorithm. This is good enough for audio.
 
-Note that miniaudio's LCG implementation uses global state which is _not_ thread-local. When this is called across
-multiple threads, results will be unpredictable. However, it won't crash and results will still be random enough
-for miniaudio's purposes.
+Note that miniaudio's global LCG implementation uses global state which is _not_ thread-local. When this is called across
+multiple threads, results will be unpredictable. However, it won't crash and results will still be random enough for
+miniaudio's purposes.
 */
+#ifndef MA_DEFAULT_LCG_SEED
+#define MA_DEFAULT_LCG_SEED 4321
+#endif
+
 #define MA_LCG_M   2147483647
 #define MA_LCG_A   48271
 #define MA_LCG_C   0
 
-static ma_lcg g_maLCG = {4321}; /* Non-zero initial seed. Use ma_seed() to use an explicit seed. */
+static ma_lcg g_maLCG = {MA_DEFAULT_LCG_SEED}; /* Non-zero initial seed. Use ma_seed() to use an explicit seed. */
 
 static MA_INLINE void ma_lcg_seed(ma_lcg* pLCG, ma_int32 seed)
 {
@@ -38489,6 +38527,10 @@ ma_noise_config ma_noise_config_init(ma_format format, ma_uint32 channels, ma_no
     config.type      = type;
     config.seed      = seed;
     config.amplitude = amplitude;
+
+    if (config.seed == 0) {
+        config.seed = MA_DEFAULT_LCG_SEED;
+    }
 
     return config;
 }
