@@ -4,7 +4,8 @@ miniaudio (formerly mini_al) - v0.xx.xx - 2020-xx-xx
 
 David Reid - davidreidsoftware@gmail.com
 
-https://github.com/dr-soft/miniaudio
+Website: https://miniaud.io
+GitHub:  https://github.com/dr-soft/miniaudio
 */
 
 /*
