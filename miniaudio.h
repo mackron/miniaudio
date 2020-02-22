@@ -32,7 +32,7 @@ The previous conversion APIs accepted a callback in their configs. There are no 
 `*_process_pcm_frames()` function as a pointer to a buffer.
 
 The simplest aspect of data conversion is sample format conversion. To convert between two formats, just call `ma_convert_pcm_frames_format()`. Channel
-conversion is also simple which you can do with `ma_channel_router` via `ma_channel_router_process_pcm_frames().
+conversion is also simple which you can do with `ma_channel_router` via `ma_channel_router_process_pcm_frames()`.
 
 Resampling is more complicated because the number of output frames that are processed is different to the number of input frames that are consumed. When you
 call `ma_resampler_process_pcm_frames()` you need to pass in the number of input frames available for processing and the number of output frames you want to
@@ -44,8 +44,8 @@ makes it the best option if you need to do data conversion.
 In addition to changes to the API design, a few other changes have been made to the data conversion pipeline:
 
   - The sinc resampler has been removed. This was completely broken and never actually worked properly.
-  - The linear resampler can now uses low-pass filtering to remove aliasing. The quality of the low-pass filter can be controlled via the resampler config with
-    the `lpfCount` option, which has a maximum value of MA_MAX_RESAMPLER_LPF_FILTERS.
+  - The linear resampler now uses low-pass filtering to remove aliasing. The quality of the low-pass filter can be controlled via the resampler config with the
+    `lpfCount` option, which has a maximum value of MA_MAX_RESAMPLER_LPF_FILTERS.
   - Data conversion now supports s16 natively which runs through a fixed point pipeline. Previously everything needed to be converted to floating point before
     processing, whereas now both s16 and f32 are natively supported. Other formats still require conversion to either s16 or f32 prior to processing, however
     `ma_data_converter` will handle this for you.
@@ -106,9 +106,9 @@ Other less major API changes have also been made in version 0.10.
 `ma_device_set_stop_callback()` has been removed. If you require a stop callback, you must now set it via the device config just like the data callback.
 
 The `ma_sine_wave` API has been replaced with a more general API called `ma_waveform`. This supports generation of different types of waveforms, including
-sine, square, triangle and sawtooth. Use `ma_waveform_init()` in place of `ma_sine_wave_init()` to initialize the waveform object. This takes the same
-parameters, except an additional `ma_waveform_type` value which you would set to `ma_waveform_type_sine`. Use `ma_waveform_read_pcm_frames()` in place of
-`ma_sine_wave_read_f32()` and `ma_sine_wave_read_f32_ex()`.
+sine, square, triangle and sawtooth. Use `ma_waveform_init()` in place of `ma_sine_wave_init()` to initialize the waveform object. This takes a configuration
+object called `ma_waveform_config` which defines the properties of the waveform. Use `ma_waveform_config_init()` to initialize a `ma_waveform_config` object.
+Use `ma_waveform_read_pcm_frames()` in place of `ma_sine_wave_read_f32()` and `ma_sine_wave_read_f32_ex()`.
 
 `ma_convert_frames()` and `ma_convert_frames_ex()` have been changed. Both of these functions now take a new parameter called `frameCountOut` which specifies
 the size of the output buffer in PCM frames. This has been added for safety. In addition to this, the parameters for `ma_convert_frames_ex()` have changed to
@@ -118,21 +118,24 @@ flexible, to prevent the parameter list getting too long, and to prevent API bre
 `ma_calculate_frame_count_after_src()` has been renamed to `ma_calculate_frame_count_after_resampling()` for consistency with the new `ma_resampler` API.
 
 
-Biquad and Low-Pass Filters
----------------------------
-A generic biquad filter has been added. This is used via the `ma_biquad` API. The biquad filter is used as the basis for the low-pass filter. The biquad filter
-supports 32-bit floating point samples which runs on a floating point pipeline and 16-bit signed integer samples which runs on a 32-bit fixed point pipeline.
-Both formats use transposed direct form 2.
+Biquad Filters
+--------------
+A generic biquad filter has been added. This is used via the `ma_biquad` API. The biquad filter is used as the basis for the low-pass, high-pass and band-pass
+filters. It supports 32-bit floating point samples which runs on a floating point pipeline and 16-bit signed integer samples which runs on a 32-bit fixed point
+pipeline. Both formats use transposed direct form 2.
 
-The low-pass filter is just a biquad filter. By itself it's a second order low-pass filter, but it can be extended to higher orders by chaining low-pass
-filters together. Low-pass filtering is achieved via the `ma_lpf` API. Since the low-pass filter is just a biquad filter, it supports both 32-bit floating
-point and 16-bit signed integer formats.
+
+Low-Pass, High-Pass and Band-Pass Filters
+-----------------------------------------
+APIs for low-pass, high-pass and band-pass filtering has been added. By themselves they are second order filters, but can be extended to higher orders by
+chaining them together. Low-pass, high-pass and band-pass filtering is achieved via the `ma_lpf`, `ma_hpf` and `ma_bpf` APIs respectively. Since these filters
+are just biquad filters, they support both 32-bit floating point and 16-bit signed integer formats.
 
 
 Sine, Square, Triangle and Sawtooth Waveforms
 ---------------------------------------------
 Previously miniaudio supported only sine wave generation. This has now been generalized to support sine, square, triangle and sawtooth waveforms. The old
-`ma_sine_wave` API has been removed and replaced with the `ma_waveform` API. Use `ma_waveform_init()` to initialize the waveform. Here you specify tyhe type of
+`ma_sine_wave` API has been removed and replaced with the `ma_waveform` API. Use `ma_waveform_init()` to initialize the waveform. Here you specify the type of
 waveform you want to generated via the `ma_waveform_config` object which you can initialize with `ma_waveform_config_init()`. You then read data using
 `ma_waveform_read_pcm_frames()`.
 
