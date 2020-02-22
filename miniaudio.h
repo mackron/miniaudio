@@ -1060,6 +1060,9 @@ miniaudio supports generation of sine, square, triangle and sawtooth waveforms. 
 The amplitude, frequency and sample rate can be changed dynamically with `ma_waveform_set_amplitude()`, `ma_waveform_set_frequency()` and
 `ma_waveform_set_sample_rate()` respectively.
 
+You can reverse the waveform by setting the amplitude to a negative value. You can use this to control whether or not a sawtooth has a positive or negative
+ramp, for example.
+
 
 Noise
 -----
