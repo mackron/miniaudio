@@ -103,7 +103,7 @@ Other API Changes
 -----------------
 Other less major API changes have also been made in version 0.10.
 
-`ma_device_set_stop_callback()` has been removed. You now must set the stop callback via the device config just like the data callback.
+`ma_device_set_stop_callback()` has been removed. If you require a stop callback, you must now set it via the device config just like the data callback.
 
 The `ma_sine_wave` API has been replaced with a more general API called `ma_waveform`. This supports generation of different types of waveforms, including
 sine, square, triangle and sawtooth. Use `ma_waveform_init()` in place of `ma_sine_wave_init()` to initialize the waveform object. This takes the same
