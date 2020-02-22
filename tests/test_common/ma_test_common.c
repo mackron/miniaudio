@@ -1,3 +1,10 @@
+#define DR_FLAC_IMPLEMENTATION
+#include "../../extras/dr_flac.h"
+#define DR_MP3_IMPLEMENTATION
+#include "../../extras/dr_mp3.h"
+#define DR_WAV_IMPLEMENTATION
+#include "../../extras/dr_wav.h"
+
 #define MINIAUDIO_IMPLEMENTATION
 #include "../../miniaudio.h"
 
@@ -34,4 +41,22 @@ ma_result ma_register_test(const char* pName, ma_test_entry_proc onEntry)
     g_Tests.count += 1;
 
     return MA_SUCCESS;
+}
+
+static drwav_data_format drwav_data_format_from_minaudio_format(ma_format format, ma_uint32 channels, ma_uint32 sampleRate)
+{
+    drwav_data_format wavFormat;
+
+    wavFormat.container     = drwav_container_riff;
+    wavFormat.channels      = channels;
+    wavFormat.sampleRate    = sampleRate;
+    wavFormat.bitsPerSample = ma_get_bytes_per_sample(format) * 8;
+
+    if (format == ma_format_f32) {
+        wavFormat.format = DR_WAVE_FORMAT_IEEE_FLOAT;
+    } else {
+        wavFormat.format = DR_WAVE_FORMAT_PCM;
+    }
+
+    return wavFormat;
 }

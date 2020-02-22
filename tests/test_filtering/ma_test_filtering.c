@@ -1,7 +1,9 @@
 #include "../test_common/ma_test_common.c"
 
-#include "ma_test_generation_noise.c"
-#include "ma_test_generation_waveform.c"
+#include "ma_test_filtering_dithering.c"
+#include "ma_test_filtering_lpf.c"
+#include "ma_test_filtering_hpf.c"
+#include "ma_test_filtering_bpf.c"
 
 int main(int argc, char** argv)
 {
@@ -12,14 +14,24 @@ int main(int argc, char** argv)
     (void)argc;
     (void)argv;
 
-    result = ma_register_test("Noise", test_entry__noise);
+    result = ma_register_test("Dithering", test_entry__dithering);
     if (result != MA_SUCCESS) {
-        return result;
+        hasError = MA_TRUE;
     }
 
-    result = ma_register_test("Waveform", test_entry__waveform);
+    result = ma_register_test("Low-Pass Filtering", test_entry__lpf);
     if (result != MA_SUCCESS) {
-        return result;
+        hasError = MA_TRUE;
+    }
+
+    result = ma_register_test("High-Pass Filtering", test_entry__hpf);
+    if (result != MA_SUCCESS) {
+        hasError = MA_TRUE;
+    }
+
+    result = ma_register_test("Band-Pass Filtering", test_entry__bpf);
+    if (result != MA_SUCCESS) {
+        hasError = MA_TRUE;
     }
 
     for (iTest = 0; iTest < g_Tests.count; iTest += 1) {
