@@ -32404,6 +32404,11 @@ Format Conversion
 
 **************************************************************************************************************************************************************/
 
+static MA_INLINE ma_int16 ma_pcm_sample_f32_to_s16(float x)
+{
+    return (ma_int16)(x * 32767.0f);
+}
+
 /* u8 */
 void ma_pcm_u8_to_u8(void* dst, const void* src, ma_uint64 count, ma_dither_mode ditherMode)
 {
@@ -38375,6 +38380,11 @@ static float ma_waveform_sine_f32(double time, double frequency, double amplitud
     return (float)(ma_sin(MA_TAU_D * time * frequency) * amplitude);
 }
 
+static ma_int16 ma_waveform_sine_s16(double time, double frequency, double amplitude)
+{
+    return ma_pcm_sample_f32_to_s16(ma_waveform_sine_f32(time, frequency, amplitude));
+}
+
 static float ma_waveform_square_f32(double time, double frequency, double amplitude)
 {
     double t = time * frequency;
@@ -38390,6 +38400,11 @@ static float ma_waveform_square_f32(double time, double frequency, double amplit
     return (float)r;
 }
 
+static ma_int16 ma_waveform_square_s16(double time, double frequency, double amplitude)
+{
+    return ma_pcm_sample_f32_to_s16(ma_waveform_square_f32(time, frequency, amplitude));
+}
+
 static float ma_waveform_triangle_f32(double time, double frequency, double amplitude)
 {
     double t = time * frequency;
@@ -38399,6 +38414,11 @@ static float ma_waveform_triangle_f32(double time, double frequency, double ampl
     r = 2 * ma_abs(2 * (f - 0.5)) - 1;
 
     return (float)(r * amplitude);
+}
+
+static ma_int16 ma_waveform_triangle_s16(double time, double frequency, double amplitude)
+{
+    return ma_pcm_sample_f32_to_s16(ma_waveform_triangle_f32(time, frequency, amplitude));
 }
 
 static float ma_waveform_sawtooth_f32(double time, double frequency, double amplitude)
@@ -38412,6 +38432,11 @@ static float ma_waveform_sawtooth_f32(double time, double frequency, double ampl
     return (float)(r * amplitude);
 }
 
+static ma_int16 ma_waveform_sawtooth_s16(double time, double frequency, double amplitude)
+{
+    return ma_pcm_sample_f32_to_s16(ma_waveform_sawtooth_f32(time, frequency, amplitude));
+}
+
 static void ma_waveform_read_pcm_frames__sine(ma_waveform* pWaveform, void* pFramesOut, ma_uint64 frameCount)
 {
     ma_uint64 iFrame;
@@ -38422,12 +38447,34 @@ static void ma_waveform_read_pcm_frames__sine(ma_waveform* pWaveform, void* pFra
     MA_ASSERT(pWaveform  != NULL);
     MA_ASSERT(pFramesOut != NULL);
 
-    for (iFrame = 0; iFrame < frameCount; iFrame += 1) {
-        float s = ma_waveform_sine_f32(pWaveform->time, pWaveform->config.frequency, pWaveform->config.amplitude);
-        pWaveform->time += pWaveform->advance;
+    if (pWaveform->config.format == ma_format_f32) {
+        float* pFramesOutF32 = (float*)pFramesOut;
+        for (iFrame = 0; iFrame < frameCount; iFrame += 1) {
+            float s = ma_waveform_sine_f32(pWaveform->time, pWaveform->config.frequency, pWaveform->config.amplitude);
+            pWaveform->time += pWaveform->advance;
 
-        for (iChannel = 0; iChannel < pWaveform->config.channels; iChannel += 1) {
-            ma_pcm_convert(ma_offset_ptr(pFramesOut, iFrame*bpf + iChannel*bps), pWaveform->config.format, &s, ma_format_f32, 1, ma_dither_mode_none);
+            for (iChannel = 0; iChannel < pWaveform->config.channels; iChannel += 1) {
+                pFramesOutF32[iFrame*pWaveform->config.channels + iChannel] = s;
+            }
+        }
+    } else if (pWaveform->config.format == ma_format_s16) {
+        ma_int16* pFramesOutS16 = (ma_int16*)pFramesOut;
+        for (iFrame = 0; iFrame < frameCount; iFrame += 1) {
+            ma_int16 s = ma_waveform_sine_s16(pWaveform->time, pWaveform->config.frequency, pWaveform->config.amplitude);
+            pWaveform->time += pWaveform->advance;
+
+            for (iChannel = 0; iChannel < pWaveform->config.channels; iChannel += 1) {
+                pFramesOutS16[iFrame*pWaveform->config.channels + iChannel] = s;
+            }
+        }
+    } else {
+        for (iFrame = 0; iFrame < frameCount; iFrame += 1) {
+            float s = ma_waveform_sine_f32(pWaveform->time, pWaveform->config.frequency, pWaveform->config.amplitude);
+            pWaveform->time += pWaveform->advance;
+
+            for (iChannel = 0; iChannel < pWaveform->config.channels; iChannel += 1) {
+                ma_pcm_convert(ma_offset_ptr(pFramesOut, iFrame*bpf + iChannel*bps), pWaveform->config.format, &s, ma_format_f32, 1, ma_dither_mode_none);
+            }
         }
     }
 }
@@ -38442,12 +38489,34 @@ static void ma_waveform_read_pcm_frames__square(ma_waveform* pWaveform, void* pF
     MA_ASSERT(pWaveform  != NULL);
     MA_ASSERT(pFramesOut != NULL);
 
-    for (iFrame = 0; iFrame < frameCount; iFrame += 1) {
-        float s = ma_waveform_square_f32(pWaveform->time, pWaveform->config.frequency, pWaveform->config.amplitude);
-        pWaveform->time += pWaveform->advance;
+    if (pWaveform->config.format == ma_format_f32) {
+        float* pFramesOutF32 = (float*)pFramesOut;
+        for (iFrame = 0; iFrame < frameCount; iFrame += 1) {
+            float s = ma_waveform_square_f32(pWaveform->time, pWaveform->config.frequency, pWaveform->config.amplitude);
+            pWaveform->time += pWaveform->advance;
 
-        for (iChannel = 0; iChannel < pWaveform->config.channels; iChannel += 1) {
-            ma_pcm_convert(ma_offset_ptr(pFramesOut, iFrame*bpf + iChannel*bps), pWaveform->config.format, &s, ma_format_f32, 1, ma_dither_mode_none);
+            for (iChannel = 0; iChannel < pWaveform->config.channels; iChannel += 1) {
+                pFramesOutF32[iFrame*pWaveform->config.channels + iChannel] = s;
+            }
+        }
+    } else if (pWaveform->config.format == ma_format_s16) {
+        ma_int16* pFramesOutS16 = (ma_int16*)pFramesOut;
+        for (iFrame = 0; iFrame < frameCount; iFrame += 1) {
+            ma_int16 s = ma_waveform_square_s16(pWaveform->time, pWaveform->config.frequency, pWaveform->config.amplitude);
+            pWaveform->time += pWaveform->advance;
+
+            for (iChannel = 0; iChannel < pWaveform->config.channels; iChannel += 1) {
+                pFramesOutS16[iFrame*pWaveform->config.channels + iChannel] = s;
+            }
+        }
+    } else {
+        for (iFrame = 0; iFrame < frameCount; iFrame += 1) {
+            float s = ma_waveform_square_f32(pWaveform->time, pWaveform->config.frequency, pWaveform->config.amplitude);
+            pWaveform->time += pWaveform->advance;
+
+            for (iChannel = 0; iChannel < pWaveform->config.channels; iChannel += 1) {
+                ma_pcm_convert(ma_offset_ptr(pFramesOut, iFrame*bpf + iChannel*bps), pWaveform->config.format, &s, ma_format_f32, 1, ma_dither_mode_none);
+            }
         }
     }
 }
@@ -38462,12 +38531,34 @@ static void ma_waveform_read_pcm_frames__triangle(ma_waveform* pWaveform, void* 
     MA_ASSERT(pWaveform  != NULL);
     MA_ASSERT(pFramesOut != NULL);
 
-    for (iFrame = 0; iFrame < frameCount; iFrame += 1) {
-        float s = ma_waveform_triangle_f32(pWaveform->time, pWaveform->config.frequency, pWaveform->config.amplitude);
-        pWaveform->time += pWaveform->advance;
+    if (pWaveform->config.format == ma_format_f32) {
+        float* pFramesOutF32 = (float*)pFramesOut;
+        for (iFrame = 0; iFrame < frameCount; iFrame += 1) {
+            float s = ma_waveform_triangle_f32(pWaveform->time, pWaveform->config.frequency, pWaveform->config.amplitude);
+            pWaveform->time += pWaveform->advance;
 
-        for (iChannel = 0; iChannel < pWaveform->config.channels; iChannel += 1) {
-            ma_pcm_convert(ma_offset_ptr(pFramesOut, iFrame*bpf + iChannel*bps), pWaveform->config.format, &s, ma_format_f32, 1, ma_dither_mode_none);
+            for (iChannel = 0; iChannel < pWaveform->config.channels; iChannel += 1) {
+                pFramesOutF32[iFrame*pWaveform->config.channels + iChannel] = s;
+            }
+        }
+    } else if (pWaveform->config.format == ma_format_s16) {
+        ma_int16* pFramesOutS16 = (ma_int16*)pFramesOut;
+        for (iFrame = 0; iFrame < frameCount; iFrame += 1) {
+            ma_int16 s = ma_waveform_triangle_s16(pWaveform->time, pWaveform->config.frequency, pWaveform->config.amplitude);
+            pWaveform->time += pWaveform->advance;
+
+            for (iChannel = 0; iChannel < pWaveform->config.channels; iChannel += 1) {
+                pFramesOutS16[iFrame*pWaveform->config.channels + iChannel] = s;
+            }
+        }
+    } else {
+        for (iFrame = 0; iFrame < frameCount; iFrame += 1) {
+            float s = ma_waveform_triangle_f32(pWaveform->time, pWaveform->config.frequency, pWaveform->config.amplitude);
+            pWaveform->time += pWaveform->advance;
+
+            for (iChannel = 0; iChannel < pWaveform->config.channels; iChannel += 1) {
+                ma_pcm_convert(ma_offset_ptr(pFramesOut, iFrame*bpf + iChannel*bps), pWaveform->config.format, &s, ma_format_f32, 1, ma_dither_mode_none);
+            }
         }
     }
 }
@@ -38478,17 +38569,38 @@ static void ma_waveform_read_pcm_frames__sawtooth(ma_waveform* pWaveform, void* 
     ma_uint64 iChannel;
     ma_uint32 bps = ma_get_bytes_per_sample(pWaveform->config.format);
     ma_uint32 bpf = bps * pWaveform->config.channels;
-    
 
     MA_ASSERT(pWaveform  != NULL);
     MA_ASSERT(pFramesOut != NULL);
 
-    for (iFrame = 0; iFrame < frameCount; iFrame += 1) {
-        float s = ma_waveform_sawtooth_f32(pWaveform->time, pWaveform->config.frequency, pWaveform->config.amplitude);
-        pWaveform->time += pWaveform->advance;
+    if (pWaveform->config.format == ma_format_f32) {
+        float* pFramesOutF32 = (float*)pFramesOut;
+        for (iFrame = 0; iFrame < frameCount; iFrame += 1) {
+            float s = ma_waveform_sawtooth_f32(pWaveform->time, pWaveform->config.frequency, pWaveform->config.amplitude);
+            pWaveform->time += pWaveform->advance;
 
-        for (iChannel = 0; iChannel < pWaveform->config.channels; iChannel += 1) {
-            ma_pcm_convert(ma_offset_ptr(pFramesOut, iFrame*bpf + iChannel*bps), pWaveform->config.format, &s, ma_format_f32, 1, ma_dither_mode_none);
+            for (iChannel = 0; iChannel < pWaveform->config.channels; iChannel += 1) {
+                pFramesOutF32[iFrame*pWaveform->config.channels + iChannel] = s;
+            }
+        }
+    } else if (pWaveform->config.format == ma_format_s16) {
+        ma_int16* pFramesOutS16 = (ma_int16*)pFramesOut;
+        for (iFrame = 0; iFrame < frameCount; iFrame += 1) {
+            ma_int16 s = ma_waveform_sawtooth_s16(pWaveform->time, pWaveform->config.frequency, pWaveform->config.amplitude);
+            pWaveform->time += pWaveform->advance;
+
+            for (iChannel = 0; iChannel < pWaveform->config.channels; iChannel += 1) {
+                pFramesOutS16[iFrame*pWaveform->config.channels + iChannel] = s;
+            }
+        }
+    } else {
+        for (iFrame = 0; iFrame < frameCount; iFrame += 1) {
+            float s = ma_waveform_sawtooth_f32(pWaveform->time, pWaveform->config.frequency, pWaveform->config.amplitude);
+            pWaveform->time += pWaveform->advance;
+
+            for (iChannel = 0; iChannel < pWaveform->config.channels; iChannel += 1) {
+                ma_pcm_convert(ma_offset_ptr(pFramesOut, iFrame*bpf + iChannel*bps), pWaveform->config.format, &s, ma_format_f32, 1, ma_dither_mode_none);
+            }
         }
     }
 }
@@ -38575,7 +38687,7 @@ static MA_INLINE float ma_noise_f32_white(ma_noise* pNoise)
 
 static MA_INLINE ma_int16 ma_noise_s16_white(ma_noise* pNoise)
 {
-    return (ma_int16)(ma_noise_f32_white(pNoise) * 32767.0f);
+    return ma_pcm_sample_f32_to_s16(ma_noise_f32_white(pNoise));
 }
 
 static MA_INLINE ma_uint64 ma_noise_read_pcm_frames__white(ma_noise* pNoise, void* pFramesOut, ma_uint64 frameCount)
