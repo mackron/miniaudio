@@ -1,21 +1,39 @@
-![miniaudio](https://dred.io/img/miniaudio_wide.png)
+![miniaudio](https://miniaud.io/img/miniaudio_wide.png)
 
-miniaudio (formerly mini_al) is a single file library for audio playback and capture. It's written
-in C89 (compilable as C++) and released into the public domain.
+miniaudio is a single file library for audio playback and capture. It's written in C (compilable as C++) and
+released into the public domain.
 
 
 Features
 ========
-- A simple build system.
-  - It should Just Work out of the box, without the need to download and install any dependencies.
-- A simple API.
-- Supports playback, capture and full-duplex.
-- Data conversion.
-  - Sample format conversion, with optional dithering.
-  - Sample rate conversion.
-  - Channel mapping and channel conversion (stereo to 5.1, etc.)
-- MP3, Vorbis, FLAC and WAV decoding.
-  - This depends on external single file libraries which can be found in the "extras" folder.
+- Liberally licensed, with your choise of either public domain or MIT No Attribution for those regions who don't
+  recognize public domain.
+- Everything is implemented in a single file for easy integration into your source tree.
+- No external dependencies except for the C standard library and backend APIs.
+- Written in C89 and compilable as C++ which should enable miniaudio to work with almost all compilers.
+- Supports all major desktop and mobile platforms, with multiple backends for maximum compatibility.
+- Supports playback, capture, full-duplex and loopback (WASAPI only).
+- Device enumeration for connecting to specific devices, not just defaults.
+- Connect to multiple devices at once.
+- Supports shared and exclusive mode on supported backends.
+- Backend-specific configuration options.
+- Device capability querying.
+- Automatic data conversion between your application and the internal device.
+- Sample format conversion with optional dithering.
+- Channel conversion and channel mapping.
+- Resampling with support for multiple algorithms.
+  - Simple linear resampling with anti-aliasing.
+  - Optional Speex resampling (must opt-in).
+- Biquad filter.
+- Low-pass, high-pass and band-pass filters.
+- Sine, square, triangle and sawtooth waveform generation.
+- White noise generation.
+- Lock free ring buffer (single producer, single consumer).
+- Decoding
+  - WAV via dr_wav
+  - FLAC via dr_flac
+  - MP3 via dr_mp3
+  - Vorbis via stb_vorbis
 
 
 Supported Platforms
