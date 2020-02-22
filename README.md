@@ -6,7 +6,7 @@ released into the public domain.
 
 Features
 ========
-- Liberally licensed, with your choise of either public domain or MIT No Attribution for those regions who don't
+- Liberally licensed, with your choice of either public domain or MIT No Attribution for those regions who don't
   recognize public domain.
 - Everything is implemented in a single file for easy integration into your source tree.
 - No external dependencies except for the C standard library and backend APIs.
