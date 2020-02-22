@@ -1033,15 +1033,17 @@ Waveforms
 miniaudio supports generation of sine, square, triangle and sawtooth waveforms. This is achieved with the `ma_waveform` API. Example:
 
     ```c
+    ma_waveform_config config = ma_waveform_config_init(FORMAT, CHANNELS, SAMPLE_RATE, ma_waveform_type_sine, amplitude, frequency);
+
     ma_waveform waveform;
-    ma_result result = ma_waveform_init(ma_waveform_type_sine, amplitude, frequency, sampleRate, &waveform);
+    ma_result result = ma_waveform_init(&config, &waveform);
     if (result != MA_SUCCESS) {
         // Error.
     }
 
     ...
 
-    ma_waveform_read_pcm_frames(&waveform, pOutput, frameCount, FORMAT, CHANNELS);
+    ma_waveform_read_pcm_frames(&waveform, pOutput, frameCount);
     ```
 
 The amplitude, frequency and sample rate can be changed dynamically with `ma_waveform_set_amplitude()`, `ma_waveform_set_frequency()` and
@@ -4809,15 +4811,25 @@ typedef enum
 
 typedef struct
 {
+    ma_format format;
+    ma_uint32 channels;
+    ma_uint32 sampleRate;
     ma_waveform_type type;
     double amplitude;
     double frequency;
-    double deltaTime;
+} ma_waveform_config;
+
+ma_waveform_config ma_waveform_config_init(ma_format format, ma_uint32 channels, ma_uint32 sampleRate, ma_waveform_type type, double amplitude, double frequency);
+
+typedef struct
+{
+    ma_waveform_config config;
+    double advance;
     double time;
 } ma_waveform;
 
-ma_result ma_waveform_init(ma_waveform_type type, double amplitude, double frequency, ma_uint32 sampleRate, ma_waveform* pWaveform);
-ma_uint64 ma_waveform_read_pcm_frames(ma_waveform* pWaveform, void* pFramesOut, ma_uint64 frameCount, ma_format format, ma_uint32 channels);
+ma_result ma_waveform_init(const ma_waveform_config* pConfig, ma_waveform* pWaveform);
+ma_uint64 ma_waveform_read_pcm_frames(ma_waveform* pWaveform, void* pFramesOut, ma_uint64 frameCount);
 ma_result ma_waveform_set_amplitude(ma_waveform* pWaveform, double amplitude);
 ma_result ma_waveform_set_frequency(ma_waveform* pWaveform, double frequency);
 ma_result ma_waveform_set_sample_rate(ma_waveform* pWaveform, ma_uint32 sampleRate);
@@ -38246,19 +38258,31 @@ ma_result ma_decode_memory(const void* pData, size_t dataSize, ma_decoder_config
 Generation
 
 **************************************************************************************************************************************************************/
-ma_result ma_waveform_init(ma_waveform_type type, double amplitude, double frequency, ma_uint32 sampleRate, ma_waveform* pWaveform)
+ma_waveform_config ma_waveform_config_init(ma_format format, ma_uint32 channels, ma_uint32 sampleRate, ma_waveform_type type, double amplitude, double frequency)
+{
+    ma_waveform_config config;
+
+    MA_ZERO_OBJECT(&config);
+    config.format     = format;
+    config.channels   = channels;
+    config.sampleRate = sampleRate;
+    config.type       = type;
+    config.amplitude  = amplitude;
+    config.frequency  = frequency;
+
+    return config;
+}
+
+ma_result ma_waveform_init(const ma_waveform_config* pConfig, ma_waveform* pWaveform)
 {
     if (pWaveform == NULL) {
         return MA_INVALID_ARGS;
     }
 
     MA_ZERO_OBJECT(pWaveform);
-
-    pWaveform->type      = type;
-    pWaveform->amplitude = amplitude;
-    pWaveform->frequency = frequency;
-    pWaveform->deltaTime = 1.0 / sampleRate;
-    pWaveform->time      = 0;
+    pWaveform->config  = *pConfig;
+    pWaveform->advance = 1.0 / pWaveform->config.sampleRate;
+    pWaveform->time    = 0;
 
     return MA_SUCCESS;
 }
@@ -38269,7 +38293,7 @@ ma_result ma_waveform_set_amplitude(ma_waveform* pWaveform, double amplitude)
         return MA_INVALID_ARGS;
     }
 
-    pWaveform->amplitude = amplitude;
+    pWaveform->config.amplitude = amplitude;
     return MA_SUCCESS;
 }
 
@@ -38279,7 +38303,7 @@ ma_result ma_waveform_set_frequency(ma_waveform* pWaveform, double frequency)
         return MA_INVALID_ARGS;
     }
 
-    pWaveform->frequency = frequency;
+    pWaveform->config.frequency = frequency;
     return MA_SUCCESS;
 }
 
@@ -38289,7 +38313,7 @@ ma_result ma_waveform_set_sample_rate(ma_waveform* pWaveform, ma_uint32 sampleRa
         return MA_INVALID_ARGS;
     }
 
-    pWaveform->deltaTime = 1.0 / sampleRate;
+    pWaveform->advance = 1.0 / sampleRate;
     return MA_SUCCESS;
 }
 
@@ -38335,119 +38359,120 @@ static float ma_waveform_sawtooth_f32(double time, double frequency, double ampl
     return (float)(r * amplitude);
 }
 
-static void ma_waveform_read_pcm_frames__sine(ma_waveform* pWaveform, void* pFramesOut, ma_uint64 frameCount, ma_format format, ma_uint32 channels)
+static void ma_waveform_read_pcm_frames__sine(ma_waveform* pWaveform, void* pFramesOut, ma_uint64 frameCount)
 {
     ma_uint64 iFrame;
     ma_uint64 iChannel;
-    ma_uint32 bpf = ma_get_bytes_per_frame(format, channels);
-    ma_uint32 bps = ma_get_bytes_per_sample(format);
+    ma_uint32 bps = ma_get_bytes_per_sample(pWaveform->config.format);
+    ma_uint32 bpf = bps * pWaveform->config.channels;
 
     MA_ASSERT(pWaveform  != NULL);
     MA_ASSERT(pFramesOut != NULL);
 
     for (iFrame = 0; iFrame < frameCount; iFrame += 1) {
-        float s = ma_waveform_sine_f32(pWaveform->time, pWaveform->frequency, pWaveform->amplitude);
-        pWaveform->time += pWaveform->deltaTime;
+        float s = ma_waveform_sine_f32(pWaveform->time, pWaveform->config.frequency, pWaveform->config.amplitude);
+        pWaveform->time += pWaveform->advance;
 
-        for (iChannel = 0; iChannel < channels; iChannel += 1) {
-            ma_pcm_convert(ma_offset_ptr(pFramesOut, iFrame*bpf + iChannel*bps), format, &s, ma_format_f32, 1, ma_dither_mode_none);
+        for (iChannel = 0; iChannel < pWaveform->config.channels; iChannel += 1) {
+            ma_pcm_convert(ma_offset_ptr(pFramesOut, iFrame*bpf + iChannel*bps), pWaveform->config.format, &s, ma_format_f32, 1, ma_dither_mode_none);
         }
     }
 }
 
-static void ma_waveform_read_pcm_frames__square(ma_waveform* pWaveform, void* pFramesOut, ma_uint64 frameCount, ma_format format, ma_uint32 channels)
+static void ma_waveform_read_pcm_frames__square(ma_waveform* pWaveform, void* pFramesOut, ma_uint64 frameCount)
 {
     ma_uint64 iFrame;
     ma_uint64 iChannel;
-    ma_uint32 bpf = ma_get_bytes_per_frame(format, channels);
-    ma_uint32 bps = ma_get_bytes_per_sample(format);
+    ma_uint32 bps = ma_get_bytes_per_sample(pWaveform->config.format);
+    ma_uint32 bpf = bps * pWaveform->config.channels;
 
     MA_ASSERT(pWaveform  != NULL);
     MA_ASSERT(pFramesOut != NULL);
 
     for (iFrame = 0; iFrame < frameCount; iFrame += 1) {
-        float s = ma_waveform_square_f32(pWaveform->time, pWaveform->frequency, pWaveform->amplitude);
-        pWaveform->time += pWaveform->deltaTime;
+        float s = ma_waveform_square_f32(pWaveform->time, pWaveform->config.frequency, pWaveform->config.amplitude);
+        pWaveform->time += pWaveform->advance;
 
-        for (iChannel = 0; iChannel < channels; iChannel += 1) {
-            ma_pcm_convert(ma_offset_ptr(pFramesOut, iFrame*bpf + iChannel*bps), format, &s, ma_format_f32, 1, ma_dither_mode_none);
+        for (iChannel = 0; iChannel < pWaveform->config.channels; iChannel += 1) {
+            ma_pcm_convert(ma_offset_ptr(pFramesOut, iFrame*bpf + iChannel*bps), pWaveform->config.format, &s, ma_format_f32, 1, ma_dither_mode_none);
         }
     }
 }
 
-static void ma_waveform_read_pcm_frames__triangle(ma_waveform* pWaveform, void* pFramesOut, ma_uint64 frameCount, ma_format format, ma_uint32 channels)
+static void ma_waveform_read_pcm_frames__triangle(ma_waveform* pWaveform, void* pFramesOut, ma_uint64 frameCount)
 {
     ma_uint64 iFrame;
     ma_uint64 iChannel;
-    ma_uint32 bpf = ma_get_bytes_per_frame(format, channels);
-    ma_uint32 bps = ma_get_bytes_per_sample(format);
+    ma_uint32 bps = ma_get_bytes_per_sample(pWaveform->config.format);
+    ma_uint32 bpf = bps * pWaveform->config.channels;
 
     MA_ASSERT(pWaveform  != NULL);
     MA_ASSERT(pFramesOut != NULL);
 
     for (iFrame = 0; iFrame < frameCount; iFrame += 1) {
-        float s = ma_waveform_triangle_f32(pWaveform->time, pWaveform->frequency, pWaveform->amplitude);
-        pWaveform->time += pWaveform->deltaTime;
+        float s = ma_waveform_triangle_f32(pWaveform->time, pWaveform->config.frequency, pWaveform->config.amplitude);
+        pWaveform->time += pWaveform->advance;
 
-        for (iChannel = 0; iChannel < channels; iChannel += 1) {
-            ma_pcm_convert(ma_offset_ptr(pFramesOut, iFrame*bpf + iChannel*bps), format, &s, ma_format_f32, 1, ma_dither_mode_none);
+        for (iChannel = 0; iChannel < pWaveform->config.channels; iChannel += 1) {
+            ma_pcm_convert(ma_offset_ptr(pFramesOut, iFrame*bpf + iChannel*bps), pWaveform->config.format, &s, ma_format_f32, 1, ma_dither_mode_none);
         }
     }
 }
 
-static void ma_waveform_read_pcm_frames__sawtooth(ma_waveform* pWaveform, void* pFramesOut, ma_uint64 frameCount, ma_format format, ma_uint32 channels)
+static void ma_waveform_read_pcm_frames__sawtooth(ma_waveform* pWaveform, void* pFramesOut, ma_uint64 frameCount)
 {
     ma_uint64 iFrame;
     ma_uint64 iChannel;
-    ma_uint32 bpf = ma_get_bytes_per_frame(format, channels);
-    ma_uint32 bps = ma_get_bytes_per_sample(format);
+    ma_uint32 bps = ma_get_bytes_per_sample(pWaveform->config.format);
+    ma_uint32 bpf = bps * pWaveform->config.channels;
+    
 
     MA_ASSERT(pWaveform  != NULL);
     MA_ASSERT(pFramesOut != NULL);
 
     for (iFrame = 0; iFrame < frameCount; iFrame += 1) {
-        float s = ma_waveform_sawtooth_f32(pWaveform->time, pWaveform->frequency, pWaveform->amplitude);
-        pWaveform->time += pWaveform->deltaTime;
+        float s = ma_waveform_sawtooth_f32(pWaveform->time, pWaveform->config.frequency, pWaveform->config.amplitude);
+        pWaveform->time += pWaveform->advance;
 
-        for (iChannel = 0; iChannel < channels; iChannel += 1) {
-            ma_pcm_convert(ma_offset_ptr(pFramesOut, iFrame*bpf + iChannel*bps), format, &s, ma_format_f32, 1, ma_dither_mode_none);
+        for (iChannel = 0; iChannel < pWaveform->config.channels; iChannel += 1) {
+            ma_pcm_convert(ma_offset_ptr(pFramesOut, iFrame*bpf + iChannel*bps), pWaveform->config.format, &s, ma_format_f32, 1, ma_dither_mode_none);
         }
     }
 }
 
-ma_uint64 ma_waveform_read_pcm_frames(ma_waveform* pWaveform, void* pFramesOut, ma_uint64 frameCount, ma_format format, ma_uint32 channels)
+ma_uint64 ma_waveform_read_pcm_frames(ma_waveform* pWaveform, void* pFramesOut, ma_uint64 frameCount)
 {
     if (pWaveform == NULL) {
         return 0;
     }
 
     if (pFramesOut != NULL) {
-        switch (pWaveform->type)
+        switch (pWaveform->config.type)
         {
             case ma_waveform_type_sine:
             {
-                ma_waveform_read_pcm_frames__sine(pWaveform, pFramesOut, frameCount, format, channels);
+                ma_waveform_read_pcm_frames__sine(pWaveform, pFramesOut, frameCount);
             } break;
 
             case ma_waveform_type_square:
             {
-                ma_waveform_read_pcm_frames__square(pWaveform, pFramesOut, frameCount, format, channels);
+                ma_waveform_read_pcm_frames__square(pWaveform, pFramesOut, frameCount);
             } break;
 
             case ma_waveform_type_triangle:
             {
-                ma_waveform_read_pcm_frames__triangle(pWaveform, pFramesOut, frameCount, format, channels);
+                ma_waveform_read_pcm_frames__triangle(pWaveform, pFramesOut, frameCount);
             } break;
 
             case ma_waveform_type_sawtooth:
             {
-                ma_waveform_read_pcm_frames__sawtooth(pWaveform, pFramesOut, frameCount, format, channels);
+                ma_waveform_read_pcm_frames__sawtooth(pWaveform, pFramesOut, frameCount);
             } break;
 
             default: return 0;
         }
     } else {
-        pWaveform->time += pWaveform->deltaTime * (ma_int64)frameCount; /* Cast to int64 required for VC6. Won't affect anything in practice. */
+        pWaveform->time += pWaveform->advance * (ma_int64)frameCount; /* Cast to int64 required for VC6. Won't affect anything in practice. */
     }
 
     return frameCount;
@@ -38535,8 +38560,9 @@ static MA_INLINE ma_uint64 ma_noise_read_pcm_frames__white(ma_noise* pNoise, voi
             }
         }
     } else {
-        ma_uint32 bpf = ma_get_bytes_per_frame(pNoise->config.format, pNoise->config.channels);
         ma_uint32 bps = ma_get_bytes_per_sample(pNoise->config.format);
+        ma_uint32 bpf = bps * pNoise->config.channels;
+        
         if (pNoise->config.duplicateChannels) {
             for (iFrame = 0; iFrame < frameCount; iFrame += 1) {
                 float s = ma_noise_f32_white(pNoise);
