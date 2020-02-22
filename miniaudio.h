@@ -133,7 +133,15 @@ Sine, Square, Triangle and Sawtooth Waveforms
 ---------------------------------------------
 Previously miniaudio supported only sine wave generation. This has now been generalized to support sine, square, triangle and sawtooth waveforms. The old
 `ma_sine_wave` API has been removed and replaced with the `ma_waveform` API. Use `ma_waveform_init()` to initialize the waveform. Here you specify tyhe type of
-waveform you want to generated. You then read data using `ma_waveform_read_pcm_frames()`.
+waveform you want to generated via the `ma_waveform_config` object which you can initialize with `ma_waveform_config_init()`. You then read data using
+`ma_waveform_read_pcm_frames()`.
+
+
+Noise Generation
+----------------
+A noise generation API has been added. This is used via the `ma_noise` API. Currently only white noise is supported, but pink and brown noise is planned. The
+`ma_noise` API is similar to the waveform API. Use `ma_noise_config_init()` to initialize a config object, and then pass it into `ma_noise_init()` to
+initialize a `ma_noise` object. Then use `ma_noise_read_pcm_frames()` to read PCM data.
 
 
 Miscellaneous Changes
