@@ -6013,6 +6013,11 @@ static MA_INLINE ma_uint32 ma_lcg_rand_u32(ma_lcg* pLCG)
     return (ma_uint32)ma_lcg_rand_s32(pLCG);
 }
 
+static MA_INLINE ma_int16 ma_lcg_rand_s16(ma_lcg* pLCG)
+{
+    return (ma_int16)(ma_lcg_rand_s32(pLCG) & 0xFFFF);
+}
+
 static MA_INLINE double ma_lcg_rand_f64(ma_lcg* pLCG)
 {
     return ma_lcg_rand_s32(pLCG) / (double)0x7FFFFFFF;
@@ -38570,8 +38575,7 @@ static MA_INLINE float ma_noise_f32_white(ma_noise* pNoise)
 
 static MA_INLINE ma_int16 ma_noise_s16_white(ma_noise* pNoise)
 {
-    ma_int64 s = (ma_int64)(ma_lcg_rand_s32(&pNoise->lcg) * pNoise->config.amplitude);
-    return (ma_int16)s;
+    return (ma_int16)(ma_noise_f32_white(pNoise) * 32767.0f);
 }
 
 static MA_INLINE ma_uint64 ma_noise_read_pcm_frames__white(ma_noise* pNoise, void* pFramesOut, ma_uint64 frameCount)
@@ -38585,13 +38589,13 @@ static MA_INLINE ma_uint64 ma_noise_read_pcm_frames__white(ma_noise* pNoise, voi
             for (iFrame = 0; iFrame < frameCount; iFrame += 1) {
                 float s = ma_noise_f32_white(pNoise);
                 for (iChannel = 0; iChannel < pNoise->config.channels; iChannel += 1) {
-                    pFramesOutF32[iFrame] = s;
+                    pFramesOutF32[iFrame*pNoise->config.channels + iChannel] = s;
                 }
             }
         } else {
             for (iFrame = 0; iFrame < frameCount; iFrame += 1) {
                 for (iChannel = 0; iChannel < pNoise->config.channels; iChannel += 1) {
-                    pFramesOutF32[iFrame] = ma_noise_f32_white(pNoise);
+                    pFramesOutF32[iFrame*pNoise->config.channels + iChannel] = ma_noise_f32_white(pNoise);
                 }
             }
         }
@@ -38601,13 +38605,13 @@ static MA_INLINE ma_uint64 ma_noise_read_pcm_frames__white(ma_noise* pNoise, voi
             for (iFrame = 0; iFrame < frameCount; iFrame += 1) {
                 ma_int16 s = ma_noise_s16_white(pNoise);
                 for (iChannel = 0; iChannel < pNoise->config.channels; iChannel += 1) {
-                    pFramesOutS16[iFrame] = s;
+                    pFramesOutS16[iFrame*pNoise->config.channels + iChannel] = s;
                 }
             }
         } else {
             for (iFrame = 0; iFrame < frameCount; iFrame += 1) {
                 for (iChannel = 0; iChannel < pNoise->config.channels; iChannel += 1) {
-                    pFramesOutS16[iFrame] = ma_noise_s16_white(pNoise);
+                    pFramesOutS16[iFrame*pNoise->config.channels + iChannel] = ma_noise_s16_white(pNoise);
                 }
             }
         }
