@@ -1073,7 +1073,7 @@ Noise
 miniaudio supports generation of white noise via the `ma_noise` API. Example:
 
     ```c
-    ma_noise_config config = ma_noise_config_init(FORMAT, CHANNELS, ma_noise_type_white, SEED, aplitude);
+    ma_noise_config config = ma_noise_config_init(FORMAT, CHANNELS, ma_noise_type_white, SEED, amplitude);
 
     ma_noise noise;
     ma_result result = ma_noise_init(&config, &noise);
