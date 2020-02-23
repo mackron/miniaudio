@@ -1536,6 +1536,10 @@ typedef int ma_result;
 #define MA_MIN_SAMPLE_RATE                             MA_SAMPLE_RATE_8000
 #define MA_MAX_SAMPLE_RATE                             MA_SAMPLE_RATE_384000
 
+#ifndef MA_MAX_FILTER_POLES
+#define MA_MAX_FILTER_POLES                            8
+#endif
+
 typedef enum
 {
     ma_stream_format_pcm = 0
@@ -1689,6 +1693,33 @@ ma_result ma_lpf2_init(const ma_lpf2_config* pConfig, ma_lpf2* pLPF);
 ma_result ma_lpf2_reinit(const ma_lpf2_config* pConfig, ma_lpf2* pLPF);
 ma_result ma_lpf2_process_pcm_frames(ma_lpf2* pLPF, void* pFramesOut, const void* pFramesIn, ma_uint64 frameCount);
 ma_uint32 ma_lpf2_get_latency(ma_lpf2* pLPF);
+
+
+typedef struct
+{
+    ma_format format;
+    ma_uint32 channels;
+    ma_uint32 sampleRate;
+    double cutoffFrequency;
+    ma_uint32 poles;    /* If set to 0, will be treated as a passthrough (no filtering will be applied). */
+} ma_lpf_config;
+
+ma_lpf_config ma_lpf_config_init(ma_format format, ma_uint32 channels, ma_uint32 sampleRate, double cutoffFrequency, ma_uint32 poles);
+
+typedef struct
+{
+    ma_format format;
+    ma_uint32 channels;
+    ma_uint32 lpf2Count;
+    ma_uint32 lpf1Count;
+    ma_lpf2 lpf2[MA_MAX_FILTER_POLES/2];
+    ma_lpf1 lpf1[1];
+} ma_lpf;
+
+ma_result ma_lpf_init(const ma_lpf_config* pConfig, ma_lpf* pLPF);
+ma_result ma_lpf_reinit(const ma_lpf_config* pConfig, ma_lpf* pLPF);
+ma_result ma_lpf_process_pcm_frames(ma_lpf* pLPF, void* pFramesOut, const void* pFramesIn, ma_uint64 frameCount);
+ma_uint32 ma_lpf_get_latency(ma_lpf* pLPF);
 
 
 /**************************************************************************************************************************************************************
@@ -29589,6 +29620,208 @@ ma_uint32 ma_lpf2_get_latency(ma_lpf2* pLPF)
     }
 
     return ma_biquad_get_latency(&pLPF->bq);
+}
+
+
+ma_lpf_config ma_lpf_config_init(ma_format format, ma_uint32 channels, ma_uint32 sampleRate, double cutoffFrequency, ma_uint32 poles)
+{
+    ma_lpf_config config;
+
+    MA_ZERO_OBJECT(&config);
+    config.format          = format;
+    config.channels        = channels;
+    config.sampleRate      = sampleRate;
+    config.cutoffFrequency = cutoffFrequency;
+    config.poles           = ma_min(poles, MA_MAX_FILTER_POLES);
+
+    return config;
+}
+
+static ma_result ma_lpf_reinit__internal(const ma_lpf_config* pConfig, ma_lpf* pLPF, ma_bool32 isNew)
+{
+    ma_result result;
+    ma_uint32 lpf2Count;
+    ma_uint32 lpf1Count;
+    ma_uint32 ilpf2;
+    ma_uint32 ilpf1;
+
+    if (pLPF == NULL || pConfig == NULL) {
+        return MA_INVALID_ARGS;
+    }
+
+    if (pConfig->poles > MA_MAX_FILTER_POLES) {
+        return MA_INVALID_ARGS;
+    }
+
+    /* Only supporting f32 and s16. */
+    if (pConfig->format != ma_format_f32 && pConfig->format != ma_format_s16) {
+        return MA_INVALID_ARGS;
+    }
+
+    /* The format cannot be changed after initialization. */
+    if (pLPF->format != ma_format_unknown && pLPF->format != pConfig->format) {
+        return MA_INVALID_OPERATION;
+    }
+
+    /* The channel count cannot be changed after initialization. */
+    if (pLPF->channels != 0 && pLPF->channels != pConfig->channels) {
+        return MA_INVALID_OPERATION;
+    }
+
+    pLPF->format   = pConfig->format;
+    pLPF->channels = pConfig->channels;
+
+
+    lpf2Count = pConfig->poles / 2;
+    lpf1Count = pConfig->poles % 2;
+
+    MA_ASSERT(lpf2Count <= ma_countof(pLPF->lpf2));
+    MA_ASSERT(lpf1Count <= ma_countof(pLPF->lpf1));
+
+    /* The pole count can't change between reinits. */
+    if (!isNew) {
+        if (pLPF->lpf2Count != lpf2Count || pLPF->lpf1Count != lpf1Count) {
+            return MA_INVALID_OPERATION;
+        }
+    }
+
+    for (ilpf2 = 0; ilpf2 < lpf2Count; ilpf2 += 1) {
+        ma_lpf2_config lpf2Config = ma_lpf2_config_init(pConfig->format, pConfig->channels, pConfig->sampleRate, pConfig->cutoffFrequency);
+
+        if (isNew) {
+            result = ma_lpf2_init(&lpf2Config, &pLPF->lpf2[ilpf2]);
+        } else {
+            result = ma_lpf2_reinit(&lpf2Config, &pLPF->lpf2[ilpf2]);
+        }
+
+        if (result != MA_SUCCESS) {
+            return result;
+        }
+    }
+
+    for (ilpf1 = 0; ilpf1 < lpf1Count; ilpf1 += 1) {
+        ma_lpf1_config lpf1Config = ma_lpf1_config_init(pConfig->format, pConfig->channels, pConfig->sampleRate, pConfig->cutoffFrequency);
+
+        if (isNew) {
+            result = ma_lpf1_init(&lpf1Config, &pLPF->lpf1[ilpf1]);
+        } else {
+            result = ma_lpf1_reinit(&lpf1Config, &pLPF->lpf1[ilpf1]);
+        }
+
+        if (result != MA_SUCCESS) {
+            return result;
+        }
+    }
+
+    pLPF->lpf2Count = lpf2Count;
+    pLPF->lpf1Count = lpf1Count;
+
+    return MA_SUCCESS;
+}
+
+ma_result ma_lpf_init(const ma_lpf_config* pConfig, ma_lpf* pLPF)
+{
+    if (pLPF == NULL) {
+        return MA_INVALID_ARGS;
+    }
+
+    MA_ZERO_OBJECT(pLPF);
+
+    if (pConfig == NULL) {
+        return MA_INVALID_ARGS;
+    }
+
+    return ma_lpf_reinit__internal(pConfig, pLPF, /*isNew*/MA_TRUE);
+}
+
+ma_result ma_lpf_reinit(const ma_lpf_config* pConfig, ma_lpf* pLPF)
+{
+    return ma_lpf_reinit__internal(pConfig, pLPF, /*isNew*/MA_FALSE);
+}
+
+ma_result ma_lpf_process_pcm_frames(ma_lpf* pLPF, void* pFramesOut, const void* pFramesIn, ma_uint64 frameCount)
+{
+    ma_result result;
+    ma_uint32 ilpf2;
+    ma_uint32 ilpf1;
+
+    if (pLPF == NULL) {
+        return MA_INVALID_ARGS;
+    }
+
+    /* Faster path for in-place. */
+    if (pFramesOut == pFramesIn) {
+        for (ilpf2 = 0; ilpf2 < pLPF->lpf2Count; ilpf2 += 1) {
+            result = ma_lpf2_process_pcm_frames(&pLPF->lpf2[ilpf2], pFramesOut, pFramesOut, frameCount);
+            if (result != MA_SUCCESS) {
+                return result;
+            }
+        }
+
+        for (ilpf1 = 0; ilpf1 < pLPF->lpf1Count; ilpf1 += 1) {
+            result = ma_lpf1_process_pcm_frames(&pLPF->lpf1[ilpf1], pFramesOut, pFramesOut, frameCount);
+            if (result != MA_SUCCESS) {
+                return result;
+            }
+        }
+    }
+
+    /* Slightly slower path for copying. */
+    if (pFramesOut != pFramesIn) {
+        ma_uint32 iFrame;
+
+        /*  */ if (pLPF->format == ma_format_f32) {
+            /* */ float* pFramesOutF32 = (      float*)pFramesOut;
+            const float* pFramesInF32  = (const float*)pFramesIn;
+
+            for (iFrame = 0; iFrame < frameCount; iFrame += 1) {
+                MA_COPY_MEMORY(pFramesOutF32, pFramesInF32, ma_get_bytes_per_frame(pLPF->format, pLPF->channels));
+
+                for (ilpf2 = 0; ilpf2 < pLPF->lpf2Count; ilpf2 += 1) {
+                    ma_lpf2_process_pcm_frame_f32(&pLPF->lpf2[ilpf2], pFramesOutF32, pFramesOutF32);
+                }
+
+                for (ilpf1 = 0; ilpf1 < pLPF->lpf1Count; ilpf1 += 1) {
+                    ma_lpf1_process_pcm_frame_f32(&pLPF->lpf1[ilpf1], pFramesOutF32, pFramesOutF32);
+                }
+
+                pFramesOutF32 += pLPF->channels;
+                pFramesInF32  += pLPF->channels;
+            }
+        } else if (pLPF->format == ma_format_s16) {
+            /* */ ma_int16* pFramesOutS16 = (      ma_int16*)pFramesOut;
+            const ma_int16* pFramesInS16  = (const ma_int16*)pFramesIn;
+
+            for (iFrame = 0; iFrame < frameCount; iFrame += 1) {
+                MA_COPY_MEMORY(pFramesOutS16, pFramesInS16, ma_get_bytes_per_frame(pLPF->format, pLPF->channels));
+
+                for (ilpf2 = 0; ilpf2 < pLPF->lpf2Count; ilpf2 += 1) {
+                    ma_lpf2_process_pcm_frame_s16(&pLPF->lpf2[ilpf2], pFramesOutS16, pFramesOutS16);
+                }
+
+                for (ilpf1 = 0; ilpf1 < pLPF->lpf1Count; ilpf1 += 1) {
+                    ma_lpf1_process_pcm_frame_s16(&pLPF->lpf1[ilpf1], pFramesOutS16, pFramesOutS16);
+                }
+
+                pFramesOutS16 += pLPF->channels;
+                pFramesInS16  += pLPF->channels;
+            }
+        } else {
+            MA_ASSERT(MA_FALSE);
+            return MA_INVALID_OPERATION;    /* Should never hit this. */
+        }
+    }
+
+    return MA_SUCCESS;
+}
+
+ma_uint32 ma_lpf_get_latency(ma_lpf* pLPF)
+{
+    if (pLPF == NULL) {
+        return 0;
+    }
+
+    return pLPF->lpf2Count*2 + pLPF->lpf1Count;
 }
 
 
