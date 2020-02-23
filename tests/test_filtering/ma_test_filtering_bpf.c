@@ -1,17 +1,20 @@
-
-ma_result test_bpf__f32(const char* pInputFilePath)
+ma_result bpf_init_decoder_and_encoder(const char* pInputFilePath, const char* pOutputFilePath, ma_format format, ma_decoder* pDecoder, drwav* pEncoder)
 {
-    const char* pOutputFilePath = "output/bpf_f32.wav";
+    return filtering_init_decoder_and_encoder(pInputFilePath, pOutputFilePath, format, 0, 0, pDecoder, pEncoder);
+}
+
+
+ma_result test_bpf2__by_format(const char* pInputFilePath, const char* pOutputFilePath, ma_format format)
+{
     ma_result result;
-    ma_decoder_config decoderConfig;
     ma_decoder decoder;
-    drwav_data_format wavFormat;
     drwav wav;
     ma_bpf2_config bpfConfig;
     ma_bpf2 bpf;
-    
-    decoderConfig = ma_decoder_config_init(ma_format_f32, 0, 0);
-    result = ma_decoder_init_file(pInputFilePath, &decoderConfig, &decoder);
+
+    printf("    %s\n", pOutputFilePath);
+
+    result = bpf_init_decoder_and_encoder(pInputFilePath, pOutputFilePath, format, &decoder, &wav);
     if (result != MA_SUCCESS) {
         return result;
     }
@@ -20,13 +23,8 @@ ma_result test_bpf__f32(const char* pInputFilePath)
     result = ma_bpf2_init(&bpfConfig, &bpf);
     if (result != MA_SUCCESS) {
         ma_decoder_uninit(&decoder);
+        drwav_uninit(&wav);
         return result;
-    }
-
-    wavFormat = drwav_data_format_from_minaudio_format(decoder.outputFormat, decoder.outputChannels, decoder.outputSampleRate);
-    if (!drwav_init_file_write(&wav, pOutputFilePath, &wavFormat, NULL)) {
-        ma_decoder_uninit(&decoder);
-        return MA_ERROR;
     }
 
     for (;;) {
@@ -55,6 +53,77 @@ ma_result test_bpf__f32(const char* pInputFilePath)
     return MA_SUCCESS;
 }
 
+ma_result test_bpf2__f32(const char* pInputFilePath)
+{
+    return test_bpf2__by_format(pInputFilePath, "output/bpf2_f32.wav", ma_format_f32);
+}
+
+ma_result test_bpf2__s16(const char* pInputFilePath)
+{
+    return test_bpf2__by_format(pInputFilePath, "output/bpf2_s16.wav", ma_format_s16);
+}
+
+
+ma_result test_bpf4__by_format(const char* pInputFilePath, const char* pOutputFilePath, ma_format format)
+{
+    ma_result result;
+    ma_decoder decoder;
+    drwav wav;
+    ma_bpf_config bpfConfig;
+    ma_bpf bpf;
+
+    printf("    %s\n", pOutputFilePath);
+
+    result = bpf_init_decoder_and_encoder(pInputFilePath, pOutputFilePath, format, &decoder, &wav);
+    if (result != MA_SUCCESS) {
+        return result;
+    }
+
+    bpfConfig = ma_bpf_config_init(decoder.outputFormat, decoder.outputChannels, decoder.outputSampleRate, 2000, 4);
+    result = ma_bpf_init(&bpfConfig, &bpf);
+    if (result != MA_SUCCESS) {
+        ma_decoder_uninit(&decoder);
+        drwav_uninit(&wav);
+        return result;
+    }
+
+    for (;;) {
+        ma_uint8 tempIn[4096];
+        ma_uint8 tempOut[4096];
+        ma_uint64 tempCapIn  = sizeof(tempIn)  / ma_get_bytes_per_frame(decoder.outputFormat, decoder.outputChannels);
+        ma_uint64 tempCapOut = sizeof(tempOut) / ma_get_bytes_per_frame(decoder.outputFormat, decoder.outputChannels);
+        ma_uint64 framesToRead;
+        ma_uint64 framesJustRead;
+
+        framesToRead = ma_min(tempCapIn, tempCapOut);
+        framesJustRead = ma_decoder_read_pcm_frames(&decoder, tempIn, framesToRead);
+
+        /* Filter */
+        ma_bpf_process_pcm_frames(&bpf, tempOut, tempIn, framesJustRead);
+
+        /* Write to the WAV file. */
+        drwav_write_pcm_frames(&wav, framesJustRead, tempOut);
+
+        if (framesJustRead < framesToRead) {
+            break;
+        }
+    }
+
+    drwav_uninit(&wav);
+    return MA_SUCCESS;
+}
+
+ma_result test_bpf4__f32(const char* pInputFilePath)
+{
+    return test_bpf4__by_format(pInputFilePath, "output/bpf4_f32.wav", ma_format_f32);
+}
+
+ma_result test_bpf4__s16(const char* pInputFilePath)
+{
+    return test_bpf4__by_format(pInputFilePath, "output/bpf4_s16.wav", ma_format_s16);
+}
+
+
 int test_entry__bpf(int argc, char** argv)
 {
     ma_result result;
@@ -68,10 +137,28 @@ int test_entry__bpf(int argc, char** argv)
 
     pInputFilePath = argv[1];
     
-    result = test_bpf__f32(pInputFilePath);
+
+    result = test_bpf2__f32(pInputFilePath);
     if (result != MA_SUCCESS) {
         hasError = MA_TRUE;
     }
+
+    result = test_bpf2__s16(pInputFilePath);
+    if (result != MA_SUCCESS) {
+        hasError = MA_TRUE;
+    }
+
+
+    result = test_bpf4__f32(pInputFilePath);
+    if (result != MA_SUCCESS) {
+        hasError = MA_TRUE;
+    }
+
+    result = test_bpf4__s16(pInputFilePath);
+    if (result != MA_SUCCESS) {
+        hasError = MA_TRUE;
+    }
+
 
     if (hasError) {
         return -1;

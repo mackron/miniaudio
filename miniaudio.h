@@ -1815,6 +1815,31 @@ ma_result ma_bpf2_process_pcm_frames(ma_bpf2* pBPF, void* pFramesOut, const void
 ma_uint32 ma_bpf2_get_latency(ma_bpf2* pBPF);
 
 
+typedef struct
+{
+    ma_format format;
+    ma_uint32 channels;
+    ma_uint32 sampleRate;
+    double cutoffFrequency;
+    ma_uint32 poles;    /* If set to 0, will be treated as a passthrough (no filtering will be applied). */
+} ma_bpf_config;
+
+ma_bpf_config ma_bpf_config_init(ma_format format, ma_uint32 channels, ma_uint32 sampleRate, double cutoffFrequency, ma_uint32 poles);
+
+typedef struct
+{
+    ma_format format;
+    ma_uint32 channels;
+    ma_uint32 bpf2Count;
+    ma_bpf2 bpf2[MA_MAX_FILTER_POLES/2];
+} ma_bpf;
+
+ma_result ma_bpf_init(const ma_bpf_config* pConfig, ma_bpf* pBPF);
+ma_result ma_bpf_reinit(const ma_bpf_config* pConfig, ma_bpf* pBPF);
+ma_result ma_bpf_process_pcm_frames(ma_bpf* pBPF, void* pFramesOut, const void* pFramesIn, ma_uint64 frameCount);
+ma_uint32 ma_bpf_get_latency(ma_bpf* pBPF);
+
+
 /************************************************************************************************************************************************************
 *************************************************************************************************************************************************************
 
@@ -30421,6 +30446,16 @@ ma_result ma_bpf2_reinit(const ma_bpf2_config* pConfig, ma_bpf2* pBPF)
     return MA_SUCCESS;
 }
 
+static MA_INLINE void ma_bpf2_process_pcm_frame_s16(ma_bpf2* pBPF, ma_int16* pFrameOut, const ma_int16* pFrameIn)
+{
+    ma_biquad_process_pcm_frame_s16(&pBPF->bq, pFrameOut, pFrameIn);
+}
+
+static MA_INLINE void ma_bpf2_process_pcm_frame_f32(ma_bpf2* pBPF, float* pFrameOut, const float* pFrameIn)
+{
+    ma_biquad_process_pcm_frame_f32(&pBPF->bq, pFrameOut, pFrameIn);
+}
+
 ma_result ma_bpf2_process_pcm_frames(ma_bpf2* pBPF, void* pFramesOut, const void* pFramesIn, ma_uint64 frameCount)
 {
     if (pBPF == NULL) {
@@ -30437,6 +30472,176 @@ ma_uint32 ma_bpf2_get_latency(ma_bpf2* pBPF)
     }
 
     return ma_biquad_get_latency(&pBPF->bq);
+}
+
+
+ma_bpf_config ma_bpf_config_init(ma_format format, ma_uint32 channels, ma_uint32 sampleRate, double cutoffFrequency, ma_uint32 poles)
+{
+    ma_bpf_config config;
+
+    MA_ZERO_OBJECT(&config);
+    config.format          = format;
+    config.channels        = channels;
+    config.sampleRate      = sampleRate;
+    config.cutoffFrequency = cutoffFrequency;
+    config.poles           = ma_min(poles, MA_MAX_FILTER_POLES);
+
+    return config;
+}
+
+static ma_result ma_bpf_reinit__internal(const ma_bpf_config* pConfig, ma_bpf* pBPF, ma_bool32 isNew)
+{
+    ma_result result;
+    ma_uint32 bpf2Count;
+    ma_uint32 ibpf2;
+
+    if (pBPF == NULL || pConfig == NULL) {
+        return MA_INVALID_ARGS;
+    }
+
+    /* Only supporting f32 and s16. */
+    if (pConfig->format != ma_format_f32 && pConfig->format != ma_format_s16) {
+        return MA_INVALID_ARGS;
+    }
+
+    /* The format cannot be changed after initialization. */
+    if (pBPF->format != ma_format_unknown && pBPF->format != pConfig->format) {
+        return MA_INVALID_OPERATION;
+    }
+
+    /* The channel count cannot be changed after initialization. */
+    if (pBPF->channels != 0 && pBPF->channels != pConfig->channels) {
+        return MA_INVALID_OPERATION;
+    }
+
+    if (pConfig->poles > MA_MAX_FILTER_POLES) {
+        return MA_INVALID_ARGS;
+    }
+
+    /* We must have an even number of poles. */
+    if ((pConfig->poles & 0x1) != 0) {
+        return MA_INVALID_ARGS;
+    }
+
+    bpf2Count = pConfig->poles / 2;
+
+    MA_ASSERT(bpf2Count <= ma_countof(pBPF->bpf2));
+
+    /* The pole count can't change between reinits. */
+    if (!isNew) {
+        if (pBPF->bpf2Count != bpf2Count) {
+            return MA_INVALID_OPERATION;
+        }
+    }
+
+    for (ibpf2 = 0; ibpf2 < bpf2Count; ibpf2 += 1) {
+        ma_bpf2_config bpf2Config = ma_bpf2_config_init(pConfig->format, pConfig->channels, pConfig->sampleRate, pConfig->cutoffFrequency);
+
+        if (isNew) {
+            result = ma_bpf2_init(&bpf2Config, &pBPF->bpf2[ibpf2]);
+        } else {
+            result = ma_bpf2_reinit(&bpf2Config, &pBPF->bpf2[ibpf2]);
+        }
+
+        if (result != MA_SUCCESS) {
+            return result;
+        }
+    }
+
+    pBPF->bpf2Count = bpf2Count;
+    pBPF->format    = pConfig->format;
+    pBPF->channels  = pConfig->channels;
+
+    return MA_SUCCESS;
+}
+
+ma_result ma_bpf_init(const ma_bpf_config* pConfig, ma_bpf* pBPF)
+{
+    if (pBPF == NULL) {
+        return MA_INVALID_ARGS;
+    }
+
+    MA_ZERO_OBJECT(pBPF);
+
+    if (pConfig == NULL) {
+        return MA_INVALID_ARGS;
+    }
+
+    return ma_bpf_reinit__internal(pConfig, pBPF, /*isNew*/MA_TRUE);
+}
+
+ma_result ma_bpf_reinit(const ma_bpf_config* pConfig, ma_bpf* pBPF)
+{
+    return ma_bpf_reinit__internal(pConfig, pBPF, /*isNew*/MA_FALSE);
+}
+
+ma_result ma_bpf_process_pcm_frames(ma_bpf* pBPF, void* pFramesOut, const void* pFramesIn, ma_uint64 frameCount)
+{
+    ma_result result;
+    ma_uint32 ibpf2;
+
+    if (pBPF == NULL) {
+        return MA_INVALID_ARGS;
+    }
+
+    /* Faster path for in-place. */
+    if (pFramesOut == pFramesIn) {
+        for (ibpf2 = 0; ibpf2 < pBPF->bpf2Count; ibpf2 += 1) {
+            result = ma_bpf2_process_pcm_frames(&pBPF->bpf2[ibpf2], pFramesOut, pFramesOut, frameCount);
+            if (result != MA_SUCCESS) {
+                return result;
+            }
+        }
+    }
+
+    /* Slightly slower path for copying. */
+    if (pFramesOut != pFramesIn) {
+        ma_uint32 iFrame;
+
+        /*  */ if (pBPF->format == ma_format_f32) {
+            /* */ float* pFramesOutF32 = (      float*)pFramesOut;
+            const float* pFramesInF32  = (const float*)pFramesIn;
+
+            for (iFrame = 0; iFrame < frameCount; iFrame += 1) {
+                MA_COPY_MEMORY(pFramesOutF32, pFramesInF32, ma_get_bytes_per_frame(pBPF->format, pBPF->channels));
+
+                for (ibpf2 = 0; ibpf2 < pBPF->bpf2Count; ibpf2 += 1) {
+                    ma_bpf2_process_pcm_frame_f32(&pBPF->bpf2[ibpf2], pFramesOutF32, pFramesOutF32);
+                }
+
+                pFramesOutF32 += pBPF->channels;
+                pFramesInF32  += pBPF->channels;
+            }
+        } else if (pBPF->format == ma_format_s16) {
+            /* */ ma_int16* pFramesOutS16 = (      ma_int16*)pFramesOut;
+            const ma_int16* pFramesInS16  = (const ma_int16*)pFramesIn;
+
+            for (iFrame = 0; iFrame < frameCount; iFrame += 1) {
+                MA_COPY_MEMORY(pFramesOutS16, pFramesInS16, ma_get_bytes_per_frame(pBPF->format, pBPF->channels));
+
+                for (ibpf2 = 0; ibpf2 < pBPF->bpf2Count; ibpf2 += 1) {
+                    ma_bpf2_process_pcm_frame_s16(&pBPF->bpf2[ibpf2], pFramesOutS16, pFramesOutS16);
+                }
+
+                pFramesOutS16 += pBPF->channels;
+                pFramesInS16  += pBPF->channels;
+            }
+        } else {
+            MA_ASSERT(MA_FALSE);
+            return MA_INVALID_OPERATION;    /* Should never hit this. */
+        }
+    }
+
+    return MA_SUCCESS;
+}
+
+ma_uint32 ma_bpf_get_latency(ma_bpf* pBPF)
+{
+    if (pBPF == NULL) {
+        return 0;
+    }
+
+    return pBPF->bpf2Count*2;
 }
 
 
