@@ -129,8 +129,8 @@ pipeline. Both formats use transposed direct form 2.
 Low-Pass, High-Pass and Band-Pass Filters
 -----------------------------------------
 APIs for low-pass, high-pass and band-pass filtering has been added. By themselves they are second order filters, but can be extended to higher orders by
-chaining them together. Low-pass, high-pass and band-pass filtering is achieved via the `ma_lpf2`, `ma_hpf2` and `ma_bpf` APIs respectively. Since these filters
-are just biquad filters, they support both 32-bit floating point and 16-bit signed integer formats.
+chaining them together. Low-pass, high-pass and band-pass filtering is achieved via the `ma_lpf2`, `ma_hpf2` and `ma_bpf2` APIs respectively. Since these
+filters are just biquad filters, they support both 32-bit floating point and 16-bit signed integer formats.
 
 
 Sine, Square, Triangle and Sawtooth Waveforms
@@ -1000,7 +1000,7 @@ and will result in an error.
 
 Low-Pass, High-Pass and Band-Pass Filtering
 ===========================================
-Low-pass, high-pass and band-pass filtering is achieved with the `ma_lpf2`, `ma_hpf2` and `ma_bpf` APIs respective. Low-pass filter example:
+Low-pass, high-pass and band-pass filtering is achieved with the `ma_lpf2`, `ma_hpf2` and `ma_bpf2` APIs respective. Low-pass filter example:
 
     ```c
     ma_lpf2_config config = ma_lpf2_config_init(ma_format_f32, channels, sampleRate, cutoffFrequency);
@@ -1035,7 +1035,7 @@ If you need to change the configuration of the filter, but need to maintain the 
 useful if you need to change the sample rate and/or cutoff frequency dynamically while maintaing smooth transitions. Note that changing the format or channel
 count after initialization is invalid and will result in an error.
 
-The example code above is for low-pass filters, but the same applies for high-pass and band-pass filters, only you should use the `ma_hpf2` and `ma_bpf` APIs
+The example code above is for low-pass filters, but the same applies for high-pass and band-pass filters, only you should use the `ma_hpf2` and `ma_bpf2` APIs
 instead.
 
 
@@ -1728,19 +1728,19 @@ typedef struct
     ma_uint32 channels;
     ma_uint32 sampleRate;
     double cutoffFrequency;
-} ma_bpf_config;
+} ma_bpf2_config;
 
-ma_bpf_config ma_bpf_config_init(ma_format format, ma_uint32 channels, ma_uint32 sampleRate, double cutoffFrequency);
+ma_bpf2_config ma_bpf2_config_init(ma_format format, ma_uint32 channels, ma_uint32 sampleRate, double cutoffFrequency);
 
 typedef struct
 {
     ma_biquad bq;   /* The 2-pole band-pass filter is implemented as a biquad filter. */
-} ma_bpf;
+} ma_bpf2;
 
-ma_result ma_bpf_init(const ma_bpf_config* pConfig, ma_bpf* pBPF);
-ma_result ma_bpf_reinit(const ma_bpf_config* pConfig, ma_bpf* pBPF);
-ma_result ma_bpf_process_pcm_frames(ma_bpf* pBPF, void* pFramesOut, const void* pFramesIn, ma_uint64 frameCount);
-ma_uint32 ma_bpf_get_latency(ma_bpf* pBPF);
+ma_result ma_bpf2_init(const ma_bpf2_config* pConfig, ma_bpf2* pBPF);
+ma_result ma_bpf2_reinit(const ma_bpf2_config* pConfig, ma_bpf2* pBPF);
+ma_result ma_bpf2_process_pcm_frames(ma_bpf2* pBPF, void* pFramesOut, const void* pFramesIn, ma_uint64 frameCount);
+ma_uint32 ma_bpf2_get_latency(ma_bpf2* pBPF);
 
 
 /************************************************************************************************************************************************************
@@ -29706,9 +29706,9 @@ ma_uint32 ma_hpf2_get_latency(ma_hpf2* pHPF)
 Band-Pass Filtering
 
 **************************************************************************************************************************************************************/
-ma_bpf_config ma_bpf_config_init(ma_format format, ma_uint32 channels, ma_uint32 sampleRate, double cutoffFrequency)
+ma_bpf2_config ma_bpf2_config_init(ma_format format, ma_uint32 channels, ma_uint32 sampleRate, double cutoffFrequency)
 {
-    ma_bpf_config config;
+    ma_bpf2_config config;
     
     MA_ZERO_OBJECT(&config);
     config.format = format;
@@ -29720,7 +29720,7 @@ ma_bpf_config ma_bpf_config_init(ma_format format, ma_uint32 channels, ma_uint32
 }
 
 
-static MA_INLINE ma_biquad_config ma_bpf__get_biquad_config(const ma_bpf_config* pConfig)
+static MA_INLINE ma_biquad_config ma_bpf2__get_biquad_config(const ma_bpf2_config* pConfig)
 {
     ma_biquad_config bqConfig;
     double q;
@@ -29750,7 +29750,7 @@ static MA_INLINE ma_biquad_config ma_bpf__get_biquad_config(const ma_bpf_config*
     return bqConfig;
 }
 
-ma_result ma_bpf_init(const ma_bpf_config* pConfig, ma_bpf* pBPF)
+ma_result ma_bpf2_init(const ma_bpf2_config* pConfig, ma_bpf2* pBPF)
 {
     ma_result result;
     ma_biquad_config bqConfig;
@@ -29765,7 +29765,7 @@ ma_result ma_bpf_init(const ma_bpf_config* pConfig, ma_bpf* pBPF)
         return MA_INVALID_ARGS;
     }
 
-    bqConfig = ma_bpf__get_biquad_config(pConfig);
+    bqConfig = ma_bpf2__get_biquad_config(pConfig);
     result = ma_biquad_init(&bqConfig, &pBPF->bq);
     if (result != MA_SUCCESS) {
         return result;
@@ -29774,7 +29774,7 @@ ma_result ma_bpf_init(const ma_bpf_config* pConfig, ma_bpf* pBPF)
     return MA_SUCCESS;
 }
 
-ma_result ma_bpf_reinit(const ma_bpf_config* pConfig, ma_bpf* pBPF)
+ma_result ma_bpf2_reinit(const ma_bpf2_config* pConfig, ma_bpf2* pBPF)
 {
     ma_result result;
     ma_biquad_config bqConfig;
@@ -29783,7 +29783,7 @@ ma_result ma_bpf_reinit(const ma_bpf_config* pConfig, ma_bpf* pBPF)
         return MA_INVALID_ARGS;
     }
 
-    bqConfig = ma_bpf__get_biquad_config(pConfig);
+    bqConfig = ma_bpf2__get_biquad_config(pConfig);
     result = ma_biquad_reinit(&bqConfig, &pBPF->bq);
     if (result != MA_SUCCESS) {
         return result;
@@ -29792,7 +29792,7 @@ ma_result ma_bpf_reinit(const ma_bpf_config* pConfig, ma_bpf* pBPF)
     return MA_SUCCESS;
 }
 
-ma_result ma_bpf_process_pcm_frames(ma_bpf* pBPF, void* pFramesOut, const void* pFramesIn, ma_uint64 frameCount)
+ma_result ma_bpf2_process_pcm_frames(ma_bpf2* pBPF, void* pFramesOut, const void* pFramesIn, ma_uint64 frameCount)
 {
     if (pBPF == NULL) {
         return MA_INVALID_ARGS;
@@ -29801,7 +29801,7 @@ ma_result ma_bpf_process_pcm_frames(ma_bpf* pBPF, void* pFramesOut, const void* 
     return ma_biquad_process_pcm_frames(&pBPF->bq, pFramesOut, pFramesIn, frameCount);
 }
 
-ma_uint32 ma_bpf_get_latency(ma_bpf* pBPF)
+ma_uint32 ma_bpf2_get_latency(ma_bpf2* pBPF)
 {
     if (pBPF == NULL) {
         return 0;

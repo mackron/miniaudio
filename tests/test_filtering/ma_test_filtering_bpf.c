@@ -7,8 +7,8 @@ ma_result test_bpf__f32(const char* pInputFilePath)
     ma_decoder decoder;
     drwav_data_format wavFormat;
     drwav wav;
-    ma_bpf_config bpfConfig;
-    ma_bpf bpf;
+    ma_bpf2_config bpfConfig;
+    ma_bpf2 bpf;
     
     decoderConfig = ma_decoder_config_init(ma_format_f32, 0, 0);
     result = ma_decoder_init_file(pInputFilePath, &decoderConfig, &decoder);
@@ -16,8 +16,8 @@ ma_result test_bpf__f32(const char* pInputFilePath)
         return result;
     }
 
-    bpfConfig = ma_bpf_config_init(decoder.outputFormat, decoder.outputChannels, decoder.outputSampleRate, 2000);
-    result = ma_bpf_init(&bpfConfig, &bpf);
+    bpfConfig = ma_bpf2_config_init(decoder.outputFormat, decoder.outputChannels, decoder.outputSampleRate, 2000);
+    result = ma_bpf2_init(&bpfConfig, &bpf);
     if (result != MA_SUCCESS) {
         ma_decoder_uninit(&decoder);
         return result;
@@ -41,7 +41,7 @@ ma_result test_bpf__f32(const char* pInputFilePath)
         framesJustRead = ma_decoder_read_pcm_frames(&decoder, tempIn, framesToRead);
 
         /* Filter */
-        ma_bpf_process_pcm_frames(&bpf, tempOut, tempIn, framesJustRead);
+        ma_bpf2_process_pcm_frames(&bpf, tempOut, tempIn, framesJustRead);
 
         /* Write to the WAV file. */
         drwav_write_pcm_frames(&wav, framesJustRead, tempOut);
