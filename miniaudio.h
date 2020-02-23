@@ -129,7 +129,7 @@ pipeline. Both formats use transposed direct form 2.
 Low-Pass, High-Pass and Band-Pass Filters
 -----------------------------------------
 APIs for low-pass, high-pass and band-pass filtering has been added. By themselves they are second order filters, but can be extended to higher orders by
-chaining them together. Low-pass, high-pass and band-pass filtering is achieved via the `ma_lpf`, `ma_hpf` and `ma_bpf` APIs respectively. Since these filters
+chaining them together. Low-pass, high-pass and band-pass filtering is achieved via the `ma_lpf2`, `ma_hpf` and `ma_bpf` APIs respectively. Since these filters
 are just biquad filters, they support both 32-bit floating point and 16-bit signed integer formats.
 
 
@@ -1000,18 +1000,18 @@ and will result in an error.
 
 Low-Pass, High-Pass and Band-Pass Filtering
 ===========================================
-Low-pass, high-pass and band-pass filtering is achieved with the `ma_lpf`, `ma_hpf` and `ma_bpf` APIs respective. Low-pass filter example:
+Low-pass, high-pass and band-pass filtering is achieved with the `ma_lpf2`, `ma_hpf` and `ma_bpf` APIs respective. Low-pass filter example:
 
     ```c
-    ma_lpf_config config = ma_lpf_config_init(ma_format_f32, channels, sampleRate, cutoffFrequency);
-    ma_result result = ma_lpf_init(&config, &lpf);
+    ma_lpf2_config config = ma_lpf2_config_init(ma_format_f32, channels, sampleRate, cutoffFrequency);
+    ma_result result = ma_lpf2_init(&config, &lpf);
     if (result != MA_SUCCESS) {
         // Error.
     }
 
     ...
 
-    ma_lpf_process_pcm_frames(&lpf, pFramesOut, pFramesIn, frameCount);
+    ma_lpf2_process_pcm_frames(&lpf, pFramesOut, pFramesIn, frameCount);
     ```
 
 Supported formats are `ma_format_s16` and` ma_format_f32`. If you need to use a different format you need to convert it yourself beforehand. Input and output
@@ -1020,18 +1020,18 @@ frames are always interleaved.
 Filtering can be applied in-place by passing in the same pointer for both the input and output buffers, like so:
 
     ```c
-    ma_lpf_process_pcm_frames(&lpf, pMyData, pMyData, frameCount);
+    ma_lpf2_process_pcm_frames(&lpf, pMyData, pMyData, frameCount);
     ```
 
 These filters are implemented as a biquad filter. If you need to increase the filter order, simply chain multiple filters together.
 
     ```c
     for (iFilter = 0; iFilter < filterCount; iFilter += 1) {
-        ma_lpf_process_pcm_frames(&lpf[iFilter], pMyData, pMyData, frameCount);
+        ma_lpf2_process_pcm_frames(&lpf[iFilter], pMyData, pMyData, frameCount);
     }
     ```
 
-If you need to change the configuration of the filter, but need to maintain the state of internal registers you can do so with `ma_lpf_reinit()`. This may be
+If you need to change the configuration of the filter, but need to maintain the state of internal registers you can do so with `ma_lpf2_reinit()`. This may be
 useful if you need to change the sample rate and/or cutoff frequency dynamically while maintaing smooth transitions. Note that changing the format or channel
 count after initialization is invalid and will result in an error.
 
@@ -1662,10 +1662,10 @@ typedef struct
     ma_uint32 channels;
     ma_uint32 sampleRate;
     double cutoffFrequency;
-} ma_lpf_config, ma_lpf1_config;
+} ma_lpf1_config, ma_lpf2_config;
 
-ma_lpf_config ma_lpf_config_init(ma_format format, ma_uint32 channels, ma_uint32 sampleRate, double cutoffFrequency);
 ma_lpf1_config ma_lpf1_config_init(ma_format format, ma_uint32 channels, ma_uint32 sampleRate, double cutoffFrequency);
+ma_lpf2_config ma_lpf2_config_init(ma_format format, ma_uint32 channels, ma_uint32 sampleRate, double cutoffFrequency);
 
 typedef struct
 {
@@ -1682,13 +1682,13 @@ ma_uint32 ma_lpf1_get_latency(ma_lpf1* pLPF);
 
 typedef struct
 {
-    ma_biquad bq;   /* The low-pass filter is implemented as a biquad filter. */
-} ma_lpf;
+    ma_biquad bq;   /* The 2-pole low-pass filter is implemented as a biquad filter. */
+} ma_lpf2;
 
-ma_result ma_lpf_init(const ma_lpf_config* pConfig, ma_lpf* pLPF);
-ma_result ma_lpf_reinit(const ma_lpf_config* pConfig, ma_lpf* pLPF);
-ma_result ma_lpf_process_pcm_frames(ma_lpf* pLPF, void* pFramesOut, const void* pFramesIn, ma_uint64 frameCount);
-ma_uint32 ma_lpf_get_latency(ma_lpf* pLPF);
+ma_result ma_lpf2_init(const ma_lpf2_config* pConfig, ma_lpf2* pLPF);
+ma_result ma_lpf2_reinit(const ma_lpf2_config* pConfig, ma_lpf2* pLPF);
+ma_result ma_lpf2_process_pcm_frames(ma_lpf2* pLPF, void* pFramesOut, const void* pFramesIn, ma_uint64 frameCount);
+ma_uint32 ma_lpf2_get_latency(ma_lpf2* pLPF);
 
 
 /**************************************************************************************************************************************************************
@@ -1792,7 +1792,7 @@ typedef struct
         float    f32[MA_MAX_CHANNELS];
         ma_int16 s16[MA_MAX_CHANNELS];
     } x1; /* The next input frame. */
-    ma_lpf lpf[MA_MAX_RESAMPLER_LPF_FILTERS];
+    ma_lpf2 lpf[MA_MAX_RESAMPLER_LPF_FILTERS];
 } ma_linear_resampler;
 
 ma_result ma_linear_resampler_init(const ma_linear_resampler_config* pConfig, ma_linear_resampler* pResampler);
@@ -29331,9 +29331,9 @@ ma_uint32 ma_biquad_get_latency(ma_biquad* pBQ)
 Low-Pass Filter
 
 **************************************************************************************************************************************************************/
-static ma_lpf_config ma_lpf_config_init__generic(ma_format format, ma_uint32 channels, ma_uint32 sampleRate, double cutoffFrequency)
+ma_lpf2_config ma_lpf2_config_init(ma_format format, ma_uint32 channels, ma_uint32 sampleRate, double cutoffFrequency)
 {
-    ma_lpf_config config;
+    ma_lpf1_config config;
     
     MA_ZERO_OBJECT(&config);
     config.format = format;
@@ -29344,14 +29344,17 @@ static ma_lpf_config ma_lpf_config_init__generic(ma_format format, ma_uint32 cha
     return config;
 }
 
-ma_lpf_config ma_lpf_config_init(ma_format format, ma_uint32 channels, ma_uint32 sampleRate, double cutoffFrequency)
-{
-    return ma_lpf_config_init__generic(format, channels, sampleRate, cutoffFrequency);
-}
-
 ma_lpf1_config ma_lpf1_config_init(ma_format format, ma_uint32 channels, ma_uint32 sampleRate, double cutoffFrequency)
 {
-    return ma_lpf_config_init__generic(format, channels, sampleRate, cutoffFrequency);
+    ma_lpf2_config config;
+    
+    MA_ZERO_OBJECT(&config);
+    config.format = format;
+    config.channels = channels;
+    config.sampleRate = sampleRate;
+    config.cutoffFrequency = cutoffFrequency;
+
+    return config;
 }
 
 
@@ -29488,7 +29491,7 @@ ma_uint32 ma_lpf1_get_latency(ma_lpf1* pLPF)
 }
 
 
-static MA_INLINE ma_biquad_config ma_lpf__get_biquad_config(const ma_lpf_config* pConfig)
+static MA_INLINE ma_biquad_config ma_lpf2__get_biquad_config(const ma_lpf2_config* pConfig)
 {
     ma_biquad_config bqConfig;
     double q;
@@ -29518,7 +29521,7 @@ static MA_INLINE ma_biquad_config ma_lpf__get_biquad_config(const ma_lpf_config*
     return bqConfig;
 }
 
-ma_result ma_lpf_init(const ma_lpf_config* pConfig, ma_lpf* pLPF)
+ma_result ma_lpf2_init(const ma_lpf2_config* pConfig, ma_lpf2* pLPF)
 {
     ma_result result;
     ma_biquad_config bqConfig;
@@ -29533,7 +29536,7 @@ ma_result ma_lpf_init(const ma_lpf_config* pConfig, ma_lpf* pLPF)
         return MA_INVALID_ARGS;
     }
 
-    bqConfig = ma_lpf__get_biquad_config(pConfig);
+    bqConfig = ma_lpf2__get_biquad_config(pConfig);
     result = ma_biquad_init(&bqConfig, &pLPF->bq);
     if (result != MA_SUCCESS) {
         return result;
@@ -29542,7 +29545,7 @@ ma_result ma_lpf_init(const ma_lpf_config* pConfig, ma_lpf* pLPF)
     return MA_SUCCESS;
 }
 
-ma_result ma_lpf_reinit(const ma_lpf_config* pConfig, ma_lpf* pLPF)
+ma_result ma_lpf2_reinit(const ma_lpf2_config* pConfig, ma_lpf2* pLPF)
 {
     ma_result result;
     ma_biquad_config bqConfig;
@@ -29551,7 +29554,7 @@ ma_result ma_lpf_reinit(const ma_lpf_config* pConfig, ma_lpf* pLPF)
         return MA_INVALID_ARGS;
     }
 
-    bqConfig = ma_lpf__get_biquad_config(pConfig);
+    bqConfig = ma_lpf2__get_biquad_config(pConfig);
     result = ma_biquad_reinit(&bqConfig, &pLPF->bq);
     if (result != MA_SUCCESS) {
         return result;
@@ -29560,17 +29563,17 @@ ma_result ma_lpf_reinit(const ma_lpf_config* pConfig, ma_lpf* pLPF)
     return MA_SUCCESS;
 }
 
-static MA_INLINE void ma_lpf_process_pcm_frame_s16(ma_lpf* pLPF, ma_int16* pFrameOut, const ma_int16* pFrameIn)
+static MA_INLINE void ma_lpf2_process_pcm_frame_s16(ma_lpf2* pLPF, ma_int16* pFrameOut, const ma_int16* pFrameIn)
 {
     ma_biquad_process_pcm_frame_s16(&pLPF->bq, pFrameOut, pFrameIn);
 }
 
-static MA_INLINE void ma_lpf_process_pcm_frame_f32(ma_lpf* pLPF, float* pFrameOut, const float* pFrameIn)
+static MA_INLINE void ma_lpf2_process_pcm_frame_f32(ma_lpf2* pLPF, float* pFrameOut, const float* pFrameIn)
 {
     ma_biquad_process_pcm_frame_f32(&pLPF->bq, pFrameOut, pFrameIn);
 }
 
-ma_result ma_lpf_process_pcm_frames(ma_lpf* pLPF, void* pFramesOut, const void* pFramesIn, ma_uint64 frameCount)
+ma_result ma_lpf2_process_pcm_frames(ma_lpf2* pLPF, void* pFramesOut, const void* pFramesIn, ma_uint64 frameCount)
 {
     if (pLPF == NULL) {
         return MA_INVALID_ARGS;
@@ -29579,7 +29582,7 @@ ma_result ma_lpf_process_pcm_frames(ma_lpf* pLPF, void* pFramesOut, const void* 
     return ma_biquad_process_pcm_frames(&pLPF->bq, pFramesOut, pFramesIn, frameCount);
 }
 
-ma_uint32 ma_lpf_get_latency(ma_lpf* pLPF)
+ma_uint32 ma_lpf2_get_latency(ma_lpf2* pLPF)
 {
     if (pLPF == NULL) {
         return 0;
@@ -29850,7 +29853,7 @@ static ma_result ma_linear_resampler_set_rate_internal(ma_linear_resampler* pRes
         ma_uint32 iFilter;
         ma_uint32 lpfSampleRate;
         double lpfCutoffFrequency;
-        ma_lpf_config lpfConfig;
+        ma_lpf2_config lpfConfig;
 
         if (pResampler->config.lpfCount > MA_MAX_RESAMPLER_LPF_FILTERS) {
             return MA_INVALID_ARGS;
@@ -29859,7 +29862,7 @@ static ma_result ma_linear_resampler_set_rate_internal(ma_linear_resampler* pRes
         lpfSampleRate      = (ma_uint32)(ma_max(pResampler->config.sampleRateIn, pResampler->config.sampleRateOut));
         lpfCutoffFrequency = (   double)(ma_min(pResampler->config.sampleRateIn, pResampler->config.sampleRateOut) * 0.5 * pResampler->config.lpfNyquistFactor);
 
-        lpfConfig = ma_lpf_config_init(pResampler->config.format, pResampler->config.channels, lpfSampleRate, lpfCutoffFrequency);
+        lpfConfig = ma_lpf2_config_init(pResampler->config.format, pResampler->config.channels, lpfSampleRate, lpfCutoffFrequency);
 
         /*
         If the resampler is alreay initialized we don't want to do a fresh initialization of the low-pass filter because it will result in the cached frames
@@ -29868,9 +29871,9 @@ static ma_result ma_linear_resampler_set_rate_internal(ma_linear_resampler* pRes
         result = MA_SUCCESS;
         for (iFilter = 0; iFilter < pResampler->config.lpfCount; iFilter += 1) {
             if (isResamplerAlreadyInitialized) {
-                result = ma_lpf_reinit(&lpfConfig, &pResampler->lpf[iFilter]);
+                result = ma_lpf2_reinit(&lpfConfig, &pResampler->lpf[iFilter]);
             } else {
-                result = ma_lpf_init(&lpfConfig, &pResampler->lpf[iFilter]);
+                result = ma_lpf2_init(&lpfConfig, &pResampler->lpf[iFilter]);
             }
 
             if (result != MA_SUCCESS) {
@@ -30022,7 +30025,7 @@ static ma_result ma_linear_resampler_process_pcm_frames_s16_downsample(ma_linear
 
             /* Filter. */
             for (iFilter = 0; iFilter < pResampler->config.lpfCount; iFilter += 1) {
-                ma_lpf_process_pcm_frame_s16(&pResampler->lpf[iFilter], pResampler->x1.s16, pResampler->x1.s16);
+                ma_lpf2_process_pcm_frame_s16(&pResampler->lpf[iFilter], pResampler->x1.s16, pResampler->x1.s16);
             }
 
             frameCountIn          -= 1;
@@ -30119,7 +30122,7 @@ static ma_result ma_linear_resampler_process_pcm_frames_s16_upsample(ma_linear_r
 
             /* Filter. */
             for (iFilter = 0; iFilter < pResampler->config.lpfCount; iFilter += 1) {
-                ma_lpf_process_pcm_frame_s16(&pResampler->lpf[iFilter], pFramesOutS16, pFramesOutS16);
+                ma_lpf2_process_pcm_frame_s16(&pResampler->lpf[iFilter], pFramesOutS16, pFramesOutS16);
             }
 
             pFramesOutS16 += pResampler->config.channels;
@@ -30199,7 +30202,7 @@ static ma_result ma_linear_resampler_process_pcm_frames_f32_downsample(ma_linear
 
             /* Filter. */
             for (iFilter = 0; iFilter < pResampler->config.lpfCount; iFilter += 1) {
-                ma_lpf_process_pcm_frame_f32(&pResampler->lpf[iFilter], pResampler->x1.f32, pResampler->x1.f32);
+                ma_lpf2_process_pcm_frame_f32(&pResampler->lpf[iFilter], pResampler->x1.f32, pResampler->x1.f32);
             }
 
             frameCountIn          -= 1;
@@ -30296,7 +30299,7 @@ static ma_result ma_linear_resampler_process_pcm_frames_f32_upsample(ma_linear_r
 
             /* Filter. */
             for (iFilter = 0; iFilter < pResampler->config.lpfCount; iFilter += 1) {
-                ma_lpf_process_pcm_frame_f32(&pResampler->lpf[iFilter], pFramesOutF32, pFramesOutF32);
+                ma_lpf2_process_pcm_frame_f32(&pResampler->lpf[iFilter], pFramesOutF32, pFramesOutF32);
             }
 
             pFramesOutF32 += pResampler->config.channels;
@@ -30446,7 +30449,7 @@ ma_uint64 ma_linear_resampler_get_input_latency(ma_linear_resampler* pResampler)
 
     latency = 1;
     for (iFilter = 0; iFilter < pResampler->config.lpfCount; iFilter += 1) {
-        latency += ma_lpf_get_latency(&pResampler->lpf[iFilter]);
+        latency += ma_lpf2_get_latency(&pResampler->lpf[iFilter]);
     }
 
     return latency;

@@ -69,8 +69,8 @@ ma_result test_lpf2__by_format(const char* pInputFilePath, const char* pOutputFi
     ma_result result;
     ma_decoder decoder;
     drwav wav;
-    ma_lpf_config lpfConfig;
-    ma_lpf lpf;
+    ma_lpf2_config lpfConfig;
+    ma_lpf2 lpf;
 
     printf("    %s\n", pOutputFilePath);
     
@@ -79,8 +79,8 @@ ma_result test_lpf2__by_format(const char* pInputFilePath, const char* pOutputFi
         return result;
     }
 
-    lpfConfig = ma_lpf_config_init(decoder.outputFormat, decoder.outputChannels, decoder.outputSampleRate, 2000);
-    result = ma_lpf_init(&lpfConfig, &lpf);
+    lpfConfig = ma_lpf2_config_init(decoder.outputFormat, decoder.outputChannels, decoder.outputSampleRate, 2000);
+    result = ma_lpf2_init(&lpfConfig, &lpf);
     if (result != MA_SUCCESS) {
         ma_decoder_uninit(&decoder);
         drwav_uninit(&wav);
@@ -99,7 +99,7 @@ ma_result test_lpf2__by_format(const char* pInputFilePath, const char* pOutputFi
         framesJustRead = ma_decoder_read_pcm_frames(&decoder, tempIn, framesToRead);
 
         /* Filter */
-        ma_lpf_process_pcm_frames(&lpf, tempOut, tempIn, framesJustRead);
+        ma_lpf2_process_pcm_frames(&lpf, tempOut, tempIn, framesJustRead);
 
         /* Write to the WAV file. */
         drwav_write_pcm_frames(&wav, framesJustRead, tempOut);
