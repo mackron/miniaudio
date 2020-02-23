@@ -5,8 +5,8 @@ ma_result test_dithering__u8(const char* pInputFilePath)
     ma_result result;
     ma_decoder_config decoderConfig;
     ma_decoder decoder;
-    drwav_data_format wavFormat;
-    drwav wav;
+    ma_encoder_config encoderConfig;
+    ma_encoder encoder;
     
     decoderConfig = ma_decoder_config_init(ma_format_f32, 0, 0);
     result = ma_decoder_init_file(pInputFilePath, &decoderConfig, &decoder);
@@ -14,10 +14,11 @@ ma_result test_dithering__u8(const char* pInputFilePath)
         return result;
     }
 
-    wavFormat = drwav_data_format_from_minaudio_format(ma_format_u8, decoder.outputChannels, decoder.outputSampleRate);
-    if (!drwav_init_file_write(&wav, pOutputFilePath, &wavFormat, NULL)) {
+    encoderConfig = ma_encoder_config_init(ma_resource_format_wav, ma_format_u8, decoder.outputChannels, decoder.outputSampleRate);
+    result = ma_encoder_init_file(pOutputFilePath, &encoderConfig, &encoder);
+    if (result != MA_SUCCESS) {
         ma_decoder_uninit(&decoder);
-        return MA_ERROR;
+        return result;
     }
 
     for (;;) {
@@ -35,14 +36,14 @@ ma_result test_dithering__u8(const char* pInputFilePath)
         ma_convert_pcm_frames_format(tempOut, ma_format_u8, tempIn, decoder.outputFormat, framesJustRead, decoder.outputChannels, ma_dither_mode_triangle);
 
         /* Write to the WAV file. */
-        drwav_write_pcm_frames(&wav, framesJustRead, tempOut);
+        ma_encoder_write_pcm_frames(&encoder, tempOut, framesJustRead);
 
         if (framesJustRead < framesToRead) {
             break;
         }
     }
 
-    drwav_uninit(&wav);
+    ma_encoder_uninit(&encoder);
     return MA_SUCCESS;
 }
 

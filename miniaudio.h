@@ -4796,7 +4796,18 @@ float ma_gain_db_to_factor(float gain);
 #endif  /* MA_NO_DEVICE_IO */
 
 
+#if !defined(MA_NO_DECODING) || !defined(MA_NO_ENCODING)
+typedef enum
+{
+    ma_seek_origin_start,
+    ma_seek_origin_current
+} ma_seek_origin;
 
+typedef enum
+{
+    ma_resource_format_wav
+} ma_resource_format;
+#endif
 
 /************************************************************************************************************************************************************
 
@@ -4808,14 +4819,7 @@ you do your own synchronization.
 
 ************************************************************************************************************************************************************/
 #ifndef MA_NO_DECODING
-
 typedef struct ma_decoder ma_decoder;
-
-typedef enum
-{
-    ma_seek_origin_start,
-    ma_seek_origin_current
-} ma_seek_origin;
 
 typedef size_t    (* ma_decoder_read_proc)                    (ma_decoder* pDecoder, void* pBufferOut, size_t bytesToRead);     /* Returns the number of bytes read. */
 typedef ma_bool32 (* ma_decoder_seek_proc)                    (ma_decoder* pDecoder, int byteOffset, ma_seek_origin origin);
@@ -4948,6 +4952,58 @@ ma_result ma_decode_file(const char* pFilePath, ma_decoder_config* pConfig, ma_u
 ma_result ma_decode_memory(const void* pData, size_t dataSize, ma_decoder_config* pConfig, ma_uint64* pFrameCountOut, void** ppDataOut);
 
 #endif  /* MA_NO_DECODING */
+
+
+/************************************************************************************************************************************************************
+
+Encoding
+========
+
+Encoders do not perform any format conversion for you. If your target format does not support the format, and error will be returned.
+
+************************************************************************************************************************************************************/
+#ifndef MA_NO_ENCODING
+typedef struct ma_encoder ma_encoder;
+
+typedef size_t    (* ma_encoder_write_proc)           (ma_encoder* pEncoder, const void* pBufferIn, size_t bytesToWrite);     /* Returns the number of bytes written. */
+typedef ma_bool32 (* ma_encoder_seek_proc)            (ma_encoder* pEncoder, int byteOffset, ma_seek_origin origin);
+typedef ma_result (* ma_encoder_init_proc)            (ma_encoder* pEncoder);
+typedef void      (* ma_encoder_uninit_proc)          (ma_encoder* pEncoder);
+typedef ma_uint64 (* ma_encoder_write_pcm_frames_proc)(ma_encoder* pEncoder, const void* pFramesIn, ma_uint64 frameCount);
+
+typedef struct
+{
+    ma_resource_format resourceFormat;
+    ma_format format;
+    ma_uint32 channels;
+    ma_uint32 sampleRate;
+    ma_allocation_callbacks allocationCallbacks;
+} ma_encoder_config;
+
+ma_encoder_config ma_encoder_config_init(ma_resource_format resourceFormat, ma_format format, ma_uint32 channels, ma_uint32 sampleRate);
+
+struct ma_encoder
+{
+    ma_encoder_config config;
+    ma_encoder_write_proc onWrite;
+    ma_encoder_seek_proc onSeek;
+    ma_encoder_init_proc onInit;
+    ma_encoder_uninit_proc onUninit;
+    ma_encoder_write_pcm_frames_proc onWritePCMFrames;
+    void* pUserData;
+    void* pInternalEncoder; /* <-- The drwav/drflac/stb_vorbis/etc. objects. */
+    void* pFile;    /* FILE*. Only used when initialized with ma_encoder_init_file(). */
+};
+
+ma_result ma_encoder_init(ma_encoder_write_proc onWrite, ma_encoder_seek_proc onSeek, void* pUserData, const ma_encoder_config* pConfig, ma_encoder* pEncoder);
+#ifndef MA_NO_STDIO
+ma_result ma_encoder_init_file(const char* pFilePath, const ma_encoder_config* pConfig, ma_encoder* pEncoder);
+ma_result ma_encoder_init_file_w(const wchar_t* pFilePath, const ma_encoder_config* pConfig, ma_encoder* pEncoder);
+#endif
+void ma_encoder_uninit(ma_encoder* pEncoder);
+ma_uint64 ma_encoder_write_pcm_frames(ma_encoder* pEncoder, const void* pFramesIn, ma_uint64 frameCount);
+
+#endif /* MA_NO_ENCODING */
 
 
 /************************************************************************************************************************************************************
@@ -5926,6 +5982,122 @@ char* ma_copy_string(const char* src, const ma_allocation_callbacks* pAllocation
 
     return dst;
 }
+
+
+FILE* ma_fopen(const char* pFilePath, const char* pOpenMode)
+{
+    FILE* pFile;
+
+#if defined(_MSC_VER) && _MSC_VER >= 1400
+    if (fopen_s(&pFile, pFilePath, pOpenMode) != 0) {
+        return NULL;
+    }
+#else
+    pFile = fopen(pFilePath, pOpenMode);
+    if (pFile == NULL) {
+        return NULL;
+    }
+#endif
+
+    return pFile;
+}
+
+
+/*
+_wfopen() isn't always available in all compilation environments.
+
+    * Windows only.
+    * MSVC seems to support it universally as far back as VC6 from what I can tell (haven't checked further back).
+    * MinGW-64 (both 32- and 64-bit) seems to support it.
+    * MinGW wraps it in !defined(__STRICT_ANSI__).
+
+This can be reviewed as compatibility issues arise. The preference is to use _wfopen_s() and _wfopen() as opposed to the wcsrtombs()
+fallback, so if you notice your compiler not detecting this properly I'm happy to look at adding support.
+*/
+#if defined(_WIN32)
+    #if defined(_MSC_VER) || defined(__MINGW64__) || !defined(__STRICT_ANSI__)
+        #define MA_HAS_WFOPEN
+    #endif
+#endif
+
+FILE* ma_wfopen(const wchar_t* pFilePath, const wchar_t* pOpenMode, ma_allocation_callbacks* pAllocationCallbacks)
+{
+    FILE* pFile = NULL;
+
+#if defined(MA_HAS_WFOPEN)
+    (void)pAllocationCallbacks;
+
+    /* Use _wfopen() on Windows. */
+    #if defined(_MSC_VER) && _MSC_VER >= 1400
+        if (_wfopen_s(&pFile, pFilePath, pOpenMode) != 0) {
+            return NULL;
+        }
+    #else
+        pFile = _wfopen(pFilePath, pOpenMode);
+        if (pFile == NULL) {
+            return NULL;
+        }
+    #endif
+#else
+    /*
+    Use fopen() on anything other than Windows. Requires a conversion. This is annoying because fopen() is locale specific. The only real way I can
+    think of to do this is with wcsrtombs(). Note that wcstombs() is apparently not thread-safe because it uses a static global mbstate_t object for
+    maintaining state. I've checked this with -std=c89 and it works, but if somebody get's a compiler error I'll look into improving compatibility.
+    */
+    {
+        mbstate_t mbs;
+        size_t lenMB;
+        const wchar_t* pFilePathTemp = pFilePath;
+        char* pFilePathMB = NULL;
+        char pOpenModeMB[32] = {0};
+
+        if (pOpenMode == NULL) {
+            return NULL;
+        }
+
+        /* Get the length first. */
+        MA_ZERO_OBJECT(&mbs);
+        lenMB = wcsrtombs(NULL, &pFilePathTemp, 0, &mbs);
+        if (lenMB == (size_t)-1) {
+            return NULL;
+        }
+
+        pFilePathMB = (char*)ma_malloc(lenMB + 1, pAllocationCallbacks);
+        if (pFilePathMB == NULL) {
+            return NULL;
+        }
+
+        pFilePathTemp = pFilePath;
+        MA_ZERO_OBJECT(&mbs);
+        wcsrtombs(pFilePathMB, &pFilePathTemp, lenMB + 1, &mbs);
+
+        /* The open mode should always consist of ASCII characters so we should be able to do a trivial conversion. */
+        {
+            size_t i = 0;
+            for (;;) {
+                if (pOpenMode[i] == 0) {
+                    pOpenModeMB[i] = '\0';
+                    break;
+                }
+
+                pOpenModeMB[i] = (char)pOpenMode[i];
+                i += 1;
+            }
+        }
+
+        pFile = fopen(pFilePathMB, pOpenModeMB);
+
+        ma_free(pFilePathMB, pAllocationCallbacks);
+    }
+
+    if (pFile == NULL) {
+        return NULL;
+    }
+#endif
+
+    return pFile;
+}
+
 
 
 static MA_INLINE void ma_copy_memory_64(void* dst, const void* src, ma_uint64 sizeInBytes)
@@ -38762,39 +38934,16 @@ static ma_result ma_decoder__preinit_file(const char* pFilePath, const ma_decode
         return result;
     }
 
-#if defined(_MSC_VER) && _MSC_VER >= 1400
-    if (fopen_s(&pFile, pFilePath, "rb") != 0) {
-        return MA_ERROR;
-    }
-#else
-    pFile = fopen(pFilePath, "rb");
+    pFile = ma_fopen(pFilePath, "rb");
     if (pFile == NULL) {
         return MA_ERROR;
     }
-#endif
 
     /* We need to manually set the user data so the calls to ma_decoder__on_seek_stdio() succeed. */
     pDecoder->pUserData = pFile;
 
     return MA_SUCCESS;
 }
-
-/*
-_wfopen() isn't always available in all compilation environments.
-
-    * Windows only.
-    * MSVC seems to support it universally as far back as VC6 from what I can tell (haven't checked further back).
-    * MinGW-64 (both 32- and 64-bit) seems to support it.
-    * MinGW wraps it in !defined(__STRICT_ANSI__).
-
-This can be reviewed as compatibility issues arise. The preference is to use _wfopen_s() and _wfopen() as opposed to the wcsrtombs()
-fallback, so if you notice your compiler not detecting this properly I'm happy to look at adding support.
-*/
-#if defined(_WIN32)
-    #if defined(_MSC_VER) || defined(__MINGW64__) || !defined(__STRICT_ANSI__)
-        #define MA_HAS_WFOPEN
-    #endif
-#endif
 
 static ma_result ma_decoder__preinit_file_w(const wchar_t* pFilePath, const ma_decoder_config* pConfig, ma_decoder* pDecoder)
 {
@@ -38816,55 +38965,10 @@ static ma_result ma_decoder__preinit_file_w(const wchar_t* pFilePath, const ma_d
         return result;
     }
 
-#if defined(MA_HAS_WFOPEN)
-    /* Use _wfopen() on Windows. */
-    #if defined(_MSC_VER) && _MSC_VER >= 1400
-        if (_wfopen_s(&pFile, pFilePath, L"rb") != 0) {
-            return MA_ERROR;
-        }
-    #else
-        pFile = _wfopen(pFilePath, L"rb");
-        if (pFile == NULL) {
-            return MA_ERROR;
-        }
-    #endif
-#else
-    /*
-    Use fopen() on anything other than Windows. Requires a conversion. This is annoying because fopen() is locale specific. The only real way I can
-    think of to do this is with wcsrtombs(). Note that wcstombs() is apparently not thread-safe because it uses a static global mbstate_t object for
-    maintaining state. I've checked this with -std=c89 and it works, but if somebody get's a compiler error I'll look into improving compatibility.
-    */
-    {
-        mbstate_t mbs;
-        size_t lenMB;
-        const wchar_t* pFilePathTemp = pFilePath;
-        char* pFilePathMB = NULL;
-
-        /* Get the length first. */
-        MA_ZERO_OBJECT(&mbs);
-        lenMB = wcsrtombs(NULL, &pFilePathTemp, 0, &mbs);
-        if (lenMB == (size_t)-1) {
-            return MA_ERROR;
-        }
-
-        pFilePathMB = (char*)ma__malloc_from_callbacks(lenMB + 1, &pDecoder->allocationCallbacks);
-        if (pFilePathMB == NULL) {
-            return MA_OUT_OF_MEMORY;
-        }
-
-        pFilePathTemp = pFilePath;
-        MA_ZERO_OBJECT(&mbs);
-        wcsrtombs(pFilePathMB, &pFilePathTemp, lenMB + 1, &mbs);
-
-        pFile = fopen(pFilePathMB, "rb");
-
-        ma__free_from_callbacks(pFilePathMB, &pDecoder->allocationCallbacks);
-    }
-
+    pFile = ma_wfopen(pFilePath, L"rb", &pDecoder->allocationCallbacks);
     if (pFile == NULL) {
         return MA_ERROR;
     }
-#endif
 
     /* We need to manually set the user data so the calls to ma_decoder__on_seek_stdio() succeed. */
     pDecoder->pUserData = pFile;
@@ -39295,9 +39399,269 @@ ma_result ma_decode_memory(const void* pData, size_t dataSize, ma_decoder_config
 
     return ma_decoder__full_decode_and_uninit(&decoder, pConfig, pFrameCountOut, ppPCMFramesOut);
 }
-
 #endif  /* MA_NO_DECODING */
 
+
+#ifndef MA_NO_ENCODING
+
+#if defined(MA_HAS_WAV)
+size_t ma_encoder__internal_on_write_wav(void* pUserData, const void* pData, size_t bytesToWrite)
+{
+    ma_encoder* pEncoder = (ma_encoder*)pUserData;
+    MA_ASSERT(pEncoder != NULL);
+
+    return pEncoder->onWrite(pEncoder, pData, bytesToWrite);
+}
+
+drwav_bool32 ma_encoder__internal_on_seek_wav(void* pUserData, int offset, drwav_seek_origin origin)
+{
+    ma_encoder* pEncoder = (ma_encoder*)pUserData;
+    MA_ASSERT(pEncoder != NULL);
+
+    return pEncoder->onSeek(pEncoder, offset, (origin == drwav_seek_origin_start) ? ma_seek_origin_start : ma_seek_origin_current);
+}
+
+ma_result ma_encoder__on_init_wav(ma_encoder* pEncoder)
+{
+    drwav_data_format wavFormat;
+    drwav_allocation_callbacks allocationCallbacks;
+    drwav* pWav;
+
+    MA_ASSERT(pEncoder != NULL);
+
+    pWav = (drwav*)ma__malloc_from_callbacks(sizeof(*pWav), &pEncoder->config.allocationCallbacks);
+    if (pWav == NULL) {
+        return MA_OUT_OF_MEMORY;
+    }
+
+    wavFormat.container     = drwav_container_riff;
+    wavFormat.channels      = pEncoder->config.channels;
+    wavFormat.sampleRate    = pEncoder->config.sampleRate;
+    wavFormat.bitsPerSample = ma_get_bytes_per_sample(pEncoder->config.format) * 8;
+    if (pEncoder->config.format == ma_format_f32) {
+        wavFormat.format    = DR_WAVE_FORMAT_IEEE_FLOAT;
+    } else {
+        wavFormat.format    = DR_WAVE_FORMAT_PCM;
+    }
+
+    allocationCallbacks.pUserData = pEncoder->config.allocationCallbacks.pUserData;
+    allocationCallbacks.onMalloc  = pEncoder->config.allocationCallbacks.onMalloc;
+    allocationCallbacks.onRealloc = pEncoder->config.allocationCallbacks.onRealloc;
+    allocationCallbacks.onFree    = pEncoder->config.allocationCallbacks.onFree;
+    
+    if (!drwav_init_write(pWav, &wavFormat, ma_encoder__internal_on_write_wav, ma_encoder__internal_on_seek_wav, pEncoder, &allocationCallbacks)) {
+        return MA_ERROR;
+    }
+
+    pEncoder->pInternalEncoder = pWav;
+
+    return MA_SUCCESS;
+}
+
+void ma_encoder__on_uninit_wav(ma_encoder* pEncoder)
+{
+    drwav* pWav;
+
+    MA_ASSERT(pEncoder != NULL);
+
+    pWav = (drwav*)pEncoder->pInternalEncoder;
+    MA_ASSERT(pWav != NULL);
+
+    drwav_uninit(pWav);
+    ma__free_from_callbacks(pWav, &pEncoder->config.allocationCallbacks);
+}
+
+ma_uint64 ma_encoder__on_write_pcm_frames_wav(ma_encoder* pEncoder, const void* pFramesIn, ma_uint64 frameCount)
+{
+    drwav* pWav;
+
+    MA_ASSERT(pEncoder != NULL);
+
+    pWav = (drwav*)pEncoder->pInternalEncoder;
+    MA_ASSERT(pWav != NULL);
+
+    return drwav_write_pcm_frames(pWav, frameCount, pFramesIn);
+}
+#endif
+
+ma_encoder_config ma_encoder_config_init(ma_resource_format resourceFormat, ma_format format, ma_uint32 channels, ma_uint32 sampleRate)
+{
+    ma_encoder_config config;
+
+    MA_ZERO_OBJECT(&config);
+    config.resourceFormat = resourceFormat;
+    config.format = format;
+    config.channels = channels;
+    config.sampleRate = sampleRate;
+
+    return config;
+}
+
+ma_result ma_encoder_preinit(const ma_encoder_config* pConfig, ma_encoder* pEncoder)
+{
+    ma_result result;
+
+    if (pEncoder == NULL) {
+        return MA_INVALID_ARGS;
+    }
+
+    MA_ZERO_OBJECT(pEncoder);
+
+    if (pConfig == NULL) {
+        return MA_INVALID_ARGS;
+    }
+
+    if (pConfig->format == ma_format_unknown || pConfig->channels == 0 || pConfig->sampleRate == 0) {
+        return MA_INVALID_ARGS;
+    }
+
+    pEncoder->config = *pConfig;
+
+    result = ma_allocation_callbacks_init_copy(&pEncoder->config.allocationCallbacks, &pConfig->allocationCallbacks);
+    if (result != MA_SUCCESS) {
+        return result;
+    }
+
+    return MA_SUCCESS;
+}
+
+ma_result ma_encoder_init__internal(ma_encoder_write_proc onWrite, ma_encoder_seek_proc onSeek, void* pUserData, ma_encoder* pEncoder)
+{
+    ma_result result;
+
+    /* This assumes ma_encoder_preinit() has been called prior. */
+    MA_ASSERT(pEncoder != NULL);
+
+    if (onWrite == NULL || onSeek == NULL) {
+        return MA_INVALID_ARGS;
+    }
+
+    pEncoder->onWrite   = onWrite;
+    pEncoder->onSeek    = onSeek;
+    pEncoder->pUserData = pUserData;
+
+    switch (pEncoder->config.resourceFormat)
+    {
+        case ma_resource_format_wav:
+        {
+        #if defined(MA_HAS_WAV)
+            pEncoder->onInit           = ma_encoder__on_init_wav;
+            pEncoder->onUninit         = ma_encoder__on_uninit_wav;
+            pEncoder->onWritePCMFrames = ma_encoder__on_write_pcm_frames_wav;
+            break;
+        #else
+            return MA_NO_BACKEND;
+        #endif
+        };
+
+
+        default: return MA_INVALID_ARGS;
+    }
+
+    /* Getting here means we should have our backend callbacks set up. */
+    result = pEncoder->onInit(pEncoder);
+    if (result != MA_SUCCESS) {
+        return result;
+    }
+
+    return MA_SUCCESS;
+}
+
+#ifndef MA_NO_STDIO
+size_t ma_encoder__on_write_stdio(ma_encoder* pEncoder, const void* pBufferIn, size_t bytesToWrite)
+{
+    return fwrite(pBufferIn, 1, bytesToWrite, (FILE*)pEncoder->pFile);
+}
+
+ma_bool32 ma_encoder__on_seek_stdio(ma_encoder* pEncoder, int byteOffset, ma_seek_origin origin)
+{
+    return fseek((FILE*)pEncoder->pFile, byteOffset, (origin == ma_seek_origin_current) ? SEEK_CUR : SEEK_SET) == 0;
+}
+
+ma_result ma_encoder_init_file(const char* pFilePath, const ma_encoder_config* pConfig, ma_encoder* pEncoder)
+{
+    ma_result result;
+    FILE* pFile;
+
+    result = ma_encoder_preinit(pConfig, pEncoder);
+    if (result != MA_SUCCESS) {
+        return result;
+    }
+
+    /* Now open the file. If this fails we don't need to uninitialize the encoder. */
+    pFile = ma_fopen(pFilePath, "wb");
+    if (pFile == NULL) {
+        return MA_ERROR;
+    }
+
+    pEncoder->pFile = pFile;
+
+    return ma_encoder_init__internal(ma_encoder__on_write_stdio, ma_encoder__on_seek_stdio, NULL, pEncoder);
+}
+
+ma_result ma_encoder_init_file_w(const wchar_t* pFilePath, const ma_encoder_config* pConfig, ma_encoder* pEncoder)
+{
+    ma_result result;
+    FILE* pFile;
+
+    result = ma_encoder_preinit(pConfig, pEncoder);
+    if (result != MA_SUCCESS) {
+        return result;
+    }
+
+    /* Now open the file. If this fails we don't need to uninitialize the encoder. */
+    pFile = ma_wfopen(pFilePath, L"wb", &pEncoder->config.allocationCallbacks);
+    if (pFile != NULL) {
+        return MA_ERROR;
+    }
+
+    pEncoder->pFile = pFile;
+
+    return ma_encoder_init__internal(ma_encoder__on_write_stdio, ma_encoder__on_seek_stdio, NULL, pEncoder);
+}
+#endif
+
+ma_result ma_encoder_init(ma_encoder_write_proc onWrite, ma_encoder_seek_proc onSeek, void* pUserData, const ma_encoder_config* pConfig, ma_encoder* pEncoder)
+{
+    ma_result result;
+
+    result = ma_encoder_preinit(pConfig, pEncoder);
+    if (result != MA_SUCCESS) {
+        return result;
+    }
+
+    return ma_encoder_init__internal(onWrite, onSeek, pUserData, pEncoder);
+}
+
+
+void ma_encoder_uninit(ma_encoder* pEncoder)
+{
+    if (pEncoder == NULL) {
+        return;
+    }
+
+    if (pEncoder->onUninit) {
+        pEncoder->onUninit(pEncoder);
+    }
+
+#ifndef MA_NO_STDIO
+    /* If we have a file handle, close it. */
+    if (pEncoder->onWrite == ma_encoder__on_write_stdio) {
+        fclose((FILE*)pEncoder->pFile);
+    }
+#endif
+}
+
+
+ma_uint64 ma_encoder_write_pcm_frames(ma_encoder* pEncoder, const void* pFramesIn, ma_uint64 frameCount)
+{
+    if (pEncoder == NULL || pFramesIn == NULL) {
+        return 0;
+    }
+
+    return pEncoder->onWritePCMFrames(pEncoder, pFramesIn, frameCount);
+}
+#endif  /* MA_NO_ENCODING */
 
 
 

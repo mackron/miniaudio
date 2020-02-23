@@ -1,10 +1,10 @@
 #include "../test_common/ma_test_common.c"
 
-ma_result filtering_init_decoder_and_encoder(const char* pInputFilePath, const char* pOutputFilePath, ma_format format, ma_uint32 channels, ma_uint32 sampleRate, ma_decoder* pDecoder, drwav* pEncoder)
+ma_result filtering_init_decoder_and_encoder(const char* pInputFilePath, const char* pOutputFilePath, ma_format format, ma_uint32 channels, ma_uint32 sampleRate, ma_decoder* pDecoder, ma_encoder* pEncoder)
 {
     ma_result result;
     ma_decoder_config decoderConfig;
-    drwav_data_format wavFormat;
+    ma_encoder_config encoderConfig;
 
     decoderConfig = ma_decoder_config_init(format, 0, 0);
     result = ma_decoder_init_file(pInputFilePath, &decoderConfig, pDecoder);
@@ -12,10 +12,11 @@ ma_result filtering_init_decoder_and_encoder(const char* pInputFilePath, const c
         return result;
     }
 
-    wavFormat = drwav_data_format_from_minaudio_format(pDecoder->outputFormat, pDecoder->outputChannels, pDecoder->outputSampleRate);
-    if (!drwav_init_file_write(pEncoder, pOutputFilePath, &wavFormat, NULL)) {
+    encoderConfig = ma_encoder_config_init(ma_resource_format_wav, pDecoder->outputFormat, pDecoder->outputChannels, pDecoder->outputSampleRate);
+    result = ma_encoder_init_file(pOutputFilePath, &encoderConfig, pEncoder);
+    if (result != MA_SUCCESS) {
         ma_decoder_uninit(pDecoder);
-        return MA_ERROR;
+        return result;
     }
 
     return MA_SUCCESS;

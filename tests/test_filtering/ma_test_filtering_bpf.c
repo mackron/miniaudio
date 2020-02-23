@@ -1,4 +1,4 @@
-ma_result bpf_init_decoder_and_encoder(const char* pInputFilePath, const char* pOutputFilePath, ma_format format, ma_decoder* pDecoder, drwav* pEncoder)
+ma_result bpf_init_decoder_and_encoder(const char* pInputFilePath, const char* pOutputFilePath, ma_format format, ma_decoder* pDecoder, ma_encoder* pEncoder)
 {
     return filtering_init_decoder_and_encoder(pInputFilePath, pOutputFilePath, format, 0, 0, pDecoder, pEncoder);
 }
@@ -8,13 +8,13 @@ ma_result test_bpf2__by_format(const char* pInputFilePath, const char* pOutputFi
 {
     ma_result result;
     ma_decoder decoder;
-    drwav wav;
+    ma_encoder encoder;
     ma_bpf2_config bpfConfig;
     ma_bpf2 bpf;
 
     printf("    %s\n", pOutputFilePath);
 
-    result = bpf_init_decoder_and_encoder(pInputFilePath, pOutputFilePath, format, &decoder, &wav);
+    result = bpf_init_decoder_and_encoder(pInputFilePath, pOutputFilePath, format, &decoder, &encoder);
     if (result != MA_SUCCESS) {
         return result;
     }
@@ -23,7 +23,7 @@ ma_result test_bpf2__by_format(const char* pInputFilePath, const char* pOutputFi
     result = ma_bpf2_init(&bpfConfig, &bpf);
     if (result != MA_SUCCESS) {
         ma_decoder_uninit(&decoder);
-        drwav_uninit(&wav);
+        ma_encoder_uninit(&encoder);
         return result;
     }
 
@@ -42,14 +42,14 @@ ma_result test_bpf2__by_format(const char* pInputFilePath, const char* pOutputFi
         ma_bpf2_process_pcm_frames(&bpf, tempOut, tempIn, framesJustRead);
 
         /* Write to the WAV file. */
-        drwav_write_pcm_frames(&wav, framesJustRead, tempOut);
+        ma_encoder_write_pcm_frames(&encoder, tempOut, framesJustRead);
 
         if (framesJustRead < framesToRead) {
             break;
         }
     }
 
-    drwav_uninit(&wav);
+    ma_encoder_uninit(&encoder);
     return MA_SUCCESS;
 }
 
@@ -68,13 +68,13 @@ ma_result test_bpf4__by_format(const char* pInputFilePath, const char* pOutputFi
 {
     ma_result result;
     ma_decoder decoder;
-    drwav wav;
+    ma_encoder encoder;
     ma_bpf_config bpfConfig;
     ma_bpf bpf;
 
     printf("    %s\n", pOutputFilePath);
 
-    result = bpf_init_decoder_and_encoder(pInputFilePath, pOutputFilePath, format, &decoder, &wav);
+    result = bpf_init_decoder_and_encoder(pInputFilePath, pOutputFilePath, format, &decoder, &encoder);
     if (result != MA_SUCCESS) {
         return result;
     }
@@ -83,7 +83,7 @@ ma_result test_bpf4__by_format(const char* pInputFilePath, const char* pOutputFi
     result = ma_bpf_init(&bpfConfig, &bpf);
     if (result != MA_SUCCESS) {
         ma_decoder_uninit(&decoder);
-        drwav_uninit(&wav);
+        ma_encoder_uninit(&encoder);
         return result;
     }
 
@@ -102,14 +102,14 @@ ma_result test_bpf4__by_format(const char* pInputFilePath, const char* pOutputFi
         ma_bpf_process_pcm_frames(&bpf, tempOut, tempIn, framesJustRead);
 
         /* Write to the WAV file. */
-        drwav_write_pcm_frames(&wav, framesJustRead, tempOut);
+        ma_encoder_write_pcm_frames(&encoder, tempOut, framesJustRead);
 
         if (framesJustRead < framesToRead) {
             break;
         }
     }
 
-    drwav_uninit(&wav);
+    ma_encoder_uninit(&encoder);
     return MA_SUCCESS;
 }
 

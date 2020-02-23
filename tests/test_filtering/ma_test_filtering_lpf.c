@@ -1,5 +1,5 @@
 
-ma_result lpf_init_decoder_and_encoder(const char* pInputFilePath, const char* pOutputFilePath, ma_format format, ma_decoder* pDecoder, drwav* pEncoder)
+ma_result lpf_init_decoder_and_encoder(const char* pInputFilePath, const char* pOutputFilePath, ma_format format, ma_decoder* pDecoder, ma_encoder* pEncoder)
 {
     return filtering_init_decoder_and_encoder(pInputFilePath, pOutputFilePath, format, 0, 0, pDecoder, pEncoder);
 }
@@ -8,13 +8,13 @@ ma_result test_lpf1__by_format(const char* pInputFilePath, const char* pOutputFi
 {
     ma_result result;
     ma_decoder decoder;
-    drwav wav;
+    ma_encoder encoder;
     ma_lpf1_config lpfConfig;
     ma_lpf1 lpf;
 
     printf("    %s\n", pOutputFilePath);
 
-    result = lpf_init_decoder_and_encoder(pInputFilePath, pOutputFilePath, format, &decoder, &wav);
+    result = lpf_init_decoder_and_encoder(pInputFilePath, pOutputFilePath, format, &decoder, &encoder);
     if (result != MA_SUCCESS) {
         return result;
     }
@@ -23,7 +23,7 @@ ma_result test_lpf1__by_format(const char* pInputFilePath, const char* pOutputFi
     result = ma_lpf1_init(&lpfConfig, &lpf);
     if (result != MA_SUCCESS) {
         ma_decoder_uninit(&decoder);
-        drwav_uninit(&wav);
+        ma_encoder_uninit(&encoder);
         return result;
     }
 
@@ -42,14 +42,14 @@ ma_result test_lpf1__by_format(const char* pInputFilePath, const char* pOutputFi
         ma_lpf1_process_pcm_frames(&lpf, tempOut, tempIn, framesJustRead);
 
         /* Write to the WAV file. */
-        drwav_write_pcm_frames(&wav, framesJustRead, tempOut);
+        ma_encoder_write_pcm_frames(&encoder, tempOut, framesJustRead);
 
         if (framesJustRead < framesToRead) {
             break;
         }
     }
 
-    drwav_uninit(&wav);
+    ma_encoder_uninit(&encoder);
     return MA_SUCCESS;
 }
 
@@ -68,13 +68,13 @@ ma_result test_lpf2__by_format(const char* pInputFilePath, const char* pOutputFi
 {
     ma_result result;
     ma_decoder decoder;
-    drwav wav;
+    ma_encoder encoder;
     ma_lpf2_config lpfConfig;
     ma_lpf2 lpf;
 
     printf("    %s\n", pOutputFilePath);
     
-    result = lpf_init_decoder_and_encoder(pInputFilePath, pOutputFilePath, format, &decoder, &wav);
+    result = lpf_init_decoder_and_encoder(pInputFilePath, pOutputFilePath, format, &decoder, &encoder);
     if (result != MA_SUCCESS) {
         return result;
     }
@@ -83,7 +83,7 @@ ma_result test_lpf2__by_format(const char* pInputFilePath, const char* pOutputFi
     result = ma_lpf2_init(&lpfConfig, &lpf);
     if (result != MA_SUCCESS) {
         ma_decoder_uninit(&decoder);
-        drwav_uninit(&wav);
+        ma_encoder_uninit(&encoder);
         return result;
     }
 
@@ -102,14 +102,14 @@ ma_result test_lpf2__by_format(const char* pInputFilePath, const char* pOutputFi
         ma_lpf2_process_pcm_frames(&lpf, tempOut, tempIn, framesJustRead);
 
         /* Write to the WAV file. */
-        drwav_write_pcm_frames(&wav, framesJustRead, tempOut);
+        ma_encoder_write_pcm_frames(&encoder, tempOut, framesJustRead);
 
         if (framesJustRead < framesToRead) {
             break;
         }
     }
 
-    drwav_uninit(&wav);
+    ma_encoder_uninit(&encoder);
     return MA_SUCCESS;
 }
 
@@ -129,13 +129,13 @@ ma_result test_lpf3__by_format(const char* pInputFilePath, const char* pOutputFi
 {
     ma_result result;
     ma_decoder decoder;
-    drwav wav;
+    ma_encoder encoder;
     ma_lpf_config lpfConfig;
     ma_lpf lpf;
 
     printf("    %s\n", pOutputFilePath);
     
-    result = lpf_init_decoder_and_encoder(pInputFilePath, pOutputFilePath, format, &decoder, &wav);
+    result = lpf_init_decoder_and_encoder(pInputFilePath, pOutputFilePath, format, &decoder, &encoder);
     if (result != MA_SUCCESS) {
         return result;
     }
@@ -144,7 +144,7 @@ ma_result test_lpf3__by_format(const char* pInputFilePath, const char* pOutputFi
     result = ma_lpf_init(&lpfConfig, &lpf);
     if (result != MA_SUCCESS) {
         ma_decoder_uninit(&decoder);
-        drwav_uninit(&wav);
+        ma_encoder_uninit(&encoder);
         return result;
     }
 
@@ -163,14 +163,14 @@ ma_result test_lpf3__by_format(const char* pInputFilePath, const char* pOutputFi
         ma_lpf_process_pcm_frames(&lpf, tempOut, tempIn, framesJustRead);
 
         /* Write to the WAV file. */
-        drwav_write_pcm_frames(&wav, framesJustRead, tempOut);
+        ma_encoder_write_pcm_frames(&encoder, tempOut, framesJustRead);
 
         if (framesJustRead < framesToRead) {
             break;
         }
     }
 
-    drwav_uninit(&wav);
+    ma_encoder_uninit(&encoder);
     return MA_SUCCESS;
 }
 
