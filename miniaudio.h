@@ -1665,6 +1665,7 @@ typedef struct
 } ma_lpf_config, ma_lpf1_config;
 
 ma_lpf_config ma_lpf_config_init(ma_format format, ma_uint32 channels, ma_uint32 sampleRate, double cutoffFrequency);
+ma_lpf1_config ma_lpf1_config_init(ma_format format, ma_uint32 channels, ma_uint32 sampleRate, double cutoffFrequency);
 
 typedef struct
 {
@@ -29330,7 +29331,7 @@ ma_uint32 ma_biquad_get_latency(ma_biquad* pBQ)
 Low-Pass Filter
 
 **************************************************************************************************************************************************************/
-ma_lpf_config ma_lpf_config_init(ma_format format, ma_uint32 channels, ma_uint32 sampleRate, double cutoffFrequency)
+static ma_lpf_config ma_lpf_config_init__generic(ma_format format, ma_uint32 channels, ma_uint32 sampleRate, double cutoffFrequency)
 {
     ma_lpf_config config;
     
@@ -29341,6 +29342,16 @@ ma_lpf_config ma_lpf_config_init(ma_format format, ma_uint32 channels, ma_uint32
     config.cutoffFrequency = cutoffFrequency;
 
     return config;
+}
+
+ma_lpf_config ma_lpf_config_init(ma_format format, ma_uint32 channels, ma_uint32 sampleRate, double cutoffFrequency)
+{
+    return ma_lpf_config_init__generic(format, channels, sampleRate, cutoffFrequency);
+}
+
+ma_lpf1_config ma_lpf1_config_init(ma_format format, ma_uint32 channels, ma_uint32 sampleRate, double cutoffFrequency)
+{
+    return ma_lpf_config_init__generic(format, channels, sampleRate, cutoffFrequency);
 }
 
 
