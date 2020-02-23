@@ -1027,7 +1027,7 @@ The maximum number of poles is limited to MA_MAX_FILTER_POLES which is set to 8.
     }
     ```
 
-If you need to change the configuration of the filter, but need to maintain the state of internal registers you can do so with `ma_lpf2_reinit()`. This may be
+If you need to change the configuration of the filter, but need to maintain the state of internal registers you can do so with `ma_lpf_reinit()`. This may be
 useful if you need to change the sample rate and/or cutoff frequency dynamically while maintaing smooth transitions. Note that changing the format or channel
 count after initialization is invalid and will result in an error.
 
@@ -1841,6 +1841,35 @@ ma_result ma_bpf_init(const ma_bpf_config* pConfig, ma_bpf* pBPF);
 ma_result ma_bpf_reinit(const ma_bpf_config* pConfig, ma_bpf* pBPF);
 ma_result ma_bpf_process_pcm_frames(ma_bpf* pBPF, void* pFramesOut, const void* pFramesIn, ma_uint64 frameCount);
 ma_uint32 ma_bpf_get_latency(ma_bpf* pBPF);
+
+
+/**************************************************************************************************************************************************************
+
+Peaking EQ Filter
+
+**************************************************************************************************************************************************************/
+typedef struct
+{
+    ma_format format;
+    ma_uint32 channels;
+    ma_uint32 sampleRate;
+    double gainDB;
+    double q;
+    double frequency;
+} ma_peak2_config;
+
+ma_peak2_config ma_peak2_config_init(ma_format format, ma_uint32 channels, ma_uint32 sampleRate, double gainDB, double q, double frequency);
+
+typedef struct
+{
+    ma_biquad bq;
+} ma_peak2;
+
+ma_result ma_peak2_init(const ma_peak2_config* pConfig, ma_peak2* pFilter);
+ma_result ma_peak2_reinit(const ma_peak2_config* pConfig, ma_peak2* pFilter);
+ma_result ma_peak2_process_pcm_frames(ma_peak2* pFilter, void* pFramesOut, const void* pFramesIn, ma_uint64 frameCount);
+ma_uint32 ma_peak2_get_latency(ma_peak2* pFilter);
+
 
 
 /************************************************************************************************************************************************************
@@ -30831,6 +30860,138 @@ ma_uint32 ma_bpf_get_latency(ma_bpf* pBPF)
     }
 
     return pBPF->bpf2Count*2;
+}
+
+
+/**************************************************************************************************************************************************************
+
+Peaking EQ Filter
+
+**************************************************************************************************************************************************************/
+ma_peak2_config ma_peak2_config_init(ma_format format, ma_uint32 channels, ma_uint32 sampleRate, double gainDB, double q, double frequency)
+{
+    ma_peak2_config config;
+
+    MA_ZERO_OBJECT(&config);
+    config.format     = format;
+    config.channels   = channels;
+    config.sampleRate = sampleRate;
+    config.gainDB     = gainDB;
+    config.q          = q;
+    config.frequency  = frequency;
+
+    if (config.gainDB == 0) {
+        config.gainDB = 6;
+    }
+
+    if (config.q == 0) {
+        config.q = 0.707107;
+    }
+
+    return config;
+}
+
+
+static MA_INLINE ma_biquad_config ma_peak2__get_biquad_config(const ma_peak2_config* pConfig)
+{
+    ma_biquad_config bqConfig;
+    double q;
+    double w;
+    double s;
+    double c;
+    double a;
+    double A;
+
+    MA_ASSERT(pConfig != NULL);
+
+    q = pConfig->q;
+    w = 2 * MA_PI_D * pConfig->frequency / pConfig->sampleRate;
+    s = ma_sin(w);
+    c = ma_cos(w);
+    a = s / (2*q);
+    A = ma_pow(10, (pConfig->gainDB / 40));
+
+    bqConfig.b0 =  1 + (a * A);
+    bqConfig.b1 = -2 * c;
+    bqConfig.b2 =  1 - (a * A);
+    bqConfig.a0 =  1 + (a / A);
+    bqConfig.a1 = -2 * c;
+    bqConfig.a2 =  1 - (a / A);
+
+    bqConfig.format   = pConfig->format;
+    bqConfig.channels = pConfig->channels;
+
+    return bqConfig;
+}
+
+ma_result ma_peak2_init(const ma_peak2_config* pConfig, ma_peak2* pFilter)
+{
+    ma_result result;
+    ma_biquad_config bqConfig;
+
+    if (pFilter == NULL) {
+        return MA_INVALID_ARGS;
+    }
+
+    MA_ZERO_OBJECT(pFilter);
+
+    if (pConfig == NULL) {
+        return MA_INVALID_ARGS;
+    }
+
+    bqConfig = ma_peak2__get_biquad_config(pConfig);
+    result = ma_biquad_init(&bqConfig, &pFilter->bq);
+    if (result != MA_SUCCESS) {
+        return result;
+    }
+
+    return MA_SUCCESS;
+}
+
+ma_result ma_peak2_reinit(const ma_peak2_config* pConfig, ma_peak2* pFilter)
+{
+    ma_result result;
+    ma_biquad_config bqConfig;
+
+    if (pFilter == NULL || pConfig == NULL) {
+        return MA_INVALID_ARGS;
+    }
+
+    bqConfig = ma_peak2__get_biquad_config(pConfig);
+    result = ma_biquad_reinit(&bqConfig, &pFilter->bq);
+    if (result != MA_SUCCESS) {
+        return result;
+    }
+
+    return MA_SUCCESS;
+}
+
+static MA_INLINE void ma_peak2_process_pcm_frame_s16(ma_peak2* pFilter, ma_int16* pFrameOut, const ma_int16* pFrameIn)
+{
+    ma_biquad_process_pcm_frame_s16(&pFilter->bq, pFrameOut, pFrameIn);
+}
+
+static MA_INLINE void ma_peak2_process_pcm_frame_f32(ma_peak2* pFilter, float* pFrameOut, const float* pFrameIn)
+{
+    ma_biquad_process_pcm_frame_f32(&pFilter->bq, pFrameOut, pFrameIn);
+}
+
+ma_result ma_peak2_process_pcm_frames(ma_peak2* pFilter, void* pFramesOut, const void* pFramesIn, ma_uint64 frameCount)
+{
+    if (pFilter == NULL) {
+        return MA_INVALID_ARGS;
+    }
+
+    return ma_biquad_process_pcm_frames(&pFilter->bq, pFramesOut, pFramesIn, frameCount);
+}
+
+ma_uint32 ma_peak2_get_latency(ma_peak2* pFilter)
+{
+    if (pFilter == NULL) {
+        return 0;
+    }
+
+    return ma_biquad_get_latency(&pFilter->bq);
 }
 
 

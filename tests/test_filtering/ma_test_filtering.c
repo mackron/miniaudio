@@ -26,6 +26,7 @@ ma_result filtering_init_decoder_and_encoder(const char* pInputFilePath, const c
 #include "ma_test_filtering_lpf.c"
 #include "ma_test_filtering_hpf.c"
 #include "ma_test_filtering_bpf.c"
+#include "ma_test_filtering_peak.c"
 
 int main(int argc, char** argv)
 {
@@ -36,6 +37,7 @@ int main(int argc, char** argv)
     (void)argc;
     (void)argv;
 
+#if 0
     result = ma_register_test("Dithering", test_entry__dithering);
     if (result != MA_SUCCESS) {
         hasError = MA_TRUE;
@@ -52,6 +54,12 @@ int main(int argc, char** argv)
     }
 
     result = ma_register_test("Band-Pass Filtering", test_entry__bpf);
+    if (result != MA_SUCCESS) {
+        hasError = MA_TRUE;
+    }
+#endif
+
+    result = ma_register_test("Peaking EQ Filtering", test_entry__peak);
     if (result != MA_SUCCESS) {
         hasError = MA_TRUE;
     }
