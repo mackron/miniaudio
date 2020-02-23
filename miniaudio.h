@@ -886,7 +886,6 @@ the worst/fastest and 10 being the best/slowest. The default value is 3.
 
 
 
-
 General Data Conversion
 =======================
 The `ma_data_converter` API can be used to wrap sample format conversion, channel conversion and resampling into one operation. This is what miniaudio uses
@@ -958,7 +957,6 @@ input rate and the output rate with `ma_data_converter_get_input_latency()` and 
 
 
 
-
 Biquad Filtering
 ================
 Biquad filtering is achieved with the `ma_biquad` API. Example:
@@ -998,18 +996,18 @@ and will result in an error.
 
 Low-Pass, High-Pass and Band-Pass Filtering
 ===========================================
-Low-pass, high-pass and band-pass filtering is achieved with the `ma_lpf2`, `ma_hpf2` and `ma_bpf2` APIs respective. Low-pass filter example:
+Low-pass, high-pass and band-pass filtering is achieved with the `ma_lpf`, `ma_hpf` and `ma_bpf` APIs respective. Low-pass filter example:
 
     ```c
-    ma_lpf2_config config = ma_lpf2_config_init(ma_format_f32, channels, sampleRate, cutoffFrequency);
-    ma_result result = ma_lpf2_init(&config, &lpf);
+    ma_lpf_config config = ma_lpf_config_init(ma_format_f32, channels, sampleRate, cutoffFrequency, poles);
+    ma_result result = ma_lpf_init(&config, &lpf);
     if (result != MA_SUCCESS) {
         // Error.
     }
 
     ...
 
-    ma_lpf2_process_pcm_frames(&lpf, pFramesOut, pFramesIn, frameCount);
+    ma_lpf_process_pcm_frames(&lpf, pFramesOut, pFramesIn, frameCount);
     ```
 
 Supported formats are `ma_format_s16` and` ma_format_f32`. If you need to use a different format you need to convert it yourself beforehand. Input and output
@@ -1018,14 +1016,14 @@ frames are always interleaved.
 Filtering can be applied in-place by passing in the same pointer for both the input and output buffers, like so:
 
     ```c
-    ma_lpf2_process_pcm_frames(&lpf, pMyData, pMyData, frameCount);
+    ma_lpf_process_pcm_frames(&lpf, pMyData, pMyData, frameCount);
     ```
 
-These filters are implemented as a biquad filter. If you need to increase the filter order, simply chain multiple filters together.
+The maximum number of poles is limited to MA_MAX_FILTER_POLES which is set to 8. If you need more, you can chain filters together.
 
     ```c
     for (iFilter = 0; iFilter < filterCount; iFilter += 1) {
-        ma_lpf2_process_pcm_frames(&lpf[iFilter], pMyData, pMyData, frameCount);
+        ma_lpf_process_pcm_frames(&lpf[iFilter], pMyData, pMyData, frameCount);
     }
     ```
 
@@ -1033,8 +1031,15 @@ If you need to change the configuration of the filter, but need to maintain the 
 useful if you need to change the sample rate and/or cutoff frequency dynamically while maintaing smooth transitions. Note that changing the format or channel
 count after initialization is invalid and will result in an error.
 
-The example code above is for low-pass filters, but the same applies for high-pass and band-pass filters, only you should use the `ma_hpf2` and `ma_bpf2` APIs
+The example code above is for low-pass filters, but the same applies for high-pass and band-pass filters, only you should use the `ma_hpf` and `ma_bpf` APIs
 instead.
+
+The `ma_lpf`, `ma_hpf` and `ma_bpf` objects support a configurable number of poles, but if you only need a 1-pole filter you may want to consider using
+`ma_lpf1`, `ma_hpf1` and `ma_bpf1`. Likewise, if you only need to a 2-pole filter you can use `ma_lpf2`, `ma_hpf2` and `ma_bpf2`. The advantage of this is that
+they're lighter weight and a bit more efficient.
+
+If an even number of poles are specified, a series of 2-pole filters will be processed in a chain. If an odd number of poles are specified, a series of 2-pole
+filters will be processed in a chain, followed by a final 1-pole filter. Note that the pole count for band-pass filters must be an even number.
 
 
 
