@@ -19,7 +19,7 @@ ma_result test_loshelf2__by_format(const char* pInputFilePath, const char* pOutp
         return result;
     }
 
-    loshelfConfig = ma_loshelf2_config_init(decoder.outputFormat, decoder.outputChannels, decoder.outputSampleRate, 6, 1, 1000);
+    loshelfConfig = ma_loshelf2_config_init(decoder.outputFormat, decoder.outputChannels, decoder.outputSampleRate, 6, 1, 200);
     result = ma_loshelf2_init(&loshelfConfig, &loshelf);
     if (result != MA_SUCCESS) {
         ma_decoder_uninit(&decoder);
@@ -49,6 +49,7 @@ ma_result test_loshelf2__by_format(const char* pInputFilePath, const char* pOutp
         }
     }
 
+    ma_decoder_uninit(&decoder);
     ma_encoder_uninit(&encoder);
     return MA_SUCCESS;
 }
@@ -109,6 +110,7 @@ ma_result test_loshelf4__by_format(const char* pInputFilePath, const char* pOutp
         }
     }
 
+    ma_decoder_uninit(&decoder);
     ma_encoder_uninit(&encoder);
     return MA_SUCCESS;
 }

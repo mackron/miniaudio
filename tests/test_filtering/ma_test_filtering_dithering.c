@@ -43,6 +43,7 @@ ma_result test_dithering__u8(const char* pInputFilePath)
         }
     }
 
+    ma_decoder_uninit(&decoder);
     ma_encoder_uninit(&encoder);
     return MA_SUCCESS;
 }
