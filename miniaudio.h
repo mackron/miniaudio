@@ -1845,6 +1845,33 @@ ma_uint32 ma_bpf_get_latency(ma_bpf* pBPF);
 
 /**************************************************************************************************************************************************************
 
+Notching Filter
+
+**************************************************************************************************************************************************************/
+typedef struct
+{
+    ma_format format;
+    ma_uint32 channels;
+    ma_uint32 sampleRate;
+    double q;
+    double frequency;
+} ma_notch2_config;
+
+ma_notch2_config ma_notch2_config_init(ma_format format, ma_uint32 channels, ma_uint32 sampleRate, double q, double frequency);
+
+typedef struct
+{
+    ma_biquad bq;
+} ma_notch2;
+
+ma_result ma_notch2_init(const ma_notch2_config* pConfig, ma_notch2* pFilter);
+ma_result ma_notch2_reinit(const ma_notch2_config* pConfig, ma_notch2* pFilter);
+ma_result ma_notch2_process_pcm_frames(ma_notch2* pFilter, void* pFramesOut, const void* pFramesIn, ma_uint64 frameCount);
+ma_uint32 ma_notch2_get_latency(ma_notch2* pFilter);
+
+
+/**************************************************************************************************************************************************************
+
 Peaking EQ Filter
 
 **************************************************************************************************************************************************************/
@@ -1869,33 +1896,6 @@ ma_result ma_peak2_init(const ma_peak2_config* pConfig, ma_peak2* pFilter);
 ma_result ma_peak2_reinit(const ma_peak2_config* pConfig, ma_peak2* pFilter);
 ma_result ma_peak2_process_pcm_frames(ma_peak2* pFilter, void* pFramesOut, const void* pFramesIn, ma_uint64 frameCount);
 ma_uint32 ma_peak2_get_latency(ma_peak2* pFilter);
-
-
-/**************************************************************************************************************************************************************
-
-Notching Filter
-
-**************************************************************************************************************************************************************/
-typedef struct
-{
-    ma_format format;
-    ma_uint32 channels;
-    ma_uint32 sampleRate;
-    double q;
-    double frequency;
-} ma_notch2_config;
-
-ma_notch2_config ma_notch2_config_init(ma_format format, ma_uint32 channels, ma_uint32 sampleRate, double q, double frequency);
-
-typedef struct
-{
-    ma_biquad bq;
-} ma_notch2;
-
-ma_result ma_notch2_init(const ma_notch2_config* pConfig, ma_notch2* pFilter);
-ma_result ma_notch2_reinit(const ma_notch2_config* pConfig, ma_notch2* pFilter);
-ma_result ma_notch2_process_pcm_frames(ma_notch2* pFilter, void* pFramesOut, const void* pFramesIn, ma_uint64 frameCount);
-ma_uint32 ma_notch2_get_latency(ma_notch2* pFilter);
 
 
 
@@ -30892,6 +30892,132 @@ ma_uint32 ma_bpf_get_latency(ma_bpf* pBPF)
 
 /**************************************************************************************************************************************************************
 
+Notching Filter
+
+**************************************************************************************************************************************************************/
+ma_notch2_config ma_notch2_config_init(ma_format format, ma_uint32 channels, ma_uint32 sampleRate, double q, double frequency)
+{
+    ma_notch2_config config;
+
+    MA_ZERO_OBJECT(&config);
+    config.format     = format;
+    config.channels   = channels;
+    config.sampleRate = sampleRate;
+    config.q          = q;
+    config.frequency  = frequency;
+
+    if (config.q == 0) {
+        config.q = 0.707107;
+    }
+
+    return config;
+}
+
+
+static MA_INLINE ma_biquad_config ma_notch2__get_biquad_config(const ma_notch2_config* pConfig)
+{
+    ma_biquad_config bqConfig;
+    double q;
+    double w;
+    double s;
+    double c;
+    double a;
+
+    MA_ASSERT(pConfig != NULL);
+
+    q = pConfig->q;
+    w = 2 * MA_PI_D * pConfig->frequency / pConfig->sampleRate;
+    s = ma_sin(w);
+    c = ma_cos(w);
+    a = s / (2*q);
+
+    bqConfig.b0 =  1;
+    bqConfig.b1 = -2 * c;
+    bqConfig.b2 =  1;
+    bqConfig.a0 =  1 + a;
+    bqConfig.a1 = -2 * c;
+    bqConfig.a2 =  1 - a;
+
+    bqConfig.format   = pConfig->format;
+    bqConfig.channels = pConfig->channels;
+
+    return bqConfig;
+}
+
+ma_result ma_notch2_init(const ma_notch2_config* pConfig, ma_notch2* pFilter)
+{
+    ma_result result;
+    ma_biquad_config bqConfig;
+
+    if (pFilter == NULL) {
+        return MA_INVALID_ARGS;
+    }
+
+    MA_ZERO_OBJECT(pFilter);
+
+    if (pConfig == NULL) {
+        return MA_INVALID_ARGS;
+    }
+
+    bqConfig = ma_notch2__get_biquad_config(pConfig);
+    result = ma_biquad_init(&bqConfig, &pFilter->bq);
+    if (result != MA_SUCCESS) {
+        return result;
+    }
+
+    return MA_SUCCESS;
+}
+
+ma_result ma_notch2_reinit(const ma_notch2_config* pConfig, ma_notch2* pFilter)
+{
+    ma_result result;
+    ma_biquad_config bqConfig;
+
+    if (pFilter == NULL || pConfig == NULL) {
+        return MA_INVALID_ARGS;
+    }
+
+    bqConfig = ma_notch2__get_biquad_config(pConfig);
+    result = ma_biquad_reinit(&bqConfig, &pFilter->bq);
+    if (result != MA_SUCCESS) {
+        return result;
+    }
+
+    return MA_SUCCESS;
+}
+
+static MA_INLINE void ma_notch2_process_pcm_frame_s16(ma_notch2* pFilter, ma_int16* pFrameOut, const ma_int16* pFrameIn)
+{
+    ma_biquad_process_pcm_frame_s16(&pFilter->bq, pFrameOut, pFrameIn);
+}
+
+static MA_INLINE void ma_notch2_process_pcm_frame_f32(ma_notch2* pFilter, float* pFrameOut, const float* pFrameIn)
+{
+    ma_biquad_process_pcm_frame_f32(&pFilter->bq, pFrameOut, pFrameIn);
+}
+
+ma_result ma_notch2_process_pcm_frames(ma_notch2* pFilter, void* pFramesOut, const void* pFramesIn, ma_uint64 frameCount)
+{
+    if (pFilter == NULL) {
+        return MA_INVALID_ARGS;
+    }
+
+    return ma_biquad_process_pcm_frames(&pFilter->bq, pFramesOut, pFramesIn, frameCount);
+}
+
+ma_uint32 ma_notch2_get_latency(ma_notch2* pFilter)
+{
+    if (pFilter == NULL) {
+        return 0;
+    }
+
+    return ma_biquad_get_latency(&pFilter->bq);
+}
+
+
+
+/**************************************************************************************************************************************************************
+
 Peaking EQ Filter
 
 **************************************************************************************************************************************************************/
@@ -31021,130 +31147,6 @@ ma_uint32 ma_peak2_get_latency(ma_peak2* pFilter)
     return ma_biquad_get_latency(&pFilter->bq);
 }
 
-
-/**************************************************************************************************************************************************************
-
-Notching Filter
-
-**************************************************************************************************************************************************************/
-ma_notch2_config ma_notch2_config_init(ma_format format, ma_uint32 channels, ma_uint32 sampleRate, double q, double frequency)
-{
-    ma_notch2_config config;
-
-    MA_ZERO_OBJECT(&config);
-    config.format     = format;
-    config.channels   = channels;
-    config.sampleRate = sampleRate;
-    config.q          = q;
-    config.frequency  = frequency;
-
-    if (config.q == 0) {
-        config.q = 0.707107;
-    }
-
-    return config;
-}
-
-
-static MA_INLINE ma_biquad_config ma_notch2__get_biquad_config(const ma_notch2_config* pConfig)
-{
-    ma_biquad_config bqConfig;
-    double q;
-    double w;
-    double s;
-    double c;
-    double a;
-
-    MA_ASSERT(pConfig != NULL);
-
-    q = pConfig->q;
-    w = 2 * MA_PI_D * pConfig->frequency / pConfig->sampleRate;
-    s = ma_sin(w);
-    c = ma_cos(w);
-    a = s / (2*q);
-
-    bqConfig.b0 =  1;
-    bqConfig.b1 = -2 * c;
-    bqConfig.b2 =  1;
-    bqConfig.a0 =  1 + a;
-    bqConfig.a1 = -2 * c;
-    bqConfig.a2 =  1 - a;
-
-    bqConfig.format   = pConfig->format;
-    bqConfig.channels = pConfig->channels;
-
-    return bqConfig;
-}
-
-ma_result ma_notch2_init(const ma_notch2_config* pConfig, ma_notch2* pFilter)
-{
-    ma_result result;
-    ma_biquad_config bqConfig;
-
-    if (pFilter == NULL) {
-        return MA_INVALID_ARGS;
-    }
-
-    MA_ZERO_OBJECT(pFilter);
-
-    if (pConfig == NULL) {
-        return MA_INVALID_ARGS;
-    }
-
-    bqConfig = ma_notch2__get_biquad_config(pConfig);
-    result = ma_biquad_init(&bqConfig, &pFilter->bq);
-    if (result != MA_SUCCESS) {
-        return result;
-    }
-
-    return MA_SUCCESS;
-}
-
-ma_result ma_notch2_reinit(const ma_notch2_config* pConfig, ma_notch2* pFilter)
-{
-    ma_result result;
-    ma_biquad_config bqConfig;
-
-    if (pFilter == NULL || pConfig == NULL) {
-        return MA_INVALID_ARGS;
-    }
-
-    bqConfig = ma_notch2__get_biquad_config(pConfig);
-    result = ma_biquad_reinit(&bqConfig, &pFilter->bq);
-    if (result != MA_SUCCESS) {
-        return result;
-    }
-
-    return MA_SUCCESS;
-}
-
-static MA_INLINE void ma_notch2_process_pcm_frame_s16(ma_notch2* pFilter, ma_int16* pFrameOut, const ma_int16* pFrameIn)
-{
-    ma_biquad_process_pcm_frame_s16(&pFilter->bq, pFrameOut, pFrameIn);
-}
-
-static MA_INLINE void ma_notch2_process_pcm_frame_f32(ma_notch2* pFilter, float* pFrameOut, const float* pFrameIn)
-{
-    ma_biquad_process_pcm_frame_f32(&pFilter->bq, pFrameOut, pFrameIn);
-}
-
-ma_result ma_notch2_process_pcm_frames(ma_notch2* pFilter, void* pFramesOut, const void* pFramesIn, ma_uint64 frameCount)
-{
-    if (pFilter == NULL) {
-        return MA_INVALID_ARGS;
-    }
-
-    return ma_biquad_process_pcm_frames(&pFilter->bq, pFramesOut, pFramesIn, frameCount);
-}
-
-ma_uint32 ma_notch2_get_latency(ma_notch2* pFilter)
-{
-    if (pFilter == NULL) {
-        return 0;
-    }
-
-    return ma_biquad_get_latency(&pFilter->bq);
-}
 
 
 
