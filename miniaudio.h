@@ -29362,9 +29362,9 @@ ma_uint32 ma_biquad_get_latency(ma_biquad* pBQ)
 Low-Pass Filter
 
 **************************************************************************************************************************************************************/
-ma_lpf2_config ma_lpf2_config_init(ma_format format, ma_uint32 channels, ma_uint32 sampleRate, double cutoffFrequency)
+ma_lpf1_config ma_lpf1_config_init(ma_format format, ma_uint32 channels, ma_uint32 sampleRate, double cutoffFrequency)
 {
-    ma_lpf1_config config;
+    ma_lpf2_config config;
     
     MA_ZERO_OBJECT(&config);
     config.format = format;
@@ -29375,9 +29375,9 @@ ma_lpf2_config ma_lpf2_config_init(ma_format format, ma_uint32 channels, ma_uint
     return config;
 }
 
-ma_lpf1_config ma_lpf1_config_init(ma_format format, ma_uint32 channels, ma_uint32 sampleRate, double cutoffFrequency)
+ma_lpf2_config ma_lpf2_config_init(ma_format format, ma_uint32 channels, ma_uint32 sampleRate, double cutoffFrequency)
 {
-    ma_lpf2_config config;
+    ma_lpf1_config config;
     
     MA_ZERO_OBJECT(&config);
     config.format = format;
@@ -29649,10 +29649,6 @@ static ma_result ma_lpf_reinit__internal(const ma_lpf_config* pConfig, ma_lpf* p
         return MA_INVALID_ARGS;
     }
 
-    if (pConfig->poles > MA_MAX_FILTER_POLES) {
-        return MA_INVALID_ARGS;
-    }
-
     /* Only supporting f32 and s16. */
     if (pConfig->format != ma_format_f32 && pConfig->format != ma_format_s16) {
         return MA_INVALID_ARGS;
@@ -29668,9 +29664,9 @@ static ma_result ma_lpf_reinit__internal(const ma_lpf_config* pConfig, ma_lpf* p
         return MA_INVALID_OPERATION;
     }
 
-    pLPF->format   = pConfig->format;
-    pLPF->channels = pConfig->channels;
-
+    if (pConfig->poles > MA_MAX_FILTER_POLES) {
+        return MA_INVALID_ARGS;
+    }
 
     lpf2Count = pConfig->poles / 2;
     lpf1Count = pConfig->poles % 2;
@@ -29715,6 +29711,8 @@ static ma_result ma_lpf_reinit__internal(const ma_lpf_config* pConfig, ma_lpf* p
 
     pLPF->lpf2Count = lpf2Count;
     pLPF->lpf1Count = lpf1Count;
+    pLPF->format    = pConfig->format;
+    pLPF->channels  = pConfig->channels;
 
     return MA_SUCCESS;
 }
