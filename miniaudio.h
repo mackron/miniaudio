@@ -46,7 +46,7 @@ In addition to changes to the API design, a few other changes have been made to 
 
   - The sinc resampler has been removed. This was completely broken and never actually worked properly.
   - The linear resampler now uses low-pass filtering to remove aliasing. The quality of the low-pass filter can be controlled via the resampler config with the
-    `lpfCount` option, which has a maximum value of MA_MAX_RESAMPLER_LPF_FILTERS.
+    `lpfPoles` option, which has a maximum value of MA_MAX_FILTER_POLES.
   - Data conversion now supports s16 natively which runs through a fixed point pipeline. Previously everything needed to be converted to floating point before
     processing, whereas now both s16 and f32 are natively supported. Other formats still require conversion to either s16 or f32 prior to processing, however
     `ma_data_converter` will handle this for you.
@@ -854,9 +854,7 @@ may make it a suitable option depending on your requirements.
 
 The linear resampler performs low-pass filtering before or after downsampling or upsampling, depending on the sample rates you're converting between. When
 decreasing the sample rate, the low-pass filter will be applied before downsampling. When increasing the rate it will be performed after upsampling. By default
-a second order low-pass filter will be applied. To improve quality you can chain low-pass filters together, up to a maximum of `MA_MAX_RESAMPLER_LPF_FILTERS`.
-This comes at the expense of increased computational cost and latency. You can also disable filtering altogether by setting the filter count to 0. The filter
-count is controlled with the `lpfCount` config variable.
+a 4-pole low-pass filter will be applied. This can be configured via the `lpfPoles` configuration variable. Setting this to 0 will disable filtering.
 
 The low-pass filter has a cutoff frequency which defaults to half the sample rate of the lowest of the input and output sample rates (Nyquist Frequency). This
 can be controlled with the `lpfNyquistFactor` config variable. This defaults to 1, and should be in the range of 0..1, although a value of 0 does not make
@@ -916,7 +914,7 @@ channel maps and resampling quality. Something like the following may be more su
     config.sampleRateIn = inputSampleRate;
     config.sampleRateOut = outputSampleRate;
     ma_get_standard_channel_map(ma_standard_channel_map_flac, config.channelCountIn, config.channelMapIn);
-    config.resampling.linear.lpfCount = MA_MAX_RESAMPLER_LPF_FILTERS;
+    config.resampling.linear.lpfPoles = MA_MAX_FILTER_POLES;
     ```
 
 Do the following to uninitialize the data converter:
@@ -1856,17 +1854,13 @@ This section contains the APIs for data conversion. You will find everything her
 Resampling
 
 **************************************************************************************************************************************************************/
-#ifndef MA_MAX_RESAMPLER_LPF_FILTERS
-#define MA_MAX_RESAMPLER_LPF_FILTERS 4
-#endif
-
 typedef struct
 {
     ma_format format;
     ma_uint32 channels;
     ma_uint32 sampleRateIn;
     ma_uint32 sampleRateOut;
-    ma_uint32 lpfCount;         /* How many low-pass filters to chain together. A single low-pass filter is second order. Setting this to 0 will disable low-pass filtering. */
+    ma_uint32 lpfPoles;         /* The low-pass filter pole count. Setting this to 0 will disable low-pass filtering. */
     double    lpfNyquistFactor; /* 0..1. Defaults to 1. 1 = Half the sampling frequency (Nyquist Frequency), 0.5 = Quarter the sampling frequency (half Nyquest Frequency), etc. */
 } ma_linear_resampler_config;
 
@@ -1889,7 +1883,7 @@ typedef struct
         float    f32[MA_MAX_CHANNELS];
         ma_int16 s16[MA_MAX_CHANNELS];
     } x1; /* The next input frame. */
-    ma_lpf2 lpf[MA_MAX_RESAMPLER_LPF_FILTERS];
+    ma_lpf lpf;
 } ma_linear_resampler;
 
 ma_result ma_linear_resampler_init(const ma_linear_resampler_config* pConfig, ma_linear_resampler* pResampler);
@@ -1917,7 +1911,7 @@ typedef struct
     ma_resample_algorithm algorithm;
     struct
     {
-        ma_uint32 lpfCount;
+        ma_uint32 lpfPoles;
         double lpfNyquistFactor;
     } linear;
     struct
@@ -2084,7 +2078,7 @@ typedef struct
         ma_bool32 allowDynamicSampleRate;
         struct
         {
-            ma_uint32 lpfCount;
+            ma_uint32 lpfPoles;
             double lpfNyquistFactor;
         } linear;
         struct
@@ -2782,7 +2776,7 @@ typedef struct
         ma_resample_algorithm algorithm;
         struct
         {
-            ma_uint32 lpfCount;
+            ma_uint32 lpfPoles;
         } linear;
         struct
         {
@@ -3275,7 +3269,7 @@ struct ma_device
         ma_resample_algorithm algorithm;
         struct
         {
-            ma_uint32 lpfCount;
+            ma_uint32 lpfPoles;
         } linear;
         struct
         {
@@ -4122,12 +4116,12 @@ then be set directly on the structure. Below are the members of the `ma_device_c
 
     resampling.algorithm
         The resampling algorithm to use when miniaudio needs to perform resampling between the rate specified by `sampleRate` and the device's native rate. The
-        default value is `ma_resample_algorithm_linear`, and the quality can be configured with `resampling.linear.lpfCount`.
+        default value is `ma_resample_algorithm_linear`, and the quality can be configured with `resampling.linear.lpfPoles`.
 
-    resampling.linear.lpfCount
-        The linear resampler applies a low-pass filter as part of it's procesing for anti-aliasing. This setting controls the quality of the filter. The higher
-        the value, the better the quality. Setting this to 0 will disable low-pass filtering altogether. The maximum value is `MA_MAX_RESAMPLER_LPF_FILTERS`. 
-        The default value is `min(2, MA_MAX_RESAMPLER_LPF_FILTERS)`.
+    resampling.linear.lpfPoles
+        The linear resampler applies a low-pass filter as part of it's procesing for anti-aliasing. This setting controls the pole count of the filter. The
+        higher the value, the better the quality, in general. Setting this to 0 will disable low-pass filtering altogether. The maximum value is
+        `MA_MAX_FILTER_POLES`. The default value is `min(4, MA_MAX_FILTER_POLES)`.
 
     playback.pDeviceID
         A pointer to a `ma_device_id` structure containing the ID of the playback device to initialize. Setting this NULL (default) will use the system's
@@ -4843,7 +4837,7 @@ typedef struct
         ma_resample_algorithm algorithm;
         struct
         {
-            ma_uint32 lpfCount;
+            ma_uint32 lpfPoles;
         } linear;
         struct
         {
@@ -5498,12 +5492,12 @@ static MA_INLINE ma_bool32 ma_is_big_endian()
 #define MA_DEFAULT_PERIOD_SIZE_IN_MILLISECONDS_CONSERVATIVE 100
 #endif
 
-/* The default LPF count for linear resampling. Note that this is clamped to MA_MAX_RESAMPLER_LPF_FILTERS. */
-#ifndef MA_DEFAULT_RESAMPLER_LPF_FILTERS
-    #if MA_MAX_RESAMPLER_LPF_FILTERS >= 2
-        #define MA_DEFAULT_RESAMPLER_LPF_FILTERS    2
+/* The default LPF pole count for linear resampling. Note that this is clamped to MA_MAX_FILTER_POLES. */
+#ifndef MA_DEFAULT_RESAMPLER_LPF_POLES
+    #if MA_MAX_FILTER_POLES >= 4
+        #define MA_DEFAULT_RESAMPLER_LPF_POLES  4
     #else
-        #define MA_DEFAULT_RESAMPLER_LPF_FILTERS    MA_MAX_RESAMPLER_LPF_FILTERS
+        #define MA_DEFAULT_RESAMPLER_LPF_POLES  MA_MAX_FILTER_POLES
     #endif
 #endif
 
@@ -28041,7 +28035,7 @@ static ma_result ma_device__post_init_setup(ma_device* pDevice, ma_device_type d
         ma_channel_map_copy(converterConfig.channelMapOut, pDevice->capture.channelMap, pDevice->capture.channels);
         converterConfig.resampling.allowDynamicSampleRate = MA_FALSE;
         converterConfig.resampling.algorithm       = pDevice->resampling.algorithm;
-        converterConfig.resampling.linear.lpfCount = pDevice->resampling.linear.lpfCount;
+        converterConfig.resampling.linear.lpfPoles = pDevice->resampling.linear.lpfPoles;
         converterConfig.resampling.speex.quality   = pDevice->resampling.speex.quality;
 
         result = ma_data_converter_init(&converterConfig, &pDevice->capture.converter);
@@ -28063,7 +28057,7 @@ static ma_result ma_device__post_init_setup(ma_device* pDevice, ma_device_type d
         ma_channel_map_copy(converterConfig.channelMapOut, pDevice->playback.internalChannelMap, pDevice->playback.internalChannels);
         converterConfig.resampling.allowDynamicSampleRate = MA_FALSE;
         converterConfig.resampling.algorithm       = pDevice->resampling.algorithm;
-        converterConfig.resampling.linear.lpfCount = pDevice->resampling.linear.lpfCount;
+        converterConfig.resampling.linear.lpfPoles = pDevice->resampling.linear.lpfPoles;
         converterConfig.resampling.speex.quality   = pDevice->resampling.speex.quality;
 
         result = ma_data_converter_init(&converterConfig, &pDevice->playback.converter);
@@ -28698,7 +28692,7 @@ ma_device_config ma_device_config_init(ma_device_type deviceType)
 
     /* Resampling defaults. We must never use the Speex backend by default because it uses licensed third party code. */
     config.resampling.algorithm       = ma_resample_algorithm_linear;
-    config.resampling.linear.lpfCount = ma_min(MA_DEFAULT_RESAMPLER_LPF_FILTERS, MA_MAX_RESAMPLER_LPF_FILTERS);
+    config.resampling.linear.lpfPoles = ma_min(MA_DEFAULT_RESAMPLER_LPF_POLES, MA_MAX_FILTER_POLES);
     config.resampling.speex.quality   = 3;
 
     return config;
@@ -28823,7 +28817,7 @@ ma_result ma_device_init(ma_context* pContext, const ma_device_config* pConfig, 
     pDevice->type = config.deviceType;
     pDevice->sampleRate = config.sampleRate;
     pDevice->resampling.algorithm       = config.resampling.algorithm;
-    pDevice->resampling.linear.lpfCount = config.resampling.linear.lpfCount;
+    pDevice->resampling.linear.lpfPoles = config.resampling.linear.lpfPoles;
     pDevice->resampling.speex.quality   = config.resampling.speex.quality;
 
     pDevice->capture.shareMode   = config.capture.shareMode;
@@ -29803,6 +29797,42 @@ ma_result ma_lpf_reinit(const ma_lpf_config* pConfig, ma_lpf* pLPF)
     return ma_lpf_reinit__internal(pConfig, pLPF, /*isNew*/MA_FALSE);
 }
 
+static MA_INLINE void ma_lpf_process_pcm_frame_f32(ma_lpf* pLPF, float* pY, const void* pX)
+{
+    ma_uint32 ilpf2;
+    ma_uint32 ilpf1;
+
+    MA_ASSERT(pLPF->format == ma_format_f32);
+
+    MA_COPY_MEMORY(pY, pX, ma_get_bytes_per_frame(pLPF->format, pLPF->channels));
+
+    for (ilpf2 = 0; ilpf2 < pLPF->lpf2Count; ilpf2 += 1) {
+        ma_lpf2_process_pcm_frame_f32(&pLPF->lpf2[ilpf2], pY, pY);
+    }
+
+    for (ilpf1 = 0; ilpf1 < pLPF->lpf1Count; ilpf1 += 1) {
+        ma_lpf1_process_pcm_frame_f32(&pLPF->lpf1[ilpf1], pY, pY);
+    }
+}
+
+static MA_INLINE void ma_lpf_process_pcm_frame_s16(ma_lpf* pLPF, ma_int16* pY, const ma_int16* pX)
+{
+    ma_uint32 ilpf2;
+    ma_uint32 ilpf1;
+
+    MA_ASSERT(pLPF->format == ma_format_s16);
+
+    MA_COPY_MEMORY(pY, pX, ma_get_bytes_per_frame(pLPF->format, pLPF->channels));
+
+    for (ilpf2 = 0; ilpf2 < pLPF->lpf2Count; ilpf2 += 1) {
+        ma_lpf2_process_pcm_frame_s16(&pLPF->lpf2[ilpf2], pY, pY);
+    }
+
+    for (ilpf1 = 0; ilpf1 < pLPF->lpf1Count; ilpf1 += 1) {
+        ma_lpf1_process_pcm_frame_s16(&pLPF->lpf1[ilpf1], pY, pY);
+    }
+}
+
 ma_result ma_lpf_process_pcm_frames(ma_lpf* pLPF, void* pFramesOut, const void* pFramesIn, ma_uint64 frameCount)
 {
     ma_result result;
@@ -29839,16 +29869,7 @@ ma_result ma_lpf_process_pcm_frames(ma_lpf* pLPF, void* pFramesOut, const void* 
             const float* pFramesInF32  = (const float*)pFramesIn;
 
             for (iFrame = 0; iFrame < frameCount; iFrame += 1) {
-                MA_COPY_MEMORY(pFramesOutF32, pFramesInF32, ma_get_bytes_per_frame(pLPF->format, pLPF->channels));
-
-                for (ilpf2 = 0; ilpf2 < pLPF->lpf2Count; ilpf2 += 1) {
-                    ma_lpf2_process_pcm_frame_f32(&pLPF->lpf2[ilpf2], pFramesOutF32, pFramesOutF32);
-                }
-
-                for (ilpf1 = 0; ilpf1 < pLPF->lpf1Count; ilpf1 += 1) {
-                    ma_lpf1_process_pcm_frame_f32(&pLPF->lpf1[ilpf1], pFramesOutF32, pFramesOutF32);
-                }
-
+                ma_lpf_process_pcm_frame_f32(pLPF, pFramesOutF32, pFramesInF32);
                 pFramesOutF32 += pLPF->channels;
                 pFramesInF32  += pLPF->channels;
             }
@@ -29857,16 +29878,7 @@ ma_result ma_lpf_process_pcm_frames(ma_lpf* pLPF, void* pFramesOut, const void* 
             const ma_int16* pFramesInS16  = (const ma_int16*)pFramesIn;
 
             for (iFrame = 0; iFrame < frameCount; iFrame += 1) {
-                MA_COPY_MEMORY(pFramesOutS16, pFramesInS16, ma_get_bytes_per_frame(pLPF->format, pLPF->channels));
-
-                for (ilpf2 = 0; ilpf2 < pLPF->lpf2Count; ilpf2 += 1) {
-                    ma_lpf2_process_pcm_frame_s16(&pLPF->lpf2[ilpf2], pFramesOutS16, pFramesOutS16);
-                }
-
-                for (ilpf1 = 0; ilpf1 < pLPF->lpf1Count; ilpf1 += 1) {
-                    ma_lpf1_process_pcm_frame_s16(&pLPF->lpf1[ilpf1], pFramesOutS16, pFramesOutS16);
-                }
-
+                ma_lpf_process_pcm_frame_s16(pLPF, pFramesOutS16, pFramesInS16);
                 pFramesOutS16 += pLPF->channels;
                 pFramesInS16  += pLPF->channels;
             }
@@ -30659,7 +30671,7 @@ ma_linear_resampler_config ma_linear_resampler_config_init(ma_format format, ma_
     config.channels         = channels;
     config.sampleRateIn     = sampleRateIn;
     config.sampleRateOut    = sampleRateOut;
-    config.lpfCount         = 1;
+    config.lpfPoles         = ma_min(MA_DEFAULT_RESAMPLER_LPF_POLES, MA_MAX_FILTER_POLES);
     config.lpfNyquistFactor = 1;
 
     return config;
@@ -30682,41 +30694,33 @@ static ma_result ma_linear_resampler_set_rate_internal(ma_linear_resampler* pRes
     pResampler->config.sampleRateIn  /= gcf;
     pResampler->config.sampleRateOut /= gcf;
 
-    if (pResampler->config.lpfCount > 0) {
+    if (pResampler->config.lpfPoles > 0) {
         ma_result result;
-        ma_uint32 iFilter;
         ma_uint32 lpfSampleRate;
         double lpfCutoffFrequency;
-        ma_lpf2_config lpfConfig;
+        ma_lpf_config lpfConfig;
 
-        if (pResampler->config.lpfCount > MA_MAX_RESAMPLER_LPF_FILTERS) {
+        if (pResampler->config.lpfPoles > MA_MAX_FILTER_POLES) {
             return MA_INVALID_ARGS;
         }
 
         lpfSampleRate      = (ma_uint32)(ma_max(pResampler->config.sampleRateIn, pResampler->config.sampleRateOut));
         lpfCutoffFrequency = (   double)(ma_min(pResampler->config.sampleRateIn, pResampler->config.sampleRateOut) * 0.5 * pResampler->config.lpfNyquistFactor);
 
-        lpfConfig = ma_lpf2_config_init(pResampler->config.format, pResampler->config.channels, lpfSampleRate, lpfCutoffFrequency);
+        lpfConfig = ma_lpf_config_init(pResampler->config.format, pResampler->config.channels, lpfSampleRate, lpfCutoffFrequency, pResampler->config.lpfPoles);
 
         /*
         If the resampler is alreay initialized we don't want to do a fresh initialization of the low-pass filter because it will result in the cached frames
         getting cleared. Instead we re-initialize the filter which will maintain any cached frames.
         */
-        result = MA_SUCCESS;
-        for (iFilter = 0; iFilter < pResampler->config.lpfCount; iFilter += 1) {
-            if (isResamplerAlreadyInitialized) {
-                result = ma_lpf2_reinit(&lpfConfig, &pResampler->lpf[iFilter]);
-            } else {
-                result = ma_lpf2_init(&lpfConfig, &pResampler->lpf[iFilter]);
-            }
-
-            if (result != MA_SUCCESS) {
-                break;
-            }
+        if (isResamplerAlreadyInitialized) {
+            result = ma_lpf_reinit(&lpfConfig, &pResampler->lpf);
+        } else {
+            result = ma_lpf_init(&lpfConfig, &pResampler->lpf);
         }
-        
+
         if (result != MA_SUCCESS) {
-            return result;  /* Failed to initialize the low-pass filter. */
+            return result;
         }
     }
 
@@ -30841,7 +30845,6 @@ static ma_result ma_linear_resampler_process_pcm_frames_s16_downsample(ma_linear
 
         /* Before interpolating we need to load the buffers. When doing this we need to ensure we run every input sample through the filter. */
         while (pResampler->inTimeInt > 0 && frameCountIn > 0) {
-            ma_uint32 iFilter;
             ma_uint32 iChannel;
 
             if (pFramesInS16 != NULL) {
@@ -30858,9 +30861,7 @@ static ma_result ma_linear_resampler_process_pcm_frames_s16_downsample(ma_linear
             }
 
             /* Filter. */
-            for (iFilter = 0; iFilter < pResampler->config.lpfCount; iFilter += 1) {
-                ma_lpf2_process_pcm_frame_s16(&pResampler->lpf[iFilter], pResampler->x1.s16, pResampler->x1.s16);
-            }
+            ma_lpf_process_pcm_frame_s16(&pResampler->lpf, pResampler->x1.s16, pResampler->x1.s16);
 
             frameCountIn          -= 1;
             framesProcessedIn     += 1;
@@ -30917,8 +30918,6 @@ static ma_result ma_linear_resampler_process_pcm_frames_s16_upsample(ma_linear_r
     framesProcessedOut = 0;
 
     for (;;) {
-        ma_uint32 iFilter;
-
         if (framesProcessedOut >= frameCountOut) {
             break;
         }
@@ -30955,9 +30954,7 @@ static ma_result ma_linear_resampler_process_pcm_frames_s16_upsample(ma_linear_r
             ma_linear_resampler_interpolate_frame_s16(pResampler, pFramesOutS16);
 
             /* Filter. */
-            for (iFilter = 0; iFilter < pResampler->config.lpfCount; iFilter += 1) {
-                ma_lpf2_process_pcm_frame_s16(&pResampler->lpf[iFilter], pFramesOutS16, pFramesOutS16);
-            }
+            ma_lpf_process_pcm_frame_s16(&pResampler->lpf, pFramesOutS16, pFramesOutS16);
 
             pFramesOutS16 += pResampler->config.channels;
         }
@@ -31018,7 +31015,6 @@ static ma_result ma_linear_resampler_process_pcm_frames_f32_downsample(ma_linear
 
         /* Before interpolating we need to load the buffers. When doing this we need to ensure we run every input sample through the filter. */
         while (pResampler->inTimeInt > 0 && frameCountIn > 0) {
-            ma_uint32 iFilter;
             ma_uint32 iChannel;
 
             if (pFramesInF32 != NULL) {
@@ -31035,9 +31031,7 @@ static ma_result ma_linear_resampler_process_pcm_frames_f32_downsample(ma_linear
             }
 
             /* Filter. */
-            for (iFilter = 0; iFilter < pResampler->config.lpfCount; iFilter += 1) {
-                ma_lpf2_process_pcm_frame_f32(&pResampler->lpf[iFilter], pResampler->x1.f32, pResampler->x1.f32);
-            }
+            ma_lpf_process_pcm_frame_f32(&pResampler->lpf, pResampler->x1.f32, pResampler->x1.f32);
 
             frameCountIn          -= 1;
             framesProcessedIn     += 1;
@@ -31094,8 +31088,6 @@ static ma_result ma_linear_resampler_process_pcm_frames_f32_upsample(ma_linear_r
     framesProcessedOut = 0;
 
     for (;;) {
-        ma_uint32 iFilter;
-
         if (framesProcessedOut >= frameCountOut) {
             break;
         }
@@ -31132,9 +31124,7 @@ static ma_result ma_linear_resampler_process_pcm_frames_f32_upsample(ma_linear_r
             ma_linear_resampler_interpolate_frame_f32(pResampler, pFramesOutF32);
 
             /* Filter. */
-            for (iFilter = 0; iFilter < pResampler->config.lpfCount; iFilter += 1) {
-                ma_lpf2_process_pcm_frame_f32(&pResampler->lpf[iFilter], pFramesOutF32, pFramesOutF32);
-            }
+            ma_lpf_process_pcm_frame_f32(&pResampler->lpf, pFramesOutF32, pFramesOutF32);
 
             pFramesOutF32 += pResampler->config.channels;
         }
@@ -31274,19 +31264,11 @@ ma_uint64 ma_linear_resampler_get_expected_output_frame_count(ma_linear_resample
 
 ma_uint64 ma_linear_resampler_get_input_latency(ma_linear_resampler* pResampler)
 {
-    ma_uint32 latency;
-    ma_uint32 iFilter;
-
     if (pResampler == NULL) {
         return 0;
     }
 
-    latency = 1;
-    for (iFilter = 0; iFilter < pResampler->config.lpfCount; iFilter += 1) {
-        latency += ma_lpf2_get_latency(&pResampler->lpf[iFilter]);
-    }
-
-    return latency;
+    return 1 + ma_lpf_get_latency(&pResampler->lpf);
 }
 
 ma_uint64 ma_linear_resampler_get_output_latency(ma_linear_resampler* pResampler)
@@ -31329,7 +31311,7 @@ ma_resampler_config ma_resampler_config_init(ma_format format, ma_uint32 channel
     config.algorithm = algorithm;
 
     /* Linear. */
-    config.linear.lpfCount = 1;
+    config.linear.lpfPoles = ma_min(MA_DEFAULT_RESAMPLER_LPF_POLES, MA_MAX_FILTER_POLES);
     config.linear.lpfNyquistFactor = 1;
 
     /* Speex. */
@@ -31364,7 +31346,7 @@ ma_result ma_resampler_init(const ma_resampler_config* pConfig, ma_resampler* pR
         {
             ma_linear_resampler_config linearConfig;
             linearConfig = ma_linear_resampler_config_init(pConfig->format, pConfig->channels, pConfig->sampleRateIn, pConfig->sampleRateOut);
-            linearConfig.lpfCount         = pConfig->linear.lpfCount;
+            linearConfig.lpfPoles         = pConfig->linear.lpfPoles;
             linearConfig.lpfNyquistFactor = pConfig->linear.lpfNyquistFactor;
 
             result = ma_linear_resampler_init(&linearConfig, &pResampler->state.linear);
@@ -32516,7 +32498,7 @@ ma_data_converter_config ma_data_converter_config_init_default()
     config.resampling.allowDynamicSampleRate = MA_FALSE; /* Disable dynamic sample rates by default because dynamic rate adjustments should be quite rare and it allows an optimization for cases when the in and out sample rates are the same. */
 
     /* Linear resampling defaults. */
-    config.resampling.linear.lpfCount = 1;
+    config.resampling.linear.lpfPoles = 1;
     config.resampling.linear.lpfNyquistFactor = 1;
 
     /* Speex resampling defaults. */
@@ -32622,7 +32604,7 @@ ma_result ma_data_converter_init(const ma_data_converter_config* pConfig, ma_dat
         }
 
         resamplerConfig = ma_resampler_config_init(midFormat, resamplerChannels, pConverter->config.sampleRateIn, pConverter->config.sampleRateOut, pConverter->config.resampling.algorithm);
-        resamplerConfig.linear.lpfCount         = pConverter->config.resampling.linear.lpfCount;
+        resamplerConfig.linear.lpfPoles         = pConverter->config.resampling.linear.lpfPoles;
         resamplerConfig.linear.lpfNyquistFactor = pConverter->config.resampling.linear.lpfNyquistFactor;
         resamplerConfig.speex.quality           = pConverter->config.resampling.speex.quality;
 
@@ -36449,7 +36431,7 @@ ma_uint64 ma_convert_frames(void* pOut, ma_uint64 frameCountOut, ma_format forma
     config = ma_data_converter_config_init(formatIn, formatOut, channelsIn, channelsOut, sampleRateIn, sampleRateOut);
     ma_get_standard_channel_map(ma_standard_channel_map_default, channelsOut, config.channelMapOut);
     ma_get_standard_channel_map(ma_standard_channel_map_default, channelsIn,  config.channelMapIn);
-    config.resampling.linear.lpfCount = ma_min(MA_DEFAULT_RESAMPLER_LPF_FILTERS, MA_MAX_RESAMPLER_LPF_FILTERS);
+    config.resampling.linear.lpfPoles = ma_min(MA_DEFAULT_RESAMPLER_LPF_POLES, MA_MAX_FILTER_POLES);
 
     return ma_convert_frames_ex(pOut, frameCountOut, pIn, frameCountIn, &config);
 }
@@ -37298,7 +37280,7 @@ ma_decoder_config ma_decoder_config_init(ma_format outputFormat, ma_uint32 outpu
     config.sampleRate = outputSampleRate;
     ma_get_standard_channel_map(ma_standard_channel_map_default, config.channels, config.channelMap);
     config.resampling.algorithm = ma_resample_algorithm_linear;
-    config.resampling.linear.lpfCount = ma_min(MA_DEFAULT_RESAMPLER_LPF_FILTERS, MA_MAX_RESAMPLER_LPF_FILTERS);
+    config.resampling.linear.lpfPoles = ma_min(MA_DEFAULT_RESAMPLER_LPF_POLES, MA_MAX_FILTER_POLES);
     config.resampling.speex.quality = 3;
 
     return config;
@@ -37359,7 +37341,7 @@ static ma_result ma_decoder__init_data_converter(ma_decoder* pDecoder, const ma_
     converterConfig.ditherMode                 = pConfig->ditherMode;
     converterConfig.resampling.allowDynamicSampleRate = MA_FALSE;   /* Never allow dynamic sample rate conversion. Setting this to true will disable passthrough optimizations. */
     converterConfig.resampling.algorithm       = pConfig->resampling.algorithm;
-    converterConfig.resampling.linear.lpfCount = pConfig->resampling.linear.lpfCount;
+    converterConfig.resampling.linear.lpfPoles = pConfig->resampling.linear.lpfPoles;
     converterConfig.resampling.speex.quality   = pConfig->resampling.speex.quality;
 
     return ma_data_converter_init(&converterConfig, &pDecoder->converter);
