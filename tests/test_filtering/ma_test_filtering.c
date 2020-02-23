@@ -27,6 +27,7 @@ ma_result filtering_init_decoder_and_encoder(const char* pInputFilePath, const c
 #include "ma_test_filtering_hpf.c"
 #include "ma_test_filtering_bpf.c"
 #include "ma_test_filtering_peak.c"
+#include "ma_test_filtering_notch.c"
 
 int main(int argc, char** argv)
 {
@@ -57,9 +58,14 @@ int main(int argc, char** argv)
     if (result != MA_SUCCESS) {
         hasError = MA_TRUE;
     }
-#endif
 
     result = ma_register_test("Peaking EQ Filtering", test_entry__peak);
+    if (result != MA_SUCCESS) {
+        hasError = MA_TRUE;
+    }
+#endif
+
+    result = ma_register_test("Notching Filtering", test_entry__notch);
     if (result != MA_SUCCESS) {
         hasError = MA_TRUE;
     }
