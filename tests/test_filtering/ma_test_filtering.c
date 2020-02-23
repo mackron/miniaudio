@@ -1,5 +1,26 @@
 #include "../test_common/ma_test_common.c"
 
+ma_result filtering_init_decoder_and_encoder(const char* pInputFilePath, const char* pOutputFilePath, ma_format format, ma_uint32 channels, ma_uint32 sampleRate, ma_decoder* pDecoder, drwav* pEncoder)
+{
+    ma_result result;
+    ma_decoder_config decoderConfig;
+    drwav_data_format wavFormat;
+
+    decoderConfig = ma_decoder_config_init(format, 0, 0);
+    result = ma_decoder_init_file(pInputFilePath, &decoderConfig, pDecoder);
+    if (result != MA_SUCCESS) {
+        return result;
+    }
+
+    wavFormat = drwav_data_format_from_minaudio_format(pDecoder->outputFormat, pDecoder->outputChannels, pDecoder->outputSampleRate);
+    if (!drwav_init_file_write(pEncoder, pOutputFilePath, &wavFormat, NULL)) {
+        ma_decoder_uninit(pDecoder);
+        return MA_ERROR;
+    }
+
+    return MA_SUCCESS;
+}
+
 #include "ma_test_filtering_dithering.c"
 #include "ma_test_filtering_lpf.c"
 #include "ma_test_filtering_hpf.c"
