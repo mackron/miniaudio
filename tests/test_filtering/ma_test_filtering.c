@@ -29,6 +29,7 @@ ma_result filtering_init_decoder_and_encoder(const char* pInputFilePath, const c
 #include "ma_test_filtering_notch.c"
 #include "ma_test_filtering_peak.c"
 #include "ma_test_filtering_loshelf.c"
+#include "ma_test_filtering_hishelf.c"
 
 int main(int argc, char** argv)
 {
@@ -39,7 +40,6 @@ int main(int argc, char** argv)
     (void)argc;
     (void)argv;
 
-#if 0
     result = ma_register_test("Dithering", test_entry__dithering);
     if (result != MA_SUCCESS) {
         hasError = MA_TRUE;
@@ -69,9 +69,13 @@ int main(int argc, char** argv)
     if (result != MA_SUCCESS) {
         hasError = MA_TRUE;
     }
-#endif
 
     result = ma_register_test("Low Shelf Filtering", test_entry__loshelf);
+    if (result != MA_SUCCESS) {
+        hasError = MA_TRUE;
+    }
+
+    result = ma_register_test("High Shelf Filtering", test_entry__hishelf);
     if (result != MA_SUCCESS) {
         hasError = MA_TRUE;
     }
