@@ -1898,6 +1898,34 @@ ma_result ma_peak2_process_pcm_frames(ma_peak2* pFilter, void* pFramesOut, const
 ma_uint32 ma_peak2_get_latency(ma_peak2* pFilter);
 
 
+/**************************************************************************************************************************************************************
+
+Low Shelf Filter
+
+**************************************************************************************************************************************************************/
+typedef struct
+{
+    ma_format format;
+    ma_uint32 channels;
+    ma_uint32 sampleRate;
+    double gainDB;
+    double shelfSlope;
+    double frequency;
+} ma_loshelf2_config;
+
+ma_loshelf2_config ma_loshelf2_config_init(ma_format format, ma_uint32 channels, ma_uint32 sampleRate, double gainDB, double shelfSlope, double frequency);
+
+typedef struct
+{
+    ma_biquad bq;
+} ma_loshelf2;
+
+ma_result ma_loshelf2_init(const ma_loshelf2_config* pConfig, ma_loshelf2* pFilter);
+ma_result ma_loshelf2_reinit(const ma_loshelf2_config* pConfig, ma_loshelf2* pFilter);
+ma_result ma_loshelf2_process_pcm_frames(ma_loshelf2* pFilter, void* pFramesOut, const void* pFramesIn, ma_uint64 frameCount);
+ma_uint32 ma_loshelf2_get_latency(ma_loshelf2* pFilter);
+
+
 
 /************************************************************************************************************************************************************
 *************************************************************************************************************************************************************
@@ -5725,11 +5753,6 @@ static MA_INLINE double ma_sin(double x)
     return sin(x);
 }
 
-static MA_INLINE double ma_cos(double x)
-{
-    return ma_sin((MA_PI*0.5) - x);
-}
-
 static MA_INLINE double ma_exp(double x)
 {
     /* TODO: Implement custom exp(x). */
@@ -5746,6 +5769,18 @@ static MA_INLINE double ma_pow(double x, double y)
 {
     /* TODO: Implement custom pow(x, y). */
     return pow(x, y);
+}
+
+static MA_INLINE double ma_sqrt(double x)
+{
+    /* TODO: Implement custom sqrt(x). */
+    return sqrt(x);
+}
+
+
+static MA_INLINE double ma_cos(double x)
+{
+    return ma_sin((MA_PI*0.5) - x);
 }
 
 static MA_INLINE double ma_log10(double x)
@@ -31147,6 +31182,135 @@ ma_uint32 ma_peak2_get_latency(ma_peak2* pFilter)
     return ma_biquad_get_latency(&pFilter->bq);
 }
 
+
+/**************************************************************************************************************************************************************
+
+Low Shelf Filter
+
+**************************************************************************************************************************************************************/
+ma_loshelf2_config ma_loshelf2_config_init(ma_format format, ma_uint32 channels, ma_uint32 sampleRate, double gainDB, double shelfSlope, double frequency)
+{
+    ma_loshelf2_config config;
+
+    MA_ZERO_OBJECT(&config);
+    config.format     = format;
+    config.channels   = channels;
+    config.sampleRate = sampleRate;
+    config.gainDB     = gainDB;
+    config.shelfSlope = shelfSlope;
+    config.frequency  = frequency;
+
+    if (config.gainDB == 0) {
+        config.gainDB = 6;
+    }
+
+    return config;
+}
+
+
+static MA_INLINE ma_biquad_config ma_loshelf2__get_biquad_config(const ma_loshelf2_config* pConfig)
+{
+    ma_biquad_config bqConfig;
+    double w;
+    double s;
+    double c;
+    double A;
+    double S;
+    double a;
+    double sqrtA;
+
+    MA_ASSERT(pConfig != NULL);
+
+    w = 2 * MA_PI_D * pConfig->frequency / pConfig->sampleRate;
+    s = ma_sin(w);
+    c = ma_cos(w);
+    A = ma_pow(10, (pConfig->gainDB / 40));
+    S = pConfig->shelfSlope;
+    a = s/2 * ma_sqrt((A + 1/A) * (1/S - 1) + 2);
+    sqrtA = 2*ma_sqrt(A)*a;
+
+    bqConfig.b0 =  A * ((A + 1) - (A - 1)*c + sqrtA);
+    bqConfig.b1 =  2 * A * ((A - 1) - (A + 1)*c);
+    bqConfig.b2 =  A * ((A + 1) - (A - 1)*c - sqrtA);
+    bqConfig.a0 =  (A + 1) + (A - 1)*c + sqrtA;
+    bqConfig.a1 = -2 * ((A - 1) + (A + 1)*c);
+    bqConfig.a2 =  (A + 1) + (A - 1)*c - sqrtA;
+
+    bqConfig.format   = pConfig->format;
+    bqConfig.channels = pConfig->channels;
+
+    return bqConfig;
+}
+
+ma_result ma_loshelf2_init(const ma_loshelf2_config* pConfig, ma_loshelf2* pFilter)
+{
+    ma_result result;
+    ma_biquad_config bqConfig;
+
+    if (pFilter == NULL) {
+        return MA_INVALID_ARGS;
+    }
+
+    MA_ZERO_OBJECT(pFilter);
+
+    if (pConfig == NULL) {
+        return MA_INVALID_ARGS;
+    }
+
+    bqConfig = ma_loshelf2__get_biquad_config(pConfig);
+    result = ma_biquad_init(&bqConfig, &pFilter->bq);
+    if (result != MA_SUCCESS) {
+        return result;
+    }
+
+    return MA_SUCCESS;
+}
+
+ma_result ma_loshelf2_reinit(const ma_loshelf2_config* pConfig, ma_loshelf2* pFilter)
+{
+    ma_result result;
+    ma_biquad_config bqConfig;
+
+    if (pFilter == NULL || pConfig == NULL) {
+        return MA_INVALID_ARGS;
+    }
+
+    bqConfig = ma_loshelf2__get_biquad_config(pConfig);
+    result = ma_biquad_reinit(&bqConfig, &pFilter->bq);
+    if (result != MA_SUCCESS) {
+        return result;
+    }
+
+    return MA_SUCCESS;
+}
+
+static MA_INLINE void ma_loshelf2_process_pcm_frame_s16(ma_loshelf2* pFilter, ma_int16* pFrameOut, const ma_int16* pFrameIn)
+{
+    ma_biquad_process_pcm_frame_s16(&pFilter->bq, pFrameOut, pFrameIn);
+}
+
+static MA_INLINE void ma_loshelf2_process_pcm_frame_f32(ma_loshelf2* pFilter, float* pFrameOut, const float* pFrameIn)
+{
+    ma_biquad_process_pcm_frame_f32(&pFilter->bq, pFrameOut, pFrameIn);
+}
+
+ma_result ma_loshelf2_process_pcm_frames(ma_loshelf2* pFilter, void* pFramesOut, const void* pFramesIn, ma_uint64 frameCount)
+{
+    if (pFilter == NULL) {
+        return MA_INVALID_ARGS;
+    }
+
+    return ma_biquad_process_pcm_frames(&pFilter->bq, pFramesOut, pFramesIn, frameCount);
+}
+
+ma_uint32 ma_loshelf2_get_latency(ma_loshelf2* pFilter)
+{
+    if (pFilter == NULL) {
+        return 0;
+    }
+
+    return ma_biquad_get_latency(&pFilter->bq);
+}
 
 
 

@@ -26,8 +26,9 @@ ma_result filtering_init_decoder_and_encoder(const char* pInputFilePath, const c
 #include "ma_test_filtering_lpf.c"
 #include "ma_test_filtering_hpf.c"
 #include "ma_test_filtering_bpf.c"
-#include "ma_test_filtering_peak.c"
 #include "ma_test_filtering_notch.c"
+#include "ma_test_filtering_peak.c"
+#include "ma_test_filtering_loshelf.c"
 
 int main(int argc, char** argv)
 {
@@ -59,16 +60,22 @@ int main(int argc, char** argv)
         hasError = MA_TRUE;
     }
 
+    result = ma_register_test("Notching Filtering", test_entry__notch);
+    if (result != MA_SUCCESS) {
+        hasError = MA_TRUE;
+    }
+
     result = ma_register_test("Peaking EQ Filtering", test_entry__peak);
     if (result != MA_SUCCESS) {
         hasError = MA_TRUE;
     }
 #endif
 
-    result = ma_register_test("Notching Filtering", test_entry__notch);
+    result = ma_register_test("Low Shelf Filtering", test_entry__loshelf);
     if (result != MA_SUCCESS) {
         hasError = MA_TRUE;
     }
+    
 
     for (iTest = 0; iTest < g_Tests.count; iTest += 1) {
         printf("=== BEGIN %s ===\n", g_Tests.pTests[iTest].pName);
