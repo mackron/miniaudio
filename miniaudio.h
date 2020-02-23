@@ -129,7 +129,7 @@ pipeline. Both formats use transposed direct form 2.
 Low-Pass, High-Pass and Band-Pass Filters
 -----------------------------------------
 APIs for low-pass, high-pass and band-pass filtering has been added. By themselves they are second order filters, but can be extended to higher orders by
-chaining them together. Low-pass, high-pass and band-pass filtering is achieved via the `ma_lpf2`, `ma_hpf` and `ma_bpf` APIs respectively. Since these filters
+chaining them together. Low-pass, high-pass and band-pass filtering is achieved via the `ma_lpf2`, `ma_hpf2` and `ma_bpf` APIs respectively. Since these filters
 are just biquad filters, they support both 32-bit floating point and 16-bit signed integer formats.
 
 
@@ -1000,7 +1000,7 @@ and will result in an error.
 
 Low-Pass, High-Pass and Band-Pass Filtering
 ===========================================
-Low-pass, high-pass and band-pass filtering is achieved with the `ma_lpf2`, `ma_hpf` and `ma_bpf` APIs respective. Low-pass filter example:
+Low-pass, high-pass and band-pass filtering is achieved with the `ma_lpf2`, `ma_hpf2` and `ma_bpf` APIs respective. Low-pass filter example:
 
     ```c
     ma_lpf2_config config = ma_lpf2_config_init(ma_format_f32, channels, sampleRate, cutoffFrequency);
@@ -1035,7 +1035,7 @@ If you need to change the configuration of the filter, but need to maintain the 
 useful if you need to change the sample rate and/or cutoff frequency dynamically while maintaing smooth transitions. Note that changing the format or channel
 count after initialization is invalid and will result in an error.
 
-The example code above is for low-pass filters, but the same applies for high-pass and band-pass filters, only you should use the `ma_hpf` and `ma_bpf` APIs
+The example code above is for low-pass filters, but the same applies for high-pass and band-pass filters, only you should use the `ma_hpf2` and `ma_bpf` APIs
 instead.
 
 
@@ -1702,19 +1702,19 @@ typedef struct
     ma_uint32 channels;
     ma_uint32 sampleRate;
     double cutoffFrequency;
-} ma_hpf_config;
+} ma_hpf2_config;
 
-ma_hpf_config ma_hpf_config_init(ma_format format, ma_uint32 channels, ma_uint32 sampleRate, double cutoffFrequency);
+ma_hpf2_config ma_hpf2_config_init(ma_format format, ma_uint32 channels, ma_uint32 sampleRate, double cutoffFrequency);
 
 typedef struct
 {
-    ma_biquad bq;   /* The high-pass filter is implemented as a biquad filter. */
-} ma_hpf;
+    ma_biquad bq;   /* The 2-pole high-pass filter is implemented as a biquad filter. */
+} ma_hpf2;
 
-ma_result ma_hpf_init(const ma_hpf_config* pConfig, ma_hpf* pHPF);
-ma_result ma_hpf_reinit(const ma_hpf_config* pConfig, ma_hpf* pHPF);
-ma_result ma_hpf_process_pcm_frames(ma_hpf* pHPF, void* pFramesOut, const void* pFramesIn, ma_uint64 frameCount);
-ma_uint32 ma_hpf_get_latency(ma_hpf* pHPF);
+ma_result ma_hpf2_init(const ma_hpf2_config* pConfig, ma_hpf2* pHPF);
+ma_result ma_hpf2_reinit(const ma_hpf2_config* pConfig, ma_hpf2* pHPF);
+ma_result ma_hpf2_process_pcm_frames(ma_hpf2* pHPF, void* pFramesOut, const void* pFramesIn, ma_uint64 frameCount);
+ma_uint32 ma_hpf2_get_latency(ma_hpf2* pHPF);
 
 
 /**************************************************************************************************************************************************************
@@ -1734,7 +1734,7 @@ ma_bpf_config ma_bpf_config_init(ma_format format, ma_uint32 channels, ma_uint32
 
 typedef struct
 {
-    ma_biquad bq;   /* The band-pass filter is implemented as a biquad filter. */
+    ma_biquad bq;   /* The 2-pole band-pass filter is implemented as a biquad filter. */
 } ma_bpf;
 
 ma_result ma_bpf_init(const ma_bpf_config* pConfig, ma_bpf* pBPF);
@@ -29597,9 +29597,9 @@ ma_uint32 ma_lpf2_get_latency(ma_lpf2* pLPF)
 High-Pass Filtering
 
 **************************************************************************************************************************************************************/
-ma_hpf_config ma_hpf_config_init(ma_format format, ma_uint32 channels, ma_uint32 sampleRate, double cutoffFrequency)
+ma_hpf2_config ma_hpf2_config_init(ma_format format, ma_uint32 channels, ma_uint32 sampleRate, double cutoffFrequency)
 {
-    ma_hpf_config config;
+    ma_hpf2_config config;
     
     MA_ZERO_OBJECT(&config);
     config.format = format;
@@ -29610,7 +29610,7 @@ ma_hpf_config ma_hpf_config_init(ma_format format, ma_uint32 channels, ma_uint32
     return config;
 }
 
-static MA_INLINE ma_biquad_config ma_hpf__get_biquad_config(const ma_hpf_config* pConfig)
+static MA_INLINE ma_biquad_config ma_hpf2__get_biquad_config(const ma_hpf2_config* pConfig)
 {
     ma_biquad_config bqConfig;
     double q;
@@ -29640,7 +29640,7 @@ static MA_INLINE ma_biquad_config ma_hpf__get_biquad_config(const ma_hpf_config*
     return bqConfig;
 }
 
-ma_result ma_hpf_init(const ma_hpf_config* pConfig, ma_hpf* pHPF)
+ma_result ma_hpf2_init(const ma_hpf2_config* pConfig, ma_hpf2* pHPF)
 {
     ma_result result;
     ma_biquad_config bqConfig;
@@ -29655,7 +29655,7 @@ ma_result ma_hpf_init(const ma_hpf_config* pConfig, ma_hpf* pHPF)
         return MA_INVALID_ARGS;
     }
 
-    bqConfig = ma_hpf__get_biquad_config(pConfig);
+    bqConfig = ma_hpf2__get_biquad_config(pConfig);
     result = ma_biquad_init(&bqConfig, &pHPF->bq);
     if (result != MA_SUCCESS) {
         return result;
@@ -29664,7 +29664,7 @@ ma_result ma_hpf_init(const ma_hpf_config* pConfig, ma_hpf* pHPF)
     return MA_SUCCESS;
 }
 
-ma_result ma_hpf_reinit(const ma_hpf_config* pConfig, ma_hpf* pHPF)
+ma_result ma_hpf2_reinit(const ma_hpf2_config* pConfig, ma_hpf2* pHPF)
 {
     ma_result result;
     ma_biquad_config bqConfig;
@@ -29673,7 +29673,7 @@ ma_result ma_hpf_reinit(const ma_hpf_config* pConfig, ma_hpf* pHPF)
         return MA_INVALID_ARGS;
     }
 
-    bqConfig = ma_hpf__get_biquad_config(pConfig);
+    bqConfig = ma_hpf2__get_biquad_config(pConfig);
     result = ma_biquad_reinit(&bqConfig, &pHPF->bq);
     if (result != MA_SUCCESS) {
         return result;
@@ -29682,7 +29682,7 @@ ma_result ma_hpf_reinit(const ma_hpf_config* pConfig, ma_hpf* pHPF)
     return MA_SUCCESS;
 }
 
-ma_result ma_hpf_process_pcm_frames(ma_hpf* pHPF, void* pFramesOut, const void* pFramesIn, ma_uint64 frameCount)
+ma_result ma_hpf2_process_pcm_frames(ma_hpf2* pHPF, void* pFramesOut, const void* pFramesIn, ma_uint64 frameCount)
 {
     if (pHPF == NULL) {
         return MA_INVALID_ARGS;
@@ -29691,7 +29691,7 @@ ma_result ma_hpf_process_pcm_frames(ma_hpf* pHPF, void* pFramesOut, const void* 
     return ma_biquad_process_pcm_frames(&pHPF->bq, pFramesOut, pFramesIn, frameCount);
 }
 
-ma_uint32 ma_hpf_get_latency(ma_hpf* pHPF)
+ma_uint32 ma_hpf2_get_latency(ma_hpf2* pHPF)
 {
     if (pHPF == NULL) {
         return 0;
