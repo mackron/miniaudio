@@ -1662,9 +1662,22 @@ typedef struct
     ma_uint32 channels;
     ma_uint32 sampleRate;
     double cutoffFrequency;
-} ma_lpf_config;
+} ma_lpf_config, ma_lpf1_config;
 
 ma_lpf_config ma_lpf_config_init(ma_format format, ma_uint32 channels, ma_uint32 sampleRate, double cutoffFrequency);
+
+typedef struct
+{
+    ma_format format;
+    ma_uint32 channels;
+    ma_biquad_coefficient a;
+    ma_biquad_coefficient r1[MA_MAX_CHANNELS];
+} ma_lpf1;
+
+ma_result ma_lpf1_init(const ma_lpf1_config* pConfig, ma_lpf1* pLPF);
+ma_result ma_lpf1_reinit(const ma_lpf1_config* pConfig, ma_lpf1* pLPF);
+ma_result ma_lpf1_process_pcm_frames(ma_lpf1* pLPF, void* pFramesOut, const void* pFramesIn, ma_uint64 frameCount);
+ma_uint32 ma_lpf1_get_latency(ma_lpf1* pLPF);
 
 typedef struct
 {
@@ -5506,6 +5519,12 @@ static MA_INLINE double ma_sin(double x)
 static MA_INLINE double ma_cos(double x)
 {
     return ma_sin((MA_PI*0.5) - x);
+}
+
+static MA_INLINE double ma_exp(double x)
+{
+    /* TODO: Implement custom exp(x). */
+    return exp(x);
 }
 
 static MA_INLINE double ma_log(double x)
@@ -29323,6 +29342,140 @@ ma_lpf_config ma_lpf_config_init(ma_format format, ma_uint32 channels, ma_uint32
 
     return config;
 }
+
+
+ma_result ma_lpf1_init(const ma_lpf1_config* pConfig, ma_lpf1* pLPF)
+{
+    if (pLPF == NULL) {
+        return MA_INVALID_ARGS;
+    }
+
+    MA_ZERO_OBJECT(pLPF);
+
+    if (pConfig == NULL) {
+        return MA_INVALID_ARGS;
+    }
+
+    return ma_lpf1_reinit(pConfig, pLPF);
+}
+
+ma_result ma_lpf1_reinit(const ma_lpf1_config* pConfig, ma_lpf1* pLPF)
+{
+    double a;
+
+    if (pLPF == NULL || pConfig == NULL) {
+        return MA_INVALID_ARGS;
+    }
+
+    /* Only supporting f32 and s16. */
+    if (pConfig->format != ma_format_f32 && pConfig->format != ma_format_s16) {
+        return MA_INVALID_ARGS;
+    }
+
+    /* The format cannot be changed after initialization. */
+    if (pLPF->format != ma_format_unknown && pLPF->format != pConfig->format) {
+        return MA_INVALID_OPERATION;
+    }
+
+    /* The channel count cannot be changed after initialization. */
+    if (pLPF->channels != 0 && pLPF->channels != pConfig->channels) {
+        return MA_INVALID_OPERATION;
+    }
+
+    pLPF->format   = pConfig->format;
+    pLPF->channels = pConfig->channels;
+
+    a = ma_exp(-2 * MA_PI_D * pConfig->cutoffFrequency / pConfig->sampleRate);
+    if (pConfig->format == ma_format_f32) {
+        pLPF->a.f32 = (float)a;
+    } else {
+        pLPF->a.s32 = ma_biquad_float_to_fp(a);
+    }
+
+    return MA_SUCCESS;
+}
+
+static MA_INLINE void ma_lpf1_process_pcm_frame_f32(ma_lpf1* pLPF, float* pY, const float* pX)
+{
+    ma_uint32 c;
+    const float a = pLPF->a.f32;
+    const float b = 1 - a;
+    
+    for (c = 0; c < pLPF->channels; c += 1) {
+        float r1 = pLPF->r1[c].f32;
+        float x  = pX[c];
+        float y;
+
+        y = b*x + a*r1;
+
+        pY[c]           = y;
+        pLPF->r1[c].f32 = y;
+    }
+}
+
+static MA_INLINE void ma_lpf1_process_pcm_frame_s16(ma_lpf1* pLPF, ma_int16* pY, const ma_int16* pX)
+{
+    ma_uint32 c;
+    const ma_int32 a = pLPF->a.s32;
+    const ma_int32 b = ((1 << MA_BIQUAD_FIXED_POINT_SHIFT) - a);
+    
+    for (c = 0; c < pLPF->channels; c += 1) {
+        ma_int32 r1 = pLPF->r1[c].s32;
+        ma_int32 x  = pX[c];
+        ma_int32 y;
+
+        y = (b*x + a*r1) >> MA_BIQUAD_FIXED_POINT_SHIFT;
+
+        pY[c]           = (ma_int16)y;
+        pLPF->r1[c].s32 = (ma_int32)y;
+    }
+}
+
+ma_result ma_lpf1_process_pcm_frames(ma_lpf1* pLPF, void* pFramesOut, const void* pFramesIn, ma_uint64 frameCount)
+{
+    ma_uint32 n;
+
+    if (pLPF == NULL || pFramesOut == NULL || pFramesIn == NULL) {
+        return MA_INVALID_ARGS;
+    }
+
+    /* Note that the logic below needs to support in-place filtering. That is, it must support the case where pFramesOut and pFramesIn are the same. */
+
+    if (pLPF->format == ma_format_f32) {
+        /* */ float* pY = (      float*)pFramesOut;
+        const float* pX = (const float*)pFramesIn;
+
+        for (n = 0; n < frameCount; n += 1) {
+            ma_lpf1_process_pcm_frame_f32(pLPF, pY, pX);
+            pY += pLPF->channels;
+            pX += pLPF->channels;
+        }
+    } else if (pLPF->format == ma_format_s16) {
+        /* */ ma_int16* pY = (      ma_int16*)pFramesOut;
+        const ma_int16* pX = (const ma_int16*)pFramesIn;
+
+        for (n = 0; n < frameCount; n += 1) {
+            ma_lpf1_process_pcm_frame_s16(pLPF, pY, pX);
+            pY += pLPF->channels;
+            pX += pLPF->channels;
+        }
+    } else {
+        MA_ASSERT(MA_FALSE);
+        return MA_INVALID_ARGS; /* Format not supported. Should never hit this because it's checked in ma_biquad_init() and ma_biquad_reinit(). */
+    }
+
+    return MA_SUCCESS;
+}
+
+ma_uint32 ma_lpf1_get_latency(ma_lpf1* pLPF)
+{
+    if (pLPF == NULL) {
+        return 0;
+    }
+
+    return 1;
+}
+
 
 static MA_INLINE ma_biquad_config ma_lpf__get_biquad_config(const ma_lpf_config* pConfig)
 {
