@@ -1733,9 +1733,23 @@ typedef struct
     ma_uint32 channels;
     ma_uint32 sampleRate;
     double cutoffFrequency;
-} ma_hpf2_config;
+} ma_hpf1_config, ma_hpf2_config;
 
+ma_hpf1_config ma_hpf1_config_init(ma_format format, ma_uint32 channels, ma_uint32 sampleRate, double cutoffFrequency);
 ma_hpf2_config ma_hpf2_config_init(ma_format format, ma_uint32 channels, ma_uint32 sampleRate, double cutoffFrequency);
+
+typedef struct
+{
+    ma_format format;
+    ma_uint32 channels;
+    ma_biquad_coefficient a;
+    ma_biquad_coefficient r1[MA_MAX_CHANNELS];
+} ma_hpf1;
+
+ma_result ma_hpf1_init(const ma_hpf1_config* pConfig, ma_hpf1* pHPF);
+ma_result ma_hpf1_reinit(const ma_hpf1_config* pConfig, ma_hpf1* pHPF);
+ma_result ma_hpf1_process_pcm_frames(ma_hpf1* pHPF, void* pFramesOut, const void* pFramesIn, ma_uint64 frameCount);
+ma_uint32 ma_hpf1_get_latency(ma_hpf1* pHPF);
 
 typedef struct
 {
@@ -29828,6 +29842,19 @@ ma_uint32 ma_lpf_get_latency(ma_lpf* pLPF)
 High-Pass Filtering
 
 **************************************************************************************************************************************************************/
+ma_hpf1_config ma_hpf1_config_init(ma_format format, ma_uint32 channels, ma_uint32 sampleRate, double cutoffFrequency)
+{
+    ma_hpf1_config config;
+    
+    MA_ZERO_OBJECT(&config);
+    config.format = format;
+    config.channels = channels;
+    config.sampleRate = sampleRate;
+    config.cutoffFrequency = cutoffFrequency;
+
+    return config;
+}
+
 ma_hpf2_config ma_hpf2_config_init(ma_format format, ma_uint32 channels, ma_uint32 sampleRate, double cutoffFrequency)
 {
     ma_hpf2_config config;
@@ -29840,6 +29867,140 @@ ma_hpf2_config ma_hpf2_config_init(ma_format format, ma_uint32 channels, ma_uint
 
     return config;
 }
+
+
+ma_result ma_hpf1_init(const ma_hpf1_config* pConfig, ma_hpf1* pHPF)
+{
+    if (pHPF == NULL) {
+        return MA_INVALID_ARGS;
+    }
+
+    MA_ZERO_OBJECT(pHPF);
+
+    if (pConfig == NULL) {
+        return MA_INVALID_ARGS;
+    }
+
+    return ma_hpf1_reinit(pConfig, pHPF);
+}
+
+ma_result ma_hpf1_reinit(const ma_hpf1_config* pConfig, ma_hpf1* pHPF)
+{
+    double a;
+
+    if (pHPF == NULL || pConfig == NULL) {
+        return MA_INVALID_ARGS;
+    }
+
+    /* Only supporting f32 and s16. */
+    if (pConfig->format != ma_format_f32 && pConfig->format != ma_format_s16) {
+        return MA_INVALID_ARGS;
+    }
+
+    /* The format cannot be changed after initialization. */
+    if (pHPF->format != ma_format_unknown && pHPF->format != pConfig->format) {
+        return MA_INVALID_OPERATION;
+    }
+
+    /* The channel count cannot be changed after initialization. */
+    if (pHPF->channels != 0 && pHPF->channels != pConfig->channels) {
+        return MA_INVALID_OPERATION;
+    }
+
+    pHPF->format   = pConfig->format;
+    pHPF->channels = pConfig->channels;
+
+    a = ma_exp(-2 * MA_PI_D * pConfig->cutoffFrequency / pConfig->sampleRate);
+    if (pConfig->format == ma_format_f32) {
+        pHPF->a.f32 = (float)a;
+    } else {
+        pHPF->a.s32 = ma_biquad_float_to_fp(a);
+    }
+
+    return MA_SUCCESS;
+}
+
+static MA_INLINE void ma_hpf1_process_pcm_frame_f32(ma_hpf1* pHPF, float* pY, const float* pX)
+{
+    ma_uint32 c;
+    const float a = 1 - pHPF->a.f32;
+    const float b = 1 - a;
+    
+    for (c = 0; c < pHPF->channels; c += 1) {
+        float r1 = pHPF->r1[c].f32;
+        float x  = pX[c];
+        float y;
+
+        y = b*x - a*r1;
+
+        pY[c]           = y;
+        pHPF->r1[c].f32 = y;
+    }
+}
+
+static MA_INLINE void ma_hpf1_process_pcm_frame_s16(ma_hpf1* pHPF, ma_int16* pY, const ma_int16* pX)
+{
+    ma_uint32 c;
+    const ma_int32 a = ((1 << MA_BIQUAD_FIXED_POINT_SHIFT) - pHPF->a.s32);
+    const ma_int32 b = ((1 << MA_BIQUAD_FIXED_POINT_SHIFT) - a);
+    
+    for (c = 0; c < pHPF->channels; c += 1) {
+        ma_int32 r1 = pHPF->r1[c].s32;
+        ma_int32 x  = pX[c];
+        ma_int32 y;
+
+        y = (b*x - a*r1) >> MA_BIQUAD_FIXED_POINT_SHIFT;
+
+        pY[c]           = (ma_int16)y;
+        pHPF->r1[c].s32 = (ma_int32)y;
+    }
+}
+
+ma_result ma_hpf1_process_pcm_frames(ma_hpf1* pHPF, void* pFramesOut, const void* pFramesIn, ma_uint64 frameCount)
+{
+    ma_uint32 n;
+
+    if (pHPF == NULL || pFramesOut == NULL || pFramesIn == NULL) {
+        return MA_INVALID_ARGS;
+    }
+
+    /* Note that the logic below needs to support in-place filtering. That is, it must support the case where pFramesOut and pFramesIn are the same. */
+
+    if (pHPF->format == ma_format_f32) {
+        /* */ float* pY = (      float*)pFramesOut;
+        const float* pX = (const float*)pFramesIn;
+
+        for (n = 0; n < frameCount; n += 1) {
+            ma_hpf1_process_pcm_frame_f32(pHPF, pY, pX);
+            pY += pHPF->channels;
+            pX += pHPF->channels;
+        }
+    } else if (pHPF->format == ma_format_s16) {
+        /* */ ma_int16* pY = (      ma_int16*)pFramesOut;
+        const ma_int16* pX = (const ma_int16*)pFramesIn;
+
+        for (n = 0; n < frameCount; n += 1) {
+            ma_hpf1_process_pcm_frame_s16(pHPF, pY, pX);
+            pY += pHPF->channels;
+            pX += pHPF->channels;
+        }
+    } else {
+        MA_ASSERT(MA_FALSE);
+        return MA_INVALID_ARGS; /* Format not supported. Should never hit this because it's checked in ma_biquad_init() and ma_biquad_reinit(). */
+    }
+
+    return MA_SUCCESS;
+}
+
+ma_uint32 ma_hpf1_get_latency(ma_hpf1* pHPF)
+{
+    if (pHPF == NULL) {
+        return 0;
+    }
+
+    return 1;
+}
+
 
 static MA_INLINE ma_biquad_config ma_hpf2__get_biquad_config(const ma_hpf2_config* pConfig)
 {
