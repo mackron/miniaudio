@@ -1,41 +1,36 @@
 
-static drwav_data_format drwav_data_format_from_noise_config(const ma_noise_config* pNoiseConfig)
-{
-    MA_ASSERT(pNoiseConfig != NULL);
-
-    return drwav_data_format_from_minaudio_format(pNoiseConfig->format, pNoiseConfig->channels, 48000);
-}
 
 ma_result test_noise__by_format_and_type(ma_format format, ma_waveform_type type, const char* pFileName)
 {
     ma_result result;
     ma_noise_config noiseConfig;
     ma_noise noise;
-    drwav_data_format wavFormat;
-    drwav wav;
+    ma_encoder_config encoderConfig;
+    ma_encoder encoder;
     ma_uint32 iFrame;
 
     printf("    %s\n", pFileName);
 
-    noiseConfig = ma_noise_config_init(format, 2, type, 0, 0.1);
+    noiseConfig = ma_noise_config_init(format, 1, type, 0, 0.1);
     result = ma_noise_init(&noiseConfig, &noise);
     if (result != MA_SUCCESS) {
         return result;
     }
 
-    wavFormat = drwav_data_format_from_noise_config(&noiseConfig);
-    if (!drwav_init_file_write(&wav, pFileName, &wavFormat, NULL)) {
-        return MA_ERROR;    /* Could not open file for writing. */
+    encoderConfig = ma_encoder_config_init(ma_resource_format_wav, format, noiseConfig.channels, 48000);
+    result = ma_encoder_init_file(pFileName, &encoderConfig, &encoder);
+    if (result != MA_SUCCESS) {
+        return result;
     }
 
     /* We'll do a few seconds of data. */
-    for (iFrame = 0; iFrame < wavFormat.sampleRate * 10; iFrame += 1) {
+    for (iFrame = 0; iFrame < encoder.config.sampleRate * 10; iFrame += 1) {
         ma_uint8 temp[1024];
         ma_noise_read_pcm_frames(&noise, temp, 1);
-        drwav_write_pcm_frames(&wav, 1, temp);
+        ma_encoder_write_pcm_frames(&encoder, temp, 1);
     }
 
-    drwav_uninit(&wav);
+    ma_encoder_uninit(&encoder);
     return MA_SUCCESS;
 }
 
@@ -45,6 +40,11 @@ ma_result test_noise__f32()
     ma_bool32 hasError = MA_FALSE;
 
     result = test_noise__by_format_and_type(ma_format_f32, ma_noise_type_white, "output/noise_f32_white.wav");
+    if (result != MA_SUCCESS) {
+        hasError = MA_TRUE;
+    }
+
+    result = test_noise__by_format_and_type(ma_format_f32, ma_noise_type_pink, "output/noise_f32_pink.wav");
     if (result != MA_SUCCESS) {
         hasError = MA_TRUE;
     }

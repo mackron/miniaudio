@@ -5162,6 +5162,7 @@ ma_result ma_waveform_set_frequency(ma_waveform* pWaveform, double frequency);
 ma_result ma_waveform_set_sample_rate(ma_waveform* pWaveform, ma_uint32 sampleRate);
 
 
+
 typedef struct
 {
     ma_int32 state;
@@ -5170,6 +5171,7 @@ typedef struct
 typedef enum
 {
     ma_noise_type_white,
+    ma_noise_type_pink
 } ma_noise_type;
 
 typedef struct
@@ -5188,6 +5190,15 @@ typedef struct
 {
     ma_noise_config config;
     ma_lcg lcg;
+    union
+    {
+        struct
+        {
+            double bin[MA_MAX_CHANNELS][16];
+            double accumulation[MA_MAX_CHANNELS];
+            ma_uint32 counter[MA_MAX_CHANNELS];
+        } pink;
+    } state;
 } ma_noise;
 
 ma_result ma_noise_init(const ma_noise_config* pConfig, ma_noise* pNoise);
@@ -40661,6 +40672,14 @@ ma_result ma_noise_init(const ma_noise_config* pConfig, ma_noise* pNoise)
     pNoise->config = *pConfig;
     ma_lcg_seed(&pNoise->lcg, pConfig->seed);
 
+    if (pNoise->config.type == ma_noise_type_pink) {
+        ma_uint32 iChannel;
+        for (iChannel = 0; iChannel < pConfig->channels; iChannel += 1) {
+            pNoise->state.pink.accumulation[iChannel] = 0;
+            pNoise->state.pink.counter[iChannel]      = 1;
+        }
+    }
+
     return MA_SUCCESS;
 }
 
@@ -40677,7 +40696,7 @@ static MA_INLINE ma_int16 ma_noise_s16_white(ma_noise* pNoise)
 static MA_INLINE ma_uint64 ma_noise_read_pcm_frames__white(ma_noise* pNoise, void* pFramesOut, ma_uint64 frameCount)
 {
     ma_uint64 iFrame;
-    ma_uint64 iChannel;
+    ma_uint32 iChannel;
 
     if (pNoise->config.format == ma_format_f32) {
         float* pFramesOutF32 = (float*)pFramesOut;
@@ -40735,6 +40754,115 @@ static MA_INLINE ma_uint64 ma_noise_read_pcm_frames__white(ma_noise* pNoise, voi
     return frameCount;
 }
 
+
+/*
+TODO: Optimize this:
+    x86/64: TZCNT
+*/
+static MA_INLINE unsigned int ma_tzcnt32(unsigned int x)
+{
+    unsigned int i;
+
+    i = 0;
+    while (((x >> i) & 0x1) == 0 && i < (sizeof(unsigned long) * 8)) {
+        i += 1;
+    }
+
+    return i;
+}
+
+/*
+Pink noise generation based on Tonic (public domain) with modifications. https://github.com/TonicAudio/Tonic/blob/master/src/Tonic/Noise.h
+
+This is basically _the_ reference for pink noise from what I've found: http://www.firstpr.com.au/dsp/pink-noise/
+*/
+static MA_INLINE float ma_noise_f32_pink(ma_noise* pNoise, ma_uint32 iChannel)
+{
+    double result;
+    double binPrev;
+    double binNext;
+    unsigned int ibin;
+
+    ibin = ma_tzcnt32(pNoise->state.pink.counter[iChannel]) & (ma_countof(pNoise->state.pink.bin[0]) - 1);
+
+    binPrev = pNoise->state.pink.bin[iChannel][ibin];
+    binNext = ma_lcg_rand_f64(&pNoise->lcg);
+    pNoise->state.pink.bin[iChannel][ibin] = binNext;
+
+    pNoise->state.pink.accumulation[iChannel] += (binNext - binPrev);
+    pNoise->state.pink.counter[iChannel]      += 1;
+
+    result = (ma_lcg_rand_f64(&pNoise->lcg) + pNoise->state.pink.accumulation[iChannel]) / 10;
+
+    return (float)(result * pNoise->config.amplitude);
+}
+
+static MA_INLINE ma_int16 ma_noise_s16_pink(ma_noise* pNoise, ma_uint32 iChannel)
+{
+    return ma_pcm_sample_f32_to_s16(ma_noise_f32_pink(pNoise, iChannel));
+}
+
+static MA_INLINE ma_uint64 ma_noise_read_pcm_frames__pink(ma_noise* pNoise, void* pFramesOut, ma_uint64 frameCount)
+{
+    ma_uint64 iFrame;
+    ma_uint32 iChannel;
+
+    if (pNoise->config.format == ma_format_f32) {
+        float* pFramesOutF32 = (float*)pFramesOut;
+        if (pNoise->config.duplicateChannels) {
+            for (iFrame = 0; iFrame < frameCount; iFrame += 1) {
+                float s = ma_noise_f32_pink(pNoise, 0);
+                for (iChannel = 0; iChannel < pNoise->config.channels; iChannel += 1) {
+                    pFramesOutF32[iFrame*pNoise->config.channels + iChannel] = s;
+                }
+            }
+        } else {
+            for (iFrame = 0; iFrame < frameCount; iFrame += 1) {
+                for (iChannel = 0; iChannel < pNoise->config.channels; iChannel += 1) {
+                    pFramesOutF32[iFrame*pNoise->config.channels + iChannel] = ma_noise_f32_pink(pNoise, iChannel);
+                }
+            }
+        }
+    } else if (pNoise->config.format == ma_format_s16) {
+        ma_int16* pFramesOutS16 = (ma_int16*)pFramesOut;
+        if (pNoise->config.duplicateChannels) {
+            for (iFrame = 0; iFrame < frameCount; iFrame += 1) {
+                ma_int16 s = ma_noise_s16_pink(pNoise, 0);
+                for (iChannel = 0; iChannel < pNoise->config.channels; iChannel += 1) {
+                    pFramesOutS16[iFrame*pNoise->config.channels + iChannel] = s;
+                }
+            }
+        } else {
+            for (iFrame = 0; iFrame < frameCount; iFrame += 1) {
+                for (iChannel = 0; iChannel < pNoise->config.channels; iChannel += 1) {
+                    pFramesOutS16[iFrame*pNoise->config.channels + iChannel] = ma_noise_s16_pink(pNoise, iChannel);
+                }
+            }
+        }
+    } else {
+        ma_uint32 bps = ma_get_bytes_per_sample(pNoise->config.format);
+        ma_uint32 bpf = bps * pNoise->config.channels;
+        
+        if (pNoise->config.duplicateChannels) {
+            for (iFrame = 0; iFrame < frameCount; iFrame += 1) {
+                float s = ma_noise_f32_pink(pNoise, 0);
+                for (iChannel = 0; iChannel < pNoise->config.channels; iChannel += 1) {
+                    ma_pcm_convert(ma_offset_ptr(pFramesOut, iFrame*bpf + iChannel*bps), pNoise->config.format, &s, ma_format_f32, 1, ma_dither_mode_none);
+                }
+            }
+        } else {
+            for (iFrame = 0; iFrame < frameCount; iFrame += 1) {
+                for (iChannel = 0; iChannel < pNoise->config.channels; iChannel += 1) {
+                    float s = ma_noise_f32_pink(pNoise, iChannel);
+                    ma_pcm_convert(ma_offset_ptr(pFramesOut, iFrame*bpf + iChannel*bps), pNoise->config.format, &s, ma_format_f32, 1, ma_dither_mode_none);
+                }
+            }
+        }
+    }
+
+    return frameCount;
+}
+
 ma_uint64 ma_noise_read_pcm_frames(ma_noise* pNoise, void* pFramesOut, ma_uint64 frameCount)
 {
     if (pNoise == NULL) {
@@ -40743,6 +40871,10 @@ ma_uint64 ma_noise_read_pcm_frames(ma_noise* pNoise, void* pFramesOut, ma_uint64
 
     if (pNoise->config.type == ma_noise_type_white) {
         return ma_noise_read_pcm_frames__white(pNoise, pFramesOut, frameCount);
+    }
+
+    if (pNoise->config.type == ma_noise_type_pink) {
+        return ma_noise_read_pcm_frames__pink(pNoise, pFramesOut, frameCount);
     }
 
     /* Should never get here. */
