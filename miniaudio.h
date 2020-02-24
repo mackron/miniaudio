@@ -31096,10 +31096,6 @@ ma_peak2_config ma_peak2_config_init(ma_format format, ma_uint32 channels, ma_ui
     config.q          = q;
     config.frequency  = frequency;
 
-    if (config.gainDB == 0) {
-        config.gainDB = 6;
-    }
-
     if (config.q == 0) {
         config.q = 0.707107;
     }
@@ -31228,10 +31224,6 @@ ma_loshelf2_config ma_loshelf2_config_init(ma_format format, ma_uint32 channels,
     config.shelfSlope = shelfSlope;
     config.frequency  = frequency;
 
-    if (config.gainDB == 0) {
-        config.gainDB = 6;
-    }
-
     return config;
 }
 
@@ -31357,10 +31349,6 @@ ma_hishelf2_config ma_hishelf2_config_init(ma_format format, ma_uint32 channels,
     config.gainDB     = gainDB;
     config.shelfSlope = shelfSlope;
     config.frequency  = frequency;
-
-    if (config.gainDB == 0) {
-        config.gainDB = 6;
-    }
 
     return config;
 }
