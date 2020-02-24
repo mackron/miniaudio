@@ -988,15 +988,15 @@ Filtering can be applied in-place by passing in the same pointer for both the in
     ```
 
 If you need to change the values of the coefficients, but maintain the values in the registers you can do so with `ma_biquad_reinit()`. This is useful if you
-need to change the properties of the filter while keeping the values of registers valid to avoid glitching or whatnot. Do not use `ma_biquad_init()` for this
-as it will do a full initialization which involves clearing the registers to 0. Note that changing the format or channel count after initialization is invalid
-and will result in an error.
+need to change the properties of the filter while keeping the values of registers valid to avoid glitching. Do not use `ma_biquad_init()` for this as it will
+do a full initialization which involves clearing the registers to 0. Note that changing the format or channel count after initialization is invalid and will
+result in an error.
 
 
 
 Low-Pass, High-Pass and Band-Pass Filtering
 ===========================================
-Low-pass, high-pass and band-pass filtering is achieved with the `ma_lpf`, `ma_hpf` and `ma_bpf` APIs respective. Low-pass filter example:
+Low-pass, high-pass and band-pass filtering is achieved with the `ma_lpf`, `ma_hpf` and `ma_bpf` APIs respectively. Low-pass filter example:
 
     ```c
     ma_lpf_config config = ma_lpf_config_init(ma_format_f32, channels, sampleRate, cutoffFrequency, poles);
@@ -1035,7 +1035,7 @@ The example code above is for low-pass filters, but the same applies for high-pa
 instead.
 
 The `ma_lpf`, `ma_hpf` and `ma_bpf` objects support a configurable number of poles, but if you only need a 1-pole filter you may want to consider using
-`ma_lpf1`, `ma_hpf1` and `ma_bpf1`. Likewise, if you only need to a 2-pole filter you can use `ma_lpf2`, `ma_hpf2` and `ma_bpf2`. The advantage of this is that
+`ma_lpf1`, `ma_hpf1` and `ma_bpf1`. Likewise, if you only need a 2-pole filter you can use `ma_lpf2`, `ma_hpf2` and `ma_bpf2`. The advantage of this is that
 they're lighter weight and a bit more efficient.
 
 If an even number of poles are specified, a series of 2-pole filters will be processed in a chain. If an odd number of poles are specified, a series of 2-pole
