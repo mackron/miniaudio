@@ -19,7 +19,7 @@ ma_result test_notch2__by_format(const char* pInputFilePath, const char* pOutput
         return result;
     }
 
-    notchConfig = ma_notch2_config_init(decoder.outputFormat, decoder.outputChannels, decoder.outputSampleRate, 0, 2000);
+    notchConfig = ma_notch2_config_init(decoder.outputFormat, decoder.outputChannels, decoder.outputSampleRate, 1, 60);
     result = ma_notch2_init(&notchConfig, &notch);
     if (result != MA_SUCCESS) {
         ma_decoder_uninit(&decoder);
