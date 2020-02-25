@@ -143,9 +143,9 @@ waveform you want to generated via the `ma_waveform_config` object which you can
 
 Noise Generation
 ----------------
-A noise generation API has been added. This is used via the `ma_noise` API. Currently white and pink noise is supported. The `ma_noise` API is similar to the
-waveform API. Use `ma_noise_config_init()` to initialize a config object, and then pass it into `ma_noise_init()` to initialize a `ma_noise` object. Then use
-`ma_noise_read_pcm_frames()` to read PCM data.
+A noise generation API has been added. This is used via the `ma_noise` API. Currently white, pink and brownian noise is supported. The `ma_noise` API is
+similar to the waveform API. Use `ma_noise_config_init()` to initialize a config object, and then pass it into `ma_noise_init()` to initialize a `ma_noise`
+object. Then use `ma_noise_read_pcm_frames()` to read PCM data.
 
 
 Miscellaneous Changes
@@ -1085,7 +1085,7 @@ Below are the supported waveform types:
 
 Noise
 -----
-miniaudio supports generation of white and pink noise via the `ma_noise` API. Example:
+miniaudio supports generation of white, pink and brownian noise via the `ma_noise` API. Example:
 
     ```c
     ma_noise_config config = ma_noise_config_init(FORMAT, CHANNELS, ma_noise_type_white, SEED, amplitude);
@@ -1113,12 +1113,13 @@ side. To instead have each channel use the same random value, set the `duplicate
 
 Below are the supported noise types.
 
-    |-----------------------|
-    | Enum Name             |
-    |-----------------------|
-    | ma_noise_type_white   |
-    | ma_noise_type_pink    |
-    |-----------------------|
+    |------------------------|
+    | Enum Name              |
+    |------------------------|
+    | ma_noise_type_white    |
+    | ma_noise_type_pink     |
+    | ma_noise_type_brownian |
+    |------------------------|
 
 
 
