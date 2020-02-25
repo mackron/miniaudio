@@ -49,6 +49,11 @@ ma_result test_noise__f32()
         hasError = MA_TRUE;
     }
 
+    result = test_noise__by_format_and_type(ma_format_f32, ma_noise_type_brownian, "output/noise_f32_brownian.wav");
+    if (result != MA_SUCCESS) {
+        hasError = MA_TRUE;
+    }
+
     if (hasError) {
         return MA_ERROR;
     } else {
@@ -66,6 +71,16 @@ ma_result test_noise__s16()
         hasError = MA_TRUE;
     }
 
+    result = test_noise__by_format_and_type(ma_format_s16, ma_noise_type_pink, "output/noise_s16_pink.wav");
+    if (result != MA_SUCCESS) {
+        hasError = MA_TRUE;
+    }
+
+    result = test_noise__by_format_and_type(ma_format_s16, ma_noise_type_brownian, "output/noise_s16_brownian.wav");
+    if (result != MA_SUCCESS) {
+        hasError = MA_TRUE;
+    }
+
     if (hasError) {
         return MA_ERROR;
     } else {
@@ -79,6 +94,16 @@ ma_result test_noise__u8()
     ma_bool32 hasError = MA_FALSE;
 
     result = test_noise__by_format_and_type(ma_format_u8, ma_noise_type_white, "output/noise_u8_white.wav");
+    if (result != MA_SUCCESS) {
+        hasError = MA_TRUE;
+    }
+
+    result = test_noise__by_format_and_type(ma_format_u8, ma_noise_type_pink, "output/noise_u8_pink.wav");
+    if (result != MA_SUCCESS) {
+        hasError = MA_TRUE;
+    }
+
+    result = test_noise__by_format_and_type(ma_format_u8, ma_noise_type_brownian, "output/noise_u8_brownian.wav");
     if (result != MA_SUCCESS) {
         hasError = MA_TRUE;
     }

@@ -5190,7 +5190,8 @@ typedef struct
 typedef enum
 {
     ma_noise_type_white,
-    ma_noise_type_pink
+    ma_noise_type_pink,
+    ma_noise_type_brownian
 } ma_noise_type;
 
 typedef struct
@@ -5217,6 +5218,10 @@ typedef struct
             double accumulation[MA_MAX_CHANNELS];
             ma_uint32 counter[MA_MAX_CHANNELS];
         } pink;
+        struct
+        {
+            double accumulation[MA_MAX_CHANNELS];
+        } brownian;
     } state;
 } ma_noise;
 
@@ -40699,6 +40704,13 @@ ma_result ma_noise_init(const ma_noise_config* pConfig, ma_noise* pNoise)
         }
     }
 
+    if (pNoise->config.type == ma_noise_type_brownian) {
+        ma_uint32 iChannel;
+        for (iChannel = 0; iChannel < pConfig->channels; iChannel += 1) {
+            pNoise->state.brownian.accumulation[iChannel] = 0;
+        }
+    }
+
     return MA_SUCCESS;
 }
 
@@ -40811,7 +40823,8 @@ static MA_INLINE float ma_noise_f32_pink(ma_noise* pNoise, ma_uint32 iChannel)
     pNoise->state.pink.accumulation[iChannel] += (binNext - binPrev);
     pNoise->state.pink.counter[iChannel]      += 1;
 
-    result = (ma_lcg_rand_f64(&pNoise->lcg) + pNoise->state.pink.accumulation[iChannel]) / 10;
+    result = (ma_lcg_rand_f64(&pNoise->lcg) + pNoise->state.pink.accumulation[iChannel]);
+    result /= 10;
 
     return (float)(result * pNoise->config.amplitude);
 }
@@ -40882,6 +40895,86 @@ static MA_INLINE ma_uint64 ma_noise_read_pcm_frames__pink(ma_noise* pNoise, void
     return frameCount;
 }
 
+
+static MA_INLINE float ma_noise_f32_brownian(ma_noise* pNoise, ma_uint32 iChannel)
+{
+    double result;
+    
+    result = (ma_lcg_rand_f64(&pNoise->lcg) + pNoise->state.brownian.accumulation[iChannel]);
+    result /= 1.005; /* Don't escape the -1..1 range on average. */
+
+    pNoise->state.brownian.accumulation[iChannel] = result;
+    result /= 20;
+
+    return (float)(result * pNoise->config.amplitude);
+}
+
+static MA_INLINE ma_int16 ma_noise_s16_brownian(ma_noise* pNoise, ma_uint32 iChannel)
+{
+    return ma_pcm_sample_f32_to_s16(ma_noise_f32_brownian(pNoise, iChannel));
+}
+
+static MA_INLINE ma_uint64 ma_noise_read_pcm_frames__brownian(ma_noise* pNoise, void* pFramesOut, ma_uint64 frameCount)
+{
+    ma_uint64 iFrame;
+    ma_uint32 iChannel;
+
+    if (pNoise->config.format == ma_format_f32) {
+        float* pFramesOutF32 = (float*)pFramesOut;
+        if (pNoise->config.duplicateChannels) {
+            for (iFrame = 0; iFrame < frameCount; iFrame += 1) {
+                float s = ma_noise_f32_brownian(pNoise, 0);
+                for (iChannel = 0; iChannel < pNoise->config.channels; iChannel += 1) {
+                    pFramesOutF32[iFrame*pNoise->config.channels + iChannel] = s;
+                }
+            }
+        } else {
+            for (iFrame = 0; iFrame < frameCount; iFrame += 1) {
+                for (iChannel = 0; iChannel < pNoise->config.channels; iChannel += 1) {
+                    pFramesOutF32[iFrame*pNoise->config.channels + iChannel] = ma_noise_f32_brownian(pNoise, iChannel);
+                }
+            }
+        }
+    } else if (pNoise->config.format == ma_format_s16) {
+        ma_int16* pFramesOutS16 = (ma_int16*)pFramesOut;
+        if (pNoise->config.duplicateChannels) {
+            for (iFrame = 0; iFrame < frameCount; iFrame += 1) {
+                ma_int16 s = ma_noise_s16_brownian(pNoise, 0);
+                for (iChannel = 0; iChannel < pNoise->config.channels; iChannel += 1) {
+                    pFramesOutS16[iFrame*pNoise->config.channels + iChannel] = s;
+                }
+            }
+        } else {
+            for (iFrame = 0; iFrame < frameCount; iFrame += 1) {
+                for (iChannel = 0; iChannel < pNoise->config.channels; iChannel += 1) {
+                    pFramesOutS16[iFrame*pNoise->config.channels + iChannel] = ma_noise_s16_brownian(pNoise, iChannel);
+                }
+            }
+        }
+    } else {
+        ma_uint32 bps = ma_get_bytes_per_sample(pNoise->config.format);
+        ma_uint32 bpf = bps * pNoise->config.channels;
+        
+        if (pNoise->config.duplicateChannels) {
+            for (iFrame = 0; iFrame < frameCount; iFrame += 1) {
+                float s = ma_noise_f32_brownian(pNoise, 0);
+                for (iChannel = 0; iChannel < pNoise->config.channels; iChannel += 1) {
+                    ma_pcm_convert(ma_offset_ptr(pFramesOut, iFrame*bpf + iChannel*bps), pNoise->config.format, &s, ma_format_f32, 1, ma_dither_mode_none);
+                }
+            }
+        } else {
+            for (iFrame = 0; iFrame < frameCount; iFrame += 1) {
+                for (iChannel = 0; iChannel < pNoise->config.channels; iChannel += 1) {
+                    float s = ma_noise_f32_brownian(pNoise, iChannel);
+                    ma_pcm_convert(ma_offset_ptr(pFramesOut, iFrame*bpf + iChannel*bps), pNoise->config.format, &s, ma_format_f32, 1, ma_dither_mode_none);
+                }
+            }
+        }
+    }
+
+    return frameCount;
+}
+
 ma_uint64 ma_noise_read_pcm_frames(ma_noise* pNoise, void* pFramesOut, ma_uint64 frameCount)
 {
     if (pNoise == NULL) {
@@ -40894,6 +40987,10 @@ ma_uint64 ma_noise_read_pcm_frames(ma_noise* pNoise, void* pFramesOut, ma_uint64
 
     if (pNoise->config.type == ma_noise_type_pink) {
         return ma_noise_read_pcm_frames__pink(pNoise, pFramesOut, frameCount);
+    }
+
+    if (pNoise->config.type == ma_noise_type_brownian) {
+        return ma_noise_read_pcm_frames__brownian(pNoise, pFramesOut, frameCount);
     }
 
     /* Should never get here. */
