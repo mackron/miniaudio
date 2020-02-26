@@ -1029,8 +1029,11 @@ input rate and the output rate with `ma_data_converter_get_input_latency()` and 
 
 
 
+Filtering
+=========
+
 Biquad Filtering
-================
+----------------
 Biquad filtering is achieved with the `ma_biquad` API. Example:
 
     ```c
@@ -1065,12 +1068,21 @@ do a full initialization which involves clearing the registers to 0. Note that c
 result in an error.
 
 
+Low-Pass Filtering
+------------------
+Low-pass filter is achieved with the following APIs:
 
-Low-Pass, High-Pass and Band-Pass Filtering
-===========================================
-Low-pass, high-pass and band-pass filtering is achieved with the `ma_lpf`, `ma_hpf` and `ma_bpf` APIs respectively. Low-pass filter example:
+    |---------|-----------------------------------------|
+    | API     | Description                             |
+    |---------|-----------------------------------------|
+    | ma_lpf1 | First order low-pass filter             |
+    | ma_lpf2 | Second order low-pass filter            |
+    | ma_lpf  | Low-pass filter with configurable order |
+    |---------|-----------------------------------------|
 
-    ```c
+Low-pass filter example:
+
+     ```c
     ma_lpf_config config = ma_lpf_config_init(ma_format_f32, channels, sampleRate, cutoffFrequency, poles);
     ma_result result = ma_lpf_init(&config, &lpf);
     if (result != MA_SUCCESS) {
@@ -1103,15 +1115,93 @@ If you need to change the configuration of the filter, but need to maintain the 
 useful if you need to change the sample rate and/or cutoff frequency dynamically while maintaing smooth transitions. Note that changing the format or channel
 count after initialization is invalid and will result in an error.
 
-The example code above is for low-pass filters, but the same applies for high-pass and band-pass filters, only you should use the `ma_hpf` and `ma_bpf` APIs
-instead.
-
-The `ma_lpf`, `ma_hpf` and `ma_bpf` objects support a configurable number of poles, but if you only need a 1-pole filter you may want to consider using
-`ma_lpf1`, `ma_hpf1` and `ma_bpf1`. Likewise, if you only need a 2-pole filter you can use `ma_lpf2`, `ma_hpf2` and `ma_bpf2`. The advantage of this is that
-they're lighter weight and a bit more efficient.
+The `ma_lpf` object supports a configurable number of poles, but if you only need a 1-pole filter you may want to consider using `ma_lpf1`. Likewise, if you
+only need a 2-pole filter you can use `ma_lpf2`. The advantage of this is that they're lighter weight and a bit more efficient.
 
 If an even number of poles are specified, a series of 2-pole filters will be processed in a chain. If an odd number of poles are specified, a series of 2-pole
-filters will be processed in a chain, followed by a final 1-pole filter. Note that the pole count for band-pass filters must be an even number.
+filters will be processed in a chain, followed by a final 1-pole filter.
+
+
+High-Pass Filtering
+-------------------
+High-pass filtering is achieved with the following APIs:
+
+    |---------|------------------------------------------|
+    | API     | Description                              |
+    |---------|------------------------------------------|
+    | ma_hpf1 | First order high-pass filter             |
+    | ma_hpf2 | Second order high-pass filter            |
+    | ma_hpf  | High-pass filter with configurable order |
+    |---------|------------------------------------------|
+
+High-pass filters work exactly the same as low-pass filters, only the APIs are called `ma_hpf1`, `ma_hpf2` and `ma_hpf`. See example code for low-pass filters
+for example usage.
+
+
+Band-Pass Filtering
+-------------------
+Band-pass filtering is achieved with the following APIs:
+
+    |---------|------------------------------------------|
+    | API     | Description                              |
+    |---------|------------------------------------------|
+    | ma_bpf2 | Second order band-pass filter            |
+    | ma_bpf  | Band-pass filter with configurable order |
+    |---------|------------------------------------------|
+
+Band-pass filters work exactly the same as low-pass filters, only the APIs are called `ma_bpf2` and `ma_hpf`. See example code for low-pass filters for example
+usage. Note that the order for band-pass filters must be an even number which means there is no first order band-pass filter, unlike low-pass and high-pass
+filters.
+
+
+Notch Filtering
+---------------
+Notch filtering is achieved with the following APIs:
+
+    |-----------|------------------------------------------|
+    | API       | Description                              |
+    |-----------|------------------------------------------|
+    | ma_notch2 | Second order notching filter             |
+    |-----------|------------------------------------------|
+
+
+Peaking EQ Filtering
+--------------------
+Peaking filtering is achieved with the following APIs:
+
+    |----------|------------------------------------------|
+    | API      | Description                              |
+    |----------|------------------------------------------|
+    | ma_peak2 | Second order peaking filter              |
+    |----------|------------------------------------------|
+
+
+Low Shelf Filtering
+-------------------
+Low shelf filtering is achieved with the following APIs:
+
+    |-------------|------------------------------------------|
+    | API         | Description                              |
+    |-------------|------------------------------------------|
+    | ma_loshelf2 | Second order low shelf filter            |
+    |-------------|------------------------------------------|
+
+Where a high-pass filter is used to eliminate lower frequencies, a low shelf filter can be used to just turn them down rather than eliminate them entirely.
+
+
+High Shelf Filtering
+--------------------
+High shelf filtering is achieved with the following APIs:
+
+    |-------------|------------------------------------------|
+    | API         | Description                              |
+    |-------------|------------------------------------------|
+    | ma_hishelf2 | Second order high shelf filter           |
+    |-------------|------------------------------------------|
+
+The high shelf filter has the same API as the low shelf filter, only you would use `ma_hishelf` instead of `ma_loshelf`. Where a low shelf filter is used to
+adjust the volume of low frequencies, the high pass filter does the same thing for high frequencies.
+
 
 
 
