@@ -620,6 +620,64 @@ The `ma_decoder_init_file()` API will try using the file extension to determine 
 
 
 
+Encoding
+========
+The `ma_encoding` API is used for writing audio files. To enable an encoder you must #include the header of the relevant backend library before the
+implementation of miniaudio. You can find copies of these in the "extras" folder in the miniaudio repository (https://github.com/dr-soft/miniaudio).
+
+The table below are the supported encoding backends:
+
+    |--------|-----------------|
+    | Type   | Backend Library |
+    |--------|-----------------|
+    | WAV    | dr_wav.h        |
+    |--------|-----------------|
+
+The code below is an example of how to enable encoding backends:
+
+    ```c
+    #include "dr_wav.h"     // Enables WAV decoding.
+
+    #define MINIAUDIO_IMPLEMENTATION
+    #include "miniaudio.h"
+    ```
+
+An encoder can be initialized to write to a file with `ma_encoder_init_file()` or from data delivered via callbacks with `ma_encoder_init()`. Below is an
+example for initializing an encoder to output to a file.
+
+    ```c
+    ma_encoder_config config = ma_encoder_config_init(ma_resource_format_wav, FORMAT, CHANNELS, SAMPLE_RATE);
+    ma_encoder encoder;
+    ma_result result = ma_encoder_init_file("my_file.wav", &config, &encoder);
+    if (result != MA_SUCCESS) {
+        // Error
+    }
+
+    ...
+
+    ma_encoder_uninit(&encoder);
+    ```
+
+When initializing an encoder you must specify a config which is initialized with `ma_encoder_config_init()`. Here you must specify the file type, the output
+sample format, output channel count and output sample rate. The following file types are supported:
+
+    |------------------------|-------------|
+    | Enum                   | Description |
+    |------------------------|-------------|
+    | ma_resource_format_wav | WAV         |
+    |------------------------|-------------|
+
+If the format, channel count or sample rate is not supported by the output file type and error will be returned. The encoder will not perform data conversion
+so you will need to convert that before outputting any audio data. To output audio data, use `ma_encoder_write_pcm_frames()`, like in the example below:
+
+    ```c
+    framesWritten = ma_encoder_write_pcm_frames(&encoder, pPCMFramesToWrite, framesToWrite);
+    ```
+
+Encoders must be uninitialized with `ma_encoder_uninit()`.
+
+
+
 Sample Format Conversion
 ========================
 Conversion between sample formats is achieved with the `ma_pcm_*_to_*()`, `ma_pcm_convert()` and `ma_convert_pcm_frames_format()` APIs. Use `ma_pcm_*_to_*()`
