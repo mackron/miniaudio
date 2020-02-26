@@ -15,7 +15,7 @@ Features
 - Supports playback, capture, full-duplex and loopback (WASAPI only).
 - Device enumeration for connecting to specific devices, not just defaults.
 - Connect to multiple devices at once.
-- Supports shared and exclusive mode on supported backends.
+- Shared and exclusive mode on supported backends.
 - Backend-specific configuration options.
 - Device capability querying.
 - Automatic data conversion between your application and the internal device.
@@ -24,16 +24,32 @@ Features
 - Resampling with support for multiple algorithms.
   - Simple linear resampling with anti-aliasing.
   - Optional Speex resampling (must opt-in).
-- Biquad filter.
-- Low-pass, high-pass and band-pass filters.
-- Sine, square, triangle and sawtooth waveform generation.
-- White noise generation.
-- Lock free ring buffer (single producer, single consumer).
-- Decoding
+- Filters.
+  - Biquad
+  - Low-pass (first and second order)
+  - High-pass (first and second order)
+  - Second order band-pass
+  - Second order notch
+  - Second order peaking
+  - Second order low shelf
+  - Second order high shelf
+- Waveform generation.
+  - Sine
+  - Square
+  - Triangle
+  - Sawtooth
+- Noise generation.
+  - White
+  - Pink
+  - Brownian
+- Decoding (requires external single-file libraries).
   - WAV via dr_wav
   - FLAC via dr_flac
   - MP3 via dr_mp3
   - Vorbis via stb_vorbis
+- Encoding (requires external single-file libraries).
+  - WAV via dr_wav
+- Lock free ring buffer (single producer, single consumer).
 
 
 Supported Platforms
