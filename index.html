@@ -196,7 +196,7 @@ a:hover {
 		</div>
 	
         <div style="background-color:#fff; padding-bottom:1em; border-top:solid 1px #333; background-color:#eee;">
-            <div class="feature-header" style="padding-top:1em;">More Features</div>
+            <div class="feature-header" style="padding-top:1em;">Features</div>
             <table style="margin:0 auto; text-align:center; width:75%; margin-top:0em; font-size:12pt;">
                 <tr>
                     <td style="width:50%; vertical-align:top; text-align:left; padding:2em;">
@@ -204,7 +204,7 @@ a:hover {
 							<li>Supports playback, capture, full-duplex and loopback (WASAPI only).</li>
                             <li>Device enumeration for connecting to specific devices, not just defaults.</li>
                             <li>Connect to multiple devices at once.</li>
-                            <li>Supports shared and exclusive mode on supported backends.</li>
+                            <li>Shared and exclusive mode on supported backends.</li>
                             <li>Backend-specific configuration options.</li>
                             <li>Device capability querying.</li>
                             <li>Automatic data conversion between your application and the internal device.</li>
@@ -216,12 +216,34 @@ a:hover {
                                     <li>Optional Speex resampling (must opt-in).</li>
                                 </ul>
                             </li>
-                            <li>Biquad filter.</li>
-                            <li>Low-pass, high-pass and band-pass filters.</li>
-                            <li>Sine, square, triangle and sawtooth waveform generation.</li>
-                            <li>White noise generation.</li>
-                            <li>Lock free ring buffer (single producer, single consumer).</li>
-                            <li>Decoding
+                            <li>Filters.
+                                <ul>
+                                    <li>Biquad</li>
+                                    <li>Low-pass (first and second order)</li>
+                                    <li>High-pass (first and second order)</li>
+                                    <li>Second order band-pass</li>
+                                    <li>Second order notch</li>
+                                    <li>Second order peaking</li>
+                                    <li>Second order low shelf</li>
+                                    <li>Second order high shelf</li>
+                                </ul>
+                            </li>
+                            <li>Waveform generation.
+                                <ul>
+                                    <li>Sine</li>
+                                    <li>Square</li>
+                                    <li>Triangle</li>
+                                    <li>Sawtooth</li>
+                                </ul>
+                            </li>
+                            <li>Noise generation.
+                                <ul>
+                                    <li>White</li>
+                                    <li>Pink</li>
+                                    <li>Brownian</li>
+                                </ul>
+                            </li>
+                            <li>Decoding (requires external single-file libraries).
                                 <ul>
                                     <li>WAV via dr_wav</li>
                                     <li>FLAC via dr_flac</li>
@@ -229,6 +251,12 @@ a:hover {
                                     <li>Vorbis via stb_vorbis</li>
                                 </ul>
                             </li>
+                            <li>Encoding (requires external single-file libraries)
+                                <ul>
+                                    <li>WAV via dr_wav</li>
+                                </ul>
+                            </li>
+                            <li>Lock free ring buffer (single producer, single consumer).</li>
                         </ul>
                     </td>
                     <td style="width:50%; vertical-align:top; text-align:left; padding:2em;">
