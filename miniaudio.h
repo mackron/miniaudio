@@ -1,6 +1,6 @@
 /*
 Audio playback and capture library. Choice of public domain or MIT-0. See license statements at the end of this file.
-miniaudio (formerly mini_al) - v0.xx.xx - 2020-xx-xx
+miniaudio - v0.10.xx - TBD
 
 David Reid - davidreidsoftware@gmail.com
 
@@ -113,8 +113,8 @@ Use `ma_waveform_read_pcm_frames()` in place of `ma_sine_wave_read_f32()` and `m
 
 `ma_convert_frames()` and `ma_convert_frames_ex()` have been changed. Both of these functions now take a new parameter called `frameCountOut` which specifies
 the size of the output buffer in PCM frames. This has been added for safety. In addition to this, the parameters for `ma_convert_frames_ex()` have changed to
-take a pointer to a `ma_data_converter_config` object to specify the input and output formats to convert between. This was done to make it make it more
-flexible, to prevent the parameter list getting too long, and to prevent API breakage whenever a new conversion property is added.
+take a pointer to a `ma_data_converter_config` object to specify the input and output formats to convert between. This was done to make it more flexible, to
+prevent the parameter list getting too long, and to prevent API breakage whenever a new conversion property is added.
 
 `ma_calculate_frame_count_after_src()` has been renamed to `ma_calculate_frame_count_after_resampling()` for consistency with the new `ma_resampler` API.
 
@@ -41304,8 +41304,66 @@ The following miscellaneous changes have also been made.
 /*
 REVISION HISTORY
 ================
-v0.xx.xx - 2020-xx-xx
+v0.10.xx - TBD
+  - API CHANGE: Refactor data conversion APIs
+    - ma_format_converter has been removed. Use ma_convert_pcm_frames_format() instead.
+    - ma_channel_router has been replaced with ma_channel_converter.
+    - ma_src has been replaced with ma_resampler
+    - ma_pcm_converter has been replaced with ma_data_converter
+  - API CHANGE: Add support for custom memory allocation callbacks. The following APIs have been update to take an extra parameter for the allocation
+    callbacks:
+    - ma_malloc()
+    - ma_realloc()
+    - ma_free()
+    - ma_aligned_malloc()
+    - ma_aligned_free()
+    - ma_rb_init() / ma_rb_init_ex()
+    - ma_pcm_rb_init() / ma_pcm_rb_init_ex()
+  - API CHANGE: Simplify latency specification in device configurations. The bufferSizeInFrames and bufferSizeInMilliseconds parameters have been replaced with
+    periodSizeInFrames and periodSizeInMilliseconds respectively. The previous variables defined the size of the entire buffer, whereas the new ones define the
+    size of a period. The following APIs have been removed since they are no longer relevant:
+    - ma_get_default_buffer_size_in_milliseconds()
+    - ma_get_default_buffer_size_in_frames()
+  - API CHANGE: ma_device_set_stop_callback() has been removed. If you require a stop callback, you must now set it via the device config just like the data
+    callback.
+  - API CHANGE: The ma_sine_wave API has been replaced with ma_waveform. The following APIs have been removed:
+    - ma_sine_wave_init()
+    - ma_sine_wave_read_f32()
+    - ma_sine_wave_read_f32_ex()
+  - API CHANGE: ma_convert_frames() has been updated to take an extra parameter which is the size of the output buffer in PCM frames. Parameters have also been
+    reorded.
+  - API CHANGE: ma_convert_frames_ex() has been changed to take a pointer to a ma_data_converter_config object to specify the input and output formats to
+    convert between.
+  - API CHANGE: ma_calculate_frame_count_after_src() has been renamed to ma_calculate_frame_count_after_resampling().
+  - Add support for the following filters:
+    - Biquad (ma_biquad)
+    - First order low-pass (ma_lpf1)
+    - Second order low-pass (ma_lpf2)
+    - Low-pass with configurable order (ma_lpf)
+    - First order high-pass (ma_hpf1)
+    - Second order high-pass (ma_hpf2)
+    - High-pass with configurable order (ma_hpf)
+    - Second order band-pass (ma_bpf2)
+    - Band-pass with configurable order (ma_bpf)
+    - Second order peaking EQ (ma_peak2)
+    - Second order notching (ma_notch2)
+    - Second order low shelf (ma_loshelf2)
+    - Second order high shelf (ma_hishelf2)
+  - Add waveform generation API (ma_waveform) with support for the following:
+    - Sine
+    - Square
+    - Triangle
+    - Sawtooth
+  - Add noise generation API (ma_noise) with support for the following:
+    - White
+    - Pink
+    - Brownian
+  - Add encoding API (ma_encoder). This only support outputting to WAV files via dr_wav.
+  - Internal functions have all been made static where possible.
   - Fix potential crash when ma_device object's are not aligned to MA_SIMD_ALIGNMENT.
+  - Fix a bug in ma_decoder_get_length_in_pcm_frames() where it was returning the length based on the internal sample rate rather than the output sample rate.
+  - Fix bugs in some backends where the device is not drained properly in ma_device_stop().
+  - Improvements to documentation.
 
 v0.9.10 - 2020-01-15
   - Fix compilation errors due to #if/#endif mismatches.
