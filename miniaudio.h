@@ -119,18 +119,32 @@ flexible, to prevent the parameter list getting too long, and to prevent API bre
 `ma_calculate_frame_count_after_src()` has been renamed to `ma_calculate_frame_count_after_resampling()` for consistency with the new `ma_resampler` API.
 
 
-Biquad Filters
---------------
+Filters
+-------
 A generic biquad filter has been added. This is used via the `ma_biquad` API. The biquad filter is used as the basis for the low-pass, high-pass and band-pass
 filters. It supports 32-bit floating point samples which runs on a floating point pipeline and 16-bit signed integer samples which runs on a 32-bit fixed point
 pipeline. Both formats use transposed direct form 2.
 
+In addition to biquads, the following filters have also been added:
 
-Low-Pass, High-Pass and Band-Pass Filters
------------------------------------------
-APIs for low-pass, high-pass and band-pass filtering has been added. By themselves they are second order filters, but can be extended to higher orders by
-chaining them together. Low-pass, high-pass and band-pass filtering is achieved via the `ma_lpf2`, `ma_hpf2` and `ma_bpf2` APIs respectively. Since these
-filters are just biquad filters, they support both 32-bit floating point and 16-bit signed integer formats.
+    |-------------|-------------------------------------------------------------------|
+    | API         | Description                                                       |
+    |-------------|-------------------------------------------------------------------|
+    | ma_lpf1     | First order low-pass filter                                       |
+    | ma_lpf2     | Second order low-pass filter                                      |
+    | ma_lpf      | Low-pass filter with configurable order (up to 8)                 |
+    | ma_hpf1     | First order high-pass filter                                      |
+    | ma_hpf2     | Second order high-pass filter                                     |
+    | ma_hpf      | High-pass filter with configuratble order (up to 8)               |
+    | ma_bpf2     | Second order band-pass filter                                     |
+    | ma_bpf      | Band-pass filter with configurable order (up to 8, multiple of 2) |
+    | ma_peak2    | Second order peaking filter                                       |
+    | ma_notch2   | Second order notching filter                                      |
+    | ma_loshelf2 | Second order low shelf filter                                     |
+    | ma_hishelf2 | Second order high shelf filter                                    |
+    |-------------|-------------------------------------------------------------------|
+
+These filters all support 32-bit floating point and 16-bit signed integer formats natively. Other formats need to be converted beforehand.
 
 
 Sine, Square, Triangle and Sawtooth Waveforms
