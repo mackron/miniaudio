@@ -6,7 +6,7 @@ ma_result filtering_init_decoder_and_encoder(const char* pInputFilePath, const c
     ma_decoder_config decoderConfig;
     ma_encoder_config encoderConfig;
 
-    decoderConfig = ma_decoder_config_init(format, 0, 0);
+    decoderConfig = ma_decoder_config_init(format, channels, sampleRate);
     result = ma_decoder_init_file(pInputFilePath, &decoderConfig, pDecoder);
     if (result != MA_SUCCESS) {
         return result;
