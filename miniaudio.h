@@ -40949,20 +40949,27 @@ static MA_INLINE ma_uint64 ma_noise_read_pcm_frames__white(ma_noise* pNoise, voi
 }
 
 
-/*
-TODO: Optimize this:
-    x86/64: TZCNT
-*/
 static MA_INLINE unsigned int ma_tzcnt32(unsigned int x)
 {
-    unsigned int i;
+    unsigned int n;
 
-    i = 0;
-    while (((x >> i) & 0x1) == 0 && i < (sizeof(unsigned long) * 8)) {
-        i += 1;
+    /* Special case for odd numbers since they should happen about half the time. */
+    if (x & 0x1)  {
+        return 0;
     }
 
-    return i;
+    if (x == 0) {
+        return sizeof(x) << 3;
+    }
+
+    n = 1;
+    if ((x & 0x0000FFFF) == 0) { x >>= 16; n += 16; }
+    if ((x & 0x000000FF) == 0) { x >>=  8; n +=  8; }
+    if ((x & 0x0000000F) == 0) { x >>=  4; n +=  4; }
+    if ((x & 0x00000003) == 0) { x >>=  2; n +=  2; }
+    n -= x & 0x00000001;
+
+    return n;
 }
 
 /*
