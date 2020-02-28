@@ -80,7 +80,7 @@ ma_result test_lpf2__by_format(const char* pInputFilePath, const char* pOutputFi
         return result;
     }
 
-    lpfConfig = ma_lpf2_config_init(decoder.outputFormat, decoder.outputChannels, decoder.outputSampleRate, 2000);
+    lpfConfig = ma_lpf2_config_init(decoder.outputFormat, decoder.outputChannels, decoder.outputSampleRate, 2000, 0);
     result = ma_lpf2_init(&lpfConfig, &lpf);
     if (result != MA_SUCCESS) {
         ma_decoder_uninit(&decoder);

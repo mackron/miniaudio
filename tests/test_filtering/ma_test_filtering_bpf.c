@@ -19,7 +19,7 @@ ma_result test_bpf2__by_format(const char* pInputFilePath, const char* pOutputFi
         return result;
     }
 
-    bpfConfig = ma_bpf2_config_init(decoder.outputFormat, decoder.outputChannels, decoder.outputSampleRate, 2000);
+    bpfConfig = ma_bpf2_config_init(decoder.outputFormat, decoder.outputChannels, decoder.outputSampleRate, 2000, 0);
     result = ma_bpf2_init(&bpfConfig, &bpf);
     if (result != MA_SUCCESS) {
         ma_decoder_uninit(&decoder);

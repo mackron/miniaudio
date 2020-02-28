@@ -1851,10 +1851,11 @@ typedef struct
     ma_uint32 channels;
     ma_uint32 sampleRate;
     double cutoffFrequency;
+    double q;
 } ma_lpf1_config, ma_lpf2_config;
 
 ma_lpf1_config ma_lpf1_config_init(ma_format format, ma_uint32 channels, ma_uint32 sampleRate, double cutoffFrequency);
-ma_lpf2_config ma_lpf2_config_init(ma_format format, ma_uint32 channels, ma_uint32 sampleRate, double cutoffFrequency);
+ma_lpf2_config ma_lpf2_config_init(ma_format format, ma_uint32 channels, ma_uint32 sampleRate, double cutoffFrequency, double q);
 
 typedef struct
 {
@@ -1918,10 +1919,11 @@ typedef struct
     ma_uint32 channels;
     ma_uint32 sampleRate;
     double cutoffFrequency;
+    double q;
 } ma_hpf1_config, ma_hpf2_config;
 
 ma_hpf1_config ma_hpf1_config_init(ma_format format, ma_uint32 channels, ma_uint32 sampleRate, double cutoffFrequency);
-ma_hpf2_config ma_hpf2_config_init(ma_format format, ma_uint32 channels, ma_uint32 sampleRate, double cutoffFrequency);
+ma_hpf2_config ma_hpf2_config_init(ma_format format, ma_uint32 channels, ma_uint32 sampleRate, double cutoffFrequency, double q);
 
 typedef struct
 {
@@ -1985,9 +1987,10 @@ typedef struct
     ma_uint32 channels;
     ma_uint32 sampleRate;
     double cutoffFrequency;
+    double q;
 } ma_bpf2_config;
 
-ma_bpf2_config ma_bpf2_config_init(ma_format format, ma_uint32 channels, ma_uint32 sampleRate, double cutoffFrequency);
+ma_bpf2_config ma_bpf2_config_init(ma_format format, ma_uint32 channels, ma_uint32 sampleRate, double cutoffFrequency, double q);
 
 typedef struct
 {
@@ -29925,11 +29928,12 @@ ma_lpf1_config ma_lpf1_config_init(ma_format format, ma_uint32 channels, ma_uint
     config.channels = channels;
     config.sampleRate = sampleRate;
     config.cutoffFrequency = cutoffFrequency;
+    config.q = 0.5;
 
     return config;
 }
 
-ma_lpf2_config ma_lpf2_config_init(ma_format format, ma_uint32 channels, ma_uint32 sampleRate, double cutoffFrequency)
+ma_lpf2_config ma_lpf2_config_init(ma_format format, ma_uint32 channels, ma_uint32 sampleRate, double cutoffFrequency, double q)
 {
     ma_lpf1_config config;
     
@@ -29938,6 +29942,12 @@ ma_lpf2_config ma_lpf2_config_init(ma_format format, ma_uint32 channels, ma_uint
     config.channels = channels;
     config.sampleRate = sampleRate;
     config.cutoffFrequency = cutoffFrequency;
+    config.q = q;
+
+    /* Q cannot be 0 or else it'll result in a division by 0. In this case just default to 0.707107. */
+    if (config.q == 0) {
+        config.q = 0.707107;
+    }
 
     return config;
 }
@@ -30087,7 +30097,7 @@ static MA_INLINE ma_biquad_config ma_lpf2__get_biquad_config(const ma_lpf2_confi
 
     MA_ASSERT(pConfig != NULL);
 
-    q = 0.707107;
+    q = pConfig->q;
     w = 2 * MA_PI_D * pConfig->cutoffFrequency / pConfig->sampleRate;
     s = ma_sin(w);
     c = ma_cos(w);
@@ -30250,7 +30260,13 @@ static ma_result ma_lpf_reinit__internal(const ma_lpf_config* pConfig, ma_lpf* p
     }
 
     for (ilpf2 = 0; ilpf2 < lpf2Count; ilpf2 += 1) {
-        ma_lpf2_config lpf2Config = ma_lpf2_config_init(pConfig->format, pConfig->channels, pConfig->sampleRate, pConfig->cutoffFrequency);
+        ma_lpf2_config lpf2Config;
+        double q;
+
+        /* TODO: Calculate Q. */
+        q = 0;
+        
+        lpf2Config = ma_lpf2_config_init(pConfig->format, pConfig->channels, pConfig->sampleRate, pConfig->cutoffFrequency, q);
 
         if (isNew) {
             result = ma_lpf2_init(&lpf2Config, &pLPF->lpf2[ilpf2]);
@@ -30413,7 +30429,7 @@ ma_hpf1_config ma_hpf1_config_init(ma_format format, ma_uint32 channels, ma_uint
     return config;
 }
 
-ma_hpf2_config ma_hpf2_config_init(ma_format format, ma_uint32 channels, ma_uint32 sampleRate, double cutoffFrequency)
+ma_hpf2_config ma_hpf2_config_init(ma_format format, ma_uint32 channels, ma_uint32 sampleRate, double cutoffFrequency, double q)
 {
     ma_hpf2_config config;
     
@@ -30422,6 +30438,12 @@ ma_hpf2_config ma_hpf2_config_init(ma_format format, ma_uint32 channels, ma_uint
     config.channels = channels;
     config.sampleRate = sampleRate;
     config.cutoffFrequency = cutoffFrequency;
+    config.q = q;
+
+    /* Q cannot be 0 or else it'll result in a division by 0. In this case just default to 0.707107. */
+    if (config.q == 0) {
+        config.q = 0.707107;
+    }
 
     return config;
 }
@@ -30571,7 +30593,7 @@ static MA_INLINE ma_biquad_config ma_hpf2__get_biquad_config(const ma_hpf2_confi
 
     MA_ASSERT(pConfig != NULL);
 
-    q = 0.707107;
+    q = pConfig->q;
     w = 2 * MA_PI_D * pConfig->cutoffFrequency / pConfig->sampleRate;
     s = ma_sin(w);
     c = ma_cos(w);
@@ -30734,7 +30756,13 @@ static ma_result ma_hpf_reinit__internal(const ma_hpf_config* pConfig, ma_hpf* p
     }
 
     for (ihpf2 = 0; ihpf2 < hpf2Count; ihpf2 += 1) {
-        ma_hpf2_config hpf2Config = ma_hpf2_config_init(pConfig->format, pConfig->channels, pConfig->sampleRate, pConfig->cutoffFrequency);
+        ma_hpf2_config hpf2Config;
+        double q;
+
+        /* TODO: Calculate Q. */
+        q = 0;
+
+        hpf2Config = ma_hpf2_config_init(pConfig->format, pConfig->channels, pConfig->sampleRate, pConfig->cutoffFrequency, q);
 
         if (isNew) {
             result = ma_hpf2_init(&hpf2Config, &pHPF->hpf2[ihpf2]);
@@ -30866,7 +30894,7 @@ ma_uint32 ma_hpf_get_latency(ma_hpf* pHPF)
 Band-Pass Filtering
 
 **************************************************************************************************************************************************************/
-ma_bpf2_config ma_bpf2_config_init(ma_format format, ma_uint32 channels, ma_uint32 sampleRate, double cutoffFrequency)
+ma_bpf2_config ma_bpf2_config_init(ma_format format, ma_uint32 channels, ma_uint32 sampleRate, double cutoffFrequency, double q)
 {
     ma_bpf2_config config;
     
@@ -30875,6 +30903,12 @@ ma_bpf2_config ma_bpf2_config_init(ma_format format, ma_uint32 channels, ma_uint
     config.channels = channels;
     config.sampleRate = sampleRate;
     config.cutoffFrequency = cutoffFrequency;
+    config.q = q;
+
+    /* Q cannot be 0 or else it'll result in a division by 0. In this case just default to 0.707107. */
+    if (config.q == 0) {
+        config.q = 0.707107;
+    }
 
     return config;
 }
@@ -30891,7 +30925,7 @@ static MA_INLINE ma_biquad_config ma_bpf2__get_biquad_config(const ma_bpf2_confi
 
     MA_ASSERT(pConfig != NULL);
 
-    q = 0.707107;
+    q = pConfig->q;
     w = 2 * MA_PI_D * pConfig->cutoffFrequency / pConfig->sampleRate;
     s = ma_sin(w);
     c = ma_cos(w);
@@ -31041,7 +31075,13 @@ static ma_result ma_bpf_reinit__internal(const ma_bpf_config* pConfig, ma_bpf* p
     }
 
     for (ibpf2 = 0; ibpf2 < bpf2Count; ibpf2 += 1) {
-        ma_bpf2_config bpf2Config = ma_bpf2_config_init(pConfig->format, pConfig->channels, pConfig->sampleRate, pConfig->cutoffFrequency);
+        ma_bpf2_config bpf2Config;
+        double q;
+
+        /* TODO: Calculate Q. */
+        q = 0;
+
+        bpf2Config = ma_bpf2_config_init(pConfig->format, pConfig->channels, pConfig->sampleRate, pConfig->cutoffFrequency, q);
 
         if (isNew) {
             result = ma_bpf2_init(&bpf2Config, &pBPF->bpf2[ibpf2]);
