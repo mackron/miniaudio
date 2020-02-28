@@ -1895,10 +1895,10 @@ typedef struct
 {
     ma_format format;
     ma_uint32 channels;
-    ma_uint32 lpf2Count;
     ma_uint32 lpf1Count;
-    ma_lpf2 lpf2[MA_MAX_FILTER_ORDER/2];
+    ma_uint32 lpf2Count;
     ma_lpf1 lpf1[1];
+    ma_lpf2 lpf2[MA_MAX_FILTER_ORDER/2];
 } ma_lpf;
 
 ma_result ma_lpf_init(const ma_lpf_config* pConfig, ma_lpf* pLPF);
@@ -1962,10 +1962,10 @@ typedef struct
 {
     ma_format format;
     ma_uint32 channels;
-    ma_uint32 hpf2Count;
     ma_uint32 hpf1Count;
-    ma_hpf2 hpf2[MA_MAX_FILTER_ORDER/2];
+    ma_uint32 hpf2Count;
     ma_hpf1 hpf1[1];
+    ma_hpf2 hpf2[MA_MAX_FILTER_ORDER/2];
 } ma_hpf;
 
 ma_result ma_hpf_init(const ma_hpf_config* pConfig, ma_hpf* pHPF);
@@ -30194,10 +30194,10 @@ ma_lpf_config ma_lpf_config_init(ma_format format, ma_uint32 channels, ma_uint32
 static ma_result ma_lpf_reinit__internal(const ma_lpf_config* pConfig, ma_lpf* pLPF, ma_bool32 isNew)
 {
     ma_result result;
-    ma_uint32 lpf2Count;
     ma_uint32 lpf1Count;
-    ma_uint32 ilpf2;
+    ma_uint32 lpf2Count;
     ma_uint32 ilpf1;
+    ma_uint32 ilpf2;
 
     if (pLPF == NULL || pConfig == NULL) {
         return MA_INVALID_ARGS;
@@ -30222,30 +30222,16 @@ static ma_result ma_lpf_reinit__internal(const ma_lpf_config* pConfig, ma_lpf* p
         return MA_INVALID_ARGS;
     }
 
-    lpf2Count = pConfig->order / 2;
     lpf1Count = pConfig->order % 2;
+    lpf2Count = pConfig->order / 2;
 
-    MA_ASSERT(lpf2Count <= ma_countof(pLPF->lpf2));
     MA_ASSERT(lpf1Count <= ma_countof(pLPF->lpf1));
+    MA_ASSERT(lpf2Count <= ma_countof(pLPF->lpf2));
 
     /* The filter order can't change between reinits. */
     if (!isNew) {
-        if (pLPF->lpf2Count != lpf2Count || pLPF->lpf1Count != lpf1Count) {
+        if (pLPF->lpf1Count != lpf1Count || pLPF->lpf2Count != lpf2Count) {
             return MA_INVALID_OPERATION;
-        }
-    }
-
-    for (ilpf2 = 0; ilpf2 < lpf2Count; ilpf2 += 1) {
-        ma_lpf2_config lpf2Config = ma_lpf2_config_init(pConfig->format, pConfig->channels, pConfig->sampleRate, pConfig->cutoffFrequency);
-
-        if (isNew) {
-            result = ma_lpf2_init(&lpf2Config, &pLPF->lpf2[ilpf2]);
-        } else {
-            result = ma_lpf2_reinit(&lpf2Config, &pLPF->lpf2[ilpf2]);
-        }
-
-        if (result != MA_SUCCESS) {
-            return result;
         }
     }
 
@@ -30263,8 +30249,22 @@ static ma_result ma_lpf_reinit__internal(const ma_lpf_config* pConfig, ma_lpf* p
         }
     }
 
-    pLPF->lpf2Count = lpf2Count;
+    for (ilpf2 = 0; ilpf2 < lpf2Count; ilpf2 += 1) {
+        ma_lpf2_config lpf2Config = ma_lpf2_config_init(pConfig->format, pConfig->channels, pConfig->sampleRate, pConfig->cutoffFrequency);
+
+        if (isNew) {
+            result = ma_lpf2_init(&lpf2Config, &pLPF->lpf2[ilpf2]);
+        } else {
+            result = ma_lpf2_reinit(&lpf2Config, &pLPF->lpf2[ilpf2]);
+        }
+
+        if (result != MA_SUCCESS) {
+            return result;
+        }
+    }
+
     pLPF->lpf1Count = lpf1Count;
+    pLPF->lpf2Count = lpf2Count;
     pLPF->format    = pConfig->format;
     pLPF->channels  = pConfig->channels;
 
@@ -30293,8 +30293,8 @@ ma_result ma_lpf_reinit(const ma_lpf_config* pConfig, ma_lpf* pLPF)
 
 static MA_INLINE void ma_lpf_process_pcm_frame_f32(ma_lpf* pLPF, float* pY, const void* pX)
 {
-    ma_uint32 ilpf2;
     ma_uint32 ilpf1;
+    ma_uint32 ilpf2;
 
     MA_ASSERT(pLPF->format == ma_format_f32);
 
@@ -30311,8 +30311,8 @@ static MA_INLINE void ma_lpf_process_pcm_frame_f32(ma_lpf* pLPF, float* pY, cons
 
 static MA_INLINE void ma_lpf_process_pcm_frame_s16(ma_lpf* pLPF, ma_int16* pY, const ma_int16* pX)
 {
-    ma_uint32 ilpf2;
     ma_uint32 ilpf1;
+    ma_uint32 ilpf2;
 
     MA_ASSERT(pLPF->format == ma_format_s16);
 
@@ -30330,8 +30330,8 @@ static MA_INLINE void ma_lpf_process_pcm_frame_s16(ma_lpf* pLPF, ma_int16* pY, c
 ma_result ma_lpf_process_pcm_frames(ma_lpf* pLPF, void* pFramesOut, const void* pFramesIn, ma_uint64 frameCount)
 {
     ma_result result;
-    ma_uint32 ilpf2;
     ma_uint32 ilpf1;
+    ma_uint32 ilpf2;
 
     if (pLPF == NULL) {
         return MA_INVALID_ARGS;
@@ -30678,10 +30678,10 @@ ma_hpf_config ma_hpf_config_init(ma_format format, ma_uint32 channels, ma_uint32
 static ma_result ma_hpf_reinit__internal(const ma_hpf_config* pConfig, ma_hpf* pHPF, ma_bool32 isNew)
 {
     ma_result result;
-    ma_uint32 hpf2Count;
     ma_uint32 hpf1Count;
-    ma_uint32 ihpf2;
+    ma_uint32 hpf2Count;
     ma_uint32 ihpf1;
+    ma_uint32 ihpf2;
 
     if (pHPF == NULL || pConfig == NULL) {
         return MA_INVALID_ARGS;
@@ -30706,30 +30706,16 @@ static ma_result ma_hpf_reinit__internal(const ma_hpf_config* pConfig, ma_hpf* p
         return MA_INVALID_ARGS;
     }
 
-    hpf2Count = pConfig->order / 2;
     hpf1Count = pConfig->order % 2;
+    hpf2Count = pConfig->order / 2;
 
-    MA_ASSERT(hpf2Count <= ma_countof(pHPF->hpf2));
     MA_ASSERT(hpf1Count <= ma_countof(pHPF->hpf1));
+    MA_ASSERT(hpf2Count <= ma_countof(pHPF->hpf2));
 
     /* The filter order can't change between reinits. */
     if (!isNew) {
-        if (pHPF->hpf2Count != hpf2Count || pHPF->hpf1Count != hpf1Count) {
+        if (pHPF->hpf1Count != hpf1Count || pHPF->hpf2Count != hpf2Count) {
             return MA_INVALID_OPERATION;
-        }
-    }
-
-    for (ihpf2 = 0; ihpf2 < hpf2Count; ihpf2 += 1) {
-        ma_hpf2_config hpf2Config = ma_hpf2_config_init(pConfig->format, pConfig->channels, pConfig->sampleRate, pConfig->cutoffFrequency);
-
-        if (isNew) {
-            result = ma_hpf2_init(&hpf2Config, &pHPF->hpf2[ihpf2]);
-        } else {
-            result = ma_hpf2_reinit(&hpf2Config, &pHPF->hpf2[ihpf2]);
-        }
-
-        if (result != MA_SUCCESS) {
-            return result;
         }
     }
 
@@ -30747,8 +30733,22 @@ static ma_result ma_hpf_reinit__internal(const ma_hpf_config* pConfig, ma_hpf* p
         }
     }
 
-    pHPF->hpf2Count = hpf2Count;
+    for (ihpf2 = 0; ihpf2 < hpf2Count; ihpf2 += 1) {
+        ma_hpf2_config hpf2Config = ma_hpf2_config_init(pConfig->format, pConfig->channels, pConfig->sampleRate, pConfig->cutoffFrequency);
+
+        if (isNew) {
+            result = ma_hpf2_init(&hpf2Config, &pHPF->hpf2[ihpf2]);
+        } else {
+            result = ma_hpf2_reinit(&hpf2Config, &pHPF->hpf2[ihpf2]);
+        }
+
+        if (result != MA_SUCCESS) {
+            return result;
+        }
+    }
+
     pHPF->hpf1Count = hpf1Count;
+    pHPF->hpf2Count = hpf2Count;
     pHPF->format    = pConfig->format;
     pHPF->channels  = pConfig->channels;
 
@@ -30778,8 +30778,8 @@ ma_result ma_hpf_reinit(const ma_hpf_config* pConfig, ma_hpf* pHPF)
 ma_result ma_hpf_process_pcm_frames(ma_hpf* pHPF, void* pFramesOut, const void* pFramesIn, ma_uint64 frameCount)
 {
     ma_result result;
-    ma_uint32 ihpf2;
     ma_uint32 ihpf1;
+    ma_uint32 ihpf2;
 
     if (pHPF == NULL) {
         return MA_INVALID_ARGS;
