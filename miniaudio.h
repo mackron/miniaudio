@@ -30300,12 +30300,12 @@ static MA_INLINE void ma_lpf_process_pcm_frame_f32(ma_lpf* pLPF, float* pY, cons
 
     MA_COPY_MEMORY(pY, pX, ma_get_bytes_per_frame(pLPF->format, pLPF->channels));
 
-    for (ilpf2 = 0; ilpf2 < pLPF->lpf2Count; ilpf2 += 1) {
-        ma_lpf2_process_pcm_frame_f32(&pLPF->lpf2[ilpf2], pY, pY);
-    }
-
     for (ilpf1 = 0; ilpf1 < pLPF->lpf1Count; ilpf1 += 1) {
         ma_lpf1_process_pcm_frame_f32(&pLPF->lpf1[ilpf1], pY, pY);
+    }
+
+    for (ilpf2 = 0; ilpf2 < pLPF->lpf2Count; ilpf2 += 1) {
+        ma_lpf2_process_pcm_frame_f32(&pLPF->lpf2[ilpf2], pY, pY);
     }
 }
 
@@ -30318,12 +30318,12 @@ static MA_INLINE void ma_lpf_process_pcm_frame_s16(ma_lpf* pLPF, ma_int16* pY, c
 
     MA_COPY_MEMORY(pY, pX, ma_get_bytes_per_frame(pLPF->format, pLPF->channels));
 
-    for (ilpf2 = 0; ilpf2 < pLPF->lpf2Count; ilpf2 += 1) {
-        ma_lpf2_process_pcm_frame_s16(&pLPF->lpf2[ilpf2], pY, pY);
-    }
-
     for (ilpf1 = 0; ilpf1 < pLPF->lpf1Count; ilpf1 += 1) {
         ma_lpf1_process_pcm_frame_s16(&pLPF->lpf1[ilpf1], pY, pY);
+    }
+
+    for (ilpf2 = 0; ilpf2 < pLPF->lpf2Count; ilpf2 += 1) {
+        ma_lpf2_process_pcm_frame_s16(&pLPF->lpf2[ilpf2], pY, pY);
     }
 }
 
@@ -30339,15 +30339,15 @@ ma_result ma_lpf_process_pcm_frames(ma_lpf* pLPF, void* pFramesOut, const void* 
 
     /* Faster path for in-place. */
     if (pFramesOut == pFramesIn) {
-        for (ilpf2 = 0; ilpf2 < pLPF->lpf2Count; ilpf2 += 1) {
-            result = ma_lpf2_process_pcm_frames(&pLPF->lpf2[ilpf2], pFramesOut, pFramesOut, frameCount);
+        for (ilpf1 = 0; ilpf1 < pLPF->lpf1Count; ilpf1 += 1) {
+            result = ma_lpf1_process_pcm_frames(&pLPF->lpf1[ilpf1], pFramesOut, pFramesOut, frameCount);
             if (result != MA_SUCCESS) {
                 return result;
             }
         }
 
-        for (ilpf1 = 0; ilpf1 < pLPF->lpf1Count; ilpf1 += 1) {
-            result = ma_lpf1_process_pcm_frames(&pLPF->lpf1[ilpf1], pFramesOut, pFramesOut, frameCount);
+        for (ilpf2 = 0; ilpf2 < pLPF->lpf2Count; ilpf2 += 1) {
+            result = ma_lpf2_process_pcm_frames(&pLPF->lpf2[ilpf2], pFramesOut, pFramesOut, frameCount);
             if (result != MA_SUCCESS) {
                 return result;
             }
@@ -30787,15 +30787,15 @@ ma_result ma_hpf_process_pcm_frames(ma_hpf* pHPF, void* pFramesOut, const void* 
 
     /* Faster path for in-place. */
     if (pFramesOut == pFramesIn) {
-        for (ihpf2 = 0; ihpf2 < pHPF->hpf2Count; ihpf2 += 1) {
-            result = ma_hpf2_process_pcm_frames(&pHPF->hpf2[ihpf2], pFramesOut, pFramesOut, frameCount);
+        for (ihpf1 = 0; ihpf1 < pHPF->hpf1Count; ihpf1 += 1) {
+            result = ma_hpf1_process_pcm_frames(&pHPF->hpf1[ihpf1], pFramesOut, pFramesOut, frameCount);
             if (result != MA_SUCCESS) {
                 return result;
             }
         }
 
-        for (ihpf1 = 0; ihpf1 < pHPF->hpf1Count; ihpf1 += 1) {
-            result = ma_hpf1_process_pcm_frames(&pHPF->hpf1[ihpf1], pFramesOut, pFramesOut, frameCount);
+        for (ihpf2 = 0; ihpf2 < pHPF->hpf2Count; ihpf2 += 1) {
+            result = ma_hpf2_process_pcm_frames(&pHPF->hpf2[ihpf2], pFramesOut, pFramesOut, frameCount);
             if (result != MA_SUCCESS) {
                 return result;
             }
@@ -30813,12 +30813,12 @@ ma_result ma_hpf_process_pcm_frames(ma_hpf* pHPF, void* pFramesOut, const void* 
             for (iFrame = 0; iFrame < frameCount; iFrame += 1) {
                 MA_COPY_MEMORY(pFramesOutF32, pFramesInF32, ma_get_bytes_per_frame(pHPF->format, pHPF->channels));
 
-                for (ihpf2 = 0; ihpf2 < pHPF->hpf2Count; ihpf2 += 1) {
-                    ma_hpf2_process_pcm_frame_f32(&pHPF->hpf2[ihpf2], pFramesOutF32, pFramesOutF32);
-                }
-
                 for (ihpf1 = 0; ihpf1 < pHPF->hpf1Count; ihpf1 += 1) {
                     ma_hpf1_process_pcm_frame_f32(&pHPF->hpf1[ihpf1], pFramesOutF32, pFramesOutF32);
+                }
+
+                for (ihpf2 = 0; ihpf2 < pHPF->hpf2Count; ihpf2 += 1) {
+                    ma_hpf2_process_pcm_frame_f32(&pHPF->hpf2[ihpf2], pFramesOutF32, pFramesOutF32);
                 }
 
                 pFramesOutF32 += pHPF->channels;
@@ -30831,12 +30831,12 @@ ma_result ma_hpf_process_pcm_frames(ma_hpf* pHPF, void* pFramesOut, const void* 
             for (iFrame = 0; iFrame < frameCount; iFrame += 1) {
                 MA_COPY_MEMORY(pFramesOutS16, pFramesInS16, ma_get_bytes_per_frame(pHPF->format, pHPF->channels));
 
-                for (ihpf2 = 0; ihpf2 < pHPF->hpf2Count; ihpf2 += 1) {
-                    ma_hpf2_process_pcm_frame_s16(&pHPF->hpf2[ihpf2], pFramesOutS16, pFramesOutS16);
-                }
-
                 for (ihpf1 = 0; ihpf1 < pHPF->hpf1Count; ihpf1 += 1) {
                     ma_hpf1_process_pcm_frame_s16(&pHPF->hpf1[ihpf1], pFramesOutS16, pFramesOutS16);
+                }
+
+                for (ihpf2 = 0; ihpf2 < pHPF->hpf2Count; ihpf2 += 1) {
+                    ma_hpf2_process_pcm_frame_s16(&pHPF->hpf2[ihpf2], pFramesOutS16, pFramesOutS16);
                 }
 
                 pFramesOutS16 += pHPF->channels;
