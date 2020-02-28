@@ -46,7 +46,7 @@ In addition to changes to the API design, a few other changes have been made to 
 
   - The sinc resampler has been removed. This was completely broken and never actually worked properly.
   - The linear resampler now uses low-pass filtering to remove aliasing. The quality of the low-pass filter can be controlled via the resampler config with the
-    `lpfPoles` option, which has a maximum value of MA_MAX_FILTER_POLES.
+    `lpfOrder` option, which has a maximum value of MA_MAX_FILTER_ORDER.
   - Data conversion now supports s16 natively which runs through a fixed point pipeline. Previously everything needed to be converted to floating point before
     processing, whereas now both s16 and f32 are natively supported. Other formats still require conversion to either s16 or f32 prior to processing, however
     `ma_data_converter` will handle this for you.
@@ -926,7 +926,7 @@ may make it a suitable option depending on your requirements.
 
 The linear resampler performs low-pass filtering before or after downsampling or upsampling, depending on the sample rates you're converting between. When
 decreasing the sample rate, the low-pass filter will be applied before downsampling. When increasing the rate it will be performed after upsampling. By default
-a 4-pole low-pass filter will be applied. This can be configured via the `lpfPoles` configuration variable. Setting this to 0 will disable filtering.
+a fourth order low-pass filter will be applied. This can be configured via the `lpfOrder` configuration variable. Setting this to 0 will disable filtering.
 
 The low-pass filter has a cutoff frequency which defaults to half the sample rate of the lowest of the input and output sample rates (Nyquist Frequency). This
 can be controlled with the `lpfNyquistFactor` config variable. This defaults to 1, and should be in the range of 0..1, although a value of 0 does not make
@@ -985,7 +985,7 @@ channel maps and resampling quality. Something like the following may be more su
     config.sampleRateIn = inputSampleRate;
     config.sampleRateOut = outputSampleRate;
     ma_get_standard_channel_map(ma_standard_channel_map_flac, config.channelCountIn, config.channelMapIn);
-    config.resampling.linear.lpfPoles = MA_MAX_FILTER_POLES;
+    config.resampling.linear.lpfOrder = MA_MAX_FILTER_ORDER;
     ```
 
 Do the following to uninitialize the data converter:
@@ -1083,7 +1083,7 @@ Low-pass filter is achieved with the following APIs:
 Low-pass filter example:
 
      ```c
-    ma_lpf_config config = ma_lpf_config_init(ma_format_f32, channels, sampleRate, cutoffFrequency, poles);
+    ma_lpf_config config = ma_lpf_config_init(ma_format_f32, channels, sampleRate, cutoffFrequency, order);
     ma_result result = ma_lpf_init(&config, &lpf);
     if (result != MA_SUCCESS) {
         // Error.
@@ -1103,7 +1103,7 @@ Filtering can be applied in-place by passing in the same pointer for both the in
     ma_lpf_process_pcm_frames(&lpf, pMyData, pMyData, frameCount);
     ```
 
-The maximum number of poles is limited to MA_MAX_FILTER_POLES which is set to 8. If you need more, you can chain filters together.
+The maximum filter order is limited to MA_MAX_FILTER_ORDER which is set to 8. If you need more, you can chain filters together.
 
     ```c
     for (iFilter = 0; iFilter < filterCount; iFilter += 1) {
@@ -1115,11 +1115,11 @@ If you need to change the configuration of the filter, but need to maintain the 
 useful if you need to change the sample rate and/or cutoff frequency dynamically while maintaing smooth transitions. Note that changing the format or channel
 count after initialization is invalid and will result in an error.
 
-The `ma_lpf` object supports a configurable number of poles, but if you only need a 1-pole filter you may want to consider using `ma_lpf1`. Likewise, if you
-only need a 2-pole filter you can use `ma_lpf2`. The advantage of this is that they're lighter weight and a bit more efficient.
+The `ma_lpf` object supports a configurable order, but if you only need a first order filter you may want to consider using `ma_lpf1`. Likewise, if you only
+need a second order filter you can use `ma_lpf2`. The advantage of this is that they're lighter weight and a bit more efficient.
 
-If an even number of poles are specified, a series of 2-pole filters will be processed in a chain. If an odd number of poles are specified, a series of 2-pole
-filters will be processed in a chain, followed by a final 1-pole filter.
+If an even filter order is specified, a series of second order filters will be processed in a chain. If an odd filter order is specified, a first order filter
+will be applied, followed by a series of second order filters in a chain.
 
 
 High-Pass Filtering
@@ -1721,8 +1721,8 @@ typedef int ma_result;
 #define MA_MIN_SAMPLE_RATE                             MA_SAMPLE_RATE_8000
 #define MA_MAX_SAMPLE_RATE                             MA_SAMPLE_RATE_384000
 
-#ifndef MA_MAX_FILTER_POLES
-#define MA_MAX_FILTER_POLES                            8
+#ifndef MA_MAX_FILTER_ORDER
+#define MA_MAX_FILTER_ORDER                            8
 #endif
 
 typedef enum
@@ -1871,7 +1871,7 @@ ma_uint32 ma_lpf1_get_latency(ma_lpf1* pLPF);
 
 typedef struct
 {
-    ma_biquad bq;   /* The 2-pole low-pass filter is implemented as a biquad filter. */
+    ma_biquad bq;   /* The second order low-pass filter is implemented as a biquad filter. */
 } ma_lpf2;
 
 ma_result ma_lpf2_init(const ma_lpf2_config* pConfig, ma_lpf2* pLPF);
@@ -1886,10 +1886,10 @@ typedef struct
     ma_uint32 channels;
     ma_uint32 sampleRate;
     double cutoffFrequency;
-    ma_uint32 poles;    /* If set to 0, will be treated as a passthrough (no filtering will be applied). */
+    ma_uint32 order;    /* If set to 0, will be treated as a passthrough (no filtering will be applied). */
 } ma_lpf_config;
 
-ma_lpf_config ma_lpf_config_init(ma_format format, ma_uint32 channels, ma_uint32 sampleRate, double cutoffFrequency, ma_uint32 poles);
+ma_lpf_config ma_lpf_config_init(ma_format format, ma_uint32 channels, ma_uint32 sampleRate, double cutoffFrequency, ma_uint32 order);
 
 typedef struct
 {
@@ -1897,7 +1897,7 @@ typedef struct
     ma_uint32 channels;
     ma_uint32 lpf2Count;
     ma_uint32 lpf1Count;
-    ma_lpf2 lpf2[MA_MAX_FILTER_POLES/2];
+    ma_lpf2 lpf2[MA_MAX_FILTER_ORDER/2];
     ma_lpf1 lpf1[1];
 } ma_lpf;
 
@@ -1938,7 +1938,7 @@ ma_uint32 ma_hpf1_get_latency(ma_hpf1* pHPF);
 
 typedef struct
 {
-    ma_biquad bq;   /* The 2-pole high-pass filter is implemented as a biquad filter. */
+    ma_biquad bq;   /* The second order high-pass filter is implemented as a biquad filter. */
 } ma_hpf2;
 
 ma_result ma_hpf2_init(const ma_hpf2_config* pConfig, ma_hpf2* pHPF);
@@ -1953,10 +1953,10 @@ typedef struct
     ma_uint32 channels;
     ma_uint32 sampleRate;
     double cutoffFrequency;
-    ma_uint32 poles;    /* If set to 0, will be treated as a passthrough (no filtering will be applied). */
+    ma_uint32 order;    /* If set to 0, will be treated as a passthrough (no filtering will be applied). */
 } ma_hpf_config;
 
-ma_hpf_config ma_hpf_config_init(ma_format format, ma_uint32 channels, ma_uint32 sampleRate, double cutoffFrequency, ma_uint32 poles);
+ma_hpf_config ma_hpf_config_init(ma_format format, ma_uint32 channels, ma_uint32 sampleRate, double cutoffFrequency, ma_uint32 order);
 
 typedef struct
 {
@@ -1964,7 +1964,7 @@ typedef struct
     ma_uint32 channels;
     ma_uint32 hpf2Count;
     ma_uint32 hpf1Count;
-    ma_hpf2 hpf2[MA_MAX_FILTER_POLES/2];
+    ma_hpf2 hpf2[MA_MAX_FILTER_ORDER/2];
     ma_hpf1 hpf1[1];
 } ma_hpf;
 
@@ -1991,7 +1991,7 @@ ma_bpf2_config ma_bpf2_config_init(ma_format format, ma_uint32 channels, ma_uint
 
 typedef struct
 {
-    ma_biquad bq;   /* The 2-pole band-pass filter is implemented as a biquad filter. */
+    ma_biquad bq;   /* The second order band-pass filter is implemented as a biquad filter. */
 } ma_bpf2;
 
 ma_result ma_bpf2_init(const ma_bpf2_config* pConfig, ma_bpf2* pBPF);
@@ -2006,17 +2006,17 @@ typedef struct
     ma_uint32 channels;
     ma_uint32 sampleRate;
     double cutoffFrequency;
-    ma_uint32 poles;    /* If set to 0, will be treated as a passthrough (no filtering will be applied). */
+    ma_uint32 order;    /* If set to 0, will be treated as a passthrough (no filtering will be applied). */
 } ma_bpf_config;
 
-ma_bpf_config ma_bpf_config_init(ma_format format, ma_uint32 channels, ma_uint32 sampleRate, double cutoffFrequency, ma_uint32 poles);
+ma_bpf_config ma_bpf_config_init(ma_format format, ma_uint32 channels, ma_uint32 sampleRate, double cutoffFrequency, ma_uint32 order);
 
 typedef struct
 {
     ma_format format;
     ma_uint32 channels;
     ma_uint32 bpf2Count;
-    ma_bpf2 bpf2[MA_MAX_FILTER_POLES/2];
+    ma_bpf2 bpf2[MA_MAX_FILTER_ORDER/2];
 } ma_bpf;
 
 ma_result ma_bpf_init(const ma_bpf_config* pConfig, ma_bpf* pBPF);
@@ -2159,7 +2159,7 @@ typedef struct
     ma_uint32 channels;
     ma_uint32 sampleRateIn;
     ma_uint32 sampleRateOut;
-    ma_uint32 lpfPoles;         /* The low-pass filter pole count. Setting this to 0 will disable low-pass filtering. */
+    ma_uint32 lpfOrder;         /* The low-pass filter order. Setting this to 0 will disable low-pass filtering. */
     double    lpfNyquistFactor; /* 0..1. Defaults to 1. 1 = Half the sampling frequency (Nyquist Frequency), 0.5 = Quarter the sampling frequency (half Nyquest Frequency), etc. */
 } ma_linear_resampler_config;
 
@@ -2210,7 +2210,7 @@ typedef struct
     ma_resample_algorithm algorithm;
     struct
     {
-        ma_uint32 lpfPoles;
+        ma_uint32 lpfOrder;
         double lpfNyquistFactor;
     } linear;
     struct
@@ -2377,7 +2377,7 @@ typedef struct
         ma_bool32 allowDynamicSampleRate;
         struct
         {
-            ma_uint32 lpfPoles;
+            ma_uint32 lpfOrder;
             double lpfNyquistFactor;
         } linear;
         struct
@@ -3075,7 +3075,7 @@ typedef struct
         ma_resample_algorithm algorithm;
         struct
         {
-            ma_uint32 lpfPoles;
+            ma_uint32 lpfOrder;
         } linear;
         struct
         {
@@ -3568,7 +3568,7 @@ struct ma_device
         ma_resample_algorithm algorithm;
         struct
         {
-            ma_uint32 lpfPoles;
+            ma_uint32 lpfOrder;
         } linear;
         struct
         {
@@ -4415,12 +4415,12 @@ then be set directly on the structure. Below are the members of the `ma_device_c
 
     resampling.algorithm
         The resampling algorithm to use when miniaudio needs to perform resampling between the rate specified by `sampleRate` and the device's native rate. The
-        default value is `ma_resample_algorithm_linear`, and the quality can be configured with `resampling.linear.lpfPoles`.
+        default value is `ma_resample_algorithm_linear`, and the quality can be configured with `resampling.linear.lpfOrder`.
 
-    resampling.linear.lpfPoles
-        The linear resampler applies a low-pass filter as part of it's procesing for anti-aliasing. This setting controls the pole count of the filter. The
-        higher the value, the better the quality, in general. Setting this to 0 will disable low-pass filtering altogether. The maximum value is
-        `MA_MAX_FILTER_POLES`. The default value is `min(4, MA_MAX_FILTER_POLES)`.
+    resampling.linear.lpfOrder
+        The linear resampler applies a low-pass filter as part of it's procesing for anti-aliasing. This setting controls the order of the filter. The higher
+        the value, the better the quality, in general. Setting this to 0 will disable low-pass filtering altogether. The maximum value is
+        `MA_MAX_FILTER_ORDER`. The default value is `min(4, MA_MAX_FILTER_ORDER)`.
 
     playback.pDeviceID
         A pointer to a `ma_device_id` structure containing the ID of the playback device to initialize. Setting this NULL (default) will use the system's
@@ -5140,7 +5140,7 @@ typedef struct
         ma_resample_algorithm algorithm;
         struct
         {
-            ma_uint32 lpfPoles;
+            ma_uint32 lpfOrder;
         } linear;
         struct
         {
@@ -5863,12 +5863,12 @@ static MA_INLINE ma_bool32 ma_is_big_endian()
 #define MA_DEFAULT_PERIOD_SIZE_IN_MILLISECONDS_CONSERVATIVE 100
 #endif
 
-/* The default LPF pole count for linear resampling. Note that this is clamped to MA_MAX_FILTER_POLES. */
-#ifndef MA_DEFAULT_RESAMPLER_LPF_POLES
-    #if MA_MAX_FILTER_POLES >= 4
-        #define MA_DEFAULT_RESAMPLER_LPF_POLES  4
+/* The default LPF filter order for linear resampling. Note that this is clamped to MA_MAX_FILTER_ORDER. */
+#ifndef MA_DEFAULT_RESAMPLER_LPF_ORDER
+    #if MA_MAX_FILTER_ORDER >= 4
+        #define MA_DEFAULT_RESAMPLER_LPF_ORDER  4
     #else
-        #define MA_DEFAULT_RESAMPLER_LPF_POLES  MA_MAX_FILTER_POLES
+        #define MA_DEFAULT_RESAMPLER_LPF_ORDER  MA_MAX_FILTER_ORDER
     #endif
 #endif
 
@@ -28529,7 +28529,7 @@ static ma_result ma_device__post_init_setup(ma_device* pDevice, ma_device_type d
         ma_channel_map_copy(converterConfig.channelMapOut, pDevice->capture.channelMap, pDevice->capture.channels);
         converterConfig.resampling.allowDynamicSampleRate = MA_FALSE;
         converterConfig.resampling.algorithm       = pDevice->resampling.algorithm;
-        converterConfig.resampling.linear.lpfPoles = pDevice->resampling.linear.lpfPoles;
+        converterConfig.resampling.linear.lpfOrder = pDevice->resampling.linear.lpfOrder;
         converterConfig.resampling.speex.quality   = pDevice->resampling.speex.quality;
 
         result = ma_data_converter_init(&converterConfig, &pDevice->capture.converter);
@@ -28551,7 +28551,7 @@ static ma_result ma_device__post_init_setup(ma_device* pDevice, ma_device_type d
         ma_channel_map_copy(converterConfig.channelMapOut, pDevice->playback.internalChannelMap, pDevice->playback.internalChannels);
         converterConfig.resampling.allowDynamicSampleRate = MA_FALSE;
         converterConfig.resampling.algorithm       = pDevice->resampling.algorithm;
-        converterConfig.resampling.linear.lpfPoles = pDevice->resampling.linear.lpfPoles;
+        converterConfig.resampling.linear.lpfOrder = pDevice->resampling.linear.lpfOrder;
         converterConfig.resampling.speex.quality   = pDevice->resampling.speex.quality;
 
         result = ma_data_converter_init(&converterConfig, &pDevice->playback.converter);
@@ -29186,7 +29186,7 @@ ma_device_config ma_device_config_init(ma_device_type deviceType)
 
     /* Resampling defaults. We must never use the Speex backend by default because it uses licensed third party code. */
     config.resampling.algorithm       = ma_resample_algorithm_linear;
-    config.resampling.linear.lpfPoles = ma_min(MA_DEFAULT_RESAMPLER_LPF_POLES, MA_MAX_FILTER_POLES);
+    config.resampling.linear.lpfOrder = ma_min(MA_DEFAULT_RESAMPLER_LPF_ORDER, MA_MAX_FILTER_ORDER);
     config.resampling.speex.quality   = 3;
 
     return config;
@@ -29311,7 +29311,7 @@ ma_result ma_device_init(ma_context* pContext, const ma_device_config* pConfig, 
     pDevice->type = config.deviceType;
     pDevice->sampleRate = config.sampleRate;
     pDevice->resampling.algorithm       = config.resampling.algorithm;
-    pDevice->resampling.linear.lpfPoles = config.resampling.linear.lpfPoles;
+    pDevice->resampling.linear.lpfOrder = config.resampling.linear.lpfOrder;
     pDevice->resampling.speex.quality   = config.resampling.speex.quality;
 
     pDevice->capture.shareMode   = config.capture.shareMode;
@@ -30177,7 +30177,7 @@ ma_uint32 ma_lpf2_get_latency(ma_lpf2* pLPF)
 }
 
 
-ma_lpf_config ma_lpf_config_init(ma_format format, ma_uint32 channels, ma_uint32 sampleRate, double cutoffFrequency, ma_uint32 poles)
+ma_lpf_config ma_lpf_config_init(ma_format format, ma_uint32 channels, ma_uint32 sampleRate, double cutoffFrequency, ma_uint32 order)
 {
     ma_lpf_config config;
 
@@ -30186,7 +30186,7 @@ ma_lpf_config ma_lpf_config_init(ma_format format, ma_uint32 channels, ma_uint32
     config.channels        = channels;
     config.sampleRate      = sampleRate;
     config.cutoffFrequency = cutoffFrequency;
-    config.poles           = ma_min(poles, MA_MAX_FILTER_POLES);
+    config.order           = ma_min(order, MA_MAX_FILTER_ORDER);
 
     return config;
 }
@@ -30218,17 +30218,17 @@ static ma_result ma_lpf_reinit__internal(const ma_lpf_config* pConfig, ma_lpf* p
         return MA_INVALID_OPERATION;
     }
 
-    if (pConfig->poles > MA_MAX_FILTER_POLES) {
+    if (pConfig->order > MA_MAX_FILTER_ORDER) {
         return MA_INVALID_ARGS;
     }
 
-    lpf2Count = pConfig->poles / 2;
-    lpf1Count = pConfig->poles % 2;
+    lpf2Count = pConfig->order / 2;
+    lpf1Count = pConfig->order % 2;
 
     MA_ASSERT(lpf2Count <= ma_countof(pLPF->lpf2));
     MA_ASSERT(lpf1Count <= ma_countof(pLPF->lpf1));
 
-    /* The pole count can't change between reinits. */
+    /* The filter order can't change between reinits. */
     if (!isNew) {
         if (pLPF->lpf2Count != lpf2Count || pLPF->lpf1Count != lpf1Count) {
             return MA_INVALID_OPERATION;
@@ -30661,7 +30661,7 @@ ma_uint32 ma_hpf2_get_latency(ma_hpf2* pHPF)
 }
 
 
-ma_hpf_config ma_hpf_config_init(ma_format format, ma_uint32 channels, ma_uint32 sampleRate, double cutoffFrequency, ma_uint32 poles)
+ma_hpf_config ma_hpf_config_init(ma_format format, ma_uint32 channels, ma_uint32 sampleRate, double cutoffFrequency, ma_uint32 order)
 {
     ma_hpf_config config;
 
@@ -30670,7 +30670,7 @@ ma_hpf_config ma_hpf_config_init(ma_format format, ma_uint32 channels, ma_uint32
     config.channels        = channels;
     config.sampleRate      = sampleRate;
     config.cutoffFrequency = cutoffFrequency;
-    config.poles           = ma_min(poles, MA_MAX_FILTER_POLES);
+    config.order           = ma_min(order, MA_MAX_FILTER_ORDER);
 
     return config;
 }
@@ -30702,17 +30702,17 @@ static ma_result ma_hpf_reinit__internal(const ma_hpf_config* pConfig, ma_hpf* p
         return MA_INVALID_OPERATION;
     }
 
-    if (pConfig->poles > MA_MAX_FILTER_POLES) {
+    if (pConfig->order > MA_MAX_FILTER_ORDER) {
         return MA_INVALID_ARGS;
     }
 
-    hpf2Count = pConfig->poles / 2;
-    hpf1Count = pConfig->poles % 2;
+    hpf2Count = pConfig->order / 2;
+    hpf1Count = pConfig->order % 2;
 
     MA_ASSERT(hpf2Count <= ma_countof(pHPF->hpf2));
     MA_ASSERT(hpf1Count <= ma_countof(pHPF->hpf1));
 
-    /* The pole count can't change between reinits. */
+    /* The filter order can't change between reinits. */
     if (!isNew) {
         if (pHPF->hpf2Count != hpf2Count || pHPF->hpf1Count != hpf1Count) {
             return MA_INVALID_OPERATION;
@@ -30981,7 +30981,7 @@ ma_uint32 ma_bpf2_get_latency(ma_bpf2* pBPF)
 }
 
 
-ma_bpf_config ma_bpf_config_init(ma_format format, ma_uint32 channels, ma_uint32 sampleRate, double cutoffFrequency, ma_uint32 poles)
+ma_bpf_config ma_bpf_config_init(ma_format format, ma_uint32 channels, ma_uint32 sampleRate, double cutoffFrequency, ma_uint32 order)
 {
     ma_bpf_config config;
 
@@ -30990,7 +30990,7 @@ ma_bpf_config ma_bpf_config_init(ma_format format, ma_uint32 channels, ma_uint32
     config.channels        = channels;
     config.sampleRate      = sampleRate;
     config.cutoffFrequency = cutoffFrequency;
-    config.poles           = ma_min(poles, MA_MAX_FILTER_POLES);
+    config.order           = ma_min(order, MA_MAX_FILTER_ORDER);
 
     return config;
 }
@@ -31020,20 +31020,20 @@ static ma_result ma_bpf_reinit__internal(const ma_bpf_config* pConfig, ma_bpf* p
         return MA_INVALID_OPERATION;
     }
 
-    if (pConfig->poles > MA_MAX_FILTER_POLES) {
+    if (pConfig->order > MA_MAX_FILTER_ORDER) {
         return MA_INVALID_ARGS;
     }
 
-    /* We must have an even number of poles. */
-    if ((pConfig->poles & 0x1) != 0) {
+    /* We must have an even number of order. */
+    if ((pConfig->order & 0x1) != 0) {
         return MA_INVALID_ARGS;
     }
 
-    bpf2Count = pConfig->poles / 2;
+    bpf2Count = pConfig->order / 2;
 
     MA_ASSERT(bpf2Count <= ma_countof(pBPF->bpf2));
 
-    /* The pole count can't change between reinits. */
+    /* The filter order can't change between reinits. */
     if (!isNew) {
         if (pBPF->bpf2Count != bpf2Count) {
             return MA_INVALID_OPERATION;
@@ -31671,7 +31671,7 @@ ma_linear_resampler_config ma_linear_resampler_config_init(ma_format format, ma_
     config.channels         = channels;
     config.sampleRateIn     = sampleRateIn;
     config.sampleRateOut    = sampleRateOut;
-    config.lpfPoles         = ma_min(MA_DEFAULT_RESAMPLER_LPF_POLES, MA_MAX_FILTER_POLES);
+    config.lpfOrder         = ma_min(MA_DEFAULT_RESAMPLER_LPF_ORDER, MA_MAX_FILTER_ORDER);
     config.lpfNyquistFactor = 1;
 
     return config;
@@ -31694,20 +31694,20 @@ static ma_result ma_linear_resampler_set_rate_internal(ma_linear_resampler* pRes
     pResampler->config.sampleRateIn  /= gcf;
     pResampler->config.sampleRateOut /= gcf;
 
-    if (pResampler->config.lpfPoles > 0) {
+    if (pResampler->config.lpfOrder > 0) {
         ma_result result;
         ma_uint32 lpfSampleRate;
         double lpfCutoffFrequency;
         ma_lpf_config lpfConfig;
 
-        if (pResampler->config.lpfPoles > MA_MAX_FILTER_POLES) {
+        if (pResampler->config.lpfOrder > MA_MAX_FILTER_ORDER) {
             return MA_INVALID_ARGS;
         }
 
         lpfSampleRate      = (ma_uint32)(ma_max(pResampler->config.sampleRateIn, pResampler->config.sampleRateOut));
         lpfCutoffFrequency = (   double)(ma_min(pResampler->config.sampleRateIn, pResampler->config.sampleRateOut) * 0.5 * pResampler->config.lpfNyquistFactor);
 
-        lpfConfig = ma_lpf_config_init(pResampler->config.format, pResampler->config.channels, lpfSampleRate, lpfCutoffFrequency, pResampler->config.lpfPoles);
+        lpfConfig = ma_lpf_config_init(pResampler->config.format, pResampler->config.channels, lpfSampleRate, lpfCutoffFrequency, pResampler->config.lpfOrder);
 
         /*
         If the resampler is alreay initialized we don't want to do a fresh initialization of the low-pass filter because it will result in the cached frames
@@ -32311,7 +32311,7 @@ ma_resampler_config ma_resampler_config_init(ma_format format, ma_uint32 channel
     config.algorithm = algorithm;
 
     /* Linear. */
-    config.linear.lpfPoles = ma_min(MA_DEFAULT_RESAMPLER_LPF_POLES, MA_MAX_FILTER_POLES);
+    config.linear.lpfOrder = ma_min(MA_DEFAULT_RESAMPLER_LPF_ORDER, MA_MAX_FILTER_ORDER);
     config.linear.lpfNyquistFactor = 1;
 
     /* Speex. */
@@ -32346,7 +32346,7 @@ ma_result ma_resampler_init(const ma_resampler_config* pConfig, ma_resampler* pR
         {
             ma_linear_resampler_config linearConfig;
             linearConfig = ma_linear_resampler_config_init(pConfig->format, pConfig->channels, pConfig->sampleRateIn, pConfig->sampleRateOut);
-            linearConfig.lpfPoles         = pConfig->linear.lpfPoles;
+            linearConfig.lpfOrder         = pConfig->linear.lpfOrder;
             linearConfig.lpfNyquistFactor = pConfig->linear.lpfNyquistFactor;
 
             result = ma_linear_resampler_init(&linearConfig, &pResampler->state.linear);
@@ -33498,7 +33498,7 @@ ma_data_converter_config ma_data_converter_config_init_default()
     config.resampling.allowDynamicSampleRate = MA_FALSE; /* Disable dynamic sample rates by default because dynamic rate adjustments should be quite rare and it allows an optimization for cases when the in and out sample rates are the same. */
 
     /* Linear resampling defaults. */
-    config.resampling.linear.lpfPoles = 1;
+    config.resampling.linear.lpfOrder = 1;
     config.resampling.linear.lpfNyquistFactor = 1;
 
     /* Speex resampling defaults. */
@@ -33604,7 +33604,7 @@ ma_result ma_data_converter_init(const ma_data_converter_config* pConfig, ma_dat
         }
 
         resamplerConfig = ma_resampler_config_init(midFormat, resamplerChannels, pConverter->config.sampleRateIn, pConverter->config.sampleRateOut, pConverter->config.resampling.algorithm);
-        resamplerConfig.linear.lpfPoles         = pConverter->config.resampling.linear.lpfPoles;
+        resamplerConfig.linear.lpfOrder         = pConverter->config.resampling.linear.lpfOrder;
         resamplerConfig.linear.lpfNyquistFactor = pConverter->config.resampling.linear.lpfNyquistFactor;
         resamplerConfig.speex.quality           = pConverter->config.resampling.speex.quality;
 
@@ -37431,7 +37431,7 @@ ma_uint64 ma_convert_frames(void* pOut, ma_uint64 frameCountOut, ma_format forma
     config = ma_data_converter_config_init(formatIn, formatOut, channelsIn, channelsOut, sampleRateIn, sampleRateOut);
     ma_get_standard_channel_map(ma_standard_channel_map_default, channelsOut, config.channelMapOut);
     ma_get_standard_channel_map(ma_standard_channel_map_default, channelsIn,  config.channelMapIn);
-    config.resampling.linear.lpfPoles = ma_min(MA_DEFAULT_RESAMPLER_LPF_POLES, MA_MAX_FILTER_POLES);
+    config.resampling.linear.lpfOrder = ma_min(MA_DEFAULT_RESAMPLER_LPF_ORDER, MA_MAX_FILTER_ORDER);
 
     return ma_convert_frames_ex(pOut, frameCountOut, pIn, frameCountIn, &config);
 }
@@ -38280,7 +38280,7 @@ ma_decoder_config ma_decoder_config_init(ma_format outputFormat, ma_uint32 outpu
     config.sampleRate = outputSampleRate;
     ma_get_standard_channel_map(ma_standard_channel_map_default, config.channels, config.channelMap);
     config.resampling.algorithm = ma_resample_algorithm_linear;
-    config.resampling.linear.lpfPoles = ma_min(MA_DEFAULT_RESAMPLER_LPF_POLES, MA_MAX_FILTER_POLES);
+    config.resampling.linear.lpfOrder = ma_min(MA_DEFAULT_RESAMPLER_LPF_ORDER, MA_MAX_FILTER_ORDER);
     config.resampling.speex.quality = 3;
 
     return config;
@@ -38341,7 +38341,7 @@ static ma_result ma_decoder__init_data_converter(ma_decoder* pDecoder, const ma_
     converterConfig.ditherMode                 = pConfig->ditherMode;
     converterConfig.resampling.allowDynamicSampleRate = MA_FALSE;   /* Never allow dynamic sample rate conversion. Setting this to true will disable passthrough optimizations. */
     converterConfig.resampling.algorithm       = pConfig->resampling.algorithm;
-    converterConfig.resampling.linear.lpfPoles = pConfig->resampling.linear.lpfPoles;
+    converterConfig.resampling.linear.lpfOrder = pConfig->resampling.linear.lpfOrder;
     converterConfig.resampling.speex.quality   = pConfig->resampling.speex.quality;
 
     return ma_data_converter_init(&converterConfig, &pDecoder->converter);
