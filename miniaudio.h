@@ -41895,7 +41895,8 @@ v0.10.xx - TBD
     - White
     - Pink
     - Brownian
-  - Add encoding API (ma_encoder). This only support outputting to WAV files via dr_wav.
+  - Add encoding API (ma_encoder). This only supports outputting to WAV files via dr_wav.
+  - More meaningful result codes are now returned when a file fails to open.
   - Internal functions have all been made static where possible.
   - Fix potential crash when ma_device object's are not aligned to MA_SIMD_ALIGNMENT.
   - Fix a bug in ma_decoder_get_length_in_pcm_frames() where it was returning the length based on the internal sample rate rather than the output sample rate.
