@@ -157,7 +157,7 @@ waveform you want to generated via the `ma_waveform_config` object which you can
 
 Noise Generation
 ----------------
-A noise generation API has been added. This is used via the `ma_noise` API. Currently white, pink and brownian noise is supported. The `ma_noise` API is
+A noise generation API has been added. This is used via the `ma_noise` API. Currently white, pink and Brownian noise is supported. The `ma_noise` API is
 similar to the waveform API. Use `ma_noise_config_init()` to initialize a config object, and then pass it into `ma_noise_init()` to initialize a `ma_noise`
 object. Then use `ma_noise_read_pcm_frames()` to read PCM data.
 
@@ -170,6 +170,10 @@ The `ma_device` structure is no longer defined as being aligned to MA_SIMD_ALIGN
 the heap, but not aligning it to MA_SIMD_ALIGNMENT. This crash would happen due to the compiler seeing the alignment specified on the structure and assuming it
 was always aligned as such and thinking it was safe to emit alignment-dependant SIMD instructions. Since miniaudio's philosophy is for things to just work,
 this has been removed from all structures.
+
+Results codes have been overhauled. Unnecessary result codes have been removed, and some have been renumbered for organisation purposes. If you are are binding
+maintainer you will need to update your result codes. Support has also been added for retrieving a human readable description of a given result code via the
+`ma_result_description()` API.
 */
 
 
@@ -42248,6 +42252,7 @@ v0.10.xx - TBD
     - Brownian
   - Add encoding API (ma_encoder). This only supports outputting to WAV files via dr_wav.
   - Add ma_result_description() which is used to retrieve a human readable description of a given result code.
+  - Result codes have been changed. Binding maintainers will need to update their result code constants.
   - More meaningful result codes are now returned when a file fails to open.
   - Internal functions have all been made static where possible.
   - Fix potential crash when ma_device object's are not aligned to MA_SIMD_ALIGNMENT.
