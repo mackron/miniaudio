@@ -1072,13 +1072,13 @@ Low-Pass Filtering
 ------------------
 Low-pass filter is achieved with the following APIs:
 
-    |---------|-----------------------------------------|
-    | API     | Description                             |
-    |---------|-----------------------------------------|
-    | ma_lpf1 | First order low-pass filter             |
-    | ma_lpf2 | Second order low-pass filter            |
-    | ma_lpf  | Low-pass filter with configurable order |
-    |---------|-----------------------------------------|
+    |---------|------------------------------------------|
+    | API     | Description                              |
+    |---------|------------------------------------------|
+    | ma_lpf1 | First order low-pass filter              |
+    | ma_lpf2 | Second order low-pass filter             |
+    | ma_lpf  | High order low-pass filter (Butterworth) |
+    |---------|------------------------------------------|
 
 Low-pass filter example:
 
@@ -1103,11 +1103,11 @@ Filtering can be applied in-place by passing in the same pointer for both the in
     ma_lpf_process_pcm_frames(&lpf, pMyData, pMyData, frameCount);
     ```
 
-The maximum filter order is limited to MA_MAX_FILTER_ORDER which is set to 8. If you need more, you can chain filters together.
+The maximum filter order is limited to MA_MAX_FILTER_ORDER which is set to 8. If you need more, you can chain first and second order filters together.
 
     ```c
     for (iFilter = 0; iFilter < filterCount; iFilter += 1) {
-        ma_lpf_process_pcm_frames(&lpf[iFilter], pMyData, pMyData, frameCount);
+        ma_lpf2_process_pcm_frames(&lpf2[iFilter], pMyData, pMyData, frameCount);
     }
     ```
 
@@ -1126,13 +1126,13 @@ High-Pass Filtering
 -------------------
 High-pass filtering is achieved with the following APIs:
 
-    |---------|------------------------------------------|
-    | API     | Description                              |
-    |---------|------------------------------------------|
-    | ma_hpf1 | First order high-pass filter             |
-    | ma_hpf2 | Second order high-pass filter            |
-    | ma_hpf  | High-pass filter with configurable order |
-    |---------|------------------------------------------|
+    |---------|-------------------------------------------|
+    | API     | Description                               |
+    |---------|-------------------------------------------|
+    | ma_hpf1 | First order high-pass filter              |
+    | ma_hpf2 | Second order high-pass filter             |
+    | ma_hpf  | High order high-pass filter (Butterworth) |
+    |---------|-------------------------------------------|
 
 High-pass filters work exactly the same as low-pass filters, only the APIs are called `ma_hpf1`, `ma_hpf2` and `ma_hpf`. See example code for low-pass filters
 for example usage.
@@ -1142,12 +1142,12 @@ Band-Pass Filtering
 -------------------
 Band-pass filtering is achieved with the following APIs:
 
-    |---------|------------------------------------------|
-    | API     | Description                              |
-    |---------|------------------------------------------|
-    | ma_bpf2 | Second order band-pass filter            |
-    | ma_bpf  | Band-pass filter with configurable order |
-    |---------|------------------------------------------|
+    |---------|-------------------------------|
+    | API     | Description                   |
+    |---------|-------------------------------|
+    | ma_bpf2 | Second order band-pass filter |
+    | ma_bpf  | High order band-pass filter   |
+    |---------|-------------------------------|
 
 Band-pass filters work exactly the same as low-pass filters, only the APIs are called `ma_bpf2` and `ma_hpf`. See example code for low-pass filters for example
 usage. Note that the order for band-pass filters must be an even number which means there is no first order band-pass filter, unlike low-pass and high-pass
@@ -30262,10 +30262,16 @@ static ma_result ma_lpf_reinit__internal(const ma_lpf_config* pConfig, ma_lpf* p
     for (ilpf2 = 0; ilpf2 < lpf2Count; ilpf2 += 1) {
         ma_lpf2_config lpf2Config;
         double q;
+        double a;
 
-        /* TODO: Calculate Q. */
-        q = 0;
-        
+        /* Tempting to use 0.707107, but won't result in a Butterworth filter if the order is > 2. */
+        if (lpf1Count == 1) {
+            a = (1 + ilpf2*1) * (MA_PI_D/(pConfig->order*1));   /* Odd order. */
+        } else {
+            a = (1 + ilpf2*2) * (MA_PI_D/(pConfig->order*2));   /* Even order. */
+        }
+        q = 1 / (2*ma_cos(a));
+
         lpf2Config = ma_lpf2_config_init(pConfig->format, pConfig->channels, pConfig->sampleRate, pConfig->cutoffFrequency, q);
 
         if (isNew) {
@@ -30758,9 +30764,15 @@ static ma_result ma_hpf_reinit__internal(const ma_hpf_config* pConfig, ma_hpf* p
     for (ihpf2 = 0; ihpf2 < hpf2Count; ihpf2 += 1) {
         ma_hpf2_config hpf2Config;
         double q;
+        double a;
 
-        /* TODO: Calculate Q. */
-        q = 0;
+        /* Tempting to use 0.707107, but won't result in a Butterworth filter if the order is > 2. */
+        if (hpf1Count == 1) {
+            a = (1 + ihpf2*1) * (MA_PI_D/(pConfig->order*1));   /* Odd order. */
+        } else {
+            a = (1 + ihpf2*2) * (MA_PI_D/(pConfig->order*2));   /* Even order. */
+        }
+        q = 1 / (2*ma_cos(a));
 
         hpf2Config = ma_hpf2_config_init(pConfig->format, pConfig->channels, pConfig->sampleRate, pConfig->cutoffFrequency, q);
 
@@ -31078,8 +31090,8 @@ static ma_result ma_bpf_reinit__internal(const ma_bpf_config* pConfig, ma_bpf* p
         ma_bpf2_config bpf2Config;
         double q;
 
-        /* TODO: Calculate Q. */
-        q = 0;
+        /* TODO: Calculate Q to make this a proper Butterworth filter. */
+        q = 0.707107;
 
         bpf2Config = ma_bpf2_config_init(pConfig->format, pConfig->channels, pConfig->sampleRate, pConfig->cutoffFrequency, q);
 
@@ -38318,10 +38330,11 @@ ma_decoder_config ma_decoder_config_init(ma_format outputFormat, ma_uint32 outpu
     config.format = outputFormat;
     config.channels = outputChannels;
     config.sampleRate = outputSampleRate;
-    ma_get_standard_channel_map(ma_standard_channel_map_default, config.channels, config.channelMap);
     config.resampling.algorithm = ma_resample_algorithm_linear;
     config.resampling.linear.lpfOrder = ma_min(MA_DEFAULT_RESAMPLER_LPF_ORDER, MA_MAX_FILTER_ORDER);
     config.resampling.speex.quality = 3;
+
+    /* Note that we are intentionally leaving the channel map empty here which will cause the default channel map to be used. */
 
     return config;
 }
