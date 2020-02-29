@@ -6353,23 +6353,449 @@ char* ma_copy_string(const char* src, const ma_allocation_callbacks* pAllocation
 }
 
 
-FILE* ma_fopen(const char* pFilePath, const char* pOpenMode)
+#include <errno.h>
+static ma_result ma_result_from_errno(int e)
 {
-    FILE* pFile;
+    switch (e)
+    {
+        case 0: return MA_SUCCESS;
+    #ifdef EPERM
+        case EPERM: return MA_INVALID_OPERATION;
+    #endif
+    #ifdef ENOENT
+        case ENOENT: return MA_DOES_NOT_EXIST;
+    #endif
+    #ifdef ESRCH
+        case ESRCH: return MA_DOES_NOT_EXIST;
+    #endif
+    #ifdef EINTR
+        case EINTR: return MA_INTERRUPT;
+    #endif
+    #ifdef EIO
+        case EIO: return MA_IO_ERROR;
+    #endif
+    #ifdef ENXIO
+        case ENXIO: return MA_DOES_NOT_EXIST;
+    #endif
+    #ifdef E2BIG
+        case E2BIG: return MA_INVALID_ARGS;
+    #endif
+    #ifdef ENOEXEC
+        case ENOEXEC: return MA_INVALID_FILE;
+    #endif
+    #ifdef EBADF
+        case EBADF: return MA_INVALID_FILE;
+    #endif
+    #ifdef ECHILD
+        case ECHILD: return MA_ERROR;
+    #endif
+    #ifdef EAGAIN
+        case EAGAIN: return MA_UNAVAILABLE;
+    #endif
+    #ifdef ENOMEM
+        case ENOMEM: return MA_OUT_OF_MEMORY;
+    #endif
+    #ifdef EACCES
+        case EACCES: return MA_ACCESS_DENIED;
+    #endif
+    #ifdef EFAULT
+        case EFAULT: return MA_BAD_ADDRESS;
+    #endif
+    #ifdef ENOTBLK
+        case ENOTBLK: return MA_ERROR;
+    #endif
+    #ifdef EBUSY
+        case EBUSY: return MA_BUSY;
+    #endif
+    #ifdef EEXIST
+        case EEXIST: return MA_ALREADY_EXISTS;
+    #endif
+    #ifdef EXDEV
+        case EXDEV: return MA_ERROR;
+    #endif
+    #ifdef ENODEV
+        case ENODEV: return MA_DOES_NOT_EXIST;
+    #endif
+    #ifdef ENOTDIR
+        case ENOTDIR: return MA_NOT_DIRECTORY;
+    #endif
+    #ifdef EISDIR
+        case EISDIR: return MA_IS_DIRECTORY;
+    #endif
+    #ifdef EINVAL
+        case EINVAL: return MA_INVALID_ARGS;
+    #endif
+    #ifdef ENFILE
+        case ENFILE: return MA_TOO_MANY_OPEN_FILES;
+    #endif
+    #ifdef EMFILE
+        case EMFILE: return MA_TOO_MANY_OPEN_FILES;
+    #endif
+    #ifdef ENOTTY
+        case ENOTTY: return MA_INVALID_OPERATION;
+    #endif
+    #ifdef ETXTBSY
+        case ETXTBSY: return MA_BUSY;
+    #endif
+    #ifdef EFBIG
+        case EFBIG: return MA_TOO_BIG;
+    #endif
+    #ifdef ENOSPC
+        case ENOSPC: return MA_NO_SPACE;
+    #endif
+    #ifdef ESPIPE
+        case ESPIPE: return MA_BAD_SEEK;
+    #endif
+    #ifdef EROFS
+        case EROFS: return MA_ACCESS_DENIED;
+    #endif
+    #ifdef EMLINK
+        case EMLINK: return MA_TOO_MANY_LINKS;
+    #endif
+    #ifdef EPIPE
+        case EPIPE: return MA_BAD_PIPE;
+    #endif
+    #ifdef EDOM
+        case EDOM: return MA_OUT_OF_RANGE;
+    #endif
+    #ifdef ERANGE
+        case ERANGE: return MA_OUT_OF_RANGE;
+    #endif
+    #ifdef EDEADLK
+        case EDEADLK: return MA_DEADLOCK;
+    #endif
+    #ifdef ENAMETOOLONG
+        case ENAMETOOLONG: return MA_PATH_TOO_LONG;
+    #endif
+    #ifdef ENOLCK
+        case ENOLCK: return MA_ERROR;
+    #endif
+    #ifdef ENOSYS
+        case ENOSYS: return MA_NOT_IMPLEMENTED;
+    #endif
+    #ifdef ENOTEMPTY
+        case ENOTEMPTY: return MA_DIRECTORY_NOT_EMPTY;
+    #endif
+    #ifdef ELOOP
+        case ELOOP: return MA_TOO_MANY_LINKS;
+    #endif
+    #ifdef ENOMSG
+        case ENOMSG: return MA_NO_MESSAGE;
+    #endif
+    #ifdef EIDRM
+        case EIDRM: return MA_ERROR;
+    #endif
+    #ifdef ECHRNG
+        case ECHRNG: return MA_ERROR;
+    #endif
+    #ifdef EL2NSYNC
+        case EL2NSYNC: return MA_ERROR;
+    #endif
+    #ifdef EL3HLT
+        case EL3HLT: return MA_ERROR;
+    #endif
+    #ifdef EL3RST
+        case EL3RST: return MA_ERROR;
+    #endif
+    #ifdef ELNRNG
+        case ELNRNG: return MA_OUT_OF_RANGE;
+    #endif
+    #ifdef EUNATCH
+        case EUNATCH: return MA_ERROR;
+    #endif
+    #ifdef ENOCSI
+        case ENOCSI: return MA_ERROR;
+    #endif
+    #ifdef EL2HLT
+        case EL2HLT: return MA_ERROR;
+    #endif
+    #ifdef EBADE
+        case EBADE: return MA_ERROR;
+    #endif
+    #ifdef EBADR
+        case EBADR: return MA_ERROR;
+    #endif
+    #ifdef EXFULL
+        case EXFULL: return MA_ERROR;
+    #endif
+    #ifdef ENOANO
+        case ENOANO: return MA_ERROR;
+    #endif
+    #ifdef EBADRQC
+        case EBADRQC: return MA_ERROR;
+    #endif
+    #ifdef EBADSLT
+        case EBADSLT: return MA_ERROR;
+    #endif
+    #ifdef EBFONT
+        case EBFONT: return MA_INVALID_FILE;
+    #endif
+    #ifdef ENOSTR
+        case ENOSTR: return MA_ERROR;
+    #endif
+    #ifdef ENODATA
+        case ENODATA: return MA_NO_DATA_AVAILABLE;
+    #endif
+    #ifdef ETIME
+        case ETIME: return MA_TIMEOUT;
+    #endif
+    #ifdef ENOSR
+        case ENOSR: return MA_NO_DATA_AVAILABLE;
+    #endif
+    #ifdef ENONET
+        case ENONET: return MA_NO_NETWORK;
+    #endif
+    #ifdef ENOPKG
+        case ENOPKG: return MA_ERROR;
+    #endif
+    #ifdef EREMOTE
+        case EREMOTE: return MA_ERROR;
+    #endif
+    #ifdef ENOLINK
+        case ENOLINK: return MA_ERROR;
+    #endif
+    #ifdef EADV
+        case EADV: return MA_ERROR;
+    #endif
+    #ifdef ESRMNT
+        case ESRMNT: return MA_ERROR;
+    #endif
+    #ifdef ECOMM
+        case ECOMM: return MA_ERROR;
+    #endif
+    #ifdef EPROTO
+        case EPROTO: return MA_ERROR;
+    #endif
+    #ifdef EMULTIHOP
+        case EMULTIHOP: return MA_ERROR;
+    #endif
+    #ifdef EDOTDOT
+        case EDOTDOT: return MA_ERROR;
+    #endif
+    #ifdef EBADMSG
+        case EBADMSG: return MA_BAD_MESSAGE;
+    #endif
+    #ifdef EOVERFLOW
+        case EOVERFLOW: return MA_TOO_BIG;
+    #endif
+    #ifdef ENOTUNIQ
+        case ENOTUNIQ: return MA_NOT_UNIQUE;
+    #endif
+    #ifdef EBADFD
+        case EBADFD: return MA_ERROR;
+    #endif
+    #ifdef EREMCHG
+        case EREMCHG: return MA_ERROR;
+    #endif
+    #ifdef ELIBACC
+        case ELIBACC: return MA_ACCESS_DENIED;
+    #endif
+    #ifdef ELIBBAD
+        case ELIBBAD: return MA_INVALID_FILE;
+    #endif
+    #ifdef ELIBSCN
+        case ELIBSCN: return MA_INVALID_FILE;
+    #endif
+    #ifdef ELIBMAX
+        case ELIBMAX: return MA_ERROR;
+    #endif
+    #ifdef ELIBEXEC
+        case ELIBEXEC: return MA_ERROR;
+    #endif
+    #ifdef EILSEQ
+        case EILSEQ: return MA_INVALID_DATA;
+    #endif
+    #ifdef ERESTART
+        case ERESTART: return MA_ERROR;
+    #endif
+    #ifdef ESTRPIPE
+        case ESTRPIPE: return MA_ERROR;
+    #endif
+    #ifdef EUSERS
+        case EUSERS: return MA_ERROR;
+    #endif
+    #ifdef ENOTSOCK
+        case ENOTSOCK: return MA_NOT_SOCKET;
+    #endif
+    #ifdef EDESTADDRREQ
+        case EDESTADDRREQ: return MA_NO_ADDRESS;
+    #endif
+    #ifdef EMSGSIZE
+        case EMSGSIZE: return MA_TOO_BIG;
+    #endif
+    #ifdef EPROTOTYPE
+        case EPROTOTYPE: return MA_BAD_PROTOCOL;
+    #endif
+    #ifdef ENOPROTOOPT
+        case ENOPROTOOPT: return MA_PROTOCOL_UNAVAILABLE;
+    #endif
+    #ifdef EPROTONOSUPPORT
+        case EPROTONOSUPPORT: return MA_PROTOCOL_NOT_SUPPORTED;
+    #endif
+    #ifdef ESOCKTNOSUPPORT
+        case ESOCKTNOSUPPORT: return MA_SOCKET_NOT_SUPPORTED;
+    #endif
+    #ifdef EOPNOTSUPP
+        case EOPNOTSUPP: return MA_INVALID_OPERATION;
+    #endif
+    #ifdef EPFNOSUPPORT
+        case EPFNOSUPPORT: return MA_PROTOCOL_FAMILY_NOT_SUPPORTED;
+    #endif
+    #ifdef EAFNOSUPPORT
+        case EAFNOSUPPORT: return MA_ADDRESS_FAMILY_NOT_SUPPORTED;
+    #endif
+    #ifdef EADDRINUSE
+        case EADDRINUSE: return MA_ALREADY_IN_USE;
+    #endif
+    #ifdef EADDRNOTAVAIL
+        case EADDRNOTAVAIL: return MA_ERROR;
+    #endif
+    #ifdef ENETDOWN
+        case ENETDOWN: return MA_NO_NETWORK;
+    #endif
+    #ifdef ENETUNREACH
+        case ENETUNREACH: return MA_NO_NETWORK;
+    #endif
+    #ifdef ENETRESET
+        case ENETRESET: return MA_NO_NETWORK;
+    #endif
+    #ifdef ECONNABORTED
+        case ECONNABORTED: return MA_NO_NETWORK;
+    #endif
+    #ifdef ECONNRESET
+        case ECONNRESET: return MA_CONNECTION_RESET;
+    #endif
+    #ifdef ENOBUFS
+        case ENOBUFS: return MA_NO_SPACE;
+    #endif
+    #ifdef EISCONN
+        case EISCONN: return MA_ALREADY_CONNECTED;
+    #endif
+    #ifdef ENOTCONN
+        case ENOTCONN: return MA_NOT_CONNECTED;
+    #endif
+    #ifdef ESHUTDOWN
+        case ESHUTDOWN: return MA_ERROR;
+    #endif
+    #ifdef ETOOMANYREFS
+        case ETOOMANYREFS: return MA_ERROR;
+    #endif
+    #ifdef ETIMEDOUT
+        case ETIMEDOUT: return MA_TIMEOUT;
+    #endif
+    #ifdef ECONNREFUSED
+        case ECONNREFUSED: return MA_CONNECTION_REFUSED;
+    #endif
+    #ifdef EHOSTDOWN
+        case EHOSTDOWN: return MA_NO_HOST;
+    #endif
+    #ifdef EHOSTUNREACH
+        case EHOSTUNREACH: return MA_NO_HOST;
+    #endif
+    #ifdef EALREADY
+        case EALREADY: return MA_IN_PROGRESS;
+    #endif
+    #ifdef EINPROGRESS
+        case EINPROGRESS: return MA_IN_PROGRESS;
+    #endif
+    #ifdef ESTALE
+        case ESTALE: return MA_INVALID_FILE;
+    #endif
+    #ifdef EUCLEAN
+        case EUCLEAN: return MA_ERROR;
+    #endif
+    #ifdef ENOTNAM
+        case ENOTNAM: return MA_ERROR;
+    #endif
+    #ifdef ENAVAIL
+        case ENAVAIL: return MA_ERROR;
+    #endif
+    #ifdef EISNAM
+        case EISNAM: return MA_ERROR;
+    #endif
+    #ifdef EREMOTEIO
+        case EREMOTEIO: return MA_IO_ERROR;
+    #endif
+    #ifdef EDQUOT
+        case EDQUOT: return MA_NO_SPACE;
+    #endif
+    #ifdef ENOMEDIUM
+        case ENOMEDIUM: return MA_DOES_NOT_EXIST;
+    #endif
+    #ifdef EMEDIUMTYPE
+        case EMEDIUMTYPE: return MA_ERROR;
+    #endif
+    #ifdef ECANCELED
+        case ECANCELED: return MA_CANCELLED;
+    #endif
+    #ifdef ENOKEY
+        case ENOKEY: return MA_ERROR;
+    #endif
+    #ifdef EKEYEXPIRED
+        case EKEYEXPIRED: return MA_ERROR;
+    #endif
+    #ifdef EKEYREVOKED
+        case EKEYREVOKED: return MA_ERROR;
+    #endif
+    #ifdef EKEYREJECTED
+        case EKEYREJECTED: return MA_ERROR;
+    #endif
+    #ifdef EOWNERDEAD
+        case EOWNERDEAD: return MA_ERROR;
+    #endif
+    #ifdef ENOTRECOVERABLE
+        case ENOTRECOVERABLE: return MA_ERROR;
+    #endif
+    #ifdef ERFKILL
+        case ERFKILL: return MA_ERROR;
+    #endif
+    #ifdef EHWPOISON
+        case EHWPOISON: return MA_ERROR;
+    #endif
+        default: return MA_ERROR;
+    }
+}
 
-#if defined(_MSC_VER) && _MSC_VER >= 1400
-    if (fopen_s(&pFile, pFilePath, pOpenMode) != 0) {
-        return NULL;
+ma_result ma_fopen(FILE** ppFile, const char* pFilePath, const char* pOpenMode)
+{
+#if _MSC_VER
+    errno_t err;
+#endif
+
+    if (ppFile != NULL) {
+        *ppFile = NULL;  /* Safety. */
+    }
+
+    if (pFilePath == NULL || pOpenMode == NULL || ppFile == NULL) {
+        return MA_INVALID_ARGS;
+    }
+
+#if _MSC_VER
+    err = fopen_s(ppFile, pFilePath, pOpenMode);
+    if (err != 0) {
+        return ma_result_from_errno(err);
     }
 #else
-    pFile = fopen(pFilePath, pOpenMode);
-    if (pFile == NULL) {
-        return NULL;
+#if defined(_WIN32) || defined(__APPLE__)
+    *ppFile = fopen(pFilePath, pOpenMode);
+#else
+    #if defined(_FILE_OFFSET_BITS) && _FILE_OFFSET_BITS == 64 && defined(_LARGEFILE64_SOURCE)
+        *ppFile = fopen64(pFilePath, pOpenMode);
+    #else
+        *ppFile = fopen(pFilePath, pOpenMode);
+    #endif
+#endif
+    if (*ppFile == NULL) {
+        ma_result result = ma_result_from_errno(errno);
+        if (result == MA_SUCCESS) {
+            return MA_ERROR;   /* Just a safety check to make sure we never ever return success when pFile == NULL. */
+        }
     }
 #endif
 
-    return pFile;
+    return MA_SUCCESS;
 }
+
 
 
 /*
@@ -6389,22 +6815,33 @@ fallback, so if you notice your compiler not detecting this properly I'm happy t
     #endif
 #endif
 
-FILE* ma_wfopen(const wchar_t* pFilePath, const wchar_t* pOpenMode, ma_allocation_callbacks* pAllocationCallbacks)
+ma_result ma_wfopen(FILE** ppFile, const wchar_t* pFilePath, const wchar_t* pOpenMode, ma_allocation_callbacks* pAllocationCallbacks)
 {
-    FILE* pFile = NULL;
+#if _MSC_VER
+    errno_t err;
+#endif
+
+    if (ppFile != NULL) {
+        *ppFile = NULL;  /* Safety. */
+    }
+
+    if (pFilePath == NULL || pOpenMode == NULL || ppFile == NULL) {
+        return MA_INVALID_ARGS;
+    }
 
 #if defined(MA_HAS_WFOPEN)
     (void)pAllocationCallbacks;
 
     /* Use _wfopen() on Windows. */
     #if defined(_MSC_VER) && _MSC_VER >= 1400
-        if (_wfopen_s(&pFile, pFilePath, pOpenMode) != 0) {
-            return NULL;
+        err = _wfopen_s(ppFile, pFilePath, pOpenMode);
+        if (err != 0) {
+            return ma_result_from_errno(err);
         }
     #else
-        pFile = _wfopen(pFilePath, pOpenMode);
-        if (pFile == NULL) {
-            return NULL;
+        *ppFile = _wfopen(pFilePath, pOpenMode);
+        if (*ppFile == NULL) {
+            return ma_result_from_errno(errno);
         }
     #endif
 #else
@@ -6420,20 +6857,16 @@ FILE* ma_wfopen(const wchar_t* pFilePath, const wchar_t* pOpenMode, ma_allocatio
         char* pFilePathMB = NULL;
         char pOpenModeMB[32] = {0};
 
-        if (pOpenMode == NULL) {
-            return NULL;
-        }
-
         /* Get the length first. */
         MA_ZERO_OBJECT(&mbs);
         lenMB = wcsrtombs(NULL, &pFilePathTemp, 0, &mbs);
         if (lenMB == (size_t)-1) {
-            return NULL;
+            return ma_result_from_errno(errno);
         }
 
         pFilePathMB = (char*)ma_malloc(lenMB + 1, pAllocationCallbacks);
         if (pFilePathMB == NULL) {
-            return NULL;
+            return MA_OUT_OF_MEMORY;
         }
 
         pFilePathTemp = pFilePath;
@@ -6454,17 +6887,17 @@ FILE* ma_wfopen(const wchar_t* pFilePath, const wchar_t* pOpenMode, ma_allocatio
             }
         }
 
-        pFile = fopen(pFilePathMB, pOpenModeMB);
+        *ppFile = fopen(pFilePathMB, pOpenModeMB);
 
         ma_free(pFilePathMB, pAllocationCallbacks);
     }
 
-    if (pFile == NULL) {
-        return NULL;
+    if (*ppFile == NULL) {
+        return MA_ERROR;
     }
 #endif
 
-    return pFile;
+    return MA_SUCCESS;
 }
 
 
@@ -39859,9 +40292,9 @@ static ma_result ma_decoder__preinit_file(const char* pFilePath, const ma_decode
         return result;
     }
 
-    pFile = ma_fopen(pFilePath, "rb");
+    result = ma_fopen(&pFile, pFilePath, "rb");
     if (pFile == NULL) {
-        return MA_ERROR;
+        return result;
     }
 
     /* We need to manually set the user data so the calls to ma_decoder__on_seek_stdio() succeed. */
@@ -39890,9 +40323,9 @@ static ma_result ma_decoder__preinit_file_w(const wchar_t* pFilePath, const ma_d
         return result;
     }
 
-    pFile = ma_wfopen(pFilePath, L"rb", &pDecoder->allocationCallbacks);
+    result = ma_wfopen(&pFile, pFilePath, L"rb", &pDecoder->allocationCallbacks);
     if (pFile == NULL) {
-        return MA_ERROR;
+        return result;
     }
 
     /* We need to manually set the user data so the calls to ma_decoder__on_seek_stdio() succeed. */
@@ -40514,9 +40947,9 @@ ma_result ma_encoder_init_file(const char* pFilePath, const ma_encoder_config* p
     }
 
     /* Now open the file. If this fails we don't need to uninitialize the encoder. */
-    pFile = ma_fopen(pFilePath, "wb");
+    result = ma_fopen(&pFile, pFilePath, "wb");
     if (pFile == NULL) {
-        return MA_ERROR;
+        return result;
     }
 
     pEncoder->pFile = pFile;
@@ -40535,9 +40968,9 @@ ma_result ma_encoder_init_file_w(const wchar_t* pFilePath, const ma_encoder_conf
     }
 
     /* Now open the file. If this fails we don't need to uninitialize the encoder. */
-    pFile = ma_wfopen(pFilePath, L"wb", &pEncoder->config.allocationCallbacks);
+    result = ma_wfopen(&pFile, pFilePath, L"wb", &pEncoder->config.allocationCallbacks);
     if (pFile != NULL) {
-        return MA_ERROR;
+        return result;
     }
 
     pEncoder->pFile = pFile;
