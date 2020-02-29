@@ -1267,8 +1267,8 @@ miniaudio supports generation of white, pink and brownian noise via the `ma_nois
     ma_noise_read_pcm_frames(&noise, pOutput, frameCount);
     ```
 
-The noise API uses simple LCG random number generation. It supports a custom seed which is useful for things like automated testing which often requires
-reproducibility. Setting the seed to zero will default to MA_DEFAULT_LCG_SEED.
+The noise API uses simple LCG random number generation. It supports a custom seed which is useful for things like automated testing requiring reproducibility.
+Setting the seed to zero will default to MA_DEFAULT_LCG_SEED.
 
 By default, the noise API will use different values for different channels. So, for example, the left side in a stereo stream will be different to the right
 side. To instead have each channel use the same random value, set the `duplicateChannels` member of the noise config to true, like so:
