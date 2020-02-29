@@ -26,8 +26,8 @@ Features
   - Optional Speex resampling (must opt-in).
 - Filters.
   - Biquad
-  - Low-pass (first and second order)
-  - High-pass (first and second order)
+  - Low-pass (first, second and high order)
+  - High-pass (first, second and high order)
   - Second order band-pass
   - Second order notch
   - Second order peaking
