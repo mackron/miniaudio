@@ -671,8 +671,8 @@ sample format, output channel count and output sample rate. The following file t
     | ma_resource_format_wav | WAV         |
     |------------------------|-------------|
 
-If the format, channel count or sample rate is not supported by the output file type and error will be returned. The encoder will not perform data conversion
-so you will need to convert that before outputting any audio data. To output audio data, use `ma_encoder_write_pcm_frames()`, like in the example below:
+If the format, channel count or sample rate is not supported by the output file type an error will be returned. The encoder will not perform data conversion so
+you will need to convert it before outputting any audio data. To output audio data, use `ma_encoder_write_pcm_frames()`, like in the example below:
 
     ```c
     framesWritten = ma_encoder_write_pcm_frames(&encoder, pPCMFramesToWrite, framesToWrite);
@@ -690,7 +690,7 @@ PCM frames where you want to specify the frame count and channel count as a vari
 
 Dithering
 ---------
-Dithering can be set using ditherMode parmater.
+Dithering can be set using ditherMode parameter.
 
 The different dithering modes include the following, in order of efficiency:
 
@@ -751,9 +751,9 @@ Channel Mapping
 ---------------
 In addition to converting from one channel count to another, like the example above, The channel converter can also be used to rearrange channels. When
 initializing the channel converter, you can optionally pass in channel maps for both the input and output frames. If the channel counts are the same, and each
-channel map contains the same channel positions with the exception that they're in a different order, a simple shuffling of the channels with be performed. If,
-however, there is not a 1:1 mapping of channel positions, or the channel counts differ, the input channels will be mixed based on a mixing
-mode which is specified when initializing the `ma_channel_converter_config` object.
+channel map contains the same channel positions with the exception that they're in a different order, a simple shuffling of the channels will be performed. If,
+however, there is not a 1:1 mapping of channel positions, or the channel counts differ, the input channels will be mixed based on a mixing mode which is
+specified when initializing the `ma_channel_converter_config` object.
 
 When converting from mono to multi-channel, the mono channel is simply copied to each output channel. When going the other way around, the audio of each output
 channel is simply averaged and copied to the mono channel.
@@ -919,8 +919,8 @@ with `ma_resampler_get_input_latency()` and `ma_resampler_get_output_latency()`.
 Resampling Algorithms
 ---------------------
 The choice of resampling algorithm depends on your situation and requirements. The linear resampler is the most efficient and has the least amount of latency,
-but at the expense of poorer quality. The Speex resampler is higher quality, but slower with more latency. It also performs several heap applications
-internally for memory management.
+but at the expense of poorer quality. The Speex resampler is higher quality, but slower with more latency. It also performs several heap allocations internally
+for memory management.
 
 
 Linear Resampling
@@ -949,7 +949,7 @@ source files. To opt-in, you must first #include the following file before the i
 
     #include "extras/speex_resampler/ma_speex_resampler.h"
 
-Both the header and implementation is contained within the same file. To implementation can be included in your program like so:
+Both the header and implementation is contained within the same file. The implementation can be included in your program like so:
 
     #define MINIAUDIO_SPEEX_RESAMPLER_IMPLEMENTATION
     #include "extras/speex_resampler/ma_speex_resampler.h"
@@ -42202,7 +42202,7 @@ v0.10.xx - TBD
     - ma_channel_router has been replaced with ma_channel_converter.
     - ma_src has been replaced with ma_resampler
     - ma_pcm_converter has been replaced with ma_data_converter
-  - API CHANGE: Add support for custom memory allocation callbacks. The following APIs have been update to take an extra parameter for the allocation
+  - API CHANGE: Add support for custom memory allocation callbacks. The following APIs have been updated to take an extra parameter for the allocation
     callbacks:
     - ma_malloc()
     - ma_realloc()
@@ -42223,7 +42223,7 @@ v0.10.xx - TBD
     - ma_sine_wave_read_f32()
     - ma_sine_wave_read_f32_ex()
   - API CHANGE: ma_convert_frames() has been updated to take an extra parameter which is the size of the output buffer in PCM frames. Parameters have also been
-    reorded.
+    reordered.
   - API CHANGE: ma_convert_frames_ex() has been changed to take a pointer to a ma_data_converter_config object to specify the input and output formats to
     convert between.
   - API CHANGE: ma_calculate_frame_count_after_src() has been renamed to ma_calculate_frame_count_after_resampling().
