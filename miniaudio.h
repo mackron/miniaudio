@@ -11927,7 +11927,11 @@ done:
             pData->pAudioClient = NULL;
         }
 
-        return ma_context_post_error(pContext, NULL, MA_LOG_LEVEL_ERROR, errorMsg, result);
+        if (errorMsg != NULL && errorMsg[0] != '\0') {
+            ma_context_post_error(pContext, NULL, MA_LOG_LEVEL_ERROR, errorMsg, result);
+        }
+
+        return result;
     } else {
         return MA_SUCCESS;
     }
