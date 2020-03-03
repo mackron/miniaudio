@@ -1,6 +1,8 @@
 examples/out/
 docs/
-debugging
+debugging/
+old_stuff/
+res/
 tests/x64/
 tests/Debug/
 tests/Release/
