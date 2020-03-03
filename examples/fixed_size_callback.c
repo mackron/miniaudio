@@ -22,7 +22,7 @@ of data movement.
 
 #define PCM_FRAME_CHUNK_SIZE    1234    /* <-- Play around with this to control your fixed sized buffer. */
 
-ma_sine_wave g_sineWave;
+ma_waveform g_sineWave;
 ma_pcm_rb g_rb; /* The ring buffer. */
 
 void data_callback_fixed(ma_device* pDevice, void* pOutput, const void* pInput, ma_uint32 frameCount)
@@ -33,7 +33,7 @@ void data_callback_fixed(ma_device* pDevice, void* pOutput, const void* pInput, 
     */
     printf("frameCount=%d\n", frameCount);
 
-    ma_sine_wave_read_pcm_frames(&g_sineWave, pOutput, frameCount, ma_format_f32, pDevice->playback.channels);
+    ma_waveform_read_pcm_frames(&g_sineWave, pOutput, frameCount);
 
     /* Unused in this example. */
     (void)pDevice;
@@ -98,10 +98,13 @@ void data_callback(ma_device* pDevice, void* pOutput, const void* pInput, ma_uin
 
 int main(int argc, char** argv)
 {
+    ma_waveform_config waveformConfig;
     ma_device_config deviceConfig;
     ma_device device;
 
-    ma_sine_wave_init(0.2, 400, DEVICE_SAMPLE_RATE, &g_sineWave);
+    waveformConfig = ma_waveform_config_init(DEVICE_FORMAT, DEVICE_CHANNELS, DEVICE_SAMPLE_RATE, ma_waveform_type_sine, 0.1, 220);
+    ma_waveform_init(&waveformConfig, &g_sineWave);
+
     ma_pcm_rb_init(DEVICE_FORMAT, DEVICE_CHANNELS, PCM_FRAME_CHUNK_SIZE, NULL, NULL, &g_rb);
     
     deviceConfig = ma_device_config_init(ma_device_type_playback);
