@@ -56,12 +56,12 @@ ma_result test_notch2__by_format(const char* pInputFilePath, const char* pOutput
 
 ma_result test_notch2__f32(const char* pInputFilePath)
 {
-    return test_notch2__by_format(pInputFilePath, "output/notch2_f32.wav", ma_format_f32);
+    return test_notch2__by_format(pInputFilePath, TEST_OUTPUT_DIR"/notch2_f32.wav", ma_format_f32);
 }
 
 ma_result test_notch2__s16(const char* pInputFilePath)
 {
-    return test_notch2__by_format(pInputFilePath, "output/notch2_s16.wav", ma_format_s16);
+    return test_notch2__by_format(pInputFilePath, TEST_OUTPUT_DIR"/notch2_s16.wav", ma_format_s16);
 }
 
 #if 0
@@ -117,12 +117,12 @@ ma_result test_notch4__by_format(const char* pInputFilePath, const char* pOutput
 
 ma_result test_notch4__f32(const char* pInputFilePath)
 {
-    return test_notch4__by_format(pInputFilePath, "output/notch4_f32.wav", ma_format_f32);
+    return test_notch4__by_format(pInputFilePath, TEST_OUTPUT_DIR"/notch4_f32.wav", ma_format_f32);
 }
 
 ma_result test_notch4__s16(const char* pInputFilePath)
 {
-    return test_notch4__by_format(pInputFilePath, "output/notch4_s16.wav", ma_format_s16);
+    return test_notch4__by_format(pInputFilePath, TEST_OUTPUT_DIR"/notch4_s16.wav", ma_format_s16);
 }
 #endif
 

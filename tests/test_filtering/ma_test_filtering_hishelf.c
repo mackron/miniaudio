@@ -56,12 +56,12 @@ ma_result test_hishelf2__by_format(const char* pInputFilePath, const char* pOutp
 
 ma_result test_hishelf2__f32(const char* pInputFilePath)
 {
-    return test_hishelf2__by_format(pInputFilePath, "output/hishelf2_f32.wav", ma_format_f32);
+    return test_hishelf2__by_format(pInputFilePath, TEST_OUTPUT_DIR"/hishelf2_f32.wav", ma_format_f32);
 }
 
 ma_result test_hishelf2__s16(const char* pInputFilePath)
 {
-    return test_hishelf2__by_format(pInputFilePath, "output/hishelf2_s16.wav", ma_format_s16);
+    return test_hishelf2__by_format(pInputFilePath, TEST_OUTPUT_DIR"/hishelf2_s16.wav", ma_format_s16);
 }
 
 #if 0
@@ -117,12 +117,12 @@ ma_result test_hishelf4__by_format(const char* pInputFilePath, const char* pOutp
 
 ma_result test_hishelf4__f32(const char* pInputFilePath)
 {
-    return test_hishelf4__by_format(pInputFilePath, "output/hishelf4_f32.wav", ma_format_f32);
+    return test_hishelf4__by_format(pInputFilePath, TEST_OUTPUT_DIR"/hishelf4_f32.wav", ma_format_f32);
 }
 
 ma_result test_hishelf4__s16(const char* pInputFilePath)
 {
-    return test_hishelf4__by_format(pInputFilePath, "output/hishelf4_s16.wav", ma_format_s16);
+    return test_hishelf4__by_format(pInputFilePath, TEST_OUTPUT_DIR"/hishelf4_s16.wav", ma_format_s16);
 }
 #endif
 

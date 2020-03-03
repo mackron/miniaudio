@@ -10,7 +10,8 @@
 
 #include <stdio.h>
 
-#define MAX_TESTS   64
+#define MAX_TESTS       64
+#define TEST_OUTPUT_DIR "res/output"
 
 typedef int (* ma_test_entry_proc)(int argc, char** argv);
 

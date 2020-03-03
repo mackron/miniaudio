@@ -56,12 +56,12 @@ ma_result test_lpf1__by_format(const char* pInputFilePath, const char* pOutputFi
 
 ma_result test_lpf1__f32(const char* pInputFilePath)
 {
-    return test_lpf1__by_format(pInputFilePath, "output/lpf1_f32.wav", ma_format_f32);
+    return test_lpf1__by_format(pInputFilePath, TEST_OUTPUT_DIR"/lpf1_f32.wav", ma_format_f32);
 }
 
 ma_result test_lpf1__s16(const char* pInputFilePath)
 {
-    return test_lpf1__by_format(pInputFilePath, "output/lpf1_s16.wav", ma_format_s16);
+    return test_lpf1__by_format(pInputFilePath, TEST_OUTPUT_DIR"/lpf1_s16.wav", ma_format_s16);
 }
 
 
@@ -117,12 +117,12 @@ ma_result test_lpf2__by_format(const char* pInputFilePath, const char* pOutputFi
 
 ma_result test_lpf2__f32(const char* pInputFilePath)
 {
-    return test_lpf2__by_format(pInputFilePath, "output/lpf2_f32.wav", ma_format_f32);
+    return test_lpf2__by_format(pInputFilePath, TEST_OUTPUT_DIR"/lpf2_f32.wav", ma_format_f32);
 }
 
 ma_result test_lpf2__s16(const char* pInputFilePath)
 {
-    return test_lpf2__by_format(pInputFilePath, "output/lpf2_s16.wav", ma_format_s16);
+    return test_lpf2__by_format(pInputFilePath, TEST_OUTPUT_DIR"/lpf2_s16.wav", ma_format_s16);
 }
 
 
@@ -179,12 +179,12 @@ ma_result test_lpf3__by_format(const char* pInputFilePath, const char* pOutputFi
 
 ma_result test_lpf3__f32(const char* pInputFilePath)
 {
-    return test_lpf3__by_format(pInputFilePath, "output/lpf3_f32.wav", ma_format_f32);
+    return test_lpf3__by_format(pInputFilePath, TEST_OUTPUT_DIR"/lpf3_f32.wav", ma_format_f32);
 }
 
 ma_result test_lpf3__s16(const char* pInputFilePath)
 {
-    return test_lpf3__by_format(pInputFilePath, "output/lpf3_s16.wav", ma_format_s16);
+    return test_lpf3__by_format(pInputFilePath, TEST_OUTPUT_DIR"/lpf3_s16.wav", ma_format_s16);
 }
 
 

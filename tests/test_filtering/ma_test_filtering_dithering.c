@@ -1,7 +1,7 @@
 
 ma_result test_dithering__u8(const char* pInputFilePath)
 {
-    const char* pOutputFilePath = "output/dithering_u8.wav";
+    const char* pOutputFilePath = TEST_OUTPUT_DIR"/dithering_u8.wav";
     ma_result result;
     ma_decoder_config decoderConfig;
     ma_decoder decoder;

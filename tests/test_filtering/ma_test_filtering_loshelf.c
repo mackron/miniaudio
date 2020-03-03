@@ -56,12 +56,12 @@ ma_result test_loshelf2__by_format(const char* pInputFilePath, const char* pOutp
 
 ma_result test_loshelf2__f32(const char* pInputFilePath)
 {
-    return test_loshelf2__by_format(pInputFilePath, "output/loshelf2_f32.wav", ma_format_f32);
+    return test_loshelf2__by_format(pInputFilePath, TEST_OUTPUT_DIR"/loshelf2_f32.wav", ma_format_f32);
 }
 
 ma_result test_loshelf2__s16(const char* pInputFilePath)
 {
-    return test_loshelf2__by_format(pInputFilePath, "output/loshelf2_s16.wav", ma_format_s16);
+    return test_loshelf2__by_format(pInputFilePath, TEST_OUTPUT_DIR"/loshelf2_s16.wav", ma_format_s16);
 }
 
 #if 0
@@ -117,12 +117,12 @@ ma_result test_loshelf4__by_format(const char* pInputFilePath, const char* pOutp
 
 ma_result test_loshelf4__f32(const char* pInputFilePath)
 {
-    return test_loshelf4__by_format(pInputFilePath, "output/loshelf4_f32.wav", ma_format_f32);
+    return test_loshelf4__by_format(pInputFilePath, TEST_OUTPUT_DIR"/loshelf4_f32.wav", ma_format_f32);
 }
 
 ma_result test_loshelf4__s16(const char* pInputFilePath)
 {
-    return test_loshelf4__by_format(pInputFilePath, "output/loshelf4_s16.wav", ma_format_s16);
+    return test_loshelf4__by_format(pInputFilePath, TEST_OUTPUT_DIR"/loshelf4_s16.wav", ma_format_s16);
 }
 #endif
 

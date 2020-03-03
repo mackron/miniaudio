@@ -46,45 +46,45 @@ ma_result test_waveform__f32()
     double amplitude = 0.2;
 
     /* Sine */
-    result = test_waveform__by_format_and_type(ma_format_f32, ma_waveform_type_sine, +amplitude, "output/waveform_f32_sine.wav");
+    result = test_waveform__by_format_and_type(ma_format_f32, ma_waveform_type_sine, +amplitude, TEST_OUTPUT_DIR"/waveform_f32_sine.wav");
     if (result != MA_SUCCESS) {
         hasError = MA_TRUE;
     }
 
-    result = test_waveform__by_format_and_type(ma_format_f32, ma_waveform_type_sine, -amplitude, "output/waveform_f32_sine_neg.wav");
+    result = test_waveform__by_format_and_type(ma_format_f32, ma_waveform_type_sine, -amplitude, TEST_OUTPUT_DIR"/waveform_f32_sine_neg.wav");
     if (result != MA_SUCCESS) {
         hasError = MA_TRUE;
     }
 
     /* Square */
-    result = test_waveform__by_format_and_type(ma_format_f32, ma_waveform_type_square, +amplitude, "output/waveform_f32_square.wav");
+    result = test_waveform__by_format_and_type(ma_format_f32, ma_waveform_type_square, +amplitude, TEST_OUTPUT_DIR"/waveform_f32_square.wav");
     if (result != MA_SUCCESS) {
         hasError = MA_TRUE;
     }
 
-    result = test_waveform__by_format_and_type(ma_format_f32, ma_waveform_type_square, -amplitude, "output/waveform_f32_square_neg.wav");
+    result = test_waveform__by_format_and_type(ma_format_f32, ma_waveform_type_square, -amplitude, TEST_OUTPUT_DIR"/waveform_f32_square_neg.wav");
     if (result != MA_SUCCESS) {
         hasError = MA_TRUE;
     }
 
     /* Triangle */
-    result = test_waveform__by_format_and_type(ma_format_f32, ma_waveform_type_triangle, +amplitude, "output/waveform_f32_triangle.wav");
+    result = test_waveform__by_format_and_type(ma_format_f32, ma_waveform_type_triangle, +amplitude, TEST_OUTPUT_DIR"/waveform_f32_triangle.wav");
     if (result != MA_SUCCESS) {
         hasError = MA_TRUE;
     }
 
-    result = test_waveform__by_format_and_type(ma_format_f32, ma_waveform_type_triangle, -amplitude, "output/waveform_f32_triangle_neg.wav");
+    result = test_waveform__by_format_and_type(ma_format_f32, ma_waveform_type_triangle, -amplitude, TEST_OUTPUT_DIR"/waveform_f32_triangle_neg.wav");
     if (result != MA_SUCCESS) {
         hasError = MA_TRUE;
     }
 
     /* Sawtooth */
-    result = test_waveform__by_format_and_type(ma_format_f32, ma_waveform_type_sawtooth, +amplitude, "output/waveform_f32_sawtooth.wav");
+    result = test_waveform__by_format_and_type(ma_format_f32, ma_waveform_type_sawtooth, +amplitude, TEST_OUTPUT_DIR"/waveform_f32_sawtooth.wav");
     if (result != MA_SUCCESS) {
         hasError = MA_TRUE;
     }
 
-    result = test_waveform__by_format_and_type(ma_format_f32, ma_waveform_type_sawtooth, -amplitude, "output/waveform_f32_sawtooth_neg.wav");
+    result = test_waveform__by_format_and_type(ma_format_f32, ma_waveform_type_sawtooth, -amplitude, TEST_OUTPUT_DIR"/waveform_f32_sawtooth_neg.wav");
     if (result != MA_SUCCESS) {
         hasError = MA_TRUE;
     }
@@ -104,45 +104,45 @@ ma_result test_waveform__s16()
     double amplitude = 0.2;
 
     /* Sine */
-    result = test_waveform__by_format_and_type(ma_format_s16, ma_waveform_type_sine, +amplitude, "output/waveform_s16_sine.wav");
+    result = test_waveform__by_format_and_type(ma_format_s16, ma_waveform_type_sine, +amplitude, TEST_OUTPUT_DIR"/waveform_s16_sine.wav");
     if (result != MA_SUCCESS) {
         hasError = MA_TRUE;
     }
 
-    result = test_waveform__by_format_and_type(ma_format_s16, ma_waveform_type_sine, -amplitude, "output/waveform_s16_sine_neg.wav");
+    result = test_waveform__by_format_and_type(ma_format_s16, ma_waveform_type_sine, -amplitude, TEST_OUTPUT_DIR"/waveform_s16_sine_neg.wav");
     if (result != MA_SUCCESS) {
         hasError = MA_TRUE;
     }
 
     /* Square */
-    result = test_waveform__by_format_and_type(ma_format_s16, ma_waveform_type_square, +amplitude, "output/waveform_s16_square.wav");
+    result = test_waveform__by_format_and_type(ma_format_s16, ma_waveform_type_square, +amplitude, TEST_OUTPUT_DIR"/waveform_s16_square.wav");
     if (result != MA_SUCCESS) {
         hasError = MA_TRUE;
     }
 
-    result = test_waveform__by_format_and_type(ma_format_s16, ma_waveform_type_square, -amplitude, "output/waveform_s16_square_neg.wav");
+    result = test_waveform__by_format_and_type(ma_format_s16, ma_waveform_type_square, -amplitude, TEST_OUTPUT_DIR"/waveform_s16_square_neg.wav");
     if (result != MA_SUCCESS) {
         hasError = MA_TRUE;
     }
 
     /* Triangle */
-    result = test_waveform__by_format_and_type(ma_format_s16, ma_waveform_type_triangle, +amplitude, "output/waveform_s16_triangle.wav");
+    result = test_waveform__by_format_and_type(ma_format_s16, ma_waveform_type_triangle, +amplitude, TEST_OUTPUT_DIR"/waveform_s16_triangle.wav");
     if (result != MA_SUCCESS) {
         hasError = MA_TRUE;
     }
 
-    result = test_waveform__by_format_and_type(ma_format_s16, ma_waveform_type_triangle, -amplitude, "output/waveform_s16_triangle_neg.wav");
+    result = test_waveform__by_format_and_type(ma_format_s16, ma_waveform_type_triangle, -amplitude, TEST_OUTPUT_DIR"/waveform_s16_triangle_neg.wav");
     if (result != MA_SUCCESS) {
         hasError = MA_TRUE;
     }
 
     /* Sawtooth */
-    result = test_waveform__by_format_and_type(ma_format_s16, ma_waveform_type_sawtooth, +amplitude, "output/waveform_s16_sawtooth.wav");
+    result = test_waveform__by_format_and_type(ma_format_s16, ma_waveform_type_sawtooth, +amplitude, TEST_OUTPUT_DIR"/waveform_s16_sawtooth.wav");
     if (result != MA_SUCCESS) {
         hasError = MA_TRUE;
     }
 
-    result = test_waveform__by_format_and_type(ma_format_s16, ma_waveform_type_sawtooth, -amplitude, "output/waveform_s16_sawtooth_neg.wav");
+    result = test_waveform__by_format_and_type(ma_format_s16, ma_waveform_type_sawtooth, -amplitude, TEST_OUTPUT_DIR"/waveform_s16_sawtooth_neg.wav");
     if (result != MA_SUCCESS) {
         hasError = MA_TRUE;
     }
@@ -162,45 +162,45 @@ ma_result test_waveform__u8()
     double amplitude = 0.2;
 
     /* Sine */
-    result = test_waveform__by_format_and_type(ma_format_u8, ma_waveform_type_sine, +amplitude, "output/waveform_u8_sine.wav");
+    result = test_waveform__by_format_and_type(ma_format_u8, ma_waveform_type_sine, +amplitude, TEST_OUTPUT_DIR"/waveform_u8_sine.wav");
     if (result != MA_SUCCESS) {
         hasError = MA_TRUE;
     }
 
-    result = test_waveform__by_format_and_type(ma_format_u8, ma_waveform_type_sine, -amplitude, "output/waveform_u8_sine_neg.wav");
+    result = test_waveform__by_format_and_type(ma_format_u8, ma_waveform_type_sine, -amplitude, TEST_OUTPUT_DIR"/waveform_u8_sine_neg.wav");
     if (result != MA_SUCCESS) {
         hasError = MA_TRUE;
     }
 
     /* Square */
-    result = test_waveform__by_format_and_type(ma_format_u8, ma_waveform_type_square, +amplitude, "output/waveform_u8_square.wav");
+    result = test_waveform__by_format_and_type(ma_format_u8, ma_waveform_type_square, +amplitude, TEST_OUTPUT_DIR"/waveform_u8_square.wav");
     if (result != MA_SUCCESS) {
         hasError = MA_TRUE;
     }
 
-    result = test_waveform__by_format_and_type(ma_format_u8, ma_waveform_type_square, -amplitude, "output/waveform_u8_square_neg.wav");
+    result = test_waveform__by_format_and_type(ma_format_u8, ma_waveform_type_square, -amplitude, TEST_OUTPUT_DIR"/waveform_u8_square_neg.wav");
     if (result != MA_SUCCESS) {
         hasError = MA_TRUE;
     }
 
     /* Triangle */
-    result = test_waveform__by_format_and_type(ma_format_u8, ma_waveform_type_triangle, +amplitude, "output/waveform_u8_triangle.wav");
+    result = test_waveform__by_format_and_type(ma_format_u8, ma_waveform_type_triangle, +amplitude, TEST_OUTPUT_DIR"/waveform_u8_triangle.wav");
     if (result != MA_SUCCESS) {
         hasError = MA_TRUE;
     }
 
-    result = test_waveform__by_format_and_type(ma_format_u8, ma_waveform_type_triangle, -amplitude, "output/waveform_u8_triangle_neg.wav");
+    result = test_waveform__by_format_and_type(ma_format_u8, ma_waveform_type_triangle, -amplitude, TEST_OUTPUT_DIR"/waveform_u8_triangle_neg.wav");
     if (result != MA_SUCCESS) {
         hasError = MA_TRUE;
     }
 
     /* Sawtooth */
-    result = test_waveform__by_format_and_type(ma_format_u8, ma_waveform_type_sawtooth, +amplitude, "output/waveform_u8_sawtooth.wav");
+    result = test_waveform__by_format_and_type(ma_format_u8, ma_waveform_type_sawtooth, +amplitude, TEST_OUTPUT_DIR"/waveform_u8_sawtooth.wav");
     if (result != MA_SUCCESS) {
         hasError = MA_TRUE;
     }
 
-    result = test_waveform__by_format_and_type(ma_format_u8, ma_waveform_type_sawtooth, -amplitude, "output/waveform_u8_sawtooth_neg.wav");
+    result = test_waveform__by_format_and_type(ma_format_u8, ma_waveform_type_sawtooth, -amplitude, TEST_OUTPUT_DIR"/waveform_u8_sawtooth_neg.wav");
     if (result != MA_SUCCESS) {
         hasError = MA_TRUE;
     }
