@@ -1,6 +1,6 @@
 Building
 ========
-Build and run from this directory. Example:
+Build and run from "_build" directory. Example:
 
     gcc ../test_deviceio.c -o bin/test_deviceio
     ./bin/test_deviceio
