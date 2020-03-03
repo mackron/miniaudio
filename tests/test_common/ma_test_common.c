@@ -44,7 +44,7 @@ ma_result ma_register_test(const char* pName, ma_test_entry_proc onEntry)
     return MA_SUCCESS;
 }
 
-static drwav_data_format drwav_data_format_from_minaudio_format(ma_format format, ma_uint32 channels, ma_uint32 sampleRate)
+drwav_data_format drwav_data_format_from_minaudio_format(ma_format format, ma_uint32 channels, ma_uint32 sampleRate)
 {
     drwav_data_format wavFormat;
 
