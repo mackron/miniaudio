@@ -5,6 +5,10 @@
 #define DR_WAV_IMPLEMENTATION
 #include "../../extras/dr_wav.h"
 
+/* Make sure we include the Speex resampler so we can test it. */
+#define MINIAUDIO_SPEEX_RESAMPLER_IMPLEMENTATION
+#include "../../extras/speex_resampler/ma_speex_resampler.h"
+
 #define MINIAUDIO_IMPLEMENTATION
 #include "../../miniaudio.h"
 
