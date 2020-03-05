@@ -224,7 +224,7 @@ int main(int argc, char** argv)
             }
 
             if (!try_parse_uint32_in_range(argv[iarg], &linearOrder, 0, 8)) {
-                printf("Expecting a number between 0 and 8 for --linear-order.\n");
+                printf("Expecting a number between 0 and %d for --linear-order.\n", MA_MAX_FILTER_ORDER);
                 return -1;
             }
             
