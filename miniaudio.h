@@ -121,23 +121,20 @@ prevent the parameter list getting too long, and to prevent API breakage wheneve
 
 Filters
 -------
-A generic biquad filter has been added. This is used via the `ma_biquad` API. The biquad filter is used as the basis for the low-pass, high-pass and band-pass
-filters. It supports 32-bit floating point samples which runs on a floating point pipeline and 16-bit signed integer samples which runs on a 32-bit fixed point
-pipeline. Both formats use transposed direct form 2.
-
-In addition to biquads, the following filters have also been added:
+The following filters have been added:
 
     |-------------|-------------------------------------------------------------------|
     | API         | Description                                                       |
     |-------------|-------------------------------------------------------------------|
+    | ma_biquad   | Biquad filter (transposed direct form 2)                          |
     | ma_lpf1     | First order low-pass filter                                       |
     | ma_lpf2     | Second order low-pass filter                                      |
-    | ma_lpf      | Low-pass filter with configurable order (up to 8)                 |
+    | ma_lpf      | High order low-pass filter (Butterworth)                          |
     | ma_hpf1     | First order high-pass filter                                      |
     | ma_hpf2     | Second order high-pass filter                                     |
-    | ma_hpf      | High-pass filter with configuratble order (up to 8)               |
+    | ma_hpf      | High order high-pass filter (Butterworth)                         |
     | ma_bpf2     | Second order band-pass filter                                     |
-    | ma_bpf      | Band-pass filter with configurable order (up to 8, multiple of 2) |
+    | ma_bpf      | High order band-pass filter                                       |
     | ma_peak2    | Second order peaking filter                                       |
     | ma_notch2   | Second order notching filter                                      |
     | ma_loshelf2 | Second order low shelf filter                                     |
@@ -286,7 +283,7 @@ from `ma_device_type_playback` to `ma_device_type_capture` when setting up the c
     ```c
     ma_device_config config = ma_device_config_init(ma_device_type_capture);
     config.capture.format   = MY_FORMAT;
-    config.capture.channels = MY_CHANNELS;
+    config.capture.channels = MY_CHANNEL_COUNT;
     ```
 
 In the data callback you just read from the input buffer (`pInput` in the example above) and leave the output buffer alone (it will be set to NULL when the
@@ -730,7 +727,7 @@ conversion. Below is an example of initializing a simple channel converter which
     }
     ```
 
-To process perform the conversion simply call `ma_channel_converter_process_pcm_frames()` like so:
+To perform the conversion simply call `ma_channel_converter_process_pcm_frames()` like so:
 
     ```c
     ma_result result = ma_channel_converter_process_pcm_frames(&converter, pFramesOut, pFramesIn, frameCount);
@@ -958,7 +955,7 @@ Note that even if you opt-in to the Speex backend, miniaudio won't use it unless
 initializing. If you try to use the Speex resampler without opting in, initialization of the `ma_resampler` object will fail with `MA_NO_BACKEND`.
 
 The only configuration option to consider with the Speex resampler is the `speex.quality` config variable. This is a value between 0 and 10, with 0 being
-the worst/fastest and 10 being the best/slowest. The default value is 3.
+the fastest with the poorest quality and 10 being the slowest with the highest quality. The default value is 3.
 
 
 
@@ -1013,10 +1010,10 @@ The following example shows how data can be processed
 
 The data converter supports multiple channels and is always interleaved (both input and output). The channel count cannot be changed after initialization.
 
-The sample rates can be anything other than zero, and are always specified in hertz. They should be set to something like 44100, etc. The sample rate is the
-only configuration property that can be changed after initialization, but only if the `resampling.allowDynamicSampleRate` member of `ma_data_converter_config`
-is set to MA_TRUE. To change the sample rate, use `ma_data_converter_set_rate()` or `ma_data_converter_set_rate_ratio()`. The ratio must be in/out. The
-resampling algorithm cannot be changed after initialization.
+Sample rates can be anything other than zero, and are always specified in hertz. They should be set to something like 44100, etc. The sample rate is the only
+configuration property that can be changed after initialization, but only if the `resampling.allowDynamicSampleRate` member of `ma_data_converter_config` is
+set to MA_TRUE. To change the sample rate, use `ma_data_converter_set_rate()` or `ma_data_converter_set_rate_ratio()`. The ratio must be in/out. The resampling
+algorithm cannot be changed after initialization.
 
 Processing always happens on a per PCM frame basis and always assumes interleaved input and output. De-interleaved processing is not supported. To process
 frames, use `ma_data_converter_process_pcm_frames()`. On input, this function takes the number of output frames you can fit in the output buffer and the number
@@ -1074,7 +1071,7 @@ result in an error.
 
 Low-Pass Filtering
 ------------------
-Low-pass filter is achieved with the following APIs:
+Low-pass filtering is achieved with the following APIs:
 
     |---------|------------------------------------------|
     | API     | Description                              |
@@ -1204,7 +1201,7 @@ High shelf filtering is achieved with the following APIs:
     |-------------|------------------------------------------|
 
 The high shelf filter has the same API as the low shelf filter, only you would use `ma_hishelf` instead of `ma_loshelf`. Where a low shelf filter is used to
-adjust the volume of low frequencies, the high pass filter does the same thing for high frequencies.
+adjust the volume of low frequencies, the high shelf filter does the same thing for high frequencies.
 
 
 
