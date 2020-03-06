@@ -1,6 +1,6 @@
 /*
 WAV audio loader and writer. Choice of public domain or MIT-0. See license statements at the end of this file.
-dr_wav - v0.11.4 - 2020-01-29
+dr_wav - v0.11.5 - 2020-03-07
 
 David Reid - mackron@gmail.com
 */
@@ -247,7 +247,7 @@ to write raw data in the "data" chunk.
     format.channels = 2;
     format.sampleRate = 44100;
     format.bitsPerSample = 16;
-    drwav_init_file_write(&wav, "data/recording.wav", &format);
+    drwav_init_file_write(&wav, "data/recording.wav", &format, NULL);
 
     ...
 
@@ -1050,7 +1050,7 @@ void drwav_free(void* p, const drwav_allocation_callbacks* pAllocationCallbacks)
     #endif
 #endif
 
-#if defined(_MSC_VER) && _MSC_VER >= 1300
+#if defined(_MSC_VER) && _MSC_VER >= 1400
     #define DRWAV_HAS_BYTESWAP16_INTRINSIC
     #define DRWAV_HAS_BYTESWAP32_INTRINSIC
     #define DRWAV_HAS_BYTESWAP64_INTRINSIC
@@ -5055,6 +5055,9 @@ void drwav_free(void* p, const drwav_allocation_callbacks* pAllocationCallbacks)
 /*
 REVISION HISTORY
 ================
+v0.11.5 - 2020-03-07
+  - Fix compilation error with Visual Studio .NET 2003.
+
 v0.11.4 - 2020-01-29
   - Fix some static analysis warnings.
   - Fix a bug when reading f32 samples from an A-law encoded stream.
