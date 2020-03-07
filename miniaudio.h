@@ -33,7 +33,7 @@ The previous conversion APIs accepted a callback in their configs. There are no 
 `*_process_pcm_frames()` function as a pointer to a buffer.
 
 The simplest aspect of data conversion is sample format conversion. To convert between two formats, just call `ma_convert_pcm_frames_format()`. Channel
-conversion is also simple which you can do with `ma_channel_router` via `ma_channel_router_process_pcm_frames()`.
+conversion is also simple which you can do with `ma_channel_converter` via `ma_channel_converter_process_pcm_frames()`.
 
 Resampling is more complicated because the number of output frames that are processed is different to the number of input frames that are consumed. When you
 call `ma_resampler_process_pcm_frames()` you need to pass in the number of input frames available for processing and the number of output frames you want to
