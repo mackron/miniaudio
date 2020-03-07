@@ -7856,108 +7856,108 @@ Timing
 
 *******************************************************************************/
 #ifdef MA_WIN32
-LARGE_INTEGER g_ma_TimerFrequency = {{0}};
-static void ma_timer_init(ma_timer* pTimer)
-{
-    LARGE_INTEGER counter;
+    static LARGE_INTEGER g_ma_TimerFrequency = {{0}};
+    static void ma_timer_init(ma_timer* pTimer)
+    {
+        LARGE_INTEGER counter;
 
-    if (g_ma_TimerFrequency.QuadPart == 0) {
-        QueryPerformanceFrequency(&g_ma_TimerFrequency);
+        if (g_ma_TimerFrequency.QuadPart == 0) {
+            QueryPerformanceFrequency(&g_ma_TimerFrequency);
+        }
+
+        QueryPerformanceCounter(&counter);
+        pTimer->counter = counter.QuadPart;
     }
 
-    QueryPerformanceCounter(&counter);
-    pTimer->counter = counter.QuadPart;
-}
+    static double ma_timer_get_time_in_seconds(ma_timer* pTimer)
+    {
+        LARGE_INTEGER counter;
+        if (!QueryPerformanceCounter(&counter)) {
+            return 0;
+        }
 
-static double ma_timer_get_time_in_seconds(ma_timer* pTimer)
-{
-    LARGE_INTEGER counter;
-    if (!QueryPerformanceCounter(&counter)) {
-        return 0;
+        return (double)(counter.QuadPart - pTimer->counter) / g_ma_TimerFrequency.QuadPart;
     }
-
-    return (double)(counter.QuadPart - pTimer->counter) / g_ma_TimerFrequency.QuadPart;
-}
 #elif defined(MA_APPLE) && (__MAC_OS_X_VERSION_MIN_REQUIRED < 101200)
-ma_uint64 g_ma_TimerFrequency = 0;
-static void ma_timer_init(ma_timer* pTimer)
-{
-    mach_timebase_info_data_t baseTime;
-    mach_timebase_info(&baseTime);
-    g_ma_TimerFrequency = (baseTime.denom * 1e9) / baseTime.numer;
+    static ma_uint64 g_ma_TimerFrequency = 0;
+    static void ma_timer_init(ma_timer* pTimer)
+    {
+        mach_timebase_info_data_t baseTime;
+        mach_timebase_info(&baseTime);
+        g_ma_TimerFrequency = (baseTime.denom * 1e9) / baseTime.numer;
 
-    pTimer->counter = mach_absolute_time();
-}
+        pTimer->counter = mach_absolute_time();
+    }
 
-static double ma_timer_get_time_in_seconds(ma_timer* pTimer)
-{
-    ma_uint64 newTimeCounter = mach_absolute_time();
-    ma_uint64 oldTimeCounter = pTimer->counter;
+    static double ma_timer_get_time_in_seconds(ma_timer* pTimer)
+    {
+        ma_uint64 newTimeCounter = mach_absolute_time();
+        ma_uint64 oldTimeCounter = pTimer->counter;
 
-    return (newTimeCounter - oldTimeCounter) / g_ma_TimerFrequency;
-}
+        return (newTimeCounter - oldTimeCounter) / g_ma_TimerFrequency;
+    }
 #elif defined(MA_EMSCRIPTEN)
-static MA_INLINE void ma_timer_init(ma_timer* pTimer)
-{
-    pTimer->counterD = emscripten_get_now();
-}
+    static MA_INLINE void ma_timer_init(ma_timer* pTimer)
+    {
+        pTimer->counterD = emscripten_get_now();
+    }
 
-static MA_INLINE double ma_timer_get_time_in_seconds(ma_timer* pTimer)
-{
-    return (emscripten_get_now() - pTimer->counterD) / 1000;    /* Emscripten is in milliseconds. */
-}
+    static MA_INLINE double ma_timer_get_time_in_seconds(ma_timer* pTimer)
+    {
+        return (emscripten_get_now() - pTimer->counterD) / 1000;    /* Emscripten is in milliseconds. */
+    }
 #else
-#if _POSIX_C_SOURCE >= 199309L
-#if defined(CLOCK_MONOTONIC)
-    #define MA_CLOCK_ID CLOCK_MONOTONIC
-#else
-    #define MA_CLOCK_ID CLOCK_REALTIME
-#endif
+    #if _POSIX_C_SOURCE >= 199309L
+        #if defined(CLOCK_MONOTONIC)
+            #define MA_CLOCK_ID CLOCK_MONOTONIC
+        #else
+            #define MA_CLOCK_ID CLOCK_REALTIME
+        #endif
 
-static void ma_timer_init(ma_timer* pTimer)
-{
-    struct timespec newTime;
-    clock_gettime(MA_CLOCK_ID, &newTime);
+        static void ma_timer_init(ma_timer* pTimer)
+        {
+            struct timespec newTime;
+            clock_gettime(MA_CLOCK_ID, &newTime);
 
-    pTimer->counter = (newTime.tv_sec * 1000000000) + newTime.tv_nsec;
-}
+            pTimer->counter = (newTime.tv_sec * 1000000000) + newTime.tv_nsec;
+        }
 
-static double ma_timer_get_time_in_seconds(ma_timer* pTimer)
-{
-    ma_uint64 newTimeCounter;
-    ma_uint64 oldTimeCounter;
+        static double ma_timer_get_time_in_seconds(ma_timer* pTimer)
+        {
+            ma_uint64 newTimeCounter;
+            ma_uint64 oldTimeCounter;
 
-    struct timespec newTime;
-    clock_gettime(MA_CLOCK_ID, &newTime);
+            struct timespec newTime;
+            clock_gettime(MA_CLOCK_ID, &newTime);
 
-    newTimeCounter = (newTime.tv_sec * 1000000000) + newTime.tv_nsec;
-    oldTimeCounter = pTimer->counter;
+            newTimeCounter = (newTime.tv_sec * 1000000000) + newTime.tv_nsec;
+            oldTimeCounter = pTimer->counter;
 
-    return (newTimeCounter - oldTimeCounter) / 1000000000.0;
-}
-#else
-static void ma_timer_init(ma_timer* pTimer)
-{
-    struct timeval newTime;
-    gettimeofday(&newTime, NULL);
+            return (newTimeCounter - oldTimeCounter) / 1000000000.0;
+        }
+    #else
+        static void ma_timer_init(ma_timer* pTimer)
+        {
+            struct timeval newTime;
+            gettimeofday(&newTime, NULL);
 
-    pTimer->counter = (newTime.tv_sec * 1000000) + newTime.tv_usec;
-}
+            pTimer->counter = (newTime.tv_sec * 1000000) + newTime.tv_usec;
+        }
 
-static double ma_timer_get_time_in_seconds(ma_timer* pTimer)
-{
-    ma_uint64 newTimeCounter;
-    ma_uint64 oldTimeCounter;
+        static double ma_timer_get_time_in_seconds(ma_timer* pTimer)
+        {
+            ma_uint64 newTimeCounter;
+            ma_uint64 oldTimeCounter;
 
-    struct timeval newTime;
-    gettimeofday(&newTime, NULL);
+            struct timeval newTime;
+            gettimeofday(&newTime, NULL);
 
-    newTimeCounter = (newTime.tv_sec * 1000000) + newTime.tv_usec;
-    oldTimeCounter = pTimer->counter;
+            newTimeCounter = (newTime.tv_sec * 1000000) + newTime.tv_usec;
+            oldTimeCounter = pTimer->counter;
 
-    return (newTimeCounter - oldTimeCounter) / 1000000.0;
-}
-#endif
+            return (newTimeCounter - oldTimeCounter) / 1000000.0;
+        }
+    #endif
 #endif
 
 
