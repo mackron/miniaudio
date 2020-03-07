@@ -89,7 +89,7 @@ Do the following in one source file:
 #include "miniaudio.h"
 ```
 Then just compile. There's no need to install any dependencies. On Windows and macOS there's no need to link
-to anything. On Linux and BSD, just link to -lpthread, -lm and -ldl.
+to anything. On Linux just link to -lpthread, -lm and -ldl. On BSD just link to -lpthread and -lm.
 
 
 Simple Playback Example
