@@ -21245,7 +21245,9 @@ typedef OSStatus (* ma_AudioUnitRender_proc)(AudioUnit inUnit, AudioUnitRenderAc
 #define MA_COREAUDIO_OUTPUT_BUS    0
 #define MA_COREAUDIO_INPUT_BUS     1
 
+#if defined(MA_APPLE_DESKTOP)
 static ma_result ma_device_reinit_internal__coreaudio(ma_device* pDevice, ma_device_type deviceType, ma_bool32 disposePreviousAudioUnit);
+#endif
 
 /*
 Core Audio
@@ -21330,6 +21332,72 @@ static ma_channel ma_channel_from_AudioChannelBitmap(AudioChannelBitmap bit)
 }
 #endif
 
+static ma_result ma_format_from_AudioStreamBasicDescription(const AudioStreamBasicDescription* pDescription, ma_format* pFormatOut)
+{
+    MA_ASSERT(pDescription != NULL);
+    MA_ASSERT(pFormatOut != NULL);
+    
+    *pFormatOut = ma_format_unknown;   /* Safety. */
+    
+    /* There's a few things miniaudio doesn't support. */
+    if (pDescription->mFormatID != kAudioFormatLinearPCM) {
+        return MA_FORMAT_NOT_SUPPORTED;
+    }
+    
+    /* We don't support any non-packed formats that are aligned high. */
+    if ((pDescription->mFormatFlags & kLinearPCMFormatFlagIsAlignedHigh) != 0) {
+        return MA_FORMAT_NOT_SUPPORTED;
+    }
+
+    /* Only supporting native-endian. */
+    if ((ma_is_little_endian() && (pDescription->mFormatFlags & kAudioFormatFlagIsBigEndian) != 0) || (ma_is_big_endian() && (pDescription->mFormatFlags & kAudioFormatFlagIsBigEndian) == 0)) {
+        return MA_FORMAT_NOT_SUPPORTED;
+    }
+    
+    /* We are not currently supporting non-interleaved formats (this will be added in a future version of miniaudio). */
+    /*if ((pDescription->mFormatFlags & kAudioFormatFlagIsNonInterleaved) != 0) {
+        return MA_FORMAT_NOT_SUPPORTED;
+    }*/
+
+    if ((pDescription->mFormatFlags & kLinearPCMFormatFlagIsFloat) != 0) {
+        if (pDescription->mBitsPerChannel == 32) {
+            *pFormatOut = ma_format_f32;
+            return MA_SUCCESS;
+        }
+    } else {
+        if ((pDescription->mFormatFlags & kLinearPCMFormatFlagIsSignedInteger) != 0) {
+            if (pDescription->mBitsPerChannel == 16) {
+                *pFormatOut = ma_format_s16;
+                return MA_SUCCESS;
+            } else if (pDescription->mBitsPerChannel == 24) {
+                if (pDescription->mBytesPerFrame == (pDescription->mBitsPerChannel/8 * pDescription->mChannelsPerFrame)) {
+                    *pFormatOut = ma_format_s24;
+                    return MA_SUCCESS;
+                } else {
+                    if (pDescription->mBytesPerFrame/pDescription->mChannelsPerFrame == sizeof(ma_int32)) {
+                        /* TODO: Implement ma_format_s24_32. */
+                        /**pFormatOut = ma_format_s24_32;*/
+                        /*return MA_SUCCESS;*/
+                        return MA_FORMAT_NOT_SUPPORTED;
+                    }
+                }
+            } else if (pDescription->mBitsPerChannel == 32) {
+                *pFormatOut = ma_format_s32;
+                return MA_SUCCESS;
+            }
+        } else {
+            if (pDescription->mBitsPerChannel == 8) {
+                *pFormatOut = ma_format_u8;
+                return MA_SUCCESS;
+            }
+        }
+    }
+    
+    /* Getting here means the format is not supported. */
+    return MA_FORMAT_NOT_SUPPORTED;
+}
+
+#if defined(MA_APPLE_DESKTOP)
 static ma_channel ma_channel_from_AudioChannelLabel(AudioChannelLabel label)
 {
     switch (label)
@@ -21424,71 +21492,6 @@ static ma_channel ma_channel_from_AudioChannelLabel(AudioChannelLabel label)
     }
 }
 
-static ma_result ma_format_from_AudioStreamBasicDescription(const AudioStreamBasicDescription* pDescription, ma_format* pFormatOut)
-{
-    MA_ASSERT(pDescription != NULL);
-    MA_ASSERT(pFormatOut != NULL);
-    
-    *pFormatOut = ma_format_unknown;   /* Safety. */
-    
-    /* There's a few things miniaudio doesn't support. */
-    if (pDescription->mFormatID != kAudioFormatLinearPCM) {
-        return MA_FORMAT_NOT_SUPPORTED;
-    }
-    
-    /* We don't support any non-packed formats that are aligned high. */
-    if ((pDescription->mFormatFlags & kLinearPCMFormatFlagIsAlignedHigh) != 0) {
-        return MA_FORMAT_NOT_SUPPORTED;
-    }
-
-    /* Only supporting native-endian. */
-    if ((ma_is_little_endian() && (pDescription->mFormatFlags & kAudioFormatFlagIsBigEndian) != 0) || (ma_is_big_endian() && (pDescription->mFormatFlags & kAudioFormatFlagIsBigEndian) == 0)) {
-        return MA_FORMAT_NOT_SUPPORTED;
-    }
-    
-    /* We are not currently supporting non-interleaved formats (this will be added in a future version of miniaudio). */
-    /*if ((pDescription->mFormatFlags & kAudioFormatFlagIsNonInterleaved) != 0) {
-        return MA_FORMAT_NOT_SUPPORTED;
-    }*/
-
-    if ((pDescription->mFormatFlags & kLinearPCMFormatFlagIsFloat) != 0) {
-        if (pDescription->mBitsPerChannel == 32) {
-            *pFormatOut = ma_format_f32;
-            return MA_SUCCESS;
-        }
-    } else {
-        if ((pDescription->mFormatFlags & kLinearPCMFormatFlagIsSignedInteger) != 0) {
-            if (pDescription->mBitsPerChannel == 16) {
-                *pFormatOut = ma_format_s16;
-                return MA_SUCCESS;
-            } else if (pDescription->mBitsPerChannel == 24) {
-                if (pDescription->mBytesPerFrame == (pDescription->mBitsPerChannel/8 * pDescription->mChannelsPerFrame)) {
-                    *pFormatOut = ma_format_s24;
-                    return MA_SUCCESS;
-                } else {
-                    if (pDescription->mBytesPerFrame/pDescription->mChannelsPerFrame == sizeof(ma_int32)) {
-                        /* TODO: Implement ma_format_s24_32. */
-                        /**pFormatOut = ma_format_s24_32;*/
-                        /*return MA_SUCCESS;*/
-                        return MA_FORMAT_NOT_SUPPORTED;
-                    }
-                }
-            } else if (pDescription->mBitsPerChannel == 32) {
-                *pFormatOut = ma_format_s32;
-                return MA_SUCCESS;
-            }
-        } else {
-            if (pDescription->mBitsPerChannel == 8) {
-                *pFormatOut = ma_format_u8;
-                return MA_SUCCESS;
-            }
-        }
-    }
-    
-    /* Getting here means the format is not supported. */
-    return MA_FORMAT_NOT_SUPPORTED;
-}
-
 static ma_result ma_get_channel_map_from_AudioChannelLayout(AudioChannelLayout* pChannelLayout, ma_channel channelMap[MA_MAX_CHANNELS])
 {
     MA_ASSERT(pChannelLayout != NULL);
@@ -21566,8 +21569,6 @@ static ma_result ma_get_channel_map_from_AudioChannelLayout(AudioChannelLayout* 
     return MA_SUCCESS;
 }
 
-
-#if defined(MA_APPLE_DESKTOP)
 static ma_result ma_get_device_object_ids__coreaudio(ma_context* pContext, UInt32* pDeviceCount, AudioObjectID** ppDeviceObjectIDs) /* NOTE: Free the returned buffer with ma_free(). */
 {
     AudioObjectPropertyAddress propAddressDevices;
@@ -22324,7 +22325,6 @@ static ma_result ma_find_best_format__coreaudio(ma_context* pContext, AudioObjec
     ma_free(pDeviceFormatDescriptions, &pContext->allocationCallbacks);
     return MA_SUCCESS;
 }
-#endif
 
 static ma_result ma_get_AudioUnit_channel_map(ma_context* pContext, AudioUnit audioUnit, ma_device_type deviceType, ma_channel channelMap[MA_MAX_CHANNELS])
 {
@@ -22370,6 +22370,7 @@ static ma_result ma_get_AudioUnit_channel_map(ma_context* pContext, AudioUnit au
     ma__free_from_callbacks(pChannelLayout, &pContext->allocationCallbacks);
     return MA_SUCCESS;
 }
+#endif /* MA_APPLE_DESKTOP */
 
 static ma_bool32 ma_context_is_device_id_equal__coreaudio(ma_context* pContext, const ma_device_id* pID0, const ma_device_id* pID1)
 {
@@ -23624,6 +23625,7 @@ static ma_result ma_device_init_internal__coreaudio(ma_context* pContext, ma_dev
     return result;
 }
 
+#if defined(MA_APPLE_DESKTOP)
 static ma_result ma_device_reinit_internal__coreaudio(ma_device* pDevice, ma_device_type deviceType, ma_bool32 disposePreviousAudioUnit)
 {
     ma_device_init_internal_data__coreaudio data;
@@ -23713,7 +23715,7 @@ static ma_result ma_device_reinit_internal__coreaudio(ma_device* pDevice, ma_dev
     
     return MA_SUCCESS;
 }
-
+#endif /* MA_APPLE_DESKTOP */
 
 static ma_result ma_device_init__coreaudio(ma_context* pContext, const ma_device_config* pConfig, ma_device* pDevice)
 {
