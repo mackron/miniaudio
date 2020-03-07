@@ -6,7 +6,22 @@
 #define RANDOM_PREFIX   ma_speex
 #include "thirdparty/speex_resampler.h"
 
-#define spx_uint64_t unsigned long long
+#ifdef _MSC_VER
+    #if defined(__clang__)
+        #pragma GCC diagnostic push
+        #pragma GCC diagnostic ignored "-Wlanguage-extension-token"
+        #pragma GCC diagnostic ignored "-Wlong-long"        
+        #pragma GCC diagnostic ignored "-Wc++11-long-long"
+    #endif
+    #define spx_uint64_t unsigned __int64
+    #if defined(__clang__)
+        #pragma GCC diagnostic pop
+    #endif
+#else
+    #define MA_HAS_STDINT
+    #include <stdint.h>
+    #define spx_uint64_t uint64_t
+#endif
 
 int ma_speex_resampler_get_required_input_frame_count(SpeexResamplerState* st, spx_uint64_t out_len, spx_uint64_t* in_len);
 int ma_speex_resampler_get_expected_output_frame_count(SpeexResamplerState* st, spx_uint64_t in_len, spx_uint64_t* out_len);
@@ -21,6 +36,7 @@ int ma_speex_resampler_get_expected_output_frame_count(SpeexResamplerState* st, 
     #pragma warning(disable:4706)   /* assignment within conditional expression */
 #else
     #pragma GCC diagnostic push
+    #pragma GCC diagnostic ignored "-Wsign-compare" /* comparison between signed and unsigned integer expressions */
 #endif
 #include "thirdparty/resample.c"
 #if defined(_MSC_VER) && !defined(__clang__)
