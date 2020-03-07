@@ -312,9 +312,9 @@ devices connected and you want to use a specific one you will need to specify th
     config.capture.pDeviceID = pMyCaptureDeviceID;      // Only if requesting a capture, duplex or loopback device.
     ```
 
-To retrieve the device ID you will need to perform device enumeration, however this requires the use of a new concept call the "context". Conceptually speaking
-the context sits above the device. There is one context to many devices. The purpose of the context is to represent the backend at a more global level and to
-perform operations outside the scope of an individual device. Mainly it is used for performing run-time linking against backend libraries, initializing
+To retrieve the device ID you will need to perform device enumeration, however this requires the use of a new concept called the "context". Conceptually
+speaking the context sits above the device. There is one context to many devices. The purpose of the context is to represent the backend at a more global level
+and to perform operations outside the scope of an individual device. Mainly it is used for performing run-time linking against backend libraries, initializing
 backends and enumerating devices. The example below shows how to enumerate devices.
 
     ```c
@@ -331,7 +331,7 @@ backends and enumerating devices. The example below shows how to enumerate devic
         // Error.
     }
 
-    // Loop over the each device info and do something with it. Here we just print the name with their index. You may want to give the user the
+    // Loop over each device info and do something with it. Here we just print the name with their index. You may want to give the user the
     // opportunity to choose which device they'd prefer.
     for (ma_uint32 iDevice = 0; iDevice < playbackDeviceCount; iDevice += 1) {
         printf("%d - %s\n", iDevice, pPlaybackDeviceInfos[iDevice].name);
@@ -358,7 +358,7 @@ backends and enumerating devices. The example below shows how to enumerate devic
 
 The first thing we do in this example is initialize a `ma_context` object with `ma_context_init()`. The first parameter is a pointer to a list of `ma_backend`
 values which are used to override the default backend priorities. When this is NULL, as in this example, miniaudio's default priorities are used. The second
-parameter is the number of backends listed in the array pointed to by the first paramter. The third parameter is a pointer to a `ma_context_config` object
+parameter is the number of backends listed in the array pointed to by the first parameter. The third parameter is a pointer to a `ma_context_config` object
 which can be NULL, in which case defaults are used. The context configuration is used for setting the logging callback, custom memory allocation callbacks,
 user-defined data and some backend-specific configurations.
 
@@ -384,13 +384,13 @@ miniaudio should work cleanly out of the box without the need to download or ins
 
 Windows
 -------
-The Windows build should compile clean on all popular compilers without the need to configure any include paths nor link to any libraries.
+The Windows build should compile cleanly on all popular compilers without the need to configure any include paths nor link to any libraries.
 
 macOS and iOS
 -------------
-The macOS build should compile clean without the need to download any dependencies or link to any libraries or frameworks. The iOS build needs to be compiled
-as Objective-C (sorry) and will need to link the relevant frameworks but should Just Work with Xcode. Compiling through the command line requires linking to
--lpthread and -lm.
+The macOS build should compile cleanly without the need to download any dependencies nor link to any libraries or frameworks. The iOS build needs to be
+compiled as Objective-C (sorry) and will need to link the relevant frameworks but should Just Work with Xcode. Compiling through the command line requires
+linking to -lpthread and -lm.
 
 Linux
 -----
@@ -402,7 +402,7 @@ The BSD build only requires linking to -lpthread and -lm. NetBSD uses audio(4), 
 
 Android
 -------
-AAudio is the highest priority backend on Android. This should work out out of the box without needing any kind of compiler configuration. Support for AAudio
+AAudio is the highest priority backend on Android. This should work out of the box without needing any kind of compiler configuration. Support for AAudio
 starts with Android 8 which means older versions will fall back to OpenSL|ES which requires API level 16+.
 
 Emscripten
@@ -504,9 +504,9 @@ A sample is a single unit of audio data. If the sample format is f32, then one s
 
 Frame / PCM Frame
 -----------------
-A frame is a groups of samples equal to the number of channels. For a stereo stream a frame is 2 samples, a mono frame is 1 sample, a 5.1 surround sound frame
+A frame is a group of samples equal to the number of channels. For a stereo stream a frame is 2 samples, a mono frame is 1 sample, a 5.1 surround sound frame
 is 6 samples, etc. The terms "frame" and "PCM frame" are the same thing in miniaudio. Note that this is different to a compressed frame. If ever miniaudio
-needs to refer to a compressed frame, such as a FLAC frame, it will always clarify what it's referring to with something like "FLAC frame" or whatnot.
+needs to refer to a compressed frame, such as a FLAC frame, it will always clarify what it's referring to with something like "FLAC frame".
 
 Channel
 -------
@@ -686,7 +686,7 @@ PCM frames where you want to specify the frame count and channel count as a vari
 
 Dithering
 ---------
-Dithering can be set using ditherMode parameter.
+Dithering can be set using the ditherMode parameter.
 
 The different dithering modes include the following, in order of efficiency:
 
