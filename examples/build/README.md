@@ -1,7 +1,7 @@
 Examples
 --------
-gcc ../simple_playback.c -o bin/simple_playback -ldl -lpthread -lm
-gcc ../simple_playback.c -o bin/simple_playback -ldl -lpthread -lm -Wall -Wextra -Wpedantic -std=c89
+gcc ../simple_playback.c -o bin/simple_playback -ldl -lm -lpthread
+gcc ../simple_playback.c -o bin/simple_playback -ldl -lm -lpthread -Wall -Wextra -Wpedantic -std=c89
     
 Emscripten
 ----------
