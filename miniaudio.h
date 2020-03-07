@@ -24307,7 +24307,7 @@ static ma_format ma_find_best_format_from_sio_cap__sndio(struct ma_sio_cap* caps
         }
     }
     
-    return ma_format_unknown;
+    return bestFormat;
 }
 
 static ma_uint32 ma_find_best_channels_from_sio_cap__sndio(struct ma_sio_cap* caps, ma_device_type deviceType, ma_format requiredFormat)
