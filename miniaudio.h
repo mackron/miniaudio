@@ -28680,6 +28680,7 @@ static ma_result ma_context_get_device_info__webaudio(ma_context* pContext, ma_d
     MA_ZERO_MEMORY(pDeviceInfo->id.webaudio, sizeof(pDeviceInfo->id.webaudio));
 
     /* Only supporting default devices for now. */
+    (void)pDeviceID;
     if (deviceType == ma_device_type_playback) {
         ma_strncpy_s(pDeviceInfo->name, sizeof(pDeviceInfo->name), MA_DEFAULT_PLAYBACK_DEVICE_NAME, (size_t)-1);
     } else {

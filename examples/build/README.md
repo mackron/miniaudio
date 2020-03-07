@@ -9,7 +9,7 @@ On Windows, you need to move into the build and run emsdk_env.bat from a command
 path like "C:\emsdk\emsdk_env.bat". Note that PowerShell doesn't work for me for some reason. Examples:
 
     emcc ../simple_playback_sine.c -o bin/simple_playback_sine.html
-    emcc ../simple_playback_sine.c -o bin/simple_playback_sine.html -s WASM=0 -Wall
+    emcc ../simple_playback_sine.c -o bin/simple_playback_sine.html -s WASM=0 -Wall -Wextra
     
 If you output WASM it may not work when running the web page locally. To test you can run with something
 like this:
