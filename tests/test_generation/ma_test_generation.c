@@ -1,3 +1,4 @@
+#define MA_NO_DEVICE_IO
 #include "../test_common/ma_test_common.c"
 
 #include "ma_test_generation_noise.c"
