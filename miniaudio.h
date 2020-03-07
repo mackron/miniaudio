@@ -1607,17 +1607,6 @@ typedef ma_uint16 wchar_t;
     #endif
 #endif
 
-#if defined(_MSC_VER)
-    #if _MSC_VER >= 1400
-        #define MA_ALIGN(alignment) __declspec(align(alignment))
-    #endif
-#elif !defined(__DMC__)
-    #define MA_ALIGN(alignment) __attribute__((aligned(alignment)))
-#endif
-#ifndef MA_ALIGN
-    #define MA_ALIGN(alignment)
-#endif
-
 /* SIMD alignment in bytes. Currently set to 64 bytes in preparation for future AVX-512 optimizations. */
 #define MA_SIMD_ALIGNMENT  64
 
