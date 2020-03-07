@@ -25,7 +25,7 @@ typedef struct
     ma_test_entry_proc onEntry;
 } ma_test;
 
-struct
+static struct
 {
     ma_test pTests[MAX_TESTS];
     size_t count;

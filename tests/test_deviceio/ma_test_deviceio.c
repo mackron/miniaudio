@@ -51,7 +51,7 @@ typedef enum
     source_type_decoder
 } source_type;
 
-struct
+static struct
 {
     ma_context context;
     ma_device device;
