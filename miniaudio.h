@@ -5948,7 +5948,7 @@ static MA_INLINE ma_bool32 ma_is_big_endian()
 
 
 /* Standard sample rates, in order of priority. */
-static ma_uint32 g_maStandardSampleRatePriorities[] = {
+ma_uint32 g_maStandardSampleRatePriorities[] = {
     MA_SAMPLE_RATE_48000,  /* Most common */
     MA_SAMPLE_RATE_44100,
 
@@ -5969,7 +5969,7 @@ static ma_uint32 g_maStandardSampleRatePriorities[] = {
     MA_SAMPLE_RATE_384000
 };
 
-static ma_format g_maFormatPriorities[] = {
+ma_format g_maFormatPriorities[] = {
     ma_format_s16,         /* Most common */
     ma_format_f32,
     
