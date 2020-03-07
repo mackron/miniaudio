@@ -1,6 +1,6 @@
 /*
 Audio playback and capture library. Choice of public domain or MIT-0. See license statements at the end of this file.
-miniaudio - v0.10.xx - TBD
+miniaudio - v0.10.0 - 2020-03-07
 
 David Reid - davidreidsoftware@gmail.com
 
@@ -42199,7 +42199,7 @@ The following miscellaneous changes have also been made.
 /*
 REVISION HISTORY
 ================
-v0.10.xx - TBD
+v0.10.0 - 2020-03-07
   - API CHANGE: Refactor data conversion APIs
     - ma_format_converter has been removed. Use ma_convert_pcm_frames_format() instead.
     - ma_channel_router has been replaced with ma_channel_converter.
