@@ -5499,23 +5499,9 @@ IMPLEMENTATION
 
 #ifdef MA_WIN32
 #include <windows.h>
-#include <objbase.h>
-#include <mmreg.h>
-#include <mmsystem.h>
 #else
 #include <stdlib.h> /* For malloc(), free(), wcstombs(). */
 #include <string.h> /* For memset() */
-#endif
-
-#if defined(MA_APPLE) && (__MAC_OS_X_VERSION_MIN_REQUIRED < 101200)
-#include <mach/mach_time.h> /* For mach_absolute_time() */
-#endif
-
-#ifdef MA_POSIX
-#include <sys/time.h>
-#include <sys/types.h>
-#include <unistd.h>
-#include <dlfcn.h>
 #endif
 
 #ifdef MA_EMSCRIPTEN
@@ -7446,6 +7432,23 @@ DEVICE I/O
 *************************************************************************************************************************************************************
 ************************************************************************************************************************************************************/
 #ifndef MA_NO_DEVICE_IO
+#ifdef MA_WIN32
+    #include <objbase.h>
+    #include <mmreg.h>
+    #include <mmsystem.h>
+#endif
+
+#if defined(MA_APPLE) && (__MAC_OS_X_VERSION_MIN_REQUIRED < 101200)
+    #include <mach/mach_time.h> /* For mach_absolute_time() */
+#endif
+
+#ifdef MA_POSIX
+    #include <sys/time.h>
+    #include <sys/types.h>
+    #include <unistd.h>
+    #include <dlfcn.h>
+#endif
+
 /*
 Unfortunately using runtime linking for pthreads causes problems. This has occurred for me when testing on FreeBSD. When
 using runtime linking, deadlocks can occur (for me it happens when loading data from fread()). It turns out that doing
