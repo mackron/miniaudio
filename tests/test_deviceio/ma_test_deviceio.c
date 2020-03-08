@@ -232,6 +232,69 @@ ma_bool32 try_parse_noise(const char* arg, ma_noise_type* pNoiseType)
     return MA_FALSE;
 }
 
+ma_result print_device_info(ma_context* pContext, ma_device_type deviceType, const ma_device_info* pDeviceInfo)
+{
+    ma_result result;
+    ma_uint32 iFormat;
+    ma_device_info detailedDeviceInfo;
+
+    MA_ASSERT(pDeviceInfo != NULL);
+
+    result = ma_context_get_device_info(pContext, deviceType, &pDeviceInfo->id, ma_share_mode_shared, &detailedDeviceInfo);
+    if (result != MA_SUCCESS) {
+        return result;
+    }
+
+    printf("%s\n", pDeviceInfo->name);
+    printf("    Default:         %s\n", (detailedDeviceInfo._private.isDefault) ? "Yes" : "No");
+    printf("    Min Channels:    %d\n", detailedDeviceInfo.minChannels);
+    printf("    Max Channels:    %d\n", detailedDeviceInfo.maxChannels);
+    printf("    Min Sample Rate: %d\n", detailedDeviceInfo.minSampleRate);
+    printf("    Max Sample Rate: %d\n", detailedDeviceInfo.maxSampleRate);
+    printf("    Format Count:    %d\n", detailedDeviceInfo.formatCount);
+    for (iFormat = 0; iFormat < detailedDeviceInfo.formatCount; ++iFormat) {
+        printf("        %s\n", ma_get_format_name(detailedDeviceInfo.formats[iFormat]));
+    }
+    printf("\n");
+
+    return MA_SUCCESS;
+}
+
+ma_result enumerate_devices(ma_context* pContext)
+{
+    ma_result result;
+    ma_device_info* pPlaybackDevices;
+    ma_uint32 playbackDeviceCount;
+    ma_device_info* pCaptureDevices;
+    ma_uint32 captureDeviceCount;
+    ma_uint32 iDevice;
+
+    MA_ASSERT(pContext != NULL);
+
+    result = ma_context_get_devices(pContext, &pPlaybackDevices, &playbackDeviceCount, &pCaptureDevices, &captureDeviceCount);
+    if (result != MA_SUCCESS) {
+        return result;
+    }
+
+    printf("Playback Devices\n");
+    printf("----------------\n");
+    for (iDevice = 0; iDevice < playbackDeviceCount; iDevice += 1) {
+        printf("%d: ", iDevice);
+        print_device_info(pContext, ma_device_type_playback, &pPlaybackDevices[iDevice]);
+    }
+    printf("\n");
+
+    printf("Capture Devices\n");
+    printf("---------------\n");
+    for (iDevice = 0; iDevice < captureDeviceCount; iDevice += 1) {
+        printf("%d: ", iDevice);
+        print_device_info(pContext, ma_device_type_capture, &pCaptureDevices[iDevice]);
+    }
+    printf("\n");
+
+    return MA_SUCCESS;
+}
+
 void on_log(ma_context* pContext, ma_device* pDevice, ma_uint32 logLevel, const char* message)
 {
     (void)pContext;
@@ -305,6 +368,7 @@ int main(int argc, char** argv)
     ma_waveform_type waveformType = ma_waveform_type_sine;
     ma_noise_type noiseType = ma_noise_type_white;
     const char* pFilePath = NULL;  /* Input or output file path, depending on the mode. */
+    ma_bool32 enumerate = MA_TRUE;
 
     /* Default to a sine wave if nothing is passed into the command line. */
     waveformType = ma_waveform_type_sine;
@@ -346,6 +410,16 @@ int main(int argc, char** argv)
     if (result != MA_SUCCESS) {
         printf("Failed to initialize context.\n");
         return -1;
+    }
+
+    /* Here we'll print some info about what we're doing. */
+    printf("Backend: %s\n", ma_get_backend_name(g_State.context.backend));
+    printf("Mode:    %s\n", get_mode_description(deviceType));
+    printf("\n");
+
+    /* Enumerate if required. */
+    if (enumerate) {
+        enumerate_devices(&g_State.context);
     }
 
     /*
@@ -433,9 +507,7 @@ int main(int argc, char** argv)
     }
 
 
-    /* Here we'll print some info about what we're doing. */
-    printf("Backend:         %s\n", ma_get_backend_name(g_State.context.backend));
-    printf("Mode:            %s\n", get_mode_description(deviceType));
+    /* Print the name of the device. */
     if (deviceType == ma_device_type_playback || deviceType == ma_device_type_duplex) {
         printf("Playback Device: %s\n", g_State.device.playback.name);
     }
