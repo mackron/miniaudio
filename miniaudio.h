@@ -8388,6 +8388,8 @@ static ma_result ma_semaphore_init__posix(ma_context* pContext, int initialValue
 
 #if defined(MA_APPLE)
     /* Not yet implemented for Apple platforms since sem_init() is deprecated. Need to use a named semaphore via sem_open() instead. */
+    (void)initialValue;
+    (void)pSemaphore;
     return MA_INVALID_OPERATION;
 #else
     if (sem_init(&pSemaphore->posix.semaphore, 0, (unsigned int)initialValue) == 0) {
@@ -22751,6 +22753,7 @@ static OSStatus ma_on_output__coreaudio(void* pUserData, AudioUnitRenderActionFl
     (void)pActionFlags;
     (void)pTimeStamp;
     (void)busNumber;
+    (void)frameCount;
 
     return noErr;
 }
@@ -23019,7 +23022,10 @@ static OSStatus ma_default_device_changed__coreaudio(AudioObjectID objectID, UIn
     }
     ma_mutex_unlock(&g_DeviceTrackingMutex_CoreAudio);
     
-    (void)objectID; /* Unused. */
+    /* Unused parameters. */
+    (void)objectID;
+    (void)pUserData;
+
     return noErr;
 }
 
