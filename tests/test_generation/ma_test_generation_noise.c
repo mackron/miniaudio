@@ -1,5 +1,5 @@
 
-ma_result test_noise__by_format_and_type(ma_format format, ma_waveform_type type, const char* pFileName)
+ma_result test_noise__by_format_and_type(ma_format format, ma_noise_type type, const char* pFileName)
 {
     ma_result result;
     ma_noise_config noiseConfig;
