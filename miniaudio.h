@@ -5937,8 +5937,12 @@ static MA_INLINE ma_bool32 ma_is_big_endian()
 #endif
 
 
+#if defined(__GNUC__)
+    #pragma GCC diagnostic push
+    #pragma GCC diagnostic ignored "-Wunused-variable"
+#endif
 /* Standard sample rates, in order of priority. */
-ma_uint32 g_maStandardSampleRatePriorities[] = {
+static ma_uint32 g_maStandardSampleRatePriorities[] = {
     MA_SAMPLE_RATE_48000,  /* Most common */
     MA_SAMPLE_RATE_44100,
 
@@ -5959,7 +5963,7 @@ ma_uint32 g_maStandardSampleRatePriorities[] = {
     MA_SAMPLE_RATE_384000
 };
 
-ma_format g_maFormatPriorities[] = {
+static ma_format g_maFormatPriorities[] = {
     ma_format_s16,         /* Most common */
     ma_format_f32,
     
@@ -5970,7 +5974,9 @@ ma_format g_maFormatPriorities[] = {
     
     ma_format_u8           /* Low quality */
 };
-
+#if defined(__GNUC__)
+    #pragma GCC diagnostic pop
+#endif
 
 
 /******************************************************************************
@@ -11595,7 +11601,7 @@ static ma_result ma_device_init_internal__wasapi(ma_context* pContext, ma_device
     DWORD streamFlags = 0;
     MA_REFERENCE_TIME periodDurationInMicroseconds;
     ma_bool32 wasInitializedUsingIAudioClient3 = MA_FALSE;
-    WAVEFORMATEXTENSIBLE wf = {0};
+    WAVEFORMATEXTENSIBLE wf;
     ma_WASAPIDeviceInterface* pDeviceInterface = NULL;
     ma_IAudioClient2* pAudioClient2;
     ma_uint32 nativeSampleRate;
@@ -11628,6 +11634,7 @@ static ma_result ma_device_init_internal__wasapi(ma_context* pContext, ma_device
         goto done;
     }
 
+    MA_ZERO_OBJECT(&wf);
 
     /* Try enabling hardware offloading. */
     if (!pData->noHardwareOffloading) {

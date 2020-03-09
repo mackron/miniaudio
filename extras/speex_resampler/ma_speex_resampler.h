@@ -13,14 +13,14 @@
         #pragma GCC diagnostic ignored "-Wlong-long"        
         #pragma GCC diagnostic ignored "-Wc++11-long-long"
     #endif
-    #define spx_uint64_t unsigned __int64
+    typedef unsigned __int64 spx_uint64_t;
     #if defined(__clang__)
         #pragma GCC diagnostic pop
     #endif
 #else
     #define MA_HAS_STDINT
     #include <stdint.h>
-    #define spx_uint64_t uint64_t
+    typedef uint64_t spx_uint64_t;
 #endif
 
 int ma_speex_resampler_get_required_input_frame_count(SpeexResamplerState* st, spx_uint64_t out_len, spx_uint64_t* in_len);
