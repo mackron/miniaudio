@@ -6781,7 +6781,7 @@ static ma_result ma_result_from_errno(int e)
 
 MA_API ma_result ma_fopen(FILE** ppFile, const char* pFilePath, const char* pOpenMode)
 {
-#if _MSC_VER
+#if _MSC_VER && _MSC_VER >= 1300
     errno_t err;
 #endif
 
@@ -6793,7 +6793,7 @@ MA_API ma_result ma_fopen(FILE** ppFile, const char* pFilePath, const char* pOpe
         return MA_INVALID_ARGS;
     }
 
-#if _MSC_VER
+#if _MSC_VER && _MSC_VER >= 1300
     err = fopen_s(ppFile, pFilePath, pOpenMode);
     if (err != 0) {
         return ma_result_from_errno(err);
@@ -6840,7 +6840,7 @@ fallback, so if you notice your compiler not detecting this properly I'm happy t
 
 MA_API ma_result ma_wfopen(FILE** ppFile, const wchar_t* pFilePath, const wchar_t* pOpenMode, ma_allocation_callbacks* pAllocationCallbacks)
 {
-#if _MSC_VER
+#if _MSC_VER && _MSC_VER >= 1400
     errno_t err;
 #endif
 
@@ -41517,7 +41517,7 @@ static ma_int16 ma_waveform_sine_s16(double time, double frequency, double ampli
 static float ma_waveform_square_f32(double time, double frequency, double amplitude)
 {
     double t = time * frequency;
-    double f = t - (ma_uint64)t;
+    double f = t - (ma_int64)t;
     double r;
     
     if (f < 0.5) {
@@ -41537,7 +41537,7 @@ static ma_int16 ma_waveform_square_s16(double time, double frequency, double amp
 static float ma_waveform_triangle_f32(double time, double frequency, double amplitude)
 {
     double t = time * frequency;
-    double f = t - (ma_uint64)t;
+    double f = t - (ma_int64)t;
     double r;
 
     r = 2 * ma_abs(2 * (f - 0.5)) - 1;
@@ -41553,7 +41553,7 @@ static ma_int16 ma_waveform_triangle_s16(double time, double frequency, double a
 static float ma_waveform_sawtooth_f32(double time, double frequency, double amplitude)
 {
     double t = time * frequency;
-    double f = t - (ma_uint64)t;
+    double f = t - (ma_int64)t;
     double r;
 
     r = 2 * (f - 0.5);
