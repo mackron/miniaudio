@@ -41,6 +41,7 @@ int ma_speex_resampler_get_expected_output_frame_count(SpeexResamplerState* st, 
     #endif
     #if defined(_MSC_VER) && _MSC_VER <= 1200   /* 1200 = Visual Studio 6 */
         #define inline _inline
+        #define MA_SPEEX_INLINE_DEFINED
     #endif
 #endif
 
