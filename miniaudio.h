@@ -42260,6 +42260,8 @@ REVISION HISTORY
 ================
 v0.10.1 - TBD
   - Add MA_API decoration. This can be customized by defining it before including miniaudio.h.
+  - Fix compilation errors with Visual Studio 6 and 2003.
+  - Fix warnings on macOS.
 
 v0.10.0 - 2020-03-07
   - API CHANGE: Refactor data conversion APIs
