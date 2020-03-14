@@ -1,6 +1,6 @@
 /*
 FLAC audio decoder. Choice of public domain or MIT-0. See license statements at the end of this file.
-dr_flac - v0.12.6 - 2020-03-07
+dr_flac - v0.12.7 - 2020-03-14
 
 David Reid - mackron@gmail.com
 */
@@ -5354,7 +5354,7 @@ static drflac_bool32 drflac__seek_to_pcm_frame__binary_search_internal(drflac* p
     drflac_uint64 closestSeekOffsetBeforeTargetPCMFrame = byteRangeLo;
     drflac_uint32 seekForwardThreshold = (pFlac->maxBlockSizeInPCMFrames != 0) ? pFlac->maxBlockSizeInPCMFrames*2 : 4096;
 
-    targetByte = byteRangeLo + (drflac_uint64)(((pcmFrameIndex - pFlac->currentPCMFrame) * pFlac->channels * pFlac->bitsPerSample/8.0f) * DRFLAC_BINARY_SEARCH_APPROX_COMPRESSION_RATIO);
+    targetByte = byteRangeLo + (drflac_uint64)(((drflac_int64)((pcmFrameIndex - pFlac->currentPCMFrame) * pFlac->channels * pFlac->bitsPerSample)/8.0f) * DRFLAC_BINARY_SEARCH_APPROX_COMPRESSION_RATIO);
     if (targetByte > byteRangeHi) {
         targetByte = byteRangeHi;
     }
@@ -5390,7 +5390,7 @@ static drflac_bool32 drflac__seek_to_pcm_frame__binary_search_internal(drflac* p
                     break;  /* Failed to seek to FLAC frame. */
                 }
             } else {
-                const float approxCompressionRatio = (lastSuccessfulSeekOffset - pFlac->firstFLACFramePosInBytes) / (pcmRangeLo * pFlac->channels * pFlac->bitsPerSample/8.0f);
+                const float approxCompressionRatio = (drflac_int64)(lastSuccessfulSeekOffset - pFlac->firstFLACFramePosInBytes) / ((drflac_int64)(pcmRangeLo * pFlac->channels * pFlac->bitsPerSample)/8.0f);
 
                 if (pcmRangeLo > pcmFrameIndex) {
                     /* We seeked too far forward. We need to move our target byte backward and try again. */
@@ -5419,7 +5419,7 @@ static drflac_bool32 drflac__seek_to_pcm_frame__binary_search_internal(drflac* p
                             byteRangeHi = byteRangeLo;
                         }
 
-                        targetByte = lastSuccessfulSeekOffset + (drflac_uint64)(((pcmFrameIndex-pcmRangeLo) * pFlac->channels * pFlac->bitsPerSample/8.0f) * approxCompressionRatio);
+                        targetByte = lastSuccessfulSeekOffset + (drflac_uint64)(((drflac_int64)((pcmFrameIndex-pcmRangeLo) * pFlac->channels * pFlac->bitsPerSample)/8.0f) * approxCompressionRatio);
                         if (targetByte > byteRangeHi) {
                             targetByte = byteRangeHi;
                         }
@@ -5461,7 +5461,7 @@ static drflac_bool32 drflac__seek_to_pcm_frame__binary_search(drflac* pFlac, drf
     the entire file is included, even though most of the time it'll exceed the end of the actual stream. This is OK as the frame searching logic will handle it.
     */
     byteRangeLo = pFlac->firstFLACFramePosInBytes;
-    byteRangeHi = pFlac->firstFLACFramePosInBytes + (drflac_uint64)(pFlac->totalPCMFrameCount * pFlac->channels * pFlac->bitsPerSample/8.0f);
+    byteRangeHi = pFlac->firstFLACFramePosInBytes + (drflac_uint64)((drflac_int64)(pFlac->totalPCMFrameCount * pFlac->channels * pFlac->bitsPerSample)/8.0f);
 
     return drflac__seek_to_pcm_frame__binary_search_internal(pFlac, pcmFrameIndex, byteRangeLo, byteRangeHi);
 }
@@ -5495,7 +5495,7 @@ static drflac_bool32 drflac__seek_to_pcm_frame__seek_table(drflac* pFlac, drflac
         drflac_uint64 byteRangeLo;
         drflac_uint64 byteRangeHi;
 
-        byteRangeHi = pFlac->firstFLACFramePosInBytes + (drflac_uint64)(pFlac->totalPCMFrameCount * pFlac->channels * pFlac->bitsPerSample/8.0f);
+        byteRangeHi = pFlac->firstFLACFramePosInBytes + (drflac_uint64)((drflac_int64)(pFlac->totalPCMFrameCount * pFlac->channels * pFlac->bitsPerSample)/8.0f);
         byteRangeLo = pFlac->firstFLACFramePosInBytes + pFlac->pSeekpoints[iClosestSeekpoint].flacFrameOffset;
 
         if (iClosestSeekpoint < pFlac->seekpointCount-1) {
@@ -10241,7 +10241,7 @@ drflac_uint64 drflac_read_pcm_frames_f32(drflac* pFlac, drflac_uint64 framesToRe
                 for (i = 0; i < frameCountThisIteration; ++i) {
                     unsigned int j;
                     for (j = 0; j < channelCount; ++j) {
-                        pBufferOut[(i*channelCount)+j] = (float)((drflac_uint64)((pFlac->currentFLACFrame.subframes[j].pSamplesS32[iFirstPCMFrame + i]) << (unusedBitsPerSample + pFlac->currentFLACFrame.subframes[j].wastedBitsPerSample)) / 2147483648.0);
+                        pBufferOut[(i*channelCount)+j] = (float)((drflac_int64)((pFlac->currentFLACFrame.subframes[j].pSamplesS32[iFirstPCMFrame + i]) << (unusedBitsPerSample + pFlac->currentFLACFrame.subframes[j].wastedBitsPerSample)) / 2147483648.0);
                     }
                 }
             }
@@ -10739,6 +10739,9 @@ drflac_bool32 drflac_next_cuesheet_track(drflac_cuesheet_track_iterator* pIter, 
 /*
 REVISION HISTORY
 ================
+v0.12.7 - 2020-03-14
+  - Fix compilation errors with VC6.
+
 v0.12.6 - 2020-03-07
   - Fix compilation error with Visual Studio .NET 2003.
 
