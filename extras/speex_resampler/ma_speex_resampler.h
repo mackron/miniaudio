@@ -30,12 +30,17 @@ int ma_speex_resampler_get_expected_output_frame_count(SpeexResamplerState* st, 
 
 #if defined(MINIAUDIO_SPEEX_RESAMPLER_IMPLEMENTATION)
 /* The Speex resampler uses "inline", which is not defined for C89. We need to define it here. */
-#if defined(__GNUC__) && !defined(_MSC_VER)
-    #if defined(__STRICT_ANSI__)
-        #if !defined(inline)
-            #define inline __inline__ __attribute__((always_inline))
-            #define MA_SPEEX_INLINE_DEFINED
+#if !defined(__cplusplus)
+    #if defined(__GNUC__) && !defined(_MSC_VER)
+        #if defined(__STRICT_ANSI__)
+            #if !defined(inline)
+                #define inline __inline__ __attribute__((always_inline))
+                #define MA_SPEEX_INLINE_DEFINED
+            #endif
         #endif
+    #endif
+    #if defined(_MSC_VER) && _MSC_VER <= 1200   /* 1200 = Visual Studio 6 */
+        #define inline _inline
     #endif
 #endif
 

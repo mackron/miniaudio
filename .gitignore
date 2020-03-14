@@ -1,9 +1,11 @@
 _private/
+examples/build/vc6/
 examples/build/vc15/
 examples/build/bin/
 tests/_build/bin/
 tests/_build/res/output/
 tests/_build/tcc/
+tests/_build/vc6/
 tests/_build/vc15/
 tools/_build/
 *.vcxproj.user
