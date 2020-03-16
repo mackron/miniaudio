@@ -6813,6 +6813,7 @@ MA_API ma_result ma_fopen(FILE** ppFile, const char* pFilePath, const char* pOpe
         if (result == MA_SUCCESS) {
             return MA_ERROR;   /* Just a safety check to make sure we never ever return success when pFile == NULL. */
         }
+        return result;
     }
 #endif
 
