@@ -6811,8 +6811,9 @@ MA_API ma_result ma_fopen(FILE** ppFile, const char* pFilePath, const char* pOpe
     if (*ppFile == NULL) {
         ma_result result = ma_result_from_errno(errno);
         if (result == MA_SUCCESS) {
-            return MA_ERROR;   /* Just a safety check to make sure we never ever return success when pFile == NULL. */
+            result = MA_ERROR;   /* Just a safety check to make sure we never ever return success when pFile == NULL. */
         }
+
         return result;
     }
 #endif
