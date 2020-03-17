@@ -35953,7 +35953,7 @@ static MA_INLINE void ma_pcm_deinterleave_s16__optimized(void** dst, const void*
     ma_pcm_deinterleave_s16__reference(dst, src, frameCount, channels);
 }
 
-void ma_pcm_deinterleave_s16(void** dst, const void* src, ma_uint64 frameCount, ma_uint32 channels)
+MA_API void ma_pcm_deinterleave_s16(void** dst, const void* src, ma_uint64 frameCount, ma_uint32 channels)
 {
 #ifdef MA_USE_REFERENCE_CONVERSION_APIS
     ma_pcm_deinterleave_s16__reference(dst, src, frameCount, channels);
@@ -37399,7 +37399,7 @@ static void ma_pcm_interleave_f32__optimized(void* dst, const void** src, ma_uin
     ma_pcm_interleave_f32__reference(dst, src, frameCount, channels);
 }
 
-void ma_pcm_interleave_f32(void* dst, const void** src, ma_uint64 frameCount, ma_uint32 channels)
+MA_API void ma_pcm_interleave_f32(void* dst, const void** src, ma_uint64 frameCount, ma_uint32 channels)
 {
 #ifdef MA_USE_REFERENCE_CONVERSION_APIS
     ma_pcm_interleave_f32__reference(dst, src, frameCount, channels);
