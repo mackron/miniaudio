@@ -1,6 +1,6 @@
 /*
 Audio playback and capture library. Choice of public domain or MIT-0. See license statements at the end of this file.
-miniaudio - v0.10.1 - 2020-03-17
+miniaudio - v0.10.2 - TBD
 
 David Reid - davidreidsoftware@gmail.com
 
@@ -42260,6 +42260,9 @@ The following miscellaneous changes have also been made.
 /*
 REVISION HISTORY
 ================
+v0.10.2 - TBD
+  - Decorate some APIs with MA_API which were missed in the previous version.
+
 v0.10.1 - 2020-03-17
   - Add MA_API decoration. This can be customized by defining it before including miniaudio.h.
   - Fix a bug where opening a file would return a success code when in fact it failed.
