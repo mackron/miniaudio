@@ -3994,7 +3994,7 @@ can then be set directly on the structure. Below are the members of the `ma_cont
         callbacks will be used for anything tied to the context, including devices.
 
     alsa.useVerboseDeviceEnumeration
-        ALSA will typically enumerate many different devices which can be intrusive and unuser-friendly. To combat this, miniaudio will enumerate only unique
+        ALSA will typically enumerate many different devices which can be intrusive and not user-friendly. To combat this, miniaudio will enumerate only unique
         card/device pairs by default. The problem with this is that you lose a bit of flexibility and control. Setting alsa.useVerboseDeviceEnumeration makes
         it so the ALSA backend includes all devices. Defaults to false.
 
@@ -4394,13 +4394,12 @@ from a microphone. Whether or not you should send or receive data from the devic
 playback, capture, full-duplex or loopback. (Note that loopback mode is only supported on select backends.) Sending and receiving audio data to and from the
 device is done via a callback which is fired by miniaudio at periodic time intervals.
 
-The frequency at which data is deilvered to and from a device depends on the size of it's period which is defined by a buffer size and a period count. The size
-of the buffer can be defined in terms of PCM frames or milliseconds, whichever is more convenient. The size of a period is the size of this buffer, divided by
-the period count. Generally speaking, the smaller the period, the lower the latency at the expense of higher CPU usage and increased risk of glitching due to
-the more frequent and granular data deliver intervals. The size of a period will depend on your requirements, but miniaudio's defaults should work fine for
-most scenarios. If you're building a game you should leave this fairly small, whereas if you're building a simple media player you can make it larger. Note
-that the period size you request is actually just a hint - miniaudio will tell the backend what you want, but the backend is ultimately responsible for what it
-gives you. You cannot assume you will get exactly what you ask for.
+The frequency at which data is delivered to and from a device depends on the size of it's period. The size of the period can be defined in terms of PCM frames
+or milliseconds, whichever is more convenient. Generally speaking, the smaller the period, the lower the latency at the expense of higher CPU usage and
+increased risk of glitching due to the more frequent and granular data deliver intervals. The size of a period will depend on your requirements, but
+miniaudio's defaults should work fine for most scenarios. If you're building a game you should leave this fairly small, whereas if you're building a simple
+media player you can make it larger. Note that the period size you request is actually just a hint - miniaudio will tell the backend what you want, but the
+backend is ultimately responsible for what it gives you. You cannot assume you will get exactly what you ask for.
 
 When delivering data to and from a device you need to make sure it's in the correct format which you can set through the device configuration. You just set the
 format that you want to use and miniaudio will perform all of the necessary conversion for you internally. When delivering data to and from the callback you
@@ -4473,7 +4472,7 @@ then be set directly on the structure. Below are the members of the `ma_device_c
 
     noPreZeroedOutputBuffer
         When set to true, the contents of the output buffer passed into the data callback will be left undefined. When set to false (default), the contents of
-        the output buffer will be cleared the zero. You can use this to avoid the overhead of zeroing out the buffer if you know can guarantee that your data
+        the output buffer will be cleared the zero. You can use this to avoid the overhead of zeroing out the buffer if you can guarantee that your data
         callback will write to every sample in the output buffer, or if you are doing your own clearing.
 
     noClip
@@ -4518,11 +4517,12 @@ then be set directly on the structure. Below are the members of the `ma_device_c
 
     playback.shareMode
         The preferred share mode to use for playback. Can be either `ma_share_mode_shared` (default) or `ma_share_mode_exclusive`. Note that if you specify
-        exclusive mode, but it's not supported by the backend, initialization will fail. You can then fall back to shared mode if desired.
+        exclusive mode, but it's not supported by the backend, initialization will fail. You can then fall back to shared mode if desired by changing this to
+        ma_share_mode_shared and reinitializing.
 
-    playback.pDeviceID
-        A pointer to a `ma_device_id` structure containing the ID of the playback device to initialize. Setting this NULL (default) will use the system's
-        default playback device. Retrieve the device ID from the `ma_device_info` structure, which can be retrieved using device enumeration.
+    capture.pDeviceID
+        A pointer to a `ma_device_id` structure containing the ID of the capture device to initialize. Setting this NULL (default) will use the system's
+        default capture device. Retrieve the device ID from the `ma_device_info` structure, which can be retrieved using device enumeration.
 
     capture.format
         The sample format to use for capture. When set to `ma_format_unknown` the device's native format will be used. This can be retrieved after
@@ -4538,7 +4538,8 @@ then be set directly on the structure. Below are the members of the `ma_device_c
 
     capture.shareMode
         The preferred share mode to use for capture. Can be either `ma_share_mode_shared` (default) or `ma_share_mode_exclusive`. Note that if you specify
-        exclusive mode, but it's not supported by the backend, initialization will fail. You can then fall back to shared mode if desired.
+        exclusive mode, but it's not supported by the backend, initialization will fail. You can then fall back to shared mode if desired by changing this to
+        ma_share_mode_shared and reinitializing.
 
     wasapi.noAutoConvertSRC
         WASAPI only. When set to true, disables WASAPI's automatic resampling and forces the use of miniaudio's resampler. Defaults to false. 
@@ -4565,6 +4566,8 @@ then be set directly on the structure. Below are the members of the `ma_device_c
 
 Once initialized, the device's config is immutable. If you need to change the config you will need to initialize a new device.
 
+After initializing the device it will be in a stopped state. To start it, use `ma_device_start()`.
+
 If both `periodSizeInFrames` and `periodSizeInMilliseconds` are set to zero, it will default to `MA_DEFAULT_PERIOD_SIZE_IN_MILLISECONDS_LOW_LATENCY` or
 `MA_DEFAULT_PERIOD_SIZE_IN_MILLISECONDS_CONSERVATIVE`, depending on whether or not `performanceProfile` is set to `ma_performance_profile_low_latency` or
 `ma_performance_profile_conservative`.
@@ -4575,11 +4578,9 @@ config) which is the most reliable option. Some backends do not have a practical
 for example) in which case it just acts as a hint. Unless you have special requirements you should try avoiding exclusive mode as it's intrusive to the user.
 Starting with Windows 10, miniaudio will use low-latency shared mode where possible which may make exclusive mode unnecessary.
 
-After initializing the device it will be in a stopped state. To start it, use `ma_device_start()`.
-
-When sending or receiving data to/from a device, miniaudio will internally perform a format conversion to convert between the format specified by pConfig and
-the format used internally by the backend. If you pass in 0 for the sample format, channel count, sample rate _and_ channel map, data transmission will run on
-an optimized pass-through fast path. You can retrieve the format, channel count and sample rate by inspecting the `playback/capture.format`,
+When sending or receiving data to/from a device, miniaudio will internally perform a format conversion to convert between the format specified by the config
+and the format used internally by the backend. If you pass in 0 for the sample format, channel count, sample rate _and_ channel map, data transmission will run
+on an optimized pass-through fast path. You can retrieve the format, channel count and sample rate by inspecting the `playback/capture.format`,
 `playback/capture.channels` and `sampleRate` members of the device object.
 
 When compiling for UWP you must ensure you call this function on the main UI thread because the operating system may need to present the user with a message
@@ -4591,7 +4592,7 @@ If these fail it will try falling back to the "hw" device.
 
 Example 1 - Simple Initialization
 ---------------------------------
-This example shows how to initialize a simple playback default using a standard configuration. If you are just needing to do simple playback from the default
+This example shows how to initialize a simple playback device using a standard configuration. If you are just needing to do simple playback from the default
 playback device this is usually all you need.
 
 ```c
@@ -4612,7 +4613,7 @@ if (result != MA_SUCCESS) {
 
 Example 2 - Advanced Initialization
 -----------------------------------
-This example show how you might do some more advanced initialization. In this hypothetical example we want to control the latency by setting the buffer size
+This example shows how you might do some more advanced initialization. In this hypothetical example we want to control the latency by setting the buffer size
 and period count. We also want to allow the user to be able to choose which device to output from which means we need a context so we can perform device
 enumeration.
 
