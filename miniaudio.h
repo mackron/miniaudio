@@ -6841,12 +6841,8 @@ fallback, so if you notice your compiler not detecting this properly I'm happy t
     #endif
 #endif
 
-MA_API ma_result ma_wfopen(FILE** ppFile, const wchar_t* pFilePath, const wchar_t* pOpenMode, ma_allocation_callbacks* pAllocationCallbacks)
+MA_API ma_result ma_wfopen(FILE** ppFile, const wchar_t* pFilePath, const wchar_t* pOpenMode, const ma_allocation_callbacks* pAllocationCallbacks)
 {
-#if _MSC_VER && _MSC_VER >= 1400
-    errno_t err;
-#endif
-
     if (ppFile != NULL) {
         *ppFile = NULL;  /* Safety. */
     }
@@ -6856,7 +6852,10 @@ MA_API ma_result ma_wfopen(FILE** ppFile, const wchar_t* pFilePath, const wchar_
     }
 
 #if defined(MA_HAS_WFOPEN)
-    (void)pAllocationCallbacks;
+    {
+        errno_t err;
+
+        (void)pAllocationCallbacks;
 
     /* Use _wfopen() on Windows. */
     #if defined(_MSC_VER) && _MSC_VER >= 1400
@@ -6870,6 +6869,7 @@ MA_API ma_result ma_wfopen(FILE** ppFile, const wchar_t* pFilePath, const wchar_
             return ma_result_from_errno(errno);
         }
     #endif
+    }
 #else
     /*
     Use fopen() on anything other than Windows. Requires a conversion. This is annoying because fopen() is locale specific. The only real way I can
