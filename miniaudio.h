@@ -6853,13 +6853,9 @@ MA_API ma_result ma_wfopen(FILE** ppFile, const wchar_t* pFilePath, const wchar_
 
 #if defined(MA_HAS_WFOPEN)
     {
-        errno_t err;
-
-        (void)pAllocationCallbacks;
-
-    /* Use _wfopen() on Windows. */
+        /* Use _wfopen() on Windows. */
     #if defined(_MSC_VER) && _MSC_VER >= 1400
-        err = _wfopen_s(ppFile, pFilePath, pOpenMode);
+        errno_t err = _wfopen_s(ppFile, pFilePath, pOpenMode);
         if (err != 0) {
             return ma_result_from_errno(err);
         }
@@ -6869,6 +6865,7 @@ MA_API ma_result ma_wfopen(FILE** ppFile, const wchar_t* pFilePath, const wchar_
             return ma_result_from_errno(errno);
         }
     #endif
+        (void)pAllocationCallbacks;
     }
 #else
     /*
