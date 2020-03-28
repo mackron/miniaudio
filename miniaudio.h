@@ -30733,7 +30733,7 @@ Low-Pass Filter
 **************************************************************************************************************************************************************/
 MA_API ma_lpf1_config ma_lpf1_config_init(ma_format format, ma_uint32 channels, ma_uint32 sampleRate, double cutoffFrequency)
 {
-    ma_lpf2_config config;
+    ma_lpf1_config config;
     
     MA_ZERO_OBJECT(&config);
     config.format = format;
@@ -30747,7 +30747,7 @@ MA_API ma_lpf1_config ma_lpf1_config_init(ma_format format, ma_uint32 channels, 
 
 MA_API ma_lpf2_config ma_lpf2_config_init(ma_format format, ma_uint32 channels, ma_uint32 sampleRate, double cutoffFrequency, double q)
 {
-    ma_lpf1_config config;
+    ma_lpf2_config config;
     
     MA_ZERO_OBJECT(&config);
     config.format = format;
