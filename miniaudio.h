@@ -6077,7 +6077,7 @@ static MA_INLINE double ma_sqrt(double x)
 
 static MA_INLINE double ma_cos(double x)
 {
-    return ma_sin((MA_PI*0.5) - x);
+    return ma_sin((MA_PI_D*0.5) - x);
 }
 
 static MA_INLINE double ma_log10(double x)
