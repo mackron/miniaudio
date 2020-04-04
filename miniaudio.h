@@ -461,10 +461,7 @@ Build Options
 
 #define MA_NO_DEVICE_IO
   Disables playback and recording. This will disable ma_context and ma_device APIs. This is useful if you only want to use miniaudio's data conversion and/or
-  decoding APIs. 
-
-#define MA_NO_STDIO
-  Disables file IO APIs.
+  decoding APIs.
 
 #define MA_NO_SSE2
   Disables SSE2 optimizations.
@@ -5274,7 +5271,6 @@ MA_API ma_result ma_decoder_init_memory_vorbis(const void* pData, size_t dataSiz
 MA_API ma_result ma_decoder_init_memory_mp3(const void* pData, size_t dataSize, const ma_decoder_config* pConfig, ma_decoder* pDecoder);
 MA_API ma_result ma_decoder_init_memory_raw(const void* pData, size_t dataSize, const ma_decoder_config* pConfigIn, const ma_decoder_config* pConfigOut, ma_decoder* pDecoder);
 
-#ifndef MA_NO_STDIO
 MA_API ma_result ma_decoder_init_file(const char* pFilePath, const ma_decoder_config* pConfig, ma_decoder* pDecoder);
 MA_API ma_result ma_decoder_init_file_wav(const char* pFilePath, const ma_decoder_config* pConfig, ma_decoder* pDecoder);
 MA_API ma_result ma_decoder_init_file_flac(const char* pFilePath, const ma_decoder_config* pConfig, ma_decoder* pDecoder);
@@ -5286,7 +5282,6 @@ MA_API ma_result ma_decoder_init_file_wav_w(const wchar_t* pFilePath, const ma_d
 MA_API ma_result ma_decoder_init_file_flac_w(const wchar_t* pFilePath, const ma_decoder_config* pConfig, ma_decoder* pDecoder);
 MA_API ma_result ma_decoder_init_file_vorbis_w(const wchar_t* pFilePath, const ma_decoder_config* pConfig, ma_decoder* pDecoder);
 MA_API ma_result ma_decoder_init_file_mp3_w(const wchar_t* pFilePath, const ma_decoder_config* pConfig, ma_decoder* pDecoder);
-#endif
 
 MA_API ma_result ma_decoder_uninit(ma_decoder* pDecoder);
 
@@ -5324,9 +5319,7 @@ MA_API ma_result ma_decoder_seek_to_pcm_frame(ma_decoder* pDecoder, ma_uint64 fr
 Helper for opening and decoding a file into a heap allocated block of memory. Free the returned pointer with ma_free(). On input,
 pConfig should be set to what you want. On output it will be set to what you got.
 */
-#ifndef MA_NO_STDIO
 MA_API ma_result ma_decode_file(const char* pFilePath, ma_decoder_config* pConfig, ma_uint64* pFrameCountOut, void** ppDataOut);
-#endif
 MA_API ma_result ma_decode_memory(const void* pData, size_t dataSize, ma_decoder_config* pConfig, ma_uint64* pFrameCountOut, void** ppDataOut);
 
 #endif  /* MA_NO_DECODING */
@@ -5374,10 +5367,8 @@ struct ma_encoder
 };
 
 MA_API ma_result ma_encoder_init(ma_encoder_write_proc onWrite, ma_encoder_seek_proc onSeek, void* pUserData, const ma_encoder_config* pConfig, ma_encoder* pEncoder);
-#ifndef MA_NO_STDIO
 MA_API ma_result ma_encoder_init_file(const char* pFilePath, const ma_encoder_config* pConfig, ma_encoder* pEncoder);
 MA_API ma_result ma_encoder_init_file_w(const wchar_t* pFilePath, const ma_encoder_config* pConfig, ma_encoder* pEncoder);
-#endif
 MA_API void ma_encoder_uninit(ma_encoder* pEncoder);
 MA_API ma_uint64 ma_encoder_write_pcm_frames(ma_encoder* pEncoder, const void* pFramesIn, ma_uint64 frameCount);
 
@@ -5490,12 +5481,10 @@ IMPLEMENTATION
 #include <limits.h> /* For INT_MAX */
 #include <math.h>   /* sin(), etc. */
 
-#if !defined(MA_NO_STDIO) || defined(MA_DEBUG_OUTPUT)
-    #include <stdio.h>
-    #if !defined(_MSC_VER) && !defined(__DMC__)
-        #include <strings.h>    /* For strcasecmp(). */
-        #include <wchar.h>      /* For wcslen(), wcsrtombs() */
-    #endif
+#include <stdio.h>
+#if !defined(_MSC_VER) && !defined(__DMC__)
+    #include <strings.h>    /* For strcasecmp(). */
+    #include <wchar.h>      /* For wcslen(), wcsrtombs() */
 #endif
 
 #ifdef MA_WIN32
@@ -40508,7 +40497,6 @@ MA_API ma_result ma_decoder_init_memory_raw(const void* pData, size_t dataSize, 
     return ma_decoder__postinit(&config, pDecoder);
 }
 
-#ifndef MA_NO_STDIO
 static const char* ma_path_file_name(const char* path)
 {
     const char* fileName;
@@ -40912,7 +40900,6 @@ MA_API ma_result ma_decoder_init_file_mp3_w(const wchar_t* pFilePath, const ma_d
 
     return ma_decoder_init_mp3(ma_decoder__on_read_stdio, ma_decoder__on_seek_stdio, pDecoder->pUserData, pConfig, pDecoder);
 }
-#endif  /* MA_NO_STDIO */
 
 MA_API ma_result ma_decoder_uninit(ma_decoder* pDecoder)
 {
@@ -40924,12 +40911,10 @@ MA_API ma_result ma_decoder_uninit(ma_decoder* pDecoder)
         pDecoder->onUninit(pDecoder);
     }
 
-#ifndef MA_NO_STDIO
     /* If we have a file handle, close it. */
     if (pDecoder->onRead == ma_decoder__on_read_stdio) {
         fclose((FILE*)pDecoder->pUserData);
     }
-#endif
 
     ma_data_converter_uninit(&pDecoder->converter);
 
@@ -41117,7 +41102,6 @@ static ma_result ma_decoder__full_decode_and_uninit(ma_decoder* pDecoder, ma_dec
     return MA_SUCCESS;
 }
 
-#ifndef MA_NO_STDIO
 MA_API ma_result ma_decode_file(const char* pFilePath, ma_decoder_config* pConfig, ma_uint64* pFrameCountOut, void** ppPCMFramesOut)
 {
     ma_decoder_config config;
@@ -41144,7 +41128,6 @@ MA_API ma_result ma_decode_file(const char* pFilePath, ma_decoder_config* pConfi
 
     return ma_decoder__full_decode_and_uninit(&decoder, pConfig, pFrameCountOut, ppPCMFramesOut);
 }
-#endif
 
 MA_API ma_result ma_decode_memory(const void* pData, size_t dataSize, ma_decoder_config* pConfig, ma_uint64* pFrameCountOut, void** ppPCMFramesOut)
 {
@@ -41343,7 +41326,6 @@ MA_API ma_result ma_encoder_init__internal(ma_encoder_write_proc onWrite, ma_enc
     return MA_SUCCESS;
 }
 
-#ifndef MA_NO_STDIO
 MA_API size_t ma_encoder__on_write_stdio(ma_encoder* pEncoder, const void* pBufferIn, size_t bytesToWrite)
 {
     return fwrite(pBufferIn, 1, bytesToWrite, (FILE*)pEncoder->pFile);
@@ -41395,7 +41377,6 @@ MA_API ma_result ma_encoder_init_file_w(const wchar_t* pFilePath, const ma_encod
 
     return ma_encoder_init__internal(ma_encoder__on_write_stdio, ma_encoder__on_seek_stdio, NULL, pEncoder);
 }
-#endif
 
 MA_API ma_result ma_encoder_init(ma_encoder_write_proc onWrite, ma_encoder_seek_proc onSeek, void* pUserData, const ma_encoder_config* pConfig, ma_encoder* pEncoder)
 {
@@ -41420,12 +41401,10 @@ MA_API void ma_encoder_uninit(ma_encoder* pEncoder)
         pEncoder->onUninit(pEncoder);
     }
 
-#ifndef MA_NO_STDIO
     /* If we have a file handle, close it. */
     if (pEncoder->onWrite == ma_encoder__on_write_stdio) {
         fclose((FILE*)pEncoder->pFile);
     }
-#endif
 }
 
 
@@ -42261,6 +42240,7 @@ REVISION HISTORY
 ================
 v0.10.3 - TBD
   - Bring up to date with breaking changes to dr_mp3.
+  - Remove MA_NO_STDIO. This was causing compilation errors and the maintenance cost versus practical benefit is no longer worthwhile.
 
 v0.10.2 - 2020-03-22
   - Decorate some APIs with MA_API which were missed in the previous version.
