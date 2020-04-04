@@ -34501,14 +34501,6 @@ MA_API ma_result ma_data_converter_init(const ma_data_converter_config* pConfig,
         midFormat = ma_format_f32;
     }
 
-    if (pConverter->config.formatIn != midFormat) {
-        pConverter->hasPreFormatConversion = MA_TRUE;
-    }
-    if (pConverter->config.formatOut != midFormat) {
-        pConverter->hasPostFormatConversion = MA_TRUE;
-    }
-
-
     /* Channel converter. We always initialize this, but we check if it configures itself as a passthrough to determine whether or not it's needed. */
     {
         ma_uint32 iChannelIn;
@@ -34564,6 +34556,29 @@ MA_API ma_result ma_data_converter_init(const ma_data_converter_config* pConfig,
         }
 
         pConverter->hasResampler = MA_TRUE;
+    }
+
+
+    /* We can simplify pre- and post-format conversion if we have neither channel conversion nor resampling. */
+    if (pConverter->hasChannelConverter == MA_FALSE && pConverter->hasResampler == MA_FALSE) {
+        /* We have neither channel conversion nor resampling so we'll only need one of pre- or post-format conversion, or none if the input and output formats are the same. */
+        if (pConverter->config.formatIn == pConverter->config.formatOut) {
+            /* The formats are the same so we can just pass through. */
+            pConverter->hasPreFormatConversion  = MA_FALSE;
+            pConverter->hasPostFormatConversion = MA_FALSE;
+        } else {
+            /* The formats are different so we need to do either pre- or post-format conversion. It doesn't matter which. */
+            pConverter->hasPreFormatConversion  = MA_FALSE;
+            pConverter->hasPostFormatConversion = MA_TRUE;
+        }
+    } else {
+        /* We have a channel converter and/or resampler so we'll need channel conversion based on the mid format. */
+        if (pConverter->config.formatIn != midFormat) {
+            pConverter->hasPreFormatConversion = MA_TRUE;
+        }
+        if (pConverter->config.formatOut != midFormat) {
+            pConverter->hasPostFormatConversion = MA_TRUE;
+        }
     }
 
     /* We can enable passthrough optimizations if applicable. Note that we'll only be able to do this if the sample rate is static. */
