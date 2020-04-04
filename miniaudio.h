@@ -39870,12 +39870,17 @@ static ma_uint64 ma_decoder_internal_on_read_pcm_frames__mp3(ma_decoder* pDecode
 
     MA_ASSERT(pDecoder   != NULL);
     MA_ASSERT(pFramesOut != NULL);
-    MA_ASSERT(pDecoder->internalFormat == ma_format_f32);
 
     pMP3 = (drmp3*)pDecoder->pInternalDecoder;
     MA_ASSERT(pMP3 != NULL);
 
+#if defined(DR_MP3_FLOAT_OUTPUT)
+    MA_ASSERT(pDecoder->internalFormat == ma_format_f32);
     return drmp3_read_pcm_frames_f32(pMP3, frameCount, (float*)pFramesOut);
+#else
+    MA_ASSERT(pDecoder->internalFormat == ma_format_s16);
+    return drmp3_read_pcm_frames_s16(pMP3, frameCount, (drmp3_int16*)pFramesOut);
+#endif
 }
 
 static ma_result ma_decoder_internal_on_seek_to_pcm_frame__mp3(ma_decoder* pDecoder, ma_uint64 frameIndex)
@@ -39909,7 +39914,6 @@ static ma_uint64 ma_decoder_internal_on_get_length_in_pcm_frames__mp3(ma_decoder
 static ma_result ma_decoder_init_mp3__internal(const ma_decoder_config* pConfig, ma_decoder* pDecoder)
 {
     drmp3* pMP3;
-    drmp3_config mp3Config;
     drmp3_allocation_callbacks allocationCallbacks;
 
     MA_ASSERT(pConfig != NULL);
@@ -39926,20 +39930,10 @@ static ma_result ma_decoder_init_mp3__internal(const ma_decoder_config* pConfig,
     allocationCallbacks.onFree    = pDecoder->allocationCallbacks.onFree;
 
     /*
-    Try opening the decoder first. MP3 can have variable sample rates (it's per frame/packet). We therefore need
-    to use some smarts to determine the most appropriate internal sample rate. These are the rules we're going
-    to use:
-    
-    Sample Rates
-    1) If an output sample rate is specified in pConfig we just use that. Otherwise;
-    2) Fall back to 44100.
-    
-    The internal channel count is always stereo, and the internal format is always f32.
+    Try opening the decoder first. We always use whatever dr_mp3 reports for channel count and sample rate. The format is determined by
+    the presence of DR_MP3_FLOAT_OUTPUT.
     */
-    MA_ZERO_OBJECT(&mp3Config);
-    mp3Config.outputChannels = 2;
-    mp3Config.outputSampleRate = (pConfig->sampleRate != 0) ? pConfig->sampleRate : 44100;
-    if (!drmp3_init(pMP3, ma_decoder_internal_on_read__mp3, ma_decoder_internal_on_seek__mp3, pDecoder, &mp3Config, &allocationCallbacks)) {
+    if (!drmp3_init(pMP3, ma_decoder_internal_on_read__mp3, ma_decoder_internal_on_seek__mp3, pDecoder, &allocationCallbacks)) {
         ma__free_from_callbacks(pMP3, &pDecoder->allocationCallbacks);
         return MA_ERROR;
     }
@@ -39952,7 +39946,11 @@ static ma_result ma_decoder_init_mp3__internal(const ma_decoder_config* pConfig,
     pDecoder->pInternalDecoder       = pMP3;
 
     /* Internal format. */
+#if defined(DR_MP3_FLOAT_OUTPUT)
     pDecoder->internalFormat     = ma_format_f32;
+#else
+    pDecoder->internalFormat     = ma_format_s16;
+#endif
     pDecoder->internalChannels   = pMP3->channels;
     pDecoder->internalSampleRate = pMP3->sampleRate;
     ma_get_standard_channel_map(ma_standard_channel_map_default, pDecoder->internalChannels, pDecoder->internalChannelMap);
