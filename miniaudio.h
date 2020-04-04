@@ -1,6 +1,6 @@
 /*
 Audio playback and capture library. Choice of public domain or MIT-0. See license statements at the end of this file.
-miniaudio - v0.10.2 - 2020-03-22
+miniaudio - v0.10.3 - TBD
 
 David Reid - davidreidsoftware@gmail.com
 
@@ -42259,6 +42259,9 @@ The following miscellaneous changes have also been made.
 /*
 REVISION HISTORY
 ================
+v0.10.3 - TBD
+  - Bring up to date with breaking changes to dr_mp3.
+
 v0.10.2 - 2020-03-22
   - Decorate some APIs with MA_API which were missed in the previous version.
   - Fix a bug in ma_linear_resampler_set_rate() and ma_linear_resampler_set_rate_ratio().
