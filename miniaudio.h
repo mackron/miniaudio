@@ -13066,8 +13066,8 @@ static ma_result ma_context_init__wasapi(const ma_context_config* pConfig, ma_co
 
         MA_ZERO_OBJECT(&osvi);
         osvi.dwOSVersionInfoSize = sizeof(osvi);
-        osvi.dwMajorVersion = HIBYTE(MA_WIN32_WINNT_VISTA);
-        osvi.dwMinorVersion = LOBYTE(MA_WIN32_WINNT_VISTA);
+        osvi.dwMajorVersion = ((MA_WIN32_WINNT_VISTA >> 8) & 0xFF);
+        osvi.dwMinorVersion = ((MA_WIN32_WINNT_VISTA >> 0) & 0xFF);
         osvi.wServicePackMajor = 1;
         if (_VerifyVersionInfoW(&osvi, MA_VER_MAJORVERSION | MA_VER_MINORVERSION | MA_VER_SERVICEPACKMAJOR, _VerSetConditionMask(_VerSetConditionMask(_VerSetConditionMask(0, MA_VER_MAJORVERSION, MA_VER_GREATER_EQUAL), MA_VER_MINORVERSION, MA_VER_GREATER_EQUAL), MA_VER_SERVICEPACKMAJOR, MA_VER_GREATER_EQUAL))) {
             result = MA_SUCCESS;
