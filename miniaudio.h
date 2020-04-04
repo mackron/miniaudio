@@ -3176,7 +3176,10 @@ typedef struct
     } wasapi;
     struct
     {
-        ma_bool32 noMMap;  /* Disables MMap mode. */
+        ma_bool32 noMMap;           /* Disables MMap mode. */
+        ma_bool32 noAutoFormat;     /* Opens the ALSA device with SND_PCM_NO_AUTO_FORMAT. */
+        ma_bool32 noAutoChannels;   /* Opens the ALSA device with SND_PCM_NO_AUTO_CHANNELS. */
+        ma_bool32 noAutoResample;   /* Opens the ALSA device with SND_PCM_NO_AUTO_RESAMPLE. */
     } alsa;
     struct
     {
@@ -4553,6 +4556,15 @@ then be set directly on the structure. Below are the members of the `ma_device_c
 
     alsa.noMMap
         ALSA only. When set to true, disables MMap mode. Defaults to false.
+
+    alsa.noAutoFormat
+        ALSA only. When set to true, disables ALSA's automatic format conversion by including the SND_PCM_NO_AUTO_FORMAT flag. Defaults to false.
+
+    alsa.noAutoChannels
+        ALSA only. When set to true, disables ALSA's automatic channel conversion by including the SND_PCM_NO_AUTO_CHANNELS flag. Defaults to false.
+
+    alsa.noAutoResample
+        ALSA only. When set to true, disables ALSA's automatic resampling by including the SND_PCM_NO_AUTO_RESAMPLE flag. Defaults to false.
 
     pulse.pStreamNamePlayback
         PulseAudio only. Sets the stream name for playback.
@@ -16636,11 +16648,10 @@ static ma_bool32 ma_does_id_exist_in_list__alsa(ma_device_id* pUniqueIDs, ma_uin
 }
 
 
-static ma_result ma_context_open_pcm__alsa(ma_context* pContext, ma_share_mode shareMode, ma_device_type deviceType, const ma_device_id* pDeviceID, ma_snd_pcm_t** ppPCM)
+static ma_result ma_context_open_pcm__alsa(ma_context* pContext, ma_share_mode shareMode, ma_device_type deviceType, const ma_device_id* pDeviceID, int openMode, ma_snd_pcm_t** ppPCM)
 {
     ma_snd_pcm_t* pPCM;
     ma_snd_pcm_stream_t stream;
-    int openMode;
 
     MA_ASSERT(pContext != NULL);
     MA_ASSERT(ppPCM != NULL);
@@ -16648,8 +16659,7 @@ static ma_result ma_context_open_pcm__alsa(ma_context* pContext, ma_share_mode s
     *ppPCM = NULL;
     pPCM = NULL;
 
-    stream   = (deviceType == ma_device_type_playback) ? MA_SND_PCM_STREAM_PLAYBACK : MA_SND_PCM_STREAM_CAPTURE;
-    openMode = MA_SND_PCM_NO_AUTO_RESAMPLE | MA_SND_PCM_NO_AUTO_CHANNELS | MA_SND_PCM_NO_AUTO_FORMAT;
+    stream = (deviceType == ma_device_type_playback) ? MA_SND_PCM_STREAM_PLAYBACK : MA_SND_PCM_STREAM_CAPTURE;
 
     if (pDeviceID == NULL) {
         ma_bool32 isDeviceOpen;
@@ -16983,7 +16993,7 @@ static ma_result ma_context_get_device_info__alsa(ma_context* pContext, ma_devic
     }
 
     /* For detailed info we need to open the device. */
-    result = ma_context_open_pcm__alsa(pContext, shareMode, deviceType, pDeviceID, &pPCM);
+    result = ma_context_open_pcm__alsa(pContext, shareMode, deviceType, pDeviceID, 0, &pPCM);
     if (result != MA_SUCCESS) {
         return result;
     }
@@ -17334,6 +17344,7 @@ static ma_result ma_device_init_by_type__alsa(ma_context* pContext, const ma_dev
     ma_channel internalChannelMap[MA_MAX_CHANNELS];
     ma_uint32 internalPeriodSizeInFrames;
     ma_uint32 internalPeriods;
+    int openMode;
     ma_snd_pcm_hw_params_t* pHWParams;
     ma_snd_pcm_sw_params_t* pSWParams;
     ma_snd_pcm_uframes_t bufferBoundary;
@@ -17348,7 +17359,18 @@ static ma_result ma_device_init_by_type__alsa(ma_context* pContext, const ma_dev
     shareMode  = (deviceType == ma_device_type_capture) ? pConfig->capture.shareMode : pConfig->playback.shareMode;
     pDeviceID  = (deviceType == ma_device_type_capture) ? pConfig->capture.pDeviceID : pConfig->playback.pDeviceID;
 
-    result = ma_context_open_pcm__alsa(pContext, shareMode, deviceType, pDeviceID, &pPCM);
+    openMode = 0;
+    if (pConfig->alsa.noAutoResample) {
+        openMode |= MA_SND_PCM_NO_AUTO_RESAMPLE;
+    }
+    if (pConfig->alsa.noAutoChannels) {
+        openMode |= MA_SND_PCM_NO_AUTO_CHANNELS;
+    }
+    if (pConfig->alsa.noAutoFormat) {
+        openMode |= MA_SND_PCM_NO_AUTO_FORMAT;
+    }
+
+    result = ma_context_open_pcm__alsa(pContext, shareMode, deviceType, pDeviceID, openMode, &pPCM);
     if (result != MA_SUCCESS) {
         return result;
     }
