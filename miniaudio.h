@@ -5481,6 +5481,7 @@ IMPLEMENTATION
 #include <limits.h> /* For INT_MAX */
 #include <math.h>   /* sin(), etc. */
 
+#include <stdarg.h>
 #include <stdio.h>
 #if !defined(_MSC_VER) && !defined(__DMC__)
     #include <strings.h>    /* For strcasecmp(). */
@@ -7837,7 +7838,7 @@ static void ma_post_log_message(ma_context* pContext, ma_device* pDevice, ma_uin
 /* Posts a formatted log message. */
 static void ma_post_log_messagev(ma_context* pContext, ma_device* pDevice, ma_uint32 logLevel, const char* pFormat, va_list args)
 {
-#if !defined(_MSC_VER) || _MSC_VER >= 1900
+#if (!defined(_MSC_VER) || _MSC_VER >= 1900) && !defined(__STRICT_ANSI__)
     {
         char pFormattedMessage[1024];
         vsnprintf(pFormattedMessage, sizeof(pFormattedMessage), pFormat, args);
@@ -7884,12 +7885,19 @@ static void ma_post_log_messagev(ma_context* pContext, ma_device* pDevice, ma_ui
                 ma_free(pFormattedMessage, pAllocationCallbacks);
             }
         }
+#else
+        /* Can't do anything because we don't have a safe way of to emulate vsnprintf() without a manual solution. */
+        (void)pContext;
+        (void)pDevice;
+        (void)logLevel;
+        (void)pFormat;
+        (void)args;
 #endif
     }
 #endif
 }
 
-static void ma_post_log_messagef(ma_context* pContext, ma_device* pDevice, ma_uint32 logLevel, const char* pFormat, ...)
+static MA_INLINE void ma_post_log_messagef(ma_context* pContext, ma_device* pDevice, ma_uint32 logLevel, const char* pFormat, ...)
 {
     va_list args;
     va_start(args, pFormat);
