@@ -7859,9 +7859,7 @@ static void ma_post_log_messagev(ma_context* pContext, ma_device* pDevice, ma_ui
     #else
         args2 = args;
     #endif
-        {
-            formattedLen = _vscprintf(pFormat, args2);
-        }
+        formattedLen = _vscprintf(pFormat, args2);
         va_end(args2);
 
         if (formattedLen > 0) {
