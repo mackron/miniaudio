@@ -641,7 +641,7 @@ The table below are the supported encoding backends:
 The code below is an example of how to enable encoding backends:
 
     ```c
-    #include "dr_wav.h"     // Enables WAV decoding.
+    #include "dr_wav.h"     // Enables WAV encoding.
 
     #define MINIAUDIO_IMPLEMENTATION
     #include "miniaudio.h"
