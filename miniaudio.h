@@ -7807,6 +7807,12 @@ MA_API const char* ma_log_level_to_string(ma_uint32 logLevel)
 static void ma_post_log_message(ma_context* pContext, ma_device* pDevice, ma_uint32 logLevel, const char* message)
 {
     if (pContext == NULL) {
+        if (pDevice != NULL) {
+            pContext = pDevice->pContext;
+        }
+    }
+
+    if (pContext == NULL) {
         return;
     }
     
@@ -7828,16 +7834,76 @@ static void ma_post_log_message(ma_context* pContext, ma_device* pDevice, ma_uin
 #endif
 }
 
+/* Posts a formatted log message. */
+static void ma_post_log_messagev(ma_context* pContext, ma_device* pDevice, ma_uint32 logLevel, const char* pFormat, va_list args)
+{
+#if !defined(_MSC_VER) || _MSC_VER >= 1900
+    {
+        char pFormattedMessage[1024];
+        vsnprintf(pFormattedMessage, sizeof(pFormattedMessage), pFormat, args);
+        ma_post_log_message(pContext, pDevice, logLevel, pFormattedMessage);
+    }
+#else
+    {
+        /*
+        Without snprintf() we need to first measure the string and then heap allocate it. I'm only aware of Visual Studio having support for this without snprintf(), so we'll
+        need to restrict this branch to Visual Studio. For other compilers we need to just not support formatted logging because I don't want the security risk of overflowing
+        a fixed sized stack allocated buffer.
+        */
+#if defined (_MSC_VER)
+        int formattedLen;
+        va_list args2;
+
+    #if _MSC_VER >= 1800
+        va_copy(args2, args);
+    #else
+        args2 = args;
+    #endif
+        {
+            formattedLen = _vscprintf(pFormat, args2);
+        }
+        va_end(args2);
+
+        if (formattedLen > 0) {
+            char* pFormattedMessage = NULL;
+            ma_allocation_callbacks* pAllocationCallbacks = NULL;
+
+            /* Make sure we have a context so we can allocate memory. */
+            if (pContext == NULL) {
+                if (pDevice != NULL) {
+                    pContext = pDevice->pContext;
+                }
+            }
+
+            if (pContext != NULL) {
+                pAllocationCallbacks = &pContext->allocationCallbacks;
+            }
+
+            pFormattedMessage = (char*)ma_malloc(formattedLen + 1, pAllocationCallbacks);
+            if (pFormattedMessage != NULL) {
+                vsprintf_s(pFormattedMessage, formattedLen + 1, pFormat, args);
+                ma_post_log_message(pContext, pDevice, logLevel, pFormattedMessage);
+                ma_free(pFormattedMessage, pAllocationCallbacks);
+            }
+        }
+#endif
+    }
+#endif
+}
+
+static void ma_post_log_messagef(ma_context* pContext, ma_device* pDevice, ma_uint32 logLevel, const char* pFormat, ...)
+{
+    va_list args;
+    va_start(args, pFormat);
+    {
+        ma_post_log_messagev(pContext, pDevice, logLevel, pFormat, args);
+    }
+    va_end(args);
+}
+
 /* Posts an log message. Throw a breakpoint in here if you're needing to debug. The return value is always "resultCode". */
 static ma_result ma_context_post_error(ma_context* pContext, ma_device* pDevice, ma_uint32 logLevel, const char* message, ma_result resultCode)
 {
-    /* Derive the context from the device if necessary. */
-    if (pContext == NULL) {
-        if (pDevice != NULL) {
-            pContext = pDevice->pContext;
-        }
-    }
-
     ma_post_log_message(pContext, pDevice, logLevel, message);
     return resultCode;
 }
