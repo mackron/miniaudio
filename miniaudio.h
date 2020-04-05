@@ -9,8 +9,8 @@ GitHub:  https://github.com/dr-soft/miniaudio
 */
 
 /*
-RELEASE NOTES - VERSION 0.10
-============================
+RELEASE NOTES - VERSION 0.10.x
+==============================
 Version 0.10 includes major API changes and refactoring, mostly concerned with the data conversion system. Data conversion is performed internally to convert
 audio data between the format requested when initializing the `ma_device` object and the format of the internal device used by the backend. The same applies
 to the `ma_decoder` object. The previous design has several design flaws and missing features which necessitated a complete redesign.
@@ -160,6 +160,9 @@ object. Then use `ma_noise_read_pcm_frames()` to read PCM data.
 
 Miscellaneous Changes
 ---------------------
+The MA_NO_STDIO option has been removed. This would disable file I/O APIs, however this has proven to be too hard to maintain for it's perceived value and was
+therefore removed.
+
 Internal functions have all been made static where possible. If you get warnings about unused functions, please submit a bug report.
 
 The `ma_device` structure is no longer defined as being aligned to MA_SIMD_ALIGNMENT. This resulted in a possible crash when allocating a `ma_device` object on
@@ -170,6 +173,15 @@ this has been removed from all structures.
 Results codes have been overhauled. Unnecessary result codes have been removed, and some have been renumbered for organisation purposes. If you are are binding
 maintainer you will need to update your result codes. Support has also been added for retrieving a human readable description of a given result code via the
 `ma_result_description()` API.
+
+ALSA: The automatic format conversion, channel conversion and resampling performed by ALSA is now disabled by default as they were causing some compatibility
+issues with certain devices and configurations. These can be individually enabled via the device config:
+
+    ```c
+    deviceConfig.alsa.noAutoFormat   = MA_TRUE;
+    deviceConfig.alsa.noAutoChannels = MA_TRUE;
+    deviceConfig.alsa.noAutoResample = MA_TRUE;
+    ```
 */
 
 
@@ -42402,6 +42414,12 @@ REVISION HISTORY
 v0.10.3 - TBD
   - Bring up to date with breaking changes to dr_mp3.
   - Remove MA_NO_STDIO. This was causing compilation errors and the maintenance cost versus practical benefit is no longer worthwhile.
+  - Fix compilation errors and warnings with Visual Studio 2005.
+  - ALSA: Disable ALSA's automatic data conversion by default and add configuration options to the device config:
+    - alsa.noAutoFormat
+    - alsa.noAutoChannels
+    - alsa.noAutoResample
+  - WASAPI: Add some overrun recovery for ma_device_type_capture devices.
 
 v0.10.2 - 2020-03-22
   - Decorate some APIs with MA_API which were missed in the previous version.
