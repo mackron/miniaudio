@@ -1,6 +1,6 @@
 /*
 FLAC audio decoder. Choice of public domain or MIT-0. See license statements at the end of this file.
-dr_flac - v0.12.8 - 2020-04-04
+dr_flac - v0.12.9 - 2020-04-05
 
 David Reid - mackron@gmail.com
 
@@ -1678,10 +1678,9 @@ DRFLAC_NO_THREAD_SANITIZE static void drflac__init_cpu_caps()
     static drflac_bool32 isCPUCapsInitialized = DRFLAC_FALSE;
 
     if (!isCPUCapsInitialized) {
-        int info[4] = {0};
-
         /* LZCNT */
 #if defined(DRFLAC_HAS_LZCNT_INTRINSIC)
+        int info[4] = {0};
         drflac__cpuid(info, 0x80000001);
         drflac__gIsLZCNTSupported = (info[2] & (1 << 5)) != 0;
 #endif
@@ -1962,7 +1961,7 @@ static DRFLAC_INLINE drflac_uint8 drflac_crc8(drflac_uint8 crc, drflac_uint32 da
         case 3: crc = drflac_crc8_byte(crc, (drflac_uint8)((data & (0x00FF0000UL << leftoverBits)) >> (16 + leftoverBits)));
         case 2: crc = drflac_crc8_byte(crc, (drflac_uint8)((data & (0x0000FF00UL << leftoverBits)) >> ( 8 + leftoverBits)));
         case 1: crc = drflac_crc8_byte(crc, (drflac_uint8)((data & (0x000000FFUL << leftoverBits)) >> ( 0 + leftoverBits)));
-        case 0: if (leftoverBits > 0) crc = (crc << leftoverBits) ^ drflac__crc8_table[(crc >> (8 - leftoverBits)) ^ (data & leftoverDataMask)];
+        case 0: if (leftoverBits > 0) crc = (drflac_uint8)((crc << leftoverBits) ^ drflac__crc8_table[(crc >> (8 - leftoverBits)) ^ (data & leftoverDataMask)]);
     }
     return crc;
 #endif
@@ -5159,10 +5158,10 @@ static drflac_bool32 drflac__read_subframe_header(drflac_bs* bs, drflac_subframe
     } else {
         if ((type & 0x20) != 0) {
             pSubframe->subframeType = DRFLAC_SUBFRAME_LPC;
-            pSubframe->lpcOrder = (type & 0x1F) + 1;
+            pSubframe->lpcOrder = (drflac_uint8)(type & 0x1F) + 1;
         } else if ((type & 0x08) != 0) {
             pSubframe->subframeType = DRFLAC_SUBFRAME_FIXED;
-            pSubframe->lpcOrder = (type & 0x07);
+            pSubframe->lpcOrder = (drflac_uint8)(type & 0x07);
             if (pSubframe->lpcOrder > 4) {
                 pSubframe->subframeType = DRFLAC_SUBFRAME_RESERVED;
                 pSubframe->lpcOrder = 0;
@@ -5377,7 +5376,7 @@ static drflac_result drflac__decode_flac_frame(drflac* pFlac)
         }
     }
 
-    paddingSizeInBits = DRFLAC_CACHE_L1_BITS_REMAINING(&pFlac->bs) & 7;
+    paddingSizeInBits = (drflac_uint8)(DRFLAC_CACHE_L1_BITS_REMAINING(&pFlac->bs) & 7);
     if (paddingSizeInBits > 0) {
         drflac_uint8 padding = 0;
         if (!drflac__read_uint8(&pFlac->bs, paddingSizeInBits, &padding)) {
@@ -6055,9 +6054,9 @@ typedef struct
 static DRFLAC_INLINE void drflac__decode_block_header(drflac_uint32 blockHeader, drflac_uint8* isLastBlock, drflac_uint8* blockType, drflac_uint32* blockSize)
 {
     blockHeader = drflac__be2host_32(blockHeader);
-    *isLastBlock = (blockHeader & 0x80000000UL) >> 31;
-    *blockType   = (blockHeader & 0x7F000000UL) >> 24;
-    *blockSize   = (blockHeader & 0x00FFFFFFUL);
+    *isLastBlock = (drflac_uint8)((blockHeader & 0x80000000UL) >> 31);
+    *blockType   = (drflac_uint8)((blockHeader & 0x7F000000UL) >> 24);
+    *blockSize   =                (blockHeader & 0x00FFFFFFUL);
 }
 
 static DRFLAC_INLINE drflac_bool32 drflac__read_and_decode_block_header(drflac_read_proc onRead, void* pUserData, drflac_uint8* isLastBlock, drflac_uint8* blockType, drflac_uint32* blockSize)
@@ -6104,8 +6103,8 @@ static drflac_bool32 drflac__read_streaminfo(drflac_read_proc onRead, void* pUse
     frameSizes     = drflac__be2host_64(frameSizes);
     importantProps = drflac__be2host_64(importantProps);
 
-    pStreamInfo->minBlockSizeInPCMFrames = (blockSizes & 0xFFFF0000) >> 16;
-    pStreamInfo->maxBlockSizeInPCMFrames = (blockSizes & 0x0000FFFF);
+    pStreamInfo->minBlockSizeInPCMFrames = (drflac_uint16)((blockSizes & 0xFFFF0000) >> 16);
+    pStreamInfo->maxBlockSizeInPCMFrames = (drflac_uint16) (blockSizes & 0x0000FFFF);
     pStreamInfo->minFrameSizeInPCMFrames = (drflac_uint32)((frameSizes     &  (((drflac_uint64)0x00FFFFFF << 16) << 24)) >> 40);
     pStreamInfo->maxFrameSizeInPCMFrames = (drflac_uint32)((frameSizes     &  (((drflac_uint64)0x00FFFFFF << 16) <<  0)) >> 16);
     pStreamInfo->sampleRate              = (drflac_uint32)((importantProps &  (((drflac_uint64)0x000FFFFF << 16) << 28)) >> 44);
@@ -7763,8 +7762,7 @@ static drflac* drflac_open_with_metadata_private(drflac_read_proc onRead, drflac
     */
     if (!init.hasStreamInfoBlock) {
         pFlac->currentFLACFrame.header = init.firstFrameHeader;
-        do
-        {
+        for (;;) {
             drflac_result result = drflac__decode_flac_frame(pFlac);
             if (result == DRFLAC_SUCCESS) {
                 break;
@@ -7780,7 +7778,7 @@ static drflac* drflac_open_with_metadata_private(drflac_read_proc onRead, drflac
                     return NULL;
                 }
             }
-        } while (1);
+        }
     }
 
     return pFlac;
@@ -11694,8 +11692,11 @@ DRFLAC_API drflac_bool32 drflac_next_cuesheet_track(drflac_cuesheet_track_iterat
 /*
 REVISION HISTORY
 ================
+v0.12.9 - 2020-04-05
+  - Fix warnings.
+
 v0.12.8 - 2020-04-04
-  - Add drflac_open_file_w() drflac_open_file_with_metadata_w().
+  - Add drflac_open_file_w() and drflac_open_file_with_metadata_w().
   - Fix some static analysis warnings.
   - Minor documentation updates.
 

@@ -1,6 +1,6 @@
 /*
 MP3 audio decoder. Choice of public domain or MIT-0. See license statements at the end of this file.
-dr_mp3 - v0.6.0 - 2020-04-04
+dr_mp3 - v0.6.1 - 2020-04-05
 
 David Reid - mackron@gmail.com
 
@@ -484,6 +484,11 @@ DRMP3_API drmp3_int16* drmp3_open_memory_and_read_pcm_frames_s16(const void* pDa
 DRMP3_API float* drmp3_open_file_and_read_pcm_frames_f32(const char* filePath, drmp3_config* pConfig, drmp3_uint64* pTotalFrameCount, const drmp3_allocation_callbacks* pAllocationCallbacks);
 DRMP3_API drmp3_int16* drmp3_open_file_and_read_pcm_frames_s16(const char* filePath, drmp3_config* pConfig, drmp3_uint64* pTotalFrameCount, const drmp3_allocation_callbacks* pAllocationCallbacks);
 #endif
+
+/*
+Allocates a block of memory on the heap.
+*/
+DRMP3_API void* drmp3_malloc(size_t sz, const drmp3_allocation_callbacks* pAllocationCallbacks);
 
 /*
 Frees any memory that was allocated by a public drmp3 API.
@@ -1153,16 +1158,16 @@ static void drmp3_L3_decode_scalefactors(const drmp3_uint8 *hdr, drmp3_uint8 *is
         int sh = 3 - scf_shift;
         for (i = 0; i < gr->n_short_sfb; i += 3)
         {
-            iscf[gr->n_long_sfb + i + 0] += gr->subblock_gain[0] << sh;
-            iscf[gr->n_long_sfb + i + 1] += gr->subblock_gain[1] << sh;
-            iscf[gr->n_long_sfb + i + 2] += gr->subblock_gain[2] << sh;
+            iscf[gr->n_long_sfb + i + 0] = (drmp3_uint8)(iscf[gr->n_long_sfb + i + 0] + (gr->subblock_gain[0] << sh));
+            iscf[gr->n_long_sfb + i + 1] = (drmp3_uint8)(iscf[gr->n_long_sfb + i + 1] + (gr->subblock_gain[1] << sh));
+            iscf[gr->n_long_sfb + i + 2] = (drmp3_uint8)(iscf[gr->n_long_sfb + i + 2] + (gr->subblock_gain[2] << sh));
         }
     } else if (gr->preflag)
     {
         static const drmp3_uint8 g_preamp[10] = { 1,1,1,1,2,2,3,3,3,2 };
         for (i = 0; i < 10; i++)
         {
-            iscf[11 + i] += g_preamp[i];
+            iscf[11 + i] = (drmp3_uint8)(iscf[11 + i] + g_preamp[i]);
         }
     }
 
@@ -2584,7 +2589,7 @@ static drmp3_uint32 drmp3_decode_next_frame_ex(drmp3* pMP3, drmp3d_sample_t* pPC
         return 0;
     }
 
-    do {
+    for (;;) {
         drmp3dec_frame_info info;
         size_t leftoverDataSize;
 
@@ -2672,7 +2677,7 @@ static drmp3_uint32 drmp3_decode_next_frame_ex(drmp3* pMP3, drmp3d_sample_t* pPC
 
             pMP3->dataSize += bytesRead;
         }
-    } while (DRMP3_TRUE);
+    };
 
     return pcmFramesRead;
 }
@@ -4241,6 +4246,15 @@ DRMP3_API drmp3_int16* drmp3_open_file_and_read_pcm_frames_s16(const char* fileP
 }
 #endif
 
+DRMP3_API void* drmp3_malloc(size_t sz, const drmp3_allocation_callbacks* pAllocationCallbacks)
+{
+    if (pAllocationCallbacks != NULL) {
+        return drmp3__malloc_from_callbacks(sz, pAllocationCallbacks);
+    } else {
+        return drmp3__malloc_default(sz, NULL);
+    }
+}
+
 DRMP3_API void drmp3_free(void* p, const drmp3_allocation_callbacks* pAllocationCallbacks)
 {
     if (pAllocationCallbacks != NULL) {
@@ -4335,6 +4349,9 @@ counts rather than sample counts.
 /*
 REVISION HISTORY
 ================
+v0.6.1 - 2020-04-05
+  - Fix warnings.
+
 v0.6.0 - 2020-04-04
   - API CHANGE: Remove the pConfig parameter from the following APIs:
     - drmp3_init()
