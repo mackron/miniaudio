@@ -1099,7 +1099,7 @@ Low-pass filtering is achieved with the following APIs:
 
 Low-pass filter example:
 
-     ```c
+    ```c
     ma_lpf_config config = ma_lpf_config_init(ma_format_f32, channels, sampleRate, cutoffFrequency, order);
     ma_result result = ma_lpf_init(&config, &lpf);
     if (result != MA_SUCCESS) {
