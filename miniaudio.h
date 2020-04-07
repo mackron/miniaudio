@@ -1,6 +1,6 @@
 /*
 Audio playback and capture library. Choice of public domain or MIT-0. See license statements at the end of this file.
-miniaudio - v0.10.3 - TBD
+miniaudio - v0.10.3 - 2020-04-07
 
 David Reid - davidreidsoftware@gmail.com
 
@@ -42410,7 +42410,7 @@ The following miscellaneous changes have also been made.
 /*
 REVISION HISTORY
 ================
-v0.10.3 - TBD
+v0.10.3 - 2020-04-07
   - Bring up to date with breaking changes to dr_mp3.
   - Remove MA_NO_STDIO. This was causing compilation errors and the maintenance cost versus practical benefit is no longer worthwhile.
   - Fix a bug with data conversion where it was unnecessarily converting to s16 or f32 and then straight back to the original format.
