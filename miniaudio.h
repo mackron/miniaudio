@@ -42413,6 +42413,7 @@ REVISION HISTORY
 v0.10.3 - TBD
   - Bring up to date with breaking changes to dr_mp3.
   - Remove MA_NO_STDIO. This was causing compilation errors and the maintenance cost versus practical benefit is no longer worthwhile.
+  - Fix a bug with data conversion where it was unnecessarily converting to s16 or f32 and then straight back to the original format.
   - Fix compilation errors and warnings with Visual Studio 2005.
   - ALSA: Disable ALSA's automatic data conversion by default and add configuration options to the device config:
     - alsa.noAutoFormat
