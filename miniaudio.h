@@ -7789,14 +7789,14 @@ static ma_result ma_result_from_HRESULT(HRESULT hr)
 }
 
 typedef HRESULT (WINAPI * MA_PFN_CoInitializeEx)(LPVOID pvReserved, DWORD  dwCoInit);
-typedef void    (WINAPI * MA_PFN_CoUninitialize)();
+typedef void    (WINAPI * MA_PFN_CoUninitialize)(void);
 typedef HRESULT (WINAPI * MA_PFN_CoCreateInstance)(REFCLSID rclsid, LPUNKNOWN pUnkOuter, DWORD dwClsContext, REFIID riid, LPVOID *ppv);
 typedef void    (WINAPI * MA_PFN_CoTaskMemFree)(LPVOID pv);
 typedef HRESULT (WINAPI * MA_PFN_PropVariantClear)(PROPVARIANT *pvar);
 typedef int     (WINAPI * MA_PFN_StringFromGUID2)(const GUID* const rguid, LPOLESTR lpsz, int cchMax);
 
-typedef HWND (WINAPI * MA_PFN_GetForegroundWindow)();
-typedef HWND (WINAPI * MA_PFN_GetDesktopWindow)();
+typedef HWND (WINAPI * MA_PFN_GetForegroundWindow)(void);
+typedef HWND (WINAPI * MA_PFN_GetDesktopWindow)(void);
 
 /* Microsoft documents these APIs as returning LSTATUS, but the Win32 API shipping with some compilers do not define it. It's just a LONG. */
 typedef LONG (WINAPI * MA_PFN_RegOpenKeyExA)(HKEY hKey, LPCSTR lpSubKey, DWORD ulOptions, REGSAM samDesired, PHKEY phkResult);
