@@ -2,7 +2,7 @@
 This example simply captures data from your default playback device until you press Enter. The output is saved to the file
 specified on the command line.
 
-The use loopback mode you just need to set the device type to ma_device_type_loopback and set the capture device config
+To use loopback mode you just need to set the device type to ma_device_type_loopback and set the capture device config
 properties. The output buffer in the callback will be null whereas the input buffer will be valid.
 */
 
