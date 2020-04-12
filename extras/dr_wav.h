@@ -1082,7 +1082,7 @@ static DRWAV_INLINE drwav_bool32 drwav__fourcc_equal(const unsigned char* a, con
 
 
 
-static DRWAV_INLINE int drwav__is_little_endian()
+static DRWAV_INLINE int drwav__is_little_endian(void)
 {
 #if defined(DRWAV_X86) || defined(DRWAV_X64)
     return DRWAV_TRUE;
