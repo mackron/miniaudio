@@ -9052,7 +9052,7 @@ static void ma_device__read_frames_from_client(ma_device* pDevice, ma_uint32 fra
                 framesToReadThisIterationIn = intermediaryBufferCap;
             }
 
-            requiredInputFrameCount = ma_data_converter_get_required_input_frame_count(&pDevice->playback.converter, frameCount);
+            requiredInputFrameCount = ma_data_converter_get_required_input_frame_count(&pDevice->playback.converter, framesToReadThisIterationOut);
             if (framesToReadThisIterationIn > requiredInputFrameCount) {
                 framesToReadThisIterationIn = requiredInputFrameCount;
             }
