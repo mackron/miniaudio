@@ -610,7 +610,7 @@ static __inline__ __attribute__((always_inline)) void drmp3_cpuid(int CPUInfo[],
 #endif
 }
 #endif
-static int drmp3_have_simd()
+static int drmp3_have_simd(void)
 {
 #ifdef DR_MP3_ONLY_SIMD
     return 1;
@@ -651,7 +651,7 @@ end:
 #define DRMP3_VMUL_S(x, s)  vmulq_f32(x, vmovq_n_f32(s))
 #define DRMP3_VREV(x) vcombine_f32(vget_high_f32(vrev64q_f32(x)), vget_low_f32(vrev64q_f32(x)))
 typedef float32x4_t drmp3_f4;
-static int drmp3_have_simd()
+static int drmp3_have_simd(void)
 {   /* TODO: detect neon for !DR_MP3_ONLY_SIMD */
     return 1;
 }

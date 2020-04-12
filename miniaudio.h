@@ -4146,7 +4146,7 @@ Retrieves the size of the ma_context object.
 
 This is mainly for the purpose of bindings to know how much memory to allocate.
 */
-MA_API size_t ma_context_sizeof();
+MA_API size_t ma_context_sizeof(void);
 
 /*
 Enumerates over every device (both playback and capture).
@@ -5709,7 +5709,7 @@ IMPLEMENTATION
     #define MA_NO_XGETBV
 #endif
 
-static MA_INLINE ma_bool32 ma_has_sse2()
+static MA_INLINE ma_bool32 ma_has_sse2(void)
 {
 #if defined(MA_SUPPORT_SSE2)
     #if (defined(MA_X64) || defined(MA_X86)) && !defined(MA_NO_SSE2)
@@ -5769,7 +5769,7 @@ static MA_INLINE ma_bool32 ma_has_avx()
 }
 #endif
 
-static MA_INLINE ma_bool32 ma_has_avx2()
+static MA_INLINE ma_bool32 ma_has_avx2(void)
 {
 #if defined(MA_SUPPORT_AVX2)
     #if (defined(MA_X64) || defined(MA_X86)) && !defined(MA_NO_AVX2)
@@ -5804,7 +5804,7 @@ static MA_INLINE ma_bool32 ma_has_avx2()
 #endif
 }
 
-static MA_INLINE ma_bool32 ma_has_avx512f()
+static MA_INLINE ma_bool32 ma_has_avx512f(void)
 {
 #if defined(MA_SUPPORT_AVX512)
     #if (defined(MA_X64) || defined(MA_X86)) && !defined(MA_NO_AVX512)
@@ -5839,7 +5839,7 @@ static MA_INLINE ma_bool32 ma_has_avx512f()
 #endif
 }
 
-static MA_INLINE ma_bool32 ma_has_neon()
+static MA_INLINE ma_bool32 ma_has_neon(void)
 {
 #if defined(MA_SUPPORT_NEON)
     #if defined(MA_ARM) && !defined(MA_NO_NEON)
@@ -5875,7 +5875,7 @@ static MA_INLINE ma_bool32 ma_has_neon()
 #endif
 
 
-static MA_INLINE ma_bool32 ma_is_little_endian()
+static MA_INLINE ma_bool32 ma_is_little_endian(void)
 {
 #if defined(MA_X86) || defined(MA_X64)
     return MA_TRUE;
@@ -5885,7 +5885,7 @@ static MA_INLINE ma_bool32 ma_is_little_endian()
 #endif
 }
 
-static MA_INLINE ma_bool32 ma_is_big_endian()
+static MA_INLINE ma_bool32 ma_is_big_endian(void)
 {
     return !ma_is_little_endian();
 }
@@ -7177,22 +7177,22 @@ static MA_INLINE void ma_seed(ma_int32 seed)
     ma_lcg_seed(&g_maLCG, seed);
 }
 
-static MA_INLINE ma_int32 ma_rand_s32()
+static MA_INLINE ma_int32 ma_rand_s32(void)
 {
     return ma_lcg_rand_s32(&g_maLCG);
 }
 
-static MA_INLINE ma_uint32 ma_rand_u32()
+static MA_INLINE ma_uint32 ma_rand_u32(void)
 {
     return ma_lcg_rand_u32(&g_maLCG);
 }
 
-static MA_INLINE double ma_rand_f64()
+static MA_INLINE double ma_rand_f64(void)
 {
     return ma_lcg_rand_f64(&g_maLCG);
 }
 
-static MA_INLINE float ma_rand_f32()
+static MA_INLINE float ma_rand_f32(void)
 {
     return ma_lcg_rand_f32(&g_maLCG);
 }
@@ -7383,7 +7383,7 @@ static void ma__free_from_callbacks(void* p, const ma_allocation_callbacks* pAll
     }
 }
 
-static ma_allocation_callbacks ma_allocation_callbacks_init_default()
+static ma_allocation_callbacks ma_allocation_callbacks_init_default(void)
 {
     ma_allocation_callbacks callbacks;
     callbacks.pUserData = NULL;
@@ -16379,9 +16379,9 @@ typedef ma_snd_pcm_sframes_t (* ma_snd_pcm_avail_proc)                         (
 typedef ma_snd_pcm_sframes_t (* ma_snd_pcm_avail_update_proc)                  (ma_snd_pcm_t *pcm);
 typedef int                  (* ma_snd_pcm_wait_proc)                          (ma_snd_pcm_t *pcm, int timeout);
 typedef int                  (* ma_snd_pcm_info_proc)                          (ma_snd_pcm_t *pcm, ma_snd_pcm_info_t* info);
-typedef size_t               (* ma_snd_pcm_info_sizeof_proc)                   ();
+typedef size_t               (* ma_snd_pcm_info_sizeof_proc)                   (void);
 typedef const char*          (* ma_snd_pcm_info_get_name_proc)                 (const ma_snd_pcm_info_t* info);
-typedef int                  (* ma_snd_config_update_free_global_proc)         ();
+typedef int                  (* ma_snd_config_update_free_global_proc)         (void);
 
 /* This array specifies each of the common devices that can be used for both playback and capture. */
 static const char* g_maCommonDeviceNamesALSA[] = {
@@ -18910,7 +18910,7 @@ typedef void (* ma_pa_free_cb_t)          (void* p);
 #endif
 
 
-typedef ma_pa_mainloop*          (* ma_pa_mainloop_new_proc)                   ();
+typedef ma_pa_mainloop*          (* ma_pa_mainloop_new_proc)                   (void);
 typedef void                     (* ma_pa_mainloop_free_proc)                  (ma_pa_mainloop* m);
 typedef ma_pa_mainloop_api*      (* ma_pa_mainloop_get_api_proc)               (ma_pa_mainloop* m);
 typedef int                      (* ma_pa_mainloop_iterate_proc)               (ma_pa_mainloop* m, int block, int* retval);
@@ -20752,7 +20752,7 @@ typedef void (* ma_JackShutdownCallback)  (void* arg);
 
 typedef ma_jack_client_t* (* ma_jack_client_open_proc)             (const char* client_name, ma_jack_options_t options, ma_jack_status_t* status, ...);
 typedef int               (* ma_jack_client_close_proc)            (ma_jack_client_t* client);
-typedef int               (* ma_jack_client_name_size_proc)        ();
+typedef int               (* ma_jack_client_name_size_proc)        (void);
 typedef int               (* ma_jack_set_process_callback_proc)    (ma_jack_client_t* client, ma_JackProcessCallback process_callback, void* arg);
 typedef int               (* ma_jack_set_buffer_size_callback_proc)(ma_jack_client_t* client, ma_JackBufferSizeCallback bufsize_callback, void* arg);
 typedef void              (* ma_jack_on_shutdown_proc)             (ma_jack_client_t* client, ma_JackShutdownCallback function, void* arg);
