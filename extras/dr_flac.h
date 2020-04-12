@@ -11698,6 +11698,7 @@ DRFLAC_API drflac_bool32 drflac_next_cuesheet_track(drflac_cuesheet_track_iterat
 REVISION HISTORY
 ================
 v0.12.11 - TBD
+  - Fix some pedantic warnings.
   - Fix some undefined behaviour warnings.
 
 v0.12.10 - 2020-04-10
