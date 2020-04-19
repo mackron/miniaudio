@@ -1,6 +1,6 @@
 /*
 FLAC audio decoder. Choice of public domain or MIT-0. See license statements at the end of this file.
-dr_flac - v0.12.11 - TBD
+dr_flac - v0.12.11 - 2020-04-19
 
 David Reid - mackron@gmail.com
 
@@ -151,10 +151,7 @@ samples as it can, up to the amount requested. Later on when you need the next b
     }
     ```
 
-You can seek to a specific sample with drflac_seek_to_sample(). The given sample is based on interleaving. So for example, if you were to seek to the sample at
-index 0 in a stereo stream, you'll be seeking to the first sample of the left channel. The sample at index 1 will be the first sample of the right channel. The
-sample at index 2 will be the second sample of the left channel, etc.
-
+You can seek to a specific PCM frame with `drflac_seek_to_pcm_frame()`.
 
 If you just want to quickly decode an entire FLAC file in one go you can do something like this:
 
@@ -4124,6 +4121,12 @@ static DRFLAC_INLINE void drflac__vst2q_s32(drflac_int32* p, int32x4x2_t x)
     vst1q_s32(p+4, x.val[1]);
 }
 
+static DRFLAC_INLINE void drflac__vst2q_u32(drflac_uint32* p, uint32x4x2_t x)
+{
+    vst1q_u32(p+0, x.val[0]);
+    vst1q_u32(p+4, x.val[1]);
+}
+
 static DRFLAC_INLINE void drflac__vst2q_f32(float* p, float32x4x2_t x)
 {
     vst1q_f32(p+0, x.val[0]);
@@ -4133,6 +4136,11 @@ static DRFLAC_INLINE void drflac__vst2q_f32(float* p, float32x4x2_t x)
 static DRFLAC_INLINE void drflac__vst2q_s16(drflac_int16* p, int16x4x2_t x)
 {
     vst1q_s16(p, vcombine_s16(x.val[0], x.val[1]));
+}
+
+static DRFLAC_INLINE void drflac__vst2q_u16(drflac_uint16* p, uint16x4x2_t x)
+{
+    vst1q_u16(p, vcombine_u16(x.val[0], x.val[1]));
 }
 
 static DRFLAC_INLINE int32x4_t drflac__vdupq_n_s32x4(drflac_int32 x3, drflac_int32 x2, drflac_int32 x1, drflac_int32 x0)
@@ -8716,15 +8724,15 @@ static DRFLAC_INLINE void drflac_read_pcm_frames_s32__decode_left_side__neon(drf
     shift1_4 = vdupq_n_s32(shift1);
 
     for (i = 0; i < frameCount4; ++i) {
-        int32x4_t left;
-        int32x4_t side;
-        int32x4_t right;
+        uint32x4_t left;
+        uint32x4_t side;
+        uint32x4_t right;
 
-        left  = vshlq_s32(vld1q_s32(pInputSamples0 + i*4), shift0_4);
-        side  = vshlq_s32(vld1q_s32(pInputSamples1 + i*4), shift1_4);
-        right = vsubq_s32(left, side);
+        left  = vshlq_u32(vld1q_u32(pInputSamples0U32 + i*4), shift0_4);
+        side  = vshlq_u32(vld1q_u32(pInputSamples1U32 + i*4), shift1_4);
+        right = vsubq_u32(left, side);
 
-        drflac__vst2q_s32(pOutputSamples + i*8, vzipq_s32(left, right));
+        drflac__vst2q_u32((drflac_uint32*)pOutputSamples + i*8, vzipq_u32(left, right));
     }
 
     for (i = (frameCount4 << 2); i < frameCount; ++i) {
@@ -8870,15 +8878,15 @@ static DRFLAC_INLINE void drflac_read_pcm_frames_s32__decode_right_side__neon(dr
     shift1_4 = vdupq_n_s32(shift1);
 
     for (i = 0; i < frameCount4; ++i) {
-        int32x4_t side;
-        int32x4_t right;
-        int32x4_t left;
+        uint32x4_t side;
+        uint32x4_t right;
+        uint32x4_t left;
 
-        side  = vshlq_s32(vld1q_s32(pInputSamples0 + i*4), shift0_4);
-        right = vshlq_s32(vld1q_s32(pInputSamples1 + i*4), shift1_4);
-        left  = vaddq_s32(right, side);
+        side  = vshlq_u32(vld1q_u32(pInputSamples0U32 + i*4), shift0_4);
+        right = vshlq_u32(vld1q_u32(pInputSamples1U32 + i*4), shift1_4);
+        left  = vaddq_u32(right, side);
 
-        drflac__vst2q_s32(pOutputSamples + i*8, vzipq_s32(left, right));
+        drflac__vst2q_u32((drflac_uint32*)pOutputSamples + i*8, vzipq_u32(left, right));
     }
 
     for (i = (frameCount4 << 2); i < frameCount; ++i) {
@@ -9121,30 +9129,30 @@ static DRFLAC_INLINE void drflac_read_pcm_frames_s32__decode_mid_side__neon(drfl
     const drflac_uint32* pInputSamples0U32 = (const drflac_uint32*)pInputSamples0;
     const drflac_uint32* pInputSamples1U32 = (const drflac_uint32*)pInputSamples1;
     drflac_int32 shift = unusedBitsPerSample;
-    int32x4_t wbpsShift0_4; /* wbps = Wasted Bits Per Sample */
-    int32x4_t wbpsShift1_4; /* wbps = Wasted Bits Per Sample */
-    int32x4_t one4;
+    int32x4_t  wbpsShift0_4; /* wbps = Wasted Bits Per Sample */
+    int32x4_t  wbpsShift1_4; /* wbps = Wasted Bits Per Sample */
+    uint32x4_t one4;
 
     DRFLAC_ASSERT(pFlac->bitsPerSample <= 24);
 
     wbpsShift0_4 = vdupq_n_s32(pFlac->currentFLACFrame.subframes[0].wastedBitsPerSample);
     wbpsShift1_4 = vdupq_n_s32(pFlac->currentFLACFrame.subframes[1].wastedBitsPerSample);
-    one4         = vdupq_n_s32(1);
+    one4         = vdupq_n_u32(1);
 
     if (shift == 0) {
         for (i = 0; i < frameCount4; ++i) {
-            int32x4_t mid;
-            int32x4_t side;
+            uint32x4_t mid;
+            uint32x4_t side;
             int32x4_t left;
             int32x4_t right;
 
-            mid   = vshlq_s32(vld1q_s32(pInputSamples0 + i*4), wbpsShift0_4);
-            side  = vshlq_s32(vld1q_s32(pInputSamples1 + i*4), wbpsShift1_4);
+            mid   = vshlq_u32(vld1q_u32(pInputSamples0U32 + i*4), wbpsShift0_4);
+            side  = vshlq_u32(vld1q_u32(pInputSamples1U32 + i*4), wbpsShift1_4);
 
-            mid   = vorrq_s32(vshlq_n_s32(mid, 1), vandq_s32(side, one4));
+            mid   = vorrq_u32(vshlq_n_u32(mid, 1), vandq_u32(side, one4));
 
-            left  = vshrq_n_s32(vaddq_s32(mid, side), 1);
-            right = vshrq_n_s32(vsubq_s32(mid, side), 1);
+            left  = vshrq_n_s32(vreinterpretq_s32_u32(vaddq_u32(mid, side)), 1);
+            right = vshrq_n_s32(vreinterpretq_s32_u32(vsubq_u32(mid, side)), 1);
 
             drflac__vst2q_s32(pOutputSamples + i*8, vzipq_s32(left, right));
         }
@@ -9165,18 +9173,18 @@ static DRFLAC_INLINE void drflac_read_pcm_frames_s32__decode_mid_side__neon(drfl
         shift4 = vdupq_n_s32(shift);
 
         for (i = 0; i < frameCount4; ++i) {
-            int32x4_t mid;
-            int32x4_t side;
+            uint32x4_t mid;
+            uint32x4_t side;
             int32x4_t left;
             int32x4_t right;
 
-            mid   = vshlq_s32(vld1q_s32(pInputSamples0 + i*4), wbpsShift0_4);
-            side  = vshlq_s32(vld1q_s32(pInputSamples1 + i*4), wbpsShift1_4);
+            mid   = vshlq_u32(vld1q_u32(pInputSamples0U32 + i*4), wbpsShift0_4);
+            side  = vshlq_u32(vld1q_u32(pInputSamples1U32 + i*4), wbpsShift1_4);
 
-            mid   = vorrq_s32(vshlq_n_s32(mid, 1), vandq_s32(side, one4));
+            mid   = vorrq_u32(vshlq_n_u32(mid, 1), vandq_u32(side, one4));
 
-            left  = vshlq_s32(vaddq_s32(mid, side), shift4);
-            right = vshlq_s32(vsubq_s32(mid, side), shift4);
+            left  = vreinterpretq_s32_u32(vshlq_u32(vaddq_u32(mid, side), shift4));
+            right = vreinterpretq_s32_u32(vshlq_u32(vsubq_u32(mid, side), shift4));
 
             drflac__vst2q_s32(pOutputSamples + i*8, vzipq_s32(left, right));
         }
@@ -9304,8 +9312,8 @@ static DRFLAC_INLINE void drflac_read_pcm_frames_s32__decode_independent_stereo_
         int32x4_t left;
         int32x4_t right;
 
-        left  = vshlq_s32(vld1q_s32(pInputSamples0 + i*4), shift4_0);
-        right = vshlq_s32(vld1q_s32(pInputSamples1 + i*4), shift4_1);
+        left  = vreinterpretq_s32_u32(vshlq_u32(vld1q_u32(pInputSamples0U32 + i*4), shift4_0));
+        right = vreinterpretq_s32_u32(vshlq_u32(vld1q_u32(pInputSamples1U32 + i*4), shift4_1));
 
         drflac__vst2q_s32(pOutputSamples + i*8, vzipq_s32(left, right));
     }
@@ -9552,18 +9560,18 @@ static DRFLAC_INLINE void drflac_read_pcm_frames_s16__decode_left_side__neon(drf
     shift1_4 = vdupq_n_s32(shift1);
 
     for (i = 0; i < frameCount4; ++i) {
-        int32x4_t left;
-        int32x4_t side;
-        int32x4_t right;
+        uint32x4_t left;
+        uint32x4_t side;
+        uint32x4_t right;
 
-        left  = vshlq_s32(vld1q_s32(pInputSamples0 + i*4), shift0_4);
-        side  = vshlq_s32(vld1q_s32(pInputSamples1 + i*4), shift1_4);
-        right = vsubq_s32(left, side);
+        left  = vshlq_u32(vld1q_u32(pInputSamples0U32 + i*4), shift0_4);
+        side  = vshlq_u32(vld1q_u32(pInputSamples1U32 + i*4), shift1_4);
+        right = vsubq_u32(left, side);
 
-        left  = vshrq_n_s32(left,  16);
-        right = vshrq_n_s32(right, 16);
+        left  = vshrq_n_u32(left,  16);
+        right = vshrq_n_u32(right, 16);
 
-        drflac__vst2q_s16(pOutputSamples + i*8, vzip_s16(vmovn_s32(left), vmovn_s32(right)));
+        drflac__vst2q_u16((drflac_uint16*)pOutputSamples + i*8, vzip_u16(vmovn_u32(left), vmovn_u32(right)));
     }
 
     for (i = (frameCount4 << 2); i < frameCount; ++i) {
@@ -9733,18 +9741,18 @@ static DRFLAC_INLINE void drflac_read_pcm_frames_s16__decode_right_side__neon(dr
     shift1_4 = vdupq_n_s32(shift1);
 
     for (i = 0; i < frameCount4; ++i) {
-        int32x4_t side;
-        int32x4_t right;
-        int32x4_t left;
+        uint32x4_t side;
+        uint32x4_t right;
+        uint32x4_t left;
 
-        side  = vshlq_s32(vld1q_s32(pInputSamples0 + i*4), shift0_4);
-        right = vshlq_s32(vld1q_s32(pInputSamples1 + i*4), shift1_4);
-        left  = vaddq_s32(right, side);
+        side  = vshlq_u32(vld1q_u32(pInputSamples0U32 + i*4), shift0_4);
+        right = vshlq_u32(vld1q_u32(pInputSamples1U32 + i*4), shift1_4);
+        left  = vaddq_u32(right, side);
 
-        left  = vshrq_n_s32(left,  16);
-        right = vshrq_n_s32(right, 16);
+        left  = vshrq_n_u32(left,  16);
+        right = vshrq_n_u32(right, 16);
 
-        drflac__vst2q_s16(pOutputSamples + i*8, vzip_s16(vmovn_s32(left), vmovn_s32(right)));
+        drflac__vst2q_u16((drflac_uint16*)pOutputSamples + i*8, vzip_u16(vmovn_u32(left), vmovn_u32(right)));
     }
 
     for (i = (frameCount4 << 2); i < frameCount; ++i) {
@@ -10024,18 +10032,18 @@ static DRFLAC_INLINE void drflac_read_pcm_frames_s16__decode_mid_side__neon(drfl
 
     if (shift == 0) {
         for (i = 0; i < frameCount4; ++i) {
-            int32x4_t mid;
-            int32x4_t side;
+            uint32x4_t mid;
+            uint32x4_t side;
             int32x4_t left;
             int32x4_t right;
 
-            mid   = vshlq_s32(vld1q_s32(pInputSamples0 + i*4), wbpsShift0_4);
-            side  = vshlq_s32(vld1q_s32(pInputSamples1 + i*4), wbpsShift1_4);
+            mid   = vshlq_u32(vld1q_u32(pInputSamples0U32 + i*4), wbpsShift0_4);
+            side  = vshlq_u32(vld1q_u32(pInputSamples1U32 + i*4), wbpsShift1_4);
 
-            mid   = vorrq_s32(vshlq_n_s32(mid, 1), vandq_s32(side, vdupq_n_s32(1)));
+            mid   = vorrq_u32(vshlq_n_u32(mid, 1), vandq_u32(side, vdupq_n_u32(1)));
 
-            left  = vshrq_n_s32(vaddq_s32(mid, side), 1);
-            right = vshrq_n_s32(vsubq_s32(mid, side), 1);
+            left  = vshrq_n_s32(vreinterpretq_s32_u32(vaddq_u32(mid, side)), 1);
+            right = vshrq_n_s32(vreinterpretq_s32_u32(vsubq_u32(mid, side)), 1);
 
             left  = vshrq_n_s32(left,  16);
             right = vshrq_n_s32(right, 16);
@@ -10059,18 +10067,18 @@ static DRFLAC_INLINE void drflac_read_pcm_frames_s16__decode_mid_side__neon(drfl
         shift4 = vdupq_n_s32(shift);
 
         for (i = 0; i < frameCount4; ++i) {
-            int32x4_t mid;
-            int32x4_t side;
+            uint32x4_t mid;
+            uint32x4_t side;
             int32x4_t left;
             int32x4_t right;
 
-            mid   = vshlq_s32(vld1q_s32(pInputSamples0 + i*4), wbpsShift0_4);
-            side  = vshlq_s32(vld1q_s32(pInputSamples1 + i*4), wbpsShift1_4);
+            mid   = vshlq_u32(vld1q_u32(pInputSamples0U32 + i*4), wbpsShift0_4);
+            side  = vshlq_u32(vld1q_u32(pInputSamples1U32 + i*4), wbpsShift1_4);
 
-            mid   = vorrq_s32(vshlq_n_s32(mid, 1), vandq_s32(side, vdupq_n_s32(1)));
+            mid   = vorrq_u32(vshlq_n_u32(mid, 1), vandq_u32(side, vdupq_n_u32(1)));
 
-            left  = vshlq_s32(vaddq_s32(mid, side), shift4);
-            right = vshlq_s32(vsubq_s32(mid, side), shift4);
+            left  = vreinterpretq_s32_u32(vshlq_u32(vaddq_u32(mid, side), shift4));
+            right = vreinterpretq_s32_u32(vshlq_u32(vsubq_u32(mid, side), shift4));
 
             left  = vshrq_n_s32(left,  16);
             right = vshrq_n_s32(right, 16);
@@ -10214,8 +10222,8 @@ static DRFLAC_INLINE void drflac_read_pcm_frames_s16__decode_independent_stereo_
         int32x4_t left;
         int32x4_t right;
 
-        left  = vshlq_s32(vld1q_s32(pInputSamples0 + i*4), shift0_4);
-        right = vshlq_s32(vld1q_s32(pInputSamples1 + i*4), shift1_4);
+        left  = vreinterpretq_s32_u32(vshlq_u32(vld1q_u32(pInputSamples0U32 + i*4), shift0_4));
+        right = vreinterpretq_s32_u32(vshlq_u32(vld1q_u32(pInputSamples1U32 + i*4), shift1_4));
 
         left  = vshrq_n_s32(left,  16);
         right = vshrq_n_s32(right, 16);
@@ -10453,17 +10461,17 @@ static DRFLAC_INLINE void drflac_read_pcm_frames_f32__decode_left_side__neon(drf
     shift1_4 = vdupq_n_s32(shift1);
 
     for (i = 0; i < frameCount4; ++i) {
-        int32x4_t left;
-        int32x4_t side;
-        int32x4_t right;
+        uint32x4_t left;
+        uint32x4_t side;
+        uint32x4_t right;
         float32x4_t leftf;
         float32x4_t rightf;
 
-        left   = vshlq_s32(vld1q_s32(pInputSamples0 + i*4), shift0_4);
-        side   = vshlq_s32(vld1q_s32(pInputSamples1 + i*4), shift1_4);
-        right  = vsubq_s32(left, side);
-        leftf  = vmulq_f32(vcvtq_f32_s32(left),  factor4);
-        rightf = vmulq_f32(vcvtq_f32_s32(right), factor4);
+        left   = vshlq_u32(vld1q_u32(pInputSamples0U32 + i*4), shift0_4);
+        side   = vshlq_u32(vld1q_u32(pInputSamples1U32 + i*4), shift1_4);
+        right  = vsubq_u32(left, side);
+        leftf  = vmulq_f32(vcvtq_f32_s32(vreinterpretq_s32_u32(left)),  factor4);
+        rightf = vmulq_f32(vcvtq_f32_s32(vreinterpretq_s32_u32(right)), factor4);
 
         drflac__vst2q_f32(pOutputSamples + i*8, vzipq_f32(leftf, rightf));
     }
@@ -10619,17 +10627,17 @@ static DRFLAC_INLINE void drflac_read_pcm_frames_f32__decode_right_side__neon(dr
     shift1_4 = vdupq_n_s32(shift1);
 
     for (i = 0; i < frameCount4; ++i) {
-        int32x4_t side;
-        int32x4_t right;
-        int32x4_t left;
+        uint32x4_t side;
+        uint32x4_t right;
+        uint32x4_t left;
         float32x4_t leftf;
         float32x4_t rightf;
 
-        side   = vshlq_s32(vld1q_s32(pInputSamples0 + i*4), shift0_4);
-        right  = vshlq_s32(vld1q_s32(pInputSamples1 + i*4), shift1_4);
-        left   = vaddq_s32(right, side);
-        leftf  = vmulq_f32(vcvtq_f32_s32(left),  factor4);
-        rightf = vmulq_f32(vcvtq_f32_s32(right), factor4);
+        side   = vshlq_u32(vld1q_u32(pInputSamples0U32 + i*4), shift0_4);
+        right  = vshlq_u32(vld1q_u32(pInputSamples1U32 + i*4), shift1_4);
+        left   = vaddq_u32(right, side);
+        leftf  = vmulq_f32(vcvtq_f32_s32(vreinterpretq_s32_u32(left)),  factor4);
+        rightf = vmulq_f32(vcvtq_f32_s32(vreinterpretq_s32_u32(right)), factor4);
 
         drflac__vst2q_f32(pOutputSamples + i*8, vzipq_f32(leftf, rightf));
     }
@@ -10910,13 +10918,13 @@ static DRFLAC_INLINE void drflac_read_pcm_frames_f32__decode_mid_side__neon(drfl
             float32x4_t leftf;
             float32x4_t rightf;
 
-            int32x4_t mid  = vshlq_s32(vld1q_s32(pInputSamples0 + i*4), wbps0_4);
-            int32x4_t side = vshlq_s32(vld1q_s32(pInputSamples1 + i*4), wbps1_4);
+            uint32x4_t mid  = vshlq_u32(vld1q_u32(pInputSamples0U32 + i*4), wbps0_4);
+            uint32x4_t side = vshlq_u32(vld1q_u32(pInputSamples1U32 + i*4), wbps1_4);
 
-            mid    = vorrq_s32(vshlq_n_s32(mid, 1), vandq_s32(side, vdupq_n_s32(1)));
+            mid    = vorrq_u32(vshlq_n_u32(mid, 1), vandq_u32(side, vdupq_n_u32(1)));
 
-            lefti  = vshrq_n_s32(vaddq_s32(mid, side), 1);
-            righti = vshrq_n_s32(vsubq_s32(mid, side), 1);
+            lefti  = vshrq_n_s32(vreinterpretq_s32_u32(vaddq_u32(mid, side)), 1);
+            righti = vshrq_n_s32(vreinterpretq_s32_u32(vsubq_u32(mid, side)), 1);
 
             leftf  = vmulq_f32(vcvtq_f32_s32(lefti),  factor4);
             rightf = vmulq_f32(vcvtq_f32_s32(righti), factor4);
@@ -10937,20 +10945,20 @@ static DRFLAC_INLINE void drflac_read_pcm_frames_f32__decode_mid_side__neon(drfl
         shift -= 1;
         shift4 = vdupq_n_s32(shift);
         for (i = 0; i < frameCount4; ++i) {
-            int32x4_t mid;
-            int32x4_t side;
+            uint32x4_t mid;
+            uint32x4_t side;
             int32x4_t lefti;
             int32x4_t righti;
             float32x4_t leftf;
             float32x4_t rightf;
 
-            mid  = vshlq_s32(vld1q_s32(pInputSamples0 + i*4), wbps0_4);
-            side = vshlq_s32(vld1q_s32(pInputSamples1 + i*4), wbps1_4);
+            mid    = vshlq_u32(vld1q_u32(pInputSamples0U32 + i*4), wbps0_4);
+            side   = vshlq_u32(vld1q_u32(pInputSamples1U32 + i*4), wbps1_4);
 
-            mid    = vorrq_s32(vshlq_n_s32(mid, 1), vandq_s32(side, vdupq_n_s32(1)));
+            mid    = vorrq_u32(vshlq_n_u32(mid, 1), vandq_u32(side, vdupq_n_u32(1)));
 
-            lefti  = vshlq_s32(vaddq_s32(mid, side), shift4);
-            righti = vshlq_s32(vsubq_s32(mid, side), shift4);
+            lefti  = vreinterpretq_s32_u32(vshlq_u32(vaddq_u32(mid, side), shift4));
+            righti = vreinterpretq_s32_u32(vshlq_u32(vsubq_u32(mid, side), shift4));
 
             leftf  = vmulq_f32(vcvtq_f32_s32(lefti),  factor4);
             rightf = vmulq_f32(vcvtq_f32_s32(righti), factor4);
@@ -11096,8 +11104,8 @@ static DRFLAC_INLINE void drflac_read_pcm_frames_f32__decode_independent_stereo_
         float32x4_t leftf;
         float32x4_t rightf;
 
-        lefti  = vshlq_s32(vld1q_s32(pInputSamples0 + i*4), shift0_4);
-        righti = vshlq_s32(vld1q_s32(pInputSamples1 + i*4), shift1_4);
+        lefti  = vreinterpretq_s32_u32(vshlq_u32(vld1q_u32(pInputSamples0U32 + i*4), shift0_4));
+        righti = vreinterpretq_s32_u32(vshlq_u32(vld1q_u32(pInputSamples1U32 + i*4), shift1_4));
 
         leftf  = vmulq_f32(vcvtq_f32_s32(lefti),  factor4);
         rightf = vmulq_f32(vcvtq_f32_s32(righti), factor4);
@@ -11697,7 +11705,7 @@ DRFLAC_API drflac_bool32 drflac_next_cuesheet_track(drflac_cuesheet_track_iterat
 /*
 REVISION HISTORY
 ================
-v0.12.11 - TBD
+v0.12.11 - 2020-04-19
   - Fix some pedantic warnings.
   - Fix some undefined behaviour warnings.
 

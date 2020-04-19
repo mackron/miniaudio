@@ -1,6 +1,6 @@
 /*
 MP3 audio decoder. Choice of public domain or MIT-0. See license statements at the end of this file.
-dr_mp3 - v0.6.3 - 2020-04-13
+dr_mp3 - v0.6.4 - 2020-04-19
 
 David Reid - mackron@gmail.com
 
@@ -668,6 +668,17 @@ static int drmp3_have_simd(void)
 #define DRMP3_HAVE_SIMD 0
 
 #endif
+
+#if defined(__ARM_ARCH) && (__ARM_ARCH >= 6) && !defined(__aarch64__)
+#define DRMP3_HAVE_ARMV6 1
+static __inline__ __attribute__((always_inline)) drmp32_int32 drmp3_clip_int16_arm(int32_t a)
+{
+    drmp3_int32 x = 0;
+    __asm__ ("ssat %0, #16, %1" : "=r"(x) : "r"(a));
+    return x;
+}
+#endif
+
 
 typedef struct
 {
@@ -1888,11 +1899,17 @@ typedef drmp3_int16 drmp3d_sample_t;
 static drmp3_int16 drmp3d_scale_pcm(float sample)
 {
     drmp3_int16 s;
+#if DRMP3_HAVE_ARMV6
+    drmp3_int32 s32 = (drmp3_int32)(sample + .5f);
+    s32 -= (s32 < 0);
+    s = (drmp3_int16)drmp3_clip_int16_arm(s32);
+#else
     if (sample >=  32766.5) return (drmp3_int16) 32767;
     if (sample <= -32767.5) return (drmp3_int16)-32768;
     s = (drmp3_int16)(sample + .5f);
     s -= (s < 0);   /* away from zero, to be compliant */
-    return (drmp3_int16)s;
+#endif
+    return s;
 }
 #else
 typedef float drmp3d_sample_t;
@@ -4343,6 +4360,9 @@ counts rather than sample counts.
 /*
 REVISION HISTORY
 ================
+v0.6.4 - 2020-04-19
+  - Bring up to date with changes to minimp3.
+
 v0.6.3 - 2020-04-13
   - Fix some pedantic warnings.
 
