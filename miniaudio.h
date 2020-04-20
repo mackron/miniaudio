@@ -469,7 +469,10 @@ Build Options
   Disables the null backend.
 
 #define MA_NO_DECODING
-  Disables the decoding APIs.
+  Disables decoding APIs.
+
+#define MA_NO_ENCODING
+  Disables encoding APIs.
 
 #define MA_NO_DEVICE_IO
   Disables playback and recording. This will disable ma_context and ma_device APIs. This is useful if you only want to use miniaudio's data conversion and/or
