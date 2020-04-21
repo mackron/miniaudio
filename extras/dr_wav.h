@@ -1,6 +1,6 @@
 /*
 WAV audio loader and writer. Choice of public domain or MIT-0. See license statements at the end of this file.
-dr_wav - v0.12.1 - 2020-04-13
+dr_wav - v0.12.2 - 2020-04-21
 
 David Reid - mackron@gmail.com
 
@@ -40,7 +40,7 @@ You can then #include this file in other parts of the program as you would with 
 
     ```c
     drwav wav;
-    if (!drwav_init_file(&wav, "my_song.wav")) {
+    if (!drwav_init_file(&wav, "my_song.wav", NULL)) {
         // Error opening WAV file.
     }
 
@@ -58,7 +58,7 @@ If you just want to quickly open and read the audio data in a single operation y
     unsigned int channels;
     unsigned int sampleRate;
     drwav_uint64 totalPCMFrameCount;
-    float* pSampleData = drwav_open_file_and_read_pcm_frames_f32("my_song.wav", &channels, &sampleRate, &totalPCMFrameCount);
+    float* pSampleData = drwav_open_file_and_read_pcm_frames_f32("my_song.wav", &channels, &sampleRate, &totalPCMFrameCount, NULL);
     if (pSampleData == NULL) {
         // Error opening and reading WAV file.
     }
@@ -2935,12 +2935,21 @@ DRWAV_API drwav_bool32 drwav_init_file(drwav* pWav, const char* filename, const 
 
 static drwav_bool32 drwav_init_file__internal_FILE(drwav* pWav, FILE* pFile, drwav_chunk_proc onChunk, void* pChunkUserData, drwav_uint32 flags, const drwav_allocation_callbacks* pAllocationCallbacks)
 {
-    if (!drwav_preinit(pWav, drwav__on_read_stdio, drwav__on_seek_stdio, (void*)pFile, pAllocationCallbacks)) {
+    drwav_bool32 result;
+
+    result = drwav_preinit(pWav, drwav__on_read_stdio, drwav__on_seek_stdio, (void*)pFile, pAllocationCallbacks);
+    if (result != DRWAV_TRUE) {
         fclose(pFile);
-        return DRWAV_FALSE;
+        return result;
     }
 
-    return drwav_init__internal(pWav, onChunk, pChunkUserData, flags);
+    result = drwav_init__internal(pWav, onChunk, pChunkUserData, flags);
+    if (result != DRWAV_TRUE) {
+        fclose(pFile);
+        return result;
+    }
+
+    return DRWAV_TRUE;
 }
 
 DRWAV_API drwav_bool32 drwav_init_file_ex(drwav* pWav, const char* filename, drwav_chunk_proc onChunk, void* pChunkUserData, drwav_uint32 flags, const drwav_allocation_callbacks* pAllocationCallbacks)
@@ -2973,12 +2982,21 @@ DRWAV_API drwav_bool32 drwav_init_file_ex_w(drwav* pWav, const wchar_t* filename
 
 static drwav_bool32 drwav_init_file_write__internal_FILE(drwav* pWav, FILE* pFile, const drwav_data_format* pFormat, drwav_uint64 totalSampleCount, drwav_bool32 isSequential, const drwav_allocation_callbacks* pAllocationCallbacks)
 {
-    if (!drwav_preinit_write(pWav, pFormat, isSequential, drwav__on_write_stdio, drwav__on_seek_stdio, (void*)pFile, pAllocationCallbacks)) {
+    drwav_bool32 result;
+
+    result = drwav_preinit_write(pWav, pFormat, isSequential, drwav__on_write_stdio, drwav__on_seek_stdio, (void*)pFile, pAllocationCallbacks);
+    if (result != DRWAV_TRUE) {
         fclose(pFile);
-        return DRWAV_FALSE;
+        return result;
     }
 
-    return drwav_init_write__internal(pWav, pFormat, totalSampleCount);
+    result = drwav_init_write__internal(pWav, pFormat, totalSampleCount);
+    if (result != DRWAV_TRUE) {
+        fclose(pFile);
+        return result;
+    }
+
+    return DRWAV_TRUE;
 }
 
 static drwav_bool32 drwav_init_file_write__internal(drwav* pWav, const char* filename, const drwav_data_format* pFormat, drwav_uint64 totalSampleCount, drwav_bool32 isSequential, const drwav_allocation_callbacks* pAllocationCallbacks)
@@ -5734,6 +5752,9 @@ two different ways to initialize a drwav object.
 /*
 REVISION HISTORY
 ================
+v0.12.2 - 2020-04-21
+  - Fix a bug where drwav_init_file() does not close the file handle after attempting to load an erroneous file.
+
 v0.12.1 - 2020-04-13
   - Fix some pedantic warnings.
 
