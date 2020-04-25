@@ -1871,6 +1871,11 @@ typedef struct
     void  (* onFree)(void* p, void* pUserData);
 } ma_allocation_callbacks;
 
+typedef struct
+{
+    ma_int32 state;
+} ma_lcg;
+
 
 /**************************************************************************************************************************************************************
 
@@ -5440,11 +5445,6 @@ MA_API ma_result ma_waveform_set_frequency(ma_waveform* pWaveform, double freque
 MA_API ma_result ma_waveform_set_sample_rate(ma_waveform* pWaveform, ma_uint32 sampleRate);
 
 
-
-typedef struct
-{
-    ma_int32 state;
-} ma_lcg;
 
 typedef enum
 {
