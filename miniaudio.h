@@ -1,6 +1,6 @@
 /*
 Audio playback and capture library. Choice of public domain or MIT-0. See license statements at the end of this file.
-miniaudio - v0.10.4 - 2020-04-12
+miniaudio - v0.10.5 - TBD
 
 David Reid - davidreidsoftware@gmail.com
 
@@ -42421,6 +42421,9 @@ The following miscellaneous changes have also been made.
 /*
 REVISION HISTORY
 ================
+v0.10.5 - TBD
+  - Add MA_NO_GENERATION build option to exclude the `ma_waveform` and `ma_noise` APIs from the build.
+
 v0.10.4 - 2020-04-12
   - Fix a data conversion bug when converting from the client format to the native device format.
 
