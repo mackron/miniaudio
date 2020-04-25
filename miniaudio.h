@@ -611,10 +611,14 @@ configure the output format, channel count, sample rate and channel map:
 
 When passing in NULL for decoder config in `ma_decoder_init*()`, the output format will be the same as that defined by the decoding backend.
 
-Data is read from the decoder as PCM frames:
+Data is read from the decoder as PCM frames. This will return the number of PCM frames actually read. If the return value is less than the requested number of
+PCM frames it means you've reached the end:
 
     ```c
     ma_uint64 framesRead = ma_decoder_read_pcm_frames(pDecoder, pFrames, framesToRead);
+    if (framesRead < framesToRead) {
+        // Reached the end.
+    }
     ```
 
 You can also seek to a specific frame like so:
@@ -624,6 +628,12 @@ You can also seek to a specific frame like so:
     if (result != MA_SUCCESS) {
         return false;   // An error occurred.
     }
+    ```
+
+If you want to loop back to the start, you can simply seek back to the first PCM frame:
+
+    ```c
+    ma_decoder_seek_to_pcm_frame(pDecoder, 0);
     ```
 
 When loading a decoder, miniaudio uses a trial and error technique to find the appropriate decoding backend. This can be unnecessarily inefficient if the type
@@ -42423,6 +42433,7 @@ REVISION HISTORY
 ================
 v0.10.5 - TBD
   - Add MA_NO_GENERATION build option to exclude the `ma_waveform` and `ma_noise` APIs from the build.
+  - Minor documentation updates.
 
 v0.10.4 - 2020-04-12
   - Fix a data conversion bug when converting from the client format to the native device format.
