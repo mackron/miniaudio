@@ -478,6 +478,9 @@ Build Options
   Disables playback and recording. This will disable ma_context and ma_device APIs. This is useful if you only want to use miniaudio's data conversion and/or
   decoding APIs.
 
+#define MA_NO_GENERATION
+  Disables generation APIs such a ma_waveform and ma_noise.
+
 #define MA_NO_SSE2
   Disables SSE2 optimizations.
 
@@ -5411,6 +5414,7 @@ MA_API ma_uint64 ma_encoder_write_pcm_frames(ma_encoder* pEncoder, const void* p
 Generation
 
 ************************************************************************************************************************************************************/
+#ifndef MA_NO_GENERATION
 typedef enum
 {
     ma_waveform_type_sine,
@@ -5487,6 +5491,7 @@ typedef struct
 MA_API ma_result ma_noise_init(const ma_noise_config* pConfig, ma_noise* pNoise);
 MA_API ma_uint64 ma_noise_read_pcm_frames(ma_noise* pNoise, void* pFramesOut, ma_uint64 frameCount);
 
+#endif  /* MA_NO_GENERATION */
 
 #ifdef __cplusplus
 }
@@ -41600,6 +41605,7 @@ MA_API ma_uint64 ma_encoder_write_pcm_frames(ma_encoder* pEncoder, const void* p
 Generation
 
 **************************************************************************************************************************************************************/
+#ifndef MA_NO_GENERATION
 MA_API ma_waveform_config ma_waveform_config_init(ma_format format, ma_uint32 channels, ma_uint32 sampleRate, ma_waveform_type type, double amplitude, double frequency)
 {
     ma_waveform_config config;
@@ -42269,6 +42275,8 @@ MA_API ma_uint64 ma_noise_read_pcm_frames(ma_noise* pNoise, void* pFramesOut, ma
     MA_ASSERT(MA_FALSE);
     return 0;
 }
+#endif /* MA_NO_GENERATION */
+
 
 /* End globally disabled warnings. */
 #if defined(_MSC_VER)
