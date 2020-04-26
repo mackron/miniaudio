@@ -1280,7 +1280,7 @@ Below are the supported waveform types:
 
 Noise
 -----
-miniaudio supports generation of white, pink and brownian noise via the `ma_noise` API. Example:
+miniaudio supports generation of white, pink and Brownian noise via the `ma_noise` API. Example:
 
     ```c
     ma_noise_config config = ma_noise_config_init(FORMAT, CHANNELS, ma_noise_type_white, SEED, amplitude);
@@ -1359,10 +1359,10 @@ If you want to correct for drift between the write pointer and the read pointer 
 the consumer thread, and the write pointer forward by the producer thread. If there is too much space between the pointers, move the read pointer forward. If
 there is too little space between the pointers, move the write pointer forward.
 
-You can use a ring buffer at the byte level instead of the PCM frame level by using the `ma_rb` API. This is exactly the sample, only you will use the `ma_rb`
+You can use a ring buffer at the byte level instead of the PCM frame level by using the `ma_rb` API. This is exactly the same, only you will use the `ma_rb`
 functions instead of `ma_pcm_rb` and instead of frame counts you'll pass around byte counts.
 
-The maximum size of the buffer in bytes is 0x7FFFFFFF-(MA_SIMD_ALIGNMENT-1) due to the most significant bit being used to encode a flag and the internally
+The maximum size of the buffer in bytes is 0x7FFFFFFF-(MA_SIMD_ALIGNMENT-1) due to the most significant bit being used to encode a loop flag and the internally
 managed buffers always being aligned to MA_SIMD_ALIGNMENT.
 
 Note that the ring buffer is only thread safe when used by a single consumer thread and single producer thread.
@@ -1398,8 +1398,8 @@ WASAPI
 ------
 - Low-latency shared mode will be disabled when using an application-defined sample rate which is different to the device's native sample rate. To work around
   this, set wasapi.noAutoConvertSRC to true in the device config. This is due to IAudioClient3_InitializeSharedAudioStream() failing when the
-  AUDCLNT_STREAMFLAGS_AUTOCONVERTPCM flag is specified. Setting wasapi.noAutoConvertSRC will result in miniaudio's lower quality internal resampler being used
-  instead which will in turn enable the use of low-latency shared mode.
+  AUDCLNT_STREAMFLAGS_AUTOCONVERTPCM flag is specified. Setting wasapi.noAutoConvertSRC will result in miniaudio's internal resampler being used instead which
+  will in turn enable the use of low-latency shared mode.
 
 PulseAudio
 ----------
