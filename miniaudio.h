@@ -7892,7 +7892,7 @@ static void ma_post_log_messagev(ma_context* pContext, ma_device* pDevice, ma_ui
         need to restrict this branch to Visual Studio. For other compilers we need to just not support formatted logging because I don't want the security risk of overflowing
         a fixed sized stack allocated buffer.
         */
-    #if defined(_MSC_VER) && _MSC_VER >= 1200   /* 1200 = VC6 */
+    #if defined(_MSC_VER) && _MSC_VER > 1200   /* 1200 = VC6 */
         int formattedLen;
         va_list args2;
 
