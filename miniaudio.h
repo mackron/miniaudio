@@ -7892,7 +7892,7 @@ static void ma_post_log_messagev(ma_context* pContext, ma_device* pDevice, ma_ui
         need to restrict this branch to Visual Studio. For other compilers we need to just not support formatted logging because I don't want the security risk of overflowing
         a fixed sized stack allocated buffer.
         */
-#if defined (_MSC_VER)
+    #if defined(_MSC_VER) && _MSC_VER >= 1200   /* 1200 = VC6 */
         int formattedLen;
         va_list args2;
 
@@ -7921,19 +7921,25 @@ static void ma_post_log_messagev(ma_context* pContext, ma_device* pDevice, ma_ui
 
             pFormattedMessage = (char*)ma_malloc(formattedLen + 1, pAllocationCallbacks);
             if (pFormattedMessage != NULL) {
+                /* We'll get errors on newer versions of Visual Studio if we try to use vsprintf().  */
+            #if _MSC_VER >= 1400    /* 1400 = Visual Studio 2005 */
                 vsprintf_s(pFormattedMessage, formattedLen + 1, pFormat, args);
+            #else
+                vsprintf(pFormattedMessage, pFormat, args);
+            #endif
+                
                 ma_post_log_message(pContext, pDevice, logLevel, pFormattedMessage);
                 ma_free(pFormattedMessage, pAllocationCallbacks);
             }
         }
-#else
+    #else
         /* Can't do anything because we don't have a safe way of to emulate vsnprintf() without a manual solution. */
         (void)pContext;
         (void)pDevice;
         (void)logLevel;
         (void)pFormat;
         (void)args;
-#endif
+    #endif
     }
 #endif
 }
@@ -42434,6 +42440,7 @@ REVISION HISTORY
 v0.10.5 - TBD
   - Add MA_NO_GENERATION build option to exclude the `ma_waveform` and `ma_noise` APIs from the build.
   - Minor documentation updates.
+  - Fix compilation errors with older versions of Visual Studio.
 
 v0.10.4 - 2020-04-12
   - Fix a data conversion bug when converting from the client format to the native device format.
