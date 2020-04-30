@@ -1,6 +1,6 @@
 /*
 MP3 audio decoder. Choice of public domain or MIT-0. See license statements at the end of this file.
-dr_mp3 - v0.6.8 - 2020-04-26
+dr_mp3 - v0.6.9 - 2020-04-30
 
 David Reid - mackron@gmail.com
 
@@ -249,14 +249,14 @@ typedef struct
 {
     float mdct_overlap[2][9*32], qmf_state[15*2*32];
     int reserv, free_format_bytes;
-    unsigned char header[4], reserv_buf[511];
+    drmp3_uint8 header[4], reserv_buf[511];
 } drmp3dec;
 
 /* Initializes a low level decoder. */
 DRMP3_API void drmp3dec_init(drmp3dec *dec);
 
 /* Reads a frame from a low level decoder. */
-DRMP3_API int drmp3dec_decode_frame(drmp3dec *dec, const unsigned char *mp3, int mp3_bytes, void *pcm, drmp3dec_frame_info *info);
+DRMP3_API int drmp3dec_decode_frame(drmp3dec *dec, const drmp3_uint8 *mp3, int mp3_bytes, void *pcm, drmp3dec_frame_info *info);
 
 /* Helper for converting between f32 and s16. */
 DRMP3_API void drmp3dec_f32_to_s16(const float *in, drmp3_int16 *out, size_t num_samples);
@@ -2182,7 +2182,7 @@ DRMP3_API void drmp3dec_init(drmp3dec *dec)
     dec->header[0] = 0;
 }
 
-DRMP3_API int drmp3dec_decode_frame(drmp3dec *dec, const unsigned char *mp3, int mp3_bytes, void *pcm, drmp3dec_frame_info *info)
+DRMP3_API int drmp3dec_decode_frame(drmp3dec *dec, const drmp3_uint8 *mp3, int mp3_bytes, void *pcm, drmp3dec_frame_info *info)
 {
     int i = 0, igr, frame_size = 0, success = 1;
     const drmp3_uint8 *hdr;
@@ -4390,6 +4390,9 @@ counts rather than sample counts.
 /*
 REVISION HISTORY
 ================
+v0.6.9 - 2020-04-30
+  - Change the `pcm` parameter of drmp3dec_decode_frame() to a `const drmp3_uint8*` for consistency with internal APIs.
+
 v0.6.8 - 2020-04-26
   - Optimizations to decoding when initializing from memory.
 
