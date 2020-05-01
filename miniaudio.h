@@ -7876,6 +7876,51 @@ static void ma_post_log_message(ma_context* pContext, ma_device* pDevice, ma_uin
 #endif
 }
 
+/*
+We need to emulate _vscprintf() for the VC6 build. This can be more efficient, but since it's only VC6, and it's just a
+logging function, I'm happy to keep this simple. In the VC6 build we can implement this in terms of _vsnprintf().
+*/
+#if defined(_MSC_VER) && _MSC_VER < 1900
+int ma_vscprintf(const char* format, va_list args)
+{
+#if _MSC_VER > 1200
+    return _vscprintf(format, args);
+#else
+    int result;
+    char* pTempBuffer = NULL;
+    size_t tempBufferCap = 1024;
+
+    if (format == NULL) {
+        errno = EINVAL;
+        return -1;
+    }
+
+	for (;;) {
+        char* pNewTempBuffer = (char*)ma_realloc(pTempBuffer, tempBufferCap, NULL);    /* TODO: Add support for custom memory allocators? */
+        if (pNewTempBuffer == NULL) {
+            ma_free(pTempBuffer, NULL);
+            errno = ENOMEM;
+            return -1;  /* Out of memory. */
+        }
+
+        pTempBuffer = pNewTempBuffer;
+
+        result = _vsnprintf(pTempBuffer, tempBufferCap, format, args);
+        ma_free(pTempBuffer, NULL);
+        
+        if (result != -1) {
+            break;  /* Got it. */
+        }
+
+        /* Buffer wasn't big enough. Ideally it'd be nice to use an error code to know the reason for sure, but this is reliable enough. */
+        tempBufferCap *= 2;
+	}
+
+    return result;
+#endif
+}
+#endif
+
 /* Posts a formatted log message. */
 static void ma_post_log_messagev(ma_context* pContext, ma_device* pDevice, ma_uint32 logLevel, const char* pFormat, va_list args)
 {
@@ -7892,7 +7937,7 @@ static void ma_post_log_messagev(ma_context* pContext, ma_device* pDevice, ma_ui
         need to restrict this branch to Visual Studio. For other compilers we need to just not support formatted logging because I don't want the security risk of overflowing
         a fixed sized stack allocated buffer.
         */
-    #if defined(_MSC_VER) && _MSC_VER > 1200   /* 1200 = VC6 */
+    #if defined(_MSC_VER) && _MSC_VER >= 1200   /* 1200 = VC6 */
         int formattedLen;
         va_list args2;
 
@@ -7901,7 +7946,7 @@ static void ma_post_log_messagev(ma_context* pContext, ma_device* pDevice, ma_ui
     #else
         args2 = args;
     #endif
-        formattedLen = _vscprintf(pFormat, args2);
+        formattedLen = ma_vscprintf(pFormat, args2);
         va_end(args2);
 
         if (formattedLen > 0) {
@@ -7944,7 +7989,7 @@ static void ma_post_log_messagev(ma_context* pContext, ma_device* pDevice, ma_ui
 #endif
 }
 
-static MA_INLINE void ma_post_log_messagef(ma_context* pContext, ma_device* pDevice, ma_uint32 logLevel, const char* pFormat, ...)
+static void ma_post_log_messagef(ma_context* pContext, ma_device* pDevice, ma_uint32 logLevel, const char* pFormat, ...)
 {
     va_list args;
     va_start(args, pFormat);
