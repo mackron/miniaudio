@@ -11175,8 +11175,8 @@ static ma_result ma_context_get_device_info_from_IAudioClient__wasapi(ma_context
                         ma_format format = formatsToSearch[iFormat];
                         ma_uint32 iSampleRate;
 
-                        wf.Format.wBitsPerSample       = (WORD)ma_get_bytes_per_sample(format)*8;
-                        wf.Format.nBlockAlign          = (wf.Format.nChannels * wf.Format.wBitsPerSample) / 8;
+                        wf.Format.wBitsPerSample       = (WORD)(ma_get_bytes_per_sample(format)*8);
+                        wf.Format.nBlockAlign          = (WORD)(wf.Format.nChannels * wf.Format.wBitsPerSample / 8);
                         wf.Format.nAvgBytesPerSec      = wf.Format.nBlockAlign * wf.Format.nSamplesPerSec;
                         wf.Samples.wValidBitsPerSample = /*(format == ma_format_s24_32) ? 24 :*/ wf.Format.wBitsPerSample;
                         if (format == ma_format_f32) {
@@ -14126,8 +14126,8 @@ static ma_result ma_config_to_WAVEFORMATEXTENSIBLE(ma_format format, ma_uint32 c
     pWF->Format.wFormatTag           = WAVE_FORMAT_EXTENSIBLE;
     pWF->Format.nChannels            = (WORD)channels;
     pWF->Format.nSamplesPerSec       = (DWORD)sampleRate;
-    pWF->Format.wBitsPerSample       = (WORD)ma_get_bytes_per_sample(format)*8;
-    pWF->Format.nBlockAlign          = (pWF->Format.nChannels * pWF->Format.wBitsPerSample) / 8;
+    pWF->Format.wBitsPerSample       = (WORD)(ma_get_bytes_per_sample(format)*8);
+    pWF->Format.nBlockAlign          = (WORD)(pWF->Format.nChannels * pWF->Format.wBitsPerSample / 8);
     pWF->Format.nAvgBytesPerSec      = pWF->Format.nBlockAlign * pWF->Format.nSamplesPerSec;
     pWF->Samples.wValidBitsPerSample = pWF->Format.wBitsPerSample;
     pWF->dwChannelMask               = ma_channel_map_to_channel_mask__win32(pChannelMap, channels);
@@ -14197,7 +14197,7 @@ static ma_result ma_device_init__dsound(ma_context* pContext, const ma_device_co
             return result;
         }
 
-        wf.Format.nBlockAlign          = (wf.Format.nChannels * wf.Format.wBitsPerSample) / 8;
+        wf.Format.nBlockAlign          = (WORD)(wf.Format.nChannels * wf.Format.wBitsPerSample / 8);
         wf.Format.nAvgBytesPerSec      = wf.Format.nBlockAlign * wf.Format.nSamplesPerSec;
         wf.Samples.wValidBitsPerSample = wf.Format.wBitsPerSample;
         wf.SubFormat                   = MA_GUID_KSDATAFORMAT_SUBTYPE_PCM;
@@ -14320,7 +14320,7 @@ static ma_result ma_device_init__dsound(ma_context* pContext, const ma_device_co
             }
         }
 
-        wf.Format.nBlockAlign     = (wf.Format.nChannels * wf.Format.wBitsPerSample) / 8;
+        wf.Format.nBlockAlign     = (WORD)(wf.Format.nChannels * wf.Format.wBitsPerSample / 8);
         wf.Format.nAvgBytesPerSec = wf.Format.nBlockAlign * wf.Format.nSamplesPerSec;
 
         /*
@@ -15220,7 +15220,7 @@ static ma_result ma_formats_flags_to_WAVEFORMATEX__winmm(DWORD dwFormats, WORD c
         }
     }
 
-    pWF->nBlockAlign     = (pWF->nChannels * pWF->wBitsPerSample) / 8;
+    pWF->nBlockAlign     = (WORD)(pWF->nChannels * pWF->wBitsPerSample / 8);
     pWF->nAvgBytesPerSec = pWF->nBlockAlign * pWF->nSamplesPerSec;
 
     return MA_SUCCESS;
@@ -35513,8 +35513,8 @@ static MA_INLINE void ma_pcm_u8_to_s16__reference(void* dst, const void* src, ma
     ma_uint64 i;
     for (i = 0; i < count; i += 1) {
         ma_int16 x = src_u8[i];
-        x = x - 128;
-        x = x << 8;
+        x = (ma_int16)(x - 128);
+        x = (ma_int16)(x << 8);
         dst_s16[i] = x;
     }
 
@@ -35578,7 +35578,7 @@ static MA_INLINE void ma_pcm_u8_to_s24__reference(void* dst, const void* src, ma
     ma_uint64 i;
     for (i = 0; i < count; i += 1) {
         ma_int16 x = src_u8[i];
-        x = x - 128;
+        x = (ma_int16)(x - 128);
 
         dst_s24[i*3+0] = 0;
         dst_s24[i*3+1] = 0;
@@ -35857,8 +35857,8 @@ static MA_INLINE void ma_pcm_s16_to_u8__reference(void* dst, const void* src, ma
         ma_uint64 i;
         for (i = 0; i < count; i += 1) {
             ma_int16 x = src_s16[i];
-            x = x >> 8;
-            x = x + 128;
+            x = (ma_int16)(x >> 8);
+            x = (ma_int16)(x + 128);
             dst_u8[i] = (ma_uint8)x;
         }
     } else {
@@ -35874,8 +35874,8 @@ static MA_INLINE void ma_pcm_s16_to_u8__reference(void* dst, const void* src, ma
                 x = 0x7FFF;
             }
 
-            x = x >> 8;
-            x = x + 128;
+            x = (ma_int16)(x >> 8);
+            x = (ma_int16)(x + 128);
             dst_u8[i] = (ma_uint8)x;
         }
     }
@@ -36204,8 +36204,7 @@ static MA_INLINE void ma_pcm_s24_to_u8__reference(void* dst, const void* src, ma
     if (ditherMode == ma_dither_mode_none) {
         ma_uint64 i;
         for (i = 0; i < count; i += 1) {
-            ma_int8 x = (ma_int8)src_s24[i*3 + 2] + 128;
-            dst_u8[i] = (ma_uint8)x;
+            dst_u8[i] = (ma_uint8)((ma_int8)src_s24[i*3 + 2] + 128);
         }
     } else {
         ma_uint64 i;
@@ -36284,9 +36283,9 @@ static MA_INLINE void ma_pcm_s24_to_s16__reference(void* dst, const void* src, m
     if (ditherMode == ma_dither_mode_none) {
         ma_uint64 i;
         for (i = 0; i < count; i += 1) {
-            ma_uint16 dst_lo = ((ma_uint16)src_s24[i*3 + 1]);
-            ma_uint16 dst_hi = ((ma_uint16)src_s24[i*3 + 2]) << 8;
-            dst_s16[i] = (ma_int16)dst_lo | dst_hi;
+            ma_uint16 dst_lo =            ((ma_uint16)src_s24[i*3 + 1]);
+            ma_uint16 dst_hi = (ma_uint16)((ma_uint16)src_s24[i*3 + 2] << 8);
+            dst_s16[i] = (ma_int16)(dst_lo | dst_hi);
         }
     } else {
         ma_uint64 i;
