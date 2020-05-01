@@ -42484,8 +42484,9 @@ REVISION HISTORY
 ================
 v0.10.5 - TBD
   - Add MA_NO_GENERATION build option to exclude the `ma_waveform` and `ma_noise` APIs from the build.
+  - Add support for formatted logging to the VC6 build.
   - Minor documentation updates.
-  - Fix compilation errors with older versions of Visual Studio.
+  - Fix compilation errors and warnings with older versions of Visual Studio.
 
 v0.10.4 - 2020-04-12
   - Fix a data conversion bug when converting from the client format to the native device format.
