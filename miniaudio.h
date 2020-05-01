@@ -1462,6 +1462,7 @@ extern "C" {
 #if defined(_MSC_VER) && !defined(__clang__)
     #pragma warning(push)
     #pragma warning(disable:4201)   /* nonstandard extension used: nameless struct/union */
+    #pragma warning(disable:4214)   /* nonstandard extension used: bit field types other than int */
     #pragma warning(disable:4324)   /* structure was padded due to alignment specifier */
 #else
     #pragma GCC diagnostic push
@@ -7989,7 +7990,7 @@ static void ma_post_log_messagev(ma_context* pContext, ma_device* pDevice, ma_ui
 #endif
 }
 
-static void ma_post_log_messagef(ma_context* pContext, ma_device* pDevice, ma_uint32 logLevel, const char* pFormat, ...)
+MA_API void ma_post_log_messagef(ma_context* pContext, ma_device* pDevice, ma_uint32 logLevel, const char* pFormat, ...)
 {
     va_list args;
     va_start(args, pFormat);
