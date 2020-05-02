@@ -5163,7 +5163,7 @@ MA_API ma_uint32 ma_calculate_buffer_size_in_frames_from_milliseconds(ma_uint32 
 /*
 Copies silent frames into the given buffer.
 */
-MA_API void ma_zero_pcm_frames(void* p, ma_uint32 frameCount, ma_format format, ma_uint32 channels);
+MA_API void ma_zero_pcm_frames(void* p, ma_uint64 frameCount, ma_format format, ma_uint32 channels);
 
 /*
 Clips f32 samples.
@@ -8840,9 +8840,9 @@ MA_API ma_uint32 ma_calculate_buffer_size_in_frames_from_milliseconds(ma_uint32 
     return bufferSizeInMilliseconds * (sampleRate/1000); 
 }
 
-MA_API void ma_zero_pcm_frames(void* p, ma_uint32 frameCount, ma_format format, ma_uint32 channels)
+MA_API void ma_zero_pcm_frames(void* p, ma_uint64 frameCount, ma_format format, ma_uint32 channels)
 {
-    MA_ZERO_MEMORY(p, frameCount * ma_get_bytes_per_frame(format, channels));
+    ma_zero_memory_64(p, frameCount * ma_get_bytes_per_frame(format, channels));
 }
 
 MA_API void ma_clip_samples_f32(float* p, ma_uint32 sampleCount)
@@ -42483,6 +42483,7 @@ The following miscellaneous changes have also been made.
 REVISION HISTORY
 ================
 v0.10.5 - TBD
+  - Change ma_zero_pcm_frames() to take a 64-bit frame count.
   - Add MA_NO_GENERATION build option to exclude the `ma_waveform` and `ma_noise` APIs from the build.
   - Add support for formatted logging to the VC6 build.
   - Minor documentation updates.
