@@ -1,6 +1,6 @@
 /*
 Audio playback and capture library. Choice of public domain or MIT-0. See license statements at the end of this file.
-miniaudio - v0.10.5 - TBD
+miniaudio - v0.10.5 - 2020-05-05
 
 David Reid - davidreidsoftware@gmail.com
 
@@ -42490,7 +42490,7 @@ The following miscellaneous changes have also been made.
 /*
 REVISION HISTORY
 ================
-v0.10.5 - TBD
+v0.10.5 - 2020-05-05
   - Change ma_zero_pcm_frames() to take a 64-bit frame count.
   - Add ma_copy_pcm_frames().
   - Add MA_NO_GENERATION build option to exclude the `ma_waveform` and `ma_noise` APIs from the build.
