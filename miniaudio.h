@@ -1459,6 +1459,14 @@ Miscellaneous Notes
 extern "C" {
 #endif
 
+#define MA_STRINGIFY(x)     #x
+#define MA_XSTRINGIFY(x)    MA_STRINGIFY(x)
+
+#define MA_VERSION_MAJOR    0
+#define MA_VERSION_MINOR    10
+#define MA_VERSION_REVISION 6
+#define MA_VERSION_STRING   MA_XSTRINGIFY(MA_VERSION_MAJOR) "." MA_XSTRINGIFY(MA_VERSION_MINOR) "." MA_XSTRINGIFY(MA_VERSION_REVISION)
+
 #if defined(_MSC_VER) && !defined(__clang__)
     #pragma warning(push)
     #pragma warning(disable:4201)   /* nonstandard extension used: nameless struct/union */
@@ -1889,6 +1897,17 @@ typedef struct
 {
     ma_int32 state;
 } ma_lcg;
+
+
+/*
+Retrieves the version of miniaudio as separated integers. Each component can be NULL if it's not required.
+*/
+MA_API void ma_version(ma_uint32* pMajor, ma_uint32* pMinor, ma_uint32* pRevision);
+
+/*
+Retrieves the version of miniaudio as a string which can be useful for logging purposes.
+*/
+MA_API const char* ma_version_string();
 
 
 /**************************************************************************************************************************************************************
@@ -6015,6 +6034,27 @@ static ma_format g_maFormatPriorities[] = {
 #if defined(__GNUC__)
     #pragma GCC diagnostic pop
 #endif
+
+
+MA_API void ma_version(ma_uint32* pMajor, ma_uint32* pMinor, ma_uint32* pRevision)
+{
+    if (pMajor) {
+        *pMajor = MA_VERSION_MAJOR;
+    }
+
+    if (pMinor) {
+        *pMinor = MA_VERSION_MINOR;
+    }
+
+    if (pRevision) {
+        *pRevision = MA_VERSION_REVISION;
+    }
+}
+
+MA_API const char* ma_version_string()
+{
+    return MA_VERSION_STRING;
+}
 
 
 /******************************************************************************
@@ -42492,6 +42532,13 @@ REVISION HISTORY
 ================
 v0.10.6 - TBD
   - Change ma_clip_samples_f32() and ma_clip_pcm_frames_f32() to take a 64-bit sample/frame count.
+  - Add compile-time and run-time version querying.
+    - MA_VERSION_MINOR
+    - MA_VERSION_MAJOR
+    - MA_VERSION_REVISION
+    - MA_VERSION_STRING
+    - ma_version()
+    - ma_version_string()
 
 v0.10.5 - 2020-05-05
   - Change ma_zero_pcm_frames() to take a 64-bit frame count.
