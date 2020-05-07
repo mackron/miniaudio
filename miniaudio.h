@@ -1,6 +1,6 @@
 /*
 Audio playback and capture library. Choice of public domain or MIT-0. See license statements at the end of this file.
-miniaudio - v0.10.5 - 2020-05-05
+miniaudio - v0.10.6 - TBD
 
 David Reid - davidreidsoftware@gmail.com
 
@@ -5173,8 +5173,8 @@ MA_API void ma_zero_pcm_frames(void* p, ma_uint64 frameCount, ma_format format, 
 /*
 Clips f32 samples.
 */
-MA_API void ma_clip_samples_f32(float* p, ma_uint32 sampleCount);
-static MA_INLINE void ma_clip_pcm_frames_f32(float* p, ma_uint32 frameCount, ma_uint32 channels) { ma_clip_samples_f32(p, frameCount*channels); }
+MA_API void ma_clip_samples_f32(float* p, ma_uint64 sampleCount);
+static MA_INLINE void ma_clip_pcm_frames_f32(float* p, ma_uint64 frameCount, ma_uint32 channels) { ma_clip_samples_f32(p, frameCount*channels); }
 
 /*
 Helper for applying a volume factor to samples.
@@ -8855,7 +8855,7 @@ MA_API void ma_zero_pcm_frames(void* p, ma_uint64 frameCount, ma_format format, 
     ma_zero_memory_64(p, frameCount * ma_get_bytes_per_frame(format, channels));
 }
 
-MA_API void ma_clip_samples_f32(float* p, ma_uint32 sampleCount)
+MA_API void ma_clip_samples_f32(float* p, ma_uint64 sampleCount)
 {
     ma_uint32 iSample;
 
@@ -42490,6 +42490,9 @@ The following miscellaneous changes have also been made.
 /*
 REVISION HISTORY
 ================
+v0.10.6 - TBD
+  - Change ma_clip_samples_f32() and ma_clip_pcm_frames_f32() to take a 64-bit sample/frame count.
+
 v0.10.5 - 2020-05-05
   - Change ma_zero_pcm_frames() to take a 64-bit frame count.
   - Add ma_copy_pcm_frames().
