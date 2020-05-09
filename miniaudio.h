@@ -34100,7 +34100,7 @@ MA_API ma_channel_converter_config ma_channel_converter_config_init(ma_format fo
     return config;
 }
 
-static ma_int32 ma_channel_converter_float_to_fp(float x)
+static ma_int32 ma_channel_converter_float_to_fixed(float x)
 {
     return (ma_int32)(x * (1<<MA_CHANNEL_CONVERTER_FIXED_POINT_SHIFT));
 }
@@ -34157,10 +34157,10 @@ MA_API ma_result ma_channel_converter_init(const ma_channel_converter_config* pC
 
     for (iChannelIn = 0; iChannelIn < pConverter->channelsIn; iChannelIn += 1) {
         for (iChannelOut = 0; iChannelOut < pConverter->channelsOut; ++iChannelOut) {
-            if (pConverter->format == ma_format_s16) {
+            if (pConverter->format == ma_format_f32) {
                 pConverter->weights.f32[iChannelIn][iChannelOut] = pConfig->weights[iChannelIn][iChannelOut];
             } else {
-                pConverter->weights.s16[iChannelIn][iChannelOut] = ma_channel_converter_float_to_fp(pConfig->weights[iChannelIn][iChannelOut]);
+                pConverter->weights.s16[iChannelIn][iChannelOut] = ma_channel_converter_float_to_fixed(pConfig->weights[iChannelIn][iChannelOut]);
             }
         }
     }
@@ -34267,10 +34267,10 @@ MA_API ma_result ma_channel_converter_init(const ma_channel_converter_config* pC
             ma_channel channelPosOut = pConverter->channelMapOut[iChannelOut];
 
             if (channelPosIn == channelPosOut) {
-                if (pConverter->format == ma_format_s16) {
-                    pConverter->weights.s16[iChannelIn][iChannelOut] = (1 << MA_CHANNEL_CONVERTER_FIXED_POINT_SHIFT);
-                } else {
+                if (pConverter->format == ma_format_f32) {
                     pConverter->weights.f32[iChannelIn][iChannelOut] = 1;
+                } else {
+                    pConverter->weights.s16[iChannelIn][iChannelOut] = (1 << MA_CHANNEL_CONVERTER_FIXED_POINT_SHIFT);
                 }
             }
         }
@@ -34288,10 +34288,10 @@ MA_API ma_result ma_channel_converter_init(const ma_channel_converter_config* pC
                 ma_channel channelPosOut = pConverter->channelMapOut[iChannelOut];
 
                 if (channelPosOut != MA_CHANNEL_NONE && channelPosOut != MA_CHANNEL_MONO && channelPosOut != MA_CHANNEL_LFE) {
-                    if (pConverter->format == ma_format_s16) {
-                        pConverter->weights.s16[iChannelIn][iChannelOut] = (1 << MA_CHANNEL_CONVERTER_FIXED_POINT_SHIFT);
-                    } else {
+                    if (pConverter->format == ma_format_f32) {
                         pConverter->weights.f32[iChannelIn][iChannelOut] = 1;
+                    } else {
+                        pConverter->weights.s16[iChannelIn][iChannelOut] = (1 << MA_CHANNEL_CONVERTER_FIXED_POINT_SHIFT);
                     }
                 }
             }
@@ -34320,10 +34320,10 @@ MA_API ma_result ma_channel_converter_init(const ma_channel_converter_config* pC
                         ma_channel channelPosIn = pConverter->channelMapIn[iChannelIn];
 
                         if (channelPosIn != MA_CHANNEL_NONE && channelPosIn != MA_CHANNEL_MONO && channelPosIn != MA_CHANNEL_LFE) {
-                            if (pConverter->format == ma_format_s16) {
-                                pConverter->weights.s16[iChannelIn][iChannelOut] = ma_channel_converter_float_to_fp(monoWeight);
-                            } else {
+                            if (pConverter->format == ma_format_f32) {
                                 pConverter->weights.f32[iChannelIn][iChannelOut] = monoWeight;
+                            } else {
+                                pConverter->weights.s16[iChannelIn][iChannelOut] = ma_channel_converter_float_to_fixed(monoWeight);
                             }
                         }
                     }
@@ -34354,13 +34354,13 @@ MA_API ma_result ma_channel_converter_init(const ma_channel_converter_config* pC
                                 }
 
                                 /* Only apply the weight if we haven't already got some contribution from the respective channels. */
-                                if (pConverter->format == ma_format_s16) {
-                                    if (pConverter->weights.s16[iChannelIn][iChannelOut] == 0) {
-                                        pConverter->weights.s16[iChannelIn][iChannelOut] = ma_channel_converter_float_to_fp(weight);
-                                    }
-                                } else {
+                                if (pConverter->format == ma_format_f32) {
                                     if (pConverter->weights.f32[iChannelIn][iChannelOut] == 0) {
                                         pConverter->weights.f32[iChannelIn][iChannelOut] = weight;
+                                    }
+                                } else {
+                                    if (pConverter->weights.s16[iChannelIn][iChannelOut] == 0) {
+                                        pConverter->weights.s16[iChannelIn][iChannelOut] = ma_channel_converter_float_to_fixed(weight);
                                     }
                                 }
                             }
@@ -34385,13 +34385,13 @@ MA_API ma_result ma_channel_converter_init(const ma_channel_converter_config* pC
                                 }
 
                                 /* Only apply the weight if we haven't already got some contribution from the respective channels. */
-                                if (pConverter->format == ma_format_s16) {
-                                    if (pConverter->weights.s16[iChannelIn][iChannelOut] == 0) {
-                                        pConverter->weights.s16[iChannelIn][iChannelOut] = ma_channel_converter_float_to_fp(weight);
-                                    }
-                                } else {
+                                if (pConverter->format == ma_format_f32) {
                                     if (pConverter->weights.f32[iChannelIn][iChannelOut] == 0) {
                                         pConverter->weights.f32[iChannelIn][iChannelOut] = weight;
+                                    }
+                                } else {
+                                    if (pConverter->weights.s16[iChannelIn][iChannelOut] == 0) {
+                                        pConverter->weights.s16[iChannelIn][iChannelOut] = ma_channel_converter_float_to_fixed(weight);
                                     }
                                 }
                             }
