@@ -34144,7 +34144,7 @@ MA_API ma_result ma_channel_converter_init(const ma_channel_converter_config* pC
         return MA_INVALID_ARGS; /* Invalid output channel map. */
     }
 
-    if (pConfig->format != ma_format_s16 && pConfig->format != ma_format_f32) {
+    if (pConfig->format != ma_format_s16 && pConfig->format != ma_format_s32 && pConfig->format != ma_format_f32) {
         return MA_INVALID_ARGS; /* Invalid format. */
     }
 
@@ -34440,24 +34440,53 @@ static ma_result ma_channel_converter_process_pcm_frames__simple_shuffle(ma_chan
     MA_ASSERT(pFramesIn  != NULL);
     MA_ASSERT(pConverter->channelsIn == pConverter->channelsOut);
 
-    if (pConverter->format == ma_format_s16) {
-        /* */ ma_int16* pFramesOutS16 = (      ma_int16*)pFramesOut;
-        const ma_int16* pFramesInS16  = (const ma_int16*)pFramesIn;
+    switch (pConverter->format)
+    {
+        case ma_format_u8:
+        {
+        } break;
 
-        for (iFrame = 0; iFrame < frameCount; iFrame += 1) {
-            for (iChannelIn = 0; iChannelIn < pConverter->channelsIn; ++iChannelIn) {
-                pFramesOutS16[pConverter->shuffleTable[iChannelIn]] = pFramesInS16[iChannelIn];
-            }
-        }
-    } else {
-        /* */ float* pFramesOutF32 = (      float*)pFramesOut;
-        const float* pFramesInF32  = (const float*)pFramesIn;
+        case ma_format_s16:
+        {
+            /* */ ma_int16* pFramesOutS16 = (      ma_int16*)pFramesOut;
+            const ma_int16* pFramesInS16  = (const ma_int16*)pFramesIn;
 
-        for (iFrame = 0; iFrame < frameCount; iFrame += 1) {
-            for (iChannelIn = 0; iChannelIn < pConverter->channelsIn; ++iChannelIn) {
-                pFramesOutF32[pConverter->shuffleTable[iChannelIn]] = pFramesInF32[iChannelIn];
+            for (iFrame = 0; iFrame < frameCount; iFrame += 1) {
+                for (iChannelIn = 0; iChannelIn < pConverter->channelsIn; ++iChannelIn) {
+                    pFramesOutS16[pConverter->shuffleTable[iChannelIn]] = pFramesInS16[iChannelIn];
+                }
             }
-        }
+        } break;
+
+        case ma_format_s24:
+        {
+        } break;
+
+        case ma_format_s32:
+        {
+            /* */ ma_int32* pFramesOutS32 = (      ma_int32*)pFramesOut;
+            const ma_int32* pFramesInS32  = (const ma_int32*)pFramesIn;
+
+            for (iFrame = 0; iFrame < frameCount; iFrame += 1) {
+                for (iChannelIn = 0; iChannelIn < pConverter->channelsIn; ++iChannelIn) {
+                    pFramesOutS32[pConverter->shuffleTable[iChannelIn]] = pFramesInS32[iChannelIn];
+                }
+            }
+        } break;
+        
+        case ma_format_f32:
+        {
+            /* */ float* pFramesOutF32 = (      float*)pFramesOut;
+            const float* pFramesInF32  = (const float*)pFramesIn;
+
+            for (iFrame = 0; iFrame < frameCount; iFrame += 1) {
+                for (iChannelIn = 0; iChannelIn < pConverter->channelsIn; ++iChannelIn) {
+                    pFramesOutF32[pConverter->shuffleTable[iChannelIn]] = pFramesInF32[iChannelIn];
+                }
+            }
+        } break;
+
+        default: return MA_INVALID_OPERATION;   /* Unknown format. */
     }
 
     return MA_SUCCESS;
@@ -34471,40 +34500,77 @@ static ma_result ma_channel_converter_process_pcm_frames__simple_mono_expansion(
     MA_ASSERT(pFramesOut != NULL);
     MA_ASSERT(pFramesIn  != NULL);
 
-    if (pConverter->format == ma_format_s16) {
-        /* */ ma_int16* pFramesOutS16 = (      ma_int16*)pFramesOut;
-        const ma_int16* pFramesInS16  = (const ma_int16*)pFramesIn;
+    switch (pConverter->format)
+    {
+        case ma_format_u8:
+        {
+        } break;
 
-        if (pConverter->channelsOut == 2) {
-            for (iFrame = 0; iFrame < frameCount; ++iFrame) {
-                pFramesOutS16[iFrame*2 + 0] = pFramesInS16[iFrame];
-                pFramesOutS16[iFrame*2 + 1] = pFramesInS16[iFrame];
-            }
-        } else {
-            for (iFrame = 0; iFrame < frameCount; ++iFrame) {
-                ma_uint32 iChannel;
-                for (iChannel = 0; iChannel < pConverter->channelsOut; iChannel += 1) {
-                    pFramesOutS16[iFrame*pConverter->channelsOut + iChannel] = pFramesInS16[iFrame];
+        case ma_format_s16:
+        {
+            /* */ ma_int16* pFramesOutS16 = (      ma_int16*)pFramesOut;
+            const ma_int16* pFramesInS16  = (const ma_int16*)pFramesIn;
+
+            if (pConverter->channelsOut == 2) {
+                for (iFrame = 0; iFrame < frameCount; ++iFrame) {
+                    pFramesOutS16[iFrame*2 + 0] = pFramesInS16[iFrame];
+                    pFramesOutS16[iFrame*2 + 1] = pFramesInS16[iFrame];
+                }
+            } else {
+                for (iFrame = 0; iFrame < frameCount; ++iFrame) {
+                    ma_uint32 iChannel;
+                    for (iChannel = 0; iChannel < pConverter->channelsOut; iChannel += 1) {
+                        pFramesOutS16[iFrame*pConverter->channelsOut + iChannel] = pFramesInS16[iFrame];
+                    }
                 }
             }
-        }
-    } else {
-        /* */ float* pFramesOutF32 = (      float*)pFramesOut;
-        const float* pFramesInF32  = (const float*)pFramesIn;
+        } break;
 
-        if (pConverter->channelsOut == 2) {
-            for (iFrame = 0; iFrame < frameCount; ++iFrame) {
-                pFramesOutF32[iFrame*2 + 0] = pFramesInF32[iFrame];
-                pFramesOutF32[iFrame*2 + 1] = pFramesInF32[iFrame];
-            }
-        } else {
-            for (iFrame = 0; iFrame < frameCount; ++iFrame) {
-                ma_uint32 iChannel;
-                for (iChannel = 0; iChannel < pConverter->channelsOut; iChannel += 1) {
-                    pFramesOutF32[iFrame*pConverter->channelsOut + iChannel] = pFramesInF32[iFrame];
+        case ma_format_s24:
+        {
+        } break;
+
+        case ma_format_s32:
+        {
+            /* */ ma_int32* pFramesOutS32 = (      ma_int32*)pFramesOut;
+            const ma_int32* pFramesInS32  = (const ma_int32*)pFramesIn;
+
+            if (pConverter->channelsOut == 2) {
+                for (iFrame = 0; iFrame < frameCount; ++iFrame) {
+                    pFramesOutS32[iFrame*2 + 0] = pFramesInS32[iFrame];
+                    pFramesOutS32[iFrame*2 + 1] = pFramesInS32[iFrame];
+                }
+            } else {
+                for (iFrame = 0; iFrame < frameCount; ++iFrame) {
+                    ma_uint32 iChannel;
+                    for (iChannel = 0; iChannel < pConverter->channelsOut; iChannel += 1) {
+                        pFramesOutS32[iFrame*pConverter->channelsOut + iChannel] = pFramesInS32[iFrame];
+                    }
                 }
             }
-        }
+        } break;
+        
+        case ma_format_f32:
+        {
+            /* */ float* pFramesOutF32 = (      float*)pFramesOut;
+            const float* pFramesInF32  = (const float*)pFramesIn;
+
+            if (pConverter->channelsOut == 2) {
+                for (iFrame = 0; iFrame < frameCount; ++iFrame) {
+                    pFramesOutF32[iFrame*2 + 0] = pFramesInF32[iFrame];
+                    pFramesOutF32[iFrame*2 + 1] = pFramesInF32[iFrame];
+                }
+            } else {
+                for (iFrame = 0; iFrame < frameCount; ++iFrame) {
+                    ma_uint32 iChannel;
+                    for (iChannel = 0; iChannel < pConverter->channelsOut; iChannel += 1) {
+                        pFramesOutF32[iFrame*pConverter->channelsOut + iChannel] = pFramesInF32[iFrame];
+                    }
+                }
+            }
+        } break;
+
+        default: return MA_INVALID_OPERATION;   /* Unknown format. */
     }
 
     return MA_SUCCESS;
@@ -34520,20 +34586,47 @@ static ma_result ma_channel_converter_process_pcm_frames__stereo_to_mono(ma_chan
     MA_ASSERT(pConverter->channelsIn  == 2);
     MA_ASSERT(pConverter->channelsOut == 1);
 
-    if (pConverter->format == ma_format_s16) {
-        /* */ ma_int16* pFramesOutS16 = (      ma_int16*)pFramesOut;
-        const ma_int16* pFramesInS16  = (const ma_int16*)pFramesIn;
+    switch (pConverter->format)
+    {
+        case ma_format_u8:
+        {
+        } break;
 
-        for (iFrame = 0; iFrame < frameCount; ++iFrame) {
-            pFramesOutS16[iFrame] = (ma_int16)(((ma_int32)pFramesInS16[iFrame*2+0] + (ma_int32)pFramesInS16[iFrame*2+1]) / 2);
-        }
-    } else {
-        /* */ float* pFramesOutF32 = (      float*)pFramesOut;
-        const float* pFramesInF32  = (const float*)pFramesIn;
+        case ma_format_s16:
+        {
+            /* */ ma_int16* pFramesOutS16 = (      ma_int16*)pFramesOut;
+            const ma_int16* pFramesInS16  = (const ma_int16*)pFramesIn;
 
-        for (iFrame = 0; iFrame < frameCount; ++iFrame) {
-            pFramesOutF32[iFrame] = (pFramesInF32[iFrame*2+0] + pFramesInF32[iFrame*2+0]) * 0.5f;
-        }
+            for (iFrame = 0; iFrame < frameCount; ++iFrame) {
+                pFramesOutS16[iFrame] = (ma_int16)(((ma_int32)pFramesInS16[iFrame*2+0] + (ma_int32)pFramesInS16[iFrame*2+1]) / 2);
+            }
+        } break;
+
+        case ma_format_s24:
+        {
+        } break;
+
+        case ma_format_s32:
+        {
+            /* */ ma_int32* pFramesOutS32 = (      ma_int32*)pFramesOut;
+            const ma_int32* pFramesInS32  = (const ma_int32*)pFramesIn;
+
+            for (iFrame = 0; iFrame < frameCount; ++iFrame) {
+                pFramesOutS32[iFrame] = (ma_int16)(((ma_int32)pFramesInS32[iFrame*2+0] + (ma_int32)pFramesInS32[iFrame*2+1]) / 2);
+            }
+        } break;
+        
+        case ma_format_f32:
+        {
+            /* */ float* pFramesOutF32 = (      float*)pFramesOut;
+            const float* pFramesInF32  = (const float*)pFramesIn;
+
+            for (iFrame = 0; iFrame < frameCount; ++iFrame) {
+                pFramesOutF32[iFrame] = (pFramesInF32[iFrame*2+0] + pFramesInF32[iFrame*2+0]) * 0.5f;
+            }
+        } break;
+
+        default: return MA_INVALID_OPERATION;   /* Unknown format. */
     }
 
     return MA_SUCCESS;
@@ -34555,33 +34648,67 @@ static ma_result ma_channel_converter_process_pcm_frames__weights(ma_channel_con
     ma_zero_memory_64(pFramesOut, frameCount * ma_get_bytes_per_frame(pConverter->format, pConverter->channelsOut));
 
     /* Accumulate. */
-    if (pConverter->format == ma_format_s16) {
-        /* */ ma_int16* pFramesOutS16 = (      ma_int16*)pFramesOut;
-        const ma_int16* pFramesInS16  = (const ma_int16*)pFramesIn;
+    switch (pConverter->format)
+    {
+        case ma_format_u8:
+        {
+        } break;
 
-        for (iFrame = 0; iFrame < frameCount; iFrame += 1) {
-            for (iChannelIn = 0; iChannelIn < pConverter->channelsIn; ++iChannelIn) {
-                for (iChannelOut = 0; iChannelOut < pConverter->channelsOut; ++iChannelOut) {
-                    ma_int32 s = pFramesOutS16[iFrame*pConverter->channelsOut + iChannelOut];
-                    s += (pFramesInS16[iFrame*pConverter->channelsIn + iChannelIn] * pConverter->weights.s16[iChannelIn][iChannelOut]) >> MA_CHANNEL_CONVERTER_FIXED_POINT_SHIFT;
+        case ma_format_s16:
+        {
+            /* */ ma_int16* pFramesOutS16 = (      ma_int16*)pFramesOut;
+            const ma_int16* pFramesInS16  = (const ma_int16*)pFramesIn;
 
-                    pFramesOutS16[iFrame*pConverter->channelsOut + iChannelOut] = (ma_int16)ma_clamp(s, -32768, 32767);
+            for (iFrame = 0; iFrame < frameCount; iFrame += 1) {
+                for (iChannelIn = 0; iChannelIn < pConverter->channelsIn; ++iChannelIn) {
+                    for (iChannelOut = 0; iChannelOut < pConverter->channelsOut; ++iChannelOut) {
+                        ma_int32 s = pFramesOutS16[iFrame*pConverter->channelsOut + iChannelOut];
+                        s += (pFramesInS16[iFrame*pConverter->channelsIn + iChannelIn] * pConverter->weights.s16[iChannelIn][iChannelOut]) >> MA_CHANNEL_CONVERTER_FIXED_POINT_SHIFT;
+
+                        pFramesOutS16[iFrame*pConverter->channelsOut + iChannelOut] = (ma_int16)ma_clamp(s, -32768, 32767);
+                    }
                 }
             }
-        }
-    } else {
-        /* */ float* pFramesOutF32 = (      float*)pFramesOut;
-        const float* pFramesInF32  = (const float*)pFramesIn;
+        } break;
 
-        for (iFrame = 0; iFrame < frameCount; iFrame += 1) {
-            for (iChannelIn = 0; iChannelIn < pConverter->channelsIn; ++iChannelIn) {
-                for (iChannelOut = 0; iChannelOut < pConverter->channelsOut; ++iChannelOut) {
-                    pFramesOutF32[iFrame*pConverter->channelsOut + iChannelOut] += pFramesInF32[iFrame*pConverter->channelsIn + iChannelIn] * pConverter->weights.f32[iChannelIn][iChannelOut];
+        case ma_format_s24:
+        {
+        } break;
+
+        case ma_format_s32:
+        {
+            /* */ ma_int32* pFramesOutS32 = (      ma_int32*)pFramesOut;
+            const ma_int32* pFramesInS32  = (const ma_int32*)pFramesIn;
+
+            for (iFrame = 0; iFrame < frameCount; iFrame += 1) {
+                for (iChannelIn = 0; iChannelIn < pConverter->channelsIn; ++iChannelIn) {
+                    for (iChannelOut = 0; iChannelOut < pConverter->channelsOut; ++iChannelOut) {
+                        ma_int64 s = pFramesOutS32[iFrame*pConverter->channelsOut + iChannelOut];
+                        s += (pFramesInS32[iFrame*pConverter->channelsIn + iChannelIn] * pConverter->weights.s16[iChannelIn][iChannelOut]) >> MA_CHANNEL_CONVERTER_FIXED_POINT_SHIFT;
+
+                        pFramesOutS32[iFrame*pConverter->channelsOut + iChannelOut] = (ma_int32)ma_clamp(s, -(ma_int64)2147483648, (ma_int64)2147483647);
+                    }
                 }
             }
-        }
+        } break;
+        
+        case ma_format_f32:
+        {
+            /* */ float* pFramesOutF32 = (      float*)pFramesOut;
+            const float* pFramesInF32  = (const float*)pFramesIn;
+
+            for (iFrame = 0; iFrame < frameCount; iFrame += 1) {
+                for (iChannelIn = 0; iChannelIn < pConverter->channelsIn; ++iChannelIn) {
+                    for (iChannelOut = 0; iChannelOut < pConverter->channelsOut; ++iChannelOut) {
+                        pFramesOutF32[iFrame*pConverter->channelsOut + iChannelOut] += pFramesInF32[iFrame*pConverter->channelsIn + iChannelIn] * pConverter->weights.f32[iChannelIn][iChannelOut];
+                    }
+                }
+            }
+        } break;
+
+        default: return MA_INVALID_OPERATION;   /* Unknown format. */
     }
-    
+
     return MA_SUCCESS;
 }
 
