@@ -30824,12 +30824,12 @@ static MA_INLINE ma_int16 ma_pcm_sample_u8_to_s16_no_scale(ma_uint8 x)
     return (ma_int16)((ma_int16)x - 128);
 }
 
-static MA_INLINE ma_int32 ma_pcm_sample_s24_to_s32_no_scale(const ma_uint8* x)
+static MA_INLINE ma_int64 ma_pcm_sample_s24_to_s32_no_scale(const ma_uint8* x)
 {
-    return (ma_int32)(((ma_uint32)x[0] << 8) | ((ma_uint32)x[1] << 16) | ((ma_uint32)x[2] << 24)) >> 8;  /* Make sure the sign bits are maintained. */
+    return (ma_int64)(((ma_uint64)x[0] << 40) | ((ma_uint64)x[1] << 48) | ((ma_uint64)x[2] << 56)) >> 40;  /* Make sure the sign bits are maintained. */
 }
 
-static MA_INLINE void ma_pcm_sample_s32_to_s24_no_scale(ma_int32 x, ma_uint8* s24)
+static MA_INLINE void ma_pcm_sample_s32_to_s24_no_scale(ma_int64 x, ma_uint8* s24)
 {
     s24[0] = (ma_uint8)((x & 0x000000FF) >>  0);
     s24[1] = (ma_uint8)((x & 0x0000FF00) >>  8);
@@ -30847,9 +30847,9 @@ static MA_INLINE ma_int16 ma_clip_s16(ma_int32 x)
     return (ma_int16)ma_clamp(x, -32768, 32767);
 }
 
-static MA_INLINE ma_int32 ma_clip_s24(ma_int32 x)
+static MA_INLINE ma_int64 ma_clip_s24(ma_int64 x)
 {
-    return (ma_int32)ma_clamp(x, -8388608, 8388607);
+    return (ma_int64)ma_clamp(x, -8388608, 8388607);
 }
 
 static MA_INLINE ma_int32 ma_clip_s32(ma_int64 x)
@@ -37072,8 +37072,8 @@ static ma_result ma_channel_converter_process_pcm_frames__stereo_to_mono(ma_chan
             const ma_uint8* pFramesInS24  = (const ma_uint8*)pFramesIn;
 
             for (iFrame = 0; iFrame < frameCount; ++iFrame) {
-                ma_int32 s24_0 = ma_pcm_sample_s24_to_s32_no_scale(&pFramesInS24[(iFrame*2+0)*3]);
-                ma_int32 s24_1 = ma_pcm_sample_s24_to_s32_no_scale(&pFramesInS24[(iFrame*2+1)*3]);
+                ma_int64 s24_0 = ma_pcm_sample_s24_to_s32_no_scale(&pFramesInS24[(iFrame*2+0)*3]);
+                ma_int64 s24_1 = ma_pcm_sample_s24_to_s32_no_scale(&pFramesInS24[(iFrame*2+1)*3]);
                 ma_pcm_sample_s32_to_s24_no_scale((s24_0 + s24_1) / 2, &pFramesOutS24[iFrame*3]);
             }
         } break;
@@ -37166,8 +37166,8 @@ static ma_result ma_channel_converter_process_pcm_frames__weights(ma_channel_con
                     for (iChannelOut = 0; iChannelOut < pConverter->channelsOut; ++iChannelOut) {
                         ma_int64 s24_O = ma_pcm_sample_s24_to_s32_no_scale(&pFramesOutS24[(iFrame*pConverter->channelsOut + iChannelOut)*3]);
                         ma_int64 s24_I = ma_pcm_sample_s24_to_s32_no_scale(&pFramesInS24 [(iFrame*pConverter->channelsIn  + iChannelIn )*3]);
-                        ma_int32 s24   = (ma_int32)ma_clamp(s24_O + ((s24_I * pConverter->weights.s16[iChannelIn][iChannelOut]) >> MA_CHANNEL_CONVERTER_FIXED_POINT_SHIFT), -8388608, 8388607);
-                        ma_pcm_sample_s32_to_s24_no_scale(s24, &pFramesOutS24[(iFrame*pConverter->channelsOut + iChannelOut)*3]);;
+                        ma_int64 s24   = (ma_int32)ma_clamp(s24_O + ((s24_I * pConverter->weights.s16[iChannelIn][iChannelOut]) >> MA_CHANNEL_CONVERTER_FIXED_POINT_SHIFT), -8388608, 8388607);
+                        ma_pcm_sample_s32_to_s24_no_scale(s24, &pFramesOutS24[(iFrame*pConverter->channelsOut + iChannelOut)*3]);
                     }
                 }
             }
