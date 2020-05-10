@@ -42809,6 +42809,7 @@ v0.10.6 - TBD
     - ma_version()
     - ma_version_string()
   - Fix a bug in shuffle mode in ma_channel_converter.
+  - The data callback now initializes the output buffer to 128 when the playback sample format is ma_format_u8.
 
 v0.10.5 - 2020-05-05
   - Change ma_zero_pcm_frames() to take a 64-bit frame count.
