@@ -30804,6 +30804,11 @@ static MA_INLINE ma_int16 ma_pcm_sample_f32_to_s16(float x)
     return (ma_int16)(x * 32767.0f);
 }
 
+static MA_INLINE ma_int16 ma_pcm_sample_u8_to_s16_no_scale(ma_uint8 x)
+{
+    return (ma_int16)((ma_int16)x - 128);
+}
+
 static MA_INLINE ma_int32 ma_pcm_sample_s24_to_s32_no_scale(const ma_uint8* x)
 {
     return (ma_int32)(((ma_uint32)x[0] << 8) | ((ma_uint32)x[1] << 16) | ((ma_uint32)x[2] << 24)) >> 8;  /* Make sure the sign bits are maintained. */
@@ -30814,6 +30819,27 @@ static MA_INLINE void ma_pcm_sample_s32_to_s24_no_scale(ma_int32 x, ma_uint8* s2
     s24[0] = (ma_uint8)((x & 0x000000FF) >>  0);
     s24[1] = (ma_uint8)((x & 0x0000FF00) >>  8);
     s24[2] = (ma_uint8)((x & 0x00FF0000) >> 16);
+}
+
+
+static MA_INLINE ma_uint8 ma_clip_u8(ma_int16 x)
+{
+    return (ma_uint8)ma_clamp(x, -128, 127);
+}
+
+static MA_INLINE ma_int16 ma_clip_s16(ma_int32 x)
+{
+    return (ma_int16)ma_clamp(x, -32768, 32767);
+}
+
+static MA_INLINE ma_int32 ma_clip_s24(ma_int32 x)
+{
+    return (ma_int32)ma_clamp(x, -8388608, 8388607);
+}
+
+static MA_INLINE ma_int32 ma_clip_s32(ma_int64 x)
+{
+    return (ma_int32)ma_clamp(x, -(ma_int64)2147483648, (ma_int64)2147483647);
 }
 
 
@@ -36515,10 +36541,6 @@ MA_API ma_result ma_channel_converter_init(const ma_channel_converter_config* pC
         return MA_INVALID_ARGS; /* Invalid output channel map. */
     }
 
-    if (pConfig->format != ma_format_s16 && pConfig->format != ma_format_s24 && pConfig->format != ma_format_s32 && pConfig->format != ma_format_f32) {
-        return MA_INVALID_ARGS; /* Invalid format. */
-    }
-
     pConverter->format      = pConfig->format;
     pConverter->channelsIn  = pConfig->channelsIn;
     pConverter->channelsOut = pConfig->channelsOut;
@@ -36815,6 +36837,17 @@ static ma_result ma_channel_converter_process_pcm_frames__simple_shuffle(ma_chan
     {
         case ma_format_u8:
         {
+            /* */ ma_uint8* pFramesOutU8 = (      ma_uint8*)pFramesOut;
+            const ma_uint8* pFramesInU8  = (const ma_uint8*)pFramesIn;
+
+            for (iFrame = 0; iFrame < frameCount; iFrame += 1) {
+                for (iChannelIn = 0; iChannelIn < pConverter->channelsIn; ++iChannelIn) {
+                    pFramesOutU8[pConverter->shuffleTable[iChannelIn]] = pFramesInU8[iChannelIn];
+                }
+
+                pFramesOutU8 += pConverter->channelsOut;
+                pFramesInU8  += pConverter->channelsIn;
+            }
         } break;
 
         case ma_format_s16:
@@ -36899,6 +36932,15 @@ static ma_result ma_channel_converter_process_pcm_frames__simple_mono_expansion(
     {
         case ma_format_u8:
         {
+            /* */ ma_uint8* pFramesOutU8 = (      ma_uint8*)pFramesOut;
+            const ma_uint8* pFramesInU8  = (const ma_uint8*)pFramesIn;
+
+            for (iFrame = 0; iFrame < frameCount; ++iFrame) {
+                ma_uint32 iChannel;
+                for (iChannel = 0; iChannel < pConverter->channelsOut; iChannel += 1) {
+                    pFramesOutU8[iFrame*pConverter->channelsOut + iChannel] = pFramesInU8[iFrame];
+                }
+            }
         } break;
 
         case ma_format_s16:
@@ -36991,6 +37033,12 @@ static ma_result ma_channel_converter_process_pcm_frames__stereo_to_mono(ma_chan
     {
         case ma_format_u8:
         {
+            /* */ ma_uint8* pFramesOutU8 = (      ma_uint8*)pFramesOut;
+            const ma_uint8* pFramesInU8  = (const ma_uint8*)pFramesIn;
+
+            for (iFrame = 0; iFrame < frameCount; ++iFrame) {
+                pFramesOutU8[iFrame] = ma_clip_u8((ma_pcm_sample_u8_to_s16_no_scale(pFramesInU8[iFrame*2+0]) + ma_pcm_sample_u8_to_s16_no_scale(pFramesInU8[iFrame*2+1])) / 2);
+            }
         } break;
 
         case ma_format_s16:
@@ -37061,6 +37109,19 @@ static ma_result ma_channel_converter_process_pcm_frames__weights(ma_channel_con
     {
         case ma_format_u8:
         {
+            /* */ ma_uint8* pFramesOutU8 = (      ma_uint8*)pFramesOut;
+            const ma_uint8* pFramesInU8  = (const ma_uint8*)pFramesIn;
+
+            for (iFrame = 0; iFrame < frameCount; iFrame += 1) {
+                for (iChannelIn = 0; iChannelIn < pConverter->channelsIn; ++iChannelIn) {
+                    for (iChannelOut = 0; iChannelOut < pConverter->channelsOut; ++iChannelOut) {
+                        ma_int16 u8_O = ma_pcm_sample_u8_to_s16_no_scale(pFramesOutU8[iFrame*pConverter->channelsOut + iChannelOut]);
+                        ma_int16 u8_I = ma_pcm_sample_u8_to_s16_no_scale(pFramesInU8 [iFrame*pConverter->channelsIn  + iChannelIn ]);
+                        ma_int32 s    = (ma_int32)ma_clamp(u8_O + ((u8_I * pConverter->weights.s16[iChannelIn][iChannelOut]) >> MA_CHANNEL_CONVERTER_FIXED_POINT_SHIFT), -128, 127);
+                        pFramesOutU8[iFrame*pConverter->channelsOut + iChannelOut] = ma_clip_u8((ma_int16)s);
+                    }
+                }
+            }
         } break;
 
         case ma_format_s16:
@@ -42722,6 +42783,8 @@ REVISION HISTORY
 ================
 v0.10.6 - TBD
   - Change ma_clip_samples_f32() and ma_clip_pcm_frames_f32() to take a 64-bit sample/frame count.
+  - Fix a bug in shuffle mode in ma_channel_converter.
+  - Add support for u8, s24 and s32 formats to ma_channel_converter.
   - Add compile-time and run-time version querying.
     - MA_VERSION_MINOR
     - MA_VERSION_MAJOR
