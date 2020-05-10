@@ -5186,8 +5186,15 @@ MA_API void ma_copy_pcm_frames(void* dst, const void* src, ma_uint64 frameCount,
 
 /*
 Copies silent frames into the given buffer.
+
+Remarks
+-------
+For all formats except `ma_format_u8`, the output buffer will be filled with 0. For `ma_format_u8` it will be filled with 128. The reason for this is that it
+makes more sense for the purpose of mixing to initialize it to the center point.
 */
-MA_API void ma_zero_pcm_frames(void* p, ma_uint64 frameCount, ma_format format, ma_uint32 channels);
+MA_API void ma_silence_pcm_frames(void* p, ma_uint64 frameCount, ma_format format, ma_uint32 channels);
+static MA_INLINE void ma_zero_pcm_frames(void* p, ma_uint64 frameCount, ma_format format, ma_uint32 channels) { ma_silence_pcm_frames(p, frameCount, format, channels); }
+
 
 /*
 Clips f32 samples.
@@ -8890,9 +8897,17 @@ MA_API void ma_copy_pcm_frames(void* dst, const void* src, ma_uint64 frameCount,
     ma_copy_memory_64(dst, src, frameCount * ma_get_bytes_per_frame(format, channels));
 }
 
-MA_API void ma_zero_pcm_frames(void* p, ma_uint64 frameCount, ma_format format, ma_uint32 channels)
+MA_API void ma_silence_pcm_frames(void* p, ma_uint64 frameCount, ma_format format, ma_uint32 channels)
 {
-    ma_zero_memory_64(p, frameCount * ma_get_bytes_per_frame(format, channels));
+    if (format == ma_format_u8) {
+        ma_uint64 sampleCount = frameCount * channels;
+        ma_uint64 iSample;
+        for (iSample = 0; iSample < sampleCount; iSample += 1) {
+            ((ma_uint8*)p)[iSample] = 128;
+        }
+    } else {
+        ma_zero_memory_64(p, frameCount * ma_get_bytes_per_frame(format, channels));
+    }
 }
 
 MA_API void ma_clip_samples_f32(float* p, ma_uint64 sampleCount)
@@ -9096,7 +9111,7 @@ static void ma_device__on_data(ma_device* pDevice, void* pFramesOut, const void*
 
     if (pDevice->onData) {
         if (!pDevice->noPreZeroedOutputBuffer && pFramesOut != NULL) {
-            ma_zero_pcm_frames(pFramesOut, frameCount, pDevice->playback.format, pDevice->playback.channels);
+            ma_silence_pcm_frames(pFramesOut, frameCount, pDevice->playback.format, pDevice->playback.channels);
         }
 
         /* Volume control of input makes things a bit awkward because the input buffer is read-only. We'll need to use a temp buffer and loop in this case. */
@@ -9851,7 +9866,7 @@ static ma_result ma_device_read__null(ma_device* pDevice, void* pPCMFrames, ma_u
                 framesToProcess = framesRemaining;
             }
 
-            /* We need to ensured the output buffer is zeroed. */
+            /* We need to ensure the output buffer is zeroed. */
             MA_ZERO_MEMORY(ma_offset_ptr(pPCMFrames, totalPCMFramesProcessed*bpf), framesToProcess*bpf);
 
             pDevice->null_device.currentPeriodFramesRemainingCapture -= framesToProcess;
@@ -30824,7 +30839,7 @@ static MA_INLINE void ma_pcm_sample_s32_to_s24_no_scale(ma_int32 x, ma_uint8* s2
 
 static MA_INLINE ma_uint8 ma_clip_u8(ma_int16 x)
 {
-    return (ma_uint8)ma_clamp(x, -128, 127);
+    return (ma_uint8)(ma_clamp(x, -128, 127) + 128);
 }
 
 static MA_INLINE ma_int16 ma_clip_s16(ma_int32 x)
@@ -42783,7 +42798,8 @@ REVISION HISTORY
 ================
 v0.10.6 - TBD
   - Change ma_clip_samples_f32() and ma_clip_pcm_frames_f32() to take a 64-bit sample/frame count.
-  - Fix a bug in shuffle mode in ma_channel_converter.
+  - Change ma_zero_pcm_frames() to clear to 128 for ma_format_u8.
+  - Add ma_silence_pcm_frames() which replaces ma_zero_pcm_frames(). ma_zero_pcm_frames() will be removed in version 0.11.
   - Add support for u8, s24 and s32 formats to ma_channel_converter.
   - Add compile-time and run-time version querying.
     - MA_VERSION_MINOR
@@ -42792,6 +42808,7 @@ v0.10.6 - TBD
     - MA_VERSION_STRING
     - ma_version()
     - ma_version_string()
+  - Fix a bug in shuffle mode in ma_channel_converter.
 
 v0.10.5 - 2020-05-05
   - Change ma_zero_pcm_frames() to take a 64-bit frame count.
