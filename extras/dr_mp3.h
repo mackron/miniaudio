@@ -1,6 +1,6 @@
 /*
 MP3 audio decoder. Choice of public domain or MIT-0. See license statements at the end of this file.
-dr_mp3 - v0.6.9 - 2020-04-30
+dr_mp3 - v0.6.10 - 2020-05-16
 
 David Reid - mackron@gmail.com
 
@@ -89,6 +89,14 @@ Build Options
 #ifdef __cplusplus
 extern "C" {
 #endif
+
+#define DRMP3_STRINGIFY(x)      #x
+#define DRMP3_XSTRINGIFY(x)     DRMP3_STRINGIFY(x)
+
+#define DRMP3_VERSION_MAJOR     0
+#define DRMP3_VERSION_MINOR     6
+#define DRMP3_VERSION_REVISION  10
+#define DRMP3_VERSION_STRING    DRMP3_XSTRINGIFY(DRMP3_VERSION_MAJOR) "." DRMP3_XSTRINGIFY(DRMP3_VERSION_MINOR) "." DRMP3_XSTRINGIFY(DRMP3_VERSION_REVISION)
 
 #include <stddef.h> /* For size_t. */
 
@@ -235,6 +243,11 @@ typedef drmp3_int32 drmp3_result;
 #else
     #define DRMP3_INLINE
 #endif
+
+
+DRMP3_API void drmp3_version(drmp3_uint32* pMajor, drmp3_uint32* pMinor, drmp3_uint32* pRevision);
+DRMP3_API const char* drmp3_version_string();
+
 
 /*
 Low Level Push API
@@ -513,6 +526,26 @@ DRMP3_API void drmp3_free(void* p, const drmp3_allocation_callbacks* pAllocation
 #include <stdlib.h>
 #include <string.h>
 #include <limits.h> /* For INT_MAX */
+
+DRMP3_API void drmp3_version(drmp3_uint32* pMajor, drmp3_uint32* pMinor, drmp3_uint32* pRevision)
+{
+    if (pMajor) {
+        *pMajor = DRMP3_VERSION_MAJOR;
+    }
+
+    if (pMinor) {
+        *pMinor = DRMP3_VERSION_MINOR;
+    }
+
+    if (pRevision) {
+        *pRevision = DRMP3_VERSION_REVISION;
+    }
+}
+
+DRMP3_API const char* drmp3_version_string()
+{
+    return DRMP3_VERSION_STRING;
+}
 
 /* Disable SIMD when compiling with TCC for now. */
 #if defined(__TINYC__)
@@ -4390,6 +4423,15 @@ counts rather than sample counts.
 /*
 REVISION HISTORY
 ================
+v0.6.10 - 2020-05-16
+  - Add compile-time and run-time version querying.
+    - DRMP3_VERSION_MINOR
+    - DRMP3_VERSION_MAJOR
+    - DRMP3_VERSION_REVISION
+    - DRMP3_VERSION_STRING
+    - drmp3_version()
+    - drmp3_version_string()
+
 v0.6.9 - 2020-04-30
   - Change the `pcm` parameter of drmp3dec_decode_frame() to a `const drmp3_uint8*` for consistency with internal APIs.
 
