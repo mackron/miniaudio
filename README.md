@@ -15,7 +15,7 @@
     <a href="#supported-platforms">Supported Platforms</a> -
     <a href="#backends">Backends</a> -
     <a href="#building">Building</a> -
-    <a href="#example">Examples</a> -
+    <a href="#examples">Examples</a> -
     <a href="#documentation">Documentation</a> -
     <a href="#unofficial-bindings">Unofficial Bindings</a>
 </p>
