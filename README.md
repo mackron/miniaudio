@@ -1,7 +1,6 @@
 ![miniaudio](https://miniaud.io/img/miniaudio_wide.png)
 
-miniaudio is a single file library for audio playback and capture. It's written in C (compilable as C++) and
-released into the public domain.
+<h4 align="center">A single file library for audio playback and capture.</h4>
 
 
 Features
