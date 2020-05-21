@@ -1,7 +1,13 @@
-![miniaudio](https://miniaud.io/img/miniaudio_wide.png)
+<h1 align="center">
+    <a href="http://miniaud.io"><img src="https://miniaud.io/img/miniaudio_wide.png" alt="miniaudio" width="1280"></a>
+    <br>
+</h1>
 
 <h4 align="center">A single file library for audio playback and capture.</h4>
 
+<p align="center">
+    <a href="https://discord.gg/9vpqbjU"><img src="https://img.shields.io/discord/712952679415939085?label=discord&logo=discord" alt="discord"></a>
+</p>
 
 Features
 ========
