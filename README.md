@@ -1,5 +1,5 @@
 <h1 align="center">
-    <a href="http://miniaud.io"><img src="https://miniaud.io/img/miniaudio_wide.png" alt="miniaudio" width="1280"></a>
+    <a href="https://miniaud.io"><img src="https://miniaud.io/img/miniaudio_wide.png" alt="miniaudio" width="1280"></a>
     <br>
 </h1>
 
