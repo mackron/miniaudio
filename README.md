@@ -9,8 +9,18 @@
     <a href="https://discord.gg/9vpqbjU"><img src="https://img.shields.io/discord/712952679415939085?label=discord&logo=discord" alt="discord"></a>
 </p>
 
-Features
-========
+<p align="center">
+    <a href="#features">Features</a> -
+    <a href="#supported-platforms">Supported Platforms</a> -
+    <a href="#backends">Backends</a> -
+    <a href="#building">Building</a> -
+    <a href="#example">Example</a> -
+    <a href="#decoding">Decoding</a> -
+    <a href="#unofficial-bindings">Unofficial Bindings</a>
+</p>
+
+# Features
+
 - Liberally licensed, with your choice of either public domain or MIT No Attribution for those regions who don't
   recognize public domain.
 - Everything is implemented in a single file for easy integration into your source tree.
@@ -87,7 +97,7 @@ Backends
 
 
 Building
-======
+========
 Do the following in one source file:
 ```c
 #define MINIAUDIO_IMPLEMENTATION
@@ -98,8 +108,9 @@ to anything. On Linux just link to -lpthread, -lm and -ldl. On BSD just link to 
 need to compile as Objective-C.
 
 
-Simple Playback Example
-=======================
+Example
+=======
+This example shows how to decode and play a sound.
 
 ```c
 #define DR_FLAC_IMPLEMENTATION
@@ -174,8 +185,8 @@ int main(int argc, char** argv)
 ```
 
 
-MP3/Vorbis/FLAC/WAV Decoding
-============================
+Decoding
+========
 miniaudio includes a decoding API which supports the following backends:
 - FLAC via [dr_flac](https://github.com/mackron/dr_libs/blob/master/dr_flac.h)
 - MP3 via [dr_mp3](https://github.com/mackron/dr_libs/blob/master/dr_mp3.h)
