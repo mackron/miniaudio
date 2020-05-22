@@ -22,11 +22,10 @@
 
 Features
 ========
-- Liberally licensed, with your choice of either public domain or MIT No Attribution for those regions who don't
-  recognize public domain.
-- Everything is implemented in a single file for easy integration into your source tree.
-- No external dependencies except for the C standard library and backend APIs.
-- Written in C89 and compilable as C++ which should enable miniaudio to work with almost all compilers.
+- Your choice of either public domain or [MIT No Attribution](https://github.com/aws/mit-0).
+- Entirely contained within a single file for easy integration into your source tree.
+- No external dependencies except for the C standard library and backend libraries.
+- Written in C and compilable as C++, enabling miniaudio to work on almost all compilers.
 - Supports all major desktop and mobile platforms, with multiple backends for maximum compatibility.
 - Supports playback, capture, full-duplex and loopback (WASAPI only).
 - Device enumeration for connecting to specific devices, not just defaults.
