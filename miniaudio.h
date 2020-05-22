@@ -16280,6 +16280,7 @@ typedef snd_pcm_format_mask_t                   ma_snd_pcm_format_mask_t;
 typedef snd_pcm_info_t                          ma_snd_pcm_info_t;
 typedef snd_pcm_channel_area_t                  ma_snd_pcm_channel_area_t;
 typedef snd_pcm_chmap_t                         ma_snd_pcm_chmap_t;
+typedef snd_pcm_state_t                         ma_snd_pcm_state_t;
 
 /* snd_pcm_stream_t */
 #define MA_SND_PCM_STREAM_PLAYBACK              SND_PCM_STREAM_PLAYBACK
@@ -16360,6 +16361,7 @@ typedef long                                    ma_snd_pcm_sframes_t;
 typedef int                                     ma_snd_pcm_stream_t;
 typedef int                                     ma_snd_pcm_format_t;
 typedef int                                     ma_snd_pcm_access_t;
+typedef int                                     ma_snd_pcm_state_t;
 typedef struct ma_snd_pcm_t                     ma_snd_pcm_t;
 typedef struct ma_snd_pcm_hw_params_t           ma_snd_pcm_hw_params_t;
 typedef struct ma_snd_pcm_sw_params_t           ma_snd_pcm_sw_params_t;
@@ -16488,7 +16490,7 @@ typedef int                  (* ma_snd_pcm_hw_params_get_access_proc)          (
 typedef int                  (* ma_snd_pcm_hw_params_proc)                     (ma_snd_pcm_t *pcm, ma_snd_pcm_hw_params_t *params);
 typedef size_t               (* ma_snd_pcm_sw_params_sizeof_proc)              (void);
 typedef int                  (* ma_snd_pcm_sw_params_current_proc)             (ma_snd_pcm_t *pcm, ma_snd_pcm_sw_params_t *params);
-typedef int                  (* ma_snd_pcm_sw_params_get_boundary_proc)        (ma_snd_pcm_sw_params_t *params, ma_snd_pcm_uframes_t* val);
+typedef int                  (* ma_snd_pcm_sw_params_get_boundary_proc)        (const ma_snd_pcm_sw_params_t *params, ma_snd_pcm_uframes_t* val);
 typedef int                  (* ma_snd_pcm_sw_params_set_avail_min_proc)       (ma_snd_pcm_t *pcm, ma_snd_pcm_sw_params_t *params, ma_snd_pcm_uframes_t val);
 typedef int                  (* ma_snd_pcm_sw_params_set_start_threshold_proc) (ma_snd_pcm_t *pcm, ma_snd_pcm_sw_params_t *params, ma_snd_pcm_uframes_t val);
 typedef int                  (* ma_snd_pcm_sw_params_set_stop_threshold_proc)  (ma_snd_pcm_t *pcm, ma_snd_pcm_sw_params_t *params, ma_snd_pcm_uframes_t val);
@@ -16496,7 +16498,7 @@ typedef int                  (* ma_snd_pcm_sw_params_proc)                     (
 typedef size_t               (* ma_snd_pcm_format_mask_sizeof_proc)            (void);
 typedef int                  (* ma_snd_pcm_format_mask_test_proc)              (const ma_snd_pcm_format_mask_t *mask, ma_snd_pcm_format_t val);
 typedef ma_snd_pcm_chmap_t * (* ma_snd_pcm_get_chmap_proc)                     (ma_snd_pcm_t *pcm);
-typedef int                  (* ma_snd_pcm_state_proc)                         (ma_snd_pcm_t *pcm);
+typedef ma_snd_pcm_state_t   (* ma_snd_pcm_state_proc)                         (ma_snd_pcm_t *pcm);
 typedef int                  (* ma_snd_pcm_prepare_proc)                       (ma_snd_pcm_t *pcm);
 typedef int                  (* ma_snd_pcm_start_proc)                         (ma_snd_pcm_t *pcm);
 typedef int                  (* ma_snd_pcm_drop_proc)                          (ma_snd_pcm_t *pcm);
@@ -18490,6 +18492,8 @@ static ma_result ma_context_init__alsa(const ma_context_config* pConfig, ma_cont
     pContext->alsa.snd_pcm_hw_params_get_channels_min     = (ma_proc)_snd_pcm_hw_params_get_channels_min;
     pContext->alsa.snd_pcm_hw_params_get_channels_max     = (ma_proc)_snd_pcm_hw_params_get_channels_max;
     pContext->alsa.snd_pcm_hw_params_get_rate             = (ma_proc)_snd_pcm_hw_params_get_rate;
+    pContext->alsa.snd_pcm_hw_params_get_rate_min         = (ma_proc)_snd_pcm_hw_params_get_rate_min;
+    pContext->alsa.snd_pcm_hw_params_get_rate_max         = (ma_proc)_snd_pcm_hw_params_get_rate_max;
     pContext->alsa.snd_pcm_hw_params_get_buffer_size      = (ma_proc)_snd_pcm_hw_params_get_buffer_size;
     pContext->alsa.snd_pcm_hw_params_get_periods          = (ma_proc)_snd_pcm_hw_params_get_periods;
     pContext->alsa.snd_pcm_hw_params_get_access           = (ma_proc)_snd_pcm_hw_params_get_access;
