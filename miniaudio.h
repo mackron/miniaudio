@@ -16267,7 +16267,22 @@ ALSA Backend
 #ifdef MA_HAS_ALSA
 
 #ifdef MA_NO_RUNTIME_LINKING
+
+/* asoundlib.h marks some functions with "inline" which isn't always supported. Need to emulate it. */
+#if !defined(__cplusplus)
+    #if defined(__STRICT_ANSI__)
+        #if !defined(inline)
+            #define inline __inline__ __attribute__((always_inline))
+            #define MA_INLINE_DEFINED
+        #endif
+    #endif
+#endif
 #include <alsa/asoundlib.h>
+#if defined(MA_INLINE_DEFINED)
+    #undef inline
+    #undef MA_INLINE_DEFINED
+#endif
+
 typedef snd_pcm_uframes_t                       ma_snd_pcm_uframes_t;
 typedef snd_pcm_sframes_t                       ma_snd_pcm_sframes_t;
 typedef snd_pcm_stream_t                        ma_snd_pcm_stream_t;
