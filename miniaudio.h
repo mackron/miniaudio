@@ -18582,7 +18582,21 @@ When using compile time linking, each of our ma_* equivalents should use the sam
 reason for this is that it allow us to take advantage of proper type safety.
 */
 #ifdef MA_NO_RUNTIME_LINKING
+
+/* pulseaudio.h marks some functions with "inline" which isn't always supported. Need to emulate it. */
+#if !defined(__cplusplus)
+    #if defined(__STRICT_ANSI__)
+        #if !defined(inline)
+            #define inline __inline__ __attribute__((always_inline))
+            #define MA_INLINE_DEFINED
+        #endif
+    #endif
+#endif
 #include <pulse/pulseaudio.h>
+#if defined(MA_INLINE_DEFINED)
+    #undef inline
+    #undef MA_INLINE_DEFINED
+#endif
 
 #define MA_PA_OK                                       PA_OK
 #define MA_PA_ERR_ACCESS                               PA_ERR_ACCESS
