@@ -801,6 +801,7 @@ ma_mixer_end()
 MA_API ma_result ma_mixer_mix_decoder(ma_mixer* pMixer, ma_decoder* pDecoder, ma_uint64 frameCountIn, ma_bool32 loop);
 #endif
 
+MA_API ma_result ma_mixer_mix_audio_buffer(ma_mixer* pMixer, ma_audio_buffer* pAudioBuffer, ma_uint64 frameCountIn, ma_bool32 loop);
 #ifndef MA_NO_GENERATION
 MA_API ma_result ma_mixer_mix_waveform(ma_mixer* pMixer, ma_waveform* pWaveform, ma_uint64 frameCountIn);
 MA_API ma_result ma_mixer_mix_noise(ma_mixer* pMixer, ma_noise* pNoise, ma_uint64 frameCountIn);
@@ -808,6 +809,7 @@ MA_API ma_result ma_mixer_mix_noise(ma_mixer* pMixer, ma_noise* pNoise, ma_uint6
 MA_API ma_result ma_mixer_mix_pcm_rb(ma_mixer* pMixer, ma_pcm_rb* pRB, ma_uint64 frameCountIn);                                         /* Caller is the consumer. */
 MA_API ma_result ma_mixer_mix_rb(ma_mixer* pMixer, ma_rb* pRB, ma_uint64 frameCountIn);                                                 /* Caller is the consumer. Assumes data is in the same format as the mixer. */
 MA_API ma_result ma_mixer_mix_rb_ex(ma_mixer* pMixer, ma_rb* pRB, ma_uint64 frameCountIn, ma_format formatIn, ma_uint32 channelsIn);    /* Caller is the consumer. */
+MA_API ma_result ma_mixer_mix_data_source(ma_mixer* pMixer, ma_data_source* pDataSource, ma_uint64 frameCountIn, ma_bool32 loop);
 MA_API ma_result ma_mixer_set_volume(ma_mixer* pMixer, float volume);
 MA_API ma_result ma_mixer_get_volume(ma_mixer* pMixer, float* pVolume);
 MA_API ma_result ma_mixer_set_gain_db(ma_mixer* pMixer, float gainDB);
@@ -2810,66 +2812,68 @@ MA_API ma_result ma_mixer_mix_callback(ma_mixer* pMixer, ma_mixer_mix_callback_p
 }
 
 #ifndef MA_NO_DECODING
-typedef struct
-{
-    ma_decoder* pDecoder;
-    ma_bool32 loop;
-} ma_mixer_mix_decoder_data;
-
-static ma_uint32 ma_mixer_mix_decoder__callback(void* pUserData, void* pFramesOut, ma_uint32 frameCount)
-{
-    ma_mixer_mix_decoder_data* pData = (ma_mixer_mix_decoder_data*)pUserData;
-    ma_uint32 totalFramesRead = 0;
-    void* pRunningFramesOut = pFramesOut;
-
-    while (totalFramesRead < frameCount) {
-        ma_uint32 framesToRead = frameCount - totalFramesRead;
-        ma_uint32 framesRead = (ma_uint32)ma_decoder_read_pcm_frames(pData->pDecoder, pRunningFramesOut, framesToRead); /* Safe cast because frameCount is 32-bit. */
-        if (framesRead < framesToRead) {
-            if (pData->loop) {
-                ma_decoder_seek_to_pcm_frame(pData->pDecoder, 0);
-            } else {
-                break;
-            }
-        }
-
-        totalFramesRead += framesRead;
-        pRunningFramesOut = ma_offset_ptr(pRunningFramesOut, framesRead * ma_get_bytes_per_frame(pData->pDecoder->outputFormat, pData->pDecoder->outputChannels));
-    }
-
-    return totalFramesRead;
-}
-
 MA_API ma_result ma_mixer_mix_decoder(ma_mixer* pMixer, ma_decoder* pDecoder, ma_uint64 frameCountIn, ma_bool32 loop)
 {
-    ma_mixer_mix_decoder_data data;
-    data.pDecoder = pDecoder;
-    data.loop     = loop;
-
-    return ma_mixer_mix_callback(pMixer, ma_mixer_mix_decoder__callback, &data, frameCountIn, pDecoder->outputFormat, pDecoder->outputChannels);
+    return ma_mixer_mix_data_source(pMixer, pDecoder, frameCountIn, loop);
 }
 #endif  /* MA_NO_DECODING */
 
-#ifndef MA_NO_GENERATION
-static ma_uint32 ma_mixer_mix_waveform__callback(void* pUserData, void* pFramesOut, ma_uint32 frameCount)
+MA_API ma_result ma_mixer_mix_audio_buffer(ma_mixer* pMixer, ma_audio_buffer* pAudioBuffer, ma_uint64 frameCountIn, ma_bool32 loop)
 {
-    return (ma_uint32)ma_waveform_read_pcm_frames((ma_waveform*)pUserData, pFramesOut, frameCount); /* Safe case to ma_uint32 because frameCount is 32-bit. */
+    /*
+    The ma_audio_buffer object is a data source, but we can do a specialized implementation to optimize data movement by utilizing memory mapping, kind
+    of like what we do with `ma_mixer_mix_pcm_rb()`.
+    */
+    ma_result result;
+    ma_uint64 totalFramesProcessed = 0;
+    void* pRunningAccumulationBuffer = pMixer->pAccumulationBuffer;
+
+    if (pMixer == NULL || pAudioBuffer == NULL) {
+        return MA_INVALID_ARGS;
+    }
+
+    if (frameCountIn > pMixer->mixingState.frameCountIn) {
+        return MA_INVALID_ARGS; /* Passing in too many input frames. */
+    }
+
+    while (totalFramesProcessed < frameCountIn) {
+        void* pMappedBuffer;
+        ma_uint64 framesToProcess = frameCountIn - totalFramesProcessed;
+
+        result = ma_audio_buffer_map(pAudioBuffer, &pMappedBuffer, &framesToProcess);
+        if (framesToProcess == 0) {
+            break;  /* Wasn't able to map any data. Abort. */
+        }
+
+        ma_mix_pcm_frames_ex(pRunningAccumulationBuffer, pMixer->format, pMixer->channels, pMappedBuffer, pAudioBuffer->format, pAudioBuffer->channels, framesToProcess);
+
+        ma_audio_buffer_unmap(pAudioBuffer, framesToProcess);
+
+        /* If after mapping we're at the end we'll need to decide if we want to loop. */
+        if (ma_audio_buffer_at_end(pAudioBuffer)) {
+            if (loop) {
+                ma_audio_buffer_seek_to_pcm_frame(pAudioBuffer, 0);
+            } else {
+                break;  /* We've reached the end and we're not looping. */
+            }
+        }
+
+        totalFramesProcessed += framesToProcess;
+        pRunningAccumulationBuffer = ma_offset_ptr(pRunningAccumulationBuffer, framesToProcess * ma_get_accumulation_bytes_per_frame(pMixer->format, pMixer->channels));
+    }
+
+    return MA_SUCCESS;
 }
 
+#ifndef MA_NO_GENERATION
 MA_API ma_result ma_mixer_mix_waveform(ma_mixer* pMixer, ma_waveform* pWaveform, ma_uint64 frameCountIn)
 {
-    return ma_mixer_mix_callback(pMixer, ma_mixer_mix_waveform__callback, pWaveform, frameCountIn, pWaveform->config.format, pWaveform->config.channels);
-}
-
-
-static ma_uint32 ma_mixer_mix_noise__callback(void* pUserData, void* pFramesOut, ma_uint32 frameCount)
-{
-    return (ma_uint32)ma_noise_read_pcm_frames((ma_noise*)pUserData, pFramesOut, frameCount); /* Safe case to ma_uint32 because frameCount is 32-bit. */
+    return ma_mixer_mix_data_source(pMixer, pWaveform, frameCountIn, MA_FALSE);
 }
 
 MA_API ma_result ma_mixer_mix_noise(ma_mixer* pMixer, ma_noise* pNoise, ma_uint64 frameCountIn)
 {
-    return ma_mixer_mix_callback(pMixer, ma_mixer_mix_noise__callback, pNoise, frameCountIn, pNoise->config.format, pNoise->config.channels);
+    return ma_mixer_mix_data_source(pMixer, pNoise, frameCountIn, MA_FALSE);
 }
 #endif  /* MA_NO_GENERATION */
 
@@ -2965,6 +2969,54 @@ MA_API ma_result ma_mixer_mix_rb_ex(ma_mixer* pMixer, ma_rb* pRB, ma_uint64 fram
     }
 
     return MA_SUCCESS;
+}
+
+typedef struct
+{
+    ma_data_source* pDataSource;
+    ma_format format;
+    ma_uint32 channels;
+    ma_bool32 loop;
+} ma_mixer_mix_data_source_data;
+
+static ma_uint32 ma_mixer_mix_data_source__callback(void* pUserData, void* pFramesOut, ma_uint32 frameCount)
+{
+    ma_mixer_mix_data_source_data* pData = (ma_mixer_mix_data_source_data*)pUserData;
+    ma_uint32 totalFramesRead = 0;
+    void* pRunningFramesOut = pFramesOut;
+
+    while (totalFramesRead < frameCount) {
+        ma_uint32 framesToRead = frameCount - totalFramesRead;
+        ma_uint32 framesRead = (ma_uint32)ma_data_source_read_pcm_frames(pData->pDataSource, pRunningFramesOut, framesToRead); /* Safe cast because frameCount is 32-bit. */
+        if (framesRead < framesToRead) {
+            if (pData->loop) {
+                ma_data_source_seek_to_pcm_frame(pData->pDataSource, 0);
+            } else {
+                break;
+            }
+        }
+
+        totalFramesRead += framesRead;
+        pRunningFramesOut = ma_offset_ptr(pRunningFramesOut, framesRead * ma_get_bytes_per_frame(pData->format, pData->channels));
+    }
+
+    return totalFramesRead;
+}
+
+MA_API ma_result ma_mixer_mix_data_source(ma_mixer* pMixer, ma_data_source* pDataSource, ma_uint64 frameCountIn, ma_bool32 loop)
+{
+    ma_result result;
+    ma_mixer_mix_data_source_data data;
+
+    result = ma_data_source_get_data_format(pDataSource, &data.format, &data.channels);
+    if (result != MA_SUCCESS) {
+        return result;
+    }
+
+    data.pDataSource = pDataSource;
+    data.loop        = loop;
+
+    return ma_mixer_mix_callback(pMixer, ma_mixer_mix_data_source__callback, &data, frameCountIn, data.format, data.channels);
 }
 
 

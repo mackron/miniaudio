@@ -19,6 +19,7 @@ ma_noise g_noise;
 ma_waveform g_waveform;
 ma_decoder g_decoder;
 ma_bool32 g_hasDecoder = MA_FALSE;
+ma_audio_buffer* g_pAudioBuffer;
 
 void data_callback(ma_device* pDevice, void* pFramesOut, const void* pFramesIn, ma_uint32 frameCount)
 {
@@ -46,6 +47,9 @@ void data_callback(ma_device* pDevice, void* pFramesOut, const void* pFramesIn, 
                 if (g_hasDecoder) {
                     ma_mixer_mix_decoder(&g_mixerEffects, &g_decoder, submixFrameCountIn, MA_TRUE);
                 }
+                if (g_pAudioBuffer != NULL) {
+                    ma_mixer_mix_audio_buffer(&g_mixerEffects, g_pAudioBuffer, submixFrameCountIn, MA_TRUE);
+                }
             }
             ma_mixer_end(&g_mixerEffects, &g_mixer, NULL);
         }
@@ -65,12 +69,19 @@ int main(int argc, char** argv)
     ma_noise_config noiseConfig;
     ma_waveform_config waveformConfig;
     ma_decoder_config decoderConfig;
-    const char* pInputFilePath = NULL;
+    ma_audio_buffer_config audioBufferConfig;
+    void* pInputFileData2;
+    ma_uint64 inputFileDataSize2;
+    const char* pInputFilePath1 = NULL;
+    const char* pInputFilePath2 = NULL;
     ma_effect_config effectConfig;
     ma_effect effect;
     
     if (argc > 1) {
-        pInputFilePath = argv[1];
+        pInputFilePath1 = argv[1];
+    }
+    if (argc > 2) {
+        pInputFilePath2 = argv[2];
     }
 
     deviceConfig = ma_device_config_init(ma_device_type_playback);
@@ -125,19 +136,33 @@ int main(int argc, char** argv)
         return result;
     }
 
-    waveformConfig = ma_waveform_config_init(device.playback.format, device.playback.channels, device.sampleRate, ma_waveform_type_sine, 0.2, 220);
+    waveformConfig = ma_waveform_config_init(device.playback.format, device.playback.channels, device.sampleRate, ma_waveform_type_sine, 0.5, 220);
     result = ma_waveform_init(&waveformConfig, &g_waveform);
     if (result != MA_SUCCESS) {
         return result;
     }
 
-    if (pInputFilePath != NULL) {
+    if (pInputFilePath1 != NULL) {
         decoderConfig = ma_decoder_config_init(device.playback.format, device.playback.channels, device.sampleRate);
-        result = ma_decoder_init_file(pInputFilePath, &decoderConfig, &g_decoder);
+        result = ma_decoder_init_file(pInputFilePath1, &decoderConfig, &g_decoder);
         if (result == MA_SUCCESS) {
             g_hasDecoder = MA_TRUE;
         }
     }
+
+    if (pInputFilePath2 != NULL) {
+        ma_decoder_config config = ma_decoder_config_init(ma_format_f32, 2, 0);
+        result = ma_decode_file(pInputFilePath2, &config, &inputFileDataSize2, &pInputFileData2);
+        if (result == MA_SUCCESS) {
+            audioBufferConfig = ma_audio_buffer_config_init(config.format, config.channels, inputFileDataSize2, pInputFileData2, NULL);
+            result = ma_audio_buffer_alloc_and_init(&audioBufferConfig, &g_pAudioBuffer);
+
+            ma_free(pInputFileData2, NULL);
+            pInputFileData2 = NULL;
+        }
+    }
+
+
 
 
     /* Everything is setup. We can now start the device. */
