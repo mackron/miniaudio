@@ -40075,7 +40075,7 @@ MA_API ma_result ma_audio_buffer_alloc_and_init(const ma_audio_buffer_config* pC
         return MA_OUT_OF_MEMORY;    /* Too big. */
     }
 
-    pAudioBuffer = ma__malloc_from_callbacks((size_t)allocationSizeInBytes, &innerConfig.allocationCallbacks);  /* Safe cast to size_t. */
+    pAudioBuffer = (ma_audio_buffer*)ma__malloc_from_callbacks((size_t)allocationSizeInBytes, &innerConfig.allocationCallbacks);  /* Safe cast to size_t. */
     if (pAudioBuffer == NULL) {
         return MA_OUT_OF_MEMORY;
     }
