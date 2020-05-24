@@ -40170,7 +40170,7 @@ MA_API ma_result ma_audio_buffer_seek_to_pcm_frame(ma_audio_buffer* pAudioBuffer
 MA_API ma_result ma_audio_buffer_map(ma_audio_buffer* pAudioBuffer, void** ppFramesOut, ma_uint64* pFrameCount)
 {
     ma_uint64 framesAvailable;
-    ma_uint64 frameCount;
+    ma_uint64 frameCount = 0;
 
     if (ppFramesOut != NULL) {
         *ppFramesOut = NULL;    /* Safety. */
@@ -43386,6 +43386,7 @@ REVISION HISTORY
 ================
 v0.10.7 - TBD
   - Fix a compilation error in the C++ build.
+  - Silence a warning.
 
 v0.10.6 - 2020-05-24
   - Change ma_clip_samples_f32() and ma_clip_pcm_frames_f32() to take a 64-bit sample/frame count.
