@@ -1,6 +1,6 @@
 /*
 Audio playback and capture library. Choice of public domain or MIT-0. See license statements at the end of this file.
-miniaudio - v0.10.6 - 2020-05-24
+miniaudio - v0.10.7 - TBD
 
 David Reid - davidreidsoftware@gmail.com
 
@@ -1539,7 +1539,7 @@ extern "C" {
 
 #define MA_VERSION_MAJOR    0
 #define MA_VERSION_MINOR    10
-#define MA_VERSION_REVISION 6
+#define MA_VERSION_REVISION 7
 #define MA_VERSION_STRING   MA_XSTRINGIFY(MA_VERSION_MAJOR) "." MA_XSTRINGIFY(MA_VERSION_MINOR) "." MA_XSTRINGIFY(MA_VERSION_REVISION)
 
 #if defined(_MSC_VER) && !defined(__clang__)
@@ -43384,6 +43384,9 @@ The following miscellaneous changes have also been made.
 /*
 REVISION HISTORY
 ================
+v0.10.7 - TBD
+  - Fix a compilation error in the C++ build.
+
 v0.10.6 - 2020-05-24
   - Change ma_clip_samples_f32() and ma_clip_pcm_frames_f32() to take a 64-bit sample/frame count.
   - Change ma_zero_pcm_frames() to clear to 128 for ma_format_u8.
