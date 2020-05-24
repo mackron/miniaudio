@@ -1,6 +1,6 @@
 /*
 Audio playback and capture library. Choice of public domain or MIT-0. See license statements at the end of this file.
-miniaudio - v0.10.6 - TBD
+miniaudio - v0.10.6 - 2020-05-24
 
 David Reid - davidreidsoftware@gmail.com
 
@@ -43384,7 +43384,7 @@ The following miscellaneous changes have also been made.
 /*
 REVISION HISTORY
 ================
-v0.10.6 - TBD
+v0.10.6 - 2020-05-24
   - Change ma_clip_samples_f32() and ma_clip_pcm_frames_f32() to take a 64-bit sample/frame count.
   - Change ma_zero_pcm_frames() to clear to 128 for ma_format_u8.
   - Add ma_silence_pcm_frames() which replaces ma_zero_pcm_frames(). ma_zero_pcm_frames() will be removed in version 0.11.
@@ -43396,7 +43396,9 @@ v0.10.6 - TBD
     - MA_VERSION_STRING
     - ma_version()
     - ma_version_string()
+  - Add ma_audio_buffer for reading raw audio data directly from memory.
   - Fix a bug in shuffle mode in ma_channel_converter.
+  - Fix compilation errors in certain configurations for ALSA and PulseAudio.
   - The data callback now initializes the output buffer to 128 when the playback sample format is ma_format_u8.
 
 v0.10.5 - 2020-05-05
