@@ -1,6 +1,6 @@
 /*
 Audio playback and capture library. Choice of public domain or MIT-0. See license statements at the end of this file.
-miniaudio - v0.10.7 - TBD
+miniaudio - v0.10.7 - 2020-05-25
 
 David Reid - davidreidsoftware@gmail.com
 
@@ -43384,7 +43384,7 @@ The following miscellaneous changes have also been made.
 /*
 REVISION HISTORY
 ================
-v0.10.7 - TBD
+v0.10.7 - 2020-05-25
   - Fix a compilation error in the C++ build.
   - Silence a warning.
 
