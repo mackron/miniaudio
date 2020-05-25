@@ -340,7 +340,7 @@ typedef struct
     float volume;
 } ma_mixer_config;
 
-MA_API ma_mixer_config ma_mixer_config_init(ma_format format, ma_uint32 channels, ma_uint64 accumulationBufferSizeInFrames, void* pPreAllocatedAccumulationBuffer);
+MA_API ma_mixer_config ma_mixer_config_init(ma_format format, ma_uint32 channels, ma_uint64 accumulationBufferSizeInFrames, void* pPreAllocatedAccumulationBuffer, const ma_allocation_callbacks* pAllocationCallbacks);
 
 typedef ma_uint32 (* ma_mixer_mix_callback_proc)(void* pUserData, void* pFramesOut, ma_uint32 frameCount);
 
@@ -2544,7 +2544,7 @@ static void ma_mix_accumulation_buffers_ex(void* pDst, ma_format formatOut, ma_u
 
 
 
-MA_API ma_mixer_config ma_mixer_config_init(ma_format format, ma_uint32 channels, ma_uint64 accumulationBufferSizeInFrames, void* pPreAllocatedAccumulationBuffer)
+MA_API ma_mixer_config ma_mixer_config_init(ma_format format, ma_uint32 channels, ma_uint64 accumulationBufferSizeInFrames, void* pPreAllocatedAccumulationBuffer, const ma_allocation_callbacks* pAllocationCallbacks)
 {
     ma_mixer_config config;
     
@@ -2554,6 +2554,7 @@ MA_API ma_mixer_config ma_mixer_config_init(ma_format format, ma_uint32 channels
     config.accumulationBufferSizeInFrames = accumulationBufferSizeInFrames;
     config.pPreAllocatedAccumulationBuffer = pPreAllocatedAccumulationBuffer;
     config.volume = 1;
+    ma_allocation_callbacks_init_copy(&config.allocationCallbacks, pAllocationCallbacks);
 
     return config;
 }

@@ -107,7 +107,7 @@ int main(int argc, char** argv)
 
 
     /* Mixers. */
-    mixerConfig = ma_mixer_config_init(device.playback.format, device.playback.channels, 4096, NULL);
+    mixerConfig = ma_mixer_config_init(device.playback.format, device.playback.channels, 4096, NULL, NULL);
     result = ma_mixer_init(&mixerConfig, &g_mixer);
     if (result != MA_SUCCESS) {
         return result;
