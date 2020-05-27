@@ -1,6 +1,6 @@
 /*
 MP3 audio decoder. Choice of public domain or MIT-0. See license statements at the end of this file.
-dr_mp3 - v0.6.10 - 2020-05-16
+dr_mp3 - v0.6.11 - 2020-05-26
 
 David Reid - mackron@gmail.com
 
@@ -95,7 +95,7 @@ extern "C" {
 
 #define DRMP3_VERSION_MAJOR     0
 #define DRMP3_VERSION_MINOR     6
-#define DRMP3_VERSION_REVISION  10
+#define DRMP3_VERSION_REVISION  11
 #define DRMP3_VERSION_STRING    DRMP3_XSTRINGIFY(DRMP3_VERSION_MAJOR) "." DRMP3_XSTRINGIFY(DRMP3_VERSION_MINOR) "." DRMP3_XSTRINGIFY(DRMP3_VERSION_REVISION)
 
 #include <stddef.h> /* For size_t. */
@@ -2751,11 +2751,12 @@ static drmp3_uint32 drmp3_decode_next_frame_ex__memory(drmp3* pMP3, drmp3d_sampl
     }
 
     pcmFramesRead = drmp3dec_decode_frame(&pMP3->decoder, pMP3->memory.pData + pMP3->memory.currentReadPos, (int)(pMP3->memory.dataSize - pMP3->memory.currentReadPos), pPCMFrames, &info);
-
-    pMP3->pcmFramesConsumedInMP3Frame  = 0;
-    pMP3->pcmFramesRemainingInMP3Frame = pcmFramesRead;
-    pMP3->mp3FrameChannels             = info.channels;
-    pMP3->mp3FrameSampleRate           = info.hz;
+    if (pcmFramesRead > 0) {
+        pMP3->pcmFramesConsumedInMP3Frame  = 0;
+        pMP3->pcmFramesRemainingInMP3Frame = pcmFramesRead;
+        pMP3->mp3FrameChannels             = info.channels;
+        pMP3->mp3FrameSampleRate           = info.hz;
+    }
 
     /* Consume the data. */
     pMP3->memory.currentReadPos += (size_t)info.frame_bytes;
@@ -4423,6 +4424,9 @@ counts rather than sample counts.
 /*
 REVISION HISTORY
 ================
+v0.6.11 - 2020-05-26
+  - Fix use of uninitialized variable error.
+
 v0.6.10 - 2020-05-16
   - Add compile-time and run-time version querying.
     - DRMP3_VERSION_MINOR

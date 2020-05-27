@@ -1,6 +1,6 @@
 /*
 WAV audio loader and writer. Choice of public domain or MIT-0. See license statements at the end of this file.
-dr_wav - v0.12.4 - 2020-05-16
+dr_wav - v0.12.5 - 2020-05-27
 
 David Reid - mackron@gmail.com
 
@@ -15,7 +15,7 @@ Version 0.12 includes breaking changes to custom chunk handling.
 
 Changes to Chunk Callback
 -------------------------
-dr_wav supports the ability to fire a callback when a chunk is encounted (except for WAVE and FMT chunks). The callback has been update to include both the
+dr_wav supports the ability to fire a callback when a chunk is encounted (except for WAVE and FMT chunks). The callback has been updated to include both the
 container (RIFF or Wave64) and the FMT chunk which contains information about the format of the data in the wave file.
 
 Previously, there was no direct way to determine the container, and therefore no way discriminate against the different IDs in the chunk header (RIFF and
@@ -144,7 +144,7 @@ extern "C" {
 
 #define DRWAV_VERSION_MAJOR     0
 #define DRWAV_VERSION_MINOR     12
-#define DRWAV_VERSION_REVISION  4
+#define DRWAV_VERSION_REVISION  5
 #define DRWAV_VERSION_STRING    DRWAV_XSTRINGIFY(DRWAV_VERSION_MAJOR) "." DRWAV_XSTRINGIFY(DRWAV_VERSION_MINOR) "." DRWAV_XSTRINGIFY(DRWAV_VERSION_REVISION)
 
 #include <stddef.h> /* For size_t. */
@@ -5784,6 +5784,9 @@ two different ways to initialize a drwav object.
 /*
 REVISION HISTORY
 ================
+v0.12.5 - 2020-05-27
+  - Minor documentation fix.
+
 v0.12.4 - 2020-05-16
   - Replace assert() with DRWAV_ASSERT().
   - Add compile-time and run-time version querying.
