@@ -5328,11 +5328,15 @@ typedef struct
 {
     ma_uint64 (* onRead)(ma_data_source* pDataSource, void* pFramesOut, ma_uint64 frameCount);
     ma_result (* onSeek)(ma_data_source* pDataSource, ma_uint64 frameIndex);
+    ma_result (* onMap)(ma_data_source* pDataSource, void** ppFramesOut, ma_uint64* pFrameCount);
+    ma_result (* onUnmap)(ma_data_source* pDataSource, ma_uint64 frameCount);
     ma_result (* onGetDataFormat)(ma_data_source* pDataSource, ma_format* pFormat, ma_uint32* pChannels);
 } ma_data_source_callbacks;
 
 MA_API ma_uint64 ma_data_source_read_pcm_frames(ma_data_source* pDataSource, void* pFramesOut, ma_uint64 frameCount);
 MA_API ma_result ma_data_source_seek_to_pcm_frame(ma_data_source* pDataSource, ma_uint64 frameIndex);
+MA_API ma_result ma_data_source_map(ma_data_source* pDataSource, void** ppFramesOut, ma_uint64* pFrameCount);
+MA_API ma_result ma_data_source_unmap(ma_data_source* pDataSource, ma_uint64 frameCount);
 MA_API ma_result ma_data_source_get_data_format(ma_data_source* pDataSource, ma_format* pFormat, ma_uint32* pChannels);
 
 
@@ -39903,6 +39907,26 @@ MA_API ma_result ma_data_source_seek_to_pcm_frame(ma_data_source* pDataSource, m
     }
 
     return pCallbacks->onSeek(pDataSource, frameIndex);
+}
+
+MA_API ma_result ma_data_source_map(ma_data_source* pDataSource, void** ppFramesOut, ma_uint64* pFrameCount)
+{
+    ma_data_source_callbacks* pCallbacks = (ma_data_source_callbacks*)pDataSource;
+    if (pCallbacks == NULL || pCallbacks->onMap == NULL) {
+        return MA_INVALID_ARGS;
+    }
+
+    return pCallbacks->onMap(pDataSource, ppFramesOut, pFrameCount);
+}
+
+MA_API ma_result ma_data_source_unmap(ma_data_source* pDataSource, ma_uint64 frameCount)
+{
+    ma_data_source_callbacks* pCallbacks = (ma_data_source_callbacks*)pDataSource;
+    if (pCallbacks == NULL || pCallbacks->onUnmap == NULL) {
+        return MA_INVALID_ARGS;
+    }
+
+    return pCallbacks->onUnmap(pDataSource, frameCount);
 }
 
 MA_API ma_result ma_data_source_get_data_format(ma_data_source* pDataSource, ma_format* pFormat, ma_uint32* pChannels)
