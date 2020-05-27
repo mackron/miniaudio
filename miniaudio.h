@@ -1,6 +1,6 @@
 /*
 Audio playback and capture library. Choice of public domain or MIT-0. See license statements at the end of this file.
-miniaudio - v0.10.7 - 2020-05-25
+miniaudio - v0.10.8 - TBD
 
 David Reid - davidreidsoftware@gmail.com
 
@@ -1539,7 +1539,7 @@ extern "C" {
 
 #define MA_VERSION_MAJOR    0
 #define MA_VERSION_MINOR    10
-#define MA_VERSION_REVISION 7
+#define MA_VERSION_REVISION 8
 #define MA_VERSION_STRING   MA_XSTRINGIFY(MA_VERSION_MAJOR) "." MA_XSTRINGIFY(MA_VERSION_MINOR) "." MA_XSTRINGIFY(MA_VERSION_REVISION)
 
 #if defined(_MSC_VER) && !defined(__clang__)
@@ -3280,7 +3280,7 @@ typedef struct
     } resampling;
     struct
     {
-        ma_device_id* pDeviceID;
+        const ma_device_id* pDeviceID;
         ma_format format;
         ma_uint32 channels;
         ma_channel channelMap[MA_MAX_CHANNELS];
@@ -3288,7 +3288,7 @@ typedef struct
     } playback;
     struct
     {
-        ma_device_id* pDeviceID;
+        const ma_device_id* pDeviceID;
         ma_format format;
         ma_uint32 channels;
         ma_channel channelMap[MA_MAX_CHANNELS];
@@ -43384,6 +43384,9 @@ The following miscellaneous changes have also been made.
 /*
 REVISION HISTORY
 ================
+v0.10.8 - TBD
+  - Change playback.pDeviceID and capture.pDeviceID to constant pointers in ma_device_config.
+
 v0.10.7 - 2020-05-25
   - Fix a compilation error in the C++ build.
   - Silence a warning.
