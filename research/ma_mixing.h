@@ -951,7 +951,7 @@ static ma_effect* ma_effect_get_root(ma_effect* pEffect)
     }
 
     /* Should never hit this. */
-    return NULL;
+    /*return NULL;*/
 }
 
 
@@ -1239,7 +1239,10 @@ MA_API ma_result ma_effect_init(const ma_effect_config* pConfig, ma_effect* pEff
             result = ma_effect_init__lpf(pConfig, pEffect);
         } break;
 
-        default: break;
+        default:
+        {
+            result = MA_INVALID_ARGS;   /* Unknown effect type. */
+        } break;
     }
 
     return result;
