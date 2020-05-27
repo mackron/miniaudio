@@ -5328,7 +5328,7 @@ typedef struct
 {
     ma_uint64 (* onRead)(ma_data_source* pDataSource, void* pFramesOut, ma_uint64 frameCount);
     ma_result (* onSeek)(ma_data_source* pDataSource, ma_uint64 frameIndex);
-    ma_result (* onMap)(ma_data_source* pDataSource, void** ppFramesOut, ma_uint64* pFrameCount);
+    ma_result (* onMap)(ma_data_source* pDataSource, void** ppFramesOut, ma_uint64* pFrameCount);   /* Returns MA_AT_END if the end has been reached. This should be considered successful. */
     ma_result (* onUnmap)(ma_data_source* pDataSource, ma_uint64 frameCount);
     ma_result (* onGetDataFormat)(ma_data_source* pDataSource, ma_format* pFormat, ma_uint32* pChannels);
 } ma_data_source_callbacks;
@@ -5336,7 +5336,7 @@ typedef struct
 MA_API ma_uint64 ma_data_source_read_pcm_frames(ma_data_source* pDataSource, void* pFramesOut, ma_uint64 frameCount);
 MA_API ma_result ma_data_source_seek_to_pcm_frame(ma_data_source* pDataSource, ma_uint64 frameIndex);
 MA_API ma_result ma_data_source_map(ma_data_source* pDataSource, void** ppFramesOut, ma_uint64* pFrameCount);
-MA_API ma_result ma_data_source_unmap(ma_data_source* pDataSource, ma_uint64 frameCount);
+MA_API ma_result ma_data_source_unmap(ma_data_source* pDataSource, ma_uint64 frameCount);   /* Returns MA_AT_END if the end has been reached. This should be considered successful. */
 MA_API ma_result ma_data_source_get_data_format(ma_data_source* pDataSource, ma_format* pFormat, ma_uint32* pChannels);
 
 
@@ -5372,7 +5372,7 @@ MA_API void ma_audio_buffer_uninit_and_free(ma_audio_buffer* pAudioBuffer);
 MA_API ma_uint64 ma_audio_buffer_read_pcm_frames(ma_audio_buffer* pAudioBuffer, void* pFramesOut, ma_uint64 frameCount, ma_bool32 loop);
 MA_API ma_result ma_audio_buffer_seek_to_pcm_frame(ma_audio_buffer* pAudioBuffer, ma_uint64 frameIndex);
 MA_API ma_result ma_audio_buffer_map(ma_audio_buffer* pAudioBuffer, void** ppFramesOut, ma_uint64* pFrameCount);
-MA_API ma_result ma_audio_buffer_unmap(ma_audio_buffer* pAudioBuffer, ma_uint64 frameCount);
+MA_API ma_result ma_audio_buffer_unmap(ma_audio_buffer* pAudioBuffer, ma_uint64 frameCount);    /* Returns MA_AT_END if the end has been reached. This should be considered successful. */
 MA_API ma_result ma_audio_buffer_at_end(ma_audio_buffer* pAudioBuffer);
 
 
@@ -40235,7 +40235,11 @@ MA_API ma_result ma_audio_buffer_unmap(ma_audio_buffer* pAudioBuffer, ma_uint64 
 
     pAudioBuffer->cursor += frameCount;
 
-    return MA_SUCCESS;
+    if (pAudioBuffer->cursor == pAudioBuffer->sizeInFrames) {
+        return MA_AT_END;   /* Successful. Need to tell the caller that the end has been reached so that it can loop if desired. */
+    } else {
+        return MA_SUCCESS;
+    }
 }
 
 MA_API ma_result ma_audio_buffer_at_end(ma_audio_buffer* pAudioBuffer)
@@ -43410,6 +43414,10 @@ REVISION HISTORY
 ================
 v0.10.8 - TBD
   - Change playback.pDeviceID and capture.pDeviceID to constant pointers in ma_device_config.
+  - Change ma_audio_buffer_unmap() to return MA_AT_END when the end has been reached. This should be considered successful.
+  - Add support for memory mapping to ma_data_source.
+    - ma_data_source_map()
+    - ma_data_source_unmap()
 
 v0.10.7 - 2020-05-25
   - Fix a compilation error in the C++ build.
