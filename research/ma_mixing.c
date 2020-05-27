@@ -23,6 +23,8 @@ ma_audio_buffer* g_pAudioBuffer;
 
 void data_callback(ma_device* pDevice, void* pFramesOut, const void* pFramesIn, ma_uint32 frameCount)
 {
+    (void)pFramesIn;
+
     /* Make sure every output frame is written. */
     while (frameCount > 0) {
         ma_uint64 framesToMixOut;
@@ -36,8 +38,8 @@ void data_callback(ma_device* pDevice, void* pFramesOut, const void* pFramesIn, 
             /* Music. */
             ma_mixer_begin(&g_mixerMusic, &g_mixer, &submixFrameCountOut, &submixFrameCountIn);
             {
-                ma_mixer_mix_noise(&g_mixerMusic, &g_noise, submixFrameCountIn);
-                ma_mixer_mix_waveform(&g_mixerMusic, &g_waveform, submixFrameCountIn);
+                ma_mixer_mix_data_source(&g_mixerMusic, &g_noise,    submixFrameCountIn, 1, NULL, MA_FALSE);
+                ma_mixer_mix_data_source(&g_mixerMusic, &g_waveform, submixFrameCountIn, 1, NULL, MA_FALSE);
             }
             ma_mixer_end(&g_mixerMusic, &g_mixer, NULL);
 
@@ -45,10 +47,10 @@ void data_callback(ma_device* pDevice, void* pFramesOut, const void* pFramesIn, 
             ma_mixer_begin(&g_mixerEffects, &g_mixer, &submixFrameCountOut, &submixFrameCountIn);
             {
                 if (g_hasDecoder) {
-                    ma_mixer_mix_decoder(&g_mixerEffects, &g_decoder, submixFrameCountIn, MA_TRUE);
+                    ma_mixer_mix_data_source(&g_mixerEffects, &g_decoder, submixFrameCountIn, 1, NULL, MA_TRUE);
                 }
                 if (g_pAudioBuffer != NULL) {
-                    ma_mixer_mix_audio_buffer(&g_mixerEffects, g_pAudioBuffer, submixFrameCountIn, MA_TRUE);
+                    ma_mixer_mix_data_source(&g_mixerEffects, g_pAudioBuffer, submixFrameCountIn, 1, NULL, MA_TRUE);
                 }
             }
             ma_mixer_end(&g_mixerEffects, &g_mixer, NULL);
