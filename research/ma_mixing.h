@@ -2713,64 +2713,17 @@ MA_API ma_result ma_mixer_mix_pcm_frames(ma_mixer* pMixer, const void* pFramesIn
     return MA_SUCCESS;
 }
 
-static ma_result ma_mixer_mix_data_source_mmap(ma_mixer* pMixer, ma_data_source* pDataSource, ma_uint64 frameCountIn, float volume, ma_effect* pEffect, ma_format formatIn, ma_uint32 channelsIn, ma_bool32 loop)
+static ma_result ma_mixer_mix_data_source_mmap(ma_mixer* pMixer, ma_data_source* pDataSource, ma_uint64 frameCount, float volume, ma_effect* pEffect, ma_format formatIn, ma_uint32 channelsIn, ma_bool32 loop)
 {
     ma_result result;
     ma_uint64 totalFramesProcessed = 0;
     void* pRunningAccumulationBuffer = pMixer->pAccumulationBuffer;
+    ma_format preMixFormat;
+    ma_uint32 preMixChannels;
+    ma_bool32 preEffectConversionRequired = MA_FALSE;
 
     MA_ASSERT(pMixer      != NULL);
     MA_ASSERT(pDataSource != NULL);
-
-    if (frameCountIn > pMixer->mixingState.frameCountIn) {
-        return MA_INVALID_ARGS; /* Passing in too many input frames. */
-    }
-
-    while (totalFramesProcessed < frameCountIn) {
-        void* pMappedBuffer;
-        ma_uint64 framesToProcess = frameCountIn - totalFramesProcessed;
-
-        /* TODO: Add support for running the input data through an effect. */
-        (void)pEffect;
-
-        result = ma_data_source_map(pDataSource, &pMappedBuffer, &framesToProcess);
-        if (framesToProcess == 0) {
-            break;  /* Wasn't able to map any data. Abort. */
-        }
-
-        ma_mix_pcm_frames_ex(pRunningAccumulationBuffer, pMixer->format, pMixer->channels, pMappedBuffer, formatIn, channelsIn, framesToProcess, volume);
-
-        result = ma_data_source_unmap(pDataSource, framesToProcess);
-        if (result == MA_AT_END) {
-            /* Not an error. */
-            if (loop) {
-                ma_data_source_seek_to_pcm_frame(pDataSource, 0);
-            } else {
-                break;  /* We've reached the end and we're not looping. */
-            }
-        }
-
-        totalFramesProcessed += framesToProcess;
-        pRunningAccumulationBuffer = ma_offset_ptr(pRunningAccumulationBuffer, framesToProcess * ma_get_accumulation_bytes_per_frame(pMixer->format, pMixer->channels));
-    }
-
-    return MA_SUCCESS;
-}
-
-static ma_result ma_mixer_mix_data_source_read(ma_mixer* pMixer, ma_data_source* pDataSource, ma_uint64 frameCount, float volume, ma_effect* pEffect, ma_format formatIn, ma_uint32 channelsIn, ma_bool32 loop)
-{
-    ma_uint8  preMixBuffer[MA_DATA_CONVERTER_STACK_BUFFER_SIZE];
-    ma_uint32 preMixBufferufferCap;
-    ma_uint64 totalFramesProcessed = 0;
-    void* pRunningAccumulationBuffer = pMixer->pAccumulationBuffer;
-    ma_format preMixFormat;
-    ma_uint32 preMixChannels;
-    ma_bool32 callbackConversionRequired = MA_FALSE;
-    ma_bool32 atEnd = MA_FALSE;
-
-    if (pMixer == NULL || pDataSource == NULL) {
-        return MA_INVALID_ARGS;
-    }
 
     if (frameCount > pMixer->mixingState.frameCountIn) {
         return MA_INVALID_ARGS; /* Passing in too many input frames. */
@@ -2782,10 +2735,110 @@ static ma_result ma_mixer_mix_data_source_read(ma_mixer* pMixer, ma_data_source*
     } else {
         preMixFormat   = pEffect->formatOut;
         preMixChannels = pEffect->channelsOut;
-        callbackConversionRequired = MA_TRUE;
+        preEffectConversionRequired = (formatIn != pEffect->formatIn || channelsIn != pEffect->channelsIn);
     }
 
-    preMixBufferufferCap = sizeof(preMixBuffer) / ma_get_bytes_per_frame(preMixFormat, preMixChannels);
+    while (totalFramesProcessed < frameCount) {
+        void* pMappedBuffer;
+        ma_uint64 framesToProcess = frameCount - totalFramesProcessed;
+
+        if (pEffect == NULL) {
+            /* Fast path. Mix directly from the data source and don't bother applying an effect. */
+            result = ma_data_source_map(pDataSource, &pMappedBuffer, &framesToProcess);
+            if (framesToProcess == 0) {
+                break;  /* Wasn't able to map any data. Abort. */
+            }
+
+            ma_mix_pcm_frames_ex(pRunningAccumulationBuffer, pMixer->format, pMixer->channels, pMappedBuffer, formatIn, channelsIn, framesToProcess, volume);
+
+            result = ma_data_source_unmap(pDataSource, framesToProcess);
+        } else {
+            /* Slow path. Need to apply an effect. This requires the use of an intermediary buffer. */
+            ma_uint8 effectInBuffer [MA_DATA_CONVERTER_STACK_BUFFER_SIZE];
+            ma_uint8 effectOutBuffer[MA_DATA_CONVERTER_STACK_BUFFER_SIZE];
+            ma_uint32 effectInBufferCap  = sizeof(effectInBuffer)  / ma_get_bytes_per_frame(pEffect->formatIn,  pEffect->channelsIn);
+            ma_uint32 effectOutBufferCap = sizeof(effectOutBuffer) / ma_get_bytes_per_frame(pEffect->formatOut, pEffect->channelsOut);
+            ma_uint64 framesMapped;
+
+            if (framesToProcess > effectOutBufferCap) {
+                framesToProcess = effectOutBufferCap;
+            }
+
+            framesMapped = ma_effect_get_required_input_frame_count(pEffect, framesToProcess);
+            if (framesMapped > effectInBufferCap) {
+                framesMapped = effectInBufferCap;
+            }
+
+            /* We need to map our input data first. The input data will be either fed directly into the effect, or will be converted first. */
+            result = ma_data_source_map(pDataSource, &pMappedBuffer, &framesMapped);
+            if (result != MA_SUCCESS) {
+                return result;
+            }
+
+            /* We have the data from the data source so no we can apply the effect. */
+            if (preEffectConversionRequired == MA_FALSE) {
+                /* Fast path. No format required before applying the effect. */
+                ma_effect_process_pcm_frames(pEffect, pMappedBuffer, &framesMapped, effectOutBuffer, &framesToProcess);
+            } else {
+                /* Slow path. Need to convert the data before applying the effect. */
+                ma_convert_pcm_frames_format_and_channels(effectInBuffer, pEffect->formatIn, pEffect->channelsIn, pMappedBuffer, formatIn, channelsIn, framesMapped, ma_dither_mode_none);
+                ma_effect_process_pcm_frames(pEffect, effectInBuffer, &framesMapped, effectOutBuffer, &framesToProcess);
+            }
+
+            /* The effect has been applied so now we can mix it. */
+            ma_mix_pcm_frames_ex(pRunningAccumulationBuffer, pMixer->format, pMixer->channels, effectOutBuffer, pEffect->formatOut, pEffect->channelsOut, framesToProcess, volume);
+
+            /* We're finished with the input data. */
+            result = ma_data_source_unmap(pDataSource, framesMapped);   /* Do this last because the result code is used below to determine whether or not we need to loop. */
+        }
+
+        if (result != MA_SUCCESS) {
+            if (result == MA_AT_END) {
+                if (loop) {
+                    ma_data_source_seek_to_pcm_frame(pDataSource, 0);
+                } else {
+                    break;  /* We've reached the end and we're not looping. */
+                }
+            } else {
+                return result;  /* An error occurred. */
+            }
+        }
+        
+        totalFramesProcessed += framesToProcess;
+        pRunningAccumulationBuffer = ma_offset_ptr(pRunningAccumulationBuffer, framesToProcess * ma_get_accumulation_bytes_per_frame(pMixer->format, pMixer->channels));
+    }
+
+    return MA_SUCCESS;
+}
+
+static ma_result ma_mixer_mix_data_source_read(ma_mixer* pMixer, ma_data_source* pDataSource, ma_uint64 frameCount, float volume, ma_effect* pEffect, ma_format formatIn, ma_uint32 channelsIn, ma_bool32 loop)
+{
+    ma_uint8  preMixBuffer[MA_DATA_CONVERTER_STACK_BUFFER_SIZE];
+    ma_uint32 preMixBufferCap;
+    ma_uint64 totalFramesProcessed = 0;
+    void* pRunningAccumulationBuffer = pMixer->pAccumulationBuffer;
+    ma_format preMixFormat;
+    ma_uint32 preMixChannels;
+    ma_bool32 preEffectConversionRequired = MA_FALSE;
+    ma_bool32 atEnd = MA_FALSE;
+
+    MA_ASSERT(pMixer      != NULL);
+    MA_ASSERT(pDataSource != NULL);
+
+    if (frameCount > pMixer->mixingState.frameCountIn) {
+        return MA_INVALID_ARGS; /* Passing in too many input frames. */
+    }
+
+    if (pEffect == NULL) {
+        preMixFormat   = formatIn;
+        preMixChannels = channelsIn;
+    } else {
+        preMixFormat   = pEffect->formatOut;
+        preMixChannels = pEffect->channelsOut;
+        preEffectConversionRequired = (formatIn != pEffect->formatIn || channelsIn != pEffect->channelsIn);
+    }
+
+    preMixBufferCap = sizeof(preMixBuffer) / ma_get_bytes_per_frame(preMixFormat, preMixChannels);
 
     totalFramesProcessed = 0;
     pRunningAccumulationBuffer = pMixer->pAccumulationBuffer;
@@ -2793,8 +2846,8 @@ static ma_result ma_mixer_mix_data_source_read(ma_mixer* pMixer, ma_data_source*
     while (totalFramesProcessed < frameCount) {
         ma_uint64 framesRead;
         ma_uint64 framesToRead = frameCount - totalFramesProcessed;
-        if (framesToRead > preMixBufferufferCap) {
-            framesToRead = preMixBufferufferCap;
+        if (framesToRead > preMixBufferCap) {
+            framesToRead = preMixBufferCap;
         }
 
         if (pEffect == NULL) {
@@ -2822,10 +2875,10 @@ static ma_result ma_mixer_mix_data_source_read(ma_mixer* pMixer, ma_data_source*
             }
 
             /*
-            We can now read some data from the callback. We should never have read more input frame than will be consumed. If the format of the callback is the same as the effect's input
+            We can now read some data from the callback. We should never read more input frame than will be consumed. If the format of the callback is the same as the effect's input
             format we can save ourselves a copy and run on a slightly faster path.
             */
-            if (callbackConversionRequired == MA_FALSE) {
+            if (preEffectConversionRequired == MA_FALSE) {
                 /* Fast path. No need for conversion between the callback and the  */
                 framesReadFromCallback = ma_data_source_read_pcm_frames(pDataSource, effectInBuffer, framesToReadFromCallback);
             } else {
@@ -2836,7 +2889,7 @@ static ma_result ma_mixer_mix_data_source_read(ma_mixer* pMixer, ma_data_source*
 
             /* We have our input data for the effect so now we just process as much as we can based on our input and output frame counts. */
             effectFrameCountIn  = framesReadFromCallback;
-            effectFrameCountOut = preMixBufferufferCap;
+            effectFrameCountOut = preMixBufferCap;
             ma_effect_process_pcm_frames(pEffect, callbackBuffer, &effectFrameCountIn, preMixBuffer, &effectFrameCountOut);
 
             /* At this point the effect should be applied and we can mix it. */
