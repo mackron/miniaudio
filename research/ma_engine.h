@@ -14,8 +14,8 @@ object to many `ma_engine` objects. This will allow you to share resources for e
 list of data sources. The `ma_resource_manager` is responsible for the actual loading, caching and unloading of those data sources. This decoupling is
 something that I'm really liking right now and will likely stay in place for the final version.
 
-You create "sounds" from the engine which represent a sound/voice in the world. You first need to create a sound, and then you need to play it. Sounds do not
-play by default. A placeholder helper API called ma_engine_play_sound() exists, but is not yet implemented. This will just play a sound in-place which will be
+You create "sounds" from the engine which represent a sound/voice in the world. You first need to create a sound, and then you need to start it. Sounds do not
+start by default. A placeholder helper API called ma_engine_play_sound() exists, but is not yet implemented. This will just play a sound in-place which will be
 memory managed by the `ma_engine` object. Sounds can have an effect (`ma_effect`) applied to it which can be set with `ma_engine_sound_set_effect()`.
 
 Sounds can be allocated to groups called `ma_sound_group`. The creation and deletion of groups is not thread safe and should usually happen at initialization
