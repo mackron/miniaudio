@@ -40657,18 +40657,23 @@ static ma_uint64 ma_vorbis_decoder_read_pcm_frames(ma_vorbis_decoder* pVorbis, m
     totalFramesRead = 0;
     while (frameCount > 0) {
         /* Read from the in-memory buffer first. */
-        while (pVorbis->framesRemaining > 0 && frameCount > 0) {
-            ma_uint32 iChannel;
-            for (iChannel = 0; iChannel < pDecoder->internalChannels; ++iChannel) {
-                pFramesOutF[0] = pVorbis->ppPacketData[iChannel][pVorbis->framesConsumed];
-                pFramesOutF += 1;
-            }
+        ma_uint32 framesToReadFromCache = (ma_uint32)ma_min(pVorbis->framesRemaining, frameCount);  /* Safe cast because pVorbis->framesRemaining is 32-bit. */
 
-            pVorbis->framesConsumed  += 1;
-            pVorbis->framesRemaining -= 1;
-            frameCount               -= 1;
-            totalFramesRead          += 1;
+        if (pFramesOut != NULL) {
+            ma_uint64 iFrame;
+            for (iFrame = 0; iFrame < framesToReadFromCache; iFrame += 1) {
+                ma_uint32 iChannel;
+                for (iChannel = 0; iChannel < pDecoder->internalChannels; ++iChannel) {
+                    pFramesOutF[iChannel] = pVorbis->ppPacketData[iChannel][pVorbis->framesConsumed];   
+                }
+                pFramesOutF += pDecoder->internalChannels;
+            }
         }
+
+        pVorbis->framesConsumed  += framesToReadFromCache;
+        pVorbis->framesRemaining -= framesToReadFromCache;
+        frameCount               -= framesToReadFromCache;
+        totalFramesRead          += framesToReadFromCache;
 
         if (frameCount == 0) {
             break;
@@ -40742,6 +40747,8 @@ static ma_result ma_vorbis_decoder_seek_to_pcm_frame(ma_vorbis_decoder* pVorbis,
     This is terribly inefficient because stb_vorbis does not have a good seeking solution with it's push API. Currently this just performs
     a full decode right from the start of the stream. Later on I'll need to write a layer that goes through all of the Ogg pages until we
     find the one containing the sample we need. Then we know exactly where to seek for stb_vorbis.
+
+    TODO: Use seeking logic documented for stb_vorbis_flush_pushdata().
     */
     if (!ma_decoder_seek_bytes(pDecoder, 0, ma_seek_origin_start)) {
         return MA_ERROR;
@@ -41041,9 +41048,7 @@ static ma_uint64 ma_decoder_internal_on_read_pcm_frames__raw(ma_decoder* pDecode
     ma_uint64 totalFramesRead;
     void* pRunningFramesOut;
 
-
-    MA_ASSERT(pDecoder   != NULL);
-    MA_ASSERT(pFramesOut != NULL);
+    MA_ASSERT(pDecoder != NULL);
 
     /* For raw decoding we just read directly from the decoder's callbacks. */
     bpf = ma_get_bytes_per_frame(pDecoder->internalFormat, pDecoder->internalChannels);
@@ -41054,14 +41059,41 @@ static ma_uint64 ma_decoder_internal_on_read_pcm_frames__raw(ma_decoder* pDecode
     while (totalFramesRead < frameCount) {
         ma_uint64 framesReadThisIteration;
         ma_uint64 framesToReadThisIteration = (frameCount - totalFramesRead);
-        if (framesToReadThisIteration > MA_SIZE_MAX) {
-            framesToReadThisIteration = MA_SIZE_MAX;
+        if (framesToReadThisIteration > 0x7FFFFFFF/bpf) {
+            framesToReadThisIteration = 0x7FFFFFFF/bpf;
         }
 
-        framesReadThisIteration = ma_decoder_read_bytes(pDecoder, pRunningFramesOut, (size_t)framesToReadThisIteration * bpf) / bpf;    /* Safe cast to size_t. */
+        if (pFramesOut != NULL) {
+            framesReadThisIteration = ma_decoder_read_bytes(pDecoder, pRunningFramesOut, (size_t)framesToReadThisIteration * bpf) / bpf;    /* Safe cast to size_t. */
+            pRunningFramesOut = ma_offset_ptr(pRunningFramesOut, framesReadThisIteration * bpf);
+        } else {
+            /* We'll first try seeking. If this fails it means the end was reached and we'll to do a read-and-discard slow path to get the exact amount. */
+            if (ma_decoder_seek_bytes(pDecoder, (int)framesToReadThisIteration, ma_seek_origin_current)) {
+                framesReadThisIteration = framesToReadThisIteration;
+            } else {
+                /* Slow path. Need to fall back to a read-and-discard. This is required so we can get the exact number of remaining. */
+                ma_uint8 buffer[MA_DATA_CONVERTER_STACK_BUFFER_SIZE];
+                ma_uint32 bufferCap = sizeof(buffer) / bpf;
 
-        totalFramesRead  += framesReadThisIteration;
-        pRunningFramesOut = ma_offset_ptr(pRunningFramesOut, framesReadThisIteration * bpf);
+                framesReadThisIteration = 0;
+                while (framesReadThisIteration < framesToReadThisIteration) {
+                    ma_uint64 framesReadNow;
+                    ma_uint64 framesToReadNow = framesToReadThisIteration - framesReadThisIteration;
+                    if (framesToReadNow > bufferCap) {
+                        framesToReadNow = bufferCap;
+                    }
+
+                    framesReadNow = ma_decoder_read_bytes(pDecoder, buffer, (size_t)(framesToReadNow * bpf)) / bpf; /* Safe cast. */
+                    framesReadThisIteration += framesReadNow;
+
+                    if (framesReadNow < framesToReadNow) {
+                        break;  /* The end has been reached. */
+                    }
+                }
+            }
+        }
+
+        totalFramesRead += framesReadThisIteration;
 
         if (framesReadThisIteration < framesToReadThisIteration) {
             break;  /* Done. */
@@ -42069,7 +42101,15 @@ MA_API ma_uint64 ma_decoder_read_pcm_frames(ma_decoder* pDecoder, void* pFramesO
         return pDecoder->onReadPCMFrames(pDecoder, pFramesOut, frameCount);
     }
 
-    /* Getting here means we need to do data conversion. */
+    /*
+    Getting here means we need to do data conversion. If we're seeking forward and are _not_ doing resampling we can run this in a fast path. If we're doing resampling we
+    need to run through each sample because we need to ensure it's internal cache is updated.
+    */
+    if (pFramesOut == NULL && pDecoder->converter.hasResampler == MA_FALSE) {
+        return pDecoder->onReadPCMFrames(pDecoder, NULL, frameCount);   /* All decoder backends must support passing in NULL for the output buffer. */
+    }
+
+    /* Slow path. Need to run everything through the data converter. */
     totalFramesReadOut = 0;
     totalFramesReadIn  = 0;
     pRunningFramesOut  = pFramesOut;
@@ -42110,7 +42150,10 @@ MA_API ma_uint64 ma_decoder_read_pcm_frames(ma_decoder* pDecoder, void* pFramesO
         }
 
         totalFramesReadOut += framesReadThisIterationOut;
-        pRunningFramesOut   = ma_offset_ptr(pRunningFramesOut, framesReadThisIterationOut * ma_get_bytes_per_frame(pDecoder->outputFormat, pDecoder->outputChannels));
+
+        if (pRunningFramesOut != NULL) {
+            pRunningFramesOut = ma_offset_ptr(pRunningFramesOut, framesReadThisIterationOut * ma_get_bytes_per_frame(pDecoder->outputFormat, pDecoder->outputChannels));
+        }
 
         if (framesReadThisIterationIn == 0 && framesReadThisIterationOut == 0) {
             break;  /* We're done. */
@@ -43248,6 +43291,11 @@ MA_API ma_uint64 ma_noise_read_pcm_frames(ma_noise* pNoise, void* pFramesOut, ma
 {
     if (pNoise == NULL) {
         return 0;
+    }
+
+    /* The output buffer is allowed to be NULL. Since we aren't tracking cursors or anything we can just do nothing and pretend to be successful. */
+    if (pFramesOut == NULL) {
+        return frameCount;
     }
 
     if (pNoise->config.type == ma_noise_type_white) {
