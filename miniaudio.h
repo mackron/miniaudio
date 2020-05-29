@@ -5333,8 +5333,8 @@ typedef struct
     ma_result (* onGetDataFormat)(ma_data_source* pDataSource, ma_format* pFormat, ma_uint32* pChannels);
 } ma_data_source_callbacks;
 
-MA_API ma_uint64 ma_data_source_read_pcm_frames(ma_data_source* pDataSource, void* pFramesOut, ma_uint64 frameCount);   /* Must support pFramesOut = NULL in which case a forward seek should be performed. */
-MA_API ma_uint64 ma_data_source_seek_pcm_frames(ma_data_source* pDataSource, ma_uint64 frameCount); /* Can only seek forward. Equivalent to ma_data_source_read_pcm_frames(pDataSource, NULL, frameCount); */
+MA_API ma_uint64 ma_data_source_read_pcm_frames(ma_data_source* pDataSource, void* pFramesOut, ma_uint64 frameCount, ma_bool32 loop);   /* Must support pFramesOut = NULL in which case a forward seek should be performed. */
+MA_API ma_uint64 ma_data_source_seek_pcm_frames(ma_data_source* pDataSource, ma_uint64 frameCount, ma_bool32 loop); /* Can only seek forward. Equivalent to ma_data_source_read_pcm_frames(pDataSource, NULL, frameCount); */
 MA_API ma_result ma_data_source_seek_to_pcm_frame(ma_data_source* pDataSource, ma_uint64 frameIndex);
 MA_API ma_result ma_data_source_map(ma_data_source* pDataSource, void** ppFramesOut, ma_uint64* pFrameCount);
 MA_API ma_result ma_data_source_unmap(ma_data_source* pDataSource, ma_uint64 frameCount);   /* Returns MA_AT_END if the end has been reached. This should be considered successful. */
@@ -39890,19 +39890,56 @@ MA_API ma_uint32 ma_get_bytes_per_sample(ma_format format)
 
 
 
-MA_API ma_uint64 ma_data_source_read_pcm_frames(ma_data_source* pDataSource, void* pFramesOut, ma_uint64 frameCount)
+MA_API ma_uint64 ma_data_source_read_pcm_frames(ma_data_source* pDataSource, void* pFramesOut, ma_uint64 frameCount, ma_bool32 loop)
 {
     ma_data_source_callbacks* pCallbacks = (ma_data_source_callbacks*)pDataSource;
     if (pCallbacks == NULL || pCallbacks->onRead == NULL) {
         return 0;
     }
 
-    return pCallbacks->onRead(pDataSource, pFramesOut, frameCount);
+    /* A very small optimization for the non looping case. */
+    if (loop == MA_FALSE) {
+        return pCallbacks->onRead(pDataSource, pFramesOut, frameCount);
+    } else {
+        ma_format format;
+        ma_uint32 channels;
+        if (ma_data_source_get_data_format(pDataSource, &format, &channels) != MA_SUCCESS) {
+            return pCallbacks->onRead(pDataSource, pFramesOut, frameCount); /* We don't have a way to retrieve the data format which means we don't know how to offset the output buffer. Just read as much as we can. */
+        } else {    
+            ma_uint64 totalFramesProcessed;
+            void* pRunningFramesOut = pFramesOut;
+
+            totalFramesProcessed = 0;
+            while (totalFramesProcessed < frameCount) {
+                ma_uint64 framesProcessed;
+                ma_uint64 framesRemaining = frameCount - totalFramesProcessed;
+
+                framesProcessed = pCallbacks->onRead(pDataSource, pRunningFramesOut, framesRemaining);
+                totalFramesProcessed += framesProcessed;
+
+                /*
+                We can determine if we've reached the end by checking the return value of the onRead() callback. If it's less than what we requested it means
+                we've reached the end. To loop back to the start, all we need to do is seek back to the first frame.
+                */
+                if (framesProcessed < framesRemaining) {
+                    if (ma_data_source_seek_to_pcm_frame(pDataSource, 0) != MA_SUCCESS) {
+                        break;
+                    }
+                }
+
+                if (pRunningFramesOut != NULL) {
+                    pRunningFramesOut = ma_offset_ptr(pRunningFramesOut, framesProcessed * ma_get_bytes_per_frame(format, channels));
+                }
+            }
+
+            return totalFramesProcessed;
+        }
+    }
 }
 
-MA_API ma_uint64 ma_data_source_seek_pcm_frames(ma_data_source* pDataSource, ma_uint64 frameCount)
+MA_API ma_uint64 ma_data_source_seek_pcm_frames(ma_data_source* pDataSource, ma_uint64 frameCount, ma_bool32 loop)
 {
-    return ma_data_source_read_pcm_frames(pDataSource, NULL, frameCount);
+    return ma_data_source_read_pcm_frames(pDataSource, NULL, frameCount, loop);
 }
 
 MA_API ma_result ma_data_source_seek_to_pcm_frame(ma_data_source* pDataSource, ma_uint64 frameIndex)
