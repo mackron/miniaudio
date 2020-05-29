@@ -1724,7 +1724,30 @@ typedef ma_uint16 wchar_t;
 #define MA_SIMD_ALIGNMENT  64
 
 
-/* Logging levels */
+/*
+Logging Levels
+==============
+A log level will automatically include the lower levels. For example, verbose logging will enable everything. The warning log level will only include warnings
+and errors, but will ignore informational and verbose logging. If you only want to handle a specific log level, implement a custom log callback (see
+ma_context_init() for details) and interrogate the `logLevel` parameter.
+
+By default the log level will be set to MA_LOG_LEVEL_ERROR, but you can change this by defining MA_LOG_LEVEL before the implementation of miniaudio.
+
+MA_LOG_LEVEL_VERBOSE
+    Mainly intended for debugging. This will enable all log levels and can be triggered from within the data callback so care must be taken when enabling this
+    in production environments.
+
+MA_LOG_LEVEL_INFO
+    Informational logging. Useful for debugging. This will also enable warning and error logs. This will never be called from within the data callback.
+
+MA_LOG_LEVEL_WARNING
+    Warnings. You should enable this in you development builds and action them when encounted. This will also enable error logs. These logs usually indicate a
+    potential problem or misconfiguration, but still allow you to keep running. This will never be called from within the data callback.
+
+MA_LOG_LEVEL_ERROR
+    Error logging. This will be fired when an operation fails and is subsequently aborted. This can be fired from within the data callback, in which case the
+    device will be stopped. You should always have this log level enabled.
+*/
 #define MA_LOG_LEVEL_VERBOSE   4
 #define MA_LOG_LEVEL_INFO      3
 #define MA_LOG_LEVEL_WARNING   2
@@ -8041,6 +8064,11 @@ static void ma_post_log_message(ma_context* pContext, ma_device* pDevice, ma_uin
         }
     }
 
+    /* All logs must be output when debug output is enabled. */
+#if defined(MA_DEBUG_OUTPUT)
+    printf("%s: %s\n", ma_log_level_to_string(logLevel), message);
+#endif
+
     if (pContext == NULL) {
         return;
     }
@@ -8049,12 +8077,6 @@ static void ma_post_log_message(ma_context* pContext, ma_device* pDevice, ma_uin
     if (logLevel <= MA_LOG_LEVEL) {
         ma_log_proc onLog;
 
-    #if defined(MA_DEBUG_OUTPUT)
-        if (logLevel <= MA_LOG_LEVEL) {
-            printf("%s: %s\n", ma_log_level_to_string(logLevel), message);
-        }
-    #endif
-    
         onLog = pContext->logCallback;
         if (onLog) {
             onLog(pContext, pDevice, logLevel, message);
@@ -30668,36 +30690,33 @@ MA_API ma_result ma_device_init(ma_context* pContext, const ma_device_config* pC
     }
 
 
-#ifdef MA_DEBUG_OUTPUT
-    printf("[%s]\n", ma_get_backend_name(pDevice->pContext->backend));
+    ma_post_log_messagef(pContext, pDevice, MA_LOG_LEVEL_INFO, "[%s]", ma_get_backend_name(pDevice->pContext->backend));
     if (pDevice->type == ma_device_type_capture || pDevice->type == ma_device_type_duplex) {
-        printf("  %s (%s)\n", pDevice->capture.name, "Capture");
-        printf("    Format:      %s -> %s\n", ma_get_format_name(pDevice->capture.format), ma_get_format_name(pDevice->capture.internalFormat));
-        printf("    Channels:    %d -> %d\n", pDevice->capture.channels, pDevice->capture.internalChannels);
-        printf("    Sample Rate: %d -> %d\n", pDevice->sampleRate, pDevice->capture.internalSampleRate);
-        printf("    Buffer Size: %d*%d (%d)\n", pDevice->capture.internalPeriodSizeInFrames, pDevice->capture.internalPeriods, (pDevice->capture.internalPeriodSizeInFrames * pDevice->capture.internalPeriods));
-        printf("    Conversion:\n");
-        printf("      Pre Format Conversion:    %s\n", pDevice->capture.converter.hasPreFormatConversion  ? "YES" : "NO");
-        printf("      Post Format Conversion:   %s\n", pDevice->capture.converter.hasPostFormatConversion ? "YES" : "NO");
-        printf("      Channel Routing:          %s\n", pDevice->capture.converter.hasChannelConverter     ? "YES" : "NO");
-        printf("      Resampling:               %s\n", pDevice->capture.converter.hasResampler            ? "YES" : "NO");
-        printf("      Passthrough:              %s\n", pDevice->capture.converter.isPassthrough           ? "YES" : "NO");
+        ma_post_log_messagef(pContext, pDevice, MA_LOG_LEVEL_INFO, "  %s (%s)", pDevice->capture.name, "Capture");
+        ma_post_log_messagef(pContext, pDevice, MA_LOG_LEVEL_INFO, "    Format:      %s -> %s", ma_get_format_name(pDevice->capture.format), ma_get_format_name(pDevice->capture.internalFormat));
+        ma_post_log_messagef(pContext, pDevice, MA_LOG_LEVEL_INFO, "    Channels:    %d -> %d", pDevice->capture.channels, pDevice->capture.internalChannels);
+        ma_post_log_messagef(pContext, pDevice, MA_LOG_LEVEL_INFO, "    Sample Rate: %d -> %d", pDevice->sampleRate, pDevice->capture.internalSampleRate);
+        ma_post_log_messagef(pContext, pDevice, MA_LOG_LEVEL_INFO, "    Buffer Size: %d*%d (%d)", pDevice->capture.internalPeriodSizeInFrames, pDevice->capture.internalPeriods, (pDevice->capture.internalPeriodSizeInFrames * pDevice->capture.internalPeriods));
+        ma_post_log_messagef(pContext, pDevice, MA_LOG_LEVEL_INFO, "    Conversion:");
+        ma_post_log_messagef(pContext, pDevice, MA_LOG_LEVEL_INFO, "      Pre Format Conversion:    %s", pDevice->capture.converter.hasPreFormatConversion  ? "YES" : "NO");
+        ma_post_log_messagef(pContext, pDevice, MA_LOG_LEVEL_INFO, "      Post Format Conversion:   %s", pDevice->capture.converter.hasPostFormatConversion ? "YES" : "NO");
+        ma_post_log_messagef(pContext, pDevice, MA_LOG_LEVEL_INFO, "      Channel Routing:          %s", pDevice->capture.converter.hasChannelConverter     ? "YES" : "NO");
+        ma_post_log_messagef(pContext, pDevice, MA_LOG_LEVEL_INFO, "      Resampling:               %s", pDevice->capture.converter.hasResampler            ? "YES" : "NO");
+        ma_post_log_messagef(pContext, pDevice, MA_LOG_LEVEL_INFO, "      Passthrough:              %s", pDevice->capture.converter.isPassthrough           ? "YES" : "NO");
     }
     if (pDevice->type == ma_device_type_playback || pDevice->type == ma_device_type_duplex) {
-        printf("  %s (%s)\n", pDevice->playback.name, "Playback");
-        printf("    Format:      %s -> %s\n", ma_get_format_name(pDevice->playback.format), ma_get_format_name(pDevice->playback.internalFormat));
-        printf("    Channels:    %d -> %d\n", pDevice->playback.channels, pDevice->playback.internalChannels);
-        printf("    Sample Rate: %d -> %d\n", pDevice->sampleRate, pDevice->playback.internalSampleRate);
-        printf("    Buffer Size: %d*%d (%d)\n", pDevice->playback.internalPeriodSizeInFrames, pDevice->playback.internalPeriods, (pDevice->playback.internalPeriodSizeInFrames * pDevice->playback.internalPeriods));
-        printf("    Conversion:\n");
-        printf("      Pre Format Conversion:    %s\n", pDevice->playback.converter.hasPreFormatConversion  ? "YES" : "NO");
-        printf("      Post Format Conversion:   %s\n", pDevice->playback.converter.hasPostFormatConversion ? "YES" : "NO");
-        printf("      Channel Routing:          %s\n", pDevice->playback.converter.hasChannelConverter     ? "YES" : "NO");
-        printf("      Resampling:               %s\n", pDevice->playback.converter.hasResampler            ? "YES" : "NO");
-        printf("      Passthrough:              %s\n", pDevice->playback.converter.isPassthrough           ? "YES" : "NO");
+        ma_post_log_messagef(pContext, pDevice, MA_LOG_LEVEL_INFO, "  %s (%s)", pDevice->playback.name, "Playback");
+        ma_post_log_messagef(pContext, pDevice, MA_LOG_LEVEL_INFO, "    Format:      %s -> %s", ma_get_format_name(pDevice->playback.format), ma_get_format_name(pDevice->playback.internalFormat));
+        ma_post_log_messagef(pContext, pDevice, MA_LOG_LEVEL_INFO, "    Channels:    %d -> %d", pDevice->playback.channels, pDevice->playback.internalChannels);
+        ma_post_log_messagef(pContext, pDevice, MA_LOG_LEVEL_INFO, "    Sample Rate: %d -> %d", pDevice->sampleRate, pDevice->playback.internalSampleRate);
+        ma_post_log_messagef(pContext, pDevice, MA_LOG_LEVEL_INFO, "    Buffer Size: %d*%d (%d)", pDevice->playback.internalPeriodSizeInFrames, pDevice->playback.internalPeriods, (pDevice->playback.internalPeriodSizeInFrames * pDevice->playback.internalPeriods));
+        ma_post_log_messagef(pContext, pDevice, MA_LOG_LEVEL_INFO, "    Conversion:");
+        ma_post_log_messagef(pContext, pDevice, MA_LOG_LEVEL_INFO, "      Pre Format Conversion:    %s", pDevice->playback.converter.hasPreFormatConversion  ? "YES" : "NO");
+        ma_post_log_messagef(pContext, pDevice, MA_LOG_LEVEL_INFO, "      Post Format Conversion:   %s", pDevice->playback.converter.hasPostFormatConversion ? "YES" : "NO");
+        ma_post_log_messagef(pContext, pDevice, MA_LOG_LEVEL_INFO, "      Channel Routing:          %s", pDevice->playback.converter.hasChannelConverter     ? "YES" : "NO");
+        ma_post_log_messagef(pContext, pDevice, MA_LOG_LEVEL_INFO, "      Resampling:               %s", pDevice->playback.converter.hasResampler            ? "YES" : "NO");
+        ma_post_log_messagef(pContext, pDevice, MA_LOG_LEVEL_INFO, "      Passthrough:              %s", pDevice->playback.converter.isPassthrough           ? "YES" : "NO");
     }
-#endif
-
 
     MA_ASSERT(ma_device__get_state(pDevice) == MA_STATE_STOPPED);
     return MA_SUCCESS;
@@ -43509,6 +43528,7 @@ v0.10.8 - TBD
   - Add support for memory mapping to ma_data_source.
     - ma_data_source_map()
     - ma_data_source_unmap()
+  - Add documentation for log levels.
 
 v0.10.7 - 2020-05-25
   - Fix a compilation error in the C++ build.
