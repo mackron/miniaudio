@@ -5333,7 +5333,8 @@ typedef struct
     ma_result (* onGetDataFormat)(ma_data_source* pDataSource, ma_format* pFormat, ma_uint32* pChannels);
 } ma_data_source_callbacks;
 
-MA_API ma_uint64 ma_data_source_read_pcm_frames(ma_data_source* pDataSource, void* pFramesOut, ma_uint64 frameCount);
+MA_API ma_uint64 ma_data_source_read_pcm_frames(ma_data_source* pDataSource, void* pFramesOut, ma_uint64 frameCount);   /* Must support pFramesOut = NULL in which case a forward seek should be performed. */
+MA_API ma_uint64 ma_data_source_seek_pcm_frames(ma_data_source* pDataSource, ma_uint64 frameCount); /* Can only seek forward. Equivalent to ma_data_source_read_pcm_frames(pDataSource, NULL, frameCount); */
 MA_API ma_result ma_data_source_seek_to_pcm_frame(ma_data_source* pDataSource, ma_uint64 frameIndex);
 MA_API ma_result ma_data_source_map(ma_data_source* pDataSource, void** ppFramesOut, ma_uint64* pFrameCount);
 MA_API ma_result ma_data_source_unmap(ma_data_source* pDataSource, ma_uint64 frameCount);   /* Returns MA_AT_END if the end has been reached. This should be considered successful. */
@@ -39897,6 +39898,11 @@ MA_API ma_uint64 ma_data_source_read_pcm_frames(ma_data_source* pDataSource, voi
     }
 
     return pCallbacks->onRead(pDataSource, pFramesOut, frameCount);
+}
+
+MA_API ma_uint64 ma_data_source_seek_pcm_frames(ma_data_source* pDataSource, ma_uint64 frameCount)
+{
+    return ma_data_source_read_pcm_frames(pDataSource, NULL, frameCount);
 }
 
 MA_API ma_result ma_data_source_seek_to_pcm_frame(ma_data_source* pDataSource, ma_uint64 frameIndex)
