@@ -2715,7 +2715,7 @@ MA_API ma_result ma_mixer_mix_pcm_frames(ma_mixer* pMixer, const void* pFramesIn
 
 static ma_result ma_mixer_mix_data_source_mmap(ma_mixer* pMixer, ma_data_source* pDataSource, ma_uint64 frameCount, float volume, ma_effect* pEffect, ma_format formatIn, ma_uint32 channelsIn, ma_bool32 loop)
 {
-    ma_result result;
+    ma_result result = MA_SUCCESS;
     ma_uint64 totalFramesProcessed = 0;
     void* pRunningAccumulationBuffer = pMixer->pAccumulationBuffer;
     ma_format preMixFormat;
@@ -2808,7 +2808,7 @@ static ma_result ma_mixer_mix_data_source_mmap(ma_mixer* pMixer, ma_data_source*
         pRunningAccumulationBuffer = ma_offset_ptr(pRunningAccumulationBuffer, framesToProcess * ma_get_accumulation_bytes_per_frame(pMixer->format, pMixer->channels));
     }
 
-    return MA_SUCCESS;
+    return result;
 }
 
 static ma_result ma_mixer_mix_data_source_read(ma_mixer* pMixer, ma_data_source* pDataSource, ma_uint64 frameCount, float volume, ma_effect* pEffect, ma_format formatIn, ma_uint32 channelsIn, ma_bool32 loop)
@@ -2851,7 +2851,7 @@ static ma_result ma_mixer_mix_data_source_read(ma_mixer* pMixer, ma_data_source*
         }
 
         if (pEffect == NULL) {
-            framesRead = ma_data_source_read_pcm_frames(pDataSource, preMixBuffer, framesToRead);  /* Safe cast because it's clamped to bufferCap which is 32-bit. */
+            framesRead = ma_data_source_read_pcm_frames(pDataSource, preMixBuffer, framesToRead, loop);
             ma_mix_pcm_frames_ex(pRunningAccumulationBuffer, pMixer->format, pMixer->channels, preMixBuffer, formatIn, channelsIn, framesRead, volume);
 
             /* We need to check if we've reached the end so we know whether or not we need to loop. */
@@ -2880,10 +2880,10 @@ static ma_result ma_mixer_mix_data_source_read(ma_mixer* pMixer, ma_data_source*
             */
             if (preEffectConversionRequired == MA_FALSE) {
                 /* Fast path. No need for conversion between the callback and the  */
-                framesReadFromCallback = ma_data_source_read_pcm_frames(pDataSource, effectInBuffer, framesToReadFromCallback);
+                framesReadFromCallback = ma_data_source_read_pcm_frames(pDataSource, effectInBuffer, framesToReadFromCallback, loop);
             } else {
                 /* Slow path. Conversion between the callback and the effect required. */
-                framesReadFromCallback = ma_data_source_read_pcm_frames(pDataSource, callbackBuffer, framesToReadFromCallback);
+                framesReadFromCallback = ma_data_source_read_pcm_frames(pDataSource, callbackBuffer, framesToReadFromCallback, loop);
                 ma_convert_pcm_frames_format_and_channels(effectInBuffer, pEffect->formatIn, pEffect->channelsIn, callbackBuffer, formatIn, channelsIn, framesReadFromCallback, ma_dither_mode_none);
             }
 
@@ -2905,21 +2905,16 @@ static ma_result ma_mixer_mix_data_source_read(ma_mixer* pMixer, ma_data_source*
         totalFramesProcessed += framesRead;
         pRunningAccumulationBuffer = ma_offset_ptr(pRunningAccumulationBuffer, framesRead * ma_get_accumulation_bytes_per_frame(pMixer->format, pMixer->channels));
 
-        if (atEnd) {
-            if (loop) {
-                ma_data_source_seek_to_pcm_frame(pDataSource, 0);
-                atEnd = MA_FALSE;
-            } else {
-                break;
-            }
-        }
-
         if (framesRead < framesToRead) {
             break;
         }
     }
 
-    return MA_SUCCESS;
+    if (atEnd) {
+        return MA_AT_END;
+    } else {
+        return MA_SUCCESS;
+    }
 }
 
 MA_API ma_result ma_mixer_mix_data_source(ma_mixer* pMixer, ma_data_source* pDataSource, ma_uint64 frameCountIn, float volume, ma_effect* pEffect, ma_bool32 loop)
