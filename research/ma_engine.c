@@ -26,14 +26,6 @@ int main(int argc, char** argv)
         return (int)result;
     }
 
-    /* Currently an explicit start is required. Perhaps make it so this is started by default, or maybe start it when the first sound is started? Maybe make it an option? */
-    result = ma_engine_start(&engine);  /* Do we want the engine to be started by default? */
-    if (result != MA_SUCCESS) {
-        ma_engine_uninit(&engine);
-        return (int)result;
-    }
-
-
     /* We can load our resource after starting the engine - the engine will deal with loading everything properly. */
     if (argc > 1) {
         result = ma_engine_create_sound_from_file(&engine, argv[1], NULL, &sound1);
@@ -42,12 +34,22 @@ int main(int argc, char** argv)
             return (int)result;
         }
 
+        ma_engine_sound_set_looping(&engine, &sound1, MA_TRUE);
         ma_engine_sound_start(&engine, &sound1);
+
+
+        result = ma_engine_play_sound(&engine, argv[1], NULL);
+        if (result != MA_SUCCESS) {
+            printf("ma_engine_play_sound() failed with: %s\n", ma_result_description(result));
+        }
     }
 
 
     printf("Press Enter to quit...");
     getchar();
+
+    /* Normally you would uninitialize and clean up all of your sounds manually because ma_engine_uninit() will _not_ do it for you. */
+    ma_engine_uninit(&engine);
 
     return 0;
 }

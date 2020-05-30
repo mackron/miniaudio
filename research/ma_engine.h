@@ -15,8 +15,8 @@ list of data sources. The `ma_resource_manager` is responsible for the actual lo
 something that I'm really liking right now and will likely stay in place for the final version.
 
 You create "sounds" from the engine which represent a sound/voice in the world. You first need to create a sound, and then you need to start it. Sounds do not
-start by default. A placeholder helper API called ma_engine_play_sound() exists, but is not yet implemented. This will just play a sound in-place which will be
-memory managed by the `ma_engine` object. Sounds can have an effect (`ma_effect`) applied to it which can be set with `ma_engine_sound_set_effect()`.
+start by default. You can use `ma_engine_play_sound()` to "fire and forget" sounds. Sounds can have an effect (`ma_effect`) applied to it which can be set with
+`ma_engine_sound_set_effect()`.
 
 Sounds can be allocated to groups called `ma_sound_group`. The creation and deletion of groups is not thread safe and should usually happen at initialization
 time. Groups are how you handle submixing. In many games you will see settings to control the master volume in addition to groups, usually called SFX, Music
@@ -153,13 +153,15 @@ struct ma_sound
     ma_vec3 position;
     ma_quat rotation;       /* For directional audio. */
     ma_sound_group* pGroup; /* The group the sound is attached to. */
-    volatile ma_sound* pPrevSoundInGroup;   /* Marked as volatile because we need to be very explicit with when we make copies of this and we can't have the compiler optimize it out. */
-    volatile ma_sound* pNextSoundInGroup;   /* Marked as volatile because we need to be very explicit with when we make copies of this and we can't have the compiler optimize it out. */
-    volatile ma_bool32 isPlaying;           /* False by default. Sounds need to be explicitly started with ma_engine_sound_start() and stopped with ma_engine_sound_stop(). */
-    volatile ma_bool32 isMixing;
-    ma_bool32 ownsDataSource;
+    ma_sound* pPrevSoundInGroup;
+    ma_sound* pNextSoundInGroup;
+    ma_bool32 isPlaying;           /* False by default. Sounds need to be explicitly started with ma_engine_sound_start() and stopped with ma_engine_sound_stop(). */
+    ma_bool32 isMixing;
+    ma_bool32 atEnd;
     ma_bool32 isSpatial;    /* Set the false by default. When set to false, with not have spatialisation applied. */
     ma_bool32 isLooping;    /* False by default. */
+    ma_bool32 ownsDataSource;
+    ma_bool32 _isInternal;  /* A marker to indicate the sound is managed entirely by the engine. This will be set to true when the sound is created internally by ma_engine_play_sound(). */
 };
 
 struct ma_sound_group
@@ -168,7 +170,7 @@ struct ma_sound_group
     ma_sound_group* pFirstChild;
     ma_sound_group* pPrevSibling;
     ma_sound_group* pNextSibling;
-    volatile ma_sound* pFirstSoundInGroup;  /* Marked as volatile because we need to be very explicit with when we make copies of this and we can't have the compiler optimize it out. */
+    ma_sound* pFirstSoundInGroup;  /* Marked as volatile because we need to be very explicit with when we make copies of this and we can't have the compiler optimize it out. */
     ma_mixer mixer;
     ma_mutex lock;          /* Only used by ma_engine_create_sound_*() and ma_engine_delete_sound(). Not used in the mixing thread. */
     ma_bool32 isPlaying;    /* True by default. Sound groups can be stopped with ma_engine_sound_stop() and resumed with ma_engine_sound_start(). Also affects children. */
@@ -190,10 +192,11 @@ typedef struct
     ma_format format;                       /* The format to use when mixing and spatializing. When set to 0 will use the native format of the device. */
     ma_uint32 channels;                     /* The number of channels to use when mixing and spatializing. When set to 0, will use the native channel count of the device. */
     ma_uint32 sampleRate;                   /* The sample rate. When set to 0 will use the native channel count of the device. */
-    ma_uint32 periodSizeInFrames;
-    ma_uint32 periodSizeInMilliseconds;     /* Updates will always be exactly this size. The underlying device may be a different size, but from the perspective of the mixer that won't matter. */
+    ma_uint32 periodSizeInFrames;           /* If set to something other than 0, updates will always be exactly this size. The underlying device may be a different size, but from the perspective of the mixer that won't matter.*/
+    ma_uint32 periodSizeInMilliseconds;     /* Used if periodSizeInFrames is unset. */
     ma_device_id* pPlaybackDeviceID;        /* The ID of the playback device to use with the default listener. */
     ma_allocation_callbacks allocationCallbacks;
+    ma_bool32 noAutoStart;                  /* When set to true, requires an explicit call to ma_engine_start(). This is false by default, meaning the engine will be started automatically in ma_engine_init(). */
 } ma_engine_config;
 
 MA_API ma_engine_config ma_engine_config_init_default();
@@ -235,7 +238,8 @@ MA_API ma_result ma_engine_sound_set_effect(ma_engine* pEngine, ma_sound* pSound
 MA_API ma_result ma_engine_sound_set_position(ma_engine* pEngine, ma_sound* pSound, ma_vec3 position);
 MA_API ma_result ma_engine_sound_set_rotation(ma_engine* pEngine, ma_sound* pSound, ma_quat rotation);
 MA_API ma_result ma_engine_sound_set_looping(ma_engine* pEngine, ma_sound* pSound, ma_bool32 isLooping);
-MA_API ma_result ma_engine_play_sound(ma_engine* pEngine, const char* pFilePath, ma_sound_group* pGroup);   /* Not yet implemented. */
+MA_API ma_bool32 ma_engine_sound_at_end(ma_engine* pEngine, const ma_sound* pSound);
+MA_API ma_result ma_engine_play_sound(ma_engine* pEngine, const char* pFilePath, ma_sound_group* pGroup);   /* Fire and forget. Not yet implemented. */
 
 MA_API ma_result ma_engine_sound_group_init(ma_engine* pEngine, ma_sound_group* pParentGroup, ma_sound_group* pGroup);  /* Parent must be set at initialization time and cannot be changed. Not thread-safe. */
 MA_API void ma_engine_sound_group_uninit(ma_engine* pEngine, ma_sound_group* pGroup);   /* Not thread-safe. */
@@ -392,8 +396,27 @@ static void ma_engine_mix_sound(ma_engine* pEngine, ma_sound_group* pGroup, vola
     ma_atomic_exchange_32(&pSound->isMixing, MA_TRUE);  /* This must be done before checking the isPlaying state. */
     {
         if (pSound->isPlaying) {
-            /* TODO: Spatialization. */
-            ma_mixer_mix_data_source(&pGroup->mixer, pSound->pDataSource, frameCount, pSound->volume, pSound->pEffect, pSound->isLooping);
+            ma_result result = MA_SUCCESS;
+
+            /*
+            If the sound is muted we still need to move time forward, but we can save time by not mixing as it won't actually affect anything. If there's an
+            effect we need to make sure we run it through the mixer because it may require us to update internal state for things like echo effects.
+            */
+            if (pSound->volume > 0 || pSound->pEffect != NULL) {
+                result = ma_mixer_mix_data_source(&pGroup->mixer, pSound->pDataSource, frameCount, pSound->volume, pSound->pEffect, pSound->isLooping);
+            } else {
+                /* The sound is muted. We want to move time forward, but it be made faster by simply seeking instead of reading. We also want to bypass mixing completely. */
+                ma_uint64 framesSeeked = ma_data_source_seek_pcm_frames(pSound->pDataSource, frameCount, pSound->isLooping);
+                if (framesSeeked < frameCount) {
+                    result = MA_AT_END;
+                }
+            }
+
+            /* If we reached the end of the sound we'll want to mark it as at the end and not playing. */
+            if (result == MA_AT_END) {
+                ma_atomic_exchange_32(&pSound->isPlaying, MA_FALSE);
+                ma_atomic_exchange_32(&pSound->atEnd, MA_TRUE);         /* Set to false in ma_engine_sound_start(). */
+            }
         }
     }
     ma_atomic_exchange_32(&pSound->isMixing, MA_FALSE);
@@ -644,6 +667,15 @@ MA_API ma_result ma_engine_init(const ma_engine_config* pConfig, ma_engine* pEng
     }
 #endif
 
+    /* Start the engine if required. This should always be the last step. */
+    if (engineConfig.noAutoStart == MA_FALSE) {
+        result = ma_engine_start(pEngine);
+        if (result != MA_SUCCESS) {
+            ma_engine_uninit(pEngine);
+            return result;  /* Failed to start the engine. */
+        }
+    }
+
     return MA_SUCCESS;
 }
 
@@ -829,8 +861,8 @@ static ma_result ma_engine_sound_attach(ma_engine* pEngine, ma_sound* pSound, ma
     */
     ma_mutex_lock(&pGroup->lock);
     {
-        volatile ma_sound* pNewFirstSoundInGroup = pSound;
-        volatile ma_sound* pOldFirstSoundInGroup = pGroup->pFirstSoundInGroup;
+        ma_sound* pNewFirstSoundInGroup = pSound;
+        ma_sound* pOldFirstSoundInGroup = pGroup->pFirstSoundInGroup;
 
         pNewFirstSoundInGroup->pNextSoundInGroup = pOldFirstSoundInGroup;
         if (pOldFirstSoundInGroup != NULL) {
@@ -921,6 +953,20 @@ MA_API ma_result ma_engine_sound_start(ma_engine* pEngine, ma_sound* pSound)
         return MA_INVALID_ARGS;
     }
 
+    /* If the sound is already playing, do nothing. */
+    if (pSound->isPlaying) {
+        return MA_SUCCESS;
+    }
+
+    /* If the sound is at the end it means we want to start from the start again. */
+    if (pSound->atEnd) {
+        ma_result result = ma_data_source_seek_to_pcm_frame(pSound->pDataSource, 0);
+        if (result != MA_SUCCESS) {
+            return result;  /* Failed to seek back to the start. */
+        }
+    }
+
+    /* Once everything is set up we can tell the mixer thread about it. */
     ma_atomic_exchange_32(&pSound->isPlaying, MA_TRUE);
 
     return MA_SUCCESS;
@@ -1001,13 +1047,103 @@ MA_API ma_result ma_engine_sound_set_looping(ma_engine* pEngine, ma_sound* pSoun
     return MA_SUCCESS;
 }
 
+MA_API ma_bool32 ma_engine_sound_at_end(ma_engine* pEngine, const ma_sound* pSound)
+{
+    if (pEngine == NULL || pSound == NULL) {
+        return MA_FALSE;
+    }
+
+    return pSound->atEnd;
+}
+
 MA_API ma_result ma_engine_play_sound(ma_engine* pEngine, const char* pFilePath, ma_sound_group* pGroup)
 {
-    if (pEngine == NULL || pFilePath == NULL || pGroup == NULL) {
+    ma_result result;
+    ma_sound* pSound = NULL;
+    ma_sound* pNextSound = NULL;
+
+    if (pEngine == NULL || pFilePath == NULL) {
         return MA_INVALID_ARGS;
     }
 
-    /* TODO: Implement me. Need our own temporary sound pool which can use an allocator for, but I'm also thinking of allowing the use of a different allocator to the default one. */
+    if (pGroup == NULL) {
+        pGroup = &pEngine->masterSoundGroup;
+    }
+
+    /*
+    Fire and forget sounds are never actually removed from the group. In practice there should never be a huge number of sounds playing at the same time so we
+    should be able to get away with recycling sounds. What we need, however, is a way to switch out the old data source with a new one.
+
+    The first thing to do is find an available sound. We will only be doing a forward iteration here so we should be able to do this part without locking. A
+    sound will be available for recycling if it's marked as internal and is at the end.
+    */
+    for (pNextSound = pGroup->pFirstSoundInGroup; pNextSound != NULL; pNextSound = pNextSound->pNextSoundInGroup) {
+        if (pNextSound->_isInternal) {
+            /*
+            We need to check that atEnd flag to determine if this sound is available. The problem is that another thread might be wanting to acquire this
+            sound at the same time. We want to avoid as much locking as possible, so we'll do this as a compare and swap.
+            */
+            if (ma_compare_and_swap_32(&pNextSound->atEnd, MA_FALSE, MA_TRUE) == MA_TRUE) {
+                /* We got it. */
+                pSound = pNextSound;
+                break;
+            } else {
+                /* The sound is not available for recycling. Move on to the next one. */
+            }
+        }
+    }
+
+    if (pSound != NULL) {
+        /*
+        An existing sound is being recycled. There's no need to allocate memory or re-insert into the group (it's already there). All we need to do is replace
+        the data source. The at-end flag has already been unset, and it will marked as playing at the end of this function.
+        */
+        ma_data_source* pNewDataSource;
+
+        /* The at-end flag should have been set to false when we acquired the sound for recycling. */
+        MA_ASSERT(pSound->atEnd == MA_FALSE);
+
+        /*
+        We want to create the new data source first. If the resource manager detects that the resource is already loaded it will run in an optimized path by
+        simply incrementing a reference counter. If, however, we delete the resource first, we may end up in a situation where the reference counter is
+        decremented to 0, the resource manager free's the internal resources, and then we end up just reloading the resource again. This will only ever happen
+        if the recycled sound coincidentally uses the same underlying resource.
+
+        TODO: Look at checking if there's a way to determine if the old data source shares the same file path as pFilePath and make this more intelligent.
+        */
+        result = ma_resource_manager_create_data_source(pEngine->pResourceManager, pFilePath, &pNewDataSource);
+        if (result != MA_SUCCESS) {
+            /* We failed to load the resource. We need to return an error. We must also put this sound back up for recycling by setting the at-end flag to true. */
+            ma_atomic_exchange_32(&pSound->atEnd, MA_TRUE); /* <-- Put the sound back up for recycling. */
+            return result;
+        }
+
+        /* We have the new data source, so now we can delete the old one. */
+        if (pSound->pDataSource != NULL) {  /* <-- Safety. Should never happen. */
+            ma_resource_manager_delete_data_source(pEngine->pResourceManager, pSound->pDataSource);
+        }
+
+        /* We can now do the switch over to the new data source. */
+        pSound->pDataSource = pNewDataSource;
+    } else {
+        /* There's no available sounds for recycling. We need to allocate a sound. This can be done using a stack allocator. */
+        pSound = ma__malloc_from_callbacks(sizeof(*pSound), &pEngine->allocationCallbacks); /* TODO: This can certainly be optimized. Maybe add a soundAllocationCallbacks member or something. */
+        if (pSound == NULL) {
+            return MA_OUT_OF_MEMORY;
+        }
+
+        result = ma_engine_create_sound_from_file(pEngine, pFilePath, pGroup, pSound);
+        if (result != MA_SUCCESS) {
+            ma__free_from_callbacks(pEngine, &pEngine->allocationCallbacks);
+            return result;
+        }
+
+        /* The sound needs to be marked as internal for our own internal memory management reasons. This is how we know whether or not the sound is available for recycling. */
+        pSound->_isInternal = MA_TRUE;  /* This is the only place _isInternal will be modified. We therefore don't need to worry about synchronizing access to this variable. */
+    }
+
+    /* Finally we can start playing the sound. */
+    ma_engine_sound_start(pEngine, pSound);
 
     return MA_SUCCESS;
 }
@@ -1066,10 +1202,10 @@ static ma_result ma_engine_sound_group_detach(ma_engine* pEngine, ma_sound_group
         MA_ASSERT(pGroup->pParent != NULL);
         MA_ASSERT(pGroup->pParent->pFirstChild == pGroup);
 
-        pGroup->pParent->pFirstChild = pGroup->pNextSibling;
+        ma_atomic_exchange_ptr(&pGroup->pParent->pFirstChild, pGroup->pNextSibling);
     } else {
         /* It's not the first child in the parent group. */
-        pGroup->pPrevSibling->pNextSibling = pGroup->pNextSibling;
+        ma_atomic_exchange_ptr(&pGroup->pPrevSibling->pNextSibling, pGroup->pNextSibling);
     }
 
     /* The previous sibling needs to be changed for the old next sibling. */
