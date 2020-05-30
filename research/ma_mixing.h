@@ -1135,7 +1135,7 @@ MA_API ma_result ma_effect_init(const ma_effect_config* pConfig, ma_effect* pEff
 
         case ma_effect_type_bpf:
         {
-            result = ma_effect_init__lpf(pConfig, pEffect);
+            result = ma_effect_init__bpf(pConfig, pEffect);
         } break;
 
         default:
@@ -1213,7 +1213,7 @@ MA_API ma_result ma_effect_process_pcm_frames(ma_effect* pEffect, const void* pF
                 /* It's not the first item. We need to read from a temp buffer. */
                 pRunningFramesIn = tempFrames[iTempBuffer];
                 frameCountInThisIteration = tempFrameCount[iTempBuffer];
-                iTempBuffer = (iTempBuffer + 1) & 0b1;    /* Toggle between 0 and 1. */
+                iTempBuffer = (iTempBuffer + 1) & 0x01; /* Toggle between 0 and 1. */
             }
 
             if (pRunningEffect == pEffect) {
@@ -1509,6 +1509,7 @@ static MA_INLINE float ma_apply_volume_unclipped_f32(float x, float volume)
 }
 
 
+#if 0
 static void ma_accumulate_and_clip_u8(ma_uint8* pDst, const ma_int16* pSrc, ma_uint64 count)
 {
     ma_uint64 iSample;
@@ -1571,6 +1572,7 @@ static void ma_accumulate_and_clip_f32(float* pDst, const float* pSrc, ma_uint64
         pDst[iSample] = ma_clip_f32(pDst[iSample] + pSrc[iSample]);
     }
 }
+#endif
 
 
 static void ma_clip_samples_u8(ma_uint8* pDst, const ma_int16* pSrc, ma_uint64 count)
@@ -1730,6 +1732,11 @@ static void ma_clip_pcm_frames(void* pDst, const void* pSrc, ma_uint64 frameCoun
         case ma_format_s24: ma_clip_samples_s24(pDst, pSrc, sampleCount); break;
         case ma_format_s32: ma_clip_samples_s32(pDst, pSrc, sampleCount); break;
         case ma_format_f32: ma_clip_samples_f32_ex(pDst, pSrc, sampleCount); break;
+        
+        /* Do nothing if we don't know the format. We're including these here to silence a compiler warning about enums not being handled by the switch. */
+        case ma_format_unknown:
+        case ma_format_count:
+            break;
     }
 }
 
@@ -1751,6 +1758,11 @@ static void ma_volume_and_clip_pcm_frames(void* pDst, const void* pSrc, ma_uint6
             case ma_format_s24: ma_volume_and_clip_samples_s24(pDst, pSrc, sampleCount, volume); break;
             case ma_format_s32: ma_volume_and_clip_samples_s32(pDst, pSrc, sampleCount, volume); break;
             case ma_format_f32: ma_volume_and_clip_samples_f32(pDst, pSrc, sampleCount, volume); break;
+            
+            /* Do nothing if we don't know the format. We're including these here to silence a compiler warning about enums not being handled by the switch. */
+            case ma_format_unknown:
+            case ma_format_count:
+                break;
         }
     }
 }
@@ -1834,6 +1846,11 @@ static void ma_clipped_accumulate_pcm_frames(void* pDst, const void* pSrc, ma_ui
         case ma_format_s24: ma_clipped_accumulate_s24(pDst, pSrc, sampleCount); break;
         case ma_format_s32: ma_clipped_accumulate_s32(pDst, pSrc, sampleCount); break;
         case ma_format_f32: ma_clipped_accumulate_f32(pDst, pSrc, sampleCount); break;
+
+        /* Do nothing if we don't know the format. We're including these here to silence a compiler warning about enums not being handled by the switch. */
+        case ma_format_unknown:
+        case ma_format_count:
+            break;
     }
 }
 
@@ -1914,6 +1931,11 @@ static void ma_unclipped_accumulate_pcm_frames(void* pDst, const void* pSrc, ma_
         case ma_format_s24: ma_unclipped_accumulate_s24(pDst, pSrc, sampleCount); break;
         case ma_format_s32: ma_unclipped_accumulate_s32(pDst, pSrc, sampleCount); break;
         case ma_format_f32: ma_unclipped_accumulate_f32(pDst, pSrc, sampleCount); break;
+
+        /* Do nothing if we don't know the format. We're including these here to silence a compiler warning about enums not being handled by the switch. */
+        case ma_format_unknown:
+        case ma_format_count:
+            break;
     }
 }
 
@@ -2718,8 +2740,6 @@ static ma_result ma_mixer_mix_data_source_mmap(ma_mixer* pMixer, ma_data_source*
     ma_result result = MA_SUCCESS;
     ma_uint64 totalFramesProcessed = 0;
     void* pRunningAccumulationBuffer = pMixer->pAccumulationBuffer;
-    ma_format preMixFormat;
-    ma_uint32 preMixChannels;
     ma_bool32 preEffectConversionRequired = MA_FALSE;
 
     MA_ASSERT(pMixer      != NULL);
@@ -2729,12 +2749,7 @@ static ma_result ma_mixer_mix_data_source_mmap(ma_mixer* pMixer, ma_data_source*
         return MA_INVALID_ARGS; /* Passing in too many input frames. */
     }
 
-    if (pEffect == NULL) {
-        preMixFormat   = formatIn;
-        preMixChannels = channelsIn;
-    } else {
-        preMixFormat   = pEffect->formatOut;
-        preMixChannels = pEffect->channelsOut;
+    if (pEffect != NULL) {
         preEffectConversionRequired = (formatIn != pEffect->formatIn || channelsIn != pEffect->channelsIn);
     }
 
