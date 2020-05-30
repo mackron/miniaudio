@@ -31046,7 +31046,13 @@ static MA_INLINE ma_int64 ma_clip_s24(ma_int64 x)
 
 static MA_INLINE ma_int32 ma_clip_s32(ma_int64 x)
 {
-    return (ma_int32)ma_clamp(x, -(ma_int64)2147483648, (ma_int64)2147483647);
+    /* This dance is to silence warnings with -std=c89. A good compiler should be able to optimize this away. */
+    ma_int64 clipMin;
+    ma_int64 clipMax;
+    clipMin = -((ma_int64)2147483647 + 1);
+    clipMax =   (ma_int64)2147483647;
+
+    return (ma_int32)ma_clamp(x, clipMin, clipMax);
 }
 
 
@@ -37376,7 +37382,7 @@ static ma_result ma_channel_converter_process_pcm_frames__weights(ma_channel_con
                         ma_int64 s = pFramesOutS32[iFrame*pConverter->channelsOut + iChannelOut];
                         s += (pFramesInS32[iFrame*pConverter->channelsIn + iChannelIn] * pConverter->weights.s16[iChannelIn][iChannelOut]) >> MA_CHANNEL_CONVERTER_FIXED_POINT_SHIFT;
 
-                        pFramesOutS32[iFrame*pConverter->channelsOut + iChannelOut] = (ma_int32)ma_clamp(s, -(ma_int64)2147483648, (ma_int64)2147483647);
+                        pFramesOutS32[iFrame*pConverter->channelsOut + iChannelOut] = ma_clip_s32(s);
                     }
                 }
             }
