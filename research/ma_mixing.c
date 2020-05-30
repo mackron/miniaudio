@@ -76,8 +76,7 @@ int main(int argc, char** argv)
     ma_uint64 inputFileDataSize2;
     const char* pInputFilePath1 = NULL;
     const char* pInputFilePath2 = NULL;
-    ma_effect_config effectConfig;
-    ma_effect effect;
+    /*ma_effect_config effectConfig;*/
     
     if (argc > 1) {
         pInputFilePath1 = argv[1];
@@ -98,6 +97,7 @@ int main(int argc, char** argv)
     }
 
 
+#if 0
     /* Effect. */
     effectConfig = ma_effect_config_init(ma_effect_type_lpf, /*device.playback.format*/ ma_format_f32, device.playback.channels, device.sampleRate);
     effectConfig.lpf.cutoffFrequency = device.sampleRate / 16;
@@ -106,6 +106,7 @@ int main(int argc, char** argv)
     if (result != MA_SUCCESS) {
         return result;
     }
+#endif
 
 
     /* Mixers. */
@@ -126,7 +127,10 @@ int main(int argc, char** argv)
     }
 
     ma_mixer_set_volume(&g_mixerEffects, 1.0f);
+
+#if 0
     ma_mixer_set_effect(&g_mixerEffects, &effect);
+#endif
 
     
 

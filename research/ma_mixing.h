@@ -23,23 +23,6 @@ works it's way down.
 
 Usage
 -----
-Initialize an effect like the following:
-
-    ```c
-    ma_effect_config config = ma_effect_config_init(ma_effect_type_lpf, ma_format_f32, 2, 48000);
-    config.lpf.cutoffFrequency = 8000;
-
-    ma_effect effect;
-    ma_result result = ma_effect_init(&config, &effect);
-    if (result != MA_SUCCESS) {
-        // Error.
-    }
-    ```
-
-Initializing an effect uses the same config system as all other objects in miniaudio. Initialize this with `ma_effect_config_init()`. This takes the effect
-type, sample format, channel count and sample rate. Note that this alone is not enough to configure the config - you will need to set some effect type-specific
-properties.
-
 To apply the effect to some audio data, do something like the following:
 
     ```c
@@ -59,75 +42,28 @@ need to be specified when processing a chunk of audio data.
 
 
 */
-typedef struct ma_effect ma_effect;
+typedef void ma_effect;
 
-typedef struct
+typedef struct ma_effect_base ma_effect_base;
+struct ma_effect_base
 {
-    void* pUserData;
-    ma_result (* onProcess)(void* pUserData, const void* pFramesIn, ma_uint64* pFrameCountIn, void* pFramesOut, ma_uint64* pFrameCountOut);
-    ma_uint64 (* onGetRequiredInputFrameCount)(void* pUserData, ma_uint64 outputFrameCount);
-    ma_uint64 (* onGetExpectedOutputFrameCount)(void* pUserData, ma_uint64 inputFrameCount);
-} ma_effect_callbacks;
-
-typedef enum
-{
-    ma_effect_type_custom,
-    ma_effect_type_converter,
-    ma_effect_type_biquad,
-    ma_effect_type_lpf,
-    ma_effect_type_hpf,
-    ma_effect_type_bpf
-} ma_effect_type;
-
-typedef struct
-{
-    ma_effect_type type;
-    ma_format format;
-    ma_uint32 channels;
-    ma_uint32 sampleRate;
-    ma_effect_callbacks custom;
-    ma_data_converter_config converter;
-    ma_biquad_config biquad;
-    ma_lpf_config lpf;
-    ma_hpf_config hpf;
-    ma_bpf_config bpf;
-} ma_effect_config;
-
-MA_API ma_effect_config ma_effect_config_init(ma_effect_type type, ma_format format, ma_uint32 channels, ma_uint32 sampleRate);
-
-
-struct ma_effect
-{
-    ma_effect_type type;
-    ma_format formatIn;
-    ma_uint32 channelsIn;
-    ma_uint32 sampleRateIn;
-    ma_format formatOut;
-    ma_uint32 channelsOut;
-    ma_uint32 sampleRateOut;
-    ma_effect_callbacks callbacks;
-    ma_effect* pPrev;
-    ma_effect* pNext;
-    union
-    {
-        ma_data_converter converter;
-        ma_biquad biquad;
-        ma_lpf lpf;
-        ma_hpf hpf;
-        ma_bpf bpf;
-    } state;
+    ma_result (* onProcessPCMFrames)(ma_effect* pEffect, const void* pFramesIn, ma_uint64* pFrameCountIn, void* pFramesOut, ma_uint64* pFrameCountOut);
+    ma_uint64 (* onGetRequiredInputFrameCount)(ma_effect* pEffect, ma_uint64 outputFrameCount);
+    ma_uint64 (* onGetExpectedOutputFrameCount)(ma_effect* pEffect, ma_uint64 inputFrameCount);
+    ma_result (* onGetInputDataFormat)(ma_effect* pEffect, ma_format* pFormat, ma_uint32* pChannels, ma_uint32* pSampleRate);
+    ma_result (* onGetOutputDataFormat)(ma_effect* pEffect, ma_format* pFormat, ma_uint32* pChannels, ma_uint32* pSampleRate);
+    ma_effect_base* pPrev;
+    ma_effect_base* pNext;
 };
 
-MA_API ma_result ma_effect_init(const ma_effect_config* pConfig, ma_effect* pEffect);
-MA_API void ma_effect_uninit(ma_effect* pEffect);
 MA_API ma_result ma_effect_process_pcm_frames(ma_effect* pEffect, const void* pFramesIn, ma_uint64* pFrameCountIn, void* pFramesOut, ma_uint64* pFrameCountOut);
 MA_API ma_uint64 ma_effect_get_required_input_frame_count(ma_effect* pEffect, ma_uint64 outputFrameCount);
 MA_API ma_uint64 ma_effect_get_expected_output_frame_count(ma_effect* pEffect, ma_uint64 inputFrameCount);
 MA_API ma_result ma_effect_append(ma_effect* pEffect, ma_effect* pParent);
 MA_API ma_result ma_effect_prepend(ma_effect* pEffect, ma_effect* pChild);
 MA_API ma_result ma_effect_detach(ma_effect* pEffect);
-MA_API ma_result ma_effect_get_output_data_format(ma_effect* pEffect, ma_format* pFormat, ma_uint32* pChannels);
-MA_API ma_result ma_effect_get_input_data_format(ma_effect* pEffect, ma_format* pFormat, ma_uint32* pChannels);
+MA_API ma_result ma_effect_get_output_data_format(ma_effect* pEffect, ma_format* pFormat, ma_uint32* pChannels, ma_uint32* pSampleRate);
+MA_API ma_result ma_effect_get_input_data_format(ma_effect* pEffect, ma_format* pFormat, ma_uint32* pChannels, ma_uint32* pSampleRate);
 
 
 
@@ -787,60 +723,15 @@ static void ma_convert_pcm_frames_format_and_channels(void* pDst, ma_format form
 }
 
 
-
-MA_API ma_effect_config ma_effect_config_init(ma_effect_type type, ma_format format, ma_uint32 channels, ma_uint32 sampleRate)
+static ma_effect_base* ma_effect_get_root(ma_effect* pEffect)
 {
-    ma_effect_config config;
-
-    MA_ZERO_OBJECT(&config);
-    config.type       = type;
-    config.format     = format;
-    config.channels   = channels;
-    config.sampleRate = sampleRate;
-
-    switch (type)
-    {
-        case ma_effect_type_converter:
-        {
-            config.converter = ma_data_converter_config_init(format, format, channels, channels, sampleRate, sampleRate);
-        } break;
-
-        case ma_effect_type_biquad:
-        {
-            config.biquad = ma_biquad_config_init(format, channels, 1, 0, 0, 1, 0, 0);
-        } break;
-
-        case ma_effect_type_lpf:
-        {
-            config.lpf = ma_lpf_config_init(format, channels, sampleRate, (double)sampleRate, 2);
-        } break;
-
-        case ma_effect_type_hpf:
-        {
-            config.hpf = ma_hpf_config_init(format, channels, sampleRate, (double)sampleRate, 2);
-        } break;
-
-        case ma_effect_type_bpf:
-        {
-            config.bpf = ma_bpf_config_init(format, channels, sampleRate, (double)sampleRate, 2);
-        } break;
-
-        default: break;
-    }
-
-    return config;
-}
-
-
-static ma_effect* ma_effect_get_root(ma_effect* pEffect)
-{
-    ma_effect* pRootEffect;
+    ma_effect_base* pRootEffect;
 
     if (pEffect == NULL) {
         return NULL;
     }
 
-    pRootEffect = pEffect;
+    pRootEffect = (ma_effect_base*)pEffect;
     for (;;) {
         if (pRootEffect->pPrev == NULL) {
             return pRootEffect;
@@ -853,316 +744,12 @@ static ma_effect* ma_effect_get_root(ma_effect* pEffect)
     /*return NULL;*/
 }
 
-
-
-static ma_result ma_effect_init__custom(const ma_effect_config* pConfig, ma_effect* pEffect)
-{
-    MA_ASSERT(pConfig != NULL);
-    MA_ASSERT(pEffect != NULL);
-
-    pEffect->callbacks = pConfig->custom;
-
-    return MA_SUCCESS;
-}
-
-
-static ma_result ma_effect__on_process__converter(void* pUserData, const void* pFramesIn, ma_uint64* pFrameCountIn, void* pFramesOut, ma_uint64* pFrameCountOut)
-{
-    ma_data_converter* pConverter = (ma_data_converter*)pUserData;
-
-    /* The input and output buffers must not be equal for a converter effect. */
-    if (pFramesIn == pFramesOut) {
-        return MA_INVALID_OPERATION;
-    }
-
-    return ma_data_converter_process_pcm_frames(pConverter, pFramesIn, pFrameCountIn, pFramesOut, pFrameCountOut);
-}
-
-static ma_uint64 ma_effect__on_get_required_input_frame_count__converter(void* pUserData, ma_uint64 outputFrameCount)
-{
-    return ma_data_converter_get_required_input_frame_count((ma_data_converter*)pUserData, outputFrameCount);
-}
-
-static ma_uint64 ma_effect__on_get_expected_output_frame_count__converter(void* pUserData, ma_uint64 inputFrameCount)
-{
-    return ma_data_converter_get_expected_output_frame_count((ma_data_converter*)pUserData, inputFrameCount);
-}
-
-static ma_result ma_effect_init__converter(const ma_effect_config* pConfig, ma_effect* pEffect)
-{
-    ma_result result;
-
-    MA_ASSERT(pConfig != NULL);
-    MA_ASSERT(pEffect != NULL);
-
-    result = ma_data_converter_init(&pConfig->converter, &pEffect->state.converter);
-    if (result != MA_SUCCESS) {
-        return result;
-    }
-
-    pEffect->callbacks.pUserData                     = &pEffect->state.converter;
-    pEffect->callbacks.onProcess                     = ma_effect__on_process__converter;
-    pEffect->callbacks.onGetRequiredInputFrameCount  = ma_effect__on_get_required_input_frame_count__converter;
-    pEffect->callbacks.onGetExpectedOutputFrameCount = ma_effect__on_get_expected_output_frame_count__converter;
-
-    return MA_SUCCESS;
-}
-
-static void ma_effect_uninit__converter(ma_effect* pEffect)
-{
-    ma_data_converter_uninit(&pEffect->state.converter);
-}
-
-
-static ma_result ma_effect__on_process__biquad(void* pUserData, const void* pFramesIn, ma_uint64* pFrameCountIn, void* pFramesOut, ma_uint64* pFrameCountOut)
-{
-    ma_biquad* pLPF = (ma_biquad*)pUserData;
-    ma_uint64 frameCountIn  = *pFrameCountIn;
-    ma_uint64 frameCountOut = *pFrameCountOut;
-    ma_uint64 frameCount = ma_min(frameCountIn, frameCountOut);
-    ma_result result;
-
-    result = ma_biquad_process_pcm_frames(pLPF, pFramesOut, pFramesIn, frameCount);
-    if (result != MA_SUCCESS) {
-        return result;
-    }
-
-    *pFrameCountIn  = frameCount;
-    *pFrameCountOut = frameCount;
-
-    return MA_SUCCESS;
-}
-
-static ma_result ma_effect_init__biquad(const ma_effect_config* pConfig, ma_effect* pEffect)
-{
-    ma_result result;
-
-    MA_ASSERT(pConfig != NULL);
-    MA_ASSERT(pEffect != NULL);
-
-    result = ma_biquad_init(&pConfig->biquad, &pEffect->state.biquad);
-    if (result != MA_SUCCESS) {
-        return result;
-    }
-
-    pEffect->callbacks.pUserData                     = &pEffect->state.biquad;
-    pEffect->callbacks.onProcess                     = ma_effect__on_process__biquad;
-    pEffect->callbacks.onGetRequiredInputFrameCount  = NULL;    /* 1:1 */
-    pEffect->callbacks.onGetExpectedOutputFrameCount = NULL;    /* 1:1 */
-
-    return MA_SUCCESS;
-}
-
-
-static ma_result ma_effect__on_process__lpf(void* pUserData, const void* pFramesIn, ma_uint64* pFrameCountIn, void* pFramesOut, ma_uint64* pFrameCountOut)
-{
-    ma_lpf* pLPF = (ma_lpf*)pUserData;
-    ma_uint64 frameCountIn  = *pFrameCountIn;
-    ma_uint64 frameCountOut = *pFrameCountOut;
-    ma_uint64 frameCount = ma_min(frameCountIn, frameCountOut);
-    ma_result result;
-
-    result = ma_lpf_process_pcm_frames(pLPF, pFramesOut, pFramesIn, frameCount);
-    if (result != MA_SUCCESS) {
-        return result;
-    }
-
-    *pFrameCountIn  = frameCount;
-    *pFrameCountOut = frameCount;
-
-    return MA_SUCCESS;
-}
-
-static ma_result ma_effect_init__lpf(const ma_effect_config* pConfig, ma_effect* pEffect)
-{
-    ma_result result;
-
-    MA_ASSERT(pConfig != NULL);
-    MA_ASSERT(pEffect != NULL);
-
-    result = ma_lpf_init(&pConfig->lpf, &pEffect->state.lpf);
-    if (result != MA_SUCCESS) {
-        return result;
-    }
-
-    pEffect->callbacks.pUserData                     = &pEffect->state.lpf;
-    pEffect->callbacks.onProcess                     = ma_effect__on_process__lpf;
-    pEffect->callbacks.onGetRequiredInputFrameCount  = NULL;    /* 1:1 */
-    pEffect->callbacks.onGetExpectedOutputFrameCount = NULL;    /* 1:1 */
-
-    return MA_SUCCESS;
-}
-
-
-static ma_result ma_effect__on_process__hpf(void* pUserData, const void* pFramesIn, ma_uint64* pFrameCountIn, void* pFramesOut, ma_uint64* pFrameCountOut)
-{
-    ma_hpf* pLPF = (ma_hpf*)pUserData;
-    ma_uint64 frameCountIn  = *pFrameCountIn;
-    ma_uint64 frameCountOut = *pFrameCountOut;
-    ma_uint64 frameCount = ma_min(frameCountIn, frameCountOut);
-    ma_result result;
-
-    result = ma_hpf_process_pcm_frames(pLPF, pFramesOut, pFramesIn, frameCount);
-    if (result != MA_SUCCESS) {
-        return result;
-    }
-
-    *pFrameCountIn  = frameCount;
-    *pFrameCountOut = frameCount;
-
-    return MA_SUCCESS;
-}
-
-static ma_result ma_effect_init__hpf(const ma_effect_config* pConfig, ma_effect* pEffect)
-{
-    ma_result result;
-
-    MA_ASSERT(pConfig != NULL);
-    MA_ASSERT(pEffect != NULL);
-
-    result = ma_hpf_init(&pConfig->hpf, &pEffect->state.hpf);
-    if (result != MA_SUCCESS) {
-        return result;
-    }
-
-    pEffect->callbacks.pUserData                     = &pEffect->state.hpf;
-    pEffect->callbacks.onProcess                     = ma_effect__on_process__hpf;
-    pEffect->callbacks.onGetRequiredInputFrameCount  = NULL;    /* 1:1 */
-    pEffect->callbacks.onGetExpectedOutputFrameCount = NULL;    /* 1:1 */
-
-    return MA_SUCCESS;
-}
-
-
-static ma_result ma_effect__on_process__bpf(void* pUserData, const void* pFramesIn, ma_uint64* pFrameCountIn, void* pFramesOut, ma_uint64* pFrameCountOut)
-{
-    ma_bpf* pLPF = (ma_bpf*)pUserData;
-    ma_uint64 frameCountIn  = *pFrameCountIn;
-    ma_uint64 frameCountOut = *pFrameCountOut;
-    ma_uint64 frameCount = ma_min(frameCountIn, frameCountOut);
-    ma_result result;
-
-    result = ma_bpf_process_pcm_frames(pLPF, pFramesOut, pFramesIn, frameCount);
-    if (result != MA_SUCCESS) {
-        return result;
-    }
-
-    *pFrameCountIn  = frameCount;
-    *pFrameCountOut = frameCount;
-
-    return MA_SUCCESS;
-}
-
-static ma_result ma_effect_init__bpf(const ma_effect_config* pConfig, ma_effect* pEffect)
-{
-    ma_result result;
-
-    MA_ASSERT(pConfig != NULL);
-    MA_ASSERT(pEffect != NULL);
-
-    result = ma_bpf_init(&pConfig->bpf, &pEffect->state.bpf);
-    if (result != MA_SUCCESS) {
-        return result;
-    }
-
-    pEffect->callbacks.pUserData                     = &pEffect->state.bpf;
-    pEffect->callbacks.onProcess                     = ma_effect__on_process__bpf;
-    pEffect->callbacks.onGetRequiredInputFrameCount  = NULL;    /* 1:1 */
-    pEffect->callbacks.onGetExpectedOutputFrameCount = NULL;    /* 1:1 */
-
-    return MA_SUCCESS;
-}
-
-
-MA_API ma_result ma_effect_init(const ma_effect_config* pConfig, ma_effect* pEffect)
-{
-    ma_result result;
-
-    if (pEffect == NULL) {
-        return MA_INVALID_ARGS;
-    }
-
-    MA_ZERO_OBJECT(pEffect);
-
-    if (pConfig == NULL) {
-        return MA_INVALID_ARGS;
-    }
-
-    pEffect->type          = pConfig->type;
-    pEffect->formatIn      = pConfig->format;
-    pEffect->channelsIn    = pConfig->channels;
-    pEffect->sampleRateIn  = pConfig->sampleRate;
-    pEffect->formatOut     = pConfig->format;
-    pEffect->channelsOut   = pConfig->channels;
-    pEffect->sampleRateOut = pConfig->sampleRate;
-
-    switch (pConfig->type)
-    {
-        case ma_effect_type_custom:
-        {
-            result = ma_effect_init__custom(pConfig, pEffect);
-        } break;
-
-        case ma_effect_type_converter:
-        {
-            /* If the input format is inconsistent we need to return an error. */
-            if (pConfig->format != pConfig->converter.formatIn || pConfig->channels != pConfig->converter.channelsIn || pConfig->sampleRate != pConfig->converter.sampleRateIn) {
-                return MA_INVALID_ARGS;
-            }
-
-            /* The output format is defined by the converter. */
-            pEffect->formatOut     = pConfig->converter.formatOut;
-            pEffect->channelsOut   = pConfig->converter.channelsOut;
-            pEffect->sampleRateOut = pConfig->converter.sampleRateOut;
-
-            result = ma_effect_init__converter(pConfig, pEffect);
-        } break;
-
-        case ma_effect_type_biquad:
-        {
-            result = ma_effect_init__biquad(pConfig, pEffect);
-        } break;
-        
-        case ma_effect_type_lpf:
-        {
-            result = ma_effect_init__lpf(pConfig, pEffect);
-        } break;
-
-        case ma_effect_type_hpf:
-        {
-            result = ma_effect_init__hpf(pConfig, pEffect);
-        } break;
-
-        case ma_effect_type_bpf:
-        {
-            result = ma_effect_init__bpf(pConfig, pEffect);
-        } break;
-
-        default:
-        {
-            result = MA_INVALID_ARGS;   /* Unknown effect type. */
-        } break;
-    }
-
-    return result;
-}
-
-MA_API void ma_effect_uninit(ma_effect* pEffect)
-{
-    if (pEffect == NULL) {
-        return;
-    }
-
-    if (pEffect->type == ma_effect_type_converter) {
-        ma_effect_uninit__converter(pEffect);
-    }
-}
-
 MA_API ma_result ma_effect_process_pcm_frames(ma_effect* pEffect, const void* pFramesIn, ma_uint64* pFrameCountIn, void* pFramesOut, ma_uint64* pFrameCountOut)
 {
     ma_result result = MA_SUCCESS;
-    ma_effect* pFirstEffect;
-    ma_effect* pRunningEffect;
+    ma_effect_base* pBase = (ma_effect_base*)pEffect;
+    ma_effect_base* pFirstEffect;
+    ma_effect_base* pRunningEffect;
     ma_uint32 iTempBuffer = 0;
     ma_uint8  tempFrames[2][MA_DATA_CONVERTER_STACK_BUFFER_SIZE];
     ma_uint64 tempFrameCount[2];
@@ -1171,7 +758,7 @@ MA_API ma_result ma_effect_process_pcm_frames(ma_effect* pEffect, const void* pF
     ma_uint64 frameCountOut;
     ma_uint64 frameCountOutConsumed;
 
-    if (pEffect == NULL || pEffect->callbacks.onProcess == NULL) {
+    if (pEffect == NULL || pBase->onProcessPCMFrames == NULL) {
         return MA_INVALID_ARGS;
     }
 
@@ -1184,8 +771,8 @@ MA_API ma_result ma_effect_process_pcm_frames(ma_effect* pEffect, const void* pF
     pRunningEffect = pFirstEffect;
 
     /* Optimized path if this is the only effect in the chain. */
-    if (pFirstEffect == pEffect) {
-        return pEffect->callbacks.onProcess(pRunningEffect->callbacks.pUserData, pFramesIn, pFrameCountIn, pFramesOut, pFrameCountOut);
+    if (pFirstEffect == pBase) {
+        return pBase->onProcessPCMFrames(pRunningEffect, pFramesIn, pFrameCountIn, pFramesOut, pFrameCountOut);
     }
 
     frameCountIn          = *pFrameCountIn;
@@ -1198,16 +785,25 @@ MA_API ma_result ma_effect_process_pcm_frames(ma_effect* pEffect, const void* pF
     several iterations to process as much data as possible available in the input buffer, or can fit in the output buffer.
     */
     while (frameCountIn < frameCountInConsumed && frameCountOut < frameCountOutConsumed) {
-        do
-        {
+        for (;;) {
+            MA_ASSERT(pRunningEffect != NULL);
+
             const void* pRunningFramesIn;
             /* */ void* pRunningFramesOut;
             ma_uint64 frameCountInThisIteration;
             ma_uint64 frameCountOutThisIteration;
+            ma_format runningEffectFormatIn;
+            ma_uint32 runningEffectChannelsIn;
+
+            result = ma_effect_get_input_data_format(pRunningEffect, &runningEffectFormatIn, &runningEffectChannelsIn, NULL);
+            if (result != MA_SUCCESS) {
+                return result;  /* Failed to retrieve the input data format. Abort. */
+            }
+
 
             if (pRunningEffect == pFirstEffect) {
                 /* It's the first effect which means we need to read directly from the input buffer. */
-                pRunningFramesIn = ma_offset_ptr(pFramesIn, frameCountInConsumed * ma_get_bytes_per_frame(pRunningEffect->formatIn, pRunningEffect->channelsIn));
+                pRunningFramesIn = ma_offset_ptr(pFramesIn, frameCountInConsumed * ma_get_bytes_per_frame(runningEffectFormatIn, runningEffectChannelsIn));
                 frameCountInThisIteration = frameCountIn - frameCountInConsumed;
             } else {
                 /* It's not the first item. We need to read from a temp buffer. */
@@ -1218,15 +814,15 @@ MA_API ma_result ma_effect_process_pcm_frames(ma_effect* pEffect, const void* pF
 
             if (pRunningEffect == pEffect) {
                 /* It's the last item in the chain so we need to output directly to the output buffer. */
-                pRunningFramesOut = ma_offset_ptr(pFramesOut, frameCountOutConsumed * ma_get_bytes_per_frame(pRunningEffect->formatIn, pRunningEffect->channelsIn));
+                pRunningFramesOut = ma_offset_ptr(pFramesOut, frameCountOutConsumed * ma_get_bytes_per_frame(runningEffectFormatIn, runningEffectChannelsIn));
                 frameCountOutThisIteration = frameCountOut - frameCountOutConsumed;
             } else {
                 /* It's not the last item in the chain. We need to output to a temp buffer so that it becomes our input buffer in the next iteration. */
                 pRunningFramesOut = tempFrames[iTempBuffer];
-                frameCountOutThisIteration = sizeof(tempFrames[iTempBuffer]) / ma_get_bytes_per_frame(pRunningEffect->formatIn, pRunningEffect->channelsIn);
+                frameCountOutThisIteration = sizeof(tempFrames[iTempBuffer]) / ma_get_bytes_per_frame(runningEffectFormatIn, runningEffectChannelsIn);
             }
 
-            result = pEffect->callbacks.onProcess(pRunningEffect->callbacks.pUserData, pRunningFramesIn, &frameCountInThisIteration, pRunningFramesOut, &frameCountOutThisIteration);
+            result = pRunningEffect->onProcessPCMFrames(pRunningEffect, pRunningFramesIn, &frameCountInThisIteration, pRunningFramesOut, &frameCountOutThisIteration);
             if (result != MA_SUCCESS) {
                 break;
             }
@@ -1238,13 +834,20 @@ MA_API ma_result ma_effect_process_pcm_frames(ma_effect* pEffect, const void* pF
             if (pRunningEffect == pFirstEffect) {
                 frameCountInConsumed += frameCountInThisIteration;
             }
-            if (pRunningEffect == pEffect) {
+            if (pRunningEffect == pBase) {
                 frameCountOutConsumed += frameCountOutThisIteration;
             }
 
             tempFrameCount[iTempBuffer] = frameCountOutThisIteration;
-            pRunningEffect = pEffect->pNext;
-        } while (pRunningEffect != pEffect);
+
+
+            /* If we just processed the input effect we need to abort. */
+            if (pRunningEffect == pBase) {
+                break;
+            }
+
+            pRunningEffect = pRunningEffect->pNext;
+        }
     }
 
 
@@ -1260,10 +863,12 @@ MA_API ma_result ma_effect_process_pcm_frames(ma_effect* pEffect, const void* pF
 
 static ma_uint64 ma_effect_get_required_input_frame_count_local(ma_effect* pEffect, ma_uint64 outputFrameCount)
 {
+    ma_effect_base* pBase = (ma_effect_base*)pEffect;
+
     MA_ASSERT(pEffect != NULL);
 
-    if (pEffect->callbacks.onGetRequiredInputFrameCount) {
-        return pEffect->callbacks.onGetRequiredInputFrameCount(pEffect->callbacks.pUserData, outputFrameCount);
+    if (pBase->onGetRequiredInputFrameCount) {
+        return pBase->onGetRequiredInputFrameCount(pEffect, outputFrameCount);
     } else {
         /* If there is no callback, assume a 1:1 mapping. */
         return outputFrameCount;
@@ -1272,6 +877,7 @@ static ma_uint64 ma_effect_get_required_input_frame_count_local(ma_effect* pEffe
 
 MA_API ma_uint64 ma_effect_get_required_input_frame_count(ma_effect* pEffect, ma_uint64 outputFrameCount)
 {
+    ma_effect_base* pBase = (ma_effect_base*)pEffect;
     ma_uint64 localInputFrameCount;
 
     if (pEffect == NULL) {
@@ -1280,10 +886,10 @@ MA_API ma_uint64 ma_effect_get_required_input_frame_count(ma_effect* pEffect, ma
 
     localInputFrameCount = ma_effect_get_required_input_frame_count_local(pEffect, outputFrameCount);
 
-    if (pEffect->pPrev == NULL) {
+    if (pBase->pPrev == NULL) {
         return localInputFrameCount;
     } else {
-        ma_uint64 parentInputFrameCount = ma_effect_get_required_input_frame_count(pEffect->pPrev, outputFrameCount);
+        ma_uint64 parentInputFrameCount = ma_effect_get_required_input_frame_count(pBase->pPrev, outputFrameCount);
         if (parentInputFrameCount > localInputFrameCount) {
             return parentInputFrameCount;
         } else {
@@ -1294,10 +900,12 @@ MA_API ma_uint64 ma_effect_get_required_input_frame_count(ma_effect* pEffect, ma
 
 static ma_uint64 ma_effect_get_expected_output_frame_count_local(ma_effect* pEffect, ma_uint64 inputFrameCount)
 {
+    ma_effect_base* pBase = (ma_effect_base*)pEffect;
+
     MA_ASSERT(pEffect != NULL);
 
-    if (pEffect->callbacks.onGetExpectedOutputFrameCount) {
-        return pEffect->callbacks.onGetExpectedOutputFrameCount(pEffect->callbacks.pUserData, inputFrameCount);
+    if (pBase->onGetExpectedOutputFrameCount) {
+        return pBase->onGetExpectedOutputFrameCount(pEffect, inputFrameCount);
     } else {
         /* If there is no callback, assume a 1:1 mapping. */
         return inputFrameCount;
@@ -1306,6 +914,7 @@ static ma_uint64 ma_effect_get_expected_output_frame_count_local(ma_effect* pEff
 
 MA_API ma_uint64 ma_effect_get_expected_output_frame_count(ma_effect* pEffect, ma_uint64 inputFrameCount)
 {
+    ma_effect_base* pBase = (ma_effect_base*)pEffect;
     ma_uint64 localOutputFrameCount;
 
     if (pEffect == NULL) {
@@ -1314,10 +923,10 @@ MA_API ma_uint64 ma_effect_get_expected_output_frame_count(ma_effect* pEffect, m
 
     localOutputFrameCount = ma_effect_get_expected_output_frame_count_local(pEffect, inputFrameCount);
 
-    if (pEffect->pPrev == NULL) {
+    if (pBase->pPrev == NULL) {
         return localOutputFrameCount;
     } else {
-        ma_uint64 parentOutputFrameCount = ma_effect_get_expected_output_frame_count(pEffect->pPrev, inputFrameCount);
+        ma_uint64 parentOutputFrameCount = ma_effect_get_expected_output_frame_count(pBase->pPrev, inputFrameCount);
         if (parentOutputFrameCount < localOutputFrameCount) {
             return parentOutputFrameCount;
         } else {
@@ -1328,126 +937,161 @@ MA_API ma_uint64 ma_effect_get_expected_output_frame_count(ma_effect* pEffect, m
 
 ma_result ma_effect_append(ma_effect* pEffect, ma_effect* pParent)
 {
+    ma_effect_base* pBaseEffect = (ma_effect_base*)pEffect;
+    ma_effect_base* pBaseParent = (ma_effect_base*)pParent;
+
     if (pEffect == NULL || pParent == NULL || pEffect == pParent) {
         return MA_INVALID_ARGS;
     }
 
     /* The effect must be detached before reinserting into the list. */
-    if (pEffect->pPrev != NULL || pEffect->pNext != NULL) {
+    if (pBaseEffect->pPrev != NULL || pBaseEffect->pNext != NULL) {
         return MA_INVALID_OPERATION;
     }
 
-    MA_ASSERT(pEffect->pPrev == NULL);
-    MA_ASSERT(pEffect->pNext == NULL);
+    MA_ASSERT(pBaseEffect->pPrev == NULL);
+    MA_ASSERT(pBaseEffect->pNext == NULL);
 
     /* Update the effect first. */
-    pEffect->pPrev = pParent;
-    pEffect->pNext = pParent->pNext;
+    pBaseEffect->pPrev = pBaseParent;
+    pBaseEffect->pNext = pBaseParent->pNext;
 
     /* Now update the parent. Slot the effect between the parent and the parent's next item, if it has one. */
-    if (pParent->pNext != NULL) {
-        pParent->pNext->pPrev = pEffect;
+    if (pBaseParent->pNext != NULL) {
+        pBaseParent->pNext->pPrev = pEffect;
     }
-    pParent->pNext = pEffect;
+    pBaseParent->pNext = pEffect;
 
     return MA_SUCCESS;
 }
 
 ma_result ma_effect_prepend(ma_effect* pEffect, ma_effect* pChild)
 {
+    ma_effect_base* pBaseEffect = (ma_effect_base*)pEffect;
+    ma_effect_base* pBaseChild  = (ma_effect_base*)pChild;
+
     if (pChild == NULL || pChild == NULL || pEffect == pChild) {
         return MA_INVALID_ARGS;
     }
 
     /* The effect must be detached before reinserting into the list. */
-    if (pEffect->pPrev != NULL || pEffect->pNext != NULL) {
+    if (pBaseEffect->pPrev != NULL || pBaseEffect->pNext != NULL) {
         return MA_INVALID_OPERATION;
     }
 
-    MA_ASSERT(pEffect->pPrev == NULL);
-    MA_ASSERT(pEffect->pNext == NULL);
+    MA_ASSERT(pBaseEffect->pPrev == NULL);
+    MA_ASSERT(pBaseEffect->pNext == NULL);
 
     /* Update the effect first. */
-    pEffect->pNext = pChild;
-    pEffect->pPrev = pChild->pPrev;
+    pBaseEffect->pNext = pBaseChild;
+    pBaseEffect->pPrev = pBaseChild->pPrev;
 
     /* Now update the child. Slot the effect between the child and the child's previous item, if it has one. */
-    if (pChild->pPrev != NULL) {
-        pChild->pPrev->pNext = pEffect;
+    if (pBaseChild->pPrev != NULL) {
+        pBaseChild->pPrev->pNext = pEffect;
     }
-    pChild->pPrev = pEffect;
+    pBaseChild->pPrev = pEffect;
 
     return MA_SUCCESS;
 }
 
 ma_result ma_effect_detach(ma_effect* pEffect)
 {
-    if (pEffect == NULL) {
+    ma_effect_base* pBaseEffect = (ma_effect_base*)pEffect;
+
+    if (pBaseEffect == NULL) {
         return MA_INVALID_ARGS;
     }
 
-    if (pEffect->pPrev != NULL) {
-        pEffect->pPrev->pNext = pEffect->pNext;
-        pEffect->pPrev = NULL;
+    if (pBaseEffect->pPrev != NULL) {
+        pBaseEffect->pPrev->pNext = pBaseEffect->pNext;
+        pBaseEffect->pPrev = NULL;
     }
 
-    if (pEffect->pNext != NULL) {
-        pEffect->pNext->pPrev = pEffect->pPrev;
-        pEffect->pNext = NULL;
+    if (pBaseEffect->pNext != NULL) {
+        pBaseEffect->pNext->pPrev = pBaseEffect->pPrev;
+        pBaseEffect->pNext = NULL;
     }
 
     return MA_SUCCESS;
 }
 
-MA_API ma_result ma_effect_get_output_data_format(ma_effect* pEffect, ma_format* pFormat, ma_uint32* pChannels)
+MA_API ma_result ma_effect_get_output_data_format(ma_effect* pEffect, ma_format* pFormat, ma_uint32* pChannels, ma_uint32* pSampleRate)
 {
+    ma_effect_base* pBaseEffect = (ma_effect_base*)pEffect;
+    ma_result result;
+    ma_format format;
+    ma_uint32 channels;
+    ma_uint32 sampleRate;
+
     if (pFormat != NULL) {
         *pFormat = ma_format_unknown;
     }
-
     if (pChannels != NULL) {
         *pChannels = 0;
     }
+    if (pSampleRate != NULL) {
+        *pSampleRate = 0;
+    }
 
-    if (pEffect == NULL) {
+    if (pBaseEffect == NULL || pBaseEffect->onGetOutputDataFormat == NULL) {
         return MA_INVALID_ARGS;
     }
 
-    if (pFormat != NULL) {
-        *pFormat = pEffect->formatOut;
+    result = pBaseEffect->onGetOutputDataFormat(pEffect, &format, &channels, &sampleRate);
+    if (result != MA_SUCCESS) {
+        return result;
     }
 
+    if (pFormat != NULL) {
+        *pFormat = format;
+    }
     if (pChannels != NULL) {
-        *pChannels = pEffect->channelsOut;
+        *pChannels = channels;
+    }
+    if (pSampleRate != NULL) {
+        *pSampleRate = sampleRate;
     }
 
     return MA_SUCCESS;
 }
 
-MA_API ma_result ma_effect_get_input_data_format(ma_effect* pEffect, ma_format* pFormat, ma_uint32* pChannels)
+MA_API ma_result ma_effect_get_input_data_format(ma_effect* pEffect, ma_format* pFormat, ma_uint32* pChannels, ma_uint32* pSampleRate)
 {
-    ma_effect* pRootEffect;
+    ma_effect_base* pRootEffect;
+    ma_result result;
+    ma_format format;
+    ma_uint32 channels;
+    ma_uint32 sampleRate;
 
     if (pFormat != NULL) {
         *pFormat = ma_format_unknown;
     }
-
     if (pChannels != NULL) {
         *pChannels = 0;
     }
-
-    if (pEffect == NULL) {
-        return MA_INVALID_ARGS;
+    if (pSampleRate != NULL) {
+        *pSampleRate = 0;
     }
 
     pRootEffect = ma_effect_get_root(pEffect);
-
-    if (pFormat != NULL) {
-        *pFormat = pRootEffect->formatIn;
+    if (pRootEffect == NULL || pRootEffect->onGetInputDataFormat == NULL) {
+        return MA_INVALID_ARGS;
     }
 
+    result = pRootEffect->onGetInputDataFormat(pRootEffect, &format, &channels, &sampleRate);
+    if (result != MA_SUCCESS) {
+        return result;
+    }
+
+    if (pFormat != NULL) {
+        *pFormat = format;
+    }
     if (pChannels != NULL) {
-        *pChannels = pRootEffect->channelsIn;
+        *pChannels = channels;
+    }
+    if (pSampleRate != NULL) {
+        *pSampleRate = sampleRate;
     }
 
     return MA_SUCCESS;
@@ -2090,8 +1734,8 @@ static ma_result ma_volume_and_clip_and_effect_pcm_frames(void* pDst, ma_format 
     }
 
     /* We need to know the effect's input and output formats so we can do pre- and post-effect data conversion if necessary. */
-    ma_effect_get_input_data_format( pEffect, &effectFormatIn,  &effectChannelsIn );
-    ma_effect_get_output_data_format(pEffect, &effectFormatOut, &effectChannelsOut);
+    ma_effect_get_input_data_format( pEffect, &effectFormatIn,  &effectChannelsIn,  NULL);
+    ma_effect_get_output_data_format(pEffect, &effectFormatOut, &effectChannelsOut, NULL);
 
     effectBufferInCapInFrames  = sizeof(effectBufferIn ) / ma_get_bytes_per_frame(effectFormatIn,  effectChannelsIn );
     effectBufferOutCapInFrames = sizeof(effectBufferOut) / ma_get_bytes_per_frame(effectFormatOut, effectChannelsOut);
@@ -2741,6 +2385,10 @@ static ma_result ma_mixer_mix_data_source_mmap(ma_mixer* pMixer, ma_data_source*
     ma_uint64 totalFramesProcessed = 0;
     void* pRunningAccumulationBuffer = pMixer->pAccumulationBuffer;
     ma_bool32 preEffectConversionRequired = MA_FALSE;
+    ma_format effectFormatIn = ma_format_unknown;
+    ma_uint32 effectChannelsIn = 0;
+    ma_format effectFormatOut = ma_format_unknown;
+    ma_uint32 effectChannelsOut = 0;
 
     MA_ASSERT(pMixer      != NULL);
     MA_ASSERT(pDataSource != NULL);
@@ -2750,7 +2398,18 @@ static ma_result ma_mixer_mix_data_source_mmap(ma_mixer* pMixer, ma_data_source*
     }
 
     if (pEffect != NULL) {
-        preEffectConversionRequired = (formatIn != pEffect->formatIn || channelsIn != pEffect->channelsIn);
+        /* We need to know the effect's input and output data format before we'll be able to apply it properly. */
+        result = ma_effect_get_input_data_format(pEffect, &effectFormatIn, &effectChannelsIn, NULL);
+        if (result != MA_SUCCESS) {
+            return result;
+        }
+
+        result = ma_effect_get_output_data_format(pEffect, &effectFormatOut, &effectChannelsOut, NULL);
+        if (result != MA_SUCCESS) {
+            return result;
+        }
+
+        preEffectConversionRequired = (formatIn != effectFormatIn || channelsIn != effectChannelsIn);
     }
 
     while (totalFramesProcessed < frameCount) {
@@ -2771,8 +2430,8 @@ static ma_result ma_mixer_mix_data_source_mmap(ma_mixer* pMixer, ma_data_source*
             /* Slow path. Need to apply an effect. This requires the use of an intermediary buffer. */
             ma_uint8 effectInBuffer [MA_DATA_CONVERTER_STACK_BUFFER_SIZE];
             ma_uint8 effectOutBuffer[MA_DATA_CONVERTER_STACK_BUFFER_SIZE];
-            ma_uint32 effectInBufferCap  = sizeof(effectInBuffer)  / ma_get_bytes_per_frame(pEffect->formatIn,  pEffect->channelsIn);
-            ma_uint32 effectOutBufferCap = sizeof(effectOutBuffer) / ma_get_bytes_per_frame(pEffect->formatOut, pEffect->channelsOut);
+            ma_uint32 effectInBufferCap  = sizeof(effectInBuffer)  / ma_get_bytes_per_frame(effectFormatIn,  effectChannelsIn);
+            ma_uint32 effectOutBufferCap = sizeof(effectOutBuffer) / ma_get_bytes_per_frame(effectFormatOut, effectChannelsOut);
             ma_uint64 framesMapped;
 
             if (framesToProcess > effectOutBufferCap) {
@@ -2796,12 +2455,12 @@ static ma_result ma_mixer_mix_data_source_mmap(ma_mixer* pMixer, ma_data_source*
                 ma_effect_process_pcm_frames(pEffect, pMappedBuffer, &framesMapped, effectOutBuffer, &framesToProcess);
             } else {
                 /* Slow path. Need to convert the data before applying the effect. */
-                ma_convert_pcm_frames_format_and_channels(effectInBuffer, pEffect->formatIn, pEffect->channelsIn, pMappedBuffer, formatIn, channelsIn, framesMapped, ma_dither_mode_none);
+                ma_convert_pcm_frames_format_and_channels(effectInBuffer, effectFormatIn, effectChannelsIn, pMappedBuffer, formatIn, channelsIn, framesMapped, ma_dither_mode_none);
                 ma_effect_process_pcm_frames(pEffect, effectInBuffer, &framesMapped, effectOutBuffer, &framesToProcess);
             }
 
             /* The effect has been applied so now we can mix it. */
-            ma_mix_pcm_frames_ex(pRunningAccumulationBuffer, pMixer->format, pMixer->channels, effectOutBuffer, pEffect->formatOut, pEffect->channelsOut, framesToProcess, volume);
+            ma_mix_pcm_frames_ex(pRunningAccumulationBuffer, pMixer->format, pMixer->channels, effectOutBuffer, effectFormatOut, effectChannelsOut, framesToProcess, volume);
 
             /* We're finished with the input data. */
             result = ma_data_source_unmap(pDataSource, framesMapped);   /* Do this last because the result code is used below to determine whether or not we need to loop. */
@@ -2828,12 +2487,15 @@ static ma_result ma_mixer_mix_data_source_mmap(ma_mixer* pMixer, ma_data_source*
 
 static ma_result ma_mixer_mix_data_source_read(ma_mixer* pMixer, ma_data_source* pDataSource, ma_uint64 frameCount, float volume, ma_effect* pEffect, ma_format formatIn, ma_uint32 channelsIn, ma_bool32 loop)
 {
+    ma_result result;
     ma_uint8  preMixBuffer[MA_DATA_CONVERTER_STACK_BUFFER_SIZE];
     ma_uint32 preMixBufferCap;
     ma_uint64 totalFramesProcessed = 0;
     void* pRunningAccumulationBuffer = pMixer->pAccumulationBuffer;
-    ma_format preMixFormat;
-    ma_uint32 preMixChannels;
+    ma_format effectFormatIn = ma_format_unknown;
+    ma_uint32 effectChannelsIn = 0;
+    ma_format preMixFormat = ma_format_unknown;
+    ma_uint32 preMixChannels = 0;
     ma_bool32 preEffectConversionRequired = MA_FALSE;
     ma_bool32 atEnd = MA_FALSE;
 
@@ -2848,9 +2510,18 @@ static ma_result ma_mixer_mix_data_source_read(ma_mixer* pMixer, ma_data_source*
         preMixFormat   = formatIn;
         preMixChannels = channelsIn;
     } else {
-        preMixFormat   = pEffect->formatOut;
-        preMixChannels = pEffect->channelsOut;
-        preEffectConversionRequired = (formatIn != pEffect->formatIn || channelsIn != pEffect->channelsIn);
+        /* We need to know the effect's input and output data format before we'll be able to apply it properly. */
+        result = ma_effect_get_input_data_format(pEffect, &effectFormatIn, &effectChannelsIn, NULL);
+        if (result != MA_SUCCESS) {
+            return result;
+        }
+
+        result = ma_effect_get_output_data_format(pEffect, &preMixFormat, &preMixChannels, NULL);
+        if (result != MA_SUCCESS) {
+            return result;
+        }
+
+        preEffectConversionRequired = (formatIn != effectFormatIn || channelsIn != effectChannelsIn);
     }
 
     preMixBufferCap = sizeof(preMixBuffer) / ma_get_bytes_per_frame(preMixFormat, preMixChannels);
@@ -2877,7 +2548,7 @@ static ma_result ma_mixer_mix_data_source_read(ma_mixer* pMixer, ma_data_source*
             ma_uint8 callbackBuffer[MA_DATA_CONVERTER_STACK_BUFFER_SIZE];
             ma_uint8 effectInBuffer[MA_DATA_CONVERTER_STACK_BUFFER_SIZE];
             ma_uint32 callbackBufferCap = sizeof(callbackBuffer) / ma_get_bytes_per_frame(formatIn, channelsIn);
-            ma_uint32 effectInBufferCap = sizeof(effectInBuffer) / ma_get_bytes_per_frame(pEffect->formatIn, pEffect->channelsIn);
+            ma_uint32 effectInBufferCap = sizeof(effectInBuffer) / ma_get_bytes_per_frame(effectFormatIn, effectChannelsIn);
             ma_uint64 effectFrameCountOut;
             ma_uint64 effectFrameCountIn;
             ma_uint64 framesReadFromCallback;
@@ -2899,7 +2570,7 @@ static ma_result ma_mixer_mix_data_source_read(ma_mixer* pMixer, ma_data_source*
             } else {
                 /* Slow path. Conversion between the callback and the effect required. */
                 framesReadFromCallback = ma_data_source_read_pcm_frames(pDataSource, callbackBuffer, framesToReadFromCallback, loop);
-                ma_convert_pcm_frames_format_and_channels(effectInBuffer, pEffect->formatIn, pEffect->channelsIn, callbackBuffer, formatIn, channelsIn, framesReadFromCallback, ma_dither_mode_none);
+                ma_convert_pcm_frames_format_and_channels(effectInBuffer, effectFormatIn, effectChannelsIn, callbackBuffer, formatIn, channelsIn, framesReadFromCallback, ma_dither_mode_none);
             }
 
             /* We have our input data for the effect so now we just process as much as we can based on our input and output frame counts. */
@@ -3151,23 +2822,20 @@ MA_API ma_result ma_mixer_get_output_data_format(ma_mixer* pMixer, ma_format* pF
         return MA_INVALID_ARGS;
     }
 
-    if (pFormat != NULL) {
-        if (pMixer->pEffect != NULL) {
-            *pFormat = pMixer->pEffect->formatIn;
-        } else {
+    /* If we have an effect, the output data format will be the effect's output data format. */
+    if (pMixer->pEffect != NULL) {
+        return ma_effect_get_output_data_format(pMixer->pEffect, pFormat, pChannels, NULL);
+    } else {
+        if (pFormat != NULL) {
             *pFormat = pMixer->format;
         }
-    }
 
-    if (pChannels != NULL) {
-        if (pMixer->pEffect != NULL) {
-            *pChannels = pMixer->pEffect->channelsIn;
-        } else {
+        if (pChannels != NULL) {
             *pChannels = pMixer->channels;
         }
-    }
 
-    return MA_SUCCESS;
+        return MA_SUCCESS;
+    }
 }
 
 MA_API ma_result ma_mixer_get_input_data_format(ma_mixer* pMixer, ma_format* pFormat, ma_uint32* pChannels)
