@@ -309,7 +309,7 @@ MA_API void ma_engine_uninit(ma_engine* pEngine);
 MA_API ma_result ma_engine_start(ma_engine* pEngine);
 MA_API ma_result ma_engine_stop(ma_engine* pEngine);
 MA_API ma_result ma_engine_set_volume(ma_engine* pEngine, float volume);
-MA_API ma_result me_engine_set_gain_db(ma_engine* pEngine, float gainDB);
+MA_API ma_result ma_engine_set_gain_db(ma_engine* pEngine, float gainDB);
 
 #ifndef MA_NO_RESOURCE_MANAGER
 MA_API ma_result ma_engine_create_sound_from_file(ma_engine* pEngine, const char* pFilePath, ma_sound_group* pGroup, ma_sound* pSound);
@@ -319,7 +319,8 @@ MA_API void ma_engine_delete_sound(ma_engine* pEngine, ma_sound* pSound);
 MA_API ma_result ma_engine_sound_start(ma_engine* pEngine, ma_sound* pSound);
 MA_API ma_result ma_engine_sound_stop(ma_engine* pEngine, ma_sound* pSound);
 MA_API ma_result ma_engine_sound_set_volume(ma_engine* pEngine, ma_sound* pSound, float volume);
-MA_API ma_result me_engine_sound_set_gain_db(ma_engine* pEngine, ma_sound* pSound, float gainDB);
+MA_API ma_result ma_engine_sound_set_gain_db(ma_engine* pEngine, ma_sound* pSound, float gainDB);
+MA_API ma_result ma_engine_sound_set_pan(ma_engine* pEngine, ma_sound* pSound, float pan);
 MA_API ma_result ma_engine_sound_set_pitch(ma_engine* pEngine, ma_sound* pSound, float pitch);
 MA_API ma_result ma_engine_sound_set_effect(ma_engine* pEngine, ma_sound* pSound, ma_effect* pEffect);
 MA_API ma_result ma_engine_sound_set_position(ma_engine* pEngine, ma_sound* pSound, ma_vec3 position);
@@ -505,14 +506,76 @@ MA_API ma_result ma_panner_init(const ma_panner_config* pConfig, ma_panner* pPan
     return MA_SUCCESS;
 }
 
+
+
+static void ma_stereo_pan_pcm_frames_f32(float* pFramesOut, const float* pFramesIn, ma_uint64 frameCount, float pan)
+{
+    float factorL0;
+    float factorR0;
+    float factorL1;
+    float factorR1;
+    ma_uint64 iFrame;
+
+
+    /* TODO: We can optimize this by removing some multiplies and adds. */
+    if (pan > 0) {
+        factorL0 = 1.0f - pan;
+        factorR0 = 0.0f;
+        factorL1 = 0.0f + pan;
+        factorR1 = 1.0f;
+    } else {
+        factorL0 = 1.0f;
+        factorR0 = 0.0f - pan;
+        factorL1 = 0.0f;
+        factorR1 = 1.0f + pan;
+    }
+
+    for (iFrame = 0; iFrame < frameCount; iFrame += 1) {
+        pFramesOut[iFrame*2 + 0] = (pFramesIn[iFrame*2 + 0] * factorL0) + (pFramesIn[iFrame*2 + 1] * factorR0);
+        pFramesOut[iFrame*2 + 1] = (pFramesIn[iFrame*2 + 0] * factorL1) + (pFramesIn[iFrame*2 + 1] * factorR1);
+    }
+}
+
+static void ma_stereo_pan_pcm_frames(void* pFramesOut, const void* pFramesIn, ma_uint64 frameCount, ma_format format, float pan)
+{
+    if (pan == 0) {
+        /* Fast path. No panning required. */
+        if (pFramesOut == pFramesIn) {
+            /* No-op */
+        } else {
+            ma_copy_pcm_frames(pFramesOut, pFramesIn, frameCount, format, 2);
+        }
+    }
+
+    switch (format) {
+        case ma_format_f32: ma_stereo_pan_pcm_frames_f32(pFramesOut, pFramesIn, frameCount, pan); break;
+
+        /* Unknown format. Just copy. */
+        default:
+        {
+            ma_copy_pcm_frames(pFramesOut, pFramesIn, frameCount, format, 2);
+        } break;
+    }
+}
+
 MA_API ma_result ma_panner_process_pcm_frames(ma_panner* pPanner, void* pFramesOut, const void* pFramesIn, ma_uint64 frameCount)
 {
-    if (pPanner == NULL || pFramesOut == NULL || pFramesIn) {
+    if (pPanner == NULL || pFramesOut == NULL || pFramesIn == NULL) {
         return MA_INVALID_ARGS;
     }
 
-    /* TODO: Implement me. Just copying for now. */
-    ma_copy_pcm_frames(pFramesOut, pFramesIn, frameCount, pPanner->format, pPanner->channels);
+    if (pPanner->channels == 2) {
+        /* Stereo case. For now assume channel 0 is left and channel right is 1, but should probably add support for a channel map. */
+        ma_stereo_pan_pcm_frames(pFramesOut, pFramesIn, frameCount, pPanner->format, pPanner->pan);
+    } else {
+        if (pPanner->channels == 1) {
+            /* Panning has no effect on mono streams. */
+            ma_copy_pcm_frames(pFramesOut, pFramesIn, frameCount, pPanner->format, pPanner->channels);
+        } else {
+            /* For now we're not going to support non-stereo set ups. Not sure how I want to handle this case just yet. */
+            ma_copy_pcm_frames(pFramesOut, pFramesIn, frameCount, pPanner->format, pPanner->channels);
+        }
+    }
 
     return MA_SUCCESS;
 }
@@ -1023,7 +1086,7 @@ MA_API ma_result ma_engine_set_volume(ma_engine* pEngine, float volume)
     return ma_device_set_master_volume(&pEngine->listener.device, volume);
 }
 
-MA_API ma_result me_engine_set_gain_db(ma_engine* pEngine, float gainDB)
+MA_API ma_result ma_engine_set_gain_db(ma_engine* pEngine, float gainDB)
 {
     if (pEngine == NULL) {
         return MA_INVALID_ARGS;
@@ -1594,7 +1657,7 @@ MA_API ma_result ma_engine_sound_set_volume(ma_engine* pEngine, ma_sound* pSound
     return MA_SUCCESS;
 }
 
-MA_API ma_result me_engine_sound_set_gain_db(ma_engine* pEngine, ma_sound* pSound, float gainDB)
+MA_API ma_result ma_engine_sound_set_gain_db(ma_engine* pEngine, ma_sound* pSound, float gainDB)
 {
     if (pEngine == NULL || pSound == NULL) {
         return MA_INVALID_ARGS;
@@ -1612,6 +1675,15 @@ MA_API ma_result ma_engine_sound_set_pitch(ma_engine* pEngine, ma_sound* pSound,
     pSound->effect.pitch = pitch;
 
     return MA_SUCCESS;
+}
+
+MA_API ma_result ma_engine_sound_set_pan(ma_engine* pEngine, ma_sound* pSound, float pan)
+{
+    if (pEngine == NULL || pSound == NULL) {
+        return MA_INVALID_ARGS;
+    }
+
+    return ma_panner_set_pan(&pSound->effect.panner, pan);
 }
 
 MA_API ma_result ma_engine_sound_set_effect(ma_engine* pEngine, ma_sound* pSound, ma_effect* pEffect)

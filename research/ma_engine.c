@@ -35,14 +35,15 @@ int main(int argc, char** argv)
         }
 
         ma_engine_sound_set_pitch(&engine, &sound1, 0.75f);
+        ma_engine_sound_set_pan(&engine, &sound1, -1.0f);
         ma_engine_sound_set_looping(&engine, &sound1, MA_TRUE);
         ma_engine_sound_start(&engine, &sound1);
 
 
-        result = ma_engine_play_sound(&engine, argv[1], NULL);
+        /*result = ma_engine_play_sound(&engine, argv[1], NULL);
         if (result != MA_SUCCESS) {
             printf("ma_engine_play_sound() failed with: %s\n", ma_result_description(result));
-        }
+        }*/
     }
 
 
