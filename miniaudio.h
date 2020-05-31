@@ -40056,6 +40056,16 @@ static ma_result ma_audio_buffer__data_source_on_seek(ma_data_source* pDataSourc
     return ma_audio_buffer_seek_to_pcm_frame((ma_audio_buffer*)pDataSource, frameIndex);
 }
 
+static ma_result ma_audio_buffer__data_source_on_map(ma_data_source* pDataSource, void** ppFramesOut, ma_uint64* pFrameCount)
+{
+    return ma_audio_buffer_map((ma_audio_buffer*)pDataSource, ppFramesOut, pFrameCount);
+}
+
+static ma_result ma_audio_buffer__data_source_on_unmap(ma_data_source* pDataSource, ma_uint64 frameCount)
+{
+    return ma_audio_buffer_unmap((ma_audio_buffer*)pDataSource, frameCount);
+}
+
 static ma_result ma_audio_buffer__data_source_on_get_data_format(ma_data_source* pDataSource, ma_format* pFormat, ma_uint32* pChannels)
 {
     ma_audio_buffer* pAudioBuffer = (ma_audio_buffer*)pDataSource;
@@ -40084,6 +40094,8 @@ static ma_result ma_audio_buffer_init_ex(const ma_audio_buffer_config* pConfig, 
 
     pAudioBuffer->ds.onRead          = ma_audio_buffer__data_source_on_read;
     pAudioBuffer->ds.onSeek          = ma_audio_buffer__data_source_on_seek;
+    pAudioBuffer->ds.onMap           = ma_audio_buffer__data_source_on_map;
+    pAudioBuffer->ds.onUnmap         = ma_audio_buffer__data_source_on_unmap;
     pAudioBuffer->ds.onGetDataFormat = ma_audio_buffer__data_source_on_get_data_format;
     pAudioBuffer->format             = pConfig->format;
     pAudioBuffer->channels           = pConfig->channels;
