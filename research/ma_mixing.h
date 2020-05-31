@@ -2666,7 +2666,7 @@ static ma_result ma_mixer_mix_data_source_read(ma_mixer* pMixer, ma_data_source*
 
             /* We have our input data for the effect so now we just process as much as we can based on our input and output frame counts. */
             effectFrameCountIn  = framesReadFromCallback;
-            effectFrameCountOut = preMixBufferCap;
+            effectFrameCountOut = framesToRead;
             ma_effect_process_pcm_frames(pEffect, effectInBuffer, &effectFrameCountIn, preMixBuffer, &effectFrameCountOut);
 
             /* At this point the effect should be applied and we can mix it. */
