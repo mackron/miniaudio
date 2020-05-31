@@ -34,6 +34,7 @@ int main(int argc, char** argv)
             return (int)result;
         }
 
+        ma_engine_sound_set_pitch(&engine, &sound1, 0.75f);
         ma_engine_sound_set_looping(&engine, &sound1, MA_TRUE);
         ma_engine_sound_start(&engine, &sound1);
 

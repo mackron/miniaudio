@@ -57,6 +57,7 @@ struct ma_effect_base
 };
 
 MA_API ma_result ma_effect_process_pcm_frames(ma_effect* pEffect, const void* pFramesIn, ma_uint64* pFrameCountIn, void* pFramesOut, ma_uint64* pFrameCountOut);
+MA_API ma_result ma_effect_process_pcm_frames_ex(ma_effect* pEffect, const void* pFramesIn, ma_uint64* pFrameCountIn, void* pFramesOut, ma_uint64* pFrameCountOut, ma_format formatIn, ma_uint32 channelsIn, ma_format formatOut, ma_uint32 channelsOut);
 MA_API ma_uint64 ma_effect_get_required_input_frame_count(ma_effect* pEffect, ma_uint64 outputFrameCount);
 MA_API ma_uint64 ma_effect_get_expected_output_frame_count(ma_effect* pEffect, ma_uint64 inputFrameCount);
 MA_API ma_result ma_effect_append(ma_effect* pEffect, ma_effect* pParent);
@@ -795,7 +796,12 @@ MA_API ma_result ma_effect_process_pcm_frames(ma_effect* pEffect, const void* pF
             ma_format runningEffectFormatIn;
             ma_uint32 runningEffectChannelsIn;
 
-            result = ma_effect_get_input_data_format(pRunningEffect, &runningEffectFormatIn, &runningEffectChannelsIn, NULL);
+            if (pRunningEffect->onGetInputDataFormat == NULL) {
+                result = MA_INVALID_ARGS;   /* Don't have a way to retrieve the input format. */
+                break;
+            }
+
+            result = pRunningEffect->onGetInputDataFormat(pRunningEffect, &runningEffectFormatIn, &runningEffectChannelsIn, NULL);
             if (result != MA_SUCCESS) {
                 return result;  /* Failed to retrieve the input data format. Abort. */
             }
@@ -859,6 +865,91 @@ MA_API ma_result ma_effect_process_pcm_frames(ma_effect* pEffect, const void* pF
     }
 
     return result;
+}
+
+MA_API ma_result ma_effect_process_pcm_frames_ex(ma_effect* pEffect, const void* pFramesIn, ma_uint64* pFrameCountIn, void* pFramesOut, ma_uint64* pFrameCountOut, ma_format formatIn, ma_uint32 channelsIn, ma_format formatOut, ma_uint32 channelsOut)
+{
+    ma_result result;
+    ma_format effectFormatIn;
+    ma_uint32 effectChannelsIn;
+    ma_format effectFormatOut;
+    ma_uint32 effectChannelsOut;
+
+    /* First thing to retrieve the effect's input and output format to determine if conversion is necessary. */
+    result = ma_effect_get_input_data_format(pEffect, &effectFormatIn, &effectChannelsIn, NULL);
+    if (result != MA_SUCCESS) {
+        return result;
+    }
+
+    result = ma_effect_get_output_data_format(pEffect, &effectFormatOut, &effectChannelsOut, NULL);
+    if (result != MA_SUCCESS) {
+        return result;
+    }
+
+    if (effectFormatIn == formatIn && effectChannelsIn == channelsIn && effectFormatOut == formatOut && effectChannelsOut) {
+        /* Fast path. No need for any data conversion. */
+        return ma_effect_process_pcm_frames(pEffect, pFramesIn, pFrameCountIn, pFramesOut, pFrameCountOut);
+    } else {
+        /* Slow path. Getting here means we need to do pre- and/or post-data conversion. */
+        ma_uint8  effectInBuffer[MA_DATA_CONVERTER_STACK_BUFFER_SIZE];
+        ma_uint32 effectInBufferCap = sizeof(effectInBuffer) / ma_get_bytes_per_frame(effectFormatIn, effectChannelsIn);
+        ma_uint8  effectOutBuffer[MA_DATA_CONVERTER_STACK_BUFFER_SIZE];
+        ma_uint32 effectOutBufferCap = sizeof(effectOutBuffer) / ma_get_bytes_per_frame(effectFormatOut, effectChannelsOut);
+        ma_uint64 totalFramesProcessedIn  = 0;
+        ma_uint64 totalFramesProcessedOut = 0;
+        ma_uint64 frameCountIn  = *pFrameCountIn;
+        ma_uint64 frameCountOut = *pFrameCountOut;
+        
+        while (totalFramesProcessedIn < frameCountIn && totalFramesProcessedOut < frameCountOut) {
+            ma_uint64 framesToProcessThisIterationIn;
+            ma_uint64 framesToProcessThisIterationOut;
+            const void* pRunningFramesIn  = ma_offset_ptr(pFramesIn,  ma_get_bytes_per_frame(formatIn,  channelsIn ));
+            /* */ void* pRunningFramesOut = ma_offset_ptr(pFramesOut, ma_get_bytes_per_frame(formatOut, channelsOut));
+
+            framesToProcessThisIterationOut = frameCountOut - totalFramesProcessedOut;
+            if (framesToProcessThisIterationOut > effectOutBufferCap) {
+                framesToProcessThisIterationOut = effectOutBufferCap;
+            }
+
+            framesToProcessThisIterationIn = ma_effect_get_required_input_frame_count(pEffect, framesToProcessThisIterationOut);
+            if (framesToProcessThisIterationIn > (frameCountIn - totalFramesProcessedIn)) {
+                framesToProcessThisIterationIn = (frameCountIn - totalFramesProcessedIn);
+            }
+            if (framesToProcessThisIterationIn > effectInBufferCap) {
+                framesToProcessThisIterationIn = effectInBufferCap;
+            }
+
+            /* At this point our input data has been converted to the effect's input format, so now we need to run the effect, making sure we output to the intermediary buffer. */
+            if (effectFormatIn == formatIn && effectChannelsIn == channelsIn) {
+                /* Fast path. No input conversion required. */
+                if (effectFormatOut == formatOut && effectChannelsOut == channelsOut) {
+                    /* Fast path. Neither input nor output data conversion required. */
+                    ma_effect_process_pcm_frames(pEffect, pRunningFramesIn, &framesToProcessThisIterationIn, pRunningFramesOut, &framesToProcessThisIterationOut);
+                } else {
+                    /* Slow path. Output conversion required. */
+                    ma_effect_process_pcm_frames(pEffect, pRunningFramesIn, &framesToProcessThisIterationIn, effectOutBuffer, &framesToProcessThisIterationOut);
+                    ma_convert_pcm_frames_format_and_channels(pRunningFramesOut, formatOut, channelsOut, effectOutBuffer, effectFormatOut, effectChannelsOut, framesToProcessThisIterationOut, ma_dither_mode_none);
+                }
+            } else {
+                /* Slow path. Input conversion required. */
+                ma_convert_pcm_frames_format_and_channels(effectInBuffer, effectFormatIn, effectChannelsIn, pRunningFramesIn, formatIn, channelsIn, framesToProcessThisIterationIn, ma_dither_mode_none);
+
+                if (effectFormatOut == formatOut && effectChannelsOut == channelsOut) {
+                    /* Fast path. No output format conversion required. */
+                    ma_effect_process_pcm_frames(pEffect, effectInBuffer, &framesToProcessThisIterationIn, pRunningFramesOut, &framesToProcessThisIterationOut);
+                } else {
+                    /* Slow path. Output format conversion required. */
+                    ma_effect_process_pcm_frames(pEffect, effectInBuffer, &framesToProcessThisIterationIn, effectOutBuffer, &framesToProcessThisIterationOut);
+                    ma_convert_pcm_frames_format_and_channels(pRunningFramesOut, formatOut, channelsOut, effectOutBuffer, effectFormatOut, effectChannelsOut, framesToProcessThisIterationOut, ma_dither_mode_none);
+                }
+            }
+
+            totalFramesProcessedIn  += framesToProcessThisIterationIn;
+            totalFramesProcessedOut += framesToProcessThisIterationOut;
+        }
+    }
+
+    return MA_SUCCESS;
 }
 
 static ma_uint64 ma_effect_get_required_input_frame_count_local(ma_effect* pEffect, ma_uint64 outputFrameCount)
@@ -2576,7 +2667,7 @@ static ma_result ma_mixer_mix_data_source_read(ma_mixer* pMixer, ma_data_source*
             /* We have our input data for the effect so now we just process as much as we can based on our input and output frame counts. */
             effectFrameCountIn  = framesReadFromCallback;
             effectFrameCountOut = preMixBufferCap;
-            ma_effect_process_pcm_frames(pEffect, callbackBuffer, &effectFrameCountIn, preMixBuffer, &effectFrameCountOut);
+            ma_effect_process_pcm_frames(pEffect, effectInBuffer, &effectFrameCountIn, preMixBuffer, &effectFrameCountOut);
 
             /* At this point the effect should be applied and we can mix it. */
             framesRead = (ma_uint32)effectFrameCountOut;    /* Safe cast. */
@@ -2591,7 +2682,7 @@ static ma_result ma_mixer_mix_data_source_read(ma_mixer* pMixer, ma_data_source*
         totalFramesProcessed += framesRead;
         pRunningAccumulationBuffer = ma_offset_ptr(pRunningAccumulationBuffer, framesRead * ma_get_accumulation_bytes_per_frame(pMixer->format, pMixer->channels));
 
-        if (framesRead < framesToRead) {
+        if (atEnd) {
             break;
         }
     }
