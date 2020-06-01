@@ -1504,7 +1504,7 @@ static ma_result ma_engine_effect_init(ma_engine* pEngine, ma_engine_effect* pEf
     */
     converterConfig.resampling.allowDynamicSampleRate = MA_TRUE;    /* This makes sure a resampler is always initialized. TODO: Need a flag that specifies that no pitch shifting is required for this sound so we can avoid the cost of the resampler. Even when the pitch is 1, samples still run through the resampler. */
     converterConfig.resampling.algorithm              = ma_resample_algorithm_linear;
-    converterConfig.resampling.linear.lpfOrder        = 2;
+    converterConfig.resampling.linear.lpfOrder        = 1;
 
     result = ma_data_converter_init(&converterConfig, &pEffect->converter);
     if (result != MA_SUCCESS) {
