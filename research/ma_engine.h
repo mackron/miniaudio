@@ -510,29 +510,24 @@ MA_API ma_result ma_panner_init(const ma_panner_config* pConfig, ma_panner* pPan
 
 static void ma_stereo_pan_pcm_frames_f32(float* pFramesOut, const float* pFramesIn, ma_uint64 frameCount, float pan)
 {
-    float factorL0;
-    float factorR0;
-    float factorL1;
-    float factorR1;
     ma_uint64 iFrame;
 
-
-    /* TODO: We can optimize this by removing some multiplies and adds. */
     if (pan > 0) {
-        factorL0 = 1.0f - pan;
-        factorR0 = 0.0f;
-        factorL1 = 0.0f + pan;
-        factorR1 = 1.0f;
-    } else {
-        factorL0 = 1.0f;
-        factorR0 = 0.0f - pan;
-        factorL1 = 0.0f;
-        factorR1 = 1.0f + pan;
-    }
+        float factorL0 = 1.0f - pan;
+        float factorL1 = 0.0f + pan;
 
-    for (iFrame = 0; iFrame < frameCount; iFrame += 1) {
-        pFramesOut[iFrame*2 + 0] = (pFramesIn[iFrame*2 + 0] * factorL0) + (pFramesIn[iFrame*2 + 1] * factorR0);
-        pFramesOut[iFrame*2 + 1] = (pFramesIn[iFrame*2 + 0] * factorL1) + (pFramesIn[iFrame*2 + 1] * factorR1);
+        for (iFrame = 0; iFrame < frameCount; iFrame += 1) {
+            pFramesOut[iFrame*2 + 0] = (pFramesIn[iFrame*2 + 0] * factorL0);
+            pFramesOut[iFrame*2 + 1] = (pFramesIn[iFrame*2 + 0] * factorL1) + pFramesIn[iFrame*2 + 1];
+        }
+    } else {
+        float factorR0 = 0.0f - pan;
+        float factorR1 = 1.0f + pan;
+
+        for (iFrame = 0; iFrame < frameCount; iFrame += 1) {
+            pFramesOut[iFrame*2 + 0] = pFramesIn[iFrame*2 + 0] + (pFramesIn[iFrame*2 + 1] * factorR0);
+            pFramesOut[iFrame*2 + 1] =                           (pFramesIn[iFrame*2 + 1] * factorR1);
+        }
     }
 }
 
