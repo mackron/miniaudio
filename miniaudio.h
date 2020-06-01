@@ -43573,6 +43573,7 @@ v0.10.8 - TBD
     - ma_data_source_map()
     - ma_data_source_unmap()
   - Add documentation for log levels.
+  - Fix some bugs with the linear resampler when dynamically changing the sample rate.
   - Fix some warnings with GCC and -std=c89.
 
 v0.10.7 - 2020-05-25
