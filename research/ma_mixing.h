@@ -2677,6 +2677,11 @@ static ma_result ma_mixer_mix_data_source_read(ma_mixer* pMixer, ma_data_source*
             if (framesReadFromCallback < framesToReadFromCallback) {
                 atEnd = MA_TRUE;
             }
+
+            /* An emergency failure case. Abort if we didn't consume any input nor any output frames. */
+            if (framesRead == 0 && framesReadFromCallback == 0) {
+                break;
+            }
         }
 
         totalFramesProcessed += framesRead;
