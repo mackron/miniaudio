@@ -7272,7 +7272,6 @@ static MA_INLINE float ma_mix_f32_fast(float x, float y, float a)
     /*return x + (y - x)*a;*/
 }
 
-
 #if defined(MA_SUPPORT_SSE2)
 static MA_INLINE __m128 ma_mix_f32_fast__sse2(__m128 x, __m128 y, __m128 a)
 {
@@ -35948,7 +35947,7 @@ MA_API ma_result ma_linear_resampler_set_rate_ratio(ma_linear_resampler* pResamp
     ma_uint32 n;
     ma_uint32 d;
 
-    d = 1000000;    /* We use up to 6 decimal places. */
+    d = 1000;
     n = (ma_uint32)(ratioInOut * d);
 
     if (n == 0) {
@@ -36450,7 +36449,7 @@ MA_API ma_result ma_resampler_set_rate_ratio(ma_resampler* pResampler, float rat
         ma_uint32 n;
         ma_uint32 d;
 
-        d = 1000000;    /* We use up to 6 decimal places. */
+        d = 1000;
         n = (ma_uint32)(ratio * d);
 
         if (n == 0) {
