@@ -35417,6 +35417,24 @@ MA_API ma_linear_resampler_config ma_linear_resampler_config_init(ma_format form
     return config;
 }
 
+static void ma_linear_resampler_adjust_timer_for_new_rate(ma_linear_resampler* pResampler, ma_uint32 oldSampleRateOut, ma_uint32 newSampleRateOut)
+{
+    /*
+    So what's happening here? Basically we need to adjust the fractional component of the time advance based on the new rate. The old time advance will
+    be based on the old sample rate, but we are needing to adjust it to that it's based on the new sample rate.
+    */
+    ma_uint32 oldRateTimeWhole = pResampler->inTimeFrac / oldSampleRateOut;  /* <-- This should almost never be anything other than 0, but leaving it here to make this more general and robust just in case. */
+    ma_uint32 oldRateTimeFract = pResampler->inTimeFrac % oldSampleRateOut;
+
+    pResampler->inTimeFrac =
+         (oldRateTimeWhole * newSampleRateOut) +
+        ((oldRateTimeFract * newSampleRateOut) / oldSampleRateOut);
+
+    /* Make sure the fractional part is less than the output sample rate. */
+    pResampler->inTimeInt += pResampler->inTimeFrac / pResampler->config.sampleRateOut;
+    pResampler->inTimeFrac = pResampler->inTimeFrac % pResampler->config.sampleRateOut;
+}
+
 static ma_result ma_linear_resampler_set_rate_internal(ma_linear_resampler* pResampler, ma_uint32 sampleRateIn, ma_uint32 sampleRateOut, ma_bool32 isResamplerAlreadyInitialized)
 {
     ma_result result;
@@ -35424,6 +35442,7 @@ static ma_result ma_linear_resampler_set_rate_internal(ma_linear_resampler* pRes
     ma_uint32 lpfSampleRate;
     double lpfCutoffFrequency;
     ma_lpf_config lpfConfig;
+    ma_uint32 oldSampleRateOut; /* Required for adjusting time advance down the bottom. */
 
     if (pResampler == NULL) {
         return MA_INVALID_ARGS;
@@ -35432,6 +35451,8 @@ static ma_result ma_linear_resampler_set_rate_internal(ma_linear_resampler* pRes
     if (sampleRateIn == 0 || sampleRateOut == 0) {
         return MA_INVALID_ARGS;
     }
+
+    oldSampleRateOut = pResampler->config.sampleRateOut;
 
     pResampler->config.sampleRateIn  = sampleRateIn;
     pResampler->config.sampleRateOut = sampleRateOut;
@@ -35465,12 +35486,12 @@ static ma_result ma_linear_resampler_set_rate_internal(ma_linear_resampler* pRes
         return result;
     }
 
+
     pResampler->inAdvanceInt  = pResampler->config.sampleRateIn / pResampler->config.sampleRateOut;
     pResampler->inAdvanceFrac = pResampler->config.sampleRateIn % pResampler->config.sampleRateOut;
 
-    /* Make sure the fractional part is less than the output sample rate. */
-    pResampler->inTimeInt += pResampler->inTimeFrac / pResampler->config.sampleRateOut;
-    pResampler->inTimeFrac = pResampler->inTimeFrac % pResampler->config.sampleRateOut;
+    /* Our timer was based on the old rate. We need to adjust it so that it's based on the new rate. */
+    ma_linear_resampler_adjust_timer_for_new_rate(pResampler, oldSampleRateOut, pResampler->config.sampleRateOut);
 
     return MA_SUCCESS;
 }
