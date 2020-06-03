@@ -309,10 +309,10 @@ MA_API ma_result ma_engine_set_volume(ma_engine* pEngine, float volume);
 MA_API ma_result ma_engine_set_gain_db(ma_engine* pEngine, float gainDB);
 
 #ifndef MA_NO_RESOURCE_MANAGER
-MA_API ma_result ma_engine_create_sound_from_file(ma_engine* pEngine, const char* pFilePath, ma_sound_group* pGroup, ma_sound* pSound);
+MA_API ma_result ma_engine_sound_init_from_file(ma_engine* pEngine, const char* pFilePath, ma_sound_group* pGroup, ma_sound* pSound);
 #endif
-MA_API ma_result ma_engine_create_sound_from_data_source(ma_engine* pEngine, ma_data_source* pDataSource, ma_sound_group* pGroup, ma_sound* pSound);
-MA_API void ma_engine_delete_sound(ma_engine* pEngine, ma_sound* pSound);
+MA_API ma_result ma_engine_sound_init_from_data_source(ma_engine* pEngine, ma_data_source* pDataSource, ma_sound_group* pGroup, ma_sound* pSound);
+MA_API void ma_engine_sound_uninit(ma_engine* pEngine, ma_sound* pSound);
 MA_API ma_result ma_engine_sound_start(ma_engine* pEngine, ma_sound* pSound);
 MA_API ma_result ma_engine_sound_stop(ma_engine* pEngine, ma_sound* pSound);
 MA_API ma_result ma_engine_sound_set_volume(ma_engine* pEngine, ma_sound* pSound, float volume);
@@ -1089,7 +1089,7 @@ MA_API ma_result ma_engine_set_gain_db(ma_engine* pEngine, float gainDB)
 
 
 #ifndef MA_NO_RESOURCE_MANAGER
-MA_API ma_result ma_engine_create_sound_from_file(ma_engine* pEngine, const char* pFilePath, ma_sound_group* pGroup, ma_sound* pSound)
+MA_API ma_result ma_engine_sound_init_from_file(ma_engine* pEngine, const char* pFilePath, ma_sound_group* pGroup, ma_sound* pSound)
 {
     ma_result result;
     ma_data_source* pDataSource;
@@ -1111,7 +1111,7 @@ MA_API ma_result ma_engine_create_sound_from_file(ma_engine* pEngine, const char
     }
 
     /* Now that we have our data source we can create the sound using our generic function. */
-    result = ma_engine_create_sound_from_data_source(pEngine, pDataSource, pGroup, pSound);
+    result = ma_engine_sound_init_from_data_source(pEngine, pDataSource, pGroup, pSound);
     if (result != MA_SUCCESS) {
         return result;
     }
@@ -1526,7 +1526,7 @@ static ma_result ma_engine_effect_reinit(ma_engine* pEngine, ma_engine_effect* p
     return ma_engine_effect_init(pEngine, pEffect);
 }
 
-MA_API ma_result ma_engine_create_sound_from_data_source(ma_engine* pEngine, ma_data_source* pDataSource, ma_sound_group* pGroup, ma_sound* pSound)
+MA_API ma_result ma_engine_sound_init_from_data_source(ma_engine* pEngine, ma_data_source* pDataSource, ma_sound_group* pGroup, ma_sound* pSound)
 {
     ma_result result;
 
@@ -1561,7 +1561,7 @@ MA_API ma_result ma_engine_create_sound_from_data_source(ma_engine* pEngine, ma_
     return MA_SUCCESS;
 }
 
-MA_API void ma_engine_delete_sound(ma_engine* pEngine, ma_sound* pSound)
+MA_API void ma_engine_sound_uninit(ma_engine* pEngine, ma_sound* pSound)
 {
     ma_result result;
 
@@ -1798,7 +1798,7 @@ MA_API ma_result ma_engine_play_sound(ma_engine* pEngine, const char* pFilePath,
         result = ma_engine_effect_reinit(pEngine, &pSound->effect);
         if (result != MA_SUCCESS) {
             /* We failed to reinitialize the effect. The sound is currently in a bad state and we need to delete it and return an error. Should never happen. */
-            ma_engine_delete_sound(pEngine, pSound);
+            ma_engine_sound_uninit(pEngine, pSound);
             return result;
         }
 
@@ -1811,7 +1811,7 @@ MA_API ma_result ma_engine_play_sound(ma_engine* pEngine, const char* pFilePath,
             return MA_OUT_OF_MEMORY;
         }
 
-        result = ma_engine_create_sound_from_file(pEngine, pFilePath, pGroup, pSound);
+        result = ma_engine_sound_init_from_file(pEngine, pFilePath, pGroup, pSound);
         if (result != MA_SUCCESS) {
             ma__free_from_callbacks(pEngine, &pEngine->allocationCallbacks);
             return result;

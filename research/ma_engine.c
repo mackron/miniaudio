@@ -28,7 +28,7 @@ int main(int argc, char** argv)
         return -1;
     }
 
-    result = ma_engine_create_sound_from_file(&engine, argv[1], NULL, &sound);
+    result = ma_engine_sound_init_from_file(&engine, argv[1], NULL, &sound);
     if (result != MA_SUCCESS) {
         ma_engine_uninit(&engine);
         return -1;
@@ -40,11 +40,30 @@ int main(int argc, char** argv)
     ma_engine_sound_start(&engine, &sound);
 
 
+    float pitch     = 1;
+    float pitchStep = 0.01f;
+    float pitchMin  = 0.125f;
+    float pitchMax  = 8;
+    for (;;) {
+        pitch += pitchStep;
+        if (pitch < pitchMin) {
+            pitch = pitchMin;
+            pitchStep = -pitchStep;
+        }
+        if (pitch > pitchMax) {
+            pitch = pitchMax;
+            pitchStep = -pitchStep;
+        }
+
+        ma_engine_sound_set_pitch(&engine, &sound, pitch);
+
+        Sleep(1);
+    }
 
     printf("Press Enter to quit...");
     getchar();
 
-    ma_engine_delete_sound(&engine, &sound);
+    ma_engine_sound_uninit(&engine, &sound);
     ma_engine_uninit(&engine);
 
     return 0;
