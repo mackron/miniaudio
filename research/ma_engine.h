@@ -30,9 +30,6 @@ subtle bugs there.
 Some things haven't yet been fully decided on. The following things in particular are some of the things I'm considering. If you have any opinions, feel free
 to send me a message and give me your opinions/advice:
 
-    - You need to explicitly start playback with `ma_engine_start()`. I'm considering making the default behaviour cause it to auto-start when the first sound
-      is started. The question then is do we automatically stop it when the last sound is stopped? If so, would we still auto-stop it if the user explicitly
-      called `ma_engine_start()`?
     - I haven't yet got spatialization working. I'm expecting it may be required to use an acceleration structure for querying audible sounds and only mixing
       those which can be heard by the listener, but then that will cause problems in the mixing thread because that should, ideally, not have any locking.
     - No caching or background loading is implemented in the resource manager. This is planned.
@@ -417,7 +414,7 @@ MA_API ma_result ma_resource_manager_create_data_source(ma_resource_manager* pRe
         return MA_OUT_OF_MEMORY;
     }
 
-    decoderConfig = ma_decoder_config_init(pResourceManager->config.decodedFormat, pResourceManager->config.decodedChannels, pResourceManager->config.decodedSampleRate);
+    decoderConfig = ma_decoder_config_init(pResourceManager->config.decodedFormat, 0, pResourceManager->config.decodedSampleRate);
     result = ma_decoder_init_file(pName, &decoderConfig, pDecoder);
     if (result != MA_SUCCESS) {
         ma_free(pDecoder, NULL);
