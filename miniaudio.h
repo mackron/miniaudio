@@ -7475,11 +7475,15 @@ static MA_INLINE ma_int32 ma_dither_s32(ma_dither_mode ditherMode, ma_int32 dith
 }
 
 
-/******************************************************************************
+/**************************************************************************************************************************************************************
 
 Atomics
 
-******************************************************************************/
+ma_atomic_increment/decrement_*() takes a pointer to the variable being incremented and returns the new value. Usage:
+
+    ma_uint32 newValue = ma_atomic_increment_32(&theValueToIncrement);
+
+**************************************************************************************************************************************************************/
 #if defined(__clang__)
     #if defined(__has_builtin)
         #if __has_builtin(__sync_swap)
@@ -30791,6 +30795,10 @@ MA_API ma_uint32 ma_calculate_buffer_size_in_frames_from_milliseconds(ma_uint32 
 
 MA_API void ma_copy_pcm_frames(void* dst, const void* src, ma_uint64 frameCount, ma_format format, ma_uint32 channels)
 {
+    if (dst == src) {
+        return; /* No-op. */
+    }
+
     ma_copy_memory_64(dst, src, frameCount * ma_get_bytes_per_frame(format, channels));
 }
 
