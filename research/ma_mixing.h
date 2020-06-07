@@ -2557,10 +2557,14 @@ static ma_result ma_mixer_mix_data_source_mmap(ma_mixer* pMixer, ma_data_source*
             result = ma_data_source_unmap(pDataSource, framesMapped);   /* Do this last because the result code is used below to determine whether or not we need to loop. */
         }
 
+        totalFramesProcessed += framesToProcess;
+        pRunningAccumulationBuffer = ma_offset_ptr(pRunningAccumulationBuffer, framesToProcess * ma_get_accumulation_bytes_per_frame(pMixer->format, pMixer->channels));
+
         if (result != MA_SUCCESS) {
             if (result == MA_AT_END) {
                 if (loop) {
                     ma_data_source_seek_to_pcm_frame(pDataSource, 0);
+                    result = MA_SUCCESS;    /* Make sure we don't return MA_AT_END which will happen if we conicidentally hit the end of the data source at the same time as we finish outputting. */
                 } else {
                     break;  /* We've reached the end and we're not looping. */
                 }
@@ -2568,9 +2572,6 @@ static ma_result ma_mixer_mix_data_source_mmap(ma_mixer* pMixer, ma_data_source*
                 return result;  /* An error occurred. */
             }
         }
-        
-        totalFramesProcessed += framesToProcess;
-        pRunningAccumulationBuffer = ma_offset_ptr(pRunningAccumulationBuffer, framesToProcess * ma_get_accumulation_bytes_per_frame(pMixer->format, pMixer->channels));
     }
 
     return result;
