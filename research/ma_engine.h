@@ -67,17 +67,158 @@ Whenever a sound is played, it should usually be loaded into one of the in-memor
 extern "C" {
 #endif
 
+typedef void      ma_vfs;
+typedef ma_handle ma_vfs_file;
+
+#define MA_OPEN_MODE_READ   0x00000001
+#define MA_OPEN_MODE_WRITE  0x00000002
+
 typedef struct
 {
-    ma_uint64 sizeInFrames;
-    void* pData;
+    ma_uint64 sizeInBytes;
+} ma_file_info;
+
+typedef struct
+{
+    ma_result (* onOpen) (ma_vfs* pVFS, const char* pFilePath, ma_uint32 openMode, ma_vfs_file* pFile);
+    ma_result (* onClose)(ma_vfs* pVFS, ma_vfs_file file);
+    ma_result (* onRead) (ma_vfs* pVFS, ma_vfs_file file, void* pDst, size_t sizeInBytes, size_t* pBytesRead);
+    ma_result (* onWrite)(ma_vfs* pVFS, ma_vfs_file file, const void* pSrc, size_t sizeInBytes, size_t* pBytesWritten);
+    ma_result (* onSeek) (ma_vfs* pVFS, ma_vfs_file file, ma_int64 offset, ma_seek_origin origin);
+    ma_result (* onTell) (ma_vfs* pVFS, ma_vfs_file file, ma_int64* pCursor);
+    ma_result (* onInfo) (ma_vfs* pVFS, ma_vfs_file file, ma_file_info* pInfo);
+} ma_vfs_callbacks;
+
+MA_API ma_result ma_vfs_open(ma_vfs* pVFS, const char* pFilePath, ma_uint32 openMode, ma_vfs_file* pFile);
+MA_API ma_result ma_vfs_close(ma_vfs* pVFS, ma_vfs_file file);
+MA_API ma_result ma_vfs_read(ma_vfs* pVFS, ma_vfs_file file, void* pDst, size_t sizeInBytes, size_t* pBytesRead);
+MA_API ma_result ma_vfs_write(ma_vfs* pVFS, ma_vfs_file file, const void* pSrc, size_t sizeInBytes, size_t* pBytesWritten);
+MA_API ma_result ma_vfs_seek(ma_vfs* pVFS, ma_vfs_file file, ma_int64 offset, ma_seek_origin origin);
+MA_API ma_result ma_vfs_tell(ma_vfs* pVFS, ma_vfs_file file, ma_int64* pCursor);
+MA_API ma_result ma_vfs_info(ma_vfs* pVFS, ma_vfs_file file, ma_file_info* pInfo);
+MA_API ma_result ma_vfs_open_and_read_file(ma_vfs* pVFS, const char* pFilePath, void** ppData, size_t* pSize, const ma_allocation_callbacks* pAllocationCallbacks);
+
+typedef struct
+{
+    ma_vfs_callbacks cb;
+} ma_default_vfs;
+
+MA_API ma_result ma_default_vfs_init(ma_default_vfs* pVFS);
+
+
+/*
+Fully decodes a file from a VFS.
+*/
+MA_API ma_result ma_decode_from_vfs(ma_vfs* pVFS, const char* pFilePath, ma_decoder_config* pConfig, ma_uint64* pFrameCountOut, void** ppPCMFramesOut);
+
+
+/*
+Memory Allocation Types
+=======================
+When allocating memory you may want to optimize your custom allocators based on what it is miniaudio is actually allocating. Normally the context in which you
+are using the allocator is enough to optimize allocations, however there are high-level APIs that perform many different types of allocations and it can be
+useful to be told exactly what it being allocated so you can optimize your allocations appropriately.
+*/
+#define MA_ALLOCATION_TYPE_GENERAL                      0x00000001  /* A general memory allocation. */
+#define MA_ALLOCATION_TYPE_CONTEXT                      0x00000002  /* A ma_context allocation. */
+#define MA_ALLOCATION_TYPE_DEVICE                       0x00000003  /* A ma_device allocation. */
+#define MA_ALLOCATION_TYPE_DECODER                      0x00000004  /* A ma_decoder allocation. */
+#define MA_ALLOCATION_TYPE_AUDIO_BUFFER                 0x00000005  /* A ma_audio_buffer allocation. */
+#define MA_ALLOCATION_TYPE_ENCODED_BUFFER               0x00000006  /* Allocation for encoded audio data containing the raw file data of a sound file. */
+#define MA_ALLOCATION_TYPE_DECODED_BUFFER               0x00000007  /* Allocation for decoded audio data from a sound file. */
+#define MA_ALLOCATION_TYPE_RESOURCE_MANAGER_NODE        0x00000010  /* A ma_resource_manager_node object. */
+#define MA_ALLOCATION_TYPE_RESOURCE_MANAGER_PAGE        0x00000011  /* A ma_resource_manager_page object. Used by the resource manager for when a page containing decoded audio data is loaded for streaming. */
+#define MA_ALLOCATION_TYPE_RESOURCE_MANAGER_DATA_SOURCE 0x00000012  /* A ma_resource_manager_data_source object. */
+
+/*
+Resource Manager Data Source Flags
+==================================
+The flags below are used for controlling how the resource manager should handle the loading and caching of data sources.
+*/
+#define MA_DATA_SOURCE_FLAG_DECODE  0x00000001  /* Decode data before storing in memory. When set, decoding happens on the resource manager thread rather than the mixing thread. Results in faster mixing, but higher memory usage. */
+#define MA_DATA_SOURCE_FLAG_STREAM  0x00000002  /* When set, does not load the entire data source in memory. Disk I/O will happen on the resource manager thread. */
+#define MA_DATA_SOURCE_FLAG_ASYNC   0x00000004  /* When set, the resource manager will load the data source asynchronously. */
+
+/*
+The size in bytes of a page containing raw audio data.
+*/
+#ifndef MA_RESOURCE_MANAGER_PAGE_SIZE_IN_BYTES
+#define MA_RESOURCE_MANAGER_PAGE_SIZE_IN_BYTES  16384
+#endif
+
+typedef enum
+{
+    ma_resource_manager_data_type_nothing,
+    ma_resource_manager_data_type_encoded,
+    ma_resource_manager_data_type_decoded
+} ma_resource_manager_data_type;
+
+typedef enum
+{
+    ma_resource_manager_data_source_type_decoder,
+    ma_resource_manager_data_source_type_buffer
+} ma_resource_manager_data_source_type;
+
+
+typedef struct ma_resource_manager_page ma_resource_manager_page;
+
+typedef struct
+{
+    ma_resource_manager_page* pPrev;
+    ma_resource_manager_page* pNext;
+    ma_uint32 frameCount;
+} ma_resource_manager_page_header;
+
+struct ma_resource_manager_page
+{
+    ma_resource_manager_page_header header;
+    ma_uint8 data[MA_RESOURCE_MANAGER_PAGE_SIZE_IN_BYTES - sizeof(ma_resource_manager_page_header)];
+};
+
+
+typedef struct
+{
+    const void* pData;
+    ma_uint64 frameCount;
+    ma_format format;
+    ma_uint32 channels;
+    ma_uint32 sampleRate;
 } ma_decoded_data;
 
 typedef struct
 {
+    const void* pData;
     size_t sizeInBytes;
-    void* pData;
 } ma_encoded_data;
+
+/* Items in the resource manager are stored in a binary tree for fast searching. */
+typedef struct ma_resource_manager_node ma_resource_manager_node;
+struct ma_resource_manager_node
+{
+    ma_uint32 hashedName32; /* The hashed name. This is the key. */
+    ma_uint32 refCount;
+    ma_resource_manager_data_type type;
+    union
+    {
+        ma_decoded_data decoded;
+        ma_encoded_data encoded;
+    } data;
+    ma_resource_manager_node* pParent;
+    ma_resource_manager_node* pChildLo;
+    ma_resource_manager_node* pChildHi;
+};
+
+typedef struct
+{
+    ma_data_source_callbacks ds;
+    ma_resource_manager_node* pDataNode;
+    ma_resource_manager_data_source_type type;
+    union
+    {
+        ma_decoder decoder;
+        ma_audio_buffer buffer;
+    } backend;
+} ma_resource_manager_data_source;
 
 typedef struct
 {
@@ -85,12 +226,11 @@ typedef struct
     size_t level2CacheSizeInBytes;  /* Set to 0 to disable level 2 cache. Set to (size_t)-1 for unlimited. */
     ma_uint32 level1CacheFlags;
     ma_uint32 level2CacheFlags;
-    ma_allocation_callbacks level1CacheAllocationCallbacks;
-    ma_allocation_callbacks level2CacheAllocationCallbacks;
-    ma_allocation_callbacks allocationCallbacks;    /* Generic allocations. */
+    ma_allocation_callbacks allocationCallbacks;
     ma_format decodedFormat;
     ma_uint32 decodedChannels;
     ma_uint32 decodedSampleRate;
+    ma_vfs* pVFS;                   /* Can be NULL in which case defaults will be used. */
 } ma_resource_manager_config;
 
 MA_API ma_resource_manager_config ma_resource_manager_config_init(ma_format decodedFormat, ma_uint32 decodedChannels, ma_uint32 decodedSampleRate, const ma_allocation_callbacks* pAllocationCallbacks);
@@ -98,17 +238,17 @@ MA_API ma_resource_manager_config ma_resource_manager_config_init(ma_format deco
 typedef struct
 {
     ma_resource_manager_config config;
+    ma_resource_manager_node* pRootDataNode;    /* The root node in the binary tree. */
+    ma_mutex dataNodeLock;                      /* For synchronizing access to the data node binary tree. */
+    ma_default_vfs defaultVFS;                  /* Only used if a custom VFS is not specified. */
 } ma_resource_manager;
 
 MA_API ma_result ma_resource_manager_init(const ma_resource_manager_config* pConfig, ma_resource_manager* pResourceManager);
 MA_API void ma_resource_manager_uninit(ma_resource_manager* pResourceManager);
-#if 0
-MA_API ma_result ma_resource_manager_cache_decoded_data(ma_resource_manager* pResourceManager, const char* pName, ma_uint64 frameCount, const void* pData);
-MA_API ma_result ma_resource_manager_eject_decoded_data(ma_resource_manager* pResourceManager, const char* pName);
-MA_API ma_result ma_resource_manager_cache_encoded_data(ma_resource_manager* pResourceManager, const char* pName, size_t sizeInBytes, const void* pData);
-MA_API ma_result ma_resource_manager_eject_encoded_data(ma_resource_manager* pResourceManager, const char* pName);
-#endif
-MA_API ma_result ma_resource_manager_create_data_source(ma_resource_manager* pResourceManager, const char* pName, ma_data_source** ppDataSource);
+MA_API ma_result ma_resource_manager_register_decoded_data(ma_resource_manager* pResourceManager, const char* pName, const void* pData, ma_uint64 frameCount, ma_format format, ma_uint32 channels, ma_uint32 sampleRate);  /* Does not copy. Fails with MA_ALREADY_EXISTS if already exists. */
+MA_API ma_result ma_resource_manager_register_encoded_data(ma_resource_manager* pResourceManager, const char* pName, const void* pData, size_t sizeInBytes);    /* Does not copy. Fails with MA_ALREADY_EXISTS if already exists. */
+MA_API ma_result ma_resource_manager_unregister_data(ma_resource_manager* pResourceManager, const char* pName);
+MA_API ma_result ma_resource_manager_create_data_source(ma_resource_manager* pResourceManager, const char* pName, ma_uint32 flags, ma_data_source** ppDataSource);
 MA_API ma_result ma_resource_manager_delete_data_source(ma_resource_manager* pResourceManager, ma_data_source* pDataSource);
 
 
@@ -116,7 +256,7 @@ MA_API ma_result ma_resource_manager_delete_data_source(ma_resource_manager* pRe
 /*
 Engine
 ======
-The `ma_engine` API is a high-level API for audio playback. Internally it contains a world of sounds (`ma_sound`) with resources managed via a resource manager
+The `ma_engine` API is a high-level API for audio playback. Internally it contains sounds (`ma_sound`) with resources managed via a resource manager
 (`ma_resource_manager`).
 
 Within the world there is the concept of a "listener". Each `ma_engine` instances has a single listener, but you can instantiate multiple `ma_engine` instances
@@ -165,10 +305,17 @@ static MA_INLINE ma_quat ma_quatf(float x, float y, float z, float w)
 
 
 /* Stereo panner. */
+typedef enum
+{
+    ma_pan_mode_balance = 0,    /* Does not blend one side with the other. Technically just a balance. Compatible with other popular audio engines and therefore the default. */
+    ma_pan_mode_pan             /* A true pan. The sound from one side will "move" to the other side and blend with it. */
+} ma_pan_mode;
+
 typedef struct
 {
     ma_format format;
     ma_uint32 channels;
+    ma_pan_mode mode;
     float pan;
 } ma_panner_config;
 
@@ -180,11 +327,13 @@ typedef struct
     ma_effect_base effect;
     ma_format format;
     ma_uint32 channels;
+    ma_pan_mode mode;
     float pan;  /* -1..1 where 0 is no pan, -1 is left side, +1 is right side. Defaults to 0. */
 } ma_panner;
 
 MA_API ma_result ma_panner_init(const ma_panner_config* pConfig, ma_panner* pPanner);
 MA_API ma_result ma_panner_process_pcm_frames(ma_panner* pPanner, void* pFramesOut, const void* pFramesIn, ma_uint64 frameCount);
+MA_API ma_result ma_panner_set_mode(ma_panner* pPanner, ma_pan_mode mode);
 MA_API ma_result ma_panner_set_pan(ma_panner* pPanner, float pan);
 
 
@@ -309,7 +458,7 @@ MA_API ma_result ma_engine_set_volume(ma_engine* pEngine, float volume);
 MA_API ma_result ma_engine_set_gain_db(ma_engine* pEngine, float gainDB);
 
 #ifndef MA_NO_RESOURCE_MANAGER
-MA_API ma_result ma_engine_sound_init_from_file(ma_engine* pEngine, const char* pFilePath, ma_sound_group* pGroup, ma_sound* pSound);
+MA_API ma_result ma_engine_sound_init_from_file(ma_engine* pEngine, const char* pFilePath, ma_uint32 flags, ma_sound_group* pGroup, ma_sound* pSound);
 #endif
 MA_API ma_result ma_engine_sound_init_from_data_source(ma_engine* pEngine, ma_data_source* pDataSource, ma_sound_group* pGroup, ma_sound* pSound);
 MA_API void ma_engine_sound_uninit(ma_engine* pEngine, ma_sound* pSound);
@@ -345,6 +494,781 @@ MA_API ma_result ma_engine_listener_set_rotation(ma_engine* pEngine, ma_quat rot
 
 #if defined(MA_IMPLEMENTATION) || defined(MINIAUDIO_IMPLEMENTATION)
 
+MA_API ma_result ma_vfs_open(ma_vfs* pVFS, const char* pFilePath, ma_uint32 openMode, ma_vfs_file* pFile)
+{
+    ma_vfs_callbacks* pCallbacks = (ma_vfs_callbacks*)pVFS;
+
+    if (pFile == NULL) {
+        return MA_INVALID_ARGS;
+    }
+
+    *pFile = NULL;
+
+    if (pVFS == NULL || pFilePath == NULL || openMode == 0) {
+        return MA_INVALID_ARGS;
+    }
+
+    if (pCallbacks->onOpen == NULL) {
+        return MA_NOT_IMPLEMENTED;
+    }
+
+    return pCallbacks->onOpen(pVFS, pFilePath, openMode, pFile);
+}
+
+MA_API ma_result ma_vfs_close(ma_vfs* pVFS, ma_vfs_file file)
+{
+    ma_vfs_callbacks* pCallbacks = (ma_vfs_callbacks*)pVFS;
+
+    if (pVFS == NULL || file == NULL) {
+        return MA_INVALID_ARGS;
+    }
+
+    if (pCallbacks->onClose == NULL) {
+        return MA_NOT_IMPLEMENTED;
+    }
+
+    return pCallbacks->onClose(pVFS, file);
+}
+
+MA_API ma_result ma_vfs_read(ma_vfs* pVFS, ma_vfs_file file, void* pDst, size_t sizeInBytes, size_t* pBytesRead)
+{
+    ma_vfs_callbacks* pCallbacks = (ma_vfs_callbacks*)pVFS;
+
+    if (pBytesRead != NULL) {
+        *pBytesRead = 0;
+    }
+
+    if (pVFS == NULL || file == NULL || pDst == NULL) {
+        return MA_INVALID_ARGS;
+    }
+
+    if (pCallbacks->onRead == NULL) {
+        return MA_NOT_IMPLEMENTED;
+    }
+
+    return pCallbacks->onRead(pVFS, file, pDst, sizeInBytes, pBytesRead);
+}
+
+MA_API ma_result ma_vfs_write(ma_vfs* pVFS, ma_vfs_file file, const void* pSrc, size_t sizeInBytes, size_t* pBytesWritten)
+{
+    ma_vfs_callbacks* pCallbacks = (ma_vfs_callbacks*)pVFS;
+
+    if (pBytesWritten == NULL) {
+        *pBytesWritten = 0;
+    }
+
+    if (pVFS == NULL || file == NULL || pSrc == NULL) {
+        return MA_INVALID_ARGS;
+    }
+
+    if (pCallbacks->onWrite == NULL) {
+        return MA_NOT_IMPLEMENTED;
+    }
+
+    return pCallbacks->onWrite(pVFS, file, pSrc, sizeInBytes, pBytesWritten);
+}
+
+MA_API ma_result ma_vfs_seek(ma_vfs* pVFS, ma_vfs_file file, ma_int64 offset, ma_seek_origin origin)
+{
+    ma_vfs_callbacks* pCallbacks = (ma_vfs_callbacks*)pVFS;
+
+    if (pVFS == NULL || file == NULL) {
+        return MA_INVALID_ARGS;
+    }
+
+    if (pCallbacks->onSeek == NULL) {
+        return MA_NOT_IMPLEMENTED;
+    }
+
+    return pCallbacks->onSeek(pVFS, file, offset, origin);
+}
+
+MA_API ma_result ma_vfs_tell(ma_vfs* pVFS, ma_vfs_file file, ma_int64* pCursor)
+{
+    ma_vfs_callbacks* pCallbacks = (ma_vfs_callbacks*)pVFS;
+
+    if (pCursor == NULL) {
+        return MA_INVALID_ARGS;
+    }
+
+    *pCursor = 0;
+
+    if (pVFS == NULL || file == NULL) {
+        return MA_INVALID_ARGS;
+    }
+
+    if (pCallbacks->onTell == NULL) {
+        return MA_NOT_IMPLEMENTED;
+    }
+
+    return pCallbacks->onTell(pVFS, file, pCursor);
+}
+
+MA_API ma_result ma_vfs_info(ma_vfs* pVFS, ma_vfs_file file, ma_file_info* pInfo)
+{
+    ma_vfs_callbacks* pCallbacks = (ma_vfs_callbacks*)pVFS;
+
+    if (pInfo == NULL) {
+        return MA_INVALID_ARGS;
+    }
+
+    MA_ZERO_OBJECT(pInfo);
+
+    if (pVFS == NULL || file == NULL) {
+        return MA_INVALID_ARGS;
+    }
+
+    if (pCallbacks->onInfo == NULL) {
+        return MA_NOT_IMPLEMENTED;
+    }
+
+    return pCallbacks->onInfo(pVFS, file, pInfo);
+}
+
+
+static ma_result ma_vfs_open_and_read_file_ex(ma_vfs* pVFS, const char* pFilePath, void** ppData, size_t* pSize, const ma_allocation_callbacks* pAllocationCallbacks, ma_uint32 allocationType)
+{
+    ma_result result;
+    ma_vfs_file file;
+    ma_file_info info;
+    void* pData;
+    size_t bytesRead;
+
+    (void)allocationType;
+
+    if (ppData != NULL) {
+        *ppData = NULL;
+    }
+    if (pSize != NULL) {
+        *pSize = 0;
+    }
+
+    if (ppData == NULL) {
+        return MA_INVALID_ARGS;
+    }
+
+    result = ma_vfs_open(pVFS, pFilePath, MA_OPEN_MODE_READ, &file);
+    if (result != MA_SUCCESS) {
+        return result;
+    }
+
+    result = ma_vfs_info(pVFS, file, &info);
+    if (result != MA_SUCCESS) {
+        ma_vfs_close(pVFS, file);
+        return result;
+    }
+
+    if (info.sizeInBytes > MA_SIZE_MAX) {
+        ma_vfs_close(pVFS, file);
+        return MA_TOO_BIG;
+    }
+
+    pData = ma__malloc_from_callbacks((size_t)info.sizeInBytes, pAllocationCallbacks);  /* Safe cast. */
+    if (pData == NULL) {
+        ma_vfs_close(pVFS, file);
+        return result;
+    }
+
+    result = ma_vfs_read(pVFS, file, pData, (size_t)info.sizeInBytes, &bytesRead);  /* Safe cast. */
+    ma_vfs_close(pVFS, file);
+
+    if (result != MA_SUCCESS) {
+        ma__free_from_callbacks(pData, pAllocationCallbacks);
+        return result;
+    }
+
+    if (pSize != NULL) {
+        *pSize = bytesRead;
+    }
+
+    MA_ASSERT(ppData != NULL);
+    *ppData = pData;
+
+    return MA_SUCCESS;
+}
+
+ma_result ma_vfs_open_and_read_file(ma_vfs* pVFS, const char* pFilePath, void** ppData, size_t* pSize, const ma_allocation_callbacks* pAllocationCallbacks)
+{
+    return ma_vfs_open_and_read_file_ex(pVFS, pFilePath, ppData, pSize, pAllocationCallbacks, MA_ALLOCATION_TYPE_GENERAL);
+}
+
+
+static ma_result ma_default_vfs_open__stdio(ma_vfs* pVFS, const char* pFilePath, ma_uint32 openMode, ma_vfs_file* pFile)
+{
+    ma_result result;
+    FILE* pFileStd;
+    const char* pOpenModeStr;
+
+    MA_ASSERT(pVFS      != NULL);
+    MA_ASSERT(pFilePath != NULL);
+    MA_ASSERT(openMode  != 0);
+    MA_ASSERT(pFile     != NULL);
+
+    if ((openMode & MA_OPEN_MODE_READ) != 0) {
+        if ((openMode & MA_OPEN_MODE_WRITE) != 0) {
+            pOpenModeStr = "r+";
+        } else {
+            pOpenModeStr = "rb";
+        }
+    } else {
+        pOpenModeStr = "wb";
+    }
+
+    result = ma_fopen(&pFileStd, pFilePath, pOpenModeStr);
+    if (result != MA_SUCCESS) {
+        return result;
+    }
+
+    *pFile = pFileStd;
+
+    return MA_SUCCESS;
+}
+
+static ma_result ma_default_vfs_close__stdio(ma_vfs* pVFS, ma_vfs_file file)
+{
+    MA_ASSERT(pVFS != NULL);
+    MA_ASSERT(file != NULL);
+
+    fclose((FILE*)file);
+
+    return MA_SUCCESS;
+}
+
+static ma_result ma_default_vfs_read__stdio(ma_vfs* pVFS, ma_vfs_file file, void* pDst, size_t sizeInBytes, size_t* pBytesRead)
+{
+    size_t result;
+
+    MA_ASSERT(pVFS != NULL);
+    MA_ASSERT(file != NULL);
+    MA_ASSERT(pDst != NULL);
+    
+    result = fread(pDst, 1, sizeInBytes, (FILE*)file);
+
+    if (pBytesRead != NULL) {
+        *pBytesRead = result;
+    }
+    
+    if (result != sizeInBytes) {
+        if (feof((FILE*)file)) {
+            return MA_END_OF_FILE;
+        } else {
+            return ma_result_from_errno(ferror((FILE*)file));
+        }
+    }
+
+    return MA_SUCCESS;
+}
+
+static ma_result ma_default_vfs_write__stdio(ma_vfs* pVFS, ma_vfs_file file, const void* pSrc, size_t sizeInBytes, size_t* pBytesWritten)
+{
+    size_t result;
+
+    MA_ASSERT(pVFS != NULL);
+    MA_ASSERT(file != NULL);
+    MA_ASSERT(pSrc != NULL);
+
+    result = fwrite(pSrc, 1, sizeInBytes, (FILE*)file);
+
+    if (pBytesWritten != NULL) {
+        *pBytesWritten = result;
+    }
+
+    if (result != sizeInBytes) {
+        return ma_result_from_errno(ferror((FILE*)file));
+    }
+
+    return MA_SUCCESS;
+}
+
+static ma_result ma_default_vfs_seek__stdio(ma_vfs* pVFS, ma_vfs_file file, ma_int64 offset, ma_seek_origin origin)
+{
+    int result;
+
+    MA_ASSERT(pVFS != NULL);
+    MA_ASSERT(file != NULL);
+    
+#if defined(_WIN32)
+    result = _fseeki64((FILE*)file, offset, origin);
+#else
+    result = fseek((FILE*)file, (long int)offset, origin);
+#endif
+    if (result != 0) {
+        return MA_ERROR;
+    }
+
+    return MA_SUCCESS;
+}
+
+static ma_result ma_default_vfs_tell__stdio(ma_vfs* pVFS, ma_vfs_file file, ma_int64* pCursor)
+{
+    ma_int64 result;
+
+    MA_ASSERT(pVFS    != NULL);
+    MA_ASSERT(file    != NULL);
+    MA_ASSERT(pCursor != NULL);
+
+#if defined(_WIN32)
+    result = _ftelli64((FILE*)file);
+#else
+    result = ftell((FILE*)file);
+#endif
+
+    *pCursor = result;
+
+    return MA_SUCCESS;
+}
+
+static ma_result ma_default_vfs_info__stdio(ma_vfs* pVFS, ma_vfs_file file, ma_file_info* pInfo)
+{
+    int fd;
+    struct stat info;
+
+    MA_ASSERT(pVFS  != NULL);
+    MA_ASSERT(file  != NULL);
+    MA_ASSERT(pInfo != NULL);
+
+#if defined(_MSC_VER)
+    fd = _fileno((FILE*)file);
+#else
+    fd =  fileno((FILE*)file);
+#endif
+
+    if (fstat(fd, &info) != 0) {
+        return ma_result_from_errno(errno);
+    }
+
+    pInfo->sizeInBytes = info.st_size;
+
+    return MA_SUCCESS;
+}
+
+
+static ma_result ma_default_vfs_open(ma_vfs* pVFS, const char* pFilePath, ma_uint32 openMode, ma_vfs_file* pFile)
+{
+    if (pFile == NULL) {
+        return MA_INVALID_ARGS;
+    }
+
+    *pFile = NULL;
+
+    if (pVFS == NULL || pFilePath == NULL || openMode == 0) {
+        return MA_INVALID_ARGS;
+    }
+
+    return ma_default_vfs_open__stdio(pVFS, pFilePath, openMode, pFile);
+}
+
+static ma_result ma_default_vfs_close(ma_vfs* pVFS, ma_vfs_file file)
+{
+    if (pVFS == NULL || file == NULL) {
+        return MA_INVALID_ARGS;
+    }
+
+    return ma_default_vfs_close__stdio(pVFS, file);
+}
+
+static ma_result ma_default_vfs_read(ma_vfs* pVFS, ma_vfs_file file, void* pDst, size_t sizeInBytes, size_t* pBytesRead)
+{
+    if (pVFS == NULL || file == NULL || pDst == NULL) {
+        return MA_INVALID_ARGS;
+    }
+
+    return ma_default_vfs_read__stdio(pVFS, file, pDst, sizeInBytes, pBytesRead);
+}
+
+static ma_result ma_default_vfs_write(ma_vfs* pVFS, ma_vfs_file file, const void* pSrc, size_t sizeInBytes, size_t* pBytesWritten)
+{
+    if (pVFS == NULL || file == NULL || pSrc == NULL) {
+        return MA_INVALID_ARGS;
+    }
+
+    return ma_default_vfs_write__stdio(pVFS, file, pSrc, sizeInBytes, pBytesWritten);
+}
+
+static ma_result ma_default_vfs_seek(ma_vfs* pVFS, ma_vfs_file file, ma_int64 offset, ma_seek_origin origin)
+{
+    if (pVFS == NULL || file == NULL) {
+        return MA_INVALID_ARGS;
+    }
+
+    return ma_default_vfs_seek__stdio(pVFS, file, offset, origin);
+}
+
+static ma_result ma_default_vfs_tell(ma_vfs* pVFS, ma_vfs_file file, ma_int64* pCursor)
+{
+    if (pCursor == NULL) {
+        return MA_INVALID_ARGS;
+    }
+
+    *pCursor = 0;
+
+    if (pVFS == NULL || file == NULL) {
+        return MA_INVALID_ARGS;
+    }
+
+    return ma_default_vfs_tell__stdio(pVFS, file, pCursor);
+}
+
+static ma_result ma_default_vfs_info(ma_vfs* pVFS, ma_vfs_file file, ma_file_info* pInfo)
+{
+    if (pInfo == NULL) {
+        return MA_INVALID_ARGS;
+    }
+
+    MA_ZERO_OBJECT(pInfo);
+
+    if (pVFS == NULL || file == NULL) {
+        return MA_INVALID_ARGS;
+    }
+
+    return ma_default_vfs_info__stdio(pVFS, file, pInfo);
+}
+
+
+MA_API ma_result ma_default_vfs_init(ma_default_vfs* pVFS)
+{
+    if (pVFS == NULL) {
+        return MA_INVALID_ARGS;
+    }
+
+    pVFS->cb.onOpen  = ma_default_vfs_open;
+    pVFS->cb.onClose = ma_default_vfs_close;
+    pVFS->cb.onRead  = ma_default_vfs_read;
+    pVFS->cb.onWrite = ma_default_vfs_write;
+    pVFS->cb.onSeek  = ma_default_vfs_seek;
+    pVFS->cb.onTell  = ma_default_vfs_tell;
+    pVFS->cb.onInfo  = ma_default_vfs_info;
+
+    return MA_SUCCESS;
+}
+
+
+static MA_INLINE ma_uint32 ma_swap_endian_uint32(ma_uint32 n)
+{
+#ifdef MA_HAS_BYTESWAP32_INTRINSIC
+    #if defined(_MSC_VER)
+        return _byteswap_ulong(n);
+    #elif defined(__GNUC__) || defined(__clang__)
+        #if defined(MA_ARM) && (defined(__ARM_ARCH) && __ARM_ARCH >= 6) && !defined(MA_64BIT)   /* <-- 64-bit inline assembly has not been tested, so disabling for now. */
+            /* Inline assembly optimized implementation for ARM. In my testing, GCC does not generate optimized code with __builtin_bswap32(). */
+            ma_uint32 r;
+            __asm__ __volatile__ (
+            #if defined(MA_64BIT)
+                "rev %w[out], %w[in]" : [out]"=r"(r) : [in]"r"(n)   /* <-- This is untested. If someone in the community could test this, that would be appreciated! */
+            #else
+                "rev %[out], %[in]" : [out]"=r"(r) : [in]"r"(n)
+            #endif
+            );
+            return r;
+        #else
+            return __builtin_bswap32(n);
+        #endif
+    #else
+        #error "This compiler does not support the byte swap intrinsic."
+    #endif
+#else
+    return ((n & 0xFF000000) >> 24) |
+           ((n & 0x00FF0000) >>  8) |
+           ((n & 0x0000FF00) <<  8) |
+           ((n & 0x000000FF) << 24);
+#endif
+}
+
+
+#ifndef MA_DEFAULT_HASH_SEED
+#define MA_DEFAULT_HASH_SEED    42
+#endif
+
+/* MurmurHash3. Based on code from https://github.com/PeterScott/murmur3/blob/master/murmur3.c (public domain). */
+static MA_INLINE ma_uint32 ma_rotl32(ma_uint32 x, ma_int8 r)
+{
+    return (x << r) | (x >> (32 - r));
+}
+
+static MA_INLINE ma_uint32 ma_hash_getblock(const ma_uint32* blocks, int i)
+{
+    if (ma_is_little_endian()) {
+        return blocks[i];
+    } else {
+        return ma_swap_endian_uint32(blocks[i]);
+    }
+}
+
+static MA_INLINE ma_uint32 ma_hash_fmix32(ma_uint32 h)
+{
+    h ^= h >> 16;
+    h *= 0x85ebca6b;
+    h ^= h >> 13;
+    h *= 0xc2b2ae35;
+    h ^= h >> 16;
+    
+    return h;
+}
+
+static ma_uint32 ma_hash_32(const void* key, int len, ma_uint32 seed)
+{
+    const ma_uint8* data = (const ma_uint8*)key;
+    const ma_uint32* blocks;
+    const ma_uint8* tail;
+    const int nblocks = len / 4;
+    ma_uint32 h1 = seed;
+    ma_uint32 c1 = 0xcc9e2d51;
+    ma_uint32 c2 = 0x1b873593;
+    ma_uint32 k1;
+    int i;
+
+    blocks = (const ma_uint32 *)(data + nblocks*4);
+
+    for(i = -nblocks; i; i++) {
+        k1 = ma_hash_getblock(blocks,i);
+
+        k1 *= c1;
+        k1 = ma_rotl32(k1, 15);
+        k1 *= c2;
+    
+        h1 ^= k1;
+        h1 = ma_rotl32(h1, 13); 
+        h1 = h1*5 + 0xe6546b64;
+    }
+
+
+    tail = (const ma_uint8*)(data + nblocks*4);
+
+    k1 = 0;
+    switch(len & 3) {
+        case 3: k1 ^= tail[2] << 16;
+        case 2: k1 ^= tail[1] << 8;
+        case 1: k1 ^= tail[0];
+                k1 *= c1; k1 = ma_rotl32(k1, 15); k1 *= c2; h1 ^= k1;
+    };
+
+
+    h1 ^= len;
+    h1  = ma_hash_fmix32(h1);
+
+    return h1;
+}
+/* End MurmurHash3 */
+
+static ma_uint32 ma_hash_string_32(const char* str)
+{
+    return ma_hash_32(str, strlen(str), MA_DEFAULT_HASH_SEED);
+}
+
+
+typedef struct
+{
+    ma_vfs* pVFS;
+    ma_vfs_file file;
+} ma_decoder_callback_data_vfs;
+
+static size_t ma_decoder_on_read__vfs(ma_decoder* pDecoder, void* pBufferOut, size_t bytesToRead)
+{
+    ma_decoder_callback_data_vfs* pData = (ma_decoder_callback_data_vfs*)pDecoder->pUserData;
+    size_t bytesRead;
+
+    MA_ASSERT(pDecoder   != NULL);
+    MA_ASSERT(pBufferOut != NULL);
+
+    ma_vfs_read(pData->pVFS, pData->file, pBufferOut, bytesToRead, &bytesRead);
+    return bytesRead;
+}
+
+static ma_bool32 ma_decoder_on_seek__vfs(ma_decoder* pDecoder, int offset, ma_seek_origin origin)
+{
+    ma_decoder_callback_data_vfs* pData = (ma_decoder_callback_data_vfs*)pDecoder->pUserData;
+    ma_result result;
+
+    MA_ASSERT(pDecoder != NULL);
+
+    result = ma_vfs_seek(pData->pVFS, pData->file, offset, origin);
+    if (result != MA_SUCCESS) {
+        return MA_FALSE;
+    }
+
+    return MA_TRUE;
+}
+
+MA_API ma_result ma_decode_from_vfs(ma_vfs* pVFS, const char* pFilePath, ma_decoder_config* pConfig, ma_uint64* pFrameCountOut, void** ppPCMFramesOut)
+{
+    ma_result result;
+    ma_decoder_config config;
+    ma_decoder decoder;
+    ma_decoder_callback_data_vfs data;
+
+    if (pFrameCountOut != NULL) {
+        *pFrameCountOut = 0;
+    }
+    if (ppPCMFramesOut != NULL) {
+        *ppPCMFramesOut = NULL;
+    }
+
+    if (pVFS == NULL || pFilePath == NULL) {
+        return MA_INVALID_ARGS;
+    }
+
+    data.pVFS = pVFS;
+
+    result = ma_vfs_open(pVFS, pFilePath, MA_OPEN_MODE_READ, &data.file);
+    if (result != MA_SUCCESS) {
+        return result;
+    }
+
+    config = ma_decoder_config_init_copy(pConfig);
+
+    result = ma_decoder_init(ma_decoder_on_read__vfs, ma_decoder_on_seek__vfs, &data, &config, &decoder);
+    if (result != MA_SUCCESS) {
+        ma_vfs_close(pVFS, data.file);
+        return result;
+    }
+
+    result = ma_decoder__full_decode_and_uninit(&decoder, pConfig, pFrameCountOut, ppPCMFramesOut);
+    ma_vfs_close(pVFS, data.file);
+
+    return result;
+}
+
+
+static ma_data_source* ma_resource_manager_data_source_get_backing_data_source(ma_data_source* pDataSource)
+{
+    ma_resource_manager_data_source* pRMDataSource = (ma_resource_manager_data_source*)pDataSource;
+    MA_ASSERT(pRMDataSource != NULL);
+
+    if (pRMDataSource->type == ma_resource_manager_data_source_type_buffer) {
+        return &pRMDataSource->backend.buffer;
+    } else {
+        return &pRMDataSource->backend.decoder;
+    }
+}
+
+static ma_uint64 ma_resource_manager_data_source_read(ma_data_source* pDataSource, void* pFramesOut, ma_uint64 frameCount)
+{
+    return ma_data_source_read_pcm_frames(ma_resource_manager_data_source_get_backing_data_source(pDataSource), pFramesOut, frameCount, MA_FALSE);
+}
+
+static ma_result ma_resource_manager_data_source_seek(ma_data_source* pDataSource, ma_uint64 frameIndex)
+{
+    return ma_data_source_seek_to_pcm_frame(ma_resource_manager_data_source_get_backing_data_source(pDataSource), frameIndex);
+}
+
+static ma_result ma_resource_manager_data_source_map(ma_data_source* pDataSource, void** ppFramesOut, ma_uint64* pFrameCount)
+{
+    return ma_data_source_map(ma_resource_manager_data_source_get_backing_data_source(pDataSource), ppFramesOut, pFrameCount);
+}
+
+static ma_result ma_resource_manager_data_source_unmap(ma_data_source* pDataSource, ma_uint64 frameCount)
+{
+    return ma_data_source_unmap(ma_resource_manager_data_source_get_backing_data_source(pDataSource), frameCount);
+}
+
+static ma_result ma_resource_manager_data_source_get_data_format(ma_data_source* pDataSource, ma_format* pFormat, ma_uint32* pChannels)
+{
+    return ma_data_source_get_data_format(ma_resource_manager_data_source_get_backing_data_source(pDataSource), pFormat, pChannels);
+}
+
+static ma_result ma_resource_manager_data_source_preinit(ma_resource_manager* pResourceManager, ma_resource_manager_data_source* pDataSource)
+{
+    if (pDataSource == NULL) {
+        return MA_INVALID_ARGS;
+    }
+
+    (void)pResourceManager;
+
+    MA_ZERO_OBJECT(pDataSource);
+
+    pDataSource->ds.onRead          = ma_resource_manager_data_source_read;
+    pDataSource->ds.onSeek          = ma_resource_manager_data_source_seek;
+    pDataSource->ds.onMap           = ma_resource_manager_data_source_map;
+    pDataSource->ds.onUnmap         = ma_resource_manager_data_source_unmap;
+    pDataSource->ds.onGetDataFormat = ma_resource_manager_data_source_get_data_format;
+
+    return MA_SUCCESS;
+}
+
+static ma_result ma_resource_manager_data_source_init(ma_resource_manager* pResourceManager, ma_resource_manager_node* pDataNode, ma_resource_manager_data_source* pDataSource)
+{
+    ma_result result;
+
+    MA_ASSERT(pResourceManager != NULL);
+    MA_ASSERT(pDataNode        != NULL);
+    MA_ASSERT(pDataSource      != NULL);
+
+    result = ma_resource_manager_data_source_preinit(pResourceManager, pDataSource);
+    if (result != MA_SUCCESS) {
+        return result;
+    }
+
+    pDataSource->pDataNode = pDataNode;
+
+    switch (pDataNode->type)
+    {
+        case ma_resource_manager_data_type_decoded:
+        {
+            if (pDataNode->data.decoded.format == pResourceManager->config.decodedFormat && pDataNode->data.decoded.channels == pResourceManager->config.decodedChannels && pDataNode->data.decoded.sampleRate == pResourceManager->config.decodedSampleRate) {
+                /* We can use an audio buffer for this. */
+                ma_audio_buffer_config config;
+
+                config = ma_audio_buffer_config_init(pDataNode->data.decoded.format, pDataNode->data.decoded.channels, pDataNode->data.decoded.frameCount, pDataNode->data.decoded.pData, NULL);
+                result = ma_audio_buffer_init(&config, &pDataSource->backend.buffer);
+                if (result != MA_SUCCESS) {
+                    return result;
+                }
+
+                pDataSource->type = ma_resource_manager_data_source_type_buffer;
+            } else {
+                /* We need to use a raw decoder for this as it requires data conversion which the decoder will handle for us. */
+                ma_decoder_config configIn;
+                ma_decoder_config configOut;
+                ma_uint64 sizeInBytes;
+
+                configIn  = ma_decoder_config_init(pDataNode->data.decoded.format, pDataNode->data.decoded.channels, pDataNode->data.decoded.sampleRate);
+                configOut = ma_decoder_config_init(pResourceManager->config.decodedFormat, pResourceManager->config.decodedChannels, pResourceManager->config.decodedSampleRate);
+
+                sizeInBytes = pDataNode->data.decoded.frameCount * ma_get_bytes_per_frame(configIn.format, configIn.channels);
+                if (sizeInBytes > MA_SIZE_MAX) {
+                    sizeInBytes = MA_SIZE_MAX;
+                }
+
+                result = ma_decoder_init_memory_raw(pDataNode->data.decoded.pData, (size_t)sizeInBytes, &configIn, &configOut, &pDataSource->backend.decoder);
+                if (result != MA_SUCCESS) {
+                    return result;
+                }
+
+                pDataSource->type = ma_resource_manager_data_source_type_decoder;
+            }
+        } break;
+
+        case ma_resource_manager_data_type_encoded:
+        {
+            /* Encoded data requires a decoder as the backing data source. */
+            ma_decoder_config config;
+
+            config = ma_decoder_config_init(pResourceManager->config.decodedFormat, pResourceManager->config.decodedChannels, pResourceManager->config.decodedSampleRate);
+            result = ma_decoder_init_memory(pDataNode->data.encoded.pData, pDataNode->data.encoded.sizeInBytes, &config, &pDataSource->backend.decoder);
+            if (result != MA_SUCCESS) {
+                return result;
+            }
+
+            pDataSource->type = ma_resource_manager_data_source_type_decoder;
+        } break;
+
+        default:
+        {
+            return MA_INVALID_DATA; /* Don't know how to handle this type of data right now. */
+        };
+    }
+
+    /* We can only use mmap mode if the backing data source is an audio buffer. If it's not, we need to clear the mmap callbacks to ensure it's not used. */
+    if (pDataSource->type != ma_resource_manager_data_source_type_buffer) {
+        pDataSource->ds.onMap   = NULL;
+        pDataSource->ds.onUnmap = NULL;
+    }
+
+    return MA_SUCCESS;
+}
+
+
+
 MA_API ma_resource_manager_config ma_resource_manager_config_init(ma_format decodedFormat, ma_uint32 decodedChannels, ma_uint32 decodedSampleRate, const ma_allocation_callbacks* pAllocationCallbacks)
 {
     ma_resource_manager_config config;
@@ -355,8 +1279,7 @@ MA_API ma_resource_manager_config ma_resource_manager_config_init(ma_format deco
     config.decodedSampleRate = decodedSampleRate;
     
     if (pAllocationCallbacks != NULL) {
-        config.level1CacheAllocationCallbacks = *pAllocationCallbacks;
-        config.level2CacheAllocationCallbacks = *pAllocationCallbacks;
+        config.allocationCallbacks = *pAllocationCallbacks;
     }
 
     return config;
@@ -365,6 +1288,8 @@ MA_API ma_resource_manager_config ma_resource_manager_config_init(ma_format deco
 
 MA_API ma_result ma_resource_manager_init(const ma_resource_manager_config* pConfig, ma_resource_manager* pResourceManager)
 {
+    ma_result result;
+
     if (pResourceManager == NULL) {
         return MA_INVALID_ARGS;
     }
@@ -376,9 +1301,16 @@ MA_API ma_result ma_resource_manager_init(const ma_resource_manager_config* pCon
     }
 
     pResourceManager->config = *pConfig;
-    ma_allocation_callbacks_init_copy(&pResourceManager->config.level1CacheAllocationCallbacks, &pConfig->level1CacheAllocationCallbacks);
-    ma_allocation_callbacks_init_copy(&pResourceManager->config.level2CacheAllocationCallbacks, &pConfig->level2CacheAllocationCallbacks);
-    ma_allocation_callbacks_init_copy(&pResourceManager->config.allocationCallbacks,            &pConfig->allocationCallbacks);
+    ma_allocation_callbacks_init_copy(&pResourceManager->config.allocationCallbacks, &pConfig->allocationCallbacks);
+
+    if (pResourceManager->config.pVFS == NULL) {
+        result = ma_default_vfs_init(&pResourceManager->defaultVFS);
+        if (result != MA_SUCCESS) {
+            return result;  /* Failed to initialize the default file system. */
+        }
+
+        pResourceManager->config.pVFS = &pResourceManager->defaultVFS;
+    }
 
     return MA_SUCCESS;
 }
@@ -389,12 +1321,441 @@ MA_API void ma_resource_manager_uninit(ma_resource_manager* pResourceManager)
         return;
     }
 
-    
+    /* TODO: Need to delete all data nodes and free all of their memory. */
 }
 
-MA_API ma_result ma_resource_manager_create_data_source(ma_resource_manager* pResourceManager, const char* pName, ma_data_source** ppDataSource)
+
+static MA_INLINE ma_resource_manager_node* ma_resource_manager_find_min_data_node_nolock(ma_resource_manager_node* pDataNode)
+{
+    ma_resource_manager_node* pCurrentNode;
+
+    MA_ASSERT(pDataNode != NULL);
+
+    pCurrentNode = pDataNode;
+    while (pCurrentNode->pChildLo != NULL) {
+        pCurrentNode = pCurrentNode->pChildLo;
+    }
+
+    return pCurrentNode;
+}
+
+static MA_INLINE ma_resource_manager_node* ma_resource_manager_find_max_data_node_nolock(ma_resource_manager_node* pDataNode)
+{
+    ma_resource_manager_node* pCurrentNode;
+
+    MA_ASSERT(pDataNode != NULL);
+
+    pCurrentNode = pDataNode;
+    while (pCurrentNode->pChildHi != NULL) {
+        pCurrentNode = pCurrentNode->pChildHi;
+    }
+
+    return pCurrentNode;
+}
+
+static MA_INLINE ma_resource_manager_node* ma_resource_manager_find_inorder_successor_data_node_nolock(ma_resource_manager_node* pDataNode)
+{
+    MA_ASSERT(pDataNode           != NULL);
+    MA_ASSERT(pDataNode->pChildHi != NULL);
+
+    return ma_resource_manager_find_min_data_node_nolock(pDataNode->pChildHi);
+}
+
+static MA_INLINE ma_resource_manager_node* ma_resource_manager_find_inorder_predecessor_data_node_nolock(ma_resource_manager_node* pDataNode)
+{
+    MA_ASSERT(pDataNode           != NULL);
+    MA_ASSERT(pDataNode->pChildLo != NULL);
+
+    return ma_resource_manager_find_max_data_node_nolock(pDataNode->pChildLo);
+}
+
+static ma_result ma_resource_manager_remove_data_node_nolock(ma_resource_manager* pResourceManager, ma_resource_manager_node* pDataNode)
+{
+    MA_ASSERT(pResourceManager != NULL);
+    MA_ASSERT(pDataNode        != NULL);
+
+    if (pDataNode->pChildLo == NULL) {
+        if (pDataNode->pChildHi == NULL) {
+            /* Simple case - deleting a node with no children. */
+            if (pDataNode->pParent == NULL) {
+                MA_ASSERT(pResourceManager->pRootDataNode == pDataNode);    /* There is only a single node in the tree which should be equal to the root node. */
+                pResourceManager->pRootDataNode = NULL;
+            } else {
+                if (pDataNode->pParent->pChildLo == pDataNode) {
+                    pDataNode->pParent->pChildLo = NULL;
+                } else {
+                    pDataNode->pParent->pChildHi = NULL;
+                }
+            }
+        } else {
+            /* Node has one child - pChildHi != NULL. */
+            if (pDataNode->pParent == NULL) {
+                MA_ASSERT(pResourceManager->pRootDataNode == pDataNode);
+                pResourceManager->pRootDataNode = pDataNode->pChildHi;
+            } else {
+                if (pDataNode->pParent->pChildLo == pDataNode) {
+                    pDataNode->pParent->pChildLo = pDataNode->pChildHi;
+                } else {
+                    pDataNode->pParent->pChildHi = pDataNode->pChildHi;
+                }
+            }
+        }
+    } else {
+        if (pDataNode->pChildHi == NULL) {
+            /* Node has one child - pChildLo != NULL. */
+            if (pDataNode->pParent == NULL) {
+                MA_ASSERT(pResourceManager->pRootDataNode == pDataNode);
+                pResourceManager->pRootDataNode = pDataNode->pChildLo;
+            } else {
+                if (pDataNode->pParent->pChildLo == pDataNode) {
+                    pDataNode->pParent->pChildLo = pDataNode->pChildLo;
+                } else {
+                    pDataNode->pParent->pChildHi = pDataNode->pChildLo;
+                }
+            }
+        } else {
+            /* Complex case - deleting a node with two children. */
+            ma_resource_manager_node* pReplacementDataNode;
+
+            /* For now we are just going to use the in-order successor as the replacement, but we may want to try to keep this balanced by switching between the two. */
+            pReplacementDataNode = ma_resource_manager_find_inorder_successor_data_node_nolock(pDataNode);
+            MA_ASSERT(pReplacementDataNode != NULL);
+
+            /*
+            Now that we have our replacement node we can make the change. The simple way to do this would be to just exchange the values, and then remove the replacement
+            node, however we track specific nodes via pointers which means we can't just swap out the values. We need to instead just change the pointers around. The
+            replacement node should have at most 1 child. Therefore, we can detach it in terms of our simpler cases above. What we're essentially doing is detaching the
+            replacement node and reinserting it into the same position as the deleted node.
+            */
+            MA_ASSERT(pReplacementDataNode->pParent  != NULL);  /* The replacement node should never be the root which means it should always have a parent. */
+            MA_ASSERT(pReplacementDataNode->pChildLo == NULL);  /* Because we used in-order successor. This would be pChildHi == NULL if we used in-order predecessor. */
+
+            if (pReplacementDataNode->pChildHi == NULL) {
+                if (pReplacementDataNode->pParent->pChildLo == pReplacementDataNode) {
+                    pReplacementDataNode->pParent->pChildLo = NULL;
+                } else {
+                    pReplacementDataNode->pParent->pChildHi = NULL;
+                }
+            } else {
+                if (pReplacementDataNode->pParent->pChildLo == pReplacementDataNode) {
+                    pReplacementDataNode->pParent->pChildLo = pReplacementDataNode->pChildHi;
+                } else {
+                    pReplacementDataNode->pParent->pChildHi = pReplacementDataNode->pChildHi;
+                }
+            }
+
+
+            /* The replacement node has essentially been detached from the binary tree, so now we need to replace the old data node with it. The first thing to update is the parent */
+            if (pDataNode->pParent != NULL) {
+                if (pDataNode->pParent->pChildLo == pDataNode) {
+                    pDataNode->pParent->pChildLo = pReplacementDataNode;
+                } else {
+                    pDataNode->pParent->pChildHi = pReplacementDataNode;
+                }
+            }
+
+            /* Now need to update the replacement node's pointers. */
+            pReplacementDataNode->pParent  = pDataNode->pParent;
+            pReplacementDataNode->pChildLo = pDataNode->pChildLo;
+            pReplacementDataNode->pChildHi = pDataNode->pChildHi;
+
+            /* Now the children of the replacement node need to have their parent pointers updated. */
+            if (pReplacementDataNode->pChildLo != NULL) {
+                pReplacementDataNode->pChildLo->pParent = pReplacementDataNode;
+            }
+            if (pReplacementDataNode->pChildHi != NULL) {
+                pReplacementDataNode->pChildHi->pParent = pReplacementDataNode;
+            }
+
+            /* Now the root node needs to be updated. */
+            if (pResourceManager->pRootDataNode == pDataNode) {
+                pResourceManager->pRootDataNode = pReplacementDataNode;
+            }
+        }
+    }
+
+    return MA_SUCCESS;
+}
+
+static ma_result ma_resource_manager_find_data_node_by_hashed_name_nolock(ma_resource_manager* pResourceManager, ma_uint32 hashedName32, ma_resource_manager_node** ppDataNode)
+{
+    ma_resource_manager_node* pCurrentNode;
+
+    MA_ASSERT(pResourceManager != NULL);
+    MA_ASSERT(ppDataNode       != NULL);
+
+    pCurrentNode = pResourceManager->pRootDataNode;
+    while (pCurrentNode != NULL) {
+        if (hashedName32 == pCurrentNode->hashedName32) {
+            break;  /* Found. */
+        } else if (hashedName32 < pCurrentNode->hashedName32) {
+            pCurrentNode = pCurrentNode->pChildLo;
+        } else {
+            pCurrentNode = pCurrentNode->pChildHi;
+        }
+    }
+
+    *ppDataNode = pCurrentNode;
+
+    if (pCurrentNode == NULL) {
+        return MA_DOES_NOT_EXIST;
+    } else {
+        return MA_SUCCESS;
+    }
+}
+
+static ma_result ma_resource_manager_find_data_node_insert_point_nolock(ma_resource_manager* pResourceManager, ma_uint32 hashedName32, ma_resource_manager_node** ppParentDataNode)
+{
+    ma_result result = MA_SUCCESS;
+    ma_resource_manager_node* pCurrentNode;
+
+    MA_ASSERT(pResourceManager != NULL);
+    MA_ASSERT(ppParentDataNode != NULL);
+
+    *ppParentDataNode = NULL;
+
+    if (pResourceManager->pRootDataNode == NULL) {
+        return MA_SUCCESS;  /* No items. */
+    }
+
+    /* We need to find the node that will become the parent of the new node. If a node is found that already has the same hashed name we need to return MA_ALREADY_EXISTS. */
+    pCurrentNode = pResourceManager->pRootDataNode;
+    while (pCurrentNode != NULL) {
+        if (hashedName32 == pCurrentNode->hashedName32) {
+            result = MA_ALREADY_EXISTS;
+            break;
+        } else {
+            if (hashedName32 < pCurrentNode->hashedName32) {
+                if (pCurrentNode->pChildLo == NULL) {
+                    result = MA_SUCCESS;
+                    break;
+                } else {
+                    pCurrentNode = pCurrentNode->pChildLo;
+                }
+            } else {
+                if (pCurrentNode->pChildHi == NULL) {
+                    result = MA_SUCCESS;
+                    break;
+                } else {
+                    pCurrentNode = pCurrentNode->pChildHi;
+                }
+            }
+        }
+    }
+
+    *ppParentDataNode = pCurrentNode;
+    return result;
+}
+
+
+static ma_result ma_resource_manager_acquire_data_node(ma_resource_manager* pResourceManager, const char* pName, ma_resource_manager_node** ppDataNode)
 {
     ma_result result;
+    ma_uint32 hashedName32;
+
+    MA_ASSERT(pResourceManager != NULL);
+    MA_ASSERT(pName            != NULL);
+    MA_ASSERT(ppDataNode       != NULL);
+
+    hashedName32 = ma_hash_string_32(pName);
+
+    ma_mutex_lock(&pResourceManager->dataNodeLock);
+    {
+        result = ma_resource_manager_find_data_node_by_hashed_name_nolock(pResourceManager, hashedName32, ppDataNode);
+        if (result == MA_SUCCESS) {
+            ma_atomic_increment_32(&(*ppDataNode)->refCount);
+        }
+    }
+    ma_mutex_unlock(&pResourceManager->dataNodeLock);
+
+    return result;
+}
+
+static ma_result ma_resource_manager_release_data_node_nolock(ma_resource_manager* pResourceManager, ma_uint32 hashedName32, ma_uint32* pReferenceCount)
+{
+    ma_result result;
+    ma_uint32 refCount;
+    ma_resource_manager_node* pDataNode;
+
+    /* We first need to find the node to delete. */
+    result = ma_resource_manager_find_data_node_by_hashed_name_nolock(pResourceManager, hashedName32, &pDataNode);
+    if (result != MA_SUCCESS) {
+        return result;  /* Node does not exist. */
+    }
+
+    MA_ASSERT(pDataNode != NULL);
+    MA_ASSERT(pDataNode->refCount > 0); /* We should never find the node in the first place if the reference counter is 0. */
+
+    refCount = ma_atomic_decrement_32(&pDataNode->refCount);
+    if (refCount == 0) {
+        /* Standard node delete. */
+        result = ma_resource_manager_remove_data_node_nolock(pResourceManager, pDataNode);
+        if (result != MA_SUCCESS) {
+            return result;  /* This should never happen. */
+        }
+
+        /* We've removed the node from the binary tree so now we can free it's memory. */
+        ma__free_from_callbacks(pDataNode, &pResourceManager->config.allocationCallbacks);
+    }
+
+    if (pReferenceCount != NULL) {
+        *pReferenceCount = refCount;
+    }
+
+    return MA_SUCCESS;
+}
+
+static ma_result ma_resource_manager_release_data_node(ma_resource_manager* pResourceManager, const char* pName, ma_uint32* pReferenceCount)
+{
+    ma_result result;
+    ma_uint32 hashedName32;
+
+    MA_ASSERT(pResourceManager != NULL);
+    MA_ASSERT(pName            != NULL);
+
+    hashedName32 = ma_hash_string_32(pName);
+
+    ma_mutex_lock(&pResourceManager->dataNodeLock);
+    {
+        result = ma_resource_manager_release_data_node_nolock(pResourceManager, hashedName32, pReferenceCount);
+    }
+    ma_mutex_unlock(&pResourceManager->dataNodeLock);
+
+    return result;
+}
+
+
+static ma_result ma_resource_manager_register_data_nolock(ma_resource_manager* pResourceManager, ma_uint32 hashedName32, const ma_resource_manager_node* pSourceDataNode, ma_resource_manager_node** ppNewDataNode)
+{
+    ma_result result = MA_SUCCESS;
+    ma_resource_manager_node* pParentDataNode;
+    ma_resource_manager_node* pNewDataNode;
+
+    result = ma_resource_manager_find_data_node_insert_point_nolock(pResourceManager, hashedName32, &pParentDataNode);
+    if (result != MA_SUCCESS) {
+        if (result == MA_ALREADY_EXISTS) {
+            MA_ASSERT(pParentDataNode != NULL);
+            MA_ASSERT(pParentDataNode->hashedName32 == hashedName32);
+
+            ma_atomic_increment_32(&pParentDataNode->refCount);
+
+            if (ppNewDataNode != NULL) {
+                *ppNewDataNode = pParentDataNode;
+            }
+        }
+
+        return result;
+    }
+
+    /* At this point we don't have a duplicate which means we can create the node and add it to the binary tree. */
+    pNewDataNode = (ma_resource_manager_node*)ma__malloc_from_callbacks(sizeof(*pNewDataNode), &pResourceManager->config.allocationCallbacks);
+    if (pNewDataNode == NULL) {
+        return MA_OUT_OF_MEMORY;
+    }
+
+    *pNewDataNode              = *pSourceDataNode;  /* Value */
+    pNewDataNode->hashedName32 = hashedName32;      /* Key */
+    pNewDataNode->refCount     = 1;
+    pNewDataNode->pParent      = pParentDataNode;
+    pNewDataNode->pChildLo     = NULL;
+    pNewDataNode->pChildHi     = NULL;
+
+    if (pParentDataNode == NULL) {
+        /* It's the first node. */
+        pResourceManager->pRootDataNode = pNewDataNode;
+    } else {
+        /* It's not the first node. It needs to be inserted. */
+        if (hashedName32 < pParentDataNode->hashedName32) {
+            MA_ASSERT(pParentDataNode->pChildLo == NULL);
+            pParentDataNode->pChildLo = pNewDataNode;
+        } else {
+            MA_ASSERT(pParentDataNode->pChildHi == NULL);
+            pParentDataNode->pChildHi = pNewDataNode;
+        }
+    }
+
+    if (ppNewDataNode != NULL) {
+        *ppNewDataNode = pNewDataNode;
+    }
+
+    return MA_SUCCESS;
+}
+
+static ma_result ma_resource_manager_register_data(ma_resource_manager* pResourceManager, const char* pName, const ma_resource_manager_node* pSourceDataNode, ma_resource_manager_node** ppNewDataNode)
+{
+    ma_result result = MA_SUCCESS;
+    ma_uint32 hashedName32;
+
+    if (pResourceManager == NULL || pName == NULL) {
+        return MA_INVALID_ARGS;
+    }
+
+    MA_ASSERT(pSourceDataNode != NULL);
+
+    hashedName32 = ma_hash_string_32(pName);
+
+    ma_mutex_lock(&pResourceManager->dataNodeLock);
+    {
+        result = ma_resource_manager_register_data_nolock(pResourceManager, hashedName32, pSourceDataNode, ppNewDataNode);
+    }
+    ma_mutex_lock(&pResourceManager->dataNodeLock);
+    return result;
+}
+
+static ma_result ma_resource_manager_register_decoded_data_ex(ma_resource_manager* pResourceManager, const char* pName, const void* pData, ma_uint64 frameCount, ma_format format, ma_uint32 channels, ma_uint32 sampleRate, ma_resource_manager_node** ppDataNode)
+{
+    ma_resource_manager_node node;
+
+    if (pData == NULL) {
+        return MA_INVALID_ARGS;
+    }
+
+    node.type = ma_resource_manager_data_type_decoded;
+    node.data.decoded.pData      = pData;
+    node.data.decoded.frameCount = frameCount;
+    node.data.decoded.format     = format;
+    node.data.decoded.channels   = channels;
+    node.data.decoded.sampleRate = sampleRate;
+
+    return ma_resource_manager_register_data(pResourceManager, pName, &node, ppDataNode);
+}
+
+MA_API ma_result ma_resource_manager_register_decoded_data(ma_resource_manager* pResourceManager, const char* pName, const void* pData, ma_uint64 frameCount, ma_format format, ma_uint32 channels, ma_uint32 sampleRate)
+{
+    return ma_resource_manager_register_decoded_data_ex(pResourceManager, pName, pData, frameCount, format, channels, sampleRate, NULL);
+}
+
+static ma_result ma_resource_manager_register_encoded_data_ex(ma_resource_manager* pResourceManager, const char* pName, const void* pData, size_t sizeInBytes, ma_resource_manager_node** ppDataNode)
+{
+    ma_resource_manager_node node;
+
+    if (pData == NULL) {
+        return MA_INVALID_ARGS;
+    }
+
+    node.type = ma_resource_manager_data_type_encoded;
+    node.data.encoded.pData       = pData;
+    node.data.encoded.sizeInBytes = sizeInBytes;
+
+    return ma_resource_manager_register_data(pResourceManager, pName, &node, ppDataNode);
+}
+
+MA_API ma_result ma_resource_manager_register_encoded_data(ma_resource_manager* pResourceManager, const char* pName, const void* pData, size_t sizeInBytes)
+{
+    return ma_resource_manager_register_encoded_data_ex(pResourceManager, pName, pData, sizeInBytes, NULL);
+}
+
+MA_API ma_result ma_resource_manager_unregister_data(ma_resource_manager* pResourceManager, const char* pName)
+{
+    return ma_resource_manager_release_data_node(pResourceManager, pName, NULL);
+}
+
+MA_API ma_result ma_resource_manager_create_data_source(ma_resource_manager* pResourceManager, const char* pName, ma_uint32 flags, ma_data_source** ppDataSource)
+{
+    ma_result result;
+    ma_resource_manager_node* pDataNode;
+    ma_resource_manager_data_source* pDataSource;
+
     ma_decoder* pDecoder;
     ma_decoder_config decoderConfig;
 
@@ -408,6 +1769,85 @@ MA_API ma_result ma_resource_manager_create_data_source(ma_resource_manager* pRe
         return MA_INVALID_ARGS;
     }
 
+    /* Streaming is not yet implemented. */
+    if ((flags & MA_DATA_SOURCE_FLAG_STREAM) != 0) {
+        return MA_NOT_IMPLEMENTED;
+    }
+    
+    /* Asynchronous loading is not yet implemented. */
+    if ((flags & MA_DATA_SOURCE_FLAG_ASYNC) != 0) {
+        return MA_NOT_IMPLEMENTED;
+    }
+
+
+    /*
+    Getting here means we are not streaming nor loading asynchronously. We want to determine if the file is already in memory. If so we just use the existing
+    data. The MA_DATA_SOURCE_FLAG_DECODE flag is ignored in this case - that's only used when the sound is being loaded for the first time.
+    */
+    result = ma_resource_manager_acquire_data_node(pResourceManager, pName, &pDataNode);    /* Increments the reference counter. */
+    if (result != MA_SUCCESS) {
+        /* The data is not loaded. We need to load it into memory and create a new node. */
+        if ((flags & MA_DATA_SOURCE_FLAG_DECODE) == 0) {
+            /* Not decoding. */
+            size_t fileSize;
+            void* pFileData;
+
+            result = ma_vfs_open_and_read_file_ex(pResourceManager->config.pVFS, pName, &pFileData, &fileSize, &pResourceManager->config.allocationCallbacks, MA_ALLOCATION_TYPE_ENCODED_BUFFER);
+            if (result != MA_SUCCESS) {
+                return result;
+            }
+
+            /* We have the encoded data so now we need to register it. */
+            result = ma_resource_manager_register_encoded_data_ex(pResourceManager, pName, pFileData, fileSize, &pDataNode);
+            if (result != MA_SUCCESS) {
+                ma__free_from_callbacks(pFileData, &pResourceManager->config.allocationCallbacks);
+                return result;
+            }
+        } else {
+            /* Decoding. */
+            ma_decoder_config config;
+            ma_uint64 frameCount;
+            void* pDecodedData;
+
+            //config = ma_decoder_config_init(ma_format_unknown, 0, 0);   /* For now we'll decode into native format, but we may want to change this to the standard output format. */
+            config = ma_decoder_config_init(pResourceManager->config.decodedFormat, pResourceManager->config.decodedChannels, pResourceManager->config.decodedSampleRate);
+            config.allocationCallbacks = pResourceManager->config.allocationCallbacks;
+
+            result = ma_decode_from_vfs(pResourceManager->config.pVFS, pName, &config, &frameCount, &pDecodedData);
+            if (result != MA_SUCCESS) {
+                return result;  /* Failed to decode data. */
+            }
+
+            /* We have the decoded data so now we need to register it. */
+            result = ma_resource_manager_register_decoded_data_ex(pResourceManager, pName, pDecodedData, frameCount, config.format, config.channels, config.sampleRate, &pDataNode);
+            if (result != MA_SUCCESS) {
+                ma__free_from_callbacks(pDecodedData, &pResourceManager->config.allocationCallbacks);
+                return result;
+            }
+        }
+    }
+
+    /* We should have a data node so we can now create our data source. If anything here fails we need to return make sure we unregister the data to trigger a decrement of the reference counter. */
+    MA_ASSERT(pDataNode != NULL);
+
+    pDataSource = (ma_resource_manager_data_source*)ma__malloc_from_callbacks(sizeof(*pDataSource), &pResourceManager->config.allocationCallbacks);
+    if (pDataSource == NULL) {
+        ma_resource_manager_unregister_data(pResourceManager, pName);
+        return MA_OUT_OF_MEMORY;
+    }
+
+    result = ma_resource_manager_data_source_init(pResourceManager, pDataNode, pDataSource);
+    if (result != MA_SUCCESS) {
+        ma__free_from_callbacks(pDataSource, &pResourceManager->config.allocationCallbacks);
+        ma_resource_manager_unregister_data(pResourceManager, pName);   /* Decrement the reference counter. */
+        return result;
+    }
+
+    *ppDataSource = pDataSource;
+    return MA_SUCCESS;
+
+
+#if 0
     /* For testing and prototyping we're just allocating a decoder on the heap. Later on this will be a custom resource manager specific data source. */
     pDecoder = ma_malloc(sizeof(*pDecoder), NULL);
     if (pDecoder == NULL) {
@@ -424,6 +1864,7 @@ MA_API ma_result ma_resource_manager_create_data_source(ma_resource_manager* pRe
     *ppDataSource = (ma_data_source*)pDecoder;
 
     return MA_SUCCESS;
+#endif
 }
 
 MA_API ma_result ma_resource_manager_delete_data_source(ma_resource_manager* pResourceManager, ma_data_source* pDataSource)
@@ -453,6 +1894,7 @@ MA_API ma_panner_config ma_panner_config_init(ma_format format, ma_uint32 channe
     MA_ZERO_OBJECT(&config);
     config.format   = format;
     config.channels = channels;
+    config.mode     = ma_pan_mode_balance;  /* Set to balancing mode by default because it's consistent with other audio engines and most likely what the caller is expecting. */
     config.pan      = 0;
 
     return config;
@@ -498,11 +1940,52 @@ MA_API ma_result ma_panner_init(const ma_panner_config* pConfig, ma_panner* pPan
 
     pPanner->format   = pConfig->format;
     pPanner->channels = pConfig->channels;
+    pPanner->mode     = pConfig->mode;
     pPanner->pan      = pConfig->pan;
 
     return MA_SUCCESS;
 }
 
+
+
+static void ma_stereo_balance_pcm_frames_f32(float* pFramesOut, const float* pFramesIn, ma_uint64 frameCount, float pan)
+{
+    ma_uint64 iFrame;
+
+    if (pan > 0) {
+        float factor = 1.0f - pan;
+        for (iFrame = 0; iFrame < frameCount; iFrame += 1) {
+            pFramesOut[iFrame*2 + 0] = pFramesIn[iFrame*2 + 0] * factor;
+        }
+    } else {
+        float factor = 1.0f + pan;
+        for (iFrame = 0; iFrame < frameCount; iFrame += 1) {
+            pFramesOut[iFrame*2 + 1] = pFramesIn[iFrame*2 + 1] * factor;
+        }
+    }
+}
+
+static void ma_stereo_balance_pcm_frames(void* pFramesOut, const void* pFramesIn, ma_uint64 frameCount, ma_format format, float pan)
+{
+    if (pan == 0) {
+        /* Fast path. No panning required. */
+        if (pFramesOut == pFramesIn) {
+            /* No-op */
+        } else {
+            ma_copy_pcm_frames(pFramesOut, pFramesIn, frameCount, format, 2);
+        }
+    }
+
+    switch (format) {
+        case ma_format_f32: ma_stereo_balance_pcm_frames_f32(pFramesOut, pFramesIn, frameCount, pan); break;
+
+        /* Unknown format. Just copy. */
+        default:
+        {
+            ma_copy_pcm_frames(pFramesOut, pFramesIn, frameCount, format, 2);
+        } break;
+    }
+}
 
 
 static void ma_stereo_pan_pcm_frames_f32(float* pFramesOut, const float* pFramesIn, ma_uint64 frameCount, float pan)
@@ -514,16 +1997,22 @@ static void ma_stereo_pan_pcm_frames_f32(float* pFramesOut, const float* pFrames
         float factorL1 = 0.0f + pan;
 
         for (iFrame = 0; iFrame < frameCount; iFrame += 1) {
-            pFramesOut[iFrame*2 + 0] = (pFramesIn[iFrame*2 + 0] * factorL0);
-            pFramesOut[iFrame*2 + 1] = (pFramesIn[iFrame*2 + 0] * factorL1) + pFramesIn[iFrame*2 + 1];
+            float sample0 = (pFramesIn[iFrame*2 + 0] * factorL0);
+            float sample1 = (pFramesIn[iFrame*2 + 0] * factorL1) + pFramesIn[iFrame*2 + 1];
+
+            pFramesOut[iFrame*2 + 0] = sample0;
+            pFramesOut[iFrame*2 + 1] = sample1;
         }
     } else {
         float factorR0 = 0.0f - pan;
         float factorR1 = 1.0f + pan;
 
         for (iFrame = 0; iFrame < frameCount; iFrame += 1) {
-            pFramesOut[iFrame*2 + 0] = pFramesIn[iFrame*2 + 0] + (pFramesIn[iFrame*2 + 1] * factorR0);
-            pFramesOut[iFrame*2 + 1] =                           (pFramesIn[iFrame*2 + 1] * factorR1);
+            float sample0 = pFramesIn[iFrame*2 + 0] + (pFramesIn[iFrame*2 + 1] * factorR0);
+            float sample1 =                           (pFramesIn[iFrame*2 + 1] * factorR1);
+
+            pFramesOut[iFrame*2 + 0] = sample0;
+            pFramesOut[iFrame*2 + 1] = sample1;
         }
     }
 }
@@ -558,7 +2047,11 @@ MA_API ma_result ma_panner_process_pcm_frames(ma_panner* pPanner, void* pFramesO
 
     if (pPanner->channels == 2) {
         /* Stereo case. For now assume channel 0 is left and channel right is 1, but should probably add support for a channel map. */
-        ma_stereo_pan_pcm_frames(pFramesOut, pFramesIn, frameCount, pPanner->format, pPanner->pan);
+        if (pPanner->mode == ma_pan_mode_balance) {
+            ma_stereo_balance_pcm_frames(pFramesOut, pFramesIn, frameCount, pPanner->format, pPanner->pan);
+        } else {
+            ma_stereo_pan_pcm_frames(pFramesOut, pFramesIn, frameCount, pPanner->format, pPanner->pan);
+        }
     } else {
         if (pPanner->channels == 1) {
             /* Panning has no effect on mono streams. */
@@ -568,6 +2061,17 @@ MA_API ma_result ma_panner_process_pcm_frames(ma_panner* pPanner, void* pFramesO
             ma_copy_pcm_frames(pFramesOut, pFramesIn, frameCount, pPanner->format, pPanner->channels);
         }
     }
+
+    return MA_SUCCESS;
+}
+
+MA_API ma_result ma_panner_set_mode(ma_panner* pPanner, ma_pan_mode mode)
+{
+    if (pPanner == NULL) {
+        return MA_INVALID_ARGS;
+    }
+
+    pPanner->mode = mode;
 
     return MA_SUCCESS;
 }
@@ -1089,7 +2593,7 @@ MA_API ma_result ma_engine_set_gain_db(ma_engine* pEngine, float gainDB)
 
 
 #ifndef MA_NO_RESOURCE_MANAGER
-MA_API ma_result ma_engine_sound_init_from_file(ma_engine* pEngine, const char* pFilePath, ma_sound_group* pGroup, ma_sound* pSound)
+MA_API ma_result ma_engine_sound_init_from_file(ma_engine* pEngine, const char* pFilePath, ma_uint32 flags, ma_sound_group* pGroup, ma_sound* pSound)
 {
     ma_result result;
     ma_data_source* pDataSource;
@@ -1105,7 +2609,7 @@ MA_API ma_result ma_engine_sound_init_from_file(ma_engine* pEngine, const char* 
     }
 
     /* We need to user the resource manager to load the data source. */
-    result = ma_resource_manager_create_data_source(pEngine->pResourceManager, pFilePath, &pDataSource);
+    result = ma_resource_manager_create_data_source(pEngine->pResourceManager, pFilePath, flags, &pDataSource);
     if (result != MA_SUCCESS) {
         return result;
     }
@@ -1782,7 +3286,7 @@ MA_API ma_result ma_engine_play_sound(ma_engine* pEngine, const char* pFilePath,
 
         TODO: Look at checking if there's a way to determine if the old data source shares the same file path as pFilePath and make this more intelligent.
         */
-        result = ma_resource_manager_create_data_source(pEngine->pResourceManager, pFilePath, &pNewDataSource);
+        result = ma_resource_manager_create_data_source(pEngine->pResourceManager, pFilePath, 0, &pNewDataSource);
         if (result != MA_SUCCESS) {
             /* We failed to load the resource. We need to return an error. We must also put this sound back up for recycling by setting the at-end flag to true. */
             ma_atomic_exchange_32(&pSound->atEnd, MA_TRUE); /* <-- Put the sound back up for recycling. */
@@ -1811,7 +3315,7 @@ MA_API ma_result ma_engine_play_sound(ma_engine* pEngine, const char* pFilePath,
             return MA_OUT_OF_MEMORY;
         }
 
-        result = ma_engine_sound_init_from_file(pEngine, pFilePath, pGroup, pSound);
+        result = ma_engine_sound_init_from_file(pEngine, pFilePath, 0, pGroup, pSound);
         if (result != MA_SUCCESS) {
             ma__free_from_callbacks(pEngine, &pEngine->allocationCallbacks);
             return result;

@@ -28,14 +28,14 @@ int main(int argc, char** argv)
         return -1;
     }
 
-    result = ma_engine_sound_init_from_file(&engine, argv[1], NULL, &sound);
+    result = ma_engine_sound_init_from_file(&engine, argv[1], MA_DATA_SOURCE_FLAG_DECODE, NULL, &sound);
     if (result != MA_SUCCESS) {
         ma_engine_uninit(&engine);
         return -1;
     }
 
-    ma_engine_sound_set_pitch(&engine, &sound, 0.75f);
-    ma_engine_sound_set_pan(&engine, &sound, 0.0f);
+    ma_engine_sound_set_pitch(&engine, &sound, 1.0f);
+    ma_engine_sound_set_pan(&engine, &sound, -1.0f);
     ma_engine_sound_set_looping(&engine, &sound, MA_TRUE);
     ma_engine_sound_start(&engine, &sound);
 
@@ -55,7 +55,7 @@ int main(int argc, char** argv)
             pitchStep = -pitchStep;
         }
 
-        ma_engine_sound_set_pitch(&engine, &sound, pitch);
+        //ma_engine_sound_set_pitch(&engine, &sound, pitch);
 
         Sleep(1);
     }
