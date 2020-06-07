@@ -39,7 +39,11 @@ int main(int argc, char** argv)
     ma_engine_sound_set_looping(&engine, &sound, MA_TRUE);
     ma_engine_sound_start(&engine, &sound);
 
+    ma_engine_play_sound(&engine, argv[1], NULL);
+    ma_engine_play_sound(&engine, argv[2], NULL);
+    ma_engine_play_sound(&engine, argv[3], NULL);
 
+#if 0
     float pitch     = 1;
     float pitchStep = 0.01f;
     float pitchMin  = 0.125f;
@@ -59,6 +63,7 @@ int main(int argc, char** argv)
 
         Sleep(1);
     }
+#endif
 
     printf("Press Enter to quit...");
     getchar();

@@ -135,7 +135,7 @@ Resource Manager Data Source Flags
 ==================================
 The flags below are used for controlling how the resource manager should handle the loading and caching of data sources.
 */
-#define MA_DATA_SOURCE_FLAG_DECODE  0x00000001  /* Decode data before storing in memory. When set, decoding happens on the resource manager thread rather than the mixing thread. Results in faster mixing, but higher memory usage. */
+#define MA_DATA_SOURCE_FLAG_DECODE  0x00000001  /* Decode data before storing in memory. When set, decoding is done at the resource manager level rather than the mixing thread. Results in faster mixing, but higher memory usage. */
 #define MA_DATA_SOURCE_FLAG_STREAM  0x00000002  /* When set, does not load the entire data source in memory. Disk I/O will happen on the resource manager thread. */
 #define MA_DATA_SOURCE_FLAG_ASYNC   0x00000004  /* When set, the resource manager will load the data source asynchronously. */
 
@@ -203,6 +203,7 @@ struct ma_resource_manager_node
         ma_decoded_data decoded;
         ma_encoded_data encoded;
     } data;
+    ma_bool32 isDataOwnedByResourceManager;
     ma_resource_manager_node* pParent;
     ma_resource_manager_node* pChildLo;
     ma_resource_manager_node* pChildHi;
@@ -468,9 +469,9 @@ MA_API ma_result ma_engine_sound_set_volume(ma_engine* pEngine, ma_sound* pSound
 MA_API ma_result ma_engine_sound_set_gain_db(ma_engine* pEngine, ma_sound* pSound, float gainDB);
 MA_API ma_result ma_engine_sound_set_pan(ma_engine* pEngine, ma_sound* pSound, float pan);
 MA_API ma_result ma_engine_sound_set_pitch(ma_engine* pEngine, ma_sound* pSound, float pitch);
-MA_API ma_result ma_engine_sound_set_effect(ma_engine* pEngine, ma_sound* pSound, ma_effect* pEffect);
 MA_API ma_result ma_engine_sound_set_position(ma_engine* pEngine, ma_sound* pSound, ma_vec3 position);
 MA_API ma_result ma_engine_sound_set_rotation(ma_engine* pEngine, ma_sound* pSound, ma_quat rotation);
+MA_API ma_result ma_engine_sound_set_effect(ma_engine* pEngine, ma_sound* pSound, ma_effect* pEffect);
 MA_API ma_result ma_engine_sound_set_looping(ma_engine* pEngine, ma_sound* pSound, ma_bool32 isLooping);
 MA_API ma_bool32 ma_engine_sound_at_end(ma_engine* pEngine, const ma_sound* pSound);
 MA_API ma_result ma_engine_play_sound(ma_engine* pEngine, const char* pFilePath, ma_sound_group* pGroup);   /* Fire and forget. */
@@ -1267,6 +1268,17 @@ static ma_result ma_resource_manager_data_source_init(ma_resource_manager* pReso
     return MA_SUCCESS;
 }
 
+static void ma_resource_manager_data_source_uninit(ma_resource_manager_data_source* pDataSource)
+{
+    MA_ASSERT(pDataSource != NULL);
+
+    if (pDataSource->type == ma_resource_manager_data_source_type_buffer) {
+        ma_audio_buffer_uninit(&pDataSource->backend.buffer);
+    } else {
+        ma_decoder_uninit(&pDataSource->backend.decoder);
+    }
+}
+
 
 
 MA_API ma_resource_manager_config ma_resource_manager_config_init(ma_format decodedFormat, ma_uint32 decodedChannels, ma_uint32 decodedSampleRate, const ma_allocation_callbacks* pAllocationCallbacks)
@@ -1571,7 +1583,54 @@ static ma_result ma_resource_manager_acquire_data_node(ma_resource_manager* pRes
     return result;
 }
 
-static ma_result ma_resource_manager_release_data_node_nolock(ma_resource_manager* pResourceManager, ma_uint32 hashedName32, ma_uint32* pReferenceCount)
+
+static ma_result ma_resource_manager_release_data_node_nolock(ma_resource_manager* pResourceManager, ma_resource_manager_node* pDataNode, ma_uint32* pReferenceCount)
+{
+    ma_result result;
+    ma_uint32 refCount;
+
+    MA_ASSERT(pResourceManager != NULL);
+    MA_ASSERT(pDataNode        != NULL);
+    MA_ASSERT(pReferenceCount  != NULL);
+    MA_ASSERT(pDataNode->refCount > 0); /* We should never find the node in the first place if the reference counter is 0. */
+
+    refCount = ma_atomic_decrement_32(&pDataNode->refCount);
+    if (refCount == 0) {
+        /* Standard node delete. */
+        result = ma_resource_manager_remove_data_node_nolock(pResourceManager, pDataNode);
+        if (result != MA_SUCCESS) {
+            return result;  /* This should never happen. */
+        }
+
+        /* We've removed the node from the binary tree so now we can free it's memory. */
+        ma__free_from_callbacks(pDataNode, &pResourceManager->config.allocationCallbacks);
+    }
+
+    if (pReferenceCount != NULL) {
+        *pReferenceCount = refCount;
+    }
+
+    return MA_SUCCESS;
+}
+
+static ma_result ma_resource_manager_release_data_node(ma_resource_manager* pResourceManager, ma_resource_manager_node* pDataNode, ma_uint32* pReferenceCount)
+{
+    ma_result result;
+
+    MA_ASSERT(pResourceManager != NULL);
+    MA_ASSERT(pDataNode        != NULL);
+    MA_ASSERT(pReferenceCount  != NULL);
+
+    ma_mutex_lock(&pResourceManager->dataNodeLock);
+    {
+        result = ma_resource_manager_release_data_node_nolock(pResourceManager, pDataNode, pReferenceCount);
+    }
+    ma_mutex_unlock(&pResourceManager->dataNodeLock);
+
+    return result;
+}
+
+static ma_result ma_resource_manager_release_data_node_by_name_nolock(ma_resource_manager* pResourceManager, ma_uint32 hashedName32, ma_uint32* pReferenceCount)
 {
     ma_result result;
     ma_uint32 refCount;
@@ -1605,7 +1664,7 @@ static ma_result ma_resource_manager_release_data_node_nolock(ma_resource_manage
     return MA_SUCCESS;
 }
 
-static ma_result ma_resource_manager_release_data_node(ma_resource_manager* pResourceManager, const char* pName, ma_uint32* pReferenceCount)
+static ma_result ma_resource_manager_release_data_node_by_name(ma_resource_manager* pResourceManager, const char* pName, ma_uint32* pReferenceCount)
 {
     ma_result result;
     ma_uint32 hashedName32;
@@ -1617,7 +1676,7 @@ static ma_result ma_resource_manager_release_data_node(ma_resource_manager* pRes
 
     ma_mutex_lock(&pResourceManager->dataNodeLock);
     {
-        result = ma_resource_manager_release_data_node_nolock(pResourceManager, hashedName32, pReferenceCount);
+        result = ma_resource_manager_release_data_node_by_name_nolock(pResourceManager, hashedName32, pReferenceCount);
     }
     ma_mutex_unlock(&pResourceManager->dataNodeLock);
 
@@ -1702,7 +1761,7 @@ static ma_result ma_resource_manager_register_data(ma_resource_manager* pResourc
     return result;
 }
 
-static ma_result ma_resource_manager_register_decoded_data_ex(ma_resource_manager* pResourceManager, const char* pName, const void* pData, ma_uint64 frameCount, ma_format format, ma_uint32 channels, ma_uint32 sampleRate, ma_resource_manager_node** ppDataNode)
+static ma_result ma_resource_manager_register_decoded_data_ex(ma_resource_manager* pResourceManager, const char* pName, const void* pData, ma_uint64 frameCount, ma_format format, ma_uint32 channels, ma_uint32 sampleRate, ma_bool32 isOwnedByResourceManager, ma_resource_manager_node** ppDataNode)
 {
     ma_resource_manager_node node;
 
@@ -1710,22 +1769,23 @@ static ma_result ma_resource_manager_register_decoded_data_ex(ma_resource_manage
         return MA_INVALID_ARGS;
     }
 
-    node.type = ma_resource_manager_data_type_decoded;
-    node.data.decoded.pData      = pData;
-    node.data.decoded.frameCount = frameCount;
-    node.data.decoded.format     = format;
-    node.data.decoded.channels   = channels;
-    node.data.decoded.sampleRate = sampleRate;
+    node.isDataOwnedByResourceManager = isOwnedByResourceManager;
+    node.type                         = ma_resource_manager_data_type_decoded;
+    node.data.decoded.pData           = pData;
+    node.data.decoded.frameCount      = frameCount;
+    node.data.decoded.format          = format;
+    node.data.decoded.channels        = channels;
+    node.data.decoded.sampleRate      = sampleRate;
 
     return ma_resource_manager_register_data(pResourceManager, pName, &node, ppDataNode);
 }
 
 MA_API ma_result ma_resource_manager_register_decoded_data(ma_resource_manager* pResourceManager, const char* pName, const void* pData, ma_uint64 frameCount, ma_format format, ma_uint32 channels, ma_uint32 sampleRate)
 {
-    return ma_resource_manager_register_decoded_data_ex(pResourceManager, pName, pData, frameCount, format, channels, sampleRate, NULL);
+    return ma_resource_manager_register_decoded_data_ex(pResourceManager, pName, pData, frameCount, format, channels, sampleRate, MA_FALSE, NULL);
 }
 
-static ma_result ma_resource_manager_register_encoded_data_ex(ma_resource_manager* pResourceManager, const char* pName, const void* pData, size_t sizeInBytes, ma_resource_manager_node** ppDataNode)
+static ma_result ma_resource_manager_register_encoded_data_ex(ma_resource_manager* pResourceManager, const char* pName, const void* pData, size_t sizeInBytes, ma_bool32 isOwnedByResourceManager, ma_resource_manager_node** ppDataNode)
 {
     ma_resource_manager_node node;
 
@@ -1733,21 +1793,22 @@ static ma_result ma_resource_manager_register_encoded_data_ex(ma_resource_manage
         return MA_INVALID_ARGS;
     }
 
-    node.type = ma_resource_manager_data_type_encoded;
-    node.data.encoded.pData       = pData;
-    node.data.encoded.sizeInBytes = sizeInBytes;
+    node.isDataOwnedByResourceManager = isOwnedByResourceManager;
+    node.type                         = ma_resource_manager_data_type_encoded;
+    node.data.encoded.pData           = pData;
+    node.data.encoded.sizeInBytes     = sizeInBytes;
 
     return ma_resource_manager_register_data(pResourceManager, pName, &node, ppDataNode);
 }
 
 MA_API ma_result ma_resource_manager_register_encoded_data(ma_resource_manager* pResourceManager, const char* pName, const void* pData, size_t sizeInBytes)
 {
-    return ma_resource_manager_register_encoded_data_ex(pResourceManager, pName, pData, sizeInBytes, NULL);
+    return ma_resource_manager_register_encoded_data_ex(pResourceManager, pName, pData, sizeInBytes, MA_FALSE, NULL);
 }
 
 MA_API ma_result ma_resource_manager_unregister_data(ma_resource_manager* pResourceManager, const char* pName)
 {
-    return ma_resource_manager_release_data_node(pResourceManager, pName, NULL);
+    return ma_resource_manager_release_data_node_by_name(pResourceManager, pName, NULL);
 }
 
 MA_API ma_result ma_resource_manager_create_data_source(ma_resource_manager* pResourceManager, const char* pName, ma_uint32 flags, ma_data_source** ppDataSource)
@@ -1755,9 +1816,6 @@ MA_API ma_result ma_resource_manager_create_data_source(ma_resource_manager* pRe
     ma_result result;
     ma_resource_manager_node* pDataNode;
     ma_resource_manager_data_source* pDataSource;
-
-    ma_decoder* pDecoder;
-    ma_decoder_config decoderConfig;
 
     if (ppDataSource == NULL) {
         return MA_INVALID_ARGS;
@@ -1798,7 +1856,7 @@ MA_API ma_result ma_resource_manager_create_data_source(ma_resource_manager* pRe
             }
 
             /* We have the encoded data so now we need to register it. */
-            result = ma_resource_manager_register_encoded_data_ex(pResourceManager, pName, pFileData, fileSize, &pDataNode);
+            result = ma_resource_manager_register_encoded_data_ex(pResourceManager, pName, pFileData, fileSize, MA_TRUE, &pDataNode);
             if (result != MA_SUCCESS) {
                 ma__free_from_callbacks(pFileData, &pResourceManager->config.allocationCallbacks);
                 return result;
@@ -1809,8 +1867,7 @@ MA_API ma_result ma_resource_manager_create_data_source(ma_resource_manager* pRe
             ma_uint64 frameCount;
             void* pDecodedData;
 
-            //config = ma_decoder_config_init(ma_format_unknown, 0, 0);   /* For now we'll decode into native format, but we may want to change this to the standard output format. */
-            config = ma_decoder_config_init(pResourceManager->config.decodedFormat, pResourceManager->config.decodedChannels, pResourceManager->config.decodedSampleRate);
+            config = ma_decoder_config_init(pResourceManager->config.decodedFormat, 0, pResourceManager->config.decodedSampleRate); /* Need to keep the native channel count because we'll be using that for spatialization. */
             config.allocationCallbacks = pResourceManager->config.allocationCallbacks;
 
             result = ma_decode_from_vfs(pResourceManager->config.pVFS, pName, &config, &frameCount, &pDecodedData);
@@ -1819,7 +1876,7 @@ MA_API ma_result ma_resource_manager_create_data_source(ma_resource_manager* pRe
             }
 
             /* We have the decoded data so now we need to register it. */
-            result = ma_resource_manager_register_decoded_data_ex(pResourceManager, pName, pDecodedData, frameCount, config.format, config.channels, config.sampleRate, &pDataNode);
+            result = ma_resource_manager_register_decoded_data_ex(pResourceManager, pName, pDecodedData, frameCount, config.format, config.channels, config.sampleRate, MA_TRUE, &pDataNode);
             if (result != MA_SUCCESS) {
                 ma__free_from_callbacks(pDecodedData, &pResourceManager->config.allocationCallbacks);
                 return result;
@@ -1845,41 +1902,41 @@ MA_API ma_result ma_resource_manager_create_data_source(ma_resource_manager* pRe
 
     *ppDataSource = pDataSource;
     return MA_SUCCESS;
-
-
-#if 0
-    /* For testing and prototyping we're just allocating a decoder on the heap. Later on this will be a custom resource manager specific data source. */
-    pDecoder = ma_malloc(sizeof(*pDecoder), NULL);
-    if (pDecoder == NULL) {
-        return MA_OUT_OF_MEMORY;
-    }
-
-    decoderConfig = ma_decoder_config_init(pResourceManager->config.decodedFormat, 0, pResourceManager->config.decodedSampleRate);
-    result = ma_decoder_init_file(pName, &decoderConfig, pDecoder);
-    if (result != MA_SUCCESS) {
-        ma_free(pDecoder, NULL);
-        return result;
-    }
-
-    *ppDataSource = (ma_data_source*)pDecoder;
-
-    return MA_SUCCESS;
-#endif
 }
 
 MA_API ma_result ma_resource_manager_delete_data_source(ma_resource_manager* pResourceManager, ma_data_source* pDataSource)
 {
-    ma_decoder* pDecoder;
+    ma_result result;
+    ma_resource_manager_data_source* pRMDataSource = (ma_resource_manager_data_source*)pDataSource;
+    ma_resource_manager_node* pDataNode = NULL;
 
     if (pResourceManager == NULL || pDataSource == NULL) {
         return MA_INVALID_ARGS;
     }
 
-    /* Everything is a ma_decoder while we're prototyping. */
-    pDecoder = (ma_decoder*)pDataSource;
-    ma_decoder_uninit(pDecoder);
+    /* If the data source is not being streamed we will need to unacquire the data source so the reference counter is decremented. */
+    pDataNode = pRMDataSource->pDataNode;
+    if (pDataNode != NULL) {
+        ma_resource_manager_node nodeCopy = *pDataNode; /* We need this so we can keep track of the pointer. */
+        ma_uint32 refCount;
+        result = ma_resource_manager_release_data_node(pResourceManager, pDataNode, &refCount);
+        if (result == MA_SUCCESS) {
+            if (refCount == 0) {
+                /* The backing data of the data source needs to be deleted if it's owned by us. */
+                if (pDataNode->isDataOwnedByResourceManager) {
+                    if (nodeCopy.type == ma_resource_manager_data_type_encoded) {
+                        ma__free_from_callbacks((void*)nodeCopy.data.encoded.pData, &pResourceManager->config.allocationCallbacks); /* MA_ALLOCATION_TYPE_ENCODED_BUFFER */
+                    } else {
+                        ma__free_from_callbacks((void*)nodeCopy.data.decoded.pData, &pResourceManager->config.allocationCallbacks); /* MA_ALLOCATION_TYPE_DECODED_BUFFER */
+                    }
+                }
+            }
+        }
+    }
 
-    ma_free(pDecoder, NULL);
+    /* The data source can now be freed. */
+    ma_resource_manager_data_source_uninit(pRMDataSource);
+    ma__free_from_callbacks(pRMDataSource, &pResourceManager->config.allocationCallbacks);  /* MA_ALLOCATION_TYPE_RESOURCE_MANAGER_DATA_SOURCE */
 
     return MA_SUCCESS;
 }
@@ -3182,17 +3239,6 @@ MA_API ma_result ma_engine_sound_set_pan(ma_engine* pEngine, ma_sound* pSound, f
     return ma_panner_set_pan(&pSound->effect.panner, pan);
 }
 
-MA_API ma_result ma_engine_sound_set_effect(ma_engine* pEngine, ma_sound* pSound, ma_effect* pEffect)
-{
-    if (pEngine == NULL || pSound == NULL) {
-        return MA_INVALID_ARGS;
-    }
-
-    pSound->effect.pPreEffect = pEffect;
-
-    return MA_SUCCESS;
-}
-
 MA_API ma_result ma_engine_sound_set_position(ma_engine* pEngine, ma_sound* pSound, ma_vec3 position)
 {
     if (pEngine == NULL || pSound == NULL) {
@@ -3209,6 +3255,17 @@ MA_API ma_result ma_engine_sound_set_rotation(ma_engine* pEngine, ma_sound* pSou
     }
 
     return ma_spatializer_set_rotation(&pSound->effect.spatializer, rotation);
+}
+
+MA_API ma_result ma_engine_sound_set_effect(ma_engine* pEngine, ma_sound* pSound, ma_effect* pEffect)
+{
+    if (pEngine == NULL || pSound == NULL) {
+        return MA_INVALID_ARGS;
+    }
+
+    pSound->effect.pPreEffect = pEffect;
+
+    return MA_SUCCESS;
 }
 
 MA_API ma_result ma_engine_sound_set_looping(ma_engine* pEngine, ma_sound* pSound, ma_bool32 isLooping)
@@ -3457,6 +3514,22 @@ MA_API ma_result ma_engine_sound_group_init(ma_engine* pEngine, ma_sound_group* 
     return MA_SUCCESS;
 }
 
+static void ma_engine_sound_group_uninit_all_internal_sounds(ma_engine* pEngine, ma_sound_group* pGroup)
+{
+    ma_sound* pCurrentSound;
+
+    /* We need to be careful here that we keep our iteration valid. */
+    pCurrentSound = pGroup->pFirstSoundInGroup;
+    while (pCurrentSound != NULL) {
+        ma_sound* pSoundToDelete = pCurrentSound;
+        pCurrentSound = pCurrentSound->pNextSoundInGroup;
+
+        if (pSoundToDelete->_isInternal) {
+            ma_engine_sound_uninit(pEngine, pSoundToDelete);
+        }
+    }
+}
+
 MA_API void ma_engine_sound_group_uninit(ma_engine* pEngine, ma_sound_group* pGroup)
 {
     ma_result result;
@@ -3465,6 +3538,9 @@ MA_API void ma_engine_sound_group_uninit(ma_engine* pEngine, ma_sound_group* pGr
     if (result != MA_SUCCESS) {
         MA_ASSERT(MA_FALSE);    /* Should never happen. Trigger an assert for debugging, but don't stop uninitializing in production to ensure we free memory down below. */
     }
+
+    /* Any in-place sounds need to be uninitialized. */
+    ma_engine_sound_group_uninit_all_internal_sounds(pEngine, pGroup);
 
     result = ma_engine_sound_group_detach(pEngine, pGroup);
     if (result != MA_SUCCESS) {
