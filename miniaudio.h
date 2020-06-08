@@ -3022,27 +3022,12 @@ typedef struct
     };
 } ma_thread;
 
-typedef struct
-{
-    ma_context* pContext;
-
-    union
-    {
-#ifdef MA_WIN32
-        struct
-        {
-            /*HANDLE*/ ma_handle hMutex;
-        } win32;
+#if defined(MA_WIN32)
+typedef ma_handle ma_mutex;
 #endif
-#ifdef MA_POSIX
-        struct
-        {
-            pthread_mutex_t mutex;
-        } posix;
+#if defined(MA_POSIX)
+typedef pthread_mutex_t ma_mutex;
 #endif
-        int _unused;
-    };
-} ma_mutex;
 
 typedef struct
 {
@@ -5224,7 +5209,7 @@ Creates a mutex.
 
 A mutex must be created from a valid context. A mutex is initially unlocked.
 */
-MA_API ma_result ma_mutex_init(ma_context* pContext, ma_mutex* pMutex);
+MA_API ma_result ma_mutex_init(ma_mutex* pMutex);
 
 /*
 Deletes a mutex.
@@ -8483,12 +8468,10 @@ static void ma_sleep__win32(ma_uint32 milliseconds)
 }
 
 
-static ma_result ma_mutex_init__win32(ma_context* pContext, ma_mutex* pMutex)
+static ma_result ma_mutex_init__win32(ma_mutex* pMutex)
 {
-    (void)pContext;
-
-    pMutex->win32.hMutex = CreateEventW(NULL, FALSE, TRUE, NULL);
-    if (pMutex->win32.hMutex == NULL) {
+    *pMutex = CreateEventW(NULL, FALSE, TRUE, NULL);
+    if (*pMutex == NULL) {
         return ma_result_from_GetLastError(GetLastError());
     }
 
@@ -8497,17 +8480,17 @@ static ma_result ma_mutex_init__win32(ma_context* pContext, ma_mutex* pMutex)
 
 static void ma_mutex_uninit__win32(ma_mutex* pMutex)
 {
-    CloseHandle(pMutex->win32.hMutex);
+    CloseHandle((HANDLE)*pMutex);
 }
 
 static void ma_mutex_lock__win32(ma_mutex* pMutex)
 {
-    WaitForSingleObject(pMutex->win32.hMutex, INFINITE);
+    WaitForSingleObject((HANDLE)*pMutex, INFINITE);
 }
 
 static void ma_mutex_unlock__win32(ma_mutex* pMutex)
 {
-    SetEvent(pMutex->win32.hMutex);
+    SetEvent((HANDLE)*pMutex);
 }
 
 
@@ -8682,9 +8665,9 @@ static void ma_sleep__posix(ma_uint32 milliseconds)
 #endif  /* MA_EMSCRIPTEN */
 
 
-static ma_result ma_mutex_init__posix(ma_context* pContext, ma_mutex* pMutex)
+static ma_result ma_mutex_init__posix(ma_mutex* pMutex)
 {
-    int result = ((ma_pthread_mutex_init_proc)pContext->posix.pthread_mutex_init)(&pMutex->posix.mutex, NULL);
+    int result = pthread_mutex_init((pthread_mutex_t*)pMutex, NULL);
     if (result != 0) {
         return ma_result_from_errno(result);
     }
@@ -8694,17 +8677,17 @@ static ma_result ma_mutex_init__posix(ma_context* pContext, ma_mutex* pMutex)
 
 static void ma_mutex_uninit__posix(ma_mutex* pMutex)
 {
-    ((ma_pthread_mutex_destroy_proc)pMutex->pContext->posix.pthread_mutex_destroy)(&pMutex->posix.mutex);
+    pthread_mutex_destroy((pthread_mutex_t*)pMutex);
 }
 
 static void ma_mutex_lock__posix(ma_mutex* pMutex)
 {
-    ((ma_pthread_mutex_lock_proc)pMutex->pContext->posix.pthread_mutex_lock)(&pMutex->posix.mutex);
+    pthread_mutex_lock((pthread_mutex_t*)pMutex);
 }
 
 static void ma_mutex_unlock__posix(ma_mutex* pMutex)
 {
-    ((ma_pthread_mutex_unlock_proc)pMutex->pContext->posix.pthread_mutex_unlock)(&pMutex->posix.mutex);
+    pthread_mutex_unlock((pthread_mutex_t*)pMutex);
 }
 
 
@@ -8837,25 +8820,23 @@ static void ma_sleep(ma_uint32 milliseconds)
 #endif
 
 
-MA_API ma_result ma_mutex_init(ma_context* pContext, ma_mutex* pMutex)
+MA_API ma_result ma_mutex_init(ma_mutex* pMutex)
 {
-    if (pContext == NULL || pMutex == NULL) {
+    if (pMutex == NULL) {
         return MA_INVALID_ARGS;
     }
 
-    pMutex->pContext = pContext;
-
 #ifdef MA_WIN32
-    return ma_mutex_init__win32(pContext, pMutex);
+    return ma_mutex_init__win32(pMutex);
 #endif
 #ifdef MA_POSIX
-    return ma_mutex_init__posix(pContext, pMutex);
+    return ma_mutex_init__posix(pMutex);
 #endif
 }
 
 MA_API void ma_mutex_uninit(ma_mutex* pMutex)
 {
-    if (pMutex == NULL || pMutex->pContext == NULL) {
+    if (pMutex == NULL) {
         return;
     }
 
@@ -8869,7 +8850,7 @@ MA_API void ma_mutex_uninit(ma_mutex* pMutex)
 
 MA_API void ma_mutex_lock(ma_mutex* pMutex)
 {
-    if (pMutex == NULL || pMutex->pContext == NULL) {
+    if (pMutex == NULL) {
         return;
     }
 
@@ -8883,7 +8864,7 @@ MA_API void ma_mutex_lock(ma_mutex* pMutex)
 
 MA_API void ma_mutex_unlock(ma_mutex* pMutex)
 {
-    if (pMutex == NULL || pMutex->pContext == NULL) {
+    if (pMutex == NULL) {
         return;
 }
 
@@ -17493,7 +17474,7 @@ static ma_result ma_device_init_by_type__alsa(ma_context* pContext, const ma_dev
     ma_bool32 isUsingMMap;
     ma_snd_pcm_format_t formatALSA;
     ma_share_mode shareMode;
-    ma_device_id* pDeviceID;
+    const ma_device_id* pDeviceID;
     ma_format internalFormat;
     ma_uint32 internalChannels;
     ma_uint32 internalSampleRate;
@@ -18489,7 +18470,7 @@ static ma_result ma_context_init__alsa(const ma_context_config* pConfig, ma_cont
 
     pContext->alsa.useVerboseDeviceEnumeration = pConfig->alsa.useVerboseDeviceEnumeration;
 
-    if (ma_mutex_init(pContext, &pContext->alsa.internalDeviceEnumLock) != MA_SUCCESS) {
+    if (ma_mutex_init(&pContext->alsa.internalDeviceEnumLock) != MA_SUCCESS) {
         ma_context_post_error(pContext, NULL, MA_LOG_LEVEL_ERROR, "[ALSA] WARNING: Failed to initialize mutex for internal device enumeration.", MA_ERROR);
     }
 
@@ -23300,7 +23281,7 @@ static ma_result ma_context__init_device_tracking__coreaudio(ma_context* pContex
         propAddress.mScope    = kAudioObjectPropertyScopeGlobal;
         propAddress.mElement  = kAudioObjectPropertyElementMaster;
         
-        ma_mutex_init(pContext, &g_DeviceTrackingMutex_CoreAudio);
+        ma_mutex_init(&g_DeviceTrackingMutex_CoreAudio);
         
         propAddress.mSelector = kAudioHardwarePropertyDefaultInputDevice;
         ((ma_AudioObjectAddPropertyListener_proc)pContext->coreaudio.AudioObjectAddPropertyListener)(kAudioObjectSystemObject, &propAddress, &ma_default_device_changed__coreaudio, NULL);
@@ -30031,11 +30012,11 @@ MA_API ma_result ma_context_init(const ma_backend backends[], ma_uint32 backendC
 
         /* If this iteration was successful, return. */
         if (result == MA_SUCCESS) {
-            result = ma_mutex_init(pContext, &pContext->deviceEnumLock);
+            result = ma_mutex_init(&pContext->deviceEnumLock);
             if (result != MA_SUCCESS) {
                 ma_context_post_error(pContext, NULL, MA_LOG_LEVEL_WARNING, "Failed to initialize mutex for device enumeration. ma_context_get_devices() is not thread safe.", result);
             }
-            result = ma_mutex_init(pContext, &pContext->deviceInfoLock);
+            result = ma_mutex_init(&pContext->deviceInfoLock);
             if (result != MA_SUCCESS) {
                 ma_context_post_error(pContext, NULL, MA_LOG_LEVEL_WARNING, "Failed to initialize mutex for device info retrieval. ma_context_get_device_info() is not thread safe.", result);
             }
@@ -30400,7 +30381,7 @@ MA_API ma_result ma_device_init(ma_context* pContext, const ma_device_config* pC
     pDevice->playback.internalSampleRate = pDevice->sampleRate;
     ma_channel_map_copy(pDevice->playback.internalChannelMap, pDevice->playback.channelMap, pDevice->playback.channels);
     
-    result = ma_mutex_init(pContext, &pDevice->lock);
+    result = ma_mutex_init(&pDevice->lock);
     if (result != MA_SUCCESS) {
         return ma_context_post_error(pContext, NULL, MA_LOG_LEVEL_ERROR, "Failed to create mutex.", result);
     }
