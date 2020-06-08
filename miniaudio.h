@@ -7719,14 +7719,14 @@ static int ma_thread_priority_to_win32(ma_thread_priority priority)
     }
 }
 
-static ma_result ma_thread_create__win32(ma_context* pContext, ma_thread* pThread, ma_thread_entry_proc entryProc, void* pData)
+static ma_result ma_thread_create__win32(ma_thread* pThread, ma_thread_priority priority, ma_thread_entry_proc entryProc, void* pData)
 {
     pThread->win32.hThread = CreateThread(NULL, 0, entryProc, pData, 0, NULL);
     if (pThread->win32.hThread == NULL) {
         return ma_result_from_GetLastError(GetLastError());
     }
 
-    SetThreadPriority((HANDLE)pThread->win32.hThread, ma_thread_priority_to_win32(pContext->threadPriority));
+    SetThreadPriority((HANDLE)pThread->win32.hThread, ma_thread_priority_to_win32(priority));
 
     return MA_SUCCESS;
 }
@@ -7843,7 +7843,7 @@ typedef int (* ma_pthread_attr_setschedpolicy_proc)(pthread_attr_t *attr, int po
 typedef int (* ma_pthread_attr_getschedparam_proc)(const pthread_attr_t *attr, struct sched_param *param);
 typedef int (* ma_pthread_attr_setschedparam_proc)(pthread_attr_t *attr, const struct sched_param *param);
 
-static ma_result ma_thread_create__posix(ma_context* pContext, ma_thread* pThread, ma_thread_entry_proc entryProc, void* pData)
+static ma_result ma_thread_create__posix(ma_thread* pThread, ma_thread_priority priority, ma_thread_entry_proc entryProc, void* pData)
 {
     int result;
     pthread_attr_t* pAttr = NULL;
@@ -7851,17 +7851,17 @@ static ma_result ma_thread_create__posix(ma_context* pContext, ma_thread* pThrea
 #if !defined(__EMSCRIPTEN__)
     /* Try setting the thread priority. It's not critical if anything fails here. */
     pthread_attr_t attr;
-    if (((ma_pthread_attr_init_proc)pContext->posix.pthread_attr_init)(&attr) == 0) {
+    if (pthread_attr_init(&attr) == 0) {
         int scheduler = -1;
-        if (pContext->threadPriority == ma_thread_priority_idle) {
+        if (priority == ma_thread_priority_idle) {
 #ifdef SCHED_IDLE
-            if (((ma_pthread_attr_setschedpolicy_proc)pContext->posix.pthread_attr_setschedpolicy)(&attr, SCHED_IDLE) == 0) {
+            if (pthread_attr_setschedpolicy(&attr, SCHED_IDLE) == 0) {
                 scheduler = SCHED_IDLE;
             }
 #endif
-        } else if (pContext->threadPriority == ma_thread_priority_realtime) {
+        } else if (priority == ma_thread_priority_realtime) {
 #ifdef SCHED_FIFO
-            if (((ma_pthread_attr_setschedpolicy_proc)pContext->posix.pthread_attr_setschedpolicy)(&attr, SCHED_FIFO) == 0) {
+            if (pthread_attr_setschedpolicy(&attr, SCHED_FIFO) == 0) {
                 scheduler = SCHED_FIFO;
             }
 #endif
@@ -7877,13 +7877,13 @@ static ma_result ma_thread_create__posix(ma_context* pContext, ma_thread* pThrea
             int priorityStep = (priorityMax - priorityMin) / 7;  /* 7 = number of priorities supported by miniaudio. */
 
             struct sched_param sched;
-            if (((ma_pthread_attr_getschedparam_proc)pContext->posix.pthread_attr_getschedparam)(&attr, &sched) == 0) {
-                if (pContext->threadPriority == ma_thread_priority_idle) {
+            if (pthread_attr_getschedparam(&attr, &sched) == 0) {
+                if (priority == ma_thread_priority_idle) {
                     sched.sched_priority = priorityMin;
-                } else if (pContext->threadPriority == ma_thread_priority_realtime) {
+                } else if (priority == ma_thread_priority_realtime) {
                     sched.sched_priority = priorityMax;
                 } else {
-                    sched.sched_priority += ((int)pContext->threadPriority + 5) * priorityStep;  /* +5 because the lowest priority is -5. */
+                    sched.sched_priority += ((int)priority + 5) * priorityStep;  /* +5 because the lowest priority is -5. */
                     if (sched.sched_priority < priorityMin) {
                         sched.sched_priority = priorityMin;
                     }
@@ -7892,17 +7892,17 @@ static ma_result ma_thread_create__posix(ma_context* pContext, ma_thread* pThrea
                     }
                 }
 
-                if (((ma_pthread_attr_setschedparam_proc)pContext->posix.pthread_attr_setschedparam)(&attr, &sched) == 0) {
+                if (pthread_attr_setschedparam(&attr, &sched) == 0) {
                     pAttr = &attr;
                 }
             }
         }
 
-        ((ma_pthread_attr_destroy_proc)pContext->posix.pthread_attr_destroy)(&attr);
+        pthread_attr_destroy(&attr);
     }
 #endif
 
-    result = ((ma_pthread_create_proc)pContext->posix.pthread_create)(&pThread->posix.thread, pAttr, entryProc, pData);
+    result = pthread_create(&pThread->posix.thread, pAttr, entryProc, pData);
     if (result != 0) {
         return ma_result_from_errno(result);
     }
@@ -7912,7 +7912,7 @@ static ma_result ma_thread_create__posix(ma_context* pContext, ma_thread* pThrea
 
 static void ma_thread_wait__posix(ma_thread* pThread)
 {
-    ((ma_pthread_join_proc)pThread->pContext->posix.pthread_join)(pThread->posix.thread, NULL);
+    pthread_join(pThread->posix.thread, NULL);
 }
 
 #if !defined(MA_EMSCRIPTEN)
@@ -8048,19 +8048,17 @@ static ma_bool32 ma_semaphore_release__posix(ma_semaphore* pSemaphore)
 }
 #endif
 
-static ma_result ma_thread_create(ma_context* pContext, ma_thread* pThread, ma_thread_entry_proc entryProc, void* pData)
+static ma_result ma_thread_create(ma_thread* pThread, ma_thread_priority priority, ma_thread_entry_proc entryProc, void* pData)
 {
-    if (pContext == NULL || pThread == NULL || entryProc == NULL) {
+    if (pThread == NULL || entryProc == NULL) {
         return MA_FALSE;
     }
 
-    pThread->pContext = pContext;
-
 #ifdef MA_WIN32
-    return ma_thread_create__win32(pContext, pThread, entryProc, pData);
+    return ma_thread_create__win32(pThread, priority, entryProc, pData);
 #endif
 #ifdef MA_POSIX
-    return ma_thread_create__posix(pContext, pThread, entryProc, pData);
+    return ma_thread_create__posix(pThread, priority, entryProc, pData);
 #endif
 }
 
@@ -9657,7 +9655,7 @@ static ma_result ma_device_init__null(ma_context* pContext, const ma_device_conf
         return result;
     }
 
-    result = ma_thread_create(pContext, &pDevice->thread, ma_device_thread__null, pDevice);
+    result = ma_thread_create(&pDevice->thread, pContext->threadPriority, ma_device_thread__null, pDevice);
     if (result != MA_SUCCESS) {
         return result;
     }
@@ -30444,7 +30442,7 @@ MA_API ma_result ma_device_init(ma_context* pContext, const ma_device_config* pC
     /* Some backends don't require the worker thread. */
     if (!ma_context_is_backend_asynchronous(pContext)) {
         /* The worker thread. */
-        result = ma_thread_create(pContext, &pDevice->thread, ma_worker_thread, pDevice);
+        result = ma_thread_create(&pDevice->thread, pContext->threadPriority, ma_worker_thread, pDevice);
         if (result != MA_SUCCESS) {
             ma_device_uninit(pDevice);
             return ma_context_post_error(pContext, NULL, MA_LOG_LEVEL_ERROR, "Failed to create worker thread.", result);
