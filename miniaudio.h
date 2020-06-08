@@ -3029,27 +3029,17 @@ typedef ma_handle ma_mutex;
 typedef pthread_mutex_t ma_mutex;
 #endif
 
+#if defined(MA_WIN32)
+typedef ma_handle ma_event;
+#endif
+#if defined(MA_POSIX)
 typedef struct
 {
-    union
-    {
-#ifdef MA_WIN32
-        struct
-        {
-            /*HANDLE*/ ma_handle hEvent;
-        } win32;
-#endif
-#ifdef MA_POSIX
-        struct
-        {
-            pthread_mutex_t mutex;
-            pthread_cond_t condition;
-            ma_uint32 value;
-        } posix;
-#endif
-        int _unused;
-    };
+    pthread_mutex_t lock;
+    pthread_cond_t cond;
+    ma_uint32 value;
 } ma_event;
+#endif
 
 typedef struct
 {
@@ -7766,8 +7756,8 @@ static void ma_mutex_unlock__win32(ma_mutex* pMutex)
 
 static ma_result ma_event_init__win32(ma_event* pEvent)
 {
-    pEvent->win32.hEvent = CreateEventW(NULL, FALSE, FALSE, NULL);
-    if (pEvent->win32.hEvent == NULL) {
+    *pEvent = CreateEventW(NULL, FALSE, FALSE, NULL);
+    if (*pEvent == NULL) {
         return ma_result_from_GetLastError(GetLastError());
     }
 
@@ -7776,17 +7766,17 @@ static ma_result ma_event_init__win32(ma_event* pEvent)
 
 static void ma_event_uninit__win32(ma_event* pEvent)
 {
-    CloseHandle(pEvent->win32.hEvent);
+    CloseHandle((HANDLE)*pEvent);
 }
 
 static ma_bool32 ma_event_wait__win32(ma_event* pEvent)
 {
-    return WaitForSingleObject(pEvent->win32.hEvent, INFINITE) == WAIT_OBJECT_0;
+    return WaitForSingleObject((HANDLE)*pEvent, INFINITE) == WAIT_OBJECT_0;
 }
 
 static ma_bool32 ma_event_signal__win32(ma_event* pEvent)
 {
-    return SetEvent(pEvent->win32.hEvent);
+    return SetEvent((HANDLE)*pEvent);
 }
 
 
@@ -7946,49 +7936,49 @@ static ma_result ma_event_init__posix(ma_event* pEvent)
 {
     int result;
 
-    result = pthread_mutex_init(&pEvent->posix.mutex, NULL);
+    result = pthread_mutex_init(&pEvent->lock, NULL);
     if (result != 0) {
         return ma_result_from_errno(result);
     }
 
-    result = pthread_cond_init(&pEvent->posix.condition, NULL);
+    result = pthread_cond_init(&pEvent->cond, NULL);
     if (result != 0) {
-        pthread_mutex_destroy(&pEvent->posix.mutex);
+        pthread_mutex_destroy(&pEvent->lock);
         return ma_result_from_errno(result);
     }
 
-    pEvent->posix.value = 0;
+    pEvent->value = 0;
     return MA_SUCCESS;
 }
 
 static void ma_event_uninit__posix(ma_event* pEvent)
 {
-    pthread_cond_destroy(&pEvent->posix.condition);
-    pthread_mutex_destroy(&pEvent->posix.mutex);
+    pthread_cond_destroy(&pEvent->cond);
+    pthread_mutex_destroy(&pEvent->lock);
 }
 
 static ma_bool32 ma_event_wait__posix(ma_event* pEvent)
 {
-    pthread_mutex_lock(&pEvent->posix.mutex);
+    pthread_mutex_lock(&pEvent->lock);
     {
-        while (pEvent->posix.value == 0) {
-            pthread_cond_wait(&pEvent->posix.condition, &pEvent->posix.mutex);
+        while (pEvent->value == 0) {
+            pthread_cond_wait(&pEvent->cond, &pEvent->lock);
         }
-        pEvent->posix.value = 0;  /* Auto-reset. */
+        pEvent->value = 0;  /* Auto-reset. */
     }
-    pthread_mutex_unlock(&pEvent->posix.mutex);
+    pthread_mutex_unlock(&pEvent->lock);
 
     return MA_TRUE;
 }
 
 static ma_bool32 ma_event_signal__posix(ma_event* pEvent)
 {
-    pthread_mutex_lock(&pEvent->posix.mutex);
+    pthread_mutex_lock(&pEvent->lock);
     {
-        pEvent->posix.value = 1;
-        pthread_cond_signal(&pEvent->posix.condition);
+        pEvent->value = 1;
+        pthread_cond_signal(&pEvent->cond);
     }
-    pthread_mutex_unlock(&pEvent->posix.mutex);
+    pthread_mutex_unlock(&pEvent->lock);
 
     return MA_TRUE;
 }
