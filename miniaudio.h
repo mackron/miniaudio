@@ -7796,10 +7796,8 @@ static ma_bool32 ma_event_signal__win32(ma_event* pEvent)
 }
 
 
-static ma_result ma_semaphore_init__win32(ma_context* pContext, int initialValue, ma_semaphore* pSemaphore)
+static ma_result ma_semaphore_init__win32(int initialValue, ma_semaphore* pSemaphore)
 {
-    (void)pContext;
-
     pSemaphore->win32.hSemaphore = CreateSemaphoreW(NULL, (LONG)initialValue, LONG_MAX, NULL);
     if (pSemaphore->win32.hSemaphore == NULL) {
         return ma_result_from_GetLastError(GetLastError());
@@ -8018,10 +8016,8 @@ static ma_bool32 ma_event_signal__posix(ma_event* pEvent)
 }
 
 
-static ma_result ma_semaphore_init__posix(ma_context* pContext, int initialValue, ma_semaphore* pSemaphore)
+static ma_result ma_semaphore_init__posix(int initialValue, ma_semaphore* pSemaphore)
 {
-    (void)pContext;
-
 #if defined(MA_APPLE)
     /* Not yet implemented for Apple platforms since sem_init() is deprecated. Need to use a named semaphore via sem_open() instead. */
     (void)initialValue;
@@ -8211,17 +8207,17 @@ MA_API ma_bool32 ma_event_signal(ma_event* pEvent)
 }
 
 
-MA_API ma_result ma_semaphore_init(ma_context* pContext, int initialValue, ma_semaphore* pSemaphore)
+MA_API ma_result ma_semaphore_init(int initialValue, ma_semaphore* pSemaphore)
 {
-    if (pContext == NULL || pSemaphore == NULL) {
+    if (pSemaphore == NULL) {
         return MA_INVALID_ARGS;
     }
 
 #ifdef MA_WIN32
-    return ma_semaphore_init__win32(pContext, initialValue, pSemaphore);
+    return ma_semaphore_init__win32(initialValue, pSemaphore);
 #endif
 #ifdef MA_POSIX
-    return ma_semaphore_init__posix(pContext, initialValue, pSemaphore);
+    return ma_semaphore_init__posix(initialValue, pSemaphore);
 #endif
 }
 
