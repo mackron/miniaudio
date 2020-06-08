@@ -3031,8 +3031,6 @@ typedef pthread_mutex_t ma_mutex;
 
 typedef struct
 {
-    ma_context* pContext;
-
     union
     {
 #ifdef MA_WIN32
@@ -3055,8 +3053,6 @@ typedef struct
 
 typedef struct
 {
-    ma_context* pContext;
-
     union
     {
 #ifdef MA_WIN32
@@ -7768,10 +7764,8 @@ static void ma_mutex_unlock__win32(ma_mutex* pMutex)
 }
 
 
-static ma_result ma_event_init__win32(ma_context* pContext, ma_event* pEvent)
+static ma_result ma_event_init__win32(ma_event* pEvent)
 {
-    (void)pContext;
-
     pEvent->win32.hEvent = CreateEventW(NULL, FALSE, FALSE, NULL);
     if (pEvent->win32.hEvent == NULL) {
         return ma_result_from_GetLastError(GetLastError());
@@ -7826,22 +7820,6 @@ static ma_bool32 ma_semaphore_release__win32(ma_semaphore* pSemaphore)
 #ifdef MA_POSIX
 #include <sched.h>
 #include <sys/time.h>
-
-typedef int (* ma_pthread_create_proc)(pthread_t *thread, const pthread_attr_t *attr, void *(*start_routine) (void *), void *arg);
-typedef int (* ma_pthread_join_proc)(pthread_t thread, void **retval);
-typedef int (* ma_pthread_mutex_init_proc)(pthread_mutex_t *__mutex, const pthread_mutexattr_t *__mutexattr);
-typedef int (* ma_pthread_mutex_destroy_proc)(pthread_mutex_t *__mutex);
-typedef int (* ma_pthread_mutex_lock_proc)(pthread_mutex_t *__mutex);
-typedef int (* ma_pthread_mutex_unlock_proc)(pthread_mutex_t *__mutex);
-typedef int (* ma_pthread_cond_init_proc)(pthread_cond_t *__restrict __cond, const pthread_condattr_t *__restrict __cond_attr);
-typedef int (* ma_pthread_cond_destroy_proc)(pthread_cond_t *__cond);
-typedef int (* ma_pthread_cond_signal_proc)(pthread_cond_t *__cond);
-typedef int (* ma_pthread_cond_wait_proc)(pthread_cond_t *__restrict __cond, pthread_mutex_t *__restrict __mutex);
-typedef int (* ma_pthread_attr_init_proc)(pthread_attr_t *attr);
-typedef int (* ma_pthread_attr_destroy_proc)(pthread_attr_t *attr);
-typedef int (* ma_pthread_attr_setschedpolicy_proc)(pthread_attr_t *attr, int policy);
-typedef int (* ma_pthread_attr_getschedparam_proc)(const pthread_attr_t *attr, struct sched_param *param);
-typedef int (* ma_pthread_attr_setschedparam_proc)(pthread_attr_t *attr, const struct sched_param *param);
 
 static ma_result ma_thread_create__posix(ma_thread* pThread, ma_thread_priority priority, ma_thread_entry_proc entryProc, void* pData)
 {
@@ -7964,18 +7942,18 @@ static void ma_mutex_unlock__posix(ma_mutex* pMutex)
 }
 
 
-static ma_result ma_event_init__posix(ma_context* pContext, ma_event* pEvent)
+static ma_result ma_event_init__posix(ma_event* pEvent)
 {
     int result;
 
-    result = ((ma_pthread_mutex_init_proc)pContext->posix.pthread_mutex_init)(&pEvent->posix.mutex, NULL);
+    result = pthread_mutex_init(&pEvent->posix.mutex, NULL);
     if (result != 0) {
         return ma_result_from_errno(result);
     }
 
-    result = ((ma_pthread_cond_init_proc)pContext->posix.pthread_cond_init)(&pEvent->posix.condition, NULL);
+    result = pthread_cond_init(&pEvent->posix.condition, NULL);
     if (result != 0) {
-        ((ma_pthread_mutex_destroy_proc)pEvent->pContext->posix.pthread_mutex_destroy)(&pEvent->posix.mutex);
+        pthread_mutex_destroy(&pEvent->posix.mutex);
         return ma_result_from_errno(result);
     }
 
@@ -7985,32 +7963,32 @@ static ma_result ma_event_init__posix(ma_context* pContext, ma_event* pEvent)
 
 static void ma_event_uninit__posix(ma_event* pEvent)
 {
-    ((ma_pthread_cond_destroy_proc)pEvent->pContext->posix.pthread_cond_destroy)(&pEvent->posix.condition);
-    ((ma_pthread_mutex_destroy_proc)pEvent->pContext->posix.pthread_mutex_destroy)(&pEvent->posix.mutex);
+    pthread_cond_destroy(&pEvent->posix.condition);
+    pthread_mutex_destroy(&pEvent->posix.mutex);
 }
 
 static ma_bool32 ma_event_wait__posix(ma_event* pEvent)
 {
-    ((ma_pthread_mutex_lock_proc)pEvent->pContext->posix.pthread_mutex_lock)(&pEvent->posix.mutex);
+    pthread_mutex_lock(&pEvent->posix.mutex);
     {
         while (pEvent->posix.value == 0) {
-            ((ma_pthread_cond_wait_proc)pEvent->pContext->posix.pthread_cond_wait)(&pEvent->posix.condition, &pEvent->posix.mutex);
+            pthread_cond_wait(&pEvent->posix.condition, &pEvent->posix.mutex);
         }
         pEvent->posix.value = 0;  /* Auto-reset. */
     }
-    ((ma_pthread_mutex_unlock_proc)pEvent->pContext->posix.pthread_mutex_unlock)(&pEvent->posix.mutex);
+    pthread_mutex_unlock(&pEvent->posix.mutex);
 
     return MA_TRUE;
 }
 
 static ma_bool32 ma_event_signal__posix(ma_event* pEvent)
 {
-    ((ma_pthread_mutex_lock_proc)pEvent->pContext->posix.pthread_mutex_lock)(&pEvent->posix.mutex);
+    pthread_mutex_lock(&pEvent->posix.mutex);
     {
         pEvent->posix.value = 1;
-        ((ma_pthread_cond_signal_proc)pEvent->pContext->posix.pthread_cond_signal)(&pEvent->posix.condition);
+        pthread_cond_signal(&pEvent->posix.condition);
     }
-    ((ma_pthread_mutex_unlock_proc)pEvent->pContext->posix.pthread_mutex_unlock)(&pEvent->posix.mutex);
+    pthread_mutex_unlock(&pEvent->posix.mutex);
 
     return MA_TRUE;
 }
@@ -8146,25 +8124,23 @@ MA_API void ma_mutex_unlock(ma_mutex* pMutex)
 }
 
 
-MA_API ma_result ma_event_init(ma_context* pContext, ma_event* pEvent)
+MA_API ma_result ma_event_init(ma_event* pEvent)
 {
-    if (pContext == NULL || pEvent == NULL) {
+    if (pEvent == NULL) {
         return MA_FALSE;
     }
 
-    pEvent->pContext = pContext;
-
 #ifdef MA_WIN32
-    return ma_event_init__win32(pContext, pEvent);
+    return ma_event_init__win32(pEvent);
 #endif
 #ifdef MA_POSIX
-    return ma_event_init__posix(pContext, pEvent);
+    return ma_event_init__posix(pEvent);
 #endif
 }
 
 MA_API void ma_event_uninit(ma_event* pEvent)
 {
-    if (pEvent == NULL || pEvent->pContext == NULL) {
+    if (pEvent == NULL) {
         return;
     }
 
@@ -8178,7 +8154,7 @@ MA_API void ma_event_uninit(ma_event* pEvent)
 
 MA_API ma_bool32 ma_event_wait(ma_event* pEvent)
 {
-    if (pEvent == NULL || pEvent->pContext == NULL) {
+    if (pEvent == NULL) {
         return MA_FALSE;
     }
 
@@ -8192,7 +8168,7 @@ MA_API ma_bool32 ma_event_wait(ma_event* pEvent)
 
 MA_API ma_bool32 ma_event_signal(ma_event* pEvent)
 {
-    if (pEvent == NULL || pEvent->pContext == NULL) {
+    if (pEvent == NULL) {
         return MA_FALSE;
     }
 
@@ -9645,12 +9621,12 @@ static ma_result ma_device_init__null(ma_context* pContext, const ma_device_conf
     In order to get timing right, we need to create a thread that does nothing but keeps track of the timer. This timer is started when the
     first period is "written" to it, and then stopped in ma_device_stop__null().
     */
-    result = ma_event_init(pContext, &pDevice->null_device.operationEvent);
+    result = ma_event_init(&pDevice->null_device.operationEvent);
     if (result != MA_SUCCESS) {
         return result;
     }
 
-    result = ma_event_init(pContext, &pDevice->null_device.operationCompletionEvent);
+    result = ma_event_init(&pDevice->null_device.operationCompletionEvent);
     if (result != MA_SUCCESS) {
         return result;
     }
@@ -30392,20 +30368,20 @@ MA_API ma_result ma_device_init(ma_context* pContext, const ma_device_config* pC
     Each of these semaphores is released internally by the worker thread when the work is completed. The start
     semaphore is also used to wake up the worker thread.
     */
-    result = ma_event_init(pContext, &pDevice->wakeupEvent);
+    result = ma_event_init(&pDevice->wakeupEvent);
     if (result != MA_SUCCESS) {
         ma_mutex_uninit(&pDevice->lock);
         return ma_context_post_error(pContext, NULL, MA_LOG_LEVEL_ERROR, "Failed to create worker thread wakeup event.", result);
     }
 
-    result = ma_event_init(pContext, &pDevice->startEvent);
+    result = ma_event_init(&pDevice->startEvent);
     if (result != MA_SUCCESS) {
         ma_event_uninit(&pDevice->wakeupEvent);
         ma_mutex_uninit(&pDevice->lock);
         return ma_context_post_error(pContext, NULL, MA_LOG_LEVEL_ERROR, "Failed to create worker thread start event.", result);
     }
 
-    result = ma_event_init(pContext, &pDevice->stopEvent);
+    result = ma_event_init(&pDevice->stopEvent);
     if (result != MA_SUCCESS) {
         ma_event_uninit(&pDevice->startEvent);
         ma_event_uninit(&pDevice->wakeupEvent);
