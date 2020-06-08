@@ -1569,7 +1569,6 @@ extern "C" {
     /* We only use multi-threading with the device IO API, so no need to include these headers otherwise. */
 #if !defined(MA_NO_DEVICE_IO)
     #include <pthread.h>    /* Unfortunate #include, but needed for pthread_t, pthread_mutex_t and pthread_cond_t types. */
-    #include <semaphore.h>
 #endif
 
     #ifdef __unix__
@@ -3026,25 +3025,17 @@ typedef struct
 } ma_event;
 #endif
 
+#if defined(MA_WIN32)
+typedef ma_handle ma_semaphore;
+#endif
+#if defined(MA_POSIX)
 typedef struct
 {
-    union
-    {
-#ifdef MA_WIN32
-        struct
-        {
-            /*HANDLE*/ ma_handle hSemaphore;
-        } win32;
-#endif
-#ifdef MA_POSIX
-        struct
-        {
-            sem_t semaphore;
-        } posix;
-#endif
-        int _unused;
-    };
+    int value;
+    pthread_mutex_t lock;
+    pthread_cond_t cond;
 } ma_semaphore;
+#endif
 
 
 /*
@@ -7767,8 +7758,8 @@ static ma_bool32 ma_event_signal__win32(ma_event* pEvent)
 
 static ma_result ma_semaphore_init__win32(int initialValue, ma_semaphore* pSemaphore)
 {
-    pSemaphore->win32.hSemaphore = CreateSemaphoreW(NULL, (LONG)initialValue, LONG_MAX, NULL);
-    if (pSemaphore->win32.hSemaphore == NULL) {
+    *pSemaphore = CreateSemaphoreW(NULL, (LONG)initialValue, LONG_MAX, NULL);
+    if (*pSemaphore == NULL) {
         return ma_result_from_GetLastError(GetLastError());
     }
 
@@ -7777,17 +7768,17 @@ static ma_result ma_semaphore_init__win32(int initialValue, ma_semaphore* pSemap
 
 static void ma_semaphore_uninit__win32(ma_semaphore* pSemaphore)
 {
-    CloseHandle((HANDLE)pSemaphore->win32.hSemaphore);
+    CloseHandle((HANDLE)*pSemaphore);
 }
 
 static ma_bool32 ma_semaphore_wait__win32(ma_semaphore* pSemaphore)
 {
-    return WaitForSingleObject((HANDLE)pSemaphore->win32.hSemaphore, INFINITE) == WAIT_OBJECT_0;
+    return WaitForSingleObject((HANDLE)*pSemaphore, INFINITE) == WAIT_OBJECT_0;
 }
 
 static ma_bool32 ma_semaphore_release__win32(ma_semaphore* pSemaphore)
 {
-    return ReleaseSemaphore((HANDLE)pSemaphore->win32.hSemaphore, 1, NULL) != 0;
+    return ReleaseSemaphore((HANDLE)*pSemaphore, 1, NULL) != 0;
 }
 #endif
 
@@ -7865,7 +7856,7 @@ static ma_result ma_thread_create__posix(ma_thread* pThread, ma_thread_priority 
 
 static void ma_thread_wait__posix(ma_thread* pThread)
 {
-    pthread_join(pThread, NULL);
+    pthread_join(*pThread, NULL);
 }
 
 #if !defined(MA_EMSCRIPTEN)
@@ -7971,33 +7962,72 @@ static ma_bool32 ma_event_signal__posix(ma_event* pEvent)
 
 static ma_result ma_semaphore_init__posix(int initialValue, ma_semaphore* pSemaphore)
 {
-#if defined(MA_APPLE)
-    /* Not yet implemented for Apple platforms since sem_init() is deprecated. Need to use a named semaphore via sem_open() instead. */
-    (void)initialValue;
-    (void)pSemaphore;
-    return MA_INVALID_OPERATION;
-#else
-    if (sem_init(&pSemaphore->posix.semaphore, 0, (unsigned int)initialValue) == 0) {
-        return ma_result_from_errno(errno);
+    int result;
+
+    if (pSemaphore == NULL) {
+        return MA_INVALID_ARGS;
     }
-#endif
+
+    pSemaphore->value = initialValue;
+
+    result = pthread_mutex_init(&pSemaphore->lock, NULL);
+    if (result != 0) {
+        return ma_result_from_errno(result);  /* Failed to create mutex. */
+    }
+
+    result = pthread_cond_init(&pSemaphore->cond, NULL);
+    if (result != 0) {
+        pthread_mutex_destroy(&pSemaphore->lock);
+        return ma_result_from_errno(result);  /* Failed to create condition variable. */
+    }
 
     return MA_SUCCESS;
 }
 
 static void ma_semaphore_uninit__posix(ma_semaphore* pSemaphore)
 {
-    sem_close(&pSemaphore->posix.semaphore);
+    if (pSemaphore == NULL) {
+        return;
+    }
+
+    pthread_cond_destroy(&pSemaphore->cond);
+    pthread_mutex_destroy(&pSemaphore->lock);
 }
 
 static ma_bool32 ma_semaphore_wait__posix(ma_semaphore* pSemaphore)
 {
-    return sem_wait(&pSemaphore->posix.semaphore) != -1;
+    if (pSemaphore == NULL) {
+        return MA_FALSE;
+    }
+
+    pthread_mutex_lock(&pSemaphore->lock);
+    {
+        /* We need to wait on a condition variable before escaping. We can't return from this function until the semaphore has been signaled. */
+        while (pSemaphore->value == 0) {
+            pthread_cond_wait(&pSemaphore->cond, &pSemaphore->lock);
+        }
+
+        pSemaphore->value -= 1;
+    }
+    pthread_mutex_unlock(&pSemaphore->lock);
+
+    return MA_TRUE;
 }
 
 static ma_bool32 ma_semaphore_release__posix(ma_semaphore* pSemaphore)
 {
-    return sem_post(&pSemaphore->posix.semaphore) != -1;
+    if (pSemaphore == NULL) {
+        return MA_FALSE;
+    }
+
+    pthread_mutex_lock(&pSemaphore->lock);
+    {
+        pSemaphore->value += 1;
+        pthread_cond_signal(&pSemaphore->cond);
+    }
+    pthread_mutex_unlock(&pSemaphore->lock);
+
+    return MA_TRUE;
 }
 #endif
 
