@@ -3000,27 +3000,12 @@ typedef enum
     ma_thread_priority_default  =  0
 } ma_thread_priority;
 
-typedef struct
-{
-    ma_context* pContext;
-
-    union
-    {
-#ifdef MA_WIN32
-        struct
-        {
-            /*HANDLE*/ ma_handle hThread;
-        } win32;
+#if defined(MA_WIN32)
+typedef ma_handle ma_thread;
 #endif
-#ifdef MA_POSIX
-        struct
-        {
-            pthread_t thread;
-        } posix;
+#if defined(MA_POSIX)
+typedef pthread_t ma_thread;
 #endif
-        int _unused;
-    };
-} ma_thread;
 
 #if defined(MA_WIN32)
 typedef ma_handle ma_mutex;
@@ -3035,9 +3020,9 @@ typedef ma_handle ma_event;
 #if defined(MA_POSIX)
 typedef struct
 {
+    ma_uint32 value;
     pthread_mutex_t lock;
     pthread_cond_t cond;
-    ma_uint32 value;
 } ma_event;
 #endif
 
@@ -7707,19 +7692,19 @@ static int ma_thread_priority_to_win32(ma_thread_priority priority)
 
 static ma_result ma_thread_create__win32(ma_thread* pThread, ma_thread_priority priority, ma_thread_entry_proc entryProc, void* pData)
 {
-    pThread->win32.hThread = CreateThread(NULL, 0, entryProc, pData, 0, NULL);
-    if (pThread->win32.hThread == NULL) {
+    *pThread = CreateThread(NULL, 0, entryProc, pData, 0, NULL);
+    if (*pThread == NULL) {
         return ma_result_from_GetLastError(GetLastError());
     }
 
-    SetThreadPriority((HANDLE)pThread->win32.hThread, ma_thread_priority_to_win32(priority));
+    SetThreadPriority((HANDLE)*pThread, ma_thread_priority_to_win32(priority));
 
     return MA_SUCCESS;
 }
 
 static void ma_thread_wait__win32(ma_thread* pThread)
 {
-    WaitForSingleObject(pThread->win32.hThread, INFINITE);
+    WaitForSingleObject((HANDLE)*pThread, INFINITE);
 }
 
 static void ma_sleep__win32(ma_uint32 milliseconds)
@@ -7870,7 +7855,7 @@ static ma_result ma_thread_create__posix(ma_thread* pThread, ma_thread_priority 
     }
 #endif
 
-    result = pthread_create(&pThread->posix.thread, pAttr, entryProc, pData);
+    result = pthread_create(pThread, pAttr, entryProc, pData);
     if (result != 0) {
         return ma_result_from_errno(result);
     }
@@ -7880,7 +7865,7 @@ static ma_result ma_thread_create__posix(ma_thread* pThread, ma_thread_priority 
 
 static void ma_thread_wait__posix(ma_thread* pThread)
 {
-    pthread_join(pThread->posix.thread, NULL);
+    pthread_join(pThread, NULL);
 }
 
 #if !defined(MA_EMSCRIPTEN)
