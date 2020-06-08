@@ -5205,6 +5205,19 @@ MA_API ma_result ma_device_get_master_gain_db(ma_device* pDevice, float* pGainDB
 
 
 /*
+Retrieves a friendly name for a backend.
+*/
+MA_API const char* ma_get_backend_name(ma_backend backend);
+
+/*
+Determines whether or not loopback mode is support by a backend.
+*/
+MA_API ma_bool32 ma_is_loopback_supported(ma_backend backend);
+
+#endif  /* MA_NO_DEVICE_IO */
+
+
+/*
 Creates a mutex.
 
 A mutex must be created from a valid context. A mutex is initially unlocked.
@@ -5225,20 +5238,6 @@ MA_API void ma_mutex_lock(ma_mutex* pMutex);
 Unlocks a mutex.
 */
 MA_API void ma_mutex_unlock(ma_mutex* pMutex);
-
-
-/*
-Retrieves a friendly name for a backend.
-*/
-MA_API const char* ma_get_backend_name(ma_backend backend);
-
-/*
-Determines whether or not loopback mode is support by a backend.
-*/
-MA_API ma_bool32 ma_is_loopback_supported(ma_backend backend);
-
-#endif  /* MA_NO_DEVICE_IO */
-
 
 
 /************************************************************************************************************************************************************
@@ -7665,6 +7664,610 @@ MA_API ma_uint64 ma_calculate_frame_count_after_resampling(ma_uint32 sampleRateO
 #define MA_DATA_CONVERTER_STACK_BUFFER_SIZE     4096
 #endif
 
+
+
+#if defined(MA_WIN32)
+static ma_result ma_result_from_GetLastError(DWORD error)
+{
+    switch (error)
+    {
+        case ERROR_SUCCESS:             return MA_SUCCESS;
+        case ERROR_PATH_NOT_FOUND:      return MA_DOES_NOT_EXIST;
+        case ERROR_TOO_MANY_OPEN_FILES: return MA_TOO_MANY_OPEN_FILES;
+        case ERROR_NOT_ENOUGH_MEMORY:   return MA_OUT_OF_MEMORY;
+        case ERROR_DISK_FULL:           return MA_NO_SPACE;
+        case ERROR_HANDLE_EOF:          return MA_END_OF_FILE;
+        case ERROR_NEGATIVE_SEEK:       return MA_BAD_SEEK;
+        case ERROR_INVALID_PARAMETER:   return MA_INVALID_ARGS;
+        case ERROR_ACCESS_DENIED:       return MA_ACCESS_DENIED;
+        case ERROR_SEM_TIMEOUT:         return MA_TIMEOUT;
+        case ERROR_FILE_NOT_FOUND:      return MA_DOES_NOT_EXIST;
+        default: break;
+    }
+
+    return MA_ERROR;
+}
+#endif  /* MA_WIN32 */
+
+
+/*******************************************************************************
+
+Threading
+
+*******************************************************************************/
+#ifdef MA_WIN32
+    #define MA_THREADCALL WINAPI
+    typedef unsigned long ma_thread_result;
+#else
+    #define MA_THREADCALL
+    typedef void* ma_thread_result;
+#endif
+typedef ma_thread_result (MA_THREADCALL * ma_thread_entry_proc)(void* pData);
+
+#ifdef MA_WIN32
+static int ma_thread_priority_to_win32(ma_thread_priority priority)
+{
+    switch (priority) {
+        case ma_thread_priority_idle:     return THREAD_PRIORITY_IDLE;
+        case ma_thread_priority_lowest:   return THREAD_PRIORITY_LOWEST;
+        case ma_thread_priority_low:      return THREAD_PRIORITY_BELOW_NORMAL;
+        case ma_thread_priority_normal:   return THREAD_PRIORITY_NORMAL;
+        case ma_thread_priority_high:     return THREAD_PRIORITY_ABOVE_NORMAL;
+        case ma_thread_priority_highest:  return THREAD_PRIORITY_HIGHEST;
+        case ma_thread_priority_realtime: return THREAD_PRIORITY_TIME_CRITICAL;
+        default:                          return THREAD_PRIORITY_NORMAL;
+    }
+}
+
+static ma_result ma_thread_create__win32(ma_context* pContext, ma_thread* pThread, ma_thread_entry_proc entryProc, void* pData)
+{
+    pThread->win32.hThread = CreateThread(NULL, 0, entryProc, pData, 0, NULL);
+    if (pThread->win32.hThread == NULL) {
+        return ma_result_from_GetLastError(GetLastError());
+    }
+
+    SetThreadPriority((HANDLE)pThread->win32.hThread, ma_thread_priority_to_win32(pContext->threadPriority));
+
+    return MA_SUCCESS;
+}
+
+static void ma_thread_wait__win32(ma_thread* pThread)
+{
+    WaitForSingleObject(pThread->win32.hThread, INFINITE);
+}
+
+static void ma_sleep__win32(ma_uint32 milliseconds)
+{
+    Sleep((DWORD)milliseconds);
+}
+
+
+static ma_result ma_mutex_init__win32(ma_mutex* pMutex)
+{
+    *pMutex = CreateEventW(NULL, FALSE, TRUE, NULL);
+    if (*pMutex == NULL) {
+        return ma_result_from_GetLastError(GetLastError());
+    }
+
+    return MA_SUCCESS;
+}
+
+static void ma_mutex_uninit__win32(ma_mutex* pMutex)
+{
+    CloseHandle((HANDLE)*pMutex);
+}
+
+static void ma_mutex_lock__win32(ma_mutex* pMutex)
+{
+    WaitForSingleObject((HANDLE)*pMutex, INFINITE);
+}
+
+static void ma_mutex_unlock__win32(ma_mutex* pMutex)
+{
+    SetEvent((HANDLE)*pMutex);
+}
+
+
+static ma_result ma_event_init__win32(ma_context* pContext, ma_event* pEvent)
+{
+    (void)pContext;
+
+    pEvent->win32.hEvent = CreateEventW(NULL, FALSE, FALSE, NULL);
+    if (pEvent->win32.hEvent == NULL) {
+        return ma_result_from_GetLastError(GetLastError());
+    }
+
+    return MA_SUCCESS;
+}
+
+static void ma_event_uninit__win32(ma_event* pEvent)
+{
+    CloseHandle(pEvent->win32.hEvent);
+}
+
+static ma_bool32 ma_event_wait__win32(ma_event* pEvent)
+{
+    return WaitForSingleObject(pEvent->win32.hEvent, INFINITE) == WAIT_OBJECT_0;
+}
+
+static ma_bool32 ma_event_signal__win32(ma_event* pEvent)
+{
+    return SetEvent(pEvent->win32.hEvent);
+}
+
+
+static ma_result ma_semaphore_init__win32(ma_context* pContext, int initialValue, ma_semaphore* pSemaphore)
+{
+    (void)pContext;
+
+    pSemaphore->win32.hSemaphore = CreateSemaphoreW(NULL, (LONG)initialValue, LONG_MAX, NULL);
+    if (pSemaphore->win32.hSemaphore == NULL) {
+        return ma_result_from_GetLastError(GetLastError());
+    }
+
+    return MA_SUCCESS;
+}
+
+static void ma_semaphore_uninit__win32(ma_semaphore* pSemaphore)
+{
+    CloseHandle((HANDLE)pSemaphore->win32.hSemaphore);
+}
+
+static ma_bool32 ma_semaphore_wait__win32(ma_semaphore* pSemaphore)
+{
+    return WaitForSingleObject((HANDLE)pSemaphore->win32.hSemaphore, INFINITE) == WAIT_OBJECT_0;
+}
+
+static ma_bool32 ma_semaphore_release__win32(ma_semaphore* pSemaphore)
+{
+    return ReleaseSemaphore((HANDLE)pSemaphore->win32.hSemaphore, 1, NULL) != 0;
+}
+#endif
+
+
+#ifdef MA_POSIX
+#include <sched.h>
+#include <sys/time.h>
+
+typedef int (* ma_pthread_create_proc)(pthread_t *thread, const pthread_attr_t *attr, void *(*start_routine) (void *), void *arg);
+typedef int (* ma_pthread_join_proc)(pthread_t thread, void **retval);
+typedef int (* ma_pthread_mutex_init_proc)(pthread_mutex_t *__mutex, const pthread_mutexattr_t *__mutexattr);
+typedef int (* ma_pthread_mutex_destroy_proc)(pthread_mutex_t *__mutex);
+typedef int (* ma_pthread_mutex_lock_proc)(pthread_mutex_t *__mutex);
+typedef int (* ma_pthread_mutex_unlock_proc)(pthread_mutex_t *__mutex);
+typedef int (* ma_pthread_cond_init_proc)(pthread_cond_t *__restrict __cond, const pthread_condattr_t *__restrict __cond_attr);
+typedef int (* ma_pthread_cond_destroy_proc)(pthread_cond_t *__cond);
+typedef int (* ma_pthread_cond_signal_proc)(pthread_cond_t *__cond);
+typedef int (* ma_pthread_cond_wait_proc)(pthread_cond_t *__restrict __cond, pthread_mutex_t *__restrict __mutex);
+typedef int (* ma_pthread_attr_init_proc)(pthread_attr_t *attr);
+typedef int (* ma_pthread_attr_destroy_proc)(pthread_attr_t *attr);
+typedef int (* ma_pthread_attr_setschedpolicy_proc)(pthread_attr_t *attr, int policy);
+typedef int (* ma_pthread_attr_getschedparam_proc)(const pthread_attr_t *attr, struct sched_param *param);
+typedef int (* ma_pthread_attr_setschedparam_proc)(pthread_attr_t *attr, const struct sched_param *param);
+
+static ma_result ma_thread_create__posix(ma_context* pContext, ma_thread* pThread, ma_thread_entry_proc entryProc, void* pData)
+{
+    int result;
+    pthread_attr_t* pAttr = NULL;
+
+#if !defined(__EMSCRIPTEN__)
+    /* Try setting the thread priority. It's not critical if anything fails here. */
+    pthread_attr_t attr;
+    if (((ma_pthread_attr_init_proc)pContext->posix.pthread_attr_init)(&attr) == 0) {
+        int scheduler = -1;
+        if (pContext->threadPriority == ma_thread_priority_idle) {
+#ifdef SCHED_IDLE
+            if (((ma_pthread_attr_setschedpolicy_proc)pContext->posix.pthread_attr_setschedpolicy)(&attr, SCHED_IDLE) == 0) {
+                scheduler = SCHED_IDLE;
+            }
+#endif
+        } else if (pContext->threadPriority == ma_thread_priority_realtime) {
+#ifdef SCHED_FIFO
+            if (((ma_pthread_attr_setschedpolicy_proc)pContext->posix.pthread_attr_setschedpolicy)(&attr, SCHED_FIFO) == 0) {
+                scheduler = SCHED_FIFO;
+            }
+#endif
+#ifdef MA_LINUX
+        } else {
+            scheduler = sched_getscheduler(0);
+#endif
+        }
+
+        if (scheduler != -1) {
+            int priorityMin = sched_get_priority_min(scheduler);
+            int priorityMax = sched_get_priority_max(scheduler);
+            int priorityStep = (priorityMax - priorityMin) / 7;  /* 7 = number of priorities supported by miniaudio. */
+
+            struct sched_param sched;
+            if (((ma_pthread_attr_getschedparam_proc)pContext->posix.pthread_attr_getschedparam)(&attr, &sched) == 0) {
+                if (pContext->threadPriority == ma_thread_priority_idle) {
+                    sched.sched_priority = priorityMin;
+                } else if (pContext->threadPriority == ma_thread_priority_realtime) {
+                    sched.sched_priority = priorityMax;
+                } else {
+                    sched.sched_priority += ((int)pContext->threadPriority + 5) * priorityStep;  /* +5 because the lowest priority is -5. */
+                    if (sched.sched_priority < priorityMin) {
+                        sched.sched_priority = priorityMin;
+                    }
+                    if (sched.sched_priority > priorityMax) {
+                        sched.sched_priority = priorityMax;
+                    }
+                }
+
+                if (((ma_pthread_attr_setschedparam_proc)pContext->posix.pthread_attr_setschedparam)(&attr, &sched) == 0) {
+                    pAttr = &attr;
+                }
+            }
+        }
+
+        ((ma_pthread_attr_destroy_proc)pContext->posix.pthread_attr_destroy)(&attr);
+    }
+#endif
+
+    result = ((ma_pthread_create_proc)pContext->posix.pthread_create)(&pThread->posix.thread, pAttr, entryProc, pData);
+    if (result != 0) {
+        return ma_result_from_errno(result);
+    }
+
+    return MA_SUCCESS;
+}
+
+static void ma_thread_wait__posix(ma_thread* pThread)
+{
+    ((ma_pthread_join_proc)pThread->pContext->posix.pthread_join)(pThread->posix.thread, NULL);
+}
+
+#if !defined(MA_EMSCRIPTEN)
+static void ma_sleep__posix(ma_uint32 milliseconds)
+{
+#ifdef MA_EMSCRIPTEN
+    (void)milliseconds;
+    MA_ASSERT(MA_FALSE);  /* The Emscripten build should never sleep. */
+#else
+    #if _POSIX_C_SOURCE >= 199309L
+        struct timespec ts;
+        ts.tv_sec  = milliseconds / 1000;
+        ts.tv_nsec = milliseconds % 1000 * 1000000;
+        nanosleep(&ts, NULL);
+    #else
+        struct timeval tv;
+        tv.tv_sec  = milliseconds / 1000;
+        tv.tv_usec = milliseconds % 1000 * 1000;
+        select(0, NULL, NULL, NULL, &tv);
+    #endif
+#endif
+}
+#endif  /* MA_EMSCRIPTEN */
+
+
+static ma_result ma_mutex_init__posix(ma_mutex* pMutex)
+{
+    int result = pthread_mutex_init((pthread_mutex_t*)pMutex, NULL);
+    if (result != 0) {
+        return ma_result_from_errno(result);
+    }
+
+    return MA_SUCCESS;
+}
+
+static void ma_mutex_uninit__posix(ma_mutex* pMutex)
+{
+    pthread_mutex_destroy((pthread_mutex_t*)pMutex);
+}
+
+static void ma_mutex_lock__posix(ma_mutex* pMutex)
+{
+    pthread_mutex_lock((pthread_mutex_t*)pMutex);
+}
+
+static void ma_mutex_unlock__posix(ma_mutex* pMutex)
+{
+    pthread_mutex_unlock((pthread_mutex_t*)pMutex);
+}
+
+
+static ma_result ma_event_init__posix(ma_context* pContext, ma_event* pEvent)
+{
+    int result;
+
+    result = ((ma_pthread_mutex_init_proc)pContext->posix.pthread_mutex_init)(&pEvent->posix.mutex, NULL);
+    if (result != 0) {
+        return ma_result_from_errno(result);
+    }
+
+    result = ((ma_pthread_cond_init_proc)pContext->posix.pthread_cond_init)(&pEvent->posix.condition, NULL);
+    if (result != 0) {
+        ((ma_pthread_mutex_destroy_proc)pEvent->pContext->posix.pthread_mutex_destroy)(&pEvent->posix.mutex);
+        return ma_result_from_errno(result);
+    }
+
+    pEvent->posix.value = 0;
+    return MA_SUCCESS;
+}
+
+static void ma_event_uninit__posix(ma_event* pEvent)
+{
+    ((ma_pthread_cond_destroy_proc)pEvent->pContext->posix.pthread_cond_destroy)(&pEvent->posix.condition);
+    ((ma_pthread_mutex_destroy_proc)pEvent->pContext->posix.pthread_mutex_destroy)(&pEvent->posix.mutex);
+}
+
+static ma_bool32 ma_event_wait__posix(ma_event* pEvent)
+{
+    ((ma_pthread_mutex_lock_proc)pEvent->pContext->posix.pthread_mutex_lock)(&pEvent->posix.mutex);
+    {
+        while (pEvent->posix.value == 0) {
+            ((ma_pthread_cond_wait_proc)pEvent->pContext->posix.pthread_cond_wait)(&pEvent->posix.condition, &pEvent->posix.mutex);
+        }
+        pEvent->posix.value = 0;  /* Auto-reset. */
+    }
+    ((ma_pthread_mutex_unlock_proc)pEvent->pContext->posix.pthread_mutex_unlock)(&pEvent->posix.mutex);
+
+    return MA_TRUE;
+}
+
+static ma_bool32 ma_event_signal__posix(ma_event* pEvent)
+{
+    ((ma_pthread_mutex_lock_proc)pEvent->pContext->posix.pthread_mutex_lock)(&pEvent->posix.mutex);
+    {
+        pEvent->posix.value = 1;
+        ((ma_pthread_cond_signal_proc)pEvent->pContext->posix.pthread_cond_signal)(&pEvent->posix.condition);
+    }
+    ((ma_pthread_mutex_unlock_proc)pEvent->pContext->posix.pthread_mutex_unlock)(&pEvent->posix.mutex);
+
+    return MA_TRUE;
+}
+
+
+static ma_result ma_semaphore_init__posix(ma_context* pContext, int initialValue, ma_semaphore* pSemaphore)
+{
+    (void)pContext;
+
+#if defined(MA_APPLE)
+    /* Not yet implemented for Apple platforms since sem_init() is deprecated. Need to use a named semaphore via sem_open() instead. */
+    (void)initialValue;
+    (void)pSemaphore;
+    return MA_INVALID_OPERATION;
+#else
+    if (sem_init(&pSemaphore->posix.semaphore, 0, (unsigned int)initialValue) == 0) {
+        return ma_result_from_errno(errno);
+    }
+#endif
+
+    return MA_SUCCESS;
+}
+
+static void ma_semaphore_uninit__posix(ma_semaphore* pSemaphore)
+{
+    sem_close(&pSemaphore->posix.semaphore);
+}
+
+static ma_bool32 ma_semaphore_wait__posix(ma_semaphore* pSemaphore)
+{
+    return sem_wait(&pSemaphore->posix.semaphore) != -1;
+}
+
+static ma_bool32 ma_semaphore_release__posix(ma_semaphore* pSemaphore)
+{
+    return sem_post(&pSemaphore->posix.semaphore) != -1;
+}
+#endif
+
+static ma_result ma_thread_create(ma_context* pContext, ma_thread* pThread, ma_thread_entry_proc entryProc, void* pData)
+{
+    if (pContext == NULL || pThread == NULL || entryProc == NULL) {
+        return MA_FALSE;
+    }
+
+    pThread->pContext = pContext;
+
+#ifdef MA_WIN32
+    return ma_thread_create__win32(pContext, pThread, entryProc, pData);
+#endif
+#ifdef MA_POSIX
+    return ma_thread_create__posix(pContext, pThread, entryProc, pData);
+#endif
+}
+
+static void ma_thread_wait(ma_thread* pThread)
+{
+    if (pThread == NULL) {
+        return;
+    }
+
+#ifdef MA_WIN32
+    ma_thread_wait__win32(pThread);
+#endif
+#ifdef MA_POSIX
+    ma_thread_wait__posix(pThread);
+#endif
+}
+
+#if !defined(MA_EMSCRIPTEN)
+static void ma_sleep(ma_uint32 milliseconds)
+{
+#ifdef MA_WIN32
+    ma_sleep__win32(milliseconds);
+#endif
+#ifdef MA_POSIX
+    ma_sleep__posix(milliseconds);
+#endif
+}
+#endif
+
+
+MA_API ma_result ma_mutex_init(ma_mutex* pMutex)
+{
+    if (pMutex == NULL) {
+        return MA_INVALID_ARGS;
+    }
+
+#ifdef MA_WIN32
+    return ma_mutex_init__win32(pMutex);
+#endif
+#ifdef MA_POSIX
+    return ma_mutex_init__posix(pMutex);
+#endif
+}
+
+MA_API void ma_mutex_uninit(ma_mutex* pMutex)
+{
+    if (pMutex == NULL) {
+        return;
+    }
+
+#ifdef MA_WIN32
+    ma_mutex_uninit__win32(pMutex);
+#endif
+#ifdef MA_POSIX
+    ma_mutex_uninit__posix(pMutex);
+#endif
+}
+
+MA_API void ma_mutex_lock(ma_mutex* pMutex)
+{
+    if (pMutex == NULL) {
+        return;
+    }
+
+#ifdef MA_WIN32
+    ma_mutex_lock__win32(pMutex);
+#endif
+#ifdef MA_POSIX
+    ma_mutex_lock__posix(pMutex);
+#endif
+}
+
+MA_API void ma_mutex_unlock(ma_mutex* pMutex)
+{
+    if (pMutex == NULL) {
+        return;
+}
+
+#ifdef MA_WIN32
+    ma_mutex_unlock__win32(pMutex);
+#endif
+#ifdef MA_POSIX
+    ma_mutex_unlock__posix(pMutex);
+#endif
+}
+
+
+MA_API ma_result ma_event_init(ma_context* pContext, ma_event* pEvent)
+{
+    if (pContext == NULL || pEvent == NULL) {
+        return MA_FALSE;
+    }
+
+    pEvent->pContext = pContext;
+
+#ifdef MA_WIN32
+    return ma_event_init__win32(pContext, pEvent);
+#endif
+#ifdef MA_POSIX
+    return ma_event_init__posix(pContext, pEvent);
+#endif
+}
+
+MA_API void ma_event_uninit(ma_event* pEvent)
+{
+    if (pEvent == NULL || pEvent->pContext == NULL) {
+        return;
+    }
+
+#ifdef MA_WIN32
+    ma_event_uninit__win32(pEvent);
+#endif
+#ifdef MA_POSIX
+    ma_event_uninit__posix(pEvent);
+#endif
+}
+
+MA_API ma_bool32 ma_event_wait(ma_event* pEvent)
+{
+    if (pEvent == NULL || pEvent->pContext == NULL) {
+        return MA_FALSE;
+    }
+
+#ifdef MA_WIN32
+    return ma_event_wait__win32(pEvent);
+#endif
+#ifdef MA_POSIX
+    return ma_event_wait__posix(pEvent);
+#endif
+}
+
+MA_API ma_bool32 ma_event_signal(ma_event* pEvent)
+{
+    if (pEvent == NULL || pEvent->pContext == NULL) {
+        return MA_FALSE;
+    }
+
+#ifdef MA_WIN32
+    return ma_event_signal__win32(pEvent);
+#endif
+#ifdef MA_POSIX
+    return ma_event_signal__posix(pEvent);
+#endif
+}
+
+
+MA_API ma_result ma_semaphore_init(ma_context* pContext, int initialValue, ma_semaphore* pSemaphore)
+{
+    if (pContext == NULL || pSemaphore == NULL) {
+        return MA_INVALID_ARGS;
+    }
+
+#ifdef MA_WIN32
+    return ma_semaphore_init__win32(pContext, initialValue, pSemaphore);
+#endif
+#ifdef MA_POSIX
+    return ma_semaphore_init__posix(pContext, initialValue, pSemaphore);
+#endif
+}
+
+MA_API void ma_semaphore_uninit(ma_semaphore* pSemaphore)
+{
+    if (pSemaphore == NULL) {
+        return;
+    }
+
+#ifdef MA_WIN32
+    ma_semaphore_uninit__win32(pSemaphore);
+#endif
+#ifdef MA_POSIX
+    ma_semaphore_uninit__posix(pSemaphore);
+#endif
+}
+
+MA_API ma_bool32 ma_semaphore_wait(ma_semaphore* pSemaphore)
+{
+    if (pSemaphore == NULL) {
+        return MA_FALSE;
+    }
+
+#ifdef MA_WIN32
+    return ma_semaphore_wait__win32(pSemaphore);
+#endif
+#ifdef MA_POSIX
+    return ma_semaphore_wait__posix(pSemaphore);
+#endif
+}
+
+MA_API ma_bool32 ma_semaphore_release(ma_semaphore* pSemaphore)
+{
+    if (pSemaphore == NULL) {
+        return MA_FALSE;
+    }
+
+#ifdef MA_WIN32
+    return ma_semaphore_release__win32(pSemaphore);
+#endif
+#ifdef MA_POSIX
+    return ma_semaphore_release__posix(pSemaphore);
+#endif
+}
+
+
 /************************************************************************************************************************************************************
 *************************************************************************************************************************************************************
 
@@ -7685,7 +8288,6 @@ DEVICE I/O
 #endif
 
 #ifdef MA_POSIX
-    #include <sys/time.h>
     #include <sys/types.h>
     #include <unistd.h>
     #include <dlfcn.h>
@@ -7822,36 +8424,6 @@ MA_API ma_bool32 ma_is_loopback_supported(ma_backend backend)
 
 
 #ifdef MA_WIN32
-    #define MA_THREADCALL WINAPI
-    typedef unsigned long ma_thread_result;
-#else
-    #define MA_THREADCALL
-    typedef void* ma_thread_result;
-#endif
-typedef ma_thread_result (MA_THREADCALL * ma_thread_entry_proc)(void* pData);
-
-#ifdef MA_WIN32
-static ma_result ma_result_from_GetLastError(DWORD error)
-{
-    switch (error)
-    {
-        case ERROR_SUCCESS:             return MA_SUCCESS;
-        case ERROR_PATH_NOT_FOUND:      return MA_DOES_NOT_EXIST;
-        case ERROR_TOO_MANY_OPEN_FILES: return MA_TOO_MANY_OPEN_FILES;
-        case ERROR_NOT_ENOUGH_MEMORY:   return MA_OUT_OF_MEMORY;
-        case ERROR_DISK_FULL:           return MA_NO_SPACE;
-        case ERROR_HANDLE_EOF:          return MA_END_OF_FILE;
-        case ERROR_NEGATIVE_SEEK:       return MA_BAD_SEEK;
-        case ERROR_INVALID_PARAMETER:   return MA_INVALID_ARGS;
-        case ERROR_ACCESS_DENIED:       return MA_ACCESS_DENIED;
-        case ERROR_SEM_TIMEOUT:         return MA_TIMEOUT;
-        case ERROR_FILE_NOT_FOUND:      return MA_DOES_NOT_EXIST;
-        default: break;
-    }
-
-    return MA_ERROR;
-}
-
 /* WASAPI error codes. */
 #define MA_AUDCLNT_E_NOT_INITIALIZED              ((HRESULT)0x88890001)
 #define MA_AUDCLNT_E_ALREADY_INITIALIZED          ((HRESULT)0x88890002)
@@ -8422,574 +8994,6 @@ MA_API ma_proc ma_dlsym(ma_context* pContext, ma_handle handle, const char* symb
 
     (void)pContext; /* It's possible for pContext to be unused. */
     return proc;
-}
-
-
-/*******************************************************************************
-
-Threading
-
-*******************************************************************************/
-#ifdef MA_WIN32
-static int ma_thread_priority_to_win32(ma_thread_priority priority)
-{
-    switch (priority) {
-        case ma_thread_priority_idle:     return THREAD_PRIORITY_IDLE;
-        case ma_thread_priority_lowest:   return THREAD_PRIORITY_LOWEST;
-        case ma_thread_priority_low:      return THREAD_PRIORITY_BELOW_NORMAL;
-        case ma_thread_priority_normal:   return THREAD_PRIORITY_NORMAL;
-        case ma_thread_priority_high:     return THREAD_PRIORITY_ABOVE_NORMAL;
-        case ma_thread_priority_highest:  return THREAD_PRIORITY_HIGHEST;
-        case ma_thread_priority_realtime: return THREAD_PRIORITY_TIME_CRITICAL;
-        default:                          return THREAD_PRIORITY_NORMAL;
-    }
-}
-
-static ma_result ma_thread_create__win32(ma_context* pContext, ma_thread* pThread, ma_thread_entry_proc entryProc, void* pData)
-{
-    pThread->win32.hThread = CreateThread(NULL, 0, entryProc, pData, 0, NULL);
-    if (pThread->win32.hThread == NULL) {
-        return ma_result_from_GetLastError(GetLastError());
-    }
-
-    SetThreadPriority((HANDLE)pThread->win32.hThread, ma_thread_priority_to_win32(pContext->threadPriority));
-
-    return MA_SUCCESS;
-}
-
-static void ma_thread_wait__win32(ma_thread* pThread)
-{
-    WaitForSingleObject(pThread->win32.hThread, INFINITE);
-}
-
-static void ma_sleep__win32(ma_uint32 milliseconds)
-{
-    Sleep((DWORD)milliseconds);
-}
-
-
-static ma_result ma_mutex_init__win32(ma_mutex* pMutex)
-{
-    *pMutex = CreateEventW(NULL, FALSE, TRUE, NULL);
-    if (*pMutex == NULL) {
-        return ma_result_from_GetLastError(GetLastError());
-    }
-
-    return MA_SUCCESS;
-}
-
-static void ma_mutex_uninit__win32(ma_mutex* pMutex)
-{
-    CloseHandle((HANDLE)*pMutex);
-}
-
-static void ma_mutex_lock__win32(ma_mutex* pMutex)
-{
-    WaitForSingleObject((HANDLE)*pMutex, INFINITE);
-}
-
-static void ma_mutex_unlock__win32(ma_mutex* pMutex)
-{
-    SetEvent((HANDLE)*pMutex);
-}
-
-
-static ma_result ma_event_init__win32(ma_context* pContext, ma_event* pEvent)
-{
-    (void)pContext;
-
-    pEvent->win32.hEvent = CreateEventW(NULL, FALSE, FALSE, NULL);
-    if (pEvent->win32.hEvent == NULL) {
-        return ma_result_from_GetLastError(GetLastError());
-    }
-
-    return MA_SUCCESS;
-}
-
-static void ma_event_uninit__win32(ma_event* pEvent)
-{
-    CloseHandle(pEvent->win32.hEvent);
-}
-
-static ma_bool32 ma_event_wait__win32(ma_event* pEvent)
-{
-    return WaitForSingleObject(pEvent->win32.hEvent, INFINITE) == WAIT_OBJECT_0;
-}
-
-static ma_bool32 ma_event_signal__win32(ma_event* pEvent)
-{
-    return SetEvent(pEvent->win32.hEvent);
-}
-
-
-static ma_result ma_semaphore_init__win32(ma_context* pContext, int initialValue, ma_semaphore* pSemaphore)
-{
-    (void)pContext;
-
-    pSemaphore->win32.hSemaphore = CreateSemaphoreW(NULL, (LONG)initialValue, LONG_MAX, NULL);
-    if (pSemaphore->win32.hSemaphore == NULL) {
-        return ma_result_from_GetLastError(GetLastError());
-    }
-
-    return MA_SUCCESS;
-}
-
-static void ma_semaphore_uninit__win32(ma_semaphore* pSemaphore)
-{
-    CloseHandle((HANDLE)pSemaphore->win32.hSemaphore);
-}
-
-static ma_bool32 ma_semaphore_wait__win32(ma_semaphore* pSemaphore)
-{
-    return WaitForSingleObject((HANDLE)pSemaphore->win32.hSemaphore, INFINITE) == WAIT_OBJECT_0;
-}
-
-static ma_bool32 ma_semaphore_release__win32(ma_semaphore* pSemaphore)
-{
-    return ReleaseSemaphore((HANDLE)pSemaphore->win32.hSemaphore, 1, NULL) != 0;
-}
-#endif
-
-
-#ifdef MA_POSIX
-#include <sched.h>
-
-typedef int (* ma_pthread_create_proc)(pthread_t *thread, const pthread_attr_t *attr, void *(*start_routine) (void *), void *arg);
-typedef int (* ma_pthread_join_proc)(pthread_t thread, void **retval);
-typedef int (* ma_pthread_mutex_init_proc)(pthread_mutex_t *__mutex, const pthread_mutexattr_t *__mutexattr);
-typedef int (* ma_pthread_mutex_destroy_proc)(pthread_mutex_t *__mutex);
-typedef int (* ma_pthread_mutex_lock_proc)(pthread_mutex_t *__mutex);
-typedef int (* ma_pthread_mutex_unlock_proc)(pthread_mutex_t *__mutex);
-typedef int (* ma_pthread_cond_init_proc)(pthread_cond_t *__restrict __cond, const pthread_condattr_t *__restrict __cond_attr);
-typedef int (* ma_pthread_cond_destroy_proc)(pthread_cond_t *__cond);
-typedef int (* ma_pthread_cond_signal_proc)(pthread_cond_t *__cond);
-typedef int (* ma_pthread_cond_wait_proc)(pthread_cond_t *__restrict __cond, pthread_mutex_t *__restrict __mutex);
-typedef int (* ma_pthread_attr_init_proc)(pthread_attr_t *attr);
-typedef int (* ma_pthread_attr_destroy_proc)(pthread_attr_t *attr);
-typedef int (* ma_pthread_attr_setschedpolicy_proc)(pthread_attr_t *attr, int policy);
-typedef int (* ma_pthread_attr_getschedparam_proc)(const pthread_attr_t *attr, struct sched_param *param);
-typedef int (* ma_pthread_attr_setschedparam_proc)(pthread_attr_t *attr, const struct sched_param *param);
-
-static ma_result ma_thread_create__posix(ma_context* pContext, ma_thread* pThread, ma_thread_entry_proc entryProc, void* pData)
-{
-    int result;
-    pthread_attr_t* pAttr = NULL;
-
-#if !defined(__EMSCRIPTEN__)
-    /* Try setting the thread priority. It's not critical if anything fails here. */
-    pthread_attr_t attr;
-    if (((ma_pthread_attr_init_proc)pContext->posix.pthread_attr_init)(&attr) == 0) {
-        int scheduler = -1;
-        if (pContext->threadPriority == ma_thread_priority_idle) {
-#ifdef SCHED_IDLE
-            if (((ma_pthread_attr_setschedpolicy_proc)pContext->posix.pthread_attr_setschedpolicy)(&attr, SCHED_IDLE) == 0) {
-                scheduler = SCHED_IDLE;
-            }
-#endif
-        } else if (pContext->threadPriority == ma_thread_priority_realtime) {
-#ifdef SCHED_FIFO
-            if (((ma_pthread_attr_setschedpolicy_proc)pContext->posix.pthread_attr_setschedpolicy)(&attr, SCHED_FIFO) == 0) {
-                scheduler = SCHED_FIFO;
-            }
-#endif
-#ifdef MA_LINUX
-        } else {
-            scheduler = sched_getscheduler(0);
-#endif
-        }
-
-        if (scheduler != -1) {
-            int priorityMin = sched_get_priority_min(scheduler);
-            int priorityMax = sched_get_priority_max(scheduler);
-            int priorityStep = (priorityMax - priorityMin) / 7;  /* 7 = number of priorities supported by miniaudio. */
-
-            struct sched_param sched;
-            if (((ma_pthread_attr_getschedparam_proc)pContext->posix.pthread_attr_getschedparam)(&attr, &sched) == 0) {
-                if (pContext->threadPriority == ma_thread_priority_idle) {
-                    sched.sched_priority = priorityMin;
-                } else if (pContext->threadPriority == ma_thread_priority_realtime) {
-                    sched.sched_priority = priorityMax;
-                } else {
-                    sched.sched_priority += ((int)pContext->threadPriority + 5) * priorityStep;  /* +5 because the lowest priority is -5. */
-                    if (sched.sched_priority < priorityMin) {
-                        sched.sched_priority = priorityMin;
-                    }
-                    if (sched.sched_priority > priorityMax) {
-                        sched.sched_priority = priorityMax;
-                    }
-                }
-
-                if (((ma_pthread_attr_setschedparam_proc)pContext->posix.pthread_attr_setschedparam)(&attr, &sched) == 0) {
-                    pAttr = &attr;
-                }
-            }
-        }
-
-        ((ma_pthread_attr_destroy_proc)pContext->posix.pthread_attr_destroy)(&attr);
-    }
-#endif
-
-    result = ((ma_pthread_create_proc)pContext->posix.pthread_create)(&pThread->posix.thread, pAttr, entryProc, pData);
-    if (result != 0) {
-        return ma_result_from_errno(result);
-    }
-
-    return MA_SUCCESS;
-}
-
-static void ma_thread_wait__posix(ma_thread* pThread)
-{
-    ((ma_pthread_join_proc)pThread->pContext->posix.pthread_join)(pThread->posix.thread, NULL);
-}
-
-#if !defined(MA_EMSCRIPTEN)
-static void ma_sleep__posix(ma_uint32 milliseconds)
-{
-#ifdef MA_EMSCRIPTEN
-    (void)milliseconds;
-    MA_ASSERT(MA_FALSE);  /* The Emscripten build should never sleep. */
-#else
-    #if _POSIX_C_SOURCE >= 199309L
-        struct timespec ts;
-        ts.tv_sec  = milliseconds / 1000;
-        ts.tv_nsec = milliseconds % 1000 * 1000000;
-        nanosleep(&ts, NULL);
-    #else
-        struct timeval tv;
-        tv.tv_sec  = milliseconds / 1000;
-        tv.tv_usec = milliseconds % 1000 * 1000;
-        select(0, NULL, NULL, NULL, &tv);
-    #endif
-#endif
-}
-#endif  /* MA_EMSCRIPTEN */
-
-
-static ma_result ma_mutex_init__posix(ma_mutex* pMutex)
-{
-    int result = pthread_mutex_init((pthread_mutex_t*)pMutex, NULL);
-    if (result != 0) {
-        return ma_result_from_errno(result);
-    }
-
-    return MA_SUCCESS;
-}
-
-static void ma_mutex_uninit__posix(ma_mutex* pMutex)
-{
-    pthread_mutex_destroy((pthread_mutex_t*)pMutex);
-}
-
-static void ma_mutex_lock__posix(ma_mutex* pMutex)
-{
-    pthread_mutex_lock((pthread_mutex_t*)pMutex);
-}
-
-static void ma_mutex_unlock__posix(ma_mutex* pMutex)
-{
-    pthread_mutex_unlock((pthread_mutex_t*)pMutex);
-}
-
-
-static ma_result ma_event_init__posix(ma_context* pContext, ma_event* pEvent)
-{
-    int result;
-
-    result = ((ma_pthread_mutex_init_proc)pContext->posix.pthread_mutex_init)(&pEvent->posix.mutex, NULL);
-    if (result != 0) {
-        return ma_result_from_errno(result);
-    }
-
-    result = ((ma_pthread_cond_init_proc)pContext->posix.pthread_cond_init)(&pEvent->posix.condition, NULL);
-    if (result != 0) {
-        ((ma_pthread_mutex_destroy_proc)pEvent->pContext->posix.pthread_mutex_destroy)(&pEvent->posix.mutex);
-        return ma_result_from_errno(result);
-    }
-
-    pEvent->posix.value = 0;
-    return MA_SUCCESS;
-}
-
-static void ma_event_uninit__posix(ma_event* pEvent)
-{
-    ((ma_pthread_cond_destroy_proc)pEvent->pContext->posix.pthread_cond_destroy)(&pEvent->posix.condition);
-    ((ma_pthread_mutex_destroy_proc)pEvent->pContext->posix.pthread_mutex_destroy)(&pEvent->posix.mutex);
-}
-
-static ma_bool32 ma_event_wait__posix(ma_event* pEvent)
-{
-    ((ma_pthread_mutex_lock_proc)pEvent->pContext->posix.pthread_mutex_lock)(&pEvent->posix.mutex);
-    {
-        while (pEvent->posix.value == 0) {
-            ((ma_pthread_cond_wait_proc)pEvent->pContext->posix.pthread_cond_wait)(&pEvent->posix.condition, &pEvent->posix.mutex);
-        }
-        pEvent->posix.value = 0;  /* Auto-reset. */
-    }
-    ((ma_pthread_mutex_unlock_proc)pEvent->pContext->posix.pthread_mutex_unlock)(&pEvent->posix.mutex);
-
-    return MA_TRUE;
-}
-
-static ma_bool32 ma_event_signal__posix(ma_event* pEvent)
-{
-    ((ma_pthread_mutex_lock_proc)pEvent->pContext->posix.pthread_mutex_lock)(&pEvent->posix.mutex);
-    {
-        pEvent->posix.value = 1;
-        ((ma_pthread_cond_signal_proc)pEvent->pContext->posix.pthread_cond_signal)(&pEvent->posix.condition);
-    }
-    ((ma_pthread_mutex_unlock_proc)pEvent->pContext->posix.pthread_mutex_unlock)(&pEvent->posix.mutex);
-
-    return MA_TRUE;
-}
-
-
-static ma_result ma_semaphore_init__posix(ma_context* pContext, int initialValue, ma_semaphore* pSemaphore)
-{
-    (void)pContext;
-
-#if defined(MA_APPLE)
-    /* Not yet implemented for Apple platforms since sem_init() is deprecated. Need to use a named semaphore via sem_open() instead. */
-    (void)initialValue;
-    (void)pSemaphore;
-    return MA_INVALID_OPERATION;
-#else
-    if (sem_init(&pSemaphore->posix.semaphore, 0, (unsigned int)initialValue) == 0) {
-        return ma_result_from_errno(errno);
-    }
-#endif
-
-    return MA_SUCCESS;
-}
-
-static void ma_semaphore_uninit__posix(ma_semaphore* pSemaphore)
-{
-    sem_close(&pSemaphore->posix.semaphore);
-}
-
-static ma_bool32 ma_semaphore_wait__posix(ma_semaphore* pSemaphore)
-{
-    return sem_wait(&pSemaphore->posix.semaphore) != -1;
-}
-
-static ma_bool32 ma_semaphore_release__posix(ma_semaphore* pSemaphore)
-{
-    return sem_post(&pSemaphore->posix.semaphore) != -1;
-}
-#endif
-
-static ma_result ma_thread_create(ma_context* pContext, ma_thread* pThread, ma_thread_entry_proc entryProc, void* pData)
-{
-    if (pContext == NULL || pThread == NULL || entryProc == NULL) {
-        return MA_FALSE;
-    }
-
-    pThread->pContext = pContext;
-
-#ifdef MA_WIN32
-    return ma_thread_create__win32(pContext, pThread, entryProc, pData);
-#endif
-#ifdef MA_POSIX
-    return ma_thread_create__posix(pContext, pThread, entryProc, pData);
-#endif
-}
-
-static void ma_thread_wait(ma_thread* pThread)
-{
-    if (pThread == NULL) {
-        return;
-    }
-
-#ifdef MA_WIN32
-    ma_thread_wait__win32(pThread);
-#endif
-#ifdef MA_POSIX
-    ma_thread_wait__posix(pThread);
-#endif
-}
-
-#if !defined(MA_EMSCRIPTEN)
-static void ma_sleep(ma_uint32 milliseconds)
-{
-#ifdef MA_WIN32
-    ma_sleep__win32(milliseconds);
-#endif
-#ifdef MA_POSIX
-    ma_sleep__posix(milliseconds);
-#endif
-}
-#endif
-
-
-MA_API ma_result ma_mutex_init(ma_mutex* pMutex)
-{
-    if (pMutex == NULL) {
-        return MA_INVALID_ARGS;
-    }
-
-#ifdef MA_WIN32
-    return ma_mutex_init__win32(pMutex);
-#endif
-#ifdef MA_POSIX
-    return ma_mutex_init__posix(pMutex);
-#endif
-}
-
-MA_API void ma_mutex_uninit(ma_mutex* pMutex)
-{
-    if (pMutex == NULL) {
-        return;
-    }
-
-#ifdef MA_WIN32
-    ma_mutex_uninit__win32(pMutex);
-#endif
-#ifdef MA_POSIX
-    ma_mutex_uninit__posix(pMutex);
-#endif
-}
-
-MA_API void ma_mutex_lock(ma_mutex* pMutex)
-{
-    if (pMutex == NULL) {
-        return;
-    }
-
-#ifdef MA_WIN32
-    ma_mutex_lock__win32(pMutex);
-#endif
-#ifdef MA_POSIX
-    ma_mutex_lock__posix(pMutex);
-#endif
-}
-
-MA_API void ma_mutex_unlock(ma_mutex* pMutex)
-{
-    if (pMutex == NULL) {
-        return;
-}
-
-#ifdef MA_WIN32
-    ma_mutex_unlock__win32(pMutex);
-#endif
-#ifdef MA_POSIX
-    ma_mutex_unlock__posix(pMutex);
-#endif
-}
-
-
-MA_API ma_result ma_event_init(ma_context* pContext, ma_event* pEvent)
-{
-    if (pContext == NULL || pEvent == NULL) {
-        return MA_FALSE;
-    }
-
-    pEvent->pContext = pContext;
-
-#ifdef MA_WIN32
-    return ma_event_init__win32(pContext, pEvent);
-#endif
-#ifdef MA_POSIX
-    return ma_event_init__posix(pContext, pEvent);
-#endif
-}
-
-MA_API void ma_event_uninit(ma_event* pEvent)
-{
-    if (pEvent == NULL || pEvent->pContext == NULL) {
-        return;
-    }
-
-#ifdef MA_WIN32
-    ma_event_uninit__win32(pEvent);
-#endif
-#ifdef MA_POSIX
-    ma_event_uninit__posix(pEvent);
-#endif
-}
-
-MA_API ma_bool32 ma_event_wait(ma_event* pEvent)
-{
-    if (pEvent == NULL || pEvent->pContext == NULL) {
-        return MA_FALSE;
-    }
-
-#ifdef MA_WIN32
-    return ma_event_wait__win32(pEvent);
-#endif
-#ifdef MA_POSIX
-    return ma_event_wait__posix(pEvent);
-#endif
-}
-
-MA_API ma_bool32 ma_event_signal(ma_event* pEvent)
-{
-    if (pEvent == NULL || pEvent->pContext == NULL) {
-        return MA_FALSE;
-    }
-
-#ifdef MA_WIN32
-    return ma_event_signal__win32(pEvent);
-#endif
-#ifdef MA_POSIX
-    return ma_event_signal__posix(pEvent);
-#endif
-}
-
-
-MA_API ma_result ma_semaphore_init(ma_context* pContext, int initialValue, ma_semaphore* pSemaphore)
-{
-    if (pContext == NULL || pSemaphore == NULL) {
-        return MA_INVALID_ARGS;
-    }
-
-#ifdef MA_WIN32
-    return ma_semaphore_init__win32(pContext, initialValue, pSemaphore);
-#endif
-#ifdef MA_POSIX
-    return ma_semaphore_init__posix(pContext, initialValue, pSemaphore);
-#endif
-}
-
-MA_API void ma_semaphore_uninit(ma_semaphore* pSemaphore)
-{
-    if (pSemaphore == NULL) {
-        return;
-    }
-
-#ifdef MA_WIN32
-    ma_semaphore_uninit__win32(pSemaphore);
-#endif
-#ifdef MA_POSIX
-    ma_semaphore_uninit__posix(pSemaphore);
-#endif
-}
-
-MA_API ma_bool32 ma_semaphore_wait(ma_semaphore* pSemaphore)
-{
-    if (pSemaphore == NULL) {
-        return MA_FALSE;
-    }
-
-#ifdef MA_WIN32
-    return ma_semaphore_wait__win32(pSemaphore);
-#endif
-#ifdef MA_POSIX
-    return ma_semaphore_wait__posix(pSemaphore);
-#endif
-}
-
-MA_API ma_bool32 ma_semaphore_release(ma_semaphore* pSemaphore)
-{
-    if (pSemaphore == NULL) {
-        return MA_FALSE;
-    }
-
-#ifdef MA_WIN32
-    return ma_semaphore_release__win32(pSemaphore);
-#endif
-#ifdef MA_POSIX
-    return ma_semaphore_release__posix(pSemaphore);
-#endif
 }
 
 
@@ -10039,6 +10043,7 @@ static ma_result ma_context_init__null(const ma_context_config* pConfig, ma_cont
     return MA_SUCCESS;
 }
 #endif
+
 
 
 /*******************************************************************************
