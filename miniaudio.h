@@ -43538,6 +43538,7 @@ The following miscellaneous changes have also been made.
 REVISION HISTORY
 ================
 v0.10.8 - TBD
+  - Remove dependency on ma_context from mutexes.
   - Change playback.pDeviceID and capture.pDeviceID to constant pointers in ma_device_config.
   - Change ma_audio_buffer_unmap() to return MA_AT_END when the end has been reached. This should be considered successful.
   - Add support for memory mapping to ma_data_source.
@@ -43547,6 +43548,7 @@ v0.10.8 - TBD
   - Fix some bugs with the linear resampler when dynamically changing the sample rate.
   - Fix compilation errors with MA_NO_DEVICE_IO.
   - Fix some warnings with GCC and -std=c89.
+  - Minor optimization to ma_copy_pcm_frames(). This is now a no-op when the input and output buffers are the same.
 
 v0.10.7 - 2020-05-25
   - Fix a compilation error in the C++ build.
