@@ -2579,7 +2579,7 @@ static ma_result ma_mixer_mix_data_source_mmap(ma_mixer* pMixer, ma_data_source*
 
 static ma_result ma_mixer_mix_data_source_read(ma_mixer* pMixer, ma_data_source* pDataSource, ma_uint64 frameCount, float volume, ma_effect* pEffect, ma_format formatIn, ma_uint32 channelsIn, ma_bool32 loop)
 {
-    ma_result result;
+    ma_result result = MA_SUCCESS;
     ma_uint8  preMixBuffer[MA_DATA_CONVERTER_STACK_BUFFER_SIZE];
     ma_uint32 preMixBufferCap;
     ma_uint64 totalFramesProcessed = 0;
@@ -2589,7 +2589,6 @@ static ma_result ma_mixer_mix_data_source_read(ma_mixer* pMixer, ma_data_source*
     ma_format preMixFormat = ma_format_unknown;
     ma_uint32 preMixChannels = 0;
     ma_bool32 preEffectConversionRequired = MA_FALSE;
-    ma_bool32 atEnd = MA_FALSE;
 
     MA_ASSERT(pMixer      != NULL);
     MA_ASSERT(pDataSource != NULL);
@@ -2629,13 +2628,8 @@ static ma_result ma_mixer_mix_data_source_read(ma_mixer* pMixer, ma_data_source*
         }
 
         if (pEffect == NULL) {
-            framesRead = ma_data_source_read_pcm_frames(pDataSource, preMixBuffer, framesToRead, loop);
+            result = ma_data_source_read_pcm_frames(pDataSource, preMixBuffer, framesToRead, &framesRead, loop);
             ma_mix_pcm_frames_ex(pRunningAccumulationBuffer, pMixer->format, pMixer->channels, preMixBuffer, formatIn, channelsIn, framesRead, volume);
-
-            /* We need to check if we've reached the end so we know whether or not we need to loop. */
-            if (framesRead < framesToRead) {
-                atEnd = MA_TRUE;
-            }
         } else {
             ma_uint8 callbackBuffer[MA_DATA_CONVERTER_STACK_BUFFER_SIZE];
             ma_uint8 effectInBuffer[MA_DATA_CONVERTER_STACK_BUFFER_SIZE];
@@ -2658,10 +2652,10 @@ static ma_result ma_mixer_mix_data_source_read(ma_mixer* pMixer, ma_data_source*
             */
             if (preEffectConversionRequired == MA_FALSE) {
                 /* Fast path. No need for conversion between the callback and the  */
-                framesReadFromCallback = ma_data_source_read_pcm_frames(pDataSource, effectInBuffer, framesToReadFromCallback, loop);
+                result = ma_data_source_read_pcm_frames(pDataSource, effectInBuffer, framesToReadFromCallback, &framesReadFromCallback, loop);
             } else {
                 /* Slow path. Conversion between the callback and the effect required. */
-                framesReadFromCallback = ma_data_source_read_pcm_frames(pDataSource, callbackBuffer, framesToReadFromCallback, loop);
+                result = ma_data_source_read_pcm_frames(pDataSource, callbackBuffer, framesToReadFromCallback, &framesReadFromCallback, loop);
                 ma_convert_pcm_frames_format_and_channels(effectInBuffer, effectFormatIn, effectChannelsIn, callbackBuffer, formatIn, channelsIn, framesReadFromCallback, ma_dither_mode_none);
             }
 
@@ -2674,11 +2668,6 @@ static ma_result ma_mixer_mix_data_source_read(ma_mixer* pMixer, ma_data_source*
             framesRead = (ma_uint32)effectFrameCountOut;    /* Safe cast. */
             ma_mix_pcm_frames_ex(pRunningAccumulationBuffer, pMixer->format, pMixer->channels, preMixBuffer, preMixFormat, preMixChannels, framesRead, volume);
 
-            /* We need to check if we've reached the end so we know whether or not we need to loop. */
-            if (framesReadFromCallback < framesToReadFromCallback) {
-                atEnd = MA_TRUE;
-            }
-
             /* An emergency failure case. Abort if we didn't consume any input nor any output frames. */
             if (framesRead == 0 && framesReadFromCallback == 0) {
                 break;
@@ -2688,16 +2677,13 @@ static ma_result ma_mixer_mix_data_source_read(ma_mixer* pMixer, ma_data_source*
         totalFramesProcessed += framesRead;
         pRunningAccumulationBuffer = ma_offset_ptr(pRunningAccumulationBuffer, framesRead * ma_get_accumulation_bytes_per_frame(pMixer->format, pMixer->channels));
 
-        if (atEnd) {
+        /* If the data source is busy we need to end mixing now. */
+        if (result == MA_BUSY || result == MA_AT_END) {
             break;
         }
     }
 
-    if (atEnd) {
-        return MA_AT_END;
-    } else {
-        return MA_SUCCESS;
-    }
+    return result;
 }
 
 MA_API ma_result ma_mixer_mix_data_source(ma_mixer* pMixer, ma_data_source* pDataSource, ma_uint64 frameCountIn, float volume, ma_effect* pEffect, ma_bool32 loop)

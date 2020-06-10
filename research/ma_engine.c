@@ -28,20 +28,23 @@ int main(int argc, char** argv)
         return -1;
     }
 
-    result = ma_engine_sound_init_from_file(&engine, argv[1], MA_DATA_SOURCE_FLAG_DECODE, NULL, &sound);
+    result = ma_engine_sound_init_from_file(&engine, argv[1], MA_DATA_SOURCE_FLAG_DECODE | MA_DATA_SOURCE_FLAG_ASYNC, NULL, &sound);
     if (result != MA_SUCCESS) {
         ma_engine_uninit(&engine);
         return -1;
     }
 
+    ma_engine_sound_set_volume(&engine, &sound, 0.25f);
     ma_engine_sound_set_pitch(&engine, &sound, 1.0f);
-    ma_engine_sound_set_pan(&engine, &sound, -1.0f);
+    ma_engine_sound_set_pan(&engine, &sound, 0.0f);
     ma_engine_sound_set_looping(&engine, &sound, MA_TRUE);
     ma_engine_sound_start(&engine, &sound);
 
-    ma_engine_play_sound(&engine, argv[1], NULL);
+#if 1
+    /*ma_engine_play_sound(&engine, argv[1], NULL);*/
     ma_engine_play_sound(&engine, argv[2], NULL);
     ma_engine_play_sound(&engine, argv[3], NULL);
+#endif
 
 #if 0
     float pitch     = 1;

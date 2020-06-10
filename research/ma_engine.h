@@ -126,7 +126,7 @@ useful to be told exactly what it being allocated so you can optimize your alloc
 #define MA_ALLOCATION_TYPE_AUDIO_BUFFER                 0x00000005  /* A ma_audio_buffer allocation. */
 #define MA_ALLOCATION_TYPE_ENCODED_BUFFER               0x00000006  /* Allocation for encoded audio data containing the raw file data of a sound file. */
 #define MA_ALLOCATION_TYPE_DECODED_BUFFER               0x00000007  /* Allocation for decoded audio data from a sound file. */
-#define MA_ALLOCATION_TYPE_RESOURCE_MANAGER_NODE        0x00000010  /* A ma_resource_manager_node object. */
+#define MA_ALLOCATION_TYPE_RESOURCE_MANAGER_NODE        0x00000010  /* A ma_resource_manager_data_node object. */
 #define MA_ALLOCATION_TYPE_RESOURCE_MANAGER_PAGE        0x00000011  /* A ma_resource_manager_page object. Used by the resource manager for when a page containing decoded audio data is loaded for streaming. */
 #define MA_ALLOCATION_TYPE_RESOURCE_MANAGER_DATA_SOURCE 0x00000012  /* A ma_resource_manager_data_source object. */
 
@@ -148,16 +148,21 @@ The size in bytes of a page containing raw audio data.
 
 typedef enum
 {
-    ma_resource_manager_data_type_nothing,
-    ma_resource_manager_data_type_encoded,
-    ma_resource_manager_data_type_decoded
-} ma_resource_manager_data_type;
+    ma_resource_manager_data_node_type_encoded,
+    ma_resource_manager_data_node_type_decoded
+} ma_resource_manager_data_node_type;
 
 typedef enum
 {
+    ma_resource_manager_data_source_type_unknown,
     ma_resource_manager_data_source_type_decoder,
     ma_resource_manager_data_source_type_buffer
 } ma_resource_manager_data_source_type;
+
+
+typedef struct ma_resource_manager             ma_resource_manager;
+typedef struct ma_resource_manager_data_node   ma_resource_manager_data_node;
+typedef struct ma_resource_manager_data_source ma_resource_manager_data_source;
 
 
 typedef struct ma_resource_manager_page ma_resource_manager_page;
@@ -176,6 +181,65 @@ struct ma_resource_manager_page
 };
 
 
+
+/* TODO: May need to do some stress testing and tweak this. */
+#ifndef MA_RESOURCE_MANAGER_MESSAGE_QUEUE_CAPACITY
+#define MA_RESOURCE_MANAGER_MESSAGE_QUEUE_CAPACITY  1024
+#endif
+
+#define MA_MESSAGE_TERMINATE        0x00000000
+#define MA_MESSAGE_LOAD_DATA_NODE   0x00000001
+#define MA_MESSAGE_FREE_DATA_NODE   0x00000002
+#define MA_MESSAGE_LOAD_DATA_SOURCE 0x00000003
+/*#define MA_MESSAGE_FREE_DATA_SOURCE 0x00000004*/
+
+typedef struct
+{
+    ma_event* pEvent;
+    ma_uint32 code;
+    union
+    {
+        struct
+        {
+            ma_resource_manager_data_node* pDataNode;
+            char* pFilePath;    /* Allocated when the message is posted, freed by the async thread after loading. */
+            ma_event* pEvent;
+        } loadDataNode;
+        struct
+        {
+            ma_resource_manager_data_node* pDataNode;
+        } freeDataNode;
+        struct
+        {
+            ma_resource_manager_data_source* pDataSource;
+            ma_event* pEvent;
+        } loadDataSource;
+        struct
+        {
+            ma_resource_manager_data_source* pDataSource;
+        } freeDataSource;
+    };
+} ma_resource_manager_message;
+
+MA_API ma_resource_manager_message ma_resource_manager_message_init(ma_uint32 code);
+
+
+typedef struct
+{
+    ma_resource_manager_message messages[MA_RESOURCE_MANAGER_MESSAGE_QUEUE_CAPACITY];
+    volatile ma_uint32 getCursor;   /* For reading. */
+    volatile ma_uint32 putCursor;   /* For writing. */
+    ma_semaphore sem;               /* Semaphore for only freeing */
+    ma_mutex lock;                  /* For thread-safe access to the message queue. */
+} ma_resource_manager_message_queue;
+
+MA_API ma_result ma_resource_manager_message_queue_init(ma_resource_manager* pResourceManager, ma_resource_manager_message_queue* pQueue);
+MA_API void ma_resource_manager_message_queue_uninit(ma_resource_manager_message_queue* pQueue);
+MA_API ma_result ma_resource_manager_message_queue_post(ma_resource_manager_message_queue* pQueue, const ma_resource_manager_message* pMessage);
+MA_API ma_result ma_resource_manager_message_queue_next(ma_resource_manager_message_queue* pQueue, ma_resource_manager_message* pMessage); /* Blocking */
+MA_API ma_result ma_resource_manager_message_queue_peek(ma_resource_manager_message_queue* pQueue, ma_resource_manager_message* pMessage); /* Non-Blocking */
+
+
 typedef struct
 {
     const void* pData;
@@ -191,35 +255,47 @@ typedef struct
     size_t sizeInBytes;
 } ma_encoded_data;
 
-/* Items in the resource manager are stored in a binary tree for fast searching. */
-typedef struct ma_resource_manager_node ma_resource_manager_node;
-struct ma_resource_manager_node
+typedef struct
 {
-    ma_uint32 hashedName32; /* The hashed name. This is the key. */
-    ma_uint32 refCount;
-    ma_resource_manager_data_type type;
+    ma_resource_manager_data_node_type type;
     union
     {
         ma_decoded_data decoded;
         ma_encoded_data encoded;
-    } data;
+    };
+} ma_resource_manager_memory_buffer;
+
+struct ma_resource_manager_data_node
+{
+    ma_uint32 hashedName32; /* The hashed name. This is the key. */
+    ma_uint32 refCount;
+    ma_result result;       /* Result from asynchronous loading. When loading set to MA_BUSY. When fully loaded set to MA_SUCCESS. When deleting set to MA_UNAVAILABLE. */
     ma_bool32 isDataOwnedByResourceManager;
-    ma_resource_manager_node* pParent;
-    ma_resource_manager_node* pChildLo;
-    ma_resource_manager_node* pChildHi;
+    ma_resource_manager_memory_buffer data;
+    ma_resource_manager_data_node* pParent;
+    ma_resource_manager_data_node* pChildLo;
+    ma_resource_manager_data_node* pChildHi;
 };
 
-typedef struct
+struct ma_resource_manager_data_source
 {
     ma_data_source_callbacks ds;
-    ma_resource_manager_node* pDataNode;
+    ma_resource_manager_data_node* pDataNode;
     ma_resource_manager_data_source_type type;
+    ma_result result;       /* Result from asynchronous loading. When loading set to MA_BUSY. When fully loaded set to MA_SUCCESS. When deleting set to MA_UNAVAILABLE. */
+    /*ma_uint32 holdCount;*/    /* For preventing the backend from being uninitialized from under the data source while it's in the middle of performing an operation. */
+
+    ma_bool32 isStreaming;
+    union
+    {
+        int _unused;
+    } streaming;
     union
     {
         ma_decoder decoder;
         ma_audio_buffer buffer;
     } backend;
-} ma_resource_manager_data_source;
+};
 
 typedef struct
 {
@@ -236,22 +312,34 @@ typedef struct
 
 MA_API ma_resource_manager_config ma_resource_manager_config_init(ma_format decodedFormat, ma_uint32 decodedChannels, ma_uint32 decodedSampleRate, const ma_allocation_callbacks* pAllocationCallbacks);
 
-typedef struct
+struct ma_resource_manager
 {
     ma_resource_manager_config config;
-    ma_resource_manager_node* pRootDataNode;    /* The root node in the binary tree. */
-    ma_mutex dataNodeLock;                      /* For synchronizing access to the data node binary tree. */
-    ma_default_vfs defaultVFS;                  /* Only used if a custom VFS is not specified. */
-} ma_resource_manager;
+    ma_resource_manager_data_node* pRootDataNode;   /* The root node in the binary tree. */
+    ma_mutex dataNodeLock;                          /* For synchronizing access to the data node binary tree. */
+    ma_thread asyncThread;                          /* Thread for running asynchronous operations. */
+    ma_resource_manager_message_queue messageQueue;
+    ma_default_vfs defaultVFS;                      /* Only used if a custom VFS is not specified. */
+};
 
 MA_API ma_result ma_resource_manager_init(const ma_resource_manager_config* pConfig, ma_resource_manager* pResourceManager);
 MA_API void ma_resource_manager_uninit(ma_resource_manager* pResourceManager);
-MA_API ma_result ma_resource_manager_register_decoded_data(ma_resource_manager* pResourceManager, const char* pName, const void* pData, ma_uint64 frameCount, ma_format format, ma_uint32 channels, ma_uint32 sampleRate);  /* Does not copy. Fails with MA_ALREADY_EXISTS if already exists. */
-MA_API ma_result ma_resource_manager_register_encoded_data(ma_resource_manager* pResourceManager, const char* pName, const void* pData, size_t sizeInBytes);    /* Does not copy. Fails with MA_ALREADY_EXISTS if already exists. */
-MA_API ma_result ma_resource_manager_unregister_data(ma_resource_manager* pResourceManager, const char* pName);
-MA_API ma_result ma_resource_manager_create_data_source(ma_resource_manager* pResourceManager, const char* pName, ma_uint32 flags, ma_data_source** ppDataSource);
-MA_API ma_result ma_resource_manager_delete_data_source(ma_resource_manager* pResourceManager, ma_data_source* pDataSource);
 
+/* Data Nodes. */
+MA_API ma_result ma_resource_manager_create_data_node(ma_resource_manager* pResourceManager, const char* pFilePath, ma_resource_manager_data_node_type type, ma_event* pEvent, ma_resource_manager_data_node** ppDataNode);
+MA_API ma_result ma_resource_manager_delete_data_node(ma_resource_manager* pResourceManager, ma_resource_manager_data_node* pDataNode);
+MA_API ma_result ma_resource_manager_data_node_result(ma_resource_manager* pResourceManager, const ma_resource_manager_data_node* pDataNode);
+MA_API ma_result ma_resource_manager_register_decoded_data(ma_resource_manager* pResourceManager, const char* pName, const void* pData, ma_uint64 frameCount, ma_format format, ma_uint32 channels, ma_uint32 sampleRate);  /* Does not copy. Increments the reference count if already exists and returns MA_SUCCESS. */
+MA_API ma_result ma_resource_manager_register_encoded_data(ma_resource_manager* pResourceManager, const char* pName, const void* pData, size_t sizeInBytes);    /* Does not copy. Increments the reference count if already exists and returns MA_SUCCESS. */
+MA_API ma_result ma_resource_manager_unregister_data(ma_resource_manager* pResourceManager, const char* pName);
+
+/* Data Sources. */
+MA_API ma_result ma_resource_manager_data_source_init(ma_resource_manager* pResourceManager, const char* pName, ma_uint32 flags, ma_resource_manager_data_source* pDataSource);
+MA_API ma_result ma_resource_manager_data_source_uninit(ma_resource_manager* pResourceManager, ma_resource_manager_data_source* pDataSource);
+
+/* Message handling. */
+MA_API ma_result ma_resource_manager_handle_message(ma_resource_manager* pResourceManager, const ma_resource_manager_message* pMessage);
+MA_API ma_result ma_resource_manager_post_message(ma_resource_manager* pResourceManager, const ma_resource_manager_message* pMessage);  /* Message will be copied. */
 
 
 /*
@@ -397,6 +485,7 @@ struct ma_sound
     ma_bool32 isLooping;            /* False by default. */
     ma_bool32 ownsDataSource;
     ma_bool32 _isInternal;          /* A marker to indicate the sound is managed entirely by the engine. This will be set to true when the sound is created internally by ma_engine_play_sound(). */
+    ma_resource_manager_data_source resourceManagerDataSource;
 };
 
 struct ma_sound_group
@@ -461,7 +550,7 @@ MA_API ma_result ma_engine_set_gain_db(ma_engine* pEngine, float gainDB);
 #ifndef MA_NO_RESOURCE_MANAGER
 MA_API ma_result ma_engine_sound_init_from_file(ma_engine* pEngine, const char* pFilePath, ma_uint32 flags, ma_sound_group* pGroup, ma_sound* pSound);
 #endif
-MA_API ma_result ma_engine_sound_init_from_data_source(ma_engine* pEngine, ma_data_source* pDataSource, ma_sound_group* pGroup, ma_sound* pSound);
+MA_API ma_result ma_engine_sound_init_from_data_source(ma_engine* pEngine, ma_data_source* pDataSource, ma_uint32 flags, ma_sound_group* pGroup, ma_sound* pSound);
 MA_API void ma_engine_sound_uninit(ma_engine* pEngine, ma_sound* pSound);
 MA_API ma_result ma_engine_sound_start(ma_engine* pEngine, ma_sound* pSound);
 MA_API ma_result ma_engine_sound_stop(ma_engine* pEngine, ma_sound* pSound);
@@ -976,6 +1065,7 @@ static MA_INLINE ma_uint32 ma_swap_endian_uint32(ma_uint32 n)
 }
 
 
+
 #ifndef MA_DEFAULT_HASH_SEED
 #define MA_DEFAULT_HASH_SEED    42
 #endif
@@ -1130,216 +1220,311 @@ MA_API ma_result ma_decode_from_vfs(ma_vfs* pVFS, const char* pFilePath, ma_deco
 }
 
 
-static ma_data_source* ma_resource_manager_data_source_get_backing_data_source(ma_data_source* pDataSource)
+MA_API ma_resource_manager_message ma_resource_manager_message_init(ma_uint32 code)
 {
-    ma_resource_manager_data_source* pRMDataSource = (ma_resource_manager_data_source*)pDataSource;
-    MA_ASSERT(pRMDataSource != NULL);
-
-    if (pRMDataSource->type == ma_resource_manager_data_source_type_buffer) {
-        return &pRMDataSource->backend.buffer;
-    } else {
-        return &pRMDataSource->backend.decoder;
-    }
+    ma_resource_manager_message message;
+    
+    MA_ZERO_OBJECT(&message);
+    message.code = code;
+    
+    return message;
 }
 
-static ma_uint64 ma_resource_manager_data_source_read(ma_data_source* pDataSource, void* pFramesOut, ma_uint64 frameCount)
-{
-    return ma_data_source_read_pcm_frames(ma_resource_manager_data_source_get_backing_data_source(pDataSource), pFramesOut, frameCount, MA_FALSE);
-}
-
-static ma_result ma_resource_manager_data_source_seek(ma_data_source* pDataSource, ma_uint64 frameIndex)
-{
-    return ma_data_source_seek_to_pcm_frame(ma_resource_manager_data_source_get_backing_data_source(pDataSource), frameIndex);
-}
-
-static ma_result ma_resource_manager_data_source_map(ma_data_source* pDataSource, void** ppFramesOut, ma_uint64* pFrameCount)
-{
-    return ma_data_source_map(ma_resource_manager_data_source_get_backing_data_source(pDataSource), ppFramesOut, pFrameCount);
-}
-
-static ma_result ma_resource_manager_data_source_unmap(ma_data_source* pDataSource, ma_uint64 frameCount)
-{
-    return ma_data_source_unmap(ma_resource_manager_data_source_get_backing_data_source(pDataSource), frameCount);
-}
-
-static ma_result ma_resource_manager_data_source_get_data_format(ma_data_source* pDataSource, ma_format* pFormat, ma_uint32* pChannels)
-{
-    return ma_data_source_get_data_format(ma_resource_manager_data_source_get_backing_data_source(pDataSource), pFormat, pChannels);
-}
-
-static ma_result ma_resource_manager_data_source_preinit(ma_resource_manager* pResourceManager, ma_resource_manager_data_source* pDataSource)
-{
-    if (pDataSource == NULL) {
-        return MA_INVALID_ARGS;
-    }
-
-    (void)pResourceManager;
-
-    MA_ZERO_OBJECT(pDataSource);
-
-    pDataSource->ds.onRead          = ma_resource_manager_data_source_read;
-    pDataSource->ds.onSeek          = ma_resource_manager_data_source_seek;
-    pDataSource->ds.onMap           = ma_resource_manager_data_source_map;
-    pDataSource->ds.onUnmap         = ma_resource_manager_data_source_unmap;
-    pDataSource->ds.onGetDataFormat = ma_resource_manager_data_source_get_data_format;
-
-    return MA_SUCCESS;
-}
-
-static ma_result ma_resource_manager_data_source_init(ma_resource_manager* pResourceManager, ma_resource_manager_node* pDataNode, ma_resource_manager_data_source* pDataSource)
+MA_API ma_result ma_resource_manager_message_queue_init(ma_resource_manager* pResourceManager, ma_resource_manager_message_queue* pQueue)
 {
     ma_result result;
 
-    MA_ASSERT(pResourceManager != NULL);
-    MA_ASSERT(pDataNode        != NULL);
-    MA_ASSERT(pDataSource      != NULL);
+    if (pQueue == NULL) {
+        return MA_INVALID_ARGS;
+    }
 
-    result = ma_resource_manager_data_source_preinit(pResourceManager, pDataSource);
+    MA_ZERO_OBJECT(pQueue);
+
+    if (pResourceManager == NULL) {
+        return MA_INVALID_ARGS;
+    }
+
+    /* We need a semaphore for blocking while there are no messages available. */
+    result = ma_semaphore_init(0, &pQueue->sem);
     if (result != MA_SUCCESS) {
+        return result;  /* Failed to initialize semaphore. */
+    }
+
+    /* Currently we're naively locking access to the queue using a mutex. It will be nice to make this lock-free later on. */
+    result = ma_mutex_init(&pQueue->lock);
+    if (result != MA_SUCCESS) {
+        ma_semaphore_uninit(&pQueue->sem);
         return result;
     }
 
-    pDataSource->pDataNode = pDataNode;
-
-    switch (pDataNode->type)
-    {
-        case ma_resource_manager_data_type_decoded:
-        {
-            if (pDataNode->data.decoded.format == pResourceManager->config.decodedFormat && pDataNode->data.decoded.channels == pResourceManager->config.decodedChannels && pDataNode->data.decoded.sampleRate == pResourceManager->config.decodedSampleRate) {
-                /* We can use an audio buffer for this. */
-                ma_audio_buffer_config config;
-
-                config = ma_audio_buffer_config_init(pDataNode->data.decoded.format, pDataNode->data.decoded.channels, pDataNode->data.decoded.frameCount, pDataNode->data.decoded.pData, NULL);
-                result = ma_audio_buffer_init(&config, &pDataSource->backend.buffer);
-                if (result != MA_SUCCESS) {
-                    return result;
-                }
-
-                pDataSource->type = ma_resource_manager_data_source_type_buffer;
-            } else {
-                /* We need to use a raw decoder for this as it requires data conversion which the decoder will handle for us. */
-                ma_decoder_config configIn;
-                ma_decoder_config configOut;
-                ma_uint64 sizeInBytes;
-
-                configIn  = ma_decoder_config_init(pDataNode->data.decoded.format, pDataNode->data.decoded.channels, pDataNode->data.decoded.sampleRate);
-                configOut = ma_decoder_config_init(pResourceManager->config.decodedFormat, pResourceManager->config.decodedChannels, pResourceManager->config.decodedSampleRate);
-
-                sizeInBytes = pDataNode->data.decoded.frameCount * ma_get_bytes_per_frame(configIn.format, configIn.channels);
-                if (sizeInBytes > MA_SIZE_MAX) {
-                    sizeInBytes = MA_SIZE_MAX;
-                }
-
-                result = ma_decoder_init_memory_raw(pDataNode->data.decoded.pData, (size_t)sizeInBytes, &configIn, &configOut, &pDataSource->backend.decoder);
-                if (result != MA_SUCCESS) {
-                    return result;
-                }
-
-                pDataSource->type = ma_resource_manager_data_source_type_decoder;
-            }
-        } break;
-
-        case ma_resource_manager_data_type_encoded:
-        {
-            /* Encoded data requires a decoder as the backing data source. */
-            ma_decoder_config config;
-
-            config = ma_decoder_config_init(pResourceManager->config.decodedFormat, pResourceManager->config.decodedChannels, pResourceManager->config.decodedSampleRate);
-            result = ma_decoder_init_memory(pDataNode->data.encoded.pData, pDataNode->data.encoded.sizeInBytes, &config, &pDataSource->backend.decoder);
-            if (result != MA_SUCCESS) {
-                return result;
-            }
-
-            pDataSource->type = ma_resource_manager_data_source_type_decoder;
-        } break;
-
-        default:
-        {
-            return MA_INVALID_DATA; /* Don't know how to handle this type of data right now. */
-        };
-    }
-
-    /* We can only use mmap mode if the backing data source is an audio buffer. If it's not, we need to clear the mmap callbacks to ensure it's not used. */
-    if (pDataSource->type != ma_resource_manager_data_source_type_buffer) {
-        pDataSource->ds.onMap   = NULL;
-        pDataSource->ds.onUnmap = NULL;
-    }
-
     return MA_SUCCESS;
 }
 
-static void ma_resource_manager_data_source_uninit(ma_resource_manager_data_source* pDataSource)
+MA_API void ma_resource_manager_message_queue_uninit(ma_resource_manager_message_queue* pQueue)
 {
-    MA_ASSERT(pDataSource != NULL);
-
-    if (pDataSource->type == ma_resource_manager_data_source_type_buffer) {
-        ma_audio_buffer_uninit(&pDataSource->backend.buffer);
-    } else {
-        ma_decoder_uninit(&pDataSource->backend.decoder);
-    }
-}
-
-
-
-MA_API ma_resource_manager_config ma_resource_manager_config_init(ma_format decodedFormat, ma_uint32 decodedChannels, ma_uint32 decodedSampleRate, const ma_allocation_callbacks* pAllocationCallbacks)
-{
-    ma_resource_manager_config config;
-
-    MA_ZERO_OBJECT(&config);
-    config.decodedFormat     = decodedFormat;
-    config.decodedChannels   = decodedChannels;
-    config.decodedSampleRate = decodedSampleRate;
-    
-    if (pAllocationCallbacks != NULL) {
-        config.allocationCallbacks = *pAllocationCallbacks;
-    }
-
-    return config;
-}
-
-
-MA_API ma_result ma_resource_manager_init(const ma_resource_manager_config* pConfig, ma_resource_manager* pResourceManager)
-{
-    ma_result result;
-
-    if (pResourceManager == NULL) {
-        return MA_INVALID_ARGS;
-    }
-
-    MA_ZERO_OBJECT(pResourceManager);
-
-    if (pConfig == NULL) {
-        return MA_INVALID_ARGS;
-    }
-
-    pResourceManager->config = *pConfig;
-    ma_allocation_callbacks_init_copy(&pResourceManager->config.allocationCallbacks, &pConfig->allocationCallbacks);
-
-    if (pResourceManager->config.pVFS == NULL) {
-        result = ma_default_vfs_init(&pResourceManager->defaultVFS);
-        if (result != MA_SUCCESS) {
-            return result;  /* Failed to initialize the default file system. */
-        }
-
-        pResourceManager->config.pVFS = &pResourceManager->defaultVFS;
-    }
-
-    return MA_SUCCESS;
-}
-
-MA_API void ma_resource_manager_uninit(ma_resource_manager* pResourceManager)
-{
-    if (pResourceManager == NULL) {
+    if (pQueue == NULL) {
         return;
     }
 
-    /* TODO: Need to delete all data nodes and free all of their memory. */
+    ma_mutex_uninit(&pQueue->lock);
+    ma_semaphore_uninit(&pQueue->sem);
 }
 
 
-static MA_INLINE ma_resource_manager_node* ma_resource_manager_find_min_data_node_nolock(ma_resource_manager_node* pDataNode)
+static ma_uint32 ma_resource_manager_message_queue_get_count(ma_resource_manager_message_queue* pQueue)
 {
-    ma_resource_manager_node* pCurrentNode;
+    ma_uint32 getCursor;
+    ma_uint32 getIndex;
+    ma_uint32 getLoopFlag;
+    ma_uint32 putCursor;
+    ma_uint32 putIndex;
+    ma_uint32 putLoopFlag;
+
+    MA_ASSERT(pQueue != NULL);
+
+    getCursor = pQueue->getCursor;
+    putCursor = pQueue->putCursor;
+
+    ma_rb__deconstruct_offset(getCursor, &getIndex, &getLoopFlag);
+    ma_rb__deconstruct_offset(putCursor, &putIndex, &putLoopFlag);
+
+    if (getLoopFlag == putLoopFlag) {
+        return putIndex - getIndex;
+    } else {
+        return putIndex + (ma_countof(pQueue->messages) - getIndex);
+    }
+}
+
+static ma_result ma_resource_manager_message_queue_post_nolock(ma_resource_manager_message_queue* pQueue, const ma_resource_manager_message* pMessage)
+{
+    ma_uint32 putIndex;
+    ma_uint32 putLoopFlag;
+
+    MA_ASSERT(pQueue != NULL);
+
+    if (ma_resource_manager_message_queue_get_count(pQueue) == ma_countof(pQueue->messages)) {
+        return MA_OUT_OF_MEMORY;    /* The queue is already full. */
+    }
+
+    ma_rb__deconstruct_offset(pQueue->putCursor, &putIndex, &putLoopFlag);
+
+    pQueue->messages[putIndex] = *pMessage;
+
+    /* Move the cursor forward. */
+    putIndex += 1;
+    if (putIndex > ma_countof(pQueue->messages)) {
+        putIndex     = 0;
+        putLoopFlag ^= 0x80000000;
+    }
+
+    ma_atomic_exchange_32(&pQueue->putCursor, ma_rb__construct_offset(putIndex, putLoopFlag));
+
+    /* Now that the message is in the queue we can let the consumer thread know about it by releasing the semaphore. */
+    ma_semaphore_release(&pQueue->sem);
+
+    return MA_SUCCESS;
+}
+
+MA_API ma_result ma_resource_manager_message_queue_post(ma_resource_manager_message_queue* pQueue, const ma_resource_manager_message* pMessage)
+{
+    ma_result result;
+
+    if (pQueue == NULL || pMessage == NULL) {
+        return MA_INVALID_ARGS;
+    }
+
+    /* This is the producer. There can be many producer threads, so a typical single-producer, single-consumer ring buffer will not work here. */
+    if (ma_resource_manager_message_queue_get_count(pQueue) == ma_countof(pQueue->messages)) {
+        return MA_OUT_OF_MEMORY;    /* The queue is already full. */
+    }
+
+    ma_mutex_lock(&pQueue->lock);
+    {
+        result = ma_resource_manager_message_queue_post_nolock(pQueue, pMessage);
+    }
+    ma_mutex_unlock(&pQueue->lock);
+
+    return MA_SUCCESS;
+}
+
+MA_API ma_result ma_resource_manager_message_queue_next(ma_resource_manager_message_queue* pQueue, ma_resource_manager_message* pMessage)
+{
+    ma_result result;
+    ma_uint32 getIndex;
+    ma_uint32 getLoopFlag;
+
+    if (pQueue == NULL) {
+        return MA_INVALID_ARGS;
+    }
+
+    /* This is the consumer. There is only ever a single consumer thread which means we have simplified lock-free requirements. */
+
+    /* We first need to wait for a message. */
+    result = ma_semaphore_wait(&pQueue->sem);
+    if (result != MA_SUCCESS) {
+        return result;  /* Failed to retrieve a message. */
+    }
+
+    MA_ASSERT(ma_resource_manager_message_queue_get_count(pQueue) > 0);
+
+    /* We have a message so now we need to copy it to the output buffer and increment the cursor. */
+    ma_rb__deconstruct_offset(pQueue->getCursor, &getIndex, &getLoopFlag);
+
+    *pMessage = pQueue->messages[getIndex];
+
+    /* The cursor needs to be moved forward. */
+    getIndex += 1;
+    if (getIndex == ma_countof(pQueue->messages)) {
+        getIndex     = 0;
+        getLoopFlag ^= 0x80000000;
+    }
+    
+    ma_atomic_exchange_32(&pQueue->getCursor, ma_rb__construct_offset(getIndex, getLoopFlag));
+
+    return MA_SUCCESS;
+}
+
+MA_API ma_result ma_resource_manager_message_queue_peek(ma_resource_manager_message_queue* pQueue, ma_resource_manager_message* pMessage)
+{
+    ma_uint32 readIndex;
+    ma_uint32 loopFlag;
+
+    if (pQueue == NULL || pMessage == NULL) {
+        return MA_INVALID_ARGS;
+    }
+
+    /* This should only ever be called by the consumer thread. If the count is greater than zero it won't ever be reduced which means it's safe to read the message. */
+    if (ma_resource_manager_message_queue_get_count(pQueue) == 0) {
+        MA_ZERO_OBJECT(pMessage);
+        return MA_NO_DATA_AVAILABLE;
+    }
+
+    ma_rb__deconstruct_offset(pQueue->getCursor, &readIndex, &loopFlag);
+
+    *pMessage = pQueue->messages[readIndex];
+
+    return MA_SUCCESS;
+}
+
+
+
+/*
+Basic BST Functions
+*/
+static ma_result ma_resource_manager_data_node_search(ma_resource_manager* pResourceManager, ma_uint32 hashedName32, ma_resource_manager_data_node** ppDataNode)
+{
+    ma_resource_manager_data_node* pCurrentNode;
+
+    MA_ASSERT(pResourceManager != NULL);
+    MA_ASSERT(ppDataNode       != NULL);
+
+    pCurrentNode = pResourceManager->pRootDataNode;
+    while (pCurrentNode != NULL) {
+        if (hashedName32 == pCurrentNode->hashedName32) {
+            break;  /* Found. */
+        } else if (hashedName32 < pCurrentNode->hashedName32) {
+            pCurrentNode = pCurrentNode->pChildLo;
+        } else {
+            pCurrentNode = pCurrentNode->pChildHi;
+        }
+    }
+
+    *ppDataNode = pCurrentNode;
+
+    if (pCurrentNode == NULL) {
+        return MA_DOES_NOT_EXIST;
+    } else {
+        return MA_SUCCESS;
+    }
+}
+
+static ma_result ma_resource_manager_data_node_insert_point(ma_resource_manager* pResourceManager, ma_uint32 hashedName32, ma_resource_manager_data_node** ppInsertPoint)
+{
+    ma_result result = MA_SUCCESS;
+    ma_resource_manager_data_node* pCurrentNode;
+
+    MA_ASSERT(pResourceManager != NULL);
+    MA_ASSERT(ppInsertPoint    != NULL);
+
+    *ppInsertPoint = NULL;
+
+    if (pResourceManager->pRootDataNode == NULL) {
+        return MA_SUCCESS;  /* No items. */
+    }
+
+    /* We need to find the node that will become the parent of the new node. If a node is found that already has the same hashed name we need to return MA_ALREADY_EXISTS. */
+    pCurrentNode = pResourceManager->pRootDataNode;
+    while (pCurrentNode != NULL) {
+        if (hashedName32 == pCurrentNode->hashedName32) {
+            result = MA_ALREADY_EXISTS;
+            break;
+        } else {
+            if (hashedName32 < pCurrentNode->hashedName32) {
+                if (pCurrentNode->pChildLo == NULL) {
+                    result = MA_SUCCESS;
+                    break;
+                } else {
+                    pCurrentNode = pCurrentNode->pChildLo;
+                }
+            } else {
+                if (pCurrentNode->pChildHi == NULL) {
+                    result = MA_SUCCESS;
+                    break;
+                } else {
+                    pCurrentNode = pCurrentNode->pChildHi;
+                }
+            }
+        }
+    }
+
+    *ppInsertPoint = pCurrentNode;
+    return result;
+}
+
+static ma_result ma_resource_manager_data_node_insert_at(ma_resource_manager* pResourceManager, ma_resource_manager_data_node* pDataNode, ma_resource_manager_data_node* pInsertPoint)
+{
+    MA_ASSERT(pResourceManager != NULL);
+    MA_ASSERT(pDataNode        != NULL);
+
+    /* The key must have been set before calling this function. */
+    MA_ASSERT(pDataNode->hashedName32 != 0);
+
+    if (pInsertPoint == NULL) {
+        /* It's the first node. */
+        pResourceManager->pRootDataNode = pDataNode;
+    } else {
+        /* It's not the first node. It needs to be inserted. */
+        if (pDataNode->hashedName32 < pInsertPoint->hashedName32) {
+            MA_ASSERT(pInsertPoint->pChildLo == NULL);
+            pInsertPoint->pChildLo = pDataNode;
+        } else {
+            MA_ASSERT(pInsertPoint->pChildHi == NULL);
+            pInsertPoint->pChildHi = pDataNode;
+        }
+    }
+
+    return MA_SUCCESS;
+}
+
+static ma_result ma_resource_manager_data_node_insert(ma_resource_manager* pResourceManager, ma_resource_manager_data_node* pDataNode)
+{
+    ma_result result;
+    ma_resource_manager_data_node* pInsertPoint;
+
+    MA_ASSERT(pResourceManager != NULL);
+    MA_ASSERT(pDataNode        != NULL);
+
+    result = ma_resource_manager_data_node_insert_point(pResourceManager, pDataNode->hashedName32, &pInsertPoint);
+    if (result != MA_SUCCESS) {
+        return MA_INVALID_ARGS;
+    }
+
+    return ma_resource_manager_data_node_insert_at(pResourceManager, pDataNode, pInsertPoint);
+}
+
+static MA_INLINE ma_resource_manager_data_node* ma_resource_manager_data_node_find_min(ma_resource_manager_data_node* pDataNode)
+{
+    ma_resource_manager_data_node* pCurrentNode;
 
     MA_ASSERT(pDataNode != NULL);
 
@@ -1351,9 +1536,9 @@ static MA_INLINE ma_resource_manager_node* ma_resource_manager_find_min_data_nod
     return pCurrentNode;
 }
 
-static MA_INLINE ma_resource_manager_node* ma_resource_manager_find_max_data_node_nolock(ma_resource_manager_node* pDataNode)
+static MA_INLINE ma_resource_manager_data_node* ma_resource_manager_data_node_find_max(ma_resource_manager_data_node* pDataNode)
 {
-    ma_resource_manager_node* pCurrentNode;
+    ma_resource_manager_data_node* pCurrentNode;
 
     MA_ASSERT(pDataNode != NULL);
 
@@ -1365,23 +1550,23 @@ static MA_INLINE ma_resource_manager_node* ma_resource_manager_find_max_data_nod
     return pCurrentNode;
 }
 
-static MA_INLINE ma_resource_manager_node* ma_resource_manager_find_inorder_successor_data_node_nolock(ma_resource_manager_node* pDataNode)
+static MA_INLINE ma_resource_manager_data_node* ma_resource_manager_data_node_find_inorder_successor(ma_resource_manager_data_node* pDataNode)
 {
     MA_ASSERT(pDataNode           != NULL);
     MA_ASSERT(pDataNode->pChildHi != NULL);
 
-    return ma_resource_manager_find_min_data_node_nolock(pDataNode->pChildHi);
+    return ma_resource_manager_data_node_find_min(pDataNode->pChildHi);
 }
 
-static MA_INLINE ma_resource_manager_node* ma_resource_manager_find_inorder_predecessor_data_node_nolock(ma_resource_manager_node* pDataNode)
+static MA_INLINE ma_resource_manager_data_node* ma_resource_manager_data_node_find_inorder_predecessor(ma_resource_manager_data_node* pDataNode)
 {
     MA_ASSERT(pDataNode           != NULL);
     MA_ASSERT(pDataNode->pChildLo != NULL);
 
-    return ma_resource_manager_find_max_data_node_nolock(pDataNode->pChildLo);
+    return ma_resource_manager_data_node_find_max(pDataNode->pChildLo);
 }
 
-static ma_result ma_resource_manager_remove_data_node_nolock(ma_resource_manager* pResourceManager, ma_resource_manager_node* pDataNode)
+static ma_result ma_resource_manager_data_node_remove(ma_resource_manager* pResourceManager, ma_resource_manager_data_node* pDataNode)
 {
     MA_ASSERT(pResourceManager != NULL);
     MA_ASSERT(pDataNode        != NULL);
@@ -1427,10 +1612,10 @@ static ma_result ma_resource_manager_remove_data_node_nolock(ma_resource_manager
             }
         } else {
             /* Complex case - deleting a node with two children. */
-            ma_resource_manager_node* pReplacementDataNode;
+            ma_resource_manager_data_node* pReplacementDataNode;
 
             /* For now we are just going to use the in-order successor as the replacement, but we may want to try to keep this balanced by switching between the two. */
-            pReplacementDataNode = ma_resource_manager_find_inorder_successor_data_node_nolock(pDataNode);
+            pReplacementDataNode = ma_resource_manager_data_node_find_inorder_successor(pDataNode);
             MA_ASSERT(pReplacementDataNode != NULL);
 
             /*
@@ -1489,258 +1674,358 @@ static ma_result ma_resource_manager_remove_data_node_nolock(ma_resource_manager
     return MA_SUCCESS;
 }
 
-static ma_result ma_resource_manager_find_data_node_by_hashed_name_nolock(ma_resource_manager* pResourceManager, ma_uint32 hashedName32, ma_resource_manager_node** ppDataNode)
+static ma_result ma_resource_manager_data_node_remove_by_key(ma_resource_manager* pResourceManager, ma_uint32 hashedName32)
 {
-    ma_resource_manager_node* pCurrentNode;
+    ma_result result;
+    ma_resource_manager_data_node* pDataNode;
 
-    MA_ASSERT(pResourceManager != NULL);
-    MA_ASSERT(ppDataNode       != NULL);
-
-    pCurrentNode = pResourceManager->pRootDataNode;
-    while (pCurrentNode != NULL) {
-        if (hashedName32 == pCurrentNode->hashedName32) {
-            break;  /* Found. */
-        } else if (hashedName32 < pCurrentNode->hashedName32) {
-            pCurrentNode = pCurrentNode->pChildLo;
-        } else {
-            pCurrentNode = pCurrentNode->pChildHi;
-        }
+    result = ma_resource_manager_data_node_search(pResourceManager, hashedName32, &pDataNode);
+    if (result != MA_SUCCESS) {
+        return result;  /* Could not find the node. */
     }
 
-    *ppDataNode = pCurrentNode;
-
-    if (pCurrentNode == NULL) {
-        return MA_DOES_NOT_EXIST;
-    } else {
-        return MA_SUCCESS;
-    }
+    return ma_resource_manager_data_node_remove(pResourceManager, pDataNode);
 }
 
-static ma_result ma_resource_manager_find_data_node_insert_point_nolock(ma_resource_manager* pResourceManager, ma_uint32 hashedName32, ma_resource_manager_node** ppParentDataNode)
+static ma_result ma_resource_manager_data_node_increment_ref(ma_resource_manager* pResourceManager, ma_resource_manager_data_node* pDataNode, ma_uint32* pNewRefCount)
 {
-    ma_result result = MA_SUCCESS;
-    ma_resource_manager_node* pCurrentNode;
+    ma_uint32 refCount;
 
     MA_ASSERT(pResourceManager != NULL);
-    MA_ASSERT(ppParentDataNode != NULL);
+    MA_ASSERT(pDataNode        != NULL);
 
-    *ppParentDataNode = NULL;
+    (void)pResourceManager;
 
-    if (pResourceManager->pRootDataNode == NULL) {
-        return MA_SUCCESS;  /* No items. */
+    refCount = ma_atomic_increment_32(&pDataNode->refCount);
+
+    if (pNewRefCount != NULL) {
+        *pNewRefCount = refCount;
     }
 
-    /* We need to find the node that will become the parent of the new node. If a node is found that already has the same hashed name we need to return MA_ALREADY_EXISTS. */
-    pCurrentNode = pResourceManager->pRootDataNode;
-    while (pCurrentNode != NULL) {
-        if (hashedName32 == pCurrentNode->hashedName32) {
-            result = MA_ALREADY_EXISTS;
+    return MA_SUCCESS;
+}
+
+static ma_result ma_resource_manager_data_node_decrement_ref(ma_resource_manager* pResourceManager, ma_resource_manager_data_node* pDataNode, ma_uint32* pNewRefCount)
+{
+    ma_uint32 refCount;
+
+    MA_ASSERT(pResourceManager != NULL);
+    MA_ASSERT(pDataNode        != NULL);
+
+    (void)pResourceManager;
+
+    refCount = ma_atomic_decrement_32(pDataNode->refCount);
+
+    if (pNewRefCount != NULL) {
+        *pNewRefCount = refCount;
+    }
+
+    return MA_SUCCESS;
+}
+
+
+
+
+
+static ma_thread_result MA_THREADCALL ma_resource_manager_resource_thread(void* pUserData)
+{
+    ma_resource_manager* pResourceManager = (ma_resource_manager*)pUserData;
+    MA_ASSERT(pResourceManager != NULL);
+
+    for (;;) {
+        ma_result result;
+        ma_resource_manager_message message;
+
+        result = ma_resource_manager_message_queue_next(&pResourceManager->messageQueue, &message);
+        if (result != MA_SUCCESS) {
             break;
-        } else {
-            if (hashedName32 < pCurrentNode->hashedName32) {
-                if (pCurrentNode->pChildLo == NULL) {
-                    result = MA_SUCCESS;
-                    break;
-                } else {
-                    pCurrentNode = pCurrentNode->pChildLo;
-                }
-            } else {
-                if (pCurrentNode->pChildHi == NULL) {
-                    result = MA_SUCCESS;
-                    break;
-                } else {
-                    pCurrentNode = pCurrentNode->pChildHi;
-                }
-            }
         }
+
+        /* Terminate if we got a termination message. */
+        if (message.code == MA_MESSAGE_TERMINATE) {
+            break;
+        }
+
+        ma_resource_manager_handle_message(pResourceManager, &message);
     }
 
-    *ppParentDataNode = pCurrentNode;
-    return result;
+    return (ma_thread_result)0;
 }
 
 
-static ma_result ma_resource_manager_acquire_data_node(ma_resource_manager* pResourceManager, const char* pName, ma_resource_manager_node** ppDataNode)
+
+MA_API ma_resource_manager_config ma_resource_manager_config_init(ma_format decodedFormat, ma_uint32 decodedChannels, ma_uint32 decodedSampleRate, const ma_allocation_callbacks* pAllocationCallbacks)
 {
-    ma_result result;
-    ma_uint32 hashedName32;
+    ma_resource_manager_config config;
 
-    MA_ASSERT(pResourceManager != NULL);
-    MA_ASSERT(pName            != NULL);
-    MA_ASSERT(ppDataNode       != NULL);
-
-    hashedName32 = ma_hash_string_32(pName);
-
-    ma_mutex_lock(&pResourceManager->dataNodeLock);
-    {
-        result = ma_resource_manager_find_data_node_by_hashed_name_nolock(pResourceManager, hashedName32, ppDataNode);
-        if (result == MA_SUCCESS) {
-            ma_atomic_increment_32(&(*ppDataNode)->refCount);
-        }
+    MA_ZERO_OBJECT(&config);
+    config.decodedFormat     = decodedFormat;
+    config.decodedChannels   = decodedChannels;
+    config.decodedSampleRate = decodedSampleRate;
+    
+    if (pAllocationCallbacks != NULL) {
+        config.allocationCallbacks = *pAllocationCallbacks;
     }
-    ma_mutex_unlock(&pResourceManager->dataNodeLock);
 
-    return result;
+    return config;
 }
 
 
-static ma_result ma_resource_manager_release_data_node_nolock(ma_resource_manager* pResourceManager, ma_resource_manager_node* pDataNode, ma_uint32* pReferenceCount)
+MA_API ma_result ma_resource_manager_init(const ma_resource_manager_config* pConfig, ma_resource_manager* pResourceManager)
 {
     ma_result result;
-    ma_uint32 refCount;
 
-    MA_ASSERT(pResourceManager != NULL);
-    MA_ASSERT(pDataNode        != NULL);
-    MA_ASSERT(pReferenceCount  != NULL);
-    MA_ASSERT(pDataNode->refCount > 0); /* We should never find the node in the first place if the reference counter is 0. */
+    if (pResourceManager == NULL) {
+        return MA_INVALID_ARGS;
+    }
 
-    refCount = ma_atomic_decrement_32(&pDataNode->refCount);
-    if (refCount == 0) {
-        /* Standard node delete. */
-        result = ma_resource_manager_remove_data_node_nolock(pResourceManager, pDataNode);
+    MA_ZERO_OBJECT(pResourceManager);
+
+    if (pConfig == NULL) {
+        return MA_INVALID_ARGS;
+    }
+
+    pResourceManager->config = *pConfig;
+    ma_allocation_callbacks_init_copy(&pResourceManager->config.allocationCallbacks, &pConfig->allocationCallbacks);
+
+    if (pResourceManager->config.pVFS == NULL) {
+        result = ma_default_vfs_init(&pResourceManager->defaultVFS);
         if (result != MA_SUCCESS) {
-            return result;  /* This should never happen. */
+            return result;  /* Failed to initialize the default file system. */
         }
 
-        /* We've removed the node from the binary tree so now we can free it's memory. */
-        ma__free_from_callbacks(pDataNode, &pResourceManager->config.allocationCallbacks);
+        pResourceManager->config.pVFS = &pResourceManager->defaultVFS;
     }
 
-    if (pReferenceCount != NULL) {
-        *pReferenceCount = refCount;
-    }
-
-    return MA_SUCCESS;
-}
-
-static ma_result ma_resource_manager_release_data_node(ma_resource_manager* pResourceManager, ma_resource_manager_node* pDataNode, ma_uint32* pReferenceCount)
-{
-    ma_result result;
-
-    MA_ASSERT(pResourceManager != NULL);
-    MA_ASSERT(pDataNode        != NULL);
-    MA_ASSERT(pReferenceCount  != NULL);
-
-    ma_mutex_lock(&pResourceManager->dataNodeLock);
-    {
-        result = ma_resource_manager_release_data_node_nolock(pResourceManager, pDataNode, pReferenceCount);
-    }
-    ma_mutex_unlock(&pResourceManager->dataNodeLock);
-
-    return result;
-}
-
-static ma_result ma_resource_manager_release_data_node_by_name_nolock(ma_resource_manager* pResourceManager, ma_uint32 hashedName32, ma_uint32* pReferenceCount)
-{
-    ma_result result;
-    ma_uint32 refCount;
-    ma_resource_manager_node* pDataNode;
-
-    /* We first need to find the node to delete. */
-    result = ma_resource_manager_find_data_node_by_hashed_name_nolock(pResourceManager, hashedName32, &pDataNode);
+    /* Data node lock. */
+    result = ma_mutex_init(&pResourceManager->dataNodeLock);
     if (result != MA_SUCCESS) {
-        return result;  /* Node does not exist. */
-    }
-
-    MA_ASSERT(pDataNode != NULL);
-    MA_ASSERT(pDataNode->refCount > 0); /* We should never find the node in the first place if the reference counter is 0. */
-
-    refCount = ma_atomic_decrement_32(&pDataNode->refCount);
-    if (refCount == 0) {
-        /* Standard node delete. */
-        result = ma_resource_manager_remove_data_node_nolock(pResourceManager, pDataNode);
-        if (result != MA_SUCCESS) {
-            return result;  /* This should never happen. */
-        }
-
-        /* We've removed the node from the binary tree so now we can free it's memory. */
-        ma__free_from_callbacks(pDataNode, &pResourceManager->config.allocationCallbacks);
-    }
-
-    if (pReferenceCount != NULL) {
-        *pReferenceCount = refCount;
-    }
-
-    return MA_SUCCESS;
-}
-
-static ma_result ma_resource_manager_release_data_node_by_name(ma_resource_manager* pResourceManager, const char* pName, ma_uint32* pReferenceCount)
-{
-    ma_result result;
-    ma_uint32 hashedName32;
-
-    MA_ASSERT(pResourceManager != NULL);
-    MA_ASSERT(pName            != NULL);
-
-    hashedName32 = ma_hash_string_32(pName);
-
-    ma_mutex_lock(&pResourceManager->dataNodeLock);
-    {
-        result = ma_resource_manager_release_data_node_by_name_nolock(pResourceManager, hashedName32, pReferenceCount);
-    }
-    ma_mutex_unlock(&pResourceManager->dataNodeLock);
-
-    return result;
-}
-
-
-static ma_result ma_resource_manager_register_data_nolock(ma_resource_manager* pResourceManager, ma_uint32 hashedName32, const ma_resource_manager_node* pSourceDataNode, ma_resource_manager_node** ppNewDataNode)
-{
-    ma_result result = MA_SUCCESS;
-    ma_resource_manager_node* pParentDataNode;
-    ma_resource_manager_node* pNewDataNode;
-
-    result = ma_resource_manager_find_data_node_insert_point_nolock(pResourceManager, hashedName32, &pParentDataNode);
-    if (result != MA_SUCCESS) {
-        if (result == MA_ALREADY_EXISTS) {
-            MA_ASSERT(pParentDataNode != NULL);
-            MA_ASSERT(pParentDataNode->hashedName32 == hashedName32);
-
-            ma_atomic_increment_32(&pParentDataNode->refCount);
-
-            if (ppNewDataNode != NULL) {
-                *ppNewDataNode = pParentDataNode;
-            }
-        }
-
         return result;
     }
 
-    /* At this point we don't have a duplicate which means we can create the node and add it to the binary tree. */
-    pNewDataNode = (ma_resource_manager_node*)ma__malloc_from_callbacks(sizeof(*pNewDataNode), &pResourceManager->config.allocationCallbacks);
-    if (pNewDataNode == NULL) {
-        return MA_OUT_OF_MEMORY;
+    /* We need a message queue. */
+    result = ma_resource_manager_message_queue_init(pResourceManager, &pResourceManager->messageQueue);
+    if (result != MA_SUCCESS) {
+        ma_mutex_uninit(&pResourceManager->dataNodeLock);
+        return result;
     }
 
-    *pNewDataNode              = *pSourceDataNode;  /* Value */
-    pNewDataNode->hashedName32 = hashedName32;      /* Key */
-    pNewDataNode->refCount     = 1;
-    pNewDataNode->pParent      = pParentDataNode;
-    pNewDataNode->pChildLo     = NULL;
-    pNewDataNode->pChildHi     = NULL;
 
-    if (pParentDataNode == NULL) {
-        /* It's the first node. */
-        pResourceManager->pRootDataNode = pNewDataNode;
-    } else {
-        /* It's not the first node. It needs to be inserted. */
-        if (hashedName32 < pParentDataNode->hashedName32) {
-            MA_ASSERT(pParentDataNode->pChildLo == NULL);
-            pParentDataNode->pChildLo = pNewDataNode;
-        } else {
-            MA_ASSERT(pParentDataNode->pChildHi == NULL);
-            pParentDataNode->pChildHi = pNewDataNode;
-        }
-    }
-
-    if (ppNewDataNode != NULL) {
-        *ppNewDataNode = pNewDataNode;
+    /* Create the resource thread last to ensure the new thread has access to valid data. */
+    result = ma_thread_create(&pResourceManager->asyncThread, ma_thread_priority_normal, ma_resource_manager_resource_thread, pResourceManager);
+    if (result != MA_SUCCESS) {
+        ma_mutex_uninit(&pResourceManager->dataNodeLock);
+        ma_resource_manager_message_queue_uninit(&pResourceManager->messageQueue);
+        return result;
     }
 
     return MA_SUCCESS;
 }
 
-static ma_result ma_resource_manager_register_data(ma_resource_manager* pResourceManager, const char* pName, const ma_resource_manager_node* pSourceDataNode, ma_resource_manager_node** ppNewDataNode)
+MA_API void ma_resource_manager_uninit(ma_resource_manager* pResourceManager)
+{
+    if (pResourceManager == NULL) {
+        return;
+    }
+
+    /* TODO: Need to delete all data nodes and free all of their memory. */
+}
+
+
+static ma_result ma_resource_manager_create_data_node_nolock(ma_resource_manager* pResourceManager, const char* pFilePath, ma_uint32 hashedName32, ma_resource_manager_data_node_type type, ma_resource_manager_memory_buffer* pExistingData, ma_event* pEvent, ma_resource_manager_data_node** ppDataNode)
+{
+    ma_result result;
+    ma_resource_manager_data_node* pDataNode;
+    ma_resource_manager_data_node* pInsertPoint;
+    char* pFilePathCopy;    /* Allocated here, freed in the resource thread. */
+
+    MA_ASSERT(pResourceManager != NULL);
+    MA_ASSERT(pFilePath        != NULL);
+    MA_ASSERT(ppDataNode       != NULL);
+
+    /*
+    The first thing to do is find the insertion point. If it's already loaded it means we can just increment the reference counter and signal the event. Otherwise we
+    need to do a full load.
+    */
+    result = ma_resource_manager_data_node_insert_point(pResourceManager, hashedName32, &pInsertPoint);
+    if (result == MA_ALREADY_EXISTS) {
+        /* Fast path. The node already exists. We just need to increment the reference counter and signal the event, if any. */
+        pDataNode = pInsertPoint;
+
+        result = ma_resource_manager_data_node_increment_ref(pResourceManager, pDataNode, NULL);
+        if (result != MA_SUCCESS) {
+            return result;  /* Should never happen. Failed to increment the reference count. */
+        }
+
+        if (pEvent != NULL) {
+            ma_event_signal(pEvent);
+        }
+    } else {
+        /* Slow path. The data for this node has not yet been initialized. The first thing to do is allocate the new data node and insert it into the BST. */
+        pDataNode = ma__malloc_from_callbacks(sizeof(*pDataNode), &pResourceManager->config.allocationCallbacks/*, MA_ALLOCATION_TYPE_RESOURCE_MANAGER_DATA_NODE*/);
+        if (pDataNode == NULL) {
+            return MA_OUT_OF_MEMORY;
+        }
+
+        MA_ZERO_OBJECT(pDataNode);
+        pDataNode->hashedName32 = hashedName32;
+        pDataNode->refCount     = 1;        /* Always set to 1 by default (this is our first reference). */
+        pDataNode->data.type    = type;
+        pDataNode->result       = MA_BUSY;  /* I think it's good practice to set the status to MA_BUSY by default. */
+
+        result = ma_resource_manager_data_node_insert_at(pResourceManager, pDataNode, pInsertPoint);
+        if (result != MA_SUCCESS) {
+            return result;  /* Should never happen. Failed to insert the data node into the BST. */
+        }
+
+        /*
+        The new data node has been inserted into the BST, so now we need to fire an event to get everything loaded. If the data is owned by the caller (not
+        owned by the resource manager) we don't need to load anything which means we're done.
+        */
+        if (pExistingData != NULL) {
+            /* We don't need to do anything if the data is owned by the application except set the necessary data pointers. */
+            MA_ASSERT(type == pExistingData->type);
+
+            pDataNode->isDataOwnedByResourceManager = MA_FALSE;
+            pDataNode->data = *pExistingData;
+            pDataNode->result = MA_SUCCESS;
+        } else {
+            /* The data needs to be loaded. We do this by posting an event to the resource thread. */
+            ma_resource_manager_message message;
+
+            pDataNode->isDataOwnedByResourceManager = MA_TRUE;
+            pDataNode->result = MA_BUSY;
+
+            /* We need a copy of the file path. We should probably make this more efficient, but for now we'll do a transient memory allocation. */
+            pFilePathCopy = ma_copy_string(pFilePath, &pResourceManager->config.allocationCallbacks/*, MA_ALLOCATION_TYPE_TRANSIENT_STRING*/);
+            if (pFilePathCopy == NULL) {
+                ma_resource_manager_data_node_remove(pResourceManager, pDataNode);
+                ma__free_from_callbacks(pDataNode, &pResourceManager->config.allocationCallbacks/*, MA_ALLOCATION_TYPE_RESOURCE_MANAGER_DATA_NODE*/);
+                return MA_OUT_OF_MEMORY;
+            }
+
+            /* We now have everything we need to post the message to the resource thread. This is the last thing we need to do from here. The rest will be done by the resource thread. */
+            message = ma_resource_manager_message_init(MA_MESSAGE_LOAD_DATA_NODE);
+            message.loadDataNode.pDataNode = pDataNode;
+            message.loadDataNode.pFilePath = pFilePathCopy;
+            message.loadDataNode.pEvent    = pEvent;
+            result = ma_resource_manager_post_message(pResourceManager, &message);
+            if (result != MA_SUCCESS) {
+                ma_resource_manager_data_node_remove(pResourceManager, pDataNode);
+                ma__free_from_callbacks(pDataNode,     &pResourceManager->config.allocationCallbacks/*, MA_ALLOCATION_TYPE_RESOURCE_MANAGER_DATA_NODE*/);
+                ma__free_from_callbacks(pFilePathCopy, &pResourceManager->config.allocationCallbacks/*, MA_ALLOCATION_TYPE_TRANSIENT_STRING*/);
+                return result;
+            }
+        }
+    }
+
+    MA_ASSERT(pDataNode != NULL);
+
+    if (ppDataNode != NULL) {
+        *ppDataNode = pDataNode;
+    }
+
+    return MA_SUCCESS;
+}
+
+MA_API ma_result ma_resource_manager_create_data_node(ma_resource_manager* pResourceManager, const char* pFilePath, ma_resource_manager_data_node_type type, ma_event* pEvent, ma_resource_manager_data_node** ppDataNode)
+{
+    ma_result result;
+    ma_uint32 hashedName32;
+
+    if (ppDataNode == NULL) {
+        return MA_INVALID_ARGS;
+    }
+
+    *ppDataNode = NULL;
+
+    if (pResourceManager == NULL || pFilePath == NULL) {
+        return MA_INVALID_ARGS;
+    }
+
+    /* Do as much set up before entering into the critical section to reduce our lock time as much as possible. */
+    hashedName32 = ma_hash_string_32(pFilePath);
+
+    /* At this point we can now enter the critical section. */
+    ma_mutex_lock(&pResourceManager->dataNodeLock);
+    {
+        result = ma_resource_manager_create_data_node_nolock(pResourceManager, pFilePath, hashedName32, type, NULL, pEvent, ppDataNode);
+    }
+    ma_mutex_unlock(&pResourceManager->dataNodeLock);
+
+    return result;
+}
+
+
+static ma_result ma_resource_manager_delete_data_node_nolock(ma_resource_manager* pResourceManager, ma_resource_manager_data_node* pDataNode)
+{
+    ma_uint32 result;
+    ma_uint32 refCount;
+
+    MA_ASSERT(pResourceManager != NULL);
+    MA_ASSERT(pDataNode        != NULL);
+
+    result = ma_resource_manager_data_node_decrement_ref(pResourceManager, pDataNode, &refCount);
+    if (result != MA_SUCCESS) {
+        return result;
+    }
+
+    /* If the reference count has hit zero it means we need to delete the data node and it's backing data (so long as it's owned by the resource manager). */
+    if (refCount == 0) {
+        result = ma_resource_manager_data_node_remove(pResourceManager, pDataNode);
+        if (result != MA_SUCCESS) {
+            return result;  /* An error occurred when trying to remove the node. This should never happen. */
+        }
+
+        /*
+        The data node has been removed from the BST so now we need to delete the underyling data. This needs to be done in a separate thread. We don't
+        want to delete anything if the data is owned by the application. Also, just to be safe, we set the result to MA_UNAVAILABLE.
+        */
+        ma_atomic_exchange_32(&pDataNode->result, MA_UNAVAILABLE);
+
+        /* Don't delete any underlying data if it's not owned by the resource manager. */
+        if (pDataNode->isDataOwnedByResourceManager) {
+            ma_resource_manager_message message = ma_resource_manager_message_init(MA_MESSAGE_FREE_DATA_NODE);
+            message.freeDataNode.pDataNode = pDataNode;
+
+            result = ma_resource_manager_post_message(pResourceManager, &message);
+            if (result != MA_SUCCESS) {
+                return result;  /* Failed to post the message for some reason. Probably due to too many messages in the queue. */
+            }
+        }
+    }
+
+    return MA_SUCCESS;
+}
+
+MA_API ma_result ma_resource_manager_delete_data_node(ma_resource_manager* pResourceManager, ma_resource_manager_data_node* pDataNode)
+{
+    ma_result result;
+
+    if (pResourceManager == NULL || pDataNode == NULL) {
+        return MA_INVALID_ARGS;
+    }
+
+    ma_mutex_lock(&pResourceManager->dataNodeLock);
+    {
+        result = ma_resource_manager_delete_data_node_nolock(pResourceManager, pDataNode);
+    }
+    ma_mutex_unlock(&pResourceManager->dataNodeLock);
+
+    return result;
+}
+
+MA_API ma_result ma_resource_manager_data_node_result(ma_resource_manager* pResourceManager, const ma_resource_manager_data_node* pDataNode)
+{
+    if (pResourceManager == NULL || pDataNode == NULL) {
+        return MA_INVALID_ARGS;
+    }
+
+    return pDataNode->result;
+}
+
+
+static ma_result ma_resource_manager_register_data(ma_resource_manager* pResourceManager, const char* pName, ma_resource_manager_data_node_type type, ma_resource_manager_memory_buffer* pExistingData, ma_event* pEvent, ma_resource_manager_data_node** ppDataNode)
 {
     ma_result result = MA_SUCCESS;
     ma_uint32 hashedName32;
@@ -1749,196 +2034,627 @@ static ma_result ma_resource_manager_register_data(ma_resource_manager* pResourc
         return MA_INVALID_ARGS;
     }
 
-    MA_ASSERT(pSourceDataNode != NULL);
-
     hashedName32 = ma_hash_string_32(pName);
 
     ma_mutex_lock(&pResourceManager->dataNodeLock);
     {
-        result = ma_resource_manager_register_data_nolock(pResourceManager, hashedName32, pSourceDataNode, ppNewDataNode);
+        result = ma_resource_manager_create_data_node_nolock(pResourceManager, pName, hashedName32, type, pExistingData, pEvent, ppDataNode);
     }
     ma_mutex_lock(&pResourceManager->dataNodeLock);
     return result;
-}
-
-static ma_result ma_resource_manager_register_decoded_data_ex(ma_resource_manager* pResourceManager, const char* pName, const void* pData, ma_uint64 frameCount, ma_format format, ma_uint32 channels, ma_uint32 sampleRate, ma_bool32 isOwnedByResourceManager, ma_resource_manager_node** ppDataNode)
-{
-    ma_resource_manager_node node;
-
-    if (pData == NULL) {
-        return MA_INVALID_ARGS;
-    }
-
-    node.isDataOwnedByResourceManager = isOwnedByResourceManager;
-    node.type                         = ma_resource_manager_data_type_decoded;
-    node.data.decoded.pData           = pData;
-    node.data.decoded.frameCount      = frameCount;
-    node.data.decoded.format          = format;
-    node.data.decoded.channels        = channels;
-    node.data.decoded.sampleRate      = sampleRate;
-
-    return ma_resource_manager_register_data(pResourceManager, pName, &node, ppDataNode);
 }
 
 MA_API ma_result ma_resource_manager_register_decoded_data(ma_resource_manager* pResourceManager, const char* pName, const void* pData, ma_uint64 frameCount, ma_format format, ma_uint32 channels, ma_uint32 sampleRate)
 {
-    return ma_resource_manager_register_decoded_data_ex(pResourceManager, pName, pData, frameCount, format, channels, sampleRate, MA_FALSE, NULL);
-}
+    ma_resource_manager_memory_buffer data;
+    data.type               = ma_resource_manager_data_node_type_decoded;
+    data.decoded.pData      = pData;
+    data.decoded.frameCount = frameCount;
+    data.decoded.format     = format;
+    data.decoded.channels   = channels;
+    data.decoded.sampleRate = sampleRate;
 
-static ma_result ma_resource_manager_register_encoded_data_ex(ma_resource_manager* pResourceManager, const char* pName, const void* pData, size_t sizeInBytes, ma_bool32 isOwnedByResourceManager, ma_resource_manager_node** ppDataNode)
-{
-    ma_resource_manager_node node;
-
-    if (pData == NULL) {
-        return MA_INVALID_ARGS;
-    }
-
-    node.isDataOwnedByResourceManager = isOwnedByResourceManager;
-    node.type                         = ma_resource_manager_data_type_encoded;
-    node.data.encoded.pData           = pData;
-    node.data.encoded.sizeInBytes     = sizeInBytes;
-
-    return ma_resource_manager_register_data(pResourceManager, pName, &node, ppDataNode);
+    return ma_resource_manager_register_data(pResourceManager, pName, data.type, &data, NULL, NULL);
 }
 
 MA_API ma_result ma_resource_manager_register_encoded_data(ma_resource_manager* pResourceManager, const char* pName, const void* pData, size_t sizeInBytes)
 {
-    return ma_resource_manager_register_encoded_data_ex(pResourceManager, pName, pData, sizeInBytes, MA_FALSE, NULL);
+    ma_resource_manager_memory_buffer data;
+    data.type                = ma_resource_manager_data_node_type_encoded;
+    data.encoded.pData       = pData;
+    data.encoded.sizeInBytes = sizeInBytes;
+
+    return ma_resource_manager_register_data(pResourceManager, pName, data.type, &data, NULL, NULL);
 }
 
 MA_API ma_result ma_resource_manager_unregister_data(ma_resource_manager* pResourceManager, const char* pName)
 {
-    return ma_resource_manager_release_data_node_by_name(pResourceManager, pName, NULL);
-}
-
-MA_API ma_result ma_resource_manager_create_data_source(ma_resource_manager* pResourceManager, const char* pName, ma_uint32 flags, ma_data_source** ppDataSource)
-{
     ma_result result;
-    ma_resource_manager_node* pDataNode;
-    ma_resource_manager_data_source* pDataSource;
-
-    if (ppDataSource == NULL) {
-        return MA_INVALID_ARGS;
-    }
-
-    *ppDataSource = NULL;
+    ma_resource_manager_data_node* pDataNode;
 
     if (pResourceManager == NULL || pName == NULL) {
         return MA_INVALID_ARGS;
     }
 
-    /* Streaming is not yet implemented. */
-    if ((flags & MA_DATA_SOURCE_FLAG_STREAM) != 0) {
-        return MA_NOT_IMPLEMENTED;
-    }
-    
-    /* Asynchronous loading is not yet implemented. */
-    if ((flags & MA_DATA_SOURCE_FLAG_ASYNC) != 0) {
-        return MA_NOT_IMPLEMENTED;
-    }
-
-
     /*
-    Getting here means we are not streaming nor loading asynchronously. We want to determine if the file is already in memory. If so we just use the existing
-    data. The MA_DATA_SOURCE_FLAG_DECODE flag is ignored in this case - that's only used when the sound is being loaded for the first time.
+    It's assumed that the data specified by pName was registered with a prior call to ma_resource_manager_register_encoded/decoded_data(). To unregister it, all
+    we need to do is delete the node by it's name.
     */
-    result = ma_resource_manager_acquire_data_node(pResourceManager, pName, &pDataNode);    /* Increments the reference counter. */
+    ma_mutex_lock(&pResourceManager->dataNodeLock);
+    {
+        result = ma_resource_manager_data_node_search(pResourceManager, ma_hash_string_32(pName), &pDataNode);
+    }
+    ma_mutex_unlock(&pResourceManager->dataNodeLock);
+
     if (result != MA_SUCCESS) {
-        /* The data is not loaded. We need to load it into memory and create a new node. */
-        if ((flags & MA_DATA_SOURCE_FLAG_DECODE) == 0) {
-            /* Not decoding. */
-            size_t fileSize;
-            void* pFileData;
-
-            result = ma_vfs_open_and_read_file_ex(pResourceManager->config.pVFS, pName, &pFileData, &fileSize, &pResourceManager->config.allocationCallbacks, MA_ALLOCATION_TYPE_ENCODED_BUFFER);
-            if (result != MA_SUCCESS) {
-                return result;
-            }
-
-            /* We have the encoded data so now we need to register it. */
-            result = ma_resource_manager_register_encoded_data_ex(pResourceManager, pName, pFileData, fileSize, MA_TRUE, &pDataNode);
-            if (result != MA_SUCCESS) {
-                ma__free_from_callbacks(pFileData, &pResourceManager->config.allocationCallbacks);
-                return result;
-            }
-        } else {
-            /* Decoding. */
-            ma_decoder_config config;
-            ma_uint64 frameCount;
-            void* pDecodedData;
-
-            config = ma_decoder_config_init(pResourceManager->config.decodedFormat, 0, pResourceManager->config.decodedSampleRate); /* Need to keep the native channel count because we'll be using that for spatialization. */
-            config.allocationCallbacks = pResourceManager->config.allocationCallbacks;
-
-            result = ma_decode_from_vfs(pResourceManager->config.pVFS, pName, &config, &frameCount, &pDecodedData);
-            if (result != MA_SUCCESS) {
-                return result;  /* Failed to decode data. */
-            }
-
-            /* We have the decoded data so now we need to register it. */
-            result = ma_resource_manager_register_decoded_data_ex(pResourceManager, pName, pDecodedData, frameCount, config.format, config.channels, config.sampleRate, MA_TRUE, &pDataNode);
-            if (result != MA_SUCCESS) {
-                ma__free_from_callbacks(pDecodedData, &pResourceManager->config.allocationCallbacks);
-                return result;
-            }
-        }
+        return result;  /* Could not find the node. */
     }
 
-    /* We should have a data node so we can now create our data source. If anything here fails we need to return make sure we unregister the data to trigger a decrement of the reference counter. */
-    MA_ASSERT(pDataNode != NULL);
+    return ma_resource_manager_delete_data_node(pResourceManager, pDataNode);
+}
 
-    pDataSource = (ma_resource_manager_data_source*)ma__malloc_from_callbacks(sizeof(*pDataSource), &pResourceManager->config.allocationCallbacks);
-    if (pDataSource == NULL) {
-        ma_resource_manager_unregister_data(pResourceManager, pName);
-        return MA_OUT_OF_MEMORY;
+
+#if 0
+static ma_result ma_resource_manager_data_source_hold(ma_resource_manager_data_source* pDataSource)
+{
+    MA_ASSERT(pDataSource != NULL);
+
+    /* Don't allow holding if the data source is being deleted. */
+    if (pDataSource->result == MA_UNAVAILABLE) {
+        return MA_UNAVAILABLE;
     }
 
-    result = ma_resource_manager_data_source_init(pResourceManager, pDataNode, pDataSource);
-    if (result != MA_SUCCESS) {
-        ma__free_from_callbacks(pDataSource, &pResourceManager->config.allocationCallbacks);
-        ma_resource_manager_unregister_data(pResourceManager, pName);   /* Decrement the reference counter. */
-        return result;
+    ma_atomic_increment_32(&pDataSource->holdCount);
+
+    /* If while we were incrementing the hold count we became unavailble we need to abort. */
+    if (pDataSource->result == MA_UNAVAILABLE) {
+        ma_atomic_decrement_32(&pDataSource->holdCount);
+        return MA_UNAVAILABLE;
     }
 
-    *ppDataSource = pDataSource;
     return MA_SUCCESS;
 }
 
-MA_API ma_result ma_resource_manager_delete_data_source(ma_resource_manager* pResourceManager, ma_data_source* pDataSource)
+static ma_result ma_resource_manager_data_source_release(ma_resource_manager_data_source* pDataSource)
 {
-    ma_result result;
-    ma_resource_manager_data_source* pRMDataSource = (ma_resource_manager_data_source*)pDataSource;
-    ma_resource_manager_node* pDataNode = NULL;
+    ma_uint32 newCount;
 
-    if (pResourceManager == NULL || pDataSource == NULL) {
+    MA_ASSERT(pDataSource != NULL);
+
+    /* Note: Don't check for MA_UNAVAILABLE in this case because it's possible to be calling this just after the the data source has been uninitialized from another thread. */
+    newCount = ma_atomic_decrement_32(&pDataSource->holdCount);
+    if (newCount == 0xFFFFFFFF) {
+        MA_ASSERT(MA_FALSE);    /* <-- If you hit this it means you have a hold/release mismatch. */
+        ma_atomic_exchange_32(&pDataSource->holdCount, 0);
         return MA_INVALID_ARGS;
     }
 
-    /* If the data source is not being streamed we will need to unacquire the data source so the reference counter is decremented. */
-    pDataNode = pRMDataSource->pDataNode;
-    if (pDataNode != NULL) {
-        ma_resource_manager_node nodeCopy = *pDataNode; /* We need this so we can keep track of the pointer. */
-        ma_uint32 refCount;
-        result = ma_resource_manager_release_data_node(pResourceManager, pDataNode, &refCount);
-        if (result == MA_SUCCESS) {
-            if (refCount == 0) {
-                /* The backing data of the data source needs to be deleted if it's owned by us. */
-                if (pDataNode->isDataOwnedByResourceManager) {
-                    if (nodeCopy.type == ma_resource_manager_data_type_encoded) {
-                        ma__free_from_callbacks((void*)nodeCopy.data.encoded.pData, &pResourceManager->config.allocationCallbacks); /* MA_ALLOCATION_TYPE_ENCODED_BUFFER */
-                    } else {
-                        ma__free_from_callbacks((void*)nodeCopy.data.decoded.pData, &pResourceManager->config.allocationCallbacks); /* MA_ALLOCATION_TYPE_DECODED_BUFFER */
-                    }
-                }
+    return MA_SUCCESS;
+}
+#endif
+
+
+static ma_data_source* ma_resource_manager_data_source_get_backing_data_source(ma_data_source* pDataSource)
+{
+    ma_resource_manager_data_source* pRMDataSource = (ma_resource_manager_data_source*)pDataSource;
+    MA_ASSERT(pRMDataSource != NULL);
+
+    if (pRMDataSource->type == ma_resource_manager_data_source_type_buffer) {
+        return &pRMDataSource->backend.buffer;
+    } else {
+        return &pRMDataSource->backend.decoder;
+    }
+}
+
+static ma_result ma_resource_manager_data_source_read(ma_data_source* pDataSource, void* pFramesOut, ma_uint64 frameCount, ma_uint64* pFramesRead)
+{
+    ma_resource_manager_data_source* pRMDataSource = (ma_resource_manager_data_source*)pDataSource;
+    MA_ASSERT(pRMDataSource != NULL);
+
+    /* We don't do anything if we're busy. Returning MA_BUSY tells the mixer not to do anything with the data. */
+    if (pRMDataSource->result == MA_BUSY) {
+        return MA_BUSY;
+    }
+
+    /*
+    Don't do anything if the data source has been deleted. This is not truely safe, but just here as an added layer of vague protection. Another thread can still
+    be doing stuff on the data source.
+    */
+    if (pRMDataSource->result == MA_UNAVAILABLE) {
+        return MA_UNAVAILABLE;
+    }
+
+    return ma_data_source_read_pcm_frames(ma_resource_manager_data_source_get_backing_data_source(pDataSource), pFramesOut, frameCount, pFramesRead, MA_FALSE);
+}
+
+static ma_result ma_resource_manager_data_source_seek(ma_data_source* pDataSource, ma_uint64 frameIndex)
+{
+    ma_resource_manager_data_source* pRMDataSource = (ma_resource_manager_data_source*)pDataSource;
+    MA_ASSERT(pRMDataSource != NULL);
+
+    if (pRMDataSource->result == MA_BUSY || pRMDataSource->result == MA_UNAVAILABLE) {
+        return pRMDataSource->result;
+    }
+
+    return ma_data_source_seek_to_pcm_frame(ma_resource_manager_data_source_get_backing_data_source(pDataSource), frameIndex);
+}
+
+static ma_result ma_resource_manager_data_source_map(ma_data_source* pDataSource, void** ppFramesOut, ma_uint64* pFrameCount)
+{
+    ma_resource_manager_data_source* pRMDataSource = (ma_resource_manager_data_source*)pDataSource;
+    MA_ASSERT(pRMDataSource != NULL);
+
+    if (pRMDataSource->result == MA_BUSY || pRMDataSource->result == MA_UNAVAILABLE) {
+        return pRMDataSource->result;
+    }
+
+    return ma_data_source_map(ma_resource_manager_data_source_get_backing_data_source(pDataSource), ppFramesOut, pFrameCount);
+}
+
+static ma_result ma_resource_manager_data_source_unmap(ma_data_source* pDataSource, ma_uint64 frameCount)
+{
+    ma_resource_manager_data_source* pRMDataSource = (ma_resource_manager_data_source*)pDataSource;
+    MA_ASSERT(pRMDataSource != NULL);
+
+    /* NOTE: Don't do the same status checks here. If we were able to map, we want to unmap regardless of status. */
+
+    return ma_data_source_unmap(ma_resource_manager_data_source_get_backing_data_source(pDataSource), frameCount);
+}
+
+static ma_result ma_resource_manager_data_source_get_data_format(ma_data_source* pDataSource, ma_format* pFormat, ma_uint32* pChannels)
+{
+    ma_resource_manager_data_source* pRMDataSource = (ma_resource_manager_data_source*)pDataSource;
+    MA_ASSERT(pRMDataSource != NULL);
+
+    if (pRMDataSource->result == MA_BUSY || pRMDataSource->result == MA_UNAVAILABLE) {
+        return pRMDataSource->result;
+    }
+
+    return ma_data_source_get_data_format(ma_resource_manager_data_source_get_backing_data_source(pDataSource), pFormat, pChannels);
+}
+
+
+static ma_result ma_resource_manager_data_source_set_result_and_signal(ma_resource_manager* pResourceManager, ma_resource_manager_data_source* pDataSource, ma_result result, ma_event* pEvent)
+{
+    MA_ASSERT(pResourceManager != NULL);
+    MA_ASSERT(pDataSource      != NULL);
+
+    /* If the data source's status is MA_UNAVAILABLE it means it is being deleted. We don't ever want to move away from that state. */
+    if (pDataSource->result != MA_UNAVAILABLE) {
+        ma_atomic_exchange_32(&pDataSource->result, result);
+    }
+
+    /* If we have an event we want to signal it after setting the data source's status. */
+    if (pEvent != NULL) {
+        ma_event_signal(pEvent);
+    }
+
+    return result;
+}
+
+static ma_result ma_resource_manager_data_source_init_stream(ma_resource_manager* pResourceManager, const char* pName, ma_uint32 flags, ma_resource_manager_data_source* pDataSource)
+{
+    (void)pResourceManager;
+    (void)pName;
+    (void)flags;
+    (void)pDataSource;
+
+    /* Streaming not yet implemented. */
+    return MA_NOT_IMPLEMENTED;
+}
+
+static ma_result ma_resource_manager_data_source_init_backend_node(ma_resource_manager* pResourceManager, ma_resource_manager_data_source* pDataSource)
+{
+    ma_result result;
+    ma_resource_manager_data_node* pDataNode;
+
+    MA_ASSERT(pResourceManager       != NULL);
+    MA_ASSERT(pDataSource            != NULL);
+    MA_ASSERT(pDataSource->pDataNode != NULL);
+
+    pDataNode = pDataSource->pDataNode;
+
+    /* The underlying data node must be initialized before we'll be able to know how to initialize the backend. */
+    result = ma_resource_manager_data_node_result(pResourceManager, pDataNode);
+    if (result != MA_SUCCESS) {
+        return result;  /* The data node is not initialized. */
+    }
+
+    /*
+    We need to initialize either a ma_decoder or an ma_audio_buffer depending on whether or not the backing data is encoded or decoded. These act as the
+    "instance" to the data and are used to form the connection between underlying data buffer and the data source. If the data buffer is decoded, we can use
+    an ma_audio_buffer if the data format is identical to the primary format. This enables us to use memory mapping when mixing which saves us a bit of data
+    movement overhead.
+    */
+    if (pDataNode->data.type == ma_resource_manager_data_node_type_decoded) {
+        if (pDataNode->data.decoded.format     == pResourceManager->config.decodedFormat   &&
+            pDataNode->data.decoded.sampleRate == pResourceManager->config.decodedSampleRate) {
+            pDataSource->type = ma_resource_manager_data_source_type_buffer;
+        } else {
+            pDataSource->type = ma_resource_manager_data_source_type_decoder;
+        }
+    } else {
+        pDataSource->type = ma_resource_manager_data_source_type_decoder;
+    }
+
+    if (pDataSource->type == ma_resource_manager_data_source_type_buffer) {
+        ma_audio_buffer_config config;
+        config = ma_audio_buffer_config_init(pDataNode->data.decoded.format, pDataNode->data.decoded.channels, pDataNode->data.decoded.frameCount, pDataNode->data.encoded.pData, NULL);
+        result = ma_audio_buffer_init(&config, &pDataSource->backend.buffer);
+    } else {
+        ma_decoder_config configIn;
+        ma_decoder_config configOut;
+
+        configIn  = ma_decoder_config_init(pDataNode->data.decoded.format, pDataNode->data.decoded.channels, pDataNode->data.decoded.sampleRate);
+        configOut = ma_decoder_config_init(pResourceManager->config.decodedFormat, pDataNode->data.decoded.channels, pResourceManager->config.decodedSampleRate);  /* <-- Never perform channel conversion at this level - that will be done at a higher level. */
+
+        if (pDataNode->data.type == ma_resource_manager_data_node_type_decoded) {
+            ma_uint64 sizeInBytes = pDataNode->data.decoded.frameCount * ma_get_bytes_per_frame(configIn.format, configIn.channels);
+            if (sizeInBytes > MA_SIZE_MAX) {
+                result = MA_TOO_BIG;
+            } else {
+                result = ma_decoder_init_memory_raw(pDataNode->data.decoded.pData, (size_t)sizeInBytes, &configIn, &configOut, &pDataSource->backend.decoder);  /* Safe cast thanks to the check above. */
             }
+        } else {
+            configOut.allocationCallbacks = pResourceManager->config.allocationCallbacks;
+            result = ma_decoder_init_memory(pDataNode->data.encoded.pData, pDataNode->data.encoded.sizeInBytes, &configOut, &pDataSource->backend.decoder);
         }
     }
 
-    /* The data source can now be freed. */
-    ma_resource_manager_data_source_uninit(pRMDataSource);
-    ma__free_from_callbacks(pRMDataSource, &pResourceManager->config.allocationCallbacks);  /* MA_ALLOCATION_TYPE_RESOURCE_MANAGER_DATA_SOURCE */
+    /*
+    We can only do mapping if the data source's backend is an audio buffer. If it's not, clear out the callbacks thereby preventing the mixer from attempting
+    memory map mode, only to fail.
+    */
+    if (pDataSource->type != ma_resource_manager_data_source_type_buffer) {
+        pDataSource->ds.onMap   = NULL;
+        pDataSource->ds.onUnmap = NULL;
+    }
+    
+    /* At this point the backend should be initialized. We do *not* want to set pDataSource->result here - that needs to be done at a higher level to ensure it's done as the last step. */
+    return result;
+}
+
+static ma_result ma_resource_manager_data_source_uninit_backend_node(ma_resource_manager* pResourceManager, ma_resource_manager_data_source* pDataSource)
+{
+    MA_ASSERT(pResourceManager       != NULL);
+    MA_ASSERT(pDataSource            != NULL);
+    MA_ASSERT(pDataSource->pDataNode != NULL);
+
+    if (pDataSource->type == ma_resource_manager_data_source_type_decoder) {
+        ma_decoder_uninit(&pDataSource->backend.decoder);
+    } else {
+        ma_audio_buffer_uninit(&pDataSource->backend.buffer);
+    }
 
     return MA_SUCCESS;
+}
+
+static ma_result ma_resource_manager_data_source_init_node(ma_resource_manager* pResourceManager, const char* pName, ma_uint32 flags, ma_resource_manager_data_source* pDataSource)
+{
+    ma_result result;
+    ma_result dataNodeResult;
+    ma_resource_manager_data_node* pDataNode;
+    ma_resource_manager_data_node_type dataNodeType;
+    ma_event* pEvent = NULL;
+
+    MA_ASSERT(pResourceManager != NULL);
+    MA_ASSERT(pName            != NULL);
+    MA_ASSERT(pDataSource      != NULL);
+
+    /* The first thing we need to do is acquire a node. */
+    if ((flags & MA_DATA_SOURCE_FLAG_DECODE) != 0) {
+        dataNodeType = ma_resource_manager_data_node_type_decoded;
+    } else {
+        dataNodeType = ma_resource_manager_data_node_type_encoded;
+    }
+
+    result = ma_resource_manager_create_data_node(pResourceManager, pName, dataNodeType, NULL, &pDataNode);
+    if (result != MA_SUCCESS) {
+        return result;  /* Failed to acquire the data node. */
+    }
+
+    /* At this point we have our data node and we can start initializing the data source. */
+    pDataSource->ds.onRead          = ma_resource_manager_data_source_read;
+    pDataSource->ds.onSeek          = ma_resource_manager_data_source_seek;
+    pDataSource->ds.onMap           = ma_resource_manager_data_source_map;
+    pDataSource->ds.onUnmap         = ma_resource_manager_data_source_unmap;
+    pDataSource->ds.onGetDataFormat = ma_resource_manager_data_source_get_data_format;
+    pDataSource->pDataNode          = pDataNode;
+    pDataSource->type               = ma_resource_manager_data_source_type_unknown; /* The backend type hasn't been determine yet - that happens when it's initialized properly by the resource thread. */
+    pDataSource->result             = MA_BUSY;
+
+    /*
+    If the data node has been fully initialized we can complete initialization of the data source now. Otherwise we need to post an event to the resource thread to complete
+    initialization to ensure it's done after the data node.
+    */
+    dataNodeResult = ma_resource_manager_data_node_result(pResourceManager, pDataNode);
+    if (dataNodeResult == MA_BUSY) {
+        /* The data node is in the middle of loading. We need to post an event to the resource thread. */
+        ma_resource_manager_message message;
+
+        if ((flags & MA_DATA_SOURCE_FLAG_ASYNC) == 0) {
+            result = ma_event_alloc_and_init(&pEvent, &pResourceManager->config.allocationCallbacks);
+            if (result != MA_SUCCESS) {
+                ma_resource_manager_delete_data_node(pResourceManager, pDataNode);
+                return result;
+            }
+        } else {
+            pEvent = NULL;
+        }
+
+        message = ma_resource_manager_message_init(MA_MESSAGE_LOAD_DATA_SOURCE);
+        message.loadDataSource.pDataSource = pDataSource;
+        message.loadDataSource.pEvent      = pEvent;
+        result = ma_resource_manager_post_message(pResourceManager, &message);
+        if (result != MA_SUCCESS) {
+            if (pEvent != NULL) {
+                ma_event_uninit_and_free(pEvent, &pResourceManager->config.allocationCallbacks);
+            }
+
+            ma_resource_manager_delete_data_node(pResourceManager, pDataNode);
+            return result;
+        }
+
+        /* The message has been posted. We now need to wait for the event to get signalled if we're in synchronous mode. */
+        if (pEvent != NULL) {
+            ma_event_wait(pEvent);
+            ma_event_uninit_and_free(message.pEvent, &pResourceManager->config.allocationCallbacks);
+        
+            /* Check the status of the data node for any errors. Even in the event of an error, the data source will not be deleted. */
+            if (pDataNode->result != MA_SUCCESS) {
+                result = pDataNode->result;
+                ma_resource_manager_delete_data_node(pResourceManager, pDataNode);
+                return result;
+            }
+        }
+
+        return MA_SUCCESS;
+    } else if (dataNodeResult == MA_SUCCESS) {
+        /* The underlying data node has already been initialized so we can just complete initialization of the data source right now. */
+        result = ma_resource_manager_data_source_init_backend_node(pResourceManager, pDataSource);
+        if (result != MA_SUCCESS) {
+            ma_resource_manager_delete_data_node(pResourceManager, pDataNode);
+            return result;
+        }
+
+        ma_atomic_exchange_32(&pDataSource->result, MA_SUCCESS);
+        return MA_SUCCESS;
+    } else {
+        /* Some other error has occurred with the data node. Lets abandon everything and return the data node's result. */
+        ma_resource_manager_delete_data_node(pResourceManager, pDataNode);
+        return dataNodeResult;
+    }
+}
+
+MA_API ma_result ma_resource_manager_data_source_init(ma_resource_manager* pResourceManager, const char* pName, ma_uint32 flags, ma_resource_manager_data_source* pDataSource)
+{
+    if (pDataSource == NULL) {
+        return MA_INVALID_ARGS;
+    }
+
+    MA_ZERO_OBJECT(pDataSource);
+
+    if (pResourceManager == NULL || pName == NULL) {
+        return MA_INVALID_ARGS;
+    }
+
+    if ((flags & MA_DATA_SOURCE_FLAG_STREAM) != 0) {
+        return ma_resource_manager_data_source_init_stream(pResourceManager, pName, flags, pDataSource);
+    } else {
+        return ma_resource_manager_data_source_init_node(pResourceManager, pName, flags, pDataSource);
+    }
+}
+
+MA_API ma_result ma_resource_manager_data_source_uninit(ma_resource_manager* pResourceManager, ma_resource_manager_data_source* pDataSource)
+{
+    /*
+    We need to run this synchronously because the caller owns the data source and we can't return before it's been fully uninitialized. We do, however, need to do
+    the actual uninitialization on the resource thread for order-of-operations reasons.
+    */
+
+    /* We need to wait to finish loading before we try uninitializing. */
+    while (pDataSource->result == MA_BUSY) {
+        ma_yield();
+    }
+
+    /* The first thing to do is to mark the data source as unavailable. This will stop other threads from acquiring a hold on the data source which is what happens in the callbacks. */
+    ma_atomic_exchange_32(&pDataSource->result, MA_UNAVAILABLE);
+
+#if 0
+    /* Wait for everything to release the data source. This should be a short hold so just spin. The audio thread might be in the middle of reading data from the data source. */
+    while (pDataSource->holdCount > 0) {
+        ma_yield();
+    }
+#endif
+
+    /* We should uninitialize the data source's backend before deleting the node just to keep the order of operations clean. */
+    ma_resource_manager_data_source_uninit_backend_node(pResourceManager, pDataSource);
+    pDataSource->type = ma_resource_manager_data_source_type_unknown;
+
+    /* The data node needs to be deleted. */
+    if (pDataSource->pDataNode != NULL) {
+        ma_resource_manager_delete_data_node(pResourceManager, pDataSource->pDataNode);
+        pDataSource->pDataNode = NULL;
+    }
+
+    return MA_SUCCESS;
+}
+
+
+
+static ma_result ma_resource_manager_handle_message__load_data_node(ma_resource_manager* pResourceManager, ma_resource_manager_data_node* pDataNode, char* pFileName, ma_event* pEvent)
+{
+    ma_result result;
+
+    MA_ASSERT(pResourceManager != NULL);
+
+    if (pDataNode == NULL || pFileName == NULL) {
+        return MA_INVALID_ARGS;
+    }
+
+    if (pDataNode->result != MA_BUSY) {
+        return MA_INVALID_OPERATION;    /* The data node may be getting deleted before it's even been loaded. */
+    }
+
+    MA_ASSERT(pDataNode->isDataOwnedByResourceManager == MA_TRUE);  /* The data should always be owned by the resource manager. */
+
+    if (pDataNode->data.type == ma_resource_manager_data_node_type_encoded) {
+        /* No decoding. Just store the file contents in memory. */
+        void* pData;
+        size_t sizeInBytes;
+
+        result = ma_vfs_open_and_read_file_ex(pResourceManager->config.pVFS, pFileName, &pData, &sizeInBytes, &pResourceManager->config.allocationCallbacks, MA_ALLOCATION_TYPE_ENCODED_BUFFER);
+        if (result == MA_SUCCESS) {
+            pDataNode->data.encoded.pData       = pData;
+            pDataNode->data.encoded.sizeInBytes = sizeInBytes;
+        }
+    } else  {
+        /* Decoding. */
+        ma_decoder_config config;
+        void* pData;
+        ma_uint64 frameCount;
+
+        config = ma_decoder_config_init(pResourceManager->config.decodedFormat, 0, pResourceManager->config.decodedSampleRate); /* Need to keep the native channel count because we'll be using that for spatialization. */
+        config.allocationCallbacks = pResourceManager->config.allocationCallbacks;
+
+        result = ma_decode_from_vfs(pResourceManager->config.pVFS, pFileName, &config, &frameCount, &pData);
+        if (result == MA_SUCCESS) {
+            pDataNode->data.decoded.pData      = pData;
+            pDataNode->data.decoded.frameCount = frameCount;
+            pDataNode->data.decoded.format     = config.format;
+            pDataNode->data.decoded.channels   = config.channels;
+            pDataNode->data.decoded.sampleRate = config.sampleRate;
+        }
+    }
+
+    ma__free_from_callbacks(pFileName, &pResourceManager->config.allocationCallbacks/*, MA_ALLOCATION_TYPE_TRANSIENT_STRING*/);
+    if (result != MA_SUCCESS) {
+        return result;
+    }
+
+    /*
+    We need to set the result to MA_SUCCESS at the very end to ensure no other threads try reading the data before we've fully initialized the object. Other threads
+    are going to be inspecting this variable to determine whether or not they're ready to read data.
+    */
+    ma_atomic_exchange_32(&pDataNode->result, MA_SUCCESS);
+
+    /* Only signal the other threads after the result has been set just for cleanliness sake. */
+    if (pEvent != NULL) {
+        ma_event_signal(pEvent);
+    }
+
+    return MA_SUCCESS;
+}
+
+static ma_result ma_resource_manager_handle_message__free_data_node(ma_resource_manager* pResourceManager, ma_resource_manager_data_node* pDataNode)
+{
+    if (pDataNode == NULL) {
+        return MA_INVALID_ARGS;
+    }
+
+    MA_ASSERT(pDataNode->result == MA_UNAVAILABLE);
+
+    if (pDataNode->data.type == ma_resource_manager_data_node_type_encoded) {
+        ma__free_from_callbacks((void*)pDataNode->data.encoded.pData, &pResourceManager->config.allocationCallbacks/*, MA_ALLOCATION_TYPE_ENCODED_BUFFER*/);
+        pDataNode->data.encoded.pData       = NULL;
+        pDataNode->data.encoded.sizeInBytes = 0;
+    } else {
+        ma__free_from_callbacks((void*)pDataNode->data.decoded.pData, &pResourceManager->config.allocationCallbacks/*, MA_ALLOCATION_TYPE_DECODED_BUFFER*/);
+        pDataNode->data.decoded.pData       = NULL;
+        pDataNode->data.decoded.frameCount  = 0;
+    }
+
+    /* The data node itself needs to be freed. */
+    ma__free_from_callbacks(pDataNode, &pResourceManager->config.allocationCallbacks/*, MA_ALLOCATION_TYPE_RESOURCE_MANAGER_DATA_NODE*/);
+
+    return MA_SUCCESS;
+}
+
+static ma_result ma_resource_manager_handle_message__load_data_source(ma_resource_manager* pResourceManager, ma_resource_manager_data_source* pDataSource, ma_event* pEvent)
+{
+    ma_result dataNodeResult;
+
+    MA_ASSERT(pResourceManager       != NULL);
+    MA_ASSERT(pDataSource            != NULL);
+    MA_ASSERT(pDataSource->pDataNode != NULL);
+    MA_ASSERT(pDataSource->result == MA_BUSY || pDataSource->result == MA_UNAVAILABLE);
+
+    if (pDataSource->result == MA_UNAVAILABLE) {
+        /*
+        The data source is getting deleted before it's even been loaded. We want to continue loading in this case because in the queue we'll have a
+        corresponding MA_MESSAGE_FREE_DATA_SOURCE which will be doing the opposite. By letting it continue we can simplify the implementation because
+        otherwise we'd need to keep track of a separate bit of state to track whether or not the backend has been initialized or not.
+        */
+    }
+
+    /* We shouldn't attempt to load anything if the data node is in an erroneous state. */
+    dataNodeResult = ma_resource_manager_data_node_result(pResourceManager, pDataSource->pDataNode);
+    if (dataNodeResult != MA_SUCCESS && dataNodeResult != MA_BUSY) {
+        return ma_resource_manager_data_source_set_result_and_signal(pResourceManager, pDataSource, dataNodeResult, pEvent);
+    }
+
+    if (pDataSource->pDataNode->data.type == ma_resource_manager_data_node_type_encoded) {
+        if (pDataSource->pDataNode->data.encoded.pData == NULL) {
+            /* Something has gone badly wrong - no data is available from the data node, but it's not in an erroneous state (checked above). */
+            MA_ASSERT(MA_FALSE);
+            return ma_resource_manager_data_source_set_result_and_signal(pResourceManager, pDataSource, MA_NO_DATA_AVAILABLE, pEvent);
+        }
+    } else {
+        if (pDataSource->pDataNode->data.decoded.pData == NULL) {
+            /* Something has gone badly wrong - no data is available from the data node, but it's not in an erroneous state (checked above). */
+            MA_ASSERT(MA_FALSE);
+            return ma_resource_manager_data_source_set_result_and_signal(pResourceManager, pDataSource, MA_NO_DATA_AVAILABLE, pEvent);
+        }
+    }
+
+    return ma_resource_manager_data_source_set_result_and_signal(pResourceManager, pDataSource, ma_resource_manager_data_source_init_backend_node(pResourceManager, pDataSource), pEvent);
+}
+
+
+MA_API ma_result ma_resource_manager_handle_message(ma_resource_manager* pResourceManager, const ma_resource_manager_message* pMessage)
+{
+    if (pResourceManager == NULL || pMessage == NULL) {
+        return MA_INVALID_ARGS;
+    }
+
+    switch (pMessage->code)
+    {
+        case MA_MESSAGE_LOAD_DATA_NODE:
+        {
+            return ma_resource_manager_handle_message__load_data_node(pResourceManager, pMessage->loadDataNode.pDataNode, pMessage->loadDataNode.pFilePath, pMessage->loadDataNode.pEvent);
+        } break;
+
+        case MA_MESSAGE_FREE_DATA_NODE:
+        {
+            return ma_resource_manager_handle_message__free_data_node(pResourceManager, pMessage->freeDataNode.pDataNode);
+        } break;
+
+
+        case MA_MESSAGE_LOAD_DATA_SOURCE:
+        {
+            return ma_resource_manager_handle_message__load_data_source(pResourceManager, pMessage->loadDataSource.pDataSource, pMessage->loadDataSource.pEvent);
+        } break;
+
+    #if 0
+        case MA_MESSAGE_FREE_DATA_SOURCE:
+        {
+            return ma_resource_manager_handle_message__free_data_source(pResourceManager, pMessage->freeDataSource.pDataSource);
+        } break;
+    #endif
+
+        default: break;
+    }
+
+    return MA_SUCCESS;
+}
+
+MA_API ma_result ma_resource_manager_post_message(ma_resource_manager* pResourceManager, const ma_resource_manager_message* pMessage)
+{
+    if (pResourceManager == NULL || pMessage == NULL) {
+        return MA_INVALID_ARGS;
+    }
+
+    return ma_resource_manager_message_queue_post(&pResourceManager->messageQueue, pMessage);
 }
 
 
@@ -2298,10 +3014,7 @@ static void ma_engine_mix_sound(ma_engine* pEngine, ma_sound_group* pGroup, ma_s
                 result = ma_mixer_mix_data_source(&pGroup->mixer, pSound->pDataSource, frameCount, pSound->volume, &pSound->effect, pSound->isLooping);
             } else {
                 /* The sound is muted. We want to move time forward, but it be made faster by simply seeking instead of reading. We also want to bypass mixing completely. */
-                ma_uint64 framesSeeked = ma_data_source_seek_pcm_frames(pSound->pDataSource, frameCount, pSound->isLooping);
-                if (framesSeeked < frameCount) {
-                    result = MA_AT_END;
-                }
+                result = ma_data_source_seek_pcm_frames(pSound->pDataSource, frameCount, NULL, pSound->isLooping);
             }
 
             /* If we reached the end of the sound we'll want to mark it as at the end and not playing. */
@@ -2648,41 +3361,6 @@ MA_API ma_result ma_engine_set_gain_db(ma_engine* pEngine, float gainDB)
     return ma_device_set_master_gain_db(&pEngine->listener.device, gainDB);
 }
 
-
-#ifndef MA_NO_RESOURCE_MANAGER
-MA_API ma_result ma_engine_sound_init_from_file(ma_engine* pEngine, const char* pFilePath, ma_uint32 flags, ma_sound_group* pGroup, ma_sound* pSound)
-{
-    ma_result result;
-    ma_data_source* pDataSource;
-
-    if (pSound == NULL) {
-        return MA_INVALID_ARGS;
-    }
-
-    MA_ZERO_OBJECT(pSound);
-
-    if (pEngine == NULL || pFilePath == NULL) {
-        return MA_INVALID_ARGS;
-    }
-
-    /* We need to user the resource manager to load the data source. */
-    result = ma_resource_manager_create_data_source(pEngine->pResourceManager, pFilePath, flags, &pDataSource);
-    if (result != MA_SUCCESS) {
-        return result;
-    }
-
-    /* Now that we have our data source we can create the sound using our generic function. */
-    result = ma_engine_sound_init_from_data_source(pEngine, pDataSource, pGroup, pSound);
-    if (result != MA_SUCCESS) {
-        return result;
-    }
-
-    /* We need to tell the engine that we own the data source so that it knows to delete it when deleting the sound. This needs to be done after creating the sound with ma_engine_create_sound_from_data_source(). */
-    pSound->ownsDataSource = MA_TRUE;
-
-    return MA_SUCCESS;
-}
-#endif
 
 static ma_result ma_engine_sound_detach(ma_engine* pEngine, ma_sound* pSound)
 {
@@ -3087,19 +3765,17 @@ static ma_result ma_engine_effect_reinit(ma_engine* pEngine, ma_engine_effect* p
     return ma_engine_effect_init(pEngine, pEffect);
 }
 
-MA_API ma_result ma_engine_sound_init_from_data_source(ma_engine* pEngine, ma_data_source* pDataSource, ma_sound_group* pGroup, ma_sound* pSound)
+static ma_result ma_engine_sound_init_from_data_source_internal(ma_engine* pEngine, ma_data_source* pDataSource, ma_uint32 flags, ma_sound_group* pGroup, ma_sound* pSound)
 {
     ma_result result;
 
-    if (pSound == NULL) {
-        return MA_INVALID_ARGS;
-    }
-
-    MA_ZERO_OBJECT(pSound);
+    (void)flags;
 
     if (pEngine == NULL || pDataSource == NULL) {
         return MA_INVALID_ARGS;
     }
+
+    /* Do no clear pSound to zero. Otherwise it may overwrite some members we set earlier. */
 
     result = ma_engine_effect_init(pEngine, &pSound->effect);
     if (result != MA_SUCCESS) {
@@ -3120,6 +3796,54 @@ MA_API ma_result ma_engine_sound_init_from_data_source(ma_engine* pEngine, ma_da
     }
 
     return MA_SUCCESS;
+}
+
+#ifndef MA_NO_RESOURCE_MANAGER
+MA_API ma_result ma_engine_sound_init_from_file(ma_engine* pEngine, const char* pFilePath, ma_uint32 flags, ma_sound_group* pGroup, ma_sound* pSound)
+{
+    ma_result result;
+    ma_data_source* pDataSource;
+
+    if (pSound == NULL) {
+        return MA_INVALID_ARGS;
+    }
+
+    MA_ZERO_OBJECT(pSound);
+
+    if (pEngine == NULL || pFilePath == NULL) {
+        return MA_INVALID_ARGS;
+    }
+
+    /* We need to user the resource manager to load the data source. */
+    result = ma_resource_manager_data_source_init(pEngine->pResourceManager, pFilePath, flags, &pSound->resourceManagerDataSource);
+    if (result != MA_SUCCESS) {
+        return result;
+    }
+
+    pDataSource = &pSound->resourceManagerDataSource;
+
+    /* Now that we have our data source we can create the sound using our generic function. */
+    result = ma_engine_sound_init_from_data_source_internal(pEngine, pDataSource, flags, pGroup, pSound);
+    if (result != MA_SUCCESS) {
+        return result;
+    }
+
+    /* We need to tell the engine that we own the data source so that it knows to delete it when deleting the sound. This needs to be done after creating the sound with ma_engine_create_sound_from_data_source(). */
+    pSound->ownsDataSource = MA_TRUE;
+
+    return MA_SUCCESS;
+}
+#endif
+
+MA_API ma_result ma_engine_sound_init_from_data_source(ma_engine* pEngine, ma_data_source* pDataSource, ma_uint32 flags, ma_sound_group* pGroup, ma_sound* pSound)
+{
+    if (pSound == NULL) {
+        return MA_INVALID_ARGS;
+    }
+
+    MA_ZERO_OBJECT(pSound);
+
+    return ma_engine_sound_init_from_data_source_internal(pEngine, pDataSource, flags, pGroup, pSound);
 }
 
 MA_API void ma_engine_sound_uninit(ma_engine* pEngine, ma_sound* pSound)
@@ -3155,7 +3879,7 @@ MA_API void ma_engine_sound_uninit(ma_engine* pEngine, ma_sound* pSound)
     /* Once the sound is detached from the group we can guarantee that it won't be referenced by the mixer thread which means it's safe for us to destroy the data source. */
 #ifndef MA_NO_RESOURCE_MANAGER
     if (pSound->ownsDataSource) {
-        ma_resource_manager_delete_data_source(pEngine->pResourceManager, pSound->pDataSource);
+        ma_resource_manager_data_source_uninit(pEngine->pResourceManager, &pSound->resourceManagerDataSource);
         pSound->pDataSource = NULL;
     }
 #else
@@ -3330,30 +4054,26 @@ MA_API ma_result ma_engine_play_sound(ma_engine* pEngine, const char* pFilePath,
         An existing sound is being recycled. There's no need to allocate memory or re-insert into the group (it's already there). All we need to do is replace
         the data source. The at-end flag has already been unset, and it will marked as playing at the end of this function.
         */
-        ma_data_source* pNewDataSource;
 
         /* The at-end flag should have been set to false when we acquired the sound for recycling. */
         MA_ASSERT(pSound->atEnd == MA_FALSE);
 
-        /*
-        We want to create the new data source first. If the resource manager detects that the resource is already loaded it will run in an optimized path by
-        simply incrementing a reference counter. If, however, we delete the resource first, we may end up in a situation where the reference counter is
-        decremented to 0, the resource manager free's the internal resources, and then we end up just reloading the resource again. This will only ever happen
-        if the recycled sound coincidentally uses the same underlying resource.
+        /* We're just going to reuse the same data source as before so we need to make sure we uninitialize the old one first. */
+        if (pSound->pDataSource != NULL) {  /* <-- Safety. Should never happen. */
+            MA_ASSERT(pSound->ownsDataSource == MA_TRUE);
+            ma_resource_manager_data_source_uninit(pEngine->pResourceManager, &pSound->resourceManagerDataSource);
+        }
 
-        TODO: Look at checking if there's a way to determine if the old data source shares the same file path as pFilePath and make this more intelligent.
-        */
-        result = ma_resource_manager_create_data_source(pEngine->pResourceManager, pFilePath, 0, &pNewDataSource);
+        /* The old data source has been uninitialized so now we need to initialize the new one. */
+        result = ma_resource_manager_data_source_init(pEngine->pResourceManager, pFilePath, 0, &pSound->resourceManagerDataSource);
         if (result != MA_SUCCESS) {
             /* We failed to load the resource. We need to return an error. We must also put this sound back up for recycling by setting the at-end flag to true. */
             ma_atomic_exchange_32(&pSound->atEnd, MA_TRUE); /* <-- Put the sound back up for recycling. */
             return result;
         }
 
-        /* We have the new data source, so now we can delete the old one. */
-        if (pSound->pDataSource != NULL) {  /* <-- Safety. Should never happen. */
-            ma_resource_manager_delete_data_source(pEngine->pResourceManager, pSound->pDataSource);
-        }
+        /* Set the data source again. It should always be set to the correct value but just set it again for completeness and consistency with the main init API. */
+        pSound->pDataSource = &pSound->resourceManagerDataSource;
 
         /* We need to reset the effect. */
         result = ma_engine_effect_reinit(pEngine, &pSound->effect);
@@ -3362,12 +4082,9 @@ MA_API ma_result ma_engine_play_sound(ma_engine* pEngine, const char* pFilePath,
             ma_engine_sound_uninit(pEngine, pSound);
             return result;
         }
-
-        /* We can now do the switch over to the new data source. */
-        pSound->pDataSource = pNewDataSource;
     } else {
         /* There's no available sounds for recycling. We need to allocate a sound. This can be done using a stack allocator. */
-        pSound = ma__malloc_from_callbacks(sizeof(*pSound), &pEngine->allocationCallbacks); /* TODO: This can certainly be optimized. Maybe add a soundAllocationCallbacks member or something. */
+        pSound = ma__malloc_from_callbacks(sizeof(*pSound), &pEngine->allocationCallbacks/*, MA_ALLOCATION_TYPE_SOUND*/); /* TODO: This can certainly be optimized. */
         if (pSound == NULL) {
             return MA_OUT_OF_MEMORY;
         }
@@ -3501,7 +4218,7 @@ MA_API ma_result ma_engine_sound_group_init(ma_engine* pEngine, ma_sound_group* 
     We need to initialize the lock that'll be used to synchronize adding and removing of sounds to the group. This lock is _not_ used by the mixing thread. The mixing
     thread is written in a way where a lock should not be required.
     */
-    result = ma_mutex_init(&pEngine->context, &pGroup->lock);
+    result = ma_mutex_init(&pGroup->lock);
     if (result != MA_SUCCESS) {
         ma_engine_sound_group_detach(pEngine, pGroup);
         ma_mixer_uninit(&pGroup->mixer);
