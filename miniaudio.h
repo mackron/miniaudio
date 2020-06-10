@@ -5295,15 +5295,15 @@ typedef void ma_data_source;
 
 typedef struct
 {
-    ma_uint64 (* onRead)(ma_data_source* pDataSource, void* pFramesOut, ma_uint64 frameCount);
+    ma_result (* onRead)(ma_data_source* pDataSource, void* pFramesOut, ma_uint64 frameCount, ma_uint64* pFramesRead);
     ma_result (* onSeek)(ma_data_source* pDataSource, ma_uint64 frameIndex);
     ma_result (* onMap)(ma_data_source* pDataSource, void** ppFramesOut, ma_uint64* pFrameCount);   /* Returns MA_AT_END if the end has been reached. This should be considered successful. */
     ma_result (* onUnmap)(ma_data_source* pDataSource, ma_uint64 frameCount);
     ma_result (* onGetDataFormat)(ma_data_source* pDataSource, ma_format* pFormat, ma_uint32* pChannels);
 } ma_data_source_callbacks;
 
-MA_API ma_uint64 ma_data_source_read_pcm_frames(ma_data_source* pDataSource, void* pFramesOut, ma_uint64 frameCount, ma_bool32 loop);   /* Must support pFramesOut = NULL in which case a forward seek should be performed. */
-MA_API ma_uint64 ma_data_source_seek_pcm_frames(ma_data_source* pDataSource, ma_uint64 frameCount, ma_bool32 loop); /* Can only seek forward. Equivalent to ma_data_source_read_pcm_frames(pDataSource, NULL, frameCount); */
+MA_API ma_result ma_data_source_read_pcm_frames(ma_data_source* pDataSource, void* pFramesOut, ma_uint64 frameCount, ma_uint64* pFramesRead, ma_bool32 loop);   /* Must support pFramesOut = NULL in which case a forward seek should be performed. */
+MA_API ma_result ma_data_source_seek_pcm_frames(ma_data_source* pDataSource, ma_uint64 frameCount, ma_uint64* pFramesSeeked, ma_bool32 loop); /* Can only seek forward. Equivalent to ma_data_source_read_pcm_frames(pDataSource, NULL, frameCount); */
 MA_API ma_result ma_data_source_seek_to_pcm_frame(ma_data_source* pDataSource, ma_uint64 frameIndex);
 MA_API ma_result ma_data_source_map(ma_data_source* pDataSource, void** ppFramesOut, ma_uint64* pFrameCount);
 MA_API ma_result ma_data_source_unmap(ma_data_source* pDataSource, ma_uint64 frameCount);   /* Returns MA_AT_END if the end has been reached. This should be considered successful. */
@@ -7771,14 +7771,28 @@ static void ma_semaphore_uninit__win32(ma_semaphore* pSemaphore)
     CloseHandle((HANDLE)*pSemaphore);
 }
 
-static ma_bool32 ma_semaphore_wait__win32(ma_semaphore* pSemaphore)
+static ma_result ma_semaphore_wait__win32(ma_semaphore* pSemaphore)
 {
-    return WaitForSingleObject((HANDLE)*pSemaphore, INFINITE) == WAIT_OBJECT_0;
+    DWORD result = WaitForSingleObject((HANDLE)*pSemaphore, INFINITE);
+    if (result == WAIT_OBJECT_0) {
+        return MA_SUCCESS;
+    }
+
+    if (result == WAIT_TIMEOUT) {
+        return MA_TIMEOUT;
+    }
+
+    return ma_result_from_GetLastError(GetLastError());
 }
 
 static ma_bool32 ma_semaphore_release__win32(ma_semaphore* pSemaphore)
 {
-    return ReleaseSemaphore((HANDLE)*pSemaphore, 1, NULL) != 0;
+    BOOL result = ReleaseSemaphore((HANDLE)*pSemaphore, 1, NULL);
+    if (result == 0) {
+        return ma_result_from_GetLastError(GetLastError());
+    }
+
+    return MA_SUCCESS;
 }
 #endif
 
@@ -7994,10 +8008,10 @@ static void ma_semaphore_uninit__posix(ma_semaphore* pSemaphore)
     pthread_mutex_destroy(&pSemaphore->lock);
 }
 
-static ma_bool32 ma_semaphore_wait__posix(ma_semaphore* pSemaphore)
+static ma_result ma_semaphore_wait__posix(ma_semaphore* pSemaphore)
 {
     if (pSemaphore == NULL) {
-        return MA_FALSE;
+        return MA_INVALID_ARGS;
     }
 
     pthread_mutex_lock(&pSemaphore->lock);
@@ -8011,13 +8025,13 @@ static ma_bool32 ma_semaphore_wait__posix(ma_semaphore* pSemaphore)
     }
     pthread_mutex_unlock(&pSemaphore->lock);
 
-    return MA_TRUE;
+    return MA_SUCCESS;
 }
 
-static ma_bool32 ma_semaphore_release__posix(ma_semaphore* pSemaphore)
+static ma_result ma_semaphore_release__posix(ma_semaphore* pSemaphore)
 {
     if (pSemaphore == NULL) {
-        return MA_FALSE;
+        return MA_INVALID_ARGS;
     }
 
     pthread_mutex_lock(&pSemaphore->lock);
@@ -8027,7 +8041,7 @@ static ma_bool32 ma_semaphore_release__posix(ma_semaphore* pSemaphore)
     }
     pthread_mutex_unlock(&pSemaphore->lock);
 
-    return MA_TRUE;
+    return MA_SUCCESS;
 }
 #endif
 
@@ -8067,6 +8081,17 @@ static void ma_sleep(ma_uint32 milliseconds)
 #endif
 #ifdef MA_POSIX
     ma_sleep__posix(milliseconds);
+#endif
+}
+#endif
+
+#if !defined(MA_EMSCRIPTEN)
+static void ma_yield()
+{
+#ifdef MA_POSIX
+    posix_yield();
+#else
+    /* TODO: Implement me. x86 = PAUSE; ARM = YIELD; */
 #endif
 }
 #endif
@@ -8132,7 +8157,7 @@ MA_API void ma_mutex_unlock(ma_mutex* pMutex)
 MA_API ma_result ma_event_init(ma_event* pEvent)
 {
     if (pEvent == NULL) {
-        return MA_FALSE;
+        return MA_INVALID_ARGS;
     }
 
 #ifdef MA_WIN32
@@ -8141,6 +8166,30 @@ MA_API ma_result ma_event_init(ma_event* pEvent)
 #ifdef MA_POSIX
     return ma_event_init__posix(pEvent);
 #endif
+}
+
+static ma_result ma_event_alloc_and_init(ma_event** ppEvent, ma_allocation_callbacks* pAllocationCallbacks)
+{
+    ma_result result;
+    ma_event* pEvent;
+
+    if (ppEvent == NULL) {
+        return MA_INVALID_ARGS;
+    }
+
+    pEvent = ma_malloc(sizeof(*pEvent), pAllocationCallbacks/*, MA_ALLOCATION_TYPE_EVENT*/);
+    if (pEvent == NULL) {
+        return MA_OUT_OF_MEMORY;
+    }
+
+    result = ma_event_init(pEvent);
+    if (result != MA_SUCCESS) {
+        ma_free(pEvent, pAllocationCallbacks/*, MA_ALLOCATION_TYPE_EVENT*/);
+        return result;
+    }
+
+    *ppEvent = pEvent;
+    return result;
 }
 
 MA_API void ma_event_uninit(ma_event* pEvent)
@@ -8155,6 +8204,16 @@ MA_API void ma_event_uninit(ma_event* pEvent)
 #ifdef MA_POSIX
     ma_event_uninit__posix(pEvent);
 #endif
+}
+
+static void ma_event_uninit_and_free(ma_event* pEvent, ma_allocation_callbacks* pAllocationCallbacks)
+{
+    if (pEvent == NULL) {
+        return;
+    }
+
+    ma_event_uninit(pEvent);
+    ma_free(pEvent, pAllocationCallbacks/*, MA_ALLOCATION_TYPE_EVENT*/);
 }
 
 MA_API ma_bool32 ma_event_wait(ma_event* pEvent)
@@ -8214,10 +8273,10 @@ MA_API void ma_semaphore_uninit(ma_semaphore* pSemaphore)
 #endif
 }
 
-MA_API ma_bool32 ma_semaphore_wait(ma_semaphore* pSemaphore)
+MA_API ma_result ma_semaphore_wait(ma_semaphore* pSemaphore)
 {
     if (pSemaphore == NULL) {
-        return MA_FALSE;
+        return MA_INVALID_ARGS;
     }
 
 #ifdef MA_WIN32
@@ -8228,10 +8287,10 @@ MA_API ma_bool32 ma_semaphore_wait(ma_semaphore* pSemaphore)
 #endif
 }
 
-MA_API ma_bool32 ma_semaphore_release(ma_semaphore* pSemaphore)
+MA_API ma_result ma_semaphore_release(ma_semaphore* pSemaphore)
 {
     if (pSemaphore == NULL) {
-        return MA_FALSE;
+        return MA_INVALID_ARGS;
     }
 
 #ifdef MA_WIN32
@@ -39912,22 +39971,27 @@ MA_API ma_uint32 ma_get_bytes_per_sample(ma_format format)
 
 
 
-MA_API ma_uint64 ma_data_source_read_pcm_frames(ma_data_source* pDataSource, void* pFramesOut, ma_uint64 frameCount, ma_bool32 loop)
+MA_API ma_result ma_data_source_read_pcm_frames(ma_data_source* pDataSource, void* pFramesOut, ma_uint64 frameCount, ma_uint64* pFramesRead, ma_bool32 loop)
 {
     ma_data_source_callbacks* pCallbacks = (ma_data_source_callbacks*)pDataSource;
-    if (pCallbacks == NULL || pCallbacks->onRead == NULL) {
-        return 0;
+    if (pCallbacks == NULL) {
+        return MA_INVALID_ARGS;
+    }
+
+    if (pCallbacks->onRead == NULL) {
+        return MA_NOT_IMPLEMENTED;
     }
 
     /* A very small optimization for the non looping case. */
     if (loop == MA_FALSE) {
-        return pCallbacks->onRead(pDataSource, pFramesOut, frameCount);
+        return pCallbacks->onRead(pDataSource, pFramesOut, frameCount, pFramesRead);
     } else {
         ma_format format;
         ma_uint32 channels;
         if (ma_data_source_get_data_format(pDataSource, &format, &channels) != MA_SUCCESS) {
-            return pCallbacks->onRead(pDataSource, pFramesOut, frameCount); /* We don't have a way to retrieve the data format which means we don't know how to offset the output buffer. Just read as much as we can. */
-        } else {    
+            return pCallbacks->onRead(pDataSource, pFramesOut, frameCount, pFramesRead); /* We don't have a way to retrieve the data format which means we don't know how to offset the output buffer. Just read as much as we can. */
+        } else {
+            ma_result result = MA_SUCCESS;
             ma_uint64 totalFramesProcessed;
             void* pRunningFramesOut = pFramesOut;
 
@@ -39936,8 +40000,16 @@ MA_API ma_uint64 ma_data_source_read_pcm_frames(ma_data_source* pDataSource, voi
                 ma_uint64 framesProcessed;
                 ma_uint64 framesRemaining = frameCount - totalFramesProcessed;
 
-                framesProcessed = pCallbacks->onRead(pDataSource, pRunningFramesOut, framesRemaining);
+                result = pCallbacks->onRead(pDataSource, pRunningFramesOut, framesRemaining, &framesProcessed);
                 totalFramesProcessed += framesProcessed;
+
+                /*
+                If we encounted an error from the read callback, make sure it's propagated to the caller. The caller may need to know whether or not MA_BUSY is returned which is
+                not necessarily considered an error. 
+                */
+                if (result != MA_SUCCESS) {
+                    break;
+                }
 
                 /*
                 We can determine if we've reached the end by checking the return value of the onRead() callback. If it's less than what we requested it means
@@ -39954,14 +40026,15 @@ MA_API ma_uint64 ma_data_source_read_pcm_frames(ma_data_source* pDataSource, voi
                 }
             }
 
-            return totalFramesProcessed;
+            *pFramesRead = totalFramesProcessed;
+            return result;
         }
     }
 }
 
-MA_API ma_uint64 ma_data_source_seek_pcm_frames(ma_data_source* pDataSource, ma_uint64 frameCount, ma_bool32 loop)
+MA_API ma_result ma_data_source_seek_pcm_frames(ma_data_source* pDataSource, ma_uint64 frameCount, ma_uint64* pFramesSeeked, ma_bool32 loop)
 {
-    return ma_data_source_read_pcm_frames(pDataSource, NULL, frameCount, loop);
+    return ma_data_source_read_pcm_frames(pDataSource, NULL, frameCount, pFramesSeeked, loop);
 }
 
 MA_API ma_result ma_data_source_seek_to_pcm_frame(ma_data_source* pDataSource, ma_uint64 frameIndex)
@@ -40037,9 +40110,19 @@ MA_API ma_audio_buffer_config ma_audio_buffer_config_init(ma_format format, ma_u
 }
 
 
-static ma_uint64 ma_audio_buffer__data_source_on_read(ma_data_source* pDataSource, void* pFramesOut, ma_uint64 frameCount)
+static ma_result ma_audio_buffer__data_source_on_read(ma_data_source* pDataSource, void* pFramesOut, ma_uint64 frameCount, ma_uint64* pFramesRead)
 {
-    return ma_audio_buffer_read_pcm_frames((ma_audio_buffer*)pDataSource, pFramesOut, frameCount, MA_FALSE);
+    ma_uint64 framesRead = ma_audio_buffer_read_pcm_frames((ma_audio_buffer*)pDataSource, pFramesOut, frameCount, MA_FALSE);
+
+    if (pFramesRead != NULL) {
+        *pFramesRead = framesRead;
+    }
+
+    if (framesRead < frameCount) {
+        return MA_AT_END;
+    }
+
+    return MA_SUCCESS;
 }
 
 static ma_result ma_audio_buffer__data_source_on_seek(ma_data_source* pDataSource, ma_uint64 frameIndex)
@@ -41269,9 +41352,19 @@ static ma_result ma_decoder__init_allocation_callbacks(const ma_decoder_config* 
     }
 }
 
-static ma_uint64 ma_decoder__data_source_on_read(ma_data_source* pDataSource, void* pFramesOut, ma_uint64 frameCount)
+static ma_result ma_decoder__data_source_on_read(ma_data_source* pDataSource, void* pFramesOut, ma_uint64 frameCount, ma_uint64* pFramesRead)
 {
-    return ma_decoder_read_pcm_frames((ma_decoder*)pDataSource, pFramesOut, frameCount);
+    ma_uint64 framesRead = ma_decoder_read_pcm_frames((ma_decoder*)pDataSource, pFramesOut, frameCount);
+
+    if (pFramesRead != NULL) {
+        *pFramesRead = framesRead;
+    }
+
+    if (framesRead < frameCount) {
+        return MA_AT_END;
+    }
+
+    return MA_SUCCESS;
 }
 
 static ma_result ma_decoder__data_source_on_seek(ma_data_source* pDataSource, ma_uint64 frameIndex)
@@ -42671,9 +42764,19 @@ MA_API ma_waveform_config ma_waveform_config_init(ma_format format, ma_uint32 ch
     return config;
 }
 
-static ma_uint64 ma_waveform__data_source_on_read(ma_data_source* pDataSource, void* pFramesOut, ma_uint64 frameCount)
+static ma_result ma_waveform__data_source_on_read(ma_data_source* pDataSource, void* pFramesOut, ma_uint64 frameCount, ma_uint64* pFramesRead)
 {
-    return ma_waveform_read_pcm_frames((ma_waveform*)pDataSource, pFramesOut, frameCount);
+    ma_uint64 framesRead = ma_waveform_read_pcm_frames((ma_waveform*)pDataSource, pFramesOut, frameCount);
+
+    if (pFramesRead != NULL) {
+        *pFramesRead = framesRead;
+    }
+
+    if (framesRead < frameCount) {
+        return MA_AT_END;
+    }
+
+    return MA_SUCCESS;
 }
 
 static ma_result ma_waveform__data_source_on_seek(ma_data_source* pDataSource, ma_uint64 frameIndex)
@@ -43037,9 +43140,19 @@ MA_API ma_noise_config ma_noise_config_init(ma_format format, ma_uint32 channels
 }
 
 
-static ma_uint64 ma_noise__data_source_on_read(ma_data_source* pDataSource, void* pFramesOut, ma_uint64 frameCount)
+static ma_result ma_noise__data_source_on_read(ma_data_source* pDataSource, void* pFramesOut, ma_uint64 frameCount, ma_uint64* pFramesRead)
 {
-    return ma_noise_read_pcm_frames((ma_noise*)pDataSource, pFramesOut, frameCount);
+    ma_uint64 framesRead = ma_noise_read_pcm_frames((ma_noise*)pDataSource, pFramesOut, frameCount);
+    
+    if (pFramesRead != NULL) {
+        *pFramesRead = framesRead;
+    }
+
+    if (framesRead < frameCount) {
+        return MA_AT_END;
+    }
+
+    return MA_SUCCESS;
 }
 
 static ma_result ma_noise__data_source_on_seek(ma_data_source* pDataSource, ma_uint64 frameIndex)
@@ -43539,8 +43652,10 @@ REVISION HISTORY
 ================
 v0.10.8 - TBD
   - Remove dependency on ma_context from mutexes.
-  - Change playback.pDeviceID and capture.pDeviceID to constant pointers in ma_device_config.
+  - Change ma_data_source_read_pcm_frames() to return a result code and output the frames read as an output parameter.
+  - Change ma_data_source_seek_pcm_frames() to return a result code and output the frames seeked as an output parameter.
   - Change ma_audio_buffer_unmap() to return MA_AT_END when the end has been reached. This should be considered successful.
+  - Change playback.pDeviceID and capture.pDeviceID to constant pointers in ma_device_config.
   - Add support for memory mapping to ma_data_source.
     - ma_data_source_map()
     - ma_data_source_unmap()
