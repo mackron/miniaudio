@@ -40824,7 +40824,7 @@ static ma_uint64 ma_vorbis_decoder_read_pcm_frames(ma_vorbis_decoder* pVorbis, m
             for (iFrame = 0; iFrame < framesToReadFromCache; iFrame += 1) {
                 ma_uint32 iChannel;
                 for (iChannel = 0; iChannel < pDecoder->internalChannels; ++iChannel) {
-                    pFramesOutF[iChannel] = pVorbis->ppPacketData[iChannel][pVorbis->framesConsumed];   
+                    pFramesOutF[iChannel] = pVorbis->ppPacketData[iChannel][pVorbis->framesConsumed+iFrame];   
                 }
                 pFramesOutF += pDecoder->internalChannels;
             }
