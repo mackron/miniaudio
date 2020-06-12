@@ -68,12 +68,6 @@ extern "C" {
 #endif
 
 /*
-Fully decodes a file from a VFS.
-*/
-MA_API ma_result ma_decode_from_vfs(ma_vfs* pVFS, const char* pFilePath, ma_decoder_config* pConfig, ma_uint64* pFrameCountOut, void** ppPCMFramesOut);
-
-
-/*
 Memory Allocation Types
 =======================
 When allocating memory you may want to optimize your custom allocators based on what it is miniaudio is actually allocating. Normally the context in which you
@@ -240,12 +234,6 @@ struct ma_resource_manager_data_source
     ma_result result;       /* Result from asynchronous loading. When loading set to MA_BUSY. When fully loaded set to MA_SUCCESS. When deleting set to MA_UNAVAILABLE. */
     ma_uint64 frameCursor;
     ma_bool32 seekToCursorOnNextRead : 1;   /* On the next read we need to seek to the frame cursor. */
-    /*ma_uint32 holdCount;*/    /* For preventing the backend from being uninitialized from under the data source while it's in the middle of performing an operation. */
-
-    union
-    {
-        int _unused;
-    } streaming;
     union
     {
         ma_decoder decoder;
@@ -281,7 +269,7 @@ struct ma_resource_manager
 MA_API ma_result ma_resource_manager_init(const ma_resource_manager_config* pConfig, ma_resource_manager* pResourceManager);
 MA_API void ma_resource_manager_uninit(ma_resource_manager* pResourceManager);
 
-/* Data Nodes. */
+/* Data Buffers. */
 MA_API ma_result ma_resource_manager_create_data_buffer(ma_resource_manager* pResourceManager, const char* pFilePath, ma_resource_manager_data_buffer_type type, ma_event* pEvent, ma_resource_manager_data_buffer** ppDataBuffer);
 MA_API ma_result ma_resource_manager_delete_data_buffer(ma_resource_manager* pResourceManager, ma_resource_manager_data_buffer* pDataBuffer);
 MA_API ma_result ma_resource_manager_data_buffer_result(ma_resource_manager* pResourceManager, const ma_resource_manager_data_buffer* pDataBuffer);
@@ -451,10 +439,10 @@ struct ma_sound_group
     ma_sound_group* pFirstChild;
     ma_sound_group* pPrevSibling;
     ma_sound_group* pNextSibling;
-    ma_sound* pFirstSoundInGroup;  /* Marked as volatile because we need to be very explicit with when we make copies of this and we can't have the compiler optimize it out. */
+    ma_sound* pFirstSoundInGroup;   /* Marked as volatile because we need to be very explicit with when we make copies of this and we can't have the compiler optimize it out. */
     ma_mixer mixer;
-    ma_mutex lock;          /* Only used by ma_engine_create_sound_*() and ma_engine_delete_sound(). Not used in the mixing thread. */
-    ma_bool32 isPlaying;    /* True by default. Sound groups can be stopped with ma_engine_sound_stop() and resumed with ma_engine_sound_start(). Also affects children. */
+    ma_mutex lock;                  /* Only used by ma_engine_sound_init_*() and ma_engine_sound_uninit(). Not used in the mixing thread. */
+    ma_bool32 isPlaying;            /* True by default. Sound groups can be stopped with ma_engine_sound_stop() and resumed with ma_engine_sound_start(). Also affects children. */
 };
 
 struct ma_listener
@@ -659,32 +647,6 @@ static ma_uint32 ma_hash_string_32(const char* str)
     return ma_hash_32(str, strlen(str), MA_DEFAULT_HASH_SEED);
 }
 
-
-
-MA_API ma_result ma_decode_from_vfs(ma_vfs* pVFS, const char* pFilePath, ma_decoder_config* pConfig, ma_uint64* pFrameCountOut, void** ppPCMFramesOut)
-{
-    ma_result result;
-    ma_decoder_config config;
-    ma_decoder decoder;
-
-    if (pFrameCountOut != NULL) {
-        *pFrameCountOut = 0;
-    }
-    if (ppPCMFramesOut != NULL) {
-        *ppPCMFramesOut = NULL;
-    }
-
-    config = ma_decoder_config_init_copy(pConfig);
-
-    result = ma_decoder_init_vfs(pVFS, pFilePath, &config, &decoder);
-    if (result != MA_SUCCESS) {
-        return result;
-    }
-
-    result = ma_decoder__full_decode_and_uninit(&decoder, pConfig, pFrameCountOut, ppPCMFramesOut);
-
-    return result;
-}
 
 
 MA_API ma_resource_manager_message ma_resource_manager_message_init(ma_uint32 code)
@@ -2855,7 +2817,7 @@ static void ma_engine_sound_mix_wait(ma_sound* pSound)
 
     /* Just do a basic spin wait. */
     while (pSound->isMixing) {
-        continue;   /* Do nothing - just keep waiting for the mixer thread. */
+        ma_yield();
     }
 }
 
