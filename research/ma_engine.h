@@ -534,38 +534,6 @@ MA_API ma_result ma_engine_listener_set_rotation(ma_engine* pEngine, ma_quat rot
 #endif
 
 
-static MA_INLINE ma_uint32 ma_swap_endian_uint32(ma_uint32 n)
-{
-#ifdef MA_HAS_BYTESWAP32_INTRINSIC
-    #if defined(_MSC_VER)
-        return _byteswap_ulong(n);
-    #elif defined(__GNUC__) || defined(__clang__)
-        #if defined(MA_ARM) && (defined(__ARM_ARCH) && __ARM_ARCH >= 6) && !defined(MA_64BIT)   /* <-- 64-bit inline assembly has not been tested, so disabling for now. */
-            /* Inline assembly optimized implementation for ARM. In my testing, GCC does not generate optimized code with __builtin_bswap32(). */
-            ma_uint32 r;
-            __asm__ __volatile__ (
-            #if defined(MA_64BIT)
-                "rev %w[out], %w[in]" : [out]"=r"(r) : [in]"r"(n)   /* <-- This is untested. If someone in the community could test this, that would be appreciated! */
-            #else
-                "rev %[out], %[in]" : [out]"=r"(r) : [in]"r"(n)
-            #endif
-            );
-            return r;
-        #else
-            return __builtin_bswap32(n);
-        #endif
-    #else
-        #error "This compiler does not support the byte swap intrinsic."
-    #endif
-#else
-    return ((n & 0xFF000000) >> 24) |
-           ((n & 0x00FF0000) >>  8) |
-           ((n & 0x0000FF00) <<  8) |
-           ((n & 0x000000FF) << 24);
-#endif
-}
-
-
 
 #ifndef MA_DEFAULT_HASH_SEED
 #define MA_DEFAULT_HASH_SEED    42

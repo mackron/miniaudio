@@ -6105,6 +6105,33 @@ static MA_INLINE ma_bool32 ma_has_neon(void)
 #endif
 
 
+#if defined(_MSC_VER) && _MSC_VER >= 1400
+    #define MA_HAS_BYTESWAP16_INTRINSIC
+    #define MA_HAS_BYTESWAP32_INTRINSIC
+    #define MA_HAS_BYTESWAP64_INTRINSIC
+#elif defined(__clang__)
+    #if defined(__has_builtin)
+        #if __has_builtin(__builtin_bswap16)
+            #define MA_HAS_BYTESWAP16_INTRINSIC
+        #endif
+        #if __has_builtin(__builtin_bswap32)
+            #define MA_HAS_BYTESWAP32_INTRINSIC
+        #endif
+        #if __has_builtin(__builtin_bswap64)
+            #define MA_HAS_BYTESWAP64_INTRINSIC
+        #endif
+    #endif
+#elif defined(__GNUC__)
+    #if ((__GNUC__ > 4) || (__GNUC__ == 4 && __GNUC_MINOR__ >= 3))
+        #define MA_HAS_BYTESWAP32_INTRINSIC
+        #define MA_HAS_BYTESWAP64_INTRINSIC
+    #endif
+    #if ((__GNUC__ > 4) || (__GNUC__ == 4 && __GNUC_MINOR__ >= 8))
+        #define MA_HAS_BYTESWAP16_INTRINSIC
+    #endif
+#endif
+
+
 static MA_INLINE ma_bool32 ma_is_little_endian(void)
 {
 #if defined(MA_X86) || defined(MA_X64)
@@ -6119,6 +6146,39 @@ static MA_INLINE ma_bool32 ma_is_big_endian(void)
 {
     return !ma_is_little_endian();
 }
+
+
+static MA_INLINE ma_uint32 ma_swap_endian_uint32(ma_uint32 n)
+{
+#ifdef MA_HAS_BYTESWAP32_INTRINSIC
+    #if defined(_MSC_VER)
+        return _byteswap_ulong(n);
+    #elif defined(__GNUC__) || defined(__clang__)
+        #if defined(MA_ARM) && (defined(__ARM_ARCH) && __ARM_ARCH >= 6) && !defined(MA_64BIT)   /* <-- 64-bit inline assembly has not been tested, so disabling for now. */
+            /* Inline assembly optimized implementation for ARM. In my testing, GCC does not generate optimized code with __builtin_bswap32(). */
+            ma_uint32 r;
+            __asm__ __volatile__ (
+            #if defined(MA_64BIT)
+                "rev %w[out], %w[in]" : [out]"=r"(r) : [in]"r"(n)   /* <-- This is untested. If someone in the community could test this, that would be appreciated! */
+            #else
+                "rev %[out], %[in]" : [out]"=r"(r) : [in]"r"(n)
+            #endif
+            );
+            return r;
+        #else
+            return __builtin_bswap32(n);
+        #endif
+    #else
+        #error "This compiler does not support the byte swap intrinsic."
+    #endif
+#else
+    return ((n & 0xFF000000) >> 24) |
+           ((n & 0x00FF0000) >>  8) |
+           ((n & 0x0000FF00) <<  8) |
+           ((n & 0x000000FF) << 24);
+#endif
+}
+
 
 
 #ifndef MA_COINIT_VALUE
