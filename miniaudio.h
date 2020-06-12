@@ -5346,6 +5346,7 @@ MA_API ma_result ma_audio_buffer_unmap(ma_audio_buffer* pAudioBuffer, ma_uint64 
 MA_API ma_result ma_audio_buffer_at_end(ma_audio_buffer* pAudioBuffer);
 
 
+
 #if !defined(MA_NO_DECODING) || !defined(MA_NO_ENCODING)
 typedef enum
 {
@@ -5359,6 +5360,60 @@ typedef enum
     ma_resource_format_wav
 } ma_resource_format;
 #endif
+
+
+
+/************************************************************************************************************************************************************
+
+VFS
+===
+
+The VFS object (virtual file system) is what's used to customize file access. This is useful in cases where stdio FILE* based APIs may not be entirely
+appropriate for a given situation.
+
+************************************************************************************************************************************************************/
+typedef void      ma_vfs;
+typedef ma_handle ma_vfs_file;
+
+#define MA_OPEN_MODE_READ   0x00000001
+#define MA_OPEN_MODE_WRITE  0x00000002
+
+typedef struct
+{
+    ma_uint64 sizeInBytes;
+} ma_file_info;
+
+typedef struct
+{
+    ma_result (* onOpen) (ma_vfs* pVFS, const char* pFilePath, ma_uint32 openMode, ma_vfs_file* pFile);
+    ma_result (* onOpenW)(ma_vfs* pVFS, const wchar_t* pFilePath, ma_uint32 openMode, ma_vfs_file* pFile);
+    ma_result (* onClose)(ma_vfs* pVFS, ma_vfs_file file);
+    ma_result (* onRead) (ma_vfs* pVFS, ma_vfs_file file, void* pDst, size_t sizeInBytes, size_t* pBytesRead);
+    ma_result (* onWrite)(ma_vfs* pVFS, ma_vfs_file file, const void* pSrc, size_t sizeInBytes, size_t* pBytesWritten);
+    ma_result (* onSeek) (ma_vfs* pVFS, ma_vfs_file file, ma_int64 offset, ma_seek_origin origin);
+    ma_result (* onTell) (ma_vfs* pVFS, ma_vfs_file file, ma_int64* pCursor);
+    ma_result (* onInfo) (ma_vfs* pVFS, ma_vfs_file file, ma_file_info* pInfo);
+} ma_vfs_callbacks;
+
+MA_API ma_result ma_vfs_open(ma_vfs* pVFS, const char* pFilePath, ma_uint32 openMode, ma_vfs_file* pFile);
+MA_API ma_result ma_vfs_open_w(ma_vfs* pVFS, const wchar_t* pFilePath, ma_uint32 openMode, ma_vfs_file* pFile);
+MA_API ma_result ma_vfs_close(ma_vfs* pVFS, ma_vfs_file file);
+MA_API ma_result ma_vfs_read(ma_vfs* pVFS, ma_vfs_file file, void* pDst, size_t sizeInBytes, size_t* pBytesRead);
+MA_API ma_result ma_vfs_write(ma_vfs* pVFS, ma_vfs_file file, const void* pSrc, size_t sizeInBytes, size_t* pBytesWritten);
+MA_API ma_result ma_vfs_seek(ma_vfs* pVFS, ma_vfs_file file, ma_int64 offset, ma_seek_origin origin);
+MA_API ma_result ma_vfs_tell(ma_vfs* pVFS, ma_vfs_file file, ma_int64* pCursor);
+MA_API ma_result ma_vfs_info(ma_vfs* pVFS, ma_vfs_file file, ma_file_info* pInfo);
+MA_API ma_result ma_vfs_open_and_read_file(ma_vfs* pVFS, const char* pFilePath, void** ppData, size_t* pSize, const ma_allocation_callbacks* pAllocationCallbacks);
+
+typedef struct
+{
+    ma_vfs_callbacks cb;
+    ma_allocation_callbacks allocationCallbacks;    /* Only used for the wchar_t version of open() on non-Windows platforms. */
+} ma_default_vfs;
+
+MA_API ma_result ma_default_vfs_init(ma_default_vfs* pVFS, const ma_allocation_callbacks* pAllocationCallbacks);
+
+
 
 /************************************************************************************************************************************************************
 
@@ -5424,12 +5479,20 @@ struct ma_decoder
     ma_decoder_uninit_proc onUninit;
     ma_decoder_get_length_in_pcm_frames_proc onGetLengthInPCMFrames;
     void* pInternalDecoder; /* <-- The drwav/drflac/stb_vorbis/etc. objects. */
-    struct
+    union
     {
-        const ma_uint8* pData;
-        size_t dataSize;
-        size_t currentReadPos;
-    } memory;               /* Only used for decoders that were opened against a block of memory. */
+        struct
+        {
+            ma_vfs* pVFS;
+            ma_vfs_file file;
+        } vfs;
+        struct
+        {
+            const ma_uint8* pData;
+            size_t dataSize;
+            size_t currentReadPos;
+        } memory;               /* Only used for decoders that were opened against a block of memory. */
+    } backend;
 };
 
 MA_API ma_decoder_config ma_decoder_config_init(ma_format outputFormat, ma_uint32 outputChannels, ma_uint32 outputSampleRate);
@@ -5437,28 +5500,40 @@ MA_API ma_decoder_config ma_decoder_config_init(ma_format outputFormat, ma_uint3
 MA_API ma_result ma_decoder_init(ma_decoder_read_proc onRead, ma_decoder_seek_proc onSeek, void* pUserData, const ma_decoder_config* pConfig, ma_decoder* pDecoder);
 MA_API ma_result ma_decoder_init_wav(ma_decoder_read_proc onRead, ma_decoder_seek_proc onSeek, void* pUserData, const ma_decoder_config* pConfig, ma_decoder* pDecoder);
 MA_API ma_result ma_decoder_init_flac(ma_decoder_read_proc onRead, ma_decoder_seek_proc onSeek, void* pUserData, const ma_decoder_config* pConfig, ma_decoder* pDecoder);
-MA_API ma_result ma_decoder_init_vorbis(ma_decoder_read_proc onRead, ma_decoder_seek_proc onSeek, void* pUserData, const ma_decoder_config* pConfig, ma_decoder* pDecoder);
 MA_API ma_result ma_decoder_init_mp3(ma_decoder_read_proc onRead, ma_decoder_seek_proc onSeek, void* pUserData, const ma_decoder_config* pConfig, ma_decoder* pDecoder);
+MA_API ma_result ma_decoder_init_vorbis(ma_decoder_read_proc onRead, ma_decoder_seek_proc onSeek, void* pUserData, const ma_decoder_config* pConfig, ma_decoder* pDecoder);
 MA_API ma_result ma_decoder_init_raw(ma_decoder_read_proc onRead, ma_decoder_seek_proc onSeek, void* pUserData, const ma_decoder_config* pConfigIn, const ma_decoder_config* pConfigOut, ma_decoder* pDecoder);
 
 MA_API ma_result ma_decoder_init_memory(const void* pData, size_t dataSize, const ma_decoder_config* pConfig, ma_decoder* pDecoder);
 MA_API ma_result ma_decoder_init_memory_wav(const void* pData, size_t dataSize, const ma_decoder_config* pConfig, ma_decoder* pDecoder);
 MA_API ma_result ma_decoder_init_memory_flac(const void* pData, size_t dataSize, const ma_decoder_config* pConfig, ma_decoder* pDecoder);
-MA_API ma_result ma_decoder_init_memory_vorbis(const void* pData, size_t dataSize, const ma_decoder_config* pConfig, ma_decoder* pDecoder);
 MA_API ma_result ma_decoder_init_memory_mp3(const void* pData, size_t dataSize, const ma_decoder_config* pConfig, ma_decoder* pDecoder);
+MA_API ma_result ma_decoder_init_memory_vorbis(const void* pData, size_t dataSize, const ma_decoder_config* pConfig, ma_decoder* pDecoder);
 MA_API ma_result ma_decoder_init_memory_raw(const void* pData, size_t dataSize, const ma_decoder_config* pConfigIn, const ma_decoder_config* pConfigOut, ma_decoder* pDecoder);
+
+MA_API ma_result ma_decoder_init_vfs(ma_vfs* pVFS, const char* pFilePath, const ma_decoder_config* pConfig, ma_decoder* pDecoder);
+MA_API ma_result ma_decoder_init_vfs_wav(ma_vfs* pVFS, const char* pFilePath, const ma_decoder_config* pConfig, ma_decoder* pDecoder);
+MA_API ma_result ma_decoder_init_vfs_flac(ma_vfs* pVFS, const char* pFilePath, const ma_decoder_config* pConfig, ma_decoder* pDecoder);
+MA_API ma_result ma_decoder_init_vfs_mp3(ma_vfs* pVFS, const char* pFilePath, const ma_decoder_config* pConfig, ma_decoder* pDecoder);
+MA_API ma_result ma_decoder_init_vfs_vorbis(ma_vfs* pVFS, const char* pFilePath, const ma_decoder_config* pConfig, ma_decoder* pDecoder);
+
+MA_API ma_result ma_decoder_init_vfs_w(ma_vfs* pVFS, const wchar_t* pFilePath, const ma_decoder_config* pConfig, ma_decoder* pDecoder);
+MA_API ma_result ma_decoder_init_vfs_wav_w(ma_vfs* pVFS, const wchar_t* pFilePath, const ma_decoder_config* pConfig, ma_decoder* pDecoder);
+MA_API ma_result ma_decoder_init_vfs_flac_w(ma_vfs* pVFS, const wchar_t* pFilePath, const ma_decoder_config* pConfig, ma_decoder* pDecoder);
+MA_API ma_result ma_decoder_init_vfs_mp3_w(ma_vfs* pVFS, const wchar_t* pFilePath, const ma_decoder_config* pConfig, ma_decoder* pDecoder);
+MA_API ma_result ma_decoder_init_vfs_vorbis_w(ma_vfs* pVFS, const wchar_t* pFilePath, const ma_decoder_config* pConfig, ma_decoder* pDecoder);
 
 MA_API ma_result ma_decoder_init_file(const char* pFilePath, const ma_decoder_config* pConfig, ma_decoder* pDecoder);
 MA_API ma_result ma_decoder_init_file_wav(const char* pFilePath, const ma_decoder_config* pConfig, ma_decoder* pDecoder);
 MA_API ma_result ma_decoder_init_file_flac(const char* pFilePath, const ma_decoder_config* pConfig, ma_decoder* pDecoder);
-MA_API ma_result ma_decoder_init_file_vorbis(const char* pFilePath, const ma_decoder_config* pConfig, ma_decoder* pDecoder);
 MA_API ma_result ma_decoder_init_file_mp3(const char* pFilePath, const ma_decoder_config* pConfig, ma_decoder* pDecoder);
+MA_API ma_result ma_decoder_init_file_vorbis(const char* pFilePath, const ma_decoder_config* pConfig, ma_decoder* pDecoder);
 
 MA_API ma_result ma_decoder_init_file_w(const wchar_t* pFilePath, const ma_decoder_config* pConfig, ma_decoder* pDecoder);
 MA_API ma_result ma_decoder_init_file_wav_w(const wchar_t* pFilePath, const ma_decoder_config* pConfig, ma_decoder* pDecoder);
 MA_API ma_result ma_decoder_init_file_flac_w(const wchar_t* pFilePath, const ma_decoder_config* pConfig, ma_decoder* pDecoder);
-MA_API ma_result ma_decoder_init_file_vorbis_w(const wchar_t* pFilePath, const ma_decoder_config* pConfig, ma_decoder* pDecoder);
 MA_API ma_result ma_decoder_init_file_mp3_w(const wchar_t* pFilePath, const ma_decoder_config* pConfig, ma_decoder* pDecoder);
+MA_API ma_result ma_decoder_init_file_vorbis_w(const wchar_t* pFilePath, const ma_decoder_config* pConfig, ma_decoder* pDecoder);
 
 MA_API ma_result ma_decoder_uninit(ma_decoder* pDecoder);
 
@@ -7609,6 +7684,10 @@ MA_API ma_uint64 ma_calculate_frame_count_after_resampling(ma_uint32 sampleRateO
     ma_uint64 frameCountOut;
     ma_resampler_config config;
     ma_resampler resampler;
+
+    if (sampleRateOut == sampleRateIn) {
+        return frameCountIn;
+    }
 
     config = ma_resampler_config_init(ma_format_s16, 1, sampleRateIn, sampleRateOut, ma_resample_algorithm_linear);
     result = ma_resampler_init(&config, &resampler);
@@ -40415,6 +40494,537 @@ MA_API ma_result ma_audio_buffer_at_end(ma_audio_buffer* pAudioBuffer)
 
 /**************************************************************************************************************************************************************
 
+VFS
+
+**************************************************************************************************************************************************************/
+MA_API ma_result ma_vfs_open(ma_vfs* pVFS, const char* pFilePath, ma_uint32 openMode, ma_vfs_file* pFile)
+{
+    ma_vfs_callbacks* pCallbacks = (ma_vfs_callbacks*)pVFS;
+
+    if (pFile == NULL) {
+        return MA_INVALID_ARGS;
+    }
+
+    *pFile = NULL;
+
+    if (pVFS == NULL || pFilePath == NULL || openMode == 0) {
+        return MA_INVALID_ARGS;
+    }
+
+    if (pCallbacks->onOpen == NULL) {
+        return MA_NOT_IMPLEMENTED;
+    }
+
+    return pCallbacks->onOpen(pVFS, pFilePath, openMode, pFile);
+}
+
+MA_API ma_result ma_vfs_open_w(ma_vfs* pVFS, const wchar_t* pFilePath, ma_uint32 openMode, ma_vfs_file* pFile)
+{
+    ma_vfs_callbacks* pCallbacks = (ma_vfs_callbacks*)pVFS;
+
+    if (pFile == NULL) {
+        return MA_INVALID_ARGS;
+    }
+
+    *pFile = NULL;
+
+    if (pVFS == NULL || pFilePath == NULL || openMode == 0) {
+        return MA_INVALID_ARGS;
+    }
+
+    if (pCallbacks->onOpenW == NULL) {
+        return MA_NOT_IMPLEMENTED;
+    }
+
+    return pCallbacks->onOpenW(pVFS, pFilePath, openMode, pFile);
+}
+
+MA_API ma_result ma_vfs_close(ma_vfs* pVFS, ma_vfs_file file)
+{
+    ma_vfs_callbacks* pCallbacks = (ma_vfs_callbacks*)pVFS;
+
+    if (pVFS == NULL || file == NULL) {
+        return MA_INVALID_ARGS;
+    }
+
+    if (pCallbacks->onClose == NULL) {
+        return MA_NOT_IMPLEMENTED;
+    }
+
+    return pCallbacks->onClose(pVFS, file);
+}
+
+MA_API ma_result ma_vfs_read(ma_vfs* pVFS, ma_vfs_file file, void* pDst, size_t sizeInBytes, size_t* pBytesRead)
+{
+    ma_vfs_callbacks* pCallbacks = (ma_vfs_callbacks*)pVFS;
+
+    if (pBytesRead != NULL) {
+        *pBytesRead = 0;
+    }
+
+    if (pVFS == NULL || file == NULL || pDst == NULL) {
+        return MA_INVALID_ARGS;
+    }
+
+    if (pCallbacks->onRead == NULL) {
+        return MA_NOT_IMPLEMENTED;
+    }
+
+    return pCallbacks->onRead(pVFS, file, pDst, sizeInBytes, pBytesRead);
+}
+
+MA_API ma_result ma_vfs_write(ma_vfs* pVFS, ma_vfs_file file, const void* pSrc, size_t sizeInBytes, size_t* pBytesWritten)
+{
+    ma_vfs_callbacks* pCallbacks = (ma_vfs_callbacks*)pVFS;
+
+    if (pBytesWritten == NULL) {
+        *pBytesWritten = 0;
+    }
+
+    if (pVFS == NULL || file == NULL || pSrc == NULL) {
+        return MA_INVALID_ARGS;
+    }
+
+    if (pCallbacks->onWrite == NULL) {
+        return MA_NOT_IMPLEMENTED;
+    }
+
+    return pCallbacks->onWrite(pVFS, file, pSrc, sizeInBytes, pBytesWritten);
+}
+
+MA_API ma_result ma_vfs_seek(ma_vfs* pVFS, ma_vfs_file file, ma_int64 offset, ma_seek_origin origin)
+{
+    ma_vfs_callbacks* pCallbacks = (ma_vfs_callbacks*)pVFS;
+
+    if (pVFS == NULL || file == NULL) {
+        return MA_INVALID_ARGS;
+    }
+
+    if (pCallbacks->onSeek == NULL) {
+        return MA_NOT_IMPLEMENTED;
+    }
+
+    return pCallbacks->onSeek(pVFS, file, offset, origin);
+}
+
+MA_API ma_result ma_vfs_tell(ma_vfs* pVFS, ma_vfs_file file, ma_int64* pCursor)
+{
+    ma_vfs_callbacks* pCallbacks = (ma_vfs_callbacks*)pVFS;
+
+    if (pCursor == NULL) {
+        return MA_INVALID_ARGS;
+    }
+
+    *pCursor = 0;
+
+    if (pVFS == NULL || file == NULL) {
+        return MA_INVALID_ARGS;
+    }
+
+    if (pCallbacks->onTell == NULL) {
+        return MA_NOT_IMPLEMENTED;
+    }
+
+    return pCallbacks->onTell(pVFS, file, pCursor);
+}
+
+MA_API ma_result ma_vfs_info(ma_vfs* pVFS, ma_vfs_file file, ma_file_info* pInfo)
+{
+    ma_vfs_callbacks* pCallbacks = (ma_vfs_callbacks*)pVFS;
+
+    if (pInfo == NULL) {
+        return MA_INVALID_ARGS;
+    }
+
+    MA_ZERO_OBJECT(pInfo);
+
+    if (pVFS == NULL || file == NULL) {
+        return MA_INVALID_ARGS;
+    }
+
+    if (pCallbacks->onInfo == NULL) {
+        return MA_NOT_IMPLEMENTED;
+    }
+
+    return pCallbacks->onInfo(pVFS, file, pInfo);
+}
+
+
+static ma_result ma_vfs_open_and_read_file_ex(ma_vfs* pVFS, const char* pFilePath, void** ppData, size_t* pSize, const ma_allocation_callbacks* pAllocationCallbacks, ma_uint32 allocationType)
+{
+    ma_result result;
+    ma_vfs_file file;
+    ma_file_info info;
+    void* pData;
+    size_t bytesRead;
+
+    (void)allocationType;
+
+    if (ppData != NULL) {
+        *ppData = NULL;
+    }
+    if (pSize != NULL) {
+        *pSize = 0;
+    }
+
+    if (ppData == NULL) {
+        return MA_INVALID_ARGS;
+    }
+
+    result = ma_vfs_open(pVFS, pFilePath, MA_OPEN_MODE_READ, &file);
+    if (result != MA_SUCCESS) {
+        return result;
+    }
+
+    result = ma_vfs_info(pVFS, file, &info);
+    if (result != MA_SUCCESS) {
+        ma_vfs_close(pVFS, file);
+        return result;
+    }
+
+    if (info.sizeInBytes > MA_SIZE_MAX) {
+        ma_vfs_close(pVFS, file);
+        return MA_TOO_BIG;
+    }
+
+    pData = ma__malloc_from_callbacks((size_t)info.sizeInBytes, pAllocationCallbacks);  /* Safe cast. */
+    if (pData == NULL) {
+        ma_vfs_close(pVFS, file);
+        return result;
+    }
+
+    result = ma_vfs_read(pVFS, file, pData, (size_t)info.sizeInBytes, &bytesRead);  /* Safe cast. */
+    ma_vfs_close(pVFS, file);
+
+    if (result != MA_SUCCESS) {
+        ma__free_from_callbacks(pData, pAllocationCallbacks);
+        return result;
+    }
+
+    if (pSize != NULL) {
+        *pSize = bytesRead;
+    }
+
+    MA_ASSERT(ppData != NULL);
+    *ppData = pData;
+
+    return MA_SUCCESS;
+}
+
+ma_result ma_vfs_open_and_read_file(ma_vfs* pVFS, const char* pFilePath, void** ppData, size_t* pSize, const ma_allocation_callbacks* pAllocationCallbacks)
+{
+    return ma_vfs_open_and_read_file_ex(pVFS, pFilePath, ppData, pSize, pAllocationCallbacks, 0 /*MA_ALLOCATION_TYPE_GENERAL*/);
+}
+
+
+static ma_result ma_default_vfs_open__stdio(ma_vfs* pVFS, const char* pFilePath, ma_uint32 openMode, ma_vfs_file* pFile)
+{
+    ma_result result;
+    FILE* pFileStd;
+    const char* pOpenModeStr;
+
+    MA_ASSERT(pFilePath != NULL);
+    MA_ASSERT(openMode  != 0);
+    MA_ASSERT(pFile     != NULL);
+
+    (void)pVFS;
+
+    if ((openMode & MA_OPEN_MODE_READ) != 0) {
+        if ((openMode & MA_OPEN_MODE_WRITE) != 0) {
+            pOpenModeStr = "r+";
+        } else {
+            pOpenModeStr = "rb";
+        }
+    } else {
+        pOpenModeStr = "wb";
+    }
+
+    result = ma_fopen(&pFileStd, pFilePath, pOpenModeStr);
+    if (result != MA_SUCCESS) {
+        return result;
+    }
+
+    *pFile = pFileStd;
+
+    return MA_SUCCESS;
+}
+
+static ma_result ma_default_vfs_open_w__stdio(ma_vfs* pVFS, const wchar_t* pFilePath, ma_uint32 openMode, ma_vfs_file* pFile)
+{
+    ma_result result;
+    FILE* pFileStd;
+    const wchar_t* pOpenModeStr;
+
+    MA_ASSERT(pFilePath != NULL);
+    MA_ASSERT(openMode  != 0);
+    MA_ASSERT(pFile     != NULL);
+
+    (void)pVFS;
+
+    if ((openMode & MA_OPEN_MODE_READ) != 0) {
+        if ((openMode & MA_OPEN_MODE_WRITE) != 0) {
+            pOpenModeStr = L"r+";
+        } else {
+            pOpenModeStr = L"rb";
+        }
+    } else {
+        pOpenModeStr = L"wb";
+    }
+
+    result = ma_wfopen(&pFileStd, pFilePath, pOpenModeStr, (pVFS != NULL) ? &((ma_default_vfs*)pVFS)->allocationCallbacks : NULL);
+    if (result != MA_SUCCESS) {
+        return result;
+    }
+
+    *pFile = pFileStd;
+
+    return MA_SUCCESS;
+}
+
+static ma_result ma_default_vfs_close__stdio(ma_vfs* pVFS, ma_vfs_file file)
+{
+    MA_ASSERT(file != NULL);
+
+    (void)pVFS;
+
+    fclose((FILE*)file);
+
+    return MA_SUCCESS;
+}
+
+static ma_result ma_default_vfs_read__stdio(ma_vfs* pVFS, ma_vfs_file file, void* pDst, size_t sizeInBytes, size_t* pBytesRead)
+{
+    size_t result;
+
+    MA_ASSERT(file != NULL);
+    MA_ASSERT(pDst != NULL);
+
+    (void)pVFS;
+    
+    result = fread(pDst, 1, sizeInBytes, (FILE*)file);
+
+    if (pBytesRead != NULL) {
+        *pBytesRead = result;
+    }
+    
+    if (result != sizeInBytes) {
+        if (feof((FILE*)file)) {
+            return MA_END_OF_FILE;
+        } else {
+            return ma_result_from_errno(ferror((FILE*)file));
+        }
+    }
+
+    return MA_SUCCESS;
+}
+
+static ma_result ma_default_vfs_write__stdio(ma_vfs* pVFS, ma_vfs_file file, const void* pSrc, size_t sizeInBytes, size_t* pBytesWritten)
+{
+    size_t result;
+
+    MA_ASSERT(file != NULL);
+    MA_ASSERT(pSrc != NULL);
+
+    (void)pVFS;
+
+    result = fwrite(pSrc, 1, sizeInBytes, (FILE*)file);
+
+    if (pBytesWritten != NULL) {
+        *pBytesWritten = result;
+    }
+
+    if (result != sizeInBytes) {
+        return ma_result_from_errno(ferror((FILE*)file));
+    }
+
+    return MA_SUCCESS;
+}
+
+static ma_result ma_default_vfs_seek__stdio(ma_vfs* pVFS, ma_vfs_file file, ma_int64 offset, ma_seek_origin origin)
+{
+    int result;
+
+    MA_ASSERT(file != NULL);
+
+    (void)pVFS;
+    
+#if defined(_WIN32)
+    result = _fseeki64((FILE*)file, offset, origin);
+#else
+    result = fseek((FILE*)file, (long int)offset, origin);
+#endif
+    if (result != 0) {
+        return MA_ERROR;
+    }
+
+    return MA_SUCCESS;
+}
+
+static ma_result ma_default_vfs_tell__stdio(ma_vfs* pVFS, ma_vfs_file file, ma_int64* pCursor)
+{
+    ma_int64 result;
+
+    MA_ASSERT(file    != NULL);
+    MA_ASSERT(pCursor != NULL);
+
+    (void)pVFS;
+
+#if defined(_WIN32)
+    result = _ftelli64((FILE*)file);
+#else
+    result = ftell((FILE*)file);
+#endif
+
+    *pCursor = result;
+
+    return MA_SUCCESS;
+}
+
+static ma_result ma_default_vfs_info__stdio(ma_vfs* pVFS, ma_vfs_file file, ma_file_info* pInfo)
+{
+    int fd;
+    struct stat info;
+
+    MA_ASSERT(file  != NULL);
+    MA_ASSERT(pInfo != NULL);
+
+    (void)pVFS;
+
+#if defined(_MSC_VER)
+    fd = _fileno((FILE*)file);
+#else
+    fd =  fileno((FILE*)file);
+#endif
+
+    if (fstat(fd, &info) != 0) {
+        return ma_result_from_errno(errno);
+    }
+
+    pInfo->sizeInBytes = info.st_size;
+
+    return MA_SUCCESS;
+}
+
+
+static ma_result ma_default_vfs_open(ma_vfs* pVFS, const char* pFilePath, ma_uint32 openMode, ma_vfs_file* pFile)
+{
+    if (pFile == NULL) {
+        return MA_INVALID_ARGS;
+    }
+
+    *pFile = NULL;
+
+    if (pFilePath == NULL || openMode == 0) {
+        return MA_INVALID_ARGS;
+    }
+
+    return ma_default_vfs_open__stdio(pVFS, pFilePath, openMode, pFile);
+}
+
+static ma_result ma_default_vfs_open_w(ma_vfs* pVFS, const wchar_t* pFilePath, ma_uint32 openMode, ma_vfs_file* pFile)
+{
+    if (pFile == NULL) {
+        return MA_INVALID_ARGS;
+    }
+
+    *pFile = NULL;
+
+    if (pFilePath == NULL || openMode == 0) {
+        return MA_INVALID_ARGS;
+    }
+
+    return ma_default_vfs_open_w__stdio(pVFS, pFilePath, openMode, pFile);
+}
+
+static ma_result ma_default_vfs_close(ma_vfs* pVFS, ma_vfs_file file)
+{
+    if (file == NULL) {
+        return MA_INVALID_ARGS;
+    }
+
+    return ma_default_vfs_close__stdio(pVFS, file);
+}
+
+static ma_result ma_default_vfs_read(ma_vfs* pVFS, ma_vfs_file file, void* pDst, size_t sizeInBytes, size_t* pBytesRead)
+{
+    if (file == NULL || pDst == NULL) {
+        return MA_INVALID_ARGS;
+    }
+
+    return ma_default_vfs_read__stdio(pVFS, file, pDst, sizeInBytes, pBytesRead);
+}
+
+static ma_result ma_default_vfs_write(ma_vfs* pVFS, ma_vfs_file file, const void* pSrc, size_t sizeInBytes, size_t* pBytesWritten)
+{
+    if (file == NULL || pSrc == NULL) {
+        return MA_INVALID_ARGS;
+    }
+
+    return ma_default_vfs_write__stdio(pVFS, file, pSrc, sizeInBytes, pBytesWritten);
+}
+
+static ma_result ma_default_vfs_seek(ma_vfs* pVFS, ma_vfs_file file, ma_int64 offset, ma_seek_origin origin)
+{
+    if (file == NULL) {
+        return MA_INVALID_ARGS;
+    }
+
+    return ma_default_vfs_seek__stdio(pVFS, file, offset, origin);
+}
+
+static ma_result ma_default_vfs_tell(ma_vfs* pVFS, ma_vfs_file file, ma_int64* pCursor)
+{
+    if (pCursor == NULL) {
+        return MA_INVALID_ARGS;
+    }
+
+    *pCursor = 0;
+
+    if (file == NULL) {
+        return MA_INVALID_ARGS;
+    }
+
+    return ma_default_vfs_tell__stdio(pVFS, file, pCursor);
+}
+
+static ma_result ma_default_vfs_info(ma_vfs* pVFS, ma_vfs_file file, ma_file_info* pInfo)
+{
+    if (pInfo == NULL) {
+        return MA_INVALID_ARGS;
+    }
+
+    MA_ZERO_OBJECT(pInfo);
+
+    if (file == NULL) {
+        return MA_INVALID_ARGS;
+    }
+
+    return ma_default_vfs_info__stdio(pVFS, file, pInfo);
+}
+
+
+MA_API ma_result ma_default_vfs_init(ma_default_vfs* pVFS, const ma_allocation_callbacks* pAllocationCallbacks)
+{
+    if (pVFS == NULL) {
+        return MA_INVALID_ARGS;
+    }
+
+    pVFS->cb.onOpen  = ma_default_vfs_open;
+    pVFS->cb.onClose = ma_default_vfs_close;
+    pVFS->cb.onRead  = ma_default_vfs_read;
+    pVFS->cb.onWrite = ma_default_vfs_write;
+    pVFS->cb.onSeek  = ma_default_vfs_seek;
+    pVFS->cb.onTell  = ma_default_vfs_tell;
+    pVFS->cb.onInfo  = ma_default_vfs_info;
+    ma_allocation_callbacks_init_copy(&pVFS->allocationCallbacks, pAllocationCallbacks);
+
+    return MA_SUCCESS;
+}
+
+
+
+/**************************************************************************************************************************************************************
+
 Decoding
 
 **************************************************************************************************************************************************************/
@@ -40786,6 +41396,121 @@ static ma_result ma_decoder_init_flac__internal(const ma_decoder_config* pConfig
 }
 #endif  /* dr_flac_h */
 
+/* MP3 */
+#ifdef dr_mp3_h
+#define MA_HAS_MP3
+
+static size_t ma_decoder_internal_on_read__mp3(void* pUserData, void* pBufferOut, size_t bytesToRead)
+{
+    ma_decoder* pDecoder = (ma_decoder*)pUserData;
+    MA_ASSERT(pDecoder != NULL);
+
+    return ma_decoder_read_bytes(pDecoder, pBufferOut, bytesToRead);
+}
+
+static drmp3_bool32 ma_decoder_internal_on_seek__mp3(void* pUserData, int offset, drmp3_seek_origin origin)
+{
+    ma_decoder* pDecoder = (ma_decoder*)pUserData;
+    MA_ASSERT(pDecoder != NULL);
+
+    return ma_decoder_seek_bytes(pDecoder, offset, (origin == drmp3_seek_origin_start) ? ma_seek_origin_start : ma_seek_origin_current);
+}
+
+static ma_uint64 ma_decoder_internal_on_read_pcm_frames__mp3(ma_decoder* pDecoder, void* pFramesOut, ma_uint64 frameCount)
+{
+    drmp3* pMP3;
+
+    MA_ASSERT(pDecoder   != NULL);
+    MA_ASSERT(pFramesOut != NULL);
+
+    pMP3 = (drmp3*)pDecoder->pInternalDecoder;
+    MA_ASSERT(pMP3 != NULL);
+
+#if defined(DR_MP3_FLOAT_OUTPUT)
+    MA_ASSERT(pDecoder->internalFormat == ma_format_f32);
+    return drmp3_read_pcm_frames_f32(pMP3, frameCount, (float*)pFramesOut);
+#else
+    MA_ASSERT(pDecoder->internalFormat == ma_format_s16);
+    return drmp3_read_pcm_frames_s16(pMP3, frameCount, (drmp3_int16*)pFramesOut);
+#endif
+}
+
+static ma_result ma_decoder_internal_on_seek_to_pcm_frame__mp3(ma_decoder* pDecoder, ma_uint64 frameIndex)
+{
+    drmp3* pMP3;
+    drmp3_bool32 result;
+
+    pMP3 = (drmp3*)pDecoder->pInternalDecoder;
+    MA_ASSERT(pMP3 != NULL);
+
+    result = drmp3_seek_to_pcm_frame(pMP3, frameIndex);
+    if (result) {
+        return MA_SUCCESS;
+    } else {
+        return MA_ERROR;
+    }
+}
+
+static ma_result ma_decoder_internal_on_uninit__mp3(ma_decoder* pDecoder)
+{
+    drmp3_uninit((drmp3*)pDecoder->pInternalDecoder);
+    ma__free_from_callbacks(pDecoder->pInternalDecoder, &pDecoder->allocationCallbacks);
+    return MA_SUCCESS;
+}
+
+static ma_uint64 ma_decoder_internal_on_get_length_in_pcm_frames__mp3(ma_decoder* pDecoder)
+{
+    return drmp3_get_pcm_frame_count((drmp3*)pDecoder->pInternalDecoder);
+}
+
+static ma_result ma_decoder_init_mp3__internal(const ma_decoder_config* pConfig, ma_decoder* pDecoder)
+{
+    drmp3* pMP3;
+    drmp3_allocation_callbacks allocationCallbacks;
+
+    MA_ASSERT(pConfig != NULL);
+    MA_ASSERT(pDecoder != NULL);
+
+    pMP3 = (drmp3*)ma__malloc_from_callbacks(sizeof(*pMP3), &pDecoder->allocationCallbacks);
+    if (pMP3 == NULL) {
+        return MA_OUT_OF_MEMORY;
+    }
+
+    allocationCallbacks.pUserData = pDecoder->allocationCallbacks.pUserData;
+    allocationCallbacks.onMalloc  = pDecoder->allocationCallbacks.onMalloc;
+    allocationCallbacks.onRealloc = pDecoder->allocationCallbacks.onRealloc;
+    allocationCallbacks.onFree    = pDecoder->allocationCallbacks.onFree;
+
+    /*
+    Try opening the decoder first. We always use whatever dr_mp3 reports for channel count and sample rate. The format is determined by
+    the presence of DR_MP3_FLOAT_OUTPUT.
+    */
+    if (!drmp3_init(pMP3, ma_decoder_internal_on_read__mp3, ma_decoder_internal_on_seek__mp3, pDecoder, &allocationCallbacks)) {
+        ma__free_from_callbacks(pMP3, &pDecoder->allocationCallbacks);
+        return MA_ERROR;
+    }
+
+    /* If we get here it means we successfully initialized the MP3 decoder. We can now initialize the rest of the ma_decoder. */
+    pDecoder->onReadPCMFrames        = ma_decoder_internal_on_read_pcm_frames__mp3;
+    pDecoder->onSeekToPCMFrame       = ma_decoder_internal_on_seek_to_pcm_frame__mp3;
+    pDecoder->onUninit               = ma_decoder_internal_on_uninit__mp3;
+    pDecoder->onGetLengthInPCMFrames = ma_decoder_internal_on_get_length_in_pcm_frames__mp3;
+    pDecoder->pInternalDecoder       = pMP3;
+
+    /* Internal format. */
+#if defined(DR_MP3_FLOAT_OUTPUT)
+    pDecoder->internalFormat     = ma_format_f32;
+#else
+    pDecoder->internalFormat     = ma_format_s16;
+#endif
+    pDecoder->internalChannels   = pMP3->channels;
+    pDecoder->internalSampleRate = pMP3->sampleRate;
+    ma_get_standard_channel_map(ma_standard_channel_map_default, pDecoder->internalChannels, pDecoder->internalChannelMap);
+
+    return MA_SUCCESS;
+}
+#endif  /* dr_mp3_h */
+
 /* Vorbis */
 #ifdef STB_VORBIS_INCLUDE_STB_VORBIS_H
 #define MA_HAS_VORBIS
@@ -41086,121 +41811,6 @@ static ma_result ma_decoder_init_vorbis__internal(const ma_decoder_config* pConf
 }
 #endif  /* STB_VORBIS_INCLUDE_STB_VORBIS_H */
 
-/* MP3 */
-#ifdef dr_mp3_h
-#define MA_HAS_MP3
-
-static size_t ma_decoder_internal_on_read__mp3(void* pUserData, void* pBufferOut, size_t bytesToRead)
-{
-    ma_decoder* pDecoder = (ma_decoder*)pUserData;
-    MA_ASSERT(pDecoder != NULL);
-
-    return ma_decoder_read_bytes(pDecoder, pBufferOut, bytesToRead);
-}
-
-static drmp3_bool32 ma_decoder_internal_on_seek__mp3(void* pUserData, int offset, drmp3_seek_origin origin)
-{
-    ma_decoder* pDecoder = (ma_decoder*)pUserData;
-    MA_ASSERT(pDecoder != NULL);
-
-    return ma_decoder_seek_bytes(pDecoder, offset, (origin == drmp3_seek_origin_start) ? ma_seek_origin_start : ma_seek_origin_current);
-}
-
-static ma_uint64 ma_decoder_internal_on_read_pcm_frames__mp3(ma_decoder* pDecoder, void* pFramesOut, ma_uint64 frameCount)
-{
-    drmp3* pMP3;
-
-    MA_ASSERT(pDecoder   != NULL);
-    MA_ASSERT(pFramesOut != NULL);
-
-    pMP3 = (drmp3*)pDecoder->pInternalDecoder;
-    MA_ASSERT(pMP3 != NULL);
-
-#if defined(DR_MP3_FLOAT_OUTPUT)
-    MA_ASSERT(pDecoder->internalFormat == ma_format_f32);
-    return drmp3_read_pcm_frames_f32(pMP3, frameCount, (float*)pFramesOut);
-#else
-    MA_ASSERT(pDecoder->internalFormat == ma_format_s16);
-    return drmp3_read_pcm_frames_s16(pMP3, frameCount, (drmp3_int16*)pFramesOut);
-#endif
-}
-
-static ma_result ma_decoder_internal_on_seek_to_pcm_frame__mp3(ma_decoder* pDecoder, ma_uint64 frameIndex)
-{
-    drmp3* pMP3;
-    drmp3_bool32 result;
-
-    pMP3 = (drmp3*)pDecoder->pInternalDecoder;
-    MA_ASSERT(pMP3 != NULL);
-
-    result = drmp3_seek_to_pcm_frame(pMP3, frameIndex);
-    if (result) {
-        return MA_SUCCESS;
-    } else {
-        return MA_ERROR;
-    }
-}
-
-static ma_result ma_decoder_internal_on_uninit__mp3(ma_decoder* pDecoder)
-{
-    drmp3_uninit((drmp3*)pDecoder->pInternalDecoder);
-    ma__free_from_callbacks(pDecoder->pInternalDecoder, &pDecoder->allocationCallbacks);
-    return MA_SUCCESS;
-}
-
-static ma_uint64 ma_decoder_internal_on_get_length_in_pcm_frames__mp3(ma_decoder* pDecoder)
-{
-    return drmp3_get_pcm_frame_count((drmp3*)pDecoder->pInternalDecoder);
-}
-
-static ma_result ma_decoder_init_mp3__internal(const ma_decoder_config* pConfig, ma_decoder* pDecoder)
-{
-    drmp3* pMP3;
-    drmp3_allocation_callbacks allocationCallbacks;
-
-    MA_ASSERT(pConfig != NULL);
-    MA_ASSERT(pDecoder != NULL);
-
-    pMP3 = (drmp3*)ma__malloc_from_callbacks(sizeof(*pMP3), &pDecoder->allocationCallbacks);
-    if (pMP3 == NULL) {
-        return MA_OUT_OF_MEMORY;
-    }
-
-    allocationCallbacks.pUserData = pDecoder->allocationCallbacks.pUserData;
-    allocationCallbacks.onMalloc  = pDecoder->allocationCallbacks.onMalloc;
-    allocationCallbacks.onRealloc = pDecoder->allocationCallbacks.onRealloc;
-    allocationCallbacks.onFree    = pDecoder->allocationCallbacks.onFree;
-
-    /*
-    Try opening the decoder first. We always use whatever dr_mp3 reports for channel count and sample rate. The format is determined by
-    the presence of DR_MP3_FLOAT_OUTPUT.
-    */
-    if (!drmp3_init(pMP3, ma_decoder_internal_on_read__mp3, ma_decoder_internal_on_seek__mp3, pDecoder, &allocationCallbacks)) {
-        ma__free_from_callbacks(pMP3, &pDecoder->allocationCallbacks);
-        return MA_ERROR;
-    }
-
-    /* If we get here it means we successfully initialized the MP3 decoder. We can now initialize the rest of the ma_decoder. */
-    pDecoder->onReadPCMFrames        = ma_decoder_internal_on_read_pcm_frames__mp3;
-    pDecoder->onSeekToPCMFrame       = ma_decoder_internal_on_seek_to_pcm_frame__mp3;
-    pDecoder->onUninit               = ma_decoder_internal_on_uninit__mp3;
-    pDecoder->onGetLengthInPCMFrames = ma_decoder_internal_on_get_length_in_pcm_frames__mp3;
-    pDecoder->pInternalDecoder       = pMP3;
-
-    /* Internal format. */
-#if defined(DR_MP3_FLOAT_OUTPUT)
-    pDecoder->internalFormat     = ma_format_f32;
-#else
-    pDecoder->internalFormat     = ma_format_s16;
-#endif
-    pDecoder->internalChannels   = pMP3->channels;
-    pDecoder->internalSampleRate = pMP3->sampleRate;
-    ma_get_standard_channel_map(ma_standard_channel_map_default, pDecoder->internalChannels, pDecoder->internalChannelMap);
-
-    return MA_SUCCESS;
-}
-#endif  /* dr_mp3_h */
-
 /* Raw */
 static ma_uint64 ma_decoder_internal_on_read_pcm_frames__raw(ma_decoder* pDecoder, void* pFramesOut, ma_uint64 frameCount)
 {
@@ -41402,8 +42012,8 @@ static ma_result ma_decoder__preinit(ma_decoder_read_proc onRead, ma_decoder_see
     pDecoder->ds.onSeek          = ma_decoder__data_source_on_seek;
     pDecoder->ds.onGetDataFormat = ma_decoder__data_source_on_get_data_format;
 
-    pDecoder->onRead = onRead;
-    pDecoder->onSeek = onSeek;
+    pDecoder->onRead    = onRead;
+    pDecoder->onSeek    = onSeek;
     pDecoder->pUserData = pUserData;
 
     result = ma_decoder__init_allocation_callbacks(pConfig, pDecoder);
@@ -41474,30 +42084,6 @@ MA_API ma_result ma_decoder_init_flac(ma_decoder_read_proc onRead, ma_decoder_se
     return ma_decoder__postinit(&config, pDecoder);
 }
 
-MA_API ma_result ma_decoder_init_vorbis(ma_decoder_read_proc onRead, ma_decoder_seek_proc onSeek, void* pUserData, const ma_decoder_config* pConfig, ma_decoder* pDecoder)
-{
-    ma_decoder_config config;
-    ma_result result;
-
-    config = ma_decoder_config_init_copy(pConfig);
-
-    result = ma_decoder__preinit(onRead, onSeek, pUserData, &config, pDecoder);
-    if (result != MA_SUCCESS) {
-        return result;
-    }
-
-#ifdef MA_HAS_VORBIS
-    result = ma_decoder_init_vorbis__internal(&config, pDecoder);
-#else
-    result = MA_NO_BACKEND;
-#endif
-    if (result != MA_SUCCESS) {
-        return result;
-    }
-
-    return ma_decoder__postinit(&config, pDecoder);
-}
-
 MA_API ma_result ma_decoder_init_mp3(ma_decoder_read_proc onRead, ma_decoder_seek_proc onSeek, void* pUserData, const ma_decoder_config* pConfig, ma_decoder* pDecoder)
 {
     ma_decoder_config config;
@@ -41512,6 +42098,30 @@ MA_API ma_result ma_decoder_init_mp3(ma_decoder_read_proc onRead, ma_decoder_see
 
 #ifdef MA_HAS_MP3
     result = ma_decoder_init_mp3__internal(&config, pDecoder);
+#else
+    result = MA_NO_BACKEND;
+#endif
+    if (result != MA_SUCCESS) {
+        return result;
+    }
+
+    return ma_decoder__postinit(&config, pDecoder);
+}
+
+MA_API ma_result ma_decoder_init_vorbis(ma_decoder_read_proc onRead, ma_decoder_seek_proc onSeek, void* pUserData, const ma_decoder_config* pConfig, ma_decoder* pDecoder)
+{
+    ma_decoder_config config;
+    ma_result result;
+
+    config = ma_decoder_config_init_copy(pConfig);
+
+    result = ma_decoder__preinit(onRead, onSeek, pUserData, &config, pDecoder);
+    if (result != MA_SUCCESS) {
+        return result;
+    }
+
+#ifdef MA_HAS_VORBIS
+    result = ma_decoder_init_vorbis__internal(&config, pDecoder);
 #else
     result = MA_NO_BACKEND;
 #endif
@@ -41574,17 +42184,17 @@ static ma_result ma_decoder_init__internal(ma_decoder_read_proc onRead, ma_decod
         }
     }
 #endif
-#ifdef MA_HAS_VORBIS
+#ifdef MA_HAS_MP3
     if (result != MA_SUCCESS) {
-        result = ma_decoder_init_vorbis__internal(pConfig, pDecoder);
+        result = ma_decoder_init_mp3__internal(pConfig, pDecoder);
         if (result != MA_SUCCESS) {
             onSeek(pDecoder, 0, ma_seek_origin_start);
         }
     }
 #endif
-#ifdef MA_HAS_MP3
+#ifdef MA_HAS_VORBIS
     if (result != MA_SUCCESS) {
-        result = ma_decoder_init_mp3__internal(pConfig, pDecoder);
+        result = ma_decoder_init_vorbis__internal(pConfig, pDecoder);
         if (result != MA_SUCCESS) {
             onSeek(pDecoder, 0, ma_seek_origin_start);
         }
@@ -41618,16 +42228,16 @@ static size_t ma_decoder__on_read_memory(ma_decoder* pDecoder, void* pBufferOut,
 {
     size_t bytesRemaining;
 
-    MA_ASSERT(pDecoder->memory.dataSize >= pDecoder->memory.currentReadPos);
+    MA_ASSERT(pDecoder->backend.memory.dataSize >= pDecoder->backend.memory.currentReadPos);
 
-    bytesRemaining = pDecoder->memory.dataSize - pDecoder->memory.currentReadPos;
+    bytesRemaining = pDecoder->backend.memory.dataSize - pDecoder->backend.memory.currentReadPos;
     if (bytesToRead > bytesRemaining) {
         bytesToRead = bytesRemaining;
     }
 
     if (bytesToRead > 0) {
-        MA_COPY_MEMORY(pBufferOut, pDecoder->memory.pData + pDecoder->memory.currentReadPos, bytesToRead);
-        pDecoder->memory.currentReadPos += bytesToRead;
+        MA_COPY_MEMORY(pBufferOut, pDecoder->backend.memory.pData + pDecoder->backend.memory.currentReadPos, bytesToRead);
+        pDecoder->backend.memory.currentReadPos += bytesToRead;
     }
 
     return bytesToRead;
@@ -41637,22 +42247,22 @@ static ma_bool32 ma_decoder__on_seek_memory(ma_decoder* pDecoder, int byteOffset
 {
     if (origin == ma_seek_origin_current) {
         if (byteOffset > 0) {
-            if (pDecoder->memory.currentReadPos + byteOffset > pDecoder->memory.dataSize) {
-                byteOffset = (int)(pDecoder->memory.dataSize - pDecoder->memory.currentReadPos);  /* Trying to seek too far forward. */
+            if (pDecoder->backend.memory.currentReadPos + byteOffset > pDecoder->backend.memory.dataSize) {
+                byteOffset = (int)(pDecoder->backend.memory.dataSize - pDecoder->backend.memory.currentReadPos);  /* Trying to seek too far forward. */
             }
         } else {
-            if (pDecoder->memory.currentReadPos < (size_t)-byteOffset) {
-                byteOffset = -(int)pDecoder->memory.currentReadPos;  /* Trying to seek too far backwards. */
+            if (pDecoder->backend.memory.currentReadPos < (size_t)-byteOffset) {
+                byteOffset = -(int)pDecoder->backend.memory.currentReadPos;  /* Trying to seek too far backwards. */
             }
         }
 
         /* This will never underflow thanks to the clamps above. */
-        pDecoder->memory.currentReadPos += byteOffset;
+        pDecoder->backend.memory.currentReadPos += byteOffset;
     } else {
-        if ((ma_uint32)byteOffset <= pDecoder->memory.dataSize) {
-            pDecoder->memory.currentReadPos = byteOffset;
+        if ((ma_uint32)byteOffset <= pDecoder->backend.memory.dataSize) {
+            pDecoder->backend.memory.currentReadPos = byteOffset;
         } else {
-            pDecoder->memory.currentReadPos = pDecoder->memory.dataSize;  /* Trying to seek too far forward. */
+            pDecoder->backend.memory.currentReadPos = pDecoder->backend.memory.dataSize;  /* Trying to seek too far forward. */
         }
     }
 
@@ -41670,9 +42280,9 @@ static ma_result ma_decoder__preinit_memory(const void* pData, size_t dataSize, 
         return MA_INVALID_ARGS;
     }
 
-    pDecoder->memory.pData = (const ma_uint8*)pData;
-    pDecoder->memory.dataSize = dataSize;
-    pDecoder->memory.currentReadPos = 0;
+    pDecoder->backend.memory.pData = (const ma_uint8*)pData;
+    pDecoder->backend.memory.dataSize = dataSize;
+    pDecoder->backend.memory.currentReadPos = 0;
 
     (void)pConfig;
     return MA_SUCCESS;
@@ -41741,30 +42351,6 @@ MA_API ma_result ma_decoder_init_memory_flac(const void* pData, size_t dataSize,
     return ma_decoder__postinit(&config, pDecoder);
 }
 
-MA_API ma_result ma_decoder_init_memory_vorbis(const void* pData, size_t dataSize, const ma_decoder_config* pConfig, ma_decoder* pDecoder)
-{
-    ma_decoder_config config;
-    ma_result result;
-
-    config = ma_decoder_config_init_copy(pConfig);  /* Make sure the config is not NULL. */
-
-    result = ma_decoder__preinit_memory(pData, dataSize, &config, pDecoder);
-    if (result != MA_SUCCESS) {
-        return result;
-    }
-
-#ifdef MA_HAS_VORBIS
-    result = ma_decoder_init_vorbis__internal(&config, pDecoder);
-#else
-    result = MA_NO_BACKEND;
-#endif
-    if (result != MA_SUCCESS) {
-        return result;
-    }
-
-    return ma_decoder__postinit(&config, pDecoder);
-}
-
 MA_API ma_result ma_decoder_init_memory_mp3(const void* pData, size_t dataSize, const ma_decoder_config* pConfig, ma_decoder* pDecoder)
 {
     ma_decoder_config config;
@@ -41779,6 +42365,30 @@ MA_API ma_result ma_decoder_init_memory_mp3(const void* pData, size_t dataSize, 
 
 #ifdef MA_HAS_MP3
     result = ma_decoder_init_mp3__internal(&config, pDecoder);
+#else
+    result = MA_NO_BACKEND;
+#endif
+    if (result != MA_SUCCESS) {
+        return result;
+    }
+
+    return ma_decoder__postinit(&config, pDecoder);
+}
+
+MA_API ma_result ma_decoder_init_memory_vorbis(const void* pData, size_t dataSize, const ma_decoder_config* pConfig, ma_decoder* pDecoder)
+{
+    ma_decoder_config config;
+    ma_result result;
+
+    config = ma_decoder_config_init_copy(pConfig);  /* Make sure the config is not NULL. */
+
+    result = ma_decoder__preinit_memory(pData, dataSize, &config, pDecoder);
+    if (result != MA_SUCCESS) {
+        return result;
+    }
+
+#ifdef MA_HAS_VORBIS
+    result = ma_decoder_init_vorbis__internal(&config, pDecoder);
 #else
     result = MA_NO_BACKEND;
 #endif
@@ -41977,240 +42587,510 @@ static ma_bool32 ma_path_extension_equal_w(const wchar_t* path, const wchar_t* e
 }
 
 
-static size_t ma_decoder__on_read_stdio(ma_decoder* pDecoder, void* pBufferOut, size_t bytesToRead)
+
+static size_t ma_decoder__on_read_vfs(ma_decoder* pDecoder, void* pBufferOut, size_t bytesToRead)
 {
-    return fread(pBufferOut, 1, bytesToRead, (FILE*)pDecoder->pUserData);
+    size_t bytesRead;
+
+    MA_ASSERT(pDecoder   != NULL);
+    MA_ASSERT(pBufferOut != NULL);
+
+    if (pDecoder->backend.vfs.pVFS == NULL) {
+        ma_default_vfs_read(NULL, pDecoder->backend.vfs.file, pBufferOut, bytesToRead, &bytesRead);
+    } else {
+        ma_vfs_read(pDecoder->backend.vfs.pVFS, pDecoder->backend.vfs.file, pBufferOut, bytesToRead, &bytesRead);
+    }
+    
+    return bytesRead;
 }
 
-static ma_bool32 ma_decoder__on_seek_stdio(ma_decoder* pDecoder, int byteOffset, ma_seek_origin origin)
-{
-    return fseek((FILE*)pDecoder->pUserData, byteOffset, (origin == ma_seek_origin_current) ? SEEK_CUR : SEEK_SET) == 0;
-}
-
-static ma_result ma_decoder__preinit_file(const char* pFilePath, const ma_decoder_config* pConfig, ma_decoder* pDecoder)
+static ma_bool32 ma_decoder__on_seek_vfs(ma_decoder* pDecoder, int offset, ma_seek_origin origin)
 {
     ma_result result;
-    FILE* pFile;
 
-    if (pDecoder == NULL) {
-        return MA_INVALID_ARGS;
+    MA_ASSERT(pDecoder != NULL);
+
+    if (pDecoder->backend.vfs.pVFS == NULL) {
+        result = ma_default_vfs_seek(NULL, pDecoder->backend.vfs.file, offset, origin);
+    } else {
+        result = ma_vfs_seek(pDecoder->backend.vfs.pVFS, pDecoder->backend.vfs.file, offset, origin);
+    }
+    
+    if (result != MA_SUCCESS) {
+        return MA_FALSE;
     }
 
-    MA_ZERO_OBJECT(pDecoder);
+    return MA_TRUE;
+}
+
+static ma_result ma_decoder__preinit_vfs(ma_vfs* pVFS, const char* pFilePath, const ma_decoder_config* pConfig, ma_decoder* pDecoder)
+{
+    ma_result result;
+    ma_vfs_file file;
+
+    result = ma_decoder__preinit(ma_decoder__on_read_vfs, ma_decoder__on_seek_vfs, NULL, pConfig, pDecoder);
+    if (result != MA_SUCCESS) {
+        return result;
+    }
 
     if (pFilePath == NULL || pFilePath[0] == '\0') {
         return MA_INVALID_ARGS;
     }
 
-    result = ma_decoder__init_allocation_callbacks(pConfig, pDecoder);
+    if (pVFS == NULL) {
+        result = ma_default_vfs_open(NULL, pFilePath, MA_OPEN_MODE_READ, &file);
+    } else {
+        result = ma_vfs_open(pVFS, pFilePath, MA_OPEN_MODE_READ, &file);
+    }
+    
     if (result != MA_SUCCESS) {
         return result;
     }
 
-    result = ma_fopen(&pFile, pFilePath, "rb");
-    if (pFile == NULL) {
-        return result;
-    }
-
-    /* We need to manually set the user data so the calls to ma_decoder__on_seek_stdio() succeed. */
-    pDecoder->pUserData = pFile;
+    pDecoder->backend.vfs.pVFS = pVFS;
+    pDecoder->backend.vfs.file = file;
 
     return MA_SUCCESS;
 }
 
-static ma_result ma_decoder__preinit_file_w(const wchar_t* pFilePath, const ma_decoder_config* pConfig, ma_decoder* pDecoder)
+MA_API ma_result ma_decoder_init_vfs(ma_vfs* pVFS, const char* pFilePath, const ma_decoder_config* pConfig, ma_decoder* pDecoder)
 {
     ma_result result;
-    FILE* pFile;
+    ma_decoder_config config;
 
-    if (pDecoder == NULL) {
-        return MA_INVALID_ARGS;
-    }
-
-    MA_ZERO_OBJECT(pDecoder);
-
-    if (pFilePath == NULL || pFilePath[0] == '\0') {
-        return MA_INVALID_ARGS;
-    }
-
-    result = ma_decoder__init_allocation_callbacks(pConfig, pDecoder);
+    config = ma_decoder_config_init_copy(pConfig);
+    result = ma_decoder__preinit_vfs(pVFS, pFilePath, &config, pDecoder);
     if (result != MA_SUCCESS) {
         return result;
     }
 
-    result = ma_wfopen(&pFile, pFilePath, L"rb", &pDecoder->allocationCallbacks);
-    if (pFile == NULL) {
+    result = MA_NO_BACKEND;
+
+#ifdef MA_HAS_WAV
+    if (result != MA_SUCCESS && ma_path_extension_equal(pFilePath, "wav")) {
+        result = ma_decoder_init_wav__internal(&config, pDecoder);
+        if (result != MA_SUCCESS) {
+            ma_decoder__on_seek_vfs(pDecoder, 0, ma_seek_origin_start);
+        }
+    }
+#endif
+#ifdef MA_HAS_FLAC
+    if (result != MA_SUCCESS && ma_path_extension_equal(pFilePath, "flac")) {
+        result = ma_decoder_init_flac__internal(&config, pDecoder);
+        if (result != MA_SUCCESS) {
+            ma_decoder__on_seek_vfs(pDecoder, 0, ma_seek_origin_start);
+        }
+    }
+#endif
+#ifdef MA_HAS_MP3
+    if (result != MA_SUCCESS && ma_path_extension_equal(pFilePath, "mp3")) {
+        result = ma_decoder_init_mp3__internal(&config, pDecoder);
+        if (result != MA_SUCCESS) {
+            ma_decoder__on_seek_vfs(pDecoder, 0, ma_seek_origin_start);
+        }
+    }
+#endif
+
+    /* If we still haven't got a result just use trial and error. Otherwise we can finish up. */
+    if (result != MA_SUCCESS) {
+        result = ma_decoder_init__internal(ma_decoder__on_read_vfs, ma_decoder__on_seek_vfs, NULL, &config, pDecoder);
+    } else {
+        result = ma_decoder__postinit(&config, pDecoder);
+    }
+
+    if (result != MA_SUCCESS) {
+        ma_vfs_close(pVFS, pDecoder->backend.vfs.file);
         return result;
     }
 
-    /* We need to manually set the user data so the calls to ma_decoder__on_seek_stdio() succeed. */
-    pDecoder->pUserData = pFile;
+    return MA_SUCCESS;
+}
 
+MA_API ma_result ma_decoder_init_vfs_wav(ma_vfs* pVFS, const char* pFilePath, const ma_decoder_config* pConfig, ma_decoder* pDecoder)
+{
+#ifdef MA_HAS_WAV
+    ma_result result;
+    ma_decoder_config config;
+
+    config = ma_decoder_config_init_copy(pConfig);
+    result = ma_decoder__preinit_vfs(pVFS, pFilePath, &config, pDecoder);
+    if (result != MA_SUCCESS) {
+        return result;
+    }
+
+    result = ma_decoder_init_wav__internal(&config, pDecoder);
+    if (result == MA_SUCCESS) {
+        result = ma_decoder__postinit(&config, pDecoder);
+    }
+
+    if (result != MA_SUCCESS) {
+        ma_vfs_close(pVFS, pDecoder->backend.vfs.file);
+    }
+
+    return result;
+#else
+    (void)pVFS;
+    (void)pFilePath;
     (void)pConfig;
+    (void)pDecoder;
+    return MA_NO_BACKEND;
+#endif
+}
+
+MA_API ma_result ma_decoder_init_vfs_flac(ma_vfs* pVFS, const char* pFilePath, const ma_decoder_config* pConfig, ma_decoder* pDecoder)
+{
+#ifdef MA_HAS_FLAC
+    ma_result result;
+    ma_decoder_config config;
+
+    config = ma_decoder_config_init_copy(pConfig);
+    result = ma_decoder__preinit_vfs(pVFS, pFilePath, &config, pDecoder);
+    if (result != MA_SUCCESS) {
+        return result;
+    }
+
+    result = ma_decoder_init_flac__internal(&config, pDecoder);
+    if (result == MA_SUCCESS) {
+        result = ma_decoder__postinit(&config, pDecoder);
+    }
+
+    if (result != MA_SUCCESS) {
+        ma_vfs_close(pVFS, pDecoder->backend.vfs.file);
+    }
+
+    return result;
+#else
+    (void)pVFS;
+    (void)pFilePath;
+    (void)pConfig;
+    (void)pDecoder;
+    return MA_NO_BACKEND;
+#endif
+}
+
+MA_API ma_result ma_decoder_init_vfs_mp3(ma_vfs* pVFS, const char* pFilePath, const ma_decoder_config* pConfig, ma_decoder* pDecoder)
+{
+#ifdef MA_HAS_MP3
+    ma_result result;
+    ma_decoder_config config;
+
+    config = ma_decoder_config_init_copy(pConfig);
+    result = ma_decoder__preinit_vfs(pVFS, pFilePath, &config, pDecoder);
+    if (result != MA_SUCCESS) {
+        return result;
+    }
+
+    result = ma_decoder_init_mp3__internal(&config, pDecoder);
+    if (result == MA_SUCCESS) {
+        result = ma_decoder__postinit(&config, pDecoder);
+    }
+
+    if (result != MA_SUCCESS) {
+        ma_vfs_close(pVFS, pDecoder->backend.vfs.file);
+    }
+
+    return result;
+#else
+    (void)pVFS;
+    (void)pFilePath;
+    (void)pConfig;
+    (void)pDecoder;
+    return MA_NO_BACKEND;
+#endif
+}
+
+MA_API ma_result ma_decoder_init_vfs_vorbis(ma_vfs* pVFS, const char* pFilePath, const ma_decoder_config* pConfig, ma_decoder* pDecoder)
+{
+#ifdef MA_HAS_VORBIS
+    ma_result result;
+    ma_decoder_config config;
+
+    config = ma_decoder_config_init_copy(pConfig);
+    result = ma_decoder__preinit_vfs(pVFS, pFilePath, &config, pDecoder);
+    if (result != MA_SUCCESS) {
+        return result;
+    }
+
+    result = ma_decoder_init_vorbis__internal(&config, pDecoder);
+    if (result == MA_SUCCESS) {
+        result = ma_decoder__postinit(&config, pDecoder);
+    }
+
+    if (result != MA_SUCCESS) {
+        ma_vfs_close(pVFS, pDecoder->backend.vfs.file);
+    }
+
+    return result;
+#else
+    (void)pVFS;
+    (void)pFilePath;
+    (void)pConfig;
+    (void)pDecoder;
+    return MA_NO_BACKEND;
+#endif
+}
+
+
+
+static ma_result ma_decoder__preinit_vfs_w(ma_vfs* pVFS, const wchar_t* pFilePath, const ma_decoder_config* pConfig, ma_decoder* pDecoder)
+{
+    ma_result result;
+    ma_vfs_file file;
+
+    result = ma_decoder__preinit(ma_decoder__on_read_vfs, ma_decoder__on_seek_vfs, NULL, pConfig, pDecoder);
+    if (result != MA_SUCCESS) {
+        return result;
+    }
+
+    if (pFilePath == NULL || pFilePath[0] == '\0') {
+        return MA_INVALID_ARGS;
+    }
+
+    if (pVFS == NULL) {
+        result = ma_default_vfs_open_w(NULL, pFilePath, MA_OPEN_MODE_READ, &file);
+    } else {
+        result = ma_vfs_open_w(pVFS, pFilePath, MA_OPEN_MODE_READ, &file);
+    }
+    
+    if (result != MA_SUCCESS) {
+        return result;
+    }
+
+    pDecoder->backend.vfs.pVFS = pVFS;
+    pDecoder->backend.vfs.file = file;
+
     return MA_SUCCESS;
 }
+
+MA_API ma_result ma_decoder_init_vfs_w(ma_vfs* pVFS, const wchar_t* pFilePath, const ma_decoder_config* pConfig, ma_decoder* pDecoder)
+{
+    ma_result result;
+    ma_decoder_config config;
+
+    config = ma_decoder_config_init_copy(pConfig);
+    result = ma_decoder__preinit_vfs_w(pVFS, pFilePath, &config, pDecoder);
+    if (result != MA_SUCCESS) {
+        return result;
+    }
+
+    result = MA_NO_BACKEND;
+
+#ifdef MA_HAS_WAV
+    if (result != MA_SUCCESS && ma_path_extension_equal_w(pFilePath, L"wav")) {
+        result = ma_decoder_init_wav__internal(&config, pDecoder);
+        if (result != MA_SUCCESS) {
+            ma_decoder__on_seek_vfs(pDecoder, 0, ma_seek_origin_start);
+        }
+    }
+#endif
+#ifdef MA_HAS_FLAC
+    if (result != MA_SUCCESS && ma_path_extension_equal_w(pFilePath, L"flac")) {
+        result = ma_decoder_init_flac__internal(&config, pDecoder);
+        if (result != MA_SUCCESS) {
+            ma_decoder__on_seek_vfs(pDecoder, 0, ma_seek_origin_start);
+        }
+    }
+#endif
+#ifdef MA_HAS_MP3
+    if (result != MA_SUCCESS && ma_path_extension_equal_w(pFilePath, L"mp3")) {
+        result = ma_decoder_init_mp3__internal(&config, pDecoder);
+        if (result != MA_SUCCESS) {
+            ma_decoder__on_seek_vfs(pDecoder, 0, ma_seek_origin_start);
+        }
+    }
+#endif
+
+    /* If we still haven't got a result just use trial and error. Otherwise we can finish up. */
+    if (result != MA_SUCCESS) {
+        result = ma_decoder_init__internal(ma_decoder__on_read_vfs, ma_decoder__on_seek_vfs, NULL, &config, pDecoder);
+    } else {
+        result = ma_decoder__postinit(&config, pDecoder);
+    }
+
+    if (result != MA_SUCCESS) {
+        ma_vfs_close(pVFS, pDecoder->backend.vfs.file);
+        return result;
+    }
+
+    return MA_SUCCESS;
+}
+
+MA_API ma_result ma_decoder_init_vfs_wav_w(ma_vfs* pVFS, const wchar_t* pFilePath, const ma_decoder_config* pConfig, ma_decoder* pDecoder)
+{
+#ifdef MA_HAS_WAV
+    ma_result result;
+    ma_decoder_config config;
+
+    config = ma_decoder_config_init_copy(pConfig);
+    result = ma_decoder__preinit_vfs_w(pVFS, pFilePath, &config, pDecoder);
+    if (result != MA_SUCCESS) {
+        return result;
+    }
+
+    result = ma_decoder_init_wav__internal(&config, pDecoder);
+    if (result == MA_SUCCESS) {
+        result = ma_decoder__postinit(&config, pDecoder);
+    }
+
+    if (result != MA_SUCCESS) {
+        ma_vfs_close(pVFS, pDecoder->backend.vfs.file);
+    }
+
+    return result;
+#else
+    (void)pVFS;
+    (void)pFilePath;
+    (void)pConfig;
+    (void)pDecoder;
+    return MA_NO_BACKEND;
+#endif
+}
+
+MA_API ma_result ma_decoder_init_vfs_flac_w(ma_vfs* pVFS, const wchar_t* pFilePath, const ma_decoder_config* pConfig, ma_decoder* pDecoder)
+{
+#ifdef MA_HAS_FLAC
+    ma_result result;
+    ma_decoder_config config;
+
+    config = ma_decoder_config_init_copy(pConfig);
+    result = ma_decoder__preinit_vfs_w(pVFS, pFilePath, &config, pDecoder);
+    if (result != MA_SUCCESS) {
+        return result;
+    }
+
+    result = ma_decoder_init_flac__internal(&config, pDecoder);
+    if (result == MA_SUCCESS) {
+        result = ma_decoder__postinit(&config, pDecoder);
+    }
+
+    if (result != MA_SUCCESS) {
+        ma_vfs_close(pVFS, pDecoder->backend.vfs.file);
+    }
+
+    return result;
+#else
+    (void)pVFS;
+    (void)pFilePath;
+    (void)pConfig;
+    (void)pDecoder;
+    return MA_NO_BACKEND;
+#endif
+}
+
+MA_API ma_result ma_decoder_init_vfs_mp3_w(ma_vfs* pVFS, const wchar_t* pFilePath, const ma_decoder_config* pConfig, ma_decoder* pDecoder)
+{
+#ifdef MA_HAS_MP3
+    ma_result result;
+    ma_decoder_config config;
+
+    config = ma_decoder_config_init_copy(pConfig);
+    result = ma_decoder__preinit_vfs_w(pVFS, pFilePath, &config, pDecoder);
+    if (result != MA_SUCCESS) {
+        return result;
+    }
+
+    result = ma_decoder_init_mp3__internal(&config, pDecoder);
+    if (result == MA_SUCCESS) {
+        result = ma_decoder__postinit(&config, pDecoder);
+    }
+
+    if (result != MA_SUCCESS) {
+        ma_vfs_close(pVFS, pDecoder->backend.vfs.file);
+    }
+
+    return result;
+#else
+    (void)pVFS;
+    (void)pFilePath;
+    (void)pConfig;
+    (void)pDecoder;
+    return MA_NO_BACKEND;
+#endif
+}
+
+MA_API ma_result ma_decoder_init_vfs_vorbis_w(ma_vfs* pVFS, const wchar_t* pFilePath, const ma_decoder_config* pConfig, ma_decoder* pDecoder)
+{
+#ifdef MA_HAS_VORBIS
+    ma_result result;
+    ma_decoder_config config;
+
+    config = ma_decoder_config_init_copy(pConfig);
+    result = ma_decoder__preinit_vfs_w(pVFS, pFilePath, &config, pDecoder);
+    if (result != MA_SUCCESS) {
+        return result;
+    }
+
+    result = ma_decoder_init_vorbis__internal(&config, pDecoder);
+    if (result == MA_SUCCESS) {
+        result = ma_decoder__postinit(&config, pDecoder);
+    }
+
+    if (result != MA_SUCCESS) {
+        ma_vfs_close(pVFS, pDecoder->backend.vfs.file);
+    }
+
+    return result;
+#else
+    (void)pVFS;
+    (void)pFilePath;
+    (void)pConfig;
+    (void)pDecoder;
+    return MA_NO_BACKEND;
+#endif
+}
+
+
 
 MA_API ma_result ma_decoder_init_file(const char* pFilePath, const ma_decoder_config* pConfig, ma_decoder* pDecoder)
 {
-    ma_result result = ma_decoder__preinit_file(pFilePath, pConfig, pDecoder);    /* This sets pDecoder->pUserData to a FILE*. */
-    if (result != MA_SUCCESS) {
-        return result;
-    }
-
-    /* WAV */
-    if (ma_path_extension_equal(pFilePath, "wav")) {
-        result =  ma_decoder_init_wav(ma_decoder__on_read_stdio, ma_decoder__on_seek_stdio, pDecoder->pUserData, pConfig, pDecoder);
-        if (result == MA_SUCCESS) {
-            return MA_SUCCESS;
-        }
-
-        ma_decoder__on_seek_stdio(pDecoder, 0, ma_seek_origin_start);
-    }
-
-    /* FLAC */
-    if (ma_path_extension_equal(pFilePath, "flac")) {
-        result =  ma_decoder_init_flac(ma_decoder__on_read_stdio, ma_decoder__on_seek_stdio, pDecoder->pUserData, pConfig, pDecoder);
-        if (result == MA_SUCCESS) {
-            return MA_SUCCESS;
-        }
-
-        ma_decoder__on_seek_stdio(pDecoder, 0, ma_seek_origin_start);
-    }
-
-    /* MP3 */
-    if (ma_path_extension_equal(pFilePath, "mp3")) {
-        result =  ma_decoder_init_mp3(ma_decoder__on_read_stdio, ma_decoder__on_seek_stdio, pDecoder->pUserData, pConfig, pDecoder);
-        if (result == MA_SUCCESS) {
-            return MA_SUCCESS;
-        }
-
-        ma_decoder__on_seek_stdio(pDecoder, 0, ma_seek_origin_start);
-    }
-
-    /* Trial and error. */
-    return ma_decoder_init(ma_decoder__on_read_stdio, ma_decoder__on_seek_stdio, pDecoder->pUserData, pConfig, pDecoder);
+    return ma_decoder_init_vfs(NULL, pFilePath, pConfig, pDecoder);
 }
 
 MA_API ma_result ma_decoder_init_file_wav(const char* pFilePath, const ma_decoder_config* pConfig, ma_decoder* pDecoder)
 {
-    ma_result result = ma_decoder__preinit_file(pFilePath, pConfig, pDecoder);
-    if (result != MA_SUCCESS) {
-        return result;
-    }
-
-    return ma_decoder_init_wav(ma_decoder__on_read_stdio, ma_decoder__on_seek_stdio, pDecoder->pUserData, pConfig, pDecoder);
+    return ma_decoder_init_vfs_wav(NULL, pFilePath, pConfig, pDecoder);
 }
 
 MA_API ma_result ma_decoder_init_file_flac(const char* pFilePath, const ma_decoder_config* pConfig, ma_decoder* pDecoder)
 {
-    ma_result result = ma_decoder__preinit_file(pFilePath, pConfig, pDecoder);
-    if (result != MA_SUCCESS) {
-        return result;
-    }
-
-    return ma_decoder_init_flac(ma_decoder__on_read_stdio, ma_decoder__on_seek_stdio, pDecoder->pUserData, pConfig, pDecoder);
-}
-
-MA_API ma_result ma_decoder_init_file_vorbis(const char* pFilePath, const ma_decoder_config* pConfig, ma_decoder* pDecoder)
-{
-    ma_result result = ma_decoder__preinit_file(pFilePath, pConfig, pDecoder);
-    if (result != MA_SUCCESS) {
-        return result;
-    }
-
-    return ma_decoder_init_vorbis(ma_decoder__on_read_stdio, ma_decoder__on_seek_stdio, pDecoder->pUserData, pConfig, pDecoder);
+    return ma_decoder_init_vfs_flac(NULL, pFilePath, pConfig, pDecoder);
 }
 
 MA_API ma_result ma_decoder_init_file_mp3(const char* pFilePath, const ma_decoder_config* pConfig, ma_decoder* pDecoder)
 {
-    ma_result result = ma_decoder__preinit_file(pFilePath, pConfig, pDecoder);
-    if (result != MA_SUCCESS) {
-        return result;
-    }
-
-    return ma_decoder_init_mp3(ma_decoder__on_read_stdio, ma_decoder__on_seek_stdio, pDecoder->pUserData, pConfig, pDecoder);
+    return ma_decoder_init_vfs_mp3(NULL, pFilePath, pConfig, pDecoder);
 }
+
+MA_API ma_result ma_decoder_init_file_vorbis(const char* pFilePath, const ma_decoder_config* pConfig, ma_decoder* pDecoder)
+{
+    return ma_decoder_init_vfs_vorbis(NULL, pFilePath, pConfig, pDecoder);
+}
+
 
 
 MA_API ma_result ma_decoder_init_file_w(const wchar_t* pFilePath, const ma_decoder_config* pConfig, ma_decoder* pDecoder)
 {
-    ma_result result = ma_decoder__preinit_file_w(pFilePath, pConfig, pDecoder);    /* This sets pDecoder->pUserData to a FILE*. */
-    if (result != MA_SUCCESS) {
-        return result;
-    }
-
-    /* WAV */
-    if (ma_path_extension_equal_w(pFilePath, L"wav")) {
-        result =  ma_decoder_init_wav(ma_decoder__on_read_stdio, ma_decoder__on_seek_stdio, pDecoder->pUserData, pConfig, pDecoder);
-        if (result == MA_SUCCESS) {
-            return MA_SUCCESS;
-        }
-
-        ma_decoder__on_seek_stdio(pDecoder, 0, ma_seek_origin_start);
-    }
-
-    /* FLAC */
-    if (ma_path_extension_equal_w(pFilePath, L"flac")) {
-        result =  ma_decoder_init_flac(ma_decoder__on_read_stdio, ma_decoder__on_seek_stdio, pDecoder->pUserData, pConfig, pDecoder);
-        if (result == MA_SUCCESS) {
-            return MA_SUCCESS;
-        }
-
-        ma_decoder__on_seek_stdio(pDecoder, 0, ma_seek_origin_start);
-    }
-
-    /* MP3 */
-    if (ma_path_extension_equal_w(pFilePath, L"mp3")) {
-        result =  ma_decoder_init_mp3(ma_decoder__on_read_stdio, ma_decoder__on_seek_stdio, pDecoder->pUserData, pConfig, pDecoder);
-        if (result == MA_SUCCESS) {
-            return MA_SUCCESS;
-        }
-
-        ma_decoder__on_seek_stdio(pDecoder, 0, ma_seek_origin_start);
-    }
-
-    /* Trial and error. */
-    return ma_decoder_init(ma_decoder__on_read_stdio, ma_decoder__on_seek_stdio, pDecoder->pUserData, pConfig, pDecoder);
+    return ma_decoder_init_vfs_w(NULL, pFilePath, pConfig, pDecoder);
 }
 
 MA_API ma_result ma_decoder_init_file_wav_w(const wchar_t* pFilePath, const ma_decoder_config* pConfig, ma_decoder* pDecoder)
 {
-    ma_result result = ma_decoder__preinit_file_w(pFilePath, pConfig, pDecoder);
-    if (result != MA_SUCCESS) {
-        return result;
-    }
-
-    return ma_decoder_init_wav(ma_decoder__on_read_stdio, ma_decoder__on_seek_stdio, pDecoder->pUserData, pConfig, pDecoder);
+    return ma_decoder_init_vfs_wav_w(NULL, pFilePath, pConfig, pDecoder);
 }
 
 MA_API ma_result ma_decoder_init_file_flac_w(const wchar_t* pFilePath, const ma_decoder_config* pConfig, ma_decoder* pDecoder)
 {
-    ma_result result = ma_decoder__preinit_file_w(pFilePath, pConfig, pDecoder);
-    if (result != MA_SUCCESS) {
-        return result;
-    }
-
-    return ma_decoder_init_flac(ma_decoder__on_read_stdio, ma_decoder__on_seek_stdio, pDecoder->pUserData, pConfig, pDecoder);
-}
-
-MA_API ma_result ma_decoder_init_file_vorbis_w(const wchar_t* pFilePath, const ma_decoder_config* pConfig, ma_decoder* pDecoder)
-{
-    ma_result result = ma_decoder__preinit_file_w(pFilePath, pConfig, pDecoder);
-    if (result != MA_SUCCESS) {
-        return result;
-    }
-
-    return ma_decoder_init_vorbis(ma_decoder__on_read_stdio, ma_decoder__on_seek_stdio, pDecoder->pUserData, pConfig, pDecoder);
+    return ma_decoder_init_vfs_flac_w(NULL, pFilePath, pConfig, pDecoder);
 }
 
 MA_API ma_result ma_decoder_init_file_mp3_w(const wchar_t* pFilePath, const ma_decoder_config* pConfig, ma_decoder* pDecoder)
 {
-    ma_result result = ma_decoder__preinit_file_w(pFilePath, pConfig, pDecoder);
-    if (result != MA_SUCCESS) {
-        return result;
-    }
+    return ma_decoder_init_vfs_mp3_w(NULL, pFilePath, pConfig, pDecoder);
+}
 
-    return ma_decoder_init_mp3(ma_decoder__on_read_stdio, ma_decoder__on_seek_stdio, pDecoder->pUserData, pConfig, pDecoder);
+MA_API ma_result ma_decoder_init_file_vorbis_w(const wchar_t* pFilePath, const ma_decoder_config* pConfig, ma_decoder* pDecoder)
+{
+    return ma_decoder_init_vfs_vorbis_w(NULL, pFilePath, pConfig, pDecoder);
 }
 
 MA_API ma_result ma_decoder_uninit(ma_decoder* pDecoder)
@@ -42223,9 +43103,12 @@ MA_API ma_result ma_decoder_uninit(ma_decoder* pDecoder)
         pDecoder->onUninit(pDecoder);
     }
 
-    /* If we have a file handle, close it. */
-    if (pDecoder->onRead == ma_decoder__on_read_stdio) {
-        fclose((FILE*)pDecoder->pUserData);
+    if (pDecoder->onRead == ma_decoder__on_read_vfs) {
+        if (pDecoder->backend.vfs.pVFS == NULL) {
+            ma_default_vfs_close(NULL, pDecoder->backend.vfs.file);
+        } else {
+            ma_vfs_close(pDecoder->backend.vfs.pVFS, pDecoder->backend.vfs.file);
+        }
     }
 
     ma_data_converter_uninit(&pDecoder->converter);
@@ -43656,6 +44539,18 @@ v0.10.8 - TBD
   - Change ma_data_source_seek_pcm_frames() to return a result code and output the frames seeked as an output parameter.
   - Change ma_audio_buffer_unmap() to return MA_AT_END when the end has been reached. This should be considered successful.
   - Change playback.pDeviceID and capture.pDeviceID to constant pointers in ma_device_config.
+  - Add support for initializing decoders from a virtual file system object. This is achieved via the ma_vfs API and allows the application to customize file
+    IO for the loading and reading of raw audio data. Passing in NULL for the VFS will use defaults. New APIs:
+      - ma_decoder_init_vfs()
+      - ma_decoder_init_vfs_wav()
+      - ma_decoder_init_vfs_flac()
+      - ma_decoder_init_vfs_mp3()
+      - ma_decoder_init_vfs_vorbis()
+      - ma_decoder_init_vfs_w()
+      - ma_decoder_init_vfs_wav_w()
+      - ma_decoder_init_vfs_flac_w()
+      - ma_decoder_init_vfs_mp3_w()
+      - ma_decoder_init_vfs_vorbis_w()
   - Add support for memory mapping to ma_data_source.
     - ma_data_source_map()
     - ma_data_source_unmap()
