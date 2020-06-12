@@ -6,6 +6,9 @@
 #define DR_WAV_IMPLEMENTATION
 #include "../extras/dr_wav.h"   /* Enables WAV decoding. */
 
+#define STB_VORBIS_HEADER_ONLY
+#include "../extras/stb_vorbis.c"    /* Enables Vorbis decoding. */
+
 #define MA_DEBUG_OUTPUT
 #define MA_IMPLEMENTATION
 #include "../miniaudio.h"
@@ -16,6 +19,7 @@ int main(int argc, char** argv)
     ma_result result;
     ma_engine engine;
     ma_sound sound;
+    
 
     if (argc < 2) {
         printf("No input file.\n");
@@ -28,17 +32,36 @@ int main(int argc, char** argv)
         return -1;
     }
 
+
+#if 0
+    ma_resource_manager_data_node* pDataNode;
+    ma_event* pTestEvent;
+    ma_event_alloc_and_init(&pTestEvent, NULL);
+
+    result = ma_resource_manager_create_data_node(engine.pResourceManager, argv[1], ma_resource_manager_data_node_type_decoded, pTestEvent, &pDataNode);
+    if (result != MA_SUCCESS) {
+        printf("FAILED\n");
+    }
+
+    ma_event_wait(pTestEvent);
+    ma_event_uninit_and_free(pTestEvent, NULL);
+#endif
+
+#if 1
     result = ma_engine_sound_init_from_file(&engine, argv[1], MA_DATA_SOURCE_FLAG_DECODE | MA_DATA_SOURCE_FLAG_ASYNC, NULL, &sound);
     if (result != MA_SUCCESS) {
         ma_engine_uninit(&engine);
         return -1;
     }
 
+    /*ma_data_source_seek_to_pcm_frame(sound.pDataSource, 1000000);*/
+    
     ma_engine_sound_set_volume(&engine, &sound, 0.25f);
     ma_engine_sound_set_pitch(&engine, &sound, 1.0f);
     ma_engine_sound_set_pan(&engine, &sound, 0.0f);
     ma_engine_sound_set_looping(&engine, &sound, MA_TRUE);
     ma_engine_sound_start(&engine, &sound);
+#endif
 
 #if 1
     /*ma_engine_play_sound(&engine, argv[1], NULL);*/
@@ -64,7 +87,7 @@ int main(int argc, char** argv)
 
         //ma_engine_sound_set_pitch(&engine, &sound, pitch);
 
-        Sleep(1);
+        ma_sleep(1);
     }
 #endif
 
@@ -76,3 +99,21 @@ int main(int argc, char** argv)
 
     return 0;
 }
+
+/* stb_vorbis implementation must come after the implementation of miniaudio. */
+#if defined(_MSC_VER) && !defined(__clang__)
+    #pragma warning(push)
+    #pragma warning(disable:4100)   /* unreferenced formal parameter */
+    #pragma warning(disable:4244)   /* '=': conversion from '' to '', possible loss of data */
+    #pragma warning(disable:4245)   /* '=': conversion from '' to '', signed/unsigned mismatch */
+    #pragma warning(disable:4456)   /* declaration of '' hides previous local declaration */
+    #pragma warning(disable:4457)   /* declaration of '' hides function parameter */
+    #pragma warning(disable:4701)   /* potentially uninitialized local variable '' used */
+#else
+#endif
+#undef STB_VORBIS_HEADER_ONLY
+#include "../extras/stb_vorbis.c"
+#if defined(_MSC_VER) && !defined(__clang__)
+    #pragma warning(pop)
+#else
+#endif
