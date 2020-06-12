@@ -33,20 +33,6 @@ int main(int argc, char** argv)
     }
 
 
-#if 0
-    ma_resource_manager_data_node* pDataNode;
-    ma_event* pTestEvent;
-    ma_event_alloc_and_init(&pTestEvent, NULL);
-
-    result = ma_resource_manager_create_data_node(engine.pResourceManager, argv[1], ma_resource_manager_data_node_type_decoded, pTestEvent, &pDataNode);
-    if (result != MA_SUCCESS) {
-        printf("FAILED\n");
-    }
-
-    ma_event_wait(pTestEvent);
-    ma_event_uninit_and_free(pTestEvent, NULL);
-#endif
-
 #if 1
     result = ma_engine_sound_init_from_file(&engine, argv[1], MA_DATA_SOURCE_FLAG_DECODE | MA_DATA_SOURCE_FLAG_ASYNC, NULL, &sound);
     if (result != MA_SUCCESS) {

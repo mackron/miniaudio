@@ -87,7 +87,7 @@ useful to be told exactly what it being allocated so you can optimize your alloc
 #define MA_ALLOCATION_TYPE_AUDIO_BUFFER                 0x00000005  /* A ma_audio_buffer allocation. */
 #define MA_ALLOCATION_TYPE_ENCODED_BUFFER               0x00000006  /* Allocation for encoded audio data containing the raw file data of a sound file. */
 #define MA_ALLOCATION_TYPE_DECODED_BUFFER               0x00000007  /* Allocation for decoded audio data from a sound file. */
-#define MA_ALLOCATION_TYPE_RESOURCE_MANAGER_NODE        0x00000010  /* A ma_resource_manager_data_node object. */
+#define MA_ALLOCATION_TYPE_RESOURCE_MANAGER_NODE        0x00000010  /* A ma_resource_manager_data_buffer object. */
 #define MA_ALLOCATION_TYPE_RESOURCE_MANAGER_PAGE        0x00000011  /* A ma_resource_manager_page object. Used by the resource manager for when a page containing decoded audio data is loaded for streaming. */
 #define MA_ALLOCATION_TYPE_RESOURCE_MANAGER_DATA_SOURCE 0x00000012  /* A ma_resource_manager_data_source object. */
 
@@ -104,9 +104,9 @@ The flags below are used for controlling how the resource manager should handle 
 
 typedef enum
 {
-    ma_resource_manager_data_node_type_encoded,
-    ma_resource_manager_data_node_type_decoded
-} ma_resource_manager_data_node_type;
+    ma_resource_manager_data_buffer_type_encoded,
+    ma_resource_manager_data_buffer_type_decoded
+} ma_resource_manager_data_buffer_type;
 
 typedef enum
 {
@@ -117,7 +117,7 @@ typedef enum
 
 
 typedef struct ma_resource_manager             ma_resource_manager;
-typedef struct ma_resource_manager_data_node   ma_resource_manager_data_node;
+typedef struct ma_resource_manager_data_buffer ma_resource_manager_data_buffer;
 typedef struct ma_resource_manager_data_source ma_resource_manager_data_source;
 
 
@@ -130,8 +130,8 @@ typedef struct ma_resource_manager_data_source ma_resource_manager_data_source;
 #endif
 
 #define MA_MESSAGE_TERMINATE        0x00000000
-#define MA_MESSAGE_LOAD_DATA_NODE   0x00000001
-#define MA_MESSAGE_FREE_DATA_NODE   0x00000002
+#define MA_MESSAGE_LOAD_DATA_BUFFER 0x00000001
+#define MA_MESSAGE_FREE_DATA_BUFFER 0x00000002
 #define MA_MESSAGE_LOAD_DATA_SOURCE 0x00000003
 /*#define MA_MESSAGE_FREE_DATA_SOURCE 0x00000004*/
 #define MA_MESSAGE_DECODE_PAGE      0x00000005
@@ -144,14 +144,14 @@ typedef struct
     {
         struct
         {
-            ma_resource_manager_data_node* pDataNode;
+            ma_resource_manager_data_buffer* pDataBuffer;
             char* pFilePath;    /* Allocated when the message is posted, freed by the async thread after loading. */
             ma_event* pEvent;
-        } loadDataNode;
+        } loadDataBuffer;
         struct
         {
-            ma_resource_manager_data_node* pDataNode;
-        } freeDataNode;
+            ma_resource_manager_data_buffer* pDataBuffer;
+        } freeDataBuffer;
         struct
         {
             ma_resource_manager_data_source* pDataSource;
@@ -163,13 +163,13 @@ typedef struct
         } freeDataSource;
         struct
         {
-            ma_resource_manager_data_node* pDataNode;
+            ma_resource_manager_data_buffer* pDataBuffer;
             ma_decoder* pDecoder;
             ma_event* pCompletedEvent;  /* Signalled when the data buffer has been fully decoded. */
             void* pData;
             size_t dataSizeInBytes;
             ma_uint64 decodedFrameCount;
-            ma_bool32 isUnknownLength;  /* When set to true does not update the running frame count of the data node nor the data pointer until the last page has been decoded. */
+            ma_bool32 isUnknownLength;  /* When set to true does not update the running frame count of the data buffer nor the data pointer until the last page has been decoded. */
         } decodePage;
     };
 } ma_resource_manager_message;
@@ -211,7 +211,7 @@ typedef struct
 
 typedef struct
 {
-    ma_resource_manager_data_node_type type;
+    ma_resource_manager_data_buffer_type type;
     union
     {
         ma_decoded_data decoded;
@@ -219,22 +219,22 @@ typedef struct
     };
 } ma_resource_manager_memory_buffer;
 
-struct ma_resource_manager_data_node
+struct ma_resource_manager_data_buffer
 {
     ma_uint32 hashedName32; /* The hashed name. This is the key. */
     ma_uint32 refCount;
     ma_result result;       /* Result from asynchronous loading. When loading set to MA_BUSY. When fully loaded set to MA_SUCCESS. When deleting set to MA_UNAVAILABLE. */
     ma_bool32 isDataOwnedByResourceManager;
     ma_resource_manager_memory_buffer data;
-    ma_resource_manager_data_node* pParent;
-    ma_resource_manager_data_node* pChildLo;
-    ma_resource_manager_data_node* pChildHi;
+    ma_resource_manager_data_buffer* pParent;
+    ma_resource_manager_data_buffer* pChildLo;
+    ma_resource_manager_data_buffer* pChildHi;
 };
 
 struct ma_resource_manager_data_source
 {
     ma_data_source_callbacks ds;
-    ma_resource_manager_data_node* pDataNode;
+    ma_resource_manager_data_buffer* pDataBuffer;
     ma_resource_manager_data_source_type type;
     ma_uint32 flags;        /* The flags that were passed in to ma_resource_manager_data_source_init(). */
     ma_result result;       /* Result from asynchronous loading. When loading set to MA_BUSY. When fully loaded set to MA_SUCCESS. When deleting set to MA_UNAVAILABLE. */
@@ -271,20 +271,20 @@ MA_API ma_resource_manager_config ma_resource_manager_config_init(ma_format deco
 struct ma_resource_manager
 {
     ma_resource_manager_config config;
-    ma_resource_manager_data_node* pRootDataNode;   /* The root node in the binary tree. */
-    ma_mutex dataNodeLock;                          /* For synchronizing access to the data node binary tree. */
-    ma_thread asyncThread;                          /* Thread for running asynchronous operations. */
+    ma_resource_manager_data_buffer* pRootDataBuffer;   /* The root buffer in the binary tree. */
+    ma_mutex dataBufferLock;                            /* For synchronizing access to the data buffer binary tree. */
+    ma_thread asyncThread;                              /* Thread for running asynchronous operations. */
     ma_resource_manager_message_queue messageQueue;
-    ma_default_vfs defaultVFS;                      /* Only used if a custom VFS is not specified. */
+    ma_default_vfs defaultVFS;                          /* Only used if a custom VFS is not specified. */
 };
 
 MA_API ma_result ma_resource_manager_init(const ma_resource_manager_config* pConfig, ma_resource_manager* pResourceManager);
 MA_API void ma_resource_manager_uninit(ma_resource_manager* pResourceManager);
 
 /* Data Nodes. */
-MA_API ma_result ma_resource_manager_create_data_node(ma_resource_manager* pResourceManager, const char* pFilePath, ma_resource_manager_data_node_type type, ma_event* pEvent, ma_resource_manager_data_node** ppDataNode);
-MA_API ma_result ma_resource_manager_delete_data_node(ma_resource_manager* pResourceManager, ma_resource_manager_data_node* pDataNode);
-MA_API ma_result ma_resource_manager_data_node_result(ma_resource_manager* pResourceManager, const ma_resource_manager_data_node* pDataNode);
+MA_API ma_result ma_resource_manager_create_data_buffer(ma_resource_manager* pResourceManager, const char* pFilePath, ma_resource_manager_data_buffer_type type, ma_event* pEvent, ma_resource_manager_data_buffer** ppDataBuffer);
+MA_API ma_result ma_resource_manager_delete_data_buffer(ma_resource_manager* pResourceManager, ma_resource_manager_data_buffer* pDataBuffer);
+MA_API ma_result ma_resource_manager_data_buffer_result(ma_resource_manager* pResourceManager, const ma_resource_manager_data_buffer* pDataBuffer);
 MA_API ma_result ma_resource_manager_register_decoded_data(ma_resource_manager* pResourceManager, const char* pName, const void* pData, ma_uint64 frameCount, ma_format format, ma_uint32 channels, ma_uint32 sampleRate);  /* Does not copy. Increments the reference count if already exists and returns MA_SUCCESS. */
 MA_API ma_result ma_resource_manager_register_encoded_data(ma_resource_manager* pResourceManager, const char* pName, const void* pData, size_t sizeInBytes);    /* Does not copy. Increments the reference count if already exists and returns MA_SUCCESS. */
 MA_API ma_result ma_resource_manager_unregister_data(ma_resource_manager* pResourceManager, const char* pName);
@@ -774,11 +774,11 @@ static ma_result ma_resource_manager_message_queue_post_nolock(ma_resource_manag
     or for cancelling an event based on the state of an object.
     */
 
-    /* We cannot be decoding anything if the data node is set to any status other than MA_BUSY. */
+    /* We cannot be decoding anything if the data buffer is set to any status other than MA_BUSY. */
     if (pMessage->code == MA_MESSAGE_DECODE_PAGE) {
-        MA_ASSERT(pMessage->decodePage.pDataNode != NULL);
+        MA_ASSERT(pMessage->decodePage.pDataBuffer != NULL);
 
-        if (pMessage->decodePage.pDataNode->result != MA_BUSY) {
+        if (pMessage->decodePage.pDataBuffer->result != MA_BUSY) {
             return MA_INVALID_OPERATION;    /* Cannot decode after the data buffer has been marked as unavailable. Abort. */
         }
     }
@@ -894,14 +894,14 @@ MA_API ma_result ma_resource_manager_message_queue_peek(ma_resource_manager_mess
 /*
 Basic BST Functions
 */
-static ma_result ma_resource_manager_data_node_search(ma_resource_manager* pResourceManager, ma_uint32 hashedName32, ma_resource_manager_data_node** ppDataNode)
+static ma_result ma_resource_manager_data_buffer_search(ma_resource_manager* pResourceManager, ma_uint32 hashedName32, ma_resource_manager_data_buffer** ppDataBuffer)
 {
-    ma_resource_manager_data_node* pCurrentNode;
+    ma_resource_manager_data_buffer* pCurrentNode;
 
     MA_ASSERT(pResourceManager != NULL);
-    MA_ASSERT(ppDataNode       != NULL);
+    MA_ASSERT(ppDataBuffer       != NULL);
 
-    pCurrentNode = pResourceManager->pRootDataNode;
+    pCurrentNode = pResourceManager->pRootDataBuffer;
     while (pCurrentNode != NULL) {
         if (hashedName32 == pCurrentNode->hashedName32) {
             break;  /* Found. */
@@ -912,7 +912,7 @@ static ma_result ma_resource_manager_data_node_search(ma_resource_manager* pReso
         }
     }
 
-    *ppDataNode = pCurrentNode;
+    *ppDataBuffer = pCurrentNode;
 
     if (pCurrentNode == NULL) {
         return MA_DOES_NOT_EXIST;
@@ -921,22 +921,22 @@ static ma_result ma_resource_manager_data_node_search(ma_resource_manager* pReso
     }
 }
 
-static ma_result ma_resource_manager_data_node_insert_point(ma_resource_manager* pResourceManager, ma_uint32 hashedName32, ma_resource_manager_data_node** ppInsertPoint)
+static ma_result ma_resource_manager_data_buffer_insert_point(ma_resource_manager* pResourceManager, ma_uint32 hashedName32, ma_resource_manager_data_buffer** ppInsertPoint)
 {
     ma_result result = MA_SUCCESS;
-    ma_resource_manager_data_node* pCurrentNode;
+    ma_resource_manager_data_buffer* pCurrentNode;
 
     MA_ASSERT(pResourceManager != NULL);
     MA_ASSERT(ppInsertPoint    != NULL);
 
     *ppInsertPoint = NULL;
 
-    if (pResourceManager->pRootDataNode == NULL) {
+    if (pResourceManager->pRootDataBuffer == NULL) {
         return MA_SUCCESS;  /* No items. */
     }
 
     /* We need to find the node that will become the parent of the new node. If a node is found that already has the same hashed name we need to return MA_ALREADY_EXISTS. */
-    pCurrentNode = pResourceManager->pRootDataNode;
+    pCurrentNode = pResourceManager->pRootDataBuffer;
     while (pCurrentNode != NULL) {
         if (hashedName32 == pCurrentNode->hashedName32) {
             result = MA_ALREADY_EXISTS;
@@ -964,54 +964,54 @@ static ma_result ma_resource_manager_data_node_insert_point(ma_resource_manager*
     return result;
 }
 
-static ma_result ma_resource_manager_data_node_insert_at(ma_resource_manager* pResourceManager, ma_resource_manager_data_node* pDataNode, ma_resource_manager_data_node* pInsertPoint)
+static ma_result ma_resource_manager_data_buffer_insert_at(ma_resource_manager* pResourceManager, ma_resource_manager_data_buffer* pDataBuffer, ma_resource_manager_data_buffer* pInsertPoint)
 {
     MA_ASSERT(pResourceManager != NULL);
-    MA_ASSERT(pDataNode        != NULL);
+    MA_ASSERT(pDataBuffer        != NULL);
 
     /* The key must have been set before calling this function. */
-    MA_ASSERT(pDataNode->hashedName32 != 0);
+    MA_ASSERT(pDataBuffer->hashedName32 != 0);
 
     if (pInsertPoint == NULL) {
         /* It's the first node. */
-        pResourceManager->pRootDataNode = pDataNode;
+        pResourceManager->pRootDataBuffer = pDataBuffer;
     } else {
         /* It's not the first node. It needs to be inserted. */
-        if (pDataNode->hashedName32 < pInsertPoint->hashedName32) {
+        if (pDataBuffer->hashedName32 < pInsertPoint->hashedName32) {
             MA_ASSERT(pInsertPoint->pChildLo == NULL);
-            pInsertPoint->pChildLo = pDataNode;
+            pInsertPoint->pChildLo = pDataBuffer;
         } else {
             MA_ASSERT(pInsertPoint->pChildHi == NULL);
-            pInsertPoint->pChildHi = pDataNode;
+            pInsertPoint->pChildHi = pDataBuffer;
         }
     }
 
     return MA_SUCCESS;
 }
 
-static ma_result ma_resource_manager_data_node_insert(ma_resource_manager* pResourceManager, ma_resource_manager_data_node* pDataNode)
+static ma_result ma_resource_manager_data_buffer_insert(ma_resource_manager* pResourceManager, ma_resource_manager_data_buffer* pDataBuffer)
 {
     ma_result result;
-    ma_resource_manager_data_node* pInsertPoint;
+    ma_resource_manager_data_buffer* pInsertPoint;
 
     MA_ASSERT(pResourceManager != NULL);
-    MA_ASSERT(pDataNode        != NULL);
+    MA_ASSERT(pDataBuffer        != NULL);
 
-    result = ma_resource_manager_data_node_insert_point(pResourceManager, pDataNode->hashedName32, &pInsertPoint);
+    result = ma_resource_manager_data_buffer_insert_point(pResourceManager, pDataBuffer->hashedName32, &pInsertPoint);
     if (result != MA_SUCCESS) {
         return MA_INVALID_ARGS;
     }
 
-    return ma_resource_manager_data_node_insert_at(pResourceManager, pDataNode, pInsertPoint);
+    return ma_resource_manager_data_buffer_insert_at(pResourceManager, pDataBuffer, pInsertPoint);
 }
 
-static MA_INLINE ma_resource_manager_data_node* ma_resource_manager_data_node_find_min(ma_resource_manager_data_node* pDataNode)
+static MA_INLINE ma_resource_manager_data_buffer* ma_resource_manager_data_buffer_find_min(ma_resource_manager_data_buffer* pDataBuffer)
 {
-    ma_resource_manager_data_node* pCurrentNode;
+    ma_resource_manager_data_buffer* pCurrentNode;
 
-    MA_ASSERT(pDataNode != NULL);
+    MA_ASSERT(pDataBuffer != NULL);
 
-    pCurrentNode = pDataNode;
+    pCurrentNode = pDataBuffer;
     while (pCurrentNode->pChildLo != NULL) {
         pCurrentNode = pCurrentNode->pChildLo;
     }
@@ -1019,13 +1019,13 @@ static MA_INLINE ma_resource_manager_data_node* ma_resource_manager_data_node_fi
     return pCurrentNode;
 }
 
-static MA_INLINE ma_resource_manager_data_node* ma_resource_manager_data_node_find_max(ma_resource_manager_data_node* pDataNode)
+static MA_INLINE ma_resource_manager_data_buffer* ma_resource_manager_data_buffer_find_max(ma_resource_manager_data_buffer* pDataBuffer)
 {
-    ma_resource_manager_data_node* pCurrentNode;
+    ma_resource_manager_data_buffer* pCurrentNode;
 
-    MA_ASSERT(pDataNode != NULL);
+    MA_ASSERT(pDataBuffer != NULL);
 
-    pCurrentNode = pDataNode;
+    pCurrentNode = pDataBuffer;
     while (pCurrentNode->pChildHi != NULL) {
         pCurrentNode = pCurrentNode->pChildHi;
     }
@@ -1033,73 +1033,73 @@ static MA_INLINE ma_resource_manager_data_node* ma_resource_manager_data_node_fi
     return pCurrentNode;
 }
 
-static MA_INLINE ma_resource_manager_data_node* ma_resource_manager_data_node_find_inorder_successor(ma_resource_manager_data_node* pDataNode)
+static MA_INLINE ma_resource_manager_data_buffer* ma_resource_manager_data_buffer_find_inorder_successor(ma_resource_manager_data_buffer* pDataBuffer)
 {
-    MA_ASSERT(pDataNode           != NULL);
-    MA_ASSERT(pDataNode->pChildHi != NULL);
+    MA_ASSERT(pDataBuffer           != NULL);
+    MA_ASSERT(pDataBuffer->pChildHi != NULL);
 
-    return ma_resource_manager_data_node_find_min(pDataNode->pChildHi);
+    return ma_resource_manager_data_buffer_find_min(pDataBuffer->pChildHi);
 }
 
-static MA_INLINE ma_resource_manager_data_node* ma_resource_manager_data_node_find_inorder_predecessor(ma_resource_manager_data_node* pDataNode)
+static MA_INLINE ma_resource_manager_data_buffer* ma_resource_manager_data_buffer_find_inorder_predecessor(ma_resource_manager_data_buffer* pDataBuffer)
 {
-    MA_ASSERT(pDataNode           != NULL);
-    MA_ASSERT(pDataNode->pChildLo != NULL);
+    MA_ASSERT(pDataBuffer           != NULL);
+    MA_ASSERT(pDataBuffer->pChildLo != NULL);
 
-    return ma_resource_manager_data_node_find_max(pDataNode->pChildLo);
+    return ma_resource_manager_data_buffer_find_max(pDataBuffer->pChildLo);
 }
 
-static ma_result ma_resource_manager_data_node_remove(ma_resource_manager* pResourceManager, ma_resource_manager_data_node* pDataNode)
+static ma_result ma_resource_manager_data_buffer_remove(ma_resource_manager* pResourceManager, ma_resource_manager_data_buffer* pDataBuffer)
 {
     MA_ASSERT(pResourceManager != NULL);
-    MA_ASSERT(pDataNode        != NULL);
+    MA_ASSERT(pDataBuffer        != NULL);
 
-    if (pDataNode->pChildLo == NULL) {
-        if (pDataNode->pChildHi == NULL) {
-            /* Simple case - deleting a node with no children. */
-            if (pDataNode->pParent == NULL) {
-                MA_ASSERT(pResourceManager->pRootDataNode == pDataNode);    /* There is only a single node in the tree which should be equal to the root node. */
-                pResourceManager->pRootDataNode = NULL;
+    if (pDataBuffer->pChildLo == NULL) {
+        if (pDataBuffer->pChildHi == NULL) {
+            /* Simple case - deleting a buffer with no children. */
+            if (pDataBuffer->pParent == NULL) {
+                MA_ASSERT(pResourceManager->pRootDataBuffer == pDataBuffer);    /* There is only a single buffer in the tree which should be equal to the root node. */
+                pResourceManager->pRootDataBuffer = NULL;
             } else {
-                if (pDataNode->pParent->pChildLo == pDataNode) {
-                    pDataNode->pParent->pChildLo = NULL;
+                if (pDataBuffer->pParent->pChildLo == pDataBuffer) {
+                    pDataBuffer->pParent->pChildLo = NULL;
                 } else {
-                    pDataNode->pParent->pChildHi = NULL;
+                    pDataBuffer->pParent->pChildHi = NULL;
                 }
             }
         } else {
             /* Node has one child - pChildHi != NULL. */
-            if (pDataNode->pParent == NULL) {
-                MA_ASSERT(pResourceManager->pRootDataNode == pDataNode);
-                pResourceManager->pRootDataNode = pDataNode->pChildHi;
+            if (pDataBuffer->pParent == NULL) {
+                MA_ASSERT(pResourceManager->pRootDataBuffer == pDataBuffer);
+                pResourceManager->pRootDataBuffer = pDataBuffer->pChildHi;
             } else {
-                if (pDataNode->pParent->pChildLo == pDataNode) {
-                    pDataNode->pParent->pChildLo = pDataNode->pChildHi;
+                if (pDataBuffer->pParent->pChildLo == pDataBuffer) {
+                    pDataBuffer->pParent->pChildLo = pDataBuffer->pChildHi;
                 } else {
-                    pDataNode->pParent->pChildHi = pDataNode->pChildHi;
+                    pDataBuffer->pParent->pChildHi = pDataBuffer->pChildHi;
                 }
             }
         }
     } else {
-        if (pDataNode->pChildHi == NULL) {
+        if (pDataBuffer->pChildHi == NULL) {
             /* Node has one child - pChildLo != NULL. */
-            if (pDataNode->pParent == NULL) {
-                MA_ASSERT(pResourceManager->pRootDataNode == pDataNode);
-                pResourceManager->pRootDataNode = pDataNode->pChildLo;
+            if (pDataBuffer->pParent == NULL) {
+                MA_ASSERT(pResourceManager->pRootDataBuffer == pDataBuffer);
+                pResourceManager->pRootDataBuffer = pDataBuffer->pChildLo;
             } else {
-                if (pDataNode->pParent->pChildLo == pDataNode) {
-                    pDataNode->pParent->pChildLo = pDataNode->pChildLo;
+                if (pDataBuffer->pParent->pChildLo == pDataBuffer) {
+                    pDataBuffer->pParent->pChildLo = pDataBuffer->pChildLo;
                 } else {
-                    pDataNode->pParent->pChildHi = pDataNode->pChildLo;
+                    pDataBuffer->pParent->pChildHi = pDataBuffer->pChildLo;
                 }
             }
         } else {
             /* Complex case - deleting a node with two children. */
-            ma_resource_manager_data_node* pReplacementDataNode;
+            ma_resource_manager_data_buffer* pReplacementDataBuffer;
 
             /* For now we are just going to use the in-order successor as the replacement, but we may want to try to keep this balanced by switching between the two. */
-            pReplacementDataNode = ma_resource_manager_data_node_find_inorder_successor(pDataNode);
-            MA_ASSERT(pReplacementDataNode != NULL);
+            pReplacementDataBuffer = ma_resource_manager_data_buffer_find_inorder_successor(pDataBuffer);
+            MA_ASSERT(pReplacementDataBuffer != NULL);
 
             /*
             Now that we have our replacement node we can make the change. The simple way to do this would be to just exchange the values, and then remove the replacement
@@ -1107,49 +1107,49 @@ static ma_result ma_resource_manager_data_node_remove(ma_resource_manager* pReso
             replacement node should have at most 1 child. Therefore, we can detach it in terms of our simpler cases above. What we're essentially doing is detaching the
             replacement node and reinserting it into the same position as the deleted node.
             */
-            MA_ASSERT(pReplacementDataNode->pParent  != NULL);  /* The replacement node should never be the root which means it should always have a parent. */
-            MA_ASSERT(pReplacementDataNode->pChildLo == NULL);  /* Because we used in-order successor. This would be pChildHi == NULL if we used in-order predecessor. */
+            MA_ASSERT(pReplacementDataBuffer->pParent  != NULL);  /* The replacement node should never be the root which means it should always have a parent. */
+            MA_ASSERT(pReplacementDataBuffer->pChildLo == NULL);  /* Because we used in-order successor. This would be pChildHi == NULL if we used in-order predecessor. */
 
-            if (pReplacementDataNode->pChildHi == NULL) {
-                if (pReplacementDataNode->pParent->pChildLo == pReplacementDataNode) {
-                    pReplacementDataNode->pParent->pChildLo = NULL;
+            if (pReplacementDataBuffer->pChildHi == NULL) {
+                if (pReplacementDataBuffer->pParent->pChildLo == pReplacementDataBuffer) {
+                    pReplacementDataBuffer->pParent->pChildLo = NULL;
                 } else {
-                    pReplacementDataNode->pParent->pChildHi = NULL;
+                    pReplacementDataBuffer->pParent->pChildHi = NULL;
                 }
             } else {
-                if (pReplacementDataNode->pParent->pChildLo == pReplacementDataNode) {
-                    pReplacementDataNode->pParent->pChildLo = pReplacementDataNode->pChildHi;
+                if (pReplacementDataBuffer->pParent->pChildLo == pReplacementDataBuffer) {
+                    pReplacementDataBuffer->pParent->pChildLo = pReplacementDataBuffer->pChildHi;
                 } else {
-                    pReplacementDataNode->pParent->pChildHi = pReplacementDataNode->pChildHi;
+                    pReplacementDataBuffer->pParent->pChildHi = pReplacementDataBuffer->pChildHi;
                 }
             }
 
 
-            /* The replacement node has essentially been detached from the binary tree, so now we need to replace the old data node with it. The first thing to update is the parent */
-            if (pDataNode->pParent != NULL) {
-                if (pDataNode->pParent->pChildLo == pDataNode) {
-                    pDataNode->pParent->pChildLo = pReplacementDataNode;
+            /* The replacement node has essentially been detached from the binary tree, so now we need to replace the old data buffer with it. The first thing to update is the parent */
+            if (pDataBuffer->pParent != NULL) {
+                if (pDataBuffer->pParent->pChildLo == pDataBuffer) {
+                    pDataBuffer->pParent->pChildLo = pReplacementDataBuffer;
                 } else {
-                    pDataNode->pParent->pChildHi = pReplacementDataNode;
+                    pDataBuffer->pParent->pChildHi = pReplacementDataBuffer;
                 }
             }
 
             /* Now need to update the replacement node's pointers. */
-            pReplacementDataNode->pParent  = pDataNode->pParent;
-            pReplacementDataNode->pChildLo = pDataNode->pChildLo;
-            pReplacementDataNode->pChildHi = pDataNode->pChildHi;
+            pReplacementDataBuffer->pParent  = pDataBuffer->pParent;
+            pReplacementDataBuffer->pChildLo = pDataBuffer->pChildLo;
+            pReplacementDataBuffer->pChildHi = pDataBuffer->pChildHi;
 
             /* Now the children of the replacement node need to have their parent pointers updated. */
-            if (pReplacementDataNode->pChildLo != NULL) {
-                pReplacementDataNode->pChildLo->pParent = pReplacementDataNode;
+            if (pReplacementDataBuffer->pChildLo != NULL) {
+                pReplacementDataBuffer->pChildLo->pParent = pReplacementDataBuffer;
             }
-            if (pReplacementDataNode->pChildHi != NULL) {
-                pReplacementDataNode->pChildHi->pParent = pReplacementDataNode;
+            if (pReplacementDataBuffer->pChildHi != NULL) {
+                pReplacementDataBuffer->pChildHi->pParent = pReplacementDataBuffer;
             }
 
             /* Now the root node needs to be updated. */
-            if (pResourceManager->pRootDataNode == pDataNode) {
-                pResourceManager->pRootDataNode = pReplacementDataNode;
+            if (pResourceManager->pRootDataBuffer == pDataBuffer) {
+                pResourceManager->pRootDataBuffer = pReplacementDataBuffer;
             }
         }
     }
@@ -1157,29 +1157,29 @@ static ma_result ma_resource_manager_data_node_remove(ma_resource_manager* pReso
     return MA_SUCCESS;
 }
 
-static ma_result ma_resource_manager_data_node_remove_by_key(ma_resource_manager* pResourceManager, ma_uint32 hashedName32)
+static ma_result ma_resource_manager_data_buffer_remove_by_key(ma_resource_manager* pResourceManager, ma_uint32 hashedName32)
 {
     ma_result result;
-    ma_resource_manager_data_node* pDataNode;
+    ma_resource_manager_data_buffer* pDataBuffer;
 
-    result = ma_resource_manager_data_node_search(pResourceManager, hashedName32, &pDataNode);
+    result = ma_resource_manager_data_buffer_search(pResourceManager, hashedName32, &pDataBuffer);
     if (result != MA_SUCCESS) {
-        return result;  /* Could not find the node. */
+        return result;  /* Could not find the data buffer. */
     }
 
-    return ma_resource_manager_data_node_remove(pResourceManager, pDataNode);
+    return ma_resource_manager_data_buffer_remove(pResourceManager, pDataBuffer);
 }
 
-static ma_result ma_resource_manager_data_node_increment_ref(ma_resource_manager* pResourceManager, ma_resource_manager_data_node* pDataNode, ma_uint32* pNewRefCount)
+static ma_result ma_resource_manager_data_buffer_increment_ref(ma_resource_manager* pResourceManager, ma_resource_manager_data_buffer* pDataBuffer, ma_uint32* pNewRefCount)
 {
     ma_uint32 refCount;
 
     MA_ASSERT(pResourceManager != NULL);
-    MA_ASSERT(pDataNode        != NULL);
+    MA_ASSERT(pDataBuffer        != NULL);
 
     (void)pResourceManager;
 
-    refCount = ma_atomic_increment_32(&pDataNode->refCount);
+    refCount = ma_atomic_increment_32(&pDataBuffer->refCount);
 
     if (pNewRefCount != NULL) {
         *pNewRefCount = refCount;
@@ -1188,16 +1188,16 @@ static ma_result ma_resource_manager_data_node_increment_ref(ma_resource_manager
     return MA_SUCCESS;
 }
 
-static ma_result ma_resource_manager_data_node_decrement_ref(ma_resource_manager* pResourceManager, ma_resource_manager_data_node* pDataNode, ma_uint32* pNewRefCount)
+static ma_result ma_resource_manager_data_buffer_decrement_ref(ma_resource_manager* pResourceManager, ma_resource_manager_data_buffer* pDataBuffer, ma_uint32* pNewRefCount)
 {
     ma_uint32 refCount;
 
     MA_ASSERT(pResourceManager != NULL);
-    MA_ASSERT(pDataNode        != NULL);
+    MA_ASSERT(pDataBuffer        != NULL);
 
     (void)pResourceManager;
 
-    refCount = ma_atomic_decrement_32(&pDataNode->refCount);
+    refCount = ma_atomic_decrement_32(&pDataBuffer->refCount);
 
     if (pNewRefCount != NULL) {
         *pNewRefCount = refCount;
@@ -1280,8 +1280,8 @@ MA_API ma_result ma_resource_manager_init(const ma_resource_manager_config* pCon
         pResourceManager->config.pVFS = &pResourceManager->defaultVFS;
     }
 
-    /* Data node lock. */
-    result = ma_mutex_init(&pResourceManager->dataNodeLock);
+    /* Data buffer lock. */
+    result = ma_mutex_init(&pResourceManager->dataBufferLock);
     if (result != MA_SUCCESS) {
         return result;
     }
@@ -1289,7 +1289,7 @@ MA_API ma_result ma_resource_manager_init(const ma_resource_manager_config* pCon
     /* We need a message queue. */
     result = ma_resource_manager_message_queue_init(pResourceManager, &pResourceManager->messageQueue);
     if (result != MA_SUCCESS) {
-        ma_mutex_uninit(&pResourceManager->dataNodeLock);
+        ma_mutex_uninit(&pResourceManager->dataBufferLock);
         return result;
     }
 
@@ -1297,7 +1297,7 @@ MA_API ma_result ma_resource_manager_init(const ma_resource_manager_config* pCon
     /* Create the resource thread last to ensure the new thread has access to valid data. */
     result = ma_thread_create(&pResourceManager->asyncThread, ma_thread_priority_normal, ma_resource_manager_resource_thread, pResourceManager);
     if (result != MA_SUCCESS) {
-        ma_mutex_uninit(&pResourceManager->dataNodeLock);
+        ma_mutex_uninit(&pResourceManager->dataBufferLock);
         ma_resource_manager_message_queue_uninit(&pResourceManager->messageQueue);
         return result;
     }
@@ -1311,31 +1311,31 @@ MA_API void ma_resource_manager_uninit(ma_resource_manager* pResourceManager)
         return;
     }
 
-    /* TODO: Need to delete all data nodes and free all of their memory. */
+    /* TODO: Need to delete all data buffers and free all of their memory. */
 }
 
 
-static ma_result ma_resource_manager_create_data_node_nolock(ma_resource_manager* pResourceManager, const char* pFilePath, ma_uint32 hashedName32, ma_resource_manager_data_node_type type, ma_resource_manager_memory_buffer* pExistingData, ma_event* pEvent, ma_resource_manager_data_node** ppDataNode)
+static ma_result ma_resource_manager_create_data_buffer_nolock(ma_resource_manager* pResourceManager, const char* pFilePath, ma_uint32 hashedName32, ma_resource_manager_data_buffer_type type, ma_resource_manager_memory_buffer* pExistingData, ma_event* pEvent, ma_resource_manager_data_buffer** ppDataBuffer)
 {
     ma_result result;
-    ma_resource_manager_data_node* pDataNode;
-    ma_resource_manager_data_node* pInsertPoint;
+    ma_resource_manager_data_buffer* pDataBuffer;
+    ma_resource_manager_data_buffer* pInsertPoint;
     char* pFilePathCopy;    /* Allocated here, freed in the resource thread. */
 
     MA_ASSERT(pResourceManager != NULL);
     MA_ASSERT(pFilePath        != NULL);
-    MA_ASSERT(ppDataNode       != NULL);
+    MA_ASSERT(ppDataBuffer       != NULL);
 
     /*
     The first thing to do is find the insertion point. If it's already loaded it means we can just increment the reference counter and signal the event. Otherwise we
     need to do a full load.
     */
-    result = ma_resource_manager_data_node_insert_point(pResourceManager, hashedName32, &pInsertPoint);
+    result = ma_resource_manager_data_buffer_insert_point(pResourceManager, hashedName32, &pInsertPoint);
     if (result == MA_ALREADY_EXISTS) {
-        /* Fast path. The node already exists. We just need to increment the reference counter and signal the event, if any. */
-        pDataNode = pInsertPoint;
+        /* Fast path. The data buffer already exists. We just need to increment the reference counter and signal the event, if any. */
+        pDataBuffer = pInsertPoint;
 
-        result = ma_resource_manager_data_node_increment_ref(pResourceManager, pDataNode, NULL);
+        result = ma_resource_manager_data_buffer_increment_ref(pResourceManager, pDataBuffer, NULL);
         if (result != MA_SUCCESS) {
             return result;  /* Should never happen. Failed to increment the reference count. */
         }
@@ -1344,83 +1344,83 @@ static ma_result ma_resource_manager_create_data_node_nolock(ma_resource_manager
             ma_event_signal(pEvent);
         }
     } else {
-        /* Slow path. The data for this node has not yet been initialized. The first thing to do is allocate the new data node and insert it into the BST. */
-        pDataNode = ma__malloc_from_callbacks(sizeof(*pDataNode), &pResourceManager->config.allocationCallbacks/*, MA_ALLOCATION_TYPE_RESOURCE_MANAGER_DATA_NODE*/);
-        if (pDataNode == NULL) {
+        /* Slow path. The data for this buffer has not yet been initialized. The first thing to do is allocate the new data buffer and insert it into the BST. */
+        pDataBuffer = ma__malloc_from_callbacks(sizeof(*pDataBuffer), &pResourceManager->config.allocationCallbacks/*, MA_ALLOCATION_TYPE_RESOURCE_MANAGER_DATA_BUFFER*/);
+        if (pDataBuffer == NULL) {
             return MA_OUT_OF_MEMORY;
         }
 
-        MA_ZERO_OBJECT(pDataNode);
-        pDataNode->hashedName32 = hashedName32;
-        pDataNode->refCount     = 1;        /* Always set to 1 by default (this is our first reference). */
-        pDataNode->data.type    = type;
-        pDataNode->result       = MA_BUSY;  /* I think it's good practice to set the status to MA_BUSY by default. */
+        MA_ZERO_OBJECT(pDataBuffer);
+        pDataBuffer->hashedName32 = hashedName32;
+        pDataBuffer->refCount     = 1;        /* Always set to 1 by default (this is our first reference). */
+        pDataBuffer->data.type    = type;
+        pDataBuffer->result       = MA_BUSY;  /* I think it's good practice to set the status to MA_BUSY by default. */
 
-        result = ma_resource_manager_data_node_insert_at(pResourceManager, pDataNode, pInsertPoint);
+        result = ma_resource_manager_data_buffer_insert_at(pResourceManager, pDataBuffer, pInsertPoint);
         if (result != MA_SUCCESS) {
-            return result;  /* Should never happen. Failed to insert the data node into the BST. */
+            return result;  /* Should never happen. Failed to insert the data buffer into the BST. */
         }
 
         /*
-        The new data node has been inserted into the BST, so now we need to fire an event to get everything loaded. If the data is owned by the caller (not
+        The new data buffer has been inserted into the BST, so now we need to fire an event to get everything loaded. If the data is owned by the caller (not
         owned by the resource manager) we don't need to load anything which means we're done.
         */
         if (pExistingData != NULL) {
             /* We don't need to do anything if the data is owned by the application except set the necessary data pointers. */
             MA_ASSERT(type == pExistingData->type);
 
-            pDataNode->isDataOwnedByResourceManager = MA_FALSE;
-            pDataNode->data = *pExistingData;
-            pDataNode->result = MA_SUCCESS;
+            pDataBuffer->isDataOwnedByResourceManager = MA_FALSE;
+            pDataBuffer->data = *pExistingData;
+            pDataBuffer->result = MA_SUCCESS;
         } else {
             /* The data needs to be loaded. We do this by posting an event to the resource thread. */
             ma_resource_manager_message message;
 
-            pDataNode->isDataOwnedByResourceManager = MA_TRUE;
-            pDataNode->result = MA_BUSY;
+            pDataBuffer->isDataOwnedByResourceManager = MA_TRUE;
+            pDataBuffer->result = MA_BUSY;
 
             /* We need a copy of the file path. We should probably make this more efficient, but for now we'll do a transient memory allocation. */
             pFilePathCopy = ma_copy_string(pFilePath, &pResourceManager->config.allocationCallbacks/*, MA_ALLOCATION_TYPE_TRANSIENT_STRING*/);
             if (pFilePathCopy == NULL) {
-                ma_resource_manager_data_node_remove(pResourceManager, pDataNode);
-                ma__free_from_callbacks(pDataNode, &pResourceManager->config.allocationCallbacks/*, MA_ALLOCATION_TYPE_RESOURCE_MANAGER_DATA_NODE*/);
+                ma_resource_manager_data_buffer_remove(pResourceManager, pDataBuffer);
+                ma__free_from_callbacks(pDataBuffer, &pResourceManager->config.allocationCallbacks/*, MA_ALLOCATION_TYPE_RESOURCE_MANAGER_DATA_BUFFER*/);
                 return MA_OUT_OF_MEMORY;
             }
 
             /* We now have everything we need to post the message to the resource thread. This is the last thing we need to do from here. The rest will be done by the resource thread. */
-            message = ma_resource_manager_message_init(MA_MESSAGE_LOAD_DATA_NODE);
-            message.loadDataNode.pDataNode = pDataNode;
-            message.loadDataNode.pFilePath = pFilePathCopy;
-            message.loadDataNode.pEvent    = pEvent;
+            message = ma_resource_manager_message_init(MA_MESSAGE_LOAD_DATA_BUFFER);
+            message.loadDataBuffer.pDataBuffer = pDataBuffer;
+            message.loadDataBuffer.pFilePath = pFilePathCopy;
+            message.loadDataBuffer.pEvent    = pEvent;
             result = ma_resource_manager_post_message(pResourceManager, &message);
             if (result != MA_SUCCESS) {
-                ma_resource_manager_data_node_remove(pResourceManager, pDataNode);
-                ma__free_from_callbacks(pDataNode,     &pResourceManager->config.allocationCallbacks/*, MA_ALLOCATION_TYPE_RESOURCE_MANAGER_DATA_NODE*/);
+                ma_resource_manager_data_buffer_remove(pResourceManager, pDataBuffer);
+                ma__free_from_callbacks(pDataBuffer,     &pResourceManager->config.allocationCallbacks/*, MA_ALLOCATION_TYPE_RESOURCE_MANAGER_DATA_BUFFER*/);
                 ma__free_from_callbacks(pFilePathCopy, &pResourceManager->config.allocationCallbacks/*, MA_ALLOCATION_TYPE_TRANSIENT_STRING*/);
                 return result;
             }
         }
     }
 
-    MA_ASSERT(pDataNode != NULL);
+    MA_ASSERT(pDataBuffer != NULL);
 
-    if (ppDataNode != NULL) {
-        *ppDataNode = pDataNode;
+    if (ppDataBuffer != NULL) {
+        *ppDataBuffer = pDataBuffer;
     }
 
     return MA_SUCCESS;
 }
 
-MA_API ma_result ma_resource_manager_create_data_node(ma_resource_manager* pResourceManager, const char* pFilePath, ma_resource_manager_data_node_type type, ma_event* pEvent, ma_resource_manager_data_node** ppDataNode)
+MA_API ma_result ma_resource_manager_create_data_buffer(ma_resource_manager* pResourceManager, const char* pFilePath, ma_resource_manager_data_buffer_type type, ma_event* pEvent, ma_resource_manager_data_buffer** ppDataBuffer)
 {
     ma_result result;
     ma_uint32 hashedName32;
 
-    if (ppDataNode == NULL) {
+    if (ppDataBuffer == NULL) {
         return MA_INVALID_ARGS;
     }
 
-    *ppDataNode = NULL;
+    *ppDataBuffer = NULL;
 
     if (pResourceManager == NULL || pFilePath == NULL) {
         return MA_INVALID_ARGS;
@@ -1430,46 +1430,46 @@ MA_API ma_result ma_resource_manager_create_data_node(ma_resource_manager* pReso
     hashedName32 = ma_hash_string_32(pFilePath);
 
     /* At this point we can now enter the critical section. */
-    ma_mutex_lock(&pResourceManager->dataNodeLock);
+    ma_mutex_lock(&pResourceManager->dataBufferLock);
     {
-        result = ma_resource_manager_create_data_node_nolock(pResourceManager, pFilePath, hashedName32, type, NULL, pEvent, ppDataNode);
+        result = ma_resource_manager_create_data_buffer_nolock(pResourceManager, pFilePath, hashedName32, type, NULL, pEvent, ppDataBuffer);
     }
-    ma_mutex_unlock(&pResourceManager->dataNodeLock);
+    ma_mutex_unlock(&pResourceManager->dataBufferLock);
 
     return result;
 }
 
 
-static ma_result ma_resource_manager_delete_data_node_nolock(ma_resource_manager* pResourceManager, ma_resource_manager_data_node* pDataNode)
+static ma_result ma_resource_manager_delete_data_buffer_nolock(ma_resource_manager* pResourceManager, ma_resource_manager_data_buffer* pDataBuffer)
 {
     ma_uint32 result;
     ma_uint32 refCount;
 
     MA_ASSERT(pResourceManager != NULL);
-    MA_ASSERT(pDataNode        != NULL);
+    MA_ASSERT(pDataBuffer        != NULL);
 
-    result = ma_resource_manager_data_node_decrement_ref(pResourceManager, pDataNode, &refCount);
+    result = ma_resource_manager_data_buffer_decrement_ref(pResourceManager, pDataBuffer, &refCount);
     if (result != MA_SUCCESS) {
         return result;
     }
 
-    /* If the reference count has hit zero it means we need to delete the data node and it's backing data (so long as it's owned by the resource manager). */
+    /* If the reference count has hit zero it means we need to delete the data buffer and it's backing data (so long as it's owned by the resource manager). */
     if (refCount == 0) {
-        result = ma_resource_manager_data_node_remove(pResourceManager, pDataNode);
+        result = ma_resource_manager_data_buffer_remove(pResourceManager, pDataBuffer);
         if (result != MA_SUCCESS) {
-            return result;  /* An error occurred when trying to remove the node. This should never happen. */
+            return result;  /* An error occurred when trying to remove the data buffer. This should never happen. */
         }
 
         /*
-        The data node has been removed from the BST so now we need to delete the underyling data. This needs to be done in a separate thread. We don't
+        The data buffer has been removed from the BST so now we need to delete the underyling data. This needs to be done in a separate thread. We don't
         want to delete anything if the data is owned by the application. Also, just to be safe, we set the result to MA_UNAVAILABLE.
         */
-        ma_atomic_exchange_32(&pDataNode->result, MA_UNAVAILABLE);
+        ma_atomic_exchange_32(&pDataBuffer->result, MA_UNAVAILABLE);
 
         /* Don't delete any underlying data if it's not owned by the resource manager. */
-        if (pDataNode->isDataOwnedByResourceManager) {
-            ma_resource_manager_message message = ma_resource_manager_message_init(MA_MESSAGE_FREE_DATA_NODE);
-            message.freeDataNode.pDataNode = pDataNode;
+        if (pDataBuffer->isDataOwnedByResourceManager) {
+            ma_resource_manager_message message = ma_resource_manager_message_init(MA_MESSAGE_FREE_DATA_BUFFER);
+            message.freeDataBuffer.pDataBuffer = pDataBuffer;
 
             result = ma_resource_manager_post_message(pResourceManager, &message);
             if (result != MA_SUCCESS) {
@@ -1481,34 +1481,34 @@ static ma_result ma_resource_manager_delete_data_node_nolock(ma_resource_manager
     return MA_SUCCESS;
 }
 
-MA_API ma_result ma_resource_manager_delete_data_node(ma_resource_manager* pResourceManager, ma_resource_manager_data_node* pDataNode)
+MA_API ma_result ma_resource_manager_delete_data_buffer(ma_resource_manager* pResourceManager, ma_resource_manager_data_buffer* pDataBuffer)
 {
     ma_result result;
 
-    if (pResourceManager == NULL || pDataNode == NULL) {
+    if (pResourceManager == NULL || pDataBuffer == NULL) {
         return MA_INVALID_ARGS;
     }
 
-    ma_mutex_lock(&pResourceManager->dataNodeLock);
+    ma_mutex_lock(&pResourceManager->dataBufferLock);
     {
-        result = ma_resource_manager_delete_data_node_nolock(pResourceManager, pDataNode);
+        result = ma_resource_manager_delete_data_buffer_nolock(pResourceManager, pDataBuffer);
     }
-    ma_mutex_unlock(&pResourceManager->dataNodeLock);
+    ma_mutex_unlock(&pResourceManager->dataBufferLock);
 
     return result;
 }
 
-MA_API ma_result ma_resource_manager_data_node_result(ma_resource_manager* pResourceManager, const ma_resource_manager_data_node* pDataNode)
+MA_API ma_result ma_resource_manager_data_buffer_result(ma_resource_manager* pResourceManager, const ma_resource_manager_data_buffer* pDataBuffer)
 {
-    if (pResourceManager == NULL || pDataNode == NULL) {
+    if (pResourceManager == NULL || pDataBuffer == NULL) {
         return MA_INVALID_ARGS;
     }
 
-    return pDataNode->result;
+    return pDataBuffer->result;
 }
 
 
-static ma_result ma_resource_manager_register_data(ma_resource_manager* pResourceManager, const char* pName, ma_resource_manager_data_node_type type, ma_resource_manager_memory_buffer* pExistingData, ma_event* pEvent, ma_resource_manager_data_node** ppDataNode)
+static ma_result ma_resource_manager_register_data(ma_resource_manager* pResourceManager, const char* pName, ma_resource_manager_data_buffer_type type, ma_resource_manager_memory_buffer* pExistingData, ma_event* pEvent, ma_resource_manager_data_buffer** ppDataBuffer)
 {
     ma_result result = MA_SUCCESS;
     ma_uint32 hashedName32;
@@ -1519,18 +1519,18 @@ static ma_result ma_resource_manager_register_data(ma_resource_manager* pResourc
 
     hashedName32 = ma_hash_string_32(pName);
 
-    ma_mutex_lock(&pResourceManager->dataNodeLock);
+    ma_mutex_lock(&pResourceManager->dataBufferLock);
     {
-        result = ma_resource_manager_create_data_node_nolock(pResourceManager, pName, hashedName32, type, pExistingData, pEvent, ppDataNode);
+        result = ma_resource_manager_create_data_buffer_nolock(pResourceManager, pName, hashedName32, type, pExistingData, pEvent, ppDataBuffer);
     }
-    ma_mutex_lock(&pResourceManager->dataNodeLock);
+    ma_mutex_lock(&pResourceManager->dataBufferLock);
     return result;
 }
 
 MA_API ma_result ma_resource_manager_register_decoded_data(ma_resource_manager* pResourceManager, const char* pName, const void* pData, ma_uint64 frameCount, ma_format format, ma_uint32 channels, ma_uint32 sampleRate)
 {
     ma_resource_manager_memory_buffer data;
-    data.type               = ma_resource_manager_data_node_type_decoded;
+    data.type               = ma_resource_manager_data_buffer_type_decoded;
     data.decoded.pData      = pData;
     data.decoded.frameCount = frameCount;
     data.decoded.format     = format;
@@ -1543,7 +1543,7 @@ MA_API ma_result ma_resource_manager_register_decoded_data(ma_resource_manager* 
 MA_API ma_result ma_resource_manager_register_encoded_data(ma_resource_manager* pResourceManager, const char* pName, const void* pData, size_t sizeInBytes)
 {
     ma_resource_manager_memory_buffer data;
-    data.type                = ma_resource_manager_data_node_type_encoded;
+    data.type                = ma_resource_manager_data_buffer_type_encoded;
     data.encoded.pData       = pData;
     data.encoded.sizeInBytes = sizeInBytes;
 
@@ -1553,7 +1553,7 @@ MA_API ma_result ma_resource_manager_register_encoded_data(ma_resource_manager* 
 MA_API ma_result ma_resource_manager_unregister_data(ma_resource_manager* pResourceManager, const char* pName)
 {
     ma_result result;
-    ma_resource_manager_data_node* pDataNode;
+    ma_resource_manager_data_buffer* pDataBuffer;
 
     if (pResourceManager == NULL || pName == NULL) {
         return MA_INVALID_ARGS;
@@ -1561,19 +1561,19 @@ MA_API ma_result ma_resource_manager_unregister_data(ma_resource_manager* pResou
 
     /*
     It's assumed that the data specified by pName was registered with a prior call to ma_resource_manager_register_encoded/decoded_data(). To unregister it, all
-    we need to do is delete the node by it's name.
+    we need to do is delete the data buffer by it's name.
     */
-    ma_mutex_lock(&pResourceManager->dataNodeLock);
+    ma_mutex_lock(&pResourceManager->dataBufferLock);
     {
-        result = ma_resource_manager_data_node_search(pResourceManager, ma_hash_string_32(pName), &pDataNode);
+        result = ma_resource_manager_data_buffer_search(pResourceManager, ma_hash_string_32(pName), &pDataBuffer);
     }
-    ma_mutex_unlock(&pResourceManager->dataNodeLock);
+    ma_mutex_unlock(&pResourceManager->dataBufferLock);
 
     if (result != MA_SUCCESS) {
-        return result;  /* Could not find the node. */
+        return result;  /* Could not find the data buffer. */
     }
 
-    return ma_resource_manager_delete_data_node(pResourceManager, pDataNode);
+    return ma_resource_manager_delete_data_buffer(pResourceManager, pDataBuffer);
 }
 
 
@@ -1624,15 +1624,15 @@ static ma_bool32 ma_resource_manager_data_source_is_busy(ma_resource_manager_dat
     will abort with MA_BUSY. We could also choose to do a partial read (only reading as many frames are available), but it's just easier to abort early and I don't think it
     really makes much practical difference. This only applies to decoded buffers.
     */
-    if (pDataSource->pDataNode->data.type == ma_resource_manager_data_node_type_decoded) {
-        if (pDataSource->pDataNode->data.decoded.decodedFrameCount < pDataSource->pDataNode->data.decoded.frameCount) {
+    if (pDataSource->pDataBuffer->data.type == ma_resource_manager_data_buffer_type_decoded) {
+        if (pDataSource->pDataBuffer->data.decoded.decodedFrameCount < pDataSource->pDataBuffer->data.decoded.frameCount) {
             ma_uint64 framesAvailable;
 
-            if (pDataSource->pDataNode->data.decoded.decodedFrameCount < pDataSource->frameCursor) {
+            if (pDataSource->pDataBuffer->data.decoded.decodedFrameCount < pDataSource->frameCursor) {
                 return MA_TRUE; /* No data available.*/
             }
 
-            framesAvailable = pDataSource->pDataNode->data.decoded.decodedFrameCount - pDataSource->frameCursor;
+            framesAvailable = pDataSource->pDataBuffer->data.decoded.decodedFrameCount - pDataSource->frameCursor;
             if (framesAvailable < requiredFrameCount) {
                 return MA_TRUE; /* Not enough frames available to read all frameCount frames. */
             }
@@ -1822,21 +1822,21 @@ static ma_result ma_resource_manager_data_source_init_stream(ma_resource_manager
     return MA_NOT_IMPLEMENTED;
 }
 
-static ma_result ma_resource_manager_data_source_init_backend_node(ma_resource_manager* pResourceManager, ma_resource_manager_data_source* pDataSource)
+static ma_result ma_resource_manager_data_source_init_backend_buffer(ma_resource_manager* pResourceManager, ma_resource_manager_data_source* pDataSource)
 {
     ma_result result;
-    ma_resource_manager_data_node* pDataNode;
+    ma_resource_manager_data_buffer* pDataBuffer;
 
     MA_ASSERT(pResourceManager       != NULL);
     MA_ASSERT(pDataSource            != NULL);
-    MA_ASSERT(pDataSource->pDataNode != NULL);
+    MA_ASSERT(pDataSource->pDataBuffer != NULL);
 
-    pDataNode = pDataSource->pDataNode;
+    pDataBuffer = pDataSource->pDataBuffer;
 
-    /* The underlying data node must be initialized before we'll be able to know how to initialize the backend. */
-    result = ma_resource_manager_data_node_result(pResourceManager, pDataNode);
+    /* The underlying data buffer must be initialized before we'll be able to know how to initialize the backend. */
+    result = ma_resource_manager_data_buffer_result(pResourceManager, pDataBuffer);
     if (result != MA_SUCCESS && result != MA_BUSY) {
-        return result;  /* The data node is in an erroneous state. */
+        return result;  /* The data buffer is in an erroneous state. */
     }
 
     /* If the data buffer is busy, but the sound source is synchronous we need to report an error - that should never happen. */
@@ -1851,9 +1851,9 @@ static ma_result ma_resource_manager_data_source_init_backend_node(ma_resource_m
     an ma_audio_buffer if the data format is identical to the primary format. This enables us to use memory mapping when mixing which saves us a bit of data
     movement overhead.
     */
-    if (pDataNode->data.type == ma_resource_manager_data_node_type_decoded) {
-        if (pDataNode->data.decoded.format     == pResourceManager->config.decodedFormat   &&
-            pDataNode->data.decoded.sampleRate == pResourceManager->config.decodedSampleRate) {
+    if (pDataBuffer->data.type == ma_resource_manager_data_buffer_type_decoded) {
+        if (pDataBuffer->data.decoded.format     == pResourceManager->config.decodedFormat   &&
+            pDataBuffer->data.decoded.sampleRate == pResourceManager->config.decodedSampleRate) {
             pDataSource->type = ma_resource_manager_data_source_type_buffer;
         } else {
             pDataSource->type = ma_resource_manager_data_source_type_decoder;
@@ -1864,25 +1864,25 @@ static ma_result ma_resource_manager_data_source_init_backend_node(ma_resource_m
 
     if (pDataSource->type == ma_resource_manager_data_source_type_buffer) {
         ma_audio_buffer_config config;
-        config = ma_audio_buffer_config_init(pDataNode->data.decoded.format, pDataNode->data.decoded.channels, pDataNode->data.decoded.frameCount, pDataNode->data.encoded.pData, NULL);
+        config = ma_audio_buffer_config_init(pDataBuffer->data.decoded.format, pDataBuffer->data.decoded.channels, pDataBuffer->data.decoded.frameCount, pDataBuffer->data.encoded.pData, NULL);
         result = ma_audio_buffer_init(&config, &pDataSource->backend.buffer);
     } else {
         ma_decoder_config configIn;
         ma_decoder_config configOut;
 
-        configIn  = ma_decoder_config_init(pDataNode->data.decoded.format, pDataNode->data.decoded.channels, pDataNode->data.decoded.sampleRate);
-        configOut = ma_decoder_config_init(pResourceManager->config.decodedFormat, pDataNode->data.decoded.channels, pResourceManager->config.decodedSampleRate);  /* <-- Never perform channel conversion at this level - that will be done at a higher level. */
+        configIn  = ma_decoder_config_init(pDataBuffer->data.decoded.format, pDataBuffer->data.decoded.channels, pDataBuffer->data.decoded.sampleRate);
+        configOut = ma_decoder_config_init(pResourceManager->config.decodedFormat, pDataBuffer->data.decoded.channels, pResourceManager->config.decodedSampleRate);  /* <-- Never perform channel conversion at this level - that will be done at a higher level. */
 
-        if (pDataNode->data.type == ma_resource_manager_data_node_type_decoded) {
-            ma_uint64 sizeInBytes = pDataNode->data.decoded.frameCount * ma_get_bytes_per_frame(configIn.format, configIn.channels);
+        if (pDataBuffer->data.type == ma_resource_manager_data_buffer_type_decoded) {
+            ma_uint64 sizeInBytes = pDataBuffer->data.decoded.frameCount * ma_get_bytes_per_frame(configIn.format, configIn.channels);
             if (sizeInBytes > MA_SIZE_MAX) {
                 result = MA_TOO_BIG;
             } else {
-                result = ma_decoder_init_memory_raw(pDataNode->data.decoded.pData, (size_t)sizeInBytes, &configIn, &configOut, &pDataSource->backend.decoder);  /* Safe cast thanks to the check above. */
+                result = ma_decoder_init_memory_raw(pDataBuffer->data.decoded.pData, (size_t)sizeInBytes, &configIn, &configOut, &pDataSource->backend.decoder);  /* Safe cast thanks to the check above. */
             }
         } else {
             configOut.allocationCallbacks = pResourceManager->config.allocationCallbacks;
-            result = ma_decoder_init_memory(pDataNode->data.encoded.pData, pDataNode->data.encoded.sizeInBytes, &configOut, &pDataSource->backend.decoder);
+            result = ma_decoder_init_memory(pDataBuffer->data.encoded.pData, pDataBuffer->data.encoded.sizeInBytes, &configOut, &pDataSource->backend.decoder);
         }
     }
 
@@ -1899,11 +1899,11 @@ static ma_result ma_resource_manager_data_source_init_backend_node(ma_resource_m
     return result;
 }
 
-static ma_result ma_resource_manager_data_source_uninit_backend_node(ma_resource_manager* pResourceManager, ma_resource_manager_data_source* pDataSource)
+static ma_result ma_resource_manager_data_source_uninit_backend_buffer(ma_resource_manager* pResourceManager, ma_resource_manager_data_source* pDataSource)
 {
     MA_ASSERT(pResourceManager       != NULL);
     MA_ASSERT(pDataSource            != NULL);
-    MA_ASSERT(pDataSource->pDataNode != NULL);
+    MA_ASSERT(pDataSource->pDataBuffer != NULL);
 
     if (pDataSource->type == ma_resource_manager_data_source_type_decoder) {
         ma_decoder_uninit(&pDataSource->backend.decoder);
@@ -1914,53 +1914,53 @@ static ma_result ma_resource_manager_data_source_uninit_backend_node(ma_resource
     return MA_SUCCESS;
 }
 
-static ma_result ma_resource_manager_data_source_init_node(ma_resource_manager* pResourceManager, const char* pName, ma_uint32 flags, ma_resource_manager_data_source* pDataSource)
+static ma_result ma_resource_manager_data_source_init_buffer(ma_resource_manager* pResourceManager, const char* pName, ma_uint32 flags, ma_resource_manager_data_source* pDataSource)
 {
     ma_result result;
-    ma_result dataNodeResult;
-    ma_resource_manager_data_node* pDataNode;
-    ma_resource_manager_data_node_type dataNodeType;
+    ma_result dataBufferResult;
+    ma_resource_manager_data_buffer* pDataBuffer;
+    ma_resource_manager_data_buffer_type dataBufferType;
     ma_event* pEvent = NULL;
 
     MA_ASSERT(pResourceManager != NULL);
     MA_ASSERT(pName            != NULL);
     MA_ASSERT(pDataSource      != NULL);
 
-    /* The first thing we need to do is acquire a node. */
+    /* The first thing we need to do is acquire a data buffer. */
     if ((flags & MA_DATA_SOURCE_FLAG_DECODE) != 0) {
-        dataNodeType = ma_resource_manager_data_node_type_decoded;
+        dataBufferType = ma_resource_manager_data_buffer_type_decoded;
     } else {
-        dataNodeType = ma_resource_manager_data_node_type_encoded;
+        dataBufferType = ma_resource_manager_data_buffer_type_encoded;
     }
 
-    result = ma_resource_manager_create_data_node(pResourceManager, pName, dataNodeType, NULL, &pDataNode);
+    result = ma_resource_manager_create_data_buffer(pResourceManager, pName, dataBufferType, NULL, &pDataBuffer);
     if (result != MA_SUCCESS) {
-        return result;  /* Failed to acquire the data node. */
+        return result;  /* Failed to acquire the data buffer. */
     }
 
-    /* At this point we have our data node and we can start initializing the data source. */
+    /* At this point we have our data buffer and we can start initializing the data source. */
     pDataSource->ds.onRead          = ma_resource_manager_data_source_read;
     pDataSource->ds.onSeek          = ma_resource_manager_data_source_seek;
     pDataSource->ds.onMap           = ma_resource_manager_data_source_map;
     pDataSource->ds.onUnmap         = ma_resource_manager_data_source_unmap;
     pDataSource->ds.onGetDataFormat = ma_resource_manager_data_source_get_data_format;
-    pDataSource->pDataNode          = pDataNode;
+    pDataSource->pDataBuffer          = pDataBuffer;
     pDataSource->type               = ma_resource_manager_data_source_type_unknown; /* The backend type hasn't been determine yet - that happens when it's initialized properly by the resource thread. */
     pDataSource->result             = MA_BUSY;
 
     /*
-    If the data node has been fully initialized we can complete initialization of the data source now. Otherwise we need to post an event to the resource thread to complete
-    initialization to ensure it's done after the data node.
+    If the data buffer has been fully initialized we can complete initialization of the data source now. Otherwise we need to post an event to the resource thread to complete
+    initialization to ensure it's done after the data buffer.
     */
-    dataNodeResult = ma_resource_manager_data_node_result(pResourceManager, pDataNode);
-    if (dataNodeResult == MA_BUSY) {
-        /* The data node is in the middle of loading. We need to post an event to the resource thread. */
+    dataBufferResult = ma_resource_manager_data_buffer_result(pResourceManager, pDataBuffer);
+    if (dataBufferResult == MA_BUSY) {
+        /* The data buffer is in the middle of loading. We need to post an event to the resource thread. */
         ma_resource_manager_message message;
 
         if ((flags & MA_DATA_SOURCE_FLAG_ASYNC) == 0) {
             result = ma_event_alloc_and_init(&pEvent, &pResourceManager->config.allocationCallbacks);
             if (result != MA_SUCCESS) {
-                ma_resource_manager_delete_data_node(pResourceManager, pDataNode);
+                ma_resource_manager_delete_data_buffer(pResourceManager, pDataBuffer);
                 return result;
             }
         } else {
@@ -1976,7 +1976,7 @@ static ma_result ma_resource_manager_data_source_init_node(ma_resource_manager* 
                 ma_event_uninit_and_free(pEvent, &pResourceManager->config.allocationCallbacks);
             }
 
-            ma_resource_manager_delete_data_node(pResourceManager, pDataNode);
+            ma_resource_manager_delete_data_buffer(pResourceManager, pDataBuffer);
             return result;
         }
 
@@ -1985,29 +1985,29 @@ static ma_result ma_resource_manager_data_source_init_node(ma_resource_manager* 
             ma_event_wait(pEvent);
             ma_event_uninit_and_free(message.pEvent, &pResourceManager->config.allocationCallbacks);
         
-            /* Check the status of the data node for any errors. Even in the event of an error, the data source will not be deleted. */
-            if (pDataNode->result != MA_SUCCESS) {
-                result = pDataNode->result;
-                ma_resource_manager_delete_data_node(pResourceManager, pDataNode);
+            /* Check the status of the data buffer for any errors. Even in the event of an error, the data source will not be deleted. */
+            if (pDataBuffer->result != MA_SUCCESS) {
+                result = pDataBuffer->result;
+                ma_resource_manager_delete_data_buffer(pResourceManager, pDataBuffer);
                 return result;
             }
         }
 
         return MA_SUCCESS;
-    } else if (dataNodeResult == MA_SUCCESS) {
-        /* The underlying data node has already been initialized so we can just complete initialization of the data source right now. */
-        result = ma_resource_manager_data_source_init_backend_node(pResourceManager, pDataSource);
+    } else if (dataBufferResult == MA_SUCCESS) {
+        /* The underlying data buffer has already been initialized so we can just complete initialization of the data source right now. */
+        result = ma_resource_manager_data_source_init_backend_buffer(pResourceManager, pDataSource);
         if (result != MA_SUCCESS) {
-            ma_resource_manager_delete_data_node(pResourceManager, pDataNode);
+            ma_resource_manager_delete_data_buffer(pResourceManager, pDataBuffer);
             return result;
         }
 
         ma_atomic_exchange_32(&pDataSource->result, MA_SUCCESS);
         return MA_SUCCESS;
     } else {
-        /* Some other error has occurred with the data node. Lets abandon everything and return the data node's result. */
-        ma_resource_manager_delete_data_node(pResourceManager, pDataNode);
-        return dataNodeResult;
+        /* Some other error has occurred with the data buffer. Lets abandon everything and return the data buffer's result. */
+        ma_resource_manager_delete_data_buffer(pResourceManager, pDataBuffer);
+        return dataBufferResult;
     }
 }
 
@@ -2028,7 +2028,7 @@ MA_API ma_result ma_resource_manager_data_source_init(ma_resource_manager* pReso
     if ((flags & MA_DATA_SOURCE_FLAG_STREAM) != 0) {
         return ma_resource_manager_data_source_init_stream(pResourceManager, pName, flags, pDataSource);
     } else {
-        return ma_resource_manager_data_source_init_node(pResourceManager, pName, flags, pDataSource);
+        return ma_resource_manager_data_source_init_buffer(pResourceManager, pName, flags, pDataSource);
     }
 }
 
@@ -2054,14 +2054,14 @@ MA_API ma_result ma_resource_manager_data_source_uninit(ma_resource_manager* pRe
     }
 #endif
 
-    /* We should uninitialize the data source's backend before deleting the node just to keep the order of operations clean. */
-    ma_resource_manager_data_source_uninit_backend_node(pResourceManager, pDataSource);
+    /* We should uninitialize the data source's backend before deleting the data buffer just to keep the order of operations clean. */
+    ma_resource_manager_data_source_uninit_backend_buffer(pResourceManager, pDataSource);
     pDataSource->type = ma_resource_manager_data_source_type_unknown;
 
-    /* The data node needs to be deleted. */
-    if (pDataSource->pDataNode != NULL) {
-        ma_resource_manager_delete_data_node(pResourceManager, pDataSource->pDataNode);
-        pDataSource->pDataNode = NULL;
+    /* The data buffer needs to be deleted. */
+    if (pDataSource->pDataBuffer != NULL) {
+        ma_resource_manager_delete_data_buffer(pResourceManager, pDataSource->pDataBuffer);
+        pDataSource->pDataBuffer = NULL;
     }
 
     return MA_SUCCESS;
@@ -2078,31 +2078,31 @@ MA_API ma_result ma_resource_manager_data_source_result(ma_resource_manager* pRe
 
 
 
-static ma_result ma_resource_manager_handle_message__load_data_node(ma_resource_manager* pResourceManager, ma_resource_manager_data_node* pDataNode, char* pFileName, ma_event* pEvent)
+static ma_result ma_resource_manager_handle_message__load_data_buffer(ma_resource_manager* pResourceManager, ma_resource_manager_data_buffer* pDataBuffer, char* pFileName, ma_event* pEvent)
 {
     ma_result result = MA_SUCCESS;
 
     MA_ASSERT(pResourceManager != NULL);
 
-    if (pDataNode == NULL || pFileName == NULL) {
+    if (pDataBuffer == NULL || pFileName == NULL) {
         return MA_INVALID_ARGS;
     }
 
-    if (pDataNode->result != MA_BUSY) {
-        return MA_INVALID_OPERATION;    /* The data node may be getting deleted before it's even been loaded. */
+    if (pDataBuffer->result != MA_BUSY) {
+        return MA_INVALID_OPERATION;    /* The data buffer may be getting deleted before it's even been loaded. */
     }
 
-    MA_ASSERT(pDataNode->isDataOwnedByResourceManager == MA_TRUE);  /* The data should always be owned by the resource manager. */
+    MA_ASSERT(pDataBuffer->isDataOwnedByResourceManager == MA_TRUE);  /* The data should always be owned by the resource manager. */
 
-    if (pDataNode->data.type == ma_resource_manager_data_node_type_encoded) {
+    if (pDataBuffer->data.type == ma_resource_manager_data_buffer_type_encoded) {
         /* No decoding. Just store the file contents in memory. */
         void* pData;
         size_t sizeInBytes;
 
         result = ma_vfs_open_and_read_file_ex(pResourceManager->config.pVFS, pFileName, &pData, &sizeInBytes, &pResourceManager->config.allocationCallbacks, MA_ALLOCATION_TYPE_ENCODED_BUFFER);
         if (result == MA_SUCCESS) {
-            pDataNode->data.encoded.pData       = pData;
-            pDataNode->data.encoded.sizeInBytes = sizeInBytes;
+            pDataBuffer->data.encoded.pData       = pData;
+            pDataBuffer->data.encoded.sizeInBytes = sizeInBytes;
         }
     } else  {
         /* Decoding. */
@@ -2145,13 +2145,13 @@ static ma_result ma_resource_manager_handle_message__load_data_node(ma_resource_
         /*
         Getting here means we have the decoder. We can now get prepared to start decoding. The first thing we need is a buffer, but to determine the
         size we need to get the length of the sound in PCM frames. If the length cannot be determined we need to mark it as such and not set the data
-        pointer in the data node until the very end.
+        pointer in the data buffer until the very end.
 
         If after decoding the first page we complete decoding we need to fire the event and ensure the status is set to MA_SUCCESS.
         */
-        pDataNode->data.decoded.format     = pDecoder->outputFormat;
-        pDataNode->data.decoded.channels   = pDecoder->outputChannels;
-        pDataNode->data.decoded.sampleRate = pDecoder->outputSampleRate;
+        pDataBuffer->data.decoded.format     = pDecoder->outputFormat;
+        pDataBuffer->data.decoded.channels   = pDecoder->outputChannels;
+        pDataBuffer->data.decoded.sampleRate = pDecoder->outputSampleRate;
 
         pageSizeInFrames = MA_RESOURCE_MANAGER_PAGE_SIZE_IN_MILLISECONDS * (pDecoder->outputSampleRate/1000);
 
@@ -2186,8 +2186,8 @@ static ma_result ma_resource_manager_handle_message__load_data_node(ma_resource_
         framesRead = ma_decoder_read_pcm_frames(pDecoder, pData, pageSizeInFrames);
         if (framesRead < pageSizeInFrames) {
             /* We've read the entire sound. This is the simple case. We just need to set the result to MA_SUCCESS. */
-            pDataNode->data.decoded.pData      = pData;
-            pDataNode->data.decoded.frameCount = framesRead;
+            pDataBuffer->data.decoded.pData      = pData;
+            pDataBuffer->data.decoded.frameCount = framesRead;
 
             /*
             decodedFrameCount is what other threads will use to determine whether or not data is available. We must ensure pData and frameCount
@@ -2195,7 +2195,7 @@ static ma_result ma_resource_manager_handle_message__load_data_node(ma_resource_
             which case it can assume pData and frameCount are valid.
             */
             ma_memory_barrier();
-            pDataNode->data.decoded.decodedFrameCount = framesRead;
+            pDataBuffer->data.decoded.decodedFrameCount = framesRead;
 
             ma__free_from_callbacks(pDecoder, &pResourceManager->config.allocationCallbacks/*, MA_ALLOCATION_TYPE_DECODER*/);
             result = MA_SUCCESS;
@@ -2203,7 +2203,7 @@ static ma_result ma_resource_manager_handle_message__load_data_node(ma_resource_
         } else {
             /* We've still got more to decode. We need to post a message to keep decoding the rest. */
             decodePageMessage = ma_resource_manager_message_init(MA_MESSAGE_DECODE_PAGE);
-            decodePageMessage.decodePage.pDataNode         = pDataNode;
+            decodePageMessage.decodePage.pDataBuffer         = pDataBuffer;
             decodePageMessage.decodePage.pDecoder          = pDecoder;
             decodePageMessage.decodePage.pCompletedEvent   = pEvent;
             decodePageMessage.decodePage.pData             = pData;
@@ -2213,8 +2213,8 @@ static ma_result ma_resource_manager_handle_message__load_data_node(ma_resource_
             if (totalFrameCount > 0) {
                 decodePageMessage.decodePage.isUnknownLength = MA_FALSE;
 
-                pDataNode->data.decoded.pData      = pData;
-                pDataNode->data.decoded.frameCount = totalFrameCount;
+                pDataBuffer->data.decoded.pData      = pData;
+                pDataBuffer->data.decoded.frameCount = totalFrameCount;
 
                 /*
                 decodedFrameCount is what other threads will use to determine whether or not data is available. We must ensure pData and frameCount
@@ -2222,7 +2222,7 @@ static ma_result ma_resource_manager_handle_message__load_data_node(ma_resource_
                 which case it can assume pData and frameCount are valid.
                 */
                 ma_memory_barrier();
-                pDataNode->data.decoded.decodedFrameCount = framesRead;
+                pDataBuffer->data.decoded.decodedFrameCount = framesRead;
             } else {
                 decodePageMessage.decodePage.isUnknownLength = MA_TRUE;
 
@@ -2231,9 +2231,9 @@ static ma_result ma_resource_manager_handle_message__load_data_node(ma_resource_
                 read any data until the sound is fully decoded because we're going to be dynamically expanding pData and we'll be introducing complications
                 by letting the application get access to it.
                 */
-                pDataNode->data.decoded.pData             = NULL;
-                pDataNode->data.decoded.frameCount        = 0;
-                pDataNode->data.decoded.decodedFrameCount = 0;
+                pDataBuffer->data.decoded.pData             = NULL;
+                pDataBuffer->data.decoded.frameCount        = 0;
+                pDataBuffer->data.decoded.decodedFrameCount = 0;
             }
 
             /* The message has been set up so it can now be posted. */
@@ -2256,7 +2256,7 @@ done:
     We need to set the result to at the very end to ensure no other threads try reading the data before we've fully initialized the object. Other threads
     are going to be inspecting this variable to determine whether or not they're ready to read data.
     */
-    ma_atomic_exchange_32(&pDataNode->result, result);
+    ma_atomic_exchange_32(&pDataBuffer->result, result);
 
     /* Only signal the other threads after the result has been set just for cleanliness sake. */
     if (pEvent != NULL) {
@@ -2266,37 +2266,37 @@ done:
     return result;
 }
 
-static ma_result ma_resource_manager_handle_message__free_data_node(ma_resource_manager* pResourceManager, ma_resource_manager_data_node* pDataNode)
+static ma_result ma_resource_manager_handle_message__free_data_buffer(ma_resource_manager* pResourceManager, ma_resource_manager_data_buffer* pDataBuffer)
 {
-    if (pDataNode == NULL) {
+    if (pDataBuffer == NULL) {
         return MA_INVALID_ARGS;
     }
 
-    MA_ASSERT(pDataNode->result == MA_UNAVAILABLE);
+    MA_ASSERT(pDataBuffer->result == MA_UNAVAILABLE);
 
-    if (pDataNode->data.type == ma_resource_manager_data_node_type_encoded) {
-        ma__free_from_callbacks((void*)pDataNode->data.encoded.pData, &pResourceManager->config.allocationCallbacks/*, MA_ALLOCATION_TYPE_ENCODED_BUFFER*/);
-        pDataNode->data.encoded.pData       = NULL;
-        pDataNode->data.encoded.sizeInBytes = 0;
+    if (pDataBuffer->data.type == ma_resource_manager_data_buffer_type_encoded) {
+        ma__free_from_callbacks((void*)pDataBuffer->data.encoded.pData, &pResourceManager->config.allocationCallbacks/*, MA_ALLOCATION_TYPE_ENCODED_BUFFER*/);
+        pDataBuffer->data.encoded.pData       = NULL;
+        pDataBuffer->data.encoded.sizeInBytes = 0;
     } else {
-        ma__free_from_callbacks((void*)pDataNode->data.decoded.pData, &pResourceManager->config.allocationCallbacks/*, MA_ALLOCATION_TYPE_DECODED_BUFFER*/);
-        pDataNode->data.decoded.pData       = NULL;
-        pDataNode->data.decoded.frameCount  = 0;
+        ma__free_from_callbacks((void*)pDataBuffer->data.decoded.pData, &pResourceManager->config.allocationCallbacks/*, MA_ALLOCATION_TYPE_DECODED_BUFFER*/);
+        pDataBuffer->data.decoded.pData       = NULL;
+        pDataBuffer->data.decoded.frameCount  = 0;
     }
 
-    /* The data node itself needs to be freed. */
-    ma__free_from_callbacks(pDataNode, &pResourceManager->config.allocationCallbacks/*, MA_ALLOCATION_TYPE_RESOURCE_MANAGER_DATA_NODE*/);
+    /* The data buffer itself needs to be freed. */
+    ma__free_from_callbacks(pDataBuffer, &pResourceManager->config.allocationCallbacks/*, MA_ALLOCATION_TYPE_RESOURCE_MANAGER_DATA_BUFFER*/);
 
     return MA_SUCCESS;
 }
 
 static ma_result ma_resource_manager_handle_message__load_data_source(ma_resource_manager* pResourceManager, ma_resource_manager_data_source* pDataSource, ma_event* pEvent)
 {
-    ma_result dataNodeResult;
+    ma_result dataBufferResult;
 
     MA_ASSERT(pResourceManager       != NULL);
     MA_ASSERT(pDataSource            != NULL);
-    MA_ASSERT(pDataSource->pDataNode != NULL);
+    MA_ASSERT(pDataSource->pDataBuffer != NULL);
     MA_ASSERT(pDataSource->result == MA_BUSY || pDataSource->result == MA_UNAVAILABLE);
 
     if (pDataSource->result == MA_UNAVAILABLE) {
@@ -2307,20 +2307,20 @@ static ma_result ma_resource_manager_handle_message__load_data_source(ma_resourc
         */
     }
 
-    /* We shouldn't attempt to load anything if the data node is in an erroneous state. */
-    dataNodeResult = ma_resource_manager_data_node_result(pResourceManager, pDataSource->pDataNode);
-    if (dataNodeResult != MA_SUCCESS && dataNodeResult != MA_BUSY) {
-        return ma_resource_manager_data_source_set_result_and_signal(pResourceManager, pDataSource, dataNodeResult, pEvent);
+    /* We shouldn't attempt to load anything if the data buffer is in an erroneous state. */
+    dataBufferResult = ma_resource_manager_data_buffer_result(pResourceManager, pDataSource->pDataBuffer);
+    if (dataBufferResult != MA_SUCCESS && dataBufferResult != MA_BUSY) {
+        return ma_resource_manager_data_source_set_result_and_signal(pResourceManager, pDataSource, dataBufferResult, pEvent);
     }
 
-    if (pDataSource->pDataNode->data.type == ma_resource_manager_data_node_type_encoded) {
-        if (pDataSource->pDataNode->data.encoded.pData == NULL) {
-            /* Something has gone badly wrong - no data is available from the data node, but it's not in an erroneous state (checked above). */
+    if (pDataSource->pDataBuffer->data.type == ma_resource_manager_data_buffer_type_encoded) {
+        if (pDataSource->pDataBuffer->data.encoded.pData == NULL) {
+            /* Something has gone badly wrong - no data is available from the data buffer, but it's not in an erroneous state (checked above). */
             MA_ASSERT(MA_FALSE);
             return ma_resource_manager_data_source_set_result_and_signal(pResourceManager, pDataSource, MA_NO_DATA_AVAILABLE, pEvent);
         }
 
-        return ma_resource_manager_data_source_set_result_and_signal(pResourceManager, pDataSource, ma_resource_manager_data_source_init_backend_node(pResourceManager, pDataSource), pEvent);
+        return ma_resource_manager_data_source_set_result_and_signal(pResourceManager, pDataSource, ma_resource_manager_data_source_init_backend_buffer(pResourceManager, pDataSource), pEvent);
     } else {
         /*
         We can initialize the data source if there is a non-zero decoded frame count. If the sound is being loaded synchronously or there are no frames available we need to re-insert
@@ -2328,11 +2328,11 @@ static ma_result ma_resource_manager_handle_message__load_data_source(ma_resourc
         */
         ma_bool32 canInitialize = MA_FALSE;
 
-        MA_ASSERT(pDataSource->pDataNode->data.decoded.decodedFrameCount <= pDataSource->pDataNode->data.decoded.frameCount);
+        MA_ASSERT(pDataSource->pDataBuffer->data.decoded.decodedFrameCount <= pDataSource->pDataBuffer->data.decoded.frameCount);
 
-        if (pDataSource->pDataNode->data.decoded.decodedFrameCount > 0) {
+        if (pDataSource->pDataBuffer->data.decoded.decodedFrameCount > 0) {
             /* We can maybe initialize. */
-            if (pDataSource->pDataNode->data.decoded.decodedFrameCount == pDataSource->pDataNode->data.decoded.frameCount) {
+            if (pDataSource->pDataBuffer->data.decoded.decodedFrameCount == pDataSource->pDataBuffer->data.decoded.frameCount) {
                 /* We can definitely initialize. */
                 canInitialize = MA_TRUE;
             } else {
@@ -2351,7 +2351,7 @@ static ma_result ma_resource_manager_handle_message__load_data_source(ma_resourc
         }
 
         if (canInitialize) {
-            return ma_resource_manager_data_source_set_result_and_signal(pResourceManager, pDataSource, ma_resource_manager_data_source_init_backend_node(pResourceManager, pDataSource), pEvent);
+            return ma_resource_manager_data_source_set_result_and_signal(pResourceManager, pDataSource, ma_resource_manager_data_source_init_backend_buffer(pResourceManager, pDataSource), pEvent);
         } else {
             /* We can't initialize just yet so we need to just post the message again. */
             ma_resource_manager_message message = ma_resource_manager_message_init(MA_MESSAGE_LOAD_DATA_SOURCE);
@@ -2374,7 +2374,7 @@ static ma_result ma_resource_manager_handle_message__decode_page(ma_resource_man
     MA_ASSERT(pMessage         != NULL);
 
     /* Don't do any more decoding if the data buffer has started the uninitialization process. */
-    if (pMessage->decodePage.pDataNode->result != MA_BUSY) {
+    if (pMessage->decodePage.pDataBuffer->result != MA_BUSY) {
         return MA_INVALID_OPERATION;
     }
 
@@ -2414,7 +2414,7 @@ static ma_result ma_resource_manager_handle_message__decode_page(ma_resource_man
 
         /* If the total length is known we can increment out decoded frame count. Otherwise it needs to be left at 0 until the last page is decoded. */
         if (messageCopy.decodePage.isUnknownLength == MA_FALSE) {
-            messageCopy.decodePage.pDataNode->data.decoded.decodedFrameCount += framesRead;
+            messageCopy.decodePage.pDataBuffer->data.decoded.decodedFrameCount += framesRead;
         }
 
         /* If there's more to decode, post a message to keep decoding. */
@@ -2435,7 +2435,7 @@ static ma_result ma_resource_manager_handle_message__decode_page(ma_resource_man
 
         /* When the length is unknown we were doubling the size of the buffer each time we needed more data. Let's try reducing this by doing a final realloc(). */
         if (messageCopy.decodePage.isUnknownLength) {
-            ma_uint64 newSizeInBytes = messageCopy.decodePage.decodedFrameCount * ma_get_bytes_per_frame(messageCopy.decodePage.pDataNode->data.decoded.format, messageCopy.decodePage.pDataNode->data.decoded.channels);
+            ma_uint64 newSizeInBytes = messageCopy.decodePage.decodedFrameCount * ma_get_bytes_per_frame(messageCopy.decodePage.pDataBuffer->data.decoded.format, messageCopy.decodePage.pDataBuffer->data.decoded.channels);
             void* pNewData = ma__realloc_from_callbacks(messageCopy.decodePage.pData, (size_t)newSizeInBytes, messageCopy.decodePage.dataSizeInBytes, &pResourceManager->config.allocationCallbacks);
             if (pNewData != NULL) {
                 messageCopy.decodePage.pData = pNewData;
@@ -2447,8 +2447,8 @@ static ma_result ma_resource_manager_handle_message__decode_page(ma_resource_man
         We can now set the frame counts appropriately. We want to set the frame count regardless of whether or not it had a known length just in case we have
         a weird situation where the frame count an opening time was different to the final count we got after reading.
         */
-        messageCopy.decodePage.pDataNode->data.decoded.pData      = messageCopy.decodePage.pData;
-        messageCopy.decodePage.pDataNode->data.decoded.frameCount = messageCopy.decodePage.decodedFrameCount;
+        messageCopy.decodePage.pDataBuffer->data.decoded.pData      = messageCopy.decodePage.pData;
+        messageCopy.decodePage.pDataBuffer->data.decoded.frameCount = messageCopy.decodePage.decodedFrameCount;
 
         /*
         decodedFrameCount is what other threads will use to determine whether or not data is available. We must ensure pData and frameCount
@@ -2456,7 +2456,7 @@ static ma_result ma_resource_manager_handle_message__decode_page(ma_resource_man
         which case it can assume pData and frameCount are valid.
         */
         ma_memory_barrier();
-        messageCopy.decodePage.pDataNode->data.decoded.decodedFrameCount = messageCopy.decodePage.decodedFrameCount;
+        messageCopy.decodePage.pDataBuffer->data.decoded.decodedFrameCount = messageCopy.decodePage.decodedFrameCount;
 
 
         /* If we reached the end we need to treat it as successful. */
@@ -2465,7 +2465,7 @@ static ma_result ma_resource_manager_handle_message__decode_page(ma_resource_man
         }
 
         /* We need to set the status of the page so other things can know about it. */
-        ma_atomic_exchange_32(&messageCopy.decodePage.pDataNode->result, result);
+        ma_atomic_exchange_32(&messageCopy.decodePage.pDataBuffer->result, result);
 
         /* We need to signal an event to indicate that we're done. */
         if (messageCopy.decodePage.pCompletedEvent != NULL) {
@@ -2485,14 +2485,14 @@ MA_API ma_result ma_resource_manager_handle_message(ma_resource_manager* pResour
 
     switch (pMessage->code)
     {
-        case MA_MESSAGE_LOAD_DATA_NODE:
+        case MA_MESSAGE_LOAD_DATA_BUFFER:
         {
-            return ma_resource_manager_handle_message__load_data_node(pResourceManager, pMessage->loadDataNode.pDataNode, pMessage->loadDataNode.pFilePath, pMessage->loadDataNode.pEvent);
+            return ma_resource_manager_handle_message__load_data_buffer(pResourceManager, pMessage->loadDataBuffer.pDataBuffer, pMessage->loadDataBuffer.pFilePath, pMessage->loadDataBuffer.pEvent);
         } break;
 
-        case MA_MESSAGE_FREE_DATA_NODE:
+        case MA_MESSAGE_FREE_DATA_BUFFER:
         {
-            return ma_resource_manager_handle_message__free_data_node(pResourceManager, pMessage->freeDataNode.pDataNode);
+            return ma_resource_manager_handle_message__free_data_buffer(pResourceManager, pMessage->freeDataBuffer.pDataBuffer);
         } break;
 
 
