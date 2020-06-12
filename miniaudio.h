@@ -7885,14 +7885,28 @@ static void ma_event_uninit__win32(ma_event* pEvent)
     CloseHandle((HANDLE)*pEvent);
 }
 
-static ma_bool32 ma_event_wait__win32(ma_event* pEvent)
+static ma_result ma_event_wait__win32(ma_event* pEvent)
 {
-    return WaitForSingleObject((HANDLE)*pEvent, INFINITE) == WAIT_OBJECT_0;
+    DWORD result = WaitForSingleObject((HANDLE)*pEvent, INFINITE);
+    if (result == WAIT_OBJECT_0) {
+        return MA_SUCCESS;
+    }
+
+    if (result == WAIT_TIMEOUT) {
+        return MA_TIMEOUT;
+    }
+
+    return ma_result_from_GetLastError(GetLastError());
 }
 
-static ma_bool32 ma_event_signal__win32(ma_event* pEvent)
+static ma_result ma_event_signal__win32(ma_event* pEvent)
 {
-    return SetEvent((HANDLE)*pEvent);
+    BOOL result = SetEvent((HANDLE)*pEvent);
+    if (result == 0) {
+        return ma_result_from_GetLastError(GetLastError());
+    }
+
+    return MA_SUCCESS;
 }
 
 
@@ -7925,7 +7939,7 @@ static ma_result ma_semaphore_wait__win32(ma_semaphore* pSemaphore)
     return ma_result_from_GetLastError(GetLastError());
 }
 
-static ma_bool32 ma_semaphore_release__win32(ma_semaphore* pSemaphore)
+static ma_result ma_semaphore_release__win32(ma_semaphore* pSemaphore)
 {
     BOOL result = ReleaseSemaphore((HANDLE)*pSemaphore, 1, NULL);
     if (result == 0) {
@@ -8087,7 +8101,7 @@ static void ma_event_uninit__posix(ma_event* pEvent)
     pthread_mutex_destroy(&pEvent->lock);
 }
 
-static ma_bool32 ma_event_wait__posix(ma_event* pEvent)
+static ma_result ma_event_wait__posix(ma_event* pEvent)
 {
     pthread_mutex_lock(&pEvent->lock);
     {
@@ -8098,10 +8112,10 @@ static ma_bool32 ma_event_wait__posix(ma_event* pEvent)
     }
     pthread_mutex_unlock(&pEvent->lock);
 
-    return MA_TRUE;
+    return MA_SUCCESS;
 }
 
-static ma_bool32 ma_event_signal__posix(ma_event* pEvent)
+static ma_result ma_event_signal__posix(ma_event* pEvent)
 {
     pthread_mutex_lock(&pEvent->lock);
     {
@@ -8110,7 +8124,7 @@ static ma_bool32 ma_event_signal__posix(ma_event* pEvent)
     }
     pthread_mutex_unlock(&pEvent->lock);
 
-    return MA_TRUE;
+    return MA_SUCCESS;
 }
 
 
@@ -8240,6 +8254,7 @@ static void ma_yield()
 MA_API ma_result ma_mutex_init(ma_mutex* pMutex)
 {
     if (pMutex == NULL) {
+        MA_ASSERT(MA_FALSE);    /* Fire an assert to the caller is aware of this bug. */
         return MA_INVALID_ARGS;
     }
 
@@ -8268,6 +8283,7 @@ MA_API void ma_mutex_uninit(ma_mutex* pMutex)
 MA_API void ma_mutex_lock(ma_mutex* pMutex)
 {
     if (pMutex == NULL) {
+        MA_ASSERT(MA_FALSE);    /* Fire an assert to the caller is aware of this bug. */
         return;
     }
 
@@ -8282,6 +8298,7 @@ MA_API void ma_mutex_lock(ma_mutex* pMutex)
 MA_API void ma_mutex_unlock(ma_mutex* pMutex)
 {
     if (pMutex == NULL) {
+        MA_ASSERT(MA_FALSE);    /* Fire an assert to the caller is aware of this bug. */
         return;
 }
 
@@ -8297,6 +8314,7 @@ MA_API void ma_mutex_unlock(ma_mutex* pMutex)
 MA_API ma_result ma_event_init(ma_event* pEvent)
 {
     if (pEvent == NULL) {
+        MA_ASSERT(MA_FALSE);    /* Fire an assert to the caller is aware of this bug. */
         return MA_INVALID_ARGS;
     }
 
@@ -8316,6 +8334,8 @@ static ma_result ma_event_alloc_and_init(ma_event** ppEvent, ma_allocation_callb
     if (ppEvent == NULL) {
         return MA_INVALID_ARGS;
     }
+
+    *ppEvent = NULL;
 
     pEvent = ma_malloc(sizeof(*pEvent), pAllocationCallbacks/*, MA_ALLOCATION_TYPE_EVENT*/);
     if (pEvent == NULL) {
@@ -8356,10 +8376,11 @@ static void ma_event_uninit_and_free(ma_event* pEvent, ma_allocation_callbacks* 
     ma_free(pEvent, pAllocationCallbacks/*, MA_ALLOCATION_TYPE_EVENT*/);
 }
 
-MA_API ma_bool32 ma_event_wait(ma_event* pEvent)
+MA_API ma_result ma_event_wait(ma_event* pEvent)
 {
     if (pEvent == NULL) {
-        return MA_FALSE;
+        MA_ASSERT(MA_FALSE);    /* Fire an assert to the caller is aware of this bug. */
+        return MA_INVALID_ARGS;
     }
 
 #ifdef MA_WIN32
@@ -8370,10 +8391,11 @@ MA_API ma_bool32 ma_event_wait(ma_event* pEvent)
 #endif
 }
 
-MA_API ma_bool32 ma_event_signal(ma_event* pEvent)
+MA_API ma_result ma_event_signal(ma_event* pEvent)
 {
     if (pEvent == NULL) {
-        return MA_FALSE;
+        MA_ASSERT(MA_FALSE);    /* Fire an assert to the caller is aware of this bug. */
+        return MA_INVALID_ARGS;
     }
 
 #ifdef MA_WIN32
@@ -8388,6 +8410,7 @@ MA_API ma_bool32 ma_event_signal(ma_event* pEvent)
 MA_API ma_result ma_semaphore_init(int initialValue, ma_semaphore* pSemaphore)
 {
     if (pSemaphore == NULL) {
+        MA_ASSERT(MA_FALSE);    /* Fire an assert to the caller is aware of this bug. */
         return MA_INVALID_ARGS;
     }
 
@@ -8402,6 +8425,7 @@ MA_API ma_result ma_semaphore_init(int initialValue, ma_semaphore* pSemaphore)
 MA_API void ma_semaphore_uninit(ma_semaphore* pSemaphore)
 {
     if (pSemaphore == NULL) {
+        MA_ASSERT(MA_FALSE);    /* Fire an assert to the caller is aware of this bug. */
         return;
     }
 
@@ -8416,6 +8440,7 @@ MA_API void ma_semaphore_uninit(ma_semaphore* pSemaphore)
 MA_API ma_result ma_semaphore_wait(ma_semaphore* pSemaphore)
 {
     if (pSemaphore == NULL) {
+        MA_ASSERT(MA_FALSE);    /* Fire an assert to the caller is aware of this bug. */
         return MA_INVALID_ARGS;
     }
 
@@ -8430,6 +8455,7 @@ MA_API ma_result ma_semaphore_wait(ma_semaphore* pSemaphore)
 MA_API ma_result ma_semaphore_release(ma_semaphore* pSemaphore)
 {
     if (pSemaphore == NULL) {
+        MA_ASSERT(MA_FALSE);    /* Fire an assert to the caller is aware of this bug. */
         return MA_INVALID_ARGS;
     }
 
@@ -9680,11 +9706,11 @@ static ma_thread_result MA_THREADCALL ma_device_thread__null(void* pData)
 static ma_result ma_device_do_operation__null(ma_device* pDevice, ma_uint32 operation)
 {
     ma_atomic_exchange_32(&pDevice->null_device.operation, operation);
-    if (!ma_event_signal(&pDevice->null_device.operationEvent)) {
+    if (ma_event_signal(&pDevice->null_device.operationEvent) != MA_SUCCESS) {
         return MA_ERROR;
     }
 
-    if (!ma_event_wait(&pDevice->null_device.operationCompletionEvent)) {
+    if (ma_event_wait(&pDevice->null_device.operationCompletionEvent) != MA_SUCCESS) {
         return MA_ERROR;
     }
 
