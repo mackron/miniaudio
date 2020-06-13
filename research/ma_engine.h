@@ -185,6 +185,7 @@ MA_API void ma_resource_manager_message_queue_uninit(ma_resource_manager_message
 MA_API ma_result ma_resource_manager_message_queue_post(ma_resource_manager_message_queue* pQueue, const ma_resource_manager_message* pMessage);
 MA_API ma_result ma_resource_manager_message_queue_next(ma_resource_manager_message_queue* pQueue, ma_resource_manager_message* pMessage); /* Blocking */
 MA_API ma_result ma_resource_manager_message_queue_peek(ma_resource_manager_message_queue* pQueue, ma_resource_manager_message* pMessage); /* Non-Blocking */
+MA_API ma_result ma_resource_manager_message_queue_post_terminate(ma_resource_manager_message_queue* pQueue);
 
 
 typedef struct
@@ -714,7 +715,6 @@ static ma_result ma_resource_manager_message_queue_post_nolock(ma_resource_manag
     }
 
 
-
     if (ma_resource_manager_message_queue_get_count(pQueue) == ma_countof(pQueue->messages)) {
         return MA_OUT_OF_MEMORY;    /* The queue is already full. */
     }
@@ -819,6 +819,12 @@ MA_API ma_result ma_resource_manager_message_queue_peek(ma_resource_manager_mess
     return MA_SUCCESS;
 }
 
+MA_API ma_result ma_resource_manager_message_queue_post_terminate(ma_resource_manager_message_queue* pQueue)
+{
+    ma_resource_manager_message message = ma_resource_manager_message_init(MA_MESSAGE_TERMINATE);
+    return ma_resource_manager_message_queue_post(pQueue, &message);
+}
+
 
 
 /*
@@ -829,7 +835,7 @@ static ma_result ma_resource_manager_data_buffer_search(ma_resource_manager* pRe
     ma_resource_manager_data_buffer* pCurrentNode;
 
     MA_ASSERT(pResourceManager != NULL);
-    MA_ASSERT(ppDataBuffer       != NULL);
+    MA_ASSERT(ppDataBuffer     != NULL);
 
     pCurrentNode = pResourceManager->pRootDataBuffer;
     while (pCurrentNode != NULL) {
@@ -897,7 +903,7 @@ static ma_result ma_resource_manager_data_buffer_insert_point(ma_resource_manage
 static ma_result ma_resource_manager_data_buffer_insert_at(ma_resource_manager* pResourceManager, ma_resource_manager_data_buffer* pDataBuffer, ma_resource_manager_data_buffer* pInsertPoint)
 {
     MA_ASSERT(pResourceManager != NULL);
-    MA_ASSERT(pDataBuffer        != NULL);
+    MA_ASSERT(pDataBuffer      != NULL);
 
     /* The key must have been set before calling this function. */
     MA_ASSERT(pDataBuffer->hashedName32 != 0);
@@ -916,6 +922,8 @@ static ma_result ma_resource_manager_data_buffer_insert_at(ma_resource_manager* 
         }
     }
 
+    pDataBuffer->pParent = pInsertPoint;
+
     return MA_SUCCESS;
 }
 
@@ -925,7 +933,7 @@ static ma_result ma_resource_manager_data_buffer_insert(ma_resource_manager* pRe
     ma_resource_manager_data_buffer* pInsertPoint;
 
     MA_ASSERT(pResourceManager != NULL);
-    MA_ASSERT(pDataBuffer        != NULL);
+    MA_ASSERT(pDataBuffer      != NULL);
 
     result = ma_resource_manager_data_buffer_insert_point(pResourceManager, pDataBuffer->hashedName32, &pInsertPoint);
     if (result != MA_SUCCESS) {
@@ -982,7 +990,7 @@ static MA_INLINE ma_resource_manager_data_buffer* ma_resource_manager_data_buffe
 static ma_result ma_resource_manager_data_buffer_remove(ma_resource_manager* pResourceManager, ma_resource_manager_data_buffer* pDataBuffer)
 {
     MA_ASSERT(pResourceManager != NULL);
-    MA_ASSERT(pDataBuffer        != NULL);
+    MA_ASSERT(pDataBuffer      != NULL);
 
     if (pDataBuffer->pChildLo == NULL) {
         if (pDataBuffer->pChildHi == NULL) {
@@ -999,6 +1007,8 @@ static ma_result ma_resource_manager_data_buffer_remove(ma_resource_manager* pRe
             }
         } else {
             /* Node has one child - pChildHi != NULL. */
+            pDataBuffer->pChildHi->pParent = pDataBuffer->pParent;
+
             if (pDataBuffer->pParent == NULL) {
                 MA_ASSERT(pResourceManager->pRootDataBuffer == pDataBuffer);
                 pResourceManager->pRootDataBuffer = pDataBuffer->pChildHi;
@@ -1013,6 +1023,8 @@ static ma_result ma_resource_manager_data_buffer_remove(ma_resource_manager* pRe
     } else {
         if (pDataBuffer->pChildHi == NULL) {
             /* Node has one child - pChildLo != NULL. */
+            pDataBuffer->pChildLo->pParent = pDataBuffer->pParent;
+
             if (pDataBuffer->pParent == NULL) {
                 MA_ASSERT(pResourceManager->pRootDataBuffer == pDataBuffer);
                 pResourceManager->pRootDataBuffer = pDataBuffer->pChildLo;
@@ -1105,7 +1117,7 @@ static ma_result ma_resource_manager_data_buffer_increment_ref(ma_resource_manag
     ma_uint32 refCount;
 
     MA_ASSERT(pResourceManager != NULL);
-    MA_ASSERT(pDataBuffer        != NULL);
+    MA_ASSERT(pDataBuffer      != NULL);
 
     (void)pResourceManager;
 
@@ -1123,7 +1135,7 @@ static ma_result ma_resource_manager_data_buffer_decrement_ref(ma_resource_manag
     ma_uint32 refCount;
 
     MA_ASSERT(pResourceManager != NULL);
-    MA_ASSERT(pDataBuffer        != NULL);
+    MA_ASSERT(pDataBuffer      != NULL);
 
     (void)pResourceManager;
 
@@ -1134,6 +1146,27 @@ static ma_result ma_resource_manager_data_buffer_decrement_ref(ma_resource_manag
     }
 
     return MA_SUCCESS;
+}
+
+
+
+static void ma_resource_manager_data_buffer_free(ma_resource_manager* pResourceManager, ma_resource_manager_data_buffer* pDataBuffer)
+{
+    MA_ASSERT(pResourceManager != NULL);
+    MA_ASSERT(pDataBuffer      != NULL);
+
+    if (pDataBuffer->data.type == ma_resource_manager_data_buffer_type_encoded) {
+        ma__free_from_callbacks((void*)pDataBuffer->data.encoded.pData, &pResourceManager->config.allocationCallbacks/*, MA_ALLOCATION_TYPE_ENCODED_BUFFER*/);
+        pDataBuffer->data.encoded.pData       = NULL;
+        pDataBuffer->data.encoded.sizeInBytes = 0;
+    } else {
+        ma__free_from_callbacks((void*)pDataBuffer->data.decoded.pData, &pResourceManager->config.allocationCallbacks/*, MA_ALLOCATION_TYPE_DECODED_BUFFER*/);
+        pDataBuffer->data.decoded.pData       = NULL;
+        pDataBuffer->data.decoded.frameCount  = 0;
+    }
+
+    /* The data buffer itself needs to be freed. */
+    ma__free_from_callbacks(pDataBuffer, &pResourceManager->config.allocationCallbacks/*, MA_ALLOCATION_TYPE_RESOURCE_MANAGER_DATA_BUFFER*/);
 }
 
 
@@ -1235,13 +1268,39 @@ MA_API ma_result ma_resource_manager_init(const ma_resource_manager_config* pCon
     return MA_SUCCESS;
 }
 
+
+static void ma_resource_manager_delete_all_data_buffers(ma_resource_manager* pResourceManager)
+{
+    MA_ASSERT(pResourceManager);
+
+    /* If everything was done properly, there shouldn't be any active data buffers. */
+    while (pResourceManager->pRootDataBuffer != NULL) {
+        ma_resource_manager_data_buffer* pDataBuffer = pResourceManager->pRootDataBuffer;
+        ma_resource_manager_data_buffer_remove(pResourceManager, pDataBuffer);
+
+        /* The data buffer has been removed from the BST, so now we need to free it's data. */
+        ma_resource_manager_data_buffer_free(pResourceManager, pDataBuffer);
+    }
+}
+
 MA_API void ma_resource_manager_uninit(ma_resource_manager* pResourceManager)
 {
     if (pResourceManager == NULL) {
         return;
     }
 
-    /* TODO: Need to delete all data buffers and free all of their memory. */
+    /* The async threads need to be killed first. To do this we need to post a termination message to the message queue and then wait for the thread. */
+    ma_resource_manager_message_queue_post_terminate(&pResourceManager->messageQueue);
+    ma_thread_wait(&pResourceManager->asyncThread);
+
+    /* At this point the thread should have returned and no other thread should be accessing our data. We can now delete all data buffers. */
+    ma_resource_manager_delete_all_data_buffers(pResourceManager);
+
+    /* The message queue is no longer needed. */
+    ma_resource_manager_message_queue_uninit(&pResourceManager->messageQueue);
+
+    /* We're no longer doing anything with data buffers so the lock can now be uninitialized. */
+    ma_mutex_uninit(&pResourceManager->dataBufferLock);
 }
 
 
@@ -1254,7 +1313,7 @@ static ma_result ma_resource_manager_create_data_buffer_nolock(ma_resource_manag
 
     MA_ASSERT(pResourceManager != NULL);
     MA_ASSERT(pFilePath        != NULL);
-    MA_ASSERT(ppDataBuffer       != NULL);
+    MA_ASSERT(ppDataBuffer     != NULL);
 
     /*
     The first thing to do is find the insertion point. If it's already loaded it means we can just increment the reference counter and signal the event. Otherwise we
@@ -1325,7 +1384,7 @@ static ma_result ma_resource_manager_create_data_buffer_nolock(ma_resource_manag
             result = ma_resource_manager_post_message(pResourceManager, &message);
             if (result != MA_SUCCESS) {
                 ma_resource_manager_data_buffer_remove(pResourceManager, pDataBuffer);
-                ma__free_from_callbacks(pDataBuffer,     &pResourceManager->config.allocationCallbacks/*, MA_ALLOCATION_TYPE_RESOURCE_MANAGER_DATA_BUFFER*/);
+                ma__free_from_callbacks(pDataBuffer,   &pResourceManager->config.allocationCallbacks/*, MA_ALLOCATION_TYPE_RESOURCE_MANAGER_DATA_BUFFER*/);
                 ma__free_from_callbacks(pFilePathCopy, &pResourceManager->config.allocationCallbacks/*, MA_ALLOCATION_TYPE_TRANSIENT_STRING*/);
                 return result;
             }
@@ -1369,14 +1428,13 @@ MA_API ma_result ma_resource_manager_create_data_buffer(ma_resource_manager* pRe
     return result;
 }
 
-
 static ma_result ma_resource_manager_delete_data_buffer_nolock(ma_resource_manager* pResourceManager, ma_resource_manager_data_buffer* pDataBuffer)
 {
     ma_uint32 result;
     ma_uint32 refCount;
 
     MA_ASSERT(pResourceManager != NULL);
-    MA_ASSERT(pDataBuffer        != NULL);
+    MA_ASSERT(pDataBuffer      != NULL);
 
     result = ma_resource_manager_data_buffer_decrement_ref(pResourceManager, pDataBuffer, &refCount);
     if (result != MA_SUCCESS) {
@@ -1507,44 +1565,6 @@ MA_API ma_result ma_resource_manager_unregister_data(ma_resource_manager* pResou
 }
 
 
-#if 0
-static ma_result ma_resource_manager_data_source_hold(ma_resource_manager_data_source* pDataSource)
-{
-    MA_ASSERT(pDataSource != NULL);
-
-    /* Don't allow holding if the data source is being deleted. */
-    if (pDataSource->result == MA_UNAVAILABLE) {
-        return MA_UNAVAILABLE;
-    }
-
-    ma_atomic_increment_32(&pDataSource->holdCount);
-
-    /* If while we were incrementing the hold count we became unavailble we need to abort. */
-    if (pDataSource->result == MA_UNAVAILABLE) {
-        ma_atomic_decrement_32(&pDataSource->holdCount);
-        return MA_UNAVAILABLE;
-    }
-
-    return MA_SUCCESS;
-}
-
-static ma_result ma_resource_manager_data_source_release(ma_resource_manager_data_source* pDataSource)
-{
-    ma_uint32 newCount;
-
-    MA_ASSERT(pDataSource != NULL);
-
-    /* Note: Don't check for MA_UNAVAILABLE in this case because it's possible to be calling this just after the the data source has been uninitialized from another thread. */
-    newCount = ma_atomic_decrement_32(&pDataSource->holdCount);
-    if (newCount == 0xFFFFFFFF) {
-        MA_ASSERT(MA_FALSE);    /* <-- If you hit this it means you have a hold/release mismatch. */
-        ma_atomic_exchange_32(&pDataSource->holdCount, 0);
-        return MA_INVALID_ARGS;
-    }
-
-    return MA_SUCCESS;
-}
-#endif
 
 
 static ma_bool32 ma_resource_manager_data_source_is_busy(ma_resource_manager_data_source* pDataSource, ma_uint64 requiredFrameCount)
@@ -1757,8 +1777,8 @@ static ma_result ma_resource_manager_data_source_init_backend_buffer(ma_resource
     ma_result result;
     ma_resource_manager_data_buffer* pDataBuffer;
 
-    MA_ASSERT(pResourceManager       != NULL);
-    MA_ASSERT(pDataSource            != NULL);
+    MA_ASSERT(pResourceManager         != NULL);
+    MA_ASSERT(pDataSource              != NULL);
     MA_ASSERT(pDataSource->pDataBuffer != NULL);
 
     pDataBuffer = pDataSource->pDataBuffer;
@@ -1831,8 +1851,8 @@ static ma_result ma_resource_manager_data_source_init_backend_buffer(ma_resource
 
 static ma_result ma_resource_manager_data_source_uninit_backend_buffer(ma_resource_manager* pResourceManager, ma_resource_manager_data_source* pDataSource)
 {
-    MA_ASSERT(pResourceManager       != NULL);
-    MA_ASSERT(pDataSource            != NULL);
+    MA_ASSERT(pResourceManager         != NULL);
+    MA_ASSERT(pDataSource              != NULL);
     MA_ASSERT(pDataSource->pDataBuffer != NULL);
 
     if (pDataSource->type == ma_resource_manager_data_source_type_decoder) {
@@ -1874,7 +1894,7 @@ static ma_result ma_resource_manager_data_source_init_buffer(ma_resource_manager
     pDataSource->ds.onMap           = ma_resource_manager_data_source_map;
     pDataSource->ds.onUnmap         = ma_resource_manager_data_source_unmap;
     pDataSource->ds.onGetDataFormat = ma_resource_manager_data_source_get_data_format;
-    pDataSource->pDataBuffer          = pDataBuffer;
+    pDataSource->pDataBuffer        = pDataBuffer;
     pDataSource->type               = ma_resource_manager_data_source_type_unknown; /* The backend type hasn't been determine yet - that happens when it's initialized properly by the resource thread. */
     pDataSource->result             = MA_BUSY;
 
@@ -1976,13 +1996,6 @@ MA_API ma_result ma_resource_manager_data_source_uninit(ma_resource_manager* pRe
 
     /* The first thing to do is to mark the data source as unavailable. This will stop other threads from acquiring a hold on the data source which is what happens in the callbacks. */
     ma_atomic_exchange_32(&pDataSource->result, MA_UNAVAILABLE);
-
-#if 0
-    /* Wait for everything to release the data source. This should be a short hold so just spin. The audio thread might be in the middle of reading data from the data source. */
-    while (pDataSource->holdCount > 0) {
-        ma_yield();
-    }
-#endif
 
     /* We should uninitialize the data source's backend before deleting the data buffer just to keep the order of operations clean. */
     ma_resource_manager_data_source_uninit_backend_buffer(pResourceManager, pDataSource);
@@ -2204,18 +2217,7 @@ static ma_result ma_resource_manager_handle_message__free_data_buffer(ma_resourc
 
     MA_ASSERT(pDataBuffer->result == MA_UNAVAILABLE);
 
-    if (pDataBuffer->data.type == ma_resource_manager_data_buffer_type_encoded) {
-        ma__free_from_callbacks((void*)pDataBuffer->data.encoded.pData, &pResourceManager->config.allocationCallbacks/*, MA_ALLOCATION_TYPE_ENCODED_BUFFER*/);
-        pDataBuffer->data.encoded.pData       = NULL;
-        pDataBuffer->data.encoded.sizeInBytes = 0;
-    } else {
-        ma__free_from_callbacks((void*)pDataBuffer->data.decoded.pData, &pResourceManager->config.allocationCallbacks/*, MA_ALLOCATION_TYPE_DECODED_BUFFER*/);
-        pDataBuffer->data.decoded.pData       = NULL;
-        pDataBuffer->data.decoded.frameCount  = 0;
-    }
-
-    /* The data buffer itself needs to be freed. */
-    ma__free_from_callbacks(pDataBuffer, &pResourceManager->config.allocationCallbacks/*, MA_ALLOCATION_TYPE_RESOURCE_MANAGER_DATA_BUFFER*/);
+    ma_resource_manager_data_buffer_free(pResourceManager, pDataBuffer);
 
     return MA_SUCCESS;
 }
@@ -2224,8 +2226,8 @@ static ma_result ma_resource_manager_handle_message__load_data_source(ma_resourc
 {
     ma_result dataBufferResult;
 
-    MA_ASSERT(pResourceManager       != NULL);
-    MA_ASSERT(pDataSource            != NULL);
+    MA_ASSERT(pResourceManager         != NULL);
+    MA_ASSERT(pDataSource              != NULL);
     MA_ASSERT(pDataSource->pDataBuffer != NULL);
     MA_ASSERT(pDataSource->result == MA_BUSY || pDataSource->result == MA_UNAVAILABLE);
 
