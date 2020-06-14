@@ -3143,6 +3143,11 @@ static ma_result ma_resource_manager_handle_message__seek_data_stream(ma_resourc
     MA_ASSERT(pResourceManager != NULL);
     MA_ASSERT(pDataStream      != NULL);
 
+    /* For streams the status should be MA_SUCCESS for this to do anything. */
+    if (pDataStream->result != MA_SUCCESS || pDataStream->isDecoderInitialized == MA_FALSE) {
+        return MA_INVALID_OPERATION;
+    }
+
     /*
     With seeking we just assume both pages are invalid and the relative frame cursor at at position 0. This is basically exactly the same as loading, except
     instead of initializing the decoder, we seek to a frame.
