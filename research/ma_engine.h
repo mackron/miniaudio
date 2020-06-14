@@ -1332,7 +1332,7 @@ MA_API ma_result ma_resource_manager_init(const ma_resource_manager_config* pCon
 
 
     /* Create the resource thread last to ensure the new thread has access to valid data. */
-    result = ma_thread_create(&pResourceManager->asyncThread, ma_thread_priority_normal, ma_resource_manager_resource_thread, pResourceManager);
+    result = ma_thread_create(&pResourceManager->asyncThread, ma_thread_priority_normal, 0, ma_resource_manager_resource_thread, pResourceManager);
     if (result != MA_SUCCESS) {
         ma_mutex_uninit(&pResourceManager->dataBufferLock);
         ma_resource_manager_message_queue_uninit(&pResourceManager->messageQueue);

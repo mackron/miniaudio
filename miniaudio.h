@@ -3292,6 +3292,7 @@ typedef struct
 {
     ma_log_proc logCallback;
     ma_thread_priority threadPriority;
+    size_t threadStackSize;
     void* pUserData;
     ma_allocation_callbacks allocationCallbacks;
     struct
@@ -3343,6 +3344,7 @@ struct ma_context
     ma_backend backend;                    /* DirectSound, ALSA, etc. */
     ma_log_proc logCallback;
     ma_thread_priority threadPriority;
+    size_t threadStackSize;
     void* pUserData;
     ma_allocation_callbacks allocationCallbacks;
     ma_mutex deviceEnumLock;               /* Used to make ma_context_get_devices() thread safe. */
@@ -7832,9 +7834,9 @@ static int ma_thread_priority_to_win32(ma_thread_priority priority)
     }
 }
 
-static ma_result ma_thread_create__win32(ma_thread* pThread, ma_thread_priority priority, ma_thread_entry_proc entryProc, void* pData)
+static ma_result ma_thread_create__win32(ma_thread* pThread, ma_thread_priority priority, size_t stackSize, ma_thread_entry_proc entryProc, void* pData)
 {
-    *pThread = CreateThread(NULL, 0, entryProc, pData, 0, NULL);
+    *pThread = CreateThread(NULL, stackSize, entryProc, pData, 0, NULL);
     if (*pThread == NULL) {
         return ma_result_from_GetLastError(GetLastError());
     }
@@ -7966,7 +7968,7 @@ static ma_result ma_semaphore_release__win32(ma_semaphore* pSemaphore)
 #include <sched.h>
 #include <sys/time.h>
 
-static ma_result ma_thread_create__posix(ma_thread* pThread, ma_thread_priority priority, ma_thread_entry_proc entryProc, void* pData)
+static ma_result ma_thread_create__posix(ma_thread* pThread, ma_thread_priority priority, size_t stackSize, ma_thread_entry_proc entryProc, void* pData)
 {
     int result;
     pthread_attr_t* pAttr = NULL;
@@ -7992,6 +7994,10 @@ static ma_result ma_thread_create__posix(ma_thread* pThread, ma_thread_priority 
         } else {
             scheduler = sched_getscheduler(0);
 #endif
+        }
+
+        if (stackSize > 0) {
+            pthread_attr_setstacksize(&attr, stackSize);
         }
 
         if (scheduler != -1) {
@@ -8210,17 +8216,17 @@ static ma_result ma_semaphore_release__posix(ma_semaphore* pSemaphore)
 }
 #endif
 
-static ma_result ma_thread_create(ma_thread* pThread, ma_thread_priority priority, ma_thread_entry_proc entryProc, void* pData)
+static ma_result ma_thread_create(ma_thread* pThread, ma_thread_priority priority, size_t stackSize, ma_thread_entry_proc entryProc, void* pData)
 {
     if (pThread == NULL || entryProc == NULL) {
         return MA_FALSE;
     }
 
 #ifdef MA_WIN32
-    return ma_thread_create__win32(pThread, priority, entryProc, pData);
+    return ma_thread_create__win32(pThread, priority, stackSize, entryProc, pData);
 #endif
 #ifdef MA_POSIX
-    return ma_thread_create__posix(pThread, priority, entryProc, pData);
+    return ma_thread_create__posix(pThread, priority, stackSize, entryProc, pData);
 #endif
 }
 
@@ -8253,31 +8259,27 @@ static void ma_sleep(ma_uint32 milliseconds)
 #if !defined(MA_EMSCRIPTEN)
 static MA_INLINE void ma_yield()
 {
-#ifdef MA_POSIX
-    posix_yield();
-#else
-    #if defined(__i386) || defined(_M_IX86) || defined(__x86_64__) || defined(_M_X64)
-        /* x86/x64 */
-        #if defined(_MSC_VER) && !defined(__clang__)
-            #if _MSC_VER >= 1400
-                _mm_pause();
-            #else
-                __asm pause;
-            #endif
+#if defined(__i386) || defined(_M_IX86) || defined(__x86_64__) || defined(_M_X64)
+    /* x86/x64 */
+    #if defined(_MSC_VER) && !defined(__clang__)
+        #if _MSC_VER >= 1400
+            _mm_pause();
         #else
-            __asm__ __volatile__ ("pause");
-        #endif
-    #elif (defined(__arm__) && defined(__ARM_ARCH) && __ARM_ARCH >= 6) || (defined(_M_ARM) && _M_ARM >= 6)
-        /* ARM */
-        #if defined(_MSC_VER)
-            /* Apparently there is a __yield() intrinsic that's compatible with ARM, but I cannot find documentation for it nor can I find where it's declared. */
-            __yield();
-        #else
-            __asm__ __volatile__ ("yield");
+            __asm pause;
         #endif
     #else
-        /* Unknown or unsupported architecture. No-op. */
+        __asm__ __volatile__ ("pause");
     #endif
+#elif (defined(__arm__) && defined(__ARM_ARCH) && __ARM_ARCH >= 6) || (defined(_M_ARM) && _M_ARM >= 6)
+    /* ARM */
+    #if defined(_MSC_VER)
+        /* Apparently there is a __yield() intrinsic that's compatible with ARM, but I cannot find documentation for it nor can I find where it's declared. */
+        __yield();
+    #else
+        __asm__ __volatile__ ("yield");
+    #endif
+#else
+    /* Unknown or unsupported architecture. No-op. */
 #endif
 }
 #endif
@@ -9897,7 +9899,7 @@ static ma_result ma_device_init__null(ma_context* pContext, const ma_device_conf
         return result;
     }
 
-    result = ma_thread_create(&pDevice->thread, pContext->threadPriority, ma_device_thread__null, pDevice);
+    result = ma_thread_create(&pDevice->thread, pContext->threadPriority, 0, ma_device_thread__null, pDevice);
     if (result != MA_SUCCESS) {
         return result;
     }
@@ -30129,9 +30131,10 @@ MA_API ma_result ma_context_init(const ma_backend backends[], ma_uint32 backendC
         config = ma_context_config_init();
     }
 
-    pContext->logCallback    = config.logCallback;
-    pContext->threadPriority = config.threadPriority;
-    pContext->pUserData      = config.pUserData;
+    pContext->logCallback     = config.logCallback;
+    pContext->threadPriority  = config.threadPriority;
+    pContext->threadStackSize = config.threadStackSize;
+    pContext->pUserData       = config.pUserData;
 
     result = ma_allocation_callbacks_init_copy(&pContext->allocationCallbacks, &config.allocationCallbacks);
     if (result != MA_SUCCESS) {
@@ -30683,7 +30686,7 @@ MA_API ma_result ma_device_init(ma_context* pContext, const ma_device_config* pC
     /* Some backends don't require the worker thread. */
     if (!ma_context_is_backend_asynchronous(pContext)) {
         /* The worker thread. */
-        result = ma_thread_create(&pDevice->thread, pContext->threadPriority, ma_worker_thread, pDevice);
+        result = ma_thread_create(&pDevice->thread, pContext->threadPriority, pContext->threadStackSize, ma_worker_thread, pDevice);
         if (result != MA_SUCCESS) {
             ma_device_uninit(pDevice);
             return ma_context_post_error(pContext, NULL, MA_LOG_LEVEL_ERROR, "Failed to create worker thread.", result);

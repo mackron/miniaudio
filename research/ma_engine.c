@@ -36,6 +36,7 @@ int main(int argc, char** argv)
 #if 1
     result = ma_engine_sound_init_from_file(&engine, argv[1], MA_DATA_SOURCE_FLAG_DECODE | MA_DATA_SOURCE_FLAG_ASYNC | MA_DATA_SOURCE_FLAG_STREAM, NULL, &sound);
     if (result != MA_SUCCESS) {
+        printf("Failed to load sound: %s\n", argv[1]);
         ma_engine_uninit(&engine);
         return -1;
     }

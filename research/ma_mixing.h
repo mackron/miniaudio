@@ -253,8 +253,8 @@ Below a summary of some things to keep in mind for high performance mixing:
       of your data sources to 48000Hz before mixing may be unnecessarily inefficient because it'll need to perform mixing on a greater number of samples.
 */
 
-MA_API ma_uint32 ma_get_accumulation_bytes_per_sample(ma_format format);
-MA_API ma_uint32 ma_get_accumulation_bytes_per_frame(ma_format format, ma_uint32 channels);
+MA_API size_t ma_get_accumulation_bytes_per_sample(ma_format format);
+MA_API size_t ma_get_accumulation_bytes_per_frame(ma_format format, ma_uint32 channels);
 
 typedef struct
 {
