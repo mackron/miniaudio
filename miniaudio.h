@@ -8254,15 +8254,28 @@ static MA_INLINE void ma_yield()
 #ifdef MA_POSIX
     posix_yield();
 #else
-    #if defined(MA_X86) || defined(MA_X64)
-        #if defined(_MSC_VER) && _MSC_VER >= 1400
-            _mm_pause();
+    #if defined(__i386) || defined(_M_IX86) || defined(__x86_64__) || defined(_M_X64)
+        /* x86/x64 */
+        #if defined(_MSC_VER) && !defined(__clang__)
+            #if _MSC_VER >= 1400
+                _mm_pause();
+            #else
+                __asm pause;
+            #endif
         #else
-            __asm pause;
+            __asm__ __volatile__ ("pause");
         #endif
+    #elif (defined(__arm__) && defined(__ARM_ARCH) && __ARM_ARCH >= 6) || (defined(_M_ARM) && _M_ARM >= 6)
+        /* ARM */
+        #if defined(_MSC_VER)
+            /* Apparently there is a __yield() intrinsic that's compatible with ARM, but I cannot find documentation for it nor can I find where it's declared. */
+            __yield();
+        #else
+            __asm__ __volatile__ ("yield");
+        #endif
+    #else
+        /* Unknown or unsupported architecture. No-op. */
     #endif
-
-    /* TODO: Implement me. x86 = PAUSE; ARM = YIELD; */
 #endif
 }
 #endif
