@@ -1912,7 +1912,9 @@ typedef int ma_result;
 #define MA_SAMPLE_RATE_384000                          384000
 
 #define MA_MIN_CHANNELS                                1
+#ifndef MA_MAX_CHANNELS
 #define MA_MAX_CHANNELS                                32
+#endif
 #define MA_MIN_SAMPLE_RATE                             MA_SAMPLE_RATE_8000
 #define MA_MAX_SAMPLE_RATE                             MA_SAMPLE_RATE_384000
 
