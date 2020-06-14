@@ -42442,6 +42442,7 @@ static ma_result ma_decoder__postinit(const ma_decoder_config* pConfig, ma_decod
 
 MA_API ma_result ma_decoder_init_wav(ma_decoder_read_proc onRead, ma_decoder_seek_proc onSeek, void* pUserData, const ma_decoder_config* pConfig, ma_decoder* pDecoder)
 {
+#ifdef MA_HAS_WAV
     ma_decoder_config config;
     ma_result result;
 
@@ -42452,20 +42453,25 @@ MA_API ma_result ma_decoder_init_wav(ma_decoder_read_proc onRead, ma_decoder_see
         return result;
     }
 
-#ifdef MA_HAS_WAV
     result = ma_decoder_init_wav__internal(&config, pDecoder);
-#else
-    result = MA_NO_BACKEND;
-#endif
     if (result != MA_SUCCESS) {
         return result;
     }
 
     return ma_decoder__postinit(&config, pDecoder);
+#else
+    (void)onRead;
+    (void)onSeek;
+    (void)pUserData;
+    (void)pConfig;
+    (void)pDecoder;
+    return MA_NO_BACKEND;
+#endif
 }
 
 MA_API ma_result ma_decoder_init_flac(ma_decoder_read_proc onRead, ma_decoder_seek_proc onSeek, void* pUserData, const ma_decoder_config* pConfig, ma_decoder* pDecoder)
 {
+#ifdef MA_HAS_FLAC
     ma_decoder_config config;
     ma_result result;
 
@@ -42476,20 +42482,25 @@ MA_API ma_result ma_decoder_init_flac(ma_decoder_read_proc onRead, ma_decoder_se
         return result;
     }
 
-#ifdef MA_HAS_FLAC
     result = ma_decoder_init_flac__internal(&config, pDecoder);
-#else
-    result = MA_NO_BACKEND;
-#endif
     if (result != MA_SUCCESS) {
         return result;
     }
 
     return ma_decoder__postinit(&config, pDecoder);
+#else
+    (void)onRead;
+    (void)onSeek;
+    (void)pUserData;
+    (void)pConfig;
+    (void)pDecoder;
+    return MA_NO_BACKEND;
+#endif
 }
 
 MA_API ma_result ma_decoder_init_mp3(ma_decoder_read_proc onRead, ma_decoder_seek_proc onSeek, void* pUserData, const ma_decoder_config* pConfig, ma_decoder* pDecoder)
 {
+#ifdef MA_HAS_MP3
     ma_decoder_config config;
     ma_result result;
 
@@ -42500,20 +42511,25 @@ MA_API ma_result ma_decoder_init_mp3(ma_decoder_read_proc onRead, ma_decoder_see
         return result;
     }
 
-#ifdef MA_HAS_MP3
     result = ma_decoder_init_mp3__internal(&config, pDecoder);
-#else
-    result = MA_NO_BACKEND;
-#endif
     if (result != MA_SUCCESS) {
         return result;
     }
 
     return ma_decoder__postinit(&config, pDecoder);
+#else
+    (void)onRead;
+    (void)onSeek;
+    (void)pUserData;
+    (void)pConfig;
+    (void)pDecoder;
+    return MA_NO_BACKEND;
+#endif
 }
 
 MA_API ma_result ma_decoder_init_vorbis(ma_decoder_read_proc onRead, ma_decoder_seek_proc onSeek, void* pUserData, const ma_decoder_config* pConfig, ma_decoder* pDecoder)
 {
+#ifdef MA_HAS_VORBIS
     ma_decoder_config config;
     ma_result result;
 
@@ -42524,16 +42540,20 @@ MA_API ma_result ma_decoder_init_vorbis(ma_decoder_read_proc onRead, ma_decoder_
         return result;
     }
 
-#ifdef MA_HAS_VORBIS
     result = ma_decoder_init_vorbis__internal(&config, pDecoder);
-#else
-    result = MA_NO_BACKEND;
-#endif
     if (result != MA_SUCCESS) {
         return result;
     }
 
     return ma_decoder__postinit(&config, pDecoder);
+#else
+    (void)onRead;
+    (void)onSeek;
+    (void)pUserData;
+    (void)pConfig;
+    (void)pDecoder;
+    return MA_NO_BACKEND;
+#endif
 }
 
 MA_API ma_result ma_decoder_init_raw(ma_decoder_read_proc onRead, ma_decoder_seek_proc onSeek, void* pUserData, const ma_decoder_config* pConfigIn, const ma_decoder_config* pConfigOut, ma_decoder* pDecoder)
@@ -42709,6 +42729,7 @@ MA_API ma_result ma_decoder_init_memory(const void* pData, size_t dataSize, cons
 
 MA_API ma_result ma_decoder_init_memory_wav(const void* pData, size_t dataSize, const ma_decoder_config* pConfig, ma_decoder* pDecoder)
 {
+#ifdef MA_HAS_WAV
     ma_decoder_config config;
     ma_result result;
 
@@ -42719,20 +42740,24 @@ MA_API ma_result ma_decoder_init_memory_wav(const void* pData, size_t dataSize, 
         return result;
     }
 
-#ifdef MA_HAS_WAV
     result = ma_decoder_init_wav__internal(&config, pDecoder);
-#else
-    result = MA_NO_BACKEND;
-#endif
     if (result != MA_SUCCESS) {
         return result;
     }
 
     return ma_decoder__postinit(&config, pDecoder);
+#else
+    (void)pData;
+    (void)dataSize;
+    (void)pConfig;
+    (void)pDecoder;
+    return MA_NO_BACKEND;
+#endif
 }
 
 MA_API ma_result ma_decoder_init_memory_flac(const void* pData, size_t dataSize, const ma_decoder_config* pConfig, ma_decoder* pDecoder)
 {
+#ifdef MA_HAS_FLAC
     ma_decoder_config config;
     ma_result result;
 
@@ -42743,20 +42768,24 @@ MA_API ma_result ma_decoder_init_memory_flac(const void* pData, size_t dataSize,
         return result;
     }
 
-#ifdef MA_HAS_FLAC
     result = ma_decoder_init_flac__internal(&config, pDecoder);
-#else
-    result = MA_NO_BACKEND;
-#endif
     if (result != MA_SUCCESS) {
         return result;
     }
 
     return ma_decoder__postinit(&config, pDecoder);
+#else
+    (void)pData;
+    (void)dataSize;
+    (void)pConfig;
+    (void)pDecoder;
+    return MA_NO_BACKEND;
+#endif
 }
 
 MA_API ma_result ma_decoder_init_memory_mp3(const void* pData, size_t dataSize, const ma_decoder_config* pConfig, ma_decoder* pDecoder)
 {
+#ifdef MA_HAS_MP3
     ma_decoder_config config;
     ma_result result;
 
@@ -42767,20 +42796,24 @@ MA_API ma_result ma_decoder_init_memory_mp3(const void* pData, size_t dataSize, 
         return result;
     }
 
-#ifdef MA_HAS_MP3
     result = ma_decoder_init_mp3__internal(&config, pDecoder);
-#else
-    result = MA_NO_BACKEND;
-#endif
     if (result != MA_SUCCESS) {
         return result;
     }
 
     return ma_decoder__postinit(&config, pDecoder);
+#else
+    (void)pData;
+    (void)dataSize;
+    (void)pConfig;
+    (void)pDecoder;
+    return MA_NO_BACKEND;
+#endif
 }
 
 MA_API ma_result ma_decoder_init_memory_vorbis(const void* pData, size_t dataSize, const ma_decoder_config* pConfig, ma_decoder* pDecoder)
 {
+#ifdef MA_HAS_VORBIS
     ma_decoder_config config;
     ma_result result;
 
@@ -42791,16 +42824,19 @@ MA_API ma_result ma_decoder_init_memory_vorbis(const void* pData, size_t dataSiz
         return result;
     }
 
-#ifdef MA_HAS_VORBIS
     result = ma_decoder_init_vorbis__internal(&config, pDecoder);
-#else
-    result = MA_NO_BACKEND;
-#endif
     if (result != MA_SUCCESS) {
         return result;
     }
 
     return ma_decoder__postinit(&config, pDecoder);
+#else
+    (void)pData;
+    (void)dataSize;
+    (void)pConfig;
+    (void)pDecoder;
+    return MA_NO_BACKEND;
+#endif
 }
 
 MA_API ma_result ma_decoder_init_memory_raw(const void* pData, size_t dataSize, const ma_decoder_config* pConfigIn, const ma_decoder_config* pConfigOut, ma_decoder* pDecoder)
