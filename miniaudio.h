@@ -7611,9 +7611,9 @@ ma_atomic_increment/decrement_*() takes a pointer to the variable being incremen
 #endif
 #define ma_atomic_increment_32(a)        __sync_add_and_fetch(a, 1)
 #define ma_atomic_decrement_32(a)        __sync_sub_and_fetch(a, 1)
-#define ma_compare_and_swap_32(d, e, c)  __sync_val_compare_and_swap(d, e, c)
-#define ma_compare_and_swap_64(d, e, c)  __sync_val_compare_and_swap(d, e, c)
-#define ma_compare_and_swap_ptr(d, e, c) __sync_val_compare_and_swap(d, e, c)
+#define ma_compare_and_swap_32(d, e, c)  __sync_val_compare_and_swap(d, c, e)
+#define ma_compare_and_swap_64(d, e, c)  __sync_val_compare_and_swap(d, c, e)
+#define ma_compare_and_swap_ptr(d, e, c) __sync_val_compare_and_swap(d, c, e)
 #endif
 
 #ifdef MA_64BIT
