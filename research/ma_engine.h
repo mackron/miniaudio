@@ -991,6 +991,7 @@ static ma_result ma_resource_manager_data_buffer_insert_at(ma_resource_manager* 
     return MA_SUCCESS;
 }
 
+#if 0   /* Unused for now. */
 static ma_result ma_resource_manager_data_buffer_insert(ma_resource_manager* pResourceManager, ma_resource_manager_data_buffer* pDataBuffer)
 {
     ma_result result;
@@ -1006,6 +1007,7 @@ static ma_result ma_resource_manager_data_buffer_insert(ma_resource_manager* pRe
 
     return ma_resource_manager_data_buffer_insert_at(pResourceManager, pDataBuffer, pInsertPoint);
 }
+#endif
 
 static MA_INLINE ma_resource_manager_data_buffer* ma_resource_manager_data_buffer_find_min(ma_resource_manager_data_buffer* pDataBuffer)
 {
@@ -1163,6 +1165,7 @@ static ma_result ma_resource_manager_data_buffer_remove(ma_resource_manager* pRe
     return MA_SUCCESS;
 }
 
+#if 0   /* Unused for now. */
 static ma_result ma_resource_manager_data_buffer_remove_by_key(ma_resource_manager* pResourceManager, ma_uint32 hashedName32)
 {
     ma_result result;
@@ -1175,6 +1178,7 @@ static ma_result ma_resource_manager_data_buffer_remove_by_key(ma_resource_manag
 
     return ma_resource_manager_data_buffer_remove(pResourceManager, pDataBuffer);
 }
+#endif
 
 static ma_result ma_resource_manager_data_buffer_increment_ref(ma_resource_manager* pResourceManager, ma_resource_manager_data_buffer* pDataBuffer, ma_uint32* pNewRefCount)
 {
