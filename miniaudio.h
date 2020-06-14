@@ -41142,6 +41142,7 @@ MA_API ma_result ma_default_vfs_init(ma_default_vfs* pVFS, const ma_allocation_c
     }
 
     pVFS->cb.onOpen  = ma_default_vfs_open;
+    pVFS->cb.onOpenW = ma_default_vfs_open_w;
     pVFS->cb.onClose = ma_default_vfs_close;
     pVFS->cb.onRead  = ma_default_vfs_read;
     pVFS->cb.onWrite = ma_default_vfs_write;
