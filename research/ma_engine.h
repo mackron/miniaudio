@@ -356,6 +356,8 @@ MA_API ma_result ma_resource_manager_data_source_get_looping(ma_resource_manager
 /* Message handling. */
 MA_API ma_result ma_resource_manager_handle_message(ma_resource_manager* pResourceManager, const ma_resource_manager_message* pMessage);
 MA_API ma_result ma_resource_manager_post_message(ma_resource_manager* pResourceManager, const ma_resource_manager_message* pMessage);  /* Message will be copied. */
+MA_API ma_result ma_resource_manager_next_message(ma_resource_manager* pResourceManager, ma_resource_manager_message* pMessage);
+MA_API ma_result ma_resource_manager_peek_message(ma_resource_manager* pResourceManager, ma_resource_manager_message* pMessage);
 
 
 /*
@@ -1256,7 +1258,7 @@ static ma_thread_result MA_THREADCALL ma_resource_manager_resource_thread(void* 
         ma_result result;
         ma_resource_manager_message message;
 
-        result = ma_resource_manager_message_queue_next(&pResourceManager->messageQueue, &message);
+        result = ma_resource_manager_next_message(pResourceManager, &message);
         if (result != MA_SUCCESS) {
             break;
         }
@@ -3292,11 +3294,29 @@ MA_API ma_result ma_resource_manager_handle_message(ma_resource_manager* pResour
 
 MA_API ma_result ma_resource_manager_post_message(ma_resource_manager* pResourceManager, const ma_resource_manager_message* pMessage)
 {
-    if (pResourceManager == NULL || pMessage == NULL) {
+    if (pResourceManager == NULL) {
         return MA_INVALID_ARGS;
     }
 
     return ma_resource_manager_message_queue_post(&pResourceManager->messageQueue, pMessage);
+}
+
+MA_API ma_result ma_resource_manager_next_message(ma_resource_manager* pResourceManager, ma_resource_manager_message* pMessage)
+{
+    if (pResourceManager == NULL) {
+        return MA_INVALID_ARGS;
+    }
+
+    return ma_resource_manager_message_queue_next(&pResourceManager, pMessage);
+}
+
+MA_API ma_result ma_resource_manager_peek_message(ma_resource_manager* pResourceManager, ma_resource_manager_message* pMessage)
+{
+    if (pResourceManager == NULL) {
+        return MA_INVALID_ARGS;
+    }
+
+    return ma_resource_manager_message_queue_peek(&pResourceManager, pMessage);
 }
 
 
