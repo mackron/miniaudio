@@ -3133,7 +3133,6 @@ static ma_result ma_resource_manager_handle_message__decode_stream_page(ma_resou
         return MA_INVALID_OPERATION;   
     }
 
-    printf("Decoding page...\n");
     ma_resource_manager_data_stream_fill_page(pResourceManager, pMessage->decodeStreamPage.pDataStream, pMessage->decodeStreamPage.pageIndex);
 
     return MA_SUCCESS;
