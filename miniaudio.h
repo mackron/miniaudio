@@ -44964,6 +44964,7 @@ v0.10.8 - TBD
   - Fix some bugs with the linear resampler when dynamically changing the sample rate.
   - Fix compilation errors with MA_NO_DEVICE_IO.
   - Fix some warnings with GCC and -std=c89.
+  - Fix some formatting warnings with GCC and -Wall and -Wpedantic.
   - Fix some warnings with VC6.
   - Minor optimization to ma_copy_pcm_frames(). This is now a no-op when the input and output buffers are the same.
 
