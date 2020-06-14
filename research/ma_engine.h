@@ -2813,12 +2813,9 @@ static void ma_resource_manager_data_stream_fill_page(ma_resource_manager* pReso
 static void ma_resource_manager_data_stream_fill_pages(ma_resource_manager* pResourceManager, ma_resource_manager_data_stream* pDataStream)
 {
     ma_uint32 iPage;
-    ma_uint64 pageSizeInFrames;
 
     MA_ASSERT(pResourceManager != NULL);
     MA_ASSERT(pDataStream      != NULL);
-
-    pageSizeInFrames = ma_resource_manager_data_stream_get_page_size_in_frames(pDataStream);
 
     /* For each page... */
     for (iPage = 0; iPage < 2; iPage += 1) {
@@ -4112,7 +4109,7 @@ static ma_result ma_engine_effect__on_process_pcm_frames__no_pre_effect(ma_engin
         /* Here is where we want to apply the remaining effects. These can be processed in-place which means we want to set the input and output buffers to be the same. */
         frameCountIn  = *pFrameCountOut;  /* Not a mistake. Intentionally set to *pFrameCountOut. */
         frameCountOut = *pFrameCountOut;
-        return ma_engine_effect__on_process_pcm_frames__no_pre_effect_no_pitch(pEngineEffect, pFramesOut, &frameCountIn, pFramesOut, &frameCountIn);  /* Intentionally setting the input buffer to pFramesOut for in-place processing. */
+        return ma_engine_effect__on_process_pcm_frames__no_pre_effect_no_pitch(pEngineEffect, pFramesOut, &frameCountIn, pFramesOut, &frameCountOut);  /* Intentionally setting the input buffer to pFramesOut for in-place processing. */
     }
 }
 
