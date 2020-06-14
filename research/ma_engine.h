@@ -3307,7 +3307,7 @@ MA_API ma_result ma_resource_manager_next_message(ma_resource_manager* pResource
         return MA_INVALID_ARGS;
     }
 
-    return ma_resource_manager_message_queue_next(&pResourceManager, pMessage);
+    return ma_resource_manager_message_queue_next(&pResourceManager->messageQueue, pMessage);
 }
 
 MA_API ma_result ma_resource_manager_peek_message(ma_resource_manager* pResourceManager, ma_resource_manager_message* pMessage)
@@ -3316,7 +3316,7 @@ MA_API ma_result ma_resource_manager_peek_message(ma_resource_manager* pResource
         return MA_INVALID_ARGS;
     }
 
-    return ma_resource_manager_message_queue_peek(&pResourceManager, pMessage);
+    return ma_resource_manager_message_queue_peek(&pResourceManager->messageQueue, pMessage);
 }
 
 
