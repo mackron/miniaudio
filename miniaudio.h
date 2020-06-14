@@ -5243,6 +5243,13 @@ static MA_INLINE void ma_zero_pcm_frames(void* p, ma_uint64 frameCount, ma_forma
 
 
 /*
+Offsets a pointer by the specified number of PCM frames.
+*/
+MA_API void* ma_offset_pcm_frames_ptr(void* p, ma_uint64 offsetInFrames, ma_format format, ma_uint32 channels);
+MA_API const void* ma_offset_pcm_frames_const_ptr(const void* p, ma_uint64 offsetInFrames, ma_format format, ma_uint32 channels);
+
+
+/*
 Clips f32 samples.
 */
 MA_API void ma_clip_samples_f32(float* p, ma_uint64 sampleCount);
@@ -5747,6 +5754,8 @@ IMPLEMENTATION
 #include <stdlib.h> /* For malloc(), free(), wcstombs(). */
 #include <string.h> /* For memset() */
 #endif
+
+#include <sys/stat.h>   /* For fstat(), etc. */
 
 #ifdef MA_EMSCRIPTEN
 #include <emscripten/emscripten.h>
@@ -8240,11 +8249,19 @@ static void ma_sleep(ma_uint32 milliseconds)
 #endif
 
 #if !defined(MA_EMSCRIPTEN)
-static void ma_yield()
+static MA_INLINE void ma_yield()
 {
 #ifdef MA_POSIX
     posix_yield();
 #else
+    #if defined(MA_X86) || defined(MA_X64)
+        #if defined(_MSC_VER) && _MSC_VER >= 1400
+            _mm_pause();
+        #else
+            __asm pause;
+        #endif
+    #endif
+
     /* TODO: Implement me. x86 = PAUSE; ARM = YIELD; */
 #endif
 }
@@ -8326,6 +8343,7 @@ MA_API ma_result ma_event_init(ma_event* pEvent)
 #endif
 }
 
+#if 0
 static ma_result ma_event_alloc_and_init(ma_event** ppEvent, ma_allocation_callbacks* pAllocationCallbacks)
 {
     ma_result result;
@@ -8351,6 +8369,7 @@ static ma_result ma_event_alloc_and_init(ma_event** ppEvent, ma_allocation_callb
     *ppEvent = pEvent;
     return result;
 }
+#endif
 
 MA_API void ma_event_uninit(ma_event* pEvent)
 {
@@ -8366,6 +8385,7 @@ MA_API void ma_event_uninit(ma_event* pEvent)
 #endif
 }
 
+#if 0
 static void ma_event_uninit_and_free(ma_event* pEvent, ma_allocation_callbacks* pAllocationCallbacks)
 {
     if (pEvent == NULL) {
@@ -8375,6 +8395,7 @@ static void ma_event_uninit_and_free(ma_event* pEvent, ma_allocation_callbacks* 
     ma_event_uninit(pEvent);
     ma_free(pEvent, pAllocationCallbacks/*, MA_ALLOCATION_TYPE_EVENT*/);
 }
+#endif
 
 MA_API ma_result ma_event_wait(ma_event* pEvent)
 {
@@ -24640,7 +24661,6 @@ sndio Backend
 ******************************************************************************/
 #ifdef MA_HAS_SNDIO
 #include <fcntl.h>
-#include <sys/stat.h>
 
 /*
 Only supporting OpenBSD. This did not work very well at all on FreeBSD when I tried it. Not sure if this is due
@@ -31001,6 +31021,17 @@ MA_API void ma_silence_pcm_frames(void* p, ma_uint64 frameCount, ma_format forma
         ma_zero_memory_64(p, frameCount * ma_get_bytes_per_frame(format, channels));
     }
 }
+
+MA_API void* ma_offset_pcm_frames_ptr(void* p, ma_uint64 offsetInFrames, ma_format format, ma_uint32 channels)
+{
+    return ma_offset_ptr(p, offsetInFrames * ma_get_bytes_per_frame(format, channels));
+}
+
+MA_API const void* ma_offset_pcm_frames_const_ptr(const void* p, ma_uint64 offsetInFrames, ma_format format, ma_uint32 channels)
+{
+    return ma_offset_ptr(p, offsetInFrames * ma_get_bytes_per_frame(format, channels));
+}
+
 
 MA_API void ma_clip_samples_f32(float* p, ma_uint64 sampleCount)
 {
@@ -37466,7 +37497,7 @@ static ma_result ma_channel_converter_process_pcm_frames__stereo_to_mono(ma_chan
             const ma_uint8* pFramesInU8  = (const ma_uint8*)pFramesIn;
 
             for (iFrame = 0; iFrame < frameCount; ++iFrame) {
-                pFramesOutU8[iFrame] = ma_clip_u8((ma_pcm_sample_u8_to_s16_no_scale(pFramesInU8[iFrame*2+0]) + ma_pcm_sample_u8_to_s16_no_scale(pFramesInU8[iFrame*2+1])) / 2);
+                pFramesOutU8[iFrame] = ma_clip_u8((ma_int16)((ma_pcm_sample_u8_to_s16_no_scale(pFramesInU8[iFrame*2+0]) + ma_pcm_sample_u8_to_s16_no_scale(pFramesInU8[iFrame*2+1])) / 2));
             }
         } break;
 
@@ -40936,7 +40967,16 @@ static ma_result ma_default_vfs_seek__stdio(ma_vfs* pVFS, ma_vfs_file file, ma_i
     (void)pVFS;
     
 #if defined(_WIN32)
-    result = _fseeki64((FILE*)file, offset, origin);
+    #if defined(_MSC_VER) && _MSC_VER > 1200
+        result = _fseeki64((FILE*)file, offset, origin);
+    #else
+        /* No _fseeki64() so restrict to 31 bits. */
+        if (origin > 0x7FFFFFFF) {
+            return MA_OUT_OF_RANGE;
+        }
+
+        result = fseek((FILE*)file, (int)offset, origin);
+    #endif
 #else
     result = fseek((FILE*)file, (long int)offset, origin);
 #endif
@@ -40957,7 +40997,11 @@ static ma_result ma_default_vfs_tell__stdio(ma_vfs* pVFS, ma_vfs_file file, ma_i
     (void)pVFS;
 
 #if defined(_WIN32)
-    result = _ftelli64((FILE*)file);
+    #if defined(_MSC_VER) && _MSC_VER > 1200
+        result = _ftelli64((FILE*)file);
+    #else
+        result = ftell((FILE*)file);
+    #endif
 #else
     result = ftell((FILE*)file);
 #endif
@@ -40967,6 +41011,7 @@ static ma_result ma_default_vfs_tell__stdio(ma_vfs* pVFS, ma_vfs_file file, ma_i
     return MA_SUCCESS;
 }
 
+#include <sys/stat.h>
 static ma_result ma_default_vfs_info__stdio(ma_vfs* pVFS, ma_vfs_file file, ma_file_info* pInfo)
 {
     int fd;
@@ -41107,7 +41152,6 @@ MA_API ma_result ma_default_vfs_init(ma_default_vfs* pVFS, const ma_allocation_c
 
     return MA_SUCCESS;
 }
-
 
 
 /**************************************************************************************************************************************************************
@@ -44088,7 +44132,7 @@ MA_API ma_result ma_waveform_seek_to_pcm_frame(ma_waveform* pWaveform, ma_uint64
         return MA_INVALID_ARGS;
     }
 
-    pWaveform->time = pWaveform->advance * frameIndex;
+    pWaveform->time = pWaveform->advance * (ma_int64)frameIndex;    /* Casting for VC6. Won't be an issue in practice. */
 
     return MA_SUCCESS;
 }
@@ -44644,10 +44688,13 @@ v0.10.8 - TBD
   - Add support for memory mapping to ma_data_source.
     - ma_data_source_map()
     - ma_data_source_unmap()
+  - Add ma_offset_pcm_frames_ptr() and ma_offset_pcm_frames_const_ptr() which can be used for offsetting a pointer by a specified number of PCM frames.
+  - Add initial implementation of ma_yield() which is useful for spin locks which will be used in some upcoming work.
   - Add documentation for log levels.
   - Fix some bugs with the linear resampler when dynamically changing the sample rate.
   - Fix compilation errors with MA_NO_DEVICE_IO.
   - Fix some warnings with GCC and -std=c89.
+  - Fix some warnings with VC6.
   - Minor optimization to ma_copy_pcm_frames(). This is now a no-op when the input and output buffers are the same.
 
 v0.10.7 - 2020-05-25
