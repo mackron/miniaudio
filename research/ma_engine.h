@@ -4141,7 +4141,7 @@ static ma_result ma_engine_effect__on_process_pcm_frames__general(ma_engine_effe
     Getting here means we have a pre-effect. This must alway be run first. We do this in chunks into an intermediary buffer and then call ma_engine_effect__on_process_pcm_frames__no_pre_effect()
     against the intermediary buffer. The output of ma_engine_effect__on_process_pcm_frames__no_pre_effect() will be the final output buffer.
     */
-    while (totalFramesProcessedIn < frameCountIn, totalFramesProcessedOut < frameCountOut) {
+    while (totalFramesProcessedIn < frameCountIn && totalFramesProcessedOut < frameCountOut) {
         ma_uint8  preEffectOutBuffer[MA_DATA_CONVERTER_STACK_BUFFER_SIZE];  /* effectFormat / effectChannels */
         ma_uint32 preEffectOutBufferCap = sizeof(preEffectOutBuffer) / ma_get_bytes_per_frame(effectFormat, effectChannels);
         const void* pRunningFramesIn  = ma_offset_ptr(pFramesIn,  totalFramesProcessedIn  * ma_get_bytes_per_frame(effectFormat, effectChannels));
