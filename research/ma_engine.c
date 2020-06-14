@@ -34,13 +34,13 @@ int main(int argc, char** argv)
 
 
 #if 1
-    result = ma_engine_sound_init_from_file(&engine, argv[1], MA_DATA_SOURCE_FLAG_DECODE | MA_DATA_SOURCE_FLAG_ASYNC, NULL, &sound);
+    result = ma_engine_sound_init_from_file(&engine, argv[1], MA_DATA_SOURCE_FLAG_DECODE | MA_DATA_SOURCE_FLAG_ASYNC | MA_DATA_SOURCE_FLAG_STREAM, NULL, &sound);
     if (result != MA_SUCCESS) {
         ma_engine_uninit(&engine);
         return -1;
     }
 
-    /*ma_data_source_seek_to_pcm_frame(sound.pDataSource, 1000000);*/
+    /*ma_data_source_seek_to_pcm_frame(sound.pDataSource, 5000000);*/
     
     ma_engine_sound_set_volume(&engine, &sound, 0.25f);
     ma_engine_sound_set_pitch(&engine, &sound, 1.0f);

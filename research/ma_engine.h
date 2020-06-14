@@ -81,8 +81,8 @@ useful to be told exactly what it being allocated so you can optimize your alloc
 #define MA_ALLOCATION_TYPE_AUDIO_BUFFER                 0x00000005  /* A ma_audio_buffer allocation. */
 #define MA_ALLOCATION_TYPE_ENCODED_BUFFER               0x00000006  /* Allocation for encoded audio data containing the raw file data of a sound file. */
 #define MA_ALLOCATION_TYPE_DECODED_BUFFER               0x00000007  /* Allocation for decoded audio data from a sound file. */
-#define MA_ALLOCATION_TYPE_RESOURCE_MANAGER_NODE        0x00000010  /* A ma_resource_manager_data_buffer object. */
-#define MA_ALLOCATION_TYPE_RESOURCE_MANAGER_PAGE        0x00000011  /* A ma_resource_manager_page object. Used by the resource manager for when a page containing decoded audio data is loaded for streaming. */
+#define MA_ALLOCATION_TYPE_RESOURCE_MANAGER_DATA_BUFFER 0x00000010  /* A ma_resource_manager_data_buffer object. */
+#define MA_ALLOCATION_TYPE_RESOURCE_MANAGER_DATA_STREAM 0x00000011  /* A ma_resource_manager_data_stream object. */
 #define MA_ALLOCATION_TYPE_RESOURCE_MANAGER_DATA_SOURCE 0x00000012  /* A ma_resource_manager_data_source object. */
 
 /*
@@ -98,20 +98,22 @@ The flags below are used for controlling how the resource manager should handle 
 
 typedef enum
 {
-    ma_resource_manager_data_buffer_type_encoded,
-    ma_resource_manager_data_buffer_type_decoded
-} ma_resource_manager_data_buffer_type;
+    ma_resource_manager_data_buffer_encoding_encoded,
+    ma_resource_manager_data_buffer_encoding_decoded
+} ma_resource_manager_data_buffer_encoding;
 
+/* The type of object that's used to connect a data buffer to a data source. */
 typedef enum
 {
-    ma_resource_manager_data_source_type_unknown,
-    ma_resource_manager_data_source_type_decoder,
-    ma_resource_manager_data_source_type_buffer
-} ma_resource_manager_data_source_type;
+    ma_resource_manager_data_buffer_connector_unknown,
+    ma_resource_manager_data_buffer_connector_decoder,  /* ma_decoder */
+    ma_resource_manager_data_buffer_connector_buffer    /* ma_audio_buffer */
+} ma_resource_manager_data_buffer_connector;
 
 
 typedef struct ma_resource_manager             ma_resource_manager;
 typedef struct ma_resource_manager_data_buffer ma_resource_manager_data_buffer;
+typedef struct ma_resource_manager_data_stream ma_resource_manager_data_stream;
 typedef struct ma_resource_manager_data_source ma_resource_manager_data_source;
 
 
@@ -123,16 +125,19 @@ typedef struct ma_resource_manager_data_source ma_resource_manager_data_source;
 #define MA_RESOURCE_MANAGER_MESSAGE_QUEUE_CAPACITY  1024
 #endif
 
-#define MA_MESSAGE_TERMINATE        0x00000000
-#define MA_MESSAGE_LOAD_DATA_BUFFER 0x00000001
-#define MA_MESSAGE_FREE_DATA_BUFFER 0x00000002
-#define MA_MESSAGE_LOAD_DATA_SOURCE 0x00000003
-/*#define MA_MESSAGE_FREE_DATA_SOURCE 0x00000004*/
-#define MA_MESSAGE_DECODE_PAGE      0x00000005
+#define MA_MESSAGE_TERMINATE          0x00000000
+#define MA_MESSAGE_LOAD_DATA_BUFFER   0x00000001
+#define MA_MESSAGE_FREE_DATA_BUFFER   0x00000002
+#define MA_MESSAGE_LOAD_DATA_STREAM   0x00000003
+#define MA_MESSAGE_FREE_DATA_STREAM   0x00000004
+#define MA_MESSAGE_LOAD_DATA_SOURCE   0x00000005
+/*#define MA_MESSAGE_FREE_DATA_SOURCE   0x00000006*/
+#define MA_MESSAGE_DECODE_BUFFER_PAGE 0x00000007
+#define MA_MESSAGE_DECODE_STREAM_PAGE 0x00000008
+#define MA_MESSAGE_SEEK_DATA_STREAM   0x00000009
 
 typedef struct
 {
-    ma_event* pEvent;
     ma_uint32 code;
     union
     {
@@ -146,6 +151,17 @@ typedef struct
         {
             ma_resource_manager_data_buffer* pDataBuffer;
         } freeDataBuffer;
+        struct
+        {
+            ma_resource_manager_data_stream* pDataStream;
+            char* pFilePath;    /* Allocated when the message is posted, freed by the async thread after loading. */
+            ma_event* pEvent;
+        } loadDataStream;
+        struct
+        {
+            ma_resource_manager_data_stream* pDataStream;
+            ma_event* pEvent;
+        } freeDataStream;
         struct
         {
             ma_resource_manager_data_source* pDataSource;
@@ -164,7 +180,17 @@ typedef struct
             size_t dataSizeInBytes;
             ma_uint64 decodedFrameCount;
             ma_bool32 isUnknownLength;  /* When set to true does not update the running frame count of the data buffer nor the data pointer until the last page has been decoded. */
-        } decodePage;
+        } decodeBufferPage;
+        struct
+        {
+            ma_resource_manager_data_stream* pDataStream;
+            ma_uint32 pageIndex;    /* The index of the page to decode into. */
+        } decodeStreamPage;
+        struct
+        {
+            ma_resource_manager_data_stream* pDataStream;
+            ma_uint64 frameIndex;
+        } seekDataStream;
     };
 } ma_resource_manager_message;
 
@@ -206,7 +232,7 @@ typedef struct
 
 typedef struct
 {
-    ma_resource_manager_data_buffer_type type;
+    ma_resource_manager_data_buffer_encoding type;
     union
     {
         ma_decoded_data decoded;
@@ -226,28 +252,56 @@ struct ma_resource_manager_data_buffer
     ma_resource_manager_data_buffer* pChildHi;
 };
 
+struct ma_resource_manager_data_stream
+{
+    ma_decoder decoder;             /* Used for filling pages with data. This is only ever accessed by the async thread. The public API should never touch this. */
+    ma_bool32 isDecoderInitialized; /* Required for determining whether or not the decoder should be uninitialized in MA_MESSAGE_FREE_DATA_STREAM. */
+    ma_uint32 relativeCursor;       /* The playback cursor, relative to the current page. Only ever accessed by the public API. Never accessed by the async thread. */
+    ma_uint32 currentPageIndex;     /* Toggles between 0 and 1. Index 0 is the first half of pPageData. Index 1 is the second half. Only ever accessed by the public API. Never accessed by the async thread. */
+
+    /* Written by the public API, read by the async thread. */
+    ma_bool32 isLooping;            /* Whether or not the stream is looping. It's important to set the looping flag at the data stream level for smooth loop transitions. */
+
+    /* Written by the async thread, read by the public API. */
+    void* pPageData;                /* Buffer containing the decoded data of each page. Allocated once at initialization time. */
+    ma_uint32 pageFrameCount[2];    /* The number of valid PCM frames in each page. Used to determine the last valid frame. */
+
+    /* Written and read by both the public API and the async thread. */
+    ma_result result;               /* Result from asynchronous loading. When loading set to MA_BUSY. When fully loaded set to MA_SUCCESS. When deleting set to MA_UNAVAILABLE. */
+    ma_bool32 isDecoderAtEnd;       /* Whether or not the decoder has reached the end. */
+    ma_bool32 isPageValid[2];       /* Booleans to indicate whether or not a page is valid. Set to false by the public API, set to true by the async thread. Set to false as the pages are consumed, true when they are filled. */
+    ma_bool32 seekCounter;          /* When 0, no seeking is being performed. When > 0, a seek is being performed and reading should be delayed with MA_BUSY. */
+};
+
 struct ma_resource_manager_data_source
 {
     ma_data_source_callbacks ds;
-    ma_resource_manager_data_buffer* pDataBuffer;
-    ma_resource_manager_data_source_type type;
-    ma_uint32 flags;        /* The flags that were passed in to ma_resource_manager_data_source_init(). */
-    ma_result result;       /* Result from asynchronous loading. When loading set to MA_BUSY. When fully loaded set to MA_SUCCESS. When deleting set to MA_UNAVAILABLE. */
-    ma_uint64 frameCursor;
-    ma_bool32 seekToCursorOnNextRead : 1;   /* On the next read we need to seek to the frame cursor. */
+    ma_resource_manager* pResourceManager;
+    ma_result result;   /* Result from asynchronous loading. When loading set to MA_BUSY. When fully loaded set to MA_SUCCESS. When deleting set to MA_UNAVAILABLE. */
+    ma_uint32 flags;    /* The flags that were passed in to ma_resource_manager_data_source_init(). */
     union
     {
-        ma_decoder decoder;
-        ma_audio_buffer buffer;
-    } backend;
+        struct
+        {
+            ma_resource_manager_data_buffer* pDataBuffer;
+            ma_uint64 cursor;                   /* Only used with data buffers (the cursor is drawn from the internal decoder for data streams). Only updated by the public API. Never written nor read from the async thread. */
+            ma_bool32 seekToCursorOnNextRead;   /* On the next read we need to seek to the frame cursor. */
+            ma_resource_manager_data_buffer_connector connectorType;
+            union
+            {
+                ma_decoder decoder;
+                ma_audio_buffer buffer;
+            } connector;
+        } dataBuffer;
+        struct
+        {
+            ma_resource_manager_data_stream stream;
+        } dataStream;
+    };
 };
 
 typedef struct
 {
-    size_t level1CacheSizeInBytes;  /* Set to 0 to disable level 1 cache. Set to (size_t)-1 for unlimited. */
-    size_t level2CacheSizeInBytes;  /* Set to 0 to disable level 2 cache. Set to (size_t)-1 for unlimited. */
-    ma_uint32 level1CacheFlags;
-    ma_uint32 level2CacheFlags;
     ma_allocation_callbacks allocationCallbacks;
     ma_format decodedFormat;
     ma_uint32 decodedChannels;
@@ -271,12 +325,23 @@ MA_API ma_result ma_resource_manager_init(const ma_resource_manager_config* pCon
 MA_API void ma_resource_manager_uninit(ma_resource_manager* pResourceManager);
 
 /* Data Buffers. */
-MA_API ma_result ma_resource_manager_create_data_buffer(ma_resource_manager* pResourceManager, const char* pFilePath, ma_resource_manager_data_buffer_type type, ma_event* pEvent, ma_resource_manager_data_buffer** ppDataBuffer);
+MA_API ma_result ma_resource_manager_create_data_buffer(ma_resource_manager* pResourceManager, const char* pFilePath, ma_resource_manager_data_buffer_encoding type, ma_event* pEvent, ma_resource_manager_data_buffer** ppDataBuffer);
 MA_API ma_result ma_resource_manager_delete_data_buffer(ma_resource_manager* pResourceManager, ma_resource_manager_data_buffer* pDataBuffer);
 MA_API ma_result ma_resource_manager_data_buffer_result(ma_resource_manager* pResourceManager, const ma_resource_manager_data_buffer* pDataBuffer);
 MA_API ma_result ma_resource_manager_register_decoded_data(ma_resource_manager* pResourceManager, const char* pName, const void* pData, ma_uint64 frameCount, ma_format format, ma_uint32 channels, ma_uint32 sampleRate);  /* Does not copy. Increments the reference count if already exists and returns MA_SUCCESS. */
 MA_API ma_result ma_resource_manager_register_encoded_data(ma_resource_manager* pResourceManager, const char* pName, const void* pData, size_t sizeInBytes);    /* Does not copy. Increments the reference count if already exists and returns MA_SUCCESS. */
 MA_API ma_result ma_resource_manager_unregister_data(ma_resource_manager* pResourceManager, const char* pName);
+
+/* Data Streams. */
+MA_API ma_result ma_resource_manager_create_data_stream(ma_resource_manager* pResourceManager, const char* pFilePath, ma_event* pEvent, ma_resource_manager_data_stream* pDataStream);
+MA_API ma_result ma_resource_manager_delete_data_stream(ma_resource_manager* pResourceManager, ma_resource_manager_data_stream* pDataStream);
+MA_API ma_result ma_resource_manager_data_stream_result(ma_resource_manager* pResourceManager, const ma_resource_manager_data_stream* pDataStream);
+MA_API ma_result ma_resource_manager_data_stream_read_paged_pcm_frames(ma_resource_manager* pResourceManager, ma_resource_manager_data_stream* pDataStream, void* pFramesOut, ma_uint64 frameCount, ma_uint64* pFramesRead);
+MA_API ma_result ma_resource_manager_data_stream_seek_to_pcm_frame(ma_resource_manager* pResourceManager, ma_resource_manager_data_stream* pDataStream, ma_uint64 frameIndex);
+MA_API ma_result ma_resource_manager_data_stream_map_paged_pcm_frames(ma_resource_manager* pResourceManager, ma_resource_manager_data_stream* pDataStream, void** ppFramesOut, ma_uint64* pFrameCount);
+MA_API ma_result ma_resource_manager_data_stream_unmap_paged_pcm_frames(ma_resource_manager* pResourceManager, ma_resource_manager_data_stream* pDataStream, ma_uint64 frameCount);
+MA_API ma_result ma_resource_manager_data_stream_get_data_format(ma_resource_manager* pResourceManager, ma_resource_manager_data_stream* pDataStream, ma_format* pFormat, ma_uint32* pChannels);
+
 
 /* Data Sources. */
 MA_API ma_result ma_resource_manager_data_source_init(ma_resource_manager* pResourceManager, const char* pName, ma_uint32 flags, ma_resource_manager_data_source* pDataSource);
@@ -706,10 +771,10 @@ static ma_result ma_resource_manager_message_queue_post_nolock(ma_resource_manag
     */
 
     /* We cannot be decoding anything if the data buffer is set to any status other than MA_BUSY. */
-    if (pMessage->code == MA_MESSAGE_DECODE_PAGE) {
-        MA_ASSERT(pMessage->decodePage.pDataBuffer != NULL);
+    if (pMessage->code == MA_MESSAGE_DECODE_BUFFER_PAGE) {
+        MA_ASSERT(pMessage->decodeBufferPage.pDataBuffer != NULL);
 
-        if (pMessage->decodePage.pDataBuffer->result != MA_BUSY) {
+        if (pMessage->decodeBufferPage.pDataBuffer->result != MA_BUSY) {
             return MA_INVALID_OPERATION;    /* Cannot decode after the data buffer has been marked as unavailable. Abort. */
         }
     }
@@ -1155,7 +1220,7 @@ static void ma_resource_manager_data_buffer_free(ma_resource_manager* pResourceM
     MA_ASSERT(pResourceManager != NULL);
     MA_ASSERT(pDataBuffer      != NULL);
 
-    if (pDataBuffer->data.type == ma_resource_manager_data_buffer_type_encoded) {
+    if (pDataBuffer->data.type == ma_resource_manager_data_buffer_encoding_encoded) {
         ma__free_from_callbacks((void*)pDataBuffer->data.encoded.pData, &pResourceManager->config.allocationCallbacks/*, MA_ALLOCATION_TYPE_ENCODED_BUFFER*/);
         pDataBuffer->data.encoded.pData       = NULL;
         pDataBuffer->data.encoded.sizeInBytes = 0;
@@ -1304,7 +1369,7 @@ MA_API void ma_resource_manager_uninit(ma_resource_manager* pResourceManager)
 }
 
 
-static ma_result ma_resource_manager_create_data_buffer_nolock(ma_resource_manager* pResourceManager, const char* pFilePath, ma_uint32 hashedName32, ma_resource_manager_data_buffer_type type, ma_resource_manager_memory_buffer* pExistingData, ma_event* pEvent, ma_resource_manager_data_buffer** ppDataBuffer)
+static ma_result ma_resource_manager_create_data_buffer_nolock(ma_resource_manager* pResourceManager, const char* pFilePath, ma_uint32 hashedName32, ma_resource_manager_data_buffer_encoding type, ma_resource_manager_memory_buffer* pExistingData, ma_event* pEvent, ma_resource_manager_data_buffer** ppDataBuffer)
 {
     ma_result result;
     ma_resource_manager_data_buffer* pDataBuffer;
@@ -1371,6 +1436,10 @@ static ma_result ma_resource_manager_create_data_buffer_nolock(ma_resource_manag
             /* We need a copy of the file path. We should probably make this more efficient, but for now we'll do a transient memory allocation. */
             pFilePathCopy = ma_copy_string(pFilePath, &pResourceManager->config.allocationCallbacks/*, MA_ALLOCATION_TYPE_TRANSIENT_STRING*/);
             if (pFilePathCopy == NULL) {
+                if (pEvent != NULL) {
+                    ma_event_signal(pEvent);
+                }
+
                 ma_resource_manager_data_buffer_remove(pResourceManager, pDataBuffer);
                 ma__free_from_callbacks(pDataBuffer, &pResourceManager->config.allocationCallbacks/*, MA_ALLOCATION_TYPE_RESOURCE_MANAGER_DATA_BUFFER*/);
                 return MA_OUT_OF_MEMORY;
@@ -1379,10 +1448,14 @@ static ma_result ma_resource_manager_create_data_buffer_nolock(ma_resource_manag
             /* We now have everything we need to post the message to the resource thread. This is the last thing we need to do from here. The rest will be done by the resource thread. */
             message = ma_resource_manager_message_init(MA_MESSAGE_LOAD_DATA_BUFFER);
             message.loadDataBuffer.pDataBuffer = pDataBuffer;
-            message.loadDataBuffer.pFilePath = pFilePathCopy;
-            message.loadDataBuffer.pEvent    = pEvent;
+            message.loadDataBuffer.pFilePath   = pFilePathCopy;
+            message.loadDataBuffer.pEvent      = pEvent;
             result = ma_resource_manager_post_message(pResourceManager, &message);
             if (result != MA_SUCCESS) {
+                if (pEvent != NULL) {
+                    ma_event_signal(pEvent);
+                }
+
                 ma_resource_manager_data_buffer_remove(pResourceManager, pDataBuffer);
                 ma__free_from_callbacks(pDataBuffer,   &pResourceManager->config.allocationCallbacks/*, MA_ALLOCATION_TYPE_RESOURCE_MANAGER_DATA_BUFFER*/);
                 ma__free_from_callbacks(pFilePathCopy, &pResourceManager->config.allocationCallbacks/*, MA_ALLOCATION_TYPE_TRANSIENT_STRING*/);
@@ -1400,7 +1473,7 @@ static ma_result ma_resource_manager_create_data_buffer_nolock(ma_resource_manag
     return MA_SUCCESS;
 }
 
-MA_API ma_result ma_resource_manager_create_data_buffer(ma_resource_manager* pResourceManager, const char* pFilePath, ma_resource_manager_data_buffer_type type, ma_event* pEvent, ma_resource_manager_data_buffer** ppDataBuffer)
+MA_API ma_result ma_resource_manager_create_data_buffer(ma_resource_manager* pResourceManager, const char* pFilePath, ma_resource_manager_data_buffer_encoding type, ma_event* pEvent, ma_resource_manager_data_buffer** ppDataBuffer)
 {
     ma_result result;
     ma_uint32 hashedName32;
@@ -1496,7 +1569,7 @@ MA_API ma_result ma_resource_manager_data_buffer_result(ma_resource_manager* pRe
 }
 
 
-static ma_result ma_resource_manager_register_data(ma_resource_manager* pResourceManager, const char* pName, ma_resource_manager_data_buffer_type type, ma_resource_manager_memory_buffer* pExistingData, ma_event* pEvent, ma_resource_manager_data_buffer** ppDataBuffer)
+static ma_result ma_resource_manager_register_data(ma_resource_manager* pResourceManager, const char* pName, ma_resource_manager_data_buffer_encoding type, ma_resource_manager_memory_buffer* pExistingData, ma_event* pEvent, ma_resource_manager_data_buffer** ppDataBuffer)
 {
     ma_result result = MA_SUCCESS;
     ma_uint32 hashedName32;
@@ -1518,7 +1591,7 @@ static ma_result ma_resource_manager_register_data(ma_resource_manager* pResourc
 MA_API ma_result ma_resource_manager_register_decoded_data(ma_resource_manager* pResourceManager, const char* pName, const void* pData, ma_uint64 frameCount, ma_format format, ma_uint32 channels, ma_uint32 sampleRate)
 {
     ma_resource_manager_memory_buffer data;
-    data.type               = ma_resource_manager_data_buffer_type_decoded;
+    data.type               = ma_resource_manager_data_buffer_encoding_decoded;
     data.decoded.pData      = pData;
     data.decoded.frameCount = frameCount;
     data.decoded.format     = format;
@@ -1531,7 +1604,7 @@ MA_API ma_result ma_resource_manager_register_decoded_data(ma_resource_manager* 
 MA_API ma_result ma_resource_manager_register_encoded_data(ma_resource_manager* pResourceManager, const char* pName, const void* pData, size_t sizeInBytes)
 {
     ma_resource_manager_memory_buffer data;
-    data.type                = ma_resource_manager_data_buffer_type_encoded;
+    data.type                = ma_resource_manager_data_buffer_encoding_encoded;
     data.encoded.pData       = pData;
     data.encoded.sizeInBytes = sizeInBytes;
 
@@ -1566,23 +1639,484 @@ MA_API ma_result ma_resource_manager_unregister_data(ma_resource_manager* pResou
 
 
 
+MA_API ma_result ma_resource_manager_create_data_stream(ma_resource_manager* pResourceManager, const char* pFilePath, ma_event* pEvent, ma_resource_manager_data_stream* pDataStream)
+{
+    ma_result result;
+    char* pFilePathCopy;
+    ma_resource_manager_message message;
 
-static ma_bool32 ma_resource_manager_data_source_is_busy(ma_resource_manager_data_source* pDataSource, ma_uint64 requiredFrameCount)
+    if (pDataStream == NULL) {
+        if (pEvent != NULL) {
+            ma_event_signal(pEvent);
+        }
+
+        return MA_INVALID_ARGS;
+    }
+
+    MA_ZERO_OBJECT(pDataStream);
+    pDataStream->result = MA_BUSY;
+
+    if (pResourceManager == NULL || pFilePath == NULL) {
+        if (pEvent != NULL) {
+            ma_event_signal(pEvent);
+        }
+
+        return MA_INVALID_ARGS;
+    }
+
+    /* We want all access to the VFS and the internal decoder to happen on the async thread just to keep things easier to manage for the VFS.  */
+
+    /* We need a copy of the file path. We should probably make this more efficient, but for now we'll do a transient memory allocation. */
+    pFilePathCopy = ma_copy_string(pFilePath, &pResourceManager->config.allocationCallbacks/*, MA_ALLOCATION_TYPE_TRANSIENT_STRING*/);
+    if (pFilePathCopy == NULL) {
+        if (pEvent != NULL) {
+            ma_event_signal(pEvent);
+        }
+
+        return MA_OUT_OF_MEMORY;
+    }
+
+    /* We now have everything we need to post the message to the resource thread. This is the last thing we need to do from here. The rest will be done by the resource thread. */
+    message = ma_resource_manager_message_init(MA_MESSAGE_LOAD_DATA_STREAM);
+    message.loadDataStream.pDataStream = pDataStream;
+    message.loadDataStream.pFilePath   = pFilePathCopy;
+    message.loadDataStream.pEvent      = pEvent;
+    result = ma_resource_manager_post_message(pResourceManager, &message);
+    if (result != MA_SUCCESS) {
+        if (pEvent != NULL) {
+            ma_event_signal(pEvent);
+        }
+
+        ma__free_from_callbacks(pFilePathCopy, &pResourceManager->config.allocationCallbacks/*, MA_ALLOCATION_TYPE_TRANSIENT_STRING*/);
+        return result;
+    }
+
+    return MA_SUCCESS;
+}
+
+MA_API ma_result ma_resource_manager_delete_data_stream(ma_resource_manager* pResourceManager, ma_resource_manager_data_stream* pDataStream)
+{
+    ma_event freeEvent;
+    ma_resource_manager_message message;
+
+    if (pResourceManager == NULL || pDataStream == NULL) {
+        return MA_INVALID_ARGS;
+    }
+
+    /* The first thing to do is set the result to unavailable. This will prevent future page decoding. */
+    ma_atomic_exchange_32(&pDataStream->result, MA_UNAVAILABLE);
+
+    /*
+    We need to post a message to ensure we're not in the middle or decoding or anything. Because the object is owned by the caller, we'll need
+    to wait for it to complete before returning which means we need an event.
+    */
+    ma_event_init(&freeEvent);
+
+    message = ma_resource_manager_message_init(MA_MESSAGE_FREE_DATA_STREAM);
+    message.freeDataStream.pDataStream = pDataStream;
+    message.freeDataStream.pEvent      = &freeEvent;
+    ma_resource_manager_post_message(pResourceManager, &message);
+
+    /* We need to wait for the message before we return. */
+    ma_event_wait(&freeEvent);
+    ma_event_uninit(&freeEvent);
+
+    return MA_SUCCESS;
+}
+
+MA_API ma_result ma_resource_manager_data_stream_result(ma_resource_manager* pResourceManager, const ma_resource_manager_data_stream* pDataStream)
+{
+    if (pResourceManager == NULL || pDataStream == NULL) {
+        return MA_INVALID_ARGS;
+    }
+
+    return pDataStream->result;
+}
+
+
+static ma_uint32 ma_resource_manager_data_stream_get_page_size_in_frames(ma_resource_manager_data_stream* pDataStream)
+{
+    MA_ASSERT(pDataStream != NULL);
+    MA_ASSERT(pDataStream->isDecoderInitialized == MA_TRUE);
+
+    return MA_RESOURCE_MANAGER_PAGE_SIZE_IN_MILLISECONDS * (pDataStream->decoder.outputSampleRate/1000); 
+}
+
+static void* ma_resource_manager_data_stream_get_page_data_pointer(ma_resource_manager_data_stream* pDataStream, ma_uint32 pageIndex, ma_uint32 relativeCursor)
+{
+    MA_ASSERT(pDataStream != NULL);
+    MA_ASSERT(pDataStream->isDecoderInitialized == MA_TRUE);
+    MA_ASSERT(pageIndex == 0 || pageIndex == 1);
+
+    return ma_offset_ptr(pDataStream->pPageData, ((ma_resource_manager_data_stream_get_page_size_in_frames(pDataStream) * pageIndex) + relativeCursor) * ma_get_bytes_per_frame(pDataStream->decoder.outputFormat, pDataStream->decoder.outputChannels));
+}
+
+
+
+MA_API ma_result ma_resource_manager_data_stream_read_paged_pcm_frames(ma_resource_manager* pResourceManager, ma_resource_manager_data_stream* pDataStream, void* pFramesOut, ma_uint64 frameCount, ma_uint64* pFramesRead)
+{
+    ma_result result = MA_SUCCESS;
+    ma_uint64 totalFramesProcessed;
+    ma_format format;
+    ma_uint32 channels;
+
+    if (pResourceManager == NULL || pDataStream == NULL) {
+        return MA_INVALID_ARGS;
+    }
+
+    if (pDataStream->result != MA_SUCCESS) {
+        return MA_INVALID_OPERATION;
+    }
+
+    /* Don't attempt to read while we're in the middle of seeking. Tell the caller that we're busy. */
+    if (pDataStream->seekCounter > 0) {
+        return MA_BUSY;
+    }
+
+    ma_resource_manager_data_stream_get_data_format(pResourceManager, pDataStream, &format, &channels);
+
+    /* Reading is implemented in terms of map/unmap. We need to run this in a loop because mapping is clamped against page boundaries. */
+    totalFramesProcessed = 0;
+    while (totalFramesProcessed < frameCount) {
+        void* pMappedFrames;
+        ma_uint64 mappedFrameCount;
+
+        mappedFrameCount = frameCount - totalFramesProcessed;
+        result = ma_resource_manager_data_stream_map_paged_pcm_frames(pResourceManager, pDataStream, &pMappedFrames, &mappedFrameCount);
+        if (result != MA_SUCCESS) {
+            break;
+        }
+
+        /* Copy the mapped data to the output buffer if we have one. It's allowed for pFramesOut to be NULL in which case a relative forward seek is performed. */
+        if (pFramesOut != NULL) {
+            ma_copy_pcm_frames(ma_offset_pcm_frames_ptr(pFramesOut, totalFramesProcessed, format, channels), pMappedFrames, mappedFrameCount, format, channels);
+        }
+
+        totalFramesProcessed += mappedFrameCount;
+
+        result = ma_resource_manager_data_stream_unmap_paged_pcm_frames(pResourceManager, pDataStream, mappedFrameCount);
+        if (result != MA_SUCCESS) {
+            break;  /* This is really bad - will only get an error here if we failed to post a message to the queue for loading the next page. */
+        }
+    }
+
+    if (pFramesRead != NULL) {
+        *pFramesRead = totalFramesProcessed;
+    }
+
+    return result;
+}
+
+MA_API ma_result ma_resource_manager_data_stream_seek_to_pcm_frame(ma_resource_manager* pResourceManager, ma_resource_manager_data_stream* pDataStream, ma_uint64 frameIndex)
+{
+    ma_resource_manager_message message;
+
+    if (pResourceManager == NULL || pDataStream == NULL) {
+        return MA_INVALID_ARGS;
+    }
+
+    if (pDataStream->result != MA_SUCCESS && pDataStream->result != MA_BUSY) {
+        return MA_INVALID_OPERATION;
+    }
+
+    /* Increment the seek counter first to indicate to read_paged_pcm_frames() and map_paged_pcm_frames() that we are in the middle of a seek and MA_BUSY should be returned. */
+    ma_atomic_increment_32(&pDataStream->seekCounter);
+
+    /*
+    We need to clear our currently loaded pages so that the stream starts playback from the new seek point as soon as possible. These are for the purpose of the public
+    API and will be ignored by the seek message. The seek message on the async thread will operate on the assumption that both pages have been marked as invalid and
+    the cursor is at the start of the first page.
+    */
+    pDataStream->relativeCursor   = 0;
+    pDataStream->currentPageIndex = 0;
+    ma_atomic_exchange_32(&pDataStream->isPageValid[0], MA_FALSE);
+    ma_atomic_exchange_32(&pDataStream->isPageValid[1], MA_FALSE);
+
+    /*
+    The public API is not allowed to touch the internal decoder so we need to use a message to perform the seek. When seeking, the async thread will assume both pages
+    are invalid and any content contained within them will be discarded and replaced with newly decoded data.
+    */
+    message = ma_resource_manager_message_init(MA_MESSAGE_SEEK_DATA_STREAM);
+    message.seekDataStream.pDataStream = pDataStream;
+    message.seekDataStream.frameIndex  = frameIndex;
+    return ma_resource_manager_post_message(pResourceManager, &message);
+}
+
+MA_API ma_result ma_resource_manager_data_stream_map_paged_pcm_frames(ma_resource_manager* pResourceManager, ma_resource_manager_data_stream* pDataStream, void** ppFramesOut, ma_uint64* pFrameCount)
+{
+    ma_uint64 framesAvailable;
+    ma_uint64 frameCount = 0;
+
+    if (pFrameCount != NULL) {
+        frameCount = *pFrameCount;
+        *pFrameCount = 0;
+    }
+    if (ppFramesOut != NULL) {
+        *ppFramesOut = NULL;
+    }
+
+    if (pResourceManager == NULL || pDataStream == NULL || ppFramesOut == NULL || pFrameCount == NULL) {
+        return MA_INVALID_ARGS;
+    }
+
+    if (pDataStream->result != MA_SUCCESS) {
+        return MA_INVALID_OPERATION;
+    }
+
+    /* Don't attempt to read while we're in the middle of seeking. Tell the caller that we're busy. */
+    if (pDataStream->seekCounter > 0) {
+        return MA_BUSY;
+    }
+
+    /* If the page we're on is invalid it means we've caught up to the async thread. */
+    if (pDataStream->isPageValid[pDataStream->currentPageIndex] == MA_FALSE) {
+        framesAvailable = 0;
+    } else {
+        /*
+        The page we're on is valid so we must have some frames available. We need to make sure that we don't overflow into the next page, even if it's valid. The reason is
+        that the unmap process will only post an update for one page at a time, which means it'll possible miss the page update for one of the pages.
+        */
+        MA_ASSERT(pDataStream->pageFrameCount[pDataStream->currentPageIndex] >= pDataStream->relativeCursor);
+        framesAvailable = pDataStream->pageFrameCount[pDataStream->currentPageIndex] - pDataStream->relativeCursor;
+    }
+
+    /* If there's no frames available and the result is set to MA_AT_END we need to return MA_AT_END. */
+    if (framesAvailable == 0) {
+        if (pDataStream->isDecoderAtEnd) {
+            return MA_AT_END;
+        } else {
+            return MA_BUSY; /* There are no frames available, but we're not marked as EOF so we might have caught up to the async thread. Need to return MA_BUSY and wait for more data. */
+        }
+    }
+
+    MA_ASSERT(framesAvailable > 0);
+
+    if (frameCount > framesAvailable) {
+        frameCount = framesAvailable;
+    }
+
+    *ppFramesOut = ma_resource_manager_data_stream_get_page_data_pointer(pDataStream, pDataStream->currentPageIndex, pDataStream->relativeCursor);
+    *pFrameCount = frameCount;
+
+    return MA_SUCCESS;
+}
+
+MA_API ma_result ma_resource_manager_data_stream_unmap_paged_pcm_frames(ma_resource_manager* pResourceManager, ma_resource_manager_data_stream* pDataStream, ma_uint64 frameCount)
+{
+    ma_uint32 newRelativeCursor;
+    ma_uint32 pageSizeInFrames;
+    ma_resource_manager_message message;
+
+    if (pResourceManager == NULL || pDataStream == NULL) {
+        return MA_INVALID_ARGS;
+    }
+
+    if (pDataStream->result != MA_SUCCESS) {
+        return MA_INVALID_OPERATION;
+    }
+
+    /* The frame count should always fit inside a 32-bit integer. */
+    if (frameCount > 0xFFFFFFFF) {
+        return MA_INVALID_ARGS;
+    }
+
+    pageSizeInFrames = ma_resource_manager_data_stream_get_page_size_in_frames(pDataStream);
+
+    /* Here is where we need to check if we need to load a new page, and if so, post a message to the async thread to load it. */
+    newRelativeCursor = pDataStream->relativeCursor + (ma_uint32)frameCount;
+
+    /* If the new cursor has flowed over to the next page we need to mark the old one as invalid and post an event for it. */
+    if (newRelativeCursor >= pageSizeInFrames) {
+        /*newRelativeCursor -= (pageSizeInFrames*(pDataStream->currentPageIndex+1));*/
+        newRelativeCursor -= pageSizeInFrames;
+
+        /* Here is where we post the message to the async thread to start decoding. */
+        message = ma_resource_manager_message_init(MA_MESSAGE_DECODE_STREAM_PAGE);
+        message.decodeStreamPage.pDataStream = pDataStream;
+        message.decodeStreamPage.pageIndex   = pDataStream->currentPageIndex;
+
+        /* The page needs to be marked as invalid so that the public API doesn't try reading from it. */
+        ma_atomic_exchange_32(&pDataStream->isPageValid[pDataStream->currentPageIndex], MA_FALSE);
+
+        /* Before sending the message we need to make sure we set some state. */
+        pDataStream->relativeCursor   = newRelativeCursor;
+        pDataStream->currentPageIndex = (pDataStream->currentPageIndex + 1) & 0x01;
+        return ma_resource_manager_post_message(pResourceManager, &message);
+    } else {
+        /* We haven't moved into a new page so we can just move the cursor forward. */
+        pDataStream->relativeCursor = newRelativeCursor;
+        return MA_SUCCESS;
+    }
+}
+
+MA_API ma_result ma_resource_manager_data_stream_get_data_format(ma_resource_manager* pResourceManager, ma_resource_manager_data_stream* pDataStream, ma_format* pFormat, ma_uint32* pChannels)
+{
+    if (pResourceManager == NULL || pDataStream == NULL) {
+        return MA_INVALID_ARGS;
+    }
+
+    if (pDataStream->result != MA_SUCCESS) {
+        return MA_INVALID_OPERATION;
+    }
+
+    /*
+    We're being a little bit naughty here and accessing the internal decoder from the public API. The output data format is constant, and we've defined this function
+    such that the application is responsible for ensuring it's not called while uninitializing so it should be safe.
+    */
+    return ma_data_source_get_data_format(&pDataStream->decoder, pFormat, pChannels);
+}
+
+
+static ma_result ma_resource_manager_data_source_read__stream(ma_data_source* pDataSource, void* pFramesOut, ma_uint64 frameCount, ma_uint64* pFramesRead)
+{
+    ma_resource_manager_data_source* pRMDataSource = (ma_resource_manager_data_source*)pDataSource;
+    MA_ASSERT(pRMDataSource != NULL);
+
+    /*
+    We cannot be using the data source after it's been uninitialized. If you trigger this assert it means you're trying to read from the data source after
+    it's been uninitialized or is in the process of uninitializing.
+    */
+    MA_ASSERT(pRMDataSource->result != MA_UNAVAILABLE);
+
+    return ma_resource_manager_data_stream_read_paged_pcm_frames(pRMDataSource->pResourceManager, &pRMDataSource->dataStream.stream, pFramesOut, frameCount, pFramesRead);
+}
+
+static ma_result ma_resource_manager_data_source_seek__stream(ma_data_source* pDataSource, ma_uint64 frameIndex)
+{
+    ma_resource_manager_data_source* pRMDataSource = (ma_resource_manager_data_source*)pDataSource;
+    MA_ASSERT(pRMDataSource != NULL);
+
+    /* We cannot be using the data source after it's been uninitialized. */
+    MA_ASSERT(pRMDataSource->result != MA_UNAVAILABLE);
+
+    return ma_resource_manager_data_stream_seek_to_pcm_frame(pRMDataSource->pResourceManager, &pRMDataSource->dataStream.stream, frameIndex);
+}
+
+static ma_result ma_resource_manager_data_source_map__stream(ma_data_source* pDataSource, void** ppFramesOut, ma_uint64* pFrameCount)
+{
+    ma_resource_manager_data_source* pRMDataSource = (ma_resource_manager_data_source*)pDataSource;
+    MA_ASSERT(pRMDataSource != NULL);
+
+    /* We cannot be using the data source after it's been uninitialized. */
+    MA_ASSERT(pRMDataSource->result != MA_UNAVAILABLE);
+
+    return ma_resource_manager_data_stream_map_paged_pcm_frames(pRMDataSource->pResourceManager, &pRMDataSource->dataStream.stream, ppFramesOut, pFrameCount);
+}
+
+static ma_result ma_resource_manager_data_source_unmap__stream(ma_data_source* pDataSource, ma_uint64 frameCount)
+{
+    ma_resource_manager_data_source* pRMDataSource = (ma_resource_manager_data_source*)pDataSource;
+    MA_ASSERT(pRMDataSource != NULL);
+
+    /* We cannot be using the data source after it's been uninitialized. */
+    MA_ASSERT(pRMDataSource->result != MA_UNAVAILABLE);
+
+    return ma_resource_manager_data_stream_unmap_paged_pcm_frames(pRMDataSource->pResourceManager, &pRMDataSource->dataStream.stream, frameCount);
+}
+
+static ma_result ma_resource_manager_data_source_get_data_format__stream(ma_data_source* pDataSource, ma_format* pFormat, ma_uint32* pChannels)
+{
+    ma_resource_manager_data_source* pRMDataSource = (ma_resource_manager_data_source*)pDataSource;
+    MA_ASSERT(pRMDataSource != NULL);
+
+    /* We cannot be using the data source after it's been uninitialized. */
+    MA_ASSERT(pRMDataSource->result != MA_UNAVAILABLE);
+
+    return ma_resource_manager_data_stream_get_data_format(pRMDataSource->pResourceManager, &pRMDataSource->dataStream.stream, pFormat, pChannels);
+}
+
+static ma_result ma_resource_manager_data_source_init_stream(ma_resource_manager* pResourceManager, const char* pName, ma_uint32 flags, ma_resource_manager_data_source* pDataSource)
+{
+    ma_result result;
+    ma_resource_manager_message message;
+    ma_event waitEvent;
+
+    MA_ASSERT(pResourceManager != NULL);
+    MA_ASSERT(pName            != NULL);
+    MA_ASSERT(pDataSource      != NULL);
+
+
+    /* The first thing we need is a data stream. */
+    result = ma_resource_manager_create_data_stream(pResourceManager, pName, NULL, &pDataSource->dataStream.stream);
+    if (result != MA_SUCCESS) {
+        return result;
+    }
+
+    /* We use a different set of data source callbacks for data streams than we do data buffers as they use a completely different mechanism for data delivery. */
+    pDataSource->ds.onRead          = ma_resource_manager_data_source_read__stream;
+    pDataSource->ds.onSeek          = ma_resource_manager_data_source_seek__stream;
+    pDataSource->ds.onMap           = ma_resource_manager_data_source_map__stream;
+    pDataSource->ds.onUnmap         = ma_resource_manager_data_source_unmap__stream;
+    pDataSource->ds.onGetDataFormat = ma_resource_manager_data_source_get_data_format__stream;
+    pDataSource->result             = MA_BUSY;
+
+    /* We need to post a message just like we do with data buffers because the caller may be wanting to run this asynchronously. */
+    message = ma_resource_manager_message_init(MA_MESSAGE_LOAD_DATA_SOURCE);
+    message.loadDataSource.pDataSource = pDataSource;
+
+    if ((flags & MA_DATA_SOURCE_FLAG_ASYNC) == 0) {
+        result = ma_event_init(&waitEvent);
+        if (result != MA_SUCCESS) {
+            ma_resource_manager_delete_data_stream(pResourceManager, &pDataSource->dataStream.stream);
+            return result;
+        }
+
+        message.loadDataSource.pEvent = &waitEvent;
+    } else {
+        message.loadDataSource.pEvent = NULL;
+    }
+
+    result = ma_resource_manager_post_message(pResourceManager, &message);
+    if (result != MA_SUCCESS) {
+        ma_resource_manager_delete_data_stream(pResourceManager, &pDataSource->dataStream.stream);
+        if (message.loadDataSource.pEvent != NULL) {
+            ma_event_uninit(message.loadDataSource.pEvent);
+        }
+
+        return result;
+    }
+
+    /* The message has been posted. We now need to wait for the event to get signalled if we're in synchronous mode. */
+    if (message.loadDataSource.pEvent != NULL) {
+        ma_result streamResult;
+
+        ma_event_wait(message.loadDataSource.pEvent);
+        ma_event_uninit(message.loadDataSource.pEvent);
+        message.loadDataSource.pEvent = NULL;
+
+        /* If the data stream or data source have errors we need to return an error. */
+        streamResult = ma_resource_manager_data_stream_result(pResourceManager, &pDataSource->dataStream.stream);
+        if (pDataSource->result != MA_SUCCESS || streamResult != MA_SUCCESS) {
+            ma_resource_manager_delete_data_stream(pResourceManager, &pDataSource->dataStream.stream);
+            if (pDataSource->result != MA_SUCCESS) {
+                return pDataSource->result;
+            } else {
+                return streamResult;
+            }
+        }
+    }
+
+    return MA_SUCCESS;
+}
+
+
+
+static ma_bool32 ma_resource_manager_data_source_buffer_is_busy(ma_resource_manager_data_source* pDataSource, ma_uint64 requiredFrameCount)
 {
     /*
     Here is where we determine whether or not we need to return MA_BUSY from a data source callback. If we don't have enough data loaded to output all frameCount frames we
     will abort with MA_BUSY. We could also choose to do a partial read (only reading as many frames are available), but it's just easier to abort early and I don't think it
     really makes much practical difference. This only applies to decoded buffers.
     */
-    if (pDataSource->pDataBuffer->data.type == ma_resource_manager_data_buffer_type_decoded) {
-        if (pDataSource->pDataBuffer->data.decoded.decodedFrameCount < pDataSource->pDataBuffer->data.decoded.frameCount) {
+    if (pDataSource->dataBuffer.pDataBuffer->data.type == ma_resource_manager_data_buffer_encoding_decoded) {
+        if (pDataSource->dataBuffer.pDataBuffer->data.decoded.decodedFrameCount < pDataSource->dataBuffer.pDataBuffer->data.decoded.frameCount) {
             ma_uint64 framesAvailable;
 
-            if (pDataSource->pDataBuffer->data.decoded.decodedFrameCount < pDataSource->frameCursor) {
+            if (pDataSource->dataBuffer.pDataBuffer->data.decoded.decodedFrameCount < pDataSource->dataBuffer.cursor) {
                 return MA_TRUE; /* No data available.*/
             }
 
-            framesAvailable = pDataSource->pDataBuffer->data.decoded.decodedFrameCount - pDataSource->frameCursor;
+            framesAvailable = pDataSource->dataBuffer.pDataBuffer->data.decoded.decodedFrameCount - pDataSource->dataBuffer.cursor;
             if (framesAvailable < requiredFrameCount) {
                 return MA_TRUE; /* Not enough frames available to read all frameCount frames. */
             }
@@ -1592,12 +2126,12 @@ static ma_bool32 ma_resource_manager_data_source_is_busy(ma_resource_manager_dat
     return MA_FALSE;
 }
 
-static ma_data_source* ma_resource_manager_data_source_get_backing_data_source(ma_resource_manager_data_source* pDataSource)
+static ma_data_source* ma_resource_manager_data_source_get_buffer_connector(ma_resource_manager_data_source* pDataSource)
 {
-    if (pDataSource->type == ma_resource_manager_data_source_type_buffer) {
-        return &pDataSource->backend.buffer;
+    if (pDataSource->dataBuffer.connectorType == ma_resource_manager_data_buffer_connector_buffer) {
+        return &pDataSource->dataBuffer.connector.buffer;
     } else {
-        return &pDataSource->backend.decoder;
+        return &pDataSource->dataBuffer.connector.decoder;
     }
 }
 
@@ -1621,23 +2155,23 @@ static ma_result ma_resource_manager_data_source_read(ma_data_source* pDataSourc
         return MA_BUSY;
     }
 
-    if (pRMDataSource->seekToCursorOnNextRead) {
-        pRMDataSource->seekToCursorOnNextRead = MA_FALSE;
+    if (pRMDataSource->dataBuffer.seekToCursorOnNextRead) {
+        pRMDataSource->dataBuffer.seekToCursorOnNextRead = MA_FALSE;
 
-        result = ma_data_source_seek_to_pcm_frame(ma_resource_manager_data_source_get_backing_data_source(pRMDataSource), pRMDataSource->frameCursor);
+        result = ma_data_source_seek_to_pcm_frame(ma_resource_manager_data_source_get_buffer_connector(pRMDataSource), pRMDataSource->dataBuffer.cursor);
         if (result != MA_SUCCESS) {
             return result;
         }
     }
 
     if (skipBusyCheck == MA_FALSE) {
-        if (ma_resource_manager_data_source_is_busy(pRMDataSource, frameCount)) {
+        if (ma_resource_manager_data_source_buffer_is_busy(pRMDataSource, frameCount)) {
             return MA_BUSY;
         }
     }
 
-    result = ma_data_source_read_pcm_frames(ma_resource_manager_data_source_get_backing_data_source(pRMDataSource), pFramesOut, frameCount, &framesRead, MA_FALSE);
-    pRMDataSource->frameCursor += framesRead;
+    result = ma_data_source_read_pcm_frames(ma_resource_manager_data_source_get_buffer_connector(pRMDataSource), pFramesOut, frameCount, &framesRead, MA_FALSE);
+    pRMDataSource->dataBuffer.cursor += framesRead;
 
     if (pFramesRead != NULL) {
         *pFramesRead = framesRead;
@@ -1657,18 +2191,18 @@ static ma_result ma_resource_manager_data_source_seek(ma_data_source* pDataSourc
 
     /* Can't do anything if the data source is not initialized yet. */
     if (pRMDataSource->result == MA_BUSY) {
-        pRMDataSource->frameCursor = frameIndex;
-        pRMDataSource->seekToCursorOnNextRead = MA_TRUE;
+        pRMDataSource->dataBuffer.cursor = frameIndex;
+        pRMDataSource->dataBuffer.seekToCursorOnNextRead = MA_TRUE;
         return pRMDataSource->result;
     }
 
-    result = ma_data_source_seek_to_pcm_frame(ma_resource_manager_data_source_get_backing_data_source(pRMDataSource), frameIndex);
+    result = ma_data_source_seek_to_pcm_frame(ma_resource_manager_data_source_get_buffer_connector(pRMDataSource), frameIndex);
     if (result != MA_SUCCESS) {
         return result;
     }
 
-    pRMDataSource->frameCursor = frameIndex;
-    pRMDataSource->seekToCursorOnNextRead = MA_FALSE;
+    pRMDataSource->dataBuffer.cursor = frameIndex;
+    pRMDataSource->dataBuffer.seekToCursorOnNextRead = MA_FALSE;
 
     return MA_SUCCESS;
 }
@@ -1689,23 +2223,23 @@ static ma_result ma_resource_manager_data_source_map(ma_data_source* pDataSource
         return pRMDataSource->result;
     }
 
-    if (pRMDataSource->seekToCursorOnNextRead) {
-        pRMDataSource->seekToCursorOnNextRead = MA_FALSE;
+    if (pRMDataSource->dataBuffer.seekToCursorOnNextRead) {
+        pRMDataSource->dataBuffer.seekToCursorOnNextRead = MA_FALSE;
 
-        result = ma_data_source_seek_to_pcm_frame(ma_resource_manager_data_source_get_backing_data_source(pRMDataSource), pRMDataSource->frameCursor);
+        result = ma_data_source_seek_to_pcm_frame(ma_resource_manager_data_source_get_buffer_connector(pRMDataSource), pRMDataSource->dataBuffer.cursor);
         if (result != MA_SUCCESS) {
             return result;
         }
     }
 
     if (skipBusyCheck == MA_FALSE) {
-        if (ma_resource_manager_data_source_is_busy(pDataSource, *pFrameCount)) {
+        if (ma_resource_manager_data_source_buffer_is_busy(pDataSource, *pFrameCount)) {
             return MA_BUSY;
         }
     }
 
     /* The frame cursor is increment in unmap(). */
-    return ma_data_source_map(ma_resource_manager_data_source_get_backing_data_source(pRMDataSource), ppFramesOut, pFrameCount);
+    return ma_data_source_map(ma_resource_manager_data_source_get_buffer_connector(pRMDataSource), ppFramesOut, pFrameCount);
 }
 
 static ma_result ma_resource_manager_data_source_unmap(ma_data_source* pDataSource, ma_uint64 frameCount)
@@ -1719,9 +2253,9 @@ static ma_result ma_resource_manager_data_source_unmap(ma_data_source* pDataSour
 
     /* NOTE: Don't do the same MA_BUSY status check here. If we were able to map, we want to unmap regardless of status. */
 
-    result = ma_data_source_unmap(ma_resource_manager_data_source_get_backing_data_source(pRMDataSource), frameCount);
+    result = ma_data_source_unmap(ma_resource_manager_data_source_get_buffer_connector(pRMDataSource), frameCount);
     if (result == MA_SUCCESS) {
-        pRMDataSource->frameCursor += frameCount;
+        pRMDataSource->dataBuffer.cursor += frameCount;
     }
 
     return result;
@@ -1739,7 +2273,7 @@ static ma_result ma_resource_manager_data_source_get_data_format(ma_data_source*
         return pRMDataSource->result;
     }
 
-    return ma_data_source_get_data_format(ma_resource_manager_data_source_get_backing_data_source(pRMDataSource), pFormat, pChannels);
+    return ma_data_source_get_data_format(ma_resource_manager_data_source_get_buffer_connector(pRMDataSource), pFormat, pChannels);
 }
 
 
@@ -1748,10 +2282,8 @@ static ma_result ma_resource_manager_data_source_set_result_and_signal(ma_resour
     MA_ASSERT(pResourceManager != NULL);
     MA_ASSERT(pDataSource      != NULL);
 
-    /* If the data source's status is MA_UNAVAILABLE it means it is being deleted. We don't ever want to move away from that state. */
-    if (pDataSource->result != MA_UNAVAILABLE) {
-        ma_atomic_exchange_32(&pDataSource->result, result);
-    }
+    /* If the data source's status is anything other than MA_BUSY it means it is being deleted or an error occurred. We don't ever want to move away from that state. */
+    ma_compare_and_swap_32(&pDataSource->result, result, MA_BUSY);
 
     /* If we have an event we want to signal it after setting the data source's status. */
     if (pEvent != NULL) {
@@ -1761,27 +2293,16 @@ static ma_result ma_resource_manager_data_source_set_result_and_signal(ma_resour
     return result;
 }
 
-static ma_result ma_resource_manager_data_source_init_stream(ma_resource_manager* pResourceManager, const char* pName, ma_uint32 flags, ma_resource_manager_data_source* pDataSource)
-{
-    (void)pResourceManager;
-    (void)pName;
-    (void)flags;
-    (void)pDataSource;
-
-    /* Streaming not yet implemented. */
-    return MA_NOT_IMPLEMENTED;
-}
-
 static ma_result ma_resource_manager_data_source_init_backend_buffer(ma_resource_manager* pResourceManager, ma_resource_manager_data_source* pDataSource)
 {
     ma_result result;
     ma_resource_manager_data_buffer* pDataBuffer;
 
-    MA_ASSERT(pResourceManager         != NULL);
-    MA_ASSERT(pDataSource              != NULL);
-    MA_ASSERT(pDataSource->pDataBuffer != NULL);
+    MA_ASSERT(pResourceManager                    != NULL);
+    MA_ASSERT(pDataSource                         != NULL);
+    MA_ASSERT(pDataSource->dataBuffer.pDataBuffer != NULL);
 
-    pDataBuffer = pDataSource->pDataBuffer;
+    pDataBuffer = pDataSource->dataBuffer.pDataBuffer;
 
     /* The underlying data buffer must be initialized before we'll be able to know how to initialize the backend. */
     result = ma_resource_manager_data_buffer_result(pResourceManager, pDataBuffer);
@@ -1801,21 +2322,21 @@ static ma_result ma_resource_manager_data_source_init_backend_buffer(ma_resource
     an ma_audio_buffer if the data format is identical to the primary format. This enables us to use memory mapping when mixing which saves us a bit of data
     movement overhead.
     */
-    if (pDataBuffer->data.type == ma_resource_manager_data_buffer_type_decoded) {
+    if (pDataBuffer->data.type == ma_resource_manager_data_buffer_encoding_decoded) {
         if (pDataBuffer->data.decoded.format     == pResourceManager->config.decodedFormat   &&
             pDataBuffer->data.decoded.sampleRate == pResourceManager->config.decodedSampleRate) {
-            pDataSource->type = ma_resource_manager_data_source_type_buffer;
+            pDataSource->dataBuffer.connectorType = ma_resource_manager_data_buffer_connector_buffer;
         } else {
-            pDataSource->type = ma_resource_manager_data_source_type_decoder;
+            pDataSource->dataBuffer.connectorType = ma_resource_manager_data_buffer_connector_decoder;
         }
     } else {
-        pDataSource->type = ma_resource_manager_data_source_type_decoder;
+        pDataSource->dataBuffer.connectorType = ma_resource_manager_data_buffer_connector_decoder;
     }
 
-    if (pDataSource->type == ma_resource_manager_data_source_type_buffer) {
+    if (pDataSource->dataBuffer.connectorType == ma_resource_manager_data_buffer_connector_buffer) {
         ma_audio_buffer_config config;
         config = ma_audio_buffer_config_init(pDataBuffer->data.decoded.format, pDataBuffer->data.decoded.channels, pDataBuffer->data.decoded.frameCount, pDataBuffer->data.encoded.pData, NULL);
-        result = ma_audio_buffer_init(&config, &pDataSource->backend.buffer);
+        result = ma_audio_buffer_init(&config, &pDataSource->dataBuffer.connector.buffer);
     } else {
         ma_decoder_config configIn;
         ma_decoder_config configOut;
@@ -1823,16 +2344,16 @@ static ma_result ma_resource_manager_data_source_init_backend_buffer(ma_resource
         configIn  = ma_decoder_config_init(pDataBuffer->data.decoded.format, pDataBuffer->data.decoded.channels, pDataBuffer->data.decoded.sampleRate);
         configOut = ma_decoder_config_init(pResourceManager->config.decodedFormat, pDataBuffer->data.decoded.channels, pResourceManager->config.decodedSampleRate);  /* <-- Never perform channel conversion at this level - that will be done at a higher level. */
 
-        if (pDataBuffer->data.type == ma_resource_manager_data_buffer_type_decoded) {
+        if (pDataBuffer->data.type == ma_resource_manager_data_buffer_encoding_decoded) {
             ma_uint64 sizeInBytes = pDataBuffer->data.decoded.frameCount * ma_get_bytes_per_frame(configIn.format, configIn.channels);
             if (sizeInBytes > MA_SIZE_MAX) {
                 result = MA_TOO_BIG;
             } else {
-                result = ma_decoder_init_memory_raw(pDataBuffer->data.decoded.pData, (size_t)sizeInBytes, &configIn, &configOut, &pDataSource->backend.decoder);  /* Safe cast thanks to the check above. */
+                result = ma_decoder_init_memory_raw(pDataBuffer->data.decoded.pData, (size_t)sizeInBytes, &configIn, &configOut, &pDataSource->dataBuffer.connector.decoder);  /* Safe cast thanks to the check above. */
             }
         } else {
             configOut.allocationCallbacks = pResourceManager->config.allocationCallbacks;
-            result = ma_decoder_init_memory(pDataBuffer->data.encoded.pData, pDataBuffer->data.encoded.sizeInBytes, &configOut, &pDataSource->backend.decoder);
+            result = ma_decoder_init_memory(pDataBuffer->data.encoded.pData, pDataBuffer->data.encoded.sizeInBytes, &configOut, &pDataSource->dataBuffer.connector.decoder);
         }
     }
 
@@ -1840,7 +2361,7 @@ static ma_result ma_resource_manager_data_source_init_backend_buffer(ma_resource
     We can only do mapping if the data source's backend is an audio buffer. If it's not, clear out the callbacks thereby preventing the mixer from attempting
     memory map mode, only to fail.
     */
-    if (pDataSource->type != ma_resource_manager_data_source_type_buffer) {
+    if (pDataSource->dataBuffer.connectorType != ma_resource_manager_data_buffer_connector_buffer) {
         pDataSource->ds.onMap   = NULL;
         pDataSource->ds.onUnmap = NULL;
     }
@@ -1851,14 +2372,14 @@ static ma_result ma_resource_manager_data_source_init_backend_buffer(ma_resource
 
 static ma_result ma_resource_manager_data_source_uninit_backend_buffer(ma_resource_manager* pResourceManager, ma_resource_manager_data_source* pDataSource)
 {
-    MA_ASSERT(pResourceManager         != NULL);
-    MA_ASSERT(pDataSource              != NULL);
-    MA_ASSERT(pDataSource->pDataBuffer != NULL);
+    MA_ASSERT(pResourceManager                    != NULL);
+    MA_ASSERT(pDataSource                         != NULL);
+    MA_ASSERT(pDataSource->dataBuffer.pDataBuffer != NULL);
 
-    if (pDataSource->type == ma_resource_manager_data_source_type_decoder) {
-        ma_decoder_uninit(&pDataSource->backend.decoder);
+    if (pDataSource->dataBuffer.connectorType == ma_resource_manager_data_buffer_connector_decoder) {
+        ma_decoder_uninit(&pDataSource->dataBuffer.connector.decoder);
     } else {
-        ma_audio_buffer_uninit(&pDataSource->backend.buffer);
+        ma_audio_buffer_uninit(&pDataSource->dataBuffer.connector.buffer);
     }
 
     return MA_SUCCESS;
@@ -1869,8 +2390,8 @@ static ma_result ma_resource_manager_data_source_init_buffer(ma_resource_manager
     ma_result result;
     ma_result dataBufferResult;
     ma_resource_manager_data_buffer* pDataBuffer;
-    ma_resource_manager_data_buffer_type dataBufferType;
-    ma_event* pEvent = NULL;
+    ma_resource_manager_data_buffer_encoding dataBufferType;
+    ma_event waitEvent;
 
     MA_ASSERT(pResourceManager != NULL);
     MA_ASSERT(pName            != NULL);
@@ -1878,9 +2399,9 @@ static ma_result ma_resource_manager_data_source_init_buffer(ma_resource_manager
 
     /* The first thing we need to do is acquire a data buffer. */
     if ((flags & MA_DATA_SOURCE_FLAG_DECODE) != 0) {
-        dataBufferType = ma_resource_manager_data_buffer_type_decoded;
+        dataBufferType = ma_resource_manager_data_buffer_encoding_decoded;
     } else {
-        dataBufferType = ma_resource_manager_data_buffer_type_encoded;
+        dataBufferType = ma_resource_manager_data_buffer_encoding_encoded;
     }
 
     result = ma_resource_manager_create_data_buffer(pResourceManager, pName, dataBufferType, NULL, &pDataBuffer);
@@ -1889,14 +2410,14 @@ static ma_result ma_resource_manager_data_source_init_buffer(ma_resource_manager
     }
 
     /* At this point we have our data buffer and we can start initializing the data source. */
-    pDataSource->ds.onRead          = ma_resource_manager_data_source_read;
-    pDataSource->ds.onSeek          = ma_resource_manager_data_source_seek;
-    pDataSource->ds.onMap           = ma_resource_manager_data_source_map;
-    pDataSource->ds.onUnmap         = ma_resource_manager_data_source_unmap;
-    pDataSource->ds.onGetDataFormat = ma_resource_manager_data_source_get_data_format;
-    pDataSource->pDataBuffer        = pDataBuffer;
-    pDataSource->type               = ma_resource_manager_data_source_type_unknown; /* The backend type hasn't been determine yet - that happens when it's initialized properly by the resource thread. */
-    pDataSource->result             = MA_BUSY;
+    pDataSource->ds.onRead                = ma_resource_manager_data_source_read;
+    pDataSource->ds.onSeek                = ma_resource_manager_data_source_seek;
+    pDataSource->ds.onMap                 = ma_resource_manager_data_source_map;
+    pDataSource->ds.onUnmap               = ma_resource_manager_data_source_unmap;
+    pDataSource->ds.onGetDataFormat       = ma_resource_manager_data_source_get_data_format;
+    pDataSource->dataBuffer.pDataBuffer   = pDataBuffer;
+    pDataSource->dataBuffer.connectorType = ma_resource_manager_data_buffer_connector_unknown; /* The backend type hasn't been determine yet - that happens when it's initialized properly by the resource thread. */
+    pDataSource->result                   = MA_BUSY;
 
     /*
     If the data buffer has been fully initialized we can complete initialization of the data source now. Otherwise we need to post an event to the resource thread to complete
@@ -1906,24 +2427,25 @@ static ma_result ma_resource_manager_data_source_init_buffer(ma_resource_manager
     if (dataBufferResult == MA_BUSY) {
         /* The data buffer is in the middle of loading. We need to post an event to the resource thread. */
         ma_resource_manager_message message;
+        message = ma_resource_manager_message_init(MA_MESSAGE_LOAD_DATA_SOURCE);
+        message.loadDataSource.pDataSource = pDataSource;
 
         if ((flags & MA_DATA_SOURCE_FLAG_ASYNC) == 0) {
-            result = ma_event_alloc_and_init(&pEvent, &pResourceManager->config.allocationCallbacks);
+            result = ma_event_init(&waitEvent);
             if (result != MA_SUCCESS) {
                 ma_resource_manager_delete_data_buffer(pResourceManager, pDataBuffer);
                 return result;
             }
-        } else {
-            pEvent = NULL;
-        }
 
-        message = ma_resource_manager_message_init(MA_MESSAGE_LOAD_DATA_SOURCE);
-        message.loadDataSource.pDataSource = pDataSource;
-        message.loadDataSource.pEvent      = pEvent;
+            message.loadDataSource.pEvent = &waitEvent;
+        } else {
+            message.loadDataSource.pEvent = NULL;
+        }
+        
         result = ma_resource_manager_post_message(pResourceManager, &message);
         if (result != MA_SUCCESS) {
-            if (pEvent != NULL) {
-                ma_event_uninit_and_free(pEvent, &pResourceManager->config.allocationCallbacks);
+            if (message.loadDataSource.pEvent != NULL) {
+                ma_event_uninit(message.loadDataSource.pEvent);
             }
 
             ma_resource_manager_delete_data_buffer(pResourceManager, pDataBuffer);
@@ -1931,9 +2453,10 @@ static ma_result ma_resource_manager_data_source_init_buffer(ma_resource_manager
         }
 
         /* The message has been posted. We now need to wait for the event to get signalled if we're in synchronous mode. */
-        if (pEvent != NULL) {
-            ma_event_wait(pEvent);
-            ma_event_uninit_and_free(message.pEvent, &pResourceManager->config.allocationCallbacks);
+        if (message.loadDataSource.pEvent != NULL) {
+            ma_event_wait(message.loadDataSource.pEvent);
+            ma_event_uninit(message.loadDataSource.pEvent);
+            message.loadDataSource.pEvent = NULL;
         
             /* Check the status of the data buffer for any errors. Even in the event of an error, the data source will not be deleted. */
             if (pDataBuffer->result != MA_SUCCESS) {
@@ -1973,6 +2496,7 @@ MA_API ma_result ma_resource_manager_data_source_init(ma_resource_manager* pReso
         return MA_INVALID_ARGS;
     }
 
+    pDataSource->pResourceManager = pResourceManager;
     pDataSource->flags = flags;
 
     if ((flags & MA_DATA_SOURCE_FLAG_STREAM) != 0) {
@@ -1982,8 +2506,40 @@ MA_API ma_result ma_resource_manager_data_source_init(ma_resource_manager* pReso
     }
 }
 
+
+static ma_result ma_resource_manager_data_source_uninit_stream(ma_resource_manager* pResourceManager, ma_resource_manager_data_source* pDataSource)
+{
+    MA_ASSERT(pResourceManager != NULL);
+    MA_ASSERT(pDataSource      != NULL);
+
+    /* All we need to do is uninitialize the data stream and we're done. */
+    return ma_resource_manager_delete_data_stream(pResourceManager, &pDataSource->dataStream.stream);
+}
+
+static ma_result ma_resource_manager_data_source_uninit_buffer(ma_resource_manager* pResourceManager, ma_resource_manager_data_source* pDataSource)
+{
+    MA_ASSERT(pResourceManager != NULL);
+    MA_ASSERT(pDataSource      != NULL);
+
+    /* We should uninitialize the data source's backend before deleting the data buffer just to keep the order of operations clean. */
+    ma_resource_manager_data_source_uninit_backend_buffer(pResourceManager, pDataSource);
+    pDataSource->dataBuffer.connectorType = ma_resource_manager_data_buffer_connector_unknown;
+
+    /* The data buffer needs to be deleted. */
+    if (pDataSource->dataBuffer.pDataBuffer != NULL) {
+        ma_resource_manager_delete_data_buffer(pResourceManager, pDataSource->dataBuffer.pDataBuffer);
+        pDataSource->dataBuffer.pDataBuffer = NULL;
+    }
+
+    return MA_SUCCESS;
+}
+
 MA_API ma_result ma_resource_manager_data_source_uninit(ma_resource_manager* pResourceManager, ma_resource_manager_data_source* pDataSource)
 {
+    if (pResourceManager == NULL || pDataSource == NULL) {
+        return MA_INVALID_ARGS;
+    }
+
     /*
     We need to run this synchronously because the caller owns the data source and we can't return before it's been fully uninitialized. We do, however, need to do
     the actual uninitialization on the resource thread for order-of-operations reasons.
@@ -1997,17 +2553,11 @@ MA_API ma_result ma_resource_manager_data_source_uninit(ma_resource_manager* pRe
     /* The first thing to do is to mark the data source as unavailable. This will stop other threads from acquiring a hold on the data source which is what happens in the callbacks. */
     ma_atomic_exchange_32(&pDataSource->result, MA_UNAVAILABLE);
 
-    /* We should uninitialize the data source's backend before deleting the data buffer just to keep the order of operations clean. */
-    ma_resource_manager_data_source_uninit_backend_buffer(pResourceManager, pDataSource);
-    pDataSource->type = ma_resource_manager_data_source_type_unknown;
-
-    /* The data buffer needs to be deleted. */
-    if (pDataSource->pDataBuffer != NULL) {
-        ma_resource_manager_delete_data_buffer(pResourceManager, pDataSource->pDataBuffer);
-        pDataSource->pDataBuffer = NULL;
+    if ((pDataSource->flags & MA_DATA_SOURCE_FLAG_STREAM) != 0) {
+        return ma_resource_manager_data_source_uninit_stream(pResourceManager, pDataSource);
+    } else {
+        return ma_resource_manager_data_source_uninit_buffer(pResourceManager, pDataSource);
     }
-
-    return MA_SUCCESS;
 }
 
 MA_API ma_result ma_resource_manager_data_source_result(ma_resource_manager* pResourceManager, const ma_resource_manager_data_source* pDataSource)
@@ -2021,28 +2571,26 @@ MA_API ma_result ma_resource_manager_data_source_result(ma_resource_manager* pRe
 
 
 
-static ma_result ma_resource_manager_handle_message__load_data_buffer(ma_resource_manager* pResourceManager, ma_resource_manager_data_buffer* pDataBuffer, char* pFileName, ma_event* pEvent)
+static ma_result ma_resource_manager_handle_message__load_data_buffer(ma_resource_manager* pResourceManager, ma_resource_manager_data_buffer* pDataBuffer, char* pFilePath, ma_event* pEvent)
 {
     ma_result result = MA_SUCCESS;
 
     MA_ASSERT(pResourceManager != NULL);
-
-    if (pDataBuffer == NULL || pFileName == NULL) {
-        return MA_INVALID_ARGS;
-    }
-
-    if (pDataBuffer->result != MA_BUSY) {
-        return MA_INVALID_OPERATION;    /* The data buffer may be getting deleted before it's even been loaded. */
-    }
-
+    MA_ASSERT(pDataBuffer      != NULL);
+    MA_ASSERT(pFilePath        != NULL);
     MA_ASSERT(pDataBuffer->isDataOwnedByResourceManager == MA_TRUE);  /* The data should always be owned by the resource manager. */
 
-    if (pDataBuffer->data.type == ma_resource_manager_data_buffer_type_encoded) {
+    if (pDataBuffer->result != MA_BUSY) {
+        result = MA_INVALID_OPERATION;    /* The data buffer may be getting deleted before it's even been loaded. */
+        goto done;
+    }
+
+    if (pDataBuffer->data.type == ma_resource_manager_data_buffer_encoding_encoded) {
         /* No decoding. Just store the file contents in memory. */
         void* pData;
         size_t sizeInBytes;
 
-        result = ma_vfs_open_and_read_file_ex(pResourceManager->config.pVFS, pFileName, &pData, &sizeInBytes, &pResourceManager->config.allocationCallbacks, MA_ALLOCATION_TYPE_ENCODED_BUFFER);
+        result = ma_vfs_open_and_read_file_ex(pResourceManager->config.pVFS, pFilePath, &pData, &sizeInBytes, &pResourceManager->config.allocationCallbacks, MA_ALLOCATION_TYPE_ENCODED_BUFFER);
         if (result == MA_SUCCESS) {
             pDataBuffer->data.encoded.pData       = pData;
             pDataBuffer->data.encoded.sizeInBytes = sizeInBytes;
@@ -2057,7 +2605,7 @@ static ma_result ma_resource_manager_handle_message__load_data_buffer(ma_resourc
         ma_uint64 dataSizeInFrames;
         ma_uint64 pageSizeInFrames;
         ma_uint64 framesRead;   /* <-- Keeps track of how many frames we read for the first page. */
-        ma_resource_manager_message decodePageMessage;
+        ma_resource_manager_message decodeBufferPageMessage;
 
         /*
         With the file initialized we now need to initialize the decoder. We need to pass this decoder around on the message queue so we'll need to
@@ -2065,7 +2613,6 @@ static ma_result ma_resource_manager_handle_message__load_data_buffer(ma_resourc
         */
         pDecoder = (ma_decoder*)ma__malloc_from_callbacks(sizeof(*pDecoder), &pResourceManager->config.allocationCallbacks/*, MA_ALLOCATION_TYPE_DECODER*/);
         if (pDecoder == NULL) {
-            ma__free_from_callbacks(pFileName, &pResourceManager->config.allocationCallbacks/*, MA_ALLOCATION_TYPE_TRANSIENT_STRING*/);
             result = MA_OUT_OF_MEMORY;
             goto done;
         }
@@ -2073,7 +2620,7 @@ static ma_result ma_resource_manager_handle_message__load_data_buffer(ma_resourc
         config = ma_decoder_config_init(pResourceManager->config.decodedFormat, 0, pResourceManager->config.decodedSampleRate); /* Need to keep the native channel count because we'll be using that for spatialization. */
         config.allocationCallbacks = pResourceManager->config.allocationCallbacks;
 
-        result = ma_decoder_init_vfs(pResourceManager->config.pVFS, pFileName, &config, pDecoder);
+        result = ma_decoder_init_vfs(pResourceManager->config.pVFS, pFilePath, &config, pDecoder);
 
         /* Make sure we never set the result code to MA_BUSY or else we'll get everything confused. */
         if (result == MA_BUSY) {
@@ -2145,16 +2692,16 @@ static ma_result ma_resource_manager_handle_message__load_data_buffer(ma_resourc
             goto done;
         } else {
             /* We've still got more to decode. We need to post a message to keep decoding the rest. */
-            decodePageMessage = ma_resource_manager_message_init(MA_MESSAGE_DECODE_PAGE);
-            decodePageMessage.decodePage.pDataBuffer         = pDataBuffer;
-            decodePageMessage.decodePage.pDecoder          = pDecoder;
-            decodePageMessage.decodePage.pCompletedEvent   = pEvent;
-            decodePageMessage.decodePage.pData             = pData;
-            decodePageMessage.decodePage.dataSizeInBytes   = (size_t)dataSizeInBytes;   /* Safe cast. Was checked for > MA_SIZE_MAX earlier. */
-            decodePageMessage.decodePage.decodedFrameCount = framesRead;
+            decodeBufferPageMessage = ma_resource_manager_message_init(MA_MESSAGE_DECODE_BUFFER_PAGE);
+            decodeBufferPageMessage.decodeBufferPage.pDataBuffer       = pDataBuffer;
+            decodeBufferPageMessage.decodeBufferPage.pDecoder          = pDecoder;
+            decodeBufferPageMessage.decodeBufferPage.pCompletedEvent   = pEvent;
+            decodeBufferPageMessage.decodeBufferPage.pData             = pData;
+            decodeBufferPageMessage.decodeBufferPage.dataSizeInBytes   = (size_t)dataSizeInBytes;   /* Safe cast. Was checked for > MA_SIZE_MAX earlier. */
+            decodeBufferPageMessage.decodeBufferPage.decodedFrameCount = framesRead;
 
             if (totalFrameCount > 0) {
-                decodePageMessage.decodePage.isUnknownLength = MA_FALSE;
+                decodeBufferPageMessage.decodeBufferPage.isUnknownLength = MA_FALSE;
 
                 pDataBuffer->data.decoded.pData      = pData;
                 pDataBuffer->data.decoded.frameCount = totalFrameCount;
@@ -2167,7 +2714,7 @@ static ma_result ma_resource_manager_handle_message__load_data_buffer(ma_resourc
                 ma_memory_barrier();
                 pDataBuffer->data.decoded.decodedFrameCount = framesRead;
             } else {
-                decodePageMessage.decodePage.isUnknownLength = MA_TRUE;
+                decodeBufferPageMessage.decodeBufferPage.isUnknownLength = MA_TRUE;
 
                 /*
                 These members are all set after the last page has been decoded. The reason for this is that the application should not be attempting to
@@ -2180,7 +2727,7 @@ static ma_result ma_resource_manager_handle_message__load_data_buffer(ma_resourc
             }
 
             /* The message has been set up so it can now be posted. */
-            result = ma_resource_manager_post_message(pResourceManager, &decodePageMessage);
+            result = ma_resource_manager_post_message(pResourceManager, &decodeBufferPageMessage);
 
             /* The result needs to be set to MA_BUSY to ensure the status of the data buffer is set properly in the next section. */
             if (result == MA_SUCCESS) {
@@ -2193,13 +2740,16 @@ static ma_result ma_resource_manager_handle_message__load_data_buffer(ma_resourc
     }
 
 done:
-    ma__free_from_callbacks(pFileName, &pResourceManager->config.allocationCallbacks/*, MA_ALLOCATION_TYPE_TRANSIENT_STRING*/);
+    ma__free_from_callbacks(pFilePath, &pResourceManager->config.allocationCallbacks/*, MA_ALLOCATION_TYPE_TRANSIENT_STRING*/);
 
     /*
     We need to set the result to at the very end to ensure no other threads try reading the data before we've fully initialized the object. Other threads
-    are going to be inspecting this variable to determine whether or not they're ready to read data.
+    are going to be inspecting this variable to determine whether or not they're ready to read data. We can only change the result if it's set to MA_BUSY
+    because otherwise we may be changing away from an error code which would be bad. An example is if the application creates a data buffer, but then
+    immediately deletes it before we've got to this point. In this case, pDataBuffer->result will be MA_UNAVAILABLE, and setting it to MA_SUCCESS or any
+    other error code would cause the buffer to look like it's in a state that it's not.
     */
-    ma_atomic_exchange_32(&pDataBuffer->result, result);
+    ma_compare_and_swap_32(&pDataBuffer->result, result, MA_BUSY);
 
     /* Only signal the other threads after the result has been set just for cleanliness sake. */
     if (pEvent != NULL) {
@@ -2222,31 +2772,156 @@ static ma_result ma_resource_manager_handle_message__free_data_buffer(ma_resourc
     return MA_SUCCESS;
 }
 
-static ma_result ma_resource_manager_handle_message__load_data_source(ma_resource_manager* pResourceManager, ma_resource_manager_data_source* pDataSource, ma_event* pEvent)
+
+static void ma_resource_manager_data_stream_fill_page(ma_resource_manager* pResourceManager, ma_resource_manager_data_stream* pDataStream, ma_uint32 pageIndex)
+{
+    (void)pResourceManager;
+
+    ma_uint64 pageSizeInFrames;
+    ma_uint64 totalFramesReadForThisPage = 0;
+    void* pPageData = ma_resource_manager_data_stream_get_page_data_pointer(pDataStream, pageIndex, 0);
+
+    pageSizeInFrames = ma_resource_manager_data_stream_get_page_size_in_frames(pDataStream);
+
+    if (pDataStream->isLooping) {
+        ma_uint64 framesRemaining;
+        ma_uint64 framesRead;
+
+        framesRemaining = pageSizeInFrames - totalFramesReadForThisPage;
+        framesRead = ma_decoder_read_pcm_frames(&pDataStream->decoder, ma_offset_pcm_frames_ptr(pPageData, totalFramesReadForThisPage, pDataStream->decoder.outputFormat, pDataStream->decoder.outputChannels), framesRemaining);
+        totalFramesReadForThisPage += framesRead;
+
+        /* Loop back to the start if we reached the end. */
+        if (framesRead < framesRemaining) {
+            ma_decoder_seek_to_pcm_frame(&pDataStream->decoder, 0);
+        }
+    } else {
+        totalFramesReadForThisPage = ma_decoder_read_pcm_frames(&pDataStream->decoder, pPageData, pageSizeInFrames);
+    }
+
+    if (totalFramesReadForThisPage < pageSizeInFrames) {
+        ma_atomic_exchange_32(&pDataStream->isDecoderAtEnd, MA_TRUE);
+    }
+
+    ma_atomic_exchange_32(&pDataStream->pageFrameCount[pageIndex], (ma_uint32)totalFramesReadForThisPage);
+    ma_atomic_exchange_32(&pDataStream->isPageValid[pageIndex], MA_TRUE);
+}
+
+static void ma_resource_manager_data_stream_fill_pages(ma_resource_manager* pResourceManager, ma_resource_manager_data_stream* pDataStream)
+{
+    ma_uint32 iPage;
+    ma_uint64 pageSizeInFrames;
+
+    MA_ASSERT(pResourceManager != NULL);
+    MA_ASSERT(pDataStream      != NULL);
+
+    pageSizeInFrames = ma_resource_manager_data_stream_get_page_size_in_frames(pDataStream);
+
+    /* For each page... */
+    for (iPage = 0; iPage < 2; iPage += 1) {
+        ma_resource_manager_data_stream_fill_page(pResourceManager, pDataStream, iPage);
+
+        /* If we reached the end make sure we get out of the loop to prevent us from trying to load the second page. */
+        if (pDataStream->isDecoderAtEnd) {
+            break;
+        }
+    }
+}
+
+static ma_result ma_resource_manager_handle_message__load_data_stream(ma_resource_manager* pResourceManager, ma_resource_manager_data_stream* pDataStream, char* pFilePath, ma_event* pEvent)
+{
+    ma_result result = MA_SUCCESS;
+    ma_decoder_config decoderConfig;
+    ma_uint32 pageBufferSizeInBytes;
+
+    MA_ASSERT(pResourceManager != NULL);
+    MA_ASSERT(pDataStream      != NULL);
+    MA_ASSERT(pFilePath        != NULL);
+
+    if (pDataStream->result != MA_BUSY) {
+        result = MA_INVALID_OPERATION;  /* Most likely the data stream is being uninitialized. */
+        goto done;
+    }
+
+    /* We need to initialize the decoder first so we can determine the size of the pages. */
+    decoderConfig = ma_decoder_config_init(pResourceManager->config.decodedFormat, 0, pResourceManager->config.decodedSampleRate); /* Need to keep the native channel count because we'll be using that for spatialization. */
+    decoderConfig.allocationCallbacks = pResourceManager->config.allocationCallbacks;
+
+    result = ma_decoder_init_vfs(pResourceManager->config.pVFS, pFilePath, &decoderConfig, &pDataStream->decoder);
+    if (result != MA_SUCCESS) {
+        goto done;
+    }
+
+    pDataStream->isDecoderInitialized = MA_TRUE;
+
+    /* We have the decoder so we can now initialize our page buffer. */
+    pageBufferSizeInBytes = ma_resource_manager_data_stream_get_page_size_in_frames(pDataStream) * 2 * ma_get_bytes_per_frame(pDataStream->decoder.outputFormat, pDataStream->decoder.outputChannels);
+
+    pDataStream->pPageData = ma__malloc_from_callbacks(pageBufferSizeInBytes, &pResourceManager->config.allocationCallbacks/*, MA_ALLOCATION_TYPE_DECODED_BUFFER*/);
+    if (pDataStream->pPageData == NULL) {
+        ma_decoder_uninit(&pDataStream->decoder);
+        result = MA_OUT_OF_MEMORY;
+        goto done;
+    }
+
+    /* We have our decoder and our page buffer, so now we need to fill our pages. */
+    ma_resource_manager_data_stream_fill_pages(pResourceManager, pDataStream);
+
+    /* And now we're done. We want to make sure the result is MA_SUCCESS. */
+    result = MA_SUCCESS;
+
+done:
+    ma__free_from_callbacks(pFilePath, &pResourceManager->config.allocationCallbacks/*, MA_ALLOCATION_TYPE_TRANSIENT_STRING*/);
+
+    /* We can only change the status away from MA_BUSY. If it's set to anything else it means an error has occurred somewhere or the uninitialization process has started (most likely). */
+    ma_compare_and_swap_32(&pDataStream->result, result, MA_BUSY);
+
+    /* Only signal the other threads after the result has been set just for cleanliness sake. */
+    if (pEvent != NULL) {
+        ma_event_signal(pEvent);
+    }
+
+    return result;
+}
+
+static ma_result ma_resource_manager_handle_message__free_data_stream(ma_resource_manager* pResourceManager, ma_resource_manager_data_stream* pDataStream, ma_event* pEvent)
+{
+    MA_ASSERT(pResourceManager != NULL);
+    MA_ASSERT(pDataStream      != NULL);
+
+    /* If our status is not MA_UNAVAILABLE we have a bug somewhere. */
+    MA_ASSERT(pDataStream->result == MA_UNAVAILABLE);
+
+    if (pDataStream->isDecoderInitialized) {
+        ma_decoder_uninit(&pDataStream->decoder);
+    }
+
+    if (pDataStream->pPageData != NULL) {
+        ma__free_from_callbacks(pDataStream->pPageData, &pResourceManager->config.allocationCallbacks/*, MA_ALLOCATION_TYPE_DECODED_BUFFER*/);
+        pDataStream->pPageData = NULL;  /* Just in case... */
+    }
+
+    /* The event needs to be signalled last. */
+    if (pEvent != NULL) {
+        ma_event_signal(pEvent);
+    }
+
+    return MA_SUCCESS;
+}
+
+
+static ma_result ma_resource_manager_handle_message__load_data_source__buffer(ma_resource_manager* pResourceManager, ma_resource_manager_data_source* pDataSource, ma_event* pEvent)
 {
     ma_result dataBufferResult;
 
-    MA_ASSERT(pResourceManager         != NULL);
-    MA_ASSERT(pDataSource              != NULL);
-    MA_ASSERT(pDataSource->pDataBuffer != NULL);
-    MA_ASSERT(pDataSource->result == MA_BUSY || pDataSource->result == MA_UNAVAILABLE);
-
-    if (pDataSource->result == MA_UNAVAILABLE) {
-        /*
-        The data source is getting deleted before it's even been loaded. We want to continue loading in this case because in the queue we'll have a
-        corresponding MA_MESSAGE_FREE_DATA_SOURCE which will be doing the opposite. By letting it continue we can simplify the implementation because
-        otherwise we'd need to keep track of a separate bit of state to track whether or not the backend has been initialized or not.
-        */
-    }
-
     /* We shouldn't attempt to load anything if the data buffer is in an erroneous state. */
-    dataBufferResult = ma_resource_manager_data_buffer_result(pResourceManager, pDataSource->pDataBuffer);
+    dataBufferResult = ma_resource_manager_data_buffer_result(pResourceManager, pDataSource->dataBuffer.pDataBuffer);
     if (dataBufferResult != MA_SUCCESS && dataBufferResult != MA_BUSY) {
         return ma_resource_manager_data_source_set_result_and_signal(pResourceManager, pDataSource, dataBufferResult, pEvent);
     }
 
-    if (pDataSource->pDataBuffer->data.type == ma_resource_manager_data_buffer_type_encoded) {
-        if (pDataSource->pDataBuffer->data.encoded.pData == NULL) {
+    if (pDataSource->dataBuffer.pDataBuffer->data.type == ma_resource_manager_data_buffer_encoding_encoded) {
+        if (pDataSource->dataBuffer.pDataBuffer->data.encoded.pData == NULL) {
             /* Something has gone badly wrong - no data is available from the data buffer, but it's not in an erroneous state (checked above). */
             MA_ASSERT(MA_FALSE);
             return ma_resource_manager_data_source_set_result_and_signal(pResourceManager, pDataSource, MA_NO_DATA_AVAILABLE, pEvent);
@@ -2260,11 +2935,11 @@ static ma_result ma_resource_manager_handle_message__load_data_source(ma_resourc
         */
         ma_bool32 canInitialize = MA_FALSE;
 
-        MA_ASSERT(pDataSource->pDataBuffer->data.decoded.decodedFrameCount <= pDataSource->pDataBuffer->data.decoded.frameCount);
+        MA_ASSERT(pDataSource->dataBuffer.pDataBuffer->data.decoded.decodedFrameCount <= pDataSource->dataBuffer.pDataBuffer->data.decoded.frameCount);
 
-        if (pDataSource->pDataBuffer->data.decoded.decodedFrameCount > 0) {
+        if (pDataSource->dataBuffer.pDataBuffer->data.decoded.decodedFrameCount > 0) {
             /* We can maybe initialize. */
-            if (pDataSource->pDataBuffer->data.decoded.decodedFrameCount == pDataSource->pDataBuffer->data.decoded.frameCount) {
+            if (pDataSource->dataBuffer.pDataBuffer->data.decoded.decodedFrameCount == pDataSource->dataBuffer.pDataBuffer->data.decoded.frameCount) {
                 /* We can definitely initialize. */
                 canInitialize = MA_TRUE;
             } else {
@@ -2294,7 +2969,42 @@ static ma_result ma_resource_manager_handle_message__load_data_source(ma_resourc
     }
 }
 
-static ma_result ma_resource_manager_handle_message__decode_page(ma_resource_manager* pResourceManager, const ma_resource_manager_message* pMessage)
+static ma_result ma_resource_manager_handle_message__load_data_source__stream(ma_resource_manager* pResourceManager, ma_resource_manager_data_source* pDataSource, ma_event* pEvent)
+{
+    ma_result dataStreamResult;
+
+    /* For data sources backed by a data stream, the stream should never be in a busy state by this point. */
+    dataStreamResult = ma_resource_manager_data_stream_result(pResourceManager, &pDataSource->dataStream.stream);
+    if (dataStreamResult != MA_SUCCESS) {
+        return ma_resource_manager_data_source_set_result_and_signal(pResourceManager, pDataSource, dataStreamResult, pEvent);
+    }
+
+    /* We don't need to do anything other than set the result. The decoder will have been initialized from the MA_MESSAGE_LOAD_DATA_STREAM message. */
+    return ma_resource_manager_data_source_set_result_and_signal(pResourceManager, pDataSource, MA_SUCCESS, pEvent);
+}
+
+static ma_result ma_resource_manager_handle_message__load_data_source(ma_resource_manager* pResourceManager, ma_resource_manager_data_source* pDataSource, ma_event* pEvent)
+{
+    MA_ASSERT(pResourceManager != NULL);
+    MA_ASSERT(pDataSource      != NULL);
+    MA_ASSERT(pDataSource->result == MA_BUSY || pDataSource->result == MA_UNAVAILABLE);
+
+    if (pDataSource->result == MA_UNAVAILABLE) {
+        /*
+        The data source is getting deleted before it's even been loaded. We want to continue loading in this case because in the queue we'll have a
+        corresponding MA_MESSAGE_FREE_DATA_SOURCE which will be doing the opposite. By letting it continue we can simplify the implementation because
+        otherwise we'd need to keep track of a separate bit of state to track whether or not the backend has been initialized or not.
+        */
+    }
+
+    if ((pDataSource->flags & MA_DATA_SOURCE_FLAG_STREAM) != 0) {
+        return ma_resource_manager_handle_message__load_data_source__stream(pResourceManager, pDataSource, pEvent);
+    } else {
+        return ma_resource_manager_handle_message__load_data_source__buffer(pResourceManager, pDataSource, pEvent);
+    }
+}
+
+static ma_result ma_resource_manager_handle_message__decode_buffer_page(ma_resource_manager* pResourceManager, const ma_resource_manager_message* pMessage)
 {
     ma_result result = MA_SUCCESS;
     ma_uint64 pageSizeInFrames;
@@ -2306,7 +3016,7 @@ static ma_result ma_resource_manager_handle_message__decode_page(ma_resource_man
     MA_ASSERT(pMessage         != NULL);
 
     /* Don't do any more decoding if the data buffer has started the uninitialization process. */
-    if (pMessage->decodePage.pDataBuffer->result != MA_BUSY) {
+    if (pMessage->decodeBufferPage.pDataBuffer->result != MA_BUSY) {
         return MA_INVALID_OPERATION;
     }
 
@@ -2314,18 +3024,18 @@ static ma_result ma_resource_manager_handle_message__decode_page(ma_resource_man
     messageCopy = *pMessage;
 
     /* We need to know the size of a page in frames to know how many frames to decode. */
-    pageSizeInFrames = MA_RESOURCE_MANAGER_PAGE_SIZE_IN_MILLISECONDS * (messageCopy.decodePage.pDecoder->outputSampleRate/1000);
+    pageSizeInFrames = MA_RESOURCE_MANAGER_PAGE_SIZE_IN_MILLISECONDS * (messageCopy.decodeBufferPage.pDecoder->outputSampleRate/1000);
 
     /* If the total length is unknown we may need to expand the size of the buffer. */
-    if (messageCopy.decodePage.isUnknownLength == MA_TRUE) {
-        ma_uint64 requiredSize = (messageCopy.decodePage.decodedFrameCount + pageSizeInFrames) * ma_get_bytes_per_frame(messageCopy.decodePage.pDecoder->outputFormat, messageCopy.decodePage.pDecoder->outputChannels);
+    if (messageCopy.decodeBufferPage.isUnknownLength == MA_TRUE) {
+        ma_uint64 requiredSize = (messageCopy.decodeBufferPage.decodedFrameCount + pageSizeInFrames) * ma_get_bytes_per_frame(messageCopy.decodeBufferPage.pDecoder->outputFormat, messageCopy.decodeBufferPage.pDecoder->outputChannels);
         if (requiredSize <= MA_SIZE_MAX) {
-            if (requiredSize > messageCopy.decodePage.dataSizeInBytes) {
-                size_t newSize = (size_t)ma_max(requiredSize, messageCopy.decodePage.dataSizeInBytes * 2);
-                void *pNewData = ma__realloc_from_callbacks(messageCopy.decodePage.pData, newSize, messageCopy.decodePage.dataSizeInBytes, &pResourceManager->config.allocationCallbacks/*, MA_ALLOCATION_TYPE_DECODED_BUFFER*/);
+            if (requiredSize > messageCopy.decodeBufferPage.dataSizeInBytes) {
+                size_t newSize = (size_t)ma_max(requiredSize, messageCopy.decodeBufferPage.dataSizeInBytes * 2);
+                void *pNewData = ma__realloc_from_callbacks(messageCopy.decodeBufferPage.pData, newSize, messageCopy.decodeBufferPage.dataSizeInBytes, &pResourceManager->config.allocationCallbacks/*, MA_ALLOCATION_TYPE_DECODED_BUFFER*/);
                 if (pNewData != NULL) {
-                    messageCopy.decodePage.pData           = pNewData;
-                    messageCopy.decodePage.dataSizeInBytes = newSize;
+                    messageCopy.decodeBufferPage.pData           = pNewData;
+                    messageCopy.decodeBufferPage.dataSizeInBytes = newSize;
                 } else {
                     result = MA_OUT_OF_MEMORY;
                 }
@@ -2337,21 +3047,21 @@ static ma_result ma_resource_manager_handle_message__decode_page(ma_resource_man
 
     /* We should have the memory set up so now we can decode the next page. */
     if (result == MA_SUCCESS) {
-        pRunningData = ma_offset_ptr(messageCopy.decodePage.pData, messageCopy.decodePage.decodedFrameCount * ma_get_bytes_per_frame(messageCopy.decodePage.pDecoder->outputFormat, messageCopy.decodePage.pDecoder->outputChannels));
+        pRunningData = ma_offset_ptr(messageCopy.decodeBufferPage.pData, messageCopy.decodeBufferPage.decodedFrameCount * ma_get_bytes_per_frame(messageCopy.decodeBufferPage.pDecoder->outputFormat, messageCopy.decodeBufferPage.pDecoder->outputChannels));
 
-        framesRead = ma_decoder_read_pcm_frames(messageCopy.decodePage.pDecoder, pRunningData, pageSizeInFrames);
+        framesRead = ma_decoder_read_pcm_frames(messageCopy.decodeBufferPage.pDecoder, pRunningData, pageSizeInFrames);
         if (framesRead < pageSizeInFrames) {
             result = MA_AT_END;
         }
 
         /* If the total length is known we can increment out decoded frame count. Otherwise it needs to be left at 0 until the last page is decoded. */
-        if (messageCopy.decodePage.isUnknownLength == MA_FALSE) {
-            messageCopy.decodePage.pDataBuffer->data.decoded.decodedFrameCount += framesRead;
+        if (messageCopy.decodeBufferPage.isUnknownLength == MA_FALSE) {
+            messageCopy.decodeBufferPage.pDataBuffer->data.decoded.decodedFrameCount += framesRead;
         }
 
         /* If there's more to decode, post a message to keep decoding. */
         if (result != MA_AT_END) {
-            messageCopy.decodePage.decodedFrameCount += framesRead;
+            messageCopy.decodeBufferPage.decodedFrameCount += framesRead;
 
             result = ma_resource_manager_post_message(pResourceManager, &messageCopy);
         }
@@ -2362,16 +3072,16 @@ static ma_result ma_resource_manager_handle_message__decode_page(ma_resource_man
     any other result code if some other error occurred. If we are not decoding another page we need to free the decoder and close the file.
     */
     if (result != MA_SUCCESS) {
-        ma_decoder_uninit(messageCopy.decodePage.pDecoder);
-        ma__free_from_callbacks(messageCopy.decodePage.pDecoder, &pResourceManager->config.allocationCallbacks/*, MA_ALLOCATION_TYPE_DECODER*/);
+        ma_decoder_uninit(messageCopy.decodeBufferPage.pDecoder);
+        ma__free_from_callbacks(messageCopy.decodeBufferPage.pDecoder, &pResourceManager->config.allocationCallbacks/*, MA_ALLOCATION_TYPE_DECODER*/);
 
         /* When the length is unknown we were doubling the size of the buffer each time we needed more data. Let's try reducing this by doing a final realloc(). */
-        if (messageCopy.decodePage.isUnknownLength) {
-            ma_uint64 newSizeInBytes = messageCopy.decodePage.decodedFrameCount * ma_get_bytes_per_frame(messageCopy.decodePage.pDataBuffer->data.decoded.format, messageCopy.decodePage.pDataBuffer->data.decoded.channels);
-            void* pNewData = ma__realloc_from_callbacks(messageCopy.decodePage.pData, (size_t)newSizeInBytes, messageCopy.decodePage.dataSizeInBytes, &pResourceManager->config.allocationCallbacks);
+        if (messageCopy.decodeBufferPage.isUnknownLength) {
+            ma_uint64 newSizeInBytes = messageCopy.decodeBufferPage.decodedFrameCount * ma_get_bytes_per_frame(messageCopy.decodeBufferPage.pDataBuffer->data.decoded.format, messageCopy.decodeBufferPage.pDataBuffer->data.decoded.channels);
+            void* pNewData = ma__realloc_from_callbacks(messageCopy.decodeBufferPage.pData, (size_t)newSizeInBytes, messageCopy.decodeBufferPage.dataSizeInBytes, &pResourceManager->config.allocationCallbacks);
             if (pNewData != NULL) {
-                messageCopy.decodePage.pData = pNewData;
-                messageCopy.decodePage.dataSizeInBytes = (size_t)newSizeInBytes;    /* <-- Don't really need to set this, but I think it's good practice. */
+                messageCopy.decodeBufferPage.pData = pNewData;
+                messageCopy.decodeBufferPage.dataSizeInBytes = (size_t)newSizeInBytes;    /* <-- Don't really need to set this, but I think it's good practice. */
             }
         }
 
@@ -2379,8 +3089,8 @@ static ma_result ma_resource_manager_handle_message__decode_page(ma_resource_man
         We can now set the frame counts appropriately. We want to set the frame count regardless of whether or not it had a known length just in case we have
         a weird situation where the frame count an opening time was different to the final count we got after reading.
         */
-        messageCopy.decodePage.pDataBuffer->data.decoded.pData      = messageCopy.decodePage.pData;
-        messageCopy.decodePage.pDataBuffer->data.decoded.frameCount = messageCopy.decodePage.decodedFrameCount;
+        messageCopy.decodeBufferPage.pDataBuffer->data.decoded.pData      = messageCopy.decodeBufferPage.pData;
+        messageCopy.decodeBufferPage.pDataBuffer->data.decoded.frameCount = messageCopy.decodeBufferPage.decodedFrameCount;
 
         /*
         decodedFrameCount is what other threads will use to determine whether or not data is available. We must ensure pData and frameCount
@@ -2388,7 +3098,7 @@ static ma_result ma_resource_manager_handle_message__decode_page(ma_resource_man
         which case it can assume pData and frameCount are valid.
         */
         ma_memory_barrier();
-        messageCopy.decodePage.pDataBuffer->data.decoded.decodedFrameCount = messageCopy.decodePage.decodedFrameCount;
+        messageCopy.decodeBufferPage.pDataBuffer->data.decoded.decodedFrameCount = messageCopy.decodeBufferPage.decodedFrameCount;
 
 
         /* If we reached the end we need to treat it as successful. */
@@ -2396,16 +3106,57 @@ static ma_result ma_resource_manager_handle_message__decode_page(ma_resource_man
             result  = MA_SUCCESS;
         }
 
-        /* We need to set the status of the page so other things can know about it. */
-        ma_atomic_exchange_32(&messageCopy.decodePage.pDataBuffer->result, result);
+        /* We need to set the status of the page so other things can know about it. We can only change the status away from MA_BUSY. If it's anything else it cannot be changed. */
+        ma_compare_and_swap_32(&messageCopy.decodeBufferPage.pDataBuffer->result, result, MA_BUSY);
 
         /* We need to signal an event to indicate that we're done. */
-        if (messageCopy.decodePage.pCompletedEvent != NULL) {
-            ma_event_signal(messageCopy.decodePage.pCompletedEvent);
+        if (messageCopy.decodeBufferPage.pCompletedEvent != NULL) {
+            ma_event_signal(messageCopy.decodeBufferPage.pCompletedEvent);
         }
     }
 
     return result;
+}
+
+static ma_result ma_resource_manager_handle_message__decode_stream_page(ma_resource_manager* pResourceManager, const ma_resource_manager_message* pMessage)
+{
+    ma_resource_manager_data_stream* pDataStream;
+
+    MA_ASSERT(pResourceManager != NULL);
+    MA_ASSERT(pMessage         != NULL);
+
+    pDataStream = pMessage->decodeStreamPage.pDataStream;
+    MA_ASSERT(pDataStream != NULL);
+
+    /* For streams, the status should be MA_SUCCESS. */
+    if (pMessage->decodeStreamPage.pDataStream->result != MA_SUCCESS) {
+        return MA_INVALID_OPERATION;   
+    }
+
+    printf("Decoding page...\n");
+    ma_resource_manager_data_stream_fill_page(pResourceManager, pMessage->decodeStreamPage.pDataStream, pMessage->decodeStreamPage.pageIndex);
+
+    return MA_SUCCESS;
+}
+
+static ma_result ma_resource_manager_handle_message__seek_data_stream(ma_resource_manager* pResourceManager, ma_resource_manager_data_stream* pDataStream, ma_uint64 frameIndex)
+{
+    MA_ASSERT(pResourceManager != NULL);
+    MA_ASSERT(pDataStream      != NULL);
+
+    /*
+    With seeking we just assume both pages are invalid and the relative frame cursor at at position 0. This is basically exactly the same as loading, except
+    instead of initializing the decoder, we seek to a frame.
+    */
+    ma_decoder_seek_to_pcm_frame(&pDataStream->decoder, frameIndex);
+
+    /* After seeking we'll need to reload the pages. */
+    ma_resource_manager_data_stream_fill_pages(pResourceManager, pDataStream);
+
+    /* We need to let the public API know that we're done seeking. */
+    ma_atomic_decrement_32(&pDataStream->seekCounter);
+
+    return MA_SUCCESS;
 }
 
 
@@ -2428,6 +3179,17 @@ MA_API ma_result ma_resource_manager_handle_message(ma_resource_manager* pResour
         } break;
 
 
+        case MA_MESSAGE_LOAD_DATA_STREAM:
+        {
+            return ma_resource_manager_handle_message__load_data_stream(pResourceManager, pMessage->loadDataStream.pDataStream, pMessage->loadDataStream.pFilePath, pMessage->loadDataStream.pEvent);
+        } break;
+
+        case MA_MESSAGE_FREE_DATA_STREAM:
+        {
+            return ma_resource_manager_handle_message__free_data_stream(pResourceManager, pMessage->freeDataStream.pDataStream, pMessage->freeDataStream.pEvent);
+        } break;
+
+
         case MA_MESSAGE_LOAD_DATA_SOURCE:
         {
             return ma_resource_manager_handle_message__load_data_source(pResourceManager, pMessage->loadDataSource.pDataSource, pMessage->loadDataSource.pEvent);
@@ -2440,9 +3202,20 @@ MA_API ma_result ma_resource_manager_handle_message(ma_resource_manager* pResour
         } break;
     #endif
 
-        case MA_MESSAGE_DECODE_PAGE:
+
+        case MA_MESSAGE_DECODE_BUFFER_PAGE:
         {
-            return ma_resource_manager_handle_message__decode_page(pResourceManager, pMessage);
+            return ma_resource_manager_handle_message__decode_buffer_page(pResourceManager, pMessage);
+        } break;
+
+        case MA_MESSAGE_DECODE_STREAM_PAGE:
+        {
+            return ma_resource_manager_handle_message__decode_stream_page(pResourceManager, pMessage);
+        } break;
+
+        case MA_MESSAGE_SEEK_DATA_STREAM:
+        {
+            return ma_resource_manager_handle_message__seek_data_stream(pResourceManager, pMessage->seekDataStream.pDataStream, pMessage->seekDataStream.frameIndex);
         } break;
 
         default: break;
