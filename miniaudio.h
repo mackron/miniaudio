@@ -11193,7 +11193,7 @@ static ULONG STDMETHODCALLTYPE ma_IMMNotificationClient_Release(ma_IMMNotificati
 static HRESULT STDMETHODCALLTYPE ma_IMMNotificationClient_OnDeviceStateChanged(ma_IMMNotificationClient* pThis, LPCWSTR pDeviceID, DWORD dwNewState)
 {
 #ifdef MA_DEBUG_OUTPUT
-    printf("IMMNotificationClient_OnDeviceStateChanged(pDeviceID=%S, dwNewState=%u)\n", (pDeviceID != NULL) ? pDeviceID : L"(NULL)", (unsigned int)dwNewState);
+    /*printf("IMMNotificationClient_OnDeviceStateChanged(pDeviceID=%S, dwNewState=%u)\n", (pDeviceID != NULL) ? pDeviceID : L"(NULL)", (unsigned int)dwNewState);*/
 #endif
 
     (void)pThis;
@@ -11205,7 +11205,7 @@ static HRESULT STDMETHODCALLTYPE ma_IMMNotificationClient_OnDeviceStateChanged(m
 static HRESULT STDMETHODCALLTYPE ma_IMMNotificationClient_OnDeviceAdded(ma_IMMNotificationClient* pThis, LPCWSTR pDeviceID)
 {
 #ifdef MA_DEBUG_OUTPUT
-    printf("IMMNotificationClient_OnDeviceAdded(pDeviceID=%S)\n", (pDeviceID != NULL) ? pDeviceID : L"(NULL)");
+    /*printf("IMMNotificationClient_OnDeviceAdded(pDeviceID=%S)\n", (pDeviceID != NULL) ? pDeviceID : L"(NULL)");*/
 #endif
 
     /* We don't need to worry about this event for our purposes. */
@@ -11217,7 +11217,7 @@ static HRESULT STDMETHODCALLTYPE ma_IMMNotificationClient_OnDeviceAdded(ma_IMMNo
 static HRESULT STDMETHODCALLTYPE ma_IMMNotificationClient_OnDeviceRemoved(ma_IMMNotificationClient* pThis, LPCWSTR pDeviceID)
 {
 #ifdef MA_DEBUG_OUTPUT
-    printf("IMMNotificationClient_OnDeviceRemoved(pDeviceID=%S)\n", (pDeviceID != NULL) ? pDeviceID : L"(NULL)");
+    /*printf("IMMNotificationClient_OnDeviceRemoved(pDeviceID=%S)\n", (pDeviceID != NULL) ? pDeviceID : L"(NULL)");*/
 #endif
 
     /* We don't need to worry about this event for our purposes. */
@@ -11229,7 +11229,7 @@ static HRESULT STDMETHODCALLTYPE ma_IMMNotificationClient_OnDeviceRemoved(ma_IMM
 static HRESULT STDMETHODCALLTYPE ma_IMMNotificationClient_OnDefaultDeviceChanged(ma_IMMNotificationClient* pThis, ma_EDataFlow dataFlow, ma_ERole role, LPCWSTR pDefaultDeviceID)
 {
 #ifdef MA_DEBUG_OUTPUT
-    printf("IMMNotificationClient_OnDefaultDeviceChanged(dataFlow=%d, role=%d, pDefaultDeviceID=%S)\n", dataFlow, role, (pDefaultDeviceID != NULL) ? pDefaultDeviceID : L"(NULL)");
+    /*printf("IMMNotificationClient_OnDefaultDeviceChanged(dataFlow=%d, role=%d, pDefaultDeviceID=%S)\n", dataFlow, role, (pDefaultDeviceID != NULL) ? pDefaultDeviceID : L"(NULL)");*/
 #endif
 
     /* We only ever use the eConsole role in miniaudio. */
@@ -11278,7 +11278,7 @@ static HRESULT STDMETHODCALLTYPE ma_IMMNotificationClient_OnDefaultDeviceChanged
 static HRESULT STDMETHODCALLTYPE ma_IMMNotificationClient_OnPropertyValueChanged(ma_IMMNotificationClient* pThis, LPCWSTR pDeviceID, const PROPERTYKEY key)
 {
 #ifdef MA_DEBUG_OUTPUT
-    printf("IMMNotificationClient_OnPropertyValueChanged(pDeviceID=%S)\n", (pDeviceID != NULL) ? pDeviceID : L"(NULL)");
+    /*printf("IMMNotificationClient_OnPropertyValueChanged(pDeviceID=%S)\n", (pDeviceID != NULL) ? pDeviceID : L"(NULL)");*/
 #endif
 
     (void)pThis;
@@ -12988,7 +12988,7 @@ static ma_result ma_device_main_loop__wasapi(ma_device* pDevice)
                         } else {
                         #ifdef MA_DEBUG_OUTPUT
                             if (flagsCapture != 0) {
-                                printf("[WASAPI] Capture Flags: %d\n", flagsCapture);
+                                printf("[WASAPI] Capture Flags: %ld\n", flagsCapture);
                             }
                         #endif
                         }
@@ -13238,7 +13238,7 @@ static ma_result ma_device_main_loop__wasapi(ma_device* pDevice)
                 } else {
                 #ifdef MA_DEBUG_OUTPUT
                     if (flagsCapture != 0) {
-                        printf("[WASAPI] Capture Flags: %d\n", flagsCapture);
+                        printf("[WASAPI] Capture Flags: %ld\n", flagsCapture);
                     }
                 #endif
                 }
@@ -14759,7 +14759,7 @@ static ma_result ma_device_main_loop__dsound(ma_device* pDevice)
                             } else {
                                 /* This is an error. */
                             #ifdef MA_DEBUG_OUTPUT
-                                printf("[DirectSound] (Duplex/Playback) WARNING: Play cursor has moved in front of the write cursor (same loop iterations). physicalPlayCursorInBytes=%d, virtualWriteCursorInBytes=%d.\n", physicalPlayCursorInBytes, virtualWriteCursorInBytesPlayback);
+                                printf("[DirectSound] (Duplex/Playback) WARNING: Play cursor has moved in front of the write cursor (same loop iterations). physicalPlayCursorInBytes=%ld, virtualWriteCursorInBytes=%ld.\n", physicalPlayCursorInBytes, virtualWriteCursorInBytesPlayback);
                             #endif
                                 availableBytesPlayback = 0;
                             }
@@ -14770,7 +14770,7 @@ static ma_result ma_device_main_loop__dsound(ma_device* pDevice)
                             } else {
                                 /* This is an error. */
                             #ifdef MA_DEBUG_OUTPUT
-                                printf("[DirectSound] (Duplex/Playback) WARNING: Write cursor has moved behind the play cursor (different loop iterations). physicalPlayCursorInBytes=%d, virtualWriteCursorInBytes=%d.\n", physicalPlayCursorInBytes, virtualWriteCursorInBytesPlayback);
+                                printf("[DirectSound] (Duplex/Playback) WARNING: Write cursor has moved behind the play cursor (different loop iterations). physicalPlayCursorInBytes=%ld, virtualWriteCursorInBytes=%ld.\n", physicalPlayCursorInBytes, virtualWriteCursorInBytesPlayback);
                             #endif
                                 availableBytesPlayback = 0;
                             }
@@ -14826,7 +14826,7 @@ static ma_result ma_device_main_loop__dsound(ma_device* pDevice)
                                 }
 
                         #ifdef MA_DEBUG_OUTPUT
-                                printf("[DirectSound] (Duplex/Playback) Playback buffer starved. availableBytesPlayback=%d, silentPaddingInBytes=%d\n", availableBytesPlayback, silentPaddingInBytes);
+                                printf("[DirectSound] (Duplex/Playback) Playback buffer starved. availableBytesPlayback=%ld, silentPaddingInBytes=%ld\n", availableBytesPlayback, silentPaddingInBytes);
                         #endif
                             }
                         }
@@ -14951,7 +14951,7 @@ static ma_result ma_device_main_loop__dsound(ma_device* pDevice)
 
             #ifdef MA_DEBUG_OUTPUT
                 if (lockSizeInBytesCapture != mappedSizeInBytesCapture) {
-                    printf("[DirectSound] (Capture) lockSizeInBytesCapture=%d != mappedSizeInBytesCapture=%d\n", lockSizeInBytesCapture, mappedSizeInBytesCapture);
+                    printf("[DirectSound] (Capture) lockSizeInBytesCapture=%ld != mappedSizeInBytesCapture=%ld\n", lockSizeInBytesCapture, mappedSizeInBytesCapture);
                 }
             #endif
 
@@ -14994,7 +14994,7 @@ static ma_result ma_device_main_loop__dsound(ma_device* pDevice)
                     } else {
                         /* This is an error. */
                     #ifdef MA_DEBUG_OUTPUT
-                        printf("[DirectSound] (Playback) WARNING: Play cursor has moved in front of the write cursor (same loop iterations). physicalPlayCursorInBytes=%d, virtualWriteCursorInBytes=%d.\n", physicalPlayCursorInBytes, virtualWriteCursorInBytesPlayback);
+                        printf("[DirectSound] (Playback) WARNING: Play cursor has moved in front of the write cursor (same loop iterations). physicalPlayCursorInBytes=%ld, virtualWriteCursorInBytes=%ld.\n", physicalPlayCursorInBytes, virtualWriteCursorInBytesPlayback);
                     #endif
                         availableBytesPlayback = 0;
                     }
@@ -15005,7 +15005,7 @@ static ma_result ma_device_main_loop__dsound(ma_device* pDevice)
                     } else {
                         /* This is an error. */
                     #ifdef MA_DEBUG_OUTPUT
-                        printf("[DirectSound] (Playback) WARNING: Write cursor has moved behind the play cursor (different loop iterations). physicalPlayCursorInBytes=%d, virtualWriteCursorInBytes=%d.\n", physicalPlayCursorInBytes, virtualWriteCursorInBytesPlayback);
+                        printf("[DirectSound] (Playback) WARNING: Write cursor has moved behind the play cursor (different loop iterations). physicalPlayCursorInBytes=%ld, virtualWriteCursorInBytes=%ld.\n", physicalPlayCursorInBytes, virtualWriteCursorInBytesPlayback);
                     #endif
                         availableBytesPlayback = 0;
                     }
