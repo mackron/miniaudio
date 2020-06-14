@@ -40850,6 +40850,228 @@ ma_result ma_vfs_open_and_read_file(ma_vfs* pVFS, const char* pFilePath, void** 
 }
 
 
+#if defined(MA_WIN32)
+static void ma_default_vfs__get_open_settings_win32(ma_uint32 openMode, DWORD* pDesiredAccess, DWORD* pShareMode, DWORD* pCreationDisposition)
+{
+    *pDesiredAccess = 0;
+    if ((openMode & MA_OPEN_MODE_READ) != 0) {
+        *pDesiredAccess |= GENERIC_READ;
+    }
+    if ((openMode & MA_OPEN_MODE_WRITE) != 0) {
+        *pDesiredAccess |= GENERIC_WRITE;
+    }
+
+    *pShareMode = 0;
+    if ((openMode & MA_OPEN_MODE_READ) != 0) {
+        *pShareMode |= FILE_SHARE_READ;
+    }
+
+    if ((openMode & MA_OPEN_MODE_WRITE) != 0) {
+        *pCreationDisposition = CREATE_ALWAYS;  /* Opening in write mode. Truncate. */
+    } else {
+        *pCreationDisposition = OPEN_EXISTING;  /* Opening in read mode. File must exist. */
+    }
+}
+
+static ma_result ma_default_vfs_open__win32(ma_vfs* pVFS, const char* pFilePath, ma_uint32 openMode, ma_vfs_file* pFile)
+{
+    HANDLE hFile;
+    DWORD dwDesiredAccess;
+    DWORD dwShareMode;
+    DWORD dwCreationDisposition;
+
+    (void)pVFS;
+
+    ma_default_vfs__get_open_settings_win32(openMode, &dwDesiredAccess, &dwShareMode, &dwCreationDisposition);
+
+    hFile = CreateFileA(pFilePath, dwDesiredAccess, dwShareMode, NULL, dwCreationDisposition, FILE_ATTRIBUTE_NORMAL, NULL);
+    if (hFile == INVALID_HANDLE_VALUE) {
+        return ma_result_from_GetLastError(GetLastError());
+    }
+
+    *pFile = hFile;
+    return MA_SUCCESS;
+}
+
+static ma_result ma_default_vfs_open_w__win32(ma_vfs* pVFS, const wchar_t* pFilePath, ma_uint32 openMode, ma_vfs_file* pFile)
+{
+    HANDLE hFile;
+    DWORD dwDesiredAccess;
+    DWORD dwShareMode;
+    DWORD dwCreationDisposition;
+
+    (void)pVFS;
+
+    ma_default_vfs__get_open_settings_win32(openMode, &dwDesiredAccess, &dwShareMode, &dwCreationDisposition);
+
+    hFile = CreateFileW(pFilePath, dwDesiredAccess, dwShareMode, NULL, dwCreationDisposition, FILE_ATTRIBUTE_NORMAL, NULL);
+    if (hFile == INVALID_HANDLE_VALUE) {
+        return ma_result_from_GetLastError(GetLastError());
+    }
+
+    *pFile = hFile;
+    return MA_SUCCESS;
+}
+
+static ma_result ma_default_vfs_close__win32(ma_vfs* pVFS, ma_vfs_file file)
+{
+    (void)pVFS;
+
+    if (CloseHandle((HANDLE)file) == 0) {
+        return ma_result_from_GetLastError(GetLastError());
+    }
+
+    return MA_SUCCESS;
+}
+
+
+static ma_result ma_default_vfs_read__win32(ma_vfs* pVFS, ma_vfs_file file, void* pDst, size_t sizeInBytes, size_t* pBytesRead)
+{
+    ma_result result = MA_SUCCESS;
+    size_t totalBytesRead;
+
+    (void)pVFS;
+
+    totalBytesRead = 0;
+    while (totalBytesRead < sizeInBytes) {
+        size_t bytesRemaining;
+        DWORD bytesToRead;
+        DWORD bytesRead;
+        BOOL readResult;
+
+        bytesRemaining = sizeInBytes - totalBytesRead;
+        if (bytesRemaining > 0xFFFFFFFF) {
+            bytesToRead = 0xFFFFFFFF;
+        } else {
+            bytesToRead = (DWORD)bytesRemaining;
+        }
+
+        readResult = ReadFile((HANDLE)file, ma_offset_ptr(pDst, totalBytesRead), bytesToRead, &bytesRead, NULL);
+        totalBytesRead += bytesRead;
+
+        if (bytesRead < bytesToRead || (readResult == 1 && bytesRead == 0)) {
+            break;  /* EOF */
+        }
+
+        if (readResult == 0) {
+            result = ma_result_from_GetLastError(GetLastError());
+            break;
+        }
+    }
+
+    if (pBytesRead != NULL) {
+        *pBytesRead = totalBytesRead;
+    }
+
+    return result;
+}
+
+static ma_result ma_default_vfs_write__win32(ma_vfs* pVFS, ma_vfs_file file, const void* pSrc, size_t sizeInBytes, size_t* pBytesWritten)
+{
+    ma_result result = MA_SUCCESS;
+    size_t totalBytesWritten;
+
+    (void)pVFS;
+
+    totalBytesWritten = 0;
+    while (totalBytesWritten < sizeInBytes) {
+        size_t bytesRemaining;
+        DWORD bytesToWrite;
+        DWORD bytesWritten;
+        BOOL writeResult;
+
+        bytesRemaining = sizeInBytes - totalBytesWritten;
+        if (bytesRemaining > 0xFFFFFFFF) {
+            bytesToWrite = 0xFFFFFFFF;
+        } else {
+            bytesToWrite = (DWORD)bytesRemaining;
+        }
+
+        writeResult = WriteFile((HANDLE)file, ma_offset_ptr(pSrc, totalBytesWritten), bytesToWrite, &bytesWritten, NULL);
+        totalBytesWritten += bytesWritten;
+
+        if (writeResult == 0) {
+            result = ma_result_from_GetLastError(GetLastError());
+            break;
+        }
+    }
+
+    if (pBytesWritten == NULL) {
+        *pBytesWritten = totalBytesWritten;
+    }
+
+    return result;
+}
+
+#if !defined(WINVER) || WINVER <= 0x0502
+WINBASEAPI BOOL WINAPI SetFilePointerEx(HANDLE hFile, LARGE_INTEGER liDistanceToMove, LARGE_INTEGER* pNewFilePointer, DWORD dwMoveMethod);
+#endif
+
+static ma_result ma_default_vfs_seek__win32(ma_vfs* pVFS, ma_vfs_file file, ma_int64 offset, ma_seek_origin origin)
+{
+    LARGE_INTEGER liDistanceToMove;
+    DWORD dwMoveMethod;
+    BOOL result;
+
+    (void)pVFS;
+
+    liDistanceToMove.QuadPart = offset;
+
+    /*  */ if (origin == ma_seek_origin_current) {
+        dwMoveMethod = FILE_CURRENT;
+    } else if (origin == ma_seek_origin_end) {
+        dwMoveMethod = FILE_END;
+    } else {
+        dwMoveMethod = FILE_BEGIN;
+    }
+
+    result = SetFilePointerEx((HANDLE)file, liDistanceToMove, NULL, dwMoveMethod);
+    if (result == 0) {
+        return ma_result_from_GetLastError(GetLastError());
+    }
+
+    return MA_SUCCESS;
+}
+
+static ma_result ma_default_vfs_tell__win32(ma_vfs* pVFS, ma_vfs_file file, ma_int64* pCursor)
+{
+    LARGE_INTEGER liZero;
+    LARGE_INTEGER liTell;
+    BOOL result;
+
+    (void)pVFS;
+
+    liZero.QuadPart = 0;
+
+    result = SetFilePointerEx((HANDLE)file, liZero, &liTell, FILE_CURRENT);
+    if (result == 0) {
+        return ma_result_from_GetLastError(GetLastError());
+    }
+
+    if (pCursor != NULL) {
+        *pCursor = liTell.QuadPart;
+    }
+
+    return MA_SUCCESS;
+}
+
+static ma_result ma_default_vfs_info__win32(ma_vfs* pVFS, ma_vfs_file file, ma_file_info* pInfo)
+{
+    BY_HANDLE_FILE_INFORMATION fi;
+    BOOL result;
+
+    (void)pVFS;
+
+    result = GetFileInformationByHandle((HANDLE)file, &fi);
+    if (result == 0) {
+        return ma_result_from_GetLastError(GetLastError());
+    }
+
+    pInfo->sizeInBytes = ((ma_uint64)fi.nFileSizeHigh << 32) | ((ma_uint64)fi.nFileSizeLow);
+
+    return MA_SUCCESS;
+}
+#else
 static ma_result ma_default_vfs_open__stdio(ma_vfs* pVFS, const char* pFilePath, ma_uint32 openMode, ma_vfs_file* pFile)
 {
     ma_result result;
@@ -41026,7 +41248,6 @@ static ma_result ma_default_vfs_tell__stdio(ma_vfs* pVFS, ma_vfs_file file, ma_i
     return MA_SUCCESS;
 }
 
-#include <sys/stat.h>
 static ma_result ma_default_vfs_info__stdio(ma_vfs* pVFS, ma_vfs_file file, ma_file_info* pInfo)
 {
     int fd;
@@ -41051,6 +41272,7 @@ static ma_result ma_default_vfs_info__stdio(ma_vfs* pVFS, ma_vfs_file file, ma_f
 
     return MA_SUCCESS;
 }
+#endif
 
 
 static ma_result ma_default_vfs_open(ma_vfs* pVFS, const char* pFilePath, ma_uint32 openMode, ma_vfs_file* pFile)
@@ -41065,7 +41287,11 @@ static ma_result ma_default_vfs_open(ma_vfs* pVFS, const char* pFilePath, ma_uin
         return MA_INVALID_ARGS;
     }
 
+#if defined(MA_WIN32)
+    return ma_default_vfs_open__win32(pVFS, pFilePath, openMode, pFile);
+#else
     return ma_default_vfs_open__stdio(pVFS, pFilePath, openMode, pFile);
+#endif
 }
 
 static ma_result ma_default_vfs_open_w(ma_vfs* pVFS, const wchar_t* pFilePath, ma_uint32 openMode, ma_vfs_file* pFile)
@@ -41080,7 +41306,11 @@ static ma_result ma_default_vfs_open_w(ma_vfs* pVFS, const wchar_t* pFilePath, m
         return MA_INVALID_ARGS;
     }
 
+#if defined(MA_WIN32)
+    return ma_default_vfs_open_w__win32(pVFS, pFilePath, openMode, pFile);
+#else
     return ma_default_vfs_open_w__stdio(pVFS, pFilePath, openMode, pFile);
+#endif
 }
 
 static ma_result ma_default_vfs_close(ma_vfs* pVFS, ma_vfs_file file)
@@ -41089,7 +41319,11 @@ static ma_result ma_default_vfs_close(ma_vfs* pVFS, ma_vfs_file file)
         return MA_INVALID_ARGS;
     }
 
+#if defined(MA_WIN32)
+    return ma_default_vfs_close__win32(pVFS, file);
+#else
     return ma_default_vfs_close__stdio(pVFS, file);
+#endif
 }
 
 static ma_result ma_default_vfs_read(ma_vfs* pVFS, ma_vfs_file file, void* pDst, size_t sizeInBytes, size_t* pBytesRead)
@@ -41098,7 +41332,11 @@ static ma_result ma_default_vfs_read(ma_vfs* pVFS, ma_vfs_file file, void* pDst,
         return MA_INVALID_ARGS;
     }
 
+#if defined(MA_WIN32)
+    return ma_default_vfs_read__win32(pVFS, file, pDst, sizeInBytes, pBytesRead);
+#else
     return ma_default_vfs_read__stdio(pVFS, file, pDst, sizeInBytes, pBytesRead);
+#endif
 }
 
 static ma_result ma_default_vfs_write(ma_vfs* pVFS, ma_vfs_file file, const void* pSrc, size_t sizeInBytes, size_t* pBytesWritten)
@@ -41107,7 +41345,11 @@ static ma_result ma_default_vfs_write(ma_vfs* pVFS, ma_vfs_file file, const void
         return MA_INVALID_ARGS;
     }
 
+#if defined(MA_WIN32)
+    return ma_default_vfs_write__win32(pVFS, file, pSrc, sizeInBytes, pBytesWritten);
+#else
     return ma_default_vfs_write__stdio(pVFS, file, pSrc, sizeInBytes, pBytesWritten);
+#endif
 }
 
 static ma_result ma_default_vfs_seek(ma_vfs* pVFS, ma_vfs_file file, ma_int64 offset, ma_seek_origin origin)
@@ -41116,7 +41358,11 @@ static ma_result ma_default_vfs_seek(ma_vfs* pVFS, ma_vfs_file file, ma_int64 of
         return MA_INVALID_ARGS;
     }
 
+#if defined(MA_WIN32)
+    return ma_default_vfs_seek__win32(pVFS, file, offset, origin);
+#else
     return ma_default_vfs_seek__stdio(pVFS, file, offset, origin);
+#endif
 }
 
 static ma_result ma_default_vfs_tell(ma_vfs* pVFS, ma_vfs_file file, ma_int64* pCursor)
@@ -41131,7 +41377,11 @@ static ma_result ma_default_vfs_tell(ma_vfs* pVFS, ma_vfs_file file, ma_int64* p
         return MA_INVALID_ARGS;
     }
 
+#if defined(MA_WIN32)
+    return ma_default_vfs_tell__win32(pVFS, file, pCursor);
+#else
     return ma_default_vfs_tell__stdio(pVFS, file, pCursor);
+#endif
 }
 
 static ma_result ma_default_vfs_info(ma_vfs* pVFS, ma_vfs_file file, ma_file_info* pInfo)
@@ -41146,7 +41396,11 @@ static ma_result ma_default_vfs_info(ma_vfs* pVFS, ma_vfs_file file, ma_file_inf
         return MA_INVALID_ARGS;
     }
 
+#if defined(MA_WIN32)
+    return ma_default_vfs_info__win32(pVFS, file, pInfo);
+#else
     return ma_default_vfs_info__stdio(pVFS, file, pInfo);
+#endif
 }
 
 
