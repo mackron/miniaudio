@@ -286,6 +286,7 @@ struct ma_resource_manager_data_source
             ma_resource_manager_data_buffer* pDataBuffer;
             ma_uint64 cursor;                   /* Only used with data buffers (the cursor is drawn from the internal decoder for data streams). Only updated by the public API. Never written nor read from the async thread. */
             ma_bool32 seekToCursorOnNextRead;   /* On the next read we need to seek to the frame cursor. */
+            ma_bool32 isLooping;
             ma_resource_manager_data_buffer_connector connectorType;
             union
             {
@@ -332,10 +333,13 @@ MA_API ma_result ma_resource_manager_register_decoded_data(ma_resource_manager* 
 MA_API ma_result ma_resource_manager_register_encoded_data(ma_resource_manager* pResourceManager, const char* pName, const void* pData, size_t sizeInBytes);    /* Does not copy. Increments the reference count if already exists and returns MA_SUCCESS. */
 MA_API ma_result ma_resource_manager_unregister_data(ma_resource_manager* pResourceManager, const char* pName);
 
+
 /* Data Streams. */
 MA_API ma_result ma_resource_manager_create_data_stream(ma_resource_manager* pResourceManager, const char* pFilePath, ma_event* pEvent, ma_resource_manager_data_stream* pDataStream);
 MA_API ma_result ma_resource_manager_delete_data_stream(ma_resource_manager* pResourceManager, ma_resource_manager_data_stream* pDataStream);
 MA_API ma_result ma_resource_manager_data_stream_result(ma_resource_manager* pResourceManager, const ma_resource_manager_data_stream* pDataStream);
+MA_API ma_result ma_resource_manager_data_stream_set_looping(ma_resource_manager* pResourceManager, ma_resource_manager_data_stream* pDataStream, ma_bool32 isLooping);
+MA_API ma_result ma_resource_manager_data_stream_get_looping(ma_resource_manager* pResourceManager, const ma_resource_manager_data_stream* pDataStream, ma_bool32* pIsLooping);
 MA_API ma_result ma_resource_manager_data_stream_read_paged_pcm_frames(ma_resource_manager* pResourceManager, ma_resource_manager_data_stream* pDataStream, void* pFramesOut, ma_uint64 frameCount, ma_uint64* pFramesRead);
 MA_API ma_result ma_resource_manager_data_stream_seek_to_pcm_frame(ma_resource_manager* pResourceManager, ma_resource_manager_data_stream* pDataStream, ma_uint64 frameIndex);
 MA_API ma_result ma_resource_manager_data_stream_map_paged_pcm_frames(ma_resource_manager* pResourceManager, ma_resource_manager_data_stream* pDataStream, void** ppFramesOut, ma_uint64* pFrameCount);
@@ -346,6 +350,8 @@ MA_API ma_result ma_resource_manager_data_stream_get_data_format(ma_resource_man
 MA_API ma_result ma_resource_manager_data_source_init(ma_resource_manager* pResourceManager, const char* pName, ma_uint32 flags, ma_resource_manager_data_source* pDataSource);
 MA_API ma_result ma_resource_manager_data_source_uninit(ma_resource_manager* pResourceManager, ma_resource_manager_data_source* pDataSource);
 MA_API ma_result ma_resource_manager_data_source_result(ma_resource_manager* pResourceManager, const ma_resource_manager_data_source* pDataSource);
+MA_API ma_result ma_resource_manager_data_source_set_looping(ma_resource_manager* pResourceManager, ma_resource_manager_data_source* pDataSource, ma_bool32 isLooping);
+MA_API ma_result ma_resource_manager_data_source_get_looping(ma_resource_manager* pResourceManager, const ma_resource_manager_data_source* pDataSource, ma_bool32* pIsLooping);
 
 /* Message handling. */
 MA_API ma_result ma_resource_manager_handle_message(ma_resource_manager* pResourceManager, const ma_resource_manager_message* pMessage);
@@ -1736,6 +1742,28 @@ MA_API ma_result ma_resource_manager_data_stream_result(ma_resource_manager* pRe
     return pDataStream->result;
 }
 
+MA_API ma_result ma_resource_manager_data_stream_set_looping(ma_resource_manager* pResourceManager, ma_resource_manager_data_stream* pDataStream, ma_bool32 isLooping)
+{
+    if (pResourceManager == NULL || pDataStream == NULL) {
+        return MA_INVALID_ARGS;
+    }
+
+    ma_atomic_exchange_32(&pDataStream->isLooping, isLooping);
+
+    return MA_SUCCESS;
+}
+
+MA_API ma_result ma_resource_manager_data_stream_get_looping(ma_resource_manager* pResourceManager, const ma_resource_manager_data_stream* pDataStream, ma_bool32* pIsLooping)
+{
+    if (pResourceManager == NULL || pDataStream == NULL || pIsLooping == NULL) {
+        return MA_INVALID_ARGS;
+    }
+
+    *pIsLooping = pDataStream->isLooping;
+
+    return MA_SUCCESS;
+}
+
 
 static ma_uint32 ma_resource_manager_data_stream_get_page_size_in_frames(ma_resource_manager_data_stream* pDataStream)
 {
@@ -2572,6 +2600,38 @@ MA_API ma_result ma_resource_manager_data_source_result(ma_resource_manager* pRe
     return pDataSource->result;
 }
 
+MA_API ma_result ma_resource_manager_data_source_set_looping(ma_resource_manager* pResourceManager, ma_resource_manager_data_source* pDataSource, ma_bool32 isLooping)
+{
+    if (pResourceManager == NULL || pDataSource == NULL) {
+        return MA_INVALID_ARGS;
+    }
+
+    /*
+    The loop flag is set at the level of the underlying data source. This is require for streams in particular because page loading logic performed on the
+    async thread will ensure the loop transition is smooth.
+    */
+    if ((pDataSource->flags & MA_DATA_SOURCE_FLAG_STREAM) != 0) {
+        return ma_resource_manager_data_stream_set_looping(pResourceManager, &pDataSource->dataStream.stream, isLooping);
+    } else {
+        ma_atomic_exchange_32(&pDataSource->dataBuffer.isLooping, isLooping);
+        return MA_SUCCESS;
+    }
+}
+
+MA_API ma_result ma_resource_manager_data_source_get_looping(ma_resource_manager* pResourceManager, const ma_resource_manager_data_source* pDataSource, ma_bool32* pIsLooping)
+{
+    if (pResourceManager == NULL || pDataSource == NULL || pIsLooping == NULL) {
+        return MA_INVALID_ARGS;
+    }
+
+    if ((pDataSource->flags & MA_DATA_SOURCE_FLAG_STREAM) != 0) {
+        return ma_resource_manager_data_stream_get_looping(pResourceManager, &pDataSource->dataStream.stream, pIsLooping);
+    } else {
+        *pIsLooping = pDataSource->dataBuffer.isLooping;
+        return MA_SUCCESS;
+    }
+}
+
 
 
 static ma_result ma_resource_manager_handle_message__load_data_buffer(ma_resource_manager* pResourceManager, ma_resource_manager_data_buffer* pDataBuffer, char* pFilePath, ma_event* pEvent)
@@ -2787,16 +2847,18 @@ static void ma_resource_manager_data_stream_fill_page(ma_resource_manager* pReso
     pageSizeInFrames = ma_resource_manager_data_stream_get_page_size_in_frames(pDataStream);
 
     if (pDataStream->isLooping) {
-        ma_uint64 framesRemaining;
-        ma_uint64 framesRead;
+        while (totalFramesReadForThisPage < pageSizeInFrames) {
+            ma_uint64 framesRemaining;
+            ma_uint64 framesRead;
 
-        framesRemaining = pageSizeInFrames - totalFramesReadForThisPage;
-        framesRead = ma_decoder_read_pcm_frames(&pDataStream->decoder, ma_offset_pcm_frames_ptr(pPageData, totalFramesReadForThisPage, pDataStream->decoder.outputFormat, pDataStream->decoder.outputChannels), framesRemaining);
-        totalFramesReadForThisPage += framesRead;
+            framesRemaining = pageSizeInFrames - totalFramesReadForThisPage;
+            framesRead = ma_decoder_read_pcm_frames(&pDataStream->decoder, ma_offset_pcm_frames_ptr(pPageData, totalFramesReadForThisPage, pDataStream->decoder.outputFormat, pDataStream->decoder.outputChannels), framesRemaining);
+            totalFramesReadForThisPage += framesRead;
 
-        /* Loop back to the start if we reached the end. */
-        if (framesRead < framesRemaining) {
-            ma_decoder_seek_to_pcm_frame(&pDataStream->decoder, 0);
+            /* Loop back to the start if we reached the end. */
+            if (framesRead < framesRemaining) {
+                ma_decoder_seek_to_pcm_frame(&pDataStream->decoder, 0);
+            }
         }
     } else {
         totalFramesReadForThisPage = ma_decoder_read_pcm_frames(&pDataStream->decoder, pPageData, pageSizeInFrames);
@@ -4579,6 +4641,18 @@ MA_API ma_result ma_engine_sound_set_looping(ma_engine* pEngine, ma_sound* pSoun
     }
 
     ma_atomic_exchange_32(&pSound->isLooping, isLooping);
+
+    /*
+    This is a little bit of a hack, but basically we need to set the looping flag at the data source level if we are running a data source managed by
+    the resource manager, and that is backed by a data stream. The reason for this is that the data stream itself needs to be aware of the looping
+    requirements so that it can do seamless loop transitions. The better solution for this is to add ma_data_source_set_looping() and just call this
+    generically.
+    */
+#ifndef MA_NO_RESOURCE_MANAGER
+    if (pSound->pDataSource == &pSound->resourceManagerDataSource) {
+        ma_resource_manager_data_source_set_looping(pEngine->pResourceManager, pSound->pDataSource, isLooping);
+    }
+#endif
 
     return MA_SUCCESS;
 }

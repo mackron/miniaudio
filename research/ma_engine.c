@@ -40,7 +40,7 @@ int main(int argc, char** argv)
         return -1;
     }
 
-    ma_data_source_seek_to_pcm_frame(sound.pDataSource, 5000000);
+    /*ma_data_source_seek_to_pcm_frame(sound.pDataSource, 5000000);*/
     
     ma_engine_sound_set_volume(&engine, &sound, 0.25f);
     ma_engine_sound_set_pitch(&engine, &sound, 1.0f);
