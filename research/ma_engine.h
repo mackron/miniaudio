@@ -267,7 +267,7 @@ struct ma_resource_manager_data_stream
     ma_uint32 pageFrameCount[2];    /* The number of valid PCM frames in each page. Used to determine the last valid frame. */
 
     /* Written and read by both the public API and the async thread. */
-    ma_result result;               /* Result from asynchronous loading. When loading set to MA_BUSY. When fully loaded set to MA_SUCCESS. When deleting set to MA_UNAVAILABLE. */
+    ma_result result;               /* Result from asynchronous loading. When loading set to MA_BUSY. When initialized set to MA_SUCCESS. When deleting set to MA_UNAVAILABLE. If an error occurs when loading, set to an error code. */
     ma_bool32 isDecoderAtEnd;       /* Whether or not the decoder has reached the end. */
     ma_bool32 isPageValid[2];       /* Booleans to indicate whether or not a page is valid. Set to false by the public API, set to true by the async thread. Set to false as the pages are consumed, true when they are filled. */
     ma_bool32 seekCounter;          /* When 0, no seeking is being performed. When > 0, a seek is being performed and reading should be delayed with MA_BUSY. */
@@ -341,7 +341,6 @@ MA_API ma_result ma_resource_manager_data_stream_seek_to_pcm_frame(ma_resource_m
 MA_API ma_result ma_resource_manager_data_stream_map_paged_pcm_frames(ma_resource_manager* pResourceManager, ma_resource_manager_data_stream* pDataStream, void** ppFramesOut, ma_uint64* pFrameCount);
 MA_API ma_result ma_resource_manager_data_stream_unmap_paged_pcm_frames(ma_resource_manager* pResourceManager, ma_resource_manager_data_stream* pDataStream, ma_uint64 frameCount);
 MA_API ma_result ma_resource_manager_data_stream_get_data_format(ma_resource_manager* pResourceManager, ma_resource_manager_data_stream* pDataStream, ma_format* pFormat, ma_uint32* pChannels);
-
 
 /* Data Sources. */
 MA_API ma_result ma_resource_manager_data_source_init(ma_resource_manager* pResourceManager, const char* pName, ma_uint32 flags, ma_resource_manager_data_source* pDataSource);
