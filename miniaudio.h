@@ -35867,13 +35867,9 @@ static ma_result ma_linear_resampler_process_pcm_frames_s16_downsample(ma_linear
     framesProcessedIn  = 0;
     framesProcessedOut = 0;
 
-    for (;;) {
-        if (framesProcessedOut >= frameCountOut) {
-            break;
-        }
-
+    while (framesProcessedOut < frameCountOut) {
         /* Before interpolating we need to load the buffers. When doing this we need to ensure we run every input sample through the filter. */
-        while (pResampler->inTimeInt > 0 && frameCountIn > 0) {
+        while (pResampler->inTimeInt > 0 && frameCountIn > framesProcessedIn) {
             ma_uint32 iChannel;
 
             if (pFramesInS16 != NULL) {
@@ -35892,7 +35888,6 @@ static ma_result ma_linear_resampler_process_pcm_frames_s16_downsample(ma_linear
             /* Filter. */
             ma_lpf_process_pcm_frame_s16(&pResampler->lpf, pResampler->x1.s16, pResampler->x1.s16);
 
-            frameCountIn          -= 1;
             framesProcessedIn     += 1;
             pResampler->inTimeInt -= 1;
         }
@@ -35946,13 +35941,9 @@ static ma_result ma_linear_resampler_process_pcm_frames_s16_upsample(ma_linear_r
     framesProcessedIn  = 0;
     framesProcessedOut = 0;
 
-    for (;;) {
-        if (framesProcessedOut >= frameCountOut) {
-            break;
-        }
-
+    while (framesProcessedOut < frameCountOut) {
         /* Before interpolating we need to load the buffers. */
-        while (pResampler->inTimeInt > 0 && frameCountIn > 0) {
+        while (pResampler->inTimeInt > 0 && frameCountIn > framesProcessedIn) {
             ma_uint32 iChannel;
 
             if (pFramesInS16 != NULL) {
@@ -35968,7 +35959,6 @@ static ma_result ma_linear_resampler_process_pcm_frames_s16_upsample(ma_linear_r
                 }
             }
 
-            frameCountIn          -= 1;
             framesProcessedIn     += 1;
             pResampler->inTimeInt -= 1;
         }
@@ -36037,13 +36027,9 @@ static ma_result ma_linear_resampler_process_pcm_frames_f32_downsample(ma_linear
     framesProcessedIn  = 0;
     framesProcessedOut = 0;
 
-    for (;;) {
-        if (framesProcessedOut >= frameCountOut) {
-            break;
-        }
-
+    while (framesProcessedOut < frameCountOut) {
         /* Before interpolating we need to load the buffers. When doing this we need to ensure we run every input sample through the filter. */
-        while (pResampler->inTimeInt > 0 && frameCountIn > 0) {
+        while (pResampler->inTimeInt > 0 && frameCountIn > framesProcessedIn) {
             ma_uint32 iChannel;
 
             if (pFramesInF32 != NULL) {
@@ -36062,7 +36048,6 @@ static ma_result ma_linear_resampler_process_pcm_frames_f32_downsample(ma_linear
             /* Filter. */
             ma_lpf_process_pcm_frame_f32(&pResampler->lpf, pResampler->x1.f32, pResampler->x1.f32);
 
-            frameCountIn          -= 1;
             framesProcessedIn     += 1;
             pResampler->inTimeInt -= 1;
         }
@@ -36116,13 +36101,9 @@ static ma_result ma_linear_resampler_process_pcm_frames_f32_upsample(ma_linear_r
     framesProcessedIn  = 0;
     framesProcessedOut = 0;
 
-    for (;;) {
-        if (framesProcessedOut >= frameCountOut) {
-            break;
-        }
-
+    while (framesProcessedOut < frameCountOut) {
         /* Before interpolating we need to load the buffers. */
-        while (pResampler->inTimeInt > 0 && frameCountIn > 0) {
+        while (pResampler->inTimeInt > 0 && frameCountIn > framesProcessedIn) {
             ma_uint32 iChannel;
 
             if (pFramesInF32 != NULL) {
@@ -36138,7 +36119,6 @@ static ma_result ma_linear_resampler_process_pcm_frames_f32_upsample(ma_linear_r
                 }
             }
 
-            frameCountIn          -= 1;
             framesProcessedIn     += 1;
             pResampler->inTimeInt -= 1;
         }
@@ -36230,7 +36210,7 @@ MA_API ma_result ma_linear_resampler_set_rate_ratio(ma_linear_resampler* pResamp
 
 MA_API ma_uint64 ma_linear_resampler_get_required_input_frame_count(ma_linear_resampler* pResampler, ma_uint64 outputFrameCount)
 {
-    ma_uint64 count;
+    ma_uint64 inputFrameCount;
 
     if (pResampler == NULL) {
         return 0;
@@ -36241,51 +36221,48 @@ MA_API ma_uint64 ma_linear_resampler_get_required_input_frame_count(ma_linear_re
     }
 
     /* Any whole input frames are consumed before the first output frame is generated. */
-    count = pResampler->inTimeInt;
+    inputFrameCount = pResampler->inTimeInt;
     outputFrameCount -= 1;
 
     /* The rest of the output frames can be calculated in constant time. */
-    count += outputFrameCount * pResampler->inAdvanceInt;
-    count += (pResampler->inTimeFrac + (outputFrameCount * pResampler->inAdvanceFrac)) / pResampler->config.sampleRateOut;
+    inputFrameCount += outputFrameCount * pResampler->inAdvanceInt;
+    inputFrameCount += (pResampler->inTimeFrac + (outputFrameCount * pResampler->inAdvanceFrac)) / pResampler->config.sampleRateOut;
 
-    return count;
+    return inputFrameCount;
 }
 
 MA_API ma_uint64 ma_linear_resampler_get_expected_output_frame_count(ma_linear_resampler* pResampler, ma_uint64 inputFrameCount)
 {
     ma_uint64 outputFrameCount;
-    ma_uint64 inTimeInt;
-    ma_uint64 inTimeFrac;
-
+    ma_uint64 preliminaryInputFrameCountFromFrac;
+    ma_uint64 preliminaryInputFrameCount;
+    
     if (pResampler == NULL) {
         return 0;
     }
 
-    /* TODO: Try making this run in constant time. */
+    /*
+    The first step is to get a preliminary output frame count. This will either be exactly equal to what we need, or less by 1. We need to
+    determine how many input frames will be consumed by this value. If it's greater than our original input frame count it means we won't
+    be able to generate an extra frame because we will have run out of input data. Otherwise we will have enough input for the generation
+    of an extra output frame. This add-by-one logic is necessary due to how the data loading logic works when processing frames.
+    */
+    outputFrameCount = (inputFrameCount * pResampler->config.sampleRateOut) / pResampler->config.sampleRateIn;
 
-    outputFrameCount = 0;
-    inTimeInt  = pResampler->inTimeInt;
-    inTimeFrac = pResampler->inTimeFrac;
+    /*
+    We need to determine how many *whole* input frames will have been processed to generate our preliminary output frame count. This is
+    used in the logic below to determine whether or not we need to add an extra output frame.
+    */
+    preliminaryInputFrameCountFromFrac = (pResampler->inTimeFrac + outputFrameCount*pResampler->inAdvanceFrac) / pResampler->config.sampleRateOut;
+    preliminaryInputFrameCount         = (pResampler->inTimeInt  + outputFrameCount*pResampler->inAdvanceInt ) + preliminaryInputFrameCountFromFrac;
 
-    for (;;) {
-        while (inTimeInt > 0 && inputFrameCount > 0) {
-            inputFrameCount -= 1;
-            inTimeInt       -= 1;
-        }
-
-        if (inTimeInt > 0) {
-            break;
-        }
-
+    /*
+    If the total number of *whole* input frames that would be required to generate our preliminary output frame count is greather than
+    the amount of whole input frames we have available as input we need to *not* add an extra output frame as there won't be enough data
+    to actually process. Otherwise we need to add the extra output frame.
+    */
+    if (preliminaryInputFrameCount <= inputFrameCount) {
         outputFrameCount += 1;
-
-        /* Advance time forward. */
-        inTimeInt  += pResampler->inAdvanceInt;
-        inTimeFrac += pResampler->inAdvanceFrac;
-        if (inTimeFrac >= pResampler->config.sampleRateOut) {
-            inTimeFrac -= pResampler->config.sampleRateOut;
-            inTimeInt  += 1;
-        }
     }
 
     return outputFrameCount;
@@ -43682,11 +43659,18 @@ MA_API ma_uint64 ma_decoder_read_pcm_frames(ma_decoder* pDecoder, void* pFramesO
 MA_API ma_result ma_decoder_seek_to_pcm_frame(ma_decoder* pDecoder, ma_uint64 frameIndex)
 {
     if (pDecoder == NULL) {
-        return 0;
+        return MA_INVALID_ARGS;
     }
 
     if (pDecoder->onSeekToPCMFrame) {
-        return pDecoder->onSeekToPCMFrame(pDecoder, frameIndex);
+        ma_uint64 internalFrameIndex;
+        if (pDecoder->internalSampleRate == pDecoder->outputSampleRate) {
+            internalFrameIndex = frameIndex;
+        } else {
+            internalFrameIndex = ma_calculate_frame_count_after_resampling(pDecoder->internalSampleRate, pDecoder->outputSampleRate, frameIndex);
+        }
+
+        return pDecoder->onSeekToPCMFrame(pDecoder, internalFrameIndex);
     }
 
     /* Should never get here, but if we do it means onSeekToPCMFrame was not set by the backend. */
