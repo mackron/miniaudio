@@ -1,6 +1,6 @@
 /*
 Audio playback and capture library. Choice of public domain or MIT-0. See license statements at the end of this file.
-miniaudio - v0.10.8 - TBD
+miniaudio - v0.10.8 - 2020-06-22
 
 David Reid - davidreidsoftware@gmail.com
 
@@ -44983,7 +44983,7 @@ The following miscellaneous changes have also been made.
 /*
 REVISION HISTORY
 ================
-v0.10.8 - TBD
+v0.10.8 - 2020-06-22
   - Remove dependency on ma_context from mutexes.
   - Change ma_data_source_read_pcm_frames() to return a result code and output the frames read as an output parameter.
   - Change ma_data_source_seek_pcm_frames() to return a result code and output the frames seeked as an output parameter.
@@ -45007,9 +45007,9 @@ v0.10.8 - TBD
   - Add ma_offset_pcm_frames_ptr() and ma_offset_pcm_frames_const_ptr() which can be used for offsetting a pointer by a specified number of PCM frames.
   - Add initial implementation of ma_yield() which is useful for spin locks which will be used in some upcoming work.
   - Add documentation for log levels.
+  - The ma_event API has been made public in preparation for some uncoming work.
   - Fix a bug in ma_decoder_seek_to_pcm_frame() where the internal sample rate is not being taken into account for determining the seek location.
   - Fix some bugs with the linear resampler when dynamically changing the sample rate.
-  - The ma_event API has been made public in preparation for some uncoming work.
   - Fix compilation errors with MA_NO_DEVICE_IO.
   - Fix some warnings with GCC and -std=c89.
   - Fix some formatting warnings with GCC and -Wall and -Wpedantic.
