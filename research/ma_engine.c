@@ -34,7 +34,7 @@ int main(int argc, char** argv)
 
 
 #if 1
-    result = ma_engine_sound_init_from_file(&engine, argv[1], MA_DATA_SOURCE_FLAG_DECODE | MA_DATA_SOURCE_FLAG_ASYNC | MA_DATA_SOURCE_FLAG_STREAM, NULL, &sound);
+    result = ma_engine_sound_init_from_file(&engine, argv[1], MA_DATA_SOURCE_FLAG_DECODE /*| MA_DATA_SOURCE_FLAG_ASYNC | MA_DATA_SOURCE_FLAG_STREAM*/, NULL, &sound);
     if (result != MA_SUCCESS) {
         printf("Failed to load sound: %s\n", argv[1]);
         ma_engine_uninit(&engine);
@@ -56,7 +56,7 @@ int main(int argc, char** argv)
     ma_engine_play_sound(&engine, argv[3], NULL);*/
 #endif
 
-#if 0
+#if 1
     float pitch     = 1;
     float pitchStep = 0.01f;
     float pitchMin  = 0.125f;
@@ -72,7 +72,7 @@ int main(int argc, char** argv)
             pitchStep = -pitchStep;
         }
 
-        //ma_engine_sound_set_pitch(&engine, &sound, pitch);
+        ma_engine_sound_set_pitch(&engine, &sound, pitch);
 
         ma_sleep(1);
     }
