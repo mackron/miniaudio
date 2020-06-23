@@ -166,7 +166,7 @@ int main(int argc, char** argv)
     needs to be done before starting the device. We need a context to initialize the event, which we can get from the device. Alternatively you can initialize
     a context separately, but we don't need to do that for this example.
     */
-    ma_event_init(device.pContext, &g_stopEvent);
+    ma_event_init(&g_stopEvent);
 
     /* Now we start playback and wait for the audio thread to tell us to stop. */
     if (ma_device_start(&device) != MA_SUCCESS) {
