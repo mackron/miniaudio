@@ -1,6 +1,6 @@
 /*
 Audio playback and capture library. Choice of public domain or MIT-0. See license statements at the end of this file.
-miniaudio - v0.10.8 - 2020-06-22
+miniaudio - v0.10.9 - TBD
 
 David Reid - davidreidsoftware@gmail.com
 
@@ -1539,7 +1539,7 @@ extern "C" {
 
 #define MA_VERSION_MAJOR    0
 #define MA_VERSION_MINOR    10
-#define MA_VERSION_REVISION 8
+#define MA_VERSION_REVISION 9
 #define MA_VERSION_STRING   MA_XSTRINGIFY(MA_VERSION_MAJOR) "." MA_XSTRINGIFY(MA_VERSION_MINOR) "." MA_XSTRINGIFY(MA_VERSION_REVISION)
 
 #if defined(_MSC_VER) && !defined(__clang__)
@@ -44983,6 +44983,8 @@ The following miscellaneous changes have also been made.
 /*
 REVISION HISTORY
 ================
+v0.10.9 - TBD
+
 v0.10.8 - 2020-06-22
   - Remove dependency on ma_context from mutexes.
   - Change ma_data_source_read_pcm_frames() to return a result code and output the frames read as an output parameter.
@@ -44991,16 +44993,16 @@ v0.10.8 - 2020-06-22
   - Change playback.pDeviceID and capture.pDeviceID to constant pointers in ma_device_config.
   - Add support for initializing decoders from a virtual file system object. This is achieved via the ma_vfs API and allows the application to customize file
     IO for the loading and reading of raw audio data. Passing in NULL for the VFS will use defaults. New APIs:
-      - ma_decoder_init_vfs()
-      - ma_decoder_init_vfs_wav()
-      - ma_decoder_init_vfs_flac()
-      - ma_decoder_init_vfs_mp3()
-      - ma_decoder_init_vfs_vorbis()
-      - ma_decoder_init_vfs_w()
-      - ma_decoder_init_vfs_wav_w()
-      - ma_decoder_init_vfs_flac_w()
-      - ma_decoder_init_vfs_mp3_w()
-      - ma_decoder_init_vfs_vorbis_w()
+    - ma_decoder_init_vfs()
+    - ma_decoder_init_vfs_wav()
+    - ma_decoder_init_vfs_flac()
+    - ma_decoder_init_vfs_mp3()
+    - ma_decoder_init_vfs_vorbis()
+    - ma_decoder_init_vfs_w()
+    - ma_decoder_init_vfs_wav_w()
+    - ma_decoder_init_vfs_flac_w()
+    - ma_decoder_init_vfs_mp3_w()
+    - ma_decoder_init_vfs_vorbis_w()
   - Add support for memory mapping to ma_data_source.
     - ma_data_source_map()
     - ma_data_source_unmap()
