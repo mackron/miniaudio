@@ -3897,6 +3897,24 @@ static drwav_uint64 drwav_read_pcm_frames_s16__msadpcm(drwav* pWav, drwav_uint64
 static drwav_uint64 drwav_read_pcm_frames_s16__ima(drwav* pWav, drwav_uint64 framesToRead, drwav_int16* pBufferOut)
 {
     drwav_uint64 totalFramesRead = 0;
+    drwav_uint32 iChannel;
+
+    static drwav_int32 indexTable[16] = {
+        -1, -1, -1, -1, 2, 4, 6, 8,
+        -1, -1, -1, -1, 2, 4, 6, 8
+    };
+
+    static drwav_int32 stepTable[89] = {
+        7,     8,     9,     10,    11,    12,    13,    14,    16,    17, 
+        19,    21,    23,    25,    28,    31,    34,    37,    41,    45, 
+        50,    55,    60,    66,    73,    80,    88,    97,    107,   118, 
+        130,   143,   157,   173,   190,   209,   230,   253,   279,   307,
+        337,   371,   408,   449,   494,   544,   598,   658,   724,   796,
+        876,   963,   1060,  1166,  1282,  1411,  1552,  1707,  1878,  2066, 
+        2272,  2499,  2749,  3024,  3327,  3660,  4026,  4428,  4871,  5358,
+        5894,  6484,  7132,  7845,  8630,  9493,  10442, 11487, 12635, 13899, 
+        15289, 16818, 18500, 20350, 22385, 24623, 27086, 29794, 32767 
+    };
 
     DRWAV_ASSERT(pWav != NULL);
     DRWAV_ASSERT(framesToRead > 0);
@@ -3914,6 +3932,12 @@ static drwav_uint64 drwav_read_pcm_frames_s16__ima(drwav* pWav, drwav_uint64 fra
                 }
                 pWav->ima.bytesRemainingInBlock = pWav->fmt.blockAlign - sizeof(header);
 
+                if (header[2] >= drwav_countof(stepTable)) {
+                    pWav->onSeek(pWav->pUserData, pWav->ima.bytesRemainingInBlock, drwav_seek_origin_current);
+                    pWav->ima.bytesRemainingInBlock = 0;
+                    return totalFramesRead; /* Invalid data. */
+                }
+
                 pWav->ima.predictor[0] = drwav__bytes_to_s16(header + 0);
                 pWav->ima.stepIndex[0] = header[2];
                 pWav->ima.cachedFrames[drwav_countof(pWav->ima.cachedFrames) - 1] = pWav->ima.predictor[0];
@@ -3926,11 +3950,16 @@ static drwav_uint64 drwav_read_pcm_frames_s16__ima(drwav* pWav, drwav_uint64 fra
                 }
                 pWav->ima.bytesRemainingInBlock = pWav->fmt.blockAlign - sizeof(header);
 
+                if (header[2] >= drwav_countof(stepTable) || header[6] >= drwav_countof(stepTable)) {
+                    pWav->onSeek(pWav->pUserData, pWav->ima.bytesRemainingInBlock, drwav_seek_origin_current);
+                    pWav->ima.bytesRemainingInBlock = 0;
+                    return totalFramesRead; /* Invalid data. */
+                }
+
                 pWav->ima.predictor[0] = drwav__bytes_to_s16(header + 0);
                 pWav->ima.stepIndex[0] = header[2];
                 pWav->ima.predictor[1] = drwav__bytes_to_s16(header + 4);
                 pWav->ima.stepIndex[1] = header[6];
-
                 pWav->ima.cachedFrames[drwav_countof(pWav->ima.cachedFrames) - 2] = pWav->ima.predictor[0];
                 pWav->ima.cachedFrames[drwav_countof(pWav->ima.cachedFrames) - 1] = pWav->ima.predictor[1];
                 pWav->ima.cachedFrameCount = 1;
@@ -3965,25 +3994,6 @@ static drwav_uint64 drwav_read_pcm_frames_s16__ima(drwav* pWav, drwav_uint64 fra
             if (pWav->ima.bytesRemainingInBlock == 0) {
                 continue;
             } else {
-                static drwav_int32 indexTable[16] = {
-                    -1, -1, -1, -1, 2, 4, 6, 8,
-                    -1, -1, -1, -1, 2, 4, 6, 8
-                };
-
-                static drwav_int32 stepTable[89] = {
-                    7,     8,     9,     10,    11,    12,    13,    14,    16,    17, 
-                    19,    21,    23,    25,    28,    31,    34,    37,    41,    45, 
-                    50,    55,    60,    66,    73,    80,    88,    97,    107,   118, 
-                    130,   143,   157,   173,   190,   209,   230,   253,   279,   307,
-                    337,   371,   408,   449,   494,   544,   598,   658,   724,   796,
-                    876,   963,   1060,  1166,  1282,  1411,  1552,  1707,  1878,  2066, 
-                    2272,  2499,  2749,  3024,  3327,  3660,  4026,  4428,  4871,  5358,
-                    5894,  6484,  7132,  7845,  8630,  9493,  10442, 11487, 12635, 13899, 
-                    15289, 16818, 18500, 20350, 22385, 24623, 27086, 29794, 32767 
-                };
-
-                drwav_uint32 iChannel;
-
                 /*
                 From what I can tell with stereo streams, it looks like every 4 bytes (8 samples) is for one channel. So it goes 4 bytes for the
                 left channel, 4 bytes for the right channel.
