@@ -1,6 +1,6 @@
 /*
 WAV audio loader and writer. Choice of public domain or MIT-0. See license statements at the end of this file.
-dr_wav - v0.12.6 - TBD
+dr_wav - v0.12.6 - 2020-06-23
 
 David Reid - mackron@gmail.com
 
@@ -953,6 +953,9 @@ DRWAV_API drwav_bool32 drwav_fourcc_equal(const drwav_uint8* a, const char* b);
  ************************************************************************************************************************************************************
  ************************************************************************************************************************************************************/
 #if defined(DR_WAV_IMPLEMENTATION) || defined(DRWAV_IMPLEMENTATION)
+#ifndef dr_wav_c
+#define dr_wav_c
+
 #include <stdlib.h>
 #include <string.h> /* For memcpy(), memset() */
 #include <limits.h> /* For INT_MAX */
@@ -3960,6 +3963,7 @@ static drwav_uint64 drwav_read_pcm_frames_s16__ima(drwav* pWav, drwav_uint64 fra
                 pWav->ima.stepIndex[0] = header[2];
                 pWav->ima.predictor[1] = drwav__bytes_to_s16(header + 4);
                 pWav->ima.stepIndex[1] = header[6];
+
                 pWav->ima.cachedFrames[drwav_countof(pWav->ima.cachedFrames) - 2] = pWav->ima.predictor[0];
                 pWav->ima.cachedFrames[drwav_countof(pWav->ima.cachedFrames) - 1] = pWav->ima.predictor[1];
                 pWav->ima.cachedFrameCount = 1;
@@ -5680,6 +5684,7 @@ DRWAV_API drwav_bool32 drwav_fourcc_equal(const drwav_uint8* a, const char* b)
     return drwav__fourcc_equal(a, b);
 }
 
+#endif  /* dr_wav_c */
 #endif  /* DR_WAV_IMPLEMENTATION */
 
 /*
@@ -5870,8 +5875,10 @@ two different ways to initialize a drwav object.
 /*
 REVISION HISTORY
 ================
-v0.12.6 - TBD
+v0.12.6 - 2020-06-23
   - Change drwav_read_*() to allow NULL to be passed in as the output buffer which is equivalent to a forward seek.
+  - Fix a buffer overflow when trying to decode invalid IMA-ADPCM files.
+  - Add include guard for the implementation section.
 
 v0.12.5 - 2020-05-27
   - Minor documentation fix.

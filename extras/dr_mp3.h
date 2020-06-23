@@ -1,6 +1,6 @@
 /*
 MP3 audio decoder. Choice of public domain or MIT-0. See license statements at the end of this file.
-dr_mp3 - v0.6.11 - 2020-05-26
+dr_mp3 - v0.6.12 - 2020-06-23
 
 David Reid - mackron@gmail.com
 
@@ -95,7 +95,7 @@ extern "C" {
 
 #define DRMP3_VERSION_MAJOR     0
 #define DRMP3_VERSION_MINOR     6
-#define DRMP3_VERSION_REVISION  11
+#define DRMP3_VERSION_REVISION  12
 #define DRMP3_VERSION_STRING    DRMP3_XSTRINGIFY(DRMP3_VERSION_MAJOR) "." DRMP3_XSTRINGIFY(DRMP3_VERSION_MINOR) "." DRMP3_XSTRINGIFY(DRMP3_VERSION_REVISION)
 
 #include <stddef.h> /* For size_t. */
@@ -523,6 +523,9 @@ DRMP3_API void drmp3_free(void* p, const drmp3_allocation_callbacks* pAllocation
  ************************************************************************************************************************************************************
  ************************************************************************************************************************************************************/
 #if defined(DR_MP3_IMPLEMENTATION) || defined(DRMP3_IMPLEMENTATION)
+#ifndef dr_mp3_c
+#define dr_mp3_c
+
 #include <stdlib.h>
 #include <string.h>
 #include <limits.h> /* For INT_MAX */
@@ -4339,7 +4342,8 @@ DRMP3_API void drmp3_free(void* p, const drmp3_allocation_callbacks* pAllocation
     }
 }
 
-#endif /*DR_MP3_IMPLEMENTATION*/
+#endif  /* dr_mp3_c */
+#endif  /*DR_MP3_IMPLEMENTATION*/
 
 /*
 DIFFERENCES BETWEEN minimp3 AND dr_mp3
@@ -4424,6 +4428,9 @@ counts rather than sample counts.
 /*
 REVISION HISTORY
 ================
+v0.6.12 - 2020-06-23
+  - Add include guard for the implementation section.
+
 v0.6.11 - 2020-05-26
   - Fix use of uninitialized variable error.
 

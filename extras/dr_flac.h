@@ -1,6 +1,6 @@
 /*
 FLAC audio decoder. Choice of public domain or MIT-0. See license statements at the end of this file.
-dr_flac - v0.12.13 - 2020-05-16
+dr_flac - v0.12.14 - 2020-06-23
 
 David Reid - mackron@gmail.com
 
@@ -232,7 +232,7 @@ extern "C" {
 
 #define DRFLAC_VERSION_MAJOR     0
 #define DRFLAC_VERSION_MINOR     12
-#define DRFLAC_VERSION_REVISION  13
+#define DRFLAC_VERSION_REVISION  14
 #define DRFLAC_VERSION_STRING    DRFLAC_XSTRINGIFY(DRFLAC_VERSION_MAJOR) "." DRFLAC_XSTRINGIFY(DRFLAC_VERSION_MINOR) "." DRFLAC_XSTRINGIFY(DRFLAC_VERSION_REVISION)
 
 #include <stddef.h> /* For size_t. */
@@ -1316,6 +1316,8 @@ DRFLAC_API drflac_bool32 drflac_next_cuesheet_track(drflac_cuesheet_track_iterat
  ************************************************************************************************************************************************************
  ************************************************************************************************************************************************************/
 #if defined(DR_FLAC_IMPLEMENTATION) || defined(DRFLAC_IMPLEMENTATION)
+#ifndef dr_flac_c
+#define dr_flac_c
 
 /* Disable some annoying warnings. */
 #if defined(__GNUC__)
@@ -11731,12 +11733,16 @@ DRFLAC_API drflac_bool32 drflac_next_cuesheet_track(drflac_cuesheet_track_iterat
 #if defined(__GNUC__)
     #pragma GCC diagnostic pop
 #endif
+#endif  /* dr_flac_c */
 #endif  /* DR_FLAC_IMPLEMENTATION */
 
 
 /*
 REVISION HISTORY
 ================
+v0.12.14 - 2020-06-23
+  - Add include guard for the implementation section.
+
 v0.12.13 - 2020-05-16
   - Add compile-time and run-time version querying.
     - DRFLAC_VERSION_MINOR
