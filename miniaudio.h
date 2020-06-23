@@ -42324,6 +42324,22 @@ Decoding
 **************************************************************************************************************************************************************/
 #ifndef MA_NO_DECODING
 
+#ifndef MA_NO_WAV
+/* dr_wav_h begin */
+/* dr_wav_h end */
+#endif
+
+#ifndef MA_NO_FLAC
+/* dr_flac_h begin */
+/* dr_flac_h end */
+#endif
+
+#ifndef MA_NO_MP3
+/* dr_mp3_h begin */
+/* dr_mp3_h end */
+#endif
+
+
 static size_t ma_decoder_read_bytes(ma_decoder* pDecoder, void* pBufferOut, size_t bytesToRead)
 {
     size_t bytesRead;
@@ -45728,6 +45744,40 @@ MA_API ma_uint64 ma_noise_read_pcm_frames(ma_noise* pNoise, void* pFramesOut, ma
     return 0;
 }
 #endif /* MA_NO_GENERATION */
+
+
+
+/**************************************************************************************************************************************************************
+***************************************************************************************************************************************************************
+
+Auto Generated
+==============
+All code below is auto-generated from a tool. This mostly consists of decoding backend implementations such as dr_wav, dr_flac, etc. If you find a bug in the
+code below please report the bug to the respective repository for the relevant project (probably dr_libs).
+
+***************************************************************************************************************************************************************
+**************************************************************************************************************************************************************/
+#ifndef MA_NO_WAV
+#if !defined(DR_WAV_IMPLEMENTATION) && !defined(DRWAV_IMPLEMENTATION) /* For backwards compatibility. Will be removed in version 0.11 for cleanliness. */
+/* dr_wav_c begin */
+/* dr_wav_c end */
+#endif
+#endif
+
+#ifndef MA_NO_FLAC
+#if !defined(DR_FLAC_IMPLEMENTATION) && !defined(DRFLAC_IMPLEMENTATION) /* For backwards compatibility. Will be removed in version 0.11 for cleanliness. */
+/* dr_flac_c begin */
+/* dr_flac_c end */
+#endif
+#endif
+
+#ifndef MA_NO_MP3
+#if !defined(DR_MP3_IMPLEMENTATION) && !defined(DRMP3_IMPLEMENTATION) /* For backwards compatibility. Will be removed in version 0.11 for cleanliness. */
+/* dr_mp3_c begin */
+/* dr_mp3_c end */
+#endif
+#endif
+
 
 
 /* End globally disabled warnings. */
