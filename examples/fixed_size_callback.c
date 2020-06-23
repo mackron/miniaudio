@@ -132,9 +132,9 @@ int main(int argc, char** argv)
     printf("Press Enter to quit...\n");
     getchar();
 
-    ma_pcm_rb_uninit(&g_rb);
     ma_device_uninit(&device);
-    
+    ma_pcm_rb_uninit(&g_rb);
+
     (void)argc;
     (void)argv;
     return 0;
